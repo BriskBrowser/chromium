@@ -2,24 +2,31 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {Commands} from './commands.js';
+import {ItemScanManager} from './item_scan_manager.js';
+import {Navigator} from './navigator.js';
+import {KeyboardRootNode} from './nodes/keyboard_node.js';
+import {PreferenceManager} from './preference_manager.js';
+import {SAConstants} from './switch_access_constants.js';
+
+const AutomationNode = chrome.automation.AutomationNode;
+
 /**
  * The top-level class for the Switch Access accessibility feature. Handles
  * initialization and small matters that don't fit anywhere else in the
  * codebase.
  */
-class SwitchAccess {
+export class SwitchAccess {
   static initialize() {
     SwitchAccess.instance = new SwitchAccess();
-    chrome.virtualKeyboardPrivate.setKeyboardState(
-        chrome.virtualKeyboardPrivate.KeyboardState.ENABLED);
 
     chrome.automation.getDesktop((desktop) => {
-      // NavigationManager must be initialized first.
-      NavigationManager.initialize(desktop);
+      // ItemScanManager must be initialized first.
+      Navigator.setSingletonInstance(new ItemScanManager(desktop));
 
       Commands.initialize();
       KeyboardRootNode.startWatchingVisibility();
-      SwitchAccessPreferences.initialize();
+      PreferenceManager.initialize();
     });
   }
 
@@ -54,7 +61,7 @@ class SwitchAccess {
    * @param {!function(!AutomationNode): void} foundCallback
    */
   static findNodeMatching(findParams, foundCallback) {
-    const desktop = NavigationManager.desktopNode;
+    const desktop = Navigator.instance.desktopNode;
     // First, check if the node is currently in the tree.
     let node = desktop.find(findParams);
     if (node) {
@@ -86,7 +93,7 @@ class SwitchAccess {
     eventHandler.start();
   }
 
-  /*
+  /**
    * Creates and records the specified error.
    * @param {SAConstants.ErrorType} errorType
    * @param {string} errorString
@@ -95,12 +102,13 @@ class SwitchAccess {
    */
   static error(errorType, errorString, shouldRecover = false) {
     if (shouldRecover) {
-      setTimeout(NavigationManager.moveToValidNode, 0);
+      setTimeout(
+          Navigator.instance.moveToValidNode.bind(Navigator.instance), 0);
     }
     const errorTypeCountForUMA = Object.keys(SAConstants.ErrorType).length;
     chrome.metricsPrivate.recordEnumerationValue(
-        'Accessibility.CrosSwitchAccess.Error', errorType,
-        errorTypeCountForUMA);
+        'Accessibility.CrosSwitchAccess.Error',
+        /** @type {number} */ (errorType), errorTypeCountForUMA);
     return new Error(errorString);
   }
 }

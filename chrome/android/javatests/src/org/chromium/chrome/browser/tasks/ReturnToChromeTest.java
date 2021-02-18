@@ -38,6 +38,8 @@ import org.chromium.base.test.params.ParameterAnnotations.UseRunnerDelegate;
 import org.chromium.base.test.params.ParameterSet;
 import org.chromium.base.test.params.ParameterizedRunner;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
@@ -54,13 +56,11 @@ import org.chromium.chrome.features.start_surface.InstantStartTest;
 import org.chromium.chrome.features.start_surface.StartSurfaceConfiguration;
 import org.chromium.chrome.test.ChromeJUnit4RunnerDelegate;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
-import org.chromium.chrome.test.util.ApplicationTestUtils;
+import org.chromium.chrome.test.util.ChromeApplicationTestUtils;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.components.embedder_support.util.UrlConstants;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.ui.test.util.UiDisableIf;
@@ -138,6 +138,7 @@ public class ReturnToChromeTest {
     @CommandLineFlags.Add({BASE_PARAMS + "/" + TAB_SWITCHER_ON_RETURN_MS_PARAM + "/100000"
             + "/start_surface_variation/single/open_ntp_instead_of_start/true"})
     @DisableIf.Device(type = {UiDisableIf.TABLET}) // See https://crbug.com/1081754.
+    @DisabledTest(message="https://crbug.com/1130696")
     public void testTabSwitcherModeNotTriggeredWithinThreshold() throws Exception {
         // clang-format on
         InstantStartTest.createTabStateFile(new int[] {0, 1});
@@ -172,6 +173,7 @@ public class ReturnToChromeTest {
     @CommandLineFlags.Add({BASE_PARAMS + "/" + TAB_SWITCHER_ON_RETURN_MS_PARAM + "/100000"
             + "/start_surface_variation/single/open_ntp_instead_of_start/true"})
     @DisableIf.Build(sdk_is_greater_than = VERSION_CODES.O_MR1) // See https://crbug.com/1091268.
+    @DisabledTest(message="https://crbug.com/1144184")
     public void testTabSwitcherModeNotTriggeredWithinThreshold_NTP() throws Exception {
         // clang-format on
         InstantStartTest.createTabStateFile(new int[] {0, 1});
@@ -266,43 +268,6 @@ public class ReturnToChromeTest {
     }
 
     /**
-     * Test that overview mode is triggered in Single-pane stack tab switcher variation in non
-     * incognito mode when resuming from incognito mode.
-     */
-    @Test
-    @SmallTest
-    @Feature({"ReturnToChrome"})
-    // clang-format off
-    @CommandLineFlags.Add({BASE_PARAMS + "/" + TAB_SWITCHER_ON_RETURN_MS_PARAM + "/0"
-            + "/start_surface_variation/single/show_last_active_tab_only/true"
-            + "/show_stack_tab_switcher/true/open_ntp_instead_of_start/true"})
-    @DisableIf.Device(type = {UiDisableIf.TABLET}) // See https://crbug.com/1081754.
-    public void testTabSwitcherModeTriggeredWithinThreshold_WarmStart_FromIncognito_V2() throws Exception {
-        // clang-format on
-
-        // TODO(crbug.com/1093506): Remove it when instant start supports 'show_stack_tab_switcher =
-        // true'.
-        assumeFalse(CachedFeatureFlags.isEnabled(ChromeFeatureList.INSTANT_START));
-
-        testTabSwitcherModeTriggeredBeyondThreshold();
-
-        ChromeTabUtils.newTabFromMenu(InstrumentationRegistry.getInstrumentation(),
-                mActivityTestRule.getActivity(), true, true);
-        Assert.assertTrue(
-                mActivityTestRule.getActivity().getTabModelSelector().isIncognitoSelected());
-        assertEquals(3, mActivityTestRule.getActivity().getTabModelSelector().getTotalTabCount());
-
-        // Trigger hide and resume.
-        ApplicationTestUtils.fireHomeScreenIntent(InstrumentationRegistry.getTargetContext());
-        mActivityTestRule.startMainActivityFromLauncher();
-
-        Assert.assertFalse(
-                mActivityTestRule.getActivity().getTabModelSelector().isIncognitoSelected());
-        assertEquals(3, mActivityTestRule.getActivity().getTabModelSelector().getTotalTabCount());
-        Assert.assertTrue(mActivityTestRule.getActivity().getLayoutManager().overviewVisible());
-    }
-
-    /**
      * Test that overview mode is triggered in Single-pane non stack tab switcher variation in
      * incognito mode when resuming from incognito mode.
      */
@@ -329,8 +294,8 @@ public class ReturnToChromeTest {
         assertEquals(3, mActivityTestRule.getActivity().getTabModelSelector().getTotalTabCount());
 
         // Trigger hide and resume.
-        ApplicationTestUtils.fireHomeScreenIntent(InstrumentationRegistry.getTargetContext());
-        mActivityTestRule.startMainActivityFromLauncher();
+        ChromeApplicationTestUtils.fireHomeScreenIntent(InstrumentationRegistry.getTargetContext());
+        mActivityTestRule.resumeMainActivityFromLauncher();
 
         Assert.assertTrue(
                 mActivityTestRule.getActivity().getTabModelSelector().isIncognitoSelected());
@@ -348,6 +313,7 @@ public class ReturnToChromeTest {
     // clang-format off
     @CommandLineFlags.Add({BASE_PARAMS + "/" + TAB_SWITCHER_ON_RETURN_MS_PARAM + "/0"
             + "/start_surface_variation/omniboxonly"})
+    @DisabledTest(message = "https://crbug.com/1130696")
     public void testTabSwitcherModeTriggeredBeyondThreshold() throws Exception {
         // clang-format on
         InstantStartTest.createTabStateFile(new int[] {0, 1});
@@ -411,6 +377,8 @@ public class ReturnToChromeTest {
     // clang-format off
     @CommandLineFlags.Add({BASE_PARAMS + "/" + TAB_SWITCHER_ON_RETURN_MS_PARAM + "/0"
             + "/start_surface_variation/omniboxonly"})
+    @DisableIf.Build(sdk_is_less_than = VERSION_CODES.Q, sdk_is_greater_than = VERSION_CODES.O,
+            message = "crbug.com/1134361")
     public void testTabSwitcherModeTriggeredBeyondThreshold_WarmStart() throws Exception {
         // clang-format on
         testTabSwitcherModeTriggeredBeyondThreshold();
@@ -591,7 +559,7 @@ public class ReturnToChromeTest {
         intent.addCategory(Intent.CATEGORY_LAUNCHER);
         mActivityTestRule.prepareUrlIntent(intent, url);
         Assert.assertFalse(mInflated.get());
-        mActivityTestRule.startActivityCompletely(intent);
+        mActivityTestRule.launchActivity(intent);
         if (mUseInstantStart) {
             CriteriaHelper.pollUiThread(mInflated::get);
         } else {

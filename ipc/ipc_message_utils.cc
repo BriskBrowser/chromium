@@ -167,7 +167,7 @@ bool ReadDictionaryValue(const base::Pickle* m,
   if (!ReadParam(m, iter, &size))
     return false;
 
-  std::vector<std::pair<std::string, std::unique_ptr<base::Value>>> entries;
+  std::vector<base::Value::LegacyDictStorage::value_type> entries;
   entries.resize(size);
   for (auto& entry : entries) {
     entry.second = std::make_unique<base::Value>();
@@ -176,7 +176,8 @@ bool ReadDictionaryValue(const base::Pickle* m,
       return false;
   }
 
-  *value = base::DictionaryValue(base::Value::DictStorage(std::move(entries)));
+  *value =
+      base::DictionaryValue(base::Value::LegacyDictStorage(std::move(entries)));
   return true;
 }
 
@@ -211,6 +212,11 @@ bool ReadValue(const base::Pickle* m,
 
   int type;
   if (!ReadParam(m, iter, &type))
+    return false;
+
+  constexpr int kMinValueType = static_cast<int>(base::Value::Type::NONE);
+  constexpr int kMaxValueType = static_cast<int>(base::Value::Type::LIST);
+  if (type > kMaxValueType || type < kMinValueType)
     return false;
 
   switch (static_cast<base::Value::Type>(type)) {
@@ -407,6 +413,23 @@ void ParamTraits<std::string>::Log(const param_type& p, std::string* l) {
 void ParamTraits<base::string16>::Log(const param_type& p, std::string* l) {
   l->append(base::UTF16ToUTF8(p));
 }
+
+#if defined(OS_WIN) && defined(BASE_STRING16_IS_STD_U16STRING)
+bool ParamTraits<std::wstring>::Read(const base::Pickle* m,
+                                     base::PickleIterator* iter,
+                                     param_type* r) {
+  base::StringPiece16 piece16;
+  if (!iter->ReadStringPiece16(&piece16))
+    return false;
+
+  *r = base::AsWString(piece16);
+  return true;
+}
+
+void ParamTraits<std::wstring>::Log(const param_type& p, std::string* l) {
+  l->append(base::WideToUTF8(p));
+}
+#endif
 
 void ParamTraits<std::vector<char>>::Write(base::Pickle* m,
                                            const param_type& p) {
@@ -1161,6 +1184,22 @@ bool ParamTraits<base::ListValue>::Read(const base::Pickle* m,
 }
 
 void ParamTraits<base::ListValue>::Log(const param_type& p, std::string* l) {
+  std::string json;
+  base::JSONWriter::Write(p, &json);
+  l->append(json);
+}
+
+void ParamTraits<base::Value>::Write(base::Pickle* m, const param_type& p) {
+  WriteValue(m, &p, 0);
+}
+
+bool ParamTraits<base::Value>::Read(const base::Pickle* m,
+                                    base::PickleIterator* iter,
+                                    param_type* r) {
+  return ReadValue(m, iter, r, 0);
+}
+
+void ParamTraits<base::Value>::Log(const param_type& p, std::string* l) {
   std::string json;
   base::JSONWriter::Write(p, &json);
   l->append(json);

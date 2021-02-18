@@ -34,7 +34,6 @@
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/text.h"
 #include "third_party/blink/renderer/core/dom/xml_document.h"
-#include "third_party/blink/renderer/core/html/custom/v0_custom_element_registration_context.h"
 #include "third_party/blink/renderer/core/html/html_document.h"
 #include "third_party/blink/renderer/core/html/html_head_element.h"
 #include "third_party/blink/renderer/core/html/html_title_element.h"
@@ -73,17 +72,13 @@ XMLDocument* DOMImplementation::createDocument(
     const AtomicString& qualified_name,
     DocumentType* doctype,
     ExceptionState& exception_state) {
-  ExecutionContext* context = document_->GetExecutionContext();
-  if (!context)
-    return nullptr;
-
   XMLDocument* doc = nullptr;
+  ExecutionContext* context = document_->GetExecutionContext();
   DocumentInit init = DocumentInit::Create().WithExecutionContext(context);
   if (namespace_uri == svg_names::kNamespaceURI) {
     doc = XMLDocument::CreateSVG(init);
   } else if (namespace_uri == html_names::xhtmlNamespaceURI) {
-    doc = XMLDocument::CreateXHTML(
-        init.WithRegistrationContext(document_->RegistrationContext()));
+    doc = XMLDocument::CreateXHTML(init);
   } else {
     doc = MakeGarbageCollected<XMLDocument>(init);
   }
@@ -107,13 +102,10 @@ XMLDocument* DOMImplementation::createDocument(
 }
 
 Document* DOMImplementation::createHTMLDocument(const String& title) {
-  if (!document_->GetExecutionContext())
-    return nullptr;
-  DocumentInit init =
-      DocumentInit::Create()
-          .WithExecutionContext(document_->GetExecutionContext())
-          .WithRegistrationContext(document_->RegistrationContext());
+  DocumentInit init = DocumentInit::Create().WithExecutionContext(
+      document_->GetExecutionContext());
   auto* d = MakeGarbageCollected<HTMLDocument>(init);
+  d->setAllowDeclarativeShadowRoots(false);
   d->open();
   d->write("<!doctype html><html><head></head><body></body></html>");
   if (!title.IsNull()) {

@@ -33,13 +33,18 @@ class LayoutSVGText final : public LayoutSVGBlock {
  public:
   explicit LayoutSVGText(SVGTextElement*);
   ~LayoutSVGText() override;
+  void Trace(Visitor*) const override;
 
   bool IsChildAllowed(LayoutObject*, const ComputedStyle&) const override;
 
   void SetNeedsPositioningValuesUpdate() {
+    NOT_DESTROYED();
     needs_positioning_values_update_ = true;
   }
-  void SetNeedsTextMetricsUpdate() { needs_text_metrics_update_ = true; }
+  void SetNeedsTextMetricsUpdate() {
+    NOT_DESTROYED();
+    needs_text_metrics_update_ = true;
+  }
   FloatRect VisualRectInLocalSVGCoordinates() const override;
   FloatRect ObjectBoundingBox() const override;
   FloatRect StrokeBoundingBox() const override;
@@ -55,19 +60,30 @@ class LayoutSVGText final : public LayoutSVGBlock {
   static void NotifySubtreeStructureChanged(LayoutObject*,
                                             LayoutInvalidationReasonForTracing);
 
-  bool NeedsReordering() const { return needs_reordering_; }
-  const Vector<LayoutSVGInlineText*>& DescendantTextNodes() const {
+  bool NeedsReordering() const {
+    NOT_DESTROYED();
+    return needs_reordering_;
+  }
+  const HeapVector<Member<LayoutSVGInlineText>>& DescendantTextNodes() const {
+    NOT_DESTROYED();
     return descendant_text_nodes_;
   }
 
   void RecalcVisualOverflow() override;
 
-  const char* GetName() const override { return "LayoutSVGText"; }
+  const char* GetName() const override {
+    NOT_DESTROYED();
+    return "LayoutSVGText";
+  }
 
  private:
-  bool AllowsNonVisibleOverflow() const override { return false; }
+  bool AllowsNonVisibleOverflow() const override {
+    NOT_DESTROYED();
+    return false;
+  }
 
   bool IsOfType(LayoutObjectType type) const override {
+    NOT_DESTROYED();
     return type == kLayoutObjectSVGText || LayoutSVGBlock::IsOfType(type);
   }
 
@@ -93,14 +109,20 @@ class LayoutSVGText final : public LayoutSVGBlock {
   RootInlineBox* CreateRootInlineBox() override;
 
   void SubtreeStructureChanged(LayoutInvalidationReasonForTracing);
+  void UpdateTransformAffectsVectorEffect();
 
   bool needs_reordering_ : 1;
   bool needs_positioning_values_update_ : 1;
   bool needs_text_metrics_update_ : 1;
-  Vector<LayoutSVGInlineText*> descendant_text_nodes_;
+  HeapVector<Member<LayoutSVGInlineText>> descendant_text_nodes_;
 };
 
-DEFINE_LAYOUT_OBJECT_TYPE_CASTS(LayoutSVGText, IsSVGText());
+template <>
+struct DowncastTraits<LayoutSVGText> {
+  static bool AllowFrom(const LayoutObject& object) {
+    return object.IsSVGText();
+  }
+};
 
 }  // namespace blink
 

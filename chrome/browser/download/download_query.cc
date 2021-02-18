@@ -143,11 +143,11 @@ enum ComparisonType {LT, EQ, GT};
 // and |accessor|. |accessor| is conceptually a function that takes a
 // DownloadItem and returns one of its fields, which is then compared to
 // |value|.
-template<typename ValueType>
+template <typename ValueType>
 bool FieldMatches(
     const ValueType& value,
     ComparisonType cmptype,
-    const base::Callback<ValueType(const DownloadItem&)>& accessor,
+    const base::RepeatingCallback<ValueType(const DownloadItem&)>& accessor,
     const DownloadItem& item) {
   switch (cmptype) {
     case LT: return accessor.Run(item) < value;
@@ -164,14 +164,14 @@ template <typename ValueType> DownloadQuery::FilterCallback BuildFilter(
     ValueType (*accessor)(const DownloadItem&)) {
   ValueType cpp_value;
   if (!GetAs(value, &cpp_value)) return DownloadQuery::FilterCallback();
-  return base::Bind(&FieldMatches<ValueType>, cpp_value, cmptype,
-                    base::Bind(accessor));
+  return base::BindRepeating(&FieldMatches<ValueType>, cpp_value, cmptype,
+                             base::BindRepeating(accessor));
 }
 
 // Returns true if |accessor.Run(item)| matches |pattern|.
 bool FindRegex(
     RE2* pattern,
-    const base::Callback<std::string(const DownloadItem&)>& accessor,
+    const base::RepeatingCallback<std::string(const DownloadItem&)>& accessor,
     const DownloadItem& item) {
   return RE2::PartialMatch(accessor.Run(item), *pattern);
 }
@@ -184,16 +184,17 @@ DownloadQuery::FilterCallback BuildRegexFilter(
   if (!GetAs(regex_value, &regex_str)) return DownloadQuery::FilterCallback();
   std::unique_ptr<RE2> pattern(new RE2(regex_str));
   if (!pattern->ok()) return DownloadQuery::FilterCallback();
-  return base::Bind(&FindRegex, base::Owned(pattern.release()),
-                    base::Bind(accessor));
+  return base::BindRepeating(&FindRegex, base::Owned(pattern.release()),
+                             base::BindRepeating(accessor));
 }
 
 // Returns a ComparisonType to indicate whether a field in |left| is less than,
 // greater than or equal to the same field in |right|.
-template<typename ValueType>
+template <typename ValueType>
 ComparisonType Compare(
-    const base::Callback<ValueType(const DownloadItem&)>& accessor,
-    const DownloadItem& left, const DownloadItem& right) {
+    const base::RepeatingCallback<ValueType(const DownloadItem&)>& accessor,
+    const DownloadItem& left,
+    const DownloadItem& right) {
   ValueType left_value = accessor.Run(left);
   ValueType right_value = accessor.Run(right);
   if (left_value > right_value) return GT;
@@ -256,13 +257,13 @@ bool DownloadQuery::AddFilter(const DownloadQuery::FilterCallback& value) {
 }
 
 void DownloadQuery::AddFilter(DownloadItem::DownloadState state) {
-  AddFilter(base::Bind(&FieldMatches<DownloadItem::DownloadState>, state, EQ,
-      base::Bind(&GetState)));
+  AddFilter(base::BindRepeating(&FieldMatches<DownloadItem::DownloadState>,
+                                state, EQ, base::BindRepeating(&GetState)));
 }
 
 void DownloadQuery::AddFilter(DownloadDangerType danger) {
-  AddFilter(base::Bind(&FieldMatches<DownloadDangerType>, danger, EQ,
-      base::Bind(&GetDangerType)));
+  AddFilter(base::BindRepeating(&FieldMatches<DownloadDangerType>, danger, EQ,
+                                base::BindRepeating(&GetDangerType)));
 }
 
 bool DownloadQuery::AddFilter(DownloadQuery::FilterType type,
@@ -286,7 +287,7 @@ bool DownloadQuery::AddFilter(DownloadQuery::FilterType type,
       std::vector<base::string16> query_terms;
       return GetAs(value, &query_terms) &&
              (query_terms.empty() ||
-              AddFilter(base::Bind(&MatchesQuery, query_terms)));
+              AddFilter(base::BindRepeating(&MatchesQuery, query_terms)));
     }
     case FILTER_ENDED_AFTER:
       return AddFilter(BuildFilter<std::string>(value, GT, &GetEndTime));
@@ -339,22 +340,20 @@ bool DownloadQuery::Matches(const DownloadItem& item) const {
 // Sorters, but there is one DownloadComparator per call to Search().
 
 struct DownloadQuery::Sorter {
-  typedef base::Callback<ComparisonType(
-      const DownloadItem&, const DownloadItem&)> SortType;
+  using SortType = base::RepeatingCallback<ComparisonType(const DownloadItem&,
+                                                          const DownloadItem&)>;
 
   template<typename ValueType>
   static Sorter Build(DownloadQuery::SortDirection adirection,
                          ValueType (*accessor)(const DownloadItem&)) {
-    return Sorter(adirection, base::Bind(&Compare<ValueType>,
-        base::Bind(accessor)));
+    return Sorter(adirection,
+                  base::BindRepeating(&Compare<ValueType>,
+                                      base::BindRepeating(accessor)));
   }
 
-  Sorter(DownloadQuery::SortDirection adirection,
-            const SortType& asorter)
-    : direction(adirection),
-      sorter(asorter) {
-  }
-  ~Sorter() {}
+  Sorter(DownloadQuery::SortDirection adirection, const SortType& asorter)
+      : direction(adirection), sorter(asorter) {}
+  ~Sorter() = default;
 
   DownloadQuery::SortDirection direction;
   SortType sorter;

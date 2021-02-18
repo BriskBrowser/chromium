@@ -7,12 +7,12 @@
 #include "base/feature_list.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/crostini/crostini_manager.h"
 #include "chrome/browser/chromeos/crostini/crostini_pref_names.h"
 #include "chrome/browser/chromeos/guest_os/guest_os_registry_service.h"
 #include "chrome/browser/chromeos/guest_os/guest_os_registry_service_factory.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/test/base/testing_profile.h"
@@ -150,8 +150,8 @@ std::string CrostiniTestHelper::GenerateAppId(
     const std::string& desktop_file_id,
     const std::string& vm_name,
     const std::string& container_name) {
-  return crx_file::id_util::GenerateId("crostini:" + vm_name + "/" +
-                                       container_name + "/" + desktop_file_id);
+  return guest_os::GuestOsRegistryService::GenerateAppId(
+      desktop_file_id, vm_name, container_name);
 }
 
 // static

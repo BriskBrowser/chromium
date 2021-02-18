@@ -4,8 +4,6 @@
 
 #import "ios/chrome/browser/infobars/overlays/browser_agent/interaction_handlers/passwords/password_infobar_modal_overlay_request_callback_installer.h"
 
-#include "base/test/scoped_feature_list.h"
-#include "components/infobars/core/infobar_feature.h"
 #include "ios/chrome/browser/infobars/infobar_ios.h"
 #include "ios/chrome/browser/infobars/infobar_manager_impl.h"
 #import "ios/chrome/browser/infobars/overlays/browser_agent/interaction_handlers/passwords/test/mock_password_infobar_modal_interaction_handler.h"
@@ -19,10 +17,9 @@
 #include "ios/chrome/browser/overlays/public/overlay_response.h"
 #include "ios/chrome/browser/overlays/test/overlay_test_macros.h"
 #import "ios/chrome/browser/passwords/test/mock_ios_chrome_save_passwords_infobar_delegate.h"
-#import "ios/chrome/browser/ui/infobars/infobar_feature.h"
 #import "ios/chrome/browser/ui/infobars/test/fake_infobar_ui_delegate.h"
-#import "ios/web/public/test/fakes/test_navigation_manager.h"
-#import "ios/web/public/test/fakes/test_web_state.h"
+#import "ios/web/public/test/fakes/fake_navigation_manager.h"
+#import "ios/web/public/test/fakes/fake_web_state.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/platform_test.h"
 
@@ -39,12 +36,12 @@ class PasswordInfobarModalOverlayRequestCallbackInstallerTest
     : public PlatformTest {
  public:
   PasswordInfobarModalOverlayRequestCallbackInstallerTest()
-      : installer_(&mock_handler_) {
-    scoped_feature_list_.InitWithFeatures({kIOSInfobarUIReboot},
-                                          {kInfobarUIRebootOnlyiOS13});
+      : installer_(&mock_handler_, password_modal::PasswordAction::kSave),
+        update_installer_(&mock_handler_,
+                          password_modal::PasswordAction::kUpdate) {
     // Create the infobar and add it to the WebState's manager.
     web_state_.SetNavigationManager(
-        std::make_unique<web::TestNavigationManager>());
+        std::make_unique<web::FakeNavigationManager>());
     InfoBarManagerImpl::CreateForWebState(&web_state_);
     std::unique_ptr<InfoBarIOS> added_infobar = std::make_unique<InfoBarIOS>(
         [[FakeInfobarUIDelegate alloc] init],
@@ -71,12 +68,12 @@ class PasswordInfobarModalOverlayRequestCallbackInstallerTest
   }
 
  protected:
-  base::test::ScopedFeatureList scoped_feature_list_;
-  web::TestWebState web_state_;
+  web::FakeWebState web_state_;
   InfoBarIOS* infobar_ = nullptr;
   OverlayRequest* request_ = nullptr;
   MockPasswordInfobarModalInteractionHandler mock_handler_;
   PasswordInfobarModalOverlayRequestCallbackInstaller installer_;
+  PasswordInfobarModalOverlayRequestCallbackInstaller update_installer_;
 };
 
 // Tests that a dispatched InfobarBannerMainActionResponse calls
@@ -130,5 +127,22 @@ TEST_F(PasswordInfobarModalOverlayRequestCallbackInstallerTest,
   // trigger this completion callback and verify that the interaction handler's
   // PresentPasswordSettings() was called.
   EXPECT_CALL(mock_handler_, PresentPasswordsSettings(infobar_));
+  queue()->CancelAllRequests();
+}
+
+// Tests that dispatch responses for a save password RequestConfig do not cause
+// the update callback installer to call it's interaction handler.
+TEST_F(PasswordInfobarModalOverlayRequestCallbackInstallerTest, SaveNotUpdate) {
+  update_installer_.InstallCallbacks(request_);
+  // Dispatch a PresentPasswordSettings response.
+  request_->GetCallbackManager()->DispatchResponse(
+      OverlayResponse::CreateWithInfo<PresentPasswordSettings>());
+
+  // When the installer handles the PresentPasswordSettings response, it adds a
+  // completion callback to the request that instructs the interaction handler
+  // to present settings when the dismissal finishes.  Cancel the request to
+  // trigger this completion callback and verify that the interaction handler's
+  // PresentPasswordSettings() was called.
+  EXPECT_CALL(mock_handler_, PresentPasswordsSettings(infobar_)).Times(1);
   queue()->CancelAllRequests();
 }

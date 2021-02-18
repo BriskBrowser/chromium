@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/core/dom/events/native_event_listener.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
+#include "third_party/blink/renderer/core/svg/svg_animated_length.h"
 #include "third_party/blink/renderer/core/svg/svg_document_extensions.h"
 #include "third_party/blink/renderer/core/svg/svg_length.h"
 #include "third_party/blink/renderer/core/svg/svg_length_context.h"
@@ -32,7 +33,7 @@ class SMILTimeContainerTest : public PageTestBase {
   }
 
   void Load(base::span<const char> data) {
-    auto params = WebNavigationParams::CreateWithHTMLString(
+    auto params = WebNavigationParams::CreateWithHTMLStringForTesting(
         data, KURL("http://example.com"));
     GetFrame().Loader().CommitNavigation(std::move(params),
                                          nullptr /* extra_data */);
@@ -112,7 +113,7 @@ class SMILTimeContainerAnimationPolicyOnceTest : public PageTestBase {
   }
 
   void Load(base::span<const char> data) {
-    auto params = WebNavigationParams::CreateWithHTMLString(
+    auto params = WebNavigationParams::CreateWithHTMLStringForTesting(
         data, KURL("http://example.com"));
     GetFrame().Loader().CommitNavigation(std::move(params),
                                          nullptr /* extra_data */);
@@ -136,7 +137,8 @@ class SMILTimeContainerAnimationPolicyOnceTest : public PageTestBase {
 
  private:
   static void OverrideSettings(Settings& settings) {
-    settings.SetImageAnimationPolicy(kImageAnimationPolicyAnimateOnce);
+    settings.SetImageAnimationPolicy(
+        mojom::blink::ImageAnimationPolicy::kImageAnimationPolicyAnimateOnce);
   }
 
   base::TimeTicks current_time_;

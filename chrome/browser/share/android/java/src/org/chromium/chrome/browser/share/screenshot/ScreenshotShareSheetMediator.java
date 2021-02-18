@@ -9,6 +9,7 @@ import android.graphics.Bitmap;
 import android.net.Uri;
 
 import org.chromium.base.Callback;
+import org.chromium.chrome.R;
 import org.chromium.chrome.browser.share.ChromeShareExtras;
 import org.chromium.chrome.browser.share.screenshot.ScreenshotShareSheetViewProperties.NoArgOperation;
 import org.chromium.chrome.browser.share.share_sheet.ChromeOptionShareCallback;
@@ -18,11 +19,19 @@ import org.chromium.components.browser_ui.share.ShareParams;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.modelutil.PropertyModel;
 
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
+import java.util.Locale;
+
 /**
  * ScreenshotShareSheetMediator is in charge of calculating and setting values for
  * ScreenshotShareSheetViewProperties.
  */
 class ScreenshotShareSheetMediator {
+    private static final String sIsoDateFormat = "yyyy-MM-dd";
+
     private final PropertyModel mModel;
     private final Context mContext;
     private final Runnable mSaveRunnable;
@@ -66,13 +75,20 @@ class ScreenshotShareSheetMediator {
     public void performNoArgOperation(
             @ScreenshotShareSheetViewProperties.NoArgOperation int operation) {
         if (NoArgOperation.SHARE == operation) {
+            ScreenshotShareSheetMetrics.logScreenshotAction(
+                    ScreenshotShareSheetMetrics.ScreenshotShareSheetAction.SHARE);
             share();
         } else if (NoArgOperation.SAVE == operation) {
+            ScreenshotShareSheetMetrics.logScreenshotAction(
+                    ScreenshotShareSheetMetrics.ScreenshotShareSheetAction.SAVE);
             mSaveRunnable.run();
-            mCloseDialogRunnable.run();
         } else if (NoArgOperation.DELETE == operation) {
+            ScreenshotShareSheetMetrics.logScreenshotAction(
+                    ScreenshotShareSheetMetrics.ScreenshotShareSheetAction.DELETE);
             mCloseDialogRunnable.run();
         } else if (NoArgOperation.INSTALL == operation) {
+            ScreenshotShareSheetMetrics.logScreenshotAction(
+                    ScreenshotShareSheetMetrics.ScreenshotShareSheetAction.EDIT);
             mInstallCallback.onResult(mCloseDialogRunnable);
         }
     }
@@ -87,28 +103,28 @@ class ScreenshotShareSheetMediator {
         Bitmap bitmap = mModel.get(ScreenshotShareSheetViewProperties.SCREENSHOT_BITMAP);
 
         WindowAndroid window = mTab.getWindowAndroid();
-        String title = mTab.getTitle();
-        String visibleUrl = mTab.getUrlString();
+        String isoDate = new SimpleDateFormat(sIsoDateFormat, Locale.getDefault())
+                                 .format(new Date(System.currentTimeMillis()));
+        String title = mContext.getString(R.string.screenshot_title_for_share, isoDate);
         Callback<Uri> callback = (bitmapUri) -> {
-            ShareParams params = new ShareParams.Builder(window, title, visibleUrl)
-                                         .setScreenshotUri(bitmapUri)
-                                         .build();
+            ShareParams params =
+                    new ShareParams.Builder(window, title, /*url=*/"")
+                            .setFileUris(new ArrayList<>(Collections.singletonList(bitmapUri)))
+                            .setFileContentType(
+                                    window.getApplicationContext().getContentResolver().getType(
+                                            bitmapUri))
+                            .build();
 
-            ChromeShareExtras chromeShareExtras = new ChromeShareExtras.Builder()
-                                                          .setSaveLastUsed(false)
-                                                          .setShareDirectly(false)
-                                                          .setIsUrlOfVisiblePage(false)
-                                                          .build();
             mChromeOptionShareCallback.showThirdPartyShareSheet(
-                    params, chromeShareExtras, System.currentTimeMillis());
+                    params, new ChromeShareExtras.Builder().build(), System.currentTimeMillis());
         };
 
-        generateTemporaryUriFromBitmap(mContext, title, bitmap, callback);
+        generateTemporaryUriFromBitmap(title, bitmap, callback);
         mCloseDialogRunnable.run();
     }
 
     protected void generateTemporaryUriFromBitmap(
-            Context context, String fileName, Bitmap bitmap, Callback<Uri> callback) {
-        ShareImageFileUtils.generateTemporaryUriFromBitmap(mContext, fileName, bitmap, callback);
+            String fileName, Bitmap bitmap, Callback<Uri> callback) {
+        ShareImageFileUtils.generateTemporaryUriFromBitmap(fileName, bitmap, callback);
     }
 }

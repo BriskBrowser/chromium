@@ -5,15 +5,13 @@
 #ifndef CHROMEOS_COMPONENTS_LOCAL_SEARCH_SERVICE_SEARCH_METRICS_REPORTER_H_
 #define CHROMEOS_COMPONENTS_LOCAL_SEARCH_SERVICE_SEARCH_METRICS_REPORTER_H_
 
-#include <array>
-#include <memory>
-#include <string>
-
-#include "base/macros.h"
 #include "base/optional.h"
 #include "base/timer/timer.h"
+#include "chromeos/components/local_search_service/public/mojom/local_search_service.mojom.h"
 #include "chromeos/components/local_search_service/shared_structs.h"
 #include "components/metrics/daily_event.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/receiver.h"
 
 class PrefRegistrySimple;
 class PrefService;
@@ -22,7 +20,7 @@ namespace chromeos {
 namespace local_search_service {
 
 // SearchMetricsReporter logs daily search requests to UMA.
-class SearchMetricsReporter {
+class SearchMetricsReporter : public mojom::SearchMetricsReporter {
  public:
   static constexpr int kNumberIndexIds =
       static_cast<int>(IndexId::kMaxValue) + 1;
@@ -43,20 +41,19 @@ class SearchMetricsReporter {
 
   // RegisterLocalStatePrefs() must be called before instantiating this class.
   explicit SearchMetricsReporter(PrefService* local_state_pref_service);
-  ~SearchMetricsReporter();
+  ~SearchMetricsReporter() override;
 
   SearchMetricsReporter(const SearchMetricsReporter&) = delete;
   SearchMetricsReporter& operator=(const SearchMetricsReporter&) = delete;
 
-  // Sets |index_id_|.
-  void SetIndexId(IndexId index_id);
-
-  // Increments number of searches for |index_id_|. Should only
-  // be called after |SetIndexId| is called.
-  void OnSearchPerformed();
+  // mojom::SearchMetricReporter:
+  void OnSearchPerformed(IndexId index_id,
+                         OnSearchPerformedCallback callback) override;
 
   // Calls ReportDailyMetrics directly.
   void ReportDailyMetricsForTesting(metrics::DailyEvent::IntervalType type);
+
+  mojo::PendingRemote<mojom::SearchMetricsReporter> BindNewPipeAndPassRemote();
 
  private:
   class DailyEventObserver;
@@ -64,9 +61,6 @@ class SearchMetricsReporter {
   // Called by DailyEventObserver whenever a day has elapsed according to
   // |daily_event_|.
   void ReportDailyMetrics(metrics::DailyEvent::IntervalType type);
-
-  // Used as an index into |daily_counts_| for counting searches.
-  base::Optional<IndexId> index_id_;
 
   PrefService* pref_service_;  // Not owned.
 
@@ -78,6 +72,9 @@ class SearchMetricsReporter {
   // Daily count for each index id. Ordered by IndexId values.
   // Initial values will be loaded from prefs service.
   std::array<int, kNumberIndexIds> daily_counts_;
+
+  std::vector<std::unique_ptr<mojo::Receiver<mojom::SearchMetricsReporter>>>
+      receivers_;
 };
 
 }  // namespace local_search_service

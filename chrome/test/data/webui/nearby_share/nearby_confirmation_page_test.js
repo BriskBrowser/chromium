@@ -20,6 +20,13 @@ suite('ConfirmatonPageTest', function() {
   /** @type {!FakeTransferUpdateListenerPendingReceiver} */
   let transferUpdateListener;
 
+  /**
+   * @param {string} button button selector (i.e. #actionButton)
+   */
+  function getButton(button) {
+    return confirmationPageElement.$$('nearby-page-template').$$(button);
+  }
+
   setup(function() {
     confirmationManager = new FakeConfirmationManagerRemote();
     transferUpdateListener = new FakeTransferUpdateListenerPendingReceiver();
@@ -44,7 +51,7 @@ suite('ConfirmatonPageTest', function() {
         /*token=*/ null);
     await transferUpdateListener.remote_.$.flushForTesting();
 
-    confirmationPageElement.$$('#accept-button').click();
+    getButton('#actionButton').click();
     await confirmationManager.whenCalled('accept');
   });
 
@@ -54,7 +61,7 @@ suite('ConfirmatonPageTest', function() {
         /*token=*/ null);
     await transferUpdateListener.remote_.$.flushForTesting();
 
-    confirmationPageElement.$$('#reject-button').click();
+    getButton('#cancelButton').click();
     await confirmationManager.whenCalled('reject');
   });
 
@@ -64,7 +71,7 @@ suite('ConfirmatonPageTest', function() {
         /*token=*/ null);
     await transferUpdateListener.remote_.$.flushForTesting();
 
-    confirmationPageElement.$$('#cancel-button').click();
+    getButton('#cancelButton').click();
     await confirmationManager.whenCalled('cancel');
   });
 
@@ -75,20 +82,58 @@ suite('ConfirmatonPageTest', function() {
     await transferUpdateListener.remote_.$.flushForTesting();
 
     const renderedToken =
-        confirmationPageElement.$$('#confirmation-token').textContent;
+        confirmationPageElement.$$('#confirmationToken').textContent;
     assertTrue(renderedToken.includes(token));
   });
 
   test('renders share target name', function() {
     const name = 'Device Name';
-    confirmationPageElement.shareTarget = {
-      id: {high: 0, low: 0},
-      name,
-      type: nearbyShare.mojom.ShareTargetType.kPhone,
-    };
+    confirmationPageElement.shareTarget =
+        /** @type {!nearbyShare.mojom.ShareTarget} */ ({
+          id: {high: BigInt(0), low: BigInt(0)},
+          name,
+          type: nearbyShare.mojom.ShareTargetType.kPhone,
+          payloadPreview: null,
+        });
     const renderedName = confirmationPageElement.$$('nearby-progress')
                              .$$('#device-name')
-                             .textContent;
+                             .innerText;
     assertEquals(name, renderedName);
+  });
+
+  test('renders attachment title', function() {
+    const title = 'Filename';
+    confirmationPageElement.payloadPreview = {
+      description: title,
+      fileCount: 1,
+      shareType: nearbyShare.mojom.ShareType.kUnknownFile
+    };
+    const renderedTitle =
+        confirmationPageElement.$$('nearby-preview').$$('#title').textContent;
+    assertEquals(title, renderedTitle);
+  });
+
+  test('renders error', async function() {
+    const token = 'TestToken1234';
+    transferUpdateListener.remote_.onTransferUpdate(
+        nearbyShare.mojom.TransferStatus.kRejected, token);
+    await transferUpdateListener.remote_.$.flushForTesting();
+
+    const errorTitle = confirmationPageElement.$$('#errorTitle').textContent;
+    assertTrue(!!errorTitle);
+  });
+
+  test('gets transfer info for testing', async function() {
+    const token = 'TestToken1234';
+    transferUpdateListener.remote_.onTransferUpdate(
+        nearbyShare.mojom.TransferStatus.kRejected, token);
+    await transferUpdateListener.remote_.$.flushForTesting();
+
+    const info = confirmationPageElement.getTransferInfoForTesting();
+    assertEquals(
+        info.transferStatus, nearbyShare.mojom.TransferStatus.kRejected);
+    assertEquals(info.confirmationToken, token);
+    assertTrue(!!info.errorTitle);
+    assertTrue(!!info.errorDescription);
   });
 });

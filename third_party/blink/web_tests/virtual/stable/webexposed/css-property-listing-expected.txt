@@ -70,6 +70,7 @@ All changes to this list should go through Blink's feature review process: http:
     animation-play-state
     animation-timing-function
     appearance
+    aspect-ratio
     backdrop-filter
     backface-visibility
     background-attachment
@@ -97,6 +98,8 @@ All changes to this list should go through Blink's feature review process: http:
     border-bottom-style
     border-bottom-width
     border-collapse
+    border-end-end-radius
+    border-end-start-radius
     border-image-outset
     border-image-repeat
     border-image-slice
@@ -114,6 +117,8 @@ All changes to this list should go through Blink's feature review process: http:
     border-right-color
     border-right-style
     border-right-width
+    border-start-end-radius
+    border-start-start-radius
     border-top-color
     border-top-left-radius
     border-top-right-radius
@@ -185,6 +190,7 @@ All changes to this list should go through Blink's feature review process: http:
     font-variant-numeric
     font-variation-settings
     font-weight
+    forced-color-adjust
     grid-auto-columns
     grid-auto-flow
     grid-auto-rows
@@ -200,6 +206,10 @@ All changes to this list should go through Blink's feature review process: http:
     image-orientation
     image-rendering
     inline-size
+    inset-block-end
+    inset-block-start
+    inset-inline-end
+    inset-inline-start
     isolation
     justify-content
     justify-items
@@ -247,6 +257,7 @@ All changes to this list should go through Blink's feature review process: http:
     outline-style
     outline-width
     overflow-anchor
+    overflow-clip-margin
     overflow-wrap
     overflow-x
     overflow-y
@@ -323,6 +334,7 @@ All changes to this list should go through Blink's feature review process: http:
     text-decoration-line
     text-decoration-skip-ink
     text-decoration-style
+    text-decoration-thickness
     text-indent
     text-orientation
     text-overflow
@@ -330,6 +342,7 @@ All changes to this list should go through Blink's feature review process: http:
     text-shadow
     text-size-adjust
     text-transform
+    text-underline-offset
     text-underline-position
     top
     touch-action
@@ -436,6 +449,16 @@ All changes to this list should go through Blink's feature review process: http:
         border-top-color
         border-top-style
         border-top-width
+    border-block
+        border-block-end-color
+        border-block-end-style
+        border-block-end-width
+        border-block-start-color
+        border-block-start-style
+        border-block-start-width
+    border-block-color
+        border-block-end-color
+        border-block-start-color
     border-block-end
         border-block-end-color
         border-block-end-style
@@ -443,6 +466,12 @@ All changes to this list should go through Blink's feature review process: http:
     border-block-start
         border-block-start-color
         border-block-start-style
+        border-block-start-width
+    border-block-style
+        border-block-end-style
+        border-block-start-style
+    border-block-width
+        border-block-end-width
         border-block-start-width
     border-bottom
         border-bottom-color
@@ -459,6 +488,16 @@ All changes to this list should go through Blink's feature review process: http:
         border-image-slice
         border-image-source
         border-image-width
+    border-inline
+        border-inline-end-color
+        border-inline-end-style
+        border-inline-end-width
+        border-inline-start-color
+        border-inline-start-style
+        border-inline-start-width
+    border-inline-color
+        border-inline-end-color
+        border-inline-start-color
     border-inline-end
         border-inline-end-color
         border-inline-end-style
@@ -466,6 +505,12 @@ All changes to this list should go through Blink's feature review process: http:
     border-inline-start
         border-inline-start-color
         border-inline-start-style
+        border-inline-start-width
+    border-inline-style
+        border-inline-end-style
+        border-inline-start-style
+    border-inline-width
+        border-inline-end-width
         border-inline-start-width
     border-left
         border-left-color
@@ -559,6 +604,17 @@ All changes to this list should go through Blink's feature review process: http:
         grid-template-areas
         grid-template-columns
         grid-template-rows
+    inset
+        bottom
+        left
+        right
+        top
+    inset-block
+        inset-block-end
+        inset-block-start
+    inset-inline
+        inset-inline-end
+        inset-inline-start
     list-style
         list-style-image
         list-style-position
@@ -568,6 +624,12 @@ All changes to this list should go through Blink's feature review process: http:
         margin-left
         margin-right
         margin-top
+    margin-block
+        margin-block-end
+        margin-block-start
+    margin-inline
+        margin-inline-end
+        margin-inline-start
     marker
         marker-end
         marker-mid
@@ -591,6 +653,12 @@ All changes to this list should go through Blink's feature review process: http:
         padding-left
         padding-right
         padding-top
+    padding-block
+        padding-block-end
+        padding-block-start
+    padding-inline
+        padding-inline-end
+        padding-inline-start
     page-break-after
         break-after
     page-break-before
@@ -632,6 +700,7 @@ All changes to this list should go through Blink's feature review process: http:
         text-decoration-color
         text-decoration-line
         text-decoration-style
+        text-decoration-thickness
     transition
         transition-delay
         transition-duration

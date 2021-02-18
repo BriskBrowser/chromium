@@ -22,6 +22,7 @@
 #include "ui/views/controls/menu/menu_host.h"
 #include "ui/views/controls/menu/menu_item_view.h"
 #include "ui/views/controls/menu/menu_scroll_view_container.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/root_view.h"
 #include "ui/views/widget/widget.h"
 
@@ -202,7 +203,7 @@ void SubmenuView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   // the orientation.
   if (parent_menu_item_)
     parent_menu_item_->GetAccessibleNodeData(node_data);
-  node_data->role = ax::mojom::Role::kMenuListPopup;
+  node_data->role = ax::mojom::Role::kMenu;
   // Menus in Chrome are always traversed in a vertical direction.
   node_data->AddState(ax::mojom::State::kVertical);
 }
@@ -266,7 +267,8 @@ void SubmenuView::OnDragExited() {
   parent_menu_item_->GetMenuController()->OnDragExited(this);
 }
 
-int SubmenuView::OnPerformDrop(const ui::DropTargetEvent& event) {
+ui::mojom::DragOperation SubmenuView::OnPerformDrop(
+    const ui::DropTargetEvent& event) {
   DCHECK(parent_menu_item_->GetMenuController());
   return parent_menu_item_->GetMenuController()->OnPerformDrop(this, event);
 }
@@ -555,6 +557,6 @@ bool SubmenuView::OnScroll(float dx, float dy) {
 }
 
 BEGIN_METADATA(SubmenuView, View)
-END_METADATA()
+END_METADATA
 
 }  // namespace views

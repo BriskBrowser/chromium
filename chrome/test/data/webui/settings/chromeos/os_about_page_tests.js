@@ -4,11 +4,14 @@
 
 // clang-format off
 // #import {TestAboutPageBrowserProxyChromeOS} from './test_about_page_browser_proxy_chromeos.m.js';
-// #import {BrowserChannel,UpdateStatus,AboutPageBrowserProxyImpl,LifetimeBrowserProxyImpl,Router, routes} from 'chrome://os-settings/chromeos/os_settings.js';
+// #import {TestDeviceNameBrowserProxy} from './test_device_name_browser_proxy.m.js';
+// #import {BrowserChannel,UpdateStatus,Router, routes} from 'chrome://os-settings/chromeos/os_settings.js';
+// #import {AboutPageBrowserProxyImpl,DeviceNameBrowserProxyImpl,LifetimeBrowserProxyImpl} from 'chrome://os-settings/chromeos/os_settings.js';
 // #import {PromiseResolver} from 'chrome://resources/js/promise_resolver.m.js';
 // #import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 // #import {TestLifetimeBrowserProxy} from './test_os_lifetime_browser_proxy.m.js';
-// #import {eventToPromise,flushTasks} from 'chrome://test/test_util.m.js';
+// #import {eventToPromise,flushTasks,waitAfterNextRender} from 'chrome://test/test_util.m.js';
+// #import {getDeepActiveElement} from 'chrome://resources/js/util.m.js';
 // clang-format on
 
 cr.define('settings_about_page', function() {
@@ -35,6 +38,7 @@ cr.define('settings_about_page', function() {
     teardown(function() {
       page.remove();
       page = null;
+      settings.Router.getInstance().resetRouteForTesting();
     });
 
     /**
@@ -69,7 +73,6 @@ cr.define('settings_about_page', function() {
         aboutBrowserProxy.whenCalled('getChannelInfo'),
         aboutBrowserProxy.whenCalled('refreshUpdateStatus'),
         aboutBrowserProxy.whenCalled('refreshTPMFirmwareUpdateStatus'),
-        aboutBrowserProxy.whenCalled('getEnabledReleaseNotes'),
         aboutBrowserProxy.whenCalled('checkInternetConnection'),
       ]);
     }
@@ -295,64 +298,64 @@ cr.define('settings_about_page', function() {
        * Checks the visibility of the "release notes" section when online.
        * @param {boolean} isShowing Whether the section is expected to be
        *     visible.
-       * @return {!Promise}
        */
-      async function checkReleaseNotesOnline(isShowing) {
-        await aboutBrowserProxy.whenCalled('getEnabledReleaseNotes');
+      function checkReleaseNotesOnline(isShowing) {
         const releaseNotesOnlineEl = page.$$('#releaseNotesOnline');
-        assertTrue(!!releaseNotesOnlineEl);
-        assertEquals(isShowing, !releaseNotesOnlineEl.hidden);
+        assertEquals(isShowing, !!releaseNotesOnlineEl);
       }
 
       /**
        * Checks the visibility of the "release notes" for offline mode.
        * @param {boolean} isShowing Whether the section is expected to be
        *     visible.
-       * @return {!Promise}
        */
-      async function checkReleaseNotesOffline(isShowing) {
-        await aboutBrowserProxy.whenCalled('getEnabledReleaseNotes');
+      function checkReleaseNotesOffline(isShowing) {
         const releaseNotesOfflineEl = page.$$('#releaseNotesOffline');
-        assertTrue(!!releaseNotesOfflineEl);
-        assertEquals(isShowing, !releaseNotesOfflineEl.hidden);
+        // According to
+        // https://polymer-library.polymer-project.org/1.0/api/elements/dom-if
+        // the element will not be removed from the dom if already rendered.
+        // Can be just hidden instead for better performance.
+        assertEquals(
+            isShowing,
+            !!releaseNotesOfflineEl &&
+                window.getComputedStyle(releaseNotesOfflineEl).display !==
+                    'none');
       }
 
-      /**
-       * Checks the visibility of the "release notes" section when disabled.
-       * @return {!Promise}
-       */
-      async function checkReleaseNotesDisabled() {
-        await aboutBrowserProxy.whenCalled('getEnabledReleaseNotes');
-        const releaseNotesOnlineEl = page.$$('#releaseNotesOnline');
-        assertTrue(!releaseNotesOnlineEl);
-        const releaseNotesOfflineEl = page.$$('#releaseNotesOffline');
-        assertTrue(!releaseNotesOfflineEl);
-      }
-
-      aboutBrowserProxy.setReleaseNotes(false);
       aboutBrowserProxy.setInternetConnection(false);
       await initNewPage();
-      await checkReleaseNotesDisabled();
+      checkReleaseNotesOnline(false);
+      checkReleaseNotesOffline(true);
 
-      aboutBrowserProxy.setReleaseNotes(false);
       aboutBrowserProxy.setInternetConnection(true);
       await initNewPage();
-      await checkReleaseNotesDisabled();
-
-      aboutBrowserProxy.setReleaseNotes(true);
-      aboutBrowserProxy.setInternetConnection(false);
-      await initNewPage();
-      await checkReleaseNotesOnline(false);
-      await checkReleaseNotesOffline(true);
-
-      aboutBrowserProxy.setReleaseNotes(true);
-      aboutBrowserProxy.setInternetConnection(true);
-      await initNewPage();
-      await checkReleaseNotesOnline(true);
-      await checkReleaseNotesOffline(false);
+      checkReleaseNotesOnline(true);
+      checkReleaseNotesOffline(false);
 
       page.$$('#releaseNotesOnline').click();
       return aboutBrowserProxy.whenCalled('launchReleaseNotes');
+    });
+
+    test('Deep link to release notes', async () => {
+      loadTimeData.overrideValues({
+        isDeepLinkingEnabled: true,
+      });
+      aboutBrowserProxy.setInternetConnection(false);
+      await initNewPage();
+
+      const params = new URLSearchParams;
+      params.append('settingId', '1703');
+      settings.Router.getInstance().navigateTo(
+          settings.routes.ABOUT_ABOUT, params);
+
+      Polymer.dom.flush();
+
+      const deepLinkElement =
+          page.$$('#releaseNotesOffline').$$('cr-icon-button');
+      await test_util.waitAfterNextRender(deepLinkElement);
+      assertEquals(
+          deepLinkElement, getDeepActiveElement(),
+          'Release notes should be focused for settingId=1703.');
     });
 
     test('RegulatoryInfo', async () => {
@@ -489,21 +492,62 @@ cr.define('settings_about_page', function() {
       page.$.help.click();
       return aboutBrowserProxy.whenCalled('openOsHelpPage');
     });
+
+    test('LaunchDiagnostics', async function() {
+      loadTimeData.overrideValues({
+        isDeepLinkingEnabled: true,
+        diagnosticsAppEnabled: true,
+      });
+
+      await initNewPage();
+      Polymer.dom.flush();
+
+      assertTrue(!!page.$.diagnostics);
+      page.$.diagnostics.click();
+      await aboutBrowserProxy.whenCalled('openDiagnostics');
+    });
+
+    test('Deep link to diagnostics', async () => {
+      loadTimeData.overrideValues({
+        isDeepLinkingEnabled: true,
+        diagnosticsAppEnabled: true,
+      });
+
+      await initNewPage();
+      Polymer.dom.flush();
+
+      const params = new URLSearchParams;
+      params.append('settingId', '1707');  // Setting::kDiagnostics
+      settings.Router.getInstance().navigateTo(
+          settings.routes.ABOUT_ABOUT, params);
+
+      Polymer.dom.flush();
+
+      const deepLinkElement = page.$$('#diagnostics').$$('cr-icon-button');
+      await test_util.waitAfterNextRender(deepLinkElement);
+      assertEquals(
+          deepLinkElement, getDeepActiveElement(),
+          'Diagnostics should be focused for settingId=1707.');
+    });
   });
 
   suite('DetailedBuildInfoTest', function() {
     let page = null;
     let browserProxy = null;
+    let deviceNameBrowserProxy = null;
 
     setup(function() {
       browserProxy = new TestAboutPageBrowserProxyChromeOS();
+      deviceNameBrowserProxy = new TestDeviceNameBrowserProxy();
       settings.AboutPageBrowserProxyImpl.instance_ = browserProxy;
+      DeviceNameBrowserProxyImpl.instance_ = deviceNameBrowserProxy;
       PolymerTest.clearBody();
     });
 
     teardown(function() {
       page.remove();
       page = null;
+      settings.Router.getInstance().resetRouteForTesting();
     });
 
     test('Initialization', async () => {
@@ -571,6 +615,27 @@ cr.define('settings_about_page', function() {
       return checkChangeChannelButtonWithDelayedChannelState(false);
     });
 
+    test('Deep link to change channel', async () => {
+      loadTimeData.overrideValues({
+        isDeepLinkingEnabled: true,
+      });
+      page = document.createElement('settings-detailed-build-info');
+      document.body.appendChild(page);
+
+      const params = new URLSearchParams;
+      params.append('settingId', '1700');
+      settings.Router.getInstance().navigateTo(
+          settings.routes.DETAILED_BUILD_INFO, params);
+
+      Polymer.dom.flush();
+
+      const deepLinkElement = page.$$('cr-button');
+      await test_util.waitAfterNextRender(deepLinkElement);
+      assertEquals(
+          deepLinkElement, getDeepActiveElement(),
+          'Change channel button should be focused for settingId=1700.');
+    });
+
     async function checkCopyBuildDetailsButton() {
       page = document.createElement('settings-detailed-build-info');
       document.body.appendChild(page);
@@ -601,6 +666,20 @@ cr.define('settings_about_page', function() {
 
     test('CheckCopyBuildDetails', function() {
       checkCopyBuildDetailsButton();
+    });
+
+    test('DeviceName', async () => {
+      loadTimeData.overrideValues({
+        isHostnameSettingEnabled: true,
+      });
+
+      deviceNameBrowserProxy.setDeviceName('TestDeviceName');
+
+      page = document.createElement('settings-detailed-build-info');
+      document.body.appendChild(page);
+      await deviceNameBrowserProxy.whenCalled('getDeviceNameMetadata');
+
+      assertEquals(page.$$('#deviceName').innerText, 'TestDeviceName');
     });
   });
 
@@ -697,16 +776,65 @@ cr.define('settings_about_page', function() {
   });
 
   suite('AboutPageTest_OfficialBuild', function() {
-    test('ReportAnIssue', function() {
-      const browserProxy = new TestAboutPageBrowserProxyChromeOS();
+    let page = null;
+    let browserProxy = null;
+
+    setup(function() {
+      browserProxy = new TestAboutPageBrowserProxyChromeOS();
       settings.AboutPageBrowserProxyImpl.instance_ = browserProxy;
       PolymerTest.clearBody();
-      const page = document.createElement('os-settings-about-page');
+      page = document.createElement('os-settings-about-page');
       document.body.appendChild(page);
+    });
 
+    teardown(function() {
+      page.remove();
+      page = null;
+      settings.Router.getInstance().resetRouteForTesting();
+    });
+
+    test('ReportAnIssue', function() {
       assertTrue(!!page.$.reportIssue);
       page.$.reportIssue.click();
       return browserProxy.whenCalled('openFeedbackDialog');
+    });
+
+    test('Deep link to report an issue', async () => {
+      loadTimeData.overrideValues({
+        isDeepLinkingEnabled: true,
+      });
+
+      const params = new URLSearchParams;
+      params.append('settingId', '1705');
+      settings.Router.getInstance().navigateTo(
+          settings.routes.ABOUT_ABOUT, params);
+
+      Polymer.dom.flush();
+
+      const deepLinkElement = page.$$('#reportIssue').$$('cr-icon-button');
+      await test_util.waitAfterNextRender(deepLinkElement);
+      assertEquals(
+          deepLinkElement, getDeepActiveElement(),
+          'Report an issue button should be focused for settingId=1705.');
+    });
+
+    test('Deep link to terms of service', async () => {
+      loadTimeData.overrideValues({
+        isDeepLinkingEnabled: true,
+      });
+
+      const params = new URLSearchParams;
+      params.append('settingId', '1706');
+      settings.Router.getInstance().navigateTo(
+          settings.routes.ABOUT_ABOUT, params);
+
+      Polymer.dom.flush();
+
+      const deepLinkElement = page.$$('#aboutProductTos');
+      await test_util.waitAfterNextRender(deepLinkElement);
+      assertEquals(
+          deepLinkElement, getDeepActiveElement(),
+          'Terms of service link should be focused for settingId=1706.');
     });
   });
 

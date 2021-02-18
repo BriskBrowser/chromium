@@ -2,6 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import 'chrome://os-settings/chromeos/os_settings.js';
+
+// #import {FakeNetworkConfig} from 'chrome://test/chromeos/fake_network_config_mojom.m.js';
+// #import {MojoInterfaceProviderImpl} from 'chrome://resources/cr_components/chromeos/network/mojo_interface_provider.m.js';
+// #import {setESimManagerRemoteForTesting} from 'chrome://resources/cr_components/chromeos/cellular_setup/mojo_interface_provider.m.js';
+// #import {FakeESimManagerRemote} from 'chrome://test/cr_components/chromeos/cellular_setup/fake_esim_manager_remote.m.js';
+// #import {OncMojo} from 'chrome://resources/cr_components/chromeos/network/onc_mojo.m.js';
+// #import {Router, routes} from 'chrome://os-settings/chromeos/os_settings.js';
+// #import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+// #import {getDeepActiveElement} from 'chrome://resources/js/util.m.js';
+// #import {isVisible, waitAfterNextRender} from 'chrome://test/test_util.m.js';
+// clang-format on
+
 suite('InternetPage', function() {
   /** @type {?InternetPageElement} */
   let internetPage = null;
@@ -11,6 +25,9 @@ suite('InternetPage', function() {
 
   /** @type {?chromeos.networkConfig.mojom.CrosNetworkConfigRemote} */
   let mojoApi_ = null;
+
+  /** @type {?chromeos.cellularSetup.mojom.ESimManagerRemote} */
+  let eSimManagerRemote;
 
   suiteSetup(function() {
     loadTimeData.overrideValues({
@@ -27,6 +44,9 @@ suite('InternetPage', function() {
 
     mojoApi_ = new FakeNetworkConfig();
     network_config.MojoInterfaceProviderImpl.getInstance().remote_ = mojoApi_;
+
+    eSimManagerRemote = new cellular_setup.FakeESimManagerRemote();
+    cellular_setup.setESimManagerRemoteForTesting(eSimManagerRemote);
 
     // Disable animations so sub-pages open within one event loop.
     testing.Test.disableAnimationsAndTransitions();
@@ -143,47 +163,98 @@ suite('InternetPage', function() {
 
       const deepLinkElement =
           networkSummary_.$$('#WiFi').$$('#deviceEnabledButton');
-      assert(!!deepLinkElement);
+      assertTrue(!!deepLinkElement);
       await test_util.waitAfterNextRender(deepLinkElement);
       assertEquals(
           deepLinkElement, getDeepActiveElement(),
           'Toggle WiFi should be focused for settingId=4.');
     });
 
-    test('VpnProviders', function() {
-      const mojom = chromeos.networkConfig.mojom;
-      mojoApi_.setVpnProvidersForTest([
-        {
-          type: mojom.VpnType.kExtension,
-          providerId: 'extension_id1',
-          providerName: 'MyExtensionVPN1',
-          appId: 'extension_id1',
-          lastLaunchTime: {internalValue: 0},
-        },
-        {
-          type: mojom.VpnType.kArc,
-          providerId: 'vpn.app.package1',
-          providerName: 'MyArcVPN1',
-          appId: 'arcid1',
-          lastLaunchTime: {internalValue: 1},
-        },
-        {
-          type: mojom.VpnType.kArc,
-          providerId: 'vpn.app.package2',
-          providerName: 'MyArcVPN2',
-          appId: 'arcid2',
-          lastLaunchTime: {internalValue: 2},
-        }
-      ]);
-      return flushAsync().then(() => {
-        assertEquals(3, internetPage.vpnProviders_.length);
-        // Ensure providers are sorted by type and lastLaunchTime.
-        assertEquals('extension_id1', internetPage.vpnProviders_[0].providerId);
-        assertEquals(
-            'vpn.app.package2', internetPage.vpnProviders_[1].providerId);
-        assertEquals(
-            'vpn.app.package1', internetPage.vpnProviders_[2].providerId);
+    suite('VPN', function() {
+      test('VpnProviders', function() {
+        const mojom = chromeos.networkConfig.mojom;
+        mojoApi_.setVpnProvidersForTest([
+          {
+            type: mojom.VpnType.kExtension,
+            providerId: 'extension_id1',
+            providerName: 'MyExtensionVPN1',
+            appId: 'extension_id1',
+            lastLaunchTime: {internalValue: 0},
+          },
+          {
+            type: mojom.VpnType.kArc,
+            providerId: 'vpn.app.package1',
+            providerName: 'MyArcVPN1',
+            appId: 'arcid1',
+            lastLaunchTime: {internalValue: 1},
+          },
+          {
+            type: mojom.VpnType.kArc,
+            providerId: 'vpn.app.package2',
+            providerName: 'MyArcVPN2',
+            appId: 'arcid2',
+            lastLaunchTime: {internalValue: 2},
+          }
+        ]);
+        return flushAsync().then(() => {
+          assertEquals(3, internetPage.vpnProviders_.length);
+          // Ensure providers are sorted by type and lastLaunchTime.
+          assertEquals(
+              'extension_id1', internetPage.vpnProviders_[0].providerId);
+          assertEquals(
+              'vpn.app.package2', internetPage.vpnProviders_[1].providerId);
+          assertEquals(
+              'vpn.app.package1', internetPage.vpnProviders_[2].providerId);
+        });
       });
+
+      function clickAddConnectionsButton() {
+        const button = internetPage.$$('#expandAddConnections');
+        assertTrue(!!button);
+        button.expanded = true;
+      }
+
+      test('should show VPN policy indicator when VPN is disabled', function() {
+        clickAddConnectionsButton();
+
+        const mojom = chromeos.networkConfig.mojom;
+        setNetworksForTest([
+          OncMojo.getDefaultNetworkState(mojom.NetworkType.kVPN, 'vpn'),
+        ]);
+        mojoApi_.setDeviceStateForTest({
+          type: mojom.NetworkType.kVPN,
+          deviceState: mojom.DeviceStateType.kProhibited
+        });
+
+        return flushAsync().then(() => {
+          assertTrue(
+              test_util.isVisible(internetPage.$$('#vpnPolicyIndicator')));
+          assertTrue(test_util.isVisible(
+              networkSummary_.$$('#VPN').$$('#policyIndicator')));
+        });
+      });
+
+      test(
+          'should not show VPN policy indicator when VPN is enabled',
+          function() {
+            clickAddConnectionsButton();
+
+            const mojom = chromeos.networkConfig.mojom;
+            setNetworksForTest([
+              OncMojo.getDefaultNetworkState(mojom.NetworkType.kVPN, 'vpn'),
+            ]);
+            mojoApi_.setDeviceStateForTest({
+              type: mojom.NetworkType.kVPN,
+              deviceState: mojom.DeviceStateType.kEnabled
+            });
+
+            return flushAsync().then(() => {
+              assertFalse(
+                  test_util.isVisible(internetPage.$$('#vpnPolicyIndicator')));
+              assertFalse(test_util.isVisible(
+                  networkSummary_.$$('#VPN').$$('#policyIndicator')));
+            });
+          });
     });
 
     test('Deep link to mobile on/off toggle', async () => {
@@ -200,13 +271,84 @@ suite('InternetPage', function() {
 
       const deepLinkElement =
           networkSummary_.$$('#Cellular').$$('#deviceEnabledButton');
-      assert(!!deepLinkElement);
+      assertTrue(!!deepLinkElement);
       await test_util.waitAfterNextRender(deepLinkElement);
       assertEquals(
           deepLinkElement, getDeepActiveElement(),
           'Toggle mobile on/off should be focused for settingId=13.');
     });
+
+    test('Show rename esim profile dialog', async function() {
+      eSimManagerRemote.addEuiccForTest(1);
+      await flushAsync();
+
+      let renameDialog = internetPage.$$('#esimRenameDialog');
+      assertFalse(!!renameDialog);
+
+      const event = new CustomEvent(
+          'show-esim-profile-rename-dialog', {detail: {iccid: '1'}});
+      internetPage.dispatchEvent(event);
+
+      await flushAsync();
+      renameDialog = internetPage.$$('#esimRenameDialog');
+      assertTrue(!!renameDialog);
+    });
+
+    test('Show remove esim profile dialog', async function() {
+      eSimManagerRemote.addEuiccForTest(1);
+      await flushAsync();
+
+      let removeDialog = internetPage.$$('#esimRemoveProfileDialog');
+      assertFalse(!!removeDialog);
+
+      const event = new CustomEvent(
+          'show-esim-remove-profile-dialog', {detail: {iccid: '1'}});
+      internetPage.dispatchEvent(event);
+
+      await flushAsync();
+      removeDialog = internetPage.$$('#esimRemoveProfileDialog');
+      assertTrue(!!removeDialog);
+    });
   });
+
+  test(
+      'Show pSIM flow cellular setup dialog if route params' +
+          'contain showCellularSetup and showPsimFlow',
+      async function() {
+        loadTimeData.overrideValues({
+          updatedCellularActivationUi: true,
+        });
+        eSimManagerRemote.addEuiccForTest(1);
+
+        const mojom = chromeos.networkConfig.mojom;
+        mojoApi_.setNetworkTypeEnabledState(mojom.NetworkType.kCellular, true);
+        const cellularNetwork = OncMojo.getDefaultManagedProperties(
+            mojom.NetworkType.kCellular, 'cellular_guid');
+        cellularNetwork.connectable = false;
+        mojoApi_.setManagedPropertiesForTest(cellularNetwork);
+
+        await flushAsync();
+
+        let cellularSetupDialog = internetPage.$$('#cellularSetupDialog');
+        assertFalse(!!cellularSetupDialog);
+
+        const params = new URLSearchParams;
+        params.append('guid', 'cellular_guid');
+        params.append('type', 'Cellular');
+        params.append('name', 'cellular');
+        params.append('showCellularSetup', 'true');
+        params.append('showPsimFlow', 'true');
+        settings.Router.getInstance().navigateTo(
+            settings.routes.INTERNET_NETWORKS, params);
+
+        await flushAsync();
+        cellularSetupDialog = internetPage.$$('#cellularSetupDialog');
+        assertTrue(!!cellularSetupDialog);
+        const psimFlow =
+            cellularSetupDialog.shadowRoot.querySelector('cellular-setup')
+                .shadowRoot.querySelector('#psim-flow-ui');
+        assertTrue(!!psimFlow);
+      });
 
   // TODO(stevenjb): Figure out a way to reliably test navigation. Currently
   // such tests are flaky.

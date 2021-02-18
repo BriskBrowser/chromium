@@ -12,7 +12,7 @@
 
 #include "base/at_exit.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/dcheck_is_on.h"
 #include "base/files/file_path.h"
@@ -151,7 +151,7 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, wchar_t*, int) {
       sandbox::SandboxFactory::GetTargetServices();
   const bool is_sandbox_target = (sandbox_target_services != nullptr);
   chrome_cleaner::ScopedLogging scoped_logging(
-      is_sandbox_target ? chrome_cleaner::kSandboxLogFileSuffix : nullptr);
+      is_sandbox_target ? chrome_cleaner::kSandboxLogFileSuffix : L"");
 
   // If there is a command line argument to add a registry suffix, set
   // the value for the registry_logger.

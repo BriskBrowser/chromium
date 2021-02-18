@@ -366,11 +366,9 @@ const TestScenario kScenarios[] = {
     },
     {
         // Blocked, because the unit test doesn't make a call to
-        // CrossOriginReadBlocking::AddExceptionForFlash (simulating a behavior
-        // of a compromised renderer that only pretends to be hosting Flash).
-        //
-        // The regular scenario is covered by integration tests:
-        // OutOfProcessPPAPITest.URLLoaderTrusted.
+        // NetworkService::AddAllowedRequestInitiatorForPlugin (simulating a
+        // behavior of a compromised renderer that only pretends to be hosting
+        // PDF).
         "Blocked: Cross-site fetch HTML from Flash without CORS",
         __LINE__,
         "http://www.b.com/plugin.html",  // target_url
@@ -2036,9 +2034,7 @@ class ResponseAnalyzerTest : public testing::Test,
     // Create a ResponseAnalyzer to test.
     analyzer_ = std::make_unique<ResponseAnalyzer>(
         request->url(), request->initiator(), response,
-        request_initiator_origin_lock, request_mode,
-        base::nullopt /* isolated_world_origin */,
-        nullptr /* network_service_client */);
+        request_initiator_origin_lock, request_mode);
 
     // Verify MIME type was classified correctly.
     EXPECT_EQ(scenario.canonical_mime_type,
@@ -2569,9 +2565,10 @@ TEST(CrossOriginReadBlockingTest, SniffForJSON) {
   EXPECT_EQ(SniffingResult::kMaybe,
             CrossOriginReadBlocking::SniffForJSON("{\"\\\""))
       << "Incomplete escape results in maybe";
-  EXPECT_EQ(SniffingResult::kNo,
+  EXPECT_EQ(SniffingResult::kYes,
             CrossOriginReadBlocking::SniffForJSON("{\"\n\" : true}"))
-      << "Unescaped control characters are rejected";
+      << "Unescaped control characters are accepted (a bit more like "
+      << "Javascript than strict reading of the JSON spec)";
   EXPECT_EQ(SniffingResult::kNo, CrossOriginReadBlocking::SniffForJSON("{}"))
       << "Empty dictionary is not recognized (since it's valid JS too)";
   EXPECT_EQ(SniffingResult::kNo,

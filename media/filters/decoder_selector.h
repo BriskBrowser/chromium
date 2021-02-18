@@ -12,6 +12,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "base/sequence_checker.h"
 #include "base/time/time.h"
 #include "media/base/demuxer_stream.h"
 #include "media/base/pipeline_status.h"
@@ -19,7 +20,7 @@
 #include "media/filters/decoder_stream_traits.h"
 
 namespace base {
-class SingleThreadTaskRunner;
+class SequencedTaskRunner;
 }
 
 namespace media {
@@ -28,10 +29,19 @@ class CdmContext;
 class DecryptingDemuxerStream;
 class MediaLog;
 
+// Enum returned by `DecoderSelector::DecoderPriorityCB` to indicate
+// priority of the current decoder.
 enum class DecoderPriority {
-  kUnspecified,
-  kPreferPlatformDecoders,
-  kPreferSoftwareDecoders,
+  // `kNormal` indicates that the current decoder should continue through with
+  // selection in it's current order.
+  kNormal,
+
+  // `kDeprioritized` indicates that the current decoder should only be selected
+  // if other decoders have failed.
+  kDeprioritized,
+
+  // `kSkipped` indicates that the current decoder should not be used at all.
+  kSkipped,
 };
 
 // DecoderSelector handles construction and initialization of Decoders for a
@@ -51,10 +61,11 @@ class MEDIA_EXPORT DecoderSelector {
   using CreateDecodersCB =
       base::RepeatingCallback<std::vector<std::unique_ptr<Decoder>>()>;
 
-  // Evaluates what type of decoders should be prioritized for the given config.
-  // If |kUnspecified| is returned, nothing is prioritized.
+  // Prediate to evaluate whether a decoder should be prioritized,
+  // deprioritized, or skipped.
   using DecoderPriorityCB =
-      base::RepeatingCallback<DecoderPriority(const DecoderConfig&)>;
+      base::RepeatingCallback<DecoderPriority(const DecoderConfig&,
+                                              const Decoder&)>;
 
   // Emits the result of a single call to SelectDecoder(). Parameters are
   //   1: The initialized Decoder. nullptr if selection failed.
@@ -68,7 +79,7 @@ class MEDIA_EXPORT DecoderSelector {
       base::OnceCallback<void(std::unique_ptr<Decoder>,
                               std::unique_ptr<DecryptingDemuxerStream>)>;
 
-  DecoderSelector(scoped_refptr<base::SingleThreadTaskRunner> task_runner,
+  DecoderSelector(scoped_refptr<base::SequencedTaskRunner> task_runner,
                   CreateDecodersCB create_decoders_cb,
                   MediaLog* media_log);
 
@@ -123,7 +134,9 @@ class MEDIA_EXPORT DecoderSelector {
   void RunSelectDecoderCB();
   void FilterAndSortAvailableDecoders();
 
-  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+  scoped_refptr<base::SequencedTaskRunner> task_runner_;
+  SEQUENCE_CHECKER(sequence_checker_);
+
   CreateDecodersCB create_decoders_cb_;
   DecoderPriorityCB decoder_priority_cb_;
   MediaLog* media_log_;

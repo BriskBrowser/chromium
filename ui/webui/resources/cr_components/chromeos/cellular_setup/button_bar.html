@@ -6,6 +6,7 @@
 <link rel="import" href="../../../cr_elements/shared_style_css.html">
 <link rel="import" href="../../../cr_elements/shared_vars_css.html">
 <link rel="import" href="chrome://resources/html/assert.html">
+<link rel="import" href="chrome://resources/html/cr/ui/focus_without_ink.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-flex-layout/iron-flex-layout.html">
 
 <dom-module id="button-bar">
@@ -13,9 +14,14 @@
     <style include="iron-flex">
       :host {
         display: flex;
-        justify-content: space-between;
+        justify-content: flex-end;
         padding: 10px 0;
       }
+
+      #flex {
+        flex: 1;
+      }
+
     </style>
     <cr-button id="backward"
         class="cancel-button"
@@ -24,9 +30,10 @@
         hidden$="[[isButtonHidden_(Button.BACKWARD, buttonState.*)]]">
       [[i18n('back')]]
     </cr-button>
+    <div id="flex"></div>
     <cr-button id="cancel"
         class="cancel-button"
-        on-click="onBackwardButtonClicked_"
+        on-click="onCancelButtonClicked_"
         disabled="[[isButtonDisabled_(Button.CANCEL, buttonState.*)]]"
         hidden$="[[isButtonHidden_(Button.CANCEL, buttonState.*)]]">
       [[i18n('cancel')]]
@@ -38,19 +45,12 @@
         hidden$="[[isButtonHidden_(Button.TRY_AGAIN, buttonState.*)]]">
       [[i18n('tryAgain')]]
     </cr-button>
-    <cr-button id="finish"
+    <cr-button id="forward"
         class="action-button"
-        on-click="onFinishButtonClicked_"
-        disabled="[[isButtonDisabled_(Button.FINISH, buttonState.*)]]"
-        hidden$="[[isButtonHidden_(Button.FINISH, buttonState.*)]]">
-      [[i18n('finish')]]
-    </cr-button>
-    <cr-button id="next"
-        class="action-button"
-        on-click="onNextButtonClicked_"
-        disabled="[[isButtonDisabled_(Button.NEXT, buttonState.*)]]"
-        hidden$="[[isButtonHidden_(Button.NEXT, buttonState.*)]]">
-      [[i18n('next')]]
+        on-click="onForwardButtonClicked_"
+        disabled="[[isButtonDisabled_(Button.FORWARD, buttonState.*)]]"
+        hidden$="[[isButtonHidden_(Button.FORWARD, buttonState.*)]]">
+      [[forwardButtonLabel]]
     </cr-button>
   </template>
   <script src="button_bar.js"></script>

@@ -16,7 +16,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
 #include "base/task/post_task.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "chrome/browser/performance_manager/persistence/site_data/site_data_cache_facade_factory.h"
 #include "chrome/browser/performance_manager/persistence/site_data/unittest_utils.h"
 #include "chrome/test/base/testing_profile.h"
@@ -113,7 +113,6 @@ class SiteDataCacheFacadeTest : public testing::TestWithPerformanceManager {
   void TearDown() override {
     use_in_memory_db_for_testing_.reset();
     profile_.reset();
-    SiteDataCacheFacadeFactory::ReleaseInstanceForTesting();
     testing::TestWithPerformanceManager::TearDown();
   }
 

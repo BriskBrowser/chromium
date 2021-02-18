@@ -41,24 +41,17 @@ bool disable_safe_decoding_for_testing = false;
 ////////////////////////////////////////////////////////////////////////////////
 // ArcAppIcon::ReadResult
 
-struct ArcAppIcon::ReadResult {
-  ReadResult(bool error,
-             bool request_to_install,
-             ui::ScaleFactor scale_factor,
-             bool resize_allowed,
-             std::vector<std::string> unsafe_icon_data)
-      : error(error),
-        request_to_install(request_to_install),
-        scale_factor(scale_factor),
-        resize_allowed(resize_allowed),
-        unsafe_icon_data(std::move(unsafe_icon_data)) {}
-
-  const bool error;
-  const bool request_to_install;
-  const ui::ScaleFactor scale_factor;
-  const bool resize_allowed;
-  const std::vector<std::string> unsafe_icon_data;
-};
+ArcAppIcon::ReadResult::ReadResult(bool error,
+                                   bool request_to_install,
+                                   ui::ScaleFactor scale_factor,
+                                   bool resize_allowed,
+                                   std::vector<std::string> unsafe_icon_data)
+    : error(error),
+      request_to_install(request_to_install),
+      scale_factor(scale_factor),
+      resize_allowed(resize_allowed),
+      unsafe_icon_data(std::move(unsafe_icon_data)) {}
+ArcAppIcon::ReadResult::~ReadResult() = default;
 
 ////////////////////////////////////////////////////////////////////////////////
 // ArcAppIcon::Source
@@ -212,13 +205,13 @@ void ArcAppIcon::DecodeRequest::OnImageDecoded(const SkBitmap& bitmap) {
                           incomplete_scale_factors_);
   }
 
-  host_.DiscardDecodeRequest(this);
+  host_.DiscardDecodeRequest(this, true /* bool is_decode_success */);
 }
 
 void ArcAppIcon::DecodeRequest::OnDecodeImageFailed() {
   VLOG(2) << "Failed to decode ARC icon.";
   host_.MaybeRequestIcon(descriptor_.scale_factor);
-  host_.DiscardDecodeRequest(this);
+  host_.DiscardDecodeRequest(this, false /* bool is_decode_success*/);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -251,6 +244,29 @@ ArcAppIcon::ArcAppIcon(content::BrowserContext* context,
   const std::vector<ui::ScaleFactor>& scale_factors =
       ui::GetSupportedScaleFactors();
   switch (icon_type) {
+    case IconType::kAdaptive:
+      foreground_image_skia_ = gfx::ImageSkia(
+          std::make_unique<Source>(weak_ptr_factory_.GetWeakPtr(),
+                                   resource_size_in_dip),
+          resource_size);
+
+      // ArcAppIcon::Source::GetImageForScale calls host_->LoadForScaleFactor to
+      // read both the foreground and background files, so the
+      // |background_image_skia_| doesn't need to set the host to call
+      // LoadForScaleFactor again. Otherwise, it might duplicate the opened
+      // files number, and cause the system crash,
+      background_image_skia_ = gfx::ImageSkia(
+          std::make_unique<Source>(nullptr, resource_size_in_dip),
+          resource_size);
+      for (const auto& scale_factor : scale_factors) {
+        foreground_incomplete_scale_factors_.insert(
+            {scale_factor, base::Time::Now()});
+        background_incomplete_scale_factors_.insert(
+            {scale_factor, base::Time::Now()});
+      }
+      // Deliberately fall through to IconType::kUncompressed to update
+      // |image_skia_| and |incomplete_scale_factors_|.
+      FALLTHROUGH;
     case IconType::kUncompressed:
       image_skia_ = gfx::ImageSkia(
           std::make_unique<Source>(weak_ptr_factory_.GetWeakPtr(),
@@ -263,39 +279,13 @@ ArcAppIcon::ArcAppIcon(content::BrowserContext* context,
       for (const auto& scale_factor : scale_factors)
         incomplete_scale_factors_.insert({scale_factor, base::Time::Now()});
       break;
-    case IconType::kAdaptive:
-      foreground_image_skia_ = gfx::ImageSkia(
-          std::make_unique<Source>(weak_ptr_factory_.GetWeakPtr(),
-                                   resource_size_in_dip),
-          resource_size);
-      background_image_skia_ = gfx::ImageSkia(
-          std::make_unique<Source>(weak_ptr_factory_.GetWeakPtr(),
-                                   resource_size_in_dip),
-          resource_size);
-      for (const auto& scale_factor : scale_factors) {
-        foreground_incomplete_scale_factors_.insert(
-            {scale_factor, base::Time::Now()});
-        background_incomplete_scale_factors_.insert(
-            {scale_factor, base::Time::Now()});
-      }
-      break;
   }
 }
 
-ArcAppIcon::~ArcAppIcon() {
-}
+ArcAppIcon::~ArcAppIcon() = default;
 
 void ArcAppIcon::LoadSupportedScaleFactors() {
   switch (icon_type_) {
-    case IconType::kUncompressed:
-      // Calling GetRepresentation indirectly calls LoadForScaleFactor but also
-      // first initializes image_skia_ with the placeholder icons (e.g.
-      // IDR_APP_DEFAULT_ICON), via ArcAppIcon::Source::GetImageForScale.
-      for (auto scale_factor : incomplete_scale_factors_) {
-        image_skia_.GetRepresentation(
-            ui::GetScaleForScaleFactor(scale_factor.first));
-      }
-      break;
     case IconType::kCompressed:
       for (auto scale_factor : incomplete_scale_factors_)
         LoadForScaleFactor(scale_factor.first);
@@ -307,6 +297,17 @@ void ArcAppIcon::LoadSupportedScaleFactors() {
       }
       for (auto scale_factor : background_incomplete_scale_factors_) {
         background_image_skia_.GetRepresentation(
+            ui::GetScaleForScaleFactor(scale_factor.first));
+      }
+      // Deliberately fall through to IconType::kCompressed to update
+      // |image_skia_|.
+      FALLTHROUGH;
+    case IconType::kUncompressed:
+      // Calling GetRepresentation indirectly calls LoadForScaleFactor but also
+      // first initializes image_skia_ with the placeholder icons (e.g.
+      // IDR_APP_DEFAULT_ICON), via ArcAppIcon::Source::GetImageForScale.
+      for (auto scale_factor : incomplete_scale_factors_) {
+        image_skia_.GetRepresentation(
             ui::GetScaleForScaleFactor(scale_factor.first));
       }
       break;
@@ -322,8 +323,10 @@ bool ArcAppIcon::EverySupportedScaleFactorIsLoaded() const {
     case IconType::kCompressed:
       return incomplete_scale_factors_.empty();
     case IconType::kAdaptive:
-      return foreground_incomplete_scale_factors_.empty() &&
-             background_incomplete_scale_factors_.empty();
+      return !is_adaptive_icon_
+                 ? incomplete_scale_factors_.empty()
+                 : foreground_incomplete_scale_factors_.empty() &&
+                       background_incomplete_scale_factors_.empty();
   }
 }
 
@@ -612,8 +615,10 @@ void ArcAppIcon::OnIconRead(
   if (read_result->request_to_install)
     MaybeRequestIcon(read_result->scale_factor);
 
-  if (read_result->unsafe_icon_data.empty())
+  if (read_result->unsafe_icon_data.empty()) {
+    observer_->OnIconFailed(this);
     return;
+  }
 
   switch (icon_type_) {
     case IconType::kUncompressed: {
@@ -641,9 +646,7 @@ void ArcAppIcon::OnIconRead(
                     ArcAppIconDescriptor(resource_size_in_dip_,
                                          read_result->scale_factor),
                     read_result->resize_allowed, false /* retain_padding */,
-                    foreground_image_skia_,
-                    foreground_incomplete_scale_factors_);
-        background_incomplete_scale_factors_.clear();
+                    image_skia_, incomplete_scale_factors_);
         return;
       }
 
@@ -736,7 +739,8 @@ void ArcAppIcon::UpdateCompressed(ui::ScaleFactor scale_factor,
   observer_->OnIconUpdated(this);
 }
 
-void ArcAppIcon::DiscardDecodeRequest(DecodeRequest* request) {
+void ArcAppIcon::DiscardDecodeRequest(DecodeRequest* request,
+                                      bool is_decode_success) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   auto it = std::find_if(decode_requests_.begin(), decode_requests_.end(),
@@ -745,4 +749,7 @@ void ArcAppIcon::DiscardDecodeRequest(DecodeRequest* request) {
                          });
   DCHECK(it != decode_requests_.end());
   decode_requests_.erase(it);
+
+  if (!is_decode_success)
+    observer_->OnIconFailed(this);
 }

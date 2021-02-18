@@ -7,6 +7,7 @@
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/views/controls/scrollbar/scroll_bar.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace {
 // The distance the mouse can be dragged outside the bounds of the thumb during
@@ -131,6 +132,6 @@ bool BaseScrollBarThumb::IsHorizontal() const {
 }
 
 BEGIN_METADATA(BaseScrollBarThumb, View)
-END_METADATA()
+END_METADATA
 
 }  // namespace views

@@ -7,9 +7,8 @@
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
-#include "chrome/browser/chromeos/web_applications/default_web_app_ids.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/app_list/app_list_client_impl.h"
@@ -18,12 +17,12 @@
 #include "chrome/browser/ui/app_list/search/search_controller.h"
 #include "chrome/browser/ui/app_list/test/chrome_app_list_test_support.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/web_applications/components/web_app_id_constants.h"
 #include "chrome/browser/web_applications/system_web_app_manager.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/test/browser_test.h"
 
@@ -65,7 +64,7 @@ class AppListSearchBrowserTest : public InProcessBrowserTest {
   void SearchAndWaitForProviders(const std::string& query,
                                  const std::set<ResultType> providers) {
     base::RunLoop run_loop;
-    base::Closure quit_closure = run_loop.QuitClosure();
+    base::RepeatingClosure quit_closure = run_loop.QuitClosure();
     std::set<ResultType> finished_providers;
     const SearchController::ResultsChangedCallback callback =
         base::BindLambdaForTesting([&](ResultType provider) {
@@ -116,46 +115,6 @@ class AppListSearchBrowserTest : public InProcessBrowserTest {
   Profile* GetProfile() { return browser()->profile(); }
 };
 
-// Test fixture for OS settings search. This subclass exists because changing a
-// feature flag has to be done in the constructor. Otherwise, it could use
-// AppListSearchBrowserTest directly.
-class OsSettingsSearchBrowserTest : public AppListSearchBrowserTest {
- public:
-  OsSettingsSearchBrowserTest() : AppListSearchBrowserTest() {
-    scoped_feature_list_.InitWithFeatures(
-        {app_list_features::kLauncherSettingsSearch,
-         chromeos::features::kNewOsSettingsSearch},
-        {});
-  }
-  ~OsSettingsSearchBrowserTest() override = default;
-
-  OsSettingsSearchBrowserTest(const OsSettingsSearchBrowserTest&) = delete;
-  OsSettingsSearchBrowserTest& operator=(const OsSettingsSearchBrowserTest&) =
-      delete;
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-};
-
-// Test fixture for Release notes search. This subclass exists because changing
-// a feature flag has to be done in the constructor. Otherwise, it could use
-// AppListSearchBrowserTest directly.
-class ReleaseNotesSearchBrowserTest : public AppListSearchBrowserTest {
- public:
-  ReleaseNotesSearchBrowserTest() : AppListSearchBrowserTest() {
-    scoped_feature_list_.InitWithFeatures(
-        {chromeos::features::kHelpAppReleaseNotes}, {});
-  }
-  ~ReleaseNotesSearchBrowserTest() override = default;
-
-  ReleaseNotesSearchBrowserTest(const ReleaseNotesSearchBrowserTest&) = delete;
-  ReleaseNotesSearchBrowserTest& operator=(
-      const ReleaseNotesSearchBrowserTest&) = delete;
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-};
-
 // Simply tests that neither zero-state nor query-based search cause a crash.
 IN_PROC_BROWSER_TEST_F(AppListSearchBrowserTest, SearchDoesntCrash) {
   // This won't catch everything, because not all providers run on all queries,
@@ -168,57 +127,58 @@ IN_PROC_BROWSER_TEST_F(AppListSearchBrowserTest, SearchDoesntCrash) {
                             {ResultType::kInstalledApp, ResultType::kLauncher});
 }
 
-// Test that searching for "wifi" correctly returns a settings result for wifi.
-IN_PROC_BROWSER_TEST_F(OsSettingsSearchBrowserTest, AppListSearchForSettings) {
-  web_app::WebAppProvider::Get(GetProfile())
-      ->system_web_app_manager()
-      .InstallSystemAppsForTesting();
-  SearchAndWaitForProviders("wifi", {ResultType::kOsSettings});
-
-  auto* result = FindResult("os-settings://networks?type=WiFi");
-  ASSERT_TRUE(result);
-  EXPECT_EQ(base::UTF16ToASCII(result->accessible_name()),
-            "Wi-Fi networks, Network, Settings");
-}
-
 // Test that Help App shows up as Release notes if pref shows we have some times
 // left to show it.
-IN_PROC_BROWSER_TEST_F(ReleaseNotesSearchBrowserTest,
-                       AppListSearchHasSuggestionChip) {
+IN_PROC_BROWSER_TEST_F(AppListSearchBrowserTest,
+                       AppListSearchHasReleaseNotesSuggestionChip) {
   web_app::WebAppProvider::Get(GetProfile())
       ->system_web_app_manager()
       .InstallSystemAppsForTesting();
   GetProfile()->GetPrefs()->SetInteger(
-      prefs::kReleaseNotesSuggestionChipTimesLeftToShow, 1);
+      prefs::kReleaseNotesSuggestionChipTimesLeftToShow, 3);
 
-  SearchAndWaitForProviders("",
-                            {ResultType::kInstalledApp, ResultType::kLauncher});
+  SearchAndWaitForProviders("", {ResultType::kHelpApp});
 
-  auto* result = FindResult(chromeos::default_web_apps::kHelpAppId);
+  auto* result = FindResult("help-app://updates");
   ASSERT_TRUE(result);
-  // Has Release notes title.
-  EXPECT_EQ(base::UTF16ToASCII(result->title()),
-            "See what's new on your Chrome device");
+  EXPECT_EQ(base::UTF16ToASCII(result->title()), "What's new with Chrome OS");
   // Displayed in first position.
   EXPECT_EQ(result->position_priority(), 1.0f);
-  // Has override url defined for updates tab.
-  EXPECT_EQ(result->query_url(), GURL("chrome://help-app/updates"));
   EXPECT_EQ(result->display_type(), DisplayType::kChip);
 }
 
-// Test that Help App shows up normally if pref shows we should no longer show
-// as suggestion chip.
-IN_PROC_BROWSER_TEST_F(ReleaseNotesSearchBrowserTest, AppListSearchHasApp) {
+// Test that the number of times the suggestion chip should show decreases when
+// the chip is shown.
+IN_PROC_BROWSER_TEST_F(AppListSearchBrowserTest,
+                       ReleaseNotesDecreasesTimesShownOnAppListOpen) {
   web_app::WebAppProvider::Get(GetProfile())
       ->system_web_app_manager()
       .InstallSystemAppsForTesting();
   GetProfile()->GetPrefs()->SetInteger(
-      prefs::kReleaseNotesSuggestionChipTimesLeftToShow, 0);
+      prefs::kReleaseNotesSuggestionChipTimesLeftToShow, 3);
 
-  SearchAndWaitForProviders("",
-                            {ResultType::kInstalledApp, ResultType::kLauncher});
+  // ShowAppList actually opens the app list and triggers |AppListShown| which
+  // is where we decrease |kReleaseNotesSuggestionChipTimesLeftToShow|.
+  GetClient()->ShowAppList();
+  SearchAndWaitForProviders("", {ResultType::kHelpApp});
 
-  auto* result = FindResult(chromeos::default_web_apps::kHelpAppId);
+  const int times_left_to_show = GetProfile()->GetPrefs()->GetInteger(
+      prefs::kReleaseNotesSuggestionChipTimesLeftToShow);
+  EXPECT_EQ(times_left_to_show, 2);
+}
+
+// Test that Help App shows up normally even when suggestion chip should show.
+IN_PROC_BROWSER_TEST_F(AppListSearchBrowserTest, AppListSearchHasApp) {
+  web_app::WebAppProvider::Get(GetProfile())
+      ->system_web_app_manager()
+      .InstallSystemAppsForTesting();
+  GetProfile()->GetPrefs()->SetInteger(
+      prefs::kReleaseNotesSuggestionChipTimesLeftToShow, 3);
+
+  SearchAndWaitForProviders("", {ResultType::kInstalledApp,
+                                 ResultType::kLauncher, ResultType::kHelpApp});
+
+  auto* result = FindResult(web_app::kHelpAppId);
   ASSERT_TRUE(result);
   // Has regular app name as title.
   EXPECT_EQ(base::UTF16ToASCII(result->title()), "Explore");

@@ -4,6 +4,7 @@
 
 #include "base/macros.h"
 #include "base/strings/stringprintf.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/test/integration/apps_helper.h"
 #include "chrome/browser/sync/test/integration/extension_settings_helper.h"
@@ -13,9 +14,9 @@
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "content/public/test/browser_test.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/ash_features.h"
 #include "chrome/browser/sync/test/integration/os_sync_test.h"
-#include "chromeos/constants/chromeos_features.h"
 #endif
 
 namespace {
@@ -67,11 +68,12 @@ void MutateSomeSettings(
 class TwoClientExtensionSettingsAndAppSettingsSyncTest : public SyncTest {
  public:
   TwoClientExtensionSettingsAndAppSettingsSyncTest() : SyncTest(TWO_CLIENT) {}
+  ~TwoClientExtensionSettingsAndAppSettingsSyncTest() override = default;
 
-  ~TwoClientExtensionSettingsAndAppSettingsSyncTest() override {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TwoClientExtensionSettingsAndAppSettingsSyncTest);
+  bool UseVerifier() override {
+    // TODO(crbug.com/1137735): rewrite tests to not use verifier.
+    return true;
+  }
 };
 
 // For three independent extensions:
@@ -218,13 +220,18 @@ IN_PROC_BROWSER_TEST_F(TwoClientExtensionSettingsAndAppSettingsSyncTest,
       InstallHostedAppForAllProfiles(1), InstallHostedAppForAllProfiles(2));
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // Tests for SplitSettingsSync, which uses a different ModelTypeController for
 // syncer::APP_SETTINGS.
 class TwoClientAppSettingsOsSyncTest : public OsSyncTest {
  public:
   TwoClientAppSettingsOsSyncTest() : OsSyncTest(TWO_CLIENT) {}
   ~TwoClientAppSettingsOsSyncTest() override = default;
+
+  bool UseVerifier() override {
+    // TODO(crbug.com/1137735): rewrite tests to not use verifier.
+    return true;
+  }
 };
 
 IN_PROC_BROWSER_TEST_F(TwoClientAppSettingsOsSyncTest,
@@ -244,6 +251,6 @@ IN_PROC_BROWSER_TEST_F(TwoClientAppSettingsOsSyncTest,
       StartWithDifferentSettingsTest, InstallHostedAppForAllProfiles(0),
       InstallHostedAppForAllProfiles(1), InstallHostedAppForAllProfiles(2));
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 }  // namespace

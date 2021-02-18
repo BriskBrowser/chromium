@@ -15,11 +15,13 @@
 #include "ui/display/screen_base.h"
 #include "ui/events/devices/x11/touch_factory_x11.h"
 #include "ui/events/event.h"
+#include "ui/events/platform/x11/x11_event_source.h"
 #include "ui/events/test/events_test_utils_x11.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/transform.h"
-#include "ui/gfx/x/x11.h"
 #include "ui/gfx/x/x11_atom_cache.h"
+#include "ui/gfx/x/xproto.h"
+#include "ui/gfx/x/xproto_util.h"
 #include "ui/platform_window/extensions/x11_extension_delegate.h"
 
 namespace ui {
@@ -71,6 +73,20 @@ class TestPlatformWindowDelegate : public PlatformWindowDelegate {
   }
   void OnActivationChanged(bool active) override {}
   void OnMouseEnter() override {}
+  SkPath GetWindowMaskForWindowShapeInPixels() override {
+    SkPath window_mask;
+    int right = changed_bounds_.width();
+    int bottom = changed_bounds_.height();
+
+    window_mask.moveTo(0, 0);
+    window_mask.lineTo(0, bottom);
+    window_mask.lineTo(right, bottom);
+    window_mask.lineTo(right, 10);
+    window_mask.lineTo(right - 10, 10);
+    window_mask.lineTo(right - 10, 0);
+    window_mask.close();
+    return window_mask;
+  }
 
  private:
   gfx::AcceleratedWidget widget_ = gfx::kNullAcceleratedWidget;
@@ -88,18 +104,6 @@ class ShapedX11ExtensionDelegate : public X11ExtensionDelegate {
   ~ShapedX11ExtensionDelegate() override = default;
 
   void OnLostMouseGrab() override {}
-  void GetWindowMask(const gfx::Size& size, SkPath* window_mask) override {
-    int right = size.width();
-    int bottom = size.height();
-
-    window_mask->moveTo(0, 0);
-    window_mask->lineTo(0, bottom);
-    window_mask->lineTo(right, bottom);
-    window_mask->lineTo(right, 10);
-    window_mask->lineTo(right - 10, 10);
-    window_mask->lineTo(right - 10, 0);
-    window_mask->close();
-  }
 #if BUILDFLAG(USE_ATK)
   bool OnAtkKeyEvent(AtkKeyEventStruct* atk_key_event,
                      bool transient) override {
@@ -122,10 +126,10 @@ class WMStateWaiter : public X11PropertyChangeWaiter {
 
  private:
   // X11PropertyChangeWaiter:
-  bool ShouldKeepOnWaiting(x11::Event* event) override {
+  bool ShouldKeepOnWaiting() override {
     std::vector<x11::Atom> hints;
-    if (GetAtomArrayProperty(xwindow(), "_NET_WM_STATE", &hints))
-      return base::Contains(hints, gfx::GetAtom(hint_)) != wait_till_set_;
+    if (GetArrayProperty(xwindow(), x11::GetAtom("_NET_WM_STATE"), &hints))
+      return base::Contains(hints, x11::GetAtom(hint_)) != wait_till_set_;
     return true;
   }
 
@@ -200,11 +204,13 @@ class X11WindowTest : public testing::Test {
 
     // Make X11 synchronous for our display connection. This does not force the
     // window manager to behave synchronously.
-    XSynchronize(gfx::GetXDisplay(), x11::True);
+    connection->SynchronizeForTest(true);
   }
 
  protected:
-  void TearDown() override { XSynchronize(gfx::GetXDisplay(), x11::False); }
+  void TearDown() override {
+    x11::Connection::Get()->SynchronizeForTest(false);
+  }
 
   std::unique_ptr<X11Window> CreateX11Window(
       PlatformWindowDelegate* delegate,
@@ -223,7 +229,7 @@ class X11WindowTest : public testing::Test {
     auto* device_event = x11_event->As<x11::Input::DeviceEvent>();
     DCHECK(device_event);
     device_event->event = window;
-    event_source_->ProcessXEvent(x11_event);
+    x11::Connection::Get()->DispatchEvent(*x11_event);
   }
 
  private:
@@ -233,10 +239,8 @@ class X11WindowTest : public testing::Test {
   TestScreen* test_screen_ = nullptr;
 };
 
-// https://crbug.com/898742: Test might be flaky. Disable again if it is still
-// flaky after it is moved from views_unittests to x11_unittests. Tests that the
-// shape is properly set on the x window.
-TEST_F(X11WindowTest, Shape) {
+// https://crbug.com/898742: Test is flaky.
+TEST_F(X11WindowTest, DISABLED_Shape) {
   if (!IsShapeExtensionAvailable())
     return;
 
@@ -252,10 +256,13 @@ TEST_F(X11WindowTest, Shape) {
   const x11::Window x11_window = window->window();
   ASSERT_TRUE(x11_window != x11::Window::None);
 
+  // Force PlatformWindowDelegate::OnBoundsChanged.
+  window->SetBounds(bounds);
   // Force update the window region.
   window->ResetWindowRegion();
 
-  X11EventSource::GetInstance()->DispatchXEvents();
+  auto* connection = x11::Connection::Get();
+  connection->DispatchAll();
 
   std::vector<gfx::Rect> shape_rects = GetShapeRects(x11_window);
   ASSERT_FALSE(shape_rects.empty());
@@ -270,7 +277,9 @@ TEST_F(X11WindowTest, Shape) {
 
   // Changing window's size should update the shape.
   window->SetBounds(gfx::Rect(100, 100, 200, 200));
-  X11EventSource::GetInstance()->DispatchXEvents();
+  // Force update the window region.
+  window->ResetWindowRegion();
+  connection->DispatchAll();
 
   if (window->GetBounds().width() == 200) {
     shape_rects = GetShapeRects(x11_window);
@@ -283,7 +292,7 @@ TEST_F(X11WindowTest, Shape) {
     EXPECT_FALSE(ShapeRectContainsPoint(shape_rects, 205, 15));
   }
 
-  if (WmSupportsHint(gfx::GetAtom("_NET_WM_STATE_MAXIMIZED_VERT"))) {
+  if (WmSupportsHint(x11::GetAtom("_NET_WM_STATE_MAXIMIZED_VERT"))) {
     // The shape should be changed to a rectangle which fills the entire screen
     // when |widget1| is maximized.
     {
@@ -326,7 +335,7 @@ TEST_F(X11WindowTest, Shape) {
   transform.Scale(1.0f, 1.0f);
   window2->SetShape(std::move(shape_region), transform);
 
-  X11EventSource::GetInstance()->DispatchXEvents();
+  connection->DispatchAll();
 
   shape_rects = GetShapeRects(x11_window2);
   ASSERT_FALSE(shape_rects.empty());
@@ -359,10 +368,10 @@ TEST_F(X11WindowTest, Shape) {
 // Test that the widget reacts on changes in fullscreen state initiated by the
 // window manager (e.g. via a window manager accelerator key).
 TEST_F(X11WindowTest, WindowManagerTogglesFullscreen) {
-  if (!WmSupportsHint(gfx::GetAtom("_NET_WM_STATE_FULLSCREEN")))
+  if (!WmSupportsHint(x11::GetAtom("_NET_WM_STATE_FULLSCREEN")))
     return;
 
-  Display* display = gfx::GetXDisplay();
+  auto* connection = x11::Connection::Get();
 
   TestPlatformWindowDelegate delegate;
   ShapedX11ExtensionDelegate x11_extension_delegate;
@@ -371,7 +380,7 @@ TEST_F(X11WindowTest, WindowManagerTogglesFullscreen) {
   x11::Window x11_window = window->window();
   window->Show(false);
 
-  X11EventSource::GetInstance()->DispatchXEvents();
+  connection->DispatchAll();
 
   EXPECT_NE(window->GetPlatformWindowState(), PlatformWindowState::kFullScreen);
 
@@ -386,21 +395,10 @@ TEST_F(X11WindowTest, WindowManagerTogglesFullscreen) {
   // Emulate the window manager exiting fullscreen via a window manager
   // accelerator key.
   {
-    XEvent xclient;
-    memset(&xclient, 0, sizeof(xclient));
-    xclient.type = ClientMessage;
-    xclient.xclient.window = static_cast<uint32_t>(x11_window);
-    xclient.xclient.message_type =
-        static_cast<uint32_t>(gfx::GetAtom("_NET_WM_STATE"));
-    xclient.xclient.format = 32;
-    xclient.xclient.data.l[0] = 0;
-    xclient.xclient.data.l[1] =
-        static_cast<uint32_t>(gfx::GetAtom("_NET_WM_STATE_FULLSCREEN"));
-    xclient.xclient.data.l[2] = 0;
-    xclient.xclient.data.l[3] = 1;
-    xclient.xclient.data.l[4] = 0;
-    XSendEvent(display, DefaultRootWindow(display), x11::False,
-               SubstructureRedirectMask | SubstructureNotifyMask, &xclient);
+    ui::SendClientMessage(
+        x11_window, ui::GetX11RootWindow(), x11::GetAtom("_NET_WM_STATE"),
+        {0, static_cast<uint32_t>(x11::GetAtom("_NET_WM_STATE_FULLSCREEN")), 0,
+         1, 0});
 
     WMStateWaiter waiter(x11_window, "_NET_WM_STATE_FULLSCREEN", false);
     waiter.Wait();
@@ -416,11 +414,11 @@ TEST_F(X11WindowTest, WindowManagerTogglesFullscreen) {
   // fullscreen mode and ensure bounds are tracked correctly.
   initial_bounds.set_size({400, 400});
   {
-    XWindowChanges changes = {0};
-    changes.width = initial_bounds.width();
-    changes.height = initial_bounds.height();
-    XConfigureWindow(display, static_cast<uint32_t>(x11_window),
-                     CWHeight | CWWidth, &changes);
+    connection->ConfigureWindow({
+        .window = x11_window,
+        .width = initial_bounds.width(),
+        .height = initial_bounds.height(),
+    });
     // Ensure that the task which is posted when a window is resized is run.
     base::RunLoop().RunUntilIdle();
   }
@@ -445,29 +443,25 @@ TEST_F(X11WindowTest, ToggleMinimizePropogateToPlatformWindowDelegate) {
   window->Show(false);
   window->Activate();
 
-  ui::X11EventSource::GetInstance()->DispatchXEvents();
+  x11::Connection::Get()->DispatchAll();
 
   x11::Window x11_window = window->window();
-  Display* display = gfx::GetXDisplay();
 
   // Minimize by sending _NET_WM_STATE_HIDDEN
   {
     std::vector<x11::Atom> atom_list;
-    atom_list.push_back(gfx::GetAtom("_NET_WM_STATE_HIDDEN"));
-    ui::SetAtomArrayProperty(x11_window, "_NET_WM_STATE", "ATOM", atom_list);
+    atom_list.push_back(x11::GetAtom("_NET_WM_STATE_HIDDEN"));
+    SetArrayProperty(x11_window, x11::GetAtom("_NET_WM_STATE"), x11::Atom::ATOM,
+                     atom_list);
 
-    XEvent xevent;
-    memset(&xevent, 0, sizeof(xevent));
-    xevent.type = PropertyNotify;
-    xevent.xproperty.type = PropertyNotify;
-    xevent.xproperty.send_event = 1;
-    xevent.xproperty.display = display;
-    xevent.xproperty.window = static_cast<uint32_t>(x11_window);
-    xevent.xproperty.atom =
-        static_cast<uint32_t>(gfx::GetAtom("_NET_WM_STATE"));
-    xevent.xproperty.state = 0;
-    XSendEvent(display, DefaultRootWindow(display), x11::False,
-               SubstructureRedirectMask | SubstructureNotifyMask, &xevent);
+    x11::PropertyNotifyEvent xevent{
+        .send_event = true,
+        .window = x11_window,
+        .atom = x11::GetAtom("_NET_WM_STATE"),
+    };
+    x11::SendEvent(xevent, ui::GetX11RootWindow(),
+                   x11::EventMask::SubstructureNotify |
+                       x11::EventMask::SubstructureRedirect);
 
     WMStateWaiter waiter(x11_window, "_NET_WM_STATE_HIDDEN", true);
     waiter.Wait();
@@ -478,21 +472,18 @@ TEST_F(X11WindowTest, ToggleMinimizePropogateToPlatformWindowDelegate) {
   // Show from minimized by sending _NET_WM_STATE_FOCUSED
   {
     std::vector<x11::Atom> atom_list;
-    atom_list.push_back(gfx::GetAtom("_NET_WM_STATE_FOCUSED"));
-    ui::SetAtomArrayProperty(x11_window, "_NET_WM_STATE", "ATOM", atom_list);
+    atom_list.push_back(x11::GetAtom("_NET_WM_STATE_FOCUSED"));
+    SetArrayProperty(x11_window, x11::GetAtom("_NET_WM_STATE"), x11::Atom::ATOM,
+                     atom_list);
 
-    XEvent xevent;
-    memset(&xevent, 0, sizeof(xevent));
-    xevent.type = PropertyNotify;
-    xevent.xproperty.type = PropertyNotify;
-    xevent.xproperty.send_event = 1;
-    xevent.xproperty.display = display;
-    xevent.xproperty.window = static_cast<uint32_t>(x11_window);
-    xevent.xproperty.atom =
-        static_cast<uint32_t>(gfx::GetAtom("_NET_WM_STATE"));
-    xevent.xproperty.state = 0;
-    XSendEvent(display, DefaultRootWindow(display), x11::False,
-               SubstructureRedirectMask | SubstructureNotifyMask, &xevent);
+    x11::PropertyNotifyEvent xevent{
+        .send_event = true,
+        .window = x11_window,
+        .atom = x11::GetAtom("_NET_WM_STATE"),
+    };
+    x11::SendEvent(xevent, ui::GetX11RootWindow(),
+                   x11::EventMask::SubstructureNotify |
+                       x11::EventMask::SubstructureRedirect);
 
     WMStateWaiter waiter(x11_window, "_NET_WM_STATE_FOCUSED", true);
     waiter.Wait();

@@ -36,13 +36,15 @@ class CompositingInputsUpdater {
   };
 
   struct AncestorInfo {
+    STACK_ALLOCATED();
+
+   public:
     // The ancestor composited PaintLayer which is also a stacking context.
     PaintLayer* enclosing_stacking_composited_layer = nullptr;
     // A "squashing composited layer" is a PaintLayer that owns a squashing
     // layer. This variable stores the squashing composited layer for the
     // nearest PaintLayer ancestor which is squashed.
     PaintLayer* enclosing_squashing_composited_layer = nullptr;
-    PaintLayer* last_overflow_clip_layer = nullptr;
 
     PaintLayer* clip_chain_parent_for_absolute = nullptr;
     PaintLayer* clip_chain_parent_for_fixed = nullptr;

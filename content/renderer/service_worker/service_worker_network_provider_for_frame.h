@@ -47,7 +47,13 @@ class CONTENT_EXPORT ServiceWorkerNetworkProviderForFrame final
   std::unique_ptr<blink::WebURLLoader> CreateURLLoader(
       const blink::WebURLRequest& request,
       std::unique_ptr<blink::scheduler::WebResourceLoadingTaskRunnerHandle>
-          task_runner_handle) override;
+          freezable_task_runner_handle,
+      std::unique_ptr<blink::scheduler::WebResourceLoadingTaskRunnerHandle>
+          unfreezable_task_runner_handle,
+      blink::CrossVariantMojoRemote<blink::mojom::KeepAliveHandleInterfaceBase>
+          keep_alive_handle,
+      blink::WebBackForwardCacheLoaderHelper back_forward_cache_loader_helper)
+      override;
   blink::mojom::ControllerServiceWorkerMode GetControllerServiceWorkerMode()
       override;
   int64_t ControllerServiceWorkerID() override;

@@ -16,6 +16,7 @@
 #import "ios/chrome/browser/overlays/public/overlay_presenter.h"
 #include "ios/chrome/browser/reading_list/reading_list_model_factory.h"
 #import "ios/chrome/browser/search_engines/template_url_service_factory.h"
+#import "ios/chrome/browser/ui/browser_container/browser_container_mediator.h"
 #import "ios/chrome/browser/ui/bubble/bubble_presenter.h"
 #import "ios/chrome/browser/ui/bubble/bubble_view_controller_presenter.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
@@ -29,8 +30,8 @@
 #import "ios/chrome/browser/ui/popup_menu/public/popup_menu_presenter_delegate.h"
 #import "ios/chrome/browser/ui/popup_menu/public/popup_menu_table_view_controller.h"
 #import "ios/chrome/browser/ui/presenters/contained_presenter_delegate.h"
-#import "ios/chrome/browser/ui/toolbar/public/features.h"
 #import "ios/chrome/browser/ui/util/layout_guide_names.h"
+#import "ios/chrome/browser/web/web_navigation_browser_agent.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -52,6 +53,9 @@ PopupMenuCommandType CommandTypeFromPopupType(PopupMenuType type) {
 @property(nonatomic, strong) PopupMenuPresenter* presenter;
 // Mediator for the popup menu.
 @property(nonatomic, strong) PopupMenuMediator* mediator;
+// Mediator to that alerts the main |mediator| when the web content area
+// is blocked by an overlay.
+@property(nonatomic, strong) BrowserContainerMediator* contentBlockerMediator;
 // ViewController for this mediator.
 @property(nonatomic, strong) PopupMenuTableViewController* viewController;
 // Handles user interaction with the popup menu items.
@@ -130,13 +134,6 @@ PopupMenuCommandType CommandTypeFromPopupType(PopupMenuType type) {
             fromNamedGuide:kNewTabButtonGuide];
 }
 
-- (void)showTabStripTabGridButtonPopup {
-  DCHECK(!base::FeatureList::IsEnabled(kChangeTabSwitcherPosition));
-  base::RecordAction(base::UserMetricsAction("MobileTabStripShowTabGridMenu"));
-  [self presentPopupOfType:PopupMenuTypeTabStripTabGrid
-            fromNamedGuide:kTabStripTabSwitcherGuide];
-}
-
 - (void)dismissPopupMenuAnimated:(BOOL)animated {
   [self.UIUpdater updateUIForMenuDismissed];
   [self.presenter dismissAnimated:animated];
@@ -212,6 +209,9 @@ PopupMenuCommandType CommandTypeFromPopupType(PopupMenuType type) {
              type == PopupMenuTypeNavigationForward) {
     tableViewController.tableView.accessibilityIdentifier =
         kPopupMenuNavigationTableViewId;
+  } else if (type == PopupMenuTypeTabGrid) {
+    tableViewController.tableView.accessibilityIdentifier =
+        kPopupMenuTabGridMenuTableViewId;
   }
 
   self.viewController = tableViewController;
@@ -247,8 +247,14 @@ PopupMenuCommandType CommandTypeFromPopupType(PopupMenuType type) {
       ios::TemplateURLServiceFactory::GetForBrowserState(
           self.browser->GetBrowserState());
   self.mediator.popupMenu = tableViewController;
-  self.mediator.webContentAreaOverlayPresenter = OverlayPresenter::FromBrowser(
+  OverlayPresenter* overlayPresenter = OverlayPresenter::FromBrowser(
       self.browser, OverlayModality::kWebContentArea);
+  self.mediator.webContentAreaOverlayPresenter = overlayPresenter;
+
+  self.contentBlockerMediator = [[BrowserContainerMediator alloc]
+                initWithWebStateList:self.browser->GetWebStateList()
+      webContentAreaOverlayPresenter:overlayPresenter];
+  self.contentBlockerMediator.consumer = self.mediator;
 
   self.actionHandler = [[PopupMenuActionHandler alloc] init];
   self.actionHandler.baseViewController = self.baseViewController;
@@ -257,6 +263,8 @@ PopupMenuCommandType CommandTypeFromPopupType(PopupMenuType type) {
                      LoadQueryCommands, TextZoomCommands>>(
           self.browser->GetCommandDispatcher());
   self.actionHandler.commandHandler = self.mediator;
+  self.actionHandler.navigationAgent =
+      WebNavigationBrowserAgent::FromBrowser(self.browser);
   tableViewController.delegate = self.actionHandler;
 
   self.presenter = [[PopupMenuPresenter alloc] init];

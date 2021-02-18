@@ -49,6 +49,7 @@ class PasswordModelTypeController : public syncer::ModelTypeController,
   void Stop(syncer::ShutdownReason shutdown_reason,
             StopCallback callback) override;
   PreconditionState GetPreconditionState() const override;
+  bool ShouldRunInTransportOnlyMode() const override;
 
   // SyncServiceObserver overrides.
   void OnStateChanged(syncer::SyncService* sync) override;
@@ -58,8 +59,8 @@ class PasswordModelTypeController : public syncer::ModelTypeController,
       const signin::AccountsInCookieJarInfo& accounts_in_cookie_jar_info,
       const GoogleServiceAuthError& error) override;
   void OnAccountsCookieDeletedByUserAction() override;
-  void OnPrimaryAccountCleared(
-      const CoreAccountInfo& previous_primary_account_info) override;
+  void OnPrimaryAccountChanged(
+      const signin::PrimaryAccountChangeEvent& event) override;
 
  private:
   void OnOptInStateMaybeChanged();

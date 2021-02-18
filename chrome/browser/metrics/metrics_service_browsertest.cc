@@ -12,6 +12,7 @@
 #include "base/command_line.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
+#include "base/files/file_util.h"
 #include "base/path_service.h"
 #include "base/process/memory.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -35,10 +36,10 @@
 #include "components/metrics/persistent_histograms.h"
 #include "components/prefs/json_pref_store.h"
 #include "components/prefs/pref_service.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "net/base/filename_util.h"
-#include "services/service_manager/embedder/switches.h"
 #include "testing/gmock/include/gmock/gmock-matchers.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/base/window_open_disposition.h"
@@ -166,9 +167,7 @@ IN_PROC_BROWSER_TEST_F(MetricsServiceBrowserTest, CloseRenderersNormally) {
 // Flaky on Linux. See http://crbug.com/131094
 // Child crashes fail the process on ASan (see crbug.com/411251,
 // crbug.com/368525).
-// Flaky timeouts on Win7 Tests (dbg)(1); see https://crbug.com/985255.
-#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(ADDRESS_SANITIZER) || \
-    (defined(OS_WIN) && !defined(NDEBUG))
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(ADDRESS_SANITIZER)
 #define MAYBE_CrashRenderers DISABLED_CrashRenderers
 #define MAYBE_CheckCrashRenderers DISABLED_CheckCrashRenderers
 #else
@@ -261,7 +260,7 @@ IN_PROC_BROWSER_TEST_F(MetricsServiceBrowserTest, OOMRenderers) {
   // Disable stack traces during this test since DbgHelp is unreliable in
   // low-memory conditions (see crbug.com/692564).
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
-      service_manager::switches::kDisableInProcessStackTraces);
+      switches::kDisableInProcessStackTraces);
 
   base::HistogramTester histogram_tester;
 

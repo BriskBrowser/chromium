@@ -10,7 +10,7 @@
 #include <sstream>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/format_macros.h"
 #include "base/macros.h"
 #include "base/strings/string_split.h"
@@ -346,7 +346,7 @@ void ShillPropertyHandler::ManagerPropertyChanged(const std::string& key,
     listener_->DefaultNetworkServiceChanged(service_path);
     return;
   }
-  NET_LOG(DEBUG) << "ManagerPropertyChanged: " << key;
+  NET_LOG(DEBUG) << "ManagerPropertyChanged: " << key << " = " << value;
   if (key == shill::kServiceCompleteListProperty) {
     const base::ListValue* vlist = GetListValue(key, value);
     if (vlist) {
@@ -378,7 +378,7 @@ void ShillPropertyHandler::ManagerPropertyChanged(const std::string& key,
     if (value.GetAsString(&prohibited_technologies))
       UpdateProhibitedTechnologies(prohibited_technologies);
   } else if (key == shill::kProfilesProperty) {
-    listener_->ProfileListChanged();
+    listener_->ProfileListChanged(value);
   } else if (key == shill::kCheckPortalListProperty) {
     std::string check_portal_list;
     if (value.GetAsString(&check_portal_list))

@@ -4,7 +4,7 @@
 
 #include "chrome/browser/ui/views/safe_browsing/password_reuse_modal_warning_dialog.h"
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/i18n/rtl.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/vector_icons/vector_icons.h"
@@ -14,9 +14,8 @@
 #include "chrome/grit/theme_resources.h"
 #include "components/constrained_window/constrained_window_views.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
-#include "components/password_manager/core/common/password_manager_features.h"
 #include "components/safe_browsing/buildflags.h"
-#include "components/safe_browsing/content/password_protection/metrics_util.h"
+#include "components/safe_browsing/core/password_protection/metrics_util.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/vector_icons/vector_icons.h"
 #include "content/public/browser/web_contents.h"
@@ -30,6 +29,7 @@
 #include "ui/views/controls/styled_label.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 using views::BoxLayout;
 
@@ -88,11 +88,7 @@ base::string16 GetOkButtonLabel(
     case safe_browsing::ReusedPasswordAccountType::NON_GAIA_ENTERPRISE:
       return l10n_util::GetStringUTF16(IDS_PAGE_INFO_CHANGE_PASSWORD_BUTTON);
     case safe_browsing::ReusedPasswordAccountType::SAVED_PASSWORD:
-      if (base::FeatureList::IsEnabled(
-              password_manager::features::kPasswordCheck)) {
-        return l10n_util::GetStringUTF16(IDS_PAGE_INFO_CHECK_PASSWORDS_BUTTON);
-      }
-      return l10n_util::GetStringUTF16(IDS_CLOSE);
+      return l10n_util::GetStringUTF16(IDS_PAGE_INFO_CHECK_PASSWORDS_BUTTON);
     default:
       return l10n_util::GetStringUTF16(IDS_PAGE_INFO_PROTECT_ACCOUNT_BUTTON);
   }
@@ -126,11 +122,11 @@ PasswordReuseModalWarningDialog::PasswordReuseModalWarningDialog(
       password_type_(password_type) {
   bool show_check_passwords = false;
 #if BUILDFLAG(FULL_SAFE_BROWSING)
-  show_check_passwords = base::FeatureList::IsEnabled(
-                             password_manager::features::kPasswordCheck) &&
-                         password_type_.account_type() ==
-                             ReusedPasswordAccountType::SAVED_PASSWORD;
+  show_check_passwords = password_type_.account_type() ==
+                         ReusedPasswordAccountType::SAVED_PASSWORD;
 #endif
+  SetModalType(ui::MODAL_TYPE_WINDOW);
+  SetShowIcon(true);
   if (password_type.account_type() !=
           ReusedPasswordAccountType::SAVED_PASSWORD ||
       show_check_passwords) {
@@ -248,10 +244,6 @@ gfx::Size PasswordReuseModalWarningDialog::CalculatePreferredSize() const {
   return gfx::Size(kDialogWidth, GetHeightForWidth(kDialogWidth));
 }
 
-ui::ModalType PasswordReuseModalWarningDialog::GetModalType() const {
-  return ui::MODAL_TYPE_WINDOW;
-}
-
 base::string16 PasswordReuseModalWarningDialog::GetWindowTitle() const {
   // It's ok to return an empty string for the title as this method
   // is from views::DialogDelegateView class.
@@ -274,10 +266,6 @@ gfx::ImageSkia PasswordReuseModalWarningDialog::GetWindowIcon() {
                    ChromeLayoutProvider::Get()->GetDistanceMetric(
                        DISTANCE_BUBBLE_HEADER_VECTOR_ICON_SIZE),
                    gfx::kChromeIconGrey);
-}
-
-bool PasswordReuseModalWarningDialog::ShouldShowWindowIcon() const {
-  return true;
 }
 
 void PasswordReuseModalWarningDialog::OnGaiaPasswordChanged() {
@@ -315,5 +303,8 @@ WarningUIType PasswordReuseModalWarningDialog::GetObserverType() {
 void PasswordReuseModalWarningDialog::WebContentsDestroyed() {
   GetWidget()->Close();
 }
+
+BEGIN_METADATA(PasswordReuseModalWarningDialog, views::DialogDelegateView)
+END_METADATA
 
 }  // namespace safe_browsing

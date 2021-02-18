@@ -17,6 +17,7 @@
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/platform/webaudiosourceprovider_impl.h"
 #include "third_party/blink/public/web/web_heap.h"
+#include "third_party/blink/renderer/modules/mediastream/mock_media_stream_audio_sink.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_audio_track.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_component.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_source.h"
@@ -30,19 +31,6 @@ static const int kAudioTrackSampleRate = 48000;
 static const int kAudioTrackSamplesPerBuffer =
     kAudioTrackSampleRate * kBufferDurationMs /
     base::Time::kMillisecondsPerSecond;
-
-class MockMediaStreamAudioSink final : public blink::WebMediaStreamAudioSink {
- public:
-  MockMediaStreamAudioSink() : blink::WebMediaStreamAudioSink() {}
-  ~MockMediaStreamAudioSink() override = default;
-
-  MOCK_METHOD1(OnSetFormat, void(const media::AudioParameters& params));
-  MOCK_METHOD2(OnData,
-               void(const media::AudioBus& audio_bus,
-                    base::TimeTicks estimated_capture_time));
-
-  DISALLOW_COPY_AND_ASSIGN(MockMediaStreamAudioSink);
-};
 
 // This test needs to bundle together plenty of objects, namely:
 // - a WebAudioSourceProviderImpl, which in turn needs an Audio Sink, in this
@@ -102,7 +90,7 @@ class HTMLAudioElementCapturerSourceTest : public testing::Test {
     media_stream_component_ = MakeGarbageCollected<MediaStreamComponent>(
         media_stream_source_->Id(), media_stream_source_);
 
-    // |media_stream_source_| takes wnership of
+    // |media_stream_source_| takes ownership of
     // HtmlAudioElementCapturerSource.
     auto capture_source = std::make_unique<HtmlAudioElementCapturerSource>(
         audio_source_, blink::scheduler::GetSingleThreadTaskRunnerForTesting());
@@ -179,6 +167,38 @@ TEST_F(HTMLAudioElementCapturerSourceTest,
 
   track()->Stop();
   base::RunLoop().RunUntilIdle();
+  track()->RemoveSink(&sink);
+}
+
+TEST_F(HTMLAudioElementCapturerSourceTest, TaintedPlayerDeliversMutedAudio) {
+  testing::InSequence s;
+
+  base::RunLoop run_loop;
+  base::OnceClosure quit_closure = run_loop.QuitClosure();
+
+  MockMediaStreamAudioSink sink;
+  track()->AddSink(&sink);
+  EXPECT_CALL(sink, OnSetFormat(testing::_)).Times(1);
+  EXPECT_CALL(
+      sink,
+      OnData(testing::AllOf(
+                 testing::Property(&media::AudioBus::channels,
+                                   kNumChannelsForTest),
+                 testing::Property(&media::AudioBus::frames,
+                                   kAudioTrackSamplesPerBuffer),
+                 testing::Property(&media::AudioBus::AreFramesZero, true)),
+             testing::_))
+      .Times(1)
+      .WillOnce([&](const auto&, auto) { std::move(quit_closure).Run(); });
+
+  audio_source_->TaintOrigin();
+
+  std::unique_ptr<media::AudioBus> bus =
+      media::AudioBus::Create(kNumChannelsForTest, kAudioTrackSamplesPerBuffer);
+  InjectAudio(bus.get());
+  run_loop.Run();
+
+  track()->Stop();
   track()->RemoveSink(&sink);
 }
 

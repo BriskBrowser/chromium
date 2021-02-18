@@ -20,15 +20,21 @@ class FakeNotificationManager : public NotificationManager {
   FakeNotificationManager();
   ~FakeNotificationManager() override;
 
+  using NotificationManager::SetNotificationsInternal;
+
+  using NotificationManager::RemoveNotificationsInternal;
+
+  using NotificationManager::ClearNotificationsInternal;
+
   void SetNotification(const Notification& notification);
-  void SetNotifications(const base::flat_set<Notification>& notifications);
 
   void RemoveNotification(int64_t id);
-  void RemoveNotifications(const base::flat_set<int64_t>& ids);
 
   const std::vector<int64_t>& dismissed_notification_ids() const {
     return dismissed_notification_ids_;
   }
+
+  size_t num_notifications() const { return id_to_notification_map_.size(); }
 
   struct InlineReplyMetadata {
     InlineReplyMetadata(int64_t notification_id,
@@ -45,12 +51,10 @@ class FakeNotificationManager : public NotificationManager {
 
  private:
   // NotificationManager:
-  const Notification* GetNotification(int64_t notification_id) const override;
   void DismissNotification(int64_t notification_id) override;
   void SendInlineReply(int64_t notification_id,
                        const base::string16& inline_reply_text) override;
 
-  std::unordered_map<int64_t, Notification> id_to_notification_map_;
   std::vector<int64_t> dismissed_notification_ids_;
   std::vector<InlineReplyMetadata> inline_replies_;
 };

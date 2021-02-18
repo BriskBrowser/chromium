@@ -11,10 +11,11 @@
 #include "ash/accessibility/accessibility_controller_impl.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/window_properties.h"
-#include "ash/public/cpp/window_state_type.h"
 #include "ash/scoped_animation_disabler.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "ash/style/default_color_constants.h"
+#include "ash/style/default_colors.h"
 #include "ash/wm/desks/desks_util.h"
 #include "ash/wm/drag_window_controller.h"
 #include "ash/wm/overview/delayed_animation_observer_impl.h"
@@ -36,11 +37,13 @@
 #include "ash/wm/window_preview_view.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_transient_descendant_iterator.h"
+#include "ash/wm/window_util.h"
 #include "ash/wm/wm_event.h"
 #include "base/auto_reset.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/metrics/user_metrics.h"
+#include "chromeos/ui/base/window_state_type.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -60,6 +63,8 @@
 namespace ash {
 
 namespace {
+
+using ::chromeos::WindowStateType;
 
 // Opacity for fading out during closing a window.
 constexpr float kClosingItemOpacity = 0.8f;
@@ -126,8 +131,7 @@ OverviewAnimationType GetExitOverviewAnimationTypeForMinimizedWindow(
   // OverviewEnterExitType can only be set to kWindowMinimized in talbet mode.
   // Fade out the minimized window without animation if switch from tablet mode
   // to clamshell mode.
-  if (type == OverviewEnterExitType::kSlideOutExit ||
-      type == OverviewEnterExitType::kFadeOutExit) {
+  if (type == OverviewEnterExitType::kFadeOutExit) {
     return Shell::Get()->tablet_mode_controller()->InTabletMode()
                ? OVERVIEW_ANIMATION_EXIT_TO_HOME_LAUNCHER
                : OVERVIEW_ANIMATION_NONE;
@@ -183,20 +187,14 @@ OverviewItem::OverviewItem(aura::Window* window,
       overview_session_(overview_session),
       overview_grid_(overview_grid) {
   CreateItemWidget();
-  for (auto* window_iter : WindowTransientDescendantIteratorRange(
-           WindowTransientDescendantIterator(window))) {
-    window_iter->AddObserver(this);
-  }
+  window->AddObserver(this);
   WindowState::Get(window)->AddObserver(this);
 }
 
 OverviewItem::~OverviewItem() {
   aura::Window* window = GetWindow();
   WindowState::Get(window)->RemoveObserver(this);
-  for (auto* window_iter : WindowTransientDescendantIteratorRange(
-           WindowTransientDescendantIterator(window))) {
-    window_iter->RemoveObserver(this);
-  }
+  window->RemoveObserver(this);
 }
 
 aura::Window* OverviewItem::GetWindow() {
@@ -242,10 +240,7 @@ void OverviewItem::RestoreWindow(bool reset_transform) {
     OverviewAnimationType animation_type =
         GetExitOverviewAnimationTypeForMinimizedWindow(
             enter_exit_type, should_animate_when_exiting_);
-    FadeOutWidgetAndMaybeSlideOnExit(
-        std::move(item_widget_), animation_type,
-        animation_type == OVERVIEW_ANIMATION_EXIT_TO_HOME_LAUNCHER &&
-            enter_exit_type == OverviewEnterExitType::kSlideOutExit);
+    FadeOutWidgetFromOverview(std::move(item_widget_), animation_type);
   }
 }
 
@@ -365,22 +360,15 @@ void OverviewItem::SetBounds(const gfx::RectF& target_bounds,
           PerformItemSpawnedAnimation(item_widget_->GetNativeWindow(),
                                       gfx::Transform{});
         } else {
-          // Items that are slide in already have their slide in animations
-          // handled in |SlideWindowIn|.
-          const bool slide_in = overview_session_->enter_exit_overview_type() ==
-                                OverviewEnterExitType::kSlideInEnter;
-          if (!slide_in) {
-            // If entering from home launcher, use the home specific (fade)
-            // animation.
-            OverviewAnimationType fade_animation =
-                animation_type == OVERVIEW_ANIMATION_ENTER_FROM_HOME_LAUNCHER
-                    ? animation_type
-                    : OVERVIEW_ANIMATION_ENTER_OVERVIEW_MODE_FADE_IN;
+          // If entering from home launcher, use the home specific (fade)
+          // animation.
+          OverviewAnimationType fade_animation =
+              animation_type == OVERVIEW_ANIMATION_ENTER_FROM_HOME_LAUNCHER
+                  ? animation_type
+                  : OVERVIEW_ANIMATION_ENTER_OVERVIEW_MODE_FADE_IN;
 
-            FadeInWidgetAndMaybeSlideOnEnter(item_widget_.get(), fade_animation,
-                                             /*slide=*/false,
-                                             /*observe=*/true);
-          }
+          FadeInWidgetToOverview(item_widget_.get(), fade_animation,
+                                 /*observe=*/true);
 
           // Update the item header visibility immediately if entering from home
           // launcher.
@@ -412,16 +400,6 @@ void OverviewItem::SetBounds(const gfx::RectF& target_bounds,
         cannot_snap_widget_->GetBoundsCenteredIn(
             ToStableSizeRoundedRect(GetWindowTargetBoundsWithInsets())),
         new_animation_type, nullptr);
-  }
-
-  translation_y_map_.clear();
-  aura::Window::Windows windows = GetWindowsForHomeGesture();
-  for (auto* window : windows) {
-    // Cache the original y translation when setting bounds. They will be
-    // possibly used later when swiping up from the shelf to close overview. Use
-    // the target transform as some windows may still be animating.
-    translation_y_map_[window] =
-        window->layer()->GetTargetTransform().To2dTranslation().y();
   }
 }
 
@@ -504,8 +482,12 @@ void OverviewItem::UpdateCannotSnapWarningVisibility() {
     RoundedLabelWidget::InitParams params;
     params.horizontal_padding = kSplitviewLabelHorizontalInsetDp;
     params.vertical_padding = kSplitviewLabelVerticalInsetDp;
-    params.background_color = kSplitviewLabelBackgroundColor;
-    params.foreground_color = kSplitviewLabelEnabledColor;
+    params.background_color = DeprecatedGetBaseLayerColor(
+        AshColorProvider::BaseLayerType::kTransparent80,
+        kSplitviewLabelBackgroundColor);
+    params.foreground_color = DeprecatedGetContentLayerColor(
+        AshColorProvider::ContentLayerType::kTextColorPrimary,
+        kSplitviewLabelEnabledColor);
     params.rounding_dp = kSplitviewLabelRoundRectRadiusDp;
     params.preferred_height = kSplitviewLabelPreferredHeightDp;
     params.message_id = IDS_ASH_SPLIT_VIEW_CANNOT_SNAP;
@@ -607,54 +589,6 @@ void OverviewItem::ScaleUpSelectedItem(OverviewAnimationType animation_type) {
   SetBounds(scaled_bounds, animation_type);
 }
 
-void OverviewItem::SlideWindowIn() {
-  // This only gets called if we see the home launcher on enter (all windows are
-  // minimized).
-  DCHECK(transform_window_.IsMinimized());
-
-  // The mask and shadow will be shown when animation ends. Update the mask
-  // after starting the animation since starting the animation lets the
-  // controller know we are in starting animation.
-  FadeInWidgetAndMaybeSlideOnEnter(item_widget_.get(),
-                                   OVERVIEW_ANIMATION_ENTER_FROM_HOME_LAUNCHER,
-                                   /*slide=*/true, /*observe=*/true);
-  UpdateRoundedCornersAndShadow();
-}
-
-std::unique_ptr<ui::ScopedLayerAnimationSettings>
-OverviewItem::UpdateYPositionAndOpacity(
-    float new_grid_y,
-    float opacity,
-    OverviewSession::UpdateAnimationSettingsCallback callback) {
-  aura::Window::Windows windows = GetWindowsForHomeGesture();
-  std::unique_ptr<ui::ScopedLayerAnimationSettings> settings_to_observe;
-  for (auto* window : windows) {
-    ui::Layer* layer = window->layer();
-    std::unique_ptr<ui::ScopedLayerAnimationSettings> settings;
-    if (!callback.is_null()) {
-      settings = std::make_unique<ui::ScopedLayerAnimationSettings>(
-          layer->GetAnimator());
-      callback.Run(settings.get());
-    }
-    layer->SetOpacity(opacity);
-
-    float initial_y = 0.f;
-    if (translation_y_map_.contains(window))
-      initial_y = translation_y_map_[window];
-
-    // Alter the y-translation. Offset by the window location relative to the
-    // grid.
-    gfx::Transform transform = layer->transform();
-    transform.matrix().setFloat(1, 3, initial_y - new_grid_y);
-    layer->SetTransform(transform);
-
-    if (settings)
-      settings_to_observe = std::move(settings);
-  }
-
-  return settings_to_observe;
-}
-
 void OverviewItem::UpdateItemContentViewForMinimizedWindow() {
   overview_item_view_->RefreshPreviewView();
 }
@@ -705,7 +639,6 @@ void OverviewItem::Restack() {
 }
 
 void OverviewItem::UpdatePhantomsForDragging(bool is_touch_dragging) {
-  DCHECK(AreMultiDisplayOverviewAndSplitViewEnabled());
   DCHECK_GT(Shell::GetAllRootWindows().size(), 1u);
   if (!phantoms_for_dragging_) {
     phantoms_for_dragging_ =
@@ -720,7 +653,6 @@ void OverviewItem::UpdatePhantomsForDragging(bool is_touch_dragging) {
 }
 
 void OverviewItem::DestroyPhantomsForDragging() {
-  DCHECK(AreMultiDisplayOverviewAndSplitViewEnabled());
   phantoms_for_dragging_.reset();
 }
 
@@ -796,9 +728,9 @@ void OverviewItem::OnStartingAnimationComplete() {
     overview_item_view_->SetHeaderVisibility(
         OverviewItemView::HeaderVisibility::kVisible);
   } else {
-    FadeInWidgetAndMaybeSlideOnEnter(
-        item_widget_.get(), OVERVIEW_ANIMATION_ENTER_OVERVIEW_MODE_FADE_IN,
-        /*slide=*/false, /*observe=*/false);
+    FadeInWidgetToOverview(item_widget_.get(),
+                           OVERVIEW_ANIMATION_ENTER_OVERVIEW_MODE_FADE_IN,
+                           /*observe=*/false);
   }
   const bool show_backdrop =
       GetWindowDimensionsType() != OverviewGridWindowFillMode::kNormal;
@@ -954,10 +886,6 @@ void OverviewItem::HandleGestureEvent(ui::GestureEvent* event) {
   }
 }
 
-bool OverviewItem::ShouldIgnoreGestureEvents() {
-  return IsSlidingOutOverviewFromShelf();
-}
-
 void OverviewItem::OnHighlightedViewActivated() {
   overview_session_->OnHighlightedItemActivated(this);
 }
@@ -966,28 +894,19 @@ void OverviewItem::OnHighlightedViewClosed() {
   overview_session_->OnHighlightedItemClosed(this);
 }
 
-void OverviewItem::ButtonPressed(views::Button* sender,
-                                 const ui::Event& event) {
-  DCHECK_EQ(sender, overview_item_view_->close_button());
-  if (IsSlidingOutOverviewFromShelf())
-    return;
-
-  base::RecordAction(
-      base::UserMetricsAction("WindowSelector_OverviewCloseButton"));
-  if (Shell::Get()->tablet_mode_controller()->InTabletMode()) {
-    base::RecordAction(
-        base::UserMetricsAction("Tablet_WindowCloseFromOverviewButton"));
-  }
-  CloseWindow();
-}
-
 void OverviewItem::OnWindowPropertyChanged(aura::Window* window,
                                            const void* key,
                                            intptr_t old) {
-  if (prepared_for_overview_ && window == GetWindow() &&
-      key == aura::client::kTopViewInset &&
-      window->GetProperty(aura::client::kTopViewInset) !=
-          static_cast<int>(old)) {
+  DCHECK_EQ(GetWindow(), window);
+
+  if (!prepared_for_overview_)
+    return;
+
+  if (key != aura::client::kTopViewInset)
+    return;
+
+  if (window->GetProperty(aura::client::kTopViewInset) !=
+      static_cast<int>(old)) {
     overview_grid_->PositionWindows(/*animate=*/false);
   }
 }
@@ -996,37 +915,31 @@ void OverviewItem::OnWindowBoundsChanged(aura::Window* window,
                                          const gfx::Rect& old_bounds,
                                          const gfx::Rect& new_bounds,
                                          ui::PropertyChangeReason reason) {
+  DCHECK_EQ(GetWindow(), window);
+
   // During preparation, window bounds can change. Ignore bounds change
   // notifications in this case; we'll reposition soon.
   if (!prepared_for_overview_)
     return;
 
-  // Do not keep the overview bounds if we're shutting down.
+  // Do not update the overview bounds if we're shutting down.
   if (!Shell::Get()->overview_controller()->InOverviewSession())
+    return;
+
+  // Do not update the overview item if the window is to be snapped into split
+  // view. It will be removed from overview soon and will update overview grid
+  // at that moment.
+  if (SplitViewController::Get(window)->IsWindowInTransitionalState(window))
     return;
 
   // The drop target will get its bounds set as opposed to its transform
   // set in |SetItemBounds| so do not position windows again when that
   // particular window has its bounds changed.
-  aura::Window* main_window = GetWindow();
-  if (overview_grid_->IsDropTargetWindow(main_window))
+  if (overview_grid_->IsDropTargetWindow(window))
     return;
 
-  if (reason == ui::PropertyChangeReason::NOT_FROM_ANIMATION) {
-    if (window == main_window) {
-      overview_item_view_->RefreshPreviewView();
-    } else {
-      // Transient window is repositioned. The new position within the
-      // overview item needs to be recomputed. No need to recompute if the
-      // transient is invisible. It will get placed properly when it reshows on
-      // overview end.
-      if (window->IsVisible())
-        SetBounds(target_bounds_, OVERVIEW_ANIMATION_NONE);
-    }
-  }
-
-  if (window != main_window)
-    return;
+  if (reason == ui::PropertyChangeReason::NOT_FROM_ANIMATION)
+    overview_item_view_->RefreshPreviewView();
 
   // Immediately finish any active bounds animation.
   window->layer()->GetAnimator()->StopAnimatingProperty(
@@ -1036,22 +949,23 @@ void OverviewItem::OnWindowBoundsChanged(aura::Window* window,
 }
 
 void OverviewItem::OnWindowDestroying(aura::Window* window) {
-  // Stops observing the window and all of its transient descendents.
-  for (auto* window_iter : WindowTransientDescendantIteratorRange(
-           WindowTransientDescendantIterator(window))) {
-    window_iter->RemoveObserver(this);
-  }
-
-  if (window != GetWindow())
-    return;
+  DCHECK_EQ(GetWindow(), window);
 
   if (is_being_dragged_) {
     DCHECK_EQ(this, overview_session_->window_drag_controller()->item());
     overview_session_->window_drag_controller()->ResetGesture();
   }
 
-  overview_grid_->RemoveItem(this, /*item_destroying=*/true,
-                             /*reposition=*/!animating_to_close_);
+  // Remove the item from the session which will remove it from the grid in
+  // addition to updating accessibility states. If the session is not available
+  // then remove it from the grid directly.
+  if (overview_session_) {
+    overview_session_->RemoveItem(this, /*item_destroying=*/true,
+                                  /*reposition=*/!animating_to_close_);
+  } else {
+    overview_grid()->RemoveItem(this, /*item_destroying=*/true,
+                                /*reposition=*/!animating_to_close_);
+  }
 
   Shell::Get()
       ->accessibility_controller()
@@ -1074,16 +988,15 @@ void OverviewItem::OnPostWindowStateTypeChange(WindowState* window_state,
   if (!prepared_for_overview_)
     return;
 
-  // When swiping away overview mode via shelf, windows will get minimized, but
-  // we do not want show a mirrored view in this case.
-  if (overview_session_->enter_exit_overview_type() ==
-      OverviewEnterExitType::kSwipeFromShelf) {
+  // Minimizing an originally active window will activate and unminimize the
+  // window upon exiting, and the item window will be "moved" to fade out in
+  // 'RestoreWindow'.
+  if (!item_widget_)
     return;
-  }
 
   WindowStateType new_type = window_state->GetStateType();
-  if (IsMinimizedWindowStateType(old_type) ==
-      IsMinimizedWindowStateType(new_type)) {
+  if (chromeos::IsMinimizedWindowStateType(old_type) ==
+      chromeos::IsMinimizedWindowStateType(new_type)) {
     return;
   }
 
@@ -1173,7 +1086,8 @@ void OverviewItem::PerformItemSpawnedAnimation(
   transform_window_.SetOpacity(kInitialScaler);
 
   ScopedOverviewTransformWindow::ScopedAnimationSettings animation_settings;
-  for (auto* window_iter : GetVisibleTransientTreeIterator(window)) {
+  for (auto* window_iter :
+       window_util::GetVisibleTransientTreeIterator(window)) {
     auto settings = std::make_unique<ScopedOverviewAnimationSettings>(
         OVERVIEW_ANIMATION_SPAWN_ITEM_IN_OVERVIEW, window_iter);
     settings->DeferPaint();
@@ -1238,9 +1152,21 @@ void OverviewItem::SetItemBounds(const gfx::RectF& target_bounds,
   const gfx::Transform transform =
       gfx::TransformBetweenRects(screen_rect, overview_item_bounds);
 
+  // Determine the amount of clipping we should put on the window. Note that the
+  // clipping goes after setting a transform, as layer transform affects layer
+  // clip.
+  using ClippingType = ScopedOverviewTransformWindow::ClippingType;
+  ScopedOverviewTransformWindow::ClippingData clipping_data{
+      ClippingType::kCustom, gfx::SizeF()};
+  if (unclipped_size_)
+    clipping_data.second = GetWindowTargetBoundsWithInsets().size();
+  else if (is_first_update)
+    clipping_data.first = ClippingType::kEnter;
+
   if (is_first_update &&
       animation_type == OVERVIEW_ANIMATION_SPAWN_ITEM_IN_OVERVIEW) {
     PerformItemSpawnedAnimation(window, transform);
+    transform_window_.SetClipping(clipping_data);
     return;
   }
 
@@ -1255,14 +1181,6 @@ void OverviewItem::SetItemBounds(const gfx::RectF& target_bounds,
                        weak_ptr_factory_.GetWeakPtr())});
   }
   SetTransform(window, transform);
-
-  using ClippingType = ScopedOverviewTransformWindow::ClippingType;
-  ScopedOverviewTransformWindow::ClippingData clipping_data{
-      ClippingType::kCustom, gfx::SizeF()};
-  if (unclipped_size_)
-    clipping_data.second = GetWindowTargetBoundsWithInsets().size();
-  else if (is_first_update)
-    clipping_data.first = ClippingType::kEnter;
   transform_window_.SetClipping(clipping_data);
 }
 
@@ -1291,8 +1209,11 @@ void OverviewItem::CreateItemWidget() {
   item_widget_->GetLayer()->Add(shadow_->layer());
 
   overview_item_view_ =
-      new OverviewItemView(this, GetWindow(), transform_window_.IsMinimized());
-  item_widget_->SetContentsView(overview_item_view_);
+      item_widget_->SetContentsView(std::make_unique<OverviewItemView>(
+          this,
+          base::BindRepeating(&OverviewItem::CloseButtonPressed,
+                              base::Unretained(this)),
+          GetWindow(), transform_window_.IsMinimized()));
   item_widget_->Show();
   item_widget_->SetOpacity(0.f);
   item_widget_->GetLayer()->SetMasksToBounds(false);
@@ -1353,6 +1274,16 @@ void OverviewItem::StartDrag() {
     widget_window->parent()->StackChildAtTop(window);
     widget_window->parent()->StackChildBelow(widget_window, window);
   }
+}
+
+void OverviewItem::CloseButtonPressed() {
+  base::RecordAction(
+      base::UserMetricsAction("WindowSelector_OverviewCloseButton"));
+  if (Shell::Get()->tablet_mode_controller()->InTabletMode()) {
+    base::RecordAction(
+        base::UserMetricsAction("Tablet_WindowCloseFromOverviewButton"));
+  }
+  CloseWindow();
 }
 
 void OverviewItem::HandlePressEvent(const gfx::PointF& location_in_screen,

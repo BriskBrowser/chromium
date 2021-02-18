@@ -135,7 +135,7 @@ _NAMED_TYPE_INFO = {
       'viz::ResourceFormat::BGRA_1010102',
       'viz::ResourceFormat::YVU_420',
       'viz::ResourceFormat::YUV_420_BIPLANAR',
-
+      'viz::ResourceFormat::P010',
     ],
     'invalid': [
       'viz::ResourceFormat::ETC1',
@@ -205,11 +205,11 @@ _FUNCTION_INFO = {
     'unit_test': False,
     'trace_level': 2,
   },
-  'ConvertYUVMailboxesToRGBINTERNAL': {
-    'decoder_func': 'DoConvertYUVMailboxesToRGBINTERNAL',
+  'ConvertYUVAMailboxesToRGBINTERNAL': {
+    'decoder_func': 'DoConvertYUVAMailboxesToRGBINTERNAL',
     'internal': True,
     'type': 'PUT',
-    'count': 64, #GL_MAILBOX_SIZE_CHROMIUM x4
+    'count': 80, #GL_MAILBOX_SIZE_CHROMIUM x5
     'unit_test': False,
     'trace_level': 2,
   },

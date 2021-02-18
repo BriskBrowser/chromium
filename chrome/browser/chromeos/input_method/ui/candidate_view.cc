@@ -15,6 +15,7 @@
 #include "ui/views/background.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/label.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 
 namespace ui {
@@ -26,7 +27,10 @@ namespace {
 // the vertical candidate window.
 class VerticalCandidateLabel : public views::Label {
  public:
+  METADATA_HEADER(VerticalCandidateLabel);
   VerticalCandidateLabel() = default;
+  VerticalCandidateLabel(const VerticalCandidateLabel&) = delete;
+  VerticalCandidateLabel& operator=(const VerticalCandidateLabel&) = delete;
   ~VerticalCandidateLabel() override = default;
 
  private:
@@ -39,11 +43,10 @@ class VerticalCandidateLabel : public views::Label {
     size.SetToMin(gfx::Size(kMaxCandidateLabelWidth, size.height()));
     return size;
   }
-
-  const char* GetClassName() const override { return "VerticalCandidateLabel"; }
-
-  DISALLOW_COPY_AND_ASSIGN(VerticalCandidateLabel);
 };
+
+BEGIN_METADATA(VerticalCandidateLabel, views::Label)
+END_METADATA
 
 // Creates the shortcut label, and returns it (never returns nullptr).
 // The label text is not set in this function.
@@ -128,9 +131,9 @@ std::unique_ptr<views::Label> CreateAnnotationLabel(
 
 }  // namespace
 
-CandidateView::CandidateView(views::ButtonListener* listener,
+CandidateView::CandidateView(PressedCallback callback,
                              ui::CandidateWindow::Orientation orientation)
-    : views::Button(listener), orientation_(orientation) {
+    : views::Button(std::move(callback)), orientation_(orientation) {
   SetBorder(views::CreateEmptyBorder(1, 1, 1, 1));
 
   const ui::NativeTheme& theme = *GetNativeTheme();
@@ -144,6 +147,8 @@ CandidateView::CandidateView(views::ButtonListener* listener,
         theme.GetSystemColor(ui::NativeTheme::kColorId_FocusedBorderColor)));
     infolist_icon_ = AddChildView(std::move(infolist_icon));
   }
+
+  SetFocusBehavior(views::View::FocusBehavior::ACCESSIBLE_ONLY);
 }
 
 void CandidateView::GetPreferredWidths(int* shortcut_width,
@@ -207,10 +212,6 @@ void CandidateView::StateChanged(ButtonState old_state) {
       *shortcut_label_, views::style::CONTEXT_LABEL, text_style));
   if (GetState() == STATE_PRESSED)
     SetHighlighted(true);
-}
-
-const char* CandidateView::GetClassName() const {
-  return "CandidateView";
 }
 
 bool CandidateView::OnMouseDragged(const ui::MouseEvent& event) {
@@ -297,6 +298,9 @@ void CandidateView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   node_data->AddIntAttribute(ax::mojom::IntAttribute::kSetSize,
                              total_candidates_);
 }
+
+BEGIN_METADATA(CandidateView, views::Button)
+END_METADATA
 
 }  // namespace ime
 }  // namespace ui

@@ -7,6 +7,7 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/mock_callback.h"
 #include "base/test/task_environment.h"
+#include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/testing_pref_service.h"
@@ -20,7 +21,7 @@ namespace {
 
 constexpr char kMockResponse[] = R"({
   "google.com": "https://google.com/change-password",
-  "a.netlify.com": "https://a.netlify.com/change-password",
+  "a.blogspot.com": "https://a.blogspot.com/change-password",
   "web.app": "https://web.app/change-password"
 })";
 }  // namespace
@@ -94,10 +95,10 @@ TEST_F(ChangePasswordUrlServiceTest, eTLDLookup) {
 
   EXPECT_EQ(GetChangePasswordUrl(GURL("https://web.app")), GURL());
 
-  EXPECT_EQ(GetChangePasswordUrl(GURL("https://netlify.com")), GURL());
-  EXPECT_EQ(GetChangePasswordUrl(GURL("https://a.netlify.com")),
-            GURL("https://a.netlify.com/change-password"));
-  EXPECT_EQ(GetChangePasswordUrl(GURL("https://b.netlify.com")), GURL());
+  EXPECT_EQ(GetChangePasswordUrl(GURL("https://blogspot.com")), GURL());
+  EXPECT_EQ(GetChangePasswordUrl(GURL("https://a.blogspot.com")),
+            GURL("https://a.blogspot.com/change-password"));
+  EXPECT_EQ(GetChangePasswordUrl(GURL("https://b.blogspot.com")), GURL());
 
   EXPECT_EQ(GetChangePasswordUrl(GURL("https://notlisted.com/foo")), GURL());
 }
@@ -141,7 +142,7 @@ TEST_F(ChangePasswordUrlServiceTest,
   EXPECT_EQ(GetChangePasswordUrl(GURL("https://google.com/foo")), GURL());
   histogram_tester().ExpectUniqueSample(
       kGetChangePasswordUrlMetricName,
-      GetChangePasswordUrlMetric::kNotFetchedYet, 1);
+      metrics_util::GetChangePasswordUrlMetric::kNotFetchedYet, 1);
 }
 
 TEST_F(ChangePasswordUrlServiceTest,
@@ -152,7 +153,7 @@ TEST_F(ChangePasswordUrlServiceTest,
             GURL("https://google.com/change-password"));
   histogram_tester().ExpectUniqueSample(
       kGetChangePasswordUrlMetricName,
-      GetChangePasswordUrlMetric::kUrlOverrideUsed, 1);
+      metrics_util::GetChangePasswordUrlMetric::kUrlOverrideUsed, 1);
 }
 
 TEST_F(ChangePasswordUrlServiceTest,
@@ -162,7 +163,7 @@ TEST_F(ChangePasswordUrlServiceTest,
   EXPECT_EQ(GetChangePasswordUrl(GURL("https://netflix.com")), GURL());
   histogram_tester().ExpectUniqueSample(
       kGetChangePasswordUrlMetricName,
-      GetChangePasswordUrlMetric::kNoUrlOverrideAvailable, 1);
+      metrics_util::GetChangePasswordUrlMetric::kNoUrlOverrideAvailable, 1);
 }
 
 TEST_F(ChangePasswordUrlServiceTest, NetworkMetrics_Failed) {

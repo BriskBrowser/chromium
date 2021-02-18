@@ -30,7 +30,6 @@ class NearbyShareContactDownloaderImpl : public NearbyShareContactDownloader {
   class Factory {
    public:
     static std::unique_ptr<NearbyShareContactDownloader> Create(
-        bool only_download_if_changed,
         const std::string& device_id,
         base::TimeDelta timeout,
         NearbyShareClientFactory* client_factory,
@@ -41,7 +40,6 @@ class NearbyShareContactDownloaderImpl : public NearbyShareContactDownloader {
    protected:
     virtual ~Factory();
     virtual std::unique_ptr<NearbyShareContactDownloader> CreateInstance(
-        bool only_download_if_changed,
         const std::string& device_id,
         base::TimeDelta timeout,
         NearbyShareClientFactory* client_factory,
@@ -57,8 +55,7 @@ class NearbyShareContactDownloaderImpl : public NearbyShareContactDownloader {
  private:
   // |timeout|: The maximum amount of time to wait between the request and
   //            response of each HTTP call before failing.
-  NearbyShareContactDownloaderImpl(bool only_download_if_changed,
-                                   const std::string& device_id,
+  NearbyShareContactDownloaderImpl(const std::string& device_id,
                                    base::TimeDelta timeout,
                                    NearbyShareClientFactory* client_factory,
                                    SuccessCallback success_callback,
@@ -66,11 +63,6 @@ class NearbyShareContactDownloaderImpl : public NearbyShareContactDownloader {
 
   // NearbyShareContactDownloader:
   void OnRun() override;
-
-  void CheckIfContactsChanged();
-  void OnContactChangeCheckSuccess();
-  void OnContactChangeCheckFailure(NearbyShareHttpError error);
-  void OnContactChangeCheckTimeout();
 
   void CallListContactPeople(
       const base::Optional<std::string>& next_page_token);
@@ -80,7 +72,6 @@ class NearbyShareContactDownloaderImpl : public NearbyShareContactDownloader {
   void OnListContactPeopleTimeout();
 
   size_t current_page_number_ = 0;
-  bool did_contacts_change_since_last_upload_ = false;
   std::vector<nearbyshare::proto::ContactRecord> contacts_;
   base::TimeDelta timeout_;
   NearbyShareClientFactory* client_factory_ = nullptr;

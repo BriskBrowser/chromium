@@ -11,6 +11,7 @@
 #include "chromeos/services/assistant/public/shared/constants.h"
 #include "net/base/escape.h"
 #include "net/base/url_util.h"
+#include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/simple_url_loader.h"
 #include "url/gurl.h"
 
@@ -29,6 +30,9 @@ using network::mojom::URLLoaderFactory;
 //   "client_id": {
 //     "client_type": "EXPERIMENTAL"
 //   }
+//   "options": {
+//     "page_size": "1"
+//   }
 // }
 //
 // Which is:
@@ -37,12 +41,17 @@ using network::mojom::URLLoaderFactory;
 //      "raw_query": STRING
 //   "client_id": DICT
 //       "client_type": STRING
+//   "options": DICT
+//       "page_size": STRING
 
 constexpr base::StringPiece kQueryKey = "query";
 constexpr base::StringPiece kRawQueryKey = "rawQuery";
 constexpr base::StringPiece kClientTypeKey = "clientType";
 constexpr base::StringPiece kClientIdKey = "clientId";
 constexpr base::StringPiece kClientType = "QUICK_ANSWERS_CROS";
+constexpr base::StringPiece kPageSizeKey = "pageSize";
+constexpr base::StringPiece kOptionsKey = "options";
+constexpr base::StringPiece kPageSize = "1";
 
 std::string BuildSearchRequestPayload(const std::string& selected_text) {
   Value payload(Value::Type::DICTIONARY);
@@ -55,6 +64,10 @@ std::string BuildSearchRequestPayload(const std::string& selected_text) {
   Value client_id(Value::Type::DICTIONARY);
   client_id.SetKey(kClientTypeKey, Value(kClientType));
   payload.SetKey(kClientIdKey, std::move(client_id));
+
+  Value options(Value::Type::DICTIONARY);
+  options.SetKey(kPageSizeKey, Value(kPageSize));
+  payload.SetKey(kOptionsKey, std::move(options));
 
   std::string request_payload_str;
   base::JSONWriter::Write(payload, &request_payload_str);
@@ -70,18 +83,23 @@ SearchResultLoader::SearchResultLoader(URLLoaderFactory* url_loader_factory,
 
 SearchResultLoader::~SearchResultLoader() = default;
 
-GURL SearchResultLoader::BuildRequestUrl(
-    const std::string& selected_text) const {
-  GURL result = GURL(assistant::kKnowledgeApiEndpoint);
+void SearchResultLoader::BuildRequest(
+    const PreprocessedOutput& preprocessed_output,
+    BuildRequestCallback callback) const {
+  GURL url = GURL(assistant::kKnowledgeApiEndpoint);
 
   // Add encoded request payload.
-  result = net::AppendOrReplaceQueryParameter(
-      result, assistant::kPayloadParamName,
-      BuildSearchRequestPayload(selected_text));
-  return result;
+  url = net::AppendOrReplaceQueryParameter(
+      url, assistant::kPayloadParamName,
+      BuildSearchRequestPayload(preprocessed_output.query));
+
+  auto resource_request = std::make_unique<network::ResourceRequest>();
+  resource_request->url = url;
+  std::move(callback).Run(std::move(resource_request), std::string());
 }
 
 void SearchResultLoader::ProcessResponse(
+    const PreprocessedOutput& preprocessed_output,
     std::unique_ptr<std::string> response_body,
     ResponseParserCallback complete_callback) {
   search_response_parser_ =

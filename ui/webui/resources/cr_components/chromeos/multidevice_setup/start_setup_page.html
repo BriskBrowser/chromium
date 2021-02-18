@@ -1,11 +1,14 @@
 <link rel="import" href="../../../html/polymer.html">
 
 <link rel="import" href="icons.html">
+<link rel="import" href="mojo_api.html">
+<link rel="import" href="multidevice_setup_delegate.html">
 <link rel="import" href="multidevice_setup_shared_css.html">
 <link rel="import" href="ui_page.html">
 <link rel="import" href="ui_page_container_behavior.html">
 <link rel="import" href="../../../html/cr.html">
 <link rel="import" href="../../../html/web_ui_listener_behavior.html">
+<link rel="import" href="chrome://resources/html/load_time_data.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-icon/iron-icon.html">
 
 <dom-module id="start-setup-page">
@@ -36,8 +39,8 @@
       }
 
       #page-icon {
-        background-image: -webkit-image-set(url(start_setup_icon_1x.png) 1x,
-                                            url(start_setup_icon_2x.png) 2x);
+        background-image: -webkit-image-set(url(chrome://resources/cr_components/chromeos/multidevice_setup/start_setup_icon_1x.png) 1x,
+                                            url(chrome://resources/cr_components/chromeos/multidevice_setup/start_setup_icon_2x.png) 2x);
         height: 116px;
         margin-top: 10px;
         width: 320px;
@@ -162,6 +165,15 @@
                 </span>
               </div>
             </template>
+            <template is="dom-if" if="[[wifiSyncEnabled_]]">
+              <div class="feature-detail">
+                <iron-icon icon="multidevice-setup-icons-20:wifi">
+                </iron-icon>
+                <span>
+                  [[i18nDynamic(locale, 'startSetupPageFeatureWifiSync')]]
+                </span>
+              </div>
+            </template>
             <div class="feature-detail">
               <iron-icon icon="multidevice-setup-icons-20:downloads">
               </iron-icon>
@@ -180,6 +192,5 @@
       </div>
     </ui-page>
   </template>
-  <script src="start_setup_page.js">
-  </script>
+  <script src="start_setup_page.js"></script>
 </dom-module>

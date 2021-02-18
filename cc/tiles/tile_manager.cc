@@ -338,18 +338,21 @@ class DidFinishRunningAllTilesTask : public TileTask {
  public:
   using CompletionCb = base::OnceCallback<void(bool has_pending_queries)>;
   DidFinishRunningAllTilesTask(base::SequencedTaskRunner* task_runner,
-                               RasterBufferProvider* raster_buffer_provider,
+                               RasterQueryQueue* pending_raster_queries,
                                CompletionCb completion_cb)
       : TileTask(TileTask::SupportsConcurrentExecution::kNo,
                  TileTask::SupportsBackgroundThreadPriority::kYes),
         task_runner_(task_runner),
-        raster_buffer_provider_(raster_buffer_provider),
+        pending_raster_queries_(pending_raster_queries),
         completion_cb_(std::move(completion_cb)) {}
 
   void RunOnWorkerThread() override {
     TRACE_EVENT0("cc", "TaskSetFinishedTaskImpl::RunOnWorkerThread");
-    bool has_pending_queries =
-        raster_buffer_provider_->CheckRasterFinishedQueries();
+    bool has_pending_queries = false;
+    if (pending_raster_queries_) {
+      has_pending_queries =
+          pending_raster_queries_->CheckRasterFinishedQueries();
+    }
     task_runner_->PostTask(FROM_HERE, base::BindOnce(std::move(completion_cb_),
                                                      has_pending_queries));
   }
@@ -361,7 +364,7 @@ class DidFinishRunningAllTilesTask : public TileTask {
 
  private:
   base::SequencedTaskRunner* task_runner_;
-  RasterBufferProvider* raster_buffer_provider_;
+  RasterQueryQueue* pending_raster_queries_;
   CompletionCb completion_cb_;
 };
 
@@ -465,12 +468,14 @@ void TileManager::SetResources(ResourcePool* resource_pool,
                                TaskGraphRunner* task_graph_runner,
                                RasterBufferProvider* raster_buffer_provider,
                                bool use_gpu_rasterization,
-                               bool use_oop_rasterization) {
+                               bool use_oop_rasterization,
+                               RasterQueryQueue* pending_raster_queries) {
   DCHECK(!tile_task_manager_);
   DCHECK(task_graph_runner);
 
   use_gpu_rasterization_ = use_gpu_rasterization;
   use_oop_rasterization_ = use_oop_rasterization;
+  pending_raster_queries_ = pending_raster_queries;
   resource_pool_ = resource_pool;
   image_controller_.SetImageDecodeCache(image_decode_cache);
   tile_task_manager_ = TileTaskManagerImpl::Create(task_graph_runner);
@@ -1020,7 +1025,7 @@ void TileManager::ScheduleTasks(PrioritizedWorkToSchedule work_to_schedule) {
                      task_set_finished_weak_ptr_factory_.GetWeakPtr());
   scoped_refptr<TileTask> all_done_task =
       base::MakeRefCounted<DidFinishRunningAllTilesTask>(
-          task_runner_, raster_buffer_provider_, std::move(all_done_cb));
+          task_runner_, pending_raster_queries_, std::move(all_done_cb));
 
   // Build a new task queue containing all task currently needed. Tasks
   // are added in order of priority, highest priority task first.
@@ -1424,8 +1429,6 @@ bool TileManager::AreRequiredTilesReadyToDraw(
   // draw.
   for (; !raster_priority_queue->IsEmpty(); raster_priority_queue->Pop()) {
     const auto& prioritized_tile = raster_priority_queue->Top();
-    // TODO(vmpstr): Check to debug crbug.com/622080. Remove when fixed.
-    CHECK_EQ(prioritized_tile.priority().priority_bin, TilePriority::NOW);
     if (!prioritized_tile.tile()->draw_info().IsReadyToDraw())
       return false;
   }
@@ -1479,7 +1482,11 @@ void TileManager::CheckRasterFinishedQueries() {
   if (has_scheduled_tile_tasks_ || !signals_.all_tile_tasks_completed)
     return;
 
-  has_pending_queries_ = raster_buffer_provider_->CheckRasterFinishedQueries();
+  has_pending_queries_ = false;
+  if (pending_raster_queries_) {
+    has_pending_queries_ =
+        pending_raster_queries_->CheckRasterFinishedQueries();
+  }
   if (has_pending_queries_)
     ScheduleCheckRasterFinishedQueries();
 }
@@ -1498,7 +1505,7 @@ void TileManager::IssueSignals() {
   if (signals_.activate_tile_tasks_completed &&
       signals_.activate_gpu_work_completed &&
       !signals_.did_notify_ready_to_activate) {
-    if (IsReadyToActivate()) {
+    if (!client_->HasPendingTree() || IsReadyToActivate()) {
       TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("cc.debug"),
                    "TileManager::IssueSignals - ready to activate");
       signals_.did_notify_ready_to_activate = true;

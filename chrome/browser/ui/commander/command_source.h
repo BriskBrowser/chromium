@@ -6,52 +6,14 @@
 #define CHROME_BROWSER_UI_COMMANDER_COMMAND_SOURCE_H_
 
 #include "base/callback.h"
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/variant.h"
 #include "ui/gfx/range/range.h"
 
 class Browser;
 
 namespace commander {
 
-class CommanderBackend;
-
-// Represents a single option that can be presented in the command palette.
-struct CommandItem {
- public:
-  enum Type {
-    // On selection, the command is invoked and the UI should close.
-    kOneShot,
-    // On selection, the user is prompted for further information.
-    kComposite,
-  };
-  CommandItem();
-  virtual ~CommandItem();
-  CommandItem(const CommandItem& other) = delete;
-  CommandItem& operator=(const CommandItem& other) = delete;
-  CommandItem(CommandItem&& other);
-  CommandItem& operator=(CommandItem&& other);
-
-  Type GetType();
-  // The title to display to the user.
-  base::string16 title;
-  // The code to execute if the user selects this option, if it's a one-shot.
-  // Must be unset if |delegate_factory| is set.
-  base::Optional<base::OnceClosure> command;
-  // If the user selects this option and further input is required,
-  // this creates an item-specific backend to handle the rest of the command.
-  base::Optional<base::OnceCallback<std::unique_ptr<CommanderBackend>()>>
-      delegate_factory;
-  // How relevant the item is to user input. Expected range is (0,1], with 1
-  // indicating a perfect match (in the absence of other criteria, this boils
-  // down to an exact string match).
-  double score;
-  // Ranges of indices in |item|'s title that correspond to user input.
-  // For example, given user input "comitmlt" and a command called "Command Item
-  // Match Result", this would result in {(0, 3), (8, 10), (13,14), (23,25)},
-  // representing:
-  //    [Com]mand [It]em [M]atch Resu[lt]
-  std::vector<gfx::Range> matched_ranges;
-};
+struct CommandItem;
 
 // Provides and ranks available commands in response to user input. The
 // intention is for every system available through the commander to
@@ -69,6 +31,69 @@ class CommandSource {
   // is attached to.
   virtual CommandResults GetCommands(const base::string16& input,
                                      Browser* browser) const = 0;
+};
+
+// Represents a single option that can be presented in the command palette.
+struct CommandItem {
+ public:
+  enum Type {
+    // On selection, the command is invoked and the UI should close.
+    kOneShot,
+    // On selection, the user is prompted for further information.
+    kComposite,
+  };
+  // What *the text* of this command represents. For example, in the composite
+  // command "Move Current Tab To Window", the user will be prompted to select
+  // a window by name. In that case, the original command will have Entity =
+  // kCommand, and the follow-up will have Entity kWindow.
+  // This is used in the UI to give different visual treatments to different
+  // entity types.
+  enum Entity {
+    kCommand,
+    kBookmark,
+    kTab,
+    kWindow,
+    kGroup,
+  };
+
+  using CompositeCommandProvider =
+      base::RepeatingCallback<CommandSource::CommandResults(
+          const base::string16&)>;
+  using CompositeCommand = std::pair<base::string16, CompositeCommandProvider>;
+
+  CommandItem();
+  CommandItem(const base::string16& title,
+              double score,
+              const std::vector<gfx::Range>& ranges);
+  virtual ~CommandItem();
+
+  CommandItem(const CommandItem& other) = delete;
+  CommandItem& operator=(const CommandItem& other) = delete;
+  CommandItem(CommandItem&& other);
+  CommandItem& operator=(CommandItem&& other);
+
+  Type GetType();
+  // The title to display to the user.
+  base::string16 title;
+  // See Entity documentation above.
+  Entity entity_type = kCommand;
+  // Optional secondary text for the command. Typically used to display a
+  // hotkey.
+  base::string16 annotation;
+  // If this command is a one-shot, executes the command. If this command is
+  // composite, provides the prompt text sent to the user, and a
+  // CompositeCommandProvider to handle additional user input.
+  absl::variant<base::OnceClosure, CompositeCommand> command;
+  // How relevant the item is to user input. Expected range is (0,1], with 1
+  // indicating a perfect match (in the absence of other criteria, this boils
+  // down to an exact string match).
+  double score;
+  // Ranges of indices in |item|'s title that correspond to user input.
+  // For example, given user input "comitmlt" and a command called "Command Item
+  // Match Result", this would result in {(0, 3), (8, 10), (13,14), (23,25)},
+  // representing:
+  //    [Com]mand [It]em [M]atch Resu[lt]
+  std::vector<gfx::Range> matched_ranges;
 };
 
 }  // namespace commander

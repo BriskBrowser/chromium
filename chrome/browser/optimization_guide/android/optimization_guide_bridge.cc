@@ -17,7 +17,8 @@
 #include "chrome/browser/optimization_guide/optimization_guide_keyed_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "components/optimization_guide/optimization_guide_decider.h"
+#include "components/optimization_guide/content/browser/optimization_guide_decider.h"
+#include "url/android/gurl_android.h"
 #include "url/gurl.h"
 
 using base::android::AttachCurrentThread;
@@ -40,7 +41,6 @@ ScopedJavaLocalRef<jobject> ToJavaOptimizationMetadata(
   // We do not expect the following metadatas to be populated for optimization
   // types getting called from Java.
   DCHECK(!optimization_metadata.loading_predictor_metadata());
-  DCHECK(!optimization_metadata.previews_metadata());
   DCHECK(!optimization_metadata.public_image_metadata());
 
   if (optimization_metadata.performance_hints_metadata()) {
@@ -110,7 +110,7 @@ void OptimizationGuideBridge::RegisterOptimizationTypes(
 
 void OptimizationGuideBridge::CanApplyOptimization(
     JNIEnv* env,
-    const JavaParamRef<jstring>& url,
+    const JavaParamRef<jobject>& java_gurl,
     jint optimization_type,
     const JavaParamRef<jobject>& java_callback) {
   if (!optimization_guide_keyed_service_->GetHintsManager()) {
@@ -123,7 +123,7 @@ void OptimizationGuideBridge::CanApplyOptimization(
 
   optimization_guide_keyed_service_->GetHintsManager()
       ->CanApplyOptimizationAsync(
-          GURL(ConvertJavaStringToUTF8(env, url)),
+          *url::GURLAndroid::ToNativeGURL(env, java_gurl),
           /*navigation_id=*/base::nullopt,
           static_cast<optimization_guide::proto::OptimizationType>(
               optimization_type),

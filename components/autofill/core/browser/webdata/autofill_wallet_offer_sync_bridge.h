@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 
+#include "base/sequence_checker.h"
 #include "base/supports_user_data.h"
 #include "components/sync/model/metadata_change_list.h"
 #include "components/sync/model/model_error.h"
@@ -15,7 +16,7 @@
 #include "components/sync/model/model_type_sync_bridge.h"
 
 namespace autofill {
-
+class AutofillTable;
 class AutofillWebDataBackend;
 class AutofillWebDataService;
 
@@ -34,8 +35,9 @@ class AutofillWalletOfferSyncBridge : public base::SupportsUserData::Data,
   static syncer::ModelTypeSyncBridge* FromWebDataService(
       AutofillWebDataService* web_data_service);
 
-  explicit AutofillWalletOfferSyncBridge(
-      std::unique_ptr<syncer::ModelTypeChangeProcessor> change_processor);
+  AutofillWalletOfferSyncBridge(
+      std::unique_ptr<syncer::ModelTypeChangeProcessor> change_processor,
+      AutofillWebDataBackend* web_data_backend);
   ~AutofillWalletOfferSyncBridge() override;
 
   AutofillWalletOfferSyncBridge(const AutofillWalletOfferSyncBridge&) = delete;
@@ -58,6 +60,27 @@ class AutofillWalletOfferSyncBridge : public base::SupportsUserData::Data,
   bool SupportsIncrementalUpdates() const override;
   void ApplyStopSyncChanges(std::unique_ptr<syncer::MetadataChangeList>
                                 delete_metadata_change_list) override;
+
+ private:
+  // Helper function to send all offer data to the callback.
+  void GetAllDataImpl(DataCallback callback);
+
+  // Merges synced remote offer data.
+  void MergeRemoteData(const syncer::EntityChangeList& entity_data);
+
+  // Returns the table associated with the |web_data_backend_|.
+  AutofillTable* GetAutofillTable();
+
+  // Synchronously load sync metadata from the autofill table and pass it to the
+  // processor so that it can start tracking changes.
+  void LoadAutofillOfferMetadata();
+
+  // AutofillWalletOfferSyncBridge is owned by |web_data_backend_| through
+  // SupportsUserData, so it's guaranteed to outlive |this|.
+  AutofillWebDataBackend* const web_data_backend_;
+
+  // The bridge should be used on the same sequence where it is constructed.
+  SEQUENCE_CHECKER(sequence_checker_);
 };
 
 }  // namespace autofill

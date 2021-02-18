@@ -36,7 +36,7 @@ void AppBannerController::BannerPromptRequest(
     const Vector<String>& platforms,
     BannerPromptRequestCallback callback) {
   // TODO(hajimehoshi): Add tests for the case the frame is detached.
-  if (!frame_ || !frame_->GetDocument() || !frame_->IsAttached()) {
+  if (!frame_ || !frame_->DomWindow() || !frame_->IsAttached()) {
     std::move(callback).Run(mojom::blink::AppBannerPromptReply::NONE);
     return;
   }
@@ -46,11 +46,11 @@ void AppBannerController::BannerPromptRequest(
   // hidden properly. We disable bfcache to avoid these issues.
   frame_->GetFrameScheduler()->RegisterStickyFeature(
       blink::SchedulingPolicy::Feature::kAppBanner,
-      {blink::SchedulingPolicy::RecordMetricsForBackForwardCache()});
+      {blink::SchedulingPolicy::DisableBackForwardCache()});
 
   mojom::AppBannerPromptReply reply =
       frame_->DomWindow()->DispatchEvent(*BeforeInstallPromptEvent::Create(
-          event_type_names::kBeforeinstallprompt, *frame_,
+          event_type_names::kBeforeinstallprompt, *frame_->DomWindow(),
           std::move(service_remote), std::move(event_receiver), platforms)) ==
               DispatchEventResult::kNotCanceled
           ? mojom::AppBannerPromptReply::NONE

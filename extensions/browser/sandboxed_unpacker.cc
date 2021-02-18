@@ -26,6 +26,7 @@
 #include "base/task/post_task.h"
 #include "base/timer/elapsed_timer.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/crx_file/crx_verifier.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -44,7 +45,6 @@
 #include "extensions/common/extension_utility_types.h"
 #include "extensions/common/extensions_client.h"
 #include "extensions/common/features/feature_channel.h"
-#include "extensions/common/features/feature_session_type.h"
 #include "extensions/common/file_util.h"
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/manifest_handlers/default_locale_handler.h"
@@ -108,7 +108,7 @@ bool FindWritableTempLocation(const base::FilePath& extensions_dir,
 // On ChromeOS, we will only attempt to unpack extension in cryptohome (profile)
 // directory to provide additional security/privacy and speed up the rest of
 // the extension install process.
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
   base::PathService::Get(base::DIR_TEMP, temp_dir);
   if (VerifyJunctionFreeLocation(temp_dir))
     return true;
@@ -818,9 +818,10 @@ bool SandboxedUnpacker::ValidateSignature(
       return false;
     }
   }
+
   const crx_file::VerifierResult result = crx_file::Verify(
       crx_path, required_format, std::vector<std::vector<uint8_t>>(), hash,
-      &public_key_, &extension_id_);
+      &public_key_, &extension_id_, &compressed_verified_contents_);
 
   switch (result) {
     case crx_file::VerifierResult::OK_FULL: {
@@ -875,7 +876,7 @@ void SandboxedUnpacker::ReportFailure(
   DCHECK(unpacker_io_task_runner_->RunsTasksInCurrentSequence());
 
   UMA_HISTOGRAM_ENUMERATION(
-      "Extensions.SandboxUnpackFailureReason", reason,
+      "Extensions.SandboxUnpackFailureReason2", reason,
       SandboxedUnpackerFailureReason::NUM_FAILURE_REASONS);
   Cleanup();
 

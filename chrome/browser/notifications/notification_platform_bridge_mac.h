@@ -19,12 +19,12 @@
 @class NSUserNotificationCenter;
 @class NSXPCConnection;
 
-namespace message_cener {
+namespace message_center {
 class Notification;
-}
+}  // namespace message_center
 
 // This class is an implementation of NotificationPlatformBridge that will
-// send platform notifications to the the MacOSX notification center.
+// send platform notifications to the MacOS notification center.
 class NotificationPlatformBridgeMac : public NotificationPlatformBridge {
  public:
   NotificationPlatformBridgeMac(NSUserNotificationCenter* notification_center,
@@ -46,17 +46,6 @@ class NotificationPlatformBridgeMac : public NotificationPlatformBridge {
                     GetDisplayedNotificationsCallback callback) const override;
   void SetReadyCallback(NotificationBridgeReadyCallback callback) override;
   void DisplayServiceShutDown(Profile* profile) override;
-
-  // Processes a notification response generated from a user action
-  // (click close, etc.).
-  static void ProcessNotificationResponse(NSDictionary* response);
-
-  // Validates contents of the |response| dictionary as received from the system
-  // when a notification gets activated.
-  static bool VerifyNotificationData(NSDictionary* response) WARN_UNUSED_RESULT;
-
-  // Returns if alerts are supported on this machine.
-  static bool SupportsAlerts();
 
  private:
   // Cocoa class that receives callbacks from the NSUserNotificationCenter.

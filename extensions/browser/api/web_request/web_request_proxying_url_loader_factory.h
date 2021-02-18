@@ -55,7 +55,7 @@ class WebRequestProxyingURLLoaderFactory
         int32_t routing_id,
         int32_t network_service_request_id,
         uint32_t options,
-        ukm::SourceId ukm_source_id,
+        ukm::SourceIdObj ukm_source_id,
         const network::ResourceRequest& request,
         const net::MutableNetworkTrafficAnnotationTag& traffic_annotation,
         mojo::PendingReceiver<network::mojom::URLLoader> loader_receiver,
@@ -173,7 +173,7 @@ class WebRequestProxyingURLLoaderFactory
     const int32_t network_service_request_id_ = 0;
     const int32_t routing_id_ = 0;
     const uint32_t options_ = 0;
-    const ukm::SourceId ukm_source_id_;
+    const ukm::SourceIdObj ukm_source_id_;
     const net::MutableNetworkTrafficAnnotationTag traffic_annotation_;
     mojo::Receiver<network::mojom::URLLoader> proxied_loader_receiver_;
     mojo::Remote<network::mojom::URLLoaderClient> target_client_;
@@ -196,6 +196,8 @@ class WebRequestProxyingURLLoaderFactory
     // Holds any provided auth credentials through the extent of the request's
     // lifetime.
     base::Optional<net::AuthCredentials> auth_credentials_;
+
+    int num_redirects_ = 0;
 
     const bool for_cors_preflight_ = false;
 
@@ -238,10 +240,10 @@ class WebRequestProxyingURLLoaderFactory
   WebRequestProxyingURLLoaderFactory(
       content::BrowserContext* browser_context,
       int render_process_id,
-      int frame_id,
       WebRequestAPI::RequestIDGenerator* request_id_generator,
       std::unique_ptr<ExtensionNavigationUIData> navigation_ui_data,
       base::Optional<int64_t> navigation_id,
+      ukm::SourceIdObj ukm_source_id,
       mojo::PendingReceiver<network::mojom::URLLoaderFactory> loader_receiver,
       mojo::PendingRemote<network::mojom::URLLoaderFactory>
           target_factory_remote,
@@ -255,10 +257,10 @@ class WebRequestProxyingURLLoaderFactory
   static void StartProxying(
       content::BrowserContext* browser_context,
       int render_process_id,
-      int frame_id,
       WebRequestAPI::RequestIDGenerator* request_id_generator,
       std::unique_ptr<ExtensionNavigationUIData> navigation_ui_data,
       base::Optional<int64_t> navigation_id,
+      ukm::SourceIdObj ukm_source_id,
       mojo::PendingReceiver<network::mojom::URLLoaderFactory> loader_receiver,
       mojo::PendingRemote<network::mojom::URLLoaderFactory>
           target_factory_remote,
@@ -313,7 +315,6 @@ class WebRequestProxyingURLLoaderFactory
 
   content::BrowserContext* const browser_context_;
   const int render_process_id_;
-  const int frame_id_;
   WebRequestAPI::RequestIDGenerator* const request_id_generator_;
   std::unique_ptr<ExtensionNavigationUIData> navigation_ui_data_;
   base::Optional<int64_t> navigation_id_;
@@ -326,13 +327,8 @@ class WebRequestProxyingURLLoaderFactory
 
   const content::ContentBrowserClient::URLLoaderFactoryType
       loader_factory_type_;
-  // A UKM source ID associated with the initiator frame.
-  // This is non-const and optional, because at the construction timing the
-  // frame hasn't been fully committed yet. See
-  // https://groups.google.com/a/chromium.org/forum/#!msg/navigation-dev/zsEzPKm-COk/N7k58Fa8BgAJ.
-  // TODO(yhirano): Make this const non-optional when it is fixed.
-  // This is calculated correctly only for factories for subresource requests.
-  base::Optional<ukm::SourceId> ukm_source_id_;
+  // A UKM source ID to attribute activity to.
+  ukm::SourceIdObj ukm_source_id_;
 
   // Mapping from our own internally generated request ID to an
   // InProgressRequest instance.
@@ -343,8 +339,7 @@ class WebRequestProxyingURLLoaderFactory
   std::map<int32_t, uint64_t> network_request_id_to_web_request_id_;
 
   // Notifies the proxy that the browser context has been shutdown.
-  std::unique_ptr<KeyedServiceShutdownNotifier::Subscription>
-      shutdown_notifier_;
+  base::CallbackListSubscription shutdown_notifier_subscription_;
 
   base::WeakPtrFactory<WebRequestProxyingURLLoaderFactory> weak_factory_{this};
 

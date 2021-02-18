@@ -41,7 +41,7 @@
 
 namespace viz {
 class ClientResourceProvider;
-class RenderPass;
+class CompositorRenderPass;
 }
 
 namespace cc {
@@ -131,7 +131,7 @@ class CC_EXPORT LayerImpl {
   // the layer is destroyed.
   virtual bool WillDraw(DrawMode draw_mode,
                         viz::ClientResourceProvider* resource_provider);
-  virtual void AppendQuads(viz::RenderPass* render_pass,
+  virtual void AppendQuads(viz::CompositorRenderPass* render_pass,
                            AppendQuadsData* append_quads_data) {}
   virtual void DidDraw(viz::ClientResourceProvider* resource_provider);
 
@@ -163,9 +163,12 @@ class CC_EXPORT LayerImpl {
   void SetBackgroundColor(SkColor background_color);
   SkColor background_color() const { return background_color_; }
   void SetSafeOpaqueBackgroundColor(SkColor background_color);
-  // If contents_opaque(), return an opaque color else return a
-  // non-opaque color.  Tries to return background_color(), if possible.
-  SkColor SafeOpaqueBackgroundColor() const;
+  SkColor safe_opaque_background_color() const {
+    // Layer::SafeOpaqueBackgroundColor() should ensure this.
+    DCHECK_EQ(contents_opaque(),
+              SkColorGetA(safe_opaque_background_color_) == SK_AlphaOPAQUE);
+    return safe_opaque_background_color_;
+  }
 
   // See Layer::SetContentsOpaque() and SetContentsOpaqueForText() for the
   // relationship between the two flags.
@@ -419,11 +422,11 @@ class CC_EXPORT LayerImpl {
   // Get the color and size of the layer's debug border.
   virtual void GetDebugBorderProperties(SkColor* color, float* width) const;
 
-  void AppendDebugBorderQuad(viz::RenderPass* render_pass,
+  void AppendDebugBorderQuad(viz::CompositorRenderPass* render_pass,
                              const gfx::Rect& quad_rect,
                              const viz::SharedQuadState* shared_quad_state,
                              AppendQuadsData* append_quads_data) const;
-  void AppendDebugBorderQuad(viz::RenderPass* render_pass,
+  void AppendDebugBorderQuad(viz::CompositorRenderPass* render_pass,
                              const gfx::Rect& quad_rect,
                              const viz::SharedQuadState* shared_quad_state,
                              AppendQuadsData* append_quads_data,

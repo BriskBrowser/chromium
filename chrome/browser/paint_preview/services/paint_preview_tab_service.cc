@@ -8,11 +8,16 @@
 #include <utility>
 
 #include "base/callback.h"
+#include "base/memory/memory_pressure_listener.h"
+#include "base/memory/memory_pressure_monitor.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "chrome/browser/paint_preview/services/paint_preview_tab_service_file_mixin.h"
 #include "components/paint_preview/browser/file_manager.h"
+#include "components/paint_preview/browser/warm_compositor.h"
+#include "content/public/browser/render_process_host.h"
 #include "ui/gfx/geometry/rect.h"
 
 #if defined(OS_ANDROID)
@@ -50,22 +55,23 @@ int TabIdFromDirectoryKey(const DirectoryKey& key) {
 }  // namespace
 
 PaintPreviewTabService::PaintPreviewTabService(
-    const base::FilePath& profile_dir,
-    base::StringPiece ascii_feature_name,
+    std::unique_ptr<PaintPreviewFileMixin> file_mixin,
     std::unique_ptr<PaintPreviewPolicy> policy,
     bool is_off_the_record)
-    : PaintPreviewBaseService(profile_dir,
-                              ascii_feature_name,
+    : PaintPreviewBaseService(std::move(file_mixin),
                               std::move(policy),
                               is_off_the_record),
       cache_ready_(false) {
-  GetTaskRunner()->PostTaskAndReplyWithResult(
-      FROM_HERE, base::BindOnce(&FileManager::ListUsedKeys, GetFileManager()),
+  GetFileMixin()->GetTaskRunner()->PostTaskAndReplyWithResult(
+      FROM_HERE,
+      base::BindOnce(&FileManager::ListUsedKeys,
+                     GetFileMixin()->GetFileManager()),
       base::BindOnce(&PaintPreviewTabService::InitializeCache,
                      weak_ptr_factory_.GetWeakPtr()));
-  GetTaskRunner()->PostTaskAndReplyWithResult(
+  GetFileMixin()->GetTaskRunner()->PostTaskAndReplyWithResult(
       FROM_HERE,
-      base::BindOnce(&FileManager::GetTotalDiskUsage, GetFileManager()),
+      base::BindOnce(&FileManager::GetTotalDiskUsage,
+                     GetFileMixin()->GetFileManager()),
       base::BindOnce([](size_t size_bytes) {
         base::UmaHistogramMemoryKB(
             "Browser.PaintPreview.TabService.DiskUsageAtStartup",
@@ -74,7 +80,8 @@ PaintPreviewTabService::PaintPreviewTabService(
 #if defined(OS_ANDROID)
   JNIEnv* env = base::android::AttachCurrentThread();
   java_ref_.Reset(Java_PaintPreviewTabService_Constructor(
-      env, reinterpret_cast<intptr_t>(this)));
+      env, reinterpret_cast<intptr_t>(this),
+      reinterpret_cast<intptr_t>(static_cast<PaintPreviewBaseService*>(this))));
 #endif  // defined(OS_ANDROID)
 }
 
@@ -92,20 +99,28 @@ void PaintPreviewTabService::CaptureTab(int tab_id,
                                         FinishedCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
+  // If the system is under memory pressure don't try to capture.
+  auto* memory_monitor = base::MemoryPressureMonitor::Get();
+  if (memory_monitor &&
+      memory_monitor->GetCurrentPressureLevel() >=
+          base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_MODERATE)
+    return;
+
   // Mark |contents| as being captured so that the renderer doesn't go away
   // until the capture is finished. This is done even before a file is created
   // to ensure the renderer doesn't go away while that happens.
   contents->IncrementCapturerCount(gfx::Size(), true);
 
-  auto file_manager = GetFileManager();
+  auto file_manager = GetFileMixin()->GetFileManager();
   auto key = file_manager->CreateKey(tab_id);
-  GetTaskRunner()->PostTaskAndReplyWithResult(
+  GetFileMixin()->GetTaskRunner()->PostTaskAndReplyWithResult(
       FROM_HERE,
-      base::BindOnce(&FileManager::CreateOrGetDirectory, GetFileManager(), key,
-                     true),
+      base::BindOnce(&FileManager::CreateOrGetDirectory,
+                     GetFileMixin()->GetFileManager(), key, true),
       base::BindOnce(&PaintPreviewTabService::CaptureTabInternal,
                      weak_ptr_factory_.GetWeakPtr(), tab_id, key,
                      contents->GetMainFrame()->GetFrameTreeNodeId(),
+                     contents->GetMainFrame()->GetGlobalFrameRoutingId(),
                      std::move(callback)));
 }
 
@@ -121,9 +136,9 @@ void PaintPreviewTabService::TabClosed(int tab_id) {
     return;
   }
 
-  auto file_manager = GetFileManager();
+  auto file_manager = GetFileMixin()->GetFileManager();
   captured_tab_ids_.erase(tab_id);
-  GetTaskRunner()->PostTask(
+  GetFileMixin()->GetTaskRunner()->PostTask(
       FROM_HERE, base::BindOnce(&FileManager::DeleteArtifactSet, file_manager,
                                 file_manager->CreateKey(tab_id)));
 }
@@ -147,8 +162,10 @@ void PaintPreviewTabService::AuditArtifacts(
     return;
   }
 
-  GetTaskRunner()->PostTaskAndReplyWithResult(
-      FROM_HERE, base::BindOnce(&FileManager::ListUsedKeys, GetFileManager()),
+  GetFileMixin()->GetTaskRunner()->PostTaskAndReplyWithResult(
+      FROM_HERE,
+      base::BindOnce(&FileManager::ListUsedKeys,
+                     GetFileMixin()->GetFileManager()),
       base::BindOnce(&PaintPreviewTabService::RunAudit,
                      weak_ptr_factory_.GetWeakPtr(), active_tab_ids));
 }
@@ -193,7 +210,7 @@ jboolean PaintPreviewTabService::IsCacheInitializedAndroid(JNIEnv* env) {
 base::android::ScopedJavaLocalRef<jstring>
 PaintPreviewTabService::GetPathAndroid(JNIEnv* env) {
   return base::android::ConvertUTF8ToJavaString(
-      env, GetFileManager()->GetPath().AsUTF8Unsafe());
+      env, GetFileMixin()->GetFileManager()->GetPath().AsUTF8Unsafe());
 }
 #endif  // defined(OS_ANDROID)
 
@@ -213,6 +230,7 @@ void PaintPreviewTabService::CaptureTabInternal(
     int tab_id,
     const DirectoryKey& key,
     int frame_tree_node_id,
+    content::GlobalFrameRoutingId frame_routing_id,
     FinishedCallback callback,
     const base::Optional<base::FilePath>& file_path) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -222,12 +240,23 @@ void PaintPreviewTabService::CaptureTabInternal(
   }
   auto* contents =
       content::WebContents::FromFrameTreeNodeId(frame_tree_node_id);
-  if (!contents) {
+  auto* rfh = content::RenderFrameHost::FromID(frame_routing_id);
+  if (!contents || !rfh || contents->IsBeingDestroyed() ||
+      contents->GetMainFrame() != rfh || !rfh->IsCurrent() ||
+      !rfh->IsRenderFrameCreated() || !rfh->IsRenderFrameLive()) {
     std::move(callback).Run(Status::kWebContentsGone);
     return;
   }
+  CaptureParams capture_params;
+  capture_params.web_contents = contents;
+  capture_params.render_frame_host = rfh;
+  capture_params.root_dir = &file_path.value();
+  capture_params.persistence = RecordingPersistence::kFileSystem;
+  capture_params.clip_rect = gfx::Rect();
+  capture_params.capture_links = true;
+  capture_params.max_per_capture_size = kMaxPerCaptureSizeBytes;
   CapturePaintPreview(
-      contents, file_path.value(), gfx::Rect(), true, kMaxPerCaptureSizeBytes,
+      capture_params,
       base::BindOnce(&PaintPreviewTabService::OnCaptured,
                      weak_ptr_factory_.GetWeakPtr(), tab_id, key,
                      frame_tree_node_id, std::move(callback)));
@@ -251,11 +280,12 @@ void PaintPreviewTabService::OnCaptured(
     std::move(callback).Run(Status::kCaptureFailed);
     return;
   }
-  auto file_manager = GetFileManager();
-  GetTaskRunner()->PostTaskAndReplyWithResult(
+  auto file_manager = GetFileMixin()->GetFileManager();
+  GetFileMixin()->GetTaskRunner()->PostTaskAndReplyWithResult(
       FROM_HERE,
-      base::BindOnce(&FileManager::SerializePaintPreviewProto, GetFileManager(),
-                     key, result->proto, true),
+      base::BindOnce(&FileManager::SerializePaintPreviewProto,
+                     GetFileMixin()->GetFileManager(), key, result->proto,
+                     true),
       base::BindOnce(&PaintPreviewTabService::OnFinished,
                      weak_ptr_factory_.GetWeakPtr(), tab_id,
                      std::move(callback)));
@@ -269,11 +299,13 @@ void PaintPreviewTabService::OnFinished(int tab_id,
     captured_tab_ids_.insert(tab_id);
   std::move(callback).Run(success ? Status::kOk
                                   : Status::kProtoSerializationFailed);
-  auto file_manager = GetFileManager();
-  GetTaskRunner()->PostTaskAndReplyWithResult(
+  auto file_manager = GetFileMixin()->GetFileManager();
+  GetFileMixin()->GetTaskRunner()->PostTaskAndReplyWithResult(
       FROM_HERE,
       base::BindOnce(&FileManager::GetOldestArtifactsForCleanup, file_manager,
-                     kMaximumTotalCaptureSize),
+                     kMaximumTotalCaptureSize,
+                     base::TimeDelta::FromHours(
+                         PaintPreviewTabServiceFileMixin::kExpiryHorizonHrs)),
       base::BindOnce(&PaintPreviewTabService::CleanupOldestFiles,
                      weak_ptr_factory_.GetWeakPtr(), tab_id));
 }
@@ -293,16 +325,17 @@ void PaintPreviewTabService::CleanupOldestFiles(
     keys_to_delete.push_back(key);
   }
 
-  GetTaskRunner()->PostTask(FROM_HERE,
-                            base::BindOnce(&FileManager::DeleteArtifactSets,
-                                           GetFileManager(), keys_to_delete));
+  GetFileMixin()->GetTaskRunner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&FileManager::DeleteArtifactSets,
+                     GetFileMixin()->GetFileManager(), keys_to_delete));
 }
 
 void PaintPreviewTabService::RunAudit(
     const std::vector<int>& active_tab_ids,
     const base::flat_set<DirectoryKey>& in_use_keys) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  auto file_manager = GetFileManager();
+  auto file_manager = GetFileMixin()->GetFileManager();
   std::vector<DirectoryKey> keys;
   keys.reserve(active_tab_ids.size());
   for (const auto& tab_id : active_tab_ids)
@@ -322,9 +355,10 @@ void PaintPreviewTabService::RunAudit(
   for (const auto& key : keys_to_delete)
     captured_tab_ids_.erase(TabIdFromDirectoryKey(key));
 
-  GetTaskRunner()->PostTask(FROM_HERE,
-                            base::BindOnce(&FileManager::DeleteArtifactSets,
-                                           GetFileManager(), keys_to_delete));
+  GetFileMixin()->GetTaskRunner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&FileManager::DeleteArtifactSets,
+                     GetFileMixin()->GetFileManager(), keys_to_delete));
 }
 
 }  // namespace paint_preview

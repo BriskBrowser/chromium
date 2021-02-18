@@ -15,6 +15,7 @@
 #include "components/dom_distiller/core/url_utils.h"
 #include "components/omnibox/browser/buildflags.h"
 #include "components/omnibox/browser/location_bar_model_delegate.h"
+#include "components/omnibox/browser/location_bar_model_util.h"
 #include "components/omnibox/common/omnibox_features.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/security_state/core/security_state.h"
@@ -29,7 +30,6 @@
 
 #if (!defined(OS_ANDROID) || BUILDFLAG(ENABLE_VR)) && !defined(OS_IOS)
 #include "components/omnibox/browser/vector_icons.h"  // nogncheck
-#include "components/vector_icons/vector_icons.h"     // nogncheck
 #endif
 
 using metrics::OmniboxEventProto;
@@ -169,8 +169,6 @@ LocationBarModelImpl::GetPageClassification(OmniboxFocusSource focus_source) {
   if (!delegate_->GetURL(&gurl))
     return OmniboxEventProto::OTHER;
 
-  if (focus_source == OmniboxFocusSource::SEARCH_BUTTON)
-    return OmniboxEventProto::SEARCH_BUTTON_AS_STARTING_FOCUS;
   if (delegate_->IsNewTabPage()) {
     // Note that we treat OMNIBOX as the source if focus_source_ is INVALID,
     // i.e., if input isn't actually in progress.
@@ -205,35 +203,9 @@ const gfx::VectorIcon& LocationBarModelImpl::GetVectorIcon() const {
 
   if (IsOfflinePage())
     return omnibox::kOfflinePinIcon;
-
-  security_state::SecurityLevel security_level = GetSecurityLevel();
-  switch (security_level) {
-    case security_state::NONE:
-      return omnibox::kHttpIcon;
-    case security_state::WARNING:
-      // When kMarkHttpAsParameterDangerWarning is enabled, show a danger
-      // triangle icon.
-      if (security_state::ShouldShowDangerTriangleForWarningLevel()) {
-        return omnibox::kNotSecureWarningIcon;
-      }
-      return omnibox::kHttpIcon;
-    case security_state::SECURE:
-      return omnibox::kHttpsValidIcon;
-    case security_state::SECURE_WITH_POLICY_INSTALLED_CERT:
-      return vector_icons::kBusinessIcon;
-    case security_state::DANGEROUS:
-      return omnibox::kNotSecureWarningIcon;
-    case security_state::SECURITY_LEVEL_COUNT:
-      NOTREACHED();
-      return omnibox::kHttpIcon;
-  }
-  NOTREACHED();
-  return omnibox::kHttpIcon;
-#else
-  NOTREACHED();
-  static const gfx::VectorIcon dummy = {};
-  return dummy;
 #endif
+
+  return location_bar_model::GetSecurityVectorIcon(GetSecurityLevel());
 }
 
 base::string16 LocationBarModelImpl::GetSecureDisplayText() const {

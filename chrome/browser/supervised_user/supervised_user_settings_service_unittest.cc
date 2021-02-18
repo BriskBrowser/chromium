@@ -12,11 +12,11 @@
 #include "base/macros.h"
 #include "base/strings/string_util.h"
 #include "components/prefs/testing_pref_store.h"
-#include "components/sync/model/fake_sync_change_processor.h"
 #include "components/sync/model/sync_change.h"
-#include "components/sync/model/sync_change_processor_wrapper_for_test.h"
-#include "components/sync/model/sync_error_factory_mock.h"
 #include "components/sync/protocol/sync.pb.h"
+#include "components/sync/test/model/fake_sync_change_processor.h"
+#include "components/sync/test/model/sync_change_processor_wrapper_for_test.h"
+#include "components/sync/test/model/sync_error_factory_mock.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -123,9 +123,10 @@ class SupervisedUserSettingsServiceTest : public ::testing::Test {
   void SetUp() override {
     TestingPrefStore* pref_store = new TestingPrefStore;
     settings_service_.Init(pref_store);
-    user_settings_subscription_ = settings_service_.SubscribeForSettingsChange(
-        base::Bind(&SupervisedUserSettingsServiceTest::OnNewSettingsAvailable,
-                   base::Unretained(this)));
+    user_settings_subscription_ =
+        settings_service_.SubscribeForSettingsChange(base::BindRepeating(
+            &SupervisedUserSettingsServiceTest::OnNewSettingsAvailable,
+            base::Unretained(this)));
     pref_store->SetInitializationCompleted();
     ASSERT_FALSE(settings_);
     settings_service_.SetActive(true);
@@ -139,9 +140,7 @@ class SupervisedUserSettingsServiceTest : public ::testing::Test {
   std::unique_ptr<base::Value> atomic_setting_value_;
   SupervisedUserSettingsService settings_service_;
   std::unique_ptr<base::DictionaryValue> settings_;
-  std::unique_ptr<
-      base::CallbackList<void(const base::DictionaryValue*)>::Subscription>
-      user_settings_subscription_;
+  base::CallbackListSubscription user_settings_subscription_;
 
   std::unique_ptr<syncer::FakeSyncChangeProcessor> sync_processor_;
 };

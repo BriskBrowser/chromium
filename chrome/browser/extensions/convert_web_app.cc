@@ -28,12 +28,12 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/api/url_handlers/url_handlers_parser.h"
 #include "chrome/common/extensions/manifest_handlers/app_theme_color_info.h"
 #include "chrome/common/extensions/manifest_handlers/linked_app_icons.h"
-#include "chrome/common/web_application_info.h"
 #include "content/public/common/url_constants.h"
 #include "crypto/sha2.h"
 #include "extensions/common/constants.h"
@@ -229,11 +229,11 @@ scoped_refptr<Extension> ConvertWebAppToExtension(
   // Create the manifest
   std::unique_ptr<base::DictionaryValue> root(new base::DictionaryValue);
   root->SetString(keys::kPublicKey,
-                  web_app::GenerateAppKeyFromURL(web_app.app_url));
+                  web_app::GenerateAppKeyFromURL(web_app.start_url));
   root->SetString(keys::kName, base::UTF16ToUTF8(web_app.title));
   root->SetString(keys::kVersion, ConvertTimeToExtensionVersion(create_time));
   root->SetString(keys::kDescription, base::UTF16ToUTF8(web_app.description));
-  root->SetString(keys::kLaunchWebURL, web_app.app_url.spec());
+  root->SetString(keys::kLaunchWebURL, web_app.start_url.spec());
   if (web_app.generated_icon_color != SK_ColorTRANSPARENT) {
     root->SetString(keys::kAppIconColor, image_util::GenerateHexColorString(
                                              web_app.generated_icon_color));
@@ -256,13 +256,13 @@ scoped_refptr<Extension> ConvertWebAppToExtension(
   // case of all SWAs today is equal to the scope they set. This DCHECK ensure
   // we notice if this changes.
   if (!web_app.scope.is_empty() &&
-      web_app.app_url.SchemeIs(content::kChromeUIUntrustedScheme)) {
-    DCHECK_EQ(web_app.app_url.GetWithoutFilename(), web_app.scope);
+      web_app.start_url.SchemeIs(content::kChromeUIUntrustedScheme)) {
+    DCHECK_EQ(web_app.start_url.GetWithoutFilename(), web_app.scope);
   }
 #endif  // DCHECK_IS_ON()
 
   if (!web_app.scope.is_empty() &&
-      !web_app.app_url.SchemeIs(content::kChromeUIUntrustedScheme)) {
+      !web_app.start_url.SchemeIs(content::kChromeUIUntrustedScheme)) {
     root->SetDictionary(keys::kUrlHandlers, CreateURLHandlersForBookmarkApp(
                                                 web_app.scope, web_app.title));
   }
@@ -288,7 +288,7 @@ scoped_refptr<Extension> ConvertWebAppToExtension(
   for (const WebApplicationIconInfo& icon_info : web_app.icon_infos) {
     DCHECK(icon_info.url.is_valid());
     // Web apps in Extensions system supports Purpose::ANY icons only.
-    if (icon_info.purpose != blink::Manifest::ImageResource::Purpose::ANY)
+    if (icon_info.purpose != blink::mojom::ManifestImageResource_Purpose::ANY)
       continue;
     std::unique_ptr<base::DictionaryValue> linked_icon(
         new base::DictionaryValue());

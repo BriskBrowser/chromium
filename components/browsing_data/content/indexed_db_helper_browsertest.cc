@@ -5,7 +5,7 @@
 #include <string>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/utf_string_conversions.h"
@@ -42,8 +42,8 @@ IN_PROC_BROWSER_TEST_F(IndexedDBHelperTest, CannedAddIndexedDB) {
   helper->Add(url::Origin::Create(origin2));
 
   TestCompletionCallback callback;
-  helper->StartFetching(base::Bind(&TestCompletionCallback::callback,
-                                   base::Unretained(&callback)));
+  helper->StartFetching(base::BindOnce(&TestCompletionCallback::callback,
+                                       base::Unretained(&callback)));
 
   std::list<content::StorageUsageInfo> result = callback.result();
 
@@ -63,8 +63,8 @@ IN_PROC_BROWSER_TEST_F(IndexedDBHelperTest, CannedUnique) {
   helper->Add(url::Origin::Create(origin));
 
   TestCompletionCallback callback;
-  helper->StartFetching(base::Bind(&TestCompletionCallback::callback,
-                                   base::Unretained(&callback)));
+  helper->StartFetching(base::BindOnce(&TestCompletionCallback::callback,
+                                       base::Unretained(&callback)));
 
   std::list<content::StorageUsageInfo> result = callback.result();
 

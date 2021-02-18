@@ -7,7 +7,7 @@
 
 #include "third_party/blink/renderer/core/layout/ng/geometry/ng_box_strut.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_item.h"
-#include "third_party/blink/renderer/core/layout/ng/inline/ng_physical_text_fragment.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_text_offset.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_layout_result.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_positioned_float.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/shape_result.h"
@@ -46,12 +46,17 @@ struct CORE_EXPORT NGInlineItemResult {
     hyphen_shape_result = nullptr;
   }
 
+  void Trace(Visitor* visitor) const;
+
   // The NGInlineItem and its index.
   const NGInlineItem* item;
   unsigned item_index;
 
   // The range of text content for this item.
   NGTextOffset text_offset;
+
+  // Indicates the limits of the trailing space run.
+  base::Optional<unsigned> non_hangable_run_end;
 
   // Inline size of this item.
   LayoutUnit inline_size;
@@ -64,17 +69,19 @@ struct CORE_EXPORT NGInlineItemResult {
   // is needed in the line breaker.
   scoped_refptr<const ShapeResultView> shape_result;
 
-  // Hyphen character and its |ShapeResult| if this text is hyphenated.
+  // Hyphen character and its |ShapeResult|.
+  // Use |is_hyphenated| to determine whether this item is hyphenated or not.
+  // These fields may be set even when this item is not hyphenated.
   String hyphen_string;
   scoped_refptr<const ShapeResult> hyphen_shape_result;
 
   // NGLayoutResult for atomic inline items.
-  scoped_refptr<const NGLayoutResult> layout_result;
+  Member<const NGLayoutResult> layout_result;
 
   // NGPositionedFloat for floating inline items. Should only be present for
   // positioned floats (not unpositioned). It indicates where it was placed
   // within the BFC.
-  base::Optional<NGPositionedFloat> positioned_float;
+  Member<NGPositionedFloat> positioned_float = nullptr;
 
   // Margins, borders, and padding for open tags.
   // Margins are set for atomic inlines too.
@@ -128,6 +135,10 @@ struct CORE_EXPORT NGInlineItemResult {
   // position) any unpositioned floats.
   bool has_unpositioned_floats = false;
 
+  // True if this is hyphenated. The hyphen is in |hyphen_string| and
+  // |hyphen_shape_result|.
+  bool is_hyphenated = false;
+
   NGInlineItemResult();
   NGInlineItemResult(const NGInlineItem*,
                      unsigned index,
@@ -142,7 +153,7 @@ struct CORE_EXPORT NGInlineItemResult {
 };
 
 // Represents a set of NGInlineItemResult that form a line box.
-using NGInlineItemResults = Vector<NGInlineItemResult, 32>;
+using NGInlineItemResults = HeapVector<NGInlineItemResult, 32>;
 
 // Represents a line to build.
 //
@@ -295,6 +306,10 @@ class CORE_EXPORT NGLineInfo {
   bool is_ruby_text_ = false;
 };
 
+std::ostream& operator<<(std::ostream& ostream, const NGLineInfo& line_info);
+
 }  // namespace blink
+
+WTF_ALLOW_CLEAR_UNUSED_SLOTS_WITH_MEM_FUNCTIONS(blink::NGInlineItemResult)
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_INLINE_ITEM_RESULT_H_

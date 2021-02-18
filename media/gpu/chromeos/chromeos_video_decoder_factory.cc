@@ -7,7 +7,6 @@
 #include <utility>
 
 #include "base/sequenced_task_runner.h"
-#include "media/base/media_log.h"
 #include "media/base/video_decoder.h"
 #include "media/gpu/buildflags.h"
 #include "media/gpu/chromeos/mailbox_video_frame_converter.h"
@@ -28,14 +27,17 @@ namespace {
 
 // Gets a list of the available functions for creating VideoDecoders.
 VideoDecoderPipeline::CreateDecoderFunctions GetCreateDecoderFunctions() {
+  // Usually only one of USE_VAAPI or USE_V4L2_CODEC is defined on ChromeOS,
+  // except for Chromeboxes with companion video acceleration chips, which have
+  // both. In those cases prefer the V4L2 creation function.
   constexpr VideoDecoderPipeline::CreateDecoderFunction kCreateVDFuncs[] = {
-#if BUILDFLAG(USE_VAAPI)
-    &VaapiVideoDecoder::Create,
-#endif  // BUILDFLAG(USE_VAAPI)
-
 #if BUILDFLAG(USE_V4L2_CODEC)
     &V4L2VideoDecoder::Create,
 #endif  // BUILDFLAG(USE_V4L2_CODEC)
+
+#if BUILDFLAG(USE_VAAPI)
+    &VaapiVideoDecoder::Create,
+#endif  // BUILDFLAG(USE_VAAPI)
   };
 
   return VideoDecoderPipeline::CreateDecoderFunctions(
@@ -45,13 +47,13 @@ VideoDecoderPipeline::CreateDecoderFunctions GetCreateDecoderFunctions() {
 }  // namespace
 
 // static
-SupportedVideoDecoderConfigs
-ChromeosVideoDecoderFactory::GetSupportedConfigs() {
+SupportedVideoDecoderConfigs ChromeosVideoDecoderFactory::GetSupportedConfigs(
+    const gpu::GpuDriverBugWorkarounds& workarounds) {
   SupportedVideoDecoderConfigs supported_configs;
   SupportedVideoDecoderConfigs configs;
 
 #if BUILDFLAG(USE_VAAPI)
-  configs = VaapiVideoDecoder::GetSupportedConfigs();
+  configs = VaapiVideoDecoder::GetSupportedConfigs(workarounds);
   supported_configs.insert(supported_configs.end(), configs.begin(),
                            configs.end());
 #endif  // BUILDFLAG(USE_VAAPI)

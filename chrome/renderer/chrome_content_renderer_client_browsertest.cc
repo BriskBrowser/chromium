@@ -15,8 +15,6 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/render_messages.h"
-#include "chrome/renderer/searchbox/search_bouncer.h"
 #include "chrome/renderer/searchbox/searchbox.h"
 #include "chrome/test/base/chrome_render_view_test.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -64,11 +62,10 @@ TEST_F(ChromeContentRendererClientSearchBoxTest, RewriteThumbnailURL) {
       render_frame->GetRenderView()->GetRoutingID()));
 
   GURL result;
-  bool force_ignore_site_for_cookies;
   // Make sure the SearchBox rewrites a thumbnail request from the main frame.
   client->WillSendRequest(GetMainFrame(), ui::PAGE_TRANSITION_LINK,
                           blink::WebURL(thumbnail_url), net::SiteForCookies(),
-                          nullptr, &result, &force_ignore_site_for_cookies);
+                          nullptr, &result);
   EXPECT_NE(result, thumbnail_url);
 
   // Make sure the SearchBox rewrites a thumbnail request from the iframe.
@@ -79,7 +76,7 @@ TEST_F(ChromeContentRendererClientSearchBoxTest, RewriteThumbnailURL) {
       static_cast<blink::WebLocalFrame*>(child_frame);
   client->WillSendRequest(local_child, ui::PAGE_TRANSITION_LINK,
                           blink::WebURL(thumbnail_url), net::SiteForCookies(),
-                          nullptr, &result, &force_ignore_site_for_cookies);
+                          nullptr, &result);
   EXPECT_NE(result, thumbnail_url);
 }
 

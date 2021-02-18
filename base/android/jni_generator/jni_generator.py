@@ -27,7 +27,9 @@ _FILE_DIR = os.path.dirname(__file__)
 _CHROMIUM_SRC = os.path.join(_FILE_DIR, os.pardir, os.pardir, os.pardir)
 _BUILD_ANDROID_GYP = os.path.join(_CHROMIUM_SRC, 'build', 'android', 'gyp')
 
-sys.path.append(_BUILD_ANDROID_GYP)
+# Item 0 of sys.path is the directory of the main file; item 1 is PYTHONPATH
+# (if set); item 2 is system libraries.
+sys.path.insert(1, _BUILD_ANDROID_GYP)
 
 from util import build_utils
 
@@ -138,21 +140,22 @@ class NativeMethod(object):
       self.name = self.name[0].upper() + self.name[1:]
 
     self.proxy_name = kwargs.get('proxy_name', self.name)
-    # Non-hashed proxy name if applicable.
-    self.proxy_name_orig = None
+    self.hashed_proxy_name = kwargs.get('hashed_proxy_name', None)
 
     if self.params:
       assert type(self.params) is list
       assert type(self.params[0]) is Param
 
-
-    if (self.params
-        and self.params[0].datatype == kwargs.get('ptr_type', 'int')
+    ptr_type = kwargs.get('ptr_type', 'int')
+    if (self.params and self.params[0].datatype == ptr_type
         and self.params[0].name.startswith('native')):
+      self.ptr_type = ptr_type
       self.type = 'method'
-      self.p0_type = self.params[0].name[len('native'):]
-      if kwargs.get('native_class_name'):
-        self.p0_type = kwargs['native_class_name']
+      self.p0_type = kwargs.get('p0_type')
+      if self.p0_type is None:
+        self.p0_type = self.params[0].name[len('native'):]
+        if kwargs.get('native_class_name'):
+          self.p0_type = kwargs['native_class_name']
     else:
       self.type = 'function'
     self.method_id_var_name = kwargs.get('method_id_var_name', None)
@@ -175,10 +178,6 @@ class CalledByNative(object):
     self.env_call = GetEnvCall(self.is_constructor, self.static,
                                self.return_type)
     self.static_cast = GetStaticCastForReturnType(self.return_type)
-    self.gen_test_method = kwargs.get('gen_test_method', False)
-    self.test_disabled = kwargs.get('test_disabled', False)
-    self.enabled_features = kwargs.get('enabled_features', None)
-    self.disabled_features = kwargs.get('disabled_features', None)
 
 
 class ConstantField(object):
@@ -365,6 +364,7 @@ class JniParams(object):
         'Ljava/lang/Object',
         'Ljava/lang/String',
         'Ljava/lang/Class',
+        'Ljava/lang/ClassLoader',
         'Ljava/lang/CharSequence',
         'Ljava/lang/Runnable',
         'Ljava/lang/Throwable',
@@ -670,100 +670,31 @@ def MangleCalledByNatives(jni_params, called_by_natives, always_mangle):
 # Regex to match the JNI types that should be wrapped in a JavaRef.
 RE_SCOPED_JNI_TYPES = re.compile('jobject|jclass|jstring|jthrowable|.*Array')
 
-# Regex to match a string like "@Annotation public void foo(int bar)".
+# Regex to match a string like "@CalledByNative public void foo(int bar)".
 RE_CALLED_BY_NATIVE = re.compile(
-    # Capture all annotations.
-    r'(?P<annotations>'
-    # Optimization: Match the first annotation that could be relevant to
-    # CalledByNative.
-    r'(?:@(?:(?:Disabled)?(?:CalledByNative|NativeJavaTestFeatures|Features\.)'
-    r'[^\(\n ]*(?:\([^\)]*\)[\n ]|[\n ])\s*)'
-    # Match the rest of the annotations.
-    r'(?:@[^\(\n ]+(?:\([^\)]*\)[\n ]|[\n ])\s*)*)'
-    r')'
-    r'(?P<prefix>(?:'
-    r'(?:private|protected|public|static|abstract|final|default|synchronized)'
+    r'@CalledByNative(?P<Unchecked>(?:Unchecked)?)(?:\("(?P<annotation>.*)"\))?'
+    r'(?:\s+@\w+(?:\(.*\))?)*'  # Ignore any other annotations.
+    r'\s+(?P<prefix>('
+    r'(private|protected|public|static|abstract|final|default|synchronized)'
     r'\s*)*)'
     r'(?:\s*@\w+)?'  # Ignore annotations in return types.
     r'\s*(?P<return_type>\S*?)'
     r'\s*(?P<name>\w+)'
     r'\s*\((?P<params>[^\)]*)\)')
 
-# Regex to match a string like "CalledByNative".
-RE_CALLED_BY_NATIVE_ANNOTATION = re.compile(
-    r'(?P<Disabled>(?:Disabled)?)CalledByNative'
-    r'(?P<Unchecked>(?:Unchecked)?)(?P<JavaTest>(?:JavaTest)?)'
-    r'(?:\("(?P<annotation>.*)"\))?')
-
-RE_ENABLED_FEATURES = re.compile(
-    r'NativeJavaTestFeatures\.Enable\((?P<features>[^\)]*)\)')
-
-RE_DISABLED_FEATURES = re.compile(
-    r'NativeJavaTestFeatures\.Disable\((?P<features>[^\)]*)\)')
-
-RE_BANNED_FEATURES = re.compile(r'^Features\.')
-
-RE_BANNED_IMPORTS = re.compile(r'(import (?:'
-                               r'org\.junit\.Rule|'
-                               r'org\.junit\.Test|'
-                               r'org\.junit\.runner|'
-                               r'org\.junit\.Before|'
-                               r'org\.junit\.After|'
-                               r'org\.robolectric))')
-
-RE_FEATURE_STRING = r'[^"]*"(.*)";'
 
 # Removes empty lines that are indented (i.e. start with 2x spaces).
 def RemoveIndentedEmptyLines(string):
   return re.sub('^(?: {2})+$\n', '', string, flags=re.MULTILINE)
 
 
-def _StripChars(chars, string):
-  ret = string
-  for char in chars:
-    ret = ret.replace(char, '')
-  return ret
-
-
-def _GetFeaturesString(features_match, feature_list_file):
-  if not features_match:
-    return None
-  features = features_match.group('features')
-  features_list = _StripChars(" {}\n", features)
-  if not features_list:
-    return None
-  if not feature_list_file:
-    raise ParseError('Your generate_jni target must specify a feature_list_file'
-                     ' in order to support feature annotations.')
-
-  with open(feature_list_file) as f:
-    contents = f.read()
-  features_split = features_list.split(',')
-  feature_strings = []
-  for feature in features_split:
-    regex = feature.split('.')[-1] + RE_FEATURE_STRING
-    match = re.search(re.compile(regex), contents)
-    if not match:
-      raise ParseError('Feature not found in {}.'.format(feature_list_file),
-                       feature)
-    feature_strings.append(match.group(1))
-
-  return (',').join(feature_strings)
-
-
-def ExtractCalledByNatives(jni_params,
-                           contents,
-                           always_mangle,
-                           feature_list_file=None,
-                           fully_qualified_class=""):
+def ExtractCalledByNatives(jni_params, contents, always_mangle):
   """Parses all methods annotated with @CalledByNative.
 
   Args:
     jni_params: JniParams object.
     contents: the contents of the java file.
     always_mangle: See MangleCalledByNatives.
-    feature_list_file: A file containing the feature constants used by the build
-        target.
 
   Returns:
     A list of dict with information about the annotated methods.
@@ -773,44 +704,7 @@ def ExtractCalledByNatives(jni_params,
     ParseError: if unable to parse.
   """
   called_by_natives = []
-  checked_banned_imports = False
   for match in re.finditer(RE_CALLED_BY_NATIVE, contents):
-    cbn = None
-    enabled_features = None
-    disabled_features = None
-    for value in match.group('annotations').split('@'):
-      if not cbn:
-        cbn = re.match(RE_CALLED_BY_NATIVE_ANNOTATION, value)
-      if not enabled_features:
-        enabled_features = re.match(RE_ENABLED_FEATURES, value)
-      if not disabled_features:
-        disabled_features = re.match(RE_DISABLED_FEATURES, value)
-      if re.match(RE_BANNED_FEATURES, value):
-        raise ParseError(
-            '@Features.EnableFeatures will not work, please use '
-            '@NativeJavaTestFeatures.Enable("MyFeature") instead.',
-            fully_qualified_class, value)
-    if not cbn:
-      continue
-    java_test = 'JavaTest' in cbn.group('JavaTest')
-    if java_test and not checked_banned_imports:
-      checked_banned_imports = True
-      imports = re.search(RE_BANNED_IMPORTS, contents)
-      if imports:
-        raise ParseError(
-            'Most junit and robolectric features do not work for native java '
-            'unittests (asserts are okay).', fully_qualified_class,
-            imports.group(1))
-
-
-    enabled_string = _GetFeaturesString(enabled_features, feature_list_file)
-    disabled_string = _GetFeaturesString(disabled_features, feature_list_file)
-
-    if not java_test and (enabled_string or disabled_string):
-      raise ParseError(
-          '@NativeJavaTestFeatures requires @CalledByNativeJavaTest to work.',
-          fully_qualified_class, match.group('annotations'))
-
     return_type = match.group('return_type')
     name = match.group('name')
     if not return_type:
@@ -821,26 +715,21 @@ def ExtractCalledByNatives(jni_params,
       is_constructor = False
 
     called_by_natives += [
-        CalledByNative(
-            system_class=False,
-            unchecked='Unchecked' in cbn.group('Unchecked'),
-            static='static' in match.group('prefix'),
-            java_class_name=cbn.group('annotation') or '',
-            return_type=return_type,
-            name=name,
-            is_constructor=is_constructor,
-            params=JniParams.Parse(match.group('params')),
-            gen_test_method=java_test,
-            test_disabled='Disabled' in cbn.group('Disabled'),
-            enabled_features=enabled_string,
-            disabled_features=disabled_string),
+        CalledByNative(system_class=False,
+                       unchecked='Unchecked' in match.group('Unchecked'),
+                       static='static' in match.group('prefix'),
+                       java_class_name=match.group('annotation') or '',
+                       return_type=return_type,
+                       name=name,
+                       is_constructor=is_constructor,
+                       params=JniParams.Parse(match.group('params')))
     ]
   # Check for any @CalledByNative occurrences that weren't matched.
   unmatched_lines = re.sub(RE_CALLED_BY_NATIVE, '', contents).split('\n')
   for line1, line2 in zip(unmatched_lines, unmatched_lines[1:]):
     if '@CalledByNative' in line1:
       raise ParseError('could not parse @CalledByNative method signature',
-                       fully_qualified_class, line1, line2)
+                       line1, line2)
   return MangleCalledByNatives(jni_params, called_by_natives, always_mangle)
 
 
@@ -1012,10 +901,7 @@ class ProxyHelpers(object):
     return EscapeClassName(fully_qualified_class + '/' + old_name)
 
   @staticmethod
-  def ExtractStaticProxyNatives(fully_qualified_class,
-                                contents,
-                                ptr_type,
-                                use_hash=False):
+  def ExtractStaticProxyNatives(fully_qualified_class, contents, ptr_type):
     methods = []
     for match in _NATIVE_PROXY_EXTRACTION_REGEX.finditer(contents):
       interface_body = match.group('interface_body')
@@ -1023,8 +909,11 @@ class ProxyHelpers(object):
         name = method.group('name')
         params = JniParams.Parse(method.group('params'), use_proxy_types=True)
         return_type = JavaTypeToProxyCast(method.group('return_type'))
-        unescaped_proxy_name = ProxyHelpers.CreateProxyMethodName(
-            fully_qualified_class, name, use_hash)
+        proxy_name = ProxyHelpers.CreateProxyMethodName(fully_qualified_class,
+                                                        name,
+                                                        use_hash=False)
+        hashed_proxy_name = ProxyHelpers.CreateProxyMethodName(
+            fully_qualified_class, name, use_hash=True)
         native = NativeMethod(
             static=True,
             java_class_name=None,
@@ -1033,11 +922,9 @@ class ProxyHelpers(object):
             native_class_name=method.group('native_class_name'),
             params=params,
             is_proxy=True,
-            proxy_name=unescaped_proxy_name,
+            proxy_name=proxy_name,
+            hashed_proxy_name=hashed_proxy_name,
             ptr_type=ptr_type)
-        if use_hash:
-          native.proxy_name_orig = ProxyHelpers.CreateProxyMethodName(
-              fully_qualified_class, name, False)
         methods.append(native)
 
     return methods
@@ -1052,13 +939,12 @@ class JNIFromJavaSource(object):
     self.jni_params.ExtractImportsAndInnerClasses(contents)
     jni_namespace = ExtractJNINamespace(contents) or options.namespace
     natives = ExtractNatives(contents, options.ptr_type)
-    called_by_natives = ExtractCalledByNatives(
-        self.jni_params, contents, options.always_mangle,
-        options.feature_list_file, fully_qualified_class)
+    called_by_natives = ExtractCalledByNatives(self.jni_params, contents,
+                                               options.always_mangle)
 
-    natives += ProxyHelpers.ExtractStaticProxyNatives(
-        fully_qualified_class, contents, options.ptr_type,
-        options.use_proxy_hash)
+    natives += ProxyHelpers.ExtractStaticProxyNatives(fully_qualified_class,
+                                                      contents,
+                                                      options.ptr_type)
 
     if len(natives) == 0 and len(called_by_natives) == 0:
       raise SyntaxError(
@@ -1083,10 +969,12 @@ class JNIFromJavaSource(object):
 class HeaderFileGeneratorHelper(object):
   """Include helper methods for header generators."""
 
-  def __init__(self, class_name, fully_qualified_class, use_proxy_hash):
+  def __init__(self, class_name, fully_qualified_class, use_proxy_hash,
+               split_name):
     self.class_name = class_name
     self.fully_qualified_class = fully_qualified_class
     self.use_proxy_hash = use_proxy_hash
+    self.split_name = split_name
 
   def GetStubName(self, native):
     """Return the name of the stub function for this native method.
@@ -1098,7 +986,10 @@ class HeaderFileGeneratorHelper(object):
       A string with the stub function name (used by the JVM).
     """
     if native.is_proxy:
-      method_name = EscapeClassName(native.proxy_name)
+      if self.use_proxy_hash:
+        method_name = EscapeClassName(native.hashed_proxy_name)
+      else:
+        method_name = EscapeClassName(native.proxy_name)
       return 'Java_%s_%s' % (EscapeClassName(
           ProxyHelpers.GetQualifiedClass(self.use_proxy_hash)), method_name)
 
@@ -1157,7 +1048,7 @@ const char kClassPath_${JAVA_CLASS}[] = \
 #define ${JAVA_CLASS}_clazz_defined
 inline jclass ${JAVA_CLASS}_clazz(JNIEnv* env) {
   return base::android::LazyGetClass(env, kClassPath_${JAVA_CLASS}, \
-&g_${JAVA_CLASS}_clazz);
+${MAYBE_SPLIT_NAME_ARG}&g_${JAVA_CLASS}_clazz);
 }
 #endif
 """
@@ -1173,7 +1064,10 @@ JNI_REGISTRATION_EXPORT std::atomic<jclass> g_${JAVA_CLASS}_clazz(nullptr);
 
     for full_clazz in classes.values():
       values = {
-          'JAVA_CLASS': EscapeClassName(full_clazz),
+          'JAVA_CLASS':
+          EscapeClassName(full_clazz),
+          'MAYBE_SPLIT_NAME_ARG':
+          (('"%s", ' % self.split_name) if self.split_name else '')
       }
       # Since all proxy methods use the same class, defining this in every
       # header file would result in duplicated extern initializations.
@@ -1197,8 +1091,10 @@ class InlHeaderFileGenerator(object):
     self.constant_fields = constant_fields
     self.jni_params = jni_params
     self.options = options
-    self.helper = HeaderFileGeneratorHelper(
-        self.class_name, fully_qualified_class, self.options.use_proxy_hash)
+    self.helper = HeaderFileGeneratorHelper(self.class_name,
+                                            fully_qualified_class,
+                                            self.options.use_proxy_hash,
+                                            self.options.split_name)
 
   def GetContent(self):
     """Returns the content of the JNI binding file."""
@@ -1230,9 +1126,6 @@ $CONSTANT_FIELDS\
 // Step 3: Method stubs.
 $METHOD_STUBS
 
-// Step 4: Generated test functions (optional).
-$TEST_METHODS
-
 #endif  // ${HEADER_GUARD}
 """)
     values = {
@@ -1243,7 +1136,6 @@ $TEST_METHODS
         'METHOD_STUBS': self.GetMethodStubsString(),
         'HEADER_GUARD': self.header_guard,
         'INCLUDES': self.GetIncludesString(),
-        'TEST_METHODS': self.GetTestMethodsString(),
     }
     open_namespace = self.GetOpenNamespaceString()
     if open_namespace:
@@ -1285,17 +1177,6 @@ $TEST_METHODS
         self.GetLazyCalledByNativeMethodStub(called_by_native)
         for called_by_native in self.called_by_natives
     ]
-
-  def GetTestMethodsString(self):
-    strings = []
-    for called_by_native in self.called_by_natives:
-      if not called_by_native.gen_test_method:
-        continue
-      strings += [self.GetTestMethodString(called_by_native)]
-    if strings:
-      strings.insert(0, "#define JAVA_TESTS(test_fixture, java_test_object)\\")
-    ret = '\n'.join(strings)
-    return ret[:-1]  # Drop trailing '\'.
 
   def GetIncludesString(self):
     if not self.options.includes:
@@ -1577,40 +1458,6 @@ ${PROFILING_LEAVING_NATIVE}\
       values['TRACE_EVENT'] = ''
     return RemoveIndentedEmptyLines(template.substitute(values))
 
-  def GetTestMethodString(self, called_by_native):
-    method_template = Template("""\
-  TEST_F(test_fixture, ${DISABLED}${METHOD_ID_VAR_NAME_UPPERCASE}) { \\
-${FEATURES}    JNIEnv* env = base::android::AttachCurrentThread(); \\
-    Java_${JAVA_CLASS_ONLY}_${METHOD_ID_VAR_NAME}(\\
-        env, java_test_object); \\
-  }\\""")
-
-    features_template = Template("""\
-    base::test::ScopedFeatureList feature_list; \\
-    feature_list.InitFromCommandLine( \\
-        \"${ENABLED}\", \"${DISABLED}\"); \\
-""")
-    values = self.GetCalledByNativeValues(called_by_native)
-
-    if called_by_native.enabled_features or called_by_native.disabled_features:
-      features_values = {
-          'ENABLED': called_by_native.enabled_features or '',
-          'DISABLED': called_by_native.disabled_features or ''
-      }
-      values['FEATURES'] = features_template.substitute(features_values)
-    else:
-      values['FEATURES'] = ''
-
-    method_name = values['METHOD_ID_VAR_NAME']
-    values['METHOD_ID_VAR_NAME_UPPERCASE'] = method_name[0].upper(
-    ) + method_name[1:]
-    if called_by_native.test_disabled:
-      values['DISABLED'] = 'DISABLED_'
-    else:
-      values['DISABLED'] = ''
-    return RemoveIndentedEmptyLines(method_template.substitute(values))
-
-
   def GetTraceEventForNameTemplate(self, name_template, values):
     name = Template(name_template).substitute(values)
     return '  TRACE_EVENT0("jni", "%s");\n' % name
@@ -1618,16 +1465,10 @@ ${FEATURES}    JNIEnv* env = base::android::AttachCurrentThread(); \\
 
 def WrapOutput(output):
   ret = []
-  is_preprocessor_directive = False
   for line in output.splitlines():
-    if line and line[0] == '#':
-      is_preprocessor_directive = True
     # Do not wrap preprocessor directives or comments.
-    if (len(line) < _WRAP_LINE_LENGTH or is_preprocessor_directive
-        or line.startswith('//')):
+    if len(line) < _WRAP_LINE_LENGTH or line[0] == '#' or line.startswith('//'):
       ret.append(line)
-      if not line or line[-1] != '\\':
-        is_preprocessor_directive = False
     else:
       # Assumes that the line is not already indented as a continuation line,
       # which is not always true (oh well).
@@ -1667,11 +1508,17 @@ def GetScriptName():
   return os.sep.join(script_components[base_index:])
 
 
-def _RemoveExistingHeaders(path):
-  if os.path.exists(path) and os.path.isdir(path):
-    for root, _, files in os.walk(path):
-      for f in files:
-        file_path = os.path.join(root, f)
+def _RemoveStaleHeaders(path, output_files):
+  if not os.path.isdir(path):
+    return
+  # Do not remove output files so that timestamps on declared outputs are not
+  # modified unless their contents are changed (avoids reverse deps needing to
+  # be rebuilt).
+  preserve = set(output_files)
+  for root, _, files in os.walk(path):
+    for f in files:
+      file_path = os.path.join(root, f)
+      if file_path not in preserve:
         if os.path.isfile(file_path) and os.path.splitext(file_path)[1] == '.h':
           os.remove(file_path)
 
@@ -1748,10 +1595,8 @@ See SampleForTests.java for more details.
       help='Hashes the native declaration of methods used '
       'in @JniNatives interface.')
   parser.add_argument(
-      '--feature_list_file',
-      default='',
-      help='Optional path to a Java file containing the list of possible '
-      'features to be used for validation.')
+      '--split_name',
+      help='Split name that the Java classes should be loaded from.')
   args = parser.parse_args()
   input_files = args.input_files
   output_files = args.output_files
@@ -1765,7 +1610,7 @@ See SampleForTests.java for more details.
     # Remove existing headers so that moving .java source files but not updating
     # the corresponding C++ include will be a compile failure (otherwise
     # incremental builds will usually not catch this).
-    _RemoveExistingHeaders(output_dir)
+    _RemoveStaleHeaders(output_dir, output_files)
   else:
     output_files = [None] * len(input_files)
   temp_dir = tempfile.mkdtemp()

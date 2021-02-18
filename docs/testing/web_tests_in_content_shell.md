@@ -1,5 +1,7 @@
 # Running web tests using the content shell
 
+[TOC]
+
 ## Compiling
 
 If you want to run web tests,
@@ -64,7 +66,7 @@ browser](#As-a-simple-browser).
 
 In rare cases, to run Content Shell in the exact same way as
 `run_web_tests.py` runs it, you need to run it in the
-[protocol mode](../../content/shell/browser/web_test/test_info_extractor.h).
+[protocol mode](../../content/web_test/browser/test_info_extractor.h).
 
 *** note
 On the Mac, use `Content Shell.app`, not `content_shell`.
@@ -78,10 +80,11 @@ On Windows, use `content_shell.exe`.
 #### Running HTTP Tests in Content Shell
 
 HTTP tests reside under [web_tests/http/tests](../../third_party/blink/web_tests/http/tests).
-You need to start a web server first:
+You need to start a web server first. By default it serves generated files from
+out/Release:
 
 ```bash
-python third_party/blink/tools/run_blink_httpd.py
+python third_party/blink/tools/run_blink_httpd.py -t <build directory>
 ```
 Then run the test with a localhost URL:
 

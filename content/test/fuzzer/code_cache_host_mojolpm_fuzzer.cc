@@ -11,7 +11,6 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/i18n/icu_util.h"
 #include "base/task/post_task.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/test/test_switches.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/platform_thread.h"
@@ -156,6 +155,11 @@ class CodeCacheHostTestcase {
   // Apply a reasonable upper-bound on testcase complexity to avoid timeouts.
   const int max_action_count_ = 512;
 
+  // Apply a reasonable upper-bound on maximum size of action that we will
+  // deserialize. (This is deliberately slightly larger than max mojo message
+  // size)
+  const size_t max_action_size_ = 300 * 1024 * 1024;
+
   // Count of total actions performed in this testcase.
   int action_count_ = 0;
 
@@ -164,7 +168,8 @@ class CodeCacheHostTestcase {
 
   // Prerequisite state.
   std::unique_ptr<content::TestBrowserContext> browser_context_;
-  scoped_refptr<content::CacheStorageContextImpl> cache_storage_context_;
+  std::unique_ptr<content::CacheStorageControlWrapper>
+      cache_storage_control_wrapper_;
   scoped_refptr<content::GeneratedCodeCacheContext>
       generated_code_cache_context_;
 
@@ -200,11 +205,12 @@ void CodeCacheHostTestcase::SetUp() {
 void CodeCacheHostTestcase::SetUpOnUIThread() {
   browser_context_ = std::make_unique<content::TestBrowserContext>();
 
-  cache_storage_context_ =
-      base::MakeRefCounted<content::CacheStorageContextImpl>();
-  cache_storage_context_->Init(browser_context_->GetPath(),
-                               browser_context_->GetSpecialStoragePolicy(),
-                               nullptr);
+  cache_storage_control_wrapper_ =
+      std::make_unique<content::CacheStorageControlWrapper>(
+          content::GetIOThreadTaskRunner({}), browser_context_->GetPath(),
+          browser_context_->GetSpecialStoragePolicy(),
+          /*quota_manager_proxy=*/nullptr,
+          /*blob_storage_context=*/mojo::NullRemote());
 
   generated_code_cache_context_ =
       base::MakeRefCounted<content::GeneratedCodeCacheContext>();
@@ -225,7 +231,7 @@ void CodeCacheHostTestcase::TearDown() {
 void CodeCacheHostTestcase::TearDownOnUIThread() {
   code_cache_hosts_.clear();
   generated_code_cache_context_.reset();
-  cache_storage_context_.reset();
+  cache_storage_control_wrapper_.reset();
   browser_context_.reset();
 }
 
@@ -246,6 +252,9 @@ void CodeCacheHostTestcase::NextAction() {
       }
       const auto& action =
           testcase_.actions(action_idx % testcase_.actions_size());
+      if (action.ByteSizeLong() > max_action_size_) {
+        return;
+      }
       switch (action.action_case()) {
         case Action::kNewCodeCacheHost: {
           AddCodeCacheHost(action.new_code_cache_host().id(),
@@ -283,9 +292,12 @@ void CodeCacheHostTestcase::AddCodeCacheHostImpl(
     int renderer_id,
     const Origin& origin,
     mojo::PendingReceiver<::blink::mojom::CodeCacheHost>&& receiver) {
-  code_cache_hosts_[renderer_id] = std::make_unique<content::CodeCacheHostImpl>(
-      renderer_id, cache_storage_context_, generated_code_cache_context_,
-      std::move(receiver));
+  auto code_cache_host = std::make_unique<content::CodeCacheHostImpl>(
+      renderer_id, /*render_process_host_impl=*/nullptr,
+      generated_code_cache_context_, std::move(receiver));
+  code_cache_host->SetCacheStorageControlForTesting(
+      cache_storage_control_wrapper_.get());
+  code_cache_hosts_[renderer_id] = std::move(code_cache_host);
 }
 
 void CodeCacheHostTestcase::AddCodeCacheHost(

@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/containers/contains.h"
 #include "base/hash/md5.h"
 #include "base/stl_util.h"
 #include "base/strings/string_split.h"
@@ -154,7 +155,7 @@ bool ConvertToPrinter(const std::string& service_type,
   printer.set_uuid(metadata.UUID);
   printer.set_display_name(service_description.instance_name());
   printer.set_description(metadata.note);
-  printer.set_make_and_model(metadata.product);
+  printer.set_make_and_model(metadata.ty);
   Uri uri;
   std::string rp = metadata.rp;
   if (service_type == ZeroconfPrinterDetector::kIppServiceName ||

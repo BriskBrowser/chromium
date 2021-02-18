@@ -14,13 +14,11 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
-#include "third_party/blink/renderer/bindings/core/v8/js_event_handler.h"
 #include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_dom_configuration.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_node.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_test_interface_empty.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
-#include "third_party/blink/renderer/core/html/custom/v0_custom_element_processing_stack.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/platform/bindings/exception_messages.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
@@ -136,9 +134,7 @@ static void EventHandlerAttributeAttributeGetter(const v8::FunctionCallbackInfo<
 
   TestInterfaceNode* impl = V8TestInterfaceNode::ToImpl(holder);
 
-  EventListener* cpp_value(WTF::GetPtr(impl->eventHandlerAttribute()));
-
-  V8SetReturnValue(info, JSEventHandler::AsV8Value(info.GetIsolate(), impl, cpp_value));
+  V8SetReturnValueFast(info, WTF::GetPtr(impl->eventHandlerAttribute()), impl);
 }
 
 static void EventHandlerAttributeAttributeSetter(
@@ -151,9 +147,18 @@ static void EventHandlerAttributeAttributeSetter(
 
   TestInterfaceNode* impl = V8TestInterfaceNode::ToImpl(holder);
 
-  // Prepare the value to be set.
+  ExceptionState exception_state(isolate, ExceptionState::kSetterContext, "TestInterfaceNode", "eventHandlerAttribute");
 
-  impl->setEventHandlerAttribute(JSEventHandler::CreateOrNull(v8_value, JSEventHandler::HandlerType::kEventHandler));
+  // Prepare the value to be set.
+  EventHandlerNonNull* cpp_value{ V8EventHandlerNonNull::ToImplWithTypeCheck(info.GetIsolate(), v8_value) };
+
+  // Type check per: http://heycam.github.io/webidl/#es-interface
+  if (!cpp_value && !IsUndefinedOrNull(v8_value)) {
+    exception_state.ThrowTypeError("The provided value is not of type 'EventHandlerNonNull'.");
+    return;
+  }
+
+  impl->setEventHandlerAttribute(cpp_value);
 }
 
 static void PerWorldBindingsReadonlyTestInterfaceEmptyAttributeAttributeGetter(const v8::FunctionCallbackInfo<v8::Value>& info) {
@@ -190,8 +195,6 @@ static void ReflectStringAttributeAttributeSetter(
 
   TestInterfaceNode* impl = V8TestInterfaceNode::ToImpl(holder);
 
-  V0CustomElementProcessingStack::CallbackDeliveryScope delivery_scope;
-
   // Prepare the value to be set.
   V8StringResource<> cpp_value{ v8_value };
   if (!cpp_value.Prepare())
@@ -217,8 +220,6 @@ static void ReflectUrlStringAttributeAttributeSetter(
   ALLOW_UNUSED_LOCAL(holder);
 
   TestInterfaceNode* impl = V8TestInterfaceNode::ToImpl(holder);
-
-  V0CustomElementProcessingStack::CallbackDeliveryScope delivery_scope;
 
   // Prepare the value to be set.
   V8StringResource<> cpp_value{ v8_value };

@@ -7,6 +7,7 @@
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/geometry/physical_offset.h"
+#include "third_party/blink/renderer/core/paint/text_paint_style.h"
 #include "third_party/blink/renderer/core/style/applied_text_decoration.h"
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
 #include "third_party/blink/renderer/platform/fonts/font_baseline.h"
@@ -14,9 +15,9 @@
 #include "third_party/blink/renderer/platform/geometry/float_rect.h"
 #include "third_party/blink/renderer/platform/geometry/layout_unit.h"
 #include "third_party/blink/renderer/platform/graphics/path.h"
+#include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
-
 namespace blink {
 
 class ComputedStyle;
@@ -33,13 +34,17 @@ enum class ResolvedUnderlinePosition {
 // invalidation and painting. See also
 // https://www.w3.org/TR/css-text-decor-3/#painting-order
 class CORE_EXPORT TextDecorationInfo {
+  STACK_ALLOCATED();
+
  public:
-  TextDecorationInfo(const PhysicalOffset& box_origin,
-                     PhysicalOffset local_origin,
-                     LayoutUnit width,
-                     FontBaseline baseline_type,
-                     const ComputedStyle& style,
-                     const ComputedStyle* decorating_box_style);
+  TextDecorationInfo(
+      const PhysicalOffset& box_origin,
+      PhysicalOffset local_origin,
+      LayoutUnit width,
+      FontBaseline baseline_type,
+      const ComputedStyle& style,
+      const base::Optional<AppliedTextDecoration> selection_text_decoration,
+      const ComputedStyle* decorating_box_style);
 
   // Set the decoration to use when painting and returning values.
   // Must be set before calling any other method, and can be called
@@ -61,7 +66,7 @@ class CORE_EXPORT TextDecorationInfo {
   // These methods do not depend on SetDecorationIndex
   LayoutUnit Width() const { return width_; }
   float Baseline() const { return baseline_; }
-  const ComputedStyle& Style() const { return style_; }
+  const ComputedStyle& Style() const { return *style_; }
   const SimpleFontData* FontData() const { return font_data_; }
   ResolvedUnderlinePosition UnderlinePosition() const {
     return underline_position_;
@@ -84,16 +89,16 @@ class CORE_EXPORT TextDecorationInfo {
   FloatPoint StartPoint(TextDecoration line) const;
   float DoubleOffset(TextDecoration line) const;
 
-  // Computed bounds for all the decorations in the style passed at
-  // construction.
-  FloatRect Bounds() const;
-
   // Compute bounds for the given line and the current decoration.
   FloatRect BoundsForLine(TextDecoration line) const;
 
   // Return a path for a wavy line at the given position, for the
   // current decoration.
   base::Optional<Path> PrepareWavyStrokePath(TextDecoration line) const;
+
+  static float DoubleOffsetFromThickness(float thickness_pixels) {
+    return thickness_pixels + 1.0f;
+  }
 
  private:
   float ComputeUnderlineThickness(
@@ -103,7 +108,8 @@ class CORE_EXPORT TextDecorationInfo {
   FloatRect BoundsForDottedOrDashed(TextDecoration line) const;
   FloatRect BoundsForWavy(TextDecoration line) const;
 
-  const ComputedStyle& style_;
+  const ComputedStyle* style_;
+  const base::Optional<AppliedTextDecoration> selection_text_decoration_;
   const FontBaseline baseline_type_;
   const LayoutUnit width_;
   const SimpleFontData* font_data_;

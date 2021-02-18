@@ -22,8 +22,8 @@ static const int kEncryptingClientId = 0;
 static const int kDecryptingClientId = 1;
 
 using bookmarks_helper::AddURL;
-using bookmarks_helper::AllModelsMatchVerifier;
-using bookmarks_helper::BookmarksMatchVerifierChecker;
+using bookmarks_helper::AllModelsMatch;
+using bookmarks_helper::BookmarksMatchChecker;
 
 // These tests consider the client as a black-box; they are not concerned with
 // whether the data is committed to the server correctly encrypted. Rather, they
@@ -34,11 +34,9 @@ using bookmarks_helper::BookmarksMatchVerifierChecker;
 class TwoClientCustomPassphraseSyncTest : public SyncTest {
  public:
   TwoClientCustomPassphraseSyncTest() : SyncTest(TWO_CLIENT) {}
-  ~TwoClientCustomPassphraseSyncTest() override {}
+  ~TwoClientCustomPassphraseSyncTest() override = default;
 
-  bool WaitForBookmarksToMatchVerifier() {
-    return BookmarksMatchVerifierChecker().Wait();
-  }
+  bool WaitForBookmarksToMatch() { return BookmarksMatchChecker().Wait(); }
 
   bool WaitForPassphraseRequiredState(int index, bool desired_state) {
     return PassphraseRequiredStateChecker(GetSyncService(index), desired_state)
@@ -51,9 +49,6 @@ class TwoClientCustomPassphraseSyncTest : public SyncTest {
     ASSERT_TRUE(AddURL(index, 1, "Test bookmark",
                        GURL("https://google.com/synced-bookmark-2")));
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TwoClientCustomPassphraseSyncTest);
 };
 
 class TwoClientCustomPassphraseSyncTestScryptEnabledInPreTest
@@ -62,13 +57,14 @@ class TwoClientCustomPassphraseSyncTestScryptEnabledInPreTest
   TwoClientCustomPassphraseSyncTestScryptEnabledInPreTest() {
     if (content::IsPreTest()) {
       override_features_.InitWithFeatures(
-          /*enable_features=*/{switches::kSyncUseScryptForNewCustomPassphrases},
-          /*disable_features=*/{
+          /*enabled_features=*/{switches::
+                                    kSyncUseScryptForNewCustomPassphrases},
+          /*disabled_features=*/{
               switches::kSyncForceDisableScryptForCustomPassphrase});
     } else {
       override_features_.InitWithFeatures(
-          /*enable_features=*/{},
-          /*disable_features=*/{
+          /*enabled_features=*/{},
+          /*disabled_features=*/{
               switches::kSyncUseScryptForNewCustomPassphrases,
               switches::kSyncForceDisableScryptForCustomPassphrase});
     }
@@ -86,7 +82,7 @@ class TwoClientCustomPassphraseSyncTestScryptEnabledInPreTest
 IN_PROC_BROWSER_TEST_F(TwoClientCustomPassphraseSyncTest,
                        DecryptionFailsWhenIncorrectPassphraseProvided) {
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-  ASSERT_TRUE(AllModelsMatchVerifier());
+  ASSERT_TRUE(AllModelsMatch());
 
   GetSyncService(kEncryptingClientId)
       ->GetUserSettings()
@@ -103,7 +99,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientCustomPassphraseSyncTest,
 
 IN_PROC_BROWSER_TEST_F(TwoClientCustomPassphraseSyncTest, ClientsCanSyncData) {
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-  ASSERT_TRUE(AllModelsMatchVerifier());
+  ASSERT_TRUE(AllModelsMatch());
 
   GetSyncService(kEncryptingClientId)
       ->GetUserSettings()
@@ -120,7 +116,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientCustomPassphraseSyncTest, ClientsCanSyncData) {
   ASSERT_TRUE(
       GetClient(kEncryptingClientId)
           ->AwaitMutualSyncCycleCompletion(GetClient(kDecryptingClientId)));
-  EXPECT_TRUE(WaitForBookmarksToMatchVerifier());
+  EXPECT_TRUE(WaitForBookmarksToMatch());
 }
 
 IN_PROC_BROWSER_TEST_F(TwoClientCustomPassphraseSyncTest,
@@ -152,10 +148,13 @@ IN_PROC_BROWSER_TEST_F(TwoClientCustomPassphraseSyncTest,
                   ->SetDecryptionPassphrase("hunter2"));
   ASSERT_TRUE(
       PassphraseAcceptedChecker(GetSyncService(kDecryptingClientId)).Wait());
+
+  // Double check that bookmark models are not synced.
+  ASSERT_FALSE(AllModelsMatch());
   GetClient(kDecryptingClientId)->FinishSyncSetup();
 
   // Wait for bookmarks to converge.
-  EXPECT_TRUE(WaitForBookmarksToMatchVerifier());
+  EXPECT_TRUE(WaitForBookmarksToMatch());
 }
 
 class TwoClientCustomPassphraseSyncTestWithScryptEncryptionNotEnabled
@@ -176,7 +175,7 @@ IN_PROC_BROWSER_TEST_F(
     TwoClientCustomPassphraseSyncTestWithScryptEncryptionNotEnabled,
     ClientsCanSyncData) {
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-  ASSERT_TRUE(AllModelsMatchVerifier());
+  ASSERT_TRUE(AllModelsMatch());
 
   GetSyncService(kEncryptingClientId)
       ->GetUserSettings()
@@ -193,7 +192,7 @@ IN_PROC_BROWSER_TEST_F(
   ASSERT_TRUE(
       GetClient(kEncryptingClientId)
           ->AwaitMutualSyncCycleCompletion(GetClient(kDecryptingClientId)));
-  EXPECT_TRUE(WaitForBookmarksToMatchVerifier());
+  EXPECT_TRUE(WaitForBookmarksToMatch());
 }
 
 class TwoClientCustomPassphraseSyncTestWithScryptEncryptionEnabled
@@ -214,7 +213,7 @@ IN_PROC_BROWSER_TEST_F(
     TwoClientCustomPassphraseSyncTestWithScryptEncryptionEnabled,
     ClientsCanSyncData) {
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-  ASSERT_TRUE(AllModelsMatchVerifier());
+  ASSERT_TRUE(AllModelsMatch());
 
   GetSyncService(kEncryptingClientId)
       ->GetUserSettings()
@@ -231,13 +230,13 @@ IN_PROC_BROWSER_TEST_F(
   ASSERT_TRUE(
       GetClient(kEncryptingClientId)
           ->AwaitMutualSyncCycleCompletion(GetClient(kDecryptingClientId)));
-  EXPECT_TRUE(WaitForBookmarksToMatchVerifier());
+  EXPECT_TRUE(WaitForBookmarksToMatch());
 }
 
 IN_PROC_BROWSER_TEST_F(TwoClientCustomPassphraseSyncTestScryptEnabledInPreTest,
                        PRE_ClientsCanSyncDataWhenScryptEncryptionEnabledInOne) {
   ASSERT_TRUE(SetupSync());
-  ASSERT_TRUE(AllModelsMatchVerifier());
+  ASSERT_TRUE(AllModelsMatch());
 
   GetSyncService(kEncryptingClientId)
       ->GetUserSettings()
@@ -251,7 +250,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientCustomPassphraseSyncTestScryptEnabledInPreTest,
 IN_PROC_BROWSER_TEST_F(TwoClientCustomPassphraseSyncTestScryptEnabledInPreTest,
                        ClientsCanSyncDataWhenScryptEncryptionEnabledInOne) {
   ASSERT_TRUE(SetupClients());
-  ASSERT_TRUE(AllModelsMatchVerifier());
+  ASSERT_TRUE(AllModelsMatch());
 
   // WaitForPassphraseRequiredState() doesn't guarantee, that sync engine will
   // be initialized, but SetDecryptionPassphrase() requires it, so explicitly
@@ -269,7 +268,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientCustomPassphraseSyncTestScryptEnabledInPreTest,
   ASSERT_TRUE(
       GetClient(kEncryptingClientId)
           ->AwaitMutualSyncCycleCompletion(GetClient(kDecryptingClientId)));
-  EXPECT_TRUE(WaitForBookmarksToMatchVerifier());
+  EXPECT_TRUE(WaitForBookmarksToMatch());
 }
 
 }  // namespace

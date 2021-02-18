@@ -6,6 +6,7 @@
 
 #include "base/check.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_event_log_output_sink.h"
+#include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
 
@@ -25,7 +26,7 @@ bool RtcEventLogOutputSinkProxy::Write(const std::string& output) {
   WTF::Vector<uint8_t> converted_output;
   converted_output.AppendRange(output.begin(), output.end());
 
-  sink_->OnWebRtcEventLogWrite(converted_output);
+  sink_.Lock()->OnWebRtcEventLogWrite(converted_output);
   return true;
 }
 

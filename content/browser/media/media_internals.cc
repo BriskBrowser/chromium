@@ -542,6 +542,7 @@ void MediaInternals::UpdateVideoCaptureDeviceCapabilities(
   video_capture_capabilities_cached_data_.Clear();
 
   for (const auto& device_format_pair : descriptors_and_formats) {
+    auto control_support = std::make_unique<base::ListValue>();
     auto format_list = std::make_unique<base::ListValue>();
     // TODO(nisse): Representing format information as a string, to be
     // parsed by the javascript handler, is brittle. Consider passing
@@ -551,6 +552,12 @@ void MediaInternals::UpdateVideoCaptureDeviceCapabilities(
         std::get<0>(device_format_pair);
     const media::VideoCaptureFormats& supported_formats =
         std::get<1>(device_format_pair);
+    if (descriptor.control_support().pan)
+      control_support->AppendString("pan");
+    if (descriptor.control_support().tilt)
+      control_support->AppendString("tilt");
+    if (descriptor.control_support().zoom)
+      control_support->AppendString("zoom");
     for (const auto& format : supported_formats)
       format_list->AppendString(media::VideoCaptureFormat::ToString(format));
 
@@ -558,8 +565,7 @@ void MediaInternals::UpdateVideoCaptureDeviceCapabilities(
         new base::DictionaryValue());
     device_dict->SetString("id", descriptor.device_id);
     device_dict->SetString("name", descriptor.GetNameAndModel());
-    device_dict->SetBoolean("panTiltZoomSupported",
-                            descriptor.pan_tilt_zoom_supported());
+    device_dict->Set("controlSupport", std::move(control_support));
     device_dict->Set("formats", std::move(format_list));
     device_dict->SetString("captureApi", descriptor.GetCaptureApiTypeString());
     video_capture_capabilities_cached_data_.Append(std::move(device_dict));
@@ -636,19 +642,9 @@ void MediaInternals::SendUpdate(const base::string16& update) {
 void MediaInternals::SaveEvent(int process_id,
                                const media::MediaLogRecord& event) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-
-// Save the event and limit the total number per renderer. At the time of
-// writing, 512 events of the kind: { "property": value } together consume
-// ~88kb of memory on linux.
-#if defined(OS_ANDROID)
-  const size_t kEventLimit = 128;
-#else
-  const size_t kEventLimit = 512;
-#endif
-
   auto& saved_events = saved_events_by_process_[process_id];
   saved_events.push_back(event);
-  if (saved_events.size() > kEventLimit) {
+  if (saved_events.size() > media::MediaLog::kLogLimit) {
     // Remove all events for a given player as soon as we have to remove a
     // single event for that player to avoid showing incomplete players.
     const int id_to_remove = saved_events.front().id;

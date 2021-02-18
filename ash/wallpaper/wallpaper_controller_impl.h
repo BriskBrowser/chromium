@@ -42,7 +42,6 @@ struct ColorProfile;
 namespace ash {
 
 class WallpaperColorCalculator;
-struct WallpaperProperty;
 class WallpaperResizer;
 class WallpaperWindowStateManager;
 
@@ -169,15 +168,19 @@ class ASH_EXPORT WallpaperControllerImpl
   // existing blur is removed.
   void UpdateWallpaperBlurForLockState(bool blur);
 
-  // Restores the wallpaper property from lock state.
-  void RestoreWallpaperPropertyForLockState(const WallpaperProperty& property);
+  // Restores the wallpaper blur from lock state.
+  void RestoreWallpaperBlurForLockState(float blur);
 
-  // Wallpaper should be dimmed for login, lock, OOBE and add user screens.
-  bool ShouldApplyDimming() const;
+  // A shield should be applied on the wallpaper for overview, login, lock, OOBE
+  // and add user screens.
+  bool ShouldApplyShield() const;
 
   // Returns whether the current wallpaper is allowed to be blurred on
   // lock/login screen. See https://crbug.com/775591.
   bool IsBlurAllowedForLockState() const;
+
+  // True if the wallpaper is set.
+  bool is_wallpaper_set() const { return !!current_wallpaper_.get(); }
 
   // Sets wallpaper info for |account_id| and saves it to local state if the
   // user is not ephemeral. Returns false if it fails (which happens if local
@@ -322,6 +325,8 @@ class ASH_EXPORT WallpaperControllerImpl
   // Proxy to private ReloadWallpaper().
   void ReloadWallpaperForTesting(bool clear_cache);
 
+  void set_bypass_decode_for_testing() { bypass_decode_for_testing_ = true; }
+
  private:
   FRIEND_TEST_ALL_PREFIXES(WallpaperControllerTest, BasicReparenting);
   FRIEND_TEST_ALL_PREFIXES(WallpaperControllerTest,
@@ -347,7 +352,8 @@ class ASH_EXPORT WallpaperControllerImpl
 
   // Update a Wallpaper for |root_window|.
   void UpdateWallpaperForRootWindow(aura::Window* root_window,
-                                    bool lock_state_changed);
+                                    bool lock_state_changed,
+                                    bool new_root);
 
   // Update a Wallpaper for all root windows.
   void UpdateWallpaperForAllRootWindows(bool lock_state_changed);

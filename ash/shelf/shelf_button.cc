@@ -8,6 +8,7 @@
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_button_delegate.h"
+#include "ash/style/default_color_constants.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/views/animation/ink_drop_impl.h"
@@ -16,14 +17,15 @@ namespace ash {
 
 ShelfButton::ShelfButton(Shelf* shelf,
                          ShelfButtonDelegate* shelf_button_delegate)
-    : Button(nullptr),
+    : Button(Button::PressedCallback()),
       shelf_(shelf),
       shelf_button_delegate_(shelf_button_delegate) {
   DCHECK(shelf_button_delegate_);
-  set_hide_ink_drop_when_showing_context_menu(false);
-  set_ink_drop_base_color(ShelfConfig::Get()->shelf_ink_drop_base_color());
-  set_ink_drop_visible_opacity(
-      ShelfConfig::Get()->shelf_ink_drop_visible_opacity());
+  SetHideInkDropWhenShowingContextMenu(false);
+  const AshColorProvider::RippleAttributes ripple_attributes =
+      AshColorProvider::Get()->GetRippleAttributes();
+  SetInkDropBaseColor(ripple_attributes.base_color);
+  SetInkDropVisibleOpacity(ripple_attributes.inkdrop_opacity);
   SetFocusBehavior(FocusBehavior::ALWAYS);
   SetInkDropMode(InkDropMode::ON_NO_GESTURE_HANDLER);
   SetFocusPainter(views::Painter::CreateSolidFocusPainter(

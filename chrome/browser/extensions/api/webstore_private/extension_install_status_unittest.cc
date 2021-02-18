@@ -325,6 +325,27 @@ TEST_F(ExtensionInstallStatusTest, ExtensionBlockedByManifestType) {
                                               PermissionSet()));
 }
 
+TEST_F(ExtensionInstallStatusTest, ExtensionWithoutPermissionInfo) {
+  SetExtensionSettings(R"({
+    "*": {
+      "blocked_permissions": ["storage"]
+    }
+  })");
+
+  EXPECT_EQ(ExtensionInstallStatus::kInstallable,
+            GetWebstoreExtensionInstallStatus(kExtensionId, profile()));
+}
+
+TEST_F(ExtensionInstallStatusTest, ExtensionWithoutManifestInfo) {
+  SetExtensionSettings(R"({
+    "*": {
+      "allowed_types": ["theme"]
+    }
+  })");
+  EXPECT_EQ(ExtensionInstallStatus::kInstallable,
+            GetWebstoreExtensionInstallStatus(kExtensionId, profile()));
+}
+
 TEST_F(ExtensionInstallStatusTest, ExtensionBlockedByPermissions) {
   // Block 'storage' for all extensions.
   SetExtensionSettings(R"({
@@ -477,7 +498,7 @@ TEST_F(ExtensionInstallStatusTest, ExtensionBlockedByPermissionsWithUpdateUrl) {
 }
 
 TEST_F(ExtensionInstallStatusTest,
-       ExtensionBlockedByPermissionButWhitelistById) {
+       ExtensionBlockedByPermissionButAllowlistById) {
   SetExtensionSettings(R"({
     "*": {
       "blocked_permissions": ["storage"]
@@ -485,7 +506,7 @@ TEST_F(ExtensionInstallStatusTest,
       "installation_mode": "allowed"
   }})");
 
-  // Per-id whitelisted has higher priority than blocked permissions.
+  // Per-id allowlisted has higher priority than blocked permissions.
   APIPermissionSet api_permissions;
   api_permissions.insert(APIPermission::kStorage);
   EXPECT_EQ(ExtensionInstallStatus::kInstallable,

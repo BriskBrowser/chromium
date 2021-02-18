@@ -4,7 +4,6 @@
 
 #include "third_party/blink/renderer/platform/scheduler/public/scheduling_policy.h"
 
-
 namespace blink {
 
 bool SchedulingPolicy::IsFeatureSticky(SchedulingPolicy::Feature feature) {
@@ -50,7 +49,6 @@ bool SchedulingPolicy::IsFeatureSticky(SchedulingPolicy::Feature feature) {
     case Feature::kRequestedBackForwardCacheBlockedSensors:
     case Feature::kRequestedBackgroundWorkPermission:
     case Feature::kWebLocks:
-    case Feature::kWakeLock:
     case Feature::kRequestedStorageAccessGrant:
     case Feature::kWebNfc:
     case Feature::kWebFileSystem:
@@ -60,7 +58,7 @@ bool SchedulingPolicy::IsFeatureSticky(SchedulingPolicy::Feature feature) {
     case Feature::kIdleManager:
     case Feature::kPaymentManager:
     case Feature::kKeyboardLock:
-    case Feature::kSmsService:
+    case Feature::kWebOTPService:
       return true;
   }
 }

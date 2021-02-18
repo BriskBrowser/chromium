@@ -9,11 +9,11 @@
 #include <utility>
 
 #include "ash/accelerators/accelerator_controller_impl.h"
+#include "ash/constants/ash_features.h"
 #include "ash/detachable_base/detachable_base_pairing_status.h"
 #include "ash/focus_cycler.h"
 #include "ash/ime/ime_controller_impl.h"
 #include "ash/login/login_screen_controller.h"
-#include "ash/login/parent_access_controller.h"
 #include "ash/login/ui/bottom_status_indicator.h"
 #include "ash/login/ui/lock_screen.h"
 #include "ash/login/ui/lock_screen_media_controls_view.h"
@@ -30,9 +30,10 @@
 #include "ash/login/ui/views_utils.h"
 #include "ash/media/media_controller_impl.h"
 #include "ash/public/cpp/ash_switches.h"
+#include "ash/public/cpp/child_accounts/parent_access_controller.h"
 #include "ash/public/cpp/login_accelerators.h"
-#include "ash/public/cpp/login_types.h"
 #include "ash/resources/vector_icons/vector_icons.h"
+#include "ash/session/session_controller_impl.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_widget.h"
 #include "ash/shell.h"
@@ -49,11 +50,12 @@
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/optional.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chromeos/components/proximity_auth/public/mojom/auth_type.mojom.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
+#include "chromeos/ui/vector_icons/vector_icons.h"
 #include "components/user_manager/known_user.h"
 #include "components/user_manager/user_type.h"
 #include "ui/accessibility/ax_node_data.h"
@@ -81,6 +83,7 @@
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/style/typography.h"
+#include "ui/views/vector_icons.h"
 #include "ui/views/view.h"
 
 namespace ash {
@@ -111,12 +114,6 @@ constexpr int kMediumDensityDistanceBetweenAuthUserAndUsersPortraitDp = 84;
 constexpr int kHorizontalPaddingAuthErrorBubbleDp = 8;
 constexpr int kVerticalPaddingAuthErrorBubbleDp = 8;
 
-// The font color of the bottom status indicator for enterprise management.
-constexpr SkColor kBottomStatusManagedFontColor = gfx::kGoogleGrey200;
-
-// The font color of the bottom status indicator for ADB warning.
-constexpr SkColor kBottomStatusAdbFontColor = gfx::kGoogleRed300;
-
 // Spacing between the bottom status indicator and the shelf.
 constexpr int kBottomStatusIndicatorBottomMarginDp = 16;
 
@@ -126,18 +123,40 @@ constexpr int kBottomStatusIndicatorChildSpacingDp = 8;
 // Spacing between child of LoginBaseBubbleView.
 constexpr int kBubbleBetweenChildSpacingDp = 16;
 
-// Width of the management pop-up.
-constexpr int kManagementPopUpWidth = 400;
+// Border radius of the rounded bubble.
+constexpr int kBubbleBorderRadius = 8;
 
-// Padding around the management bubble view.
+// Width of the management bubble.
+constexpr int kManagementBubbleWidth = 400;
+
+// Width of the user adding screen
+constexpr int kUserAddingScreenIndicatorWidth = 512;
+
+// Distance from the top of the user view to the user icon.
+constexpr int kDistanceFromTopOfBigUserViewToUserIconDp = 24;
+
+// Distance from the bottom of the user adding screen indicator to the user
+// icon.
+constexpr int kDistanceFromBottomOfIndicatorToUserIconDp =
+    96 - kDistanceFromTopOfBigUserViewToUserIconDp;
+
+// Min distance from the top of the screen to the top of the user adding screen
+// indicator.
+constexpr int kMinDistanceFromTopOfScreenToIndicatorDp = 8;
+
+// Padding around the login screen bubble view.
 constexpr int kBubblePaddingDp = 16;
 
 // Size of the tooltip view info icon.
 constexpr int kInfoIconSizeDp = 20;
 
-// Maximum width of the management pop-up label.
-constexpr int kManagementLabelMaxWidth =
-    kManagementPopUpWidth - 2 * kBubblePaddingDp - kInfoIconSizeDp -
+// Horizontal and vertical padding of login tooltip view.
+constexpr int kHorizontalPaddingLoginTooltipViewDp = 8;
+constexpr int kVerticalPaddingLoginTooltipViewDp = 8;
+
+// Maximum width of the management bubble label.
+constexpr int kManagementBubbleLabelMaxWidth =
+    kManagementBubbleWidth - 2 * kBubblePaddingDp - kInfoIconSizeDp -
     kBubbleBetweenChildSpacingDp;
 
 constexpr char kAuthErrorContainerName[] = "AuthErrorContainer";
@@ -184,7 +203,8 @@ void MakeSectionBold(views::StyledLabel* label,
       style.custom_font = label->GetFontList().Derive(
           0, gfx::Font::FontStyle::NORMAL, gfx::Font::Weight::BOLD);
     }
-    style.override_color = gfx::kGoogleGrey200;
+    style.override_color = AshColorProvider::Get()->GetContentLayerColor(
+        AshColorProvider::ContentLayerType::kTextColorPrimary);
     return style;
   };
 
@@ -292,31 +312,66 @@ struct MediumViewLayout {
   int right_flex_width = 0;
 };
 
-}  // namespace
-
-class LockContentsView::AuthErrorBubble : public LoginErrorBubble,
-                                          public views::ButtonListener {
+class UserAddingScreenIndicator : public views::View {
  public:
-  AuthErrorBubble() = default;
+  UserAddingScreenIndicator() {
+    views::BoxLayout* layout_manager =
+        SetLayoutManager(std::make_unique<views::BoxLayout>(
+            views::BoxLayout::Orientation::kHorizontal,
+            gfx::Insets(kBubblePaddingDp), kBubbleBetweenChildSpacingDp));
+    layout_manager->set_cross_axis_alignment(
+        views::BoxLayout::CrossAxisAlignment::kStart);
 
-  // LoginErrorBubble:
-  gfx::Point CalculatePosition() override {
-    return CalculatePositionUsingDefaultStrategy(
-        PositioningStrategy::kShowOnRightSideOrLeftSide,
-        kHorizontalPaddingAuthErrorBubbleDp, kVerticalPaddingAuthErrorBubbleDp);
+    views::ImageView* info_icon = new views::ImageView();
+    info_icon->SetPreferredSize(gfx::Size(kInfoIconSizeDp, kInfoIconSizeDp));
+    info_icon->SetImage(gfx::CreateVectorIcon(
+        views::kInfoIcon,
+        AshColorProvider::Get()->GetContentLayerColor(
+            AshColorProvider::ContentLayerType::kIconColorPrimary)));
+    AddChildView(info_icon);
+
+    base::string16 message =
+        l10n_util::GetStringUTF16(IDS_ASH_LOGIN_USER_ADDING_BANNER);
+    views::Label* label_ = login_views_utils::CreateBubbleLabel(message, this);
+    label_->SetText(message);
+    AddChildView(label_);
+
+    SetPaintToLayer();
+    SkColor background_color = AshColorProvider::Get()->GetBaseLayerColor(
+        AshColorProvider::BaseLayerType::kTransparent80);
+    layer()->SetBackgroundBlur(
+        static_cast<float>(AshColorProvider::LayerBlurSigma::kBlurDefault));
+    SetBackground(views::CreateRoundedRectBackground(background_color,
+                                                     kBubbleBorderRadius));
+    layer()->SetFillsBoundsOpaquely(false);
   }
 
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override {
-    Shell::Get()->login_screen_controller()->ShowAccountAccessHelpApp(
-        GetWidget()->GetNativeWindow());
-    Hide();
+  UserAddingScreenIndicator(const UserAddingScreenIndicator&) = delete;
+  UserAddingScreenIndicator& operator=(const UserAddingScreenIndicator&) =
+      delete;
+  ~UserAddingScreenIndicator() override = default;
+
+  // views::View:
+  gfx::Size CalculatePreferredSize() const override {
+    return gfx::Size(kUserAddingScreenIndicatorWidth,
+                     GetHeightForWidth(kUserAddingScreenIndicatorWidth));
   }
 };
 
-class LockContentsView::ManagementPopUp : public LoginTooltipView {
+}  // namespace
+
+class LockContentsView::AuthErrorBubble : public LoginErrorBubble {
  public:
-  ManagementPopUp(const base::string16& message, views::View* anchor_view)
+  AuthErrorBubble() {
+    set_positioning_strategy(PositioningStrategy::kTryAfterThenBefore);
+    SetPadding(kHorizontalPaddingAuthErrorBubbleDp,
+               kVerticalPaddingAuthErrorBubbleDp);
+  }
+};
+
+class LockContentsView::ManagementBubble : public LoginTooltipView {
+ public:
+  ManagementBubble(const base::string16& message, views::View* anchor_view)
       : LoginTooltipView(message, anchor_view) {
     views::BoxLayout* layout_manager =
         SetLayoutManager(std::make_unique<views::BoxLayout>(
@@ -324,28 +379,15 @@ class LockContentsView::ManagementPopUp : public LoginTooltipView {
             gfx::Insets(kBubblePaddingDp), kBubbleBetweenChildSpacingDp));
     layout_manager->set_cross_axis_alignment(
         views::BoxLayout::CrossAxisAlignment::kStart);
-    label()->SetMaximumWidth(kManagementLabelMaxWidth);
-    SetVisible(false);
+    label()->SetMaximumWidth(kManagementBubbleLabelMaxWidth);
+
+    set_positioning_strategy(PositioningStrategy::kShowAbove);
   }
 
   // LoginBaseBubbleView:
   gfx::Size CalculatePreferredSize() const override {
-    gfx::Size size;
-    size.set_width(kManagementPopUpWidth);
-    size.set_height(GetHeightForWidth(kManagementPopUpWidth));
-    return size;
-  }
-
-  // LoginTooltipView:
-  gfx::Point CalculatePosition() override {
-    DCHECK(GetAnchorView());
-    gfx::Point top_center = GetAnchorView()->bounds().top_center();
-    gfx::Point position =
-        top_center - gfx::Vector2d(GetPreferredSize().width() / 2,
-                                   GetPreferredSize().height());
-    ConvertPointToTarget(GetAnchorView()->parent() /*source*/,
-                         parent() /*target*/, &position);
-    return position;
+    return gfx::Size(kManagementBubbleWidth,
+                     GetHeightForWidth(kManagementBubbleWidth));
   }
 };
 
@@ -353,7 +395,7 @@ class LockContentsView::AutoLoginUserActivityHandler
     : public ui::UserActivityObserver {
  public:
   AutoLoginUserActivityHandler() {
-    observer_.Add(ui::UserActivityDetector::Get());
+    observation_.Observe(ui::UserActivityDetector::Get());
   }
 
   ~AutoLoginUserActivityHandler() override = default;
@@ -365,8 +407,8 @@ class LockContentsView::AutoLoginUserActivityHandler
   }
 
  private:
-  ScopedObserver<ui::UserActivityDetector, ui::UserActivityObserver> observer_{
-      this};
+  base::ScopedObservation<ui::UserActivityDetector, ui::UserActivityObserver>
+      observation_{this};
 
   DISALLOW_COPY_AND_ASSIGN(AutoLoginUserActivityHandler);
 };
@@ -409,11 +451,11 @@ views::View* LockContentsView::TestApi::note_action() const {
   return view_->note_action_;
 }
 
-LoginTooltipView* LockContentsView::TestApi::tooltip_bubble() const {
+views::View* LockContentsView::TestApi::tooltip_bubble() const {
   return view_->tooltip_bubble_;
 }
 
-LoginTooltipView* LockContentsView::TestApi::management_bubble() const {
+views::View* LockContentsView::TestApi::management_bubble() const {
   return view_->management_bubble_;
 }
 
@@ -430,9 +472,8 @@ LoginErrorBubble* LockContentsView::TestApi::warning_banner_bubble() const {
   return view_->warning_banner_bubble_;
 }
 
-LoginErrorBubble*
-LockContentsView::TestApi::supervised_user_deprecation_bubble() const {
-  return view_->supervised_user_deprecation_bubble_;
+views::View* LockContentsView::TestApi::user_adding_screen_indicator() const {
+  return view_->user_adding_screen_indicator_;
 }
 
 views::View* LockContentsView::TestApi::system_info() const {
@@ -509,6 +550,9 @@ LockContentsView::UserState::UserState(const LoginUserInfo& user_info)
   if (user_info.auth_type == proximity_auth::mojom::AuthType::ONLINE_SIGN_IN)
     force_online_sign_in = true;
   show_pin_pad_for_password = user_info.show_pin_pad_for_password;
+  disable_auth = !user_info.is_multiprofile_allowed &&
+                 Shell::Get()->session_controller()->GetSessionState() ==
+                     session_manager::SessionState::LOGIN_SECONDARY;
 }
 
 LockContentsView::UserState::UserState(UserState&&) = default;
@@ -532,7 +576,7 @@ LockContentsView::LockContentsView(
         std::make_unique<AutoLoginUserActivityHandler>();
 
   data_dispatcher_->AddObserver(this);
-  display_observer_.Add(display::Screen::GetScreen());
+  display_observation_.Observe(display::Screen::GetScreen());
   Shell::Get()->system_tray_notifier()->AddSystemTrayFocusObserver(this);
   keyboard::KeyboardUIController::Get()->AddObserver(this);
 
@@ -574,12 +618,12 @@ LockContentsView::LockContentsView(
   bottom_status_indicator_->SetLayoutManager(
       std::move(bottom_status_indicator_layout));
 
-  std::string entreprise_domain_name = Shell::Get()
-                                           ->system_tray_model()
-                                           ->enterprise_domain()
-                                           ->enterprise_display_domain();
-  if (!entreprise_domain_name.empty())
-    ShowEntrepriseDomainName(entreprise_domain_name);
+  std::string enterprise_domain_manager = Shell::Get()
+                                              ->system_tray_model()
+                                              ->enterprise_domain()
+                                              ->enterprise_domain_manager();
+  if (!enterprise_domain_manager.empty())
+    ShowEnterpriseDomainManager(enterprise_domain_manager);
 
   note_action_ = top_header_->AddChildView(
       std::make_unique<NoteActionLaunchButton>(initial_note_action_state));
@@ -591,28 +635,34 @@ LockContentsView::LockContentsView(
                               base::Unretained(this), DisplayStyle::kAll)));
   expanded_view_->SetVisible(false);
 
-  supervised_user_deprecation_bubble_ =
-      AddChildView(std::make_unique<LoginErrorBubble>());
-  supervised_user_deprecation_bubble_->SetPersistent(true);
-
   detachable_base_error_bubble_ =
       AddChildView(std::make_unique<LoginErrorBubble>());
-  detachable_base_error_bubble_->SetPersistent(true);
+  detachable_base_error_bubble_->set_persistent(true);
 
   tooltip_bubble_ = AddChildView(std::make_unique<LoginTooltipView>(
       base::UTF8ToUTF16("") /*message*/, nullptr /*anchor_view*/));
+  tooltip_bubble_->set_positioning_strategy(
+      LoginBaseBubbleView::PositioningStrategy::kTryBeforeThenAfter);
+  tooltip_bubble_->SetPadding(kHorizontalPaddingLoginTooltipViewDp,
+                              kVerticalPaddingLoginTooltipViewDp);
 
-  management_bubble_ = new ManagementPopUp(
+  management_bubble_ = new ManagementBubble(
       l10n_util::GetStringFUTF16(IDS_ASH_LOGIN_ENTERPRISE_MANAGED_POP_UP,
                                  ui::GetChromeOSDeviceName(),
-                                 base::UTF8ToUTF16(entreprise_domain_name)),
+                                 base::UTF8ToUTF16(enterprise_domain_manager)),
       bottom_status_indicator_);
   AddChildView(management_bubble_);
 
   warning_banner_bubble_ = AddChildView(std::make_unique<LoginErrorBubble>());
-  warning_banner_bubble_->SetPersistent(true);
+  warning_banner_bubble_->set_persistent(true);
 
   auth_error_bubble_ = AddChildView(std::make_unique<AuthErrorBubble>());
+
+  if (Shell::Get()->session_controller()->GetSessionState() ==
+      session_manager::SessionState::LOGIN_SECONDARY) {
+    user_adding_screen_indicator_ =
+        AddChildView(std::make_unique<UserAddingScreenIndicator>());
+  }
 
   OnLockScreenNoteStateChanged(initial_note_action_state);
   chromeos::PowerManagerClient::Get()->AddObserver(this);
@@ -710,17 +760,19 @@ void LockContentsView::FocusPreviousUser() {
   }
 }
 
-void LockContentsView::ShowEntrepriseDomainName(
-    const std::string& entreprise_domain_name) {
+void LockContentsView::ShowEnterpriseDomainManager(
+    const std::string& entreprise_domain_manager) {
   if (!chromeos::features::IsLoginDeviceManagementDisclosureEnabled())
     return;
   bottom_status_indicator_->SetIcon(
-      kLoginScreenEnterpriseIcon,
+      chromeos::kEnterpriseIcon,
       AshColorProvider::ContentLayerType::kIconColorPrimary);
   bottom_status_indicator_->SetText(l10n_util::GetStringFUTF16(
       IDS_ASH_LOGIN_MANAGED_DEVICE_INDICATOR, ui::GetChromeOSDeviceName(),
-      base::UTF8ToUTF16(entreprise_domain_name)));
-  bottom_status_indicator_->SetEnabledTextColors(kBottomStatusManagedFontColor);
+      base::UTF8ToUTF16(entreprise_domain_manager)));
+  bottom_status_indicator_->SetEnabledTextColors(
+      AshColorProvider::Get()->GetContentLayerColor(
+          AshColorProvider::ContentLayerType::kTextColorPrimary));
   bottom_status_indicator_->set_role_for_accessibility(
       ax::mojom::Role::kButton);
   bottom_status_indicator_status_ = BottomIndicatorState::kManagedDevice;
@@ -733,7 +785,9 @@ void LockContentsView::ShowAdbEnabled() {
       AshColorProvider::ContentLayerType::kIconColorAlert);
   bottom_status_indicator_->SetText(
       l10n_util::GetStringUTF16(IDS_ASH_LOGIN_SCREEN_UNVERIFIED_CODE_WARNING));
-  bottom_status_indicator_->SetEnabledTextColors(kBottomStatusAdbFontColor);
+  bottom_status_indicator_->SetEnabledTextColors(
+      AshColorProvider::Get()->GetContentLayerColor(
+          AshColorProvider::ContentLayerType::kTextColorAlert));
   bottom_status_indicator_->set_role_for_accessibility(
       ax::mojom::Role::kStaticText);
   bottom_status_indicator_status_ =
@@ -763,7 +817,7 @@ void LockContentsView::ShowParentAccessDialog() {
       account_id,
       base::BindOnce(&LockContentsView::OnParentAccessValidationFinished,
                      weak_ptr_factory_.GetWeakPtr(), account_id),
-      ParentAccessRequestReason::kUnlockTimeLimits, false, base::Time::Now());
+      SupervisedAction::kUnlockTimeLimits, false, base::Time::Now());
   Shell::Get()->login_screen_controller()->ShowParentAccessButton(false);
 }
 
@@ -771,6 +825,7 @@ void LockContentsView::Layout() {
   View::Layout();
   LayoutTopHeader();
   LayoutBottomStatusIndicator();
+  LayoutUserAddingScreenIndicator();
   LayoutPublicSessionView();
 
   if (users_list_)
@@ -1049,6 +1104,25 @@ void LockContentsView::OnAuthDisabledForUser(
   }
 }
 
+void LockContentsView::OnSetTpmLockedState(const AccountId& user,
+                                           bool is_locked,
+                                           base::TimeDelta time_left) {
+  LockContentsView::UserState* state = FindStateForUser(user);
+  if (!state) {
+    LOG(ERROR) << "Unable to find user when setting TPM lock state";
+    return;
+  }
+
+  state->time_until_tpm_unlock =
+      is_locked ? base::make_optional(time_left) : base::nullopt;
+
+  LoginBigUserView* big_user =
+      TryToFindBigUser(user, true /*require_auth_active*/);
+  if (big_user && big_user->auth_user()) {
+    LayoutAuth(big_user, nullptr /*opt_to_hide*/, true /*animate*/);
+  }
+}
+
 void LockContentsView::OnTapToUnlockEnabledForUserChanged(const AccountId& user,
                                                           bool enabled) {
   LockContentsView::UserState* state = FindStateForUser(user);
@@ -1151,14 +1225,12 @@ void LockContentsView::OnSystemInfoChanged(
     const std::string& enterprise_info_text,
     const std::string& bluetooth_name,
     bool adb_sideloading_enabled) {
-  DCHECK(!os_version_label_text.empty() || !enterprise_info_text.empty() ||
-         !bluetooth_name.empty());
-
   // Helper function to create a label for the system info view.
   auto create_info_label = []() {
     auto label = std::make_unique<views::Label>();
     label->SetAutoColorReadabilityEnabled(false);
-    label->SetEnabledColor(SK_ColorWHITE);
+    label->SetEnabledColor(AshColorProvider::Get()->GetContentLayerColor(
+        AshColorProvider::ContentLayerType::kTextColorPrimary));
     label->SetFontList(views::Label::GetDefaultFontList().Derive(
         -1, gfx::Font::FontStyle::NORMAL, gfx::Font::Weight::NORMAL));
     label->SetSubpixelRenderingEnabled(false);
@@ -1193,6 +1265,7 @@ void LockContentsView::OnSystemInfoChanged(
 
   LayoutTopHeader();
 
+  // TODO(crbug.com/1141348): Separate ADB sideloading from system info changed.
   // Note that if ADB is enabled and the device is enrolled, only the ADB
   // warning message will be displayed.
   if (adb_sideloading_enabled)
@@ -1364,7 +1437,7 @@ void LockContentsView::OnKeyboardVisibilityChanged(bool is_visible) {
     return;
 
   keyboard_shown_ = is_visible;
-  LayoutAuth(CurrentBigUserView(), nullptr /*opt_to_hide*/, false /*animate*/);
+  LayoutAuth(CurrentBigUserView(), nullptr /*opt_to_hide*/, true /*animate*/);
 }
 
 void LockContentsView::SuspendImminent(
@@ -1382,10 +1455,10 @@ void LockContentsView::ShowAuthErrorMessageForDebug(int unlock_attempt) {
 void LockContentsView::ToggleManagementForUserForDebug(const AccountId& user) {
   auto replace = [](const LoginUserInfo& user_info) {
     auto changed = user_info;
-    if (user_info.user_enterprise_domain)
-      changed.user_enterprise_domain.reset();
+    if (user_info.user_account_manager)
+      changed.user_account_manager.reset();
     else
-      changed.user_enterprise_domain = "example@example.com";
+      changed.user_account_manager = "example@example.com";
     return changed;
   };
 
@@ -1682,6 +1755,33 @@ void LockContentsView::LayoutBottomStatusIndicator() {
     management_bubble_->Layout();
 }
 
+void LockContentsView::LayoutUserAddingScreenIndicator() {
+  if (Shell::Get()->session_controller()->GetSessionState() !=
+      session_manager::SessionState::LOGIN_SECONDARY)
+    return;
+
+  // The primary big view may not be ready yet.
+  if (!primary_big_view_)
+    return;
+
+  user_adding_screen_indicator_->SizeToPreferredSize();
+  // The element is placed at the middle of the screen horizontally. It is
+  // placed kDistanceFromBottomOfIndicatorToUserIconDp above the user icon.
+  // However, if the screen is too small, it is placed
+  // kMinDistanceFromTopOfScreenToIndicatorDp from top of screen.
+  int y =
+      std::max(kMinDistanceFromTopOfScreenToIndicatorDp,
+               primary_big_view_->y() -
+                   user_adding_screen_indicator_->GetPreferredSize().height() -
+                   kDistanceFromBottomOfIndicatorToUserIconDp);
+  gfx::Point position(
+      bounds().width() / 2 -
+          user_adding_screen_indicator_->GetPreferredSize().width() / 2,
+      y);
+
+  user_adding_screen_indicator_->SetPosition(position);
+}
+
 void LockContentsView::LayoutPublicSessionView() {
   gfx::Rect bounds = GetContentsBounds();
   bounds.ClampToCenteredSize(expanded_view_->GetPreferredSize());
@@ -1776,7 +1876,12 @@ void LockContentsView::LayoutAuth(LoginBigUserView* to_update,
           view->auth_user()->current_user().basic_user_info.account_id);
       uint32_t to_update_auth;
       LoginAuthUserView::AuthMethodsMetadata auth_metadata;
-      if (state->force_online_sign_in) {
+      if (state->time_until_tpm_unlock.has_value()) {
+        // TPM is locked
+        to_update_auth = LoginAuthUserView::AUTH_DISABLED_TPM_LOCKED;
+        auth_metadata.time_until_tpm_unlock =
+            state->time_until_tpm_unlock.value();
+      } else if (state->force_online_sign_in) {
         to_update_auth = LoginAuthUserView::AUTH_ONLINE_SIGN_IN;
       } else if (state->disable_auth) {
         to_update_auth = LoginAuthUserView::AUTH_DISABLED;
@@ -1879,20 +1984,6 @@ void LockContentsView::OnBigUserChanged() {
   Shell::Get()->login_screen_controller()->OnFocusPod(big_user_account_id);
   UpdateEasyUnlockIconForUser(big_user_account_id);
 
-  // http://crbug/866790: After Supervised Users are deprecated, remove this.
-  if (big_user.basic_user_info.type == user_manager::USER_TYPE_SUPERVISED) {
-    base::string16 message = l10n_util::GetStringUTF16(
-        IDS_ASH_LOGIN_POD_LEGACY_SUPERVISED_EXPIRATION_WARNING);
-    // Shows supervised user deprecation message as a persistent error bubble.
-
-    supervised_user_deprecation_bubble_->SetTextContent(message);
-    supervised_user_deprecation_bubble_->SetAnchorView(
-        CurrentBigUserView()->auth_user()->GetActiveInputView());
-    supervised_user_deprecation_bubble_->Show();
-  } else if (supervised_user_deprecation_bubble_->GetVisible()) {
-    supervised_user_deprecation_bubble_->Hide();
-  }
-
   // The new auth user might have different last used detachable base - make
   // sure the detachable base pairing error is updated if needed.
   OnDetachableBasePairingStatusChanged(
@@ -1945,8 +2036,12 @@ void LockContentsView::ShowAuthErrorMessage() {
     return;
 
   // Show gaia signin if this is login and the user has failed too many times.
+  // Do not show on secondary login screen – even though it has type kLogin – as
+  // there is no OOBE there.
   if (screen_type_ == LockScreen::ScreenType::kLogin &&
-      unlock_attempt_ >= kLoginAttemptsBeforeGaiaDialog) {
+      unlock_attempt_ >= kLoginAttemptsBeforeGaiaDialog &&
+      Shell::Get()->session_controller()->GetSessionState() !=
+          session_manager::SessionState::LOGIN_SECONDARY) {
     Shell::Get()->login_screen_controller()->ShowGaiaSignin(
         big_view->auth_user()->current_user().basic_user_info.account_id);
     return;
@@ -1979,13 +2074,15 @@ void LockContentsView::ShowAuthErrorMessage() {
     *bold_start += shortcut_offset_in_string;
   }
 
-  auto label = std::make_unique<views::StyledLabel>(this);
+  auto label = std::make_unique<views::StyledLabel>();
   label->SetText(error_text);
   MakeSectionBold(label.get(), error_text, bold_start, bold_length);
   label->SetAutoColorReadabilityEnabled(false);
 
   auto learn_more_button = std::make_unique<SystemLabelButton>(
-      auth_error_bubble_, l10n_util::GetStringUTF16(IDS_ASH_LEARN_MORE),
+      base::BindRepeating(&LockContentsView::LearnMoreButtonPressed,
+                          base::Unretained(this)),
+      l10n_util::GetStringUTF16(IDS_ASH_LEARN_MORE),
       SystemLabelButton::DisplayType::DEFAULT, /*multiline*/ true);
 
   auto container = std::make_unique<NonAccessibleView>(kAuthErrorContainerName);
@@ -2002,7 +2099,6 @@ void LockContentsView::ShowAuthErrorMessage() {
       big_view->auth_user()->GetActiveInputView());
   auth_error_bubble_->SetContent(container.release());
   auth_error_bubble_->SetAccessibleName(error_text);
-  auth_error_bubble_->SetPersistent(false);
   auth_error_bubble_->Show();
 }
 
@@ -2082,6 +2178,12 @@ void LockContentsView::OnPublicAccountTapped(bool is_primary) {
   // OnPublicSessionDisplayNameChanged and OnPublicSessionLocalesChanged.
   expanded_view_->UpdateForUser(user->GetCurrentUser());
   SetDisplayStyle(DisplayStyle::kExclusivePublicAccountExpandedView);
+}
+
+void LockContentsView::LearnMoreButtonPressed() {
+  Shell::Get()->login_screen_controller()->ShowAccountAccessHelpApp(
+      GetWidget()->GetNativeWindow());
+  auth_error_bubble_->Hide();
 }
 
 std::unique_ptr<LoginBigUserView> LockContentsView::AllocateLoginBigUserView(
@@ -2220,7 +2322,11 @@ void LockContentsView::PerformAction(LoginAcceleratorAction action) {
     ToggleSystemInfo();
     return;
   }
-  Shell::Get()->login_screen_controller()->HandleAccelerator(action);
+  // Do not allow accelerator action when system modal window is open except
+  // `kShowFeedback` which opens feedback tool on top of system modal.
+  if (!Shell::IsSystemModalWindowOpen() ||
+      action == LoginAcceleratorAction::kShowFeedback)
+    Shell::Get()->login_screen_controller()->HandleAccelerator(action);
 }
 
 bool LockContentsView::GetSystemInfoVisibility() const {
@@ -2247,6 +2353,6 @@ void LockContentsView::OnBottomStatusIndicatorTapped() {
 }
 
 BEGIN_METADATA(LockContentsView, NonAccessibleView)
-END_METADATA()
+END_METADATA
 
 }  // namespace ash

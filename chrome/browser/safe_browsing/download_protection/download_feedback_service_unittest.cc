@@ -43,17 +43,17 @@ class FakeDownloadFeedback : public DownloadFeedback {
   FakeDownloadFeedback(base::TaskRunner* file_task_runner,
                        const std::string& ping_request,
                        const std::string& ping_response,
-                       base::Closure deletion_callback)
+                       base::OnceClosure deletion_callback)
       : ping_request_(ping_request),
         ping_response_(ping_response),
-        deletion_callback_(deletion_callback),
+        deletion_callback_(std::move(deletion_callback)),
         start_called_(false) {}
 
-  ~FakeDownloadFeedback() override { deletion_callback_.Run(); }
+  ~FakeDownloadFeedback() override { std::move(deletion_callback_).Run(); }
 
-  void Start(const base::Closure& finish_callback) override {
+  void Start(base::OnceClosure finish_callback) override {
     start_called_ = true;
-    finish_callback_ = finish_callback;
+    finish_callback_ = std::move(finish_callback);
   }
 
   const std::string& GetPingRequestForTesting() const override {
@@ -64,7 +64,7 @@ class FakeDownloadFeedback : public DownloadFeedback {
     return ping_response_;
   }
 
-  base::Closure finish_callback() const { return finish_callback_; }
+  base::OnceClosure finish_callback() { return std::move(finish_callback_); }
 
   bool start_called() const { return start_called_; }
 
@@ -73,8 +73,8 @@ class FakeDownloadFeedback : public DownloadFeedback {
   std::string ping_request_;
   std::string ping_response_;
 
-  base::Closure finish_callback_;
-  base::Closure deletion_callback_;
+  base::OnceClosure finish_callback_;
+  base::OnceClosure deletion_callback_;
   bool start_called_;
 };
 
@@ -90,8 +90,8 @@ class FakeDownloadFeedbackFactory : public DownloadFeedbackFactory {
       const std::string& ping_response) override {
     FakeDownloadFeedback* feedback = new FakeDownloadFeedback(
         file_task_runner, ping_request, ping_response,
-        base::Bind(&FakeDownloadFeedbackFactory::DownloadFeedbackSent,
-                   base::Unretained(this), feedbacks_.size()));
+        base::BindOnce(&FakeDownloadFeedbackFactory::DownloadFeedbackSent,
+                       base::Unretained(this), feedbacks_.size()));
     feedbacks_.push_back(feedback);
     return base::WrapUnique(feedback);
   }
@@ -179,7 +179,7 @@ TEST_F(DownloadFeedbackServiceTest, MaybeStorePingsForDownload) {
     // SAFE will never upload
     EXPECT_FALSE(
         WillStorePings(DownloadCheckResult::SAFE, upload_requested, ok_size));
-    EXPECT_FALSE(WillStorePings(DownloadCheckResult::WHITELISTED_BY_POLICY,
+    EXPECT_FALSE(WillStorePings(DownloadCheckResult::ALLOWLISTED_BY_POLICY,
                                 upload_requested, ok_size));
     // Others will upload if requested.
     EXPECT_EQ(upload_requested, WillStorePings(DownloadCheckResult::UNKNOWN,
@@ -373,7 +373,8 @@ TEST_F(DownloadFeedbackServiceTest, MultiplePendingFeedbackComplete) {
   EXPECT_TRUE(base::PathExists(file_path[2]));
 }
 
-TEST_F(DownloadFeedbackServiceTest, MultiFeedbackWithIncomplete) {
+// TODO(https://crbug.com/1179266): Deflake this test.
+TEST_F(DownloadFeedbackServiceTest, DISABLED_MultiFeedbackWithIncomplete) {
   const std::string ping_request = "ping";
   const std::string ping_response = "resp";
   const size_t kNumDownloads = 3;

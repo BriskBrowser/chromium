@@ -43,6 +43,16 @@ const gfx::ImageSkia& AppListItem::GetIcon(
   return metadata_->icon;
 }
 
+void AppListItem::SetNotificationBadgeColor(const SkColor color) {
+  if (notification_badge_color_ == color)
+    return;
+
+  notification_badge_color_ = color;
+  for (auto& observer : observers_) {
+    observer.ItemBadgeColorChanged();
+  }
+}
+
 void AppListItem::AddObserver(AppListItemObserver* observer) {
   observers_.AddObserver(observer);
 }
@@ -88,6 +98,16 @@ void AppListItem::SetNameAndShortName(const std::string& name,
   short_name_ = short_name;
   for (auto& observer : observers_)
     observer.ItemNameChanged();
+}
+
+void AppListItem::UpdateNotificationBadge(bool has_badge) {
+  if (has_notification_badge_ == has_badge)
+    return;
+
+  has_notification_badge_ = has_badge;
+  for (auto& observer : observers_) {
+    observer.ItemBadgeVisibilityChanged();
+  }
 }
 
 }  // namespace ash

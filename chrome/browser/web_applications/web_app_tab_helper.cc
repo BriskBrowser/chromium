@@ -9,12 +9,12 @@
 
 #include "base/unguessable_token.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/web_applications/components/file_handler_manager.h"
-#include "chrome/browser/web_applications/components/policy/web_app_policy_manager.h"
+#include "chrome/browser/web_applications/components/os_integration_manager.h"
 #include "chrome/browser/web_applications/components/web_app_audio_focus_id_map.h"
 #include "chrome/browser/web_applications/components/web_app_provider_base.h"
 #include "chrome/browser/web_applications/components/web_app_ui_manager.h"
 #include "chrome/browser/web_applications/manifest_update_manager.h"
+#include "chrome/browser/web_applications/policy/web_app_policy_manager.h"
 #include "chrome/browser/web_applications/system_web_app_manager.h"
 #include "content/public/browser/media_session.h"
 #include "content/public/browser/navigation_handle.h"
@@ -115,7 +115,7 @@ void WebAppTabHelper::DOMContentLoaded(
 
   // There is no way to reliably know if |app_id_| is for a System Web App
   // during startup, so we always call MaybeUpdateFileHandlingOriginTrialExpiry.
-  provider_->file_handler_manager().MaybeUpdateFileHandlingOriginTrialExpiry(
+  provider_->os_integration_manager().MaybeUpdateFileHandlingOriginTrialExpiry(
       web_contents(), app_id_);
 }
 
@@ -144,11 +144,12 @@ void WebAppTabHelper::OnWebAppInstalled(const AppId& installed_app_id) {
   SetAppId(app_id);
 
   // TODO(crbug.com/1053371): Clean up where we install file handlers.
-  provider_->file_handler_manager().MaybeUpdateFileHandlingOriginTrialExpiry(
+  provider_->os_integration_manager().MaybeUpdateFileHandlingOriginTrialExpiry(
       web_contents(), installed_app_id);
 }
 
-void WebAppTabHelper::OnWebAppUninstalled(const AppId& uninstalled_app_id) {
+void WebAppTabHelper::OnWebAppWillBeUninstalled(
+    const AppId& uninstalled_app_id) {
   if (GetAppId() == uninstalled_app_id)
     ResetAppId();
 }

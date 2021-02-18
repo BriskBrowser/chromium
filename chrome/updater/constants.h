@@ -19,7 +19,6 @@ extern const char kNullVersion[];
 
 // Command line switches.
 //
-
 // This switch starts the COM server. This switch is invoked by the COM runtime
 // when CoCreate is called on one of several CLSIDs that the server supports.
 // We expect to use the COM server for the following scenarios:
@@ -37,6 +36,13 @@ extern const char kNullVersion[];
 //   set of interfaces, to Medium Integrity processes that can offer limited
 //   (say, read-only) functionality for that same set of interfaces.
 extern const char kServerSwitch[];
+
+// This switch specifies the XPC service the server registers to listen to.
+extern const char kServerServiceSwitch[];
+
+// Valid values for the kServerServiceSwitch.
+extern const char kServerUpdateServiceInternalSwitchValue[];
+extern const char kServerUpdateServiceSwitchValue[];
 
 // This switch starts the COM service. This switch is invoked by the Service
 // Manager when CoCreate is called on one of several CLSIDs that the server
@@ -56,11 +62,15 @@ extern const char kCrashHandlerSwitch[];
 // Updates the updater.
 extern const char kUpdateSwitch[];
 
-// Registers an app with the updater. Installs the bundled updater if needed.
-extern const char kRegisterSwitch[];
-
 // Installs the updater.
 extern const char kInstallSwitch[];
+
+// Contains the meta installer tag. The tag is a string of arguments, separated
+// by a delimiter (in this case, the delimiter is =). The tag is typically
+// embedded in the program image of the metainstaller, but for testing purposes,
+// the tag could be passed directly as a command line argument. The tag is
+// currently encoded as a ASCII string.
+extern const char kTagSwitch[];
 
 #if defined(OS_WIN)
 // A debug switch to indicate that --install is running from the `out` directory
@@ -72,6 +82,12 @@ extern const char kInstallFromOutDir[];
 
 // Uninstalls the updater.
 extern const char kUninstallSwitch[];
+
+// Uninstalls this version of the updater.
+extern const char kUninstallSelfSwitch[];
+
+// Uninstalls the updater if no apps are managed by it.
+extern const char kUninstallIfUnusedSwitch[];
 
 // Kicks off the update service. This switch is typically used for by a
 // scheduled to invoke the updater periodically.
@@ -103,18 +119,6 @@ extern const char kAppIdSwitch[];
 // Specifies the version of the application that the updater needs to register.
 extern const char kAppVersionSwitch[];
 
-// URLs.
-//
-// Omaha server end point.
-extern const char kUpdaterJSONDefaultUrl[];
-
-// The URL where crash reports are uploaded.
-extern const char kCrashUploadURL[];
-extern const char kCrashStagingUploadURL[];
-
-// DM server end point.
-extern const char kDeviceManagementServerURL[];
-
 // File system paths.
 //
 // The directory name where CRX apps get installed. This is provided for demo
@@ -128,10 +132,14 @@ extern const char kUninstallScript[];
 // Developer override keys.
 extern const char kDevOverrideKeyUrl[];
 extern const char kDevOverrideKeyUseCUP[];
+extern const char kDevOverrideKeyInitialDelay[];
+extern const char kDevOverrideKeyServerKeepAliveSeconds[];
 
-#if defined(OS_WIN)
+// File name of developer overrides file.
+extern const char kDevOverrideFileName[];
+
 // Timing constants.
-//
+#if defined(OS_WIN)
 // How long to wait for an application installer (such as
 // chrome_installer.exe) to complete.
 constexpr int kWaitForAppInstallerSec = 60;
@@ -139,7 +147,15 @@ constexpr int kWaitForAppInstallerSec = 60;
 // How often the installer progress from registry is sampled. This value may
 // be changed to provide a smoother progress experience (crbug.com/1067475).
 constexpr int kWaitForInstallerProgressSec = 1;
-#endif  // OS_WIN
+#elif defined(OS_MAC)
+// How long to wait for launchd changes to be reported by launchctl.
+constexpr int kWaitForLaunchctlUpdateSec = 5;
+#endif  // defined(OS_MAC)
+
+#if defined(OS_MAC)
+// The user defaults suite name.
+extern const char kUserDefaultsSuiteName[];
+#endif  // defined(OS_MAC)
 
 // Install Errors.
 //
@@ -168,7 +184,11 @@ constexpr int kErrorApplicationInstallerFailed = kCustomInstallErrorBase + 3;
 //
 // The server process may exit with any of these exit codes.
 constexpr int kErrorOk = 0;
+
+// The server could not acquire the lock needed to run.
 constexpr int kErrorFailedToLockPrefsMutex = 1;
+
+// The server candidate failed to promote itself to active.
 constexpr int kErrorFailedToSwap = 2;
 
 // Policy Management constants.
@@ -180,6 +200,7 @@ extern const char kProxyModeSystem[];
 
 extern const char kDownloadPreferenceCacheable[];
 
+constexpr int kPolicyNotSet = -1;
 constexpr int kPolicyDisabled = 0;
 constexpr int kPolicyEnabled = 1;
 constexpr int kPolicyEnabledMachineOnly = 4;
@@ -188,6 +209,15 @@ constexpr int kPolicyAutomaticUpdatesOnly = 3;
 
 constexpr bool kInstallPolicyDefault = kPolicyEnabled;
 constexpr bool kUpdatePolicyDefault = kPolicyEnabled;
+
+constexpr int kUninstallPingReasonUninstalled = 0;
+constexpr int kUninstallPingReasonUserNotAnOwner = 1;
+
+// The file downloaded to a temporary location could not be moved.
+constexpr int kErrorFailedToMoveDownloadedFile = 5;
+
+constexpr double kInitialDelay = 60;
+constexpr int kServerKeepAliveSeconds = 10;
 
 }  // namespace updater
 

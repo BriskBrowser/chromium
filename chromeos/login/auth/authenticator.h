@@ -44,14 +44,6 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) Authenticator
   virtual void AuthenticateToLogin(content::BrowserContext* browser_context,
                                    const UserContext& user_context) = 0;
 
-  // Given a user credentials in |user_context|, this method attempts to
-  // authenticate to unlock the computer.
-  // Must be called on the UI thread.
-  virtual void AuthenticateToUnlock(const UserContext& user_context) = 0;
-
-  // Initiates supervised user login.
-  virtual void LoginAsSupervisedUser(const UserContext& user_context) = 0;
-
   // Initiates incognito ("browse without signing in") login.
   virtual void LoginOffTheRecord() = 0;
 

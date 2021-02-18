@@ -12,6 +12,7 @@
 #include "base/scoped_observer.h"
 #include "chrome/browser/web_applications/components/app_registrar.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "components/sync/model/string_ordinal.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_registry_observer.h"
@@ -44,7 +45,13 @@ class BookmarkAppRegistrar : public web_app::AppRegistrar,
       const web_app::AppId& app_id) const override;
   base::Optional<SkColor> GetAppBackgroundColor(
       const web_app::AppId& app_id) const override;
-  const GURL& GetAppLaunchURL(const web_app::AppId& app_id) const override;
+  const GURL& GetAppStartUrl(const web_app::AppId& app_id) const override;
+  const std::string* GetAppLaunchQueryParams(
+      const web_app::AppId& app_id) const override;
+  const apps::ShareTarget* GetAppShareTarget(
+      const web_app::AppId& app_id) const override;
+  blink::mojom::CaptureLinks GetAppCaptureLinks(
+      const web_app::AppId& app_id) const override;
   base::Optional<GURL> GetAppScopeInternal(
       const web_app::AppId& app_id) const override;
   web_app::DisplayMode GetAppDisplayMode(
@@ -57,7 +64,7 @@ class BookmarkAppRegistrar : public web_app::AppRegistrar,
   base::Time GetAppInstallTime(const web_app::AppId& app_id) const override;
   std::vector<WebApplicationIconInfo> GetAppIconInfos(
       const web_app::AppId& app_id) const override;
-  std::vector<SquareSizePx> GetAppDownloadedIconSizesAny(
+  SortedSizesPx GetAppDownloadedIconSizesAny(
       const web_app::AppId& app_id) const override;
   std::vector<WebApplicationShortcutsMenuItemInfo> GetAppShortcutsMenuItemInfos(
       const web_app::AppId& app_id) const override;
@@ -72,6 +79,11 @@ class BookmarkAppRegistrar : public web_app::AppRegistrar,
 
   syncer::StringOrdinal GetUserPageOrdinal(const web_app::AppId& app_id) const;
   syncer::StringOrdinal GetUserLaunchOrdinal(
+      const web_app::AppId& app_id) const;
+
+  // This is the same as GetAppUserDisplayMode above except it doesn't take
+  // BookmarkAppIsLocallyInstalled() flag into consideration.
+  web_app::DisplayMode GetAppUserDisplayModeForMigration(
       const web_app::AppId& app_id) const;
 
   // ExtensionRegistryObserver:
@@ -89,7 +101,7 @@ class BookmarkAppRegistrar : public web_app::AppRegistrar,
   // Finds the extension object in ExtensionRegistry and in the being
   // uninstalled slot.
   //
-  // When AppRegistrarObserver::OnWebAppUninstalled(app_id) happens for
+  // When AppRegistrarObserver::OnWebAppWillBeUninstalled(app_id) happens for
   // bookmark apps, the bookmark app backing that app_id is already removed
   // from ExtensionRegistry. If some abstract observer needs the extension
   // pointer for |app_id| being uninstalled, that observer should use this

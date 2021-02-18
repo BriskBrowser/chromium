@@ -9,6 +9,7 @@
 #include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -20,6 +21,7 @@
 #include "chrome/browser/web_applications/web_app_tab_helper.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/webui_url_constants.h"
+#include "components/sessions/core/session_id.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
 #include "ui/events/event_constants.h"
@@ -112,7 +114,7 @@ std::vector<base::FilePath> GetLaunchFilesFromCommandLine(
 
 Browser* CreateBrowserWithNewTabPage(Profile* profile) {
   Browser::CreateParams create_params(profile, /*user_gesture=*/false);
-  Browser* browser = new Browser(create_params);
+  Browser* browser = Browser::Create(create_params);
 
   NavigateParams params(browser, GURL(chrome::kChromeUINewTabURL),
                         ui::PAGE_TRANSITION_AUTO_TOPLEVEL);
@@ -157,24 +159,16 @@ apps::AppLaunchParams CreateAppLaunchParamsForIntent(
     apps::mojom::AppLaunchSource source,
     int64_t display_id,
     apps::mojom::LaunchContainer fallback_container,
-    const apps::mojom::IntentPtr& intent) {
+    apps::mojom::IntentPtr&& intent) {
   auto params = CreateAppIdLaunchParamsWithEventFlags(
       app_id, event_flags, source, display_id, fallback_container);
 
   if (intent->url.has_value()) {
     params.source = apps::mojom::AppLaunchSource::kSourceIntentUrl;
     params.override_url = intent->url.value();
-    LOG(ERROR) << "url is:" << params.override_url.spec();
-    std::string port;
-    if (intent->url->has_port()) {
-      port = ":" + intent->url->port();
-    }
-    params.override_url =
-        GURL(intent->url->scheme() + url::kStandardSchemeSeparator +
-             intent->url->host() + port + intent->url->path());
-    LOG(ERROR) << "url is:" << params.override_url.spec();
-    DCHECK(params.override_url.is_valid());
   }
+
+  params.intent = std::move(intent);
 
   return params;
 }
@@ -202,6 +196,7 @@ apps::mojom::AppLaunchSource GetAppLaunchSource(
       return apps::mojom::AppLaunchSource::kSourceFileHandler;
     case apps::mojom::LaunchSource::kFromChromeInternal:
     case apps::mojom::LaunchSource::kFromReleaseNotesNotification:
+    case apps::mojom::LaunchSource::kFromFullRestore:
       return apps::mojom::AppLaunchSource::kSourceChromeInternal;
     case apps::mojom::LaunchSource::kFromInstalledNotification:
       return apps::mojom::AppLaunchSource::kSourceInstalledNotification;
@@ -231,5 +226,48 @@ int GetEventFlags(apps::mojom::LaunchContainer container,
       return ui::EF_NONE;
   }
 }
+
+int GetSessionIdForRestoreFromWebContents(
+    const content::WebContents* web_contents) {
+  if (!web_contents) {
+    return SessionID::InvalidValue().id();
+  }
+
+  Browser* browser = chrome::FindBrowserWithWebContents(web_contents);
+  if (!browser) {
+    return SessionID::InvalidValue().id();
+  }
+
+  return browser->session_id().id();
+}
+
+apps::mojom::WindowInfoPtr MakeWindowInfo(int64_t display_id) {
+  apps::mojom::WindowInfoPtr window_info = apps::mojom::WindowInfo::New();
+  window_info->display_id = display_id;
+  return window_info;
+}
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+arc::mojom::WindowInfoPtr MakeArcWindowInfo(
+    apps::mojom::WindowInfoPtr window_info) {
+  if (!window_info) {
+    return nullptr;
+  }
+
+  arc::mojom::WindowInfoPtr arc_window_info = arc::mojom::WindowInfo::New();
+  arc_window_info->window_id = window_info->window_id;
+  arc_window_info->state = window_info->state;
+  arc_window_info->display_id = window_info->display_id;
+  if (window_info->bounds) {
+    arc::mojom::BoundsPtr bounds = arc::mojom::Bounds::New();
+    bounds->x = window_info->bounds->x;
+    bounds->y = window_info->bounds->y;
+    bounds->width = window_info->bounds->width;
+    bounds->height = window_info->bounds->height;
+    arc_window_info->bounds = std::move(bounds);
+  }
+  return arc_window_info;
+}
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 }  // namespace apps

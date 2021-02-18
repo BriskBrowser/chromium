@@ -15,7 +15,7 @@ from string import Template
 from subprocess import call
 
 vulkan_reg_path = path.join(path.dirname(__file__), "..", "..", "third_party",
-                            "vulkan_headers", "registry")
+                            "vulkan-deps", "vulkan-headers", "src", "registry")
 sys.path.append(vulkan_reg_path)
 from reg import Registry
 
@@ -47,10 +47,12 @@ VULKAN_INSTANCE_FUNCTIONS = [
       'vkGetDeviceProcAddr',
       'vkGetPhysicalDeviceFeatures2',
       'vkGetPhysicalDeviceFormatProperties',
+      'vkGetPhysicalDeviceFormatProperties2',
       'vkGetPhysicalDeviceImageFormatProperties2',
       'vkGetPhysicalDeviceMemoryProperties',
       'vkGetPhysicalDeviceMemoryProperties2',
       'vkGetPhysicalDeviceProperties',
+      'vkGetPhysicalDeviceProperties2',
       'vkGetPhysicalDeviceQueueFamilyProperties',
     ]
   },
@@ -72,11 +74,11 @@ VULKAN_INSTANCE_FUNCTIONS = [
     ]
   },
   {
-    'ifdef': 'defined(USE_VULKAN_XLIB)',
-    'extension': 'VK_KHR_XLIB_SURFACE_EXTENSION_NAME',
+    'ifdef': 'defined(USE_VULKAN_XCB)',
+    'extension': 'VK_KHR_XCB_SURFACE_EXTENSION_NAME',
     'functions': [
-      'vkCreateXlibSurfaceKHR',
-      'vkGetPhysicalDeviceXlibPresentationSupportKHR',
+      'vkCreateXcbSurfaceKHR',
+      'vkGetPhysicalDeviceXcbPresentationSupportKHR',
     ]
   },
   {
@@ -127,6 +129,7 @@ VULKAN_DEVICE_FUNCTIONS = [
       'vkCreateDescriptorSetLayout',
       'vkCreateFence',
       'vkCreateFramebuffer',
+      'vkCreateGraphicsPipelines',
       'vkCreateImage',
       'vkCreateImageView',
       'vkCreateRenderPass',
@@ -160,6 +163,7 @@ VULKAN_DEVICE_FUNCTIONS = [
       'vkGetFenceStatus',
       'vkGetImageMemoryRequirements',
       'vkGetImageMemoryRequirements2',
+      'vkGetImageSubresourceLayout',
       'vkMapMemory',
       'vkQueueSubmit',
       'vkQueueWaitIdle',
@@ -244,8 +248,14 @@ VULKAN_DEVICE_FUNCTIONS = [
       'vkGetSwapchainImagesKHR',
       'vkQueuePresentKHR',
     ]
+  },
+  {
+    'ifdef': 'defined(OS_LINUX) || defined(OS_CHROMEOS)',
+    'extension': 'VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME',
+    'functions': [
+      'vkGetImageDrmFormatModifierPropertiesEXT',
+    ]
   }
-
 ]
 
 SELF_LOCATION = os.path.dirname(os.path.abspath(__file__))
@@ -381,11 +391,10 @@ def GenerateHeaderFile(out_file):
 #include "gpu/vulkan/fuchsia/vulkan_fuchsia_ext.h"
 #endif
 
-#if defined(USE_VULKAN_XLIB)
-typedef struct _XDisplay Display;
-typedef unsigned long Window;
-typedef unsigned long VisualID;
-#include <vulkan/vulkan_xlib.h>
+#if defined(USE_VULKAN_XCB)
+#include <xcb/xcb.h>
+// <vulkan/vulkan_xcb.h> must be included after <xcb/xcb.h>
+#include <vulkan/vulkan_xcb.h>
 #endif
 
 #if defined(OS_WIN)

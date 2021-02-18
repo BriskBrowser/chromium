@@ -5,7 +5,7 @@ Initial tree...
 Application
  Manifest
  Service Workers
- Clear storage
+ Storage
 Storage
  Local Storage
   http://127.0.0.1:8000
@@ -21,6 +21,7 @@ Storage
  Cookies
   http://127.0.0.1:8000
   http://devtools.oopif.test:8000
+ Trust Tokens
 Cache
  Cache Storage
  Application Cache
@@ -42,7 +43,7 @@ Remove iframe from page...
 Application
  Manifest
  Service Workers
- Clear storage
+ Storage
 Storage
  Local Storage
   http://127.0.0.1:8000
@@ -54,6 +55,7 @@ Storage
  Cookies
   http://127.0.0.1:8000
   http://devtools.oopif.test:8000
+ Trust Tokens
 Cache
  Cache Storage
  Application Cache
@@ -73,7 +75,7 @@ Add iframe to page again...
 Application
  Manifest
  Service Workers
- Clear storage
+ Storage
 Storage
  Local Storage
   http://127.0.0.1:8000
@@ -89,6 +91,7 @@ Storage
  Cookies
   http://127.0.0.1:8000
   http://devtools.oopif.test:8000
+ Trust Tokens
 Cache
  Cache Storage
  Application Cache

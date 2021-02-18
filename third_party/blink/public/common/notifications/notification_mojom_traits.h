@@ -21,20 +21,10 @@
 namespace mojo {
 
 template <>
-struct BLINK_COMMON_EXPORT EnumTraits<blink::mojom::NotificationActionType,
-                                      blink::PlatformNotificationActionType> {
-  static blink::mojom::NotificationActionType ToMojom(
-      blink::PlatformNotificationActionType input);
-
-  static bool FromMojom(blink::mojom::NotificationActionType input,
-                        blink::PlatformNotificationActionType* out);
-};
-
-template <>
 struct BLINK_COMMON_EXPORT
     StructTraits<blink::mojom::NotificationActionDataView,
                  blink::PlatformNotificationAction> {
-  static blink::PlatformNotificationActionType type(
+  static blink::mojom::NotificationActionType type(
       const blink::PlatformNotificationAction& action) {
     return action.type;
   }
@@ -55,7 +45,7 @@ struct BLINK_COMMON_EXPORT
 
   static const base::Optional<base::string16>& placeholder(
       const blink::PlatformNotificationAction& action) {
-    return action.placeholder.as_optional_string16();
+    return action.placeholder;
   }
 
   static bool Read(

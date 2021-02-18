@@ -4,6 +4,7 @@
 
 #include "content/public/test/browser_test_base.h"
 
+#include <fcntl.h>
 #include <stddef.h>
 
 #include <iostream>
@@ -16,8 +17,11 @@
 #include "base/command_line.h"
 #include "base/debug/stack_trace.h"
 #include "base/feature_list.h"
+#include "base/files/file_path.h"
+#include "base/files/scoped_file.h"
 #include "base/i18n/icu_util.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/rand_util.h"
 #include "base/run_loop.h"
@@ -27,12 +31,14 @@
 #include "base/system/sys_info.h"
 #include "base/task/current_thread.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_run_loop_timeout.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
+#include "components/tracing/common/tracing_switches.h"
 #include "content/browser/browser_main_loop.h"
 #include "content/browser/browser_thread_impl.h"
 #include "content/browser/network_service_instance_impl.h"
@@ -42,6 +48,7 @@
 #include "content/browser/startup_helper.h"
 #include "content/browser/storage_partition_impl.h"
 #include "content/browser/tracing/memory_instrumentation_util.h"
+#include "content/browser/tracing/startup_tracing_controller.h"
 #include "content/browser/tracing/tracing_controller_impl.h"
 #include "content/public/app/content_main.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -62,11 +69,12 @@
 #include "media/base/media_switches.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/bindings/sync_call_restrictions.h"
+#include "mojo/public/cpp/platform/named_platform_channel.h"
+#include "mojo/public/cpp/platform/platform_channel.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/mojom/network_service_test.mojom.h"
-#include "services/service_manager/embedder/switches.h"
 #include "services/tracing/public/cpp/trace_startup.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/compositor/compositor_switches.h"
@@ -81,15 +89,16 @@
 #if defined(OS_ANDROID)
 #include "base/android/task_scheduler/post_task_android.h"
 #include "components/discardable_memory/service/discardable_shared_memory_manager.h"  // nogncheck
+#include "content/app/content_main_runner_impl.h"
 #include "content/app/mojo/mojo_init.h"
-#include "content/app/service_manager_environment.h"
+#include "content/app/mojo_ipc_support.h"
 #include "content/public/app/content_main_delegate.h"
 #include "content/public/common/content_paths.h"
 #include "testing/android/native_test/native_browser_test_support.h"
 #include "ui/base/ui_base_paths.h"
 
 #ifdef V8_USE_EXTERNAL_STARTUP_DATA
-#include "gin/v8_initializer.h"
+#include "gin/v8_initializer.h"  // nogncheck
 #endif
 #endif
 
@@ -107,6 +116,16 @@
 #if defined(USE_AURA)
 #include "content/browser/compositor/image_transport_factory.h"
 #include "ui/aura/test/event_generator_delegate_aura.h"  // nogncheck
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "base/files/file_path.h"
+#include "base/files/scoped_file.h"
+#include "chromeos/lacros/lacros_chrome_service_impl.h"
+#include "chromeos/startup/startup_switches.h"  // nogncheck
+#include "mojo/public/cpp/platform/named_platform_channel.h"
+#include "mojo/public/cpp/platform/platform_channel.h"
+#include "mojo/public/cpp/platform/socket_utils_posix.h"
 #endif
 
 namespace content {
@@ -127,7 +146,7 @@ int g_browser_process_pid;
 
 void DumpStackTraceSignalHandler(int signal) {
   if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-          service_manager::switches::kDisableInProcessStackTraces) &&
+          switches::kDisableInProcessStackTraces) &&
       g_browser_process_pid == base::GetCurrentProcId()) {
     std::string message("BrowserTestBase received signal: ");
     message += strsignal(signal);
@@ -150,10 +169,47 @@ void RunTaskOnRendererThread(base::OnceClosure task,
   GetUIThreadTaskRunner({})->PostTask(FROM_HERE, std::move(quit_task));
 }
 
-void TraceStopTracingComplete(base::OnceClosure quit,
-                              const base::FilePath& file_path) {
-  LOG(ERROR) << "Tracing written to: " << file_path.value();
-  std::move(quit).Run();
+enum class TraceBasenameType {
+  kWithoutTestStatus,
+  kWithTestStatus,
+};
+
+std::string GetDefaultTraceBasename(TraceBasenameType type) {
+  std::string test_suite_name = ::testing::UnitTest::GetInstance()
+                                    ->current_test_info()
+                                    ->test_suite_name();
+  std::string test_name =
+      ::testing::UnitTest::GetInstance()->current_test_info()->name();
+  // Parameterised tests might have slashes in their full name — replace them
+  // before using it as a file name to avoid trying to write to an incorrect
+  // location.
+  base::ReplaceChars(test_suite_name, "/", "_", &test_suite_name);
+  base::ReplaceChars(test_name, "/", "_", &test_name);
+  // Add random number to the trace file to distinguish traces from different
+  // test runs. We don't use timestamp here to avoid collisions with parallel
+  // runs of the same test. Browser test runner runs one test per browser
+  // process instantiation, so saving the seed here is appopriate.
+  // GetDefaultTraceBasename() is going to be called twice:
+  // - for the first time, before the test starts to get the name of the file to
+  // stream the results (to avoid losing them if test crashes).
+  // - the second time, if test execution finishes normally, to calculate the
+  // resulting name of the file, including test result.
+  static std::string random_seed =
+      base::NumberToString(base::RandInt(1e7, 1e8 - 1));
+  std::string status;
+  if (type == TraceBasenameType::kWithTestStatus) {
+    status = ::testing::UnitTest::GetInstance()
+                     ->current_test_info()
+                     ->result()
+                     ->Passed()
+                 ? "OK"
+                 : "FAIL";
+  } else {
+    // In order to be able to stream the test to the file,
+    status = "NOT_FINISHED";
+  }
+  return "trace_test_" + test_suite_name + "_" + test_name + "_" + random_seed +
+         "_" + status;
 }
 
 // See SetInitialWebContents comment for more information.
@@ -331,11 +387,63 @@ void BrowserTestBase::SetUp() {
   use_software_gl = false;
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // If the test is running on the chromeos envrionment (such as
   // device or vm bots), we use hardware GL.
   if (base::SysInfo::IsRunningOnChromeOS())
     use_software_gl = false;
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  // If the test is running on the lacros environment, a file descriptor needs
+  // to be obtained and used to launch lacros-chrome so that a mojo connection
+  // between lacros-chrome and ash-chrome can be established.
+  // For more details, please see:
+  // //chrome/browser/chromeos/crosapi/test_mojo_connection_manager.h.
+  {
+    // TODO(crbug.com/1127581): Switch to use |kLacrosMojoSocketForTesting| in
+    // //ash/constants/ash_switches.h.
+    // Please refer to the CL comments for why it can't be done now:
+    // http://crrev.com/c/2402580/2/content/public/test/browser_test_base.cc
+    std::string socket_path =
+        command_line->GetSwitchValueASCII("lacros-mojo-socket-for-testing");
+    if (socket_path.empty()) {
+      chromeos::LacrosChromeServiceImpl::Get()->DisableCrosapiForTests();
+    } else {
+      auto channel = mojo::NamedPlatformChannel::ConnectToServer(socket_path);
+      base::ScopedFD socket_fd = channel.TakePlatformHandle().TakeFD();
+
+      // Mark the channel as blocking.
+      int flags = fcntl(socket_fd.get(), F_GETFL);
+      PCHECK(flags != -1);
+      fcntl(socket_fd.get(), F_SETFL, flags & ~O_NONBLOCK);
+
+      uint8_t buf[32];
+      std::vector<base::ScopedFD> descriptors;
+      auto size = mojo::SocketRecvmsg(socket_fd.get(), buf, sizeof(buf),
+                                      &descriptors, true /*block*/);
+      if (size < 0)
+        PLOG(ERROR) << "Error receiving message from the socket";
+      ASSERT_EQ(1, size);
+      EXPECT_EQ(0u, buf[0]);
+      // Older ash-chrome gives us one FD, which will become a Mojo connection.
+      // Newer ash-chrome gives us another FD, too, which contains startup
+      // data.
+      // TODO(crbug.com/1156033): Clean up when both ash-chrome and
+      // lacros-chrome become new enough.
+      ASSERT_LE(descriptors.size(), 2u);
+      // It's OK to release the FD because lacros-chrome's code will consume it.
+      command_line->AppendSwitchASCII(
+          mojo::PlatformChannel::kHandleSwitch,
+          base::NumberToString(descriptors[0].release()));
+      if (descriptors.size() == 2) {
+        // Ok to release the FD here, too.
+        command_line->AppendSwitchASCII(
+            chromeos::switches::kCrosStartupDataFD,
+            base::NumberToString(descriptors[1].release()));
+      }
+    }
+  }
 #endif
 
   if (use_software_gl && !use_software_compositing_)
@@ -415,6 +523,32 @@ void BrowserTestBase::SetUp() {
       std::make_unique<CreatedMainPartsClosure>(base::BindOnce(
           &BrowserTestBase::CreatedBrowserMainParts, base::Unretained(this)));
 
+  // If tracing is enabled, customise the output filename based on the name of
+  // the test.
+  StartupTracingController::GetInstance().SetDefaultBasename(
+      GetDefaultTraceBasename(TraceBasenameType::kWithoutTestStatus),
+      StartupTracingController::ExtensionType::kAppendAppropriate);
+  // Write to the provided file directly to recover at least some data when the
+  // test crashes or times out.
+  StartupTracingController::GetInstance().SetUsingTemporaryFile(
+      StartupTracingController::TempFilePolicy::kWriteDirectly);
+  // Set a logging handler to flush a trace before crashing the test when
+  // hitting a DCHECK / LOG(FATAL).
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnableTracing)) {
+    DCHECK(!logging::GetLogMessageHandler());
+    logging::SetLogMessageHandler([](int severity, const char* file, int line,
+                                     size_t message_start,
+                                     const std::string& str) {
+      // TODO(crbug.com/1157954): Print the message to the console before
+      // calling this to ensure that the message is still printed if something
+      // goes wrong.
+      if (severity == logging::LOGGING_FATAL)
+        StartupTracingController::EmergencyStop();
+      return false;
+    });
+  }
+
 #if defined(OS_ANDROID)
   // For all other platforms, we call ContentMain for browser tests which goes
   // through the normal browser initialization paths. For Android, we must set
@@ -468,6 +602,12 @@ void BrowserTestBase::SetUp() {
     InitializeBrowserMemoryInstrumentationClient();
   }
 
+  blink::TrialTokenValidator::SetOriginTrialPolicyGetter(
+      base::BindRepeating([]() -> blink::OriginTrialPolicy* {
+        ContentClient* client = GetContentClientForTesting();
+        return client ? client->GetOriginTrialPolicy() : nullptr;
+      }));
+
   // All FeatureList overrides should have been registered prior to browser test
   // SetUp().
   base::FeatureList::ScopedDisallowOverrides disallow_feature_overrides(
@@ -476,10 +616,10 @@ void BrowserTestBase::SetUp() {
 
   auto discardable_shared_memory_manager =
       std::make_unique<discardable_memory::DiscardableSharedMemoryManager>();
-  auto service_manager_env = std::make_unique<ServiceManagerEnvironment>(
-      BrowserTaskExecutor::CreateIOThread());
+  auto ipc_support =
+      std::make_unique<MojoIpcSupport>(BrowserTaskExecutor::CreateIOThread());
   std::unique_ptr<StartupDataImpl> startup_data =
-      service_manager_env->CreateBrowserStartupData();
+      ipc_support->CreateBrowserStartupData();
 
   // ContentMain would normally call RunProcess() on the delegate and fallback
   // to BrowserMain() if it did not run it (or equivalent) itself. On Android,
@@ -523,9 +663,8 @@ void BrowserTestBase::SetUp() {
     base::ScopedAllowBaseSyncPrimitivesForTesting allow_wait;
     // Shutting these down will block the thread.
     ShutDownNetworkService();
-    service_manager_env.reset();
+    ipc_support.reset();
     discardable_shared_memory_manager.reset();
-    spawned_test_server_.reset();
   }
 
   base::PostTaskAndroid::SignalNativeSchedulerShutdownForTesting();
@@ -597,36 +736,6 @@ void BrowserTestBase::WaitUntilJavaIsReady(base::OnceClosure quit_closure) {
 }
 #endif
 
-namespace {
-
-std::string GetDefaultTraceFileneme() {
-  std::string test_suite_name = ::testing::UnitTest::GetInstance()
-                                    ->current_test_info()
-                                    ->test_suite_name();
-  std::string test_name =
-      ::testing::UnitTest::GetInstance()->current_test_info()->name();
-  // Parameterised tests might have slashes in their full name — replace them
-  // before using it as a file name to avoid trying to write to an incorrect
-  // location.
-  base::ReplaceChars(test_suite_name, "/", "_", &test_suite_name);
-  base::ReplaceChars(test_name, "/", "_", &test_name);
-  // Add random number to the trace file to distinguish traces from different
-  // test runs.
-  // We don't use timestamp here to avoid collisions with parallel runs of the
-  // same test.
-  std::string random_seed = base::NumberToString(base::RandInt(1e7, 1e8 - 1));
-  std::string status = ::testing::UnitTest::GetInstance()
-                               ->current_test_info()
-                               ->result()
-                               ->Passed()
-                           ? "OK"
-                           : "FAIL";
-  return "trace_test_" + test_suite_name + "_" + test_name + "_" + random_seed +
-         "_" + status + ".json";
-}
-
-}  // namespace
-
 void BrowserTestBase::ProxyRunTestOnMainThreadLoop() {
 #if !defined(OS_ANDROID)
   // All FeatureList overrides should have been registered prior to browser test
@@ -654,17 +763,6 @@ void BrowserTestBase::ProxyRunTestOnMainThreadLoop() {
   if (handle_sigterm_)
     signal(SIGTERM, DumpStackTraceSignalHandler);
 #endif  // defined(OS_POSIX)
-
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableTracing)) {
-    base::trace_event::TraceConfig trace_config(
-        base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-            switches::kEnableTracing),
-        base::trace_event::RECORD_CONTINUOUSLY);
-    TracingController::GetInstance()->StartTracing(
-        trace_config,
-        TracingController::StartTracingDoneCallback());
-  }
 
   {
     // This can be called from a posted task. Allow nested tasks here, because
@@ -709,26 +807,23 @@ void BrowserTestBase::ProxyRunTestOnMainThreadLoop() {
     TearDownOnMainThread();
   }
 
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableTracing)) {
-    base::FilePath trace_file =
-        base::CommandLine::ForCurrentProcess()->GetSwitchValuePath(
-            switches::kEnableTracingOutput);
-    // If there was no file specified, put a hardcoded one in the current
-    // working directory.
-    if (trace_file.empty())
-      trace_file = base::FilePath().AppendASCII(GetDefaultTraceFileneme());
-
-    // Wait for tracing to collect results from the renderers.
-    base::RunLoop run_loop;
-    TracingController::GetInstance()->StopTracing(
-        TracingControllerImpl::CreateFileEndpoint(
-            trace_file, base::BindOnce(&TraceStopTracingComplete,
-                                       run_loop.QuitClosure(), trace_file)));
-    run_loop.Run();
-  }
-
   PostRunTestOnMainThread();
+
+  // Sometimes tests initialize a storage partition and the initialization
+  // schedules some tasks which need to be executed before finishing tests.
+  // Run these tasks.
+  content::RunAllPendingInMessageLoop();
+
+  // Update the trace output filename to include the test result.
+  StartupTracingController::GetInstance().SetDefaultBasename(
+      GetDefaultTraceBasename(TraceBasenameType::kWithTestStatus),
+      StartupTracingController::ExtensionType::kAppendAppropriate);
+
+#if defined(OS_ANDROID)
+  // On Android, browser main runner is not shut down, so stop trace recording
+  // here.
+  StartupTracingController::GetInstance().WaitUntilStopped();
+#endif
 }
 
 void BrowserTestBase::SetAllowNetworkAccessToHostResolutions() {
@@ -744,9 +839,6 @@ void BrowserTestBase::SetAllowNetworkAccessToHostResolutions() {
 }
 
 void BrowserTestBase::CreateTestServer(const base::FilePath& test_server_base) {
-  CHECK(!spawned_test_server_.get());
-  spawned_test_server_ = std::make_unique<net::SpawnedTestServer>(
-      net::SpawnedTestServer::TYPE_HTTP, test_server_base);
   embedded_test_server()->AddDefaultHandlers(test_server_base);
 }
 
@@ -867,7 +959,7 @@ void BrowserTestBase::InitializeNetworkProcess() {
       mojo_rule->host_pattern = rule.host_pattern;
       mojo_rule->replacement = rule.replacement;
       mojo_rule->host_resolver_flags = rule.host_resolver_flags;
-      mojo_rule->canonical_name = rule.canonical_name;
+      mojo_rule->dns_aliases = rule.dns_aliases;
       mojo_rules.push_back(std::move(mojo_rule));
     }
   }

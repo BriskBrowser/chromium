@@ -56,7 +56,8 @@ class AutofillProviderAndroid : public AutofillProvider {
                        const FormData& form,
                        bool known_success,
                        mojom::SubmissionSource source) override;
-  void OnFocusNoLongerOnForm(AutofillHandlerProxy* handler) override;
+  void OnFocusNoLongerOnForm(AutofillHandlerProxy* handler,
+                             bool had_interacted_form) override;
   void OnFocusOnFormField(AutofillHandlerProxy* handler,
                           const FormData& form,
                           const FormFieldData& field,
@@ -65,9 +66,11 @@ class AutofillProviderAndroid : public AutofillProvider {
                                  const FormData& form,
                                  base::TimeTicks timestamp) override;
   void OnFormsSeen(AutofillHandlerProxy* handler,
-                   const std::vector<FormData>& forms,
-                   const base::TimeTicks timestamp) override;
+                   const std::vector<FormData>& forms) override;
   void OnHidePopup(AutofillHandlerProxy* handler) override;
+  void OnServerPredictionsAvailable(AutofillHandlerProxy* handler) override;
+  void OnServerQueryRequestError(AutofillHandlerProxy* handler,
+                                 FormSignature form_signature) override;
 
   void Reset(AutofillHandlerProxy* handler) override;
 
@@ -99,13 +102,12 @@ class AutofillProviderAndroid : public AutofillProvider {
 
   gfx::RectF ToClientAreaBound(const gfx::RectF& bounding_box);
 
-  bool ShouldStartNewSession(AutofillHandlerProxy* handler,
-                             const FormData& form);
-
-  void StartNewSession(AutofillHandlerProxy* handler,
-                       const FormData& form,
-                       const FormFieldData& field,
-                       const gfx::RectF& bounding_box);
+  // Starts a new session, but only if |form| or |handler| doesn't match the
+  // current session.
+  void MaybeStartNewSession(AutofillHandlerProxy* handler,
+                            const FormData& form,
+                            const FormFieldData& field,
+                            const gfx::RectF& bounding_box);
 
   void Reset();
 
@@ -117,8 +119,6 @@ class AutofillProviderAndroid : public AutofillProvider {
   bool check_submission_;
   // Valid only if check_submission_ is true.
   mojom::SubmissionSource pending_submission_source_;
-
-  base::WeakPtr<AutofillHandlerProxy> handler_for_testing_;
 
   DISALLOW_COPY_AND_ASSIGN(AutofillProviderAndroid);
 };

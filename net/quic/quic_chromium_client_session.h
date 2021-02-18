@@ -28,7 +28,6 @@
 #include "net/base/net_error_details.h"
 #include "net/base/net_export.h"
 #include "net/base/proxy_server.h"
-#include "net/cert/ct_verify_result.h"
 #include "net/log/net_log_with_source.h"
 #include "net/quic/quic_chromium_client_stream.h"
 #include "net/quic/quic_chromium_packet_reader.h"
@@ -45,7 +44,9 @@
 #include "net/third_party/quiche/src/quic/core/http/quic_client_push_promise_index.h"
 #include "net/third_party/quiche/src/quic/core/http/quic_spdy_client_session_base.h"
 #include "net/third_party/quiche/src/quic/core/quic_crypto_client_stream.h"
+#include "net/third_party/quiche/src/quic/core/quic_packet_writer.h"
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
+#include "net/third_party/quiche/src/quic/core/quic_path_validator.h"
 #include "net/third_party/quiche/src/quic/core/quic_server_id.h"
 #include "net/third_party/quiche/src/quic/core/quic_time.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
@@ -205,7 +206,7 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
     // returned, then |push_stream_| will be updated with the promised
     // stream.  If ERR_IO_PENDING is returned, then when the rendezvous is
     // eventually completed |callback| will be called.
-    int RendezvousWithPromised(const spdy::SpdyHeaderBlock& headers,
+    int RendezvousWithPromised(const spdy::Http2HeaderBlock& headers,
                                CompletionOnceCallback callback);
 
     // Starts a request to create a stream.  If OK is returned, then
@@ -273,9 +274,9 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
     }
 
     // quic::QuicClientPushPromiseIndex::Delegate implementation
-    bool CheckVary(const spdy::SpdyHeaderBlock& client_request,
-                   const spdy::SpdyHeaderBlock& promise_request,
-                   const spdy::SpdyHeaderBlock& promise_response) override;
+    bool CheckVary(const spdy::Http2HeaderBlock& client_request,
+                   const spdy::Http2HeaderBlock& promise_request,
+                   const spdy::Http2HeaderBlock& promise_response) override;
     void OnRendezvousResult(quic::QuicSpdyStream* stream) override;
 
     // Returns true if the session's connection has sent or received any bytes.
@@ -410,6 +411,108 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
     DISALLOW_COPY_AND_ASSIGN(StreamRequest);
   };
 
+  // This class contains all the context needed for path validation and
+  // migration.
+  class NET_EXPORT_PRIVATE QuicChromiumPathValidationContext
+      : public quic::QuicPathValidationContext {
+   public:
+    QuicChromiumPathValidationContext(
+        const quic::QuicSocketAddress& self_address,
+        const quic::QuicSocketAddress& peer_address,
+        NetworkChangeNotifier::NetworkHandle network,
+        std::unique_ptr<DatagramClientSocket> socket,
+        std::unique_ptr<QuicChromiumPacketWriter> writer,
+        std::unique_ptr<QuicChromiumPacketReader> reader);
+    ~QuicChromiumPathValidationContext() override;
+
+    NetworkChangeNotifier::NetworkHandle network();
+    quic::QuicPacketWriter* WriterToUse() override;
+
+    // Transfer the ownership from |this| to the caller.
+    std::unique_ptr<QuicChromiumPacketWriter> ReleaseWriter();
+    std::unique_ptr<DatagramClientSocket> ReleaseSocket();
+    std::unique_ptr<QuicChromiumPacketReader> ReleaseReader();
+
+   private:
+    NetworkChangeNotifier::NetworkHandle network_handle_;
+    std::unique_ptr<DatagramClientSocket> socket_;
+    std::unique_ptr<QuicChromiumPacketWriter> writer_;
+    std::unique_ptr<QuicChromiumPacketReader> reader_;
+  };
+
+  // This class implements Chrome logic for path validation events associated
+  // with connection migration.
+  class NET_EXPORT_PRIVATE ConnectionMigrationValidationResultDelegate
+      : public quic::QuicPathValidator::ResultDelegate {
+   public:
+    explicit ConnectionMigrationValidationResultDelegate(
+        QuicChromiumClientSession* session);
+
+    void OnPathValidationSuccess(
+        std::unique_ptr<quic::QuicPathValidationContext> context) override;
+
+    void OnPathValidationFailure(
+        std::unique_ptr<quic::QuicPathValidationContext> context) override;
+
+   private:
+    // |session_| owns |this| and should out live |this|.
+    QuicChromiumClientSession* session_;
+  };
+
+  // This class implements Chrome logic for path validation events associated
+  // with port migration.
+  class NET_EXPORT_PRIVATE PortMigrationValidationResultDelegate
+      : public quic::QuicPathValidator::ResultDelegate {
+   public:
+    explicit PortMigrationValidationResultDelegate(
+        QuicChromiumClientSession* session);
+
+    void OnPathValidationSuccess(
+        std::unique_ptr<quic::QuicPathValidationContext> context) override;
+
+    void OnPathValidationFailure(
+        std::unique_ptr<quic::QuicPathValidationContext> context) override;
+
+   private:
+    // |session_| owns |this| and should out live |this|.
+    QuicChromiumClientSession* session_;
+  };
+
+  // This class is used to handle writer events that occur on the probing path.
+  class NET_EXPORT_PRIVATE QuicChromiumPathValidationWriterDelegate
+      : public QuicChromiumPacketWriter::Delegate {
+   public:
+    QuicChromiumPathValidationWriterDelegate(
+        QuicChromiumClientSession* session,
+        base::SequencedTaskRunner* task_runner);
+    ~QuicChromiumPathValidationWriterDelegate();
+
+    // QuicChromiumPacketWriter::Delegate interface.
+    int HandleWriteError(
+        int error_code,
+        scoped_refptr<QuicChromiumPacketWriter::ReusableIOBuffer> last_packet)
+        override;
+    void OnWriteError(int error_code) override;
+    void OnWriteUnblocked() override;
+
+    void set_peer_address(const quic::QuicSocketAddress& peer_address);
+    void set_network(NetworkChangeNotifier::NetworkHandle network);
+
+   private:
+    void NotifySessionProbeFailed(NetworkChangeNotifier::NetworkHandle network);
+
+    // |session_| owns |this| and should out live |this|.
+    QuicChromiumClientSession* session_;
+    // |task_owner_| should out live |this|.
+    base::SequencedTaskRunner* task_runner_;
+    // The path validation context of the most recent probing.
+    NetworkChangeNotifier::NetworkHandle network_;
+    quic::QuicSocketAddress peer_address_;
+    base::WeakPtrFactory<QuicChromiumPathValidationWriterDelegate>
+        weak_factory_{this};
+    DISALLOW_COPY_AND_ASSIGN(QuicChromiumPathValidationWriterDelegate);
+  };
+
   // Constructs a new session which will own |connection|, but not
   // |stream_factory|, which must outlive this session.
   // TODO(rch): decouple the factory from the session via a Delegate interface.
@@ -509,6 +612,22 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
       std::unique_ptr<QuicChromiumPacketWriter> writer,
       std::unique_ptr<QuicChromiumPacketReader> reader) override;
 
+  void OnConnectionMigrationProbeSucceeded(
+      NetworkChangeNotifier::NetworkHandle network,
+      const quic::QuicSocketAddress& peer_address,
+      const quic::QuicSocketAddress& self_address,
+      std::unique_ptr<DatagramClientSocket> socket,
+      std::unique_ptr<QuicChromiumPacketWriter> writer,
+      std::unique_ptr<QuicChromiumPacketReader> reader);
+
+  void OnPortMigrationProbeSucceeded(
+      NetworkChangeNotifier::NetworkHandle network,
+      const quic::QuicSocketAddress& peer_address,
+      const quic::QuicSocketAddress& self_address,
+      std::unique_ptr<DatagramClientSocket> socket,
+      std::unique_ptr<QuicChromiumPacketWriter> writer,
+      std::unique_ptr<QuicChromiumPacketReader> reader);
+
   void OnProbeFailed(NetworkChangeNotifier::NetworkHandle network,
                      const quic::QuicSocketAddress& peer_address) override;
 
@@ -519,7 +638,7 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
   // quic::QuicSpdySession methods:
   size_t WriteHeadersOnHeadersStream(
       quic::QuicStreamId id,
-      spdy::SpdyHeaderBlock headers,
+      spdy::Http2HeaderBlock headers,
       bool fin,
       const spdy::SpdyStreamPrecedence& precedence,
       quic::QuicReferenceCountedPointer<quic::QuicAckListenerInterface>
@@ -549,7 +668,6 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
   bool ValidateStatelessReset(
       const quic::QuicSocketAddress& self_address,
       const quic::QuicSocketAddress& peer_address) override;
-  void SendPing() override;
 
   // QuicSpdyClientSessionBase methods:
   void OnConfigNegotiated() override;
@@ -568,9 +686,10 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
                         bool is_connectivity_probe) override;
   void OnPathDegrading() override;
   void OnForwardProgressMadeAfterPathDegrading() override;
+  void OnKeyUpdate(quic::KeyUpdateReason reason) override;
 
   // QuicChromiumPacketReader::Visitor methods:
-  void OnReadError(int result, const DatagramClientSocket* socket) override;
+  bool OnReadError(int result, const DatagramClientSocket* socket) override;
   bool OnPacket(const quic::QuicReceivedPacket& packet,
                 const quic::QuicSocketAddress& local_address,
                 const quic::QuicSocketAddress& peer_address) override;
@@ -701,7 +820,7 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
 
   bool HandlePromised(quic::QuicStreamId associated_id,
                       quic::QuicStreamId promised_id,
-                      const spdy::SpdyHeaderBlock& headers) override;
+                      const spdy::Http2HeaderBlock& headers) override;
 
   void DeletePromised(quic::QuicClientPromisedInfo* promised) override;
 
@@ -871,7 +990,6 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
   SSLConfigService* ssl_config_service_;
   std::unique_ptr<QuicServerInfo> server_info_;
   std::unique_ptr<CertVerifyResult> cert_verify_result_;
-  std::unique_ptr<ct::CTVerifyResult> ct_verify_result_;
   std::string pinning_failure_log_;
   bool pkp_bypassed_;
   bool is_fatal_cert_error_;
@@ -930,9 +1048,15 @@ class NET_EXPORT_PRIVATE QuicChromiumClientSession
 
   bool attempted_zero_rtt_;
 
-  size_t num_pings_sent_;
+  size_t num_migrations_;
+
+  // The reason for the last 1-RTT key update on the connection. Will be
+  // kInvalid if no key updates have occurred.
+  quic::KeyUpdateReason last_key_update_reason_;
 
   std::unique_ptr<quic::QuicClientPushPromiseIndex> push_promise_index_;
+
+  QuicChromiumPathValidationWriterDelegate path_validation_writer_delegate_;
 
   base::WeakPtrFactory<QuicChromiumClientSession> weak_factory_{this};
 

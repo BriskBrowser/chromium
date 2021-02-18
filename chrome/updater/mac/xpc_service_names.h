@@ -10,14 +10,17 @@
 
 namespace updater {
 
-base::ScopedCFTypeRef<CFStringRef> CopyServiceLaunchdName();
+extern const char kUpdateServiceInternalLaunchdName[];
+extern const char kUpdateServiceLaunchdName[];
+
+base::ScopedCFTypeRef<CFStringRef> CopyUpdateServiceLaunchdName();
 base::ScopedCFTypeRef<CFStringRef> CopyWakeLaunchdName();
-base::ScopedCFTypeRef<CFStringRef> CopyControlLaunchdName();
-base::scoped_nsobject<NSString> GetServiceLaunchdLabel();
+base::ScopedCFTypeRef<CFStringRef> CopyUpdateServiceInternalLaunchdName();
+base::scoped_nsobject<NSString> GetUpdateServiceLaunchdLabel();
 base::scoped_nsobject<NSString> GetWakeLaunchdLabel();
-base::scoped_nsobject<NSString> GetControlLaunchdLabel();
-base::scoped_nsobject<NSString> GetServiceMachName();
-base::scoped_nsobject<NSString> GetVersionedServiceMachName();
+base::scoped_nsobject<NSString> GetUpdateServiceInternalLaunchdLabel();
+base::scoped_nsobject<NSString> GetUpdateServiceMachName();
+base::scoped_nsobject<NSString> GetUpdateServiceInternalMachName();
 
 }  // namespace updater
 

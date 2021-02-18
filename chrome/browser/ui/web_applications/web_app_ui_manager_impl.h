@@ -10,9 +10,9 @@
 #include <vector>
 
 #include "base/callback_forward.h"
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
+#include "build/build_config.h"
 #include "chrome/browser/ui/browser_list_observer.h"
 #include "chrome/browser/web_applications/components/web_app_ui_manager.h"
 
@@ -32,6 +32,8 @@ class WebAppUiManagerImpl : public BrowserListObserver, public WebAppUiManager {
   static WebAppUiManagerImpl* Get(Profile* profile);
 
   explicit WebAppUiManagerImpl(Profile* profile);
+  WebAppUiManagerImpl(const WebAppUiManagerImpl&) = delete;
+  WebAppUiManagerImpl& operator=(const WebAppUiManagerImpl&) = delete;
   ~WebAppUiManagerImpl() override;
 
   void SetSubsystems(AppRegistryController* app_registry_controller) override;
@@ -45,8 +47,8 @@ class WebAppUiManagerImpl : public BrowserListObserver, public WebAppUiManager {
   size_t GetNumWindowsForApp(const AppId& app_id) override;
   void NotifyOnAllAppWindowsClosed(const AppId& app_id,
                                    base::OnceClosure callback) override;
-  void UninstallAndReplace(const std::vector<AppId>& from_apps,
-                           const AppId& to_app) override;
+  bool UninstallAndReplaceIfExists(const std::vector<AppId>& from_apps,
+                                   const AppId& to_app) override;
   bool CanAddAppToQuickLaunchBar() const override;
   void AddAppToQuickLaunchBar(const AppId& app_id) override;
   bool IsInAppWindow(content::WebContents* web_contents,
@@ -63,6 +65,12 @@ class WebAppUiManagerImpl : public BrowserListObserver, public WebAppUiManager {
   // BrowserListObserver:
   void OnBrowserAdded(Browser* browser) override;
   void OnBrowserRemoved(Browser* browser) override;
+
+#if defined(OS_WIN)
+  // Attempts to uninstall the given web app id. Meant to be used with OS-level
+  // uninstallation support/hooks.
+  void UninstallWebAppFromStartupSwitch(const AppId& app_id);
+#endif
 
  private:
   // Returns true if Browser is for an installed App.
@@ -84,7 +92,6 @@ class WebAppUiManagerImpl : public BrowserListObserver, public WebAppUiManager {
 
   base::WeakPtrFactory<WebAppUiManagerImpl> weak_ptr_factory_{this};
 
-  DISALLOW_COPY_AND_ASSIGN(WebAppUiManagerImpl);
 };
 
 }  // namespace web_app

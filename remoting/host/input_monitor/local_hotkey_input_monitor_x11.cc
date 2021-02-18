@@ -20,7 +20,9 @@
 #include "base/single_thread_task_runner.h"
 #include "ui/events/devices/x11/xinput_util.h"
 #include "ui/gfx/x/connection.h"
-#include "ui/gfx/x/x11.h"
+#include "ui/gfx/x/event.h"
+#include "ui/gfx/x/future.h"
+#include "ui/gfx/x/keysyms/keysyms.h"
 #include "ui/gfx/x/xinput.h"
 
 namespace remoting {
@@ -38,7 +40,7 @@ class LocalHotkeyInputMonitorX11 : public LocalHotkeyInputMonitor {
  private:
   // The implementation resides in LocalHotkeyInputMonitorX11::Core class.
   class Core : public base::RefCountedThreadSafe<Core>,
-               public x11::Connection::Delegate {
+               public x11::EventObserver {
    public:
     Core(scoped_refptr<base::SingleThreadTaskRunner> caller_task_runner,
          scoped_refptr<base::SingleThreadTaskRunner> input_task_runner,
@@ -57,9 +59,8 @@ class LocalHotkeyInputMonitorX11 : public LocalHotkeyInputMonitor {
     // Called when there are pending X events.
     void OnConnectionData();
 
-    // x11::Connection::Delegate:
-    bool ShouldContinueStream() const override;
-    void DispatchXEvent(x11::Event* event) override;
+    // x11::EventObserver:
+    void OnEvent(const x11::Event& event) override;
 
     // Task runner on which public methods of this class must be called.
     scoped_refptr<base::SingleThreadTaskRunner> caller_task_runner_;
@@ -161,7 +162,7 @@ void LocalHotkeyInputMonitorX11::Core::StartOnInputThread() {
   // Register OnConnectionData() to be called every time there is
   // something to read from |connection_|.
   controller_ = base::FileDescriptorWatcher::WatchReadable(
-      ConnectionNumber(connection_->display()),
+      connection_->GetFd(),
       base::BindRepeating(&Core::OnConnectionData, base::Unretained(this)));
 
   // Fetch pending events if any.
@@ -176,29 +177,24 @@ void LocalHotkeyInputMonitorX11::Core::StopOnInputThread() {
 
 void LocalHotkeyInputMonitorX11::Core::OnConnectionData() {
   DCHECK(input_task_runner_->BelongsToCurrentThread());
-  connection_->Dispatch(this);
+  connection_->DispatchAll();
 }
 
-bool LocalHotkeyInputMonitorX11::Core::ShouldContinueStream() const {
-  return true;
-}
-
-void LocalHotkeyInputMonitorX11::Core::DispatchXEvent(x11::Event* event) {
+void LocalHotkeyInputMonitorX11::Core::OnEvent(const x11::Event& event) {
   DCHECK(input_task_runner_->BelongsToCurrentThread());
 
   // Ignore input if we've already initiated a disconnect.
-  if (!disconnect_callback_) {
+  if (!disconnect_callback_)
     return;
-  }
 
-  auto* raw = event->As<x11::Input::RawDeviceEvent>();
+  const auto* raw = event.As<x11::Input::RawDeviceEvent>();
   DCHECK(raw);
   DCHECK(raw->opcode == x11::Input::RawDeviceEvent::RawKeyPress ||
          raw->opcode == x11::Input::RawDeviceEvent::RawKeyRelease);
 
-  bool down = raw->opcode == x11::Input::RawDeviceEvent::RawKeyPress;
-  auto key_sym =
-      static_cast<uint32_t>(connection_->KeycodeToKeysym(raw->detail, 0));
+  const bool down = raw->opcode == x11::Input::RawDeviceEvent::RawKeyPress;
+  const auto key_sym =
+      connection_->KeycodeToKeysym(static_cast<x11::KeyCode>(raw->detail), 0);
 
   if (key_sym == XK_Control_L || key_sym == XK_Control_R)
     ctrl_pressed_ = down;

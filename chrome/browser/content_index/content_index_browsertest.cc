@@ -10,7 +10,7 @@
 #include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "build/build_config.h"
 #include "chrome/browser/content_index/content_index_provider_impl.h"
@@ -101,6 +101,8 @@ class ContentIndexTest : public InProcessBrowserTest,
       override {
     NOTREACHED();
   }
+
+  void OnContentProviderGoingDown() override {}
 
   // TabStripModelObserver implementation:
   void TabChangedAt(content::WebContents* contents,
@@ -273,7 +275,8 @@ IN_PROC_BROWSER_TEST_F(ContentIndexTest, UserDeletedEntryDispatchesEvent) {
   EXPECT_TRUE(GetAllItems().empty());
 }
 
-IN_PROC_BROWSER_TEST_F(ContentIndexTest, MetricsCollected) {
+// TODO(crbug.com/1080922): flaky.
+IN_PROC_BROWSER_TEST_F(ContentIndexTest, DISABLED_MetricsCollected) {
   // Inititally there is no content.
   {
     base::HistogramTester histogram_tester;

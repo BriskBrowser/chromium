@@ -17,7 +17,7 @@
 #include "base/metrics/user_metrics.h"
 #include "base/numerics/ranges.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -76,6 +76,7 @@
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/highlight_path_generator.h"
 #include "ui/views/controls/label.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/rect_based_targeting_utils.h"
 #include "ui/views/view.h"
 #include "ui/views/view_class_properties.h"
@@ -145,13 +146,14 @@ class Tab::TabCloseButtonObserver : public views::ViewObserver {
                                   TabController* controller)
       : tab_(tab), close_button_(close_button), controller_(controller) {
     DCHECK(close_button_);
-    tab_close_button_observer_.Add(close_button_);
+    tab_close_button_observation_.Observe(close_button_);
   }
   TabCloseButtonObserver(const TabCloseButtonObserver&) = delete;
   TabCloseButtonObserver& operator=(const TabCloseButtonObserver&) = delete;
 
   ~TabCloseButtonObserver() override {
-    tab_close_button_observer_.Remove(close_button_);
+    DCHECK(tab_close_button_observation_.IsObserving());
+    tab_close_button_observation_.Reset();
   }
 
  private:
@@ -165,8 +167,8 @@ class Tab::TabCloseButtonObserver : public views::ViewObserver {
       controller_->UpdateHoverCard(nullptr);
   }
 
-  ScopedObserver<views::View, views::ViewObserver> tab_close_button_observer_{
-      this};
+  base::ScopedObservation<views::View, views::ViewObserver>
+      tab_close_button_observation_{this};
 
   Tab* tab_;
   views::View* close_button_;
@@ -174,9 +176,6 @@ class Tab::TabCloseButtonObserver : public views::ViewObserver {
 };
 
 // Tab -------------------------------------------------------------------------
-
-// static
-const char Tab::kViewClassName[] = "Tab";
 
 // static
 void Tab::SetShowHoverCardOnMouseHoverForTesting(bool value) {
@@ -193,7 +192,7 @@ Tab::Tab(TabController* controller)
 
   // So we get don't get enter/exit on children and don't prematurely stop the
   // hover.
-  set_notify_enter_exit_on_child(true);
+  SetNotifyEnterExitOnChild(true);
 
   SetID(VIEW_ID_TAB);
 
@@ -207,6 +206,13 @@ Tab::Tab(TabController* controller)
   title_->SetAutoColorReadabilityEnabled(false);
   title_->SetText(CoreTabHelper::GetDefaultTitle());
   title_->SetFontList(tab_style_->GetFontList());
+  // |title_| paints on top of an opaque region (the tab background) of a
+  // non-opaque layer (the tabstrip's layer), which cannot currently be detected
+  // by the subpixel-rendering opacity check.
+  // TODO(https://crbug.com/1139395): Improve the check so that this case doen't
+  // need a manual suppression by detecting cases where the text is painted onto
+  // onto opaque parts of a not-entirely-opaque layer.
+  title_->SetSkipSubpixelRenderingOpacityCheck(true);
   AddChildView(title_);
 
   SetEventTargeter(std::make_unique<views::ViewTargeter>(this));
@@ -220,9 +226,10 @@ Tab::Tab(TabController* controller)
   // Unretained is safe here because this class outlives its close button, and
   // the controller outlives this Tab.
   close_button_ = new TabCloseButton(
-      this, base::BindRepeating(&TabController::OnMouseEventInTab,
-                                base::Unretained(controller_)));
-  close_button_->set_has_ink_drop_action_on_click(true);
+      base::BindRepeating(&Tab::CloseButtonPressed, base::Unretained(this)),
+      base::BindRepeating(&TabController::OnMouseEventInTab,
+                          base::Unretained(controller_)));
+  close_button_->SetHasInkDropActionOnClick(true);
   AddChildView(close_button_);
 
   tab_close_button_observer_ = std::make_unique<TabCloseButtonObserver>(
@@ -255,25 +262,6 @@ void Tab::AnimationProgressed(const gfx::Animation* animation) {
       gfx::Tween::CalculateValue(gfx::Tween::FAST_OUT_SLOW_IN,
                                  animation->GetCurrentValue()),
       start_title_bounds_, target_title_bounds_));
-}
-
-void Tab::ButtonPressed(views::Button* sender, const ui::Event& event) {
-  if (!alert_indicator_ || !alert_indicator_->GetVisible())
-    base::RecordAction(UserMetricsAction("CloseTab_NoAlertIndicator"));
-  else if (GetAlertStateToShow(data_.alert_state) ==
-           TabAlertState::AUDIO_PLAYING)
-    base::RecordAction(UserMetricsAction("CloseTab_AudioIndicator"));
-  else
-    base::RecordAction(UserMetricsAction("CloseTab_RecordingIndicator"));
-
-  const CloseTabSource source = (event.type() == ui::ET_MOUSE_RELEASED &&
-                                 !(event.flags() & ui::EF_FROM_TOUCH))
-                                    ? CLOSE_TAB_FROM_MOUSE
-                                    : CLOSE_TAB_FROM_TOUCH;
-  DCHECK_EQ(close_button_, sender);
-  controller_->CloseTab(this, source);
-  if (event.type() == ui::ET_GESTURE_TAP)
-    TouchUMA::RecordGestureAction(TouchUMA::kGestureTabCloseTap);
 }
 
 bool Tab::GetHitTestMask(SkPath* mask) const {
@@ -423,10 +411,6 @@ void Tab::Layout() {
     focus_ring_->Layout();
 }
 
-const char* Tab::GetClassName() const {
-  return kViewClassName;
-}
-
 bool Tab::OnKeyPressed(const ui::KeyEvent& event) {
   if (event.key_code() == ui::VKEY_RETURN && !IsSelected()) {
     controller_->SelectTab(this, event);
@@ -441,24 +425,22 @@ bool Tab::OnKeyPressed(const ui::KeyEvent& event) {
 #endif
 
   if (event.type() == ui::ET_KEY_PRESSED && (event.flags() & kModifiedFlag)) {
-    if (event.flags() & ui::EF_SHIFT_DOWN) {
-      if (event.key_code() == ui::VKEY_RIGHT) {
-        controller()->MoveTabLast(this);
-        return true;
+    const bool is_right = event.key_code() == ui::VKEY_RIGHT;
+    const bool is_left = event.key_code() == ui::VKEY_LEFT;
+    if (is_right || is_left) {
+      const bool is_rtl = base::i18n::IsRTL();
+      const bool is_next = (is_right && !is_rtl) || (is_left && is_rtl);
+      if (event.flags() & ui::EF_SHIFT_DOWN) {
+        if (is_next)
+          controller()->MoveTabLast(this);
+        else
+          controller()->MoveTabFirst(this);
+      } else if (is_next) {
+        controller()->ShiftTabNext(this);
+      } else {
+        controller()->ShiftTabPrevious(this);
       }
-      if (event.key_code() == ui::VKEY_LEFT) {
-        controller()->MoveTabFirst(this);
-        return true;
-      }
-    } else {
-      if (event.key_code() == ui::VKEY_RIGHT) {
-        controller()->ShiftTabRight(this);
-        return true;
-      }
-      if (event.key_code() == ui::VKEY_LEFT) {
-        controller()->ShiftTabLeft(this);
-        return true;
-      }
+      return true;
     }
   }
 
@@ -761,19 +743,20 @@ SkColor Tab::GetAlertIndicatorColor(TabAlertState state) const {
   if (!theme_provider)
     return foreground_color_;
 
+  // TODO(tluk): These color computations should be moved into ThemeProvider
+  // when other tab colors are also computed there.
   switch (state) {
-    case TabAlertState::AUDIO_PLAYING:
-    case TabAlertState::AUDIO_MUTING:
-      return theme_provider->GetColor(ThemeProperties::COLOR_TAB_ALERT_AUDIO);
     case TabAlertState::MEDIA_RECORDING:
     case TabAlertState::DESKTOP_CAPTURING:
-      return theme_provider->GetColor(
-          ThemeProperties::COLOR_TAB_ALERT_RECORDING);
+      return color_utils::IsDark(foreground_color_) ? gfx::kGoogleRed600
+                                                    : gfx::kGoogleRed300;
     case TabAlertState::TAB_CAPTURING:
-      return theme_provider->GetColor(
-          ThemeProperties::COLOR_TAB_ALERT_CAPTURING);
     case TabAlertState::PIP_PLAYING:
-      return theme_provider->GetColor(ThemeProperties::COLOR_TAB_PIP_PLAYING);
+      if (color_utils::IsDark(foreground_color_))
+        return gfx::kGoogleBlue600;
+      FALLTHROUGH;
+    case TabAlertState::AUDIO_PLAYING:
+    case TabAlertState::AUDIO_MUTING:
     case TabAlertState::BLUETOOTH_CONNECTED:
     case TabAlertState::BLUETOOTH_SCAN_ACTIVE:
     case TabAlertState::USB_CONNECTED:
@@ -794,6 +777,7 @@ bool Tab::IsActive() const {
 void Tab::ActiveStateChanged() {
   UpdateTabIconNeedsAttentionBlocked();
   UpdateForegroundColors();
+  alert_indicator_->OnParentTabButtonColorChanged();
   title_->SetFontList(tab_style_->GetFontList());
   Layout();
 }
@@ -831,7 +815,7 @@ void Tab::SetData(TabRendererData data) {
 
   base::string16 title = data_.title;
   if (title.empty() && !data_.should_render_empty_title) {
-    title = icon_->ShowingLoadingAnimation()
+    title = icon_->GetShowingLoadingAnimation()
                 ? l10n_util::GetStringUTF16(IDS_TAB_LOADING_TITLE)
                 : CoreTabHelper::GetDefaultTitle();
   } else {
@@ -871,6 +855,15 @@ void Tab::SetTabNeedsAttention(bool attention) {
   icon_->SetAttention(TabIcon::AttentionType::kTabWantsAttentionStatus,
                       attention);
   SchedulePaint();
+}
+
+void Tab::SetFreezingVoteToken(
+    std::unique_ptr<performance_manager::freezing::FreezingVoteToken> token) {
+  freezing_token_ = std::move(token);
+}
+
+void Tab::ReleaseFreezingVoteToken() {
+  freezing_token_.reset();
 }
 
 // static
@@ -1039,8 +1032,7 @@ void Tab::UpdateForegroundColors() {
 
   title_->SetEnabledColor(colors.foreground_color);
 
-  close_button_->SetIconColors(colors.foreground_color,
-                               colors.background_color);
+  close_button_->SetColors(colors);
 
   if (foreground_color_ != colors.foreground_color) {
     foreground_color_ = colors.foreground_color;
@@ -1049,3 +1041,23 @@ void Tab::UpdateForegroundColors() {
 
   SchedulePaint();
 }
+
+void Tab::CloseButtonPressed(const ui::Event& event) {
+  if (!alert_indicator_ || !alert_indicator_->GetVisible())
+    base::RecordAction(UserMetricsAction("CloseTab_NoAlertIndicator"));
+  else if (GetAlertStateToShow(data_.alert_state) ==
+           TabAlertState::AUDIO_PLAYING)
+    base::RecordAction(UserMetricsAction("CloseTab_AudioIndicator"));
+  else
+    base::RecordAction(UserMetricsAction("CloseTab_RecordingIndicator"));
+
+  const bool from_mouse = event.type() == ui::ET_MOUSE_RELEASED &&
+                          !(event.flags() & ui::EF_FROM_TOUCH);
+  controller_->CloseTab(
+      this, from_mouse ? CLOSE_TAB_FROM_MOUSE : CLOSE_TAB_FROM_TOUCH);
+  if (event.type() == ui::ET_GESTURE_TAP)
+    TouchUMA::RecordGestureAction(TouchUMA::kGestureTabCloseTap);
+}
+
+BEGIN_METADATA(Tab, TabSlotView)
+END_METADATA

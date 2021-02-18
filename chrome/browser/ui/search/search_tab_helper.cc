@@ -31,7 +31,6 @@
 #include "chrome/browser/search/instant_service.h"
 #include "chrome/browser/search/instant_service_factory.h"
 #include "chrome/browser/search/local_ntp_source.h"
-#include "chrome/browser/search/ntp_features.h"
 #include "chrome/browser/search/promos/promo_service.h"
 #include "chrome/browser/search/promos/promo_service_factory.h"
 #include "chrome/browser/search/search.h"
@@ -76,6 +75,7 @@
 #include "components/omnibox/browser/suggestion_answer.h"
 #include "components/omnibox/browser/vector_icons.h"
 #include "components/omnibox/common/omnibox_features.h"
+#include "components/search/ntp_features.h"
 #include "components/search/search.h"
 #include "components/search_engines/omnibox_focus_type.h"
 #include "components/search_engines/template_url_service.h"
@@ -194,16 +194,8 @@ SearchTabHelper::~SearchTabHelper() {
 void SearchTabHelper::OnTabActivated() {
   ipc_router_.OnTabActivated();
 
-  if (search::IsInstantNTP(web_contents_)) {
-    if (instant_service_)
-      instant_service_->OnNewTabPageOpened();
-
-    // Force creation of NTPUserDataLogger, if we loaded an NTP. The
-    // NTPUserDataLogger tries to detect whether the NTP is being created at
-    // startup or from the user opening a new tab, and if we wait until later,
-    // it won't correctly detect this case.
-    NTPUserDataLogger::GetOrCreateFromWebContents(web_contents_);
-  }
+  if (search::IsInstantNTP(web_contents_) && instant_service_)
+    instant_service_->OnNewTabPageOpened();
 }
 
 void SearchTabHelper::OnTabDeactivated() {
@@ -212,8 +204,7 @@ void SearchTabHelper::OnTabDeactivated() {
 
 void SearchTabHelper::OnTabClosing() {
   if (search::IsInstantNTP(web_contents_) && chrome_colors_service_)
-    chrome_colors_service_->RevertThemeChangesForTab(
-        web_contents_, chrome_colors::RevertReason::TAB_CLOSED);
+    chrome_colors_service_->RevertThemeChangesForTab(web_contents_);
 }
 
 void SearchTabHelper::DidStartNavigation(
@@ -228,10 +219,8 @@ void SearchTabHelper::DidStartNavigation(
     return;
 
   // When navigating away from NTP we should revert all the unconfirmed state.
-  if (search::IsInstantNTP(web_contents_) && chrome_colors_service_) {
-    chrome_colors_service_->RevertThemeChangesForTab(
-        web_contents_, chrome_colors::RevertReason::NAVIGATION);
-  }
+  if (search::IsInstantNTP(web_contents_) && chrome_colors_service_)
+    chrome_colors_service_->RevertThemeChangesForTab(web_contents_);
 
   if (search::IsNTPOrRelatedURL(navigation_handle->GetURL(), profile())) {
     // Set the title on any pending entry corresponding to the NTP. This
@@ -278,8 +267,23 @@ void SearchTabHelper::NavigationEntryCommitted(
   if (!load_details.is_main_frame)
     return;
 
-  if (search::IsInstantNTP(web_contents_))
+  if (search::IsInstantNTP(web_contents_)) {
+    // We (re)create the logger here because
+    // 1. The logger tries to detect whether the NTP is being created at startup
+    //    or from the user opening a new tab, and if we wait until later, it
+    //    won't correctly detect this case.
+    // 2. There can be multiple navigations to NTPs in a single web contents.
+    //    The navigations can be user-triggered or automatic, e.g. we fall back
+    //    to the local NTP if a remote NTP fails to load. Since logging should
+    //    be scoped to the life time of a single NTP we reset the logger every
+    //    time we reach a new NTP.
+    logger_ = std::make_unique<NTPUserDataLogger>(
+        Profile::FromBrowserContext(web_contents_->GetBrowserContext()),
+        // We use the NavigationController's URL since it might differ from the
+        // WebContents URL which is usually chrome://newtab/.
+        web_contents_->GetController().GetVisibleEntry()->GetURL());
     ipc_router_.SetInputInProgress(IsInputInProgress());
+  }
 
   if (InInstantProcess(instant_service_, web_contents_))
     ipc_router_.OnNavigationEntryCommitted();
@@ -368,28 +372,28 @@ void SearchTabHelper::OnToggleShortcutsVisibility(bool do_notify) {
 
 void SearchTabHelper::OnLogEvent(NTPLoggingEventType event,
                                  base::TimeDelta time) {
-  NTPUserDataLogger::GetOrCreateFromWebContents(web_contents())
-      ->LogEvent(event, time);
+  if (logger_)
+    logger_->LogEvent(event, time);
 }
 
 void SearchTabHelper::OnLogSuggestionEventWithValue(
     NTPSuggestionsLoggingEventType event,
     int data,
     base::TimeDelta time) {
-  NTPUserDataLogger::GetOrCreateFromWebContents(web_contents())
-      ->LogSuggestionEventWithValue(event, data, time);
+  if (logger_)
+    logger_->LogSuggestionEventWithValue(event, data, time);
 }
 
 void SearchTabHelper::OnLogMostVisitedImpression(
     const ntp_tiles::NTPTileImpression& impression) {
-  NTPUserDataLogger::GetOrCreateFromWebContents(web_contents())
-      ->LogMostVisitedImpression(impression);
+  if (logger_)
+    logger_->LogMostVisitedImpression(impression);
 }
 
 void SearchTabHelper::OnLogMostVisitedNavigation(
     const ntp_tiles::NTPTileImpression& impression) {
-  NTPUserDataLogger::GetOrCreateFromWebContents(web_contents())
-      ->LogMostVisitedNavigation(impression);
+  if (logger_)
+    logger_->LogMostVisitedNavigation(impression);
 }
 
 void SearchTabHelper::PasteIntoOmnibox(const base::string16& text) {
@@ -420,11 +424,12 @@ void SearchTabHelper::FileSelected(const base::FilePath& path,
   select_file_dialog_ = nullptr;
   // File selection can happen at any time after NTP load, and is not logged
   // with the event.
-  NTPUserDataLogger::GetOrCreateFromWebContents(web_contents())
-      ->LogEvent(NTP_CUSTOMIZE_LOCAL_IMAGE_DONE,
-                 base::TimeDelta::FromSeconds(0));
-  NTPUserDataLogger::GetOrCreateFromWebContents(web_contents())
-      ->LogEvent(NTP_BACKGROUND_UPLOAD_DONE, base::TimeDelta::FromSeconds(0));
+  if (logger_) {
+    logger_->LogEvent(NTP_CUSTOMIZE_LOCAL_IMAGE_DONE,
+                      base::TimeDelta::FromSeconds(0));
+    logger_->LogEvent(NTP_BACKGROUND_UPLOAD_DONE,
+                      base::TimeDelta::FromSeconds(0));
+  }
 
   ipc_router_.SendLocalBackgroundSelected();
 }
@@ -433,11 +438,12 @@ void SearchTabHelper::FileSelectionCanceled(void* params) {
   select_file_dialog_ = nullptr;
   // File selection can happen at any time after NTP load, and is not logged
   // with the event.
-  NTPUserDataLogger::GetOrCreateFromWebContents(web_contents())
-      ->LogEvent(NTP_CUSTOMIZE_LOCAL_IMAGE_CANCEL,
-                 base::TimeDelta::FromSeconds(0));
-  NTPUserDataLogger::GetOrCreateFromWebContents(web_contents())
-      ->LogEvent(NTP_BACKGROUND_UPLOAD_CANCEL, base::TimeDelta::FromSeconds(0));
+  if (logger_) {
+    logger_->LogEvent(NTP_CUSTOMIZE_LOCAL_IMAGE_CANCEL,
+                      base::TimeDelta::FromSeconds(0));
+    logger_->LogEvent(NTP_BACKGROUND_UPLOAD_CANCEL,
+                      base::TimeDelta::FromSeconds(0));
+  }
 }
 
 void SearchTabHelper::OnResultChanged(AutocompleteController* controller,
@@ -455,7 +461,9 @@ void SearchTabHelper::OnResultChanged(AutocompleteController* controller,
 
   ipc_router_.AutocompleteResultChanged(omnibox::CreateAutocompleteResult(
       autocomplete_controller_->input().text(),
-      autocomplete_controller_->result(), profile()->GetPrefs()));
+      autocomplete_controller_->result(),
+      BookmarkModelFactory::GetForBrowserContext(profile()),
+      profile()->GetPrefs()));
 
   BitmapFetcherService* bitmap_fetcher_service =
       BitmapFetcherServiceFactory::GetForBrowserContext(profile());
@@ -575,23 +583,31 @@ void SearchTabHelper::OnOptOutOfSearchSuggestions() {
 }
 
 void SearchTabHelper::OnApplyDefaultTheme() {
-  if (chrome_colors_service_)
+  if (chrome_colors_service_ &&
+      search::DefaultSearchProviderIsGoogle(profile())) {
     chrome_colors_service_->ApplyDefaultTheme(web_contents_);
+  }
 }
 
 void SearchTabHelper::OnApplyAutogeneratedTheme(SkColor color) {
-  if (chrome_colors_service_)
+  if (chrome_colors_service_ &&
+      search::DefaultSearchProviderIsGoogle(profile())) {
     chrome_colors_service_->ApplyAutogeneratedTheme(color, web_contents_);
+  }
 }
 
 void SearchTabHelper::OnRevertThemeChanges() {
-  if (chrome_colors_service_)
+  if (chrome_colors_service_ &&
+      search::DefaultSearchProviderIsGoogle(profile())) {
     chrome_colors_service_->RevertThemeChanges();
+  }
 }
 
 void SearchTabHelper::OnConfirmThemeChanges() {
-  if (chrome_colors_service_)
+  if (chrome_colors_service_ &&
+      search::DefaultSearchProviderIsGoogle(profile())) {
     chrome_colors_service_->ConfirmThemeChanges();
+  }
 }
 
 void SearchTabHelper::QueryAutocomplete(const base::string16& input,
@@ -736,7 +752,8 @@ void SearchTabHelper::OnDeleteAutocompleteMatchConfirm(
       autocomplete_controller_->Stop(false);
       autocomplete_controller_->DeleteMatch(match);
       matches = omnibox::CreateAutocompleteMatches(
-          autocomplete_controller_->result());
+          autocomplete_controller_->result(),
+          BookmarkModelFactory::GetForBrowserContext(profile()));
     }
   }
 }
@@ -909,7 +926,7 @@ void SearchTabHelper::OpenAutocompleteMatch(
       /*elapsed_time_since_last_change_to_default_match=*/
       elapsed_time_since_last_change_to_default_match,
       /*result=*/autocomplete_controller_->result());
-  autocomplete_controller_->AddProvidersInfo(&log.providers_info);
+  autocomplete_controller_->AddProviderAndTriggeringLogs(&log);
 
   OmniboxEventGlobalTracker::GetInstance()->OnURLOpened(&log);
 

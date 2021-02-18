@@ -4,7 +4,7 @@
 
 cr.define('multidevice_setup', function() {
   /** @enum {string} */
-  const PageName = {
+  /* #export */ const PageName = {
     PASSWORD: 'password-page',
     SUCCESS: 'setup-succeeded-page',
     START: 'start-setup-page',
@@ -368,6 +368,7 @@ cr.define('multidevice_setup', function() {
     },
   });
 
+  // #cr_define_end
   return {
     MultiDeviceSetup: MultiDeviceSetup,
     PageName: PageName,

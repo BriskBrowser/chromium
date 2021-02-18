@@ -16,7 +16,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "build/build_config.h"
-#include "build/lacros_buildflags.h"
+#include "build/chromeos_buildflags.h"
 
 #if defined(OS_ANDROID)
 #include "base/os_compat_android.h"
@@ -506,7 +506,7 @@ void File::DoInitialize(const FilePath& path, uint32_t flags) {
   static_assert(O_RDONLY == 0, "O_RDONLY must equal zero");
 
   int mode = S_IRUSR | S_IWUSR;
-#if defined(OS_CHROMEOS) || BUILDFLAG(IS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   mode |= S_IRGRP | S_IROTH;
 #endif
 
@@ -549,7 +549,8 @@ bool File::Flush() {
 #if defined(OS_NACL)
   NOTIMPLEMENTED();  // NaCl doesn't implement fsync.
   return true;
-#elif defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID)
+#elif defined(OS_ANDROID) || defined(OS_CHROMEOS) || defined(OS_FUCHSIA) || \
+    defined(OS_LINUX)
   return !HANDLE_EINTR(fdatasync(file_.get()));
 #elif defined(OS_APPLE)
   // On macOS and iOS, fsync() is guaranteed to send the file's data to the

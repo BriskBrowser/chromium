@@ -151,10 +151,15 @@ void HeadlessBrowserContextImpl::Close() {
 
 void HeadlessBrowserContextImpl::InitWhileIOAllowed() {
   if (!context_options_->user_data_dir().empty()) {
-    path_ = context_options_->user_data_dir().Append(kDefaultProfileName);
+    base::FilePath path =
+        context_options_->user_data_dir().Append(kDefaultProfileName);
+    if (!path.IsAbsolute())
+      path = base::PathService::CheckedGet(base::DIR_CURRENT).Append(path);
+    path_ = std::move(path);
   } else {
     base::PathService::Get(base::DIR_EXE, &path_);
   }
+  DCHECK(path_.IsAbsolute());
 }
 
 std::unique_ptr<content::ZoomLevelDelegate>
@@ -288,7 +293,7 @@ void HeadlessBrowserContextImpl::ConfigureNetworkContextParams(
     bool in_memory,
     const base::FilePath& relative_partition_path,
     ::network::mojom::NetworkContextParams* network_context_params,
-    ::network::mojom::CertVerifierCreationParams*
+    ::cert_verifier::mojom::CertVerifierCreationParams*
         cert_verifier_creation_params) {
   request_context_manager_->ConfigureNetworkContextParams(
       in_memory, relative_partition_path, network_context_params,
@@ -358,7 +363,7 @@ HeadlessBrowserContext::Builder::SetBlockNewWebContents(
 
 HeadlessBrowserContext::Builder&
 HeadlessBrowserContext::Builder::SetOverrideWebPreferencesCallback(
-    base::RepeatingCallback<void(WebPreferences*)> callback) {
+    base::RepeatingCallback<void(blink::web_pref::WebPreferences*)> callback) {
   options_->override_web_preferences_callback_ = std::move(callback);
   return *this;
 }

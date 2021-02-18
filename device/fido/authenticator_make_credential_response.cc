@@ -11,7 +11,6 @@
 #include "device/fido/attestation_statement_formats.h"
 #include "device/fido/attested_credential_data.h"
 #include "device/fido/authenticator_data.h"
-#include "device/fido/client_data.h"
 #include "device/fido/fido_parsing_utils.h"
 #include "device/fido/p256_public_key.h"
 #include "device/fido/public_key.h"
@@ -55,9 +54,11 @@ AuthenticatorMakeCredentialResponse::CreateFromU2fRegisterResponse(
   if (!fido_attestation_statement)
     return base::nullopt;
 
-  return AuthenticatorMakeCredentialResponse(
+  AuthenticatorMakeCredentialResponse response(
       transport_used, AttestationObject(std::move(authenticator_data),
                                         std::move(fido_attestation_statement)));
+  response.is_resident_key = false;
+  return response;
 }
 
 AuthenticatorMakeCredentialResponse::AuthenticatorMakeCredentialResponse(
@@ -70,8 +71,9 @@ AuthenticatorMakeCredentialResponse::AuthenticatorMakeCredentialResponse(
 AuthenticatorMakeCredentialResponse::AuthenticatorMakeCredentialResponse(
     AuthenticatorMakeCredentialResponse&& that) = default;
 
-AuthenticatorMakeCredentialResponse& AuthenticatorMakeCredentialResponse::
-operator=(AuthenticatorMakeCredentialResponse&& other) = default;
+AuthenticatorMakeCredentialResponse&
+AuthenticatorMakeCredentialResponse::operator=(
+    AuthenticatorMakeCredentialResponse&& other) = default;
 
 AuthenticatorMakeCredentialResponse::~AuthenticatorMakeCredentialResponse() =
     default;
@@ -114,10 +116,6 @@ std::vector<uint8_t> AsCTAPStyleCBORBytes(
   map.emplace(1, object.attestation_statement().format_name());
   map.emplace(2, object.authenticator_data().SerializeToByteArray());
   map.emplace(3, AsCBOR(object.attestation_statement()));
-  if (response.android_client_data_ext()) {
-    map.emplace(kAndroidClientDataExtOutputKey,
-                cbor::Value(*response.android_client_data_ext()));
-  }
   if (response.enterprise_attestation_returned) {
     map.emplace(4, true);
   }

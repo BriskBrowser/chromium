@@ -27,6 +27,7 @@
 #include "components/autofill/core/browser/autofill_data_util.h"
 #include "components/autofill/core/browser/autofill_field.h"
 #include "components/autofill/core/browser/autofill_metrics.h"
+#include "components/autofill/core/browser/autofill_regexes.h"
 #include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/data_model/autofill_metadata.h"
 #include "components/autofill/core/browser/data_model/data_model_utils.h"
@@ -35,7 +36,6 @@
 #include "components/autofill/core/common/autofill_constants.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/core/common/autofill_payments_features.h"
-#include "components/autofill/core/common/autofill_regexes.h"
 #include "components/autofill/core/common/form_field_data.h"
 #include "components/grit/components_scaled_resources.h"
 #include "components/strings/grit/components_strings.h"
@@ -120,7 +120,8 @@ CreditCard::CreditCard(const std::string& guid, const std::string& origin)
       expiration_month_(0),
       expiration_year_(0),
       server_status_(OK),
-      card_issuer_(ISSUER_UNKNOWN) {}
+      card_issuer_(ISSUER_UNKNOWN),
+      instrument_id_(0) {}
 
 CreditCard::CreditCard(RecordType type, const std::string& server_id)
     : CreditCard() {
@@ -355,7 +356,7 @@ bool CreditCard::IsDeletable() const {
 }
 
 base::string16 CreditCard::GetRawInfo(ServerFieldType type) const {
-  DCHECK_EQ(CREDIT_CARD, AutofillType(type).group());
+  DCHECK_EQ(FieldTypeGroup::kCreditCard, AutofillType(type).group());
   switch (type) {
     case CREDIT_CARD_NAME_FULL:
       return name_on_card_;
@@ -410,7 +411,7 @@ base::string16 CreditCard::GetRawInfo(ServerFieldType type) const {
 void CreditCard::SetRawInfoWithVerificationStatus(ServerFieldType type,
                                                   const base::string16& value,
                                                   VerificationStatus status) {
-  DCHECK_EQ(CREDIT_CARD, AutofillType(type).group());
+  DCHECK_EQ(FieldTypeGroup::kCreditCard, AutofillType(type).group());
   switch (type) {
     case CREDIT_CARD_NAME_FULL:
       name_on_card_ = value;
@@ -556,6 +557,7 @@ void CreditCard::operator=(const CreditCard& credit_card) {
   temp_card_last_name_ = credit_card.temp_card_last_name_;
   nickname_ = credit_card.nickname_;
   card_issuer_ = credit_card.card_issuer_;
+  instrument_id_ = credit_card.instrument_id_;
 
   set_guid(credit_card.guid());
   set_origin(credit_card.origin());
@@ -797,11 +799,9 @@ const std::pair<base::string16, base::string16> CreditCard::LabelPieces()
   if (number().empty()) {
     // No CC number, if valid nickname is present, return nickname only.
     // Otherwise, return cardholder name only.
-    if (base::FeatureList::IsEnabled(
-            features::kAutofillEnableCardNicknameManagement) &&
-        HasNonEmptyValidNickname()) {
+    if (HasNonEmptyValidNickname())
       return std::make_pair(nickname_, base::string16());
-    }
+
     return std::make_pair(name_on_card_, base::string16());
   }
 
@@ -860,17 +860,18 @@ base::string16 CreditCard::NetworkAndLastFourDigits() const {
 
 base::string16 CreditCard::CardIdentifierStringForAutofillDisplay(
     base::string16 customized_nickname) const {
-  if (base::FeatureList::IsEnabled(
-          features::kAutofillEnableSurfacingServerCardNickname) &&
-      (HasNonEmptyValidNickname() || !customized_nickname.empty())) {
+  if (HasNonEmptyValidNickname() || !customized_nickname.empty()) {
     return NicknameAndLastFourDigits(customized_nickname);
   }
-  // Return a Google-specific string for Google-issued cards.
+  base::string16 networkAndLastFourDigits = NetworkAndLastFourDigits();
+  // Add Plex before the network and last four digits to identify it as a Google
+  // Plex card.
   if (base::FeatureList::IsEnabled(features::kAutofillEnableGoogleIssuedCard) &&
       IsGoogleIssuedCard()) {
-    return l10n_util::GetStringUTF16(IDS_AUTOFILL_CC_GOOGLE_ISSUED);
+    return l10n_util::GetStringUTF16(IDS_AUTOFILL_CC_GOOGLE_ISSUED) +
+           ASCIIToUTF16(" ") + networkAndLastFourDigits;
   }
-  return NetworkAndLastFourDigits();
+  return networkAndLastFourDigits;
 }
 
 base::string16 CreditCard::CardIdentifierStringAndDescriptiveExpiration(
@@ -1055,7 +1056,8 @@ std::ostream& operator<<(std::ostream& os, const CreditCard& credit_card) {
             << " " << credit_card.record_type() << " "
             << credit_card.use_count() << " " << credit_card.use_date() << " "
             << credit_card.billing_address_id() << " " << credit_card.nickname()
-            << " " << credit_card.card_issuer();
+            << " " << credit_card.card_issuer() << " "
+            << credit_card.instrument_id();
 }
 
 void CreditCard::SetNameOnCardFromSeparateParts() {

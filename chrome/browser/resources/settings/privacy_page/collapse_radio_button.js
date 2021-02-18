@@ -5,6 +5,7 @@
 import 'chrome://resources/cr_elements/cr_expand_button/cr_expand_button.m.js';
 import 'chrome://resources/cr_elements/cr_radio_button/cr_radio_button_style_css.m.js';
 import 'chrome://resources/polymer/v3_0/iron-collapse/iron-collapse.js';
+import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
 import '../settings_shared_css.m.js';
 
 import {CrRadioButtonBehavior} from 'chrome://resources/cr_elements/cr_radio_button/cr_radio_button_behavior.m.js';
@@ -35,6 +36,11 @@ Polymer({
 
     label: String,
 
+    icon: {
+      type: String,
+      value: null,
+    },
+
     /*
      * The Preference associated with the radio group.
      * @type {!chrome.settingsPrivate.PrefObject|undefined}
@@ -51,6 +57,12 @@ Polymer({
       type: String,
       value: '',  // Allows the $hidden= binding to run without being set.
     },
+
+    /*
+     * The aria-label attribute associated with the expand button. Used by
+     * screen readers when announcing the expand button.
+     */
+    expandAriaLabel: String,
   },
 
   observers: [
@@ -94,5 +106,26 @@ Polymer({
         this.pref.enforcement === chrome.settingsPrivate.Enforcement.ENFORCED &&
         !(!!this.pref.userSelectableValues &&
           this.pref.userSelectableValues.includes(this.name));
+  },
+
+  /** @private */
+  onExpandClicked_() {
+    this.fire('expand-clicked');
+  },
+
+  /** @private */
+  onRadioFocus_() {
+    this.getRipple().showAndHoldDown();
+  },
+
+  /**
+   * Clear the ripple associated with the radio button when the expand button
+   * is focused. Stop propagation to prevent the ripple being re-created.
+   * @param {!Event} e
+   * @private
+   */
+  onNonRadioFocus_(e) {
+    this.getRipple().clear();
+    e.stopPropagation();
   },
 });

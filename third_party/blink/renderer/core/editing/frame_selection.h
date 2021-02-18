@@ -44,6 +44,7 @@ namespace blink {
 
 class CaretDisplayItemClient;
 class Element;
+class InlineTextBox;
 class LayoutBlock;
 class LayoutText;
 class LocalFrame;
@@ -51,6 +52,7 @@ class FrameCaret;
 class GranularityStrategy;
 class GraphicsContext;
 class NGInlineCursor;
+class NGInlineCursorPosition;
 class Range;
 class SelectionEditor;
 class LayoutSelection;
@@ -166,6 +168,8 @@ class CORE_EXPORT FrameSelection final
                               const SetSelectionOptions&);
   void DidSetSelectionDeprecated(const SelectionInDOMTree&,
                                  const SetSelectionOptions&);
+  void SetSelectionForAccessibility(const SelectionInDOMTree&,
+                                    const SetSelectionOptions&);
 
   // Call this after doing user-triggered selections to make it easy to delete
   // the frame you entirely selected.
@@ -214,7 +218,7 @@ class CORE_EXPORT FrameSelection final
 
   void DidLayout();
   void CommitAppearanceIfNeeded();
-  void SetCaretVisible(bool caret_is_visible);
+  void SetCaretEnabled(bool caret_is_visible);
   void ScheduleVisualUpdate() const;
   void ScheduleVisualUpdateForPaintInvalidationIfNeeded() const;
 
@@ -237,6 +241,7 @@ class CORE_EXPORT FrameSelection final
   void PageActivationChanged();
 
   bool IsHandleVisible() const { return is_handle_visible_; }
+  void SetHandleVisibleForTesting() { is_handle_visible_ = true; }
   bool ShouldShrinkNextTap() const { return should_shrink_next_tap_; }
 
   // Returns true if a word is selected.
@@ -283,6 +288,10 @@ class CORE_EXPORT FrameSelection final
       const LayoutText& text) const;
   LayoutSelectionStatus ComputeLayoutSelectionStatus(
       const NGInlineCursor& cursor) const;
+  SelectionState ComputeLayoutSelectionStateForCursor(
+      const NGInlineCursorPosition& position) const;
+  SelectionState ComputeLayoutSelectionStateForInlineTextBox(
+      const InlineTextBox& text_box) const;
 
   void Trace(Visitor*) const override;
 

@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {addSingletonGetter} from 'chrome://resources/js/cr.m.js';
 import {NativeEventTarget as EventTarget} from 'chrome://resources/js/cr/event_target.m.js';
 
 import {ContentController} from './controller.js';
@@ -24,37 +25,77 @@ import {Viewport} from './viewport.js';
  */
 let ViewerInkHostElement;
 
-// Controller for annotation mode, on Chrome OS only. Fires the following events
-// from its event target:
-// has-unsaved-changes: Fired to indicate there are ink annotations that have
-//     not been saved.
-// set-annotation-undo-state: Contains information about whether undo or redo
-//     options are available.
-export class InkController extends ContentController {
-  /**
-   * @param {!Viewport} viewport
-   * @param {!HTMLDivElement} contentElement
-   */
-  constructor(viewport, contentElement) {
-    super();
+/**
+ * Event types dispatched by the ink controller.
+ * @enum {string}
+ */
+export const InkControllerEventType = {
+  HAS_UNSAVED_CHANGES: 'InkControllerEventType.HAS_UNSAVED_CHANGES',
+  LOADED: 'InkControllerEventType.LOADED',
+  SET_ANNOTATION_UNDO_STATE: 'InkControllerEventType.SET_ANNOTATION_UNDO_STATE',
+};
+
+/**
+ * Controller for annotation mode, on Chrome OS only. Fires the following events
+ * from its event target:
+ *   InkControllerEventType.HAS_UNSAVED_CHANGES: Fired to indicate there are ink
+ *       annotations that have not been saved.
+ *   InkControllerEventType.SET_ANNOTATION_UNDO_STATE: Contains information
+ *       about whether undo or redo options are available.
+ *  @implements {ContentController}
+ */
+export class InkController {
+  constructor() {
+    /** @private {!EventTarget} */
+    this.eventTarget_ = new EventTarget();
+
+    /** @private {boolean} */
+    this.isActive_ = false;
 
     /** @private {!Viewport} */
-    this.viewport_ = viewport;
+    this.viewport_;
 
     /** @private {!HTMLDivElement} */
-    this.contentElement_ = contentElement;
+    this.contentElement_;
 
     /** @private {?ViewerInkHostElement} */
     this.inkHost_ = null;
 
-    /** @private {!EventTarget} */
-    this.eventTarget_ = new EventTarget();
-
-    /** @type {?AnnotationTool} */
+    /** @private {?AnnotationTool} */
     this.tool_ = null;
   }
 
-  /** @return {!EventTarget} */
+  /**
+   * @param {!Viewport} viewport
+   * @param {!HTMLDivElement} contentElement
+   */
+  init(viewport, contentElement) {
+    this.viewport_ = viewport;
+    this.contentElement_ = contentElement;
+  }
+
+  /**
+   * @return {boolean}
+   * @override
+   */
+  get isActive() {
+    // Check whether `contentElement_` is defined as a signal that `init()` was
+    // called.
+    return !!this.contentElement_ && this.isActive_;
+  }
+
+  /**
+   * @param {boolean} isActive
+   * @override
+   */
+  set isActive(isActive) {
+    this.isActive_ = isActive;
+  }
+
+  /**
+   * @return {!EventTarget}
+   * @override
+   */
   getEventTarget() {
     return this.eventTarget_;
   }
@@ -66,6 +107,12 @@ export class InkController extends ContentController {
       this.inkHost_.setAnnotationTool(tool);
     }
   }
+
+  beforeZoom() {}
+
+  afterZoom() {}
+
+  print() {}
 
   /** @override */
   rotateClockwise() {
@@ -96,6 +143,9 @@ export class InkController extends ContentController {
   }
 
   /** @override */
+  saveAttachment(index) {}
+
+  /** @override */
   undo() {
     this.inkHost_.undo();
   }
@@ -113,15 +163,19 @@ export class InkController extends ContentController {
       this.inkHost_ = /** @type {!ViewerInkHostElement} */ (inkHost);
       this.inkHost_.viewport = this.viewport_;
       inkHost.addEventListener('stroke-added', e => {
-        this.eventTarget_.dispatchEvent(new CustomEvent('has-unsaved-changes'));
+        this.eventTarget_.dispatchEvent(
+            new CustomEvent(InkControllerEventType.HAS_UNSAVED_CHANGES));
       });
       inkHost.addEventListener('undo-state-changed', e => {
-        this.eventTarget_.dispatchEvent(
-            new CustomEvent('set-annotation-undo-state', {detail: e.detail}));
+        this.eventTarget_.dispatchEvent(new CustomEvent(
+            InkControllerEventType.SET_ANNOTATION_UNDO_STATE,
+            {detail: e.detail}));
       });
+      this.isActive = true;
     }
     return this.inkHost_.load(filename, data).then(() => {
-      this.eventTarget_.dispatchEvent(new CustomEvent('loaded'));
+      this.eventTarget_.dispatchEvent(
+          new CustomEvent(InkControllerEventType.LOADED));
     });
   }
 
@@ -129,5 +183,8 @@ export class InkController extends ContentController {
   unload() {
     this.inkHost_.remove();
     this.inkHost_ = null;
+    this.isActive = false;
   }
 }
+
+addSingletonGetter(InkController);

@@ -8,6 +8,7 @@ from typing import Dict, Tuple
 
 import class_dependency
 import class_json_consts
+import git_utils
 import graph
 import json_consts
 import package_dependency
@@ -78,8 +79,11 @@ def create_class_graph_from_json_obj(
         name = node_json_obj[json_consts.NAME]
         nested = node_json_obj[json_consts.META][
             class_json_consts.NESTED_CLASSES]
+        build_targets = node_json_obj[json_consts.META][
+            class_json_consts.BUILD_TARGETS]
         added_node = class_graph.add_node_if_new(name)
         added_node.nested_classes = set(nested)
+        added_node.build_targets = set(build_targets)
 
     for edge_json_obj in json_obj[json_consts.EDGES]:
         begin_key = edge_json_obj[json_consts.BEGIN]
@@ -87,6 +91,17 @@ def create_class_graph_from_json_obj(
         class_graph.add_edge_if_new(begin_key, end_key)
 
     return class_graph
+
+
+def create_build_metadata() -> Dict:
+    """Creates metadata about the build the graph was extracted from.
+    """
+    return {
+        json_consts.COMMIT_HASH: git_utils.get_last_commit_hash(),
+        json_consts.COMMIT_CR_POSITION:
+        git_utils.get_last_commit_cr_position(),
+        json_consts.COMMIT_TIME: git_utils.get_last_commit_time(),
+    }
 
 
 def dump_class_and_package_graphs_to_file(
@@ -110,13 +125,15 @@ def dump_class_and_package_graphs_to_file(
     json_obj = {
         json_consts.CLASS_GRAPH: create_json_obj_from_graph(class_graph),
         json_consts.PACKAGE_GRAPH: create_json_obj_from_graph(package_graph),
+        json_consts.BUILD_METADATA: create_build_metadata(),
     }
     with open(filename, 'w') as json_file:
         json.dump(json_obj, json_file, separators=(',', ':'))
 
 
 def load_class_graph_from_file(
-        filename: str) -> class_dependency.JavaClassDependencyGraph:
+        filename: str
+) -> Tuple[class_dependency.JavaClassDependencyGraph, Dict]:
     """Recreates a JavaClassDependencyGraph from a JSON file.
 
     The file is expected to be in the format dumped by
@@ -125,13 +142,14 @@ def load_class_graph_from_file(
     with open(filename, 'r') as json_file:
         json_obj = json.load(json_file)
         class_graph_json_obj = json_obj[json_consts.CLASS_GRAPH]
-        return create_class_graph_from_json_obj(class_graph_json_obj)
+        return create_class_graph_from_json_obj(
+            class_graph_json_obj), json_obj.get(json_consts.BUILD_METADATA)
 
 
 def load_class_and_package_graphs_from_file(
-    filename: str
-) -> Tuple[class_dependency.JavaClassDependencyGraph,
-           package_dependency.JavaPackageDependencyGraph]:
+        filename: str
+) -> Tuple[class_dependency.JavaClassDependencyGraph, package_dependency.
+           JavaPackageDependencyGraph, Dict]:
     """Recreates a Java(Class+Package)DependencyGraph from a JSON file.
 
     The file is expected to be in the format dumped by
@@ -143,6 +161,6 @@ def load_class_and_package_graphs_from_file(
     a serialized package graph for other consumers of the JSON (eg. JS-side)
     which may want to bypass the costly conversion from class to package graph.
     """
-    class_graph = load_class_graph_from_file(filename)
+    class_graph, metadata = load_class_graph_from_file(filename)
     package_graph = package_dependency.JavaPackageDependencyGraph(class_graph)
-    return class_graph, package_graph
+    return class_graph, package_graph, metadata

@@ -3,8 +3,8 @@
 // found in the LICENSE file.
 
 /**
- * @fileoverview PasswordCheckListItem represents one leaked credential in the
- * list of compromised passwords.
+ * @fileoverview PasswordCheckListItem represents one insecure credential in the
+ * list of insecure passwords.
  */
 
 import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
@@ -40,7 +40,7 @@ Polymer({
 
     /**
      * The password that is being displayed.
-     * @type {!PasswordManagerProxy.CompromisedCredential}
+     * @type {!PasswordManagerProxy.InsecureCredential}
      */
     item: Object,
 
@@ -59,7 +59,19 @@ Polymer({
     clickedChangePassword: {
       type: Boolean,
       value: false,
-    }
+    },
+
+    /** @private */
+    buttonClass_: {
+      type: String,
+      computed: 'computeButtonClass_(item.compromisedInfo)',
+    },
+
+    /** @private */
+    iconClass_: {
+      type: String,
+      computed: 'computeIconClass_(item.compromisedInfo)',
+    },
   },
 
   /**
@@ -74,11 +86,20 @@ Polymer({
   },
 
   /**
+   * Returns true if |item| is compromised credential, otherwise returns false.
+   * @return {boolean}
+   * @private
+   */
+  isCompromisedItem_() {
+    return !!this.item.compromisedInfo;
+  },
+
+  /**
    * @return {string}
    * @private
    */
   getCompromiseType_() {
-    switch (this.item.compromiseType) {
+    switch (this.item.compromisedInfo.compromiseType) {
       case chrome.passwordsPrivate.CompromiseType.PHISHED:
         return loadTimeData.getString('phishedPassword');
       case chrome.passwordsPrivate.CompromiseType.LEAKED:
@@ -88,7 +109,8 @@ Polymer({
     }
 
     assertNotReached(
-        'Can\'t find a string for type: ' + this.item.compromiseType);
+        'Can\'t find a string for type: ' +
+        this.item.compromisedInfo.compromiseType);
   },
 
   /**
@@ -132,6 +154,32 @@ Polymer({
    * @return {string}
    * @private
    */
+  computeButtonClass_() {
+    if (this.item.compromisedInfo) {
+      // Strong CTA.
+      return 'action-button';
+    }
+    // Weak CTA.
+    return '';
+  },
+
+  /**
+   * @return {string}
+   * @private
+   */
+  computeIconClass_() {
+    if (this.item.compromisedInfo) {
+      // Strong CTA, white icon.
+      return '';
+    }
+    // Weak CTA, non-white-icon.
+    return 'icon-weak-cta';
+  },
+
+  /**
+   * @return {string}
+   * @private
+   */
   computePassword_() {
     const NUM_PLACEHOLDERS = 10;
     return this.item.password || ' '.repeat(NUM_PLACEHOLDERS);
@@ -151,11 +199,11 @@ Polymer({
     this.passwordManager_.recordPasswordCheckInteraction(
         PasswordManagerProxy.PasswordCheckInteraction.SHOW_PASSWORD);
     this.passwordManager_
-        .getPlaintextCompromisedPassword(
+        .getPlaintextInsecurePassword(
             assert(this.item), chrome.passwordsPrivate.PlaintextReason.VIEW)
         .then(
-            compromisedCredential => {
-              this.set('item', compromisedCredential);
+            insecureCredential => {
+              this.set('item', insecureCredential);
             },
             error => {
               // <if expr="chromeos">

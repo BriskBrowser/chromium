@@ -11,8 +11,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/ui/webui/settings/chromeos/search/search_concept.h"
-#include "chromeos/components/local_search_service/local_search_service.h"
-#include "chromeos/constants/chromeos_features.h"
+#include "chromeos/components/local_search_service/public/cpp/local_search_service_proxy.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace chromeos {
@@ -99,11 +98,13 @@ void SearchTagRegistry::ScopedTagUpdater::ProcessPendingSearchTags(
 }
 
 SearchTagRegistry::SearchTagRegistry(
-    local_search_service::LocalSearchService* local_search_service)
-    : index_(local_search_service->GetIndex(
-          local_search_service::IndexId::kCrosSettings,
-          local_search_service::Backend::kLinearMap,
-          g_browser_process ? g_browser_process->local_state() : nullptr)) {}
+    local_search_service::LocalSearchServiceProxy* local_search_service_proxy) {
+  local_search_service_proxy->GetIndex(
+      local_search_service::IndexId::kCrosSettings,
+      local_search_service::Backend::kLinearMap,
+      index_remote_.BindNewPipeAndPassReceiver());
+  DCHECK(index_remote_.is_bound());
+}
 
 SearchTagRegistry::~SearchTagRegistry() = default;
 
@@ -121,25 +122,20 @@ SearchTagRegistry::ScopedTagUpdater SearchTagRegistry::StartUpdate() {
 
 void SearchTagRegistry::AddSearchTags(
     const std::vector<const SearchConcept*>& search_tags) {
-  if (!base::FeatureList::IsEnabled(features::kNewOsSettingsSearch))
-    return;
-
-  index_->AddOrUpdate(ConceptVectorToDataVector(search_tags));
-
   // Add each concept to the map. Note that it is safe to take the address of
   // each concept because all concepts are allocated via static
   // base::NoDestructor objects in the Get*SearchConcepts() helper functions.
   for (const auto* concept : search_tags)
     result_id_to_metadata_list_map_[ToResultId(*concept)] = concept;
 
-  NotifyRegistryUpdated();
+  index_remote_->AddOrUpdate(
+      ConceptVectorToDataVector(search_tags),
+      base::BindOnce(&SearchTagRegistry::NotifyRegistryAdded,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 void SearchTagRegistry::RemoveSearchTags(
     const std::vector<const SearchConcept*>& search_tags) {
-  if (!base::FeatureList::IsEnabled(features::kNewOsSettingsSearch))
-    return;
-
   std::vector<std::string> data_ids;
   for (const auto* concept : search_tags) {
     std::string result_id = ToResultId(*concept);
@@ -147,9 +143,9 @@ void SearchTagRegistry::RemoveSearchTags(
     data_ids.push_back(std::move(result_id));
   }
 
-  index_->Delete(data_ids);
-
-  NotifyRegistryUpdated();
+  index_remote_->Delete(
+      data_ids, base::BindOnce(&SearchTagRegistry::NotifyRegistryDeleted,
+                               weak_ptr_factory_.GetWeakPtr()));
 }
 
 const SearchConcept* SearchTagRegistry::GetTagMetadata(
@@ -204,6 +200,14 @@ SearchTagRegistry::ConceptVectorToDataVector(
 void SearchTagRegistry::NotifyRegistryUpdated() {
   for (auto& observer : observer_list_)
     observer.OnRegistryUpdated();
+}
+
+void SearchTagRegistry::NotifyRegistryAdded() {
+  NotifyRegistryUpdated();
+}
+
+void SearchTagRegistry::NotifyRegistryDeleted(uint32_t num_deleted) {
+  NotifyRegistryUpdated();
 }
 
 }  // namespace settings

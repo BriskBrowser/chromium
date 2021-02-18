@@ -1,4 +1,5 @@
 halliwell@chromium.org
+seantopping@chromium.org
 servolk@chromium.org
 yucliu@chromium.org
 
@@ -10,5 +11,3 @@ per-file *.java=file://chromecast/android/OWNERS
 alexst@chromium.org
 dnicoara@chromium.org
 spang@chromium.org
-
-# COMPONENT: Chromecast

@@ -9,7 +9,9 @@
 #include "base/logging.h"
 #include "base/time/time.h"
 #include "third_party/blink/public/common/mime_util/mime_util.h"
+#include "third_party/blink/public/mojom/web_feature/web_feature.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_image_bitmap_options.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_image_decode_options.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_image_decoder_init.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_image_frame.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_image_track.h"
@@ -23,6 +25,7 @@
 #include "third_party/blink/renderer/platform/graphics/unaccelerated_static_bitmap_image.h"
 #include "third_party/blink/renderer/platform/image-decoders/image_decoder.h"
 #include "third_party/blink/renderer/platform/image-decoders/segment_reader.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 
 namespace blink {
 
@@ -31,8 +34,9 @@ ImageDecoderExternal* ImageDecoderExternal::Create(
     ScriptState* script_state,
     const ImageDecoderInit* init,
     ExceptionState& exception_state) {
-  return MakeGarbageCollected<ImageDecoderExternal>(script_state, init,
-                                                    exception_state);
+  auto* result = MakeGarbageCollected<ImageDecoderExternal>(script_state, init,
+                                                            exception_state);
+  return exception_state.HadException() ? nullptr : result;
 }
 
 ImageDecoderExternal::DecodeRequest::DecodeRequest(
@@ -58,7 +62,11 @@ bool ImageDecoderExternal::canDecodeType(String type) {
 ImageDecoderExternal::ImageDecoderExternal(ScriptState* script_state,
                                            const ImageDecoderInit* init,
                                            ExceptionState& exception_state)
-    : script_state_(script_state) {
+    : ExecutionContextLifecycleObserver(ExecutionContext::From(script_state)),
+      script_state_(script_state) {
+  UseCounter::Count(ExecutionContext::From(script_state),
+                    WebFeature::kWebCodecs);
+
   // |data| is a required field.
   DCHECK(init->hasData());
   DCHECK(!init->data().IsNull());
@@ -66,7 +74,7 @@ ImageDecoderExternal::ImageDecoderExternal(ScriptState* script_state,
   options_ =
       init->hasOptions() ? init->options() : ImageBitmapOptions::Create();
 
-  mime_type_ = init->type();
+  mime_type_ = init->type().LowerASCII();
   if (!canDecodeType(mime_type_)) {
     exception_state.ThrowDOMException(DOMExceptionCode::kNotSupportedError,
                                       "Unsupported image format");
@@ -103,23 +111,22 @@ ImageDecoderExternal::ImageDecoderExternal(ScriptState* script_state,
   if (init->data().IsArrayBuffer()) {
     buffer = DOMArrayPiece(init->data().GetAsArrayBuffer());
   } else if (init->data().IsArrayBufferView()) {
-    buffer = DOMArrayPiece(init->data().GetAsArrayBufferView().View());
+    buffer = DOMArrayPiece(init->data().GetAsArrayBufferView().Get());
   } else {
     NOTREACHED();
     return;
   }
 
-  if (!buffer.ByteLengthAsSizeT()) {
+  if (!buffer.ByteLength()) {
     exception_state.ThrowDOMException(DOMExceptionCode::kConstraintError,
                                       "No image data provided");
     return;
   }
 
-  // TODO(crbug.com/1073995): Data is owned by the caller who may be free to
-  // manipulate it. We will probably need to make a copy to our own internal
-  // data or neuter the buffers as seen by JS.
+  // Since data is owned by the caller who may be free to manipulate it, we must
+  // check HasValidEncodedData() before attempting to access |decoder_|.
   segment_reader_ = SegmentReader::CreateFromSkData(
-      SkData::MakeWithoutCopy(buffer.Data(), buffer.ByteLengthAsSizeT()));
+      SkData::MakeWithoutCopy(buffer.Data(), buffer.ByteLength()));
   if (!segment_reader_) {
     exception_state.ThrowDOMException(DOMExceptionCode::kConstraintError,
                                       "Failed to read image data");
@@ -141,14 +148,14 @@ ImageDecoderExternal::~ImageDecoderExternal() {
   DVLOG(1) << __func__;
 }
 
-ScriptPromise ImageDecoderExternal::decode(uint32_t frame_index,
-                                           bool complete_frames_only) {
+ScriptPromise ImageDecoderExternal::decode(const ImageDecodeOptions* options) {
   DVLOG(1) << __func__;
 
   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state_);
   auto promise = resolver->Promise();
   pending_decodes_.push_back(MakeGarbageCollected<DecodeRequest>(
-      resolver, frame_index, complete_frames_only));
+      resolver, options ? options->frameIndex() : 0,
+      options ? options->completeFramesOnly() : true));
   MaybeSatisfyPendingDecodes();
   return promise;
 }
@@ -257,10 +264,18 @@ void ImageDecoderExternal::Trace(Visitor* visitor) const {
   visitor->Trace(init_data_);
   visitor->Trace(options_);
   ScriptWrappable::Trace(visitor);
+  ExecutionContextLifecycleObserver::Trace(visitor);
+}
+
+void ImageDecoderExternal::ContextDestroyed() {}
+
+bool ImageDecoderExternal::HasPendingActivity() const {
+  return !pending_metadata_decodes_.IsEmpty() || !pending_decodes_.IsEmpty();
 }
 
 void ImageDecoderExternal::CreateImageDecoder() {
   DCHECK(!decoder_);
+  DCHECK(HasValidEncodedData());
 
   // TODO(crbug.com/1073995): We should probably call
   // ImageDecoder::SetMemoryAllocator() so that we can recycle frame buffers for
@@ -293,12 +308,11 @@ void ImageDecoderExternal::CreateImageDecoder() {
   DCHECK(canDecodeType(mime_type_));
   decoder_ = ImageDecoder::CreateByMimeType(
       mime_type_, segment_reader_, data_complete_, premultiply_alpha,
-      ImageDecoder::kHighBitDepthToHalfFloat, color_behavior,
-      ImageDecoder::OverrideAllowDecodeToYuv::kDeny, desired_size);
+      ImageDecoder::kHighBitDepthToHalfFloat, color_behavior, desired_size);
 
   // CreateByImageType() can't fail if we use a supported image type. Which we
   // DCHECK above via canDecodeType().
-  DCHECK(decoder_);
+  DCHECK(decoder_) << mime_type_;
 }
 
 void ImageDecoderExternal::MaybeSatisfyPendingDecodes() {
@@ -312,6 +326,13 @@ void ImageDecoderExternal::MaybeSatisfyPendingDecodes() {
       // TODO(crbug.com/1073995): Include frameIndex in rejection?
       request->exception = MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kConstraintError, "Frame index out of range");
+      continue;
+    }
+
+    if (!HasValidEncodedData()) {
+      request->exception = MakeGarbageCollected<DOMException>(
+          DOMExceptionCode::kInvalidStateError,
+          "Source data has been neutered");
       continue;
     }
 
@@ -365,7 +386,8 @@ void ImageDecoderExternal::MaybeSatisfyPendingDecodes() {
         base::nullopt, options_));
     result->setDuration(
         decoder_->FrameDurationAtIndex(request->frame_index).InMicroseconds());
-    result->setOrientation(decoder_->Orientation().Orientation());
+    result->setOrientation(
+        static_cast<uint32_t>(decoder_->Orientation().Orientation()));
     result->setComplete(is_complete);
     request->result = result;
   }
@@ -393,6 +415,7 @@ void ImageDecoderExternal::MaybeSatisfyPendingDecodes() {
 }
 
 void ImageDecoderExternal::MaybeSatisfyPendingMetadataDecodes() {
+  DCHECK(HasValidEncodedData());
   DCHECK(decoder_);
   if (!decoder_->IsSizeAvailable() && !decoder_->Failed())
     return;
@@ -404,6 +427,9 @@ void ImageDecoderExternal::MaybeSatisfyPendingMetadataDecodes() {
 }
 
 void ImageDecoderExternal::MaybeUpdateMetadata() {
+  if (!HasValidEncodedData())
+    return;
+
   // Since we always create the decoder at construction, we need to wait until
   // at least the size is available before signaling that metadata has been
   // retrieved.
@@ -454,6 +480,24 @@ void ImageDecoderExternal::MaybeUpdateMetadata() {
   }
 
   MaybeSatisfyPendingMetadataDecodes();
+}
+
+bool ImageDecoderExternal::HasValidEncodedData() const {
+  // If we keep an internal copy of the data, it's always valid.
+  if (stream_buffer_)
+    return true;
+
+  if (init_data_->data().IsArrayBuffer() &&
+      init_data_->data().GetAsArrayBuffer()->IsDetached()) {
+    return false;
+  }
+
+  if (init_data_->data().IsArrayBufferView() &&
+      !init_data_->data().GetAsArrayBufferView()->BaseAddress()) {
+    return false;
+  }
+
+  return true;
 }
 
 }  // namespace blink

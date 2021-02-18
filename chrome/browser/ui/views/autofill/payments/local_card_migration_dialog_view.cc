@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/i18n/message_formatter.h"
 #include "base/location.h"
 #include "base/macros.h"
@@ -45,9 +46,11 @@
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/controls/separator.h"
 #include "ui/views/controls/styled_label.h"
-#include "ui/views/controls/styled_label_listener.h"
 #include "ui/views/layout/box_layout.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/style/typography.h"
+#include "ui/views/view_utils.h"
 #include "ui/views/widget/widget.h"
 
 namespace autofill {
@@ -104,7 +107,8 @@ std::unique_ptr<views::Label> CreateExplanationText(
     int card_list_size,
     const base::string16& user_email) {
   auto explanation_text = std::make_unique<views::Label>(
-      base::string16(), CONTEXT_BODY_TEXT_LARGE, views::style::STYLE_SECONDARY);
+      base::string16(), views::style::CONTEXT_DIALOG_BODY_TEXT,
+      views::style::STYLE_SECONDARY);
   switch (view_state) {
     case LocalCardMigrationDialogState::kOffered:
       DCHECK(!user_email.empty());
@@ -159,7 +163,8 @@ std::unique_ptr<views::ScrollView> CreateCardList(
   }
 
   auto card_list_scroll_view = std::make_unique<views::ScrollView>();
-  card_list_scroll_view->SetHideHorizontalScrollBar(true);
+  card_list_scroll_view->SetHorizontalScrollBarMode(
+      views::ScrollView::ScrollBarMode::kDisabled);
   card_list_scroll_view->SetContents(std::move(card_list_view));
   card_list_scroll_view->SetDrawOverflowIndicator(false);
   constexpr int kCardListScrollViewHeight = 140;
@@ -204,7 +209,7 @@ std::unique_ptr<views::View> CreateTip(
       views::ImageView::Alignment::kLeading);
   tip_text_container->AddChildView(lightbulb_outline_image);
 
-  auto* tip = new views::Label(tip_message, CONTEXT_BODY_TEXT_SMALL,
+  auto* tip = new views::Label(tip_message, CONTEXT_DIALOG_BODY_TEXT_SMALL,
                                views::style::STYLE_SECONDARY);
   tip->SetMultiLine(true);
   // If it is in dark mode, set the font color to GG200 since it is on a lighter
@@ -267,9 +272,9 @@ std::unique_ptr<views::View> CreateFeedbackContentView(
 // horizontal separator, and legal message. It is used by
 // LocalCardMigrationDialogView class when it offers the user the
 // option to upload all browser-saved credit cards.
-class LocalCardMigrationOfferView : public views::View,
-                                    public views::StyledLabelListener {
+class LocalCardMigrationOfferView : public views::View {
  public:
+  METADATA_HEADER(LocalCardMigrationOfferView);
   LocalCardMigrationOfferView(LocalCardMigrationDialogController* controller,
                               LocalCardMigrationDialogView* dialog_view)
       : controller_(controller) {
@@ -305,29 +310,26 @@ class LocalCardMigrationOfferView : public views::View,
 
     AddChildView(new views::Separator());
 
-    legal_message_container_ =
-        new LegalMessageView(controller->GetLegalMessageLines(), this);
+    legal_message_container_ = AddChildView(std::make_unique<LegalMessageView>(
+        controller->GetLegalMessageLines(),
+        base::BindRepeating(
+            &LocalCardMigrationDialogController::OnLegalMessageLinkClicked,
+            base::Unretained(controller_))));
     legal_message_container_->SetBorder(
         views::CreateEmptyBorder(kMigrationDialogInsets));
-    AddChildView(legal_message_container_);
   }
 
-  ~LocalCardMigrationOfferView() override {}
-
-  // views::StyledLabelListener:
-  void StyledLabelLinkClicked(views::StyledLabel* label,
-                              const gfx::Range& range,
-                              int event_flags) override {
-    controller_->OnLegalMessageLinkClicked(
-        legal_message_container_->GetUrlForLink(label, range));
-  }
+  LocalCardMigrationOfferView(const LocalCardMigrationOfferView&) = delete;
+  LocalCardMigrationOfferView& operator=(const LocalCardMigrationOfferView&) =
+      delete;
+  ~LocalCardMigrationOfferView() override = default;
 
   const std::vector<std::string> GetSelectedCardGuids() const {
     std::vector<std::string> selected_cards;
     for (views::View* child : card_list_view_->children()) {
-      DCHECK_EQ(MigratableCardView::kViewClassName, child->GetClassName());
+      DCHECK(views::IsViewClass<MigratableCardView>(child));
       auto* card = static_cast<MigratableCardView*>(child);
-      if (card->IsSelected())
+      if (card->GetSelected())
         selected_cards.push_back(card->GetGuid());
     }
     return selected_cards;
@@ -343,9 +345,11 @@ class LocalCardMigrationOfferView : public views::View,
   // The view that contains legal message and handles legal message links
   // clicking.
   LegalMessageView* legal_message_container_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(LocalCardMigrationOfferView);
 };
+
+BEGIN_METADATA(LocalCardMigrationOfferView, views::View)
+ADD_READONLY_PROPERTY_METADATA(std::vector<std::string>, SelectedCardGuids)
+END_METADATA
 
 LocalCardMigrationDialogView::LocalCardMigrationDialogView(
     LocalCardMigrationDialogController* controller,
@@ -361,8 +365,16 @@ LocalCardMigrationDialogView::LocalCardMigrationDialogView(
                      base::Unretained(this)));
   SetAcceptCallback(base::BindOnce(
       &LocalCardMigrationDialogView::OnDialogAccepted, base::Unretained(this)));
+  RegisterWindowClosingCallback(base::BindOnce(
+      &LocalCardMigrationDialogView::OnWindowClosing, base::Unretained(this)));
+  // This should be a modal dialog blocking the browser since we don't want
+  // users to lose progress in the migration workflow until they are done.
+  SetModalType(ui::MODAL_TYPE_WINDOW);
   set_close_on_deactivate(false);
   set_margins(gfx::Insets());
+  set_fixed_width(ChromeLayoutProvider::Get()->GetDistanceMetric(
+      DISTANCE_LARGE_MODAL_DIALOG_PREFERRED_WIDTH));
+  SetShowCloseButton(false);
 }
 
 LocalCardMigrationDialogView::~LocalCardMigrationDialogView() {}
@@ -377,36 +389,6 @@ void LocalCardMigrationDialogView::ShowDialog() {
 void LocalCardMigrationDialogView::CloseDialog() {
   controller_ = nullptr;
   GetWidget()->Close();
-}
-
-gfx::Size LocalCardMigrationDialogView::CalculatePreferredSize() const {
-  const int width = ChromeLayoutProvider::Get()->GetDistanceMetric(
-                        DISTANCE_LARGE_MODAL_DIALOG_PREFERRED_WIDTH) -
-                    margins().width();
-  return gfx::Size(width, GetHeightForWidth(width));
-}
-
-ui::ModalType LocalCardMigrationDialogView::GetModalType() const {
-  // This should be a modal dialog blocking the browser since we don't want
-  // users to lose progress in the migration workflow until they are done.
-  return ui::MODAL_TYPE_WINDOW;
-}
-
-bool LocalCardMigrationDialogView::ShouldShowCloseButton() const {
-  return false;
-}
-
-// TODO(crbug.com/867194): Update this method when adding feedback.
-bool LocalCardMigrationDialogView::IsDialogButtonEnabled(
-    ui::DialogButton button) const {
-  // If the dialog is offer dialog and all checkboxes are unchecked, disable the
-  // save button.
-  if (controller_->GetViewState() == LocalCardMigrationDialogState::kOffered &&
-      button == ui::DIALOG_BUTTON_OK) {
-    DCHECK(offer_view_);
-    return !offer_view_->GetSelectedCardGuids().empty();
-  }
-  return true;
 }
 
 void LocalCardMigrationDialogView::OnDialogAccepted() {
@@ -434,17 +416,29 @@ void LocalCardMigrationDialogView::OnDialogCancelled() {
   }
 }
 
-void LocalCardMigrationDialogView::WindowClosing() {
+void LocalCardMigrationDialogView::OnWindowClosing() {
   if (controller_) {
     controller_->OnDialogClosed();
     controller_ = nullptr;
   }
 }
 
+bool LocalCardMigrationDialogView::GetEnableOkButton() const {
+  if (controller_->GetViewState() == LocalCardMigrationDialogState::kOffered) {
+    DCHECK(offer_view_) << "This method can't be called before ConstructView";
+    return !offer_view_->GetSelectedCardGuids().empty();
+  }
+  return true;
+}
+
 void LocalCardMigrationDialogView::DeleteCard(const std::string& guid) {
   controller_->DeleteCard(guid);
   ConstructView();
   UpdateLayout();
+}
+
+void LocalCardMigrationDialogView::OnCardCheckboxToggled() {
+  SetButtonEnabled(ui::DIALOG_BUTTON_OK, GetEnableOkButton());
 }
 
 // TODO(crbug.com/913571): Figure out a way to avoid two consecutive layouts.
@@ -491,6 +485,7 @@ void LocalCardMigrationDialogView::ConstructView() {
     offer_view_->SetID(DialogViewId::MAIN_CONTENT_VIEW_MIGRATION_OFFER_DIALOG);
     card_list_view_ = offer_view_->card_list_view_;
     AddChildView(offer_view_);
+    SetButtonEnabled(ui::DIALOG_BUTTON_OK, GetEnableOkButton());
   } else {
     AddChildView(CreateFeedbackContentView(controller_, this).release());
   }
@@ -525,5 +520,11 @@ LocalCardMigrationDialog* CreateLocalCardMigrationDialogView(
     content::WebContents* web_contents) {
   return new LocalCardMigrationDialogView(controller, web_contents);
 }
+
+BEGIN_METADATA(LocalCardMigrationDialogView, views::BubbleDialogDelegateView)
+ADD_READONLY_PROPERTY_METADATA(bool, EnableOkButton)
+ADD_READONLY_PROPERTY_METADATA(base::string16, OkButtonLabel)
+ADD_READONLY_PROPERTY_METADATA(base::string16, CancelButtonLabel)
+END_METADATA
 
 }  // namespace autofill

@@ -12,12 +12,14 @@
 #include "base/strings/stringprintf.h"
 #include "media/base/audio_decoder_config.h"
 #include "media/base/buffering_state.h"
+#include "media/base/decoder.h"
 #include "media/base/media_serializers_base.h"
 #include "media/base/status.h"
 #include "media/base/status_codes.h"
 #include "media/base/text_track_config.h"
 #include "media/base/video_decoder_config.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/gfx/hdr_metadata.h"
 
 namespace media {
 
@@ -134,6 +136,22 @@ struct MediaSerializer<base::TimeDelta> {
 
 // Enum (simple)
 template <>
+struct MediaSerializer<VideoDecoderType> {
+  static inline base::Value Serialize(VideoDecoderType value) {
+    return base::Value(GetDecoderName(value));
+  }
+};
+
+// Enum (simple)
+template <>
+struct MediaSerializer<AudioDecoderType> {
+  static inline base::Value Serialize(AudioDecoderType value) {
+    return base::Value(GetDecoderName(value));
+  }
+};
+
+// Enum (simple)
+template <>
 struct MediaSerializer<AudioCodec> {
   static inline base::Value Serialize(AudioCodec value) {
     return base::Value(GetCodecName(value));
@@ -211,8 +229,8 @@ struct MediaSerializer<VideoColorSpace> {
 
 // Class (complex)
 template <>
-struct MediaSerializer<HDRMetadata> {
-  static base::Value Serialize(const HDRMetadata& value) {
+struct MediaSerializer<gfx::HDRMetadata> {
+  static base::Value Serialize(const gfx::HDRMetadata& value) {
     // TODO(tmathmeyer) serialize more fields here potentially.
     base::Value result(base::Value::Type::DICTIONARY);
     FIELD_SERIALIZE("luminance range",

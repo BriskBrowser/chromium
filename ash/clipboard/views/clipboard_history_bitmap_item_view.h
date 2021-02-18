@@ -5,19 +5,20 @@
 #ifndef ASH_CLIPBOARD_VIEWS_CLIPBOARD_HISTORY_BITMAP_ITEM_VIEW_H_
 #define ASH_CLIPBOARD_VIEWS_CLIPBOARD_HISTORY_BITMAP_ITEM_VIEW_H_
 
+#include "ash/clipboard/clipboard_history_item.h"
 #include "ash/clipboard/views/clipboard_history_item_view.h"
-
-namespace views {
-class ImageView;
-}  // namespace views
+#include "ui/base/clipboard/clipboard_data.h"
 
 namespace ash {
+class ClipboardHistoryResourceManager;
 
-// The menu item showing the bitmap.
+// The menu item showing a bitmap.
 class ClipboardHistoryBitmapItemView : public ClipboardHistoryItemView {
  public:
-  ClipboardHistoryBitmapItemView(const ClipboardHistoryItem& item,
-                                 views::MenuItemView* container);
+  ClipboardHistoryBitmapItemView(
+      const ClipboardHistoryItem* clipboard_history_item,
+      const ClipboardHistoryResourceManager* resource_manager,
+      views::MenuItemView* container);
   ClipboardHistoryBitmapItemView(const ClipboardHistoryBitmapItemView& rhs) =
       delete;
   ClipboardHistoryBitmapItemView& operator=(
@@ -30,16 +31,13 @@ class ClipboardHistoryBitmapItemView : public ClipboardHistoryItemView {
   // ClipboardHistoryItemView:
   const char* GetClassName() const override;
   std::unique_ptr<ContentsView> CreateContentsView() override;
-  void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
+  base::string16 GetAccessibleName() const override;
 
-  // Calculates the target size of the image to show.
-  gfx::Size CalculateTargetImageSize() const;
+  // Owned by ClipboardHistoryController.
+  const ClipboardHistoryResourceManager* const resource_manager_;
 
-  // The image from the bitmap which is stored in the clipboard data.
-  const gfx::ImageSkia original_image_;
-
-  // Owned by view hierarchy.
-  views::ImageView* image_view_ = nullptr;
+  // The format of the associated `ClipboardData`.
+  const ui::ClipboardInternalFormat data_format_;
 };
 
 }  // namespace ash

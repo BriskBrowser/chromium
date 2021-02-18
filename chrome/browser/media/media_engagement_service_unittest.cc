@@ -9,7 +9,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
@@ -62,11 +62,9 @@ class MediaEngagementChangeWaiter : public content_settings::Observer {
   }
 
   // Overridden from content_settings::Observer:
-  void OnContentSettingChanged(
-      const ContentSettingsPattern& primary_pattern,
-      const ContentSettingsPattern& secondary_pattern,
-      ContentSettingsType content_type,
-      const std::string& resource_identifier) override {
+  void OnContentSettingChanged(const ContentSettingsPattern& primary_pattern,
+                               const ContentSettingsPattern& secondary_pattern,
+                               ContentSettingsType content_type) override {
     if (content_type == ContentSettingsType::MEDIA_ENGAGEMENT)
       Proceed();
   }
@@ -178,6 +176,7 @@ class MediaEngagementServiceTest : public ChromeRenderViewHostTestHarness,
       scoped_refptr<base::SequencedTaskRunner> backend_runner) {
     // Triggers destruction of the existing HistoryService and waits for all
     // cleanup work to be done.
+    service()->SetHistoryServiceForTesting(nullptr);
     BlockUntilHistoryBackendDestroyed(profile());
 
     // Force the creation of a new HistoryService that runs its backend on
@@ -185,7 +184,7 @@ class MediaEngagementServiceTest : public ChromeRenderViewHostTestHarness,
     ConfigureHistoryService(std::move(backend_runner));
     history::HistoryService* history = HistoryServiceFactory::GetForProfile(
         profile(), ServiceAccessType::IMPLICIT_ACCESS);
-    history->AddObserver(service());
+    service()->SetHistoryServiceForTesting(history);
   }
 
   void RecordVisitAndPlaybackAndAdvanceClock(const url::Origin& origin) {

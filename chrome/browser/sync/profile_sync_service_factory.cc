@@ -13,6 +13,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/browser_process.h"
@@ -21,9 +22,9 @@
 #include "chrome/browser/favicon/favicon_service_factory.h"
 #include "chrome/browser/gcm/gcm_profile_service_factory.h"
 #include "chrome/browser/history/history_service_factory.h"
-#include "chrome/browser/invalidation/profile_invalidation_provider_factory.h"
 #include "chrome/browser/password_manager/account_password_store_factory.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
+#include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
@@ -47,19 +48,12 @@
 #include "chrome/common/buildflags.h"
 #include "chrome/common/channel_info.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
-#include "components/autofill/core/common/autofill_features.h"
-#include "components/browser_sync/browser_sync_switches.h"
-#include "components/invalidation/impl/invalidation_switches.h"
-#include "components/invalidation/impl/profile_identity_provider.h"
-#include "components/invalidation/impl/profile_invalidation_provider.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/network_time/network_time_tracker.h"
-#include "components/password_manager/core/common/password_manager_features.h"
 #include "components/sync/driver/profile_sync_service.h"
 #include "components/sync/driver/sync_driver_switches.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
-#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/network_service_instance.h"
 #include "content/public/browser/storage_partition.h"
 #include "extensions/buildflags/buildflags.h"
@@ -77,11 +71,11 @@
 #include "chrome/browser/supervised_user/supervised_user_settings_service_factory.h"
 #endif  // BUILDFLAG(ENABLE_SUPERVISED_USERS)
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/ash_features.h"
 #include "chrome/browser/chromeos/printing/synced_printers_manager_factory.h"
 #include "chrome/browser/sync/wifi_configuration_sync_service_factory.h"
-#include "chromeos/constants/chromeos_features.h"
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace {
 
@@ -125,6 +119,15 @@ ProfileSyncServiceFactory::GetAsProfileSyncServiceForProfile(Profile* profile) {
   return static_cast<syncer::ProfileSyncService*>(GetForProfile(profile));
 }
 
+content::BrowserContext* ProfileSyncServiceFactory::GetBrowserContextToUse(
+    content::BrowserContext* context) const {
+  if (context->IsOffTheRecord())
+    return nullptr;
+  if (Profile::FromBrowserContext(context)->IsEphemeralGuestProfile())
+    return nullptr;
+  return context;
+}
+
 ProfileSyncServiceFactory::ProfileSyncServiceFactory()
     : BrowserContextKeyedServiceFactory(
         "ProfileSyncService",
@@ -146,7 +149,6 @@ ProfileSyncServiceFactory::ProfileSyncServiceFactory()
   DependsOn(gcm::GCMProfileServiceFactory::GetInstance());
   DependsOn(HistoryServiceFactory::GetInstance());
   DependsOn(IdentityManagerFactory::GetInstance());
-  DependsOn(invalidation::ProfileInvalidationProviderFactory::GetInstance());
   DependsOn(SyncInvalidationsServiceFactory::GetInstance());
   DependsOn(ModelTypeStoreServiceFactory::GetInstance());
   DependsOn(PasswordStoreFactory::GetInstance());
@@ -170,10 +172,10 @@ ProfileSyncServiceFactory::ProfileSyncServiceFactory()
   DependsOn(extensions::StorageFrontend::GetFactoryInstance());
   DependsOn(web_app::WebAppProviderFactory::GetInstance());
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   DependsOn(chromeos::SyncedPrintersManagerFactory::GetInstance());
   DependsOn(WifiConfigurationSyncServiceFactory::GetInstance());
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
 ProfileSyncServiceFactory::~ProfileSyncServiceFactory() = default;
@@ -190,7 +192,8 @@ KeyedService* ProfileSyncServiceFactory::BuildServiceInstanceFor(
           : std::make_unique<browser_sync::ChromeSyncClient>(profile);
 
   init_params.sync_client = std::move(sync_client);
-  init_params.network_time_update_callback = base::Bind(&UpdateNetworkTime);
+  init_params.network_time_update_callback =
+      base::BindRepeating(&UpdateNetworkTime);
   init_params.url_loader_factory =
       content::BrowserContext::GetDefaultStoragePartition(profile)
           ->GetURLLoaderFactoryForBrowserProcess();
@@ -198,17 +201,19 @@ KeyedService* ProfileSyncServiceFactory::BuildServiceInstanceFor(
       content::GetNetworkConnectionTracker();
   init_params.channel = chrome::GetChannel();
   init_params.debug_identifier = profile->GetDebugName();
-  init_params.autofill_enable_account_wallet_storage =
-      base::FeatureList::IsEnabled(
-          autofill::features::kAutofillEnableAccountWalletStorage);
-  init_params.enable_passwords_account_storage = base::FeatureList::IsEnabled(
-      password_manager::features::kEnablePasswordsAccountStorage);
 
+  init_params.policy_service =
+      profile->GetProfilePolicyConnector()->policy_service();
   bool local_sync_backend_enabled = false;
 
-// Since the local sync backend is currently only supported on Windows don't
-// even check the pref on other os-es.
-#if defined(OS_WIN)
+// Only check the local sync backend pref on the supported platforms of
+// Windows, Mac and Linux.
+// TODO(crbug.com/1052397): Reassess whether the following block needs to be
+// included
+// in lacros-chrome once build flag switch of lacros-chrome is
+// complete.
+#if defined(OS_WIN) || defined(OS_MAC) || \
+    (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
   syncer::SyncPrefs prefs(profile->GetPrefs());
   local_sync_backend_enabled = prefs.IsLocalSyncEnabled();
   UMA_HISTOGRAM_BOOLEAN("Sync.Local.Enabled", local_sync_backend_enabled);
@@ -226,7 +231,8 @@ KeyedService* ProfileSyncServiceFactory::BuildServiceInstanceFor(
 
     init_params.start_behavior = syncer::ProfileSyncService::AUTO_START;
   }
-#endif  // defined(OS_WIN)
+#endif  // defined(OS_WIN) || defined(OS_MAC) || (defined(OS_LINUX) ||
+        // BUILDFLAG(IS_CHROMEOS_LACROS))
 
   if (!local_sync_backend_enabled) {
     // Always create the GCMProfileService instance such that we can listen to
@@ -241,14 +247,6 @@ KeyedService* ProfileSyncServiceFactory::BuildServiceInstanceFor(
     init_params.identity_manager =
         IdentityManagerFactory::GetForProfile(profile);
 
-    auto* fcm_invalidation_provider =
-        invalidation::ProfileInvalidationProviderFactory::GetForProfile(
-            profile);
-    if (fcm_invalidation_provider) {
-      init_params.invalidations_identity_provider =
-          fcm_invalidation_provider->GetIdentityProvider();
-    }
-
     // TODO(tim): Currently, AUTO/MANUAL settings refer to the *first* time sync
     // is set up and *not* a browser restart for a manual-start platform (where
     // sync has already been set up, and should be able to start without user
@@ -256,7 +254,7 @@ KeyedService* ProfileSyncServiceFactory::BuildServiceInstanceFor(
     // need to take care that ProfileSyncService doesn't get tripped up between
     // those two cases. Bug 88109.
     bool is_auto_start = browser_defaults::kSyncAutoStarts;
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     if (chromeos::features::IsSplitSettingsSyncEnabled())
       is_auto_start = false;
 #endif
@@ -285,6 +283,7 @@ bool ProfileSyncServiceFactory::HasSyncService(Profile* profile) {
 // static
 bool ProfileSyncServiceFactory::IsSyncAllowed(Profile* profile) {
   DCHECK(profile);
+
   if (HasSyncService(profile)) {
     syncer::SyncService* sync_service = GetForProfile(profile);
     return !sync_service->HasDisableReason(
@@ -294,7 +293,8 @@ bool ProfileSyncServiceFactory::IsSyncAllowed(Profile* profile) {
   // No ProfileSyncService created yet - we don't want to create one, so just
   // infer the accessible state by looking at prefs/command line flags.
   syncer::SyncPrefs prefs(profile->GetPrefs());
-  return switches::IsSyncAllowedByFlag() && !prefs.IsManaged();
+  return switches::IsSyncAllowedByFlag() &&
+         (!prefs.IsManaged() || prefs.IsLocalSyncEnabled());
 }
 
 // static

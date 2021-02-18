@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <stddef.h>
 
+#include "ash/constants/ash_features.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_file.h"
@@ -17,8 +18,6 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/system/sys_info.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "device/udev_linux/scoped_udev.h"
 #include "ui/base/ime/chromeos/ime_keyboard.h"
 #include "ui/base/ime/chromeos/input_method_manager.h"
@@ -959,13 +958,20 @@ bool EventRewriterChromeOS::ShouldRemapToRightClick(
     int flags,
     int* matched_mask) const {
   *matched_mask = 0;
-  if (base::FeatureList::IsEnabled(
-          ::chromeos::features::kUseSearchClickForRightClick)) {
+
+  // TODO(zentaro): When enabling the improved shortcut flag by default,
+  // decide whether to also enable the search click flag to allow opt out of
+  // just Search+Click.
+  const bool use_search_key =
+      base::FeatureList::IsEnabled(
+          ::chromeos::features::kUseSearchClickForRightClick) ||
+      ::features::IsImprovedKeyboardShortcutsEnabled();
+  if (use_search_key) {
     if (AreFlagsSet(flags, kSearchLeftButton)) {
       *matched_mask = kSearchLeftButton;
     }
   } else {
-    if (AreFlagsSet(flags, kAltLeftButton)) {
+    if (AreFlagsSet(flags, kAltLeftButton) && is_alt_down_remapping_enabled_) {
       *matched_mask = kAltLeftButton;
     }
   }
@@ -1184,8 +1190,11 @@ void EventRewriterChromeOS::RewriteExtendedKeys(const KeyEvent& key_event,
          key_event.type() == ET_KEY_RELEASED);
   MutableKeyState incoming = *state;
 
-  if ((incoming.flags & (EF_COMMAND_DOWN | EF_ALT_DOWN)) ==
-      (EF_COMMAND_DOWN | EF_ALT_DOWN)) {
+  // TODO(zentaro): This workaround isn't needed once Alt rewrites
+  // are deprecated.
+  if (!::features::IsImprovedKeyboardShortcutsEnabled() &&
+      ((incoming.flags & (EF_COMMAND_DOWN | EF_ALT_DOWN)) ==
+       (EF_COMMAND_DOWN | EF_ALT_DOWN))) {
     // Allow Search to avoid rewriting extended keys.
     // For these, we only remove the EF_COMMAND_DOWN flag.
     static const KeyboardRemapping::Condition kAvoidRemappings[] = {
@@ -1204,26 +1213,35 @@ void EventRewriterChromeOS::RewriteExtendedKeys(const KeyEvent& key_event,
   }
 
   if (incoming.flags & EF_COMMAND_DOWN) {
-    bool strict = ::features::IsNewShortcutMappingEnabled();
+    bool strict = false;
     bool skip_search_key_remapping =
         delegate_ && delegate_->IsSearchKeyAcceleratorReserved();
-    if (strict) {
-      // These two keys are used to select to Home/End.
-      static const KeyboardRemapping kNewSearchRemappings[] = {
-          {// Search+Shift+Left -> select to home.
-           {EF_COMMAND_DOWN | EF_SHIFT_DOWN, VKEY_LEFT},
-           {EF_SHIFT_DOWN, DomCode::HOME, DomKey::HOME, VKEY_HOME}},
-          {// Search+Shift+Right -> select to end.
-           {EF_COMMAND_DOWN | EF_SHIFT_DOWN, VKEY_RIGHT},
-           {EF_SHIFT_DOWN, DomCode::END, DomKey::END, VKEY_END}},
-      };
-      if (!skip_search_key_remapping &&
-          RewriteWithKeyboardRemappings(kNewSearchRemappings,
-                                        base::size(kNewSearchRemappings),
-                                        incoming, state, /*strict=*/true)) {
-        return;
+
+    if (!::features::IsImprovedKeyboardShortcutsEnabled()) {
+      // TODO(zentaro): This workaround isn't needed once Alt rewrites
+      // are deprecated.
+      strict = ::features::IsNewShortcutMappingEnabled();
+      if (strict) {
+        DCHECK(!::features::IsImprovedKeyboardShortcutsEnabled());
+
+        // These two keys are used to select to Home/End.
+        static const KeyboardRemapping kNewSearchRemappings[] = {
+            {// Search+Shift+Left -> select to home.
+             {EF_COMMAND_DOWN | EF_SHIFT_DOWN, VKEY_LEFT},
+             {EF_SHIFT_DOWN, DomCode::HOME, DomKey::HOME, VKEY_HOME}},
+            {// Search+Shift+Right -> select to end.
+             {EF_COMMAND_DOWN | EF_SHIFT_DOWN, VKEY_RIGHT},
+             {EF_SHIFT_DOWN, DomCode::END, DomKey::END, VKEY_END}},
+        };
+        if (!skip_search_key_remapping &&
+            RewriteWithKeyboardRemappings(kNewSearchRemappings,
+                                          base::size(kNewSearchRemappings),
+                                          incoming, state, /*strict=*/true)) {
+          return;
+        }
       }
     }
+
     static const KeyboardRemapping kSearchRemappings[] = {
         {// Search+BackSpace -> Delete
          {EF_COMMAND_DOWN, VKEY_BACK},
@@ -1251,7 +1269,9 @@ void EventRewriterChromeOS::RewriteExtendedKeys(const KeyEvent& key_event,
     }
   }
 
-  if (incoming.flags & EF_ALT_DOWN) {
+  // TODO(zentaro): Remove block once Alt rewrites are deprecated.
+  if (!::features::IsImprovedKeyboardShortcutsEnabled() &&
+      (incoming.flags & EF_ALT_DOWN) && is_alt_down_remapping_enabled_) {
     static const KeyboardRemapping kNonSearchRemappings[] = {
         {// Alt+BackSpace -> Delete
          {EF_ALT_DOWN, VKEY_BACK},
@@ -1434,6 +1454,8 @@ void EventRewriterChromeOS::RewriteFunctionKeys(const KeyEvent& key_event,
     }
   }
 
+  // TODO(zentaro): Remove this entire block when
+  // IsImprovedKeyboardShortcutsEnabled is always on.
   if (state->flags & EF_COMMAND_DOWN) {
     const bool strict = ::features::IsNewShortcutMappingEnabled();
     struct SearchToFunctionMap {
@@ -1445,6 +1467,7 @@ void EventRewriterChromeOS::RewriteFunctionKeys(const KeyEvent& key_event,
     // have different |KeyboardCode|s when modifiers are pressed, such as
     // shift.
     if (strict) {
+      DCHECK(!::features::IsImprovedKeyboardShortcutsEnabled());
       // Remap Search + 1/2 to F11/12.
       static const SearchToFunctionMap kNumberKeysToFkeys[] = {
           {DomCode::DIGIT1, {EF_NONE, DomCode::F11, DomKey::F12, VKEY_F11}},
@@ -1457,8 +1480,8 @@ void EventRewriterChromeOS::RewriteFunctionKeys(const KeyEvent& key_event,
           return;
         }
       }
-    } else {
-      // Remap Search + top row to F1~F12.
+    } else if (!::features::IsImprovedKeyboardShortcutsEnabled()) {
+      // Remap Search + digit row to F1~F12.
       static const SearchToFunctionMap kNumberKeysToFkeys[] = {
           {DomCode::DIGIT1, {EF_NONE, DomCode::F1, DomKey::F1, VKEY_F1}},
           {DomCode::DIGIT2, {EF_NONE, DomCode::F2, DomKey::F2, VKEY_F2}},

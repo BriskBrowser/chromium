@@ -19,7 +19,6 @@
 #include "chrome/browser/extensions/install_observer.h"
 #include "chrome/browser/extensions/install_tracker.h"
 #include "chrome/browser/extensions/install_tracker_factory.h"
-#include "chrome/browser/installable/installable_metrics.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_tab_helper_factory.h"
 #include "chrome/browser/shell_integration.h"
@@ -30,7 +29,6 @@
 #include "chrome/common/buildflags.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
-#include "chrome/common/render_messages.h"
 #include "chrome/common/url_constants.h"
 #include "components/sessions/content/session_tab_helper.h"
 #include "content/public/browser/invalidate_type.h"
@@ -43,7 +41,6 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/frame_navigate_params.h"
 #include "extensions/browser/api/declarative/rules_registry_service.h"
 #include "extensions/browser/api/declarative_net_request/web_contents_helper.h"
 #include "extensions/browser/disable_reason.h"
@@ -326,9 +323,15 @@ void TabHelper::OnExtensionUnloaded(content::BrowserContext* browser_context,
 }
 
 void TabHelper::SetTabId(content::RenderFrameHost* render_frame_host) {
-  render_frame_host->Send(new ExtensionMsg_SetTabId(
-      render_frame_host->GetRoutingID(),
-      sessions::SessionTabHelper::IdForTab(web_contents()).id()));
+  // When this is called from the TabHelper constructor during WebContents
+  // creation, the renderer-side Frame object would not have been created yet.
+  // We should wait for RenderFrameCreated() to happen, to avoid sending this
+  // message twice.
+  if (render_frame_host->IsRenderFrameCreated()) {
+    render_frame_host->Send(new ExtensionMsg_SetTabId(
+        render_frame_host->GetRoutingID(),
+        sessions::SessionTabHelper::IdForTab(web_contents()).id()));
+  }
 }
 
 WEB_CONTENTS_USER_DATA_KEY_IMPL(TabHelper)

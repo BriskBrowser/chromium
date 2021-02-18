@@ -26,7 +26,7 @@ import org.chromium.components.browser_ui.settings.ChromeImageViewPreference;
  * can be used.
  */
 class WebsitePreference extends ChromeImageViewPreference {
-    private final SiteSettingsClient mSiteSettingsClient;
+    private final SiteSettingsDelegate mSiteSettingsDelegate;
     private final Website mSite;
     private final SiteSettingsCategory mCategory;
 
@@ -37,10 +37,10 @@ class WebsitePreference extends ChromeImageViewPreference {
     // Whether the favicon has been fetched already.
     private boolean mFaviconFetched;
 
-    WebsitePreference(Context context, SiteSettingsClient siteSettingsClient, Website site,
+    WebsitePreference(Context context, SiteSettingsDelegate siteSettingsClient, Website site,
             SiteSettingsCategory category) {
         super(context);
-        mSiteSettingsClient = siteSettingsClient;
+        mSiteSettingsDelegate = siteSettingsClient;
         mSite = site;
         mCategory = category;
         setWidgetLayoutResource(R.layout.website_features);
@@ -87,13 +87,9 @@ class WebsitePreference extends ChromeImageViewPreference {
         setTitle(mSite.getTitle());
 
         if (mSite.getEmbedder() == null) {
-            @PermissionInfo.Type
-            Integer permissionInfoType =
-                    PermissionInfo.getPermissionInfoType(mCategory.getContentSettingsType());
-            PermissionInfo permissionInfo = null;
-            if (permissionInfoType != null
-                    && (permissionInfo = mSite.getPermissionInfo(permissionInfoType)) != null
-                    && permissionInfo.isEmbargoed()) {
+            PermissionInfo permissionInfo =
+                    mSite.getPermissionInfo(mCategory.getContentSettingsType());
+            if (permissionInfo != null && permissionInfo.isEmbargoed()) {
                 setSummary(getContext().getString(R.string.automatically_blocked));
             }
             return;
@@ -141,7 +137,7 @@ class WebsitePreference extends ChromeImageViewPreference {
 
         if (!mFaviconFetched) {
             // Start the favicon fetching. Will respond in onFaviconAvailable.
-            mSiteSettingsClient.getFaviconImageForURL(faviconUrl(), this::onFaviconAvailable);
+            mSiteSettingsDelegate.getFaviconImageForURL(faviconUrl(), this::onFaviconAvailable);
             mFaviconFetched = true;
         }
 

@@ -13,6 +13,8 @@
 #include "ash/login/ui/views_utils.h"
 #include "ash/public/cpp/login_constants.h"
 #include "ash/shell.h"
+#include "ash/style/ash_color_provider.h"
+#include "ash/style/default_color_constants.h"
 #include "ash/wallpaper/wallpaper_controller_impl.h"
 #include "base/bind.h"
 #include "base/numerics/ranges.h"
@@ -56,8 +58,6 @@ constexpr int kScrollThumbThicknessDp = 6;
 constexpr int kScrollThumbPaddingDp = 8;
 // Radius of the scroll bar thumb.
 constexpr int kScrollThumbRadiusDp = 8;
-// Alpha of scroll bar thumb (43/255 = 17%).
-constexpr int kScrollThumbAlpha = 43;
 // How long for the scrollbar to hide after no scroll events have been received?
 constexpr base::TimeDelta kScrollThumbHideTimeout =
     base::TimeDelta::FromMilliseconds(500);
@@ -105,7 +105,8 @@ class ScrollBarThumb : public views::BaseScrollBarThumb {
   void OnPaint(gfx::Canvas* canvas) override {
     cc::PaintFlags fill_flags;
     fill_flags.setStyle(cc::PaintFlags::kFill_Style);
-    fill_flags.setColor(SkColorSetA(SK_ColorWHITE, kScrollThumbAlpha));
+    fill_flags.setColor(AshColorProvider::Get()->GetContentLayerColor(
+        AshColorProvider::ContentLayerType::kLoginScrollBarColor));
     canvas->DrawRoundRect(GetLocalBounds(), kScrollThumbRadiusDp, fill_flags);
   }
 
@@ -251,11 +252,9 @@ ScrollableUsersListView::GradientParams::BuildForStyle(
               color_utils::ColorProfile(color_utils::LumaRange::DARK,
                                         color_utils::SaturationRange::MUTED));
       SkColor tint_color = color_utils::GetResultingPaintColor(
-          SkColorSetA(login_constants::kDefaultBaseColor,
-                      login_constants::kTranslucentColorDarkenAlpha),
+          AshColorProvider::Get()->GetShieldLayerColor(
+              AshColorProvider::ShieldLayerType::kShield80),
           SkColorSetA(dark_muted_color, SK_AlphaOPAQUE));
-      tint_color =
-          SkColorSetA(tint_color, login_constants::kScrollTranslucentAlpha);
 
       GradientParams params;
       params.color_from = dark_muted_color;
@@ -338,7 +337,7 @@ ScrollableUsersListView::ScrollableUsersListView(
   SetVerticalScrollBar(std::make_unique<UsersListScrollBar>(false));
   SetHorizontalScrollBar(std::make_unique<UsersListScrollBar>(true));
 
-  observer_.Add(Shell::Get()->wallpaper_controller());
+  observation_.Observe(Shell::Get()->wallpaper_controller());
 }
 
 ScrollableUsersListView::~ScrollableUsersListView() = default;
@@ -423,9 +422,8 @@ void ScrollableUsersListView::OnPaintBackground(gfx::Canvas* canvas) {
     cc::PaintFlags flags;
     flags.setAntiAlias(true);
     flags.setStyle(cc::PaintFlags::kFill_Style);
-    flags.setColor(
-        SkColorSetA(login_constants::kDefaultBaseColor,
-                    login_constants::kNonBlurredWallpaperBackgroundAlpha));
+    flags.setColor(AshColorProvider::Get()->GetShieldLayerColor(
+        AshColorProvider::ShieldLayerType::kShield80));
     canvas->DrawRoundRect(
         render_bounds, login_constants::kNonBlurredWallpaperBackgroundRadiusDp,
         flags);

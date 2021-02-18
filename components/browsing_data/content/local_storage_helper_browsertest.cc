@@ -9,8 +9,8 @@
 #include <string>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -117,7 +117,7 @@ IN_PROC_BROWSER_TEST_F(LocalStorageHelperTest, CallbackCompletes) {
       new LocalStorageHelper(shell()->web_contents()->GetBrowserContext()));
   CreateLocalStorageFilesForTest();
   StopTestOnCallback stop_test_on_callback(local_storage_helper.get());
-  local_storage_helper->StartFetching(base::Bind(
+  local_storage_helper->StartFetching(base::BindOnce(
       &StopTestOnCallback::Callback, base::Unretained(&stop_test_on_callback)));
   // Blocks until StopTestOnCallback::Callback is notified.
   content::RunMessageLoop();
@@ -156,8 +156,8 @@ IN_PROC_BROWSER_TEST_F(LocalStorageHelperTest, CannedAddLocalStorage) {
   helper->Add(url::Origin::Create(origin2));
 
   TestCompletionCallback callback;
-  helper->StartFetching(base::Bind(&TestCompletionCallback::callback,
-                                   base::Unretained(&callback)));
+  helper->StartFetching(base::BindOnce(&TestCompletionCallback::callback,
+                                       base::Unretained(&callback)));
 
   std::list<content::StorageUsageInfo> result = callback.result();
 
@@ -177,8 +177,8 @@ IN_PROC_BROWSER_TEST_F(LocalStorageHelperTest, CannedUnique) {
   helper->Add(url::Origin::Create(origin));
 
   TestCompletionCallback callback;
-  helper->StartFetching(base::Bind(&TestCompletionCallback::callback,
-                                   base::Unretained(&callback)));
+  helper->StartFetching(base::BindOnce(&TestCompletionCallback::callback,
+                                       base::Unretained(&callback)));
 
   std::list<content::StorageUsageInfo> result = callback.result();
 

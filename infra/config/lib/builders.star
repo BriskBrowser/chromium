@@ -64,12 +64,14 @@ os = struct(
     MAC_10_13 = os_enum("Mac-10.13", os_category.MAC),
     MAC_10_14 = os_enum("Mac-10.14", os_category.MAC),
     MAC_10_15 = os_enum("Mac-10.15", os_category.MAC),
-    MAC_11_0 = os_enum("Mac-11.0", os_category.MAC),
-    MAC_DEFAULT = os_enum("Mac-10.13", os_category.MAC),
+    MAC_11_0 = os_enum("Mac-11.0|Mac-10.16", os_category.MAC),
+    MAC_DEFAULT = os_enum("Mac-10.15", os_category.MAC),
     MAC_ANY = os_enum("Mac", os_category.MAC),
     WINDOWS_7 = os_enum("Windows-7", os_category.WINDOWS),
     WINDOWS_8_1 = os_enum("Windows-8.1", os_category.WINDOWS),
     WINDOWS_10 = os_enum("Windows-10", os_category.WINDOWS),
+    WINDOWS_10_1703 = os_enum("Windows-10-15063", os_category.WINDOWS),
+    WINDOWS_10_1909 = os_enum("Windows-10-18363", os_category.WINDOWS),
     WINDOWS_DEFAULT = os_enum("Windows-10", os_category.WINDOWS),
     WINDOWS_ANY = os_enum("Windows", os_category.WINDOWS),
 )
@@ -121,21 +123,25 @@ goma = struct(
     ),
 )
 
-def xcode_enum(cache_name, cache_path):
-    return swarming.cache(name = cache_name, path = cache_path)
+def xcode_enum(version):
+    return struct(
+        version = version,
+        cache_name = "xcode_ios_{}".format(version),
+        cache_path = "xcode_ios_{}.app".format(version),
+    )
 
 # Keep this in-sync with the versions of bots in //ios/build/bots/.
-xcode_cache = struct(
-    x10e1001 = xcode_enum("xcode_ios_10e1001", "xcode_ios_10e1001.app"),
-    x11a1027 = xcode_enum("xcode_ios_11a1027", "xcode_ios_11a1027.app"),
-    x11c29 = xcode_enum("xcode_ios_11c29", "xcode_ios_11c29.app"),
-    x11m382q = xcode_enum("xcode_ios_11m382q", "xcode_ios_11m382q.app"),
-    x11e146 = xcode_enum("xcode_ios_11e146", "xcode_ios_11e146.app"),
-    x11e608c = xcode_enum("xcode_ios_11e608c", "xcode_ios_11e608c.app"),
-    x11e608cwk = xcode_enum("xcode_ios_11e608cwk", "xcode_ios_11e608cwk.app"),
-    x11e503a_xct12b1 = xcode_enum("xcode_ios_11e503a_xct12b1", "xcode_ios_11e503a_xct12b1.app"),
-    # xc12 beta 6
-    x12a8189n = xcode_enum("xcode_ios_12a8189n", "xcode_ios_12a8189n.app"),
+xcode = struct(
+    # in use by webrtc mac builders
+    x11c29 = xcode_enum("11c29"),
+    # in use by ci/ios-simulator-cronet and try/ios-simulator-cronet
+    x11e146 = xcode_enum("11e146"),
+    # in use by ios-webkit-tot
+    x11e608cwk = xcode_enum("11e608cwk"),
+    # (current default for other projects) xc12.0 gm seed
+    x12a7209 = xcode_enum("12a7209"),
+    # (current default for iOS) xc12.4 gm seed
+    x12d4e = xcode_enum("12d4e"),
 )
 
 ################################################################################
@@ -148,12 +154,8 @@ _DEFAULT_BUILDERLESS_OS_CATEGORIES = [os_category.LINUX]
 # setting ssd:0 dimension
 _EXCLUDE_BUILDERLESS_SSD_OS_CATEGORIES = [os_category.MAC]
 
-def _chromium_tests_property(*, bucketed_triggers, project_trigger_overrides):
+def _chromium_tests_property(*, project_trigger_overrides):
     chromium_tests = {}
-
-    bucketed_triggers = defaults.get_value("bucketed_triggers", bucketed_triggers)
-    if bucketed_triggers:
-        chromium_tests["bucketed_triggers"] = True
 
     project_trigger_overrides = defaults.get_value("project_trigger_overrides", project_trigger_overrides)
     if project_trigger_overrides:
@@ -161,7 +163,7 @@ def _chromium_tests_property(*, bucketed_triggers, project_trigger_overrides):
 
     return chromium_tests or None
 
-def _goma_property(*, goma_backend, goma_debug, goma_enable_ats, goma_jobs, goma_use_luci_auth, os):
+def _goma_property(*, goma_backend, goma_debug, goma_enable_ats, goma_jobs, os):
     goma_properties = {}
 
     goma_backend = defaults.get_value("goma_backend", goma_backend)
@@ -191,16 +193,15 @@ def _goma_property(*, goma_backend, goma_debug, goma_enable_ats, goma_jobs, goma
     if goma_jobs != None:
         goma_properties["jobs"] = goma_jobs
 
-    goma_use_luci_auth = defaults.get_value("goma_use_luci_auth", goma_use_luci_auth)
-    if goma_use_luci_auth:
-        goma_properties["use_luci_auth"] = True
+    goma_properties["use_luci_auth"] = True
 
-    return goma_properties or None
+    return goma_properties
 
 def _code_coverage_property(
         *,
         use_clang_coverage,
         use_java_coverage,
+        use_javascript_coverage,
         coverage_exclude_sources,
         coverage_test_types):
     code_coverage = {}
@@ -215,6 +216,10 @@ def _code_coverage_property(
     use_java_coverage = defaults.get_value("use_java_coverage", use_java_coverage)
     if use_java_coverage:
         code_coverage["use_java_coverage"] = True
+
+    use_javascript_coverage = defaults.get_value("use_javascript_coverage", use_javascript_coverage)
+    if use_javascript_coverage:
+        code_coverage["use_javascript_coverage"] = True
 
     coverage_exclude_sources = defaults.get_value(
         "coverage_exclude_sources",
@@ -232,6 +237,36 @@ def _code_coverage_property(
 
     return code_coverage or None
 
+def _isolated_property(*, isolated_server):
+    isolated = {}
+
+    isolated_server = defaults.get_value("isolated_server", isolated_server)
+    if isolated_server:
+        isolated["server"] = isolated_server
+
+    return isolated or None
+
+def _reclient_property(*, instance, service, jobs, rewrapper_env):
+    reclient = {}
+    instance = defaults.get_value("reclient_instance", instance)
+    if instance:
+        reclient["instance"] = instance
+        reclient["metrics_project"] = "chromium-reclient-metrics"
+    service = defaults.get_value("reclient_service", service)
+    if service:
+        reclient["service"] = service
+    jobs = defaults.get_value("reclient_jobs", jobs)
+    if jobs:
+        reclient["jobs"] = jobs
+    rewrapper_env = defaults.get_value("reclient_rewrapper_env", rewrapper_env)
+    if rewrapper_env:
+        for k in rewrapper_env:
+            if not k.startswith("RBE_"):
+                fail("Environment variables in rewrapper_env must start with " +
+                     "'RBE_', got '%s'" % k)
+        reclient["rewrapper_env"] = rewrapper_env
+    return reclient or None
+
 ################################################################################
 # Builder defaults and function                                                #
 ################################################################################
@@ -244,8 +279,8 @@ defaults = args.defaults(
     auto_builder_dimension = args.COMPUTE,
     builder_group = None,
     builderless = args.COMPUTE,
-    bucketed_triggers = False,
     configure_kitchen = False,
+    kitchen_emulate_gce = False,
     cores = None,
     cpu = None,
     fully_qualified_builder_dimension = False,
@@ -253,33 +288,36 @@ defaults = args.defaults(
     goma_debug = False,
     goma_enable_ats = args.COMPUTE,
     goma_jobs = None,
-    goma_use_luci_auth = None,
-    # TODO(https://crbug.com/1109276) Remove mastername
-    mastername = None,
+    list_view = args.COMPUTE,
     os = None,
     project_trigger_overrides = None,
     pool = None,
+    xcode = None,
     ssd = args.COMPUTE,
     use_clang_coverage = False,
     use_java_coverage = False,
+    use_javascript_coverage = False,
     coverage_exclude_sources = None,
     coverage_test_types = None,
     resultdb_bigquery_exports = [],
+    resultdb_index_by_timestamp = False,
+    isolated_server = "https://isolateserver.appspot.com",
+    reclient_instance = None,
+    reclient_service = None,
+    reclient_jobs = None,
+    reclient_rewrapper_env = None,
 
     # Provide vars for bucket and executable so users don't have to
     # unnecessarily make wrapper functions
     bucket = args.COMPUTE,
     executable = args.COMPUTE,
     triggered_by = args.COMPUTE,
-
-    # Forward on luci.builder.defaults so users have a consistent interface
-    **{a: getattr(luci.builder.defaults, a) for a in dir(luci.builder.defaults)}
 )
 
 def builder(
         *,
         name,
-        branch_selector = branches.MAIN_ONLY,
+        branch_selector = branches.MAIN,
         bucket = args.DEFAULT,
         executable = args.DEFAULT,
         triggered_by = args.DEFAULT,
@@ -290,23 +328,30 @@ def builder(
         cores = args.DEFAULT,
         cpu = args.DEFAULT,
         builder_group = args.DEFAULT,
-        # TODO(https://crbug.com/1109276) Remove mastername
-        mastername = args.DEFAULT,
         pool = args.DEFAULT,
         ssd = args.DEFAULT,
-        bucketed_triggers = args.DEFAULT,
+        xcode = args.DEFAULT,
+        console_view_entry = None,
+        list_view = args.DEFAULT,
         project_trigger_overrides = args.DEFAULT,
         configure_kitchen = args.DEFAULT,
+        kitchen_emulate_gce = args.DEFAULT,
         goma_backend = args.DEFAULT,
         goma_debug = args.DEFAULT,
         goma_enable_ats = args.DEFAULT,
         goma_jobs = args.DEFAULT,
-        goma_use_luci_auth = args.DEFAULT,
         use_clang_coverage = args.DEFAULT,
         use_java_coverage = args.DEFAULT,
+        use_javascript_coverage = args.DEFAULT,
         coverage_exclude_sources = args.DEFAULT,
         coverage_test_types = args.DEFAULT,
         resultdb_bigquery_exports = args.DEFAULT,
+        resultdb_index_by_timestamp = args.DEFAULT,
+        isolated_server = args.DEFAULT,
+        reclient_instance = args.DEFAULT,
+        reclient_service = args.DEFAULT,
+        reclient_jobs = args.DEFAULT,
+        reclient_rewrapper_env = args.DEFAULT,
         **kwargs):
     """Define a builder.
 
@@ -348,12 +393,6 @@ def builder(
         False.
       * builder_group - a string with the group of the builder. Emits a property
         of the form 'builder_group:<builder_group>'. By default, considered None.
-      * mastername - a string with the group of the builder. Emits a property
-        of the form 'mastername:<mastername>'. By default, considered None.
-        Other than the property emitted, should be treated the same as
-        builder_group. If builder_group is set, mastername is ignored except
-        that it is treated as an error if both builder_group and mastername are
-        set and are set to different values.
       * cores - an int indicating the number of cores the builder requires for the
         machines that run it. Emits a dimension of the form 'cores:<cores>' will
         be emitted. By default, considered None.
@@ -368,10 +407,19 @@ def builder(
         If True, emits a 'ssd:1' dimension. If False, emits a 'ssd:0' parameter.
         By default, considered False if builderless is considered True and
         otherwise None.
-      * bucketed_triggers - a boolean indicating whether jobs triggered by the
-        builder being defined should have the bucket prepended to the builder name
-        to trigger. If True, the 'bucketed_triggers' field will be set in the
-        '$build/chromium_tests' property. By default, considered False.
+      * xcode - a member of the `xcode` enum indicating the xcode version the
+        builder requires. Emits a cache declaration of the form
+        ```{
+          name: <xcode.cache_name>
+          path: <xcode.cache_path>
+        }```. Also emits a 'xcode_build_version:<xcode.version>' property if the
+        property is not already set.
+      * console_view_entry - A `consoles.console_view_entry` struct or a list of
+        them describing console view entries to create for the builder.
+        See `consoles.console_view_entry` for details.
+      * list_view - A string or a list of strings identifying the ID(s) of the
+        list view(s) to add an entry to. Supports a module-level default that
+        defaults to no list views.
       * project_trigger_overrides - a dict mapping the LUCI projects declared in
         recipe BotSpecs to the LUCI project to use when triggering builders. When
         this builder triggers another builder, if the BotSpec for that builder has
@@ -380,6 +428,9 @@ def builder(
       * configure_kitchen - a boolean indicating whether to configure kitchen. If
         True, emits a property to set the 'git_auth' and 'devshell' fields of the
         '$kitchen' property. By default, considered False.
+      * kitchen_emulate_gce - a boolean indicating whether to set 'emulate_gce'
+        of the '$kitchen' property. This is effective only when
+        configure_kitchen is True. By default, considered False.
       * goma_backend - a member of the `goma.backend` enum indicating the goma
         backend the builder should use. Will be incorporated into the
         '$build/goma' property. By default, considered None.
@@ -393,15 +444,15 @@ def builder(
         to be used by the builder. Sets the 'jobs' field of the '$build/goma'
         property will be set according to the enum member. By default, the 'jobs'
         considered None.
-      * goma_use_luci_auth - a boolean indicating whether luci_auth should be
-        used for accessing goma backend. If True, the 'use_luci_auth' field
-        will be set in the '$build/goma' property. By default, considered False.
       * use_clang_coverage - a boolean indicating whether clang coverage should be
         used. If True, the 'use_clang_coverage" field will be set in the
         '$build/code_coverage' property. By default, considered False.
       * use_java_coverage - a boolean indicating whether java coverage should be
         used. If True, the 'use_java_coverage" field will be set in the
         '$build/code_coverage' property. By default, considered False.
+      * use_javascript_coverage - a boolean indicating whether javascript coverage
+        should be enabled. If True the 'use_javascript_coverage' field will be set
+        in the '$build/code_coverage' property. By default, considered False.
       * coverage_exclude_sources - a string as the key to find the source file
         exclusion pattern in code_coverage recipe module. Will be copied to
         '$build/code_coverage' property if set. By default, considered None.
@@ -411,6 +462,22 @@ def builder(
       * resultdb_bigquery_exports - a list of resultdb.export_test_results(...)
         specifying parameters for exporting test results to BigQuery. By default,
         do not export.
+      * resultdb_index_by_timestamp - a boolean specifying whether ResultDB should
+        index the results of the tests run on this builder by timestamp, i.e.
+        for purposes of retrieving a test's history. If false, the results will not
+        be searchable by timestamp on ResultDB's test history api.
+      * isolated_server - a string indicating the host of the isolated server.
+        Will be incorporated into the '$recipe_engine/isolated' property. By
+        default, this is "https://isolateserver.appspot.com".
+      * reclient_instance - a string indicating the GCP project hosting the RBE
+        instance for re-client to use.
+      * reclient_service - a string indicating the RBE service to dial via gRPC.
+        By default, this is "remotebuildexecution.googleapis.com:443" (set in
+        the reclient recipe module).
+      * reclient_jobs - an integer indicating the number of concurrent
+        compilations to run when using re-client as the compiler.
+      * reclient_rewrapper_env - a map that sets the rewrapper flags via the
+        environment variables. All such vars must start with the "RBE_" prefix.
       * kwargs - Additional keyword arguments to forward on to `luci.builder`.
     """
 
@@ -431,8 +498,14 @@ def builder(
              "use goma_backend, goma_dbug, goma_enable_ats and goma_jobs instead")
     if "$build/code_coverage" in properties:
         fail('Setting "$build/code_coverage" property is not supported: ' +
-             "use use_clang_coverage, use_java_coverage, coverage_exclude_sources" +
-             " and/or coverage_test_types instead")
+             "use use_clang_coverage, use_java_coverage, use_javascript_coverage " +
+             " coverage_exclude_sources and/or coverage_test_types instead")
+    if "$recipe_engine/isolated" in properties:
+        fail('Setting "$recipe_engine/isolated" property is not supported: ' +
+             "use isolated_server instead")
+    if "$build/reclient" in properties:
+        fail('Setting "$build/reclient" property is not supported: ' +
+             "use reclient_instance and reclient_rewrapper_env instead")
     properties = dict(properties)
 
     os = defaults.get_value("os", os)
@@ -473,14 +546,8 @@ def builder(
         dimensions["cpu"] = cpu
 
     builder_group = defaults.get_value("builder_group", builder_group)
-    mastername = defaults.get_value("mastername", mastername)
-    if builder_group != None and mastername != None and builder_group != mastername:
-        fail("mastername ({}) does not match builder_group ({})".format(mastername, builder_group))
-
     if builder_group != None:
         properties["builder_group"] = builder_group
-    elif mastername != None:
-        properties["mastername"] = mastername
 
     pool = defaults.get_value("pool", pool)
     if pool:
@@ -501,9 +568,10 @@ def builder(
             "devshell": True,
             "git_auth": True,
         }
+        if defaults.get_value("kitchen_emulate_gce", kitchen_emulate_gce):
+            properties["$kitchen"]["emulate_gce"] = True
 
     chromium_tests = _chromium_tests_property(
-        bucketed_triggers = bucketed_triggers,
         project_trigger_overrides = project_trigger_overrides,
     )
     if chromium_tests != None:
@@ -514,7 +582,6 @@ def builder(
         goma_debug = goma_debug,
         goma_enable_ats = goma_enable_ats,
         goma_jobs = goma_jobs,
-        goma_use_luci_auth = goma_use_luci_auth,
         os = os,
     )
     if goma != None:
@@ -523,11 +590,27 @@ def builder(
     code_coverage = _code_coverage_property(
         use_clang_coverage = use_clang_coverage,
         use_java_coverage = use_java_coverage,
+        use_javascript_coverage = use_javascript_coverage,
         coverage_exclude_sources = coverage_exclude_sources,
         coverage_test_types = coverage_test_types,
     )
     if code_coverage != None:
         properties["$build/code_coverage"] = code_coverage
+
+    isolated = _isolated_property(
+        isolated_server = isolated_server,
+    )
+    if isolated != None:
+        properties["$recipe_engine/isolated"] = isolated
+
+    reclient = _reclient_property(
+        instance = reclient_instance,
+        service = reclient_service,
+        jobs = reclient_jobs,
+        rewrapper_env = reclient_rewrapper_env,
+    )
+    if reclient != None:
+        properties["$build/reclient"] = reclient
 
     kwargs = dict(kwargs)
     if bucket != args.COMPUTE:
@@ -538,8 +621,25 @@ def builder(
     triggered_by = defaults.get_value("triggered_by", triggered_by)
     if triggered_by != args.COMPUTE:
         kwargs["triggered_by"] = triggered_by
+    xcode = defaults.get_value("xcode", xcode)
+    if xcode:
+        kwargs["caches"] = (kwargs.get("caches") or []) + [swarming.cache(
+            name = xcode.cache_name,
+            path = xcode.cache_path,
+        )]
+        properties.setdefault("xcode_build_version", xcode.version)
 
-    return branches.builder(
+    history_options = None
+    resultdb_index_by_timestamp = defaults.get_value(
+        "resultdb_index_by_timestamp",
+        resultdb_index_by_timestamp,
+    )
+    if resultdb_index_by_timestamp:
+        history_options = resultdb.history_options(
+            by_timestamp = resultdb_index_by_timestamp,
+        )
+
+    builder = branches.builder(
         name = name,
         branch_selector = branch_selector,
         dimensions = dimensions,
@@ -550,22 +650,67 @@ def builder(
                 "resultdb_bigquery_exports",
                 resultdb_bigquery_exports,
             ),
+            history_options = history_options,
         ),
         **kwargs
     )
 
-def builder_name(builder, bucket = args.DEFAULT):
-    bucket = defaults.get_value("bucket", bucket)
-    if bucket == args.COMPUTE:
-        fail("Either a default for bucket must be set or bucket must be passed in")
-    return "{}/{}".format(bucket, builder)
+    builder_name = "{}/{}".format(bucket, name)
+
+    if console_view_entry:
+        if type(console_view_entry) == type(struct()):
+            entries = [console_view_entry]
+        else:
+            entries = console_view_entry
+        entries_without_console_view = [
+            e
+            for e in entries
+            if e.console_view == None
+        ]
+        if len(entries_without_console_view) > 1:
+            fail("Multiple entries provided without console_view: {}"
+                .format(entries_without_console_view))
+
+        for entry in entries:
+            if not branches.matches(entry.branch_selector):
+                continue
+
+            console_view = entry.console_view
+            if console_view == None:
+                console_view = builder_group
+                if not console_view:
+                    fail("Builder does not have builder group and " +
+                         "console_view_entry does not have console view: {}".format(entry))
+
+            luci.console_view_entry(
+                builder = builder_name,
+                console_view = console_view,
+                category = entry.category,
+                short_name = entry.short_name,
+            )
+
+    list_view = defaults.get_value("list_view", list_view)
+
+    # The default for list_view is set to args.COMPUTE instead of None so that
+    # the try builder function can override the default behavior
+    if list_view == args.COMPUTE:
+        list_view = None
+    if list_view:
+        if type(list_view) == type(""):
+            list_view = [list_view]
+        for view in list_view:
+            luci.list_view_entry(
+                builder = builder_name,
+                list_view = view,
+            )
+
+    return builder
 
 builders = struct(
     builder = builder,
-    builder_name = builder_name,
     cpu = cpu,
     defaults = defaults,
     goma = goma,
     os = os,
-    xcode_cache = xcode_cache,
+    xcode = xcode,
 )

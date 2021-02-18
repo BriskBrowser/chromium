@@ -48,6 +48,16 @@ void RecordCompositorSlowScrollMetric(ui::ScrollInputType type,
 InputHandlerCommitData::InputHandlerCommitData() = default;
 InputHandlerCommitData::~InputHandlerCommitData() = default;
 
+// static
+base::WeakPtr<InputHandler> InputHandler::Create(
+    CompositorDelegateForInput& compositor_delegate) {
+  auto input_handler =
+      std::make_unique<ThreadedInputHandler>(compositor_delegate);
+  base::WeakPtr<InputHandler> input_handler_weak = input_handler->AsWeakPtr();
+  compositor_delegate.BindToInputHandler(std::move(input_handler));
+  return input_handler_weak;
+}
+
 ThreadedInputHandler::ThreadedInputHandler(
     CompositorDelegateForInput& compositor_delegate)
     : compositor_delegate_(compositor_delegate),
@@ -59,6 +69,11 @@ ThreadedInputHandler::~ThreadedInputHandler() = default;
 //
 // =========== InputHandler Interface
 //
+
+base::WeakPtr<InputHandler> ThreadedInputHandler::AsWeakPtr() const {
+  return weak_factory_.GetWeakPtr();
+}
+
 void ThreadedInputHandler::BindToClient(InputHandlerClient* client) {
   DCHECK(input_handler_client_ == nullptr);
   input_handler_client_ = client;
@@ -234,7 +249,8 @@ InputHandler::ScrollStatus ThreadedInputHandler::ScrollBegin(
                          layer_impl, first_scrolling_layer_or_scrollbar)) {
             TRACE_EVENT_INSTANT0("cc", "Failed Hit Test",
                                  TRACE_EVENT_SCOPE_THREAD);
-            scroll_status.thread = InputHandler::ScrollThread::SCROLL_UNKNOWN;
+            scroll_status.thread =
+                InputHandler::ScrollThread::SCROLL_ON_MAIN_THREAD;
             scroll_status.main_thread_scrolling_reasons =
                 MainThreadScrollingReason::kFailedHitTest;
             return scroll_status;
@@ -262,15 +278,17 @@ InputHandler::ScrollStatus ThreadedInputHandler::ScrollBegin(
     scroll_status.thread = InputHandler::ScrollThread::SCROLL_ON_MAIN_THREAD;
     return scroll_status;
   } else if (!scrolling_node) {
+    // TODO(crbug.com/1155663): Make sure to set main_thread_scrolling_reasons
+    // only when ScrollStatus.thread is set to
+    // InputHander::ScrollThread::SCROLL_ON_MAIN_THREAD
     scroll_status.main_thread_scrolling_reasons =
         MainThreadScrollingReason::kNoScrollingLayer;
     if (compositor_delegate_.GetSettings().is_layer_tree_for_subframe) {
       // OOPIFs never have a viewport scroll node so if we can't scroll
       // we need to be bubble up to the parent frame. This happens by
-      // returning SCROLL_UNKNOWN.
+      // returning SCROLL_IGNORED.
       TRACE_EVENT_INSTANT0("cc", "Ignored - No ScrollNode (OOPIF)",
                            TRACE_EVENT_SCOPE_THREAD);
-      scroll_status.thread = InputHandler::ScrollThread::SCROLL_UNKNOWN;
     } else {
       // If we didn't hit a layer above we'd usually fallback to the
       // viewport scroll node. However, there may not be one if a scroll
@@ -280,8 +298,8 @@ InputHandler::ScrollStatus ThreadedInputHandler::ScrollBegin(
       // configurations where input is allowed prior to a commit.
       TRACE_EVENT_INSTANT0("cc", "Ignored - No ScrollNode",
                            TRACE_EVENT_SCOPE_THREAD);
-      scroll_status.thread = InputHandler::ScrollThread::SCROLL_IGNORED;
     }
+    scroll_status.thread = InputHandler::ScrollThread::SCROLL_IGNORED;
     return scroll_status;
   }
 
@@ -299,7 +317,12 @@ InputHandler::ScrollStatus ThreadedInputHandler::ScrollBegin(
   // oopif.
   if (GetViewport().ShouldScroll(*CurrentlyScrollingNode()) &&
       !GetViewport().CanScroll(*CurrentlyScrollingNode(), *scroll_state)) {
-    scroll_status.bubble = true;
+    // TODO(crbug.com/1155758): This is a temporary workaround for GuestViews
+    // as they create viewport nodes and want to bubble scroll if the
+    // viewport cannot scroll in the given delta directions. There should be
+    // a parameter to ThreadInputHandler to specify whether unused delta is
+    // consumed by the viewport or bubbles to the parent.
+    scroll_status.viewport_cannot_scroll = true;
   }
 
   return scroll_status;
@@ -419,8 +442,7 @@ InputHandlerScrollResult ThreadedInputHandler::ScrollUpdate(
   scroll_result.unused_scroll_delta = unused_root_delta;
   scroll_result.overscroll_behavior =
       scroll_state->is_scroll_chain_cut()
-          ? OverscrollBehavior(OverscrollBehavior::OverscrollBehaviorType::
-                                   kOverscrollBehaviorTypeNone)
+          ? OverscrollBehavior(OverscrollBehavior::Type::kNone)
           : ActiveTree().overscroll_behavior();
 
   if (scroll_result.did_scroll) {
@@ -551,12 +573,6 @@ InputHandlerPointerResult ThreadedInputHandler::MouseMoveAt(
       old_animation_controller->DidMouseLeave();
 
     scroll_element_id_mouse_currently_over_ = scroll_element_id;
-
-    // Experiment: Enables will flash scrollbar when user move mouse enter a
-    // scrollable area.
-    if (compositor_delegate_.GetSettings().scrollbar_flash_when_mouse_enter &&
-        new_animation_controller)
-      new_animation_controller->DidScrollUpdate();
   }
 
   if (!new_animation_controller)
@@ -565,6 +581,14 @@ InputHandlerPointerResult ThreadedInputHandler::MouseMoveAt(
   new_animation_controller->DidMouseMove(device_viewport_point);
 
   return result;
+}
+
+PointerResultType ThreadedInputHandler::HitTest(
+    const gfx::PointF& viewport_point) {
+  return compositor_delegate_.GetSettings()
+                 .compositor_threaded_scrollbar_scrolling
+             ? scrollbar_controller_->HitTest(viewport_point)
+             : PointerResultType::kUnhandled;
 }
 
 InputHandlerPointerResult ThreadedInputHandler::MouseDown(
@@ -793,9 +817,9 @@ ThreadedInputHandler::CreateLatencyInfoSwapPromiseMonitor(
 
 std::unique_ptr<EventsMetricsManager::ScopedMonitor>
 ThreadedInputHandler::GetScopedEventMetricsMonitor(
-    std::unique_ptr<EventMetrics> event_metrics) {
+    EventsMetricsManager::ScopedMonitor::DoneCallback done_callback) {
   return compositor_delegate_.GetImplDeprecated().GetScopedEventMetricsMonitor(
-      std::move(event_metrics));
+      std::move(done_callback));
 }
 
 ScrollElasticityHelper* ThreadedInputHandler::CreateScrollElasticityHelper() {
@@ -923,6 +947,11 @@ void ThreadedInputHandler::ProcessCommitDeltas(
 
   // Scroll commit data is stored in the scroll tree so it has its own method
   // for getting it.
+  // TODO(bokan): It's a bug that CollectScrollDeltas is here, it means the
+  // compositor cannot commit scroll changes without an InputHandler which it
+  // should be able to. To move it back, we'll need to split out the
+  // |snapped_elements| part of ScrollTree::CollectScrollDeltas though which is
+  // an input responsibility.
   GetScrollTree().CollectScrollDeltas(
       commit_data, inner_viewport_scroll_element_id,
       compositor_delegate_.GetSettings().commit_fractional_scroll_deltas,
@@ -938,11 +967,14 @@ void ThreadedInputHandler::ProcessCommitDeltas(
     commit_data->manipulation_info |= kManipulationInfoPrecisionTouchPad;
   if (has_pinch_zoomed_)
     commit_data->manipulation_info |= kManipulationInfoPinchZoom;
+  if (has_scrolled_by_scrollbar_)
+    commit_data->manipulation_info |= kManipulationInfoScrollbar;
 
   has_scrolled_by_wheel_ = false;
   has_scrolled_by_touch_ = false;
   has_scrolled_by_precisiontouchpad_ = false;
   has_pinch_zoomed_ = false;
+  has_scrolled_by_scrollbar_ = false;
 
   commit_data->scroll_gesture_did_end = scroll_gesture_did_end_;
   scroll_gesture_did_end_ = false;
@@ -1012,8 +1044,10 @@ void ThreadedInputHandler::RootLayerStateMayHaveChanged() {
   UpdateRootLayerStateForSynchronousInputHandler();
 }
 
-void ThreadedInputHandler::DidUnregisterScrollbar(ElementId scroll_element_id) {
-  scrollbar_controller_->DidUnregisterScrollbar(scroll_element_id);
+void ThreadedInputHandler::DidUnregisterScrollbar(
+    ElementId scroll_element_id,
+    ScrollbarOrientation orientation) {
+  scrollbar_controller_->DidUnregisterScrollbar(scroll_element_id, orientation);
 }
 
 void ThreadedInputHandler::ScrollOffsetAnimationFinished() {
@@ -1049,17 +1083,23 @@ bool ThreadedInputHandler::IsCurrentlyScrolling() const {
   return CurrentlyScrollingNode();
 }
 
-bool ThreadedInputHandler::IsActivelyPrecisionScrolling() const {
+ActivelyScrollingType ThreadedInputHandler::GetActivelyScrollingType() const {
   if (!CurrentlyScrollingNode())
-    return false;
+    return ActivelyScrollingType::kNone;
 
   if (!last_scroll_update_state_)
-    return false;
+    return ActivelyScrollingType::kNone;
 
   bool did_scroll_content =
       did_scroll_x_for_scroll_gesture_ || did_scroll_y_for_scroll_gesture_;
-  return !ShouldAnimateScroll(last_scroll_update_state_.value()) &&
-         did_scroll_content;
+
+  if (!did_scroll_content)
+    return ActivelyScrollingType::kNone;
+
+  if (ShouldAnimateScroll(last_scroll_update_state_.value()))
+    return ActivelyScrollingType::kAnimated;
+
+  return ActivelyScrollingType::kPrecise;
 }
 
 ScrollNode* ThreadedInputHandler::CurrentlyScrollingNode() {
@@ -1149,15 +1189,15 @@ gfx::Vector2dF ThreadedInputHandler::ResolveScrollGranularityToPixels(
 
   if (granularity == ui::ScrollGranularity::kScrollByPercentage) {
     gfx::SizeF scroller_size = gfx::SizeF(scroll_node.container_bounds);
-
-    gfx::SizeF viewport_size =
-        InnerViewportScrollNode()
-            ? gfx::SizeF(InnerViewportScrollNode()->container_bounds)
-            : gfx::SizeF(ActiveTree().GetDeviceViewport().size());
+    gfx::SizeF viewport_size(compositor_delegate_.VisualDeviceViewportSize());
 
     // Convert from rootframe coordinates to screen coordinates (physical
-    // pixels).
+    // pixels if --use-zoom-for-dsf enabled, DIPs otherwise).
     scroller_size.Scale(compositor_delegate_.PageScaleFactor());
+
+    // Convert from physical pixels to screen coordinates (if --use-zoom-for-dsf
+    // enabled, `DeviceScaleFactor()` returns 1).
+    viewport_size.Scale(1 / compositor_delegate_.DeviceScaleFactor());
 
     pixel_delta = ScrollUtils::ResolveScrollPercentageToPixels(
         pixel_delta, scroller_size, viewport_size);
@@ -1792,9 +1832,9 @@ bool ThreadedInputHandler::CanPropagate(ScrollNode* scroll_node,
                                         float x,
                                         float y) {
   return (x == 0 || scroll_node->overscroll_behavior.x ==
-                        OverscrollBehavior::kOverscrollBehaviorTypeAuto) &&
+                        OverscrollBehavior::Type::kAuto) &&
          (y == 0 || scroll_node->overscroll_behavior.y ==
-                        OverscrollBehavior::kOverscrollBehaviorTypeAuto);
+                        OverscrollBehavior::Type::kAuto);
 }
 
 ScrollNode* ThreadedInputHandler::FindNodeToLatch(ScrollState* scroll_state,
@@ -1802,6 +1842,7 @@ ScrollNode* ThreadedInputHandler::FindNodeToLatch(ScrollState* scroll_state,
                                                   ui::ScrollInputType type) {
   ScrollTree& scroll_tree = GetScrollTree();
   ScrollNode* scroll_node = nullptr;
+  ScrollNode* first_scrollable_node = nullptr;
   for (ScrollNode* cur_node = starting_node; cur_node;
        cur_node = scroll_tree.parent(cur_node)) {
     if (GetViewport().ShouldScroll(*cur_node)) {
@@ -1815,10 +1856,11 @@ ScrollNode* ThreadedInputHandler::FindNodeToLatch(ScrollState* scroll_state,
     if (!cur_node->scrollable)
       continue;
 
-    // For UX reasons, autoscrolling should always latch to the top-most
-    // scroller, even if it can't scroll in the initial direction.
-    if (type == ui::ScrollInputType::kAutoscroll ||
-        CanConsumeDelta(*scroll_state, *cur_node)) {
+    if (!first_scrollable_node) {
+      first_scrollable_node = cur_node;
+    }
+
+    if (CanConsumeDelta(*scroll_state, *cur_node)) {
       scroll_node = cur_node;
       break;
     }
@@ -1838,6 +1880,14 @@ ScrollNode* ThreadedInputHandler::FindNodeToLatch(ScrollState* scroll_state,
       scroll_state->set_is_scroll_chain_cut(true);
       break;
     }
+  }
+
+  // If the root scroller can not consume delta in an autoscroll, latch on
+  // to the top most autoscrollable scroller. See https://crbug.com/969150
+  if ((type == ui::ScrollInputType::kAutoscroll) && first_scrollable_node) {
+    // If scroll_node is nullptr or delta can not be consumed
+    if (!(scroll_node && CanConsumeDelta(*scroll_state, *scroll_node)))
+      scroll_node = first_scrollable_node;
   }
 
   return scroll_node;
@@ -2022,6 +2072,7 @@ void ThreadedInputHandler::ClearCurrentlyScrollingNode() {
   latched_scroll_type_.reset();
   last_scroll_update_state_.reset();
   last_scroll_begin_state_.reset();
+  compositor_delegate_.DidEndScroll();
 }
 
 bool ThreadedInputHandler::ScrollAnimationUpdateTarget(
@@ -2071,6 +2122,8 @@ void ThreadedInputHandler::UpdateScrollSourceInfo(
     has_scrolled_by_wheel_ = true;
   } else if (type == ui::ScrollInputType::kTouchscreen) {
     has_scrolled_by_touch_ = true;
+  } else if (type == ui::ScrollInputType::kScrollbar) {
+    has_scrolled_by_scrollbar_ = true;
   }
 }
 

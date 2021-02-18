@@ -8,6 +8,8 @@
 #include <unordered_set>
 #include <utility>
 
+#include "ash/constants/ash_features.h"
+#include "ash/constants/ash_pref_names.h"
 #include "ash/public/cpp/app_list/app_list_config.h"
 #include "ash/public/cpp/app_list/app_list_features.h"
 #include "base/metrics/field_trial_params.h"
@@ -169,11 +171,19 @@ void RecordUmaResponseParseResult(arc::mojom::AppReinstallState result) {
   UMA_HISTOGRAM_ENUMERATION("Apps.AppListRecommendedResponse", result);
 }
 
+// Limits icon size to be downloaded with FIFE. The input |icon_dimension| is in
+// dip and the FIFE requires pixel value. Thus, we need to multiply
+// |icon_dimension| with the maximum device scale factor to avoid potential
+// issues.
 std::string LimitIconSizeWithFife(const std::string& icon_url,
                                   int icon_dimension) {
-  // We append a suffix to icon url
   DCHECK_GT(icon_dimension, 0);
-  return base::StrCat({icon_url, "=s", base::NumberToString(icon_dimension)});
+  // Maximum device scale factor (DSF).
+  static const int kMaxDeviceScaleFactor = 3;
+  // We append a suffix to icon url
+  return base::StrCat(
+      {icon_url, "=s",
+       base::NumberToString(icon_dimension * kMaxDeviceScaleFactor)});
 }
 
 }  // namespace
@@ -242,10 +252,25 @@ ash::AppListSearchResultType ArcAppReinstallSearchProvider::ResultType() {
 }
 
 void ArcAppReinstallSearchProvider::Start(const base::string16& query) {
-  if (query_is_empty_ == query.empty())
-    return;
-
   query_is_empty_ = query.empty();
+  if (!query_is_empty_) {
+    ClearResults();
+    return;
+  }
+
+  // Always check if suggested content is enabled before searching for
+  // reinstall recommendations.
+  bool should_show_arc_app_reinstall_result = true;
+  PrefService* pref_service = profile_->GetPrefs();
+  if (pref_service &&
+      !pref_service->GetBoolean(chromeos::prefs::kSuggestedContentEnabled))
+    should_show_arc_app_reinstall_result = false;
+
+  if (!should_show_arc_app_reinstall_result) {
+    ClearResults();
+    return;
+  }
+
   UpdateResults();
 }
 
@@ -365,9 +390,8 @@ void ArcAppReinstallSearchProvider::UpdateResults() {
         // this icon is not loaded, nor is it in the loading set. Add it.
         loading_icon_urls_[icon_url] = gfx::ImageSkia(
             std::make_unique<UrlIconSource>(
-                base::BindRepeating(
-                    &ArcAppReinstallSearchProvider::OnIconLoaded,
-                    weak_ptr_factory_.GetWeakPtr(), icon_url),
+                base::BindOnce(&ArcAppReinstallSearchProvider::OnIconLoaded,
+                               weak_ptr_factory_.GetWeakPtr(), icon_url),
                 profile_,
                 GURL(LimitIconSizeWithFife(icon_url, icon_dimension_)),
                 icon_dimension_, IDR_APP_DEFAULT_ICON),

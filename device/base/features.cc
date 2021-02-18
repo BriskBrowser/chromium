@@ -8,10 +8,15 @@
 
 namespace device {
 
-#if defined(OS_MAC) || defined(OS_WIN)
+#if defined(OS_MAC)
 const base::Feature kNewUsbBackend{"NewUsbBackend",
                                    base::FEATURE_DISABLED_BY_DEFAULT};
-#endif  // defined(OS_MAC) || defined(OS_WIN)
+#endif  // defined(OS_MAC)
+
+#if defined(OS_WIN)
+const base::Feature kNewUsbBackend{"NewUsbBackend",
+                                   base::FEATURE_ENABLED_BY_DEFAULT};
+#endif  // defined(OS_WIN)
 
 #if defined(OS_WIN)
 const base::Feature kNewBLEWinImplementation{"NewBLEWinImplementation",
@@ -43,11 +48,5 @@ namespace features {
 // Controls WebXR support for the OpenXR Runtime.
 const base::Feature kOpenXR{"OpenXR", base::FEATURE_ENABLED_BY_DEFAULT};
 #endif  // ENABLE_OPENXR
-
-#if BUILDFLAG(ENABLE_WINDOWS_MR)
-// Controls WebXR support for the Windows Mixed Reality Runtime.
-const base::Feature kWindowsMixedReality{"WindowsMixedReality",
-                                         base::FEATURE_DISABLED_BY_DEFAULT};
-#endif  // ENABLE_WINDOWS_MR
 }  // namespace features
 }  // namespace device

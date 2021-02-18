@@ -154,9 +154,9 @@ CastMediaNotificationItem::CastMediaNotificationItem(
           profile,
           base::BindRepeating(&CastMediaNotificationItem::ImageChanged,
                               base::Unretained(this))),
-      session_info_(CreateSessionInfo()) {
+      session_info_(CreateSessionInfo()),
+      profile_(profile) {
   metadata_.source_title = GetSourceTitle(route);
-  notification_controller_->ShowNotification(media_route_id_);
   base::UmaHistogramEnumeration(
       kSourceHistogramName, route.is_local() ? Source::kLocalCastSession
                                              : Source::kNonLocalCastSession);
@@ -200,8 +200,8 @@ void CastMediaNotificationItem::Dismiss() {
   notification_controller_->HideNotification(media_route_id_);
 }
 
-bool CastMediaNotificationItem::SourceIsCast() {
-  return true;
+media_message_center::SourceType CastMediaNotificationItem::SourceType() {
+  return media_message_center::SourceType::kCast;
 }
 
 void CastMediaNotificationItem::OnMediaStatusUpdated(

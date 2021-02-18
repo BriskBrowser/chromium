@@ -51,6 +51,8 @@ class TranslateCompactInfoBar
   // TranslateInfoBarDelegate::Observer implementation.
   void OnTranslateStepChanged(translate::TranslateStep step,
                     translate::TranslateErrors::Type error_type) override;
+  void OnTargetLanguageChanged(
+      const std::string& target_language_code) override;
   // Returns true if the user didn't take any affirmative action.
   // The function will be called when the translate infobar is dismissed.
   // If it's true, we will record a declined event.
@@ -61,7 +63,8 @@ class TranslateCompactInfoBar
  private:
   // infobars::InfoBarAndroid:
   base::android::ScopedJavaLocalRef<jobject> CreateRenderInfoBar(
-      JNIEnv* env) override;
+      JNIEnv* env,
+      const ResourceIdMapper& resource_id_mapper) override;
   void ProcessButton(int action) override;
   void SetJavaInfoBar(
       const base::android::JavaRef<jobject>& java_info_bar) override;

@@ -8,6 +8,7 @@
 #include <inttypes.h>
 
 #include "base/containers/span.h"
+#include "third_party/blink/public/mojom/frame/back_forward_cache_controller.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/frame/web_feature_forward.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_load_observer.h"
@@ -34,7 +35,8 @@ class CORE_EXPORT ResourceLoadObserverForFrame final
                        const ResourceRequest&,
                        const ResourceResponse& redirect_response,
                        ResourceType,
-                       const FetchInitiatorInfo&) override;
+                       const FetchInitiatorInfo&,
+                       RenderBlockingBehavior) override;
   void DidChangePriority(uint64_t identifier,
                          ResourceLoadPriority,
                          int intra_priority_value) override;

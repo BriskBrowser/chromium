@@ -89,15 +89,6 @@ void TranslateInfoBarDelegate::Create(
     }
   }
 
-  // Do not create the after translate infobar for navigation if we are auto
-  // translating.
-  if (((step == translate::TRANSLATE_STEP_AFTER_TRANSLATE) ||
-       (step == translate::TRANSLATE_STEP_TRANSLATING)) &&
-      translate_manager->GetLanguageState().InTranslateNavigation() &&
-      !triggered_from_menu) {
-    return;
-  }
-
   // Find any existing translate infobar delegate.
   infobars::InfoBar* old_infobar = NULL;
   TranslateInfoBarDelegate* old_delegate = NULL;
@@ -115,6 +106,7 @@ void TranslateInfoBarDelegate::Create(
   if (old_delegate) {
     old_delegate->step_ = step;
     for (auto& observer : old_delegate->observers_) {
+      observer.OnTargetLanguageChanged(target_language);
       observer.OnTranslateStepChanged(step, error_type);
     }
     return;
@@ -126,10 +118,7 @@ void TranslateInfoBarDelegate::Create(
       base::WrapUnique(new TranslateInfoBarDelegate(
           translate_manager, is_off_the_record, step, original_language,
           target_language, error_type, triggered_from_menu))));
-  if (old_delegate)
-    infobar_manager->ReplaceInfoBar(old_infobar, std::move(infobar));
-  else
-    infobar_manager->AddInfoBar(std::move(infobar));
+  infobar_manager->AddInfoBar(std::move(infobar));
 }
 
 size_t TranslateInfoBarDelegate::num_languages() const {
@@ -202,12 +191,12 @@ void TranslateInfoBarDelegate::ToggleTranslatableLanguageByPrefs() {
   ui_delegate_.SetLanguageBlocked(!ui_delegate_.IsLanguageBlocked());
 }
 
-bool TranslateInfoBarDelegate::IsSiteBlacklisted() const {
-  return ui_delegate_.IsSiteBlacklisted();
+bool TranslateInfoBarDelegate::IsSiteOnNeverPromptList() const {
+  return ui_delegate_.IsSiteOnNeverPromptList();
 }
 
-void TranslateInfoBarDelegate::ToggleSiteBlacklist() {
-  ui_delegate_.SetSiteBlacklist(!ui_delegate_.IsSiteBlacklisted());
+void TranslateInfoBarDelegate::ToggleNeverPrompt() {
+  ui_delegate_.SetNeverPrompt(!ui_delegate_.IsSiteOnNeverPromptList());
 }
 
 bool TranslateInfoBarDelegate::ShouldAlwaysTranslate() const {
@@ -251,8 +240,10 @@ void TranslateInfoBarDelegate::MessageInfoBarButtonPressed() {
   }
   // This is the "Try again..." case.
   DCHECK(translate_manager_);
-  translate_manager_->TranslatePage(original_language_code(),
-                                    target_language_code(), false);
+  translate_manager_->TranslatePage(
+      original_language_code(), target_language_code(), false,
+      translate_manager_->GetActiveTranslateMetricsLogger()
+          ->GetNextManualTranslationType());
 }
 
 bool TranslateInfoBarDelegate::ShouldShowMessageInfoBarButton() {
@@ -440,6 +431,9 @@ int TranslateInfoBarDelegate::GetIconId() const {
 }
 
 void TranslateInfoBarDelegate::InfoBarDismissed() {
+  OnInfoBarClosedByUser();
+  ReportUIInteraction(UIInteraction::kCloseUIExplicitly);
+
   bool declined = false;
   bool has_observer = false;
   for (auto& observer : observers_) {
@@ -485,6 +479,15 @@ int TranslateInfoBarDelegate::GetMaximumNumberOfAutoNever() {
   static constexpr base::FeatureParam<int> auto_never_maximum{
       &kTranslateAutoSnackbars, "AutoNeverMaximum", kMaxNumberOfAutoNever};
   return auto_never_maximum.Get();
+}
+
+void TranslateInfoBarDelegate::OnInfoBarClosedByUser() {
+  ui_delegate_.OnUIClosedByUser();
+}
+
+void TranslateInfoBarDelegate::ReportUIInteraction(
+    UIInteraction ui_interaction) {
+  ui_delegate_.ReportUIInteraction(ui_interaction);
 }
 
 }  // namespace translate

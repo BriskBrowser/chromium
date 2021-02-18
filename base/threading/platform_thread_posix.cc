@@ -67,6 +67,12 @@ void* ThreadFunc(void* params) {
       base::ThreadRestrictions::SetSingletonAllowed(false);
 
 #if !defined(OS_NACL)
+
+#if defined(OS_APPLE)
+    PlatformThread::SetCurrentThreadRealtimePeriodValue(
+        PlatformThread::GetRealtimePeriod(delegate));
+#endif
+
     // Threads on linux/android may inherit their priority from the thread
     // where they were created. This explicitly sets the priority of all new
     // threads.
@@ -137,7 +143,7 @@ bool CreateThread(size_t stack_size,
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
 
-// Store the thread ids in local storage since calling the SWI can
+// Store the thread ids in local storage since calling the SWI can be
 // expensive and PlatformThread::CurrentId is used liberally. Clear
 // the stored value after a fork() because forking changes the thread
 // id. Forking without going through fork() (e.g. clone()) is not

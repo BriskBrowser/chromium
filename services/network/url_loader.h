@@ -29,11 +29,14 @@
 #include "net/url_request/url_request.h"
 #include "services/network/keepalive_statistics_recorder.h"
 #include "services/network/network_service.h"
+#include "services/network/public/cpp/cors/cors_error_status.h"
 #include "services/network/public/cpp/cross_origin_read_blocking.h"
 #include "services/network/public/cpp/initiator_lock_compatibility.h"
 #include "services/network/public/mojom/cookie_access_observer.mojom.h"
 #include "services/network/public/mojom/cross_origin_embedder_policy.mojom-forward.h"
 #include "services/network/public/mojom/fetch_api.mojom.h"
+#include "services/network/public/mojom/ip_address_space.mojom-forward.h"
+#include "services/network/public/mojom/ip_address_space.mojom-shared.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 #include "services/network/public/mojom/trust_tokens.mojom-shared.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
@@ -53,6 +56,10 @@ class URLRequestContext;
 }  // namespace net
 
 namespace network {
+
+namespace cors {
+class OriginAccessList;
+}
 
 namespace mojom {
 class OriginPolicyManager;
@@ -99,6 +106,10 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) URLLoader
   // have the |obey_origin_policy| flag set.
   // |trust_token_helper_factory| must be non-null exactly when the request has
   // Trust Tokens parameters.
+  //
+  // TODO(mmenke): This parameter list is getting a bit excessive. Either pass
+  // in a struct, or just pass in a pointer to the NetworkContext or
+  // URLLoaderFactory directly.
   URLLoader(
       net::URLRequestContext* url_request_context,
       mojom::NetworkServiceClient* network_service_client,
@@ -114,6 +125,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) URLLoader
       mojom::CrossOriginEmbedderPolicyReporter* reporter,
       uint32_t request_id,
       int keepalive_request_size,
+      bool require_network_isolation_key,
       scoped_refptr<ResourceSchedulerClient> resource_scheduler_client,
       base::WeakPtr<KeepaliveStatisticsRecorder> keepalive_statistics_recorder,
       base::WeakPtr<NetworkUsageAccumulator> network_usage_accumulator,
@@ -121,7 +133,10 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) URLLoader
       mojom::OriginPolicyManager* origin_policy_manager,
       std::unique_ptr<TrustTokenRequestHelperFactory>
           trust_token_helper_factory,
-      mojo::PendingRemote<mojom::CookieAccessObserver> cookie_observer);
+      const cors::OriginAccessList& origin_access_list,
+      mojo::PendingRemote<mojom::CookieAccessObserver> cookie_observer,
+      mojo::PendingRemote<mojom::AuthenticationAndCertificateObserver>
+          auth_cert_observer);
   ~URLLoader() override;
 
   // mojom::URLLoader implementation:
@@ -291,6 +306,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) URLLoader
   // Continuation of |OnResponseStarted| after possibly asynchronously
   // concluding the request's Trust Tokens operation.
   void ContinueOnResponseStarted();
+  void MaybeSendTrustTokenOperationResultToDevTools();
 
   void ScheduleStart();
   void ReadMore();
@@ -345,15 +361,17 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) URLLoader
   void StartReading();
   void OnOriginPolicyManagerRetrieveDone(const OriginPolicy& origin_policy);
 
-  // Checks if the request initiator should be allowed to make requests to the
-  // remote endpoint, as described in |info|.
-  //
-  // Returns a net error code.
+  // Whether `force_ignore_site_for_cookies` should be set on net::URLRequest.
+  bool ShouldForceIgnoreSiteForCookies(const ResourceRequest& request);
+
+  // Returns whether the request initiator should be allowed to make requests to
+  // an endpoint in |resource_address_space|.
   //
   // See the CORS-RFC1918 spec: https://wicg.github.io/cors-rfc1918.
   //
   // Helper for OnConnected().
-  int CanConnectToRemoteEndpoint(const net::TransportInfo& info) const;
+  bool CanConnectToAddressSpace(
+      mojom::IPAddressSpace resource_address_space) const;
 
   net::URLRequestContext* url_request_context_;
   mojom::NetworkServiceClient* network_service_client_;
@@ -397,6 +415,9 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) URLLoader
 
   // True if there's a URLRequest::Read() call in progress.
   bool read_in_progress_ = false;
+
+  // Stores any CORS error encountered while processing |url_request_|.
+  base::Optional<CorsErrorStatus> cors_error_status_;
 
   // Used when deferring sending the data to the client until mime sniffing is
   // finished.
@@ -451,11 +472,6 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) URLLoader
   // encoded body size was reported to the client.
   int64_t reported_total_encoded_bytes_ = 0;
 
-  // Indicates whether this request was made by a CORB-excluded request type and
-  // was not using CORS. Such requests are exempt from blocking, while other
-  // CORB-excluded requests must be blocked if the CORS check fails.
-  bool is_nocors_corb_excluded_request_ = false;
-
   mojom::RequestMode request_mode_;
 
   bool has_user_activation_;
@@ -506,19 +522,20 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) URLLoader
   // specific to one direction.
   base::Optional<mojom::TrustTokenOperationStatus> trust_token_status_;
 
-  // Stores ResourceRequest::isolated_world_origin.
-  //
-  // Note that |isolated_world_origin_| is unreliable (i.e. always
-  // base::nullopt) when URLLoaderFactoryParams::ignore_isolated_world_origin
-  // may be |true| (e.g. when the CorbAllowlistAlsoAppliesToOorCors feature is
-  // enabled).
-  //
-  // TODO(lukasza): https://crbug.com/920638: Remove
-  // |isolated_world_origin_| once we gather enough UMA and UKM data.
-  const base::Optional<url::Origin> isolated_world_origin_;
+  // Outlives `this`.
+  const cors::OriginAccessList& origin_access_list_;
 
   // Observer listening to all cookie reads and writes made by this request.
   mojo::Remote<mojom::CookieAccessObserver> cookie_observer_;
+
+  mojo::Remote<mojom::AuthenticationAndCertificateObserver> auth_cert_observer_;
+
+  // Client security state copied from the input ResourceRequest.
+  //
+  // If |factory_params_->client_security_state| is non-null, this is null.
+  // We indeed prefer the factory params over the request params as we trust the
+  // former more, given that they always come from the browser process.
+  mojom::ClientSecurityStatePtr request_client_security_state_;
 
   // Indicates |url_request_| is fetch upload request and that has streaming
   // body.

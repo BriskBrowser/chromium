@@ -8,8 +8,8 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/bits.h"
+#include "base/callback_helpers.h"
 #include "base/check_op.h"
 #include "base/memory/ptr_util.h"
 #include "base/task/common/checked_lock.h"
@@ -78,12 +78,11 @@ bool JobTaskSource::JoinFlag::ShouldWorkerSignal() {
   return value_.exchange(kNotWaiting, std::memory_order_relaxed) != kNotWaiting;
 }
 
-JobTaskSource::JobTaskSource(
-    const Location& from_here,
-    const TaskTraits& traits,
-    RepeatingCallback<void(JobDelegate*)> worker_task,
-    RepeatingCallback<size_t(size_t)> max_concurrency_callback,
-    PooledTaskRunnerDelegate* delegate)
+JobTaskSource::JobTaskSource(const Location& from_here,
+                             const TaskTraits& traits,
+                             RepeatingCallback<void(JobDelegate*)> worker_task,
+                             MaxConcurrencyCallback max_concurrency_callback,
+                             PooledTaskRunnerDelegate* delegate)
     : TaskSource(traits, nullptr, TaskSourceExecutionMode::kJob),
       from_here_(from_here),
       max_concurrency_callback_(std::move(max_concurrency_callback)),
@@ -96,7 +95,7 @@ JobTaskSource::JobTaskSource(
             self->worker_task_.Run(&job_delegate);
           },
           base::Unretained(this))),
-      queue_time_(TimeTicks::Now()),
+      ready_time_(TimeTicks::Now()),
       delegate_(delegate) {
   DCHECK(delegate_);
 }
@@ -150,11 +149,10 @@ bool JobTaskSource::RunJoinTask() {
 }
 
 void JobTaskSource::Cancel(TaskSource::Transaction* transaction) {
-  CheckedAutoLock auto_lock(worker_lock_);
   // Sets the kCanceledMask bit on |state_| so that further calls to
-  // WillRunTask() never succeed. std::memory_order_relaxed is sufficient
-  // because this task source never needs to be re-enqueued after Cancel().
-  state_.Cancel();
+  // WillRunTask() never succeed. std::memory_order_relaxed without a lock is
+  // safe because this task source never needs to be re-enqueued after Cancel().
+  TS_UNCHECKED_READ(state_).Cancel();
 }
 
 // EXCLUSIVE_LOCK_REQUIRED(worker_lock_)
@@ -239,11 +237,11 @@ size_t JobTaskSource::GetRemainingConcurrency() const {
   return max_concurrency - state.worker_count();
 }
 
-bool JobTaskSource::IsCompleted() const {
+bool JobTaskSource::IsActive() const {
   CheckedAutoLock auto_lock(worker_lock_);
   auto state = state_.Load();
-  return GetMaxConcurrency(state.worker_count()) == 0 &&
-         state.worker_count() == 0;
+  return GetMaxConcurrency(state.worker_count()) != 0 ||
+         state.worker_count() != 0;
 }
 
 size_t JobTaskSource::GetWorkerCount() const {
@@ -289,19 +287,24 @@ uint8_t JobTaskSource::AcquireTaskId() {
       assigned_task_ids_.load(std::memory_order_relaxed);
   uint32_t new_assigned_task_ids = 0;
   uint8_t task_id = 0;
+  // memory_order_acquire on success, matched with memory_order_release in
+  // ReleaseTaskId() so that operations done by previous threads that had
+  // the same task_id become visible to the current thread.
   do {
     // Count trailing one bits. This is the id of the right-most 0-bit in
     // |assigned_task_ids|.
     task_id = bits::CountTrailingZeroBits(~assigned_task_ids);
     new_assigned_task_ids = assigned_task_ids | (uint32_t(1) << task_id);
   } while (!assigned_task_ids_.compare_exchange_weak(
-      assigned_task_ids, new_assigned_task_ids, std::memory_order_relaxed));
+      assigned_task_ids, new_assigned_task_ids, std::memory_order_acquire,
+      std::memory_order_relaxed));
   return task_id;
 }
 
 void JobTaskSource::ReleaseTaskId(uint8_t task_id) {
-  uint32_t previous_task_ids =
-      assigned_task_ids_.fetch_and(~(uint32_t(1) << task_id));
+  // memory_order_release to match AcquireTaskId().
+  uint32_t previous_task_ids = assigned_task_ids_.fetch_and(
+      ~(uint32_t(1) << task_id), std::memory_order_release);
   DCHECK(previous_task_ids & (uint32_t(1) << task_id));
 }
 
@@ -343,8 +346,13 @@ bool JobTaskSource::DidProcessTask(TaskSource::Transaction* /*transaction*/) {
          GetMaxConcurrency(state_before_sub.worker_count() - 1);
 }
 
-SequenceSortKey JobTaskSource::GetSortKey() const {
-  return SequenceSortKey(traits_.priority(), queue_time_);
+TaskSourceSortKey JobTaskSource::GetSortKey(
+    bool disable_fair_scheduling) const {
+  if (disable_fair_scheduling) {
+    return TaskSourceSortKey(priority_racy(), ready_time_);
+  }
+  return TaskSourceSortKey(priority_racy(), ready_time_,
+                           TS_UNCHECKED_READ(state_).Load().worker_count());
 }
 
 Task JobTaskSource::Clear(TaskSource::Transaction* transaction) {

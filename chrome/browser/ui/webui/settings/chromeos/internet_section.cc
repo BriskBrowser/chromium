@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/webui/settings/chromeos/internet_section.h"
 
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/network_config_service.h"
 #include "base/bind.h"
@@ -20,7 +21,6 @@
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/web_ui_data_source.h"
@@ -84,6 +84,18 @@ const std::vector<SearchConcept>& GetEthernetConnectedSearchConcepts() {
        {IDS_OS_SETTINGS_TAG_PROXY_ALT1, IDS_OS_SETTINGS_TAG_PROXY_ALT2,
         IDS_OS_SETTINGS_TAG_PROXY_ALT3, IDS_OS_SETTINGS_TAG_PROXY_ALT4,
         SearchConcept::kAltTagEnd}},
+  });
+  return *tags;
+}
+
+const std::vector<SearchConcept>& GetEthernetNotConnectedSearchConcepts() {
+  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+      {IDS_OS_SETTINGS_TAG_ETHERNET,
+       mojom::kNetworkSectionPath,
+       mojom::SearchResultIcon::kEthernet,
+       mojom::SearchResultDefaultRank::kMedium,
+       mojom::SearchResultType::kSection,
+       {.section = mojom::Section::kNetwork}},
   });
   return *tags;
 }
@@ -318,9 +330,10 @@ const std::vector<SearchConcept>& GetCellularConnectedSearchConcepts() {
   return *tags;
 }
 
-// TODO(1093185): Merge GetCellularSetupSearchConcepts() with
+// TODO(1093185): Merge GetCellularSetupAndDetailMenuSearchConcepts() with
 // GetCellularConnectedSearchConcepts() when flag is enabled.
-const std::vector<SearchConcept>& GetCellularSetupSearchConcepts() {
+const std::vector<SearchConcept>&
+GetCellularSetupAndDetailMenuSearchConcepts() {
   static const base::NoDestructor<std::vector<SearchConcept>> tags({
       {IDS_OS_SETTINGS_TAG_ADD_CELLULAR,
        mojom::kMobileDataNetworksSubpagePath,
@@ -330,6 +343,22 @@ const std::vector<SearchConcept>& GetCellularSetupSearchConcepts() {
        {.setting = mojom::Setting::kCellularAddNetwork},
        {IDS_OS_SETTINGS_TAG_ADD_CELLULAR_ALT1,
         IDS_OS_SETTINGS_TAG_ADD_CELLULAR_ALT2, SearchConcept::kAltTagEnd}},
+      {IDS_OS_SETTINGS_TAG_CELLULAR_REMOVE_PROFILE,
+       mojom::kCellularDetailsSubpagePath,
+       mojom::SearchResultIcon::kCellular,
+       mojom::SearchResultDefaultRank::kMedium,
+       mojom::SearchResultType::kSetting,
+       {.setting = mojom::Setting::kCellularRemoveESimNetwork},
+       {IDS_OS_SETTINGS_TAG_CELLULAR_REMOVE_PROFILE_ALT1,
+        SearchConcept::kAltTagEnd}},
+      {IDS_OS_SETTINGS_TAG_CELLULAR_RENAME_PROFILE,
+       mojom::kCellularDetailsSubpagePath,
+       mojom::SearchResultIcon::kCellular,
+       mojom::SearchResultDefaultRank::kMedium,
+       mojom::SearchResultType::kSetting,
+       {.setting = mojom::Setting::kCellularRenameESimNetwork},
+       {IDS_OS_SETTINGS_TAG_CELLULAR_RENAME_PROFILE_ALT1,
+        SearchConcept::kAltTagEnd}},
   });
   return *tags;
 }
@@ -452,6 +481,8 @@ const std::vector<mojom::Setting>& GetCellularDetailsSettings() {
       mojom::Setting::kCellularAutoConnectToNetwork,
       mojom::Setting::kCellularMetered,
       mojom::Setting::kCellularAddNetwork,
+      mojom::Setting::kCellularRemoveESimNetwork,
+      mojom::Setting::kCellularRenameESimNetwork,
   });
   return *settings;
 }
@@ -544,6 +575,7 @@ void InternetSection::AddLoadTimeData(content::WebUIDataSource* html_source) {
       {"internetDeviceEnabling", IDS_SETTINGS_INTERNET_DEVICE_ENABLING},
       {"internetDeviceDisabling", IDS_SETTINGS_INTERNET_DEVICE_DISABLING},
       {"internetDeviceInitializing", IDS_SETTINGS_INTERNET_DEVICE_INITIALIZING},
+      {"internetDeviceBusy", IDS_SETTINGS_INTERNET_DEVICE_BUSY},
       {"internetJoinType", IDS_SETTINGS_INTERNET_JOIN_TYPE},
       {"internetKnownNetworksPageTitle", IDS_SETTINGS_INTERNET_KNOWN_NETWORKS},
       {"internetMobileSearching", IDS_SETTINGS_INTERNET_MOBILE_SEARCH},
@@ -596,6 +628,10 @@ void InternetSection::AddLoadTimeData(content::WebUIDataSource* html_source) {
       {"networkPrefer", IDS_SETTINGS_INTERNET_NETWORK_PREFER},
       {"networkPrimaryUserControlled",
        IDS_SETTINGS_INTERNET_NETWORK_PRIMARY_USER_CONTROLLED},
+      {"networkDetailMenuRemoveESim",
+       IDS_SETTINGS_INTERNET_NETWORK_MENU_REMOVE},
+      {"networkDetailMenuRenameESim",
+       IDS_SETTINGS_INTERNET_NETWORK_MENU_RENAME},
       {"networkScanningLabel", IDS_NETWORK_SCANNING_MESSAGE},
       {"networkSectionAdvanced",
        IDS_SETTINGS_INTERNET_NETWORK_SECTION_ADVANCED},
@@ -659,16 +695,45 @@ void InternetSection::AddLoadTimeData(content::WebUIDataSource* html_source) {
       {"tetherConnectionConnectButton",
        IDS_SETTINGS_INTERNET_TETHER_CONNECTION_CONNECT_BUTTON},
       {"tetherEnableBluetooth", IDS_ENABLE_BLUETOOTH},
+      {"cellularNetworkEsimLabel", IDS_SETTINGS_INTERNET_ESIM_LABEL},
+      {"cellularNetworkPsimLabel", IDS_SETTINGS_INTERNET_PSIM_LABEL},
+      {"pSimNetworkNotSetup",
+       IDS_SETTINGS_INTERNET_PSIM_NOT_SETUP_WITH_SETUP_LINK},
+      {"eSimNetworkNotSetup",
+       IDS_SETTINGS_INTERNET_ESIM_NOT_SETUP_WITH_SETUP_LINK},
+      {"cellularNetworkTetherLabel", IDS_SETTINGS_INTERNET_TETHER_LABEL},
+      {"showEidPopupButtonLabel",
+       IDS_SETTINGS_INTERNET_SHOW_EID_POPUP_BUTTON_LABEL},
+      {"eSimRenameProfileDialogLabel",
+       IDS_SETTINGS_INTERNET_NETWORK_RENAME_DIALOG_RENAME_PROFILE},
+      {"eSimRenameProfileDialogDone",
+       IDS_SETTINGS_INTERNET_NETWORK_RENAME_DIALOG_DONE},
+      {"eSimRenameProfileDialogCancel",
+       IDS_SETTINGS_INTERNET_NETWORK_RENAME_DIALOG_CANCEL},
+      {"eSimRenameProfileDialogError",
+       IDS_SETTINGS_INTERNET_NETWORK_RENAME_DIALOG_ERROR_MESSAGE},
+      {"eSimRemoveProfileDialogCancel",
+       IDS_SETTINGS_INTERNET_NETWORK_REMOVE_PROFILE_DIALOG_CANCEL},
+      {"esimRemoveProfileDialogTitle",
+       IDS_SETTINGS_INTERNET_NETWORK_REMOVE_PROFILE_DIALOG_TITLE},
+      {"eSimRemoveProfileDialogRemove",
+       IDS_SETTINGS_INTERNET_NETWORK_REMOVE_PROFILE_DIALOG_REMOVE},
+      {"eSimRemoveProfileDialogError",
+       IDS_SETTINGS_INTERNET_NETWORK_REMOVE_PROFILE_DIALOG_ERROR_MESSAGE},
+      {"eSimRemoveProfileDialogOkay",
+       IDS_SETTINGS_INTERNET_NETWORK_REMOVE_PROFILE_DIALOG_OKAY},
+      {"eSimDialogConnectionWarning",
+       IDS_SETTINGS_INTERNET_ESIM_DIALOG_CONNECTION_WARNING},
   };
-  AddLocalizedStringsBulk(html_source, kLocalizedStrings);
+  html_source->AddLocalizedStrings(kLocalizedStrings);
 
   network_element::AddLocalizedStrings(html_source);
   network_element::AddOncLocalizedStrings(html_source);
   network_element::AddDetailsLocalizedStrings(html_source);
   network_element::AddConfigLocalizedStrings(html_source);
   network_element::AddErrorLocalizedStrings(html_source);
-  if (base::FeatureList::IsEnabled(
-          chromeos::features::kUpdatedCellularActivationUi)) {
+  cellular_setup::AddNonStringLoadTimeData(html_source);
+  if (features::IsCellularActivationUiEnabled()) {
     cellular_setup::AddLocalizedStrings(html_source);
   }
 
@@ -680,10 +745,6 @@ void InternetSection::AddLoadTimeData(content::WebUIDataSource* html_source) {
 
   html_source->AddString("networkGoogleNameserversLearnMoreUrl",
                          chrome::kGoogleNameserversLearnMoreURL);
-  html_source->AddBoolean(
-      "updatedCellularActivationUi",
-      base::FeatureList::IsEnabled(
-          chromeos::features::kUpdatedCellularActivationUi));
 
   html_source->AddString(
       "networkNotSynced",
@@ -705,6 +766,11 @@ void InternetSection::AddLoadTimeData(content::WebUIDataSource* html_source) {
       l10n_util::GetStringFUTF16(
           IDS_SETTINGS_INTERNET_LOOKING_FOR_MOBILE_NETWORK,
           GetHelpUrlWithBoard(chrome::kInstantTetheringLearnMoreURL)));
+  html_source->AddString(
+      "tetherNetworkNotSetup",
+      l10n_util::GetStringFUTF16(
+          IDS_SETTINGS_INTERNET_TETHER_NOT_SETUP_WITH_LEARN_MORE_LINK,
+          GetHelpUrlWithBoard(chrome::kInstantTetheringLearnMoreURL)));
 }
 
 void InternetSection::AddHandlers(content::WebUI* web_ui) {
@@ -725,6 +791,12 @@ mojom::SearchResultIcon InternetSection::GetSectionIcon() const {
 
 std::string InternetSection::GetSectionPath() const {
   return mojom::kNetworkSectionPath;
+}
+
+bool InternetSection::LogMetric(mojom::Setting setting,
+                                base::Value& value) const {
+  // Unimplemented.
+  return false;
 }
 
 void InternetSection::RegisterHierarchy(HierarchyGenerator* generator) const {
@@ -871,6 +943,10 @@ void InternetSection::OnDeviceList(
   updater.RemoveSearchTags(GetInstantTetheringOnSearchConcepts());
   updater.RemoveSearchTags(GetInstantTetheringOffSearchConcepts());
 
+  // Keep track of ethernet devices to handle an edge case where Ethernet device
+  // is present but no network is connected.
+  does_ethernet_device_exist_ = false;
+
   for (const auto& device : devices) {
     switch (device->type) {
       case NetworkType::kWiFi:
@@ -899,6 +975,10 @@ void InternetSection::OnDeviceList(
           updater.AddSearchTags(GetInstantTetheringOffSearchConcepts());
         break;
 
+      case NetworkType::kEthernet:
+        does_ethernet_device_exist_ = true;
+        break;
+
       default:
         // Note: Ethernet and VPN only show search tags when connected, and
         // categories such as Mobile/Wireless do not have search tags.
@@ -913,7 +993,7 @@ void InternetSection::FetchNetworkList() {
           network_config::mojom::FilterType::kVisible,
           network_config::mojom::NetworkType::kAll,
           network_config::mojom::kNoLimit),
-      base::Bind(&InternetSection::OnNetworkList, base::Unretained(this)));
+      base::BindOnce(&InternetSection::OnNetworkList, base::Unretained(this)));
 }
 
 void InternetSection::OnNetworkList(
@@ -923,11 +1003,12 @@ void InternetSection::OnNetworkList(
   SearchTagRegistry::ScopedTagUpdater updater = registry()->StartUpdate();
 
   updater.RemoveSearchTags(GetEthernetConnectedSearchConcepts());
+  updater.RemoveSearchTags(GetEthernetNotConnectedSearchConcepts());
   updater.RemoveSearchTags(GetWifiConnectedSearchConcepts());
   updater.RemoveSearchTags(GetWifiMeteredSearchConcepts());
   updater.RemoveSearchTags(GetCellularSearchConcepts());
   updater.RemoveSearchTags(GetCellularConnectedSearchConcepts());
-  updater.RemoveSearchTags(GetCellularSetupSearchConcepts());
+  updater.RemoveSearchTags(GetCellularSetupAndDetailMenuSearchConcepts());
   updater.RemoveSearchTags(GetCellularMeteredSearchConcepts());
   updater.RemoveSearchTags(GetInstantTetheringConnectedSearchConcepts());
   updater.RemoveSearchTags(GetVpnConnectedSearchConcepts());
@@ -969,10 +1050,8 @@ void InternetSection::OnNetworkList(
         if (base::FeatureList::IsEnabled(::features::kMeteredShowToggle))
           updater.AddSearchTags(GetCellularMeteredSearchConcepts());
 
-        if (base::FeatureList::IsEnabled(
-                chromeos::features::kUpdatedCellularActivationUi)) {
-          updater.AddSearchTags(GetCellularSetupSearchConcepts());
-        }
+        if (features::IsCellularActivationUiEnabled())
+          updater.AddSearchTags(GetCellularSetupAndDetailMenuSearchConcepts());
         break;
 
       case NetworkType::kTether:
@@ -989,6 +1068,12 @@ void InternetSection::OnNetworkList(
         // Note: Category types such as Mobile/Wireless do not have search tags.
         break;
     }
+  }
+
+  // Edge case where Ethernet device is present but no network is connected,
+  // i.e. on Chromeboxes. http://crbug.com/1096768
+  if (does_ethernet_device_exist_ && !connected_ethernet_guid_.has_value()) {
+    updater.AddSearchTags(GetEthernetNotConnectedSearchConcepts());
   }
 }
 

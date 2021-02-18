@@ -5,11 +5,10 @@
 #include "components/invalidation/impl/per_user_topic_subscription_request.h"
 
 #include "base/bind.h"
-#include "base/json/json_reader.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/gtest_util.h"
 #include "base/test/mock_callback.h"
 #include "base/test/scoped_feature_list.h"
@@ -23,30 +22,13 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-namespace syncer {
+namespace invalidation {
 
 namespace {
 
 using testing::_;
+using testing::DoAll;
 using testing::SaveArg;
-
-MATCHER_P(EqualsJSON, json, "equals JSON") {
-  base::Optional<base::Value> expected = base::JSONReader::Read(json);
-  if (!expected) {
-    *result_listener << "INTERNAL ERROR: couldn't parse expected JSON";
-    return false;
-  }
-
-  base::JSONReader::ValueWithError actual =
-      base::JSONReader::ReadAndReturnValueWithError(arg);
-  if (!actual.value) {
-    *result_listener << "input:" << actual.error_line << ":"
-                     << actual.error_column << ": "
-                     << "parse error: " << actual.error_message;
-    return false;
-  }
-  return *expected == *actual.value;
-}
 
 network::mojom::URLResponseHeadPtr CreateHeadersForTest(int responce_code) {
   auto head = network::mojom::URLResponseHead::New();
@@ -60,7 +42,8 @@ network::mojom::URLResponseHeadPtr CreateHeadersForTest(int responce_code) {
 
 class PerUserTopicSubscriptionRequestTest : public testing::Test {
  public:
-  PerUserTopicSubscriptionRequestTest() {}
+  PerUserTopicSubscriptionRequestTest() = default;
+  ~PerUserTopicSubscriptionRequestTest() override = default;
 
   GURL url(PerUserTopicSubscriptionRequest* request) {
     return request->GetUrlForTesting();
@@ -74,8 +57,6 @@ class PerUserTopicSubscriptionRequestTest : public testing::Test {
   base::test::SingleThreadTaskEnvironment task_environment_;
   data_decoder::test::InProcessDataDecoder in_process_data_decoder_;
   network::TestURLLoaderFactory url_loader_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(PerUserTopicSubscriptionRequestTest);
 };
 
 TEST_F(PerUserTopicSubscriptionRequestTest,
@@ -398,4 +379,4 @@ INSTANTIATE_TEST_SUITE_P(All,
                                          net::HTTP_FORBIDDEN,
                                          net::HTTP_NOT_FOUND));
 
-}  // namespace syncer
+}  // namespace invalidation

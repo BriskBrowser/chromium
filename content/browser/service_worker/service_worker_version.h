@@ -29,12 +29,13 @@
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "components/services/storage/public/mojom/service_worker_storage_control.mojom.h"
-#include "content/browser/frame_host/back_forward_cache_metrics.h"
+#include "content/browser/renderer_host/back_forward_cache_metrics.h"
 #include "content/browser/service_worker/embedded_worker_instance.h"
 #include "content/browser/service_worker/embedded_worker_status.h"
 #include "content/browser/service_worker/service_worker_client_utils.h"
 #include "content/browser/service_worker/service_worker_metrics.h"
 #include "content/browser/service_worker/service_worker_ping_controller.h"
+#include "content/browser/service_worker/service_worker_registration.h"
 #include "content/browser/service_worker/service_worker_script_cache_map.h"
 #include "content/browser/service_worker/service_worker_update_checker.h"
 #include "content/common/content_export.h"
@@ -70,7 +71,6 @@ class ServiceWorkerContainerHost;
 class ServiceWorkerContextCore;
 class ServiceWorkerHost;
 class ServiceWorkerInstalledScriptsSender;
-class ServiceWorkerRegistration;
 struct ServiceWorkerVersionInfo;
 
 namespace service_worker_controllee_request_handler_unittest {
@@ -103,9 +103,7 @@ FORWARD_DECLARE_TEST(ServiceWorkerVersionTest, StallInStopping_DetachThenStart);
 FORWARD_DECLARE_TEST(ServiceWorkerVersionTest, StartRequestWithNullContext);
 }  // namespace service_worker_version_unittest
 
-namespace service_worker_storage_unittest {
-FORWARD_DECLARE_TEST(ServiceWorkerStorageDiskTest, ScriptResponseTime);
-}  // namespace service_worker_storage_unittest
+FORWARD_DECLARE_TEST(ServiceWorkerRegistryTest, ScriptResponseTime);
 
 namespace service_worker_registration_unittest {
 class ServiceWorkerActivationTest;
@@ -186,6 +184,7 @@ class CONTENT_EXPORT ServiceWorkerVersion
         const GURL& source_url) {}
     virtual void OnCachedMetadataUpdated(ServiceWorkerVersion* version,
                                          size_t size) {}
+    virtual void OnNoWork(ServiceWorkerVersion* version) {}
 
    protected:
     virtual ~Observer() {}
@@ -205,7 +204,7 @@ class CONTENT_EXPORT ServiceWorkerVersion
   int64_t version_id() const { return version_id_; }
   int64_t registration_id() const { return registration_id_; }
   const GURL& script_url() const { return script_url_; }
-  const url::Origin& script_origin() const { return script_origin_; }
+  const url::Origin& origin() const { return origin_; }
   const GURL& scope() const { return scope_; }
   blink::mojom::ScriptType script_type() const { return script_type_; }
   EmbeddedWorkerStatus running_status() const {
@@ -243,6 +242,11 @@ class CONTENT_EXPORT ServiceWorkerVersion
   // function.
   void SetNavigationPreloadState(
       const blink::mojom::NavigationPreloadState& state);
+
+  // Only intended for use by ServiceWorkerRegistration. Generally use
+  // ServiceWorkerRegistration::status() instead of this function.
+  void SetRegistrationStatus(
+      ServiceWorkerRegistration::Status registration_status);
 
   ServiceWorkerMetrics::Site site_for_uma() const { return site_for_uma_; }
 
@@ -333,6 +337,12 @@ class CONTENT_EXPORT ServiceWorkerVersion
   // statistics based on the event status.
   // TODO(mek): Use something other than a bool for event status.
   bool FinishRequest(int request_id, bool was_handled);
+
+  // Like FinishRequest(), but includes a count of how many fetches were
+  // performed by the script while handling the event.
+  bool FinishRequestWithFetchCount(int request_id,
+                                   bool was_handled,
+                                   uint32_t fetch_count);
 
   // Finishes an external request that was started by StartExternalRequest().
   ServiceWorkerExternalRequestResult FinishExternalRequest(
@@ -584,6 +594,10 @@ class CONTENT_EXPORT ServiceWorkerVersion
       blink::mojom::ConsoleMessageLevel message_level,
       const std::string& message);
 
+  // Rebinds the mojo remote to the Storage Service. Called during a recovery
+  // step of the Storage Service.
+  storage::mojom::ServiceWorkerLiveVersionInfoPtr RebindStorageReference();
+
   mojo::AssociatedReceiver<blink::mojom::ServiceWorkerHost>&
   service_worker_host_receiver_for_testing() {
     return receiver_;
@@ -669,9 +683,7 @@ class CONTENT_EXPORT ServiceWorkerVersion
   FRIEND_TEST_ALL_PREFIXES(
       service_worker_version_unittest::ServiceWorkerVersionTest,
       MixedRequestTimeouts);
-  FRIEND_TEST_ALL_PREFIXES(
-      service_worker_storage_unittest::ServiceWorkerStorageDiskTest,
-      ScriptResponseTime);
+  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerRegistryTest, ScriptResponseTime);
 
   // Contains timeout info for InflightRequest.
   struct InflightRequestTimeoutInfo {
@@ -886,7 +898,10 @@ class CONTENT_EXPORT ServiceWorkerVersion
   const int64_t version_id_;
   const int64_t registration_id_;
   const GURL script_url_;
-  const url::Origin script_origin_;
+  // |origin_| is computed from |scope_|. Warning: The |script_url_|'s origin
+  // and |origin_| may be different in some scenarios e.g.
+  // --disable-web-security.
+  const url::Origin origin_;
   const GURL scope_;
   // A service worker has an associated type which is either
   // "classic" or "module". Unless stated otherwise, it is "classic".
@@ -899,6 +914,12 @@ class CONTENT_EXPORT ServiceWorkerVersion
   // doesn't necessarily exist whenever there is a live version.
   blink::mojom::NavigationPreloadState navigation_preload_state_;
   ServiceWorkerMetrics::Site site_for_uma_;
+
+  // A copy of ServiceWorkerRegistration::status(). Cached for the same reason
+  // as `navigation_preload_state_`: A live registration doesn't necessarily
+  // exist whenever there is a live version, but `registation_status_` is needed
+  // to check if the registration is already deleted or not.
+  ServiceWorkerRegistration::Status registration_status_;
 
   // Cross-Origin-Embedder-Policy for the service worker script. This persists
   // in the disk.
@@ -918,6 +939,14 @@ class CONTENT_EXPORT ServiceWorkerVersion
   // True if endpoint() is ready to dispatch events, which means
   // InitializeGlobalScope() is already called.
   bool is_endpoint_ready_ = false;
+  // True while running `start_callbacks_`. When true, StartWorker() will be
+  // delayed until all `start_callbacks_` are executed. This prevents callbacks
+  // from calling nested StartWorker(). A nested StartWorker() call makes `this`
+  // enter an invalid state (i.e., `start_callbacks_` is empty even when
+  // `running_status()` is STARTING) so it should not happen.
+  // TODO(crbug.com/1161800): Figure out a way to disallow a callback to
+  // re-enter StartWorker().
+  bool is_running_start_callbacks_ = false;
   std::vector<StatusCallback> start_callbacks_;
   std::vector<base::OnceClosure> stop_callbacks_;
   std::vector<base::OnceClosure> status_change_callbacks_;

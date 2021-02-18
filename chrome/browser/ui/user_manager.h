@@ -10,7 +10,6 @@
 #include "build/build_config.h"
 #include "chrome/browser/profiles/profile_window.h"
 #include "components/signin/public/base/signin_metrics.h"
-#include "content/public/browser/web_contents_delegate.h"
 
 namespace base {
 class FilePath;
@@ -23,17 +22,6 @@ class UserManager {
   // for smaller screens.
   static constexpr int kWindowWidth = 800;
   static constexpr int kWindowHeight = 600;
-
-  // Shows the User Manager or re-activates an existing one, focusing the
-  // profile given by |profile_path_to_focus|; passing an empty base::FilePath
-  // focuses no user pod. Depending on the value of |user_manager_action|,
-  // executes an action once the user manager displays or after a profile is
-  // opened.
-  static void Show(const base::FilePath& profile_path_to_focus,
-                   profiles::UserManagerAction user_manager_action);
-
-  // Hides the User Manager.
-  static void Hide();
 
   // Returns whether the User Manager is showing and active.
   // TODO(zmin): Rename the function to something less confusing.
@@ -52,12 +40,26 @@ class UserManager {
   static base::FilePath GetSigninProfilePath();
 
  private:
+  friend class UserManagerScreenHandler;
+  friend class SigninCreateProfileHandler;
+
+  // Deprecated. User ProfilePicker::Show
+  static void Show(const base::FilePath& profile_path_to_focus,
+                   profiles::UserManagerAction user_manager_action);
+
+  // Deprecated. User ProfilePicker::Hide
+  static void Hide();
+
   DISALLOW_IMPLICIT_CONSTRUCTORS(UserManager);
 };
 
+// Deprecated. User ProfilePickerForceSigninDialog instead.
 // Dialog that will be displayed when a profile is selected in UserManager.
 class UserManagerProfileDialog {
- public:
+ private:
+  friend class UserManagerScreenHandler;
+  friend class SigninCreateProfileHandler;
+
   // Dimensions of the reauth dialog displaying the password-separated signin
   // flow.
   static constexpr int kDialogHeight = 512;
@@ -90,30 +92,6 @@ class UserManagerProfileDialog {
 
   // Hides the dialog if it is showing.
   static void HideDialog();
-
-  // Abstract base class for performing online reauthentication of profiles in
-  // the User Manager. It is concretely implemented in UserManagerMac and
-  // UserManagerView to specialize the closing of the UI's dialog widgets.
-  class BaseDialogDelegate : public content::WebContentsDelegate {
-   public:
-    BaseDialogDelegate();
-
-    // content::WebContentsDelegate:
-    bool HandleContextMenu(content::RenderFrameHost* render_frame_host,
-                           const content::ContextMenuParams& params) override;
-
-    // content::WebContentsDelegate:
-    void LoadingStateChanged(content::WebContents* source,
-                             bool to_different_document) override;
-
-   protected:
-    virtual void CloseDialog() = 0;
-
-    // WebContents of the embedded WebView.
-    content::WebContents* guest_web_contents_;
-
-    DISALLOW_COPY_AND_ASSIGN(BaseDialogDelegate);
-  };
 };
 
 #endif  // CHROME_BROWSER_UI_USER_MANAGER_H_

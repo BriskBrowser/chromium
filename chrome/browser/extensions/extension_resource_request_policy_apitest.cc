@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/command_line.h"
+#include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/ui/browser.h"
@@ -229,27 +230,14 @@ IN_PROC_BROWSER_TEST_F(ExtensionResourceRequestPolicyTest, Audio) {
       << message_;
 }
 
-#if defined(OS_MAC) || defined(OS_WIN)
-// http://crbug.com/238733 - Video is flaky on Mac and Win.
-#define MAYBE_Video DISABLED_Video
-#else
-#define MAYBE_Video Video
-#endif
-
-IN_PROC_BROWSER_TEST_F(ExtensionResourceRequestPolicyTest, MAYBE_Video) {
+IN_PROC_BROWSER_TEST_F(ExtensionResourceRequestPolicyTest, Video) {
   EXPECT_TRUE(RunExtensionSubtest(
       "extension_resource_request_policy/extension2", "video.html"))
       << message_;
 }
 
-// This test times out regularly on win_rel trybots. See http://crbug.com/122154
-#if defined(OS_WIN)
-#define MAYBE_WebAccessibleResources DISABLED_WebAccessibleResources
-#else
-#define MAYBE_WebAccessibleResources WebAccessibleResources
-#endif
 IN_PROC_BROWSER_TEST_F(ExtensionResourceRequestPolicyTest,
-                       MAYBE_WebAccessibleResources) {
+                       WebAccessibleResources) {
   std::string result;
   ASSERT_TRUE(LoadExtension(test_data_dir_
       .AppendASCII("extension_resource_request_policy")

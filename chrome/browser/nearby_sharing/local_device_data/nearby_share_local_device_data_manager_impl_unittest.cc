@@ -7,7 +7,7 @@
 #include <string>
 
 #include "base/optional.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "chrome/browser/nearby_sharing/client/fake_nearby_share_client.h"
 #include "chrome/browser/nearby_sharing/common/nearby_share_prefs.h"
 #include "chrome/browser/nearby_sharing/local_device_data/fake_nearby_share_device_data_updater.h"
@@ -23,7 +23,11 @@
 
 namespace {
 
-const char kFakeDeviceName[] = "Barack Obama's Chromebook";
+const char kFakeDefaultDeviceName[] = "Barack's Chromebook";
+const char kFakeDeviceName[] = "My Cool Chromebook";
+const char kFakeEmptyDeviceName[] = "";
+const char kFakeTooLongDeviceName[] = "this string is 33 bytes in UTF-8!";
+const char kFakeInvalidDeviceName[] = {0xC0, 0x00};
 const char kFakeFullName[] = "Barack Obama";
 const char kFakeIconUrl[] = "https://www.google.com";
 
@@ -106,7 +110,7 @@ class NearbyShareLocalDeviceDataManagerImplTest
 
   void CreateManager() {
     manager_ = NearbyShareLocalDeviceDataManagerImpl::Factory::Create(
-        &pref_service_, &http_client_factory_);
+        &pref_service_, &http_client_factory_, kFakeDefaultDeviceName);
     manager_->AddObserver(this);
     ++num_manager_creations_;
     VerifyInitialization();
@@ -223,7 +227,7 @@ class NearbyShareLocalDeviceDataManagerImplTest
             scheduler_factory_.pref_name_to_periodic_instance().at(
                 prefs::kNearbySharingSchedulerDownloadDeviceDataPrefName);
     EXPECT_TRUE(device_data_scheduler_instance.fake_scheduler);
-    EXPECT_EQ(base::TimeDelta::FromHours(1),
+    EXPECT_EQ(base::TimeDelta::FromHours(12),
               device_data_scheduler_instance.request_period);
     EXPECT_TRUE(device_data_scheduler_instance.retry_failures);
     EXPECT_TRUE(device_data_scheduler_instance.require_connectivity);
@@ -255,16 +259,55 @@ TEST_F(NearbyShareLocalDeviceDataManagerImplTest, DeviceId) {
   EXPECT_EQ(id, manager()->GetId());
 }
 
+TEST_F(NearbyShareLocalDeviceDataManagerImplTest, ValidateDeviceName) {
+  CreateManager();
+  EXPECT_EQ(manager()->ValidateDeviceName(kFakeDeviceName),
+            nearby_share::mojom::DeviceNameValidationResult::kValid);
+  EXPECT_EQ(manager()->ValidateDeviceName(kFakeEmptyDeviceName),
+            nearby_share::mojom::DeviceNameValidationResult::kErrorEmpty);
+  EXPECT_EQ(manager()->ValidateDeviceName(kFakeTooLongDeviceName),
+            nearby_share::mojom::DeviceNameValidationResult::kErrorTooLong);
+  EXPECT_EQ(
+      manager()->ValidateDeviceName(kFakeInvalidDeviceName),
+      nearby_share::mojom::DeviceNameValidationResult::kErrorNotValidUtf8);
+}
+
 TEST_F(NearbyShareLocalDeviceDataManagerImplTest, SetDeviceName) {
   CreateManager();
+
+  // The default device name is set in the ctor when the device name is empty.
+  // No notification is received because we can't add an observer until the
+  // object is fully constructed.
+  EXPECT_EQ(kFakeDefaultDeviceName, manager()->GetDeviceName());
   EXPECT_TRUE(notifications().empty());
-  manager()->SetDeviceName(kFakeDeviceName);
+
+  auto error = manager()->SetDeviceName(kFakeEmptyDeviceName);
+  EXPECT_EQ(error,
+            nearby_share::mojom::DeviceNameValidationResult::kErrorEmpty);
+  EXPECT_EQ(kFakeDefaultDeviceName, manager()->GetDeviceName());
+  EXPECT_TRUE(notifications().empty());
+
+  error = manager()->SetDeviceName(kFakeTooLongDeviceName);
+  EXPECT_EQ(error,
+            nearby_share::mojom::DeviceNameValidationResult::kErrorTooLong);
+  EXPECT_EQ(kFakeDefaultDeviceName, manager()->GetDeviceName());
+  EXPECT_TRUE(notifications().empty());
+
+  error = manager()->SetDeviceName(kFakeInvalidDeviceName);
+  EXPECT_EQ(
+      error,
+      nearby_share::mojom::DeviceNameValidationResult::kErrorNotValidUtf8);
+  EXPECT_EQ(kFakeDefaultDeviceName, manager()->GetDeviceName());
+  EXPECT_TRUE(notifications().empty());
+
+  error = manager()->SetDeviceName(kFakeDeviceName);
+  EXPECT_EQ(error, nearby_share::mojom::DeviceNameValidationResult::kValid);
   EXPECT_EQ(kFakeDeviceName, manager()->GetDeviceName());
   EXPECT_EQ(1u, notifications().size());
   EXPECT_EQ(ObserverNotification(/*did_device_name_change=*/true,
                                  /*did_full_name_change=*/false,
                                  /*did_icon_url_change=*/false),
-            notifications()[0]);
+            notifications().back());
 
   // The data is persisted.
   DestroyManager();

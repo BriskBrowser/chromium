@@ -4,28 +4,25 @@
 
 #import <UIKit/UIKit.h>
 
-#import "base/test/scoped_feature_list.h"
+#import "components/signin/public/base/account_consistency_method.h"
 #import "ios/chrome/browser/ui/authentication/signin_earl_grey.h"
 #import "ios/chrome/browser/ui/authentication/signin_earl_grey_ui.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_earl_grey.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_earl_grey_ui.h"
 #import "ios/chrome/browser/ui/settings/google_services/accounts_table_view_controller_constants.h"
-#import "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
-#import "ios/chrome/test/earl_grey/chrome_test_case.h"
+#import "ios/chrome/test/earl_grey/web_http_server_chrome_test_case.h"
 #import "ios/public/provider/chrome/browser/signin/fake_chrome_identity.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
-using chrome_test_util::ButtonWithAccessibilityLabel;
-using chrome_test_util::ButtonWithAccessibilityLabelId;
 using chrome_test_util::PrimarySignInButton;
 using chrome_test_util::SettingsAccountButton;
 using chrome_test_util::SettingsDoneButton;
@@ -36,12 +33,6 @@ namespace {
 // Constant for timeout while waiting for asynchronous sync operations.
 const NSTimeInterval kSyncOperationTimeout = 10.0;
 
-// Returns a matcher for a button that matches the userEmail in the given
-// |fakeIdentity|.
-id<GREYMatcher> ButtonWithFakeIdentity(FakeChromeIdentity* fakeIdentity) {
-  return ButtonWithAccessibilityLabel(fakeIdentity.userEmail);
-}
-
 // Returns a matcher for when there are no bookmarks saved.
 id<GREYMatcher> NoBookmarksLabel() {
   return grey_text(l10n_util::GetNSString(IDS_IOS_BOOKMARK_NO_BOOKMARKS_LABEL));
@@ -49,7 +40,7 @@ id<GREYMatcher> NoBookmarksLabel() {
 }
 
 // Integration tests using the Account Settings screen.
-@interface AccountCollectionsTestCase : ChromeTestCase
+@interface AccountCollectionsTestCase : WebHttpServerChromeTestCase
 @end
 
 @implementation AccountCollectionsTestCase
@@ -131,16 +122,7 @@ id<GREYMatcher> NoBookmarksLabel() {
   [ChromeEarlGreyUI openSettingsMenu];
   [ChromeEarlGreyUI tapSettingsMenuButton:SettingsAccountButton()];
 
-  // Remove |fakeIdentity2| from the device.
-  if (base::FeatureList::IsEnabled(kEnableMyGoogle)) {
-    [SigninEarlGreyUI tapRemoveAccountFromDeviceWithFakeIdentity:fakeIdentity2];
-  } else {
-    [[EarlGrey selectElementWithMatcher:ButtonWithFakeIdentity(fakeIdentity2)]
-        performAction:grey_tap()];
-    [[EarlGrey selectElementWithMatcher:ButtonWithAccessibilityLabel(
-                                            @"Remove account")]
-        performAction:grey_tap()];
-  }
+  [SigninEarlGreyUI tapRemoveAccountFromDeviceWithFakeIdentity:fakeIdentity2];
 
   // Check that |fakeIdentity2| isn't available anymore on the Account Settings.
   [[EarlGrey
@@ -164,16 +146,8 @@ id<GREYMatcher> NoBookmarksLabel() {
   [ChromeEarlGreyUI openSettingsMenu];
   [ChromeEarlGreyUI tapSettingsMenuButton:SettingsAccountButton()];
 
-  // Remove |fakeIdentity| from the device.
-  if (base::FeatureList::IsEnabled(kEnableMyGoogle)) {
-    [SigninEarlGreyUI tapRemoveAccountFromDeviceWithFakeIdentity:fakeIdentity];
-  } else {
-    [[EarlGrey selectElementWithMatcher:ButtonWithFakeIdentity(fakeIdentity)]
-        performAction:grey_tap()];
-    [[EarlGrey selectElementWithMatcher:ButtonWithAccessibilityLabel(
-                                            @"Remove account")]
-        performAction:grey_tap()];
-  }
+  [SigninEarlGreyUI tapRemoveAccountFromDeviceWithFakeIdentity:fakeIdentity];
+
   // Check that the user is signed out and the Main Settings screen is shown.
   [[EarlGrey selectElementWithMatcher:PrimarySignInButton()]
       assertWithMatcher:grey_sufficientlyVisible()];
@@ -226,11 +200,17 @@ id<GREYMatcher> NoBookmarksLabel() {
 
   // Open the Bookmarks screen on the Tools menu.
   [BookmarkEarlGreyUI openBookmarks];
-  [BookmarkEarlGreyUI openMobileBookmarks];
 
   // Assert that there are no bookmarks.
-  [[EarlGrey selectElementWithMatcher:NoBookmarksLabel()]
-      assertWithMatcher:grey_notNil()];
+  if ([ChromeEarlGrey isIllustratedEmptyStatesEnabled]) {
+    // The empty background appears in the root directory if the leaf folders
+    // are empty.
+    [BookmarkEarlGreyUI verifyEmptyBackgroundAppears];
+  } else {
+    [BookmarkEarlGreyUI openMobileBookmarks];
+    [[EarlGrey selectElementWithMatcher:NoBookmarksLabel()]
+        assertWithMatcher:grey_notNil()];
+  }
 }
 
 // Tests that signing out from a managed user account clears the user's data.
@@ -249,11 +229,34 @@ id<GREYMatcher> NoBookmarksLabel() {
 
   // Open the Bookmarks screen on the Tools menu.
   [BookmarkEarlGreyUI openBookmarks];
-  [BookmarkEarlGreyUI openMobileBookmarks];
 
   // Assert that there are no bookmarks.
-  [[EarlGrey selectElementWithMatcher:NoBookmarksLabel()]
-      assertWithMatcher:grey_notNil()];
+  if ([ChromeEarlGrey isIllustratedEmptyStatesEnabled]) {
+    // The empty background appears in the root directory if the leaf folders
+    // are empty.
+    [BookmarkEarlGreyUI verifyEmptyBackgroundAppears];
+  } else {
+    [BookmarkEarlGreyUI openMobileBookmarks];
+    [[EarlGrey selectElementWithMatcher:NoBookmarksLabel()]
+        assertWithMatcher:grey_notNil()];
+  }
+}
+
+// Tests that given two accounts A and B that are available on the device -
+// signing in and out from account A, then signing in to account B, properly
+// identifies the user with account B.
+- (void)testSwitchingAccountsWithClearedData {
+  FakeChromeIdentity* fakeIdentity1 = [SigninEarlGrey fakeIdentity1];
+  FakeChromeIdentity* fakeIdentity2 = [SigninEarlGrey fakeIdentity2];
+  [SigninEarlGrey addFakeIdentity:fakeIdentity1];
+  [SigninEarlGrey addFakeIdentity:fakeIdentity2];
+
+  [SigninEarlGreyUI signinWithFakeIdentity:fakeIdentity1];
+  [SigninEarlGrey verifySignedInWithFakeIdentity:fakeIdentity1];
+  [SigninEarlGreyUI signOutAndClearDataFromDevice];
+
+  [SigninEarlGreyUI signinWithFakeIdentity:fakeIdentity2];
+  [SigninEarlGrey verifySignedInWithFakeIdentity:fakeIdentity2];
 }
 
 // Tests that the user isn't signed out and the UI is correct when the

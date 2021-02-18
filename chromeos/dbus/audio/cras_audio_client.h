@@ -12,6 +12,7 @@
 
 #include "base/callback.h"
 #include "base/component_export.h"
+#include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "chromeos/dbus/audio/audio_node.h"
@@ -62,6 +63,11 @@ class COMPONENT_EXPORT(DBUS_AUDIO) CrasAudioClient {
     virtual void BluetoothBatteryChanged(const std::string& address,
                                          uint32_t level);
 
+    // Called when the number of input streams with permission per client type
+    // changed.
+    virtual void NumberOfInputStreamsWithPermissionChanged(
+        const base::flat_map<std::string, uint32_t>& num_input_streams);
+
    protected:
     virtual ~Observer();
   };
@@ -103,6 +109,15 @@ class COMPONENT_EXPORT(DBUS_AUDIO) CrasAudioClient {
   virtual void GetNumberOfActiveOutputStreams(
       DBusMethodCallback<int> callback) = 0;
 
+  // Gets the number of input streams with permission per client type.
+  virtual void GetNumberOfInputStreamsWithPermission(
+      DBusMethodCallback<base::flat_map<std::string, uint32_t>>) = 0;
+
+  // Gets the DeprioritzeBtWbsMic flag. On a few platforms CRAS may
+  // report to deprioritize Bluetooth WBS mic's node priority because
+  // WBS feature is still working to be stabilized.
+  virtual void GetDeprioritizeBtWbsMic(DBusMethodCallback<bool> callback) = 0;
+
   // Sets output volume of the given |node_id| to |volume|, in the rage of
   // [0, 100].
   virtual void SetOutputNodeVolume(uint64_t node_id, int32_t volume) = 0;
@@ -134,8 +149,6 @@ class COMPONENT_EXPORT(DBUS_AUDIO) CrasAudioClient {
 
   // Enables or disables the usage of fixed A2DP packet size in CRAS.
   virtual void SetFixA2dpPacketSize(bool enabled) = 0;
-  // Enables or disables the next Handsfree profile next version in CRAS.
-  virtual void SetNextHandsfreeProfile(bool enabled) = 0;
 
   // Adds input node |node_id| to the active input list. This is used to add
   // an additional active input node besides the one set by SetActiveInputNode.
@@ -186,6 +199,9 @@ class COMPONENT_EXPORT(DBUS_AUDIO) CrasAudioClient {
   // Sets the current media metadata including Title, Album, and Artist.
   virtual void SetPlayerMetadata(
       const std::map<std::string, std::string>& metadata) = 0;
+
+  // Asks Cras to resend battery level for Bluetooth device if exists .
+  virtual void ResendBluetoothBattery() = 0;
 
   // Runs the callback as soon as the service becomes available.
   virtual void WaitForServiceToBeAvailable(

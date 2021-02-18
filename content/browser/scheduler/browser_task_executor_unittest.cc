@@ -10,10 +10,10 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/mock_callback.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -136,11 +136,6 @@ class BrowserTaskTraitsMappingTest : public BrowserTaskExecutorTest {
   class TestExecutor : public BaseBrowserTaskExecutor {
    public:
     ~TestExecutor() override = default;
-
-    BrowserThread::ID GetCurrentThreadID() const override {
-      NOTREACHED();
-      return BrowserThread::UI;
-    }
   };
 
  private:

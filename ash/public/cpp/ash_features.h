@@ -21,6 +21,10 @@ ASH_PUBLIC_EXPORT extern const base::Feature kAllowAmbientEQ;
 // certain devices.
 ASH_PUBLIC_EXPORT extern const base::Feature kAutoNightLight;
 
+// Enables the Bento feature which encapsulate multiple sub-features which
+// improve virtual desks.
+ASH_PUBLIC_EXPORT extern const base::Feature kBento;
+
 // Enables the Capture Mode feature which is an enhanced screenshot and screen
 // capture user experience.
 ASH_PUBLIC_EXPORT extern const base::Feature kCaptureMode;
@@ -42,14 +46,14 @@ ASH_PUBLIC_EXPORT extern const base::Feature kDisplayIdentification;
 // https://crbug.com/709824.
 ASH_PUBLIC_EXPORT extern const base::Feature kDockedMagnifier;
 
-// Enables dragging and snapping an overview window in clamshell mode.
-// TODO(crbug.com/890029): Remove this when the feature is fully launched.
-ASH_PUBLIC_EXPORT extern const base::Feature kDragToSnapInClamshellMode;
-
 // Enables chaining of keyboard and touchpad swipe induced desk animations.
 // Enables continuous touchpad swiping to switch desks.
 // TODO(crbug.com/1111445): Remove this when the feature is fully launched.
 ASH_PUBLIC_EXPORT extern const base::Feature kEnhancedDeskAnimations;
+
+// Enables the full restore feature. If this is enabled, we will restore apps
+// and app windows after a crash or reboot.
+ASH_PUBLIC_EXPORT extern const base::Feature kFullRestore;
 
 // Limits the windows listed in Alt-Tab to the ones in the currently active
 // desk.
@@ -82,6 +86,10 @@ ASH_PUBLIC_EXPORT extern const base::Feature kHideArcMediaNotifications;
 // TODO(chinsenj): Remove this when the feature is fully launched.
 ASH_PUBLIC_EXPORT extern const base::Feature kInteractiveWindowCycleList;
 
+// Enables using arrow keys for display arrangement in display settings page.
+ASH_PUBLIC_EXPORT extern const base::Feature
+    kKeyboardBasedDisplayArrangementInSettings;
+
 // Enables the redesigned managed device info UI in the system tray.
 ASH_PUBLIC_EXPORT extern const base::Feature kManagedDeviceUIRedesign;
 
@@ -96,10 +104,6 @@ ASH_PUBLIC_EXPORT extern const base::Feature kMediaNotificationsCounter;
 
 // Enables resizing/moving the selection region for partial screenshot.
 ASH_PUBLIC_EXPORT extern const base::Feature kMovablePartialScreenshot;
-
-// Enables multi-display support for overview and split view.
-// TODO(crbug.com/952461): Remove this when the feature is fully launched.
-ASH_PUBLIC_EXPORT extern const base::Feature kMultiDisplayOverviewAndSplitView;
 
 // Enables the Night Light feature.
 ASH_PUBLIC_EXPORT extern const base::Feature kNightLight;
@@ -140,9 +144,6 @@ ASH_PUBLIC_EXPORT extern const base::Feature kUseBluetoothSystemInAsh;
 ASH_PUBLIC_EXPORT extern const base::Feature
     kSwapSideVolumeButtonsForOrientation;
 
-// Enables shelf app scaling.
-ASH_PUBLIC_EXPORT extern const base::Feature kShelfAppScaling;
-
 // Enables background blur for the app list, shelf, unified system tray,
 // autoclick menu, etc. Also enables the AppsGridView mask layer, slower devices
 // may have choppier app list animations while in this mode. crbug.com/765292.
@@ -153,14 +154,20 @@ ASH_PUBLIC_EXPORT extern const base::Feature kEnableBackgroundBlur;
 // preferences, or policy).
 ASH_PUBLIC_EXPORT extern const base::Feature kHideShelfControlsInTabletMode;
 
-// Same as kHideShelfCOntrolsInTabletMode, but enabled by default. Used if the
-// current board is allowlisted for the feature.
-ASH_PUBLIC_EXPORT extern const base::Feature
-    kHideShelfControlsInTabletModeForAllowedBoards;
+// When enabled, the overivew and desk reverse scrolling behaviors are changed
+// and if the user performs the old gestures, a notification or toast will show
+// up.
+// TODO(https://crbug.com/1107183): Remove this after the feature is launched.
+ASH_PUBLIC_EXPORT extern const base::Feature kReverseScrollGestures;
 
-// Enables sliders for setting mic gain levels in the more audio settings
-// section in the system tray.
-ASH_PUBLIC_EXPORT extern const base::Feature kSystemTrayMicGainSetting;
+// When enabled, there will be an alert bubble showing up when the device
+// returns from low brightness (e.g., sleep, closed cover) without a lock screen
+// and the active window is in fullscreen.
+// TODO(https://crbug.com/1107185): Remove this after the feature is launched.
+ASH_PUBLIC_EXPORT extern const base::Feature kFullscreenAlertBubble;
+
+// Enables battery indicator for styluses in the palette tray
+ASH_PUBLIC_EXPORT extern const base::Feature kStylusBatteryStatus;
 
 // Enables special handling of Chrome tab drags from a WebUI tab strip.
 // These will be treated similarly to a window drag, showing split view
@@ -171,17 +178,20 @@ ASH_PUBLIC_EXPORT extern const base::Feature kWebUITabStripTabDragIntegration;
 // Enables notifications to be shown within context menus.
 ASH_PUBLIC_EXPORT extern const base::Feature kNotificationsInContextMenu;
 
-// Preserve shelf state when entering and exiting overview mode.
-ASH_PUBLIC_EXPORT extern const base::Feature
-    kMaintainShelfStateWhenEnteringOverview;
-
 // Enables the experimental productivity feature that aims to reduce context
 // switching by enabling users to collect content and transfer or access it
 // later.
 ASH_PUBLIC_EXPORT extern const base::Feature kTemporaryHoldingSpace;
 
+// Enables previews in the shelf for the `kTemporaryHoldingSpace` feature. Note
+// that this has no effect if the `kTemporaryHoldingSpace` feature is disabled.
+ASH_PUBLIC_EXPORT extern const base::Feature kTemporaryHoldingSpacePreviews;
+
 // Enables dragging an unpinned open app to pinned app side to pin.
 ASH_PUBLIC_EXPORT extern const base::Feature kDragUnpinnedAppToPin;
+
+// Enables the system tray to show more information in larger screen.
+ASH_PUBLIC_EXPORT extern const base::Feature kScalableStatusArea;
 
 ASH_PUBLIC_EXPORT bool IsAllowAmbientEQEnabled();
 
@@ -191,13 +201,19 @@ ASH_PUBLIC_EXPORT bool IsPerDeskShelfEnabled();
 
 ASH_PUBLIC_EXPORT bool IsAutoNightLightEnabled();
 
+ASH_PUBLIC_EXPORT bool IsBentoEnabled();
+
 ASH_PUBLIC_EXPORT bool IsCaptureModeEnabled();
 
 ASH_PUBLIC_EXPORT bool IsDarkLightModeEnabled();
 
 ASH_PUBLIC_EXPORT bool IsEnhancedDeskAnimations();
 
+ASH_PUBLIC_EXPORT bool IsFullRestoreEnabled();
+
 ASH_PUBLIC_EXPORT bool IsHideArcMediaNotificationsEnabled();
+
+ASH_PUBLIC_EXPORT bool IsKeyboardBasedDisplayArrangementInSettingsEnabled();
 
 ASH_PUBLIC_EXPORT bool IsKeyboardShortcutViewerAppEnabled();
 
@@ -227,15 +243,17 @@ ASH_PUBLIC_EXPORT bool IsSwapSideVolumeButtonsForOrientationEnabled();
 
 ASH_PUBLIC_EXPORT bool IsBackgroundBlurEnabled();
 
-ASH_PUBLIC_EXPORT bool IsDragFromShelfToHomeOrOverviewEnabled();
-
 ASH_PUBLIC_EXPORT bool IsReduceDisplayNotificationsEnabled();
 
 ASH_PUBLIC_EXPORT bool IsHideShelfControlsInTabletModeEnabled();
 
+ASH_PUBLIC_EXPORT bool IsReverseScrollGesturesEnabled();
+
+ASH_PUBLIC_EXPORT bool IsFullscreenAlertBubbleEnabled();
+
 ASH_PUBLIC_EXPORT bool AreContextualNudgesEnabled();
 
-ASH_PUBLIC_EXPORT bool IsSystemTrayMicGainSettingEnabled();
+ASH_PUBLIC_EXPORT bool IsStylusBatteryStatusEnabled();
 
 ASH_PUBLIC_EXPORT bool IsDisplayIdentificationEnabled();
 
@@ -245,15 +263,15 @@ ASH_PUBLIC_EXPORT bool IsDisplayAlignmentAssistanceEnabled();
 
 ASH_PUBLIC_EXPORT bool IsMovablePartialScreenshotEnabled();
 
-ASH_PUBLIC_EXPORT bool IsAppScalingEnabled();
-
 ASH_PUBLIC_EXPORT bool IsNotificationsInContextMenuEnabled();
-
-ASH_PUBLIC_EXPORT bool IsMaintainShelfStateWhenEnteringOverviewEnabled();
 
 ASH_PUBLIC_EXPORT bool IsTemporaryHoldingSpaceEnabled();
 
+ASH_PUBLIC_EXPORT bool IsTemporaryHoldingSpacePreviewsEnabled();
+
 ASH_PUBLIC_EXPORT bool IsDragUnpinnedAppToPinEnabled();
+
+ASH_PUBLIC_EXPORT bool IsScalableStatusAreaEnabled();
 
 // These two functions are supposed to be temporary functions to set or get
 // whether "WebUITabStrip" feature is enabled from Chrome.

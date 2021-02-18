@@ -17,6 +17,7 @@
 #include "content/public/common/content_features.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/views/layout/box_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace {
 
@@ -49,7 +50,7 @@ void ShowStoragePressureBubble(const url::Origin origin) {
 
 void StoragePressureBubbleView::ShowBubble(const url::Origin origin) {
   Browser* browser = BrowserList::GetInstance()->GetLastActive();
-  if (!browser || !base::FeatureList::IsEnabled(features::kStoragePressureUI))
+  if (!browser)
     return;
 
   StoragePressureBubbleView* bubble = new StoragePressureBubbleView(
@@ -120,8 +121,7 @@ void StoragePressureBubbleView::Init() {
   text_label->SetLineHeight(20);
   text_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   text_label->SizeToFit(
-      provider->GetDistanceMetric(
-          ChromeDistanceMetric::DISTANCE_BUBBLE_PREFERRED_WIDTH) -
+      provider->GetDistanceMetric(views::DISTANCE_BUBBLE_PREFERRED_WIDTH) -
       margins().width());
   AddChildView(std::move(text_label));
 }
@@ -129,3 +129,6 @@ void StoragePressureBubbleView::Init() {
 bool StoragePressureBubbleView::ShouldShowCloseButton() const {
   return true;
 }
+
+BEGIN_METADATA(StoragePressureBubbleView, views::BubbleDialogDelegateView)
+END_METADATA

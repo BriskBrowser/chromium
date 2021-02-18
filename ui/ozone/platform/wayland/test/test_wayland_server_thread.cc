@@ -36,6 +36,10 @@ TestWaylandServerThread::~TestWaylandServerThread() {
   if (client_)
     wl_client_destroy(client_);
 
+  // Stop watching the descriptor here to guarantee that no new events will come
+  // during or after the destruction of the display.
+  controller_.StopWatchingFileDescriptor();
+
   Resume();
   Stop();
 }
@@ -57,6 +61,8 @@ bool TestWaylandServerThread::Start(uint32_t shell_version) {
   if (!compositor_.Initialize(display_.get()))
     return false;
   if (!sub_compositor_.Initialize(display_.get()))
+    return false;
+  if (!viewporter_.Initialize(display_.get()))
     return false;
   if (!output_.Initialize(display_.get()))
     return false;
@@ -144,7 +150,8 @@ TestWaylandServerThread::CreateMessagePump() {
 
 void TestWaylandServerThread::OnFileCanReadWithoutBlocking(int fd) {
   wl_event_loop_dispatch(event_loop_, 0);
-  wl_display_flush_clients(display_.get());
+  if (display_)
+    wl_display_flush_clients(display_.get());
 }
 
 void TestWaylandServerThread::OnFileCanWriteWithoutBlocking(int fd) {}

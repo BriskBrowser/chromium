@@ -26,6 +26,7 @@ namespace chromeos {
 // Style Note: Clients are sorted by names.
 class AnomalyDetectorClient;
 class ArcAppfuseProviderClient;
+class ArcDataSnapshotdClient;
 class ArcKeymasterClient;
 class ArcMidisClient;
 class ArcObbMounterClient;
@@ -118,6 +119,7 @@ class COMPONENT_EXPORT(CHROMEOS_DBUS) DBusThreadManager {
   // http://crbug.com/647367
   AnomalyDetectorClient* GetAnomalyDetectorClient();
   ArcAppfuseProviderClient* GetArcAppfuseProviderClient();
+  ArcDataSnapshotdClient* GetArcDataSnapshotdClient();
   ArcKeymasterClient* GetArcKeymasterClient();
   ArcMidisClient* GetArcMidisClient();
   ArcObbMounterClient* GetArcObbMounterClient();
@@ -202,5 +204,10 @@ class COMPONENT_EXPORT(CHROMEOS_DBUS) DBusThreadManagerSetter {
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after moved to ash.
+namespace ash {
+using ::chromeos::DBusThreadManager;
+}
 
 #endif  // CHROMEOS_DBUS_DBUS_THREAD_MANAGER_H_

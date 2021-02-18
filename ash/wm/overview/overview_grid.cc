@@ -22,6 +22,8 @@
 #include "ash/rotator/screen_rotation_animator.h"
 #include "ash/screen_util.h"
 #include "ash/shell.h"
+#include "ash/strings/grit/ash_strings.h"
+#include "ash/system/toast/toast_manager_impl.h"
 #include "ash/wallpaper/wallpaper_controller_impl.h"
 #include "ash/wm/desks/desk_mini_view.h"
 #include "ash/wm/desks/desk_name_view.h"
@@ -56,6 +58,7 @@
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/aura/client/aura_constants.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/compositor/throughput_tracker.h"
 #include "ui/gfx/geometry/vector2d_f.h"
@@ -89,6 +92,12 @@ constexpr base::TimeDelta kOcclusionUnpauseDurationForScroll =
 
 constexpr base::TimeDelta kOcclusionUnpauseDurationForRotation =
     base::TimeDelta::FromMilliseconds(300);
+
+// Toast id for the toast that is displayed when a user tries to move a window
+// that is visible on all desks to another desk.
+constexpr char kMoveVisibleOnAllDesksWindowToastId[] =
+    "ash.wm.overview.move_visible_on_all_desks_window_toast";
+constexpr int kToastDurationMs = 2500;
 
 // Histogram names for overview enter/exit smoothness in clamshell,
 // tablet mode and splitview.
@@ -596,7 +605,9 @@ void OverviewGrid::RemoveItem(OverviewItem* overview_item,
   DCHECK(iter != window_list_.rend());
 
   // This can also be called when shutting down |this|, at which the item will
-  // be cleaning up and its associated view may be nullptr.
+  // be cleaning up and its associated view may be nullptr. |overview_item|
+  // needs to still be in |window_list_| so we can compute what the deleted
+  // index is.
   if (overview_session_ && (*iter)->overview_item_view()) {
     overview_session_->highlight_controller()->OnViewDestroyingOrDisabling(
         (*iter)->overview_item_view());
@@ -934,13 +945,6 @@ void OverviewGrid::OnSplitViewStateChanged(
       split_view_controller->end_reason() ==
           SplitViewController::EndReason::kUnsnappableWindowActivated;
 
-  // Restore focus unless either a window was just snapped (and activated) or
-  // split view mode was ended by activating an unsnappable window.
-  if (state != SplitViewController::State::kNoSnap ||
-      unsnappable_window_activated) {
-    overview_session_->ResetFocusRestoreWindow(false);
-  }
-
   // If two windows were snapped to both sides of the screen or an unsnappable
   // window was just activated, or we're in single split mode in clamshell mode
   // and there is no window in overview, end overview mode and bail out.
@@ -948,6 +952,7 @@ void OverviewGrid::OnSplitViewStateChanged(
       unsnappable_window_activated ||
       (split_view_controller->InClamshellSplitViewMode() &&
        overview_session_->IsEmpty())) {
+    overview_session_->RestoreWindowActivation(false);
     overview_controller->EndOverview();
     return;
   }
@@ -1302,40 +1307,6 @@ void OverviewGrid::EndNudge() {
   nudge_data_.clear();
 }
 
-void OverviewGrid::SlideWindowsIn() {
-  for (const auto& window_item : window_list_)
-    window_item->SlideWindowIn();
-}
-
-std::unique_ptr<ui::ScopedLayerAnimationSettings>
-OverviewGrid::UpdateYPositionAndOpacity(
-    float new_y,
-    float opacity,
-    OverviewSession::UpdateAnimationSettingsCallback callback) {
-  std::unique_ptr<ui::ScopedLayerAnimationSettings> settings_to_observe;
-  if (desks_widget_) {
-    aura::Window* window = desks_widget_->GetNativeWindow();
-    ui::Layer* layer = window->layer();
-    if (!callback.is_null()) {
-      settings_to_observe = std::make_unique<ui::ScopedLayerAnimationSettings>(
-          layer->GetAnimator());
-      callback.Run(settings_to_observe.get());
-    }
-    window->SetTransform(gfx::Transform(1.f, 0.f, 0.f, 1.f, 0.f, -new_y));
-    layer->SetOpacity(opacity);
-  }
-
-  // Translate the window items to |new_y| with the opacity. Observe the
-  // animation of the last item, if any.
-  for (const auto& window_item : window_list_) {
-    auto new_settings =
-        window_item->UpdateYPositionAndOpacity(new_y, opacity, callback);
-    if (new_settings)
-      settings_to_observe = std::move(new_settings);
-  }
-  return settings_to_observe;
-}
-
 aura::Window* OverviewGrid::GetTargetWindowOnLocation(
     const gfx::PointF& location_in_screen,
     OverviewItem* ignored_item) {
@@ -1353,7 +1324,8 @@ bool OverviewGrid::IsDesksBarViewActive() const {
 
   // The desk bar view is not active if there is only a single desk when
   // overview is started. Once there are more than one desk, it should stay
-  // active even if the 2nd to last desk is deleted.
+  // active even if the 2nd to last desk is deleted in classic desks. Zero state
+  // desks bar in Bento should not be treated as active.
   return DesksController::Get()->desks().size() > 1 ||
          (desks_bar_view_ && !desks_bar_view_->mini_views().empty());
 }
@@ -1389,10 +1361,25 @@ bool OverviewGrid::MaybeDropItemOnDeskMiniView(
     OverviewItem* drag_item) {
   DCHECK(desks_util::ShouldDesksBarBeCreated());
 
+  aura::Window* const dragged_window = drag_item->GetWindow();
+  const bool dragged_window_is_visible_on_all_desks =
+      dragged_window &&
+      dragged_window->GetProperty(aura::client::kVisibleOnAllWorkspacesKey);
   // End the drag for the DesksBarView.
   if (!IntersectsWithDesksBar(screen_location,
-                              /*update_desks_bar_drag_details=*/true,
+                              /*update_desks_bar_drag_details=*/
+                              !dragged_window_is_visible_on_all_desks,
                               /*for_drop=*/true)) {
+    return false;
+  }
+
+  if (dragged_window_is_visible_on_all_desks) {
+    // Show toast since items that are visible on all desks should not be able
+    // to be unassigned during overview.
+    Shell::Get()->toast_manager()->Show(ToastData(
+        kMoveVisibleOnAllDesksWindowToastId,
+        l10n_util::GetStringUTF16(IDS_ASH_OVERVIEW_VISIBLE_ON_ALL_DESKS_TOAST),
+        kToastDurationMs, base::nullopt));
     return false;
   }
 
@@ -1401,7 +1388,6 @@ bool OverviewGrid::MaybeDropItemOnDeskMiniView(
     if (!mini_view->IsPointOnMiniView(screen_location))
       continue;
 
-    aura::Window* const dragged_window = drag_item->GetWindow();
     Desk* const target_desk = mini_view->desk();
     if (target_desk == desks_controller->active_desk())
       return false;

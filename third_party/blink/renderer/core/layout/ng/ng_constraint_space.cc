@@ -63,23 +63,22 @@ NGConstraintSpace NGConstraintSpace::CreateFromLayoutObject(
     // The flexbox-specific behavior is in addition to regular definite-ness, so
     // if the flex item would normally have a definite height it should keep it.
     fixed_block_is_definite =
-        ToLayoutFlexibleBox(block.Parent())
+        To<LayoutFlexibleBox>(block.Parent())
             ->UseOverrideLogicalHeightForPerentageResolution(block) ||
         block.HasDefiniteLogicalHeight();
   }
 
   const ComputedStyle& style = block.StyleRef();
-  auto writing_mode = style.GetWritingMode();
+  const auto writing_mode = style.GetWritingMode();
   bool parallel_containing_block = IsParallelWritingMode(
       cb ? cb->StyleRef().GetWritingMode() : writing_mode, writing_mode);
-  NGConstraintSpaceBuilder builder(writing_mode, writing_mode,
+  NGConstraintSpaceBuilder builder(writing_mode, style.GetWritingDirection(),
                                    /* is_new_fc */ true,
                                    !parallel_containing_block);
 
   if (!block.IsWritingModeRoot() || block.IsGridItem()) {
     // We don't know if the parent layout will require our baseline, so always
     // request it.
-    builder.SetNeedsBaseline(true);
     builder.SetBaselineAlgorithmType(block.IsInline() &&
                                              block.IsAtomicInlineLevel()
                                          ? NGBaselineAlgorithmType::kInlineBlock
@@ -98,6 +97,10 @@ NGConstraintSpace NGConstraintSpace::CreateFromLayoutObject(
         !cell_style.LogicalHeight().IsAuto() ||
         !table_style.LogicalHeight().IsAuto());
     const LayoutBlock& cell_block = To<LayoutBlock>(*cell.ToLayoutObject());
+    if (fixed_block) {
+      fixed_block_is_definite = cell_block.HasDefiniteLogicalHeight() ||
+                                !table_style.LogicalHeight().IsAuto();
+    }
     builder.SetTableCellBorders(
         {cell_block.BorderStart(), cell_block.BorderEnd(),
          cell_block.BorderBefore(), cell_block.BorderAfter()});
@@ -107,6 +110,9 @@ NGConstraintSpace NGConstraintSpace::CreateFromLayoutObject(
     builder.SetHideTableCellIfEmpty(
         cell_style.EmptyCells() == EEmptyCells::kHide &&
         table_style.BorderCollapse() == EBorderCollapse::kSeparate);
+    builder.SetIsTableCellWithCollapsedBorders(
+        cell_block.Parent()->Parent()->Parent()->StyleRef().BorderCollapse() ==
+        EBorderCollapse::kCollapse);
   }
 
   if (block.IsAtomicInlineLevel() || block.IsFlexItem() || block.IsGridItem() ||
@@ -118,17 +124,15 @@ NGConstraintSpace NGConstraintSpace::CreateFromLayoutObject(
   builder.SetIsFixedInlineSize(fixed_inline);
   builder.SetIsFixedBlockSize(fixed_block);
   builder.SetIsFixedBlockSizeIndefinite(!fixed_block_is_definite);
-  builder.SetIsShrinkToFit(
-      style.LogicalWidth().IsAuto() &&
-      block.SizesLogicalWidthToFitContent(style.LogicalWidth()));
-  builder.SetTextDirection(style.Direction());
+  builder.SetStretchInlineSizeIfAuto(
+      !block.SizesLogicalWidthToFitContent(style.LogicalWidth()));
   return builder.ToConstraintSpace();
 }
 
 String NGConstraintSpace::ToString() const {
   return String::Format("Offset: %s,%s Size: %sx%s Clearance: %s",
-                        bfc_offset_.line_offset.ToString().Ascii().c_str(),
-                        bfc_offset_.block_offset.ToString().Ascii().c_str(),
+                        BfcOffset().line_offset.ToString().Ascii().c_str(),
+                        BfcOffset().block_offset.ToString().Ascii().c_str(),
                         AvailableSize().inline_size.ToString().Ascii().c_str(),
                         AvailableSize().block_size.ToString().Ascii().c_str(),
                         HasClearanceOffset()

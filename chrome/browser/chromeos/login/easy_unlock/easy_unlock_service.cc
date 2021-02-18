@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/guid.h"
 #include "base/logging.h"
@@ -19,6 +19,7 @@
 #include "base/values.h"
 #include "base/version.h"
 #include "build/build_config.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/login/easy_unlock/chrome_proximity_auth_client.h"
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_key_manager.h"
@@ -26,7 +27,6 @@
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_tpm_key_manager.h"
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_tpm_key_manager_factory.h"
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_constants.h"
@@ -97,7 +97,7 @@ class EasyUnlockService::PowerMonitor : public PowerManagerClient::Observer {
     service_->PrepareForSuspend();
   }
 
-  void SuspendDone(const base::TimeDelta& sleep_duration) override {
+  void SuspendDone(base::TimeDelta sleep_duration) override {
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&PowerMonitor::ResetWakingUp,
@@ -105,7 +105,7 @@ class EasyUnlockService::PowerMonitor : public PowerManagerClient::Observer {
         base::TimeDelta::FromSeconds(5));
     service_->OnSuspendDone();
     service_->UpdateAppState();
-    // Note that |this| may get deleted after |UpdateAppState| is called.
+    // Note that `this` may get deleted after `UpdateAppState` is called.
   }
 
   void ResetWakingUp() {
@@ -397,8 +397,9 @@ void EasyUnlockService::CheckCryptohomeKeysAndMaybeHardlock() {
   DCHECK(user);
   key_manager->GetDeviceDataList(
       UserContext(*user),
-      base::Bind(&EasyUnlockService::OnCryptohomeKeysFetchedForChecking,
-                 weak_ptr_factory_.GetWeakPtr(), account_id, paired_devices));
+      base::BindOnce(&EasyUnlockService::OnCryptohomeKeysFetchedForChecking,
+                     weak_ptr_factory_.GetWeakPtr(), account_id,
+                     paired_devices));
 }
 
 void EasyUnlockService::Shutdown() {
@@ -685,7 +686,7 @@ void EasyUnlockService::EnsureTpmKeyPresentIfNeeded() {
   // TODO(tbarzic): Set check_private_key only if previous sign-in attempt
   // failed.
   EasyUnlockTpmKeyManagerFactory::GetInstance()->Get(profile_)->PrepareTpmKey(
-      true /* check_private_key */, base::Closure());
+      /*check_private_key=*/true, base::OnceClosure());
 
   tpm_key_checked_ = true;
 }

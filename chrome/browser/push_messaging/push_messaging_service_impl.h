@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include <memory>
+#include <queue>
 #include <set>
 #include <vector>
 
@@ -18,6 +19,7 @@
 #include "base/optional.h"
 #include "base/scoped_observer.h"
 #include "base/time/time.h"
+#include "chrome/browser/permissions/abusive_origin_permission_revocation_request.h"
 #include "chrome/browser/push_messaging/push_messaging_notification_manager.h"
 #include "chrome/browser/push_messaging/push_messaging_refresher.h"
 #include "chrome/common/buildflags.h"
@@ -40,6 +42,7 @@ class Profile;
 class PushMessagingAppIdentifier;
 class PushMessagingServiceTest;
 class ScopedKeepAlive;
+class ScopedProfileKeepAlive;
 
 namespace blink {
 namespace mojom {
@@ -59,6 +62,19 @@ class GCMDriver;
 namespace instance_id {
 class InstanceIDDriver;
 }  // namespace instance_id
+
+namespace {
+struct PendingMessage {
+  PendingMessage(std::string app_id, gcm::IncomingMessage message);
+  PendingMessage(PendingMessage&& other);
+  ~PendingMessage();
+
+  PendingMessage& operator=(PendingMessage&& other);
+
+  std::string app_id;
+  gcm::IncomingMessage message;
+};
+}  // namespace
 
 class PushMessagingServiceImpl : public content::PushMessagingService,
                                  public gcm::GCMAppHandler,
@@ -127,8 +143,7 @@ class PushMessagingServiceImpl : public content::PushMessagingService,
   // content_settings::Observer implementation.
   void OnContentSettingChanged(const ContentSettingsPattern& primary_pattern,
                                const ContentSettingsPattern& secondary_pattern,
-                               ContentSettingsType content_type,
-                               const std::string& resource_identifier) override;
+                               ContentSettingsType content_type) override;
 
   // Fires the `pushsubscriptionchange` event to the associated service worker
   // of |app_identifier|, which is the app identifier for |old_subscription|
@@ -160,8 +175,9 @@ class PushMessagingServiceImpl : public content::PushMessagingService,
   void OnRefreshFinished(
       const PushMessagingAppIdentifier& app_identifier) override;
 
-  void SetMessageCallbackForTesting(const base::Closure& callback);
-  void SetUnsubscribeCallbackForTesting(const base::Closure& callback);
+  void SetMessageCallbackForTesting(const base::RepeatingClosure& callback);
+  void SetUnsubscribeCallbackForTesting(base::OnceClosure callback);
+  void SetInvalidationCallbackForTesting(base::OnceClosure callback);
   void SetContentSettingChangedCallbackForTesting(
       base::RepeatingClosure callback);
   void SetServiceWorkerUnregisteredCallbackForTesting(
@@ -193,6 +209,19 @@ class PushMessagingServiceImpl : public content::PushMessagingService,
                         const std::string& push_message_id,
                         base::OnceClosure completion_closure,
                         bool did_show_generic_notification);
+
+  void OnCheckedOriginForAbuse(
+      const std::string& app_id,
+      const gcm::IncomingMessage& message,
+      AbusiveOriginPermissionRevocationRequest::Outcome outcome);
+
+  void CheckOriginForAbuseAndDispatchNextMessage();
+
+  base::OnceClosure message_handled_callback() {
+    return message_callback_for_testing_.is_null()
+               ? base::DoNothing()
+               : message_callback_for_testing_;
+  }
 
   // Subscribe methods ---------------------------------------------------------
 
@@ -343,7 +372,7 @@ class PushMessagingServiceImpl : public content::PushMessagingService,
       blink::mojom::PushEventStatus status);
 
   // Checks if a given origin is allowed to use Push.
-  bool IsPermissionSet(const GURL& origin);
+  bool IsPermissionSet(const GURL& origin, bool user_visible = true);
 
   // Wrapper around {GCMDriver, InstanceID}::GetEncryptionInfo.
   void GetEncryptionInfoForAppId(
@@ -363,10 +392,10 @@ class PushMessagingServiceImpl : public content::PushMessagingService,
   // Callback to be invoked when a message has been dispatched. Enables tests to
   // observe message delivery before it's dispatched to the Service Worker.
   using MessageDispatchedCallback =
-      base::Callback<void(const std::string& app_id,
-                          const GURL& origin,
-                          int64_t service_worker_registration_id,
-                          base::Optional<std::string> payload)>;
+      base::RepeatingCallback<void(const std::string& app_id,
+                                   const GURL& origin,
+                                   int64_t service_worker_registration_id,
+                                   base::Optional<std::string> payload)>;
 
   void SetMessageDispatchedCallbackForTesting(
       const MessageDispatchedCallback& callback) {
@@ -374,16 +403,20 @@ class PushMessagingServiceImpl : public content::PushMessagingService,
   }
 
   Profile* profile_;
+  std::unique_ptr<AbusiveOriginPermissionRevocationRequest>
+      abusive_origin_revocation_request_;
+  std::queue<PendingMessage> messages_pending_permission_check_;
 
   int push_subscription_count_;
   int pending_push_subscription_count_;
 
-  base::Closure message_callback_for_testing_;
-  base::Closure unsubscribe_callback_for_testing_;
-  base::Closure content_setting_changed_callback_for_testing_;
-  base::Closure service_worker_unregistered_callback_for_testing_;
-  base::Closure service_worker_database_wiped_callback_for_testing_;
+  base::RepeatingClosure message_callback_for_testing_;
+  base::OnceClosure unsubscribe_callback_for_testing_;
+  base::RepeatingClosure content_setting_changed_callback_for_testing_;
+  base::RepeatingClosure service_worker_unregistered_callback_for_testing_;
+  base::RepeatingClosure service_worker_database_wiped_callback_for_testing_;
   base::OnceClosure remove_expired_subscriptions_callback_for_testing_;
+  base::OnceClosure invalidation_callback_for_testing_;
 
   PushMessagingNotificationManager notification_manager_;
 
@@ -399,8 +432,12 @@ class PushMessagingServiceImpl : public content::PushMessagingService,
 
 #if BUILDFLAG(ENABLE_BACKGROUND_MODE)
   // KeepAlive registered while we have in-flight push messages, to make sure
-  // we can finish processing them without being interrupted.
+  // we can finish processing them without being interrupted by BrowserProcess
+  // teardown.
   std::unique_ptr<ScopedKeepAlive> in_flight_keep_alive_;
+
+  // Same as ScopedKeepAlive, but prevents |profile_| from getting deleted.
+  std::unique_ptr<ScopedProfileKeepAlive> in_flight_profile_keep_alive_;
 #endif
 
   content::NotificationRegistrar registrar_;

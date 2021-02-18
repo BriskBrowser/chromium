@@ -15,6 +15,7 @@
 #include "chromeos/cryptohome/homedir_methods.h"
 #include "chromeos/cryptohome/system_salt_getter.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/login/auth/cryptohome_key_constants.h"
 #include "chromeos/login/auth/user_context.h"
 #include "components/account_id/account_id.h"
 #include "components/user_manager/known_user.h"
@@ -23,9 +24,6 @@ namespace chromeos {
 namespace quick_unlock {
 
 namespace {
-
-// Key label in cryptohome.
-constexpr char kCryptohomePinLabel[] = "pin";
 
 // Read the salt from local state.
 std::string GetSalt(const AccountId& account_id) {
@@ -49,7 +47,7 @@ void OnCryptohomeCallComplete(PinStorageCryptohome::BoolCallback callback,
 }
 
 // Checks to see if there is a KeyDefinition instance with the pin label. If
-// |require_unlocked| is true, the key must not be locked.
+// `require_unlocked` is true, the key must not be locked.
 void CheckCryptohomePinKey(PinStorageCryptohome::BoolCallback callback,
                            bool require_unlocked,
                            base::Optional<cryptohome::BaseReply> reply) {
@@ -91,7 +89,7 @@ void CheckForCryptohomedService(int attempt,
 
 // Called when cryptohomed status is available. If cryptohomed is not available
 // this will rerun the status check (CheckForCryptohomedService) up to N times.
-// |attempt| is the current attempt number.
+// `attempt` is the current attempt number.
 void OnCryptohomedServiceAvailable(int attempt,
                                    PinStorageCryptohome::BoolCallback result,
                                    bool is_available) {
@@ -99,6 +97,7 @@ void OnCryptohomedServiceAvailable(int attempt,
   if (attempt > kMaxRetryTimes) {
     LOG(ERROR) << "Could not talk to cryptohomed";
     std::move(result).Run(false);
+    return;
   }
   if (!is_available) {
     const int retry_delay_in_milliseconds = 500 * (1 << attempt);
@@ -188,7 +187,7 @@ void PinStorageCryptohome::SetPin(const UserContext& user_context,
     key.Transform(Key::KEY_TYPE_SALTED_SHA256_TOP_HALF, system_salt_);
 
   // If the caller provided a salt then this is a migration from prefs-based
-  // PIN, in which case |pin| is already hashed.
+  // PIN, in which case `pin` is already hashed.
   std::string secret;
   std::string salt;
   if (pin_salt) {
@@ -203,9 +202,8 @@ void PinStorageCryptohome::SetPin(const UserContext& user_context,
 
   cryptohome::AddKeyRequest request;
   const cryptohome::KeyDefinition key_def =
-      cryptohome::KeyDefinition::CreateForPassword(
-          secret, kCryptohomePinLabel,
-          cryptohome::PRIV_MOUNT | cryptohome::PRIV_MIGRATE);
+      cryptohome::KeyDefinition::CreateForPassword(secret, kCryptohomePinLabel,
+                                                   cryptohome::PRIV_MIGRATE);
   cryptohome::KeyDefinitionToKey(key_def, request.mutable_key());
   request.mutable_key()
       ->mutable_data()

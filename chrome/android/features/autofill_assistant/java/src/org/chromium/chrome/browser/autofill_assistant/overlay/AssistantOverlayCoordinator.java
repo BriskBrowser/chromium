@@ -5,17 +5,10 @@
 package org.chromium.chrome.browser.autofill_assistant.overlay;
 
 import android.content.Context;
-import android.graphics.Bitmap;
 import android.graphics.RectF;
-import android.text.TextUtils;
-import android.util.DisplayMetrics;
 
-import org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiController;
 import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
 import org.chromium.chrome.browser.compositor.CompositorViewHolder;
-import org.chromium.chrome.browser.image_fetcher.ImageFetcher;
-import org.chromium.chrome.browser.image_fetcher.ImageFetcherConfig;
-import org.chromium.chrome.browser.image_fetcher.ImageFetcherFactory;
 import org.chromium.chrome.browser.util.ChromeAccessibilityUtil;
 import org.chromium.components.browser_ui.widget.scrim.ScrimCoordinator;
 import org.chromium.components.browser_ui.widget.scrim.ScrimProperties;
@@ -33,22 +26,13 @@ public class AssistantOverlayCoordinator {
     private final AssistantOverlayDrawable mDrawable;
     private final CompositorViewHolder mCompositorViewHolder;
     private final ScrimCoordinator mScrim;
-    private final ImageFetcher mImageFetcher;
     private boolean mScrimEnabled;
+    private boolean mScrimSuppressed;
 
     public AssistantOverlayCoordinator(Context context,
             BrowserControlsStateProvider browserControls, CompositorViewHolder compositorViewHolder,
             ScrimCoordinator scrim, AssistantOverlayModel model) {
-        this(context, browserControls, compositorViewHolder, scrim, model,
-                ImageFetcherFactory.createImageFetcher(ImageFetcherConfig.DISK_CACHE_ONLY,
-                        AutofillAssistantUiController.getProfile()));
-    }
-
-    public AssistantOverlayCoordinator(Context context,
-            BrowserControlsStateProvider browserControls, CompositorViewHolder compositorViewHolder,
-            ScrimCoordinator scrim, AssistantOverlayModel model, ImageFetcher imageFetcher) {
         mModel = model;
-        mImageFetcher = imageFetcher;
         mCompositorViewHolder = compositorViewHolder;
         mScrim = scrim;
         mEventFilter =
@@ -86,23 +70,7 @@ public class AssistantOverlayCoordinator {
                 mEventFilter.setTapTrackingDurationMs(
                         model.get(AssistantOverlayModel.TAP_TRACKING_DURATION_MS));
             } else if (AssistantOverlayModel.OVERLAY_IMAGE == propertyKey) {
-                AssistantOverlayImage image = model.get(AssistantOverlayModel.OVERLAY_IMAGE);
-                if (image != null && !TextUtils.isEmpty(image.mImageUrl)) {
-                    DisplayMetrics displayMetrics = context.getResources().getDisplayMetrics();
-                    // TODO(b/143517837) Merge autofill assistant image fetcher UMA names.
-                    ImageFetcher.Params params = ImageFetcher.Params.create(
-                            image.mImageUrl, ImageFetcher.ASSISTANT_DETAILS_UMA_CLIENT_NAME);
-                    mImageFetcher.fetchImage(
-                            params, result -> {
-                                image.mImageBitmap = result != null ? Bitmap.createScaledBitmap(
-                                                             result, image.mImageSizeInPixels,
-                                                             image.mImageSizeInPixels, true)
-                                                                    : null;
-                                mDrawable.setFullOverlayImage(image);
-                            });
-                } else {
-                    mDrawable.setFullOverlayImage(image);
-                }
+                mDrawable.setFullOverlayImage(model.get(AssistantOverlayModel.OVERLAY_IMAGE));
             }
         });
     }
@@ -122,9 +90,29 @@ public class AssistantOverlayCoordinator {
     }
 
     /**
+     * Suppress the Scrim.
+     */
+    public void suppress() {
+        mScrimSuppressed = true;
+        setScrimEnabled(false);
+    }
+
+    /**
+     * Restore the Scrim to the current state.
+     */
+    public void restore() {
+        mScrimSuppressed = false;
+        setState(mModel.get(AssistantOverlayModel.STATE));
+    }
+
+    /**
      * Set the overlay state.
      */
     private void setState(@AssistantOverlayState int state) {
+        if (mScrimSuppressed) {
+            return;
+        }
+
         if (state == AssistantOverlayState.PARTIAL
                 && ChromeAccessibilityUtil.get().isAccessibilityEnabled()) {
             // Touch exploration is fully disabled if there's an overlay in front. In this case, the

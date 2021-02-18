@@ -49,6 +49,7 @@
 #include "media/renderers/paint_canvas_video_renderer.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "services/media_session/public/cpp/media_position.h"
+#include "third_party/blink/public/common/media/display_type.h"
 #include "third_party/blink/public/platform/media/webmediaplayer_delegate.h"
 #include "third_party/blink/public/platform/web_audio_source_provider.h"
 #include "third_party/blink/public/platform/web_content_decryption_module_result.h"
@@ -62,6 +63,7 @@ class WebAudioSourceProviderImpl;
 class WebLocalFrame;
 class WebMediaPlayerClient;
 class WebMediaPlayerEncryptedMediaClient;
+class WatchTimeReporter;
 }  // namespace blink
 
 namespace base {
@@ -87,7 +89,6 @@ class MediaLog;
 class MemoryDumpProviderProxy;
 class UrlIndex;
 class VideoFrameCompositor;
-class WatchTimeReporter;
 
 // The canonical implementation of blink::WebMediaPlayer that's backed by
 // Pipeline. Handles normal resource loading, Media Source, and
@@ -121,7 +122,8 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
 
   WebMediaPlayer::LoadTiming Load(LoadType load_type,
                                   const blink::WebMediaPlayerSource& source,
-                                  CorsMode cors_mode) override;
+                                  CorsMode cors_mode,
+                                  bool is_cache_disabled) override;
 
   // Playback controls.
   void Play() override;
@@ -131,9 +133,10 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
   void SetVolume(double volume) override;
   void SetLatencyHint(double seconds) override;
   void SetPreservesPitch(bool preserves_pitch) override;
+  void SetAutoplayInitiated(bool autoplay_initiated) override;
   void OnRequestPictureInPicture() override;
   void OnTimeUpdate() override;
-  void SetSinkId(
+  bool SetSinkId(
       const blink::WebString& sink_id,
       blink::WebSetSinkIdCompleteCallback completion_callback) override;
   void SetPoster(const blink::WebURL& poster) override;
@@ -145,10 +148,11 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
   // various APIs and functionalities, including but not limited to: <canvas>,
   // WebGL texImage2D, ImageBitmap, printing and capturing capabilities.
   void Paint(cc::PaintCanvas* canvas,
-             const blink::WebRect& rect,
+             const gfx::Rect& rect,
              cc::PaintFlags& flags,
              int already_uploaded_id,
              VideoFrameUploadMetadata* out_metadata) override;
+  scoped_refptr<VideoFrame> GetCurrentFrame() override;
 
   // True if the loaded media has a playable video/audio track.
   bool HasVideo() const override;
@@ -174,9 +178,6 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
   bool IsEnded() const override;
 
   bool PausedWhenHidden() const override;
-
-  // Informed when picture-in-picture availability changed.
-  void OnPictureInPictureAvailabilityChanged(bool available) override;
 
   // Internal states of loading and network.
   // TODO(hclam): Ask the pipeline about the state rather than having reading
@@ -238,21 +239,13 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
   void SetIsEffectivelyFullscreen(
       blink::WebFullscreenVideoStatus fullscreen_video_status) override;
   void OnHasNativeControlsChanged(bool) override;
-  void OnDisplayTypeChanged(WebMediaPlayer::DisplayType display_type) override;
+  void OnDisplayTypeChanged(blink::DisplayType display_type) override;
 
   // blink::WebMediaPlayerDelegate::Observer implementation.
   void OnFrameHidden() override;
   void OnFrameClosed() override;
   void OnFrameShown() override;
   void OnIdleTimeout() override;
-  void OnPlay() override;
-  void OnPause() override;
-  void OnMuted(bool muted) override;
-  void OnSeekForward(double seconds) override;
-  void OnSeekBackward(double seconds) override;
-  void OnEnterPictureInPicture() override;
-  void OnExitPictureInPicture() override;
-  void OnSetAudioSink(const std::string& sink_id) override;
   void OnVolumeMultiplierUpdate(double multiplier) override;
   void OnBecamePersistentVideo(bool value) override;
   void OnPowerExperimentState(bool state) override;
@@ -299,6 +292,7 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
   void RequestVideoFrameCallback() override;
   std::unique_ptr<blink::WebMediaPlayer::VideoFramePresentationMetadata>
   GetVideoFramePresentationMetadata() override;
+  void UpdateFrameIfStale() override;
 
   base::WeakPtr<blink::WebMediaPlayer> AsWeakPtr() override;
 
@@ -366,8 +360,8 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
   void OnVideoOpacityChange(bool opaque) override;
   void OnVideoFrameRateChange(base::Optional<int> fps) override;
   void OnVideoAverageKeyframeDistanceUpdate() override;
-  void OnAudioDecoderChange(const PipelineDecoderInfo& info) override;
-  void OnVideoDecoderChange(const PipelineDecoderInfo& info) override;
+  void OnAudioDecoderChange(const AudioDecoderInfo& info) override;
+  void OnVideoDecoderChange(const VideoDecoderInfo& info) override;
 
   // Simplified watch time reporting.
   void OnSimpleWatchTimerTick();
@@ -378,10 +372,16 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
 
   // Called after |defer_load_cb_| has decided to allow the load. If
   // |defer_load_cb_| is null this is called immediately.
-  void DoLoad(LoadType load_type, const blink::WebURL& url, CorsMode cors_mode);
+  void DoLoad(LoadType load_type,
+              const blink::WebURL& url,
+              CorsMode cors_mode,
+              bool is_cache_disabled);
 
   // Called after asynchronous initialization of a data source completed.
   void DataSourceInitialized(bool success);
+
+  // Called if the |MultiBufferDataSource| is redirected.
+  void OnDataSourceRedirected();
 
   // Called when the data source is downloading or paused.
   void NotifyDownloading(bool is_downloading);
@@ -744,7 +744,7 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
   // Document::shutdown() is called before the frame detaches (and before the
   // frame is destroyed). RenderFrameImpl owns |delegate_| and is guaranteed
   // to outlive |this|; thus it is safe to store |delegate_| as a raw pointer.
-  blink::WebMediaPlayerDelegate* const delegate_;
+  blink::WebMediaPlayerDelegate* delegate_;
   int delegate_id_ = 0;
 
   // The playback state last reported to |delegate_|, to avoid setting duplicate
@@ -891,9 +891,9 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
   base::OneShotTimer background_pause_timer_;
 
   // Monitors the watch time of the played content.
-  std::unique_ptr<WatchTimeReporter> watch_time_reporter_;
-  std::string audio_decoder_name_;
-  std::string video_decoder_name_;
+  std::unique_ptr<blink::WatchTimeReporter> watch_time_reporter_;
+  AudioDecoderType audio_decoder_type_ = AudioDecoderType::kUnknown;
+  VideoDecoderType video_decoder_type_ = VideoDecoderType::kUnknown;
 
   // The time at which DoLoad() is executed.
   base::TimeTicks load_start_time_;
@@ -921,8 +921,7 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
   // Monitors the player events.
   base::WeakPtr<MediaObserver> observer_;
 
-  // Owns the weblayer and obtains/maintains SurfaceIds for
-  // kUseSurfaceLayerForVideo feature.
+  // Owns the weblayer and obtains/maintains SurfaceIds.
   std::unique_ptr<blink::WebSurfaceLayerBridge> bridge_;
 
   // The maximum video keyframe distance that allows triggering background
@@ -995,7 +994,13 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
 
   OverlayInfo overlay_info_;
 
-  base::CancelableClosure update_background_status_cb_;
+  base::CancelableOnceClosure update_background_status_cb_;
+
+  // We cannot use `update_background_status_cb_.IsCancelled()` as that changes
+  // when the callback is run, even if not explicitly cancelled. This is
+  // initialized to true to keep in line with the existing behavior of
+  // base::CancellableOnceClosure.
+  bool is_background_status_change_cancelled_ = true;
 
   mojo::Remote<mojom::MediaMetricsProvider> media_metrics_provider_;
   mojo::Remote<mojom::PlaybackEventsRecorder> playback_events_recorder_;

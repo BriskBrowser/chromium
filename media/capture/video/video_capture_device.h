@@ -27,6 +27,7 @@
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "media/base/video_frame.h"
+#include "media/base/video_frame_feedback.h"
 #include "media/capture/capture_export.h"
 #include "media/capture/mojom/image_capture.mojom.h"
 #include "media/capture/video/video_capture_buffer_handle.h"
@@ -64,6 +65,20 @@ class CAPTURE_EXPORT VideoFrameConsumerFeedbackObserver {
   // corresponds to.
   virtual void OnUtilizationReport(int frame_feedback_id,
                                    media::VideoFrameFeedback feedback) {}
+};
+
+struct CAPTURE_EXPORT CapturedExternalVideoBuffer {
+  CapturedExternalVideoBuffer(gfx::GpuMemoryBufferHandle handle,
+                              VideoCaptureFormat format,
+                              gfx::ColorSpace color_space);
+  CapturedExternalVideoBuffer(CapturedExternalVideoBuffer&& other);
+  ~CapturedExternalVideoBuffer();
+
+  CapturedExternalVideoBuffer& operator=(CapturedExternalVideoBuffer&& other);
+
+  gfx::GpuMemoryBufferHandle handle;
+  VideoCaptureFormat format;
+  gfx::ColorSpace color_space;
 };
 
 class CAPTURE_EXPORT VideoCaptureDevice
@@ -177,6 +192,19 @@ class CAPTURE_EXPORT VideoCaptureDevice
         base::TimeTicks reference_time,
         base::TimeDelta timestamp,
         int frame_feedback_id = 0) = 0;
+
+    // Captured a new video frame. The data for this frame is in |handle|,
+    // which is owned by the platform-specific capture device. It is the
+    // responsibilty of the implementation to prevent the buffer in |handle|
+    // from being reused by the external capturer. In practice, this is used
+    // only on macOS, the external capturer maintains a CVPixelBufferPool, and
+    // gfx::ScopedInUseIOSurface is used to prevent reuse of buffers until all
+    // consumers have consumed them.
+    virtual void OnIncomingCapturedExternalBuffer(
+        CapturedExternalVideoBuffer buffer,
+        std::vector<CapturedExternalVideoBuffer> scaled_buffers,
+        base::TimeTicks reference_time,
+        base::TimeDelta timestamp) = 0;
 
     // Reserve an output buffer into which contents can be captured directly.
     // The returned |buffer| will always be allocated with a memory size

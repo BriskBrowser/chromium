@@ -13,24 +13,31 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part_chromeos.h"
 #include "chrome/browser/chromeos/multidevice_setup/multidevice_setup_service_factory.h"
+#include "chrome/browser/nearby_sharing/nearby_share_delegate_impl.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/sessions/session_restore.h"
 #include "chrome/browser/ui/ash/back_gesture_contextual_nudge_delegate.h"
 #include "chrome/browser/ui/ash/chrome_accessibility_delegate.h"
 #include "chrome/browser/ui/ash/chrome_capture_mode_delegate.h"
 #include "chrome/browser/ui/ash/chrome_screenshot_grabber.h"
 #include "chrome/browser/ui/ash/keyboard/chrome_keyboard_ui.h"
 #include "chrome/browser/ui/ash/session_util.h"
+#include "chrome/browser/ui/ash/tab_scrubber.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_command_controller.h"
 #include "chrome/browser/ui/browser_commands.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
+#include "chrome/browser/ui/views/chrome_browser_main_extra_parts_views.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/webui/tab_strip/tab_strip_ui_util.h"
 #include "chromeos/services/multidevice_setup/multidevice_setup_service.h"
+#include "components/ui_devtools/devtools_server.h"
 #include "content/public/browser/device_service.h"
 #include "content/public/browser/media_session_service.h"
 #include "content/public/browser/render_widget_host.h"
@@ -81,10 +88,19 @@ void ChromeShellDelegate::OpenKeyboardShortcutHelpPage() const {
   Navigate(&params);
 }
 
+void ChromeShellDelegate::DesksStateChanged(int num_desks) const {
+  for (auto* browser : *BrowserList::GetInstance())
+    browser->command_controller()->DesksStateChanged(num_desks);
+}
+
 bool ChromeShellDelegate::CanGoBack(gfx::NativeWindow window) const {
   content::WebContents* contents =
       GetActiveWebContentsForNativeBrowserWindow(window);
   return contents ? contents->GetController().CanGoBack() : false;
+}
+
+void ChromeShellDelegate::SetTabScrubberEnabled(bool enabled) {
+  TabScrubber::GetInstance()->SetEnabled(enabled);
 }
 
 bool ChromeShellDelegate::AllowDefaultTouchActions(gfx::NativeWindow window) {
@@ -164,12 +180,6 @@ void ChromeShellDelegate::BindFingerprint(
   content::GetDeviceService().BindFingerprint(std::move(receiver));
 }
 
-void ChromeShellDelegate::BindNavigableContentsFactory(
-    mojo::PendingReceiver<content::mojom::NavigableContentsFactory> receiver) {
-  ProfileManager::GetActiveUserProfile()->BindNavigableContentsFactory(
-      std::move(receiver));
-}
-
 void ChromeShellDelegate::BindMultiDeviceSetup(
     mojo::PendingReceiver<chromeos::multidevice_setup::mojom::MultiDeviceSetup>
         receiver) {
@@ -180,7 +190,7 @@ void ChromeShellDelegate::BindMultiDeviceSetup(
     service->BindMultiDeviceSetup(std::move(receiver));
 }
 
-media_session::mojom::MediaSessionService*
+media_session::MediaSessionService*
 ChromeShellDelegate::GetMediaSessionService() {
   return &content::GetMediaSessionService();
 }
@@ -198,4 +208,33 @@ std::unique_ptr<ash::BackGestureContextualNudgeDelegate>
 ChromeShellDelegate::CreateBackGestureContextualNudgeDelegate(
     ash::BackGestureContextualNudgeController* controller) {
   return std::make_unique<BackGestureContextualNudgeDelegate>(controller);
+}
+
+std::unique_ptr<ash::NearbyShareDelegate>
+ChromeShellDelegate::CreateNearbyShareDelegate(
+    ash::NearbyShareController* controller) const {
+  return std::make_unique<NearbyShareDelegateImpl>(controller);
+}
+
+bool ChromeShellDelegate::IsSessionRestoreInProgress() const {
+  Profile* profile = ProfileManager::GetActiveUserProfile();
+  return SessionRestore::IsRestoring(profile);
+}
+
+bool ChromeShellDelegate::IsUiDevToolsStarted() const {
+  return ChromeBrowserMainExtraPartsViews::Get()->GetUiDevToolsServerInstance();
+}
+
+void ChromeShellDelegate::StartUiDevTools() {
+  ChromeBrowserMainExtraPartsViews::Get()->CreateUiDevTools();
+}
+
+void ChromeShellDelegate::StopUiDevTools() {
+  ChromeBrowserMainExtraPartsViews::Get()->DestroyUiDevTools();
+}
+
+int ChromeShellDelegate::GetUiDevToolsPort() const {
+  return ChromeBrowserMainExtraPartsViews::Get()
+      ->GetUiDevToolsServerInstance()
+      ->port();
 }

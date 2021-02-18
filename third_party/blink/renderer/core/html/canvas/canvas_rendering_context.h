@@ -46,14 +46,6 @@ class CanvasImageSource;
 class HTMLCanvasElement;
 class ImageBitmap;
 
-constexpr const char* kSRGBCanvasColorSpaceName = "srgb";
-constexpr const char* kRec2020CanvasColorSpaceName = "rec2020";
-constexpr const char* kP3CanvasColorSpaceName = "p3";
-
-constexpr const char* kRGBA8CanvasPixelFormatName = "uint8";
-constexpr const char* kBGRA8CanvasPixelFormatName = "uint8";
-constexpr const char* kF16CanvasPixelFormatName = "float16";
-
 class CORE_EXPORT CanvasRenderingContext : public ScriptWrappable,
                                            public Thread::TaskObserver {
   USING_PRE_FINALIZER(CanvasRenderingContext, Dispose);
@@ -64,7 +56,8 @@ class CORE_EXPORT CanvasRenderingContext : public ScriptWrappable,
   // A Canvas can either be "2D" or "webgl" but never both. Requesting a context
   // with a type different from an existing will destroy the latter.
   enum ContextType {
-    // Do not change assigned numbers of existing items: add new features to the
+    // These values are mirrored in tools/metrics/histograms/enums.xml. Do
+    // not change assigned numbers of existing items and add new features to the
     // end of the list.
     kContext2D = 0,
     kContextExperimentalWebgl = 2,
@@ -72,21 +65,34 @@ class CORE_EXPORT CanvasRenderingContext : public ScriptWrappable,
     kContextWebgl2 = 4,
     kContextImageBitmap = 5,
     kContextXRPresent = 6,
-    kContextWebgl2Compute = 7,
+    // WebGL2Compute used to be 7.
     kContextGPUPresent = 8,
     kContextTypeUnknown = 9,
     kMaxValue = kContextTypeUnknown,
   };
+
+  // Correspond to CanvasRenderingAPI defined in
+  // tools/metrics/histograms/enums.xml
+  enum CanvasRenderingAPI {
+    k2D = 0,
+    kWebgl = 1,
+    kWebgl2 = 2,
+    kBitmaprenderer = 3,
+    kWebgpu = 4,
+  };
+
+  void RecordUKMCanvasRenderingAPI(CanvasRenderingAPI canvasRenderingAPI);
+  void RecordUKMCanvasDrawnToRenderingAPI(
+      CanvasRenderingAPI canvasRenderingAPI);
 
   static ContextType ContextTypeFromId(const String& id);
   static ContextType ResolveContextTypeAliases(ContextType);
 
   CanvasRenderingContextHost* Host() const { return host_; }
 
-  WTF::String ColorSpaceAsString() const;
-  WTF::String PixelFormatAsString() const;
-
-  const CanvasColorParams& ColorParams() const { return color_params_; }
+  const CanvasColorParams& CanvasRenderingContextColorParams() const {
+    return color_params_;
+  }
 
   virtual scoped_refptr<StaticBitmapImage> GetImage() = 0;
   virtual ContextType GetContextType() const = 0;

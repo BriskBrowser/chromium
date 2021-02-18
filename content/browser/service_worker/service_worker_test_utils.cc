@@ -12,21 +12,20 @@
 #include <vector>
 
 #include "base/barrier_closure.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/time/time.h"
-#include "content/browser/frame_host/frame_tree_node.h"
+#include "content/browser/renderer_host/frame_tree_node.h"
 #include "content/browser/service_worker/embedded_worker_test_helper.h"
 #include "content/browser/service_worker/service_worker_consts.h"
 #include "content/browser/service_worker/service_worker_container_host.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
-#include "content/browser/service_worker/service_worker_database.h"
 #include "content/browser/service_worker/service_worker_host.h"
 #include "content/browser/service_worker/service_worker_registration.h"
-#include "content/browser/service_worker/service_worker_storage.h"
 #include "content/common/frame.mojom.h"
 #include "content/common/frame_messages.h"
 #include "content/common/frame_messages.mojom.h"
 #include "content/public/common/child_process_host.h"
+#include "content/public/test/policy_container_utils.h"
 #include "mojo/public/cpp/bindings/pending_associated_remote.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -38,6 +37,7 @@
 #include "net/base/test_completion_callback.h"
 #include "net/http/http_response_info.h"
 #include "third_party/blink/public/common/loader/throttling_url_loader.h"
+#include "third_party/blink/public/mojom/loader/referrer.mojom.h"
 #include "third_party/blink/public/mojom/loader/transferrable_url_loader.mojom.h"
 
 namespace content {
@@ -101,6 +101,15 @@ class MockPendingSharedURLLoaderFactory final
   DISALLOW_COPY_AND_ASSIGN(MockPendingSharedURLLoaderFactory);
 };
 
+// The minimal DidCommitProvisionalLoadParams passing mojom validation.
+mojom::DidCommitProvisionalLoadParamsPtr
+MinimalDidCommitNavigationLoadParams() {
+  auto params = mojom::DidCommitProvisionalLoadParams::New();
+  params->referrer = blink::mojom::Referrer::New();
+  params->navigation_token = base::UnguessableToken::Create();
+  return params;
+}
+
 class FakeNavigationClient : public mojom::NavigationClient {
  public:
   using ReceivedProviderInfoCallback = base::OnceCallback<void(
@@ -129,9 +138,10 @@ class FakeNavigationClient : public mojom::NavigationClient {
       mojo::PendingRemote<network::mojom::URLLoaderFactory>
           prefetch_loader_factory,
       const base::UnguessableToken& devtools_navigation_token,
+      blink::mojom::PolicyContainerPtr policy_container,
       CommitNavigationCallback callback) override {
     std::move(on_received_callback_).Run(std::move(container_info));
-    std::move(callback).Run(nullptr, nullptr);
+    std::move(callback).Run(MinimalDidCommitNavigationLoadParams(), nullptr);
   }
   void CommitFailedNavigation(
       mojom::CommonNavigationParamsPtr common_params,
@@ -141,8 +151,9 @@ class FakeNavigationClient : public mojom::NavigationClient {
       const net::ResolveErrorInfo& resolve_error_info,
       const base::Optional<std::string>& error_page_content,
       std::unique_ptr<blink::PendingURLLoaderFactoryBundle> subresource_loaders,
+      blink::mojom::PolicyContainerPtr policy_container,
       CommitFailedNavigationCallback callback) override {
-    std::move(callback).Run(nullptr, nullptr);
+    std::move(callback).Run(MinimalDidCommitNavigationLoadParams(), nullptr);
   }
 
   ReceivedProviderInfoCallback on_received_callback_;
@@ -279,15 +290,15 @@ void ServiceWorkerRemoteContainerEndpoint::BindForWindow(
           },
           loop.QuitClosure(), &received_info)),
       navigation_client_.BindNewPipeAndPassReceiver());
+
   navigation_client_->CommitNavigation(
       CreateCommonNavigationParams(), CreateCommitNavigationParams(),
       network::mojom::URLResponseHead::New(),
       mojo::ScopedDataPipeConsumerHandle(), nullptr, nullptr, base::nullopt,
       nullptr, std::move(info), mojo::NullRemote(),
-      base::UnguessableToken::Create(),
+      base::UnguessableToken::Create(), CreateStubPolicyContainer(),
       base::BindOnce(
-          [](std::unique_ptr<FrameHostMsg_DidCommitProvisionalLoad_Params>
-                 validated_params,
+          [](mojom::DidCommitProvisionalLoadParamsPtr validated_params,
              mojom::DidCommitProvisionalLoadInterfaceParamsPtr
                  interface_params) {}));
   loop.Run();
@@ -327,9 +338,9 @@ base::WeakPtr<ServiceWorkerContainerHost> CreateContainerHostForWindow(
 
   // In production code this is called from NavigationRequest in the browser
   // process right before navigation commit.
-  container_host->OnBeginNavigationCommit(process_id, 1 /* route_id */,
-                                          network::CrossOriginEmbedderPolicy(),
-                                          std::move(reporter));
+  container_host->OnBeginNavigationCommit(
+      process_id, 1 /* route_id */, network::CrossOriginEmbedderPolicy(),
+      std::move(reporter), ukm::kInvalidSourceId);
   return container_host;
 }
 
@@ -798,12 +809,13 @@ ServiceWorkerUpdateCheckTestUtils::CreateUpdateCheckerPausedState(
     ServiceWorkerUpdatedScriptLoader::WriterState body_writer_state,
     scoped_refptr<network::MojoToNetPendingBuffer> pending_network_buffer,
     uint32_t consumed_size) {
-  mojo::PendingRemote<network::mojom::URLLoaderClient> network_loader_client;
+  mojo::Remote<network::mojom::URLLoaderClient> network_loader_client;
   mojo::PendingReceiver<network::mojom::URLLoaderClient>
       network_loader_client_receiver =
-          network_loader_client.InitWithNewPipeAndPassReceiver();
+          network_loader_client.BindNewPipeAndPassReceiver();
   return std::make_unique<ServiceWorkerSingleScriptUpdateChecker::PausedState>(
       std::move(cache_writer), /*network_loader=*/nullptr,
+      std::move(network_loader_client),
       std::move(network_loader_client_receiver),
       std::move(pending_network_buffer), consumed_size, network_loader_state,
       body_writer_state);

@@ -12,6 +12,7 @@
 #include "third_party/blink/renderer/core/content_capture/content_capture_task_histogram_reporter.h"
 #include "third_party/blink/renderer/core/content_capture/task_session.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/platform/heap/disallow_new_wrapper.h"
 #include "third_party/blink/renderer/platform/timer.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -88,7 +89,7 @@ class CORE_EXPORT ContentCaptureTask
   }
 
   void SetCapturedContentForTesting(
-      const Vector<cc::NodeId>& captured_content) {
+      const Vector<cc::NodeInfo>& captured_content) {
     captured_content_for_testing_ = captured_content;
   }
 
@@ -133,21 +134,23 @@ class CORE_EXPORT ContentCaptureTask
   base::TimeDelta GetAndAdjustDelay(ScheduleReason reason);
 
   void ScheduleInternal(ScheduleReason reason);
-  bool CaptureContent(Vector<cc::NodeId>& data);
+  bool CaptureContent(Vector<cc::NodeInfo>& data);
+
+  void CancelTask();
 
   // Indicates if there is content change since last run.
   bool has_content_change_ = false;
 
   Member<LocalFrame> local_frame_root_;
   Member<TaskSession> task_session_;
-  std::unique_ptr<TaskRunnerTimer<ContentCaptureTask>> delay_task_;
+  HeapTaskRunnerTimer<ContentCaptureTask> delay_task_;
   TaskState task_state_ = TaskState::kStop;
 
   std::unique_ptr<TaskDelay> task_delay_;
 
   scoped_refptr<ContentCaptureTaskHistogramReporter> histogram_reporter_;
   base::Optional<TaskState> task_stop_for_testing_;
-  base::Optional<Vector<cc::NodeId>> captured_content_for_testing_;
+  base::Optional<Vector<cc::NodeInfo>> captured_content_for_testing_;
 };
 
 }  // namespace blink

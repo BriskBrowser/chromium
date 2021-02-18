@@ -12,7 +12,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "content/browser/media/capture/mouse_cursor_overlay_controller.h"
+#include "build/build_config.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/render_frame_host.h"
@@ -23,13 +23,17 @@
 #include "ui/base/layout.h"
 #include "ui/gfx/geometry/dip_util.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/native_widget_types.h"
 
+#if !defined(OS_ANDROID)
+#include "content/browser/media/capture/mouse_cursor_overlay_controller.h"
+#endif
 namespace content {
 
 // Threading note: This is constructed on the device thread, while the
 // destructor and the rest of the class will run exclusively on the UI thread.
-class WebContentsVideoCaptureDevice::FrameTracker
+class WebContentsVideoCaptureDevice::FrameTracker final
     : public WebContentsObserver,
       public base::SupportsWeakPtr<
           WebContentsVideoCaptureDevice::FrameTracker> {
@@ -42,7 +46,10 @@ class WebContentsVideoCaptureDevice::FrameTracker
         device_task_runner_(base::ThreadTaskRunnerHandle::Get()),
         cursor_controller_(cursor_controller) {
     DCHECK(device_task_runner_);
+#if !defined(OS_ANDROID)
     DCHECK(cursor_controller_);
+#endif
+    (void)cursor_controller_;
 
     GetUIThreadTaskRunner({})->PostTask(
         FROM_HERE,
@@ -84,8 +91,9 @@ class WebContentsVideoCaptureDevice::FrameTracker
     // that has a different device scale factor while being captured.
     gfx::Size preferred_size;
     if (auto* view = GetCurrentView()) {
-      preferred_size =
-          gfx::ConvertSizeToDIP(view->GetDeviceScaleFactor(), capture_size);
+      // TODO(danakj): Should this be rounded?
+      preferred_size = gfx::ToFlooredSize(
+          gfx::ConvertSizeToDips(capture_size, view->GetDeviceScaleFactor()));
     }
     if (preferred_size.IsEmpty()) {
       preferred_size = capture_size;
@@ -119,10 +127,7 @@ class WebContentsVideoCaptureDevice::FrameTracker
       return nullptr;
     }
 
-    RenderWidgetHostView* view = contents->GetFullscreenRenderWidgetHostView();
-    if (!view) {
-      view = contents->GetRenderWidgetHostView();
-    }
+    RenderWidgetHostView* view = view = contents->GetRenderWidgetHostView();
     // Make sure the RWHV is still associated with a RWH before considering the
     // view "alive." This is because a null RWH indicates the RWHV has had its
     // Destroy() method called.
@@ -143,8 +148,6 @@ class WebContentsVideoCaptureDevice::FrameTracker
                               RenderFrameHost* new_host) final {
     OnPossibleTargetChange();
   }
-  void DidShowFullscreenWidget() final { OnPossibleTargetChange(); }
-  void DidDestroyFullscreenWidget() final { OnPossibleTargetChange(); }
   void WebContentsDestroyed() final {
     Observe(nullptr);
     is_capturing_ = false;
@@ -182,7 +185,9 @@ class WebContentsVideoCaptureDevice::FrameTracker
         // Note: MouseCursorOverlayController runs on the UI thread. It's also
         // important that SetTargetView() be called in the current stack while
         // |native_view| is known to be a valid pointer. http://crbug.com/818679
+#if !defined(OS_ANDROID)
         cursor_controller_->SetTargetView(native_view);
+#endif
       }
     } else {
       device_task_runner_->PostTask(
@@ -190,7 +195,9 @@ class WebContentsVideoCaptureDevice::FrameTracker
           base::BindOnce(
               &WebContentsVideoCaptureDevice::OnTargetPermanentlyLost,
               device_));
+#if !defined(OS_ANDROID)
       cursor_controller_->SetTargetView(gfx::NativeView());
+#endif
     }
   }
 

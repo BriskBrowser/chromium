@@ -137,9 +137,19 @@ class SheetsRender(SimpleCanvasPage):
   URL = 'file://../simple_canvas/sheets_render.html'
 
 
+class ToBlobDuration(SimpleCanvasPage):
+  BASE_NAME = 'toBlob_duration.html'
+  URL = 'file://../simple_canvas/toBlob_duration.html'
+
+
 class ToBlobDurationJpeg(SimpleCanvasPage):
   BASE_NAME = 'toBlob_duration_jpeg.html'
   URL = 'file://../simple_canvas/toBlob_duration_jpeg.html'
+
+
+class ToBlobSmallCanvasInWorker(SimpleCanvasPage):
+  BASE_NAME = 'toBlob_small_canvas_in_worker.html'
+  URL = 'file://../simple_canvas/toBlob_small_canvas_in_worker.html'
 
 
 class TransferFromImageBitmap(SimpleCanvasPage):
@@ -154,7 +164,26 @@ class VideoToHWAcceleratedCanvas(SimpleCanvasPage):
 
 class VideoToSubTexture(SimpleCanvasPage):
   BASE_NAME = 'video_to_sub_texture'
-  URL = 'file://../simple_canvas/video_to_sub_texture.html'
+  # pylint: disable=line-too-long
+  URL = 'file://../simple_canvas/video_to_sub_texture.html?flip_y=false&premult=false'
+
+
+class VideoToSubTextureFlipY(SimpleCanvasPage):
+  BASE_NAME = 'video_to_sub_texture_flip_y'
+  # pylint: disable=line-too-long
+  URL = 'file://../simple_canvas/video_to_sub_texture.html?flip_y=true&premult=false'
+
+
+class VideoToSubTexturePremultiply(SimpleCanvasPage):
+  BASE_NAME = 'video_to_sub_texture_premultiply'
+  # pylint: disable=line-too-long
+  URL = 'file://../simple_canvas/video_to_sub_texture.html?flip_y=false&premult=true'
+
+
+class VideoToSubTextureFlipAndPremultiply(SimpleCanvasPage):
+  BASE_NAME = 'video_to_sub_texture_flip_and_premultiply'
+  # pylint: disable=line-too-long
+  URL = 'file://../simple_canvas/video_to_sub_texture.html?flip_y=true&premult=true'
 
 
 class VideoToTexture(SimpleCanvasPage):

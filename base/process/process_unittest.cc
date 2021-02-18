@@ -14,7 +14,7 @@
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread_local.h"
 #include "build/build_config.h"
-#include "build/lacros_buildflags.h"
+#include "build/chromeos_buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/multiprocess_func_list.h"
 
@@ -117,21 +117,6 @@ TEST_F(ProcessTest, DuplicateCurrent) {
   ASSERT_TRUE(process2.IsValid());
 }
 
-TEST_F(ProcessTest, DeprecatedGetProcessFromHandle) {
-  Process process1(SpawnChild("SimpleChildProcess"));
-  ASSERT_TRUE(process1.IsValid());
-
-  Process process2 = Process::DeprecatedGetProcessFromHandle(process1.Handle());
-  ASSERT_TRUE(process1.IsValid());
-  ASSERT_TRUE(process2.IsValid());
-  EXPECT_EQ(process1.Pid(), process2.Pid());
-  EXPECT_FALSE(process1.is_current());
-  EXPECT_FALSE(process2.is_current());
-
-  process1.Close();
-  ASSERT_TRUE(process2.IsValid());
-}
-
 MULTIPROCESS_TEST_MAIN(SleepyChildProcess) {
   PlatformThread::Sleep(TestTimeouts::action_max_timeout());
   return 0;
@@ -139,16 +124,15 @@ MULTIPROCESS_TEST_MAIN(SleepyChildProcess) {
 
 // TODO(https://crbug.com/726484): Enable these tests on Fuchsia when
 // CreationTime() is implemented.
-//
-// Disabled on Android because Process::CreationTime() is not supported.
-// https://issuetracker.google.com/issues/37140047
-#if !defined(OS_FUCHSIA) && !defined(OS_ANDROID)
+#if !defined(OS_FUCHSIA)
 TEST_F(ProcessTest, CreationTimeCurrentProcess) {
   // The current process creation time should be less than or equal to the
   // current time.
   EXPECT_LE(Process::Current().CreationTime(), Time::Now());
 }
 
+#if !defined(OS_ANDROID)  // Cannot read other processes' creation time on
+                          // Android.
 TEST_F(ProcessTest, CreationTimeOtherProcess) {
   // The creation time of a process should be between a time recorded before it
   // was spawned and a time recorded after it was spawned. However, since the
@@ -178,6 +162,7 @@ TEST_F(ProcessTest, CreationTimeOtherProcess) {
   EXPECT_LE(creation, after_creation + kTolerance);
   EXPECT_TRUE(process.Terminate(kDummyExitCode, true));
 }
+#endif  // !defined(OS_ANDROID)
 #endif  // !defined(OS_FUCHSIA)
 
 TEST_F(ProcessTest, Terminate) {
@@ -418,7 +403,7 @@ TEST_F(ProcessTest, ChildProcessIsRunning) {
       base::TimeDelta(), nullptr));
 }
 
-#if defined(OS_CHROMEOS) || BUILDFLAG(IS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
 
 // Tests that the function IsProcessBackgroundedCGroup() can parse the contents
 // of the /proc/<pid>/cgroup file successfully.
@@ -432,6 +417,6 @@ TEST_F(ProcessTest, TestIsProcessBackgroundedCGroup) {
   EXPECT_TRUE(IsProcessBackgroundedCGroup(kBackgrounded));
 }
 
-#endif  // defined(OS_CHROMEOS) || BUILDFLAG(IS_LACROS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
 
 }  // namespace base

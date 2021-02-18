@@ -2,15 +2,10 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("///ui/ozone/ozone.gni")
+import("///build/config/ozone.gni")
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/ui.gni")
-
-# Reset sources_assignment_filter for the BUILD.gn file to prevent
-# regression during the migration of Chromium away from the feature.
-# See docs/no_sources_assignment_filter.md for more information.
-# TODO(crbug.com/1018739): remove this when migration is done.
-set_sources_assignment_filter([])
 
 component("clipboard_types") {
   output_name = "ui_base_clipboard_types"
@@ -41,7 +36,7 @@ component("clipboard_types") {
   }
 
   if (use_aura) {
-    if ((use_x11 && is_desktop_linux) || !is_win) {
+    if ((use_x11 && (is_linux || is_chromeos_lacros)) || !is_win) {
       sources += [ "clipboard_format_type_aura.cc" ]
     }
   }
@@ -59,19 +54,30 @@ component("clipboard_types") {
   }
 }
 
+component("file_info") {
+  output_name = "ui_base_file_info"
+
+  sources = [
+    "file_info.cc",
+    "file_info.h",
+  ]
+
+  defines = [ "IS_UI_BASE_FILE_INFO_IMPL" ]
+
+  deps = [ "//base" ]
+}
+
 component("clipboard") {
   output_name = "ui_base_clipboard"
 
   sources = [
     "clipboard.cc",
     "clipboard.h",
-    "clipboard_data_endpoint.cc",
-    "clipboard_data_endpoint.h",
-    "clipboard_dlp_controller.h",
     "clipboard_metrics.cc",
     "clipboard_metrics.h",
     "clipboard_monitor.cc",
     "clipboard_monitor.h",
+    "clipboard_observer.cc",
     "clipboard_observer.h",
     "custom_data_helper.cc",
     "custom_data_helper.h",
@@ -108,18 +114,24 @@ component("clipboard") {
 
   deps = [
     "//base",
+    "//build:chromeos_buildflags",
     "//mojo/public/cpp/base",
     "//net",
     "//skia",
+    "//ui/base:features",
     "//ui/gfx",
     "//ui/gfx/geometry",
   ]
 
-  public_deps = [ ":clipboard_types" ]
+  public_deps = [
+    ":clipboard_types",
+    ":file_info",
+    "//ui/base/data_transfer_policy",
+  ]
 
   if (use_aura) {
     # Linux clipboard implementations.
-    if (is_desktop_linux && !is_chromecast) {
+    if ((is_linux || is_chromeos_lacros) && !is_chromecast) {
       sources += [ "clipboard_linux.cc" ]
       if (use_ozone) {
         sources += [
@@ -142,7 +154,7 @@ component("clipboard") {
           "//ui/gfx/x",
         ]
       }
-    } else if (is_chromeos && ozone_platform_x11) {
+    } else if (is_chromeos_ash && ozone_platform_x11) {
       # linux-chromeos uses non-backed clipboard by default, but supports ozone
       # x11 with flag --use-system-clipbboard.
       sources += [
@@ -231,7 +243,7 @@ source_set("clipboard_test") {
     ]
   }
 
-  if (use_aura && !chromeos_is_browser_only && !use_x11 && !is_win) {
+  if (use_aura && !is_chromeos_lacros && !use_x11 && !is_win) {
     sources += [
       "clipboard_data_unittest.cc",
       "clipboard_non_backed_unittest.cc",
@@ -243,6 +255,7 @@ source_set("clipboard_test") {
     "//base/test:test_support",
     "//testing/gmock",
     "//testing/gtest",
+    "//ui/base:features",
     "//ui/events/platform",
     "//ui/gfx:test_support",
     "//url:url",

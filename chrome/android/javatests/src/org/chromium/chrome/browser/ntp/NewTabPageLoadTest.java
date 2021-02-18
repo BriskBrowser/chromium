@@ -25,15 +25,16 @@ import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.suggestions.tile.Tile;
 import org.chromium.chrome.browser.suggestions.tile.TileVisualType;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.ui.favicon.IconType;
-import org.chromium.chrome.browser.ui.favicon.LargeIconBridge;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.NewTabPageTestUtils;
 import org.chromium.chrome.test.util.browser.suggestions.SuggestionsDependenciesRule;
 import org.chromium.chrome.test.util.browser.suggestions.mostvisited.FakeMostVisitedSites;
 import org.chromium.components.embedder_support.util.UrlConstants;
+import org.chromium.components.favicon.IconType;
+import org.chromium.components.favicon.LargeIconBridge;
 import org.chromium.net.test.EmbeddedTestServer;
+import org.chromium.url.GURL;
 
 /**
  * Tests for events around the loading of a New Tab Page.
@@ -94,8 +95,8 @@ public class NewTabPageLoadTest {
 
     private static class AsyncMockLargeIconBridge extends LargeIconBridge {
         @Override
-        public boolean getLargeIconForStringUrl(String pageUrl, int desiredSizePx,
-                final LargeIconBridge.LargeIconCallback callback) {
+        public boolean getLargeIconForUrl(
+                GURL pageUrl, int desiredSizePx, final LargeIconBridge.LargeIconCallback callback) {
             new Handler().postDelayed(new Runnable() {
                 @Override
                 public void run() {

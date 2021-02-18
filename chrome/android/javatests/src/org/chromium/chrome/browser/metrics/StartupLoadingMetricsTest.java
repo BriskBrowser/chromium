@@ -10,7 +10,6 @@ import android.support.test.InstrumentationRegistry;
 
 import androidx.test.filters.LargeTest;
 
-import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -20,24 +19,21 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
-import org.chromium.chrome.browser.ShortcutHelper;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.webapps.WebApkActivityLifecycleUmaTracker;
-import org.chromium.chrome.browser.webapps.WebappActivity;
+import org.chromium.chrome.browser.webapps.WebApkActivityTestRule;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
-import org.chromium.chrome.test.util.ApplicationTestUtils;
+import org.chromium.chrome.test.util.ChromeApplicationTestUtils;
 import org.chromium.chrome.test.util.ChromeTabUtils;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServer;
-import org.chromium.webapk.lib.common.WebApkConstants;
 
 /**
  * Tests for startup timing histograms.
@@ -54,6 +50,10 @@ public class StartupLoadingMetricsTest {
             "Startup.Android.Cold.TimeToFirstNavigationCommit";
     private static final String FIRST_CONTENTFUL_PAINT_HISTOGRAM =
             "Startup.Android.Cold.TimeToFirstContentfulPaint";
+    private static final String FIRST_VISIBLE_CONTENT_HISTOGRAM =
+            "Startup.Android.Cold.TimeToFirstVisibleContent";
+    private static final String VISIBLE_CONTENT_HISTOGRAM =
+            "Startup.Android.Cold.TimeToVisibleContent";
 
     private static final String TABBED_SUFFIX = ChromeTabbedActivity.STARTUP_UMA_HISTOGRAM_SUFFIX;
     private static final String WEBAPK_SUFFIX =
@@ -63,8 +63,7 @@ public class StartupLoadingMetricsTest {
     public ChromeTabbedActivityTestRule mTabbedActivityTestRule =
             new ChromeTabbedActivityTestRule();
     @Rule
-    public ChromeActivityTestRule<WebappActivity> mWebApkActivityTestRule =
-            new ChromeActivityTestRule<>(WebappActivity.class);
+    public WebApkActivityTestRule mWebApkActivityTestRule = new WebApkActivityTestRule();
 
     private String mTestPage;
     private String mTestPage2;
@@ -116,27 +115,13 @@ public class StartupLoadingMetricsTest {
         Assert.assertEquals(expectedCount,
                 RecordHistogram.getHistogramTotalCountForTesting(
                         FIRST_CONTENTFUL_PAINT_HISTOGRAM + histogramSuffix));
-    }
-
-    private void startWebApkActivity(final String startUrl) {
-        Intent intent =
-                new Intent(InstrumentationRegistry.getTargetContext(), WebappActivity.class);
-        intent.putExtra(WebApkConstants.EXTRA_WEBAPK_PACKAGE_NAME, "org.chromium.webapk.test");
-        intent.putExtra(ShortcutHelper.EXTRA_URL, startUrl);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-
-        WebappActivity webApkActivity =
-                (WebappActivity) InstrumentationRegistry.getInstrumentation().startActivitySync(
-                        intent);
-        mWebApkActivityTestRule.setActivity(webApkActivity);
-        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
-
-        CriteriaHelper.pollInstrumentationThread(() -> {
-            Criteria.checkThat(mWebApkActivityTestRule.getActivity().getActivityTab(),
-                    Matchers.notNullValue());
-        }, 10000L, CriteriaHelper.DEFAULT_POLLING_INTERVAL);
-        ChromeTabUtils.waitForTabPageLoaded(
-                mWebApkActivityTestRule.getActivity().getActivityTab(), startUrl);
+        if (histogramSuffix.equals(TABBED_SUFFIX)) {
+            Assert.assertEquals(expectedCount,
+                    RecordHistogram.getHistogramTotalCountForTesting(
+                            FIRST_VISIBLE_CONTENT_HISTOGRAM));
+            Assert.assertEquals(expectedCount,
+                    RecordHistogram.getHistogramTotalCountForTesting(VISIBLE_CONTENT_HISTOGRAM));
+        }
     }
 
     /**
@@ -145,7 +130,8 @@ public class StartupLoadingMetricsTest {
     @Test
     @LargeTest
     public void testWebApkStartRecorded() throws Exception {
-        runAndWaitForPageLoadMetricsRecorded(() -> startWebApkActivity(mTestPage));
+        runAndWaitForPageLoadMetricsRecorded(
+                () -> mWebApkActivityTestRule.startWebApkActivity(mTestPage));
         assertHistogramsRecorded(1, WEBAPK_SUFFIX);
         loadUrlAndWaitForPageLoadMetricsRecorded(mWebApkActivityTestRule, mTestPage2);
         assertHistogramsRecorded(1, WEBAPK_SUFFIX);
@@ -215,7 +201,8 @@ public class StartupLoadingMetricsTest {
     @Test
     @LargeTest
     public void testWebApkErrorPageNotRecorded() throws Exception {
-        runAndWaitForPageLoadMetricsRecorded(() -> startWebApkActivity(mErrorPage));
+        runAndWaitForPageLoadMetricsRecorded(
+                () -> mWebApkActivityTestRule.startWebApkActivity(mErrorPage));
         assertHistogramsRecorded(0, WEBAPK_SUFFIX);
         loadUrlAndWaitForPageLoadMetricsRecorded(mWebApkActivityTestRule, mTestPage2);
         assertHistogramsRecorded(0, WEBAPK_SUFFIX);
@@ -236,10 +223,11 @@ public class StartupLoadingMetricsTest {
             // mSlowPage will hang for 2 seconds before sending a response. It should be enough to
             // put Chrome in background before the page is committed.
             mTabbedActivityTestRule.prepareUrlIntent(intent, mSlowPage);
-            mTabbedActivityTestRule.startActivityCompletely(intent);
+            mTabbedActivityTestRule.launchActivity(intent);
 
             // Put Chrome in background before the page is committed.
-            ApplicationTestUtils.fireHomeScreenIntent(InstrumentationRegistry.getTargetContext());
+            ChromeApplicationTestUtils.fireHomeScreenIntent(
+                    InstrumentationRegistry.getTargetContext());
 
             // Wait for a tab to be loaded.
             mTabbedActivityTestRule.waitForActivityNativeInitializationComplete();
@@ -253,7 +241,7 @@ public class StartupLoadingMetricsTest {
         assertHistogramsRecorded(0, TABBED_SUFFIX);
         runAndWaitForPageLoadMetricsRecorded(() -> {
             // Put Chrome in foreground before loading a new page.
-            ApplicationTestUtils.launchChrome(InstrumentationRegistry.getTargetContext());
+            ChromeApplicationTestUtils.launchChrome(InstrumentationRegistry.getTargetContext());
             mTabbedActivityTestRule.loadUrl(mTestPage);
         });
         assertHistogramsRecorded(0, TABBED_SUFFIX);

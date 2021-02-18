@@ -9,9 +9,13 @@
 #include <memory>
 #include <utility>
 
+#include "ash/constants/ash_features.h"
+#include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/app_list/internal_app_id_constants.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "base/values.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
+#include "chrome/browser/chromeos/crosapi/browser_util.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
 #include "chrome/browser/prefs/pref_service_syncable_util.h"
 #include "chrome/browser/profiles/profile.h"
@@ -24,11 +28,10 @@
 #include "chrome/browser/ui/ash/launcher/launcher_controller_helper.h"
 #include "chrome/browser/web_applications/components/app_registrar.h"
 #include "chrome/browser/web_applications/components/web_app_id.h"
+#include "chrome/browser/web_applications/components/web_app_id_constants.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "components/crx_file/id_util.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
@@ -47,27 +50,66 @@ namespace {
 
 // Chrome is pinned explicitly.
 const char* kDefaultPinnedApps[] = {
-    extension_misc::kGmailAppId, extension_misc::kGoogleDocAppId,
-    extension_misc::kYoutubeAppId, arc::kPlayStoreAppId};
+    extension_misc::kFilesManagerAppId,
+
+    extension_misc::kGmailAppId,
+    web_app::kGmailAppId,
+
+    extension_misc::kGoogleDocAppId,
+    web_app::kGoogleDocsAppId,
+
+    extension_misc::kYoutubeAppId,
+    web_app::kYoutubeAppId,
+
+    arc::kPlayStoreAppId,
+};
 
 const char* kDefaultPinnedApps7Apps[] = {
-    extension_misc::kGmailAppId,        extension_misc::kGoogleDocAppId,
-    extension_misc::kGooglePhotosAppId, extension_misc::kFilesManagerAppId,
-    extension_misc::kYoutubeAppId,      arc::kPlayStoreAppId};
+    extension_misc::kFilesManagerAppId,
 
-const char* kDefaultPinnedApps10Apps[] = {extension_misc::kGmailAppId,
-                                          extension_misc::kCalendarAppId,
-                                          extension_misc::kGoogleDocAppId,
-                                          extension_misc::kGoogleSheetsAppId,
-                                          extension_misc::kGoogleSlidesAppId,
-                                          extension_misc::kFilesManagerAppId,
-                                          extension_misc::kCameraAppId,
-                                          extension_misc::kGooglePhotosAppId,
-                                          arc::kPlayStoreAppId};
+    extension_misc::kGmailAppId,
+    web_app::kGmailAppId,
+
+    extension_misc::kGoogleDocAppId,
+    web_app::kGoogleDocsAppId,
+
+    extension_misc::kGooglePhotosAppId,
+
+    extension_misc::kYoutubeAppId,
+    web_app::kYoutubeAppId,
+
+    arc::kPlayStoreAppId,
+};
+
+const char* kDefaultPinnedApps10Apps[] = {
+    extension_misc::kFilesManagerAppId,
+
+    extension_misc::kGmailAppId,
+    web_app::kGmailAppId,
+
+    extension_misc::kCalendarAppId,
+    web_app::kGoogleCalendarAppId,
+
+    extension_misc::kGoogleDocAppId,
+    web_app::kGoogleDocsAppId,
+
+    extension_misc::kGoogleSheetsAppId,
+    web_app::kGoogleSheetsAppId,
+
+    extension_misc::kGoogleSlidesAppId,
+    web_app::kGoogleSlidesAppId,
+
+    extension_misc::kCameraAppId,
+    web_app::kCameraAppId,
+
+    extension_misc::kGooglePhotosAppId,
+
+    arc::kPlayStoreAppId,
+};
 
 const char* kTabletFormFactorDefaultPinnedApps[] = {
-    arc::kGmailAppId, extension_misc::kGoogleDocAppId, arc::kYoutubeAppId,
-    arc::kPlayStoreAppId};
+    extension_misc::kFilesManagerAppId, arc::kGmailAppId,
+    extension_misc::kGoogleDocAppId, arc::kYoutubeAppId, arc::kPlayStoreAppId};
 
 const char kDefaultPinnedAppsKey[] = "default";
 const char kDefaultPinnedApps7AppsKey[] = "7apps";
@@ -195,7 +237,8 @@ bool IsSafeToApplyDefaultPinLayout(Profile* profile) {
       return false;
     }
   } else {
-    if (settings->GetSelectedTypes().Has(UserSelectableType::kApps) &&
+    if (sync_service->IsSyncFeatureEnabled() &&
+        settings->GetSelectedTypes().Has(UserSelectableType::kApps) &&
         !app_list::AppListSyncableServiceFactory::GetForProfile(profile)
              ->IsSyncing()) {
       return false;
@@ -212,7 +255,8 @@ bool IsSafeToApplyDefaultPinLayout(Profile* profile) {
       return false;
     }
   } else {
-    if (settings->GetSelectedTypes().Has(UserSelectableType::kPreferences) &&
+    if (sync_service->IsSyncFeatureEnabled() &&
+        settings->GetSelectedTypes().Has(UserSelectableType::kPreferences) &&
         !PrefServiceSyncableFromProfile(profile)->IsSyncing()) {
       return false;
     }
@@ -609,6 +653,20 @@ std::vector<ash::ShelfID> GetPinnedAppsFromSync(
   // their install order differ.
   InsertPinsAfterChromeAndBeforeFirstPinnedApp(
       helper, syncable_service, GetAppsPinnedByPolicy(helper), &pin_infos);
+
+  // If Lacros is enabled and allowed for this user type, ensure the Lacros icon
+  // is pinned. Lacros doesn't support multi-signin, so only add the icon for
+  // the primary user.
+  if (crosapi::browser_util::IsLacrosEnabled() &&
+      chromeos::ProfileHelper::IsPrimaryProfile(helper->profile())) {
+    syncer::StringOrdinal lacros_position =
+        syncable_service->GetPinPosition(extension_misc::kLacrosAppId);
+    if (!lacros_position.IsValid()) {
+      // If Lacros isn't already pinned, add it to the right of the Chrome icon.
+      InsertPinsAfterChromeAndBeforeFirstPinnedApp(
+          helper, syncable_service, {extension_misc::kLacrosAppId}, &pin_infos);
+    }
+  }
 
   // Sort pins according their ordinals.
   std::sort(pin_infos.begin(), pin_infos.end(), ComparePinInfo());

@@ -11,12 +11,13 @@
 #include "base/memory/ptr_util.h"
 #include "base/memory/unsafe_shared_memory_region.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/sequenced_task_runner.h"
 #include "base/unguessable_token.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/viz/common/gpu/context_provider.h"
 #include "content/child/child_thread_impl.h"
 #include "content/public/common/content_features.h"
-#include "content/public/common/service_names.mojom.h"
 #include "content/renderer/render_thread_impl.h"
 #include "gpu/command_buffer/client/context_support.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
@@ -77,8 +78,8 @@ void GpuVideoAcceleratorFactoriesImpl::Notifier::Notify() {
 std::unique_ptr<GpuVideoAcceleratorFactoriesImpl>
 GpuVideoAcceleratorFactoriesImpl::Create(
     scoped_refptr<gpu::GpuChannelHost> gpu_channel_host,
-    const scoped_refptr<base::SingleThreadTaskRunner>& main_thread_task_runner,
-    const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
+    const scoped_refptr<base::SequencedTaskRunner>& main_thread_task_runner,
+    const scoped_refptr<base::SequencedTaskRunner>& task_runner,
     const scoped_refptr<viz::ContextProviderCommandBuffer>& context_provider,
     bool enable_video_gpu_memory_buffers,
     bool enable_media_stream_gpu_memory_buffers,
@@ -98,8 +99,8 @@ GpuVideoAcceleratorFactoriesImpl::Create(
 
 GpuVideoAcceleratorFactoriesImpl::GpuVideoAcceleratorFactoriesImpl(
     scoped_refptr<gpu::GpuChannelHost> gpu_channel_host,
-    const scoped_refptr<base::SingleThreadTaskRunner>& main_thread_task_runner,
-    const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
+    const scoped_refptr<base::SequencedTaskRunner>& main_thread_task_runner,
+    const scoped_refptr<base::SequencedTaskRunner>& task_runner,
     const scoped_refptr<viz::ContextProviderCommandBuffer>& context_provider,
     bool enable_video_gpu_memory_buffers,
     bool enable_media_stream_gpu_memory_buffers,
@@ -136,7 +137,7 @@ void GpuVideoAcceleratorFactoriesImpl::BindOnTaskRunner(
         interface_factory_remote,
     mojo::PendingRemote<media::mojom::VideoEncodeAcceleratorProvider>
         vea_provider_remote) {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
   DCHECK(context_provider_);
 
   interface_factory_.Bind(std::move(interface_factory_remote));
@@ -251,7 +252,7 @@ void GpuVideoAcceleratorFactoriesImpl::OnEncoderSupportFailed() {
 }
 
 bool GpuVideoAcceleratorFactoriesImpl::CheckContextLost() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
   if (context_provider_lost_on_media_thread_)
     return true;
   if (context_provider_->ContextGL()->GetGraphicsResetStatusKHR() !=
@@ -263,7 +264,7 @@ bool GpuVideoAcceleratorFactoriesImpl::CheckContextLost() {
 }
 
 void GpuVideoAcceleratorFactoriesImpl::DestroyContext() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
   DCHECK(context_provider_lost_on_media_thread_);
 
   if (!context_provider_)
@@ -280,7 +281,7 @@ bool GpuVideoAcceleratorFactoriesImpl::IsGpuVideoAcceleratorEnabled() {
 }
 
 base::UnguessableToken GpuVideoAcceleratorFactoriesImpl::GetChannelToken() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
   if (CheckContextLost())
     return base::UnguessableToken();
 
@@ -293,7 +294,7 @@ base::UnguessableToken GpuVideoAcceleratorFactoriesImpl::GetChannelToken() {
 }
 
 int32_t GpuVideoAcceleratorFactoriesImpl::GetCommandBufferRouteId() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
   if (CheckContextLost())
     return 0;
   return context_provider_->GetCommandBufferProxy()->route_id();
@@ -337,7 +338,7 @@ GpuVideoAcceleratorFactoriesImpl::CreateVideoDecoder(
     media::VideoDecoderImplementation implementation,
     media::RequestOverlayInfoCB request_overlay_info_cb) {
   DCHECK(video_accelerator_enabled_);
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
   DCHECK(interface_factory_.is_bound());
 
 #if BUILDFLAG(ENABLE_MOJO_VIDEO_DECODER)
@@ -358,7 +359,7 @@ GpuVideoAcceleratorFactoriesImpl::CreateVideoDecoder(
 std::unique_ptr<media::VideoEncodeAccelerator>
 GpuVideoAcceleratorFactoriesImpl::CreateVideoEncodeAccelerator() {
   DCHECK(video_accelerator_enabled_);
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
   DCHECK(vea_provider_.is_bound());
   if (CheckContextLost())
     return nullptr;
@@ -412,10 +413,10 @@ unsigned GpuVideoAcceleratorFactoriesImpl::ImageTextureTarget(
 media::GpuVideoAcceleratorFactories::OutputFormat
 GpuVideoAcceleratorFactoriesImpl::VideoFrameOutputFormat(
     media::VideoPixelFormat pixel_format) {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
   if (CheckContextLost())
     return media::GpuVideoAcceleratorFactories::OutputFormat::UNDEFINED;
-#if defined(OS_CHROMEOS) && defined(USE_OZONE)
+#if BUILDFLAG(IS_CHROMEOS_ASH) && defined(USE_OZONE)
   // TODO(sugoi): This configuration is currently used only for testing ChromeOS
   // on Linux and doesn't support hardware acceleration. OSMesa did not support
   // any hardware acceleration here, so this was never an issue, but SwiftShader
@@ -428,6 +429,9 @@ GpuVideoAcceleratorFactoriesImpl::VideoFrameOutputFormat(
   auto capabilities = context_provider_->ContextCapabilities();
   const size_t bit_depth = media::BitDepth(pixel_format);
   if (bit_depth > 8) {
+    if (capabilities.image_ycbcr_p010 && bit_depth == 10)
+      return media::GpuVideoAcceleratorFactories::OutputFormat::P010;
+
 #if !defined(OS_MAC)
     // If high bit depth rendering is enabled, bail here, otherwise try and use
     // XR30 storage, and if not and we support RG textures, use those, albeit at
@@ -489,7 +493,7 @@ GpuVideoAcceleratorFactoriesImpl::CreateSharedMemoryRegion(size_t size) {
   return base::UnsafeSharedMemoryRegion::Create(size);
 }
 
-scoped_refptr<base::SingleThreadTaskRunner>
+scoped_refptr<base::SequencedTaskRunner>
 GpuVideoAcceleratorFactoriesImpl::GetTaskRunner() {
   return task_runner_;
 }
@@ -510,13 +514,18 @@ void GpuVideoAcceleratorFactoriesImpl::SetRenderingColorSpace(
   rendering_color_space_ = color_space;
 }
 
+const gfx::ColorSpace&
+GpuVideoAcceleratorFactoriesImpl::GetRenderingColorSpace() const {
+  return rendering_color_space_;
+}
+
 bool GpuVideoAcceleratorFactoriesImpl::CheckContextProviderLostOnMainThread() {
-  DCHECK(main_thread_task_runner_->BelongsToCurrentThread());
+  DCHECK(main_thread_task_runner_->RunsTasksInCurrentSequence());
   return context_provider_lost_;
 }
 
 void GpuVideoAcceleratorFactoriesImpl::OnContextLost() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
   TRACE_EVENT0("media", "GpuVideoAcceleratorFactoriesImpl::OnContextLost");
 
   // Don't delete the |context_provider_| here, we could be in the middle of
@@ -533,7 +542,7 @@ void GpuVideoAcceleratorFactoriesImpl::OnContextLost() {
 }
 
 void GpuVideoAcceleratorFactoriesImpl::SetContextProviderLostOnMainThread() {
-  DCHECK(main_thread_task_runner_->BelongsToCurrentThread());
+  DCHECK(main_thread_task_runner_->RunsTasksInCurrentSequence());
   context_provider_lost_ = true;
 }
 

@@ -5,17 +5,15 @@
 #include "chrome/browser/media/webrtc/window_icon_util.h"
 
 #include "ui/base/x/x11_util.h"
-#include "ui/gfx/x/x11.h"
 #include "ui/gfx/x/x11_atom_cache.h"
-#include "ui/gfx/x/x11_error_tracker.h"
-#include "ui/gfx/x/x11_types.h"
+#include "ui/gfx/x/xproto_util.h"
 
 gfx::ImageSkia GetWindowIcon(content::DesktopMediaID id) {
   DCHECK(id.type == content::DesktopMediaID::TYPE_WINDOW);
 
   std::vector<uint32_t> data;
-  if (!ui::GetArrayProperty(static_cast<x11::Window>(id.id),
-                            gfx::GetAtom("_NET_WM_ICON"), &data)) {
+  if (!GetArrayProperty(static_cast<x11::Window>(id.id),
+                        x11::GetAtom("_NET_WM_ICON"), &data)) {
     return gfx::ImageSkia();
   }
 

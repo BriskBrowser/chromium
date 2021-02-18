@@ -14,7 +14,6 @@
 #include "android_webview/browser/aw_contents_io_thread_client.h"
 #include "android_webview/browser/aw_cookie_access_policy.h"
 #include "android_webview/browser/network_service/aw_web_resource_intercept_response.h"
-#include "android_webview/browser/network_service/aw_web_resource_response.h"
 #include "android_webview/browser/network_service/net_helpers.h"
 #include "android_webview/browser/renderer_host/auto_login_parser.h"
 #include "android_webview/common/aw_features.h"
@@ -23,9 +22,10 @@
 #include "base/bind.h"
 #include "base/feature_list.h"
 #include "base/optional.h"
-#include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "components/embedder_support/android/util/input_stream.h"
+#include "components/embedder_support/android/util/response_delegate_impl.h"
+#include "components/embedder_support/android/util/web_resource_response.h"
 #include "components/safe_browsing/core/common/safebrowsing_constants.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -37,13 +37,16 @@
 #include "net/base/load_flags.h"
 #include "net/http/http_util.h"
 #include "services/network/public/cpp/resource_request.h"
-#include "third_party/blink/public/mojom/loader/resource_load_info.mojom-shared.h"
+#include "services/network/public/mojom/fetch_api.mojom.h"
 #include "url/gurl.h"
 
 namespace android_webview {
 
 namespace {
 
+const char kResponseHeaderViaShouldInterceptRequestName[] = "Client-Via";
+const char kResponseHeaderViaShouldInterceptRequestValue[] =
+    "shouldInterceptRequest";
 const char kAutoLoginHeaderName[] = "X-Auto-Login";
 
 // Handles intercepted, in-progress requests/responses, so that they can be
@@ -94,7 +97,7 @@ class InterceptedRequest : public network::mojom::URLLoader,
 
   void ContinueAfterIntercept();
   void ContinueAfterInterceptWithOverride(
-      std::unique_ptr<AwWebResourceResponse> response);
+      std::unique_ptr<embedder_support::WebResourceResponse> response);
 
   void InterceptResponseReceived(
       std::unique_ptr<AwWebResourceInterceptResponse> intercept_response);
@@ -166,16 +169,20 @@ class InterceptedRequest : public network::mojom::URLLoader,
 
 // A ResponseDelegate for responses returned by shouldInterceptRequest.
 class InterceptResponseDelegate
-    : public embedder_support::AndroidStreamReaderURLLoader::ResponseDelegate {
+    : public embedder_support::ResponseDelegateImpl {
  public:
-  explicit InterceptResponseDelegate(
-      std::unique_ptr<AwWebResourceResponse> response,
+  InterceptResponseDelegate(
+      std::unique_ptr<embedder_support::WebResourceResponse> response,
       base::WeakPtr<InterceptedRequest> request)
-      : response_(std::move(response)), request_(request) {}
+      : ResponseDelegateImpl(std::move(response)), request_(request) {}
 
-  std::unique_ptr<embedder_support::InputStream> OpenInputStream(
-      JNIEnv* env) override {
-    return response_->GetInputStream(env);
+  // AndroidStreamReaderURLLoader::ResponseDelegate implementation:
+  void AppendResponseHeaders(JNIEnv* env,
+                             net::HttpResponseHeaders* headers) override {
+    embedder_support::ResponseDelegateImpl::AppendResponseHeaders(env, headers);
+    // Indicate that the response had been obtained via shouldInterceptRequest.
+    headers->SetHeader(kResponseHeaderViaShouldInterceptRequestName,
+                       kResponseHeaderViaShouldInterceptRequestValue);
   }
 
   bool OnInputStreamOpenFailed() override {
@@ -185,36 +192,7 @@ class InterceptResponseDelegate
                     : true;
   }
 
-  bool GetMimeType(JNIEnv* env,
-                   const GURL& url,
-                   embedder_support::InputStream* stream,
-                   std::string* mime_type) override {
-    return response_->GetMimeType(env, mime_type);
-  }
-
-  bool GetCharset(JNIEnv* env,
-                  const GURL& url,
-                  embedder_support::InputStream* stream,
-                  std::string* charset) override {
-    return response_->GetCharset(env, charset);
-  }
-
-  void AppendResponseHeaders(JNIEnv* env,
-                             net::HttpResponseHeaders* headers) override {
-    int status_code;
-    std::string reason_phrase;
-    if (response_->GetStatusInfo(env, &status_code, &reason_phrase)) {
-      std::string status_line("HTTP/1.1 ");
-      status_line.append(base::NumberToString(status_code));
-      status_line.append(" ");
-      status_line.append(reason_phrase);
-      headers->ReplaceStatusLine(status_line);
-    }
-    response_->GetResponseHeaders(env, headers);
-  }
-
  private:
-  std::unique_ptr<AwWebResourceResponse> response_;
   base::WeakPtr<InterceptedRequest> request_;
 };
 
@@ -247,17 +225,20 @@ class ProtocolResponseDelegate
     return GetInputStreamMimeType(env, url, stream, mime_type);
   }
 
-  bool GetCharset(JNIEnv* env,
+  void GetCharset(JNIEnv* env,
                   const GURL& url,
                   embedder_support::InputStream* stream,
                   std::string* charset) override {
     // TODO: We should probably be getting this from the managed side.
-    return false;
   }
 
   void AppendResponseHeaders(JNIEnv* env,
                              net::HttpResponseHeaders* headers) override {
-    // no-op
+    // Indicate that the response had been obtained via shouldInterceptRequest.
+    // TODO(jam): why is this added for protocol handler (e.g. content scheme
+    // and file resources?). The old path does this as well.
+    headers->SetHeader(kResponseHeaderViaShouldInterceptRequestName,
+                       kResponseHeaderViaShouldInterceptRequestValue);
   }
 
  private:
@@ -352,11 +333,10 @@ void InterceptedRequest::InterceptResponseReceived(
   // compatibility with previous WebView versions. This should not be visible to
   // shouldInterceptRequest. It should also not trigger CORS prefetch if
   // OOR-CORS is enabled.
-  if (!request_.headers.HasHeader(
-          content::kCorsExemptRequestedWithHeaderName)) {
+  std::string header = content::GetCorsExemptRequestedWithHeaderName();
+  if (!request_.headers.HasHeader(header)) {
     request_.cors_exempt_headers.SetHeader(
-        content::kCorsExemptRequestedWithHeaderName,
-        base::android::BuildInfo::GetInstance()->host_package_name());
+        header, base::android::BuildInfo::GetInstance()->host_package_name());
   }
 
   JNIEnv* env = base::android::AttachCurrentThread();
@@ -444,7 +424,7 @@ void InterceptedRequest::ContinueAfterIntercept() {
 }
 
 void InterceptedRequest::ContinueAfterInterceptWithOverride(
-    std::unique_ptr<AwWebResourceResponse> response) {
+    std::unique_ptr<embedder_support::WebResourceResponse> response) {
   embedder_support::AndroidStreamReaderURLLoader* loader =
       new embedder_support::AndroidStreamReaderURLLoader(
           request_, proxied_client_receiver_.BindNewPipeAndPassRemote(),
@@ -531,8 +511,7 @@ void InterceptedRequest::OnReceiveResponse(
                        std::move(error_info)));
   }
 
-  if (request_.resource_type ==
-      static_cast<int>(blink::mojom::ResourceType::kMainFrame)) {
+  if (request_.destination == network::mojom::RequestDestination::kDocument) {
     // Check for x-auto-login-header
     HeaderData header_data;
     std::string header_string;
@@ -717,6 +696,12 @@ void InterceptedRequest::SendErrorCallback(int error_code,
   // Ensure we only send one error callback, e.g. to avoid sending two if
   // there's both a networking error and safe browsing blocked the request.
   if (sent_error_callback_)
+    return;
+
+  // We can't get a |AwContentsClientBridge| based on the |render_frame_id| of
+  // the |request_| initiated by the service worker, so interrupt it as soon as
+  // possible.
+  if (request_.originated_from_service_worker)
     return;
 
   sent_error_callback_ = true;

@@ -16,6 +16,7 @@
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 
 namespace ui {
@@ -55,7 +56,7 @@ std::unique_ptr<views::StyledLabel> CreateSuggestionLabel() {
   // StyledLabel eats event, probably because it has to handle links.
   // Explicitly sets can_process_events_within_subtree to false for
   // SuggestionView's hover to work correctly.
-  suggestion_label->set_can_process_events_within_subtree(false);
+  suggestion_label->SetCanProcessEventsWithinSubtree(false);
 
   return suggestion_label;
 }
@@ -95,13 +96,15 @@ std::unique_ptr<views::View> CreateKeyContainer() {
 
 }  // namespace
 
-SuggestionView::SuggestionView(views::ButtonListener* listener)
-    : views::Button(listener) {
+SuggestionView::SuggestionView(PressedCallback callback)
+    : views::Button(std::move(callback)) {
   index_label_ = AddChildView(CreateIndexLabel());
   index_label_->SetVisible(false);
   suggestion_label_ = AddChildView(CreateSuggestionLabel());
   annotation_label_ = AddChildView(CreateAnnotationLabel());
   annotation_label_->SetVisible(false);
+
+  SetFocusBehavior(views::View::FocusBehavior::ACCESSIBLE_ONLY);
 }
 
 SuggestionView::~SuggestionView() = default;
@@ -120,7 +123,7 @@ std::unique_ptr<views::View> SuggestionView::CreateAnnotationLabel() {
   // AnnotationLabel's ChildViews eat events simmilar to StyledLabel.
   // Explicitly sets can_process_events_within_subtree to false for
   // AnnotationLabel's hover to work correctly.
-  label->set_can_process_events_within_subtree(false);
+  label->SetCanProcessEventsWithinSubtree(false);
   return label;
 }
 
@@ -194,10 +197,6 @@ void SuggestionView::OnThemeChanged() {
   views::View::OnThemeChanged();
 }
 
-const char* SuggestionView::GetClassName() const {
-  return "SuggestionView";
-}
-
 void SuggestionView::Layout() {
   int left = kPadding;
   if (index_label_->GetVisible()) {
@@ -238,6 +237,9 @@ gfx::Size SuggestionView::CalculatePreferredSize() const {
 void SuggestionView::SetMinWidth(int min_width) {
   min_width_ = min_width;
 }
+
+BEGIN_METADATA(SuggestionView, views::Button)
+END_METADATA
 
 }  // namespace ime
 }  // namespace ui

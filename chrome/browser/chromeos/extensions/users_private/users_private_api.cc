@@ -12,6 +12,7 @@
 #include "base/bind.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/extensions/users_private/users_private_delegate.h"
@@ -19,7 +20,6 @@
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos.h"
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos_factory.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/extensions/api/users_private.h"
@@ -75,7 +75,7 @@ api::users_private::User CreateApiUser(const std::string& email,
   api_user.name = base::UTF16ToUTF8(user.GetDisplayName());
   api_user.is_owner = user.GetAccountId() ==
                       user_manager::UserManager::Get()->GetOwnerAccountId();
-  api_user.is_supervised = user.IsSupervised();
+  api_user.is_supervised = user.IsChildOrDeprecatedSupervised();
   api_user.is_child = user.IsChild();
   return api_user;
 }
@@ -128,7 +128,8 @@ std::unique_ptr<base::ListValue> GetUsersList(Profile* profile,
   for (size_t i = 0; i < email_list->GetSize(); ++i) {
     std::string email;
     email_list->GetString(i, &email);
-    if (user_manager->IsSupervisedAccountId(AccountId::FromUserEmail(email))) {
+    if (user_manager->IsDeprecatedSupervisedAccountId(
+            AccountId::FromUserEmail(email))) {
       email_list->Remove(i, nullptr);
       --i;
     }
@@ -171,7 +172,8 @@ UsersPrivateGetUsersFunction::~UsersPrivateGetUsersFunction() = default;
 
 ExtensionFunction::ResponseAction UsersPrivateGetUsersFunction::Run() {
   Profile* profile = chrome_details_.GetProfile();
-  return RespondNow(OneArgument(GetUsersList(profile, browser_context())));
+  return RespondNow(OneArgument(base::Value::FromUniquePtrValue(
+      GetUsersList(profile, browser_context()))));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -188,9 +190,9 @@ ExtensionFunction::ResponseAction UsersPrivateIsUserInListFunction::Run() {
 
   std::string username = gaia::CanonicalizeEmail(parameters->email);
   if (IsExistingUser(username)) {
-    return RespondNow(OneArgument(std::make_unique<base::Value>(true)));
+    return RespondNow(OneArgument(base::Value(true)));
   }
-  return RespondNow(OneArgument(std::make_unique<base::Value>(false)));
+  return RespondNow(OneArgument(base::Value(false)));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -207,12 +209,12 @@ ExtensionFunction::ResponseAction UsersPrivateAddUserFunction::Run() {
 
   // Non-owners should not be able to add users.
   if (!CanModifyUserList(chrome_details_.GetProfile())) {
-    return RespondNow(OneArgument(std::make_unique<base::Value>(false)));
+    return RespondNow(OneArgument(base::Value(false)));
   }
 
   std::string username = gaia::CanonicalizeEmail(parameters->email);
   if (IsExistingUser(username)) {
-    return RespondNow(OneArgument(std::make_unique<base::Value>(false)));
+    return RespondNow(OneArgument(base::Value(false)));
   }
 
   base::Value username_value(username);
@@ -222,7 +224,7 @@ ExtensionFunction::ResponseAction UsersPrivateAddUserFunction::Run() {
   PrefsUtil* prefs_util = delegate->GetPrefsUtil();
   bool added = prefs_util->AppendToListCrosSetting(chromeos::kAccountsPrefUsers,
                                                    username_value);
-  return RespondNow(OneArgument(std::make_unique<base::Value>(added)));
+  return RespondNow(OneArgument(base::Value(added)));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -239,7 +241,7 @@ ExtensionFunction::ResponseAction UsersPrivateRemoveUserFunction::Run() {
 
   // Non-owners should not be able to remove users.
   if (!CanModifyUserList(chrome_details_.GetProfile())) {
-    return RespondNow(OneArgument(std::make_unique<base::Value>(false)));
+    return RespondNow(OneArgument(base::Value(false)));
   }
 
   base::Value canonical_email(gaia::CanonicalizeEmail(parameters->email));
@@ -251,7 +253,7 @@ ExtensionFunction::ResponseAction UsersPrivateRemoveUserFunction::Run() {
       chromeos::kAccountsPrefUsers, canonical_email);
   user_manager::UserManager::Get()->RemoveUser(
       AccountId::FromUserEmail(parameters->email), NULL);
-  return RespondNow(OneArgument(std::make_unique<base::Value>(removed)));
+  return RespondNow(OneArgument(base::Value(removed)));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -264,8 +266,7 @@ UsersPrivateIsUserListManagedFunction::
     ~UsersPrivateIsUserListManagedFunction() {}
 
 ExtensionFunction::ResponseAction UsersPrivateIsUserListManagedFunction::Run() {
-  return RespondNow(
-      OneArgument(std::make_unique<base::Value>(IsEnterpriseManaged())));
+  return RespondNow(OneArgument(base::Value(IsEnterpriseManaged())));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -281,9 +282,9 @@ ExtensionFunction::ResponseAction UsersPrivateGetCurrentUserFunction::Run() {
   const user_manager::User* user =
       chromeos::ProfileHelper::Get()->GetUserByProfile(
           chrome_details_.GetProfile());
-  return user ? RespondNow(OneArgument(
+  return user ? RespondNow(OneArgument(base::Value::FromUniquePtrValue(
                     CreateApiUser(user->GetAccountId().GetUserEmail(), *user)
-                        .ToValue()))
+                        .ToValue())))
               : RespondNow(Error("No Current User"));
 }
 
@@ -305,7 +306,8 @@ ExtensionFunction::ResponseAction UsersPrivateGetLoginStatusFunction::Run() {
   auto result = std::make_unique<base::DictionaryValue>();
   result->SetKey("isLoggedIn", base::Value(is_logged_in));
   result->SetKey("isScreenLocked", base::Value(is_screen_locked));
-  return RespondNow(OneArgument(std::move(result)));
+  return RespondNow(
+      OneArgument(base::Value::FromUniquePtrValue(std::move(result))));
 }
 
 }  // namespace extensions

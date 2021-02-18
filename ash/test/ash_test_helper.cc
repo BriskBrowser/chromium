@@ -6,6 +6,8 @@
 
 #include <algorithm>
 
+#include "ash/accelerometer/accelerometer_reader.h"
+#include "ash/ambient/test/ambient_ash_test_helper.h"
 #include "ash/app_list/test/app_list_test_helper.h"
 #include "ash/assistant/assistant_controller_impl.h"
 #include "ash/assistant/test/test_assistant_service.h"
@@ -33,6 +35,7 @@
 #include "chromeos/audio/cras_audio_handler.h"
 #include "chromeos/dbus/audio/cras_audio_client.h"
 #include "chromeos/dbus/power/power_policy_controller.h"
+#include "chromeos/login/login_state/login_state.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "device/bluetooth/dbus/bluez_dbus_manager.h"
 #include "ui/aura/test/test_windows.h"
@@ -140,6 +143,8 @@ void AshTestHelper::SetUp() {
 }
 
 void AshTestHelper::TearDown() {
+  ambient_ash_test_helper_.reset();
+
   // The AppListTestHelper holds a pointer to the AppListController the Shell
   // owns, so shut the test helper down first.
   app_list_test_helper_.reset();
@@ -148,6 +153,8 @@ void AshTestHelper::TearDown() {
   // Suspend the tear down until all resources are returned via
   // CompositorFrameSinkClient::ReclaimResources()
   base::RunLoop().RunUntilIdle();
+
+  chromeos::LoginState::Shutdown();
 
   chromeos::CrasAudioHandler::Shutdown();
   chromeos::CrasAudioClient::Shutdown();
@@ -223,6 +230,10 @@ void AshTestHelper::SetUp(InitParams init_params) {
     new_window_delegate_ = std::make_unique<TestNewWindowDelegate>();
   if (!views::ViewsDelegate::GetInstance())
     test_views_delegate_ = MakeTestViewsDelegate();
+
+  chromeos::LoginState::Initialize();
+
+  ambient_ash_test_helper_ = std::make_unique<AmbientAshTestHelper>();
 
   ShellInitParams shell_init_params;
   shell_init_params.delegate = std::move(init_params.delegate);
@@ -301,6 +312,10 @@ void AshTestHelper::SetUp(InitParams init_params) {
   gesture_config->set_max_touch_down_duration_for_click_in_ms(800);
   gesture_config->set_long_press_time_in_ms(1000);
   gesture_config->set_max_touch_move_in_pixels_for_click(5);
+
+  // Fake the |ec_lid_angle_driver_status_| in the unittests.
+  AccelerometerReader::GetInstance()->SetECLidAngleDriverStatusForTesting(
+      ECLidAngleDriverStatus::NOT_SUPPORTED);
 }
 
 display::Display AshTestHelper::GetSecondaryDisplay() const {

@@ -3,10 +3,12 @@
 // found in the LICENSE file.
 
 #include "base/files/file_path.h"
+#include "base/json/json_reader.h"
 #include "base/path_service.h"
 #include "base/strings/strcat.h"
-#include "base/test/bind_test_util.h"
-#include "base/test/scoped_feature_list.h"
+#include "base/strings/utf_string_conversions.h"
+#include "base/test/bind.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -17,8 +19,10 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/web_applications/test/ssl_test_utils.h"
 #include "chrome/browser/web_applications/components/external_app_install_features.h"
+#include "chrome/browser/web_applications/components/os_integration_manager.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
 #include "chrome/browser/web_applications/external_web_app_manager.h"
+#include "chrome/browser/web_applications/preinstalled_web_apps/preinstalled_web_apps.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "content/public/test/browser_test.h"
@@ -32,7 +36,7 @@
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/public/cpp/app_list/app_list_types.h"
 #include "chrome/browser/ui/app_list/app_list_model_updater.h"
 #include "chrome/browser/ui/app_list/app_list_syncable_service.h"
@@ -58,7 +62,8 @@ namespace web_app {
 class ExternalWebAppMigrationBrowserTest : public InProcessBrowserTest {
  public:
   ExternalWebAppMigrationBrowserTest() {
-    ExternalWebAppManager::SkipStartupScanForTesting();
+    ExternalWebAppManager::SkipStartupForTesting();
+    ExternalWebAppManager::BypassOfflineManifestRequirementForTesting();
     disable_scope_ =
         extensions::ExtensionService::DisableExternalUpdatesForTesting();
   }
@@ -90,6 +95,8 @@ class ExternalWebAppMigrationBrowserTest : public InProcessBrowserTest {
     SetUpExtensionTestExternalProvider();
 
     InProcessBrowserTest::SetUpOnMainThread();
+    os_hooks_suppress_ =
+        OsIntegrationManager::ScopedSuppressOsHooksForTesting();
   }
 
   std::unique_ptr<net::test_server::HttpResponse> RequestHandlerOverride(
@@ -156,15 +163,20 @@ class ExternalWebAppMigrationBrowserTest : public InProcessBrowserTest {
     run_loop.Run();
   }
 
-  void SyncExternalWebApps(bool expect_install, bool expect_uninstall) {
+  void SyncExternalWebApps(bool expect_install,
+                           bool expect_uninstall,
+                           bool pass_config = true) {
     base::RunLoop run_loop;
 
+    base::Optional<InstallResultCode> code;
+
     auto callback = base::BindLambdaForTesting(
-        [&](std::map<GURL, InstallResultCode> install_results,
+        [&](std::map<GURL, PendingAppManager::InstallResult> install_results,
             std::map<GURL, bool> uninstall_results) {
           if (expect_install) {
-            EXPECT_EQ(install_results.at(GetWebAppUrl()),
-                      InstallResultCode::kSuccessNewInstall);
+            code = install_results.at(GetWebAppUrl()).code;
+            EXPECT_TRUE(*code == InstallResultCode::kSuccessNewInstall ||
+                        *code == InstallResultCode::kSuccessOfflineOnlyInstall);
           } else {
             EXPECT_EQ(install_results.find(GetWebAppUrl()),
                       install_results.end());
@@ -173,23 +185,28 @@ class ExternalWebAppMigrationBrowserTest : public InProcessBrowserTest {
           run_loop.Quit();
         });
 
-    std::string external_web_app_config = base::ReplaceStringPlaceholders(
-        R"({
-          "app_url": "$1",
-          "launch_container": "window",
-          "user_type": ["unmanaged"],
-          "feature_name": "$2",
-          "uninstall_and_replace": ["$3"]
-        })",
-        {GetWebAppUrl().spec(), kMigrationFlag, kExtensionId}, nullptr);
+    std::vector<base::Value> app_configs;
+    if (pass_config) {
+      std::string app_config_string = base::ReplaceStringPlaceholders(
+          R"({
+            "app_url": "$1",
+            "launch_container": "window",
+            "user_type": ["unmanaged"],
+            "feature_name": "$2",
+            "uninstall_and_replace": ["$3"]
+          })",
+          {GetWebAppUrl().spec(), kMigrationFlag, kExtensionId}, nullptr);
+      app_configs.push_back(*base::JSONReader::Read(app_config_string));
+    }
+    ExternalWebAppManager::SetConfigsForTesting(&app_configs);
 
     WebAppProvider::Get(profile())
-        ->external_web_app_manager_for_testing()
-        .SynchronizeAppsForTesting(std::make_unique<FileUtilsWrapper>(),
-                                   {external_web_app_config},
-                                   std::move(callback));
+        ->external_web_app_manager()
+        .LoadAndSynchronizeForTesting(std::move(callback));
 
     run_loop.Run();
+
+    ExternalWebAppManager::SetConfigsForTesting(nullptr);
   }
 
   bool IsWebAppInstalled() {
@@ -205,9 +222,11 @@ class ExternalWebAppMigrationBrowserTest : public InProcessBrowserTest {
  private:
   base::Optional<base::AutoReset<bool>> disable_scope_;
   std::unique_ptr<extensions::ExtensionCacheFake> test_extension_cache_;
+  ScopedOsHooksSuppress os_hooks_suppress_;
 };
 
-IN_PROC_BROWSER_TEST_F(ExternalWebAppMigrationBrowserTest, MigrateAndRevert) {
+IN_PROC_BROWSER_TEST_F(ExternalWebAppMigrationBrowserTest,
+                       MigrateRevertMigrate) {
   // Set up pre-migration state.
   {
     ASSERT_FALSE(IsExternalAppInstallFeatureEnabled(kMigrationFlag));
@@ -230,6 +249,7 @@ IN_PROC_BROWSER_TEST_F(ExternalWebAppMigrationBrowserTest, MigrateAndRevert) {
     EXPECT_TRUE(IsExtensionAppInstalled());
 
     {
+      base::HistogramTester histograms;
       extensions::TestExtensionRegistryObserver uninstall_observer(
           extensions::ExtensionRegistry::Get(profile()));
 
@@ -240,6 +260,11 @@ IN_PROC_BROWSER_TEST_F(ExternalWebAppMigrationBrowserTest, MigrateAndRevert) {
           uninstall_observer.WaitForExtensionUninstalled();
       EXPECT_EQ(uninstalled_app->id(), kExtensionId);
       EXPECT_FALSE(IsExtensionAppInstalled());
+      histograms.ExpectUniqueSample(
+          ExternalWebAppManager::kHistogramInstallResult,
+          InstallResultCode::kSuccessNewInstall, 1);
+      histograms.ExpectUniqueSample(
+          ExternalWebAppManager::kHistogramUninstallAndReplaceCount, 1, 1);
     }
   }
 
@@ -253,10 +278,34 @@ IN_PROC_BROWSER_TEST_F(ExternalWebAppMigrationBrowserTest, MigrateAndRevert) {
     EXPECT_TRUE(IsExtensionAppInstalled());
     EXPECT_FALSE(IsWebAppInstalled());
   }
+
+  // Re-run migration.
+  {
+    base::HistogramTester histograms;
+    base::AutoReset<bool> testing_scope =
+        SetExternalAppInstallFeatureAlwaysEnabledForTesting();
+    ASSERT_TRUE(IsExternalAppInstallFeatureEnabled(kMigrationFlag));
+
+    extensions::TestExtensionRegistryObserver uninstall_observer(
+        extensions::ExtensionRegistry::Get(profile()));
+
+    SyncExternalWebApps(/*expect_install=*/true, /*expect_uninstall=*/false);
+    EXPECT_TRUE(IsWebAppInstalled());
+
+    scoped_refptr<const extensions::Extension> uninstalled_app =
+        uninstall_observer.WaitForExtensionUninstalled();
+    EXPECT_EQ(uninstalled_app->id(), kExtensionId);
+    EXPECT_FALSE(IsExtensionAppInstalled());
+    histograms.ExpectUniqueSample(
+        ExternalWebAppManager::kHistogramInstallResult,
+        InstallResultCode::kSuccessNewInstall, 1);
+    histograms.ExpectUniqueSample(
+        ExternalWebAppManager::kHistogramUninstallAndReplaceCount, 1, 1);
+  }
 }
 
 IN_PROC_BROWSER_TEST_F(ExternalWebAppMigrationBrowserTest, MigratePreferences) {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   app_list::AppListSyncableService* app_list_syncable_service =
       app_list::AppListSyncableServiceFactory::GetForProfile(profile());
   AppListModelUpdater* app_list_model_updater =
@@ -276,7 +325,7 @@ IN_PROC_BROWSER_TEST_F(ExternalWebAppMigrationBrowserTest, MigratePreferences) {
     EXPECT_FALSE(IsWebAppInstalled());
     EXPECT_TRUE(IsExtensionAppInstalled());
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     ChromeAppListItem* app_list_item =
         app_list_model_updater->FindItem(kExtensionId);
     app_list_item->SetPosition(syncer::StringOrdinal("testapplistposition"));
@@ -307,6 +356,7 @@ IN_PROC_BROWSER_TEST_F(ExternalWebAppMigrationBrowserTest, MigratePreferences) {
     EXPECT_TRUE(IsExtensionAppInstalled());
 
     {
+      base::HistogramTester histograms;
       extensions::TestExtensionRegistryObserver uninstall_observer(
           extensions::ExtensionRegistry::Get(profile()));
 
@@ -317,6 +367,11 @@ IN_PROC_BROWSER_TEST_F(ExternalWebAppMigrationBrowserTest, MigratePreferences) {
           uninstall_observer.WaitForExtensionUninstalled();
       EXPECT_EQ(uninstalled_app->id(), kExtensionId);
       EXPECT_FALSE(IsExtensionAppInstalled());
+      histograms.ExpectUniqueSample(
+          ExternalWebAppManager::kHistogramInstallResult,
+          InstallResultCode::kSuccessNewInstall, 1);
+      histograms.ExpectUniqueSample(
+          ExternalWebAppManager::kHistogramUninstallAndReplaceCount, 1, 1);
     }
   }
 
@@ -324,7 +379,7 @@ IN_PROC_BROWSER_TEST_F(ExternalWebAppMigrationBrowserTest, MigratePreferences) {
   {
     const AppId web_app_id = GetWebAppId();
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     // Chrome OS shelf/list position should migrate.
     EXPECT_EQ(app_list_model_updater->FindItem(web_app_id)
                   ->position()
@@ -346,6 +401,126 @@ IN_PROC_BROWSER_TEST_F(ExternalWebAppMigrationBrowserTest, MigratePreferences) {
     EXPECT_EQ(WebAppProvider::Get(profile())->registrar().GetAppUserDisplayMode(
                   web_app_id),
               DisplayMode::kBrowser);
+  }
+}
+
+IN_PROC_BROWSER_TEST_F(ExternalWebAppMigrationBrowserTest,
+                       UserUninstalledExtensionApp) {
+  // Set up pre-migration state.
+  {
+    ASSERT_FALSE(IsExternalAppInstallFeatureEnabled(kMigrationFlag));
+
+    SyncExternalExtensions();
+    SyncExternalWebApps(/*expect_install=*/false, /*expect_uninstall=*/false);
+
+    EXPECT_FALSE(IsWebAppInstalled());
+    EXPECT_TRUE(IsExtensionAppInstalled());
+  }
+
+  {
+    extensions::TestExtensionRegistryObserver uninstall_observer(
+        extensions::ExtensionRegistry::Get(profile()), kExtensionId);
+    extensions::ExtensionSystem::Get(profile())
+        ->extension_service()
+        ->UninstallExtension(kExtensionId,
+                             extensions::UNINSTALL_REASON_FOR_TESTING, nullptr);
+    uninstall_observer.WaitForExtensionUninstalled();
+    EXPECT_FALSE(IsWebAppInstalled());
+    EXPECT_FALSE(IsExtensionAppInstalled());
+  }
+
+  // Migrate extension app to web app.
+  {
+    base::AutoReset<bool> testing_scope =
+        SetExternalAppInstallFeatureAlwaysEnabledForTesting();
+    ASSERT_TRUE(IsExternalAppInstallFeatureEnabled(kMigrationFlag));
+
+    SyncExternalExtensions();
+    EXPECT_FALSE(IsExtensionAppInstalled());
+
+    SyncExternalWebApps(/*expect_install=*/false, /*expect_uninstall=*/false);
+    EXPECT_FALSE(IsWebAppInstalled());
+  }
+}
+
+// Tests the migration from an extension-app to a preinstalled web app provided
+// by the preinstalled apps (rather than an external config).
+IN_PROC_BROWSER_TEST_F(ExternalWebAppMigrationBrowserTest,
+                       MigrateToPreinstalledWebApp) {
+  ScopedTestingPreinstalledAppData preinstalled_apps;
+  ExternalInstallOptions options(GetWebAppUrl(), DisplayMode::kBrowser,
+                                 ExternalInstallSource::kExternalDefault);
+  options.gate_on_feature = kMigrationFlag;
+  options.user_type_allowlist = {"unmanaged"};
+  options.uninstall_and_replace.push_back(kExtensionId);
+  options.only_use_app_info_factory = true;
+  options.app_info_factory = base::BindLambdaForTesting([&]() {
+    auto info = std::make_unique<WebApplicationInfo>();
+    info->start_url = GetWebAppUrl();
+    info->title = base::UTF8ToUTF16("Test app");
+    return info;
+  });
+  preinstalled_apps.apps.push_back(std::move(options));
+  EXPECT_EQ(1u, GetPreinstalledWebApps().size());
+  // Set up pre-migration state.
+  {
+    base::HistogramTester histograms;
+
+    ASSERT_FALSE(IsExternalAppInstallFeatureEnabled(kMigrationFlag));
+
+    SyncExternalExtensions();
+    SyncExternalWebApps(/*expect_install=*/false, /*expect_uninstall=*/false,
+                        /*pass_config=*/false);
+
+    EXPECT_FALSE(IsWebAppInstalled());
+    EXPECT_TRUE(IsExtensionAppInstalled());
+
+    histograms.ExpectUniqueSample(ExternalWebAppManager::kHistogramEnabledCount,
+                                  0, 1);
+    histograms.ExpectUniqueSample(
+        ExternalWebAppManager::kHistogramDisabledCount, 1, 1);
+    histograms.ExpectUniqueSample(
+        ExternalWebAppManager::kHistogramConfigErrorCount, 0, 1);
+  }
+
+  // Migrate extension app to web app.
+  {
+    base::AutoReset<bool> testing_scope =
+        SetExternalAppInstallFeatureAlwaysEnabledForTesting();
+    ASSERT_TRUE(IsExternalAppInstallFeatureEnabled(kMigrationFlag));
+
+    SyncExternalExtensions();
+    // Extension sticks around to be uninstalled by the replacement web app.
+    EXPECT_TRUE(IsExtensionAppInstalled());
+
+    {
+      base::HistogramTester histograms;
+
+      extensions::TestExtensionRegistryObserver uninstall_observer(
+          extensions::ExtensionRegistry::Get(profile()));
+
+
+      SyncExternalWebApps(/*expect_install=*/true, /*expect_uninstall=*/false,
+                          /*pass_config=*/false);
+      EXPECT_TRUE(IsWebAppInstalled());
+
+      scoped_refptr<const extensions::Extension> uninstalled_app =
+          uninstall_observer.WaitForExtensionUninstalled();
+      EXPECT_EQ(uninstalled_app->id(), kExtensionId);
+      EXPECT_FALSE(IsExtensionAppInstalled());
+
+      histograms.ExpectUniqueSample(
+          ExternalWebAppManager::kHistogramEnabledCount, 1, 1);
+      histograms.ExpectUniqueSample(
+          ExternalWebAppManager::kHistogramDisabledCount, 0, 1);
+      histograms.ExpectUniqueSample(
+          ExternalWebAppManager::kHistogramConfigErrorCount, 0, 1);
+      histograms.ExpectUniqueSample(
+          ExternalWebAppManager::kHistogramInstallResult,
+          InstallResultCode::kSuccessOfflineOnlyInstall, 1);
+      histograms.ExpectUniqueSample(
+          ExternalWebAppManager::kHistogramUninstallAndReplaceCount, 1, 1);
+    }
   }
 }
 

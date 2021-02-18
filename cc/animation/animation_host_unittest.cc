@@ -332,9 +332,11 @@ TEST_F(AnimationHostTest, LayerTreeMutatorUpdateReflectsScrollAnimations) {
 
   // Create scroll timeline that links scroll animation and worklet animation
   // together. Use timerange so that we have 1:1 time & scroll mapping.
-  auto scroll_timeline =
-      ScrollTimeline::Create(element_id, ScrollTimeline::ScrollDown,
-                             base::nullopt, base::nullopt, 100);
+  std::vector<double> scroll_offsets;
+  scroll_offsets.push_back(0);
+  scroll_offsets.push_back(100);
+  auto scroll_timeline = ScrollTimeline::Create(
+      element_id, ScrollTimeline::ScrollDown, scroll_offsets, 100);
 
   // Create a worklet animation that is bound to the scroll timeline.
   scoped_refptr<WorkletAnimation> worklet_animation(
@@ -373,8 +375,11 @@ TEST_F(AnimationHostTest, TickScrollLinkedAnimation) {
 
   // Create scroll timeline that links scroll animation and scroll-linked
   // animation together.
+  std::vector<double> scroll_offsets;
+  scroll_offsets.push_back(0);
+  scroll_offsets.push_back(100);
   auto scroll_timeline = ScrollTimeline::Create(
-      element_id_, ScrollTimeline::ScrollDown, 0, 100, 1000);
+      element_id_, ScrollTimeline::ScrollDown, scroll_offsets, 1000);
 
   int animation_id = 11;
   // Create an animation that is bound to the scroll timeline.
@@ -407,6 +412,23 @@ TEST_F(AnimationHostTest, TickScrollLinkedAnimation) {
                                           property_trees.scroll_tree, false));
 }
 
+TEST_F(AnimationHostTest, PushPropertiesToImpl) {
+  std::unique_ptr<AnimationHost> host(
+      AnimationHost::CreateForTesting(ThreadInstance::MAIN));
+  std::unique_ptr<AnimationHost> host_impl(
+      AnimationHost::CreateForTesting(ThreadInstance::IMPL));
+
+  host->SetHasCanvasInvalidation(true);
+  host->SetHasInlineStyleMutation(true);
+
+  EXPECT_FALSE(host_impl->HasCanvasInvalidation());
+  EXPECT_FALSE(host_impl->HasJSAnimation());
+
+  host->PushPropertiesTo(host_impl.get());
+  EXPECT_TRUE(host_impl->HasCanvasInvalidation());
+  EXPECT_TRUE(host_impl->HasJSAnimation());
+}
+
 TEST_F(AnimationHostTest, ScrollTimelineOffsetUpdatedByScrollAnimation) {
   client_.RegisterElementId(element_id_, ElementListType::ACTIVE);
   client_impl_.RegisterElementId(element_id_, ElementListType::PENDING);
@@ -431,8 +453,12 @@ TEST_F(AnimationHostTest, ScrollTimelineOffsetUpdatedByScrollAnimation) {
   timeline_->AttachAnimation(mock_scroll_animation);
   host_impl_->AddToTicking(mock_scroll_animation);
 
+  std::vector<double> scroll_offsets;
+  scroll_offsets.push_back(0);
+  scroll_offsets.push_back(100);
+
   auto scroll_timeline = ScrollTimeline::Create(
-      element_id_, ScrollTimeline::ScrollDown, 0, 100, 1000);
+      element_id_, ScrollTimeline::ScrollDown, scroll_offsets, 1000);
 
   host_impl_->TickAnimations(base::TimeTicks(), property_trees.scroll_tree,
                              false);

@@ -33,8 +33,10 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/optional.h"
 #include "base/time/time.h"
+#include "net/base/ip_endpoint.h"
 #include "services/network/public/mojom/cross_origin_embedder_policy.mojom-shared.h"
 #include "services/network/public/mojom/fetch_api.mojom-shared.h"
+#include "services/network/public/mojom/ip_address_space.mojom-shared.h"
 #include "third_party/blink/public/platform/web_url_response.h"
 #include "third_party/blink/renderer/platform/network/http_header_map.h"
 #include "third_party/blink/renderer/platform/network/http_parsers.h"
@@ -319,6 +321,9 @@ class PLATFORM_EXPORT ResourceResponse final {
     app_cache_manifest_url_ = url;
   }
 
+  const KURL& WebBundleURL() const { return web_bundle_url_; }
+  void SetWebBundleURL(const KURL& url) { web_bundle_url_ = url; }
+
   bool WasFetchedViaSPDY() const { return was_fetched_via_spdy_; }
   void SetWasFetchedViaSPDY(bool value) { was_fetched_via_spdy_ = value; }
 
@@ -356,6 +361,9 @@ class PLATFORM_EXPORT ResourceResponse final {
   // https://html.spec.whatwg.org/C/#cors-cross-origin
   bool IsCorsCrossOrigin() const;
 
+  int64_t GetPadding() const { return padding_; }
+  void SetPadding(int64_t padding) { padding_ = padding; }
+
   // See network::ResourceResponseInfo::url_list_via_service_worker.
   const Vector<KURL>& UrlListViaServiceWorker() const {
     return url_list_via_service_worker_;
@@ -390,13 +398,17 @@ class PLATFORM_EXPORT ResourceResponse final {
     response_time_ = response_time;
   }
 
-  const AtomicString& RemoteIPAddress() const { return remote_ip_address_; }
-  void SetRemoteIPAddress(const AtomicString& value) {
-    remote_ip_address_ = value;
+  const net::IPEndPoint& RemoteIPEndpoint() const {
+    return remote_ip_endpoint_;
+  }
+  void SetRemoteIPEndpoint(const net::IPEndPoint& value) {
+    remote_ip_endpoint_ = value;
   }
 
-  uint16_t RemotePort() const { return remote_port_; }
-  void SetRemotePort(uint16_t value) { remote_port_ = value; }
+  network::mojom::IPAddressSpace AddressSpace() const { return address_space_; }
+  void SetAddressSpace(network::mojom::IPAddressSpace value) {
+    address_space_ = value;
+  }
 
   bool WasAlpnNegotiated() const { return was_alpn_negotiated_; }
   void SetWasAlpnNegotiated(bool was_alpn_negotiated) {
@@ -482,8 +494,28 @@ class PLATFORM_EXPORT ResourceResponse final {
     was_in_prefetch_cache_ = was_in_prefetch_cache;
   }
 
+  bool WasCookieInRequest() const { return was_cookie_in_request_; }
+
+  void SetWasCookieInRequest(bool was_cookie_in_request) {
+    was_cookie_in_request_ = was_cookie_in_request;
+  }
+
+  const Vector<String>& DnsAliases() const { return dns_aliases_; }
+
+  void SetDnsAliases(Vector<String> aliases) {
+    dns_aliases_ = std::move(aliases);
+  }
+
   network::mojom::CrossOriginEmbedderPolicyValue GetCrossOriginEmbedderPolicy()
       const;
+
+  const base::Optional<net::AuthChallengeInfo>& AuthChallengeInfo() const {
+    return auth_challenge_info_;
+  }
+  void SetAuthChallengeInfo(
+      const base::Optional<net::AuthChallengeInfo>& value) {
+    auth_challenge_info_ = value;
+  }
 
  private:
   void UpdateHeaderParsedState(const AtomicString& name);
@@ -498,11 +530,12 @@ class PLATFORM_EXPORT ResourceResponse final {
   AtomicString http_status_text_;
   HTTPHeaderMap http_header_fields_;
 
-  // Remote IP address of the socket which fetched this resource.
-  AtomicString remote_ip_address_;
+  // Remote IP endpoint of the socket which fetched this resource.
+  net::IPEndPoint remote_ip_endpoint_;
 
-  // Remote port number of the socket which fetched this resource.
-  uint16_t remote_port_ = 0;
+  // The address space from which this resource was fetched.
+  network::mojom::IPAddressSpace address_space_ =
+      network::mojom::IPAddressSpace::kUnknown;
 
   bool was_cached_ = false;
   bool connection_reused_ = false;
@@ -565,6 +598,9 @@ class PLATFORM_EXPORT ResourceResponse final {
   // True if this resource is served from the prefetch cache.
   bool was_in_prefetch_cache_ = false;
 
+  // True if a cookie was sent in the request for this resource.
+  bool was_cookie_in_request_ = false;
+
   // True if this resource was loaded from the network.
   bool network_accessed_ = false;
 
@@ -580,6 +616,11 @@ class PLATFORM_EXPORT ResourceResponse final {
   // https://fetch.spec.whatwg.org/#concept-response-type
   network::mojom::FetchResponseType response_type_ =
       network::mojom::FetchResponseType::kDefault;
+
+  // Pre-computed padding.  This should only be non-zero if |response_type| is
+  // set to kOpaque.  In addition, it is only set if the response was provided
+  // by a service worker FetchEvent handler.
+  int64_t padding_ = 0;
 
   // HTTP version used in the response, if known.
   HTTPVersion http_version_ = kHTTPVersionUnknown;
@@ -650,6 +691,17 @@ class PLATFORM_EXPORT ResourceResponse final {
   // cross-origin prefetch responses. It is used to pass the token along to
   // preload header requests from these responses.
   base::Optional<base::UnguessableToken> recursive_prefetch_token_;
+
+  // Any DNS aliases for the requested URL, as read from CNAME records.
+  // The alias chain order is preserved in reverse, from canonical name (i.e.
+  // address record name) through to query name.
+  Vector<String> dns_aliases_;
+
+  // The URL of WebBundle this response was loaded from. This value is only
+  // populated for resources loaded from a WebBundle.
+  KURL web_bundle_url_;
+
+  base::Optional<net::AuthChallengeInfo> auth_challenge_info_;
 };
 
 }  // namespace blink

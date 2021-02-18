@@ -39,7 +39,8 @@ bool VulkanDeviceQueue::Initialize(
     const std::vector<const char*>& required_extensions,
     const std::vector<const char*>& optional_extensions,
     bool allow_protected_memory,
-    const GetPresentationSupportCallback& get_presentation_support) {
+    const GetPresentationSupportCallback& get_presentation_support,
+    uint32_t heap_memory_limit) {
   DCHECK_EQ(static_cast<VkPhysicalDevice>(VK_NULL_HANDLE), vk_physical_device_);
   DCHECK_EQ(static_cast<VkDevice>(VK_NULL_HANDLE), owned_vk_device_);
   DCHECK_EQ(static_cast<VkDevice>(VK_NULL_HANDLE), vk_device_);
@@ -79,11 +80,26 @@ bool VulkanDeviceQueue::Initialize(
     if (device_properties.apiVersion < info.used_api_version)
       continue;
 
+    // If gpu_info is provided, the device should match it.
+    if (gpu_info && (device_properties.vendorID != gpu_info->gpu.vendor_id ||
+                     device_properties.deviceID != gpu_info->gpu.device_id)) {
+      continue;
+    }
+
+    if (device_properties.deviceType < 0 ||
+        device_properties.deviceType > VK_PHYSICAL_DEVICE_TYPE_CPU) {
+      DLOG(ERROR) << "Unsupported device type: "
+                  << device_properties.deviceType;
+      continue;
+    }
+
     const VkPhysicalDevice& device = device_info.device;
+    bool found = false;
     for (size_t n = 0; n < device_info.queue_families.size(); ++n) {
       if ((device_info.queue_families[n].queueFlags & queue_flags) !=
-          queue_flags)
+          queue_flags) {
         continue;
+      }
 
       if (options & DeviceQueueOption::PRESENTATION_SUPPORT_QUEUE_FLAG &&
           !get_presentation_support.Run(device, device_info.queue_families,
@@ -91,34 +107,26 @@ bool VulkanDeviceQueue::Initialize(
         continue;
       }
 
-      // If gpu_info is provided, the device should match it.
-      if (gpu_info && (device_properties.vendorID != gpu_info->gpu.vendor_id ||
-                       device_properties.deviceID != gpu_info->gpu.device_id)) {
-        continue;
-      }
-
-      if (device_properties.deviceType < 0 ||
-          device_properties.deviceType > VK_PHYSICAL_DEVICE_TYPE_CPU) {
-        DLOG(ERROR) << "Unsupported device type: "
-                    << device_properties.deviceType;
-        continue;
-      }
-
       if (kDeviceTypeScores[device_properties.deviceType] > device_score) {
         device_index = i;
         queue_index = static_cast<int>(n);
         device_score = kDeviceTypeScores[device_properties.deviceType];
+        found = true;
+        break;
       }
-
-      // Use the device, if it matches gpu_info.
-      if (gpu_info)
-        break;
-
-      // If the device is a discrete GPU, we will use it. Otherwise go through
-      // all the devices and find the device with the highest score.
-      if (device_properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
-        break;
     }
+    
+    if (!found)
+      continue;
+
+    // Use the device, if it matches gpu_info.
+    if (gpu_info)
+      break;
+
+    // If the device is a discrete GPU, we will use it. Otherwise go through
+    // all the devices and find the device with the highest score.
+    if (device_properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+      break;
   }
 
   if (device_index == -1) {
@@ -129,6 +137,8 @@ bool VulkanDeviceQueue::Initialize(
   const auto& physical_device_info = info.physical_devices[device_index];
   vk_physical_device_ = physical_device_info.device;
   vk_physical_device_properties_ = physical_device_info.properties;
+  vk_physical_device_driver_properties_ =
+      physical_device_info.driver_properties;
   vk_queue_index_ = queue_index;
 
   float queue_priority = 0.0f;
@@ -266,8 +276,11 @@ bool VulkanDeviceQueue::Initialize(
     vkGetDeviceQueue(vk_device_, queue_index, 0, &vk_queue_);
   }
 
+  std::vector<VkDeviceSize> heap_size_limit(
+      VK_MAX_MEMORY_HEAPS,
+      heap_memory_limit ? heap_memory_limit : VK_WHOLE_SIZE);
   vma::CreateAllocator(vk_physical_device_, vk_device_, vk_instance_,
-                       &vma_allocator_);
+                       heap_size_limit.data(), &vma_allocator_);
   cleanup_helper_ = std::make_unique<VulkanFenceHelper>(this);
 
   allow_protected_memory_ = allow_protected_memory;
@@ -291,7 +304,7 @@ bool VulkanDeviceQueue::InitializeForWebView(
   vk_queue_index_ = vk_queue_index;
   enabled_extensions_ = std::move(enabled_extensions);
 
-  vma::CreateAllocator(vk_physical_device_, vk_device_, vk_instance_,
+  vma::CreateAllocator(vk_physical_device_, vk_device_, vk_instance_, nullptr,
                        &vma_allocator_);
 
   cleanup_helper_ = std::make_unique<VulkanFenceHelper>(this);

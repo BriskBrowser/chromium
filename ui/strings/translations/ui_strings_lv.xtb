@@ -23,6 +23,7 @@
 <translation id="1450753235335490080">Nevar kopīgot: <ph name="CONTENT_TYPE" /></translation>
 <translation id="1487931858675166540"><ph name="FIRST_ITEM_TITLE" /> ir samainīts ar <ph name="SECOND_ITEM_TITLE" /></translation>
 <translation id="1498028757988366001">Jūs jau iepriekš meklējāt šo vienumu. Dzēšot vienumu “<ph name="QUERY" />” no vēstures, tas tiks neatgriezeniski noņemts no jūsu konta visās ierīcēs.</translation>
+<translation id="1510238584712386396">Lietojumprogrammu palaidējs</translation>
 <translation id="1591184457164800433">{MINUTES,plural, =1{1 minūte un }zero{# minūtes un }one{# minūte un }other{# minūtes un }}</translation>
 <translation id="1643823602425662293">Paziņojums</translation>
 <translation id="169515659049020177">Shift</translation>
@@ -44,7 +45,6 @@
 <translation id="19085484004813472">Šī ir jauna funkcija</translation>
 <translation id="2006524834898217237">Pārbaudiet, vai šajā ierīcē ir izveidots savienojums ar internetu.</translation>
 <translation id="208586643495776849">Lūdzu, mēģiniet vēlreiz</translation>
-<translation id="2090963878406559571">Lai no vietnes <ph name="ORIGIN" /> uz Android tālruni nosūtītu numuru, <ph name="TROUBLESHOOT_LINK" /> abām iestatījumos esošajām ierīcēm.</translation>
 <translation id="2141853158323869627">{DAYS,plural, =1{1 d.}zero{# d.}one{# d.}other{# d.}}</translation>
 <translation id="2148716181193084225">Šodien</translation>
 <translation id="2161656808144014275">Teksts</translation>
@@ -94,17 +94,20 @@
 <translation id="3306688585798492231">Iebūvēts displejs</translation>
 <translation id="335581015389089642">Runa</translation>
 <translation id="3389286852084373014">Teksts ir pārāk liels</translation>
+<translation id="3406306243914553062">HTML saturs</translation>
 <translation id="348799646910989694">Plaukts tiek automātiski paslēpts</translation>
 <translation id="3554637740840164787">Vienums <ph name="ITEM_TITLE" /> tika piesprausts</translation>
 <translation id="3600566671520689681">{DAYS,plural, =1{Atlikusi 1 diena}zero{Atlikušas # dienas}one{Atlikusi # diena}other{Atlikušas # dienas}}</translation>
 <translation id="3600969208114796418">Fails “<ph name="SAVEAS_EXTENSION_TYPE" />”</translation>
 <translation id="3608915363409716668">Vairāk nekā <ph name="MAXIMUM_VALUE" /></translation>
 <translation id="3618849550573277856">Meklēt “<ph name="LOOKUP_STRING" />”</translation>
+<translation id="3622035490309591977">Starpliktuves vēsture</translation>
 <translation id="364720409959344976">Augšupielādējamās mapes atlase</translation>
 <translation id="3660179305079774227">Bulta augšup</translation>
 <translation id="3670030362669914947">Numurs</translation>
 <translation id="3740362395218339114"><ph name="QUANTITY" /> GB/s</translation>
 <translation id="3757388668994797779"><ph name="QUANTITY" /> GB</translation>
+<translation id="3804247818991980532"><ph name="TYPE_1" />. <ph name="TYPE_2" />.</translation>
 <translation id="3842239759367498783">Turpiniet lasīt no savas mobilās ierīces <ph name="TITLE" /></translation>
 <translation id="385051799172605136">Atpakaļ</translation>
 <translation id="3889424535448813030">Labā bulta</translation>
@@ -117,6 +120,7 @@
 <translation id="4266252015790371705">{MONTHS,plural, =1{Pirms 1 mēneša}zero{Pirms # mēnešiem}one{Pirms # mēneša}other{Pirms # mēnešiem}}</translation>
 <translation id="4289300219472526559">Sākt runāt</translation>
 <translation id="430191667033048642">Lietotne <ph name="MOVED_APP_NAME" /> pārvietota uz mapi <ph name="FOLDER_NAME" />.</translation>
+<translation id="4306392492252714209">Noņemt no starpliktuves.</translation>
 <translation id="4316910396681052118">VISAS LIETOTNES</translation>
 <translation id="4491109536499578614">Attēls</translation>
 <translation id="4588090240171750605">Ritināt pa labi</translation>
@@ -135,8 +139,8 @@
 <translation id="520299402983819650"><ph name="QUANTITY" /> PB</translation>
 <translation id="5266161281976477809">Atklāšanas trijstūris</translation>
 <translation id="5278860589123563674">Neizdevās nosūtīt</translation>
+<translation id="5283099933536931082">Lietotne <ph name="APP_ITEM_TITLE" /> aicina pievērst tai uzmanību.</translation>
 <translation id="528468243742722775">Beigas</translation>
-<translation id="5327567770033251652">ieslēgt sinhronizāciju</translation>
 <translation id="5329858601952122676">Dzēst</translation>
 <translation id="5395308026110844773">Lietotne <ph name="DRAGGED_APP_NAME" /> tiek vilkta <ph name="IN_PLACE_APP" /> lietotnes vietā, atlaidiet, lai izveidotu mapi.</translation>
 <translation id="5463830097259460683">Emocijzīmes un simboli</translation>
@@ -146,11 +150,13 @@
 <translation id="5574202486608032840"><ph name="IDS_SHORT_PRODUCT_OS_NAME" /> sistēma</translation>
 <translation id="5583640892426849032">Atkāpšanās taustiņš</translation>
 <translation id="5613020302032141669">Kreisā bulta</translation>
+<translation id="5652575806481723716">Lietotne <ph name="FOCUSED_APP_NAME" /> aicina pievērst tai uzmanību.</translation>
 <translation id="5675363643668471212">Plaukta vienums</translation>
 <translation id="5754277640426581776">{MINUTES,plural, =1{1 min}zero{# min}one{# min}other{# min}}</translation>
 <translation id="5763338081255973061">{DAYS,plural, =0{Aktīva šodien}=1{Aktīva pirms 1 dienas}zero{Aktīva pirms # dienām}one{Aktīva pirms # dienas}other{Aktīva pirms # dienām}}</translation>
 <translation id="5768079895599174203">{DAYS,plural, =1{1 diena un }zero{# dienas un }one{# diena un }other{# dienas un }}</translation>
 <translation id="5789643057113097023">:</translation>
+<translation id="5843690142429128814">Attēls.</translation>
 <translation id="5866104238061687188">{YEARS,plural, =1{pēc 1 g.}zero{pēc # g.}one{pēc # g.}other{pēc # g.}}</translation>
 <translation id="588258955323874662">Pilnekrāna</translation>
 <translation id="5906667377645263094">{SECONDS,plural, =1{Atlikusi 1 sekunde}zero{Atlikušas # sekundes}one{Atlikusi # sekunde}other{Atlikušas # sekundes}}</translation>
@@ -183,16 +189,15 @@
 <translation id="6578407462441924264">Bez nosaukuma</translation>
 <translation id="6612467943526193239">Lai izietu no kalibrēšanas, nospiediet Esc.</translation>
 <translation id="6620110761915583480">Saglabāt failu</translation>
-<translation id="6656912866303152668">Gādājiet, lai ierīces <ph name="TARGET_DEVICE_NAME" /> pārlūkprogrammā Chrome ir ieslēgta sinhronizācija, un pēc tam mēģiniet nosūtīt saturu vēlreiz.</translation>
 <translation id="6699343763173986273">Multivide — nākamā dziesma</translation>
 <translation id="6710213216561001401">Iepriekšējais</translation>
-<translation id="6779314412797872738">Lai no šejienes uz Android tālruni nosūtītu numuru, <ph name="TROUBLESHOOT_LINK" /> abām iestatījumos esošajām ierīcēm.</translation>
 <translation id="6786750046913594791">Aizvērt mapi</translation>
 <translation id="6808150112686056157">Multivide — pārtraukt</translation>
 <translation id="6845383723252244143">Atlasīt mapi</translation>
 <translation id="6845533974506654842">nospiest</translation>
 <translation id="6863590663815976734">{HOURS,plural, =1{Atlikusi 1 stunda}zero{Atlikušas # stundas}one{Atlikusi # stunda}other{Atlikušas # stundas}}</translation>
 <translation id="688711909580084195">Tīmekļa lapa bez nosaukuma</translation>
+<translation id="6902419395050653510">HTML saturs.</translation>
 <translation id="6907759265145635167"><ph name="QUANTITY" /> PB/s</translation>
 <translation id="6917971086528278418">{YEARS,plural, =1{Atlicis 1 gads}zero{Atlikuši # gadi}one{Atlicis # gads}other{Atlikuši # gadi}}</translation>
 <translation id="6945221475159498467">Atlasīt</translation>
@@ -210,6 +215,7 @@
 <translation id="7430878839542012341">Vai dzēst šo meklēšanas vaicājumu no vēstures?</translation>
 <translation id="7460907917090416791"><ph name="QUANTITY" /> TB</translation>
 <translation id="7507604095951736240">Emocijzīmes</translation>
+<translation id="7620655452534002301">Noņemts.</translation>
 <translation id="7658239707568436148">Atcelt</translation>
 <translation id="7781829728241885113">Vakar</translation>
 <translation id="7814458197256864873">Ko&amp;pēt</translation>
@@ -225,11 +231,11 @@
 <translation id="8106081041558092062">{HOURS,plural, =1{Pirms 1 stundas}zero{Pirms # stundām}one{Pirms # stundas}other{Pirms # stundām}}</translation>
 <translation id="8131263257437993507">{SECONDS,plural, =1{Atlikusi 1 s}zero{Atlikušas # s}one{Atlikusi # s}other{Atlikušas # s}}</translation>
 <translation id="8134065097954893699">Notiek atkārtota šīs lapas ielādēšana</translation>
-<translation id="8144660977431427332">Jūsu meklēšanas vaicājumus nodrošina Google asistents. <ph name="LEARN_MORE" /></translation>
 <translation id="8152264887680882389"><ph name="TEXT" />, automātiski pabeigts</translation>
 <translation id="815598010540052116">Ritināt lejup</translation>
 <translation id="8179976553408161302">Ievadīt</translation>
 <translation id="8210608804940886430">Lejup</translation>
+<translation id="822964464349305906"><ph name="TYPE_1" />, <ph name="TYPE_2" /></translation>
 <translation id="8245914219290430011">Tabulēšanas taustiņš</translation>
 <translation id="8247998213073982446"><ph name="APP_NAME" />, lietotne</translation>
 <translation id="8259556432390118667">Heksadecimāla krāsas vērtība</translation>

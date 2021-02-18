@@ -25,11 +25,12 @@ void FakeLocalFrameHost::EnterFullscreen(
 
 void FakeLocalFrameHost::ExitFullscreen() {}
 
-void FakeLocalFrameHost::FullscreenStateChanged(bool is_fullscreen) {}
+void FakeLocalFrameHost::FullscreenStateChanged(
+    bool is_fullscreen,
+    mojom::blink::FullscreenOptionsPtr options) {}
 
 void FakeLocalFrameHost::RegisterProtocolHandler(const WTF::String& scheme,
                                                  const ::blink::KURL& url,
-                                                 const ::WTF::String& title,
                                                  bool user_gesture) {}
 
 void FakeLocalFrameHost::UnregisterProtocolHandler(const WTF::String& scheme,
@@ -53,10 +54,10 @@ void FakeLocalFrameHost::VisibilityChanged(
     mojom::blink::FrameVisibility visibility) {}
 
 void FakeLocalFrameHost::DidChangeThemeColor(
-    const base::Optional<::SkColor>& theme_color) {}
+    base::Optional<::SkColor> theme_color) {}
 
-void FakeLocalFrameHost::DidChangeBackgroundColor(
-    const SkColor& background_color) {}
+void FakeLocalFrameHost::DidChangeBackgroundColor(SkColor background_color,
+                                                  bool color_adjust) {}
 
 void FakeLocalFrameHost::DidFailLoadWithError(const ::blink::KURL& url,
                                               int32_t error_code) {}
@@ -152,10 +153,6 @@ void FakeLocalFrameHost::RunBeforeUnloadConfirm(
   std::move(callback).Run(true);
 }
 
-void FakeLocalFrameHost::Are3DAPIsBlocked(Are3DAPIsBlockedCallback callback) {
-  std::move(callback).Run(true);
-}
-
 void FakeLocalFrameHost::UpdateFaviconURL(
     WTF::Vector<blink::mojom::blink::FaviconURLPtr> favicon_urls) {}
 
@@ -167,6 +164,9 @@ void FakeLocalFrameHost::FocusedElementChanged(
     const gfx::Rect& bounds_in_frame_widget,
     blink::mojom::FocusType focus_type) {}
 
+void FakeLocalFrameHost::TextSelectionChanged(const WTF::String& text,
+                                              uint32_t offset,
+                                              const gfx::Range& range) {}
 void FakeLocalFrameHost::ShowPopupMenu(
     mojo::PendingRemote<mojom::blink::PopupMenuClient> popup_client,
     const gfx::Rect& bounds,
@@ -176,6 +176,11 @@ void FakeLocalFrameHost::ShowPopupMenu(
     Vector<mojom::blink::MenuItemPtr> menu_items,
     bool right_aligned,
     bool allow_multiple_selection) {}
+
+void FakeLocalFrameHost::ShowContextMenu(
+    mojo::PendingAssociatedRemote<mojom::blink::ContextMenuClient>
+        context_menu_client,
+    const blink::UntrustworthyContextMenuParams& params) {}
 
 void FakeLocalFrameHost::DidLoadResourceFromMemoryCache(
     const KURL& url,
@@ -203,6 +208,18 @@ void FakeLocalFrameHost::CapturePaintPreviewOfSubframe(
     const base::UnguessableToken& guid) {}
 
 void FakeLocalFrameHost::Detach() {}
+
+void FakeLocalFrameHost::GetKeepAliveHandleFactory(
+    mojo::PendingReceiver<mojom::blink::KeepAliveHandleFactory> receiver) {}
+
+void FakeLocalFrameHost::DidAddMessageToConsole(
+    mojom::ConsoleMessageLevel log_level,
+    const WTF::String& message,
+    int32_t line_no,
+    const WTF::String& source_id,
+    const WTF::String& untrusted_stack_trace) {}
+
+void FakeLocalFrameHost::FrameSizeChanged(const gfx::Size& frame_size) {}
 
 void FakeLocalFrameHost::BindFrameHostReceiver(
     mojo::ScopedInterfaceEndpointHandle handle) {

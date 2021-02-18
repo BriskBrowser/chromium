@@ -16,7 +16,6 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
 #include "base/location.h"
@@ -107,15 +106,16 @@ namespace {
 
 using ::base::TimeDelta;
 
+using ::testing::_;
 using ::testing::AnyNumber;
 using ::testing::DefaultValue;
+using ::testing::DoAll;
 using ::testing::InSequence;
 using ::testing::MockFunction;
 using ::testing::NotNull;
 using ::testing::Return;
 using ::testing::SaveArg;
 using ::testing::StrictMock;
-using ::testing::_;
 
 // A selection of characters that have traditionally been mangled in some
 // environment or other, for testing 8-bit cleanliness.
@@ -170,7 +170,8 @@ class MockWebSocketEventInterface : public WebSocketEventInterface {
   MOCK_METHOD0(HasPendingDataFrames, bool(void));         // NOLINT
   MOCK_METHOD0(OnSendDataFrameDone, void(void));          // NOLINT
   MOCK_METHOD0(OnClosingHandshake, void(void));           // NOLINT
-  MOCK_METHOD1(OnFailChannel, void(const std::string&));  // NOLINT
+  MOCK_METHOD3(OnFailChannel,
+               void(const std::string&, int, base::Optional<int>));  // NOLINT
   MOCK_METHOD3(OnDropChannel,
                void(bool, uint16_t, const std::string&));  // NOLINT
 
@@ -223,7 +224,9 @@ class FakeWebSocketEventInterface : public WebSocketEventInterface {
   void OnSendDataFrameDone() override {}
   bool HasPendingDataFrames() override { return false; }
   void OnClosingHandshake() override {}
-  void OnFailChannel(const std::string& message) override {}
+  void OnFailChannel(const std::string& message,
+                     int net_error,
+                     base::Optional<int> response_code) override {}
   void OnDropChannel(bool was_clean,
                      uint16_t code,
                      const std::string& reason) override {}
@@ -840,9 +843,9 @@ class WebSocketChannelTest : public TestWithTaskEnvironment {
         : socket_url("ws://ws/"),
           origin(url::Origin::Create(GURL("http://ws"))),
           site_for_cookies(SiteForCookies::FromUrl(GURL("http://ws/"))) {
-      this->isolation_info = IsolationInfo::Create(
-          IsolationInfo::RedirectMode::kUpdateNothing, origin, origin,
-          SiteForCookies::FromOrigin(origin));
+      this->isolation_info =
+          IsolationInfo::Create(IsolationInfo::RequestType::kOther, origin,
+                                origin, SiteForCookies::FromOrigin(origin));
     }
 
     // URLRequestContext object.
@@ -930,7 +933,7 @@ class WebSocketChannelStreamTest : public WebSocketChannelEventInterfaceTest {
         .Times(AnyNumber());
     EXPECT_CALL(*event_interface_, OnClosingHandshake()).Times(AnyNumber());
     EXPECT_CALL(*event_interface_, OnSendDataFrameDone()).Times(AnyNumber());
-    EXPECT_CALL(*event_interface_, OnFailChannel(_)).Times(AnyNumber());
+    EXPECT_CALL(*event_interface_, OnFailChannel(_, _, _)).Times(AnyNumber());
     EXPECT_CALL(*event_interface_, OnDropChannel(_, _, _)).Times(AnyNumber());
   }
 
@@ -981,7 +984,7 @@ TEST_F(WebSocketChannelTest, EverythingIsPassedToTheCreatorFunction) {
   connect_data_.site_for_cookies =
       SiteForCookies::FromUrl(GURL("http://example.com/"));
   connect_data_.isolation_info = net::IsolationInfo::Create(
-      IsolationInfo::RedirectMode::kUpdateNothing, connect_data_.origin,
+      IsolationInfo::RequestType::kOther, connect_data_.origin,
       connect_data_.origin, SiteForCookies::FromOrigin(connect_data_.origin));
   connect_data_.requested_subprotocols.push_back("Sinbad");
 
@@ -1013,15 +1016,16 @@ TEST_F(WebSocketChannelEventInterfaceTest, ConnectSuccessReported) {
 }
 
 TEST_F(WebSocketChannelEventInterfaceTest, ConnectFailureReported) {
-  EXPECT_CALL(*event_interface_, OnFailChannel("hello"));
+  EXPECT_CALL(*event_interface_, OnFailChannel("hello", ERR_FAILED, _));
 
   CreateChannelAndConnect();
 
-  connect_data_.argument_saver.connect_delegate->OnFailure("hello");
+  connect_data_.argument_saver.connect_delegate->OnFailure("hello", ERR_FAILED,
+                                                           base::nullopt);
 }
 
 TEST_F(WebSocketChannelEventInterfaceTest, NonWebSocketSchemeRejected) {
-  EXPECT_CALL(*event_interface_, OnFailChannel("Invalid scheme"));
+  EXPECT_CALL(*event_interface_, OnFailChannel("Invalid scheme", _, _));
   connect_data_.socket_url = GURL("http://www.google.com/");
   CreateChannelAndConnect();
 }
@@ -1310,7 +1314,8 @@ TEST_F(WebSocketChannelEventInterfaceTest, MaskedFramesAreRejected) {
     EXPECT_CALL(
         *event_interface_,
         OnFailChannel(
-            "A server must not mask any frames that it sends to the client."));
+            "A server must not mask any frames that it sends to the client.", _,
+            _));
   }
 
   CreateChannelAndConnectSuccessfully();
@@ -1329,7 +1334,7 @@ TEST_F(WebSocketChannelEventInterfaceTest, UnknownOpCodeIsRejected) {
     InSequence s;
     EXPECT_CALL(*event_interface_, OnAddChannelResponse(_, _, _));
     EXPECT_CALL(*event_interface_,
-                OnFailChannel("Unrecognized frame opcode: 4"));
+                OnFailChannel("Unrecognized frame opcode: 4", _, _));
   }
 
   CreateChannelAndConnectSuccessfully();
@@ -1400,7 +1405,8 @@ TEST_F(WebSocketChannelEventInterfaceTest, FrameAfterInvalidFrame) {
     EXPECT_CALL(
         *event_interface_,
         OnFailChannel(
-            "A server must not mask any frames that it sends to the client."));
+            "A server must not mask any frames that it sends to the client.", _,
+            _));
   }
 
   CreateChannelAndConnectSuccessfully();
@@ -1521,7 +1527,7 @@ TEST_F(WebSocketChannelEventInterfaceTest, SyncProtocolErrorGivesStatus1002) {
   set_stream(std::move(stream));
   EXPECT_CALL(*event_interface_, OnAddChannelResponse(_, _, _));
 
-  EXPECT_CALL(*event_interface_, OnFailChannel("Invalid frame header"));
+  EXPECT_CALL(*event_interface_, OnFailChannel("Invalid frame header", _, _));
 
   CreateChannelAndConnectSuccessfully();
 }
@@ -1533,7 +1539,7 @@ TEST_F(WebSocketChannelEventInterfaceTest, AsyncProtocolErrorGivesStatus1002) {
                                  ERR_WS_PROTOCOL_ERROR);
   set_stream(std::move(stream));
   EXPECT_CALL(*event_interface_, OnAddChannelResponse(_, _, _));
-  EXPECT_CALL(*event_interface_, OnFailChannel("Invalid frame header"));
+  EXPECT_CALL(*event_interface_, OnFailChannel("Invalid frame header", _, _));
 
   CreateChannelAndConnectSuccessfully();
   base::RunLoop().RunUntilIdle();
@@ -1560,7 +1566,7 @@ TEST_F(WebSocketChannelEventInterfaceTest, FailJustAfterHandshake) {
   {
     InSequence s;
     EXPECT_CALL(*event_interface_, OnStartOpeningHandshakeCalled());
-    EXPECT_CALL(*event_interface_, OnFailChannel("bye"));
+    EXPECT_CALL(*event_interface_, OnFailChannel("bye", _, _));
   }
 
   CreateChannelAndConnect();
@@ -1576,7 +1582,7 @@ TEST_F(WebSocketChannelEventInterfaceTest, FailJustAfterHandshake) {
       url, response_headers, IPEndPoint(), base::Time());
   connect_delegate->OnStartOpeningHandshake(std::move(request_info));
 
-  connect_delegate->OnFailure("bye");
+  connect_delegate->OnFailure("bye", ERR_FAILED, base::nullopt);
   base::RunLoop().RunUntilIdle();
 }
 
@@ -1596,7 +1602,7 @@ TEST_F(WebSocketChannelEventInterfaceTest, DataAfterCloseIsRejected) {
     InSequence s;
     EXPECT_CALL(*event_interface_, OnClosingHandshake());
     EXPECT_CALL(*event_interface_,
-                OnFailChannel("Data frame received after close"));
+                OnFailChannel("Data frame received after close", _, _));
   }
 
   CreateChannelAndConnectSuccessfully();
@@ -1614,7 +1620,8 @@ TEST_F(WebSocketChannelEventInterfaceTest, OneByteClosePayloadMessage) {
   EXPECT_CALL(
       *event_interface_,
       OnFailChannel(
-          "Received a broken close frame containing an invalid size body."));
+          "Received a broken close frame containing an invalid size body.", _,
+          _));
 
   CreateChannelAndConnectSuccessfully();
 }
@@ -1632,7 +1639,8 @@ TEST_F(WebSocketChannelEventInterfaceTest, ClosePayloadReservedStatusMessage) {
   EXPECT_CALL(
       *event_interface_,
       OnFailChannel(
-          "Received a broken close frame containing a reserved status code."));
+          "Received a broken close frame containing a reserved status code.", _,
+          _));
 
   CreateChannelAndConnectSuccessfully();
 }
@@ -1649,8 +1657,8 @@ TEST_F(WebSocketChannelEventInterfaceTest, ClosePayloadInvalidReason) {
   EXPECT_CALL(*event_interface_, OnAddChannelResponse(_, _, _));
   EXPECT_CALL(
       *event_interface_,
-      OnFailChannel(
-          "Received a broken close frame containing invalid UTF-8."));
+      OnFailChannel("Received a broken close frame containing invalid UTF-8.",
+                    _, _));
 
   CreateChannelAndConnectSuccessfully();
 }
@@ -1672,9 +1680,9 @@ TEST_F(WebSocketChannelEventInterfaceTest, ReservedBitsMustNotBeSet) {
   set_stream(std::move(stream));
   EXPECT_CALL(*event_interface_, OnAddChannelResponse(_, _, _));
   EXPECT_CALL(*event_interface_,
-              OnFailChannel(
-                  "One or more reserved bits are on: reserved1 = 1, "
-                  "reserved2 = 0, reserved3 = 0"));
+              OnFailChannel("One or more reserved bits are on: reserved1 = 1, "
+                            "reserved2 = 0, reserved3 = 0",
+                            _, _));
 
   CreateChannelAndConnectSuccessfully();
 }
@@ -2242,9 +2250,9 @@ TEST_F(WebSocketChannelEventInterfaceTest, ReadBinaryFramesAre8BitClean) {
 
 // Invalid UTF-8 is not permitted in Text frames.
 TEST_F(WebSocketChannelSendUtf8Test, InvalidUtf8Rejected) {
-  EXPECT_CALL(
-      *event_interface_,
-      OnFailChannel("Browser sent a text frame containing invalid UTF-8"));
+  EXPECT_CALL(*event_interface_,
+              OnFailChannel(
+                  "Browser sent a text frame containing invalid UTF-8", _, _));
 
   CreateChannelAndConnectSuccessfully();
 
@@ -2255,9 +2263,9 @@ TEST_F(WebSocketChannelSendUtf8Test, InvalidUtf8Rejected) {
 
 // A Text message cannot end with a partial UTF-8 character.
 TEST_F(WebSocketChannelSendUtf8Test, IncompleteCharacterInFinalFrame) {
-  EXPECT_CALL(
-      *event_interface_,
-      OnFailChannel("Browser sent a text frame containing invalid UTF-8"));
+  EXPECT_CALL(*event_interface_,
+              OnFailChannel(
+                  "Browser sent a text frame containing invalid UTF-8", _, _));
 
   CreateChannelAndConnectSuccessfully();
 
@@ -2290,9 +2298,9 @@ TEST_F(WebSocketChannelSendUtf8Test, ValidCharacterSplitBetweenFrames) {
 
 // Similarly, an invalid character should be detected even if split.
 TEST_F(WebSocketChannelSendUtf8Test, InvalidCharacterSplit) {
-  EXPECT_CALL(
-      *event_interface_,
-      OnFailChannel("Browser sent a text frame containing invalid UTF-8"));
+  EXPECT_CALL(*event_interface_,
+              OnFailChannel(
+                  "Browser sent a text frame containing invalid UTF-8", _, _));
 
   CreateChannelAndConnectSuccessfully();
 
@@ -2306,9 +2314,9 @@ TEST_F(WebSocketChannelSendUtf8Test, InvalidCharacterSplit) {
 
 // An invalid character must be detected in continuation frames.
 TEST_F(WebSocketChannelSendUtf8Test, InvalidByteInContinuation) {
-  EXPECT_CALL(
-      *event_interface_,
-      OnFailChannel("Browser sent a text frame containing invalid UTF-8"));
+  EXPECT_CALL(*event_interface_,
+              OnFailChannel(
+                  "Browser sent a text frame containing invalid UTF-8", _, _));
 
   CreateChannelAndConnectSuccessfully();
 
@@ -2364,7 +2372,7 @@ TEST_F(WebSocketChannelEventInterfaceTest, ReceivedInvalidUtf8) {
 
   EXPECT_CALL(*event_interface_, OnAddChannelResponse(_, _, _));
   EXPECT_CALL(*event_interface_,
-              OnFailChannel("Could not decode a text frame as UTF-8."));
+              OnFailChannel("Could not decode a text frame as UTF-8.", _, _));
 
   CreateChannelAndConnectSuccessfully();
   base::RunLoop().RunUntilIdle();
@@ -2558,7 +2566,8 @@ TEST_F(WebSocketChannelEventInterfaceTest, BogusContinuation) {
   EXPECT_CALL(
       *event_interface_,
       OnFailChannel(
-          "Received start of new message but previous message is unfinished."));
+          "Received start of new message but previous message is unfinished.",
+          _, _));
 
   CreateChannelAndConnectSuccessfully();
 }
@@ -2574,7 +2583,7 @@ TEST_F(WebSocketChannelEventInterfaceTest, MessageStartingWithContinuation) {
 
   EXPECT_CALL(*event_interface_, OnAddChannelResponse(_, _, _));
   EXPECT_CALL(*event_interface_,
-              OnFailChannel("Received unexpected continuation frame."));
+              OnFailChannel("Received unexpected continuation frame.", _, _));
 
   CreateChannelAndConnectSuccessfully();
 }

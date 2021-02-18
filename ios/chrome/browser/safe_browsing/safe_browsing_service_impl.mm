@@ -85,8 +85,12 @@ void SafeBrowsingServiceImpl::Initialize(PrefService* prefs,
   pref_change_registrar_->Init(prefs);
   pref_change_registrar_->Add(
       prefs::kSafeBrowsingEnabled,
-      base::Bind(&SafeBrowsingServiceImpl::UpdateSafeBrowsingEnabledState,
-                 base::Unretained(this)));
+      base::BindRepeating(
+          &SafeBrowsingServiceImpl::UpdateSafeBrowsingEnabledState,
+          base::Unretained(this)));
+  UMA_HISTOGRAM_BOOLEAN(
+      safe_browsing::kSafeBrowsingEnabledHistogramName,
+      pref_change_registrar_->prefs()->GetBoolean(prefs::kSafeBrowsingEnabled));
   UpdateSafeBrowsingEnabledState();
 }
 
@@ -102,7 +106,7 @@ void SafeBrowsingServiceImpl::ShutDown() {
 
 std::unique_ptr<safe_browsing::SafeBrowsingUrlCheckerImpl>
 SafeBrowsingServiceImpl::CreateUrlChecker(
-    safe_browsing::ResourceType resource_type,
+    network::mojom::RequestDestination request_destination,
     web::WebState* web_state) {
   bool can_perform_full_url_lookup = false;
   safe_browsing::RealTimeUrlLookupService* url_lookup_service = nullptr;
@@ -113,8 +117,8 @@ SafeBrowsingServiceImpl::CreateUrlChecker(
         url_lookup_service && url_lookup_service->CanPerformFullURLLookup();
   }
   return std::make_unique<safe_browsing::SafeBrowsingUrlCheckerImpl>(
-      resource_type, url_checker_delegate_, web_state->CreateDefaultGetter(),
-      can_perform_full_url_lookup,
+      request_destination, url_checker_delegate_,
+      web_state->CreateDefaultGetter(), can_perform_full_url_lookup,
       /*can_rt_check_subresource_url=*/false,
       url_lookup_service ? url_lookup_service->GetWeakPtr() : nullptr);
 }
@@ -126,6 +130,11 @@ bool SafeBrowsingServiceImpl::CanCheckUrl(const GURL& url) const {
 scoped_refptr<network::SharedURLLoaderFactory>
 SafeBrowsingServiceImpl::GetURLLoaderFactory() {
   return shared_url_loader_factory_;
+}
+
+scoped_refptr<safe_browsing::SafeBrowsingDatabaseManager>
+SafeBrowsingServiceImpl::GetDatabaseManager() {
+  return safe_browsing_db_manager_;
 }
 
 void SafeBrowsingServiceImpl::ClearCookies(

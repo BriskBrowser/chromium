@@ -5,9 +5,10 @@
 // https://gpuweb.github.io/gpuweb/
 
 enum GPUExtensionName {
+    "pipeline-statistics-query",
     "texture-compression-bc",
-    // Non-standard extension name string. Remove after a transition period.
-    "textureCompressionBC"
+    "timestamp-query",
+    "shader-float16"
 };
 
 [

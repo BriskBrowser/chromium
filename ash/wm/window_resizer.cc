@@ -4,7 +4,6 @@
 
 #include "ash/wm/window_resizer.h"
 
-#include "ash/public/cpp/frame_header.h"
 #include "ash/wm/window_positioning_utils.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
@@ -12,6 +11,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/time/time.h"
+#include "chromeos/ui/frame/frame_header.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_delegate.h"
@@ -22,13 +22,15 @@
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/resize_utils.h"
 #include "ui/gfx/presentation_feedback.h"
 #include "ui/views/widget/widget.h"
-#include "ui/views/window/window_resize_utils.h"
 #include "ui/wm/core/coordinate_conversion.h"
 
 namespace ash {
 namespace {
+
+using ::chromeos::FrameHeader;
 
 // Returns true for resize components along the right edge, where a drag in
 // positive x will make the window larger.
@@ -37,28 +39,29 @@ bool IsRightEdge(int window_component) {
          window_component == HTBOTTOMRIGHT || window_component == HTGROWBOX;
 }
 
-// Convert |window_component| to the HitTest used in views::WindowResizeUtils.
-views::HitTest GetWindowResizeHitTest(int window_component) {
+// Convert |window_component| to the ResizeEdge used in
+// gfx::SizeRectToAspectRatio().
+gfx::ResizeEdge GetWindowResizeEdge(int window_component) {
   switch (window_component) {
     case HTBOTTOM:
-      return views::HitTest::kBottom;
+      return gfx::ResizeEdge::kBottom;
     case HTTOP:
-      return views::HitTest::kTop;
+      return gfx::ResizeEdge::kTop;
     case HTLEFT:
-      return views::HitTest::kLeft;
+      return gfx::ResizeEdge::kLeft;
     case HTRIGHT:
-      return views::HitTest::kRight;
+      return gfx::ResizeEdge::kRight;
     case HTTOPLEFT:
-      return views::HitTest::kTopLeft;
+      return gfx::ResizeEdge::kTopLeft;
     case HTTOPRIGHT:
-      return views::HitTest::kTopRight;
+      return gfx::ResizeEdge::kTopRight;
     case HTBOTTOMLEFT:
-      return views::HitTest::kBottomLeft;
+      return gfx::ResizeEdge::kBottomLeft;
     case HTBOTTOMRIGHT:
-      return views::HitTest::kBottomRight;
+      return gfx::ResizeEdge::kBottomRight;
     default:
       NOTREACHED();
-      return views::HitTest::kBottomRight;
+      return gfx::ResizeEdge::kBottomRight;
   }
 }
 
@@ -466,11 +469,8 @@ void WindowResizer::CalculateBoundsWithAspectRatio(float aspect_ratio,
   DCHECK(!min_size.IsEmpty());
   DCHECK(!max_size.IsEmpty());
 
-  views::WindowResizeUtils::SizeMinMaxToAspectRatio(aspect_ratio, &min_size,
-                                                    &max_size);
-  views::WindowResizeUtils::SizeRectToAspectRatio(
-      GetWindowResizeHitTest(details().window_component), aspect_ratio,
-      min_size, max_size, new_bounds);
+  gfx::SizeRectToAspectRatio(GetWindowResizeEdge(details().window_component),
+                             aspect_ratio, min_size, max_size, new_bounds);
 }
 
 }  // namespace ash

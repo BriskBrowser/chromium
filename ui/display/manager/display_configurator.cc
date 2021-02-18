@@ -8,10 +8,11 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/syslog_logging.h"
 #include "base/time/time.h"
 #include "chromeos/system/devicemode.h"
 #include "ui/display/display.h"
@@ -200,6 +201,13 @@ DisplayConfigurator::DisplayLayoutManagerImpl::ParseDisplays(
     cached_displays.push_back(display_state);
   }
 
+  // TODO(crbug.com/1161556): Hardware mirroring is now disabled by deafult.
+  // This is the first step towards permanently disabling HW mirroring. The use
+  // of a feature flag will be removed once we verify no regressions occur due
+  // to disabling HW mirroring.
+  if (!features::IsHardwareMirrorModeEnabled())
+    return cached_displays;
+
   // Hardware mirroring doesn't work on desktop-linux Chrome OS's fake displays.
   // Skip mirror mode setup in that case to fall back on software mirroring.
   if (!chromeos::IsRunningAsSystemCompositor())
@@ -323,8 +331,9 @@ bool DisplayConfigurator::DisplayLayoutManagerImpl::GetDisplayLayout(
 
       const DisplayMode* mode_info = states[0].mirror_mode;
       if (!mode_info) {
-        LOG(WARNING) << "No mirror mode when configuring display: "
-                     << states[0].display->ToString();
+        SYSLOG(INFO) << "Either hardware mirroring was disabled or no common "
+                        "mode between the available displays was found to "
+                        "support it. Using software mirroring instead.";
         return false;
       }
       size = mode_info->size();

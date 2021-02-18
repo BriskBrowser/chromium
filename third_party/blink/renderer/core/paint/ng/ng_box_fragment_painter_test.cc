@@ -10,7 +10,6 @@
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_cursor.h"
 #include "third_party/blink/renderer/core/layout/ng/layout_ng_block_flow.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_block_node.h"
-#include "third_party/blink/renderer/core/paint/ng/ng_paint_fragment.h"
 #include "third_party/blink/renderer/core/paint/paint_controller_paint_test.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_record_builder.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
@@ -63,21 +62,16 @@ TEST_P(NGBoxFragmentPainterTest, ScrollHitTestOrder) {
     </style>
     <div id='scroller'>TEXT</div>
   )HTML");
-  auto& scroller = ToLayoutBox(*GetLayoutObjectByElementId("scroller"));
-
-  const DisplayItemClient& root_fragment =
-      scroller.PaintFragment()
-          ? static_cast<const DisplayItemClient&>(*scroller.PaintFragment())
-          : static_cast<const DisplayItemClient&>(scroller);
+  auto& scroller = *GetLayoutBoxByElementId("scroller");
+  const DisplayItemClient& root_fragment = scroller;
 
   NGInlineCursor cursor;
   cursor.MoveTo(*scroller.SlowFirstChild());
   const DisplayItemClient& text_fragment =
       *cursor.Current().GetDisplayItemClient();
 
-  EXPECT_THAT(RootPaintController().GetDisplayItemList(),
-              ElementsAre(IsSameId(&ViewScrollingBackgroundClient(),
-                                   DisplayItem::kDocumentBackground),
+  EXPECT_THAT(ContentDisplayItems(),
+              ElementsAre(VIEW_SCROLLING_BACKGROUND_DISPLAY_ITEM,
                           IsSameId(&text_fragment, kForegroundType)));
   HitTestData scroll_hit_test;
   scroll_hit_test.scroll_translation =
@@ -85,9 +79,9 @@ TEST_P(NGBoxFragmentPainterTest, ScrollHitTestOrder) {
   scroll_hit_test.scroll_hit_test_rect = IntRect(0, 0, 40, 40);
   if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
     EXPECT_THAT(
-        RootPaintController().PaintChunks(),
+        ContentPaintChunks(),
         ElementsAre(
-            IsPaintChunk(0, 0), IsPaintChunk(0, 1),  // LayoutView chunks.
+            VIEW_SCROLLING_BACKGROUND_CHUNK_COMMON,
             IsPaintChunk(
                 1, 1,
                 PaintChunk::Id(*scroller.Layer(), DisplayItem::kLayerChunk),
@@ -100,9 +94,9 @@ TEST_P(NGBoxFragmentPainterTest, ScrollHitTestOrder) {
             IsPaintChunk(1, 2)));
   } else {
     EXPECT_THAT(
-        RootPaintController().PaintChunks(),
+        ContentPaintChunks(),
         ElementsAre(
-            IsPaintChunk(0, 1),  // LayutView.
+            VIEW_SCROLLING_BACKGROUND_CHUNK_COMMON,
             IsPaintChunk(
                 1, 1,
                 PaintChunk::Id(root_fragment, DisplayItem::kScrollHitTest),
@@ -130,13 +124,13 @@ TEST_P(NGBoxFragmentPainterTest, AddUrlRects) {
   // PaintPreviewTracker records URLs via the GraphicsContext under certain
   // flagsets when painting. This is the simplest way to check if URLs were
   // annotated.
-  GetDocument().SetIsPaintingPreview(true);
+  Document::PaintPreviewScope paint_preview(GetDocument());
   UpdateAllLifecyclePhasesForTest();
 
   paint_preview::PaintPreviewTracker tracker(base::UnguessableToken::Create(),
                                              base::nullopt, true);
-  PaintRecordBuilder builder(nullptr, nullptr, nullptr, &tracker);
-  builder.Context().SetIsPaintingPreview(true);
+  PaintRecordBuilder builder;
+  builder.Context().SetPaintPreviewTracker(&tracker);
 
   GetDocument().View()->PaintContentsOutsideOfLifecycle(
       builder.Context(),

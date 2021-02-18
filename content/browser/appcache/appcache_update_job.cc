@@ -5,7 +5,7 @@
 #include "content/browser/appcache/appcache_update_job.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/location.h"
 #include "base/metrics/histogram_functions.h"
@@ -26,7 +26,7 @@
 #include "net/base/net_errors.h"
 #include "net/base/request_priority.h"
 #include "net/http/http_request_headers.h"
-#include "storage/browser/quota/padding_key.h"
+#include "storage/common/quota/padding_key.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/mojom/appcache/appcache.mojom.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom.h"
@@ -131,14 +131,20 @@ ResourceCheck CanUseExistingResource(
   // create a large number of expired cache entries, and the unnecessary
   // If-Modified-Since requests are causing noticeable levels of traffic.
   //
-  // The logic below is a workaround while a longer-term fix gets developed and
-  // deployed. We'll consider all cache entries with invalid times to have been
-  // created on Tue, Dec 31 2019.
+  // There is currently a Finch-controlled kAppCacheCorruptionRecoveryFeature
+  // that is turned on for some users.  Once this has been rolled out fully,
+  // then this workaround below can be removed.
   //
-  // TODO(cmp): Add timeline info here.
+  // The logic below is a workaround to prevent refetching these corrupted
+  // cache entries while this kAppCacheCorruptionRecoveryFeature is rolled out
+  // to all users.  We'll consider all cache entries with invalid times to have
+  // been created on Tue, Jun 30 2020.  This date has been moved several times
+  // to prevent resources that haven't yet expired from being refetched all at
+  // once.
+  //
   bool found_corruption = false;
   static constexpr base::Time::Exploded kInvalidTimePlaceholderExploded = {
-      2019, 12, 2, 31, 0, 0, 0, 0};
+      2020, 6, 2, 30, 0, 0, 0, 0};
   if (request_time.is_null()) {
     bool conversion_succeeded = base::Time::FromUTCExploded(
         kInvalidTimePlaceholderExploded, &request_time);
@@ -201,16 +207,13 @@ int64_t ComputeAppCacheResponsePadding(const GURL& response_url,
   if (response_url.GetOrigin() == manifest_url.GetOrigin())
     return 0;
 
-  return storage::ComputeResponsePadding(
-      response_url.spec(), storage::GetDefaultPaddingKey(),
-      /*has_metadata=*/false, /*loaded_with_credentials=*/false,
-      net::HttpRequestHeaders::kGetMethod);
+  return storage::ComputeRandomResponsePadding();
 }
 
 }  // namespace
 
 const base::Feature kAppCacheCorruptionRecoveryFeature{
-    "AppCacheCorruptionRecovery", base::FEATURE_DISABLED_BY_DEFAULT};
+    "AppCacheCorruptionRecovery", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Helper class for collecting hosts per frontend when sending notifications
 // so that only one notification is sent for all hosts using the same frontend.

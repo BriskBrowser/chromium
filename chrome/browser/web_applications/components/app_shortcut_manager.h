@@ -9,13 +9,12 @@
 #include <vector>
 
 #include "base/callback_forward.h"
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/web_applications/components/app_registrar.h"
 #include "chrome/browser/web_applications/components/web_app_id.h"
 #include "chrome/browser/web_applications/components/web_app_shortcut.h"
 #include "chrome/browser/web_applications/components/web_app_shortcuts_menu.h"
-#include "chrome/common/web_application_info.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 
 class Profile;
 
@@ -34,6 +33,8 @@ struct ShortcutInfo;
 class AppShortcutManager {
  public:
   explicit AppShortcutManager(Profile* profile);
+  AppShortcutManager(const AppShortcutManager&) = delete;
+  AppShortcutManager& operator=(const AppShortcutManager&) = delete;
   virtual ~AppShortcutManager();
 
   void SetSubsystems(AppIconManager* icon_manager, AppRegistrar* registrar);
@@ -51,6 +52,10 @@ class AppShortcutManager {
                        CreateShortcutsCallback callback);
   void UpdateShortcuts(const web_app::AppId& app_id,
                        base::StringPiece old_name);
+  void DeleteShortcuts(const AppId& app_id,
+                       const base::FilePath& shortcuts_data_dir,
+                       std::unique_ptr<ShortcutInfo> shortcut_info,
+                       DeleteShortcutsCallback callback);
 
   // TODO(crbug.com/1098471): Move this into web_app_shortcuts_menu_win.cc when
   // a callback is integrated into the Shortcuts Menu registration flow.
@@ -96,6 +101,9 @@ class AppShortcutManager {
   void OnShortcutsCreated(const AppId& app_id,
                           CreateShortcutsCallback callback,
                           bool success);
+  void OnShortcutsDeleted(const AppId& app_id,
+                          DeleteShortcutsCallback callback,
+                          bool success);
 
   AppRegistrar* registrar() { return registrar_; }
   Profile* profile() { return profile_; }
@@ -126,7 +134,6 @@ class AppShortcutManager {
 
   base::WeakPtrFactory<AppShortcutManager> weak_ptr_factory_{this};
 
-  DISALLOW_COPY_AND_ASSIGN(AppShortcutManager);
 };
 
 }  // namespace web_app

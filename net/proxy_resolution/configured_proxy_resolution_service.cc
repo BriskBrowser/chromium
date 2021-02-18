@@ -9,7 +9,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/location.h"
 #include "base/logging.h"
@@ -20,7 +20,9 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "net/base/net_errors.h"
+#include "net/base/net_info_source_list.h"
 #include "net/base/network_isolation_key.h"
 #include "net/base/proxy_delegate.h"
 #include "net/base/url_util.h"
@@ -46,7 +48,9 @@
 #elif defined(OS_MAC)
 #include "net/proxy_resolution/proxy_config_service_mac.h"
 #include "net/proxy_resolution/proxy_resolver_mac.h"
-#elif defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#elif defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 #include "net/proxy_resolution/proxy_config_service_linux.h"
 #elif defined(OS_ANDROID)
 #include "net/proxy_resolution/proxy_config_service_android.h"
@@ -59,8 +63,10 @@ namespace net {
 
 namespace {
 
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
 #if defined(OS_WIN) || defined(OS_APPLE) || \
-    (defined(OS_LINUX) && !defined(OS_CHROMEOS))
+    (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
 constexpr net::NetworkTrafficAnnotationTag kSystemProxyConfigTrafficAnnotation =
     net::DefineNetworkTrafficAnnotation("proxy_config_system", R"(
       semantics {
@@ -343,7 +349,7 @@ base::Value NetLogFinishedResolvingProxyParams(const ProxyInfo* result) {
   return dict;
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 class UnsetProxyConfigService : public ProxyConfigService {
  public:
   UnsetProxyConfigService() = default;
@@ -1347,22 +1353,22 @@ void ConfiguredProxyResolutionService::ForceReloadProxyConfig() {
   ApplyProxyConfigIfAvailable();
 }
 
-base::Value ConfiguredProxyResolutionService::GetProxyNetLogValues(
-    int info_sources) {
+base::Value ConfiguredProxyResolutionService::GetProxyNetLogValues() {
   base::Value net_info_dict(base::Value::Type::DICTIONARY);
 
-  if (info_sources & NET_INFO_PROXY_SETTINGS) {
+  // Log Proxy Settings.
+  {
     base::Value dict(base::Value::Type::DICTIONARY);
     if (fetched_config_)
       dict.SetKey("original", fetched_config_->value().ToValue());
     if (config_)
       dict.SetKey("effective", config_->value().ToValue());
 
-    net_info_dict.SetKey(NetInfoSourceToString(NET_INFO_PROXY_SETTINGS),
-                         std::move(dict));
+    net_info_dict.SetKey(kNetInfoProxySettings, std::move(dict));
   }
 
-  if (info_sources & NET_INFO_BAD_PROXIES) {
+  // Log Bad Proxies.
+  {
     base::Value list(base::Value::Type::LIST);
 
     for (const auto& it : proxy_retry_info_) {
@@ -1377,8 +1383,7 @@ base::Value ConfiguredProxyResolutionService::GetProxyNetLogValues(
       list.Append(std::move(dict));
     }
 
-    net_info_dict.SetKey(NetInfoSourceToString(NET_INFO_BAD_PROXIES),
-                         std::move(list));
+    net_info_dict.SetKey(kNetInfoBadProxies, std::move(list));
   }
 
   return net_info_dict;
@@ -1403,12 +1408,12 @@ ConfiguredProxyResolutionService::CreateSystemProxyConfigService(
 #elif defined(OS_MAC)
   return std::make_unique<ProxyConfigServiceMac>(
       main_task_runner, kSystemProxyConfigTrafficAnnotation);
-#elif defined(OS_CHROMEOS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH)
   LOG(ERROR) << "ProxyConfigService for ChromeOS should be created in "
              << "profile_io_data.cc::CreateProxyConfigService and this should "
              << "be used only for examples.";
   return std::make_unique<UnsetProxyConfigService>();
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   std::unique_ptr<ProxyConfigServiceLinux> linux_config_service(
       new ProxyConfigServiceLinux());
 

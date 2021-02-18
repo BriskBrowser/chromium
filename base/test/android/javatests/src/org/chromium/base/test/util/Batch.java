@@ -29,6 +29,14 @@ import java.lang.annotation.Target;
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 public @interface Batch {
+    /**
+     * This annotation can be added in addition to @Batch to split batches based on @Features
+     * annotation. This will ensure that native features are configured correctly.
+     */
+    @Target(ElementType.TYPE)
+    @Retention(RetentionPolicy.RUNTIME)
+    public @interface SplitByFeature {}
+
     public String value();
 
     /**
@@ -44,7 +52,7 @@ public @interface Batch {
      * Unit tests must be careful not to persist any changes to global state, or flakes are likely
      * to occur.
      *
-     * An exception to this is loading Chrome's native library (eg. using NativeLibraryTestRule).
+     * An exception to this is loading Chrome's native library (eg. using NativeLibraryTestUtils).
      * Your unit tests must assume that the native library may have already been loaded by another
      * test.
      */

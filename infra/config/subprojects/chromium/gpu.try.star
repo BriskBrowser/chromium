@@ -2,14 +2,33 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-load("//lib/builders.star", "goma", "os")
+load("//lib/builders.star", "cpu", "goma", "os")
 load("//lib/try.star", "try_")
-load("//project.star", "settings")
 
-try_.set_defaults(
-    settings,
+try_.defaults.set(
+    bucket = "try",
+    build_numbers = True,
+    caches = [
+        swarming.cache(
+            name = "win_toolchain",
+            path = "win_toolchain",
+        ),
+    ],
+    configure_kitchen = True,
+    cores = 8,
+    cpu = cpu.X86_64,
+    cq_group = "cq",
+    executable = "recipe:chromium_trybot",
     execution_timeout = 6 * time.hour,
+    # Max. pending time for builds. CQ considers builds pending >2h as timed
+    # out: http://shortn/_8PaHsdYmlq. Keep this in sync.
+    expiration_timeout = 2 * time.hour,
+    os = os.LINUX_DEFAULT,
+    pool = "luci.chromium.try",
     service_account = "chromium-try-gpu-builder@chops-service-accounts.iam.gserviceaccount.com",
+    subproject_list_view = "luci.chromium.try",
+    swarming_tags = ["vpython:native-python-wrapper"],
+    task_template_canary_percentage = 5,
 )
 
 # Builders appear after the function used to define them, with all builders
@@ -17,19 +36,19 @@ try_.set_defaults(
 # Builder functions are defined in lexicographic order by name ignoring the
 # '_builder' suffix
 
-# Builder functions are defined for GPU builders on each master where they
-# appear: gpu_XXX_builder where XXX is the part after the last dot in the
-# mastername
-# Builder functions are defined for each master, with additional functions
-# for specializing on OS: XXX_builder and XXX_YYY_builder where XXX is the part
-# after the last dot in the mastername and YYY is the OS
+# Builder functions are defined for GPU builders in each builder group where
+# they appear: gpu_XXX_builder where XXX is the part after the last dot in the
+# builder group
+# Builder functions are defined for each builder group, with additional
+# functions for specializing on OS: XXX_builder and XXX_YYY_builder where XXX is
+# the part after the last dot in the builder group and YYY is the OS
 
 def gpu_android_builder(*, name, **kwargs):
     return try_.builder(
         name = name,
+        builder_group = "tryserver.chromium.android",
         builderless = True,
         goma_backend = goma.backend.RBE_PROD,
-        mastername = "tryserver.chromium.android",
         ssd = None,
         **kwargs
     )
@@ -57,11 +76,6 @@ gpu_android_builder(
 gpu_android_builder(
     name = "gpu-fyi-try-android-m-nexus-5x-skgl-64",
     pool = "luci.chromium.gpu.android.nexus5x.try",
-)
-
-gpu_android_builder(
-    name = "gpu-fyi-try-android-m-nexus-6p-64",
-    pool = "luci.chromium.gpu.android.nexus6p.try",
 )
 
 gpu_android_builder(
@@ -105,6 +119,11 @@ gpu_android_builder(
 )
 
 gpu_android_builder(
+    name = "gpu-fyi-try-android-r-pixel-4-32",
+    pool = "luci.chromium.gpu.android.pixel4.try",
+)
+
+gpu_android_builder(
     name = "gpu-try-android-m-nexus-5x-64",
     pool = "luci.chromium.gpu.android.nexus5x.try",
 )
@@ -112,9 +131,9 @@ gpu_android_builder(
 def gpu_chromeos_builder(*, name, **kwargs):
     return try_.builder(
         name = name,
+        builder_group = "tryserver.chromium.chromiumos",
         builderless = True,
         goma_backend = goma.backend.RBE_PROD,
-        mastername = "tryserver.chromium.chromiumos",
         ssd = None,
         **kwargs
     )
@@ -132,12 +151,27 @@ gpu_chromeos_builder(
 def gpu_linux_builder(*, name, **kwargs):
     return try_.builder(
         name = name,
+        builder_group = "tryserver.chromium.linux",
         builderless = True,
         goma_backend = goma.backend.RBE_PROD,
-        mastername = "tryserver.chromium.linux",
         ssd = None,
         **kwargs
     )
+
+gpu_linux_builder(
+    name = "gpu-fyi-try-lacros-amd-rel",
+    pool = "luci.chromium.gpu.linux.amd.try",
+)
+
+gpu_linux_builder(
+    name = "gpu-fyi-try-lacros-intel-rel",
+    pool = "luci.chromium.gpu.linux.intel.try",
+)
+
+gpu_linux_builder(
+    name = "gpu-fyi-try-linux-amd-rel",
+    pool = "luci.chromium.gpu.linux.amd.try",
+)
 
 gpu_linux_builder(
     name = "gpu-fyi-try-linux-intel-dqp",
@@ -207,10 +241,10 @@ gpu_linux_builder(
 def gpu_mac_builder(*, name, **kwargs):
     return try_.builder(
         name = name,
+        builder_group = "tryserver.chromium.mac",
         builderless = True,
         cores = None,
         goma_backend = goma.backend.RBE_PROD,
-        mastername = "tryserver.chromium.mac",
         os = os.MAC_ANY,
         ssd = None,
         **kwargs
@@ -274,6 +308,11 @@ gpu_mac_builder(
 )
 
 gpu_mac_builder(
+    name = "gpu-fyi-try-mac-intel-uhd-630-rel",
+    pool = "luci.chromium.gpu.mac.mini.intel.uhd630.try",
+)
+
+gpu_mac_builder(
     name = "gpu-fyi-try-mac-nvidia-retina-dbg",
     pool = "luci.chromium.gpu.mac.retina.nvidia.try",
 )
@@ -305,13 +344,18 @@ gpu_mac_builder(
 def gpu_win_builder(*, name, **kwargs):
     return try_.builder(
         name = name,
+        builder_group = "tryserver.chromium.win",
         builderless = True,
         goma_backend = goma.backend.RBE_PROD,
-        mastername = "tryserver.chromium.win",
         os = os.WINDOWS_ANY,
         ssd = None,
         **kwargs
     )
+
+gpu_win_builder(
+    name = "gpu-fyi-try-win10-amd-rel-64",
+    pool = "luci.chromium.gpu.win10.amd.try",
+)
 
 gpu_win_builder(
     name = "gpu-fyi-try-win10-intel-dqp-64",
@@ -355,11 +399,6 @@ gpu_win_builder(
 
 gpu_win_builder(
     name = "gpu-fyi-try-win10-nvidia-sk-dawn-rel-64",
-    pool = "luci.chromium.gpu.win10.nvidia.try",
-)
-
-gpu_win_builder(
-    name = "gpu-fyi-try-win10-nvidia-skgl-64",
     pool = "luci.chromium.gpu.win10.nvidia.try",
 )
 

@@ -4,7 +4,7 @@
 
 module storage.mojom;
 
-import "components/services/storage/public/mojom/local_storage_control.mojom";
+import "components/services/storage/public/mojom/storage_policy_update.mojom";
 import "components/services/storage/public/mojom/service_worker_database.mojom";
 import "mojo/public/mojom/base/big_buffer.mojom";
 import "mojo/public/mojom/base/time.mojom";
@@ -23,6 +23,21 @@ import "url/mojom/url.mojom";
 // reference as long as it's using the version, i.e., by making the reference
 // owned by the C++ ServiceWorkerVersion instance.
 interface ServiceWorkerLiveVersionRef {};
+
+// Conveys information about a live service worker version. Sent from the
+// browser to the Storage Service to recover resource purging state after a
+// Storage Service restart.
+struct ServiceWorkerLiveVersionInfo {
+  // Version id.
+  int64 id;
+  // Contains resource ids which are purgeable when `reference` is disconnected.
+  // Non-empty only when the associated service worker registration has been
+  // deleted from the storage but the corresponding service worker version is
+  // still being used.
+  array<int64> purgeable_resources;
+  // A receiver which is associated with `id`.
+  pending_receiver<ServiceWorkerLiveVersionRef> reference;
+};
 
 // Conveys a result of finding a registration.
 // The Storage Service (components/services/storage) supplies this
@@ -55,6 +70,9 @@ interface ServiceWorkerDataPipeStateNotifier {
 };
 
 // An interface that reads a service worker script (resource) to storage.
+// A valid use of this interface is that exactly one call to
+// ReadResponseHead(), followed by possibly multiple ReadData() calls. Each call
+// must not be overlapped.
 interface ServiceWorkerResourceReader {
   // Reads the response head of the resource associated with this reader.
   // |status| is the number of bytes read, or a //net error.
@@ -63,13 +81,17 @@ interface ServiceWorkerResourceReader {
       (int32 status,
        network.mojom.URLResponseHead? response_head,
        mojo_base.mojom.BigBuffer? metadata);
-  // Reads the content of the resource associated with this reader.
+  // Reads the content of the resource associated with this reader. `pipe`
+  // can be empty when creating a data pipe fails.
   ReadData(int64 size,
            pending_remote<ServiceWorkerDataPipeStateNotifier> notifier) =>
-      (handle<data_pipe_consumer> pipe);
+      (handle<data_pipe_consumer>? pipe);
 };
 
 // An interface that writes a service worker script (resource) to storage.
+// A valid use of this interface is that exactly one call to
+// WriteResponseHead(), followed by at most one call to WriteData(). These calls
+// must not be overlapped.
 interface ServiceWorkerResourceWriter {
   // Writes the response head to storage. Returns the number of bytes written,
   // or a //net error.
@@ -81,7 +103,7 @@ interface ServiceWorkerResourceWriter {
 };
 
 // An interface that writes a metadata (script cache) of a service worker script
-// to storage.
+// to storage. WriteMetadata() should be called at most once.
 interface ServiceWorkerResourceMetadataWriter {
   // Writes the metadata of the resource associated with this writer. Returns
   // the number of bytes written, or a //net error.
@@ -104,11 +126,18 @@ struct ServiceWorkerUserData {
 // Currently this is consumed and implemented in the browser process, but the
 // implementation will eventually live in the Storage Service.
 interface ServiceWorkerStorageControl {
-  // Disables the storage.
-  Disable();
+  // Disables the storage. The callback is invoked after the storage is
+  // disabled.
+  Disable() => ();
 
   // Deletes the whole storage.
   Delete() => (ServiceWorkerDatabaseStatus status);
+
+  // Called by the browser after a Storage Service restart. Tells the Storage
+  // Service which service worker versions are being used, which is needed to
+  // decide when it's safe to purge resources for service worker versions that
+  // have been deleted.
+  Recover(array<ServiceWorkerLiveVersionInfo> versions) => ();
 
   // Returns all origins which have service worker registrations.
   GetRegisteredOrigins() => (array<url.mojom.Origin> origins);
@@ -123,7 +152,7 @@ interface ServiceWorkerStorageControl {
        ServiceWorkerFindRegistrationResult? result);
   // Reads a stored registration for |registration_id|. |origin| is to
   // be used as a hint to look up the registration faster.
-  FindRegistrationForId(int64 registration_id, url.mojom.Url? origin) =>
+  FindRegistrationForId(int64 registration_id, url.mojom.Origin? origin) =>
       (ServiceWorkerDatabaseStatus status,
        ServiceWorkerFindRegistrationResult? result);
 
@@ -143,26 +172,22 @@ interface ServiceWorkerStorageControl {
       (ServiceWorkerDatabaseStatus status,
        array<ServiceWorkerRegistrationData> registrations);
 
-  // Stores |registration_data| and |resources|.
-  // TODO(crbug.com/1055677): Stop returning |deleted_version_id| and
-  // |newly_purgeable_resources|. These are used to schedule resource purging
-  // in the browser process, but it should be done in the Storage Service.
+  // Stores |registration_data| and |resources|. If exists, the previous
+  // registration for `registration.registration_id` will be deleted when
+  // storing succeeds. `deleted_resources_size` carries the total size of
+  // deleted resources.
   StoreRegistration(ServiceWorkerRegistrationData registration,
                     array<ServiceWorkerResourceRecord> resources) =>
-      (ServiceWorkerDatabaseStatus status,
-       int64 deleted_version_id,
-       array<int64> newly_purgeable_resources);
+      (ServiceWorkerDatabaseStatus status, uint64 deleted_resources_size);
 
-  // Deletes the registration specified by |registration_id|. |origin_state| is
-  // kDelete if there is no registration for |origin| after deletion.
-  // TODO(crbug.com/1055677): Stop returning |deleted_version_id| and
-  // |newly_purgeable_resources|. These are used to schedule resource purging
-  // in the browser process, but it should be done in the Storage Service.
+  // Deletes the registration specified by `registration_id`.
+  // `deleted_resources_size` carries the total size of deleted resources.
+  // `origin_state` is kDelete if there is no registration for |origin| after
+  // deletion.
   DeleteRegistration(int64 registration_id, url.mojom.Url origin) =>
       (ServiceWorkerDatabaseStatus status,
-       ServiceWorkerStorageOriginState origin_state,
-       int64 deleted_version_id,
-       array<int64> newly_purgeable_resources);
+       uint64 deleted_resources_size,
+       ServiceWorkerStorageOriginState origin_state);
 
   // Updates the state of the registration's stored version to active.
   UpdateToActiveState(int64 registration_id, url.mojom.Url origin) =>
@@ -216,7 +241,7 @@ interface ServiceWorkerStorageControl {
   // with any registration yet.
   // StoreRegistration() or DoomUncommittedResources() needs to be
   // called later to clear the |resource_id| from the uncommitted resource list.
-  StoreUncommittedResourceId(int64 resource_id, url.mojom.Url origin) =>
+  StoreUncommittedResourceId(int64 resource_id) =>
       (ServiceWorkerDatabaseStatus status);
 
   // Removes |resource_ids| from the uncommitted resource list.
@@ -230,7 +255,7 @@ interface ServiceWorkerStorageControl {
       (ServiceWorkerDatabaseStatus status, array<string> values);
   // Stores |user_data| on persistent storage.
   StoreUserData(int64 registration_id,
-                url.mojom.Url origin,
+                url.mojom.Origin origin,
                 array<ServiceWorkerUserData> user_data) =>
       (ServiceWorkerDatabaseStatus status);
   // Clears user data specified by |registration_id| and |keys|.
@@ -270,5 +295,20 @@ interface ServiceWorkerStorageControl {
 
   // Applies changes to data retention policy which are relevant at shutdown.
   // This is analogous to LocalStorageControl::ApplyPolicyUpdates.
-  ApplyPolicyUpdates(array<LocalStoragePolicyUpdate> policy_updates);
+  ApplyPolicyUpdates(array<StoragePolicyUpdate> policy_updates) =>
+      (ServiceWorkerDatabaseStatus status);
+
+  // Get resource ids which are scheduled to purge.
+  GetPurgingResourceIdsForTest() => (ServiceWorkerDatabaseStatus status,
+                                     array<int64> resource_ids);
+  // Gets resource ids which are purgeable.
+  GetPurgeableResourceIdsForTest() => (ServiceWorkerDatabaseStatus status,
+                                       array<int64> resource_ids);
+  // Gets resource ids which are uncommitted.
+  GetUncommittedResourceIdsForTest() => (ServiceWorkerDatabaseStatus status,
+                                         array<int64> resource_ids);
+  // Sets a callback which is executed when purging resources completes.
+  // Only a single callback can be set at a time. Overlapped calls are not
+  // allowed.
+  SetPurgingCompleteCallbackForTest() => ();
 };

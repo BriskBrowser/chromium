@@ -11,6 +11,7 @@
 #include "base/test/test_simple_task_runner.h"
 #include "build/build_config.h"
 #include "components/viz/test/test_gpu_service_holder.h"
+#include "gpu/command_buffer/client/webgpu_cmd_helper.h"
 #include "gpu/command_buffer/client/webgpu_implementation.h"
 #include "gpu/command_buffer/service/webgpu_decoder.h"
 #include "gpu/config/gpu_test_config.h"
@@ -21,9 +22,6 @@
 namespace gpu {
 
 namespace {
-
-void OnRequestAdapterCallback(int32_t adapter_service_id,
-                              const WGPUDeviceProperties& properties) {}
 
 void CountCallback(int* count) {
   (*count)++;
@@ -37,9 +35,8 @@ WebGPUTest::WebGPUTest() = default;
 WebGPUTest::~WebGPUTest() = default;
 
 bool WebGPUTest::WebGPUSupported() const {
-  DCHECK(is_initialized_);  // Did you call WebGPUTest::Initialize?
-
-  // crbug.com(941685): Vulkan driver crashes on Linux FYI Release (AMD R7 240).
+  // TODO(crbug.com/1172447): Re-enable on AMD when the RX 5500 XT issues are
+  // resolved.
   // Win7 does not support WebGPU
   if (GPUTestBotConfig::CurrentConfigMatches("Linux AMD") ||
       GPUTestBotConfig::CurrentConfigMatches("Win7")) {
@@ -61,6 +58,10 @@ bool WebGPUTest::WebGPUSharedImageSupported() const {
 }
 
 void WebGPUTest::SetUp() {
+  if (!WebGPUSupported()) {
+    return;
+  }
+
   gpu::GpuPreferences gpu_preferences;
   gpu_preferences.enable_webgpu = true;
 #if (defined(OS_LINUX) || defined(OS_CHROMEOS)) && BUILDFLAG(USE_DAWN)
@@ -79,8 +80,6 @@ void WebGPUTest::TearDown() {
 }
 
 void WebGPUTest::Initialize(const Options& options) {
-  is_initialized_ = true;
-
   if (!WebGPUSupported()) {
     return;
   }
@@ -104,9 +103,25 @@ void WebGPUTest::Initialize(const Options& options) {
                            image_factory, channel_manager);
   ASSERT_EQ(result, ContextResult::kSuccess);
 
-  ASSERT_TRUE(
-      webgpu()->RequestAdapterAsync(webgpu::PowerPreference::kDefault,
-                                    base::BindOnce(&OnRequestAdapterCallback)));
+  cmd_helper_ = std::make_unique<webgpu::WebGPUCmdHelper>(
+      context_->GetCommandBufferForTest());
+
+  bool done = false;
+  webgpu()->RequestAdapterAsync(
+      webgpu::PowerPreference::kDefault,
+      base::BindOnce(
+          [](WebGPUTest* test, bool* done, int32_t adapter_id,
+             const WGPUDeviceProperties& properties, const char*) {
+            EXPECT_GE(adapter_id, 0);
+            test->adapter_id_ = static_cast<uint32_t>(adapter_id);
+            test->device_properties_ = properties;
+            *done = true;
+          },
+          this, &done));
+
+  while (!done) {
+    RunPendingTasks();
+  }
 
   DawnProcTable procs = webgpu()->GetProcs();
   dawnProcSetProcs(&procs);
@@ -116,12 +131,27 @@ webgpu::WebGPUImplementation* WebGPUTest::webgpu() const {
   return context_->GetImplementation();
 }
 
+webgpu::WebGPUCmdHelper* WebGPUTest::webgpu_cmds() const {
+  return cmd_helper_.get();
+}
+
 SharedImageInterface* WebGPUTest::GetSharedImageInterface() const {
   return context_->GetCommandBufferForTest()->GetSharedImageInterface();
 }
 
+webgpu::WebGPUDecoder* WebGPUTest::GetDecoder() const {
+  return context_->GetCommandBufferForTest()->GetWebGPUDecoderForTest();
+}
+
 void WebGPUTest::RunPendingTasks() {
   context_->GetTaskRunner()->RunPendingTasks();
+  gpu_service_holder_->ScheduleGpuTask(base::BindOnce(
+      [](webgpu::WebGPUDecoder* decoder) {
+        if (decoder->HasPollingWork()) {
+          decoder->PerformPollingWork();
+        }
+      },
+      GetDecoder()));
 }
 
 void WebGPUTest::WaitForCompletion(wgpu::Device device) {
@@ -142,45 +172,45 @@ void WebGPUTest::WaitForCompletion(wgpu::Device device) {
   }
 }
 
-WebGPUTest::DeviceAndClientID WebGPUTest::GetNewDeviceAndClientID() {
-  DeviceAndClientID result;
-  result.client_id = next_device_client_id_;
+wgpu::Device WebGPUTest::GetNewDevice() {
+  WGPUDevice device = nullptr;
 
+  bool done = false;
   webgpu()->RequestDeviceAsync(
-      kAdapterServiceID, {},
+      adapter_id_, device_properties_,
       base::BindOnce(
-          [](webgpu::DawnDeviceClientID expected_client_id, bool success,
-             webgpu::DawnDeviceClientID assigned_client_id) {
-            ASSERT_TRUE(success);
-            ASSERT_EQ(expected_client_id, assigned_client_id);
+          [](WGPUDevice* result, bool* done, WGPUDevice device) {
+            *result = device;
+            *done = true;
           },
-          result.client_id));
+          &device, &done));
+  while (!done) {
+    RunPendingTasks();
+  }
 
-  result.device = wgpu::Device::Acquire(webgpu()->GetDevice(result.client_id));
-
-  next_device_client_id_++;
-  return result;
+  EXPECT_NE(device, nullptr);
+  return wgpu::Device::Acquire(device);
 }
 
 TEST_F(WebGPUTest, FlushNoCommands) {
-  Initialize(WebGPUTest::Options());
-
   if (!WebGPUSupported()) {
     LOG(ERROR) << "Test skipped because WebGPU isn't supported";
     return;
   }
+
+  Initialize(WebGPUTest::Options());
 
   webgpu()->FlushCommands();
 }
 
 // Referred from GLES2ImplementationTest/ReportLoss
 TEST_F(WebGPUTest, ReportLoss) {
-  Initialize(WebGPUTest::Options());
-
   if (!WebGPUSupported()) {
     LOG(ERROR) << "Test skipped because WebGPU isn't supported";
     return;
   }
+
+  Initialize(WebGPUTest::Options());
 
   GpuControlClient* webgpu_as_client = webgpu();
   int lost_count = 0;
@@ -195,12 +225,12 @@ TEST_F(WebGPUTest, ReportLoss) {
 
 // Referred from GLES2ImplementationTest/ReportLossReentrant
 TEST_F(WebGPUTest, ReportLossReentrant) {
-  Initialize(WebGPUTest::Options());
-
   if (!WebGPUSupported()) {
     LOG(ERROR) << "Test skipped because WebGPU isn't supported";
     return;
   }
+
+  Initialize(WebGPUTest::Options());
 
   GpuControlClient* webgpu_as_client = webgpu();
   int lost_count = 0;
@@ -214,32 +244,49 @@ TEST_F(WebGPUTest, ReportLossReentrant) {
 }
 
 TEST_F(WebGPUTest, RequestAdapterAfterContextLost) {
-  Initialize(WebGPUTest::Options());
-
   if (!WebGPUSupported()) {
     LOG(ERROR) << "Test skipped because WebGPU isn't supported";
     return;
   }
 
+  Initialize(WebGPUTest::Options());
+
   webgpu()->OnGpuControlLostContext();
-  ASSERT_FALSE(
-      webgpu()->RequestAdapterAsync(webgpu::PowerPreference::kDefault,
-                                    base::BindOnce(&OnRequestAdapterCallback)));
+
+  bool called = false;
+  webgpu()->RequestAdapterAsync(
+      webgpu::PowerPreference::kDefault,
+      base::BindOnce(
+          [](bool* called, int32_t adapter_id, const WGPUDeviceProperties&,
+             const char*) {
+            EXPECT_EQ(adapter_id, -1);
+            *called = true;
+          },
+          &called));
+  RunPendingTasks();
+  EXPECT_TRUE(called);
 }
 
 TEST_F(WebGPUTest, RequestDeviceAfterContextLost) {
-  Initialize(WebGPUTest::Options());
-
   if (!WebGPUSupported()) {
     LOG(ERROR) << "Test skipped because WebGPU isn't supported";
     return;
   }
 
+  Initialize(WebGPUTest::Options());
+
   webgpu()->OnGpuControlLostContext();
-  ASSERT_FALSE(webgpu()->RequestDeviceAsync(
-      kAdapterServiceID, {},
-      base::BindOnce(
-          [](bool success, webgpu::DawnDeviceClientID assigned_client_id) {})));
+
+  bool called = false;
+  webgpu()->RequestDeviceAsync(GetAdapterId(), GetDeviceProperties(),
+                               base::BindOnce(
+                                   [](bool* called, WGPUDevice device) {
+                                     EXPECT_EQ(device, nullptr);
+                                     *called = true;
+                                   },
+                                   &called));
+  RunPendingTasks();
+  EXPECT_TRUE(called);
 }
 
 }  // namespace gpu

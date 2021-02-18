@@ -7,9 +7,10 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "build/build_config.h"
 #include "media/base/bind_to_current_loop.h"
+#include "media/capture/video/video_capture_metrics.h"
 
 namespace {
 
@@ -46,9 +47,10 @@ void ConsolidateCaptureFormats(media::VideoCaptureFormats* formats) {
     return;
   // Mark all formats as I420, since this is what the renderer side will get
   // anyhow: the actual pixel format is decided at the device level.
-  // Don't do this for Y16 format as it is handled separatelly.
+  // Don't do this for the Y16 or NV12 formats as they are handled separately.
   for (auto& format : *formats) {
-    if (format.pixel_format != media::PIXEL_FORMAT_Y16)
+    if (format.pixel_format != media::PIXEL_FORMAT_Y16 &&
+        format.pixel_format != media::PIXEL_FORMAT_NV12)
       format.pixel_format = media::PIXEL_FORMAT_I420;
   }
   std::sort(formats->begin(), formats->end(), IsCaptureFormatSmaller);
@@ -109,6 +111,11 @@ void VideoCaptureSystemImpl::DevicesInfoReady(
     std::vector<VideoCaptureDeviceInfo> devices_info) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!device_enum_request_queue_.empty());
+
+  // Only save metrics the first time device infos are populated.
+  if (devices_info_cache_.empty()) {
+    LogCaptureDeviceMetrics(devices_info);
+  }
 
   for (auto& device_info : devices_info) {
     ConsolidateCaptureFormats(&device_info.supported_formats);

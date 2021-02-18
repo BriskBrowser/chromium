@@ -98,7 +98,7 @@ class ArcTermsOfServiceDefaultNegotiatorTest
 
   CoreAccountId GetAuthenticatedAccountId() {
     return IdentityManagerFactory::GetForProfile(profile())
-        ->GetPrimaryAccountInfo()
+        ->GetPrimaryAccountInfo(signin::ConsentLevel::kSync)
         .account_id;
   }
 
@@ -174,7 +174,7 @@ std::ostream& operator<<(std::ostream& os, Status status) {
 
 ArcTermsOfServiceNegotiator::NegotiationCallback UpdateStatusCallback(
     Status* status) {
-  return base::Bind(
+  return base::BindOnce(
       [](Status* status, bool accepted) {
         *status = accepted ? Status::ACCEPTED : Status::CANCELLED;
       },
@@ -455,9 +455,9 @@ TEST_F(ArcTermsOfServiceDefaultNegotiatorTest, Retry) {
   EXPECT_EQ(fake_arc_support()->ui_page(), ArcSupportHost::UIPage::TERMS);
 
   // Switch to error page.
-  support_host()->ShowError(ArcSupportHost::Error::SIGN_IN_NETWORK_ERROR,
-                            0 /* error_code */,
-                            false /* should_show_send_feedback */);
+  support_host()->ShowError(
+      ArcSupportHost::ErrorInfo(ArcSupportHost::Error::SIGN_IN_NETWORK_ERROR),
+      false /* should_show_send_feedback */);
 
   // The callback should not be called yet.
   EXPECT_EQ(status, Status::PENDING);

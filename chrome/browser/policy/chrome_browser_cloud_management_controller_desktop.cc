@@ -27,6 +27,8 @@
 #include "components/invalidation/impl/fcm_network_handler.h"
 #include "components/policy/core/common/cloud/machine_level_user_cloud_policy_manager.h"
 #include "components/policy/core/common/features.h"
+#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/network_service_instance.h"
 #include "google_apis/gaia/gaia_constants.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -149,7 +151,7 @@ class MachineLevelDeviceAccountInitializerHelper
 
   std::set<std::string> GetRobotOAuthScopes() override {
     return {
-        GaiaConstants::kOAuthWrapBridgeUserInfoScope,
+        GaiaConstants::kGoogleUserInfoEmail,
         GaiaConstants::kFCMOAuthScope,
     };
   }
@@ -185,15 +187,6 @@ void ChromeBrowserCloudManagementControllerDesktop::
 #endif
 
   BrowserDMTokenStorage::SetDelegate(std::move(storage_delegate));
-}
-
-bool ChromeBrowserCloudManagementControllerDesktop::IsEnabled() {
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-  return true;
-#else
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableChromeBrowserCloudManagement);
-#endif
 }
 
 int ChromeBrowserCloudManagementControllerDesktop::GetUserDataDirKey() {
@@ -311,6 +304,8 @@ void ChromeBrowserCloudManagementControllerDesktop::OnServiceAccountSet(
 void ChromeBrowserCloudManagementControllerDesktop::ShutDown() {
   if (policy_invalidator_)
     policy_invalidator_->Shutdown();
+  if (commands_invalidator_)
+    commands_invalidator_->Shutdown();
 }
 
 MachineLevelUserCloudPolicyManager*
@@ -341,6 +336,14 @@ ChromeBrowserCloudManagementControllerDesktop::CreateReportScheduler(
       client, std::move(generator), &reporting_delegate_factory_);
 }
 
+scoped_refptr<base::SingleThreadTaskRunner>
+ChromeBrowserCloudManagementControllerDesktop::GetBestEffortTaskRunner() {
+  // ChromeBrowserCloudManagementControllerDesktop is bound to BrowserThread::UI
+  // and so must its best-effort task runner.
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  return content::GetUIThreadTaskRunner({base::TaskPriority::BEST_EFFORT});
+}
+
 void ChromeBrowserCloudManagementControllerDesktop::SetGaiaURLLoaderFactory(
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
   gaia_url_loader_factory_ = url_loader_factory;
@@ -358,11 +361,11 @@ void ChromeBrowserCloudManagementControllerDesktop::StartInvalidations() {
   invalidation_service_ =
       std::make_unique<invalidation::FCMInvalidationService>(
           identity_provider_.get(),
-          base::BindRepeating(&syncer::FCMNetworkHandler::Create,
+          base::BindRepeating(&invalidation::FCMNetworkHandler::Create,
                               g_browser_process->gcm_driver(),
                               device_instance_id_driver_.get()),
           base::BindRepeating(
-              &syncer::PerUserTopicSubscriptionManager::Create,
+              &invalidation::PerUserTopicSubscriptionManager::Create,
               identity_provider_.get(), g_browser_process->local_state(),
               base::RetainedRef(
                   g_browser_process->shared_url_loader_factory())),
@@ -393,7 +396,6 @@ void ChromeBrowserCloudManagementControllerDesktop::StartInvalidations() {
             ->core(),
         base::DefaultClock::GetInstance(), PolicyInvalidationScope::kCBCM);
     commands_invalidator_->Initialize(invalidation_service_.get());
-    commands_invalidator_->Start();
   }
 }
 

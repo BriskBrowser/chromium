@@ -4,6 +4,7 @@
 
 #include "ash/wm/desks/desks_restore_util.h"
 
+#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
@@ -32,10 +33,23 @@ PrefService* GetPrimaryUserPrefService() {
   return Shell::Get()->session_controller()->GetPrimaryUserPrefService();
 }
 
+// Check if the desk index is valid against a list of existing desks in
+// DesksController.
+bool IsValidDeskIndex(int desk_index) {
+  return desk_index >= 0 &&
+         desk_index < int{DesksController::Get()->desks().size()} &&
+         desk_index < int{desks_util::GetMaxNumberOfDesks()};
+}
+
 }  // namespace
 
 void RegisterProfilePrefs(PrefRegistrySimple* registry) {
+  constexpr int kDefaultActiveDeskIndex = 0;
   registry->RegisterListPref(prefs::kDesksNamesList);
+  if (features::IsBentoEnabled()) {
+    registry->RegisterIntegerPref(prefs::kDesksActiveDesk,
+                                  kDefaultActiveDeskIndex);
+  }
 }
 
 void RestorePrimaryUserDesks() {
@@ -55,7 +69,7 @@ void RestorePrimaryUserDesks() {
 
   // If we don't have any restore data, or the list is corrupt for some reason,
   // abort.
-  if (!restore_size || restore_size > desks_util::kMaxNumberOfDesks)
+  if (!restore_size || restore_size > desks_util::GetMaxNumberOfDesks())
     return;
 
   auto* desks_controller = DesksController::Get();
@@ -74,6 +88,19 @@ void RestorePrimaryUserDesks() {
                                                  index);
     }
     ++index;
+  }
+
+  // Restore an active desk for the primary user.
+  if (features::IsBentoEnabled()) {
+    const int active_desk_index =
+        primary_user_prefs->GetInteger(prefs::kDesksActiveDesk);
+
+    // A crash in between prefs::kDesksNamesList and prefs::kDesksActiveDesk
+    // can cause an invalid active desk index.
+    if (!IsValidDeskIndex(active_desk_index))
+      return;
+
+    desks_controller->RestorePrimaryUserActiveDeskIndex(active_desk_index);
   }
 }
 
@@ -101,6 +128,22 @@ void UpdatePrimaryUserDesksPrefs() {
   }
 
   DCHECK_EQ(pref_data->GetSize(), desks.size());
+}
+
+void UpdatePrimaryUserActiveDeskPrefs(int active_desk_index) {
+  DCHECK(features::IsBentoEnabled());
+  DCHECK(Shell::Get()->session_controller()->IsUserPrimary());
+  DCHECK(IsValidDeskIndex(active_desk_index));
+  if (g_pause_desks_prefs_updates)
+    return;
+
+  PrefService* primary_user_prefs = GetPrimaryUserPrefService();
+  if (!primary_user_prefs) {
+    // Can be null in tests.
+    return;
+  }
+
+  primary_user_prefs->SetInteger(prefs::kDesksActiveDesk, active_desk_index);
 }
 
 }  // namespace desks_restore_util

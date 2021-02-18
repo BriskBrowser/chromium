@@ -5,7 +5,7 @@ Polymer({
   is: 'app-management-permission-item',
 
   behaviors: [
-    app_management.StoreClient,
+    app_management.AppManagementStoreClient,
   ],
 
   properties: {
@@ -27,6 +27,15 @@ Polymer({
      * @type {string}
      */
     icon: String,
+
+    /**
+     * If set to true, toggling the permission item will not set the permission
+     * in the backend. Call `syncPermission()` to set the permission to reflect
+     * the current UI state.
+     *
+     * @type {boolean}
+     */
+    syncPermissionManually: Boolean,
 
     /**
      * @type {App}
@@ -107,7 +116,6 @@ Polymer({
     if (app === undefined || permissionType === undefined) {
       return false;
     }
-
     assert(app);
 
     return app_management.util.getPermissionValueBool(app, permissionType);
@@ -129,37 +137,37 @@ Polymer({
    * @private
    */
   togglePermission_() {
-    assert(this.app_);
-    // Plugin VM handles microphone and camera permissions manually.
-    // TODO(crbug:1071872): remove in m86 when plugin_vm permissions are
-    // updated.
-    if (this.app_.type == AppType.kPluginVm &&
-        (this.permissionType == 'MICROPHONE' ||
-         this.permissionType == 'CAMERA')) {
-      return;
+    if (!this.syncPermissionManually) {
+      this.syncPermission();
     }
+  },
+
+  /**
+   * Set the permission to match the current UI state. This only needs to be
+   * called when `syncPermissionManually` is set.
+   */
+  syncPermission() {
+    assert(this.app_);
 
     /** @type {!Permission} */
     let newPermission;
 
     let newBoolState = false;  // to keep the closure compiler happy.
-
     switch (app_management.util.getPermission(this.app_, this.permissionType)
                 .valueType) {
       case PermissionValueType.kBool:
         newPermission =
-            this.getNewPermissionBoolean_(this.app_, this.permissionType);
+            this.getUIPermissionBoolean_(this.app_, this.permissionType);
         newBoolState = newPermission.value === Bool.kTrue;
         break;
       case PermissionValueType.kTriState:
         newPermission =
-            this.getNewPermissionTriState_(this.app_, this.permissionType);
+            this.getUIPermissionTriState_(this.app_, this.permissionType);
         newBoolState = newPermission.value === TriState.kAllow;
         break;
       default:
         assertNotReached();
     }
-
     app_management.BrowserProxy.getInstance().handler.setPermission(
         this.app_.id, newPermission);
 
@@ -171,12 +179,14 @@ Polymer({
   },
 
   /**
+   * Gets the permission boolean based on the toggle's UI state.
+   *
    * @param {App} app
    * @param {string} permissionType
    * @return {!Permission}
    * @private
    */
-  getNewPermissionBoolean_(app, permissionType) {
+  getUIPermissionBoolean_(app, permissionType) {
     let newPermissionValue;
     const currentPermission =
         app_management.util.getPermission(app, permissionType);
@@ -191,7 +201,6 @@ Polymer({
       default:
         assertNotReached();
     }
-
     assert(newPermissionValue !== undefined);
     return app_management.util.createPermission(
         app_management.util.permissionTypeHandle(app, permissionType),
@@ -200,12 +209,14 @@ Polymer({
   },
 
   /**
+   * Gets the permission tristate based on the toggle's UI state.
+   *
    * @param {App} app
    * @param {string} permissionType
    * @return {!Permission}
    * @private
    */
-  getNewPermissionTriState_(app, permissionType) {
+  getUIPermissionTriState_(app, permissionType) {
     let newPermissionValue;
     const currentPermission =
         app_management.util.getPermission(app, permissionType);

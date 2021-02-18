@@ -6,13 +6,13 @@
 
 #include <memory>
 
+#include "ash/constants/ash_features.h"
 #include "base/macros.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/chromeos/android_sms/android_sms_urls.h"
 #include "chrome/browser/chromeos/android_sms/fake_android_sms_app_manager.h"
 #include "chromeos/components/multidevice/remote_device_test_util.h"
 #include "chromeos/components/phonehub/fake_notification_access_manager.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/services/multidevice_setup/public/cpp/fake_android_sms_pairing_state_tracker.h"
 #include "chromeos/services/multidevice_setup/public/cpp/fake_multidevice_setup_client.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
@@ -63,9 +63,9 @@ GenerateDefaultFeatureStatesMap() {
        multidevice_setup::mojom::FeatureState::kUnavailableNoVerifiedHost},
       {multidevice_setup::mojom::Feature::kPhoneHubNotifications,
        multidevice_setup::mojom::FeatureState::kUnavailableNoVerifiedHost},
-      {multidevice_setup::mojom::Feature::kPhoneHubNotificationBadge,
-       multidevice_setup::mojom::FeatureState::kUnavailableNoVerifiedHost},
       {multidevice_setup::mojom::Feature::kPhoneHubTaskContinuation,
+       multidevice_setup::mojom::FeatureState::kUnavailableNoVerifiedHost},
+      {multidevice_setup::mojom::Feature::kWifiSync,
        multidevice_setup::mojom::FeatureState::kUnavailableNoVerifiedHost}};
 }
 
@@ -119,19 +119,17 @@ void VerifyPageContentDict(
       multidevice_setup::mojom::Feature::kPhoneHubNotifications);
   EXPECT_EQ(static_cast<int>(it->second), phone_hub_notifications_state);
 
-  int phone_hub_notification_badge_state;
-  EXPECT_TRUE(page_content_dict->GetInteger(
-      "phoneHubNotificationBadgeState", &phone_hub_notification_badge_state));
-  it = feature_states_map.find(
-      multidevice_setup::mojom::Feature::kPhoneHubNotificationBadge);
-  EXPECT_EQ(static_cast<int>(it->second), phone_hub_notification_badge_state);
-
   int phone_hub_task_continuation_state;
   EXPECT_TRUE(page_content_dict->GetInteger(
       "phoneHubTaskContinuationState", &phone_hub_task_continuation_state));
   it = feature_states_map.find(
       multidevice_setup::mojom::Feature::kPhoneHubTaskContinuation);
   EXPECT_EQ(static_cast<int>(it->second), phone_hub_task_continuation_state);
+
+  int wifi_sync_state;
+  EXPECT_TRUE(page_content_dict->GetInteger("wifiSyncState", &wifi_sync_state));
+  it = feature_states_map.find(multidevice_setup::mojom::Feature::kWifiSync);
+  EXPECT_EQ(static_cast<int>(it->second), wifi_sync_state);
 
   std::string host_device_name;
   if (expected_host_device) {
@@ -160,7 +158,8 @@ class MultideviceHandlerTest : public testing::Test {
         std::make_unique<multidevice_setup::FakeMultiDeviceSetupClient>();
     fake_notification_access_manager_ =
         std::make_unique<phonehub::FakeNotificationAccessManager>(
-            /*has_access_been_granted=*/false);
+            phonehub::NotificationAccessManager::AccessStatus::
+                kAvailableButNotGranted);
     fake_android_sms_pairing_state_tracker_ = std::make_unique<
         multidevice_setup::FakeAndroidSmsPairingStateTracker>();
     fake_android_sms_app_manager_ =
@@ -229,8 +228,11 @@ class MultideviceHandlerTest : public testing::Test {
   }
 
   void CallAttemptNotificationSetup(bool has_access_been_granted) {
-    fake_notification_access_manager()->SetHasAccessBeenGranted(
-        has_access_been_granted);
+    fake_notification_access_manager()->SetAccessStatusInternal(
+        has_access_been_granted
+            ? phonehub::NotificationAccessManager::AccessStatus::kAccessGranted
+            : phonehub::NotificationAccessManager::AccessStatus::
+                  kAvailableButNotGranted);
     base::ListValue empty_args;
     test_web_ui()->HandleReceivedMessage("attemptNotificationSetup",
                                          &empty_args);

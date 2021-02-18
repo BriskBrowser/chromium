@@ -47,7 +47,6 @@ enum Event {
   kHitTestResult,
   kHover,
   kImageFrameUpdated,     // Web
-  kInvalidStatusChanged,  // Implicit
   kLayoutComplete,        // Web
   kLiveRegionCreated,     // Implicit
   kLiveRegionChanged,     // Web
@@ -57,7 +56,6 @@ enum Event {
   kMediaStartedPlaying,   // Native / Automation
   kMediaStoppedPlaying,   // Native / Automation
   kMenuEnd,               // Native / web: menu interaction has ended.
-  kMenuListItemSelected,  // Web
   kMenuListValueChanged,  // Web
   kMenuPopupEnd,          // Native / web: a menu/submenu is hidden/closed.
   kMenuPopupStart,        // Native / web: a menu/submenu is shown/opened.
@@ -79,16 +77,16 @@ enum Event {
   kShow,                     // Native / Automation
   kStateChanged,             // Native / Automation
   kTextChanged,
-  kWindowActivated,             // Native
-  kWindowDeactivated,           // Native
-  kWindowVisibilityChanged,     // Native
+  // TODO(nektar): Remove kTextSelectionChanged.
   kTextSelectionChanged,
   kTooltipClosed,
   kTooltipOpened,
-  kTreeChanged,  // Accessibility tree changed. Don't
-                 // explicitly fire an accessibility event,
-                 // only implicitly due to the change.
+  kTreeChanged,  // Don't explicitly fire this event.
+  // TODO(nektar): Remove kValueChanged.
   kValueChanged,
+  kWindowActivated,             // Native
+  kWindowDeactivated,           // Native
+  kWindowVisibilityChanged,     // Native
 };
 
 // Accessibility object roles.
@@ -176,6 +174,8 @@ enum Role {
   kDocNoteRef,
   kDocNotice,
   kDocPageBreak,
+  kDocPageFooter,
+  kDocPageHeader,
   kDocPageList,
   kDocPart,
   kDocPreface,
@@ -252,7 +252,8 @@ enum Role {
   kNote,
   kPane,
   kParagraph,
-  kPdfActionableHighlight, // PDF specific highlight role.
+  kPdfActionableHighlight,
+  kPdfRoot,
   kPluginObject,
   kPopUpButton,
   kPortal,
@@ -274,7 +275,6 @@ enum Role {
   kSearchBox,
   kSection,
   kSlider,
-  kSliderThumb,
   kSpinButton,
   kSplitter,
   kStaticText,
@@ -302,7 +302,6 @@ enum Role {
   kTreeItem,
   kUnknown,
   kVideo,
-  kWebArea,
   kWebView,
   kWindow,
 };
@@ -501,8 +500,9 @@ enum StringAttribute {
   // Only used when invalid_state == invalid_state_other.
   kAriaInvalidValue,
   kAutoComplete,
+  kCheckedStateDescription,
   kChildTreeId,
-  kClassName,  // Native / Android
+  kClassName,
   kContainerLiveRelevant,
   kContainerLiveStatus,
   kDescription,
@@ -530,6 +530,9 @@ enum StringAttribute {
   kTooltip,
   kUrl,
   kValue,
+  // TODO(bebeaudr): kAriaVirtualContent is currently a string attribute to
+  // facilitate prototyping. Make it an enum when we're done prototyping.
+  kVirtualContent,
 };
 
 enum IntAttribute {
@@ -763,6 +766,11 @@ enum BoolAttribute {
 
   // True if the node has any ARIA attributes set.
   kHasAriaAttribute,
+
+  // This element allows touches to be passed through when a screen reader
+  // is in touch exploration mode, e.g. a virtual keyboard normally
+  // behaves this way.
+  kTouchPassthrough,
 };
 
 enum IntListAttribute {
@@ -847,28 +855,81 @@ enum MarkerType {
 // forward movement will always move to the next node in depth-first pre-order
 // traversal.
 enum MoveDirection {
-  kForward,
+  kNone,
   kBackward,
-  kNone = kForward
+  kForward
 };
 
-// Describes the edit or selection command that resulted in a selection or a
-// text changed event.
+// Describes the edit or selection command that resulted in a selection, a text
+// changed or a text attributes changed event.
+//
+// An edit command, such as "kInsert" or "kDelete" is further described by its
+// "InputEvent" - see the relevant enum in this file.
+// A selection command may be further described by its "TextBoundary" and
+// "MoveDirection" - see the relevant enums in this file.
 enum Command {
+  kNone,
   kClearSelection,
-  kCut,
   kDelete,
   kDictate,
   kExtendSelection,  // The existing selection has been extended or shrunk.
-  kFormat,  // The text attributes, such as font size, have changed.
+  kFormat,  // Some text attributes, such as font weight, have changed.
+  kHistory,  // An undo or a redo operation has been performed.
   kInsert,
-  kMarker,  // A document marker has been added or removed.
+  kMarker,  // Document markers have been added or removed.
   kMoveSelection,  // The selection has been moved by a specific granularity.
-  kPaste,
-  kReplace,
-  kSetSelection,  // A completely new selection has been set.
-  kType,
-  kNone = kType
+  kSetSelection  // A completely new selection has been set.
+};
+
+// Describes an edit command in more detail.
+//
+// Please keep in sync with the following specification and file:
+// https://w3c.github.io/input-events/#h-interface-inputevent-attributes
+// //third_party/blink/renderer/core/events/input_event.h
+enum InputEventType {
+  kNone,
+  // Insertion.
+  kInsertText,
+  kInsertLineBreak,
+  kInsertParagraph,
+  kInsertOrderedList,
+  kInsertUnorderedList,
+  kInsertHorizontalRule,
+  kInsertFromPaste,
+  kInsertFromDrop,
+  kInsertFromYank,
+  kInsertTranspose,
+  kInsertReplacementText,
+  kInsertCompositionText,
+  // Deletion.
+  kDeleteWordBackward,
+  kDeleteWordForward,
+  kDeleteSoftLineBackward,
+  kDeleteSoftLineForward,
+  kDeleteHardLineBackward,
+  kDeleteHardLineForward,
+  kDeleteContentBackward,
+  kDeleteContentForward,
+  kDeleteByCut,
+  kDeleteByDrag,
+  // History.
+  kHistoryUndo,
+  kHistoryRedo,
+  // Formatting.
+  kFormatBold,
+  kFormatItalic,
+  kFormatUnderline,
+  kFormatStrikeThrough,
+  kFormatSuperscript,
+  kFormatSubscript,
+  kFormatJustifyCenter,
+  kFormatJustifyFull,
+  kFormatJustifyRight,
+  kFormatJustifyLeft,
+  kFormatIndent,
+  kFormatOutdent,
+  kFormatRemove,
+  kFormatSetBlockTextDirection
 };
 
 // Defines a set of text boundaries in the accessibility tree.
@@ -883,6 +944,7 @@ enum Command {
 //
 // TODO(nektar): Split TextBoundary into TextUnit and TextBoundary.
 enum TextBoundary {
+  kNone,
   kCharacter,
   kFormat,
   kLineEnd,
@@ -901,8 +963,7 @@ enum TextBoundary {
   kWebPage,
   kWordEnd,
   kWordStart,
-  kWordStartOrEnd,
-  kNone = kObject
+  kWordStartOrEnd
 };
 
 // Types of text alignment according to the IAccessible2 Object Attributes spec.
@@ -955,7 +1016,6 @@ enum AriaCurrentState {
   kPage,
   kStep,
   kLocation,
-  kUnclippedLocation,
   kDate,
   kTime,
 };

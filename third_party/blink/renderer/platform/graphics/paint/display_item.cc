@@ -95,7 +95,6 @@ static WTF::String SpecialDrawingTypeAsDebugString(DisplayItem::Type type) {
     DEBUG_STRING_CASE(ReflectionMask);
     DEBUG_STRING_CASE(Resizer);
     DEBUG_STRING_CASE(SVGClip);
-    DEBUG_STRING_CASE(SVGFilter);
     DEBUG_STRING_CASE(SVGMask);
     DEBUG_STRING_CASE(ScrollbarThumb);
     DEBUG_STRING_CASE(ScrollbarTickmarks);
@@ -131,22 +130,12 @@ static String ForeignLayerTypeAsDebugString(DisplayItem::Type type) {
   }
 }
 
-static String GraphicsLayerWrapperTypeAsDebugString(DisplayItem::Type type) {
-  switch (type) {
-    DEBUG_STRING_CASE(GraphicsLayerWrapper);
-    DEFAULT_CASE;
-  }
-}
-
 WTF::String DisplayItem::TypeAsDebugString(Type type) {
   if (IsDrawingType(type))
     return DrawingTypeAsDebugString(type);
 
   if (IsForeignLayerType(type))
     return ForeignLayerTypeAsDebugString(type);
-
-  if (IsGraphicsLayerWrapperType(type))
-    return GraphicsLayerWrapperTypeAsDebugString(type);
 
   PAINT_PHASE_BASED_DEBUG_STRINGS(Clip);
   PAINT_PHASE_BASED_DEBUG_STRINGS(Scroll);

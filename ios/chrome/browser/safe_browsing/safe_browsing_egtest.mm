@@ -6,9 +6,13 @@
 
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
+#import "base/test/ios/wait_util.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/safe_browsing/core/features.h"
 #include "components/strings/grit/components_strings.h"
+#import "ios/chrome/browser/ui/bookmarks/bookmark_earl_grey.h"
+#import "ios/chrome/browser/ui/bookmarks/bookmark_earl_grey_ui.h"
+#import "ios/chrome/browser/ui/tab_switcher/tab_grid/features.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_app_interface.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
@@ -28,6 +32,7 @@
 
 using chrome_test_util::BackButton;
 using chrome_test_util::ForwardButton;
+using chrome_test_util::TappableBookmarkNodeWithLabel;
 
 namespace {
 
@@ -93,9 +98,7 @@ std::unique_ptr<net::test_server::HttpResponse> HandleRequest(
 
 - (AppLaunchConfiguration)appConfigurationForTestCase {
   AppLaunchConfiguration config;
-  config.features_enabled.push_back(safe_browsing::kSafeBrowsingAvailableOnIOS);
   config.features_enabled.push_back(safe_browsing::kRealTimeUrlLookupEnabled);
-  config.features_enabled.push_back(web::features::kSSLCommittedInterstitials);
 
   // Use commandline args to insert fake unsafe URLs into the Safe Browsing
   // database.
@@ -156,7 +159,7 @@ std::unique_ptr<net::test_server::HttpResponse> HandleRequest(
 
   // Ensure that the real-time Safe Browsing opt-in starts in the default
   // (opted-out) state.
-  [ChromeEarlGrey setURLKeyedAnonymizedDataCollectionEnabled:false];
+  [ChromeEarlGrey setURLKeyedAnonymizedDataCollectionEnabled:NO];
 }
 
 - (void)tearDown {
@@ -170,7 +173,7 @@ std::unique_ptr<net::test_server::HttpResponse> HandleRequest(
 
   // Ensure that the real-time Safe Browsing opt-in is reset to its original
   // value.
-  [ChromeEarlGrey setURLKeyedAnonymizedDataCollectionEnabled:false];
+  [ChromeEarlGrey setURLKeyedAnonymizedDataCollectionEnabled:NO];
 
   [super tearDown];
 }
@@ -277,6 +280,14 @@ std::unique_ptr<net::test_server::HttpResponse> HandleRequest(
 // Tests expanding the details on a malware warning, proceeding past the
 // warning, and navigating back/forward to the unsafe page.
 - (void)testProceedingPastMalwareWarning {
+  if (@available(iOS 14, *)) {
+  } else {
+    if (@available(iOS 13, *)) {
+      // TODO(crbug.com/1156574): This test is failing on iOS 13, not sure why.
+      EARL_GREY_TEST_DISABLED(@"Disabled on iOS 13 as it is failing.");
+    }
+  }
+
   [ChromeEarlGrey loadURL:_safeURL1];
   [ChromeEarlGrey waitForWebStateContainingText:_safeContent1];
 
@@ -312,6 +323,14 @@ std::unique_ptr<net::test_server::HttpResponse> HandleRequest(
 // Tests expanding the details on a malware warning, proceeding past the
 // warning, and navigating back/forward to the unsafe page, in incognito mode.
 - (void)testProceedingPastMalwareWarningInIncognito {
+  if (@available(iOS 14, *)) {
+  } else {
+    if (@available(iOS 13, *)) {
+      // TODO(crbug.com/1156574): This test is failing on iOS 13, not sure why.
+      EARL_GREY_TEST_DISABLED(@"Disabled on iOS 13 as it is failing.");
+    }
+  }
+
   [ChromeEarlGrey openNewIncognitoTab];
   [ChromeEarlGrey loadURL:_safeURL1];
   [ChromeEarlGrey waitForWebStateContainingText:_safeContent1];
@@ -434,10 +453,16 @@ std::unique_ptr<net::test_server::HttpResponse> HandleRequest(
 
   [ChromeEarlGrey loadURL:_safeURL2];
   [ChromeEarlGrey waitForWebStateContainingText:_safeContent2];
+  // TODO(crbug.com/1153261): Adding a delay to avoid never-ending load on the
+  // last navigation forward. Should be fixed in newer iOS version.
+  base::test::ios::SpinRunLoopWithMinDelay(base::TimeDelta::FromSecondsD(1));
 
   [ChromeEarlGrey goBack];
   [ChromeEarlGrey waitForWebStateContainingText:l10n_util::GetStringUTF8(
                                                     IDS_MALWARE_V3_HEADING)];
+  // TODO(crbug.com/1153261): Adding a delay to avoid never-ending load on the
+  // last navigation forward. Should be fixed in newer iOS version.
+  base::test::ios::SpinRunLoopWithMinDelay(base::TimeDelta::FromSecondsD(1));
 
   [ChromeEarlGrey goForward];
   [ChromeEarlGrey waitForWebStateContainingText:_safeContent2];
@@ -445,7 +470,8 @@ std::unique_ptr<net::test_server::HttpResponse> HandleRequest(
 
 // Tests performing a back navigation to a warning page and a forward navigation
 // from a warning page, in incognito mode.
-- (void)testBackForwardNavigationWithWarningInIncognito {
+// crbug.com/1147360 Test is flaky
+- (void)DISABLED_testBackForwardNavigationWithWarningInIncognito {
   [ChromeEarlGrey openNewIncognitoTab];
   [ChromeEarlGrey loadURL:_safeURL1];
   [ChromeEarlGrey waitForWebStateContainingText:_safeContent1];
@@ -651,11 +677,29 @@ std::unique_ptr<net::test_server::HttpResponse> HandleRequest(
   [ChromeEarlGrey waitForWebStateContainingText:_realTimePhishingContent];
 }
 
+// Tests that real-time lookups are not performed when opted-out of Safe
+// Browsing, regardless of the state of the real-time opt-in.
+- (void)testRealTimeLookupsWhileOptedOutOfSafeBrowsing {
+  // Opt out of Safe Browsing.
+  [ChromeEarlGrey setBoolValue:NO forUserPref:prefs::kSafeBrowsingEnabled];
+
+  // Load the real-time phishing page and verify that no warning is shown.
+  [ChromeEarlGrey loadURL:_realTimePhishingURL];
+  [ChromeEarlGrey waitForWebStateContainingText:_realTimePhishingContent];
+
+  // Opt-in to real-time checks and verify that it's still the case that no
+  // warning is shown.
+  [ChromeEarlGrey setURLKeyedAnonymizedDataCollectionEnabled:YES];
+  [ChromeEarlGrey openNewTab];
+  [ChromeEarlGrey loadURL:_realTimePhishingURL];
+  [ChromeEarlGrey waitForWebStateContainingText:_realTimePhishingContent];
+}
+
 // Tests that a page identified as unsafe by real-time Safe Browsing is blocked
 // when opted-in to real-time lookups.
 - (void)testRealTimeLookupsWhileOptedIn {
   // Opt-in to real-time checks.
-  [ChromeEarlGrey setURLKeyedAnonymizedDataCollectionEnabled:true];
+  [ChromeEarlGrey setURLKeyedAnonymizedDataCollectionEnabled:YES];
 
   // Load the real-time phishing page and verify that a warning page is shown.
   [ChromeEarlGrey loadURL:_realTimePhishingURL];
@@ -666,12 +710,56 @@ std::unique_ptr<net::test_server::HttpResponse> HandleRequest(
 // Tests that real-time lookups are not performed in incognito mode.
 - (void)testRealTimeLookupsInIncognito {
   // Opt-in to real-time checks.
-  [ChromeEarlGrey setURLKeyedAnonymizedDataCollectionEnabled:true];
+  [ChromeEarlGrey setURLKeyedAnonymizedDataCollectionEnabled:YES];
 
   // Load the real-time phishing page and verify that no warning is shown.
   [ChromeEarlGrey openNewIncognitoTab];
   [ChromeEarlGrey loadURL:_realTimePhishingURL];
   [ChromeEarlGrey waitForWebStateContainingText:_realTimePhishingContent];
+}
+
+// Tests that a page identified as unsafe by real-time Safe Browsing is blocked
+// when loaded as part of session restoration.
+- (void)testRestoreRealTimeWarning {
+  // Opt-in to real-time checks.
+  [ChromeEarlGrey setURLKeyedAnonymizedDataCollectionEnabled:YES];
+
+  // Visit two safe pages, followed by an unsafe page.
+  [ChromeEarlGrey loadURL:_safeURL1];
+  [ChromeEarlGrey waitForWebStateContainingText:_safeContent1];
+  [ChromeEarlGrey loadURL:_safeURL2];
+  [ChromeEarlGrey waitForWebStateContainingText:_safeContent2];
+  [ChromeEarlGrey loadURL:_realTimePhishingURL];
+
+  // Verify that a warning is shown for the unsafe page.
+  [ChromeEarlGrey waitForWebStateContainingText:l10n_util::GetStringUTF8(
+                                                    IDS_PHISHING_V4_HEADING)];
+
+  // Perform session restoration, and verify that a warning is still shown.
+  [ChromeEarlGrey triggerRestoreViaTabGridRemoveAllUndo];
+  [ChromeEarlGrey waitForWebStateContainingText:l10n_util::GetStringUTF8(
+                                                    IDS_PHISHING_V4_HEADING)];
+}
+
+// Tests that when a page identified as unsafe by real-time Safe Browsing is
+// loaded using a bookmark, a warning is shown.
+- (void)testRealTimeWarningForBookmark {
+  NSString* phishingTitle = @"Real-time phishing";
+  [BookmarkEarlGrey addBookmarkWithTitle:phishingTitle
+                                     URL:base::SysUTF8ToNSString(
+                                             _realTimePhishingURL.spec())];
+  // Opt-in to real-time checks.
+  [ChromeEarlGrey setURLKeyedAnonymizedDataCollectionEnabled:YES];
+
+  // Load the real-time phishing page using its bookmark, and verify that a
+  // warning is shown.
+  [BookmarkEarlGreyUI openBookmarks];
+  [BookmarkEarlGreyUI openMobileBookmarks];
+  [[EarlGrey
+      selectElementWithMatcher:TappableBookmarkNodeWithLabel(phishingTitle)]
+      performAction:grey_tap()];
+  [ChromeEarlGrey waitForWebStateContainingText:l10n_util::GetStringUTF8(
+                                                    IDS_PHISHING_V4_HEADING)];
 }
 
 @end

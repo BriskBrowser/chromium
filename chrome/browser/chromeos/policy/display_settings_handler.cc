@@ -9,7 +9,7 @@
 #include "ash/public/ash_interfaces.h"
 #include "ash/public/mojom/cros_display_config.mojom.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/memory/ref_counted.h"
 #include "base/single_thread_task_runner.h"
@@ -44,7 +44,7 @@ void DisplaySettingsHandler::Start() {
 
   // Register observers for all settings
   for (const auto& handler : handlers_) {
-    settings_observers_.push_back(
+    settings_subscriptions_.push_back(
         chromeos::CrosSettings::Get()->AddSettingsObserver(
             handler->SettingName(),
             base::BindRepeating(&DisplaySettingsHandler::OnSettingUpdate,

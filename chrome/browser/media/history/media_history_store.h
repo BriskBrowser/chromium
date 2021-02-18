@@ -123,7 +123,7 @@ class MediaHistoryStore : public base::RefCountedThreadSafe<MediaHistoryStore> {
   // Returns a flag indicating whether the origin id was created successfully.
   bool CreateOriginId(const url::Origin& origin);
 
-  void SavePlayback(const content::MediaPlayerWatchTime& watch_time);
+  void SavePlayback(std::unique_ptr<content::MediaPlayerWatchTime> watch_time);
 
   mojom::MediaHistoryStatsPtr GetMediaHistoryStats();
   int GetTableRowCount(const std::string& table_name);
@@ -157,7 +157,7 @@ class MediaHistoryStore : public base::RefCountedThreadSafe<MediaHistoryStore> {
 
   std::set<GURL> GetURLsInTableForTest(const std::string& table);
 
-  void DiscoverMediaFeed(const GURL& url);
+  void DiscoverMediaFeed(const GURL& url, const base::Optional<GURL>& favicon);
 
   void StoreMediaFeedFetchResult(
       MediaHistoryKeyedService::MediaFeedFetchResult result);

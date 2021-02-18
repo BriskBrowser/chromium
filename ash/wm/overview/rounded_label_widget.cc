@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "ash/public/cpp/window_properties.h"
+#include "ash/style/ash_color_provider.h"
 #include "ash/wm/overview/scoped_overview_animation_settings.h"
 #include "ui/aura/window.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -42,7 +43,8 @@ class RoundedLabelView : public views::Label {
     SetBackgroundColor(background_color);
     SetPaintToLayer();
     layer()->SetFillsBoundsOpaquely(false);
-
+    layer()->SetBackgroundBlur(
+        static_cast<float>(AshColorProvider::LayerBlurSigma::kBlurDefault));
     const gfx::RoundedCornersF radii(rounding_dp);
     layer()->SetRoundedCornerRadius(radii);
     layer()->SetIsFastRoundedCorner(true);
@@ -89,7 +91,7 @@ void RoundedLabelWidget::Init(InitParams params) {
   }
   views::Widget::Init(std::move(widget_params));
 
-  SetContentsView(new RoundedLabelView(
+  SetContentsView(std::make_unique<RoundedLabelView>(
       params.horizontal_padding, params.vertical_padding,
       params.background_color, params.foreground_color, params.rounding_dp,
       params.preferred_height, params.message_id));

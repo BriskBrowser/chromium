@@ -4,6 +4,7 @@
 
 #include "chromeos/services/ime/ime_sandbox_hook.h"
 
+#include <dlfcn.h>
 #include <vector>
 
 #include "base/files/file_path.h"
@@ -11,6 +12,7 @@
 #include "base/logging.h"
 #include "build/buildflag.h"
 #include "chromeos/services/ime/constants.h"
+#include "chromeos/services/ime/ime_decoder.h"
 #include "chromeos/services/ime/public/cpp/buildflags.h"
 #include "sandbox/linux/syscall_broker/broker_command.h"
 #include "sandbox/linux/syscall_broker/broker_file_permission.h"
@@ -29,24 +31,6 @@ inline constexpr bool CrosImeSharedDataEnabled() {
 #else
   return false;
 #endif
-}
-
-void AddSharedLibraryAndDepsPath(
-    std::vector<BrokerFilePermission>* permissions) {
-  // Where IME decoder shared library and its dependencies will live.
-  static const char* kReadOnlyLibDirs[] =
-#if defined(__x86_64__) || defined(__aarch64__)
-      {"/usr/lib64", "/lib64"};
-#else
-      {"/usr/lib", "/lib"};
-#endif
-
-  for (const char* dir : kReadOnlyLibDirs) {
-    std::string path(dir);
-    permissions->push_back(
-        BrokerFilePermission::StatOnlyWithIntermediateDirs(path));
-    permissions->push_back(BrokerFilePermission::ReadOnlyRecursive(path + "/"));
-  }
 }
 
 void AddBundleFolder(std::vector<BrokerFilePermission>* permissions) {
@@ -93,7 +77,6 @@ std::vector<BrokerFilePermission> GetImeFilePermissions() {
       BrokerFilePermission::ReadOnly("/dev/urandom"),
       BrokerFilePermission::ReadOnly("/sys/devices/system/cpu")};
 
-  AddSharedLibraryAndDepsPath(&permissions);
   AddBundleFolder(&permissions);
   AddUserDataFolder(&permissions);
   AddSharedDataFolderIfEnabled(&permissions);
@@ -117,6 +100,8 @@ bool ImePreSandboxHook(sandbox::policy::SandboxLinux::Options options) {
                                sandbox::policy::SandboxLinux::PreSandboxHook(),
                                options);
 
+  // Try to load IME decoder shared library by creating its instance.
+  ImeDecoder::GetInstance();
   instance->EngageNamespaceSandboxIfPossible();
   return true;
 }

@@ -24,12 +24,12 @@
 #import "ios/chrome/browser/ui/bookmarks/bookmark_utils_ios.h"
 #import "ios/chrome/browser/ui/bookmarks/cells/bookmark_parent_folder_item.h"
 #import "ios/chrome/browser/ui/bookmarks/cells/bookmark_text_field_item.h"
-#import "ios/chrome/browser/ui/collection_view/cells/collection_view_item.h"
-#import "ios/chrome/browser/ui/collection_view/collection_view_model.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
 #import "ios/chrome/browser/ui/icons/chrome_icon.h"
 #import "ios/chrome/browser/ui/material_components/utils.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_styler.h"
+#import "ios/chrome/browser/ui/table_view/table_view_utils.h"
+#include "ios/chrome/browser/ui/ui_feature_flags.h"
 #include "ios/chrome/browser/ui/util/rtl_geometry.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
@@ -158,7 +158,10 @@ typedef NS_ENUM(NSInteger, ItemType) {
 - (instancetype)initWithBookmarkModel:(bookmarks::BookmarkModel*)bookmarkModel {
   DCHECK(bookmarkModel);
   DCHECK(bookmarkModel->loaded());
-  self = [super initWithStyle:UITableViewStylePlain];
+  UITableViewStyle style = base::FeatureList::IsEnabled(kSettingsRefresh)
+                               ? ChromeTableViewStyle()
+                               : UITableViewStylePlain;
+  self = [super initWithStyle:style];
   if (self) {
     _bookmarkModel = bookmarkModel;
 
@@ -189,11 +192,9 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
   // Add Done button.
   UIBarButtonItem* doneItem = [[UIBarButtonItem alloc]
-      initWithTitle:l10n_util::GetNSString(
-                        IDS_IOS_BOOKMARK_EDIT_MODE_EXIT_MOBILE)
-              style:UIBarButtonItemStylePlain
-             target:self
-             action:@selector(saveFolder)];
+      initWithBarButtonSystemItem:UIBarButtonSystemItemDone
+                           target:self
+                           action:@selector(saveFolder)];
   doneItem.accessibilityIdentifier =
       kBookmarkFolderEditNavigationBarDoneButtonIdentifier;
   self.navigationItem.rightBarButtonItem = doneItem;
@@ -209,16 +210,6 @@ typedef NS_ENUM(NSInteger, ItemType) {
     self.navigationItem.leftBarButtonItem = cancelItem;
 
     [self addToolbar];
-  } else {
-    // Add Back button.
-    UIBarButtonItem* backItem =
-        [ChromeIcon templateBarButtonItemWithImage:[ChromeIcon backIcon]
-                                            target:self
-                                            action:@selector(dismiss)];
-    backItem.accessibilityLabel =
-        l10n_util::GetNSString(IDS_IOS_BOOKMARK_NEW_BACK_LABEL);
-    backItem.accessibilityIdentifier = @"Back";
-    self.navigationItem.leftBarButtonItem = backItem;
   }
   [self updateEditingState];
   [self setupCollectionViewModel];
@@ -561,8 +552,12 @@ typedef NS_ENUM(NSInteger, ItemType) {
                            target:nil
                            action:nil];
   deleteButton.tintColor = [UIColor colorNamed:kRedColor];
-  [self.navigationController.toolbar setShadowImage:[UIImage new]
-                                 forToolbarPosition:UIBarPositionAny];
+
+  if (!base::FeatureList::IsEnabled(kSettingsRefresh)) {
+    [self.navigationController.toolbar setShadowImage:[UIImage new]
+                                   forToolbarPosition:UIBarPositionAny];
+  }
+
   [self setToolbarItems:@[ spaceButton, deleteButton, spaceButton ]
                animated:NO];
 }

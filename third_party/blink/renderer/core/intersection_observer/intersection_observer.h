@@ -8,6 +8,7 @@
 #include "base/callback.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/frame/local_frame_ukm_aggregator.h"
 #include "third_party/blink/renderer/core/intersection_observer/intersection_observation.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
@@ -97,17 +98,21 @@ class CORE_EXPORT IntersectionObserver final
   // the given |callback|. |thresholds| should be in the range [0,1], and are
   // interpreted according to the given |semantics|. |delay| specifies the
   // minimum period between change notifications.
+  // `use_overflow_clip_edge` indicates whether the overflow clip edge
+  // should be used instead of the bounding box if appropriate.
   static IntersectionObserver* Create(
       const Vector<Length>& margin,
       const Vector<float>& thresholds,
       Document* document,
       EventCallback callback,
+      LocalFrameUkmAggregator::MetricId ukm_metric_id,
       DeliveryBehavior behavior = kDeliverDuringPostLifecycleSteps,
       ThresholdInterpretation semantics = kFractionOfTarget,
       DOMHighResTimeStamp delay = 0,
       bool track_visbility = false,
       bool always_report_root_bounds = false,
       MarginTarget margin_target = kApplyMarginToRoot,
+      bool use_overflow_clip_edge = false,
       ExceptionState& = ASSERT_NO_EXCEPTION);
 
   static void ResumeSuspendedObservers();
@@ -120,7 +125,8 @@ class CORE_EXPORT IntersectionObserver final
                                 DOMHighResTimeStamp delay,
                                 bool track_visibility,
                                 bool always_report_root_bounds,
-                                MarginTarget margin_target);
+                                MarginTarget margin_target,
+                                bool use_overflow_clip_edge);
 
   // API methods.
   void observe(Element*, ExceptionState& = ASSERT_NO_EXCEPTION);
@@ -161,6 +167,8 @@ class CORE_EXPORT IntersectionObserver final
 
   bool ComputeIntersections(unsigned flags);
 
+  LocalFrameUkmAggregator::MetricId GetUkmMetricId() const;
+
   void SetNeedsDelivery();
   DeliveryBehavior GetDeliveryBehavior() const;
   void Deliver();
@@ -170,6 +178,8 @@ class CORE_EXPORT IntersectionObserver final
   bool RootIsValid() const;
   bool CanUseCachedRects() const { return can_use_cached_rects_; }
   void InvalidateCachedRects() { can_use_cached_rects_ = 0; }
+
+  bool UseOverflowClipEdge() const { return use_overflow_clip_edge_ == 1; }
 
   // ScriptWrappable override:
   bool HasPendingActivity() const override;
@@ -199,6 +209,7 @@ class CORE_EXPORT IntersectionObserver final
   unsigned always_report_root_bounds_ : 1;
   unsigned needs_delivery_ : 1;
   unsigned can_use_cached_rects_ : 1;
+  unsigned use_overflow_clip_edge_ : 1;
 };
 
 }  // namespace blink

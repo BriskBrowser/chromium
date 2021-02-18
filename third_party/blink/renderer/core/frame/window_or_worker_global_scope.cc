@@ -40,8 +40,8 @@
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/dom_timer.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/frame/page_dismissal_scope.h"
 #include "third_party/blink/renderer/core/html/parser/html_parser_idioms.h"
-#include "third_party/blink/renderer/core/imagebitmap/image_bitmap_factories.h"
 #include "third_party/blink/renderer/core/trustedtypes/trusted_types_util.h"
 #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
@@ -62,6 +62,12 @@ static bool IsAllowed(ExecutionContext* execution_context,
                        ReportingDisposition::kReport,
                        ContentSecurityPolicy::kWillNotThrowException, source)) {
       return false;
+    }
+    if (PageDismissalScope::IsActive()) {
+      UseCounter::Count(execution_context,
+                        window->document()->ProcessingBeforeUnload()
+                            ? WebFeature::kTimerInstallFromBeforeUnload
+                            : WebFeature::kTimerInstallFromUnload);
     }
     return true;
   }
@@ -215,33 +221,9 @@ void WindowOrWorkerGlobalScope::clearInterval(EventTarget& event_target,
     DOMTimer::RemoveByID(context, timeout_id);
 }
 
-ScriptPromise WindowOrWorkerGlobalScope::createImageBitmap(
-    ScriptState* script_state,
-    EventTarget&,
-    const ImageBitmapSourceUnion& bitmap_source,
-    const ImageBitmapOptions* options,
-    ExceptionState& exception_state) {
-  return ImageBitmapFactories::CreateImageBitmap(script_state, bitmap_source,
-                                                 options, exception_state);
-}
-
-ScriptPromise WindowOrWorkerGlobalScope::createImageBitmap(
-    ScriptState* script_state,
-    EventTarget&,
-    const ImageBitmapSourceUnion& bitmap_source,
-    int sx,
-    int sy,
-    int sw,
-    int sh,
-    const ImageBitmapOptions* options,
-    ExceptionState& exception_state) {
-  return ImageBitmapFactories::CreateImageBitmap(
-      script_state, bitmap_source, sx, sy, sw, sh, options, exception_state);
-}
-
 bool WindowOrWorkerGlobalScope::crossOriginIsolated(
     const ExecutionContext& execution_context) {
-  return execution_context.IsCrossOriginIsolated();
+  return execution_context.CrossOriginIsolatedCapability();
 }
 
 }  // namespace blink

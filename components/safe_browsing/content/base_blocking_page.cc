@@ -15,6 +15,7 @@
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/safe_browsing/core/features.h"
 #include "components/security_interstitials/content/security_interstitial_controller_client.h"
+#include "components/security_interstitials/content/settings_page_helper.h"
 #include "components/security_interstitials/content/unsafe_resource_util.h"
 #include "components/security_interstitials/core/metrics_helper.h"
 #include "components/security_interstitials/core/safe_browsing_loud_error_ui.h"
@@ -85,6 +86,8 @@ BaseBlockingPage::CreateDefaultDisplayOptions(
       false,                 // kSafeBrowsingProceedAnywayDisabled
       false,                 // should_open_links_in_new_tab
       true,                  // always_show_back_to_safety
+      false,                 // is_enhanced_protection_message_enabled
+      false,                 // is_safe_browsing_managed
       "cpn_safe_browsing");  // help_center_article_link
 }
 
@@ -157,18 +160,7 @@ std::string BaseBlockingPage::GetMetricPrefix(
     case BaseSafeBrowsingErrorUI::SB_REASON_BILLING:
       return primary_subresource ? "billing_subresource" : "billing";
     case BaseSafeBrowsingErrorUI::SB_REASON_PHISHING:
-      ThreatPatternType threat_pattern_type =
-          unsafe_resources[0].threat_metadata.threat_pattern_type;
-      if (threat_pattern_type == ThreatPatternType::PHISHING ||
-          threat_pattern_type == ThreatPatternType::NONE)
-        return primary_subresource ? "phishing_subresource" : "phishing";
-      else if (threat_pattern_type == ThreatPatternType::SOCIAL_ENGINEERING_ADS)
-        return primary_subresource ? "social_engineering_ads_subresource"
-                                   : "social_engineering_ads";
-      else if (threat_pattern_type ==
-               ThreatPatternType::SOCIAL_ENGINEERING_LANDING)
-        return primary_subresource ? "social_engineering_landing_subresource"
-                                   : "social_engineering_landing";
+      return primary_subresource ? "phishing_subresource" : "phishing";
   }
   NOTREACHED();
   return "unkown_metric_prefix";
@@ -179,19 +171,14 @@ std::string BaseBlockingPage::GetMetricPrefix(
 std::string BaseBlockingPage::GetExtraMetricsSuffix(
     const UnsafeResourceList& unsafe_resources) {
   switch (unsafe_resources[0].threat_source) {
-    case safe_browsing::ThreatSource::DATA_SAVER:
-      return "from_data_saver";
     case safe_browsing::ThreatSource::REMOTE:
-    case safe_browsing::ThreatSource::LOCAL_PVER3:
-      // REMOTE and LOCAL_PVER3 can be distinguished in the logs
-      // by platform type: Remote is mobile, local_pver3 is desktop.
       return "from_device";
     case safe_browsing::ThreatSource::LOCAL_PVER4:
       return "from_device_v4";
     case safe_browsing::ThreatSource::CLIENT_SIDE_DETECTION:
       return "from_client_side_detection";
-    case safe_browsing::ThreatSource::PASSWORD_PROTECTION_SERVICE:
-      return "from_password_protection_service";
+    case safe_browsing::ThreatSource::REAL_TIME_CHECK:
+      return "from_real_time_check";
     case safe_browsing::ThreatSource::UNKNOWN:
       break;
   }
@@ -277,7 +264,9 @@ BaseBlockingPage::CreateControllerClient(
     content::WebContents* web_contents,
     const UnsafeResourceList& unsafe_resources,
     BaseUIManager* ui_manager,
-    PrefService* pref_service) {
+    PrefService* pref_service,
+    std::unique_ptr<security_interstitials::SettingsPageHelper>
+        settings_page_helper) {
   history::HistoryService* history_service =
       ui_manager->history_service(web_contents);
 
@@ -288,7 +277,8 @@ BaseBlockingPage::CreateControllerClient(
 
   return std::make_unique<SafeBrowsingControllerClient>(
       web_contents, std::move(metrics_helper), pref_service,
-      ui_manager->app_locale(), ui_manager->default_safe_page());
+      ui_manager->app_locale(), ui_manager->default_safe_page(),
+      std::move(settings_page_helper));
 }
 
 int BaseBlockingPage::GetHTMLTemplateId() {

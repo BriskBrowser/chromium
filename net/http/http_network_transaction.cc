@@ -10,7 +10,7 @@
 
 #include "base/base64url.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/format_macros.h"
 #include "base/metrics/field_trial.h"
@@ -148,7 +148,8 @@ HttpNetworkTransaction::~HttpNetworkTransaction() {
     // TODO(mbelshe): The stream_ should be able to compute whether or not the
     //                stream should be kept alive.  No reason to compute here
     //                and pass it in.
-    if (!stream_->CanReuseConnection() || next_state_ != STATE_NONE) {
+    if (!stream_->CanReuseConnection() || next_state_ != STATE_NONE ||
+        close_connection_on_destruction_) {
       stream_->Close(true /* not reusable */);
     } else if (stream_->IsResponseBodyComplete()) {
       // If the response body is complete, we can just reuse the socket.
@@ -192,7 +193,9 @@ int HttpNetworkTransaction::Start(const HttpRequestInfo* request_info,
     proxy_ssl_config_.disable_cert_verification_network_fetches = true;
   }
 
-  if (HttpUtil::IsMethodSafe(request_info->method)) {
+  if (request_->idempotency == IDEMPOTENT ||
+      (request_->idempotency == DEFAULT_IDEMPOTENCY &&
+       HttpUtil::IsMethodSafe(request_info->method))) {
     can_send_early_data_ = true;
   }
 
@@ -540,6 +543,10 @@ int HttpNetworkTransaction::ResumeNetworkStart() {
   return DoLoop(OK);
 }
 
+void HttpNetworkTransaction::CloseConnectionOnDestruction() {
+  close_connection_on_destruction_ = true;
+}
+
 void HttpNetworkTransaction::OnStreamReady(const SSLConfig& used_ssl_config,
                                            const ProxyInfo& used_proxy_info,
                                            std::unique_ptr<HttpStream> stream) {
@@ -558,6 +565,7 @@ void HttpNetworkTransaction::OnStreamReady(const SSLConfig& used_ssl_config,
   response_.alpn_negotiated_protocol =
       NextProtoToString(stream_request_->negotiated_protocol());
   response_.was_fetched_via_spdy = stream_request_->using_spdy();
+  response_.dns_aliases = stream_->GetDnsAliases();
   SetProxyInfoInReponse(used_proxy_info, &response_);
   OnIOComplete(OK);
 }
@@ -629,7 +637,7 @@ void HttpNetworkTransaction::OnNeedsProxyAuth(
   response_.auth_challenge = proxy_response.auth_challenge;
   response_.did_use_http_auth = proxy_response.did_use_http_auth;
 
-  if (response_.headers.get() && !ContentEncodingsValid()) {
+  if (!ContentEncodingsValid()) {
     DoCallback(ERR_CONTENT_DECODING_FAILED);
     return;
   }
@@ -1036,6 +1044,7 @@ int HttpNetworkTransaction::DoSendRequest() {
   send_start_time_ = base::TimeTicks::Now();
   next_state_ = STATE_SEND_REQUEST_COMPLETE;
 
+  stream_->SetRequestIdempotency(request_->idempotency);
   return stream_->SendRequest(request_headers_, &response_, io_callback_);
 }
 
@@ -1102,15 +1111,13 @@ int HttpNetworkTransaction::DoReadHeadersComplete(int result) {
 
   DCHECK(response_.headers.get());
 
-  if (response_.headers.get() && !ContentEncodingsValid())
+  if (!ContentEncodingsValid())
     return ERR_CONTENT_DECODING_FAILED;
 
   // On a 408 response from the server ("Request Timeout") on a stale socket,
   // retry the request for HTTP/1.1 but not HTTP/2 or QUIC because those
   // multiplex requests and have no need for 408.
-  // Headers can be NULL because of http://crbug.com/384554.
-  if (response_.headers.get() &&
-      response_.headers->response_code() == HTTP_REQUEST_TIMEOUT &&
+  if (response_.headers->response_code() == HTTP_REQUEST_TIMEOUT &&
       HttpResponseInfo::ConnectionInfoToCoarse(response_.connection_info) ==
           HttpResponseInfo::CONNECTION_INFO_COARSE_HTTP1 &&
       stream_->IsConnectionReused()) {
@@ -1140,7 +1147,7 @@ int HttpNetworkTransaction::DoReadHeadersComplete(int result) {
       return ERR_METHOD_NOT_SUPPORTED;
   }
 
-  if (can_send_early_data_ && response_.headers.get() &&
+  if (can_send_early_data_ &&
       response_.headers->response_code() == HTTP_TOO_EARLY) {
     return HandleIOError(ERR_EARLY_DATA_REJECTED);
   }
@@ -1329,8 +1336,8 @@ void HttpNetworkTransaction::ProcessReportToHeader() {
   if (!response_.headers->GetNormalizedHeader("Report-To", &value))
     return;
 
-  ReportingService* service = session_->reporting_service();
-  if (!service)
+  ReportingService* reporting_service = session_->reporting_service();
+  if (!reporting_service)
     return;
 
   // Only accept Report-To headers on HTTPS connections that have no
@@ -1340,7 +1347,8 @@ void HttpNetworkTransaction::ProcessReportToHeader() {
   if (IsCertStatusError(response_.ssl_info.cert_status))
     return;
 
-  service->ProcessHeader(url_.GetOrigin(), value);
+  reporting_service->ProcessHeader(url_.GetOrigin(), network_isolation_key_,
+                                   value);
 }
 
 void HttpNetworkTransaction::ProcessNetworkErrorLoggingHeader() {
@@ -1350,9 +1358,9 @@ void HttpNetworkTransaction::ProcessNetworkErrorLoggingHeader() {
     return;
   }
 
-  NetworkErrorLoggingService* service =
+  NetworkErrorLoggingService* network_error_logging_service =
       session_->network_error_logging_service();
-  if (!service)
+  if (!network_error_logging_service)
     return;
 
   // Don't accept NEL headers received via a proxy, because the IP address of
@@ -1370,8 +1378,9 @@ void HttpNetworkTransaction::ProcessNetworkErrorLoggingHeader() {
   if (remote_endpoint_.address().empty())
     return;
 
-  service->OnHeader(url::Origin::Create(url_), remote_endpoint_.address(),
-                    value);
+  network_error_logging_service->OnHeader(network_isolation_key_,
+                                          url::Origin::Create(url_),
+                                          remote_endpoint_.address(), value);
 }
 
 void HttpNetworkTransaction::GenerateNetworkErrorLoggingReportIfError(int rv) {
@@ -1410,6 +1419,7 @@ void HttpNetworkTransaction::GenerateNetworkErrorLoggingReport(int rv) {
 
   NetworkErrorLoggingService::RequestDetails details;
 
+  details.network_isolation_key = network_isolation_key_;
   details.uri = url_;
   if (!request_referrer_.empty())
     details.referrer = GURL(request_referrer_);
@@ -1553,6 +1563,7 @@ int HttpNetworkTransaction::HandleIOError(int error) {
     case ERR_HTTP2_CLAIMED_PUSHED_STREAM_RESET_BY_SERVER:
     case ERR_HTTP2_PUSHED_RESPONSE_DOES_NOT_MATCH:
     case ERR_QUIC_HANDSHAKE_FAILED:
+    case ERR_QUIC_GOAWAY_REQUEST_CAN_BE_RETRIED:
       if (HasExceededMaxRetries())
         break;
       net_log_.AddEventWithNetErrorCode(

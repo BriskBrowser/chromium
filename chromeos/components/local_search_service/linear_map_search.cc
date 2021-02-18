@@ -5,6 +5,7 @@
 #include "chromeos/components/local_search_service/linear_map_search.h"
 
 #include <utility>
+#include <vector>
 
 #include "base/optional.h"
 #include "base/strings/string_split.h"
@@ -13,7 +14,6 @@
 #include "chromeos/components/local_search_service/search_utils.h"
 #include "chromeos/components/string_matching/fuzzy_tokenized_string_match.h"
 #include "chromeos/components/string_matching/tokenized_string.h"
-#include "components/prefs/pref_service.h"
 
 namespace chromeos {
 namespace local_search_service {
@@ -67,73 +67,99 @@ bool IsItemRelevant(const TokenizedString& query,
   return false;
 }
 
+// Updates data given |id| and |contents|. If |id| already exists, it will
+// overwrite earlier data.
+void UpdateData(const std::string& id,
+                const std::vector<Content>& contents,
+                KeyToTagVector* data) {
+  DCHECK(data);
+  (*data)[id] = std::vector<TokenizedStringWithId>();
+  TokenizeSearchTags(contents, &((*data)[id]));
+}
+
 }  // namespace
 
-LinearMapSearch::LinearMapSearch(IndexId index_id, PrefService* local_state)
-    : Index(index_id, Backend::kLinearMap, local_state) {}
+LinearMapSearch::LinearMapSearch(IndexId index_id)
+    : Index(index_id, Backend::kLinearMap) {}
 
 LinearMapSearch::~LinearMapSearch() = default;
 
-uint64_t LinearMapSearch::GetSize() {
-  return data_.size();
+void LinearMapSearch::GetSize(GetSizeCallback callback) {
+  std::move(callback).Run(data_.size());
 }
 
-void LinearMapSearch::AddOrUpdate(
-    const std::vector<local_search_service::Data>& data) {
+void LinearMapSearch::AddOrUpdate(const std::vector<Data>& data,
+                                  AddOrUpdateCallback callback) {
+  for (const auto& item : data) {
+    const auto& id = item.id;
+    DCHECK(!id.empty());
+    UpdateData(id, item.contents, &data_);
+  }
+
+  MaybeLogIndexSize(data_.size());
+  std::move(callback).Run();
+}
+
+void LinearMapSearch::Delete(const std::vector<std::string>& ids,
+                             DeleteCallback callback) {
+  uint32_t num_deleted = 0u;
+  for (const auto& id : ids) {
+    DCHECK(!id.empty());
+    num_deleted += data_.erase(id);
+  }
+
+  MaybeLogIndexSize(data_.size());
+  std::move(callback).Run(num_deleted);
+}
+
+void LinearMapSearch::UpdateDocuments(const std::vector<Data>& data,
+                                      UpdateDocumentsCallback callback) {
+  uint32_t num_deleted = 0u;
   for (const auto& item : data) {
     const auto& id = item.id;
     DCHECK(!id.empty());
 
-    // If a key already exists, it will overwrite earlier data.
-    data_[id] = std::vector<TokenizedStringWithId>();
-    TokenizeSearchTags(item.contents, &data_[id]);
-  }
-
-  MaybeLogIndexSize();
-}
-
-uint32_t LinearMapSearch::Delete(const std::vector<std::string>& ids) {
-  uint32_t num_deleted = 0u;
-  for (const auto& id : ids) {
-    DCHECK(!id.empty());
-
-    const auto& it = data_.find(id);
-    if (it != data_.end()) {
-      // If id doesn't exist, just ignore it.
-      data_.erase(id);
-      ++num_deleted;
+    if (item.contents.empty()) {
+      num_deleted += data_.erase(id);
+    } else {
+      UpdateData(id, item.contents, &data_);
     }
   }
 
-  MaybeLogIndexSize();
-  return num_deleted;
+  MaybeLogIndexSize(data_.size());
+  std::move(callback).Run(num_deleted);
 }
 
-ResponseStatus LinearMapSearch::Find(const base::string16& query,
-                                     uint32_t max_results,
-                                     std::vector<Result>* results) {
+void LinearMapSearch::Find(const base::string16& query,
+                           uint32_t max_results,
+                           FindCallback callback) {
   const base::TimeTicks start = base::TimeTicks::Now();
-  DCHECK(results);
-  results->clear();
-
   if (query.empty()) {
     const ResponseStatus status = ResponseStatus::kEmptyQuery;
     MaybeLogSearchResultsStats(status, 0u, base::TimeDelta());
-    return status;
+    std::move(callback).Run(status, base::nullopt);
+    return;
   }
 
   if (data_.empty()) {
     const ResponseStatus status = ResponseStatus::kEmptyIndex;
     MaybeLogSearchResultsStats(status, 0u, base::TimeDelta());
-    return status;
+    std::move(callback).Run(status, base::nullopt);
+    return;
   }
 
-  *results = GetSearchResults(query, max_results);
+  std::vector<Result> results = GetSearchResults(query, max_results);
 
-  const base::TimeTicks end = base::TimeTicks::Now();
   const ResponseStatus status = ResponseStatus::kSuccess;
-  MaybeLogSearchResultsStats(status, results->size(), end - start);
-  return status;
+  const base::TimeTicks end = base::TimeTicks::Now();
+  MaybeLogSearchResultsStats(status, results.size(), end - start);
+
+  std::move(callback).Run(status, std::move(results));
+}
+
+void LinearMapSearch::ClearIndex(ClearIndexCallback callback) {
+  data_.clear();
+  std::move(callback).Run();
 }
 
 std::vector<Result> LinearMapSearch::GetSearchResults(

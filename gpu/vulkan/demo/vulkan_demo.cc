@@ -12,6 +12,7 @@
 #include "gpu/vulkan/vulkan_function_pointers.h"
 #include "gpu/vulkan/vulkan_implementation.h"
 #include "gpu/vulkan/vulkan_surface.h"
+#include "skia/ext/legacy_display_globals.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkFont.h"
 #include "third_party/skia/include/core/SkSurface.h"
@@ -114,15 +115,18 @@ void VulkanDemo::CreateSkSurface() {
 
   if (!sk_surface) {
     SkSurfaceProps surface_props =
-        SkSurfaceProps(0, SkSurfaceProps::kLegacyFontHost_InitType);
+        skia::LegacyDisplayGlobals::GetSkSurfaceProps();
+
     GrVkImageInfo vk_image_info;
     vk_image_info.fImage = scoped_write_->image();
     vk_image_info.fImageLayout = scoped_write_->image_layout();
     vk_image_info.fImageTiling = VK_IMAGE_TILING_OPTIMAL;
     vk_image_info.fFormat = VK_FORMAT_B8G8R8A8_UNORM;
+    vk_image_info.fImageUsageFlags = scoped_write_->image_usage();
+    vk_image_info.fSampleCount = 1;
     vk_image_info.fLevelCount = 1;
     const auto& size = vulkan_surface_->image_size();
-    GrBackendRenderTarget render_target(size.width(), size.height(), 0, 0,
+    GrBackendRenderTarget render_target(size.width(), size.height(), 0,
                                         vk_image_info);
     sk_surface = SkSurface::MakeFromBackendRenderTarget(
         vulkan_context_provider_->GetGrContext(), render_target,
@@ -211,7 +215,7 @@ void VulkanDemo::RenderFrame() {
   GrBackendSurfaceMutableState state(VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
                                      queue_index);
   sk_surface_->flush(flush_info, &state);
-  sk_surface_->getContext()->submit();
+  sk_surface_->recordingContext()->asDirectContext()->submit();
   auto backend = sk_surface_->getBackendRenderTarget(
       SkSurface::kFlushRead_BackendHandleAccess);
   GrVkImageInfo vk_image_info;

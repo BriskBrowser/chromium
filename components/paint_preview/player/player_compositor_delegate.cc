@@ -10,6 +10,7 @@
 
 #include "base/containers/flat_map.h"
 #include "base/files/file_path.h"
+#include "base/memory/memory_pressure_monitor.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/memory/weak_ptr.h"
 #include "base/notreached.h"
@@ -21,8 +22,8 @@
 #include "base/trace_event/common/trace_event_common.h"
 #include "base/trace_event/trace_event.h"
 #include "base/unguessable_token.h"
-#include "components/paint_preview/browser/compositor_utils.h"
 #include "components/paint_preview/browser/paint_preview_base_service.h"
+#include "components/paint_preview/browser/warm_compositor.h"
 #include "components/paint_preview/common/proto/paint_preview.pb.h"
 #include "components/paint_preview/common/recording_map.h"
 #include "components/paint_preview/common/serialized_recording.h"
@@ -96,32 +97,89 @@ PrepareCompositeRequest(const paint_preview::PaintPreviewProto& proto) {
 
 }  // namespace
 
-PlayerCompositorDelegate::PlayerCompositorDelegate(
+PlayerCompositorDelegate::PlayerCompositorDelegate()
+    : paint_preview_compositor_service_(nullptr,
+                                        base::OnTaskRunnerDeleter(nullptr)),
+      paint_preview_compositor_client_(nullptr,
+                                       base::OnTaskRunnerDeleter(nullptr)) {}
+
+PlayerCompositorDelegate::~PlayerCompositorDelegate() {
+  if (compress_on_close_ && paint_preview_service_) {
+    paint_preview_service_->GetFileMixin()->GetTaskRunner()->PostTask(
+        FROM_HERE,
+        base::BindOnce(base::IgnoreResult(&FileManager::CompressDirectory),
+                       paint_preview_service_->GetFileMixin()->GetFileManager(),
+                       key_));
+  }
+}
+
+void PlayerCompositorDelegate::Initialize(
     PaintPreviewBaseService* paint_preview_service,
     const GURL& expected_url,
     const DirectoryKey& key,
+    bool main_frame_mode,
     base::OnceCallback<void(int)> compositor_error,
-    bool skip_service_launch)
-    : compositor_error_(std::move(compositor_error)),
-      paint_preview_service_(paint_preview_service),
-      key_(key),
-      compress_on_close_(true),
-      paint_preview_compositor_service_(nullptr,
-                                        base::OnTaskRunnerDeleter(nullptr)),
-      paint_preview_compositor_client_(nullptr,
-                                       base::OnTaskRunnerDeleter(nullptr)) {
-  if (skip_service_launch) {
-    paint_preview_service_->GetCapturedPaintPreviewProto(
-        key, base::BindOnce(&PlayerCompositorDelegate::OnProtoAvailable,
-                            weak_factory_.GetWeakPtr(), expected_url));
-    return;
-  }
+    base::TimeDelta timeout_duration,
+    size_t max_requests) {
   TRACE_EVENT_NESTABLE_ASYNC_BEGIN0("paint_preview",
                                     "PlayerCompositorDelegate CreateCompositor",
                                     TRACE_ID_LOCAL(this));
-  paint_preview_compositor_service_ = StartCompositorService(
+  auto* memory_monitor = memory_pressure_monitor();
+  // If the device is already under moderate memory pressure abort right away.
+  if (memory_monitor &&
+      memory_monitor->GetCurrentPressureLevel() >=
+          base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_MODERATE) {
+    base::SequencedTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::BindOnce(std::move(compositor_error),
+                       static_cast<int>(
+                           CompositorStatus::SKIPPED_DUE_TO_MEMORY_PRESSURE)));
+    return;
+  }
+
+  paint_preview_compositor_service_ =
+      WarmCompositor::GetInstance()->GetOrStartCompositorService(base::BindOnce(
+          &PlayerCompositorDelegate::OnCompositorServiceDisconnected,
+          weak_factory_.GetWeakPtr()));
+
+  InitializeInternal(paint_preview_service, expected_url, key, main_frame_mode,
+                     std::move(compositor_error), timeout_duration,
+                     max_requests);
+}
+
+void PlayerCompositorDelegate::InitializeWithFakeServiceForTest(
+    PaintPreviewBaseService* paint_preview_service,
+    const GURL& expected_url,
+    const DirectoryKey& key,
+    bool main_frame_mode,
+    base::OnceCallback<void(int)> compositor_error,
+    base::TimeDelta timeout_duration,
+    size_t max_requests,
+    std::unique_ptr<PaintPreviewCompositorService, base::OnTaskRunnerDeleter>
+        fake_compositor_service) {
+  paint_preview_compositor_service_ = std::move(fake_compositor_service);
+  paint_preview_compositor_service_->SetDisconnectHandler(
       base::BindOnce(&PlayerCompositorDelegate::OnCompositorServiceDisconnected,
                      weak_factory_.GetWeakPtr()));
+
+  InitializeInternal(paint_preview_service, expected_url, key, main_frame_mode,
+                     std::move(compositor_error), timeout_duration,
+                     max_requests);
+}
+
+void PlayerCompositorDelegate::InitializeInternal(
+    PaintPreviewBaseService* paint_preview_service,
+    const GURL& expected_url,
+    const DirectoryKey& key,
+    bool main_frame_mode,
+    base::OnceCallback<void(int)> compositor_error,
+    base::TimeDelta timeout_duration,
+    size_t max_requests) {
+  max_requests_ = max_requests;
+  main_frame_mode_ = main_frame_mode;
+  compositor_error_ = std::move(compositor_error);
+  paint_preview_service_ = paint_preview_service;
+  key_ = key;
 
   paint_preview_compositor_client_ =
       paint_preview_compositor_service_->CreateCompositor(
@@ -130,23 +188,106 @@ PlayerCompositorDelegate::PlayerCompositorDelegate(
   paint_preview_compositor_client_->SetDisconnectHandler(
       base::BindOnce(&PlayerCompositorDelegate::OnCompositorClientDisconnected,
                      weak_factory_.GetWeakPtr()));
+
+  memory_pressure_ = std::make_unique<base::MemoryPressureListener>(
+      FROM_HERE,
+      base::BindRepeating(&PlayerCompositorDelegate::OnMemoryPressure,
+                          weak_factory_.GetWeakPtr()));
+  if (!timeout_duration.is_inf() && !timeout_duration.is_zero()) {
+    timeout_.Reset(
+        base::BindOnce(&PlayerCompositorDelegate::OnCompositorTimeout,
+                       weak_factory_.GetWeakPtr()));
+    base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
+        FROM_HERE, timeout_.callback(), timeout_duration);
+  }
 }
 
-PlayerCompositorDelegate::~PlayerCompositorDelegate() {
-  if (compress_on_close_) {
-    paint_preview_service_->GetTaskRunner()->PostTask(
-        FROM_HERE,
-        base::BindOnce(base::IgnoreResult(&FileManager::CompressDirectory),
-                       paint_preview_service_->GetFileManager(), key_));
+int32_t PlayerCompositorDelegate::RequestBitmap(
+    const base::Optional<base::UnguessableToken>& frame_guid,
+    const gfx::Rect& clip_rect,
+    float scale_factor,
+    base::OnceCallback<void(mojom::PaintPreviewCompositor::BitmapStatus,
+                            const SkBitmap&)> callback) {
+  DCHECK(IsInitialized());
+  DCHECK((main_frame_mode_ && !frame_guid.has_value()) ||
+         (!main_frame_mode_ && frame_guid.has_value()));
+  const int32_t request_id = next_request_id_;
+  next_request_id_++;
+  if (!paint_preview_compositor_client_) {
+    std::move(callback).Run(
+        mojom::PaintPreviewCompositor::BitmapStatus::kMissingFrame, SkBitmap());
+    return request_id;
   }
+
+  bitmap_request_queue_.push(request_id);
+  pending_bitmap_requests_.emplace(
+      request_id,
+      BitmapRequest(frame_guid, clip_rect, scale_factor,
+                    base::BindOnce(
+                        &PlayerCompositorDelegate::BitmapRequestCallbackAdapter,
+                        weak_factory_.GetWeakPtr(), std::move(callback))));
+  ProcessBitmapRequestsFromQueue();
+  return request_id;
+}
+
+bool PlayerCompositorDelegate::CancelBitmapRequest(int32_t request_id) {
+  auto it = pending_bitmap_requests_.find(request_id);
+  if (it == pending_bitmap_requests_.end())
+    return false;
+
+  pending_bitmap_requests_.erase(it);
+  return true;
+}
+
+void PlayerCompositorDelegate::CancelAllBitmapRequests() {
+  while (bitmap_request_queue_.size())
+    bitmap_request_queue_.pop();
+
+  pending_bitmap_requests_.clear();
+}
+
+std::vector<const GURL*> PlayerCompositorDelegate::OnClick(
+    const base::UnguessableToken& frame_guid,
+    const gfx::Rect& rect) {
+  DCHECK(IsInitialized());
+  std::vector<const GURL*> urls;
+  auto it = hit_testers_.find(frame_guid);
+  if (it != hit_testers_.end())
+    it->second->HitTest(rect, &urls);
+
+  return urls;
+}
+
+void PlayerCompositorDelegate::OnMemoryPressure(
+    base::MemoryPressureListener::MemoryPressureLevel memory_pressure_level) {
+  if (memory_pressure_level ==
+      base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_CRITICAL) {
+    if (paint_preview_compositor_client_)
+      paint_preview_compositor_client_.reset();
+
+    if (paint_preview_compositor_service_)
+      paint_preview_compositor_service_.reset();
+
+    if (compositor_error_) {
+      std::move(compositor_error_)
+          .Run(static_cast<int>(
+              CompositorStatus::STOPPED_DUE_TO_MEMORY_PRESSURE));
+    }
+  }
+}
+
+base::MemoryPressureMonitor*
+PlayerCompositorDelegate::memory_pressure_monitor() {
+  return base::MemoryPressureMonitor::Get();
 }
 
 void PlayerCompositorDelegate::OnCompositorReadyStatusAdapter(
     mojom::PaintPreviewCompositor::BeginCompositeStatus status,
     mojom::PaintPreviewBeginCompositeResponsePtr composite_response) {
+  timeout_.Cancel();
   CompositorStatus new_status;
   switch (status) {
-    // falltrhough
+    // fallthrough
     case mojom::PaintPreviewCompositor::BeginCompositeStatus::kSuccess:
     case mojom::PaintPreviewCompositor::BeginCompositeStatus::kPartialSuccess:
       new_status = CompositorStatus::OK;
@@ -166,10 +307,11 @@ void PlayerCompositorDelegate::OnCompositorReadyStatusAdapter(
 }
 
 void PlayerCompositorDelegate::OnCompositorServiceDisconnected() {
-  LOG(ERROR) << "Compositor service disconnected.";
-  if (compositor_error_)
+  DLOG(ERROR) << "Compositor service disconnected.";
+  if (compositor_error_) {
     std::move(compositor_error_)
         .Run(static_cast<int>(CompositorStatus::COMPOSITOR_SERVICE_DISCONNECT));
+  }
 }
 
 void PlayerCompositorDelegate::OnCompositorClientCreated(
@@ -178,16 +320,34 @@ void PlayerCompositorDelegate::OnCompositorClientCreated(
   TRACE_EVENT_NESTABLE_ASYNC_END0("paint_preview",
                                   "PlayerCompositorDelegate CreateCompositor",
                                   TRACE_ID_LOCAL(this));
-  paint_preview_service_->GetCapturedPaintPreviewProto(
-      key, base::BindOnce(&PlayerCompositorDelegate::OnProtoAvailable,
-                          weak_factory_.GetWeakPtr(), expected_url));
+  if (!proto_) {
+    paint_preview_service_->GetFileMixin()->GetCapturedPaintPreviewProto(
+        key, base::nullopt,
+        base::BindOnce(&PlayerCompositorDelegate::OnProtoAvailable,
+                       weak_factory_.GetWeakPtr(), expected_url));
+  } else {
+    OnProtoAvailable(expected_url, PaintPreviewFileMixin::ProtoReadStatus::kOk,
+                     std::move(proto_));
+  }
 }
 
 void PlayerCompositorDelegate::OnProtoAvailable(
     const GURL& expected_url,
+    PaintPreviewFileMixin::ProtoReadStatus proto_status,
     std::unique_ptr<PaintPreviewProto> proto) {
-  if (!proto || !proto->IsInitialized()) {
-    // TODO(crbug.com/1021590): Handle initialization errors.
+  if (proto_status == PaintPreviewFileMixin::ProtoReadStatus::kExpired) {
+    OnCompositorReady(CompositorStatus::CAPTURE_EXPIRED, nullptr);
+    return;
+  }
+
+  if (proto_status == PaintPreviewFileMixin::ProtoReadStatus::kNoProto) {
+    OnCompositorReady(CompositorStatus::NO_CAPTURE, nullptr);
+    return;
+  }
+
+  if (proto_status ==
+          PaintPreviewFileMixin::ProtoReadStatus::kDeserializationError ||
+      !proto || !proto->IsInitialized()) {
     OnCompositorReady(CompositorStatus::PROTOBUF_DESERIALIZATION_ERROR,
                       nullptr);
     return;
@@ -216,8 +376,6 @@ void PlayerCompositorDelegate::OnProtoAvailable(
     return;
   }
 
-  hit_testers_ = BuildHitTesters(*proto);
-
   if (!paint_preview_compositor_client_) {
     OnCompositorReady(CompositorStatus::COMPOSITOR_CLIENT_DISCONNECT, nullptr);
     return;
@@ -225,9 +383,10 @@ void PlayerCompositorDelegate::OnProtoAvailable(
 
   paint_preview_compositor_client_->SetRootFrameUrl(proto_url);
 
+  proto_ = std::move(proto);
   base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
-      base::BindOnce(&PrepareCompositeRequest, *proto),
+      base::BindOnce(&PrepareCompositeRequest, *proto_),
       base::BindOnce(&PlayerCompositorDelegate::SendCompositeRequest,
                      weak_factory_.GetWeakPtr()));
 }
@@ -240,43 +399,86 @@ void PlayerCompositorDelegate::SendCompositeRequest(
     return;
   }
 
-  paint_preview_compositor_client_->BeginSeparatedFrameComposite(
-      std::move(begin_composite_request),
-      base::BindOnce(&PlayerCompositorDelegate::OnCompositorReadyStatusAdapter,
-                     weak_factory_.GetWeakPtr()));
-}
-
-void PlayerCompositorDelegate::OnCompositorClientDisconnected() {
-  LOG(ERROR) << "Compositor client disconnected.";
-  if (compositor_error_)
-    std::move(compositor_error_)
-        .Run(static_cast<int>(CompositorStatus::COMPOSITOR_CLIENT_DISCONNECT));
-}
-
-void PlayerCompositorDelegate::RequestBitmap(
-    const base::UnguessableToken& frame_guid,
-    const gfx::Rect& clip_rect,
-    float scale_factor,
-    base::OnceCallback<void(mojom::PaintPreviewCompositor::BitmapStatus,
-                            const SkBitmap&)> callback) {
+  // It is possible the client was disconnected while loading the proto.
   if (!paint_preview_compositor_client_) {
-    std::move(callback).Run(
-        mojom::PaintPreviewCompositor::BitmapStatus::kMissingFrame, SkBitmap());
+    OnCompositorReady(CompositorStatus::COMPOSITOR_CLIENT_DISCONNECT, nullptr);
     return;
   }
 
-  paint_preview_compositor_client_->BitmapForSeparatedFrame(
-      frame_guid, clip_rect, scale_factor, std::move(callback));
+  if (main_frame_mode_) {
+    paint_preview_compositor_client_->BeginMainFrameComposite(
+        std::move(begin_composite_request),
+        base::BindOnce(
+            &PlayerCompositorDelegate::OnCompositorReadyStatusAdapter,
+            weak_factory_.GetWeakPtr()));
+
+  } else {
+    paint_preview_compositor_client_->BeginSeparatedFrameComposite(
+        std::move(begin_composite_request),
+        base::BindOnce(
+            &PlayerCompositorDelegate::OnCompositorReadyStatusAdapter,
+            weak_factory_.GetWeakPtr()));
+  }
+
+  // Defer building hit testers so it happens in parallel with preparing the
+  // compositor.
+  hit_testers_ = BuildHitTesters(*proto_);
+  proto_.reset();
 }
 
-std::vector<const GURL*> PlayerCompositorDelegate::OnClick(
-    const base::UnguessableToken& frame_guid,
-    const gfx::Rect& rect) {
-  std::vector<const GURL*> urls;
-  auto it = hit_testers_.find(frame_guid);
-  if (it != hit_testers_.end())
-    it->second->HitTest(rect, &urls);
-  return urls;
+void PlayerCompositorDelegate::OnCompositorClientDisconnected() {
+  DLOG(ERROR) << "Compositor client disconnected.";
+  if (compositor_error_) {
+    std::move(compositor_error_)
+        .Run(static_cast<int>(CompositorStatus::COMPOSITOR_CLIENT_DISCONNECT));
+  }
+}
+
+void PlayerCompositorDelegate::OnCompositorTimeout() {
+  DLOG(ERROR) << "Compositor process startup timed out.";
+  if (compositor_error_) {
+    std::move(compositor_error_)
+        .Run(static_cast<int>(CompositorStatus::TIMED_OUT));
+  }
+}
+
+void PlayerCompositorDelegate::ProcessBitmapRequestsFromQueue() {
+  while (active_requests_ < max_requests_ && bitmap_request_queue_.size()) {
+    int request_id = bitmap_request_queue_.front();
+    bitmap_request_queue_.pop();
+
+    auto it = pending_bitmap_requests_.find(request_id);
+    if (it == pending_bitmap_requests_.end())
+      continue;
+
+    BitmapRequest& request = it->second;
+    active_requests_++;
+    // If the client disconnects mid request, just give up as we should be
+    // exiting.
+    if (!paint_preview_compositor_client_)
+      return;
+
+    if (request.frame_guid.has_value()) {
+      paint_preview_compositor_client_->BitmapForSeparatedFrame(
+          request.frame_guid.value(), request.clip_rect, request.scale_factor,
+          std::move(request.callback));
+    } else {
+      paint_preview_compositor_client_->BitmapForMainFrame(
+          request.clip_rect, request.scale_factor, std::move(request.callback));
+    }
+    pending_bitmap_requests_.erase(it);
+  }
+}
+
+void PlayerCompositorDelegate::BitmapRequestCallbackAdapter(
+    base::OnceCallback<void(mojom::PaintPreviewCompositor::BitmapStatus,
+                            const SkBitmap&)> callback,
+    mojom::PaintPreviewCompositor::BitmapStatus status,
+    const SkBitmap& bitmap) {
+  std::move(callback).Run(status, bitmap);
+
+  active_requests_--;
+  ProcessBitmapRequestsFromQueue();
 }
 
 }  // namespace paint_preview

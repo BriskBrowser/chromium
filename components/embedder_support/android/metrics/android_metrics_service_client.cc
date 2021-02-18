@@ -6,6 +6,7 @@
 
 #include <jni.h>
 #include <cstdint>
+#include <string>
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
@@ -29,6 +30,7 @@
 #include "components/metrics/content/subprocess_metrics_provider.h"
 #include "components/metrics/cpu_metrics_provider.h"
 #include "components/metrics/drive_metrics_provider.h"
+#include "components/metrics/entropy_state_provider.h"
 #include "components/metrics/file_metrics_provider.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/metrics_service.h"
@@ -37,6 +39,7 @@
 #include "components/metrics/net/net_metrics_log_uploader.h"
 #include "components/metrics/net/network_metrics_provider.h"
 #include "components/metrics/persistent_histograms.h"
+#include "components/metrics/sampling_metrics_provider.h"
 #include "components/metrics/stability_metrics_helper.h"
 #include "components/metrics/ui/screen_info_metrics_provider.h"
 #include "components/metrics/version_utils.h"
@@ -141,12 +144,14 @@ bool IsSamplesCounterEnabled() {
       base::kPersistentHistogramsFeature, "prev_run_metrics_count_only", false);
 }
 
+// TODO(crbug.com/1152072): Unify this implementation with the one in
+// ChromeMetricsServiceClient.
 std::unique_ptr<metrics::FileMetricsProvider> CreateFileMetricsProvider(
     PrefService* pref_service,
     bool metrics_reporting_enabled) {
   // Create an object to monitor files of metrics and include them in reports.
-  std::unique_ptr<metrics::FileMetricsProvider> file_metrics_provider(
-      new metrics::FileMetricsProvider(pref_service));
+  std::unique_ptr<metrics::FileMetricsProvider> file_metrics_provider =
+      std::make_unique<metrics::FileMetricsProvider>(pref_service);
 
   base::FilePath user_data_dir;
   base::PathService::Get(base::DIR_ANDROID_APP_DATA, &user_data_dir);
@@ -185,9 +190,32 @@ std::unique_ptr<metrics::FileMetricsProvider> CreateFileMetricsProvider(
         active_path,
         metrics::FileMetricsProvider::SOURCE_HISTOGRAMS_ACTIVE_FILE,
         metrics::FileMetricsProvider::ASSOCIATE_CURRENT_RUN));
+  } else {
+    // When metrics reporting is not enabled, any existing files should be
+    // deleted in order to preserve user privacy.
+    base::ThreadPool::PostTask(
+        FROM_HERE,
+        {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+         base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
+        base::BindOnce(base::GetDeletePathRecursivelyCallback(),
+                       std::move(browser_metrics_upload_dir)));
   }
 
   return file_metrics_provider;
+}
+
+base::OnceClosure CreateChainedClosure(base::OnceClosure cb1,
+                                       base::OnceClosure cb2) {
+  return base::BindOnce(
+      [](base::OnceClosure cb1, base::OnceClosure cb2) {
+        if (cb1) {
+          std::move(cb1).Run();
+        }
+        if (cb2) {
+          std::move(cb2).Run();
+        }
+      },
+      std::move(cb1), std::move(cb2));
 }
 
 }  // namespace
@@ -218,50 +246,71 @@ void AndroidMetricsServiceClient::Initialize(PrefService* pref_service) {
   pref_service_ = pref_service;
 
   metrics_state_manager_ =
-      MetricsStateManager::Create(pref_service_, this, base::string16(),
+      MetricsStateManager::Create(pref_service_, this, std::wstring(),
                                   base::BindRepeating(&StoreClientInfo),
                                   base::BindRepeating(&LoadClientInfo));
 
   init_finished_ = true;
+
+  // Create the MetricsService immediately so that other code can make use of
+  // it. Chrome always creates the MetricsService as well.
+  metrics_service_ = std::make_unique<MetricsService>(
+      metrics_state_manager_.get(), this, pref_service_);
+
+  // Registration of providers has to wait until consent is determined. To
+  // do otherwise means the providers would always be configured with reporting
+  // disabled (because when this is called in production consent hasn't been
+  // determined). If consent has not been determined, this does nothing.
   MaybeStartMetrics();
 }
 
+// TODO:(crbug.com/1148351) Make the initialization consistent with Chrome.
 void AndroidMetricsServiceClient::MaybeStartMetrics() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  if (!IsConsentDetermined())
+    return;
+
+#if DCHECK_IS_ON()
+  // This function should be called only once after consent has been determined.
+  DCHECK(!did_start_metrics_with_consent_);
+  did_start_metrics_with_consent_ = true;
+#endif
+
   // Treat the debugging flag the same as user consent because the user set it,
   // but keep app_consent_ separate so we never persist data from an opted-out
   // app.
   bool user_consent_or_flag = user_consent_ || IsMetricsReportingForceEnabled();
-  if (IsConsentDetermined()) {
-    if (app_consent_ && user_consent_or_flag) {
-      CreateMetricsService(metrics_state_manager_.get(), this, pref_service_);
-      // Register for notifications so we can detect when the user or app are
-      // interacting with the embedder. We use these as signals to wake up the
-      // MetricsService.
-      RegisterForNotifications();
-      metrics_state_manager_->ForceClientIdCreation();
-      OnMetricsStart();
-      is_in_sample_ = IsInSample();
-      if (IsReportingEnabled()) {
-        // We assume the embedder has no shutdown sequence, so there's no need
-        // for a matching Stop() call.
-        metrics_service_->Start();
-      }
+  if (app_consent_ && user_consent_or_flag) {
+    did_start_metrics_ = true;
+    // Make GetSampleBucketValue() work properly.
+    metrics_state_manager_->ForceClientIdCreation();
+    is_client_id_forced_ = true;
+    RegisterMetricsProvidersAndInitState();
+    // Register for notifications so we can detect when the user or app are
+    // interacting with the embedder. We use these as signals to wake up the
+    // MetricsService.
+    RegisterForNotifications();
+    OnMetricsStart();
 
-      CreateUkmService();
-    } else {
-      OnMetricsNotStarted();
-      pref_service_->ClearPref(prefs::kMetricsClientID);
+    if (IsReportingEnabled()) {
+      // We assume the embedder has no shutdown sequence, so there's no need
+      // for a matching Stop() call.
+      metrics_service_->Start();
     }
+
+    CreateUkmService();
+  } else {
+    // Even though reporting is not enabled, CreateFileMetricsProvider() is
+    // called. This ensures on disk state is removed.
+    metrics_service_->RegisterMetricsProvider(CreateFileMetricsProvider(
+        pref_service_, /* metrics_reporting_enabled */ false));
+    OnMetricsNotStarted();
+    pref_service_->ClearPref(prefs::kMetricsClientID);
   }
 }
 
-void AndroidMetricsServiceClient::CreateMetricsService(
-    MetricsStateManager* state_manager,
-    AndroidMetricsServiceClient* client,
-    PrefService* prefs) {
-  metrics_service_ =
-      std::make_unique<MetricsService>(state_manager, client, prefs);
+void AndroidMetricsServiceClient::RegisterMetricsProvidersAndInitState() {
   metrics_service_->RegisterMetricsProvider(
       std::make_unique<metrics::SubprocessMetricsProvider>());
   metrics_service_->RegisterMetricsProvider(
@@ -270,11 +319,11 @@ void AndroidMetricsServiceClient::CreateMetricsService(
   metrics_service_->RegisterMetricsProvider(
       std::make_unique<CPUMetricsProvider>());
   metrics_service_->RegisterMetricsProvider(
+      std::make_unique<EntropyStateProvider>(pref_service_));
+  metrics_service_->RegisterMetricsProvider(
       std::make_unique<ScreenInfoMetricsProvider>());
-  if (client->IsPersistentHistogramsEnabled()) {
-    metrics_service_->RegisterMetricsProvider(CreateFileMetricsProvider(
-        pref_service_, metrics_state_manager_->IsMetricsReportingEnabled()));
-  }
+  metrics_service_->RegisterMetricsProvider(CreateFileMetricsProvider(
+      pref_service_, metrics_state_manager_->IsMetricsReportingEnabled()));
   metrics_service_->RegisterMetricsProvider(
       std::make_unique<CallStackProfileMetricsProvider>());
   metrics_service_->RegisterMetricsProvider(
@@ -284,9 +333,12 @@ void AndroidMetricsServiceClient::CreateMetricsService(
           base::DIR_ANDROID_APP_DATA));
   metrics_service_->RegisterMetricsProvider(
       std::make_unique<metrics::GPUMetricsProvider>());
+  metrics_service_->RegisterMetricsProvider(
+      std::make_unique<metrics::SamplingMetricsProvider>(
+          GetSampleRatePerMille()));
   RegisterAdditionalMetricsProviders(metrics_service_.get());
 
-  // The file metrics provider makes IO.
+  // The file metrics provider performs IO.
   base::ScopedAllowBlocking allow_io;
   metrics_service_->InitializeMetricsRecordingState();
 }
@@ -393,13 +445,17 @@ bool AndroidMetricsServiceClient::IsReportingEnabled() const {
   if (!app_consent_)
     return false;
   return IsMetricsReportingForceEnabled() ||
-         (EnabledStateProvider::IsReportingEnabled() && is_in_sample_);
+         (EnabledStateProvider::IsReportingEnabled() && IsInSample());
+}
+
+MetricsService* AndroidMetricsServiceClient::GetMetricsServiceIfStarted() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return did_start_metrics_ ? metrics_service_.get() : nullptr;
 }
 
 MetricsService* AndroidMetricsServiceClient::GetMetricsService() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  // This will be null if initialization hasn't finished, or if metrics
-  // collection is disabled.
+  // This will be null if initialization hasn't finished.
   return metrics_service_.get();
 }
 
@@ -428,7 +484,7 @@ SystemProfileProto::Channel AndroidMetricsServiceClient::GetChannel() {
 }
 
 std::string AndroidMetricsServiceClient::GetVersionString() {
-  return version_info::GetVersionNumber();
+  return metrics::GetVersionString();
 }
 
 void AndroidMetricsServiceClient::CollectFinalMetricsForLog(
@@ -442,8 +498,11 @@ void AndroidMetricsServiceClient::CollectFinalMetricsForLog(
   // Set up the callback task to call after we receive histograms from all
   // child processes. |timeout| specifies how long to wait before absolutely
   // calling us back on the task.
-  content::FetchHistogramsAsynchronously(base::ThreadTaskRunnerHandle::Get(),
-                                         std::move(done_callback), timeout);
+  content::FetchHistogramsAsynchronously(
+      base::ThreadTaskRunnerHandle::Get(),
+      CreateChainedClosure(std::move(done_callback),
+                           on_final_metrics_collected_listener_),
+      timeout);
 
   if (collect_final_metrics_for_log_closure_)
     std::move(collect_final_metrics_for_log_closure_).Run();
@@ -519,11 +578,17 @@ void AndroidMetricsServiceClient::SetCollectFinalMetricsForLogClosureForTesting(
   collect_final_metrics_for_log_closure_ = std::move(closure);
 }
 
-int AndroidMetricsServiceClient::GetSampleBucketValue() {
+void AndroidMetricsServiceClient::SetOnFinalMetricsCollectedListenerForTesting(
+    base::RepeatingClosure listener) {
+  on_final_metrics_collected_listener_ = std::move(listener);
+}
+
+int AndroidMetricsServiceClient::GetSampleBucketValue() const {
+  DCHECK(is_client_id_forced_);
   return UintToPerMille(base::PersistentHash(metrics_service_->GetClientId()));
 }
 
-bool AndroidMetricsServiceClient::IsInSample() {
+bool AndroidMetricsServiceClient::IsInSample() const {
   // Called in MaybeStartMetrics(), after |metrics_service_| is created.
   // NOTE IsInSample and IsInPackageNameSample deliberately use the same hash to
   // guarantee we never exceed 10% of total, opted-in clients for PackageNames.
@@ -549,10 +614,6 @@ bool AndroidMetricsServiceClient::IsInPackageNameSample() {
 
 void AndroidMetricsServiceClient::RegisterAdditionalMetricsProviders(
     MetricsService* service) {}
-
-bool AndroidMetricsServiceClient::IsPersistentHistogramsEnabled() {
-  return false;
-}
 
 std::string AndroidMetricsServiceClient::GetAppPackageName() {
   if (IsInPackageNameSample() && CanRecordPackageNameForAppType())

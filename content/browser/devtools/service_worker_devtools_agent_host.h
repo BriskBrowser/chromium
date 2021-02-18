@@ -50,6 +50,11 @@ class ServiceWorkerDevToolsAgentHost : public DevToolsAgentHostImpl {
   bool Activate() override;
   void Reload() override;
   bool Close() override;
+  NetworkLoaderFactoryParamsAndInfo CreateNetworkFactoryParamsForDevTools()
+      override;
+  RenderProcessHost* GetProcessHost() override;
+  base::Optional<network::CrossOriginEmbedderPolicy>
+  cross_origin_embedder_policy(const std::string& id) override;
 
   void WorkerRestarted(int worker_process_id, int worker_route_id);
   void WorkerReadyForInspection(

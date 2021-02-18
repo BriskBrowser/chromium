@@ -11,6 +11,7 @@
 #include "base/compiler_specific.h"
 #include "base/optional.h"
 #include "chrome/browser/ui/views/tabs/tab_strip_controller.h"
+#include "chrome/browser/ui/views/tabs/tab_strip_types.h"
 #include "components/tab_groups/tab_group_id.h"
 #include "components/tab_groups/tab_group_visual_data.h"
 #include "ui/base/models/list_selection_model.h"
@@ -50,8 +51,9 @@ class FakeBaseTabStripController : public TabStripController {
   void CloseTab(int index) override;
   void MoveTab(int from_index, int to_index) override;
   void MoveGroup(const tab_groups::TabGroupId&, int to_index) override;
-  bool ToggleTabGroupCollapsedState(const tab_groups::TabGroupId group,
-                                    bool record_user_action) override;
+  bool ToggleTabGroupCollapsedState(
+      const tab_groups::TabGroupId group,
+      ToggleTabGroupCollapsedStateOrigin origin) override;
   void ShowContextMenuForTab(Tab* tab,
                              const gfx::Point& p,
                              ui::MenuSourceType source_type) override;
@@ -73,7 +75,11 @@ class FakeBaseTabStripController : public TabStripController {
   void SetVisualDataForGroup(
       const tab_groups::TabGroupId& group,
       const tab_groups::TabGroupVisualData& visual_data) override;
-  std::vector<int> ListTabsInGroup(
+  base::Optional<int> GetFirstTabInGroup(
+      const tab_groups::TabGroupId& group) const override;
+  base::Optional<int> GetLastTabInGroup(
+      const tab_groups::TabGroupId& group) const override;
+  gfx::Range ListTabsInGroup(
       const tab_groups::TabGroupId& group) const override;
   void AddTabToGroup(int model_index,
                      const tab_groups::TabGroupId& group) override;

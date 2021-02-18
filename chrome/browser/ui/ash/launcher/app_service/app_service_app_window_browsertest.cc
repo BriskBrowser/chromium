@@ -5,25 +5,31 @@
 #include <memory>
 #include <vector>
 
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/shelf_model.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/shell.h"
 #include "base/run_loop.h"
+#include "base/scoped_observation.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/apps/platform_apps/app_browsertest_util.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/arc/session/arc_session_manager.h"
+#include "chrome/browser/chromeos/borealis/borealis_service.h"
+#include "chrome/browser/chromeos/borealis/borealis_window_manager.h"
+#include "chrome/browser/chromeos/borealis/borealis_window_manager_mock.h"
+#include "chrome/browser/chromeos/guest_os/guest_os_registry_service.h"
+#include "chrome/browser/chromeos/guest_os/guest_os_registry_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller_test_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
-#include "chrome/browser/web_applications/test/web_app_test.h"
-#include "chrome/common/chrome_features.h"
-#include "chrome/common/web_application_info.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/arc_util.h"
 #include "components/arc/session/arc_bridge_service.h"
@@ -34,6 +40,7 @@
 #include "content/public/test/browser_test.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "extensions/browser/app_window/app_window.h"
+#include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/display/display.h"
@@ -112,18 +119,32 @@ std::string CreateIntentUriWithShelfGroupAndLogicalWindow(
       logical_window_id.c_str(), shelf_group_id.c_str());
 }
 
+// Creates an exo app window and sets its shell application id. The returned
+// Widget is owned by its NativeWidget (the underlying aura::Window).
+views::Widget* CreateExoWindow(const std::string& window_app_id) {
+  views::Widget::InitParams params(views::Widget::InitParams::TYPE_WINDOW);
+  params.bounds = gfx::Rect(5, 5, 20, 20);
+  params.context = ash::Shell::GetPrimaryRootWindow();
+  views::Widget* widget = new views::Widget();
+  widget->Init(std::move(params));
+  // Set app id before showing the window to be recognized in
+  // AppServiceAppWindowLauncherController.
+  exo::SetShellApplicationId(widget->GetNativeWindow(), window_app_id);
+  widget->Show();
+  widget->Activate();
+  return widget;
+}
+
 }  // namespace
 
 class AppServiceAppWindowBrowserTest
     : public extensions::PlatformAppBrowserTest {
  protected:
-  AppServiceAppWindowBrowserTest() : controller_(nullptr) {}
+  AppServiceAppWindowBrowserTest() = default;
 
-  ~AppServiceAppWindowBrowserTest() override {}
+  ~AppServiceAppWindowBrowserTest() override = default;
 
-  void SetUp() override {
-    extensions::PlatformAppBrowserTest::SetUp();
-  }
+  void SetUp() override { extensions::PlatformAppBrowserTest::SetUp(); }
 
   void SetUpOnMainThread() override {
     controller_ = ChromeLauncherController::instance();
@@ -289,19 +310,153 @@ IN_PROC_BROWSER_TEST_F(AppServiceAppWindowBrowserTest,
   EXPECT_EQ(0u, windows.size());
 }
 
-class AppServiceAppWindowWebAppBrowserTest
-    : public AppServiceAppWindowBrowserTest,
-      public ::testing::WithParamInterface<web_app::ProviderType> {
- protected:
-  AppServiceAppWindowWebAppBrowserTest() {
-    if (GetParam() == web_app::ProviderType::kWebApps) {
-      scoped_feature_list_.InitAndEnableFeature(
-          features::kDesktopPWAsWithoutExtensions);
-    } else {
-      scoped_feature_list_.InitAndDisableFeature(
-          features::kDesktopPWAsWithoutExtensions);
-    }
+class AppServiceAppWindowLacrosBrowserTest
+    : public AppServiceAppWindowBrowserTest {
+ public:
+  AppServiceAppWindowLacrosBrowserTest() {
+    feature_list_.InitAndEnableFeature(chromeos::features::kLacrosSupport);
   }
+  ~AppServiceAppWindowLacrosBrowserTest() override = default;
+
+ private:
+  base::test::ScopedFeatureList feature_list_;
+};
+
+IN_PROC_BROWSER_TEST_F(AppServiceAppWindowLacrosBrowserTest, LacrosWindow) {
+  // Create a fake Lacros window. The native window owns the widget.
+  views::Widget* widget = CreateExoWindow("org.chromium.lacros.12345");
+
+  using extension_misc::kLacrosAppId;
+  auto windows =
+      app_service_proxy_->InstanceRegistry().GetWindows(kLacrosAppId);
+  EXPECT_EQ(1u, windows.size());
+  EXPECT_EQ(apps::InstanceState::kStarted | apps::InstanceState::kRunning |
+                apps::InstanceState::kActive | apps::InstanceState::kVisible,
+            GetAppInstanceState(kLacrosAppId, *windows.begin()));
+
+  // Find the Lacros shelf item.
+  int lacros_index = shelf_model()->ItemIndexByAppID(kLacrosAppId);
+  ASSERT_NE(-1, lacros_index);
+  const ash::ShelfItem& item = shelf_model()->items()[lacros_index];
+
+  // Since it is already active, clicking it should minimize.
+  SelectItem(item.id);
+  EXPECT_EQ(apps::InstanceState::kStarted | apps::InstanceState::kRunning,
+            GetAppInstanceState(kLacrosAppId, *windows.begin()));
+
+  // Click the item again to activate the window.
+  SelectItem(item.id);
+  EXPECT_EQ(apps::InstanceState::kStarted | apps::InstanceState::kRunning |
+                apps::InstanceState::kActive | apps::InstanceState::kVisible,
+            GetAppInstanceState(kLacrosAppId, *windows.begin()));
+
+  widget->CloseNow();
+  windows = app_service_proxy_->InstanceRegistry().GetWindows(kLacrosAppId);
+  EXPECT_EQ(0u, windows.size());
+}
+
+class AppServiceAppWindowBorealisBrowserTest
+    : public AppServiceAppWindowBrowserTest {
+ public:
+  ~AppServiceAppWindowBorealisBrowserTest() override = default;
+
+  std::string MakeBorealisApp(const std::string& vm,
+                              const std::string& container,
+                              const std::string& name) {
+    vm_tools::apps::ApplicationList list;
+    list.set_vm_name(vm);
+    list.set_container_name(container);
+    list.set_vm_type(vm_tools::apps::ApplicationList_VmType_BOREALIS);
+    vm_tools::apps::App* app = list.add_apps();
+    app->set_desktop_file_id(name);
+    app->mutable_name()->add_values()->set_value(name);
+    app->set_no_display(false);
+    guest_os::GuestOsRegistryServiceFactory::GetForProfile(profile())
+        ->UpdateApplicationList(list);
+
+    // We need to propagate the newly created app to the various registries
+    // before it can be used.
+    app_service_proxy_->FlushMojoCallsForTesting();
+
+    return guest_os::GuestOsRegistryService::GenerateAppId(name, vm, container);
+  }
+};
+
+IN_PROC_BROWSER_TEST_F(AppServiceAppWindowBorealisBrowserTest,
+                       BorealisKnownApp) {
+  // Generate a fake app.
+  std::string app_id = MakeBorealisApp("vm", "container", "foo");
+
+  views::Widget* widget = CreateExoWindow("org.chromium.borealis.wmclass.foo");
+
+  EXPECT_EQ(1u,
+            app_service_proxy_->InstanceRegistry().GetWindows(app_id).size());
+  EXPECT_NE(-1, shelf_model()->ItemIndexByAppID(app_id));
+
+  widget->CloseNow();
+  EXPECT_TRUE(
+      app_service_proxy_->InstanceRegistry().GetWindows(app_id).empty());
+}
+
+IN_PROC_BROWSER_TEST_F(AppServiceAppWindowBorealisBrowserTest,
+                       BorealisUnknownApp) {
+  views::Widget* widget = CreateExoWindow("org.chromium.borealis.wmclass.bar");
+  std::string app_id = "borealis_anon:org.chromium.borealis.wmclass.bar";
+
+  EXPECT_EQ(1u,
+            app_service_proxy_->InstanceRegistry().GetWindows(app_id).size());
+  ASSERT_NE(-1, shelf_model()->ItemIndexByAppID(app_id));
+
+  // Initially, anonymous apps haven't been published, as that is an
+  // asynchronous operation. This means their shelf item has no title.
+  EXPECT_TRUE(shelf_model()
+                  ->items()[shelf_model()->ItemIndexByAppID(app_id)]
+                  .title.empty());
+
+  // Flushing calls here simulates the fraction-of-seconds delay between the
+  // window appearing and its app being published.
+  app_service_proxy_->FlushMojoCallsForTesting();
+
+  // Now that the app is published, it will have a name based on the app_id
+  EXPECT_EQ(
+      "wmclass.bar",
+      base::UTF16ToUTF8(shelf_model()
+                            ->items()[shelf_model()->ItemIndexByAppID(app_id)]
+                            .title));
+
+  widget->CloseNow();
+  EXPECT_TRUE(
+      app_service_proxy_->InstanceRegistry().GetWindows(app_id).empty());
+}
+
+IN_PROC_BROWSER_TEST_F(AppServiceAppWindowBorealisBrowserTest,
+                       BorealisSession) {
+  std::string app_id = MakeBorealisApp("vm", "container", "foo");
+
+  testing::StrictMock<borealis::MockLifetimeObserver> observer;
+  base::ScopedObservation<
+      borealis::BorealisWindowManager,
+      borealis::BorealisWindowManager::AppWindowLifetimeObserver>
+      observation(&observer);
+  observation.Observe(
+      &borealis::BorealisService::GetForProfile(profile())->WindowManager());
+
+  testing::InSequence sequence;
+  EXPECT_CALL(observer, OnSessionStarted());
+  EXPECT_CALL(observer, OnAppStarted(app_id));
+  EXPECT_CALL(observer, OnWindowStarted(app_id, testing::_));
+  views::Widget* widget = CreateExoWindow("org.chromium.borealis.wmclass.foo");
+
+  EXPECT_CALL(observer, OnWindowFinished(app_id, widget->GetNativeWindow()));
+  EXPECT_CALL(observer, OnAppFinished(app_id));
+  EXPECT_CALL(observer, OnSessionFinished());
+  widget->CloseNow();
+}
+
+class AppServiceAppWindowWebAppBrowserTest
+    : public AppServiceAppWindowBrowserTest {
+ protected:
+  AppServiceAppWindowWebAppBrowserTest() = default;
   ~AppServiceAppWindowWebAppBrowserTest() override = default;
 
   // AppServiceAppWindowBrowserTest:
@@ -316,7 +471,7 @@ class AppServiceAppWindowWebAppBrowserTest
   // the Network Service process has been setup properly.
   std::string CreateWebApp() const {
     auto web_app_info = std::make_unique<WebApplicationInfo>();
-    web_app_info->app_url = GetAppURL();
+    web_app_info->start_url = GetAppURL();
     web_app_info->scope = GetAppURL().GetWithoutFilename();
 
     std::string app_id =
@@ -339,12 +494,10 @@ class AppServiceAppWindowWebAppBrowserTest
  private:
   // For mocking a secure site.
   net::EmbeddedTestServer https_server_;
-
-  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 // Test that we have the correct instance for Web apps.
-IN_PROC_BROWSER_TEST_P(AppServiceAppWindowWebAppBrowserTest, WebAppsWindow) {
+IN_PROC_BROWSER_TEST_F(AppServiceAppWindowWebAppBrowserTest, WebAppsWindow) {
   std::string app_id = CreateWebApp();
 
   auto windows = app_service_proxy_->InstanceRegistry().GetWindows(app_id);
@@ -375,7 +528,7 @@ IN_PROC_BROWSER_TEST_P(AppServiceAppWindowWebAppBrowserTest, WebAppsWindow) {
 
 // Tests that web app with multiple open windows can be activated from the app
 // list.
-IN_PROC_BROWSER_TEST_P(AppServiceAppWindowWebAppBrowserTest,
+IN_PROC_BROWSER_TEST_F(AppServiceAppWindowWebAppBrowserTest,
                        LaunchFromAppList) {
   std::string app_id = CreateWebApp();
 
@@ -490,21 +643,6 @@ class AppServiceAppWindowArcAppBrowserTest
     arc_session_manager()->Shutdown();
   }
 
-  // Creates app window and set optional ARC application id.
-  views::Widget* CreateArcWindow(const std::string& window_app_id) {
-    views::Widget::InitParams params(views::Widget::InitParams::TYPE_WINDOW);
-    params.bounds = gfx::Rect(5, 5, 20, 20);
-    params.context = ash::Shell::GetPrimaryRootWindow();
-    views::Widget* widget = new views::Widget();
-    widget->Init(std::move(params));
-    // Set ARC id before showing the window to be recognized in
-    // ArcAppWindowLauncherController.
-    exo::SetShellApplicationId(widget->GetNativeWindow(), window_app_id);
-    widget->Show();
-    widget->Activate();
-    return widget;
-  }
-
   ArcAppListPrefs* app_prefs() { return ArcAppListPrefs::Get(profile()); }
 
   // Returns as AppHost interface in order to access to private implementation
@@ -531,7 +669,7 @@ IN_PROC_BROWSER_TEST_F(AppServiceAppWindowArcAppBrowserTest, ArcAppsWindow) {
   SendPackageAdded(kTestAppPackage, false);
 
   // Create the window for app1.
-  views::Widget* arc_window1 = CreateArcWindow("org.chromium.arc.1");
+  views::Widget* arc_window1 = CreateExoWindow("org.chromium.arc.1");
   const std::string app_id1 = GetTestApp1Id(kTestAppPackage);
 
   // Simulate task creation so the app is marked as running/open.
@@ -561,7 +699,7 @@ IN_PROC_BROWSER_TEST_F(AppServiceAppWindowArcAppBrowserTest, ArcAppsWindow) {
   info = app_prefs()->GetApp(app_id2);
   app_host()->OnTaskCreated(2, info->package_name, info->activity, info->name,
                             info->intent_uri);
-  views::Widget* arc_window2 = CreateArcWindow("org.chromium.arc.2");
+  views::Widget* arc_window2 = CreateExoWindow("org.chromium.arc.2");
   EXPECT_TRUE(controller_->GetItem(ash::ShelfID(app_id2)));
 
   // Check the window state in instance for app2
@@ -620,8 +758,8 @@ IN_PROC_BROWSER_TEST_F(AppServiceAppWindowArcAppBrowserTest, LogicalWindowId) {
   SendPackageAdded(kTestAppPackage, false);
 
   // Create the windows for the app.
-  views::Widget* arc_window1 = CreateArcWindow("org.chromium.arc.1");
-  views::Widget* arc_window2 = CreateArcWindow("org.chromium.arc.2");
+  views::Widget* arc_window1 = CreateExoWindow("org.chromium.arc.1");
+  views::Widget* arc_window2 = CreateExoWindow("org.chromium.arc.2");
 
   // Simulate task creation so the app is marked as running/open.
   const std::string app_id = GetTestApp1Id(kTestAppPackage);
@@ -679,9 +817,3 @@ IN_PROC_BROWSER_TEST_F(AppServiceAppWindowArcAppBrowserTest, LogicalWindowId) {
   windows = app_service_proxy_->InstanceRegistry().GetWindows(app_id);
   EXPECT_EQ(0u, windows.size());
 }
-
-INSTANTIATE_TEST_SUITE_P(All,
-                         AppServiceAppWindowWebAppBrowserTest,
-                         ::testing::Values(web_app::ProviderType::kBookmarkApps,
-                                           web_app::ProviderType::kWebApps),
-                         web_app::ProviderTypeParamToString);

@@ -52,8 +52,14 @@ class TabAddedRemovedObserver : public TabStripModelObserver {
   base::RunLoop loop_;
 };
 
+// Flaky on Mac: https://crbug.com/1143762:
+#if defined(OS_MAC)
+#define MAYBE_AutoCloseTabOnNonWebProtocolNavigation DISABLED_AutoCloseTabOnNonWebProtocolNavigation
+#else
+#define MAYBE_AutoCloseTabOnNonWebProtocolNavigation AutoCloseTabOnNonWebProtocolNavigation
+#endif
 IN_PROC_BROWSER_TEST_F(ExternalProtocolHandlerBrowserTest,
-                       AutoCloseTabOnNonWebProtocolNavigation) {
+                       MAYBE_AutoCloseTabOnNonWebProtocolNavigation) {
 #if defined(OS_WIN)
   // On Win 7 the protocol is registered to be handled by Chrome and thus never
   // reaches the ExternalProtocolHandler so we skip the test. For
@@ -72,8 +78,15 @@ IN_PROC_BROWSER_TEST_F(ExternalProtocolHandlerBrowserTest,
   EXPECT_EQ(browser()->tab_strip_model()->count(), 1);
 }
 
+// Flaky on Mac: https://crbug.com/1143762:
+#if defined(OS_MAC)
+#define MAYBE_ProtocolLaunchEmitsConsoleLog \
+  DISABLED_ProtocolLaunchEmitsConsoleLog
+#else
+#define MAYBE_ProtocolLaunchEmitsConsoleLog ProtocolLaunchEmitsConsoleLog
+#endif
 IN_PROC_BROWSER_TEST_F(ExternalProtocolHandlerBrowserTest,
-                       ProtocolLaunchEmitsConsoleLog) {
+                       MAYBE_ProtocolLaunchEmitsConsoleLog) {
 #if defined(OS_WIN)
   // On Win 7 the protocol is registered to be handled by Chrome and thus never
   // reaches the ExternalProtocolHandler so we skip the test. For
@@ -86,11 +99,15 @@ IN_PROC_BROWSER_TEST_F(ExternalProtocolHandlerBrowserTest,
       browser()->tab_strip_model()->GetActiveWebContents();
 
   content::WebContentsConsoleObserver observer(web_contents);
-  observer.SetPattern("Launched external handler for 'mailto:test@site.test'.");
+  // Wait for either "Launched external handler..." or "Failed to launch..."; the former will pass
+  // the test, while the latter will fail it more quickly than waiting for a timeout.
+  observer.SetPattern("*aunch*'mailto:test@site.test'*");
   ASSERT_TRUE(
       ExecJs(web_contents, "window.open('mailto:test@site.test', '_self');"));
   observer.Wait();
   ASSERT_EQ(1u, observer.messages().size());
+  EXPECT_EQ("Launched external handler for 'mailto:test@site.test'.",
+            observer.GetMessageAt(0u));
 }
 
 IN_PROC_BROWSER_TEST_F(ExternalProtocolHandlerBrowserTest,

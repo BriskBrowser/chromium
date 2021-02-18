@@ -15,8 +15,6 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/native_widget_types.h"
-#include "ui/gfx/x/x11.h"
-#include "ui/gfx/x/x11_types.h"
 #include "ui/gfx/x/xproto.h"
 
 class SkCanvas;
@@ -67,7 +65,7 @@ class COMPONENT_EXPORT(UI_BASE_X) X11SoftwareBitmapPresenter {
 
   // If nonzero, indicates that the widget should be drawn over its
   // parent-relative background.
-  int composite_ = 0;
+  uint8_t composite_ = 0;
 
   std::unique_ptr<ui::XShmImagePool> shm_pool_;
   bool needs_swap_ = false;

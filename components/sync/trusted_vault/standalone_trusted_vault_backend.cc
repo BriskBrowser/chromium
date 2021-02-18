@@ -12,8 +12,13 @@
 #include "base/files/important_file_writer.h"
 #include "base/logging.h"
 #include "base/sequence_checker.h"
+#include "base/time/clock.h"
+#include "base/time/default_clock.h"
+#include "base/time/time.h"
 #include "components/os_crypt/os_crypt.h"
+#include "components/sync/base/time.h"
 #include "components/sync/driver/sync_driver_switches.h"
+#include "components/sync/trusted_vault/proto_string_bytes_conversion.h"
 #include "components/sync/trusted_vault/securebox.h"
 
 namespace syncer {
@@ -46,12 +51,26 @@ void WriteToDisk(const sync_pb::LocalTrustedVault& data,
   }
 }
 
+base::Optional<TrustedVaultKeyAndVersion> GetLastTrustedVaultKeyAndVersion(
+    const sync_pb::LocalTrustedVaultPerUser& per_user_vault) {
+  if (per_user_vault.vault_key_size() != 0) {
+    return TrustedVaultKeyAndVersion(
+        ProtoStringToBytes(per_user_vault.vault_key().rbegin()->key_material()),
+        per_user_vault.last_vault_key_version());
+  }
+  return base::nullopt;
+}
+
 }  // namespace
 
 StandaloneTrustedVaultBackend::StandaloneTrustedVaultBackend(
     const base::FilePath& file_path,
+    std::unique_ptr<Delegate> delegate,
     std::unique_ptr<TrustedVaultConnection> connection)
-    : file_path_(file_path), connection_(std::move(connection)) {}
+    : file_path_(file_path),
+      delegate_(std::move(delegate)),
+      connection_(std::move(connection)),
+      clock_(base::DefaultClock::GetInstance()) {}
 
 StandaloneTrustedVaultBackend::~StandaloneTrustedVaultBackend() = default;
 
@@ -76,12 +95,17 @@ void StandaloneTrustedVaultBackend::FetchKeys(
   // |primary_account_| is set before FetchKeys() call and this may cause
   // redundant sync error in the UI (for key retrieval), especially during the
   // browser startup. Try to find a way to avoid this issue.
-  if (!base::FeatureList::IsEnabled(switches::kFollowTrustedVaultKeyRotation) ||
-      !primary_account_.has_value() ||
-      primary_account_->gaia != account_info.gaia || !per_user_vault ||
-      !per_user_vault->keys_are_stale() ||
-      !per_user_vault->local_device_registration_info().device_registered()) {
-    // Keys download attempt is not needed or not possible.
+  if (!connection_ || !primary_account_ || !per_user_vault ||
+      !per_user_vault->local_device_registration_info().device_registered() ||
+      AreConnectionRequestsThrottled(account_info.gaia)) {
+    // Keys download attempt is not possible.
+    FulfillOngoingFetchKeys();
+    return;
+  }
+  if (per_user_vault->vault_key_size() != 0 &&
+      !per_user_vault->keys_are_stale()) {
+    // There are locally available keys, which weren't marked as stale. Keys
+    // download attempt is not needed.
     FulfillOngoingFetchKeys();
     return;
   }
@@ -93,12 +117,12 @@ void StandaloneTrustedVaultBackend::FetchKeys(
   // |account_info|.
   // 3. Concurrent FetchKeys() calls aren't supported, so there is no keys
   // download for |account_info|.
-  DCHECK(!weak_factory_for_connection_.HasWeakPtrs());
+  DCHECK(!ongoing_connection_request_);
 
   std::unique_ptr<SecureBoxKeyPair> key_pair =
-      SecureBoxKeyPair::CreateByPrivateKeyImport(base::as_bytes(
-          base::make_span(per_user_vault->local_device_registration_info()
-                              .private_key_material())));
+      SecureBoxKeyPair::CreateByPrivateKeyImport(
+          ProtoStringToBytes(per_user_vault->local_device_registration_info()
+                                 .private_key_material()));
   if (!key_pair) {
     // Corrupted state: device is registered, but |key_pair| can't be imported.
     // TODO(crbug.com/1094326): restore from this state (throw away the key and
@@ -106,25 +130,15 @@ void StandaloneTrustedVaultBackend::FetchKeys(
     FulfillOngoingFetchKeys();
     return;
   }
-  if (per_user_vault->vault_key_size() == 0) {
-    // Corrupted state: device is registered, but there is no vault keys.
-    // TODO(crbug.com/1094326): restore from this state (just mark device as not
-    // registered?).
-    FulfillOngoingFetchKeys();
-    return;
-  }
 
-  // TODO(crbug.com/1094326): add throttling mechanism.
-  std::string last_key = per_user_vault->vault_key()
-                             .at(per_user_vault->vault_key_size() - 1)
-                             .key_material();
-  std::vector<uint8_t> last_key_bytes(last_key.begin(), last_key.end());
-  connection_->DownloadKeys(
-      *primary_account_, last_key_bytes,
-      per_user_vault->last_vault_key_version(), std::move(key_pair),
+  // |this| outlives |connection_| and |ongoing_connection_request_|, so it's
+  // safe to use base::Unretained() here.
+  ongoing_connection_request_ = connection_->DownloadNewKeys(
+      *primary_account_, GetLastTrustedVaultKeyAndVersion(*per_user_vault),
+      std::move(key_pair),
       base::BindOnce(&StandaloneTrustedVaultBackend::OnKeysDownloaded,
-                     weak_factory_for_connection_.GetWeakPtr(),
-                     account_info.gaia));
+                     base::Unretained(this), account_info.gaia));
+  DCHECK(ongoing_connection_request_);
 }
 
 void StandaloneTrustedVaultBackend::StoreKeys(
@@ -143,7 +157,8 @@ void StandaloneTrustedVaultBackend::StoreKeys(
   per_user_vault->set_keys_are_stale(false);
   per_user_vault->clear_vault_key();
   for (const std::vector<uint8_t>& key : keys) {
-    per_user_vault->add_vault_key()->set_key_material(key.data(), key.size());
+    AssignBytesToProtoString(
+        key, per_user_vault->add_vault_key()->mutable_key_material());
   }
 
   WriteToDisk(data_, file_path_);
@@ -163,9 +178,17 @@ void StandaloneTrustedVaultBackend::SetPrimaryAccount(
   }
   primary_account_ = primary_account;
   AbandonConnectionRequest();
-  if (primary_account_.has_value()) {
-    MaybeRegisterDevice(primary_account_->gaia);
+  if (!primary_account_.has_value()) {
+    return;
   }
+
+  sync_pb::LocalTrustedVaultPerUser* per_user_vault =
+      FindUserVault(primary_account->gaia);
+  if (!per_user_vault) {
+    per_user_vault = data_.add_user();
+    per_user_vault->set_gaia_id(primary_account->gaia);
+  }
+  MaybeRegisterDevice(primary_account_->gaia);
 }
 
 bool StandaloneTrustedVaultBackend::MarkKeysAsStale(
@@ -180,6 +203,28 @@ bool StandaloneTrustedVaultBackend::MarkKeysAsStale(
   per_user_vault->set_keys_are_stale(true);
   WriteToDisk(data_, file_path_);
   return true;
+}
+
+void StandaloneTrustedVaultBackend::GetIsRecoverabilityDegraded(
+    const CoreAccountInfo& account_info,
+    base::OnceCallback<void(bool)> cb) {
+  // TODO(crbug.com/1081649): Implement logic.
+  NOTIMPLEMENTED();
+  std::move(cb).Run(is_recoverability_degraded_for_testing_);
+}
+
+void StandaloneTrustedVaultBackend::AddTrustedRecoveryMethod(
+    const std::string& gaia_id,
+    const std::vector<uint8_t>& public_key,
+    base::OnceClosure cb) {
+  if (primary_account_->gaia == gaia_id) {
+    // TODO(crbug.com/1081649): Implement logic.
+    NOTIMPLEMENTED();
+    is_recoverability_degraded_for_testing_ = false;
+    delegate_->NotifyRecoverabilityDegradedChanged();
+  }
+
+  std::move(cb).Run();
 }
 
 base::Optional<CoreAccountInfo>
@@ -197,32 +242,60 @@ StandaloneTrustedVaultBackend::GetDeviceRegistrationInfoForTesting(
   return per_user_vault->local_device_registration_info();
 }
 
+void StandaloneTrustedVaultBackend::SetRecoverabilityDegradedForTesting() {
+  is_recoverability_degraded_for_testing_ = true;
+  delegate_->NotifyRecoverabilityDegradedChanged();
+}
+
+void StandaloneTrustedVaultBackend::SetClockForTesting(base::Clock* clock) {
+  clock_ = clock;
+}
+
 void StandaloneTrustedVaultBackend::MaybeRegisterDevice(
     const std::string& gaia_id) {
-  if (!base::FeatureList::IsEnabled(switches::kFollowTrustedVaultKeyRotation)) {
+  // TODO(crbug.com/1102340): in case of transient failure this function is
+  // likely to be not called until the browser restart; implement retry logic.
+  if (!connection_) {
+    // Feature disabled.
     return;
   }
   if (!primary_account_.has_value() || primary_account_->gaia != gaia_id) {
     // Device registration is supported only for |primary_account_|.
     return;
   }
+
+  // |per_user_vault| must be created before calling this function.
   sync_pb::LocalTrustedVaultPerUser* per_user_vault = FindUserVault(gaia_id);
-  if (!per_user_vault || per_user_vault->vault_key_size() == 0 ||
-      per_user_vault->keys_are_stale()) {
-    // Fresh vault key is required to register the device.
+  DCHECK(per_user_vault);
+
+  base::Optional<TrustedVaultKeyAndVersion> last_trusted_vault_key_and_version =
+      GetLastTrustedVaultKeyAndVersion(*per_user_vault);
+  if (!last_trusted_vault_key_and_version.has_value() &&
+      !base::FeatureList::IsEnabled(
+          switches::kAllowSilentTrustedVaultDeviceRegistration)) {
+    // Either vault keys should be available or registration without them should
+    // be allowed through feature flag.
+    return;
+  }
+  if (per_user_vault->keys_are_stale()) {
+    // Client already knows that existing vault keys (or their absence) isn't
+    // sufficient for device registration. Fresh keys should be obtained first.
     return;
   }
   if (per_user_vault->local_device_registration_info().device_registered()) {
     // Device is already registered.
     return;
   }
-  // TODO(crbug.com/1102340): add throttling mechanism.
+  if (AreConnectionRequestsThrottled(gaia_id)) {
+    return;
+  }
 
   std::unique_ptr<SecureBoxKeyPair> key_pair;
   if (per_user_vault->has_local_device_registration_info()) {
-    key_pair = SecureBoxKeyPair::CreateByPrivateKeyImport(base::as_bytes(
-        base::make_span(per_user_vault->local_device_registration_info()
-                            .private_key_material())));
+    key_pair = SecureBoxKeyPair::CreateByPrivateKeyImport(
+        /*private_key_bytes=*/ProtoStringToBytes(
+            per_user_vault->local_device_registration_info()
+                .private_key_material()));
     if (!key_pair) {
       // Device key is corrupted.
       // TODO(crbug.com/1102340): consider generation of new key in this case.
@@ -235,27 +308,24 @@ void StandaloneTrustedVaultBackend::MaybeRegisterDevice(
     // or registration callback is cancelled). To avoid duplicated registrations
     // device key is stored before sending the registration request, so the same
     // key will be used for future registration attempts.
-    std::vector<uint8_t> serialized_private_key =
-        key_pair->private_key().ExportToBytes();
-    per_user_vault->mutable_local_device_registration_info()
-        ->set_private_key_material(serialized_private_key.data(),
-                                   serialized_private_key.size());
+    AssignBytesToProtoString(
+        key_pair->private_key().ExportToBytes(),
+        per_user_vault->mutable_local_device_registration_info()
+            ->mutable_private_key_material());
     WriteToDisk(data_, file_path_);
   }
-
-  std::string last_key = per_user_vault->vault_key()
-                             .at(per_user_vault->vault_key_size() - 1)
-                             .key_material();
-  std::vector<uint8_t> last_key_bytes(last_key.begin(), last_key.end());
 
   // Cancel existing callbacks passed to |connection_| to ensure there is only
   // one ongoing request.
   AbandonConnectionRequest();
-  connection_->RegisterDevice(
-      *primary_account_, last_key_bytes,
-      per_user_vault->last_vault_key_version(), key_pair->public_key(),
+  // |this| outlives |connection_| and |ongoing_connection_request_|, so it's
+  // safe to use base::Unretained() here.
+  ongoing_connection_request_ = connection_->RegisterAuthenticationFactor(
+      *primary_account_, last_trusted_vault_key_and_version,
+      key_pair->public_key(),
       base::BindOnce(&StandaloneTrustedVaultBackend::OnDeviceRegistered,
-                     weak_factory_for_connection_.GetWeakPtr(), gaia_id));
+                     base::Unretained(this), gaia_id));
+  DCHECK(ongoing_connection_request_);
 }
 
 void StandaloneTrustedVaultBackend::OnDeviceRegistered(
@@ -264,6 +334,12 @@ void StandaloneTrustedVaultBackend::OnDeviceRegistered(
   // If |primary_account_| was changed meanwhile, this callback must be
   // cancelled.
   DCHECK(primary_account_ && primary_account_->gaia == gaia_id);
+
+  // This method should be called only as a result of
+  // |ongoing_connection_request_| completion/failure, verify this condition
+  // and destroy |ongoing_connection_request_| as it's not needed anymore.
+  DCHECK(ongoing_connection_request_);
+  ongoing_connection_request_ = nullptr;
 
   sync_pb::LocalTrustedVaultPerUser* per_user_vault = FindUserVault(gaia_id);
   DCHECK(per_user_vault);
@@ -278,9 +354,7 @@ void StandaloneTrustedVaultBackend::OnDeviceRegistered(
       per_user_vault->set_keys_are_stale(true);
       return;
     case TrustedVaultRequestStatus::kOtherError:
-      // TODO(crbug.com/1102340): prevent future queries until browser restart?
-      // TODO(crbug.com/1102340): introduce throttling mechanism across browser
-      // restarts?
+      RecordFailedConnectionRequestForThrottling(gaia_id);
       return;
   }
 }
@@ -294,11 +368,18 @@ void StandaloneTrustedVaultBackend::OnKeysDownloaded(
   DCHECK(!ongoing_fetch_keys_callback_.is_null());
   DCHECK(ongoing_fetch_keys_gaia_id_ == gaia_id);
 
+  // This method should be called only as a result of
+  // |ongoing_connection_request_| completion/failure, verify this condition
+  // and destroy |ongoing_connection_request_| as it's not needed anymore.
+  DCHECK(ongoing_connection_request_);
+  ongoing_connection_request_ = nullptr;
+
   sync_pb::LocalTrustedVaultPerUser* per_user_vault = FindUserVault(gaia_id);
   DCHECK(per_user_vault);
 
   switch (status) {
     case TrustedVaultRequestStatus::kSuccess:
+      // TODO(crbug.com/1102340): consider keeping old keys as well.
       StoreKeys(gaia_id, vault_keys, last_vault_key_version);
       break;
     case TrustedVaultRequestStatus::kLocalDataObsolete: {
@@ -315,9 +396,7 @@ void StandaloneTrustedVaultBackend::OnKeysDownloaded(
       break;
     }
     case TrustedVaultRequestStatus::kOtherError:
-      // TODO(crbug.com/1102340): prevent future queries until browser restart?
-      // TODO(crbug.com/1102340): introduce throttling mechanism across browser
-      // restarts?
+      RecordFailedConnectionRequestForThrottling(gaia_id);
       break;
   }
   // Regardless of the |status| ongoing fetch keys request should be fulfilled.
@@ -325,7 +404,7 @@ void StandaloneTrustedVaultBackend::OnKeysDownloaded(
 }
 
 void StandaloneTrustedVaultBackend::AbandonConnectionRequest() {
-  weak_factory_for_connection_.InvalidateWeakPtrs();
+  ongoing_connection_request_ = nullptr;
   FulfillOngoingFetchKeys();
 }
 
@@ -342,14 +421,47 @@ void StandaloneTrustedVaultBackend::FulfillOngoingFetchKeys() {
   if (per_user_vault) {
     for (const sync_pb::LocalTrustedVaultKey& key :
          per_user_vault->vault_key()) {
-      const std::string& key_material = key.key_material();
-      vault_keys.emplace_back(key_material.begin(), key_material.end());
+      vault_keys.emplace_back(ProtoStringToBytes(key.key_material()));
     }
   }
 
   std::move(ongoing_fetch_keys_callback_).Run(vault_keys);
   ongoing_fetch_keys_callback_.Reset();
   ongoing_fetch_keys_gaia_id_.reset();
+}
+
+bool StandaloneTrustedVaultBackend::AreConnectionRequestsThrottled(
+    const std::string& gaia_id) {
+  DCHECK(clock_);
+
+  sync_pb::LocalTrustedVaultPerUser* per_user_vault = FindUserVault(gaia_id);
+  if (!per_user_vault) {
+    return false;
+  }
+
+  const base::Time current_time = clock_->Now();
+  base::Time last_failed_request_time = ProtoTimeToTime(
+      per_user_vault->last_failed_request_millis_since_unix_epoch());
+
+  // Fix |last_failed_request_time| if it's set to the future.
+  if (last_failed_request_time > current_time) {
+    // Immediately unthrottle, but don't write new state to the file.
+    last_failed_request_time = base::Time();
+  }
+
+  return last_failed_request_time +
+             switches::kTrustedVaultServiceThrottlingDuration.Get() >
+         current_time;
+}
+
+void StandaloneTrustedVaultBackend::RecordFailedConnectionRequestForThrottling(
+    const std::string& gaia_id) {
+  DCHECK(clock_);
+  DCHECK(FindUserVault(gaia_id));
+
+  FindUserVault(gaia_id)->set_last_failed_request_millis_since_unix_epoch(
+      TimeToProtoTime(clock_->Now()));
+  WriteToDisk(data_, file_path_);
 }
 
 sync_pb::LocalTrustedVaultPerUser* StandaloneTrustedVaultBackend::FindUserVault(

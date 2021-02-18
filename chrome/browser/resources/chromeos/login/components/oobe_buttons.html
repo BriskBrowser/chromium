@@ -9,6 +9,11 @@
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-iconset-svg/iron-iconset-svg.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-styles/color.html">
 
+<link rel="import" href="/components/common_styles.html">
+<link rel="import" href="/components/hd_iron_icon.html">
+<link rel="import" href="/components/oobe_i18n_behavior.html">
+<link rel="import" href="/components/oobe_custom_vars_css.html">
+
 <iron-iconset-svg name="oobe-buttons-20" size="20">
   <svg>
     <defs>
@@ -41,7 +46,8 @@
     <oobe-icon-button inverse text-key="oobeOKButtonText">
     </oobe-icon-button>
 
-  Button text can be also changed by specifying element for "text" slot.
+  Button text can be also changed by specifying element for "text" slot, but
+  will have to define label-for-aria in such case.
 
   Attributes:
     'disabled' - button is disabled when the attribute is set.
@@ -51,12 +57,24 @@
     'border' - adds border to the button.
     'label-for-aria' - accessibility label, override usual behavior
                        (string specified by text-key is used as aria-label).
+                       Elements that use slot="text" must provide label-for-aria
+                       value.
 -->
 <dom-module id="oobe-text-button">
   <template>
-    <style include="cr-shared-style oobe-common"></style>
-    <link rel="stylesheet" href="oobe_text_buttons.css">
-    <cr-button id="textButton" on-tap="onClick_" disabled="[[disabled]]"
+    <style include="cr-shared-style oobe-common">
+      cr-button {
+        border-color: var(--oobe-button-border-color);
+        border-radius: var(--oobe-button-radius);
+        margin: 0 4px;
+      }
+      :host ::slotted(*),
+      .fallback {
+        font-family: var(--oobe-button-font-family);
+        font-size: var(--oobe-button-font-size);
+      }
+    </style>
+    <cr-button id="textButton" on-click="onClick_" disabled="[[disabled]]"
         inverse$="[[inverse]]" aria-label$="[[labelForAriaText_]]"
         border$="[[border]]">
       <div id="container"
@@ -84,7 +102,8 @@
 
     or
 
-    <oobe-back-button on-click="handleOnClick_">
+    <oobe-back-button on-click="handleOnClick_"
+        label-for-aria="[[i18nDynamic(locale, 'continueButton')]]">
       <div slot="text">[[i18nDynamic(locale, 'continueButton')]]</div>
     </oobe-back-button>
 
@@ -92,12 +111,34 @@
     'disabled' - button is disabled when the attribute is set.
     (See crbug.com/900640)
     'text-key' - ID of localized string to be used as button text.
+    'label-for-aria' - accessibility label, override usual behavior
+                       (string specified by text-key is used as aria-label).
+                       Elements that use slot="text" must provide label-for-aria
+                       value.
 -->
 <dom-module id="oobe-back-button">
   <template>
-    <style include="cr-icons cr-shared-style oobe-common"></style>
-    <link rel="stylesheet" href="oobe_text_buttons.css">
-    <link rel="stylesheet" href="oobe_back_button.css">
+    <style include="cr-icons cr-shared-style oobe-common">
+      cr-button {
+        border-color: var(--oobe-button-border-color);
+        border-radius: var(--oobe-button-radius);
+        margin: 0 4px;
+        padding-inline-end: var(--oobe-back-button-padding-inline-end);
+        padding-inline-start: var(--oobe-back-button-padding-inline-start);
+      }
+      :host-context([dir=ltr]) hd-iron-icon {
+        padding-inline-start: var(--oobe-icon-button-image-margin);
+        transform: rotate(180deg);
+      }
+      :host-context([dir=rtl]) hd-iron-icon {
+        padding-inline-end: var(--oobe-icon-button-image-margin);
+      }
+      :host ::slotted(*),
+      .fallback {
+        font-family: var(--oobe-button-font-family);
+        font-size: var(--oobe-button-font-size);
+      }
+    </style>
     <cr-button id="button" on-click="onClick_" disabled="[[disabled]]"
         aria-label$="[[labelForAria_]]">
       <div class="flex horizontal layout start center">
@@ -115,10 +156,28 @@
 
 <dom-module id="oobe-next-button">
   <template>
-    <style include="cr-icons cr-shared-style oobe-common"></style>
-    <link rel="stylesheet" href="oobe_text_buttons.css">
-    <link rel="stylesheet" href="oobe_next_button.css">
-    <cr-button id="button" on-tap="onClick_" disabled="[[disabled]]"
+    <style include="cr-icons cr-shared-style oobe-common">
+      cr-button {
+        border-color: var(--oobe-button-border-color);
+        border-radius: var(--oobe-button-radius);
+        margin: 0 4px;
+        padding-inline-end: var(--oobe-next-button-padding-inline-end);
+        padding-inline-start: var(--oobe-next-button-padding-inline-start);
+      }
+      :host-context([dir=rtl]) hd-iron-icon {
+        padding-inline-end: var(--oobe-icon-button-image-margin);
+        transform: rotate(180deg);
+      }
+      :host-context([dir=ltr]) hd-iron-icon {
+        padding-inline-start: var(--oobe-icon-button-image-margin);
+      }
+      :host ::slotted(*),
+      .fallback {
+        font-family: var(--oobe-button-font-family);
+        font-size: var(--oobe-button-font-size);
+      }
+    </style>
+    <cr-button id="button" on-click="onClick_" disabled="[[disabled]]"
         aria-label$="[[labelForAria_]]" class="action-button">
       <div class="flex horizontal layout start center">
         <slot name="text">
@@ -142,7 +201,8 @@
 
     or
 
-    <oobe-welcome-secondary-button icon="close">
+    <oobe-welcome-secondary-button icon="close"
+        label-for-aria="[[i18nDynamic(locale, 'offlineLoginCloseBtn')]]">
       <div slot="text">[[i18nDynamic(locale, 'offlineLoginCloseBtn')]]</div>
     </oobe-welcome-secondary-button>
 
@@ -152,13 +212,32 @@
       'icon1x' - a name of icon from material design set to show on button.
       'icon2x' - a name of icon from material design set to show on button.
     'label-for-aria' - accessibility label, override usual behavior
-                       (string specified by text-key  is used as aria-label).
+                       (string specified by text-key is used as aria-label).
+                       Elements that use slot="text" must provide label-for-aria
+                       value.
 -->
 <dom-module id="oobe-welcome-secondary-button">
   <template>
-    <style include="cr-icons cr-shared-style oobe-common"></style>
-    <link rel="stylesheet" href="oobe_text_buttons.css">
-    <link rel="stylesheet" href="oobe_welcome_secondary_button.css">
+    <style include="cr-icons cr-shared-style oobe-common">
+      cr-button {
+        border-color: var(--oobe-button-border-color);
+        border-radius: var(--oobe-button-radius);
+        margin: 0 4px;
+      }
+      ::slotted(*) {
+        text-transform: none;
+      }
+      hd-iron-icon {
+        --iron-icon-height: 20px;
+        --iron-icon-width: 20px;
+        margin-inline-end: 4px;
+      }
+      :host ::slotted(*),
+      .fallback {
+        font-family: var(--oobe-button-font-family);
+        font-size: var(--oobe-button-font-size);
+      }
+    </style>
     <cr-button id="button" aria-label$="[[labelForAriaText_]]">
       <div id="container" class="flex vertical layout center self-stretch">
         <div class="flex layout horizontal center self-stretch center-justified">

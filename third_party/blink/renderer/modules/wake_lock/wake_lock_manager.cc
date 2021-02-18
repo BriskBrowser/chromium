@@ -24,7 +24,7 @@ WakeLockManager::WakeLockManager(ExecutionContext* execution_context,
 }
 
 void WakeLockManager::AcquireWakeLock(ScriptPromiseResolver* resolver) {
-  // https://w3c.github.io/wake-lock/#acquire-wake-lock-algorithm
+  // https://w3c.github.io/screen-wake-lock/#acquire-wake-lock-algorithm
   // 1. If the wake lock for type type is not applicable, return false.
   // 2. Set active to true if the platform wake lock has an active wake lock for
   // type.
@@ -47,12 +47,12 @@ void WakeLockManager::AcquireWakeLock(ScriptPromiseResolver* resolver) {
         ToMojomWakeLockType(wake_lock_type_),
         device::mojom::blink::WakeLockReason::kOther, "Blink Wake Lock",
         wake_lock_.BindNewPipeAndPassReceiver(
-            execution_context_->GetTaskRunner(TaskType::kMiscPlatformAPI)));
+            execution_context_->GetTaskRunner(TaskType::kWakeLock)));
     wake_lock_.set_disconnect_handler(WTF::Bind(
         &WakeLockManager::OnWakeLockConnectionError, WrapWeakPersistent(this)));
     wake_lock_->RequestWakeLock();
   }
-  // https://w3c.github.io/wake-lock/#the-request-method
+  // https://w3c.github.io/screen-wake-lock/#the-request-method
   // 5.2. Let lock be a new WakeLockSentinel object with its type attribute set
   // to type.
   // 5.4. Resolve promise with lock.
@@ -63,7 +63,7 @@ void WakeLockManager::AcquireWakeLock(ScriptPromiseResolver* resolver) {
 }
 
 void WakeLockManager::UnregisterSentinel(WakeLockSentinel* sentinel) {
-  // https://w3c.github.io/wake-lock/#release-wake-lock-algorithm
+  // https://w3c.github.io/screen-wake-lock/#release-wake-lock-algorithm
   // 1. Let document be the responsible document of the current settings object.
   // 2. Let record be the platform wake lock's state record associated with
   // document and type.

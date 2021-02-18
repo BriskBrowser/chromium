@@ -35,18 +35,25 @@ class LayoutButton final : public LayoutFlexibleBox {
  public:
   explicit LayoutButton(Element*);
   ~LayoutButton() override;
+  void Trace(Visitor*) const override;
 
-  const char* GetName() const override { return "LayoutButton"; }
+  const char* GetName() const override {
+    NOT_DESTROYED();
+    return "LayoutButton";
+  }
   bool IsOfType(LayoutObjectType type) const override {
-    return type == kLayoutObjectLayoutButton ||
-           LayoutFlexibleBox::IsOfType(type);
+    NOT_DESTROYED();
+    return type == kLayoutObjectButton || LayoutFlexibleBox::IsOfType(type);
   }
 
   void AddChild(LayoutObject* new_child,
                 LayoutObject* before_child = nullptr) override;
   void RemoveChild(LayoutObject*) override;
-  void RemoveLeftoverAnonymousBlock(LayoutBlock*) override {}
-  bool CreatesAnonymousWrapper() const override { return true; }
+  void RemoveLeftoverAnonymousBlock(LayoutBlock*) override { NOT_DESTROYED(); }
+  bool CreatesAnonymousWrapper() const override {
+    NOT_DESTROYED();
+    return true;
+  }
 
   LayoutUnit BaselinePosition(FontBaseline,
                               bool first_line,
@@ -62,7 +69,7 @@ class LayoutButton final : public LayoutFlexibleBox {
   void UpdateAnonymousChildStyle(const LayoutObject* child,
                                  ComputedStyle& child_style) const override;
 
-  LayoutBlock* inner_;
+  Member<LayoutBlock> inner_;
 };
 
 }  // namespace blink

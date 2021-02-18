@@ -134,7 +134,7 @@ function waitForAnimationEndTimeBased(getValue) {
       }
 
       if (cur_time - START_TIME > TIMEOUT_MS) {
-        reject();
+        reject(new Error("Timeout waiting for animation to end"));
         return;
       }
 
@@ -148,6 +148,16 @@ function waitForAnimationEndTimeBased(getValue) {
     }
     tick();
   })
+}
+
+function waitForScrollEvent(eventTarget) {
+  return new Promise((resolve, reject) => {
+    const scrollListener = () => {
+      eventTarget.removeEventListener('scroll', scrollListener);
+      resolve();
+    };
+    eventTarget.addEventListener('scroll', scrollListener);
+  });
 }
 
 // Enums for gesture_source_type parameters in gpuBenchmarking synthetic

@@ -259,8 +259,8 @@ void RuntimeAPI::ReloadExtension(const std::string& extension_id) {
 
 bool RuntimeAPI::CheckForUpdates(
     const std::string& extension_id,
-    const RuntimeAPIDelegate::UpdateCheckCallback& callback) {
-  return delegate_->CheckForUpdates(extension_id, callback);
+    RuntimeAPIDelegate::UpdateCheckCallback callback) {
+  return delegate_->CheckForUpdates(extension_id, std::move(callback));
 }
 
 void RuntimeAPI::OpenURL(const GURL& update_url) {
@@ -645,8 +645,8 @@ ExtensionFunction::ResponseAction RuntimeRequestUpdateCheckFunction::Run() {
            ->Get(browser_context())
            ->CheckForUpdates(
                extension_id(),
-               base::Bind(&RuntimeRequestUpdateCheckFunction::CheckComplete,
-                          this))) {
+               base::BindOnce(&RuntimeRequestUpdateCheckFunction::CheckComplete,
+                              this))) {
     return RespondNow(Error(kUpdatesDisabledError));
   }
   return RespondLater();
@@ -657,11 +657,11 @@ void RuntimeRequestUpdateCheckFunction::CheckComplete(
   if (result.success) {
     std::unique_ptr<base::DictionaryValue> details(new base::DictionaryValue);
     details->SetString("version", result.version);
-    Respond(TwoArguments(std::make_unique<base::Value>(result.response),
-                         std::move(details)));
+    Respond(TwoArguments(base::Value(result.response),
+                         base::Value::FromUniquePtrValue(std::move(details))));
   } else {
     // HMM(kalman): Why does !success not imply Error()?
-    Respond(OneArgument(std::make_unique<base::Value>(result.response)));
+    Respond(OneArgument(base::Value(result.response)));
   }
 }
 
@@ -733,8 +733,7 @@ RuntimeGetPackageDirectoryEntryFunction::Run() {
   base::FilePath path = extension_->path();
   storage::IsolatedContext::ScopedFSHandle filesystem =
       isolated_context->RegisterFileSystemForPath(
-          storage::kFileSystemTypeNativeLocal, std::string(), path,
-          &relative_path);
+          storage::kFileSystemTypeLocal, std::string(), path, &relative_path);
 
   content::ChildProcessSecurityPolicy* policy =
       content::ChildProcessSecurityPolicy::GetInstance();
@@ -742,7 +741,8 @@ RuntimeGetPackageDirectoryEntryFunction::Run() {
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
   dict->SetString("fileSystemId", filesystem.id());
   dict->SetString("baseName", relative_path);
-  return RespondNow(OneArgument(std::move(dict)));
+  return RespondNow(
+      OneArgument(base::Value::FromUniquePtrValue(std::move(dict))));
 }
 
 }  // namespace extensions

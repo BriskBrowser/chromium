@@ -20,8 +20,8 @@
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
-#include "third_party/blink/public/common/navigation/triggering_event_info.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom.h"
+#include "third_party/blink/public/mojom/frame/frame.mojom.h"
 
 namespace blocked_content {
 namespace {
@@ -97,10 +97,9 @@ SafeBrowsingTriggeredPopupBlocker::SafeBrowsingTriggeredPopupBlocker(
     content::WebContents* web_contents,
     subresource_filter::SubresourceFilterObserverManager* observer_manager)
     : content::WebContentsObserver(web_contents),
-      scoped_observer_(this),
       current_page_data_(std::make_unique<PageData>()) {
   DCHECK(observer_manager);
-  scoped_observer_.Add(observer_manager);
+  scoped_observation_.Observe(observer_manager);
 }
 
 void SafeBrowsingTriggeredPopupBlocker::DidFinishNavigation(
@@ -173,7 +172,8 @@ void SafeBrowsingTriggeredPopupBlocker::OnSafeBrowsingChecksComplete(
 }
 
 void SafeBrowsingTriggeredPopupBlocker::OnSubresourceFilterGoingAway() {
-  scoped_observer_.RemoveAll();
+  DCHECK(scoped_observation_.IsObserving());
+  scoped_observation_.Reset();
 }
 
 bool SafeBrowsingTriggeredPopupBlocker::IsEnabled(

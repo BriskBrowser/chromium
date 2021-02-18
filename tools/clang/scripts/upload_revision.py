@@ -29,13 +29,13 @@ CHROMIUM_DIR = os.path.abspath(os.path.join(THIS_DIR, '..', '..', '..'))
 # Keep lines in here at <= 72 columns, else they wrap in gerrit.
 COMMIT_FOOTER = \
 '''
-Bug: TODO
+Bug: TODO. Remove the Tricium: line below when filling this in.
+Tricium: skip
 Cq-Include-Trybots: chromium/try:chromeos-amd64-generic-cfi-thin-lto-rel
 Cq-Include-Trybots: chromium/try:dawn-win10-x86-deps-rel
 Cq-Include-Trybots: chromium/try:linux-chromeos-dbg
 Cq-Include-Trybots: chromium/try:linux_angle_deqp_rel_ng
 Cq-Include-Trybots: chromium/try:linux_chromium_cfi_rel_ng
-Cq-Include-Trybots: chromium/try:linux_chromium_chromeos_asan_rel_ng
 Cq-Include-Trybots: chromium/try:linux_chromium_chromeos_msan_rel_ng
 Cq-Include-Trybots: chromium/try:linux_chromium_compile_dbg_32_ng
 Cq-Include-Trybots: chromium/try:linux_chromium_msan_rel_ng

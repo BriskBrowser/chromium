@@ -14,19 +14,22 @@ import android.widget.TextView;
 import androidx.test.filters.LargeTest;
 
 import org.hamcrest.Matchers;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.CriteriaNotSatisfiedException;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.content.R;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.test.ContentJUnit4ClassRunner;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
-import org.chromium.content_public.browser.test.util.CriteriaNotSatisfiedException;
 import org.chromium.content_public.browser.test.util.DOMUtils;
 import org.chromium.content_public.browser.test.util.JavaScriptUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -39,6 +42,7 @@ import java.util.concurrent.TimeoutException;
  */
 @RunWith(ContentJUnit4ClassRunner.class)
 @CommandLineFlags.Add({"expose-internals-for-testing"})
+@Batch(ImeTest.IME_BATCH)
 public class TextSuggestionMenuTest {
     private static final String URL =
             "data:text/html, <div contenteditable id=\"div\" /><span id=\"span\" />";
@@ -52,8 +56,14 @@ public class TextSuggestionMenuTest {
         mRule.fullyLoadUrl(URL);
     }
 
+    @After
+    public void tearDown() throws Exception {
+        mRule.getActivity().finish();
+    }
+
     @Test
     @LargeTest
+    @DisabledTest(message = "https://crbug.com/1156419")
     public void testDeleteWordMarkedWithSuggestionMarker()
             throws InterruptedException, Throwable, TimeoutException {
         WebContents webContents = mRule.getWebContents();

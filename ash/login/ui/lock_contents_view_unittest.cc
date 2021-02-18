@@ -9,10 +9,11 @@
 #include <unordered_set>
 #include <utility>
 
+#include "ash/child_accounts/parent_access_controller_impl.h"
+#include "ash/constants/ash_features.h"
 #include "ash/detachable_base/detachable_base_pairing_status.h"
 #include "ash/login/login_screen_controller.h"
 #include "ash/login/mock_login_screen_client.h"
-#include "ash/login/parent_access_controller.h"
 #include "ash/login/ui/arrow_button_view.h"
 #include "ash/login/ui/fake_login_detachable_base_model.h"
 #include "ash/login/ui/lock_screen.h"
@@ -49,7 +50,6 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/timer/mock_timer.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/dbus/power/fake_power_manager_client.h"
 #include "chromeos/dbus/power_manager/suspend.pb.h"
 #include "components/prefs/pref_service.h"
@@ -837,8 +837,8 @@ class LockContentsViewUnitTestWithDeviceDisclosureEnabled
 TEST_F(LockContentsViewUnitTestWithDeviceDisclosureEnabled,
        ShowStatusIndicatorIfEnrolledDevice) {
   // If the device is enrolled, bottom_status_indicator should be visible.
-  Shell::Get()->system_tray_model()->SetEnterpriseDisplayDomain(
-      "BestCompanyEver", false);
+  Shell::Get()->system_tray_model()->SetEnterpriseDomainInfo("BestCompanyEver",
+                                                             false);
 
   auto* contents = new LockContentsView(
       mojom::TrayActionState::kAvailable, LockScreen::ScreenType::kLock,
@@ -863,8 +863,8 @@ TEST_F(LockContentsViewUnitTestWithDeviceDisclosureEnabled,
 TEST_F(LockContentsViewUnitTestWithDeviceDisclosureEnabled,
        ShowManagementBubbleOnClickIfEnrolledDevice) {
   // If the device is enrolled, bottom_status_indicator should be visible.
-  Shell::Get()->system_tray_model()->SetEnterpriseDisplayDomain(
-      "BestCompanyEver", false);
+  Shell::Get()->system_tray_model()->SetEnterpriseDomainInfo("BestCompanyEver",
+                                                             false);
 
   auto* contents = new LockContentsView(
       mojom::TrayActionState::kAvailable, LockScreen::ScreenType::kLock,
@@ -899,8 +899,8 @@ TEST_F(LockContentsViewUnitTestWithDeviceDisclosureEnabled,
 TEST_F(LockContentsViewUnitTestWithDeviceDisclosureEnabled,
        DoNotShowManagementBubbleOnClickIfAdb) {
   // If the device is enrolled, bottom_status_indicator should be visible.
-  Shell::Get()->system_tray_model()->SetEnterpriseDisplayDomain(
-      "BestCompanyEver", false);
+  Shell::Get()->system_tray_model()->SetEnterpriseDomainInfo("BestCompanyEver",
+                                                             false);
 
   auto* contents = new LockContentsView(
       mojom::TrayActionState::kAvailable, LockScreen::ScreenType::kLock,

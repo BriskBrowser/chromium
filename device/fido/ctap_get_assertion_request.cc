@@ -10,6 +10,7 @@
 
 #include "base/numerics/safe_conversions.h"
 #include "components/cbor/writer.h"
+#include "device/fido/device_response_converter.h"
 #include "device/fido/fido_constants.h"
 #include "device/fido/fido_parsing_utils.h"
 #include "device/fido/pin.h"
@@ -118,7 +119,6 @@ base::Optional<CtapGetAssertionRequest> CtapGetAssertionRequest::Parse(
     }
 
     const cbor::Value::MapValue& extensions = extensions_it->second.GetMap();
-
     if (opts.reject_all_extensions && !extensions.empty()) {
       return base::nullopt;
     }
@@ -129,15 +129,7 @@ base::Optional<CtapGetAssertionRequest> CtapGetAssertionRequest::Parse(
       }
 
       const std::string& extension_id = extension.first.GetString();
-      if (extension_id == kExtensionAndroidClientData) {
-        base::Optional<AndroidClientDataExtensionInput>
-            android_client_data_ext =
-                AndroidClientDataExtensionInput::Parse(extension.second);
-        if (!android_client_data_ext) {
-          return base::nullopt;
-        }
-        request.android_client_data_ext = std::move(*android_client_data_ext);
-      } else if (extension_id == kExtensionHmacSecret) {
+      if (extension_id == kExtensionHmacSecret) {
         if (!extension.second.is_map()) {
           return base::nullopt;
         }
@@ -173,6 +165,11 @@ base::Optional<CtapGetAssertionRequest> CtapGetAssertionRequest::Parse(
         }
 
         request.hmac_secret.emplace(key->X962(), encrypted_salts, salts_auth);
+      } else if (extension_id == kExtensionLargeBlobKey) {
+        if (!extension.second.is_bool() || !extension.second.GetBool()) {
+          return base::nullopt;
+        }
+        request.large_blob_key = true;
       }
     }
   }
@@ -217,7 +214,12 @@ base::Optional<CtapGetAssertionRequest> CtapGetAssertionRequest::Parse(
             std::numeric_limits<uint8_t>::max()) {
       return base::nullopt;
     }
-    request.pin_protocol = pin_protocol_it->second.GetUnsigned();
+    base::Optional<PINUVAuthProtocol> pin_protocol =
+        ToPINUVAuthProtocol(pin_protocol_it->second.GetUnsigned());
+    if (!pin_protocol) {
+      return base::nullopt;
+    }
+    request.pin_protocol = *pin_protocol;
   }
 
   return request;
@@ -261,9 +263,8 @@ AsCTAPRequestValuePair(const CtapGetAssertionRequest& request) {
 
   cbor::Value::MapValue extensions;
 
-  if (request.android_client_data_ext) {
-    extensions.emplace(kExtensionAndroidClientData,
-                       AsCBOR(*request.android_client_data_ext));
+  if (request.large_blob_key) {
+    extensions.emplace(kExtensionLargeBlobKey, cbor::Value(true));
   }
 
   if (request.hmac_secret) {
@@ -285,7 +286,8 @@ AsCTAPRequestValuePair(const CtapGetAssertionRequest& request) {
   }
 
   if (request.pin_protocol) {
-    cbor_map[cbor::Value(7)] = cbor::Value(*request.pin_protocol);
+    cbor_map[cbor::Value(7)] =
+        cbor::Value(static_cast<uint8_t>(*request.pin_protocol));
   }
 
   cbor::Value::MapValue option_map;

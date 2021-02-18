@@ -12,10 +12,10 @@
 #include <utility>
 #include <vector>
 
-#include "base/power_monitor/power_observer.h"
+#include "base/containers/contains.h"
 #include "base/values.h"
-#include "third_party/blink/public/common/peerconnection/peer_connection_tracker_mojom_traits.h"
 #include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
+#include "third_party/blink/public/mojom/peerconnection/peer_connection_tracker.mojom-blink.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_stream.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/web/web_document.h"
@@ -618,7 +618,10 @@ class InternalStandardStatsObserver : public webrtc::RTCStatsCollectorCallback {
       for (const auto* member : stats.Members()) {
         if (!member->is_defined())
           continue;
-        name_value_pairs->AppendString(member->name());
+        // Non-standardized / provisional stats which are not exposed
+        // to Javascript are postfixed with an asterisk.
+        std::string postfix = member->is_standardized() ? "" : "*";
+        name_value_pairs->AppendString(member->name() + postfix);
         name_value_pairs->Append(MemberToValue(*member));
       }
       stats_subdictionary->Set("values", std::move(name_value_pairs));
@@ -702,18 +705,27 @@ void PeerConnectionTracker::Bind(
 
 void PeerConnectionTracker::OnSuspend() {
   DCHECK_CALLED_ON_VALID_THREAD(main_thread_);
-  for (auto it = peer_connection_local_id_map_.begin();
-       it != peer_connection_local_id_map_.end(); ++it) {
-    it->key->CloseClientPeerConnection();
+  // Closing peer connections fires events. If JavaScript triggers the creation
+  // or garbage collection of more peer connections, this would invalidate the
+  // |peer_connection_local_id_map_| iterator. Therefor we iterate on a copy.
+  PeerConnectionLocalIdMap peer_connection_map_copy =
+      peer_connection_local_id_map_;
+  for (const auto& pair : peer_connection_map_copy) {
+    RTCPeerConnectionHandler* peer_connection_handler = pair.key;
+    if (!base::Contains(peer_connection_local_id_map_,
+                        peer_connection_handler)) {
+      // Skip peer connections that have been unregistered during this method
+      // call. Avoids use-after-free.
+      continue;
+    }
+    peer_connection_handler->CloseClientPeerConnection();
   }
 }
 
 void PeerConnectionTracker::OnThermalStateChange(
     mojom::blink::DeviceThermalState thermal_state) {
   DCHECK_CALLED_ON_VALID_THREAD(main_thread_);
-  mojo::EnumTraits<mojom::blink::DeviceThermalState,
-                   base::PowerObserver::DeviceThermalState>::
-      FromMojom(thermal_state, &current_thermal_state_);
+  current_thermal_state_ = thermal_state;
   for (auto& entry : peer_connection_local_id_map_) {
     entry.key->OnThermalStateChange(current_thermal_state_);
   }
@@ -793,8 +805,7 @@ void PeerConnectionTracker::RegisterPeerConnection(
 
   peer_connection_local_id_map_.insert(pc_handler, lid);
 
-  if (current_thermal_state_ !=
-      base::PowerObserver::DeviceThermalState::kUnknown) {
+  if (current_thermal_state_ != mojom::blink::DeviceThermalState::kUnknown) {
     pc_handler->OnThermalStateChange(current_thermal_state_);
   }
 }

@@ -7,7 +7,8 @@
 #include "chrome/browser/themes/theme_service_aura_linux.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/views/theme_profile_key.h"
-#include "ui/base/ui_base_features.h"
+#include "ui/base/cursor/cursor_factory.h"
+#include "ui/base/ime/linux/fake_input_method_context_factory.h"
 #include "ui/display/screen.h"
 #include "ui/views/linux_ui/linux_ui.h"
 
@@ -17,12 +18,15 @@
 #endif
 
 #if defined(USE_OZONE)
-#include "ui/base/cursor/cursor_factory.h"
+#include "ui/base/ime/input_method.h"
+#include "ui/base/ui_base_features.h"
+#include "ui/ozone/public/ozone_platform.h"
 #endif
 
 #if defined(USE_X11)
 #include "ui/gfx/x/connection.h"  // nogncheck
 #if BUILDFLAG(USE_GTK)
+#include "ui/base/ui_base_features.h"
 #include "ui/gtk/x/gtk_ui_delegate_x11.h"  // nogncheck
 #endif  // BUILDFLAG(USE_GTK)
 #endif  // defined(USE_X11)
@@ -68,8 +72,25 @@ void ChromeBrowserMainExtraPartsViewsLinux::ToolkitInitialized() {
   ChromeBrowserMainExtraPartsViews::ToolkitInitialized();
 
   views::LinuxUI* linux_ui = BuildLinuxUI();
-  if (!linux_ui)
+  if (!linux_ui) {
+    // In case if GTK is not used, input method factory won't be set for X11 and
+    // Ozone/X11. Set a fake one instead to avoid crashing browser later.
+    DCHECK(!ui::LinuxInputMethodContextFactory::instance());
+#if defined(USE_OZONE)
+    // Try to create input method through Ozone so that the backend has a chance
+    // to set factory by itself.
+    if (features::IsUsingOzonePlatform()) {
+      ui::OzonePlatform::GetInstance()->CreateInputMethod(
+          nullptr, gfx::kNullAcceleratedWidget);
+    }
+#endif
+    // If factory is not set, set a fake instance.
+    if (!ui::LinuxInputMethodContextFactory::instance()) {
+      ui::LinuxInputMethodContextFactory::SetInstance(
+          new ui::FakeInputMethodContextFactory());
+    }
     return;
+  }
 
   linux_ui->SetUseSystemThemeCallback(
       base::BindRepeating([](aura::Window* window) {
@@ -86,10 +107,9 @@ void ChromeBrowserMainExtraPartsViewsLinux::ToolkitInitialized() {
   views::LinuxUI::SetInstance(linux_ui);
   linux_ui->Initialize();
 
-#if defined(USE_OZONE)
-  if (features::IsUsingOzonePlatform())
-    ui::CursorFactory::GetInstance()->ObserveThemeChanges();
-#endif
+  // Cursor theme changes are tracked by LinuxUI (via a CursorThemeManager
+  // implementation). Start observing them once it's initialized.
+  ui::CursorFactory::GetInstance()->ObserveThemeChanges();
 
   DCHECK(ui::LinuxInputMethodContextFactory::instance())
       << "LinuxUI must set LinuxInputMethodContextFactory instance.";

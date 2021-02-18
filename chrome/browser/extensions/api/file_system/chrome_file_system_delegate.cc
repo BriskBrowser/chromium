@@ -14,6 +14,7 @@
 #include "base/files/file_path.h"
 #include "base/path_service.h"
 #include "base/strings/string16.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/api/file_system/file_entry_picker.h"
 #include "chrome/browser/extensions/chrome_extension_function_details.h"
 #include "chrome/browser/profiles/profile.h"
@@ -47,7 +48,7 @@
 #include "base/mac/foundation_util.h"
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/chromeos/file_manager/volume_manager.h"
 #include "chrome/browser/extensions/api/file_system/consent_provider.h"
 #include "extensions/browser/event_router.h"
@@ -62,7 +63,7 @@ namespace extensions {
 
 namespace file_system = api::file_system;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 using file_system_api::ConsentProvider;
 using file_system_api::ConsentProviderDelegate;
 
@@ -170,7 +171,7 @@ void OnConsentReceived(content::BrowserContext* browser_context,
   std::string register_name = "fs";
   const storage::IsolatedContext::ScopedFSHandle file_system =
       isolated_context->RegisterFileSystemForPath(
-          storage::kFileSystemTypeNativeForPlatformApp,
+          storage::kFileSystemTypeLocalForPlatformApp,
           std::string() /* file_system_id */, original_url.path(),
           &register_name);
   if (!file_system.is_valid()) {
@@ -240,7 +241,7 @@ void DispatchVolumeListChangeEvent(content::BrowserContext* browser_context) {
 }
 
 }  // namespace file_system_api
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 ChromeFileSystemDelegate::ChromeFileSystemDelegate() {}
 
@@ -267,7 +268,7 @@ bool ChromeFileSystemDelegate::ShowSelectFileDialog(
     return false;
 
   // TODO(asargent/benwells) - As a short term remediation for
-  // crbug.com/179010 we're adding the ability for a whitelisted extension to
+  // crbug.com/179010 we're adding the ability for a allowlisted extension to
   // use this API since chrome.fileBrowserHandler.selectFile is ChromeOS-only.
   // Eventually we'd like a better solution and likely this code will go back
   // to being platform-app only.
@@ -276,7 +277,7 @@ bool ChromeFileSystemDelegate::ShowSelectFileDialog(
   // platform apps cannot open the file picker from a background page.
   // TODO(michaelpg): As a workaround for https://crbug.com/736930, allow this
   // to work from a background page for non-platform apps (which, in practice,
-  // is restricted to whitelisted extensions).
+  // is restricted to allowlisted extensions).
   if (extension->is_platform_app() &&
       !AppWindowRegistry::Get(extension_function->browser_context())
            ->GetAppWindowForWebContents(web_contents)) {
@@ -316,14 +317,14 @@ int ChromeFileSystemDelegate::GetDescriptionIdForAcceptType(
   return 0;
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 FileSystemDelegate::GrantVolumesMode
 ChromeFileSystemDelegate::GetGrantVolumesMode(
     content::BrowserContext* browser_context,
     content::RenderFrameHost* render_frame_host,
     const Extension& extension) {
   // Only kiosk apps in kiosk sessions can use this API.
-  // Additionally it is enabled for whitelisted component extensions and apps.
+  // Additionally it is enabled for allowlisted component extensions and apps.
   ConsentProviderDelegate consent_provider_delegate(
       Profile::FromBrowserContext(browser_context));
   return ConsentProvider(&consent_provider_delegate)
@@ -412,7 +413,7 @@ void ChromeFileSystemDelegate::GetVolumeList(
   std::move(success_callback).Run(result_volume_list);
 }
 
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 SavedFilesServiceInterface* ChromeFileSystemDelegate::GetSavedFilesService(
     content::BrowserContext* browser_context) {

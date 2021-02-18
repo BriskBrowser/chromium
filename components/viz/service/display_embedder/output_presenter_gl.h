@@ -25,12 +25,15 @@ class VIZ_SERVICE_EXPORT OutputPresenterGL : public OutputPresenter {
 
   static std::unique_ptr<OutputPresenterGL> Create(
       SkiaOutputSurfaceDependency* deps,
-      gpu::MemoryTracker* memory_tracker);
+      gpu::SharedImageFactory* factory,
+      gpu::SharedImageRepresentationFactory* representation_factory);
 
-  OutputPresenterGL(scoped_refptr<gl::GLSurface> gl_surface,
-                    SkiaOutputSurfaceDependency* deps,
-                    gpu::MemoryTracker* memory_tracker,
-                    uint32_t shared_image_usage = kDefaultSharedImageUsage);
+  OutputPresenterGL(
+      scoped_refptr<gl::GLSurface> gl_surface,
+      SkiaOutputSurfaceDependency* deps,
+      gpu::SharedImageFactory* factory,
+      gpu::SharedImageRepresentationFactory* representation_factory,
+      uint32_t shared_image_usage = kDefaultSharedImageUsage);
   ~OutputPresenterGL() override;
 
   gl::GLSurface* gl_surface() { return gl_surface_.get(); }
@@ -46,6 +49,8 @@ class VIZ_SERVICE_EXPORT OutputPresenterGL : public OutputPresenter {
       gfx::ColorSpace color_space,
       gfx::Size image_size,
       size_t num_images) final;
+  std::unique_ptr<Image> AllocateBackgroundImage(gfx::ColorSpace color_space,
+                                                 gfx::Size image_size) final;
   void SwapBuffers(SwapCompletionCallback completion_callback,
                    BufferPresentedCallback presentation_callback) final;
   void PostSubBuffer(const gfx::Rect& rect,
@@ -57,8 +62,9 @@ class VIZ_SERVICE_EXPORT OutputPresenterGL : public OutputPresenter {
       const OverlayProcessorInterface::OutputSurfaceOverlayPlane& plane,
       Image* image,
       bool is_submitted) final;
-  std::vector<OverlayData> ScheduleOverlays(
-      SkiaOutputSurface::OverlayList overlays) final;
+  void ScheduleOverlays(SkiaOutputSurface::OverlayList overlays,
+                        std::vector<ScopedOverlayAccess*> accesses) final;
+  void ScheduleBackground(Image* image) final;
 
  private:
   scoped_refptr<gl::GLSurface> gl_surface_;
@@ -68,8 +74,9 @@ class VIZ_SERVICE_EXPORT OutputPresenterGL : public OutputPresenter {
   ResourceFormat image_format_ = RGBA_8888;
 
   // Shared Image factories
-  gpu::SharedImageFactory shared_image_factory_;
-  gpu::SharedImageRepresentationFactory shared_image_representation_factory_;
+  gpu::SharedImageFactory* const shared_image_factory_;
+  gpu::SharedImageRepresentationFactory* const
+      shared_image_representation_factory_;
   uint32_t shared_image_usage_;
 };
 

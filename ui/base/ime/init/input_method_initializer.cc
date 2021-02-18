@@ -7,14 +7,13 @@
 #include <ostream>
 
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ui/base/ime/chromeos/ime_bridge.h"
-#elif defined(USE_AURA) && defined(OS_LINUX)
+#elif defined(USE_AURA) && (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
 #include "base/check.h"
-// TODO(crbug.com/1085700): Remove nogncheck when we can build both Ozone
-// Wayland and X11 on Linux codesearch-gen bots.
-#include "ui/base/ime/linux/fake_input_method_context_factory.h"  // nogncheck
+#include "ui/base/ime/linux/fake_input_method_context_factory.h"
 #elif defined(OS_WIN)
 #include "ui/base/ime/init/input_method_factory.h"
 #include "ui/base/ime/win/tsf_bridge.h"
@@ -22,7 +21,7 @@
 
 namespace {
 
-#if !defined(OS_CHROMEOS) && defined(USE_AURA) && defined(OS_LINUX)
+#if defined(USE_AURA) && (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
 const ui::LinuxInputMethodContextFactory*
     g_linux_input_method_context_factory_for_testing;
 #endif
@@ -32,7 +31,7 @@ const ui::LinuxInputMethodContextFactory*
 namespace ui {
 
 void InitializeInputMethod() {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   IMEBridge::Initialize();
 #elif defined(OS_WIN)
   TSFBridge::Initialize();
@@ -40,7 +39,7 @@ void InitializeInputMethod() {
 }
 
 void ShutdownInputMethod() {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   IMEBridge::Shutdown();
 #elif defined(OS_WIN)
   TSFBridge::Shutdown();
@@ -48,9 +47,9 @@ void ShutdownInputMethod() {
 }
 
 void InitializeInputMethodForTesting() {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   IMEBridge::Initialize();
-#elif defined(USE_AURA) && defined(OS_LINUX)
+#elif defined(USE_AURA) && (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
   if (!g_linux_input_method_context_factory_for_testing)
     g_linux_input_method_context_factory_for_testing =
         new FakeInputMethodContextFactory();
@@ -67,9 +66,9 @@ void InitializeInputMethodForTesting() {
 }
 
 void ShutdownInputMethodForTesting() {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   IMEBridge::Shutdown();
-#elif defined(USE_AURA) && defined(OS_LINUX)
+#elif defined(USE_AURA) && (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
   const LinuxInputMethodContextFactory* factory =
       LinuxInputMethodContextFactory::instance();
   CHECK(!factory || factory == g_linux_input_method_context_factory_for_testing)

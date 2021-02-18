@@ -9,13 +9,19 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind_helpers.h"
-#include "base/stl_util.h"
+#include "base/callback_helpers.h"
+#include "base/containers/contains.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/web_applications/components/app_registrar.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
 
 namespace web_app {
+
+bool PendingAppManager::InstallResult::operator==(
+    const InstallResult& other) const {
+  return std::tie(code, did_uninstall_and_replace) ==
+         std::tie(other.code, other.did_uninstall_and_replace);
+}
 
 PendingAppManager::SynchronizeRequest::SynchronizeRequest(
     SynchronizeCallback callback,
@@ -72,7 +78,7 @@ void PendingAppManager::SynchronizeInstalledApps(
 
   std::vector<GURL> desired_urls;
   for (const auto& info : desired_apps_install_options)
-    desired_urls.push_back(info.url);
+    desired_urls.push_back(info.install_url);
 
   std::sort(desired_urls.begin(), desired_urls.end());
 
@@ -83,7 +89,7 @@ void PendingAppManager::SynchronizeInstalledApps(
   if (urls_to_remove.empty() && desired_apps_install_options.empty()) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
-        base::BindOnce(std::move(callback), std::map<GURL, InstallResultCode>(),
+        base::BindOnce(std::move(callback), std::map<GURL, InstallResult>(),
                        std::map<GURL, bool>()));
     return;
   }
@@ -113,25 +119,31 @@ void PendingAppManager::ClearRegistrationCallbackForTesting() {
   registration_callback_ = RegistrationCallback();
 }
 
-void PendingAppManager::OnRegistrationFinished(const GURL& launch_url,
+void PendingAppManager::SetRegistrationsCompleteCallbackForTesting(
+    base::OnceClosure callback) {
+  registrations_complete_callback_ = std::move(callback);
+}
+
+void PendingAppManager::OnRegistrationFinished(const GURL& install_url,
                                                RegistrationResultCode result) {
   if (registration_callback_)
-    registration_callback_.Run(launch_url, result);
+    registration_callback_.Run(install_url, result);
 }
 
 void PendingAppManager::InstallForSynchronizeCallback(
     ExternalInstallSource source,
     const GURL& app_url,
-    InstallResultCode code) {
-  if (!IsSuccess(code)) {
+    PendingAppManager::InstallResult result) {
+  if (!IsSuccess(result.code)) {
     LOG(ERROR) << app_url << " from install source " << static_cast<int>(source)
-               << " failed to install with reason " << static_cast<int>(code);
+               << " failed to install with reason "
+               << static_cast<int>(result.code);
   }
 
   auto source_and_request = synchronize_requests_.find(source);
   DCHECK(source_and_request != synchronize_requests_.end());
   SynchronizeRequest& request = source_and_request->second;
-  request.install_results[app_url] = code;
+  request.install_results[app_url] = result;
 
   OnAppSynchronized(source, app_url);
 }

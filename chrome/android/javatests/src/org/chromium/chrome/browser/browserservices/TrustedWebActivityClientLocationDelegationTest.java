@@ -21,6 +21,7 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.task.PostTask;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.chrome.browser.ChromeApplication;
 import org.chromium.chrome.browser.dependency_injection.ChromeAppComponent;
@@ -43,6 +44,7 @@ import java.util.concurrent.TimeoutException;
  * 3. TestTrustedWebActivityService notify the result with TrustedWebActivityCallback.
  */
 @RunWith(BaseJUnit4ClassRunner.class)
+@Batch(Batch.PER_CLASS)
 public class TrustedWebActivityClientLocationDelegationTest {
     private static final Uri SCOPE = Uri.parse("https://www.example.com/notifications");
     private static final Origin ORIGIN = Origin.create(SCOPE);
@@ -96,6 +98,7 @@ public class TrustedWebActivityClientLocationDelegationTest {
             @Override
             public void onExtraCallback(String callbackName, @Nullable Bundle bundle) {
                 if (TextUtils.equals(callbackName, EXTRA_NEW_LOCATION_AVAILABLE_CALLBACK)) {
+                    Assert.assertNotNull(bundle);
                     Assert.assertTrue(bundle.containsKey("latitude"));
                     Assert.assertTrue(bundle.containsKey("longitude"));
                     Assert.assertTrue(bundle.containsKey("timeStamp"));
@@ -123,6 +126,7 @@ public class TrustedWebActivityClientLocationDelegationTest {
             @Override
             public void onExtraCallback(String callbackName, @Nullable Bundle bundle) {
                 if (TextUtils.equals(callbackName, EXTRA_NEW_LOCATION_ERROR_CALLBACK)) {
+                    Assert.assertNotNull(bundle);
                     Assert.assertTrue(bundle.containsKey("message"));
                     locationError.notifyCalled();
                 }

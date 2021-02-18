@@ -135,7 +135,7 @@ static bool IsIndependentDescendant(const LayoutBlock* layout_object) {
          (containing_block && containing_block->IsHorizontalWritingMode() !=
                                   layout_object->IsHorizontalWritingMode()) ||
          layout_object->StyleRef().IsDisplayReplacedType() ||
-         layout_object->IsTextArea() ||
+         layout_object->IsTextAreaIncludingNG() ||
          layout_object->StyleRef().UserModify() != EUserModify::kReadOnly;
 }
 
@@ -154,7 +154,8 @@ static bool BlockIsRowOfLinks(const LayoutBlock* block) {
   while (layout_object) {
     if (!IsPotentialClusterRoot(layout_object)) {
       if (layout_object->IsText() &&
-          ToLayoutText(layout_object)->GetText().StripWhiteSpace().length() > 3)
+          To<LayoutText>(layout_object)->GetText().StripWhiteSpace().length() >
+              3)
         return false;
       if (!layout_object->IsInline() || layout_object->IsBR())
         return false;
@@ -440,7 +441,7 @@ float TextAutosizer::Inflate(LayoutObject* parent,
     // Inflate rubyRun's inner blocks.
     LayoutObject* run = parent->SlowFirstChild();
     if (run && run->IsRubyRun()) {
-      child = ToLayoutRubyRun(run)->FirstChild();
+      child = To<LayoutRubyRun>(run)->FirstChild();
       behavior = kDescendToInnerBlocks;
     }
   } else if (parent->IsListMarker()) {
@@ -450,7 +451,7 @@ float TextAutosizer::Inflate(LayoutObject* parent,
              (parent->ChildrenInline() || behavior == kDescendToInnerBlocks)) {
     child = To<LayoutBlock>(parent)->FirstChild();
   } else if (parent->IsLayoutInline()) {
-    child = ToLayoutInline(parent)->FirstChild();
+    child = To<LayoutInline>(parent)->FirstChild();
   }
 
   while (child) {
@@ -497,8 +498,8 @@ float TextAutosizer::Inflate(LayoutObject* parent,
   }
 
   if (parent->IsListItemIncludingNG()) {
-    float multiplier = ClusterMultiplier(cluster);
-    ApplyMultiplier(parent, multiplier, layouter);
+    float list_item_multiplier = ClusterMultiplier(cluster);
+    ApplyMultiplier(parent, list_item_multiplier, layouter);
 
     // The list item has to be treated special because we can have a tree such
     // that you have a list item for a form inside it. The list marker then ends
@@ -506,16 +507,16 @@ float TextAutosizer::Inflate(LayoutObject* parent,
     // the wrong cluster root to work from and get the wrong value.
     LayoutObject* marker = nullptr;
     if (parent->IsListItem())
-      marker = ToLayoutListItem(parent)->Marker();
+      marker = To<LayoutListItem>(parent)->Marker();
     else if (parent->IsLayoutNGListItem())
-      marker = ToLayoutNGListItem(parent)->Marker();
+      marker = To<LayoutNGListItem>(parent)->Marker();
 
     // A LayoutNGOutsideListMarker has a text child that needs its font
     // multiplier updated. Just mark the entire subtree, to make sure we get to
     // it.
     for (LayoutObject* walker = marker; walker;
          walker = walker->NextInPreOrder(marker)) {
-      ApplyMultiplier(walker, multiplier, layouter);
+      ApplyMultiplier(walker, list_item_multiplier, layouter);
       walker->SetIntrinsicLogicalWidthsDirty(kMarkOnlyThis);
     }
   }
@@ -620,7 +621,7 @@ void TextAutosizer::UpdatePageInfo() {
 
   PageInfo previous_page_info(page_info_);
   page_info_.setting_enabled_ =
-      document_->GetSettings()->TextAutosizingEnabled();
+      document_->GetSettings()->GetTextAutosizingEnabled();
 
   if (!page_info_.setting_enabled_ || document_->Printing()) {
     page_info_.page_needs_autosizing_ = false;
@@ -637,7 +638,7 @@ void TextAutosizer::UpdatePageInfo() {
     } else {
       LocalFrame& main_frame = To<LocalFrame>(frame);
       IntSize frame_size =
-          document_->GetSettings()->TextAutosizingWindowSizeOverride();
+          document_->GetSettings()->GetTextAutosizingWindowSizeOverride();
       if (frame_size.IsEmpty())
         frame_size = WindowSize();
 
@@ -777,8 +778,9 @@ bool TextAutosizer::ClusterHasEnoughTextToAutosize(
 
   // TextAreas and user-modifiable areas get a free pass to autosize regardless
   // of text content.
-  if (root->IsTextArea() || (root->Style() && root->StyleRef().UserModify() !=
-                                                  EUserModify::kReadOnly)) {
+  if (root->IsTextAreaIncludingNG() ||
+      (root->Style() &&
+       root->StyleRef().UserModify() != EUserModify::kReadOnly)) {
     cluster->has_enough_text_to_autosize_ = kHasEnoughText;
     return true;
   }
@@ -812,8 +814,9 @@ bool TextAutosizer::ClusterHasEnoughTextToAutosize(
       // resolvedTextLength() because the lineboxes will not be built until
       // layout. These values can be different.
       // Note: This is an approximation assuming each character is 1em wide.
-      length += ToLayoutText(descendant)->GetText().StripWhiteSpace().length() *
-                descendant->StyleRef().SpecifiedFontSize();
+      length +=
+          To<LayoutText>(descendant)->GetText().StripWhiteSpace().length() *
+          descendant->StyleRef().SpecifiedFontSize();
 
       if (length >= minimum_text_length_to_autosize) {
         cluster->has_enough_text_to_autosize_ = kHasEnoughText;
@@ -960,7 +963,7 @@ bool TextAutosizer::SuperclusterHasEnoughTextToAutosize(
   if (supercluster->has_enough_text_to_autosize_ != kUnknownAmountOfText)
     return supercluster->has_enough_text_to_autosize_ == kHasEnoughText;
 
-  for (auto* root : *supercluster->roots_) {
+  for (const auto& root : *supercluster->roots_) {
     if (skip_layouted_nodes && !root->NormalChildNeedsLayout())
       continue;
     if (ClusterWouldHaveEnoughTextToAutosize(root, width_provider)) {
@@ -1007,7 +1010,7 @@ const LayoutBlock* TextAutosizer::MaxClusterWidthProvider(
     max_width = WidthFromBlock(result);
 
   const BlockSet* roots = supercluster->roots_;
-  for (const auto* root : *roots) {
+  for (const auto& root : *roots) {
     const LayoutBlock* width_provider = ClusterWidthProvider(root);
     if (width_provider->NeedsLayout())
       continue;
@@ -1226,7 +1229,7 @@ void TextAutosizer::ApplyMultiplier(LayoutObject* layout_object,
   if (current_style.TextAutosizingMultiplier() == multiplier)
     return;
 
-  scoped_refptr<ComputedStyle> style = ComputedStyle::Clone(current_style);
+  ComputedStyle* style = ComputedStyle::Clone(current_style);
   style->SetTextAutosizingMultiplier(multiplier);
 
   if (multiplier > 1 && !did_check_cross_site_use_count_) {
@@ -1247,7 +1250,7 @@ void TextAutosizer::ApplyMultiplier(LayoutObject* layout_object,
       layout_object->SetModifiedStyleOutsideStyleRecalc(
           std::move(style), LayoutObject::ApplyStyleChanges::kNo);
       if (layout_object->IsText())
-        ToLayoutText(layout_object)->AutosizingMultiplerChanged();
+        To<LayoutText>(layout_object)->AutosizingMultiplerChanged();
       DCHECK(!layouter || layout_object->IsDescendantOf(&layouter->Root()));
       layout_object->SetNeedsLayoutAndFullPaintInvalidation(
           layout_invalidation_reason::kTextAutosizing, kMarkContainerChain,
@@ -1536,7 +1539,7 @@ void TextAutosizer::CheckSuperclusterConsistency() {
 
     if (SuperclusterHasEnoughTextToAutosize(supercluster, width_provider,
                                             true) == kHasEnoughText) {
-      for (auto* root : *supercluster->roots_) {
+      for (const auto& root : *supercluster->roots_) {
         if (!root->EverHadLayout())
           continue;
 
@@ -1552,6 +1555,12 @@ void TextAutosizer::CheckSuperclusterConsistency() {
 
 void TextAutosizer::Trace(Visitor* visitor) const {
   visitor->Trace(document_);
+  visitor->Trace(first_block_to_begin_layout_);
+  visitor->Trace(fingerprint_mapper_);
+}
+
+void TextAutosizer::FingerprintMapper::Trace(Visitor* visitor) const {
+  visitor->Trace(fingerprints_);
 }
 
 }  // namespace blink

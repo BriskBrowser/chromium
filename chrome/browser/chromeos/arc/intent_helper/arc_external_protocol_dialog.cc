@@ -11,10 +11,8 @@
 #include "base/metrics/histogram_functions.h"
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/apps/intent_helper/page_transition_util.h"
-#include "chrome/browser/chromeos/apps/intent_helper/chromeos_apps_navigation_throttle.h"
 #include "chrome/browser/chromeos/apps/metrics/intent_handling_metrics.h"
 #include "chrome/browser/chromeos/arc/arc_web_contents_data.h"
-#include "chrome/browser/chromeos/arc/intent_helper/arc_intent_picker_app_fetcher.h"
 #include "chrome/browser/chromeos/external_protocol_dialog.h"
 #include "chrome/browser/sharing/click_to_call/click_to_call_metrics.h"
 #include "chrome/browser/sharing/click_to_call/click_to_call_ui_controller.h"
@@ -142,15 +140,6 @@ bool MaybeAddDevicesAndShowPicker(
     controller->OnDialogShown(has_devices, has_apps);
 
   return true;
-}
-
-// Shows the Chrome OS' original external protocol dialog as a fallback.
-void ShowFallbackExternalProtocolDialog(int render_process_host_id,
-                                        int routing_id,
-                                        const GURL& url) {
-  WebContents* web_contents =
-      tab_util::GetWebContentsByID(render_process_host_id, routing_id);
-  new ExternalProtocolDialog(web_contents, url);
 }
 
 void CloseTabIfNeeded(int render_process_host_id,
@@ -461,6 +450,16 @@ void OnIntentPickerDialogDeactivated(
     OpenUrlInChrome(render_process_host_id, routing_id, url_to_open_in_chrome);
 }
 
+size_t GetAppIndex(
+    const std::vector<mojom::IntentHandlerInfoPtr>& app_candidates,
+    const std::string& selected_app_package) {
+  for (size_t i = 0; i < app_candidates.size(); ++i) {
+    if (app_candidates[i]->package_name == selected_app_package)
+      return i;
+  }
+  return app_candidates.size();
+}
+
 // Called when the dialog is closed. Note that once we show the UI, we should
 // never show the Chrome OS' fallback dialog.
 void OnIntentPickerClosed(
@@ -500,8 +499,7 @@ void OnIntentPickerClosed(
 
   // If the user selected an app to continue the navigation, confirm that the
   // |package_name| matches a valid option and return the index.
-  const size_t selected_app_index =
-      ArcIntentPickerAppFetcher::GetAppIndex(handlers, selected_app_package);
+  const size_t selected_app_index = GetAppIndex(handlers, selected_app_package);
 
   // Make sure that the instance at least supports HandleUrl.
   auto* arc_service_manager = ArcServiceManager::Get();
@@ -601,6 +599,7 @@ void OnAppIconsReceived(
     const base::Optional<url::Origin>& initiating_origin,
     bool safe_to_bypass_ui,
     std::vector<mojom::IntentHandlerInfoPtr> handlers,
+    base::OnceCallback<void(bool)> handled_cb,
     std::unique_ptr<ArcIntentHelperBridge::ActivityToIconsMap> icons) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
@@ -623,34 +622,34 @@ void OnAppIconsReceived(
       web_contents ? chrome::FindBrowserWithWebContents(web_contents) : nullptr;
 
   if (!web_contents || !browser)
-    return;
+    return std::move(handled_cb).Run(false);
 
   const bool stay_in_chrome = IsChromeAnAppCandidate(handlers);
-  MaybeAddDevicesAndShowPicker(
+  bool handled = MaybeAddDevicesAndShowPicker(
       url, initiating_origin, web_contents, std::move(app_info), stay_in_chrome,
       /*show_remember_selection=*/true,
       base::BindOnce(OnIntentPickerClosed, render_process_host_id, routing_id,
                      url, safe_to_bypass_ui, std::move(handlers)));
+  return std::move(handled_cb).Run(handled);
 }
 
 void ShowExternalProtocolDialogWithoutApps(
     int render_process_host_id,
     int routing_id,
     const GURL& url,
-    const base::Optional<url::Origin>& initiating_origin) {
+    const base::Optional<url::Origin>& initiating_origin,
+    base::OnceCallback<void(bool)> handled_cb) {
   // Try to show the device picker and fallback to the default dialog otherwise.
-  if (MaybeAddDevicesAndShowPicker(
-          url, initiating_origin,
-          tab_util::GetWebContentsByID(render_process_host_id, routing_id),
-          /*app_info=*/{}, /*stay_in_chrome=*/false,
-          /*show_remember_selection=*/false,
-          base::BindOnce(OnIntentPickerClosed, render_process_host_id,
-                         routing_id, url, /*safe_to_bypass_ui=*/false,
-                         std::vector<mojom::IntentHandlerInfoPtr>()))) {
-    return;
-  }
+  bool handled = MaybeAddDevicesAndShowPicker(
+      url, initiating_origin,
+      tab_util::GetWebContentsByID(render_process_host_id, routing_id),
+      /*app_info=*/{}, /*stay_in_chrome=*/false,
+      /*show_remember_selection=*/false,
+      base::BindOnce(OnIntentPickerClosed, render_process_host_id, routing_id,
+                     url, /*safe_to_bypass_ui=*/false,
+                     std::vector<mojom::IntentHandlerInfoPtr>()));
 
-  ShowFallbackExternalProtocolDialog(render_process_host_id, routing_id, url);
+  return std::move(handled_cb).Run(handled);
 }
 
 // Called when ARC returned a handler list for the |url|.
@@ -659,6 +658,7 @@ void OnUrlHandlerList(int render_process_host_id,
                       const GURL& url,
                       const base::Optional<url::Origin>& initiating_origin,
                       bool safe_to_bypass_ui,
+                      base::OnceCallback<void(bool)> handled_cb,
                       std::vector<mojom::IntentHandlerInfoPtr> handlers) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
@@ -666,7 +666,8 @@ void OnUrlHandlerList(int render_process_host_id,
   if (!arc_service_manager) {
     // ARC is not running anymore. Show the Chrome OS dialog.
     ShowExternalProtocolDialogWithoutApps(render_process_host_id, routing_id,
-                                          url, initiating_origin);
+                                          url, initiating_origin,
+                                          std::move(handled_cb));
     return;
   }
 
@@ -686,7 +687,8 @@ void OnUrlHandlerList(int render_process_host_id,
   if (!instance || !intent_helper_bridge || handlers.empty() ||
       IsChromeOnlyAppCandidate(handlers)) {
     ShowExternalProtocolDialogWithoutApps(render_process_host_id, routing_id,
-                                          url, initiating_origin);
+                                          url, initiating_origin,
+                                          std::move(handled_cb));
     return;
   }
 
@@ -701,7 +703,7 @@ void OnUrlHandlerList(int render_process_host_id,
           apps::Source::kExternalProtocol,
           /*should_persist=*/false);
     }
-    return;  // the |url| has been handled.
+    return std::move(handled_cb).Run(/*handled=*/true);
   }
 
   // Otherwise, retrieve icons of the activities. Since this function is for
@@ -712,20 +714,22 @@ void OnUrlHandlerList(int render_process_host_id,
     activities.emplace_back(handler->package_name, handler->activity_name);
   }
   intent_helper_bridge->GetActivityIcons(
-      activities, base::BindOnce(OnAppIconsReceived, render_process_host_id,
-                                 routing_id, url, initiating_origin,
-                                 safe_to_bypass_ui, std::move(handlers)));
+      activities,
+      base::BindOnce(OnAppIconsReceived, render_process_host_id, routing_id,
+                     url, initiating_origin, safe_to_bypass_ui,
+                     std::move(handlers), std::move(handled_cb)));
 }
 
 }  // namespace
 
-bool RunArcExternalProtocolDialog(
+void RunArcExternalProtocolDialog(
     const GURL& url,
     const base::Optional<url::Origin>& initiating_origin,
     int render_process_host_id,
     int routing_id,
     ui::PageTransition page_transition,
-    bool has_user_gesture) {
+    bool has_user_gesture,
+    base::OnceCallback<void(bool)> handled_cb) {
   // This function is for external protocols that Chrome cannot handle.
   DCHECK(!url.SchemeIsHTTPOrHTTPS()) << url;
 
@@ -738,15 +742,16 @@ bool RunArcExternalProtocolDialog(
                                    /*allow_client_redirect=*/true)) {
     LOG(WARNING) << "RunArcExternalProtocolDialog: ignoring " << url
                  << " with PageTransition=" << masked_page_transition;
-    return false;
+    return std::move(handled_cb).Run(false);
   }
 
   auto* arc_service_manager = ArcServiceManager::Get();
   if (!arc_service_manager) {
     // ARC is either not supported or not yet ready.
     ShowExternalProtocolDialogWithoutApps(render_process_host_id, routing_id,
-                                          url, initiating_origin);
-    return true;
+                                          url, initiating_origin,
+                                          std::move(handled_cb));
+    return;
   }
 
   auto* instance = ARC_GET_INSTANCE_FOR_METHOD(
@@ -755,15 +760,16 @@ bool RunArcExternalProtocolDialog(
   if (!instance) {
     // ARC is either not supported or not yet ready.
     ShowExternalProtocolDialogWithoutApps(render_process_host_id, routing_id,
-                                          url, initiating_origin);
-    return true;
+                                          url, initiating_origin,
+                                          std::move(handled_cb));
+    return;
   }
 
   WebContents* web_contents =
       tab_util::GetWebContentsByID(render_process_host_id, routing_id);
   if (!web_contents || !web_contents->GetBrowserContext() ||
       web_contents->GetBrowserContext()->IsOffTheRecord()) {
-    return false;
+    return std::move(handled_cb).Run(/*handled=*/false);
   }
 
   const bool safe_to_bypass_ui =
@@ -772,10 +778,9 @@ bool RunArcExternalProtocolDialog(
   // Show ARC version of the dialog, which is IntentPickerBubbleView. To show
   // the bubble view, we need to ask ARC for a handler list first.
   instance->RequestUrlHandlerList(
-      url.spec(),
-      base::BindOnce(OnUrlHandlerList, render_process_host_id, routing_id, url,
-                     initiating_origin, safe_to_bypass_ui));
-  return true;
+      url.spec(), base::BindOnce(OnUrlHandlerList, render_process_host_id,
+                                 routing_id, url, initiating_origin,
+                                 safe_to_bypass_ui, std::move(handled_cb)));
 }
 
 GetActionResult GetActionForTesting(

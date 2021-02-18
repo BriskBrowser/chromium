@@ -14,7 +14,7 @@
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/interstitials/enterprise_util.h"
 #include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
-#include "chrome/browser/prerender/chrome_prerender_contents_delegate.h"
+#include "chrome/browser/prefetch/no_state_prefetch/chrome_no_state_prefetch_contents_delegate.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/safe_browsing_blocking_page.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
@@ -22,8 +22,8 @@
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "components/no_state_prefetch/browser/no_state_prefetch_contents.h"
 #include "components/prefs/pref_service.h"
-#include "components/prerender/browser/prerender_contents.h"
 #include "components/safe_browsing/content/browser/threat_details.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/safe_browsing/core/features.h"
@@ -36,6 +36,9 @@
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/web_contents.h"
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+#include "extensions/browser/process_manager.h"
+#endif
 #include "ipc/ipc_message.h"
 #include "url/gurl.h"
 
@@ -110,14 +113,15 @@ void SafeBrowsingUIManager::StartDisplayingBlockingPage(
     scoped_refptr<SafeBrowsingUIManager> ui_manager,
     const security_interstitials::UnsafeResource& resource) {
   content::WebContents* web_contents = resource.web_contents_getter.Run();
-  prerender::PrerenderContents* prerender_contents =
+  prerender::NoStatePrefetchContents* no_state_prefetch_contents =
       web_contents
-          ? prerender::ChromePrerenderContentsDelegate::FromWebContents(
+          ? prerender::ChromeNoStatePrefetchContentsDelegate::FromWebContents(
                 web_contents)
           : nullptr;
-  if (!web_contents || prerender_contents) {
-    if (prerender_contents) {
-      prerender_contents->Destroy(prerender::FINAL_STATUS_SAFE_BROWSING);
+  if (!web_contents || no_state_prefetch_contents) {
+    if (no_state_prefetch_contents) {
+      no_state_prefetch_contents->Destroy(
+          prerender::FINAL_STATUS_SAFE_BROWSING);
     }
     // Tab is gone or it's being prerendered.
     content::GetIOThreadTaskRunner({})->PostTask(
@@ -125,6 +129,27 @@ void SafeBrowsingUIManager::StartDisplayingBlockingPage(
                                   false /*showed_interstitial*/));
     return;
   }
+
+// We don't show interstitials for extension triggered SB errors, since they
+// might not be visible, and cause the extension to hang. The request is just
+// cancelled instead.
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+  extensions::ProcessManager* extension_manager =
+      extensions::ProcessManager::Get(web_contents->GetBrowserContext());
+  if (extension_manager) {
+    extensions::ExtensionHost* extension_host =
+        extension_manager->GetExtensionHostForRenderFrameHost(
+            web_contents->GetMainFrame());
+    if (extension_host) {
+      if (!resource.callback.is_null()) {
+        resource.callback_thread->PostTask(
+            FROM_HERE, base::BindOnce(resource.callback, false /* proceed */,
+                                      false /* showed_interstitial */));
+      }
+      return;
+    }
+  }
+#endif
 
   // With committed interstitials, if this is a main frame load, we need to
   // get the navigation URL and referrer URL from the navigation entry now,
@@ -180,9 +205,9 @@ void SafeBrowsingUIManager::MaybeReportSafeBrowsingHit(
 }
 
 // Static.
-void SafeBrowsingUIManager::CreateWhitelistForTesting(
+void SafeBrowsingUIManager::CreateAllowlistForTesting(
     content::WebContents* web_contents) {
-  EnsureWhitelistCreated(web_contents);
+  EnsureAllowlistCreated(web_contents);
 }
 
 void SafeBrowsingUIManager::AddObserver(Observer* observer) {
@@ -250,9 +275,9 @@ void SafeBrowsingUIManager::OnBlockingPageDone(
   }
 }
 // Static.
-GURL SafeBrowsingUIManager::GetMainFrameWhitelistUrlForResourceForTesting(
+GURL SafeBrowsingUIManager::GetMainFrameAllowlistUrlForResourceForTesting(
     const security_interstitials::UnsafeResource& resource) {
-  return GetMainFrameWhitelistUrlForResource(resource);
+  return GetMainFrameAllowlistUrlForResource(resource);
 }
 
 BaseBlockingPage* SafeBrowsingUIManager::CreateBlockingPageForSubresource(

@@ -13,7 +13,9 @@ namespace web {
 class WebState;
 }
 
+@class BubblePresenter;
 @protocol NewTabPageControllerDelegate;
+@class ViewRevealingVerticalPanHandler;
 
 // Coordinator handling the NTP.
 @interface NewTabPageCoordinator
@@ -37,12 +39,18 @@ class WebState;
 // Returns |YES| if the coordinator is started.
 @property(nonatomic, assign, getter=isStarted) BOOL started;
 
-// Dismisses all modals owned by the NTP.
-- (void)dismissModals;
+// The pan gesture handler for the view controller.
+@property(nonatomic, weak) ViewRevealingVerticalPanHandler* panGestureHandler;
 
 // Exposes content inset of contentSuggestions collectionView to ensure all of
 // content is visible under the bottom toolbar.
 @property(nonatomic, readonly) UIEdgeInsets contentInset;
+
+// Bubble presenter for displaying IPH bubbles relating to the NTP.
+@property(nonatomic, strong) BubblePresenter* bubblePresenter;
+
+// Dismisses all modals owned by the NTP.
+- (void)dismissModals;
 
 // Animates the NTP fakebox to the focused position and focuses the real
 // omnibox.
@@ -51,17 +59,31 @@ class WebState;
 // Called when a snapshot of the content will be taken.
 - (void)willUpdateSnapshot;
 
+// Stop any scrolling in the scroll view.
+- (void)stopScrolling;
+
 // The content offset of the scroll view.
 - (CGPoint)contentOffset;
 
 // Reloads the content of the NewTabPage.
 - (void)reload;
 
+// Calls when the visibility of the NTP changes.
+- (void)ntpDidChangeVisibility:(BOOL)visible;
+
 // The location bar has lost focus.
 - (void)locationBarDidResignFirstResponder;
 
 // Tell location bar has taken focus.
 - (void)locationBarDidBecomeFirstResponder;
+
+// Constrains the named layout guide for the Discover header menu button.
+- (void)constrainDiscoverHeaderMenuButtonNamedGuide;
+
+// Handles device rotation logic.
+// TODO(crbug.com/1177953): Detect device rotation in NewTabPageViewController.
+- (void)handleDeviceRotation;
+
 @end
 
 #endif  // IOS_CHROME_BROWSER_UI_NTP_NEW_TAB_PAGE_COORDINATOR_H_

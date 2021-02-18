@@ -4,7 +4,6 @@
 
 #include "base/trace_event/trace_log.h"
 
-#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <memory>
@@ -17,12 +16,12 @@
 #include "base/debug/leak_annotations.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/no_destructor.h"
 #include "base/process/process.h"
 #include "base/process/process_metrics.h"
+#include "base/ranges/algorithm.h"
 #include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
@@ -138,11 +137,12 @@ class AutoThreadLocalBoolean {
     DCHECK(!thread_local_boolean_->Get());
     thread_local_boolean_->Set(true);
   }
+  AutoThreadLocalBoolean(const AutoThreadLocalBoolean&) = delete;
+  AutoThreadLocalBoolean& operator=(const AutoThreadLocalBoolean&) = delete;
   ~AutoThreadLocalBoolean() { thread_local_boolean_->Set(false); }
 
  private:
   ThreadLocalBoolean* thread_local_boolean_;
-  DISALLOW_COPY_AND_ASSIGN(AutoThreadLocalBoolean);
 };
 
 // Use this function instead of TraceEventHandle constructor to keep the
@@ -186,7 +186,10 @@ bool DefaultIsTraceEventArgsAllowlisted(
 // and unlocks at the end of scope if locked.
 class TraceLog::OptionalAutoLock {
  public:
-  explicit OptionalAutoLock(Lock* lock) : lock_(lock), locked_(false) {}
+  explicit OptionalAutoLock(Lock* lock) : lock_(lock) {}
+
+  OptionalAutoLock(const OptionalAutoLock&) = delete;
+  OptionalAutoLock& operator=(const OptionalAutoLock&) = delete;
 
   ~OptionalAutoLock() {
     if (locked_)
@@ -204,8 +207,7 @@ class TraceLog::OptionalAutoLock {
 
  private:
   Lock* lock_;
-  bool locked_;
-  DISALLOW_COPY_AND_ASSIGN(OptionalAutoLock);
+  bool locked_ = false;
 };
 
 class TraceLog::ThreadLocalEventBuffer
@@ -213,6 +215,8 @@ class TraceLog::ThreadLocalEventBuffer
       public MemoryDumpProvider {
  public:
   explicit ThreadLocalEventBuffer(TraceLog* trace_log);
+  ThreadLocalEventBuffer(const ThreadLocalEventBuffer&) = delete;
+  ThreadLocalEventBuffer& operator=(const ThreadLocalEventBuffer&) = delete;
   ~ThreadLocalEventBuffer() override;
 
   TraceEvent* AddTraceEvent(TraceEventHandle* handle);
@@ -246,15 +250,12 @@ class TraceLog::ThreadLocalEventBuffer
   // as long as the thread exists.
   TraceLog* trace_log_;
   std::unique_ptr<TraceBufferChunk> chunk_;
-  size_t chunk_index_;
+  size_t chunk_index_ = 0;
   int generation_;
-
-  DISALLOW_COPY_AND_ASSIGN(ThreadLocalEventBuffer);
 };
 
 TraceLog::ThreadLocalEventBuffer::ThreadLocalEventBuffer(TraceLog* trace_log)
     : trace_log_(trace_log),
-      chunk_index_(0),
       generation_(trace_log->generation()) {
   // ThreadLocalEventBuffer is created only if the thread has a message loop, so
   // the following message_loop won't be NULL.
@@ -397,15 +398,6 @@ TraceLog::TraceLog()
   SetProcessID(0);
 #else
   SetProcessID(static_cast<int>(GetCurrentProcId()));
-#endif
-
-// Linux renderer processes and Android O processes are not allowed to read
-// "proc/stat" file, crbug.com/788870.
-#if defined(OS_WIN) || defined(OS_MAC)
-  process_creation_time_ = Process::Current().CreationTime();
-#else
-  // Use approximate time when creation time is not available.
-  process_creation_time_ = TRACE_TIME_NOW();
 #endif
 
   logged_events_.reset(CreateTraceBuffer());
@@ -557,7 +549,7 @@ void TraceLog::CreateFiltersForTraceConfig() {
     const std::string& predicate_name = filter_config.predicate_name();
     if (predicate_name == EventNameFilter::kName) {
       auto whitelist = std::make_unique<std::unordered_set<std::string>>();
-      CHECK(filter_config.GetArgAsSet("event_name_whitelist", &*whitelist));
+      CHECK(filter_config.GetArgAsSet("event_name_allowlist", &*whitelist));
       new_filter = std::make_unique<EventNameFilter>(std::move(whitelist));
     } else if (predicate_name == HeapProfilerEventFilter::kName) {
       new_filter = std::make_unique<HeapProfilerEventFilter>();
@@ -777,8 +769,7 @@ void TraceLog::AddEnabledStateObserver(EnabledStateObserver* listener) {
 void TraceLog::RemoveEnabledStateObserver(EnabledStateObserver* listener) {
   AutoLock lock(observers_lock_);
   enabled_state_observers_.erase(
-      std::remove(enabled_state_observers_.begin(),
-                  enabled_state_observers_.end(), listener),
+      ranges::remove(enabled_state_observers_, listener),
       enabled_state_observers_.end());
 }
 
@@ -1579,15 +1570,6 @@ void TraceLog::AddMetadataEventsWhileLocked() {
                                 "sort_index", process_sort_index_);
   }
 
-  if (!process_name_.empty()) {
-    AddMetadataEventWhileLocked(current_thread_id, "process_name", "name",
-                                process_name_);
-  }
-
-  TimeDelta process_uptime = TRACE_TIME_NOW() - process_creation_time_;
-  AddMetadataEventWhileLocked(current_thread_id, "process_uptime_seconds",
-                              "uptime", process_uptime.InSeconds());
-
 #if defined(OS_ANDROID)
   AddMetadataEventWhileLocked(current_thread_id, "chrome_library_address",
                               "start_address",
@@ -1615,16 +1597,6 @@ void TraceLog::AddMetadataEventsWhileLocked() {
       continue;
     AddMetadataEventWhileLocked(it.first, "thread_sort_index", "sort_index",
                                 it.second);
-  }
-
-  // TODO(ssid): Stop emitting and tracking thread names when perfetto is
-  // enabled and after crbug/978093 if fixed. The JSON exporter will emit thread
-  // names from thread descriptors.
-  AutoLock thread_info_lock(thread_info_lock_);
-  for (const auto& it : thread_names_) {
-    if (it.second.empty())
-      continue;
-    AddMetadataEventWhileLocked(it.first, "thread_name", "name", it.second);
   }
 
   // If buffer is full, add a metadata record to report this.
@@ -1900,6 +1872,7 @@ void UpdateTraceEventDurationExplicit(
                                          thread_now, thread_instruction_now);
 }
 
+#if !BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
 ScopedTraceBinaryEfficient::ScopedTraceBinaryEfficient(
     const char* category_group,
     const char* name) {
@@ -1926,5 +1899,6 @@ ScopedTraceBinaryEfficient::~ScopedTraceBinaryEfficient() {
                                                 event_handle_);
   }
 }
+#endif  // !BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
 
 }  // namespace trace_event_internal

@@ -4,9 +4,7 @@
 
 #include "third_party/blink/renderer/core/paint/element_timing_utils.h"
 
-#include "third_party/blink/public/platform/web_float_rect.h"
-#include "third_party/blink/public/web/web_widget_client.h"
-#include "third_party/blink/renderer/core/frame/web_frame_widget_base.h"
+#include "third_party/blink/renderer/core/frame/web_frame_widget_impl.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
@@ -28,12 +26,10 @@ FloatRect ElementTimingUtils::ComputeIntersectionRect(
                                                 ->FirstFragment()
                                                 .LocalBorderBoxProperties(),
                                             visual_rect);
-  WebFloatRect intersection_rect = visual_rect.Rect();
-  WebFrameWidgetBase* widget =
+  WebFrameWidgetImpl* widget =
       WebLocalFrameImpl::FromFrame(frame)->LocalRootFrameWidget();
   DCHECK(widget);
-  widget->Client()->ConvertViewportToWindow(&intersection_rect);
-  return intersection_rect;
+  return FloatRect(widget->BlinkSpaceToDIPs(visual_rect.Rect()));
 }
 
 }  // namespace blink

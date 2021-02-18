@@ -9,6 +9,7 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/policy/core/common/cloud/mock_cloud_policy_client.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -33,7 +34,7 @@ class ReportUploaderTest : public ::testing::Test {
   // Different CloudPolicyClient proxy function will be used in test cases based
   // on the current operation system. They share same retry and error handling
   // behaviors provided by ReportUploader.
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #define UploadReportProxy UploadChromeOsUserReportProxy
 #else
 #define UploadReportProxy UploadChromeDesktopReportProxy
@@ -296,6 +297,6 @@ INSTANTIATE_TEST_SUITE_P(
     ReportUploaderTestWithTransientError,
     ::testing::Values(policy::DM_STATUS_REQUEST_FAILED,
                       policy::DM_STATUS_TEMPORARY_UNAVAILABLE,
-                      policy::DM_STATUS_SERVICE_DEVICE_ID_CONFLICT));
+                      policy::DM_STATUS_SERVICE_TOO_MANY_REQUESTS));
 
 }  // namespace enterprise_reporting

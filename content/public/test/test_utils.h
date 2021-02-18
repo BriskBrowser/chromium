@@ -95,6 +95,18 @@ bool AreAllSitesIsolatedForTesting();
 // to mark expectations specific to default SiteInstances.
 bool AreDefaultSiteInstancesEnabled();
 
+// Returns true if the process model only allows a SiteInstance to contain
+// a single site.
+bool AreStrictSiteInstancesEnabled();
+
+// Returns true if a test needs to register an origin for isolation to ensure
+// that navigations, for that origin, are placed in a dedicated process. Some
+// process model modes allow sites to share a process if they are not isolated.
+// This helper indicates when such a mode is in use and indicates the test must
+// register an isolated origin to ensure the origin gets placed in its own
+// process.
+bool IsIsolatedOriginRequiredToGuaranteeDedicatedProcess();
+
 // Appends --site-per-process to the command line, enabling tests to exercise
 // site isolation and cross-process iframes. This must be called early in
 // the test; the flag will be read on the first real navigation.
@@ -134,6 +146,11 @@ WebContents* CreateAndAttachInnerContents(RenderFrameHost* rfh);
 
 // Spins a run loop until IsDocumentOnLoadCompletedInMainFrame() is true.
 void AwaitDocumentOnLoadCompleted(WebContents* web_contents);
+
+// Resets the font enumeration cache for use between tests. Tests that use
+// BrowserTaskEnvironment can leave the font enumeration cache in a bad state,
+// due to the task environment getting torn down by ~BrowserTaskEnvironment.
+void ResetFontEnumerationCache();
 
 // Helper class to Run and Quit the message loop. Run and Quit can only happen
 // once per instance. Make a new instance for each use. Calling Quit after Run
@@ -311,8 +328,8 @@ class InProcessUtilityThreadHelper : public BrowserChildProcessObserver {
   DISALLOW_COPY_AND_ASSIGN(InProcessUtilityThreadHelper);
 };
 
-// This observer keeps track of the last deleted RenderFrame to avoid
-// accessing it and causing use-after-free condition.
+// This observer keeps tracks of whether a given RenderFrameHost is deleted or
+// not to avoid accessing it and causing use-after-free condition.
 class RenderFrameDeletedObserver : public WebContentsObserver {
  public:
   RenderFrameDeletedObserver(RenderFrameHost* rfh);

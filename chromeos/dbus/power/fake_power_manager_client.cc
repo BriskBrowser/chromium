@@ -9,11 +9,13 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
+#include "base/containers/contains.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/posix/unix_domain_socket.h"
+#include "base/strings/string_util.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
@@ -69,6 +71,11 @@ base::TimeDelta ClockNow(clockid_t clk_id) {
     return base::TimeDelta();
   }
   return base::TimeDelta::FromTimeSpec(ts);
+}
+
+std::string SysnameFromBluetoothAddress(const std::string& address) {
+  return "/sys/class/power_supply/hid-" + base::ToLowerASCII(address) +
+         "-battery";
 }
 
 }  // namespace
@@ -167,6 +174,8 @@ void FakePowerManagerClient::RequestStatusUpdate() {
       FROM_HERE, base::BindOnce(&FakePowerManagerClient::NotifyObservers,
                                 weak_ptr_factory_.GetWeakPtr()));
 }
+
+void FakePowerManagerClient::RequestThermalState() {}
 
 void FakePowerManagerClient::RequestSuspend() {}
 
@@ -373,6 +382,18 @@ void FakePowerManagerClient::DeleteArcTimers(const std::string& tag,
 
 base::TimeDelta FakePowerManagerClient::GetDarkSuspendDelayTimeout() {
   return kDarkSuspendDelayTimeout;
+}
+
+void FakePowerManagerClient::RefreshBluetoothBattery(
+    const std::string& address) {
+  if (!base::Contains(peripheral_battery_refresh_levels_, address))
+    return;
+
+  for (auto& observer : observers_) {
+    observer.PeripheralBatteryStatusReceived(
+        SysnameFromBluetoothAddress(address), "somename",
+        peripheral_battery_refresh_levels_[address]);
+  }
 }
 
 bool FakePowerManagerClient::PopVideoActivityReport() {

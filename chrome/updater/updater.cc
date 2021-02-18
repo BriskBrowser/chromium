@@ -13,7 +13,6 @@
 #include "build/build_config.h"
 #include "chrome/updater/app/app.h"
 #include "chrome/updater/app/app_install.h"
-#include "chrome/updater/app/app_register.h"
 #include "chrome/updater/app/app_uninstall.h"
 #include "chrome/updater/app/app_update.h"
 #include "chrome/updater/app/app_wake.h"
@@ -36,8 +35,8 @@
 
 // Instructions For Windows.
 // - To install only the updater, run "updatersetup.exe" from the build out dir.
-// - To install Chrome and the updater, do the same but use the --appid:
-//    updatersetup.exe --appid={8A69D345-D564-463c-AFF1-A69D9E530F96}
+// - To install Chrome and the updater, do the same but use the --app-id:
+//    updatersetup.exe --app-id={8A69D345-D564-463c-AFF1-A69D9E530F96}
 // - To uninstall, run "updater.exe --uninstall" from its install directory,
 // which is under %LOCALAPPDATA%\Google\GoogleUpdater, or from the |out|
 // directory of the build.
@@ -104,19 +103,19 @@ int HandleUpdaterCommands(const base::CommandLine* command_line) {
   if (command_line->HasSwitch(kUpdateSwitch))
     return MakeAppUpdate()->Run();
 
-  if (command_line->HasSwitch(kRegisterSwitch) &&
-      command_line->HasSwitch(kAppIdSwitch))
-    return MakeAppRegister()->Run();
-
 #if defined(OS_WIN)
   if (command_line->HasSwitch(kComServiceSwitch))
     return ServiceMain::RunComService(command_line);
-
-  if (command_line->HasSwitch(kInstallSwitch))
-    return MakeAppInstall()->Run();
 #endif  // OS_WIN
 
-  if (command_line->HasSwitch(kUninstallSwitch))
+  if (command_line->HasSwitch(kInstallSwitch) ||
+      command_line->HasSwitch(kTagSwitch)) {
+    return MakeAppInstall()->Run();
+  }
+
+  if (command_line->HasSwitch(kUninstallSwitch) ||
+      command_line->HasSwitch(kUninstallSelfSwitch) ||
+      command_line->HasSwitch(kUninstallIfUnusedSwitch))
     return MakeAppUninstall()->Run();
 
   if (command_line->HasSwitch(kWakeSwitch)) {

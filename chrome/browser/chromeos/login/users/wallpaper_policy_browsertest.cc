@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include "ash/constants/ash_paths.h"
+#include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/wallpaper_controller_observer.h"
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -21,6 +23,7 @@
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/threading/thread_restrictions.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/login/login_manager_test.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/login/test/device_state_mixin.h"
@@ -32,13 +35,10 @@
 #include "chrome/browser/chromeos/policy/cloud_external_data_manager_base_test_util.h"
 #include "chrome/browser/chromeos/policy/device_policy_builder.h"
 #include "chrome/browser/chromeos/policy/user_cloud_policy_manager_chromeos.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/ash/wallpaper_controller_client.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
 #include "chrome/common/chrome_paths.h"
-#include "chromeos/constants/chromeos_paths.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "chromeos/cryptohome/system_salt_getter.h"
 #include "chromeos/dbus/constants/dbus_paths.h"
@@ -91,7 +91,7 @@ policy::CloudPolicyStore* GetStoreForUser(const user_manager::User* user) {
   return policy_manager->core()->store();
 }
 
-// Compute the average ARGB color of |bitmap|.
+// Compute the average ARGB color of `bitmap`.
 SkColor ComputeAverageColor(const SkBitmap& bitmap) {
   if (bitmap.empty() || bitmap.width() < 1 || bitmap.height() < 1) {
     ADD_FAILURE() << "Empty or invalid bitmap.";
@@ -249,8 +249,8 @@ class WallpaperPolicyTest : public LoginManagerTest,
     return policy;
   }
 
-  // Inject |filename| as wallpaper policy for test user |user_number|.  Set
-  // empty |filename| to clear policy.
+  // Inject `filename` as wallpaper policy for test user `user_number`.  Set
+  // empty `filename` to clear policy.
   void InjectPolicy(int user_number, const std::string& filename) {
     ASSERT_TRUE(user_number == 0 || user_number == 1);
     const AccountId& account_id =
@@ -278,7 +278,7 @@ class WallpaperPolicyTest : public LoginManagerTest,
               store->validation_status());
   }
 
-  // Inject |filename| as the device wallpaper policy. Set empty |filename| to
+  // Inject `filename` as the device wallpaper policy. Set empty `filename` to
   // clear policy.
   void InjectDevicePolicy(const std::string& filename) {
     if (!filename.empty()) {

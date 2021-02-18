@@ -6,18 +6,27 @@
 
 #include <memory>
 
+#include "base/check_op.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/vector_icons/vector_icons.h"
-#include "chrome/browser/payments/ssl_validity_checker.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
+#include "chrome/browser/ui/omnibox/omnibox_theme.h"
 #include "chrome/browser/ui/views/payments/payment_request_dialog_view.h"
 #include "chrome/browser/ui/views/payments/payment_request_views_util.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/omnibox/browser/location_bar_model_util.h"
 #include "components/payments/content/icon/icon_size.h"
+#include "components/payments/content/payment_handler_navigation_throttle.h"
+#include "components/payments/content/ssl_validity_checker.h"
+#include "components/payments/core/features.h"
 #include "components/payments/core/native_error_strings.h"
+#include "components/payments/core/payments_experimental_features.h"
 #include "components/payments/core/url_util.h"
+#include "components/security_state/core/security_state.h"
+#include "components/vector_icons/vector_icons.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "components/web_modal/web_contents_modal_dialog_manager_delegate.h"
 #include "content/public/browser/navigation_handle.h"
@@ -29,6 +38,7 @@
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/image/image_skia.h"
+#include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/image_view.h"
@@ -38,6 +48,8 @@
 #include "ui/views/controls/webview/webview.h"
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/layout/grid_layout.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace payments {
 namespace {
@@ -60,11 +72,13 @@ base::string16 GetPaymentHandlerDialogTitle(
 
 class ReadOnlyOriginView : public views::View {
  public:
+  METADATA_HEADER(ReadOnlyOriginView);
   ReadOnlyOriginView(const base::string16& page_title,
                      const GURL& origin,
                      const SkBitmap* icon_bitmap,
-                     SkColor background_color,
-                     views::ButtonListener* site_settings_listener) {
+                     Profile* profile,
+                     security_state::SecurityLevel security_level,
+                     SkColor background_color) {
     auto title_origin_container = std::make_unique<views::View>();
     SkColor foreground = color_utils::GetColorWithMaxContrast(background_color);
     views::GridLayout* title_origin_layout =
@@ -90,8 +104,31 @@ class ReadOnlyOriginView : public views::View {
       title_label->SetEnabledColor(foreground);
     }
 
-    title_origin_layout->StartRow(views::GridLayout::kFixedSize, 0);
-    auto* origin_label = title_origin_layout->AddView(
+    auto origin_container = std::make_unique<views::View>();
+    views::GridLayout* origin_layout = origin_container->SetLayoutManager(
+        std::make_unique<views::GridLayout>());
+
+    columns = origin_layout->AddColumnSet(0);
+    columns->AddColumn(views::GridLayout::LEADING, views::GridLayout::CENTER,
+                       1.0, views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
+    if (PaymentsExperimentalFeatures::IsEnabled(
+            features::kPaymentHandlerSecurityIcon))
+      columns->AddPaddingColumn(views::GridLayout::kFixedSize, 4);
+    columns->AddColumn(views::GridLayout::LEADING, views::GridLayout::LEADING,
+                       1.0, views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
+    origin_layout->StartRow(views::GridLayout::kFixedSize, 0);
+    if (PaymentsExperimentalFeatures::IsEnabled(
+            features::kPaymentHandlerSecurityIcon)) {
+      auto security_icon = std::make_unique<views::ImageView>();
+      const ui::ThemeProvider& theme_provider =
+          ThemeService::GetThemeProviderForProfile(profile);
+      security_icon->SetImage(gfx::CreateVectorIcon(
+          location_bar_model::GetSecurityVectorIcon(security_level), 16,
+          GetOmniboxSecurityChipColor(&theme_provider, security_level)));
+      security_icon->SetID(static_cast<int>(DialogViewID::SECURITY_ICON_VIEW));
+      origin_layout->AddView(std::move(security_icon));
+    }
+    auto* origin_label = origin_layout->AddView(
         std::make_unique<views::Label>(base::UTF8ToUTF16(origin.host())));
     origin_label->SetElideBehavior(gfx::ELIDE_HEAD);
     if (!title_is_valid) {
@@ -108,6 +145,8 @@ class ReadOnlyOriginView : public views::View {
     origin_label->SetAutoColorReadabilityEnabled(false);
     origin_label->SetEnabledColor(foreground);
     origin_label->SetBackgroundColor(background_color);
+    title_origin_layout->StartRow(views::GridLayout::kFixedSize, 0);
+    title_origin_layout->AddView(std::move(origin_container));
 
     views::GridLayout* top_level_layout =
         SetLayoutManager(std::make_unique<views::GridLayout>());
@@ -149,10 +188,13 @@ class ReadOnlyOriginView : public views::View {
   ~ReadOnlyOriginView() override = default;
 };
 
+BEGIN_METADATA(ReadOnlyOriginView, views::View)
+END_METADATA
+
 PaymentHandlerWebFlowViewController::PaymentHandlerWebFlowViewController(
-    PaymentRequestSpec* spec,
-    PaymentRequestState* state,
-    PaymentRequestDialogView* dialog,
+    base::WeakPtr<PaymentRequestSpec> spec,
+    base::WeakPtr<PaymentRequestState> state,
+    base::WeakPtr<PaymentRequestDialogView> dialog,
     content::WebContents* payment_request_web_contents,
     Profile* profile,
     GURL target,
@@ -171,8 +213,7 @@ PaymentHandlerWebFlowViewController::PaymentHandlerWebFlowViewController(
       dialog_manager_delegate_(
           static_cast<web_modal::WebContentsModalDialogManagerDelegate*>(
               chrome::FindBrowserWithWebContents(payment_request_web_contents))
-              ->GetWebContentsModalDialogHost()) {
-}
+              ->GetWebContentsModalDialogHost()) {}
 
 PaymentHandlerWebFlowViewController::~PaymentHandlerWebFlowViewController() {
   state()->OnPaymentAppWindowClosed();
@@ -205,7 +246,14 @@ void PaymentHandlerWebFlowViewController::FillContentView(
   auto* web_view =
       content_view->AddChildView(std::make_unique<views::WebView>(profile_));
   Observe(web_view->GetWebContents());
+  PaymentHandlerNavigationThrottle::MarkPaymentHandlerWebContents(
+      web_contents());
   web_contents()->SetDelegate(this);
+  DCHECK_NE(log_.web_contents(), web_contents());
+  content::PaymentAppProvider::GetOrCreateForWebContents(
+      /*payment_request_web_contents=*/log_.web_contents())
+      ->SetOpenedWindow(
+          /*payment_handler_web_contents=*/web_contents());
   web_view->LoadInitialURL(target_);
 
   // Enable modal dialogs for web-based payment handlers.
@@ -224,6 +272,10 @@ void PaymentHandlerWebFlowViewController::FillContentView(
       gfx::Size(0, dialog()->GetActualPaymentHandlerDialogHeight() - 75));
 }
 
+bool PaymentHandlerWebFlowViewController::ShouldShowPrimaryButton() {
+  return false;
+}
+
 bool PaymentHandlerWebFlowViewController::ShouldShowSecondaryButton() {
   return false;
 }
@@ -238,7 +290,10 @@ PaymentHandlerWebFlowViewController::CreateHeaderContentView(
       GetHeaderBackground(header_view);
   return std::make_unique<ReadOnlyOriginView>(
       GetPaymentHandlerDialogTitle(web_contents()), origin,
-      state()->selected_app()->icon_bitmap(), background->get_color(), this);
+      state()->selected_app()->icon_bitmap(), profile_,
+      web_contents() ? SslValidityChecker::GetSecurityLevel(web_contents())
+                     : security_state::NONE,
+      background->get_color());
 }
 
 std::unique_ptr<views::Background>
@@ -267,8 +322,11 @@ bool PaymentHandlerWebFlowViewController::
 void PaymentHandlerWebFlowViewController::VisibleSecurityStateChanged(
     content::WebContents* source) {
   DCHECK_EQ(source, web_contents());
-  if (!SslValidityChecker::IsValidPageInPaymentHandlerWindow(source))
+  if (!SslValidityChecker::IsValidPageInPaymentHandlerWindow(source)) {
     AbortPayment();
+  } else {
+    UpdateHeaderView();
+  }
 }
 
 void PaymentHandlerWebFlowViewController::DidStartNavigation(

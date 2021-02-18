@@ -126,13 +126,15 @@ class MODULES_EXPORT MediaStream final
 
   // MediaStreamDescriptorClient implementation
   void StreamEnded() override;
-  void AddTrackByComponentAndFireEvents(MediaStreamComponent*) override;
-  void RemoveTrackByComponentAndFireEvents(MediaStreamComponent*) override;
+  void AddTrackByComponentAndFireEvents(MediaStreamComponent*,
+                                        DispatchEventTiming) override;
+  void RemoveTrackByComponentAndFireEvents(MediaStreamComponent*,
+                                           DispatchEventTiming) override;
 
   // Adds the track and, unlike JavaScript-invoked addTrack(), fires related
-  // events like "onaddtrack".
-  void AddTrackAndFireEvents(MediaStreamTrack*);
-  void RemoveTrackAndFireEvents(MediaStreamTrack*);
+  // events like "onaddtrack" either synchronously or in a scheduled event.
+  void AddTrackAndFireEvents(MediaStreamTrack*, DispatchEventTiming);
+  void RemoveTrackAndFireEvents(MediaStreamTrack*, DispatchEventTiming);
 
   void AddRemoteTrack(MediaStreamTrack*);
   void RemoveRemoteTrack(MediaStreamTrack*);
@@ -175,7 +177,7 @@ class MODULES_EXPORT MediaStream final
   // including image capture for video tracks.
   base::OnceCallback<void(MediaStream*)> media_stream_initialized_callback_;
 
-  TaskRunnerTimer<MediaStream> scheduled_event_timer_;
+  HeapTaskRunnerTimer<MediaStream> scheduled_event_timer_;
   HeapVector<Member<Event>> scheduled_events_;
 
   uint32_t number_of_video_tracks_initialized_ = 0;

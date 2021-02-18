@@ -22,14 +22,16 @@
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/layout/grid_layout.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/painter.h"
 
 namespace payments {
 
 namespace {
 
-// This event is used to pass to ButtonPressed when its event parameter doesn't
-// matter, only the sender.
+// This event is used to run the Button callback when its event parameter
+// doesn't matter, only the sender.
 class DummyEvent : public ui::Event {
  public:
   DummyEvent() : ui::Event(ui::ET_UNKNOWN, base::TimeTicks(), 0) {}
@@ -45,8 +47,9 @@ class DummyEvent : public ui::Event {
 // this SheetView's RequestFocus() is called.
 class SheetView : public views::View, public views::FocusTraversable {
  public:
-  explicit SheetView(
-      const base::Callback<void(bool*)>& enter_key_accelerator_callback)
+  METADATA_HEADER(SheetView);
+  explicit SheetView(const base::RepeatingCallback<void(bool*)>&
+                         enter_key_accelerator_callback)
       : enter_key_accelerator_callback_(enter_key_accelerator_callback) {
     if (enter_key_accelerator_callback_)
       AddAccelerator(enter_key_accelerator_);
@@ -126,14 +129,19 @@ class SheetView : public views::View, public views::FocusTraversable {
                                            /*cycle=*/true,
                                            /*accessibility_mode=*/false);
   ui::Accelerator enter_key_accelerator_{ui::VKEY_RETURN, ui::EF_NONE};
-  base::Callback<void(bool*)> enter_key_accelerator_callback_;
+  base::RepeatingCallback<void(bool*)> enter_key_accelerator_callback_;
 };
+
+BEGIN_METADATA(SheetView, views::View)
+END_METADATA
 
 // A scroll view that displays a separator on the bounds where content is
 // scrolled out of view. For example, if the view can be scrolled up to reveal
 // more content, the top of the content area will display a separator.
 class BorderedScrollView : public views::ScrollView {
  public:
+  METADATA_HEADER(BorderedScrollView);
+
   // The painter used by the scroll view to display the border.
   class BorderedScrollViewBorderPainter : public views::Painter {
    public:
@@ -151,12 +159,12 @@ class BorderedScrollView : public views::ScrollView {
     gfx::Size GetMinimumSize() const override { return gfx::Size(0, 2); }
 
     void Paint(gfx::Canvas* canvas, const gfx::Size& size) override {
-      if (scroll_view_->HasTopBorder()) {
+      if (scroll_view_->GetTopBorder()) {
         canvas->Draw1pxLine(gfx::PointF(), gfx::PointF(size.width(), 0),
                             color_);
       }
 
-      if (scroll_view_->HasBottomBorder()) {
+      if (scroll_view_->GetBottomBorder()) {
         canvas->Draw1pxLine(gfx::PointF(0, size.height() - 1),
                             gfx::PointF(size.width(), size.height() - 1),
                             color_);
@@ -180,9 +188,9 @@ class BorderedScrollView : public views::ScrollView {
         gfx::Insets(1, 0)));
   }
 
-  bool HasTopBorder() const { return GetVisibleRect().y() > 0; }
+  bool GetTopBorder() const { return GetVisibleRect().y() > 0; }
 
-  bool HasBottomBorder() const {
+  bool GetBottomBorder() const {
     return GetVisibleRect().bottom() < contents()->height();
   }
 
@@ -193,12 +201,17 @@ class BorderedScrollView : public views::ScrollView {
   }
 };
 
+BEGIN_METADATA(BorderedScrollView, views::ScrollView)
+ADD_READONLY_PROPERTY_METADATA(bool, TopBorder)
+ADD_READONLY_PROPERTY_METADATA(bool, BottomBorder)
+END_METADATA
+
 }  // namespace
 
 PaymentRequestSheetController::PaymentRequestSheetController(
-    PaymentRequestSpec* spec,
-    PaymentRequestState* state,
-    PaymentRequestDialogView* dialog)
+    base::WeakPtr<PaymentRequestSpec> spec,
+    base::WeakPtr<PaymentRequestState> state,
+    base::WeakPtr<PaymentRequestDialogView> dialog)
     : spec_(spec), state_(state), dialog_(dialog) {}
 
 PaymentRequestSheetController::~PaymentRequestSheetController() = default;
@@ -210,10 +223,10 @@ std::unique_ptr<views::View> PaymentRequestSheetController::CreateView() {
   std::unique_ptr<views::View> footer = CreateFooterView();
   auto view = std::make_unique<SheetView>(
       primary_button_
-          ? base::Bind(
+          ? base::BindRepeating(
                 &PaymentRequestSheetController::PerformPrimaryButtonAction,
                 weak_ptr_factory_.GetWeakPtr())
-          : base::Callback<void(bool*)>());
+          : base::RepeatingCallback<void(bool*)>());
 
   DialogViewID sheet_id;
   if (GetSheetId(&sheet_id))
@@ -236,9 +249,11 @@ std::unique_ptr<views::View> PaymentRequestSheetController::CreateView() {
 
   layout->StartRow(views::GridLayout::kFixedSize, 0);
   header_view_ = layout->AddView(std::make_unique<views::View>());
-  PopulateSheetHeaderView(ShouldShowHeaderBackArrow(),
-                          CreateHeaderContentView(header_view_), this,
-                          header_view_, GetHeaderBackground(header_view_));
+  PopulateSheetHeaderView(
+      ShouldShowHeaderBackArrow(), CreateHeaderContentView(header_view_),
+      base::BindRepeating(&PaymentRequestSheetController::BackButtonPressed,
+                          base::Unretained(this)),
+      header_view_, GetHeaderBackground(header_view_));
 
   layout->StartRow(views::GridLayout::kFixedSize, 0);
   header_content_separator_container_ =
@@ -253,7 +268,8 @@ std::unique_ptr<views::View> PaymentRequestSheetController::CreateView() {
   scroll_ = layout->AddView(DisplayDynamicBorderForHiddenContents()
                                 ? std::make_unique<BorderedScrollView>()
                                 : std::make_unique<views::ScrollView>());
-  scroll_->SetHideHorizontalScrollBar(true);
+  scroll_->SetHorizontalScrollBarMode(
+      views::ScrollView::ScrollBarMode::kDisabled);
   pane_ = scroll_->SetContents(std::make_unique<views::View>());
   views::GridLayout* pane_layout =
       pane_->SetLayoutManager(std::make_unique<views::GridLayout>());
@@ -284,16 +300,26 @@ std::unique_ptr<views::View> PaymentRequestSheetController::CreateView() {
 }
 
 void PaymentRequestSheetController::UpdateContentView() {
+  // Do not update the view if the payment request is being aborted.
+  if (!is_active_)
+    return;
+
   content_view_->RemoveAllChildViews(true);
   FillContentView(content_view_);
   RelayoutPane();
 }
 
 void PaymentRequestSheetController::UpdateHeaderView() {
+  // Do not update the view if the payment request is being aborted.
+  if (!is_active_)
+    return;
+
   header_view_->RemoveAllChildViews(true);
-  PopulateSheetHeaderView(ShouldShowHeaderBackArrow(),
-                          CreateHeaderContentView(header_view_), this,
-                          header_view_, GetHeaderBackground(header_view_));
+  PopulateSheetHeaderView(
+      ShouldShowHeaderBackArrow(), CreateHeaderContentView(header_view_),
+      base::BindRepeating(&PaymentRequestSheetController::BackButtonPressed,
+                          base::Unretained(this)),
+      header_view_, GetHeaderBackground(header_view_));
   header_view_->Layout();
   header_view_->SchedulePaint();
 }
@@ -313,6 +339,10 @@ void PaymentRequestSheetController::UpdateFocus(views::View* focused_view) {
 }
 
 void PaymentRequestSheetController::RelayoutPane() {
+  // Do not update the view if the payment request is being aborted.
+  if (!is_active_)
+    return;
+
   content_view_->Layout();
   pane_->SizeToPreferredSize();
   // Now that the content and its surrounding pane are updated, force a Layout
@@ -320,25 +350,52 @@ void PaymentRequestSheetController::RelayoutPane() {
   scroll_->Layout();
 }
 
-std::unique_ptr<views::Button>
-PaymentRequestSheetController::CreatePrimaryButton() {
-  return nullptr;
+bool PaymentRequestSheetController::ShouldShowPrimaryButton() {
+  return true;
+}
+
+base::string16 PaymentRequestSheetController::GetPrimaryButtonLabel() {
+  const bool continue_button =
+      state()->selected_app() &&
+      state()->selected_app()->type() != PaymentApp::Type::AUTOFILL;
+  return l10n_util::GetStringUTF16(
+      continue_button ? IDS_PAYMENTS_CONTINUE_BUTTON : IDS_PAYMENTS_PAY_BUTTON);
+}
+
+views::Button::PressedCallback
+PaymentRequestSheetController::GetPrimaryButtonCallback() {
+  return base::BindRepeating(
+      [](const base::WeakPtr<PaymentRequestDialogView>& dialog) {
+        if (dialog->IsInteractive())
+          dialog->Pay();
+      },
+      dialog());
+}
+
+int PaymentRequestSheetController::GetPrimaryButtonId() {
+  return static_cast<int>(DialogViewID::PAY_BUTTON);
+}
+
+bool PaymentRequestSheetController::GetPrimaryButtonEnabled() {
+  return state()->is_ready_to_pay();
+}
+
+bool PaymentRequestSheetController::ShouldShowSecondaryButton() {
+  return true;
 }
 
 base::string16 PaymentRequestSheetController::GetSecondaryButtonLabel() {
   return l10n_util::GetStringUTF16(IDS_PAYMENTS_CANCEL_PAYMENT);
 }
 
-int PaymentRequestSheetController::GetSecondaryButtonTag() {
-  return static_cast<int>(PaymentRequestCommonTags::CLOSE_BUTTON_TAG);
+views::Button::PressedCallback
+PaymentRequestSheetController::GetSecondaryButtonCallback() {
+  return base::BindRepeating(&PaymentRequestSheetController::CloseButtonPressed,
+                             base::Unretained(this));
 }
 
 int PaymentRequestSheetController::GetSecondaryButtonId() {
   return static_cast<int>(DialogViewID::CANCEL_BUTTON);
-}
-
-bool PaymentRequestSheetController::ShouldShowSecondaryButton() {
-  return true;
 }
 
 bool PaymentRequestSheetController::ShouldShowHeaderBackArrow() {
@@ -365,27 +422,6 @@ std::unique_ptr<views::Background>
 PaymentRequestSheetController::GetHeaderBackground(views::View* header_view) {
   return views::CreateThemedSolidBackground(
       header_view, ui::NativeTheme::kColorId_DialogBackground);
-}
-
-void PaymentRequestSheetController::ButtonPressed(views::Button* sender,
-                                                  const ui::Event& event) {
-  if (!dialog()->IsInteractive())
-    return;
-
-  switch (static_cast<PaymentRequestCommonTags>(sender->tag())) {
-    case PaymentRequestCommonTags::CLOSE_BUTTON_TAG:
-      dialog()->CloseDialog();
-      break;
-    case PaymentRequestCommonTags::BACK_BUTTON_TAG:
-      dialog()->GoBack();
-      break;
-    case PaymentRequestCommonTags::PAY_BUTTON_TAG:
-      dialog()->Pay();
-      break;
-    case PaymentRequestCommonTags::PAYMENT_REQUEST_COMMON_TAG_MAX:
-      NOTREACHED();
-      break;
-  }
 }
 
 std::unique_ptr<views::View> PaymentRequestSheetController::CreateFooterView() {
@@ -458,32 +494,49 @@ bool PaymentRequestSheetController::DisplayDynamicBorderForHiddenContents() {
   return true;
 }
 
+void PaymentRequestSheetController::CloseButtonPressed() {
+  if (dialog()->IsInteractive())
+    dialog()->CloseDialog();
+}
+
+void PaymentRequestSheetController::AddPrimaryButton(views::View* container) {
+  if (ShouldShowPrimaryButton()) {
+    primary_button_ =
+        container->AddChildView(std::make_unique<views::MdTextButton>(
+            GetPrimaryButtonCallback(), GetPrimaryButtonLabel()));
+    primary_button_->SetID(GetPrimaryButtonId());
+    primary_button_->SetEnabled(GetPrimaryButtonEnabled());
+    primary_button_->SetFocusBehavior(views::View::FocusBehavior::ALWAYS);
+    primary_button_->SetProminent(true);
+  }
+}
+
+void PaymentRequestSheetController::AddSecondaryButton(views::View* container) {
+  if (ShouldShowSecondaryButton()) {
+    secondary_button_ =
+        container->AddChildView(std::make_unique<views::MdTextButton>(
+            GetSecondaryButtonCallback(), GetSecondaryButtonLabel()));
+    secondary_button_->SetID(GetSecondaryButtonId());
+    secondary_button_->SetFocusBehavior(views::View::FocusBehavior::ALWAYS);
+  }
+}
+
 void PaymentRequestSheetController::PerformPrimaryButtonAction(
     bool* is_enabled) {
   // Set |is_enabled| to "true" to prevent other views from handling the event.
   *is_enabled = true;
 
   if (dialog()->IsInteractive() && primary_button_ &&
-      primary_button_->GetEnabled())
-    ButtonPressed(primary_button_, DummyEvent());
-}
-
-void PaymentRequestSheetController::AddPrimaryButton(views::View* container) {
-  std::unique_ptr<views::Button> primary_button = CreatePrimaryButton();
-  if (primary_button) {
-    primary_button->SetFocusBehavior(views::View::FocusBehavior::ALWAYS);
-    primary_button_ = container->AddChildView(std::move(primary_button));
+      primary_button_->GetEnabled()) {
+    views::Button::PressedCallback callback = GetPrimaryButtonCallback();
+    if (callback)
+      callback.Run(DummyEvent());
   }
 }
 
-void PaymentRequestSheetController::AddSecondaryButton(views::View* container) {
-  if (ShouldShowSecondaryButton()) {
-    secondary_button_ = container->AddChildView(
-        std::make_unique<views::MdTextButton>(this, GetSecondaryButtonLabel()));
-    secondary_button_->set_tag(GetSecondaryButtonTag());
-    secondary_button_->SetID(GetSecondaryButtonId());
-    secondary_button_->SetFocusBehavior(views::View::FocusBehavior::ALWAYS);
-  }
+void PaymentRequestSheetController::BackButtonPressed() {
+  if (dialog()->IsInteractive())
+    dialog()->GoBack();
 }
 
 }  // namespace payments

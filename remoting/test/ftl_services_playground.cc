@@ -11,7 +11,7 @@
 
 #include "base/base64.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/guid.h"
@@ -117,10 +117,10 @@ void FtlServicesPlayground::ResetServices(base::OnceClosure on_done) {
       token_getter_.get(), url_loader_factory_owner_->GetURLLoaderFactory(),
       std::make_unique<test::TestDeviceIdProvider>(storage_.get()));
 
-  message_subscription_.reset();
+  message_subscription_ = {};
   messaging_client_ = std::make_unique<FtlMessagingClient>(
       token_getter_.get(), url_loader_factory_owner_->GetURLLoaderFactory(),
-      registration_manager_.get(), &signaling_tracker_);
+      registration_manager_.get());
   message_subscription_ = messaging_client_->RegisterMessageCallback(
       base::BindRepeating(&FtlServicesPlayground::OnMessageReceived,
                           weak_factory_.GetWeakPtr()));

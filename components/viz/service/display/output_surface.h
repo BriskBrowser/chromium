@@ -116,6 +116,18 @@ class VIZ_SERVICE_EXPORT OutputSurface {
     // This is the maximum size for RenderPass textures. No maximum size is
     // enforced if zero.
     int max_render_target_size = 0;
+    // The root surface is rendered using vulkan secondary command buffer.
+    bool root_is_vulkan_secondary_command_buffer = false;
+    // Some new Intel GPUs support two YUV MPO planes. Promoting two videos
+    // to hardware overlays in these platforms will benefit power consumption.
+    bool supports_two_yuv_hardware_overlays = false;
+    // True if the OS supports delegated ink trails.
+    // This is currently only implemented on Win10 with DirectComposition on the
+    // SkiaRenderer.
+    bool supports_delegated_ink = false;
+    // True if the OutputSurface can resize to match the size of the root
+    // surface. E.g. Wayland protocol allows this.
+    bool resize_based_on_root_surface = false;
 
     // SkColorType for all supported buffer formats.
     SkColorType sk_color_types[static_cast<int>(gfx::BufferFormat::LAST) + 1] =
@@ -262,14 +274,6 @@ class VIZ_SERVICE_EXPORT OutputSurface {
   static void UpdateLatencyInfoOnSwap(
       const gfx::SwapResponse& response,
       std::vector<ui::LatencyInfo>* latency_info);
-
-  // This is used to share the same method to schedule task on the gpu thread
-  // between the output surface and the overlay processor.
-  // TODO(weiliangc): Consider making this outside of output surface and pass in
-  // instead of passing it out here.
-  virtual scoped_refptr<gpu::GpuTaskSchedulerHelper>
-  GetGpuTaskSchedulerHelper() = 0;
-  virtual gpu::MemoryTracker* GetMemoryTracker() = 0;
 
   // Notifies the OutputSurface of rate of content updates in frames per second.
   virtual void SetFrameRate(float frame_rate) {}

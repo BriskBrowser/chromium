@@ -12,17 +12,16 @@
 
 #include "base/bind.h"
 #include "base/i18n/rtl.h"
-#include "base/macros.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/simple_test_clock.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier_factory.h"
 #include "chrome/browser/autocomplete/chrome_autocomplete_scheme_classifier.h"
 #include "chrome/browser/command_updater.h"
 #include "chrome/browser/command_updater_impl.h"
-#include "chrome/browser/reputation/safety_tip_test_utils.h"
 #include "chrome/browser/search_engines/template_url_service_factory_test_util.h"
 #include "chrome/browser/ui/omnibox/chrome_omnibox_client.h"
 #include "chrome/browser/ui/omnibox/chrome_omnibox_edit_controller.h"
@@ -33,6 +32,7 @@
 #include "components/omnibox/browser/omnibox_edit_model.h"
 #include "components/omnibox/browser/test_location_bar_model.h"
 #include "components/omnibox/common/omnibox_features.h"
+#include "components/reputation/core/safety_tip_test_utils.h"
 #include "content/public/browser/focused_node_details.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/mock_navigation_handle.h"
@@ -55,7 +55,7 @@
 #include "ui/gfx/render_text_test_api.h"
 #include "ui/views/controls/textfield/textfield_test_api.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/chromeos/input_method/input_method_configuration.h"
 #include "chrome/browser/chromeos/input_method/mock_input_method_manager_impl.h"
 #endif
@@ -85,6 +85,8 @@ class TestingOmniboxView : public OmniboxViewViews {
   TestingOmniboxView(OmniboxEditController* controller,
                      TestLocationBarModel* location_bar_model,
                      std::unique_ptr<OmniboxClient> client);
+  TestingOmniboxView(const TestingOmniboxView&) = delete;
+  TestingOmniboxView& operator=(const TestingOmniboxView&) = delete;
 
   using views::Textfield::GetRenderText;
 
@@ -166,8 +168,6 @@ class TestingOmniboxView : public OmniboxViewViews {
 
   // SetEmphasis() logs whether the base color of the text is emphasized.
   bool base_text_emphasis_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestingOmniboxView);
 };
 
 TestingOmniboxView::TestingOmniboxView(OmniboxEditController* controller,
@@ -287,12 +287,13 @@ void TestingOmniboxView::NavigateAndExpectElided(
   content::MockNavigationHandle navigation;
   navigation.set_is_same_document(is_same_document);
   navigation.set_url(url);
-  navigation.set_previous_url(previous_url);
+  navigation.set_previous_main_frame_url(previous_url);
   DidStartNavigation(&navigation);
   location_bar_model_->set_url(url);
   location_bar_model_->set_url_for_display(base::ASCIIToUTF16(url.spec()));
   model()->ResetDisplayTexts();
   RevertAll();
+  navigation.set_has_committed(true);
   DidFinishNavigation(&navigation);
   ExpectElidedToSimplifiedDomain(this, scheme, subdomain, hostname_and_scheme,
                                  path, should_elide_to_registrable_domain);
@@ -306,12 +307,13 @@ void TestingOmniboxView::NavigateAndExpectUnelided(
   content::MockNavigationHandle navigation;
   navigation.set_is_same_document(is_same_document);
   navigation.set_url(GURL(url));
-  navigation.set_previous_url(previous_url);
+  navigation.set_previous_main_frame_url(previous_url);
   DidStartNavigation(&navigation);
   location_bar_model_->set_url(GURL(url));
   location_bar_model_->set_url_for_display(url);
   model()->ResetDisplayTexts();
   RevertAll();
+  navigation.set_has_committed(true);
   DidFinishNavigation(&navigation);
   ExpectUnelidedFromSimplifiedDomain(this->GetRenderText(),
                                      gfx::Range(scheme.size(), url.size()));
@@ -441,6 +443,9 @@ class TestingOmniboxEditController : public ChromeOmniboxEditController {
                                LocationBarModel* location_bar_model)
       : ChromeOmniboxEditController(command_updater),
         location_bar_model_(location_bar_model) {}
+  TestingOmniboxEditController(const TestingOmniboxEditController&) = delete;
+  TestingOmniboxEditController& operator=(const TestingOmniboxEditController&) =
+      delete;
 
   void set_omnibox_view(OmniboxViewViews* view) { omnibox_view_ = view; }
 
@@ -461,8 +466,6 @@ class TestingOmniboxEditController : public ChromeOmniboxEditController {
 
   LocationBarModel* location_bar_model_;
   OmniboxViewViews* omnibox_view_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(TestingOmniboxEditController);
 };
 
 }  // namespace
@@ -508,6 +511,8 @@ class OmniboxViewViewsTest : public OmniboxViewViewsTestBase {
   OmniboxViewViewsTest()
       : OmniboxViewViewsTest(std::vector<FeatureAndParams>(),
                              std::vector<base::Feature>()) {}
+  OmniboxViewViewsTest(const OmniboxViewViewsTest&) = delete;
+  OmniboxViewViewsTest& operator=(const OmniboxViewViewsTest&) = delete;
 
   TestLocationBarModel* location_bar_model() { return &location_bar_model_; }
   CommandUpdaterImpl* command_updater() { return &command_updater_; }
@@ -581,8 +586,6 @@ class OmniboxViewViewsTest : public OmniboxViewViewsTestBase {
   TestingOmniboxView* omnibox_view_;
 
   std::unique_ptr<views::TextfieldTestApi> test_api_;
-
-  DISALLOW_COPY_AND_ASSIGN(OmniboxViewViewsTest);
 };
 
 OmniboxViewViewsTest::OmniboxViewViewsTest(
@@ -618,7 +621,7 @@ void OmniboxViewViewsTest::SetUp() {
   widget_ = CreateTestWidget();
   widget_->Show();
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   chromeos::input_method::InitializeForTesting(
       new chromeos::input_method::MockInputMethodManagerImpl);
 #endif
@@ -644,7 +647,7 @@ void OmniboxViewViewsTest::TearDown() {
   util_.reset();
   profile_.reset();
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   chromeos::input_method::Shutdown();
 #endif
   ChromeViewsTestBase::TearDown();
@@ -773,6 +776,37 @@ TEST_F(OmniboxViewViewsTest, OnBlur) {
   EXPECT_EQ(gfx::ELIDE_TAIL, render_text->elide_behavior());
   EXPECT_EQ(0, render_text->GetUpdatedDisplayOffset().x());
   EXPECT_FALSE(omnibox_view()->IsSelectAll());
+}
+
+// Verifies that https://crbug.com/45260 doesn't regress.
+TEST_F(OmniboxViewViewsTest,
+       RendererInitiatedFocusSelectsAllWhenStartingBlurred) {
+  location_bar_model()->set_url(GURL("about:blank"));
+  omnibox_view()->model()->ResetDisplayTexts();
+  omnibox_view()->RevertAll();
+
+  // Simulate a renderer-initated focus event. Expect that everything is
+  // selected now.
+  omnibox_view()->SetFocus(/*is_user_initiated=*/false);
+  EXPECT_TRUE(omnibox_view()->IsSelectAll());
+}
+
+// Verifies that https://crbug.com/924935 doesn't regress.
+TEST_F(OmniboxViewViewsTest,
+       RendererInitiatedFocusPreservesCursorWhenStartingFocused) {
+  // Simulate the user focusing the omnibox and typing something. This is just
+  // the test setup, not the actual focus event we are testing.
+  omnibox_view()->SetFocus(/*is_user_initiated*/ true);
+  omnibox_view()->SetTextAndSelectedRanges(base::ASCIIToUTF16("user text"),
+                                           {gfx::Range(9, 9)});
+  ASSERT_FALSE(omnibox_view()->IsSelectAll());
+  ASSERT_TRUE(omnibox_view()->GetSelectionAtEnd());
+
+  // Simulate a renderer-initated focus event. Expect the cursor position to be
+  // preserved, and that the omnibox did not select-all the text.
+  omnibox_view()->SetFocus(/*is_user_initiated=*/false);
+  EXPECT_FALSE(omnibox_view()->IsSelectAll());
+  EXPECT_TRUE(omnibox_view()->GetSelectionAtEnd());
 }
 
 TEST_F(OmniboxViewViewsTest, Emphasis) {
@@ -1035,21 +1069,21 @@ TEST_F(OmniboxViewViewsTest, SetWindowTextAndCaretPos) {
 TEST_F(OmniboxViewViewsTest, OnInlineAutocompleteTextMaybeChanged) {
   // No selection, google.com|
   omnibox_view()->OnInlineAutocompleteTextMaybeChanged(
-      base::UTF8ToUTF16("google.com"), 0, 10);
+      base::UTF8ToUTF16("google.com"), {{10, 10}}, 10);
   EXPECT_EQ(base::ASCIIToUTF16("google.com"), omnibox_view()->GetText());
   EXPECT_EQ(omnibox_view()->GetRenderText()->GetAllSelections(),
             (std::vector<Range>{{10, 10}}));
 
   // Single selection, gmai[l.com]
   omnibox_view()->OnInlineAutocompleteTextMaybeChanged(
-      base::UTF8ToUTF16("gmail.com"), 0, 4);
+      base::UTF8ToUTF16("gmail.com"), {{9, 4}}, 4);
   EXPECT_EQ(base::ASCIIToUTF16("gmail.com"), omnibox_view()->GetText());
   EXPECT_EQ(omnibox_view()->GetRenderText()->GetAllSelections(),
             (std::vector<Range>{{9, 4}}));
 
   // Multiselection, [go]ogl[e.com]
   omnibox_view()->OnInlineAutocompleteTextMaybeChanged(
-      base::UTF8ToUTF16("google.com"), 2, 3);
+      base::UTF8ToUTF16("google.com"), {{10, 5}, {0, 2}}, 3);
   EXPECT_EQ(base::ASCIIToUTF16("google.com"), omnibox_view()->GetText());
   EXPECT_EQ(omnibox_view()->GetRenderText()->GetAllSelections(),
             (std::vector<Range>{{10, 5}, {0, 2}}));
@@ -1066,7 +1100,7 @@ TEST_F(OmniboxViewViewsTest, OverflowingAutocompleteText) {
   omnibox_view()->OnInlineAutocompleteTextMaybeChanged(
       base::ASCIIToUTF16("user text. Followed by very long autocompleted text "
                          "that is unlikely to fit in |kOmniboxWidth|"),
-      0, 10);
+      {{94, 10}}, 10);
 
   // NOTE: Technically (depending on the font), this expectation could fail if
   // 'user text' doesn't fit in 100px or the entire string fits in 100px.
@@ -1748,7 +1782,7 @@ class OmniboxViewViewsRevealOnHoverTest
             {},
             GetParam().second) {
     // The lookalike allowlist is used by the registrable-domain-elision code.
-    InitializeBlankLookalikeAllowlistForTesting();
+    reputation::InitializeBlankLookalikeAllowlistForTesting();
   }
 
   OmniboxViewViewsRevealOnHoverTest(const OmniboxViewViewsRevealOnHoverTest&) =
@@ -1897,50 +1931,6 @@ TEST_P(OmniboxViewViewsRevealOnHoverTest, HoverAndExitIDN) {
       kSimplifiedDomainDisplayIDNUrlPath, ShouldElideToRegistrableDomain()));
 }
 
-// Tests the path doesn't disappear for a URL where it appears in between of the
-// unelided section (and thus is not elided).
-TEST_P(OmniboxViewViewsRevealOnHoverTest, PathNotTransparentSplitURL) {
-  // A bidirectional URL with this format causes the tld (مثال) to appear
-  // separate from the host (test), and with the path (إختبار) displayed in
-  // between.
-  const base::string16 kSimplifiedDomainDisplaySplitUrl =
-      base::UTF8ToUTF16("https://test.مثال/إختبار");
-  const base::string16 kSimplifiedDomainDisplaySplitUrlHostnameAndScheme =
-      base::UTF8ToUTF16("https://test.مثال");
-  UpdateDisplayURL(kSimplifiedDomainDisplaySplitUrl);
-
-  // Call OnThemeChanged() to create the animations.
-  omnibox_view()->OnThemeChanged();
-
-  // Check that the path is not transparent.
-  EXPECT_NE(SK_ColorTRANSPARENT,
-            omnibox_view()->GetLatestColorForRange(gfx::Range(
-                kSimplifiedDomainDisplaySplitUrlHostnameAndScheme.size(),
-                kSimplifiedDomainDisplaySplitUrl.size())));
-
-  // Simulate mouse hovering to trigger the unelision animation.
-  omnibox_view()->OnMouseMoved(CreateMouseEvent(ui::ET_MOUSE_MOVED, {0, 0}));
-  OmniboxViewViews::ElideAnimation* hover_animation =
-      omnibox_view()->GetHoverElideOrUnelideAnimationForTesting();
-  ASSERT_TRUE(hover_animation);
-  ASSERT_TRUE(hover_animation->IsAnimating());
-
-  // Advance the clock to let the elision animation finish. Assume it takes less
-  // than 2 seconds.
-  omnibox_view()->StepSimplifiedDomainHoverAnimation(2000);
-
-  // Exit the mouse and let the elision animation run until it finishes.
-  omnibox_view()->OnMouseExited(CreateMouseEvent(ui::ET_MOUSE_EXITED, {0, 0}));
-  ASSERT_TRUE(hover_animation->IsAnimating());
-  omnibox_view()->StepSimplifiedDomainHoverAnimation(2000);
-
-  // Check the path is still not transparent after the animation runs.
-  EXPECT_NE(SK_ColorTRANSPARENT,
-            omnibox_view()->GetLatestColorForRange(gfx::Range(
-                kSimplifiedDomainDisplaySplitUrlHostnameAndScheme.size(),
-                kSimplifiedDomainDisplaySplitUrl.size())));
-}
-
 // Tests the field trial variation that shows a simplified domain by default
 // using a private registry (https://publicsuffix.org/list/). Private registries
 // should be ignored when computing the simplified domain, to avoid creating
@@ -2035,7 +2025,7 @@ class OmniboxViewViewsHideOnInteractionAndRevealOnHoverTest
             {},
             GetParam().second) {
     // The lookalike allowlist is used by the registrable-domain-elision code.
-    InitializeBlankLookalikeAllowlistForTesting();
+    reputation::InitializeBlankLookalikeAllowlistForTesting();
   }
 
   OmniboxViewViewsHideOnInteractionAndRevealOnHoverTest(
@@ -2199,6 +2189,56 @@ TEST_P(OmniboxViewViewsHideOnInteractionAndRevealOnHoverTest,
         omnibox_view()->GetElideAfterInteractionAnimationForTesting();
     EXPECT_FALSE(elide_animation);
   }
+}
+
+// Tests that the hide-on-interaction simplified domain field trial handles
+// non-committed navigations properly.
+TEST_P(OmniboxViewViewsHideOnInteractionAndRevealOnHoverTest,
+       NonCommittedNavigations) {
+  SetUpSimplifiedDomainTest();
+
+  ASSERT_NO_FATAL_FAILURE(omnibox_view()->NavigateAndExpectUnelided(
+      kSimplifiedDomainDisplayUrl,
+      /*is_same_document=*/false, GURL(), kSimplifiedDomainDisplayUrlScheme));
+  // Simulate a user interaction to elide the URL.
+  omnibox_view()->DidGetUserInteraction(blink::WebKeyboardEvent());
+  ASSERT_NO_FATAL_FAILURE(
+      omnibox_view()->StepSimplifiedDomainInteractionAnimation(
+          /*step_ms=*/1000));
+  ASSERT_NO_FATAL_FAILURE(ExpectElidedToSimplifiedDomain(
+      omnibox_view(), kSimplifiedDomainDisplayUrlScheme,
+      kSimplifiedDomainDisplayUrlSubdomain,
+      kSimplifiedDomainDisplayUrlHostnameAndScheme,
+      kSimplifiedDomainDisplayUrlPath, ShouldElideToRegistrableDomain()));
+
+  // When a renderer-initiated navigation finishes without committing, the URL
+  // should remain elided; we don't update the display URL until the navigation
+  // commits.
+  {
+    content::MockNavigationHandle navigation;
+    navigation.set_is_renderer_initiated(true);
+    navigation.set_has_committed(false);
+    omnibox_view()->DidStartNavigation(&navigation);
+    omnibox_view()->DidFinishNavigation(&navigation);
+    ASSERT_NO_FATAL_FAILURE(ExpectElidedToSimplifiedDomain(
+        omnibox_view(), kSimplifiedDomainDisplayUrlScheme,
+        kSimplifiedDomainDisplayUrlSubdomain,
+        kSimplifiedDomainDisplayUrlHostnameAndScheme,
+        kSimplifiedDomainDisplayUrlPath, ShouldElideToRegistrableDomain()));
+  }
+
+  // When a browser-initiated navigation finishes without committing, the URL
+  // updates before commit, so we should reset back to the on-page-load state if
+  // the navigation doesn't eventually commit.
+  content::MockNavigationHandle navigation;
+  navigation.set_is_renderer_initiated(false);
+  navigation.set_has_committed(false);
+  omnibox_view()->DidStartNavigation(&navigation);
+  omnibox_view()->DidFinishNavigation(&navigation);
+  ASSERT_NO_FATAL_FAILURE(ExpectUnelidedFromSimplifiedDomain(
+      omnibox_view()->GetRenderText(),
+      gfx::Range(kSimplifiedDomainDisplayUrlScheme.size(),
+                 kSimplifiedDomainDisplayUrl.size())));
 }
 
 // Tests that mouse clicks do not count as user interactions and do not elide
@@ -2557,7 +2597,7 @@ class OmniboxViewViewsHideOnInteractionTest
             {},
             GetParam().second) {
     // The lookalike allowlist is used by the registrable-domain-elision code.
-    InitializeBlankLookalikeAllowlistForTesting();
+    reputation::InitializeBlankLookalikeAllowlistForTesting();
   }
 
   OmniboxViewViewsHideOnInteractionTest(
@@ -2637,15 +2677,13 @@ class OmniboxViewViewsRevealOnHoverAndMaybeHideOnInteractionTest
       : OmniboxViewViewsTest(
             GetParam().first
                 ? std::vector<FeatureAndParams>(
-                      {{omnibox::kOmniboxContextMenuShowFullUrls, {}},
-                       {omnibox::kRevealSteadyStateUrlPathQueryAndRefOnHover,
+                      {{omnibox::kRevealSteadyStateUrlPathQueryAndRefOnHover,
                         {}},
                        {omnibox::
                             kHideSteadyStateUrlPathQueryAndRefOnInteraction,
                         {}}})
                 : std::vector<FeatureAndParams>(
-                      {{omnibox::kOmniboxContextMenuShowFullUrls, {}},
-                       {omnibox::kRevealSteadyStateUrlPathQueryAndRefOnHover,
+                      {{omnibox::kRevealSteadyStateUrlPathQueryAndRefOnHover,
                         {}}}),
             {omnibox::kMaybeElideToRegistrableDomain},
             GetParam().second) {}
@@ -2804,6 +2842,9 @@ TEST_P(OmniboxViewViewsRevealOnHoverTest, UrlsNotEligibleForEliding) {
       base::ASCIIToUTF16("javascript:alert(1)"),
       base::ASCIIToUTF16("data:text/html,hello"),
       base::ASCIIToUTF16("http://localhost:4000/foo"),
+      base::ASCIIToUTF16("blob:https://example.test/"),
+      base::ASCIIToUTF16("view-source:https://example.test/"),
+      base::ASCIIToUTF16("filesystem:https://example.test/a"),
       // A smoke test to check that the test code results in
       // the URL being elided properly when eligible.
       kSimplifiedDomainDisplayUrl,
@@ -2921,6 +2962,37 @@ TEST_P(OmniboxViewViewsHideOnInteractionTest, ModifierKeys) {
   OmniboxViewViews::ElideAnimation* elide_animation =
       omnibox_view()->GetElideAfterInteractionAnimationForTesting();
   EXPECT_FALSE(elide_animation);
+}
+
+// Tests that in the hide-on-interaction field trial, the URL is unelided when
+// navigating to an error page.
+TEST_P(OmniboxViewViewsHideOnInteractionTest, ErrorPageNavigation) {
+  SetUpSimplifiedDomainTest();
+  omnibox_view()->NavigateAndExpectUnelided(kSimplifiedDomainDisplayUrl,
+                                            /*is_same_document=*/false, GURL(),
+                                            kSimplifiedDomainDisplayUrlScheme);
+
+  omnibox_view()->NavigateAndExpectUnelided(kSimplifiedDomainDisplayUrl,
+                                            /*is_same_document=*/false, GURL(),
+                                            kSimplifiedDomainDisplayUrlScheme);
+  // Simulate a user interaction to elide to the simplified domain.
+  omnibox_view()->DidGetUserInteraction(blink::WebKeyboardEvent());
+  OmniboxViewViews::ElideAnimation* elide_animation =
+      omnibox_view()->GetElideAfterInteractionAnimationForTesting();
+  ASSERT_TRUE(elide_animation);
+  EXPECT_TRUE(elide_animation->IsAnimating());
+
+  // Now simulate a navigation to an error page and check that the URL is
+  // unelided.
+  content::MockNavigationHandle navigation;
+  navigation.set_url(GURL(kSimplifiedDomainDisplayUrl));
+  navigation.set_is_error_page(true);
+  omnibox_view()->DidStartNavigation(&navigation);
+  omnibox_view()->DidFinishNavigation(&navigation);
+  ExpectUnelidedFromSimplifiedDomain(
+      omnibox_view()->GetRenderText(),
+      gfx::Range(kSimplifiedDomainDisplayUrlScheme.size(),
+                 kSimplifiedDomainDisplayUrl.size()));
 }
 
 // Tests that in the hide-on-interaction field trial, the URL is simplified on

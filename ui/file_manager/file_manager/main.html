@@ -76,6 +76,7 @@
       <command id="rename" label="$i18n{RENAME_BUTTON_LABEL}"
                shortcut="Enter|Ctrl">
       <command id="delete" shortcut="Backspace|Alt Delete">
+      <command id="restore-from-trash" label="$i18n{RESTORE_FROM_TRASH_BUTTON_LABEL}">
       <command id="refresh" label="$i18n{REFRESH_BUTTON_LABEL}"
                shortcut="b|Ctrl" hidden>
       <command id="pin-folder"
@@ -111,6 +112,7 @@
       <command id="unmount" label="$i18n{UNMOUNT_DEVICE_BUTTON_LABEL}"
                shortcut="E|Shift|Ctrl">
       <command id="format" label="$i18n{FORMAT_DEVICE_BUTTON_LABEL}">
+      <command id="erase-device" label="$i18n{REPARTITION_DEVICE_BUTTON_LABEL}">
       <command id="configure" label="$i18n{CONFIGURE_VOLUME_BUTTON_LABEL}">
 
       <command id="volume-help" label="$i18n{DRIVE_MENU_HELP}">
@@ -132,7 +134,7 @@
       <command id="open-with" label="$i18n{OPEN_WITH_BUTTON_LABEL}">
       <command id="more-actions" label="$i18n{MORE_ACTIONS_BUTTON_LABEL}">
       <command id="show-submenu" label="$i18n{MORE_ACTIONS_BUTTON_LABEL}">
-      <command id="invoke-sharesheet" label="$i18n{MORE_ACTIONS_BUTTON_LABEL}">
+      <command id="invoke-sharesheet" label="$i18n{SHARESHEET_BUTTON_LABEL}">
       <command id="toggle-holding-space">
       <command id="go-to-file-location"
                label="$i18n{GO_TO_FILE_LOCATION_BUTTON_LABEL}">
@@ -204,6 +206,7 @@
         <cr-menu-item command="#rename"></cr-menu-item>
         <cr-menu-item command="#pin-folder"></cr-menu-item>
         <cr-menu-item command="#delete" class="hide-on-toolbar">$i18n{DELETE_BUTTON_LABEL}</cr-menu-item>
+        <cr-menu-item command="#restore-from-trash"></cr-menu-item>
         <cr-menu-item command="#zip-selection"></cr-menu-item>
         <cr-menu-item command="#toggle-holding-space" visibleif="full-page">
             </cr-menu-item>
@@ -223,6 +226,7 @@
         <cr-menu-item command="#configure"></cr-menu-item>
         <cr-menu-item command="#unmount"></cr-menu-item>
         <cr-menu-item command="#format"></cr-menu-item>
+        <cr-menu-item command="#erase-device"></cr-menu-item>
         <cr-menu-item command="#rename"></cr-menu-item>
         <cr-menu-item command="#unpin-folder"></cr-menu-item>
         <cr-menu-item command="#share-with-linux"></cr-menu-item>
@@ -297,6 +301,7 @@
         <cr-menu-item id="gear-menu-newservice" command="#new-service"
             sub-menu="#add-new-services-menu"></cr-menu-item>
         <cr-menu-item id="gear-menu-format" command="#format"></cr-menu-item>
+        <cr-menu-item id="gear-menu-erase" command="#erase-device"></cr-menu-item>
         <cr-menu-item id="volume-space-info" command="#volume-storage">
           <div id="volume-space-info-contents">
             <span id="volume-space-info-label"></span>
@@ -363,6 +368,12 @@
       <div id="files-selected-label"></div>
       <div class="spacer"></div>
       <div id="action-bar">
+        <div id="pinned-toggle-wrapper" hidden>
+          <span id="pinned-toggle-label">$i18n{OFFLINE_COLUMN_LABEL}</span>
+          <cr-toggle id="pinned-toggle" command="#toggle-pinned"
+                     aria-labelledby="pinned-toggle-label">
+          </cr-toggle>
+        </div>
         <button id="tasks" class="combobutton menu-button" menu="#tasks-menu"
                 tabindex="0" hidden
                 aria-label="$i18n{TASKS_BUTTON_LABEL}">
@@ -376,7 +387,7 @@
           <div class="icon"></div>
         </button>
         <cr-button id="sharesheet-button" class="icon-button menu-button" tabindex="0" hidden
-                aria-label="$i18n{SHARE_BUTTON_TOOLTIP}"
+                aria-label="$i18n{SHARESHEET_BUTTON_LABEL}"
                 visibleif="full-page"
                 command="#invoke-sharesheet"
                 has-tooltip>
@@ -385,6 +396,13 @@
         </cr-button>
         <cr-button id="delete-button" class="icon-button menu-button" tabindex="0" hidden
                 aria-label="$i18n{DELETE_BUTTON_LABEL}"
+                visibleif="full-page"
+                has-tooltip>
+          <files-ripple></files-ripple>
+          <div class="icon"></div>
+        </cr-button>
+        <cr-button id="restore-from-trash-button" class="icon-button menu-button" tabindex="0" hidden
+                aria-label="$i18n{RESTORE_FROM_TRASH_BUTTON_LABEL}"
                 visibleif="full-page"
                 has-tooltip>
           <files-ripple></files-ripple>
@@ -497,26 +515,6 @@
         <div class="dialog-navigation-list-contents" role="navigation">
           <tree id="directory-tree" role="tree" tabindex="0" files-ng></tree>
         </div>
-        <div class="dialog-navigation-list-footer" hidden>
-          <div id="progress-center" hidden>
-            <li id="progress-center-close-view">
-              <div class="progress-frame">
-                <label></label>
-                <div class="progress-bar">
-                  <div class="progress-track" hidden></div>
-                </div>
-              </div>
-              <div class="button-frame">
-                <button class="cancel" tabindex="-1"></button>
-                <button class="dismiss" tabindex="-1"></button>
-                <button class="open" tabindex="-1"></button>
-              </div>
-            </li>
-            <div id="progress-center-open-view">
-              <button class="close" tabindex="-1"></button>
-            </div>
-          </div>
-        </div>
       </div>
       <div class="splitter" id="navigation-list-splitter">
         <cr-button aria-hidden="true" class="splitter-button" tabindex="-1">
@@ -529,10 +527,25 @@
           <div class="main-panel">
             <div class="filelist-panel">
               <div class="drive-welcome header"></div>
+              <div class="holding-space-welcome" hidden style="height: 0; opacity: 0;"></div>
               <div class="volume-warning banner-cloud-bg" id="volume-space-warning" hidden></div>
               <div class="volume-warning banner-cloud-bg" id="drive-auth-failed-warning" hidden>
                 <div class="drive-icon"></div>
                 <div class="drive-text" id="drive-auth-failed-warning-text"></div>
+              </div>
+              <div class="volume-warning" id="offline-info-banner" hidden>
+                <div class="info-icon"></div>
+                <div id="offline-info-banner-text" class="body2-primary">
+                  $i18n{OFFLINE_BANNER_MESSAGE}
+                </div>
+                <div class="button-group">
+                  <cr-button id="offline-learn-more" class="banner-close text-button"
+                             aria-labelledby="offline-info-banner-text"
+                             aria-describedby="offline-learn-more"
+                             aria-disabled="false" role="button" tabindex="0">
+                    $i18n{DRIVE_LEARN_MORE}
+                  </cr-button>
+                </div>
               </div>
               <div class="downloads-warning" hidden></div>
               <files-message id='files-message' hidden></files-message>

@@ -46,7 +46,8 @@ class COMPONENT_EXPORT(VULKAN) VulkanDeviceQueue {
       const std::vector<const char*>& required_extensions,
       const std::vector<const char*>& optional_extensions,
       bool allow_protected_memory,
-      const GetPresentationSupportCallback& get_presentation_support);
+      const GetPresentationSupportCallback& get_presentation_support,
+      uint32_t heap_memory_limit);
 
   bool InitializeForWebView(VkPhysicalDevice vk_physical_device,
                             VkDevice vk_device,
@@ -68,6 +69,11 @@ class COMPONENT_EXPORT(VULKAN) VulkanDeviceQueue {
 
   const VkPhysicalDeviceProperties& vk_physical_device_properties() const {
     return vk_physical_device_properties_;
+  }
+
+  const VkPhysicalDeviceDriverProperties& vk_physical_device_driver_properties()
+      const {
+    return vk_physical_device_driver_properties_;
   }
 
   VkDevice GetVulkanDevice() const {
@@ -104,6 +110,7 @@ class COMPONENT_EXPORT(VULKAN) VulkanDeviceQueue {
   gfx::ExtensionSet enabled_extensions_;
   VkPhysicalDevice vk_physical_device_ = VK_NULL_HANDLE;
   VkPhysicalDeviceProperties vk_physical_device_properties_;
+  VkPhysicalDeviceDriverProperties vk_physical_device_driver_properties_;
   VkDevice owned_vk_device_ = VK_NULL_HANDLE;
   VkDevice vk_device_ = VK_NULL_HANDLE;
   VkQueue vk_queue_ = VK_NULL_HANDLE;

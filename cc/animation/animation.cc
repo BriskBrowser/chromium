@@ -6,6 +6,8 @@
 
 #include <inttypes.h>
 #include <algorithm>
+#include <string>
+#include <utility>
 
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
@@ -16,7 +18,6 @@
 #include "cc/animation/keyframe_effect.h"
 #include "cc/animation/scroll_offset_animation_curve.h"
 #include "cc/animation/scroll_timeline.h"
-#include "cc/animation/transform_operations.h"
 #include "cc/trees/property_animation_state.h"
 
 namespace cc {
@@ -75,6 +76,15 @@ scoped_refptr<ElementAnimations> Animation::element_animations() const {
 }
 
 void Animation::AttachElement(ElementId element_id) {
+  DCHECK_NE(element_id.GetStableId(), ElementId::kReservedElementId);
+  AttachElementInternal(element_id);
+}
+
+void Animation::AttachNoElement() {
+  AttachElementInternal(ElementId(ElementId::kReservedElementId));
+}
+
+void Animation::AttachElementInternal(ElementId element_id) {
   keyframe_effect_->AttachElement(element_id);
   // Register animation only if layer AND host attached.
   if (animation_host_)

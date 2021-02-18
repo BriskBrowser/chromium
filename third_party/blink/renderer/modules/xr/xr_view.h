@@ -25,12 +25,13 @@ class MODULES_EXPORT XRView final : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  XRView(XRFrame*, const XRViewData&);
+  XRView(XRFrame*, XRViewData*);
 
   enum XREye { kEyeNone = 0, kEyeLeft = 1, kEyeRight = 2 };
 
   const String& eye() const { return eye_string_; }
   XREye EyeValue() const { return eye_; }
+  XRViewData* ViewData() const { return view_data_; }
 
   XRFrame* frame() const;
   XRSession* session() const;
@@ -44,17 +45,21 @@ class MODULES_EXPORT XRView final : public ScriptWrappable {
   // unconditionally.
   bool isFirstPersonObserver() const { return false; }
 
+  base::Optional<double> recommendedViewportScale() const;
+  void requestViewportScale(base::Optional<double> scale);
+
   void Trace(Visitor*) const override;
 
  private:
   XREye eye_;
   String eye_string_;
   Member<XRFrame> frame_;
+  Member<XRViewData> view_data_;
   Member<XRRigidTransform> ref_space_from_eye_;
   Member<DOMFloat32Array> projection_matrix_;
 };
 
-class MODULES_EXPORT XRViewData {
+class MODULES_EXPORT XRViewData final : public GarbageCollected<XRViewData> {
  public:
   XRViewData(XRView::XREye eye) : eye_(eye) {}
 
@@ -83,6 +88,25 @@ class MODULES_EXPORT XRViewData {
     return projection_matrix_;
   }
 
+  base::Optional<double> recommendedViewportScale() const;
+  void SetRecommendedViewportScale(base::Optional<double> scale) {
+    recommended_viewport_scale_ = scale;
+  }
+
+  void requestViewportScale(base::Optional<double> scale);
+
+  bool ViewportModifiable() const { return viewport_modifiable_; }
+  void SetViewportModifiable(bool modifiable) {
+    viewport_modifiable_ = modifiable;
+  }
+  double CurrentViewportScale() const { return current_viewport_scale_; }
+  void SetCurrentViewportScale(double scale) {
+    current_viewport_scale_ = scale;
+  }
+  double RequestedViewportScale() const { return requested_viewport_scale_; }
+
+  void Trace(Visitor*) const {}
+
  private:
   const XRView::XREye eye_;
   TransformationMatrix ref_space_from_eye_;
@@ -90,6 +114,10 @@ class MODULES_EXPORT XRViewData {
   TransformationMatrix inv_projection_;
   TransformationMatrix head_from_eye_;
   bool inv_projection_dirty_ = true;
+  base::Optional<double> recommended_viewport_scale_ = base::nullopt;
+  double requested_viewport_scale_ = 1.0;
+  double current_viewport_scale_ = 1.0;
+  bool viewport_modifiable_ = false;
 };
 
 }  // namespace blink

@@ -5,6 +5,8 @@
 #ifndef UI_NATIVE_THEME_NATIVE_THEME_COLOR_ID_H_
 #define UI_NATIVE_THEME_NATIVE_THEME_COLOR_ID_H_
 
+#include "build/chromeos_buildflags.h"
+
 // Clang format mangles sectioned lists like the below badly.
 // clang-format off
 #define NATIVE_THEME_CROSS_PLATFORM_COLOR_IDS                                  \
@@ -14,8 +16,11 @@
   OP(kColorId_DialogBackground),                                               \
   OP(kColorId_DialogForeground),                                               \
   OP(kColorId_BubbleBackground),                                               \
-  OP(kColorId_BubbleForeground),                                               \
   OP(kColorId_BubbleFooterBackground),                                         \
+  /* Avatar and Header Asset */                                                \
+  OP(kColorId_AvatarHeaderArt),                                                \
+  OP(kColorId_AvatarIconGuest),                                                \
+  OP(kColorId_AvatarIconIncognito),                                            \
   /* FocusableBorder */                                                        \
   OP(kColorId_FocusedBorderColor),                                             \
   OP(kColorId_UnfocusedBorderColor),                                           \
@@ -162,13 +167,13 @@
   OP(kColorId_DefaultIconColor),                                               \
   OP(kColorId_DisabledIconColor)
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #define NATIVE_THEME_CHROMEOS_COLOR_IDS                                        \
   /* Notification view */                                                      \
   OP(kColorId_NotificationButtonBackground)
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #define NATIVE_THEME_COLOR_IDS                                                 \
   NATIVE_THEME_CROSS_PLATFORM_COLOR_IDS,                                       \
   NATIVE_THEME_CHROMEOS_COLOR_IDS

@@ -67,6 +67,11 @@ enum Milestone {
   kM86 = 86,
   kM87 = 87,
   kM88 = 88,
+  kM89 = 89,
+  kM90 = 90,
+  kM91 = 91,
+  kM92 = 92,
+  kM93 = 93,
 };
 
 // Returns estimated milestone dates as milliseconds since January 1, 1970.
@@ -112,25 +117,25 @@ base::Time::Exploded MilestoneDate(Milestone milestone) {
     case kM83:
       return {2020, 5, 0, 18, 4};
     case kM84:
-      // This release is not yet scheduled, so this date is a guess.
-      // https://groups.google.com/a/chromium.org/d/msg/chromium-dev/N1NxbSVOZas/ySlEKDKkBgAJ
       return {2020, 7, 0, 14, 4};
     case kM85:
-      // This release is not yet scheduled, so this date is a guess.
-      // https://groups.google.com/a/chromium.org/d/msg/chromium-dev/N1NxbSVOZas/ySlEKDKkBgAJ
       return {2020, 8, 0, 25, 4};
     case kM86:
-      // This release is not yet scheduled, so this date is a guess.
-      // https://groups.google.com/a/chromium.org/d/msg/chromium-dev/N1NxbSVOZas/ySlEKDKkBgAJ
       return {2020, 10, 0, 6, 4};
     case kM87:
-      // This release is not yet scheduled, so this date is a guess.
-      // https://groups.google.com/a/chromium.org/d/msg/chromium-dev/N1NxbSVOZas/ySlEKDKkBgAJ
       return {2020, 11, 0, 17, 4};
     case kM88:
-      // This release is not yet scheduled, so this date is a guess.
-      // https://groups.google.com/a/chromium.org/d/msg/chromium-dev/N1NxbSVOZas/ySlEKDKkBgAJ
       return {2021, 1, 0, 19, 4};
+    case kM89:
+      return {2021, 3, 0, 2, 4};
+    case kM90:
+      return {2021, 4, 0, 13, 4};
+    case kM91:
+      return {2021, 5, 0, 25, 4};
+    case kM92:
+      return {2021, 7, 0, 20, 4};
+    case kM93:
+      return {2021, 8, 0, 31, 4};
   }
 
   NOTREACHED();
@@ -249,12 +254,11 @@ DeprecationInfo GetDeprecationInfo(WebFeature feature) {
     // Blocked subresource requests:
     case WebFeature::kLegacyProtocolEmbeddedAsSubresource:
       return {"LegacyProtocolEmbeddedAsSubresource", kUnknown,
-              String::Format(
-                  "Subresource requests using legacy protocols (like `ftp:`) "
-                  "are blocked. Please deliver web-accessible resources over "
-                  "modern protocols like HTTPS. See "
-                  "https://www.chromestatus.com/feature/5709390967472128 for "
-                  "details.")};
+              "Subresource requests using legacy protocols (like `ftp:`) "
+              "are blocked. Please deliver web-accessible resources over "
+              "modern protocols like HTTPS. See "
+              "https://www.chromestatus.com/feature/5709390967472128 for "
+              "details."};
 
     case WebFeature::kRequestedSubresourceWithEmbeddedCredentials:
       return {"RequestedSubresourceWithEmbeddedCredentials", kUnknown,
@@ -333,35 +337,21 @@ DeprecationInfo GetDeprecationInfo(WebFeature feature) {
     case WebFeature::kNotificationInsecureOrigin:
     case WebFeature::kNotificationAPIInsecureOriginIframe:
     case WebFeature::kNotificationPermissionRequestedInsecureOrigin:
-      return {
-          "NotificationInsecureOrigin", kUnknown,
-          String::Format(
+      return {"NotificationInsecureOrigin", kUnknown,
               "The Notification API may no longer be used from insecure "
               "origins. "
               "You should consider switching your application to a secure "
               "origin, "
-              "such as HTTPS. See https://goo.gl/rStTGz for more details.")};
+              "such as HTTPS. See https://goo.gl/rStTGz for more details."};
 
     case WebFeature::kNotificationPermissionRequestedIframe:
-      return {
-          "NotificationPermissionRequestedIframe", kUnknown,
-          String::Format(
+      return {"NotificationPermissionRequestedIframe", kUnknown,
               "Permission for the Notification API may no longer be requested "
               "from "
               "a cross-origin iframe. You should consider requesting "
               "permission "
               "from a top-level frame or opening a new window instead. See "
               "https://www.chromestatus.com/feature/6451284559265792 for more "
-              "details.")};
-
-    case WebFeature::kCSSDeepCombinator:
-      return {"CSSDeepCombinator", kM65,
-              "/deep/ combinator is no longer supported in CSS dynamic "
-              "profile. "
-              "It is now effectively no-op, acting as if it were a descendant "
-              "combinator. /deep/ combinator will be removed, and will be "
-              "invalid at M65. You should remove it. See "
-              "https://www.chromestatus.com/features/4964279606312960 for more "
               "details."};
 
     case WebFeature::kCSSSelectorInternalMediaControlsOverlayCastButton:
@@ -402,35 +392,11 @@ DeprecationInfo GetDeprecationInfo(WebFeature feature) {
           "https://www.chromestatus.com/feature/5735596811091968 for more "
           "details."};
 
-#define kWebComponentsV0DeprecationPost                \
-  "https://developers.google.com/web/updates/2019/07/" \
-  "web-components-time-to-upgrade"
-
     case WebFeature::kHTMLImports:
-      return {"HTMLImports", kM80,
-              ReplacedWillBeRemoved(
-                  "HTML Imports", "ES modules", kM80,
-                  "5144752345317376 and " kWebComponentsV0DeprecationPost)};
-
-    case WebFeature::kElementCreateShadowRoot:
-      return {"ElementCreateShadowRoot", kM80,
-              ReplacedWillBeRemoved(
-                  "Element.createShadowRoot", "Element.attachShadow", kM80,
-                  "4507242028072960 and " kWebComponentsV0DeprecationPost)};
-
-    case WebFeature::kDocumentRegisterElement:
-      return {
-          "DocumentRegisterElement", kM80,
-          ReplacedWillBeRemoved(
-              "document.registerElement", "window.customElements.define", kM80,
-              "4642138092470272 and " kWebComponentsV0DeprecationPost)};
-    case WebFeature::kCSSSelectorPseudoUnresolved:
-      return {"CSSSelectorPseudoUnresolved", kM80,
-              ReplacedWillBeRemoved(
-                  ":unresolved pseudo selector", ":not(:defined)", kM80,
-                  "4642138092470272 and " kWebComponentsV0DeprecationPost)};
-
-#undef kWebComponentsV0DeprecationPost
+      return {"HTMLImports", kUnknown,
+              "The HTML Imports feature has been removed. See "
+              "https://www.chromestatus.com/feature/5144752345317376 for more "
+              "details."};
 
     case WebFeature::kLocalCSSFileExtensionRejected:
       return {"LocalCSSFileExtensionRejected", kM64,
@@ -542,6 +508,16 @@ DeprecationInfo GetDeprecationInfo(WebFeature feature) {
               "details.",
               MilestoneString(kM84).Ascii().c_str())};
 
+    case WebFeature::kV8SharedArrayBufferConstructedWithoutIsolation:
+      return {
+          "SharedArrayBufferConstructedWithoutIsolation", kM91,
+          String::Format(
+              "SharedArrayBuffer will require cross-origin isolation as of "
+              "%s. See "
+              "https://developer.chrome.com/blog/enabling-shared-array-buffer/"
+              " for more details.",
+              MilestoneString(kM91).Ascii().c_str())};
+
     case WebFeature::kV8RTCRtpSender_CreateEncodedAudioStreams_Method:
       return {"V8RTCRtpSender_CreateEncodedAudioStreams_Method", kM88,
               ReplacedWillBeRemoved("RTCRtpSender.createEncodedAudioStreams",
@@ -579,6 +555,43 @@ DeprecationInfo GetDeprecationInfo(WebFeature feature) {
                   "RTCConfiguration.forceEncodedVideoInsertableStreams",
                   "RTCConfiguration.encodedInsertableStreams", kM88,
                   "6321945865879552")};
+
+    case WebFeature::kRTCConstraintEnableRtpDataChannelsFalse:
+    case WebFeature::kRTCConstraintEnableRtpDataChannelsTrue:
+      return {
+          "RTP data channel", kM88,
+          "RTP data channels are no longer supported. "
+          "The \"RtpDataChannels\" constraint is currently ignored, and may "
+          "cause an error at a later date."};
+
+    case WebFeature::kCSSSelectorWebkitDetailsMarker:
+      if (!RuntimeEnabledFeatures::SummaryListItemEnabled())
+        return {"NotDeprecated", kUnknown, ""};
+      return {"CSSSeelctorWebKitDetailsMarker", kM89,
+              ReplacedBy("::-webkit-details-marker pseudo element selector",
+                         "::marker") +
+                  " See https://chromestatus.com/feature/6730096436051968 for "
+                  "more details."};
+
+    case WebFeature::kV8SpeechRecognitionEvent_Interpretation_AttributeGetter:
+      return {"V8SpeechRecognitionEvent_Interpretation_AttributeGetter", kM91,
+              WillBeRemoved("SpeechRecognitionEvent's interpretation attribute",
+                            kM91, "5769608873115648")};
+
+    case WebFeature::kV8SpeechRecognitionEvent_Emma_AttributeGetter:
+      return {"V8SpeechRecognitionEvent_Emma_AttributeGetter", kM91,
+              WillBeRemoved("SpeechRecognitionEvent's emma attribute", kM91,
+                            "5769608873115648")};
+
+    case WebFeature::kRTCPeerConnectionSdpSemanticsPlanB:
+      return {"RTCPeerConnectionSdpSemanticsPlanB", kM93,
+              "Plan B SDP semantics, which is used when constructing an "
+              "RTCPeerConnection with {sdpSemantics:\"plan-b\"}, is a legacy "
+              "version of the Session Description Protocol that has severe "
+              "compatibility issues on modern browsers. The standardized SDP "
+              "format, \"unified-plan\", has been used by default since M72 "
+              "(January, 2019). Dropping support for Plan B is targeted for "
+              "M93 (Canary: July 15, 2021; Stable: August 24, 2021)."};
 
     // Features that aren't deprecated don't have a deprecation message.
     default:
@@ -620,12 +633,12 @@ void Deprecation::UnmuteForInspector() {
 }
 
 void Deprecation::Suppress(CSSPropertyID unresolved_property) {
-  DCHECK(isCSSPropertyIDWithName(unresolved_property));
+  DCHECK(IsCSSPropertyIDWithName(unresolved_property));
   css_property_deprecation_bits_.set(static_cast<size_t>(unresolved_property));
 }
 
 bool Deprecation::IsSuppressed(CSSPropertyID unresolved_property) {
-  DCHECK(isCSSPropertyIDWithName(unresolved_property));
+  DCHECK(IsCSSPropertyIDWithName(unresolved_property));
   return css_property_deprecation_bits_[static_cast<size_t>(
       unresolved_property)];
 }
@@ -687,6 +700,11 @@ void Deprecation::CountDeprecation(ExecutionContext* context,
     if (window->GetFrame())
       deprecation = &window->GetFrame()->GetPage()->GetDeprecation();
   } else if (auto* scope = DynamicTo<WorkerOrWorkletGlobalScope>(context)) {
+    // TODO(crbug.com/1146824): Remove this once PlzDedicatedWorker and
+    // PlzServiceWorker ship.
+    if (!scope->IsInitialized()) {
+      return;
+    }
     deprecation = &scope->GetDeprecation();
   }
 
@@ -696,31 +714,13 @@ void Deprecation::CountDeprecation(ExecutionContext* context,
   }
   deprecation->SetReported(feature);
 
-  // TODO(yoichio): We should remove these counters when v0 APIs are removed.
-  // crbug.com/946875.
-  if (feature == WebFeature::kHTMLImports &&
-      context->GetOriginTrialContext()->IsFeatureEnabled(
-          OriginTrialFeature::kHTMLImports)) {
-    context->CountUse(WebFeature::kHTMLImportsOnReverseOriginTrials);
-  } else if (feature == WebFeature::kElementCreateShadowRoot &&
-             context->GetOriginTrialContext()->IsFeatureEnabled(
-                 OriginTrialFeature::kShadowDOMV0)) {
-    context->CountUse(
-        WebFeature::kElementCreateShadowRootOnReverseOriginTrials);
-  } else if (feature == WebFeature::kDocumentRegisterElement &&
-             context->GetOriginTrialContext()->IsFeatureEnabled(
-                 OriginTrialFeature::kCustomElementsV0)) {
-    context->CountUse(
-        WebFeature::kDocumentRegisterElementOnReverseOriginTrials);
-  }
-
   // Don't count usage of WebComponentsV0 for chrome:// URLs, but still report
   // the deprecation messages.
+  // Note that this only applies to HTML Imports, as Shadow DOM v0 and Custom
+  // Elements v0 have both now been removed.
   bool count_usage = true;
   if (context->Url().ProtocolIs("chrome") &&
-      (feature == WebFeature::kHTMLImports ||
-       feature == WebFeature::kElementCreateShadowRoot ||
-       feature == WebFeature::kDocumentRegisterElement)) {
+      feature == WebFeature::kHTMLImports) {
     count_usage = false;
   }
   if (count_usage)

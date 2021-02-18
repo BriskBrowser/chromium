@@ -15,12 +15,14 @@
 
 @interface SettingsImageDetailTextCell ()
 
-// Width constraint for the image view.
-@property(nonatomic, weak, readonly) NSLayoutConstraint* imageWidthConstraint;
-// Height constraint for the image view.
-@property(nonatomic, weak, readonly) NSLayoutConstraint* imageHeightConstraint;
 // Image view for the cell.
 @property(nonatomic, strong) UIImageView* imageView;
+
+// Constraint used for leading text constraint without |imageView|.
+@property(nonatomic, strong) NSLayoutConstraint* textNoImageConstraint;
+
+// Constraint used for leading text constraint with |imageView| showing.
+@property(nonatomic, strong) NSLayoutConstraint* textWithImageConstraint;
 
 @end
 
@@ -61,7 +63,6 @@
   _detailTextLabel.font =
       [UIFont preferredFontForTextStyle:kTableViewSublabelFontStyle];
   _detailTextLabel.adjustsFontForContentSizeCategory = YES;
-  _detailTextLabel.textColor = UIColor.cr_secondaryLabelColor;
 }
 
 // Sets constraints on subviews.
@@ -74,29 +75,28 @@
   textStackView.translatesAutoresizingMaskIntoConstraints = NO;
   [contentView addSubview:textStackView];
 
-  _imageWidthConstraint = [_imageView.widthAnchor constraintEqualToConstant:0];
-  _imageHeightConstraint =
-      [_imageView.heightAnchor constraintEqualToConstant:0];
+  _textNoImageConstraint = [textStackView.leadingAnchor
+      constraintEqualToAnchor:contentView.leadingAnchor
+                     constant:kTableViewHorizontalSpacing];
+
+  _textWithImageConstraint = [textStackView.leadingAnchor
+      constraintEqualToAnchor:_imageView.trailingAnchor
+                     constant:kTableViewImagePadding];
 
   [NSLayoutConstraint activateConstraints:@[
-    // Horizontal contraints for |_imageView| and |textStackView|.
-    _imageWidthConstraint,
+    [_imageView.widthAnchor constraintEqualToConstant:kTableViewIconImageSize],
+    [_imageView.heightAnchor constraintEqualToAnchor:_imageView.widthAnchor],
     [_imageView.leadingAnchor
         constraintEqualToAnchor:contentView.leadingAnchor
                        constant:kTableViewHorizontalSpacing],
-    [textStackView.leadingAnchor
-        constraintEqualToAnchor:_imageView.trailingAnchor
-                       constant:kTableViewHorizontalSpacing],
-    [contentView.trailingAnchor
-        constraintEqualToAnchor:textStackView.trailingAnchor
-                       constant:kTableViewHorizontalSpacing],
-    // Vertical contraints for |_imageView| and |textStackView|.
-    _imageHeightConstraint,
     [_imageView.centerYAnchor
         constraintEqualToAnchor:contentView.centerYAnchor],
     [_imageView.topAnchor
         constraintGreaterThanOrEqualToAnchor:contentView.topAnchor
                                     constant:kTableViewVerticalSpacing],
+    [contentView.trailingAnchor
+        constraintEqualToAnchor:textStackView.trailingAnchor
+                       constant:kTableViewHorizontalSpacing],
     [contentView.bottomAnchor
         constraintGreaterThanOrEqualToAnchor:_imageView.bottomAnchor
                                     constant:kTableViewVerticalSpacing],
@@ -110,14 +110,25 @@
         constraintGreaterThanOrEqualToAnchor:textStackView.bottomAnchor
                                     constant:
                                         kTableViewTwoLabelsCellVerticalSpacing],
+
+    // Leading constraint for |customSepartor|.
+    [self.customSeparator.leadingAnchor
+        constraintEqualToAnchor:self.textLabel.leadingAnchor],
   ]];
 }
 
 - (void)setImage:(UIImage*)image {
-  DCHECK(image);
+  BOOL hidden = !image;
   self.imageView.image = image;
-  self.imageWidthConstraint.constant = image.size.width;
-  self.imageHeightConstraint.constant = image.size.height;
+  self.imageView.hidden = hidden;
+  // Update the leading text constraint based on |image| being provided.
+  if (hidden) {
+    self.textWithImageConstraint.active = NO;
+    self.textNoImageConstraint.active = YES;
+  } else {
+    self.textNoImageConstraint.active = NO;
+    self.textWithImageConstraint.active = YES;
+  }
 }
 
 - (UIImage*)image {

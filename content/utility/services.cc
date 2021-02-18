@@ -9,7 +9,9 @@
 #include "base/command_line.h"
 #include "base/no_destructor.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "build/branding_buildflags.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/services/storage/public/mojom/storage_service.mojom.h"
 #include "components/services/storage/storage_service_impl.h"
 #include "content/child/child_process.h"
@@ -60,6 +62,11 @@ extern sandbox::TargetServices* g_utility_target_services;
 #include "sandbox/linux/services/libc_interceptor.h"
 #include "sandbox/policy/sandbox_type.h"
 #endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
+
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING) && BUILDFLAG(IS_CHROMEOS_ASH)
+#include "services/shape_detection/public/mojom/shape_detection_service.mojom.h"  // nogncheck
+#include "services/shape_detection/shape_detection_service.h"  // nogncheck
+#endif
 
 namespace content {
 
@@ -168,6 +175,15 @@ auto RunAudio(mojo::PendingReceiver<audio::mojom::AudioService> receiver) {
   return audio::CreateStandaloneService(std::move(receiver));
 }
 
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING) && BUILDFLAG(IS_CHROMEOS_ASH)
+auto RunShapeDetectionService(
+    mojo::PendingReceiver<shape_detection::mojom::ShapeDetectionService>
+        receiver) {
+  return std::make_unique<shape_detection::ShapeDetectionService>(
+      std::move(receiver));
+}
+#endif
+
 #if BUILDFLAG(ENABLE_LIBRARY_CDMS)
 auto RunCdmService(mojo::PendingReceiver<media::mojom::CdmService> receiver) {
   return std::make_unique<media::CdmService>(
@@ -202,73 +218,44 @@ auto RunVideoCapture(
 #if BUILDFLAG(ENABLE_VR) && !defined(OS_ANDROID)
 auto RunXrDeviceService(
     mojo::PendingReceiver<device::mojom::XRDeviceService> receiver) {
-  return std::make_unique<device::XrDeviceService>(std::move(receiver));
+  return std::make_unique<device::XrDeviceService>(
+      std::move(receiver), content::ChildProcess::current()->io_task_runner());
 }
 #endif
-
-mojo::ServiceFactory& GetIOThreadServiceFactory() {
-  static base::NoDestructor<mojo::ServiceFactory> factory{
-      // The network service runs on the IO thread because it needs a message
-      // loop of type IO that can get notified when pipes have data.
-      RunNetworkService,
-  };
-  return *factory;
-}
-
-mojo::ServiceFactory& GetMainThreadServiceFactory() {
-  // clang-format off
-  static base::NoDestructor<mojo::ServiceFactory> factory{
-    RunAudio,
-#if BUILDFLAG(ENABLE_LIBRARY_CDMS)
-    RunCdmService,
-#endif
-    RunDataDecoder,
-    RunStorageService,
-    RunTracing,
-    RunVideoCapture,
-#if BUILDFLAG(ENABLE_VR) && !defined(OS_ANDROID)
-    RunXrDeviceService,
-#endif
-  };
-  // clang-format on
-  return *factory;
-}
 
 }  // namespace
 
-void HandleServiceRequestOnIOThread(
-    mojo::GenericPendingReceiver receiver,
-    base::SequencedTaskRunner* main_thread_task_runner) {
-  if (GetIOThreadServiceFactory().MaybeRunService(&receiver))
-    return;
+void RegisterIOThreadServices(mojo::ServiceFactory& services) {
+  // The network service runs on the IO thread because it needs a message
+  // loop of type IO that can get notified when pipes have data.
+  services.Add(RunNetworkService);
 
-  // If the request was handled already, we should not reach this point.
-  DCHECK(receiver.is_valid());
-  auto* embedder_factory =
-      GetContentClient()->utility()->GetIOThreadServiceFactory();
-  if (embedder_factory && embedder_factory->MaybeRunService(&receiver))
-    return;
-
-  DCHECK(receiver.is_valid());
-  main_thread_task_runner->PostTask(
-      FROM_HERE,
-      base::BindOnce(&HandleServiceRequestOnMainThread, std::move(receiver)));
+  // Add new IO-thread services above this line.
+  GetContentClient()->utility()->RegisterIOThreadServices(services);
 }
 
-void HandleServiceRequestOnMainThread(mojo::GenericPendingReceiver receiver) {
-  if (GetMainThreadServiceFactory().MaybeRunService(&receiver))
-    return;
+void RegisterMainThreadServices(mojo::ServiceFactory& services) {
+  services.Add(RunAudio);
 
-  // If the request was handled already, we should not reach this point.
-  DCHECK(receiver.is_valid());
-  auto* embedder_factory =
-      GetContentClient()->utility()->GetMainThreadServiceFactory();
-  if (embedder_factory && embedder_factory->MaybeRunService(&receiver))
-    return;
+  services.Add(RunDataDecoder);
+  services.Add(RunStorageService);
+  services.Add(RunTracing);
+  services.Add(RunVideoCapture);
 
-  DCHECK(receiver.is_valid());
-  DLOG(ERROR) << "Unhandled out-of-process service request for "
-              << receiver.interface_name().value();
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING) && BUILDFLAG(IS_CHROMEOS_ASH)
+  services.Add(RunShapeDetectionService);
+#endif
+
+#if BUILDFLAG(ENABLE_LIBRARY_CDMS)
+  services.Add(RunCdmService);
+#endif
+
+#if BUILDFLAG(ENABLE_VR) && !defined(OS_ANDROID)
+  services.Add(RunXrDeviceService);
+#endif
+
+  // Add new main-thread services above this line.
+  GetContentClient()->utility()->RegisterMainThreadServices(services);
 }
 
 }  // namespace content

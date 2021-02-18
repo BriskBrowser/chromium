@@ -9,16 +9,13 @@
 #include "base/strings/string16.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/window/dialog_delegate.h"
 
 class Browser;
 
 namespace safe_browsing {
 class SettingsResetPromptController;
-}
-
-namespace views {
-class View;
 }
 
 // A dialog intended for prompting users to reset some of their settings to
@@ -28,26 +25,23 @@ class View;
 //    operation.
 class SettingsResetPromptDialog : public views::DialogDelegateView {
  public:
-  explicit SettingsResetPromptDialog(
+  METADATA_HEADER(SettingsResetPromptDialog);
+  SettingsResetPromptDialog(
+      Browser* browser,
       safe_browsing::SettingsResetPromptController* controller);
+  SettingsResetPromptDialog(const SettingsResetPromptDialog&) = delete;
+  SettingsResetPromptDialog& operator=(const SettingsResetPromptDialog&) =
+      delete;
   ~SettingsResetPromptDialog() override;
 
-  void Show(Browser* browser);
+  void Show();
 
-  // views::WidgetDelegate overrides.
-  ui::ModalType GetModalType() const override;
-  bool ShouldShowWindowIcon() const override;
+  // views::DialogDelegateView:
   base::string16 GetWindowTitle() const override;
-  bool ShouldShowCloseButton() const override;
-
-  // views::View overrides.
-  gfx::Size CalculatePreferredSize() const override;
 
  private:
-  Browser* browser_;
+  Browser* const browser_;
   safe_browsing::SettingsResetPromptController* controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(SettingsResetPromptDialog);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_SETTINGS_RESET_PROMPT_DIALOG_H_

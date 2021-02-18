@@ -18,13 +18,13 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
-#include "chrome/browser/chromeos/web_applications/default_web_app_ids.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #include "chrome/browser/ui/webui/settings/chromeos/hierarchy.h"
 #include "chrome/browser/ui/webui/settings/chromeos/os_settings_manager.h"
 #include "chrome/browser/ui/webui/settings/chromeos/os_settings_manager_factory.h"
 #include "chrome/browser/ui/webui/settings/chromeos/search/search_handler.h"
+#include "chrome/browser/web_applications/components/web_app_id_constants.h"
 #include "chrome/common/chrome_features.h"
 #include "ui/gfx/image/image_skia.h"
 #include "url/gurl.h"
@@ -55,7 +55,8 @@ enum class Error {
   kSearchHandlerUnavailable = 3,
   kHierarchyEmpty = 4,
   kNoHierarchy = 5,
-  kMaxValue = kNoHierarchy,
+  kSettingsAppNotReady = 6,
+  kMaxValue = kSettingsAppNotReady,
 };
 
 void LogError(Error error) {
@@ -185,14 +186,16 @@ OsSettingsProvider::OsSettingsProvider(Profile* profile)
       search_results_observer_receiver_.BindNewPipeAndPassRemote());
 
   app_service_proxy_ = apps::AppServiceProxyFactory::GetForProfile(profile_);
+  DCHECK(app_service_proxy_);
+
   Observe(&app_service_proxy_->AppRegistryCache());
   auto icon_type =
       (base::FeatureList::IsEnabled(features::kAppServiceAdaptiveIcon))
           ? apps::mojom::IconType::kStandard
           : apps::mojom::IconType::kUncompressed;
   app_service_proxy_->LoadIcon(
-      apps::mojom::AppType::kWeb, chromeos::default_web_apps::kOsSettingsAppId,
-      icon_type, ash::AppListConfig::instance().search_list_icon_dimension(),
+      apps::mojom::AppType::kWeb, web_app::kOsSettingsAppId, icon_type,
+      ash::AppListConfig::instance().search_list_icon_dimension(),
       /*allow_placeholder_icon=*/false,
       base::BindOnce(&OsSettingsProvider::OnLoadIcon,
                      weak_factory_.GetWeakPtr()));
@@ -223,8 +226,16 @@ ash::AppListSearchResultType OsSettingsProvider::ResultType() {
 void OsSettingsProvider::Start(const base::string16& query) {
   const base::TimeTicks start_time = base::TimeTicks::Now();
   last_query_ = query;
-  if (!search_handler_)
+  // Disable the provider if:
+  //  - the search backend isn't available
+  //  - the settings app isn't ready
+  //  - we don't have an icon to display with results.
+  if (!search_handler_) {
     return;
+  } else if (icon_.isNull()) {
+    LogError(Error::kNoSettingsIcon);
+    return;
+  }
 
   ClearResultsSilently();
 
@@ -256,8 +267,6 @@ void OsSettingsProvider::OnSearchReturned(
   // Instead, we are gluing at most two to the top of the search box. Consider
   // ranking these with other results in the next version of the feature.
   DCHECK_LE(sorted_results.size(), kNumRequestedResults);
-  if (icon_.isNull())
-    LogError(Error::kNoSettingsIcon);
 
   SearchProvider::Results search_results;
   int i = 0;
@@ -274,18 +283,23 @@ void OsSettingsProvider::OnSearchReturned(
 }
 
 void OsSettingsProvider::OnAppUpdate(const apps::AppUpdate& update) {
-  // Watch the app service for updates. On an update that marks the OS settings
-  // app as ready, retrieve the icon for the app to use for search results.
-  if (update.AppId() == chromeos::default_web_apps::kOsSettingsAppId &&
-      update.ReadinessChanged() &&
-      update.Readiness() == apps::mojom::Readiness::kReady) {
+  if (update.AppId() != web_app::kOsSettingsAppId)
+    return;
+
+  // TODO(crbug.com/1068851): We previously disabled this search provider until
+  // the app service signalled that the settings app is ready. But this signal
+  // is flaky, so sometimes search provider was permanently disabled. Once the
+  // signal is reliable, we should re-add the check.
+
+  // Request the Settings app icon when either the readiness or the icon has
+  // changed.
+  if (update.ReadinessChanged() || update.IconKeyChanged()) {
     auto icon_type =
         (base::FeatureList::IsEnabled(features::kAppServiceAdaptiveIcon))
             ? apps::mojom::IconType::kStandard
             : apps::mojom::IconType::kUncompressed;
     app_service_proxy_->LoadIcon(
-        apps::mojom::AppType::kWeb,
-        chromeos::default_web_apps::kOsSettingsAppId, icon_type,
+        apps::mojom::AppType::kWeb, web_app::kOsSettingsAppId, icon_type,
         ash::AppListConfig::instance().search_list_icon_dimension(),
         /*allow_placeholder_icon=*/false,
         base::BindOnce(&OsSettingsProvider::OnLoadIcon,
@@ -368,6 +382,9 @@ OsSettingsProvider::FilterResults(
 }
 
 void OsSettingsProvider::OnLoadIcon(apps::mojom::IconValuePtr icon_value) {
+  if (icon_value.is_null())
+    return;
+
   auto icon_type =
       (base::FeatureList::IsEnabled(features::kAppServiceAdaptiveIcon))
           ? apps::mojom::IconType::kStandard

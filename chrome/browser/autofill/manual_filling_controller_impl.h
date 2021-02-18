@@ -11,6 +11,7 @@
 #include "base/containers/flat_set.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "base/trace_event/memory_dump_provider.h"
 #include "chrome/browser/autofill/manual_filling_controller.h"
 #include "chrome/browser/autofill/manual_filling_view_interface.h"
 #include "components/autofill/core/common/mojom/autofill_types.mojom-shared.h"
@@ -21,14 +22,14 @@ class AddressAccessoryController;
 class CreditCardAccessoryController;
 }  // namespace autofill
 
-
 class AccessoryController;
 class PasswordAccessoryController;
 
 // Use ManualFillingController::GetOrCreate to obtain instances of this class.
 class ManualFillingControllerImpl
     : public ManualFillingController,
-      public content::WebContentsUserData<ManualFillingControllerImpl> {
+      public content::WebContentsUserData<ManualFillingControllerImpl>,
+      public base::trace_event::MemoryDumpProvider {
  public:
   ~ManualFillingControllerImpl() override;
 
@@ -90,6 +91,11 @@ class ManualFillingControllerImpl
       base::WeakPtr<autofill::CreditCardAccessoryController> cc_controller,
       std::unique_ptr<ManualFillingViewInterface> view);
 
+  // MemoryDumpProvider:
+  bool OnMemoryDump(
+      const base::trace_event::MemoryDumpArgs& args,
+      base::trace_event::ProcessMemoryDump* process_memory_dump) override;
+
   // Returns true if the keyboard accessory needs to be shown.
   bool ShouldShowAccessory() const;
 
@@ -111,6 +117,9 @@ class ManualFillingControllerImpl
 
   // This set contains sources to be shown to the user.
   base::flat_set<FillingSource> available_sources_;
+
+  // This map contains sheets for each sources to be shown to the user.
+  base::flat_map<FillingSource, autofill::AccessorySheetData> available_sheets_;
 
   // Type of the last known selected field. Helps to determine UI visibility.
   autofill::mojom::FocusedFieldType focused_field_type_ =

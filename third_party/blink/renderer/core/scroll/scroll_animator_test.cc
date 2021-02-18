@@ -62,7 +62,8 @@ class MockScrollableAreaForAnimatorTest
   explicit MockScrollableAreaForAnimatorTest(bool scroll_animator_enabled,
                                              const ScrollOffset& min_offset,
                                              const ScrollOffset& max_offset)
-      : scroll_animator_enabled_(scroll_animator_enabled),
+      : ScrollableArea(blink::scheduler::GetSingleThreadTaskRunnerForTesting()),
+        scroll_animator_enabled_(scroll_animator_enabled),
         min_offset_(min_offset),
         max_offset_(max_offset) {}
 
@@ -81,7 +82,7 @@ class MockScrollableAreaForAnimatorTest
   MOCK_CONST_METHOD0(ScrollbarsCanBeActive, bool());
   MOCK_METHOD0(RegisterForAnimation, void());
   MOCK_METHOD0(ScheduleAnimation, bool());
-  MOCK_CONST_METHOD0(UsedColorScheme, WebColorScheme());
+  MOCK_CONST_METHOD0(UsedColorScheme, mojom::blink::ColorScheme());
 
   bool UserInputScrollable(ScrollbarOrientation) const override { return true; }
   bool ShouldPlaceVerticalScrollbarOnLeft() const override { return false; }

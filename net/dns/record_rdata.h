@@ -32,8 +32,9 @@ class NET_EXPORT RecordRdata {
  public:
   virtual ~RecordRdata() {}
 
-  // Return true if |data| represents RDATA in the wire format with a valid size
-  // for the give |type|.
+  // Return true if `data` represents RDATA in the wire format with a valid size
+  // for the give `type`. Always returns true for unrecognized `type`s as the
+  // size is never known to be invalid.
   static bool HasValidSize(const base::StringPiece& data, uint16_t type);
 
   virtual bool IsEqual(const RecordRdata* other) const = 0;
@@ -131,7 +132,7 @@ class NET_EXPORT_PRIVATE CnameRecordRdata : public RecordRdata {
   bool IsEqual(const RecordRdata* other) const override;
   uint16_t Type() const override;
 
-  std::string cname() const { return cname_; }
+  const std::string& cname() const { return cname_; }
 
  private:
   CnameRecordRdata();

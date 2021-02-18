@@ -10,7 +10,6 @@
 #include "ash/assistant/ui/main_stage/suggestion_chip_view.h"
 #include "ash/public/cpp/app_list/app_list_types.h"
 #include "base/run_loop.h"
-#include "base/scoped_observer.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
 #include "chromeos/services/assistant/public/cpp/assistant_service.h"
@@ -27,6 +26,7 @@ namespace {
 
 using chromeos::assistant::AssistantInteractionMetadata;
 using chromeos::assistant::AssistantInteractionType;
+using chromeos::assistant::features::IsBetterOnboardingEnabled;
 
 // The min/max height of the embedded Assistant.
 constexpr int kMaxHeightDip = 440;
@@ -245,7 +245,9 @@ class AssistantInteractionCounter
 }  // namespace
 
 TEST_F(AssistantPageViewTest, ShouldStartInPeekingState) {
-  EXPECT_FALSE(chromeos::assistant::features::IsBetterOnboardingEnabled());
+  // Ensure that better onboarding is not shown (if enabled).
+  SetNumberOfSessionsWhereOnboardingShown(
+      assistant::ui::kOnboardingMaxSessionsShown);
 
   ShowAssistantUi();
 
@@ -264,6 +266,10 @@ TEST_F(AssistantPageViewTest, ShouldStartInHalfState) {
 }
 
 TEST_F(AssistantPageViewTest, ShouldStartAtMinimumHeight) {
+  // Ensure that better onboarding is not shown (if enabled).
+  SetNumberOfSessionsWhereOnboardingShown(
+      assistant::ui::kOnboardingMaxSessionsShown);
+
   ShowAssistantUi();
 
   base::RunLoop().RunUntilIdle();
@@ -272,6 +278,10 @@ TEST_F(AssistantPageViewTest, ShouldStartAtMinimumHeight) {
 
 TEST_F(AssistantPageViewTest,
        ShouldRemainAtMinimumHeightWhenDisplayingOneLiner) {
+  // Ensure that better onboarding is not shown (if enabled).
+  SetNumberOfSessionsWhereOnboardingShown(
+      assistant::ui::kOnboardingMaxSessionsShown);
+
   ShowAssistantUi();
 
   MockTextInteraction().WithTextResponse("Short one-liner");
@@ -419,21 +429,21 @@ TEST_F(AssistantPageViewTest,
   }
 }
 
-TEST_F(AssistantPageViewTest, ShouldFocusMicWhenOpeningWithHotword) {
+TEST_F(AssistantPageViewTest, ShouldNotFocusMicWhenOpeningWithHotword) {
   ShowAssistantUi(AssistantEntryPoint::kHotword);
 
-  EXPECT_HAS_FOCUS(mic_view());
+  EXPECT_NOT_HAS_FOCUS(mic_view());
 }
 
 TEST_F(AssistantPageViewTest, ShouldShowGreetingLabelWhenOpening) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndDisableFeature(
-      chromeos::assistant::features::kAssistantBetterOnboarding);
+  // Ensure that better onboarding is not shown (if enabled).
+  SetNumberOfSessionsWhereOnboardingShown(
+      assistant::ui::kOnboardingMaxSessionsShown);
 
   ShowAssistantUi();
 
   EXPECT_TRUE(greeting_label()->IsDrawn());
-  EXPECT_EQ(nullptr, onboarding_view());
+  EXPECT_EQ(onboarding_view() != nullptr, IsBetterOnboardingEnabled());
 }
 
 TEST_F(AssistantPageViewTest, ShouldShowOnboardingWhenOpening) {
@@ -448,16 +458,16 @@ TEST_F(AssistantPageViewTest, ShouldShowOnboardingWhenOpening) {
 }
 
 TEST_F(AssistantPageViewTest, ShouldDismissGreetingLabelAfterQuery) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndDisableFeature(
-      chromeos::assistant::features::kAssistantBetterOnboarding);
+  // Ensure that better onboarding is not shown (if enabled).
+  SetNumberOfSessionsWhereOnboardingShown(
+      assistant::ui::kOnboardingMaxSessionsShown);
 
   ShowAssistantUi();
 
   MockTextInteraction().WithTextResponse("The response");
 
   EXPECT_FALSE(greeting_label()->IsDrawn());
-  EXPECT_EQ(nullptr, onboarding_view());
+  EXPECT_EQ(onboarding_view() != nullptr, IsBetterOnboardingEnabled());
 }
 
 TEST_F(AssistantPageViewTest, ShouldDismissOnboardingAfterQuery) {
@@ -474,9 +484,9 @@ TEST_F(AssistantPageViewTest, ShouldDismissOnboardingAfterQuery) {
 }
 
 TEST_F(AssistantPageViewTest, ShouldShowGreetingLabelAgainAfterReopening) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndDisableFeature(
-      chromeos::assistant::features::kAssistantBetterOnboarding);
+  // Ensure that better onboarding is not shown (if enabled).
+  SetNumberOfSessionsWhereOnboardingShown(
+      assistant::ui::kOnboardingMaxSessionsShown);
 
   ShowAssistantUi();
 
@@ -489,19 +499,19 @@ TEST_F(AssistantPageViewTest, ShouldShowGreetingLabelAgainAfterReopening) {
   ShowAssistantUi();
 
   EXPECT_TRUE(greeting_label()->IsDrawn());
-  EXPECT_EQ(nullptr, onboarding_view());
+  EXPECT_EQ(onboarding_view() != nullptr, IsBetterOnboardingEnabled());
 }
 
 TEST_F(AssistantPageViewTest,
        ShouldNotShowGreetingLabelWhenOpeningFromSearchResult) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndDisableFeature(
-      chromeos::assistant::features::kAssistantBetterOnboarding);
+  // Ensure that better onboarding is not shown (if enabled).
+  SetNumberOfSessionsWhereOnboardingShown(
+      assistant::ui::kOnboardingMaxSessionsShown);
 
   ShowAssistantUi(AssistantEntryPoint::kLauncherSearchResult);
 
   EXPECT_FALSE(greeting_label()->IsDrawn());
-  EXPECT_EQ(nullptr, onboarding_view());
+  EXPECT_EQ(onboarding_view() != nullptr, IsBetterOnboardingEnabled());
 }
 
 TEST_F(AssistantPageViewTest,
@@ -617,12 +627,13 @@ TEST_F(AssistantPageViewTest,
   EXPECT_FALSE(onboarding_view()->IsDrawn());
 }
 
-TEST_F(AssistantPageViewTest, ShouldFocusMicViewWhenPressingVoiceInputToggle) {
+TEST_F(AssistantPageViewTest,
+       ShouldNotFocusMicViewWhenPressingVoiceInputToggle) {
   ShowAssistantUiInTextMode();
 
   ClickOnAndWait(voice_input_toggle());
 
-  EXPECT_HAS_FOCUS(mic_view());
+  EXPECT_NOT_HAS_FOCUS(mic_view());
 }
 
 TEST_F(AssistantPageViewTest,
@@ -854,11 +865,13 @@ TEST_F(AssistantPageViewTest, ShouldNotClearQueryWhenSwitchingToTabletMode) {
 }
 
 TEST_F(AssistantPageViewTest, ShouldHaveConversationStarters) {
-  ASSERT_FALSE(chromeos::assistant::features::IsBetterOnboardingEnabled());
+  // Ensure that better onboarding is not shown (if enabled).
+  SetNumberOfSessionsWhereOnboardingShown(
+      assistant::ui::kOnboardingMaxSessionsShown);
 
   ShowAssistantUi();
 
-  EXPECT_EQ(nullptr, onboarding_view());
+  EXPECT_EQ(onboarding_view() != nullptr, IsBetterOnboardingEnabled());
   EXPECT_FALSE(GetSuggestionChips().empty());
 }
 
@@ -921,16 +934,17 @@ class AssistantPageViewTabletModeTest : public AssistantPageViewTest {
 };
 
 TEST_F(AssistantPageViewTabletModeTest,
-       ShouldFocusMicWhenOpeningWithLongPressLauncher) {
+       ShouldNotFocusMicWhenOpeningWithLongPressLauncher) {
   ShowAssistantUi(AssistantEntryPoint::kLongPressLauncher);
 
-  EXPECT_HAS_FOCUS(mic_view());
+  EXPECT_NOT_HAS_FOCUS(mic_view());
 }
 
-TEST_F(AssistantPageViewTabletModeTest, ShouldFocusMicWhenOpeningWithHotword) {
+TEST_F(AssistantPageViewTabletModeTest,
+       ShouldNotFocusMicWhenOpeningWithHotword) {
   ShowAssistantUi(AssistantEntryPoint::kHotword);
 
-  EXPECT_HAS_FOCUS(mic_view());
+  EXPECT_NOT_HAS_FOCUS(mic_view());
 }
 
 TEST_F(AssistantPageViewTabletModeTest, ShouldFocusTextFieldAfterSendingQuery) {

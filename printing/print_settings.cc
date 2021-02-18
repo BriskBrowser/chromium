@@ -7,9 +7,10 @@
 #include "base/atomic_sequence_num.h"
 #include "base/lazy_instance.h"
 #include "base/notreached.h"
+#include "build/chromeos_buildflags.h"
 #include "printing/units.h"
 
-#if defined(USE_CUPS) && (defined(OS_MAC) || defined(OS_CHROMEOS))
+#if defined(USE_CUPS) && (defined(OS_MAC) || BUILDFLAG(IS_CHROMEOS_ASH))
 #include <cups/cups.h>
 #endif
 
@@ -18,13 +19,6 @@ namespace printing {
 namespace {
 
 base::LazyInstance<std::string>::Leaky g_user_agent;
-
-base::Optional<mojom::ColorModel> ColorModeToColorModel(int color_mode) {
-  if (color_mode < static_cast<int>(mojom::ColorModel::kUnknownColorModel) ||
-      color_mode > static_cast<int>(mojom::ColorModel::kColorModelLast))
-    return base::nullopt;
-  return static_cast<mojom::ColorModel>(color_mode);
-}
 
 }  // namespace
 
@@ -36,10 +30,17 @@ const std::string& GetAgent() {
   return g_user_agent.Get();
 }
 
+mojom::ColorModel ColorModeToColorModel(int color_mode) {
+  if (color_mode < static_cast<int>(mojom::ColorModel::kUnknownColorModel) ||
+      color_mode > static_cast<int>(mojom::ColorModel::kColorModelLast))
+    return mojom::ColorModel::kUnknownColorModel;
+  return static_cast<mojom::ColorModel>(color_mode);
+}
+
 #if defined(USE_CUPS)
-void GetColorModelForMode(int color_mode,
-                          std::string* color_setting_name,
-                          std::string* color_value) {
+void GetColorModelForModel(mojom::ColorModel color_model,
+                           std::string* color_setting_name,
+                           std::string* color_value) {
 #if defined(OS_MAC)
   constexpr char kCUPSColorMode[] = "ColorMode";
   constexpr char kCUPSColorModel[] = "ColorModel";
@@ -64,14 +65,7 @@ void GetColorModelForMode(int color_mode,
 
   *color_setting_name = kCUPSColorModel;
 
-  base::Optional<mojom::ColorModel> color_model =
-      ColorModeToColorModel(color_mode);
-  if (!color_model.has_value()) {
-    NOTREACHED();
-    return;
-  }
-
-  switch (color_model.value()) {
+  switch (color_model) {
     case mojom::ColorModel::kUnknownColorModel:
       *color_value = kGrayscale;
       break;
@@ -189,13 +183,13 @@ void GetColorModelForMode(int color_mode,
   // all ColorModel values are determinantly handled.
 }
 
-#if defined(OS_MAC) || defined(OS_CHROMEOS)
-std::string GetIppColorModelForMode(int color_mode) {
-  // Accept |UNKNOWN_COLOR_MODEL| for consistency with GetColorModelForMode().
-  if (color_mode == static_cast<int>(mojom::ColorModel::kUnknownColorModel))
+#if defined(OS_MAC) || BUILDFLAG(IS_CHROMEOS_ASH)
+std::string GetIppColorModelForModel(mojom::ColorModel color_model) {
+  // Accept |kUnknownColorModel| for consistency with GetColorModelForModel().
+  if (color_model == mojom::ColorModel::kUnknownColorModel)
     return CUPS_PRINT_COLOR_MODE_MONOCHROME;
 
-  base::Optional<bool> is_color = IsColorModelSelected(color_mode);
+  base::Optional<bool> is_color = IsColorModelSelected(color_model);
   if (!is_color.has_value()) {
     NOTREACHED();
     return std::string();
@@ -204,18 +198,11 @@ std::string GetIppColorModelForMode(int color_mode) {
   return is_color.value() ? CUPS_PRINT_COLOR_MODE_COLOR
                           : CUPS_PRINT_COLOR_MODE_MONOCHROME;
 }
-#endif  // defined(OS_MAC) || defined(OS_CHROMEOS)
+#endif  // defined(OS_MAC) || BUILDFLAG(IS_CHROMEOS_ASH)
 #endif  // defined(USE_CUPS)
 
-base::Optional<bool> IsColorModelSelected(int color_mode) {
-  base::Optional<mojom::ColorModel> color_model =
-      ColorModeToColorModel(color_mode);
-  if (!color_model.has_value()) {
-    NOTREACHED();
-    return base::nullopt;
-  }
-
-  switch (color_model.value()) {
+base::Optional<bool> IsColorModelSelected(mojom::ColorModel color_model) {
+  switch (color_model) {
     case mojom::ColorModel::kColor:
     case mojom::ColorModel::kCMYK:
     case mojom::ColorModel::kCMY:
@@ -294,11 +281,11 @@ void PrintSettings::Clear() {
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
   advanced_settings_.clear();
 #endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   send_user_info_ = false;
   username_.clear();
   pin_value_.clear();
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
 void PrintSettings::SetPrinterPrintableArea(

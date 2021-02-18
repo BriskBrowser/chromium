@@ -11,26 +11,19 @@
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 AppDialogView::AppDialogView(const gfx::ImageSkia& image)
     : BubbleDialogDelegateView(nullptr, views::BubbleBorder::NONE) {
   SetIcon(image);
-  SetShowCloseButton(false);
   SetShowIcon(true);
+  SetShowCloseButton(false);
+  SetModalType(ui::MODAL_TYPE_SYSTEM);
+  set_fixed_width(views::LayoutProvider::Get()->GetDistanceMetric(
+      views::DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH));
 }
 
 AppDialogView::~AppDialogView() = default;
-
-gfx::Size AppDialogView::CalculatePreferredSize() const {
-  const int default_width = views::LayoutProvider::Get()->GetDistanceMetric(
-                                DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH) -
-                            margins().width();
-  return gfx::Size(default_width, GetHeightForWidth(default_width));
-}
-
-ui::ModalType AppDialogView::GetModalType() const {
-  return ui::MODAL_TYPE_SYSTEM;
-}
 
 void AppDialogView::InitializeView(const base::string16& heading_text) {
   SetButtons(ui::DIALOG_BUTTON_OK);
@@ -39,8 +32,16 @@ void AppDialogView::InitializeView(const base::string16& heading_text) {
       views::BoxLayout::Orientation::kVertical, gfx::Insets(),
       provider->GetDistanceMetric(views::DISTANCE_RELATED_CONTROL_VERTICAL)));
 
-  auto* label = AddChildView(std::make_unique<views::Label>(heading_text));
-  label->SetMultiLine(true);
-  label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  label->SetAllowCharacterBreak(true);
+  label_ = AddChildView(std::make_unique<views::Label>(heading_text));
+  label_->SetMultiLine(true);
+  label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+  label_->SetAllowCharacterBreak(true);
 }
+
+void AppDialogView::SetLabelText(const base::string16& text) {
+  DCHECK(label_);
+  label_->SetText(text);
+}
+
+BEGIN_METADATA(AppDialogView, views::BubbleDialogDelegateView)
+END_METADATA

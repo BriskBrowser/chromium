@@ -14,7 +14,8 @@
 
 #include "base/command_line.h"
 #include "ui/gfx/x/connection.h"
-#include "ui/gfx/x/x11.h"
+#include "ui/gfx/x/event.h"
+#include "ui/gfx/x/future.h"
 #include "ui/gfx/x/xproto.h"
 
 void CalculateTimeout(const timespec& now,
@@ -57,7 +58,7 @@ int main(int argc, char* argv[]) {
   connection.MapWindow({dummy_window});
   connection.Flush();
 
-  int display_fd = ConnectionNumber(connection.display());
+  int display_fd = connection.GetFd();
 
   // Set deadline as 30s.
   struct timespec now, deadline;

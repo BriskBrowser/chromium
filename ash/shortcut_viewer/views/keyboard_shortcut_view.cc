@@ -16,6 +16,7 @@
 #include "ash/public/cpp/resources/grit/ash_public_unscaled_resources.h"
 #include "ash/public/cpp/shelf_item.h"
 #include "ash/public/cpp/window_properties.h"
+#include "ash/search_box/search_box_view_base.h"
 #include "ash/shell.h"
 #include "ash/shortcut_viewer/keyboard_shortcut_viewer_metadata.h"
 #include "ash/shortcut_viewer/strings/grit/shortcut_viewer_strings.h"
@@ -31,6 +32,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
+#include "chromeos/ui/base/window_properties.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/base/accelerators/accelerator.h"
@@ -38,7 +40,6 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/chromeos/events/keyboard_layout_util.h"
-#include "ui/chromeos/search_box/search_box_view_base.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/types/event_type.h"
 #include "ui/gfx/paint_vector_icon.h"
@@ -91,8 +92,7 @@ std::unique_ptr<views::View> CreateNoSearchResultView() {
   text->SetEnabledColor(kSearchIllustrationTextColor);
   constexpr int kLabelFontSizeDelta = 1;
   ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
-  text->SetFontList(rb.GetFontListWithDelta(
-      kLabelFontSizeDelta, gfx::Font::NORMAL, gfx::Font::Weight::NORMAL));
+  text->SetFontList(rb.GetFontListWithDelta(kLabelFontSizeDelta));
   illustration_view->AddChildView(std::move(text));
   return illustration_view;
 }
@@ -184,8 +184,8 @@ views::Widget* KeyboardShortcutView::Toggle(aura::Window* context) {
 
     // Set frame view Active and Inactive colors, both are SK_ColorWHITE.
     aura::Window* window = g_ksv_view->GetWidget()->GetNativeWindow();
-    window->SetProperty(ash::kFrameActiveColorKey, SK_ColorWHITE);
-    window->SetProperty(ash::kFrameInactiveColorKey, SK_ColorWHITE);
+    window->SetProperty(chromeos::kFrameActiveColorKey, SK_ColorWHITE);
+    window->SetProperty(chromeos::kFrameInactiveColorKey, SK_ColorWHITE);
 
     // Set shelf icon.
     const ash::ShelfID shelf_id(ash::kInternalAppIdKeyboardShortcutViewer);
@@ -212,6 +212,8 @@ views::Widget* KeyboardShortcutView::Toggle(aura::Window* context) {
 
     g_ksv_view->AddAccelerator(
         ui::Accelerator(ui::VKEY_W, ui::EF_CONTROL_DOWN));
+    g_ksv_view->AddAccelerator(
+        ui::Accelerator(ui::VKEY_W, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN));
 
     g_ksv_view->needs_init_all_categories_ = false;
     g_ksv_view->did_first_paint_ = false;
@@ -243,8 +245,12 @@ base::string16 KeyboardShortcutView::GetAccessibleWindowTitle() const {
 
 bool KeyboardShortcutView::AcceleratorPressed(
     const ui::Accelerator& accelerator) {
+  const bool is_valid_modifier =
+      accelerator.modifiers() == ui::EF_CONTROL_DOWN ||
+      accelerator.modifiers() == (ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
+  DCHECK(is_valid_modifier);
   DCHECK_EQ(ui::VKEY_W, accelerator.key_code());
-  DCHECK_EQ(ui::EF_CONTROL_DOWN, accelerator.modifiers());
+
   GetWidget()->Close();
   return true;
 }
@@ -307,7 +313,7 @@ void KeyboardShortcutView::OnPaint(gfx::Canvas* canvas) {
                                 weak_factory_.GetWeakPtr(), kAllCategories));
 }
 
-void KeyboardShortcutView::QueryChanged(search_box::SearchBoxViewBase* sender) {
+void KeyboardShortcutView::QueryChanged(ash::SearchBoxViewBase* sender) {
   const bool query_empty = sender->IsSearchBoxTrimmedQueryEmpty();
   if (is_search_box_empty_ != query_empty) {
     is_search_box_empty_ = query_empty;
@@ -333,11 +339,9 @@ void KeyboardShortcutView::BackButtonPressed() {
   search_box_view_->SetSearchBoxActive(false, ui::ET_UNKNOWN);
 }
 
-void KeyboardShortcutView::ActiveChanged(
-    search_box::SearchBoxViewBase* sender) {
+void KeyboardShortcutView::ActiveChanged(ash::SearchBoxViewBase* sender) {
   const bool is_search_box_active = sender->is_search_box_active();
   is_search_box_empty_ = sender->IsSearchBoxTrimmedQueryEmpty();
-  sender->ShowBackOrGoogleIcon(is_search_box_active);
   if (is_search_box_active) {
     base::RecordAction(
         base::UserMetricsAction("KeyboardShortcutViewer.Search"));

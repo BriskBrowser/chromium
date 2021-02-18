@@ -9,7 +9,6 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.os.Build;
-import android.os.StrictMode;
 import android.provider.Settings;
 import android.text.Editable;
 import android.text.InputType;
@@ -24,7 +23,6 @@ import android.view.GestureDetector;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.TextView;
@@ -37,10 +35,12 @@ import androidx.core.util.ObjectsCompat;
 import androidx.core.view.inputmethod.EditorInfoCompat;
 
 import org.chromium.base.ApiCompatibilityUtils;
+import org.chromium.base.Callback;
 import org.chromium.base.Log;
 import org.chromium.base.SysUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.metrics.RecordUserAction;
+import org.chromium.base.compat.ApiHelperForO;
 import org.chromium.chrome.browser.WindowDelegate;
 import org.chromium.ui.KeyboardVisibilityDelegate;
 
@@ -72,7 +72,7 @@ public abstract class UrlBar extends AutocompleteEditText {
     private UrlTextChangeListener mUrlTextChangeListener;
     private TextWatcher mTextChangedListener;
     private UrlBarTextContextMenuDelegate mTextContextMenuDelegate;
-    private UrlDirectionListener mUrlDirectionListener;
+    private Callback<Integer> mUrlDirectionListener;
 
     /**
      * The gesture detector is used to detect long presses. Long presses require special treatment
@@ -137,20 +137,6 @@ public abstract class UrlBar extends AutocompleteEditText {
     protected boolean mRequestingAutofillStructure;
 
     /**
-     * Implement this to get updates when the direction of the text in the URL bar changes.
-     * E.g. If the user is typing a URL, then erases it and starts typing a query in Arabic,
-     * the direction will change from left-to-right to right-to-left.
-     */
-    interface UrlDirectionListener {
-        /**
-         * Called whenever the layout direction of the UrlBar changes.
-         * @param layoutDirection the new direction: android.view.View.LAYOUT_DIRECTION_LTR or
-         *                        android.view.View.LAYOUT_DIRECTION_RTL
-         */
-        public void onUrlDirectionChanged(int layoutDirection);
-    }
-
-    /**
      * Delegate used to communicate with the content side and the parent layout.
      */
     public interface UrlBarDelegate {
@@ -169,17 +155,6 @@ public abstract class UrlBar extends AutocompleteEditText {
          * Called to notify that back key has been pressed while the URL bar has focus.
          */
         void backKeyPressed();
-
-        /**
-         * @return Whether or not we should force LTR text on the URL bar when unfocused.
-         */
-        boolean shouldForceLTR();
-
-        /**
-         * @return Whether or not the copy/cut action should grab the underlying URL or just copy
-         *         whatever's in the URL bar verbatim.
-         */
-        boolean shouldCutCopyVerbatim();
 
         /**
          * Called to notify that a tap or long press gesture has been detected.
@@ -248,12 +223,14 @@ public abstract class UrlBar extends AutocompleteEditText {
                 new GestureDetector(getContext(), new GestureDetector.SimpleOnGestureListener() {
                     @Override
                     public void onLongPress(MotionEvent e) {
+                        if (mUrlBarDelegate == null) return;
                         mUrlBarDelegate.gestureDetected(true);
                         performLongClick();
                     }
 
                     @Override
                     public boolean onSingleTapUp(MotionEvent e) {
+                        if (mUrlBarDelegate == null) return true;
                         requestFocus();
                         mUrlBarDelegate.gestureDetected(false);
                         return true;
@@ -268,6 +245,15 @@ public abstract class UrlBar extends AutocompleteEditText {
         });
 
         ApiCompatibilityUtils.disableSmartSelectionTextClassifier(this);
+    }
+
+    public void destroy() {
+        setAllowFocus(false);
+        mUrlBarDelegate = null;
+        setOnFocusChangeListener(null);
+        mTextContextMenuDelegate = null;
+        mUrlTextChangeListener = null;
+        mTextChangedListener = null;
     }
 
     /**
@@ -336,7 +322,7 @@ public abstract class UrlBar extends AutocompleteEditText {
         // normally (to allow users to make non-URL searches and to avoid showing Android's split
         // insertion point when an RTL user enters RTL text). Also render text normally when the
         // text field is empty (because then it displays an instruction that is not a URL).
-        if (mFocused || length() == 0 || !mUrlBarDelegate.shouldForceLTR()) {
+        if (mFocused || length() == 0) {
             setTextDirection(TEXT_DIRECTION_INHERIT);
         } else {
             setTextDirection(TEXT_DIRECTION_LTR);
@@ -366,10 +352,25 @@ public abstract class UrlBar extends AutocompleteEditText {
 
     @Override
     public View focusSearch(int direction) {
-        if (direction == View.FOCUS_BACKWARD && mUrlBarDelegate.getViewForUrlBackFocus() != null) {
+        if (mUrlBarDelegate != null && direction == View.FOCUS_BACKWARD
+                && mUrlBarDelegate.getViewForUrlBackFocus() != null) {
             return mUrlBarDelegate.getViewForUrlBackFocus();
         } else {
             return super.focusSearch(direction);
+        }
+    }
+
+    @Override
+    protected void onTextChanged(CharSequence text, int start, int lengthBefore, int lengthAfter) {
+        super.onTextChanged(text, start, lengthBefore, lengthAfter);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Due to crbug.com/1103555, Autofill had to be disabled on the UrlBar to work around
+            // an issue on Android Q+. With Autofill disabled, the Autofill compat mode no longer
+            // learns of changes to the UrlBar, which prevents it from cancelling the session if
+            // the domain changes. We restore this behavior by mimicking the relevant part of
+            // TextView.notifyListeningManagersAfterTextChanged().
+            // https://cs.android.com/android/platform/superproject/+/5d123b67756dffcfdebdb936ab2de2b29c799321:frameworks/base/core/java/android/widget/TextView.java;l=10618;drc=master;bpv=0
+            ApiHelperForO.notifyValueChangedForAutofill(this);
         }
     }
 
@@ -498,7 +499,7 @@ public abstract class UrlBar extends AutocompleteEditText {
         if (urlDirection != mUrlDirection) {
             mUrlDirection = urlDirection;
             if (mUrlDirectionListener != null) {
-                mUrlDirectionListener.onUrlDirectionChanged(urlDirection);
+                mUrlDirectionListener.onResult(urlDirection);
             }
 
             // Ensure the display text is visible after updating the URL direction.
@@ -520,10 +521,10 @@ public abstract class UrlBar extends AutocompleteEditText {
      * @param listener The UrlDirectionListener to receive callbacks when the url direction changes,
      *     or null to unregister any previously registered listener.
      */
-    public void setUrlDirectionListener(UrlDirectionListener listener) {
+    public void setUrlDirectionListener(Callback<Integer> listener) {
         mUrlDirectionListener = listener;
         if (mUrlDirectionListener != null) {
-            mUrlDirectionListener.onUrlDirectionChanged(mUrlDirection);
+            mUrlDirectionListener.onResult(mUrlDirection);
         }
     }
 
@@ -590,8 +591,7 @@ public abstract class UrlBar extends AutocompleteEditText {
             return true;
         }
 
-        if ((id == android.R.id.cut || id == android.R.id.copy)
-                && !mUrlBarDelegate.shouldCutCopyVerbatim()) {
+        if ((id == android.R.id.cut || id == android.R.id.copy)) {
             if (id == android.R.id.cut) {
                 RecordUserAction.record("Omnibox.LongPress.Cut");
             } else {
@@ -863,18 +863,6 @@ public abstract class UrlBar extends AutocompleteEditText {
         spanLeft = maxLength / 2;
         text.setSpan(EllipsisSpan.INSTANCE, spanLeft, textLength - spanLeft,
                 Editable.SPAN_INCLUSIVE_EXCLUSIVE);
-    }
-
-    @Override
-    public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
-        // Certain OEM implementations of onInitializeAccessibilityNodeInfo trigger disk reads
-        // to access the clipboard.  crbug.com/640993
-        StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
-        try {
-            super.onInitializeAccessibilityNodeInfo(info);
-        } finally {
-            StrictMode.setThreadPolicy(oldPolicy);
-        }
     }
 
     @Override

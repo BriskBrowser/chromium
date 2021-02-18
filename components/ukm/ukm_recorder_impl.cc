@@ -55,31 +55,6 @@ bool IsWhitelistedSourceId(SourceId source_id) {
          GetSourceIdType(source_id) == SourceIdType::PAYMENT_APP_ID;
 }
 
-// Gets the maximum number of Sources we'll keep in memory before discarding any
-// new ones being added.
-size_t GetMaxSources() {
-  constexpr size_t kDefaultMaxSources = 500;
-  return static_cast<size_t>(base::GetFieldTrialParamByFeatureAsInt(
-      kUkmFeature, "MaxSources", kDefaultMaxSources));
-}
-
-// Gets the maximum number of Sources we can keep in memory at the end of the
-// current reporting cycle that will stay accessible in the next reporting
-// interval.
-size_t GetMaxKeptSources() {
-  constexpr size_t kDefaultMaxKeptSources = 100;
-  return static_cast<size_t>(base::GetFieldTrialParamByFeatureAsInt(
-      kUkmFeature, "MaxKeptSources", kDefaultMaxKeptSources));
-}
-
-// Gets the maximum number of Entries we'll keep in memory before discarding any
-// new ones being added.
-size_t GetMaxEntries() {
-  constexpr size_t kDefaultMaxEntries = 5000;
-  return static_cast<size_t>(base::GetFieldTrialParamByFeatureAsInt(
-      kUkmFeature, "MaxEntries", kDefaultMaxEntries));
-}
-
 // Returns whether |url| has one of the schemes supported for logging to UKM.
 // URLs with other schemes will not be logged.
 bool HasSupportedScheme(const GURL& url) {
@@ -197,8 +172,16 @@ bool HasUnknownMetrics(const builders::DecodeMap& decode_map,
 }  // namespace
 
 UkmRecorderImpl::UkmRecorderImpl()
-    : recording_enabled_(false),
-      sampling_seed_(static_cast<uint32_t>(base::RandUint64())) {}
+    : sampling_seed_(static_cast<uint32_t>(base::RandUint64())) {
+  max_sources_ = static_cast<size_t>(base::GetFieldTrialParamByFeatureAsInt(
+      kUkmFeature, "MaxSources", max_sources_));
+  max_kept_sources_ =
+      static_cast<size_t>(base::GetFieldTrialParamByFeatureAsInt(
+          kUkmFeature, "MaxKeptSources", max_kept_sources_));
+  max_entries_ = static_cast<size_t>(base::GetFieldTrialParamByFeatureAsInt(
+      kUkmFeature, "MaxEntries", max_entries_));
+}
+
 UkmRecorderImpl::~UkmRecorderImpl() = default;
 
 // static
@@ -354,9 +337,9 @@ void UkmRecorderImpl::StoreRecordingsInReport(Report* report) {
   for (const auto& kv : recordings_.sources) {
     // Don't keep sources of these types after current report because their
     // entries are logged only at source creation time.
-    if (GetSourceIdType(kv.first) == base::UkmSourceId::Type::APP_ID ||
-        GetSourceIdType(kv.first) == base::UkmSourceId::Type::HISTORY_ID ||
-        GetSourceIdType(kv.first) == base::UkmSourceId::Type::WEBAPK_ID ||
+    if (GetSourceIdType(kv.first) == ukm::SourceIdObj::Type::APP_ID ||
+        GetSourceIdType(kv.first) == ukm::SourceIdObj::Type::HISTORY_ID ||
+        GetSourceIdType(kv.first) == ukm::SourceIdObj::Type::WEBAPK_ID ||
         GetSourceIdType(kv.first) == SourceIdType::PAYMENT_APP_ID) {
       MarkSourceForDeletion(kv.first);
     }
@@ -378,7 +361,7 @@ void UkmRecorderImpl::StoreRecordingsInReport(Report* report) {
       if (!base::Contains(source_ids_seen, kv.first)) {
         continue;
       } else {
-        // Source of base::UkmSourceId::Type::DEFAULT type will not be kept
+        // Source of ukm::SourceIdObj::Type::DEFAULT type will not be kept
         // after entries are logged.
         MarkSourceForDeletion(kv.first);
       }
@@ -502,7 +485,7 @@ void UkmRecorderImpl::StoreRecordingsInReport(Report* report) {
 
   // Defer at most GetMaxKeptSources() sources to the next report,
   // prioritizing most recently created ones.
-  int pruned_sources_age = PruneOldSources(GetMaxKeptSources());
+  int pruned_sources_age = PruneOldSources(max_kept_sources_);
   // Record how old the newest truncated source is.
   source_counts_proto->set_pruned_sources_age_seconds(pruned_sources_age);
 
@@ -650,7 +633,7 @@ bool UkmRecorderImpl::ShouldRecordUrl(SourceId source_id,
     return false;
   }
 
-  if (recordings_.sources.size() >= GetMaxSources()) {
+  if (recordings_.sources.size() >= max_sources_) {
     RecordDroppedSource(DroppedDataReason::MAX_HIT);
     return false;
   }
@@ -749,7 +732,7 @@ void UkmRecorderImpl::AddEntry(mojom::UkmEntryPtr entry) {
     }
   }
 
-  if (recordings_.entries.size() >= GetMaxEntries()) {
+  if (recordings_.entries.size() >= max_entries_) {
     RecordDroppedEntry(entry->event_hash, DroppedDataReason::MAX_HIT);
     event_aggregate.dropped_due_to_limits++;
     for (auto& metric : entry->metrics)

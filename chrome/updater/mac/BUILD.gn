@@ -4,6 +4,7 @@
 
 import("//build/apple/tweak_info_plist.gni")
 import("//build/config/mac/rules.gni")
+import("//build/config/python.gni")
 import("//build/util/version.gni")
 import("//chrome/updater/branding.gni")
 
@@ -12,7 +13,6 @@ group("mac") {
     ":browser_install_script",
     ":updater_bundle",
     ":updater_install_script",
-    "//chrome/updater:app_install",
     "//chrome/updater/mac/signing",
   ]
 }
@@ -26,6 +26,7 @@ source_set("network_fetcher_sources") {
 
   deps = [
     "//base",
+    "//chrome/updater:base",
     "//components/crash/core/common:crash_key_lib",
     "//components/update_client",
     "//net",
@@ -35,7 +36,7 @@ source_set("network_fetcher_sources") {
 source_set("updater_tests") {
   testonly = true
 
-  sources = [ "net/network_unittest.mm" ]
+  sources = [ "net/network_unittest.cc" ]
 
   deps = [
     ":network_fetcher_sources",
@@ -61,7 +62,6 @@ mac_app_bundle("updater_bundle") {
   deps = [
     ":network_fetcher_sources",
     ":updater_setup_sources",
-    "//chrome/updater:app_install",
     "//chrome/updater:lib",
   ]
 }
@@ -74,6 +74,23 @@ source_set("xpc_names") {
 
   deps = [
     "//base",
+    "//chrome/updater:branding_header",
+    "//chrome/updater:version_header",
+  ]
+
+  frameworks = [ "Foundation.framework" ]
+}
+
+source_set("util") {
+  sources = [
+    "util.h",
+    "util.mm",
+  ]
+
+  deps = [
+    "//base",
+    "//chrome/updater:base",
+    "//chrome/updater:branding_header",
     "//chrome/updater:version_header",
   ]
 
@@ -88,10 +105,12 @@ source_set("updater_setup_sources") {
 
   deps = [
     ":network_fetcher_sources",
+    ":util",
     ":xpc_names",
     "//base",
     "//chrome/common/mac:launchd",
     "//chrome/updater:base",
+    "//chrome/updater:branding_header",
     "//chrome/updater:version_header",
     "//components/crash/core/common:crash_key_lib",
     "//mojo/public/cpp/platform",
@@ -169,7 +188,6 @@ source_set("updater_setup_tests") {
     "//base",
     "//base/test:test_support",
     "//chrome/common:constants",
-    "//chrome/updater:app_install",
     "//testing/gtest",
   ]
 }

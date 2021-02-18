@@ -127,11 +127,6 @@ NET_ERROR(BLOCKED_BY_CSP, -30)
 // The request was blocked because of no H/2 or QUIC session.
 NET_ERROR(H2_OR_QUIC_REQUIRED, -31)
 
-// The request was blocked because it is a private network request coming from
-// an insecure context in a less private IP address space. This is used to
-// enforce CORS-RFC1918: https://wicg.github.io/cors-rfc1918.
-NET_ERROR(INSECURE_PRIVATE_NETWORK_REQUEST, -32)
-
 // A connection was closed (corresponding to a TCP FIN).
 NET_ERROR(CONNECTION_CLOSED, -100)
 
@@ -801,6 +796,10 @@ NET_ERROR(HTTP_RESPONSE_CODE_FAILURE, -379)
 // are allowed.
 NET_ERROR(QUIC_CERT_ROOT_NOT_KNOWN, -380)
 
+// A GOAWAY frame has been received indicating that the request has not been
+// processed and is therefore safe to retry on a different connection.
+NET_ERROR(QUIC_GOAWAY_REQUEST_CAN_BE_RETRIED, -381)
+
 // The cache does not have the requested entry.
 NET_ERROR(CACHE_MISS, -400)
 
@@ -875,9 +874,11 @@ NET_ERROR(INVALID_WEB_BUNDLE, -505)
 NET_ERROR(TRUST_TOKEN_OPERATION_FAILED, -506)
 
 // When handling a Trust Tokens protocol operation-executing request, the system
-// found that the request's desired Trust Tokens results were already present in
-// a local cache; as a result, the main request was cancelled.
-NET_ERROR(TRUST_TOKEN_OPERATION_CACHE_HIT, -507)
+// was able to execute the request's Trust Tokens operation without sending the
+// request to its destination: for instance, the results could have been present
+// in a local cache (for redemption) or the operation could have been diverted
+// to a local provider (for "platform-provided" issuance).
+NET_ERROR(TRUST_TOKEN_OPERATION_SUCCESS_WITHOUT_SENDING_REQUEST, -507)
 
 // *** Code -600 is reserved (was FTP_PASV_COMMAND_FAILED). ***
 

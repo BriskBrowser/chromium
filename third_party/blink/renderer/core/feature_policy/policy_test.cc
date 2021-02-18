@@ -35,7 +35,7 @@ class PolicyTest : public testing::Test {
         "fullscreen *; payment 'self'; midi 'none'; camera 'self' "
         "https://example.com https://example.net",
         /* permissions_policy_header */ g_empty_string, origin.get(),
-        dummy_logger_);
+        dummy_logger_, dummy_logger_);
     feature_policy->SetHeaderPolicy(header);
 
     auto& security_context =
@@ -157,17 +157,37 @@ TEST_F(IFramePolicyTest, TestGetAllowList) {
               UnorderedElementsAre("*"));
 }
 
-TEST_F(IFramePolicyTest, TestAllowedFeatures) {
+TEST_F(IFramePolicyTest, TestSameOriginAllowedFeatures) {
   Vector<String> allowed_features = GetPolicy()->allowedFeatures(nullptr);
+  // These features are allowed in a same origin context, and not restricted by
+  // the parent document's policy.
   EXPECT_TRUE(allowed_features.Contains("fullscreen"));
   EXPECT_TRUE(allowed_features.Contains("payment"));
   EXPECT_TRUE(allowed_features.Contains("camera"));
-  // "geolocation" has default policy as allowed on self origin.
   EXPECT_TRUE(allowed_features.Contains("geolocation"));
-  EXPECT_FALSE(allowed_features.Contains("badfeature"));
+  // "midi" is restricted by the parent document's policy.
   EXPECT_FALSE(allowed_features.Contains("midi"));
-  // "sync-xhr" is allowed on all origins
+  // "sync-xhr" is allowed on all origins.
   EXPECT_TRUE(allowed_features.Contains("sync-xhr"));
+  // This feature does not exist, so should not be advertised as allowed.
+  EXPECT_FALSE(allowed_features.Contains("badfeature"));
+}
+
+TEST_F(IFramePolicyTest, TestCrossOriginAllowedFeatures) {
+  // Update the iframe's policy, given a new origin.
+  GetPolicy()->UpdateContainerPolicy(
+      ParsedFeaturePolicy(), SecurityOrigin::CreateFromString(kOriginA));
+  Vector<String> allowed_features = GetPolicy()->allowedFeatures(nullptr);
+  // None of these features should be allowed in a cross-origin context.
+  EXPECT_FALSE(allowed_features.Contains("fullscreen"));
+  EXPECT_FALSE(allowed_features.Contains("payment"));
+  EXPECT_FALSE(allowed_features.Contains("camera"));
+  EXPECT_FALSE(allowed_features.Contains("geolocation"));
+  EXPECT_FALSE(allowed_features.Contains("midi"));
+  // "sync-xhr" is allowed on all origins.
+  EXPECT_TRUE(allowed_features.Contains("sync-xhr"));
+  // This feature does not exist, so should not be advertised as allowed.
+  EXPECT_FALSE(allowed_features.Contains("badfeature"));
 }
 
 TEST_F(IFramePolicyTest, TestCombinedPolicy) {
@@ -178,15 +198,19 @@ TEST_F(IFramePolicyTest, TestCombinedPolicy) {
   GetPolicy()->UpdateContainerPolicy(
       container_policy, SecurityOrigin::CreateFromString(kOriginA));
   Vector<String> allowed_features = GetPolicy()->allowedFeatures(nullptr);
-  EXPECT_TRUE(allowed_features.Contains("fullscreen"));
+  // These features are not explicitly allowed.
+  EXPECT_FALSE(allowed_features.Contains("fullscreen"));
   EXPECT_FALSE(allowed_features.Contains("payment"));
+  // These features are explicitly allowed.
   EXPECT_TRUE(allowed_features.Contains("geolocation"));
-  EXPECT_FALSE(allowed_features.Contains("midi"));
   EXPECT_TRUE(allowed_features.Contains("camera"));
-  // "geolocation" has default policy as allowed on self origin.
-  EXPECT_FALSE(allowed_features.Contains("badfeature"));
-  // "sync-xhr" is still implicitly allowed on all origins
+  // "midi" is allowed by the attribute, but still blocked by the parent
+  // document's policy.
+  EXPECT_FALSE(allowed_features.Contains("midi"));
+  // "sync-xhr" is still implicitly allowed on all origins.
   EXPECT_TRUE(allowed_features.Contains("sync-xhr"));
+  // This feature does not exist, so should not be advertised as allowed.
+  EXPECT_FALSE(allowed_features.Contains("badfeature"));
 }
 
 }  // namespace blink

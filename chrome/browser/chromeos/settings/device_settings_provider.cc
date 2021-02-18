@@ -10,15 +10,16 @@
 #include <memory>
 #include <utility>
 
+#include "ash/constants/ash_features.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
+#include "base/containers/contains.h"
 #include "base/json/json_reader.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/optional.h"
-#include "base/stl_util.h"
 #include "base/syslog_logging.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/values.h"
@@ -30,7 +31,6 @@
 #include "chrome/browser/chromeos/settings/device_settings_cache.h"
 #include "chrome/browser/chromeos/settings/stats_reporting_controller.h"
 #include "chrome/browser/chromeos/tpm_firmware_update.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/dbus/cryptohome/cryptohome_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/settings/cros_settings_names.h"
@@ -56,6 +56,7 @@ namespace {
 const char* const kKnownSettings[] = {
     kAccountsPrefAllowGuest,
     kAccountsPrefAllowNewUser,
+    kAccountsPrefFamilyLinkAccountsAllowed,
     kAccountsPrefDeviceLocalAccountAutoLoginBailoutEnabled,
     kAccountsPrefDeviceLocalAccountAutoLoginDelay,
     kAccountsPrefDeviceLocalAccountAutoLoginId,
@@ -80,12 +81,12 @@ const char* const kKnownSettings[] = {
     kDeviceDisplayResolution,
     kDeviceDockMacAddressSource,
     kDeviceHostnameTemplate,
-    kDeviceLoginScreenExtensions,
     kDeviceLoginScreenInputMethods,
     kDeviceLoginScreenLocales,
     kDeviceLoginScreenSystemInfoEnforced,
     kDeviceMinimumVersion,
     kDeviceMinimumVersionAueMessage,
+    kDevicePeripheralDataAccessEnabled,
     kDeviceShowLowDiskSpaceNotification,
     kDeviceShowNumericKeyboardForPassword,
     kDeviceOffHours,
@@ -104,6 +105,7 @@ const char* const kKnownSettings[] = {
     kDeviceWilcoDtcAllowed,
     kDisplayRotationDefault,
     kExtensionCacheSize,
+    kFeatureFlags,
     kHeartbeatEnabled,
     kHeartbeatFrequency,
     kLoginAuthenticationBehavior,
@@ -144,7 +146,6 @@ const char* const kKnownSettings[] = {
     kSamlLoginAuthenticationType,
     kServiceAccountIdentity,
     kSignedDataRoamingEnabled,
-    kStartUpFlags,
     kStatsReportingPref,
     kSystemLogUploadEnabled,
     kSystemProxySettings,
@@ -154,6 +155,7 @@ const char* const kKnownSettings[] = {
     kTPMFirmwareUpdateSettings,
     kUnaffiliatedArcAllowed,
     kUpdateDisabled,
+    kUsbDetachableAllowlist,
     kVariationsRestrictParameter,
     kVirtualMachinesAllowed,
 };
@@ -194,6 +196,7 @@ void DecodeLoginPolicies(const em::ChromeDeviceSettingsProto& policy,
   //   kAccountsPrefSupervisedUsersEnabled has a default value of false
   //     for enterprise devices and true for consumer devices.
   //   kAccountsPrefTransferSAMLCookies has a default value of false.
+  //   kAccountsPrefFamilyLinkAccountsAllowed has a default value of false.
   if (policy.has_allow_new_users() &&
       policy.allow_new_users().has_allow_new_users()) {
     if (policy.allow_new_users().allow_new_users()) {
@@ -212,6 +215,23 @@ void DecodeLoginPolicies(const em::ChromeDeviceSettingsProto& policy,
         policy.user_whitelist().user_whitelist_size() == 0 &&
             policy.user_allowlist().user_allowlist_size() == 0);
   }
+
+  // Value of DeviceFamilyLinkAccountsAllowed policy does not affect
+  // |kAccountsPrefAllowNewUser| setting. Family Link accounts are only
+  // allowed if user allowlist is enforced.
+  bool user_allowlist_enforced =
+      ((policy.has_user_whitelist() &&
+        policy.user_whitelist().user_whitelist_size() > 0) ||
+       (policy.has_user_allowlist() &&
+        policy.user_allowlist().user_allowlist_size() > 0));
+  new_values_cache->SetBoolean(
+      kAccountsPrefFamilyLinkAccountsAllowed,
+      chromeos::features::IsFamilyLinkOnSchoolDeviceEnabled() &&
+          user_allowlist_enforced &&
+          policy.has_family_link_accounts_allowed() &&
+          policy.family_link_accounts_allowed()
+              .has_family_link_accounts_allowed() &&
+          policy.family_link_accounts_allowed().family_link_accounts_allowed());
 
   new_values_cache->SetBoolean(
       kRebootOnShutdown,
@@ -355,14 +375,15 @@ void DecodeLoginPolicies(const em::ChromeDeviceSettingsProto& policy,
       kAccountsPrefDeviceLocalAccountPromptForNetworkWhenOffline,
       policy.device_local_accounts().prompt_for_network_when_offline());
 
-  if (policy.has_start_up_flags()) {
-    std::vector<base::Value> list;
-    const em::StartUpFlagsProto& flags_proto = policy.start_up_flags();
-    const RepeatedPtrField<std::string>& flags = flags_proto.flags();
-    for (const std::string& entry : flags) {
-      list.push_back(base::Value(entry));
+  if (policy.has_feature_flags()) {
+    std::vector<base::Value> feature_flags_list;
+    for (const std::string& entry : policy.feature_flags().feature_flags()) {
+      feature_flags_list.push_back(base::Value(entry));
     }
-    new_values_cache->SetValue(kStartUpFlags, base::Value(std::move(list)));
+    if (!feature_flags_list.empty()) {
+      new_values_cache->SetValue(kFeatureFlags,
+                                 base::Value(std::move(feature_flags_list)));
+    }
   }
 
   if (policy.has_saml_settings()) {
@@ -404,17 +425,6 @@ void DecodeLoginPolicies(const em::ChromeDeviceSettingsProto& policy,
     }
     new_values_cache->SetValue(kLoginVideoCaptureAllowedUrls,
                                base::Value(std::move(list)));
-  }
-
-  if (policy.has_device_login_screen_extensions()) {
-    std::vector<base::Value> apps;
-    const em::DeviceLoginScreenExtensionsProto& proto(
-        policy.device_login_screen_extensions());
-    for (const auto& app : proto.device_login_screen_extensions()) {
-      apps.push_back(base::Value(app));
-    }
-    new_values_cache->SetValue(kDeviceLoginScreenExtensions,
-                               base::Value(std::move(apps)));
   }
 
   if (policy.has_login_screen_locales()) {
@@ -773,6 +783,10 @@ void DecodeGenericPolicies(const em::ChromeDeviceSettingsProto& policy,
                                base::Value(base::Value::Type::DICTIONARY));
   }
 
+  new_values_cache->SetBoolean(
+      kDevicePeripheralDataAccessEnabled,
+      policy.device_pci_peripheral_data_access_enabled().enabled());
+
   if (policy.has_allow_bluetooth() &&
       policy.allow_bluetooth().has_allow_bluetooth()) {
     new_values_cache->SetBoolean(kAllowBluetooth,
@@ -1023,6 +1037,35 @@ void DecodeGenericPolicies(const em::ChromeDeviceSettingsProto& policy,
   }
   new_values_cache->SetBoolean(kDeviceShowLowDiskSpaceNotification,
                                show_low_disk_space_notification);
+
+  if (policy.has_usb_detachable_allowlist() &&
+      policy.usb_detachable_allowlist().id_size() > 0) {
+    const em::UsbDetachableAllowlistProto& container =
+        policy.usb_detachable_allowlist();
+    base::Value allowlist(base::Value::Type::LIST);
+    for (const auto& entry : container.id()) {
+      base::Value ids(base::Value::Type::DICTIONARY);
+      if (entry.has_vendor_id() && entry.has_product_id()) {
+        ids.SetIntKey(kUsbDetachableAllowlistKeyVid, entry.vendor_id());
+        ids.SetIntKey(kUsbDetachableAllowlistKeyPid, entry.product_id());
+      }
+      allowlist.Append(std::move(ids));
+    }
+    new_values_cache->SetValue(kUsbDetachableAllowlist, std::move(allowlist));
+  } else if (policy.has_usb_detachable_whitelist()) {
+    const em::UsbDetachableWhitelistProto& container =
+        policy.usb_detachable_whitelist();
+    base::Value allowlist(base::Value::Type::LIST);
+    for (const auto& entry : container.id()) {
+      base::Value ids(base::Value::Type::DICTIONARY);
+      if (entry.has_vendor_id() && entry.has_product_id()) {
+        ids.SetIntKey(kUsbDetachableAllowlistKeyVid, entry.vendor_id());
+        ids.SetIntKey(kUsbDetachableAllowlistKeyPid, entry.product_id());
+      }
+      allowlist.Append(std::move(ids));
+    }
+    new_values_cache->SetValue(kUsbDetachableAllowlist, std::move(allowlist));
+  }
 }
 
 void DecodeLogUploadPolicies(const em::ChromeDeviceSettingsProto& policy,

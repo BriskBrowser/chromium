@@ -13,6 +13,7 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_piece.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/thread.h"
@@ -30,9 +31,6 @@ namespace embedder_support {
 
 namespace {
 
-const char kResponseHeaderViaShouldInterceptRequestName[] = "Client-Via";
-const char kResponseHeaderViaShouldInterceptRequestValue[] =
-    "shouldInterceptRequest";
 const char kHTTPOkText[] = "OK";
 const char kHTTPNotFoundText[] = "Not Found";
 
@@ -96,6 +94,11 @@ class InputStreamReaderWrapper
 
   DISALLOW_COPY_AND_ASSIGN(InputStreamReaderWrapper);
 };
+
+bool AndroidStreamReaderURLLoader::ResponseDelegate::ShouldCacheResponse(
+    network::mojom::URLResponseHead* response) {
+  return false;
+}
 
 AndroidStreamReaderURLLoader::AndroidStreamReaderURLLoader(
     const network::ResourceRequest& resource_request,
@@ -276,12 +279,6 @@ void AndroidStreamReaderURLLoader::HeadersComplete(
 
   response_delegate_->AppendResponseHeaders(env, head.headers.get());
 
-  // Indicate that the response had been obtained via shouldInterceptRequest.
-  // TODO(jam): why is this added for protocol handler (e.g. content scheme and
-  // file resources?). The old path does this as well.
-  head.headers->SetHeader(kResponseHeaderViaShouldInterceptRequestName,
-                          kResponseHeaderViaShouldInterceptRequestValue);
-
   SendBody();
 }
 
@@ -315,6 +312,8 @@ void AndroidStreamReaderURLLoader::SendBody() {
 void AndroidStreamReaderURLLoader::SendResponseToClient() {
   DCHECK(consumer_handle_.is_valid());
   DCHECK(client_.is_bound());
+  cache_response_ =
+      response_delegate_->ShouldCacheResponse(response_head_.get());
   client_->OnReceiveResponse(std::move(response_head_));
   client_->OnStartLoadingResponseBody(std::move(consumer_handle_));
 }
@@ -385,9 +384,10 @@ void AndroidStreamReaderURLLoader::DidRead(int result) {
         data_length = net::kMaxBytesToSniff;
 
       std::string new_type;
-      net::SniffMimeType(pending_buffer_->buffer(), data_length,
-                         resource_request_.url, std::string(),
-                         net::ForceSniffFileUrlsForHtml::kDisabled, &new_type);
+      net::SniffMimeType(
+          base::StringPiece(pending_buffer_->buffer(), data_length),
+          resource_request_.url, std::string(),
+          net::ForceSniffFileUrlsForHtml::kDisabled, &new_type);
       // SniffMimeType() returns false if there is not enough data to
       // determine the mime type. However, even if it returns false, it
       // returns a new type that is probably better than the current one.
@@ -397,6 +397,9 @@ void AndroidStreamReaderURLLoader::DidRead(int result) {
 
     SendResponseToClient();
   }
+
+  if (cache_response_)
+    cached_response_.append(pending_buffer_->buffer(), result);
 
   producer_handle_ = pending_buffer_->Complete(result);
   pending_buffer_ = nullptr;
@@ -430,6 +433,9 @@ void AndroidStreamReaderURLLoader::RequestCompleteWithStatus(
 }
 
 void AndroidStreamReaderURLLoader::RequestComplete(int status_code) {
+  if (status_code == net::OK && cache_response_)
+    response_delegate_->OnResponseCache(cached_response_);
+
   RequestCompleteWithStatus(network::URLLoaderCompletionStatus(status_code));
 }
 

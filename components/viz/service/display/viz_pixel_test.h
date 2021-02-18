@@ -8,23 +8,10 @@
 #include <vector>
 
 #include "cc/test/pixel_test.h"
+#include "components/viz/test/test_types.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace viz {
-
-enum class RendererType { kSoftware, kGL, kSkiaGL, kSkiaVulkan, kSkiaDawn };
-
-// Provides gtest with a string for RendererType to be used for test suffixes.
-void PrintTo(RendererType type, std::ostream* os);
-
-// Returns a list containing all RendererTypes applicable to the platform.
-std::vector<RendererType> GetRendererTypes();
-std::vector<RendererType> GetRendererTypesNoDawn();
-
-// Returns a list containing all RendererTypes, except SoftwareRenderer,
-// applicable to the platform.
-std::vector<RendererType> GetGpuRendererTypes();
-std::vector<RendererType> GetGpuRendererTypesNoDawn();
 
 // Viz pixel test base class. When SetUp() is called the appropriate
 // DirectRenderer implementation is initialized based on RendererType
@@ -51,7 +38,7 @@ class VizPixelTest : public cc::PixelTest {
       case RendererType::kGL:
         return "gl";
       case RendererType::kSkiaGL:
-      case RendererType::kSkiaVulkan:
+      case RendererType::kSkiaVk:
         return "skia";
       case RendererType::kSkiaDawn:
         return "dawn";

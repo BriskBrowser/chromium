@@ -16,7 +16,11 @@ namespace base {
 class TimeTicks;
 }  // namespace base
 
+namespace breadcrumbs {
 class BreadcrumbManager;
+}  // namespace breadcrumbs
+
+class BreadcrumbPersistentStorageManager;
 
 // Name of event logged when device orientation is changed.
 extern const char kBreadcrumbOrientation[];
@@ -25,8 +29,19 @@ extern const char kBreadcrumbOrientation[];
 // BreadcrumbManager passed in the constructor.
 class ApplicationBreadcrumbsLogger {
  public:
-  explicit ApplicationBreadcrumbsLogger(BreadcrumbManager* breadcrumb_manager);
+  explicit ApplicationBreadcrumbsLogger(
+      breadcrumbs::BreadcrumbManager* breadcrumb_manager);
   ~ApplicationBreadcrumbsLogger();
+
+  // Sets a BreadcrumbPersistentStorageManager to persist application breadcrumb
+  // events logged by this ApplicationBreadcrumbsLogger instance.
+  void SetPersistentStorageManager(
+      std::unique_ptr<BreadcrumbPersistentStorageManager>
+          persistent_storage_manager);
+
+  // Returns a pointer to the BreadcrumbPersistentStorageManager owned by this
+  // instance. May be null.
+  BreadcrumbPersistentStorageManager* GetPersistentStorageManager() const;
 
  private:
   ApplicationBreadcrumbsLogger(const ApplicationBreadcrumbsLogger&) = delete;
@@ -44,7 +59,7 @@ class ApplicationBreadcrumbsLogger {
   static bool IsUserTriggeredAction(const std::string& action);
 
   // The BreadcrumbManager to log events.
-  BreadcrumbManager* breadcrumb_manager_;
+  breadcrumbs::BreadcrumbManager* breadcrumb_manager_;
   // The callback invoked whenever a user action is registered.
   base::ActionCallback user_action_callback_;
   // A memory pressure listener which observes memory pressure events.
@@ -52,10 +67,13 @@ class ApplicationBreadcrumbsLogger {
   // Observes device orientation.
   id<NSObject> orientation_observer_;
 
-  // Used to avoid logging the same orientation twice as well as logging
-  // UIDeviceOrientationUnknown on startup (the only place where "unknown"
-  // shows up). Fewer logs leave more room for more useful logs.
-  UIDeviceOrientation last_orientation_ = UIDeviceOrientationUnknown;
+  // A strong pointer to the persistent breadcrumb manager listening for events
+  // from |breadcrumb_manager_| to store to disk.
+  std::unique_ptr<BreadcrumbPersistentStorageManager>
+      persistent_storage_manager_;
+
+  // Used to avoid logging the same orientation twice.
+  base::Optional<UIDeviceOrientation> last_orientation_;
 };
 
 #endif  // IOS_CHROME_BROWSER_CRASH_REPORT_BREADCRUMBS_APPLICATION_BREADCRUMBS_LOGGER_H_

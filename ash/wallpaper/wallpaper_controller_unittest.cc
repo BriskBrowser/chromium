@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdlib>
 
+#include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/shell_window_ids.h"
@@ -22,7 +23,7 @@
 #include "ash/wallpaper/wallpaper_view.h"
 #include "ash/wallpaper/wallpaper_widget_controller.h"
 #include "ash/wm/overview/overview_controller.h"
-#include "ash/wm/window_cycle_controller.h"
+#include "ash/wm/window_cycle/window_cycle_controller.h"
 #include "ash/wm/window_state.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
@@ -33,9 +34,9 @@
 #include "base/task/post_task.h"
 #include "base/task/task_observer.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/time/time_override.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/user_manager/fake_user_manager.h"
 #include "components/user_manager/scoped_user_manager.h"
@@ -44,6 +45,7 @@
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/aura/window.h"
+#include "ui/compositor/layer_tree_owner.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/compositor/test/layer_animator_test_controller.h"
 #include "ui/display/display.h"
@@ -120,7 +122,7 @@ int ChildCountForContainer(int container_id) {
 // Steps a layer animation until it is completed. Animations must be enabled.
 void RunAnimationForLayer(ui::Layer* layer) {
   // Animations must be enabled for stepping to work.
-  ASSERT_NE(ui::ScopedAnimationDurationScaleMode::duration_scale_mode(),
+  ASSERT_NE(ui::ScopedAnimationDurationScaleMode::duration_multiplier(),
             ui::ScopedAnimationDurationScaleMode::ZERO_DURATION);
 
   ui::LayerAnimatorTestController controller(layer->GetAnimator());
@@ -353,15 +355,18 @@ class WallpaperControllerTest : public AshTestBase {
   }
 
   // Runs AnimatingWallpaperWidgetController's animation to completion.
-  // TODO(bshe): Don't require tests to run animations; it's slow.
   void RunDesktopControllerAnimation() {
     WallpaperWidgetController* controller =
         Shell::Get()
             ->GetPrimaryRootWindowController()
             ->wallpaper_widget_controller();
     ASSERT_TRUE(controller);
-    ASSERT_NO_FATAL_FAILURE(
-        RunAnimationForLayer(controller->wallpaper_view()->layer()));
+
+    ui::LayerTreeOwner* owner = controller->old_layer_tree_owner_for_testing();
+    if (!owner)
+      return;
+
+    ASSERT_NO_FATAL_FAILURE(RunAnimationForLayer(owner->root()));
   }
 
   // Convenience function to ensure ShouldCalculateColors() returns true.
@@ -519,7 +524,7 @@ class WallpaperControllerTest : public AshTestBase {
     return controller_->decode_requests_for_testing_;
   }
 
-  void SetBypassDecode() { controller_->bypass_decode_for_testing_ = true; }
+  void SetBypassDecode() { controller_->set_bypass_decode_for_testing(); }
 
   void ClearWallpaperCount() { controller_->wallpaper_count_for_testing_ = 0; }
 
@@ -684,8 +689,7 @@ TEST_F(WallpaperControllerTest, ChangeWallpaperQuick) {
   controller->CreateEmptyWallpaperForTesting();
 
   // Run wallpaper show animation to completion.
-  ASSERT_NO_FATAL_FAILURE(
-      RunAnimationForLayer(widget_controller->wallpaper_view()->layer()));
+  RunDesktopControllerAnimation();
 
   EXPECT_FALSE(widget_controller->IsAnimating());
 }
@@ -1468,6 +1472,12 @@ TEST_F(WallpaperControllerTest, IgnoreWallpaperRequestInKioskMode) {
       controller_->GetUserWallpaperInfo(account_id_1, &wallpaper_info));
 }
 
+// Disable the wallpaper setting for public session since it is ephemeral.
+TEST_F(WallpaperControllerTest, NotShowWallpaperSettingInPublicSession) {
+  SimulateUserLogin("public_session", user_manager::USER_TYPE_PUBLIC_ACCOUNT);
+  EXPECT_FALSE(controller_->ShouldShowWallpaperSetting());
+}
+
 TEST_F(WallpaperControllerTest, IgnoreWallpaperRequestWhenPolicyIsEnforced) {
   SetBypassDecode();
   gfx::ImageSkia image = CreateImage(640, 480, kWallpaperColor);
@@ -1981,8 +1991,7 @@ TEST_F(WallpaperControllerTest, LockDuringOverview) {
                              ->wallpaper_view();
 
   // Make sure that wallpaper still have blur.
-  ASSERT_EQ(30, wallpaper_view->property().blur_sigma);
-  ASSERT_EQ(1, wallpaper_view->property().opacity);
+  ASSERT_EQ(30, wallpaper_view->blur_sigma());
 }
 
 TEST_F(WallpaperControllerTest, OnlyShowDevicePolicyWallpaperOnLoginScreen) {
@@ -2193,7 +2202,7 @@ TEST_F(WallpaperControllerTest, ClosePreviewWallpaperOnWindowCycleStart) {
   // the user wallpaper info remains unchanged, and enters window cycle.
   ClearWallpaperCount();
   Shell::Get()->window_cycle_controller()->HandleCycleWindow(
-      WindowCycleController::FORWARD);
+      WindowCycleController::WindowCyclingDirection::kForward);
   RunAllTasksUntilIdle();
   EXPECT_EQ(1, GetWallpaperCount());
   EXPECT_NE(kWallpaperColor, GetWallpaperColor());
@@ -2601,7 +2610,7 @@ TEST_F(WallpaperControllerTest, ShowOneShotWallpaper) {
   EXPECT_EQ(kOneShotWallpaperColor, GetWallpaperColor());
   EXPECT_EQ(WallpaperType::ONE_SHOT, controller_->GetWallpaperType());
   EXPECT_FALSE(controller_->IsBlurAllowedForLockState());
-  EXPECT_FALSE(controller_->ShouldApplyDimming());
+  EXPECT_FALSE(controller_->ShouldApplyShield());
 
   // Verify that we can reload wallpaer without losing it.
   // This is important for screen rotation.
@@ -2611,7 +2620,7 @@ TEST_F(WallpaperControllerTest, ShowOneShotWallpaper) {
   EXPECT_EQ(kOneShotWallpaperColor, GetWallpaperColor());
   EXPECT_EQ(WallpaperType::ONE_SHOT, controller_->GetWallpaperType());
   EXPECT_FALSE(controller_->IsBlurAllowedForLockState());
-  EXPECT_FALSE(controller_->ShouldApplyDimming());
+  EXPECT_FALSE(controller_->ShouldApplyShield());
 
   // Verify the user wallpaper info is unaffected, and the one-shot wallpaper
   // can be replaced by the user wallpaper.
@@ -2783,6 +2792,22 @@ TEST_F(WallpaperControllerPrefTest, InitWithPrefs) {
                                      ->GetDisplayNearestWindow(root_window)
                                      .size());
   EXPECT_EQ(root_window->bounds().size(), wallpaper_view->bounds().size());
+}
+
+TEST_F(WallpaperControllerTest, NoAnimationForNewRootWindowWhenLocked) {
+  ui::ScopedAnimationDurationScaleMode test_duration_mode(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+  SetSessionState(SessionState::LOCKED);
+  UpdateDisplay("800x600, 800x600");
+  auto* secondary_root_window_controller =
+      Shell::Get()->GetAllRootWindowControllers()[1];
+  EXPECT_FALSE(secondary_root_window_controller->wallpaper_widget_controller()
+                   ->IsAnimating());
+  EXPECT_FALSE(secondary_root_window_controller->wallpaper_widget_controller()
+                   ->GetWidget()
+                   ->GetLayer()
+                   ->GetAnimator()
+                   ->is_animating());
 }
 
 }  // namespace ash

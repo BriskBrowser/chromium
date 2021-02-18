@@ -8,15 +8,17 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "media/media_buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 // Only verify platform specific path on some platforms.
+// Note: The condition list here must be consistent with condition on
+// "cdm_platform_specific_path" in cdm_paths.gni.
 // TODO(crbug.com/971433). Move the CDMs out of the install directory on
 // ChromeOS.
-#if (defined(OS_MAC) || defined(OS_WIN) ||          \
-     (defined(OS_LINUX) && !defined(OS_CHROMEOS))) && \
-    (defined(ARCH_CPU_X86) || defined(ARCH_CPU_X86_64))
+#if (defined(OS_MAC) || defined(OS_WIN) || defined(OS_LINUX) || \
+     BUILDFLAG(IS_CHROMEOS_LACROS))
 #define CDM_USE_PLATFORM_SPECIFIC_PATH
 #endif
 
@@ -35,9 +37,9 @@ const char kComponentPlatform[] =
     "mac";
 #elif defined(OS_WIN)
     "win";
-#elif defined(OS_CHROMEOS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH)
     "cros";
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
     "linux";
 #else
     "unsupported_platform";
@@ -51,6 +53,8 @@ const char kComponentArch[] =
     "x64";
 #elif defined(ARCH_CPU_ARMEL)
     "arm";
+#elif defined(ARCH_CPU_ARM64)
+    "arm64";
 #else
     "unsupported_arch";
 #endif

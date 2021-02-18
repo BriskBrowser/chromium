@@ -7,6 +7,7 @@
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/shelf/shelf_button_delegate.h"
+#include "ash/style/ash_color_provider.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/image/image_skia_operations.h"
@@ -21,7 +22,7 @@ ScrollArrowView::ScrollArrowView(ArrowType arrow_type,
     : ShelfButton(shelf, shelf_button_delegate),
       arrow_type_(arrow_type),
       is_horizontal_alignment_(is_horizontal_alignment) {
-  set_has_ink_drop_action_on_click(true);
+  SetHasInkDropActionOnClick(true);
   SetInkDropMode(InkDropMode::ON_NO_GESTURE_HANDLER);
 }
 
@@ -37,7 +38,8 @@ void ScrollArrowView::PaintButtonContents(gfx::Canvas* canvas) {
                                (arrow_type_ == kRight && base::i18n::IsRTL());
   gfx::ImageSkia img = CreateVectorIcon(
       show_left_arrow ? kOverflowShelfLeftIcon : kOverflowShelfRightIcon,
-      SK_ColorWHITE);
+      AshColorProvider::Get()->GetContentLayerColor(
+          AshColorProvider::ContentLayerType::kIconColorPrimary));
 
   if (!is_horizontal_alignment_) {
     img = gfx::ImageSkiaOperations::CreateRotatedImage(
@@ -52,6 +54,11 @@ void ScrollArrowView::PaintButtonContents(gfx::Canvas* canvas) {
 
 const char* ScrollArrowView::GetClassName() const {
   return "ScrollArrowView";
+}
+
+void ScrollArrowView::OnThemeChanged() {
+  ShelfButton::OnThemeChanged();
+  SchedulePaint();
 }
 
 }  // namespace ash

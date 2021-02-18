@@ -4,12 +4,12 @@
 
 #include "chrome/browser/ui/views/global_media_controls/media_dialog_view.h"
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_feature_list.h"
-#include "chrome/browser/media/router/media_router_factory.h"
-#include "chrome/browser/media/router/presentation/web_contents_presentation_manager.h"
-#include "chrome/browser/media/router/test/mock_media_router.h"
+#include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
+#include "chrome/browser/media/router/chrome_media_router_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/global_media_controls/media_toolbar_button_observer.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
@@ -18,10 +18,14 @@
 #include "chrome/browser/ui/views/global_media_controls/media_notification_list_view.h"
 #include "chrome/browser/ui/views/global_media_controls/media_toolbar_button_view.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+#include "chrome/browser/ui/views/user_education/new_badge_label.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/media_message_center/media_notification_view_impl.h"
+#include "components/media_router/browser/presentation/web_contents_presentation_manager.h"
+#include "components/media_router/browser/test/mock_media_router.h"
 #include "content/public/browser/presentation_request.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test.h"
@@ -29,8 +33,13 @@
 #include "media/base/media_switches.h"
 #include "services/media_session/public/mojom/media_session.mojom.h"
 #include "ui/views/controls/button/image_button.h"
+#include "ui/views/controls/button/toggle_button.h"
+#include "ui/views/view_utils.h"
 
 using media_session::mojom::MediaSessionAction;
+
+// Global Media Controls are not supported on Chrome OS.
+#if !BUILDFLAG(IS_CHROMEOS_LACROS)
 
 namespace {
 
@@ -271,6 +280,12 @@ class TestMediaRouter : public media_router::MockMediaRouter {
     return std::make_unique<TestMediaRouter>();
   }
 
+  media_router::LoggerImpl* GetLogger() override {
+    if (!logger_)
+      logger_ = std::make_unique<media_router::LoggerImpl>();
+    return logger_.get();
+  }
+
   void RegisterMediaRoutesObserver(
       media_router::MediaRoutesObserver* observer) override {
     routes_observers_.push_back(observer);
@@ -289,6 +304,7 @@ class TestMediaRouter : public media_router::MockMediaRouter {
 
  private:
   std::vector<media_router::MediaRoutesObserver*> routes_observers_;
+  std::unique_ptr<media_router::LoggerImpl> logger_;
 };
 
 }  // anonymous namespace
@@ -306,7 +322,9 @@ class MediaDialogViewBrowserTest : public InProcessBrowserTest {
 
   void SetUp() override {
     feature_list_.InitWithFeatures(
-        {media::kGlobalMediaControls, media::kGlobalMediaControlsForCast}, {});
+        {media::kGlobalMediaControls, media::kGlobalMediaControlsForCast,
+         media::kLiveCaption},
+        {});
 
     presentation_manager_ =
         std::make_unique<TestWebContentsPresentationManager>();
@@ -331,7 +349,7 @@ class MediaDialogViewBrowserTest : public InProcessBrowserTest {
 
   void OnWillCreateBrowserContextServices(content::BrowserContext* context) {
     media_router_ = static_cast<TestMediaRouter*>(
-        media_router::MediaRouterFactory::GetInstance()
+        media_router::ChromeMediaRouterFactory::GetInstance()
             ->SetTestingFactoryAndUse(
                 context, base::BindRepeating(&TestMediaRouter::Create)));
   }
@@ -463,6 +481,14 @@ class MediaDialogViewBrowserTest : public InProcessBrowserTest {
     ClickButton(GetButtonForAction(MediaSessionAction::kExitPictureInPicture));
   }
 
+  void ClickEnableLiveCaptionOnDialog() {
+    base::RunLoop().RunUntilIdle();
+    ASSERT_TRUE(MediaDialogView::IsShowing());
+    views::Button* live_caption_button = static_cast<views::Button*>(
+        MediaDialogView::GetDialogViewForTesting()->live_caption_button_);
+    ClickButton(live_caption_button);
+  }
+
   void ClickNotificationByTitle(const base::string16& title) {
     ASSERT_TRUE(MediaDialogView::IsShowing());
     MediaNotificationContainerImplView* notification =
@@ -509,6 +535,23 @@ class MediaDialogViewBrowserTest : public InProcessBrowserTest {
     return false;
   }
 
+  views::Label* GetLiveCaptionTitleLabel() {
+    return MediaDialogView::GetDialogViewForTesting()->live_caption_title_;
+  }
+
+  views::Label* GetLiveCaptionTitleNewBadgeLabel() {
+    return MediaDialogView::GetDialogViewForTesting()
+        ->live_caption_title_new_badge_;
+  }
+
+  void OnSodaProgress(int progress) {
+    MediaDialogView::GetDialogViewForTesting()->OnSodaProgress(progress);
+  }
+
+  void OnSodaInstalled() {
+    MediaDialogView::GetDialogViewForTesting()->OnSodaInstalled();
+  }
+
  protected:
   std::unique_ptr<TestWebContentsPresentationManager> presentation_manager_;
   TestMediaRouter* media_router_ = nullptr;
@@ -527,7 +570,7 @@ class MediaDialogViewBrowserTest : public InProcessBrowserTest {
   // media_message_center::MediaNotificationViewImpl sets the tags of its action
   // buttons to the MediaSessionAction value.
   views::ImageButton* GetButtonForAction(views::View* view, int action) {
-    if (view->GetClassName() == views::ImageButton::kViewClassName) {
+    if (views::IsViewClass<views::ImageButton>(view)) {
       views::ImageButton* image_button = static_cast<views::ImageButton*>(view);
       if (image_button->tag() == action)
         return image_button;
@@ -557,9 +600,7 @@ class MediaDialogViewBrowserTest : public InProcessBrowserTest {
   }
 
   base::test::ScopedFeatureList feature_list_;
-  std::unique_ptr<
-      BrowserContextDependencyManager::CreateServicesCallbackList::Subscription>
-      subscription_;
+  base::CallbackListSubscription subscription_;
 
   DISALLOW_COPY_AND_ASSIGN(MediaDialogViewBrowserTest);
 };
@@ -840,3 +881,98 @@ IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest,
 
   EXPECT_TRUE(IsPlayingSessionDisplayedFirst());
 }
+
+// Flaky on Mac: crbug.com/1163666
+#if defined(OS_MAC)
+#define MAYBE_LiveCaption DISABLED_LiveCaption
+#else
+#define MAYBE_LiveCaption LiveCaption
+#endif  // defined(OS_MAC)
+IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest, MAYBE_LiveCaption) {
+  // Open a tab and play media.
+  OpenTestURL();
+  StartPlayback();
+  WaitForStart();
+
+  // Open the media dialog.
+  WaitForVisibleToolbarIcon();
+  ClickToolbarIcon();
+  WaitForDialogOpened();
+  EXPECT_TRUE(IsDialogVisible());
+
+  // When media dialog opens and Live Caption is disabled, the New badge is
+  // visible and the regular title is not visible.
+  EXPECT_NE(GetLiveCaptionTitleNewBadgeLabel(), nullptr);
+  EXPECT_TRUE(GetLiveCaptionTitleNewBadgeLabel()->GetVisible());
+  EXPECT_FALSE(GetLiveCaptionTitleLabel()->GetVisible());
+
+  ClickEnableLiveCaptionOnDialog();
+  EXPECT_TRUE(
+      browser()->profile()->GetPrefs()->GetBoolean(prefs::kLiveCaptionEnabled));
+  // The New Badge disappears when Live Caption is enabled. The regular title
+  // appears.
+  EXPECT_FALSE(GetLiveCaptionTitleNewBadgeLabel()->GetVisible());
+  EXPECT_TRUE(GetLiveCaptionTitleLabel()->GetVisible());
+
+  ClickEnableLiveCaptionOnDialog();
+  EXPECT_FALSE(
+      browser()->profile()->GetPrefs()->GetBoolean(prefs::kLiveCaptionEnabled));
+  // The New Badge doesn't reappear after Live Caption is disabled again.
+  EXPECT_FALSE(GetLiveCaptionTitleNewBadgeLabel()->GetVisible());
+  EXPECT_TRUE(GetLiveCaptionTitleLabel()->GetVisible());
+
+  // Close dialog and enable live caption preference. Reopen dialog.
+  ClickToolbarIcon();
+  EXPECT_FALSE(IsDialogVisible());
+  browser()->profile()->GetPrefs()->SetBoolean(prefs::kLiveCaptionEnabled,
+                                               true);
+  ClickToolbarIcon();
+  WaitForDialogOpened();
+  EXPECT_TRUE(IsDialogVisible());
+  // When media dialog opens and Live Caption is enabled, the New badge is not
+  // created. The regular title is visible.
+  EXPECT_EQ(GetLiveCaptionTitleNewBadgeLabel(), nullptr);
+  EXPECT_TRUE(GetLiveCaptionTitleLabel()->GetVisible());
+
+  ClickEnableLiveCaptionOnDialog();
+  EXPECT_FALSE(
+      browser()->profile()->GetPrefs()->GetBoolean(prefs::kLiveCaptionEnabled));
+  // The New badge is still not created. The regular title is still visible.
+  EXPECT_EQ(GetLiveCaptionTitleNewBadgeLabel(), nullptr);
+  EXPECT_TRUE(GetLiveCaptionTitleLabel()->GetVisible());
+}
+
+IN_PROC_BROWSER_TEST_F(MediaDialogViewBrowserTest, LiveCaptionProgressUpdate) {
+  // Open a tab and play media.
+  OpenTestURL();
+  StartPlayback();
+  WaitForStart();
+
+  // Open the media dialog.
+  WaitForVisibleToolbarIcon();
+  ClickToolbarIcon();
+  WaitForDialogOpened();
+  EXPECT_TRUE(IsDialogVisible());
+
+  EXPECT_EQ("Live Caption (English only)",
+            base::UTF16ToUTF8(GetLiveCaptionTitleNewBadgeLabel()->GetText()));
+
+  ClickEnableLiveCaptionOnDialog();
+  OnSodaProgress(0);
+  EXPECT_EQ("Downloading… 0%",
+            base::UTF16ToUTF8(GetLiveCaptionTitleLabel()->GetText()));
+
+  OnSodaProgress(12);
+  EXPECT_EQ("Downloading… 12%",
+            base::UTF16ToUTF8(GetLiveCaptionTitleLabel()->GetText()));
+
+  OnSodaProgress(100);
+  EXPECT_EQ("Downloading… 100%",
+            base::UTF16ToUTF8(GetLiveCaptionTitleLabel()->GetText()));
+
+  OnSodaInstalled();
+  EXPECT_EQ("Live Caption (English only)",
+            base::UTF16ToUTF8(GetLiveCaptionTitleLabel()->GetText()));
+}
+
+#endif  // !BUILDFLAG(IS_CHROMEOS_LACROS)

@@ -18,6 +18,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/task/sequence_manager/task_queue.h"
 #include "base/trace_event/trace_event.h"
+#include "components/power_scheduler/power_mode_voter.h"
 #include "net/base/request_priority.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "third_party/blink/public/platform/task_type.h"
@@ -32,6 +33,7 @@
 #include "third_party/blink/renderer/platform/scheduler/public/web_scheduling_priority.h"
 #include "third_party/blink/renderer/platform/scheduler/worker/worker_scheduler_proxy.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
+#include "third_party/perfetto/include/perfetto/tracing/traced_value_forward.h"
 
 namespace base {
 namespace sequence_manager {
@@ -39,7 +41,6 @@ class TaskQueue;
 }  // namespace sequence_manager
 namespace trace_event {
 class BlameContext;
-class TracedValue;
 }  // namespace trace_event
 }  // namespace base
 
@@ -110,7 +111,9 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
   std::unique_ptr<WebResourceLoadingTaskRunnerHandle>
   CreateResourceLoadingTaskRunnerHandle() override;
 
-  AgentGroupSchedulerImpl* GetAgentGroupScheduler();
+  std::unique_ptr<WebResourceLoadingTaskRunnerHandle>
+  CreateResourceLoadingMaybeUnfreezableTaskRunnerHandle() override;
+  WebAgentGroupScheduler* GetAgentGroupScheduler() override;
   PageScheduler* GetPageScheduler() const override;
   void DidStartProvisionalLoad(bool is_main_frame) override;
   void DidCommitProvisionalLoad(bool is_web_history_inert_commit,
@@ -130,7 +133,6 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
   // created by an SVGImage). Virtual for testing.
   virtual bool IsOrdinary() const;
 
-  void AsValueInto(base::trace_event::TracedValue* state) const;
   bool IsExemptFromBudgetBasedThrottling() const override;
   std::unique_ptr<blink::mojom::blink::PauseSubresourceLoadingHandle>
   GetPauseSubresourceLoadingHandle() override;
@@ -142,7 +144,7 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
 
   base::WeakPtr<FrameScheduler> GetWeakPtr() override;
   base::WeakPtr<const FrameSchedulerImpl> GetWeakPtr() const;
-  base::WeakPtr<FrameSchedulerImpl> GetInvalidingOnBFCacheRestoreWeakPtr();
+  base::WeakPtr<FrameSchedulerImpl> GetInvalidatingOnBFCacheRestoreWeakPtr();
 
   void ReportActiveSchedulerTrackedFeatures() override;
 
@@ -150,15 +152,10 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
 
   void UpdatePolicy();
 
-  // Whether the frame is opted-out from any kind of throttling.
-  bool opted_out_from_all_throttling() const {
-    return opted_out_from_all_throttling_;
-  }
   // Whether the frame is opted-out from CPU time throttling and intensive wake
   // up throttling.
   bool opted_out_from_aggressive_throttling() const {
-    return opted_out_from_all_throttling_ ||
-           opted_out_from_aggressive_throttling_;
+    return opted_out_from_aggressive_throttling_;
   }
 
   void OnTraceLogEnabled() { tracing_controller_.OnTraceLogEnabled(); }
@@ -184,7 +181,7 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
   void SetOnIPCTaskPostedWhileInBackForwardCacheHandler();
   void DetachOnIPCTaskPostedWhileInBackForwardCacheHandler();
   void OnIPCTaskPostedWhileInBackForwardCache(uint32_t ipc_hash,
-                                              const base::Location& task_from);
+                                              const char* ipc_interface_name);
 
   // Returns the list of active features which currently tracked by the
   // scheduler for back-forward cache metrics.
@@ -205,6 +202,8 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
   void OnWebSchedulingTaskQueuePriorityChanged(MainThreadTaskQueue*);
 
   const base::UnguessableToken& GetAgentClusterId() const;
+
+  void WriteIntoTracedValue(perfetto::TracedValue context) const;
 
  protected:
   FrameSchedulerImpl(MainThreadSchedulerImpl* main_thread_scheduler,
@@ -261,17 +260,9 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
   void UpdateQueuePolicy(
       MainThreadTaskQueue* queue,
       base::sequence_manager::TaskQueue::QueueEnabledVoter* voter);
-  // Update throttling for |task_queue|. This changes the throttling ref counts
-  // and should only be called for new queues if throttling is enabled, or if
-  // the throttling state changes.
-  void UpdateTaskQueueThrottling(MainThreadTaskQueue* task_queue,
-                                 bool should_throttle);
 
   void AddPauseSubresourceLoadingHandle();
   void RemovePauseSubresourceLoadingHandle();
-
-  void OnAddedAllThrottlingOptOut();
-  void OnRemovedAllThrottlingOptOut();
 
   void OnAddedAggressiveThrottlingOptOut();
   void OnRemovedAggressiveThrottlingOptOut();
@@ -312,6 +303,7 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
   static MainThreadTaskQueue::QueueTraits
   DoesNotUseVirtualTimeTaskQueueTraits();
   static MainThreadTaskQueue::QueueTraits LoadingTaskQueueTraits();
+  static MainThreadTaskQueue::QueueTraits UnfreezableLoadingTaskQueueTraits();
   static MainThreadTaskQueue::QueueTraits LoadingControlTaskQueueTraits();
   static MainThreadTaskQueue::QueueTraits FindInPageTaskQueueTraits();
 
@@ -346,13 +338,11 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
   TraceableState<bool, TracingCategoryName::kInfo> subresource_loading_paused_;
   StateTracer<TracingCategoryName::kInfo> url_tracer_;
   TraceableState<bool, TracingCategoryName::kInfo> task_queues_throttled_;
+  Vector<MainThreadTaskQueue::ThrottleHandle> throttled_task_queue_handles_;
   TraceableState<bool, TracingCategoryName::kInfo>
       preempted_for_cooperative_scheduling_;
   // TODO(https://crbug.com/827113): Trace the count of opt-outs.
-  int all_throttling_opt_out_count_;
   int aggressive_throttling_opt_out_count_;
-  TraceableState<bool, TracingCategoryName::kInfo>
-      opted_out_from_all_throttling_;
   TraceableState<bool, TracingCategoryName::kInfo>
       opted_out_from_aggressive_throttling_;
   size_t subresource_loading_pause_count_;
@@ -383,6 +373,8 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
       waiting_for_contentful_paint_;
   TraceableState<bool, TracingCategoryName::kInfo>
       waiting_for_meaningful_paint_;
+
+  std::unique_ptr<power_scheduler::PowerModeVoter> loading_power_mode_voter_;
 
   // TODO(altimin): Remove after we have have 1:1 relationship between frames
   // and documents.

@@ -16,9 +16,10 @@
 #include "base/containers/flat_set.h"
 #include "base/metrics/user_metrics.h"
 #include "base/stl_util.h"
-#include "components/autofill/core/common/password_form.h"
 #include "components/password_manager/core/browser/android_affiliation/affiliated_match_helper.h"
+#include "components/password_manager/core/browser/credential_manager_utils.h"
 #include "components/password_manager/core/browser/password_bubble_experiment.h"
+#include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/password_manager_client.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
@@ -32,8 +33,7 @@ namespace {
 
 // Returns true iff |form1| is better suitable for showing in the account
 // chooser than |form2|. Inspired by PasswordFormManager::ScoreResult.
-bool IsBetterMatch(const autofill::PasswordForm& form1,
-                   const autofill::PasswordForm& form2) {
+bool IsBetterMatch(const PasswordForm& form1, const PasswordForm& form2) {
   if (!form1.is_public_suffix_match && form2.is_public_suffix_match)
     return true;
   if (form1.date_last_used > form2.date_last_used)
@@ -41,7 +41,28 @@ bool IsBetterMatch(const autofill::PasswordForm& form1,
   return form1.date_created > form2.date_created;
 }
 
-// Creates a base::flat_set of std::unique_ptr<autofill::PasswordForm> that uses
+// Inserts `form` into `set` if no equally comparing element exists yet, or
+// replaces an existing `old_form` if `pred(old_form, form)` evaluates to true.
+// Returns whether `set` contains `form` following this operation.
+template <typename Comp, typename Predicate>
+bool InsertOrReplaceIf(base::flat_set<std::unique_ptr<PasswordForm>, Comp>& set,
+                       std::unique_ptr<PasswordForm> form,
+                       Predicate pred) {
+  auto lower = set.lower_bound(form);
+  if (lower == set.end() || set.key_comp()(form, *lower)) {
+    set.insert(lower, std::move(form));
+    return true;
+  }
+
+  if (pred(*lower, form)) {
+    *lower = std::move(form);
+    return true;
+  }
+
+  return false;
+}
+
+// Creates a base::flat_set of std::unique_ptr<PasswordForm> that uses
 // |key_getter| to compute the key used when comparing forms.
 template <typename KeyGetter>
 auto MakeFlatSet(KeyGetter key_getter) {
@@ -49,13 +70,11 @@ auto MakeFlatSet(KeyGetter key_getter) {
     return key_getter(lhs) < key_getter(rhs);
   };
 
-  return base::flat_set<std::unique_ptr<autofill::PasswordForm>, decltype(cmp)>(
-      cmp);
+  return base::flat_set<std::unique_ptr<PasswordForm>, decltype(cmp)>(cmp);
 }
 
 // Remove duplicates in |forms| before displaying them in the account chooser.
-void FilterDuplicates(
-    std::vector<std::unique_ptr<autofill::PasswordForm>>* forms) {
+void FilterDuplicates(std::vector<std::unique_ptr<PasswordForm>>* forms) {
   auto federated_forms_with_unique_username =
       MakeFlatSet(/*key_getter=*/[](const auto& form) {
         return std::make_pair(form->username_value, form->federation_origin);
@@ -74,14 +93,15 @@ void FilterDuplicates(
       // |forms| contains credentials from both the profile and account stores.
       // Therefore, it could potentially contains duplicate federated
       // credentials. In case of duplicates, favor the account store version.
-      auto result =
-          federated_forms_with_unique_username.insert(std::move(form));
-      if (!result.second && form->IsUsingAccountStore())
-        *result.first = std::move(form);
+      InsertOrReplaceIf(federated_forms_with_unique_username, std::move(form),
+                        [](const auto& old_form, const auto& new_form) {
+                          return new_form->IsUsingAccountStore();
+                        });
     } else {
-      auto result = credentials.insert(std::move(form));
-      if (!result.second && IsBetterMatch(*form, **result.first))
-        *result.first = std::move(form);
+      InsertOrReplaceIf(credentials, std::move(form),
+                        [](const auto& old_form, const auto& new_form) {
+                          return IsBetterMatch(*new_form, *old_form);
+                        });
     }
   }
   // |credentials| contains credentials from both profile and account stores.
@@ -98,13 +118,14 @@ void FilterDuplicates(
       });
 
   for (auto& form : std::move(credentials).extract()) {
-    auto result = credentials_with_unique_passwords.insert(std::move(form));
-    if (!result.second && form->IsUsingAccountStore())
-      *result.first = std::move(form);
+    InsertOrReplaceIf(credentials_with_unique_passwords, std::move(form),
+                      [](const auto& old_form, const auto& new_form) {
+                        return new_form->IsUsingAccountStore();
+                      });
   }
   *forms = std::move(credentials_with_unique_passwords).extract();
 
-  std::vector<std::unique_ptr<autofill::PasswordForm>> federated_forms =
+  std::vector<std::unique_ptr<PasswordForm>> federated_forms =
       std::move(federated_forms_with_unique_username).extract();
   std::move(federated_forms.begin(), federated_forms.end(),
             std::back_inserter(*forms));
@@ -113,12 +134,11 @@ void FilterDuplicates(
 // Sift |forms| for the account chooser so it doesn't have empty usernames or
 // duplicates.
 void FilterDuplicatesAndEmptyUsername(
-    std::vector<std::unique_ptr<autofill::PasswordForm>>* forms) {
+    std::vector<std::unique_ptr<PasswordForm>>* forms) {
   // Remove empty usernames from the list.
-  base::EraseIf(*forms,
-                [](const std::unique_ptr<autofill::PasswordForm>& form) {
-                  return form->username_value.empty();
-                });
+  base::EraseIf(*forms, [](const std::unique_ptr<PasswordForm>& form) {
+    return form->username_value.empty();
+  });
 
   FilterDuplicates(forms);
 }
@@ -156,7 +176,7 @@ CredentialManagerPendingRequestTask::~CredentialManagerPendingRequestTask() =
     default;
 
 void CredentialManagerPendingRequestTask::OnGetPasswordStoreResults(
-    std::vector<std::unique_ptr<autofill::PasswordForm>> results) {
+    std::vector<std::unique_ptr<PasswordForm>> results) {
   // This class overrides OnGetPasswordStoreResultsFrom() (the version of this
   // method that also receives the originating store), so the store-less version
   // never gets called.
@@ -165,7 +185,7 @@ void CredentialManagerPendingRequestTask::OnGetPasswordStoreResults(
 
 void CredentialManagerPendingRequestTask::OnGetPasswordStoreResultsFrom(
     PasswordStore* store,
-    std::vector<std::unique_ptr<autofill::PasswordForm>> results) {
+    std::vector<std::unique_ptr<PasswordForm>> results) {
   // localhost is a secure origin but not https.
   if (results.empty() && origin_.scheme() == url::kHttpsScheme) {
     // Try to migrate the HTTP passwords and process them later.
@@ -177,12 +197,12 @@ void CredentialManagerPendingRequestTask::OnGetPasswordStoreResultsFrom(
 }
 
 void CredentialManagerPendingRequestTask::ProcessMigratedForms(
-    std::vector<std::unique_ptr<autofill::PasswordForm>> forms) {
+    std::vector<std::unique_ptr<PasswordForm>> forms) {
   AggregatePasswordStoreResults(std::move(forms));
 }
 
 void CredentialManagerPendingRequestTask::AggregatePasswordStoreResults(
-    std::vector<std::unique_ptr<autofill::PasswordForm>> results) {
+    std::vector<std::unique_ptr<PasswordForm>> results) {
   // Store the results.
   for (auto& form : results)
     partial_results_.push_back(std::move(form));
@@ -194,7 +214,7 @@ void CredentialManagerPendingRequestTask::AggregatePasswordStoreResults(
 }
 
 void CredentialManagerPendingRequestTask::ProcessForms(
-    std::vector<std::unique_ptr<autofill::PasswordForm>> results) {
+    std::vector<std::unique_ptr<PasswordForm>> results) {
   using metrics_util::LogCredentialManagerGetResult;
   if (delegate_->GetOrigin() != origin_) {
     LogCredentialManagerGetResult(
@@ -203,13 +223,12 @@ void CredentialManagerPendingRequestTask::ProcessForms(
     return;
   }
   // Get rid of the blocked credentials.
-  base::EraseIf(results,
-                [](const std::unique_ptr<autofill::PasswordForm>& form) {
-                  return form->blocked_by_user;
-                });
+  base::EraseIf(results, [](const std::unique_ptr<PasswordForm>& form) {
+    return form->blocked_by_user;
+  });
 
-  std::vector<std::unique_ptr<autofill::PasswordForm>> local_results;
-  std::vector<std::unique_ptr<autofill::PasswordForm>> psl_results;
+  std::vector<std::unique_ptr<PasswordForm>> local_results;
+  std::vector<std::unique_ptr<PasswordForm>> psl_results;
   for (auto& form : results) {
     // Ensure that the form we're looking at matches the password and
     // federation filters provided.
@@ -246,10 +265,7 @@ void CredentialManagerPendingRequestTask::ProcessForms(
   if (can_use_autosignin && !local_results[0]->skip_zero_click &&
       !password_bubble_experiment::ShouldShowAutoSignInPromptFirstRunExperience(
           delegate_->client()->GetPrefs())) {
-    CredentialInfo info(*local_results[0],
-                        local_results[0]->federation_origin.opaque()
-                            ? CredentialType::CREDENTIAL_TYPE_PASSWORD
-                            : CredentialType::CREDENTIAL_TYPE_FEDERATED);
+    auto info = PasswordFormToCredentialInfo(*local_results[0]);
     delegate_->client()->NotifyUserAutoSignin(std::move(local_results),
                                               origin_);
     base::RecordAction(base::UserMetricsAction("CredentialManager_Autosignin"));
@@ -272,8 +288,8 @@ void CredentialManagerPendingRequestTask::ProcessForms(
       get_result = metrics_util::CredentialManagerGetResult::kNoneFirstRun;
 
     if (!local_results.empty()) {
-      std::vector<const autofill::PasswordForm*> non_federated_matches;
-      std::vector<const autofill::PasswordForm*> federated_matches;
+      std::vector<const PasswordForm*> non_federated_matches;
+      std::vector<const PasswordForm*> federated_matches;
       for (const auto& result : local_results) {
         if (result->IsFederatedCredential()) {
           federated_matches.emplace_back(result.get());

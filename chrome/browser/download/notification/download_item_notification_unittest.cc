@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/guid.h"
+#include "base/json/json_reader.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/test/test_simple_task_runner.h"
@@ -21,6 +22,7 @@
 #include "chrome/browser/notifications/notification_handler.h"
 #include "chrome/browser/notifications/notification_test_util.h"
 #include "chrome/browser/notifications/platform_notification_service_impl.h"
+#include "chrome/browser/safe_browsing/cloud_content_scanning/deep_scanning_test_utils.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
@@ -274,17 +276,29 @@ TEST_F(DownloadItemNotificationTest, DeepScanning) {
   CreateDownloadItemNotification();
 
   // Can't open while scanning.
-  profile_manager_->local_state()->Get()->SetManagedPref(
-      prefs::kDelayDeliveryUntilVerdict,
-      std::make_unique<base::Value>(safe_browsing::DELAY_DOWNLOADS));
+  safe_browsing::SetAnalysisConnector(profile_->GetPrefs(),
+                                      enterprise_connectors::FILE_DOWNLOADED,
+                                      R"(
+        {
+          "service_provider": "google",
+          "enable": [{"url_list": ["*"], "tags": ["malware"]}],
+          "block_until_verdict": 1
+        }
+      )");
   EXPECT_CALL(*download_item_, OpenDownload()).Times(0);
   EXPECT_CALL(*download_item_, SetOpenWhenComplete(true)).Times(1);
   download_item_notification_->Click(base::nullopt, base::nullopt);
 
   // Can be opened while scanning.
-  profile_manager_->local_state()->Get()->SetManagedPref(
-      prefs::kDelayDeliveryUntilVerdict,
-      std::make_unique<base::Value>(safe_browsing::DELAY_NONE));
+  safe_browsing::SetAnalysisConnector(profile_->GetPrefs(),
+                                      enterprise_connectors::FILE_DOWNLOADED,
+                                      R"(
+        {
+          "service_provider": "google",
+          "enable": [{"url_list": ["*"], "tags": ["malware"]}],
+          "block_until_verdict": 0
+        }
+      )");
   EXPECT_CALL(*download_item_, OpenDownload()).Times(1);
   download_item_notification_->Click(base::nullopt, base::nullopt);
 

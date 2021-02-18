@@ -45,9 +45,9 @@ namespace {
 
 using base::StreamingUtf8Validator;
 
-const size_t kWebSocketCloseCodeLength = 2;
+constexpr size_t kWebSocketCloseCodeLength = 2;
 // Timeout for waiting for the server to acknowledge a closing handshake.
-const int kClosingHandshakeTimeoutSeconds = 60;
+constexpr int kClosingHandshakeTimeoutSeconds = 60;
 // We wait for the server to close the underlying connection as recommended in
 // https://tools.ietf.org/html/rfc6455#section-7.1.1
 // We don't use 2MSL since there're server implementations that don't follow
@@ -55,14 +55,14 @@ const int kClosingHandshakeTimeoutSeconds = 60;
 // connection. It leads to unnecessarily long time before CloseEvent
 // invocation. We want to avoid this rather than strictly following the spec
 // recommendation.
-const int kUnderlyingConnectionCloseTimeoutSeconds = 2;
+constexpr int kUnderlyingConnectionCloseTimeoutSeconds = 2;
 
 using ChannelState = WebSocketChannel::ChannelState;
 
 // Maximum close reason length = max control frame payload -
 //                               status code length
 //                             = 125 - 2
-const size_t kMaximumCloseReasonLength = 125 - kWebSocketCloseCodeLength;
+constexpr size_t kMaximumCloseReasonLength = 125 - kWebSocketCloseCodeLength;
 
 // Check a close status code for strict compliance with RFC6455. This is only
 // used for close codes received from a renderer that we are intending to send
@@ -240,8 +240,10 @@ class WebSocketChannel::ConnectDelegate
     // |this| may have been deleted.
   }
 
-  void OnFailure(const std::string& message) override {
-    creator_->OnConnectFailure(message);
+  void OnFailure(const std::string& message,
+                 int net_error,
+                 base::Optional<int> response_code) override {
+    creator_->OnConnectFailure(message, net_error, response_code);
     // |this| has been deleted.
   }
 
@@ -377,12 +379,6 @@ WebSocketChannel::ChannelState WebSocketChannel::SendFrame(
   // |this| may have been deleted.
 }
 
-// Overrides default quota resend threshold size for WebSocket. This flag will
-// be used to investigate the performance issue of crbug.com/865001 and be
-// deleted later on.
-const char kWebSocketReceiveQuotaThreshold[] =
-    "websocket-renderer-receive-quota-max";
-
 ChannelState WebSocketChannel::StartClosingHandshake(
     uint16_t code,
     const std::string& reason) {
@@ -479,7 +475,8 @@ void WebSocketChannel::SendAddChannelRequestWithSuppliedCallback(
   if (!socket_url.SchemeIsWSOrWSS()) {
     // TODO(ricea): Kill the renderer (this error should have been caught by
     // Javascript).
-    event_interface_->OnFailChannel("Invalid scheme");
+    event_interface_->OnFailChannel("Invalid scheme", ERR_FAILED,
+                                    base::nullopt);
     // |this| is deleted here.
     return;
   }
@@ -514,7 +511,9 @@ void WebSocketChannel::OnConnectSuccess(
   // |this| may have been deleted after OnAddChannelResponse.
 }
 
-void WebSocketChannel::OnConnectFailure(const std::string& message) {
+void WebSocketChannel::OnConnectFailure(const std::string& message,
+                                        int net_error,
+                                        base::Optional<int> response_code) {
   DCHECK_EQ(CONNECTING, state_);
 
   // Copy the message before we delete its owner.
@@ -523,7 +522,7 @@ void WebSocketChannel::OnConnectFailure(const std::string& message) {
   SetState(CLOSED);
   stream_request_.reset();
 
-  event_interface_->OnFailChannel(message_copy);
+  event_interface_->OnFailChannel(message_copy, net_error, response_code);
   // |this| has been deleted.
 }
 
@@ -962,7 +961,7 @@ void WebSocketChannel::FailChannel(const std::string& message,
   // handshake.
   stream_->Close();
   SetState(CLOSED);
-  event_interface_->OnFailChannel(message);
+  event_interface_->OnFailChannel(message, ERR_FAILED, base::nullopt);
 }
 
 ChannelState WebSocketChannel::SendClose(uint16_t code,

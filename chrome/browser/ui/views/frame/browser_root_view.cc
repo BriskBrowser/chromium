@@ -17,6 +17,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/views/frame/browser_frame.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/browser/ui/views/tabs/tab_strip_controller.h"
@@ -34,16 +35,20 @@
 #include "third_party/metrics_proto/omnibox_event.pb.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/dragdrop/drop_target_event.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "ui/base/hit_test.h"
 #include "ui/compositor/paint_recorder.h"
 #include "ui/gfx/scoped_canvas.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 #if BUILDFLAG(ENABLE_PLUGINS)
 #include "content/public/browser/plugin_service.h"
 #endif
 
 namespace {
+
+using ::ui::mojom::DragOperation;
 
 using FileSupportedCallback =
     base::OnceCallback<void(const GURL& url, bool supported)>;
@@ -91,13 +96,13 @@ bool GetURLForDrop(const ui::DropTargetEvent& event, GURL* url) {
          url->is_valid();
 }
 
-int GetDropEffect(const ui::DropTargetEvent& event, const GURL& url) {
+DragOperation GetDropEffect(const ui::DropTargetEvent& event, const GURL& url) {
   const int source_ops = event.source_operations();
   if (source_ops & ui::DragDropTypes::DRAG_COPY)
-    return ui::DragDropTypes::DRAG_COPY;
+    return DragOperation::kCopy;
   if (source_ops & ui::DragDropTypes::DRAG_LINK)
-    return ui::DragDropTypes::DRAG_LINK;
-  return ui::DragDropTypes::DRAG_MOVE;
+    return DragOperation::kLink;
+  return DragOperation::kMove;
 }
 
 }  // namespace
@@ -108,9 +113,6 @@ BrowserRootView::DropInfo::~DropInfo() {
   if (target)
     target->HandleDragExited();
 }
-
-// static
-const char BrowserRootView::kViewClassName[] = "BrowserRootView";
 
 BrowserRootView::BrowserRootView(BrowserView* browser_view,
                                  views::Widget* widget)
@@ -141,7 +143,7 @@ bool BrowserRootView::AreDropTypesRequired() {
 
 bool BrowserRootView::CanDrop(const ui::OSExchangeData& data) {
   // If it's not tabbed browser, we don't have to support drag and drops.
-  if (!browser_view_->IsBrowserTypeNormal())
+  if (!browser_view_->GetIsNormalType())
     return false;
 
   if (!tabstrip()->GetVisible() && !toolbar()->GetVisible())
@@ -196,8 +198,9 @@ int BrowserRootView::OnDragUpdated(const ui::DropTargetEvent& event) {
     }
 
     drop_target->HandleDragUpdate(drop_info_->index);
-    return drop_info_->index ? GetDropEffect(event, drop_info_->url)
-                             : ui::DragDropTypes::DRAG_NONE;
+    return drop_info_->index
+               ? static_cast<int>(GetDropEffect(event, drop_info_->url))
+               : ui::DragDropTypes::DRAG_NONE;
   }
 
   OnDragExited();
@@ -208,11 +211,11 @@ void BrowserRootView::OnDragExited() {
   drop_info_.reset();
 }
 
-int BrowserRootView::OnPerformDrop(const ui::DropTargetEvent& event) {
+DragOperation BrowserRootView::OnPerformDrop(const ui::DropTargetEvent& event) {
   using base::UserMetricsAction;
 
   if (!drop_info_)
-    return ui::DragDropTypes::DRAG_NONE;
+    return DragOperation::kNone;
 
   // Ensure we call HandleDragExited() on |drop_info_|'s |target| when this
   // function returns.
@@ -232,7 +235,7 @@ int BrowserRootView::OnPerformDrop(const ui::DropTargetEvent& event) {
   // |drop_info| was created.
   if (!drop_info->file_supported || !url.is_valid() ||
       url.SchemeIs(url::kJavaScriptScheme))
-    return ui::DragDropTypes::DRAG_NONE;
+    return DragOperation::kNone;
 
   NavigateParams params(browser_view_->browser(), url,
                         ui::PAGE_TRANSITION_LINK);
@@ -254,12 +257,14 @@ int BrowserRootView::OnPerformDrop(const ui::DropTargetEvent& event) {
   return GetDropEffect(event, url);
 }
 
-const char* BrowserRootView::GetClassName() const {
-  return kViewClassName;
-}
-
 bool BrowserRootView::OnMouseWheel(const ui::MouseWheelEvent& event) {
-  if (browser_defaults::kScrollEventChangesTab) {
+  // TODO(dfried): See if it's possible to move this logic deeper into the view
+  // hierarchy - ideally to TabStripRegionView.
+
+  // Scroll-event-changes-tab is incompatible with scrolling tabstrip, so
+  // disable it if the latter feature is enabled.
+  if (browser_defaults::kScrollEventChangesTab &&
+      !base::FeatureList::IsEnabled(features::kScrollableTabStrip)) {
     // Switch to the left/right tab if the wheel-scroll happens over the
     // tabstrip, or the empty space beside the tabstrip.
     views::View* hit_view = GetEventHandlerForPoint(event.location());
@@ -434,3 +439,6 @@ bool BrowserRootView::GetPasteAndGoURL(const ui::OSExchangeData& data,
     *url = match.destination_url;
   return true;
 }
+
+BEGIN_METADATA(BrowserRootView, views::internal::RootView)
+END_METADATA

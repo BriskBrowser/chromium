@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -100,7 +101,8 @@ bool IsDoubleEndLineAtEnd(const char* buffer, int size) {
 
 }  // namespace
 
-URLLoaderWrapperImpl::URLLoaderWrapperImpl(scoped_refptr<UrlLoader> url_loader)
+URLLoaderWrapperImpl::URLLoaderWrapperImpl(
+    std::unique_ptr<UrlLoader> url_loader)
     : url_loader_(std::move(url_loader)) {
   SetHeadersFromLoader();
 }
@@ -140,13 +142,6 @@ bool URLLoaderWrapperImpl::GetByteRangeStart(int* start) const {
   DCHECK(start);
   *start = byte_range_.start();
   return byte_range_.IsValid();
-}
-
-bool URLLoaderWrapperImpl::GetDownloadProgress(
-    int64_t& bytes_received,
-    int64_t& total_bytes_to_be_received) const {
-  return url_loader_->GetDownloadProgress(bytes_received,
-                                          total_bytes_to_be_received);
 }
 
 void URLLoaderWrapperImpl::Close() {
@@ -292,7 +287,7 @@ void URLLoaderWrapperImpl::DidRead(ResultCallback callback, int32_t result) {
 }
 
 void URLLoaderWrapperImpl::SetHeadersFromLoader() {
-  SetResponseHeaders(url_loader_->response().headers.value_or(""));
+  SetResponseHeaders(url_loader_->response().headers);
 }
 
 }  // namespace chrome_pdf

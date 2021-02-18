@@ -29,9 +29,6 @@ class ErrorScreen : public BaseScreen,
                     public LoginPerformer::Delegate,
                     public NetworkConnectionObserver {
  public:
-  using ConnectRequestCallbackSubscription =
-      std::unique_ptr<base::CallbackList<void()>::Subscription>;
-
   // TODO(jdufault): Some of these are no longer used and can be removed. See
   // crbug.com/672142.
   static const char kUserActionConfigureCertsButtonClicked[];
@@ -41,6 +38,9 @@ class ErrorScreen : public BaseScreen,
   static const char kUserActionRebootButtonClicked[];
   static const char kUserActionShowCaptivePortalClicked[];
   static const char kUserActionNetworkConnected[];
+  static const char kUserActionReloadGaia[];
+  static const char kUserActionCancelReset[];
+  static const char kUserActionCancel[];
 
   explicit ErrorScreen(ErrorScreenView* view);
   ~ErrorScreen() override;
@@ -77,7 +77,7 @@ class ErrorScreen : public BaseScreen,
   virtual void SetUIState(NetworkError::UIState ui_state);
 
   // Sets current error screen content according to current UI state,
-  // |error_state|, and |network|.
+  // `error_state`, and `network`.
   virtual void SetErrorState(NetworkError::ErrorState error_state,
                              const std::string& network);
 
@@ -99,8 +99,8 @@ class ErrorScreen : public BaseScreen,
 
   // Register a callback to be invoked when the user indicates that an attempt
   // to connect to the network should be made.
-  ConnectRequestCallbackSubscription RegisterConnectRequestCallback(
-      const base::Closure& callback);
+  base::CallbackListSubscription RegisterConnectRequestCallback(
+      base::RepeatingClosure callback);
 
   // Creates an instance of CaptivePortalWindowProxy, if one has not already
   // been created.
@@ -111,6 +111,9 @@ class ErrorScreen : public BaseScreen,
   // and this should be cleaned up.
   void DoShow();
   void DoHide();
+
+  void ShowNetworkErrorMessage(NetworkStateInformer::State state,
+                               NetworkError::ErrorReason reason);
 
  protected:
   // BaseScreen:
@@ -126,7 +129,6 @@ class ErrorScreen : public BaseScreen,
   void OnPasswordChangeDetected(const UserContext& user_context) override;
   void AllowlistCheckFailed(const std::string& email) override;
   void PolicyLoadFailed() override;
-  void SetAuthFlowOffline(bool offline) override;
 
   // NetworkConnectionObserver overrides:
   void ConnectToNetworkRequested(const std::string& service_path) override;
@@ -150,6 +152,15 @@ class ErrorScreen : public BaseScreen,
   // Handle uses action to reboot device.
   void OnRebootButtonClicked();
 
+  // Handle user action to cancel the screen and return to user pods.
+  void OnCancelButtonClicked();
+
+  // Handle user action to reload gaia.
+  void OnReloadGaiaClicked();
+
+  // If show is true offline login flow is enabled from the error screen.
+  void ShowOfflineLoginOption(bool show);
+
   // Handles the response of an ownership check and starts the guest session if
   // applicable.
   void StartGuestSessionAfterOwnershipCheck(
@@ -158,6 +169,8 @@ class ErrorScreen : public BaseScreen,
   ErrorScreenView* view_ = nullptr;
 
   std::unique_ptr<LoginPerformer> guest_login_performer_;
+
+  bool offline_login_allowed_ = false;
 
   // Proxy which manages showing of the window for captive portal entering.
   std::unique_ptr<CaptivePortalWindowProxy> captive_portal_window_proxy_;
@@ -174,7 +187,7 @@ class ErrorScreen : public BaseScreen,
   base::OnceClosure on_hide_callback_;
 
   // Callbacks to be invoked when a connection attempt is requested.
-  base::CallbackList<void()> connect_request_callbacks_;
+  base::RepeatingCallbackList<void()> connect_request_callbacks_;
 
   base::WeakPtrFactory<ErrorScreen> weak_factory_{this};
 

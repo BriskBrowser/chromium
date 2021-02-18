@@ -9,6 +9,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
+#include "third_party/blink/renderer/core/dom/events/simulated_click_options.h"
 #include "third_party/blink/renderer/core/dom/focus_params.h"
 #include "third_party/blink/renderer/core/dom/node.h"
 #include "third_party/blink/renderer/core/editing/editing_utilities.h"
@@ -31,7 +32,6 @@
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/page/spatial_navigation.h"
 #include "third_party/blink/renderer/platform/geometry/layout_rect.h"
-#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 
 #include "third_party/blink/renderer/core/css/style_change_reason.h"
 
@@ -221,7 +221,8 @@ bool SpatialNavigationController::HandleEnterKeyboardEvent(
                       mojom::blink::FocusType::kSpatialNavigation, nullptr));
       // We need enter to activate links, etc. The click should be after the
       // focus in case the site transfers focus upon clicking.
-      interest_element->DispatchSimulatedClick(event, kSendMouseUpDownEvents);
+      interest_element->DispatchSimulatedClick(
+          event, SimulatedClickCreationScope::kFromAccessibility);
     }
   }
 
@@ -294,8 +295,6 @@ void SpatialNavigationController::Trace(Visitor* visitor) const {
 
 bool SpatialNavigationController::Advance(
     SpatialNavigationDirection direction) {
-  SCOPED_BLINK_UMA_HISTOGRAM_TIMER("Blink.SpatialNavigation.Advance");
-
   Node* interest_node = StartingNode();
   if (!interest_node)
     return false;

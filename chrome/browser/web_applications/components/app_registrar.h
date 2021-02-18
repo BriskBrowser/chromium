@@ -13,11 +13,14 @@
 #include "base/optional.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
 #include "chrome/browser/web_applications/components/web_app_id.h"
-#include "chrome/common/web_application_info.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "third_party/skia/include/core/SkColor.h"
 
 class GURL;
 class Profile;
+namespace apps {
+struct ShareTarget;
+}
 namespace base {
 class Time;
 }
@@ -31,6 +34,7 @@ namespace web_app {
 class AppRegistrarObserver;
 class WebAppRegistrar;
 class WebApp;
+class OsIntegrationManager;
 
 enum class ExternalInstallSource;
 
@@ -89,7 +93,16 @@ class AppRegistrar {
       const AppId& app_id) const = 0;
   virtual base::Optional<SkColor> GetAppBackgroundColor(
       const AppId& app_id) const = 0;
-  virtual const GURL& GetAppLaunchURL(const AppId& app_id) const = 0;
+  virtual const GURL& GetAppStartUrl(const AppId& app_id) const = 0;
+  virtual const std::string* GetAppLaunchQueryParams(
+      const AppId& app_id) const = 0;
+  virtual const apps::ShareTarget* GetAppShareTarget(
+      const AppId& app_id) const = 0;
+  virtual blink::mojom::CaptureLinks GetAppCaptureLinks(
+      const AppId& app_id) const = 0;
+
+  // Returns the start_url with launch_query_params appended to the end if any.
+  GURL GetAppLaunchUrl(const AppId& app_id) const;
 
   // TODO(crbug.com/910016): Replace uses of this with GetAppScope().
   virtual base::Optional<GURL> GetAppScopeInternal(
@@ -109,7 +122,7 @@ class AppRegistrar {
       const AppId& app_id) const = 0;
 
   // Represents which icon sizes we successfully downloaded from the IconInfos.
-  virtual std::vector<SquareSizePx> GetAppDownloadedIconSizesAny(
+  virtual SortedSizesPx GetAppDownloadedIconSizesAny(
       const AppId& app_id) const = 0;
 
   // Returns the "shortcuts" field from the app manifest, use |AppIconManager|
@@ -131,6 +144,8 @@ class AppRegistrar {
   // Safe downcast.
   virtual WebAppRegistrar* AsWebAppRegistrar() = 0;
   virtual extensions::BookmarkAppRegistrar* AsBookmarkAppRegistrar();
+
+  void SetSubsystems(OsIntegrationManager* os_integration_manager);
 
   // Returns the "scope" field from the app manifest, or infers a scope from the
   // "start_url" field if unavailable. Returns an invalid GURL iff the |app_id|
@@ -188,6 +203,7 @@ class AppRegistrar {
   void NotifyWebAppsWillBeUpdatedFromSync(
       const std::vector<const WebApp*>& new_apps_state);
   void NotifyWebAppUninstalled(const AppId& app_id);
+  void NotifyWebAppWillBeUninstalled(const AppId& app_id);
   void NotifyWebAppLocallyInstalledStateChanged(const AppId& app_id,
                                                 bool is_locally_installed);
   void NotifyWebAppDisabledStateChanged(const AppId& app_id, bool is_disabled);
@@ -196,8 +212,14 @@ class AppRegistrar {
   void NotifyWebAppInstallTimeChanged(const AppId& app_id,
                                       const base::Time& time);
 
+  // Notify when OS hooks installation is finished during Web App installation.
+  void NotifyWebAppInstalledWithOsHooks(const AppId& app_id);
+
  protected:
   Profile* profile() const { return profile_; }
+  OsIntegrationManager& os_integration_manager() {
+    return *os_integration_manager_;
+  }
 
   void NotifyWebAppProfileWillBeDeleted(const AppId& app_id);
   void NotifyAppRegistrarShutdown();
@@ -206,6 +228,7 @@ class AppRegistrar {
   Profile* const profile_;
 
   base::ObserverList<AppRegistrarObserver, /*check_empty=*/true> observers_;
+  OsIntegrationManager* os_integration_manager_ = nullptr;
 };
 
 }  // namespace web_app

@@ -15,7 +15,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/feature_list.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/string16.h"
@@ -43,7 +43,6 @@
 #include "components/autofill/core/common/autofill_payments_features.h"
 #include "components/autofill/core/common/autofill_prefs.h"
 #include "components/autofill/core/common/autofill_util.h"
-#include "components/infobars/core/infobar_feature.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "url/gurl.h"
@@ -216,9 +215,8 @@ void CreditCardSaveManager::AttemptToOfferCardUploadSave(
     // iOS should always provide a valid expiration date when attempting to
     // upload a Saved Card. Calling LogSaveCardRequestExpirationDateReasonMetric
     // would trigger a DCHECK.
-    if (!(base::FeatureList::IsEnabled(
-              features::kAutofillSaveCardInfobarEditSupport) &&
-          base::FeatureList::IsEnabled(kIOSInfobarUIReboot))) {
+    if (!base::FeatureList::IsEnabled(
+            features::kAutofillSaveCardInfobarEditSupport)) {
       // Remove once both flags are deleted.
       LogSaveCardRequestExpirationDateReasonMetric();
     }
@@ -229,9 +227,8 @@ void CreditCardSaveManager::AttemptToOfferCardUploadSave(
   }
 
 #if defined(OS_IOS)
-  if ((base::FeatureList::IsEnabled(
-           features::kAutofillSaveCardInfobarEditSupport) &&
-       base::FeatureList::IsEnabled(kIOSInfobarUIReboot))) {
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillSaveCardInfobarEditSupport)) {
     // iOS's new credit card save dialog requires the user to enter both
     // cardholder name and expiration date before saving.  Regardless of what
     // Chrome thought it needed to do before, disable both of the previous
@@ -486,6 +483,8 @@ void CreditCardSaveManager::OfferCardUploadSave() {
   // should not display the offer-to-save infobar at all.
   if (!is_mobile_build || show_save_prompt_.value_or(true)) {
     user_did_accept_upload_prompt_ = false;
+    if (observer_for_testing_)
+      observer_for_testing_->OnOfferUploadSave();
     client_->ConfirmSaveCreditCardToCloud(
         upload_request_.card, legal_message_lines_,
         AutofillClient::SaveCreditCardOptions()
@@ -774,9 +773,8 @@ int CreditCardSaveManager::GetDetectedValues() const {
 // card unless the user provides both a valid cardholder name and expiration
 // date.
 #if defined(OS_IOS)
-  if ((base::FeatureList::IsEnabled(
-           features::kAutofillSaveCardInfobarEditSupport) &&
-       base::FeatureList::IsEnabled(kIOSInfobarUIReboot))) {
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillSaveCardInfobarEditSupport)) {
     detected_values |= DetectedValue::USER_PROVIDED_NAME;
     detected_values |= DetectedValue::USER_PROVIDED_EXPIRATION_DATE;
   }
@@ -850,9 +848,8 @@ void CreditCardSaveManager::OnUserDidAcceptUploadHelper(
     // the user, but not through the fix flow triggered via
     // |should_request_name_from_user_|.
     DCHECK(should_request_name_from_user_ ||
-           (base::FeatureList::IsEnabled(
-                autofill::features::kAutofillSaveCardInfobarEditSupport) &&
-            base::FeatureList::IsEnabled(kIOSInfobarUIReboot)));
+           base::FeatureList::IsEnabled(
+               autofill::features::kAutofillSaveCardInfobarEditSupport));
 #else
     DCHECK(should_request_name_from_user_);
 #endif
@@ -871,9 +868,8 @@ void CreditCardSaveManager::OnUserDidAcceptUploadHelper(
     // the user, but not through the fix flow triggered via
     // |should_request_expiration_date_from_user_|.
     DCHECK(should_request_expiration_date_from_user_ ||
-           (base::FeatureList::IsEnabled(
-                autofill::features::kAutofillSaveCardInfobarEditSupport) &&
-            base::FeatureList::IsEnabled(kIOSInfobarUIReboot)));
+           base::FeatureList::IsEnabled(
+               autofill::features::kAutofillSaveCardInfobarEditSupport));
 #else
     DCHECK(should_request_expiration_date_from_user_);
 #endif

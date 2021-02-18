@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "content/public/test/browser_test.h"
 #include "content/test/ppapi/ppapi_test.h"
 #include "ppapi/shared_impl/test_utils.h"
@@ -38,7 +39,7 @@ namespace {
   }
 
 // Doesn't work in CrOS builds, http://crbug.com/619765
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #define MAYBE_BrowserFont DISABLED_BrowserFont
 #else
 #define MAYBE_BrowserFont BrowserFont
@@ -132,14 +133,6 @@ TEST_PPAPI_OUT_OF_PROCESS(DISABLED_Scrollbar)
 
 TEST_PPAPI_IN_PROCESS(TraceEvent)
 TEST_PPAPI_OUT_OF_PROCESS(TraceEvent)
-
-// Doesn't work in CrOS builds, http://crbug.com/619765
-#if defined(OS_CHROMEOS)
-#define MAYBE_TrueTypeFont DISABLED_TrueTypeFont
-#else
-#define MAYBE_TrueTypeFont TrueTypeFont
-#endif
-TEST_PPAPI_OUT_OF_PROCESS(MAYBE_TrueTypeFont)
 
 TEST_PPAPI_IN_PROCESS(URLUtil)
 TEST_PPAPI_OUT_OF_PROCESS(URLUtil)

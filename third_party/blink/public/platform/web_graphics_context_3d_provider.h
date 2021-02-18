@@ -65,7 +65,11 @@ class RasterInterface;
 namespace webgpu {
 class WebGPUInterface;
 }
-}
+}  // namespace gpu
+
+namespace viz {
+class RasterContextProvider;
+}  // namespace viz
 
 namespace blink {
 enum AntialiasingMode {
@@ -77,7 +81,7 @@ enum AntialiasingMode {
 
 struct WebglPreferences {
   AntialiasingMode anti_aliasing_mode = kAntialiasingModeUnspecified;
-  uint32_t msaa_sample_count = 8;
+  uint32_t msaa_sample_count = 4;
   uint32_t eqaa_storage_sample_count = 4;
   // WebGL-specific numeric limits.
   uint32_t max_active_webgl_contexts = 0;
@@ -111,6 +115,7 @@ class WebGraphicsContext3DProvider {
   virtual void CopyVideoFrame(media::PaintCanvasVideoRenderer* video_render,
                               media::VideoFrame* video_frame,
                               cc::PaintCanvas* canvas) = 0;
+  virtual viz::RasterContextProvider* RasterContextProvider() const = 0;
 };
 
 }  // namespace blink

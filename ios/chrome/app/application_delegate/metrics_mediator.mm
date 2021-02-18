@@ -7,7 +7,7 @@
 #include <sys/sysctl.h>
 
 #include "base/bind.h"
-#include "base/metrics/histogram_macros.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/user_metrics_action.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/post_task.h"
@@ -17,22 +17,25 @@
 #include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/metrics_service.h"
 #include "components/prefs/pref_service.h"
+#import "components/previous_session_info/previous_session_info.h"
 #include "components/ukm/ios/features.h"
+#include "components/ukm/ios/ukm_reporting_ios_util.h"
 #import "ios/chrome/app/application_delegate/metric_kit_subscriber.h"
 #import "ios/chrome/app/application_delegate/startup_information.h"
 #include "ios/chrome/browser/application_context.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
-#include "ios/chrome/browser/crash_report/breakpad_helper.h"
+#include "ios/chrome/browser/crash_report/crash_helper.h"
 #include "ios/chrome/browser/main/browser.h"
 #include "ios/chrome/browser/metrics/first_user_action_recorder.h"
-#import "ios/chrome/browser/metrics/previous_session_info.h"
 #import "ios/chrome/browser/net/connection_type_observer_bridge.h"
 #include "ios/chrome/browser/pref_names.h"
 #include "ios/chrome/browser/system_flags.h"
 #import "ios/chrome/browser/ui/main/browser_interface_provider.h"
 #import "ios/chrome/browser/ui/main/connection_information.h"
 #import "ios/chrome/browser/ui/main/scene_state.h"
+#import "ios/chrome/browser/ui/ntp/ntp_util.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/widget_kit/widget_metrics_util.h"
 #include "ios/chrome/common/app_group/app_group_metrics_mainapp.h"
 #include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
 #include "ios/public/provider/chrome/browser/distribution/app_distribution_provider.h"
@@ -110,6 +113,10 @@ using metrics_mediator::kAppEnteredBackgroundDateKey;
 + (void)recordNumTabAtStartup:(int)numTabs;
 // Logs the number of tabs with UMAHistogramCount100 and allows testing.
 + (void)recordNumTabAtResume:(int)numTabs;
+// Logs the number of NTP tabs with UMAHistogramCount100 and allows testing.
++ (void)recordNumNTPTabAtStartup:(int)numTabs;
+// Logs the number of NTP tabs with UMAHistogramCount100 and allows testing.
++ (void)recordNumNTPTabAtResume:(int)numTabs;
 
 @end
 
@@ -128,14 +135,15 @@ using metrics_mediator::kAppEnteredBackgroundDateKey;
   const base::TimeDelta startDurationFromProcess =
       TimeDeltaSinceAppLaunchFromProcess();
 
-  UMA_HISTOGRAM_TIMES("Startup.ColdStartFromProcessCreationTime",
-                      startDurationFromProcess);
+  base::UmaHistogramTimes("Startup.ColdStartFromProcessCreationTime",
+                          startDurationFromProcess);
 
   if ([connectionInformation startupParameters]) {
-    UMA_HISTOGRAM_TIMES("Startup.ColdStartWithExternalURLTime", startDuration);
+    base::UmaHistogramTimes("Startup.ColdStartWithExternalURLTime",
+                            startDuration);
   } else {
-    UMA_HISTOGRAM_TIMES("Startup.ColdStartWithoutExternalURLTime",
-                        startDuration);
+    base::UmaHistogramTimes("Startup.ColdStartWithoutExternalURLTime",
+                            startDuration);
   }
 }
 
@@ -148,7 +156,10 @@ using metrics_mediator::kAppEnteredBackgroundDateKey;
 + (void)logLaunchMetricsWithStartupInformation:
             (id<StartupInformation>)startupInformation
                                connectedScenes:(NSArray<SceneState*>*)scenes {
+  RecordAndResetUkmLogSizeOnSuccessCounter();
+
   int numTabs = 0;
+  int numNTPTabs = 0;
   for (SceneState* scene in scenes) {
     if (!scene.interfaceProvider) {
       // The scene might not yet be initiated.
@@ -156,19 +167,32 @@ using metrics_mediator::kAppEnteredBackgroundDateKey;
       // counted in sessions instead of scenes.
       continue;
     }
-    numTabs += scene.interfaceProvider.mainInterface.browser->GetWebStateList()
-                   ->count();
+
+    const WebStateList* web_state_list =
+        scene.interfaceProvider.mainInterface.browser->GetWebStateList();
+    numTabs += web_state_list->count();
+    for (int i = 0; i < web_state_list->count(); i++) {
+      if (IsURLNewTabPage(web_state_list->GetWebStateAt(i)->GetVisibleURL())) {
+        numNTPTabs++;
+      }
+    }
   }
 
   if (startupInformation.isColdStart) {
     [self recordNumTabAtStartup:numTabs];
+    [self recordNumNTPTabAtStartup:numNTPTabs];
   } else {
     [self recordNumTabAtResume:numTabs];
+    [self recordNumNTPTabAtResume:numNTPTabs];
   }
 
   if (UIAccessibilityIsVoiceOverRunning()) {
     base::RecordAction(
         base::UserMetricsAction("MobileVoiceOverActiveOnLaunch"));
+  }
+
+  if (@available(iOS 14, *)) {
+    [WidgetMetricsUtil logInstalledWidgets];
   }
 
   // Create the first user action recorder and schedule a task to expire it
@@ -309,9 +333,9 @@ using metrics_mediator::kAppEnteredBackgroundDateKey;
 }
 
 - (void)setBreakpadEnabled:(BOOL)enabled withUploading:(BOOL)allowUploading {
-  breakpad_helper::SetUserEnabledUploading(enabled);
+  crash_helper::SetUserEnabledUploading(enabled);
   if (enabled) {
-    breakpad_helper::SetEnabled(true);
+    crash_helper::SetEnabled(true);
 
     // Do some processing of the crash reports present at startup. Note that
     // this processing must be done before uploading is enabled because once
@@ -326,7 +350,7 @@ using metrics_mediator::kAppEnteredBackgroundDateKey;
                                            isFirstSessionAfterUpgrade] &&
                                        allowUploading)];
   } else {
-    breakpad_helper::SetEnabled(false);
+    crash_helper::SetEnabled(false);
   }
 }
 
@@ -368,7 +392,7 @@ using metrics_mediator::kAppEnteredBackgroundDateKey;
 }
 
 + (void)disableReporting {
-  breakpad_helper::SetUploadingEnabled(false);
+  crash_helper::SetUploadingEnabled(false);
   metrics::MetricsService* metrics =
       GetApplicationContext()->GetMetricsService();
   DCHECK(metrics);
@@ -377,8 +401,19 @@ using metrics_mediator::kAppEnteredBackgroundDateKey;
 
 + (void)applicationDidEnterBackground:(NSInteger)memoryWarningCount {
   base::RecordAction(base::UserMetricsAction("MobileEnteredBackground"));
-  UMA_HISTOGRAM_COUNTS_100("MemoryWarning.OccurrencesPerSession",
-                           memoryWarningCount);
+  base::UmaHistogramCounts100("MemoryWarning.OccurrencesPerSession",
+                              memoryWarningCount);
+
+  task_vm_info task_info_data;
+  mach_msg_type_number_t count = sizeof(task_vm_info) / sizeof(natural_t);
+  kern_return_t result =
+      task_info(mach_task_self(), TASK_VM_INFO,
+                reinterpret_cast<task_info_t>(&task_info_data), &count);
+  if (result == KERN_SUCCESS) {
+    mach_vm_size_t footprint_mb = task_info_data.phys_footprint / 1024 / 1024;
+    base::UmaHistogramMemoryLargeMB(
+        "Memory.Browser.MemoryFootprint.OnBackground", footprint_mb);
+  }
 }
 
 #pragma mark - CRConnectionTypeObserverBridge implementation
@@ -408,15 +443,23 @@ using metrics_mediator::kAppEnteredBackgroundDateKey;
 #pragma mark - interfaces methods
 
 + (void)recordNumTabAtStartup:(int)numTabs {
-  UMA_HISTOGRAM_COUNTS_100("Tabs.CountAtStartup", numTabs);
+  base::UmaHistogramCounts100("Tabs.CountAtStartup", numTabs);
 }
 
 + (void)recordNumTabAtResume:(int)numTabs {
-  UMA_HISTOGRAM_COUNTS_100("Tabs.CountAtResume", numTabs);
+  base::UmaHistogramCounts100("Tabs.CountAtResume", numTabs);
+}
+
++ (void)recordNumNTPTabAtStartup:(int)numTabs {
+  base::UmaHistogramCounts100("Tabs.NTPCountAtStartup", numTabs);
+}
+
++ (void)recordNumNTPTabAtResume:(int)numTabs {
+  base::UmaHistogramCounts100("Tabs.NTPCountAtResume", numTabs);
 }
 
 - (void)setBreakpadUploadingEnabled:(BOOL)enableUploading {
-  breakpad_helper::SetUploadingEnabled(enableUploading);
+  crash_helper::SetUploadingEnabled(enableUploading);
 }
 
 - (void)setReporting:(BOOL)enableReporting {

@@ -25,13 +25,15 @@ void NfcPermissionContextAndroid::NotifyPermissionSet(
     const GURL& embedding_origin,
     permissions::BrowserPermissionCallback callback,
     bool persist,
-    ContentSetting content_setting) {
+    ContentSetting content_setting,
+    bool is_one_time) {
+  DCHECK(!is_one_time);
   if (content_setting != CONTENT_SETTING_ALLOW ||
       !nfc_system_level_setting_->IsNfcAccessPossible() ||
       nfc_system_level_setting_->IsNfcSystemLevelSettingEnabled()) {
     NfcPermissionContext::NotifyPermissionSet(
         id, requesting_origin, embedding_origin, std::move(callback), persist,
-        content_setting);
+        content_setting, is_one_time);
     return;
   }
 
@@ -51,11 +53,10 @@ void NfcPermissionContextAndroid::NotifyPermissionSet(
   if (tab && !tab->IsUserInteractable()) {
     permissions::PermissionContextBase::NotifyPermissionSet(
         id, requesting_origin, embedding_origin, std::move(callback),
-        false /* persist */, CONTENT_SETTING_BLOCK);
+        false /* persist */, CONTENT_SETTING_BLOCK, /*is_one_time=*/false);
     return;
   }
 
-  // TODO(crbug.com/1034607): Close prompt when there is a navigation in a tab
   nfc_system_level_setting_->PromptToEnableNfcSystemLevelSetting(
       web_contents,
       base::BindOnce(
@@ -73,5 +74,5 @@ void NfcPermissionContextAndroid::OnNfcSystemLevelSettingPromptClosed(
     ContentSetting content_setting) {
   NfcPermissionContext::NotifyPermissionSet(
       id, requesting_origin, embedding_origin, std::move(callback), persist,
-      content_setting);
+      content_setting, /*is_one_time=*/false);
 }

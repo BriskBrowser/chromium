@@ -5,8 +5,7 @@
 #include "third_party/blink/renderer/core/loader/worker_fetch_context.h"
 
 #include "base/single_thread_task_runner.h"
-#include "third_party/blink/public/platform/web_mixed_content.h"
-#include "third_party/blink/public/platform/web_mixed_content_context_type.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/platform/web_url_loader_factory.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/public/platform/web_worker_fetch_context.h"
@@ -75,11 +74,6 @@ SubresourceFilter* WorkerFetchContext::GetSubresourceFilter() const {
   return subresource_filter_.Get();
 }
 
-PreviewsResourceLoadingHints*
-WorkerFetchContext::GetPreviewsResourceLoadingHints() const {
-  return nullptr;
-}
-
 bool WorkerFetchContext::AllowScriptFromSource(const KURL& url) const {
   if (!global_scope_->ContentSettingsClient()) {
     return true;
@@ -105,8 +99,7 @@ void WorkerFetchContext::DispatchDidBlockRequest(
                          fetch_initiator_info, blocked_reason, resource_type);
 }
 
-const ContentSecurityPolicy*
-WorkerFetchContext::GetContentSecurityPolicyForWorld(
+ContentSecurityPolicy* WorkerFetchContext::GetContentSecurityPolicyForWorld(
     const DOMWrapperWorld* world) const {
   // Worker threads don't support per-world CSP. Hence just return the default
   // CSP.
@@ -144,7 +137,7 @@ WorkerFetchContext::CreateWebSocketHandshakeThrottle() {
 }
 
 bool WorkerFetchContext::ShouldBlockFetchByMixedContentCheck(
-    mojom::RequestContextType request_context,
+    mojom::blink::RequestContextType request_context,
     const base::Optional<ResourceRequest::RedirectInfo>& redirect_info,
     const KURL& url,
     ReportingDisposition reporting_disposition,
@@ -165,7 +158,7 @@ bool WorkerFetchContext::ShouldBlockFetchAsCredentialedSubresource(
     const KURL& url) const {
   if ((!url.User().IsEmpty() || !url.Pass().IsEmpty()) &&
       resource_request.GetRequestContext() !=
-          mojom::RequestContextType::XML_HTTP_REQUEST) {
+          mojom::blink::RequestContextType::XML_HTTP_REQUEST) {
     if (Url().User() != url.User() || Url().Pass() != url.Pass()) {
       CountDeprecation(
           WebFeature::kRequestedSubresourceWithEmbeddedCredentials);
@@ -193,8 +186,7 @@ const SecurityOrigin* WorkerFetchContext::GetParentSecurityOrigin() const {
   return nullptr;
 }
 
-const ContentSecurityPolicy* WorkerFetchContext::GetContentSecurityPolicy()
-    const {
+ContentSecurityPolicy* WorkerFetchContext::GetContentSecurityPolicy() const {
   return content_security_policy_;
 }
 
@@ -202,11 +194,10 @@ void WorkerFetchContext::AddConsoleMessage(ConsoleMessage* message) const {
   return global_scope_->AddConsoleMessage(message);
 }
 
-void WorkerFetchContext::PrepareRequest(
-    ResourceRequest& request,
-    const FetchInitiatorInfo& initiator_info,
-    WebScopedVirtualTimePauser&,
-    ResourceType resource_type) {
+void WorkerFetchContext::PrepareRequest(ResourceRequest& request,
+                                        ResourceLoaderOptions& options,
+                                        WebScopedVirtualTimePauser&,
+                                        ResourceType resource_type) {
   String user_agent = global_scope_->UserAgent();
   probe::ApplyUserAgentOverride(Probe(), &user_agent);
   DCHECK(!user_agent.IsNull());
@@ -215,8 +206,7 @@ void WorkerFetchContext::PrepareRequest(
   WrappedResourceRequest webreq(request);
   web_context_->WillSendRequest(webreq);
 
-  probe::PrepareRequest(Probe(), nullptr, request, initiator_info,
-                        resource_type);
+  probe::PrepareRequest(Probe(), nullptr, request, options, resource_type);
 }
 
 void WorkerFetchContext::AddAdditionalRequestHeaders(ResourceRequest& request) {
@@ -271,6 +261,11 @@ mojo::PendingReceiver<mojom::blink::WorkerTimingContainer>
 WorkerFetchContext::TakePendingWorkerTimingReceiver(int request_id) {
   return GetWebWorkerFetchContext()->TakePendingWorkerTimingReceiver(
       request_id);
+}
+
+std::unique_ptr<ResourceLoadInfoNotifierWrapper>
+WorkerFetchContext::CreateResourceLoadInfoNotifierWrapper() {
+  return web_context_->CreateResourceLoadInfoNotifierWrapper();
 }
 
 void WorkerFetchContext::SetFirstPartyCookie(ResourceRequest& out_request) {

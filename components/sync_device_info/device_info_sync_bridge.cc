@@ -12,9 +12,11 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/strings/string_util.h"
+#include "components/sync/base/model_type.h"
 #include "components/sync/base/time.h"
 #include "components/sync/model/data_type_activation_request.h"
 #include "components/sync/model/entity_change.h"
@@ -87,6 +89,17 @@ base::Optional<DeviceInfo::SharingInfo> SpecificsToSharingInfo(
 // Converts DeviceInfoSpecifics into a freshly allocated DeviceInfo.
 std::unique_ptr<DeviceInfo> SpecificsToModel(
     const DeviceInfoSpecifics& specifics) {
+  ModelTypeSet data_types;
+  for (const int field_number :
+       specifics.invalidation_fields().interested_data_type_ids()) {
+    ModelType data_type = GetModelTypeFromSpecificsFieldNumber(field_number);
+    if (!IsRealDataType(data_type)) {
+      DLOG(WARNING) << "Unknown field number " << field_number;
+      continue;
+    }
+    data_types.Put(data_type);
+  }
+
   return std::make_unique<DeviceInfo>(
       specifics.cache_guid(), specifics.client_name(),
       specifics.chrome_version(), specifics.sync_user_agent(),
@@ -96,7 +109,7 @@ std::unique_ptr<DeviceInfo> SpecificsToModel(
       GetPulseIntervalFromSpecifics(specifics),
       specifics.feature_fields().send_tab_to_self_receiving_enabled(),
       SpecificsToSharingInfo(specifics),
-      specifics.invalidation_fields().instance_id_token());
+      specifics.invalidation_fields().instance_id_token(), data_types);
 }
 
 // Allocate a EntityData and copies |specifics| into it.
@@ -151,10 +164,14 @@ std::unique_ptr<DeviceInfoSpecifics> MakeLocalDeviceSpecifics(
     }
   }
 
-  // Set sync invalidations FCM registration token.
+  // Set sync invalidations FCM registration token and interested data types.
   if (!info.fcm_registration_token().empty()) {
     specifics->mutable_invalidation_fields()->set_instance_id_token(
         info.fcm_registration_token());
+  }
+  for (const ModelType data_type : info.interested_data_types()) {
+    specifics->mutable_invalidation_fields()->add_interested_data_type_ids(
+        GetSpecificsFieldNumberFromModelType(data_type));
   }
 
   return specifics;
@@ -180,6 +197,22 @@ base::Optional<ModelError> ParseSpecificsOnBackendSequence(
   }
 
   return base::nullopt;
+}
+
+ModelTypeSet ExtractInterestedDataTypes(const DeviceInfoSpecifics& specifics) {
+  ModelTypeSet interested_data_types;
+  for (int data_type_id :
+       specifics.invalidation_fields().interested_data_type_ids()) {
+    const ModelType model_type =
+        GetModelTypeFromSpecificsFieldNumber(data_type_id);
+
+    // This is possible if the browser has been updated and a data type has been
+    // removed.
+    if (model_type != ModelType::UNSPECIFIED) {
+      interested_data_types.Put(model_type);
+    }
+  }
+  return interested_data_types;
 }
 
 }  // namespace
@@ -209,8 +242,23 @@ LocalDeviceInfoProvider* DeviceInfoSyncBridge::GetLocalDeviceInfoProvider() {
   return local_device_info_provider_.get();
 }
 
-void DeviceInfoSyncBridge::RefreshLocalDeviceInfo() {
-  SendLocalData();
+void DeviceInfoSyncBridge::RefreshLocalDeviceInfoIfNeeded(
+    base::OnceClosure callback) {
+  // Device info cannot be synced if the provider is not initialized. When it
+  // gets initialized, local device info will be sent.
+  if (!local_device_info_provider_->GetLocalDeviceInfo()) {
+    if (!callback.is_null()) {
+      device_info_synced_callback_list_.push_back(std::move(callback));
+    }
+    return;
+  }
+
+  if (ReconcileLocalAndStored()) {
+    // The device info has been changed.
+    if (!callback.is_null()) {
+      device_info_synced_callback_list_.push_back(std::move(callback));
+    }
+  }
 }
 
 void DeviceInfoSyncBridge::OnSyncStarting(
@@ -250,7 +298,8 @@ base::Optional<ModelError> DeviceInfoSyncBridge::MergeSyncData(
   local_device_info_provider_->Initialize(
       local_cache_guid_, GetLocalClientName(),
       local_device_name_info_.manufacturer_name,
-      local_device_name_info_.model_name);
+      local_device_name_info_.model_name,
+      /*last_fcm_registration_token=*/std::string(), ModelTypeSet());
 
   std::unique_ptr<WriteBatch> batch = store_->CreateWriteBatch();
   for (const auto& change : entity_data) {
@@ -302,6 +351,15 @@ base::Optional<ModelError> DeviceInfoSyncBridge::ApplySyncChanges(
 
   batch->TakeMetadataChangesFrom(std::move(metadata_change_list));
   CommitAndNotify(std::move(batch), has_changes);
+
+  DCHECK(!local_cache_guid_.empty());
+  if (!change_processor()->IsEntityUnsynced(local_cache_guid_)) {
+    for (base::OnceClosure& callback : device_info_synced_callback_list_) {
+      std::move(callback).Run();
+    }
+    device_info_synced_callback_list_.clear();
+  }
+
   return base::nullopt;
 }
 
@@ -358,7 +416,14 @@ void DeviceInfoSyncBridge::ApplyStopSyncChanges(
 }
 
 bool DeviceInfoSyncBridge::IsSyncing() const {
-  return !all_data_.empty();
+  // Both conditions are neecessary due to the following possible cases:
+  // 1. This method is called from MergeSyncData() when IsTrackingMetadata()
+  // returns true but |all_data_| is not initialized.
+  // 2. |all_data_| is initialized during loading data from the persistent
+  // storage on startup but |change_processor| is not initialized yet. It
+  // happens when OnReadAllData() is called but OnReadAllMetadata() is not
+  // called.
+  return change_processor()->IsTrackingMetadata() && !all_data_.empty();
 }
 
 std::unique_ptr<DeviceInfo> DeviceInfoSyncBridge::GetDeviceInfo(
@@ -524,7 +589,8 @@ void DeviceInfoSyncBridge::OnReadAllMetadata(
   // dropped. In that case, MergeSyncData() will eventually follow.
   if (!change_processor()->IsTrackingMetadata()) {
     // In this scenario, ApplyStopSyncChanges() should have been exercised.
-    DCHECK(local_cache_guid_.empty());
+    // However OnSyncStarting() must have been called during ModelReadyToSync().
+    DCHECK(!local_cache_guid_.empty());
     DCHECK(all_data_.empty());
     return;
   }
@@ -536,16 +602,31 @@ void DeviceInfoSyncBridge::OnReadAllMetadata(
   // If sync already enabled (usual case without data corruption), we can
   // initialize the provider immediately.
   local_cache_guid_ = local_cache_guid_in_metadata;
+
+  // Get stored sync invalidation fields to initialize local device info. This
+  // is needed to prevent an unnecessary DeviceInfo commit on browser startup
+  // when the SyncInvalidationsService is not initialized.
+  auto iter = all_data_.find(local_cache_guid_);
+  DCHECK(iter != all_data_.end());
+
   local_device_info_provider_->Initialize(
       local_cache_guid_, GetLocalClientName(),
       local_device_name_info_.manufacturer_name,
-      local_device_name_info_.model_name);
+      local_device_name_info_.model_name,
+      iter->second->invalidation_fields().instance_id_token(),
+      ExtractInterestedDataTypes(*iter->second));
 
   // This probably isn't strictly needed, but in case the cache_guid has changed
   // we save the new one to prefs.
   device_info_prefs_->AddLocalCacheGuid(local_cache_guid_);
   ExpireOldEntries();
-  ReconcileLocalAndStored();
+  if (!ReconcileLocalAndStored()) {
+    // If the device info list has not been changed, notify observers explicitly
+    // that the list of devices has been successfully loaded from the storage.
+    // Otherwise, all observers should already have been notified during
+    // ReconcileLocalAndStored().
+    NotifyObservers();
+  }
 }
 
 void DeviceInfoSyncBridge::OnCommit(
@@ -555,7 +636,7 @@ void DeviceInfoSyncBridge::OnCommit(
   }
 }
 
-void DeviceInfoSyncBridge::ReconcileLocalAndStored() {
+bool DeviceInfoSyncBridge::ReconcileLocalAndStored() {
   const DeviceInfo* current_info =
       local_device_info_provider_->GetLocalDeviceInfo();
   DCHECK(current_info);
@@ -565,16 +646,24 @@ void DeviceInfoSyncBridge::ReconcileLocalAndStored() {
 
   // Convert to DeviceInfo for Equals function.
   if (current_info->Equals(*SpecificsToModel(*iter->second))) {
+    if (pulse_timer_.IsRunning()) {
+      // No need to update the |pulse_timer| since nothing has changed.
+      return false;
+    }
+
     const TimeDelta pulse_delay(DeviceInfoUtil::CalculatePulseDelay(
         GetLastUpdateTime(*iter->second), Time::Now()));
     if (!pulse_delay.is_zero()) {
       pulse_timer_.Start(FROM_HERE, pulse_delay,
                          base::BindOnce(&DeviceInfoSyncBridge::SendLocalData,
                                         base::Unretained(this)));
-      return;
+      return false;
     }
   }
+
+  // Either the local data was updated, or it's time for a pulse update.
   SendLocalData();
+  return true;
 }
 
 void DeviceInfoSyncBridge::SendLocalData() {
@@ -592,7 +681,7 @@ void DeviceInfoSyncBridge::SendLocalDataWithBatch(
   change_processor()->Put(specifics->cache_guid(), CopyToEntityData(*specifics),
                           batch->GetMetadataChangeList());
   StoreSpecifics(std::move(specifics), batch.get());
-  CommitAndNotify(std::move(batch), /*should_notify=*/true);
+  CommitAndNotify(std::move(batch), /*notify_if_restricted=*/true);
 
   pulse_timer_.Start(FROM_HERE, DeviceInfoUtil::GetPulseInterval(),
                      base::BindOnce(&DeviceInfoSyncBridge::SendLocalData,
@@ -681,7 +770,7 @@ void DeviceInfoSyncBridge::ExpireOldEntries() {
     batch->GetMetadataChangeList()->ClearMetadata(cache_guid);
     change_processor()->UntrackEntityForStorageKey(cache_guid);
   }
-  CommitAndNotify(std::move(batch), /*should_notify=*/true);
+  CommitAndNotify(std::move(batch), /*notify_if_restricted=*/true);
 }
 
 }  // namespace syncer

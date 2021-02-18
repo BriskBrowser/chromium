@@ -166,15 +166,8 @@ bool FontFaceSetDocument::ResolveFontStyle(const String& font_string,
 
   // Interpret fontString in the same way as the 'font' attribute of
   // CanvasRenderingContext2D.
-  auto* parsed_style =
-      MakeGarbageCollected<MutableCSSPropertyValueSet>(kHTMLStandardMode);
-  CSSParser::ParseValue(parsed_style, CSSPropertyID::kFont, font_string, true,
-                        GetExecutionContext()->GetSecureContextMode());
-  if (parsed_style->IsEmpty())
-    return false;
-
-  String font_value = parsed_style->GetPropertyValue(CSSPropertyID::kFont);
-  if (css_parsing_utils::IsCSSWideKeyword(font_value))
+  auto* parsed_style = CSSParser::ParseFont(font_string, GetExecutionContext());
+  if (!parsed_style)
     return false;
 
   if (!GetDocument()->documentElement()) {
@@ -185,7 +178,7 @@ bool FontFaceSetDocument::ResolveFontStyle(const String& font_string,
     return true;
   }
 
-  scoped_refptr<ComputedStyle> style = ComputedStyle::Create();
+  ComputedStyle* style = ComputedStyle::Create();
 
   FontFamily font_family;
   font_family.SetFamily(FontFaceSet::kDefaultFontFamily);
@@ -198,7 +191,7 @@ bool FontFaceSetDocument::ResolveFontStyle(const String& font_string,
   style->SetFontDescription(default_font_description);
 
   GetDocument()->GetStyleEngine().ComputeFont(*GetDocument()->documentElement(),
-                                              style.get(), *parsed_style);
+                                              style, *parsed_style);
 
   font = style->GetFont();
 
@@ -227,6 +220,12 @@ FontFaceSetDocument* FontFaceSetDocument::From(Document& document) {
 }
 
 void FontFaceSetDocument::DidLayout(Document& document) {
+  if (!document.LoadEventFinished()) {
+    // https://www.w3.org/TR/2014/WD-css-font-loading-3-20140522/#font-face-set-ready
+    // doesn't say when document.fonts.ready should actually fire, but the
+    // existing tests depend on it firing after onload.
+    return;
+  }
   if (FontFaceSetDocument* fonts =
           Supplement<Document>::From<FontFaceSetDocument>(document))
     fonts->DidLayout();
@@ -266,6 +265,7 @@ void FontFaceSetDocument::LCPLimitReached(TimerBase*) {
 }
 
 void FontFaceSetDocument::Trace(Visitor* visitor) const {
+  visitor->Trace(lcp_limit_timer_);
   Supplement<Document>::Trace(visitor);
   FontFaceSet::Trace(visitor);
 }

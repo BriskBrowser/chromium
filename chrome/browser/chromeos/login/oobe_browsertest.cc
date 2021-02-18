@@ -2,13 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "ash/constants/ash_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "chrome/browser/browser_process.h"
+#include "chrome/browser/chromeos/login/login_pref_names.h"
 #include "chrome/browser/chromeos/login/test/fake_gaia_mixin.h"
+#include "chrome/browser/chromeos/login/test/local_state_mixin.h"
 #include "chrome/browser/chromeos/login/test/oobe_base_test.h"
 #include "chrome/browser/chromeos/login/test/oobe_screen_waiter.h"
 #include "chrome/browser/chromeos/login/test/session_manager_state_waiter.h"
@@ -17,10 +21,12 @@
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
+#include "chrome/browser/ui/webui/chromeos/login/update_screen_handler.h"
+#include "chrome/browser/ui/webui/chromeos/login/welcome_screen_handler.h"
 #include "chrome/browser/ui/webui/signin/signin_utils.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/dbus/cryptohome/fake_cryptohome_client.h"
 #include "chromeos/dbus/cryptohome/key.pb.h"
 #include "chromeos/dbus/cryptohome/rpc.pb.h"
@@ -79,7 +85,7 @@ class OobeTest : public OobeBaseTest {
 IN_PROC_BROWSER_TEST_F(OobeTest, NewUser) {
   WaitForGaiaPageLoad();
 
-  // Make the MountEx cryptohome call fail iff the |create| field is missing,
+  // Make the MountEx cryptohome call fail iff the `create` field is missing,
   // which simulates the real cryptohomed's behavior for the new user mount.
   FakeCryptohomeClient::Get()->set_mount_create_required(true);
   LoginDisplayHost::default_host()
@@ -124,6 +130,51 @@ IN_PROC_BROWSER_TEST_F(OobeTest, Accelerator) {
                             true,    // alt
                             false);  // command
   OobeScreenWaiter(EnrollmentScreenView::kScreenId).Wait();
+}
+
+// Checks that update screen is shown with both legacy and actual name stored
+// in the local state.
+class PendingUpdateScreenTest
+    : public OobeBaseTest,
+      public LocalStateMixin::Delegate,
+      public ::testing::WithParamInterface<std::string> {
+ protected:
+  // LocalStateMixin::Delegate:
+  void SetUpLocalState() final {
+    PrefService* prefs = g_browser_process->local_state();
+    prefs->SetString(prefs::kOobeScreenPending, GetParam());
+  }
+  LocalStateMixin local_state_mixin_{&mixin_host_, this};
+};
+
+IN_PROC_BROWSER_TEST_P(PendingUpdateScreenTest, UpdateScreenShown) {
+  OobeScreenWaiter(UpdateView::kScreenId).Wait();
+
+  PrefService* prefs = g_browser_process->local_state();
+  std::string pending_screen = prefs->GetString(prefs::kOobeScreenPending);
+  // Should be overwritten with actual value.
+  EXPECT_EQ(pending_screen, UpdateView::kScreenId.name);
+}
+
+INSTANTIATE_TEST_SUITE_P(All,
+                         PendingUpdateScreenTest,
+                         testing::Values("update" /* old value */,
+                                         "oobe-update" /* actual value */));
+
+// Checks that invalid (not existing) pending screen is handled gracefully.
+class InvalidPendingScreenTest : public OobeBaseTest,
+                                 public LocalStateMixin::Delegate {
+ protected:
+  // LocalStateMixin::Delegate:
+  void SetUpLocalState() final {
+    PrefService* prefs = g_browser_process->local_state();
+    prefs->SetString(prefs::kOobeScreenPending, "not_existing_screen");
+  }
+  LocalStateMixin local_state_mixin_{&mixin_host_, this};
+};
+
+IN_PROC_BROWSER_TEST_F(InvalidPendingScreenTest, WelcomeScreenShown) {
+  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
 }
 
 }  // namespace chromeos

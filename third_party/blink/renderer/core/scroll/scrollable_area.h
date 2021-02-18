@@ -28,8 +28,8 @@
 
 #include "base/callback_helpers.h"
 #include "cc/input/scroll_snap_data.h"
+#include "third_party/blink/public/mojom/frame/color_scheme.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/scroll/scroll_into_view_params.mojom-blink-forward.h"
-#include "third_party/blink/public/platform/web_color_scheme.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/geometry/physical_rect.h"
 #include "third_party/blink/renderer/core/loader/history_item.h"
@@ -38,8 +38,10 @@
 #include "third_party/blink/renderer/platform/graphics/color.h"
 #include "third_party/blink/renderer/platform/graphics/compositor_element_id.h"
 #include "third_party/blink/renderer/platform/graphics/overlay_scrollbar_clip_behavior.h"
+#include "third_party/blink/renderer/platform/heap/disallow_new_wrapper.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+#include "third_party/blink/renderer/platform/timer.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
@@ -59,6 +61,7 @@ class Document;
 class LayoutBox;
 class LayoutObject;
 class LocalFrame;
+class Node;
 class PaintLayer;
 class ProgrammaticScrollAnimator;
 class ScrollAnchor;
@@ -271,8 +274,17 @@ class CORE_EXPORT ScrollableArea : public GarbageCollectedMixin {
   virtual bool HasTickmarks() const { return false; }
   virtual Vector<IntRect> GetTickmarks() const { return Vector<IntRect>(); }
 
+  // Note that this function just set the scrollbar itself needs repaint by
+  // blink during paint, but doesn't set the scrollbar parts (thumb or track)
+  // of an accelerated scrollbar needing repaint by the compositor.
+  // Use Scrollbar::SetNeedsPaintInvaldiation() instead.
   virtual void SetScrollbarNeedsPaintInvalidation(ScrollbarOrientation);
+
   virtual void SetScrollCornerNeedsPaintInvalidation();
+
+  // Set all scrollbars and their parts and the scroll corner needs full paint
+  // invalidation.
+  void SetScrollControlsNeedFullPaintInvalidation();
 
   // Convert points and rects between the scrollbar and its containing
   // EmbeddedContentView. The client needs to implement these in order to be
@@ -462,7 +474,7 @@ class CORE_EXPORT ScrollableArea : public GarbageCollectedMixin {
     return mojom::blink::ScrollBehavior::kInstant;
   }
 
-  virtual WebColorScheme UsedColorScheme() const = 0;
+  virtual mojom::blink::ColorScheme UsedColorScheme() const = 0;
 
   // Subtracts space occupied by this ScrollableArea's scrollbars.
   // Does nothing if overlay scrollbars are enabled.
@@ -535,6 +547,13 @@ class CORE_EXPORT ScrollableArea : public GarbageCollectedMixin {
   // PaintLayerScrollableArea (which can be null) is returned.
   static ScrollableArea* GetForScrolling(const LayoutBox* layout_box);
 
+  // Returns a Node at which 'scroll' events should be dispatched.
+  // For <fieldset>, a ScrollableArea is associated to its internal anonymous
+  // box. GetLayoutBox()->GetNode() doesn't work in this case.
+  Node* EventTargetNode() const;
+
+  scoped_refptr<base::SingleThreadTaskRunner> GetCompositorTaskRunner();
+
  protected:
   // Deduces the mojom::blink::ScrollBehavior based on the
   // element style and the parameter set by programmatic scroll into either
@@ -543,7 +562,8 @@ class CORE_EXPORT ScrollableArea : public GarbageCollectedMixin {
       mojom::blink::ScrollBehavior behavior_from_style,
       mojom::blink::ScrollBehavior behavior_from_param);
 
-  ScrollableArea();
+  explicit ScrollableArea(
+      scoped_refptr<base::SingleThreadTaskRunner> compositor_task_runner);
 
   ScrollbarOrientation ScrollbarOrientationFromDirection(
       ScrollDirectionPhysical) const;
@@ -568,10 +588,6 @@ class CORE_EXPORT ScrollableArea : public GarbageCollectedMixin {
 
   bool HasBeenDisposed() const { return has_been_disposed_; }
 
-  // Returns a Node at which 'scroll' events should be dispatched.
-  // For <fieldset>, a ScrollableArea is associated to its internal anonymous
-  // box. GetLayoutBox()->GetNode() doesn't work in this case.
-  Node* EventTargetNode() const;
   virtual const Document* GetDocument() const;
 
   // Resolves into un-zoomed physical pixels a scroll |delta| based on its
@@ -618,7 +634,7 @@ class CORE_EXPORT ScrollableArea : public GarbageCollectedMixin {
   mutable Member<ScrollAnimatorBase> scroll_animator_;
   mutable Member<ProgrammaticScrollAnimator> programmatic_scroll_animator_;
 
-  std::unique_ptr<TaskRunnerTimer<ScrollableArea>>
+  Member<DisallowNewWrapper<HeapTaskRunnerTimer<ScrollableArea>>>
       fade_overlay_scrollbars_timer_;
 
   Vector<ScrollCallback> pending_scroll_complete_callbacks_;
@@ -637,6 +653,8 @@ class CORE_EXPORT ScrollableArea : public GarbageCollectedMixin {
   // cc::Layer::ShowScrollbars() on our scroll layer. Ignored if not composited.
   unsigned needs_show_scrollbar_layers_ : 1;
   unsigned uses_composited_scrolling_ : 1;
+
+  scoped_refptr<base::SingleThreadTaskRunner> compositor_task_runner_;
 };
 
 }  // namespace blink

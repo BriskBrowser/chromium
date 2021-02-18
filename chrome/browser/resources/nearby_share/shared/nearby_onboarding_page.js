@@ -10,22 +10,93 @@
 Polymer({
   is: 'nearby-onboarding-page',
 
+  behaviors: [I18nBehavior],
+
   properties: {
     /** @type {?nearby_share.NearbySettings} */
     settings: {
       type: Object,
+    },
+
+    /** @type {string} */
+    errorMessage: {
+      type: String,
+      value: '',
+    },
+  },
+
+  listeners: {
+    'next': 'onNext_',
+    'close': 'onClose_',
+    'view-enter-start': 'onViewEnterStart_',
+  },
+
+
+  /**
+   * @private
+   */
+  onNext_() {
+    nearby_share.getNearbyShareSettings()
+        .setDeviceName(this.$.deviceName.value)
+        .then((result) => {
+          this.updateErrorMessage_(result.result);
+          if (result.result ===
+              nearbyShare.mojom.DeviceNameValidationResult.kValid) {
+            this.fire('change-page', {page: 'visibility'});
+          }
+        });
+  },
+
+  /** @private */
+  onClose_() {
+    this.fire('onboarding-cancelled');
+  },
+
+  /** @private */
+  onViewEnterStart_() {
+    this.$$('#deviceName').focus();
+  },
+
+  /** @private */
+  onDeviceNameInput_() {
+    nearby_share.getNearbyShareSettings()
+        .validateDeviceName(this.$.deviceName.value)
+        .then((result) => {
+          this.updateErrorMessage_(result.result);
+        });
+  },
+
+  /**
+   * @private
+   *
+   * @param {!nearbyShare.mojom.DeviceNameValidationResult} validationResult The
+   *     error status from validating the provided device name.
+   */
+  updateErrorMessage_(validationResult) {
+    switch (validationResult) {
+      case nearbyShare.mojom.DeviceNameValidationResult.kErrorEmpty:
+        this.errorMessage = this.i18n('nearbyShareDeviceNameEmptyError');
+        break;
+      case nearbyShare.mojom.DeviceNameValidationResult.kErrorTooLong:
+        this.errorMessage = this.i18n('nearbyShareDeviceNameTooLongError');
+        break;
+      case nearbyShare.mojom.DeviceNameValidationResult.kErrorNotValidUtf8:
+        this.errorMessage =
+            this.i18n('nearbyShareDeviceNameInvalidCharactersError');
+        break;
+      default:
+        this.errorMessage = '';
+        break;
     }
   },
 
-  onNextTap_() {
-    this.fire('change-page', {page: 'visibility'});
-  },
-
-  onCloseTap_() {
-    this.fire('close');
-  },
-
-  onDeviceNameTap_() {
-    window.open('chrome://os-settings/multidevice/nearbyshare?deviceName');
-  },
+  /**
+   * @private
+   *
+   * @param {!string} errorMessage The error message.
+   * @return {boolean} Whether or not the error message exists.
+   */
+  hasErrorMessage_(errorMessage) {
+    return errorMessage !== '';
+  }
 });

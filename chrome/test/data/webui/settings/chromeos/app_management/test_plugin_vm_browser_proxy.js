@@ -2,46 +2,24 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import {TestBrowserProxy} from '../../../test_browser_proxy.m.js';
+// clang-format on
+
 /** @implements {settings.PluginVmBrowserProxy} */
-class TestPluginVmBrowserProxy extends TestBrowserProxy {
+/* #export */ class TestPluginVmBrowserProxy extends TestBrowserProxy {
   constructor() {
     super([
-      'getPluginVmSharedPathsDisplayText',
-      'removePluginVmSharedPath',
-      'wouldPermissionChangeRequireRelaunch',
-      'setPluginVmPermission',
+      'isRelaunchNeededForNewPermissions',
       'relaunchPluginVm',
     ]);
     this.pluginVmRunning = false;
-    this.permissions = [true, true];  // [0]Camera, [1]Microphone
   }
 
   /** @override */
-  getPluginVmSharedPathsDisplayText(paths) {
-    this.methodCalled('getPluginVmSharedPathsDisplayText', paths);
-    return Promise.resolve(true);
-  }
-
-  /** @override */
-  removePluginVmSharedPath(vmName, path) {
-    this.methodCalled('removePluginVmSharedPath', vmName, path);
-  }
-
-  /** @override */
-  wouldPermissionChangeRequireRelaunch(permissionSetting) {
-    this.methodCalled(
-        'wouldPermissionChangeRequireRelaunch', permissionSetting);
-    return Promise.resolve(
-        permissionSetting.proposedValue !==
-            this.permissions[permissionSetting.permissionType] &&
-        this.pluginVmRunning);
-  }
-
-  /** @override */
-  setPluginVmPermission(permissionSetting) {
-    this.methodCalled('setPluginVmPermission', permissionSetting);
-    this.permissions[permissionSetting.permissionType] =
-        permissionSetting.proposedValue;
+  isRelaunchNeededForNewPermissions() {
+    this.methodCalled('isRelaunchNeededForNewPermissions');
+    return Promise.resolve(this.pluginVmRunning);
   }
 
   /** @override */

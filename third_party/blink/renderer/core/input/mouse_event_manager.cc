@@ -46,7 +46,7 @@
 #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
 #include "third_party/blink/renderer/core/svg/svg_document_extensions.h"
 #include "third_party/blink/renderer/platform/geometry/float_quad.h"
-#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom-blink.h"
 
 namespace blink {
 
@@ -384,11 +384,6 @@ WebInputEventResult MouseEventManager::DispatchMouseClickIfNeeded(
     old_click_target_node = click_target_node;
   } else if (mouse_down_element_->GetDocument() ==
              mouse_release_target->GetDocument()) {
-    // Updates distribution because a 'mouseup' event listener can make the
-    // tree dirty at dispatchMouseEvent() invocation above.
-    // Unless distribution is updated, commonAncestor would hit ASSERT.
-    mouse_down_element_->UpdateDistributionForFlatTreeTraversal();
-    mouse_release_target->UpdateDistributionForFlatTreeTraversal();
     click_target_node = mouse_release_target->CommonAncestor(
         *mouse_down_element_, event_handling_util::ParentForClickEvent);
 
@@ -403,19 +398,15 @@ WebInputEventResult MouseEventManager::DispatchMouseClickIfNeeded(
   UMA_HISTOGRAM_BOOLEAN("Event.ClickTargetChangedDueToInteractiveElement",
                         click_target_node != old_click_target_node);
 
-  DEFINE_STATIC_LOCAL(BooleanHistogram, histogram,
-                      ("Event.ClickNotFiredDueToDomManipulation"));
+  const bool click_element_still_in_flat_tree =
+      (click_element_ && click_element_->CanParticipateInFlatTree() &&
+       click_element_->isConnected());
+  UMA_HISTOGRAM_BOOLEAN("Event.ClickNotFiredDueToDomManipulation",
+                        !click_element_still_in_flat_tree);
+  DCHECK_EQ(click_element_ == mouse_down_element_,
+            click_element_still_in_flat_tree);
 
-  if (click_element_ && click_element_->CanParticipateInFlatTree() &&
-      click_element_->isConnected()) {
-    DCHECK(click_element_ == mouse_down_element_);
-    histogram.Count(false);
-  } else {
-    histogram.Count(true);
-  }
-
-  if ((click_element_ && click_element_->CanParticipateInFlatTree() &&
-       click_element_->isConnected()) ||
+  if (click_element_still_in_flat_tree ||
       RuntimeEnabledFeatures::ClickRetargettingEnabled()) {
     return DispatchMouseEvent(
         click_target_node,
@@ -723,6 +714,12 @@ WebInputEventResult MouseEventManager::HandleMousePressEvent(
   if (single_click)
     FocusDocumentView();
 
+  // |SelectionController| calls |PositionForPoint()| which requires
+  // |kPrePaintClean|. |FocusDocumentView| above is the last possible
+  // modifications before we call |SelectionController|.
+  if (LocalFrameView* frame_view = frame_->View())
+    frame_view->UpdateLifecycleToPrePaintClean(DocumentUpdateReason::kInput);
+
   Node* inner_node = event.InnerNode();
 
   mouse_press_node_ = inner_node;
@@ -770,38 +767,39 @@ void MouseEventManager::UpdateSelectionForMouseDrag() {
 
 bool MouseEventManager::HandleDragDropIfPossible(
     const GestureEventWithHitTestResults& targeted_event) {
-  if (frame_->GetSettings() &&
-      frame_->GetSettings()->GetTouchDragDropEnabled() && frame_->View()) {
-    const WebGestureEvent& gesture_event = targeted_event.Event();
-    unsigned modifiers = gesture_event.GetModifiers();
-
-    // TODO(mustaq): Suppressing long-tap MouseEvents could break
-    // drag-drop. Will do separately because of the risk. crbug.com/606938.
-    WebMouseEvent mouse_down_event(
-        WebInputEvent::Type::kMouseDown, gesture_event,
-        WebPointerProperties::Button::kLeft, 1,
-        modifiers | WebInputEvent::Modifiers::kLeftButtonDown |
-            WebInputEvent::Modifiers::kIsCompatibilityEventForTouch,
-        base::TimeTicks::Now());
-    mouse_down_ = mouse_down_event;
-
-    WebMouseEvent mouse_drag_event(
-        WebInputEvent::Type::kMouseMove, gesture_event,
-        WebPointerProperties::Button::kLeft, 1,
-        modifiers | WebInputEvent::Modifiers::kLeftButtonDown |
-            WebInputEvent::Modifiers::kIsCompatibilityEventForTouch,
-        base::TimeTicks::Now());
-    HitTestRequest request(HitTestRequest::kReadOnly);
-    MouseEventWithHitTestResults mev =
-        event_handling_util::PerformMouseEventHitTest(frame_, request,
-                                                      mouse_drag_event);
-    mouse_down_may_start_drag_ = true;
-    ResetDragSource();
-    mouse_down_pos_ = frame_->View()->ConvertFromRootFrame(
-        FlooredIntPoint(mouse_drag_event.PositionInRootFrame()));
-    return HandleDrag(mev, DragInitiator::kTouch);
+  if (!frame_->GetSettings() ||
+      !frame_->GetSettings()->GetTouchDragDropEnabled() || !frame_->View()) {
+    return false;
   }
-  return false;
+
+  const WebGestureEvent& gesture_event = targeted_event.Event();
+  unsigned modifiers = gesture_event.GetModifiers();
+
+  // TODO(mustaq): Suppressing long-tap MouseEvents could break
+  // drag-drop. Will do separately because of the risk. crbug.com/606938.
+  WebMouseEvent mouse_down_event(
+      WebInputEvent::Type::kMouseDown, gesture_event,
+      WebPointerProperties::Button::kLeft, 1,
+      modifiers | WebInputEvent::Modifiers::kLeftButtonDown |
+          WebInputEvent::Modifiers::kIsCompatibilityEventForTouch,
+      base::TimeTicks::Now());
+  mouse_down_ = mouse_down_event;
+
+  WebMouseEvent mouse_drag_event(
+      WebInputEvent::Type::kMouseMove, gesture_event,
+      WebPointerProperties::Button::kLeft, 1,
+      modifiers | WebInputEvent::Modifiers::kLeftButtonDown |
+          WebInputEvent::Modifiers::kIsCompatibilityEventForTouch,
+      base::TimeTicks::Now());
+  HitTestRequest request(HitTestRequest::kReadOnly);
+  MouseEventWithHitTestResults mev =
+      event_handling_util::PerformMouseEventHitTest(frame_, request,
+                                                    mouse_drag_event);
+  mouse_down_may_start_drag_ = true;
+  ResetDragSource();
+  mouse_down_pos_ = frame_->View()->ConvertFromRootFrame(
+      FlooredIntPoint(mouse_drag_event.PositionInRootFrame()));
+  return HandleDrag(mev, DragInitiator::kTouch);
 }
 
 void MouseEventManager::FocusDocumentView() {
@@ -861,6 +859,11 @@ WebInputEventResult MouseEventManager::HandleMouseDraggedEvent(
     if (!layout_object || !IsListBox(layout_object))
       return WebInputEventResult::kNotHandled;
   }
+
+  // |SelectionController| calls |PositionForPoint()| which requires
+  // |kPrePaintClean|.
+  if (LocalFrameView* frame_view = frame_->View())
+    frame_view->UpdateLifecycleToPrePaintClean(DocumentUpdateReason::kInput);
 
   mouse_down_may_start_drag_ = false;
 
@@ -1101,8 +1104,9 @@ void MouseEventManager::ClearDragDataTransfer() {
   }
 }
 
-void MouseEventManager::DragSourceEndedAt(const WebMouseEvent& event,
-                                          DragOperation operation) {
+void MouseEventManager::DragSourceEndedAt(
+    const WebMouseEvent& event,
+    ui::mojom::blink::DragOperation operation) {
   if (GetDragState().drag_src_) {
     GetDragState().drag_data_transfer_->SetDestinationOperation(operation);
     // The return value is ignored because dragend is not cancelable.

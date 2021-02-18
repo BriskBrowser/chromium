@@ -37,6 +37,7 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/frame/performance_monitor.h"
+#include "third_party/blink/renderer/core/page/page_visibility_observer.h"
 #include "third_party/blink/renderer/core/timing/event_counts.h"
 #include "third_party/blink/renderer/core/timing/memory_info.h"
 #include "third_party/blink/renderer/core/timing/performance.h"
@@ -50,7 +51,8 @@ class IntSize;
 
 class CORE_EXPORT WindowPerformance final : public Performance,
                                             public PerformanceMonitor::Client,
-                                            public ExecutionContextClient {
+                                            public ExecutionContextClient,
+                                            public PageVisibilityObserver {
   friend class WindowPerformanceTest;
 
  public:
@@ -68,9 +70,9 @@ class CORE_EXPORT WindowPerformance final : public Performance,
 
   bool FirstInputDetected() const { return !!first_input_timing_; }
 
-  // This method creates a PerformanceEventTiming and if needed creates a swap
-  // promise to calculate the |duration| attribute when such promise is
-  // resolved.
+  // This method creates a PerformanceEventTiming and if needed creates a
+  // presentation promise to calculate the |duration| attribute when such
+  // promise is resolved.
   void RegisterEventTiming(const AtomicString& event_type,
                            base::TimeTicks start_time,
                            base::TimeTicks processing_start,
@@ -91,6 +93,10 @@ class CORE_EXPORT WindowPerformance final : public Performance,
                         Element*);
 
   void AddLayoutShiftEntry(LayoutShift*);
+  void AddVisibilityStateEntry(bool is_visible, base::TimeTicks start_time);
+
+  // PageVisibilityObserver
+  void PageVisibilityChanged() override;
 
   void OnLargestContentfulPaintUpdated(base::TimeTicks paint_time,
                                        uint64_t paint_size,
@@ -117,25 +123,23 @@ class CORE_EXPORT WindowPerformance final : public Performance,
 
   void BuildJSONValue(V8ObjectBuilder&) const override;
 
-  // Method called once swap promise is resolved. It will add all event timings
-  // that have not been added since the last swap promise.
+  // Method called once presentation promise is resolved. It will add all event
+  // timings that have not been added since the last presentation promise.
   void ReportEventTimings(uint64_t frame_index,
                           WebSwapResult result,
                           base::TimeTicks timestamp);
 
   void DispatchFirstInputTiming(PerformanceEventTiming* entry);
 
-  void MeasureMemoryExperimentTimerFired(TimerBase*);
-
   // Counter of the current frame index, based on calls to OnPaintFinished().
   uint64_t frame_index_ = 1;
-  // Monotonically increasing value with the last frame index on which a swap
-  // promise was queued;
+  // Monotonically increasing value with the last frame index on which a
+  // presentation promise was queued;
   uint64_t last_registered_frame_index_ = 0;
-  // Number of pending swap promises.
-  uint16_t pending_swap_promise_count_ = 0;
+  // Number of pending presentation promises.
+  uint16_t pending_presentation_promise_count_ = 0;
   // PerformanceEventTiming entries that have not been sent to observers yet:
-  // the event dispatch has been completed but the swap promise used to
+  // the event dispatch has been completed but the presentation promise used to
   // determine |duration| has not yet been resolved. It is handled as a queue:
   // FIFO.
   HeapDeque<Member<PerformanceEventTiming>> event_timings_;
@@ -151,11 +155,9 @@ class CORE_EXPORT WindowPerformance final : public Performance,
   Member<EventCounts> event_counts_;
   mutable Member<PerformanceNavigation> navigation_;
   mutable Member<PerformanceTiming> timing_;
-
-  // This is used in a Finch experiment to perform a memory measurement without
-  // reporting the results to evaluate its impact on stability and performance.
-  TaskRunnerTimer<WindowPerformance> measure_memory_experiment_timer_;
-  static const int kMaxMeasureMemoryExperimentDelayInMs = 30000;
+  base::Optional<base::TimeDelta> pending_pointer_down_input_delay_;
+  base::Optional<base::TimeDelta> pending_pointer_down_processing_time_;
+  base::Optional<base::TimeDelta> pending_pointer_down_time_to_next_paint_;
 };
 
 }  // namespace blink

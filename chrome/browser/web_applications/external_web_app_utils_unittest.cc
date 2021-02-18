@@ -8,8 +8,15 @@
 #include "base/json/json_reader.h"
 #include "base/path_service.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/web_applications/test/test_file_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/ash_switches.h"
+#include "base/command_line.h"
+#include "components/arc/arc_util.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace web_app {
 
@@ -32,22 +39,143 @@ class ExternalWebAppUtilsTest : public testing::Test {
     });
   }
 
-  WebApplicationInfoFactory ParseOfflineManifest(
+  base::Optional<ExternalInstallOptions> ParseConfig(
+      const char* app_config_string) {
+    base::Optional<base::Value> app_config =
+        base::JSONReader::Read(app_config_string);
+    DCHECK(app_config);
+    FileUtilsWrapper file_utils;
+    OptionsOrError result =
+        ::web_app::ParseConfig(file_utils, /*dir=*/base::FilePath(),
+                               /*file=*/base::FilePath(), app_config.value());
+    if (ExternalInstallOptions* options =
+            absl::get_if<ExternalInstallOptions>(&result)) {
+      return std::move(*options);
+    }
+    return base::nullopt;
+  }
+
+  base::Optional<WebApplicationInfoFactory> ParseOfflineManifest(
       const char* offline_manifest_string) {
     base::Optional<base::Value> offline_manifest =
         base::JSONReader::Read(offline_manifest_string);
     DCHECK(offline_manifest);
-    return ::web_app::ParseOfflineManifest(
+    WebApplicationInfoFactoryOrError result = ::web_app::ParseOfflineManifest(
         *file_utils_, base::FilePath(FILE_PATH_LITERAL("test_dir")),
         base::FilePath(FILE_PATH_LITERAL("test_dir/test.json")),
         *offline_manifest);
+    if (WebApplicationInfoFactory* factory =
+            absl::get_if<WebApplicationInfoFactory>(&result)) {
+      return std::move(*factory);
+    }
+    return base::nullopt;
   }
 
  protected:
   std::unique_ptr<TestFileUtils> file_utils_;
 };
 
-// ParseConfig() is tested by ScanDirForExternalWebAppsTest.
+// ParseConfig() is also tested by ExternalWebAppManagerTest.
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+
+namespace {
+
+std::string BoolParamToString(
+    const ::testing::TestParamInfo<bool>& bool_param) {
+  return bool_param.param ? "true" : "false";
+}
+
+using IsTablet = bool;
+using IsArcSupported = bool;
+
+}  // namespace
+
+class ExternalWebAppUtilsTabletTest
+    : public ExternalWebAppUtilsTest,
+      public ::testing::WithParamInterface<IsTablet> {
+ public:
+  ExternalWebAppUtilsTabletTest() {
+    if (GetParam()) {
+      base::CommandLine::ForCurrentProcess()->AppendSwitch(
+          chromeos::switches::kEnableTabletFormFactor);
+    }
+  }
+  ~ExternalWebAppUtilsTabletTest() override = default;
+
+  bool is_tablet() const { return GetParam(); }
+};
+
+TEST_P(ExternalWebAppUtilsTabletTest, DisableIfTabletFormFactor) {
+  base::Optional<ExternalInstallOptions> disable_true_options = ParseConfig(R"(
+    {
+      "app_url": "https://test.org",
+      "launch_container": "window",
+      "disable_if_tablet_form_factor": true,
+      "user_type": ["test"]
+    }
+  )");
+  EXPECT_TRUE(disable_true_options->disable_if_tablet_form_factor);
+
+  base::Optional<ExternalInstallOptions> disable_false_options = ParseConfig(R"(
+    {
+      "app_url": "https://test.org",
+      "launch_container": "window",
+      "disable_if_tablet_form_factor": false,
+      "user_type": ["test"]
+    }
+  )");
+  EXPECT_FALSE(disable_false_options->disable_if_tablet_form_factor);
+}
+
+INSTANTIATE_TEST_SUITE_P(All,
+                         ExternalWebAppUtilsTabletTest,
+                         ::testing::Values(true, false),
+                         BoolParamToString);
+
+class ExternalWebAppUtilsArcTest
+    : public ExternalWebAppUtilsTest,
+      public ::testing::WithParamInterface<IsArcSupported> {
+ public:
+  ExternalWebAppUtilsArcTest() {
+    if (GetParam()) {
+      base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+          chromeos::switches::kArcAvailability, "officially-supported");
+    }
+  }
+  ~ExternalWebAppUtilsArcTest() override = default;
+
+  bool is_arc_supported() const { return GetParam(); }
+};
+
+TEST_P(ExternalWebAppUtilsArcTest, DisableIfArcSupported) {
+  base::Optional<ExternalInstallOptions> disable_true_options = ParseConfig(R"(
+    {
+      "app_url": "https://test.org",
+      "launch_container": "window",
+      "disable_if_arc_supported": true,
+      "user_type": ["test"]
+    }
+  )");
+  EXPECT_TRUE(disable_true_options->disable_if_arc_supported);
+
+  base::Optional<ExternalInstallOptions> disable_false_options = ParseConfig(R"(
+    {
+      "app_url": "https://test.org",
+      "launch_container": "window",
+      "disable_if_arc_supported": false,
+      "user_type": ["test"]
+    }
+  )");
+  EXPECT_FALSE(disable_false_options->disable_if_arc_supported);
+}
+
+INSTANTIATE_TEST_SUITE_P(All,
+                         ExternalWebAppUtilsArcTest,
+                         ::testing::Values(true, false),
+                         BoolParamToString);
+
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 // TODO(crbug.com/1119710): Loading icon.png is flaky on Windows.
 #if defined(OS_WIN)
@@ -66,10 +194,11 @@ TEST_F(ExternalWebAppUtilsTest, MAYBE_OfflineManifestValid) {
       "theme_color_argb_hex": "AABBCCDD"
     }
   )")
+                                                     .value()
                                                      .Run();
   EXPECT_TRUE(app_info);
   EXPECT_EQ(app_info->title, base::UTF8ToUTF16("Test App"));
-  EXPECT_EQ(app_info->app_url, GURL("https://test.org/start.html"));
+  EXPECT_EQ(app_info->start_url, GURL("https://test.org/start.html"));
   EXPECT_EQ(app_info->scope, GURL("https://test.org/"));
   EXPECT_EQ(app_info->display_mode, DisplayMode::kStandalone);
   EXPECT_EQ(app_info->icon_bitmaps_any.size(), 1u);
@@ -312,6 +441,53 @@ TEST_F(ExternalWebAppUtilsTest, OfflineManifestThemeColorArgbHex) {
       "theme_color_argb_hex": "#ff0000"
     }
   )")) << "theme_color_argb_hex is valid";
+}
+
+TEST_F(ExternalWebAppUtilsTest, ForceReinstallForMilestone) {
+  base::Optional<ExternalInstallOptions> non_number = ParseConfig(R"(
+    {
+      "app_url": "https://test.org",
+      "launch_container": "window",
+      "force_reinstall_for_milestone": "error",
+      "user_type": ["test"]
+    }
+  )");
+  EXPECT_FALSE(non_number.has_value());
+
+  base::Optional<ExternalInstallOptions> number = ParseConfig(R"(
+    {
+      "app_url": "https://test.org",
+      "launch_container": "window",
+      "force_reinstall_for_milestone": 89,
+      "user_type": ["test"]
+    }
+  )");
+  EXPECT_TRUE(number.has_value());
+  EXPECT_EQ(89, number->force_reinstall_for_milestone);
+}
+
+TEST_F(ExternalWebAppUtilsTest, IsReinstallPastMilestoneNeeded) {
+  // Arguments: last_preinstall_synchronize_milestone, current_milestone,
+  // force_reinstall_for_milestone.
+  EXPECT_FALSE(IsReinstallPastMilestoneNeeded("87", "87", 89));
+  EXPECT_FALSE(IsReinstallPastMilestoneNeeded("87", "88", 89));
+  EXPECT_FALSE(IsReinstallPastMilestoneNeeded("88", "88", 89));
+  EXPECT_TRUE(IsReinstallPastMilestoneNeeded("88", "89", 89));
+  EXPECT_FALSE(IsReinstallPastMilestoneNeeded("89", "89", 89));
+  EXPECT_FALSE(IsReinstallPastMilestoneNeeded("89", "90", 89));
+  EXPECT_FALSE(IsReinstallPastMilestoneNeeded("90", "90", 89));
+  EXPECT_FALSE(IsReinstallPastMilestoneNeeded("90", "91", 89));
+  EXPECT_FALSE(IsReinstallPastMilestoneNeeded("91", "91", 89));
+
+  // Long jumps:
+  EXPECT_FALSE(IsReinstallPastMilestoneNeeded("80", "85", 89));
+  EXPECT_TRUE(IsReinstallPastMilestoneNeeded("80", "100", 89));
+  EXPECT_FALSE(IsReinstallPastMilestoneNeeded("90", "95", 89));
+
+  // Wrong input:
+  EXPECT_FALSE(IsReinstallPastMilestoneNeeded("error", "90", 89));
+  EXPECT_FALSE(IsReinstallPastMilestoneNeeded("88", "error", 89));
+  EXPECT_FALSE(IsReinstallPastMilestoneNeeded("error", "error", 0));
 }
 
 }  // namespace web_app

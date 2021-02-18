@@ -14,13 +14,14 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/trace_event/trace_event.h"
 #include "content/browser/android/navigation_handle_proxy.h"
-#include "content/browser/frame_host/navigation_request.h"
+#include "content/browser/renderer_host/navigation_request.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/android/content_jni_headers/WebContentsObserverProxy_jni.h"
 #include "content/public/browser/navigation_details.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
+#include "url/android/gurl_android.h"
 
 using base::android::AttachCurrentThread;
 using base::android::JavaParamRef;
@@ -76,6 +77,14 @@ void WebContentsObserverProxy::RenderFrameCreated(
       render_frame_host->GetRoutingID());
 }
 
+void WebContentsObserverProxy::RenderFrameDeleted(
+    RenderFrameHost* render_frame_host) {
+  JNIEnv* env = AttachCurrentThread();
+  Java_WebContentsObserverProxy_renderFrameDeleted(
+      env, java_observer_, render_frame_host->GetProcess()->GetID(),
+      render_frame_host->GetRoutingID());
+}
+
 void WebContentsObserverProxy::RenderViewReady() {
   JNIEnv* env = AttachCurrentThread();
   Java_WebContentsObserverProxy_renderViewReady(env, java_observer_);
@@ -92,25 +101,23 @@ void WebContentsObserverProxy::RenderProcessGone(
 
 void WebContentsObserverProxy::DidStartLoading() {
   JNIEnv* env = AttachCurrentThread();
-  ScopedJavaLocalRef<jstring> jstring_url(
-      ConvertUTF8ToJavaString(env, web_contents()->GetVisibleURL().spec()));
   if (auto* entry = web_contents()->GetController().GetPendingEntry()) {
     base_url_of_last_started_data_url_ = entry->GetBaseURLForDataURL();
   }
-  Java_WebContentsObserverProxy_didStartLoading(env, java_observer_,
-                                                jstring_url);
+  Java_WebContentsObserverProxy_didStartLoading(
+      env, java_observer_,
+      url::GURLAndroid::FromNativeGURL(env, web_contents()->GetVisibleURL()));
 }
 
 void WebContentsObserverProxy::DidStopLoading() {
   JNIEnv* env = AttachCurrentThread();
-  std::string url_string = web_contents()->GetLastCommittedURL().spec();
-  SetToBaseURLForDataURLIfNeeded(&url_string);
+  GURL url = web_contents()->GetLastCommittedURL();
+  bool assume_valid = SetToBaseURLForDataURLIfNeeded(&url);
   // DidStopLoading is the last event we should get.
   base_url_of_last_started_data_url_ = GURL::EmptyGURL();
-  ScopedJavaLocalRef<jstring> jstring_url(ConvertUTF8ToJavaString(
-      env, url_string));
-  Java_WebContentsObserverProxy_didStopLoading(env, java_observer_,
-                                               jstring_url);
+  Java_WebContentsObserverProxy_didStopLoading(
+      env, java_observer_, url::GURLAndroid::FromNativeGURL(env, url),
+      assume_valid);
 }
 
 void WebContentsObserverProxy::LoadProgressChanged(double progress) {
@@ -122,12 +129,9 @@ void WebContentsObserverProxy::DidFailLoad(RenderFrameHost* render_frame_host,
                                            const GURL& validated_url,
                                            int error_code) {
   JNIEnv* env = AttachCurrentThread();
-  ScopedJavaLocalRef<jstring> jstring_url(
-      ConvertUTF8ToJavaString(env, validated_url.spec()));
-
-  Java_WebContentsObserverProxy_didFailLoad(env, java_observer_,
-                                            !render_frame_host->GetParent(),
-                                            error_code, jstring_url);
+  Java_WebContentsObserverProxy_didFailLoad(
+      env, java_observer_, !render_frame_host->GetParent(), error_code,
+      url::GURLAndroid::FromNativeGURL(env, validated_url));
 }
 
 void WebContentsObserverProxy::DidChangeVisibleSecurityState() {
@@ -169,13 +173,12 @@ void WebContentsObserverProxy::DidFinishLoad(RenderFrameHost* render_frame_host,
                                              const GURL& validated_url) {
   JNIEnv* env = AttachCurrentThread();
 
-  std::string url_string = validated_url.spec();
-  SetToBaseURLForDataURLIfNeeded(&url_string);
+  GURL url = validated_url;
+  bool assume_valid = SetToBaseURLForDataURLIfNeeded(&url);
 
-  ScopedJavaLocalRef<jstring> jstring_url(
-      ConvertUTF8ToJavaString(env, url_string));
   Java_WebContentsObserverProxy_didFinishLoad(
-      env, java_observer_, render_frame_host->GetRoutingID(), jstring_url,
+      env, java_observer_, render_frame_host->GetRoutingID(),
+      url::GURLAndroid::FromNativeGURL(env, url), assume_valid,
       !render_frame_host->GetParent());
 }
 
@@ -244,21 +247,23 @@ void WebContentsObserverProxy::TitleWasSet(NavigationEntry* entry) {
   Java_WebContentsObserverProxy_titleWasSet(env, java_observer_, jstring_title);
 }
 
-void WebContentsObserverProxy::SetToBaseURLForDataURLIfNeeded(
-    std::string* url) {
+bool WebContentsObserverProxy::SetToBaseURLForDataURLIfNeeded(GURL* url) {
   NavigationEntry* entry =
       web_contents()->GetController().GetLastCommittedEntry();
   // Note that GetBaseURLForDataURL is only used by the Android WebView.
   // FIXME: Should we only return valid specs and "about:blank" for invalid
   // ones? This may break apps.
   if (entry && !entry->GetBaseURLForDataURL().is_empty()) {
-    *url = entry->GetBaseURLForDataURL().possibly_invalid_spec();
+    *url = entry->GetBaseURLForDataURL();
+    return false;
   } else if (!base_url_of_last_started_data_url_.is_empty()) {
     // NavigationController can lose the pending entry and recreate it without
     // a base URL if there has been a loadUrl("javascript:...") after
     // loadDataWithBaseUrl.
-    *url = base_url_of_last_started_data_url_.possibly_invalid_spec();
+    *url = base_url_of_last_started_data_url_;
+    return false;
   }
+  return true;
 }
 
 void WebContentsObserverProxy::ViewportFitChanged(

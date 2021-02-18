@@ -4,11 +4,20 @@
 
 #include "chrome/browser/chromeos/file_manager/file_manager_string_util.h"
 
+#include "ash/constants/ash_features.h"
+#include "ash/public/cpp/ash_features.h"
+#include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/chromeos/crostini/crostini_features.h"
+#include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
+#include "chrome/browser/chromeos/plugin_vm/plugin_vm_features.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/arc/arc_features.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/webui/web_ui_util.h"
@@ -28,6 +37,10 @@ const char kGoogleDriveOverviewUrl[] =
 // Location of Google Drive specific help.
 const char kGoogleDriveHelpUrl[] =
     "https://support.google.com/chromebook/?p=filemanager_drivehelp";
+
+// Location of the help page about making Google Drive files available offline.
+const char kGoogleDriveOfflineHelpUrl[] =
+    "http://support.google.com/chromebook/?p=offline_files";
 
 // Location of Google Drive root.
 const char kGoogleDriveRootUrl[] = "https://drive.google.com";
@@ -152,7 +165,6 @@ void AddStringsForDrive(base::DictionaryValue* dict) {
   SET_STRING("SYNC_FILE_NUMBER", IDS_FILE_BROWSER_SYNC_FILE_NUMBER);
   SET_STRING("SYNC_MISC_ERROR", IDS_FILE_BROWSER_SYNC_MISC_ERROR);
   SET_STRING("SYNC_NO_SERVER_SPACE", IDS_FILE_BROWSER_SYNC_NO_SERVER_SPACE);
-  SET_STRING("SYNC_PROGRESS_SUMMARY", IDS_FILE_BROWSER_SYNC_PROGRESS_SUMMARY);
   SET_STRING("SYNC_SERVICE_UNAVAILABLE_ERROR",
              IDS_FILE_BROWSER_SYNC_SERVICE_UNAVAILABLE_ERROR);
 }
@@ -392,6 +404,25 @@ void AddStringsForZipArchiver(base::DictionaryValue* dict) {
   SET_STRING("ZIP_ARCHIVER_TOO_MANY_OPENED", IDS_ZIP_ARCHIVER_TOO_MANY_OPENED);
 }
 
+void AddStringsForSharesheet(base::DictionaryValue* dict) {
+  SET_STRING("SHARESHEET_BUTTON_LABEL", IDS_SHARESHEET_TITLE_LABEL);
+}
+
+void AddStringsForHoldingSpace(base::DictionaryValue* dict) {
+  SET_STRING("HOLDING_SPACE_PIN_TO_SHELF_COMMAND_LABEL",
+             IDS_FILE_BROWSER_HOLDING_SPACE_PIN_TO_SHELF_COMMAND_LABEL);
+  SET_STRING("HOLDING_SPACE_UNPIN_FROM_SHELF_COMMAND_LABEL",
+             IDS_FILE_BROWSER_HOLDING_SPACE_UNPIN_FROM_SHELF_COMMAND_LABEL);
+  SET_STRING("HOLDING_SPACE_WELCOME_DISMISS",
+             IDS_FILE_BROWSER_HOLDING_SPACE_WELCOME_DISMISS);
+  SET_STRING("HOLDING_SPACE_WELCOME_TEXT",
+             IDS_FILE_BROWSER_HOLDING_SPACE_WELCOME_TEXT);
+  SET_STRING("HOLDING_SPACE_WELCOME_TEXT_IN_TABLET_MODE",
+             IDS_FILE_BROWSER_HOLDING_SPACE_WELCOME_TEXT_IN_TABLET_MODE);
+  SET_STRING("HOLDING_SPACE_WELCOME_TITLE",
+             IDS_FILE_BROWSER_HOLDING_SPACE_WELCOME_TITLE);
+}
+
 }  // namespace
 
 std::unique_ptr<base::DictionaryValue> GetFileManagerStrings() {
@@ -408,12 +439,16 @@ std::unique_ptr<base::DictionaryValue> GetFileManagerStrings() {
   AddStringsForCrUiMenuItemShortcuts(dict.get());
   AddStringsForFileErrors(dict.get());
   AddStringsForZipArchiver(dict.get());
+  AddStringsForSharesheet(dict.get());
+  AddStringsForHoldingSpace(dict.get());
 
   SET_STRING("ADD_NEW_SERVICES_BUTTON_LABEL",
              IDS_FILE_BROWSER_ADD_NEW_SERVICES_BUTTON_LABEL);
   SET_STRING("ALL_FILES_FILTER", IDS_FILE_BROWSER_ALL_FILES_FILTER);
   SET_STRING("ARCHIVE_MOUNT_FAILED", IDS_FILE_BROWSER_ARCHIVE_MOUNT_FAILED);
+  SET_STRING("ARCHIVE_MOUNT_MESSAGE", IDS_FILE_BROWSER_ARCHIVE_MOUNT_MESSAGE);
   SET_STRING("CALCULATING_SIZE", IDS_FILE_BROWSER_CALCULATING_SIZE);
+  SET_STRING("CAMERA_DIRECTORY_LABEL", IDS_FILE_BROWSER_CAMERA_DIRECTORY_LABEL);
   SET_STRING("CANCEL_ACTIVITY_LABEL", IDS_FILE_BROWSER_CANCEL_ACTIVITY_LABEL);
   SET_STRING("CANCEL_LABEL", IDS_FILE_BROWSER_CANCEL_LABEL);
   SET_STRING("CHANGE_DEFAULT_CAPTION", IDS_FILE_BROWSER_CHANGE_DEFAULT_CAPTION);
@@ -441,17 +476,13 @@ std::unique_ptr<base::DictionaryValue> GetFileManagerStrings() {
              IDS_FILE_BROWSER_CONFLICT_DIALOG_MESSAGE);
   SET_STRING("CONFLICT_DIALOG_REPLACE",
              IDS_FILE_BROWSER_CONFLICT_DIALOG_REPLACE);
-  SET_STRING("COPIED_TO", IDS_FILE_BROWSER_COPIED_TO);
   SET_STRING("COPY_BUTTON_LABEL", IDS_FILE_BROWSER_COPY_BUTTON_LABEL);
   SET_STRING("COPY_FILESYSTEM_ERROR", IDS_FILE_BROWSER_COPY_FILESYSTEM_ERROR);
-  // TODO (crbug/1093603): Clean up after FilesTransferDetails launch.
   SET_STRING("COPY_FILE_NAME", IDS_FILE_BROWSER_COPY_FILE_NAME);
   SET_STRING("COPY_ITEMS_REMAINING", IDS_FILE_BROWSER_COPY_ITEMS_REMAINING);
-  // TODO: End.
   SET_STRING("COPY_FILE_NAME_LONG", IDS_FILE_BROWSER_COPY_FILE_NAME_LONG);
   SET_STRING("COPY_ITEMS_REMAINING_LONG",
              IDS_FILE_BROWSER_COPY_ITEMS_REMAINING_LONG);
-  SET_STRING("COPY_PROGRESS_SUMMARY", IDS_FILE_BROWSER_COPY_PROGRESS_SUMMARY);
   SET_STRING("COPY_SOURCE_NOT_FOUND_ERROR",
              IDS_FILE_BROWSER_COPY_SOURCE_NOT_FOUND_ERROR);
   SET_STRING("COPY_TARGET_EXISTS_ERROR",
@@ -468,8 +499,6 @@ std::unique_ptr<base::DictionaryValue> GetFileManagerStrings() {
   SET_STRING("DELETE_ERROR", IDS_FILE_BROWSER_DELETE_ERROR);
   SET_STRING("DELETE_FILE_NAME", IDS_FILE_BROWSER_DELETE_FILE_NAME);
   SET_STRING("DELETE_ITEMS_REMAINING", IDS_FILE_BROWSER_DELETE_ITEMS_REMAINING);
-  SET_STRING("DELETE_PROGRESS_SUMMARY",
-             IDS_FILE_BROWSER_DELETE_PROGRESS_SUMMARY);
   SET_STRING("DEVICE_HARD_UNPLUGGED_MESSAGE",
              IDS_DEVICE_HARD_UNPLUGGED_MESSAGE);
   SET_STRING("DEVICE_HARD_UNPLUGGED_TITLE", IDS_DEVICE_HARD_UNPLUGGED_TITLE);
@@ -514,7 +543,6 @@ std::unique_ptr<base::DictionaryValue> GetFileManagerStrings() {
   SET_STRING("ERROR_LONG_NAME", IDS_FILE_BROWSER_ERROR_LONG_NAME);
   SET_STRING("ERROR_EXTERNAL_DRIVE_LONG_NAME",
              IDS_FILE_BROWSER_ERROR_EXTERNAL_DRIVE_LONG_NAME);
-  SET_STRING("ERROR_PROGRESS_SUMMARY", IDS_FILE_BROWSER_ERROR_PROGRESS_SUMMARY);
   SET_STRING("ERROR_PROGRESS_SUMMARY_PLURAL",
              IDS_FILE_BROWSER_ERROR_PROGRESS_SUMMARY_PLURAL);
   SET_STRING("ERROR_RENAMING", IDS_FILE_BROWSER_ERROR_RENAMING);
@@ -526,7 +554,11 @@ std::unique_ptr<base::DictionaryValue> GetFileManagerStrings() {
   SET_STRING("FAILED_SPACE_INFO", IDS_FILE_BROWSER_FAILED_SPACE_INFO);
   SET_STRING("FILENAME_LABEL", IDS_FILE_BROWSER_FILENAME_LABEL);
   SET_STRING("FILE_ALREADY_EXISTS", IDS_FILE_BROWSER_FILE_ALREADY_EXISTS);
+  SET_STRING("FILE_COPIED", IDS_FILE_BROWSER_FILE_COPIED);
   SET_STRING("FILE_ITEMS", IDS_FILE_BROWSER_FILE_ITEMS);
+  SET_STRING("FILE_ITEMS_COPIED", IDS_FILE_BROWSER_FILE_ITEMS_COPIED);
+  SET_STRING("FILE_ITEMS_MOVED", IDS_FILE_BROWSER_FILE_ITEMS_MOVED);
+  SET_STRING("FILE_MOVED", IDS_FILE_BROWSER_FILE_MOVED);
   SET_STRING("FOLDER_SHARED_WITH_CROSTINI",
              IDS_FILE_BROWSER_FOLDER_SHARED_WITH_CROSTINI);
   SET_STRING("FOLDER_SHARED_WITH_CROSTINI_PLURAL",
@@ -558,6 +590,8 @@ std::unique_ptr<base::DictionaryValue> GetFileManagerStrings() {
              IDS_FILE_BROWSER_FORMAT_DEVICE_BUTTON_LABEL);
   SET_STRING("FORMAT_DIALOG_TITLE", IDS_FILE_BROWSER_FORMAT_DIALOG_TITLE);
   SET_STRING("FORMAT_DIALOG_MESSAGE", IDS_FILE_BROWSER_FORMAT_DIALOG_MESSAGE);
+  SET_STRING("FORMAT_PARTITION_DIALOG_MESSAGE",
+             IDS_FILE_BROWSER_FORMAT_PARTITION_DIALOG_MESSAGE);
   SET_STRING("FORMAT_DIALOG_DELETE_WARNING",
              IDS_FILE_BROWSER_FORMAT_DIALOG_DELETE_WARNING);
   SET_STRING("FORMAT_DIALOG_DRIVE_NAME_LABEL",
@@ -566,6 +600,8 @@ std::unique_ptr<base::DictionaryValue> GetFileManagerStrings() {
              IDS_FILE_BROWSER_FORMAT_DIALOG_FORMAT_LABEL);
   SET_STRING("FORMAT_DIALOG_CONFIRM_LABEL",
              IDS_FILE_BROWSER_FORMAT_DIALOG_CONFIRM_LABEL);
+  SET_STRING("FORMAT_DIALOG_CONFIRM_SHORT_LABEL",
+             IDS_FILE_BROWSER_FORMAT_DIALOG_CONFIRM_SHORT_LABEL);
   SET_STRING("FORMAT_PROGRESS_MESSAGE",
              IDS_FILE_BROWSER_FORMAT_PROGRESS_MESSAGE);
   SET_STRING("FORMAT_SUCCESS_MESSAGE", IDS_FILE_BROWSER_FORMAT_SUCCESS_MESSAGE);
@@ -678,15 +714,11 @@ std::unique_ptr<base::DictionaryValue> GetFileManagerStrings() {
              IDS_FILE_BROWSER_METADATA_BOX_YEAR_RECORDED);
   SET_STRING("MOUNT_ARCHIVE", IDS_FILE_BROWSER_MOUNT_ARCHIVE);
   SET_STRING("MOVE_FILESYSTEM_ERROR", IDS_FILE_BROWSER_MOVE_FILESYSTEM_ERROR);
-  SET_STRING("MOVED_TO", IDS_FILE_BROWSER_MOVED_TO);
-  // TODO (crbug/1093603): Clean up after FilesTransferDetails launch.
   SET_STRING("MOVE_FILE_NAME", IDS_FILE_BROWSER_MOVE_FILE_NAME);
   SET_STRING("MOVE_ITEMS_REMAINING", IDS_FILE_BROWSER_MOVE_ITEMS_REMAINING);
-  // TODO: End.
   SET_STRING("MOVE_FILE_NAME_LONG", IDS_FILE_BROWSER_MOVE_FILE_NAME_LONG);
   SET_STRING("MOVE_ITEMS_REMAINING_LONG",
              IDS_FILE_BROWSER_MOVE_ITEMS_REMAINING_LONG);
-  SET_STRING("MOVE_PROGRESS_SUMMARY", IDS_FILE_BROWSER_MOVE_PROGRESS_SUMMARY);
   SET_STRING("MOVE_SOURCE_NOT_FOUND_ERROR",
              IDS_FILE_BROWSER_MOVE_SOURCE_NOT_FOUND_ERROR);
   SET_STRING("MOVE_TARGET_EXISTS_ERROR",
@@ -708,9 +740,19 @@ std::unique_ptr<base::DictionaryValue> GetFileManagerStrings() {
   SET_STRING("NO_TASK_FOR_EXECUTABLE", IDS_FILE_BROWSER_NO_TASK_FOR_EXECUTABLE);
   SET_STRING("NO_TASK_FOR_FILE", IDS_FILE_BROWSER_NO_TASK_FOR_FILE);
   SET_STRING("OFFLINE_COLUMN_LABEL", IDS_FILE_BROWSER_OFFLINE_COLUMN_LABEL);
+  SET_STRING("OFFLINE_ENABLE_MESSAGE", IDS_FILE_BROWSER_OFFLINE_ENABLE_MESSAGE);
+  SET_STRING("OFFLINE_ENABLE_ACCEPT", IDS_FILE_BROWSER_OFFLINE_ENABLE_ACCEPT);
+  SET_STRING("OFFLINE_ENABLE_REJECT", IDS_FILE_BROWSER_OFFLINE_ENABLE_REJECT);
   SET_STRING("OFFLINE_HEADER", IDS_FILE_BROWSER_OFFLINE_HEADER);
   SET_STRING("OFFLINE_MESSAGE", IDS_FILE_BROWSER_OFFLINE_MESSAGE);
   SET_STRING("OFFLINE_MESSAGE_PLURAL", IDS_FILE_BROWSER_OFFLINE_MESSAGE_PLURAL);
+  SET_STRING("OFFLINE_BANNER_MESSAGE", IDS_FILE_BROWSER_OFFLINE_BANNER_MESSAGE);
+  SET_STRING("OFFLINE_FAILURE_MESSAGE",
+             IDS_FILE_BROWSER_OFFLINE_FAILURE_MESSAGE);
+  SET_STRING("OFFLINE_PROGRESS_MESSAGE",
+             IDS_FILE_BROWSER_OFFLINE_PROGRESS_MESSAGE);
+  SET_STRING("OFFLINE_PROGRESS_MESSAGE_PLURAL",
+             IDS_FILE_BROWSER_OFFLINE_PROGRESS_MESSAGE_PLURAL);
   SET_STRING("OK_LABEL", IDS_FILE_BROWSER_OK_LABEL);
   SET_STRING("ONE_DIRECTORY_SELECTED", IDS_FILE_BROWSER_ONE_DIRECTORY_SELECTED);
   SET_STRING("ONE_FILE_SELECTED", IDS_FILE_BROWSER_ONE_FILE_SELECTED);
@@ -774,6 +816,20 @@ std::unique_ptr<base::DictionaryValue> GetFileManagerStrings() {
              IDS_REMOVABLE_DEVICE_NAVIGATION_MESSAGE);
   SET_STRING("REMOVABLE_DEVICE_NAVIGATION_MESSAGE_READONLY_POLICY",
              IDS_REMOVABLE_DEVICE_NAVIGATION_MESSAGE_READONLY_POLICY);
+  SET_STRING("REPARTITION_DEVICE_BUTTON_LABEL",
+             IDS_FILE_BROWSER_REPARTITION_DEVICE_BUTTON_LABEL);
+  SET_STRING("REPARTITION_DIALOG_CONFIRM_LABEL",
+             IDS_FILE_BROWSER_REPARTITION_DIALOG_CONFIRM_LABEL);
+  SET_STRING("REPARTITION_DIALOG_MESSAGE",
+             IDS_FILE_BROWSER_REPARTITION_DIALOG_MESSAGE);
+  SET_STRING("RESTORE_FROM_TRASH_BUTTON_LABEL",
+             IDS_FILE_BROWSER_RESTORE_FROM_TRASH_BUTTON_LABEL);
+  SET_STRING("RESTORE_FROM_TRASH_ERROR",
+             IDS_FILE_BROWSER_RESTORE_FROM_TRASH_ERROR);
+  SET_STRING("RESTORE_FROM_TRASH_FILE_NAME",
+             IDS_FILE_BROWSER_RESTORE_FROM_TRASH_FILE_NAME);
+  SET_STRING("RESTORE_FROM_TRASH_ITEMS_REMAINING",
+             IDS_FILE_BROWSER_RESTORE_FROM_TRASH_ITEMS_REMAINING);
   SET_STRING("UNPIN_FOLDER_BUTTON_LABEL",
              IDS_FILE_BROWSER_UNPIN_FOLDER_BUTTON_LABEL);
   SET_STRING("RENAME_BUTTON_LABEL", IDS_FILE_BROWSER_RENAME_BUTTON_LABEL);
@@ -790,7 +846,6 @@ std::unique_ptr<base::DictionaryValue> GetFileManagerStrings() {
   SET_STRING("SELECT_ALL_COMMAND_LABEL",
              IDS_FILE_BROWSER_SELECT_ALL_COMMAND_LABEL);
   SET_STRING("TASKS_BUTTON_LABEL", IDS_FILE_BROWSER_TASKS_BUTTON_LABEL);
-  SET_STRING("TO_FOLDER_NAME", IDS_FILE_BROWSER_TO_FOLDER_NAME);
   SET_STRING("TOGGLE_HIDDEN_FILES_COMMAND_LABEL",
              IDS_FILE_BROWSER_TOGGLE_HIDDEN_FILES_COMMAND_LABEL);
   SET_STRING("SHARE_BUTTON_LABEL", IDS_FILE_BROWSER_SHARE_BUTTON_LABEL);
@@ -876,6 +931,7 @@ std::unique_ptr<base::DictionaryValue> GetFileManagerStrings() {
   SET_STRING("MEDIA_TITLE_COLUMN_LABEL",
              IDS_FILE_BROWSER_MEDIA_TITLE_COLUMN_LABEL);
   SET_STRING("RECENT_ROOT_LABEL", IDS_FILE_BROWSER_RECENT_ROOT_LABEL);
+  SET_STRING("TRASH_ROOT_LABEL", IDS_FILE_BROWSER_TRASH_ROOT_LABEL);
   SET_STRING("SUGGEST_DIALOG_INSTALLATION_FAILED",
              IDS_FILE_BROWSER_SUGGEST_DIALOG_INSTALLATION_FAILED);
   SET_STRING("SUGGEST_DIALOG_LINK_TO_WEBSTORE",
@@ -903,9 +959,11 @@ std::unique_ptr<base::DictionaryValue> GetFileManagerStrings() {
              IDS_FILE_BROWSER_TIME_REMAINING_ESTIMATE_2);
   SET_STRING("TIME_TODAY", IDS_FILE_BROWSER_TIME_TODAY);
   SET_STRING("TIME_YESTERDAY", IDS_FILE_BROWSER_TIME_YESTERDAY);
-  SET_STRING("TRANSFER_PROGRESS_SUMMARY",
-             IDS_FILE_BROWSER_TRANSFER_PROGRESS_SUMMARY);
   SET_STRING("TYPE_COLUMN_LABEL", IDS_FILE_BROWSER_TYPE_COLUMN_LABEL);
+  SET_STRING("UNDO_DELETE_ACTION_LABEL",
+             IDS_FILE_BROWSER_UNDO_DELETE_ACTION_LABEL);
+  SET_STRING("UNDO_DELETE_ONE", IDS_FILE_BROWSER_UNDO_DELETE_ONE);
+  SET_STRING("UNDO_DELETE_SOME", IDS_FILE_BROWSER_UNDO_DELETE_SOME);
   SET_STRING("UNKNOWN_FILESYSTEM_WARNING",
              IDS_FILE_BROWSER_UNKNOWN_FILESYSTEM_WARNING);
   SET_STRING("UNMOUNT_DEVICE_BUTTON_LABEL",
@@ -920,7 +978,6 @@ std::unique_ptr<base::DictionaryValue> GetFileManagerStrings() {
   SET_STRING("ZIP_FILESYSTEM_ERROR", IDS_FILE_BROWSER_ZIP_FILESYSTEM_ERROR);
   SET_STRING("ZIP_FILE_NAME", IDS_FILE_BROWSER_ZIP_FILE_NAME);
   SET_STRING("ZIP_ITEMS_REMAINING", IDS_FILE_BROWSER_ZIP_ITEMS_REMAINING);
-  SET_STRING("ZIP_PROGRESS_SUMMARY", IDS_FILE_BROWSER_ZIP_PROGRESS_SUMMARY);
   SET_STRING("ZIP_SELECTION_BUTTON_LABEL",
              IDS_FILE_BROWSER_ZIP_SELECTION_BUTTON_LABEL);
   SET_STRING("ZIP_TARGET_EXISTS_ERROR",
@@ -950,6 +1007,7 @@ std::unique_ptr<base::DictionaryValue> GetFileManagerStrings() {
       "GOOGLE_DRIVE_ERROR_HELP_URL",
       base::StringPrintf(kHelpURLFormat, kGoogleDriveErrorHelpNumber));
   dict->SetString("GOOGLE_DRIVE_HELP_URL", kGoogleDriveHelpUrl);
+  dict->SetString("GOOGLE_DRIVE_OFFLINE_HELP_URL", kGoogleDriveOfflineHelpUrl);
   dict->SetString("GOOGLE_DRIVE_OVERVIEW_URL", kGoogleDriveOverviewUrl);
   dict->SetString("GOOGLE_DRIVE_ROOT_URL", kGoogleDriveRootUrl);
   dict->SetString(
@@ -960,4 +1018,63 @@ std::unique_ptr<base::DictionaryValue> GetFileManagerStrings() {
                                  dict.get());
 
   return dict;
+}
+
+void AddFileManagerFeatureStrings(const std::string& locale,
+                                  Profile* profile,
+                                  base::DictionaryValue* dict) {
+  DCHECK(profile);
+
+  dict->SetBoolean("HIDE_SPACE_INFO",
+                   chromeos::DemoSession::IsDeviceInDemoMode());
+  dict->SetBoolean("ARC_USB_STORAGE_UI_ENABLED",
+                   base::FeatureList::IsEnabled(arc::kUsbStorageUIFeature));
+  dict->SetBoolean("CROSTINI_ENABLED",
+                   crostini::CrostiniFeatures::Get()->IsEnabled(profile));
+  dict->SetBoolean("PLUGIN_VM_ENABLED",
+                   plugin_vm::PluginVmFeatures::Get()->IsEnabled(profile));
+  dict->SetBoolean(
+      "FILES_CAMERA_FOLDER_ENABLED",
+      base::FeatureList::IsEnabled(chromeos::features::kFilesCameraFolder));
+  dict->SetBoolean("FILES_NG_ENABLED",
+                   base::FeatureList::IsEnabled(chromeos::features::kFilesNG));
+  dict->SetBoolean("COPY_IMAGE_ENABLED",
+                   base::FeatureList::IsEnabled(
+                       chromeos::features::kEnableFilesAppCopyImage));
+  dict->SetBoolean(
+      "UNIFIED_MEDIA_VIEW_ENABLED",
+      base::FeatureList::IsEnabled(chromeos::features::kUnifiedMediaView));
+  dict->SetBoolean("FILES_TRASH_ENABLED", base::FeatureList::IsEnabled(
+                                              chromeos::features::kFilesTrash));
+  dict->SetBoolean("ZIP_MOUNT", base::FeatureList::IsEnabled(
+                                    chromeos::features::kFilesZipMount));
+  dict->SetBoolean("ZIP_PACK", base::FeatureList::IsEnabled(
+                                   chromeos::features::kFilesZipPack));
+  dict->SetBoolean("ZIP_UNPACK", base::FeatureList::IsEnabled(
+                                     chromeos::features::kFilesZipUnpack));
+  dict->SetBoolean(
+      "DRIVE_DSS_PIN_ENABLED",
+      base::FeatureList::IsEnabled(
+          chromeos::features::kDriveFsBidirectionalNativeMessaging));
+  dict->SetBoolean("SHARESHEET_ENABLED",
+                   base::FeatureList::IsEnabled(features::kSharesheet));
+  dict->SetBoolean(
+      "FILTERS_IN_RECENTS_ENABLED",
+      base::FeatureList::IsEnabled(chromeos::features::kFiltersInRecents));
+  dict->SetBoolean("HOLDING_SPACE_ENABLED",
+                   ash::features::IsTemporaryHoldingSpaceEnabled());
+  dict->SetBoolean("FILES_SINGLE_PARTITION_FORMAT_ENABLED",
+                   base::FeatureList::IsEnabled(
+                       chromeos::features::kFilesSinglePartitionFormat));
+  dict->SetBoolean(
+      "FILES_JS_MODULES_ENABLED",
+      base::FeatureList::IsEnabled(chromeos::features::kFilesJsModules));
+  dict->SetBoolean(
+      "AUDIO_PLAYER_JS_MODULES_ENABLED",
+      base::FeatureList::IsEnabled(chromeos::features::kAudioPlayerJsModules));
+  dict->SetBoolean(
+      "VIDEO_PLAYER_JS_MODULES_ENABLED",
+      base::FeatureList::IsEnabled(chromeos::features::kVideoPlayerJsModules));
+
+  dict->SetString("UI_LOCALE", locale);
 }

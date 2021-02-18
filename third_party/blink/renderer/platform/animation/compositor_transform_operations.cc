@@ -6,16 +6,17 @@
 
 #include "third_party/skia/include/core/SkMatrix44.h"
 #include "ui/gfx/transform.h"
+#include "ui/gfx/transform_operations.h"
 
 namespace blink {
 
-const cc::TransformOperations&
-CompositorTransformOperations::AsCcTransformOperations() const {
+const gfx::TransformOperations&
+CompositorTransformOperations::AsGfxTransformOperations() const {
   return transform_operations_;
 }
 
-cc::TransformOperations
-CompositorTransformOperations::ReleaseCcTransformOperations() {
+gfx::TransformOperations
+CompositorTransformOperations::ReleaseGfxTransformOperations() {
   return std::move(transform_operations_);
 }
 
@@ -43,6 +44,14 @@ void CompositorTransformOperations::AppendRotate(double x,
 void CompositorTransformOperations::AppendScale(double x, double y, double z) {
   transform_operations_.AppendScale(SkDoubleToScalar(x), SkDoubleToScalar(y),
                                     SkDoubleToScalar(z));
+}
+
+void CompositorTransformOperations::AppendSkewX(double x) {
+  transform_operations_.AppendSkewX(SkDoubleToScalar(x));
+}
+
+void CompositorTransformOperations::AppendSkewY(double y) {
+  transform_operations_.AppendSkewY(SkDoubleToScalar(y));
 }
 
 void CompositorTransformOperations::AppendSkew(double x, double y) {

@@ -10,8 +10,8 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "build/build_config.h"
-#include "content/browser/frame_host/render_frame_host_delegate.h"
-#include "content/browser/frame_host/render_frame_host_impl.h"
+#include "content/browser/renderer_host/render_frame_host_delegate.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -54,18 +54,21 @@ MediaDevicesManager::BoolDeviceTypes DoCheckPermissionsOnUIThread(
   // Speakers.
   // TODO(guidou): use specific permission for audio output when it becomes
   // available. See http://crbug.com/556542.
-  result[blink::MEDIA_DEVICE_TYPE_AUDIO_OUTPUT] =
-      requested_device_types[blink::MEDIA_DEVICE_TYPE_AUDIO_OUTPUT] &&
+  result[static_cast<size_t>(MediaDeviceType::MEDIA_AUDIO_OUTPUT)] =
+      requested_device_types[static_cast<size_t>(
+          MediaDeviceType::MEDIA_AUDIO_OUTPUT)] &&
       audio_permission;
 
   // Mic.
-  result[blink::MEDIA_DEVICE_TYPE_AUDIO_INPUT] =
-      requested_device_types[blink::MEDIA_DEVICE_TYPE_AUDIO_INPUT] &&
+  result[static_cast<size_t>(MediaDeviceType::MEDIA_AUDIO_INPUT)] =
+      requested_device_types[static_cast<size_t>(
+          MediaDeviceType::MEDIA_AUDIO_INPUT)] &&
       audio_permission && mic_feature_policy;
 
   // Camera.
-  result[blink::MEDIA_DEVICE_TYPE_VIDEO_INPUT] =
-      requested_device_types[blink::MEDIA_DEVICE_TYPE_VIDEO_INPUT] &&
+  result[static_cast<size_t>(MediaDeviceType::MEDIA_VIDEO_INPUT)] =
+      requested_device_types[static_cast<size_t>(
+          MediaDeviceType::MEDIA_VIDEO_INPUT)] &&
       delegate->CheckMediaAccessPermission(
           frame_host, origin,
           blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE) &&
@@ -74,15 +77,15 @@ MediaDevicesManager::BoolDeviceTypes DoCheckPermissionsOnUIThread(
   return result;
 }
 
-bool CheckSinglePermissionOnUIThread(blink::MediaDeviceType device_type,
+bool CheckSinglePermissionOnUIThread(MediaDeviceType device_type,
                                      int render_process_id,
                                      int render_frame_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   MediaDevicesManager::BoolDeviceTypes requested;
-  requested[device_type] = true;
+  requested[static_cast<size_t>(device_type)] = true;
   MediaDevicesManager::BoolDeviceTypes result = DoCheckPermissionsOnUIThread(
       requested, render_process_id, render_frame_id);
-  return result[device_type];
+  return result[static_cast<size_t>(device_type)];
 }
 
 }  // namespace
@@ -99,7 +102,7 @@ MediaDevicesPermissionChecker::MediaDevicesPermissionChecker(
     : use_override_(true), override_value_(override_value) {}
 
 bool MediaDevicesPermissionChecker::CheckPermissionOnUIThread(
-    blink::MediaDeviceType device_type,
+    MediaDeviceType device_type,
     int render_process_id,
     int render_frame_id) const {
   if (use_override_)
@@ -110,7 +113,7 @@ bool MediaDevicesPermissionChecker::CheckPermissionOnUIThread(
 }
 
 void MediaDevicesPermissionChecker::CheckPermission(
-    blink::MediaDeviceType device_type,
+    MediaDeviceType device_type,
     int render_process_id,
     int render_frame_id,
     base::OnceCallback<void(bool)> callback) const {
@@ -152,40 +155,11 @@ bool MediaDevicesPermissionChecker::HasPanTiltZoomPermissionGrantedOnUIThread(
     int render_frame_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 #if defined(OS_ANDROID)
-  // The PTZ permission is automatically granted on Android, regardless of the
-  // MediaCapturePanTilt Blink feature state. This way, zoom is not initially
-  // empty in ImageCapture. It is safe to do so because pan and tilt are not
-  // supported on Android.
+  // The PTZ permission is automatically granted on Android. This way, zoom is
+  // not initially empty in ImageCapture. It is safe to do so because pan and
+  // tilt are not supported on Android.
   return true;
 #else
-  // TODO(crbug.com/934063): Remove when MediaCapturePanTilt Blink feature is
-  // enabled by default.
-  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableExperimentalWebPlatformFeatures)) {
-    return false;
-  }
-  return IsPanTiltZoomAllowedOnUIThread(render_process_id, render_frame_id);
-#endif
-}
-
-// static
-// TODO(crbug.com/934063): Remove when MediaCapturePanTilt Blink feature is
-// enabled by default.
-bool MediaDevicesPermissionChecker::HasZoomPermissionGrantedOnUIThread(
-    int render_process_id,
-    int render_frame_id) {
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
-#if defined(OS_ANDROID)
-  return true;
-#else
-  return IsPanTiltZoomAllowedOnUIThread(render_process_id, render_frame_id);
-#endif
-}
-
-bool MediaDevicesPermissionChecker::IsPanTiltZoomAllowedOnUIThread(
-    int render_process_id,
-    int render_frame_id) {
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   RenderFrameHostImpl* frame_host =
       RenderFrameHostImpl::FromID(render_process_id, render_frame_id);
 
@@ -206,6 +180,6 @@ bool MediaDevicesPermissionChecker::IsPanTiltZoomAllowedOnUIThread(
           PermissionType::CAMERA_PAN_TILT_ZOOM, frame_host, origin);
 
   return status == blink::mojom::PermissionStatus::GRANTED;
+#endif
 }
-
 }  // namespace content

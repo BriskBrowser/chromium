@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_PERMISSIONS_ADAPTIVE_QUIET_NOTIFICATION_PERMISSION_UI_ENABLER_H_
 #define CHROME_BROWSER_PERMISSIONS_ADAPTIVE_QUIET_NOTIFICATION_PERMISSION_UI_ENABLER_H_
 
+#include <memory>
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/singleton.h"
@@ -15,10 +16,6 @@
 
 class PrefChangeRegistrar;
 class Profile;
-
-namespace base {
-class Clock;
-}
 
 // Keeps track of past user interactions with notification permission requests,
 // and adaptively enables the quiet permission UX if various heuristics estimate
@@ -49,17 +46,13 @@ class AdaptiveQuietNotificationPermissionUiEnabler : public KeyedService {
   static AdaptiveQuietNotificationPermissionUiEnabler* GetForProfile(
       Profile* profile);
 
-  // Records the outcome of a notification permission prompt, i.e. how the user
-  // interacted with it, to be called once a permission request finishes.
-  void RecordPermissionPromptOutcome(permissions::PermissionAction action);
+  // Called after a notification permission prompt was resolved.
+  void PermissionPromptResolved();
 
-  // Delete logs of past user interactions. To be called when clearing
-  // browsing data.
-  void ClearInteractionHistory(const base::Time& delete_begin,
-                               const base::Time& delete_end);
-
-  // The |clock| must outlive this instance.
-  void set_clock_for_testing(base::Clock* clock) { clock_ = clock; }
+  // Only used for testing.
+  void BackfillEnablingMethodIfMissingForTesting() {
+    BackfillEnablingMethodIfMissing();
+  }
 
  private:
   explicit AdaptiveQuietNotificationPermissionUiEnabler(Profile* profile);
@@ -68,13 +61,13 @@ class AdaptiveQuietNotificationPermissionUiEnabler : public KeyedService {
   // Called when the quiet UI state is updated in preferences.
   void OnQuietUiStateChanged();
 
+  // Retroactively backfills the enabling method, which was not populated
+  // before M88.
+  void BackfillEnablingMethodIfMissing();
+
   Profile* profile_;
   std::unique_ptr<PrefChangeRegistrar> pref_change_registrar_;
   bool is_enabling_adaptively_ = false;
-
-  // The clock to use as a source of time, materialized so that a mock clock can
-  // be injected for tests.
-  base::Clock* clock_;
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(AdaptiveQuietNotificationPermissionUiEnabler);
 };

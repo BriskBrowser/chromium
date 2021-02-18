@@ -10,6 +10,7 @@
 
 #include "base/containers/flat_map.h"
 #include "base/sequence_checker.h"
+#include "chrome/browser/media/router/discovery/dial/dial_app_discovery_service.h"
 #include "chrome/browser/media/router/discovery/dial/dial_url_fetcher.h"
 #include "components/media_router/common/discovery/media_sink_internal.h"
 #include "components/media_router/common/media_route.h"
@@ -55,17 +56,14 @@ struct DialActivity {
                                             const MediaSource::Id& source_id,
                                             bool off_the_record);
 
-  DialActivity(const DialLaunchInfo& launch_info, const MediaRoute& route);
+  DialActivity(const DialLaunchInfo& launch_info,
+               const MediaRoute& route,
+               const MediaSinkInternal& sink);
   ~DialActivity();
 
   DialLaunchInfo launch_info;
-
-  // TODO(https://crbug.com/816628): The MediaRoute itself does not contain
-  // sufficient information to tell the current state of the activity (launching
-  // vs. launched). Because of this, the route is rendered in the Media Router
-  // UI the same way for both states. Consider introducing a state property in
-  // MediaRoute so that the UI can render them differently.
   MediaRoute route;
+  MediaSinkInternal sink;
 };
 
 template <typename CallbackType>
@@ -102,7 +100,7 @@ class DialActivityManager {
  public:
   using LaunchAppCallback = base::OnceCallback<void(bool)>;
 
-  DialActivityManager();
+  explicit DialActivityManager(DialAppDiscoveryService* app_discovery_service);
   virtual ~DialActivityManager();
 
   // Adds |activity| to the manager. This call is valid only if there is no
@@ -177,15 +175,23 @@ class DialActivityManager {
   void OnLaunchSuccess(const MediaRoute::Id& route_id,
                        const std::string& response);
   void OnLaunchError(const MediaRoute::Id& route_id,
-                     int response_code,
-                     const std::string& message);
+                     const std::string& message,
+                     base::Optional<int> http_response_code);
   void OnStopSuccess(const MediaRoute::Id& route_id,
                      const std::string& response);
   void OnStopError(const MediaRoute::Id& route_id,
-                   int response_code,
-                   const std::string& message);
+                   const std::string& message,
+                   base::Optional<int> http_response_code);
+
+  void OnInfoFetchedAfterStopError(const MediaRoute::Id& route_id,
+                                   const std::string& message,
+                                   const MediaSink::Id& sink_id,
+                                   const std::string& app_name,
+                                   DialAppInfoResult result);
 
   base::flat_map<MediaRoute::Id, std::unique_ptr<Record>> records_;
+
+  DialAppDiscoveryService* const app_discovery_service_;
 
   SEQUENCE_CHECKER(sequence_checker_);
   DISALLOW_COPY_AND_ASSIGN(DialActivityManager);

@@ -16,6 +16,7 @@
 #include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #include "components/arc/metrics/arc_metrics_constants.h"
 #include "components/arc/mojom/app.mojom-forward.h"
+#include "components/services/app_service/public/mojom/types.mojom.h"
 
 class Profile;
 
@@ -48,6 +49,7 @@ extern const char kPlayStoreAppId[];
 extern const char kSettingsAppId[];
 extern const char kYoutubeAppId[];
 extern const char kYoutubeMusicAppId[];
+extern const char kYoutubeMusicWebApkAppId[];
 
 // Represents unparsed intent.
 class Intent {
@@ -105,13 +107,9 @@ class AppLaunchObserver : public base::CheckedObserver {
 // Checks if a given app should be hidden in launcher.
 bool ShouldShowInLauncher(const std::string& app_id);
 
-// Launch Android Settings app.
-bool LaunchAndroidSettingsApp(content::BrowserContext* context,
-                              int event_flags,
-                              int64_t display_id);
-
-// Launch Play Store app.
-bool LaunchPlayStoreWithUrl(const std::string& url);
+// Helper to create arc::mojom::WindowInfoPtr using |display_id|, which is the
+// id of the display from which the app is launched.
+arc::mojom::WindowInfoPtr MakeWindowInfo(int64_t display_id);
 
 // Launches an ARC app.
 bool LaunchApp(content::BrowserContext* context,
@@ -122,7 +120,7 @@ bool LaunchApp(content::BrowserContext* context,
                const std::string& app_id,
                int event_flags,
                UserInteractionType user_action,
-               int64_t display_id);
+               arc::mojom::WindowInfoPtr window_info);
 
 bool LaunchAppWithIntent(content::BrowserContext* context,
                          const std::string& app_id,
@@ -206,7 +204,7 @@ void GetAndroidId(
 std::string AppIdToArcPackageName(const std::string& app_id, Profile* profile);
 
 // Returns the AppID for the specified package_name, which must be the package
-// name of an ARC app.
+// name of an ARC app or an empty string if name not found.
 std::string ArcPackageNameToAppId(const std::string& package_name,
                                   Profile* profile);
 

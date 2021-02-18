@@ -74,6 +74,11 @@ const CFTimeInterval kMinimumPullDurationToTriggerActionInSeconds = 0.2;
 const CGFloat kSpringTightness = 2;
 const CGFloat kSpringDampiness = 0.5;
 
+// Investigation into crbug.com/1102494 shows that the most likely issue is
+// that there are many many instances of OverscrollActionsController live at
+// once. This tracks how many live instances there are.
+static int gInstanceCount = 0;
+
 // This holds the current state of the bounce back animation.
 typedef struct {
   CGFloat yInset;
@@ -277,6 +282,7 @@ NSString* const kOverscrollActionsDidEnd = @"OverscrollActionsDidStop";
       << "exactly one of scrollView and webViewProxy must be non-nil";
 
   if ((self = [super init])) {
+    gInstanceCount++;
     _overscrollActionView =
         [[OverscrollActionsView alloc] initWithFrame:CGRectZero];
     _overscrollActionView.delegate = self;
@@ -320,6 +326,11 @@ NSString* const kOverscrollActionsDidEnd = @"OverscrollActionsDidStop";
 - (void)dealloc {
   self.overscrollActionView.delegate = nil;
   [self invalidate];
+  gInstanceCount--;
+}
+
++ (int)instanceCount {
+  return gInstanceCount;
 }
 
 - (void)scheduleInvalidate {
@@ -441,8 +452,12 @@ NSString* const kOverscrollActionsDidEnd = @"OverscrollActionsDidStop";
   self.scrollViewDragged = NO;
   // Content is now hidden behind toolbar, make sure that contentInset is
   // restored to initial value.
+  // If Overscroll actions are triggered and dismissed quickly, it is
+  // possible to be in a state where drag is enough to be in STARTED_PULLING
+  // or ACTION_READY state, but with no selectedAction.
   if (contentOffset.y >= 0 ||
-      self.overscrollState == OverscrollState::NO_PULL_STARTED) {
+      self.overscrollState == OverscrollState::NO_PULL_STARTED ||
+      self.overscrollActionView.selectedAction == OverscrollAction::NONE) {
     [self resetScrollViewTopContentInset];
   }
 
@@ -563,9 +578,7 @@ NSString* const kOverscrollActionsDidEnd = @"OverscrollActionsDidStop";
 - (BOOL)viewportAdjustsContentInset {
   if (_webViewProxy.shouldUseViewContentInset)
     return YES;
-  return ios::GetChromeBrowserProvider()
-      ->GetFullscreenProvider()
-      ->IsInitialized();
+  return fullscreen::features::ShouldUseSmoothScrolling();
 }
 
 - (void)recordMetricForTriggeredAction:(OverscrollAction)action {
@@ -756,11 +769,19 @@ NSString* const kOverscrollActionsDidEnd = @"OverscrollActionsDidStop";
                  switch (self.overscrollState) {
                    case OverscrollState::NO_PULL_STARTED: {
                      [self.overscrollActionView removeFromSuperview];
-                     SetViewFrameHeight(self.overscrollActionView,
-                                        self.initialContentInset +
-                                            [UIApplication sharedApplication]
-                                                .statusBarFrame.size.height,
-                                        0);
+#if !defined(__IPHONE_13_0) || __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_13_0
+                     CGRect statusBarFrame =
+                         [UIApplication sharedApplication].statusBarFrame;
+#else
+                     CGRect statusBarFrame =
+                         [self scrollView]
+                             .window.windowScene.statusBarManager
+                             .statusBarFrame;
+#endif
+                     SetViewFrameHeight(
+                         self.overscrollActionView,
+                         self.initialContentInset + statusBarFrame.size.height,
+                         0);
                      self.panPointScreenOrigin = CGPointZero;
                      [[NSNotificationCenter defaultCenter]
                          postNotificationName:kOverscrollActionsDidEnd

@@ -12,10 +12,12 @@ import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
 import 'chrome://resources/cr_elements/cr_checkbox/cr_checkbox.m.js';
 import 'chrome://resources/mojo/mojo/public/js/mojo_bindings_lite.js';
 import 'chrome://resources/mojo/mojo/public/mojom/base/unguessable_token.mojom-lite.js';
-import './nearby_preview.js';
-import './nearby_progress.js';
-import './nearby_share_target_types.mojom-lite.js';
-import './nearby_share.mojom-lite.js';
+import './mojo/nearby_share_target_types.mojom-lite.js';
+import './mojo/nearby_share_share_type.mojom-lite.js';
+import './mojo/nearby_share.mojom-lite.js';
+import './shared/nearby_page_template.m.js';
+import './shared/nearby_preview.m.js';
+import './shared/nearby_progress.m.js';
 import './strings.m.js';
 
 import {I18nBehavior} from 'chrome://resources/js/i18n_behavior.m.js';
@@ -89,6 +91,16 @@ Polymer({
     },
 
     /**
+     * Preview info for the file(s) to send. Expected to start
+     * as null, then change to a valid object before this component is shown.
+     * @type {?nearbyShare.mojom.PayloadPreview}
+     */
+    payloadPreview: {
+      type: Object,
+      value: null,
+    },
+
+    /**
      * Token to show to the user to confirm the selected share target. Expected
      * to start as null, then change to a valid object via updates from the
      * transferUpdateListener.
@@ -100,17 +112,64 @@ Polymer({
     },
 
     /**
-     * Whether the user needs to confirm this transfer on the local device.
+     * Header text for error. The error section is not displayed if this is
+     * falsey.
+     * @private {?string}
+     */
+    errorTitle_: {
+      type: String,
+      value: null,
+    },
+
+    /**
+     * Description text for error, displayed under the error title.
+     * @private {?string}
+     */
+    errorDescription_: {
+      type: String,
+      value: null,
+    },
+
+    /**
+     * Whether the user needs to confirm this transfer on the local device. This
+     * affects which buttons are displayed to the user.
      * @private
      * */
     needsConfirmation_: {
       type: Boolean,
       value: false,
     },
+
+    /**
+     * @private {?nearbyShare.mojom.TransferStatus}
+     */
+    lastTransferStatus_: {
+      type: nearbyShare.mojom.TransferStatus,
+      value: null,
+    },
+  },
+
+  listeners: {
+    'accept': 'onAccept_',
+    'reject': 'onReject_',
+    'cancel': 'onCancel_',
   },
 
   /** @private {?TransferUpdateListener} */
   transferUpdateListener_: null,
+
+  /**
+   * @return {!Object} The transferStatus, errorTitle, and errorDescription.
+   * @public
+   */
+  getTransferInfoForTesting() {
+    return {
+      confirmationToken: this.confirmationToken_,
+      transferStatus: this.lastTransferStatus_,
+      errorTitle: this.errorTitle_,
+      errorDescription: this.errorDescription_,
+    };
+  },
 
   /**
    * @param {?nearbyShare.mojom.TransferUpdateListenerPendingReceiver}
@@ -134,6 +193,7 @@ Polymer({
     if (token) {
       this.confirmationToken_ = token;
     }
+    this.lastTransferStatus_ = status;
 
     switch (status) {
       case nearbyShare.mojom.TransferStatus.kAwaitingLocalConfirmation:
@@ -143,30 +203,101 @@ Polymer({
         this.needsConfirmation_ = false;
         break;
       case nearbyShare.mojom.TransferStatus.kInProgress:
+      case nearbyShare.mojom.TransferStatus.kComplete:
         this.fire('close');
+        break;
+      case nearbyShare.mojom.TransferStatus.kRejected:
+        this.errorTitle_ = this.i18n('nearbyShareErrorCantShare');
+        this.errorDescription_ = this.i18n('nearbyShareErrorRejected');
+        break;
+      case nearbyShare.mojom.TransferStatus.kTimedOut:
+        this.errorTitle_ = this.i18n('nearbyShareErrorTimeOut');
+        this.errorDescription_ = this.i18n('nearbyShareErrorNoResponse');
+        break;
+      case nearbyShare.mojom.TransferStatus.kUnsupportedAttachmentType:
+        this.errorTitle_ = this.i18n('nearbyShareErrorCantShare');
+        this.errorDescription_ =
+            this.i18n('nearbyShareErrorUnsupportedFileType');
+        break;
+      case nearbyShare.mojom.TransferStatus.kMediaUnavailable:
+      case nearbyShare.mojom.TransferStatus.kNotEnoughSpace:
+      case nearbyShare.mojom.TransferStatus.kFailed:
+      case nearbyShare.mojom.TransferStatus.kAwaitingRemoteAcceptanceFailed:
+        this.errorTitle_ = this.i18n('nearbyShareErrorCantShare');
+        this.errorDescription_ = this.i18n('nearbyShareErrorSomethingWrong');
         break;
     }
   },
 
+  /**
+   * @return {string} The contact name of the selected ShareTarget.
+   * @private
+   */
+  contactName_() {
+    // TODO(crbug.com/1123943): Get contact name from ShareTarget.
+    const contactName = null;
+    if (!contactName || this.errorTitle_) {
+      return '';
+    }
+    return this.i18n('nearbyShareConfirmationPageAddContactTitle', contactName);
+  },
+
   /** @private */
-  onAcceptTap_() {
+  onAccept_() {
     this.confirmationManager.accept().then(
         result => {
-            // TODO(knollr): Show error if !result.success
+            // TODO(crbug.com/1123934): Show error if !result.success
         });
   },
 
   /** @private */
-  onRejectTap_() {
+  onReject_() {
     this.confirmationManager.reject().then(result => {
       this.fire('close');
     });
   },
 
   /** @private */
-  onCancelTap_() {
+  onCancel_() {
     this.confirmationManager.cancel().then(result => {
       this.fire('close');
     });
+  },
+
+  /**
+   * @param {boolean} needsConfirmation
+   * @return {?string} Localized string or null if the button should be hidden.
+   */
+  getActionButtonLabel_(needsConfirmation) {
+    return needsConfirmation ? this.i18n('nearbyShareActionsConfirm') : null;
+  },
+
+  /**
+   * @param {boolean} needsConfirmation
+   * @return {string} Localized string to show on the cancel button.
+   * @private
+   */
+  getCancelButtonLabel_(needsConfirmation) {
+    return needsConfirmation ? this.i18n('nearbyShareActionsReject') :
+                               this.i18n('nearbyShareActionsCancel');
+  },
+
+  /**
+   * @param {boolean} needsConfirmation
+   * @return {string} The event name fire when the cancel button is clicked.
+   * @private
+   */
+  getCancelEventName_(needsConfirmation) {
+    return needsConfirmation ? 'reject' : 'cancel';
+  },
+
+  /**
+   * @return {!string} The title of the attachment to be shared.
+   * @private
+   */
+  attachmentTitle_() {
+    return this.payloadPreview && this.payloadPreview.description ?
+        this.payloadPreview.description :
+        'Unknown file';
   },
 });

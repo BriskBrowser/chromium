@@ -18,6 +18,10 @@
 
 namespace blink {
 
+namespace scheduler {
+class WebAgentGroupScheduler;
+}  // namespace scheduler
+
 class PLATFORM_EXPORT PageScheduler {
  public:
   class PLATFORM_EXPORT Delegate {
@@ -34,6 +38,8 @@ class PLATFORM_EXPORT PageScheduler {
     // Returns true iff the network is idle for the local main frame.
     // Always returns false if the main frame is remote.
     virtual bool LocalMainFrameNetworkIsAlmostIdle() const { return true; }
+    // Returns if the page has focus.
+    virtual bool IsFocused() const = 0;
   };
 
   virtual ~PageScheduler() = default;
@@ -47,6 +53,8 @@ class PLATFORM_EXPORT PageScheduler {
   virtual void SetPageFrozen(bool) = 0;
   // Handles operations required for storing the page in the back-forward cache.
   virtual void SetPageBackForwardCached(bool) = 0;
+  // Handle page focus changed.
+  virtual void OnFocusChanged(bool focused) = 0;
   // Tells the scheduler about "keep-alive" state which can be due to:
   // service workers, shared workers, or fetch keep-alive.
   // If true, then the scheduler should not freeze relevant task queues.
@@ -57,6 +65,8 @@ class PLATFORM_EXPORT PageScheduler {
   // Invoked when the local main frame's network becomes almost idle.
   // Never invoked if the main frame is remote.
   virtual void OnLocalMainFrameNetworkAlmostIdle() = 0;
+  // Whether the main frame of this page is in BackForwardCache or not.
+  virtual bool IsInBackForwardCache() const = 0;
 
   // Creates a new FrameScheduler. The caller is responsible for deleting
   // it. All tasks executed by the frame scheduler will be attributed to
@@ -156,6 +166,9 @@ class PLATFORM_EXPORT PageScheduler {
   virtual WebScopedVirtualTimePauser CreateWebScopedVirtualTimePauser(
       const String& name,
       WebScopedVirtualTimePauser::VirtualTaskDuration) = 0;
+
+  // Returns WebAgentGroupScheduler
+  virtual scheduler::WebAgentGroupScheduler& GetAgentGroupScheduler() = 0;
 };
 
 }  // namespace blink

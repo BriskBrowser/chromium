@@ -41,20 +41,61 @@ class TestUtils {
     }
     return stringified.replace(/^[^\/]+\/\*!?/, '').replace(/\*\/[^\/]+$/, '');
   }
-}
 
+  /**
+   * Create a mock event object.
+   * @param {number} keyCode
+   * @param {{altGraphKey: boolean=,
+   *         altKey: boolean=,
+   *         ctrlKey: boolean=,
+   *         metaKey: boolean=,
+   *         searchKeyHeld: boolean=,
+   *         shiftKey: boolean=,
+   *         stickyMode: boolean=,
+   *         prefixKey: boolean=}=} opt_modifiers
+   * @return {Object} The mock event.
+   */
+  static createMockKeyEvent(keyCode, opt_modifiers) {
+    const modifiers = opt_modifiers === undefined ? {} : opt_modifiers;
+    const keyEvent = {};
+    keyEvent.keyCode = keyCode;
+    for (const key in modifiers) {
+      keyEvent[key] = modifiers[key];
+    }
+    keyEvent.preventDefault = _ => {};
+    keyEvent.stopPropagation = _ => {};
+    return keyEvent;
+  }
 
-/**
- * Similar to |TEST_F|. Generates a test for the given |testFixture|,
- * |testName|, and |testFunction|.
- * Used this variant when an |isAsync| fixture wants to temporarily mix in an
- * sync test.
- * @param {string} testFixture Fixture name.
- * @param {string} testName Test name.
- * @param {function} testFunction The test impl.
- */
-function SYNC_TEST_F(testFixture, testName, testFunction) {
-  TEST_F(testFixture, testName, function() {
-    this.newCallback(testFunction)();
-  });
+  /**
+   * Returns a promise which gets resolved when ChromeVox speaks the given
+   * string.
+   * @param {string} textStringToWaitFor
+   * @return {!Promise}
+   */
+  static waitForSpeech(textStringToWaitFor) {
+    return new Promise(resolve => {
+      ChromeVox.tts.speak = (textString) => {
+        if (textString === textStringToWaitFor) {
+          resolve();
+        }
+      };
+    });
+  }
+
+  /**
+   * Waits for the specified event on the given node.
+   * @param {!chrome.automation.AutomationNode} node
+   * @param {chrome.automation.EventType} eventType
+   * @return {!Promise}
+   */
+  static waitForEvent(node, eventType) {
+    return new Promise(resolve => {
+      const listener = () => {
+        node.removeEventListener(eventType, listener);
+        resolve();
+      };
+      node.addEventListener(eventType, listener);
+    });
+  }
 }

@@ -11,6 +11,7 @@
 #include "base/optional.h"
 #include "base/time/time.h"
 #include "components/feed/core/proto/v2/packing.pb.h"
+#include "components/feed/core/proto/v2/wire/chrome_feed_response_metadata.pb.h"
 #include "components/feed/core/proto/v2/wire/data_operation.pb.h"
 #include "components/feed/core/proto/v2/wire/feature.pb.h"
 #include "components/feed/core/proto/v2/wire/feed_response.pb.h"
@@ -18,6 +19,7 @@
 #include "components/feed/core/proto/v2/wire/request_schedule.pb.h"
 #include "components/feed/core/proto/v2/wire/stream_structure.pb.h"
 #include "components/feed/core/proto/v2/wire/token.pb.h"
+#include "components/feed/core/v2/metrics_reporter.h"
 #include "components/feed/core/v2/proto_util.h"
 
 namespace feed {
@@ -254,6 +256,7 @@ base::Optional<feedstore::DataOperation> TranslateDataOperation(
 RefreshResponseData TranslateWireResponse(
     feedwire::Response response,
     StreamModelUpdateRequest::Source source,
+    bool was_signed_in_request,
     base::Time current_time) {
   if (response.response_version() != feedwire::Response::FEED_RESPONSE)
     return {};
@@ -297,9 +300,43 @@ RefreshResponseData TranslateWireResponse(
   }
   feedstore::SetLastAddedTime(current_time, result->stream_data);
 
+  const auto& response_metadata =
+      feed_response->feed_response_metadata().chrome_feed_response_metadata();
+  result->stream_data.set_signed_in(was_signed_in_request);
+  result->stream_data.set_logging_enabled(response_metadata.logging_enabled());
+  result->stream_data.set_privacy_notice_fulfilled(
+      response_metadata.privacy_notice_fulfilled());
+
+  base::Optional<std::string> session_id = base::nullopt;
+  if (was_signed_in_request) {
+    // Signed-in requests don't use session_id tokens; set an empty value to
+    // ensure that there are no old session_id tokens left hanging around.
+    session_id = std::string();
+  } else if (response_metadata.has_session_id()) {
+    // Signed-out requests can set a new session token; otherwise, we leave
+    // the default base::nullopt value to keep whatever token is already in
+    // play.
+    session_id = response_metadata.session_id();
+  }
+
+  base::Optional<Experiments> experiments = base::nullopt;
+  if (response_metadata.experiments_size() > 0) {
+    Experiments e;
+    for (feedwire::Experiment exp : response_metadata.experiments()) {
+      e[exp.trial_name()] = exp.group_name();
+    }
+    experiments = std::move(e);
+  }
+
+  MetricsReporter::ActivityLoggingEnabled(response_metadata.logging_enabled());
+  MetricsReporter::NoticeCardFulfilledObsolete(
+      response_metadata.privacy_notice_fulfilled());
+
   RefreshResponseData response_data;
   response_data.model_update_request = std::move(result);
   response_data.request_schedule = std::move(global_data.request_schedule);
+  response_data.session_id = std::move(session_id);
+  response_data.experiments = std::move(experiments);
 
   return response_data;
 }

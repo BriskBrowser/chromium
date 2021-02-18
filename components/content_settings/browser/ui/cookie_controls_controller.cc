@@ -33,7 +33,7 @@ CookieControlsController::CookieControlsController(
     scoped_refptr<CookieSettings> original_cookie_settings)
     : cookie_settings_(cookie_settings),
       original_cookie_settings_(original_cookie_settings) {
-  cookie_observer_.Add(cookie_settings_.get());
+  cookie_observation_.Observe(cookie_settings_.get());
 }
 
 CookieControlsController::~CookieControlsController() = default;
@@ -105,6 +105,11 @@ void CookieControlsController::OnCookieBlockingEnabledForSite(
     cookie_settings_->SetThirdPartyCookieSetting(
         GetWebContents()->GetURL(), ContentSetting::CONTENT_SETTING_ALLOW);
   }
+}
+
+bool CookieControlsController::FirstPartyCookiesBlocked() {
+  const GURL& url = GetWebContents()->GetURL();
+  return !cookie_settings_->IsCookieAccessAllowed(url, url, base::nullopt);
 }
 
 int CookieControlsController::GetAllowedCookieCount() {

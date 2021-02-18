@@ -9,6 +9,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/util/values/values_util.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/enterprise/reporting/reporting_delegate_factory_desktop.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/signin/identity_test_environment_profile_adaptor.h"
@@ -92,7 +93,7 @@ class ProfileReportGeneratorTest : public ::testing::Test {
       const base::FilePath& path,
       const std::string& name) {
     std::unique_ptr<em::ChromeUserProfileInfo> report =
-        generator_.MaybeGenerate(path, name);
+        generator_.MaybeGenerate(path, name, ReportType::kFull);
     return report;
   }
 
@@ -102,7 +103,7 @@ class ProfileReportGeneratorTest : public ::testing::Test {
     EXPECT_TRUE(report);
     EXPECT_EQ(profile()->GetProfileUserName(), report->name());
     EXPECT_EQ(profile()->GetPath().AsUTF8Unsafe(), report->id());
-    EXPECT_TRUE(report->is_full_report());
+    EXPECT_TRUE(report->is_detail_available());
 
     return report;
   }
@@ -154,7 +155,7 @@ TEST_F(ProfileReportGeneratorTest, ProfileNotActivated) {
       profile_path, base::ASCIIToUTF16(kIdleProfile), std::string(),
       base::string16(), false, 0, std::string(), EmptyAccountId());
   std::unique_ptr<em::ChromeUserProfileInfo> response =
-      generator_.MaybeGenerate(profile_path, kIdleProfile);
+      generator_.MaybeGenerate(profile_path, kIdleProfile, ReportType::kFull);
   ASSERT_FALSE(response.get());
 }
 
@@ -172,7 +173,7 @@ TEST_F(ProfileReportGeneratorTest, SignedInProfile) {
   EXPECT_TRUE(report->has_chrome_signed_in_user());
   EXPECT_EQ(expected_info.email, report->chrome_signed_in_user().email());
   EXPECT_EQ(expected_info.gaia,
-            report->chrome_signed_in_user().obfudscated_gaia_id());
+            report->chrome_signed_in_user().obfuscated_gaia_id());
 }
 
 TEST_F(ProfileReportGeneratorTest, PoliciesDisabled) {
@@ -263,6 +264,81 @@ TEST_F(ProfileReportGeneratorTest, TooManyRequests) {
   for (int id = 0; id < kMaxNumberOfExtensionRequest; id += 1)
     EXPECT_EQ(report->extension_requests(id).id(),
               report2->extension_requests(id).id());
+}
+
+TEST_F(ProfileReportGeneratorTest, ExtensionRequestOnlyReport) {
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kCloudExtensionRequestEnabled,
+      std::make_unique<base::Value>(true));
+  std::vector<std::string> ids = {kExtensionId};
+  SetExtensionToPendingList(ids);
+
+  IdentityTestEnvironmentProfileAdaptor identity_test_env_adaptor(profile());
+  auto expected_info =
+      identity_test_env_adaptor.identity_test_env()->SetPrimaryAccount(
+          "test@mail.com");
+
+  auto report = generator_.MaybeGenerate(profile()->GetPath(),
+                                         profile()->GetProfileUserName(),
+                                         ReportType::kExtensionRequest);
+
+  // Extension request and profile id are included. Profile name and sign in
+  // users info are included on CrOS only.
+  EXPECT_TRUE(report);
+  EXPECT_EQ(profile()->GetPath().AsUTF8Unsafe(), report->id());
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  EXPECT_EQ(profile()->GetProfileUserName(), report->name());
+  EXPECT_TRUE(report->has_chrome_signed_in_user());
+#else
+  EXPECT_FALSE(report->has_name());
+  EXPECT_FALSE(report->has_chrome_signed_in_user());
+#endif
+  ASSERT_EQ(1, report->extension_requests_size());
+  EXPECT_EQ(kExtensionId, report->extension_requests(0).id());
+  EXPECT_EQ(kFakeTime, report->extension_requests(0).request_timestamp());
+
+  // Policies and extensions info should not be added.
+  EXPECT_EQ(0, report->chrome_policies_size());
+  EXPECT_EQ(0, report->extensions_size());
+  EXPECT_EQ(0, report->policy_fetched_timestamps_size());
+  EXPECT_TRUE(report->is_detail_available());
+}
+
+TEST_F(ProfileReportGeneratorTest, ExtensionRequestOnlyReportWithoutPolicy) {
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kCloudExtensionRequestEnabled,
+      std::make_unique<base::Value>(false));
+  IdentityTestEnvironmentProfileAdaptor identity_test_env_adaptor(profile());
+  auto expected_info =
+      identity_test_env_adaptor.identity_test_env()->SetPrimaryAccount(
+          "test@mail.com");
+
+  auto report = generator_.MaybeGenerate(profile()->GetPath(),
+                                         profile()->GetProfileUserName(),
+                                         ReportType::kExtensionRequest);
+  EXPECT_TRUE(report);
+  EXPECT_EQ(0, report->extension_requests_size());
+}
+
+TEST_F(ProfileReportGeneratorTest,
+       ExtensionRequestOnlyReportWithoutAnyRequest) {
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kCloudExtensionRequestEnabled,
+      std::make_unique<base::Value>(true));
+  std::vector<std::string> ids;
+  SetExtensionToPendingList(ids);
+
+  IdentityTestEnvironmentProfileAdaptor identity_test_env_adaptor(profile());
+  auto expected_info =
+      identity_test_env_adaptor.identity_test_env()->SetPrimaryAccount(
+          "test@mail.com");
+
+  auto report = generator_.MaybeGenerate(profile()->GetPath(),
+                                         profile()->GetProfileUserName(),
+                                         ReportType::kExtensionRequest);
+
+  EXPECT_TRUE(report);
+  EXPECT_EQ(0, report->extension_requests_size());
 }
 
 }  // namespace enterprise_reporting

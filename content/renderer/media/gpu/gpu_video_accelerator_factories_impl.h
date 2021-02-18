@@ -15,20 +15,23 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
-#include "base/single_thread_task_runner.h"
 #include "base/synchronization/lock.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/unguessable_token.h"
 #include "components/viz/common/gpu/context_lost_observer.h"
 #include "content/common/content_export.h"
+#include "media/base/supported_video_decoder_config.h"
 #include "media/mojo/mojom/interface_factory.mojom.h"
 #include "media/mojo/mojom/video_decoder.mojom.h"
 #include "media/mojo/mojom/video_encode_accelerator.mojom.h"
 #include "media/video/gpu_video_accelerator_factories.h"
-#include "media/video/supported_video_decoder_config.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "ui/gfx/geometry/size.h"
+
+namespace base {
+class SequencedTaskRunner;
+}  // namespace base
 
 namespace gpu {
 class GpuChannelHost;
@@ -59,9 +62,8 @@ class CONTENT_EXPORT GpuVideoAcceleratorFactoriesImpl
   // use.  Safe to call from any thread.
   static std::unique_ptr<GpuVideoAcceleratorFactoriesImpl> Create(
       scoped_refptr<gpu::GpuChannelHost> gpu_channel_host,
-      const scoped_refptr<base::SingleThreadTaskRunner>&
-          main_thread_task_runner,
-      const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
+      const scoped_refptr<base::SequencedTaskRunner>& main_thread_task_runner,
+      const scoped_refptr<base::SequencedTaskRunner>& task_runner,
       const scoped_refptr<viz::ContextProviderCommandBuffer>& context_provider,
       bool enable_video_gpu_memory_buffers,
       bool enable_media_stream_gpu_memory_buffers,
@@ -116,11 +118,12 @@ class CONTENT_EXPORT GpuVideoAcceleratorFactoriesImpl
   // present otherwise.
   void DestroyContext();
   base::UnsafeSharedMemoryRegion CreateSharedMemoryRegion(size_t size) override;
-  scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner() override;
+  scoped_refptr<base::SequencedTaskRunner> GetTaskRunner() override;
 
   viz::RasterContextProvider* GetMediaContextProvider() override;
 
   void SetRenderingColorSpace(const gfx::ColorSpace& color_space) override;
+  const gfx::ColorSpace& GetRenderingColorSpace() const override;
 
   // Called on the main thread. Returns whether the media thread has seen the
   // ContextProvider become lost, in which case this class should be replaced
@@ -147,9 +150,8 @@ class CONTENT_EXPORT GpuVideoAcceleratorFactoriesImpl
 
   GpuVideoAcceleratorFactoriesImpl(
       scoped_refptr<gpu::GpuChannelHost> gpu_channel_host,
-      const scoped_refptr<base::SingleThreadTaskRunner>&
-          main_thread_task_runner,
-      const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
+      const scoped_refptr<base::SequencedTaskRunner>& main_thread_task_runner,
+      const scoped_refptr<base::SequencedTaskRunner>& task_runner,
       const scoped_refptr<viz::ContextProviderCommandBuffer>& context_provider,
       bool enable_gpu_memory_buffer_video_frames_for_video,
       bool enable_gpu_memory_buffer_video_frames_for_media_stream,
@@ -178,8 +180,8 @@ class CONTENT_EXPORT GpuVideoAcceleratorFactoriesImpl
           supported_profiles);
   void OnEncoderSupportFailed();
 
-  const scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner_;
-  const scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+  const scoped_refptr<base::SequencedTaskRunner> main_thread_task_runner_;
+  const scoped_refptr<base::SequencedTaskRunner> task_runner_;
   const scoped_refptr<gpu::GpuChannelHost> gpu_channel_host_;
 
   // Shared pointer to a shared context provider. It is initially set on main

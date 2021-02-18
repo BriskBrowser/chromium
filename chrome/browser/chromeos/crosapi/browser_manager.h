@@ -11,7 +11,14 @@
 #include "base/files/file_path.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/observer_list.h"
+#include "base/optional.h"
 #include "base/process/process.h"
+#include "base/time/time.h"
+#include "chrome/browser/chromeos/crosapi/browser_manager_observer.h"
+#include "chrome/browser/chromeos/crosapi/browser_service_host_observer.h"
+#include "chrome/browser/chromeos/crosapi/crosapi_id.h"
+#include "chrome/browser/chromeos/crosapi/environment_provider.h"
 #include "chromeos/crosapi/mojom/crosapi.mojom.h"
 #include "components/session_manager/core/session_manager_observer.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -21,13 +28,17 @@ class CrOSComponentManager;
 }  // namespace component_updater
 
 namespace crosapi {
+namespace mojom {
+class Crosapi;
+}  // namespace mojom
 
-class AshChromeServiceImpl;
 class BrowserLoader;
+class TestMojoConnectionManager;
 
 // Manages the lifetime of lacros-chrome, and its loading status. This class is
 // a part of ash-chrome.
-class BrowserManager : public session_manager::SessionManagerObserver {
+class BrowserManager : public session_manager::SessionManagerObserver,
+                       public BrowserServiceHostObserver {
  public:
   // Static getter of BrowserManager instance. In real use cases,
   // BrowserManager instance should be unique in the process.
@@ -45,6 +56,10 @@ class BrowserManager : public session_manager::SessionManagerObserver {
   // Typical usage is to check IsReady(), then if it returns false,
   // call SetLoadCompleteCallback() to be notified when the download completes.
   bool IsReady() const;
+
+  // Returns true if Lacros is in running state.
+  // Virtual for testing.
+  virtual bool IsRunning() const;
 
   // Sets a callback to be called when the binary download completes. The
   // download may not be successful.
@@ -65,6 +80,46 @@ class BrowserManager : public session_manager::SessionManagerObserver {
   // This design often leads the flakiness behavior of the product and testing,
   // so should be avoided.
   void NewWindow();
+
+  // Returns true if crosapi interface supports GetFeedbackData API.
+  bool GetFeedbackDataSupported() const;
+
+  using GetFeedbackDataCallback = base::OnceCallback<void(base::Value)>;
+  // Gathers Lacros feedback data.
+  // Virtual for testing.
+  virtual void GetFeedbackData(GetFeedbackDataCallback callback);
+
+  // Returns true if crosapi interface supports GetHistograms API.
+  bool GetHistogramsSupported() const;
+
+  using GetHistogramsCallback = base::OnceCallback<void(const std::string&)>;
+  // Gets Lacros histograms.
+  void GetHistograms(GetHistogramsCallback callback);
+
+  // Returns true if crosapi interface supports GetActiveTabUrl API.
+  bool GetActiveTabUrlSupported() const;
+
+  using GetActiveTabUrlCallback =
+      base::OnceCallback<void(const base::Optional<GURL>&)>;
+  // Gets Url of the active tab from lacros if there is any.
+  void GetActiveTabUrl(GetActiveTabUrlCallback callback);
+
+  void AddObserver(BrowserManagerObserver* observer);
+  void RemoveObserver(BrowserManagerObserver* observer);
+
+  const std::string& browser_version() const { return browser_version_; }
+  void set_browser_version(const std::string& version) {
+    browser_version_ = version;
+  }
+
+  // Set the data of device account policy. It is the serialized blob of
+  // PolicyFetchResponse received from the server, or parsed from the file after
+  // is was validated by Ash.
+  void SetDeviceAccountPolicy(const std::string& policy_blob);
+
+ protected:
+  // Notifies Mojo connection to lacros-chrome has been disconnected.
+  void NotifyMojoDisconnected();
 
  private:
   enum class State {
@@ -98,6 +153,22 @@ class BrowserManager : public session_manager::SessionManagerObserver {
     TERMINATING,
   };
 
+  struct BrowserServiceInfo {
+    BrowserServiceInfo(mojo::RemoteSetElementId mojo_id,
+                       mojom::BrowserService* service,
+                       uint32_t interface_version);
+    BrowserServiceInfo(const BrowserServiceInfo&);
+    BrowserServiceInfo& operator=(const BrowserServiceInfo&);
+    ~BrowserServiceInfo();
+
+    // ID managed in BrowserServiceHostAsh, which is tied to the |service|.
+    mojo::RemoteSetElementId mojo_id;
+    // BrowserService proxy connected to lacros-chrome.
+    mojom::BrowserService* service;
+    // Supported interface version of the BrowserService in Lacros-chrome.
+    uint32_t interface_version;
+  };
+
   // Posts CreateLogFile() and StartWithLogFile() to the thread pooll.
   void Start();
 
@@ -105,10 +176,13 @@ class BrowserManager : public session_manager::SessionManagerObserver {
   // by logfd.
   void StartWithLogFile(base::ScopedFD logfd);
 
-  // Called when PendingReceiver of AshChromeService is passed from
-  // lacros-chrome.
-  void OnAshChromeServiceReceiverReceived(
-      mojo::PendingReceiver<crosapi::mojom::AshChromeService> pending_receiver);
+  // BrowserServiceHostObserver:
+  void OnBrowserServiceConnected(CrosapiId id,
+                                 mojo::RemoteSetElementId mojo_id,
+                                 mojom::BrowserService* browser_service,
+                                 uint32_t browser_service_version) override;
+  void OnBrowserServiceDisconnected(CrosapiId id,
+                                    mojo::RemoteSetElementId mojo_id) override;
 
   // Called when the Mojo connection to lacros-chrome is disconnected.
   // It may be "just a Mojo error" or "lacros-chrome crash".
@@ -120,8 +194,7 @@ class BrowserManager : public session_manager::SessionManagerObserver {
   void OnLacrosChromeTerminated();
 
   // session_manager::SessionManagerObserver:
-  // Starts to load the lacros-chrome executable.
-  void OnUserSessionStarted(bool is_primary_user) override;
+  void OnSessionStateChanged() override;
 
   // Called on load completion.
   void OnLoadComplete(const base::FilePath& path);
@@ -136,19 +209,38 @@ class BrowserManager : public session_manager::SessionManagerObserver {
   // Path to the lacros-chrome disk image directory.
   base::FilePath lacros_path_;
 
+  // Version of the browser (e.g. lacros-chrome) displayed to user in feedback
+  // report, etc. It includes both browser version and channel in the format of:
+  // {browser version} {channel}
+  // For example, "87.0.0.1 dev", "86.0.4240.38 beta".
+  std::string browser_version_;
+
   // Called when the binary download completes.
   LoadCompleteCallback load_complete_callback_;
+
+  // Time when the lacros process was launched.
+  base::TimeTicks lacros_launch_time_;
 
   // Process handle for the lacros-chrome process.
   base::Process lacros_process_;
 
-  // Proxy to LacrosChromeService mojo service in lacros-chrome.
-  // Available during lacros-chrome is running.
-  mojo::Remote<crosapi::mojom::LacrosChromeService> lacros_chrome_service_;
+  // ID for the current Crosapi connection.
+  // Available only when lacros-chrome is running.
+  base::Optional<CrosapiId> crosapi_id_;
 
-  // Implementation of AshChromeService Mojo APIs.
-  // Instantiated on receiving the PendingReceiver from lacros-chrome.
-  std::unique_ptr<AshChromeServiceImpl> ash_chrome_service_;
+  // Proxy to BrowserService mojo service in lacros-chrome.
+  // Available during lacros-chrome is running.
+  base::Optional<BrowserServiceInfo> browser_service_;
+
+  // Helps set up and manage the mojo connections between lacros-chrome and
+  // ash-chrome in testing environment. Only applicable when
+  // '--lacros-mojo-socket-for-testing' is present in the command line.
+  std::unique_ptr<TestMojoConnectionManager> test_mojo_connection_manager_;
+
+  // Used to pass ash-chrome specific flags/configurations to lacros-chrome.
+  std::unique_ptr<EnvironmentProvider> environment_provider_;
+
+  base::ObserverList<BrowserManagerObserver> observers_;
 
   base::WeakPtrFactory<BrowserManager> weak_factory_{this};
 };

@@ -24,7 +24,7 @@ class CORE_EXPORT NGColumnLayoutAlgorithm
  public:
   NGColumnLayoutAlgorithm(const NGLayoutAlgorithmParams& params);
 
-  scoped_refptr<const NGLayoutResult> Layout() override;
+  const NGLayoutResult* Layout() override;
 
   MinMaxSizesResult ComputeMinMaxSizes(const MinMaxSizesInput&) const override;
 
@@ -40,9 +40,8 @@ class CORE_EXPORT NGColumnLayoutAlgorithm
   // column that was laid out. The rows themselves don't create fragments. If
   // we're in a nested fragmentation context and completely out of outer
   // fragmentainer space, nullptr will be returned.
-  scoped_refptr<const NGLayoutResult> LayoutRow(
-      const NGBlockBreakToken* next_column_token,
-      NGMarginStrut*);
+  const NGLayoutResult* LayoutRow(const NGBlockBreakToken* next_column_token,
+                                  NGMarginStrut*);
 
   // Lay out a column spanner. The return value will tell whether to break
   // before the spanner or not. If |NGBreakStatus::kContinue| is returned, and
@@ -51,6 +50,10 @@ class CORE_EXPORT NGColumnLayoutAlgorithm
   NGBreakStatus LayoutSpanner(NGBlockNode spanner_node,
                               const NGBlockBreakToken* break_token,
                               NGMarginStrut*);
+
+  // Propagate the baseline from the given |child| if needed.
+  void PropagateBaselineFromChild(const NGPhysicalBoxFragment& child,
+                                  LayoutUnit block_offset);
 
   LayoutUnit CalculateBalancedColumnBlockSize(
       const LogicalSize& column_size,
@@ -70,7 +73,16 @@ class CORE_EXPORT NGColumnLayoutAlgorithm
   // discovered in the first pass. This happens when we run out of space in a
   // fragmentainer at an less-than-ideal location, due to breaking restrictions,
   // such as break-before:avoid or break-after:avoid.
-  scoped_refptr<const NGLayoutResult> RelayoutAndBreakEarlier();
+  const NGLayoutResult* RelayoutAndBreakEarlier();
+
+  // Get the percentage resolution size to use for column content (i.e. not
+  // spanners).
+  LogicalSize ColumnPercentageResolutionSize() const {
+    // Percentage block-size on children is resolved against the content-box of
+    // the multicol container (just like in regular block layout), while
+    // percentage inline-size is restricted by the columns.
+    return LogicalSize(column_inline_size_, ChildAvailableSize().block_size);
+  }
 
   NGConstraintSpace CreateConstraintSpaceForBalancing(
       const LogicalSize& column_size) const;
@@ -87,12 +99,15 @@ class CORE_EXPORT NGColumnLayoutAlgorithm
   LayoutUnit column_inline_progression_;
   LayoutUnit column_block_size_;
   LayoutUnit intrinsic_block_size_;
+  LayoutUnit tallest_unbreakable_block_size_;
   bool is_constrained_by_outer_fragmentation_context_ = false;
 
   // This will be set during (outer) block fragmentation once we've processed
   // the first piece of content of the multicol container. It is used to check
   // if we're at a valid class A  breakpoint (between block-level siblings).
   bool has_processed_first_child_ = false;
+
+  bool has_processed_first_column_ = false;
 };
 
 }  // namespace blink

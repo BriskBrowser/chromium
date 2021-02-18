@@ -8,6 +8,7 @@
 
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/send_tab_to_self/desktop_notification_handler.h"
 #include "chrome/browser/sync/send_tab_to_self_sync_service_factory.h"
@@ -25,8 +26,7 @@ namespace send_tab_to_self {
 void CreateNewEntry(content::WebContents* tab,
                     const std::string& target_device_name,
                     const std::string& target_device_guid,
-                    const GURL& link_url,
-                    bool show_notification) {
+                    const GURL& link_url) {
   DCHECK(tab);
 
   GURL shared_url = link_url;
@@ -58,23 +58,11 @@ void CreateNewEntry(content::WebContents* tab,
     return;
   }
 
-  const SendTabToSelfEntry* entry =
-      model->AddEntry(shared_url, title, navigation_time, target_device_guid);
+  model->AddEntry(shared_url, title, navigation_time, target_device_guid);
 
-  if (!show_notification ||
-      base::FeatureList::IsEnabled(kSendTabToSelfOmniboxSendingAnimation)) {
-    SendTabToSelfBubbleController* controller = send_tab_to_self::
-        SendTabToSelfBubbleController::CreateOrGetFromWebContents(tab);
-    controller->ShowConfirmationMessage();
-    return;
-  }
-
-  if (entry) {
-    DesktopNotificationHandler(profile).DisplaySendingConfirmation(
-        *entry, target_device_name);
-  } else {
-    DesktopNotificationHandler(profile).DisplayFailureMessage(shared_url);
-  }
+  SendTabToSelfBubbleController* controller = send_tab_to_self::
+      SendTabToSelfBubbleController::CreateOrGetFromWebContents(tab);
+  controller->ShowConfirmationMessage();
 }
 
 void ShareToSingleTarget(content::WebContents* tab, const GURL& link_url) {

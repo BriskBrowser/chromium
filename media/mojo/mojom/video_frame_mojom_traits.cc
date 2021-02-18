@@ -7,19 +7,19 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "build/build_config.h"
 #include "gpu/ipc/common/gpu_memory_buffer_support.h"
 #include "media/base/color_plane_layout.h"
 #include "media/base/format_utils.h"
 #include "media/mojo/common/mojo_shared_buffer_video_frame.h"
-#include "media/mojo/mojom/hdr_metadata_mojom_traits.h"
 #include "media/mojo/mojom/video_frame_metadata_mojom_traits.h"
 #include "mojo/public/cpp/base/time_mojom_traits.h"
 #include "mojo/public/cpp/system/handle.h"
 #include "ui/gfx/mojom/buffer_types_mojom_traits.h"
 #include "ui/gfx/mojom/color_space_mojom_traits.h"
+#include "ui/gfx/mojom/hdr_metadata_mojom_traits.h"
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
 #include "base/posix/eintr_wrapper.h"
@@ -31,7 +31,7 @@ namespace {
 
 media::mojom::VideoFrameDataPtr MakeVideoFrameData(
     const media::VideoFrame* input) {
-  if (input->metadata()->end_of_stream) {
+  if (input->metadata().end_of_stream) {
     return media::mojom::VideoFrameData::NewEosData(
         media::mojom::EosVideoFrameData::New());
   }
@@ -238,7 +238,7 @@ bool StructTraits<media::mojom::VideoFrameDataView,
     std::unique_ptr<gfx::GpuMemoryBuffer> gpu_memory_buffer =
         support.CreateGpuMemoryBufferImplFromHandle(
             std::move(gpu_memory_buffer_handle), coded_size, *buffer_format,
-            gfx::BufferUsage::SCANOUT_VEA_READ_CAMERA_AND_CPU_READ_WRITE,
+            gfx::BufferUsage::VEA_READ_CAMERA_AND_CPU_READ_WRITE,
             base::NullCallback());
     if (!gpu_memory_buffer)
       return false;
@@ -286,7 +286,7 @@ bool StructTraits<media::mojom::VideoFrameDataView,
     return false;
   frame->set_color_space(color_space);
 
-  base::Optional<media::HDRMetadata> hdr_metadata;
+  base::Optional<gfx::HDRMetadata> hdr_metadata;
   if (!input.ReadHdrMetadata(&hdr_metadata))
     return false;
   frame->set_hdr_metadata(std::move(hdr_metadata));

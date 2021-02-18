@@ -14,7 +14,6 @@
 #include "base/memory/weak_ptr.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
-#include "chrome/browser/chromeos/net/network_health/network_health_localized_strings.h"
 #include "chrome/browser/chromeos/net/network_health/network_health_service.h"
 #include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/ui/chrome_pages.h"
@@ -24,9 +23,14 @@
 #include "chrome/browser/ui/webui/chromeos/network_element_localized_strings_provider.h"
 #include "chrome/browser/ui/webui/chromeos/network_logs_message_handler.h"
 #include "chrome/browser/ui/webui/chromeos/onc_import_message_handler.h"
+#include "chrome/browser/ui/webui/webui_util.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/browser_resources.h"
 #include "chrome/grit/generated_resources.h"
+#include "chrome/grit/network_ui_resources.h"
+#include "chrome/grit/network_ui_resources_map.h"
+#include "chromeos/components/network_ui/network_diagnostics_resource_provider.h"
+#include "chromeos/components/network_ui/network_health_resource_provider.h"
 #include "chromeos/network/device_state.h"
 #include "chromeos/network/network_configuration_handler.h"
 #include "chromeos/network/network_device_handler.h"
@@ -36,6 +40,7 @@
 #include "chromeos/services/network_config/public/mojom/cros_network_config.mojom.h"
 #include "chromeos/services/network_health/public/mojom/network_diagnostics.mojom.h"
 #include "chromeos/services/network_health/public/mojom/network_health.mojom.h"
+#include "chromeos/strings/grit/chromeos_strings.h"
 #include "components/device_event_log/device_event_log.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/web_contents.h"
@@ -58,6 +63,8 @@ constexpr char kOpenCellularActivationUi[] = "openCellularActivationUi";
 constexpr char kShowNetworkDetails[] = "showNetworkDetails";
 constexpr char kShowNetworkConfig[] = "showNetworkConfig";
 constexpr char kShowAddNewWifiNetworkDialog[] = "showAddNewWifi";
+constexpr char kGetHostname[] = "getHostname";
+constexpr char kSetHostname[] = "setHostname";
 
 bool GetServicePathFromGuid(const std::string& guid,
                             std::string* service_path) {
@@ -133,6 +140,14 @@ class NetworkConfigMessageHandler : public content::WebUIMessageHandler {
     web_ui()->RegisterMessageCallback(
         kShowAddNewWifiNetworkDialog,
         base::BindRepeating(&NetworkConfigMessageHandler::ShowAddNewWifi,
+                            base::Unretained(this)));
+    web_ui()->RegisterMessageCallback(
+        kGetHostname,
+        base::BindRepeating(&NetworkConfigMessageHandler::GetHostname,
+                            base::Unretained(this)));
+    web_ui()->RegisterMessageCallback(
+        kSetHostname,
+        base::BindRepeating(&NetworkConfigMessageHandler::SetHostname,
                             base::Unretained(this)));
   }
 
@@ -240,21 +255,17 @@ class NetworkConfigMessageHandler : public content::WebUIMessageHandler {
   }
 
   void ShowNetworkDetails(const base::ListValue* arg_list) {
+    CHECK_EQ(1u, arg_list->GetSize());
     std::string guid;
-    if (!arg_list->GetString(0, &guid)) {
-      NOTREACHED();
-      return;
-    }
+    CHECK(arg_list->GetString(0, &guid));
 
     InternetDetailDialog::ShowDialog(guid);
   }
 
   void ShowNetworkConfig(const base::ListValue* arg_list) {
+    CHECK_EQ(1u, arg_list->GetSize());
     std::string guid;
-    if (!arg_list->GetString(0, &guid)) {
-      NOTREACHED();
-      return;
-    }
+    CHECK(arg_list->GetString(0, &guid));
 
     InternetConfigDialog::ShowDialogForNetworkId(guid);
   }
@@ -279,6 +290,23 @@ class NetworkConfigMessageHandler : public content::WebUIMessageHandler {
     base::ListValue return_arg_list;
     return_arg_list.Append(std::move(*result));
     Respond(callback_id, return_arg_list);
+  }
+
+  void GetHostname(const base::ListValue* arg_list) {
+    CHECK_EQ(1u, arg_list->GetSize());
+    std::string callback_id;
+    CHECK(arg_list->GetString(0, &callback_id));
+    std::string hostname =
+        NetworkHandler::Get()->network_state_handler()->hostname();
+    Respond(callback_id, base::Value(hostname));
+  }
+
+  void SetHostname(const base::ListValue* arg_list) {
+    CHECK_EQ(1u, arg_list->GetSize());
+    std::string hostname;
+    CHECK(arg_list->GetString(0, &hostname));
+    NET_LOG(USER) << "SET HOSTNAME: " << hostname;
+    NetworkHandler::Get()->network_state_handler()->SetHostname(hostname);
   }
 
   void ErrorCallback(const std::string& callback_id,
@@ -388,6 +416,9 @@ void NetworkUI::GetLocalizedStrings(base::DictionaryValue* localized_strings) {
       l10n_util::GetStringUTF16(IDS_NETWORK_UI_FORMAT_SHILL));
 
   localized_strings->SetString(
+      "dhcpHostnameLabel",
+      l10n_util::GetStringUTF16(IDS_NETWORK_UI_DHCP_HOSTNAME));
+  localized_strings->SetString(
       "globalPolicyLabel",
       l10n_util::GetStringUTF16(IDS_NETWORK_UI_GLOBAL_POLICY));
   localized_strings->SetString(
@@ -475,6 +506,14 @@ void NetworkUI::GetLocalizedStrings(base::DictionaryValue* localized_strings) {
   localized_strings->SetString(
       "networkLogsDebuggingUnknown",
       l10n_util::GetStringUTF16(IDS_NETWORK_UI_NETWORK_LOGS_DEBUGGING_UNKNOWN));
+
+  // Network Diagnostics
+  localized_strings->SetString(
+      "NetworkDiagnosticsRunAll",
+      l10n_util::GetStringUTF16(IDS_NETWORK_DIAGNOSTICS_RUN_ALL));
+  localized_strings->SetString(
+      "NetworkDiagnosticsSendFeedback",
+      l10n_util::GetStringUTF16(IDS_NETWORK_DIAGNOSTICS_SEND_FEEDBACK));
 }
 
 NetworkUI::NetworkUI(content::WebUI* web_ui)
@@ -497,23 +536,16 @@ NetworkUI::NetworkUI(content::WebUI* web_ui)
   html->DisableTrustedTypesCSP();
 
   html->AddLocalizedStrings(localized_strings);
-  network_health::AddLocalizedStrings(html);
+  network_health::AddResources(html);
+  network_diagnostics::AddResources(html);
 
   network_element::AddLocalizedStrings(html);
   network_element::AddOncLocalizedStrings(html);
   html->UseStringsJs();
 
-  html->AddResourcePath("network_ui_browser_proxy.html",
-                        IDR_NETWORK_UI_BROWSER_PROXY_HTML);
-  html->AddResourcePath("network_ui_browser_proxy.js",
-                        IDR_NETWORK_UI_BROWSER_PROXY_JS);
-  html->AddResourcePath("network_ui.html", IDR_NETWORK_UI_HTML);
-  html->AddResourcePath("network_ui.js", IDR_NETWORK_UI_JS);
-  html->AddResourcePath("network_state_ui.html", IDR_NETWORK_STATE_UI_HTML);
-  html->AddResourcePath("network_state_ui.js", IDR_NETWORK_STATE_UI_JS);
-  html->AddResourcePath("network_logs_ui.html", IDR_NETWORK_LOGS_UI_HTML);
-  html->AddResourcePath("network_logs_ui.js", IDR_NETWORK_LOGS_UI_JS);
-  html->SetDefaultResource(IDR_NETWORK_UI_PAGE_HTML);
+  webui::SetupWebUIDataSource(
+      html, base::make_span(kNetworkUiResources, kNetworkUiResourcesSize),
+      IDR_NETWORK_UI_NETWORK_HTML);
 
   content::WebUIDataSource::Add(web_ui->GetWebContents()->GetBrowserContext(),
                                 html);

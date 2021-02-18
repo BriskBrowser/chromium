@@ -5,12 +5,15 @@
 #include "chrome/browser/themes/theme_service.h"
 
 #include "base/no_destructor.h"
+#include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/themes/browser_theme_pack.h"
 #include "chrome/browser/themes/custom_theme_supplier.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/ui_features.h"
 #include "chrome/grit/theme_resources.h"
 #include "components/grit/components_scaled_resources.h"
+#include "components/omnibox/browser/omnibox_field_trial.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
@@ -299,7 +302,15 @@ bool ThemeHelper::ShouldUseNativeFrame(
 
 bool ThemeHelper::ShouldUseIncreasedContrastThemeSupplier(
     ui::NativeTheme* native_theme) const {
-  return native_theme && native_theme->UsesHighContrastColors();
+// TODO(crbug.com/1052397): Revisit once build flag switch of lacros-chrome is
+// complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+  // On Linux the GTK system theme provides the high contrast colors,
+  // so don't use the IncreasedContrastThemeSupplier.
+  return false;
+#else
+  return native_theme && native_theme->UserHasContrastPreference();
+#endif
 }
 
 SkColor ThemeHelper::GetDefaultColor(
@@ -613,7 +624,9 @@ base::Optional<ThemeHelper::OmniboxColor> ThemeHelper::GetOmniboxColorImpl(
     return blend_toward_max_contrast(bg, 0x0A);
   };
   const auto results_bg_hovered_color = [&]() {
-    return blend_toward_max_contrast(results_bg_color(), 0x1A);
+    return blend_toward_max_contrast(
+        results_bg_color(),
+        OmniboxFieldTrial::IsRefinedFocusStateEnabled() ? 0x0A : 0x1A);
   };
   const auto url_color = [&](OmniboxColor bg) {
     return blend_for_min_contrast(
@@ -621,7 +634,9 @@ base::Optional<ThemeHelper::OmniboxColor> ThemeHelper::GetOmniboxColorImpl(
         {{dark ? gfx::kGoogleBlue050 : gfx::kGoogleBlue900, false}});
   };
   const auto results_bg_selected_color = [&]() {
-    return blend_toward_max_contrast(results_bg_color(), 0x29);
+    return blend_toward_max_contrast(
+        results_bg_color(),
+        OmniboxFieldTrial::IsRefinedFocusStateEnabled() ? 0x0A : 0x29);
   };
   const auto blend_with_clamped_contrast = [&](OmniboxColor bg) {
     return blend_for_min_contrast(fg, fg, blend_for_min_contrast(bg, bg));
@@ -663,6 +678,10 @@ base::Optional<ThemeHelper::OmniboxColor> ThemeHelper::GetOmniboxColorImpl(
       return url_color(results_bg_hovered_color());
     case TP::COLOR_OMNIBOX_RESULTS_URL_SELECTED:
       return url_color(results_bg_selected_color());
+    case TP::COLOR_OMNIBOX_RESULTS_FOCUS_BAR:
+      return {{dark ? gfx::kGoogleBlue300 : gfx::kGoogleBlue600, false}};
+    case TP::COLOR_OMNIBOX_RESULTS_BUTTON_BORDER:
+      return blend_toward_max_contrast(bg, gfx::kGoogleGreyAlpha400);
     case TP::COLOR_OMNIBOX_SECURITY_CHIP_DEFAULT:
     case TP::COLOR_OMNIBOX_SECURITY_CHIP_SECURE:
     case TP::COLOR_OMNIBOX_SECURITY_CHIP_DANGEROUS: {

@@ -20,6 +20,7 @@
 #include "components/mirroring/service/rtp_stream.h"
 #include "components/mirroring/service/wifi_status_monitor.h"
 #include "gpu/config/gpu_info.h"
+#include "media/base/video_frame_feedback.h"
 #include "media/cast/cast_environment.h"
 #include "media/cast/net/cast_transport_defines.h"
 #include "media/mojo/mojom/video_encode_accelerator.mojom.h"
@@ -53,8 +54,10 @@ class ReceiverSetupQuerier;
 // Streaming, and the switching to/from media remoting. When constructed, it
 // does OFFER/ANSWER exchange with the mirroring receiver. Mirroring starts when
 // the exchange succeeds and stops when this class is destructed or error
-// occurs. |observer| will get notified when status changes. |outbound_channel|
-// is responsible for sending messages to the mirroring receiver through Cast
+// occurs. Specifically, a session is torn down when (1) a new session starts,
+// (2) the mirroring service note a disconnection.
+// |observer| will get notified when status changes. |outbound_channel| is
+// responsible for sending messages to the mirroring receiver through Cast
 // Channel. |inbound_channel| receives message sent from the mirroring receiver.
 class COMPONENT_EXPORT(MIRRORING_SERVICE) Session final
     : public RtpStreamClient,
@@ -74,11 +77,10 @@ class COMPONENT_EXPORT(MIRRORING_SERVICE) Session final
   void OnError(const std::string& message) override;
   void RequestRefreshFrame() override;
   void CreateVideoEncodeAccelerator(
-      const media::cast::ReceiveVideoEncodeAcceleratorCallback& callback)
-      override;
+      media::cast::ReceiveVideoEncodeAcceleratorCallback callback) override;
   void CreateVideoEncodeMemory(
       size_t size,
-      const media::cast::ReceiveVideoEncodeMemoryCallback& callback) override;
+      media::cast::ReceiveVideoEncodeMemoryCallback callback) override;
 
   // Callbacks by media::cast::CastTransport::Client.
   void OnTransportStatusChanged(media::cast::CastTransportStatus status);
@@ -135,11 +137,18 @@ class COMPONENT_EXPORT(MIRRORING_SERVICE) Session final
   // Notify |observer_| that error occurred and close the session.
   void ReportError(mojom::SessionError error);
 
+  // Send logging messages to |observer_|.
+  void LogInfoMessage(const std::string& message);
+  void LogErrorMessage(const std::string& message);
+
   // Callback by Audio/VideoSender to indicate encoder status change.
   void OnEncoderStatusChange(media::cast::OperationalStatus status);
 
   // Callback by media::cast::VideoSender to set a new target playout delay.
   void SetTargetPlayoutDelay(base::TimeDelta playout_delay);
+
+  // Callback by media::cast::VideoSender to report resource utilization.
+  void ProcessFeedback(const media::VideoFrameFeedback& feedback);
 
   media::VideoEncodeAccelerator::SupportedProfiles GetSupportedVeaProfiles();
 
@@ -166,7 +175,7 @@ class COMPONENT_EXPORT(MIRRORING_SERVICE) Session final
   mojo::Remote<mojom::ResourceProvider> resource_provider_;
   MirrorSettings mirror_settings_;
 
-  MessageDispatcher message_dispatcher_;
+  std::unique_ptr<MessageDispatcher> message_dispatcher_;
 
   mojo::Remote<network::mojom::NetworkContext> network_context_;
 

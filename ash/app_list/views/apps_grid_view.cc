@@ -35,7 +35,7 @@
 #include "ash/public/cpp/pagination/pagination_controller.h"
 #include "base/barrier_closure.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/guid.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
@@ -397,8 +397,7 @@ AppsGridView::AppsGridView(ContentsView* contents_view,
                            AppsGridViewFolderDelegate* folder_delegate)
     : folder_delegate_(folder_delegate),
       contents_view_(contents_view),
-      page_flip_delay_in_ms_(kPageFlipDelayInMsFullscreen),
-      view_structure_(this) {
+      page_flip_delay_in_ms_(kPageFlipDelayInMsFullscreen) {
   DCHECK(contents_view_);
   SetPaintToLayer(ui::LAYER_NOT_DRAWN);
   // Clip any icons that are outside the grid view's bounds. These icons would
@@ -944,10 +943,7 @@ void AppsGridView::InitiateDragFromReparentItemInRootLevelGridView(
 
   // Create a new AppListItemView to duplicate the original_drag_view in the
   // folder's grid view.
-  auto view = std::make_unique<AppListItemView>(
-      this, original_drag_view->item(),
-      contents_view_->GetAppListMainView()->view_delegate(),
-      false /* is_in_folder */);
+  auto view = CreateViewForItem(original_drag_view->item());
   items_need_layer_for_drag_ = true;
   auto* view_ptr = items_container_->AddChildView(std::move(view));
   for (const auto& entry : view_model_.entries())
@@ -1389,15 +1385,25 @@ void AppsGridView::UpdatePulsingBlockViews() {
   }
 }
 
+std::unique_ptr<AppListItemView> AppsGridView::CreateViewForItem(
+    AppListItem* item,
+    bool is_in_folder) {
+  std::unique_ptr<AppListItemView> view = std::make_unique<AppListItemView>(
+      this, item, contents_view_->GetAppListMainView()->view_delegate(),
+      is_in_folder);
+  view->SetCallback(base::BindRepeating(&AppsGridView::OnAppListItemViewPressed,
+                                        base::Unretained(this),
+                                        base::Unretained(view.get())));
+  return view;
+}
+
 std::unique_ptr<AppListItemView> AppsGridView::CreateViewForItemAtIndex(
     size_t index) {
   // The |drag_view_| might be pending for deletion, therefore |view_model_|
   // may have one more item than |item_list_|.
   DCHECK_LE(index, item_list_->item_count());
-  std::unique_ptr<AppListItemView> view = std::make_unique<AppListItemView>(
-      this, item_list_->item_at(index),
-      contents_view_->GetAppListMainView()->view_delegate());
-  return view;
+  auto* item = item_list_->item_at(index);
+  return CreateViewForItem(item, item->IsInFolder());
 }
 
 bool AppsGridView::HandleScroll(const gfx::Vector2d& offset,
@@ -1432,6 +1438,8 @@ void AppsGridView::SetSelectedItemByIndex(const GridIndex& index) {
   selected_view_ = new_selection;
   selected_view_->SchedulePaint();
   selected_view_->NotifyAccessibilityEvent(ax::mojom::Event::kFocus, true);
+  if (selected_view_->HasNotificationBadge())
+    AnnounceItemNotificationBadge(selected_view_->title()->GetText());
 }
 
 GridIndex AppsGridView::GetIndexOfView(const AppListItemView* view) const {
@@ -1817,10 +1825,8 @@ void AppsGridView::UpdateDragStateInsideFolder(Pointer pointer,
 
   // Calculate if the drag_view_ is dragged out of the folder's container
   // ink bubble.
-  gfx::Rect bounds_to_folder_view = ConvertRectToParent(drag_view_->bounds());
-  gfx::Point pt = bounds_to_folder_view.CenterPoint();
   bool is_item_dragged_out_of_folder =
-      folder_delegate_->IsPointOutsideOfFolderBoundary(pt);
+      folder_delegate_->IsViewOutsideOfFolder(drag_view_);
   if (is_item_dragged_out_of_folder) {
     if (!drag_out_of_folder_container_) {
       folder_item_reparent_timer_.Start(
@@ -2185,11 +2191,19 @@ void AppsGridView::UpdateOpacity(bool restore_opacity) {
   }
 }
 
-bool AppsGridView::HandleScrollFromAppListView(const gfx::Vector2d& offset,
+bool AppsGridView::HandleScrollFromAppListView(const gfx::Point& location,
+                                               const gfx::Vector2d& offset,
                                                ui::EventType type) {
+  const auto* root_apps_grid_view =
+      contents_view_->apps_container_view()->apps_grid_view();
+  gfx::Point root_apps_grid_view_location(location);
+  views::View::ConvertPointToTarget(this, root_apps_grid_view,
+                                    &root_apps_grid_view_location);
+
   // Scroll up at first page in top level apps grid should close the launcher.
   if (!folder_delegate_ && offset.y() > 0 &&
-      !pagination_model()->IsValidPageRelative(-1)) {
+      !pagination_model()->IsValidPageRelative(-1) &&
+      !root_apps_grid_view->bounds().Contains(root_apps_grid_view_location)) {
     return false;
   }
 
@@ -2204,15 +2218,10 @@ void AppsGridView::HandleKeyboardReparent(AppListItemView* reparented_view,
   DCHECK(!folder_delegate_);
   DCHECK(activated_folder_item_view_);
 
-  auto reparented_view_in_root_grid = std::make_unique<AppListItemView>(
-      this, reparented_view->item(),
-      contents_view_->GetAppListMainView()->view_delegate(),
-      false /* is_in_folder */);
-
-  auto* reparented_view_in_root_grid_ptr =
-      items_container_->AddChildView(std::move(reparented_view_in_root_grid));
-  view_model_.Add(reparented_view_in_root_grid_ptr, view_model_.view_size());
-  view_structure_.Add(reparented_view_in_root_grid_ptr, GetLastTargetIndex());
+  auto* reparented_view_in_root_grid = items_container_->AddChildView(
+      CreateViewForItem(reparented_view->item()));
+  view_model_.Add(reparented_view_in_root_grid, view_model_.view_size());
+  view_structure_.Add(reparented_view_in_root_grid, GetLastTargetIndex());
 
   // Set |activated_folder_item_view_| selected so |target_index| will be
   // computed relative to the open folder.
@@ -2220,7 +2229,7 @@ void AppsGridView::HandleKeyboardReparent(AppListItemView* reparented_view,
   const GridIndex target_index =
       GetTargetGridIndexForKeyboardReparent(key_code);
   AnnounceReorder(target_index);
-  ReparentItemForReorder(reparented_view_in_root_grid_ptr, target_index);
+  ReparentItemForReorder(reparented_view_in_root_grid, target_index);
 
   GetViewAtIndex(target_index)->RequestFocus();
   Layout();
@@ -2889,12 +2898,9 @@ bool AppsGridView::IsPointWithinBottomDragBuffer(
          point_in_parent.y() < kBottomDragBufferMax;
 }
 
-void AppsGridView::ButtonPressed(views::Button* sender,
-                                 const ui::Event& event) {
+void AppsGridView::OnAppListItemViewPressed(AppListItemView* pressed_item_view,
+                                            const ui::Event& event) {
   if (dragging())
-    return;
-
-  if (strcmp(sender->GetClassName(), AppListItemView::kViewClassName))
     return;
 
   if (contents_view_->apps_container_view()
@@ -2907,7 +2913,6 @@ void AppsGridView::ButtonPressed(views::Button* sender,
   // prevents a case where the item would remain hidden due the
   // |activated_folder_item_view_| changing during the animation. We only
   // need to track |activated_folder_item_view_| in the root level grid view.
-  AppListItemView* pressed_item_view = static_cast<AppListItemView*>(sender);
   if (!folder_delegate_) {
     if (activated_folder_item_view_)
       activated_folder_item_view_->SetVisible(true);
@@ -3792,6 +3797,17 @@ void AppsGridView::MaybeCreateFolderDroppingAccessibilityEvent() {
 
   AnnounceFolderDrop(drag_view_->title()->GetText(),
                      drop_view->title()->GetText(), drop_view->is_folder());
+}
+
+void AppsGridView::AnnounceItemNotificationBadge(
+    const base::string16& selected_view_title) {
+  // Set a11y name to announce the notification badge for the focused item.
+  auto* announcement_view =
+      contents_view_->app_list_view()->announcement_view();
+  announcement_view->GetViewAccessibility().OverrideName(
+      l10n_util::GetStringFUTF16(IDS_APP_LIST_APP_FOCUS_NOTIFICATION_BADGE,
+                                 selected_view_title));
+  announcement_view->NotifyAccessibilityEvent(ax::mojom::Event::kAlert, true);
 }
 
 void AppsGridView::AnnounceFolderDrop(const base::string16& moving_view_title,

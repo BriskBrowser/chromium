@@ -47,6 +47,9 @@ import org.mockito.MockitoAnnotations;
 
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.CriteriaNotSatisfiedException;
 import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.R;
@@ -71,9 +74,6 @@ import org.chromium.components.dom_distiller.core.DistilledPagePrefs;
 import org.chromium.components.dom_distiller.core.DomDistillerService;
 import org.chromium.components.dom_distiller.core.DomDistillerUrlUtils;
 import org.chromium.components.infobars.InfoBar;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
-import org.chromium.content_public.browser.test.util.CriteriaNotSatisfiedException;
 import org.chromium.content_public.browser.test.util.TestCallbackHelperContainer;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.NetworkChangeNotifier;
@@ -173,7 +173,6 @@ public class ReaderModeTest implements CustomMainActivityStart {
     @MediumTest
     @EnableFeatures({ChromeFeatureList.READER_MODE_IN_CCT, ChromeFeatureList.CCT_INCOGNITO})
     public void testReaderModeInCCT_Incognito() throws TimeoutException {
-        mDownloadTestRule.startMainActivityWithURL(mURL);
         ChromeTabUtils.fullyLoadUrlInNewTab(InstrumentationRegistry.getInstrumentation(),
                 (ChromeTabbedActivity) mDownloadTestRule.getActivity(), mURL, true);
 
@@ -258,9 +257,11 @@ public class ReaderModeTest implements CustomMainActivityStart {
     @Test
     @MediumTest
     @DisableFeatures(ChromeFeatureList.READER_MODE_IN_CCT)
-    @DisableIf.Build(sdk_is_less_than = VERSION_CODES.M,
-            message = "Failing on Lollipop Phone Tester. https://crbug.com/1120830")
-    public void testPreferenceInTab() throws TimeoutException {
+    @DisableIf.Build(sdk_is_less_than = VERSION_CODES.O,
+            message =
+                    "Failing on Lollipop Phone Tester (https://crbug.com/1120830) and test-n-phone (https://crbug.com/1160911)")
+    public void
+    testPreferenceInTab() throws TimeoutException {
         mDownloadTestRule.loadUrl(
                 DomDistillerUrlUtils.getDistillerViewUrlFromUrl(DOM_DISTILLER_SCHEME, mURL, TITLE));
 

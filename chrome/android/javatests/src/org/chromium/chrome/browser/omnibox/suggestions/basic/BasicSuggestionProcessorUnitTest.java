@@ -4,6 +4,7 @@
 
 package org.chromium.chrome.browser.omnibox.suggestions.basic;
 
+import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyInt;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.eq;
@@ -31,19 +32,20 @@ import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.UiThreadTest;
 import org.chromium.base.test.util.Batch;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.bookmarks.BookmarkBridge;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.omnibox.OmniboxSuggestionType;
 import org.chromium.chrome.browser.omnibox.UrlBarEditingTextStateProvider;
-import org.chromium.chrome.browser.omnibox.suggestions.OmniboxSuggestion;
-import org.chromium.chrome.browser.omnibox.suggestions.OmniboxSuggestionBuilderForTest;
+import org.chromium.chrome.browser.omnibox.suggestions.SuggestionHost;
 import org.chromium.chrome.browser.omnibox.suggestions.base.BaseSuggestionViewProperties;
 import org.chromium.chrome.browser.omnibox.suggestions.base.SuggestionDrawableState;
 import org.chromium.chrome.browser.omnibox.suggestions.basic.SuggestionViewProperties.SuggestionIcon;
-import org.chromium.chrome.browser.ui.favicon.LargeIconBridge;
-import org.chromium.chrome.browser.ui.favicon.LargeIconBridge.LargeIconCallback;
 import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
+import org.chromium.components.favicon.LargeIconBridge;
+import org.chromium.components.favicon.LargeIconBridge.LargeIconCallback;
+import org.chromium.components.omnibox.AutocompleteMatch;
+import org.chromium.components.omnibox.AutocompleteMatchBuilder;
 import org.chromium.content_public.browser.test.NativeLibraryTestUtils;
 import org.chromium.ui.modelutil.PropertyModel;
 
@@ -104,10 +106,12 @@ public class BasicSuggestionProcessorUnitTest {
     LargeIconBridge mIconBridge;
     @Mock
     UrlBarEditingTextStateProvider mUrlBarText;
+    @Mock
+    BookmarkBridge mBookmarkBridge;
 
     private Bitmap mBitmap;
     private BasicSuggestionProcessor mProcessor;
-    private OmniboxSuggestion mSuggestion;
+    private AutocompleteMatch mSuggestion;
     private PropertyModel mModel;
 
     @Before
@@ -117,44 +121,36 @@ public class BasicSuggestionProcessorUnitTest {
         doReturn("").when(mUrlBarText).getTextWithoutAutocomplete();
         mBitmap = Bitmap.createBitmap(1, 1, Config.ALPHA_8);
         mProcessor = new BasicSuggestionProcessor(ContextUtils.getApplicationContext(),
-                mSuggestionHost, mUrlBarText, () -> mIconBridge);
+                mSuggestionHost, mUrlBarText, () -> mIconBridge, () -> mBookmarkBridge);
     }
 
     /**
      * Create Suggestion for test.
      * Do not use directly; use helper methods to create specific suggestion type instead.
      */
-    private void createSuggestion(int type, boolean isSearch, boolean isBookmark,
-            boolean hasTabMatch, String title, String description) {
-        mSuggestion = OmniboxSuggestionBuilderForTest.searchWithType(type)
-                              .setDisplayText(title)
-                              .setDescription(description)
-                              .setIsSearch(isSearch)
-                              .setIsStarred(isBookmark)
-                              .setHasTabMatch(hasTabMatch)
-                              .build();
+    private AutocompleteMatchBuilder createSuggestionBuilder(int type, String title) {
+        return AutocompleteMatchBuilder.searchWithType(type).setDisplayText(title);
+    }
+
+    /** Create search suggestion for test. */
+    private void createSearchSuggestion(int type, String title) {
+        mSuggestion = createSuggestionBuilder(type, title).setIsSearch(true).build();
         mModel = mProcessor.createModel();
         mProcessor.populateModel(mSuggestion, mModel, 0);
     }
 
-    /** Create bookmark suggestion for test. */
-    private void createBookmarkSuggestion(int type, String title, String description) {
-        createSuggestion(type, false, true, false, title, description);
-    }
-
-    /** Create search suggestion for test. */
-    private void createSearchSuggestion(int type, String title, String description) {
-        createSuggestion(type, true, false, false, title, description);
-    }
-
     /** Create URL suggestion for test. */
-    private void createUrlSuggestion(int type, String title, String description) {
-        createSuggestion(type, false, false, false, title, description);
+    private void createUrlSuggestion(int type, String title) {
+        mSuggestion = createSuggestionBuilder(type, title).setIsSearch(false).build();
+        mModel = mProcessor.createModel();
+        mProcessor.populateModel(mSuggestion, mModel, 0);
     }
 
     /** Create switch to tab suggestion for test. */
-    private void createSwitchToTabSuggestion(int type, String title, String description) {
-        createSuggestion(type, false, false, true, title, description);
+    private void createSwitchToTabSuggestion(int type, String title) {
+        mSuggestion = createSuggestionBuilder(type, title).setHasTabMatch(true).build();
+        mModel = mProcessor.createModel();
+        mProcessor.populateModel(mSuggestion, mModel, 0);
     }
 
     private void assertSuggestionTypeAndIcon(
@@ -169,8 +165,7 @@ public class BasicSuggestionProcessorUnitTest {
     @Test
     @SmallTest
     @UiThreadTest
-    @DisableFeatures({ChromeFeatureList.OMNIBOX_COMPACT_SUGGESTIONS,
-            ChromeFeatureList.OMNIBOX_SUGGESTIONS_WRAP_AROUND})
+    @DisableFeatures(ChromeFeatureList.OMNIBOX_COMPACT_SUGGESTIONS)
     public void getSuggestionIconTypeForSearch_Default() {
         int[][] testCases = {
                 {OmniboxSuggestionType.URL_WHAT_YOU_TYPED, SuggestionIcon.MAGNIFIER},
@@ -195,7 +190,7 @@ public class BasicSuggestionProcessorUnitTest {
 
         mProcessor.onNativeInitialized();
         for (int[] testCase : testCases) {
-            createSearchSuggestion(testCase[0], "", "");
+            createSearchSuggestion(testCase[0], "");
             Assert.assertTrue(mModel.get(SuggestionViewProperties.IS_SEARCH_SUGGESTION));
             assertSuggestionTypeAndIcon(testCase[0], testCase[1]);
         }
@@ -204,8 +199,7 @@ public class BasicSuggestionProcessorUnitTest {
     @Test
     @SmallTest
     @UiThreadTest
-    @DisableFeatures({ChromeFeatureList.OMNIBOX_COMPACT_SUGGESTIONS,
-            ChromeFeatureList.OMNIBOX_SUGGESTIONS_WRAP_AROUND})
+    @DisableFeatures(ChromeFeatureList.OMNIBOX_COMPACT_SUGGESTIONS)
     public void getSuggestionIconTypeForUrl_Default() {
         int[][] testCases = {
                 {OmniboxSuggestionType.URL_WHAT_YOU_TYPED, SuggestionIcon.GLOBE},
@@ -230,7 +224,7 @@ public class BasicSuggestionProcessorUnitTest {
 
         mProcessor.onNativeInitialized();
         for (int[] testCase : testCases) {
-            createUrlSuggestion(testCase[0], "", "");
+            createUrlSuggestion(testCase[0], "");
             Assert.assertFalse(mModel.get(SuggestionViewProperties.IS_SEARCH_SUGGESTION));
             assertSuggestionTypeAndIcon(testCase[0], testCase[1]);
         }
@@ -239,8 +233,7 @@ public class BasicSuggestionProcessorUnitTest {
     @Test
     @SmallTest
     @UiThreadTest
-    @DisableFeatures({ChromeFeatureList.OMNIBOX_COMPACT_SUGGESTIONS,
-            ChromeFeatureList.OMNIBOX_SUGGESTIONS_WRAP_AROUND})
+    @DisableFeatures(ChromeFeatureList.OMNIBOX_COMPACT_SUGGESTIONS)
     public void getSuggestionIconTypeForBookmarks_Default() {
         int[][] testCases = {
                 {OmniboxSuggestionType.URL_WHAT_YOU_TYPED, SuggestionIcon.BOOKMARK},
@@ -263,10 +256,36 @@ public class BasicSuggestionProcessorUnitTest {
                 {OmniboxSuggestionType.PEDAL, SuggestionIcon.BOOKMARK},
         };
 
+        doReturn(true).when(mBookmarkBridge).isBookmarked(any());
+
         mProcessor.onNativeInitialized();
         for (int[] testCase : testCases) {
-            createBookmarkSuggestion(testCase[0], "", "");
+            createUrlSuggestion(testCase[0], "");
             Assert.assertFalse(mModel.get(SuggestionViewProperties.IS_SEARCH_SUGGESTION));
+            assertSuggestionTypeAndIcon(testCase[0], testCase[1]);
+        }
+    }
+
+    @Test
+    @SmallTest
+    @UiThreadTest
+    @DisableFeatures(ChromeFeatureList.OMNIBOX_COMPACT_SUGGESTIONS)
+    public void getSuggestionIconTypeForTrendingQueries() {
+        int[][] testCases = {
+                {OmniboxSuggestionType.URL_WHAT_YOU_TYPED, SuggestionIcon.TRENDS},
+                {OmniboxSuggestionType.SEARCH_HISTORY, SuggestionIcon.HISTORY},
+                {OmniboxSuggestionType.SEARCH_SUGGEST, SuggestionIcon.TRENDS},
+                {OmniboxSuggestionType.SEARCH_SUGGEST_TAIL, SuggestionIcon.TRENDS},
+                {OmniboxSuggestionType.SEARCH_SUGGEST_PERSONALIZED, SuggestionIcon.HISTORY},
+                {OmniboxSuggestionType.VOICE_SUGGEST, SuggestionIcon.VOICE},
+        };
+
+        mProcessor.onNativeInitialized();
+        for (int[] testCase : testCases) {
+            mSuggestion = createSuggestionBuilder(testCase[0], "").addSubtype(143).build();
+            mModel = mProcessor.createModel();
+            mProcessor.populateModel(mSuggestion, mModel, 0);
+            Assert.assertTrue(mModel.get(SuggestionViewProperties.IS_SEARCH_SUGGESTION));
             assertSuggestionTypeAndIcon(testCase[0], testCase[1]);
         }
     }
@@ -277,12 +296,12 @@ public class BasicSuggestionProcessorUnitTest {
     public void refineIconNotShownForWhatYouTypedSuggestions() {
         final String typed = "Typed content";
         doReturn(typed).when(mUrlBarText).getTextWithoutAutocomplete();
-        createSearchSuggestion(OmniboxSuggestionType.URL_WHAT_YOU_TYPED, typed, "");
+        createSearchSuggestion(OmniboxSuggestionType.URL_WHAT_YOU_TYPED, typed);
         PropertyModel model = mProcessor.createModel();
         mProcessor.populateModel(mSuggestion, model, 0);
         Assert.assertNull(mModel.get(BaseSuggestionViewProperties.ACTIONS));
 
-        createUrlSuggestion(OmniboxSuggestionType.URL_WHAT_YOU_TYPED, typed, "");
+        createUrlSuggestion(OmniboxSuggestionType.URL_WHAT_YOU_TYPED, typed);
         mProcessor.populateModel(mSuggestion, model, 0);
         Assert.assertNull(mModel.get(BaseSuggestionViewProperties.ACTIONS));
     }
@@ -294,12 +313,12 @@ public class BasicSuggestionProcessorUnitTest {
         final String typed = "Typed conte";
         final String refined = "Typed content";
         doReturn(typed).when(mUrlBarText).getTextWithoutAutocomplete();
-        createSearchSuggestion(OmniboxSuggestionType.URL_WHAT_YOU_TYPED, refined, "");
+        createSearchSuggestion(OmniboxSuggestionType.URL_WHAT_YOU_TYPED, refined);
         PropertyModel model = mProcessor.createModel();
         mProcessor.populateModel(mSuggestion, model, 0);
         Assert.assertNotNull(mModel.get(BaseSuggestionViewProperties.ACTIONS));
 
-        createUrlSuggestion(OmniboxSuggestionType.URL_WHAT_YOU_TYPED, refined, "");
+        createUrlSuggestion(OmniboxSuggestionType.URL_WHAT_YOU_TYPED, refined);
         mProcessor.populateModel(mSuggestion, model, 0);
         Assert.assertNotNull(mModel.get(BaseSuggestionViewProperties.ACTIONS));
 
@@ -315,7 +334,7 @@ public class BasicSuggestionProcessorUnitTest {
     @UiThreadTest
     public void switchTabIconShownForSwitchToTabSuggestions() {
         final String tabMatch = "tab match";
-        createSwitchToTabSuggestion(OmniboxSuggestionType.URL_WHAT_YOU_TYPED, tabMatch, "");
+        createSwitchToTabSuggestion(OmniboxSuggestionType.URL_WHAT_YOU_TYPED, tabMatch);
         PropertyModel model = mProcessor.createModel();
         mProcessor.populateModel(mSuggestion, model, 0);
         Assert.assertNotNull(mModel.get(BaseSuggestionViewProperties.ACTIONS));
@@ -330,13 +349,12 @@ public class BasicSuggestionProcessorUnitTest {
     @Test
     @SmallTest
     @UiThreadTest
-    @DisableFeatures({ChromeFeatureList.OMNIBOX_COMPACT_SUGGESTIONS,
-            ChromeFeatureList.OMNIBOX_SUGGESTIONS_WRAP_AROUND})
+    @DisableFeatures(ChromeFeatureList.OMNIBOX_COMPACT_SUGGESTIONS)
     public void suggestionFavicons_showFaviconWhenAvailable() {
         final ArgumentCaptor<LargeIconCallback> callback =
                 ArgumentCaptor.forClass(LargeIconCallback.class);
         mProcessor.onNativeInitialized();
-        createUrlSuggestion(OmniboxSuggestionType.URL_WHAT_YOU_TYPED, "", "");
+        createUrlSuggestion(OmniboxSuggestionType.URL_WHAT_YOU_TYPED, "");
         SuggestionDrawableState icon1 = mModel.get(BaseSuggestionViewProperties.ICON);
         Assert.assertNotNull(icon1);
 
@@ -353,13 +371,12 @@ public class BasicSuggestionProcessorUnitTest {
     @Test
     @SmallTest
     @UiThreadTest
-    @DisableFeatures({ChromeFeatureList.OMNIBOX_COMPACT_SUGGESTIONS,
-            ChromeFeatureList.OMNIBOX_SUGGESTIONS_WRAP_AROUND})
+    @DisableFeatures(ChromeFeatureList.OMNIBOX_COMPACT_SUGGESTIONS)
     public void suggestionFavicons_doNotReplaceFallbackIconWhenNoFaviconIsAvailable() {
         final ArgumentCaptor<LargeIconCallback> callback =
                 ArgumentCaptor.forClass(LargeIconCallback.class);
         mProcessor.onNativeInitialized();
-        createUrlSuggestion(OmniboxSuggestionType.URL_WHAT_YOU_TYPED, "", "");
+        createUrlSuggestion(OmniboxSuggestionType.URL_WHAT_YOU_TYPED, "");
         SuggestionDrawableState icon1 = mModel.get(BaseSuggestionViewProperties.ICON);
         Assert.assertNotNull(icon1);
 
@@ -376,27 +393,12 @@ public class BasicSuggestionProcessorUnitTest {
     @SmallTest
     @UiThreadTest
     @DisableFeatures(ChromeFeatureList.OMNIBOX_COMPACT_SUGGESTIONS)
-    @EnableFeatures(ChromeFeatureList.OMNIBOX_SUGGESTIONS_WRAP_AROUND)
     public void searchSuggestions_searchQueriesCanWrapAroundWithFeatureEnabled() {
         mProcessor.onNativeInitialized();
-        createSearchSuggestion(OmniboxSuggestionType.SEARCH_WHAT_YOU_TYPED, "", "");
+        createSearchSuggestion(OmniboxSuggestionType.SEARCH_WHAT_YOU_TYPED, "");
         Assert.assertEquals(mModel.get(SuggestionViewProperties.ALLOW_WRAP_AROUND), true);
 
-        createUrlSuggestion(OmniboxSuggestionType.URL_WHAT_YOU_TYPED, "", "");
-        Assert.assertEquals(mModel.get(SuggestionViewProperties.ALLOW_WRAP_AROUND), false);
-    }
-
-    @Test
-    @SmallTest
-    @UiThreadTest
-    @DisableFeatures({ChromeFeatureList.OMNIBOX_COMPACT_SUGGESTIONS,
-            ChromeFeatureList.OMNIBOX_SUGGESTIONS_WRAP_AROUND})
-    public void searchSuggestions_searchQueriesDontWrapAroundWithFeatureDisabled() {
-        mProcessor.onNativeInitialized();
-        createSearchSuggestion(OmniboxSuggestionType.SEARCH_WHAT_YOU_TYPED, "", "");
-        Assert.assertEquals(mModel.get(SuggestionViewProperties.ALLOW_WRAP_AROUND), false);
-
-        createUrlSuggestion(OmniboxSuggestionType.URL_WHAT_YOU_TYPED, "", "");
+        createUrlSuggestion(OmniboxSuggestionType.URL_WHAT_YOU_TYPED, "");
         Assert.assertEquals(mModel.get(SuggestionViewProperties.ALLOW_WRAP_AROUND), false);
     }
 }

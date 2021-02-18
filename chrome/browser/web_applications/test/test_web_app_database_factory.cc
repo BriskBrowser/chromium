@@ -5,14 +5,14 @@
 #include "chrome/browser/web_applications/test/test_web_app_database_factory.h"
 
 #include "base/run_loop.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
 #include "chrome/browser/web_applications/proto/web_app.pb.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/browser/web_applications/web_app_database.h"
 #include "components/sync/model/model_error.h"
 #include "components/sync/model/model_type_store.h"
-#include "components/sync/model/model_type_store_test_util.h"
+#include "components/sync/test/model/model_type_store_test_util.h"
 
 namespace web_app {
 
@@ -69,10 +69,10 @@ void TestWebAppDatabaseFactory::WriteProtos(
       store_->CreateWriteBatch();
 
   for (const std::unique_ptr<WebAppProto>& proto : protos) {
-    GURL launch_url(proto->sync_data().launch_url());
-    DCHECK(!launch_url.is_empty());
-    DCHECK(launch_url.is_valid());
-    AppId app_id = GenerateAppIdFromURL(launch_url);
+    GURL start_url(proto->sync_data().start_url());
+    DCHECK(!start_url.is_empty());
+    DCHECK(start_url.is_valid());
+    AppId app_id = GenerateAppIdFromURL(start_url);
     write_batch->WriteData(app_id, proto->SerializeAsString());
   }
 

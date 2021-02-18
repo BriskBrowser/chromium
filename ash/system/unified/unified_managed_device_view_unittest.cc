@@ -55,7 +55,7 @@ TEST_F(UnifiedManagedDeviceViewTest, EnterpriseManagedDevice) {
   Shell::Get()
       ->system_tray_model()
       ->enterprise_domain()
-      ->SetEnterpriseDisplayDomain("example.com", active_directory);
+      ->SetEnterpriseDomainInfo("example.com", active_directory);
 
   EXPECT_TRUE(managed_device_view_->GetVisible());
 }
@@ -67,14 +67,27 @@ TEST_F(UnifiedManagedDeviceViewTest, ActiveDirectoryManagedDevice) {
   Shell::Get()
       ->system_tray_model()
       ->enterprise_domain()
-      ->SetEnterpriseDisplayDomain(empty_domain, active_directory);
+      ->SetEnterpriseDomainInfo(empty_domain, active_directory);
+
+  EXPECT_TRUE(managed_device_view_->GetVisible());
+}
+
+TEST_F(UnifiedManagedDeviceViewTest, EnterpriseUserManagedDevice) {
+  // By default, UnifiedManagedDeviceView is not shown.
+  EXPECT_FALSE(managed_device_view_->GetVisible());
+
+  // Simulate enterprise account information becoming available.
+  Shell::Get()
+      ->system_tray_model()
+      ->enterprise_domain()
+      ->SetEnterpriseAccountDomainInfo("example.com");
 
   EXPECT_TRUE(managed_device_view_->GetVisible());
 }
 
 using UnifiedManagedDeviceViewNoSessionTest = NoSessionAshTestBase;
 
-TEST_F(UnifiedManagedDeviceViewNoSessionTest, SupervisedUserDevice) {
+TEST_F(UnifiedManagedDeviceViewNoSessionTest, ChildUserDevice) {
   SessionControllerImpl* session = Shell::Get()->session_controller();
   ASSERT_FALSE(session->IsActiveUserSessionStarted());
 
@@ -91,7 +104,7 @@ TEST_F(UnifiedManagedDeviceViewNoSessionTest, SupervisedUserDevice) {
   // Simulate a supervised user logging in.
   TestSessionControllerClient* client = GetSessionControllerClient();
   client->Reset();
-  client->AddUserSession("child@test.com", user_manager::USER_TYPE_SUPERVISED);
+  client->AddUserSession("child@test.com", user_manager::USER_TYPE_CHILD);
   client->SetSessionState(session_manager::SessionState::ACTIVE);
   UserSession user_session = *session->GetUserSession(0);
   user_session.custodian_email = "parent@test.com";

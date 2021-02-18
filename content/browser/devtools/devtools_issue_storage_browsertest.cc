@@ -8,8 +8,8 @@
 #include "content/browser/devtools/protocol/audits.h"
 #include "content/browser/devtools/protocol/devtools_protocol_test_support.h"
 #include "content/browser/devtools/render_frame_devtools_agent_host.h"
-#include "content/browser/frame_host/frame_tree_node.h"
-#include "content/browser/frame_host/render_frame_host_impl.h"
+#include "content/browser/renderer_host/frame_tree_node.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/devtools_agent_host_client.h"
@@ -162,7 +162,10 @@ class DevToolsIssueStorageWithBackForwardCacheBrowserTest
     std::map<std::string, std::string> params = {
         {"TimeToLiveInBackForwardCacheInSeconds", "3600"}};
     enabled_features.emplace_back(features::kBackForwardCache, params);
-    feature_list_.InitWithFeaturesAndParameters(enabled_features, {});
+    feature_list_.InitWithFeaturesAndParameters(
+        enabled_features,
+        // Allow BackForwardCache for all devices regardless of their memory.
+        {features::kBackForwardCacheMemoryControl});
   }
 
  protected:

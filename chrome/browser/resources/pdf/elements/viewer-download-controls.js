@@ -33,12 +33,10 @@ export class ViewerDownloadControlsElement extends PolymerElement {
         observer: 'onFormFieldFocusedChanged_',
       },
 
-      pdfFormSaveEnabled: Boolean,
-
       downloadHasPopup_: {
         type: String,
-        computed: 'computeDownloadHasPopup_(' +
-            'pdfFormSaveEnabled, hasEdits, hasEnteredAnnotationMode)',
+        computed: 'computeDownloadHasPopup_(hasEdits,' +
+            'hasEnteredAnnotationMode)',
       },
 
       /** @private */
@@ -66,9 +64,6 @@ export class ViewerDownloadControlsElement extends PolymerElement {
     /** @type {boolean} */
     this.isFormFieldFocused;
 
-    /** @type {boolean} */
-    this.pdfFormSaveEnabled;
-
     // Non-Polymer properties
     /** @private {?PromiseResolver<boolean>} */
     this.waitForFormFocusChange_ = null;
@@ -83,9 +78,12 @@ export class ViewerDownloadControlsElement extends PolymerElement {
     this.getDownloadMenu_().close();
   }
 
-  /** @private */
-  onMenuClose_() {
-    this.menuOpen_ = false;
+  /**
+   * @param {!CustomEvent<!{value: boolean}>} e
+   * @private
+   */
+  onOpenChanged_(e) {
+    this.menuOpen_ = e.detail.value;
   }
 
   /**
@@ -93,8 +91,7 @@ export class ViewerDownloadControlsElement extends PolymerElement {
    * @private
    */
   hasEditsToSave_() {
-    return this.hasEnteredAnnotationMode ||
-        (this.pdfFormSaveEnabled && this.hasEdits);
+    return this.hasEnteredAnnotationMode || this.hasEdits;
   }
 
   /**
@@ -117,7 +114,6 @@ export class ViewerDownloadControlsElement extends PolymerElement {
 
   /** @private */
   showDownloadMenu_() {
-    this.menuOpen_ = true;
     this.getDownloadMenu_().showAt(this.$.download, {
       anchorAlignmentX: AnchorAlignment.CENTER,
     });
@@ -146,7 +142,7 @@ export class ViewerDownloadControlsElement extends PolymerElement {
     if (this.hasEditsToSave_()) {
       return Promise.resolve(true);
     }
-    if (!this.isFormFieldFocused || !this.pdfFormSaveEnabled) {
+    if (!this.isFormFieldFocused) {
       return Promise.resolve(false);
     }
     this.waitForFormFocusChange_ = new PromiseResolver();

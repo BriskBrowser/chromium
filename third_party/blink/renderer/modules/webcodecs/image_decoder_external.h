@@ -7,7 +7,9 @@
 
 #include <memory>
 
+#include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
@@ -18,6 +20,7 @@ namespace blink {
 class ExceptionState;
 class ScriptState;
 class ImageBitmapOptions;
+class ImageDecodeOptions;
 class ImageDecoder;
 class ImageDecoderInit;
 class ImageFrameExternal;
@@ -26,8 +29,11 @@ class ReadableStreamBytesConsumer;
 class ScriptPromiseResolver;
 class SegmentReader;
 
-class MODULES_EXPORT ImageDecoderExternal final : public ScriptWrappable,
-                                                  public BytesConsumer::Client {
+class MODULES_EXPORT ImageDecoderExternal final
+    : public ScriptWrappable,
+      public ActiveScriptWrappable<ImageDecoderExternal>,
+      public BytesConsumer::Client,
+      public ExecutionContextLifecycleObserver {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -43,7 +49,7 @@ class MODULES_EXPORT ImageDecoderExternal final : public ScriptWrappable,
   using ImageTrackList = HeapVector<Member<ImageTrackExternal>>;
 
   // image_decoder.idl implementation.
-  ScriptPromise decode(uint32_t frame_index, bool complete_frames_only);
+  ScriptPromise decode(const ImageDecodeOptions* options = nullptr);
   ScriptPromise decodeMetadata();
   void selectTrack(uint32_t track_id, ExceptionState&);
   uint32_t frameCount() const;
@@ -59,12 +65,22 @@ class MODULES_EXPORT ImageDecoderExternal final : public ScriptWrappable,
   // GarbageCollected override.
   void Trace(Visitor*) const override;
 
+  // ExecutionContextLifecycleObserver override.
+  void ContextDestroyed() override;
+
+  // ScriptWrappable override.
+  bool HasPendingActivity() const override;
+
  private:
   void CreateImageDecoder();
 
   void MaybeSatisfyPendingDecodes();
   void MaybeSatisfyPendingMetadataDecodes();
   void MaybeUpdateMetadata();
+
+  // Returns false if the decoder was constructed with an ArrayBuffer or
+  // ArrayBufferView that has since been neutered.
+  bool HasValidEncodedData() const;
 
   Member<ScriptState> script_state_;
 

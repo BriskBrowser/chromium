@@ -9,6 +9,7 @@
 #include <memory>
 
 #include "ash/ash_export.h"
+#include "ash/public/cpp/accessibility_controller_enums.h"
 #include "base/macros.h"
 #include "base/timer/timer.h"
 #include "ui/aura/window_observer.h"
@@ -64,6 +65,15 @@ class ASH_EXPORT MagnificationController : public ui::EventHandler,
   MagnificationController();
   ~MagnificationController() override;
 
+  void set_mouse_following_mode(
+      MagnifierMouseFollowingMode mouse_following_mode) {
+    mouse_following_mode_ = mouse_following_mode;
+  }
+
+  MagnifierMouseFollowingMode mouse_following_mode() const {
+    return mouse_following_mode_;
+  }
+
   // Enables (or disables if |enabled| is false) screen magnifier feature.
   void SetEnabled(bool enabled);
 
@@ -108,6 +118,15 @@ class ASH_EXPORT MagnificationController : public ui::EventHandler,
   // when Fullscreen magnifier feature is enabled.
   void HandleFocusedNodeChanged(bool is_editable_node,
                                 const gfx::Rect& node_bounds_in_screen);
+
+  // Move |rect_in_screen| within the magnifier viewport. If |rect_in_screen| is
+  // already completely within the viewport, do nothing. If any edge of
+  // |rect_in_screen| is outside the viewport (e.g. if rect is larger than or
+  // extends partially beyond the viewport), center the overflowing dimensions
+  // of the viewport on center of |rect_in_screen| (e.g. center viewport
+  // vertically if |rect| extends beyond bottom of screen). Called from
+  // Accessibility Common extension. Called from Accessibility Common extension.
+  void HandleMoveMagnifierToRect(const gfx::Rect& rect_in_screen);
 
   // Switch the magnified root window to |new_root_window|. This does following:
   //  - Unzoom the current root_window.
@@ -172,7 +191,7 @@ class ASH_EXPORT MagnificationController : public ui::EventHandler,
   // given scale. Returns true if the window is changed; otherwise, false.
   // These methods should be called internally just after the scale and/or
   // the position are changed to redraw the window.
-  bool Redraw(const gfx::PointF& position, float scale, bool animate);
+  bool Redraw(const gfx::PointF& position_in_pixels, float scale, bool animate);
 
   // Redraws the magnification window with the given origin position in dip and
   // the given scale. Returns true if the window is changed; otherwise, false.
@@ -263,6 +282,10 @@ class ASH_EXPORT MagnificationController : public ui::EventHandler,
 
   bool keep_focus_centered_ = false;
 
+  // The current mouse following mode (e.g. continuous, centered, edge).
+  MagnifierMouseFollowingMode mouse_following_mode_ =
+      MagnifierMouseFollowingMode::kEdge;
+
   // True if the cursor needs to move the given position after the animation
   // will be finished. When using this, set |position_after_animation_| as well.
   bool move_cursor_after_animation_ = false;
@@ -312,6 +335,10 @@ class ASH_EXPORT MagnificationController : public ui::EventHandler,
   // Flag for disabling moving magnifier delay. It can only be true in testing
   // mode.
   bool disable_move_magnifier_delay_ = false;
+
+  // Last move magnifier to rect time - used for ignoring caret updates for a
+  // few milliseconds after the last move magnifier to rect call.
+  base::TimeTicks last_move_magnifier_to_rect_;
 
   DISALLOW_COPY_AND_ASSIGN(MagnificationController);
 };

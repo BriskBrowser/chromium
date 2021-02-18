@@ -31,11 +31,15 @@ using LaunchCallback = AlternativeBrowserDriver::LaunchCallback;
 
 const char kUrlVarName[] = "${url}";
 
+// TODO(crbug.com/1124758): add ${edge} on macOS/Linux once it's released on
+// those platforms.
+
 #if defined(OS_MAC)
 const char kChromeExecutableName[] = "Google Chrome";
 const char kFirefoxExecutableName[] = "Firefox";
 const char kOperaExecutableName[] = "Opera";
 const char kSafariExecutableName[] = "Safari";
+const char kEdgeExecutableName[] = "Microsoft Edge";
 #else
 const char kChromeExecutableName[] = "google-chrome";
 const char kFirefoxExecutableName[] = "firefox";
@@ -47,6 +51,7 @@ const char kFirefoxVarName[] = "${firefox}";
 const char kOperaVarName[] = "${opera}";
 #if defined(OS_MAC)
 const char kSafariVarName[] = "${safari}";
+const char kEdgeVarName[] = "${edge}";
 #endif
 
 struct BrowserVarMapping {
@@ -63,6 +68,7 @@ const BrowserVarMapping kBrowserVarMappings[] = {
     {kOperaVarName, kOperaExecutableName, "Opera", BrowserType::kOpera},
 #if defined(OS_MAC)
     {kSafariVarName, kSafariExecutableName, "Safari", BrowserType::kSafari},
+    {kEdgeVarName, kEdgeExecutableName, "Microsoft Edge", BrowserType::kEdge},
 #endif
 };
 
@@ -213,6 +219,12 @@ void TryLaunchBlocking(GURL url,
   const bool success = base::LaunchProcess(cmd_line, options).IsValid();
   if (!success)
     LOG(ERROR) << "Could not start the alternative browser!";
+
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](bool success, LaunchCallback cb) { std::move(cb).Run(success); },
+          success, std::move(cb)));
 }
 
 }  // namespace

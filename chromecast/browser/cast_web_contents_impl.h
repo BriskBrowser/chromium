@@ -33,8 +33,6 @@
 
 namespace chromecast {
 
-class QueryableDataHost;
-
 namespace shell {
 class RemoteDebuggingServer;
 }  // namespace shell
@@ -51,8 +49,6 @@ class CastWebContentsImpl : public CastWebContents,
   PageState page_state() const override;
   base::Optional<pid_t> GetMainFrameRenderProcessPid() const override;
 
-  QueryableDataHost* queryable_data_host() const override;
-
   // CastWebContents implementation:
   int tab_id() const override;
   int id() const override;
@@ -67,6 +63,7 @@ class CastWebContentsImpl : public CastWebContents,
       const InterfaceSet& interface_set,
       service_manager::InterfaceProvider* interface_provider) override;
   service_manager::BinderRegistry* binder_registry() override;
+  bool TryBindReceiver(mojo::GenericPendingReceiver& receiver) override;
   void BlockMediaLoading(bool blocked) override;
   void BlockMediaStarting(bool blocked) override;
   void EnableBackgroundVideoPlayback(bool enabled) override;
@@ -96,13 +93,10 @@ class CastWebContentsImpl : public CastWebContents,
 
   // content::WebContentsObserver implementation:
   void RenderFrameCreated(content::RenderFrameHost* render_frame_host) override;
-  void RenderFrameHostChanged(content::RenderFrameHost* old_host,
-                              content::RenderFrameHost* new_host) override;
   void OnInterfaceRequestFromFrame(
       content::RenderFrameHost* /* render_frame_host */,
       const std::string& interface_name,
       mojo::ScopedMessagePipeHandle* interface_pipe) override;
-  void RenderViewCreated(content::RenderViewHost* render_view_host) override;
   void RenderProcessGone(base::TerminationStatus status) override;
   void DidStartNavigation(
       content::NavigationHandle* navigation_handle) override;
@@ -189,8 +183,6 @@ class CastWebContentsImpl : public CastWebContents,
   // Map of InterfaceSet -> InterfaceProvider pointer.
   base::flat_map<InterfaceSet, service_manager::InterfaceProvider*>
       interface_providers_map_;
-
-  std::unique_ptr<QueryableDataHost> queryable_data_host_;
 
   SEQUENCE_CHECKER(sequence_checker_);
   base::WeakPtrFactory<CastWebContentsImpl> weak_factory_;

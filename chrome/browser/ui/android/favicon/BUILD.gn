@@ -8,7 +8,6 @@ android_library("java") {
   sources = [
     "java/src/org/chromium/chrome/browser/ui/favicon/FaviconHelper.java",
     "java/src/org/chromium/chrome/browser/ui/favicon/FaviconUtils.java",
-    "java/src/org/chromium/chrome/browser/ui/favicon/LargeIconBridge.java",
   ]
 
   deps = [
@@ -22,13 +21,11 @@ android_library("java") {
     "//components/embedder_support/android:util_java",
     "//components/url_formatter/android:url_formatter_java",
     "//content/public/android:content_java",
-    "//third_party/android_deps:androidx_annotation_annotation_java",
-    "//third_party/android_deps:androidx_core_core_java",
+    "//third_party/androidx:androidx_annotation_annotation_java",
+    "//third_party/androidx:androidx_core_core_java",
     "//ui/android:ui_java",
     "//url:gurl_java",
   ]
-
-  srcjar_deps = [ "//components/favicon_base:favicon_base_enums_java" ]
 
   resources_package = "org.chromium.chrome.browser.ui.favicon"
 
@@ -36,10 +33,8 @@ android_library("java") {
 }
 
 generate_jni("jni_headers") {
-  sources = [
-    "java/src/org/chromium/chrome/browser/ui/favicon/FaviconHelper.java",
-    "java/src/org/chromium/chrome/browser/ui/favicon/LargeIconBridge.java",
-  ]
+  sources =
+      [ "java/src/org/chromium/chrome/browser/ui/favicon/FaviconHelper.java" ]
 }
 
 android_resources("java_resources") {
@@ -56,8 +51,6 @@ android_resources("java_resources") {
     "java/res/drawable-xxxhdpi/default_favicon.png",
     "java/res/values/dimens.xml",
   ]
-
-  create_srcjar = false
 
   deps = [
     "//components/browser_ui/styles/android:java_resources",

@@ -61,7 +61,9 @@ class WebAppNavigationBrowserTest : public InProcessBrowserTest {
       const GURL& target_url,
       LinkTarget target,
       const std::string& rel,
-      int modifiers);
+      int modifiers,
+      blink::WebMouseEvent::Button button =
+          blink::WebMouseEvent::Button::kLeft);
 
   // Creates an <a> element, sets its href and target to |link_url| and |target|
   // respectively, adds it to the DOM, and clicks on it. Returns once
@@ -114,6 +116,8 @@ class WebAppNavigationBrowserTest : public InProcessBrowserTest {
                                          base::OnceClosure action);
 
   const net::EmbeddedTestServer& https_server() { return https_server_; }
+
+  const AppId& test_web_app_id() const { return test_web_app_; }
 
  private:
   net::EmbeddedTestServer https_server_;

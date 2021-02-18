@@ -4,13 +4,13 @@
 
 #include "components/exo/display.h"
 #include "ash/public/cpp/shell_window_ids.h"
-#include "ash/public/cpp/window_pin_type.h"
 #include "ash/wm/desks/desks_util.h"
+#include "chromeos/ui/base/window_pin_type.h"
 #include "components/exo/buffer.h"
 #include "components/exo/client_controlled_shell_surface.h"
 #include "components/exo/data_device.h"
 #include "components/exo/data_device_delegate.h"
-#include "components/exo/file_helper.h"
+#include "components/exo/data_exchange_delegate.h"
 #include "components/exo/input_method_surface_manager.h"
 #include "components/exo/notification_surface_manager.h"
 #include "components/exo/shared_memory.h"
@@ -18,6 +18,7 @@
 #include "components/exo/sub_surface.h"
 #include "components/exo/surface.h"
 #include "components/exo/test/exo_test_base.h"
+#include "components/exo/test/exo_test_data_exchange_delegate.h"
 #include "components/exo/toast_surface_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -210,9 +211,7 @@ class TestDataDeviceDelegate : public DataDeviceDelegate {
  public:
   // Overriden from DataDeviceDelegate:
   void OnDataDeviceDestroying(DataDevice* data_device) override {}
-  DataOffer* OnDataOffer(DataOffer::Purpose purpose) override {
-    return nullptr;
-  }
+  DataOffer* OnDataOffer() override { return nullptr; }
   void OnEnter(Surface* surface,
                const gfx::PointF& location,
                const DataOffer& data_offer) override {}
@@ -226,26 +225,10 @@ class TestDataDeviceDelegate : public DataDeviceDelegate {
   }
 };
 
-class TestFileHelper : public FileHelper {
- public:
-  // Overriden from TestFileHelper:
-  TestFileHelper() {}
-  std::string GetMimeTypeForUriList() const override { return ""; }
-  bool GetUrlFromPath(const std::string& app_id,
-                      const base::FilePath& path,
-                      GURL* out) override {
-    return true;
-  }
-  bool HasUrlsInPickle(const base::Pickle& pickle) override { return false; }
-  void GetUrlsFromPickle(const std::string& app_id,
-                         const base::Pickle& pickle,
-                         UrlsFromPickleCallback callback) override {}
-};
-
 TEST_F(DisplayTest, CreateDataDevice) {
   TestDataDeviceDelegate device_delegate;
   Display display(nullptr, nullptr, nullptr,
-                  std::make_unique<TestFileHelper>());
+                  std::make_unique<TestDataExchangeDelegate>());
 
   std::unique_ptr<DataDevice> device =
       display.CreateDataDevice(&device_delegate);
@@ -268,7 +251,7 @@ TEST_F(DisplayTest, PinnedAlwaysOnTopWindow) {
 
   // This should not crash
   shell_surface->SetAlwaysOnTop(true);
-  shell_surface->SetPinned(ash::WindowPinType::kPinned);
+  shell_surface->SetPinned(chromeos::WindowPinType::kPinned);
 }
 
 }  // namespace

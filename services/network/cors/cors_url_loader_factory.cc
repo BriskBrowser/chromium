@@ -7,11 +7,12 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/debug/crash_logging.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
-#include "base/util/type_safety/strong_alias.h"
+#include "base/types/strong_alias.h"
 #include "mojo/public/cpp/bindings/message.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "net/base/load_flags.h"
@@ -19,7 +20,6 @@
 #include "services/network/cors/cors_url_loader.h"
 #include "services/network/cors/preflight_controller.h"
 #include "services/network/crash_keys.h"
-#include "services/network/cross_origin_read_blocking_exception_for_plugin.h"
 #include "services/network/network_context.h"
 #include "services/network/network_service.h"
 #include "services/network/public/cpp/cors/cors.h"
@@ -35,6 +35,7 @@
 #include "services/network/resource_scheduler/resource_scheduler_client.h"
 #include "services/network/url_loader.h"
 #include "services/network/url_loader_factory.h"
+#include "services/network/web_bundle_url_loader_factory.h"
 #include "url/origin.h"
 
 namespace network {
@@ -43,7 +44,7 @@ namespace cors {
 
 namespace {
 
-using IsConsistent = ::util::StrongAlias<class IsConsistentTag, bool>;
+using IsConsistent = ::base::StrongAlias<class IsConsistentTag, bool>;
 
 // Record, for requests with associated Trust Tokens operations of operation
 // types requiring initiators to have the Trust Tokens Feature Policy feature
@@ -188,26 +189,18 @@ CorsURLLoaderFactory::CorsURLLoaderFactory(
       ignore_isolated_world_origin_(params->ignore_isolated_world_origin),
       trust_token_redemption_policy_(params->trust_token_redemption_policy),
       isolation_info_(params->isolation_info),
+      debug_tag_(params->debug_tag),
       origin_access_list_(origin_access_list) {
   DCHECK(context_);
   DCHECK(origin_access_list_);
   DCHECK_NE(mojom::kInvalidProcessId, process_id_);
-  DCHECK_EQ(net::IsolationInfo::RedirectMode::kUpdateNothing,
-            params->isolation_info.redirect_mode());
+  DCHECK_EQ(net::IsolationInfo::RequestType::kOther,
+            params->isolation_info.request_type());
   if (params->automatically_assign_isolation_info) {
     DCHECK(params->isolation_info.IsEmpty());
     // Only the browser process is currently permitted to use automatically
     // assigned IsolationInfo, to prevent cross-site information leaks.
     DCHECK_EQ(mojom::kBrowserProcessId, process_id_);
-  }
-  factory_bound_origin_access_list_ = std::make_unique<OriginAccessList>();
-  if (params->factory_bound_access_patterns) {
-    factory_bound_origin_access_list_->SetAllowListForOrigin(
-        params->factory_bound_access_patterns->source_origin,
-        params->factory_bound_access_patterns->allow_patterns);
-    factory_bound_origin_access_list_->SetBlockListForOrigin(
-        params->factory_bound_access_patterns->source_origin,
-        params->factory_bound_access_patterns->block_patterns);
   }
 
   auto factory_override = std::move(params->factory_override);
@@ -262,11 +255,22 @@ void CorsURLLoaderFactory::CreateLoaderAndStart(
     return;
   }
 
+  if (resource_request.destination ==
+      network::mojom::RequestDestination::kWebBundle) {
+    DCHECK(resource_request.web_bundle_token_params.has_value());
+    base::WeakPtr<WebBundleURLLoaderFactory> web_bundle_url_loader_factory =
+        context_->GetWebBundleManager().CreateWebBundleURLLoaderFactory(
+            resource_request.url, *resource_request.web_bundle_token_params,
+            process_id_, request_initiator_origin_lock_);
+    client =
+        web_bundle_url_loader_factory->WrapURLLoaderClient(std::move(client));
+  }
+
   mojom::URLLoaderFactory* const inner_url_loader_factory =
       factory_override_ ? factory_override_->get()
                         : network_loader_factory_.get();
   DCHECK(inner_url_loader_factory);
-  if (context_->IsCorsEnabled() && !disable_web_security_) {
+  if (!disable_web_security_) {
     auto loader = std::make_unique<CorsURLLoader>(
         std::move(receiver), process_id_, routing_id, request_id, options,
         base::BindOnce(&CorsURLLoaderFactory::DestroyURLLoader,
@@ -275,8 +279,7 @@ void CorsURLLoaderFactory::CreateLoaderAndStart(
         factory_override_ &&
             factory_override_->ShouldSkipCorsEnabledSchemeCheck(),
         std::move(client), traffic_annotation, inner_url_loader_factory,
-        origin_access_list_, factory_bound_origin_access_list_.get(),
-        context_->cors_preflight_controller(),
+        origin_access_list_, context_->cors_preflight_controller(),
         context_->cors_exempt_header_list(),
         GetAllowAnyCorsExemptHeaderForBrowser(), isolation_info_);
     auto* raw_loader = loader.get();
@@ -403,7 +406,6 @@ bool CorsURLLoaderFactory::IsValidRequest(const ResourceRequest& request,
   switch (initiator_lock_compatibility) {
     case InitiatorLockCompatibility::kCompatibleLock:
     case InitiatorLockCompatibility::kBrowserProcess:
-    case InitiatorLockCompatibility::kExcludedCorbForPlugin:
     case InitiatorLockCompatibility::kAllowedRequestInitiatorForPlugin:
       break;
 
@@ -425,12 +427,19 @@ bool CorsURLLoaderFactory::IsValidRequest(const ResourceRequest& request,
 
     case InitiatorLockCompatibility::kIncorrectLock:
       // Requests from the renderer need to always specify a correct initiator.
-      NOTREACHED();
+      NOTREACHED() << "request_initiator_origin_lock_ = "
+                   << request_initiator_origin_lock_.value_or(
+                          url::Origin::Create(GURL("https://no-lock.com")))
+                   << "; request.request_initiator = "
+                   << request.request_initiator.value_or(url::Origin::Create(
+                          GURL("https://no-initiator.com")));
       if (base::FeatureList::IsEnabled(
               features::kRequestInitiatorSiteLockEnfocement)) {
         url::debug::ScopedOriginCrashKey initiator_lock_crash_key(
             debug::GetRequestInitiatorOriginLockCrashKey(),
             base::OptionalOrNullptr(request_initiator_origin_lock_));
+        base::debug::ScopedCrashKeyString debug_tag_crash_key(
+            debug::GetFactoryDebugTagCrashKey(), debug_tag_);
         mojo::ReportBadMessage(
             "CorsURLLoaderFactory: lock VS initiator mismatch");
         return false;
@@ -511,12 +520,6 @@ CorsURLLoaderFactory::VerifyRequestInitiatorLockWithPluginCheck(
 
   InitiatorLockCompatibility result = VerifyRequestInitiatorLock(
       request_initiator_origin_lock, request_initiator);
-
-  if (result == InitiatorLockCompatibility::kIncorrectLock &&
-      CrossOriginReadBlockingExceptionForPlugin::ShouldAllowForPlugin(
-          process_id)) {
-    result = InitiatorLockCompatibility::kExcludedCorbForPlugin;
-  }
 
   if (result == InitiatorLockCompatibility::kIncorrectLock &&
       request_initiator.has_value() &&

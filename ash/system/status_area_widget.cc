@@ -5,6 +5,7 @@
 #include "ash/system/status_area_widget.h"
 
 #include "ash/capture_mode/stop_recording_button_tray.h"
+#include "ash/constants/ash_features.h"
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
 #include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_switches.h"
@@ -21,6 +22,7 @@
 #include "ash/system/media/media_tray.h"
 #include "ash/system/overview/overview_button_tray.h"
 #include "ash/system/palette/palette_tray.h"
+#include "ash/system/phonehub/phone_hub_tray.h"
 #include "ash/system/session/logout_button_tray.h"
 #include "ash/system/status_area_widget_delegate.h"
 #include "ash/system/tray/status_area_overflow_button_tray.h"
@@ -33,7 +35,7 @@
 #include "base/containers/adapters.h"
 #include "base/i18n/time_formatting.h"
 #include "base/metrics/histogram_macros.h"
-#include "chromeos/constants/chromeos_switches.h"
+#include "chromeos/services/assistant/public/cpp/features.h"
 #include "media/base/media_switches.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/display/display.h"
@@ -82,7 +84,6 @@ void StatusAreaWidget::Initialize() {
   DCHECK(!initialized_);
 
   // Create the child views, left to right.
-
   overflow_button_tray_ =
       std::make_unique<StatusAreaOverflowButtonTray>(shelf_);
   AddTrayButton(overflow_button_tray_.get());
@@ -121,6 +122,11 @@ void StatusAreaWidget::Initialize() {
     AddTrayButton(media_tray_.get());
   }
 
+  if (chromeos::features::IsPhoneHubEnabled()) {
+    phone_hub_tray_ = std::make_unique<PhoneHubTray>(shelf_);
+    AddTrayButton(phone_hub_tray_.get());
+  }
+
   unified_system_tray_ = std::make_unique<UnifiedSystemTray>(shelf_);
   AddTrayButton(unified_system_tray_.get());
 
@@ -130,6 +136,14 @@ void StatusAreaWidget::Initialize() {
   // Initialize after all trays have been created.
   for (TrayBackgroundView* tray_button : tray_buttons_)
     tray_button->Initialize();
+
+  // Move the |stop_recording_button_tray_| to the front so that it's more
+  // visible. This ensure the |stop_recording_button_tray_| always sticks to
+  // the left most side.
+  if (features::IsCaptureModeEnabled()) {
+    status_area_widget_delegate_->ReorderChildView(
+        stop_recording_button_tray_.get(), 1);
+  }
 
   UpdateAfterLoginStatusChange(
       Shell::Get()->session_controller()->login_status());
@@ -174,7 +188,8 @@ void StatusAreaWidget::SetSystemTrayVisibility(bool visible) {
 
 void StatusAreaWidget::OnSessionStateChanged(
     session_manager::SessionState state) {
-  UpdateAfterColorModeChange();
+  for (TrayBackgroundView* tray_button : tray_buttons_)
+    tray_button->UpdateBackground();
 }
 
 void StatusAreaWidget::UpdateCollapseState() {
@@ -301,12 +316,21 @@ void StatusAreaWidget::CalculateButtonVisibilityForCollapsedState() {
   bool force_collapsible = base::CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kAshForceStatusAreaCollapsible);
 
+  // If |stop_recording_button_tray_| is visible, make some space in tray for
+  // it.
+  const int stop_recording_button_width =
+      stop_recording_button_tray_->visible_preferred()
+          ? stop_recording_button_tray_->GetPreferredSize().width()
+          : 0;
+
   // We update visibility of each tray button based on the available width.
   const int shelf_width =
       shelf_->shelf_widget()->GetClientAreaBoundsInScreen().width();
   const int available_width =
-      force_collapsible ? kStatusAreaForceCollapseAvailableWidth
-                        : shelf_width / 2 - kStatusAreaLeftPaddingForOverflow;
+      (force_collapsible
+           ? kStatusAreaForceCollapseAvailableWidth
+           : shelf_width / 2 - kStatusAreaLeftPaddingForOverflow) -
+      stop_recording_button_width;
 
   // First, reset all tray button to be hidden.
   overflow_button_tray_->ResetStateToCollapsed();
@@ -319,9 +343,11 @@ void StatusAreaWidget::CalculateButtonVisibilityForCollapsedState() {
   bool show_overflow_button = false;
   int used_width = 0;
   for (TrayBackgroundView* tray : base::Reversed(tray_buttons_)) {
-
     // Skip non-enabled tray buttons.
     if (!tray->visible_preferred())
+      continue;
+    // Skip |stop_recording_button_tray_| since it's always visible.
+    if (tray == stop_recording_button_tray_.get())
       continue;
 
     // Show overflow button once available width is exceeded.
@@ -342,6 +368,10 @@ void StatusAreaWidget::CalculateButtonVisibilityForCollapsedState() {
     used_width += tray_width;
   }
 
+  // Skip |stop_recording_button_tray_| so it's always visible.
+  if (stop_recording_button_tray_->visible_preferred())
+    stop_recording_button_tray_->set_show_when_collapsed(true);
+
   overflow_button_tray_->SetVisiblePreferred(show_overflow_button);
   overflow_button_tray_->UpdateAfterStatusAreaCollapseChange();
   for (TrayBackgroundView* tray_button : tray_buttons_)
@@ -360,7 +390,6 @@ StatusAreaWidget::CollapseState StatusAreaWidget::CalculateCollapseState()
     return CollapseState::NOT_COLLAPSIBLE;
 
   bool is_collapsible =
-      chromeos::switches::ShouldShowShelfHotseat() &&
       Shell::Get()->tablet_mode_controller()->InTabletMode() &&
       ShelfConfig::Get()->is_in_app();
 
@@ -417,6 +446,59 @@ TrayBackgroundView* StatusAreaWidget::GetSystemTrayAnchor() const {
   return unified_system_tray_.get();
 }
 
+gfx::Rect StatusAreaWidget::GetMediaTrayAnchorRect() const {
+  if (!media_tray_)
+    return gfx::Rect();
+
+  // Calculate anchor rect of media tray bubble. This is required because the
+  // bubble can be visible while the tray button is hidden. (e.g. when user
+  // clicks the unpin button in the dialog, which will not close the dialog)
+  bool found_media_tray = false;
+  int offset = 0;
+
+  // Accumulate the width/height of all visible tray buttons after media tray.
+  for (views::View* tray_button : tray_buttons_) {
+    if (tray_button == media_tray_.get()) {
+      found_media_tray = true;
+      continue;
+    }
+
+    if (!found_media_tray || !tray_button->GetVisible())
+      continue;
+
+    offset += shelf_->IsHorizontalAlignment() ? tray_button->width()
+                                              : tray_button->height();
+  }
+
+  // Use system tray anchor view (system tray or overview button tray if
+  // visible) to find media tray button's origin.
+  gfx::Rect system_tray_bounds = GetSystemTrayAnchor()->GetBoundsInScreen();
+
+  switch (shelf_->alignment()) {
+    case ShelfAlignment::kBottom:
+    case ShelfAlignment::kBottomLocked:
+      if (base::i18n::IsRTL()) {
+        return gfx::Rect(system_tray_bounds.origin() + gfx::Vector2d(offset, 0),
+                         gfx::Size());
+      } else {
+        return gfx::Rect(
+            system_tray_bounds.top_right() - gfx::Vector2d(offset, 0),
+            gfx::Size());
+      }
+    case ShelfAlignment::kLeft:
+      return gfx::Rect(
+          system_tray_bounds.bottom_right() - gfx::Vector2d(0, offset),
+          gfx::Size());
+    case ShelfAlignment::kRight:
+      return gfx::Rect(
+          system_tray_bounds.bottom_left() - gfx::Vector2d(0, offset),
+          gfx::Size());
+  }
+
+  NOTREACHED();
+  return gfx::Rect();
+}
+
 bool StatusAreaWidget::ShouldShowShelf() const {
   // If it has main bubble, return true.
   if (unified_system_tray_->IsBubbleShown())
@@ -438,10 +520,6 @@ bool StatusAreaWidget::IsMessageBubbleShown() const {
 void StatusAreaWidget::SchedulePaint() {
   for (TrayBackgroundView* tray_button : tray_buttons_)
     tray_button->SchedulePaint();
-}
-
-const ui::NativeTheme* StatusAreaWidget::GetNativeTheme() const {
-  return ui::NativeTheme::GetInstanceForDarkUI();
 }
 
 bool StatusAreaWidget::OnNativeWidgetActivationChanged(bool active) {
@@ -486,11 +564,6 @@ void StatusAreaWidget::OnScrollEvent(ui::ScrollEvent* event) {
   shelf_->ProcessScrollEvent(event);
   if (!event->handled())
     views::Widget::OnScrollEvent(event);
-}
-
-void StatusAreaWidget::UpdateAfterColorModeChange() {
-  for (TrayBackgroundView* tray_button : tray_buttons_)
-    tray_button->UpdateAfterColorModeChange();
 }
 
 void StatusAreaWidget::AddTrayButton(TrayBackgroundView* tray_button) {

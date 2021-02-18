@@ -35,6 +35,7 @@ n * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
 #include "base/single_thread_task_runner.h"
 #include "services/network/public/mojom/web_client_hints_types.mojom-blink-forward.h"
 #include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/loader/content_security_notifier.mojom-blink.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_object.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
@@ -42,6 +43,7 @@ n * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/loader/fetch/client_hints_preferences.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_parameters.h"
+#include "third_party/blink/renderer/platform/loader/fetch/loading_behavior_observer.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/network/content_security_policy_parsers.h"
@@ -60,7 +62,8 @@ class LocalFrameClient;
 class Settings;
 class WebContentSettingsClient;
 
-class CORE_EXPORT FrameFetchContext final : public BaseFetchContext {
+class CORE_EXPORT FrameFetchContext final : public BaseFetchContext,
+                                            public LoadingBehaviorObserver {
  public:
   static ResourceFetcher* CreateFetcherForCommittedDocument(DocumentLoader&,
                                                             Document&);
@@ -83,7 +86,7 @@ class CORE_EXPORT FrameFetchContext final : public BaseFetchContext {
       ResourceType,
       FetchParameters::DeferOption) const override;
   void PrepareRequest(ResourceRequest&,
-                      const FetchInitiatorInfo&,
+                      ResourceLoaderOptions&,
                       WebScopedVirtualTimePauser&,
                       ResourceType) override;
 
@@ -96,6 +99,8 @@ class CORE_EXPORT FrameFetchContext final : public BaseFetchContext {
                                ResourceRequest&,
                                const ResourceLoaderOptions&) override;
 
+  bool IsPrerendering() const override;
+
   // Exposed for testing.
   void ModifyRequestForCSP(ResourceRequest&);
   void AddClientHintsIfNecessary(const ClientHintsPreferences&,
@@ -107,7 +112,8 @@ class CORE_EXPORT FrameFetchContext final : public BaseFetchContext {
   void Trace(Visitor*) const override;
 
   bool CalculateIfAdSubresource(
-      const ResourceRequest& resource_request,
+      const ResourceRequestHead& resource_request,
+      const base::Optional<KURL>& alias_url,
       ResourceType type,
       const FetchInitiatorInfo& initiator_info) override;
 
@@ -118,6 +124,12 @@ class CORE_EXPORT FrameFetchContext final : public BaseFetchContext {
 
   mojo::PendingReceiver<mojom::blink::WorkerTimingContainer>
   TakePendingWorkerTimingReceiver(int request_id) override;
+
+  // LoadingBehaviorObserver overrides:
+  void DidObserveLoadingBehavior(LoadingBehaviorFlag) override;
+
+  std::unique_ptr<ResourceLoadInfoNotifierWrapper>
+  CreateResourceLoadInfoNotifierWrapper() override;
 
   mojom::blink::ContentSecurityNotifier& GetContentSecurityNotifier() const;
 
@@ -137,8 +149,6 @@ class CORE_EXPORT FrameFetchContext final : public BaseFetchContext {
   net::SiteForCookies GetSiteForCookies() const override;
   scoped_refptr<const SecurityOrigin> GetTopFrameOrigin() const override;
   SubresourceFilter* GetSubresourceFilter() const override;
-  PreviewsResourceLoadingHints* GetPreviewsResourceLoadingHints()
-      const override;
   PreviewsState previews_state() const override;
   bool AllowScriptFromSource(const KURL&) const override;
   bool ShouldBlockRequestByInspector(const KURL&) const override;
@@ -146,7 +156,7 @@ class CORE_EXPORT FrameFetchContext final : public BaseFetchContext {
                                const FetchInitiatorInfo&,
                                ResourceRequestBlockedReason,
                                ResourceType) const override;
-  const ContentSecurityPolicy* GetContentSecurityPolicyForWorld(
+  ContentSecurityPolicy* GetContentSecurityPolicyForWorld(
       const DOMWrapperWorld* world) const override;
   bool IsSVGImageChromeClient() const override;
   void CountUsage(WebFeature) const override;
@@ -165,7 +175,7 @@ class CORE_EXPORT FrameFetchContext final : public BaseFetchContext {
 
   const KURL& Url() const override;
   const SecurityOrigin* GetParentSecurityOrigin() const override;
-  const ContentSecurityPolicy* GetContentSecurityPolicy() const override;
+  ContentSecurityPolicy* GetContentSecurityPolicy() const override;
   void AddConsoleMessage(ConsoleMessage*) const override;
 
   WebContentSettingsClient* GetContentSettingsClient() const;
@@ -209,7 +219,7 @@ class CORE_EXPORT FrameFetchContext final : public BaseFetchContext {
   const bool save_data_enabled_;
 
   // Non-null only when detached.
-  Member<const FrozenState> frozen_state_;
+  Member<FrozenState> frozen_state_;
 };
 
 }  // namespace blink

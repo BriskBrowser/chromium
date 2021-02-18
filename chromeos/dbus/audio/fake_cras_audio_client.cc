@@ -28,7 +28,7 @@ FakeCrasAudioClient::FakeCrasAudioClient() {
   // Fake audio output nodes.
   AudioNode output_1;
   output_1.is_input = false;
-  output_1.id = 10001;
+  output_1.id = 0x100000001;
   output_1.stable_device_id_v1 = 10001;
   output_1.max_supported_channels = kOutputMaxSupportedChannels;
   output_1.device_name = "Fake Speaker";
@@ -38,7 +38,7 @@ FakeCrasAudioClient::FakeCrasAudioClient() {
 
   AudioNode output_2;
   output_2.is_input = false;
-  output_2.id = 10002;
+  output_2.id = 0x200000001;
   output_2.stable_device_id_v1 = 10002;
   output_2.max_supported_channels = kOutputMaxSupportedChannels;
   output_2.device_name = "Fake Headphone";
@@ -48,7 +48,7 @@ FakeCrasAudioClient::FakeCrasAudioClient() {
 
   AudioNode output_3;
   output_3.is_input = false;
-  output_3.id = 10003;
+  output_3.id = 0x300000001;
   output_3.stable_device_id_v1 = 10003;
   output_3.max_supported_channels = kOutputMaxSupportedChannels;
   output_3.device_name = "Fake Bluetooth Headphone";
@@ -58,7 +58,7 @@ FakeCrasAudioClient::FakeCrasAudioClient() {
 
   AudioNode output_4;
   output_4.is_input = false;
-  output_4.id = 10004;
+  output_4.id = 0x400000001;
   output_4.stable_device_id_v1 = 10004;
   output_4.max_supported_channels = kOutputMaxSupportedChannels;
   output_4.device_name = "Fake HDMI Speaker";
@@ -69,7 +69,7 @@ FakeCrasAudioClient::FakeCrasAudioClient() {
   // Fake audio input nodes
   AudioNode input_1;
   input_1.is_input = true;
-  input_1.id = 20001;
+  input_1.id = 0x100000002;
   input_1.stable_device_id_v1 = 20001;
   input_1.max_supported_channels = kInputMaxSupportedChannels;
   input_1.device_name = "Fake Internal Mic";
@@ -79,7 +79,7 @@ FakeCrasAudioClient::FakeCrasAudioClient() {
 
   AudioNode input_2;
   input_2.is_input = true;
-  input_2.id = 20002;
+  input_2.id = 0x200000002;
   input_2.stable_device_id_v1 = 20002;
   input_2.max_supported_channels = kInputMaxSupportedChannels;
   input_2.device_name = "Fake USB Mic";
@@ -89,7 +89,7 @@ FakeCrasAudioClient::FakeCrasAudioClient() {
 
   AudioNode input_3;
   input_3.is_input = true;
-  input_3.id = 20003;
+  input_3.id = 0x300000002;
   input_3.stable_device_id_v1 = 20003;
   input_3.max_supported_channels = kInputMaxSupportedChannels;
   input_3.device_name = "Fake Mic Jack";
@@ -149,6 +149,17 @@ void FakeCrasAudioClient::GetNumberOfActiveOutputStreams(
   std::move(callback).Run(0);
 }
 
+void FakeCrasAudioClient::GetNumberOfInputStreamsWithPermission(
+    DBusMethodCallback<base::flat_map<std::string, uint32_t>> callback) {
+  base::flat_map<std::string, uint32_t> res;
+  std::move(callback).Run(std::move(res));
+}
+
+void FakeCrasAudioClient::GetDeprioritizeBtWbsMic(
+    DBusMethodCallback<bool> callback) {
+  std::move(callback).Run(base::nullopt);
+}
+
 void FakeCrasAudioClient::SetOutputNodeVolume(uint64_t node_id,
                                               int32_t volume) {
   if (!notify_volume_change_with_delay_)
@@ -205,7 +216,6 @@ void FakeCrasAudioClient::SetHotwordModel(uint64_t node_id,
                                           VoidDBusMethodCallback callback) {}
 
 void FakeCrasAudioClient::SetFixA2dpPacketSize(bool enabled) {}
-void FakeCrasAudioClient::SetNextHandsfreeProfile(bool enabled) {}
 
 void FakeCrasAudioClient::AddActiveInputNode(uint64_t node_id) {
   for (size_t i = 0; i < node_list_.size(); ++i) {
@@ -245,6 +255,11 @@ void FakeCrasAudioClient::AddActiveOutputNode(uint64_t node_id) {
     if (node_list_[i].id == node_id)
       node_list_[i].active = true;
   }
+}
+
+void FakeCrasAudioClient::ResendBluetoothBattery() {
+  for (auto& observer : observers_)
+    observer.BluetoothBatteryChanged("11:22:33:44:55:66", battery_level_);
 }
 
 void FakeCrasAudioClient::WaitForServiceToBeAvailable(
@@ -301,6 +316,10 @@ void FakeCrasAudioClient::NotifyHotwordTriggeredForTesting(uint64_t tv_sec,
                                                            uint64_t tv_nsec) {
   for (auto& observer : observers_)
     observer.HotwordTriggered(tv_sec, tv_nsec);
+}
+
+void FakeCrasAudioClient::SetBluetoothBattteryLevelForTesting(uint32_t level) {
+  battery_level_ = level;
 }
 
 AudioNodeList::iterator FakeCrasAudioClient::FindNode(uint64_t node_id) {

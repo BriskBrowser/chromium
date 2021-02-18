@@ -4,19 +4,21 @@
 
 #include "cc/animation/keyframed_animation_curve.h"
 
-#include "cc/animation/transform_operations.h"
+#include <memory>
+
 #include "cc/test/geometry_test_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/animation/tween.h"
 #include "ui/gfx/geometry/box_f.h"
 #include "ui/gfx/test/gfx_util.h"
+#include "ui/gfx/transform_operations.h"
 
 namespace cc {
 namespace {
 
 void ExpectTranslateX(SkScalar translate_x,
-                      const TransformOperations& operations) {
+                      const gfx::TransformOperations& operations) {
   EXPECT_FLOAT_EQ(translate_x, operations.Apply().matrix().get(0, 3));
 }
 
@@ -210,7 +212,7 @@ TEST(KeyframedAnimationCurveTest, RepeatedFloatKeyTimes) {
 TEST(KeyframedAnimationCurveTest, OneTransformKeyframe) {
   std::unique_ptr<KeyframedTransformAnimationCurve> curve(
       KeyframedTransformAnimationCurve::Create());
-  TransformOperations operations;
+  gfx::TransformOperations operations;
   operations.AppendTranslate(2.f, 0.f, 0.f);
   curve->AddKeyframe(
       TransformKeyframe::Create(base::TimeDelta(), operations, nullptr));
@@ -226,9 +228,9 @@ TEST(KeyframedAnimationCurveTest, OneTransformKeyframe) {
 TEST(KeyframedAnimationCurveTest, TwoTransformKeyframe) {
   std::unique_ptr<KeyframedTransformAnimationCurve> curve(
       KeyframedTransformAnimationCurve::Create());
-  TransformOperations operations1;
+  gfx::TransformOperations operations1;
   operations1.AppendTranslate(2.f, 0.f, 0.f);
-  TransformOperations operations2;
+  gfx::TransformOperations operations2;
   operations2.AppendTranslate(4.f, 0.f, 0.f);
 
   curve->AddKeyframe(
@@ -246,11 +248,11 @@ TEST(KeyframedAnimationCurveTest, TwoTransformKeyframe) {
 TEST(KeyframedAnimationCurveTest, ThreeTransformKeyframe) {
   std::unique_ptr<KeyframedTransformAnimationCurve> curve(
       KeyframedTransformAnimationCurve::Create());
-  TransformOperations operations1;
+  gfx::TransformOperations operations1;
   operations1.AppendTranslate(2.f, 0.f, 0.f);
-  TransformOperations operations2;
+  gfx::TransformOperations operations2;
   operations2.AppendTranslate(4.f, 0.f, 0.f);
-  TransformOperations operations3;
+  gfx::TransformOperations operations3;
   operations3.AppendTranslate(8.f, 0.f, 0.f);
   curve->AddKeyframe(
       TransformKeyframe::Create(base::TimeDelta(), operations1, nullptr));
@@ -273,13 +275,13 @@ TEST(KeyframedAnimationCurveTest, RepeatedTransformKeyTimes) {
   std::unique_ptr<KeyframedTransformAnimationCurve> curve(
       KeyframedTransformAnimationCurve::Create());
   // A step function.
-  TransformOperations operations1;
+  gfx::TransformOperations operations1;
   operations1.AppendTranslate(4.f, 0.f, 0.f);
-  TransformOperations operations2;
+  gfx::TransformOperations operations2;
   operations2.AppendTranslate(4.f, 0.f, 0.f);
-  TransformOperations operations3;
+  gfx::TransformOperations operations3;
   operations3.AppendTranslate(6.f, 0.f, 0.f);
-  TransformOperations operations4;
+  gfx::TransformOperations operations4;
   operations4.AppendTranslate(6.f, 0.f, 0.f);
   curve->AddKeyframe(
       TransformKeyframe::Create(base::TimeDelta(), operations1, nullptr));
@@ -313,11 +315,11 @@ TEST(KeyframedAnimationCurveTest, DiscreteLinearTransformAnimation) {
 
   std::unique_ptr<KeyframedTransformAnimationCurve> curve(
       KeyframedTransformAnimationCurve::Create());
-  TransformOperations operations1;
+  gfx::TransformOperations operations1;
   operations1.AppendMatrix(non_invertible_matrix);
-  TransformOperations operations2;
+  gfx::TransformOperations operations2;
   operations2.AppendMatrix(identity_matrix);
-  TransformOperations operations3;
+  gfx::TransformOperations operations3;
   operations3.AppendMatrix(non_invertible_matrix);
 
   curve->AddKeyframe(
@@ -327,7 +329,7 @@ TEST(KeyframedAnimationCurveTest, DiscreteLinearTransformAnimation) {
   curve->AddKeyframe(TransformKeyframe::Create(
       base::TimeDelta::FromSecondsD(2.0), operations3, nullptr));
 
-  TransformOperations result;
+  gfx::TransformOperations result;
 
   // Between 0 and 0.5 seconds, the first keyframe should be returned.
   result = curve->GetValue(base::TimeDelta::FromSecondsD(0.01f));
@@ -357,11 +359,11 @@ TEST(KeyframedAnimationCurveTest, DiscreteCubicBezierTransformAnimation) {
 
   std::unique_ptr<KeyframedTransformAnimationCurve> curve(
       KeyframedTransformAnimationCurve::Create());
-  TransformOperations operations1;
+  gfx::TransformOperations operations1;
   operations1.AppendMatrix(non_invertible_matrix);
-  TransformOperations operations2;
+  gfx::TransformOperations operations2;
   operations2.AppendMatrix(identity_matrix);
-  TransformOperations operations3;
+  gfx::TransformOperations operations3;
   operations3.AppendMatrix(non_invertible_matrix);
 
   // The cubic-bezier here is a nice fairly strong ease-in curve, where 50%
@@ -376,7 +378,7 @@ TEST(KeyframedAnimationCurveTest, DiscreteCubicBezierTransformAnimation) {
       base::TimeDelta::FromSecondsD(2.0), operations3,
       CubicBezierTimingFunction::Create(0.75f, 0.25f, 0.9f, 0.4f)));
 
-  TransformOperations result;
+  gfx::TransformOperations result;
 
   // Due to the cubic-bezier, the first keyframe is returned almost all the way
   // to 1 second.
@@ -615,43 +617,12 @@ TEST(KeyframedAnimationCurveTest, StepsTimingFunctionStepAtEnd) {
   }
 }
 
-// Tests that animations that are translations are correctly identified.
-TEST(KeyframedAnimationCurveTest, IsTranslation) {
+// Tests that maximum animation scale is computed as expected.
+TEST(KeyframedAnimationCurveTest, MaximumScale) {
   std::unique_ptr<KeyframedTransformAnimationCurve> curve(
       KeyframedTransformAnimationCurve::Create());
 
-  TransformOperations operations1;
-  curve->AddKeyframe(
-      TransformKeyframe::Create(base::TimeDelta(), operations1, nullptr));
-  operations1.AppendTranslate(2.0, 3.0, -1.0);
-  TransformOperations operations2;
-  operations2.AppendTranslate(4.0, 1.0, 2.0);
-  curve->AddKeyframe(TransformKeyframe::Create(
-      base::TimeDelta::FromSecondsD(1.f), operations2, nullptr));
-
-  EXPECT_TRUE(curve->IsTranslation());
-
-  TransformOperations operations3;
-  operations3.AppendScale(2.f, 2.f, 2.f);
-  curve->AddKeyframe(TransformKeyframe::Create(
-      base::TimeDelta::FromSecondsD(2.f), operations3, nullptr));
-
-  EXPECT_FALSE(curve->IsTranslation());
-
-  TransformOperations operations4;
-  operations3.AppendTranslate(2.f, 2.f, 2.f);
-  curve->AddKeyframe(TransformKeyframe::Create(
-      base::TimeDelta::FromSecondsD(3.f), operations4, nullptr));
-
-  EXPECT_FALSE(curve->IsTranslation());
-}
-
-// Tests that maximum target scale is computed as expected.
-TEST(KeyframedAnimationCurveTest, MaximumTargetScale) {
-  std::unique_ptr<KeyframedTransformAnimationCurve> curve(
-      KeyframedTransformAnimationCurve::Create());
-
-  TransformOperations operations1;
+  gfx::TransformOperations operations1;
   curve->AddKeyframe(
       TransformKeyframe::Create(base::TimeDelta(), operations1, nullptr));
   operations1.AppendScale(2.f, -3.f, 1.f);
@@ -660,121 +631,84 @@ TEST(KeyframedAnimationCurveTest, MaximumTargetScale) {
       CubicBezierTimingFunction::CreatePreset(
           CubicBezierTimingFunction::EaseType::EASE)));
 
-  float maximum_scale = 0.f;
-  EXPECT_TRUE(curve->MaximumTargetScale(true, &maximum_scale));
+  constexpr float kArbitraryScale = 12345.f;
+  float maximum_scale = kArbitraryScale;
+  EXPECT_TRUE(curve->MaximumScale(&maximum_scale));
   EXPECT_EQ(3.f, maximum_scale);
 
-  TransformOperations operations2;
+  gfx::TransformOperations operations2;
   operations2.AppendScale(6.f, 3.f, 2.f);
   curve->AddKeyframe(TransformKeyframe::Create(
       base::TimeDelta::FromSecondsD(2.f), operations2,
       CubicBezierTimingFunction::CreatePreset(
           CubicBezierTimingFunction::EaseType::EASE)));
 
-  EXPECT_TRUE(curve->MaximumTargetScale(true, &maximum_scale));
+  maximum_scale = kArbitraryScale;
+  EXPECT_TRUE(curve->MaximumScale(&maximum_scale));
   EXPECT_EQ(6.f, maximum_scale);
 
-  TransformOperations operations3;
+  gfx::TransformOperations operations3;
   operations3.AppendRotate(1.f, 0.f, 0.f, 90.f);
   curve->AddKeyframe(TransformKeyframe::Create(
       base::TimeDelta::FromSecondsD(3.f), operations3,
       CubicBezierTimingFunction::CreatePreset(
           CubicBezierTimingFunction::EaseType::EASE)));
 
-  EXPECT_TRUE(curve->MaximumTargetScale(true, &maximum_scale));
+  maximum_scale = kArbitraryScale;
+  EXPECT_TRUE(curve->MaximumScale(&maximum_scale));
   EXPECT_EQ(6.f, maximum_scale);
 
-  TransformOperations operations4;
-  operations4.AppendPerspective(3.f);
-  curve->AddKeyframe(TransformKeyframe::Create(
-      base::TimeDelta::FromSecondsD(4.f), operations4,
-      CubicBezierTimingFunction::CreatePreset(
-          CubicBezierTimingFunction::EaseType::EASE)));
-
-  EXPECT_FALSE(curve->MaximumTargetScale(true, &maximum_scale));
-
-  // The original scale is not used in computing the max.
+  // All scales are used in computing the max.
   std::unique_ptr<KeyframedTransformAnimationCurve> curve2(
       KeyframedTransformAnimationCurve::Create());
 
-  TransformOperations operations5;
+  gfx::TransformOperations operations5;
   operations5.AppendScale(0.4f, 0.2f, 0.6f);
   curve2->AddKeyframe(TransformKeyframe::Create(
       base::TimeDelta(), operations5,
       CubicBezierTimingFunction::CreatePreset(
           CubicBezierTimingFunction::EaseType::EASE)));
-  TransformOperations operations6;
+  gfx::TransformOperations operations6;
   operations6.AppendScale(0.5f, 0.3f, -0.8f);
   curve2->AddKeyframe(TransformKeyframe::Create(
       base::TimeDelta::FromSecondsD(1.f), operations6,
       CubicBezierTimingFunction::CreatePreset(
           CubicBezierTimingFunction::EaseType::EASE)));
 
-  EXPECT_TRUE(curve2->MaximumTargetScale(true, &maximum_scale));
+  maximum_scale = kArbitraryScale;
+  EXPECT_TRUE(curve2->MaximumScale(&maximum_scale));
   EXPECT_EQ(0.8f, maximum_scale);
-
-  EXPECT_TRUE(curve2->MaximumTargetScale(false, &maximum_scale));
-  EXPECT_EQ(0.6f, maximum_scale);
 }
 
-// Tests that starting animation scale is computed as expected.
-TEST(KeyframedAnimationCurveTest, AnimationStartScale) {
-  std::unique_ptr<KeyframedTransformAnimationCurve> curve(
-      KeyframedTransformAnimationCurve::Create());
-
-  TransformOperations operations1;
-  curve->AddKeyframe(
-      TransformKeyframe::Create(base::TimeDelta(), operations1, nullptr));
-  operations1.AppendScale(2.f, -3.f, 1.f);
+TEST(KeyframeAnimationCurveTest, NonCalculatableMaximumScale) {
+  auto curve = KeyframedTransformAnimationCurve::Create();
+  gfx::TransformOperations operations4;
+  operations4.AppendPerspective(3.f);
   curve->AddKeyframe(TransformKeyframe::Create(
-      base::TimeDelta::FromSecondsD(1.f), operations1,
+      base::TimeDelta::FromSecondsD(1.f), operations4,
+      CubicBezierTimingFunction::CreatePreset(
+          CubicBezierTimingFunction::EaseType::EASE)));
+  curve->AddKeyframe(TransformKeyframe::Create(
+      base::TimeDelta::FromSecondsD(1.f), operations4,
       CubicBezierTimingFunction::CreatePreset(
           CubicBezierTimingFunction::EaseType::EASE)));
 
-  float start_scale = 0.f;
+  constexpr float kArbitraryScale = 12345.f;
+  float maximum_scale = kArbitraryScale;
+  EXPECT_FALSE(curve->MaximumScale(&maximum_scale));
 
-  // Forward direction
-  EXPECT_TRUE(curve->AnimationStartScale(true, &start_scale));
-  EXPECT_EQ(1.f, start_scale);
-
-  // Backward direction
-  EXPECT_TRUE(curve->AnimationStartScale(false, &start_scale));
-  EXPECT_EQ(3.f, start_scale);
-
-  TransformOperations operations2;
-  operations2.AppendScale(6.f, 3.f, 2.f);
+  // If the scale of any keyframe can be calculated, the keyframes with
+  // non-calculatable scale will be ignored.
+  gfx::TransformOperations operations;
+  operations.AppendScale(0.4f, 0.2f, 0.6f);
   curve->AddKeyframe(TransformKeyframe::Create(
-      base::TimeDelta::FromSecondsD(2.f), operations2,
+      base::TimeDelta(), operations,
       CubicBezierTimingFunction::CreatePreset(
           CubicBezierTimingFunction::EaseType::EASE)));
 
-  // Forward direction
-  EXPECT_TRUE(curve->AnimationStartScale(true, &start_scale));
-  EXPECT_EQ(1.f, start_scale);
-
-  // Backward direction
-  EXPECT_TRUE(curve->AnimationStartScale(false, &start_scale));
-  EXPECT_EQ(6.f, start_scale);
-
-  TransformOperations operations3;
-  operations3.AppendRotate(1.f, 0.f, 0.f, 90.f);
-  curve->AddKeyframe(TransformKeyframe::Create(
-      base::TimeDelta::FromSecondsD(3.f), operations3,
-      CubicBezierTimingFunction::CreatePreset(
-          CubicBezierTimingFunction::EaseType::EASE)));
-
-  EXPECT_TRUE(curve->AnimationStartScale(false, &start_scale));
-  EXPECT_EQ(1.f, start_scale);
-
-  TransformOperations operations4;
-  operations4.AppendPerspective(90.f);
-  curve->AddKeyframe(TransformKeyframe::Create(
-      base::TimeDelta::FromSecondsD(4.f), operations4,
-      CubicBezierTimingFunction::CreatePreset(
-          CubicBezierTimingFunction::EaseType::EASE)));
-
-  EXPECT_FALSE(curve->AnimationStartScale(false, &start_scale));
-  EXPECT_EQ(0.f, start_scale);
+  maximum_scale = kArbitraryScale;
+  EXPECT_TRUE(curve->MaximumScale(&maximum_scale));
+  EXPECT_EQ(0.6f, maximum_scale);
 }
 
 // Tests that an animation with a curve timing function works as expected.

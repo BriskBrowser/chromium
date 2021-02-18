@@ -2,10 +2,21 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {Navigator} from '../navigator.js';
+import {SwitchAccess} from '../switch_access.js';
+import {SAConstants, SwitchAccessMenuAction} from '../switch_access_constants.js';
+import {SwitchAccessPredicate} from '../switch_access_predicate.js';
+import {TextNavigationManager} from '../text_navigation_manager.js';
+
+import {BasicNode} from './basic_node.js';
+import {SAChildNode, SARootNode} from './switch_access_node.js';
+
+const AutomationNode = chrome.automation.AutomationNode;
+
 /**
  * This class handles interactions with editable text fields.
  */
-class EditableTextNode extends NodeWrapper {
+export class EditableTextNode extends BasicNode {
   /**
    * @param {!AutomationNode} baseNode
    * @param {?SARootNode} parent
@@ -68,22 +79,31 @@ class EditableTextNode extends NodeWrapper {
   performAction(action) {
     switch (action) {
       case SwitchAccessMenuAction.KEYBOARD:
-        NavigationManager.enterKeyboard();
+        Navigator.instance.enterKeyboard();
         return SAConstants.ActionResponse.CLOSE_MENU;
       case SwitchAccessMenuAction.DICTATION:
-        chrome.accessibilityPrivate.toggleDictation();
+        if (this.automationNode.state[chrome.automation.StateType.FOCUSED]) {
+          chrome.accessibilityPrivate.toggleDictation();
+        } else {
+          new EventHandler(
+              this.automationNode, chrome.automation.EventType.FOCUS,
+              () => chrome.accessibilityPrivate.toggleDictation(),
+              {exactMatch: true, listenOnce: true})
+              .start();
+          this.automationNode.focus();
+        }
         return SAConstants.ActionResponse.CLOSE_MENU;
       case SwitchAccessMenuAction.MOVE_CURSOR:
         return SAConstants.ActionResponse.OPEN_TEXT_NAVIGATION_MENU;
 
       case SwitchAccessMenuAction.CUT:
-        EventHelper.simulateKeyPress(EventHelper.KeyCode.X, {ctrl: true});
+        EventGenerator.sendKeyPress(KeyCode.X, {ctrl: true});
         return SAConstants.ActionResponse.REMAIN_OPEN;
       case SwitchAccessMenuAction.COPY:
-        EventHelper.simulateKeyPress(EventHelper.KeyCode.C, {ctrl: true});
+        EventGenerator.sendKeyPress(KeyCode.C, {ctrl: true});
         return SAConstants.ActionResponse.REMAIN_OPEN;
       case SwitchAccessMenuAction.PASTE:
-        EventHelper.simulateKeyPress(EventHelper.KeyCode.V, {ctrl: true});
+        EventGenerator.sendKeyPress(KeyCode.V, {ctrl: true});
         return SAConstants.ActionResponse.REMAIN_OPEN;
 
       case SwitchAccessMenuAction.START_TEXT_SELECTION:
@@ -91,7 +111,7 @@ class EditableTextNode extends NodeWrapper {
         return SAConstants.ActionResponse.OPEN_TEXT_NAVIGATION_MENU;
       case SwitchAccessMenuAction.END_TEXT_SELECTION:
         TextNavigationManager.saveSelectEnd();
-        return SAConstants.ActionResponse.RELOAD_MAIN_MENU;
+        return SAConstants.ActionResponse.RELOAD_MENU;
 
       case SwitchAccessMenuAction.JUMP_TO_BEGINNING_OF_TEXT:
         TextNavigationManager.jumpToBeginning();
@@ -121,3 +141,8 @@ class EditableTextNode extends NodeWrapper {
     return super.performAction(action);
   }
 }
+
+BasicNode.creators.push({
+  predicate: SwitchAccessPredicate.isTextInput,
+  creator: (node, parentNode) => new EditableTextNode(node, parentNode)
+});

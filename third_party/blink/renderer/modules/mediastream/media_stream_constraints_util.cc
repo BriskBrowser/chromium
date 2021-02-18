@@ -249,10 +249,6 @@ VideoTrackAdapterSettings SelectVideoTrackAdapterSettings(
     if (frame_rate_set.Max() && track_max_frame_rate > *frame_rate_set.Max())
       track_max_frame_rate = *frame_rate_set.Max();
   }
-  // Disable frame-rate adjustment if the requested rate is greater than the
-  // source rate.
-  if (track_max_frame_rate >= source_format.frame_rate)
-    track_max_frame_rate = 0.0;
 
   return VideoTrackAdapterSettings(target_resolution, track_min_aspect_ratio,
                                    track_max_aspect_ratio,
@@ -285,7 +281,7 @@ double StringConstraintFitnessDistance(const WebString& value,
 MediaStreamSource::Capabilities ComputeCapabilitiesForVideoSource(
     const String& device_id,
     const media::VideoCaptureFormats& formats,
-    media::VideoFacingMode facing_mode,
+    mojom::blink::FacingMode facing_mode,
     bool is_device_capture,
     const base::Optional<std::string>& group_id) {
   MediaStreamSource::Capabilities capabilities;

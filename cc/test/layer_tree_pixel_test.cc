@@ -10,7 +10,6 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/path_service.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/test/test_switches.h"
 #include "cc/layers/solid_color_layer.h"
 #include "cc/layers/texture_layer.h"
@@ -39,12 +38,12 @@ namespace cc {
 
 namespace {
 
-TestRasterType GetDefaultRasterType(TestRendererType renderer_type) {
+TestRasterType GetDefaultRasterType(viz::RendererType renderer_type) {
   switch (renderer_type) {
-    case TestRendererType::kSoftware:
+    case viz::RendererType::kSoftware:
       return TestRasterType::kBitmap;
-    case TestRendererType::kSkiaVk:
-    case TestRendererType::kSkiaDawn:
+    case viz::RendererType::kSkiaVk:
+    case viz::RendererType::kSkiaDawn:
       return TestRasterType::kOop;
     default:
       return TestRasterType::kOneCopy;
@@ -53,7 +52,7 @@ TestRasterType GetDefaultRasterType(TestRendererType renderer_type) {
 
 }  // namespace
 
-LayerTreePixelTest::LayerTreePixelTest(TestRendererType renderer_type)
+LayerTreePixelTest::LayerTreePixelTest(viz::RendererType renderer_type)
     : LayerTreeTest(renderer_type),
       raster_type_(GetDefaultRasterType(renderer_type)),
       pixel_comparator_(new ExactPixelComparator(true)),
@@ -129,14 +128,21 @@ void LayerTreePixelTest::InitializeSettings(LayerTreeSettings* settings) {
   settings->use_zero_copy = raster_type() == TestRasterType::kZeroCopy;
 }
 
+std::unique_ptr<viz::DisplayCompositorMemoryAndTaskController>
+LayerTreePixelTest::CreateDisplayControllerOnThread() {
+  auto skia_deps = std::make_unique<viz::SkiaOutputSurfaceDependencyImpl>(
+      viz::TestGpuServiceHolder::GetInstance()->gpu_service(),
+      gpu::kNullSurfaceHandle);
+  return std::make_unique<viz::DisplayCompositorMemoryAndTaskController>(
+      std::move(skia_deps));
+}
+
 std::unique_ptr<viz::SkiaOutputSurface>
-LayerTreePixelTest::CreateDisplaySkiaOutputSurfaceOnThread() {
+LayerTreePixelTest::CreateDisplaySkiaOutputSurfaceOnThread(
+    viz::DisplayCompositorMemoryAndTaskController* display_controller) {
   // Set up the SkiaOutputSurfaceImpl.
   auto output_surface = viz::SkiaOutputSurfaceImpl::Create(
-      std::make_unique<viz::SkiaOutputSurfaceDependencyImpl>(
-          viz::TestGpuServiceHolder::GetInstance()->gpu_service(),
-          gpu::kNullSurfaceHandle),
-      viz::RendererSettings(), &debug_settings_);
+      display_controller, viz::RendererSettings(), &debug_settings_);
   return output_surface;
 }
 
@@ -144,7 +150,7 @@ std::unique_ptr<viz::OutputSurface>
 LayerTreePixelTest::CreateDisplayOutputSurfaceOnThread(
     scoped_refptr<viz::ContextProvider> compositor_context_provider) {
   std::unique_ptr<PixelTestOutputSurface> display_output_surface;
-  if (renderer_type_ == TestRendererType::kGL) {
+  if (renderer_type_ == viz::RendererType::kGL) {
     // Pixel tests use a separate context for the Display to more closely
     // mimic texture transport from the renderer process to the Display
     // compositor.
@@ -159,7 +165,7 @@ LayerTreePixelTest::CreateDisplayOutputSurfaceOnThread(
     display_output_surface = std::make_unique<PixelTestOutputSurface>(
         std::move(display_context_provider), surface_origin);
   } else {
-    EXPECT_EQ(TestRendererType::kSoftware, renderer_type_);
+    EXPECT_EQ(viz::RendererType::kSoftware, renderer_type_);
     display_output_surface = std::make_unique<PixelTestOutputSurface>(
         std::make_unique<viz::SoftwareOutputDevice>());
   }

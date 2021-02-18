@@ -16,7 +16,7 @@
 #include "chrome/browser/lite_video/lite_video_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/blocklist/opt_out_blocklist/opt_out_store.h"
-#include "components/optimization_guide/optimization_guide_decider.h"
+#include "components/optimization_guide/content/browser/optimization_guide_decider.h"
 #include "components/optimization_guide/proto/lite_video_metadata.pb.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/network_service_instance.h"
@@ -83,7 +83,8 @@ LiteVideoDecider::LiteVideoDecider(
     optimization_guide::OptimizationGuideDecider* opt_guide_decider)
     : hint_cache_(std::make_unique<LiteVideoHintCache>()),
       opt_guide_decider_(opt_guide_decider),
-      cached_opt_guide_hints_(features::MaxOptimizationGuideHintCacheSize()) {
+      cached_opt_guide_hints_(features::MaxOptimizationGuideHintCacheSize()),
+      permanent_host_blocklist_(features::GetLiteVideoPermanentBlocklist()) {
   user_blocklist_ = std::make_unique<LiteVideoUserBlocklist>(
       std::move(opt_out_store), clock, this);
 
@@ -161,13 +162,23 @@ void LiteVideoDecider::CanApplyLiteVideo(
     return;
   }
 
+  if (url.has_host() && IsHostPermanentlyBlockedlisted(url.host())) {
+    blocklist_reason = LiteVideoBlocklistReason::kHostPermanentlyBlocklisted;
+    ScopedLiteVideoDecisionRecorder scoped_decision_recorder(
+        blocklist_reason, navigation_handle->IsInMainFrame());
+    std::move(callback).Run(
+        base::nullopt, blocklist_reason,
+        optimization_guide::OptimizationGuideDecision::kFalse);
+    return;
+  }
+
   // Reloads and Forward-Back navigations are considered opt-outs and are added
   // to the blocklist so that a host that is frequently reloaded on does not get
   // LiteVideos.
   bool is_reload = PageTransitionCoreTypeIs(
       navigation_handle->GetPageTransition(), ui::PAGE_TRANSITION_RELOAD);
-  if (is_reload || (navigation_handle->GetPageTransition() &
-                    ui::PAGE_TRANSITION_FORWARD_BACK)) {
+  if (is_reload || features::IsLiteVideoNotAllowedForPageTransition(
+                       navigation_handle->GetPageTransition())) {
     user_blocklist_->AddNavigationToBlocklist(navigation_handle, true);
     blocklist_reason = is_reload
                            ? LiteVideoBlocklistReason::kNavigationReload
@@ -346,6 +357,14 @@ void LiteVideoDecider::ClearData(const base::Time& delete_begin,
 
 void LiteVideoDecider::OnBlocklistCleared(base::Time time) {
   LOCAL_HISTOGRAM_BOOLEAN("LiteVideo.UserBlocklist.ClearBlocklist", true);
+}
+
+bool LiteVideoDecider::IsHostPermanentlyBlockedlisted(
+    const std::string& host) const {
+  if (permanent_host_blocklist_.size() == 0)
+    return false;
+  return permanent_host_blocklist_.find(host) !=
+         permanent_host_blocklist_.end();
 }
 
 void LiteVideoDecider::DidMediaRebuffer(const GURL& mainframe_url,

@@ -11,10 +11,12 @@
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/i18n/rtl.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/autofill/address_normalizer_factory.h"
 #include "chrome/browser/autofill/autocomplete_history_manager_factory.h"
+#include "chrome/browser/autofill/autofill_offer_manager_factory.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/autofill/risk_util.h"
 #include "chrome/browser/autofill/strike_database_factory.h"
@@ -30,6 +32,7 @@
 #include "chrome/browser/ui/autofill/autofill_popup_controller_impl.h"
 #include "chrome/browser/ui/autofill/payments/create_card_unmask_prompt_view.h"
 #include "chrome/browser/ui/autofill/payments/credit_card_scanner_controller.h"
+#include "chrome/browser/ui/autofill/save_address_profile_bubble_controller_impl.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/page_info/page_info_dialog.h"
 #include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
@@ -49,6 +52,7 @@
 #include "components/autofill/core/common/autofill_payments_features.h"
 #include "components/autofill/core/common/autofill_prefs.h"
 #include "components/autofill/core/common/autofill_switches.h"
+#include "components/autofill_assistant/browser/public/runtime_manager.h"
 #include "components/password_manager/content/browser/content_password_manager_driver.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/password_manager/core/browser/password_requirements_service.h"
@@ -69,7 +73,7 @@
 
 #if defined(OS_ANDROID)
 #include "chrome/browser/android/preferences/autofill/autofill_profile_bridge.h"
-#include "chrome/browser/android/signin/signin_promo_util_android.h"
+#include "chrome/browser/android/signin/signin_bridge.h"
 #include "chrome/browser/autofill/android/internal_authenticator_android.h"
 #include "chrome/browser/flags/android/chrome_feature_list.h"
 #include "chrome/browser/infobars/infobar_service.h"
@@ -130,6 +134,10 @@ ChromeAutofillClient::GetAutocompleteHistoryManager() {
 }
 
 PrefService* ChromeAutofillClient::GetPrefs() {
+  return const_cast<PrefService*>(base::as_const(*this).GetPrefs());
+}
+
+const PrefService* ChromeAutofillClient::GetPrefs() const {
   return Profile::FromBrowserContext(web_contents()->GetBrowserContext())
       ->GetPrefs();
 }
@@ -173,12 +181,15 @@ ukm::SourceId ChromeAutofillClient::GetUkmSourceId() {
 }
 
 AddressNormalizer* ChromeAutofillClient::GetAddressNormalizer() {
-  if (base::FeatureList::IsEnabled(features::kAutofillAddressNormalizer))
-    return AddressNormalizerFactory::GetInstance();
-  return nullptr;
+  return AddressNormalizerFactory::GetInstance();
 }
 
-const GURL& ChromeAutofillClient::GetLastCommittedURL() {
+AutofillOfferManager* ChromeAutofillClient::GetAutofillOfferManager() {
+  return AutofillOfferManagerFactory::GetForBrowserContext(
+      web_contents()->GetBrowserContext());
+}
+
+const GURL& ChromeAutofillClient::GetLastCommittedURL() const {
   return web_contents()->GetLastCommittedURL();
 }
 
@@ -196,14 +207,24 @@ ChromeAutofillClient::GetSecurityLevelForUmaHistograms() {
   return helper->GetSecurityLevel();
 }
 
-std::string ChromeAutofillClient::GetPageLanguage() const {
-  // TODO(crbug.com/912597): iOS vs other platforms extracts language from
+const translate::LanguageState* ChromeAutofillClient::GetLanguageState() {
+  // TODO(crbug.com/912597): iOS vs other platforms extracts the language from
   // the top level frame vs whatever frame directly holds the form.
   auto* translate_manager =
       ChromeTranslateClient::GetManagerFromWebContents(web_contents());
   if (translate_manager)
-    return translate_manager->GetLanguageState().original_language();
-  return std::string();
+    return translate_manager->GetLanguageState();
+  return nullptr;
+}
+
+translate::TranslateDriver* ChromeAutofillClient::GetTranslateDriver() {
+  // TODO(crbug.com/912597): iOS vs other platforms extracts the language from
+  // the top level frame vs whatever frame directly holds the form.
+  auto* translate_client =
+      ChromeTranslateClient::FromWebContents(web_contents());
+  if (translate_client)
+    return translate_client->translate_driver();
+  return nullptr;
 }
 
 std::string ChromeAutofillClient::GetVariationConfigCountryCode() const {
@@ -214,6 +235,15 @@ std::string ChromeAutofillClient::GetVariationConfigCountryCode() const {
   return variation_service
              ? base::ToUpperASCII(variation_service->GetLatestCountry())
              : std::string();
+}
+
+profile_metrics::BrowserProfileType ChromeAutofillClient::GetProfileType()
+    const {
+  Profile* profile = GetProfile();
+  // Profile can only be null in tests, therefore it is safe to always return
+  // |kRegular| when it does not exist.
+  return profile ? ProfileMetrics::GetBrowserProfileType(profile)
+                 : profile_metrics::BrowserProfileType::kRegular;
 }
 
 std::unique_ptr<InternalAuthenticator>
@@ -400,7 +430,8 @@ void ChromeAutofillClient::ConfirmSaveCreditCardLocally(
               /*upload=*/false, options, card, LegalMessageLines(),
               /*upload_save_card_callback=*/
               AutofillClient::UploadSaveCardPromptCallback(),
-              /*local_save_card_callback=*/std::move(callback), GetPrefs())));
+              /*local_save_card_callback=*/std::move(callback), GetPrefs()),
+          base::nullopt));
 #else
   // Do lazy initialization of SaveCardBubbleControllerImpl.
   SaveCardBubbleControllerImpl::CreateForWebContents(web_contents());
@@ -424,9 +455,30 @@ void ChromeAutofillClient::ConfirmSaveCreditCardToCloud(
               /*upload_save_card_callback=*/std::move(callback),
               /*local_save_card_callback=*/
               AutofillClient::LocalSaveCardPromptCallback(), GetPrefs());
+  bool sync_disabled_wallet_transport_enabled =
+      GetPersonalDataManager()->GetSyncSigninState() ==
+      autofill::AutofillSyncSigninState::kSignedInAndWalletSyncTransportEnabled;
+
+  base::Optional<AccountInfo> account_info = base::nullopt;
+  // AccountInfo data should be passed down only if the following conditions are
+  // satisfied:
+  // 1) Sync is off or the
+  //   kAutofillEnableInfoBarAccountIndicationFooterForSyncUsers flag is on.
+  // 2) User has multiple accounts or the
+  //   kAutofillEnableInfoBarAccountIndicationFooterForSingleAccountUsers is on.
+  if ((sync_disabled_wallet_transport_enabled ||
+       base::FeatureList::IsEnabled(
+           features::
+               kAutofillEnableInfoBarAccountIndicationFooterForSyncUsers)) &&
+      (IsMultipleAccountUser() ||
+       base::FeatureList::IsEnabled(
+           features::
+               kAutofillEnableInfoBarAccountIndicationFooterForSingleAccountUsers))) {
+    account_info = GetAccountInfo();
+  }
   InfoBarService::FromWebContents(web_contents())
       ->AddInfoBar(CreateSaveCardInfoBarMobile(
-          std::move(save_card_info_bar_delegate_mobile)));
+          std::move(save_card_info_bar_delegate_mobile), account_info));
 #else
   // Do lazy initialization of SaveCardBubbleControllerImpl.
   SaveCardBubbleControllerImpl::CreateForWebContents(web_contents());
@@ -471,6 +523,19 @@ void ChromeAutofillClient::ConfirmCreditCardFillAssist(
 #endif
 }
 
+void ChromeAutofillClient::ConfirmSaveAddressProfile(
+    const AutofillProfile& profile,
+    AddressProfileSavePromptCallback callback) {
+#if defined(OS_ANDROID)
+  // TODO(crbug.com/1167061): Implement.
+#else
+  SaveAddressProfileBubbleControllerImpl::CreateForWebContents(web_contents());
+  SaveAddressProfileBubbleControllerImpl* controller =
+      SaveAddressProfileBubbleControllerImpl::FromWebContents(web_contents());
+  controller->OfferSave(profile, std::move(callback));
+#endif
+}
+
 bool ChromeAutofillClient::HasCreditCardScanFeature() {
   return CreditCardScannerController::HasCreditCardScanFeature();
 }
@@ -483,6 +548,14 @@ void ChromeAutofillClient::ScanCreditCard(CreditCardScanCallback callback) {
 void ChromeAutofillClient::ShowAutofillPopup(
     const autofill::AutofillClient::PopupOpenArgs& open_args,
     base::WeakPtr<AutofillPopupDelegate> delegate) {
+  // Don't show any popups while Autofill Assistant's UI is shown.
+  auto* assistant_runtime_manager =
+      autofill_assistant::RuntimeManager::GetForWebContents(web_contents());
+  if (assistant_runtime_manager && assistant_runtime_manager->GetState() ==
+                                       autofill_assistant::UIState::kShown) {
+    return;
+  }
+
   // Convert element_bounds to be in screen space.
   gfx::Rect client_area = web_contents()->GetContainerBounds();
   gfx::RectF element_bounds_in_screen_space =
@@ -497,6 +570,12 @@ void ChromeAutofillClient::ShowAutofillPopup(
   popup_controller_->Show(open_args.suggestions,
                           open_args.autoselect_first_suggestion.value(),
                           open_args.popup_type);
+
+  // When testing, try to keep popup open when the reason to hide is from an
+  // external browser frame resize that is extraneous to our testing goals.
+  if (keep_popup_open_for_testing_ && popup_controller_.get()) {
+    popup_controller_->KeepPopupOpenForTesting();
+  }
 }
 
 void ChromeAutofillClient::UpdateAutofillPopupDataListValues(
@@ -563,6 +642,11 @@ void ChromeAutofillClient::HideAutofillPopup(PopupHidingReason reason) {
     popup_controller_->Hide(reason);
 }
 
+void ChromeAutofillClient::ShowOfferNotificationIfApplicable(
+    const std::vector<GURL>& domains_to_display_bubble) {
+  // TODO(crbug.com/1093057): Finish bubble controller/view and wire it up.
+}
+
 bool ChromeAutofillClient::IsAutocompleteEnabled() {
   return prefs::IsAutocompleteEnabled(GetPrefs());
 }
@@ -588,7 +672,7 @@ void ChromeAutofillClient::DidFillOrPreviewField(
 #endif  // defined(OS_ANDROID)
 }
 
-bool ChromeAutofillClient::IsContextSecure() {
+bool ChromeAutofillClient::IsContextSecure() const {
   SecurityStateTabHelper* helper =
       SecurityStateTabHelper::FromWebContents(web_contents());
   if (!helper)
@@ -615,7 +699,7 @@ bool ChromeAutofillClient::ShouldShowSigninPromo() {
 #endif
 }
 
-bool ChromeAutofillClient::AreServerCardsSupported() {
+bool ChromeAutofillClient::AreServerCardsSupported() const {
   // When in VR, server side cards are not supported.
   return !vr::VrTabHelper::IsInVr(web_contents());
 }
@@ -625,7 +709,7 @@ void ChromeAutofillClient::ExecuteCommand(int id) {
   if (id == POPUP_ITEM_ID_CREDIT_CARD_SIGNIN_PROMO) {
     auto* window = web_contents()->GetNativeView()->GetWindowAndroid();
     if (window) {
-      chrome::android::SigninPromoUtilAndroid::StartSigninActivityForPromo(
+      SigninBridge::LaunchSigninActivity(
           window, signin_metrics::AccessPoint::ACCESS_POINT_AUTOFILL_DROPDOWN);
     }
   }
@@ -683,7 +767,7 @@ ChromeAutofillClient::ChromeAutofillClient(content::WebContents* web_contents)
   log_manager_ =
       LogManager::Create(AutofillLogRouterFactory::GetForBrowserContext(
                              web_contents->GetBrowserContext()),
-                         base::Closure());
+                         base::NullCallback());
   // Initialize StrikeDatabase so its cache will be loaded and ready to use when
   // when requested by other Autofill classes.
   GetStrikeDatabase();
@@ -708,6 +792,22 @@ Profile* ChromeAutofillClient::GetProfile() const {
   return Profile::FromBrowserContext(web_contents()->GetBrowserContext());
 }
 
+base::Optional<AccountInfo> ChromeAutofillClient::GetAccountInfo() {
+  signin::IdentityManager* identity_manager =
+      IdentityManagerFactory::GetForProfile(GetProfile());
+  CoreAccountId account_id =
+      identity_manager->GetPrimaryAccountId(signin::ConsentLevel::kNotRequired);
+  return identity_manager
+      ->FindExtendedAccountInfoForAccountWithRefreshTokenByAccountId(
+          account_id);
+}
+
+bool ChromeAutofillClient::IsMultipleAccountUser() {
+  signin::IdentityManager* identity_manager =
+      IdentityManagerFactory::GetForProfile(GetProfile());
+  return identity_manager->GetAccountsWithRefreshTokens().size() > 1;
+}
+
 base::string16 ChromeAutofillClient::GetAccountHolderName() {
   Profile* profile = GetProfile();
   if (!profile)
@@ -718,7 +818,7 @@ base::string16 ChromeAutofillClient::GetAccountHolderName() {
     return base::string16();
   base::Optional<AccountInfo> primary_account_info =
       identity_manager->FindExtendedAccountInfoForAccountWithRefreshToken(
-          identity_manager->GetPrimaryAccountInfo());
+          identity_manager->GetPrimaryAccountInfo(signin::ConsentLevel::kSync));
   return primary_account_info
              ? base::UTF8ToUTF16(primary_account_info->full_name)
              : base::string16();

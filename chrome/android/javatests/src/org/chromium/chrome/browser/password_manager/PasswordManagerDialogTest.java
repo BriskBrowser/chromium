@@ -16,6 +16,7 @@ import static org.hamcrest.Matchers.not;
 import static org.mockito.Mockito.verify;
 
 import static org.chromium.chrome.browser.password_manager.PasswordManagerDialogProperties.ILLUSTRATION_VISIBLE;
+import static org.chromium.chrome.test.util.ViewUtils.onViewWaiting;
 
 import androidx.test.filters.SmallTest;
 
@@ -30,12 +31,12 @@ import org.mockito.quality.Strictness;
 
 import org.chromium.base.Callback;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
-import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
+import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.modaldialog.DialogDismissalCause;
 import org.chromium.ui.modaldialog.ModalDialogManager;
@@ -57,8 +58,7 @@ public class PasswordManagerDialogTest {
     private Callback<Integer> mOnClick;
 
     @Rule
-    public ChromeActivityTestRule<ChromeActivity> mActivityTestRule =
-            new ChromeActivityTestRule<>(ChromeActivity.class);
+    public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
 
     @Rule
     public MockitoRule mMockitoRule = MockitoJUnit.rule().strictness(Strictness.STRICT_STUBS);
@@ -80,6 +80,7 @@ public class PasswordManagerDialogTest {
         mMediator = mCoordinator.getMediatorForTesting();
         mModel = mMediator.getModelForTesting();
         TestThreadUtils.runOnUiThreadBlocking(() -> { mCoordinator.showDialog(); });
+        onViewWaiting(withId(R.id.positive_button));
     }
 
     @Test

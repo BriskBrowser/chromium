@@ -119,6 +119,7 @@ void SomeValuesCallback(scoped_refptr<base::RefCountedMemory> data) {
   EXPECT_NE(result.find("\"flag\":true"), std::string::npos);
   EXPECT_NE(result.find("\"counter\":10"), std::string::npos);
   EXPECT_NE(result.find("\"debt\":-456"), std::string::npos);
+  EXPECT_NE(result.find("\"threshold\":0.55"), std::string::npos);
   EXPECT_NE(result.find("\"planet\":\"pluto\""), std::string::npos);
   EXPECT_NE(result.find("\"button\":\"foo\""), std::string::npos);
 }
@@ -128,6 +129,7 @@ TEST_F(WebUIDataSourceTest, SomeValues) {
   source()->AddBoolean("flag", true);
   source()->AddInteger("counter", 10);
   source()->AddInteger("debt", -456);
+  source()->AddDouble("threshold", 0.55);
   source()->AddString("planet", base::ASCIIToUTF16("pluto"));
   source()->AddLocalizedString("button", kDummyStringId);
   StartDataRequest("strings.js", base::BindOnce(&SomeValuesCallback));
@@ -181,6 +183,19 @@ TEST_F(WebUIDataSourceTest, NamedResourceWithQueryString) {
                    base::BindOnce(&NamedResourceWithQueryStringCallback));
 }
 
+void NamedResourceWithUrlFragmentCallback(
+    scoped_refptr<base::RefCountedMemory> data) {
+  EXPECT_NE(data, nullptr);
+  std::string result(data->front_as<char>(), data->size());
+  EXPECT_NE(result.find(kDummyResource), std::string::npos);
+}
+
+TEST_F(WebUIDataSourceTest, NamedResourceWithUrlFragment) {
+  source()->AddResourcePath("foobar", kDummyResourceId);
+  StartDataRequest("foobar#fragment",
+                   base::BindOnce(&NamedResourceWithUrlFragmentCallback));
+}
+
 void WebUIDataSourceTest::RequestFilterQueryStringCallback(
     scoped_refptr<base::RefCountedMemory> data) {
   std::string result(data->front_as<char>(), data->size());
@@ -208,6 +223,7 @@ TEST_F(WebUIDataSourceTest, MimeType) {
   const char* html = "text/html";
   const char* js = "application/javascript";
   const char* png = "image/png";
+
   EXPECT_EQ(GetMimeType(std::string()), html);
   EXPECT_EQ(GetMimeType("foo"), html);
   EXPECT_EQ(GetMimeType("foo.html"), html);
@@ -228,6 +244,14 @@ TEST_F(WebUIDataSourceTest, MimeType) {
   EXPECT_EQ(GetMimeType("foo.html?abc?abc"), html);
   EXPECT_EQ(GetMimeType("foo.css?abc?abc"), css);
   EXPECT_EQ(GetMimeType("foo.js?abc?abc"), js);
+
+  EXPECT_EQ(GetMimeType("foo.json"), "application/json");
+  EXPECT_EQ(GetMimeType("foo.pdf"), "application/pdf");
+  EXPECT_EQ(GetMimeType("foo.svg"), "image/svg+xml");
+  EXPECT_EQ(GetMimeType("foo.jpg"), "image/jpeg");
+  EXPECT_EQ(GetMimeType("foo.mp4"), "video/mp4");
+  EXPECT_EQ(GetMimeType("foo.js.wasm"), "application/wasm");
+  EXPECT_EQ(GetMimeType("foo.out.wasm"), "application/wasm");
 }
 
 TEST_F(WebUIDataSourceTest, ShouldServeMimeTypeAsContentTypeHeader) {

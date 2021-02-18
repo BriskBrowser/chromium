@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/version.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/pending_extension_manager.h"
@@ -23,6 +23,11 @@ namespace {
 
 typedef std::vector<SharedModuleInfo::ImportInfo> ImportInfoVector;
 typedef std::list<SharedModuleInfo::ImportInfo> ImportInfoList;
+
+bool IsSharedModule(const Extension* extension,
+                    content::BrowserContext* context) {
+  return SharedModuleInfo::IsSharedModule(extension);
+}
 
 }  // namespace
 
@@ -96,9 +101,8 @@ SharedModuleService::ImportStatus SharedModuleService::SatisfyImports(
          iter != missing_modules.end();
          ++iter) {
       pending_extension_manager->AddFromExtensionImport(
-          iter->extension_id,
-          extension_urls::GetWebstoreUpdateUrl(),
-          SharedModuleInfo::IsSharedModule);
+          iter->extension_id, extension_urls::GetWebstoreUpdateUrl(),
+          IsSharedModule);
     }
     service->CheckForUpdatesSoon();
   }

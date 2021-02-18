@@ -6,7 +6,8 @@ Polymer({
   is: 'app-management-main-view',
 
   behaviors: [
-    app_management.StoreClient,
+    app_management.AppManagementStoreClient,
+    settings.RouteObserverBehavior,
   ],
 
   properties: {
@@ -38,6 +39,26 @@ Polymer({
   attached() {
     this.watch('apps_', state => state.apps);
     this.updateFromStore();
+  },
+
+  /**
+   * @param {!settings.Route} route
+   * @param {!settings.Route} oldRoute
+   */
+  currentRouteChanged(route, oldRoute) {
+    if (route === settings.routes.APP_MANAGEMENT) {
+      const appId =
+          app_management.AppManagementStore.getInstance().data.selectedAppId;
+
+      // Expect this to be false the first time the "Manage your apps" page
+      // is requested as no app has been selected yet.
+      if (appId) {
+        const button = this.$$(`#app-subpage-button-${appId}`);
+        if (button) {
+          cr.ui.focusWithoutInk(button);
+        }
+      }
+    }
   },
 
   /**

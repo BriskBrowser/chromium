@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/feature_list.h"
 #include "base/single_thread_task_runner.h"
 #include "base/task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -23,6 +24,7 @@
 #include "ui/events/ozone/evdev/input_device_factory_evdev_proxy.h"
 #include "ui/events/ozone/evdev/input_injector_evdev.h"
 #include "ui/events/ozone/evdev/touch_evdev_types.h"
+#include "ui/events/ozone/features.h"
 #include "ui/events/ozone/gamepad/gamepad_provider_ozone.h"
 
 namespace ui {
@@ -104,12 +106,14 @@ class ProxyDeviceEventDispatcher : public DeviceEventDispatcherEvdev {
         base::BindOnce(&EventFactoryEvdev::DispatchTouchscreenDevicesUpdated,
                        event_factory_evdev_, devices));
   }
-  void DispatchMouseDevicesUpdated(
-      const std::vector<InputDevice>& devices) override {
+  void DispatchMouseDevicesUpdated(const std::vector<InputDevice>& devices,
+                                   bool has_mouse,
+                                   bool has_pointing_stick) override {
     ui_thread_runner_->PostTask(
         FROM_HERE,
         base::BindOnce(&EventFactoryEvdev::DispatchMouseDevicesUpdated,
-                       event_factory_evdev_, devices));
+                       event_factory_evdev_, devices, has_mouse,
+                       has_pointing_stick));
   }
   void DispatchTouchpadDevicesUpdated(
       const std::vector<InputDevice>& devices) override {
@@ -191,13 +195,14 @@ EventFactoryEvdev::EventFactoryEvdev(CursorDelegateEvdev* cursor,
                 base::BindRepeating(&EventFactoryEvdev::DispatchUiEvent,
                                     base::Unretained(this))),
       cursor_(cursor),
-      input_controller_(&keyboard_, &button_map_),
+      input_controller_(&keyboard_,
+                        &mouse_button_map_,
+                        &pointing_stick_button_map_),
       touch_id_generator_(0) {
   DCHECK(device_manager_);
 }
 
-EventFactoryEvdev::~EventFactoryEvdev() {
-}
+EventFactoryEvdev::~EventFactoryEvdev() = default;
 
 void EventFactoryEvdev::Init() {
   DCHECK(!initialized_);
@@ -242,6 +247,11 @@ void EventFactoryEvdev::DispatchMouseMoveEvent(
   event.set_location_f(location);
   event.set_root_location_f(location);
   event.set_source_device_id(params.device_id);
+  if (params.ordinal_delta.has_value() &&
+      base::FeatureList::IsEnabled(kEnableOrdinalMotion)) {
+    ui::MouseEvent::DispatcherApi(&event).set_movement(
+        params.ordinal_delta.value());
+  }
   DispatchUiEvent(&event);
 }
 
@@ -255,8 +265,11 @@ void EventFactoryEvdev::DispatchMouseButtonEvent(
 
   // Mouse buttons can be remapped, touchpad taps & clicks cannot.
   unsigned int button = params.button;
-  if (params.allow_remap)
-    button = button_map_.GetMappedButton(button);
+  if (params.map_type == MouseButtonMapType::kMouse) {
+    button = mouse_button_map_.GetMappedButton(button);
+  } else if (params.map_type == MouseButtonMapType::kPointingStick) {
+    button = pointing_stick_button_map_.GetMappedButton(button);
+  }
 
   int modifier = MODIFIER_NONE;
   switch (button) {
@@ -386,11 +399,14 @@ void EventFactoryEvdev::DispatchTouchscreenDevicesUpdated(
 }
 
 void EventFactoryEvdev::DispatchMouseDevicesUpdated(
-    const std::vector<InputDevice>& devices) {
+    const std::vector<InputDevice>& devices,
+    bool has_mouse,
+    bool has_pointing_stick) {
   TRACE_EVENT0("evdev", "EventFactoryEvdev::DispatchMouseDevicesUpdated");
 
   // There's no list of mice in DeviceDataManager.
-  input_controller_.set_has_mouse(devices.size() != 0);
+  input_controller_.set_has_mouse(has_mouse);
+  input_controller_.set_has_pointing_stick(has_pointing_stick);
   DeviceHotplugEventObserver* observer = DeviceDataManager::GetInstance();
   observer->OnMouseDevicesUpdated(devices);
 }
@@ -471,6 +487,7 @@ void EventFactoryEvdev::WarpCursorTo(gfx::AcceleratedWidget widget,
           weak_ptr_factory_.GetWeakPtr(),
           MouseMoveEventParams(
               -1 /* device_id */, EF_NONE, cursor_->GetLocation(),
+              nullptr /* ordinal_delta */,
               PointerDetails(EventPointerType::kMouse), EventTimeForNow())));
 }
 

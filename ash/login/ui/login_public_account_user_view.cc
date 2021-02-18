@@ -20,10 +20,6 @@ namespace {
 constexpr char kLoginPublicAccountUserViewClassName[] =
     "LoginPublicAccountUserView";
 
-// Color of the user domain text.
-constexpr SkColor kArrowButtonBackground =
-    SkColorSetARGB(0x2B, 0xFF, 0xFF, 0xFF);
-
 // Distance from the top of the user view to the user icon.
 constexpr int kDistanceFromTopOfBigUserViewToUserIconDp = 54;
 
@@ -51,12 +47,6 @@ views::View* LoginPublicAccountUserView::TestApi::arrow_button() const {
   return view_->arrow_button_;
 }
 
-void LoginPublicAccountUserView::TestApi::OnArrowTap() const {
-  view_->ButtonPressed(views::Button::AsButton(arrow_button()),
-                       ui::MouseEvent(ui::ET_MOUSE_PRESSED, gfx::PointF(),
-                                      gfx::PointF(), base::TimeTicks(), 0, 0));
-}
-
 LoginPublicAccountUserView::Callbacks::Callbacks() = default;
 
 LoginPublicAccountUserView::Callbacks::Callbacks(const Callbacks& other) =
@@ -79,9 +69,10 @@ LoginPublicAccountUserView::LoginPublicAccountUserView(
       base::BindRepeating(&LoginPublicAccountUserView::OnUserViewTap,
                           base::Unretained(this)),
       base::RepeatingClosure(), base::RepeatingClosure());
-  auto arrow_button =
-      std::make_unique<ArrowButtonView>(this, kArrowButtonSizeDp);
-  arrow_button->SetBackgroundColor(kArrowButtonBackground);
+  auto arrow_button = std::make_unique<ArrowButtonView>(
+      base::BindRepeating(&LoginPublicAccountUserView::ArrowButtonPressed,
+                          base::Unretained(this)),
+      kArrowButtonSizeDp);
   arrow_button->SetFocusPainter(nullptr);
 
   SetPaintToLayer(ui::LayerType::LAYER_NOT_DRAWN);
@@ -102,7 +93,17 @@ LoginPublicAccountUserView::LoginPublicAccountUserView(
   add_padding(kDistanceFromTopOfBigUserViewToUserIconDp);
   AddChildView(std::move(wrapped_user_view));
   add_padding(kDistanceFromUserViewToArrowButton);
-  arrow_button_ = AddChildView(std::move(arrow_button));
+
+  // Arrow button size should be its preferred size so we wrap it.
+  auto* arrow_button_container =
+      AddChildView(std::make_unique<NonAccessibleView>());
+  auto container_layout = std::make_unique<views::BoxLayout>(
+      views::BoxLayout::Orientation::kHorizontal);
+  container_layout->set_main_axis_alignment(
+      views::BoxLayout::MainAxisAlignment::kCenter);
+  arrow_button_container->SetLayoutManager(std::move(container_layout));
+  arrow_button_ = arrow_button_container->AddChildView(std::move(arrow_button));
+
   add_padding(kDistanceFromArrowButtonToBigUserViewBottom);
 
   // Update authentication UI.
@@ -150,12 +151,14 @@ gfx::Size LoginPublicAccountUserView::CalculatePreferredSize() const {
   return size;
 }
 
-void LoginPublicAccountUserView::ButtonPressed(views::Button* sender,
-                                               const ui::Event& event) {
-  if (sender == arrow_button_) {
-    DCHECK(arrow_button_);
-    on_public_account_tap_.Run();
-  }
+void LoginPublicAccountUserView::ArrowButtonPressed() {
+  DCHECK(arrow_button_);
+  // If the pod isn't active, activate it first.
+  if (!auth_enabled_)
+    OnUserViewTap();
+
+  DCHECK(auth_enabled_);
+  on_public_account_tap_.Run();
 }
 
 void LoginPublicAccountUserView::OnUserViewTap() {

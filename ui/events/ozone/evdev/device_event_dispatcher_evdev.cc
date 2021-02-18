@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "ui/events/ozone/evdev/device_event_dispatcher_evdev.h"
+#include "base/optional.h"
 
 namespace ui {
 
@@ -23,32 +24,34 @@ KeyEventParams::KeyEventParams(int device_id,
 
 KeyEventParams::KeyEventParams(const KeyEventParams& other) = default;
 
-KeyEventParams::~KeyEventParams() {
-}
+KeyEventParams::~KeyEventParams() {}
 
 MouseMoveEventParams::MouseMoveEventParams(int device_id,
                                            int flags,
                                            const gfx::PointF& location,
+                                           gfx::Vector2dF* ordinal_delta,
                                            const PointerDetails& details,
                                            base::TimeTicks timestamp)
     : device_id(device_id),
       flags(flags),
       location(location),
+      ordinal_delta(ordinal_delta
+                        ? base::Optional<gfx::Vector2dF>(*ordinal_delta)
+                        : base::nullopt),
       pointer_details(details),
       timestamp(timestamp) {}
 
 MouseMoveEventParams::MouseMoveEventParams(const MouseMoveEventParams& other) =
     default;
 
-MouseMoveEventParams::~MouseMoveEventParams() {
-}
+MouseMoveEventParams::~MouseMoveEventParams() {}
 
 MouseButtonEventParams::MouseButtonEventParams(int device_id,
                                                int flags,
                                                const gfx::PointF& location,
                                                unsigned int button,
                                                bool down,
-                                               bool allow_remap,
+                                               MouseButtonMapType map_type,
                                                const PointerDetails& details,
                                                base::TimeTicks timestamp)
     : device_id(device_id),
@@ -56,7 +59,7 @@ MouseButtonEventParams::MouseButtonEventParams(int device_id,
       location(location),
       button(button),
       down(down),
-      allow_remap(allow_remap),
+      map_type(map_type),
       pointer_details(details),
       timestamp(timestamp) {}
 

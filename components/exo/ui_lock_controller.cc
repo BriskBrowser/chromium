@@ -5,10 +5,10 @@
 #include "components/exo/ui_lock_controller.h"
 
 #include "ash/public/cpp/app_types.h"
-#include "ash/public/cpp/window_properties.h"
 #include "ash/wm/window_state.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "chromeos/ui/base/window_properties.h"
 #include "components/exo/seat.h"
 #include "components/exo/shell_surface_util.h"
 #include "components/exo/surface.h"
@@ -39,7 +39,7 @@ UILockController::~UILockController() {
 void UILockController::OnKeyEvent(ui::KeyEvent* event) {
   // If the event target is not an exo::Surface, let another handler process the
   // event.
-  if (!GetShellMainSurface(static_cast<aura::Window*>(event->target())) &&
+  if (!GetShellRootSurface(static_cast<aura::Window*>(event->target())) &&
       !Surface::AsSurface(static_cast<aura::Window*>(event->target()))) {
     return;
   }
@@ -56,7 +56,7 @@ void UILockController::OnSurfaceFocused(Surface* gained_focus) {
 }
 
 namespace {
-bool FocusedWindowIsNonImmersiveFullscreen(Seat* seat) {
+bool EscapeHoldShouldExitFullscreen(Seat* seat) {
   auto* surface = seat->GetFocusedSurface();
   if (!surface)
     return false;
@@ -67,12 +67,7 @@ bool FocusedWindowIsNonImmersiveFullscreen(Seat* seat) {
     return false;
 
   aura::Window* window = widget->GetNativeWindow();
-  if (!window || window->GetProperty(ash::kImmersiveImpliedByFullscreen))
-    return false;
-
-  // TODO(b/165865831): Add the Borealis AppType if/when we add one.
-  if (window->GetProperty(aura::client::kAppType) !=
-      static_cast<int>(ash::AppType::CROSTINI_APP)) {
+  if (!window || !window->GetProperty(chromeos::kEscHoldToExitFullscreen)) {
     return false;
   }
 
@@ -83,7 +78,7 @@ bool FocusedWindowIsNonImmersiveFullscreen(Seat* seat) {
 
 void UILockController::OnEscapeKey(bool pressed) {
   if (pressed) {
-    if (FocusedWindowIsNonImmersiveFullscreen(seat_) &&
+    if (EscapeHoldShouldExitFullscreen(seat_) &&
         !exit_fullscreen_timer_.IsRunning()) {
       focused_surface_to_unlock_ = seat_->GetFocusedSurface();
       exit_fullscreen_timer_.Start(
@@ -109,8 +104,14 @@ void UILockController::OnEscapeHeld() {
       views::Widget::GetTopLevelWidgetForNativeView(surface->window());
   auto* window_state =
       ash::WindowState::Get(widget ? widget->GetNativeWindow() : nullptr);
-  if (window_state)
-    window_state->Minimize();
+  if (window_state) {
+    if (window_state->window()->GetProperty(
+            chromeos::kEscHoldExitFullscreenToMinimized)) {
+      window_state->Minimize();
+    } else {
+      window_state->Restore();
+    }
+  }
 }
 
 void UILockController::StopTimer() {

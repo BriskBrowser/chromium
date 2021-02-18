@@ -16,7 +16,7 @@
 #include "chrome/browser/nearby_sharing/nearby_connection_impl.h"
 #include "chrome/browser/nearby_sharing/nearby_file_handler.h"
 #include "chrome/browser/nearby_sharing/nearby_process_manager.h"
-#include "chrome/services/sharing/public/mojom/nearby_connections.mojom.h"
+#include "chromeos/services/nearby/public/mojom/nearby_connections.mojom.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
 
@@ -46,6 +46,7 @@ class NearbyConnectionsManagerImpl
                         ConnectionsCallback callback) override;
   void StopAdvertising() override;
   void StartDiscovery(DiscoveryListener* listener,
+                      DataUsage data_usage,
                       ConnectionsCallback callback) override;
   void StopDiscovery() override;
   void Connect(std::vector<uint8_t> endpoint_info,
@@ -69,14 +70,13 @@ class NearbyConnectionsManagerImpl
       const std::string& endpoint_id) override;
   void UpgradeBandwidth(const std::string& endpoint_id) override;
 
-  // Converts the status to a logging-friendly string.
-  static std::string ConnectionsStatusToString(ConnectionsStatus status);
-
  private:
   using AdvertisingOptions =
       location::nearby::connections::mojom::AdvertisingOptions;
   using ConnectionInfoPtr =
       location::nearby::connections::mojom::ConnectionInfoPtr;
+  using ConnectionOptions =
+      location::nearby::connections::mojom::ConnectionOptions;
   using ConnectionLifecycleListener =
       location::nearby::connections::mojom::ConnectionLifecycleListener;
   using DiscoveredEndpointInfoPtr =
@@ -93,6 +93,7 @@ class NearbyConnectionsManagerImpl
   using PayloadTransferUpdatePtr =
       location::nearby::connections::mojom::PayloadTransferUpdatePtr;
   using Status = location::nearby::connections::mojom::Status;
+  using Medium = location::nearby::connections::mojom::Medium;
 
   FRIEND_TEST_ALL_PREFIXES(NearbyConnectionsManagerImplTest,
                            DiscoveryProcessStopped);
@@ -115,7 +116,7 @@ class NearbyConnectionsManagerImpl
                             Status status) override;
   void OnDisconnected(const std::string& endpoint_id) override;
   void OnBandwidthChanged(const std::string& endpoint_id,
-                          int32_t quality) override;
+                          Medium medium) override;
 
   // PayloadListener:
   void OnPayloadReceived(const std::string& endpoint_id,
@@ -132,6 +133,10 @@ class NearbyConnectionsManagerImpl
   void OnFileCreated(int64_t payload_id,
                      ConnectionsCallback callback,
                      NearbyFileHandler::CreateFileResult result);
+
+  // For metrics.
+  base::Optional<Medium> GetUpgradedMedium(
+      const std::string& endpoint_id) const;
 
   NearbyProcessManager* process_manager_;
   Profile* profile_;
@@ -154,6 +159,12 @@ class NearbyConnectionsManagerImpl
   base::flat_map<int64_t, PayloadStatusListener*> payload_status_listeners_;
   // A map of payload_id to PayloadPtr.
   base::flat_map<int64_t, PayloadPtr> incoming_payloads_;
+
+  // For metrics. A set of endpoint_ids for which we have requested a bandwidth
+  // upgrade.
+  base::flat_set<std::string> requested_bwu_endpoint_ids_;
+  // For metrics. A map of endpoint_id to current upgraded medium.
+  base::flat_map<std::string, Medium> current_upgraded_mediums_;
 
   ScopedObserver<NearbyProcessManager, NearbyProcessManager::Observer>
       nearby_process_observer_{this};

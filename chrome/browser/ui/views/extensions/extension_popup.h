@@ -8,7 +8,7 @@
 #include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "chrome/browser/ui/views/extensions/extension_view_views.h"
@@ -18,6 +18,7 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_registry_observer.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 #include "url/gurl.h"
 
 #if defined(USE_AURA)
@@ -48,6 +49,8 @@ class ExtensionPopup : public views::BubbleDialogDelegateView,
                        public TabStripModelObserver,
                        public content::DevToolsAgentHostObserver {
  public:
+  METADATA_HEADER(ExtensionPopup);
+
   enum ShowAction {
     SHOW,
     SHOW_AND_INSPECT,
@@ -56,10 +59,8 @@ class ExtensionPopup : public views::BubbleDialogDelegateView,
   // The min/max height of popups.
   // The minimum is just a little larger than the size of the button itself.
   // The maximum is an arbitrary number and should be smaller than most screens.
-  static constexpr int kMinWidth = 25;
-  static constexpr int kMinHeight = 25;
-  static constexpr int kMaxWidth = 800;
-  static constexpr int kMaxHeight = 600;
+  static constexpr gfx::Size kMinSize = {25, 25};
+  static constexpr gfx::Size kMaxSize = {800, 600};
 
   // Creates and shows a popup with the given |host| positioned adjacent to
   // |anchor_view|.
@@ -74,6 +75,8 @@ class ExtensionPopup : public views::BubbleDialogDelegateView,
                         views::BubbleBorder::Arrow arrow,
                         ShowAction show_action);
 
+  ExtensionPopup(const ExtensionPopup&) = delete;
+  ExtensionPopup& operator=(const ExtensionPopup&) = delete;
   ~ExtensionPopup() override;
 
   extensions::ExtensionViewHost* host() const { return host_.get(); }
@@ -93,6 +96,8 @@ class ExtensionPopup : public views::BubbleDialogDelegateView,
 
   // ExtensionViewViews::Container:
   void OnExtensionSizeChanged(ExtensionViewViews* view) override;
+  gfx::Size GetMinBounds() override;
+  gfx::Size GetMaxBounds() override;
 
   // extensions::ExtensionRegistryObserver:
   void OnExtensionUnloaded(content::BrowserContext* browser_context,
@@ -133,15 +138,13 @@ class ExtensionPopup : public views::BubbleDialogDelegateView,
 
   ExtensionViewViews* extension_view_;
 
-  ScopedObserver<extensions::ExtensionRegistry,
-                 extensions::ExtensionRegistryObserver>
-      extension_registry_observer_;
+  base::ScopedObservation<extensions::ExtensionRegistry,
+                          extensions::ExtensionRegistryObserver>
+      extension_registry_observation_{this};
 
   ShowAction show_action_;
 
   content::NotificationRegistrar registrar_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionPopup);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_EXTENSIONS_EXTENSION_POPUP_H_

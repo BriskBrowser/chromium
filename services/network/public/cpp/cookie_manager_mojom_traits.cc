@@ -320,6 +320,35 @@ bool StructTraits<network::mojom::CookieSameSiteContextDataView,
   return true;
 }
 
+bool EnumTraits<network::mojom::SamePartyCookieContextType,
+                net::CookieOptions::SamePartyCookieContextType>::
+    FromMojom(network::mojom::SamePartyCookieContextType context_type,
+              net::CookieOptions::SamePartyCookieContextType* out) {
+  switch (context_type) {
+    case network::mojom::SamePartyCookieContextType::kCrossParty:
+      *out = net::CookieOptions::SamePartyCookieContextType::kCrossParty;
+      return true;
+    case network::mojom::SamePartyCookieContextType::kSameParty:
+      *out = net::CookieOptions::SamePartyCookieContextType::kSameParty;
+      return true;
+  }
+  return false;
+}
+
+network::mojom::SamePartyCookieContextType
+EnumTraits<network::mojom::SamePartyCookieContextType,
+           net::CookieOptions::SamePartyCookieContextType>::
+    ToMojom(net::CookieOptions::SamePartyCookieContextType context_type) {
+  switch (context_type) {
+    case net::CookieOptions::SamePartyCookieContextType::kCrossParty:
+      return network::mojom::SamePartyCookieContextType::kCrossParty;
+    case net::CookieOptions::SamePartyCookieContextType::kSameParty:
+      return network::mojom::SamePartyCookieContextType::kSameParty;
+  }
+  NOTREACHED();
+  return network::mojom::SamePartyCookieContextType::kCrossParty;
+}
+
 bool StructTraits<network::mojom::CookieOptionsDataView, net::CookieOptions>::
     Read(network::mojom::CookieOptionsDataView mojo_options,
          net::CookieOptions* cookie_options) {
@@ -342,6 +371,19 @@ bool StructTraits<network::mojom::CookieOptionsDataView, net::CookieOptions>::
     cookie_options->set_return_excluded_cookies();
   else
     cookie_options->unset_return_excluded_cookies();
+
+  net::CookieOptions::SamePartyCookieContextType same_party_cookie_context_type;
+  if (!mojo_options.ReadSamePartyCookieContextType(
+          &same_party_cookie_context_type))
+    return false;
+  cookie_options->set_same_party_cookie_context_type(
+      same_party_cookie_context_type);
+
+  cookie_options->set_full_party_context_size(
+      mojo_options.full_party_context_size());
+
+  cookie_options->set_is_in_nontrivial_first_party_set(
+      mojo_options.is_in_nontrivial_first_party_set());
 
   return true;
 }
@@ -390,11 +432,14 @@ bool StructTraits<
   if (!cookie.ReadSourceScheme(&source_scheme))
     return false;
 
-  *out = net::CanonicalCookie(name, value, domain, path, creation_time,
-                              expiry_time, last_access_time, cookie.secure(),
-                              cookie.httponly(), site_restrictions, priority,
-                              source_scheme);
-  return out->IsCanonical();
+  auto cc = net::CanonicalCookie::FromStorage(
+      name, value, domain, path, creation_time, expiry_time, last_access_time,
+      cookie.secure(), cookie.httponly(), site_restrictions, priority,
+      cookie.same_party(), source_scheme, cookie.source_port());
+  if (!cc)
+    return false;
+  *out = *cc;
+  return true;
 }
 
 bool StructTraits<network::mojom::CookieInclusionStatusDataView,
@@ -442,7 +487,8 @@ bool StructTraits<
   if (!c.ReadAccessSemantics(&access_semantics))
     return false;
 
-  *out = {effective_same_site, status, access_semantics};
+  *out = {effective_same_site, status, access_semantics,
+          c.is_allowed_to_access_secure_cookies()};
 
   return true;
 }

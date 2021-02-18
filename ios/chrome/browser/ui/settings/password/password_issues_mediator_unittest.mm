@@ -36,9 +36,9 @@ constexpr char kUsername2[] = "bob";
 
 constexpr char kPassword[] = "s3cre3t";
 
-using autofill::PasswordForm;
+using password_manager::PasswordForm;
 using password_manager::CompromisedCredentials;
-using password_manager::CompromiseType;
+using password_manager::InsecureType;
 using password_manager::TestPasswordStore;
 
 // Sets test password store and returns pointer to it.
@@ -56,12 +56,10 @@ scoped_refptr<TestPasswordStore> CreateAndUseTestPasswordStore(
 // Returns compromised credential structure.
 CompromisedCredentials MakeCompromised(base::StringPiece signon_realm,
                                        base::StringPiece username) {
-  return {
-      std::string(signon_realm),
-      base::ASCIIToUTF16(username),
-      base::Time::Now(),
-      CompromiseType::kLeaked,
-  };
+  return CompromisedCredentials(std::string(signon_realm),
+                                base::ASCIIToUTF16(username), base::Time::Now(),
+                                InsecureType::kLeaked,
+                                password_manager::IsMuted(false));
 }
 }  // namespace
 
@@ -85,10 +83,10 @@ CompromisedCredentials MakeCompromised(base::StringPiece signon_realm,
 @end
 
 // Tests for Password Issues mediator.
-class PasswordIssuesMediatorTest : public PlatformTest {
+class PasswordIssuesMediatorTest : public BlockCleanupTest {
  protected:
-  PasswordIssuesMediatorTest()
-      : task_environment_(base::test::TaskEnvironment::MainThreadType::UI) {
+  void SetUp() override {
+    BlockCleanupTest::SetUp();
     // Create BrowserState.
     TestChromeBrowserState::Builder test_cbs_builder;
     chrome_browser_state_ = test_cbs_builder.Build();
@@ -118,7 +116,7 @@ class PasswordIssuesMediatorTest : public PlatformTest {
     form.username_element = base::ASCIIToUTF16("email");
 
     store()->AddLogin(form);
-    store()->AddCompromisedCredentials(MakeCompromised(website, username));
+    store()->AddInsecureCredential(MakeCompromised(website, username));
   }
 
   TestPasswordStore* store() { return store_.get(); }

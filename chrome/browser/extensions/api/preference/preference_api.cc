@@ -11,23 +11,24 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/lazy_instance.h"
 #include "base/memory/singleton.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/api/content_settings/content_settings_service.h"
 #include "chrome/browser/extensions/api/preference/preference_api_constants.h"
 #include "chrome/browser/extensions/api/preference/preference_helpers.h"
 #include "chrome/browser/extensions/api/proxy/proxy_api.h"
+#include "chrome/browser/extensions/api/system_indicator/system_indicator_api.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/net/prediction_options.h"
 #include "chrome/common/pref_names.h"
 #include "components/autofill/core/common/autofill_prefs.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/content_settings/core/common/pref_names.h"
-#include "components/data_reduction_proxy/core/common/data_reduction_proxy_pref_names.h"
 #include "components/embedder_support/pref_names.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/prefs/pref_service.h"
@@ -48,7 +49,7 @@
 #include "extensions/common/permissions/permissions_data.h"
 #include "media/media_buildflags.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/public/cpp/ash_pref_names.h"  // nogncheck
 #endif
 
@@ -80,17 +81,6 @@ const char kConversionErrorMessage[] =
     "properly.";
 
 const PrefMappingEntry kPrefMapping[] = {
-    {"spdy_proxy.enabled", data_reduction_proxy::prefs::kDataSaverEnabled,
-     APIPermission::kDataReductionProxy, APIPermission::kDataReductionProxy},
-    {"data_reduction.daily_original_length",
-     data_reduction_proxy::prefs::kDailyHttpOriginalContentLength,
-     APIPermission::kDataReductionProxy, APIPermission::kDataReductionProxy},
-    {"data_reduction.daily_received_length",
-     data_reduction_proxy::prefs::kDailyHttpReceivedContentLength,
-     APIPermission::kDataReductionProxy, APIPermission::kDataReductionProxy},
-    {"data_usage_reporting.enabled",
-     data_reduction_proxy::prefs::kDataUsageReportingEnabled,
-     APIPermission::kDataReductionProxy, APIPermission::kDataReductionProxy},
     {"alternateErrorPagesEnabled",
      embedder_support::kAlternateErrorPagesEnabled, APIPermission::kPrivacy,
      APIPermission::kPrivacy},
@@ -124,16 +114,9 @@ const PrefMappingEntry kPrefMapping[] = {
      APIPermission::kPrivacy, APIPermission::kPrivacy},
     {"spellingServiceEnabled", spellcheck::prefs::kSpellCheckUseSpellingService,
      APIPermission::kPrivacy, APIPermission::kPrivacy},
-    {"thirdPartyCookiesAllowed", prefs::kBlockThirdPartyCookies,
+    {"thirdPartyCookiesAllowed", prefs::kCookieControlsMode,
      APIPermission::kPrivacy, APIPermission::kPrivacy},
     {"translationServiceEnabled", prefs::kOfferTranslateEnabled,
-     APIPermission::kPrivacy, APIPermission::kPrivacy},
-    // webRTCMultipleRoutesEnabled and webRTCNonProxiedUdpEnabled have been
-    // replaced by webRTCIPHandlingPolicy. Leaving it for backward
-    // compatibility. TODO(guoweis): Remove this in M50.
-    {"webRTCMultipleRoutesEnabled", prefs::kWebRTCMultipleRoutesEnabled,
-     APIPermission::kPrivacy, APIPermission::kPrivacy},
-    {"webRTCNonProxiedUdpEnabled", prefs::kWebRTCNonProxiedUdpEnabled,
      APIPermission::kPrivacy, APIPermission::kPrivacy},
     {"webRTCIPHandlingPolicy", prefs::kWebRTCIPHandlingPolicy,
      APIPermission::kPrivacy, APIPermission::kPrivacy},
@@ -145,14 +128,20 @@ const PrefMappingEntry kPrefMapping[] = {
     {"animationPolicy", prefs::kAnimationPolicy,
      APIPermission::kAccessibilityFeaturesRead,
      APIPermission::kAccessibilityFeaturesModify},
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     {"autoclick", ash::prefs::kAccessibilityAutoclickEnabled,
      APIPermission::kAccessibilityFeaturesRead,
      APIPermission::kAccessibilityFeaturesModify},
     {"caretHighlight", ash::prefs::kAccessibilityCaretHighlightEnabled,
      APIPermission::kAccessibilityFeaturesRead,
      APIPermission::kAccessibilityFeaturesModify},
+    {"cursorColor", ash::prefs::kAccessibilityCursorColorEnabled,
+     APIPermission::kAccessibilityFeaturesRead,
+     APIPermission::kAccessibilityFeaturesModify},
     {"cursorHighlight", ash::prefs::kAccessibilityCursorHighlightEnabled,
+     APIPermission::kAccessibilityFeaturesRead,
+     APIPermission::kAccessibilityFeaturesModify},
+    {"dockedMagnifier", ash::prefs::kDockedMagnifierEnabled,
      APIPermission::kAccessibilityFeaturesRead,
      APIPermission::kAccessibilityFeaturesModify},
     {"focusHighlight", ash::prefs::kAccessibilityFocusHighlightEnabled,
@@ -195,32 +184,40 @@ class IdentityPrefTransformer : public PrefTransformerInterface {
   }
 
   std::unique_ptr<base::Value> BrowserToExtensionPref(
-      const base::Value* browser_pref) override {
+      const base::Value* browser_pref,
+      bool is_incognito_profile) override {
     return browser_pref->CreateDeepCopy();
   }
 };
 
-class InvertBooleanTransformer : public PrefTransformerInterface {
+// Transform the thirdPartyCookiesAllowed extension api to CookieControlsMode
+// enum values.
+class CookieControlsModeTransformer : public PrefTransformerInterface {
+  using CookieControlsMode = content_settings::CookieControlsMode;
+
  public:
   std::unique_ptr<base::Value> ExtensionToBrowserPref(
       const base::Value* extension_pref,
       std::string* error,
       bool* bad_message) override {
-    return InvertBooleanValue(extension_pref);
+    bool third_party_cookies_allowed = extension_pref->GetBool();
+    return std::make_unique<base::Value>(static_cast<int>(
+        third_party_cookies_allowed ? CookieControlsMode::kOff
+                                    : CookieControlsMode::kBlockThirdParty));
   }
 
   std::unique_ptr<base::Value> BrowserToExtensionPref(
-      const base::Value* browser_pref) override {
-    return InvertBooleanValue(browser_pref);
-  }
+      const base::Value* browser_pref,
+      bool is_incognito_profile) override {
+    auto cookie_control_mode =
+        static_cast<CookieControlsMode>(browser_pref->GetInt());
 
- private:
-  static std::unique_ptr<base::Value> InvertBooleanValue(
-      const base::Value* value) {
-    bool bool_value = false;
-    bool result = value->GetAsBoolean(&bool_value);
-    DCHECK(result);
-    return std::make_unique<base::Value>(!bool_value);
+    bool third_party_cookies_allowed =
+        cookie_control_mode == content_settings::CookieControlsMode::kOff ||
+        (!is_incognito_profile &&
+         cookie_control_mode == CookieControlsMode::kIncognitoOnly);
+
+    return std::make_unique<base::Value>(third_party_cookies_allowed);
   }
 };
 
@@ -242,7 +239,8 @@ class NetworkPredictionTransformer : public PrefTransformerInterface {
   }
 
   std::unique_ptr<base::Value> BrowserToExtensionPref(
-      const base::Value* browser_pref) override {
+      const base::Value* browser_pref,
+      bool is_incognito_profile) override {
     int int_value = chrome_browser_net::NETWORK_PREDICTION_DEFAULT;
     const bool pref_found = browser_pref->GetAsInteger(&int_value);
     DCHECK(pref_found) << "Preference not found.";
@@ -308,14 +306,13 @@ class PrefMapping {
     DCHECK_EQ(base::size(kPrefMapping), event_mapping_.size());
     RegisterPrefTransformer(proxy_config::prefs::kProxy,
                             std::make_unique<ProxyPrefTransformer>());
-    RegisterPrefTransformer(prefs::kBlockThirdPartyCookies,
-                            std::make_unique<InvertBooleanTransformer>());
+    RegisterPrefTransformer(prefs::kCookieControlsMode,
+                            std::make_unique<CookieControlsModeTransformer>());
     RegisterPrefTransformer(prefs::kNetworkPredictionOptions,
                             std::make_unique<NetworkPredictionTransformer>());
   }
 
-  ~PrefMapping() {
-  }
+  ~PrefMapping() = default;
 
   void RegisterPrefTransformer(
       const std::string& browser_pref,
@@ -371,9 +368,10 @@ PreferenceEventRouter::PreferenceEventRouter(Profile* profile)
     : profile_(profile) {
   registrar_.Init(profile_->GetPrefs());
   for (const auto& pref : kPrefMapping) {
-    registrar_.Add(pref.browser_pref,
-                   base::Bind(&PreferenceEventRouter::OnPrefChanged,
-                              base::Unretained(this), registrar_.prefs()));
+    registrar_.Add(
+        pref.browser_pref,
+        base::BindRepeating(&PreferenceEventRouter::OnPrefChanged,
+                            base::Unretained(this), registrar_.prefs()));
   }
   DCHECK(!profile_->IsOffTheRecord());
   observed_profiles_.Add(profile_);
@@ -402,7 +400,7 @@ void PreferenceEventRouter::OnPrefChanged(PrefService* pref_service,
   PrefTransformerInterface* transformer =
       PrefMapping::GetInstance()->FindTransformerForBrowserPref(browser_pref);
   std::unique_ptr<base::Value> transformed_value =
-      transformer->BrowserToExtensionPref(pref->GetValue());
+      transformer->BrowserToExtensionPref(pref->GetValue(), incognito);
   if (!transformed_value) {
     LOG(ERROR) << ErrorUtils::FormatErrorMessage(kConversionErrorMessage,
                                                  pref->name());
@@ -456,8 +454,9 @@ void PreferenceEventRouter::ObserveOffTheRecordPrefs(PrefService* prefs) {
   for (const auto& pref : kPrefMapping) {
     incognito_registrar_->Add(
         pref.browser_pref,
-        base::Bind(&PreferenceEventRouter::OnPrefChanged,
-                   base::Unretained(this), incognito_registrar_->prefs()));
+        base::BindRepeating(&PreferenceEventRouter::OnPrefChanged,
+                            base::Unretained(this),
+                            incognito_registrar_->prefs()));
   }
 }
 
@@ -548,8 +547,7 @@ PreferenceAPI::PreferenceAPI(content::BrowserContext* context)
   content_settings_store()->AddObserver(this);
 }
 
-PreferenceAPI::~PreferenceAPI() {
-}
+PreferenceAPI::~PreferenceAPI() = default;
 
 void PreferenceAPI::Shutdown() {
   EventRouter::Get(profile_)->UnregisterObserver(this);
@@ -624,9 +622,9 @@ BrowserContextKeyedAPIFactory<PreferenceAPI>::DeclareFactoryDependencies() {
   DependsOn(ExtensionsBrowserClient::Get()->GetExtensionSystemFactory());
 }
 
-PreferenceFunction::~PreferenceFunction() { }
+PreferenceFunction::~PreferenceFunction() = default;
 
-GetPreferenceFunction::~GetPreferenceFunction() { }
+GetPreferenceFunction::~GetPreferenceFunction() = default;
 
 ExtensionFunction::ResponseAction GetPreferenceFunction::Run() {
   std::string pref_key;
@@ -684,7 +682,7 @@ ExtensionFunction::ResponseAction GetPreferenceFunction::Run() {
   PrefTransformerInterface* transformer =
       PrefMapping::GetInstance()->FindTransformerForBrowserPref(browser_pref);
   std::unique_ptr<base::Value> transformed_value =
-      transformer->BrowserToExtensionPref(pref->GetValue());
+      transformer->BrowserToExtensionPref(pref->GetValue(), incognito);
   if (!transformed_value) {
     // TODO(devlin): Can this happen?  When?  Should it be an error, or a bad
     // message?
@@ -702,10 +700,11 @@ ExtensionFunction::ResponseAction GetPreferenceFunction::Run() {
                        ep->HasIncognitoPrefValue(browser_pref));
   }
 
-  return RespondNow(OneArgument(std::move(result)));
+  return RespondNow(
+      OneArgument(base::Value::FromUniquePtrValue(std::move(result))));
 }
 
-SetPreferenceFunction::~SetPreferenceFunction() {}
+SetPreferenceFunction::~SetPreferenceFunction() = default;
 
 ExtensionFunction::ResponseAction SetPreferenceFunction::Run() {
   std::string pref_key;
@@ -788,7 +787,7 @@ ExtensionFunction::ResponseAction SetPreferenceFunction::Run() {
   // Validate also that the stored value can be converted back by the
   // transformer.
   std::unique_ptr<base::Value> extension_pref_value(
-      transformer->BrowserToExtensionPref(browser_pref_value.get()));
+      transformer->BrowserToExtensionPref(browser_pref_value.get(), incognito));
   EXTENSION_FUNCTION_VALIDATE(extension_pref_value);
 
   PreferenceAPI* preference_api = PreferenceAPI::Get(browser_context());
@@ -818,23 +817,6 @@ ExtensionFunction::ResponseAction SetPreferenceFunction::Run() {
                                                scope, base::Value(false));
   }
 
-  // Whenever an extension takes control of the |kBlockThirdPartyCookies|
-  // preference, we must also set |kCookieControlsMode|.
-  // See crbug.com/1065392 for more background.
-  //
-  // kCookieControlsMode offers an additional setting to only block third-party
-  // cookies in incognito mode that can't be selected by extensions.
-  // Instead they can use the preference api in incognito mode directly if they
-  // are permitted to run there.
-  if (browser_pref == prefs::kBlockThirdPartyCookies) {
-    preference_api->SetExtensionControlledPref(
-        extension_id(), prefs::kCookieControlsMode, scope,
-        base::Value(static_cast<int>(
-            browser_pref_value->GetBool()
-                ? content_settings::CookieControlsMode::kBlockThirdParty
-                : content_settings::CookieControlsMode::kOff)));
-  }
-
   preference_api->SetExtensionControlledPref(
       extension_id(), browser_pref, scope,
       base::Value::FromUniquePtrValue(std::move(browser_pref_value)));
@@ -842,7 +824,7 @@ ExtensionFunction::ResponseAction SetPreferenceFunction::Run() {
   return RespondNow(NoArguments());
 }
 
-ClearPreferenceFunction::~ClearPreferenceFunction() { }
+ClearPreferenceFunction::~ClearPreferenceFunction() = default;
 
 ExtensionFunction::ResponseAction ClearPreferenceFunction::Run() {
   std::string pref_key;
@@ -884,15 +866,6 @@ ExtensionFunction::ResponseAction ClearPreferenceFunction::Run() {
     return RespondNow(
         Error(extensions::preference_api_constants::kPermissionErrorMessage,
               pref_key));
-
-  // Whenever an extension clears the |kBlockThirdPartyCookies| preference,
-  // it must also clear |kCookieControlsMode|.
-  // See crbug.com/1065392 for more background.
-  if (browser_pref == prefs::kBlockThirdPartyCookies) {
-    PreferenceAPI::Get(browser_context())
-        ->RemoveExtensionControlledPref(extension_id(),
-                                        prefs::kCookieControlsMode, scope);
-  }
 
   PreferenceAPI::Get(browser_context())
       ->RemoveExtensionControlledPref(extension_id(), browser_pref, scope);

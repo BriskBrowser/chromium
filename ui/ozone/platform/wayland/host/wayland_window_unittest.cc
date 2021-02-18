@@ -7,34 +7,47 @@
 #include <memory>
 #include <utility>
 
+#include <cursor-shapes-unstable-v1-client-protocol.h>
 #include <linux/input.h>
 #include <wayland-server-core.h>
 #include <xdg-shell-server-protocol.h>
 #include <xdg-shell-unstable-v6-server-protocol.h>
 
+#include "base/files/file_util.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/cursor/mojom/cursor_type.mojom-shared.h"
+#include "ui/base/cursor/ozone/bitmap_cursor_factory_ozone.h"
 #include "ui/base/hit_test.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/event.h"
+#include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/overlay_transform.h"
 #include "ui/ozone/platform/wayland/common/wayland_util.h"
+#include "ui/ozone/platform/wayland/host/wayland_buffer_manager_host.h"
+#include "ui/ozone/platform/wayland/host/wayland_connection_test_api.h"
 #include "ui/ozone/platform/wayland/host/wayland_subsurface.h"
+#include "ui/ozone/platform/wayland/host/wayland_zcr_cursor_shapes.h"
 #include "ui/ozone/platform/wayland/test/mock_pointer.h"
 #include "ui/ozone/platform/wayland/test/mock_surface.h"
 #include "ui/ozone/platform/wayland/test/test_keyboard.h"
+#include "ui/ozone/platform/wayland/test/test_output.h"
 #include "ui/ozone/platform/wayland/test/test_region.h"
 #include "ui/ozone/platform/wayland/test/test_touch.h"
 #include "ui/ozone/platform/wayland/test/test_wayland_server_thread.h"
 #include "ui/ozone/platform/wayland/test/wayland_test.h"
 #include "ui/ozone/test/mock_platform_window_delegate.h"
+#include "ui/platform_window/platform_window.h"
 #include "ui/platform_window/platform_window_init_properties.h"
 #include "ui/platform_window/wm/wm_move_resize_handler.h"
 
 using ::testing::_;
+using ::testing::DoAll;
 using ::testing::Eq;
+using ::testing::InvokeWithoutArgs;
 using ::testing::Mock;
 using ::testing::Return;
 using ::testing::SaveArg;
@@ -78,6 +91,25 @@ class ScopedWlArray {
 
  private:
   wl_array array_;
+};
+
+base::ScopedFD MakeFD() {
+  base::FilePath temp_path;
+  EXPECT_TRUE(base::CreateTemporaryFile(&temp_path));
+  auto file =
+      base::File(temp_path, base::File::FLAG_READ | base::File::FLAG_WRITE |
+                                base::File::FLAG_CREATE_ALWAYS);
+  return base::ScopedFD(file.TakePlatformFile());
+}
+
+class MockZcrCursorShapes : public WaylandZcrCursorShapes {
+ public:
+  MockZcrCursorShapes() : WaylandZcrCursorShapes(nullptr, nullptr) {}
+  MockZcrCursorShapes(const MockZcrCursorShapes&) = delete;
+  MockZcrCursorShapes& operator=(const MockZcrCursorShapes&) = delete;
+  ~MockZcrCursorShapes() override = default;
+
+  MOCK_METHOD(void, SetCursorShape, (int32_t), (override));
 };
 
 }  // namespace
@@ -161,6 +193,14 @@ class WaylandWindowTest : public WaylandTest {
     hit_tests->push_back(static_cast<int>(HTTOPRIGHT));
   }
 
+  MockZcrCursorShapes* InstallMockZcrCursorShapes() {
+    auto zcr_cursor_shapes = std::make_unique<MockZcrCursorShapes>();
+    MockZcrCursorShapes* mock_cursor_shapes = zcr_cursor_shapes.get();
+    WaylandConnectionTestApi test_api(connection_.get());
+    test_api.SetZcrCursorShapes(std::move(zcr_cursor_shapes));
+    return mock_cursor_shapes;
+  }
+
   void VerifyAndClearExpectations() {
     Mock::VerifyAndClearExpectations(xdg_surface_);
     Mock::VerifyAndClearExpectations(&delegate_);
@@ -233,6 +273,146 @@ TEST_P(WaylandWindowTest, SetTitle) {
   window_->SetTitle(base::ASCIIToUTF16("hello"));
 }
 
+TEST_P(WaylandWindowTest, UpdateVisualSizeConfiguresWaylandWindow) {
+  const auto kNormalBounds = gfx::Rect{0, 0, 500, 300};
+  uint32_t serial = 0;
+  auto state = InitializeWlArrayWithActivatedState();
+
+  window_->set_update_visual_size_immediately(false);
+  auto* mock_surface = server_.GetObject<wl::MockSurface>(
+      window_->root_surface()->GetSurfaceId());
+
+  // Configure event makes Wayland update bounds, but does not change toplevel
+  // input region, opaque region or window geometry immediately. Such actions
+  // are postponed to UpdateVisualSize();
+  EXPECT_CALL(delegate_, OnBoundsChanged(kNormalBounds));
+  EXPECT_CALL(*xdg_surface_, SetWindowGeometry(0, 0, kNormalBounds.width(),
+                                               kNormalBounds.height()))
+      .Times(0);
+  EXPECT_CALL(*xdg_surface_, AckConfigure(1)).Times(0);
+  EXPECT_CALL(*mock_surface, SetOpaqueRegion(_)).Times(0);
+  EXPECT_CALL(*mock_surface, SetInputRegion(_)).Times(0);
+  SendConfigureEvent(xdg_surface_, kNormalBounds.width(),
+                     kNormalBounds.height(), ++serial, state.get());
+
+  Sync();
+
+  EXPECT_CALL(*xdg_surface_, SetWindowGeometry(0, 0, kNormalBounds.width(),
+                                               kNormalBounds.height()));
+  EXPECT_CALL(*xdg_surface_, AckConfigure(1));
+  EXPECT_CALL(*mock_surface, SetOpaqueRegion(_));
+  EXPECT_CALL(*mock_surface, SetInputRegion(_));
+  window_->UpdateVisualSize(kNormalBounds.size());
+}
+
+TEST_P(WaylandWindowTest, ShuffledUpdateVisualSizeOrder) {
+  const auto kNormalBounds1 = gfx::Rect{0, 0, 500, 300};
+  const auto kNormalBounds2 = gfx::Rect{0, 0, 800, 600};
+  const auto kNormalBounds3 = gfx::Rect{0, 0, 700, 400};
+  uint32_t serial = 1;
+
+  window_->set_update_visual_size_immediately(false);
+
+  // Send 3 configures and only ack the second one, the first pending configure
+  // is cleared. The second can still be ack'ed.
+  EXPECT_CALL(*xdg_surface_, SetWindowGeometry(0, 0, kNormalBounds1.width(),
+                                               kNormalBounds1.height()))
+      .Times(0);
+  EXPECT_CALL(*xdg_surface_, AckConfigure(2)).Times(0);
+  EXPECT_CALL(*xdg_surface_, SetWindowGeometry(0, 0, kNormalBounds2.width(),
+                                               kNormalBounds2.height()));
+  EXPECT_CALL(*xdg_surface_, AckConfigure(3));
+  EXPECT_CALL(*xdg_surface_, SetWindowGeometry(0, 0, kNormalBounds3.width(),
+                                               kNormalBounds3.height()));
+  EXPECT_CALL(*xdg_surface_, AckConfigure(4));
+
+  auto state = InitializeWlArrayWithActivatedState();
+  SendConfigureEvent(xdg_surface_, kNormalBounds1.width(),
+                     kNormalBounds1.height(), ++serial, state.get());
+  state = InitializeWlArrayWithActivatedState();
+  SendConfigureEvent(xdg_surface_, kNormalBounds2.width(),
+                     kNormalBounds2.height(), ++serial, state.get());
+  state = InitializeWlArrayWithActivatedState();
+  SendConfigureEvent(xdg_surface_, kNormalBounds3.width(),
+                     kNormalBounds3.height(), ++serial, state.get());
+  Sync();
+
+  window_->UpdateVisualSize(kNormalBounds2.size());
+  window_->UpdateVisualSize(kNormalBounds1.size());
+  window_->UpdateVisualSize(kNormalBounds3.size());
+}
+
+TEST_P(WaylandWindowTest, MismatchUpdateVisualSize) {
+  const auto kNormalBounds1 = gfx::Rect{0, 0, 500, 300};
+  const auto kNormalBounds2 = gfx::Rect{0, 0, 800, 600};
+  const auto kNormalBounds3 = gfx::Rect{0, 0, 700, 400};
+  uint32_t serial = 1;
+
+  window_->set_update_visual_size_immediately(false);
+  auto* mock_surface = server_.GetObject<wl::MockSurface>(
+      window_->root_surface()->GetSurfaceId());
+
+  // UpdateVisualSize with different size from configure events does not
+  // acknowledge toplevel configure.
+  EXPECT_CALL(*xdg_surface_, SetWindowGeometry(_, _, _, _)).Times(0);
+  EXPECT_CALL(*xdg_surface_, AckConfigure(_)).Times(0);
+  EXPECT_CALL(*mock_surface, SetOpaqueRegion(_));
+  EXPECT_CALL(*mock_surface, SetInputRegion(_));
+
+  auto state = InitializeWlArrayWithActivatedState();
+  SendConfigureEvent(xdg_surface_, kNormalBounds1.width(),
+                     kNormalBounds1.height(), ++serial, state.get());
+  state = InitializeWlArrayWithActivatedState();
+  SendConfigureEvent(xdg_surface_, kNormalBounds2.width(),
+                     kNormalBounds2.height(), ++serial, state.get());
+  state = InitializeWlArrayWithActivatedState();
+  SendConfigureEvent(xdg_surface_, kNormalBounds3.width(),
+                     kNormalBounds3.height(), ++serial, state.get());
+  Sync();
+
+  window_->UpdateVisualSize({100, 100});
+}
+
+TEST_P(WaylandWindowTest, UpdateVisualSizeClearsPreviousUnackedConfigures) {
+  const auto kNormalBounds1 = gfx::Rect{0, 0, 500, 300};
+  const auto kNormalBounds2 = gfx::Rect{0, 0, 800, 600};
+  const auto kNormalBounds3 = gfx::Rect{0, 0, 700, 400};
+  uint32_t serial = 1;
+  auto state = InitializeWlArrayWithActivatedState();
+
+  window_->set_update_visual_size_immediately(false);
+
+  // Send 3 configures and only ack the second one, the first pending configure
+  // is cleared. The second can still be ack'ed.
+  EXPECT_CALL(*xdg_surface_, SetWindowGeometry(0, 0, kNormalBounds1.width(),
+                                               kNormalBounds1.height()))
+      .Times(0);
+  EXPECT_CALL(*xdg_surface_, AckConfigure(2)).Times(0);
+  SendConfigureEvent(xdg_surface_, kNormalBounds1.width(),
+                     kNormalBounds1.height(), ++serial, state.get());
+  Sync();
+
+  EXPECT_CALL(*xdg_surface_, SetWindowGeometry(0, 0, kNormalBounds2.width(),
+                                               kNormalBounds2.height()));
+  EXPECT_CALL(*xdg_surface_, AckConfigure(3));
+  state = InitializeWlArrayWithActivatedState();
+  SendConfigureEvent(xdg_surface_, kNormalBounds2.width(),
+                     kNormalBounds2.height(), ++serial, state.get());
+  Sync();
+
+  EXPECT_CALL(*xdg_surface_, SetWindowGeometry(0, 0, kNormalBounds3.width(),
+                                               kNormalBounds3.height()));
+  EXPECT_CALL(*xdg_surface_, AckConfigure(4));
+  state = InitializeWlArrayWithActivatedState();
+  SendConfigureEvent(xdg_surface_, kNormalBounds3.width(),
+                     kNormalBounds3.height(), ++serial, state.get());
+  Sync();
+
+  window_->UpdateVisualSize(kNormalBounds2.size());
+  window_->UpdateVisualSize(kNormalBounds1.size());
+  window_->UpdateVisualSize(kNormalBounds3.size());
+}
+
 TEST_P(WaylandWindowTest, MaximizeAndRestore) {
   const auto kNormalBounds = gfx::Rect{0, 0, 500, 300};
   const auto kMaximizedBounds = gfx::Rect{0, 0, 800, 600};
@@ -258,7 +438,7 @@ TEST_P(WaylandWindowTest, MaximizeAndRestore) {
                                                kMaximizedBounds.height()));
   EXPECT_CALL(delegate_, OnActivationChanged(Eq(true)));
   EXPECT_CALL(delegate_, OnBoundsChanged(kMaximizedBounds));
-  EXPECT_CALL(delegate_, OnWindowStateChanged(_)).Times(0);
+  EXPECT_CALL(delegate_, OnWindowStateChanged(_)).Times(1);
   window_->Maximize();
   SendConfigureEvent(xdg_surface_, kMaximizedBounds.width(),
                      kMaximizedBounds.height(), ++serial,
@@ -289,7 +469,7 @@ TEST_P(WaylandWindowTest, MaximizeAndRestore) {
 
   EXPECT_CALL(*xdg_surface_, SetWindowGeometry(0, 0, kNormalBounds.width(),
                                                kNormalBounds.height()));
-  EXPECT_CALL(delegate_, OnWindowStateChanged(_)).Times(0);
+  EXPECT_CALL(delegate_, OnWindowStateChanged(_)).Times(1);
   EXPECT_CALL(delegate_, OnActivationChanged(_)).Times(0);
   EXPECT_CALL(delegate_, OnBoundsChanged(kNormalBounds));
   EXPECT_CALL(*GetXdgToplevel(), UnsetMaximized());
@@ -309,7 +489,7 @@ TEST_P(WaylandWindowTest, Minimize) {
   Sync();
 
   EXPECT_CALL(*GetXdgToplevel(), SetMinimized());
-  EXPECT_CALL(delegate_, OnWindowStateChanged(_)).Times(0);
+  EXPECT_CALL(delegate_, OnWindowStateChanged(_)).Times(1);
   window_->Minimize();
   EXPECT_EQ(window_->GetPlatformWindowState(), PlatformWindowState::kMinimized);
 
@@ -326,8 +506,14 @@ TEST_P(WaylandWindowTest, Minimize) {
 
   // Send one additional empty configuration event (which means the surface is
   // not maximized, fullscreen or activated) to ensure, WaylandWindow stays in
-  // the same minimized state and doesn't notify its delegate.
-  EXPECT_CALL(delegate_, OnWindowStateChanged(_)).Times(0);
+  // the same minimized state, but the delegate is always notified.
+  //
+  // TODO(tonikito): Improve filtering of delegate notification here.
+  ui::PlatformWindowState state;
+  EXPECT_CALL(delegate_, OnWindowStateChanged(_))
+      .WillRepeatedly(DoAll(SaveArg<0>(&state), InvokeWithoutArgs([&]() {
+                              EXPECT_EQ(state, PlatformWindowState::kMinimized);
+                            })));
   SendConfigureEvent(xdg_surface_, 0, 0, 3, states.get());
   Sync();
 
@@ -347,7 +533,7 @@ TEST_P(WaylandWindowTest, SetFullscreenAndRestore) {
   AddStateToWlArray(XDG_TOPLEVEL_STATE_FULLSCREEN, states.get());
 
   EXPECT_CALL(*GetXdgToplevel(), SetFullscreen());
-  EXPECT_CALL(delegate_, OnWindowStateChanged(_)).Times(0);
+  EXPECT_CALL(delegate_, OnWindowStateChanged(_)).Times(1);
   window_->ToggleFullscreen();
   // Make sure than WaylandWindow manually handles fullscreen states. Check the
   // comment in the WaylandWindow::ToggleFullscreen.
@@ -357,7 +543,7 @@ TEST_P(WaylandWindowTest, SetFullscreenAndRestore) {
   Sync();
 
   EXPECT_CALL(*GetXdgToplevel(), UnsetFullscreen());
-  EXPECT_CALL(delegate_, OnWindowStateChanged(_)).Times(0);
+  EXPECT_CALL(delegate_, OnWindowStateChanged(_)).Times(1);
   window_->Restore();
   EXPECT_EQ(window_->GetPlatformWindowState(), PlatformWindowState::kNormal);
   // Reinitialize wl_array, which removes previous old states.
@@ -430,12 +616,11 @@ TEST_P(WaylandWindowTest, StartMaximized) {
   // Make sure the window is initialized to normal state from the beginning.
   EXPECT_EQ(PlatformWindowState::kNormal, window_->GetPlatformWindowState());
 
-  // The state must not be changed to the fullscreen before the surface is
-  // activated.
+  // The state gets changed to maximize and the delegate notified.
   auto* mock_surface = server_.GetObject<wl::MockSurface>(
       window->root_surface()->GetSurfaceId());
   EXPECT_FALSE(mock_surface->xdg_surface());
-  EXPECT_CALL(delegate_, OnWindowStateChanged(_)).Times(0);
+  EXPECT_CALL(delegate_, OnWindowStateChanged(_)).Times(1);
 
   window_->Maximize();
   // The state of the window must already be fullscreen one.
@@ -443,8 +628,8 @@ TEST_P(WaylandWindowTest, StartMaximized) {
 
   Sync();
 
-  // Once the surface will be activated, the window state mustn't be changed
-  // and retain the same.
+  // Window show state should be already up to date, so delegate is not
+  // notified.
   EXPECT_CALL(delegate_, OnWindowStateChanged(_)).Times(0);
   EXPECT_EQ(window_->GetPlatformWindowState(), PlatformWindowState::kMaximized);
 
@@ -483,6 +668,8 @@ TEST_P(WaylandWindowTest, CompositorSideStateChanges) {
       .Times(1);
   EXPECT_CALL(*xdg_surface_, SetWindowGeometry(0, 0, normal_bounds.width(),
                                                normal_bounds.height()));
+
+  Sync();
 
   // Now, set to fullscreen.
   AddStateToWlArray(XDG_TOPLEVEL_STATE_FULLSCREEN, states.get());
@@ -561,7 +748,7 @@ TEST_P(WaylandWindowTest, SetMaximizedFullscreenAndRestore) {
                                                kMaximizedBounds.height()));
   EXPECT_CALL(delegate_, OnActivationChanged(Eq(true)));
   EXPECT_CALL(delegate_, OnBoundsChanged(kMaximizedBounds));
-  EXPECT_CALL(delegate_, OnWindowStateChanged(_)).Times(0);
+  EXPECT_CALL(delegate_, OnWindowStateChanged(_)).Times(1);
   window_->Maximize();
   // State changes are synchronous.
   EXPECT_EQ(PlatformWindowState::kMaximized, window_->GetPlatformWindowState());
@@ -577,7 +764,7 @@ TEST_P(WaylandWindowTest, SetMaximizedFullscreenAndRestore) {
   EXPECT_CALL(*xdg_surface_, SetWindowGeometry(0, 0, kMaximizedBounds.width(),
                                                kMaximizedBounds.height()));
   EXPECT_CALL(delegate_, OnBoundsChanged(_)).Times(0);
-  EXPECT_CALL(delegate_, OnWindowStateChanged(_)).Times(0);
+  EXPECT_CALL(delegate_, OnWindowStateChanged(_)).Times(1);
   window_->ToggleFullscreen();
   // State changes are synchronous.
   EXPECT_EQ(PlatformWindowState::kFullScreen,
@@ -595,9 +782,8 @@ TEST_P(WaylandWindowTest, SetMaximizedFullscreenAndRestore) {
   EXPECT_CALL(*xdg_surface_, SetWindowGeometry(0, 0, kNormalBounds.width(),
                                                kNormalBounds.height()));
   EXPECT_CALL(*GetXdgToplevel(), UnsetFullscreen());
-  EXPECT_CALL(*GetXdgToplevel(), UnsetMaximized());
   EXPECT_CALL(delegate_, OnBoundsChanged(kNormalBounds));
-  EXPECT_CALL(delegate_, OnWindowStateChanged(_)).Times(0);
+  EXPECT_CALL(delegate_, OnWindowStateChanged(_)).Times(1);
   window_->Restore();
   EXPECT_EQ(PlatformWindowState::kNormal, window_->GetPlatformWindowState());
   // Reinitialize wl_array, which removes previous old states.
@@ -771,6 +957,51 @@ TEST_P(WaylandWindowTest, SendsBoundsOnRequest) {
   EXPECT_EQ(restored_bounds, gfx::Rect());
 }
 
+TEST_P(WaylandWindowTest, UpdateWindowRegion) {
+  wl::MockSurface* mock_surface = server_.GetObject<wl::MockSurface>(
+      window_->root_surface()->GetSurfaceId());
+
+  // Change bounds.
+  const gfx::Rect initial_bounds = window_->GetBounds();
+  const gfx::Rect new_bounds = gfx::Rect(0, 0, initial_bounds.width() + 10,
+                                         initial_bounds.height() + 10);
+  EXPECT_CALL(*mock_surface, SetOpaqueRegion(_)).Times(1);
+  EXPECT_CALL(*mock_surface, SetInputRegion(_)).Times(1);
+  window_->SetBounds(new_bounds);
+  Sync();
+  VerifyAndClearExpectations();
+  EXPECT_EQ(mock_surface->opaque_region(), new_bounds);
+  EXPECT_EQ(mock_surface->input_region(), new_bounds);
+
+  // Maximize.
+  ScopedWlArray states = InitializeWlArrayWithActivatedState();
+  EXPECT_CALL(*mock_surface, SetOpaqueRegion(_)).Times(1);
+  EXPECT_CALL(*mock_surface, SetInputRegion(_)).Times(1);
+  const gfx::Rect maximized_bounds = gfx::Rect(0, 0, 1024, 768);
+  window_->Maximize();
+  AddStateToWlArray(XDG_TOPLEVEL_STATE_MAXIMIZED, states.get());
+  SendConfigureEvent(xdg_surface_, maximized_bounds.width(),
+                     maximized_bounds.height(), 1, states.get());
+  Sync();
+  VerifyAndClearExpectations();
+  EXPECT_EQ(mock_surface->opaque_region(), maximized_bounds);
+  EXPECT_EQ(mock_surface->input_region(), maximized_bounds);
+
+  // Restore.
+  const gfx::Rect restored_bounds = window_->GetRestoredBoundsInPixels();
+  EXPECT_CALL(*mock_surface, SetOpaqueRegion(_)).Times(1);
+  EXPECT_CALL(*mock_surface, SetInputRegion(_)).Times(1);
+  window_->Restore();
+  // Reinitialize wl_array, which removes previous old states.
+  auto active = InitializeWlArrayWithActivatedState();
+  SendConfigureEvent(xdg_surface_, 0, 0, 2, active.get());
+  Sync();
+  VerifyAndClearExpectations();
+
+  EXPECT_EQ(mock_surface->opaque_region(), restored_bounds);
+  EXPECT_EQ(mock_surface->input_region(), restored_bounds);
+}
+
 TEST_P(WaylandWindowTest, CanDispatchMouseEventDefault) {
   EXPECT_FALSE(window_->CanDispatchEvent(&test_mouse_event_));
 }
@@ -788,6 +1019,56 @@ TEST_P(WaylandWindowTest, CanDispatchMouseEventFocus) {
 TEST_P(WaylandWindowTest, CanDispatchMouseEventUnfocus) {
   EXPECT_FALSE(window_->has_pointer_focus());
   EXPECT_FALSE(window_->CanDispatchEvent(&test_mouse_event_));
+}
+
+TEST_P(WaylandWindowTest, SetCursorUsesZcrCursorShapesForCommonTypes) {
+  MockZcrCursorShapes* mock_cursor_shapes = InstallMockZcrCursorShapes();
+
+  // Verify some commonly-used cursors.
+  EXPECT_CALL(*mock_cursor_shapes,
+              SetCursorShape(ZCR_CURSOR_SHAPES_V1_CURSOR_SHAPE_TYPE_POINTER));
+  auto pointer_cursor =
+      base::MakeRefCounted<BitmapCursorOzone>(mojom::CursorType::kPointer);
+  window_->SetCursor(pointer_cursor.get());
+
+  EXPECT_CALL(*mock_cursor_shapes,
+              SetCursorShape(ZCR_CURSOR_SHAPES_V1_CURSOR_SHAPE_TYPE_HAND));
+  auto hand_cursor =
+      base::MakeRefCounted<BitmapCursorOzone>(mojom::CursorType::kHand);
+  window_->SetCursor(hand_cursor.get());
+
+  EXPECT_CALL(*mock_cursor_shapes,
+              SetCursorShape(ZCR_CURSOR_SHAPES_V1_CURSOR_SHAPE_TYPE_IBEAM));
+  auto ibeam_cursor =
+      base::MakeRefCounted<BitmapCursorOzone>(mojom::CursorType::kIBeam);
+  window_->SetCursor(ibeam_cursor.get());
+}
+
+TEST_P(WaylandWindowTest, SetCursorCallsZcrCursorShapesOncePerCursor) {
+  MockZcrCursorShapes* mock_cursor_shapes = InstallMockZcrCursorShapes();
+  auto hand_cursor =
+      base::MakeRefCounted<BitmapCursorOzone>(mojom::CursorType::kHand);
+  // Setting the same cursor twice on the client only calls the server once.
+  EXPECT_CALL(*mock_cursor_shapes, SetCursorShape(_)).Times(1);
+  window_->SetCursor(hand_cursor.get());
+  window_->SetCursor(hand_cursor.get());
+}
+
+TEST_P(WaylandWindowTest, SetCursorDoesNotUseZcrCursorShapesForNoneCursor) {
+  MockZcrCursorShapes* mock_cursor_shapes = InstallMockZcrCursorShapes();
+  EXPECT_CALL(*mock_cursor_shapes, SetCursorShape(_)).Times(0);
+  // The "none" cursor is represented by nullptr.
+  window_->SetCursor(nullptr);
+}
+
+TEST_P(WaylandWindowTest, SetCursorDoesNotUseZcrCursorShapesForCustomCursors) {
+  MockZcrCursorShapes* mock_cursor_shapes = InstallMockZcrCursorShapes();
+
+  // Custom cursors require bitmaps, so they do not use server-side cursors.
+  EXPECT_CALL(*mock_cursor_shapes, SetCursorShape(_)).Times(0);
+  auto custom_cursor = base::MakeRefCounted<BitmapCursorOzone>(
+      mojom::CursorType::kCustom, SkBitmap(), gfx::Point());
+  window_->SetCursor(custom_cursor.get());
 }
 
 ACTION_P(CloneEvent, ptr) {
@@ -1310,6 +1591,102 @@ TEST_P(WaylandWindowTest, DispatchWindowResize) {
   }
 }
 
+TEST_P(WaylandWindowTest, ToplevelWindowUpdateBufferScale) {
+  VerifyAndClearExpectations();
+
+  // Buffer scale must be 1 when no output has been entered by the window.
+  EXPECT_EQ(1, window_->buffer_scale());
+
+  // Creating an output with scale 1.
+  wl::TestOutput* output1 = server_.CreateAndInitializeOutput();
+  output1->SetRect(gfx::Rect(0, 0, 1920, 1080));
+  output1->SetScale(1);
+  Sync();
+
+  // Creating an output with scale 2.
+  wl::TestOutput* output2 = server_.CreateAndInitializeOutput();
+  output2->SetRect(gfx::Rect(0, 0, 1920, 1080));
+  output2->SetScale(2);
+  Sync();
+
+  // Send the window to |output1|.
+  wl::MockSurface* surface = server_.GetObject<wl::MockSurface>(
+      window_->root_surface()->GetSurfaceId());
+  ASSERT_TRUE(surface);
+  wl_surface_send_enter(surface->resource(), output1->resource());
+  Sync();
+
+  // The window's scale and bounds must remain unchanged.
+  EXPECT_EQ(1, window_->buffer_scale());
+  EXPECT_EQ(gfx::Rect(0, 0, 800, 600), window_->GetBounds());
+
+  // Simulating drag process from |output1| to |output2|.
+  wl_surface_send_enter(surface->resource(), output2->resource());
+  wl_surface_send_leave(surface->resource(), output1->resource());
+  Sync();
+
+  // The window must change its scale and bounds to keep DIP bounds the same.
+  EXPECT_EQ(2, window_->buffer_scale());
+  EXPECT_EQ(gfx::Rect(0, 0, 1600, 1200), window_->GetBounds());
+}
+
+TEST_P(WaylandWindowTest, AuxiliaryWindowUpdateBufferScale) {
+  VerifyAndClearExpectations();
+
+  // Creating an output with scale 1.
+  wl::TestOutput* output1 = server_.CreateAndInitializeOutput();
+  output1->SetRect(gfx::Rect(0, 0, 1920, 1080));
+  output1->SetScale(1);
+  Sync();
+
+  // Creating an output with scale 2.
+  wl::TestOutput* output2 = server_.CreateAndInitializeOutput();
+  output2->SetRect(gfx::Rect(0, 0, 1920, 1080));
+  output2->SetScale(2);
+  Sync();
+
+  // Send the window to |output1|.
+  wl::MockSurface* surface = server_.GetObject<wl::MockSurface>(
+      window_->root_surface()->GetSurfaceId());
+  ASSERT_TRUE(surface);
+  wl_surface_send_enter(surface->resource(), output1->resource());
+  Sync();
+
+  // Creating a tooltip on |window_|.
+  window_->SetPointerFocus(true);
+  gfx::Rect subsurface_bounds(15, 15, 10, 10);
+  std::unique_ptr<WaylandWindow> auxiliary_window =
+      CreateWaylandWindowWithParams(PlatformWindowType::kTooltip,
+                                    gfx::kNullAcceleratedWidget,
+                                    subsurface_bounds, &delegate_);
+  EXPECT_TRUE(auxiliary_window);
+
+  auxiliary_window->Show(false);
+
+  // |auxiliary_window| should inherit its buffer scale from the focused window.
+  EXPECT_EQ(1, auxiliary_window->buffer_scale());
+  EXPECT_EQ(subsurface_bounds, auxiliary_window->GetBounds());
+  auxiliary_window->Hide();
+
+  // Send the window to |output2|.
+  wl_surface_send_enter(surface->resource(), output2->resource());
+  wl_surface_send_leave(surface->resource(), output1->resource());
+  Sync();
+
+  EXPECT_EQ(2, window_->buffer_scale());
+  auxiliary_window->Show(false);
+
+  // |auxiliary_window|'s scale and bounds must change whenever its parents
+  // scale is changed.
+  EXPECT_EQ(2, window_->buffer_scale());
+  EXPECT_EQ(2, auxiliary_window->buffer_scale());
+  EXPECT_EQ(gfx::ScaleToRoundedRect(subsurface_bounds, 2),
+            auxiliary_window->GetBounds());
+
+  auxiliary_window->Hide();
+  window_->SetPointerFocus(false);
+}
+
 // Tests WaylandWindow repositions menu windows to be relative to parent window
 // in a right way.
 TEST_P(WaylandWindowTest, AdjustPopupBounds) {
@@ -1321,26 +1698,29 @@ TEST_P(WaylandWindowTest, AdjustPopupBounds) {
         ZXDG_POSITIONER_V6_ANCHOR_BOTTOM | ZXDG_POSITIONER_V6_ANCHOR_RIGHT,
         ZXDG_POSITIONER_V6_GRAVITY_BOTTOM | ZXDG_POSITIONER_V6_GRAVITY_RIGHT,
         ZXDG_POSITIONER_V6_CONSTRAINT_ADJUSTMENT_SLIDE_X |
-            ZXDG_POSITIONER_V6_CONSTRAINT_ADJUSTMENT_FLIP_Y};
+            ZXDG_POSITIONER_V6_CONSTRAINT_ADJUSTMENT_FLIP_Y |
+            ZXDG_POSITIONER_V6_CONSTRAINT_ADJUSTMENT_RESIZE_Y};
 
     nested_menu_window_positioner = {
         gfx::Rect(4, 80, 279, 1), gfx::Size(305, 99),
         ZXDG_POSITIONER_V6_ANCHOR_TOP | ZXDG_POSITIONER_V6_ANCHOR_RIGHT,
         ZXDG_POSITIONER_V6_GRAVITY_BOTTOM | ZXDG_POSITIONER_V6_GRAVITY_RIGHT,
         ZXDG_POSITIONER_V6_CONSTRAINT_ADJUSTMENT_FLIP_X |
-            ZXDG_POSITIONER_V6_CONSTRAINT_ADJUSTMENT_SLIDE_Y};
+            ZXDG_POSITIONER_V6_CONSTRAINT_ADJUSTMENT_SLIDE_Y |
+            ZXDG_POSITIONER_V6_CONSTRAINT_ADJUSTMENT_RESIZE_Y};
   } else {
-    menu_window_positioner = {gfx::Rect(439, 46, 1, 30), gfx::Size(287, 409),
-                              XDG_POSITIONER_ANCHOR_BOTTOM_RIGHT,
-                              XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT,
-                              XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_X |
-                                  XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_FLIP_Y};
-
+    menu_window_positioner = {
+        gfx::Rect(439, 46, 1, 30), gfx::Size(287, 409),
+        XDG_POSITIONER_ANCHOR_BOTTOM_RIGHT, XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT,
+        XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_X |
+            XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_FLIP_Y |
+            XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_RESIZE_Y};
     nested_menu_window_positioner = {
         gfx::Rect(4, 80, 279, 1), gfx::Size(305, 99),
         XDG_POSITIONER_ANCHOR_TOP_RIGHT, XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT,
         XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_FLIP_X |
-            XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_Y};
+            XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_Y |
+            XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_RESIZE_Y};
   }
 
   auto* toplevel_window = window_.get();
@@ -1503,6 +1883,7 @@ TEST_P(WaylandWindowTest, SetOpaqueRegion) {
   Sync();
 
   VerifyAndClearExpectations();
+  EXPECT_EQ(mock_surface->opaque_region(), new_bounds);
 
   new_bounds.set_size(gfx::Size(1000, 534));
   SendConfigureEvent(xdg_surface_, new_bounds.width(), new_bounds.height(), 2,
@@ -1514,6 +1895,7 @@ TEST_P(WaylandWindowTest, SetOpaqueRegion) {
   Sync();
 
   VerifyAndClearExpectations();
+  EXPECT_EQ(mock_surface->opaque_region(), new_bounds);
 }
 
 TEST_P(WaylandWindowTest, OnCloseRequest) {
@@ -1530,23 +1912,16 @@ TEST_P(WaylandWindowTest, OnCloseRequest) {
 TEST_P(WaylandWindowTest, AuxiliaryWindowSimpleParent) {
   VerifyAndClearExpectations();
 
-  std::unique_ptr<WaylandWindow> second_window = CreateWaylandWindowWithParams(
-      PlatformWindowType::kWindow, gfx::kNullAcceleratedWidget,
-      gfx::Rect(0, 0, 640, 480), &delegate_);
-  EXPECT_TRUE(second_window);
-
-  // Test case 1: if the subsurface is provided with a parent widget, it must
-  // always use that as a parent.
+  // Auxiliary window must ignore the parent provided by aura and should always
+  // use focused window instead.
   gfx::Rect subsurface_bounds(gfx::Point(15, 15), gfx::Size(10, 10));
   std::unique_ptr<WaylandWindow> auxiliary_window =
       CreateWaylandWindowWithParams(PlatformWindowType::kTooltip,
-                                    window_->GetWidget(), subsurface_bounds,
-                                    &delegate_);
+                                    gfx::kNullAcceleratedWidget,
+                                    subsurface_bounds, &delegate_);
   EXPECT_TRUE(auxiliary_window);
 
-  // The subsurface mustn't take the focused window as a parent, but use the
-  // provided one.
-  second_window->SetPointerFocus(true);
+  window_->SetPointerFocus(true);
   auxiliary_window->Show(false);
 
   Sync();
@@ -1557,6 +1932,8 @@ TEST_P(WaylandWindowTest, AuxiliaryWindowSimpleParent) {
 
   EXPECT_EQ(test_subsurface->position(), subsurface_bounds.origin());
   EXPECT_FALSE(test_subsurface->sync());
+  EXPECT_EQ(mock_surface_subsurface->opaque_region(),
+            gfx::Rect(subsurface_bounds.size()));
 
   auto* parent_resource =
       server_
@@ -1564,47 +1941,7 @@ TEST_P(WaylandWindowTest, AuxiliaryWindowSimpleParent) {
           ->resource();
   EXPECT_EQ(parent_resource, test_subsurface->parent_resource());
 
-  // Test case 2: the subsurface must use the focused window as its parent.
-  auxiliary_window = CreateWaylandWindowWithParams(
-      PlatformWindowType::kTooltip, gfx::kNullAcceleratedWidget,
-      subsurface_bounds, &delegate_);
-  EXPECT_TRUE(auxiliary_window);
-
-  // The tooltip must take the focused window.
-  second_window->SetPointerFocus(true);
-  auxiliary_window->Show(false);
-
-  Sync();
-
-  // Get new surface after recreating the WaylandAuxiliaryWindow.
-  mock_surface_subsurface = server_.GetObject<wl::MockSurface>(
-      auxiliary_window->root_surface()->GetSurfaceId());
-  test_subsurface = mock_surface_subsurface->sub_surface();
-
-  auto* second_parent_resource =
-      server_
-          .GetObject<wl::MockSurface>(
-              second_window->root_surface()->GetSurfaceId())
-          ->resource();
-  EXPECT_EQ(second_parent_resource, test_subsurface->parent_resource());
-
   auxiliary_window->Hide();
-
-  Sync();
-
-  // The subsurface must take the focused window.
-  second_window->SetPointerFocus(false);
-  window_->SetPointerFocus(true);
-  auxiliary_window->Show(false);
-
-  Sync();
-
-  // The subsurface is invalidated on each Hide call.
-  test_subsurface = mock_surface_subsurface->sub_surface();
-
-  // The |window_|'s resource must be the parent resource.
-  EXPECT_EQ(parent_resource, test_subsurface->parent_resource());
-
   window_->SetPointerFocus(false);
 }
 
@@ -1763,6 +2100,7 @@ TEST_P(WaylandWindowTest, AuxiliaryWindowNestedParent) {
   EXPECT_TRUE(menu_window);
 
   VerifyAndClearExpectations();
+  menu_window->SetPointerFocus(true);
 
   gfx::Rect subsurface_bounds(gfx::Point(15, 15), gfx::Size(10, 10));
   std::unique_ptr<WaylandWindow> auxiliary_window =
@@ -1772,8 +2110,6 @@ TEST_P(WaylandWindowTest, AuxiliaryWindowNestedParent) {
   EXPECT_TRUE(auxiliary_window);
 
   VerifyAndClearExpectations();
-
-  menu_window->SetPointerFocus(true);
 
   auxiliary_window->Show(false);
 
@@ -1786,6 +2122,8 @@ TEST_P(WaylandWindowTest, AuxiliaryWindowNestedParent) {
   auto new_origin = subsurface_bounds.origin() -
                     menu_window_bounds.origin().OffsetFromOrigin();
   EXPECT_EQ(test_subsurface->position(), new_origin);
+  EXPECT_EQ(mock_surface_subsurface->opaque_region(),
+            gfx::Rect(subsurface_bounds.size()));
 
   menu_window->SetPointerFocus(false);
 }
@@ -1878,6 +2216,87 @@ TEST_P(WaylandWindowTest, DestroysCreatesPopupsOnHideShow) {
   EXPECT_TRUE(mock_surface->xdg_surface()->xdg_popup());
 }
 
+TEST_P(WaylandWindowTest, RemovesReattachesBackgroundOnHideShow) {
+  EXPECT_TRUE(connection_->buffer_manager_host());
+
+  auto interface_ptr = connection_->buffer_manager_host()->BindInterface();
+  buffer_manager_gpu_->Initialize(std::move(interface_ptr), {}, false, false);
+
+  // Setup wl_buffers.
+  constexpr uint32_t buffer_id1 = 1;
+  constexpr uint32_t buffer_id2 = 2;
+  gfx::Size buffer_size(1024, 768);
+  auto length = 1024 * 768 * 4;
+  buffer_manager_gpu_->CreateShmBasedBuffer(MakeFD(), length, buffer_size,
+                                            buffer_id1);
+  buffer_manager_gpu_->CreateShmBasedBuffer(MakeFD(), length, buffer_size,
+                                            buffer_id2);
+
+  Sync();
+
+  // Create window.
+  MockPlatformWindowDelegate delegate;
+  auto window = CreateWaylandWindowWithParams(
+      PlatformWindowType::kWindow, gfx::kNullAcceleratedWidget,
+      gfx::Rect(0, 0, 100, 100), &delegate);
+  ASSERT_TRUE(window);
+  auto states = InitializeWlArrayWithActivatedState();
+
+  Sync();
+
+  // Configure window to be ready to attach wl_buffers.
+  auto* mock_surface = server_.GetObject<wl::MockSurface>(
+      window->root_surface()->GetSurfaceId());
+  EXPECT_TRUE(mock_surface->xdg_surface());
+  EXPECT_TRUE(mock_surface->xdg_surface()->xdg_toplevel());
+  SendConfigureEvent(mock_surface->xdg_surface(), 100, 100, 1, states.get());
+
+  // Commit a frame with only background.
+  std::vector<ui::ozone::mojom::WaylandOverlayConfigPtr> overlays;
+  ui::ozone::mojom::WaylandOverlayConfigPtr background{
+      ui::ozone::mojom::WaylandOverlayConfig::New()};
+  background->z_order = INT32_MIN;
+  background->transform = gfx::OVERLAY_TRANSFORM_NONE;
+  background->buffer_id = buffer_id1;
+  overlays.push_back(std::move(background));
+  buffer_manager_gpu_->CommitOverlays(window->GetWidget(), std::move(overlays));
+  mock_surface->SendFrameCallback();
+
+  Sync();
+
+  EXPECT_NE(mock_surface->attached_buffer(), nullptr);
+
+  // Hiding window attaches a nil wl_buffer as background.
+  window->Hide();
+  mock_surface->SendFrameCallback();
+
+  Sync();
+
+  EXPECT_EQ(mock_surface->attached_buffer(), nullptr);
+
+  mock_surface->ReleaseBuffer(mock_surface->prev_attached_buffer());
+  window->Show(false);
+
+  Sync();
+
+  SendConfigureEvent(mock_surface->xdg_surface(), 100, 100, 2, states.get());
+
+  // Commit a frame with only the primary_plane.
+  overlays.clear();
+  ui::ozone::mojom::WaylandOverlayConfigPtr primary{
+      ui::ozone::mojom::WaylandOverlayConfig::New()};
+  primary->z_order = 0;
+  primary->transform = gfx::OVERLAY_TRANSFORM_NONE;
+  primary->buffer_id = buffer_id2;
+  overlays.push_back(std::move(primary));
+  buffer_manager_gpu_->CommitOverlays(window->GetWidget(), std::move(overlays));
+
+  Sync();
+
+  // WaylandWindow should automatically reattach the background.
+  EXPECT_NE(mock_surface->attached_buffer(), nullptr);
+}
+
 // Tests that if the window gets hidden and shown again, the title, app id and
 // size constraints remain the same.
 TEST_P(WaylandWindowTest, SetsPropertiesOnShow) {
@@ -1910,8 +2329,12 @@ TEST_P(WaylandWindowTest, SetsPropertiesOnShow) {
   // Now, propagate size constraints and title.
   base::Optional<gfx::Size> min_size(gfx::Size(1, 1));
   base::Optional<gfx::Size> max_size(gfx::Size(100, 100));
-  EXPECT_CALL(delegate, GetMinimumSizeForWindow()).WillOnce(Return(min_size));
-  EXPECT_CALL(delegate, GetMaximumSizeForWindow()).WillOnce(Return(max_size));
+  EXPECT_CALL(delegate, GetMinimumSizeForWindow())
+      .Times(2)
+      .WillRepeatedly(Return(min_size));
+  EXPECT_CALL(delegate, GetMaximumSizeForWindow())
+      .Times(2)
+      .WillRepeatedly(Return(max_size));
 
   EXPECT_CALL(*mock_xdg_toplevel,
               SetMinSize(min_size.value().width(), min_size.value().height()));
@@ -2028,7 +2451,28 @@ TEST_P(WaylandWindowTest, CreatesPopupOnTouchDownSerial) {
 
   auto* test_popup = GetPopupByWindow(popup.get());
   ASSERT_TRUE(test_popup);
-  EXPECT_NE(test_popup->grab_serial(), touch_up_serial);
+
+  // Touch events are the exception. We can't use the serial that was sent
+  // before the "up" event. Otherwise, some compositors may dismiss popups.
+  // Thus, no serial must be used.
+  EXPECT_EQ(test_popup->grab_serial(), 0U);
+
+  popup->Hide();
+
+  // Send a single down event now.
+  wl_touch_send_down(server_.seat()->touch()->resource(), touch_down_serial, 0,
+                     surface_->resource(), 0 /* id */, wl_fixed_from_int(50),
+                     wl_fixed_from_int(100));
+
+  Sync();
+
+  popup->Show(false);
+
+  Sync();
+
+  test_popup = GetPopupByWindow(popup.get());
+  ASSERT_TRUE(test_popup);
+
   EXPECT_EQ(test_popup->grab_serial(), touch_down_serial);
 }
 
@@ -2107,8 +2551,9 @@ TEST_P(WaylandWindowTest, OneWaylandSubsurface) {
   auto* mock_surface_subsurface = server_.GetObject<wl::MockSurface>(
       wayland_subsurface->wayland_surface()->GetSurfaceId());
   EXPECT_TRUE(mock_surface_subsurface);
-  wayland_subsurface->ConfigureAndShowSurface(
-      gfx::OVERLAY_TRANSFORM_NONE, subsurface_bounds, true, nullptr, nullptr);
+  wayland_subsurface->ConfigureAndShowSurface(gfx::OVERLAY_TRANSFORM_NONE,
+                                              gfx::RectF(), subsurface_bounds,
+                                              true, nullptr, nullptr);
   connection_->ScheduleFlush();
 
   Sync();
@@ -2120,6 +2565,117 @@ TEST_P(WaylandWindowTest, OneWaylandSubsurface) {
 
   EXPECT_EQ(test_subsurface->position(), subsurface_bounds.origin());
   EXPECT_TRUE(test_subsurface->sync());
+}
+
+TEST_P(WaylandWindowTest, UsesCorrectParentForChildrenWindows) {
+  uint32_t serial = 0;
+
+  MockPlatformWindowDelegate window_delegate;
+  std::unique_ptr<WaylandWindow> window = CreateWaylandWindowWithParams(
+      PlatformWindowType::kWindow, gfx::kNullAcceleratedWidget,
+      gfx::Rect(10, 10, 100, 100), &window_delegate);
+  EXPECT_TRUE(window);
+
+  window->Show(false);
+
+  std::unique_ptr<WaylandWindow> another_window = CreateWaylandWindowWithParams(
+      PlatformWindowType::kWindow, gfx::kNullAcceleratedWidget,
+      gfx::Rect(10, 10, 300, 400), &window_delegate);
+  EXPECT_TRUE(another_window);
+
+  another_window->Show(false);
+
+  Sync();
+
+  auto* window1 = window.get();
+  auto* window2 = window_.get();
+  auto* window3 = another_window.get();
+
+  // Make sure windows are not "active".
+  auto empty_state = MakeStateArray({});
+  SendConfigureEvent(xdg_surface_, 0, 0, ++serial, empty_state.get());
+  auto* xdg_surface_window =
+      server_
+          .GetObject<wl::MockSurface>(window->root_surface()->GetSurfaceId())
+          ->xdg_surface();
+  SendConfigureEvent(xdg_surface_window, 0, 0, ++serial, empty_state.get());
+  auto* xdg_surface_another_window =
+      server_
+          .GetObject<wl::MockSurface>(
+              another_window->root_surface()->GetSurfaceId())
+          ->xdg_surface();
+  SendConfigureEvent(xdg_surface_another_window, 0, 0, ++serial,
+                     empty_state.get());
+
+  Sync();
+
+  // Case 1: provided parent window's widget..
+  MockPlatformWindowDelegate menu_window_delegate;
+  std::unique_ptr<WaylandWindow> menu_window = CreateWaylandWindowWithParams(
+      PlatformWindowType::kMenu, window1->GetWidget(),
+      gfx::Rect(10, 10, 10, 10), &menu_window_delegate);
+
+  EXPECT_TRUE(menu_window->parent_window() == window1);
+
+  // Case 2: didn't provide parent window's widget - must use current focused.
+  //
+  // Subcase 1: pointer focus.
+  window2->SetPointerFocus(true);
+  menu_window = CreateWaylandWindowWithParams(
+      PlatformWindowType::kMenu, gfx::kNullAcceleratedWidget,
+      gfx::Rect(10, 10, 10, 10), &menu_window_delegate);
+
+  EXPECT_TRUE(menu_window->parent_window() == window2);
+  EXPECT_TRUE(wl::IsMenuType(menu_window->type()));
+
+  // Subcase 2: keyboard focus.
+  window2->SetPointerFocus(false);
+  window2->set_keyboard_focus(true);
+  menu_window = CreateWaylandWindowWithParams(
+      PlatformWindowType::kMenu, gfx::kNullAcceleratedWidget,
+      gfx::Rect(10, 10, 10, 10), &menu_window_delegate);
+
+  // Mustn't be able to create a menu window, but rather creates a toplevel
+  // window as we must provide at least something.
+  EXPECT_TRUE(menu_window);
+  // Make it create xdg objects.
+  menu_window->Show(false);
+
+  Sync();
+
+  auto* menu_window_xdg =
+      server_
+          .GetObject<wl::MockSurface>(
+              another_window->root_surface()->GetSurfaceId())
+          ->xdg_surface();
+  EXPECT_TRUE(menu_window_xdg);
+  EXPECT_TRUE(menu_window_xdg->xdg_toplevel());
+  EXPECT_FALSE(menu_window_xdg->xdg_popup());
+
+  // Subcase 3: touch focus.
+  window2->set_keyboard_focus(false);
+  window2->set_touch_focus(true);
+  menu_window = CreateWaylandWindowWithParams(
+      PlatformWindowType::kMenu, gfx::kNullAcceleratedWidget,
+      gfx::Rect(10, 10, 10, 10), &menu_window_delegate);
+
+  EXPECT_TRUE(menu_window->parent_window() == window2);
+  EXPECT_TRUE(wl::IsMenuType(menu_window->type()));
+
+  // Case 3: neither of the windows are focused. However, there is one that is
+  // active. Must use that then.
+  window2->set_touch_focus(false);
+
+  auto active = InitializeWlArrayWithActivatedState();
+  SendConfigureEvent(xdg_surface_another_window, 0, 0, ++serial, active.get());
+  Sync();
+
+  menu_window = CreateWaylandWindowWithParams(
+      PlatformWindowType::kMenu, gfx::kNullAcceleratedWidget,
+      gfx::Rect(10, 10, 10, 10), &menu_window_delegate);
+
+  EXPECT_TRUE(menu_window->parent_window() == window3);
+  EXPECT_TRUE(wl::IsMenuType(menu_window->type()));
 }
 
 INSTANTIATE_TEST_SUITE_P(XdgVersionStableTest,

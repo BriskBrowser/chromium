@@ -11,25 +11,27 @@
 #include <string>
 #include <utility>
 
+#include "ash/constants/ash_switches.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "base/stl_util.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/thread_checker.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos_factory.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/settings/device_settings_provider.h"
+#include "chrome/browser/chromeos/settings/owner_flags_storage.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/tpm/install_attributes.h"
 #include "chromeos/tpm/tpm_token_loader.h"
 #include "components/ownership/owner_key_util.h"
@@ -58,8 +60,8 @@ namespace chromeos {
 namespace {
 
 using ReloadKeyCallback =
-    base::Callback<void(const scoped_refptr<PublicKey>& public_key,
-                        const scoped_refptr<PrivateKey>& private_key)>;
+    base::OnceCallback<void(const scoped_refptr<PublicKey>& public_key,
+                            const scoped_refptr<PrivateKey>& private_key)>;
 
 bool IsOwnerInTests(const std::string& user_id) {
   if (user_id.empty() ||
@@ -78,13 +80,14 @@ void LoadPrivateKeyByPublicKeyOnWorkerThread(
     const scoped_refptr<OwnerKeyUtil>& owner_key_util,
     crypto::ScopedPK11Slot public_slot,
     crypto::ScopedPK11Slot private_slot,
-    const ReloadKeyCallback& callback) {
+    ReloadKeyCallback callback) {
   std::vector<uint8_t> public_key_data;
   scoped_refptr<PublicKey> public_key;
   if (!owner_key_util->ImportPublicKey(&public_key_data)) {
     scoped_refptr<PrivateKey> private_key;
     content::GetUIThreadTaskRunner({})->PostTask(
-        FROM_HERE, base::BindOnce(callback, public_key, private_key));
+        FROM_HERE,
+        base::BindOnce(std::move(callback), public_key, private_key));
     return;
   }
   public_key = new PublicKey();
@@ -106,13 +109,13 @@ void LoadPrivateKeyByPublicKeyOnWorkerThread(
         public_key->data(), public_slot.get()));
   }
   content::GetUIThreadTaskRunner({})->PostTask(
-      FROM_HERE, base::BindOnce(callback, public_key, private_key));
+      FROM_HERE, base::BindOnce(std::move(callback), public_key, private_key));
 }
 
 void ContinueLoadPrivateKeyOnIOThread(
     const scoped_refptr<OwnerKeyUtil>& owner_key_util,
     const std::string username_hash,
-    const ReloadKeyCallback& callback,
+    ReloadKeyCallback callback,
     crypto::ScopedPK11Slot private_slot) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
@@ -127,19 +130,23 @@ void ContinueLoadPrivateKeyOnIOThread(
       FROM_HERE,
       base::BindOnce(&LoadPrivateKeyByPublicKeyOnWorkerThread, owner_key_util,
                      crypto::GetPublicSlotForChromeOSUser(username_hash),
-                     std::move(private_slot), callback));
+                     std::move(private_slot), std::move(callback)));
 }
 
 void LoadPrivateKeyOnIOThread(const scoped_refptr<OwnerKeyUtil>& owner_key_util,
                               const std::string username_hash,
-                              const ReloadKeyCallback& callback) {
+                              ReloadKeyCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   crypto::EnsureNSSInit();
 
-  auto continue_load_private_key_callback =
-      base::Bind(&ContinueLoadPrivateKeyOnIOThread, owner_key_util,
-                 username_hash, callback);
+  // TODO(crbug.com/1007635): Consider changing the
+  // `crypto::GetPrivateSlotForChromeOSUser()` signature so that, instead of
+  // returning the private slot when available synchronously, it always calls
+  // the callback. This would avoid needing `base::AdaptCallbackForRepeating()`.
+  auto continue_load_private_key_callback = base::AdaptCallbackForRepeating(
+      base::BindOnce(&ContinueLoadPrivateKeyOnIOThread, owner_key_util,
+                     username_hash, std::move(callback)));
 
   crypto::ScopedPK11Slot private_slot = crypto::GetPrivateSlotForChromeOSUser(
       username_hash, continue_load_private_key_callback);
@@ -615,17 +622,13 @@ void OwnerSettingsServiceChromeOS::UpdateDeviceSettings(
     } else {
       NOTREACHED();
     }
-  } else if (path == kStartUpFlags) {
-    em::StartUpFlagsProto* flags_proto = settings.mutable_start_up_flags();
-    flags_proto->Clear();
-    const base::ListValue* flags;
-    if (value.GetAsList(&flags)) {
-      for (base::ListValue::const_iterator i = flags->begin();
-           i != flags->end();
-           ++i) {
-        std::string flag;
-        if (i->GetAsString(&flag))
-          flags_proto->add_flags(flag);
+  } else if (path == kFeatureFlags) {
+    em::FeatureFlagsProto* feature_flags = settings.mutable_feature_flags();
+    feature_flags->Clear();
+    if (value.is_list()) {
+      for (const auto& flag : value.GetList()) {
+        if (flag.is_string())
+          feature_flags->add_feature_flags(flag.GetString());
       }
     }
   } else if (path == kSystemUse24HourClock) {
@@ -647,9 +650,20 @@ void OwnerSettingsServiceChromeOS::UpdateDeviceSettings(
     } else {
       NOTREACHED();
     }
+  } else if (path == kDevicePeripheralDataAccessEnabled) {
+    em::DevicePciPeripheralDataAccessEnabledProto*
+        peripheral_data_access_proto =
+            settings.mutable_device_pci_peripheral_data_access_enabled();
+    bool enabled;
+    if (value.GetAsBoolean(&enabled)) {
+      peripheral_data_access_proto->set_enabled(enabled);
+    } else {
+      NOTREACHED();
+    }
   } else {
     // The remaining settings don't support Set(), since they are not
     // intended to be customizable by the user:
+    //   kAccountsPrefFamilyLinkAccountsAllowed
     //   kAccountsPrefSupervisedUsersEnabled
     //   kAccountsPrefTransferSAMLCookies
     //   kDeviceAttestationEnabled
@@ -702,9 +716,10 @@ void OwnerSettingsServiceChromeOS::OnPostKeypairLoadedActions() {
   has_pending_fixups_ = true;
 }
 
-void OwnerSettingsServiceChromeOS::ReloadKeypairImpl(const base::Callback<
-    void(const scoped_refptr<PublicKey>& public_key,
-         const scoped_refptr<PrivateKey>& private_key)>& callback) {
+void OwnerSettingsServiceChromeOS::ReloadKeypairImpl(
+    base::OnceCallback<void(const scoped_refptr<PublicKey>& public_key,
+                            const scoped_refptr<PrivateKey>& private_key)>
+        callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
   // The profile may not be fully created yet: abort, and wait till it is. The
@@ -722,12 +737,12 @@ void OwnerSettingsServiceChromeOS::ReloadKeypairImpl(const base::Callback<
       FROM_HERE,
       base::BindOnce(&LoadPrivateKeyOnIOThread, owner_key_util_,
                      ProfileHelper::GetUserIdHashFromProfile(profile_),
-                     callback));
+                     std::move(callback)));
 }
 
 void OwnerSettingsServiceChromeOS::StorePendingChanges() {
   if (!HasPendingChanges() || store_settings_factory_.HasWeakPtrs() ||
-      !device_settings_service_ || user_id_.empty()) {
+      !device_settings_service_ || user_id_.empty() || !IsOwner()) {
     return;
   }
 
@@ -739,6 +754,7 @@ void OwnerSettingsServiceChromeOS::StorePendingChanges() {
                  DeviceSettingsService::STORE_SUCCESS &&
              device_settings_service_->device_settings()) {
     settings = *device_settings_service_->device_settings();
+    MigrateFeatureFlags(&settings);
   } else {
     return;
   }
@@ -770,8 +786,8 @@ void OwnerSettingsServiceChromeOS::OnPolicyAssembledAndSigned(
   }
   device_settings_service_->Store(
       std::move(policy_response),
-      base::Bind(&OwnerSettingsServiceChromeOS::OnSignedPolicyStored,
-                 store_settings_factory_.GetWeakPtr(), true /* success */));
+      base::BindOnce(&OwnerSettingsServiceChromeOS::OnSignedPolicyStored,
+                     store_settings_factory_.GetWeakPtr(), true /* success */));
 }
 
 void OwnerSettingsServiceChromeOS::OnSignedPolicyStored(bool success) {
@@ -787,6 +803,41 @@ void OwnerSettingsServiceChromeOS::ReportStatusAndContinueStoring(
   for (auto& observer : observers_)
     observer.OnSignedPolicyStored(success);
   StorePendingChanges();
+}
+
+void OwnerSettingsServiceChromeOS::MigrateFeatureFlags(
+    enterprise_management::ChromeDeviceSettingsProto* settings) {
+  DCHECK(IsOwner() || IsOwnerInTests(user_id_));
+
+  if (settings->feature_flags().switches_size() == 0) {
+    base::UmaHistogramEnumeration(
+        "ChromeOS.DeviceSettings.FeatureFlagsMigration",
+        FeatureFlagsMigrationStatus::kNoFeatureFlags);
+    return;
+  }
+
+  em::FeatureFlagsProto* feature_flags = settings->mutable_feature_flags();
+  if (feature_flags->feature_flags_size() != 0) {
+    // Both old and new settings. This shouldn't happen in practice, but if it
+    // does the most probable explanation is that we already migrated, so get
+    // rid of the raw switches.
+    feature_flags->clear_switches();
+    base::UmaHistogramEnumeration(
+        "ChromeOS.DeviceSettings.FeatureFlagsMigration",
+        FeatureFlagsMigrationStatus::kAlreadyMigrated);
+    return;
+  }
+
+  chromeos::about_flags::OwnerFlagsStorage flags_storage(profile_->GetPrefs(),
+                                                         this);
+  std::set<std::string> flags = flags_storage.GetFlags();
+  for (const auto& flag : flags) {
+    feature_flags->add_feature_flags(flag);
+  }
+  feature_flags->clear_switches();
+  base::UmaHistogramEnumeration(
+      "ChromeOS.DeviceSettings.FeatureFlagsMigration",
+      FeatureFlagsMigrationStatus::kMigrationPerformed);
 }
 
 }  // namespace chromeos

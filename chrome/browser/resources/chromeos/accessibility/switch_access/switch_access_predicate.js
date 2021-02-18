@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {SACache} from './cache.js';
+import {SAChildNode, SARootNode} from './nodes/switch_access_node.js';
+
+const AutomationNode = chrome.automation.AutomationNode;
 const StateType = chrome.automation.StateType;
 const RoleType = chrome.automation.RoleType;
 const DefaultActionVerb = chrome.automation.DefaultActionVerb;
@@ -19,7 +23,7 @@ const DefaultActionVerb = chrome.automation.DefaultActionVerb;
  * In addition to these basic predicates, there are also methods to get the
  * restrictions required by TreeWalker for specific traversal situations.
  */
-const SwitchAccessPredicate = {
+export const SwitchAccessPredicate = {
   GROUP_INTERESTING_CHILD_THRESHOLD: 2,
 
   /**
@@ -38,7 +42,6 @@ const SwitchAccessPredicate = {
     const defaultActionVerb = node.defaultActionVerb;
     const loc = node.location;
     const parent = node.parent;
-    const root = node.root;
     const role = node.role;
     const state = node.state;
 
@@ -60,18 +63,9 @@ const SwitchAccessPredicate = {
       return false;
     }
 
-    if (parent) {
-      // crbug.com/710559
-      // Work around for browser tabs.
-      if (role === RoleType.TAB && parent.role === RoleType.TAB_LIST &&
-          root.role === RoleType.DESKTOP) {
-        cache.isActionable.set(node, true);
-        return true;
-      }
-    }
-
     // Check various indicators that the node is actionable.
-    if (role === RoleType.BUTTON || role === RoleType.SLIDER) {
+    if (role === RoleType.BUTTON || role === RoleType.SLIDER ||
+        role === RoleType.TAB) {
       cache.isActionable.set(node, true);
       return true;
     }

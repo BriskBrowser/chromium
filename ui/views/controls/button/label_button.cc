@@ -32,10 +32,10 @@
 
 namespace views {
 
-LabelButton::LabelButton(ButtonListener* listener,
+LabelButton::LabelButton(PressedCallback callback,
                          const base::string16& text,
                          int button_context)
-    : Button(listener),
+    : Button(std::move(callback)),
       cached_normal_font_list_(
           style::GetFont(button_context, style::STYLE_PRIMARY)),
       cached_default_button_font_list_(
@@ -44,7 +44,7 @@ LabelButton::LabelButton(ButtonListener* listener,
   ink_drop_container_->SetVisible(false);
 
   image_ = AddChildView(std::make_unique<ImageView>());
-  image_->set_can_process_events_within_subtree(false);
+  image_->SetCanProcessEventsWithinSubtree(false);
 
   label_ = AddChildView(
       std::make_unique<internal::LabelButtonLabel>(text, button_context));
@@ -246,6 +246,9 @@ gfx::Size LabelButton::CalculatePreferredSize() const {
   // Account for the label only when the button is not shrinking down to hide
   // the label entirely.
   if (!shrinking_down_label_) {
+    if (!label_->GetMultiLine() && max_size_.width() > 0)
+      label_->SetMaximumWidthSingleLine(max_size_.width() - size.width());
+
     const gfx::Size preferred_label_size = label_->GetPreferredSize();
     size.Enlarge(preferred_label_size.width(), 0);
     size.SetToMax(
@@ -372,11 +375,6 @@ void LabelButton::Layout() {
   Button::Layout();
 }
 
-void LabelButton::EnableCanvasFlippingForRTLUI(bool flip) {
-  Button::EnableCanvasFlippingForRTLUI(flip);
-  image_->EnableCanvasFlippingForRTLUI(flip);
-}
-
 void LabelButton::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   if (GetIsDefault())
     node_data->AddState(ax::mojom::State::kDefault);
@@ -481,7 +479,7 @@ void LabelButton::AddedToWidget() {
 }
 
 void LabelButton::RemovedFromWidget() {
-  paint_as_active_subscription_.reset();
+  paint_as_active_subscription_ = {};
 }
 
 void LabelButton::OnFocus() {
@@ -558,9 +556,16 @@ gfx::Size LabelButton::GetUnclampedSizeWithoutLabel() const {
 
 Button::ButtonState LabelButton::GetVisualState() const {
   const auto* widget = GetWidget();
-  if (PlatformStyle::kInactiveWidgetControlsAppearDisabled && widget &&
-      widget->CanActivate() && !widget->ShouldPaintAsActive())
+  if (!widget || !widget->CanActivate() ||
+      !PlatformStyle::kInactiveWidgetControlsAppearDisabled)
+    return GetState();
+
+  // Paint as inactive if neither this widget nor its parent should paint as
+  // active.
+  if (!widget->ShouldPaintAsActive() &&
+      !(widget->parent() && widget->parent()->ShouldPaintAsActive()))
     return STATE_DISABLED;
+
   return GetState();
 }
 
@@ -603,6 +608,10 @@ Button::ButtonState LabelButton::ImageStateForState(
                                                          : for_state;
 }
 
+void LabelButton::FlipCanvasOnPaintForRTLUIChanged() {
+  image_->SetFlipCanvasOnPaintForRTLUI(GetFlipCanvasOnPaintForRTLUI());
+}
+
 BEGIN_METADATA(LabelButton, Button)
 ADD_PROPERTY_METADATA(base::string16, Text)
 ADD_PROPERTY_METADATA(gfx::HorizontalAlignment, HorizontalAlignment)
@@ -611,6 +620,6 @@ ADD_PROPERTY_METADATA(gfx::Size, MaxSize)
 ADD_PROPERTY_METADATA(bool, IsDefault)
 ADD_PROPERTY_METADATA(int, ImageLabelSpacing)
 ADD_PROPERTY_METADATA(bool, ImageCentered)
-END_METADATA()
+END_METADATA
 
 }  // namespace views

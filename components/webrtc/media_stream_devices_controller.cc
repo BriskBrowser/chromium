@@ -18,7 +18,7 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/origin_util.h"
+#include "services/network/public/cpp/is_potentially_trustworthy.h"
 #include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom.h"
 
 #if defined(OS_ANDROID)
@@ -118,8 +118,9 @@ void MediaStreamDevicesController::RequestPermissions(
         request.requested_video_device_id);
     base::UmaHistogramBoolean("WebRTC.MediaStreamDevices.HasPanTiltZoomCamera",
                               has_pan_tilt_zoom_camera);
-    // Request CAMERA_PAN_TILT_ZOOM only if the the website requested
-    // the pan-tilt-zoom permission and there are suitable PTZ capable devices
+
+    // Request CAMERA_PAN_TILT_ZOOM only if the website requested the
+    // pan-tilt-zoom permission and there are suitable PTZ capable devices
     // available.
     if (request.request_pan_tilt_zoom_permission && has_pan_tilt_zoom_camera) {
       permissions::PermissionResult permission_status =
@@ -165,7 +166,7 @@ MediaStreamDevicesController::MediaStreamDevicesController(
       enumerator_(enumerator),
       request_(request),
       callback_(std::move(callback)) {
-  DCHECK(content::IsOriginSecure(request_.security_origin) ||
+  DCHECK(network::IsUrlPotentiallyTrustworthy(request_.security_origin) ||
          request_.request_type == blink::MEDIA_OPEN_DEVICE_PEPPER_ONLY);
 
   if (!enumerator_)
@@ -407,7 +408,7 @@ ContentSetting MediaStreamDevicesController::GetContentSetting(
   DCHECK(content_type == ContentSettingsType::MEDIASTREAM_MIC ||
          content_type == ContentSettingsType::MEDIASTREAM_CAMERA);
   DCHECK(!request_.security_origin.is_empty());
-  DCHECK(content::IsOriginSecure(request_.security_origin) ||
+  DCHECK(network::IsUrlPotentiallyTrustworthy(request_.security_origin) ||
          request_.request_type == blink::MEDIA_OPEN_DEVICE_PEPPER_ONLY);
   if (!ContentTypeIsRequested(content_type, request)) {
     // No denial reason set as it will have been previously set.
@@ -554,7 +555,9 @@ bool MediaStreamDevicesController::HasAvailableDevices(
       continue;
     }
     if (content_type == ContentSettingsType::CAMERA_PAN_TILT_ZOOM &&
-        !device.pan_tilt_zoom_supported) {
+        !device.video_control_support.pan &&
+        !device.video_control_support.tilt &&
+        !device.video_control_support.zoom) {
       continue;
     }
     return true;

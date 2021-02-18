@@ -10,6 +10,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/optional.h"
+#include "base/time/time.h"
 #include "chromeos/dbus/cicerone_client.h"
 #include "chromeos/dbus/concierge_client.h"
 
@@ -115,6 +116,10 @@ class COMPONENT_EXPORT(CHROMEOS_DBUS) FakeConciergeClient
       const vm_tools::concierge::ResizeDiskImageRequest& request,
       DBusMethodCallback<vm_tools::concierge::ResizeDiskImageResponse> callback)
       override;
+
+  void SetVmId(const vm_tools::concierge::SetVmIdRequest& request,
+               DBusMethodCallback<vm_tools::concierge::SetVmIdResponse>
+                   callback) override;
 
   const base::ObserverList<Observer>& observer_list() const {
     return observer_list_;
@@ -247,6 +252,23 @@ class COMPONENT_EXPORT(CHROMEOS_DBUS) FakeConciergeClient
           resize_disk_image_response) {
     resize_disk_image_response_ = resize_disk_image_response;
   }
+  void set_set_vm_id_response(
+      base::Optional<vm_tools::concierge::SetVmIdResponse> set_vm_id_response) {
+    set_vm_id_response_ = set_vm_id_response;
+  }
+
+  void set_send_create_disk_image_response_delay(base::TimeDelta delay) {
+    send_create_disk_image_response_delay_ = delay;
+  }
+  void set_send_start_vm_response_delay(base::TimeDelta delay) {
+    send_start_vm_response_delay_ = delay;
+  }
+  void set_send_tremplin_started_signal_delay(base::TimeDelta delay) {
+    send_tremplin_started_signal_delay_ = delay;
+  }
+  void send_get_container_ssh_keys_response_delay(base::TimeDelta delay) {
+    send_get_container_ssh_keys_response_delay_ = delay;
+  }
 
   void NotifyVmStarted(const vm_tools::concierge::VmStartedSignal& signal);
   void NotifyVmStopped(const vm_tools::concierge::VmStoppedSignal& signal);
@@ -286,6 +308,7 @@ class COMPONENT_EXPORT(CHROMEOS_DBUS) FakeConciergeClient
   bool detach_usb_device_called_ = false;
   bool start_arc_vm_called_ = false;
   bool resize_disk_image_called_ = false;
+  bool set_vm_id_called_ = false;
   bool is_vm_started_signal_connected_ = true;
   bool is_vm_stopped_signal_connected_ = true;
   bool is_container_startup_failed_signal_connected_ = true;
@@ -321,18 +344,28 @@ class COMPONENT_EXPORT(CHROMEOS_DBUS) FakeConciergeClient
       detach_usb_device_response_;
   base::Optional<vm_tools::concierge::ResizeDiskImageResponse>
       resize_disk_image_response_;
+  base::Optional<vm_tools::concierge::SetVmIdResponse> set_vm_id_response_;
+
+  base::TimeDelta send_create_disk_image_response_delay_;
+  base::TimeDelta send_start_vm_response_delay_;
+  base::TimeDelta send_tremplin_started_signal_delay_;
+  base::TimeDelta send_get_container_ssh_keys_response_delay_;
 
   // Can be set to fake a series of disk image status signals.
   std::vector<vm_tools::concierge::DiskImageStatusResponse>
       disk_image_status_signals_;
 
-  base::ObserverList<Observer> observer_list_;
+  base::ObserverList<Observer> observer_list_{
+      ConciergeClient::kObserverListPolicy};
 
-  base::ObserverList<VmObserver>::Unchecked vm_observer_list_;
+  base::ObserverList<VmObserver>::Unchecked vm_observer_list_{
+      ConciergeClient::kObserverListPolicy};
 
-  base::ObserverList<ContainerObserver>::Unchecked container_observer_list_;
+  base::ObserverList<ContainerObserver>::Unchecked container_observer_list_{
+      ConciergeClient::kObserverListPolicy};
 
-  base::ObserverList<DiskImageObserver>::Unchecked disk_image_observer_list_;
+  base::ObserverList<DiskImageObserver>::Unchecked disk_image_observer_list_{
+      ConciergeClient::kObserverListPolicy};
 
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate its weak pointers before any other members are destroyed.

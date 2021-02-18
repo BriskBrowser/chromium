@@ -8,6 +8,7 @@
 #include <set>
 #include <utility>
 
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/app_types.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/public/cpp/multi_user_window_manager.h"
@@ -17,7 +18,8 @@
 #include "ash/public/cpp/shelf_types.h"
 #include "ash/public/cpp/window_animation_types.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
+#include "base/debug/dump_without_crashing.h"
 #include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/pattern.h"
@@ -26,6 +28,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
+#include "chrome/browser/apps/icon_standardizer.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/crostini/crostini_features.h"
 #include "chrome/browser/chromeos/crostini/crostini_util.h"
@@ -63,11 +66,11 @@
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_pages.h"
+#include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/webui/settings/chromeos/app_management/app_management_uma.h"
 #include "chrome/browser/web_applications/components/app_registrar.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
-#include "chrome/browser/web_applications/system_web_app_manager.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
@@ -76,7 +79,6 @@
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
 #include "components/account_id/account_id.h"
 #include "components/arc/arc_prefs.h"
@@ -97,6 +99,7 @@
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/display/types/display_constants.h"
+#include "ui/gfx/color_analysis.h"
 #include "ui/resources/grit/ui_resources.h"
 
 using extension_misc::kChromeAppId;
@@ -128,6 +131,32 @@ std::string GetCrostiniAppIdFromContents(content::WebContents* web_contents) {
       crostini::CrostiniAppIdFromAppName(browser->app_name());
   return app_id_opt.value_or("");
 }
+
+// Uses the icon image to calculate the light vibrant color to be used for
+// the notification indicator.
+base::Optional<SkColor> CalculateNotificationBadgeColor(gfx::ImageSkia image) {
+  const SkBitmap* source = image.bitmap();
+  if (!source || source->empty() || source->isNull())
+    return base::nullopt;
+
+  std::vector<color_utils::ColorProfile> color_profiles;
+  color_profiles.push_back(color_utils::ColorProfile(
+      color_utils::LumaRange::LIGHT, color_utils::SaturationRange::VIBRANT));
+
+  std::vector<color_utils::Swatch> best_swatches =
+      color_utils::CalculateProminentColorsOfBitmap(
+          *source, color_profiles, nullptr /* bitmap region */,
+          color_utils::ColorSwatchFilter());
+
+  // If the best swatch color is transparent, then
+  // CalculateProminentColorsOfBitmap() failed to find a suitable color.
+  if (best_swatches.empty() || best_swatches[0].color == SK_ColorTRANSPARENT)
+    return base::nullopt;
+
+  return best_swatches[0].color;
+}
+
+constexpr SkColor kDefaultIndicatorColor = SK_ColorWHITE;
 
 }  // namespace
 
@@ -213,11 +242,6 @@ ChromeLauncherController::ChromeLauncherController(Profile* profile,
 
   DCHECK(model_);
 
-  if (!web_app::SystemWebAppManager::IsEnabled()) {
-    settings_window_observer_ = std::make_unique<SettingsWindowObserver>();
-    discover_window_observer_ = std::make_unique<DiscoverWindowObserver>();
-  }
-
   if (!profile) {
     // If no profile was passed, we take the currently active profile and use it
     // as the owner of the current desktop.
@@ -227,6 +251,10 @@ ChromeLauncherController::ChromeLauncherController(Profile* profile,
     profile = ProfileManager::GetActiveUserProfile();
     if (!profile->IsGuestSession() && !profile->IsSystemProfile())
       profile = profile->GetOriginalProfile();
+  }
+
+  if (chrome::SettingsWindowManager::UseDeprecatedSettingsWindow(profile)) {
+    settings_window_observer_ = std::make_unique<SettingsWindowObserver>();
   }
 
   // All profile relevant settings get bound to the current profile.
@@ -452,6 +480,8 @@ void ChromeLauncherController::SetLauncherItemImage(
   if (const auto* item = GetItem(shelf_id)) {
     ash::ShelfItem new_item = *item;
     new_item.image = image;
+    new_item.notification_badge_color =
+        CalculateNotificationBadgeColorForApp(new_item.id.app_id, image);
     model_->Set(model_->ItemIndexByID(shelf_id), new_item);
   }
 }
@@ -836,6 +866,19 @@ void ChromeLauncherController::DoShowAppInfoFlow(Profile* profile,
   }
 }
 
+SkColor ChromeLauncherController::CalculateNotificationBadgeColorForApp(
+    const std::string& app_id,
+    const gfx::ImageSkia& icon) {
+  AppIdBadgeColor::const_iterator it = app_id_badge_color_map_.find(app_id);
+  if (it != app_id_badge_color_map_.end())
+    return it->second;
+
+  SkColor notification_color =
+      CalculateNotificationBadgeColor(icon).value_or(kDefaultIndicatorColor);
+  app_id_badge_color_map_[app_id] = notification_color;
+  return notification_color;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // LauncherAppUpdater::Delegate:
 
@@ -854,11 +897,23 @@ void ChromeLauncherController::OnAppInstalled(
         app_icon_loader->ClearImage(app_id);
         app_icon_loader->FetchImage(app_id);
       }
+
+      bool needs_update = false;
       if (item.title.empty()) {
+        needs_update = true;
         item.title = LauncherControllerHelper::GetAppTitle(
             latest_active_profile_, app_id);
-        model_->Set(index, item);
       }
+
+      ash::AppStatus app_status = LauncherControllerHelper::GetAppStatus(
+          latest_active_profile_, app_id);
+      if (app_status != item.app_status) {
+        needs_update = true;
+        item.app_status = app_status;
+      }
+
+      if (needs_update)
+        model_->Set(index, item);
     }
   }
 
@@ -879,6 +934,17 @@ void ChromeLauncherController::OnAppUpdated(
       AppIconLoader* app_icon_loader = GetAppIconLoaderForApp(app_id);
       if (app_icon_loader)
         app_icon_loader->FetchImage(app_id);
+
+      bool needs_update = false;
+      ash::AppStatus app_status = LauncherControllerHelper::GetAppStatus(
+          latest_active_profile_, app_id);
+      if (app_status != item.app_status) {
+        needs_update = true;
+        item.app_status = app_status;
+      }
+
+      if (needs_update)
+        model_->Set(index, item);
     }
   }
 }
@@ -905,6 +971,10 @@ void ChromeLauncherController::OnAppUninstalledPrepared(
 
 void ChromeLauncherController::OnAppImageUpdated(const std::string& app_id,
                                                  const gfx::ImageSkia& image) {
+  bool is_standard_icon = true;
+  if (!AppServiceAppIconLoader::CanLoadImage(latest_active_profile_, app_id))
+    is_standard_icon = false;
+
   // TODO: need to get this working for shortcuts.
   for (int index = 0; index < model_->item_count(); ++index) {
     ash::ShelfItem item = model_->items()[index];
@@ -913,8 +983,11 @@ void ChromeLauncherController::OnAppImageUpdated(const std::string& app_id,
         item.id.app_id != app_id) {
       continue;
     }
-    item.image = image;
+    item.image =
+        is_standard_icon ? image : apps::CreateStandardIconImage(image);
     shelf_spinner_controller_->MaybeApplySpinningEffect(app_id, &item.image);
+    item.notification_badge_color =
+        CalculateNotificationBadgeColorForApp(app_id, image);
     model_->Set(index, item);
     // It's possible we're waiting on more than one item, so don't break.
   }
@@ -1153,12 +1226,20 @@ ash::ShelfID ChromeLauncherController::InsertAppLauncherItem(
     ash::ShelfItemType shelf_item_type,
     const base::string16& title) {
   CHECK(item_delegate);
-  CHECK(!GetItem(item_delegate->shelf_id()));
+  if (GetItem(item_delegate->shelf_id())) {
+    // TODO(crbug.com/1090134): try and identify why this would be called when
+    // there is an already existing shelf item for this ID.
+    base::debug::DumpWithoutCrashing();
+    return item_delegate->shelf_id();
+  }
+
   ash::ShelfItem item;
   item.status = status;
   item.type = shelf_item_type;
   item.id = item_delegate->shelf_id();
   item.title = title;
+  item.app_status = LauncherControllerHelper::GetAppStatus(
+      latest_active_profile_, item_delegate->shelf_id().app_id);
   // Set the delegate first to avoid constructing one in ShelfItemAdded.
   model_->SetShelfItemDelegate(item.id, std::move(item_delegate));
   model_->AddAt(index, item);
@@ -1276,15 +1357,16 @@ void ChromeLauncherController::AttachProfile(Profile* profile_to_attach) {
   pref_change_registrar_.Init(profile()->GetPrefs());
   pref_change_registrar_.Add(
       prefs::kPolicyPinnedLauncherApps,
-      base::Bind(&ChromeLauncherController::UpdateAppLaunchersFromSync,
-                 base::Unretained(this)));
+      base::BindRepeating(&ChromeLauncherController::UpdateAppLaunchersFromSync,
+                          base::Unretained(this)));
   // Handling of prefs::kArcEnabled change should be called deferred to avoid
   // race condition when OnAppUninstalledPrepared for ARC apps is called after
   // UpdateAppLaunchersFromSync.
   pref_change_registrar_.Add(
       arc::prefs::kArcEnabled,
-      base::Bind(&ChromeLauncherController::ScheduleUpdateAppLaunchersFromSync,
-                 base::Unretained(this)));
+      base::BindRepeating(
+          &ChromeLauncherController::ScheduleUpdateAppLaunchersFromSync,
+          base::Unretained(this)));
 
   app_list::AppListSyncableService* app_list_syncable_service =
       app_list::AppListSyncableServiceFactory::GetForProfile(profile());
@@ -1338,6 +1420,14 @@ void ChromeLauncherController::ShelfItemAdded(int index) {
       needs_update = true;
       item.status = status;
     }
+
+    ash::AppStatus app_status = LauncherControllerHelper::GetAppStatus(
+        latest_active_profile_, id.app_id);
+    if (app_status != item.app_status) {
+      needs_update = true;
+      item.app_status = app_status;
+    }
+
     if (needs_update)
       model_->Set(index, item);
   }

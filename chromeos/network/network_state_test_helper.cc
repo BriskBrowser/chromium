@@ -7,8 +7,10 @@
 #include "base/bind.h"
 #include "base/json/json_reader.h"
 #include "base/run_loop.h"
+#include "chromeos/dbus/hermes/hermes_clients.h"
 #include "chromeos/dbus/shill/shill_clients.h"
 #include "chromeos/network/device_state.h"
+#include "chromeos/network/network_device_handler.h"
 #include "chromeos/network/network_profile_handler.h"
 #include "chromeos/network/network_state_handler.h"
 #include "chromeos/network/onc/onc_utils.h"
@@ -35,11 +37,21 @@ NetworkStateTestHelper::NetworkStateTestHelper(
     shill_clients::InitializeFakes();
     shill_clients_initialized_ = true;
   }
+
+  if (!HermesManagerClient::Get()) {
+    hermes_clients::InitializeFakes();
+    hermes_clients_initialized_ = true;
+  }
+
   manager_test_ = ShillManagerClient::Get()->GetTestInterface();
   profile_test_ = ShillProfileClient::Get()->GetTestInterface();
   device_test_ = ShillDeviceClient::Get()->GetTestInterface();
   service_test_ = ShillServiceClient::Get()->GetTestInterface();
   ip_config_test_ = ShillIPConfigClient::Get()->GetTestInterface();
+
+  hermes_euicc_test_ = HermesEuiccClient::Get()->GetTestInterface();
+  hermes_manager_test_ = HermesManagerClient::Get()->GetTestInterface();
+  hermes_profile_test_ = HermesProfileClient::Get()->GetTestInterface();
 
   profile_test_->AddProfile(NetworkProfileHandler::GetSharedProfilePath(),
                             std::string() /* shared profile */);
@@ -47,15 +59,20 @@ NetworkStateTestHelper::NetworkStateTestHelper(
   base::RunLoop().RunUntilIdle();
 
   network_state_handler_ = NetworkStateHandler::InitializeForTest();
+  network_device_handler_ =
+      NetworkDeviceHandler::InitializeForTesting(network_state_handler_.get());
 
   if (!use_default_devices_and_services)
     ResetDevicesAndServices();
 }
 
 NetworkStateTestHelper::~NetworkStateTestHelper() {
+  network_device_handler_.reset();
   ShutdownNetworkState();
   if (shill_clients_initialized_)
     shill_clients::Shutdown();
+  if (hermes_clients_initialized_)
+    hermes_clients::Shutdown();
 }
 
 void NetworkStateTestHelper::ShutdownNetworkState() {
@@ -97,6 +114,11 @@ void NetworkStateTestHelper::ClearServices() {
   base::RunLoop().RunUntilIdle();
 }
 
+void NetworkStateTestHelper::ClearProfiles() {
+  profile_test_->ClearProfiles();
+  manager_test_->ClearProfiles();
+}
+
 void NetworkStateTestHelper::AddDevice(const std::string& device_path,
                                        const std::string& type,
                                        const std::string& name) {
@@ -109,10 +131,8 @@ std::string NetworkStateTestHelper::ConfigureService(
     const std::string& shill_json_string) {
   last_created_service_path_.clear();
 
-  std::unique_ptr<base::DictionaryValue> shill_json_dict =
-      base::DictionaryValue::From(
-          onc::ReadDictionaryFromJson(shill_json_string));
-  if (!shill_json_dict) {
+  base::Value shill_json_dict = onc::ReadDictionaryFromJson(shill_json_string);
+  if (!shill_json_dict.is_dict()) {
     LOG(ERROR) << "Error parsing json: " << shill_json_string;
     return last_created_service_path_;
   }
@@ -123,7 +143,7 @@ std::string NetworkStateTestHelper::ConfigureService(
   // error cases, ConfigureCallback() will not run, resulting in "" being
   // returned from this function.
   ShillManagerClient::Get()->ConfigureService(
-      *shill_json_dict,
+      shill_json_dict,
       base::BindOnce(&NetworkStateTestHelper::ConfigureCallback,
                      weak_ptr_factory_.GetWeakPtr()),
       base::BindOnce(&FailErrorCallback));
@@ -139,12 +159,14 @@ void NetworkStateTestHelper::ConfigureCallback(const dbus::ObjectPath& result) {
 std::string NetworkStateTestHelper::GetServiceStringProperty(
     const std::string& service_path,
     const std::string& key) {
-  const base::DictionaryValue* properties =
+  const base::Value* properties =
       service_test_->GetServiceProperties(service_path);
-  std::string result;
-  if (properties)
-    properties->GetStringWithoutPathExpansion(key, &result);
-  return result;
+  if (properties) {
+    const std::string* result = properties->FindStringKey(key);
+    if (result)
+      return *result;
+  }
+  return std::string();
 }
 
 void NetworkStateTestHelper::SetServiceProperty(const std::string& service_path,

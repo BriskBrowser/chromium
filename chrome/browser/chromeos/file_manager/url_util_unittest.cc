@@ -6,13 +6,13 @@
 
 #include <memory>
 
+#include "ash/constants/ash_features.h"
 #include "base/files/file_path.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "extensions/common/constants.h"
 #include "net/base/escape.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -38,8 +38,14 @@ std::string PrettyPrintEscapedJson(const std::string& query) {
 }
 
 TEST(FileManagerUrlUtilTest, GetFileManagerMainPageUrl) {
-  EXPECT_EQ("chrome-extension://hhaomjibdihmijegdhdafkllkbggdgoj/main.html",
-            GetFileManagerMainPageUrl().spec());
+  if (base::FeatureList::IsEnabled(chromeos::features::kFilesJsModules)) {
+    EXPECT_EQ(
+        "chrome-extension://hhaomjibdihmijegdhdafkllkbggdgoj/main_modules.html",
+        GetFileManagerMainPageUrl().spec());
+  } else {
+    EXPECT_EQ("chrome-extension://hhaomjibdihmijegdhdafkllkbggdgoj/main.html",
+              GetFileManagerMainPageUrl().spec());
+  }
 }
 
 TEST(FileManagerUrlUtilTest, GetFileManagerMainPageUrlWithParams_NoFileTypes) {
@@ -49,11 +55,16 @@ TEST(FileManagerUrlUtilTest, GetFileManagerMainPageUrlWithParams_NoFileTypes) {
       GURL("filesystem:chrome-extension://abc/Downloads/foo.txt"), "foo.txt",
       nullptr,  // No file types
       0,        // Hence no file type index.
-      false  // show_android_picker_apps
+      "",       // search_query
+      false     // show_android_picker_apps
   );
   EXPECT_EQ(extensions::kExtensionScheme, url.scheme());
   EXPECT_EQ("hhaomjibdihmijegdhdafkllkbggdgoj", url.host());
-  EXPECT_EQ("/main.html", url.path());
+  if (base::FeatureList::IsEnabled(chromeos::features::kFilesJsModules)) {
+    EXPECT_EQ("/main_modules.html", url.path());
+  } else {
+    EXPECT_EQ("/main.html", url.path());
+  }
   // Confirm that "%20" is used instead of "+" in the query.
   EXPECT_TRUE(url.query().find("+") == std::string::npos);
   EXPECT_TRUE(url.query().find("%20") != std::string::npos);
@@ -63,6 +74,7 @@ TEST(FileManagerUrlUtilTest, GetFileManagerMainPageUrlWithParams_NoFileTypes) {
                 "   \"allowedPaths\": \"nativePath\",\n"
                 "   \"currentDirectoryURL\": "
                 "\"filesystem:chrome-extension://abc/Downloads/\",\n"
+                "   \"searchQuery\": \"\",\n"
                 "   \"selectionURL\": "
                 "\"filesystem:chrome-extension://abc/Downloads/foo.txt\",\n"
                 "   \"showAndroidPickerApps\": false,\n"
@@ -97,11 +109,16 @@ TEST(FileManagerUrlUtilTest,
       GURL("filesystem:chrome-extension://abc/Downloads/foo.txt"), "foo.txt",
       &file_types,
       1,  // The file type index is 1-based.
+      "search query",
       true  // show_android_picker_apps
   );
   EXPECT_EQ(extensions::kExtensionScheme, url.scheme());
   EXPECT_EQ("hhaomjibdihmijegdhdafkllkbggdgoj", url.host());
-  EXPECT_EQ("/main.html", url.path());
+  if (base::FeatureList::IsEnabled(chromeos::features::kFilesJsModules)) {
+    EXPECT_EQ("/main_modules.html", url.path());
+  } else {
+    EXPECT_EQ("/main.html", url.path());
+  }
   // Confirm that "%20" is used instead of "+" in the query.
   EXPECT_TRUE(url.query().find("+") == std::string::npos);
   EXPECT_TRUE(url.query().find("%20") != std::string::npos);
@@ -112,6 +129,7 @@ TEST(FileManagerUrlUtilTest,
       "   \"currentDirectoryURL\": "
       "\"filesystem:chrome-extension://abc/Downloads/\",\n"
       "   \"includeAllFiles\": false,\n"
+      "   \"searchQuery\": \"search query\",\n"
       "   \"selectionURL\": "
       "\"filesystem:chrome-extension://abc/Downloads/foo.txt\",\n"
       "   \"showAndroidPickerApps\": true,\n"

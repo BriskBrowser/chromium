@@ -27,8 +27,9 @@ This documentation assumes familiarity with computer science
 
 ## Core Concepts
  * **Task**: A unit of work to be processed. Effectively a function pointer with
-   optionally associated state. In Chrome this is `base::Callback` created via
-   `base::Bind`
+   optionally associated state. In Chrome this is `base::OnceCallback` and
+   `base::RepeatingCallback` created via `base::BindOnce` and
+   `base::BindRepeating`, respectively.
    ([documentation](https://chromium.googlesource.com/chromium/src/+/HEAD/docs/callback.md)).
  * **Task queue**: A queue of tasks to be processed.
  * **Physical thread**: An operating system provided thread (e.g. pthread on
@@ -323,9 +324,9 @@ best practices and pitfalls to avoid.
 In order to write non-blocking code, many APIs in Chrome are asynchronous.
 Usually this means that they either need to be executed on a particular
 thread/sequence and will return results via a custom delegate interface, or they
-take a `base::Callback<>` object that is called when the requested operation is
-completed.  Executing work on a specific thread/sequence is covered in the
-PostTask sections above.
+take a `base::OnceCallback<>` (or `base::RepeatingCallback<>`) object that is
+called when the requested operation is completed.  Executing work on a specific
+thread/sequence is covered in the PostTask sections above.
 
 ## Posting Multiple Tasks to the Same Thread
 
@@ -655,7 +656,13 @@ void WorkerTask(base::JobDelegate* job_delegate) {
 }
 
 // Returns the latest thread-safe number of incomplete work items.
-void NumIncompleteWorkItems(size_t worker_count);
+void NumIncompleteWorkItems(size_t worker_count) {
+  // NumIncompleteWorkItems() may use |worker_count| if it needs to account for
+  // local work lists, which is easier than doing its own accounting, keeping in
+  // mind that the actual number of items may be racily overestimated and thus
+  // WorkerTask() may be called when there's no available work.
+  return GlobalQueueSize() + worker_count;
+}
 
 base::PostJob(FROM_HERE, {},
               base::BindRepeating(&WorkerTask),

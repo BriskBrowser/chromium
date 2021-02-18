@@ -10,8 +10,8 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/stringprintf.h"
@@ -31,10 +31,12 @@
 #include "components/blocklist/opt_out_blocklist/opt_out_store.h"
 #include "components/page_load_metrics/browser/metrics_web_contents_observer.h"
 #include "components/page_load_metrics/browser/observers/page_load_metrics_observer_tester.h"
+#include "components/page_load_metrics/browser/page_load_metrics_memory_tracker.h"
 #include "components/page_load_metrics/browser/page_load_metrics_observer.h"
 #include "components/page_load_metrics/browser/page_load_tracker.h"
 #include "components/page_load_metrics/common/page_load_metrics_util.h"
 #include "components/page_load_metrics/common/test/page_load_metrics_test_util.h"
+#include "components/subresource_filter/content/browser/content_subresource_filter_throttle_manager.h"
 #include "components/subresource_filter/content/browser/subresource_filter_observer_manager.h"
 #include "components/subresource_filter/core/common/load_policy.h"
 #include "components/ukm/test_ukm_recorder.h"
@@ -47,6 +49,7 @@
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/fake_local_frame.h"
+#include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/navigation_simulator.h"
 #include "content/public/test/test_navigation_throttle.h"
 #include "content/public/test/test_navigation_throttle_inserter.h"
@@ -69,6 +72,8 @@ using page_load_metrics::OptionalMin;
 
 namespace {
 
+using FrameTreeNodeId = int;
+
 struct ExpectedFrameBytes {
   ExpectedFrameBytes(size_t cached_kb, size_t uncached_kb)
       : cached_kb(cached_kb), uncached_kb(uncached_kb) {}
@@ -84,7 +89,7 @@ struct ExpectedFrameBytes {
 struct CreativeOriginTest {
   std::vector<std::string> urls;
   size_t creative_index;
-  FrameData::OriginStatus expected_origin_status;
+  ad_metrics::OriginStatus expected_origin_status;
 };
 
 struct CreativeOriginTestWithThrottling {
@@ -93,7 +98,7 @@ struct CreativeOriginTestWithThrottling {
   std::vector<bool> throttled;
   size_t creative_index;
   bool should_paint;
-  FrameData::OriginStatusWithThrottling expected_origin_status;
+  ad_metrics::OriginStatusWithThrottling expected_origin_status;
 };
 
 enum class ResourceCached { kNotCached = 0, kCachedHttp, kCachedMemory };
@@ -108,9 +113,18 @@ const base::TimeDelta kOtherFrameEligibleToPaintTime =
 const base::TimeDelta kOtherFrameFCPTime =
     base::TimeDelta::FromMilliseconds(10);
 const char kAdUrl[] = "https://ads.com/ad/disallowed.html";
+const char kOtherAdUrl[] = "https://other-ads.com/ad/disallowed.html";
 const char kNonAdUrl[] = "https://foo.com/";
 const char kNonAdUrlSameOrigin[] = "https://ads.com/foo";
 const char kAllowedUrl[] = "https://foo.com/ad/not_disallowed.html";
+const char kMemoryAggregateMaxHistogramId[] =
+    "PageLoad.Clients.Ads.Memory.Aggregate.Max";
+const char kMemoryMainFrameMaxHistogramId[] =
+    "PageLoad.Clients.Ads.Memory.MainFrame.Max";
+const char kMemoryPerFrameMaxHistogramId[] =
+    "PageLoad.Clients.Ads.Memory.PerFrame.Max";
+const char kMemoryUpdateCountHistogramId[] =
+    "PageLoad.Clients.Ads.Memory.UpdateCount";
 
 const int kMaxHeavyAdNetworkBytes =
     heavy_ad_thresholds::kMaxNetworkBytes +
@@ -197,7 +211,8 @@ class ResourceLoadingCancellingThrottle
         page_load_metrics::mojom::FrameRenderDataUpdatePtr(base::in_place),
         page_load_metrics::mojom::CpuTimingPtr(base::in_place),
         page_load_metrics::mojom::DeferredResourceCountsPtr(base::in_place),
-        page_load_metrics::mojom::InputTimingPtr(base::in_place));
+        page_load_metrics::mojom::InputTimingPtr(base::in_place),
+        blink::MobileFriendliness());
   }
 
   DISALLOW_COPY_AND_ASSIGN(ResourceLoadingCancellingThrottle);
@@ -279,12 +294,6 @@ void TestHistograms(const base::HistogramTester& histograms,
         SuffixedHistogram("Bytes.AdFrames.PerFrame.Network"),
         network_bytes_and_count.first, network_bytes_and_count.second);
   }
-  for (const auto& percent_network_and_count :
-       frames_with_percent_network_count) {
-    histograms.ExpectBucketCount(
-        SuffixedHistogram("Bytes.AdFrames.PerFrame.PercentNetwork2"),
-        percent_network_and_count.first, percent_network_and_count.second);
-  }
 
   histograms.ExpectUniqueSample(
       SuffixedHistogram("Bytes.AdFrames.Aggregate.Total2"), total_ad_kb, 1);
@@ -305,11 +314,6 @@ void TestHistograms(const base::HistogramTester& histograms,
         (total_ad_kb * 100) /
             (total_ad_kb + non_ad_cached_kb + non_ad_uncached_kb),
         1);
-  }
-  if (total_ad_kb > 0) {
-    histograms.ExpectUniqueSample(
-        SuffixedHistogram("Bytes.AdFrames.Aggregate.PercentNetwork2"),
-        ((total_ad_uncached_kb * 100) / total_ad_kb), 1);
   }
   if (total_ad_uncached_kb + non_ad_uncached_kb > 0) {
     histograms.ExpectUniqueSample(
@@ -395,10 +399,11 @@ class FrameRemoteTester : public content::FakeLocalFrame {
   // blink::mojom::LocalFrame
   void SendInterventionReport(const std::string& id,
                               const std::string& message) override {
-    if (!on_empty_report_callback_)
-      return;
 
     if (id.empty()) {
+      if (!on_empty_report_callback_)
+        return;
+
       std::move(on_empty_report_callback_).Run();
       return;
     }
@@ -479,14 +484,6 @@ class AdsPageLoadMetricsObserverTest
     return NavigateFrame(url, web_contents()->GetMainFrame());
   }
 
-  // Frame creation doesn't trigger a mojo call since unit tests have no render
-  // process. Just mock them for now.
-  void OnAdSubframeDetected(RenderFrameHost* render_frame_host) {
-    subresource_filter::SubresourceFilterObserverManager::FromWebContents(
-        web_contents())
-        ->NotifyAdSubframeDetected(render_frame_host);
-  }
-
   void OnCpuTimingUpdate(RenderFrameHost* render_frame_host,
                          base::TimeDelta cpu_time_spent) {
     page_load_metrics::mojom::CpuTiming cpu_timing(cpu_time_spent);
@@ -505,16 +502,6 @@ class AdsPageLoadMetricsObserverTest
       AdvancePageDuration(base::TimeDelta::FromSeconds(31));
     }
     OnCpuTimingUpdate(render_frame_host, total_time);
-  }
-
-  void OnHidden() { web_contents()->WasHidden(); }
-
-  void OnAppEnterBackground() { tester_->SimulateAppEnterBackground(); }
-
-  void OnShown() { web_contents()->WasShown(); }
-
-  void TriggerFirstUserActivation(RenderFrameHost* render_frame_host) {
-    tester_->SimulateFrameReceivedFirstUserActivation(render_frame_host);
   }
 
   void AdvancePageDuration(base::TimeDelta delta) { clock_->Advance(delta); }
@@ -634,9 +621,9 @@ class AdsPageLoadMetricsObserverTest
       ResourceDataUpdate(current_frame, ResourceCached::kNotCached, 10);
     }
 
-    // In order to test that |creative_origin_status_| in FrameData is properly
-    // computed, we need to simulate first contentful paint for the ad creative
-    // first at |kCreativeFCPTime|.
+    // In order to test that |creative_origin_status_| in FrameTreeData is
+    // properly computed, we need to simulate first contentful paint for the ad
+    // creative first at |kCreativeFCPTime|.
     base::TimeDelta eligible_time = kCreativeEligibleToPaintTime;
     base::TimeDelta fcp_time = kCreativeFCPTime;
     SimulateFirstEligibleToPaintOrFirstContentfulPaint(
@@ -671,7 +658,7 @@ class AdsPageLoadMetricsObserverTest
   // a vector of booleans to denote whether the corresponding frame in |urls|
   // is to be throttled, and a single bool indicating whether or not to simulate
   // any first contentful paints, so that the case
-  // FrameData::OriginStatusWithThrottling::kUnknownAndUnthrottled
+  // OriginStatusWithThrottling::kUnknownAndUnthrottled
   // can be tested.
   void TestCreativeOriginStatusWithThrottling(
       const CreativeOriginTestWithThrottling& creative_origin_test) {
@@ -710,7 +697,7 @@ class AdsPageLoadMetricsObserverTest
     }
 
     // In order to test that |creative_origin_status_| and
-    // |first_eligible_to_paint_| in FrameData are properly
+    // |first_eligible_to_paint_| in FrameTreeData are properly
     // computed, we need to simulate eligibility to paint and first
     // contentful paint for the ad creative, unless it is render-throttled,
     // and then do similarly for the other subframes.
@@ -742,10 +729,6 @@ class AdsPageLoadMetricsObserverTest
     histograms.ExpectUniqueSample(
         kCreativeOriginStatusWithThrottlingHistogramId,
         creative_origin_test.expected_origin_status, 1);
-  }
-
-  void TimingUpdate(const page_load_metrics::mojom::PageLoadTiming& timing) {
-    tester_->SimulateTimingUpdate(timing);
   }
 
   page_load_metrics::PageLoadMetricsObserverTester* tester() {
@@ -813,6 +796,11 @@ class AdsPageLoadMetricsObserverTest
                              "Activated.PreActivation");
     CheckTotalUsageHistogram("AdFrames.PerFrame", post_task_time,
                              "Activated.PostActivation");
+  }
+
+  void SimulateV8MemoryChange(content::RenderFrameHost* render_frame_host,
+                              int64_t delta_bytes) {
+    tester()->SimulateMemoryUpdate(render_frame_host, delta_bytes);
   }
 
  private:
@@ -1002,13 +990,13 @@ TEST_F(AdsPageLoadMetricsObserverTest, AdsOriginStatusMetrics) {
     // Trigger histograms by navigating away, then test them.
     NavigateFrame(kAdUrl, main_frame);
     histograms.ExpectUniqueSample(kCrossOriginHistogramId,
-                                  FrameData::OriginStatus::kCross, 1);
+                                  ad_metrics::OriginStatus::kCross, 1);
     auto entries =
         ukm_recorder.GetEntriesByName(ukm::builders::AdFrameLoad::kEntryName);
     EXPECT_EQ(1u, entries.size());
     ukm_recorder.ExpectEntryMetric(
         entries.front(), ukm::builders::AdFrameLoad::kStatus_CrossOriginName,
-        static_cast<int64_t>(FrameData::OriginStatus::kCross));
+        static_cast<int64_t>(ad_metrics::OriginStatus::kCross));
   }
 
   // Add a non-ad subframe and an ad subframe and make sure the total count
@@ -1025,13 +1013,13 @@ TEST_F(AdsPageLoadMetricsObserverTest, AdsOriginStatusMetrics) {
     // Trigger histograms by navigating away, then test them.
     NavigateFrame(kAdUrl, main_frame);
     histograms.ExpectUniqueSample(kCrossOriginHistogramId,
-                                  FrameData::OriginStatus::kCross, 1);
+                                  ad_metrics::OriginStatus::kCross, 1);
     auto entries =
         ukm_recorder.GetEntriesByName(ukm::builders::AdFrameLoad::kEntryName);
     EXPECT_EQ(1u, entries.size());
     ukm_recorder.ExpectEntryMetric(
         entries.front(), ukm::builders::AdFrameLoad::kStatus_CrossOriginName,
-        static_cast<int64_t>(FrameData::OriginStatus::kCross));
+        static_cast<int64_t>(ad_metrics::OriginStatus::kCross));
   }
 
   // Add an ad subframe in the same origin as the parent frame and make sure it
@@ -1047,13 +1035,13 @@ TEST_F(AdsPageLoadMetricsObserverTest, AdsOriginStatusMetrics) {
     // Trigger histograms by navigating away, then test them.
     NavigateFrame(kAdUrl, main_frame);
     histograms.ExpectUniqueSample(kCrossOriginHistogramId,
-                                  FrameData::OriginStatus::kSame, 1);
+                                  ad_metrics::OriginStatus::kSame, 1);
     auto entries =
         ukm_recorder.GetEntriesByName(ukm::builders::AdFrameLoad::kEntryName);
     EXPECT_EQ(1u, entries.size());
     ukm_recorder.ExpectEntryMetric(
         entries.front(), ukm::builders::AdFrameLoad::kStatus_CrossOriginName,
-        static_cast<int64_t>(FrameData::OriginStatus::kSame));
+        static_cast<int64_t>(ad_metrics::OriginStatus::kSame));
   }
 }
 
@@ -1119,7 +1107,7 @@ TEST_F(AdsPageLoadMetricsObserverTest, CountAbortedNavigation) {
       NavigationSimulator::CreateRendererInitiated(GURL(kAdUrl), subframe_ad);
   // The sub-frame renavigates before it commits.
   navigation_simulator->Start();
-  OnAdSubframeDetected(subframe_ad);
+  TagSubframeAsAd(subframe_ad);
   navigation_simulator->Fail(net::ERR_ABORTED);
 
   // Load resources for the aborted frame (e.g., simulate the navigation
@@ -1148,7 +1136,7 @@ TEST_F(AdsPageLoadMetricsObserverTest, CountAbortedSecondNavigationForFrame) {
       NavigationSimulator::CreateRendererInitiated(GURL(kAdUrl), sub_frame);
   // The sub-frame renavigates before it commits.
   navigation_simulator->Start();
-  OnAdSubframeDetected(sub_frame);
+  TagSubframeAsAd(sub_frame);
   navigation_simulator->Fail(net::ERR_ABORTED);
 
   // Load resources for the aborted frame (e.g., simulate the navigation
@@ -1179,7 +1167,7 @@ TEST_F(AdsPageLoadMetricsObserverTest, TwoResourceLoadsBeforeCommit) {
 
   // The sub-frame renavigates before it commits.
   navigation_simulator->Start();
-  OnAdSubframeDetected(subframe_ad);
+  TagSubframeAsAd(subframe_ad);
   navigation_simulator->Fail(net::ERR_ABORTED);
 
   // Renavigate the subframe to a successful commit. But again, the resource
@@ -1390,7 +1378,7 @@ TEST_F(AdsPageLoadMetricsObserverTest,
       RenderFrameHostTester::For(main_frame)->AppendChild("frame_name");
   auto navigation_simulator = NavigationSimulator::CreateRendererInitiated(
       GURL("https://foo.com"), subframe);
-  OnAdSubframeDetected(subframe);
+  TagSubframeAsAd(subframe);
   navigation_simulator->Commit();
 
   subframe = navigation_simulator->GetFinalRenderFrameHost();
@@ -1503,7 +1491,7 @@ TEST_F(AdsPageLoadMetricsObserverTest, AdPageLoadUKM) {
   timing.parse_timing->parse_start = base::TimeDelta::FromMilliseconds(10);
   timing.response_start = base::TimeDelta::FromSeconds(0);
   PopulateRequiredTimingFields(&timing);
-  TimingUpdate(timing);
+  tester()->SimulateTimingUpdate(timing);
   ResourceDataUpdate(
       main_rfh(), ResourceCached::kNotCached, 10 /* resource_size_in_kbyte */,
       "application/javascript" /* mime_type */, false /* is_ad_resource */);
@@ -1618,19 +1606,12 @@ TEST_F(AdsPageLoadMetricsObserverTest, TestCpuTimingMetricsWindowUnactivated) {
   histogram_tester().ExpectUniqueSample(
       SuffixedHistogram("Cpu.AdFrames.PerFrame.PeakWindowedPercent2"), 10, 1);
 
-  // The peak window started at 12 seconds into the page load
-  histogram_tester().ExpectUniqueSample(
-      SuffixedHistogram("Cpu.AdFrames.PerFrame.PeakWindowStartTime2"), 12000,
-      1);
-
   // 13% is the maximum for all frames (including main).
   histogram_tester().ExpectUniqueSample(
       SuffixedHistogram("Cpu.FullPage.PeakWindowedPercent2"), 13, 1);
   histogram_tester().ExpectUniqueSample(
       SuffixedHistogram("Cpu.NonAdFrames.Aggregate.PeakWindowedPercent2"), 3,
       1);
-  histogram_tester().ExpectUniqueSample(
-      SuffixedHistogram("Cpu.FullPage.PeakWindowStartTime2"), 12000, 1);
 }
 
 TEST_F(AdsPageLoadMetricsObserverTest, TestCpuTimingMetricsWindowedActivated) {
@@ -1657,7 +1638,7 @@ TEST_F(AdsPageLoadMetricsObserverTest, TestCpuTimingMetricsWindowedActivated) {
   OnCpuTimingUpdate(ad_frame, base::TimeDelta::FromMilliseconds(1000));
 
   // Set the page activation and advance time by twelve more seconds.
-  TriggerFirstUserActivation(ad_frame);
+  tester()->SimulateFrameReceivedFirstUserActivation(ad_frame);
   AdvancePageDuration(base::TimeDelta::FromSeconds(12));
 
   // Perform some updates on ad and main frames. Usage 13%/16%.
@@ -1677,15 +1658,9 @@ TEST_F(AdsPageLoadMetricsObserverTest, TestCpuTimingMetricsWindowedActivated) {
   histogram_tester().ExpectUniqueSample(
       SuffixedHistogram("Cpu.AdFrames.PerFrame.PeakWindowedPercent2"), 11, 1);
 
-  // The peak window started at 0 seconds into the page load
-  histogram_tester().ExpectUniqueSample(
-      SuffixedHistogram("Cpu.AdFrames.PerFrame.PeakWindowStartTime2"), 0, 1);
-
   // 16% is the maximum for all frames (including main), ignores activation.
   histogram_tester().ExpectUniqueSample(
       SuffixedHistogram("Cpu.FullPage.PeakWindowedPercent2"), 16, 1);
-  histogram_tester().ExpectUniqueSample(
-      SuffixedHistogram("Cpu.FullPage.PeakWindowStartTime2"), 12000, 1);
 }
 
 TEST_F(AdsPageLoadMetricsObserverTest, TestCpuTimingMetricsNoActivation) {
@@ -1703,13 +1678,13 @@ TEST_F(AdsPageLoadMetricsObserverTest, TestCpuTimingMetricsNoActivation) {
   OnCpuTimingUpdate(non_ad_frame, base::TimeDelta::FromMilliseconds(500));
 
   // Hide the page, and ensure we keep recording information.
-  OnHidden();
+  web_contents()->WasHidden();
 
   // Do some more work on the ad frame.
   OnCpuTimingUpdate(ad_frame, base::TimeDelta::FromMilliseconds(1000));
 
   // Show the page, nothing should change.
-  OnShown();
+  web_contents()->WasShown();
 
   // Do some more work on the main frame.
   OnCpuTimingUpdate(main_frame, base::TimeDelta::FromMilliseconds(500));
@@ -1755,7 +1730,7 @@ TEST_F(AdsPageLoadMetricsObserverTest, TestCpuTimingMetricsOnActivation) {
 
   // Set the frame as activated after 2.5 seconds
   AdvancePageDuration(base::TimeDelta::FromMilliseconds(2500));
-  TriggerFirstUserActivation(ad_frame);
+  tester()->SimulateFrameReceivedFirstUserActivation(ad_frame);
 
   // Do some more work on the main frame.
   OnCpuTimingUpdate(main_frame, base::TimeDelta::FromMilliseconds(500));
@@ -1793,7 +1768,7 @@ TEST_F(AdsPageLoadMetricsObserverTest, TestCpuTimingMetricsOnActivation) {
 // status of the frame in the ad frame tree that has its first contentful paint
 // occur first.
 TEST_F(AdsPageLoadMetricsObserverTest, CreativeOriginStatus) {
-  using OriginStatus = FrameData::OriginStatus;
+  using OriginStatus = ad_metrics::OriginStatus;
 
   // Each CreativeOriginTest struct lists the urls of the frames in the frame
   // tree, from main frame to leaf ad frame, along with the index of the ad
@@ -1840,7 +1815,7 @@ TEST_F(AdsPageLoadMetricsObserverTest, CreativeOriginStatus) {
 // first contentful paint occur first, with throttling status determined by
 // whether or not at least one frame in the ad frame tree was unthrottled.
 TEST_F(AdsPageLoadMetricsObserverTest, CreativeOriginStatusWithThrottling) {
-  using OriginStatusWithThrottling = FrameData::OriginStatusWithThrottling;
+  using OriginStatusWithThrottling = ad_metrics::OriginStatusWithThrottling;
 
   // Each CreativeOriginTestWithThrottling struct lists the urls of the frames
   // in the frame tree, from main frame to leaf ad frame, and a corresponding
@@ -2027,35 +2002,21 @@ TEST_F(AdsPageLoadMetricsObserverTest, HeavyAdFeatureOff_UMARecorded) {
   // Navigate again to trigger histograms.
   NavigateFrame(kNonAdUrl, main_frame);
 
-  histogram_tester().ExpectTotalCount(
-      SuffixedHistogram("HeavyAds.ComputedType2"), 4);
-  histogram_tester().ExpectBucketCount(
-      SuffixedHistogram("HeavyAds.ComputedType2"),
-      FrameData::HeavyAdStatus::kNone, 1);
-  histogram_tester().ExpectBucketCount(
-      SuffixedHistogram("HeavyAds.ComputedType2"),
-      FrameData::HeavyAdStatus::kNetwork, 1);
-  histogram_tester().ExpectBucketCount(
-      SuffixedHistogram("HeavyAds.ComputedType2"),
-      FrameData::HeavyAdStatus::kPeakCpu, 1);
-  histogram_tester().ExpectBucketCount(
-      SuffixedHistogram("HeavyAds.ComputedType2"),
-      FrameData::HeavyAdStatus::kTotalCpu, 1);
-
+  using HeavyAdStatus = ad_metrics::HeavyAdStatus;
   histogram_tester().ExpectTotalCount(
       SuffixedHistogram("HeavyAds.ComputedTypeWithThresholdNoise"), 4);
   histogram_tester().ExpectBucketCount(
       SuffixedHistogram("HeavyAds.ComputedTypeWithThresholdNoise"),
-      FrameData::HeavyAdStatus::kNone, 1);
+      HeavyAdStatus::kNone, 1);
   histogram_tester().ExpectBucketCount(
       SuffixedHistogram("HeavyAds.ComputedTypeWithThresholdNoise"),
-      FrameData::HeavyAdStatus::kNetwork, 1);
+      HeavyAdStatus::kNetwork, 1);
   histogram_tester().ExpectBucketCount(
       SuffixedHistogram("HeavyAds.ComputedTypeWithThresholdNoise"),
-      FrameData::HeavyAdStatus::kPeakCpu, 1);
+      HeavyAdStatus::kPeakCpu, 1);
   histogram_tester().ExpectBucketCount(
       SuffixedHistogram("HeavyAds.ComputedTypeWithThresholdNoise"),
-      FrameData::HeavyAdStatus::kTotalCpu, 1);
+      HeavyAdStatus::kTotalCpu, 1);
 
   histogram_tester().ExpectTotalCount(
       SuffixedHistogram("HeavyAds.InterventionType2"), 0);
@@ -2099,14 +2060,14 @@ TEST_F(AdsPageLoadMetricsObserverTest, HeavyAdNetworkUsage_InterventionFired) {
 
   const char kInterventionMessage[] =
       "Ad was removed because its network usage exceeded the limit. "
-      "See https://www.chromestatus.com/feature/4800491902992384";
+      "See https://www.chromestatus.com/feature/4800491902992384?utm_source=devtools";
   EXPECT_TRUE(HasInterventionReportsAfterFlush(ad_frame));
   EXPECT_EQ(kInterventionMessage, PopLastInterventionReportMessage());
 
   waiter.WaitForError();
   histogram_tester().ExpectUniqueSample(
       SuffixedHistogram("HeavyAds.InterventionType2"),
-      FrameData::HeavyAdStatus::kNetwork, 1);
+      ad_metrics::HeavyAdStatus::kNetwork, 1);
   EXPECT_EQ(rfh_tester->GetHeavyAdIssueCount(
                 RenderFrameHostTester::HeavyAdIssueType::kNetworkTotal),
             1);
@@ -2150,7 +2111,7 @@ TEST_F(AdsPageLoadMetricsObserverTest, HeavyAdCpuInterventionInBackground) {
       SuffixedHistogram("Bytes.FullPage.Total2"), 0);
 
   // Background the page.
-  OnAppEnterBackground();
+  tester()->SimulateAppEnterBackground();
 
   // Verify reporting happened.
   histogram_tester().ExpectTotalCount(
@@ -2199,7 +2160,7 @@ TEST_F(AdsPageLoadMetricsObserverTest,
       SuffixedHistogram("Cpu.FullPage.TotalUsage2"), 0);
 
   // Background the page.
-  OnAppEnterBackground();
+  tester()->SimulateAppEnterBackground();
 
   // Verify reporting happened.
   histogram_tester().ExpectTotalCount(
@@ -2253,7 +2214,7 @@ TEST_F(AdsPageLoadMetricsObserverTest,
   waiter.WaitForError();
   histogram_tester().ExpectUniqueSample(
       SuffixedHistogram("HeavyAds.InterventionType2"),
-      FrameData::HeavyAdStatus::kNetwork, 1);
+      ad_metrics::HeavyAdStatus::kNetwork, 1);
   EXPECT_EQ(rfh_tester->GetHeavyAdIssueCount(
                 RenderFrameHostTester::HeavyAdIssueType::kNetworkTotal),
             1);
@@ -2294,11 +2255,8 @@ TEST_F(AdsPageLoadMetricsObserverTest,
   NavigateFrame(kNonAdUrl, main_frame);
 
   histogram_tester().ExpectUniqueSample(
-      SuffixedHistogram("HeavyAds.ComputedType2"),
-      FrameData::HeavyAdStatus::kNetwork, 1);
-  histogram_tester().ExpectUniqueSample(
       SuffixedHistogram("HeavyAds.ComputedTypeWithThresholdNoise"),
-      FrameData::HeavyAdStatus::kNone, 1);
+      ad_metrics::HeavyAdStatus::kNone, 1);
 }
 
 TEST_F(AdsPageLoadMetricsObserverTest,
@@ -2333,11 +2291,11 @@ TEST_F(AdsPageLoadMetricsObserverTest,
   const char kReportOnlyMessage[] =
       "Ad was removed because its "
       "total CPU usage exceeded the limit. "
-      "See https://www.chromestatus.com/feature/4800491902992384";
+      "See https://www.chromestatus.com/feature/4800491902992384?utm_source=devtools";
   EXPECT_TRUE(HasInterventionReportsAfterFlush(ad_frame));
   histogram_tester().ExpectUniqueSample(
       SuffixedHistogram("HeavyAds.InterventionType2"),
-      FrameData::HeavyAdStatus::kTotalCpu, 1);
+      ad_metrics::HeavyAdStatus::kTotalCpu, 1);
   EXPECT_EQ(kReportOnlyMessage, PopLastInterventionReportMessage());
   EXPECT_EQ(rfh_tester->GetHeavyAdIssueCount(
                 RenderFrameHostTester::HeavyAdIssueType::kCpuTotal),
@@ -2350,11 +2308,8 @@ TEST_F(AdsPageLoadMetricsObserverTest,
   NavigateFrame(kNonAdUrl, main_frame);
 
   histogram_tester().ExpectUniqueSample(
-      SuffixedHistogram("HeavyAds.ComputedType2"),
-      FrameData::HeavyAdStatus::kNetwork, 1);
-  histogram_tester().ExpectUniqueSample(
       SuffixedHistogram("HeavyAds.ComputedTypeWithThresholdNoise"),
-      FrameData::HeavyAdStatus::kTotalCpu, 1);
+      ad_metrics::HeavyAdStatus::kTotalCpu, 1);
 }
 
 TEST_F(AdsPageLoadMetricsObserverTest, HeavyAdTotalCpuUsage_InterventionFired) {
@@ -2389,7 +2344,7 @@ TEST_F(AdsPageLoadMetricsObserverTest, HeavyAdTotalCpuUsage_InterventionFired) {
   waiter.WaitForError();
   histogram_tester().ExpectUniqueSample(
       SuffixedHistogram("HeavyAds.InterventionType2"),
-      FrameData::HeavyAdStatus::kTotalCpu, 1);
+      ad_metrics::HeavyAdStatus::kTotalCpu, 1);
   EXPECT_EQ(rfh_tester->GetHeavyAdIssueCount(
                 RenderFrameHostTester::HeavyAdIssueType::kCpuTotal),
             1);
@@ -2429,7 +2384,7 @@ TEST_F(AdsPageLoadMetricsObserverTest, HeavyAdPeakCpuUsage_InterventionFired) {
   waiter.WaitForError();
   histogram_tester().ExpectUniqueSample(
       SuffixedHistogram("HeavyAds.InterventionType2"),
-      FrameData::HeavyAdStatus::kPeakCpu, 1);
+      ad_metrics::HeavyAdStatus::kPeakCpu, 1);
   EXPECT_EQ(rfh_tester->GetHeavyAdIssueCount(
                 RenderFrameHostTester::HeavyAdIssueType::kCpuPeak),
             1);
@@ -2471,7 +2426,7 @@ TEST_F(AdsPageLoadMetricsObserverTest,
   RenderFrameHost* ad_frame = CreateAndNavigateSubFrame(kAdUrl, main_frame);
 
   // Give the frame a user activation before the threshold would be hit.
-  TriggerFirstUserActivation(ad_frame);
+  tester()->SimulateFrameReceivedFirstUserActivation(ad_frame);
 
   // Add enough data to trigger the intervention.
   ResourceDataUpdate(ad_frame, ResourceCached::kNotCached,
@@ -2483,15 +2438,15 @@ TEST_F(AdsPageLoadMetricsObserverTest,
   NavigateFrame(kNonAdUrl, main_frame);
 
   histogram_tester().ExpectUniqueSample(
-      SuffixedHistogram("HeavyAds.ComputedType2"),
-      FrameData::HeavyAdStatus::kNone, 1);
+      SuffixedHistogram("HeavyAds.ComputedTypeWithThresholdNoise"),
+      ad_metrics::HeavyAdStatus::kNone, 1);
 }
 
 // Tests that each configurable unload policy allows the intervention to trigger
 // on the correct frames.
 TEST_F(AdsPageLoadMetricsObserverTest, HeavyAdPolicyProvided) {
   struct {
-    // |policy| maps to a FrameData::HeavyAdUnloadPolicy.
+    // |policy| maps to a HeavyAdUnloadPolicy.
     std::string policy;
     bool exceed_network;
     bool exceed_cpu;
@@ -2522,11 +2477,18 @@ TEST_F(AdsPageLoadMetricsObserverTest, HeavyAdPolicyProvided) {
   };
 
   for (const auto& test_case : kTestCases) {
+    SCOPED_TRACE(base::StringPrintf(
+        "policy: %s, exceed_network: %d, exceed_cpu: %d,  "
+        "intervention_expected: %d",
+        test_case.policy.c_str(), test_case.exceed_network,
+        test_case.exceed_cpu, test_case.intervention_expected));
     base::test::ScopedFeatureList feature_list;
     feature_list.InitAndEnableFeatureWithParameters(
         features::kHeavyAdIntervention, {{"kUnloadPolicy", test_case.policy}});
     RenderFrameHost* main_frame = NavigateMainFrame(kNonAdUrl);
     RenderFrameHost* ad_frame = CreateAndNavigateSubFrame(kAdUrl, main_frame);
+    // Clear out any pending messages.
+    HasInterventionReportsAfterFlush(ad_frame);
 
     ErrorPageWaiter waiter(web_contents());
     if (test_case.exceed_network) {
@@ -2607,7 +2569,7 @@ TEST_F(AdsPageLoadMetricsObserverTest, HeavyAdPageReload_MetricsRecorded) {
 
   histogram_tester().ExpectUniqueSample(
       SuffixedHistogram("HeavyAds.ComputedTypeWithThresholdNoise"),
-      FrameData::HeavyAdStatus::kNetwork, 1);
+      ad_metrics::HeavyAdStatus::kNetwork, 1);
   histogram_tester().ExpectUniqueSample(
       SuffixedHistogram("HeavyAds.UserDidReload"), true, 1);
 }
@@ -2733,7 +2695,7 @@ TEST_F(AdsPageLoadMetricsObserverTest,
   waiter.WaitForError();
   histogram_tester().ExpectUniqueSample(
       SuffixedHistogram("HeavyAds.InterventionType2"),
-      FrameData::HeavyAdStatus::kNetwork, 1);
+      ad_metrics::HeavyAdStatus::kNetwork, 1);
   EXPECT_EQ(rfh_tester->GetHeavyAdIssueCount(
                 RenderFrameHostTester::HeavyAdIssueType::kNetworkTotal),
             1);
@@ -2770,7 +2732,7 @@ TEST_F(AdsPageLoadMetricsObserverTest, HeavyAdBlocklist_InterventionReported) {
   waiter.WaitForError();
   histogram_tester().ExpectUniqueSample(
       SuffixedHistogram("HeavyAds.InterventionType2"),
-      FrameData::HeavyAdStatus::kNetwork, 1);
+      ad_metrics::HeavyAdStatus::kNetwork, 1);
   histogram_tester().ExpectUniqueSample(
       SuffixedHistogram("HeavyAds.DisallowedByBlocklist"), false, 1);
 
@@ -2807,7 +2769,7 @@ TEST_F(AdsPageLoadMetricsObserverTest,
   const char kReportOnlyMessage[] =
       "A future version of Chrome may remove this ad because its network "
       "usage exceeded the limit. "
-      "See https://www.chromestatus.com/feature/4800491902992384";
+      "See https://www.chromestatus.com/feature/4800491902992384?utm_source=devtools";
 
   EXPECT_TRUE(HasInterventionReportsAfterFlush(ad_frame));
   EXPECT_EQ(kReportOnlyMessage, PopLastInterventionReportMessage());
@@ -2819,7 +2781,7 @@ TEST_F(AdsPageLoadMetricsObserverTest,
   EXPECT_FALSE(waiter.LastPageWasErrorPage());
   histogram_tester().ExpectUniqueSample(
       SuffixedHistogram("HeavyAds.InterventionType2"),
-      FrameData::HeavyAdStatus::kNetwork, 1);
+      ad_metrics::HeavyAdStatus::kNetwork, 1);
   EXPECT_EQ(rfh_tester->GetHeavyAdIssueCount(
                 RenderFrameHostTester::HeavyAdIssueType::kNetworkTotal),
             1);
@@ -2839,7 +2801,7 @@ TEST_F(AdsPageLoadMetricsObserverTest, NoFirstContentfulPaint_NotRecorded) {
   NavigateFrame(kNonAdUrl, main_frame);
 
   histogram_tester().ExpectTotalCount(
-      "AdPaintTiming.NavigationToFirstContentfulPaint2", 0);
+      "AdPaintTiming.NavigationToFirstContentfulPaint3", 0);
 }
 
 TEST_F(AdsPageLoadMetricsObserverTest, FirstContentfulPaint_Recorded) {
@@ -2857,7 +2819,7 @@ TEST_F(AdsPageLoadMetricsObserverTest, FirstContentfulPaint_Recorded) {
   NavigateFrame(kNonAdUrl, main_frame);
 
   histogram_tester().ExpectUniqueSample(
-      SuffixedHistogram("AdPaintTiming.NavigationToFirstContentfulPaint2"), 100,
+      SuffixedHistogram("AdPaintTiming.NavigationToFirstContentfulPaint3"), 100,
       1);
 
   auto entries = test_ukm_recorder().GetEntriesByName(
@@ -2890,7 +2852,7 @@ TEST_F(AdsPageLoadMetricsObserverTest,
 
   // The histogram value should be that of the earliest FCP recorded.
   histogram_tester().ExpectUniqueSample(
-      SuffixedHistogram("AdPaintTiming.NavigationToFirstContentfulPaint2"), 90,
+      SuffixedHistogram("AdPaintTiming.NavigationToFirstContentfulPaint3"), 90,
       1);
 
   auto entries = test_ukm_recorder().GetEntriesByName(
@@ -2924,7 +2886,7 @@ TEST_F(AdsPageLoadMetricsObserverTest,
 
   // The histogram value should be that of the earliest FCP recorded.
   histogram_tester().ExpectUniqueSample(
-      SuffixedHistogram("AdPaintTiming.NavigationToFirstContentfulPaint2"), 90,
+      SuffixedHistogram("AdPaintTiming.NavigationToFirstContentfulPaint3"), 90,
       1);
 
   auto entries = test_ukm_recorder().GetEntriesByName(
@@ -2953,7 +2915,7 @@ TEST_F(AdsPageLoadMetricsObserverTest,
 
   // The histogram value should be that of the earliest FCP recorded.
   histogram_tester().ExpectUniqueSample(
-      SuffixedHistogram("AdPaintTiming.NavigationToFirstContentfulPaint2"), 90,
+      SuffixedHistogram("AdPaintTiming.NavigationToFirstContentfulPaint3"), 90,
       1);
 
   auto entries = test_ukm_recorder().GetEntriesByName(
@@ -2962,4 +2924,148 @@ TEST_F(AdsPageLoadMetricsObserverTest,
   test_ukm_recorder().ExpectEntryMetric(
       entries.front(),
       ukm::builders::AdFrameLoad::kTiming_FirstContentfulPaintName, 90);
+}
+
+class AdsMemoryMeasurementTest : public AdsPageLoadMetricsObserverTest {
+ public:
+  void SetUp() override {
+    scoped_feature_list_.InitAndEnableFeature(
+        features::kV8PerFrameMemoryMonitoring);
+    AdsPageLoadMetricsObserverTest::SetUp();
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+TEST_F(AdsMemoryMeasurementTest, SingleAdFrame_MaxMemoryBytesRecorded) {
+  RenderFrameHost* main_frame = NavigateMainFrame(kNonAdUrl);
+  RenderFrameHost* ad_frame = CreateAndNavigateSubFrame(kAdUrl, main_frame);
+
+  // Load kilobytes in frame so that aggregates are recorded.
+  ResourceDataUpdate(ad_frame, ResourceCached::kNotCached, 10);
+
+  // Notify that memory measurement is available.
+  SimulateV8MemoryChange(ad_frame, 10 * 1024);
+
+  // Update memory usage. The max will change, as 30 is positive.
+  SimulateV8MemoryChange(ad_frame, 30 * 1024);
+
+  // Update memory usage. The max will remain the same, as -20 is negative.
+  SimulateV8MemoryChange(ad_frame, -20 * 1024);
+
+  // Navigate main frame to record histograms.
+  NavigateMainFrame(kNonAdUrl);
+
+  histogram_tester().ExpectUniqueSample(kMemoryPerFrameMaxHistogramId, 10 + 30,
+                                        1);
+  histogram_tester().ExpectUniqueSample(kMemoryAggregateMaxHistogramId, 10 + 30,
+                                        1);
+  histogram_tester().ExpectUniqueSample(kMemoryUpdateCountHistogramId, 3, 1);
+}
+
+TEST_F(AdsMemoryMeasurementTest, MultiAdFramesNested_MaxMemoryBytesRecorded) {
+  RenderFrameHost* main_frame = NavigateMainFrame(kNonAdUrl);
+  RenderFrameHost* ad_frame1 = CreateAndNavigateSubFrame(kAdUrl, main_frame);
+
+  // Create a nested subframe with the same origin as its parent.
+  RenderFrameHost* ad_frame2 = CreateAndNavigateSubFrame(kAdUrl, ad_frame1);
+
+  // Load kilobytes in each frame so that aggregates are recorded.
+  ResourceDataUpdate(ad_frame1, ResourceCached::kNotCached, 10);
+  ResourceDataUpdate(ad_frame2, ResourceCached::kNotCached, 10);
+
+  // Notify that memory measurement is available.
+  SimulateV8MemoryChange(ad_frame1, 10 * 1024);
+  SimulateV8MemoryChange(ad_frame2, 10 * 1024);
+
+  // Update memory usage. The max will change, as these values are both
+  // positive.
+  SimulateV8MemoryChange(ad_frame1, 30 * 1024);
+  SimulateV8MemoryChange(ad_frame2, 10 * 1024);
+
+  // Update memory usage. The max will remain the same, as these values
+  // are both negative.
+  SimulateV8MemoryChange(ad_frame1, -25 * 1024);
+  SimulateV8MemoryChange(ad_frame2, -5 * 1024);
+
+  // Navigate main frame to record histograms.
+  NavigateMainFrame(kNonAdUrl);
+
+  histogram_tester().ExpectUniqueSample(kMemoryPerFrameMaxHistogramId,
+                                        10 + 10 + 30 + 10, 1);
+  histogram_tester().ExpectUniqueSample(kMemoryAggregateMaxHistogramId,
+                                        10 + 10 + 30 + 10, 1);
+  histogram_tester().ExpectUniqueSample(kMemoryUpdateCountHistogramId, 6, 1);
+}
+
+TEST_F(AdsMemoryMeasurementTest,
+       MultiAdFramesNonNested_MaxMemoryBytesRecorded) {
+  RenderFrameHost* main_frame = NavigateMainFrame(kNonAdUrl);
+  RenderFrameHost* ad_frame1 = CreateAndNavigateSubFrame(kAdUrl, main_frame);
+
+  // Create another ad subframe with a different origin.
+  RenderFrameHost* ad_frame2 =
+      CreateAndNavigateSubFrame(kOtherAdUrl, main_frame);
+
+  // Load kilobytes in each frame so that aggregates are recorded.
+  ResourceDataUpdate(ad_frame1, ResourceCached::kNotCached, 10);
+  ResourceDataUpdate(ad_frame2, ResourceCached::kNotCached, 10);
+
+  // Notify that memory measurement is available.
+  SimulateV8MemoryChange(ad_frame1, 10 * 1024);
+  SimulateV8MemoryChange(ad_frame2, 10 * 1024);
+
+  // Update memory usage. The second max and aggregate max
+  // will change.
+  SimulateV8MemoryChange(ad_frame1, -9 * 1024);
+  SimulateV8MemoryChange(ad_frame2, 100 * 1024);
+
+  // Update memory usage. The aggregate max will change
+  // again after the first update.
+  SimulateV8MemoryChange(ad_frame1, 1 * 1024);
+  SimulateV8MemoryChange(ad_frame2, -90 * 1024);
+
+  // Update memory usage. The first max will change.
+  SimulateV8MemoryChange(ad_frame1, 50 * 1024);
+  SimulateV8MemoryChange(ad_frame2, -5 * 1024);
+
+  // Navigate main frame to record histograms.
+  NavigateMainFrame(kNonAdUrl);
+
+  histogram_tester().ExpectBucketCount(kMemoryPerFrameMaxHistogramId,
+                                       10 - 9 + 1 + 50, 1);
+  histogram_tester().ExpectBucketCount(kMemoryPerFrameMaxHistogramId, 10 + 100,
+                                       1);
+  histogram_tester().ExpectUniqueSample(kMemoryAggregateMaxHistogramId,
+                                        10 - 9 + 10 + 100 + 1, 1);
+  histogram_tester().ExpectUniqueSample(kMemoryUpdateCountHistogramId, 8, 1);
+}
+
+TEST_F(AdsMemoryMeasurementTest, MainFrame_MaxMemoryBytesRecorded) {
+  RenderFrameHost* main_frame = NavigateMainFrame(kNonAdUrl);
+  RenderFrameHost* ad_frame = CreateAndNavigateSubFrame(kAdUrl, main_frame);
+
+  // Load kilobytes in each frame. |ad_frame| must exist for ad metrics to be
+  // tracked.
+  ResourceDataUpdate(main_frame, ResourceCached::kNotCached, 1000);
+  ResourceDataUpdate(ad_frame, ResourceCached::kNotCached, 10);
+
+  // Notify that memory measurement is available.
+  SimulateV8MemoryChange(main_frame, 1000 * 1024);
+
+  // Update memory usage. The max will also change, as this value is
+  // positive.
+  SimulateV8MemoryChange(main_frame, 1000 * 1024);
+
+  // Update memory usage. The max will remain the same, as this value is
+  // negative.
+  SimulateV8MemoryChange(main_frame, -1980 * 1024);
+
+  // Navigate to record histograms.
+  NavigateFrame(kNonAdUrl, main_frame);
+
+  histogram_tester().ExpectUniqueSample(kMemoryMainFrameMaxHistogramId, 2000,
+                                        1);
+  histogram_tester().ExpectUniqueSample(kMemoryUpdateCountHistogramId, 3, 1);
 }

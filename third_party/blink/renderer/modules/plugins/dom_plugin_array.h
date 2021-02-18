@@ -31,7 +31,7 @@
 
 namespace blink {
 
-class LocalFrame;
+class LocalDOMWindow;
 class PluginData;
 
 class DOMPluginArray final : public ScriptWrappable,
@@ -40,7 +40,7 @@ class DOMPluginArray final : public ScriptWrappable,
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  explicit DOMPluginArray(LocalFrame*);
+  explicit DOMPluginArray(LocalDOMWindow*);
 
   void UpdatePluginData();
 
@@ -60,6 +60,8 @@ class DOMPluginArray final : public ScriptWrappable,
  private:
   PluginData* GetPluginData() const;
   void ContextDestroyed() override;
+
+  bool ShouldReturnEmptyPluginData() const;
 
   HeapVector<Member<DOMPlugin>> dom_plugins_;
 };

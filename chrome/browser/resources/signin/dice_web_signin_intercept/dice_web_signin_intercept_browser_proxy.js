@@ -22,6 +22,10 @@ export let AccountInfo;
  *   headerText: string,
  *   bodyTitle: string,
  *   bodyText: string,
+ *   confirmButtonLabel: string,
+ *   cancelButtonLabel: string,
+ *   headerTextColor: string,
+ *   headerBackgroundColor: string,
  *   interceptedAccount: AccountInfo,
  * }}
  */
@@ -34,6 +38,9 @@ export class DiceWebSigninInterceptBrowserProxy {
 
   /** Called when the user cancels the interception. */
   cancel() {}
+
+  // Called when user selects Guest mode.
+  guest() {}
 
   /**
    * Called when the page is loaded.
@@ -52,6 +59,11 @@ export class DiceWebSigninInterceptBrowserProxyImpl {
   /** @override */
   cancel() {
     chrome.send('cancel');
+  }
+
+  /** @override */
+  guest() {
+    chrome.send('guest');
   }
 
   /** @override */

@@ -12,17 +12,18 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/rand_util.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/api/module/module.h"
 #include "chrome/browser/extensions/crx_installer.h"
+#include "chrome/browser/extensions/extension_management.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/forced_extensions/install_stage_tracker.h"
 #include "chrome/browser/extensions/pending_extension_manager.h"
@@ -45,8 +46,10 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_set.h"
 #include "extensions/common/extension_updater_uma.h"
+#include "extensions/common/extension_urls.h"
 #include "extensions/common/manifest.h"
 #include "extensions/common/manifest_constants.h"
+#include "extensions/common/manifest_url_handlers.h"
 
 using base::RandDouble;
 using base::RandInt;
@@ -64,6 +67,8 @@ const int kMinUpdateFrequencySeconds = 30;
 const int kMaxUpdateFrequencySeconds = 60 * 60 * 24 * 7;  // 7 days
 
 bool g_skip_scheduled_checks_for_tests = false;
+
+bool g_force_use_update_service_for_tests = false;
 
 // When we've computed a days value, we want to make sure we don't send a
 // negative value (due to the system clock being set backwards, etc.), since -1
@@ -262,15 +267,23 @@ void ExtensionUpdater::SetBackoffPolicyForTesting(
   downloader_->SetBackoffPolicyForTesting(backoff_policy);
 }
 
+// static
+base::AutoReset<bool> ExtensionUpdater::GetScopedUseUpdateServiceForTesting() {
+  return base::AutoReset<bool>(&g_force_use_update_service_for_tests, true);
+}
+
 void ExtensionUpdater::DoCheckSoon() {
-  DCHECK(will_check_soon_);
+  if (!will_check_soon_) {
+    // Another caller called CheckNow() between CheckSoon() and now. Skip this
+    // check.
+    return;
+  }
   CheckNow(CheckParams());
-  will_check_soon_ = false;
 }
 
 void ExtensionUpdater::AddToDownloader(
     const ExtensionSet* extensions,
-    const std::list<std::string>& pending_ids,
+    const std::list<ExtensionId>& pending_ids,
     int request_id,
     ManifestFetchData::FetchPriority fetch_priority,
     ExtensionUpdateCheckParams* update_check_params) {
@@ -279,7 +292,7 @@ void ExtensionUpdater::AddToDownloader(
   for (ExtensionSet::const_iterator extension_iter = extensions->begin();
        extension_iter != extensions->end(); ++extension_iter) {
     const Extension& extension = **extension_iter;
-    const std::string& extension_id = extension.id();
+    const ExtensionId& extension_id = extension.id();
     if (!Manifest::IsAutoUpdateableLocation(extension.location())) {
       VLOG(2) << "Extension " << extension_id << " is not auto updateable";
       continue;
@@ -288,17 +301,52 @@ void ExtensionUpdater::AddToDownloader(
     // changed. Make sure existing extensions aren't fetched again, if a
     // pending fetch for an extension with the same id already exists.
     if (!base::Contains(pending_ids, extension_id)) {
-      if (update_service_->CanUpdate(extension_id)) {
+      if (CanUseUpdateService(extension_id)) {
         update_check_params->update_info[extension_id] = ExtensionUpdateData();
-      } else if (downloader_->AddExtension(extension, request_id,
-                                           fetch_priority)) {
+      } else if (AddExtensionToDownloader(extension, request_id,
+                                          fetch_priority)) {
         request.in_progress_ids_.insert(extension_id);
       }
     }
   }
 }
 
+bool ExtensionUpdater::AddExtensionToDownloader(
+    const Extension& extension,
+    int request_id,
+    ManifestFetchData::FetchPriority fetch_priority) {
+  ExtensionManagement* extension_management =
+      ExtensionManagementFactory::GetForBrowserContext(profile_);
+  GURL update_url = extension_management->GetEffectiveUpdateURL(extension);
+  // Skip extensions with empty update URLs converted from user
+  // scripts.
+  if (extension.converted_from_user_script() && update_url.is_empty()) {
+    return false;
+  }
+
+  DCHECK(alive_);
+
+  // If the extension updates itself from the gallery, ignore any update URL
+  // data.  At the moment there is no extra data that an extension can
+  // communicate to the gallery update servers.
+  std::string update_url_data;
+  if (!ManifestURL::UpdatesFromGallery(&extension))
+    update_url_data =
+        extension::GetUpdateURLData(extension_prefs_, extension.id());
+
+  return downloader_->AddPendingExtensionWithVersion(
+      extension.id(), update_url, extension.location(),
+      false /*is_corrupt_reinstall*/, request_id, fetch_priority,
+      extension.version(), extension.GetType(), update_url_data);
+}
+
 void ExtensionUpdater::CheckNow(CheckParams params) {
+  if (params.ids.empty()) {
+    // Checking all extensions. Cancel pending DoCheckSoon() call if there's
+    // one, as it would be redundant.
+    will_check_soon_ = false;
+  }
+
   int request_id = next_request_id_++;
 
   VLOG(2) << "Starting update check " << request_id;
@@ -319,22 +367,14 @@ void ExtensionUpdater::CheckNow(CheckParams params) {
   const PendingExtensionManager* pending_extension_manager =
       service_->pending_extension_manager();
 
-  std::list<std::string> pending_ids;
+  std::list<ExtensionId> pending_ids;
   ExtensionUpdateCheckParams update_check_params;
 
   if (params.ids.empty()) {
-    // We have to mark high-priority extensions (such as policy-forced
-    // extensions or external component extensions) with foreground fetch
-    // priority; otherwise their installation may be throttled by bandwidth
-    // limits.
-    // See https://crbug.com/904600 and https://crbug.com/965686.
-    if (pending_extension_manager->HasHighPriorityPendingExtension())
-      params.fetch_priority = ManifestFetchData::FOREGROUND;
-
     // If no extension ids are specified, check for updates for all extensions.
     pending_extension_manager->GetPendingIdsForUpdateCheck(&pending_ids);
 
-    for (const std::string& pending_id : pending_ids) {
+    for (const ExtensionId& pending_id : pending_ids) {
       const PendingExtensionInfo* info =
           pending_extension_manager->GetById(pending_id);
       if (!Manifest::IsAutoUpdateableLocation(info->install_source())) {
@@ -345,12 +385,22 @@ void ExtensionUpdater::CheckNow(CheckParams params) {
       const bool is_corrupt_reinstall =
           pending_extension_manager->IsPolicyReinstallForCorruptionExpected(
               pending_id);
-      if (update_service_->CanUpdate(pending_id)) {
+      // We have to mark high-priority extensions (such as policy-forced
+      // extensions or external component extensions) with foreground fetch
+      // priority; otherwise their installation may be throttled by bandwidth
+      // limits.
+      // See https://crbug.com/904600 and https://crbug.com/965686.
+      const bool is_high_priority_extension_pending =
+          pending_extension_manager->HasHighPriorityPendingExtension();
+      if (CanUseUpdateService(pending_id)) {
         update_check_params.update_info[pending_id].is_corrupt_reinstall =
             is_corrupt_reinstall;
       } else if (downloader_->AddPendingExtension(
                      pending_id, info->update_url(), info->install_source(),
-                     is_corrupt_reinstall, request_id, params.fetch_priority)) {
+                     is_corrupt_reinstall, request_id,
+                     is_high_priority_extension_pending
+                         ? ManifestFetchData::FOREGROUND
+                         : params.fetch_priority)) {
         request.in_progress_ids_.insert(pending_id);
         InstallStageTracker::Get(profile_)->ReportInstallationStage(
             pending_id, InstallStageTracker::Stage::DOWNLOADING);
@@ -374,14 +424,14 @@ void ExtensionUpdater::CheckNow(CheckParams params) {
     AddToDownloader(&remotely_disabled_extensions, pending_ids, request_id,
                     params.fetch_priority, &update_check_params);
   } else {
-    for (const std::string& id : params.ids) {
+    for (const ExtensionId& id : params.ids) {
       const Extension* extension = registry_->GetExtensionById(
           id, extensions::ExtensionRegistry::EVERYTHING);
       if (extension) {
-        if (update_service_->CanUpdate(id)) {
+        if (CanUseUpdateService(id)) {
           update_check_params.update_info[id] = ExtensionUpdateData();
-        } else if (downloader_->AddExtension(*extension, request_id,
-                                             params.fetch_priority)) {
+        } else if (AddExtensionToDownloader(*extension, request_id,
+                                            params.fetch_priority)) {
           request.in_progress_ids_.insert(extension->id());
         }
       }
@@ -427,13 +477,6 @@ void ExtensionUpdater::OnExtensionDownloadCacheStatusRetrieved(
     CacheStatus cache_status) {
   InstallStageTracker::Get(profile_)->ReportDownloadingCacheStatus(
       id, cache_status);
-}
-
-void ExtensionUpdater::OnExtensionManifestUpdateCheckStatusReceived(
-    const ExtensionId& id,
-    const std::string& status) {
-  InstallStageTracker::Get(profile_)->ReportManifestUpdateCheckStatus(id,
-                                                                      status);
 }
 
 void ExtensionUpdater::OnExtensionDownloadFailed(
@@ -534,11 +577,6 @@ bool ExtensionUpdater::GetPingDataForExtension(
   return true;
 }
 
-std::string ExtensionUpdater::GetUpdateUrlData(const ExtensionId& id) {
-  DCHECK(alive_);
-  return extension::GetUpdateURLData(extension_prefs_, id);
-}
-
 bool ExtensionUpdater::IsExtensionPending(const ExtensionId& id) {
   DCHECK(alive_);
   return service_->pending_extension_manager()->IsIdPending(id);
@@ -572,7 +610,7 @@ void ExtensionUpdater::UpdatePingData(const ExtensionId& id,
 
 void ExtensionUpdater::PutExtensionInCache(const CRXFileInfo& crx_info) {
   if (extension_cache_) {
-    const std::string& extension_id = crx_info.extension_id;
+    const ExtensionId& extension_id = crx_info.extension_id;
     const base::Version& expected_version = crx_info.expected_version;
     const std::string& expected_hash = crx_info.expected_hash;
     const base::FilePath& crx_path = crx_info.path;
@@ -593,6 +631,33 @@ void ExtensionUpdater::CleanUpCrxFileIfNeeded(const base::FilePath& crx_path,
           FROM_HERE, base::BindOnce(base::GetDeleteFileCallback(), crx_path))) {
     NOTREACHED();
   }
+}
+
+bool ExtensionUpdater::CanUseUpdateService(
+    const ExtensionId& extension_id) const {
+  if (g_force_use_update_service_for_tests)
+    return true;
+
+  // Won't update extensions with empty IDs.
+  if (extension_id.empty())
+    return false;
+
+  // Update service can only update extensions that have been installed on the
+  // system.
+  const Extension* extension = registry_->GetInstalledExtension(extension_id);
+  if (extension == nullptr)
+    return false;
+
+  // Furthermore, we can only update extensions that were installed from the
+  // default webstore or extensions with empty update URLs not converted from
+  // user scripts.
+  ExtensionManagement* extension_management =
+      ExtensionManagementFactory::GetForBrowserContext(profile_);
+  const GURL& update_url =
+      extension_management->GetEffectiveUpdateURL(*extension);
+  if (update_url.is_empty())
+    return !extension->converted_from_user_script();
+  return extension_urls::IsWebstoreUpdateUrl(update_url);
 }
 
 void ExtensionUpdater::InstallCRXFile(FetchedCRXFile crx_file) {

@@ -32,21 +32,21 @@ import org.chromium.base.test.params.ParameterProvider;
 import org.chromium.base.test.params.ParameterSet;
 import org.chromium.base.test.params.ParameterizedRunner;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.FlakyTest;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeTabbedActivity;
-import org.chromium.chrome.browser.customtabs.CustomTabActivityTestRule;
+import org.chromium.chrome.browser.customtabs.IncognitoCustomTabActivityTestRule;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.incognito.IncognitoDataTestUtils.ActivityType;
 import org.chromium.chrome.browser.incognito.IncognitoDataTestUtils.TestParams;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4RunnerDelegate;
+import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.chrome.test.util.browser.LocationSettingsTestUtil;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.JavaScriptUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.device.geolocation.LocationProviderOverrider;
@@ -68,18 +68,19 @@ import java.util.concurrent.TimeoutException;
 @EnableFeatures({ChromeFeatureList.CCT_INCOGNITO})
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 public class IncognitoPermissionLeakageTest {
-    private String mPermissionTestPage;
-    private EmbeddedTestServer mTestServer;
-
     private static final String PERMISSION_HTML_PATH =
             "/content/test/data/android/geolocation.html";
 
-    @Rule
-    public ChromeActivityTestRule<ChromeTabbedActivity> mChromeActivityTestRule =
-            new ChromeActivityTestRule<>(ChromeTabbedActivity.class);
+    private String mPermissionTestPage;
+    private EmbeddedTestServer mTestServer;
 
     @Rule
-    public CustomTabActivityTestRule mCustomTabActivityTestRule = new CustomTabActivityTestRule();
+    public ChromeTabbedActivityTestRule mChromeActivityTestRule =
+            new ChromeTabbedActivityTestRule();
+
+    @Rule
+    public IncognitoCustomTabActivityTestRule mCustomTabActivityTestRule =
+            new IncognitoCustomTabActivityTestRule();
 
     @Before
     public void setUp() throws TimeoutException {
@@ -166,6 +167,7 @@ public class IncognitoPermissionLeakageTest {
     @Test
     @LargeTest
     @UseMethodParameter(TestParams.IncognitoToIncognito.class)
+    @DisabledTest(message = "crbug.com/1148556")
     public void testAllowPermissionDoNotLeakFromIncognitoToIncognito(
             String incognitoActivityType1, String incognitoActivityType2) throws Exception {
         // At least one of the incognitoActivity is an incognito CCT.
@@ -194,6 +196,7 @@ public class IncognitoPermissionLeakageTest {
     @Test
     @LargeTest
     @UseMethodParameter(TestParams.IncognitoToIncognito.class)
+    @DisabledTest(message = "crbug.com/1148556")
     public void testBlockPermissionDoNotLeakFromIncognitoToIncognito(
             String incognitoActivityType1, String incognitoActivityType2) throws Exception {
         ActivityType incognitoActivity1 = ActivityType.valueOf(incognitoActivityType1);

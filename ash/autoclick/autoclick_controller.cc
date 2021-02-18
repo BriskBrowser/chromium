@@ -137,8 +137,7 @@ void AutoclickController::SetEnabled(bool enabled,
         return;
       // Show a confirmation dialog before disabling autoclick.
       auto* dialog = new AccessibilityFeatureDisableDialog(
-          IDS_ASH_AUTOCLICK_DISABLE_CONFIRMATION_TITLE,
-          IDS_ASH_AUTOCLICK_DISABLE_CONFIRMATION_BODY,
+          IDS_ASH_AUTOCLICK_DISABLE_CONFIRMATION_TEXT,
           // Callback for if the user accepts the dialog
           base::BindOnce([]() {
             // If they accept, actually disable autoclick.
@@ -149,7 +148,8 @@ void AutoclickController::SetEnabled(bool enabled,
           // feature as enabled again in prefs.
           base::BindOnce([]() {
             // If they cancel, ensure autoclick is enabled.
-            Shell::Get()->accessibility_controller()->SetAutoclickEnabled(true);
+            Shell::Get()->accessibility_controller()->autoclick().SetEnabled(
+                true);
           }));
       disable_dialog_ = dialog->GetWeakPtr();
     } else {
@@ -250,7 +250,7 @@ void AutoclickController::DoScrollAction(ScrollPadAction action) {
                          0 /* x_offset_ordinal */, 0 /* y_offset_ordinal */,
                          2 /* finger_count */);
   ui::MouseWheelEvent wheel(scroll);
-  ignore_result(host->event_sink()->OnEventFromSource(&wheel));
+  ignore_result(host->GetEventSink()->OnEventFromSource(&wheel));
 }
 
 void AutoclickController::OnEnteredScrollButton() {
@@ -269,7 +269,7 @@ void AutoclickController::OnExitedScrollButton() {
                                 -kDefaultAutoclickMovementThreshold);
 }
 
-void AutoclickController::OnAutoclickScrollableBoundsFound(
+void AutoclickController::HandleAutoclickScrollableBoundsFound(
     gfx::Rect& bounds_in_screen) {
   // The very first time scrollable bounds are found, the default first
   // position of the scrollbar to be next to the menu bubble.
@@ -365,7 +365,7 @@ void AutoclickController::DoAutoclickAction() {
       ui::MouseEvent press_event(ui::ET_MOUSE_PRESSED, location_in_pixels,
                                  location_in_pixels, ui::EventTimeForNow(),
                                  mouse_event_flags_ | button, button);
-      details = host->event_sink()->OnEventFromSource(&press_event);
+      details = host->GetEventSink()->OnEventFromSource(&press_event);
       if (drag_start) {
         drag_event_rewriter_->SetEnabled(true);
         return;
@@ -380,7 +380,7 @@ void AutoclickController::DoAutoclickAction() {
     ui::MouseEvent release_event(ui::ET_MOUSE_RELEASED, location_in_pixels,
                                  location_in_pixels, ui::EventTimeForNow(),
                                  mouse_event_flags_ | button, button);
-    details = host->event_sink()->OnEventFromSource(&release_event);
+    details = host->GetEventSink()->OnEventFromSource(&release_event);
 
     // Now a single click, or half the drag & drop, has been completed.
     if (in_progress_event_type != AutoclickEventType::kDoubleClick ||
@@ -397,12 +397,12 @@ void AutoclickController::DoAutoclickAction() {
         ui::ET_MOUSE_RELEASED, location_in_pixels, location_in_pixels,
         ui::EventTimeForNow(),
         mouse_event_flags_ | button | ui::EF_IS_DOUBLE_CLICK, button);
-    details = host->event_sink()->OnEventFromSource(&double_press_event);
+    details = host->GetEventSink()->OnEventFromSource(&double_press_event);
     if (details.dispatcher_destroyed) {
       OnActionCompleted(in_progress_event_type);
       return;
     }
-    details = host->event_sink()->OnEventFromSource(&double_release_event);
+    details = host->GetEventSink()->OnEventFromSource(&double_release_event);
     OnActionCompleted(in_progress_event_type);
   }
 }

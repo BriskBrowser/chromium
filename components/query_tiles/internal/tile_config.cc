@@ -6,6 +6,7 @@
 
 #include "base/command_line.h"
 #include "base/metrics/field_trial_params.h"
+#include "base/strings/string_util.h"
 #include "components/query_tiles/switches.h"
 
 namespace query_tiles {
@@ -48,6 +49,16 @@ constexpr char kBackoffInitDelayInMsKey[] = "backoff_policy_init_delay_in_ms";
 // Finch parameter key for Backoff policy maximum delay in ms.
 constexpr char kBackoffMaxDelayInMsKey[] = "backoff_policy_max_delay_in_ms";
 
+constexpr char kTileScoreDecayLambdaKey[] = "tile_score_decay_lambda";
+
+constexpr char kMinimumScoreForNewFrontTilesKey[] =
+    "min_score_for_new_front_tiles";
+
+constexpr char kNumTrendingTilesKey[] = "num_trending_tiles_to_display";
+
+constexpr char kMaxTrendingTileImpressionsKey[] =
+    "max_trending_tile_impressions";
+
 // Default expire duration.
 constexpr int kDefaultExpireDurationInSeconds = 48 * 60 * 60;  // 2 days.
 
@@ -67,20 +78,39 @@ constexpr int kDefaultBackoffInitDelayInMs = 30 * 1000;  // 30 seconds.
 // Default maximum delay in backoff policy, also used for suspend duration.
 constexpr int kDefaultBackoffMaxDelayInMs = 24 * 3600 * 1000;  // 1 day.
 
+// Default lambda value used for calculating tile score decay over time.
+constexpr double kDefaultTileScoreDecayLambda = -0.099;
+
+// Default minimum score for new tiles in front of others. 0.9 is chosen so
+// that new tiles will have a higher score than tiles that have not been
+// clicked for 2 days.
+constexpr double kDefaultMinimumTileScoreForNewFrontTiles = 0.9;
+
+// Default number of trending tiles to be displayed at the same time.
+constexpr int kDefaultNumTrendingTilesToDisplay = 2;
+
+// Default number of impressions a trending tile to be displayed .
+constexpr int kDefaultMaxTrendingTileImpressions = 2;
+
 namespace {
 
 // For testing. Json string for single tier experiment tag.
-const char kQueryTilesSingleTierExperimentTag[] = "{\"maxLevels\": \"1\"}";
+const char kQueryTilesSingleTierExperimentTag[] = "\"maxLevels\": \"1\"";
 
 // Json Experiment tag for enabling trending queries.
 const char kQueryTilesEnableTrendingExperimentTag[] =
-    "{\"enableTrending\": \"true\"}";
+    "\"enableTrending\": \"true\"";
+
+// Json Experiment tag for getting more trending queries.
+const char kQueryTilesMoreTrendingExperimentTag[] =
+    "\"maxTrendingQueries\": \"10\"";
 
 const GURL BuildGetQueryTileURL(const GURL& base_url, const char* path) {
   GURL::Replacements replacements;
   replacements.SetPathStr(path);
   return base_url.ReplaceComponents(replacements);
 }
+
 }  // namespace
 
 // static
@@ -103,14 +133,24 @@ bool TileConfig::GetIsUnMeteredNetworkRequired() {
 
 // static
 std::string TileConfig::GetExperimentTag() {
+  std::vector<std::string> experiment_tag;
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kQueryTilesSingleTier)) {
-    return kQueryTilesSingleTierExperimentTag;
+    experiment_tag.emplace_back(kQueryTilesSingleTierExperimentTag);
   }
 
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kQueryTilesEnableTrending)) {
-    return kQueryTilesEnableTrendingExperimentTag;
+    experiment_tag.emplace_back(kQueryTilesEnableTrendingExperimentTag);
+  }
+
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kQueryTilesMoreTrending)) {
+    experiment_tag.emplace_back(kQueryTilesMoreTrendingExperimentTag);
+  }
+
+  if (!experiment_tag.empty()) {
+    return "{" + base::JoinString(experiment_tag, ",") + "}";
   }
 
   return base::GetFieldTrialParamValueByFeature(features::kQueryTiles,
@@ -169,6 +209,34 @@ int TileConfig::GetBackoffPolicyArgsMaxDelayInMs() {
   return base::GetFieldTrialParamByFeatureAsInt(features::kQueryTiles,
                                                 kBackoffMaxDelayInMsKey,
                                                 kDefaultBackoffMaxDelayInMs);
+}
+
+// static
+double TileConfig::GetTileScoreDecayLambda() {
+  return base::GetFieldTrialParamByFeatureAsDouble(
+      features::kQueryTiles, kTileScoreDecayLambdaKey,
+      kDefaultTileScoreDecayLambda);
+}
+
+// static
+double TileConfig::GetMinimumScoreForNewFrontTiles() {
+  return base::GetFieldTrialParamByFeatureAsDouble(
+      features::kQueryTiles, kMinimumScoreForNewFrontTilesKey,
+      kDefaultMinimumTileScoreForNewFrontTiles);
+}
+
+// static
+int TileConfig::GetNumTrendingTilesToDisplay() {
+  return base::GetFieldTrialParamByFeatureAsInt(
+      features::kQueryTiles, kNumTrendingTilesKey,
+      kDefaultNumTrendingTilesToDisplay);
+}
+
+// static
+int TileConfig::GetMaxTrendingTileImpressions() {
+  return base::GetFieldTrialParamByFeatureAsInt(
+      features::kQueryTiles, kMaxTrendingTileImpressionsKey,
+      kDefaultMaxTrendingTileImpressions);
 }
 
 }  // namespace query_tiles

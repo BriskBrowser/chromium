@@ -8,7 +8,7 @@ import {webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
 import {AccountInfo, DiceWebSigninInterceptBrowserProxyImpl, InterceptionParameters} from 'chrome://signin-dice-web-intercept/dice_web_signin_intercept_browser_proxy.js';
 
 import {assertEquals, assertFalse, assertTrue} from '../chai_assert.js';
-import {isChildVisible} from '../test_util.m.js';
+import {isChildVisible, waitAfterNextRender} from '../test_util.m.js';
 
 import {TestDiceWebSigninInterceptBrowserProxy} from './test_dice_web_signin_intercept_browser_proxy.js';
 
@@ -29,12 +29,17 @@ suite('DiceWebSigninInterceptTest', function() {
   /** @type {string} */
   const AVATAR_URL_2 = 'chrome://theme/IDR_PROFILE_AVATAR_2';
 
-  setup(function() {
+  setup(async function() {
     browserProxy = new TestDiceWebSigninInterceptBrowserProxy();
     browserProxy.setInterceptionParameters({
       headerText: 'header_text',
       bodyTitle: 'body_title',
       bodyText: 'body_text',
+      confirmButtonLabel: 'confirm_label',
+      cancelButtonLabel: 'cancel_label',
+      showGuestOption: true,
+      headerTextColor: 'rgba(255, 255, 255, 1)',
+      headerBackgroundColor: 'rgba(255, 0, 0, 1)',
       interceptedAccount: {isManaged: false, pictureUrl: AVATAR_URL_1},
       primaryAccount: {isManaged: false, pictureUrl: AVATAR_URL_2}
     });
@@ -43,6 +48,7 @@ suite('DiceWebSigninInterceptTest', function() {
     app = /** @type {!DiceWebSigninInterceptAppElement} */ (
         document.createElement('dice-web-signin-intercept-app'));
     document.body.append(app);
+    await waitAfterNextRender(app);
     return browserProxy.whenCalled('pageLoaded');
   });
 
@@ -53,13 +59,18 @@ suite('DiceWebSigninInterceptTest', function() {
    * @param {string} expectedBodyText
    */
   function checkTextValues(
-      expectedHeaderText, expectedBodyTitle, expectedBodyText) {
+      expectedHeaderText, expectedBodyTitle, expectedBodyText,
+      expectedConfirmLabel, expectedCancelLabel) {
     const headerTextElement = app.$$('#headerText');
     assertEquals(expectedHeaderText, headerTextElement.textContent);
     const titleElement = app.$$('#title');
     assertEquals(expectedBodyTitle, titleElement.textContent);
     const contentsElement = app.$$('#contents');
     assertEquals(expectedBodyText, contentsElement.textContent);
+    const confirmButton = app.$$('#acceptButton');
+    assertEquals(expectedConfirmLabel, confirmButton.textContent.trim());
+    const cancelButton = app.$$('#cancelButton');
+    assertEquals(expectedCancelLabel, cancelButton.textContent.trim());
   }
 
   function checkImageUrl(elementId, expectedUrl) {
@@ -70,9 +81,41 @@ suite('DiceWebSigninInterceptTest', function() {
 
   test('ClickAccept', function() {
     assertTrue(isChildVisible(app, '#acceptButton'));
-    app.$$('#acceptButton').click();
+    const spinner = app.$$('paper-spinner-lite');
+    const acceptButton = app.$$('#acceptButton');
+    const cancelButton = app.$$('#cancelButton');
+    assertFalse(spinner.active);
+    assertFalse(acceptButton.disabled);
+    assertFalse(cancelButton.disabled);
+
+    acceptButton.click();
+
+    // Buttons are disabled and the spinner is active.
+    assertTrue(acceptButton.disabled);
+    assertTrue(cancelButton.disabled);
+    assertTrue(spinner.active);
     return browserProxy.whenCalled('accept');
   });
+
+  test('ClickGuest', function() {
+    assertTrue(isChildVisible(app, '#footer-description'));
+    const spinner = app.$$('paper-spinner-lite');
+    const acceptButton = app.$$('#acceptButton');
+    const cancelButton = app.$$('#cancelButton');
+    const guestLink = app.$$('#footer-description');
+    assertFalse(spinner.active);
+    assertFalse(acceptButton.disabled);
+    assertFalse(cancelButton.disabled);
+
+    guestLink.click();
+
+    // Buttons are disabled and the spinner is active.
+    assertTrue(acceptButton.disabled);
+    assertTrue(cancelButton.disabled);
+    assertTrue(spinner.active);
+    return browserProxy.whenCalled('guest');
+  });
+
 
   test('ClickCancel', function() {
     assertTrue(isChildVisible(app, '#cancelButton'));
@@ -82,16 +125,26 @@ suite('DiceWebSigninInterceptTest', function() {
 
   test('TextValues', function() {
     // Initial values.
-    checkTextValues('header_text', 'body_title', 'body_text');
+    checkTextValues(
+        'header_text', 'body_title', 'body_text', 'confirm_label',
+        'cancel_label');
 
     // Update the values.
     fireParametersChanged({
       headerText: 'new_header_text',
       bodyTitle: 'new_body_title',
       bodyText: 'new_body_text',
+      confirmButtonLabel: 'new_confirm_label',
+      cancelButtonLabel: 'new_cancel_label',
+      showGuestOption: true,
+      headerTextColor: 'rgba(255, 255, 255, 1)',
+      headerBackgroundColor: 'rgba(255, 0, 0, 1)',
       interceptedAccount: {isManaged: false, pictureUrl: AVATAR_URL_1},
+      primaryAccount: {isManaged: false, pictureUrl: AVATAR_URL_2}
     });
-    checkTextValues('new_header_text', 'new_body_title', 'new_body_text');
+    checkTextValues(
+        'new_header_text', 'new_body_title', 'new_body_text',
+        'new_confirm_label', 'new_cancel_label');
   });
 
   test('Avatars', function() {
@@ -103,7 +156,13 @@ suite('DiceWebSigninInterceptTest', function() {
       headerText: 'header_text',
       bodyTitle: 'body_title',
       bodyText: 'body_text',
+      confirmButtonLabel: 'confirm_label',
+      cancelButtonLabel: 'cancel_label',
+      showGuestOption: true,
+      headerTextColor: 'rgba(255, 255, 255, 1)',
+      headerBackgroundColor: 'rgba(255, 0, 0, 1)',
       interceptedAccount: {isManaged: false, pictureUrl: AVATAR_URL_2},
+      primaryAccount: {isManaged: false, pictureUrl: AVATAR_URL_2}
     };
 
     // Update urls.

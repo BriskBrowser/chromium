@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "ash/public/cpp/app_menu_constants.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
@@ -68,7 +69,7 @@ void AddArcCommandItem(int command_id,
                        const gfx::ImageSkia& icon,
                        apps::mojom::MenuItemsPtr* menu_items) {
   apps::mojom::MenuItemPtr menu_item = apps::mojom::MenuItem::New();
-  menu_item->type = apps::mojom::MenuItemType::kArcCommand;
+  menu_item->type = apps::mojom::MenuItemType::kPublisherCommand;
   menu_item->command_id = command_id;
   menu_item->shortcut_id = shortcut_id;
   menu_item->label = label;
@@ -182,7 +183,7 @@ bool PopulateNewItemFromMojoMenuItems(
       break;
     case apps::mojom::MenuItemType::kRadio:
     case apps::mojom::MenuItemType::kSeparator:
-    case apps::mojom::MenuItemType::kArcCommand:
+    case apps::mojom::MenuItemType::kPublisherCommand:
       NOTREACHED();
       return false;
   }
@@ -197,7 +198,7 @@ void PopulateItemFromMojoMenuItems(
     case apps::mojom::MenuItemType::kSeparator:
       model->AddSeparator(static_cast<ui::MenuSeparatorType>(item->command_id));
       break;
-    case apps::mojom::MenuItemType::kArcCommand: {
+    case apps::mojom::MenuItemType::kPublisherCommand: {
       model->AddItemWithIcon(item->command_id, base::UTF8ToUTF16(item->label),
                              ui::ImageModel::FromImageSkia(item->image));
       arc::ArcAppShortcutItem arc_shortcut_item;
@@ -211,6 +212,23 @@ void PopulateItemFromMojoMenuItems(
       NOTREACHED();
       break;
   }
+}
+
+base::StringPiece MenuTypeToString(apps::mojom::MenuType menu_type) {
+  switch (menu_type) {
+    case apps::mojom::MenuType::kShelf:
+      return "shelf";
+    case apps::mojom::MenuType::kAppList:
+      return "applist";
+  }
+}
+
+apps::mojom::MenuType MenuTypeFromString(base::StringPiece menu_type) {
+  if (base::LowerCaseEqualsASCII(menu_type, "shelf"))
+    return apps::mojom::MenuType::kShelf;
+  if (base::LowerCaseEqualsASCII(menu_type, "applist"))
+    return apps::mojom::MenuType::kAppList;
+  return apps::mojom::MenuType::kShelf;
 }
 
 }  // namespace apps

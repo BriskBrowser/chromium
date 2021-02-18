@@ -4,6 +4,7 @@
 
 #include <stddef.h>
 
+#include "ash/constants/ash_features.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
@@ -18,7 +19,6 @@
 #include "chrome/browser/ui/app_list/app_list_syncable_service_factory.h"
 #include "chrome/browser/ui/app_list/internal_app/internal_app_metadata.h"
 #include "chrome/browser/ui/app_list/page_break_constants.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "components/sync/base/user_selectable_type.h"
 #include "components/sync/driver/sync_service.h"
 #include "components/sync/driver/sync_user_settings.h"
@@ -106,8 +106,7 @@ class AppListSyncUpdateWaiter
 class SingleClientAppListSyncTest : public SyncTest {
  public:
   SingleClientAppListSyncTest() : SyncTest(SINGLE_CLIENT) {}
-
-  ~SingleClientAppListSyncTest() override {}
+  ~SingleClientAppListSyncTest() override = default;
 
   // SyncTest
   bool SetupClients() override {
@@ -119,18 +118,28 @@ class SingleClientAppListSyncTest : public SyncTest {
     SyncAppListHelper::GetInstance();
     return true;
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SingleClientAppListSyncTest);
 };
 
-IN_PROC_BROWSER_TEST_F(SingleClientAppListSyncTest, AppListEmpty) {
+class SingleClientAppListSyncTestWithVerifier
+    : public SingleClientAppListSyncTest {
+ public:
+  SingleClientAppListSyncTestWithVerifier() = default;
+  ~SingleClientAppListSyncTestWithVerifier() override = default;
+
+  bool UseVerifier() override {
+    // TODO(crbug.com/1137772): rewrite tests to not use verifier.
+    return true;
+  }
+};
+
+IN_PROC_BROWSER_TEST_F(SingleClientAppListSyncTestWithVerifier, AppListEmpty) {
   ASSERT_TRUE(SetupSync());
 
   ASSERT_TRUE(AllProfilesHaveSameAppList());
 }
 
-IN_PROC_BROWSER_TEST_F(SingleClientAppListSyncTest, AppListSomeApps) {
+IN_PROC_BROWSER_TEST_F(SingleClientAppListSyncTestWithVerifier,
+                       AppListSomeApps) {
   ASSERT_TRUE(SetupSync());
 
   const size_t kNumApps = 5;

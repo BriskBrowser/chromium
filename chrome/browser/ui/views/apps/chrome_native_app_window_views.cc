@@ -11,6 +11,7 @@
 #include "base/no_destructor.h"
 #include "base/stl_util.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/extensions/chrome_app_icon.h"
@@ -137,27 +138,17 @@ void ChromeNativeAppWindowViews::InitializeDefaultWindow(
   SetContentSizeConstraints(create_params.GetContentMinimumSize(frame_insets),
                             create_params.GetContentMaximumSize(frame_insets));
   if (!window_bounds.IsEmpty()) {
-    auto position_specified = [](const gfx::Rect& window_bounds) -> bool {
-      using BoundsSpecification = AppWindow::BoundsSpecification;
-      return window_bounds.x() != BoundsSpecification::kUnspecifiedPosition &&
-             window_bounds.y() != BoundsSpecification::kUnspecifiedPosition;
-    };
-
-    // Windows without saved bounds should be centered.
-    const bool center_window = !position_specified(window_bounds);
-
-    // Adjust bounds to be on the display for new windows.
-    AdjustBoundsToBeVisibleOnDisplayForNewWindows(&window_bounds);
-
-    // Widget::SetBounds should not take unspecified coordinates.
-    if (position_specified(window_bounds))
-      widget()->SetBounds(window_bounds);
-
-    if (center_window)
+    using BoundsSpecification = AppWindow::BoundsSpecification;
+    bool position_specified =
+        window_bounds.x() != BoundsSpecification::kUnspecifiedPosition &&
+        window_bounds.y() != BoundsSpecification::kUnspecifiedPosition;
+    if (!position_specified)
       widget()->CenterWindow(window_bounds.size());
+    else
+      widget()->SetBounds(window_bounds);
   }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (create_params.is_ime_window)
     return;
 #endif
@@ -203,9 +194,6 @@ ChromeNativeAppWindowViews::CreateStandardDesktopAppFrame() {
 bool ChromeNativeAppWindowViews::ShouldRemoveStandardFrame() {
   return IsFrameless() || has_frame_color_;
 }
-
-void ChromeNativeAppWindowViews::AdjustBoundsToBeVisibleOnDisplayForNewWindows(
-    gfx::Rect* out_bounds) {}
 
 // ui::BaseWindow implementation.
 
@@ -338,6 +326,7 @@ void ChromeNativeAppWindowViews::UpdateShape(
       region->op(gfx::RectToSkIRect(input_rect), SkRegion::kUnion_Op);
   }
   shape_ = std::move(region);
+  OnWidgetHasHitTestMaskChanged();
   widget()->SetShape(shape() ? std::make_unique<ShapeRects>(*shape_rects_)
                              : nullptr);
   widget()->OnSizeConstraintsChanged();

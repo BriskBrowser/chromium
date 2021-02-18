@@ -9,7 +9,6 @@
 
 #include <array>
 
-#include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/optional.h"
 #include "base/time/time.h"
@@ -18,29 +17,17 @@
 #include "chrome/common/search/ntp_logging_events.h"
 #include "components/ntp_tiles/constants.h"
 #include "components/ntp_tiles/ntp_tile_impression.h"
-#include "content/public/browser/web_contents_observer.h"
-#include "content/public/browser/web_contents_user_data.h"
 
 #if defined(OS_ANDROID)
 #error "Instant is only used on desktop";
 #endif
 
-namespace content {
-class WebContents;
-}
-
 // Helper class for logging data from the NTP. Attached to each NTP instance.
-class NTPUserDataLogger
-    : public content::WebContentsObserver,
-      public content::WebContentsUserData<NTPUserDataLogger> {
+class NTPUserDataLogger {
  public:
-  ~NTPUserDataLogger() override;
-
-  // Gets the associated NTPUserDataLogger, creating it if necessary.
-  //
-  // MUST be called only when the NTP is active.
-  static NTPUserDataLogger* GetOrCreateFromWebContents(
-      content::WebContents* content);
+  // Creates a NTPUserDataLogger. MUST be called only when the NTP is active.
+  NTPUserDataLogger(Profile* profile, const GURL& ntp_url);
+  virtual ~NTPUserDataLogger();
 
   // Called when a One Google Bar fetch has been completed after |duration|.
   // |success| is true if the fetch was successful.
@@ -52,6 +39,18 @@ class NTPUserDataLogger
   // event happened. The NTP_ALL_TILES_LOADED event may be logged from all NTPs;
   // all others require Google as the default search provider.
   void LogEvent(NTPLoggingEventType event, base::TimeDelta time);
+
+  // Logs a module impression. Called when a module is loaded and can be seen by
+  // the user (scrolled into view).
+  void LogModuleImpression(const std::string& id, base::TimeDelta time);
+
+  // Logs a module is loaded on the NTP.
+  void LogModuleLoaded(const std::string& id,
+                       base::TimeDelta duration,
+                       base::TimeDelta time_since_navigation);
+
+  // Logs when a user interacts with a module which will result in a navigation.
+  void LogModuleUsage(const std::string& id);
 
   // Called when a search suggestion event occurs on the NTP that has an integer
   // value associated with it; N suggestions were shown on this NTP load, the
@@ -68,28 +67,10 @@ class NTPUserDataLogger
   // Logs a navigation on one of the NTP tiles by a given impression.
   void LogMostVisitedNavigation(const ntp_tiles::NTPTileImpression& impression);
 
- protected:
-  explicit NTPUserDataLogger(content::WebContents* contents);
-
-  void set_ntp_url_for_testing(const GURL& ntp_url) { ntp_url_ = ntp_url; }
+  // Sets visibility of modules to be later logged.
+  void SetModulesVisible(bool visible);
 
  private:
-  friend class content::WebContentsUserData<NTPUserDataLogger>;
-
-  FRIEND_TEST_ALL_PREFIXES(NTPUserDataLoggerTest, ShouldRecordLoadTime);
-  FRIEND_TEST_ALL_PREFIXES(NTPUserDataLoggerTest, ShouldRecordNumberOfTiles);
-  FRIEND_TEST_ALL_PREFIXES(NTPUserDataLoggerTest,
-                           ShouldNotRecordImpressionsForBinsBeyondMax);
-  FRIEND_TEST_ALL_PREFIXES(NTPUserDataLoggerTest,
-                           ShouldRecordImpressionsAgainAfterNavigating);
-
-  // content::WebContentsObserver override
-  void NavigationEntryCommitted(
-      const content::LoadCommittedDetails& load_details) override;
-
-  // Implementation of NavigationEntryCommitted; separate for test.
-  void NavigatedFromURLToURL(const GURL& from, const GURL& to);
-
   // Returns whether Google is selected as the default search engine. Virtual
   // for testing.
   virtual bool DefaultSearchProviderIsGoogle() const;
@@ -135,6 +116,8 @@ class NTPUserDataLogger
 
   bool should_record_doodle_load_time_;
 
+  bool modules_visible_;
+
   // Are stats being logged during Chrome startup?
   bool during_startup_;
 
@@ -143,8 +126,6 @@ class NTPUserDataLogger
 
   // The profile in which this New Tab Page was loaded.
   Profile* profile_;
-
-  WEB_CONTENTS_USER_DATA_KEY_DECL();
 
   DISALLOW_COPY_AND_ASSIGN(NTPUserDataLogger);
 };

@@ -7,6 +7,7 @@ import web_idl
 from . import name_style
 from .blink_v8_bridge import blink_class_name
 from .blink_v8_bridge import blink_type_info
+from .blink_v8_bridge import make_blink_to_v8_value
 from .blink_v8_bridge import make_default_value_expr
 from .blink_v8_bridge import make_v8_to_blink_value
 from .blink_v8_bridge import native_value_tag
@@ -26,6 +27,7 @@ from .codegen_accumulator import CodeGenAccumulator
 from .codegen_context import CodeGenContext
 from .codegen_expr import expr_from_exposure
 from .codegen_format import format_template as _format
+from .codegen_utils import collect_forward_decls_and_include_headers
 from .codegen_utils import component_export
 from .codegen_utils import component_export_header
 from .codegen_utils import enclose_with_header_guard
@@ -59,7 +61,7 @@ def _blink_member_name(member):
             # C++ data member that shows the presence of the IDL member.
             self.presence_var = name_style.member_var("has", blink_name)
             # C++ data member that holds the value of the IDL member.
-            self.value_var = name_style.member_var(blink_name)
+            self.value_var = name_style.member_var_f("member_{}", blink_name)
             # Migration Adapters
             self.get_non_null_api = name_style.api_func(blink_name, "non_null")
             self.has_non_null_api = name_style.api_func(
@@ -97,7 +99,7 @@ def bind_member_iteration_local_vars(code_node):
             "current_context", "v8::Local<v8::Context> ${current_context} = "
             "${isolate}->GetCurrentContext();"),
         SymbolNode(
-            "member_names", "const auto* ${member_names} = "
+            "v8_member_names", "const auto* ${v8_member_names} = "
             "GetV8MemberNames(${isolate}).data();"),
         SymbolNode(
             "is_in_secure_context", "const bool ${is_in_secure_context} = "
@@ -115,114 +117,6 @@ def bind_member_iteration_local_vars(code_node):
     local_vars.append(node)
 
     code_node.register_code_symbols(local_vars)
-
-
-def _make_include_headers(cg_context):
-    assert isinstance(cg_context, CodeGenContext)
-
-    dictionary = cg_context.dictionary
-    for_testing = dictionary.code_generator_info.for_testing
-
-    header_includes = set()
-    source_includes = set()
-
-    if dictionary.inherited:
-        header_includes.add(
-            PathManager(dictionary.inherited).api_path(ext="h"))
-    else:
-        header_includes.add(
-            "third_party/blink/renderer/platform/bindings/dictionary_base.h")
-
-    header_includes.update([
-        component_export_header(dictionary.components[0], for_testing),
-        "third_party/blink/renderer/bindings/core/v8/generated_code_helper.h",
-        "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h",
-        "v8/include/v8.h",
-    ])
-    source_includes.update([
-        "third_party/blink/renderer/platform/bindings/exception_messages.h",
-        "third_party/blink/renderer/platform/bindings/exception_state.h",
-        "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h",
-        "third_party/blink/renderer/platform/heap/visitor.h",
-    ])
-
-    def add_include_headers(idl_type):
-        if idl_type.is_numeric or idl_type.is_boolean or idl_type.is_typedef:
-            pass
-        elif idl_type.is_string:
-            header_includes.add(
-                "third_party/blink/renderer/platform/wtf/text/wtf_string.h")
-        elif idl_type.is_buffer_source_type:
-            header_includes.update([
-                "third_party/blink/renderer/core/typed_arrays/array_buffer_view_helpers.h",
-                "third_party/blink/renderer/core/typed_arrays/dom_typed_array.h",
-                "third_party/blink/renderer/platform/heap/handle.h",
-            ])
-        elif idl_type.is_object or idl_type.is_any:
-            header_includes.add(
-                "third_party/blink/renderer/bindings/core/v8/script_value.h")
-        elif idl_type.is_enumeration:
-            type_def_obj = idl_type.type_definition_object
-            header_includes.add(PathManager(type_def_obj).api_path(ext="h"))
-        elif idl_type.is_dictionary:
-            type_def_obj = idl_type.type_definition_object
-            header_includes.add(
-                "third_party/blink/renderer/platform/heap/handle.h")
-            source_includes.add(PathManager(type_def_obj).api_path(ext="h"))
-        elif idl_type.type_definition_object:
-            type_def_obj = idl_type.type_definition_object
-            header_includes.update([
-                PathManager(type_def_obj).api_path(ext="h"),
-                "third_party/blink/renderer/platform/heap/handle.h",
-            ])
-        elif (idl_type.is_sequence or idl_type.is_frozen_array
-              or idl_type.is_variadic or idl_type.is_record):
-            header_includes.update([
-                "third_party/blink/renderer/platform/wtf/vector.h",
-                "third_party/blink/renderer/platform/heap/heap_allocator.h",
-            ])
-        elif idl_type.is_promise:
-            header_includes.add(
-                "third_party/blink/renderer/bindings/core/v8/script_promise.h")
-        elif idl_type.is_union:
-            union_def_obj = idl_type.union_definition_object
-            header_includes.add(PathManager(union_def_obj).api_path(ext="h"))
-        elif idl_type.is_nullable:
-            if not blink_type_info(idl_type.inner_type).has_null_value:
-                header_includes.add("base/optional.h")
-        else:
-            assert False, "Unknown type: {}".format(idl_type.syntactic_form)
-
-    for member in dictionary.own_members:
-        member.idl_type.apply_to_all_composing_elements(add_include_headers)
-
-    return header_includes, source_includes
-
-
-def _make_forward_declarations(cg_context):
-    assert isinstance(cg_context, CodeGenContext)
-
-    dictionary = cg_context.dictionary
-
-    header_class_fwd_decls = set([
-        "ExceptionState",
-        "Visitor",
-    ])
-    header_struct_fwd_decls = set()
-
-    source_class_fwd_decls = set()
-    source_struct_fwd_decls = set()
-
-    def add_fwd_decls(idl_type):
-        if idl_type.is_dictionary:
-            header_class_fwd_decls.add(
-                blink_class_name(idl_type.type_definition_object))
-
-    for member in dictionary.own_members:
-        member.idl_type.apply_to_all_composing_elements(add_fwd_decls)
-
-    return (header_class_fwd_decls, header_struct_fwd_decls,
-            source_class_fwd_decls, source_struct_fwd_decls)
 
 
 def _is_default_ctor_available(dictionary):
@@ -776,43 +670,32 @@ def make_fill_with_own_dict_members_func(cg_context):
     func_def.set_base_template_vars(cg_context.template_bindings())
     body = func_def.body
     body.add_template_var("isolate", "isolate")
+    body.add_template_var("creation_context", "creation_context")
+    body.add_template_var("v8_dictionary", "v8_dictionary")
     bind_member_iteration_local_vars(body)
 
-    def to_v8_expr(member):
-        get_api = _blink_member_name(member).get_api
-        member_type = member.idl_type.unwrap(typedef=True)
-        expr = _format("ToV8({}(), creation_context, isolate)", get_api)
-        if member_type.is_nullable and member_type.unwrap().is_string:
-            expr = _format(
-                "({get_api}().IsNull() ? v8::Null(isolate).As<v8::Value>() "
-                ": {to_v8})",
-                get_api=get_api,
-                to_v8=expr)
-        return expr
-
-    for key_index, member in enumerate(own_members):
-        pattern = """\
-if ({has_api}()) {{
-  if (!v8_dictionary
-           ->CreateDataProperty(
-               ${current_context},
-               ${member_names}[{index}].Get(isolate),
-               {to_v8_expr})
-           .ToChecked()) {{
-    return false;
-  }}
-}}\
-"""
-        node = TextNode(
-            _format(pattern,
-                    has_api=_blink_member_name(member).has_api,
-                    index=key_index,
-                    to_v8_expr=to_v8_expr(member)))
-
+    for index, member in enumerate(own_members):
+        member_name = _blink_member_name(member)
+        v8_member_name = name_style.local_var_f("v8_member_{}",
+                                                member.identifier)
+        body.register_code_symbol(
+            make_blink_to_v8_value(v8_member_name,
+                                   "{}()".format(member_name.get_api),
+                                   member.idl_type, "${creation_context}"))
+        node = CxxLikelyIfNode(
+            cond="{}()".format(member_name.has_api),
+            body=TextNode(
+                _format(
+                    "${v8_dictionary}->CreateDataProperty("
+                    "${current_context}, "
+                    "${v8_member_names}[{index}].Get(${isolate}), "
+                    "${{{v8_member_name}}}"
+                    ").ToChecked();",
+                    index=index,
+                    v8_member_name=v8_member_name)))
         conditional = expr_from_exposure(member.exposure)
         if not conditional.is_always_true:
             node = CxxLikelyIfNode(cond=conditional, body=node)
-
         body.append(node)
 
     body.append(TextNode("return true;"))
@@ -944,7 +827,7 @@ if (!bindings::ConvertDictionaryMember<{nvt_tag}, {is_required}>(
         ${isolate},
         ${current_context},
         v8_dictionary,
-        ${member_names}[{key_index}].Get(${isolate}),
+        ${v8_member_names}[{key_index}].Get(${isolate}),
         "${{dictionary.identifier}}",
         "{member_name}",
         {value_var},
@@ -1003,7 +886,7 @@ def make_dict_trace_func(cg_context):
         _2 = _blink_member_name(member).value_var
         return TextNode(_format(pattern, _1=_1, _2=_2))
 
-    body.extend(map(make_trace_member_node, own_members))
+    body.extend(list(map(make_trace_member_node, own_members)))
     body.append(TextNode("BaseClass::Trace(visitor);"))
 
     return func_decl, func_def
@@ -1015,9 +898,10 @@ def generate_dictionary(dictionary_identifier):
     web_idl_database = package_initializer().web_idl_database()
     dictionary = web_idl_database.find(dictionary_identifier)
 
-    assert len(dictionary.components) == 1, (
+    path_manager = PathManager(dictionary)
+    assert path_manager.api_component == path_manager.impl_component, (
         "We don't support partial dictionaries across components yet.")
-    component = dictionary.components[0]
+    api_component = path_manager.api_component
     for_testing = dictionary.code_generator_info.for_testing
 
     path_manager = PathManager(dictionary)
@@ -1052,7 +936,7 @@ def generate_dictionary(dictionary_identifier):
     class_def = CxxClassDefNode(cg_context.class_name,
                                 base_class_names=[cg_context.base_class_name],
                                 export=component_export(
-                                    component, for_testing))
+                                    api_component, for_testing))
     class_def.set_base_template_vars(cg_context.template_bindings())
     class_def.top_section.append(
         TextNode("using BaseClass = ${base_class_name};"))
@@ -1112,17 +996,6 @@ def generate_dictionary(dictionary_identifier):
         member_presense_var_defs.append(presense_var_def)
 
     # Header part (copyright, include directives, and forward declarations)
-    header_includes, source_includes = _make_include_headers(cg_context)
-    header_node.accumulator.add_include_headers(header_includes)
-    source_node.accumulator.add_include_headers(source_includes)
-
-    (header_class_fwd_decls, header_struct_fwd_decls, source_class_fwd_decls,
-     source_struct_fwd_decls) = _make_forward_declarations(cg_context)
-    header_node.accumulator.add_class_decls(header_class_fwd_decls)
-    header_node.accumulator.add_struct_decls(header_struct_fwd_decls)
-    source_node.accumulator.add_class_decls(source_class_fwd_decls)
-    source_node.accumulator.add_struct_decls(source_struct_fwd_decls)
-
     header_node.extend([
         make_copyright_header(),
         TextNode(""),
@@ -1152,6 +1025,29 @@ def generate_dictionary(dictionary_identifier):
     ])
 
     # Assemble the parts.
+    header_node.accumulator.add_class_decls(["ExceptionState"])
+    header_node.accumulator.add_include_headers([
+        (PathManager(dictionary.inherited).api_path(ext="h")
+         if dictionary.inherited else
+         "third_party/blink/renderer/platform/bindings/dictionary_base.h"),
+        component_export_header(api_component, for_testing),
+        "v8/include/v8.h",
+    ])
+    source_node.accumulator.add_include_headers([
+        "third_party/blink/renderer/bindings/core/v8/generated_code_helper.h",
+        "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h",
+        "third_party/blink/renderer/platform/bindings/exception_messages.h",
+        "third_party/blink/renderer/platform/bindings/exception_state.h",
+        "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h",
+    ])
+    (header_forward_decls, header_include_headers, source_forward_decls,
+     source_include_headers) = collect_forward_decls_and_include_headers(
+         map(lambda member: member.idl_type, dictionary.own_members))
+    header_node.accumulator.add_class_decls(header_forward_decls)
+    header_node.accumulator.add_include_headers(header_include_headers)
+    source_node.accumulator.add_class_decls(source_forward_decls)
+    source_node.accumulator.add_include_headers(source_include_headers)
+
     header_blink_ns.body.append(class_def)
     class_def.public_section.extend([
         create_decl,

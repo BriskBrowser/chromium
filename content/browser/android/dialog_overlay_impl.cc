@@ -4,7 +4,7 @@
 
 #include "content/browser/android/dialog_overlay_impl.h"
 
-#include "content/browser/frame_host/render_frame_host_impl.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/android/content_jni_headers/DialogOverlayImpl_jni.h"
@@ -12,6 +12,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "gpu/ipc/common/gpu_surface_tracker.h"
+#include "media/mojo/mojom/android_overlay.mojom.h"
 #include "ui/android/view_android_observer.h"
 #include "ui/android/window_android.h"
 
@@ -252,13 +253,29 @@ void DialogOverlayImpl::RegisterWindowObserverIfNeeded(
   }
 }
 
+static void JNI_DialogOverlayImpl_NotifyDestroyedSynchronously(
+    JNIEnv* env,
+    int message_pipe_handle) {
+  mojo::MessagePipeHandle handle(message_pipe_handle);
+  mojo::ScopedMessagePipeHandle scoped_handle(handle);
+  mojo::Remote<media::mojom::AndroidOverlayClient> remote(
+      mojo::PendingRemote<media::mojom::AndroidOverlayClient>(
+          std::move(scoped_handle),
+          media::mojom::AndroidOverlayClient::Version_));
+  if (!remote.is_bound())
+    return;
+  remote->OnSynchronouslyDestroyed();
+  // Note that we don't take back the mojo message pipe.  We let it close when
+  // `remote` goes out of scope.
+}
+
 static jint JNI_DialogOverlayImpl_RegisterSurface(
     JNIEnv* env,
     const JavaParamRef<jobject>& surface) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   return gpu::GpuSurfaceTracker::Get()->AddSurfaceForNativeWidget(
       gpu::GpuSurfaceTracker::SurfaceRecord(
-          gfx::kNullAcceleratedWidget, surface.obj(),
+          gfx::kNullAcceleratedWidget, surface,
           false /* can_be_used_with_surface_control */));
 }
 

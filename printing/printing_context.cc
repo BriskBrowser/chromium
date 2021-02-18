@@ -8,6 +8,7 @@
 
 #include "base/check.h"
 #include "base/notreached.h"
+#include "build/chromeos_buildflags.h"
 #include "printing/page_setup.h"
 #include "printing/print_job_constants.h"
 #include "printing/print_settings_conversion.h"
@@ -96,10 +97,14 @@ PrintingContext::Result PrintingContext::UsePdfSettings() {
 PrintingContext::Result PrintingContext::UpdatePrintSettings(
     base::Value job_settings) {
   ResetSettings();
-
-  if (!PrintSettingsFromJobSettings(job_settings, settings_.get())) {
-    NOTREACHED();
-    return OnError();
+  {
+    std::unique_ptr<PrintSettings> settings =
+        PrintSettingsFromJobSettings(job_settings);
+    if (!settings) {
+      NOTREACHED();
+      return OnError();
+    }
+    settings_ = std::move(settings);
   }
 
   PrinterType printer_type = static_cast<PrinterType>(
@@ -141,7 +146,7 @@ PrintingContext::Result PrintingContext::UpdatePrintSettings(
       job_settings.FindIntKey(kSettingPreviewPageCount).value_or(0));
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 PrintingContext::Result PrintingContext::UpdatePrintSettingsFromPOD(
     std::unique_ptr<PrintSettings> job_settings) {
   ResetSettings();

@@ -6,9 +6,11 @@
 #define CHROME_BROWSER_SSL_SCT_REPORTING_SERVICE_H_
 
 #include "base/callback_list.h"
+#include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/observer_list_types.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "url/gurl.h"
 
 class PrefService;
 class Profile;
@@ -19,15 +21,12 @@ class SafeBrowsingService;
 
 // This class observes SafeBrowsing preference changes to enable/disable
 // reporting. It does this by subscribing to changes in SafeBrowsing and
-// extended reporting preferences. It also receives notifications about new
-// audit reports added to the SCT auditing cache and handles routing them to
-// the correct NetworkContext for sending.
+// extended reporting preferences. It also handles configuring SCT auditing in
+// the network service.
 class SCTReportingService : public KeyedService {
  public:
-  class TestObserver : public base::CheckedObserver {
-   public:
-    virtual void OnSCTReportReady(const std::string& cache_key) = 0;
-  };
+  static GURL& GetReportURLInstance();
+  static void ReconfigureAfterNetworkRestart();
 
   SCTReportingService(safe_browsing::SafeBrowsingService* safe_browsing_service,
                       Profile* profile);
@@ -39,23 +38,13 @@ class SCTReportingService : public KeyedService {
   // Enables or disables reporting.
   void SetReportingEnabled(bool enabled);
 
-  // Receives notification about a new entry being added to the network
-  // service's SCT auditing cache under the key `cache_key`.
-  void OnSCTReportReady(const std::string& cache_key);
-
-  void AddObserverForTesting(TestObserver* observer);
-  void RemoveObserverForTesting(TestObserver* observer);
-
  private:
   void OnPreferenceChanged();
 
   safe_browsing::SafeBrowsingService* safe_browsing_service_;
   const PrefService& pref_service_;
   Profile* profile_;
-  std::unique_ptr<base::CallbackList<void(void)>::Subscription>
-      safe_browsing_state_subscription_;
-
-  base::ObserverList<TestObserver> test_observers_;
+  base::CallbackListSubscription safe_browsing_state_subscription_;
 };
 
 #endif  // CHROME_BROWSER_SSL_SCT_REPORTING_SERVICE_H_

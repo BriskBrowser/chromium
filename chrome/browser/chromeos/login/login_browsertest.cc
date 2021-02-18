@@ -4,6 +4,8 @@
 
 #include <string>
 
+#include "ash/constants/ash_switches.h"
+#include "ash/public/cpp/login_screen_test_api.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
 #include "ash/system/status_area_widget.h"
@@ -15,26 +17,31 @@
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/login/login_manager_test.h"
 #include "chrome/browser/chromeos/login/login_wizard.h"
+#include "chrome/browser/chromeos/login/test/device_state_mixin.h"
 #include "chrome/browser/chromeos/login/test/embedded_test_server_mixin.h"
 #include "chrome/browser/chromeos/login/test/fake_gaia_mixin.h"
 #include "chrome/browser/chromeos/login/test/guest_session_mixin.h"
 #include "chrome/browser/chromeos/login/test/login_manager_mixin.h"
-#include "chrome/browser/chromeos/login/test/offline_gaia_test_mixin.h"
+#include "chrome/browser/chromeos/login/test/network_portal_detector_mixin.h"
+#include "chrome/browser/chromeos/login/test/offline_login_test_mixin.h"
 #include "chrome/browser/chromeos/login/test/oobe_base_test.h"
 #include "chrome/browser/chromeos/login/test/oobe_screen_waiter.h"
 #include "chrome/browser/chromeos/login/test/session_manager_state_waiter.h"
 #include "chrome/browser/chromeos/login/test/test_predicate_waiter.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host_webui.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/webui/chromeos/login/error_screen_handler.h"
+#include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/welcome_screen_handler.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
-#include "chromeos/constants/chromeos_switches.h"
+#include "components/policy/proto/chrome_device_policy.pb.h"
 #include "components/user_manager/user_names.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
+#include "google_apis/gaia/gaia_auth_util.h"
 #include "net/dns/mock_host_resolver.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/gfx/geometry/test/rect_test_util.h"
@@ -46,6 +53,8 @@ using ::testing::Return;
 
 namespace chromeos {
 namespace {
+
+const test::UIPath kOfflineLoginBackButton = {"offline-login", "backButton"};
 
 class LoginUserTest : public InProcessBrowserTest {
  protected:
@@ -79,7 +88,45 @@ class LoginOfflineTest : public LoginManagerTest {
  protected:
   AccountId test_account_id_;
   LoginManagerMixin login_manager_{&mixin_host_};
-  OfflineGaiaTestMixin offline_gaia_test_mixin_{&mixin_host_};
+  OfflineLoginTestMixin offline_login_test_mixin_{&mixin_host_};
+  // We need Fake gaia to avoid network errors that can be caused by
+  // attempts to load real GAIA.
+  FakeGaiaMixin fake_gaia_{&mixin_host_, embedded_test_server()};
+  NetworkPortalDetectorMixin network_portal_detector_{&mixin_host_};
+};
+
+class LoginOfflineManagedTest : public LoginManagerTest {
+ public:
+  LoginOfflineManagedTest() {
+    login_manager_.AppendManagedUsers(1);
+    managed_user_id_ = login_manager_.users()[0].account_id;
+  }
+
+  ~LoginOfflineManagedTest() override {}
+
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    LoginManagerTest::SetUpCommandLine(command_line);
+    command_line->AppendSwitch(
+        chromeos::switches::kAllowFailedPolicyFetchForTest);
+  }
+
+  void ConfigurePolicy(const std::string& autocomplete_domain) {
+    std::unique_ptr<ScopedDevicePolicyUpdate> device_policy_update =
+        device_state_.RequestDevicePolicyUpdate();
+    device_policy_update->policy_payload()
+        ->mutable_login_screen_domain_auto_complete()
+        ->set_login_screen_domain_auto_complete(autocomplete_domain);
+    device_policy_update->policy_payload()
+        ->mutable_show_user_names()
+        ->set_show_user_names(false);
+  }
+
+ protected:
+  AccountId managed_user_id_;
+  DeviceStateMixin device_state_{
+      &mixin_host_, DeviceStateMixin::State::OOBE_COMPLETED_CLOUD_ENROLLED};
+  LoginManagerMixin login_manager_{&mixin_host_};
+  OfflineLoginTestMixin offline_login_test_mixin_{&mixin_host_};
   // We need Fake gaia to avoid network errors that can be caused by
   // attempts to load real GAIA.
   FakeGaiaMixin fake_gaia_{&mixin_host_, embedded_test_server()};
@@ -164,19 +211,73 @@ IN_PROC_BROWSER_TEST_F(LoginSigninTest, WebUIVisible) {
       .Wait();
 }
 
-IN_PROC_BROWSER_TEST_F(LoginOfflineTest, PRE_GaiaAuthOffline) {
-  offline_gaia_test_mixin_.PrepareOfflineGaiaLogin();
+IN_PROC_BROWSER_TEST_F(LoginOfflineTest, PRE_AuthOffline) {
+  offline_login_test_mixin_.PrepareOfflineLogin();
 }
 
-IN_PROC_BROWSER_TEST_F(LoginOfflineTest, GaiaAuthOffline) {
-  offline_gaia_test_mixin_.GoOffline();
-  offline_gaia_test_mixin_.InitOfflineLogin(test_account_id_,
-                                            LoginManagerTest::kPassword);
-  offline_gaia_test_mixin_.CheckManagedStatus(false);
-  offline_gaia_test_mixin_.SubmitGaiaAuthOfflineForm(
+IN_PROC_BROWSER_TEST_F(LoginOfflineTest, AuthOffline) {
+  network_portal_detector_.SimulateDefaultNetworkState(
+      NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_OFFLINE);
+  offline_login_test_mixin_.GoOffline();
+  offline_login_test_mixin_.InitOfflineLogin(test_account_id_,
+                                             LoginManagerTest::kPassword);
+  offline_login_test_mixin_.CheckManagedStatus(false);
+  offline_login_test_mixin_.SubmitLoginAuthOfflineForm(
       test_account_id_.GetUserEmail(), LoginManagerTest::kPassword,
       true /* wait for sign-in */);
   TestSystemTrayIsVisible(false);
+}
+
+IN_PROC_BROWSER_TEST_F(LoginOfflineManagedTest, CorrectDomainCompletion) {
+  std::string domain = gaia::ExtractDomainName(managed_user_id_.GetUserEmail());
+
+  ConfigurePolicy(domain);
+
+  std::string email = managed_user_id_.GetUserEmail();
+  size_t separator_pos = email.find('@');
+  ASSERT_TRUE(separator_pos != email.npos &&
+              separator_pos < email.length() - 1);
+  std::string prefix = email.substr(0, separator_pos);
+
+  OobeScreenWaiter(GaiaView::kScreenId).Wait();
+  offline_login_test_mixin_.GoOffline();
+  offline_login_test_mixin_.InitOfflineLogin(managed_user_id_,
+                                             LoginManagerTest::kPassword);
+
+  offline_login_test_mixin_.CheckManagedStatus(true);
+
+  offline_login_test_mixin_.SubmitLoginAuthOfflineForm(
+      prefix, LoginManagerTest::kPassword, true /* wait for sign-in */);
+  TestSystemTrayIsVisible(false);
+}
+
+IN_PROC_BROWSER_TEST_F(LoginOfflineManagedTest, FullEmailDontMatchProvided) {
+  ConfigurePolicy("another.domain");
+
+  OobeScreenWaiter(GaiaView::kScreenId).Wait();
+  offline_login_test_mixin_.GoOffline();
+  offline_login_test_mixin_.InitOfflineLogin(managed_user_id_,
+                                             LoginManagerTest::kPassword);
+
+  offline_login_test_mixin_.SubmitLoginAuthOfflineForm(
+      managed_user_id_.GetUserEmail(), LoginManagerTest::kPassword,
+      true /* wait for sign-in */);
+  TestSystemTrayIsVisible(false);
+}
+
+IN_PROC_BROWSER_TEST_F(LoginOfflineManagedTest, BackButtonTest) {
+  std::string domain = gaia::ExtractDomainName(managed_user_id_.GetUserEmail());
+
+  ConfigurePolicy(domain);
+
+  OobeScreenWaiter(GaiaView::kScreenId).Wait();
+  offline_login_test_mixin_.GoOffline();
+  offline_login_test_mixin_.InitOfflineLogin(managed_user_id_,
+                                             LoginManagerTest::kPassword);
+
+  test::OobeJS().ClickOnPath(kOfflineLoginBackButton);
+  OobeScreenWaiter(ErrorScreenView::kScreenId).Wait();
+  EXPECT_TRUE(ash::LoginScreenTestApi::IsOobeDialogVisible());
 }
 
 }  // namespace chromeos

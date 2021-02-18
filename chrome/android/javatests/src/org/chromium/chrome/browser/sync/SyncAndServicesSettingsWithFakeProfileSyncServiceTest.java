@@ -44,8 +44,8 @@ public class SyncAndServicesSettingsWithFakeProfileSyncServiceTest {
     public void testTrustedVaultKeyRequiredShowsSyncErrorCard() throws Exception {
         FakeProfileSyncService fakeProfileSyncService =
                 (FakeProfileSyncService) mSyncTestRule.getProfileSyncService();
-        mSyncTestRule.setUpAccountAndSignInForTesting();
-        SyncTestUtil.waitForSyncActive();
+        mSyncTestRule.setUpAccountAndEnableSyncForTesting();
+        SyncTestUtil.waitForSyncFeatureActive();
         fakeProfileSyncService.setEngineInitialized(true);
         fakeProfileSyncService.setTrustedVaultKeyRequiredForPreferredDataTypes(true);
 

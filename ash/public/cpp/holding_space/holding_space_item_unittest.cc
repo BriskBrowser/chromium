@@ -7,9 +7,10 @@
 #include <memory>
 #include <vector>
 
-#include "base/test/bind_test_util.h"
+#include "ash/public/cpp/holding_space/holding_space_image.h"
+#include "base/callback_helpers.h"
+#include "base/test/bind.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/gfx/image/image_unittest_util.h"
 
 namespace ash {
 
@@ -22,6 +23,14 @@ std::vector<HoldingSpaceItem::Type> GetHoldingSpaceItemTypes() {
   return types;
 }
 
+std::unique_ptr<HoldingSpaceImage> CreateFakeHoldingSpaceImage(
+    HoldingSpaceItem::Type type,
+    const base::FilePath& file_path) {
+  return std::make_unique<HoldingSpaceImage>(
+      HoldingSpaceImage::GetMaxSizeForType(type), file_path,
+      /*async_bitmap_resolver=*/base::DoNothing());
+}
+
 }  // namespace
 
 using HoldingSpaceItemTest = testing::TestWithParam<HoldingSpaceItem::Type>;
@@ -29,32 +38,33 @@ using HoldingSpaceItemTest = testing::TestWithParam<HoldingSpaceItem::Type>;
 // Tests round-trip serialization for each holding space item type.
 TEST_P(HoldingSpaceItemTest, Serialization) {
   const base::FilePath file_path("file_path");
-  const GURL file_system_url("file_system_url");
-  const gfx::ImageSkia image(gfx::test::CreateImageSkia(10, 10));
+  const GURL file_system_url("filesystem:file_system_url");
 
   const auto holding_space_item = HoldingSpaceItem::CreateFileBackedItem(
-      /*type=*/GetParam(), file_path, file_system_url, image);
+      /*type=*/GetParam(), file_path, file_system_url,
+      /*image_resolver=*/base::BindOnce(&CreateFakeHoldingSpaceImage));
 
   const base::DictionaryValue serialized_holding_space_item =
       holding_space_item->Serialize();
 
   const auto deserialized_holding_space_item = HoldingSpaceItem::Deserialize(
       serialized_holding_space_item,
-      /*file_system_url_resolver=*/
-      base::BindLambdaForTesting(
-          [&](const base::FilePath& file_path) { return file_system_url; }),
-      /*image_resolver=*/
-      base::BindLambdaForTesting(
-          [&](const base::FilePath& file_path) { return image; }));
+      /*image_resolver=*/base::BindOnce(&CreateFakeHoldingSpaceImage));
 
+  EXPECT_FALSE(deserialized_holding_space_item->IsFinalized());
+  EXPECT_TRUE(deserialized_holding_space_item->file_system_url().is_empty());
+
+  deserialized_holding_space_item->Finalize(file_system_url);
+  EXPECT_TRUE(deserialized_holding_space_item->IsFinalized());
   EXPECT_EQ(*deserialized_holding_space_item, *holding_space_item);
 }
 
 // Tests deserialization of id for each holding space item type.
 TEST_P(HoldingSpaceItemTest, DeserializeId) {
   const auto holding_space_item = HoldingSpaceItem::CreateFileBackedItem(
-      /*type=*/GetParam(), base::FilePath("file_path"), GURL("file_system_url"),
-      gfx::test::CreateImageSkia(10, 10));
+      /*type=*/GetParam(), base::FilePath("file_path"),
+      GURL("filesystem:file_system_url"),
+      /*image_resolver=*/base::BindOnce(&CreateFakeHoldingSpaceImage));
 
   const base::DictionaryValue serialized_holding_space_item =
       holding_space_item->Serialize();

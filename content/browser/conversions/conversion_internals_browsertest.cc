@@ -5,6 +5,7 @@
 #include "content/browser/conversions/conversion_internals_ui.h"
 
 #include "base/optional.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "content/browser/conversions/conversion_manager.h"
 #include "content/browser/conversions/conversion_report.h"
@@ -40,7 +41,7 @@ class ConversionInternalsWebUiBrowserTest : public ContentBrowserTest {
   // Executing javascript in the WebUI requires using an isolated world in which
   // to execute the script because WebUI has a default CSP policy denying
   // "eval()", which is what EvalJs uses under the hood.
-  bool ExecJsInWebUI(std::string script) {
+  bool ExecJsInWebUI(const std::string& script) {
     return ExecJs(shell()->web_contents()->GetMainFrame(), script,
                   EXECUTE_SCRIPT_DEFAULT_OPTIONS, 1 /* world_id */);
   }
@@ -182,7 +183,7 @@ IN_PROC_BROWSER_TEST_F(ConversionInternalsWebUiBrowserTest,
     let table = document.getElementById("impression-table-body");
     let obs = new MutationObserver(() => {
       if (table.children.length === 2 &&
-          table.children[0].children[0].innerText === "0x100") {
+          table.children[0].children[0].innerText === "100") {
         document.title = $1;
       }
     });
@@ -214,8 +215,8 @@ IN_PROC_BROWSER_TEST_F(ConversionInternalsWebUiBrowserTest,
   TestConversionManager manager;
   ConversionReport report(
       ImpressionBuilder(base::Time::Now()).SetData("100").Build(),
-      "7" /* conversion_data */, base::Time::Now() /* report_time */,
-      1 /* conversion_id */);
+      "7" /* conversion_data */, base::Time::Now() /* conversion_time */,
+      base::Time::Now() /* report_time */, 1 /* conversion_id */);
   manager.SetReportsForWebUI({report});
   OverrideWebUIConversionManager(&manager);
 
@@ -223,7 +224,7 @@ IN_PROC_BROWSER_TEST_F(ConversionInternalsWebUiBrowserTest,
     let table = document.getElementById("report-table-body");
     let obs = new MutationObserver(() => {
       if (table.children.length === 1 &&
-          table.children[0].children[1].innerText === "0x7") {
+          table.children[0].children[1].innerText === "7") {
         document.title = $1;
       }
     });
@@ -242,8 +243,8 @@ IN_PROC_BROWSER_TEST_F(ConversionInternalsWebUiBrowserTest,
   TestConversionManager manager;
   ConversionReport report(
       ImpressionBuilder(base::Time::Now()).SetData("100").Build(),
-      "7" /* conversion_data */, base::Time::Now() /* report_time */,
-      1 /* conversion_id */);
+      "7" /* conversion_data */, base::Time::Now() /* conversion_time */,
+      base::Time::Now() /* report_time */, 1 /* conversion_id */);
   manager.SetReportsForWebUI({report});
   OverrideWebUIConversionManager(&manager);
 
@@ -251,7 +252,7 @@ IN_PROC_BROWSER_TEST_F(ConversionInternalsWebUiBrowserTest,
     let table = document.getElementById("report-table-body");
     let obs = new MutationObserver(() => {
       if (table.children.length === 1 &&
-          table.children[0].children[1].innerText === "0x7") {
+          table.children[0].children[1].innerText === "7") {
         document.title = $1;
       }
     });
@@ -282,8 +283,8 @@ IN_PROC_BROWSER_TEST_F(ConversionInternalsWebUiBrowserTest,
   TestConversionManager manager;
   ConversionReport report(
       ImpressionBuilder(base::Time::Now()).SetData("100").Build(),
-      "7" /* conversion_data */, base::Time::Now() /* report_time */,
-      1 /* conversion_id */);
+      "7" /* conversion_data */, base::Time::Now() /* conversion_time */,
+      base::Time::Now() /* report_time */, 1 /* conversion_id */);
   manager.SetReportsForWebUI({report});
   OverrideWebUIConversionManager(&manager);
 
@@ -291,7 +292,7 @@ IN_PROC_BROWSER_TEST_F(ConversionInternalsWebUiBrowserTest,
     let table = document.getElementById("report-table-body");
     let obs = new MutationObserver(() => {
       if (table.children.length === 1 &&
-          table.children[0].children[1].innerText === "0x7") {
+          table.children[0].children[1].innerText === "7") {
         document.title = $1;
       }
     });
@@ -311,6 +312,28 @@ IN_PROC_BROWSER_TEST_F(ConversionInternalsWebUiBrowserTest,
   EXPECT_TRUE(
       ExecJsInWebUI("document.getElementById('send-reports').click();"));
   EXPECT_EQ(kSentTitle, sent_title_watcher.WaitAndGetTitle());
+}
+
+IN_PROC_BROWSER_TEST_F(ConversionInternalsWebUiBrowserTest,
+                       MojoJsBindingsCorrectlyScoped) {
+  EXPECT_TRUE(NavigateToURL(shell(), GURL(kConversionInternalsUrl)));
+
+  const base::string16 passed_title = base::ASCIIToUTF16("passed");
+
+  {
+    TitleWatcher sent_title_watcher(shell()->web_contents(), passed_title);
+    EXPECT_TRUE(
+        ExecJsInWebUI("document.title = window.Mojo? 'passed' : 'failed';"));
+    EXPECT_EQ(passed_title, sent_title_watcher.WaitAndGetTitle());
+  }
+
+  EXPECT_TRUE(NavigateToURL(shell(), GURL("about:blank")));
+  {
+    TitleWatcher sent_title_watcher(shell()->web_contents(), passed_title);
+    EXPECT_TRUE(
+        ExecJsInWebUI("document.title = window.Mojo? 'failed' : 'passed';"));
+    EXPECT_EQ(passed_title, sent_title_watcher.WaitAndGetTitle());
+  }
 }
 
 }  // namespace content

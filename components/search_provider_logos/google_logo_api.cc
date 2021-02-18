@@ -21,6 +21,7 @@
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
+#include "components/google/core/common/google_util.h"
 #include "components/search_provider_logos/switches.h"
 #include "url/third_party/mozilla/url_parse.h"
 #include "url/url_constants.h"
@@ -31,46 +32,6 @@ namespace {
 
 const int kDefaultIframeWidthPx = 500;
 const int kDefaultIframeHeightPx = 200;
-
-// Appends the provided |value| to the "async" query param, according to the
-// format used by the Google doodle servers: "async=param:value,other:foo"
-// Derived from net::AppendOrReplaceQueryParameter, that can't be used because
-// it escapes ":" to "%3A", but the server requires the colon not to be escaped.
-// See: http://crbug.com/413845
-GURL AppendToAsyncQueryparam(const GURL& url, const std::string& value) {
-  const std::string param_name = "async";
-  bool replaced = false;
-  const std::string input = url.query();
-  url::Component cursor(0, input.size());
-  std::string output;
-  url::Component key_range, value_range;
-  while (url::ExtractQueryKeyValue(input.data(), &cursor, &key_range,
-                                   &value_range)) {
-    const base::StringPiece key(input.data() + key_range.begin, key_range.len);
-    std::string key_value_pair(input, key_range.begin,
-                               value_range.end() - key_range.begin);
-    if (!replaced && key == param_name) {
-      // Check |replaced| as only the first match should be replaced.
-      replaced = true;
-      key_value_pair += "," + value;
-    }
-    if (!output.empty()) {
-      output += "&";
-    }
-
-    output += key_value_pair;
-  }
-  if (!replaced) {
-    if (!output.empty()) {
-      output += "&";
-    }
-
-    output += (param_name + "=" + value);
-  }
-  GURL::Replacements replacements;
-  replacements.SetQueryStr(output);
-  return url.ReplaceComponents(replacements);
-}
 
 }  // namespace
 
@@ -98,18 +59,18 @@ GURL AppendFingerprintParamToDoodleURL(const GURL& logo_url,
     return logo_url;
   }
 
-  return AppendToAsyncQueryparam(logo_url, "es_dfp:" + fingerprint);
+  return google_util::AppendToAsyncQueryParam(logo_url, "es_dfp", fingerprint);
 }
 
 GURL AppendPreliminaryParamsToDoodleURL(bool gray_background,
                                         bool for_webui_ntp,
                                         const GURL& logo_url) {
-  std::string api_params = for_webui_ntp ? "ntp:2" : "ntp:1";
+  auto url = google_util::AppendToAsyncQueryParam(logo_url, "ntp",
+                                                  for_webui_ntp ? "2" : "1");
   if (gray_background) {
-    api_params += ",graybg:1";
+    url = google_util::AppendToAsyncQueryParam(url, "graybg", "1");
   }
-
-  return AppendToAsyncQueryparam(logo_url, api_params);
+  return url;
 }
 
 namespace {
@@ -157,13 +118,14 @@ ParseEncodedImageData(const std::string& encoded_image_data) {
   size_t base64_end = content.find_first_of(',', base64_begin);
   if (base64_end == std::string::npos)
     return result;
-  base::StringPiece base64(content.begin() + base64_begin,
-                           content.begin() + base64_end);
+  auto base64 = base::MakeStringPiece(content.begin() + base64_begin,
+                                      content.begin() + base64_end);
   if (base64 != "base64")
     return result;
 
   size_t data_begin = base64_end + 1;
-  base::StringPiece data(content.begin() + data_begin, content.end());
+  auto data =
+      base::MakeStringPiece(content.begin() + data_begin, content.end());
 
   std::string decoded_data;
   if (!base::Base64Decode(data, &decoded_data))

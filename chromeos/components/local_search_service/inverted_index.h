@@ -11,8 +11,10 @@
 #include <unordered_set>
 #include <vector>
 
+#include "base/callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/weak_ptr.h"
+#include "base/sequenced_task_runner.h"
 #include "base/strings/string16.h"
 #include "chromeos/components/local_search_service/shared_structs.h"
 
@@ -74,12 +76,34 @@ class InvertedIndex {
   // unique (have unique content). This function doesn't modify any cache. It
   // only adds documents and tokens to the index.
   void AddDocuments(const DocumentToUpdate& documents);
+  // Similar to the above function, but it will build TF-IDF cache after adding
+  // documents.
+  void AddDocuments(const DocumentToUpdate& documents,
+                    base::OnceCallback<void()> callback);
 
   // Removes documents from the inverted index. Do nothing if the document id is
-  // not in the index. Returns number of documents deleted.
+  // not in the index.
   // This function doesn't modify any cache. It only removes
   // documents and tokens from the index.
+  // As other operations may be running on a separate thread, this function
+  // returns size of |document_ids| and not actually deleted documents.
   uint32_t RemoveDocuments(const std::vector<std::string>& document_ids);
+  // Similar to the above function, but it will build TF-IDF cache after
+  // removing documents.
+  void RemoveDocuments(const std::vector<std::string>& document_ids,
+                       base::OnceCallback<void(uint32_t)> callback);
+
+  // Updates documents from the inverted index. It combines two functions:
+  // AddDocuments and RemoveDocument. This function will returns number of
+  // documents to be removed (number of documents that have empty content).
+  //   - If a document ID is not in the index, add the document to the index.
+  //   - If a document ID is in the index and it's new content isn't empty,
+  //   update it's content in the index.
+  //   - If a document ID is in the index and it's content is empty, remove it
+  //   from the index.
+  // It will build TF-IDF cache after updating the documents.
+  void UpdateDocuments(const DocumentToUpdate& documents,
+                       base::OnceCallback<void(uint32_t)> callback);
 
   // Gets TF-IDF scores for a term. This function returns the TF-IDF score from
   // the cache.
@@ -89,11 +113,16 @@ class InvertedIndex {
 
   // Builds the inverted index.
   void BuildInvertedIndex();
+  void BuildInvertedIndex(base::OnceCallback<void()> callback);
+
+  // Clears all the data from the inverted index.
+  void ClearInvertedIndex();
+  void ClearInvertedIndex(base::OnceCallback<void()> callback);
 
   // Checks if the inverted index has been built: returns |true| if the inverted
   // index is up to date, returns |false| if there are some modified document
   // since the last time the index has been built.
-  bool IsInvertedIndexBuilt() const { return terms_to_be_updated_.empty(); }
+  bool IsInvertedIndexBuilt() const { return is_index_built_; }
 
   // Returns number of documents in the index.
   uint64_t NumberDocuments() const { return doc_length_.size(); }
@@ -108,11 +137,32 @@ class InvertedIndex {
   void InvertedIndexController();
 
   // Called on the main thread after BuildTfidf is completed.
-  void OnBuildTfidfComplete(TfidfCache&& new_cache);
+  void OnBuildTfidfCompleteSync(TfidfCache&& new_cache);
+  void OnBuildTfidfComplete(base::OnceCallback<void()> callback,
+                            TfidfCache&& new_cache);
+  // Called on the main thread after UpdateDocumentsStateVariables is completed.
+  void OnUpdateDocumentsCompleteSync(
+      std::pair<DocumentStateVariables, uint32_t>&&
+          document_state_variables_and_num_deleted);
+  void OnUpdateDocumentsComplete(base::OnceCallback<void(uint32_t)> callback,
+                                 std::pair<DocumentStateVariables, uint32_t>&&
+                                     document_state_variables_and_num_deleted);
+  void OnAddDocumentsComplete(base::OnceCallback<void()> callback,
+                              std::pair<DocumentStateVariables, uint32_t>&&
+                                  document_state_variables_and_num_deleted);
 
-  // Called on the main thread after UpdateDocuments is completed.
-  void OnUpdateDocumentsComplete(
-      DocumentStateVariables&& document_state_variables);
+  void OnDataClearedSync(
+      std::pair<DocumentStateVariables, TfidfCache>&& inverted_index_data);
+  void OnDataCleared(
+      base::OnceCallback<void()> callback,
+      std::pair<DocumentStateVariables, TfidfCache>&& inverted_index_data);
+
+  // |is_index_built_| is only true if index's TF-IDF is consistent with the
+  // documents in the index. This means as soon as documents are modified
+  // (added, updated or deleted), |is_index_built_| will be set to false. While
+  // the index is being rebuilt, its value will remain false. After the index is
+  // fully built/rebuilt, this value will be set to true.
+  bool is_index_built_ = true;
 
   // Set of the terms that are needed to be update in |tfidf_cache_|.
   TermSet terms_to_be_updated_;
@@ -131,7 +181,9 @@ class InvertedIndex {
   bool request_to_build_index_ = false;
   bool update_in_progress_ = false;
   bool index_building_in_progress_ = false;
+  bool request_to_clear_index_ = false;
 
+  scoped_refptr<base::SequencedTaskRunner> task_runner_;
   SEQUENCE_CHECKER(sequence_checker_);
 
   base::WeakPtrFactory<InvertedIndex> weak_ptr_factory_{this};

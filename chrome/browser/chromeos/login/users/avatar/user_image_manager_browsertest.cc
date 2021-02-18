@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "ash/constants/ash_switches.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
@@ -24,6 +25,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/login/login_manager_test.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
@@ -40,14 +42,12 @@
 #include "chrome/browser/chromeos/policy/cloud_external_data_manager_base_test_util.h"
 #include "chrome/browser/chromeos/policy/device_policy_builder.h"
 #include "chrome/browser/chromeos/policy/user_cloud_policy_manager_chromeos.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_downloader.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/testing_browser_process.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "chromeos/dbus/constants/dbus_paths.h"
 #include "chromeos/dbus/cryptohome/cryptohome_client.h"
@@ -209,7 +209,7 @@ class UserImageManagerTestBase : public LoginManagerTest,
       run_loop_->Quit();
   }
 
-  // Logs in |account_id|.
+  // Logs in `account_id`.
   void LogIn(const AccountId& account_id) {
     user_manager::UserManager::Get()->UserLoggedIn(
         account_id, account_id.GetUserEmail(), false /* browser_restart */,
@@ -238,8 +238,8 @@ class UserImageManagerTestBase : public LoginManagerTest,
     EXPECT_EQ(image_path.value(), actual_image_path);
   }
 
-  // Verifies that there is no image info for |account_id| in dictionary
-  // |images_pref|.
+  // Verifies that there is no image info for `account_id` in dictionary
+  // `images_pref`.
   void ExpectNoUserImageInfo(const base::DictionaryValue* images_pref,
                              const AccountId& account_id) {
     ASSERT_TRUE(images_pref);
@@ -249,7 +249,7 @@ class UserImageManagerTestBase : public LoginManagerTest,
     ASSERT_FALSE(image_properties);
   }
 
-  // Returns the image path for user |account_id| with specified |extension|.
+  // Returns the image path for user `account_id` with specified `extension`.
   base::FilePath GetUserImagePath(const AccountId& account_id,
                                   const std::string& extension) {
     return user_data_dir_.Append(account_id.GetUserEmail())
@@ -298,7 +298,7 @@ class UserImageManagerTestBase : public LoginManagerTest,
     const user_manager::User* user =
         user_manager::UserManager::Get()->GetActiveUser();
     ASSERT_TRUE(user);
-    UserImageManagerImpl* uim = reinterpret_cast<UserImageManagerImpl*>(
+    UserImageManagerImpl* uim = static_cast<UserImageManagerImpl*>(
         ChromeUserManager::Get()->GetUserImageManager(user->GetAccountId()));
     if (uim->job_.get()) {
       run_loop_.reset(new base::RunLoop);

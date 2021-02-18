@@ -5,7 +5,7 @@
 module blink.mojom;
 
 import "cc/mojom/browser_controls_params.mojom";
-import "services/viz/public/mojom/compositing/local_surface_id_allocation.mojom";
+import "services/viz/public/mojom/compositing/local_surface_id.mojom";
 import "third_party/blink/public/mojom/manifest/display_mode.mojom";
 import "third_party/blink/public/mojom/widget/screen_info.mojom";
 import "ui/gfx/geometry/mojom/geometry.mojom";
@@ -56,7 +56,7 @@ struct VisualProperties {
   bool scroll_focused_node_into_view;
 
   // The local surface ID to use (if valid) and its allocation time.
-  viz.mojom.LocalSurfaceIdAllocation? local_surface_id_allocation;
+  viz.mojom.LocalSurfaceId? local_surface_id;
 
   // Indicates whether tab-initiated fullscreen was granted.
   // Page scoped value.
@@ -78,6 +78,10 @@ struct VisualProperties {
   // This represents the page's scale factor, which changes during pinch zoom.
   // It needs to be shared with subframes.
   float page_scale_factor = 1;
+
+  // This represents the child frame's raster scale factor which takes into
+  // account the transform from child frame space to main frame space.
+  float compositing_scale_factor = 1;
 
   // The logical segments of the root widget, in widget-relative DIPs. This
   // property is set by the root RenderWidget in the renderer process, then

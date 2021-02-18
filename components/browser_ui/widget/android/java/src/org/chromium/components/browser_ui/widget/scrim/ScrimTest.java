@@ -11,6 +11,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import android.app.Activity;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.view.GestureDetector;
@@ -23,34 +24,60 @@ import androidx.annotation.ColorInt;
 import androidx.test.filters.SmallTest;
 
 import org.hamcrest.Matchers;
+import org.junit.After;
 import org.junit.Before;
+import org.junit.BeforeClass;
+import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.Callback;
 import org.chromium.base.MathUtils;
-import org.chromium.base.ThreadUtils;
+import org.chromium.base.test.BaseActivityTestRule;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CallbackHelper;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Feature;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
+import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.modelutil.PropertyModel;
-import org.chromium.ui.test.util.DummyUiActivityTestCase;
+import org.chromium.ui.test.util.DisableAnimationsTestRule;
+import org.chromium.ui.test.util.DummyUiActivity;
 
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 
 /** This class tests the behavior of the scrim component. */
 @RunWith(BaseJUnit4ClassRunner.class)
-public class ScrimTest extends DummyUiActivityTestCase {
+@Batch(Batch.UNIT_TESTS)
+public class ScrimTest {
+    @ClassRule
+    public static DisableAnimationsTestRule disableAnimationsRule = new DisableAnimationsTestRule();
+    @ClassRule
+    public static BaseActivityTestRule<DummyUiActivity> activityTestRule =
+            new BaseActivityTestRule<>(DummyUiActivity.class);
+
+    private static Activity sActivity;
+    private static FrameLayout sParent;
+
     private ScrimCoordinator mScrimCoordinator;
-    private FrameLayout mParent;
     private View mAnchorView;
 
     private final CallbackHelper mStatusBarCallbackHelper = new CallbackHelper();
-    private final ScrimCoordinator.StatusBarScrimDelegate mScrimDelegate =
-            scrimFraction -> mStatusBarCallbackHelper.notifyCalled();
+    private final CallbackHelper mNavigationBarCallbackHelper = new CallbackHelper();
+    private final ScrimCoordinator.SystemUiScrimDelegate mScrimDelegate =
+            new ScrimCoordinator.SystemUiScrimDelegate() {
+                @Override
+                public void setStatusBarScrimFraction(float scrimFraction) {
+                    mStatusBarCallbackHelper.notifyCalled();
+                }
+
+                @Override
+                public void setNavigationBarScrimFraction(float scrimFraction) {
+                    mNavigationBarCallbackHelper.notifyCalled();
+                }
+            };
 
     private final CallbackHelper mScrimClickCallbackHelper = new CallbackHelper();
     private final CallbackHelper mVisibilityChangeCallbackHelper = new CallbackHelper();
@@ -61,19 +88,25 @@ public class ScrimTest extends DummyUiActivityTestCase {
     private GestureDetector mCustomGestureDetector;
     private CallbackHelper mDelegatedEventHelper;
 
+    @BeforeClass
+    public static void setupSuite() {
+        activityTestRule.launchActivity(null);
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            sActivity = activityTestRule.getActivity();
+            sParent = new FrameLayout(sActivity);
+            sActivity.setContentView(sParent);
+        });
+    }
+
     @Before
-    public void setUp() throws TimeoutException {
-        ThreadUtils.runOnUiThreadBlocking(() -> {
-            mParent = new FrameLayout(getActivity());
-            getActivity().setContentView(mParent);
-            mParent.getLayoutParams().width = ViewGroup.LayoutParams.MATCH_PARENT;
-            mParent.getLayoutParams().height = ViewGroup.LayoutParams.MATCH_PARENT;
+    public void setupTest() {
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            sParent.removeAllViews();
 
-            mAnchorView = new View(getActivity());
-            mParent.addView(mAnchorView);
+            mAnchorView = new View(sActivity);
+            sParent.addView(mAnchorView);
 
-            mScrimCoordinator =
-                    new ScrimCoordinator(getActivity(), mScrimDelegate, mParent, Color.RED);
+            mScrimCoordinator = new ScrimCoordinator(sActivity, mScrimDelegate, sParent, Color.RED);
 
             mDelegatedEventHelper = new CallbackHelper();
             mCustomGestureDetector =
@@ -87,6 +120,11 @@ public class ScrimTest extends DummyUiActivityTestCase {
         });
     }
 
+    @After
+    public void tearDownTest() {
+        TestThreadUtils.runOnUiThreadBlocking(() -> mScrimCoordinator.destroy());
+    }
+
     @Test
     @SmallTest
     @Feature({"Scrim"})
@@ -97,7 +135,7 @@ public class ScrimTest extends DummyUiActivityTestCase {
                 mScrimCoordinator.getViewForTesting().getAlpha(), MathUtils.EPSILON);
 
         int callCount = mVisibilityChangeCallbackHelper.getCallCount();
-        ThreadUtils.runOnUiThreadBlocking(() -> mScrimCoordinator.hideScrim(false));
+        TestThreadUtils.runOnUiThreadBlocking(() -> mScrimCoordinator.hideScrim(false));
         mVisibilityChangeCallbackHelper.waitForCallback(callCount, 1);
         assertScrimVisibility(false);
     }
@@ -119,7 +157,7 @@ public class ScrimTest extends DummyUiActivityTestCase {
 
         assertScrimColor(Color.GREEN);
 
-        ThreadUtils.runOnUiThreadBlocking(() -> mScrimCoordinator.hideScrim(false));
+        TestThreadUtils.runOnUiThreadBlocking(() -> mScrimCoordinator.hideScrim(false));
 
         CriteriaHelper.pollUiThread(() -> {
             Criteria.checkThat("Scrim should be null after being hidden.",
@@ -134,9 +172,9 @@ public class ScrimTest extends DummyUiActivityTestCase {
         showScrim(buildModel(true, false, false, Color.RED), false);
 
         View scrimView = mScrimCoordinator.getViewForTesting();
-        assertEquals("The parent view of the scrim is incorrect.", mParent, scrimView.getParent());
+        assertEquals("The parent view of the scrim is incorrect.", sParent, scrimView.getParent());
         assertTrue("The scrim should be positioned behind the anchor.",
-                mParent.indexOfChild(scrimView) < mParent.indexOfChild(mAnchorView));
+                sParent.indexOfChild(scrimView) < sParent.indexOfChild(mAnchorView));
     }
 
     @Test
@@ -146,9 +184,9 @@ public class ScrimTest extends DummyUiActivityTestCase {
         showScrim(buildModel(true, false, true, Color.RED), false);
 
         View scrimView = mScrimCoordinator.getViewForTesting();
-        assertEquals("The parent view of the scrim is incorrect.", mParent, scrimView.getParent());
+        assertEquals("The parent view of the scrim is incorrect.", sParent, scrimView.getParent());
         assertTrue("The scrim should be positioned in front of the anchor.",
-                mParent.indexOfChild(scrimView) > mParent.indexOfChild(mAnchorView));
+                sParent.indexOfChild(scrimView) > sParent.indexOfChild(mAnchorView));
     }
 
     @Test
@@ -159,7 +197,7 @@ public class ScrimTest extends DummyUiActivityTestCase {
 
         int callCount = mScrimClickCallbackHelper.getCallCount();
         ScrimView scrimView = mScrimCoordinator.getViewForTesting();
-        ThreadUtils.runOnUiThreadBlocking(() -> scrimView.callOnClick());
+        TestThreadUtils.runOnUiThreadBlocking(() -> scrimView.callOnClick());
         mScrimClickCallbackHelper.waitForCallback(callCount, 1);
     }
 
@@ -185,9 +223,10 @@ public class ScrimTest extends DummyUiActivityTestCase {
         int gestureCallCount = mDelegatedEventHelper.getCallCount();
         int callCount = mScrimClickCallbackHelper.getCallCount();
         ScrimView scrimView = mScrimCoordinator.getViewForTesting();
-        ThreadUtils.runOnUiThreadBlocking(
-                () -> scrimView.dispatchTouchEvent(
-                        MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, 0, 0, 0)));
+        TestThreadUtils.runOnUiThreadBlocking(
+                ()
+                        -> scrimView.dispatchTouchEvent(
+                                MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, 0, 0, 0)));
         mDelegatedEventHelper.waitForCallback(gestureCallCount, 1);
     }
 
@@ -205,7 +244,7 @@ public class ScrimTest extends DummyUiActivityTestCase {
     public void testAnimation_canceled() throws TimeoutException {
         showScrim(buildModel(true, false, true, Color.RED), true);
 
-        ThreadUtils.runOnUiThreadBlocking(() -> mScrimCoordinator.setAlpha(0.5f));
+        TestThreadUtils.runOnUiThreadBlocking(() -> mScrimCoordinator.setAlpha(0.5f));
 
         assertFalse("Animations should not be running.", mScrimCoordinator.areAnimationsRunning());
     }
@@ -226,13 +265,54 @@ public class ScrimTest extends DummyUiActivityTestCase {
         int callCount = mStatusBarCallbackHelper.getCallCount();
         showScrim(buildModel(true, false, true, Color.RED), false);
 
-        ThreadUtils.runOnUiThreadBlocking(() -> mScrimCoordinator.setAlpha(0.5f));
+        TestThreadUtils.runOnUiThreadBlocking(() -> mScrimCoordinator.setAlpha(0.5f));
 
         assertEquals("Scrim alpha should be 0.5f.", 0.5f,
                 mScrimCoordinator.getViewForTesting().getAlpha(), MathUtils.EPSILON);
 
         assertEquals("No events to the status bar delegate should have occurred", callCount,
                 mStatusBarCallbackHelper.getCallCount());
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"Scrim"})
+    public void testAffectsNavigationBar_enabled() throws TimeoutException {
+        int callCount = mNavigationBarCallbackHelper.getCallCount();
+        PropertyModel model =
+                new PropertyModel.Builder(ScrimProperties.ALL_KEYS)
+                        .with(ScrimProperties.TOP_MARGIN, 0)
+                        .with(ScrimProperties.AFFECTS_STATUS_BAR, false)
+                        .with(ScrimProperties.ANCHOR_VIEW, mAnchorView)
+                        .with(ScrimProperties.SHOW_IN_FRONT_OF_ANCHOR_VIEW, false)
+                        .with(ScrimProperties.CLICK_DELEGATE, mClickDelegate)
+                        .with(ScrimProperties.VISIBILITY_CALLBACK, mVisibilityChangeCallback)
+                        .with(ScrimProperties.AFFECTS_NAVIGATION_BAR, true)
+                        .build();
+        showScrim(model, false);
+
+        mNavigationBarCallbackHelper.waitForCallback(callCount, 1);
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"Scrim"})
+    public void testAffectsNavigationBar_disabled() throws TimeoutException {
+        int callCount = mStatusBarCallbackHelper.getCallCount();
+        PropertyModel model =
+                new PropertyModel.Builder(ScrimProperties.ALL_KEYS)
+                        .with(ScrimProperties.TOP_MARGIN, 0)
+                        .with(ScrimProperties.AFFECTS_STATUS_BAR, false)
+                        .with(ScrimProperties.ANCHOR_VIEW, mAnchorView)
+                        .with(ScrimProperties.SHOW_IN_FRONT_OF_ANCHOR_VIEW, false)
+                        .with(ScrimProperties.CLICK_DELEGATE, mClickDelegate)
+                        .with(ScrimProperties.VISIBILITY_CALLBACK, mVisibilityChangeCallback)
+                        .with(ScrimProperties.AFFECTS_NAVIGATION_BAR, false)
+                        .build();
+        showScrim(model, false);
+
+        assertEquals("No events to the navigation bar delegate should have occurred", callCount,
+                mNavigationBarCallbackHelper.getCallCount());
     }
 
     @Test
@@ -258,7 +338,7 @@ public class ScrimTest extends DummyUiActivityTestCase {
         assertEquals("Scrim should be using a custom background.", customDrawable,
                 mScrimCoordinator.getViewForTesting().getBackground());
 
-        ThreadUtils.runOnUiThreadBlocking(() -> mScrimCoordinator.hideScrim(false));
+        TestThreadUtils.runOnUiThreadBlocking(() -> mScrimCoordinator.hideScrim(false));
 
         CriteriaHelper.pollUiThread(() -> {
             Criteria.checkThat("Scrim should be null after being hidden.",
@@ -345,7 +425,7 @@ public class ScrimTest extends DummyUiActivityTestCase {
      */
     private void showScrim(PropertyModel model, boolean animate) throws TimeoutException {
         int callCount = mVisibilityChangeCallbackHelper.getCallCount();
-        ThreadUtils.runOnUiThreadBlocking(() -> {
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
             mScrimCoordinator.showScrim(model);
 
             // Animations are disabled for these types of tests, so just make sure the animation was
@@ -373,7 +453,7 @@ public class ScrimTest extends DummyUiActivityTestCase {
      * @param visible Whether the scrim should be visible.
      */
     private void assertScrimVisibility(final boolean visible) {
-        ThreadUtils.runOnUiThreadBlocking(() -> {
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
             if (visible) {
                 assertEquals("The scrim should be visible.", View.VISIBLE,
                         mScrimCoordinator.getViewForTesting().getVisibility());

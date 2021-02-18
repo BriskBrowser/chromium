@@ -12,6 +12,7 @@
 #include "base/check.h"
 #include "base/macros.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "media/base/limits.h"
 #include "media/capture/video/mock_gpu_memory_buffer_manager.h"
 #include "media/capture/video/mock_video_frame_receiver.h"
@@ -21,9 +22,9 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "media/capture/video/chromeos/video_capture_jpeg_decoder.h"
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 using ::testing::_;
 using ::testing::AtLeast;
@@ -37,11 +38,11 @@ namespace media {
 
 namespace {
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 std::unique_ptr<VideoCaptureJpegDecoder> ReturnNullPtrAsJpecDecoder() {
   return nullptr;
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 }  // namespace
 
@@ -55,13 +56,12 @@ class VideoCaptureDeviceClientTest : public ::testing::Test {
   VideoCaptureDeviceClientTest() {
     scoped_refptr<VideoCaptureBufferPoolImpl> buffer_pool(
         new VideoCaptureBufferPoolImpl(
-            std::make_unique<VideoCaptureBufferTrackerFactoryImpl>(),
             VideoCaptureBufferType::kSharedMemory, 2));
     auto controller = std::make_unique<NiceMock<MockVideoFrameReceiver>>();
     receiver_ = controller.get();
     gpu_memory_buffer_manager_ =
         std::make_unique<unittest_internal::MockGpuMemoryBufferManager>();
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     device_client_ = std::make_unique<VideoCaptureDeviceClient>(
         VideoCaptureBufferType::kSharedMemory, std::move(controller),
         buffer_pool, base::BindRepeating(&ReturnNullPtrAsJpecDecoder));
@@ -69,7 +69,7 @@ class VideoCaptureDeviceClientTest : public ::testing::Test {
     device_client_ = std::make_unique<VideoCaptureDeviceClient>(
         VideoCaptureBufferType::kSharedMemory, std::move(controller),
         buffer_pool);
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   }
   ~VideoCaptureDeviceClientTest() override = default;
 
@@ -110,7 +110,7 @@ TEST_F(VideoCaptureDeviceClientTest, Minimal) {
   std::unique_ptr<gfx::GpuMemoryBuffer> buffer =
       gpu_memory_buffer_manager_->CreateFakeGpuMemoryBuffer(
           kBufferDimensions, gfx::BufferFormat::YUV_420_BIPLANAR,
-          gfx::BufferUsage::SCANOUT_VEA_READ_CAMERA_AND_CPU_READ_WRITE,
+          gfx::BufferUsage::VEA_READ_CAMERA_AND_CPU_READ_WRITE,
           gpu::kNullSurfaceHandle);
   {
     InSequence s;

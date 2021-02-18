@@ -5,7 +5,7 @@
 #include "media/capture/video/fuchsia/video_capture_device_fuchsia.h"
 
 #include "base/fuchsia/test_component_context_for_process.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "media/capture/video/fuchsia/video_capture_device_factory_fuchsia.h"
 #include "media/fuchsia/camera/fake_fuchsia_camera.h"
@@ -160,6 +160,13 @@ class TestVideoCaptureClient : public VideoCaptureDevice::Client {
                                    base::TimeTicks reference_time,
                                    base::TimeDelta timestamp,
                                    int frame_feedback_id) final {
+    NOTREACHED();
+  }
+  void OnIncomingCapturedExternalBuffer(
+      CapturedExternalVideoBuffer buffer,
+      std::vector<CapturedExternalVideoBuffer> scaled_buffers,
+      base::TimeTicks reference_time,
+      base::TimeDelta timestamp) override {
     NOTREACHED();
   }
   void OnIncomingCapturedBuffer(Buffer buffer,

@@ -1943,11 +1943,11 @@ EVENT_TYPE(QUIC_SESSION_STOP_WAITING_FRAME_RECEIVED)
 //   }
 EVENT_TYPE(QUIC_SESSION_STOP_WAITING_FRAME_SENT)
 
-// Session recevied a RST_STREAM frame.
+// Session received a RST_STREAM frame.
 //   {
 //     "offset": <Offset in the byte stream which triggered the reset>,
 //     "quic_rst_stream_error": <quic::QuicRstStreamErrorCode in the frame>,
-//     "details": <Human readable description>,
+//     "stream_id": <The stream id which this frame refers to>,
 //   }
 EVENT_TYPE(QUIC_SESSION_RST_STREAM_FRAME_RECEIVED)
 
@@ -1955,7 +1955,7 @@ EVENT_TYPE(QUIC_SESSION_RST_STREAM_FRAME_RECEIVED)
 //   {
 //     "offset": <Offset in the byte stream which triggered the reset>,
 //     "quic_rst_stream_error": <quic::QuicRstStreamErrorCode in the frame>,
-//     "details": <Human readable description>,
+//     "stream_id": <The stream id which this frame refers to>,
 //   }
 EVENT_TYPE(QUIC_SESSION_RST_STREAM_FRAME_SENT)
 
@@ -2109,14 +2109,14 @@ EVENT_TYPE(QUIC_SESSION_CRYPTO_FRAME_RECEIVED)
 // Session sent a STOP_SENDING frame.
 //  {
 //    "stream_id": <The stream id>,
-//    "application_error_code": <The application error code>
+//    "rsr_stream_error_code": <quic::QuicRstStreamErrorCode in the frame>
 //  }
 EVENT_TYPE(QUIC_SESSION_STOP_SENDING_FRAME_SENT)
 
 // Session received a STOP_SENDING frame.
 //  {
 //    "stream_id": <The stream id>,
-//    "application_error_code": <The application error code>
+//    "rsr_stream_error_code": <Tquic::QuicRstStreamErrorCode in the frame>
 //  }
 EVENT_TYPE(QUIC_SESSION_STOP_SENDING_FRAME_RECEIVED)
 
@@ -2246,6 +2246,12 @@ EVENT_TYPE(QUIC_SESSION_DROPPED_UNDECRYPTABLE_PACKET)
 //   "encryption_level": <the encryption level of the packet>
 // }
 EVENT_TYPE(QUIC_SESSION_ATTEMPTING_TO_PROCESS_UNDECRYPTABLE_PACKET)
+
+// Session has updated to the next set of 1-RTT keys.
+// {
+//   "reason": <the reason the key update was triggered>
+// }
+EVENT_TYPE(QUIC_SESSION_KEY_UPDATE)
 
 // ------------------------------------------------------------------------
 // QuicHttpStream
@@ -2430,6 +2436,13 @@ EVENT_TYPE(QUIC_PORT_MIGRATION_FAILURE)
 //     "connection_id": <Connection ID of the session>
 //  }
 EVENT_TYPE(QUIC_PORT_MIGRATION_SUCCESS)
+
+// A UDP socket error occurred while trying to read a QUIC packet.
+// The following parameters are attached to the event:
+//   {
+//     "net_error": <Integer code for the specific error type>,
+//   }
+EVENT_TYPE(QUIC_READ_ERROR)
 
 // ------------------------------------------------------------------------
 // HttpStreamParser

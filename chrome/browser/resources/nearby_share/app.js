@@ -42,8 +42,7 @@ Polymer({
     /**
      * Set by the nearby-discovery-page component when switching to the
      * nearby-confirmation-page.
-     * @type {?nearbyShare.mojom.ConfirmationManagerInterface}
-     * @private
+     * @private {?nearbyShare.mojom.ConfirmationManagerInterface}
      */
     confirmationManager_: {
       type: Object,
@@ -53,8 +52,7 @@ Polymer({
     /**
      * Set by the nearby-discovery-page component when switching to the
      * nearby-confirmation-page.
-     * @type {?nearbyShare.mojom.TransferUpdateListenerPendingReceiver}
-     * @private
+     * @private {?nearbyShare.mojom.TransferUpdateListenerPendingReceiver}
      */
     transferUpdateListener_: {
       type: Object,
@@ -64,10 +62,18 @@ Polymer({
     /**
      * The currently selected share target set by the nearby-discovery-page
      * component when the user selects a device.
-     * @type {?nearbyShare.mojom.ShareTarget}
-     * @private
+     * @private {?nearbyShare.mojom.ShareTarget}
      */
     selectedShareTarget_: {
+      type: Object,
+      value: null,
+    },
+
+    /**
+     * Preview info of attachment to be sent, set by the nearby-discovery-page.
+     * @private {?nearbyShare.mojom.PayloadPreview}
+     */
+    payloadPreview_: {
       type: Object,
       value: null,
     },
@@ -76,6 +82,7 @@ Polymer({
   listeners: {
     'change-page': 'onChangePage_',
     'close': 'onClose_',
+    'onboarding-complete': 'onOnboardingComplete_',
   },
 
   /**
@@ -87,10 +94,17 @@ Polymer({
   },
 
   /**
-   * Called when all settings values have been retrieved.
+   * Called when component is attached and all settings values have been
+   * retrieved.
    */
   onSettingsRetrieved() {
-    if (this.settings.enabled) {
+    if (this.settings.isOnboardingComplete) {
+      if (!this.settings.enabled) {
+        // When a new share is triggered, if the user has completed onboarding
+        // previously, then silently enable the feature and continue to
+        // discovery page directly.
+        this.set('settings.enabled', true);
+      }
       this.getViewManager_().switchView(Page.DISCOVERY);
     } else {
       this.getViewManager_().switchView(Page.ONBOARDING);
@@ -113,5 +127,14 @@ Polymer({
    */
   onClose_(event) {
     chrome.send('close');
-  }
+  },
+
+  /**
+   * Handler for when onboarding is completed.
+   * @param {!Event} event
+   * @private
+   */
+  onOnboardingComplete_(event) {
+    this.getViewManager_().switchView(Page.DISCOVERY);
+  },
 });

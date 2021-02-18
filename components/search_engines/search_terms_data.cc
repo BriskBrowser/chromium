@@ -6,16 +6,24 @@
 
 #include "base/check.h"
 #include "components/google/core/common/google_util.h"
+#include "components/lens/lens_features.h"
 #include "url/gurl.h"
 
-SearchTermsData::SearchTermsData() {
-}
+SearchTermsData::SearchTermsData() = default;
 
-SearchTermsData::~SearchTermsData() {
-}
+SearchTermsData::~SearchTermsData() = default;
 
 std::string SearchTermsData::GoogleBaseURLValue() const {
   return google_util::kGoogleHomepageURL;
+}
+
+std::string SearchTermsData::GoogleBaseSearchByImageURLValue() const {
+  const std::string kGoogleHomepageURLPath = std::string("searchbyimage/");
+
+  if (base::FeatureList::IsEnabled(lens::features::kLensStandalone)) {
+    return lens::features::GetHomepageURL();
+  }
+  return google_util::kGoogleHomepageURL + kGoogleHomepageURLPath;
 }
 
 std::string SearchTermsData::GoogleBaseSuggestURLValue() const {
@@ -46,7 +54,7 @@ std::string SearchTermsData::GetSearchClient() const {
   return std::string();
 }
 
-std::string SearchTermsData::GetSuggestClient() const {
+std::string SearchTermsData::GetSuggestClient(bool from_ntp) const {
   return std::string();
 }
 

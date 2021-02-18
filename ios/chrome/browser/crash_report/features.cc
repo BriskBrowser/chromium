@@ -4,5 +4,19 @@
 
 #include "ios/chrome/browser/crash_report/features.h"
 
+#include "ios/chrome/browser/crash_report/breadcrumbs/features.h"
+
+// Note the name here is "CrashpadIOSEnabler" and not "CrashpadIOS".  The former
+// is the name of the feature that eventually enables the latter synthetic flag
+// via NSUserDefault syncing.  This is needed to start CrashpadiOS immediately
+// after startup.
+const base::Feature kCrashpadIOS{"CrashpadIOSEnabler",
+                                 base::FEATURE_DISABLED_BY_DEFAULT};
+
 const base::Feature kSyntheticCrashReportsForUte{
     "SyntheticCrashReportsForUte", base::FEATURE_DISABLED_BY_DEFAULT};
+
+bool EnableSyntheticCrashReportsForUte() {
+  return base::FeatureList::IsEnabled(kSyntheticCrashReportsForUte) &&
+         base::FeatureList::IsEnabled(kLogBreadcrumbs);
+}

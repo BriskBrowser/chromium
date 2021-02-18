@@ -56,7 +56,7 @@ import org.chromium.base.test.util.MetricsUtils.HistogramDelta;
 import org.chromium.chrome.browser.AppHooks;
 import org.chromium.chrome.browser.AppHooksImpl;
 import org.chromium.chrome.browser.feed.shared.stream.Stream.ContentChangedListener;
-import org.chromium.chrome.browser.help.HelpAndFeedback;
+import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncherImpl;
 import org.chromium.chrome.browser.native_page.NativePageNavigationDelegate;
 import org.chromium.chrome.browser.ntp.NewTabPageUma;
 import org.chromium.chrome.browser.profiles.Profile;
@@ -114,11 +114,13 @@ public class FeedStreamSurfaceTest {
     @Mock
     private NativePageNavigationDelegate mPageNavigationDelegate;
     @Mock
-    private HelpAndFeedback mHelpAndFeedback;
+    private HelpAndFeedbackLauncherImpl mHelpAndFeedbackLauncherImpl;
     @Mock
     Profile mProfileMock;
     @Mock
     private FeedServiceBridge.Natives mFeedServiceBridgeJniMock;
+    @Mock
+    private FeedStreamSurface.ShareHelperWrapper mShareHelper;
 
     @Captor
     private ArgumentCaptor<Map<String, String>> mMapCaptor;
@@ -141,6 +143,7 @@ public class FeedStreamSurfaceTest {
     @Before
     public void setUp() throws Exception {
         MockitoAnnotations.initMocks(this);
+        FeedStreamSurface.sRequestContentWithoutRendererForTesting = true;
         mActivity = Robolectric.buildActivity(Activity.class).setup().get();
         mParent = new LinearLayout(mActivity);
         mocker.mock(FeedStreamSurfaceJni.TEST_HOOKS, mFeedStreamSurfaceJniMock);
@@ -155,7 +158,8 @@ public class FeedStreamSurfaceTest {
 
         Profile.setLastUsedProfileForTesting(mProfileMock);
         mFeedStreamSurface = Mockito.spy(new FeedStreamSurface(mActivity, false, mSnackbarManager,
-                mPageNavigationDelegate, mBottomSheetController, mHelpAndFeedback));
+                mPageNavigationDelegate, mBottomSheetController, mHelpAndFeedbackLauncherImpl,
+                /* isPlaceholderShown= */ false, mShareHelper));
         mContentManager = mFeedStreamSurface.getFeedListContentManagerForTesting();
         mFeedStreamSurface.mRootView = Mockito.spy(mFeedStreamSurface.mRootView);
         mRecyclerView = mFeedStreamSurface.mRootView;
@@ -522,7 +526,7 @@ public class FeedStreamSurfaceTest {
         mFeedStreamSurface.sendFeedback(productSpecificDataMap);
 
         // Assert.
-        verify(mHelpAndFeedback)
+        verify(mHelpAndFeedbackLauncherImpl)
                 .showFeedback(any(), any(), eq(testUrl), eq(FeedStreamSurface.FEEDBACK_REPORT_TYPE),
                         mMapCaptor.capture(), eq(FeedStreamSurface.FEEDBACK_CONTEXT));
 
@@ -552,6 +556,15 @@ public class FeedStreamSurfaceTest {
         mFeedStreamSurface.showBottomSheet(new TextView(mActivity));
         mFeedStreamSurface.dismissBottomSheet();
         verify(mBottomSheetController).hideContent(any(), anyBoolean());
+    }
+
+    @Test
+    @SmallTest
+    public void testShare() {
+        String url = "http://www.foo.com";
+        String title = "fooTitle";
+        mFeedStreamSurface.share(url, title);
+        verify(mShareHelper).share(url, title);
     }
 
     @Test

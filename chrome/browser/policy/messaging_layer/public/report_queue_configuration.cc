@@ -8,11 +8,11 @@
 
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
-#include "chrome/browser/policy/messaging_layer/util/status.h"
-#include "chrome/browser/policy/messaging_layer/util/status_macros.h"
-#include "chrome/browser/policy/messaging_layer/util/statusor.h"
 #include "components/policy/core/common/cloud/dm_token.h"
-#include "components/policy/proto/record_constants.pb.h"
+#include "components/reporting/proto/record_constants.pb.h"
+#include "components/reporting/util/status.h"
+#include "components/reporting/util/status_macros.h"
+#include "components/reporting/util/statusor.h"
 
 namespace reporting {
 
@@ -24,14 +24,12 @@ ReportQueueConfiguration::~ReportQueueConfiguration() = default;
 StatusOr<std::unique_ptr<ReportQueueConfiguration>>
 ReportQueueConfiguration::Create(const policy::DMToken& dm_token,
                                  Destination destination,
-                                 Priority priority,
                                  PolicyCheckCallback policy_check_callback) {
   auto config = base::WrapUnique<ReportQueueConfiguration>(
       new ReportQueueConfiguration());
 
   RETURN_IF_ERROR(config->SetDMToken(dm_token));
   RETURN_IF_ERROR(config->SetDestination(destination));
-  RETURN_IF_ERROR(config->SetPriority(priority));
   RETURN_IF_ERROR(config->SetPolicyCheckCallback(policy_check_callback));
 
   return config;
@@ -64,14 +62,6 @@ Status ReportQueueConfiguration::SetDestination(Destination destination) {
     return Status(error::INVALID_ARGUMENT, "Destination must be defined");
   }
   destination_ = destination;
-  return Status::StatusOK();
-}
-
-Status ReportQueueConfiguration::SetPriority(Priority priority) {
-  if (priority == Priority::UNDEFINED_PRIORITY) {
-    return Status(error::INVALID_ARGUMENT, "Priority must be defined");
-  }
-  priority_ = priority;
   return Status::StatusOK();
 }
 

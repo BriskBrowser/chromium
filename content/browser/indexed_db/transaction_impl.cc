@@ -83,9 +83,6 @@ void TransactionImpl::DeleteObjectStore(int64_t object_store_id) {
   if (!connection->IsConnected())
     return;
 
-  if (!connection->database()->IsObjectStoreIdInMetadata(object_store_id))
-    return;
-
   transaction_->ScheduleTask(
       BindWeakOperation(&IndexedDBDatabase::DeleteObjectStoreOperation,
                         connection->database()->AsWeakPtr(), object_store_id));
@@ -148,8 +145,7 @@ void TransactionImpl::Put(
   params->callback = std::move(aborting_callback);
   params->index_keys = index_keys;
   // This is decremented in IndexedDBDatabase::PutOperation.
-  transaction_->set_in_flight_memory(transaction_->in_flight_memory() +
-                                     output_value.SizeEstimate());
+  transaction_->in_flight_memory() += output_value.SizeEstimate();
   transaction_->ScheduleTask(BindWeakOperation(
       &IndexedDBDatabase::PutOperation, connection->database()->AsWeakPtr(),
       std::move(params)));
@@ -218,11 +214,8 @@ void TransactionImpl::PutAll(int64_t object_store_id,
           blink::mojom::IDBTransactionPutAllResultPtr>(
           std::move(callback), transaction_->AsWeakPtr());
 
-  // TODO(nums): Add checks to prevent overflow and underflow
-  // https://crbug.com/1116075
-  transaction_->set_in_flight_memory(
-      transaction_->in_flight_memory() +
-      base::checked_cast<int64_t>(size_estimate.ValueOrDie()));
+  transaction_->in_flight_memory() += size_estimate.ValueOrDefault(0);
+  DCHECK(transaction_->in_flight_memory().IsValid());
   transaction_->ScheduleTask(BindWeakOperation(
       &IndexedDBDatabase::PutAllOperation, connection->database()->AsWeakPtr(),
       object_store_id, std::move(put_params), std::move(aborting_callback)));
@@ -262,9 +255,9 @@ void TransactionImpl::CreateExternalObjects(
         }
         break;
       }
-      case blink::mojom::IDBExternalObject::Tag::NATIVE_FILE_SYSTEM_TOKEN:
+      case blink::mojom::IDBExternalObject::Tag::FILE_SYSTEM_ACCESS_TOKEN:
         (*external_objects)[i] = IndexedDBExternalObject(
-            std::move(object->get_native_file_system_token()));
+            std::move(object->get_file_system_access_token()));
         break;
     }
   }
@@ -288,8 +281,8 @@ void TransactionImpl::Commit(int64_t num_errors_handled) {
   }
 
   indexed_db_context_->quota_manager_proxy()->GetUsageAndQuota(
-      indexed_db_context_->IDBTaskRunner(), origin_,
-      blink::mojom::StorageType::kTemporary,
+      origin_, blink::mojom::StorageType::kTemporary,
+      indexed_db_context_->IDBTaskRunner(),
       base::BindOnce(&TransactionImpl::OnGotUsageAndQuotaForCommit,
                      weak_factory_.GetWeakPtr()));
 }

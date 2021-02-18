@@ -5,6 +5,7 @@
 #ifndef CC_METRICS_COMPOSITOR_FRAME_REPORTING_CONTROLLER_H_
 #define CC_METRICS_COMPOSITOR_FRAME_REPORTING_CONTROLLER_H_
 
+#include <map>
 #include <memory>
 #include <vector>
 
@@ -41,7 +42,8 @@ class CC_EXPORT CompositorFrameReportingController {
     kNumPipelineStages
   };
 
-  explicit CompositorFrameReportingController(bool should_report_metrics);
+  CompositorFrameReportingController(bool should_report_metrics,
+                                     int layer_tree_host_id);
   virtual ~CompositorFrameReportingController();
 
   CompositorFrameReportingController(
@@ -117,8 +119,33 @@ class CC_EXPORT CompositorFrameReportingController {
   std::unique_ptr<CompositorFrameReporter> RestoreReporterAtBeginImpl(
       const viz::BeginFrameId& id);
   CompositorFrameReporter::SmoothThread GetSmoothThread() const;
+  CompositorFrameReporter::SmoothThread GetSmoothThreadAtTime(
+      base::TimeTicks timestamp) const;
+
+  // Checks whether there are reporters containing updates from the main
+  // thread, and returns a weak-ptr to that reporter (if any). Otherwise returns
+  // null.
+  base::WeakPtr<CompositorFrameReporter> HasOutstandingUpdatesFromMain(
+      const viz::BeginFrameId& id) const;
+
+  // If the display-compositor skips over some frames (e.g. when the gpu is
+  // busy, or the client is non-responsive), then it will not issue any
+  // |BeginFrameArgs| for those frames. However, |CompositorFrameReporter|
+  // instances should still be created for these frames. The following
+  // functions accomplish this.
+  void ProcessSkippedFramesIfNecessary(const viz::BeginFrameArgs& args);
+  void CreateReportersForDroppedFrames(
+      const viz::BeginFrameArgs& old_args,
+      const viz::BeginFrameArgs& new_args) const;
+
+  // The arg is a reference to the unique_ptr, because depending on the state
+  // that reporter is in, its ownership might be pass or not.
+  void SetPartialUpdateDeciderWhenWaitingOnMain(
+      std::unique_ptr<CompositorFrameReporter>& reporter);
 
   const bool should_report_metrics_;
+  const int layer_tree_host_id_;
+
   viz::BeginFrameId last_submitted_frame_id_;
 
   bool next_activate_has_invalidation_ = false;
@@ -126,6 +153,10 @@ class CC_EXPORT CompositorFrameReportingController {
 
   bool is_compositor_thread_driving_smoothness_ = false;
   bool is_main_thread_driving_smoothness_ = false;
+  // Sorted history of smooththread. Element i indicating the smooththread from
+  // timestamp of element i-1 until timestamp of element i.
+  std::map<base::TimeTicks, CompositorFrameReporter::SmoothThread>
+      smooth_thread_history_;
 
   // The latency reporter passed to each CompositorFrameReporter. Owned here
   // because it must be common among all reporters.
@@ -141,6 +172,9 @@ class CC_EXPORT CompositorFrameReportingController {
   // DO NOT reorder this line and the one above. The latency_ukm_reporter_ must
   // outlive the objects in |submitted_compositor_frames_|.
   base::circular_deque<SubmittedCompositorFrame> submitted_compositor_frames_;
+
+  // The latest frame that was started.
+  viz::BeginFrameArgs previous_frame_;
 
   const base::TickClock* tick_clock_ = base::DefaultTickClock::GetInstance();
 

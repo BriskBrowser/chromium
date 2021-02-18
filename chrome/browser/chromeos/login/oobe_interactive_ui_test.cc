@@ -4,6 +4,8 @@
 
 #include <memory>
 
+#include "ash/constants/ash_features.h"
+#include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/public/cpp/ash_switches.h"
@@ -11,7 +13,6 @@
 #include "ash/public/cpp/test/shell_test_api.h"
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
 #include "base/optional.h"
 #include "base/test/scoped_feature_list.h"
@@ -32,6 +33,7 @@
 #include "chrome/browser/chromeos/login/test/device_state_mixin.h"
 #include "chrome/browser/chromeos/login/test/embedded_test_server_mixin.h"
 #include "chrome/browser/chromeos/login/test/enrollment_ui_mixin.h"
+#include "chrome/browser/chromeos/login/test/fake_eula_mixin.h"
 #include "chrome/browser/chromeos/login/test/fake_gaia_mixin.h"
 #include "chrome/browser/chromeos/login/test/js_checker.h"
 #include "chrome/browser/chromeos/login/test/local_policy_test_server_mixin.h"
@@ -54,8 +56,7 @@
 #include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/terms_of_service_screen_handler.h"
 #include "chromeos/assistant/buildflags.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/chromeos_switches.h"
+#include "chromeos/attestation/attestation_flow_utils.h"
 #include "chromeos/dbus/update_engine_client.h"
 #include "chromeos/system/fake_statistics_provider.h"
 #include "components/arc/arc_service_manager.h"
@@ -79,6 +80,7 @@ using net::test_server::HttpResponse;
 namespace chromeos {
 namespace {
 
+constexpr char kArcTosID[] = "arc-tos";
 enum class ArcState { kNotAvailable, kAcceptTerms };
 
 std::string ArcStateToString(ArcState arc_state) {
@@ -93,21 +95,30 @@ std::string ArcStateToString(ArcState arc_state) {
 }
 
 void RunWelcomeScreenChecks() {
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-  constexpr int kNumberOfVideosPlaying = 1;
-#else
-  constexpr int kNumberOfVideosPlaying = 0;
-#endif
   test::OobeJS().ExpectVisiblePath({"connect", "welcomeScreen"});
   test::OobeJS().ExpectHiddenPath({"connect", "accessibilityScreen"});
   test::OobeJS().ExpectHiddenPath({"connect", "languageScreen"});
   test::OobeJS().ExpectHiddenPath({"connect", "timezoneScreen"});
 
-  test::OobeJS().ExpectEQ(
-      "(() => {let cnt = 0; for (let v of "
-      "$('connect').$.welcomeScreen.root.querySelectorAll('video')) "
-      "{  cnt += v.paused ? 0 : 1; }; return cnt; })()",
-      kNumberOfVideosPlaying);
+  if (features::IsNewOobeLayoutEnabled()) {
+    test::OobeJS().ExpectFocused({"connect", "welcomeScreen", "getStarted"});
+  } else {
+    test::OobeJS().ExpectFocused(
+        {"connect", "welcomeScreen", "welcomeNextButton"});
+  }
+
+  if (!features::IsNewOobeLayoutEnabled()) {
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
+    constexpr int kNumberOfVideosPlaying = 1;
+#else
+    constexpr int kNumberOfVideosPlaying = 0;
+#endif
+    test::OobeJS().ExpectEQ(
+        "(() => {let cnt = 0; for (let v of "
+        "$('connect').$.welcomeScreen.root.querySelectorAll('video')) "
+        "{  cnt += v.paused ? 0 : 1; }; return cnt; })()",
+        kNumberOfVideosPlaying);
+  }
 
   EXPECT_TRUE(ash::LoginScreenTestApi::IsShutdownButtonShown());
   EXPECT_FALSE(ash::LoginScreenTestApi::IsGuestButtonShown());
@@ -120,24 +131,28 @@ void RunNetworkSelectionScreenChecks() {
   EXPECT_TRUE(ash::LoginScreenTestApi::IsShutdownButtonShown());
   EXPECT_FALSE(ash::LoginScreenTestApi::IsGuestButtonShown());
   EXPECT_FALSE(ash::LoginScreenTestApi::IsAddUserButtonShown());
+
+  test::OobeJS().CreateFocusWaiter({"network-selection", "nextButton"})->Wait();
 }
 
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
 void RunEulaScreenChecks() {
   // Wait for actual EULA to appear.
   test::OobeJS()
       .CreateVisibilityWaiter(true, {"oobe-eula-md", "eulaDialog"})
       ->Wait();
   test::OobeJS().ExpectEnabledPath({"oobe-eula-md", "acceptButton"});
+  test::OobeJS().CreateFocusWaiter({"oobe-eula-md", "crosEulaFrame"})->Wait();
 
   EXPECT_TRUE(ash::LoginScreenTestApi::IsShutdownButtonShown);
   EXPECT_FALSE(ash::LoginScreenTestApi::IsGuestButtonShown());
   EXPECT_FALSE(ash::LoginScreenTestApi::IsAddUserButtonShown());
 }
-#endif
 
 void WaitForGaiaSignInScreen(bool arc_available) {
   OobeScreenWaiter(GaiaView::kScreenId).Wait();
+  test::OobeJS()
+      .CreateFocusWaiter({"gaia-signin", "signin-frame-dialog", "signin-frame"})
+      ->Wait();
 
   // Arc terms of service content gets preloaded when GAIA screen is shown,
   // wait for the preload to finish before proceeding - requesting reload
@@ -147,8 +162,9 @@ void WaitForGaiaSignInScreen(bool arc_available) {
   //     handle this case.
   if (arc_available) {
     test::OobeJS()
-        .CreateHasClassWaiter(true, "arc-tos-loaded",
-                              {"arc-tos-root", "arcTosDialog"})
+        .CreateWaiterWithDescription(
+            test::GetOobeElementPath({kArcTosID}) + ".uiStep === 'loaded'",
+            "Waiting for ARC TOS to load")
         ->Wait();
   }
 
@@ -165,28 +181,38 @@ void LogInAsRegularUser() {
   LOG(INFO) << "OobeInteractiveUITest: Logged in.";
 }
 
-void RunFingerprintScreenChecks() {
-  test::OobeJS().ExpectVisible("fingerprint-setup");
-  test::OobeJS().ExpectVisiblePath({"fingerprint-setup", "setupFingerprint"});
-  test::OobeJS().TapOnPath({"fingerprint-setup", "next"});
-  test::OobeJS().ExpectHiddenPath({"fingerprint-setup", "setupFingerprint"});
-  LOG(INFO) << "OobeInteractiveUITest: Waiting for fingerprint setup "
-               "to switch to placeFinger.";
-  test::OobeJS()
-      .CreateVisibilityWaiter(true, {"fingerprint-setup", "placeFinger"})
-      ->Wait();
+void RunSyncConsentScreenChecks() {
+  SyncConsentScreen* screen = static_cast<SyncConsentScreen*>(
+      WizardController::default_controller()->GetScreen(
+          SyncConsentScreenView::kScreenId));
+  screen->SetProfileSyncEngineInitializedForTesting(true);
+  screen->OnStateChanged(nullptr);
+
+  const std::string button_name =
+      chromeos::features::IsSplitSettingsSyncEnabled()
+          ? "acceptButton"
+          : "settingsSaveAndContinueButton";
+  test::OobeJS().ExpectEnabledPath({"sync-consent", button_name});
+  test::OobeJS().CreateFocusWaiter({"sync-consent", button_name})->Wait();
 
   EXPECT_FALSE(ash::LoginScreenTestApi::IsShutdownButtonShown());
   EXPECT_FALSE(ash::LoginScreenTestApi::IsGuestButtonShown());
   EXPECT_FALSE(ash::LoginScreenTestApi::IsAddUserButtonShown());
 }
 
-void RunDiscoverScreenChecks() {
-  test::OobeJS().ExpectVisible("discover");
-  test::OobeJS().ExpectVisible("discover-impl");
-  test::OobeJS().ExpectVisiblePath({"discover-impl", "pin-setup-impl"});
-  test::OobeJS().ExpectVisiblePath(
-      {"discover-impl", "pin-setup-impl", "setup"});
+void RunFingerprintScreenChecks() {
+  test::OobeJS().ExpectVisible("fingerprint-setup");
+  test::OobeJS().ExpectVisiblePath({"fingerprint-setup", "setupFingerprint"});
+
+  EXPECT_FALSE(ash::LoginScreenTestApi::IsShutdownButtonShown());
+  EXPECT_FALSE(ash::LoginScreenTestApi::IsGuestButtonShown());
+  EXPECT_FALSE(ash::LoginScreenTestApi::IsAddUserButtonShown());
+}
+
+void RunPinSetupScreenChecks() {
+  test::OobeJS().ExpectVisible("pin-setup");
+  test::OobeJS().ExpectVisiblePath({"pin-setup", "setup"});
+  test::OobeJS().CreateFocusWaiter({"pin-setup", "pinKeyboard"})->Wait();
 
   EXPECT_FALSE(ash::LoginScreenTestApi::IsShutdownButtonShown());
   EXPECT_FALSE(ash::LoginScreenTestApi::IsGuestButtonShown());
@@ -204,17 +230,17 @@ void HandleArcTermsOfServiceScreen() {
   EXPECT_FALSE(ash::LoginScreenTestApi::IsAddUserButtonShown());
 
   test::OobeJS()
-      .CreateEnabledWaiter(true, {"arc-tos-root", "arcTosNextButton"})
+      .CreateEnabledWaiter(true, {"arc-tos", "arcTosNextButton"})
       ->Wait();
-  test::OobeJS().TapOnPath({"arc-tos-root", "arcTosNextButton"});
+  test::OobeJS().TapOnPath({"arc-tos", "arcTosNextButton"});
   test::OobeJS()
-      .CreateVisibilityWaiter(true, {"arc-tos-root", "arcLocationService"})
+      .CreateVisibilityWaiter(true, {"arc-tos", "arcLocationService"})
       ->Wait();
   test::OobeJS()
-      .CreateVisibilityWaiter(true, {"arc-tos-root", "arcTosAcceptButton"})
+      .CreateVisibilityWaiter(true, {"arc-tos", "arcTosAcceptButton"})
       ->Wait();
 
-  test::OobeJS().TapOnPath({"arc-tos-root", "arcTosAcceptButton"});
+  test::OobeJS().TapOnPath({"arc-tos", "arcTosAcceptButton"});
 
   OobeScreenExitWaiter(ArcTermsOfServiceScreenView::kScreenId).Wait();
   LOG(INFO) << "OobeInteractiveUITest: 'arc-tos' screen done.";
@@ -298,7 +324,7 @@ void HandleAppDownloadingScreen() {
   EXPECT_FALSE(ash::LoginScreenTestApi::IsAddUserButtonShown());
 
   const std::initializer_list<base::StringPiece> continue_button = {
-      "app-downloading-screen", "app-downloading-continue-setup-button"};
+      "app-downloading", "continue-setup-button"};
   test::OobeJS().TapOnPath(continue_button);
 
   OobeScreenExitWaiter(AppDownloadingScreenView::kScreenId).Wait();
@@ -322,11 +348,11 @@ void HandleAssistantOptInScreen() {
   EXPECT_FALSE(ash::LoginScreenTestApi::IsAddUserButtonShown());
 
   test::OobeJS()
-      .CreateVisibilityWaiter(true, {"assistant-optin-flow-card", "loading"})
+      .CreateVisibilityWaiter(true, {"assistant-optin-flow", "card", "loading"})
       ->Wait();
 
   std::initializer_list<base::StringPiece> skip_button_path = {
-      "assistant-optin-flow-card", "loading", "skip-button"};
+      "assistant-optin-flow", "card", "loading", "skip-button"};
   test::OobeJS().CreateEnabledWaiter(true, skip_button_path)->Wait();
   test::OobeJS().TapOnPath(skip_button_path);
 
@@ -375,6 +401,9 @@ void HandleMarketingOptInScreen() {
       .CreateVisibilityWaiter(
           true, {"marketing-opt-in", "marketing-opt-in-next-button"})
       ->Wait();
+  test::OobeJS()
+      .CreateFocusWaiter({"marketing-opt-in", "marketing-opt-in-next-button"})
+      ->Wait();
   test::OobeJS().TapOnPath(
       {"marketing-opt-in", "marketing-opt-in-next-button"});
 
@@ -406,35 +435,7 @@ std::unique_ptr<RecommendAppsFetcher> CreateRecommendAppsFetcher(
   return std::make_unique<FakeRecommendAppsFetcher>(delegate);
 }
 
-class ScopedQuickUnlockPrivateGetAuthTokenFunctionObserver
-    : public extensions::QuickUnlockPrivateGetAuthTokenFunction::TestObserver {
- public:
-  ScopedQuickUnlockPrivateGetAuthTokenFunctionObserver() {
-    extensions::QuickUnlockPrivateGetAuthTokenFunction::SetTestObserver(this);
-  }
-
-  ~ScopedQuickUnlockPrivateGetAuthTokenFunctionObserver() {
-    extensions::QuickUnlockPrivateGetAuthTokenFunction::SetTestObserver(
-        nullptr);
-  }
-
-  // extensions::QuickUnlockPrivateGetAuthTokenFunction::TestObserver:
-  void OnGetAuthTokenCalled(const std::string& password) override {
-    get_auth_token_password_ = password;
-  }
-
-  const base::Optional<std::string>& get_auth_token_password() const {
-    return get_auth_token_password_;
-  }
-
- private:
-  base::Optional<std::string> get_auth_token_password_;
-
-  DISALLOW_COPY_AND_ASSIGN(
-      ScopedQuickUnlockPrivateGetAuthTokenFunctionObserver);
-};
-
-// Observes an |aura::Window| to see if the window was visible at some point in
+// Observes an `aura::Window` to see if the window was visible at some point in
 // time.
 class NativeWindowVisibilityObserver : public aura::WindowObserver {
  public:
@@ -463,9 +464,9 @@ class NativeWindowVisibilityObserver : public aura::WindowObserver {
   DISALLOW_COPY_AND_ASSIGN(NativeWindowVisibilityObserver);
 };
 
-// Sets the |NativeWindowVisibilityObserver| to observe the
-// |LoginDisplayHost|'s |NativeWindow|. This needs to be done in
-// |PostProfileInit()| as the |default_host| will not be initialized before
+// Sets the `NativeWindowVisibilityObserver` to observe the
+// `LoginDisplayHost`'s `NativeWindow`. This needs to be done in
+// `PostProfileInit()` as the `default_host` will not be initialized before
 // this.
 class NativeWindowVisibilityBrowserMainExtraParts
     : public ChromeBrowserMainExtraParts {
@@ -569,8 +570,6 @@ class OobeEndToEndTestSetupMixin : public InProcessBrowserTestMixin {
   }
 
   void SetUpOnMainThread() override {
-    ASSERT_TRUE(arc_temp_dir_.CreateUniqueTempDir());
-
     if (params_.is_tablet)
       ash::ShellTestApi().SetTabletModeEnabledForTest(true);
 
@@ -580,8 +579,7 @@ class OobeEndToEndTestSetupMixin : public InProcessBrowserTestMixin {
       arc::ArcSessionManager::Get()->SetArcSessionRunnerForTesting(
           std::make_unique<arc::ArcSessionRunner>(
               base::BindRepeating(arc::FakeArcSession::Create)));
-      EXPECT_TRUE(arc::ExpandPropertyFilesForTesting(
-          arc::ArcSessionManager::Get(), arc_temp_dir_.GetPath()));
+      arc::ExpandPropertyFilesForTesting(arc::ArcSessionManager::Get());
     }
   }
   void TearDownInProcessBrowserTestFixture() override {
@@ -621,7 +619,6 @@ class OobeEndToEndTestSetupMixin : public InProcessBrowserTestMixin {
   std::unique_ptr<ScopedTestRecommendAppsFetcherFactory>
       recommend_apps_fetcher_factory_;
   net::EmbeddedTestServer* arc_tos_server_;
-  base::ScopedTempDir arc_temp_dir_;
 
   DISALLOW_COPY_AND_ASSIGN(OobeEndToEndTestSetupMixin);
 };
@@ -632,10 +629,13 @@ class OobeInteractiveUITest : public OobeBaseTest,
                               public ::testing::WithParamInterface<
                                   std::tuple<bool, bool, bool, ArcState>> {
  public:
-  OobeInteractiveUITest() = default;
+  OobeInteractiveUITest() {
+    branded_build_override_ =
+        WizardController::ForceBrandedBuildForTesting(true);
+  }
   ~OobeInteractiveUITest() override = default;
 
-  // OobeInteractiveUITest:
+  // OobeBaseTest:
   void TearDownOnMainThread() override {
     // If the login display is still showing, exit gracefully.
     if (LoginDisplayHost::default_host()) {
@@ -659,16 +659,16 @@ class OobeInteractiveUITest : public OobeBaseTest,
   }
 
   void PerformStepsBeforeEnrollmentCheck();
-  void PerformSessionSignInSteps(
-      const ScopedQuickUnlockPrivateGetAuthTokenFunctionObserver&
-          get_auth_token_observer);
+  void PerformSessionSignInSteps();
 
   void SimpleEndToEnd();
 
   const OobeEndToEndTestSetupMixin* test_setup() const { return &setup_; }
 
  private:
+  std::unique_ptr<base::AutoReset<bool>> branded_build_override_;
   FakeGaiaMixin fake_gaia_{&mixin_host_, embedded_test_server()};
+  FakeEulaMixin fake_eula_{&mixin_host_, embedded_test_server()};
 
   net::EmbeddedTestServer arc_tos_server_{net::EmbeddedTestServer::TYPE_HTTPS};
   EmbeddedTestServerSetupMixin arc_tos_server_setup_{&mixin_host_,
@@ -686,19 +686,15 @@ void OobeInteractiveUITest::PerformStepsBeforeEnrollmentCheck() {
   RunNetworkSelectionScreenChecks();
   test::TapNetworkSelectionNext();
 
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   test::WaitForEulaScreen();
   RunEulaScreenChecks();
   test::TapEulaAccept();
-#endif
 
   test::WaitForUpdateScreen();
   test::ExitUpdateScreenNoUpdate();
 }
 
-void OobeInteractiveUITest::PerformSessionSignInSteps(
-    const ScopedQuickUnlockPrivateGetAuthTokenFunctionObserver&
-        get_auth_token_observer) {
+void OobeInteractiveUITest::PerformSessionSignInSteps() {
   if (features::IsChildSpecificSigninEnabled()) {
     test::WaitForUserCreationScreen();
     test::TapUserCreationNext();
@@ -706,10 +702,9 @@ void OobeInteractiveUITest::PerformSessionSignInSteps(
   WaitForGaiaSignInScreen(test_setup()->arc_state() != ArcState::kNotAvailable);
   LogInAsRegularUser();
 
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   test::WaitForSyncConsentScreen();
+  RunSyncConsentScreenChecks();
   test::ExitScreenSyncConsent();
-#endif
 
   if (test_setup()->is_quick_unlock_enabled()) {
     test::WaitForFingerprintScreen();
@@ -718,14 +713,9 @@ void OobeInteractiveUITest::PerformSessionSignInSteps(
   }
 
   if (test_setup()->is_tablet()) {
-    test::WaitForDiscoverScreen();
-    RunDiscoverScreenChecks();
-
-    EXPECT_TRUE(get_auth_token_observer.get_auth_token_password().has_value());
-    EXPECT_EQ(get_auth_token_observer.get_auth_token_password().value(),
-              FakeGaiaMixin::kFakeUserPassword);
-
-    test::ExitDiscoverPinSetupScreen();
+    test::WaitForPinSetupScreen();
+    RunPinSetupScreenChecks();
+    test::ExitPinSetupScreen();
   }
 
   if (test_setup()->arc_state() != ArcState::kNotAvailable) {
@@ -748,9 +738,8 @@ void OobeInteractiveUITest::PerformSessionSignInSteps(
 }
 
 void OobeInteractiveUITest::SimpleEndToEnd() {
-  ScopedQuickUnlockPrivateGetAuthTokenFunctionObserver get_auth_token_observer;
   PerformStepsBeforeEnrollmentCheck();
-  PerformSessionSignInSteps(get_auth_token_observer);
+  PerformSessionSignInSteps();
 
   WaitForLoginDisplayHostShutdown();
 }
@@ -788,6 +777,13 @@ class OobeZeroTouchInteractiveUITest : public OobeInteractiveUITest {
   ~OobeZeroTouchInteractiveUITest() override = default;
 
   void SetUpOnMainThread() override {
+    chromeos::AttestationClient::Get()
+        ->GetTestInterface()
+        ->AllowlistSignSimpleChallengeKey(
+            /*username=*/"", chromeos::attestation::GetKeyNameForProfile(
+                                 chromeos::attestation::
+                                     PROFILE_ENTERPRISE_ENROLLMENT_CERTIFICATE,
+                                 ""));
     OobeInteractiveUITest::SetUpOnMainThread();
     policy_server_.ConfigureFakeStatisticsForZeroTouch(
         &fake_statistics_provider_);
@@ -814,8 +810,6 @@ class OobeZeroTouchInteractiveUITest : public OobeInteractiveUITest {
 void OobeZeroTouchInteractiveUITest::ZeroTouchEndToEnd() {
   policy_server_.SetupZeroTouchForcedEnrollment();
 
-  ScopedQuickUnlockPrivateGetAuthTokenFunctionObserver get_auth_token_observer;
-
   PerformStepsBeforeEnrollmentCheck();
 
   test::WaitForEnrollmentScreen();
@@ -827,7 +821,7 @@ void OobeZeroTouchInteractiveUITest::ZeroTouchEndToEnd() {
   enrollment_ui_.LeaveSuccessScreen();
   login_screen_waiter->Wait();
 
-  PerformSessionSignInSteps(get_auth_token_observer);
+  PerformSessionSignInSteps();
 
   WaitForLoginDisplayHostShutdown();
 }
@@ -1039,15 +1033,12 @@ class EphemeralUserOobeTest : public MixinBasedInProcessBrowserTest,
 
 // TODO(crbug.com/1004561) Disabled due to flake.
 IN_PROC_BROWSER_TEST_P(EphemeralUserOobeTest, DISABLED_RegularEphemeralUser) {
-  ScopedQuickUnlockPrivateGetAuthTokenFunctionObserver get_auth_token_observer;
-
   WaitForGaiaSignInScreen(test_setup()->arc_state() != ArcState::kNotAvailable);
   LogInAsRegularUser();
 
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   test::WaitForSyncConsentScreen();
+  RunSyncConsentScreenChecks();
   test::ExitScreenSyncConsent();
-#endif
 
   if (test_setup()->is_quick_unlock_enabled()) {
     test::WaitForFingerprintScreen();
@@ -1056,13 +1047,9 @@ IN_PROC_BROWSER_TEST_P(EphemeralUserOobeTest, DISABLED_RegularEphemeralUser) {
   }
 
   if (test_setup()->is_tablet()) {
-    test::WaitForDiscoverScreen();
-    RunDiscoverScreenChecks();
-
-    EXPECT_TRUE(get_auth_token_observer.get_auth_token_password().has_value());
-    EXPECT_EQ("", get_auth_token_observer.get_auth_token_password().value());
-
-    test::ExitDiscoverPinSetupScreen();
+    test::WaitForPinSetupScreen();
+    RunPinSetupScreenChecks();
+    test::ExitPinSetupScreen();
   }
 
   if (test_setup()->arc_state() != ArcState::kNotAvailable) {

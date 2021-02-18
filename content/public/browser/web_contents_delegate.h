@@ -17,8 +17,6 @@
 #include "base/strings/string16.h"
 #include "build/build_config.h"
 #include "content/common/content_export.h"
-#include "content/public/browser/bluetooth_chooser.h"
-#include "content/public/browser/bluetooth_scanning_prompt.h"
 #include "content/public/browser/eye_dropper.h"
 #include "content/public/browser/invalidate_type.h"
 #include "content/public/browser/media_stream_request.h"
@@ -27,7 +25,7 @@
 #include "content/public/common/window_container_type.mojom-forward.h"
 #include "third_party/blink/public/common/loader/previews_state.h"
 #include "third_party/blink/public/common/mediastream/media_stream_request.h"
-#include "third_party/blink/public/common/page/web_drag_operation.h"
+#include "third_party/blink/public/common/page/drag_operation.h"
 #include "third_party/blink/public/common/security/security_style.h"
 #include "third_party/blink/public/mojom/choosers/color_chooser.mojom-forward.h"
 #include "third_party/blink/public/mojom/frame/blocked_navigation_types.mojom.h"
@@ -95,6 +93,7 @@ class SurfaceId;
 
 namespace blink {
 class WebGestureEvent;
+enum class ProtocolHandlerSecurityLevel;
 }
 
 namespace content {
@@ -298,7 +297,7 @@ class CONTENT_EXPORT WebContentsDelegate {
   // cancel the operation. This method is used by Chromium Embedded Framework.
   virtual bool CanDragEnter(WebContents* source,
                             const DropData& data,
-                            blink::WebDragOperationsMask operations_allowed);
+                            blink::DragOperationsMask operations_allowed);
 
   // Shows the repost form confirmation dialog box.
   virtual void ShowRepostFormWarningDialog(WebContents* source) {}
@@ -429,34 +428,20 @@ class CONTENT_EXPORT WebContentsDelegate {
                                   scoped_refptr<FileSelectListener> listener,
                                   const base::FilePath& path);
 
-  // Shows a chooser for the user to select a nearby Bluetooth device. The
-  // observer must live at least as long as the returned chooser object.
-  virtual std::unique_ptr<BluetoothChooser> RunBluetoothChooser(
-      RenderFrameHost* frame,
-      const BluetoothChooser::EventHandler& event_handler);
-
   // Creates an info bar for the user to control the receiving of the SMS.
   virtual void CreateSmsPrompt(RenderFrameHost*,
-                               const url::Origin&,
+                               const std::vector<url::Origin>&,
                                const std::string& one_time_code,
                                base::OnceCallback<void()> on_confirm,
                                base::OnceCallback<void()> on_cancel);
 
-  // Shows a prompt for the user to allow/block Bluetooth scanning. The
-  // observer must live at least as long as the returned prompt object.
-  virtual std::unique_ptr<BluetoothScanningPrompt> ShowBluetoothScanningPrompt(
-      RenderFrameHost* frame,
-      const BluetoothScanningPrompt::EventHandler& event_handler);
-
-  // Returns true if the delegate will embed a WebContents-owned fullscreen
-  // render widget.  In this case, the delegate may access the widget by calling
-  // WebContents::GetFullscreenRenderWidgetHostView().  If false is returned,
-  // WebContents will be responsible for showing the fullscreen widget.
-  virtual bool EmbedsFullscreenWidget();
-
   // Called when the renderer puts a tab into fullscreen mode.
   // |requesting_frame| is the specific content frame requesting fullscreen.
   virtual void EnterFullscreenModeForTab(
+      RenderFrameHost* requesting_frame,
+      const blink::mojom::FullscreenOptions& options) {}
+
+  virtual void FullscreenStateChangedForTab(
       RenderFrameHost* requesting_frame,
       const blink::mojom::FullscreenOptions& options) {}
 
@@ -472,6 +457,10 @@ class CONTENT_EXPORT WebContentsDelegate {
   // http://w3c.github.io/manifest/#dfn-display-mode
   virtual blink::mojom::DisplayMode GetDisplayMode(
       const WebContents* web_contents);
+
+  // Returns the security level to use for Navigator.RegisterProtocolHandler().
+  virtual blink::ProtocolHandlerSecurityLevel GetProtocolHandlerSecurityLevel(
+      RenderFrameHost* requesting_frame);
 
   // Register a new handler for URL requests with the given scheme.
   // |user_gesture| is true if the registration is made in the context of a user
@@ -521,7 +510,7 @@ class CONTENT_EXPORT WebContentsDelegate {
   // contents.
   virtual void RequestToLockMouse(WebContents* web_contents,
                                   bool user_gesture,
-                                  bool last_unlocked_by_target) {}
+                                  bool last_unlocked_by_target);
 
   // Notification that the page has lost the mouse lock.
   virtual void LostMouseLock() {}
@@ -529,7 +518,7 @@ class CONTENT_EXPORT WebContentsDelegate {
   // Requests keyboard lock. Once the request is approved or rejected,
   // GotResponseToKeyboardLockRequest() will be called on |web_contents|.
   virtual void RequestKeyboardLock(WebContents* web_contents,
-                                   bool esc_key_locked) {}
+                                   bool esc_key_locked);
 
   // Notification that the keyboard lock request has been canceled.
   virtual void CancelKeyboardLockRequest(WebContents* web_contents) {}
@@ -724,10 +713,6 @@ class CONTENT_EXPORT WebContentsDelegate {
   // eviction and displayed until a new frame is generated. If false, a white
   // solid color is displayed instead.
   virtual bool ShouldShowStaleContentOnEviction(WebContents* source);
-
-  // Determine if the frame is of a low priority.
-  virtual bool IsFrameLowPriority(const WebContents* web_contents,
-                                  const RenderFrameHost* render_frame_host);
 
   // Returns the user-visible WebContents that is responsible for the activity
   // in the provided WebContents. For example, this delegate may be aware that

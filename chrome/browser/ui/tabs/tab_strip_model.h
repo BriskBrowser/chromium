@@ -357,10 +357,15 @@ class TabStripModel : public TabGroupController {
 
   // Returns the group that contains the tab at |index|, or nullopt if the tab
   // index is invalid or not grouped.
-  // This feature is in development and gated behind a feature flag (see
-  // https://crbug.com/915956).
   base::Optional<tab_groups::TabGroupId> GetTabGroupForTab(
       int index) const override;
+
+  // If a tab inserted at |index| would be within a tab group, return that
+  // group's ID. Otherwise, return nullopt. If |index| points to the first tab
+  // in a group, it will return nullopt since a new tab would be either between
+  // two different groups or just after a non-grouped tab.
+  base::Optional<tab_groups::TabGroupId> GetSurroundingTabGroup(
+      int index) const;
 
   // Returns the index of the first tab that is not a pinned tab. This returns
   // |count()| if all of the tabs are pinned tabs, and 0 if none of the tabs are
@@ -420,15 +425,13 @@ class TabStripModel : public TabGroupController {
   // Create a new tab group and add the set of tabs pointed to be |indices| to
   // it. Pins all of the tabs if any of them were pinned, and reorders the tabs
   // so they are contiguous and do not split an existing group in half. Returns
-  // the new group. |indices| must be sorted in ascending order. This feature is
-  // in development and gated behind a feature flag. https://crbug.com/915956.
+  // the new group. |indices| must be sorted in ascending order.
   tab_groups::TabGroupId AddToNewGroup(const std::vector<int>& indices);
 
   // Add the set of tabs pointed to by |indices| to the given tab group |group|.
   // The tabs take on the pinnedness of the tabs already in the group, and are
   // moved to immediately follow the tabs already in the group. |indices| must
-  // be sorted in ascending order. This feature is in development and gated
-  // behind a feature flag (see https://crbug.com/915956).
+  // be sorted in ascending order.
   void AddToExistingGroup(const std::vector<int>& indices,
                           const tab_groups::TabGroupId& group);
 
@@ -437,7 +440,7 @@ class TabStripModel : public TabGroupController {
   // being moved, and adds them to the tab group |group|.
   void MoveTabsAndSetGroup(const std::vector<int>& indices,
                            int destination_index,
-                           const tab_groups::TabGroupId& group);
+                           base::Optional<tab_groups::TabGroupId> group);
 
   // Similar to AddToExistingGroup(), but creates a group with id |group| if it
   // doesn't exist. This is only intended to be called from session restore
@@ -455,17 +458,25 @@ class TabStripModel : public TabGroupController {
 
   // Removes the set of tabs pointed to by |indices| from the the groups they
   // are in, if any. The tabs are moved out of the group if necessary. |indices|
-  // must be sorted in ascending order. This feature is in development and gated
-  // behind a feature flag. https://crbug.com/915956.
+  // must be sorted in ascending order.
   void RemoveFromGroup(const std::vector<int>& indices);
 
   TabGroupModel* group_model() const { return group_model_.get(); }
+
+  // Returns true if one or more of the tabs pointed to by |indices| are
+  // supported by read later.
+  bool IsReadLaterSupportedForAny(const std::vector<int> indices);
+
+  // Saves tabs with url supported by Read Later.
+  void AddToReadLater(const std::vector<int>& indices);
 
   // TabGroupController:
   void CreateTabGroup(const tab_groups::TabGroupId& group) override;
   void OpenTabGroupEditor(const tab_groups::TabGroupId& group) override;
   void ChangeTabGroupContents(const tab_groups::TabGroupId& group) override;
-  void ChangeTabGroupVisuals(const tab_groups::TabGroupId& group) override;
+  void ChangeTabGroupVisuals(
+      const tab_groups::TabGroupId& group,
+      const TabGroupChange::VisualsChange& visuals) override;
   void MoveTabGroup(const tab_groups::TabGroupId& group) override;
   void CloseTabGroup(const tab_groups::TabGroupId& group) override;
   // The same as count(), but overridden for TabGroup to access.
@@ -489,6 +500,7 @@ class TabStripModel : public TabGroupController {
     CommandToggleSiteMuted,
     CommandSendTabToSelf,
     CommandSendTabToSelfSingleTarget,
+    CommandAddToReadLater,
     CommandAddToNewGroup,
     CommandAddToExistingGroup,
     CommandRemoveFromGroup,
@@ -582,8 +594,7 @@ class TabStripModel : public TabGroupController {
   // that TabDetachedAt() is called.
   std::unique_ptr<content::WebContents> DetachWebContentsImpl(
       int index,
-      bool create_historical_tab,
-      bool will_delete);
+      bool create_historical_tab);
 
   // We batch send notifications. This has two benefits:
   //   1) This allows us to send the minimal number of necessary notifications.
@@ -600,7 +611,9 @@ class TabStripModel : public TabGroupController {
   bool RunUnloadListenerBeforeClosing(content::WebContents* contents);
   bool ShouldRunUnloadListenerBeforeClosing(content::WebContents* contents);
 
-  int ConstrainInsertionIndex(int index, bool pinned_tab);
+  int ConstrainInsertionIndex(int index, bool pinned_tab) const;
+
+  int ConstrainMoveIndex(int index, bool pinned_tab) const;
 
   // If |index| is selected all the selected indices are returned, otherwise a
   // vector with |index| is returned. This is used when executing commands to
@@ -657,7 +670,8 @@ class TabStripModel : public TabGroupController {
   // UI for the WebContents. See UnloadController for details on how unload
   // handlers are processed.
   bool CloseWebContentses(base::span<content::WebContents* const> items,
-                          uint32_t close_types);
+                          uint32_t close_types,
+                          DetachNotifications* notifications);
 
   // Gets the WebContents at an index. Does no bounds checking.
   content::WebContents* GetWebContentsAtImpl(int index) const;
@@ -720,6 +734,8 @@ class TabStripModel : public TabGroupController {
   void MoveAndSetGroup(int index,
                        int new_index,
                        base::Optional<tab_groups::TabGroupId> new_group);
+
+  void AddToReadLaterImpl(const std::vector<int>& indices);
 
   // Helper function for MoveAndSetGroup. Removes the tab at |index| from the
   // group that contains it, if any. Also deletes that group, if it now contains

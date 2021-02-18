@@ -8,11 +8,11 @@
 #include "base/callback.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_action_view_delegate_views.h"
 #include "ui/views/context_menu_controller.h"
-#include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/menu_button.h"
 #include "ui/views/controls/button/menu_button_controller.h"
 #include "ui/views/controls/menu/menu_model_adapter.h"
 #include "ui/views/drag_controller.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 
 class ExtensionContextMenuController;
@@ -22,9 +22,10 @@ class ExtensionContextMenuController;
 // A wrapper around a ToolbarActionViewController to display a toolbar action
 // action in the BrowserActionsContainer.
 class ToolbarActionView : public views::MenuButton,
-                          public ToolbarActionViewDelegateViews,
-                          public views::ButtonListener {
+                          public ToolbarActionViewDelegateViews {
  public:
+  METADATA_HEADER(ToolbarActionView);
+
   // Need DragController here because ToolbarActionView could be
   // dragged/dropped.
   class Delegate : public views::DragController {
@@ -52,9 +53,6 @@ class ToolbarActionView : public views::MenuButton,
     ~Delegate() override {}
   };
 
-  // Callback type used for testing.
-  using ContextMenuCallback = base::Callback<void(ToolbarActionView*)>;
-
   ToolbarActionView(ToolbarActionViewController* view_controller,
                     Delegate* delegate);
   ToolbarActionView(const ToolbarActionView&) = delete;
@@ -76,9 +74,6 @@ class ToolbarActionView : public views::MenuButton,
   content::WebContents* GetCurrentWebContents() const override;
   void UpdateState() override;
 
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* source, const ui::Event& event) override;
-
   ToolbarActionViewController* view_controller() {
     return view_controller_;
   }
@@ -91,11 +86,9 @@ class ToolbarActionView : public views::MenuButton,
   ExtensionContextMenuController* context_menu_controller_for_testing() const {
     return context_menu_controller_.get();
   }
-  static const char kClassName[];
 
  private:
   // views::MenuButton:
-  const char* GetClassName() const override;
   gfx::Size CalculatePreferredSize() const override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
   void OnMouseReleased(const ui::MouseEvent& event) override;
@@ -112,6 +105,8 @@ class ToolbarActionView : public views::MenuButton,
   bool CanShowIconInToolbar() const override;
   void OnPopupShown(bool by_user) override;
   void OnPopupClosed() override;
+
+  void ButtonPressed();
 
   // A lock to keep the MenuButton pressed when a menu or popup is visible.
   std::unique_ptr<views::MenuButtonController::PressedLock> pressed_lock_;

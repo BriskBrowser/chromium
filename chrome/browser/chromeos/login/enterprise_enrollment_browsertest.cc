@@ -91,11 +91,12 @@ constexpr char kAdDomainJoinUnlockedConfig[] = R"!!!(
 )!!!";
 
 constexpr char kEnrollmentUI[] = "enterprise-enrollment";
-constexpr char kAdDialog[] = "adJoinUI";
+constexpr char kAdDialog[] = "step-ad-join";
 
-const test::UIPath kBackButton = {kEnrollmentUI, "signinBackButton"};
+const test::UIPath kBackButton = {kEnrollmentUI, "step-signin",
+                                  "signin-back-button"};
 const test::UIPath kAdRetryButton = {kEnrollmentUI, "adRetryButton"};
-const test::UIPath kWebview = {kEnrollmentUI, "authView"};
+const test::UIPath kWebview = {kEnrollmentUI, "step-signin", "signin-frame"};
 
 const test::UIPath kAdUnlockConfigurationStep = {kEnrollmentUI, kAdDialog,
                                                  "unlockStep"};
@@ -259,7 +260,7 @@ class ActiveDirectoryJoinTest : public EnterpriseEnrollmentTest {
     test::OobeJS().ExpectEQ(js_element + ".disabled", is_disabled);
   }
 
-  // Checks pattern attribute on the machine name input field. If |config_value|
+  // Checks pattern attribute on the machine name input field. If `config_value`
   // is nullptr the attribute should be undefined.
   void CheckPatternAttribute(const base::Value* config_value) {
     if (config_value) {
@@ -277,7 +278,7 @@ class ActiveDirectoryJoinTest : public EnterpriseEnrollmentTest {
     }
   }
 
-  // Goes through |configuration| which is JSON (see
+  // Goes through `configuration` which is JSON (see
   // kAdDomainJoinUnlockedConfig). Selects each of them and checks that all the
   // input fields are set correctly. Also checks if there is a "Custom" option
   // which does not set any fields.

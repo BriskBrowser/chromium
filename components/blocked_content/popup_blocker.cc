@@ -42,19 +42,25 @@ PopupBlockType ShouldBlockPopup(content::WebContents* web_contents,
   // unloading page.
   const GURL& url =
       opener_url ? *opener_url : web_contents->GetLastCommittedURL();
-  if (url.is_valid() &&
-      settings_map->GetContentSetting(url, url, ContentSettingsType::POPUPS,
-                                      std::string()) == CONTENT_SETTING_ALLOW) {
-    return PopupBlockType::kNotBlocked;
+  ContentSetting cs;
+  if (url.is_valid()) {
+    cs = settings_map->GetContentSetting(url, url, ContentSettingsType::POPUPS);
+  } else {
+    cs = settings_map->GetDefaultContentSetting(ContentSettingsType::POPUPS,
+                                                nullptr);
   }
+
+  if (cs == CONTENT_SETTING_ALLOW)
+    return PopupBlockType::kNotBlocked;
 
   if (!user_gesture)
     return PopupBlockType::kNoGesture;
 
   // This is trusted user action (e.g. shift-click), so make sure it is not
   // blocked.
-  if (open_url_params && open_url_params->triggering_event_info !=
-                             blink::TriggeringEventInfo::kFromUntrustedEvent) {
+  if (open_url_params &&
+      open_url_params->triggering_event_info !=
+          blink::mojom::TriggeringEventInfo::kFromUntrustedEvent) {
     return PopupBlockType::kNotBlocked;
   }
 
@@ -125,8 +131,8 @@ std::unique_ptr<PopupNavigationDelegate> MaybeBlockPopup(
   // first.
   content::RenderFrameHost* source_frame =
       GetSourceFrameForPopup(delegate.get(), open_url_params, web_contents);
-  popup_blocker->AddBlockedPopup(source_frame, std::move(delegate),
-                                 window_features, block_type);
+  popup_blocker->AddBlockedPopup(std::move(delegate), window_features,
+                                 block_type);
   auto* trigger = safe_browsing::AdPopupTrigger::FromWebContents(web_contents);
   if (trigger) {
     trigger->PopupWasBlocked(source_frame);

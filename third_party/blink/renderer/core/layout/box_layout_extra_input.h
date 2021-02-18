@@ -19,7 +19,7 @@ struct BoxLayoutExtraInput {
   BoxLayoutExtraInput(LayoutBox&);
   ~BoxLayoutExtraInput();
 
-  LayoutBox& box;
+  UntracedMember<LayoutBox> box;
 
   // When set, no attempt should be be made to resolve the inline size. Use this
   // one instead.
@@ -32,6 +32,10 @@ struct BoxLayoutExtraInput {
   // If the |override_block_size| should be treated as definite for the
   // purposes of percent block-size resolution.
   bool is_override_block_size_definite = true;
+
+  // If an 'auto' inline/block-size should stretch to the available size.
+  bool stretch_inline_size_if_auto = false;
+  bool stretch_block_size_if_auto = false;
 
   // Available inline size. https://drafts.csswg.org/css-sizing/#available
   LayoutUnit available_inline_size;

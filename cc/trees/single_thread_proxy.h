@@ -6,6 +6,8 @@
 #define CC_TREES_SINGLE_THREAD_PROXY_H_
 
 #include <limits>
+#include <memory>
+#include <vector>
 
 #include "base/cancelable_callback.h"
 #include "base/time/time.h"
@@ -60,13 +62,14 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   void SetMutator(std::unique_ptr<LayerTreeMutator> mutator) override;
   void SetPaintWorkletLayerPainter(
       std::unique_ptr<PaintWorkletLayerPainter> painter) override;
-  bool SupportsImplScrolling() const override;
   bool MainFrameWillHappenForTesting() override;
   void SetSourceURL(ukm::SourceId source_id, const GURL& url) override {
     // Single-threaded mode is only for browser compositing and for renderers in
     // layout tests. This will still get called in the latter case, but we don't
     // need to record UKM in that case.
   }
+  void SetUkmSmoothnessDestination(
+      base::WritableSharedMemoryMapping ukm_smoothness_data) override {}
   void ClearHistory() override;
   void SetRenderFrameObserver(
       std::unique_ptr<RenderFrameMetadataObserver> observer) override;
@@ -128,7 +131,7 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   void NotifyImageDecodeRequestFinished() override;
   void DidPresentCompositorFrameOnImplThread(
       uint32_t frame_token,
-      std::vector<LayerTreeHost::PresentationTimeCallback> callbacks,
+      PresentationTimeCallbackBuffer::PendingCallbacks callbacks,
       const viz::FrameTimingDetails& details) override;
   void NotifyAnimationWorkletStateChange(
       AnimationWorkletMutationState state,
@@ -136,10 +139,7 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   void NotifyPaintWorkletStateChange(
       Scheduler::PaintWorkletState state) override;
   void NotifyThroughputTrackerResults(CustomTrackerResults results) override;
-  void SubmitThroughputData(ukm::SourceId source_id,
-                            int aggregated_percent,
-                            int impl_percent,
-                            base::Optional<int> main_percent) override {}
+  bool IsInSynchronousComposite() const override;
 
   void RequestNewLayerTreeFrameSink();
 
@@ -153,7 +153,8 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
 
   // Called by the legacy path where RenderWidget does the scheduling.
   // Rasterization of tiles is only performed when |raster| is true.
-  void CompositeImmediately(base::TimeTicks frame_begin_time, bool raster);
+  void CompositeImmediatelyForTest(base::TimeTicks frame_begin_time,
+                                   bool raster);
 
  protected:
   SingleThreadProxy(LayerTreeHost* layer_tree_host,
@@ -176,6 +177,7 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   void IssueImageDecodeFinishedCallbacks();
 
   void DidReceiveCompositorFrameAck();
+  void NotifyThroughputTrackerResultsOnMainThread(CustomTrackerResults results);
 
   // Accessed on main thread only.
   LayerTreeHost* layer_tree_host_;

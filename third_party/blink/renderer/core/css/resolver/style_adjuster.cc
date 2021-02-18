@@ -36,8 +36,10 @@
 #include "third_party/blink/renderer/core/dom/container_node.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/element.h"
+#include "third_party/blink/renderer/core/dom/flat_tree_traversal.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
+#include "third_party/blink/renderer/core/frame/event_handler_registry.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
@@ -49,6 +51,7 @@
 #include "third_party/blink/renderer/core/html/html_plugin_element.h"
 #include "third_party/blink/renderer/core/html/html_table_cell_element.h"
 #include "third_party/blink/renderer/core/html/media/html_media_element.h"
+#include "third_party/blink/renderer/core/html/shadow/shadow_element_names.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/input_type_names.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
@@ -64,10 +67,31 @@
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/transforms/transform_operations.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
+#include "ui/base/ui_base_features.h"
 
 namespace blink {
 
 namespace {
+
+bool IsOverflowClipOrVisible(EOverflow overflow) {
+  return overflow == EOverflow::kClip || overflow == EOverflow::kVisible;
+}
+
+bool IsEditableElement(Element* element, const ComputedStyle& style) {
+  if (style.UserModify() != EUserModify::kReadOnly)
+    return true;
+
+  if (!element)
+    return false;
+
+  if (auto* textarea = DynamicTo<HTMLTextAreaElement>(*element))
+    return !textarea->IsDisabledOrReadOnly();
+
+  if (auto* input = DynamicTo<HTMLInputElement>(*element))
+    return !input->IsDisabledOrReadOnly() && input->IsTextField();
+
+  return false;
+}
 
 TouchAction AdjustTouchActionForElement(TouchAction touch_action,
                                         const ComputedStyle& style,
@@ -82,25 +106,8 @@ TouchAction AdjustTouchActionForElement(TouchAction touch_action,
       element && element == element->GetDocument().documentElement() &&
       element->GetDocument().LocalOwner();
   if ((!is_body_and_viewport && style.ScrollsOverflow()) || is_child_document)
-    return touch_action | TouchAction::kPan;
+    return touch_action | TouchAction::kPan | TouchAction::kInternalPanXScrolls;
   return touch_action;
-}
-
-void AdjustBackgroundForForcedColorsMode(StyleResolverState& state,
-                                         ComputedStyle& style,
-                                         Element* element) {
-  if (!element || !element->GetDocument().InForcedColorsMode() ||
-      style.ForcedColorAdjust() == EForcedColorAdjust::kNone)
-    return;
-
-  int bg_color_alpha =
-      LayoutObject::ResolveColor(style, GetCSSPropertyBackgroundColor())
-          .Alpha();
-  Color bg_color_rbg = StyleColor::ColorFromKeyword(
-      style.InternalForcedBackgroundColorRgb(), WebColorScheme::kLight);
-  StyleColor bg_color(Color(bg_color_rbg.Red(), bg_color_rbg.Green(),
-                            bg_color_rbg.Blue(), bg_color_alpha));
-  style.SetBackgroundColor(bg_color);
 }
 
 bool HostIsInputFile(const Element* element) {
@@ -122,7 +129,7 @@ static EDisplay EquivalentBlockDisplay(EDisplay display) {
     case EDisplay::kWebkitBox:
     case EDisplay::kFlex:
     case EDisplay::kGrid:
-    case EDisplay::kMath:
+    case EDisplay::kBlockMath:
     case EDisplay::kListItem:
     case EDisplay::kFlowRoot:
     case EDisplay::kLayoutCustom:
@@ -135,8 +142,8 @@ static EDisplay EquivalentBlockDisplay(EDisplay display) {
       return EDisplay::kFlex;
     case EDisplay::kInlineGrid:
       return EDisplay::kGrid;
-    case EDisplay::kInlineMath:
-      return EDisplay::kMath;
+    case EDisplay::kMath:
+      return EDisplay::kBlockMath;
     case EDisplay::kInlineLayoutCustom:
       return EDisplay::kLayoutCustom;
 
@@ -256,7 +263,9 @@ static void AdjustStyleForMarker(ComputedStyle& style,
        !parent_style.IsInsideListElement());
 
   if (is_inside) {
-    auto margins = ListMarker::InlineMarginsForInside(style, parent_style);
+    Document& document = parent_element.GetDocument();
+    auto margins =
+        ListMarker::InlineMarginsForInside(document, style, parent_style);
     style.SetMarginStart(Length::Fixed(margins.first));
     style.SetMarginEnd(Length::Fixed(margins.second));
   } else {
@@ -386,7 +395,8 @@ static void AdjustStyleForHTMLElement(ComputedStyle& style,
     return;
   }
 
-  if (IsA<HTMLSummaryElement>(element)) {
+  if (IsA<HTMLSummaryElement>(element) &&
+      !RuntimeEnabledFeatures::SummaryListItemEnabled()) {
     // <summary> should be a list item by default, but currently it's a block
     // and the disclosure symbol is not a ::marker (bug 590014). If an author
     // specifies 'display: list-item', the <summary> would seem to have two
@@ -410,12 +420,11 @@ static void AdjustStyleForHTMLElement(ComputedStyle& style,
   }
 }
 
-void StyleAdjuster::AdjustOverflow(ComputedStyle& style) {
+void StyleAdjuster::AdjustOverflow(ComputedStyle& style, Element* element) {
   DCHECK(style.OverflowX() != EOverflow::kVisible ||
          style.OverflowY() != EOverflow::kVisible);
 
-  if (style.Display() == EDisplay::kTable ||
-      style.Display() == EDisplay::kInlineTable) {
+  if (style.IsDisplayTableBox()) {
     // Tables only support overflow:hidden and overflow:visible and ignore
     // anything else, see https://drafts.csswg.org/css2/visufx.html#overflow. As
     // a table is not a block container box the rules for resolving conflicting
@@ -428,17 +437,30 @@ void StyleAdjuster::AdjustOverflow(ComputedStyle& style) {
     // If we are left with conflicting overflow values for the x and y axes on a
     // table then resolve both to OverflowVisible. This is interoperable
     // behaviour but is not specced anywhere.
+    // TODO(https://crbug.com/966283): figure out how 'clip' should be handled.
     if (style.OverflowX() == EOverflow::kVisible)
       style.SetOverflowY(EOverflow::kVisible);
     else if (style.OverflowY() == EOverflow::kVisible)
       style.SetOverflowX(EOverflow::kVisible);
-  } else if (style.OverflowX() == EOverflow::kVisible &&
-             style.OverflowY() != EOverflow::kVisible) {
-    // If either overflow value is not visible, change to auto.
-    style.SetOverflowX(EOverflow::kAuto);
-  } else if (style.OverflowY() == EOverflow::kVisible &&
-             style.OverflowX() != EOverflow::kVisible) {
-    style.SetOverflowY(EOverflow::kAuto);
+  } else if (!IsOverflowClipOrVisible(style.OverflowY())) {
+    // Values of 'clip' and 'visible' can only be used with 'clip' and
+    // 'visible.' If they aren't, 'clip' and 'visible' is reset.
+    if (style.OverflowX() == EOverflow::kVisible)
+      style.SetOverflowX(EOverflow::kAuto);
+    else if (style.OverflowX() == EOverflow::kClip)
+      style.SetOverflowX(EOverflow::kHidden);
+  } else if (!IsOverflowClipOrVisible(style.OverflowX())) {
+    // Values of 'clip' and 'visible' can only be used with 'clip' and
+    // 'visible.' If they aren't, 'clip' and 'visible' is reset.
+    if (style.OverflowY() == EOverflow::kVisible)
+      style.SetOverflowY(EOverflow::kAuto);
+    else if (style.OverflowY() == EOverflow::kClip)
+      style.SetOverflowY(EOverflow::kHidden);
+  }
+  if (element && (style.OverflowX() == EOverflow::kClip ||
+                  style.OverflowY() == EOverflow::kClip)) {
+    UseCounter::Count(element->GetDocument(),
+                      WebFeature::kOverflowClipAlongEitherAxis);
   }
 }
 
@@ -481,6 +503,8 @@ static void AdjustStyleForDisplay(ComputedStyle& style,
 
   // writing-mode does not apply to table row groups, table column groups, table
   // rows, and table columns.
+  // TODO(crbug.com/736072): Borders specified with logical css properties will
+  // not change to reflect new writing mode. ex: border-block-start.
   if (style.Display() == EDisplay::kTableColumn ||
       style.Display() == EDisplay::kTableColumnGroup ||
       style.Display() == EDisplay::kTableFooterGroup ||
@@ -547,6 +571,12 @@ static void AdjustEffectiveTouchAction(ComputedStyle& style,
   if (!is_non_replaced_inline_elements && !is_table_row_or_column &&
       is_layout_object_needed) {
     element_touch_action = style.GetTouchAction();
+    // kInternalPanXScrolls is only for internal usage, GetTouchAction()
+    // doesn't contain this bit. We set this bit when kPanX is set so it can be
+    // cleared for eligible editable areas later on.
+    if ((element_touch_action & TouchAction::kPanX) != TouchAction::kNone) {
+      element_touch_action |= TouchAction::kInternalPanXScrolls;
+    }
   }
 
   if (!element) {
@@ -559,7 +589,7 @@ static void AdjustEffectiveTouchAction(ComputedStyle& style,
   // Apply touch action inherited from parent frame.
   if (is_child_document && element->GetDocument().GetFrame()) {
     inherited_action &=
-        TouchAction::kPan |
+        TouchAction::kPan | TouchAction::kInternalPanXScrolls |
         element->GetDocument().GetFrame()->InheritedEffectiveTouchAction();
   }
 
@@ -576,6 +606,10 @@ static void AdjustEffectiveTouchAction(ComputedStyle& style,
   TouchAction enforced_by_policy = TouchAction::kNone;
   if (element->GetDocument().IsVerticalScrollEnforced())
     enforced_by_policy = TouchAction::kPanY;
+  if (::features::IsSwipeToMoveCursorEnabled() &&
+      IsEditableElement(element, style)) {
+    element_touch_action &= ~TouchAction::kInternalPanXScrolls;
+  }
 
   // Apply the adjusted parent effective touch actions.
   style.SetEffectiveTouchAction((element_touch_action & inherited_action) |
@@ -607,6 +641,17 @@ static void AdjustStateForContentVisibility(ComputedStyle& style,
     context = &element->EnsureDisplayLockContext();
   context->SetRequestedState(style.ContentVisibility());
   context->AdjustElementStyle(&style);
+}
+
+void StyleAdjuster::AdjustForForcedColorsMode(ComputedStyle& style) {
+  if (!style.InForcedColorsMode() ||
+      style.ForcedColorAdjust() == EForcedColorAdjust::kNone)
+    return;
+
+  style.SetTextShadow(ComputedStyleInitialValues::InitialTextShadow());
+  style.SetBoxShadow(ComputedStyleInitialValues::InitialBoxShadow());
+  if (!style.HasUrlBackgroundImage())
+    style.ClearBackgroundImage();
 }
 
 void StyleAdjuster::AdjustComputedStyle(StyleResolverState& state,
@@ -642,6 +687,15 @@ void StyleAdjuster::AdjustComputedStyle(StyleResolverState& state,
 
     if (is_document_element)
       style.SetDisplay(EquivalentBlockDisplay(style.Display()));
+
+    // math display values on non-MathML elements compute to flow display
+    // values.
+    if ((!element || !element->IsMathMLElement()) &&
+        style.IsDisplayMathBox(style.Display())) {
+      style.SetDisplay(style.Display() == EDisplay::kBlockMath
+                           ? EDisplay::kBlock
+                           : EDisplay::kInline);
+    }
 
     // We don't adjust the first letter style earlier because we may change the
     // display setting in adjustStyeForTagName() above.
@@ -684,7 +738,15 @@ void StyleAdjuster::AdjustComputedStyle(StyleResolverState& state,
 
   if (style.OverflowX() != EOverflow::kVisible ||
       style.OverflowY() != EOverflow::kVisible)
-    AdjustOverflow(style);
+    AdjustOverflow(style, element);
+
+  // overflow-clip-margin only applies if 'overflow: clip' is set along both
+  // axis or 'contain: paint'.
+  if (!style.ContainsPaint() && !(style.OverflowX() == EOverflow::kClip &&
+                                  style.OverflowY() == EOverflow::kClip)) {
+    style.SetOverflowClipMargin(
+        ComputedStyleInitialValues::InitialOverflowClipMargin());
+  }
 
   if (StopPropagateTextDecorations(style, element))
     style.ClearAppliedTextDecorations();
@@ -699,8 +761,12 @@ void StyleAdjuster::AdjustComputedStyle(StyleResolverState& state,
   style.AdjustBackgroundLayers();
   style.AdjustMaskLayers();
 
+  // A subset of CSS properties should be forced at computed value time:
+  // https://drafts.csswg.org/css-color-adjust-1/#forced-colors-properties.
+  AdjustForForcedColorsMode(style);
+
   // Let the theme also have a crack at adjusting the style.
-  LayoutTheme::GetTheme().AdjustStyle(style, element);
+  LayoutTheme::GetTheme().AdjustStyle(element, style);
 
   AdjustStyleForEditing(style);
 
@@ -779,8 +845,8 @@ void StyleAdjuster::AdjustComputedStyle(StyleResolverState& state,
 
   if (element && style.TextOverflow() == ETextOverflow::kEllipsis) {
     const AtomicString& pseudo_id = element->ShadowPseudoId();
-    if (pseudo_id == "-webkit-input-placeholder" ||
-        pseudo_id == "-internal-input-suggested") {
+    if (pseudo_id == shadow_element_names::kPseudoInputPlaceholder ||
+        pseudo_id == shadow_element_names::kPseudoInternalInputSuggested) {
       TextControlElement* text_control =
           ToTextControl(element->OwnerShadowHost());
       DCHECK(text_control);
@@ -806,7 +872,5 @@ void StyleAdjuster::AdjustComputedStyle(StyleResolverState& state,
         (element && element->GetDocument().Printing()))
       style.SetInsideNGFragmentationContext(true);
   }
-
-  AdjustBackgroundForForcedColorsMode(state, style, element);
 }
 }  // namespace blink

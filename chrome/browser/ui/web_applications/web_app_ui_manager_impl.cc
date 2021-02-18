@@ -8,6 +8,7 @@
 
 #include "base/callback.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/extensions/launch_util.h"
@@ -23,10 +24,11 @@
 #include "chrome/browser/web_applications/system_web_app_manager.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
+#include "components/services/app_service/public/cpp/app_registry_cache.h"
 #include "extensions/browser/app_sorting.h"
 #include "extensions/browser/extension_system.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/public/cpp/shelf_model.h"
 #include "chrome/browser/ui/app_list/app_list_syncable_service.h"
 #include "chrome/browser/ui/app_list/app_list_syncable_service_factory.h"
@@ -34,20 +36,50 @@
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #endif
 
+#if defined(OS_WIN)
+#include "ui/gfx/native_widget_types.h"
+#endif  // defined(OS_WIN)
+
 namespace web_app {
+
+namespace {
+
+bool IsAppInstalled(apps::AppServiceProxy* proxy, const AppId& app_id) {
+  bool installed = false;
+  proxy->AppRegistryCache().ForOneApp(
+      app_id, [&installed](const apps::AppUpdate& update) {
+        installed =
+            update.Readiness() != apps::mojom::Readiness::kUninstalledByUser;
+      });
+  return installed;
+}
+
+#if defined(OS_WIN)
+
+// UninstallWebAppWithDialog handles WebApp uninstallation from the
+// Windows Settings.
+void UninstallWebAppWithDialog(const AppId& app_id, Profile* profile) {
+  auto* provider = WebAppProvider::Get(profile);
+  if (!provider->registrar().IsLocallyInstalled(app_id)) {
+    // App does not exist and controller is destroyed.
+    return;
+  }
+
+  // Note: WebAppInstallFinalizer::UninstallWebApp creates a ScopedKeepAlive
+  // object which ensures the browser stays alive during the WebApp
+  // uninstall.
+  WebAppUiManagerImpl::Get(profile)->dialog_manager().UninstallWebApp(
+      app_id, WebAppDialogManager::UninstallSource::kOsSettings,
+      gfx::kNullNativeWindow, base::DoNothing());
+}
+
+#endif  // defined(OS_WIN)
+
+}  // namespace
 
 // static
 std::unique_ptr<WebAppUiManager> WebAppUiManager::Create(Profile* profile) {
   return std::make_unique<WebAppUiManagerImpl>(profile);
-}
-
-// static
-bool WebAppUiManager::ShouldHideAppFromUser(const AppId& app_id) {
-#if defined(OS_CHROMEOS)
-  return app_list::HideInLauncherById(app_id);
-#else
-  return false;
-#endif
 }
 
 // static
@@ -123,13 +155,19 @@ void WebAppUiManagerImpl::NotifyOnAllAppWindowsClosed(
   windows_closed_requests_map_[app_id].push_back(std::move(callback));
 }
 
-void WebAppUiManagerImpl::UninstallAndReplace(
+bool WebAppUiManagerImpl::UninstallAndReplaceIfExists(
     const std::vector<AppId>& from_apps,
     const AppId& to_app) {
   bool has_migrated = false;
+  bool did_uninstall = false;
   for (const AppId& from_app : from_apps) {
+    apps::AppServiceProxy* proxy =
+        apps::AppServiceProxyFactory::GetForProfile(profile_);
+    if (!IsAppInstalled(proxy, from_app))
+      continue;
+
     if (!has_migrated) {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
       // Grid position in app list.
       auto* app_list_syncable_service =
           app_list::AppListSyncableServiceFactory::GetForProfile(profile_);
@@ -160,12 +198,12 @@ void WebAppUiManagerImpl::UninstallAndReplace(
           case extensions::LaunchContainer::kLaunchContainerWindow:
           case extensions::LaunchContainer::kLaunchContainerPanelDeprecated:
             app_registry_controller_->SetAppUserDisplayMode(
-                to_app, DisplayMode::kStandalone);
+                to_app, DisplayMode::kStandalone, /*is_user_action=*/false);
             break;
           case extensions::LaunchContainer::kLaunchContainerTab:
           case extensions::LaunchContainer::kLaunchContainerNone:
             app_registry_controller_->SetAppUserDisplayMode(
-                to_app, DisplayMode::kBrowser);
+                to_app, DisplayMode::kBrowser, /*is_user_action=*/false);
             break;
         }
 
@@ -173,15 +211,16 @@ void WebAppUiManagerImpl::UninstallAndReplace(
       }
     }
 
-    apps::AppServiceProxy* proxy =
-        apps::AppServiceProxyFactory::GetForProfile(profile_);
     proxy->UninstallSilently(from_app,
                              apps::mojom::UninstallSource::kMigration);
+    did_uninstall = true;
   }
+
+  return did_uninstall;
 }
 
 bool WebAppUiManagerImpl::CanAddAppToQuickLaunchBar() const {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   return true;
 #else
   return false;
@@ -190,21 +229,21 @@ bool WebAppUiManagerImpl::CanAddAppToQuickLaunchBar() const {
 
 void WebAppUiManagerImpl::AddAppToQuickLaunchBar(const AppId& app_id) {
   DCHECK(CanAddAppToQuickLaunchBar());
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // ChromeLauncherController does not exist in unit tests.
   if (auto* controller = ChromeLauncherController::instance()) {
     controller->PinAppWithID(app_id);
     controller->UpdateV1AppState(app_id);
   }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
 bool WebAppUiManagerImpl::IsInAppWindow(content::WebContents* web_contents,
                                         const AppId* app_id) const {
   Browser* browser = chrome::FindBrowserWithWebContents(web_contents);
   if (app_id)
-    return AppBrowserController::IsForWebAppBrowser(browser, *app_id);
-  return AppBrowserController::IsForWebAppBrowser(browser);
+    return AppBrowserController::IsForWebApp(browser, *app_id);
+  return AppBrowserController::IsWebApp(browser);
 }
 
 void WebAppUiManagerImpl::NotifyOnAssociatedAppChanged(
@@ -270,6 +309,14 @@ void WebAppUiManagerImpl::OnBrowserRemoved(Browser* browser) {
 
   windows_closed_requests_map_.erase(app_id);
 }
+
+#if defined(OS_WIN)
+void WebAppUiManagerImpl::UninstallWebAppFromStartupSwitch(
+    const AppId& app_id) {
+  WebAppProvider::Get(profile_)->on_registry_ready().Post(
+      FROM_HERE, base::BindOnce(&UninstallWebAppWithDialog, app_id, profile_));
+}
+#endif  //  defined(OS_WIN)
 
 bool WebAppUiManagerImpl::IsBrowserForInstalledApp(Browser* browser) {
   if (browser->profile() != profile_)

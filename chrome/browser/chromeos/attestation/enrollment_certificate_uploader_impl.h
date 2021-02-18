@@ -21,7 +21,6 @@ class CloudPolicyClient;
 }
 
 namespace chromeos {
-
 namespace attestation {
 
 class AttestationFlow;
@@ -32,7 +31,7 @@ class EnrollmentCertificateUploaderImpl : public EnrollmentCertificateUploader {
   explicit EnrollmentCertificateUploaderImpl(
       policy::CloudPolicyClient* policy_client);
 
-  // A constructor which allows custom AttestationFlow implementation. Useful
+  // A constructor which allows custom AttestationFlow implementations. Useful
   // for testing.
   EnrollmentCertificateUploaderImpl(policy::CloudPolicyClient* policy_client,
                                     AttestationFlow* attestation_flow);
@@ -46,7 +45,9 @@ class EnrollmentCertificateUploaderImpl : public EnrollmentCertificateUploader {
     retry_delay_ = retry_delay;
   }
 
-  // Obtains a fresh enrollment certificate and uploads it.
+  // Obtains a fresh enrollment certificate and uploads it. If certificate has
+  // already been uploaded - reports success immediately and does not upload
+  // second time.
   void ObtainAndUploadCertificate(UploadCallback callback) override;
 
  private:
@@ -54,7 +55,7 @@ class EnrollmentCertificateUploaderImpl : public EnrollmentCertificateUploader {
   void Start();
 
   // Run all callbacks with |status|.
-  void RunCallbacks(bool status);
+  void RunCallbacks(Status status);
 
   // Gets a certificate.
   void GetCertificate();
@@ -83,6 +84,9 @@ class EnrollmentCertificateUploaderImpl : public EnrollmentCertificateUploader {
   int num_retries_;
   int retry_limit_;
   base::TimeDelta retry_delay_;
+
+  // Indicates whether certificate has already been uploaded successfully.
+  bool has_already_uploaded_ = false;
 
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate the weak pointers before any other members are destroyed.

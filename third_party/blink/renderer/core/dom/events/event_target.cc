@@ -40,6 +40,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/js_based_event_listener.h"
 #include "third_party/blink/renderer/bindings/core/v8/js_event_listener.h"
 #include "third_party/blink/renderer/bindings/core/v8/source_location.h"
+#include "third_party/blink/renderer/core/dom/abort_signal.h"
 #include "third_party/blink/renderer/core/dom/events/add_event_listener_options_resolved.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/events/event_dispatch_forbidden_scope.h"
@@ -239,7 +240,7 @@ void RegisterWithScheduler(ExecutionContext* execution_context,
   if (feature_for_scheduler) {
     execution_context->GetScheduler()->RegisterStickyFeature(
         feature_for_scheduler.value(),
-        {SchedulingPolicy::RecordMetricsForBackForwardCache()});
+        {SchedulingPolicy::DisableBackForwardCache()});
   }
 }
 
@@ -466,6 +467,8 @@ bool EventTarget::addEventListener(
       resolved_options->setOnce(options->once());
     if (options->hasCapture())
       resolved_options->setCapture(options->capture());
+    if (options->hasSignal())
+      resolved_options->setSignal(options->signal());
     return addEventListener(event_type, event_listener, resolved_options);
   }
 
@@ -495,6 +498,9 @@ bool EventTarget::AddEventListenerInternal(
   if (!listener)
     return false;
 
+  if (options->hasSignal() && options->signal()->aborted())
+    return false;
+
   if (event_type == event_type_names::kTouchcancel ||
       event_type == event_type_names::kTouchend ||
       event_type == event_type_names::kTouchmove ||
@@ -522,6 +528,26 @@ bool EventTarget::AddEventListenerInternal(
   bool added = EnsureEventTargetData().event_listener_map.Add(
       event_type, listener, options, &registered_listener);
   if (added) {
+    if (options->hasSignal()) {
+      // Instead of passing the entire |options| here, which could create a
+      // circular reference due to |options| holding a Member<AbortSignal>, just
+      // pass the |options->capture()| boolean, which is the only thing
+      // removeEventListener actually uses to find and remove the event
+      // listener.
+      options->signal()->AddAlgorithm(WTF::Bind(
+          [](EventTarget* event_target, const AtomicString& event_type,
+             const EventListener* listener, bool capture) {
+            event_target->removeEventListener(event_type, listener, capture);
+          },
+          WrapWeakPersistent(this), event_type, WrapWeakPersistent(listener),
+          options->capture()));
+      if (const LocalDOMWindow* executing_window = ExecutingWindow()) {
+        if (const Document* document = executing_window->document()) {
+          document->CountUse(WebFeature::kAddEventListenerWithAbortSignal);
+        }
+      }
+    }
+
     AddedEventListener(event_type, registered_listener);
     if (IsA<JSBasedEventListener>(listener) &&
         IsInstrumentedForAsyncStack(event_type)) {

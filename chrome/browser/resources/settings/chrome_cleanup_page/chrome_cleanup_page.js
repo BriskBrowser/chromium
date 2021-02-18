@@ -18,6 +18,7 @@ import '../settings_shared_css.m.js';
 
 import {assert} from 'chrome://resources/js/assert.m.js';
 import {I18nBehavior} from 'chrome://resources/js/i18n_behavior.m.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {WebUIListenerBehavior} from 'chrome://resources/js/web_ui_listener_behavior.m.js';
 import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
@@ -68,6 +69,7 @@ const ChromeCleanupCardFlags = {
   SHOW_LOGS_PERMISSIONS: 1 << 0,
   WAITING_FOR_RESULT: 1 << 1,
   SHOW_ITEMS_TO_REMOVE: 1 << 2,
+  SHOW_NOTIFICATION_PERMISSION: 1 << 3,
 };
 
 /**
@@ -112,7 +114,6 @@ let ChromeCleanupFilePath;
  * @typedef {{
  *   files: Array<ChromeCleanupFilePath>,
  *   registryKeys: Array<string>,
- *   extensions: Array<string>,
  * }}
  */
 let ChromeCleanerScannerResults;
@@ -194,6 +195,12 @@ Polymer({
     },
 
     /** @private */
+    showNotificationPermission_: {
+      type: Boolean,
+      value: false,
+    },
+
+    /** @private */
     showItemsToRemove_: {
       type: Boolean,
       value: false,
@@ -222,7 +229,7 @@ Polymer({
     scannerResults_: {
       type: Array,
       value() {
-        return {'files': [], 'registryKeys': [], 'extensions': []};
+        return {'files': [], 'registryKeys': []};
       },
     },
 
@@ -238,12 +245,6 @@ Polymer({
       computed: 'computeHasRegistryKeysToShow_(scannerResults_)',
     },
 
-    /** @private */
-    hasExtensionsToShow_: {
-      type: Boolean,
-      computed: 'computeHasExtensionsToShow_(scannerResults_)',
-    },
-
     /** @private {chrome.settingsPrivate.PrefObject} */
     logsUploadPref_: {
       type: Object,
@@ -257,11 +258,24 @@ Polymer({
       type: Boolean,
       value: false,
     },
+
+    /**
+     * Virtual pref that's attached to the notification checkbox.
+     * @private {!chrome.settingsPrivate.PrefObject}
+     */
+    notificationEnabledPref_: {
+      type: Object,
+      value() {
+        return /** @type {chrome.settingsPrivate.PrefObject} */ ({
+          type: chrome.settingsPrivate.PrefType.BOOLEAN,
+          value: false,
+        });
+      },
+    },
   },
 
   /** @private {!ChromeCleanerScannerResults} */
-  emptyChromeCleanerScannerResults_:
-      {'files': [], 'registryKeys': [], 'extensions': []},
+  emptyChromeCleanerScannerResults_: {'files': [], 'registryKeys': []},
 
   /** @private {?ChromeCleanupProxy} */
   browserProxy_: null,
@@ -361,18 +375,6 @@ Polymer({
    */
   computeHasRegistryKeysToShow_(scannerResults) {
     return scannerResults.registryKeys.length > 0;
-  },
-
-  /**
-   * Returns true if user-initiated cleanups are enabled and there are
-   * extensions to show to the user.
-   * @param {!ChromeCleanerScannerResults} scannerResults The cleanup
-   *     items to be presented to the user.
-   * @return {boolean}
-   * @private
-   */
-  computeHasExtensionsToShow_(scannerResults) {
-    return scannerResults.extensions.length > 0;
   },
 
   /**
@@ -544,6 +546,12 @@ Polymer({
         (flags & ChromeCleanupCardFlags.WAITING_FOR_RESULT) !== 0;
     this.showItemsToRemove_ =
         (flags & ChromeCleanupCardFlags.SHOW_ITEMS_TO_REMOVE) !== 0;
+    this.showNotificationPermission_ =
+        (flags & ChromeCleanupCardFlags.SHOW_NOTIFICATION_PERMISSION) !== 0 &&
+        loadTimeData.valueExists(
+            'chromeCleanupScanCompletedNotificationEnabled') &&
+        loadTimeData.getBoolean(
+            'chromeCleanupScanCompletedNotificationEnabled');
 
     // Files to remove list should only be expandable if details are being
     // shown, otherwise it will add extra padding at the bottom of the card.
@@ -566,7 +574,8 @@ Polymer({
    */
   startScanning_() {
     this.browserProxy_.startScanning(
-        this.$.chromeCleanupLogsUploadControl.checked);
+        this.$.chromeCleanupLogsUploadControl.checked,
+        this.$.chromeCleanupShowNotificationControl.checked);
   },
 
   /**
@@ -597,8 +606,7 @@ Polymer({
     this.browserProxy_
         .getItemsToRemovePluralString(
             this.scannerResults_.files.length +
-            this.scannerResults_.registryKeys.length +
-            this.scannerResults_.extensions.length)
+            this.scannerResults_.registryKeys.length)
         .then(setShowItemsLabel);
   },
 
@@ -685,7 +693,8 @@ Polymer({
           title: this.i18n('chromeCleanupTitleFindAndRemove'),
           explanation: this.i18n('chromeCleanupExplanationFindAndRemove'),
           actionButton: actionButtons.FIND,
-          flags: ChromeCleanupCardFlags.SHOW_LOGS_PERMISSIONS,
+          flags: ChromeCleanupCardFlags.SHOW_LOGS_PERMISSIONS |
+              ChromeCleanupCardFlags.SHOW_NOTIFICATION_PERMISSION,
         }
       ],
       [

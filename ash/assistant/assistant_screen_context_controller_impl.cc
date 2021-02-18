@@ -13,15 +13,15 @@
 #include "ash/public/cpp/assistant/controller/assistant_screen_context_controller.h"
 #include "ash/public/cpp/assistant/controller/assistant_ui_controller.h"
 #include "ash/public/cpp/shell_window_ids.h"
-#include "ash/public/cpp/window_properties.h"
 #include "ash/shell.h"
 #include "ash/wm/mru_window_tracker.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/stl_util.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
+#include "chromeos/ui/base/window_properties.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "ui/accessibility/ax_assistant_structure.h"
@@ -127,7 +127,7 @@ std::unique_ptr<ui::LayerTreeOwner> CreateLayerForAssistantSnapshot(
       Shell::Get()->mru_window_tracker()->BuildMruWindowList(kActiveDesk);
 
   for (aura::Window* window : windows) {
-    if (window->GetProperty(kBlockedForAssistantSnapshotKey))
+    if (window->GetProperty(chromeos::kBlockedForAssistantSnapshotKey))
       blocked_layers.insert(window->layer());
   }
 
@@ -182,7 +182,7 @@ ax::mojom::AssistantStructurePtr CloneAssistantStructure(
 AssistantScreenContextControllerImpl::AssistantScreenContextControllerImpl(
     AssistantControllerImpl* assistant_controller)
     : assistant_controller_(assistant_controller) {
-  assistant_controller_observer_.Add(AssistantController::Get());
+  assistant_controller_observation_.Observe(AssistantController::Get());
 }
 
 AssistantScreenContextControllerImpl::~AssistantScreenContextControllerImpl() =

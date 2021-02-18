@@ -64,12 +64,6 @@ class CORE_EXPORT CSSParserSelector {
     selector_->SetRelation(value);
   }
   void SetForPage() { selector_->SetForPage(); }
-  void SetRelationIsAffectedByPseudoContent() {
-    selector_->SetRelationIsAffectedByPseudoContent();
-  }
-  bool RelationIsAffectedByPseudoContent() const {
-    return selector_->RelationIsAffectedByPseudoContent();
-  }
 
   void UpdatePseudoType(const AtomicString& value,
                         const CSSParserContext& context,
@@ -106,8 +100,6 @@ class CORE_EXPORT CSSParserSelector {
   // returns RelationType::kSubSelector.
   CSSSelector::RelationType GetImplicitShadowCombinatorForMatching() const;
   bool NeedsImplicitShadowCombinatorForMatching() const;
-
-  bool IsSimple() const;
 
   CSSParserSelector* TagHistory() const { return tag_history_.get(); }
   void SetTagHistory(std::unique_ptr<CSSParserSelector> selector) {

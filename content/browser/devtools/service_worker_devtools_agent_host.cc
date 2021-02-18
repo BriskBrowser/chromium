@@ -5,13 +5,14 @@
 #include "content/browser/devtools/service_worker_devtools_agent_host.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
 #include "content/browser/devtools/devtools_renderer_channel.h"
 #include "content/browser/devtools/devtools_session.h"
 #include "content/browser/devtools/protocol/fetch_handler.h"
 #include "content/browser/devtools/protocol/inspector_handler.h"
+#include "content/browser/devtools/protocol/io_handler.h"
 #include "content/browser/devtools/protocol/network_handler.h"
 #include "content/browser/devtools/protocol/protocol.h"
 #include "content/browser/devtools/protocol/schema_handler.h"
@@ -19,9 +20,14 @@
 #include "content/browser/devtools/service_worker_devtools_manager.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/service_worker/service_worker_version.h"
+#include "content/browser/storage_partition_impl.h"
+#include "content/browser/url_loader_factory_params_helper.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "net/cookies/site_for_cookies.h"
+#include "services/network/public/mojom/network_context.mojom-forward.h"
 
 namespace content {
 
@@ -40,18 +46,6 @@ void SetDevToolsAttachedOnCoreThread(
     bool attached) {
   if (ServiceWorkerVersion* version = context->GetLiveVersion(version_id))
     version->SetDevToolsAttached(attached);
-}
-
-void UpdateLoaderFactoriesOnCoreThread(
-    scoped_refptr<ServiceWorkerContextWrapper> context,
-    int64_t version_id,
-    std::unique_ptr<blink::PendingURLLoaderFactoryBundle> script_bundle,
-    std::unique_ptr<blink::PendingURLLoaderFactoryBundle> subresource_bundle) {
-  auto* version = context->GetLiveVersion(version_id);
-  if (!version)
-    return;
-  version->embedded_worker()->UpdateLoaderFactories(
-      std::move(script_bundle), std::move(subresource_bundle));
 }
 
 }  // namespace
@@ -129,15 +123,16 @@ ServiceWorkerDevToolsAgentHost::~ServiceWorkerDevToolsAgentHost() {
 
 bool ServiceWorkerDevToolsAgentHost::AttachSession(DevToolsSession* session,
                                                    bool acquire_wake_lock) {
-  session->AddHandler(base::WrapUnique(new protocol::InspectorHandler()));
-  session->AddHandler(base::WrapUnique(new protocol::NetworkHandler(
-      GetId(), devtools_worker_token_, GetIOContext(), base::DoNothing())));
-  session->AddHandler(base::WrapUnique(new protocol::FetchHandler(
+  session->AddHandler(std::make_unique<protocol::IOHandler>(GetIOContext()));
+  session->AddHandler(std::make_unique<protocol::InspectorHandler>());
+  session->AddHandler(std::make_unique<protocol::NetworkHandler>(
+      GetId(), devtools_worker_token_, GetIOContext(), base::DoNothing()));
+  session->AddHandler(std::make_unique<protocol::FetchHandler>(
       GetIOContext(),
       base::BindRepeating(
           &ServiceWorkerDevToolsAgentHost::UpdateLoaderFactories,
-          base::Unretained(this)))));
-  session->AddHandler(base::WrapUnique(new protocol::SchemaHandler()));
+          base::Unretained(this))));
+  session->AddHandler(std::make_unique<protocol::SchemaHandler>());
   session->AddHandler(std::make_unique<protocol::TargetHandler>(
       protocol::TargetHandler::AccessMode::kAutoAttachOnly, GetId(),
       GetRendererChannel(), session->GetRootSession()));
@@ -235,19 +230,40 @@ void ServiceWorkerDevToolsAgentHost::UpdateLoaderFactories(
       std::move(coep_reporter_for_subresource_loader),
       ContentBrowserClient::URLLoaderFactoryType::kServiceWorkerSubResource);
 
-  if (ServiceWorkerContext::IsServiceWorkerOnUIEnabled()) {
-    UpdateLoaderFactoriesOnCoreThread(context_wrapper_, version_id_,
-                                      std::move(script_bundle),
-                                      std::move(subresource_bundle));
-    std::move(callback).Run();
-  } else {
-    GetIOThreadTaskRunner({})->PostTaskAndReply(
-        FROM_HERE,
-        base::BindOnce(&UpdateLoaderFactoriesOnCoreThread, context_wrapper_,
-                       version_id_, std::move(script_bundle),
-                       std::move(subresource_bundle)),
-        std::move(callback));
-  }
+  auto* version = context_wrapper_->GetLiveVersion(version_id_);
+  if (!version)
+    return;
+  version->embedded_worker()->UpdateLoaderFactories(
+      std::move(script_bundle), std::move(subresource_bundle));
+
+  std::move(callback).Run();
+}
+
+DevToolsAgentHostImpl::NetworkLoaderFactoryParamsAndInfo
+ServiceWorkerDevToolsAgentHost::CreateNetworkFactoryParamsForDevTools() {
+  RenderProcessHost* rph = RenderProcessHost::FromID(worker_process_id_);
+  const url::Origin origin = url::Origin::Create(url_);
+  auto factory = URLLoaderFactoryParamsHelper::CreateForWorker(
+      rph, origin,
+      net::IsolationInfo::Create(net::IsolationInfo::RequestType::kOther,
+                                 origin, origin,
+                                 net::SiteForCookies::FromOrigin(origin)),
+      /*coep_reporter=*/mojo::NullRemote(),
+      static_cast<StoragePartitionImpl*>(rph->GetStoragePartition())
+          ->CreateAuthCertObserverForServiceWorker(),
+      /*debug_tag=*/"SWDTAH::CreateNetworkFactoryParamsForDevTools");
+  return {url::Origin::Create(GetURL()), net::SiteForCookies::FromUrl(GetURL()),
+          std::move(factory)};
+}
+
+RenderProcessHost* ServiceWorkerDevToolsAgentHost::GetProcessHost() {
+  return RenderProcessHost::FromID(worker_process_id_);
+}
+
+base::Optional<network::CrossOriginEmbedderPolicy>
+ServiceWorkerDevToolsAgentHost::cross_origin_embedder_policy(
+    const std::string&) {
+  return cross_origin_embedder_policy_;
 }
 
 }  // namespace content

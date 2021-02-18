@@ -43,11 +43,12 @@ void WriteFromUrlOperation::StartImpl() {
       base::BindOnce(
           &WriteFromUrlOperation::VerifyDownload, this,
           base::BindOnce(
-              &WriteFromUrlOperation::Unzip, this,
-              base::Bind(&WriteFromUrlOperation::Write, this,
-                         base::Bind(&WriteFromUrlOperation::VerifyWrite, this,
-                                    base::Bind(&WriteFromUrlOperation::Finish,
-                                               this)))))));
+              &WriteFromUrlOperation::Extract, this,
+              base::BindOnce(
+                  &WriteFromUrlOperation::Write, this,
+                  base::BindOnce(&WriteFromUrlOperation::VerifyWrite, this,
+                                 base::BindOnce(&WriteFromUrlOperation::Finish,
+                                                this)))))));
 }
 
 void WriteFromUrlOperation::GetDownloadTarget(base::OnceClosure continuation) {
@@ -103,7 +104,7 @@ void WriteFromUrlOperation::Download(base::OnceClosure continuation) {
           cookies_store: "user"
           setting:
             "This feature cannot be disabled by settings, it can only be used "
-            "by whitelisted apps/extension."
+            "by allowlisted apps/extension."
           policy_exception_justification:
             "Not implemented, considered not useful."
         })");

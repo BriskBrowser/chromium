@@ -31,6 +31,8 @@
  * |                                                 |
  * +-------------------------------------------------+
  *
+ * TODO(crbug.com/1113642): Remove this element when content settings redesign
+ * is launched.
  */
 import '../controls/settings_toggle_button.m.js';
 import '../settings_shared_css.m.js';
@@ -175,7 +177,6 @@ Polymer({
       case ContentSettingsTypes.GEOLOCATION:
       case ContentSettingsTypes.MIC:
       case ContentSettingsTypes.NOTIFICATIONS:
-      case ContentSettingsTypes.UNSANDBOXED_PLUGINS:
       case ContentSettingsTypes.MIDI_DEVICES:
       case ContentSettingsTypes.USB_DEVICES:
       case ContentSettingsTypes.SERIAL_PORTS:
@@ -186,17 +187,11 @@ Polymer({
       case ContentSettingsTypes.VR:
       case ContentSettingsTypes.AR:
       case ContentSettingsTypes.WINDOW_PLACEMENT:
+      case ContentSettingsTypes.IDLE_DETECTION:
         // "Ask" vs "Blocked".
         this.browserProxy.setDefaultValueForContentType(
             this.category,
             this.categoryEnabled ? ContentSetting.ASK : ContentSetting.BLOCK);
-        break;
-      case ContentSettingsTypes.PLUGINS:
-        // "Run important content" vs. "Block".
-        this.browserProxy.setDefaultValueForContentType(
-            this.category,
-            this.categoryEnabled ? ContentSetting.IMPORTANT_CONTENT :
-                                   ContentSetting.BLOCK);
         break;
       default:
         assertNotReached('Invalid category: ' + this.category);

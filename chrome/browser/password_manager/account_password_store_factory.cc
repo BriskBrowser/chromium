@@ -9,10 +9,12 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/memory/weak_ptr.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/password_manager/credentials_cleaner_runner_factory.h"
+#include "chrome/browser/password_manager/password_store_utils.h"
 #include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -22,8 +24,8 @@
 #include "components/password_manager/core/browser/password_manager_constants.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/browser/password_store.h"
-#include "components/password_manager/core/browser/password_store_default.h"
 #include "components/password_manager/core/browser/password_store_factory_util.h"
+#include "components/password_manager/core/browser/password_store_impl.h"
 #include "components/password_manager/core/common/password_manager_features.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
@@ -71,7 +73,7 @@ class UnsyncedCredentialsDeletionNotifierImpl
   ~UnsyncedCredentialsDeletionNotifierImpl() override = default;
 
   // Finds the last active tab and notifies their ManagePasswordsUIController.
-  void Notify(std::vector<autofill::PasswordForm> credentials) override;
+  void Notify(std::vector<password_manager::PasswordForm> credentials) override;
   base::WeakPtr<UnsyncedCredentialsDeletionNotifier> GetWeakPtr() override;
 
  private:
@@ -85,7 +87,7 @@ UnsyncedCredentialsDeletionNotifierImpl::
     : profile_(profile) {}
 
 void UnsyncedCredentialsDeletionNotifierImpl::Notify(
-    std::vector<autofill::PasswordForm> credentials) {
+    std::vector<password_manager::PasswordForm> credentials) {
   Browser* browser = chrome::FindBrowserWithProfile(profile_);
   if (!browser)
     return;
@@ -185,7 +187,7 @@ AccountPasswordStoreFactory::BuildServiceInstanceFor(
           profile->GetPath()));
 
   scoped_refptr<PasswordStore> ps =
-      new password_manager::PasswordStoreDefault(std::move(login_db));
+      new password_manager::PasswordStoreImpl(std::move(login_db));
   if (!ps->Init(profile->GetPrefs(),
                 base::BindRepeating(&SyncEnabledOrDisabled, profile))) {
     // TODO(crbug.com/479725): Remove the LOG once this error is visible in the
@@ -202,8 +204,10 @@ AccountPasswordStoreFactory::BuildServiceInstanceFor(
             ->GetNetworkContext();
       },
       profile);
-  password_manager_util::RemoveUselessCredentials(ps, profile->GetPrefs(), 60,
-                                                  network_context_getter);
+  password_manager_util::RemoveUselessCredentials(
+      CredentialsCleanerRunnerFactory::GetForProfile(profile), ps,
+      profile->GetPrefs(), base::TimeDelta::FromSeconds(60),
+      network_context_getter);
 
 #if !defined(OS_ANDROID)
   ps->SetUnsyncedCredentialsDeletionNotifier(

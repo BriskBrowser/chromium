@@ -61,10 +61,8 @@ static inline LayoutEmbeddedContent* FindPartLayoutObject(const Node* n) {
   if (!n->GetLayoutObject())
     n = Traversal<HTMLObjectElement>::FirstAncestor(*n);
 
-  if (n && n->GetLayoutObject() &&
-      n->GetLayoutObject()->IsLayoutEmbeddedContent())
-    return ToLayoutEmbeddedContent(n->GetLayoutObject());
-
+  if (n)
+    return DynamicTo<LayoutEmbeddedContent>(n->GetLayoutObject());
   return nullptr;
 }
 
@@ -128,6 +126,9 @@ void HTMLEmbedElement::ParseAttribute(
       if (FastHasAttribute(html_names::kTypeAttr)) {
         SetNeedsPluginUpdate(true);
         ReattachOnPluginChangeIfNeeded();
+      } else {
+        UseCounter::Count(GetDocument(),
+                          WebFeature::kEmbedElementWithoutTypeSrcChanged);
       }
     }
   } else {

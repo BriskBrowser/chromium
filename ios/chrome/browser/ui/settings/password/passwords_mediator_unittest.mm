@@ -38,9 +38,9 @@
 
 namespace {
 
-using autofill::PasswordForm;
+using password_manager::PasswordForm;
 using password_manager::CompromisedCredentials;
-using password_manager::CompromiseType;
+using password_manager::InsecureType;
 using password_manager::TestPasswordStore;
 
 // Sets test password store and returns pointer to it.
@@ -54,16 +54,6 @@ scoped_refptr<TestPasswordStore> BuildTestPasswordStore(
                                   web::BrowserState, TestPasswordStore>))
           .get()));
 }
-
-// Sets test sync setup service and returns pointer to it.
-std::unique_ptr<KeyedService> BuildMockSyncSetupService(
-    web::BrowserState* context) {
-  ChromeBrowserState* browser_state =
-      ChromeBrowserState::FromBrowserState(context);
-  return std::make_unique<SyncSetupServiceMock>(
-      ProfileSyncServiceFactory::GetForBrowserState(browser_state));
-}
-
 }  // namespace
 
 @interface FakePasswordsConsumer : NSObject <PasswordsConsumer>
@@ -72,11 +62,12 @@ std::unique_ptr<KeyedService> BuildMockSyncSetupService(
 
 @implementation FakePasswordsConsumer
 
-- (void)setPasswordCheckUIState:(PasswordCheckUIState)state {
+- (void)setPasswordCheckUIState:(PasswordCheckUIState)state
+      compromisedPasswordsCount:(NSInteger)count {
 }
 
 - (void)setPasswordsForms:
-    (std::vector<std::unique_ptr<autofill::PasswordForm>>)form {
+    (std::vector<std::unique_ptr<password_manager::PasswordForm>>)form {
 }
 
 @end
@@ -86,8 +77,6 @@ class PasswordsMediatorTest : public BlockCleanupTest {
  protected:
   void SetUp() override {
     BlockCleanupTest::SetUp();
-    scoped_feature_list_.InitAndEnableFeature(
-        password_manager::features::kPasswordCheck);
 
     TestChromeBrowserState::Builder builder;
     builder.AddTestingFactory(
@@ -95,9 +84,9 @@ class PasswordsMediatorTest : public BlockCleanupTest {
         base::BindRepeating(
             &AuthenticationServiceFake::CreateAuthenticationService));
 
-    builder.AddTestingFactory(SyncSetupServiceFactory::GetInstance(),
-                              base::BindRepeating(&BuildMockSyncSetupService));
-
+    builder.AddTestingFactory(
+        SyncSetupServiceFactory::GetInstance(),
+        base::BindRepeating(&SyncSetupServiceMock::CreateKeyedService));
     browser_state_ = builder.Build();
     auth_service_ = static_cast<AuthenticationServiceFake*>(
         AuthenticationServiceFactory::GetInstance()->GetForBrowserState(
@@ -133,7 +122,6 @@ class PasswordsMediatorTest : public BlockCleanupTest {
   scoped_refptr<IOSChromePasswordCheckManager> password_check_;
   FakePasswordsConsumer* consumer_;
   PasswordsMediator* mediator_;
-  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 TEST_F(PasswordsMediatorTest, ElapsedTimeSinceLastCheck) {

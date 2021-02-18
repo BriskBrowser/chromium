@@ -12,6 +12,10 @@ StubWebView::StubWebView(const std::string& id) : id_(id) {}
 
 StubWebView::~StubWebView() {}
 
+bool StubWebView::IsServiceWorker() const {
+  return false;
+}
+
 std::string StubWebView::GetId() {
   return id_;
 }
@@ -271,3 +275,9 @@ std::unique_ptr<base::Value> StubWebView::GetCastIssueMessage() {
 }
 
 void StubWebView::SetFrame(const std::string& new_frame_id) {}
+
+Status StubWebView::GetNodeIdByElement(const std::string& frame,
+                                       const base::DictionaryValue& element,
+                                       int* node_id) {
+  return Status(kOk);
+}

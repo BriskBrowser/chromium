@@ -17,7 +17,17 @@ public class AutofillAssistantServiceInjector {
         /**
          * Returns a pointer to a native service instance, or 0 if no service was created.
          */
-        long createNativeService();
+        long createNativeService(long nativeClientAndroid);
+    }
+
+    /**
+     * Interface for service request senders.
+     */
+    public interface NativeServiceRequestSenderProvider {
+        /**
+         * Returns a pointer to a native service request sender, or 0 on failure.
+         */
+        long createNativeServiceRequestSender();
     }
 
     /**
@@ -27,10 +37,25 @@ public class AutofillAssistantServiceInjector {
     private static NativeServiceProvider sNativeServiceProvider;
 
     /**
+     * Provider to create the native service request sender to inject. Will be automatically called
+     * upon trigger script startup.
+     */
+    private static NativeServiceRequestSenderProvider sNativeServiceRequestSenderProvider;
+
+    /**
      * Sets a service provider to create a native service to inject upon client startup.
      */
     public static void setServiceToInject(NativeServiceProvider nativeServiceProvider) {
         sNativeServiceProvider = nativeServiceProvider;
+    }
+
+    /**
+     * Sets a service request sender provider to create a native service request sender to inject
+     * upon trigger script startup.
+     */
+    public static void setServiceRequestSenderToInject(
+            NativeServiceRequestSenderProvider nativeServiceRequestSenderProvider) {
+        sNativeServiceRequestSenderProvider = nativeServiceRequestSenderProvider;
     }
 
     /**
@@ -40,11 +65,26 @@ public class AutofillAssistantServiceInjector {
      * <p>Please note: the caller must ensure to take ownership of the returned native pointer,
      * else it will leak!</p>
      */
-    public static long getServiceToInject() {
+    public static long getServiceToInject(long nativeClientAndroid) {
         if (sNativeServiceProvider == null) {
             return 0;
         }
 
-        return sNativeServiceProvider.createNativeService();
+        return sNativeServiceProvider.createNativeService(nativeClientAndroid);
+    }
+
+    /**
+     * Returns the native pointer to the service request sender to inject, or 0 if no service
+     * request sender has been set (and the default should be used).
+     *
+     * <p>Please note: the caller must ensure to take ownership of the returned native pointer,
+     * else it will leak!</p>
+     */
+    public static long getServiceRequestSenderToInject() {
+        if (sNativeServiceRequestSenderProvider == null) {
+            return 0;
+        }
+
+        return sNativeServiceRequestSenderProvider.createNativeServiceRequestSender();
     }
 }

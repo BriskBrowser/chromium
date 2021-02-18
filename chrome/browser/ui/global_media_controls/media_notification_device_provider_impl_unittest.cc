@@ -4,7 +4,7 @@
 
 #include "chrome/browser/ui/global_media_controls/media_notification_device_provider_impl.h"
 
-#include "base/util/ranges/algorithm.h"
+#include "base/ranges/algorithm.h"
 #include "media/audio/audio_device_description.h"
 #include "media/audio/audio_system.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -59,7 +59,7 @@ class MockAudioSystem : public media::AudioSystem {
 
 bool DescriptionsAreEqual(const media::AudioDeviceDescriptions& lhs,
                           const media::AudioDeviceDescriptions& rhs) {
-  return util::ranges::equal(lhs, rhs, [](const auto& lhs, const auto& rhs) {
+  return base::ranges::equal(lhs, rhs, [](const auto& lhs, const auto& rhs) {
     // Group IDs are not used by this test and are therefore ignored in
     // comparison.
     return lhs.device_name == rhs.device_name && lhs.unique_id == rhs.unique_id;
@@ -142,4 +142,38 @@ TEST(MediaNotificationDeviceProviderTest,
   media::AudioDeviceDescriptions original_descriptions = descriptions;
   auto result = DescriptionsFromProvider(std::move(descriptions));
   EXPECT_TRUE(DescriptionsAreEqual(result, original_descriptions));
+}
+
+TEST(MediaNotificationDeviceProviderTest, NoDefaultDevice) {
+  media::AudioDeviceDescriptions descriptions;
+  descriptions.emplace_back("Speaker", "1", "");
+  descriptions.emplace_back("Headphones", "2", "");
+  descriptions.emplace_back("Monitor", "3", "");
+
+  media::AudioDeviceDescriptions original_descriptions = descriptions;
+  auto result = DescriptionsFromProvider(std::move(descriptions));
+  EXPECT_TRUE(DescriptionsAreEqual(result, original_descriptions));
+}
+
+TEST(MediaNotificationDeviceProviderTest,
+     MaybeRemoveDefaultDeviceMultipleTimes) {
+  media::AudioDeviceDescriptions descriptions;
+  descriptions.emplace_back("Speaker", "1", "");
+  descriptions.emplace_back("Headphones", "2", "");
+  descriptions.emplace_back("Monitor", "3", "");
+  descriptions.emplace_back(
+      media::AudioDeviceDescription::GetDefaultDeviceName() + " - Speaker",
+      media::AudioDeviceDescription::kDefaultDeviceId, "");
+
+  media::AudioDeviceDescriptions expected_descriptions;
+  expected_descriptions.emplace_back(
+      "Speaker", media::AudioDeviceDescription::kDefaultDeviceId, "");
+  expected_descriptions.emplace_back("Headphones", "2", "");
+  expected_descriptions.emplace_back("Monitor", "3", "");
+
+  auto result = DescriptionsFromProvider(descriptions);
+  EXPECT_TRUE(DescriptionsAreEqual(result, expected_descriptions));
+  // Subsequent calls should not modify the devices list any further.
+  result = DescriptionsFromProvider(std::move(descriptions));
+  EXPECT_TRUE(DescriptionsAreEqual(result, expected_descriptions));
 }

@@ -6,9 +6,10 @@
 
 #include <memory>
 
+#include "base/android/android_image_reader_compat.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/single_thread_task_runner.h"
@@ -19,7 +20,6 @@
 #include "gpu/command_buffer/service/shared_context_state.h"
 #include "gpu/command_buffer/service/texture_owner.h"
 #include "gpu/config/gpu_finch_features.h"
-#include "media/base/android/media_codec_util.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/media_switches.h"
 #include "media/base/video_frame.h"
@@ -43,22 +43,16 @@ base::Optional<VideoFrameMetadata::CopyMode> GetVideoFrameCopyMode(
   if (!enable_threaded_texture_mailboxes)
     return base::nullopt;
 
-  if (features::IsAImageReaderEnabled() &&
-      base::FeatureList::IsEnabled(media::kWebViewZeroCopyVideo) &&
-      !media::MediaCodecUtil::LimitAImageReaderMaxSizeToOne()) {
-    return VideoFrameMetadata::CopyMode::kCopyMailboxesOnly;
-  } else {
-    return VideoFrameMetadata::CopyMode::kCopyToNewTexture;
-  }
+  return features::IsWebViewZeroCopyVideoEnabled()
+             ? VideoFrameMetadata::CopyMode::kCopyMailboxesOnly
+             : VideoFrameMetadata::CopyMode::kCopyToNewTexture;
 }
 
 gpu::TextureOwner::Mode GetTextureOwnerMode(
     VideoFrameFactory::OverlayMode overlay_mode,
     const base::Optional<VideoFrameMetadata::CopyMode>& copy_mode) {
   if (copy_mode == VideoFrameMetadata::kCopyMailboxesOnly) {
-    DCHECK(features::IsAImageReaderEnabled() &&
-           base::FeatureList::IsEnabled(media::kWebViewZeroCopyVideo) &&
-           !media::MediaCodecUtil::LimitAImageReaderMaxSizeToOne());
+    DCHECK(features::IsWebViewZeroCopyVideoEnabled());
     return gpu::TextureOwner::Mode::kAImageReaderInsecureMultithreaded;
   }
 
@@ -307,7 +301,7 @@ void VideoFrameFactoryImpl::CreateVideoFrame_OnImageReady(
     std::move(output_cb).Run(nullptr);
     return;
   }
-  frame->metadata()->copy_mode = copy_mode;
+  frame->metadata().copy_mode = copy_mode;
   const bool is_surface_control =
       overlay_mode == OverlayMode::kSurfaceControlSecure ||
       overlay_mode == OverlayMode::kSurfaceControlInsecure;
@@ -325,9 +319,9 @@ void VideoFrameFactoryImpl::CreateVideoFrame_OnImageReady(
     allow_overlay = !is_texture_owner_backed || wants_promotion_hints;
   }
 
-  frame->metadata()->allow_overlay = allow_overlay;
-  frame->metadata()->wants_promotion_hint = wants_promotion_hints;
-  frame->metadata()->texture_owner = is_texture_owner_backed;
+  frame->metadata().allow_overlay = allow_overlay;
+  frame->metadata().wants_promotion_hint = wants_promotion_hints;
+  frame->metadata().texture_owner = is_texture_owner_backed;
 
   // TODO(liberato): if this is run via being dropped, then it would be nice
   // to find that out rather than treating the image as unused.  If the renderer

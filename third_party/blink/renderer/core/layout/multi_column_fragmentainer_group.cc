@@ -327,8 +327,10 @@ unsigned MultiColumnFragmentainerGroup::ActualColumnCount() const {
   return count;
 }
 
-void MultiColumnFragmentainerGroup::UpdateFromNG(LayoutUnit logical_height) {
-  logical_height_ = logical_height;
+void MultiColumnFragmentainerGroup::SetColumnBlockSizeFromNG(
+    LayoutUnit block_size) {
+  DCHECK(!is_logical_height_known_ || logical_height_ == block_size);
+  logical_height_ = block_size;
   is_logical_height_known_ = true;
 }
 
@@ -613,8 +615,8 @@ unsigned MultiColumnFragmentainerGroup::UnclampedActualColumnCount() const {
 
 MultiColumnFragmentainerGroupList::MultiColumnFragmentainerGroupList(
     LayoutMultiColumnSet& column_set)
-    : column_set_(column_set) {
-  Append(MultiColumnFragmentainerGroup(column_set_));
+    : column_set_(&column_set) {
+  Append(MultiColumnFragmentainerGroup(*column_set_));
 }
 
 // An explicit empty destructor of MultiColumnFragmentainerGroupList should be
@@ -629,7 +631,7 @@ MultiColumnFragmentainerGroupList::~MultiColumnFragmentainerGroupList() =
 
 MultiColumnFragmentainerGroup&
 MultiColumnFragmentainerGroupList::AddExtraGroup() {
-  Append(MultiColumnFragmentainerGroup(column_set_));
+  Append(MultiColumnFragmentainerGroup(*column_set_));
   return Last();
 }
 

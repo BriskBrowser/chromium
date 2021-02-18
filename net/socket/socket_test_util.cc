@@ -14,7 +14,6 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_util.h"
@@ -791,6 +790,7 @@ std::unique_ptr<TransportClientSocket>
 MockClientSocketFactory::CreateTransportClientSocket(
     const AddressList& addresses,
     std::unique_ptr<SocketPerformanceWatcher> socket_performance_watcher,
+    NetworkQualityEstimator* network_quality_estimator,
     NetLog* net_log,
     const NetLogSource& source) {
   SocketDataProvider* data_provider = mock_tcp_data_.GetNextWithoutAsserting();
@@ -2179,7 +2179,7 @@ int MockTransportClientSocketPool::RequestSocket(
   last_request_priority_ = priority;
   std::unique_ptr<StreamSocket> socket =
       client_socket_factory_->CreateTransportClientSocket(
-          AddressList(), nullptr, net_log.net_log(), NetLogSource());
+          AddressList(), nullptr, nullptr, net_log.net_log(), NetLogSource());
   MockConnectJob* job = new MockConnectJob(
       std::move(socket), handle, socket_tag, std::move(callback), priority);
   job_list_.push_back(base::WrapUnique(job));
@@ -2339,11 +2339,13 @@ std::unique_ptr<TransportClientSocket>
 MockTaggingClientSocketFactory::CreateTransportClientSocket(
     const AddressList& addresses,
     std::unique_ptr<SocketPerformanceWatcher> socket_performance_watcher,
+    NetworkQualityEstimator* network_quality_estimator,
     NetLog* net_log,
     const NetLogSource& source) {
   std::unique_ptr<MockTaggingStreamSocket> socket(new MockTaggingStreamSocket(
       MockClientSocketFactory::CreateTransportClientSocket(
-          addresses, std::move(socket_performance_watcher), net_log, source)));
+          addresses, std::move(socket_performance_watcher),
+          network_quality_estimator, net_log, source)));
   tcp_socket_ = socket.get();
   return std::move(socket);
 }

@@ -28,28 +28,35 @@
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
+#include "third_party/blink/renderer/platform/supplementable.h"
 #include "third_party/blink/renderer/platform/timer.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
 
-class LocalFrame;
+class Navigator;
 class UnsignedLongOrUnsignedLongSequence;
 
 class MODULES_EXPORT VibrationController final
     : public GarbageCollected<VibrationController>,
+      public Supplement<Navigator>,
       public ExecutionContextLifecycleObserver,
       public PageVisibilityObserver {
  public:
   using VibrationPattern = Vector<unsigned>;
 
-  explicit VibrationController(LocalFrame&);
-  virtual ~VibrationController();
+  static const char kSupplementName[];
+  static VibrationController& From(Navigator&);
+
+  static bool vibrate(Navigator&, unsigned time);
+  static bool vibrate(Navigator&, const VibrationPattern&);
+
+  explicit VibrationController(Navigator&);
+  ~VibrationController() override;
 
   static VibrationPattern SanitizeVibrationPattern(
       const UnsignedLongOrUnsignedLongSequence&);
 
-  bool Vibrate(const VibrationPattern&);
   void DoVibrate(TimerBase*);
   void DidVibrate();
 
@@ -72,6 +79,8 @@ class MODULES_EXPORT VibrationController final
   // Inherited from PageVisibilityObserver.
   void PageVisibilityChanged() override;
 
+  bool Vibrate(const VibrationPattern&);
+
   // Remote to VibrationManager mojo interface. This is reset in
   // |contextDestroyed| and must not be called or recreated after it is reset.
   //
@@ -86,7 +95,7 @@ class MODULES_EXPORT VibrationController final
   // Timer for calling |doVibrate| after a delay. It is safe to call
   // |startOneshot| when the timer is already running: it may affect the time
   // at which it fires, but |doVibrate| will still be called only once.
-  TaskRunnerTimer<VibrationController> timer_do_vibrate_;
+  HeapTaskRunnerTimer<VibrationController> timer_do_vibrate_;
 
   // Whether a pattern is being processed. The vibration hardware may
   // currently be active, or during a pause it may be inactive.

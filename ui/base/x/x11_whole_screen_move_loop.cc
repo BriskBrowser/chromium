@@ -23,18 +23,15 @@
 #include "ui/events/keycodes/keyboard_code_conversion_x.h"
 #include "ui/events/platform/platform_event_source.h"
 #include "ui/events/platform/scoped_event_dispatcher.h"
-#include "ui/events/platform/x11/x11_event_source.h"
 #include "ui/events/x/events_x_utils.h"
-#include "ui/events/x/x11_window_event_manager.h"
 #include "ui/gfx/x/connection.h"
-#include "ui/gfx/x/x11.h"
+#include "ui/gfx/x/keysyms/keysyms.h"
+#include "ui/gfx/x/x11_window_event_manager.h"
 #include "ui/gfx/x/xproto.h"
 
 namespace ui {
 
 namespace {
-
-constexpr x11::KeySym kEscKeysym = static_cast<x11::KeySym>(0xff1b);
 
 // XGrabKey requires the modifier mask to explicitly be specified.
 constexpr x11::ModMask kModifiersMasks[] = {
@@ -47,6 +44,23 @@ constexpr x11::ModMask kModifiersMasks[] = {
     x11::ModMask::Lock | x11::ModMask::c_5,
     x11::ModMask::c_2 | x11::ModMask::Lock | x11::ModMask::c_5,
 };
+
+const char* GrabStatusToString(x11::GrabStatus grab_status) {
+  switch (grab_status) {
+    case x11::GrabStatus::Success:
+      return "Success";
+    case x11::GrabStatus::AlreadyGrabbed:
+      return "AlreadyGrabbed";
+    case x11::GrabStatus::InvalidTime:
+      return "InvalidTime";
+    case x11::GrabStatus::NotViewable:
+      return "NotViewable";
+    case x11::GrabStatus::Frozen:
+      return "Frozen";
+  }
+  NOTREACHED();
+  return "";
+}
 
 }  // namespace
 
@@ -207,7 +221,7 @@ void X11WholeScreenMoveLoop::EndMoveLoop() {
     UpdateCursor(initial_cursor_);
 
   auto* connection = x11::Connection::Get();
-  auto esc_keycode = connection->KeysymToKeycode(kEscKeysym);
+  auto esc_keycode = connection->KeysymToKeycode(XK_Escape);
   for (auto mask : kModifiersMasks)
     connection->UngrabKey({esc_keycode, grab_input_window_, mask});
 
@@ -230,8 +244,7 @@ bool X11WholeScreenMoveLoop::GrabPointer(scoped_refptr<X11Cursor> cursor) {
   auto ret = ui::GrabPointer(grab_input_window_, false, cursor);
   if (ret != x11::GrabStatus::Success) {
     DLOG(ERROR) << "Grabbing pointer for dragging failed: "
-                << ui::GetX11ErrorString(connection->display(),
-                                         static_cast<int>(ret));
+                << GrabStatusToString(ret);
   }
   connection->Flush();
   return ret == x11::GrabStatus::Success;
@@ -239,7 +252,7 @@ bool X11WholeScreenMoveLoop::GrabPointer(scoped_refptr<X11Cursor> cursor) {
 
 void X11WholeScreenMoveLoop::GrabEscKey() {
   auto* connection = x11::Connection::Get();
-  auto esc_keycode = connection->KeysymToKeycode(kEscKeysym);
+  auto esc_keycode = connection->KeysymToKeycode(XK_Escape);
   for (auto mask : kModifiersMasks) {
     connection->GrabKey({false, grab_input_window_, mask, esc_keycode,
                          x11::GrabMode::Async, x11::GrabMode::Async});
@@ -249,7 +262,7 @@ void X11WholeScreenMoveLoop::GrabEscKey() {
 void X11WholeScreenMoveLoop::CreateDragInputWindow(
     x11::Connection* connection) {
   grab_input_window_ = connection->GenerateId<x11::Window>();
-  connection->CreateWindow({
+  connection->CreateWindow(x11::CreateWindowRequest{
       .wid = grab_input_window_,
       .parent = connection->default_root(),
       .x = -100,
@@ -259,10 +272,11 @@ void X11WholeScreenMoveLoop::CreateDragInputWindow(
       .c_class = x11::WindowClass::InputOnly,
       .override_redirect = x11::Bool32(true),
   });
-  uint32_t event_mask = ButtonPressMask | ButtonReleaseMask |
-                        PointerMotionMask | KeyPressMask | KeyReleaseMask |
-                        StructureNotifyMask;
-  grab_input_window_events_ = std::make_unique<ui::XScopedEventSelector>(
+  auto event_mask =
+      x11::EventMask::ButtonPress | x11::EventMask::ButtonRelease |
+      x11::EventMask::PointerMotion | x11::EventMask::KeyPress |
+      x11::EventMask::KeyRelease | x11::EventMask::StructureNotify;
+  grab_input_window_events_ = std::make_unique<x11::XScopedEventSelector>(
       grab_input_window_, event_mask);
   connection->MapWindow({grab_input_window_});
   RaiseWindow(grab_input_window_);

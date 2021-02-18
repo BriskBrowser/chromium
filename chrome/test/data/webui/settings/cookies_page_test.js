@@ -27,6 +27,13 @@ suite('CrSettingsCookiesPageTest', function() {
   /** @type {!SettingsCookiesPageElement} */
   let page;
 
+  suiteSetup(function() {
+    loadTimeData.overrideValues({
+      enableContentSettingsRedesign: false,
+      privacySandboxSettingsEnabled: false,
+    });
+  });
+
   setup(function() {
     testMetricsBrowserProxy = new TestMetricsBrowserProxy();
     MetricsBrowserProxyImpl.instance_ = testMetricsBrowserProxy;
@@ -41,6 +48,9 @@ suite('CrSettingsCookiesPageTest', function() {
         cookie_primary_setting:
             {type: chrome.settingsPrivate.PrefType.NUMBER, value: 0},
       },
+      privacy_sandbox: {
+        apis_enabled: {value: true},
+      }
     };
     document.body.appendChild(page);
     flush();
@@ -52,6 +62,7 @@ suite('CrSettingsCookiesPageTest', function() {
 
   test('ElementVisibility', async function() {
     await flushTasks();
+    assertFalse(isChildVisible(page, '#exceptionHeader'));
     assertTrue(isChildVisible(page, '#clearOnExit'));
     assertTrue(isChildVisible(page, '#doNotTrack'));
     assertTrue(isChildVisible(page, '#networkPrediction'));
@@ -191,5 +202,128 @@ suite('CrSettingsCookiesPageTest', function() {
         blockAll.pref.controlledBy,
         chrome.settingsPrivate.ControlledBy.DEVICE_POLICY);
   });
+
+  test('NoPrivacySandboxToast', async function() {
+    // Check that the privacy sandbox toast is not shown while the feature is
+    // disabled.
+    page.set('prefs.privacy_sandbox.apis_enabled.value', true);
+    page.$$('#blockAll').click();
+
+    await flushTasks();
+    assertFalse(page.$$('#toast').open);
+
+    // Reset the primary preference as the previous click will have changed it.
+    page.set('prefs.generated.cookie_primary_setting.value', 0);
+    page.$$('#blockThirdParty').click();
+
+    await flushTasks();
+    assertFalse(page.$$('#toast').open);
+  });
 });
 
+suite('ContentSettingsRedesign', function() {
+  /** @type {!SettingsCookiesPageElement} */
+  let page;
+
+  suiteSetup(function() {
+    loadTimeData.overrideValues({
+      enableContentSettingsRedesign: true,
+    });
+  });
+
+  setup(function() {
+    document.body.innerHTML = '';
+    page = /** @type {!SettingsCookiesPageElement} */ (
+        document.createElement('settings-cookies-page'));
+    page.prefs = {
+      generated: {
+        cookie_session_only: {value: false},
+        cookie_primary_setting:
+            {type: chrome.settingsPrivate.PrefType.NUMBER, value: 0},
+      },
+    };
+    document.body.appendChild(page);
+  });
+
+  test('HeaderVisibility', async function() {
+    assertTrue(isChildVisible(page, '#exceptionHeader'));
+  });
+});
+
+suite('PrivacySandboxEnabled', function() {
+  /** @type {!SettingsCookiesPageElement} */
+  let page;
+
+  /** @type {!TestMetricsBrowserProxy} */
+  let testMetricsBrowserProxy;
+
+  suiteSetup(function() {
+    loadTimeData.overrideValues({
+      privacySandboxSettingsEnabled: true,
+    });
+  });
+
+  setup(function() {
+    testMetricsBrowserProxy = new TestMetricsBrowserProxy();
+    MetricsBrowserProxyImpl.instance_ = testMetricsBrowserProxy;
+    document.body.innerHTML = '';
+    page = /** @type {!SettingsCookiesPageElement} */ (
+        document.createElement('settings-cookies-page'));
+    page.prefs = {
+      generated: {
+        cookie_session_only: {value: false},
+        cookie_primary_setting:
+            {type: chrome.settingsPrivate.PrefType.NUMBER, value: 0},
+      },
+      privacy_sandbox: {
+        apis_enabled: {value: true},
+      }
+    };
+    document.body.appendChild(page);
+    return flushTasks();
+  });
+
+  test('privacySandboxToast', async function() {
+    assertFalse(page.$$('#toast').open);
+
+    // Disabling all cookies should display the privacy sandbox toast.
+    page.$$('#blockAll').click();
+    assertEquals(
+        'Settings.PrivacySandbox.Block3PCookies',
+        await testMetricsBrowserProxy.whenCalled('recordAction'));
+    testMetricsBrowserProxy.resetResolver('recordAction');
+    assertTrue(page.$$('#toast').open);
+
+    // Clicking the toast link should be recorded in UMA and should dismiss
+    // the toast.
+    page.$$('#toast').querySelector('cr-button').click();
+    assertEquals(
+        'Settings.PrivacySandbox.OpenedFromCookiesPageToast',
+        await testMetricsBrowserProxy.whenCalled('recordAction'));
+    testMetricsBrowserProxy.resetResolver('recordAction');
+    assertFalse(page.$$('#toast').open);
+
+    // Renabling 3P cookies for regular sessions should not display the toast.
+    page.$$('#blockThirdPartyIncognito').click();
+    await flushTasks();
+    assertFalse(page.$$('#toast').open);
+    assertEquals(0, testMetricsBrowserProxy.getCallCount('recordAction'));
+
+    // The toast should not be displayed if the user has the privacy sandbox
+    // APIs disabled.
+    page.set('prefs.privacy_sandbox.apis_enabled.value', false);
+    page.$$('#blockAll').click();
+    await flushTasks();
+    assertFalse(page.$$('#toast').open);
+    assertEquals(0, testMetricsBrowserProxy.getCallCount('recordAction'));
+
+    // Disabling only 3P cookies should display the toast.
+    page.set('prefs.privacy_sandbox.apis_enabled.value', true);
+    page.set('prefs.generated.cookie_primary_setting.value', 0);
+    page.$$('#blockThirdParty').click();
+    assertEquals(
+        'Settings.PrivacySandbox.Block3PCookies',
+        await testMetricsBrowserProxy.whenCalled('recordAction'));
+    assertTrue(page.$$('#toast').open);
+  });
+});

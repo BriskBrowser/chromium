@@ -535,7 +535,7 @@ DateTimeEditElement::DateTimeEditElement(Document& document,
     : HTMLDivElement(document), edit_control_owner_(&edit_control_owner) {
   SetHasCustomStyleCallbacks();
   SetShadowPseudoId(AtomicString("-webkit-datetime-edit"));
-  setAttribute(html_names::kIdAttr, shadow_element_names::DateTimeEdit());
+  setAttribute(html_names::kIdAttr, shadow_element_names::kIdDateTimeEdit);
 }
 
 DateTimeEditElement::~DateTimeEditElement() = default;
@@ -571,10 +571,11 @@ void DateTimeEditElement::BlurByOwner() {
     field->blur();
 }
 
-scoped_refptr<ComputedStyle> DateTimeEditElement::CustomStyleForLayoutObject() {
+ComputedStyle* DateTimeEditElement::CustomStyleForLayoutObject(
+    const StyleRecalcContext& style_recalc_context) {
   // FIXME: This is a kind of layout. We might want to introduce new
   // layoutObject.
-  scoped_refptr<ComputedStyle> style = OriginalStyleForLayoutObject();
+  ComputedStyle* style = OriginalStyleForLayoutObject(style_recalc_context);
   float width = 0;
   for (Node* child = FieldsWrapperElement()->firstChild(); child;
        child = child->nextSibling()) {

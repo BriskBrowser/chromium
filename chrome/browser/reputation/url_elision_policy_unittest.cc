@@ -5,8 +5,8 @@
 #include "chrome/browser/reputation/url_elision_policy.h"
 
 #include "base/test/scoped_feature_list.h"
-#include "chrome/browser/reputation/safety_tip_test_utils.h"
 #include "components/omnibox/common/omnibox_features.h"
+#include "components/reputation/core/safety_tip_test_utils.h"
 #include "components/url_formatter/spoof_checks/common_words/common_words_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -21,6 +21,12 @@ namespace {
 // hostnames that are reliably shorter/longer than the limit.
 const char* kMaxUnelidedHostLengthParam = "20";
 
+enum class KeywordSearchConfig {
+  kDisabled,
+  kEnabledWithE2LD,
+  kEnabledWithoutE2LD
+};
+
 }  // namespace
 
 class UrlElisionPolicyTest : public testing::Test {
@@ -34,7 +40,7 @@ class UrlElisionPolicyTest : public testing::Test {
         test::kDafsa, sizeof(test::kDafsa));
 
     // Ensure that the allowlist exists (as otherwise we'll never elide).
-    InitializeBlankLookalikeAllowlistForTesting();
+    reputation::InitializeBlankLookalikeAllowlistForTesting();
   }
 
   ~UrlElisionPolicyTest() override = default;
@@ -69,7 +75,8 @@ TEST_F(UrlElisionPolicyTest, DoesntElideAllowlistedDomains) {
   EXPECT_TRUE(ShouldElideToRegistrableDomain(kUrl));
 
   // ...but not when allowlisted.
-  SetSafetyTipAllowlistPatterns({"alongbutstillallowlisteddomain.com/"}, {});
+  reputation::SetSafetyTipAllowlistPatterns(
+      {"alongbutstillallowlisteddomain.com/"}, {});
   EXPECT_FALSE(ShouldElideToRegistrableDomain(kUrl));
 }
 
@@ -105,27 +112,43 @@ TEST_F(UrlElisionPolicyTest, ElidesKeywordedDomainsAppropriately) {
       ShouldElideToRegistrableDomain(GURL("ftp://google.login.com/xyz")));
 }
 
-class UrlElisionKeywordPolicyTest : public UrlElisionPolicyTest,
-                                    public testing::WithParamInterface<bool> {
+class UrlElisionKeywordPolicyTest
+    : public UrlElisionPolicyTest,
+      public testing::WithParamInterface<KeywordSearchConfig> {
  public:
   UrlElisionKeywordPolicyTest() {
-    if (!GetParam()) {
-      scoped_feature_list_.InitWithFeaturesAndParameters(
-          {{omnibox::kMaybeElideToRegistrableDomain,
-            {{"max_unelided_host_length", kMaxUnelidedHostLengthParam}}}},
-          {});
-    } else {
-      scoped_feature_list_.InitWithFeaturesAndParameters(
-          {{omnibox::kMaybeElideToRegistrableDomain,
-            {{"max_unelided_host_length", kMaxUnelidedHostLengthParam},
-             {"enable_keyword_elision", "false"}}}},
-          {});
+    switch (GetParam()) {
+      case KeywordSearchConfig::kDisabled:
+        scoped_feature_list_.InitWithFeaturesAndParameters(
+            {{omnibox::kMaybeElideToRegistrableDomain,
+              {{"max_unelided_host_length", kMaxUnelidedHostLengthParam},
+               {"enable_keyword_elision", "false"}}}},
+            {});
+        break;
+      case KeywordSearchConfig::kEnabledWithE2LD:
+        scoped_feature_list_.InitWithFeaturesAndParameters(
+            {{omnibox::kMaybeElideToRegistrableDomain,
+              {{"max_unelided_host_length", kMaxUnelidedHostLengthParam},
+               {"enable_keyword_elision", "true"},
+               {"search_e2ld_for_keywords", "true"}}}},
+            {});
+        break;
+      case KeywordSearchConfig::kEnabledWithoutE2LD:
+        scoped_feature_list_.InitWithFeaturesAndParameters(
+            {{omnibox::kMaybeElideToRegistrableDomain,
+              {{"max_unelided_host_length", kMaxUnelidedHostLengthParam},
+               {"enable_keyword_elision", "true"},
+               {"search_e2ld_for_keywords", "false"}}}},
+            {});
+        break;
     }
   }
 
   ~UrlElisionKeywordPolicyTest() override = default;
 
-  bool IsKeywordElisionEnabled() { return !GetParam(); }
+  bool IsKeywordElisionEnabled() {
+    return GetParam() != KeywordSearchConfig::kDisabled;
+  }
 
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
@@ -133,10 +156,21 @@ class UrlElisionKeywordPolicyTest : public UrlElisionPolicyTest,
   DISALLOW_COPY_AND_ASSIGN(UrlElisionKeywordPolicyTest);
 };
 
-INSTANTIATE_TEST_SUITE_P(All, UrlElisionKeywordPolicyTest, testing::Bool());
+INSTANTIATE_TEST_SUITE_P(
+    All,
+    UrlElisionKeywordPolicyTest,
+    ::testing::Values(KeywordSearchConfig::kDisabled,
+                      KeywordSearchConfig::kEnabledWithE2LD,
+                      KeywordSearchConfig::kEnabledWithoutE2LD));
 
 // Verify that keyword elision follows the feature parameter.
 TEST_P(UrlElisionKeywordPolicyTest, ElidesOnKeywords) {
   EXPECT_EQ(IsKeywordElisionEnabled(),
+            ShouldElideToRegistrableDomain(GURL("http://google.evil.com/xyz")));
+}
+
+// Verify that keyword elision respects the e2LD inclusion parameter.
+TEST_P(UrlElisionKeywordPolicyTest, RespectsE2LDParam) {
+  EXPECT_EQ(GetParam() == KeywordSearchConfig::kEnabledWithE2LD,
             ShouldElideToRegistrableDomain(GURL("http://google-evil.com/xyz")));
 }

@@ -284,6 +284,32 @@ TEST(TrustTokenStore, CountsTokens) {
   EXPECT_EQ(my_store->CountTokens(issuer), 3);
 }
 
+TEST(TrustTokenStore, GetsAllStoredTokens) {
+  auto my_store = TrustTokenStore::CreateForTesting(
+      std::make_unique<InMemoryTrustTokenPersister>());
+
+  // A freshly initialized store should be storing zero tokens.
+  EXPECT_TRUE(my_store->GetStoredTrustTokenCounts().empty());
+
+  // Add a token; the count should increase.
+  SuitableTrustTokenOrigin issuer_a =
+      *SuitableTrustTokenOrigin::Create(GURL("https://issuer-a.com"));
+  my_store->AddTokens(issuer_a, std::vector<std::string>(1),
+                      /*issuing_key=*/"");
+  auto result = my_store->GetStoredTrustTokenCounts();
+  EXPECT_TRUE(result.contains(issuer_a));
+  EXPECT_EQ(result.find(issuer_a)->second, 1);
+
+  // Add two tokens for a different issuer.
+  SuitableTrustTokenOrigin issuer_b =
+      *SuitableTrustTokenOrigin::Create(GURL("https://issuer-b.com"));
+  my_store->AddTokens(issuer_b, std::vector<std::string>(2),
+                      /*issuing_key=*/"");
+  result = my_store->GetStoredTrustTokenCounts();
+  EXPECT_TRUE(result.contains(issuer_b));
+  EXPECT_EQ(result.find(issuer_b)->second, 2);
+}
+
 TEST(TrustTokenStore, PrunesDataAssociatedWithRemovedKeyCommitments) {
   // Test that providing PruneStaleIssuerState a set of key commitments
   // correctly evicts all tokens except those associated with keys in the
@@ -438,7 +464,7 @@ TEST(TrustTokenStore, DeleteTokenForMissingIssuer) {
 
 TEST(TrustTokenStore, SetsAndRetrievesRedemptionRecord) {
   // A newly initialized store should not think
-  // it has any signed redemption records.
+  // it has any redemption records.
 
   auto my_store = TrustTokenStore::CreateForTesting(
       std::make_unique<InMemoryTrustTokenPersister>());
@@ -456,8 +482,8 @@ TEST(TrustTokenStore, SetsAndRetrievesRedemptionRecord) {
   // queries (modulo the record's staleness) should return that
   // record.
 
-  SignedTrustTokenRedemptionRecord my_record;
-  my_record.set_body("Look at me! I'm a signed redemption record!");
+  TrustTokenRedemptionRecord my_record;
+  my_record.set_body("Look at me! I'm a redemption record!");
   my_store->SetRedemptionRecord(issuer, toplevel, my_record);
 
   EXPECT_THAT(my_store->RetrieveNonstaleRedemptionRecord(issuer, toplevel),
@@ -495,11 +521,11 @@ TEST(TrustTokenStore, SetRedemptionRecordOverwritesExisting) {
   base::test::TaskEnvironment env(
       base::test::TaskEnvironment::TimeSource::MOCK_TIME);
 
-  SignedTrustTokenRedemptionRecord my_record;
-  my_record.set_body("Look at me! I'm a signed redemption record!");
+  TrustTokenRedemptionRecord my_record;
+  my_record.set_body("Look at me! I'm a redemption record!");
   my_store->SetRedemptionRecord(issuer, toplevel, my_record);
 
-  SignedTrustTokenRedemptionRecord another_record;
+  TrustTokenRedemptionRecord another_record;
   another_record.set_body(
       "If all goes well, this one should overwrite |my_record|.");
   my_store->SetRedemptionRecord(issuer, toplevel, another_record);
@@ -509,11 +535,11 @@ TEST(TrustTokenStore, SetRedemptionRecordOverwritesExisting) {
 }
 
 namespace {
-// Characterizes an SRR as expired if its body begins with an "a".
+// Characterizes an RR as expired if its body begins with an "a".
 class LetterAExpiringExpiryDelegate
     : public TrustTokenStore::RecordExpiryDelegate {
  public:
-  bool IsRecordExpired(const SignedTrustTokenRedemptionRecord& record,
+  bool IsRecordExpired(const TrustTokenRedemptionRecord& record,
                        const SuitableTrustTokenOrigin&) override {
     return record.body().size() > 1 && record.body().front() == 'a';
   }
@@ -531,8 +557,8 @@ TEST(TrustTokenStore, DoesNotReturnStaleRedemptionRecord) {
   SuitableTrustTokenOrigin toplevel =
       *SuitableTrustTokenOrigin::Create(GURL("https://toplevel.com"));
 
-  SignedTrustTokenRedemptionRecord my_record;
-  my_record.set_body("aLook at me! I'm an expired signed redemption record!");
+  TrustTokenRedemptionRecord my_record;
+  my_record.set_body("aLook at me! I'm an expired redemption record!");
   my_store->SetRedemptionRecord(issuer, toplevel, my_record);
 
   EXPECT_EQ(my_store->RetrieveNonstaleRedemptionRecord(issuer, toplevel),
@@ -599,8 +625,7 @@ TEST(TrustTokenStore, ClearsIssuerToplevelPairKeyedData) {
       *SuitableTrustTokenOrigin::Create(GURL("https://toplevel.com"));
 
   {
-    store->SetRedemptionRecord(issuer, toplevel,
-                               SignedTrustTokenRedemptionRecord());
+    store->SetRedemptionRecord(issuer, toplevel, TrustTokenRedemptionRecord());
     auto filter = mojom::ClearDataFilter::New();
     filter->origins.push_back(issuer);
     EXPECT_TRUE(store->ClearDataForFilter(std::move(filter)));
@@ -608,8 +633,7 @@ TEST(TrustTokenStore, ClearsIssuerToplevelPairKeyedData) {
   }
 
   {
-    store->SetRedemptionRecord(issuer, toplevel,
-                               SignedTrustTokenRedemptionRecord());
+    store->SetRedemptionRecord(issuer, toplevel, TrustTokenRedemptionRecord());
     auto filter = mojom::ClearDataFilter::New();
     filter->origins.push_back(toplevel);
     EXPECT_TRUE(store->ClearDataForFilter(std::move(filter)));
@@ -638,8 +662,7 @@ TEST(TrustTokenStore, RemovesDataForInvertedFilters) {
       *SuitableTrustTokenOrigin::Create(GURL("https://www.toplevel.com"));
 
   store->AddTokens(issuer, std::vector<std::string>{"token"}, "key");
-  store->SetRedemptionRecord(issuer, toplevel,
-                             SignedTrustTokenRedemptionRecord{});
+  store->SetRedemptionRecord(issuer, toplevel, TrustTokenRedemptionRecord{});
 
   // With a "delete all origins not covered by this filter"-type filter
   // containing just the issuer, the issuer's data shouldn't be touched, but the
@@ -668,8 +691,7 @@ TEST(TrustTokenStore, RemovesDataForNullFilter) {
   // some top level-keyed state,
   ASSERT_TRUE(store->SetAssociation(issuer, toplevel));
   // and some (issuer, top level) pair-keyed state.
-  store->SetRedemptionRecord(issuer, toplevel,
-                             SignedTrustTokenRedemptionRecord{});
+  store->SetRedemptionRecord(issuer, toplevel, TrustTokenRedemptionRecord{});
 
   EXPECT_TRUE(store->ClearDataForFilter(nullptr));
   EXPECT_FALSE(store->CountTokens(issuer));

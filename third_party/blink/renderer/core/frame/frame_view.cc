@@ -43,10 +43,15 @@ bool FrameView::CanThrottleRenderingForPropagation() const {
 bool FrameView::DisplayLockedInParentFrame() {
   Frame& frame = GetFrame();
   LayoutEmbeddedContent* owner = frame.OwnerLayoutObject();
+  if (!owner)
+    return false;
+  DCHECK(owner->GetFrameView());
+  if (owner->GetFrameView()->IsDisplayLocked())
+    return true;
   // We check the inclusive ancestor to determine whether the subtree is locked,
   // since the contents of the frame are in the subtree of the frame, so they
   // would be locked if the frame owner is itself locked.
-  return owner && DisplayLockUtilities::NearestLockedInclusiveAncestor(*owner);
+  return DisplayLockUtilities::NearestLockedInclusiveAncestor(*owner);
 }
 
 void FrameView::UpdateViewportIntersection(unsigned flags,
@@ -65,11 +70,12 @@ void FrameView::UpdateViewportIntersection(unsigned flags,
   TransformationMatrix main_frame_transform_matrix;
   DocumentLifecycle::LifecycleState parent_lifecycle_state =
       owner_document.Lifecycle().GetState();
-  FrameOcclusionState occlusion_state =
+  mojom::blink::FrameOcclusionState occlusion_state =
       owner_document.GetFrame()->GetOcclusionState();
   bool should_compute_occlusion =
       needs_occlusion_tracking &&
-      occlusion_state == FrameOcclusionState::kGuaranteedNotOccluded &&
+      occlusion_state ==
+          mojom::blink::FrameOcclusionState::kGuaranteedNotOccluded &&
       parent_lifecycle_state >= DocumentLifecycle::kPrePaintClean;
 
   LayoutEmbeddedContent* owner_layout_object =
@@ -78,7 +84,7 @@ void FrameView::UpdateViewportIntersection(unsigned flags,
     // The frame is detached from layout, not visible, or zero size; leave
     // viewport_intersection empty, and signal the frame as occluded if
     // necessary.
-    occlusion_state = FrameOcclusionState::kPossiblyOccluded;
+    occlusion_state = mojom::blink::FrameOcclusionState::kPossiblyOccluded;
   } else if (parent_lifecycle_state >= DocumentLifecycle::kLayoutClean &&
              !owner_document.View()->NeedsLayout()) {
     unsigned geometry_flags =
@@ -93,7 +99,7 @@ void FrameView::UpdateViewportIntersection(unsigned flags,
     if (new_rect_in_parent.size != rect_in_parent_.size ||
         ((new_rect_in_parent.X() - rect_in_parent_.X()).Abs() +
              (new_rect_in_parent.Y() - rect_in_parent_.Y()).Abs() >
-         LayoutUnit(kMaxChildFrameScreenRectMovement))) {
+         LayoutUnit(mojom::blink::kMaxChildFrameScreenRectMovement))) {
       rect_in_parent_ = new_rect_in_parent;
       if (Page* page = GetFrame().GetPage()) {
         rect_in_parent_stable_since_ = page->Animator().Clock().CurrentTime();
@@ -102,7 +108,7 @@ void FrameView::UpdateViewportIntersection(unsigned flags,
       }
     }
     if (should_compute_occlusion && !geometry.IsVisible())
-      occlusion_state = FrameOcclusionState::kPossiblyOccluded;
+      occlusion_state = mojom::blink::FrameOcclusionState::kPossiblyOccluded;
 
     // Generate matrix to transform from the space of the containing document
     // to the space of the iframe's contents.
@@ -130,6 +136,15 @@ void FrameView::UpdateViewportIntersection(unsigned flags,
       } else {
         viewport_intersection = EnclosingIntRect(intersection_rect);
       }
+
+      // Because the geometry code uses enclosing rects, we may end up with an
+      // intersection rect that is bigger than the rect we started with. Clamp
+      // the size of the viewport intersection to the bounds of the iframe's
+      // content rect.
+      viewport_intersection.SetLocation(
+          viewport_intersection.Location().ExpandedTo(IntPoint()));
+      viewport_intersection.SetSize(viewport_intersection.Size().ShrunkTo(
+          RoundedIntSize(owner_layout_object->ContentSize())));
     }
 
     PhysicalRect mainframe_intersection_rect;
@@ -144,6 +159,10 @@ void FrameView::UpdateViewportIntersection(unsigned flags,
       } else {
         mainframe_intersection = EnclosingIntRect(mainframe_intersection_rect);
       }
+      mainframe_intersection.SetLocation(
+          mainframe_intersection.Location().ExpandedTo(IntPoint()));
+      mainframe_intersection.SetSize(mainframe_intersection.Size().ShrunkTo(
+          RoundedIntSize(owner_layout_object->ContentSize())));
     }
 
     TransformState child_frame_to_root_frame(
@@ -157,10 +176,11 @@ void FrameView::UpdateViewportIntersection(unsigned flags,
     }
     main_frame_transform_matrix =
         child_frame_to_root_frame.AccumulatedTransform();
-  } else if (occlusion_state == FrameOcclusionState::kGuaranteedNotOccluded) {
+  } else if (occlusion_state ==
+             mojom::blink::FrameOcclusionState::kGuaranteedNotOccluded) {
     // If the parent LocalFrameView is throttled and out-of-date, then we can't
     // get any useful information.
-    occlusion_state = FrameOcclusionState::kUnknown;
+    occlusion_state = mojom::blink::FrameOcclusionState::kUnknown;
   }
 
   // An iframe's content is always pixel-snapped, even if the iframe element has
@@ -168,17 +188,18 @@ void FrameView::UpdateViewportIntersection(unsigned flags,
   gfx::Transform main_frame_gfx_transform =
       TransformationMatrix::ToTransform(main_frame_transform_matrix);
   main_frame_gfx_transform.RoundTranslationComponents();
-  SetViewportIntersection(
-      {viewport_intersection, mainframe_intersection, WebRect(),
-       occlusion_state, frame.GetMainFrameViewportSize(),
-       frame.GetMainFrameScrollOffset(), main_frame_gfx_transform});
+
+  SetViewportIntersection(mojom::blink::ViewportIntersectionState(
+      viewport_intersection, mainframe_intersection, gfx::Rect(),
+      occlusion_state, gfx::Size(frame.GetMainFrameViewportSize()),
+      gfx::Point(frame.GetMainFrameScrollOffset()), main_frame_gfx_transform));
 
   UpdateFrameVisibility(!viewport_intersection.IsEmpty());
 
   if (ShouldReportMainFrameIntersection()) {
     IntRect projected_rect = EnclosingIntRect(PhysicalRect::EnclosingRect(
         main_frame_transform_matrix
-            .ProjectQuad(FloatRect(mainframe_intersection))
+            .ProjectQuad(FloatRect(IntRect(mainframe_intersection)))
             .BoundingBox()));
     // Return <0, 0, 0, 0> if there is no area.
     if (projected_rect.IsEmpty())
@@ -196,7 +217,8 @@ void FrameView::UpdateViewportIntersection(unsigned flags,
     subtree_throttled =
         parent_frame->View()->CanThrottleRenderingForPropagation();
   }
-  UpdateRenderThrottlingStatus(hidden_for_throttling, subtree_throttled);
+  UpdateRenderThrottlingStatus(hidden_for_throttling, subtree_throttled,
+                               DisplayLockedInParentFrame());
 }
 
 void FrameView::UpdateFrameVisibility(bool intersects_viewport) {
@@ -219,12 +241,14 @@ void FrameView::UpdateFrameVisibility(bool intersects_viewport) {
 
 void FrameView::UpdateRenderThrottlingStatus(bool hidden_for_throttling,
                                              bool subtree_throttled,
+                                             bool display_locked,
                                              bool recurse) {
-  bool visibility_changed = (hidden_for_throttling_ || subtree_throttled_) !=
-                            (hidden_for_throttling || subtree_throttled ||
-                             DisplayLockedInParentFrame());
+  bool visibility_changed =
+      (hidden_for_throttling_ || subtree_throttled_ || display_locked_) !=
+      (hidden_for_throttling || subtree_throttled || display_locked);
   hidden_for_throttling_ = hidden_for_throttling;
-  subtree_throttled_ = subtree_throttled || DisplayLockedInParentFrame();
+  subtree_throttled_ = subtree_throttled;
+  display_locked_ = display_locked;
   if (visibility_changed)
     VisibilityForThrottlingChanged();
   if (recurse) {
@@ -234,7 +258,7 @@ void FrameView::UpdateRenderThrottlingStatus(bool hidden_for_throttling,
         child_view->UpdateRenderThrottlingStatus(
             child_view->IsHiddenForThrottling(),
             child_view->IsAttached() && CanThrottleRenderingForPropagation(),
-            true);
+            child_view->IsDisplayLocked(), true);
       }
     }
   }
@@ -243,7 +267,8 @@ void FrameView::UpdateRenderThrottlingStatus(bool hidden_for_throttling,
 bool FrameView::RectInParentIsStable(
     const base::TimeTicks& event_timestamp) const {
   if (event_timestamp - rect_in_parent_stable_since_ <
-      base::TimeDelta::FromMilliseconds(kMinScreenRectStableTimeMs)) {
+      base::TimeDelta::FromMilliseconds(
+          mojom::blink::kMinScreenRectStableTimeMs)) {
     return false;
   }
   LocalFrameView* parent = ParentFrameView();

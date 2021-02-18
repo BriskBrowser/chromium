@@ -6,6 +6,7 @@
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/notreached.h"
+#include "chrome/android/features/autofill_assistant/jni_headers/AssistantChip_jni.h"
 #include "chrome/android/features/autofill_assistant/jni_headers/AssistantColor_jni.h"
 #include "chrome/android/features/autofill_assistant/jni_headers/AssistantDateTime_jni.h"
 #include "chrome/android/features/autofill_assistant/jni_headers/AssistantDialogButton_jni.h"
@@ -107,15 +108,14 @@ base::Optional<int> GetPixelSize(
   switch (proto.size_case()) {
     case ClientDimensionProto::kDp:
       return Java_AssistantDimension_getPixelSizeDp(env, jcontext, proto.dp());
-      break;
     case ClientDimensionProto::kWidthFactor:
       return Java_AssistantDimension_getPixelSizeWidthFactor(
           env, jcontext, proto.width_factor());
-      break;
     case ClientDimensionProto::kHeightFactor:
       return Java_AssistantDimension_getPixelSizeHeightFactor(
           env, jcontext, proto.height_factor());
-      break;
+    case ClientDimensionProto::kSizeInPixel:
+      return proto.size_in_pixel();
     case ClientDimensionProto::SIZE_NOT_SET:
       return base::nullopt;
   }
@@ -199,10 +199,11 @@ base::android::ScopedJavaLocalRef<jobject> CreateJavaDrawable(
       int diameter_size_in_pixel =
           ui_controller_android_utils::GetPixelSizeOrDefault(
               env, jcontext, proto.favicon().diameter_size(), 0);
+      std::string url = proto.favicon().has_website_url()
+                            ? proto.favicon().website_url()
+                            : user_model->GetCurrentURL().spec();
       return Java_AssistantDrawable_createFromFavicon(
-          env,
-          base::android::ConvertUTF8ToJavaString(
-              env, user_model->GetCurrentURL().spec()),
+          env, base::android::ConvertUTF8ToJavaString(env, url),
           diameter_size_in_pixel, proto.favicon().force_monogram());
     }
     case DrawableProto::DRAWABLE_NOT_SET:
@@ -397,6 +398,112 @@ std::string SafeConvertJavaStringToNative(
   return native_string;
 }
 
-}  // namespace ui_controller_android_utils
+BottomSheetState ToNativeBottomSheetState(int state) {
+  switch (state) {
+    case 1:
+      return BottomSheetState::COLLAPSED;
+    case 2:
+    case 3:
+      return BottomSheetState::EXPANDED;
+    default:
+      return BottomSheetState::UNDEFINED;
+  }
+}
 
+int ToJavaBottomSheetState(BottomSheetState state) {
+  switch (state) {
+    case BottomSheetState::COLLAPSED:
+      return 1;
+    case BottomSheetState::UNDEFINED:
+      // The current assumption is that Autobot always starts with the bottom
+      // sheet expanded.
+    case BottomSheetState::EXPANDED:
+      return 2;
+    default:
+      return -1;
+  }
+}
+
+base::android::ScopedJavaLocalRef<jobject> CreateJavaAssistantChip(
+    JNIEnv* env,
+    const ChipProto& chip) {
+  switch (chip.type()) {
+    default:  // Other chip types are not supported.
+      return nullptr;
+
+    case HIGHLIGHTED_ACTION:
+    case DONE_ACTION:
+      return Java_AssistantChip_createHighlightedAssistantChip(
+          env, chip.icon(),
+          base::android::ConvertUTF8ToJavaString(env, chip.text()),
+          /* disabled = */ false, chip.sticky(), /* visible = */ true,
+          chip.has_content_description()
+              ? base::android::ConvertUTF8ToJavaString(
+                    env, chip.content_description())
+              : nullptr);
+
+    case NORMAL_ACTION:
+    case CANCEL_ACTION:
+    case CLOSE_ACTION:
+    case FEEDBACK_ACTION:
+      return Java_AssistantChip_createHairlineAssistantChip(
+          env, chip.icon(),
+          base::android::ConvertUTF8ToJavaString(env, chip.text()),
+          /* disabled = */ false, chip.sticky(), /* visible = */ true,
+          chip.has_content_description()
+              ? base::android::ConvertUTF8ToJavaString(
+                    env, chip.content_description())
+              : nullptr);
+  }
+}
+
+base::android::ScopedJavaLocalRef<jobject> CreateJavaAssistantChipList(
+    JNIEnv* env,
+    const std::vector<ChipProto>& chips) {
+  auto jlist = Java_AssistantChip_createChipList(env);
+  for (const auto& chip : chips) {
+    auto jchip = CreateJavaAssistantChip(env, chip);
+    if (!jchip) {
+      return nullptr;
+    }
+    Java_AssistantChip_addChipToList(env, jlist, jchip);
+  }
+  return jlist;
+}
+
+std::map<std::string, std::string> CreateStringMapFromJava(
+    JNIEnv* env,
+    const base::android::JavaRef<jobjectArray>& names,
+    const base::android::JavaRef<jobjectArray>& values) {
+  std::vector<std::string> names_vector;
+  base::android::AppendJavaStringArrayToStringVector(env, names, &names_vector);
+  std::vector<std::string> values_vector;
+  base::android::AppendJavaStringArrayToStringVector(env, values,
+                                                     &values_vector);
+  std::map<std::string, std::string> result;
+  DCHECK_EQ(names_vector.size(), values_vector.size());
+  for (size_t i = 0; i < names_vector.size(); ++i) {
+    result.insert(std::make_pair(names_vector[i], values_vector[i]));
+  }
+  return result;
+}
+
+std::unique_ptr<TriggerContext> CreateTriggerContext(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jstring>& jexperiment_ids,
+    const base::android::JavaParamRef<jobjectArray>& jparameter_names,
+    const base::android::JavaParamRef<jobjectArray>& jparameter_values,
+    jboolean is_cct,
+    jboolean onboarding_shown,
+    jboolean is_direct_action,
+    const base::android::JavaParamRef<jstring>& jcaller_account_hash) {
+  return std::make_unique<TriggerContext>(
+      std::make_unique<ScriptParameters>(
+          CreateStringMapFromJava(env, jparameter_names, jparameter_values)),
+      SafeConvertJavaStringToNative(env, jexperiment_ids), is_cct,
+      onboarding_shown, is_direct_action,
+      SafeConvertJavaStringToNative(env, jcaller_account_hash));
+}
+
+}  // namespace ui_controller_android_utils
 }  // namespace autofill_assistant

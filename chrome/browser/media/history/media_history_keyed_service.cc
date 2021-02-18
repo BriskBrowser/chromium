@@ -86,7 +86,7 @@ MediaHistoryKeyedService::MediaHistoryKeyedService(Profile* profile)
   history::HistoryService* history = HistoryServiceFactory::GetForProfile(
       profile, ServiceAccessType::IMPLICIT_ACCESS);
   if (history)
-    history->AddObserver(this);
+    history_service_observation_.Observe(history);
 
   if (profile->IsOffTheRecord()) {
     MediaHistoryKeyedService* original =
@@ -116,11 +116,7 @@ bool MediaHistoryKeyedService::IsEnabled() {
 }
 
 void MediaHistoryKeyedService::Shutdown() {
-  history::HistoryService* history = HistoryServiceFactory::GetForProfile(
-      profile_, ServiceAccessType::IMPLICIT_ACCESS);
-  if (history)
-    history->RemoveObserver(this);
-
+  history_service_observation_.Reset();
   store_->Shutdown();
 }
 
@@ -195,7 +191,12 @@ void MediaHistoryKeyedService::SavePlayback(
   if (auto* store = store_->GetForWrite()) {
     store->db_task_runner_->PostTask(
         FROM_HERE,
-        base::BindOnce(&MediaHistoryStore::SavePlayback, store, watch_time));
+        base::BindOnce(
+            &MediaHistoryStore::SavePlayback, store,
+            std::make_unique<content::MediaPlayerWatchTime>(
+                watch_time.url, watch_time.origin,
+                watch_time.cumulative_watch_time, watch_time.last_timestamp,
+                watch_time.has_video, watch_time.has_audio)));
   }
 }
 
@@ -347,12 +348,15 @@ void MediaHistoryKeyedService::GetURLsInTableForTest(
       std::move(callback));
 }
 
-void MediaHistoryKeyedService::DiscoverMediaFeed(const GURL& url,
-                                                 base::OnceClosure callback) {
+void MediaHistoryKeyedService::DiscoverMediaFeed(
+    const GURL& url,
+    const base::Optional<GURL>& favicon,
+    base::OnceClosure callback) {
   if (auto* store = store_->GetForWrite()) {
     store->db_task_runner_->PostTaskAndReply(
         FROM_HERE,
-        base::BindOnce(&MediaHistoryStore::DiscoverMediaFeed, store, url),
+        base::BindOnce(&MediaHistoryStore::DiscoverMediaFeed, store, url,
+                       favicon),
         std::move(callback));
   } else {
     std::move(callback).Run();
@@ -422,6 +426,13 @@ MediaHistoryKeyedService::GetMediaFeedsRequest
 MediaHistoryKeyedService::GetMediaFeedsRequest::CreateSelectedFeedsForFetch() {
   GetMediaFeedsRequest request;
   request.type = Type::kSelectedFeedsForFetch;
+  return request;
+}
+
+MediaHistoryKeyedService::GetMediaFeedsRequest
+MediaHistoryKeyedService::GetMediaFeedsRequest::CreateNewFeeds() {
+  GetMediaFeedsRequest request;
+  request.type = Type::kNewFeeds;
   return request;
 }
 

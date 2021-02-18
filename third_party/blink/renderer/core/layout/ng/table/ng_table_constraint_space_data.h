@@ -22,12 +22,16 @@ class NGTableConstraintSpaceData
  public:
   // Table grid columns are used to compute cell geometry.
   struct ColumnLocation {
-    ColumnLocation(LayoutUnit offset, LayoutUnit inline_size)
-        : offset(offset), inline_size(inline_size) {}
-    LayoutUnit offset;
-    LayoutUnit inline_size;
+    ColumnLocation(LayoutUnit offset, LayoutUnit inline_size, bool is_collapsed)
+        : offset(offset),
+          inline_size(inline_size),
+          is_collapsed(is_collapsed) {}
+    const LayoutUnit offset;
+    const LayoutUnit inline_size;
+    const bool is_collapsed;
     bool operator==(const ColumnLocation& other) const {
-      return offset == other.offset && inline_size == other.inline_size;
+      return offset == other.offset && inline_size == other.inline_size &&
+             is_collapsed == other.is_collapsed;
     }
   };
 
@@ -36,11 +40,13 @@ class NGTableConstraintSpaceData
   struct Section {
     Section(wtf_size_t start_row_index, wtf_size_t rowspan)
         : start_row_index(start_row_index), rowspan(rowspan) {}
-    bool operator==(const Section& other) const {
-      return start_row_index == other.start_row_index &&
-             rowspan == other.rowspan;
+
+    bool MaySkipLayout(const Section& other) const {
+      // We don't compare |start_row_index| as this is allowed to change.
+      return rowspan == other.rowspan;
     }
-    wtf_size_t start_row_index;  // first section row in table grid.
+
+    wtf_size_t start_row_index;  // First section row in table grid.
     wtf_size_t rowspan;
   };
 
@@ -59,15 +65,16 @@ class NGTableConstraintSpaceData
           has_baseline_aligned_percentage_block_size_descendants(
               has_baseline_aligned_percentage_block_size_descendants),
           is_collapsed(is_collapsed) {}
-    bool operator==(const Row& other) const {
+
+    bool MaySkipLayout(const Row& other) const {
+      // We don't compare |start_cell_index| as this is allowed to change.
       return baseline == other.baseline && block_size == other.block_size &&
-             start_cell_index == other.start_cell_index &&
              cell_count == other.cell_count &&
              has_baseline_aligned_percentage_block_size_descendants ==
                  other.has_baseline_aligned_percentage_block_size_descendants &&
              is_collapsed == other.is_collapsed;
     }
-    bool operator!=(const Row& other) const { return !(*this == other); }
+
     LayoutUnit baseline;
     LayoutUnit block_size;
     wtf_size_t start_cell_index;
@@ -89,6 +96,7 @@ class NGTableConstraintSpaceData
     bool operator==(const Cell& other) const {
       return border_box_borders == other.border_box_borders &&
              block_size == other.block_size &&
+             start_column == other.start_column &&
              is_constrained == other.is_constrained;
     }
     bool operator!=(const Cell& other) const { return !(*this == other); }
@@ -100,45 +108,78 @@ class NGTableConstraintSpaceData
     bool is_constrained;
   };
 
-  bool EqualTableSpecificData(const NGTableConstraintSpaceData* other) const {
-    return table_inline_size == other->table_inline_size &&
-           table_writing_direction == other->table_writing_direction &&
-           table_border_spacing == other->table_border_spacing &&
-           treat_table_block_size_as_constrained ==
-               other->treat_table_block_size_as_constrained &&
-           hide_table_cell_if_empty == other->hide_table_cell_if_empty &&
-           column_locations == other->column_locations;
+  bool IsTableSpecificDataEqual(const NGTableConstraintSpaceData& other) const {
+    return table_inline_size == other.table_inline_size &&
+           table_writing_direction == other.table_writing_direction &&
+           table_border_spacing == other.table_border_spacing &&
+           is_table_block_size_specified ==
+               other.is_table_block_size_specified &&
+           hide_table_cell_if_empty == other.hide_table_cell_if_empty &&
+           column_locations == other.column_locations;
   }
 
-  bool MaySkipRowLayout(const NGTableConstraintSpaceData* other,
-                        wtf_size_t row_index) const {
-    if (other->rows.size() <= row_index)
+  bool MaySkipRowLayout(const NGTableConstraintSpaceData& other,
+                        wtf_size_t new_row_index,
+                        wtf_size_t old_row_index) const {
+    DCHECK_LT(new_row_index, rows.size());
+    DCHECK_LT(old_row_index, other.rows.size());
+
+    const Row& new_row = rows[new_row_index];
+    const Row& old_row = other.rows[old_row_index];
+    if (!new_row.MaySkipLayout(old_row))
       return false;
-    if (rows[row_index] != other->rows[row_index])
-      return false;
-    DCHECK_LT(row_index, rows.size());
-    wtf_size_t end_index =
-        rows[row_index].start_cell_index + rows[row_index].cell_count;
-    for (wtf_size_t cell_index = rows[row_index].start_cell_index;
-         cell_index < end_index; ++cell_index) {
-      if (cells[cell_index] != other->cells[cell_index])
+
+    DCHECK_EQ(new_row.cell_count, old_row.cell_count);
+
+    const wtf_size_t new_start_cell_index = new_row.start_cell_index;
+    const wtf_size_t old_start_cell_index = old_row.start_cell_index;
+
+    const wtf_size_t new_end_cell_index =
+        new_start_cell_index + new_row.cell_count;
+    const wtf_size_t old_end_cell_index =
+        old_start_cell_index + old_row.cell_count;
+
+    for (wtf_size_t new_cell_index = new_start_cell_index,
+                    old_cell_index = old_start_cell_index;
+         new_cell_index < new_end_cell_index &&
+         old_cell_index < old_end_cell_index;
+         ++new_cell_index, ++old_cell_index) {
+      if (cells[new_cell_index] != other.cells[old_cell_index])
         return false;
     }
+
     return true;
   }
 
-  bool MaySkipSectionLayout(const NGTableConstraintSpaceData* other,
-                            wtf_size_t section_index) const {
-    if (other->sections.size() <= section_index)
+  bool MaySkipSectionLayout(const NGTableConstraintSpaceData& other,
+                            wtf_size_t new_section_index,
+                            wtf_size_t old_section_index) const {
+    DCHECK_LE(new_section_index, sections.size());
+    DCHECK_LE(old_section_index, other.sections.size());
+
+    const Section& new_section = sections[new_section_index];
+    const Section& old_section = other.sections[old_section_index];
+    if (!new_section.MaySkipLayout(old_section))
       return false;
-    DCHECK_LT(section_index, sections.size());
-    wtf_size_t end_index = sections[section_index].start_row_index +
-                           sections[section_index].rowspan;
-    for (wtf_size_t row_index = sections[section_index].start_row_index;
-         row_index < end_index; ++row_index) {
-      if (!MaySkipRowLayout(other, row_index))
+
+    DCHECK_EQ(new_section.rowspan, old_section.rowspan);
+
+    const wtf_size_t new_start_row_index = new_section.start_row_index;
+    const wtf_size_t old_start_row_index = old_section.start_row_index;
+
+    const wtf_size_t new_end_row_index =
+        new_start_row_index + new_section.rowspan;
+    const wtf_size_t old_end_row_index =
+        old_start_row_index + old_section.rowspan;
+
+    for (wtf_size_t new_row_index = new_start_row_index,
+                    old_row_index = old_start_row_index;
+         new_row_index < new_end_row_index && old_row_index < old_end_row_index;
+         ++new_row_index, ++old_row_index) {
+      if (!MaySkipRowLayout(other, new_row_index, old_row_index))
         return false;
     }
+
     return true;
   }
 
@@ -150,20 +191,22 @@ class NGTableConstraintSpaceData
   WritingDirectionMode table_writing_direction =
       WritingDirectionMode(WritingMode::kHorizontalTb, TextDirection::kLtr);
   LogicalSize table_border_spacing;
-  bool treat_table_block_size_as_constrained;
+
+  // If the block-size of the table is specified (not 'auto').
+  bool is_table_block_size_specified;
   bool hide_table_cell_if_empty;  // currently on regular constraint space.
   bool has_collapsed_borders;
 };
 
 }  // namespace blink
 
-WTF_ALLOW_MOVE_INIT_AND_COMPARE_WITH_MEM_FUNCTIONS(
+WTF_ALLOW_MOVE_AND_INIT_WITH_MEM_FUNCTIONS(
     blink::NGTableConstraintSpaceData::ColumnLocation)
 WTF_ALLOW_MOVE_INIT_AND_COMPARE_WITH_MEM_FUNCTIONS(
     blink::NGTableConstraintSpaceData::Section)
-WTF_ALLOW_MOVE_INIT_AND_COMPARE_WITH_MEM_FUNCTIONS(
+WTF_ALLOW_MOVE_AND_INIT_WITH_MEM_FUNCTIONS(
     blink::NGTableConstraintSpaceData::Row)
-WTF_ALLOW_MOVE_INIT_AND_COMPARE_WITH_MEM_FUNCTIONS(
+WTF_ALLOW_MOVE_AND_INIT_WITH_MEM_FUNCTIONS(
     blink::NGTableConstraintSpaceData::Cell)
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_TABLE_NG_TABLE_CONSTRAINT_SPACE_DATA_H_

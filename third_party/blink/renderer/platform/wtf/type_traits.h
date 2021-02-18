@@ -28,6 +28,19 @@
 #include "base/compiler_specific.h"
 #include "base/template_util.h"
 #include "build/build_config.h"
+#include "third_party/blink/renderer/platform/wtf/buildflags.h"
+
+#if BUILDFLAG(USE_V8_OILPAN)
+#include "v8/include/cppgc/type-traits.h"  // nogncheck
+#else                                      // !BUILDFLAG(USE_V8_OILPAN)
+namespace blink {
+template <typename T>
+class Member;
+class Visitor;
+template <typename T>
+class WeakMember;
+}  // namespace blink
+#endif                                     // !BUILDFLAG(USE_V8_OILPAN)
 
 namespace WTF {
 
@@ -36,24 +49,6 @@ template <typename T>
 inline const char* GetStringWithTypeName() {
   return PRETTY_FUNCTION;
 }
-
-// Specifies whether a type should be treated weakly by the memory management
-// system. Only supported by the garbage collector and not by PartitionAlloc.
-// Requires garbage collection support, so it is only safe to  override in sync
-// with changing garbage collection semantics.
-template <typename T>
-struct IsWeak : std::false_type {};
-
-enum WeakHandlingFlag {
-  kNoWeakHandling,
-  kWeakHandling,
-};
-
-template <typename T>
-struct WeakHandlingTrait
-    : std::integral_constant<WeakHandlingFlag,
-                             IsWeak<T>::value ? kWeakHandling
-                                              : kNoWeakHandling> {};
 
 template <typename T, typename U>
 struct IsSubclass {
@@ -122,15 +117,32 @@ struct IsSubclassOfTemplateTypenameSizeTypename {
   static const bool value = sizeof(SubclassCheck(t_)) == sizeof(YesType);
 };
 
-}  // namespace WTF
+#if BUILDFLAG(USE_V8_OILPAN)
 
-namespace blink {
+template <typename T>
+struct IsTraceable : cppgc::internal::IsTraceable<T> {};
 
-class Visitor;
+template <typename T>
+struct IsGarbageCollectedType
+    : cppgc::internal::IsGarbageCollectedOrMixinType<T> {};
 
-}  // namespace blink
+template <typename T>
+struct IsWeak : cppgc::internal::IsWeak<T> {};
 
-namespace WTF {
+template <typename T>
+struct IsMemberType : std::integral_constant<bool, cppgc::IsMemberTypeV<T>> {};
+
+template <typename T>
+struct IsWeakMemberType
+    : std::integral_constant<bool, cppgc::IsWeakMemberTypeV<T>> {};
+
+template <typename T>
+struct IsMemberOrWeakMemberType
+    : std::integral_constant<bool,
+                             cppgc::IsMemberTypeV<T> ||
+                                 cppgc::IsWeakMemberTypeV<T>> {};
+
+#else  // !USE_V8_OILPAN
 
 namespace internal {
 // IsTraceMethodConst is used to verify that all Trace methods are marked as
@@ -161,38 +173,6 @@ struct IsTraceable<T,
   // be traceable.
   static_assert(internal::IsTraceMethodConst<T>(),
                 "Trace methods should be marked as const.");
-};
-
-template <typename T, typename U>
-struct IsTraceable<std::pair<T, U>>
-    : std::integral_constant<bool,
-                             IsTraceable<T>::value || IsTraceable<U>::value> {};
-
-// Convenience template wrapping the IsTraceableInCollection template in
-// Collection Traits. It helps make the code more readable.
-template <typename Traits>
-struct IsTraceableInCollectionTrait
-    : std::integral_constant<
-          bool,
-          Traits::template IsTraceableInCollection<>::value> {};
-
-// This is used to check that DISALLOW_NEW objects are not
-// stored in off-heap Vectors, HashTables etc.
-template <typename T>
-struct IsDisallowNew {
- private:
-  using YesType = char;
-  struct NoType {
-    char padding[8];
-  };
-
-  template <typename U>
-  static YesType CheckMarker(typename U::IsDisallowNewMarker*);
-  template <typename U>
-  static NoType CheckMarker(...);
-
- public:
-  static const bool value = sizeof(CheckMarker<T>(nullptr)) == sizeof(YesType);
 };
 
 template <typename T>
@@ -233,6 +213,76 @@ class IsGarbageCollectedTypeInternal {
 template <typename T>
 class IsGarbageCollectedType : public IsGarbageCollectedTypeInternal<T> {
   static_assert(sizeof(T), "T must be fully defined");
+};
+
+// Specifies whether a type should be treated weakly by the memory management
+// system. Only supported by the garbage collector and not by PartitionAlloc.
+// Requires garbage collection support, so it is only safe to  override in sync
+// with changing garbage collection semantics.
+template <typename T>
+struct IsWeak : std::false_type {};
+
+template <typename T>
+struct IsMemberType : std::integral_constant<
+                          bool,
+                          WTF::IsSubclassOfTemplate<T, blink::Member>::value> {
+};
+
+template <typename T>
+struct IsWeakMemberType
+    : std::integral_constant<
+          bool,
+          WTF::IsSubclassOfTemplate<T, blink::WeakMember>::value> {};
+
+template <typename T>
+struct IsMemberOrWeakMemberType
+    : std::integral_constant<bool,
+                             IsMemberType<T>::value ||
+                                 IsWeakMemberType<T>::value> {};
+
+#endif  // !USE_V8_OILPAN
+
+template <typename T, typename U>
+struct IsTraceable<std::pair<T, U>>
+    : std::integral_constant<bool,
+                             IsTraceable<T>::value || IsTraceable<U>::value> {};
+
+// Convenience template wrapping the IsTraceableInCollection template in
+// Collection Traits. It helps make the code more readable.
+template <typename Traits>
+struct IsTraceableInCollectionTrait
+    : std::integral_constant<
+          bool,
+          Traits::template IsTraceableInCollection<>::value> {};
+
+enum WeakHandlingFlag {
+  kNoWeakHandling,
+  kWeakHandling,
+};
+
+template <typename T>
+struct WeakHandlingTrait
+    : std::integral_constant<WeakHandlingFlag,
+                             IsWeak<T>::value ? kWeakHandling
+                                              : kNoWeakHandling> {};
+
+// This is used to check that DISALLOW_NEW objects are not
+// stored in off-heap Vectors, HashTables etc.
+template <typename T>
+struct IsDisallowNew {
+ private:
+  using YesType = char;
+  struct NoType {
+    char padding[8];
+  };
+
+  template <typename U>
+  static YesType CheckMarker(typename U::IsDisallowNewMarker*);
+  template <typename U>
+  static NoType CheckMarker(...);
+
+ public:
+  static const bool value = sizeof(CheckMarker<T>(nullptr)) == sizeof(YesType);
 };
 
 template <>

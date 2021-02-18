@@ -24,7 +24,6 @@
 #include "components/variations/variations_associated_data.h"
 #include "ios/chrome/browser/browsing_data/browsing_data_features.h"
 #include "ios/chrome/browser/chrome_switches.h"
-#include "ios/chrome/browser/passwords/password_manager_features.h"
 #import "ios/chrome/browser/ui/infobars/infobar_feature.h"
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
 
@@ -34,6 +33,8 @@
 
 namespace {
 
+NSString* const kAlternateDiscoverFeedServerURL =
+    @"AlternateDiscoverFeedServerURL";
 NSString* const kDisableDCHECKCrashes = @"DisableDCHECKCrashes";
 NSString* const kEnableStartupCrash = @"EnableStartupCrash";
 NSString* const kFirstRunForceEnabled = @"FirstRunForceEnabled";
@@ -80,6 +81,12 @@ WhatsNewPromoStatus GetWhatsNewPromoStatus() {
     [defaults setInteger:status forKey:kWhatsNewPromoStatus];
   }
   return static_cast<WhatsNewPromoStatus>(status);
+}
+
+std::string getAlternateDiscoverFeedServerURL() {
+  NSString* alternateServerURL = [[NSUserDefaults standardUserDefaults]
+      stringForKey:kAlternateDiscoverFeedServerURL];
+  return base::SysNSStringToUTF8(alternateServerURL);
 }
 
 bool IsMemoryDebuggingEnabled() {

@@ -20,6 +20,7 @@
 #include "content/public/browser/browser_plugin_guest_manager.h"
 #include "content/public/browser/media_player_id.h"
 #include "content/public/browser/media_session.h"
+#include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_widget_host.h"
@@ -132,6 +133,10 @@ class QuerySelectorHandler : public content::WebContentsObserver {
 
 }  // namespace
 
+using OldAXTreeIdMap = std::map<content::NavigationHandle*, ui::AXTreeID>;
+base::LazyInstance<OldAXTreeIdMap>::DestructorAtExit g_old_ax_tree =
+    LAZY_INSTANCE_INITIALIZER;
+
 // Helper class that receives accessibility data from |WebContents|.
 class AutomationWebContentsObserver
     : public content::WebContentsObserver,
@@ -154,6 +159,34 @@ class AutomationWebContentsObserver
     router->DispatchAccessibilityEvents(extension_event_bundle);
   }
 
+  void DidStartNavigation(content::NavigationHandle* navigation) override {
+    content::RenderFrameHost* previous_rfh = content::RenderFrameHost::FromID(
+        navigation->GetPreviousRenderFrameHostId());
+    DCHECK(previous_rfh);
+    g_old_ax_tree.Get()[navigation] = previous_rfh->GetAXTreeID();
+  }
+
+  void DidFinishNavigation(content::NavigationHandle* navigation) override {
+    ui::AXTreeID old_ax_tree = g_old_ax_tree.Get()[navigation];
+    g_old_ax_tree.Get().erase(navigation);
+
+    if (old_ax_tree == ui::AXTreeIDUnknown())
+      return;
+
+    ui::AXTreeID new_ax_tree = ui::AXTreeIDUnknown();
+
+    // If navigation was canceled, render frame host will not
+    // be set and there is no new tree.
+    if (navigation->GetRenderFrameHost())
+      new_ax_tree = navigation->GetRenderFrameHost()->GetAXTreeID();
+
+    if (old_ax_tree == new_ax_tree)
+      return;
+
+    AutomationEventRouter::GetInstance()->DispatchTreeDestroyedEvent(
+        old_ax_tree, browser_context_);
+  }
+
   void AccessibilityLocationChangesReceived(
       const std::vector<content::AXLocationChangeNotificationDetails>& details)
       override {
@@ -170,19 +203,6 @@ class AutomationWebContentsObserver
   void RenderFrameDeleted(
       content::RenderFrameHost* render_frame_host) override {
     ui::AXTreeID tree_id = render_frame_host->GetAXTreeID();
-    if (tree_id == ui::AXTreeIDUnknown())
-      return;
-
-    AutomationEventRouter::GetInstance()->DispatchTreeDestroyedEvent(
-        tree_id, browser_context_);
-  }
-
-  void RenderFrameHostChanged(content::RenderFrameHost* old_host,
-                              content::RenderFrameHost* new_host) override {
-    if (!old_host)
-      return;
-
-    ui::AXTreeID tree_id = old_host->GetAXTreeID();
     if (tree_id == ui::AXTreeIDUnknown())
       return;
 
@@ -281,6 +301,10 @@ ExtensionFunction::ResponseAction AutomationInternalEnableTabFunction::Run() {
   contents->EnableWebContentsOnlyAccessibilityMode();
 
   ui::AXTreeID ax_tree_id = rfh->GetAXTreeID();
+
+  // The AXTreeID is not yet ready/set.
+  if (ax_tree_id == ui::AXTreeIDUnknown())
+    return RespondNow(Error("Tab is not ready."));
 
   // This gets removed when the extension process dies.
   AutomationEventRouter::GetInstance()->RegisterListenerForOneTree(
@@ -381,8 +405,8 @@ AutomationInternalPerformActionFunction::ConvertToAXActionData(
               params->opt_args.additional_properties, &hit_test_params));
       action->action = ax::mojom::Action::kHitTest;
       action->target_point = gfx::Point(hit_test_params.x, hit_test_params.y);
-      action->hit_test_event_to_fire =
-          ui::ParseEvent(hit_test_params.event_to_fire.c_str());
+      action->hit_test_event_to_fire = ui::ParseAXEnum<ax::mojom::Event>(
+          hit_test_params.event_to_fire.c_str());
       if (action->hit_test_event_to_fire == ax::mojom::Event::kNone)
         return RespondNow(NoArguments());
       break;
@@ -651,7 +675,7 @@ void AutomationInternalQuerySelectorFunction::OnResponse(
     return;
   }
 
-  Respond(OneArgument(std::make_unique<base::Value>(result_acc_obj_id)));
+  Respond(OneArgument(base::Value(result_acc_obj_id)));
 }
 
 }  // namespace extensions

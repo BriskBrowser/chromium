@@ -21,6 +21,7 @@
 #include "third_party/blink/renderer/core/svg/svg_image_element.h"
 #include "third_party/blink/renderer/modules/canvas/canvas2d/canvas_pattern.h"
 #include "third_party/blink/renderer/modules/canvas/canvas2d/path_2d.h"
+#include "third_party/blink/renderer/modules/webcodecs/video_frame.h"
 #include "third_party/blink/renderer/platform/geometry/float_quad.h"
 #include "third_party/blink/renderer/platform/graphics/bitmap_image.h"
 #include "third_party/blink/renderer/platform/graphics/skia/skia_utils.h"
@@ -33,7 +34,34 @@ const char BaseRenderingContext2D::kDefaultFont[] = "10px sans-serif";
 const char BaseRenderingContext2D::kInheritDirectionString[] = "inherit";
 const char BaseRenderingContext2D::kRtlDirectionString[] = "rtl";
 const char BaseRenderingContext2D::kLtrDirectionString[] = "ltr";
+const char BaseRenderingContext2D::kAutoKerningString[] = "auto";
+const char BaseRenderingContext2D::kNormalKerningString[] = "normal";
+const char BaseRenderingContext2D::kNoneKerningString[] = "none";
+const char BaseRenderingContext2D::kUltraCondensedString[] = "ultra-condensed";
+const char BaseRenderingContext2D::kExtraCondensedString[] = "extra-condensed";
+const char BaseRenderingContext2D::kCondensedString[] = "condensed";
+const char BaseRenderingContext2D::kSemiCondensedString[] = "semi-condensed";
+const char BaseRenderingContext2D::kNormalStretchString[] = "normal";
+const char BaseRenderingContext2D::kSemiExpandedString[] = "semi-expanded";
+const char BaseRenderingContext2D::kExpandedString[] = "expanded";
+const char BaseRenderingContext2D::kExtraExpandedString[] = "extra-expanded";
+const char BaseRenderingContext2D::kUltraExpandedString[] = "ultra-expanded";
+const char BaseRenderingContext2D::kNormalVariantString[] = "normal";
+const char BaseRenderingContext2D::kSmallCapsVariantString[] = "small-caps";
+const char BaseRenderingContext2D::kAllSmallCapsVariantString[] =
+    "all-small-caps";
+const char BaseRenderingContext2D::kPetiteVariantString[] = "petite-caps";
+const char BaseRenderingContext2D::kAllPetiteVariantString[] =
+    "all-petite-caps";
+const char BaseRenderingContext2D::kUnicaseVariantString[] = "unicase";
+const char BaseRenderingContext2D::kTitlingCapsVariantString[] = "titling-caps";
 const double BaseRenderingContext2D::kCDeviceScaleFactor = 1.0;
+const char BaseRenderingContext2D::kAutoRendering[] = "auto";
+const char BaseRenderingContext2D::kOptimizeSpeedRendering[] = "optimizespeed";
+const char BaseRenderingContext2D::kOptimizeLegibilityRendering[] =
+    "optimizelegibility";
+const char BaseRenderingContext2D::kGeometricPrecisionRendering[] =
+    "geometricprecision";
 
 BaseRenderingContext2D::BaseRenderingContext2D()
     : clip_antialiasing_(kNotAntiAliased), origin_tainted_by_content_(false) {
@@ -95,13 +123,13 @@ void BaseRenderingContext2D::restore() {
     return;
   // Verify that the current state's transform is invertible.
   if (GetState().IsTransformInvertible())
-    path_.Transform(GetState().Transform());
+    path_.Transform(GetState().GetTransform());
 
   state_stack_.pop_back();
   state_stack_.back()->ClearResolvedFilter();
 
   if (GetState().IsTransformInvertible())
-    path_.Transform(GetState().Transform().Inverse());
+    path_.Transform(GetState().GetTransform().Inverse());
 
   cc::PaintCanvas* c = GetOrCreatePaintCanvas();
 
@@ -118,10 +146,11 @@ void BaseRenderingContext2D::RestoreMatrixClipStack(cc::PaintCanvas* c) const {
   DCHECK(state_stack_.begin() < state_stack_.end());
   for (curr_state = state_stack_.begin(); curr_state < state_stack_.end();
        curr_state++) {
-    c->setMatrix(SkMatrix::I());
+    c->setMatrix(SkM44());
     if (curr_state->Get()) {
       curr_state->Get()->PlaybackClips(c);
-      c->setMatrix(AffineTransformToSkMatrix(curr_state->Get()->Transform()));
+      c->setMatrix(
+          TransformationMatrix::ToSkM44(curr_state->Get()->GetTransform()));
     }
     c->save();
   }
@@ -138,7 +167,7 @@ void BaseRenderingContext2D::UnwindStateStack() {
   }
 }
 
-void BaseRenderingContext2D::Reset() {
+void BaseRenderingContext2D::reset() {
   ValidateStateStack();
   UnwindStateStack();
   state_stack_.resize(1);
@@ -156,6 +185,9 @@ void BaseRenderingContext2D::Reset() {
     DCHECK(c->getDeviceClipBounds(&clip_bounds));
     DCHECK(clip_bounds == c->imageInfo().bounds());
 #endif
+    // We only want to clear the backing buffer if the surface exists because
+    // this function is also used when the context is lost.
+    clearRect(0, 0, Width(), Height());
   }
   ValidateStateStack();
   origin_tainted_by_content_ = false;
@@ -187,6 +219,15 @@ void BaseRenderingContext2D::IdentifiabilityMaybeUpdateForStyleUnion(
     identifiability_study_helper_.MaybeUpdateBuilder(
         style.GetAsCanvasGradient()->GetIdentifiableToken());
   }
+}
+
+RespectImageOrientationEnum
+BaseRenderingContext2D::RespectImageOrientationInternal(
+    CanvasImageSource* image_source) {
+  if ((image_source->IsImageBitmap() || image_source->IsImageElement()) &&
+      image_source->WouldTaintOrigin())
+    return kRespectImageOrientation;
+  return RespectImageOrientation();
 }
 
 void BaseRenderingContext2D::strokeStyle(
@@ -455,6 +496,8 @@ void BaseRenderingContext2D::setFilter(
 }
 
 void BaseRenderingContext2D::scale(double sx, double sy) {
+  // TODO(crbug.com/1140535): Investigate the performance impact of simply
+  // calling the 3d version of this function
   cc::PaintCanvas* c = GetOrCreatePaintCanvas();
   if (!c)
     return;
@@ -462,11 +505,11 @@ void BaseRenderingContext2D::scale(double sx, double sy) {
   if (!std::isfinite(sx) || !std::isfinite(sy))
     return;
 
-  AffineTransform new_transform = GetState().Transform();
+  TransformationMatrix new_transform = GetState().GetTransform();
   float fsx = clampTo<float>(sx);
   float fsy = clampTo<float>(sy);
   new_transform.ScaleNonUniform(fsx, fsy);
-  if (GetState().Transform() == new_transform)
+  if (GetState().GetTransform() == new_transform)
     return;
 
   ModifiableState().SetTransform(new_transform);
@@ -477,6 +520,33 @@ void BaseRenderingContext2D::scale(double sx, double sy) {
   path_.Transform(AffineTransform().ScaleNonUniform(1.0 / fsx, 1.0 / fsy));
 }
 
+void BaseRenderingContext2D::scale(double sx, double sy, double sz) {
+  cc::PaintCanvas* c = GetOrCreatePaintCanvas();
+  if (!c)
+    return;
+
+  if (!std::isfinite(sx) || !std::isfinite(sy) || !std::isfinite(sz))
+    return;
+
+  TransformationMatrix new_transform = GetState().GetTransform();
+  float fsx = clampTo<float>(sx);
+  float fsy = clampTo<float>(sy);
+  float fsz = clampTo<float>(sz);
+  new_transform.Scale3d(fsx, fsy, fsz);
+  if (GetState().GetTransform() == new_transform)
+    return;
+
+  ModifiableState().SetTransform(new_transform);
+  if (!GetState().IsTransformInvertible())
+    return;
+
+  // SkCanvas has no 3d scale method for now
+  TransformationMatrix scale_matrix =
+      TransformationMatrix().Scale3d(fsx, fsy, fsz);
+  c->concat(TransformationMatrix::ToSkM44(scale_matrix));
+  path_.Transform(scale_matrix);
+}
+
 void BaseRenderingContext2D::rotate(double angle_in_radians) {
   cc::PaintCanvas* c = GetOrCreatePaintCanvas();
   if (!c)
@@ -485,9 +555,9 @@ void BaseRenderingContext2D::rotate(double angle_in_radians) {
   if (!std::isfinite(angle_in_radians))
     return;
 
-  AffineTransform new_transform = GetState().Transform();
-  new_transform.RotateRadians(angle_in_radians);
-  if (GetState().Transform() == new_transform)
+  TransformationMatrix new_transform = GetState().GetTransform();
+  new_transform.Rotate(rad2deg(angle_in_radians));
+  if (GetState().GetTransform() == new_transform)
     return;
 
   ModifiableState().SetTransform(new_transform);
@@ -497,29 +567,213 @@ void BaseRenderingContext2D::rotate(double angle_in_radians) {
   path_.Transform(AffineTransform().RotateRadians(-angle_in_radians));
 }
 
-void BaseRenderingContext2D::translate(double tx, double ty) {
+// All angles are in radians
+void BaseRenderingContext2D::rotate3d(double rx, double ry, double rz) {
   cc::PaintCanvas* c = GetOrCreatePaintCanvas();
   if (!c)
     return;
+
+  if (!std::isfinite(rx) || !std::isfinite(ry) || !std::isfinite(rz))
+    return;
+
+  TransformationMatrix rotation_matrix =
+      TransformationMatrix().Rotate3d(rad2deg(rx), rad2deg(ry), rad2deg(rz));
+
+  // Check if the transformation is a no-op and early out if that is the case.
+  TransformationMatrix new_transform =
+      GetState().GetTransform().Rotate3d(rad2deg(rx), rad2deg(ry), rad2deg(rz));
+  if (GetState().GetTransform() == new_transform)
+    return;
+
+  // Must call setTransform to set the IsTransformInvertible flag.
+  ModifiableState().SetTransform(new_transform);
+  if (!GetState().IsTransformInvertible())
+    return;
+
+  c->concat(TransformationMatrix::ToSkM44(rotation_matrix));
+  path_.Transform(rotation_matrix.Inverse());
+}
+
+void BaseRenderingContext2D::rotateAxis(double axisX,
+                                        double axisY,
+                                        double axisZ,
+                                        double angle_in_radians) {
+  cc::PaintCanvas* c = GetOrCreatePaintCanvas();
+  if (!c)
+    return;
+
+  if (!std::isfinite(axisX) || !std::isfinite(axisY) || !std::isfinite(axisZ) ||
+      !std::isfinite(angle_in_radians))
+    return;
+
+  TransformationMatrix rotation_matrix = TransformationMatrix().Rotate3d(
+      axisX, axisY, axisZ, rad2deg(angle_in_radians));
+
+  // Check if the transformation is a no-op and early out if that is the case.
+  TransformationMatrix new_transform = GetState().GetTransform().Rotate3d(
+      axisX, axisY, axisZ, rad2deg(angle_in_radians));
+  if (GetState().GetTransform() == new_transform)
+    return;
+
+  // Must call setTransform to set the IsTransformInvertible flag.
+  ModifiableState().SetTransform(new_transform);
+  if (!GetState().IsTransformInvertible())
+    return;
+
+  c->concat(TransformationMatrix::ToSkM44(rotation_matrix));
+  path_.Transform(rotation_matrix.Inverse());
+}
+
+void BaseRenderingContext2D::translate(double tx, double ty) {
+  // TODO(crbug.com/1140535): Investigate the performance impact of simply
+  // calling the 3d version of this function
+  cc::PaintCanvas* c = GetOrCreatePaintCanvas();
+  if (!c)
+    return;
+
   if (!GetState().IsTransformInvertible())
     return;
 
   if (!std::isfinite(tx) || !std::isfinite(ty))
     return;
 
-  AffineTransform new_transform = GetState().Transform();
+  TransformationMatrix new_transform = GetState().GetTransform();
   // clamp to float to avoid float cast overflow when used as SkScalar
   float ftx = clampTo<float>(tx);
   float fty = clampTo<float>(ty);
   new_transform.Translate(ftx, fty);
-  if (GetState().Transform() == new_transform)
+  if (GetState().GetTransform() == new_transform)
     return;
 
   ModifiableState().SetTransform(new_transform);
   if (!GetState().IsTransformInvertible())
     return;
+
   c->translate(ftx, fty);
   path_.Transform(AffineTransform().Translate(-ftx, -fty));
+}
+
+void BaseRenderingContext2D::translate(double tx, double ty, double tz) {
+  cc::PaintCanvas* c = GetOrCreatePaintCanvas();
+  if (!c)
+    return;
+
+  if (!std::isfinite(tx) || !std::isfinite(ty) || !std::isfinite(tz))
+    return;
+
+  // clamp to float to avoid float cast overflow when used as SkScalar
+  float ftx = clampTo<float>(tx);
+  float fty = clampTo<float>(ty);
+  float ftz = clampTo<float>(ty);
+
+  TransformationMatrix translation_matrix =
+      TransformationMatrix().Translate3d(ftx, fty, ftz);
+
+  // Check if the transformation is a no-op and early out if that is the case.
+  TransformationMatrix new_transform =
+      GetState().GetTransform().Translate3d(ftx, fty, ftz);
+  if (GetState().GetTransform() == new_transform)
+    return;
+
+  // We need to call SetTransform() to set the IsTransformInvertible flag.
+  ModifiableState().SetTransform(new_transform);
+  if (!GetState().IsTransformInvertible())
+    return;
+
+  c->concat(TransformationMatrix::ToSkM44(translation_matrix));
+  path_.Transform(translation_matrix.Inverse());
+}
+
+void BaseRenderingContext2D::perspective(double length) {
+  cc::PaintCanvas* c = GetOrCreatePaintCanvas();
+  if (!c)
+    return;
+
+  if (length == 0 || !std::isfinite(length))
+    return;
+
+  float flength = clampTo<float>(length);
+
+  TransformationMatrix perspective_matrix =
+      TransformationMatrix().ApplyPerspective(flength);
+
+  // Check if the transformation is a no-op and early out if that is the case.
+  TransformationMatrix new_transform =
+      GetState().GetTransform().ApplyPerspective(flength);
+  if (GetState().GetTransform() == new_transform)
+    return;
+
+  // We need to call SetTransform() to set the IsTransformInvertible flag.
+  ModifiableState().SetTransform(new_transform);
+  if (!GetState().IsTransformInvertible())
+    return;
+
+  c->concat(TransformationMatrix::ToSkM44(perspective_matrix));
+  path_.Transform(perspective_matrix.Inverse());
+}
+
+void BaseRenderingContext2D::transform(double m11,
+                                       double m12,
+                                       double m13,
+                                       double m14,
+                                       double m21,
+                                       double m22,
+                                       double m23,
+                                       double m24,
+                                       double m31,
+                                       double m32,
+                                       double m33,
+                                       double m34,
+                                       double m41,
+                                       double m42,
+                                       double m43,
+                                       double m44) {
+  cc::PaintCanvas* c = GetOrCreatePaintCanvas();
+  if (!c)
+    return;
+
+  if (!std::isfinite(m11) || !std::isfinite(m12) || !std::isfinite(m13) ||
+      !std::isfinite(m14) || !std::isfinite(m21) || !std::isfinite(m22) ||
+      !std::isfinite(m23) || !std::isfinite(m24) || !std::isfinite(m31) ||
+      !std::isfinite(m32) || !std::isfinite(m33) || !std::isfinite(m34) ||
+      !std::isfinite(m41) || !std::isfinite(m42) || !std::isfinite(m43) ||
+      !std::isfinite(m44))
+    return;
+
+  // clamp to float to avoid float cast overflow when used as SkScalar
+  float fm11 = clampTo<float>(m11);
+  float fm12 = clampTo<float>(m12);
+  float fm13 = clampTo<float>(m13);
+  float fm14 = clampTo<float>(m14);
+  float fm21 = clampTo<float>(m21);
+  float fm22 = clampTo<float>(m22);
+  float fm23 = clampTo<float>(m23);
+  float fm24 = clampTo<float>(m24);
+  float fm31 = clampTo<float>(m31);
+  float fm32 = clampTo<float>(m32);
+  float fm33 = clampTo<float>(m33);
+  float fm34 = clampTo<float>(m34);
+  float fm41 = clampTo<float>(m41);
+  float fm42 = clampTo<float>(m42);
+  float fm43 = clampTo<float>(m43);
+  float fm44 = clampTo<float>(m44);
+
+  TransformationMatrix transform =
+      TransformationMatrix(fm11, fm12, fm13, fm14, fm21, fm22, fm23, fm24, fm31,
+                           fm32, fm33, fm34, fm41, fm42, fm43, fm44);
+
+  // Check if the transformation is a no-op and early out if that is the case.
+  TransformationMatrix new_transform = GetState().GetTransform() * transform;
+  if (GetState().GetTransform() == new_transform)
+    return;
+
+  // Must call setTransform to set the IsTransformInvertible flag.
+  ModifiableState().SetTransform(new_transform);
+  if (!GetState().IsTransformInvertible())
+    return;
+
+  c->concat(TransformationMatrix::ToSkM44(transform));
+  path_.Transform(transform.Inverse());
 }
 
 void BaseRenderingContext2D::transform(double m11,
@@ -528,6 +782,10 @@ void BaseRenderingContext2D::transform(double m11,
                                        double m22,
                                        double dx,
                                        double dy) {
+  // TODO(crbug.com/1140535) Investigate the performance implications of simply
+  // calling the 3d version above with:
+  // transform(m11, m12, 0, 0, m21, m22, 0, 0, 0, 0, 1, 0, dx, dy, 0, 1);
+
   cc::PaintCanvas* c = GetOrCreatePaintCanvas();
   if (!c)
     return;
@@ -544,16 +802,16 @@ void BaseRenderingContext2D::transform(double m11,
   float fdx = clampTo<float>(dx);
   float fdy = clampTo<float>(dy);
 
-  AffineTransform transform(fm11, fm12, fm21, fm22, fdx, fdy);
-  AffineTransform new_transform = GetState().Transform() * transform;
-  if (GetState().Transform() == new_transform)
+  TransformationMatrix transform(fm11, fm12, fm21, fm22, fdx, fdy);
+  TransformationMatrix new_transform = GetState().GetTransform() * transform;
+  if (GetState().GetTransform() == new_transform)
     return;
 
   ModifiableState().SetTransform(new_transform);
   if (!GetState().IsTransformInvertible())
     return;
 
-  c->concat(AffineTransformToSkMatrix(transform));
+  c->concat(TransformationMatrix::ToSkM44(transform));
   path_.Transform(transform.Inverse());
 }
 
@@ -562,7 +820,7 @@ void BaseRenderingContext2D::resetTransform() {
   if (!c)
     return;
 
-  AffineTransform ctm = GetState().Transform();
+  TransformationMatrix ctm = GetState().GetTransform();
   bool invertible_ctm = GetState().IsTransformInvertible();
   // It is possible that CTM is identity while CTM is not invertible.
   // When CTM becomes non-invertible, realizeSaves() can make CTM identity.
@@ -571,7 +829,8 @@ void BaseRenderingContext2D::resetTransform() {
 
   // resetTransform() resolves the non-invertible CTM state.
   ModifiableState().ResetTransform();
-  c->setMatrix(AffineTransformToSkMatrix(AffineTransform()));
+  // Set the SkCanvas' matrix to identity.
+  c->setMatrix(SkM44());
 
   if (invertible_ctm)
     path_.Transform(ctm);
@@ -592,37 +851,77 @@ void BaseRenderingContext2D::setTransform(double m11,
     return;
 
   resetTransform();
-  // clamp to float to avoid float cast overflow when used as SkScalar
-  float fm11 = clampTo<float>(m11);
-  float fm12 = clampTo<float>(m12);
-  float fm21 = clampTo<float>(m21);
-  float fm22 = clampTo<float>(m22);
-  float fdx = clampTo<float>(dx);
-  float fdy = clampTo<float>(dy);
-
-  transform(fm11, fm12, fm21, fm22, fdx, fdy);
+  transform(m11, m12, m21, m22, dx, dy);
 }
 
-void BaseRenderingContext2D::setTransform(DOMMatrix2DInit* transform,
+void BaseRenderingContext2D::setTransform(double m11,
+                                          double m12,
+                                          double m13,
+                                          double m14,
+                                          double m21,
+                                          double m22,
+                                          double m23,
+                                          double m24,
+                                          double m31,
+                                          double m32,
+                                          double m33,
+                                          double m34,
+                                          double m41,
+                                          double m42,
+                                          double m43,
+                                          double m44) {
+  if (!std::isfinite(m11) || !std::isfinite(m12) || !std::isfinite(m13) ||
+      !std::isfinite(m14) || !std::isfinite(m21) || !std::isfinite(m22) ||
+      !std::isfinite(m23) || !std::isfinite(m24) || !std::isfinite(m31) ||
+      !std::isfinite(m32) || !std::isfinite(m33) || !std::isfinite(m34) ||
+      !std::isfinite(m41) || !std::isfinite(m42) || !std::isfinite(m43) ||
+      !std::isfinite(m44))
+    return;
+
+  resetTransform();
+  transform(m11, m12, m13, m14, m21, m22, m23, m24, m31, m32, m33, m34, m41,
+            m42, m43, m44);
+}
+
+void BaseRenderingContext2D::setTransform(DOMMatrixInit* transform,
                                           ExceptionState& exception_state) {
   DOMMatrixReadOnly* m =
-      DOMMatrixReadOnly::fromMatrix2D(transform, exception_state);
+      DOMMatrixReadOnly::fromMatrix(transform, exception_state);
 
   if (!m)
     return;
 
-  setTransform(m->m11(), m->m12(), m->m21(), m->m22(), m->m41(), m->m42());
+  // The new canvas 2d API supports 3d transforms.
+  // https://github.com/fserb/canvas2D/blob/master/spec/perspective-transforms.md
+  // If it is not enabled, throw 3d information away.
+  if (RuntimeEnabledFeatures::NewCanvas2DAPIEnabled()) {
+    setTransform(m->m11(), m->m12(), m->m13(), m->m14(), m->m21(), m->m22(),
+                 m->m23(), m->m24(), m->m31(), m->m32(), m->m33(), m->m34(),
+                 m->m41(), m->m42(), m->m43(), m->m44());
+  } else {
+    setTransform(m->m11(), m->m12(), m->m21(), m->m22(), m->m41(), m->m42());
+  }
 }
 
 DOMMatrix* BaseRenderingContext2D::getTransform() {
-  const AffineTransform& t = GetState().Transform();
+  const TransformationMatrix& t = GetState().GetTransform();
   DOMMatrix* m = DOMMatrix::Create();
-  m->setA(t.A());
-  m->setB(t.B());
-  m->setC(t.C());
-  m->setD(t.D());
-  m->setE(t.E());
-  m->setF(t.F());
+  m->setM11(t.M11());
+  m->setM12(t.M12());
+  m->setM13(t.M13());
+  m->setM14(t.M14());
+  m->setM21(t.M21());
+  m->setM22(t.M22());
+  m->setM23(t.M23());
+  m->setM24(t.M24());
+  m->setM31(t.M31());
+  m->setM32(t.M32());
+  m->setM33(t.M33());
+  m->setM34(t.M34());
+  m->setM41(t.M41());
+  m->setM42(t.M42());
+  m->setM43(t.M43());
+  m->setM44(t.M44());
   return m;
 }
 
@@ -847,7 +1146,7 @@ bool BaseRenderingContext2D::IsPointInPathInternal(
   if (!std::isfinite(x) || !std::isfinite(y))
     return false;
   FloatPoint point(clampTo<float>(x), clampTo<float>(y));
-  AffineTransform ctm = GetState().Transform();
+  TransformationMatrix ctm = GetState().GetTransform();
   FloatPoint transformed_point = ctm.Inverse().MapPoint(point);
 
   return path.Contains(transformed_point,
@@ -876,7 +1175,7 @@ bool BaseRenderingContext2D::IsPointInStrokeInternal(const Path& path,
   if (!std::isfinite(x) || !std::isfinite(y))
     return false;
   FloatPoint point(clampTo<float>(x), clampTo<float>(y));
-  AffineTransform ctm = GetState().Transform();
+  AffineTransform ctm = GetState().GetAffineTransform();
   FloatPoint transformed_point = ctm.Inverse().MapPoint(point);
 
   StrokeData stroke_data;
@@ -985,17 +1284,16 @@ static inline CanvasImageSource* ToImageSourceInternal(
             .IsEmpty()) {
       exception_state.ThrowDOMException(
           DOMExceptionCode::kInvalidStateError,
-          String::Format("The image argument is a canvas element with a width "
-                         "or height of 0."));
+          "The image argument is a canvas element with a width "
+          "or height of 0.");
       return nullptr;
     }
     return value.GetAsHTMLCanvasElement();
   }
   if (value.IsImageBitmap()) {
     if (static_cast<ImageBitmap*>(value.GetAsImageBitmap())->IsNeutered()) {
-      exception_state.ThrowDOMException(
-          DOMExceptionCode::kInvalidStateError,
-          String::Format("The image source is detached"));
+      exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
+                                        "The image source is detached");
       return nullptr;
     }
     return value.GetAsImageBitmap();
@@ -1003,9 +1301,8 @@ static inline CanvasImageSource* ToImageSourceInternal(
   if (value.IsOffscreenCanvas()) {
     if (static_cast<OffscreenCanvas*>(value.GetAsOffscreenCanvas())
             ->IsNeutered()) {
-      exception_state.ThrowDOMException(
-          DOMExceptionCode::kInvalidStateError,
-          String::Format("The image source is detached"));
+      exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
+                                        "The image source is detached");
       return nullptr;
     }
     if (static_cast<OffscreenCanvas*>(value.GetAsOffscreenCanvas())
@@ -1013,11 +1310,20 @@ static inline CanvasImageSource* ToImageSourceInternal(
             .IsEmpty()) {
       exception_state.ThrowDOMException(
           DOMExceptionCode::kInvalidStateError,
-          String::Format("The image argument is an OffscreenCanvas element "
-                         "with a width or height of 0."));
+          "The image argument is an OffscreenCanvas element "
+          "with a width or height of 0.");
       return nullptr;
     }
     return value.GetAsOffscreenCanvas();
+  }
+  if (value.IsVideoFrame()) {
+    auto* video_frame = static_cast<VideoFrame*>(value.GetAsVideoFrame());
+    if (!video_frame->frame()) {
+      exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
+                                        "The VideoFrame has been closed");
+      return nullptr;
+    }
+    return video_frame;
   }
   NOTREACHED();
   return nullptr;
@@ -1033,7 +1339,8 @@ void BaseRenderingContext2D::drawImage(
       ToImageSourceInternal(image_source, exception_state);
   if (!image_source_internal)
     return;
-  RespectImageOrientationEnum respect_orientation = RespectImageOrientation();
+  RespectImageOrientationEnum respect_orientation =
+      RespectImageOrientationInternal(image_source_internal);
   FloatSize default_object_size(Width(), Height());
   FloatSize source_rect_size = image_source_internal->ElementSize(
       default_object_size, respect_orientation);
@@ -1058,7 +1365,8 @@ void BaseRenderingContext2D::drawImage(
     return;
   FloatSize default_object_size(this->Width(), this->Height());
   FloatSize source_rect_size = image_source_internal->ElementSize(
-      default_object_size, RespectImageOrientation());
+      default_object_size,
+      RespectImageOrientationInternal(image_source_internal));
   drawImage(script_state, image_source_internal, 0, 0, source_rect_size.Width(),
             source_rect_size.Height(), x, y, width, height, exception_state);
 }
@@ -1114,12 +1422,14 @@ bool BaseRenderingContext2D::ShouldDrawImageAntialiased(
          dest_rect.Height() * fabs(height_expansion) < 1;
 }
 
-void BaseRenderingContext2D::DrawImageInternal(cc::PaintCanvas* c,
-                                               CanvasImageSource* image_source,
-                                               Image* image,
-                                               const FloatRect& src_rect,
-                                               const FloatRect& dst_rect,
-                                               const PaintFlags* flags) {
+void BaseRenderingContext2D::DrawImageInternal(
+    cc::PaintCanvas* c,
+    CanvasImageSource* image_source,
+    Image* image,
+    const FloatRect& src_rect,
+    const FloatRect& dst_rect,
+    const SkSamplingOptions& sampling,
+    const PaintFlags* flags) {
   int initial_save_count = c->getSaveCount();
   PaintFlags image_flags = *flags;
 
@@ -1160,7 +1470,8 @@ void BaseRenderingContext2D::DrawImageInternal(cc::PaintCanvas* c,
     // We always use the image-orientation property on the canvas element
     // because the alternative would result in complex rules depending on
     // the source of the image.
-    RespectImageOrientationEnum respect_orientation = RespectImageOrientation();
+    RespectImageOrientationEnum respect_orientation =
+        RespectImageOrientationInternal(image_source);
     FloatRect corrected_src_rect = src_rect;
     if (respect_orientation == kRespectImageOrientation &&
         !image->HasDefaultOrientation()) {
@@ -1168,7 +1479,7 @@ void BaseRenderingContext2D::DrawImageInternal(cc::PaintCanvas* c,
           image->SizeAsFloat(kRespectImageOrientation), src_rect);
     }
     image_flags.setAntiAlias(ShouldDrawImageAntialiased(dst_rect));
-    image->Draw(c, image_flags, dst_rect, corrected_src_rect,
+    image->Draw(c, image_flags, dst_rect, corrected_src_rect, sampling,
                 respect_orientation, Image::kDoNotClampImageToSourceRect,
                 Image::kSyncDecode);
   } else {
@@ -1246,8 +1557,8 @@ void BaseRenderingContext2D::drawImage(ScriptState* script_state,
 
   FloatRect src_rect = NormalizeRect(FloatRect(fsx, fsy, fsw, fsh));
   FloatRect dst_rect = NormalizeRect(FloatRect(fdx, fdy, fdw, fdh));
-  FloatSize image_size =
-      image_source->ElementSize(default_object_size, RespectImageOrientation());
+  FloatSize image_size = image_source->ElementSize(
+      default_object_size, RespectImageOrientationInternal(image_source));
 
   ClipRectsToImageRect(FloatRect(FloatPoint(), image_size), &src_rect,
                        &dst_rect);
@@ -1268,8 +1579,11 @@ void BaseRenderingContext2D::drawImage(ScriptState* script_state,
       [this, &image_source, &image, &src_rect, dst_rect](
           cc::PaintCanvas* c, const PaintFlags* flags)  // draw lambda
       {
+        SkSamplingOptions sampling(
+            flags ? flags->getFilterQuality() : kNone_SkFilterQuality,
+            SkSamplingOptions::kMedium_asMipmapLinear);
         DrawImageInternal(c, image_source, image.get(), src_rect, dst_rect,
-                          flags);
+                          sampling, flags);
       },
       [this, &dst_rect](const SkIRect& clip_bounds)  // overdraw test lambda
       { return RectContainsTransformedRect(dst_rect, clip_bounds); },
@@ -1351,7 +1665,7 @@ bool BaseRenderingContext2D::RectContainsTransformedRect(
   FloatQuad transformed_quad(
       FloatRect(transformed_rect.x(), transformed_rect.y(),
                 transformed_rect.width(), transformed_rect.height()));
-  return GetState().Transform().MapQuad(quad).ContainsQuad(transformed_quad);
+  return GetState().GetTransform().MapQuad(quad).ContainsQuad(transformed_quad);
 }
 
 CanvasGradient* BaseRenderingContext2D::createLinearGradient(double x0,
@@ -1466,7 +1780,8 @@ CanvasPattern* BaseRenderingContext2D::createPattern(
           String::Format("The canvas %s is 0.",
                          image_source
                                  ->ElementSize(default_object_size,
-                                               RespectImageOrientation())
+                                               RespectImageOrientationInternal(
+                                                   image_source))
                                  .Width()
                              ? "height"
                              : "width"));
@@ -1506,7 +1821,7 @@ bool BaseRenderingContext2D::ComputeDirtyRect(
     const FloatRect& local_rect,
     const SkIRect& transformed_clip_bounds,
     SkIRect* dirty_rect) {
-  FloatRect canvas_rect = GetState().Transform().MapRect(local_rect);
+  FloatRect canvas_rect = GetState().GetTransform().MapRect(local_rect);
 
   if (AlphaChannel(GetState().ShadowColor())) {
     FloatRect shadow_rect(canvas_rect);
@@ -1526,56 +1841,35 @@ bool BaseRenderingContext2D::ComputeDirtyRect(
   return true;
 }
 
-ImageDataColorSettings*
-BaseRenderingContext2D::GetColorSettingsAsImageDataColorSettings() const {
-  ImageDataColorSettings* color_settings = ImageDataColorSettings::Create();
-  color_settings->setColorSpace(ColorSpaceAsString());
-  if (PixelFormat() == CanvasPixelFormat::kF16)
-    color_settings->setStorageFormat(kFloat32ArrayStorageFormatName);
-  return color_settings;
-}
-
 ImageData* BaseRenderingContext2D::createImageData(
     ImageData* image_data,
     ExceptionState& exception_state) const {
-  ImageData* result = nullptr;
-  ImageDataColorSettings* color_settings =
-      GetColorSettingsAsImageDataColorSettings();
-  result = ImageData::Create(image_data->Size(), color_settings);
-  if (!result)
-    exception_state.ThrowRangeError("Out of memory at ImageData creation");
-  return result;
+  return ImageData::ValidateAndCreate(
+      image_data->Size().Width(), image_data->Size().Height(), base::nullopt,
+      image_data->getSettings(), exception_state,
+      ImageData::Context2DErrorMode);
 }
 
 ImageData* BaseRenderingContext2D::createImageData(
     int sw,
     int sh,
     ExceptionState& exception_state) const {
-  if (!sw || !sh) {
-    exception_state.ThrowDOMException(
-        DOMExceptionCode::kIndexSizeError,
-        String::Format("The source %s is 0.", sw ? "height" : "width"));
-    return nullptr;
-  }
-
-  IntSize size(abs(sw), abs(sh));
-  ImageData* result = nullptr;
-  ImageDataColorSettings* color_settings =
-      GetColorSettingsAsImageDataColorSettings();
-  result = ImageData::Create(size, color_settings);
-
-  if (!result)
-    exception_state.ThrowRangeError("Out of memory at ImageData creation");
-  return result;
+  ImageDataSettings* image_data_settings = ImageDataSettings::Create();
+  image_data_settings->setColorSpace(kSRGBCanvasColorSpaceName);
+  image_data_settings->setStorageFormat(kUint8ClampedArrayStorageFormatName);
+  return ImageData::ValidateAndCreate(std::abs(sw), std::abs(sh), base::nullopt,
+                                      image_data_settings, exception_state,
+                                      ImageData::Context2DErrorMode);
 }
 
 ImageData* BaseRenderingContext2D::createImageData(
-    unsigned width,
-    unsigned height,
-    ImageDataColorSettings* color_settings,
+    unsigned sw,
+    unsigned sh,
+    ImageDataSettings* image_data_settings,
     ExceptionState& exception_state) const {
-  return ImageData::CreateImageData(width, height, color_settings,
-                                    exception_state);
+  return ImageData::ValidateAndCreate(sw, sh, base::nullopt,
+                                      image_data_settings, exception_state,
+                                      ImageData::Context2DErrorMode);
 }
 
 ImageData* BaseRenderingContext2D::getImageData(
@@ -1583,6 +1877,27 @@ ImageData* BaseRenderingContext2D::getImageData(
     int sy,
     int sw,
     int sh,
+    ExceptionState& exception_state) {
+  return getImageDataInternal(sx, sy, sw, sh, nullptr, exception_state);
+}
+
+ImageData* BaseRenderingContext2D::getImageData(
+    int sx,
+    int sy,
+    int sw,
+    int sh,
+    ImageDataSettings* image_data_settings,
+    ExceptionState& exception_state) {
+  return getImageDataInternal(sx, sy, sw, sh, image_data_settings,
+                              exception_state);
+}
+
+ImageData* BaseRenderingContext2D::getImageDataInternal(
+    int sx,
+    int sy,
+    int sw,
+    int sh,
+    ImageDataSettings* image_data_settings,
     ExceptionState& exception_state) {
   if (!base::CheckMul(sw, sh).IsValid<int>()) {
     exception_state.ThrowRangeError("Out of memory at ImageData creation");
@@ -1626,91 +1941,144 @@ ImageData* BaseRenderingContext2D::getImageData(
     return nullptr;
   }
 
-  IntRect image_data_rect(sx, sy, sw, sh);
-  bool hasResourceProvider = CanCreateCanvas2dResourceProvider();
-  ImageDataColorSettings* color_settings =
-      GetColorSettingsAsImageDataColorSettings();
-  if (!hasResourceProvider || isContextLost()) {
-    ImageData* result =
-        ImageData::Create(image_data_rect.Size(), color_settings);
-    if (!result)
-      exception_state.ThrowRangeError("Out of memory at ImageData creation");
-    return result;
+  const IntRect image_data_rect(sx, sy, sw, sh);
+
+  if (!image_data_settings) {
+    image_data_settings = ImageDataSettings::Create();
+    image_data_settings->setColorSpace(kSRGBCanvasColorSpaceName);
+    image_data_settings->setStorageFormat(kUint8ClampedArrayStorageFormatName);
   }
 
-  const CanvasColorParams& color_params = ColorParams();
+  const ImageDataStorageFormat storage_format =
+      ImageData::GetImageDataStorageFormat(
+          image_data_settings->storageFormat());
+  if (!CanCreateCanvas2dResourceProvider() || isContextLost()) {
+    return ImageData::ValidateAndCreate(sw, sh, base::nullopt,
+                                        image_data_settings, exception_state,
+                                        ImageData::Context2DErrorMode);
+  }
+
   // Deferred offscreen canvases might have recorded commands, make sure
   // that those get drawn here
   FinalizeFrame();
-  scoped_refptr<StaticBitmapImage> snapshot = GetImage();
 
   // TODO(crbug.com/1101055): Remove the check for NewCanvas2DAPI flag once
   // released.
-  // New Canvas2D API utilizes willReadFrequently attribute that let the users
-  // indicate if a canvas will be read frequently through getImageData, thus
-  // uses CPU rendering from the start in such cases. (crbug.com/1090180)
+  // TODO(crbug.com/1090180): New Canvas2D API utilizes willReadFrequently
+  // attribute that let the users indicate if a canvas will be read frequently
+  // through getImageData, thus uses CPU rendering from the start in such cases.
   if (!RuntimeEnabledFeatures::NewCanvas2DAPIEnabled()) {
-    // GetImagedata is faster in Unaccelerated canvases
-    if (IsAccelerated()) {
+    // GetImagedata is faster in Unaccelerated canvases.
+    // In Desynchronized canvas disabling the acceleration will break
+    // putImageData: crbug.com/1112060.
+    if (IsAccelerated() && !IsDesynchronized()) {
       DisableAcceleration();
       base::UmaHistogramEnumeration("Blink.Canvas.GPUFallbackToCPU",
                                     GPUFallbackToCPUScenario::kGetImageData);
     }
   }
 
-  size_t size_in_bytes;
-  if (!StaticBitmapImage::GetSizeInBytes(image_data_rect, color_params)
-           .AssignIfValid(&size_in_bytes) ||
-      size_in_bytes > v8::TypedArray::kMaxLength) {
-    exception_state.ThrowRangeError("Out of memory at ImageData creation");
-    return nullptr;
+  scoped_refptr<StaticBitmapImage> snapshot = GetImage();
+
+  // Compute the ImageData's SkImageInfo;
+  SkImageInfo image_info;
+  {
+    SkColorType color_type = kRGBA_8888_SkColorType;
+    switch (storage_format) {
+      case kUint8ClampedArrayStorageFormat:
+        color_type = kRGBA_8888_SkColorType;
+        break;
+      case kUint16ArrayStorageFormat:
+        color_type = kR16G16B16A16_unorm_SkColorType;
+        break;
+      case kFloat32ArrayStorageFormat:
+        color_type = kRGBA_F32_SkColorType;
+        break;
+      default:
+        NOTREACHED();
+    }
+    sk_sp<SkColorSpace> color_space = CanvasColorSpaceToSkColorSpace(
+        CanvasColorSpaceFromName(image_data_settings->colorSpace()));
+    image_info = SkImageInfo::Make(sw, sh, color_type, kUnpremul_SkAlphaType,
+                                   color_space);
   }
 
-  bool may_have_stray_area =
-      IsAccelerated()  // GPU readback may fail silently.
-      || StaticBitmapImage::MayHaveStrayArea(snapshot, image_data_rect);
-  ArrayBufferContents::InitializationPolicy initialization_policy =
-      may_have_stray_area ? ArrayBufferContents::kZeroInitialize
-                          : ArrayBufferContents::kDontInitialize;
-
-  ArrayBufferContents contents(
-      size_in_bytes, 1, ArrayBufferContents::kNotShared, initialization_policy);
-  if (contents.DataLength() != size_in_bytes) {
-    exception_state.ThrowRangeError("Out of memory at ImageData creation");
-    return nullptr;
+  // Compute the size of and allocate |contents|, the ArrayContentsBuffer.
+  ArrayBufferContents contents;
+  const size_t data_size_bytes = image_info.computeMinByteSize();
+  {
+    if (data_size_bytes > std::numeric_limits<unsigned int>::max()) {
+      exception_state.ThrowRangeError(
+          "Buffer size exceeds maximum heap object size.");
+      return nullptr;
+    }
+    if (SkImageInfo::ByteSizeOverflowed(data_size_bytes) ||
+        data_size_bytes > v8::TypedArray::kMaxLength) {
+      exception_state.ThrowRangeError("Out of memory at ImageData creation");
+      return nullptr;
+    }
+    ArrayBufferContents::InitializationPolicy initialization_policy =
+        ArrayBufferContents::kDontInitialize;
+    if (IsAccelerated()) {
+      // GPU readback may fail silently.
+      initialization_policy = ArrayBufferContents::kZeroInitialize;
+    } else if (snapshot) {
+      // Zero-initialize if some of the readback area is out of bounds.
+      if (image_data_rect.X() < 0 || image_data_rect.Y() < 0 ||
+          image_data_rect.MaxX() > snapshot->Size().Width() ||
+          image_data_rect.MaxY() > snapshot->Size().Height()) {
+        initialization_policy = ArrayBufferContents::kZeroInitialize;
+      }
+    }
+    contents =
+        ArrayBufferContents(data_size_bytes, 1, ArrayBufferContents::kNotShared,
+                            initialization_policy);
+    if (contents.DataLength() != data_size_bytes) {
+      exception_state.ThrowRangeError("Out of memory at ImageData creation");
+      return nullptr;
+    }
   }
 
-  if (!StaticBitmapImage::CopyToByteArray(
-          snapshot,
-          base::span<uint8_t>(reinterpret_cast<uint8_t*>(contents.Data()),
-                              contents.DataLength()),
-          image_data_rect, color_params)) {
-    exception_state.ThrowRangeError("Failed to copy image data");
-    return nullptr;
+  // Read pixels into |contents|.
+  if (snapshot) {
+    const bool read_pixels_successful =
+        snapshot->PaintImageForCurrentFrame().readPixels(
+            image_info, contents.Data(), image_info.minRowBytes(), sx, sy);
+    if (!read_pixels_successful) {
+      SkIRect bounds =
+          snapshot->PaintImageForCurrentFrame().GetSkImageInfo().bounds();
+      DCHECK(!bounds.intersect(SkIRect::MakeXYWH(sx, sy, sw, sh)));
+    }
   }
 
-  // Convert pixels to proper storage format if needed
-  if (PixelFormat() != CanvasColorParams::GetNativeCanvasPixelFormat()) {
-    ImageDataStorageFormat storage_format =
-        ImageData::GetImageDataStorageFormat(color_settings->storageFormat());
-    NotShared<DOMArrayBufferView> array_buffer_view =
-        ImageData::ConvertPixelsFromCanvasPixelFormatToImageDataStorageFormat(
-            contents, PixelFormat(), storage_format);
-    return ImageData::Create(image_data_rect.Size(), array_buffer_view,
-                             color_settings);
-  }
-  if (size_in_bytes > std::numeric_limits<unsigned int>::max()) {
-    exception_state.ThrowRangeError(
-        "Buffer size exceeds maximum heap object size.");
-    return nullptr;
-  }
+  // Wrap |contents| in an ImageData.
   DOMArrayBuffer* array_buffer = DOMArrayBuffer::Create(std::move(contents));
-
-  ImageData* imageData = ImageData::Create(
-      image_data_rect.Size(),
-      NotShared<DOMUint8ClampedArray>(DOMUint8ClampedArray::Create(
-          array_buffer, 0, static_cast<unsigned int>(size_in_bytes))),
-      color_settings);
+  NotShared<DOMArrayBufferView> data_array;
+  switch (storage_format) {
+    case kUint8ClampedArrayStorageFormat: {
+      size_t num_elements = data_size_bytes;
+      data_array = NotShared<DOMArrayBufferView>(
+          DOMUint8ClampedArray::Create(array_buffer, 0, num_elements));
+      break;
+    }
+    case kUint16ArrayStorageFormat: {
+      size_t num_elements = data_size_bytes / 2;
+      data_array = NotShared<DOMArrayBufferView>(
+          DOMUint16Array::Create(array_buffer, 0, num_elements));
+      break;
+    }
+    case kFloat32ArrayStorageFormat: {
+      size_t num_elements = data_size_bytes / 4;
+      data_array = NotShared<DOMArrayBufferView>(
+          DOMFloat32Array::Create(array_buffer, 0, num_elements));
+      break;
+    }
+    default:
+      NOTREACHED();
+  }
+  ImageData* image_data = ImageData::ValidateAndCreate(
+      sw, sh, data_array, image_data_settings, exception_state,
+      ImageData::Context2DErrorMode);
 
   if (!IsPaint2D()) {
     int scaled_time = getScaledElapsedTime(
@@ -1723,8 +2091,7 @@ ImageData* BaseRenderingContext2D::getImageData(
           "Blink.Canvas.GetImageDataScaledDuration.CPU", scaled_time);
     }
   }
-
-  return imageData;
+  return image_data;
 }
 
 int BaseRenderingContext2D::getScaledElapsedTime(float width,
@@ -1762,7 +2129,7 @@ void BaseRenderingContext2D::putImageData(ImageData* data,
   }
   base::TimeTicks start_time = base::TimeTicks::Now();
 
-  if (data->BufferBase()->IsDetached()) {
+  if (data->IsBufferBaseDetached()) {
     exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
                                       "The source data has been detached.");
     return;
@@ -1811,28 +2178,39 @@ void BaseRenderingContext2D::putImageData(ImageData* data,
   // in sRGB color space and use uint8 pixel storage format. We use RGBA pixel
   // order for both ImageData and CanvasResourceProvider, therefore no
   // additional swizzling is needed.
-  CanvasColorParams data_color_params = data->GetCanvasColorParams();
-  CanvasColorParams context_color_params =
-      CanvasColorParams(ColorParams().ColorSpace(), PixelFormat(), kNonOpaque);
+  SkPixmap data_pixmap = data->GetSkPixmap();
+  CanvasColorParams data_color_params(
+      data->GetCanvasColorSpace(),
+      data->GetImageDataStorageFormat() != kUint8ClampedArrayStorageFormat
+          ? CanvasPixelFormat::kF16
+          : CanvasPixelFormat::kUint8,
+      kNonOpaque);
+  if (data_color_params.ColorSpace() != GetCanvas2DColorParams().ColorSpace() ||
+      data_color_params.PixelFormat() !=
+          GetCanvas2DColorParams().PixelFormat() ||
+      GetCanvas2DColorParams().PixelFormat() == CanvasPixelFormat::kF16) {
+    SkImageInfo converted_info = data_pixmap.info();
+    converted_info =
+        converted_info.makeColorType(GetCanvas2DColorParams().GetSkColorType());
+    converted_info = converted_info.makeColorSpace(
+        GetCanvas2DColorParams().GetSkColorSpace());
+    if (converted_info.colorType() == kN32_SkColorType)
+      converted_info = converted_info.makeColorType(kRGBA_8888_SkColorType);
 
-  size_t data_length;
-  if (!base::CheckMul(data->Size().Area(), context_color_params.BytesPerPixel())
-           .AssignIfValid(&data_length))
-    return;
-
-  if (data_color_params.NeedsColorConversion(context_color_params) ||
-      PixelFormat() == CanvasPixelFormat::kF16) {
-    std::unique_ptr<uint8_t[]> converted_pixels(new uint8_t[data_length]);
-    if (data->ImageDataInCanvasColorSettings(
-            ColorParams().ColorSpace(), PixelFormat(), converted_pixels.get(),
-            kRGBAColorType)) {
-      PutByteArray(converted_pixels.get(),
-                   IntSize(data->width(), data->height()), source_rect,
-                   IntPoint(dest_offset));
+    const size_t converted_data_bytes = converted_info.computeMinByteSize();
+    const size_t converted_row_bytes = converted_info.minRowBytes();
+    if (SkImageInfo::ByteSizeOverflowed(converted_data_bytes))
+      return;
+    std::unique_ptr<uint8_t[]> converted_pixels(
+        new uint8_t[converted_data_bytes]);
+    if (data_pixmap.readPixels(converted_info, converted_pixels.get(),
+                               converted_row_bytes)) {
+      PutByteArray(
+          SkPixmap(converted_info, converted_pixels.get(), converted_row_bytes),
+          source_rect, IntPoint(dest_offset));
     }
   } else {
-    PutByteArray(data->data()->Data(), IntSize(data->width(), data->height()),
-                 source_rect, IntPoint(dest_offset));
+    PutByteArray(data_pixmap, source_rect, IntPoint(dest_offset));
   }
 
   if (!IsPaint2D()) {
@@ -1850,65 +2228,37 @@ void BaseRenderingContext2D::putImageData(ImageData* data,
   DidDraw(dest_rect);
 }
 
-void BaseRenderingContext2D::PutByteArray(const unsigned char* source,
-                                          const IntSize& source_size,
+void BaseRenderingContext2D::PutByteArray(const SkPixmap& source,
                                           const IntRect& source_rect,
                                           const IntPoint& dest_point) {
   if (!IsCanvas2DBufferValid())
     return;
-  uint8_t bytes_per_pixel = ColorParams().BytesPerPixel();
 
-  DCHECK_GT(source_rect.Width(), 0);
-  DCHECK_GT(source_rect.Height(), 0);
-
-  int origin_x = source_rect.X();
+  DCHECK(IntRect(0, 0, source.width(), source.height()).Contains(source_rect));
   int dest_x = dest_point.X() + source_rect.X();
   DCHECK_GE(dest_x, 0);
   DCHECK_LT(dest_x, Width());
-  DCHECK_GE(origin_x, 0);
-  DCHECK_LT(origin_x, source_rect.MaxX());
-
-  int origin_y = source_rect.Y();
   int dest_y = dest_point.Y() + source_rect.Y();
   DCHECK_GE(dest_y, 0);
   DCHECK_LT(dest_y, Height());
-  DCHECK_GE(origin_y, 0);
-  DCHECK_LT(origin_y, source_rect.MaxY());
 
-  const base::CheckedNumeric<size_t> src_bytes_per_row_checked =
-      base::CheckMul(bytes_per_pixel, source_size.Width());
-  if (!src_bytes_per_row_checked.IsValid()) {
-    VLOG(1) << "Invalid sizes";
-    return;
-  }
-  const size_t src_bytes_per_row = src_bytes_per_row_checked.ValueOrDie();
-  const void* src_addr =
-      source + origin_y * src_bytes_per_row + origin_x * bytes_per_pixel;
-
-  SkAlphaType alpha_type;
-  if (kOpaque == ColorParams().GetOpacityMode()) {
+  SkImageInfo info =
+      source.info().makeWH(source_rect.Width(), source_rect.Height());
+  if (kOpaque == GetCanvas2DColorParams().GetOpacityMode()) {
     // If the surface is opaque, tell it that we are writing opaque
     // pixels.  Writing non-opaque pixels to opaque is undefined in
     // Skia.  There is some discussion about whether it should be
     // defined in skbug.com/6157.  For now, we can get the desired
     // behavior (memcpy) by pretending the write is opaque.
-    alpha_type = kOpaque_SkAlphaType;
+    info = info.makeAlphaType(kOpaque_SkAlphaType);
   } else {
-    alpha_type = kUnpremul_SkAlphaType;
+    info = info.makeAlphaType(kUnpremul_SkAlphaType);
   }
+  if (info.colorType() == kN32_SkColorType)
+    info = info.makeColorType(kRGBA_8888_SkColorType);
 
-  SkImageInfo info;
-  if (ColorParams().GetSkColorSpaceForSkSurfaces()) {
-    info = SkImageInfo::Make(source_rect.Width(), source_rect.Height(),
-                             ColorParams().GetSkColorType(), alpha_type,
-                             ColorParams().GetSkColorSpaceForSkSurfaces());
-    if (info.colorType() == kN32_SkColorType)
-      info = info.makeColorType(kRGBA_8888_SkColorType);
-  } else {
-    info = SkImageInfo::Make(source_rect.Width(), source_rect.Height(),
-                             kRGBA_8888_SkColorType, alpha_type);
-  }
-  WritePixels(info, src_addr, src_bytes_per_row, dest_x, dest_y);
+  WritePixels(info, source.addr(source_rect.X(), source_rect.Y()),
+              source.rowBytes(), dest_x, dest_y);
 }
 
 void BaseRenderingContext2D::InflateStrokeRect(FloatRect& rect) const {
@@ -2011,6 +2361,18 @@ void BaseRenderingContext2D::CheckOverdraw(
   WillOverwriteCanvas();
 }
 
+double BaseRenderingContext2D::textLetterSpacing() const {
+  return GetState().GetTextLetterSpacing();
+}
+
+double BaseRenderingContext2D::textWordSpacing() const {
+  return GetState().GetTextWordSpacing();
+}
+
+String BaseRenderingContext2D::textRendering() const {
+  return ToString(GetState().GetTextRendering());
+}
+
 float BaseRenderingContext2D::GetFontBaseline(
     const SimpleFontData& font_data) const {
   return TextMetrics::GetFontBaseline(GetState().GetTextBaseline(), font_data);
@@ -2044,6 +2406,18 @@ void BaseRenderingContext2D::setTextBaseline(const String& s) {
   if (GetState().GetTextBaseline() == baseline)
     return;
   ModifiableState().SetTextBaseline(baseline);
+}
+
+String BaseRenderingContext2D::fontKerning() const {
+  return FontDescription::ToString(GetState().GetFontKerning());
+}
+
+String BaseRenderingContext2D::fontStretch() const {
+  return FontDescription::ToString(GetState().GetFontStretch());
+}
+
+String BaseRenderingContext2D::fontVariantCaps() const {
+  return FontDescription::ToString(GetState().GetFontVariantCaps());
 }
 
 void BaseRenderingContext2D::Trace(Visitor* visitor) const {

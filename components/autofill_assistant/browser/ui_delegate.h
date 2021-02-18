@@ -10,6 +10,8 @@
 #include <vector>
 
 #include "base/optional.h"
+#include "bottom_sheet_state.h"
+#include "components/autofill_assistant/browser/client_settings.h"
 #include "components/autofill_assistant/browser/event_handler.h"
 #include "components/autofill_assistant/browser/metrics.h"
 #include "components/autofill_assistant/browser/rectf.h"
@@ -23,7 +25,6 @@ class ControllerObserver;
 class Details;
 class InfoBox;
 class BasicInteractions;
-struct ClientSettings;
 
 // UI delegate called for script executions.
 class UiDelegate {
@@ -56,8 +57,8 @@ class UiDelegate {
   // Returns the current bubble / tooltip message.
   virtual std::string GetBubbleMessage() const = 0;
 
-  // Returns the current contextual information. May be null if empty.
-  virtual const Details* GetDetails() const = 0;
+  // Returns the current contextual information. May be empty.
+  virtual std::vector<Details> GetDetails() const = 0;
 
   // Returns the current info box data. May be null if empty.
   virtual const InfoBox* GetInfoBox() const = 0;
@@ -97,7 +98,8 @@ class UiDelegate {
   // Returns true if the action was triggered, false if the index did not
   // correspond to any enabled actions.
   bool PerformUserAction(int index) {
-    return PerformUserActionWithContext(index, TriggerContext::CreateEmpty());
+    return PerformUserActionWithContext(index,
+                                        std::make_unique<TriggerContext>());
   }
 
   // If the controller is waiting for user data, this field contains a non-null
@@ -178,6 +180,7 @@ class UiDelegate {
 
   // Reports a fatal error to Autofill Assistant, which should then stop.
   virtual void OnFatalError(const std::string& error_message,
+                            bool show_feedback_chip,
                             Metrics::DropOutReason reason) = 0;
 
   // Reports that Autofill Assistant should be Stopped.
@@ -189,6 +192,18 @@ class UiDelegate {
 
   // Peek mode state and whether it was changed automatically last time.
   virtual ConfigureBottomSheetProto::PeekMode GetPeekMode() = 0;
+
+  // Gets the bottom sheet state.
+  virtual BottomSheetState GetBottomSheetState() = 0;
+
+  // Sets the state of the bottom sheet.
+  virtual void SetBottomSheetState(BottomSheetState state) = 0;
+
+  // Gets whether the tab associated with this controller is currently selected.
+  virtual bool IsTabSelected() = 0;
+
+  // Sets whether the tab associated with this controller is currently selected.
+  virtual void SetTabSelected(bool selected) = 0;
 
   // Fills in the overlay colors.
   virtual void GetOverlayColors(OverlayColors* colors) const = 0;
@@ -211,6 +226,9 @@ class UiDelegate {
   virtual void SetChoiceSelected(int input_index,
                                  int choice_index,
                                  bool selected) = 0;
+
+  // Sets whether a UI is shown.
+  virtual void SetUiShown(bool shown) = 0;
 
   // Register an observer. Observers get told about changes to the
   // controller.
@@ -244,8 +262,8 @@ class UiDelegate {
   // Notifies the UI delegate that it should shut down.
   virtual void ShutdownIfNecessary() = 0;
 
-  // Returns whether the UI delegate is currently running a lite script or not.
-  virtual bool IsRunningLiteScript() const = 0;
+  // Called when the visibility of the keyboard has changed.
+  virtual void OnKeyboardVisibilityChanged(bool visible) = 0;
 
  protected:
   UiDelegate() = default;

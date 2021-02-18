@@ -97,7 +97,7 @@ bool TooltipContainsDeviceType(ScreenlockState state) {
           state == ScreenlockState::PHONE_LOCKED_AND_RSSI_TOO_LOW);
 }
 
-// Returns true iff the |state| corresponds to a locked remote device.
+// Returns true iff the `state` corresponds to a locked remote device.
 bool IsLockedState(ScreenlockState state) {
   return (state == ScreenlockState::PHONE_LOCKED ||
           state == ScreenlockState::PHONE_LOCKED_AND_RSSI_TOO_LOW);
@@ -145,7 +145,7 @@ void EasyUnlockScreenlockStateHandler::ChangeState(ScreenlockState new_state) {
   state_ = new_state;
 
   // If lock screen is not active or it forces offline password, just cache the
-  // current state. The screenlock state will get refreshed in |ScreenDidLock|.
+  // current state. The screenlock state will get refreshed in `ScreenDidLock`.
   if (!screenlock_bridge_->IsLocked())
     return;
 
@@ -322,6 +322,8 @@ void EasyUnlockScreenlockStateHandler::ShowHardlockUI() {
   }
 
   bool autoshow = true;
+  // TODO(crbug.com/1152491): Only call into SetHasShownLoginDisabledMessage()
+  // if this is a signin screen, not lock screen, context.
   if (hardlock_state_ == LOGIN_DISABLED) {
     // If Signin with Smart Lock is disabled, only automatically show the
     // tooltip if it hasn't been shown yet. See https://crbug.com/848893 for

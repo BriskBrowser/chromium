@@ -7,6 +7,8 @@
 #import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/ui/main/browser_interface_provider.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
+#import "ios/web/public/ui/crw_web_view_proxy.h"
+#import "ios/web/public/ui/crw_web_view_scroll_view_proxy.h"
 #import "ios/web/public/web_state.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -37,7 +39,7 @@
 - (void)screenshotService:(UIScreenshotService*)screenshotService
     generatePDFRepresentationWithCompletion:
         (void (^)(NSData*, NSInteger, CGRect))completionHandler
-    API_AVAILABLE(ios(13.0)) {
+    API_AVAILABLE(ios(14.0)) {
   Browser* browser = [self.browserInterfaceProvider.currentInterface browser];
 
   if (!browser) {
@@ -52,9 +54,20 @@
     return;
   }
 
+  // Pass the currently viewed frame to maintain scroll position in the
+  // screenshot editing tool.
+  id<CRWWebViewProxy> webProxy = webState->GetWebViewProxy();
+  CRWWebViewScrollViewProxy* scrollProxy = webProxy.scrollViewProxy;
+  CGPoint contentOffset = scrollProxy.contentOffset;
+  CGSize contentSize = scrollProxy.contentSize;
+  CGRect webViewFrame = scrollProxy.frame;
+  webViewFrame.origin.x = contentOffset.x;
+  webViewFrame.origin.y =
+      contentSize.height - webViewFrame.size.height - contentOffset.y;
+
   base::OnceCallback<void(NSData*)> callback =
       base::BindOnce(^(NSData* pdfDoumentData) {
-        completionHandler(pdfDoumentData, 0, CGRectZero);
+        completionHandler(pdfDoumentData, 0, webViewFrame);
       });
 
   webState->CreateFullPagePdf(std::move(callback));

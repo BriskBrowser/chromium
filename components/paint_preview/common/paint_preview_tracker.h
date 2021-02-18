@@ -92,6 +92,9 @@ class PaintPreviewTracker {
     return &picture_context_;
   }
   TypefaceUsageMap* GetTypefaceUsageMap() { return &typeface_glyph_usage_; }
+  ImageSerializationContext* GetImageSerializationContext() {
+    return &image_context_;
+  }
 
   // Expose links for serialization to a PaintPreviewFrameProto.
   const std::vector<mojom::LinkDataPtr>& GetLinks() { return links_; }
@@ -109,10 +112,12 @@ class PaintPreviewTracker {
   const base::Optional<base::UnguessableToken> embedding_token_;
   const bool is_main_frame_;
 
+  // TODO(crbug.com/1155544): Change this to an SkM44.
   SkMatrix matrix_;
   std::vector<SkMatrix> states_;
 
   std::vector<mojom::LinkDataPtr> links_;
+  ImageSerializationContext image_context_;
   PictureSerializationContext picture_context_;
   TypefaceUsageMap typeface_glyph_usage_;
   base::flat_map<uint32_t, sk_sp<SkPicture>> subframe_pics_;

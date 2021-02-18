@@ -8,8 +8,8 @@
 #include <string>
 #include <vector>
 
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/test/task_environment.h"
 #include "remoting/base/oauth_token_getter.h"
@@ -78,7 +78,7 @@ class MockOAuthTokenGetter : public OAuthTokenGetter {
 
 class FakeMessagingClient : public MessagingClient {
  public:
-  std::unique_ptr<MessageCallbackSubscription> RegisterMessageCallback(
+  base::CallbackListSubscription RegisterMessageCallback(
       const MessageCallback& callback) override {
     return callback_list_.Add(callback);
   }
@@ -168,7 +168,7 @@ class FakeRegistrationManager : public RegistrationManager {
   void ExpectSignInGaiaSucceeds() {
     EXPECT_CALL(*this, SignInGaia(_)).WillOnce([&](DoneCallback callback) {
       is_signed_in_ = true;
-      std::move(callback).Run(ProtobufHttpStatus::OK);
+      std::move(callback).Run(ProtobufHttpStatus::OK());
     });
   }
 
@@ -380,7 +380,7 @@ TEST_F(FtlSignalStrategyTest, SendStanza_Success) {
                                 const ftl::ChromotingMessage& message,
                                 MessagingClient::DoneCallback on_done) {
         ASSERT_EQ(stanza_string, message.xmpp().stanza());
-        std::move(on_done).Run(ProtobufHttpStatus::OK);
+        std::move(on_done).Run(ProtobufHttpStatus::OK());
       });
   signal_strategy_->SendStanza(std::move(stanza));
 }
@@ -530,7 +530,7 @@ TEST_F(FtlSignalStrategyTest, SendMessage_Success) {
                                   const ftl::ChromotingMessage& message,
                                   MessagingClient::DoneCallback on_done) {
         ASSERT_EQ(message_payload, message.xmpp().stanza());
-        std::move(on_done).Run(ProtobufHttpStatus::OK);
+        std::move(on_done).Run(ProtobufHttpStatus::OK());
       });
 
   signal_strategy_->SendMessage(

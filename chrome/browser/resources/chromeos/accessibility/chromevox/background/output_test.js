@@ -99,8 +99,8 @@ function checkOutput_(expectedText, expectedSpans, actualText, actualSpans) {
 ChromeVoxOutputE2ETest = class extends ChromeVoxNextE2ETest {
   /** @override */
   setUp() {
+    super.setUp();
     window.Dir = AutomationUtil.Dir;
-    window.RoleType = chrome.automation.RoleType;
     this.forceContextualLastOutput();
   }
 };
@@ -350,7 +350,7 @@ TEST_F('ChromeVoxOutputE2ETest', 'Input', function() {
           const o = new Output().withoutHints().withSpeechAndBraille(
               range, null, 'navigate');
           let expectedSpansForValue = null;
-          if (typeof expectedValue == 'object') {
+          if (typeof expectedValue === 'object') {
             checkSpeechOutput(expectedValue[0], expectedValue[1], o);
           } else {
             expectedSpansForValue = expectedValue === '||Search' ?
@@ -588,6 +588,8 @@ SYNC_TEST_F('ChromeVoxOutputE2ETest', 'MessageIdAndEarconValidity', function() {
     'docNoteRef',
     'docNotice',
     'docPageBreak',
+    'docPageFooter',
+    'docPageHeader',
     'docPageList',
     'docPart',
     'docPreface',
@@ -619,7 +621,7 @@ SYNC_TEST_F('ChromeVoxOutputE2ETest', 'MessageIdAndEarconValidity', function() {
     const value = Output.STATE_INFO_[key];
     for (innerKey in value) {
       const innerValue = value[innerKey];
-      if (typeof (innerValue) == 'boolean') {
+      if (typeof (innerValue) === 'boolean') {
         assertEquals('isRoleSpecific', innerKey);
         continue;
       }
@@ -890,7 +892,7 @@ TEST_F('ChromeVoxOutputE2ETest', 'RangeOutput', function() {
               {value: 'name', start: 0, end: 6},
               {value: new Output.EarconAction('SLIDER'), start: 0, end: 6},
               {value: 'role', start: 7, end: 13},
-              {value: 'valueForRange', start: 14, end: 15}
+              {value: 'value', start: 14, end: 15}
             ],
             o);
 
@@ -901,7 +903,7 @@ TEST_F('ChromeVoxOutputE2ETest', 'RangeOutput', function() {
             [
               {value: 'name', start: 0, end: 6},
               {value: 'role', start: 7, end: 25},
-              {value: 'valueForRange', start: 26, end: 27}
+              {value: 'value', start: 26, end: 27}
             ],
             o);
 
@@ -912,7 +914,7 @@ TEST_F('ChromeVoxOutputE2ETest', 'RangeOutput', function() {
             [
               {value: 'name', start: 0, end: 6},
               {value: 'role', start: 7, end: 12},
-              {value: 'valueForRange', start: 13, end: 14}
+              {value: 'value', start: 13, end: 14}
             ],
             o);
 
@@ -924,7 +926,7 @@ TEST_F('ChromeVoxOutputE2ETest', 'RangeOutput', function() {
               {value: 'name', start: 0, end: 6},
               {value: new Output.EarconAction('LISTBOX'), start: 0, end: 6},
               {value: 'role', start: 7, end: 18},
-              {value: 'valueForRange', start: 19, end: 20}
+              {value: 'value', start: 19, end: 20}
             ],
             o);
       });
@@ -963,13 +965,13 @@ SYNC_TEST_F('ChromeVoxOutputE2ETest', 'ValidateCommonProperties', function() {
       continue;
     }
 
-    if (speak.indexOf(stateStr) == -1) {
+    if (speak.indexOf(stateStr) === -1) {
       missingState.push(key);
     }
-    if (speak.indexOf(restrictionStr) == -1) {
+    if (speak.indexOf(restrictionStr) === -1) {
       missingRestriction.push(key);
     }
-    if (speak.indexOf(descStr) == -1) {
+    if (speak.indexOf(descStr) === -1) {
       missingDescription.push(key);
     }
   }
@@ -1011,13 +1013,13 @@ SYNC_TEST_F('ChromeVoxOutputE2ETest', 'ValidateCommonProperties', function() {
     RoleType.STATIC_TEXT, RoleType.WINDOW
   ];
   missingState = missingState.filter(function(state) {
-    return notStated.indexOf(state) == -1;
+    return notStated.indexOf(state) === -1;
   });
   missingRestriction = missingRestriction.filter(function(restriction) {
-    return notRestricted.indexOf(restriction) == -1;
+    return notRestricted.indexOf(restriction) === -1;
   });
   missingDescription = missingDescription.filter(function(desc) {
-    return notDescribed.indexOf(desc) == -1;
+    return notDescribed.indexOf(desc) === -1;
   });
 
   assertEquals(
@@ -1334,4 +1336,67 @@ TEST_F('ChromeVoxOutputE2ETest', 'DelayHintVariants', function() {
             },
             o.speechOutputForTest);
       });
+});
+
+TEST_F('ChromeVoxOutputE2ETest', 'WithoutFocusRing', function() {
+  const site = `<button></button>`;
+  this.runWithLoadedTree(site, function(root) {
+    let called = false;
+    ChromeVoxState.instance.setFocusBounds = this.newCallback(() => {
+      called = true;
+    });
+
+    const button = root.find({role: RoleType.BUTTON});
+
+    // Triggers drawing of the focus ring.
+    new Output().withSpeech(cursors.Range.fromNode(button)).go();
+    assertTrue(called);
+    called = false;
+
+    // Does not trigger drawing of the focus ring.
+    new Output()
+        .withSpeech(cursors.Range.fromNode(button))
+        .withoutFocusRing()
+        .go();
+    assertFalse(called);
+  });
+});
+
+TEST_F('ChromeVoxOutputE2ETest', 'ARCCheckbox', function() {
+  this.runWithLoadedTree('<input type="checkbox">', function(root) {
+    const checkbox = root.firstChild.firstChild;
+
+    Object.defineProperty(
+        checkbox, 'checkedStateDescription',
+        {get: () => 'checked state description'});
+    const range = cursors.Range.fromNode(checkbox);
+    const o = new Output().withoutHints().withSpeechAndBraille(
+        range, null, 'navigate');
+    checkSpeechOutput(
+        '|Check box|checked state description',
+        [
+          {value: new Output.EarconAction('CHECK_OFF'), start: 0, end: 0},
+          {value: 'role', start: 1, end: 10},
+          {value: 'checkedStateDescription', start: 11, end: 36}
+        ],
+        o);
+  });
+});
+
+TEST_F('ChromeVoxOutputE2ETest', 'ARCCustomAction', function() {
+  this.runWithLoadedTree('<p>test</p>', function(root) {
+    const actionable = root.firstChild.firstChild;
+    Object.defineProperty(actionable, 'customActions', {
+      get: () => [{id: 0, description: 'custom action description'}],
+    });
+    const range = cursors.Range.fromNode(actionable);
+    const o = new Output().withSpeechAndBraille(range, null, 'navigate');
+    checkSpeechOutput(
+        'test|Actions available. Press Search+Period to view',
+        [
+          {value: 'name', start: 0, end: 4},
+          {value: {delay: true}, start: 5, end: 51}
+        ],
+        o);
+  });
 });

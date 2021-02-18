@@ -51,10 +51,6 @@ namespace network_time {
 class NetworkTimeTracker;
 }
 
-namespace rappor {
-class RapporServiceImpl;
-}
-
 namespace ukm {
 class UkmRecorder;
 }
@@ -64,6 +60,7 @@ class VariationsService;
 }
 
 class ApplicationContext;
+class BreadcrumbPersistentStorageManager;
 class BrowserPolicyConnectorIOS;
 class IOSChromeIOThread;
 class PrefService;
@@ -124,9 +121,6 @@ class ApplicationContext {
   // Gets the VariationsService used by this application.
   virtual variations::VariationsService* GetVariationsService() = 0;
 
-  // Gets the RapporServiceImpl. May return null.
-  virtual rappor::RapporServiceImpl* GetRapporServiceImpl() = 0;
-
   // Gets the NetLog.
   virtual net::NetLog* GetNetLog() = 0;
 
@@ -154,6 +148,11 @@ class ApplicationContext {
   // Returns the BrowserPolicyConnectorIOS that starts and manages the policy
   // system. May be |nullptr| if policy is not enabled.
   virtual BrowserPolicyConnectorIOS* GetBrowserPolicyConnector() = 0;
+
+  // Returns the BreadcrumbPersistentStorageManager writing breadcrumbs to disk.
+  // Will be null if breadcrumb collection is not enabled.
+  virtual BreadcrumbPersistentStorageManager*
+  GetBreadcrumbPersistentStorageManager() = 0;
 
  protected:
   // Sets the global ApplicationContext instance.

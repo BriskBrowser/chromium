@@ -9,6 +9,7 @@
 
 #include "chromeos/network/network_event_log.h"
 #include "chromeos/services/network_config/in_process_instance.h"
+#include "chromeos/services/network_config/public/cpp/cros_network_config_util.h"
 #include "chromeos/services/network_config/public/mojom/cros_network_config.mojom.h"
 #include "chromeos/services/network_health/public/mojom/network_health.mojom.h"
 
@@ -29,6 +30,7 @@ constexpr mojom::NetworkState DeviceStateToNetworkState(
       // UI, but not for purposes of network health, we can treat as Disabled.
       return mojom::NetworkState::kDisabled;
     case network_config::mojom::DeviceStateType::kEnabled:
+    case network_config::mojom::DeviceStateType::kInhibited:
       return mojom::NetworkState::kNotConnected;
     case network_config::mojom::DeviceStateType::kProhibited:
       return mojom::NetworkState::kProhibited;
@@ -55,8 +57,7 @@ constexpr mojom::NetworkState ConnectionStateToNetworkState(
 }
 
 // Populates a mojom::NetworkPtr based on the given |device_prop| and
-// |network_prop| if a valid Network can be created. Returns a base::nullopt
-// otherwise. This function assumes that |device_prop| is populated, while
+// |network_prop|. This function assumes that |device_prop| is populated, while
 // |network_prop| could be null.
 mojom::NetworkPtr CreateNetwork(
     const network_config::mojom::DeviceStatePropertiesPtr& device_prop,
@@ -64,11 +65,21 @@ mojom::NetworkPtr CreateNetwork(
   auto net = mojom::Network::New();
   net->mac_address = device_prop->mac_address;
   net->type = device_prop->type;
+  if (device_prop->ipv6_address)
+    net->ipv6_addresses.push_back(device_prop->ipv6_address->ToString());
+  if (device_prop->ipv4_address)
+    net->ipv4_address = device_prop->ipv4_address->ToString();
 
   if (net_prop) {
     net->state = ConnectionStateToNetworkState(net_prop->connection_state);
     net->name = net_prop->name;
     net->guid = net_prop->guid;
+    net->portal_state = net_prop->portal_state;
+    if (chromeos::network_config::NetworkTypeMatchesType(
+            net_prop->type, network_config::mojom::NetworkType::kWireless)) {
+      net->signal_strength = network_health::mojom::UInt32Value::New(
+          network_config::GetWirelessSignalStrength(net_prop.get()));
+    }
   } else {
     net->state = DeviceStateToNetworkState(device_prop->device_state);
   }

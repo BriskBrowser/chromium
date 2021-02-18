@@ -18,7 +18,6 @@
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/numerics/ranges.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "ui/base/dragdrop/mojom/drag_drop_types.mojom-shared.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/animation_throughput_reporter.h"
@@ -107,21 +106,22 @@ int64_t GetDisplayIdForView(const views::View* view) {
 }
 
 void ReportSmoothness(bool tablet_mode, bool launcher_visible, int smoothness) {
-  base::UmaHistogramPercentage(kAnimationSmoothnessHistogram, smoothness);
+  base::UmaHistogramPercentageObsoleteDoNotUse(kAnimationSmoothnessHistogram,
+                                               smoothness);
   if (tablet_mode) {
     if (launcher_visible) {
-      base::UmaHistogramPercentage(
+      base::UmaHistogramPercentageObsoleteDoNotUse(
           kAnimationSmoothnessTabletLauncherVisibleHistogram, smoothness);
     } else {
-      base::UmaHistogramPercentage(
+      base::UmaHistogramPercentageObsoleteDoNotUse(
           kAnimationSmoothnessTabletLauncherHiddenHistogram, smoothness);
     }
   } else {
     if (launcher_visible) {
-      base::UmaHistogramPercentage(
+      base::UmaHistogramPercentageObsoleteDoNotUse(
           kAnimationSmoothnessClamshellLauncherVisibleHistogram, smoothness);
     } else {
-      base::UmaHistogramPercentage(
+      base::UmaHistogramPercentageObsoleteDoNotUse(
           kAnimationSmoothnessClamshellLauncherHiddenHistogram, smoothness);
     }
   }
@@ -554,15 +554,13 @@ void ScrollableShelfView::OnFocusRingActivationChanged(bool activated) {
   if (activated) {
     focus_ring_activated_ = true;
     SetPaneFocusAndFocusDefault();
-    if (Shell::Get()->IsInTabletMode() &&
-        chromeos::switches::ShouldShowShelfHotseat())
-      GetShelf()->shelf_widget()->ForceToShowHotseat();
+    force_show_hotseat_resetter_ =
+        GetShelf()->shelf_widget()->ForceShowHotseatInTabletMode();
   } else {
     // Shows the gradient shader when the focus ring is disabled.
     focus_ring_activated_ = false;
-    if (Shell::Get()->IsInTabletMode() &&
-        chromeos::switches::ShouldShowShelfHotseat())
-      GetShelf()->shelf_widget()->ForceToHideHotseat();
+    if (force_show_hotseat_resetter_)
+      force_show_hotseat_resetter_.RunAndReset();
   }
 
   MaybeUpdateGradientZone();
@@ -1140,7 +1138,6 @@ void ScrollableShelfView::OnShelfButtonAboutToRequestFocusFromTabTraversal(
   // In tablet mode, when the hotseat is not extended but one of the buttons
   // gets focused, it should update the visibility of the hotseat.
   if (Shell::Get()->IsInTabletMode() &&
-      chromeos::switches::ShouldShowShelfHotseat() &&
       !shelf_widget->hotseat_widget()->IsExtended()) {
     shelf_widget->shelf_layout_manager()->UpdateVisibilityState();
   }
@@ -1159,11 +1156,9 @@ void ScrollableShelfView::ButtonPressed(views::Button* sender,
 
 void ScrollableShelfView::HandleAccessibleActionScrollToMakeVisible(
     ShelfButton* button) {
-  if (Shell::Get()->IsInTabletMode() &&
-      chromeos::switches::ShouldShowShelfHotseat()) {
-    // Only in tablet mode with hotseat enabled, may scrollable shelf be hidden.
-    GetShelf()->shelf_widget()->ForceToShowHotseat();
-  }
+  // Scrollable shelf can only be hidden in tablet mode.
+  GetShelf()->hotseat_widget()->set_manually_extended(true);
+  GetShelf()->shelf_widget()->shelf_layout_manager()->UpdateVisibilityState();
 }
 
 std::unique_ptr<ScrollableShelfView::ScopedActiveInkDropCount>
@@ -1506,9 +1501,14 @@ bool ScrollableShelfView::ShouldHandleGestures(const ui::GestureEvent& event) {
     if (!GetShelf()->IsHorizontalAlignment())
       std::swap(main_offset, cross_offset);
 
-    scroll_status_ = std::abs(main_offset) < std::abs(cross_offset)
-                         ? kAcrossMainAxisScroll
-                         : kAlongMainAxisScroll;
+    if (std::abs(main_offset) < std::abs(cross_offset)) {
+      scroll_status_ = kAcrossMainAxisScroll;
+    } else if (layout_strategy_ != kNotShowArrowButtons) {
+      // Note that if the scrollable shelf is not in overflow mode, scroll along
+      // the main axis should not make any UI differences. Do not handle scroll
+      // in this scenario.
+      scroll_status_ = kAlongMainAxisScroll;
+    }
   }
 
   bool should_handle_gestures = scroll_status_ == kAlongMainAxisScroll;
@@ -1654,6 +1654,15 @@ bool ScrollableShelfView::ProcessGestureEvent(const ui::GestureEvent& event) {
 
 void ScrollableShelfView::HandleMouseWheelEvent(ui::MouseWheelEvent* event) {
   // Note that the scrolling from touchpad is propagated as mouse wheel event.
+  // Let the shelf handle mouse wheel events over the empty area of the shelf
+  // view, as these events would be ignored by the scrollable shelf view.
+  gfx::Point location_in_shelf_view = event->location();
+  View::ConvertPointToTarget(this, shelf_view_, &location_in_shelf_view);
+  if (!shelf_view_->LocationInsideVisibleShelfItemBounds(
+          location_in_shelf_view)) {
+    GetShelf()->ProcessMouseWheelEvent(event, false);
+    return;
+  }
 
   if (!ShouldHandleScroll(gfx::Vector2dF(event->x_offset(), event->y_offset()),
                           /*is_gesture_fling=*/false)) {
@@ -2108,9 +2117,8 @@ void ScrollableShelfView::UpdateAvailableSpace() {
 
 gfx::Rect ScrollableShelfView::CalculateVisibleSpace(
     LayoutStrategy layout_strategy) const {
-  const bool in_hotseat_tablet = chromeos::switches::ShouldShowShelfHotseat() &&
-                                 Shell::Get()->IsInTabletMode();
-  if (layout_strategy == kNotShowArrowButtons && !in_hotseat_tablet)
+  const bool in_tablet_mode = Shell::Get()->IsInTabletMode();
+  if (layout_strategy == kNotShowArrowButtons && !in_tablet_mode)
     return GetAvailableLocalBounds(/*use_target_bounds=*/false);
 
   const bool should_show_left_arrow =
@@ -2144,15 +2152,14 @@ gfx::Rect ScrollableShelfView::CalculateVisibleSpace(
 
 gfx::Insets ScrollableShelfView::CalculateRipplePaddingInsets() const {
   // Indicates whether it is in tablet mode with hotseat enabled.
-  const bool in_hotseat_tablet = chromeos::switches::ShouldShowShelfHotseat() &&
-                                 Shell::Get()->IsInTabletMode();
+  const bool in_tablet_mode = Shell::Get()->IsInTabletMode();
 
   const int ripple_padding =
       ShelfConfig::Get()->scrollable_shelf_ripple_padding();
   const int before_padding =
-      (in_hotseat_tablet && !ShouldShowLeftArrow()) ? 0 : ripple_padding;
+      (in_tablet_mode && !ShouldShowLeftArrow()) ? 0 : ripple_padding;
   const int after_padding =
-      (in_hotseat_tablet && !ShouldShowRightArrow()) ? 0 : ripple_padding;
+      (in_tablet_mode && !ShouldShowRightArrow()) ? 0 : ripple_padding;
 
   if (ShouldAdaptToRTL())
     return gfx::Insets(0, after_padding, 0, before_padding);
@@ -2172,9 +2179,8 @@ ScrollableShelfView::CalculateShelfContainerRoundedCorners() const {
   const bool is_in_tablet_mode =
       Shell::Get()->tablet_mode_controller() && Shell::Get()->IsInTabletMode();
 
-  if (!chromeos::switches::ShouldShowShelfHotseat() || !is_in_tablet_mode) {
+  if (!is_in_tablet_mode)
     return gfx::RoundedCornersF();
-  }
 
   const bool is_horizontal_alignment = GetShelf()->IsHorizontalAlignment();
   const float radius = (is_horizontal_alignment ? height() : width()) / 2.f;
@@ -2336,6 +2342,13 @@ bool ScrollableShelfView::ShouldCountActivatedInkDrop(
   // activated accidentally. So ignore the ink drop activity during animation.
   if (during_scroll_animation_)
     return should_count;
+
+  if (first_tappable_app_index_ == -1 || last_tappable_app_index_ == -1) {
+    // Verify that `first_tappable_app_index_` and `last_tappable_app_index_`
+    // may be both illegal. In that case, return early.
+    DCHECK_EQ(first_tappable_app_index_, last_tappable_app_index_);
+    return false;
+  }
 
   // The ink drop needs to be clipped only if |sender| is the app at one of the
   // corners of the shelf. This happens if it is either the first or the last

@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -18,6 +19,7 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/arc/fileapi/arc_file_system_bridge.h"
+#include "chrome/browser/chromeos/file_manager/fake_disk_mount_manager.h"
 #include "chrome/browser/chromeos/file_manager/path_util.h"
 #include "chrome/browser/chromeos/note_taking_controller_client.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -28,8 +30,8 @@
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile_manager.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/dbus/session_manager/fake_session_manager_client.h"
+#include "chromeos/disks/disk.h"
 #include "components/arc/arc_prefs.h"
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/arc_util.h"
@@ -97,7 +99,9 @@ IntentHandlerInfoPtr CreateIntentHandlerInfo(const std::string& name,
 // Converts a filesystem path to an ARC URL.
 std::string GetArcUrl(const base::FilePath& path) {
   GURL url;
-  EXPECT_TRUE(file_manager::util::ConvertPathToArcUrl(path, &url));
+  bool requires_sharing = false;
+  EXPECT_TRUE(
+      file_manager::util::ConvertPathToArcUrl(path, &url, &requires_sharing));
   return url.spec();
 }
 
@@ -233,8 +237,9 @@ class NoteTakingHelperTest : public BrowserWithTestWindowTest {
                                       flags & ENABLE_PLAY_STORE);
     NoteTakingHelper::Initialize();
     NoteTakingHelper::Get()->SetProfileWithEnabledLockScreenApps(profile());
-    NoteTakingHelper::Get()->set_launch_chrome_app_callback_for_test(base::Bind(
-        &NoteTakingHelperTest::LaunchChromeApp, base::Unretained(this)));
+    NoteTakingHelper::Get()->set_launch_chrome_app_callback_for_test(
+        base::BindRepeating(&NoteTakingHelperTest::LaunchChromeApp,
+                            base::Unretained(this)));
   }
 
   // Creates an extension.
@@ -964,6 +969,21 @@ TEST_F(NoteTakingHelperTest, LaunchAndroidApp) {
 }
 
 TEST_F(NoteTakingHelperTest, LaunchAndroidAppWithPath) {
+  chromeos::disks::DiskMountManager::InitializeForTesting(
+      new file_manager::FakeDiskMountManager);
+
+  ASSERT_TRUE(chromeos::disks::DiskMountManager::GetInstance()->AddDiskForTest(
+      chromeos::disks::Disk::Builder()
+          .SetDevicePath("/device/source_path")
+          .SetFileSystemUUID("0123-abcd")
+          .Build()));
+  ASSERT_TRUE(
+      chromeos::disks::DiskMountManager::GetInstance()->AddMountPointForTest(
+          chromeos::disks::DiskMountManager::MountPointInfo(
+              "/device/source_path", "/media/removable/UNTITLED",
+              chromeos::MOUNT_TYPE_DEVICE,
+              chromeos::disks::MOUNT_CONDITION_NONE)));
+
   const std::string kPackage = "org.chromium.package";
   std::vector<IntentHandlerInfoPtr> handlers;
   handlers.emplace_back(CreateIntentHandlerInfo("App", kPackage));
@@ -993,7 +1013,7 @@ TEST_F(NoteTakingHelperTest, LaunchAndroidAppWithPath) {
 
   const base::FilePath kRemovablePath =
       base::FilePath(file_manager::util::kRemovableMediaPath)
-          .Append("image.jpg");
+          .Append("UNTITLED/image.jpg");
   intent_helper_.clear_handled_intents();
   file_system_->clear_handled_requests();
   helper()->LaunchAppForNewNote(profile(), kRemovablePath);
@@ -1024,6 +1044,8 @@ TEST_F(NoteTakingHelperTest, LaunchAndroidAppWithPath) {
   histogram_tester.ExpectUniqueSample(
       NoteTakingHelper::kDefaultLaunchResultHistogramName,
       static_cast<int>(LaunchResult::ANDROID_FAILED_TO_CONVERT_PATH), 1);
+
+  chromeos::disks::DiskMountManager::Shutdown();
 }
 
 TEST_F(NoteTakingHelperTest, NoAppsAvailable) {
@@ -1205,7 +1227,7 @@ TEST_F(NoteTakingHelperTest,
   EXPECT_EQ(std::vector<Profile*>{profile()}, observer.preferred_app_updates());
   observer.clear_preferred_app_updates();
 
-  // No-op, becuase the preferred app state is not changing.
+  // No-op, because the preferred app state is not changing.
   EXPECT_FALSE(helper()->SetPreferredAppEnabledOnLockScreen(profile(), true));
   EXPECT_TRUE(observer.preferred_app_updates().empty());
 

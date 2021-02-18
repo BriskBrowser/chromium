@@ -11,6 +11,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_source_code.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
+#include "third_party/blink/renderer/core/loader/modulescript/module_script_creation_params.h"
 #include "third_party/blink/renderer/core/script/classic_script.h"
 #include "third_party/blink/renderer/core/script/js_module_script.h"
 #include "third_party/blink/renderer/core/script/value_wrapper_synthetic_module_script.h"
@@ -80,11 +81,12 @@ class ModuleScriptTest : public ::testing::Test, public ParametrizedModuleTest {
       Modulator* modulator,
       const String& source_text,
       SingleCachedMetadataHandler* cache_handler) {
-    return JSModuleScript::Create(
-        ParkableString(source_text.IsolatedCopy().ReleaseImpl()), cache_handler,
-        ScriptSourceLocationType::kExternalFile, modulator,
+    ModuleScriptCreationParams params(
         KURL("https://fox.url/script.js"), KURL("https://fox.url/"),
-        ScriptFetchOptions());
+        ScriptSourceLocationType::kInline, ModuleType::kJavaScript,
+        ParkableString(source_text.IsolatedCopy().ReleaseImpl()),
+        cache_handler);
+    return JSModuleScript::Create(params, modulator, ScriptFetchOptions());
   }
 
   static ValueWrapperSyntheticModuleScript*
@@ -100,14 +102,14 @@ class ModuleScriptTest : public ::testing::Test, public ParametrizedModuleTest {
   static void TestFoo(V8TestingScope& scope) {
     v8::Local<v8::Value> value =
         ClassicScript::CreateUnspecifiedScript(ScriptSourceCode("window.foo"))
-            ->RunScriptAndReturnValue(&scope.GetFrame());
+            ->RunScriptAndReturnValue(&scope.GetWindow());
     EXPECT_TRUE(value->IsNumber());
     EXPECT_EQ(kScriptRepeatLength,
               value->NumberValue(scope.GetContext()).ToChecked());
 
     ClassicScript::CreateUnspecifiedScript(
         ScriptSourceCode("window.foo = undefined;"))
-        ->RunScriptAndReturnValue(&scope.GetFrame());
+        ->RunScript(&scope.GetWindow());
   }
 
   // Accessors for ModuleScript private members.
@@ -167,10 +169,8 @@ TEST_P(ModuleScriptTest, V8CodeCacheWithoutDiscarding) {
                                           module_script->V8Module(),
                                           module_script->SourceURL())
                     .IsEmpty());
-    ASSERT_TRUE(ModuleRecord::Evaluate(scope.GetScriptState(),
-                                       module_script->V8Module(),
-                                       module_script->SourceURL())
-                    .IsSuccess());
+    ASSERT_EQ(module_script->RunScriptAndReturnValue().GetResultType(),
+              ScriptEvaluationResult::ResultType::kSuccess);
     TestFoo(scope);
 
     Checkpoint checkpoint;
@@ -249,7 +249,7 @@ TEST_P(ModuleScriptTest, V8CodeCacheWithoutDiscarding) {
   ClassicScript::CreateUnspecifiedScript(
       ScriptSourceCode(LargeSourceText(), ScriptSourceLocationType::kInternal,
                        cache_handler))
-      ->RunScriptAndReturnValue(&scope.GetFrame());
+      ->RunScript(&scope.GetWindow());
 
   checkpoint.Call(4);
 
@@ -293,10 +293,8 @@ TEST_P(ModuleScriptTest, V8CodeCacheWithDiscarding) {
                                           module_script->V8Module(),
                                           module_script->SourceURL())
                     .IsEmpty());
-    ASSERT_TRUE(ModuleRecord::Evaluate(scope.GetScriptState(),
-                                       module_script->V8Module(),
-                                       module_script->SourceURL())
-                    .IsSuccess());
+    ASSERT_EQ(module_script->RunScriptAndReturnValue().GetResultType(),
+              ScriptEvaluationResult::ResultType::kSuccess);
     TestFoo(scope);
 
     Checkpoint checkpoint;
@@ -390,7 +388,7 @@ TEST_P(ModuleScriptTest, V8CodeCacheWithDiscarding) {
   ClassicScript::CreateUnspecifiedScript(
       ScriptSourceCode(LargeSourceText(), ScriptSourceLocationType::kInternal,
                        cache_handler))
-      ->RunScriptAndReturnValue(&scope.GetFrame());
+      ->RunScript(&scope.GetWindow());
   checkpoint.Call(4);
 
   TestFoo(scope);

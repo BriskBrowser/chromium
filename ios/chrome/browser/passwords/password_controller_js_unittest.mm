@@ -643,6 +643,39 @@ TEST_F(
                   @"document.getElementById('user').value == '%@'", password));
 }
 
+// Check that a matching and complete password form is successfully filled
+// with the generated password.
+TEST_F(PasswordControllerJsTest,
+       FillPasswordFormWithGeneratedPassword_SucceedsOutsideFormTag) {
+  LoadHtmlAndInject(@"<html>"
+                     "  <body>"
+                     "    <input type=\"text\" id=\"user\" name=\"user\">"
+                     "    <input type=\"password\" id=\"ps1\" name=\"ps1\">"
+                     "    <input type=\"password\" id=\"ps2\" name=\"ps2\">"
+                     "    <input type=\"submit\" name=\"go\">"
+                     "  </body>"
+                     "</html>");
+  SetUpUniqueIDs();
+
+  NSString* const password = @"abc";
+  uint32_t const newPasswordIdentifier = 1;
+  uint32_t const confirmPasswordIdentifier = 2;
+  EXPECT_NSEQ(@YES,
+              ExecuteJavaScriptWithFormat(
+                  @"__gCrWeb.passwords."
+                  @"fillPasswordFormWithGeneratedPassword(-1, %u, %u, '%@')",
+                  newPasswordIdentifier, confirmPasswordIdentifier, password));
+  EXPECT_NSEQ(@YES,
+              ExecuteJavaScriptWithFormat(
+                  @"document.getElementById('ps1').value == '%@'", password));
+  EXPECT_NSEQ(@YES,
+              ExecuteJavaScriptWithFormat(
+                  @"document.getElementById('ps2').value == '%@'", password));
+  EXPECT_NSEQ(@NO,
+              ExecuteJavaScriptWithFormat(
+                  @"document.getElementById('user').value == '%@'", password));
+}
+
 // Check that a form with only password field (i.e. w/o username) is filled.
 TEST_F(PasswordControllerJsTest, FillOnlyPasswordField) {
   LoadHtmlAndInject(
@@ -677,6 +710,41 @@ TEST_F(PasswordControllerJsTest, FillOnlyPasswordField) {
   // Verifies that the sign-in form has been filled with |password|.
   ExecuteJavaScriptOnElementsAndCheck(@"document.getElementById('%@').value",
                                       @[ @"password" ], @[ password ]);
+}
+
+// Check that password form outside the <form> tag is extracted correctly.
+TEST_F(PasswordControllerJsTest, ExtractFormOutsideTheFormTag) {
+  LoadHtmlAndInject(@"<html><body>"
+                     "  Name: <input type='text' name='name'>"
+                     "  Password: <input type='password' name='password'>"
+                     "  <input type='submit' value='Submit'>"
+                     "</body></html>");
+  ExecuteJavaScript(@"__gCrWeb.fill.setUpForUniqueIDs(0);");
+
+  const std::string base_url = BaseUrl();
+  NSString* result = [NSString
+      stringWithFormat:
+          @"{\"name\":\"\",\"origin\":\"%s\",\"action\":\"\","
+          @"\"is_form_tag\":false,\"fields\":[{"
+          @"\"identifier\":\"gChrome~field~~INPUT~0\","
+          @"\"name\":\"name\",\"name_attribute\":\"name\",\"id_attribute\":"
+          @"\"\",\"unique_renderer_id\":\"0\",\"form_control_type\":\"text\","
+          @"\"aria_label\":\"\","
+          @"\"aria_description\":\"\",\"should_autocomplete\":true,"
+          @"\"is_focusable\":true,\"max_length\":524288,\"is_checkable\":false,"
+          @"\"value\":\"\",\"label\":\"Name:\"},{\"identifier\":"
+          @"\"gChrome~field~~INPUT~1\",\"name\":\"password\",\"name_"
+          @"attribute\":\"password\","
+          @"\"id_attribute\":\"\",\"unique_renderer_id\":\"1\",\"form_control_"
+          @"type\":\"password\","
+          @"\"aria_label\":\"\",\"aria_description\":\"\","
+          @"\"should_autocomplete\":true,\"is_focusable\":true,"
+          @"\"max_length\":524288,\"is_checkable\":false,\"value\":\"\","
+          @"\"label\":\"Password:\"}]}",
+          base_url.c_str()];
+  EXPECT_NSEQ(result,
+              ExecuteJavaScriptWithFormat(
+                  @"__gCrWeb.passwords.getPasswordFormDataAsString(-1)"));
 }
 
 }  // namespace

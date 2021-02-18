@@ -19,21 +19,26 @@ import org.chromium.chrome.browser.download.R;
  */
 class DownloadTimePickerDialog extends TimePickerDialog {
     interface Controller {
-        void onDownloadTimePicked(int hour, int minute);
+        void onDownloadTimePicked(int hourOfDay, int minute);
         void onDownloadTimePickerCanceled();
     }
 
-    private int mHour;
+    private int mHourOfDay;
     private int mMinute;
     private final Controller mController;
+    private boolean mButtonClicked;
 
     DownloadTimePickerDialog(
             Context context, @NonNull Controller controller, int hourOfDay, int minute) {
         super(context, R.style.Theme_DownloadDateTimePickerDialog, null, hourOfDay, minute,
                 false /*is24HourView*/);
-        mHour = hourOfDay;
+        mHourOfDay = hourOfDay;
         mMinute = minute;
         mController = controller;
+        setOnDismissListener((dialogInterface) -> {
+            if (mButtonClicked) return;
+            mController.onDownloadTimePickerCanceled();
+        });
     }
 
     // TimePickerDialog overrides.
@@ -47,13 +52,15 @@ class DownloadTimePickerDialog extends TimePickerDialog {
         assert button != null;
         button.setText(R.string.download_date_time_picker_next_text);
         button.setOnClickListener((view) -> {
-            mController.onDownloadTimePicked(mHour, mMinute);
+            mButtonClicked = true;
+            mController.onDownloadTimePicked(mHourOfDay, mMinute);
             dismiss();
         });
 
         button = getButton(DialogInterface.BUTTON_NEGATIVE);
         button.setText(R.string.cancel);
         button.setOnClickListener((view) -> {
+            mButtonClicked = true;
             mController.onDownloadTimePickerCanceled();
             dismiss();
         });
@@ -61,7 +68,7 @@ class DownloadTimePickerDialog extends TimePickerDialog {
 
     @Override
     public void onTimeChanged(TimePicker view, int hourOfDay, int minute) {
-        mHour = hourOfDay;
+        mHourOfDay = hourOfDay;
         mMinute = minute;
     }
 }

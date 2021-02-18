@@ -211,40 +211,22 @@ void LogSharingAppsToShow(SharingFeatureName feature,
       /*value_max=*/20);
 }
 
-void LogSharingSelectedDeviceIndex(SharingFeatureName feature,
-                                   const char* histogram_suffix,
-                                   int index) {
+void LogSharingSelectedIndex(SharingFeatureName feature,
+                             const char* histogram_suffix,
+                             int index,
+                             SharingIndexType index_type) {
   auto* feature_str = GetEnumStringValue(feature);
   // Explicitly log both the base and the suffixed histogram because the base
   // aggregation is not automatically generated.
-  base::UmaHistogramExactLinear(
-      base::StrCat({"Sharing.", feature_str, "SelectedDeviceIndex"}), index,
-      /*value_max=*/20);
+  std::string name = base::StrCat(
+      {"Sharing.", feature_str, "Selected",
+       (index_type == SharingIndexType::kDevice) ? "Device" : "App", "Index"});
+  base::UmaHistogramExactLinear(name, index, /*value_max=*/20);
   if (!histogram_suffix)
     return;
-  base::UmaHistogramExactLinear(
-      base::StrCat(
-          {"Sharing.", feature_str, "SelectedDeviceIndex.", histogram_suffix}),
-      index,
-      /*value_max=*/20);
-}
-
-void LogSharingSelectedAppIndex(SharingFeatureName feature,
-                                const char* histogram_suffix,
-                                int index) {
-  auto* feature_str = GetEnumStringValue(feature);
-  // Explicitly log both the base and the suffixed histogram because the base
-  // aggregation is not automatically generated.
-  base::UmaHistogramExactLinear(
-      base::StrCat({"Sharing.", feature_str, "SelectedAppIndex"}), index,
-      /*value_max=*/20);
-  if (!histogram_suffix)
-    return;
-  base::UmaHistogramExactLinear(
-      base::StrCat(
-          {"Sharing.", feature_str, "SelectedAppIndex.", histogram_suffix}),
-      index,
-      /*value_max=*/20);
+  base::UmaHistogramExactLinear(base::StrCat({name, ".", histogram_suffix}),
+                                index,
+                                /*value_max=*/20);
 }
 
 void LogSharingMessageAckTime(chrome_browser_sharing::MessageType message_type,
@@ -303,55 +285,6 @@ void LogSharingMessageHandlerTime(
       base::StrCat({"Sharing.MessageHandlerTime.",
                     SharingMessageTypeToString(message_type)}),
       time_taken);
-}
-
-void LogSharingDeviceLastUpdatedAge(
-    chrome_browser_sharing::MessageType message_type,
-    base::TimeDelta age) {
-  constexpr char kBase[] = "Sharing.DeviceLastUpdatedAge";
-  int hours = age.InHours();
-  base::UmaHistogramCounts1000(kBase, hours);
-  base::UmaHistogramCounts1000(
-      base::StrCat({kBase, ".", SharingMessageTypeToString(message_type)}),
-      hours);
-}
-
-void LogSharingDeviceLastUpdatedAgeWithResult(SharingSendMessageResult result,
-                                              base::TimeDelta age) {
-  base::UmaHistogramCounts1000(
-      base::StrCat({"Sharing.DeviceLastUpdatedAgeWithResult.",
-                    SharingSendMessageResultToString(result)}),
-      age.InHours());
-}
-
-void LogSharingVersionComparison(
-    chrome_browser_sharing::MessageType message_type,
-    const std::string& receiver_version) {
-  int sender_major = 0;
-  base::StringToInt(version_info::GetMajorVersionNumber(), &sender_major);
-
-  // The |receiver_version| has optional modifiers e.g. "1.2.3.4 canary" so we
-  // do not parse it with base::Version.
-  int receiver_major = 0;
-  base::StringToInt(receiver_version, &receiver_major);
-
-  SharingMajorVersionComparison result;
-  if (sender_major == 0 || sender_major == INT_MIN || sender_major == INT_MAX ||
-      receiver_major == 0 || receiver_major == INT_MIN ||
-      receiver_major == INT_MAX) {
-    result = SharingMajorVersionComparison::kUnknown;
-  } else if (sender_major < receiver_major) {
-    result = SharingMajorVersionComparison::kSenderIsLower;
-  } else if (sender_major == receiver_major) {
-    result = SharingMajorVersionComparison::kSame;
-  } else {
-    result = SharingMajorVersionComparison::kSenderIsHigher;
-  }
-  constexpr char kBase[] = "Sharing.MajorVersionComparison";
-  base::UmaHistogramEnumeration(kBase, result);
-  base::UmaHistogramEnumeration(
-      base::StrCat({kBase, ".", SharingMessageTypeToString(message_type)}),
-      result);
 }
 
 void LogSharingDialogShown(SharingFeatureName feature, SharingDialogType type) {
@@ -441,15 +374,6 @@ void LogSharedClipboardSelectedTextSize(size_t size) {
                                  size);
 }
 
-void LogSharedClipboardRetries(int retries, SharingSendMessageResult result) {
-  constexpr char kBase[] = "Sharing.SharedClipboardRetries";
-  base::UmaHistogramExactLinear(kBase, retries, /*value_max=*/20);
-  base::UmaHistogramExactLinear(
-      base::StrCat({kBase, ".", SharingSendMessageResultToString(result)}),
-      retries,
-      /*value_max=*/20);
-}
-
 void LogRemoteCopyHandleMessageResult(RemoteCopyHandleMessageResult result) {
   base::UmaHistogramEnumeration("Sharing.RemoteCopyHandleMessageResult",
                                 result);
@@ -497,8 +421,4 @@ void LogRemoteCopyWriteDetectionTime(base::TimeDelta time, bool is_image) {
     base::UmaHistogramTimes("Sharing.RemoteCopyWriteImageDetectionTime", time);
   else
     base::UmaHistogramTimes("Sharing.RemoteCopyWriteTextDetectionTime", time);
-}
-
-void LogSharingDeviceInfoAvailable(bool available) {
-  base::UmaHistogramBoolean("Sharing.DeviceInfoAvailable", available);
 }

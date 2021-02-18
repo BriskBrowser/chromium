@@ -26,6 +26,7 @@ const char kPolicyAllowedHosts[] = "runtime_allowed_hosts";
 const size_t kMaxItemsURLPatternSet = 100;
 
 const char kUpdateUrl[] = "update_url";
+const char kOverrideUpdateUrl[] = "override_update_url";
 const char kInstallSources[] = "install_sources";
 const char kAllowedTypes[] = "allowed_types";
 
@@ -34,6 +35,10 @@ const char kMinimumVersionRequired[] = "minimum_version_required";
 const char kUpdateUrlPrefix[] = "update_url:";
 
 const char kBlockedInstallMessage[] = "blocked_install_message";
+
+const char kToolbarPin[] = "toolbar_pin";
+const char kForcePinned[] = "force_pinned";
+const char kDefaultUnpinned[] = "default_unpinned";
 
 const AllowedTypesMapEntry kAllowedTypesMap[] = {
   { "extension",           Manifest::TYPE_EXTENSION },

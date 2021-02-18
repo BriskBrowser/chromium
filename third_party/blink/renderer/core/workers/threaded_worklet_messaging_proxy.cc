@@ -7,8 +7,8 @@
 #include "base/single_thread_task_runner.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "third_party/blink/public/mojom/script/script_type.mojom-blink.h"
+#include "third_party/blink/public/mojom/v8_cache_options.mojom-blink.h"
 #include "third_party/blink/public/platform/task_type.h"
-#include "third_party/blink/renderer/bindings/core/v8/v8_cache_options.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/execution_context/security_context.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
@@ -62,22 +62,24 @@ void ThreadedWorkletMessagingProxy::Initialize(
           window->UserAgent(),
           window->GetFrame()->Client()->UserAgentMetadata(),
           window->GetFrame()->Client()->CreateWorkerFetchContext(),
-          csp->Headers(), window->GetReferrerPolicy(),
+          mojo::Clone(csp->GetParsedPolicies()), window->GetReferrerPolicy(),
           window->GetSecurityOrigin(), window->IsSecureContext(),
           window->GetHttpsState(), worker_clients,
           window->GetFrame()->Client()->CreateWorkerContentSettingsClient(),
           window->AddressSpace(), OriginTrialContext::GetTokens(window).get(),
           base::UnguessableToken::Create(),
           std::make_unique<WorkerSettings>(window->GetFrame()->GetSettings()),
-          kV8CacheOptionsDefault, module_responses_map,
+          mojom::blink::V8CacheOptions::kDefault, module_responses_map,
           mojo::NullRemote() /* browser_interface_broker */,
           BeginFrameProviderParams(), nullptr /* parent_feature_policy */,
-          window->GetAgentClusterID(), window->GetExecutionContextToken());
+          window->GetAgentClusterID(), ukm::kInvalidSourceId,
+          window->GetExecutionContextToken(),
+          window->CrossOriginIsolatedCapability());
 
   // Worklets share the pre-initialized backing thread so that we don't have to
   // specify the backing thread startup data.
   InitializeWorkerThread(std::move(global_scope_creation_params),
-                         thread_startup_data);
+                         thread_startup_data, base::nullopt);
 }
 
 void ThreadedWorkletMessagingProxy::Trace(Visitor* visitor) const {
@@ -123,7 +125,7 @@ ThreadedWorkletMessagingProxy::CreateObjectProxy(
 }
 
 ThreadedWorkletObjectProxy&
-    ThreadedWorkletMessagingProxy::WorkletObjectProxy() {
+ThreadedWorkletMessagingProxy::WorkletObjectProxy() {
   DCHECK(worklet_object_proxy_);
   return *worklet_object_proxy_;
 }

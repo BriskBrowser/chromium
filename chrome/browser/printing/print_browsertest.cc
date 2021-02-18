@@ -13,9 +13,12 @@
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_restrictions.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
+#include "chrome/browser/printing/print_job_manager.h"
+#include "chrome/browser/printing/print_view_manager.h"
 #include "chrome/browser/printing/print_view_manager_common.h"
-#include "chrome/browser/printing/printing_message_filter.h"
+#include "chrome/browser/printing/printer_query.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -30,8 +33,9 @@
 #include "components/printing/browser/print_manager_utils.h"
 #include "components/printing/common/print.mojom-test-utils.h"
 #include "components/printing/common/print.mojom.h"
-#include "components/printing/common/print_messages.h"
 #include "content/public/browser/browser_message_filter.h"
+#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/common/content_features.h"
@@ -52,6 +56,72 @@ namespace printing {
 namespace {
 
 constexpr int kDefaultDocumentCookie = 1234;
+
+mojom::PrintParamsPtr GetPrintParams() {
+  auto params = mojom::PrintParams::New();
+  params->page_size = gfx::Size(612, 792);
+  params->content_size = gfx::Size(540, 720);
+  params->printable_area = gfx::Rect(612, 792);
+  params->dpi = gfx::Size(72, 72);
+  params->document_cookie = kDefaultDocumentCookie;
+  params->pages_per_sheet = 4;
+  params->printed_doc_type = IsOopifEnabled() ? mojom::SkiaDocumentType::kMSKP
+                                              : mojom::SkiaDocumentType::kPDF;
+  return params;
+}
+
+void UpdatePrintSettingsReplyOnIO(
+    scoped_refptr<PrintQueriesQueue> queue,
+    std::unique_ptr<PrinterQuery> printer_query,
+    mojom::PrintManagerHost::UpdatePrintSettingsCallback callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+  DCHECK(printer_query);
+  auto params = mojom::PrintPagesParams::New();
+  params->params = mojom::PrintParams::New();
+  if (printer_query->last_status() == PrintingContext::OK) {
+    RenderParamsFromPrintSettings(printer_query->settings(),
+                                  params->params.get());
+    params->params->document_cookie = printer_query->cookie();
+    params->pages = PageRange::GetPages(printer_query->settings().ranges());
+  }
+  bool canceled = printer_query->last_status() == PrintingContext::CANCEL;
+
+  params->params = GetPrintParams();
+
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](mojom::PrintManagerHost::UpdatePrintSettingsCallback callback,
+             mojom::PrintPagesParamsPtr params, bool canceled) {
+            DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+            std::move(callback).Run(std::move(params), canceled);
+          },
+          std::move(callback), std::move(params), canceled));
+
+  if (printer_query->cookie() && printer_query->settings().dpi()) {
+    queue->QueuePrinterQuery(std::move(printer_query));
+  } else {
+    printer_query->StopWorker();
+  }
+}
+
+void UpdatePrintSettingsOnIO(
+    int32_t cookie,
+    mojom::PrintManagerHost::UpdatePrintSettingsCallback callback,
+    scoped_refptr<PrintQueriesQueue> queue,
+    base::Value job_settings) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+  std::unique_ptr<PrinterQuery> printer_query = queue->PopPrinterQuery(cookie);
+  if (!printer_query) {
+    printer_query = queue->CreatePrinterQuery(
+        content::ChildProcessHost::kInvalidUniqueID, MSG_ROUTING_NONE);
+  }
+  auto* printer_query_ptr = printer_query.get();
+  printer_query_ptr->SetSettings(
+      std::move(job_settings),
+      base::BindOnce(&UpdatePrintSettingsReplyOnIO, queue,
+                     std::move(printer_query), std::move(callback)));
+}
 
 class PrintPreviewObserver : PrintPreviewUI::TestDelegate {
  public:
@@ -84,7 +154,7 @@ class PrintPreviewObserver : PrintPreviewUI::TestDelegate {
 
  private:
   // PrintPreviewUI::TestDelegate:
-  void DidGetPreviewPageCount(int page_count) override {
+  void DidGetPreviewPageCount(uint32_t page_count) override {
     total_page_count_ = page_count;
   }
 
@@ -109,39 +179,12 @@ class PrintPreviewObserver : PrintPreviewUI::TestDelegate {
   }
 
   base::Optional<content::DOMMessageQueue> queue_;
-  int total_page_count_ = 1;
-  int rendered_page_count_ = 0;
+  uint32_t total_page_count_ = 1;
+  uint32_t rendered_page_count_ = 0;
   content::WebContents* preview_dialog_ = nullptr;
   base::RunLoop* run_loop_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(PrintPreviewObserver);
-};
-
-class NupPrintingTestDelegate : public PrintingMessageFilter::TestDelegate {
- public:
-  NupPrintingTestDelegate() {
-    PrintingMessageFilter::SetDelegateForTesting(this);
-  }
-  ~NupPrintingTestDelegate() override {
-    PrintingMessageFilter::SetDelegateForTesting(nullptr);
-  }
-
-  // PrintingMessageFilter::TestDelegate:
-  mojom::PrintParams GetPrintParams() override {
-    mojom::PrintParams params;
-    params.page_size = gfx::Size(612, 792);
-    params.content_size = gfx::Size(540, 720);
-    params.printable_area = gfx::Rect(612, 792);
-    params.dpi = gfx::Size(72, 72);
-    params.document_cookie = kDefaultDocumentCookie;
-    params.pages_per_sheet = 4;
-    params.printed_doc_type = IsOopifEnabled() ? mojom::SkiaDocumentType::kMSKP
-                                               : mojom::SkiaDocumentType::kPDF;
-    return params;
-  }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(NupPrintingTestDelegate);
 };
 
 class TestPrintRenderFrame
@@ -164,13 +207,24 @@ class TestPrintRenderFrame
     EXPECT_EQ(document_cookie, document_cookie_);
     ASSERT_TRUE(param->metafile_data_region.IsValid());
     EXPECT_GT(param->metafile_data_region.GetSize(), 0U);
-    task_runner_->PostTask(FROM_HERE, msg_callback_);
     std::move(callback).Run(document_cookie, std::move(param));
+    task_runner_->PostTask(FROM_HERE, msg_callback_);
   }
 
   void Bind(mojo::ScopedInterfaceEndpointHandle handle) {
     receiver_.Bind(mojo::PendingAssociatedReceiver<mojom::PrintRenderFrame>(
         std::move(handle)));
+  }
+
+  static mojom::DidPrintContentParamsPtr GetDefaultDidPrintContentParams() {
+    auto printed_frame_params = mojom::DidPrintContentParams::New();
+    // Creates a small amount of region to avoid passing empty data to mojo.
+    constexpr size_t kSize = 10;
+    base::MappedReadOnlyRegion region_mapping =
+        base::ReadOnlySharedMemoryRegion::Create(kSize);
+    printed_frame_params->metafile_data_region =
+        std::move(region_mapping.region);
+    return printed_frame_params;
   }
 
   // mojom::PrintRenderFrameInterceptorForTesting
@@ -181,16 +235,8 @@ class TestPrintRenderFrame
   void PrintFrameContent(mojom::PrintFrameContentParamsPtr params,
                          PrintFrameContentCallback callback) override {
     // Sends the printed result back.
-    mojom::DidPrintContentParamsPtr printed_frame_params =
-        mojom::DidPrintContentParams::New();
-    // Creates a small amount of region to avoid passing empty data to mojo.
-    constexpr size_t kSize = 10;
-    base::MappedReadOnlyRegion region_mapping =
-        base::ReadOnlySharedMemoryRegion::Create(kSize);
-    printed_frame_params->metafile_data_region =
-        std::move(region_mapping.region);
     OnDidPrintFrameContent(params->document_cookie,
-                           std::move(printed_frame_params),
+                           GetDefaultDidPrintContentParams(),
                            std::move(callback));
 
     auto* client = PrintCompositeClient::FromWebContents(web_contents_);
@@ -268,6 +314,26 @@ class KillPrintRenderFrame
 };
 
 }  // namespace
+
+class TestPrintViewManager : public PrintViewManager {
+ public:
+  explicit TestPrintViewManager(content::WebContents* web_contents)
+      : PrintViewManager(web_contents) {}
+  TestPrintViewManager(const TestPrintViewManager&) = delete;
+  TestPrintViewManager& operator=(const TestPrintViewManager&) = delete;
+  ~TestPrintViewManager() override = default;
+
+ private:
+  // printing::mojom::PrintManagerHost:
+  void UpdatePrintSettings(int32_t cookie,
+                           base::Value job_settings,
+                           UpdatePrintSettingsCallback callback) override {
+    content::GetIOThreadTaskRunner({})->PostTask(
+        FROM_HERE,
+        base::BindOnce(&UpdatePrintSettingsOnIO, cookie, std::move(callback),
+                       queue_, std::move(job_settings)));
+  }
+};
 
 class PrintBrowserTest : public InProcessBrowserTest {
  public:
@@ -412,14 +478,14 @@ class BackForwardCachePrintBrowserTest : public PrintBrowserTest {
   ~BackForwardCachePrintBrowserTest() override = default;
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    scoped_feature_list_.InitAndEnableFeatureWithParameters(
-        ::features::kBackForwardCache,
-        {
-            // Set a very long TTL before expiration (longer than the test
-            // timeout) so tests that are expecting deletion don't pass when
-            // they shouldn't.
-            {"TimeToLiveInBackForwardCacheInSeconds", "3600"},
-        });
+    scoped_feature_list_.InitWithFeaturesAndParameters(
+        {{features::kBackForwardCache,
+          // Set a very long TTL before expiration (longer than the test
+          // timeout) so tests that are expecting deletion don't pass when
+          // they shouldn't.
+          {{"TimeToLiveInBackForwardCacheInSeconds", "3600"}}}},
+        // Allow BackForwardCache for all devices regardless of their memory.
+        {features::kBackForwardCacheMemoryControl});
 
     PrintBrowserTest::SetUpCommandLine(command_line);
   }
@@ -528,6 +594,89 @@ IN_PROC_BROWSER_TEST_F(PrintBrowserTest, SelectionContainsIframe) {
   ui_test_utils::NavigateToURL(browser(), url);
 
   PrintAndWaitUntilPreviewIsReady(/*print_only_selection=*/true);
+}
+
+// https://crbug.com/1125972
+// https://crbug.com/1131598
+IN_PROC_BROWSER_TEST_F(PrintBrowserTest, NoScrolling) {
+  ASSERT_TRUE(embedded_test_server()->Started());
+  GURL url(embedded_test_server()->GetURL("/printing/with-scrollable.html"));
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  auto* contents = browser()->tab_strip_model()->GetActiveWebContents();
+  const char kExpression1[] = "iframe.contentWindow.scrollY";
+  const char kExpression2[] = "scrollable.scrollTop";
+  const char kExpression3[] = "shapeshifter.scrollTop";
+
+  double old_scroll1 = content::EvalJs(contents, kExpression1).ExtractDouble();
+  double old_scroll2 = content::EvalJs(contents, kExpression2).ExtractDouble();
+  double old_scroll3 = content::EvalJs(contents, kExpression3).ExtractDouble();
+
+  PrintAndWaitUntilPreviewIsReady(/*print_only_selection=*/false);
+
+  double new_scroll1 = content::EvalJs(contents, kExpression1).ExtractDouble();
+
+  // TODO(crbug.com/1131598): Perform the corresponding EvalJs() calls here and
+  // assign to new_scroll2 and new_scroll3, once the printing code has been
+  // fixed to handle these cases. Right now, the scroll offset jumps.
+  double new_scroll2 = old_scroll2;
+  double new_scroll3 = old_scroll3;
+
+  EXPECT_EQ(old_scroll1, new_scroll1);
+  EXPECT_EQ(old_scroll2, new_scroll2);
+  EXPECT_EQ(old_scroll3, new_scroll3);
+}
+
+// https://crbug.com/1131598
+IN_PROC_BROWSER_TEST_F(PrintBrowserTest, DISABLED_NoScrollingFrameset) {
+  ASSERT_TRUE(embedded_test_server()->Started());
+  GURL url(embedded_test_server()->GetURL("/printing/frameset.html"));
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  auto* contents = browser()->tab_strip_model()->GetActiveWebContents();
+  const char kExpression[] =
+      "document.getElementById('frame').contentWindow.scrollY";
+
+  double old_scroll = content::EvalJs(contents, kExpression).ExtractDouble();
+
+  PrintAndWaitUntilPreviewIsReady(/*print_only_selection=*/false);
+
+  double new_scroll = content::EvalJs(contents, kExpression).ExtractDouble();
+
+  EXPECT_EQ(old_scroll, new_scroll);
+}
+
+// https://crbug.com/1125972
+IN_PROC_BROWSER_TEST_F(PrintBrowserTest, NoScrollingVerticalRl) {
+  ASSERT_TRUE(embedded_test_server()->Started());
+  GURL url(embedded_test_server()->GetURL("/printing/vertical-rl.html"));
+  ui_test_utils::NavigateToURL(browser(), url);
+  PrintAndWaitUntilPreviewIsReady(/*print_only_selection=*/false);
+
+  // Test that entering print preview didn't mess up the scroll position.
+  EXPECT_EQ(
+      0, content::EvalJs(browser()->tab_strip_model()->GetActiveWebContents(),
+                         "window.scrollX"));
+}
+
+// Before invoking print preview, page scale is changed to a different value.
+// Test that when print preview is ready, in other words when printing is
+// finished, the page scale factor gets reset to initial scale.
+IN_PROC_BROWSER_TEST_F(PrintBrowserTest, ResetPageScaleAfterPrintPreview) {
+  ASSERT_TRUE(embedded_test_server()->Started());
+  GURL url(embedded_test_server()->GetURL("/printing/test1.html"));
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  auto* contents = browser()->tab_strip_model()->GetActiveWebContents();
+  contents->SetPageScale(1.5);
+
+  PrintAndWaitUntilPreviewIsReady(/*print_only_selection=*/false);
+
+  double contents_page_scale_after_print =
+      content::EvalJs(contents, "window.visualViewport.scale").ExtractDouble();
+
+  constexpr double kContentsInitialScale = 1.0;
+  EXPECT_EQ(kContentsInitialScale, contents_page_scale_after_print);
 }
 
 // Printing frame content for the main frame of a generic webpage.
@@ -664,6 +813,70 @@ IN_PROC_BROWSER_TEST_F(PrintBrowserTest, PrintSubframeABA) {
   // TestPrintRenderFrame.
   SetNumExpectedMessages(oopif_enabled ? 3 : 1);
   WaitUntilCallbackReceived();
+}
+
+// Printing frame content with a cross-site iframe before creating
+// PrintCompositor by the main frame.
+// This test passes if PrintCompositeClient queues subframes when
+// it doesn't have PrintCompositor and clears them after PrintCompositor is
+// created.
+IN_PROC_BROWSER_TEST_F(PrintBrowserTest,
+                       PrintSubframeContentBeforeCompositeClientCreation) {
+  ASSERT_TRUE(embedded_test_server()->Started());
+  GURL url(
+      embedded_test_server()->GetURL("/printing/content_with_iframe.html"));
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  // When OOPIF is not enabled, CompositorClient is not used.
+  if (!IsOopifEnabled())
+    return;
+
+  content::WebContents* original_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_EQ(2u, original_contents->GetAllFrames().size());
+  content::RenderFrameHost* main_frame = original_contents->GetMainFrame();
+  ASSERT_TRUE(main_frame);
+  content::RenderFrameHost* test_frame = original_contents->GetAllFrames()[1];
+  ASSERT_TRUE(test_frame);
+  ASSERT_NE(main_frame->GetProcess(), test_frame->GetProcess());
+
+  CreateTestPrintRenderFrame(main_frame, original_contents);
+  CreateTestPrintRenderFrame(test_frame, original_contents);
+  SetNumExpectedMessages(2);
+
+  // Print on the main frame.
+  GetPrintRenderFrame(main_frame)
+      ->PrintFrameContent(GetDefaultPrintFrameParams(), base::DoNothing());
+
+  // The printed result will be received and checked in TestPrintRenderFrame.
+  WaitUntilCallbackReceived();
+
+  // As PrintFrameContent() with the main frame doesn't call
+  // PrintCompositeClient::DoCompositeDocumentToPdf() on this test, when
+  // PrintCompositeClient::OnDidPrintFrameContent() is called with the sub
+  // frame, it doesn't have mojom::PrintCompositor.
+  auto* client = PrintCompositeClient::FromWebContents(original_contents);
+  ASSERT_FALSE(client->compositor_);
+
+  // When there is no mojom::PrintCompositor, PrintCompositeClient queues
+  // subframes and handles them when mojom::PrintCompositor is created.
+  // |requested_subframes_| should have the requested subframes.
+  ASSERT_EQ(1u, client->requested_subframes_.size());
+  PrintCompositeClient::RequestedSubFrame* subframe_in_queue =
+      client->requested_subframes_.begin()->get();
+  ASSERT_EQ(kDefaultDocumentCookie, subframe_in_queue->document_cookie_);
+  ASSERT_EQ(test_frame->GetProcess()->GetID(),
+            subframe_in_queue->render_process_id_);
+  ASSERT_EQ(test_frame->GetRoutingID(), subframe_in_queue->render_frame_id_);
+
+  // Creates mojom::PrintCompositor.
+  client->DoCompositeDocumentToPdf(
+      kDefaultDocumentCookie, main_frame,
+      *TestPrintRenderFrame::GetDefaultDidPrintContentParams(),
+      base::DoNothing());
+  ASSERT_TRUE(client->GetCompositeRequest(kDefaultDocumentCookie));
+  // |requested_subframes_| should be empty.
+  ASSERT_TRUE(client->requested_subframes_.empty());
 }
 
 // Printing preview a simple webpage when site per process is enabled.
@@ -830,20 +1043,32 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessPrintExtensionBrowserTest,
 // Printing frame content for the main frame of a generic webpage with N-up
 // priting. This is a regression test for https://crbug.com/937247
 IN_PROC_BROWSER_TEST_F(PrintBrowserTest, PrintNup) {
-  NupPrintingTestDelegate test_delegate;
   ASSERT_TRUE(embedded_test_server()->Started());
   GURL url(embedded_test_server()->GetURL("/printing/test1.html"));
   ui_test_utils::NavigateToURL(browser(), url);
+
+  content::WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_TRUE(web_contents);
+  content::RemoveWebContentsReceiverSet(web_contents,
+                                        mojom::PrintManagerHost::Name_);
+  TestPrintViewManager print_view_manager(web_contents);
 
   PrintAndWaitUntilPreviewIsReady(/*print_only_selection=*/false);
 }
 
 // Site per process version of PrintBrowserTest.PrintNup.
 IN_PROC_BROWSER_TEST_F(SitePerProcessPrintBrowserTest, PrintNup) {
-  NupPrintingTestDelegate test_delegate;
   ASSERT_TRUE(embedded_test_server()->Started());
   GURL url(embedded_test_server()->GetURL("/printing/test1.html"));
   ui_test_utils::NavigateToURL(browser(), url);
+
+  content::WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_TRUE(web_contents);
+  content::RemoveWebContentsReceiverSet(web_contents,
+                                        mojom::PrintManagerHost::Name_);
+  TestPrintViewManager print_view_manager(web_contents);
 
   PrintAndWaitUntilPreviewIsReady(/*print_only_selection=*/false);
 }

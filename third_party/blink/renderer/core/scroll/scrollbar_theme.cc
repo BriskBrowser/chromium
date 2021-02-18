@@ -30,7 +30,6 @@
 #include "cc/input/scrollbar.h"
 #include "third_party/blink/public/common/input/web_mouse_event.h"
 #include "third_party/blink/public/platform/platform.h"
-#include "third_party/blink/public/platform/web_rect.h"
 #include "third_party/blink/renderer/core/scroll/scrollbar.h"
 #include "third_party/blink/renderer/core/scroll/scrollbar_theme_overlay_mock.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
@@ -109,7 +108,7 @@ void ScrollbarTheme::PaintScrollCorner(
     const Scrollbar* vertical_scrollbar,
     const DisplayItemClient& display_item_client,
     const IntRect& corner_rect,
-    WebColorScheme color_scheme) {
+    mojom::blink::ColorScheme color_scheme) {
   if (corner_rect.IsEmpty())
     return;
 
@@ -124,7 +123,7 @@ void ScrollbarTheme::PaintScrollCorner(
 #else
   Platform::Current()->ThemeEngine()->Paint(
       context.Canvas(), WebThemeEngine::kPartScrollbarCorner,
-      WebThemeEngine::kStateNormal, WebRect(corner_rect), nullptr,
+      WebThemeEngine::kStateNormal, gfx::Rect(corner_rect), nullptr,
       color_scheme);
 #endif
 }
@@ -162,7 +161,7 @@ void ScrollbarTheme::PaintTickmarks(GraphicsContext& context,
     const int y_pos = rect.Y() + (rect.Height() * percent);
 
     FloatRect tick_rect(rect.X(), y_pos, rect.Width(), 3);
-    context.FillRect(tick_rect, Color(0xCC, 0xAA, 0x00, 0xFF));
+    context.FillRect(tick_rect, Color(0xB0, 0x60, 0x00, 0xFF));
 
     FloatRect tick_stroke(rect.X() + TickmarkBorderWidth(), y_pos + 1,
                           rect.Width() - 2 * TickmarkBorderWidth(), 1);

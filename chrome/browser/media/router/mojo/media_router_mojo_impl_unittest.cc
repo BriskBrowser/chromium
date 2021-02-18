@@ -13,25 +13,25 @@
 
 #include "base/base64.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/json/string_escape.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
+#include "base/strings/strcat.h"
 #include "base/test/gmock_callback_support.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/mock_callback.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "chrome/browser/media/router/media_router_factory.h"
 #include "chrome/browser/media/router/mojo/media_router_mojo_metrics.h"
-#include "chrome/browser/media/router/route_message_observer.h"
-#include "chrome/browser/media/router/route_message_util.h"
 #include "chrome/browser/media/router/test/media_router_mojo_test.h"
-#include "chrome/browser/media/router/test/mock_media_router.h"
-#include "chrome/browser/media/router/test/test_helper.h"
+#include "chrome/browser/media/router/test/provider_test_helpers.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/media_router/browser/route_message_observer.h"
+#include "components/media_router/browser/route_message_util.h"
+#include "components/media_router/browser/test/mock_media_router.h"
 #include "components/media_router/common/issue.h"
 #include "components/media_router/common/media_route.h"
 #include "components/media_router/common/media_source.h"
@@ -45,7 +45,9 @@
 #include "mojo/public/cpp/bindings/remote.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "url/gurl.h"
 
+using blink::mojom::PresentationConnectionCloseReason;
 using blink::mojom::PresentationConnectionState;
 using media_router::mojom::RouteMessagePtr;
 using testing::_;
@@ -407,14 +409,14 @@ TEST_F(MediaRouterMojoImplTest, JoinRouteTimedOutFails) {
                   kSource, kPresentationId, url::Origin::Create(GURL(kOrigin)),
                   kInvalidTabId,
                   base::TimeDelta::FromMilliseconds(kTimeoutMillis), _, _))
-      .WillOnce(Invoke(
-          [](const std::string& source, const std::string& presentation_id,
-             const url::Origin& origin, int tab_id, base::TimeDelta timeout,
-             bool off_the_record,
-             mojom::MediaRouteProvider::JoinRouteCallback& cb) {
-            std::move(cb).Run(base::nullopt, nullptr, std::string(kError),
-                              RouteRequestResult::TIMED_OUT);
-          }));
+      .WillOnce(Invoke([](const std::string& source,
+                          const std::string& presentation_id,
+                          const url::Origin& origin, int tab_id,
+                          base::TimeDelta timeout, bool off_the_record,
+                          mojom::MediaRouteProvider::JoinRouteCallback& cb) {
+        std::move(cb).Run(base::nullopt, nullptr, std::string(kError),
+                          RouteRequestResult::TIMED_OUT);
+      }));
 
   RouteResponseCallbackHandler handler;
   base::RunLoop run_loop;
@@ -1025,7 +1027,7 @@ TEST_F(MediaRouterMojoImplTest, PresentationConnectionStateChangedCallback) {
   blink::mojom::PresentationInfo connection(presentation_url, kPresentationId);
   base::MockCallback<content::PresentationConnectionStateChangedCallback>
       callback;
-  std::unique_ptr<PresentationConnectionStateSubscription> subscription =
+  base::CallbackListSubscription subscription =
       router()->AddPresentationConnectionStateChangedCallback(route_id,
                                                               callback.Get());
 
@@ -1033,16 +1035,13 @@ TEST_F(MediaRouterMojoImplTest, PresentationConnectionStateChangedCallback) {
     base::RunLoop run_loop;
     content::PresentationConnectionStateChangeInfo closed_info(
         PresentationConnectionState::CLOSED);
-    closed_info.close_reason =
-        blink::mojom::PresentationConnectionCloseReason::WENT_AWAY;
+    closed_info.close_reason = PresentationConnectionCloseReason::WENT_AWAY;
     closed_info.message = "Foo";
 
     EXPECT_CALL(callback, Run(StateChangeInfoEquals(closed_info)))
         .WillOnce(InvokeWithoutArgs([&run_loop]() { run_loop.Quit(); }));
     router()->OnPresentationConnectionClosed(
-        route_id,
-        mojom::MediaRouter::PresentationConnectionCloseReason::WENT_AWAY,
-        "Foo");
+        route_id, PresentationConnectionCloseReason::WENT_AWAY, "Foo");
     run_loop.Run();
     EXPECT_TRUE(Mock::VerifyAndClearExpectations(&callback));
   }
@@ -1054,7 +1053,7 @@ TEST_F(MediaRouterMojoImplTest, PresentationConnectionStateChangedCallback) {
     EXPECT_CALL(callback, Run(StateChangeInfoEquals(terminated_info)))
         .WillOnce(InvokeWithoutArgs([&run_loop]() { run_loop.Quit(); }));
     router()->OnPresentationConnectionStateChanged(
-        route_id, mojom::MediaRouter::PresentationConnectionState::TERMINATED);
+        route_id, PresentationConnectionState::TERMINATED);
     run_loop.Run();
 
     EXPECT_TRUE(Mock::VerifyAndClearExpectations(&callback));
@@ -1066,17 +1065,17 @@ TEST_F(MediaRouterMojoImplTest,
   MediaRoute::Id route_id("route-id");
   base::MockCallback<content::PresentationConnectionStateChangedCallback>
       callback;
-  std::unique_ptr<PresentationConnectionStateSubscription> subscription =
+  base::CallbackListSubscription subscription =
       router()->AddPresentationConnectionStateChangedCallback(route_id,
                                                               callback.Get());
 
   // Callback has been removed, so we don't expect it to be called anymore.
-  subscription.reset();
+  subscription = {};
   EXPECT_TRUE(router()->presentation_connection_state_callbacks_.empty());
 
   EXPECT_CALL(callback, Run(_)).Times(0);
   router()->OnPresentationConnectionStateChanged(
-      route_id, mojom::MediaRouter::PresentationConnectionState::TERMINATED);
+      route_id, PresentationConnectionState::TERMINATED);
   base::RunLoop().RunUntilIdle();
 }
 
@@ -1265,6 +1264,52 @@ TEST_F(MediaRouterMojoImplTest, ObserveRoutesFromMultipleProviders) {
   // Have the wired display MRP report an empty list of routes.
   EXPECT_CALL(observer, OnRoutesUpdated(IsEmpty(), IsEmpty()));
   UpdateRoutes(MediaRouteProviderId::WIRED_DISPLAY, {}, kSource, {});
+}
+
+TEST(MediaRouterMojoImpl, TestRecordPresentationRequestUrlBySink) {
+  using base::Bucket;
+  using PresentationUrlBySink = MediaRouterMojoImpl::PresentationUrlBySink;
+
+  MediaSource cast_source("cast:ABCD1234");
+  MediaSource dial_source(
+      GURL(base::StrCat({kCastDialPresentationUrlScheme, ":YouTube"})));
+  MediaSource presentation_url(GURL("https://www.example.com"));
+
+  base::HistogramTester tester;
+  MediaRouterMojoImpl::RecordPresentationRequestUrlBySink(
+      cast_source, MediaRouteProviderId::CAST);
+  MediaRouterMojoImpl::RecordPresentationRequestUrlBySink(
+      dial_source, MediaRouteProviderId::DIAL);
+  MediaRouterMojoImpl::RecordPresentationRequestUrlBySink(
+      presentation_url, MediaRouteProviderId::CAST);
+  MediaRouterMojoImpl::RecordPresentationRequestUrlBySink(
+      presentation_url, MediaRouteProviderId::WIRED_DISPLAY);
+  MediaRouterMojoImpl::RecordPresentationRequestUrlBySink(
+      presentation_url, MediaRouteProviderId::EXTENSION);
+  // DIAL devices don't support normal URLs, so this will get logged as
+  // kUnknown.
+  MediaRouterMojoImpl::RecordPresentationRequestUrlBySink(
+      presentation_url, MediaRouteProviderId::DIAL);
+  // Normally, Cast sources are sent to the CAST provider, but in case it gets
+  // routed to the EXTENSION provider instead.
+  MediaRouterMojoImpl::RecordPresentationRequestUrlBySink(
+      cast_source, MediaRouteProviderId::EXTENSION);
+
+  EXPECT_THAT(
+      tester.GetAllSamples("MediaRouter.PresentationRequest.UrlBySink"),
+      testing::UnorderedElementsAre(
+          Bucket(static_cast<int>(PresentationUrlBySink::kUnknown), 1),
+          Bucket(
+              static_cast<int>(PresentationUrlBySink::kNormalUrlToChromecast),
+              1),
+          Bucket(static_cast<int>(PresentationUrlBySink::kNormalUrlToExtension),
+                 1),
+          Bucket(
+              static_cast<int>(PresentationUrlBySink::kNormalUrlToWiredDisplay),
+              1),
+          Bucket(static_cast<int>(PresentationUrlBySink::kCastUrlToChromecast),
+                 2),
+          Bucket(static_cast<int>(PresentationUrlBySink::kDialUrlToDial), 1)));
 }
 
 }  // namespace media_router

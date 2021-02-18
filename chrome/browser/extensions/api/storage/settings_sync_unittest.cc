@@ -20,9 +20,9 @@
 #include "chrome/browser/extensions/api/storage/syncable_settings_storage.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/sync/model/sync_change_processor.h"
-#include "components/sync/model/sync_change_processor_wrapper_for_test.h"
 #include "components/sync/model/sync_error_factory.h"
-#include "components/sync/model/sync_error_factory_mock.h"
+#include "components/sync/test/model/sync_change_processor_wrapper_for_test.h"
+#include "components/sync/test/model/sync_error_factory_mock.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/api/storage/backend_task_runner.h"
@@ -1025,7 +1025,8 @@ TEST_F(ExtensionSettingsSyncTest, FailingGetAllSyncDataDoesntStopSync) {
       syncer::SyncDataList all_sync_data =
           GetSyncableService(model_type)->GetAllSyncDataForTesting(model_type);
       EXPECT_EQ(1u, all_sync_data.size());
-      EXPECT_EQ("good/foo", syncer::SyncDataLocal(all_sync_data[0]).GetTag());
+      EXPECT_EQ(syncer::ClientTagHash::FromUnhashed(model_type, "good/foo"),
+                all_sync_data[0].GetClientTagHash());
     }
     GetExisting("bad")->set_status_code(ValueStore::OK);
 
@@ -1463,12 +1464,10 @@ TEST_F(ExtensionSettingsSyncTest, UnlimitedStorageForLocalButNotSync) {
       settings_test_util::AddExtensionWithIdAndPermissions(
           profile_.get(), id, Manifest::TYPE_EXTENSION, permissions);
 
-  frontend_->RunWithStorage(extension,
-                            settings_namespace::SYNC,
-                            base::Bind(&UnlimitedSyncStorageTestCallback));
-  frontend_->RunWithStorage(extension,
-                            settings_namespace::LOCAL,
-                            base::Bind(&UnlimitedLocalStorageTestCallback));
+  frontend_->RunWithStorage(extension, settings_namespace::SYNC,
+                            base::BindOnce(&UnlimitedSyncStorageTestCallback));
+  frontend_->RunWithStorage(extension, settings_namespace::LOCAL,
+                            base::BindOnce(&UnlimitedLocalStorageTestCallback));
 
   content::RunAllTasksUntilIdle();
 }

@@ -15,7 +15,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
@@ -27,6 +27,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/test_extension_system.h"
 #include "chrome/browser/media_galleries/media_file_system_context.h"
@@ -51,7 +52,7 @@
 #include "extensions/common/extension.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/chromeos/settings/scoped_cros_settings_test_helper.h"
 #endif
 
@@ -199,7 +200,7 @@ class MockProfileSharedRenderProcessHostFactory
 
   // RPH created with this factory are owned by it.  If the RPH is destroyed
   // for testing purposes, it must be removed from the factory first.
-  content::MockRenderProcessHost* ReleaseRPH(
+  std::unique_ptr<content::MockRenderProcessHost> ReleaseRPH(
       content::BrowserContext* browser_context);
 
   content::RenderProcessHost* CreateRenderProcessHost(
@@ -274,8 +275,8 @@ class ProfileState {
 
   // The RenderProcessHosts are freed when their respective WebContents /
   // RenderViewHosts go away.
-  content::MockRenderProcessHost* single_rph_;
-  content::MockRenderProcessHost* shared_rph_;
+  std::unique_ptr<content::MockRenderProcessHost> single_rph_;
+  std::unique_ptr<content::MockRenderProcessHost> shared_rph_;
 
   std::vector<base::string16> compare_names_read_;
   std::vector<base::string16> compare_names_all_;
@@ -284,7 +285,7 @@ class ProfileState {
 };
 
 base::string16 GetExpectedFolderName(const base::FilePath& path) {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   return path.BaseName().LossyDisplayName();
 #else
   return path.LossyDisplayName();
@@ -391,7 +392,7 @@ class MediaFileSystemRegistryTest : public ChromeRenderViewHostTestHarness {
 
   // Needed for extension service & friends to work.
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   chromeos::ScopedCrosSettingsTestHelper cros_settings_test_helper_;
 #endif
 
@@ -418,7 +419,7 @@ MockProfileSharedRenderProcessHostFactory::
     ~MockProfileSharedRenderProcessHostFactory() {
 }
 
-content::MockRenderProcessHost*
+std::unique_ptr<content::MockRenderProcessHost>
 MockProfileSharedRenderProcessHostFactory::ReleaseRPH(
     content::BrowserContext* browser_context) {
   auto existing = rph_map_.find(browser_context);
@@ -427,7 +428,7 @@ MockProfileSharedRenderProcessHostFactory::ReleaseRPH(
   std::unique_ptr<content::MockRenderProcessHost> result =
       std::move(existing->second);
   rph_map_.erase(existing);
-  return result.release();
+  return result;
 }
 
 content::RenderProcessHost*
@@ -512,29 +513,30 @@ void ProfileState::CheckGalleries(
   std::vector<base::string16> empty_names;
   registry->GetMediaFileSystemsForExtension(
       single_web_contents_.get(), no_permissions_extension_.get(),
-      base::Bind(&ProfileState::CompareResults, base::Unretained(this),
-                 base::StringPrintf("%s (no permission)", test.c_str()),
-                 std::cref(empty_names), std::cref(empty_expectation)));
+      base::BindOnce(&ProfileState::CompareResults, base::Unretained(this),
+                     base::StringPrintf("%s (no permission)", test.c_str()),
+                     std::cref(empty_names), std::cref(empty_expectation)));
   content::RunAllTasksUntilIdle();
   EXPECT_EQ(1, GetAndClearComparisonCount());
 
   // Read permission only.
   registry->GetMediaFileSystemsForExtension(
       single_web_contents_.get(), regular_permission_extension_.get(),
-      base::Bind(&ProfileState::CompareResults, base::Unretained(this),
-                 base::StringPrintf("%s (regular permission)", test.c_str()),
-                 std::cref(compare_names_read_),
-                 std::cref(regular_extension_galleries)));
+      base::BindOnce(
+          &ProfileState::CompareResults, base::Unretained(this),
+          base::StringPrintf("%s (regular permission)", test.c_str()),
+          std::cref(compare_names_read_),
+          std::cref(regular_extension_galleries)));
   content::RunAllTasksUntilIdle();
   EXPECT_EQ(1, GetAndClearComparisonCount());
 
   // All galleries permission.
   registry->GetMediaFileSystemsForExtension(
       single_web_contents_.get(), all_permission_extension_.get(),
-      base::Bind(&ProfileState::CompareResults, base::Unretained(this),
-                 base::StringPrintf("%s (all permission)", test.c_str()),
-                 std::cref(compare_names_all_),
-                 std::cref(all_extension_galleries)));
+      base::BindOnce(&ProfileState::CompareResults, base::Unretained(this),
+                     base::StringPrintf("%s (all permission)", test.c_str()),
+                     std::cref(compare_names_all_),
+                     std::cref(all_extension_galleries)));
   content::RunAllTasksUntilIdle();
   EXPECT_EQ(1, GetAndClearComparisonCount());
 }
@@ -545,7 +547,7 @@ FSInfoMap ProfileState::GetGalleriesInfo(extensions::Extension* extension) {
       g_browser_process->media_file_system_registry();
   registry->GetMediaFileSystemsForExtension(
       single_web_contents_.get(), extension,
-      base::Bind(&GetGalleryInfoCallback, base::Unretained(&results)));
+      base::BindOnce(&GetGalleryInfoCallback, base::Unretained(&results)));
   content::RunAllTasksUntilIdle();
   return results;
 }
@@ -692,7 +694,7 @@ void MediaFileSystemRegistryTest::AssertAllAutoAddedGalleries() {
     // Make sure that we have at least one gallery and that they are all
     // auto added galleries.
     const MediaGalleriesPrefInfoMap& galleries = prefs->known_galleries();
-#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_CHROMEOS_ASH) && !defined(OS_ANDROID)
     ASSERT_GT(galleries.size(), 0U);
 #endif
     for (auto it = galleries.begin(); it != galleries.end(); ++it) {
@@ -710,7 +712,7 @@ void MediaFileSystemRegistryTest::InitForGalleriesInfoTest(
   ProfileState* profile_state = GetProfileState(0U);
   *galleries_info = profile_state->GetGalleriesInfo(
       profile_state->all_permission_extension());
-#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_CHROMEOS_ASH) && !defined(OS_ANDROID)
   ASSERT_EQ(3U, galleries_info->size());
 #else
   ASSERT_EQ(0U, galleries_info->size());

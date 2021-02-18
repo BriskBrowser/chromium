@@ -160,6 +160,7 @@ class NET_EXPORT_PRIVATE HttpCache::Transaction : public HttpTransaction {
   void SetResponseHeadersCallback(ResponseHeadersCallback callback) override;
   int ResumeNetworkStart() override;
   void GetConnectionAttempts(ConnectionAttempts* out) const override;
+  void CloseConnectionOnDestruction() override;
 
   // Invoked when parallel validation cannot proceed due to response failure
   // and this transaction needs to be restarted.
@@ -380,6 +381,10 @@ class NET_EXPORT_PRIVATE HttpCache::Transaction : public HttpTransaction {
   // Validates the entry headers against the requested range and continues with
   // the validation of the rest of the entry.  Returns a network error code.
   int ValidateEntryHeadersAndContinue();
+
+  // Returns whether the current externally conditionalized request's validation
+  // headers match the current cache entry's headers.
+  bool ExternallyConditionalizedValidationHeadersMatchEntry() const;
 
   // Called to start requests which were given an "if-modified-since" or
   // "if-none-match" validation header by the caller (NOT when the request was

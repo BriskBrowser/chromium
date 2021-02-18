@@ -8,8 +8,8 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/logging.h"
@@ -27,7 +27,6 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
@@ -301,9 +300,9 @@ void CaptivePortalBlockingPageTest::TestCertReporting(
 
   std::unique_ptr<SSLCertReporter> ssl_cert_reporter =
       certificate_reporting_test_utils::CreateMockSSLCertReporter(
-          base::Bind(&certificate_reporting_test_utils::
-                         SSLCertReporterCallback::ReportSent,
-                     base::Unretained(&reporter_callback)),
+          base::BindRepeating(&certificate_reporting_test_utils::
+                                  SSLCertReporterCallback::ReportSent,
+                              base::Unretained(&reporter_callback)),
           opt_in == certificate_reporting_test_utils::EXTENDED_REPORTING_OPT_IN
               ? certificate_reporting_test_utils::CERT_REPORT_EXPECTED
               : certificate_reporting_test_utils::CERT_REPORT_NOT_EXPECTED);

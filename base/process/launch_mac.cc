@@ -17,6 +17,7 @@
 #include "base/logging.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/process/environment_internal.h"
+#include "base/stl_util.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/trace_event/base_tracing.h"
@@ -34,13 +35,6 @@ int responsibility_spawnattrs_setdisclaim(posix_spawnattr_t attrs, int disclaim)
 }  // extern "C"
 
 namespace base {
-
-// Friend and derived class of ScopedAllowBaseSyncPrimitives which allows
-// GetAppOutputInternal() to join a process. GetAppOutputInternal() can't itself
-// be a friend of ScopedAllowBaseSyncPrimitives because it is in the anonymous
-// namespace.
-class GetAppOutputScopedAllowBaseSyncPrimitives
-    : public base::ScopedAllowBaseSyncPrimitives {};
 
 namespace {
 
@@ -130,6 +124,8 @@ struct GetAppOutputOptions {
 
 bool GetAppOutputInternal(const std::vector<std::string>& argv,
                           GetAppOutputOptions* gao_options) {
+  TRACE_EVENT0("base", "GetAppOutput");
+
   ScopedFD read_fd, write_fd;
   {
     int pipefds[2];
@@ -171,8 +167,10 @@ bool GetAppOutputInternal(const std::vector<std::string>& argv,
     }
   } while (read_this_pass > 0);
 
-  // Reap the child process.
-  GetAppOutputScopedAllowBaseSyncPrimitives allow_wait;
+  // It is okay to allow this process to wait on the launched process as a
+  // process launched with GetAppOutput*() shouldn't wait back on the process
+  // that launched it.
+  internal::GetAppOutputScopedAllowBaseSyncPrimitives allow_wait;
   if (!process.WaitForExit(&gao_options->exit_code)) {
     return false;
   }
@@ -257,6 +255,14 @@ Process LaunchProcess(const std::vector<std::string>& argv,
   const char* executable_path = !options.real_path.empty()
                                     ? options.real_path.value().c_str()
                                     : argv_cstr[0];
+
+#if defined(ARCH_CPU_ARM64)
+  if (options.launch_x86_64) {
+    cpu_type_t cpu_types[] = {CPU_TYPE_X86_64};
+    DPSXCHECK(posix_spawnattr_setbinpref_np(attr.get(), base::size(cpu_types),
+                                            cpu_types, nullptr));
+  }
+#endif  // ARCH_CPU_ARM64
 
   if (!options.current_directory.empty()) {
     const char* chdir_str = options.current_directory.value().c_str();

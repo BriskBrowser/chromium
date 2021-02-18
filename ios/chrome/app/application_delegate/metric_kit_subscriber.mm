@@ -57,7 +57,7 @@ void ReportExitReason(base::HistogramBase* histogram,
 }
 #endif
 
-void ReportDuration(const char* histogram_name, NSMeasurement* measurement)
+void ReportLongDuration(const char* histogram_name, NSMeasurement* measurement)
     API_AVAILABLE(ios(13.0)) {
   if (!measurement) {
     return;
@@ -65,7 +65,10 @@ void ReportDuration(const char* histogram_name, NSMeasurement* measurement)
   double value =
       [measurement measurementByConvertingToUnit:NSUnitDuration.seconds]
           .doubleValue;
-  base::UmaHistogramTimes(histogram_name, base::TimeDelta::FromSecondsD(value));
+  base::UmaHistogramCustomTimes(
+      histogram_name, base::TimeDelta::FromSecondsD(value),
+      base::TimeDelta::FromSeconds(1),
+      base::TimeDelta::FromSeconds(86400 /* secs per day */), 50);
 }
 
 void ReportMemory(const char* histogram_name, NSMeasurement* measurement)
@@ -268,19 +271,24 @@ void WriteDiagnosticPayloads(NSArray<MXDiagnosticPayload*>* payloads)
 #endif
 
 - (void)processPayload:(MXMetricPayload*)payload API_AVAILABLE(ios(13.0)) {
+  // TODO(crbug.com/1140474): See related bug for why |bundleVersion| comes from
+  // mainBundle instead of from version_info::GetVersionNumber(). Remove once
+  // iOS 14.2 reaches mass adoption.
+  NSString* bundleVersion =
+      [[NSBundle mainBundle] infoDictionary][(NSString*)kCFBundleVersionKey];
   if (payload.includesMultipleApplicationVersions ||
       base::SysNSStringToUTF8(payload.metaData.applicationBuildVersion) !=
-          version_info::GetVersionNumber()) {
+          base::SysNSStringToUTF8(bundleVersion)) {
     // The metrics will be reported on the current version of Chrome.
     // Ignore any report that contains data from another version to avoid
     // confusion.
     return;
   }
 
-  ReportDuration("IOS.MetricKit.ForegroundTimePerDay",
-                 payload.applicationTimeMetrics.cumulativeForegroundTime);
-  ReportDuration("IOS.MetricKit.BackgroundTimePerDay",
-                 payload.applicationTimeMetrics.cumulativeBackgroundTime);
+  ReportLongDuration("IOS.MetricKit.ForegroundTimePerDay",
+                     payload.applicationTimeMetrics.cumulativeForegroundTime);
+  ReportLongDuration("IOS.MetricKit.BackgroundTimePerDay",
+                     payload.applicationTimeMetrics.cumulativeBackgroundTime);
   ReportMemory("IOS.MetricKit.AverageSuspendedMemory",
                payload.memoryMetrics.averageSuspendedMemory.averageMeasurement);
   ReportMemory("IOS.MetricKit.PeakMemoryUsage",

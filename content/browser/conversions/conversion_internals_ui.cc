@@ -5,7 +5,7 @@
 #include "content/browser/conversions/conversion_internals_ui.h"
 
 #include "content/browser/conversions/conversion_internals_handler_impl.h"
-#include "content/browser/frame_host/render_frame_host_impl.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/grit/dev_ui_content_resources.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
@@ -21,11 +21,11 @@ ConversionInternalsUI::ConversionInternalsUI(WebUI* web_ui)
     : WebUIController(web_ui) {
   // Initialize the UI with no bindings. Mojo bindings will be separately
   // granted to frames within this WebContents.
-  web_ui->SetBindings(0);
+  web_ui->SetBindings(BINDINGS_POLICY_NONE);
   WebUIDataSource* source =
       WebUIDataSource::Create(kChromeUIConversionInternalsHost);
 
-  source->AddResourcePath("conversion_internals.mojom-lite.js",
+  source->AddResourcePath("conversion_internals.mojom-webui.js",
                           IDR_CONVERSION_INTERNALS_MOJOM_JS);
   source->AddResourcePath("conversion_internals.js",
                           IDR_CONVERSION_INTERNALS_JS);

@@ -1,13 +1,17 @@
+include_rules = [
+    "+base/atomic_sequence_num.h",
+    "+net/base/request_priority.h",
+    "+net/traffic_annotation/network_traffic_annotation.h",
+    "+net/url_request/referrer_policy.h",
+    "+services/network/public/mojom/url_loader.mojom.h",
+]
+
 specific_include_rules = {
     "request_conversion.cc" : [
         "+media/media_buildflags.h"
     ],
-    "web_bundle_subresource_loader.cc" : [
-        "+components/web_package",
-    ],
-    "web_bundle_subresource_loader_test.cc" : [
-        "+components/web_package",
-        "+net/traffic_annotation/network_traffic_annotation_test_helper.h",
-        "+services/network/test/test_url_loader_client.h",
-    ],
+    "sync_load_context_unittest.cc": [
+        "+base/threading/thread.h",
+        "+services/network/test/test_url_loader_factory.h"
+    ]
 }

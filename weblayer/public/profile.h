@@ -25,12 +25,15 @@ class GURL;
 namespace weblayer {
 class CookieManager;
 class DownloadDelegate;
+class GoogleAccountAccessTokenFetchDelegate;
+class PrerenderController;
 
 // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.weblayer_private
 // GENERATED_JAVA_CLASS_NAME_OVERRIDE: ImplBrowsingDataType
 enum class BrowsingDataType {
   COOKIES_AND_SITE_DATA = 0,
   CACHE = 1,
+  SITE_SETTINGS = 2,
 };
 
 // Used for setting/getting profile related settings.
@@ -44,10 +47,9 @@ enum class SettingType {
 
 class Profile {
  public:
-  // Pass an empty |name| for an in-memory profile.
-  // Otherwise, |name| should contain only alphanumeric characters and
-  // underscore.
-  static std::unique_ptr<Profile> Create(const std::string& name);
+  // Creates a new profile.
+  static std::unique_ptr<Profile> Create(const std::string& name,
+                                         bool is_incognito);
 
   // Delete all profile's data from disk. If there are any existing usage
   // of this profile, return |profile| immediately and |done_callback| will not
@@ -73,8 +75,16 @@ class Profile {
   // Sets the DownloadDelegate. If none is set, downloads will be dropped.
   virtual void SetDownloadDelegate(DownloadDelegate* delegate) = 0;
 
+  // Sets the delegate for access token fetches. If none is set, the browser
+  // will not be able to fetch access tokens.
+  virtual void SetGoogleAccountAccessTokenFetchDelegate(
+      GoogleAccountAccessTokenFetchDelegate* delegate) = 0;
+
   // Gets the cookie manager for this profile.
   virtual CookieManager* GetCookieManager() = 0;
+
+  // Gets the prerender controller for this profile.
+  virtual PrerenderController* GetPrerenderController() = 0;
 
   // Asynchronously fetches the set of known Browser persistence-ids. See
   // Browser::PersistenceInfo for more details on persistence-ids.

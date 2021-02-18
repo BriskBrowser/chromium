@@ -10,16 +10,13 @@
 #include "base/containers/span.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
+#include "components/password_manager/core/browser/insecure_credentials_table.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
-
-namespace autofill {
-struct PasswordForm;
-}
 
 namespace password_manager {
 
-struct CompromisedCredentials;
 struct InteractionsStats;
+struct PasswordForm;
 class PasswordFormMetricsRecorder;
 
 // Interface that contains all methods from PasswordFormManager that are used in
@@ -32,17 +29,15 @@ class PasswordFormManagerForUI {
   virtual const GURL& GetURL() const = 0;
 
   // Returns the best saved matches for the observed form.
-  virtual const std::vector<const autofill::PasswordForm*>& GetBestMatches()
-      const = 0;
+  virtual const std::vector<const PasswordForm*>& GetBestMatches() const = 0;
 
   // Returns the federated saved matches for the observed form.
   // TODO(crbug.com/831123): merge with GetBestMatches.
-  virtual std::vector<const autofill::PasswordForm*> GetFederatedMatches()
-      const = 0;
+  virtual std::vector<const PasswordForm*> GetFederatedMatches() const = 0;
 
   // Returns credentials that are ready to be written (saved or updated) to a
   // password store.
-  virtual const autofill::PasswordForm& GetPendingCredentials() const = 0;
+  virtual const PasswordForm& GetPendingCredentials() const = 0;
 
   // Returns who created this PasswordFormManager. The Credential Management API
   // uses a derived class of the PasswordFormManager that can indicate its
@@ -56,15 +51,15 @@ class PasswordFormManagerForUI {
   // Statistics for recent password bubble usage.
   virtual base::span<const InteractionsStats> GetInteractionsStats() const = 0;
 
-  // List of compromised passwords for the current site.
-  virtual base::span<const CompromisedCredentials> GetCompromisedCredentials()
+  // List of insecure passwords for the current site.
+  virtual base::span<const InsecureCredential> GetInsecureCredentials()
       const = 0;
 
   // Determines if the user opted to 'never remember' passwords for this form.
-  virtual bool IsBlacklisted() const = 0;
+  virtual bool IsBlocklisted() const = 0;
 
-  // Checks if the user unblacklisted the origin of the form for saving.
-  virtual bool WasUnblacklisted() const = 0;
+  // Checks if the user unblocklisted the origin of the form for saving.
+  virtual bool WasUnblocklisted() const = 0;
 
   // Determines whether the submitted credentials returned by
   // GetPendingCredentials() can be moved to the signed in account store.
@@ -79,7 +74,7 @@ class PasswordFormManagerForUI {
   // password from the pending credentials. It modifies the pending credentials.
   // |credentials_to_update| should be one of the best matches or the pending
   // credentials.
-  virtual void Update(const autofill::PasswordForm& credentials_to_update) = 0;
+  virtual void Update(const PasswordForm& credentials_to_update) = 0;
 
   // Updates the username value. Called when user edits the username and clicks
   // the save button. Updates the username and modifies internal state
@@ -104,8 +99,8 @@ class PasswordFormManagerForUI {
   virtual void OnNoInteraction(bool is_update) = 0;
 
   // A user opted to 'never remember' passwords for this form.
-  // Blacklist it so that from now on when it is seen we ignore it.
-  virtual void PermanentlyBlacklist() = 0;
+  // Blocklist it so that from now on when it is seen we ignore it.
+  virtual void Blocklist() = 0;
 
   // Called when the passwords were shown on on the bubble without obfuscation.
   virtual void OnPasswordsRevealed() = 0;

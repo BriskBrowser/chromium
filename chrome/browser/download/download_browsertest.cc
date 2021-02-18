@@ -15,7 +15,7 @@
 
 #include "base/base64.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/files/file.h"
@@ -34,12 +34,13 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/system/sys_info.h"
 #include "base/task/post_task.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/test_file_util.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -64,7 +65,6 @@
 #include "chrome/browser/profiles/profile_key.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_browsertest_util.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_test_util.h"
-#include "chrome/browser/reputation/safety_tip_test_utils.h"
 #include "chrome/browser/safe_browsing/download_protection/download_protection_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -95,6 +95,7 @@
 #include "components/metrics/content/subprocess_metrics_provider.h"
 #include "components/permissions/permission_request_manager.h"
 #include "components/prefs/pref_service.h"
+#include "components/reputation/core/safety_tip_test_utils.h"
 #include "components/safe_browsing/buildflags.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/safe_browsing/core/proto/csd.pb.h"
@@ -392,7 +393,7 @@ bool IsDownloadExternallyRemoved(DownloadItem* item) {
   return item->GetFileExternallyRemoved();
 }
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 // Called when a download starts. Marks the download as hidden.
 void SetHiddenDownloadCallback(DownloadItem* item,
                                download::DownloadInterruptReason reason) {
@@ -2337,7 +2338,10 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, CrxDenyInstall) {
       DangerousDownloadWaiter(
           browser(), 1,
           content::DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_DENY));
-  ui_test_utils::NavigateToURL(browser(), extension_url);
+
+  NavigateParams params(browser(), extension_url, ui::PAGE_TRANSITION_TYPED);
+  params.user_gesture = false;
+  ui_test_utils::NavigateToURL(&params);
 
   observer->WaitForFinished();
   EXPECT_EQ(1u, observer->NumDownloadsSeenInState(DownloadItem::CANCELLED));
@@ -2368,7 +2372,9 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, CrxInstallDenysPermissions) {
       DangerousDownloadWaiter(
           browser(), 1,
           content::DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_ACCEPT));
-  ui_test_utils::NavigateToURL(browser(), extension_url);
+  NavigateParams params(browser(), extension_url, ui::PAGE_TRANSITION_TYPED);
+  params.user_gesture = false;
+  ui_test_utils::NavigateToURL(&params);
 
   observer->WaitForFinished();
   EXPECT_EQ(1u, observer->NumDownloadsSeenInState(DownloadItem::COMPLETE));
@@ -2408,7 +2414,9 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, CrxInstallAcceptPermissions) {
       DangerousDownloadWaiter(
           browser(), 1,
           content::DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_ACCEPT));
-  ui_test_utils::NavigateToURL(browser(), extension_url);
+  NavigateParams params(browser(), extension_url, ui::PAGE_TRANSITION_TYPED);
+  params.user_gesture = false;
+  ui_test_utils::NavigateToURL(&params);
 
   observer->WaitForFinished();
   EXPECT_EQ(1u, observer->NumDownloadsSeenInState(DownloadItem::COMPLETE));
@@ -2476,7 +2484,9 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, CrxLargeTheme) {
       DangerousDownloadWaiter(
           browser(), 1,
           content::DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_ACCEPT));
-  ui_test_utils::NavigateToURL(browser(), extension_url);
+  NavigateParams params(browser(), extension_url, ui::PAGE_TRANSITION_TYPED);
+  params.user_gesture = false;
+  ui_test_utils::NavigateToURL(&params);
 
   observer->WaitForFinished();
   EXPECT_EQ(1u, observer->NumDownloadsSeenInState(DownloadItem::COMPLETE));
@@ -2677,7 +2687,8 @@ IN_PROC_BROWSER_TEST_F(DownloadTestWithHistogramTester,
           DownloadManagerForBrowser(browser()), 1,
           content::DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_FAIL));
   content::ContextMenuParams context_menu_params;
-  context_menu_params.media_type = blink::ContextMenuDataMediaType::kImage;
+  context_menu_params.media_type =
+      blink::mojom::ContextMenuDataMediaType::kImage;
   context_menu_params.src_url = url;
   context_menu_params.page_url = url;
   TestRenderViewContextMenu menu(
@@ -2710,7 +2721,12 @@ IN_PROC_BROWSER_TEST_F(DownloadTestWithHistogramTester,
 }
 
 // Times out often on debug ChromeOS because test is slow.
-#if defined(OS_CHROMEOS) && (!defined(NDEBUG) || defined(MEMORY_SANITIZER))
+#if BUILDFLAG(IS_CHROMEOS_ASH) && \
+    (!defined(NDEBUG) || defined(MEMORY_SANITIZER))
+#define MAYBE_SaveLargeImage DISABLED_SaveLargeImage
+#elif defined(OS_WIN) || defined(OS_MAC) || defined(OS_LINUX) || \
+    defined(OS_CHROMEOS)
+// Flaking on Windows, macOS, Linux, ChromeOS. https://crbug.com/1141263
 #define MAYBE_SaveLargeImage DISABLED_SaveLargeImage
 #else
 #define MAYBE_SaveLargeImage SaveLargeImage
@@ -2744,7 +2760,8 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, MAYBE_SaveLargeImage) {
           DownloadManagerForBrowser(browser()), 1,
           content::DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_FAIL));
   content::ContextMenuParams context_menu_params;
-  context_menu_params.media_type = blink::ContextMenuDataMediaType::kImage;
+  context_menu_params.media_type =
+      blink::mojom::ContextMenuDataMediaType::kImage;
   context_menu_params.src_url = GURL(data_url);
   context_menu_params.page_url = url;
   TestRenderViewContextMenu menu(
@@ -2848,7 +2865,8 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, SavePageNonHTMLViaPost) {
           DownloadManagerForBrowser(browser()), 1,
           content::DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_FAIL));
   content::ContextMenuParams context_menu_params;
-  context_menu_params.media_type = blink::ContextMenuDataMediaType::kImage;
+  context_menu_params.media_type =
+      blink::mojom::ContextMenuDataMediaType::kImage;
   context_menu_params.src_url = jpeg_url;
   context_menu_params.page_url = jpeg_url;
   TestRenderViewContextMenu menu(web_contents->GetMainFrame(),
@@ -3130,9 +3148,11 @@ IN_PROC_BROWSER_TEST_P(DownloadReferrerPolicyTest,
   mouse_event.button = blink::WebMouseEvent::Button::kLeft;
   mouse_event.SetPositionInWidget(15, 15);
   mouse_event.click_count = 1;
-  tab->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(mouse_event);
+  tab->GetMainFrame()->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(
+      mouse_event);
   mouse_event.SetType(blink::WebInputEvent::Type::kMouseUp);
-  tab->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(mouse_event);
+  tab->GetMainFrame()->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(
+      mouse_event);
 
   waiter->WaitForFinished();
   EXPECT_EQ(1u, waiter->NumDownloadsSeenInState(DownloadItem::COMPLETE));
@@ -3206,9 +3226,11 @@ IN_PROC_BROWSER_TEST_P(DownloadReferrerPolicyTest, SaveLinkAsReferrerPolicy) {
   mouse_event.button = blink::WebMouseEvent::Button::kRight;
   mouse_event.SetPositionInWidget(15, 15);
   mouse_event.click_count = 1;
-  tab->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(mouse_event);
+  tab->GetMainFrame()->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(
+      mouse_event);
   mouse_event.SetType(blink::WebInputEvent::Type::kMouseUp);
-  tab->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(mouse_event);
+  tab->GetMainFrame()->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(
+      mouse_event);
 
   waiter->WaitForFinished();
   EXPECT_EQ(1u, waiter->NumDownloadsSeenInState(DownloadItem::COMPLETE));
@@ -3289,9 +3311,11 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, SaveLinkAsVsCrossOriginResourcePolicy) {
   mouse_event.button = blink::WebMouseEvent::Button::kRight;
   mouse_event.SetPositionInWidget(15, 15);
   mouse_event.click_count = 1;
-  tab->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(mouse_event);
+  tab->GetMainFrame()->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(
+      mouse_event);
   mouse_event.SetType(blink::WebInputEvent::Type::kMouseUp);
-  tab->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(mouse_event);
+  tab->GetMainFrame()->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(
+      mouse_event);
 
   download_waiter->WaitForFinished();
   EXPECT_EQ(1u,
@@ -3346,7 +3370,8 @@ IN_PROC_BROWSER_TEST_P(DownloadReferrerPolicyTest,
           DownloadManagerForBrowser(browser()), 1,
           content::DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_FAIL));
   content::ContextMenuParams context_menu_params;
-  context_menu_params.media_type = blink::ContextMenuDataMediaType::kImage;
+  context_menu_params.media_type =
+      blink::mojom::ContextMenuDataMediaType::kImage;
   context_menu_params.page_url = url;
   context_menu_params.src_url = img_url;
   TestRenderViewContextMenu menu(
@@ -3426,9 +3451,11 @@ IN_PROC_BROWSER_TEST_P(DownloadReferrerPolicyTest,
   mouse_event.button = blink::WebMouseEvent::Button::kLeft;
   mouse_event.SetPositionInWidget(15, 15);
   mouse_event.click_count = 1;
-  tab->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(mouse_event);
+  tab->GetMainFrame()->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(
+      mouse_event);
   mouse_event.SetType(blink::WebInputEvent::Type::kMouseUp);
-  tab->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(mouse_event);
+  tab->GetMainFrame()->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(
+      mouse_event);
 
   waiter->WaitForFinished();
   EXPECT_EQ(1u, waiter->NumDownloadsSeenInState(DownloadItem::COMPLETE));
@@ -3771,7 +3798,8 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, DownloadTest_PauseResumeCancel) {
 // quarantining files on Mac because it is not a cocoa app.
 // TODO(benjhayden) test the equivalents on other platforms.
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS) && defined(ARCH_CPU_ARM_FAMILY)
+#if (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) && \
+    defined(ARCH_CPU_ARM_FAMILY)
 // Timing out on ARM linux: http://crbug.com/238459
 #define MAYBE_DownloadTest_PercentComplete DISABLED_DownloadTest_PercentComplete
 #else
@@ -4063,7 +4091,7 @@ IN_PROC_BROWSER_TEST_P(DownloadTestWithOptionalSafetyTipsFeature, SafetyTips) {
 
   // When a Safety Tip is triggered, test with the feature both enabled and
   // disabled. The same metrics should be recorded either way.
-  SetSafetyTipBadRepPatterns(
+  reputation::SetSafetyTipBadRepPatterns(
       {embedded_test_server()->GetURL("/").host() + "/"});
 
   base::HistogramTester histogram_tester;
@@ -4176,7 +4204,10 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, CrossOriginDownloadNavigatesIframe) {
   ASSERT_TRUE(origin_three.ShutdownAndWaitUntilComplete());
 }
 
-IN_PROC_BROWSER_TEST_F(DownloadWakeLockTest, WakeLockAcquireAndCancel) {
+// Test is flaky on multiple platforms.
+// https://crbug.com/1064435
+IN_PROC_BROWSER_TEST_F(DownloadWakeLockTest,
+                       DISABLED_WakeLockAcquireAndCancel) {
   Initialize();
   EXPECT_EQ(0, GetActiveWakeLocks(
                    device::mojom::WakeLockType::kPreventAppSuspension));
@@ -4191,7 +4222,8 @@ IN_PROC_BROWSER_TEST_F(DownloadWakeLockTest, WakeLockAcquireAndCancel) {
 }
 
 // Downloading a data URL that's bigger than url::kMaxURLChars should work.
-IN_PROC_BROWSER_TEST_F(DownloadTest, DownloadLargeDataURL) {
+// Flaky: https://crbug.com/1141278
+IN_PROC_BROWSER_TEST_F(DownloadTest, DISABLED_DownloadLargeDataURL) {
   embedded_test_server()->ServeFilesFromDirectory(GetTestDataDirectory());
   ASSERT_TRUE(embedded_test_server()->Start());
 
@@ -4236,7 +4268,50 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, DownloadLargeDataURL) {
 // Testing the behavior of resuming with only in-progress download manager.
 class InProgressDownloadTest : public DownloadTest {
  public:
-  void SetUpOnMainThread() override { EXPECT_TRUE(CheckTestDir()); }
+  InProgressDownloadTest() {
+    // The in progress download manager will be released from
+    // `DownloadManagerUtils` during creation of the `DownloadManagerImpl`. As
+    // the `DownloadManagerImpl` may be created before test bodies can run,
+    // register a callback to cache a pointer before release occurs.
+    DownloadManagerUtils::
+        SetRetrieveInProgressDownloadManagerCallbackForTesting(
+            base::BindRepeating(
+                &InProgressDownloadTest::set_in_progress_manager,
+                base::Unretained(this)));
+  }
+
+  // DownloadTest:
+  void SetUpOnMainThread() override {
+    EXPECT_TRUE(CheckTestDir());
+
+    if (!in_progress_manager_) {
+      // This will only occur if `DownloadManagerImpl` has not already been
+      // created in which case the in progress download manager has not yet been
+      // released from `DownloadManagerUtils`.
+      set_in_progress_manager(
+          DownloadManagerUtils::GetInProgressDownloadManager(
+              browser()->profile()->GetProfileKey()));
+    }
+
+    // As a pointer to the in progress download manager has now been cached,
+    // watching for release from `DownloadManagerUtils` (if it has not already
+    // occurred) is no longer necessary.
+    DownloadManagerUtils::
+        SetRetrieveInProgressDownloadManagerCallbackForTesting(
+            base::NullCallback());
+  }
+
+  download::InProgressDownloadManager* in_progress_manager() {
+    return in_progress_manager_;
+  }
+
+  void set_in_progress_manager(
+      download::InProgressDownloadManager* in_progress_manager) {
+    in_progress_manager_ = in_progress_manager;
+  }
+
+ private:
+  download::InProgressDownloadManager* in_progress_manager_ = nullptr;
 };
 
 // Check that if a download exists in both in-progress and history DB,
@@ -4258,9 +4333,6 @@ IN_PROC_BROWSER_TEST_F(InProgressDownloadTest,
   std::string guid = base::GenerateGUID();
 
   // Wait for in-progress download manager to initialize.
-  download::InProgressDownloadManager* in_progress_manager =
-      DownloadManagerUtils::GetInProgressDownloadManager(
-          browser()->profile()->GetProfileKey());
   download::SimpleDownloadManagerCoordinator* coordinator =
       SimpleDownloadManagerCoordinatorFactory::GetForKey(
           browser()->profile()->GetProfileKey());
@@ -4275,9 +4347,9 @@ IN_PROC_BROWSER_TEST_F(InProgressDownloadTest,
   std::vector<GURL> url_chain;
   url_chain.emplace_back(url);
   base::Time current_time = base::Time::Now();
-  in_progress_manager->AddInProgressDownloadForTest(
+  in_progress_manager()->AddInProgressDownloadForTest(
       std::make_unique<download::DownloadItemImpl>(
-          in_progress_manager, guid, 1 /* id */,
+          in_progress_manager(), guid, 1 /* id */,
           target_path.AddExtensionASCII("crdownload"), target_path, url_chain,
           GURL() /* referrer_url */, GURL() /* site_url */,
           GURL() /* tab_url */, GURL() /* tab_referrer_url */,
@@ -4327,9 +4399,6 @@ IN_PROC_BROWSER_TEST_F(InProgressDownloadTest,
   std::string guid = base::GenerateGUID();
 
   // Wait for in-progress download manager to initialize.
-  download::InProgressDownloadManager* in_progress_manager =
-      DownloadManagerUtils::GetInProgressDownloadManager(
-          browser()->profile()->GetProfileKey());
   download::SimpleDownloadManagerCoordinator* coordinator =
       SimpleDownloadManagerCoordinatorFactory::GetForKey(
           browser()->profile()->GetProfileKey());
@@ -4350,14 +4419,14 @@ IN_PROC_BROWSER_TEST_F(InProgressDownloadTest,
   params->set_file_path(target_path);
   params->set_transient(true);
   params->set_require_safety_checks(false);
-  in_progress_manager->DownloadUrl(std::move(params));
+  in_progress_manager()->DownloadUrl(std::move(params));
   auto params2 = std::make_unique<DownloadUrlParameters>(
       url, TRAFFIC_ANNOTATION_FOR_TESTS);
   params2->set_guid(guid);
   params2->set_file_path(target_path);
   params2->set_transient(true);
   params2->set_require_safety_checks(false);
-  in_progress_manager->DownloadUrl(std::move(params2));
+  in_progress_manager()->DownloadUrl(std::move(params2));
   coordinator_waiter.WaitForDownloadCreation(1);
   download::DownloadItem* download = coordinator->GetDownloadByGuid(guid);
   ASSERT_TRUE(download);
@@ -4368,6 +4437,45 @@ IN_PROC_BROWSER_TEST_F(InProgressDownloadTest,
 
   // Only 1 download is created above, no more new downloads are created.
   ASSERT_EQ(coordinator_waiter.num_download_created(), 1);
+}
+
+// Tests that download a canvas image will show the file chooser.
+IN_PROC_BROWSER_TEST_F(DownloadTest, SaveCanvasImage) {
+  EnableFileChooser(true);
+  embedded_test_server()->ServeFilesFromDirectory(GetTestDataDirectory());
+  ASSERT_TRUE(embedded_test_server()->Start());
+  GURL url =
+      embedded_test_server()->GetURL("/downloads/page_with_canvas_image.html");
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  // Try to download a canvas image via a context menu.
+  std::unique_ptr<content::DownloadTestObserver> waiter(
+      new content::DownloadTestObserverTerminal(
+          DownloadManagerForBrowser(browser()), 1,
+          content::DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_FAIL));
+
+  // Right-click on the link and choose Save Image As. This will download the
+  // canvas image.
+  ContextMenuNotificationObserver context_menu_observer(
+      IDC_CONTENT_CONTEXT_SAVEIMAGEAS);
+
+  WebContents* tab = browser()->tab_strip_model()->GetActiveWebContents();
+  blink::WebMouseEvent mouse_event(
+      blink::WebInputEvent::Type::kMouseDown,
+      blink::WebInputEvent::kNoModifiers,
+      blink::WebInputEvent::GetStaticTimeStampForTests());
+  mouse_event.button = blink::WebMouseEvent::Button::kRight;
+  mouse_event.SetPositionInWidget(15, 15);
+  mouse_event.click_count = 1;
+  tab->GetMainFrame()->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(
+      mouse_event);
+  mouse_event.SetType(blink::WebInputEvent::Type::kMouseUp);
+  tab->GetMainFrame()->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(
+      mouse_event);
+  waiter->WaitForFinished();
+  EXPECT_EQ(1u, waiter->NumDownloadsSeenInState(DownloadItem::COMPLETE));
+  CheckDownloadStates(1, DownloadItem::COMPLETE);
+  EXPECT_TRUE(DidShowFileChooser());
 }
 
 #if BUILDFLAG(FULL_SAFE_BROWSING)
@@ -4697,7 +4805,7 @@ IN_PROC_BROWSER_TEST_F(
 
 // The rest of these tests rely on the download shelf, which ChromeOS doesn't
 // use.
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 // Test that the download shelf is shown by starting a download.
 IN_PROC_BROWSER_TEST_F(DownloadTest, DownloadAndWait) {
   embedded_test_server()->ServeFilesFromDirectory(GetTestDataDirectory());
@@ -4955,11 +5063,13 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, CrxDenyInstallClosesShelf) {
       DangerousDownloadWaiter(
           browser(), 1,
           content::DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_DENY));
-  ui_test_utils::NavigateToURL(browser(), extension_url);
+  NavigateParams params(browser(), extension_url, ui::PAGE_TRANSITION_TYPED);
+  params.user_gesture = false;
+  ui_test_utils::NavigateToURL(&params);
 
   observer->WaitForFinished();
 
   // Download shelf should close.
   EXPECT_FALSE(browser()->window()->IsDownloadShelfVisible());
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)

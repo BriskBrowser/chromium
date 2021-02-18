@@ -12,11 +12,19 @@
 #error "This file requires ARC support."
 #endif
 
-#if defined(CHROME_EARL_GREY_2)
 GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeMatchersAppInterface)
-#endif
 
 namespace chrome_test_util {
+
+id<GREYMatcher> WindowWithNumber(int window_number) {
+  return [ChromeMatchersAppInterface windowWithNumber:window_number];
+}
+
+id<GREYMatcher> MatchInWindowWithNumber(int window_number,
+                                        id<GREYMatcher> matcher) {
+  return grey_allOf(matcher, grey_ancestor(WindowWithNumber(window_number)),
+                    nil);
+}
 
 id<GREYMatcher> ButtonWithAccessibilityLabel(NSString* label) {
   return [ChromeMatchersAppInterface buttonWithAccessibilityLabel:label];
@@ -47,12 +55,35 @@ id<GREYMatcher> StaticTextWithAccessibilityLabel(NSString* label) {
   return [ChromeMatchersAppInterface staticTextWithAccessibilityLabel:label];
 }
 
+id<GREYMatcher> ContainsPartialText(NSString* text) {
+  GREYMatchesBlock matches = ^BOOL(id element) {
+    return [[element text] containsString:text];
+  };
+  GREYDescribeToBlock describe = ^void(id<GREYDescription> description) {
+    [description
+        appendText:[NSString
+                       stringWithFormat:@"containsPartialText('%@')", text]];
+  };
+  id<GREYMatcher> matcher =
+      [[GREYElementMatcherBlock alloc] initWithMatchesBlock:matches
+                                           descriptionBlock:describe];
+  return grey_allOf(grey_anyOf(grey_kindOfClassName(@"UILabel"),
+                               grey_kindOfClassName(@"UITextField"),
+                               grey_kindOfClassName(@"UITextView"), nil),
+                    matcher, nil);
+}
+
 id<GREYMatcher> HeaderWithAccessibilityLabelId(int message_id) {
   return [ChromeMatchersAppInterface headerWithAccessibilityLabelID:message_id];
 }
 
 id<GREYMatcher> HeaderWithAccessibilityLabel(NSString* label) {
   return [ChromeMatchersAppInterface headerWithAccessibilityLabel:label];
+}
+
+id<GREYMatcher> NavigationBarTitleWithAccessibilityLabelId(int label_id) {
+  return [ChromeMatchersAppInterface
+      navigationBarTitleWithAccessibilityLabelID:label_id];
 }
 
 id<GREYMatcher> TextFieldForCellWithLabelId(int message_id) {
@@ -135,6 +166,10 @@ id<GREYMatcher> ShareButton() {
   return [ChromeMatchersAppInterface shareButton];
 }
 
+id<GREYMatcher> TabShareButton() {
+  return [ChromeMatchersAppInterface tabShareButton];
+}
+
 id<GREYMatcher> ShowTabsButton() {
   return [ChromeMatchersAppInterface showTabsButton];
 }
@@ -161,6 +196,11 @@ id<GREYMatcher> SyncSwitchCell(NSString* accessibility_label,
 
 id<GREYMatcher> OpenLinkInNewTabButton() {
   return [ChromeMatchersAppInterface openLinkInNewTabButton];
+}
+
+id<GREYMatcher> OpenLinkInIncognitoButton(BOOL use_new_string) {
+  return [ChromeMatchersAppInterface
+      openLinkInIncognitoButtonWithUseNewString:use_new_string];
 }
 
 id<GREYMatcher> OpenLinkInNewWindowButton() {
@@ -215,12 +255,24 @@ id<GREYMatcher> SyncSettingsConfirmButton() {
   return [ChromeMatchersAppInterface syncSettingsConfirmButton];
 }
 
+id<GREYMatcher> AutofillCreditCardEditTableView() {
+  return [ChromeMatchersAppInterface autofillCreditCardEditTableView];
+}
+
 id<GREYMatcher> AutofillCreditCardTableView() {
   return [ChromeMatchersAppInterface autofillCreditCardTableView];
 }
 
+id<GREYMatcher> AddressesAndMoreButton() {
+  return [ChromeMatchersAppInterface addressesAndMoreButton];
+}
+
 id<GREYMatcher> PaymentMethodsButton() {
   return [ChromeMatchersAppInterface paymentMethodsButton];
+}
+
+id<GREYMatcher> LanguagesButton() {
+  return [ChromeMatchersAppInterface languagesButton];
 }
 
 id<GREYMatcher> AddCreditCardView() {
@@ -237,10 +289,6 @@ id<GREYMatcher> AddCreditCardButton() {
 
 id<GREYMatcher> AddCreditCardCancelButton() {
   return [ChromeMatchersAppInterface addCreditCardCancelButton];
-}
-
-id<GREYMatcher> CreditCardScannerView() {
-  return [ChromeMatchersAppInterface creditCardScannerView];
 }
 
 id<GREYMatcher> ToolsMenuView() {
@@ -301,6 +349,11 @@ id<GREYMatcher> GoogleServicesSettingsView() {
 
 id<GREYMatcher> SettingsMenuBackButton() {
   return [ChromeMatchersAppInterface settingsMenuBackButton];
+}
+
+id<GREYMatcher> SettingsMenuBackButton(int window_number) {
+  return [ChromeMatchersAppInterface
+      settingsMenuBackButtonInWindowWithNumber:window_number];
 }
 
 id<GREYMatcher> SettingsMenuPrivacyButton() {
@@ -367,6 +420,10 @@ id<GREYMatcher> PaymentRequestPickerSearchBar() {
   return [ChromeMatchersAppInterface paymentRequestPickerSearchBar];
 }
 
+id<GREYMatcher> OpenNewWindowMenuButton() {
+  return [ChromeMatchersAppInterface openNewWindowMenuButton];
+}
+
 id<GREYMatcher> ReadingListMenuButton() {
   return [ChromeMatchersAppInterface readingListMenuButton];
 }
@@ -383,8 +440,41 @@ id<GREYMatcher> SystemSelectionCallout() {
   return [ChromeMatchersAppInterface systemSelectionCallout];
 }
 
+id<GREYMatcher> SystemSelectionCalloutLinkToTextButton() {
+  return [ChromeMatchersAppInterface systemSelectionCalloutLinkToTextButton];
+}
+
 id<GREYMatcher> SystemSelectionCalloutCopyButton() {
   return [ChromeMatchersAppInterface systemSelectionCalloutCopyButton];
+}
+
+id<GREYMatcher> CopyActivityButton() API_AVAILABLE(ios(13)) {
+  return [ChromeMatchersAppInterface copyActivityButton];
+}
+
+id<GREYMatcher> CopyLinkButton(BOOL use_new_string) {
+  return [ChromeMatchersAppInterface
+      copyLinkButtonWithUseNewString:use_new_string];
+}
+
+id<GREYMatcher> EditButton(BOOL use_new_string) {
+  return [ChromeMatchersAppInterface editButtonWithUseNewString:use_new_string];
+}
+
+id<GREYMatcher> MoveButton() {
+  return [ChromeMatchersAppInterface moveButton];
+}
+
+id<GREYMatcher> ReadingListMarkAsReadButton() {
+  return [ChromeMatchersAppInterface readingListMarkAsReadButton];
+}
+
+id<GREYMatcher> ReadingListMarkAsUnreadButton() {
+  return [ChromeMatchersAppInterface readingListMarkAsUnreadButton];
+}
+
+id<GREYMatcher> DeleteButton() {
+  return [ChromeMatchersAppInterface deleteButton];
 }
 
 id<GREYMatcher> ContextMenuCopyButton() {
@@ -591,6 +681,10 @@ id<GREYMatcher> ManualFallbackAddCreditCardsMatcher() {
 id<GREYMatcher> ManualFallbackCreditCardTableViewWindowMatcher() {
   return [ChromeMatchersAppInterface
       manualFallbackCreditCardTableViewWindowMatcher];
+}
+
+id<GREYMatcher> ActivityViewHeader(NSString* page_title) {
+  return [ChromeMatchersAppInterface activityViewHeaderWithTitle:page_title];
 }
 
 }  // namespace chrome_test_util

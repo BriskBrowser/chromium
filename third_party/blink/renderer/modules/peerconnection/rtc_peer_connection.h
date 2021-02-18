@@ -68,7 +68,7 @@ class RTCDtlsTransport;
 class RTCDTMFSender;
 class RTCDataChannel;
 class RTCDataChannelInit;
-class RTCIceCandidateInitOrRTCIceCandidate;
+class RTCIceCandidateInit;
 class RTCIceTransport;
 class RTCOfferOptions;
 class RTCPeerConnectionTest;
@@ -103,8 +103,7 @@ enum class SdpUsageCategory {
 };
 
 MODULES_EXPORT SdpUsageCategory
-DeduceSdpUsageCategory(const String& sdp_type,
-                       const String& sdp,
+DeduceSdpUsageCategory(const ParsedSessionDescription& parsed_sdp,
                        bool sdp_semantics_specified,
                        webrtc::SdpSemantics sdp_semantics);
 
@@ -212,10 +211,10 @@ class MODULES_EXPORT RTCPeerConnection final
       ExceptionState&);
 
   ScriptPromise addIceCandidate(ScriptState*,
-                                const RTCIceCandidateInitOrRTCIceCandidate&,
+                                const RTCIceCandidateInit*,
                                 ExceptionState&);
   ScriptPromise addIceCandidate(ScriptState*,
-                                const RTCIceCandidateInitOrRTCIceCandidate&,
+                                const RTCIceCandidateInit*,
                                 V8VoidFunction*,
                                 V8RTCPeerConnectionErrorCallback*,
                                 ExceptionState&);
@@ -319,9 +318,8 @@ class MODULES_EXPORT RTCPeerConnection final
     kSetLocalDescription,
     kSetRemoteDescription,
   };
-  void ReportSetSdpUsage(
-      SetSdpOperationType operation_type,
-      const RTCSessionDescriptionInit* session_description_init) const;
+  void ReportSetSdpUsage(SetSdpOperationType operation_type,
+                         const ParsedSessionDescription& parsed_sdp) const;
 
   // MediaStreamObserver
   void OnStreamAddTrack(MediaStream*, MediaStreamTrack*) override;
@@ -342,18 +340,20 @@ class MODULES_EXPORT RTCPeerConnection final
       RTCSessionDescriptionPlatform* current_local_description,
       RTCSessionDescriptionPlatform* pending_remote_description,
       RTCSessionDescriptionPlatform* current_remote_description) override;
-  void DidChangeSignalingState(
-      webrtc::PeerConnectionInterface::SignalingState) override;
   void DidChangeIceGatheringState(
       webrtc::PeerConnectionInterface::IceGatheringState) override;
   void DidChangeIceConnectionState(
       webrtc::PeerConnectionInterface::IceConnectionState) override;
   void DidChangePeerConnectionState(
       webrtc::PeerConnectionInterface::PeerConnectionState) override;
-  void DidAddReceiverPlanB(std::unique_ptr<RTCRtpReceiverPlatform>) override;
-  void DidRemoveReceiverPlanB(std::unique_ptr<RTCRtpReceiverPlatform>) override;
+  void DidModifyReceiversPlanB(
+      webrtc::PeerConnectionInterface::SignalingState,
+      Vector<std::unique_ptr<RTCRtpReceiverPlatform>> platform_receivers_added,
+      Vector<std::unique_ptr<RTCRtpReceiverPlatform>>
+          platform_receivers_removed) override;
   void DidModifySctpTransport(WebRTCSctpTransportSnapshot) override;
-  void DidModifyTransceivers(Vector<std::unique_ptr<RTCRtpTransceiverPlatform>>,
+  void DidModifyTransceivers(webrtc::PeerConnectionInterface::SignalingState,
+                             Vector<std::unique_ptr<RTCRtpTransceiverPlatform>>,
                              Vector<uintptr_t>,
                              bool is_remote_description) override;
   void DidAddRemoteDataChannel(
@@ -387,7 +387,7 @@ class MODULES_EXPORT RTCPeerConnection final
   // explicitly specifying the SDP format, there may be errors if the
   // application assumes a format that differs from the actual default format.
   base::Optional<ComplexSdpCategory> CheckForComplexSdp(
-      const RTCSessionDescriptionInit* session_description_init) const;
+      const ParsedSessionDescription&) const;
 
   const CallSetupStateTracker& call_setup_state_tracker() const;
   void NoteCallSetupStateEventPending(
@@ -458,10 +458,10 @@ class MODULES_EXPORT RTCPeerConnection final
   void Dispose();
 
   void MaybeDispatchEvent(Event*);
+  // TODO(hbos): Remove any remaining uses of ScheduleDispatchEvent.
   void ScheduleDispatchEvent(Event*);
   void ScheduleDispatchEvent(Event*, BoolFunction);
   void DispatchScheduledEvents();
-  void MaybeFireNegotiationNeeded();
   MediaStreamTrack* GetTrack(MediaStreamComponent*) const;
   RTCRtpSender* FindSenderForTrackAndStream(MediaStreamTrack*, MediaStream*);
   HeapVector<Member<RTCRtpSender>>::iterator FindSender(
@@ -566,15 +566,17 @@ class MODULES_EXPORT RTCPeerConnection final
 
   void CloseInternal();
 
-  void RecordRapporMetrics();
-
   DOMException* checkSdpForStateErrors(ExecutionContext*,
-                                       const RTCSessionDescriptionInit*,
-                                       String* sdp);
-  void MaybeWarnAboutUnsafeSdp(
-      const RTCSessionDescriptionInit* session_description_init) const;
+                                       const ParsedSessionDescription&);
+  void RecordSdpCategoryAndMaybeEmitWarnings(
+      const ParsedSessionDescription&) const;
 
   HeapHashSet<Member<RTCIceTransport>> ActiveIceTransports() const;
+
+  // Disables the back-forward cache usage. This is called when it becomes
+  // possible for a connection to happen, as a page with connections cannot be
+  // put into the cache so far.
+  void DisableBackForwardCache(ExecutionContext* context);
 
   Member<RTCSessionDescription> pending_local_description_;
   Member<RTCSessionDescription> current_local_description_;
@@ -627,7 +629,6 @@ class MODULES_EXPORT RTCPeerConnection final
   FrameScheduler::SchedulingAffectingFeatureHandle
       feature_handle_for_scheduler_;
 
-  bool negotiation_needed_;
   // When the |peer_handler_| is unregistered, the native peer connection is
   // closed and disappears from the chrome://webrtc-internals page. This happens
   // when page context is destroyed.
@@ -659,7 +660,7 @@ class MODULES_EXPORT RTCPeerConnection final
   String last_answer_;
 
   Member<RTCSctpTransport> sctp_transport_;
-  bool has_data_channels_;  // For RAPPOR metrics
+
   // In Plan B, senders and receivers are added or removed independently of one
   // another. In Unified Plan, senders and receivers are created in pairs as
   // transceivers. Transceivers may become inactive, but are never removed.

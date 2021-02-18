@@ -10,6 +10,8 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/grid_layout.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/style/typography.h"
 
 namespace {
@@ -20,12 +22,13 @@ namespace {
 // by that class is incompatible with the WebAuthn UI spec.
 class IconWrapper : public views::View {
  public:
+  METADATA_HEADER(IconWrapper);
   explicit IconWrapper(std::unique_ptr<views::View> icon)
       : icon_(AddChildView(std::move(icon))) {
     SetLayoutManager(std::make_unique<views::BoxLayout>(
         views::BoxLayout::Orientation::kHorizontal));
     // Make sure hovering over the icon also hovers the |HoverButton|.
-    set_can_process_events_within_subtree(false);
+    SetCanProcessEventsWithinSubtree(false);
     // Don't cover |icon| when the ink drops are being painted.
     SetPaintToLayer();
     layer()->SetFillsBoundsOpaquely(false);
@@ -35,16 +38,19 @@ class IconWrapper : public views::View {
   views::View* icon_;
 };
 
+BEGIN_METADATA(IconWrapper, views::View)
+END_METADATA
+
 }  // namespace
 
 WebAuthnHoverButton::WebAuthnHoverButton(
-    views::ButtonListener* listener,
+    PressedCallback callback,
     std::unique_ptr<views::ImageView> icon,
     const base::string16& title_text,
     const base::string16& subtitle_text,
     std::unique_ptr<views::View> secondary_icon,
     bool force_two_line)
-    : HoverButton(listener, base::string16()) {
+    : HoverButton(std::move(callback), base::string16()) {
   ChromeLayoutProvider* layout_provider = ChromeLayoutProvider::Get();
 
   views::GridLayout* grid_layout =
@@ -136,3 +142,6 @@ WebAuthnHoverButton::WebAuthnHoverButton(
 
   Layout();
 }
+
+BEGIN_METADATA(WebAuthnHoverButton, HoverButton)
+END_METADATA

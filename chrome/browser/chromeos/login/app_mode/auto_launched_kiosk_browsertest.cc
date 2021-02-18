@@ -11,10 +11,10 @@
 #include "base/files/file_path.h"
 #include "base/run_loop.h"
 #include "base/values.h"
+#include "chrome/browser/ash/app_mode/fake_cws.h"
+#include "chrome/browser/ash/app_mode/kiosk_app_launch_error.h"
+#include "chrome/browser/ash/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/chromeos/app_mode/fake_cws.h"
-#include "chrome/browser/chromeos/app_mode/kiosk_app_launch_error.h"
-#include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/chromeos/login/app_mode/kiosk_launch_controller.h"
 #include "chrome/browser/chromeos/login/test/device_state_mixin.h"
 #include "chrome/browser/chromeos/login/test/embedded_test_server_mixin.h"
@@ -75,8 +75,8 @@ constexpr char kTestManagementApiKioskApp[] =
     "adinpkdaebaiabdlinlbjmenialdhibc";
 
 // Secondary kiosk app that runs tests for chrome.management API.
-// The app is loaded alongside |kTestManagementApiKioskApp|. The tests are run
-// in the response to a message sent from |kTestManagementApiKioskApp|.
+// The app is loaded alongside `kTestManagementApiKioskApp`. The tests are run
+// in the response to a message sent from `kTestManagementApiKioskApp`.
 // The app's CRX is located under:
 //   chrome/test/data/chromeos/app_mode/webstore/downloads/
 //       kajpgkhinciaiihghpdamekpjpldgpfi.crx
@@ -342,7 +342,8 @@ IN_PROC_BROWSER_TEST_F(AutoLaunchedNonKioskEnabledAppTest, NotLaunched) {
   termination_waiter.Wait();
 
   EXPECT_FALSE(listener.was_satisfied());
-  EXPECT_EQ(KioskAppLaunchError::NOT_KIOSK_ENABLED, KioskAppLaunchError::Get());
+  EXPECT_EQ(KioskAppLaunchError::Error::kNotKioskEnabled,
+            KioskAppLaunchError::Get());
 }
 
 // Used to test management API availability in kiosk sessions.

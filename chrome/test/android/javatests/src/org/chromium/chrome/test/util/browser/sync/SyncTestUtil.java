@@ -13,9 +13,9 @@ import org.json.JSONException;
 import org.json.JSONObject;
 import org.junit.Assert;
 
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.chrome.browser.sync.ProfileSyncService;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 import java.util.ArrayList;
@@ -61,23 +61,23 @@ public final class SyncTestUtil {
     }
 
     /**
-     * Returns whether sync is active.
+     * Returns whether sync-the-feature is active.
      */
-    public static boolean isSyncActive() {
+    public static boolean isSyncFeatureActive() {
         return TestThreadUtils.runOnUiThreadBlockingNoException(new Callable<Boolean>() {
             @Override
             public Boolean call() {
-                return ProfileSyncService.get().isSyncActive();
+                return ProfileSyncService.get().isSyncFeatureActive();
             }
         });
     }
 
     /**
-     * Waits for sync to become active.
+     * Waits for sync-the-feature to become active.
      */
-    public static void waitForSyncActive() {
+    public static void waitForSyncFeatureActive() {
         CriteriaHelper.pollUiThread(()
-                                            -> ProfileSyncService.get().isSyncActive(),
+                                            -> ProfileSyncService.get().isSyncFeatureActive(),
                 "Timed out waiting for sync to become active.", TIMEOUT_MS, INTERVAL_MS);
     }
 

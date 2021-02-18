@@ -24,7 +24,7 @@
 #include "base/system/sys_info.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
-#include "build/lacros_buildflags.h"
+#include "build/chromeos_buildflags.h"
 #include "components/metrics/delegating_provider.h"
 #include "components/metrics/environment_recorder.h"
 #include "components/metrics/histogram_encoder.h"
@@ -76,6 +76,19 @@ static int64_t ToMonotonicSeconds(base::TimeTicks time_ticks) {
 }
 
 }  // namespace
+
+namespace internal {
+
+SystemProfileProto::InstallerPackage ToInstallerPackage(
+    base::StringPiece installer_package_name) {
+  if (installer_package_name.empty())
+    return SystemProfileProto::INSTALLER_PACKAGE_NONE;
+  if (installer_package_name == "com.android.vending")
+    return SystemProfileProto::INSTALLER_PACKAGE_GOOGLE_PLAY_STORE;
+  return SystemProfileProto::INSTALLER_PACKAGE_OTHER;
+}
+
+}  // namespace internal
 
 MetricsLog::IndependentMetricsLoader::IndependentMetricsLoader(
     std::unique_ptr<MetricsLog> log)
@@ -163,6 +176,7 @@ void MetricsLog::RecordUserAction(const std::string& key,
   UserActionEventProto* user_action = uma_proto_.add_user_action_event();
   user_action->set_name_hash(Hash(key));
   user_action->set_time_sec(ToMonotonicSeconds(action_time));
+  base::UmaHistogramBoolean("UMA.UserActionsCount", true);
 }
 
 // static
@@ -202,6 +216,9 @@ void MetricsLog::RecordCoreSystemProfile(
   // crbug.com/370104 for details.
   hardware->set_cpu_architecture(base::SysInfo::OperatingSystemArchitecture());
 #endif
+  auto app_os_arch = base::SysInfo::ProcessCPUArchitecture();
+  if (!app_os_arch.empty())
+    hardware->set_app_cpu_architecture(app_os_arch);
   hardware->set_system_ram_mb(base::SysInfo::AmountOfPhysicalMemoryMB());
   hardware->set_hardware_class(base::SysInfo::HardwareModelName());
 #if defined(OS_WIN)
@@ -209,11 +226,11 @@ void MetricsLog::RecordCoreSystemProfile(
 #endif
 
   metrics::SystemProfileProto::OS* os = system_profile->mutable_os();
-#if BUILDFLAG(IS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
   // The Lacros browser runs on Chrome OS, but reports a special OS name to
   // differentiate itself from the built-in ash browser + window manager binary.
   os->set_name("Lacros");
-#elif defined(OS_CHROMEOS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH)
   os->set_name("CrOS");
 #else
   os->set_name(base::SysInfo::OperatingSystemName());
@@ -222,19 +239,21 @@ void MetricsLog::RecordCoreSystemProfile(
 
 // On ChromeOS, KernelVersion refers to the Linux kernel version and
 // OperatingSystemVersion refers to the ChromeOS release version.
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   os->set_kernel_version(base::SysInfo::KernelVersion());
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   // Linux operating system version is copied over into kernel version to be
   // consistent.
   os->set_kernel_version(base::SysInfo::OperatingSystemVersion());
 #endif
 
 #if defined(OS_ANDROID)
-  os->set_build_fingerprint(
-      base::android::BuildInfo::GetInstance()->android_build_fp());
+  const auto* build_info = base::android::BuildInfo::GetInstance();
+  os->set_build_fingerprint(build_info->android_build_fp());
   if (!package_name.empty() && package_name != "com.android.chrome")
     system_profile->set_app_package_name(package_name);
+  system_profile->set_installer_package(
+      internal::ToInstallerPackage(build_info->installer_package_name()));
 #elif defined(OS_IOS)
   os->set_build_number(base::SysInfo::GetIOSBuildNumber());
 #endif

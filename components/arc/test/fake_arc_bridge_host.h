@@ -20,6 +20,9 @@ class FakeArcBridgeHost : public mojom::ArcBridgeHost {
   void OnAccessibilityHelperInstanceReady(
       mojo::PendingRemote<mojom::AccessibilityHelperInstance>
           accessibility_helper_remote) override;
+  void OnAdbdMonitorInstanceReady(
+      mojo::PendingRemote<mojom::AdbdMonitorInstance> adbd_monitor_remote)
+      override;
   void OnAppInstanceReady(
       mojo::PendingRemote<mojom::AppInstance> app_ptr) override;
   void OnAppPermissionsInstanceReady(
@@ -51,6 +54,9 @@ class FakeArcBridgeHost : public mojom::ArcBridgeHost {
   void OnCrashCollectorInstanceReady(
       mojo::PendingRemote<mojom::CrashCollectorInstance> crash_collector_remote)
       override;
+  void OnDigitalGoodsInstanceReady(
+      mojo::PendingRemote<mojom::DigitalGoodsInstance> digital_goods_remote)
+      override;
   void OnDiskQuotaInstanceReady(
       mojo::PendingRemote<mojom::DiskQuotaInstance> disk_quota_remote) override;
   void OnEnterpriseReportingInstanceReady(
@@ -58,6 +64,8 @@ class FakeArcBridgeHost : public mojom::ArcBridgeHost {
           enterprise_reporting_remote) override;
   void OnFileSystemInstanceReady(mojo::PendingRemote<mojom::FileSystemInstance>
                                      file_system_remote) override;
+  void OnIioSensorInstanceReady(
+      mojo::PendingRemote<mojom::IioSensorInstance> iio_sensor_remote) override;
   void OnImeInstanceReady(
       mojo::PendingRemote<mojom::ImeInstance> ime_remote) override;
   void OnInputMethodManagerInstanceReady(
@@ -111,6 +119,8 @@ class FakeArcBridgeHost : public mojom::ArcBridgeHost {
       override;
   void OnSensorInstanceReady(
       mojo::PendingRemote<mojom::SensorInstance> sensor_remote) override;
+  void OnSharesheetInstanceReady(mojo::PendingRemote<mojom::SharesheetInstance>
+                                     sharesheet_remote) override;
   void OnSmartCardManagerInstanceReady(
       mojo::PendingRemote<mojom::SmartCardManagerInstance>
           smart_card_manager_remote) override;

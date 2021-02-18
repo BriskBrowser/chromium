@@ -5,7 +5,6 @@
 #include "ui/events/platform/x11/x11_event_watcher_fdwatch.h"
 
 #include "base/task/current_thread.h"
-#include "ui/gfx/x/x11.h"
 
 namespace ui {
 
@@ -22,7 +21,7 @@ void X11EventWatcherFdWatch::StartWatching() {
 
   DCHECK(event_source_->connection()) << "Unable to get connection to X server";
 
-  int fd = ConnectionNumber(event_source_->connection()->display());
+  int fd = event_source_->connection()->GetFd();
   base::CurrentUIThread::Get()->WatchFileDescriptor(
       fd, true, base::MessagePumpForUI::WATCH_READ, &watcher_controller_, this);
   started_ = true;

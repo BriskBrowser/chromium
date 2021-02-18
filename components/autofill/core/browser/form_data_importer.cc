@@ -19,6 +19,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "components/autofill/core/browser/address_profiles/address_profile_save_manager.h"
 #include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/autofill_metrics.h"
 #include "components/autofill/core/browser/autofill_type.h"
@@ -51,22 +52,33 @@ using AddressImportRequirement =
 
 // Return true if the |field_type| and |value| are valid within the context
 // of importing a form.
-bool IsValidFieldTypeAndValue(const std::set<ServerFieldType>& types_seen,
+bool IsValidFieldTypeAndValue(const ServerFieldTypeSet types_seen,
                               ServerFieldType field_type,
                               const base::string16& value,
                               LogBuffer* import_log_buffer) {
   // Abandon the import if two fields of the same type are encountered.
   // This indicates ambiguous data or miscategorization of types.
-  // Make an exception for PHONE_HOME_NUMBER however as both prefix and
-  // suffix are stored against this type, and for EMAIL_ADDRESS because it is
-  // common to see second 'confirm email address' fields on forms.
-  if (types_seen.count(field_type) && field_type != PHONE_HOME_NUMBER &&
-      field_type != EMAIL_ADDRESS) {
+  // Make an exception for:
+  // - EMAIL_ADDRESS because it is common to see second 'confirm email address'
+  // field;
+  // - PHONE_HOME_NUMBER because it is used to store both prefix and suffix of a
+  // single number;
+  // - phone number components because a form might request several phone
+  // numbers.
+  // TODO(crbug.com/1156315) Remove feature & PHONE_HOME_NUMBER checks when
+  // launched.
+  auto field_type_group = AutofillType(field_type).group();
+  if (types_seen.count(field_type) && field_type != EMAIL_ADDRESS &&
+      (base::FeatureList::IsEnabled(
+           features::kAutofillEnableImportWhenMultiplePhoneNumbers)
+           ? field_type_group != FieldTypeGroup::kPhoneBilling &&
+                 field_type_group != FieldTypeGroup::kPhoneHome
+           : field_type != PHONE_HOME_NUMBER)) {
     if (import_log_buffer) {
       *import_log_buffer << LogMessage::kImportAddressProfileFromFormFailed
                          << "Multiple fields of type "
-                         << AutofillType(field_type).ToString() << "."
-                         << CTag{};
+                         << AutofillType::ServerFieldTypeToString(field_type)
+                         << "." << CTag{};
     }
     return false;
   }
@@ -76,7 +88,8 @@ bool IsValidFieldTypeAndValue(const std::set<ServerFieldType>& types_seen,
     if (import_log_buffer) {
       *import_log_buffer << LogMessage::kImportAddressProfileFromFormFailed
                          << "Email address found in field of different type: "
-                         << AutofillType(field_type).ToString() << CTag{};
+                         << AutofillType::ServerFieldTypeToString(field_type)
+                         << CTag{};
     }
     return false;
   }
@@ -102,16 +115,13 @@ bool IsMinimumAddress(const AutofillProfile& profile,
                        << "Country entry in form." << CTag{};
   }
 
-  if (base::FeatureList::IsEnabled(
-          features::kAutofillUseVariationCountryCode)) {
-    // As a fallback, use the finch state to get a country code.
-    if (country_code.empty() && !variation_country_code.empty()) {
-      country_code = variation_country_code;
-      if (import_log_buffer && !country_code.empty()) {
-        *import_log_buffer
-            << LogMessage::kImportAddressProfileFromFormCountrySource
-            << "Variations service." << CTag{};
-      }
+  // As a fallback, use the finch state to get a country code.
+  if (country_code.empty() && !variation_country_code.empty()) {
+    country_code = variation_country_code;
+    if (import_log_buffer && !country_code.empty()) {
+      *import_log_buffer
+          << LogMessage::kImportAddressProfileFromFormCountrySource
+          << "Variations service." << CTag{};
     }
   }
 
@@ -134,7 +144,8 @@ bool IsMinimumAddress(const AutofillProfile& profile,
   // Check the |ADDRESS_HOME_LINE1| requirement.
   bool is_line1_missing = false;
   if (country.requires_line1() &&
-      profile.GetRawInfo(ADDRESS_HOME_LINE1).empty()) {
+      profile.GetRawInfo(ADDRESS_HOME_LINE1).empty() &&
+      profile.GetRawInfo(ADDRESS_HOME_STREET_NAME).empty()) {
     if (import_log_buffer) {
       *import_log_buffer << LogMessage::kImportAddressProfileFromFormFailed
                          << "Missing required ADDRESS_HOME_LINE1." << CTag{};
@@ -229,6 +240,9 @@ FormDataImporter::FormDataImporter(AutofillClient* client,
                                                   payments_client,
                                                   app_locale,
                                                   personal_data_manager)),
+      address_profile_save_manager_(
+          std::make_unique<AddressProfileSaveManager>(client,
+                                                      personal_data_manager)),
 #if !defined(OS_ANDROID) && !defined(OS_IOS)
       local_card_migration_manager_(
           std::make_unique<LocalCardMigrationManager>(client,
@@ -420,7 +434,10 @@ bool FormDataImporter::ImportFormData(
   // - ImportAddressProfiles may eventually save or update one or more address
   //   profiles.
   bool address_import = false;
-  if (profile_autofill_enabled) {
+
+  // Only import addresses if enabled.
+  if (profile_autofill_enabled &&
+      !base::FeatureList::IsEnabled(features::kAutofillDisableAddressImport)) {
     address_import = ImportAddressProfiles(submitted_form);
   }
 
@@ -442,7 +459,7 @@ bool FormDataImporter::ImportAddressProfiles(const FormStructure& form) {
   // We save a maximum of 2 profiles per submitted form (e.g. for shipping and
   // billing).
   static const size_t kMaxNumAddressProfilesSaved = 2;
-  size_t num_saved_profiles = 0;
+  size_t num_complete_profiles = 0;
 
   if (!form.field_count()) {
     import_log_buffer << LogMessage::kImportAddressProfileFromFormFailed
@@ -451,12 +468,12 @@ bool FormDataImporter::ImportAddressProfiles(const FormStructure& form) {
     // Relevant sections for address fields.
     std::set<std::string> sections;
     for (const auto& field : form) {
-      if (field->Type().group() != CREDIT_CARD)
+      if (field->Type().group() != FieldTypeGroup::kCreditCard)
         sections.insert(field->section);
     }
 
     for (const std::string& section : sections) {
-      if (num_saved_profiles == kMaxNumAddressProfilesSaved)
+      if (num_complete_profiles == kMaxNumAddressProfilesSaved)
         break;
       // Log the output from a section in a separate div for readability.
       import_log_buffer << Tag{"div"}
@@ -465,41 +482,38 @@ bool FormDataImporter::ImportAddressProfiles(const FormStructure& form) {
                         << section << CTag{};
       // Try to import an address profile from the form fields of this section.
       if (ImportAddressProfileForSection(form, section, &import_log_buffer))
-        num_saved_profiles++;
+        num_complete_profiles++;
       // And close the div of the section import log.
       import_log_buffer << CTag{"div"};
     }
-    // TODO(crbug.com/1097125): Remove feature test.
     // Run the import on the union of the section if the import was not
     // successful and if there is more than one section.
-    if (num_saved_profiles > 0) {
+    if (num_complete_profiles > 0) {
       AutofillMetrics::LogAddressFormImportStatustMetric(
           AutofillMetrics::AddressProfileImportStatusMetric::REGULAR_IMPORT);
-    } else if (base::FeatureList::IsEnabled(
-                   features::kAutofillProfileImportFromUnifiedSection) &&
-               sections.size() > 1) {
+    } else if (sections.size() > 1) {
       // Try to import by combining all sections.
       if (ImportAddressProfileForSection(form, "", &import_log_buffer)) {
-        num_saved_profiles++;
+        num_complete_profiles++;
         AutofillMetrics::LogAddressFormImportStatustMetric(
             AutofillMetrics::AddressProfileImportStatusMetric::
                 SECTION_UNION_IMPORT);
       }
     }
-    if (num_saved_profiles == 0) {
+    if (num_complete_profiles == 0) {
       AutofillMetrics::LogAddressFormImportStatustMetric(
           AutofillMetrics::AddressProfileImportStatusMetric::NO_IMPORT);
     }
   }
   import_log_buffer << LogMessage::kImportAddressProfileFromFormNumberOfImports
-                    << num_saved_profiles << CTag{};
+                    << num_complete_profiles << CTag{};
 
   // Write log buffer to autofill-internals.
   LogManager* log_manager = client_->GetLogManager();
   if (log_manager)
     log_manager->Log() << std::move(import_log_buffer);
 
-  return num_saved_profiles > 0;
+  return num_complete_profiles > 0;
 }
 
 bool FormDataImporter::ImportAddressProfileForSection(
@@ -516,7 +530,7 @@ bool FormDataImporter::ImportAddressProfileForSection(
 
   // Used to detect and discard address forms with multiple fields of the same
   // type.
-  std::set<ServerFieldType> types_seen;
+  ServerFieldTypeSet types_seen;
 
   // Tracks if the form section contains multiple distinct email addresses.
   bool has_multiple_distinct_email_addresses = false;
@@ -529,6 +543,10 @@ bool FormDataImporter::ImportAddressProfileForSection(
 
   // Tracks if the form section contains an invalid country.
   bool has_invalid_country = false;
+
+  // Tracks if subsequent phone number fields should be ignored,
+  // since they do not belong to the first phone number in the form.
+  bool ignore_phone_number_fields = false;
 
   // Go through each |form| field and attempt to constitute a valid profile.
   for (const auto& field : form) {
@@ -554,7 +572,7 @@ bool FormDataImporter::ImportAddressProfileForSection(
     AutofillType field_type = field->Type();
 
     // Credit card fields are handled by ImportCreditCard().
-    if (field_type.group() == CREDIT_CARD)
+    if (field_type.group() == FieldTypeGroup::kCreditCard)
       continue;
 
     // There can be multiple email fields (e.g. in the case of 'confirm email'
@@ -577,6 +595,27 @@ bool FormDataImporter::ImportAddressProfileForSection(
     if (!IsValidFieldTypeAndValue(types_seen, server_field_type, value,
                                   import_log_buffer))
       has_invalid_field_types = true;
+
+    // Found phone number component field.
+    // TODO(crbug.com/1156315) Remove feature check when launched.
+    if ((field_type.group() == FieldTypeGroup::kPhoneBilling ||
+         field_type.group() == FieldTypeGroup::kPhoneHome) &&
+        base::FeatureList::IsEnabled(
+            features::kAutofillEnableImportWhenMultiplePhoneNumbers)) {
+      if (ignore_phone_number_fields)
+        continue;
+      // PHONE_HOME_NUMBER is used for both prefix and suffix, so it might occur
+      // multiple times for a single number. Duplication of any other phone
+      // component means it belongs to a new number. Since Autofill currently
+      // supports storing only one phone number per profile, ignore this and all
+      // subsequent phone number fields.
+      if (server_field_type != PHONE_HOME_NUMBER &&
+          types_seen.count(server_field_type)) {
+        ignore_phone_number_fields = true;
+        continue;
+      }
+    }
+
     types_seen.insert(server_field_type);
 
     // We need to store phone data in the variables, before building the whole
@@ -590,20 +629,20 @@ bool FormDataImporter::ImportAddressProfileForSection(
     // Reject profiles with invalid country information.
     if (server_field_type == ADDRESS_HOME_COUNTRY &&
         candidate_profile.GetRawInfo(ADDRESS_HOME_COUNTRY).empty()) {
-      // TODO(crbug.com/1075604): Remove branch with disabled feature.
-      if (base::FeatureList::IsEnabled(
-              features::kAutofillUsePageLanguageToTranslateCountryNames)) {
-        // The country code was not successfully determined from the value in
-        // the country field. This can be caused by a localization that does not
-        // match the |app_locale|. Try setting the value again using the
-        // language of the page. Note, there should be a locale associated with
-        // every language code.
-        std::string page_language = client_->GetPageLanguage();
-        // Retry to set the country of there is known page language.
-        if (!page_language.empty()) {
-          candidate_profile.SetInfoWithVerificationStatus(
-              field_type, value, page_language, VerificationStatus::kObserved);
-        }
+      // The country code was not successfully determined from the value in
+      // the country field. This can be caused by a localization that does not
+      // match the |app_locale|. Try setting the value again using the
+      // language of the page. Note, there should be a locale associated with
+      // every language code.
+      std::string page_language;
+      const translate::LanguageState* language_state =
+          client_->GetLanguageState();
+      if (language_state)
+        page_language = language_state->original_language();
+      // Retry to set the country of there is known page language.
+      if (!page_language.empty()) {
+        candidate_profile.SetInfoWithVerificationStatus(
+            field_type, value, page_language, VerificationStatus::kObserved);
       }
       // Check if the country code was still not determined correctly.
       if (candidate_profile.GetRawInfo(ADDRESS_HOME_COUNTRY).empty()) {
@@ -681,10 +720,13 @@ bool FormDataImporter::ImportAddressProfileForSection(
   if (!candidate_profile.FinalizeAfterImport())
     return false;
 
-  std::string guid =
-      personal_data_manager_->SaveImportedProfile(candidate_profile);
+  // At this stage, the saving of the profile can only be omitted by the
+  // incognito mode but the import is not triggered if the browser is in the
+  // incognito mode.
+  DCHECK(!personal_data_manager_->IsOffTheRecord());
+  address_profile_save_manager_->SaveProfile(candidate_profile);
 
-  return !guid.empty();
+  return true;
 }
 
 bool FormDataImporter::ImportCreditCard(
@@ -749,10 +791,7 @@ bool FormDataImporter::ImportCreditCard(
       // If the card is a local card and it has a nickname stored in the local
       // database, copy the nickname to the |candidate_credit_card| so that the
       // nickname also shows in the Upstream bubble.
-      if (base::FeatureList::IsEnabled(
-              features::kAutofillEnableSurfacingServerCardNickname)) {
-        candidate_credit_card.SetNickname(card_copy.nickname());
-      }
+      candidate_credit_card.SetNickname(card_copy.nickname());
 
       // If we should not return the local card, return that we merged it,
       // without setting |imported_credit_card|.
@@ -814,7 +853,7 @@ CreditCard FormDataImporter::ExtractCreditCardFromForm(
 
   CreditCard candidate_credit_card;
 
-  std::set<ServerFieldType> types_seen;
+  ServerFieldTypeSet types_seen;
   for (const auto& field : form) {
     base::string16 value;
     base::TrimWhitespace(field->value, base::TRIM_ALL, &value);
@@ -826,7 +865,7 @@ CreditCard FormDataImporter::ExtractCreditCardFromForm(
 
     AutofillType field_type = field->Type();
     // Field was not identified as a credit card field.
-    if (field_type.group() != CREDIT_CARD)
+    if (field_type.group() != FieldTypeGroup::kCreditCard)
       continue;
 
     if (form.value_from_dynamic_change_form())

@@ -569,8 +569,8 @@ class GFX_EXPORT RenderText {
   // guaranteed not to be smaller. These bounds could be visually discontinuous
   // if the substring is split by a LTR/RTL level change. These bounds are in
   // local coordinates, but may be outside the visible region if the text is
-  // longer than the textfield. Subsequent text, cursor, or bounds changes may
-  // invalidate returned values.
+  // larger than the available space. Subsequent text, cursor, or bounds changes
+  // may invalidate returned values.
   virtual std::vector<Rect> GetSubstringBounds(const Range& range) = 0;
 
   // Gets the horizontal span (relative to the left of the text, not the view)
@@ -582,6 +582,7 @@ class GFX_EXPORT RenderText {
 
   const Vector2d& GetUpdatedDisplayOffset();
   void SetDisplayOffset(int horizontal_offset);
+  void SetDisplayOffset(Vector2d offset);
 
   // Returns the line offset from the origin after applying the text alignment
   // and the display offset.
@@ -807,6 +808,10 @@ class GFX_EXPORT RenderText {
   // respect to the center of |display_rect|.
   static gfx::Rect ExpandToBeVerticallySymmetric(const gfx::Rect& rect,
                                                  const gfx::Rect& display_rect);
+
+  // Given |rects|, sort them along the x-axis and merge intersecting rects
+  // using union. Expects all selections in the text to be from the same line.
+  static void MergeIntersectingRects(std::vector<Rect>& rects);
 
   // Resets |cached_cursor_x_| to null. When non-null, CURSOR_UP, CURSOR_DOWN
   // movements use this value instead of the current cursor x position to

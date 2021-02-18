@@ -458,7 +458,11 @@ void ManagedNetworkConfigurationHandlerImpl::RemoveConfiguration(
     base::OnceClosure callback,
     network_handler::ErrorCallback error_callback) const {
   network_configuration_handler_->RemoveConfiguration(
-      service_path, std::move(callback), std::move(error_callback));
+      service_path,
+      base::BindRepeating(
+          &ManagedNetworkConfigurationHandlerImpl::CanRemoveNetworkConfig,
+          base::Unretained(this)),
+      std::move(callback), std::move(error_callback));
 }
 
 void ManagedNetworkConfigurationHandlerImpl::
@@ -777,6 +781,19 @@ ManagedNetworkConfigurationHandlerImpl::FindPolicyByGuidAndProfile(
   return policy;
 }
 
+bool ManagedNetworkConfigurationHandlerImpl::IsNetworkConfiguredByPolicy(
+    const std::string& guid,
+    const std::string& profile_path) const {
+  ::onc::ONCSource onc_source = ::onc::ONC_SOURCE_UNKNOWN;
+  return FindPolicyByGUID(guid, profile_path, &onc_source) != nullptr;
+}
+
+bool ManagedNetworkConfigurationHandlerImpl::CanRemoveNetworkConfig(
+    const std::string& guid,
+    const std::string& profile_path) const {
+  return !IsNetworkConfiguredByPolicy(guid, profile_path);
+}
+
 bool ManagedNetworkConfigurationHandlerImpl::AllowOnlyPolicyNetworksToConnect()
     const {
   const base::DictionaryValue* global_network_config =
@@ -941,8 +958,8 @@ void ManagedNetworkConfigurationHandlerImpl::GetDeviceStateProperties(
     NET_LOG(DEBUG)
         << "GetDeviceStateProperties: Setting IPv4 properties from network: "
         << NetworkId(network);
-    if (network->ipv4_config())
-      ip_configs.Append(network->ipv4_config()->Clone());
+    if (!network->ipv4_config().is_none())
+      ip_configs.Append(network->ipv4_config().Clone());
   } else {
     // Convert the DeviceState IPConfigs dictionary to a ListValue.
     for (const auto iter : device_state->ip_configs().DictItems())

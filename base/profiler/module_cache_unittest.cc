@@ -12,7 +12,7 @@
 #include "base/callback_helpers.h"
 #include "base/profiler/module_cache.h"
 #include "base/strings/string_piece.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -106,8 +106,13 @@ MAYBE_TEST(ModuleCacheTest, GetDebugBasename) {
       cache.GetModuleForAddress(reinterpret_cast<uintptr_t>(&AFunctionForTest));
   ASSERT_NE(nullptr, module);
 #if defined(OS_ANDROID)
-  EXPECT_EQ("libbase_unittests__library.so",
-            module->GetDebugBasename().value());
+  EXPECT_EQ("libbase_unittests__library",
+            // Different build configurations varyingly use .so vs. .cr.so for
+            // the module extension. Remove all the extensions in both cases.
+            module->GetDebugBasename()
+                .RemoveFinalExtension()
+                .RemoveFinalExtension()
+                .value());
 #elif defined(OS_POSIX)
   EXPECT_EQ("base_unittests", module->GetDebugBasename().value());
 #elif defined(OS_WIN)
@@ -219,6 +224,28 @@ MAYBE_TEST(ModuleCacheTest, UpdateNonNativeModulesRemoveModuleIsNotDestroyed) {
     EXPECT_FALSE(was_destroyed);
   }
   EXPECT_TRUE(was_destroyed);
+}
+
+// Regression test to validate that when modules are partitioned into modules to
+// keep and modules to remove, the modules to remove are not destroyed.
+// https://crbug.com/1127466 case 2.
+MAYBE_TEST(ModuleCacheTest, UpdateNonNativeModulesPartitioning) {
+  int destroyed_count = 0;
+  const auto record_destroyed = [&destroyed_count]() { ++destroyed_count; };
+  {
+    ModuleCache cache;
+    std::vector<std::unique_ptr<const ModuleCache::Module>> modules;
+    modules.push_back(std::make_unique<FakeModule>(
+        1, 1, false, BindLambdaForTesting(record_destroyed)));
+    const ModuleCache::Module* module1 = modules.back().get();
+    modules.push_back(std::make_unique<FakeModule>(
+        2, 1, false, BindLambdaForTesting(record_destroyed)));
+    cache.UpdateNonNativeModules({}, std::move(modules));
+    cache.UpdateNonNativeModules({module1}, {});
+
+    EXPECT_EQ(0, destroyed_count);
+  }
+  EXPECT_EQ(2, destroyed_count);
 }
 
 MAYBE_TEST(ModuleCacheTest, UpdateNonNativeModulesReplace) {
@@ -383,6 +410,69 @@ TEST(ModuleCacheTest, CheckAgainstProcMaps) {
   EXPECT_GE(module_count, 2);
 }
 #endif
+
+// Module provider that always return a fake module of size 1 for a given
+// |address|.
+class MockModuleProvider : public ModuleCache::AuxiliaryModuleProvider {
+ public:
+  explicit MockModuleProvider(size_t module_size = 1)
+      : module_size_(module_size) {}
+
+  std::unique_ptr<const ModuleCache::Module> TryCreateModuleForAddress(
+      uintptr_t address) override {
+    return std::make_unique<FakeModule>(address, module_size_);
+  }
+
+ private:
+  size_t module_size_;
+};
+
+// Check that auxiliary provider can inject new modules when registered.
+TEST(ModuleCacheTest, RegisterAuxiliaryModuleProvider) {
+  ModuleCache cache;
+  EXPECT_EQ(nullptr, cache.GetModuleForAddress(1));
+
+  MockModuleProvider auxiliary_provider;
+  cache.RegisterAuxiliaryModuleProvider(&auxiliary_provider);
+  auto* module = cache.GetModuleForAddress(1);
+  EXPECT_NE(nullptr, module);
+  EXPECT_EQ(1U, module->GetBaseAddress());
+  cache.UnregisterAuxiliaryModuleProvider(&auxiliary_provider);
+
+  // Even when unregistered, the module remains in the cache.
+  EXPECT_EQ(module, cache.GetModuleForAddress(1));
+}
+
+// Check that ModuleCache's own module creator is used preferentially over
+// auxiliary provider if possible.
+MAYBE_TEST(ModuleCacheTest, NativeModuleOverAuxiliaryModuleProvider) {
+  ModuleCache cache;
+
+  MockModuleProvider auxiliary_provider(/*module_size=*/100);
+  cache.RegisterAuxiliaryModuleProvider(&auxiliary_provider);
+
+  const ModuleCache::Module* module =
+      cache.GetModuleForAddress(reinterpret_cast<uintptr_t>(&AFunctionForTest));
+  ASSERT_NE(nullptr, module);
+
+  // The module should be a native module, which will have size greater than 100
+  // bytes.
+  EXPECT_NE(100u, module->GetSize());
+  cache.UnregisterAuxiliaryModuleProvider(&auxiliary_provider);
+}
+
+// Check that auxiliary provider is no longer used after being unregistered.
+TEST(ModuleCacheTest, UnregisterAuxiliaryModuleProvider) {
+  ModuleCache cache;
+
+  EXPECT_EQ(nullptr, cache.GetModuleForAddress(1));
+
+  MockModuleProvider auxiliary_provider;
+  cache.RegisterAuxiliaryModuleProvider(&auxiliary_provider);
+  cache.UnregisterAuxiliaryModuleProvider(&auxiliary_provider);
+
+  EXPECT_EQ(nullptr, cache.GetModuleForAddress(1));
+}
 
 }  // namespace
 }  // namespace base

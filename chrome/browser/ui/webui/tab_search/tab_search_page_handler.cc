@@ -11,36 +11,50 @@
 
 #include "base/base64.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "base/trace_event/trace_event.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/extension_tab_util.h"
 #include "chrome/browser/favicon/favicon_utils.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/tabs/tab_renderer_data.h"
+#include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "chrome/browser/ui/webui/util/image_util.h"
 
 namespace {
 constexpr base::TimeDelta kTabsChangeDelay =
     base::TimeDelta::FromMilliseconds(50);
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+constexpr char kFeedbackCategoryTag[] = "FromTabSearch";
+#else
+constexpr char kFeedbackCategoryTag[] = "FromTabSearchBrowser";
+#endif
 }
 
 TabSearchPageHandler::TabSearchPageHandler(
     mojo::PendingReceiver<tab_search::mojom::PageHandler> receiver,
     mojo::PendingRemote<tab_search::mojom::Page> page,
-    content::WebUI* web_ui)
+    content::WebUI* web_ui,
+    ui::MojoBubbleWebUIController* webui_controller)
     : receiver_(this, std::move(receiver)),
       page_(std::move(page)),
       browser_(chrome::FindLastActive()),
       web_ui_(web_ui),
+      webui_controller_(webui_controller),
       debounce_timer_(std::make_unique<base::RetainingOneShotTimer>(
           FROM_HERE,
           kTabsChangeDelay,
           base::BindRepeating(&TabSearchPageHandler::NotifyTabsChanged,
                               base::Unretained(this)))) {
+  Observe(web_ui_->GetWebContents());
   DCHECK(browser_);
   browser_tab_strip_tracker_.Init();
 }
@@ -59,32 +73,24 @@ void TabSearchPageHandler::CloseTab(int32_t tab_id) {
   if (!optional_details)
     return;
 
-  const TabDetails& details = optional_details.value();
-  bool tab_closed = details.tab_strip_model->CloseWebContentsAt(
-      details.index, TabStripModel::CLOSE_CREATE_HISTORICAL_TAB);
-
   ++num_tabs_closed_;
 
-  if (tab_closed)
-    NotifyTabsChanged();
+  // CloseTab() can target the WebContents hosting Tab Search if the Tab Search
+  // WebUI is open in a chrome browser tab rather than its bubble. In this case
+  // CloseWebContentsAt() closes the WebContents hosting this
+  // TabSearchPageHandler object, causing it to be immediately destroyed. Ensure
+  // that no further actions are performed following the call to
+  // CloseWebContentsAt(). See (https://crbug.com/1175507).
+  auto* tab_strip_model = optional_details->tab_strip_model;
+  const int tab_index = optional_details->index;
+  tab_strip_model->CloseWebContentsAt(
+      tab_index, TabStripModel::CLOSE_CREATE_HISTORICAL_TAB);
+  // Do not add code past this point.
 }
 
-void TabSearchPageHandler::GetProfileTabs(GetProfileTabsCallback callback) {
-  auto profile_tabs = tab_search::mojom::ProfileTabs::New();
-  Profile* profile = browser_->profile();
-  for (auto* browser : *BrowserList::GetInstance()) {
-    if (browser->profile() != profile)
-      continue;
-    TabStripModel* tab_strip_model = browser->tab_strip_model();
-    auto window_tabs = tab_search::mojom::WindowTabs::New();
-    window_tabs->active = (browser == browser_);
-    for (int i = 0; i < tab_strip_model->count(); ++i) {
-      window_tabs->tabs.push_back(
-          GetTabData(tab_strip_model, tab_strip_model->GetWebContentsAt(i), i));
-    }
-    profile_tabs->windows.push_back(std::move(window_tabs));
-  }
-
+void TabSearchPageHandler::GetProfileData(GetProfileDataCallback callback) {
+  TRACE_EVENT0("browser", "custom_metric:TabSearchPageHandler:GetProfileTabs");
+  auto profile_tabs = CreateProfileData();
   // On first run record the number of windows and tabs open for the given
   // profile.
   if (!sent_initial_payload_) {
@@ -102,9 +108,8 @@ void TabSearchPageHandler::GetProfileTabs(GetProfileTabsCallback callback) {
 
 base::Optional<TabSearchPageHandler::TabDetails>
 TabSearchPageHandler::GetTabDetails(int32_t tab_id) {
-  Profile* profile = browser_->profile();
   for (auto* browser : *BrowserList::GetInstance()) {
-    if (browser->profile() != profile) {
+    if (!ShouldTrackBrowser(browser)) {
       continue;
     }
 
@@ -131,7 +136,7 @@ void TabSearchPageHandler::ShowFeedbackPage() {
                            chrome::FeedbackSource::kFeedbackSourceTabSearch,
                            std::string() /* description_template */,
                            std::string() /* description_placeholder_text */,
-                           std::string("FromTabSearch") /* category_tag */,
+                           std::string(kFeedbackCategoryTag) /* category_tag */,
                            std::string() /* extra_diagnostics */);
 }
 
@@ -147,6 +152,30 @@ void TabSearchPageHandler::SwitchToTab(
   const TabDetails& details = optional_details.value();
   details.tab_strip_model->ActivateTabAt(details.index);
   details.browser->window()->Activate();
+}
+
+void TabSearchPageHandler::ShowUI() {
+  auto embedder = webui_controller_->embedder();
+  if (embedder)
+    embedder->ShowUI();
+}
+
+tab_search::mojom::ProfileDataPtr TabSearchPageHandler::CreateProfileData() {
+  auto profile_data = tab_search::mojom::ProfileData::New();
+  for (auto* browser : *BrowserList::GetInstance()) {
+    if (!ShouldTrackBrowser(browser))
+      continue;
+    TabStripModel* tab_strip_model = browser->tab_strip_model();
+    auto window = tab_search::mojom::Window::New();
+    window->active = (browser == browser_);
+    window->height = browser->window()->GetContentsSize().height();
+    for (int i = 0; i < tab_strip_model->count(); ++i) {
+      window->tabs.push_back(
+          GetTabData(tab_strip_model, tab_strip_model->GetWebContentsAt(i), i));
+    }
+    profile_data->windows.push_back(std::move(window));
+  }
+  return profile_data;
 }
 
 tab_search::mojom::TabPtr TabSearchPageHandler::GetTabData(
@@ -172,13 +201,15 @@ tab_search::mojom::TabPtr TabSearchPageHandler::GetTabData(
   if (tab_renderer_data.favicon.isNull()) {
     tab_data->is_default_favicon = true;
   } else {
-    tab_data->fav_icon_url = webui::EncodePNGAndMakeDataURI(
+    tab_data->favicon_url = webui::EncodePNGAndMakeDataURI(
         tab_renderer_data.favicon, web_ui_->GetDeviceScaleFactor());
     tab_data->is_default_favicon =
         tab_renderer_data.favicon.BackedBySameObjectAs(
             favicon::GetDefaultFavicon().AsImageSkia());
   }
+
   tab_data->show_icon = tab_renderer_data.show_icon;
+  tab_data->last_active_time_ticks = contents->GetLastActiveTime();
 
   return tab_data;
 }
@@ -187,12 +218,27 @@ void TabSearchPageHandler::OnTabStripModelChanged(
     TabStripModel* tab_strip_model,
     const TabStripModelChange& change,
     const TabStripSelectionChange& selection) {
+  if (webui_hidden_ ||
+      browser_tab_strip_tracker_.is_processing_initial_browsers()) {
+    return;
+  }
+  if (change.type() == TabStripModelChange::kRemoved) {
+    std::vector<int> tab_ids;
+    for (auto& content_with_index : change.GetRemove()->contents) {
+      tab_ids.push_back(
+          extensions::ExtensionTabUtil::GetTabId(content_with_index.contents));
+    }
+    page_->TabsRemoved(tab_ids);
+    return;
+  }
   ScheduleDebounce();
 }
 
 void TabSearchPageHandler::TabChangedAt(content::WebContents* contents,
                                         int index,
                                         TabChangeType change_type) {
+  if (webui_hidden_)
+    return;
   // TODO(crbug.com/1112496): Support more values for TabChangeType and filter
   // out the changes we are not interested in.
   if (change_type != TabChangeType::kAll)
@@ -200,6 +246,7 @@ void TabSearchPageHandler::TabChangedAt(content::WebContents* contents,
   Browser* browser = chrome::FindBrowserWithWebContents(contents);
   if (!browser)
     return;
+  TRACE_EVENT0("browser", "custom_metric:TabSearchPageHandler:TabChangedAt");
   page_->TabUpdated(GetTabData(browser->tab_strip_model(), contents, index));
 }
 
@@ -209,13 +256,17 @@ void TabSearchPageHandler::ScheduleDebounce() {
 }
 
 void TabSearchPageHandler::NotifyTabsChanged() {
-  if (!browser_tab_strip_tracker_.is_processing_initial_browsers())
-    page_->TabsChanged();
+  page_->TabsChanged(CreateProfileData());
   debounce_timer_->Stop();
 }
 
 bool TabSearchPageHandler::ShouldTrackBrowser(Browser* browser) {
-  return browser->profile() == browser_->profile();
+  return browser->profile() == browser_->profile() &&
+         browser->type() == Browser::Type::TYPE_NORMAL;
+}
+
+void TabSearchPageHandler::OnVisibilityChanged(content::Visibility visibility) {
+  webui_hidden_ = visibility == content::Visibility::HIDDEN;
 }
 
 void TabSearchPageHandler::SetTimerForTesting(

@@ -101,16 +101,16 @@ class ForceInstalledTracker : public ExtensionRegistryObserver,
 
   enum class ExtensionStatus {
     // Extension appears in force-install list, but it not installed yet.
-    PENDING,
+    kPending,
 
     // Extension was successfully loaded.
-    LOADED,
+    kLoaded,
 
     // Extension is ready. This happens after loading.
-    READY,
+    kReady,
 
     // Extension installation failure was reported.
-    FAILED
+    kFailed
   };
 
   // Helper struct with supplementary info for extensions from force-install
@@ -134,6 +134,9 @@ class ForceInstalledTracker : public ExtensionRegistryObserver,
   bool IsMisconfiguration(
       const InstallStageTracker::InstallationData& installation_data,
       const ExtensionId& id) const;
+
+  static bool IsExtensionFetchedFromCache(
+      const base::Optional<ExtensionDownloaderDelegate::CacheStatus>& status);
 
  private:
   policy::PolicyService* policy_service();

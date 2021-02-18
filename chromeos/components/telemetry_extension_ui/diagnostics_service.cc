@@ -64,4 +64,186 @@ void DiagnosticsService::GetRoutineUpdate(
           std::move(callback)));
 }
 
+void DiagnosticsService::RunBatteryCapacityRoutine(
+    RunBatteryCapacityRoutineCallback callback) {
+  GetService()->RunBatteryCapacityRoutine(
+      base::BindOnce(
+          [](health::mojom::DiagnosticsService::
+                 RunBatteryCapacityRoutineCallback callback,
+             cros_healthd::mojom::RunRoutineResponsePtr ptr) {
+            std::move(callback).Run(converters::ConvertPtr(std::move(ptr)));
+          },
+          std::move(callback)));
+}
+
+void DiagnosticsService::RunBatteryHealthRoutine(
+    RunBatteryHealthRoutineCallback callback) {
+  GetService()->RunBatteryHealthRoutine(
+      base::BindOnce(
+          [](health::mojom::DiagnosticsService::RunBatteryHealthRoutineCallback
+                 callback,
+             cros_healthd::mojom::RunRoutineResponsePtr ptr) {
+            std::move(callback).Run(converters::ConvertPtr(std::move(ptr)));
+          },
+          std::move(callback)));
+}
+
+void DiagnosticsService::RunSmartctlCheckRoutine(
+    RunSmartctlCheckRoutineCallback callback) {
+  GetService()->RunSmartctlCheckRoutine(base::BindOnce(
+      [](health::mojom::DiagnosticsService::RunSmartctlCheckRoutineCallback
+             callback,
+         cros_healthd::mojom::RunRoutineResponsePtr ptr) {
+        std::move(callback).Run(converters::ConvertPtr(std::move(ptr)));
+      },
+      std::move(callback)));
+}
+
+void DiagnosticsService::RunAcPowerRoutine(
+    health::mojom::AcPowerStatusEnum expected_status,
+    const base::Optional<std::string>& expected_power_type,
+    RunAcPowerRoutineCallback callback) {
+  GetService()->RunAcPowerRoutine(
+      converters::Convert(expected_status), expected_power_type,
+      base::BindOnce(
+          [](health::mojom::DiagnosticsService::RunAcPowerRoutineCallback
+                 callback,
+             cros_healthd::mojom::RunRoutineResponsePtr ptr) {
+            std::move(callback).Run(converters::ConvertPtr(std::move(ptr)));
+          },
+          std::move(callback)));
+}
+
+void DiagnosticsService::RunCpuCacheRoutine(
+    uint32_t length_seconds,
+    RunCpuCacheRoutineCallback callback) {
+  GetService()->RunCpuCacheRoutine(
+      cros_healthd::mojom::NullableUint32::New(length_seconds),
+      base::BindOnce(
+          [](health::mojom::DiagnosticsService::RunCpuCacheRoutineCallback
+                 callback,
+             cros_healthd::mojom::RunRoutineResponsePtr ptr) {
+            std::move(callback).Run(converters::ConvertPtr(std::move(ptr)));
+          },
+          std::move(callback)));
+}
+
+void DiagnosticsService::RunCpuStressRoutine(
+    uint32_t length_seconds,
+    RunCpuStressRoutineCallback callback) {
+  GetService()->RunCpuStressRoutine(
+      cros_healthd::mojom::NullableUint32::New(length_seconds),
+      base::BindOnce(
+          [](health::mojom::DiagnosticsService::RunCpuStressRoutineCallback
+                 callback,
+             cros_healthd::mojom::RunRoutineResponsePtr ptr) {
+            std::move(callback).Run(converters::ConvertPtr(std::move(ptr)));
+          },
+          std::move(callback)));
+}
+
+void DiagnosticsService::RunFloatingPointAccuracyRoutine(
+    uint32_t length_seconds,
+    RunFloatingPointAccuracyRoutineCallback callback) {
+  GetService()->RunFloatingPointAccuracyRoutine(
+      cros_healthd::mojom::NullableUint32::New(length_seconds),
+      base::BindOnce(
+          [](health::mojom::DiagnosticsService::
+                 RunFloatingPointAccuracyRoutineCallback callback,
+             cros_healthd::mojom::RunRoutineResponsePtr ptr) {
+            std::move(callback).Run(converters::ConvertPtr(std::move(ptr)));
+          },
+          std::move(callback)));
+}
+
+void DiagnosticsService::RunNvmeWearLevelRoutine(
+    uint32_t wear_level_threshold,
+    RunNvmeWearLevelRoutineCallback callback) {
+  GetService()->RunNvmeWearLevelRoutine(
+      wear_level_threshold,
+      base::BindOnce(
+          [](health::mojom::DiagnosticsService::RunNvmeWearLevelRoutineCallback
+                 callback,
+             cros_healthd::mojom::RunRoutineResponsePtr ptr) {
+            std::move(callback).Run(converters::ConvertPtr(std::move(ptr)));
+          },
+          std::move(callback)));
+}
+
+void DiagnosticsService::RunNvmeSelfTestRoutine(
+    health::mojom::NvmeSelfTestTypeEnum nvme_self_test_type,
+    RunNvmeSelfTestRoutineCallback callback) {
+  GetService()->RunNvmeSelfTestRoutine(
+      converters::Convert(nvme_self_test_type),
+      base::BindOnce(
+          [](health::mojom::DiagnosticsService::RunNvmeSelfTestRoutineCallback
+                 callback,
+             cros_healthd::mojom::RunRoutineResponsePtr ptr) {
+            std::move(callback).Run(converters::ConvertPtr(std::move(ptr)));
+          },
+          std::move(callback)));
+}
+
+void DiagnosticsService::RunDiskReadRoutine(
+    health::mojom::DiskReadRoutineTypeEnum type,
+    uint32_t length_seconds,
+    uint32_t file_size_mb,
+    RunDiskReadRoutineCallback callback) {
+  GetService()->RunDiskReadRoutine(
+      converters::Convert(type), length_seconds, file_size_mb,
+      base::BindOnce(
+          [](health::mojom::DiagnosticsService::RunDiskReadRoutineCallback
+                 callback,
+             cros_healthd::mojom::RunRoutineResponsePtr ptr) {
+            std::move(callback).Run(converters::ConvertPtr(std::move(ptr)));
+          },
+          std::move(callback)));
+}
+
+// TODO(b/173425436): Remove |max_num| from this routine.
+void DiagnosticsService::RunPrimeSearchRoutine(
+    uint32_t length_seconds,
+    uint64_t max_num,
+    RunPrimeSearchRoutineCallback callback) {
+  GetService()->RunPrimeSearchRoutine(
+      cros_healthd::mojom::NullableUint32::New(length_seconds),
+      base::BindOnce(
+          [](health::mojom::DiagnosticsService::RunPrimeSearchRoutineCallback
+                 callback,
+             cros_healthd::mojom::RunRoutineResponsePtr ptr) {
+            std::move(callback).Run(converters::ConvertPtr(std::move(ptr)));
+          },
+          std::move(callback)));
+}
+
+void DiagnosticsService::RunBatteryDischargeRoutine(
+    uint32_t length_seconds,
+    uint32_t maximum_discharge_percent_allowed,
+    RunBatteryDischargeRoutineCallback callback) {
+  GetService()->RunBatteryDischargeRoutine(
+      length_seconds, maximum_discharge_percent_allowed,
+      base::BindOnce(
+          [](health::mojom::DiagnosticsService::
+                 RunBatteryDischargeRoutineCallback callback,
+             cros_healthd::mojom::RunRoutineResponsePtr ptr) {
+            std::move(callback).Run(converters::ConvertPtr(std::move(ptr)));
+          },
+          std::move(callback)));
+}
+
+void DiagnosticsService::RunBatteryChargeRoutine(
+    uint32_t length_seconds,
+    uint32_t minimum_charge_percent_required,
+    RunBatteryChargeRoutineCallback callback) {
+  GetService()->RunBatteryChargeRoutine(
+      length_seconds, minimum_charge_percent_required,
+      base::BindOnce(
+          [](health::mojom::DiagnosticsService::RunBatteryChargeRoutineCallback
+                 callback,
+             cros_healthd::mojom::RunRoutineResponsePtr ptr) {
+            std::move(callback).Run(converters::ConvertPtr(std::move(ptr)));
+          },
+          std::move(callback)));
+}
+
 }  // namespace chromeos

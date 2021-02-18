@@ -92,21 +92,11 @@ void SwitchToGuestProfile(ProfileManager::CreateCallback callback);
 // one and the current window is a guest window.
 bool HasProfileSwitchTargets(Profile* profile);
 
-// Creates a new profile from the next available profile directory, and
-// opens a new browser window for the profile once it is ready. When the browser
-// is opened, |callback| will be run if it isn't null.
-void CreateAndSwitchToNewProfile(ProfileManager::CreateCallback callback,
-                                 ProfileMetrics::ProfileAdd metric);
-
-// Closes all browser windows that belong to the guest profile and opens the
-// user manager.
-void CloseGuestProfileWindows();
-
 // Closes and locks all the browser windows for |profile| and opens the user
 // manager.
 void LockProfile(Profile* profile);
 
-// Close all the browser windows for |profile| and opens the user manager.
+// Close all the browser windows for |profile|.
 void CloseProfileWindows(Profile* profile);
 
 // Returns whether lock is available to this profile.
@@ -121,7 +111,7 @@ bool IsLockAvailable(Profile* profile);
 void CreateSystemProfileForUserManager(
     const base::FilePath& profile_path_to_focus,
     profiles::UserManagerAction user_manager_action,
-    const base::Callback<void(Profile*, const std::string&)>& callback);
+    base::RepeatingCallback<void(Profile*, const std::string&)> callback);
 
 // Converts from modes in the avatar menu to modes understood by
 // ProfileMenuView.

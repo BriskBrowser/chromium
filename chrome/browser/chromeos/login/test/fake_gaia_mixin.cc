@@ -73,12 +73,14 @@ void FakeGaiaMixin::SetupFakeGaiaForChildUser(const std::string& user_email,
 
   FakeGaia::AccessTokenInfo user_info_token;
   user_info_token.scopes.insert(GaiaConstants::kDeviceManagementServiceOAuth);
-  user_info_token.scopes.insert(GaiaConstants::kOAuthWrapBridgeUserInfoScope);
+  user_info_token.scopes.insert(GaiaConstants::kGoogleUserInfoEmail);
   user_info_token.audience = GaiaUrls::GetInstance()->oauth2_chrome_client_id();
 
   user_info_token.token = "fake-userinfo-token";
   user_info_token.expires_in = kFakeAccessTokenExpiration;
   user_info_token.email = user_email;
+  if (initialize_child_id_token())
+    user_info_token.id_token = test::GetChildAccountOAuthIdToken();
   fake_gaia_->IssueOAuthToken(refresh_token, user_info_token);
 
   if (issue_any_scope_token) {
@@ -105,7 +107,7 @@ void FakeGaiaMixin::SetupFakeGaiaForChildUser(const std::string& user_email,
 void FakeGaiaMixin::SetupFakeGaiaForLoginManager() {
   FakeGaia::AccessTokenInfo token_info;
   token_info.scopes.insert(GaiaConstants::kDeviceManagementServiceOAuth);
-  token_info.scopes.insert(GaiaConstants::kOAuthWrapBridgeUserInfoScope);
+  token_info.scopes.insert(GaiaConstants::kGoogleUserInfoEmail);
   token_info.audience = GaiaUrls::GetInstance()->oauth2_chrome_client_id();
 
   token_info.token = kTestUserinfoToken1;

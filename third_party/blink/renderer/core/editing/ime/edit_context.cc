@@ -67,7 +67,7 @@ bool EditContext::HasPendingActivity() const {
 }
 
 InputMethodController& EditContext::GetInputMethodController() const {
-  return ExecutionContextClient::GetFrame()->GetInputMethodController();
+  return DomWindow()->GetFrame()->GetInputMethodController();
 }
 
 bool EditContext::IsEditContextActive() const {
@@ -93,19 +93,15 @@ bool EditContext::IsVirtualKeyboardPolicyManual() const {
 
 void EditContext::DispatchCompositionEndEvent(const String& text) {
   auto* event = MakeGarbageCollected<CompositionEvent>(
-      event_type_names::kCompositionend,
-      ExecutionContextClient::GetFrame()->DomWindow(), text);
+      event_type_names::kCompositionend, DomWindow(), text);
   DispatchEvent(*event);
 }
 
 bool EditContext::DispatchCompositionStartEvent(const String& text) {
   auto* event = MakeGarbageCollected<CompositionEvent>(
-      event_type_names::kCompositionstart,
-      ExecutionContextClient::GetFrame()->DomWindow(), text);
+      event_type_names::kCompositionstart, DomWindow(), text);
   DispatchEvent(*event);
-  if (!ExecutionContextClient::GetFrame())
-    return false;
-  return true;
+  return DomWindow();
 }
 
 void EditContext::DispatchTextUpdateEvent(const String& text,
@@ -126,6 +122,7 @@ void EditContext::DispatchTextFormatEvent(
   // TODO(snianu): Try to accumulate the ranges with similar formats and fire
   // one event.
   DCHECK(has_composition_);
+  String underline_thickness;
   String underline_style;
   for (const auto& ime_text_span : ime_text_spans) {
     const int format_range_start =
@@ -135,16 +132,30 @@ void EditContext::DispatchTextFormatEvent(
 
     switch (ime_text_span.thickness) {
       case ui::ImeTextSpan::Thickness::kNone:
-        underline_style = "None";
+        underline_thickness = "None";
         break;
       case ui::ImeTextSpan::Thickness::kThin:
-        underline_style = "Thin";
+        underline_thickness = "Thin";
         break;
       case ui::ImeTextSpan::Thickness::kThick:
-        underline_style = "Thick";
+        underline_thickness = "Thick";
         break;
-      default:
+    }
+    switch (ime_text_span.underline_style) {
+      case ui::ImeTextSpan::UnderlineStyle::kNone:
         underline_style = "None";
+        break;
+      case ui::ImeTextSpan::UnderlineStyle::kSolid:
+        underline_style = "Solid";
+        break;
+      case ui::ImeTextSpan::UnderlineStyle::kDot:
+        underline_style = "Dotted";
+        break;
+      case ui::ImeTextSpan::UnderlineStyle::kDash:
+        underline_style = "Dashed";
+        break;
+      case ui::ImeTextSpan::UnderlineStyle::kSquiggle:
+        underline_style = "Squiggle";
         break;
     }
     TextFormatUpdateEvent* event = MakeGarbageCollected<TextFormatUpdateEvent>(
@@ -155,7 +166,9 @@ void EditContext::DispatchTextFormatEvent(
             ime_text_span.background_color),
         cssvalue::CSSColorValue::SerializeAsCSSComponentValue(
             ime_text_span.suggestion_highlight_color),
-        underline_style);
+        cssvalue::CSSColorValue::SerializeAsCSSComponentValue(
+            ime_text_span.text_color),
+        underline_thickness, underline_style);
     DispatchEvent(*event);
   }
 }
@@ -367,10 +380,10 @@ String EditContext::enterKeyHint() const {
   }
 }
 
-void EditContext::GetLayoutBounds(WebRect* web_control_bounds,
-                                  WebRect* web_selection_bounds) {
-  *web_control_bounds = control_bounds_;
-  *web_selection_bounds = selection_bounds_;
+void EditContext::GetLayoutBounds(gfx::Rect* control_bounds,
+                                  gfx::Rect* selection_bounds) {
+  *control_bounds = control_bounds_;
+  *selection_bounds = selection_bounds_;
 }
 
 bool EditContext::SetComposition(
@@ -404,7 +417,7 @@ bool EditContext::SetComposition(
   selection_end_ = composition_range_start_ + selection_end;
   DispatchTextUpdateEvent(update_text, update_range_start, update_range_end,
                           selection_start_, selection_end_);
-  composition_range_end_ = composition_range_start_ + selection_end;
+  composition_range_end_ = composition_range_start_ + text.length();
   DispatchTextFormatEvent(ime_text_spans);
   return true;
 }
@@ -441,6 +454,20 @@ bool EditContext::SetCompositionFromExistingText(
   // Update the selection range.
   selection_start_ = composition_start;
   selection_end_ = composition_start;
+  return true;
+}
+
+bool EditContext::InsertText(const WebString& text) {
+  String update_text(text);
+  text_ = text_.Substring(0, selection_start_) + update_text +
+          text_.Substring(selection_end_);
+  uint32_t update_range_start = selection_start_;
+  uint32_t update_range_end = selection_end_;
+  selection_start_ = selection_start_ + text.length();
+  selection_end_ = selection_start_;
+
+  DispatchTextUpdateEvent(update_text, update_range_start, update_range_end,
+                          selection_start_, selection_end_);
   return true;
 }
 
@@ -583,16 +610,17 @@ int EditContext::TextInputFlags() const {
 }
 
 WebRange EditContext::CompositionRange() {
-  return WebRange(composition_range_start_, composition_range_end_);
+  return WebRange(composition_range_start_,
+                  composition_range_end_ - composition_range_start_);
 }
 
-bool EditContext::GetCompositionCharacterBounds(WebVector<WebRect>& bounds) {
+bool EditContext::GetCompositionCharacterBounds(WebVector<gfx::Rect>& bounds) {
   bounds[0] = selection_bounds_;
   return true;
 }
 
 WebRange EditContext::GetSelectionOffsets() const {
-  return WebRange(selection_start_, selection_end_);
+  return WebRange(selection_start_, selection_end_ - selection_start_);
 }
 
 void EditContext::Trace(Visitor* visitor) const {

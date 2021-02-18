@@ -7,6 +7,7 @@
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
+#include "third_party/blink/renderer/core/scroll/scroll_types.h"
 #include "third_party/blink/renderer/core/style/computed_style_base_constants.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cancellable_task.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
@@ -14,12 +15,10 @@
 
 namespace blink {
 
-class DisplayLockScopedLogger;
 class Document;
 class Element;
 class StyleRecalcChange;
 
-enum class DisplayLockLifecycleTarget { kSelf, kChildren };
 enum class DisplayLockActivationReason {
   // Accessibility driven activation
   kAccessibility = 1 << 0,
@@ -89,15 +88,14 @@ class CORE_EXPORT DisplayLockContext final
   void NotifyIsIntersectingViewport();
   void NotifyIsNotIntersectingViewport();
 
-  // Lifecycle observation / state functions.
-  bool ShouldStyle(DisplayLockLifecycleTarget) const;
-  void DidStyle(DisplayLockLifecycleTarget);
-  bool ShouldLayout(DisplayLockLifecycleTarget) const;
-  void DidLayout(DisplayLockLifecycleTarget);
-  bool ShouldPrePaint(DisplayLockLifecycleTarget) const;
-  void DidPrePaint(DisplayLockLifecycleTarget);
-  bool ShouldPaint(DisplayLockLifecycleTarget) const;
-  void DidPaint(DisplayLockLifecycleTarget);
+  // Lifecycle state functions.
+  bool ShouldStyleChildren() const;
+  void DidStyleSelf();
+  void DidStyleChildren();
+  bool ShouldLayoutChildren() const;
+  void DidLayoutChildren();
+  bool ShouldPrePaintChildren() const;
+  bool ShouldPaintChildren() const;
 
   // Returns true if the last style recalc traversal was blocked at this
   // element, either for itself, its children or its descendants.
@@ -151,12 +149,6 @@ class CORE_EXPORT DisplayLockContext final
 
   void NotifyChildLayoutWasBlocked() { child_layout_was_blocked_ = true; }
 
-  // Inform the display lock that it needs a graphics layer collection when it
-  // needs to paint.
-  void NotifyNeedsGraphicsLayerCollection() {
-    needs_graphics_layer_collection_ = true;
-  }
-
   void NotifyCompositingRequirementsUpdateWasBlocked() {
     needs_compositing_requirements_update_ = true;
   }
@@ -167,6 +159,10 @@ class CORE_EXPORT DisplayLockContext final
   void NotifyGraphicsLayerRebuildBlocked() {
     DCHECK(!RuntimeEnabledFeatures::CompositeAfterPaintEnabled());
     needs_graphics_layer_rebuild_ = true;
+  }
+
+  void NotifyForcedGraphicsLayerUpdateBlocked() {
+    forced_graphics_layer_update_blocked_ = true;
   }
 
   // Notify this element will be disconnected.
@@ -183,9 +179,12 @@ class CORE_EXPORT DisplayLockContext final
   void NotifySubtreeGainedSelection();
 
   void SetNeedsPrePaintSubtreeWalk(
-      bool needs_effective_allowed_touch_action_update) {
+      bool needs_effective_allowed_touch_action_update,
+      bool needs_blocking_wheel_event_handler_update) {
     needs_effective_allowed_touch_action_update_ =
         needs_effective_allowed_touch_action_update;
+    needs_blocking_wheel_event_handler_update_ =
+        needs_blocking_wheel_event_handler_update;
     needs_prepaint_subtree_walk_ = true;
   }
 
@@ -211,6 +210,14 @@ class CORE_EXPORT DisplayLockContext final
 
   // Debugging functions.
   String RenderAffectingStateToString() const;
+
+  bool IsAuto() const { return state_ == EContentVisibility::kAuto; }
+  bool HadLifecycleUpdateSinceLastUnlock() const {
+    return had_lifecycle_update_since_last_unlock_;
+  }
+
+  // We unlock auto locks for printing, which is set here.
+  void SetShouldUnlockAutoForPrint(bool);
 
  private:
   // Give access to |NotifyForcedUpdateScopeStarted()| and
@@ -257,7 +264,8 @@ class CORE_EXPORT DisplayLockContext final
   bool MarkForStyleRecalcIfNeeded();
   bool MarkForLayoutIfNeeded();
   bool MarkAncestorsForPrePaintIfNeeded();
-  bool MarkPaintLayerNeedsRepaint();
+  bool MarkNeedsRepaintAndPaintArtifactCompositorUpdate();
+  bool MarkNeedsCullRectUpdate();
   bool MarkForCompositingUpdatesIfNeeded();
 
   bool IsElementDirtyForStyleRecalc() const;
@@ -316,6 +324,19 @@ class CORE_EXPORT DisplayLockContext final
   // setting.
   void SetKeepUnlockedUntilLifecycleCount(int count);
 
+  // Returns true if the context can dirty element's style in the current
+  // processing. Note that this returns false if the document is doing a style
+  // recalc, or if we're currently setting a new requested state which happens
+  // in style adjustment.
+  bool CanDirtyStyle() const;
+
+  // When a scroller becomes locked, we store off its current scroll offset, to
+  // avoid losing the offset when the scroller becomes unlocked in the future.
+  // The following functions enable this functionality.
+  void StashScrollOffsetIfAvailable();
+  void RestoreScrollOffsetIfStashed();
+  bool HasStashedScrollOffset() const;
+
   WeakMember<Element> element_;
   WeakMember<Document> document_;
   EContentVisibility state_ = EContentVisibility::kVisible;
@@ -339,8 +360,8 @@ class CORE_EXPORT DisplayLockContext final
   bool reattach_layout_tree_was_blocked_ = false;
 
   bool needs_effective_allowed_touch_action_update_ = false;
+  bool needs_blocking_wheel_event_handler_update_ = false;
   bool needs_prepaint_subtree_walk_ = false;
-  bool needs_graphics_layer_collection_ = false;
   bool needs_compositing_requirements_update_ = false;
   bool needs_compositing_dependent_flag_update_ = false;
 
@@ -376,6 +397,8 @@ class CORE_EXPORT DisplayLockContext final
 
   bool needs_graphics_layer_rebuild_ = false;
 
+  bool forced_graphics_layer_update_blocked_ = false;
+
   // This is set to true if we're in the 'auto' mode and had our first
   // intersection / non-intersection notification. This is reset to false if the
   // 'auto' mode is added again (after being removed).
@@ -387,6 +410,7 @@ class CORE_EXPORT DisplayLockContext final
     kSubtreeHasFocus,
     kSubtreeHasSelection,
     kAutoStateUnlockedUntilLifecycle,
+    kAutoUnlockedForPrint,
     kNumRenderAffectingStates
   };
   void SetRenderAffectingState(RenderAffectingState state, bool flag);
@@ -396,6 +420,16 @@ class CORE_EXPORT DisplayLockContext final
   bool render_affecting_state_[static_cast<int>(
       RenderAffectingState::kNumRenderAffectingStates)] = {false};
   int keep_unlocked_count_ = 0;
+
+  bool had_lifecycle_update_since_last_unlock_ = false;
+
+  // Tracks whether we're updating requested state, which can only happen from
+  // the style adjuster. Note that this is different from a InStyleRecalc check
+  // since we can also force update style outside of this call (via ensure
+  // computed style).
+  bool set_requested_state_scope_ = false;
+
+  base::Optional<ScrollOffset> stashed_scroll_offset_;
 };
 
 }  // namespace blink

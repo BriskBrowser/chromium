@@ -6,6 +6,7 @@
 
 #include <limits.h>
 
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -15,7 +16,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "build/build_config.h"
 #include "cc/trees/layer_tree_frame_sink.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -24,6 +25,7 @@
 #include "ui/aura/client/visibility_client.h"
 #include "ui/aura/client/window_parenting_client.h"
 #include "ui/aura/layout_manager.h"
+#include "ui/aura/scoped_window_capture_request.h"
 #include "ui/aura/scoped_window_event_targeting_blocker.h"
 #include "ui/aura/test/aura_test_base.h"
 #include "ui/aura/test/aura_test_utils.h"
@@ -368,6 +370,92 @@ TEST_F(WindowTest, ContainsPoint) {
   EXPECT_FALSE(w->ContainsPoint(gfx::Point(10, 10)));
 }
 
+TEST_F(WindowTest, MakeWindowCapturable) {
+  std::unique_ptr<Window> w1(CreateTestWindowWithId(1, root_window()));
+  // Initailly the window is not capturable.
+  EXPECT_FALSE(w1->subtree_capture_id().is_valid());
+
+  // Creating requests makes the window capturable as long as those requests
+  // remain alive.
+  ScopedWindowCaptureRequest request1 = w1->MakeWindowCapturable();
+  EXPECT_TRUE(w1->subtree_capture_id().is_valid());
+  EXPECT_EQ(request1.GetCaptureId(), w1->subtree_capture_id());
+  EXPECT_EQ(request1.GetCaptureId(), w1->layer()->GetSubtreeCaptureId());
+
+  // A new request does not affect the subtree capture ID.
+  const viz::SubtreeCaptureId current_id = w1->subtree_capture_id();
+  ScopedWindowCaptureRequest request2 = w1->MakeWindowCapturable();
+  EXPECT_EQ(current_id, w1->subtree_capture_id());
+  EXPECT_EQ(request1.GetCaptureId(), request2.GetCaptureId());
+
+  // Create a new request, then move an existing request into it. This should
+  // invalidate the moved-from request.
+  ScopedWindowCaptureRequest request3 = w1->MakeWindowCapturable();
+  EXPECT_EQ(current_id, request3.GetCaptureId());
+  request3 = std::move(request2);
+  EXPECT_FALSE(request2.window());
+  EXPECT_FALSE(request2.GetCaptureId().is_valid());
+  EXPECT_TRUE(w1->subtree_capture_id().is_valid());
+
+  // Destroying |request2| does nothing.
+  auto consume_request = [](ScopedWindowCaptureRequest request) {};
+  consume_request(std::move(request2));
+  EXPECT_TRUE(w1->subtree_capture_id().is_valid());
+  EXPECT_EQ(current_id, w1->subtree_capture_id());
+
+  // Destroying |request1| won't affect the window, it will remain capturable,
+  // since |request3| is still alive.
+  consume_request(std::move(request1));
+  EXPECT_FALSE(request1.window());
+  EXPECT_FALSE(request1.GetCaptureId().is_valid());
+  EXPECT_TRUE(w1->subtree_capture_id().is_valid());
+  EXPECT_EQ(current_id, w1->subtree_capture_id());
+
+  // Once all requests are destroyed, the window no longer has a valid capture
+  // ID.
+  consume_request(std::move(request3));
+  EXPECT_FALSE(w1->subtree_capture_id().is_valid());
+  EXPECT_FALSE(w1->layer()->GetSubtreeCaptureId().is_valid());
+}
+
+TEST_F(WindowTest, LayerReleasingAndSettingOfCapturableWindow) {
+  std::unique_ptr<Window> w1(CreateTestWindowWithId(1, root_window()));
+  EXPECT_FALSE(w1->subtree_capture_id().is_valid());
+  ScopedWindowCaptureRequest request = w1->MakeWindowCapturable();
+  EXPECT_TRUE(w1->layer()->GetSubtreeCaptureId().is_valid());
+
+  // Releasing the capturable window's layer (i.e. it's no longer associated
+  // with the window) will clear its capture ID. However, the window remains
+  // marked as capturable with a valid SubtreeCaptureId even though it has no
+  // layer.
+  std::unique_ptr<ui::Layer> taken_layer = w1->ReleaseLayer();
+  EXPECT_FALSE(w1->layer());
+  EXPECT_FALSE(taken_layer->GetSubtreeCaptureId().is_valid());
+  EXPECT_TRUE(w1->subtree_capture_id().is_valid());
+
+  // Setting a new layer on the window will set the layer's capture ID.
+  auto new_layer = std::make_unique<ui::Layer>();
+  taken_layer->parent()->Add(new_layer.get());
+  w1->Reset(std::move(new_layer));
+  EXPECT_TRUE(w1->layer()->GetSubtreeCaptureId().is_valid());
+  EXPECT_EQ(request.GetCaptureId(), w1->layer()->GetSubtreeCaptureId());
+}
+
+TEST_F(WindowTest, RecreateLayerOfCapturableWindow) {
+  std::unique_ptr<Window> w1(CreateTestWindowWithId(1, root_window()));
+  EXPECT_FALSE(w1->subtree_capture_id().is_valid());
+  ScopedWindowCaptureRequest request = w1->MakeWindowCapturable();
+  EXPECT_TRUE(w1->layer()->GetSubtreeCaptureId().is_valid());
+
+  // Recreating the layer of a capturable window will preserve the capture ID
+  // on the newly recreated window, and clears it from the old layer.
+  const viz::SubtreeCaptureId current_id = w1->subtree_capture_id();
+  std::unique_ptr<ui::Layer> old_layer = w1->RecreateLayer();
+  EXPECT_FALSE(old_layer->GetSubtreeCaptureId().is_valid());
+  EXPECT_EQ(current_id, w1->subtree_capture_id());
+  EXPECT_EQ(current_id, w1->layer()->GetSubtreeCaptureId());
+}
+
 TEST_F(WindowTest, ConvertPointToWindow) {
   // Window::ConvertPointToWindow is mostly identical to
   // Layer::ConvertPointToLayer, except NULL values for |source| are permitted,
@@ -421,10 +509,7 @@ TEST_F(WindowTest, ContainsMouse) {
 
 // Tests that the root window gets a valid LocalSurfaceId.
 TEST_F(WindowTest, RootWindowHasValidLocalSurfaceId) {
-  EXPECT_TRUE(root_window()
-                  ->GetLocalSurfaceIdAllocation()
-                  .local_surface_id()
-                  .is_valid());
+  EXPECT_TRUE(root_window()->GetLocalSurfaceId().is_valid());
 }
 
 TEST_F(WindowTest, WindowEmbeddingClientHasValidLocalSurfaceId) {
@@ -432,8 +517,7 @@ TEST_F(WindowTest, WindowEmbeddingClientHasValidLocalSurfaceId) {
       SK_ColorWHITE, 1, gfx::Rect(10, 10, 300, 200), root_window()));
   test::WindowTestApi(window.get()).DisableFrameSinkRegistration();
   window->SetEmbedFrameSinkId(viz::FrameSinkId(0, 1));
-  EXPECT_TRUE(
-      window->GetLocalSurfaceIdAllocation().local_surface_id().is_valid());
+  EXPECT_TRUE(window->GetLocalSurfaceId().is_valid());
 }
 
 // Test Window::ConvertPointToWindow() with transform to root_window.
@@ -3266,37 +3350,32 @@ TEST_F(WindowTest, LocalSurfaceIdChanges) {
 
   std::unique_ptr<cc::LayerTreeFrameSink> frame_sink(
       window.CreateLayerTreeFrameSink());
-  viz::LocalSurfaceId local_surface_id1 =
-      window.GetLocalSurfaceIdAllocation().local_surface_id();
+  viz::LocalSurfaceId local_surface_id1 = window.GetLocalSurfaceId();
   EXPECT_NE(nullptr, frame_sink.get());
   EXPECT_TRUE(local_surface_id1.is_valid());
 
   // Resize to 0x0 to make sure the correct window size is stored before
   // creating the frame sink.
   window.SetBounds(gfx::Rect(0, 0));
-  viz::LocalSurfaceId local_surface_id2 =
-      window.GetLocalSurfaceIdAllocation().local_surface_id();
+  viz::LocalSurfaceId local_surface_id2 = window.GetLocalSurfaceId();
   EXPECT_TRUE(local_surface_id2.is_valid());
   EXPECT_NE(local_surface_id1, local_surface_id2);
 
   window.SetBounds(gfx::Rect(300, 300));
-  viz::LocalSurfaceId local_surface_id3 =
-      window.GetLocalSurfaceIdAllocation().local_surface_id();
+  viz::LocalSurfaceId local_surface_id3 = window.GetLocalSurfaceId();
   EXPECT_TRUE(local_surface_id3.is_valid());
   EXPECT_NE(local_surface_id1, local_surface_id3);
   EXPECT_NE(local_surface_id2, local_surface_id3);
 
   window.OnDeviceScaleFactorChanged(1.0f, 3.0f);
-  viz::LocalSurfaceId local_surface_id4 =
-      window.GetLocalSurfaceIdAllocation().local_surface_id();
+  viz::LocalSurfaceId local_surface_id4 = window.GetLocalSurfaceId();
   EXPECT_TRUE(local_surface_id4.is_valid());
   EXPECT_NE(local_surface_id1, local_surface_id4);
   EXPECT_NE(local_surface_id2, local_surface_id4);
   EXPECT_NE(local_surface_id3, local_surface_id4);
 
   window.RecreateLayer();
-  viz::LocalSurfaceId local_surface_id5 =
-      window.GetLocalSurfaceIdAllocation().local_surface_id();
+  viz::LocalSurfaceId local_surface_id5 = window.GetLocalSurfaceId();
   EXPECT_TRUE(local_surface_id5.is_valid());
   EXPECT_NE(local_surface_id1, local_surface_id5);
   EXPECT_NE(local_surface_id2, local_surface_id5);
@@ -3304,8 +3383,7 @@ TEST_F(WindowTest, LocalSurfaceIdChanges) {
   EXPECT_NE(local_surface_id4, local_surface_id5);
 
   window.AllocateLocalSurfaceId();
-  viz::LocalSurfaceId local_surface_id6 =
-      window.GetLocalSurfaceIdAllocation().local_surface_id();
+  viz::LocalSurfaceId local_surface_id6 = window.GetLocalSurfaceId();
   EXPECT_TRUE(local_surface_id6.is_valid());
   EXPECT_NE(local_surface_id1, local_surface_id6);
   EXPECT_NE(local_surface_id2, local_surface_id6);

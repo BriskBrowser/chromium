@@ -4,8 +4,6 @@
 
 #include "chrome/renderer/chrome_content_settings_agent_delegate.h"
 
-#include "chrome/common/chrome_features.h"
-#include "chrome/common/render_messages.h"
 #include "chrome/common/ssl_insecure_content.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_view.h"
@@ -57,7 +55,12 @@ bool ChromeContentSettingsAgentDelegate::IsPluginTemporarilyAllowed(
          base::Contains(temporarily_allowed_plugins_, std::string());
 }
 
-bool ChromeContentSettingsAgentDelegate::IsSchemeWhitelisted(
+void ChromeContentSettingsAgentDelegate::AllowPluginTemporarily(
+    const std::string& identifier) {
+  temporarily_allowed_plugins_.insert(identifier);
+}
+
+bool ChromeContentSettingsAgentDelegate::IsSchemeAllowlisted(
     const std::string& scheme) {
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   return scheme == extensions::kExtensionScheme;
@@ -107,48 +110,12 @@ base::Optional<bool> ChromeContentSettingsAgentDelegate::AllowMutationEvents() {
   return base::nullopt;
 }
 
-base::Optional<bool>
-ChromeContentSettingsAgentDelegate::AllowRunningInsecureContent(
-    bool allowed_per_settings,
-    const blink::WebURL& resource_url) {
-  // Note: this implementation is a mirror of
-  // Browser::ShouldAllowRunningInsecureContent.
-  FilteredReportInsecureContentRan(GURL(resource_url));
-
-  // TODO(crbug.com/987294): We may want to move this logic into
-  // ContentSettingsAgentImpl once this feature is launched.
-  if (base::FeatureList::IsEnabled(features::kMixedContentSiteSetting)) {
-    bool allow = allowed_per_settings;
-    auto* agent =
-        content_settings::ContentSettingsAgentImpl::Get(render_frame_);
-    if (agent->GetContentSettingRules()) {
-      auto setting = agent->GetContentSettingFromRules(
-          agent->GetContentSettingRules()->mixed_content_rules,
-          render_frame_->GetWebFrame(), GURL());
-      allow |= (setting == CONTENT_SETTING_ALLOW);
-    }
-    return allow;
-  }
-
-  return base::nullopt;
-}
-
 void ChromeContentSettingsAgentDelegate::PassiveInsecureContentFound(
     const blink::WebURL& resource_url) {
   // Note: this implementation is a mirror of
   // Browser::PassiveInsecureContentFound.
   ReportInsecureContent(SslInsecureContentType::DISPLAY);
   FilteredReportInsecureContentDisplayed(GURL(resource_url));
-}
-
-bool ChromeContentSettingsAgentDelegate::OnMessageReceived(
-    const IPC::Message& message) {
-  // Don't swallow LoadBlockedPlugins messages, as they're sent to every
-  // blocked plugin.
-  IPC_BEGIN_MESSAGE_MAP(ChromeContentSettingsAgentDelegate, message)
-    IPC_MESSAGE_HANDLER(ChromeViewMsg_LoadBlockedPlugins, OnLoadBlockedPlugins)
-  IPC_END_MESSAGE_MAP()
-  return false;
 }
 
 void ChromeContentSettingsAgentDelegate::DidCommitProvisionalLoad(
@@ -160,11 +127,6 @@ void ChromeContentSettingsAgentDelegate::DidCommitProvisionalLoad(
 }
 
 void ChromeContentSettingsAgentDelegate::OnDestruct() {}
-
-void ChromeContentSettingsAgentDelegate::OnLoadBlockedPlugins(
-    const std::string& identifier) {
-  temporarily_allowed_plugins_.insert(identifier);
-}
 
 bool ChromeContentSettingsAgentDelegate::IsPlatformApp() {
 #if BUILDFLAG(ENABLE_EXTENSIONS)

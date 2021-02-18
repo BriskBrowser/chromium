@@ -8,7 +8,7 @@
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/task/post_task.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/core/browser/safe_browsing_url_checker_impl.h"
@@ -31,10 +31,11 @@
 #include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
 #import "ios/chrome/browser/prerender/fake_prerender_service.h"
 #import "ios/chrome/browser/prerender/prerender_service_factory.h"
+#import "ios/chrome/browser/safe_browsing/safe_browsing_query_manager.h"
 #import "ios/chrome/browser/safe_browsing/safe_browsing_unsafe_resource_container.h"
 #import "ios/chrome/browser/safe_browsing/verdict_cache_manager_factory.h"
 #import "ios/chrome/test/testing_application_context.h"
-#import "ios/web/public/test/fakes/test_web_state.h"
+#import "ios/web/public/test/fakes/fake_web_state.h"
 #include "ios/web/public/test/web_task_environment.h"
 #include "ios/web/public/thread/web_task_traits.h"
 #include "ios/web/public/thread/web_thread.h"
@@ -59,6 +60,7 @@ class TestUrlCheckerClient {
   TestUrlCheckerClient(SafeBrowsingService* safe_browsing_service,
                        web::BrowserState* browser_state)
       : safe_browsing_service_(safe_browsing_service) {
+    SafeBrowsingQueryManager::CreateForWebState(&web_state_);
     SafeBrowsingUrlAllowList::CreateForWebState(&web_state_);
     SafeBrowsingUnsafeResourceContainer::CreateForWebState(&web_state_);
     web_state_.SetBrowserState(browser_state);
@@ -80,7 +82,7 @@ class TestUrlCheckerClient {
   void CheckUrl(const GURL& url) {
     result_pending_ = true;
     url_checker_ = safe_browsing_service_->CreateUrlChecker(
-        safe_browsing::ResourceType::kMainFrame, &web_state_);
+        network::mojom::RequestDestination::kDocument, &web_state_);
     base::PostTask(FROM_HERE, {web::WebThread::IO},
                    base::BindOnce(&TestUrlCheckerClient::CheckUrlOnIOThread,
                                   base::Unretained(this), url));
@@ -123,7 +125,7 @@ class TestUrlCheckerClient {
   bool result_pending_ = false;
   bool url_is_unsafe_ = false;
   SafeBrowsingService* safe_browsing_service_;
-  web::TestWebState web_state_;
+  web::FakeWebState web_state_;
   std::unique_ptr<safe_browsing::SafeBrowsingUrlCheckerImpl> url_checker_;
 };
 
@@ -270,9 +272,7 @@ TEST_F(SafeBrowsingServiceTest, SafeAndUnsafePages) {
 // expected.
 TEST_F(SafeBrowsingServiceTest, RealTimeSafeAndUnsafePages) {
   base::test::ScopedFeatureList feature_list;
-  feature_list.InitWithFeatures({safe_browsing::kSafeBrowsingAvailableOnIOS,
-                                 safe_browsing::kRealTimeUrlLookupEnabled},
-                                {});
+  feature_list.InitWithFeatures({safe_browsing::kRealTimeUrlLookupEnabled}, {});
   TestingApplicationContext::GetGlobal();
 
   // Opt into real-time checks.

@@ -2,6 +2,7 @@
 
 <link rel="import" href="base_page.html">
 <link rel="import" href="webview_post_util.html">
+<link rel="import" href="cellular_setup_delegate.html">
 <link rel="import" href="../../../html/i18n_behavior.html">
 <link rel="import" href="../../../html/load_time_data.html">
 <link rel="import" href="../../../html/assert.html">
@@ -13,8 +14,8 @@
   <template>
     <style include="iron-flex cr-hidden-style">
       paper-spinner-lite {
-        height: 200px;
-        width: 200px;
+        height: 32px;
+        width: 32px;
       }
 
       #portalContainer {
@@ -28,6 +29,7 @@
             url(error_2x.png) 2x);
         background-position: center center;
         background-repeat: no-repeat;
+        background-size: contain;
         height: 100%;
         width: 100%;
       }

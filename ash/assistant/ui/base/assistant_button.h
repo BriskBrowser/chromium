@@ -13,6 +13,7 @@
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/views/controls/button/image_button.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 
 namespace gfx {
 struct VectorIcon;
@@ -28,9 +29,10 @@ class AssistantButtonListener;
 enum class AssistantButtonId;
 
 class COMPONENT_EXPORT(ASSISTANT_UI) AssistantButton
-    : public views::ImageButton,
-      public views::ButtonListener {
+    : public views::ImageButton {
  public:
+  METADATA_HEADER(AssistantButton);
+
   // Initialization parameters for customizing the Assistant button.
   struct InitParams {
     InitParams();
@@ -56,6 +58,8 @@ class COMPONENT_EXPORT(ASSISTANT_UI) AssistantButton
 
   AssistantButton(AssistantButtonListener* listener,
                   AssistantButtonId button_id);
+  AssistantButton(const AssistantButton&) = delete;
+  AssistantButton& operator=(const AssistantButton&) = delete;
   ~AssistantButton() override;
 
   // Creates a button with the default Assistant styles.
@@ -67,22 +71,17 @@ class COMPONENT_EXPORT(ASSISTANT_UI) AssistantButton
 
   AssistantButtonId GetAssistantButtonId() const { return id_; }
 
-  // views::Button:
-  const char* GetClassName() const override;
   void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
   std::unique_ptr<views::InkDrop> CreateInkDrop() override;
   std::unique_ptr<views::InkDropHighlight> CreateInkDropHighlight()
       const override;
   std::unique_ptr<views::InkDropRipple> CreateInkDropRipple() const override;
 
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
-
  private:
+  void OnButtonPressed();
+
   AssistantButtonListener* listener_;
   const AssistantButtonId id_;
-
-  DISALLOW_COPY_AND_ASSIGN(AssistantButton);
 };
 
 }  // namespace ash

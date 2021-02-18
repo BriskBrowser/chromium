@@ -37,9 +37,9 @@ class CORE_EXPORT MediaValuesDynamic : public MediaValues {
   float DevicePixelRatio() const override;
   int ColorBitsPerComponent() const override;
   int MonochromeBitsPerComponent() const override;
-  PointerType PrimaryPointerType() const override;
+  mojom::blink::PointerType PrimaryPointerType() const override;
   int AvailablePointerTypes() const override;
-  HoverType PrimaryHoverType() const override;
+  mojom::blink::HoverType PrimaryHoverType() const override;
   int AvailableHoverTypes() const override;
   bool ThreeDEnabled() const override;
   bool InImmersiveMode() const override;
@@ -47,12 +47,14 @@ class CORE_EXPORT MediaValuesDynamic : public MediaValues {
   const String MediaType() const override;
   blink::mojom::DisplayMode DisplayMode() const override;
   ColorSpaceGamut ColorGamut() const override;
-  PreferredColorScheme GetPreferredColorScheme() const override;
+  mojom::blink::PreferredColorScheme GetPreferredColorScheme() const override;
+  mojom::blink::PreferredContrast GetPreferredContrast() const override;
   bool PrefersReducedMotion() const override;
   bool PrefersReducedData() const override;
   ForcedColors GetForcedColors() const override;
   NavigationControls GetNavigationControls() const override;
   ScreenSpanning GetScreenSpanning() const override;
+  ScreenFoldPosture GetScreenFoldPosture() const override;
   Document* GetDocument() const override;
   bool HasValues() const override;
   void OverrideViewportDimensions(double width, double height) override;

@@ -29,7 +29,6 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/element_rule_collector.h"
 #include "third_party/blink/renderer/core/css/pseudo_style_request.h"
-#include "third_party/blink/renderer/core/css/resolver/css_property_priority.h"
 #include "third_party/blink/renderer/core/css/resolver/matched_properties_cache.h"
 #include "third_party/blink/renderer/core/css/resolver/style_builder.h"
 #include "third_party/blink/renderer/core/css/selector_checker.h"
@@ -51,6 +50,7 @@ class MatchResult;
 class PropertyHandle;
 class RuleSet;
 class StyleCascade;
+class StyleRecalcContext;
 class StyleRuleUsageTracker;
 
 enum RuleMatchingBehavior { kMatchAllRules, kMatchAllRulesExcludingSMIL };
@@ -66,32 +66,34 @@ class CORE_EXPORT StyleResolver final : public GarbageCollected<StyleResolver> {
   ~StyleResolver();
   void Dispose();
 
-  scoped_refptr<ComputedStyle> StyleForElement(
+  ComputedStyle* StyleForElement(
       Element*,
+      const StyleRecalcContext&,
       const ComputedStyle* parent_style = nullptr,
       const ComputedStyle* layout_parent_style = nullptr,
       RuleMatchingBehavior = kMatchAllRules);
 
-  static scoped_refptr<ComputedStyle> InitialStyleForElement(Document&);
+  static ComputedStyle* InitialStyleForElement(Document&);
 
   static CompositorKeyframeValue* CreateCompositorKeyframeValueSnapshot(
       Element&,
       const ComputedStyle& base_style,
       const ComputedStyle* parent_style,
       const PropertyHandle&,
-      const CSSValue*);
+      const CSSValue*,
+      double offset);
 
-  scoped_refptr<ComputedStyle> PseudoStyleForElement(
+  ComputedStyle* PseudoStyleForElement(
       Element*,
+      const StyleRecalcContext&,
       const PseudoElementStyleRequest&,
       const ComputedStyle* parent_style,
       const ComputedStyle* layout_parent_style);
 
-  scoped_refptr<const ComputedStyle> StyleForPage(
-      int page_index,
-      const AtomicString& page_name);
-  scoped_refptr<const ComputedStyle> StyleForText(Text*);
-  scoped_refptr<ComputedStyle> StyleForViewport();
+  const ComputedStyle* StyleForPage(int page_index,
+                                    const AtomicString& page_name);
+  const ComputedStyle* StyleForText(Text*);
+  ComputedStyle* StyleForViewport();
 
   // TODO(esprehn): StyleResolver should probably not contain tree walking
   // state, instead we should pass a context object during recalcStyle.
@@ -140,16 +142,19 @@ class CORE_EXPORT StyleResolver final : public GarbageCollected<StyleResolver> {
 
   static bool CanReuseBaseComputedStyle(const StyleResolverState& state);
 
-  scoped_refptr<ComputedStyle> StyleForInterpolations(
-      Element& element,
-      ActiveInterpolationsMap& animations);
+  static const CSSValue* ComputeValue(Element* element,
+                                      const CSSPropertyName&,
+                                      const CSSValue&);
+
+  ComputedStyle* StyleForInterpolations(Element& element,
+                                        ActiveInterpolationsMap& animations);
 
   // When updating transitions, the "before change style" is the style from
   // the previous style change with the addition of all declarative animations
   // ticked to the current time. Ticking the animations is required to ensure
   // smooth retargeting of transitions.
   // https://drafts.csswg.org/css-transitions-1/#before-change-style
-  scoped_refptr<ComputedStyle> BeforeChangeStyleForTransitionUpdate(
+  ComputedStyle* BeforeChangeStyleForTransitionUpdate(
       Element& element,
       const ComputedStyle& base_style,
       ActiveInterpolationsMap& transition_interpolations);
@@ -160,6 +165,7 @@ class CORE_EXPORT StyleResolver final : public GarbageCollected<StyleResolver> {
   void InitStyleAndApplyInheritance(Element& element,
                                     StyleResolverState& state);
   void ApplyBaseStyle(Element* element,
+                      const StyleRecalcContext&,
                       StyleResolverState& state,
                       StyleCascade& cascade,
                       MatchResult& match_result,
@@ -183,18 +189,16 @@ class CORE_EXPORT StyleResolver final : public GarbageCollected<StyleResolver> {
   void MatchUserRules(ElementRuleCollector&);
   // This matches `::part` selectors. It looks in ancestor scopes as far as
   // part mapping requires.
-  void MatchPseudoPartRules(const Element&, ElementRuleCollector&);
+  void MatchPseudoPartRules(const Element&,
+                            ElementRuleCollector&,
+                            bool for_shadow_pseudo = false);
   void MatchPseudoPartRulesForUAHost(const Element&, ElementRuleCollector&);
-  void MatchScopedRulesV0(const Element&,
-                          ElementRuleCollector&,
-                          ScopedStyleResolver*);
-  void MatchAuthorRules(const Element&, ElementRuleCollector&);
-  void MatchAuthorRulesV0(const Element&, ElementRuleCollector&);
+  void MatchAuthorRules(const Element&,
+                        ScopedStyleResolver*,
+                        ElementRuleCollector&);
   void MatchAllRules(StyleResolverState&,
                      ElementRuleCollector&,
                      bool include_smil_properties);
-  void CollectTreeBoundaryCrossingRulesV0CascadeOrder(const Element&,
-                                                      ElementRuleCollector&);
   void ApplyMathMLCustomStyleProperties(Element*, StyleResolverState&);
 
   struct CacheSuccess {
@@ -261,6 +265,7 @@ class CORE_EXPORT StyleResolver final : public GarbageCollected<StyleResolver> {
   bool was_viewport_resized_ = false;
 
   FRIEND_TEST_ALL_PREFIXES(ComputedStyleTest, ApplyInternalLightDarkColor);
+  FRIEND_TEST_ALL_PREFIXES(StyleResolverTest, TreeScopedReferences);
 };
 
 }  // namespace blink

@@ -15,6 +15,7 @@
 #include "base/strings/string_piece.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/webauthn/authenticator_request_dialog_model.h"
 #include "content/public/browser/authenticator_request_client_delegate.h"
 #include "device/fido/cable/cable_discovery_data.h"
@@ -35,7 +36,7 @@ class PrefRegistrySyncable;
 namespace device {
 class FidoAuthenticator;
 class FidoDiscoveryFactory;
-}
+}  // namespace device
 
 class ChromeAuthenticatorRequestDelegate
     : public content::AuthenticatorRequestClientDelegate,
@@ -56,6 +57,11 @@ class ChromeAuthenticatorRequestDelegate
   base::Optional<TouchIdAuthenticatorConfig> GetTouchIdAuthenticatorConfig()
       override;
 #endif  // defined(OS_MAC)
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  ChromeOSGenerateRequestIdCallback GetGenerateRequestIdCallback(
+      content::RenderFrameHost* render_frame_host) override;
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   base::WeakPtr<ChromeAuthenticatorRequestDelegate> AsWeakPtr();
 
@@ -89,10 +95,13 @@ class ChromeAuthenticatorRequestDelegate
       base::OnceCallback<void(device::AuthenticatorGetAssertionResponse)>
           callback) override;
   bool IsFocused() override;
+  base::Optional<bool> IsUserVerifyingPlatformAuthenticatorAvailableOverride()
+      override;
   void UpdateLastTransportUsed(
       device::FidoTransportProtocol transport) override;
   void DisableUI() override;
   bool IsWebAuthnUIEnabled() override;
+  void SetConditionalRequest(bool is_conditional) override;
 
   // device::FidoRequestHandlerBase::Observer:
   void OnTransportAvailabilityEnumerated(
@@ -105,14 +114,12 @@ class ChromeAuthenticatorRequestDelegate
   void BluetoothAdapterPowerChanged(bool is_powered_on) override;
   bool SupportsPIN() const override;
   void CollectPIN(
-      base::Optional<int> attempts,
-      base::OnceCallback<void(std::string)> provide_pin_cb) override;
+      CollectPINOptions options,
+      base::OnceCallback<void(base::string16)> provide_pin_cb) override;
   void StartBioEnrollment(base::OnceClosure next_callback) override;
   void OnSampleCollected(int bio_samples_remaining) override;
   void FinishCollectToken() override;
   void OnRetryUserVerification(int attempts) override;
-  void OnInternalUserVerificationLocked() override;
-  void SetMightCreateResidentCredential(bool v) override;
 
   // AuthenticatorRequestDialogModel::Observer:
   void OnStartOver() override;
@@ -138,10 +145,10 @@ class ChromeAuthenticatorRequestDelegate
   bool ShouldPermitCableExtension(const url::Origin& origin);
 
   // GetCablePairings returns any known caBLE pairing data.
-  virtual std::vector<device::CableDiscoveryData> GetCablePairings();
+  virtual std::vector<std::unique_ptr<device::cablev2::Pairing>>
+  GetCablePairings();
 
-  void StoreNewCablePairingInPrefs(
-      std::unique_ptr<device::CableDiscoveryData> discovery_data);
+  void HandleCablePairingEvent(device::cablev2::PairingEvent pairing);
 
   content::RenderFrameHost* const render_frame_host_;
   // Holds ownership of AuthenticatorRequestDialogModel until
@@ -160,6 +167,10 @@ class ChromeAuthenticatorRequestDelegate
   // disable_embedder_ui is set, this will be set to true. No UI must be
   // rendered and all request handler callbacks will be ignored.
   bool disable_ui_ = false;
+
+  // If true, show a more subtle UI unless the user has platform discoverable
+  // credentials on the device.
+  bool is_conditional_ = false;
 
   base::WeakPtrFactory<ChromeAuthenticatorRequestDelegate> weak_ptr_factory_{
       this};

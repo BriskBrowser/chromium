@@ -17,12 +17,13 @@
 #include "ash/public/cpp/login_constants.h"
 #include "ash/public/cpp/session/user_info.h"
 #include "ash/resources/vector_icons/vector_icons.h"
+#include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
-#include "ash/system/user/rounded_image_view.h"
 #include "base/bind.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chromeos/ui/vector_icons/vector_icons.h"
 #include "components/user_manager/user_type.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -71,8 +72,6 @@ constexpr int kExtraSmallUserIconSizeDp = 22;
 // Size of the icon compared to the one of the white circle.
 constexpr float kIconProportion = 0.55f;
 
-constexpr SkColor kIconBackgroundColor = SK_ColorWHITE;
-
 // Opacity for when the user view is active/focused and inactive.
 constexpr float kOpaqueUserViewOpacity = 1.f;
 constexpr float kTransparentUserViewOpacity = 0.63f;
@@ -104,7 +103,10 @@ class IconRoundedView : public views::View {
  public:
   IconRoundedView(int size) : radius_(size / 2) {
     icon_ = gfx::ImageSkiaOperations::CreateResizedImage(
-        gfx::CreateVectorIcon(kLoginScreenEnterpriseIcon, gfx::kGoogleGrey500),
+        gfx::CreateVectorIcon(
+            chromeos::kEnterpriseIcon,
+            AshColorProvider::Get()->GetContentLayerColor(
+                AshColorProvider::ContentLayerType::kIconColorSecondary)),
         skia::ImageOperations::RESIZE_BEST,
         gfx::Size(size * kIconProportion, size * kIconProportion));
   }
@@ -126,9 +128,10 @@ class IconRoundedView : public views::View {
     path.addRect(gfx::RectToSkRect(image_bounds));
     cc::PaintFlags flags;
     flags.setAntiAlias(true);
-    flags.setColor(kIconBackgroundColor);
+    flags.setColor(AshColorProvider::Get()->GetContentLayerColor(
+        AshColorProvider::ContentLayerType::kIconColorSecondaryBackground));
     flags.setStyle(cc::PaintFlags::kFill_Style);
-    // The white circle on which we paint the icon.
+    // The colored circle on which we paint the icon.
     canvas->DrawCircle(center_circle, radius_, flags);
     canvas->DrawImageInPath(icon_, image_bounds.x(), image_bounds.y(), path,
                             flags);
@@ -169,6 +172,7 @@ class LoginUserView::UserImage : public NonAccessibleView {
     enterprise_icon_->SetVisible(false);
     AddChildView(enterprise_icon_);
   }
+
   ~UserImage() override = default;
 
   void UpdateForUser(const LoginUserInfo& user) {
@@ -187,7 +191,7 @@ class LoginUserView::UserImage : public NonAccessibleView {
     }
 
     bool is_managed =
-        user.user_enterprise_domain ||
+        user.user_account_manager ||
         user.basic_user_info.type == user_manager::USER_TYPE_PUBLIC_ACCOUNT;
     enterprise_icon_->SetVisible(is_managed);
   }
@@ -254,7 +258,8 @@ class LoginUserView::UserLabel : public NonAccessibleView {
     SetLayoutManager(std::make_unique<views::FillLayout>());
 
     user_name_ = new views::Label();
-    user_name_->SetEnabledColor(SK_ColorWHITE);
+    user_name_->SetEnabledColor(AshColorProvider::Get()->GetContentLayerColor(
+        AshColorProvider::ContentLayerType::kTextColorPrimary));
     user_name_->SetSubpixelRenderingEnabled(false);
     user_name_->SetAutoColorReadabilityEnabled(false);
 
@@ -309,8 +314,8 @@ class LoginUserView::UserLabel : public NonAccessibleView {
 // have any children (ie, the dropdown button).
 class LoginUserView::TapButton : public views::Button {
  public:
-  explicit TapButton(LoginUserView* parent)
-      : views::Button(parent), parent_(parent) {}
+  TapButton(PressedCallback callback, LoginUserView* parent)
+      : views::Button(std::move(callback)), parent_(parent) {}
   ~TapButton() override = default;
 
   // views::Button:
@@ -414,16 +419,20 @@ LoginUserView::LoginUserView(
       2 * (kDistanceBetweenUsernameAndDropdownDp + kDropdownIconSizeDp);
   user_label_ = new UserLabel(style, label_width);
   if (show_dropdown) {
-    dropdown_ = new LoginButton(this);
-    dropdown_->set_has_ink_drop_action_on_click(false);
+    dropdown_ = new LoginButton(base::BindRepeating(
+        &LoginUserView::DropdownButtonPressed, base::Unretained(this)));
+    dropdown_->SetHasInkDropActionOnClick(false);
     dropdown_->SetPreferredSize(
         gfx::Size(kDropdownIconSizeDp, kDropdownIconSizeDp));
     dropdown_->SetImage(
         views::Button::STATE_NORMAL,
-        gfx::CreateVectorIcon(kLockScreenDropdownIcon, gfx::kGoogleGrey200));
+        gfx::CreateVectorIcon(
+            kLockScreenDropdownIcon,
+            AshColorProvider::Get()->GetContentLayerColor(
+                AshColorProvider::ContentLayerType::kIconColorPrimary)));
     dropdown_->SetFocusBehavior(FocusBehavior::ALWAYS);
   }
-  tap_button_ = new TapButton(this);
+  tap_button_ = new TapButton(on_tap_, this);
   SetTapEnabled(true);
 
   switch (style) {
@@ -454,6 +463,9 @@ LoginUserView::LoginUserView(
   hover_notifier_ = std::make_unique<HoverNotifier>(
       this,
       base::BindRepeating(&LoginUserView::OnHover, base::Unretained(this)));
+
+  if (ash::Shell::HasInstance())
+    display_observation_.Observe(ash::Shell::Get()->display_configurator());
 }
 
 LoginUserView::~LoginUserView() = default;
@@ -531,6 +543,12 @@ void LoginUserView::SetTapEnabled(bool enabled) {
                                         : FocusBehavior::NEVER);
 }
 
+void LoginUserView::OnPowerStateChanged(
+    chromeos::DisplayPowerState power_state) {
+  bool is_display_on = power_state != chromeos::DISPLAY_POWER_ALL_OFF;
+  user_image_->SetAnimationEnabled(is_display_on && is_opaque_);
+}
+
 const char* LoginUserView::GetClassName() const {
   return kUserViewClassName;
 }
@@ -555,50 +573,41 @@ void LoginUserView::RequestFocus() {
   tap_button_->RequestFocus();
 }
 
-void LoginUserView::ButtonPressed(views::Button* sender,
-                                  const ui::Event& event) {
-  // Handle click on the dropdown arrow.
-  if (sender == dropdown_) {
-    DCHECK(dropdown_);
-    DCHECK(menu_);
+void LoginUserView::OnHover(bool has_hover) {
+  UpdateOpacity();
+}
 
-    // If menu is showing, just close it
-    if (menu_->GetVisible()) {
-      menu_->Hide();
-      return;
-    }
+void LoginUserView::DropdownButtonPressed() {
+  DCHECK(dropdown_);
+  DCHECK(menu_);
 
-    bool opener_focused =
-        menu_->GetBubbleOpener() && menu_->GetBubbleOpener()->HasFocus();
-
-    if (!menu_->parent())
-      login_views_utils::GetBubbleContainer(this)->AddChildView(menu_);
-
-    // Reset state in case the remove-user button was clicked once previously.
-    menu_->ResetState();
-    menu_->Show();
-
-    // If the menu was opened by pressing Enter on the focused dropdown, focus
-    // should automatically go to the remove-user button (for keyboard
-    // accessibility).
-    if (opener_focused)
-      menu_->RequestFocus();
-
+  // If menu is showing, just close it
+  if (menu_->GetVisible()) {
+    menu_->Hide();
     return;
   }
 
-  // Run generic on_tap handler for any other click.
-  on_tap_.Run();
-}
+  bool opener_focused =
+      menu_->GetBubbleOpener() && menu_->GetBubbleOpener()->HasFocus();
 
-void LoginUserView::OnHover(bool has_hover) {
-  UpdateOpacity();
+  if (!menu_->parent())
+    login_views_utils::GetBubbleContainer(this)->AddChildView(menu_);
+
+  // Reset state in case the remove-user button was clicked once previously.
+  menu_->ResetState();
+  menu_->Show();
+
+  // If the menu was opened by pressing Enter on the focused dropdown, focus
+  // should automatically go to the remove-user button (for keyboard
+  // accessibility).
+  if (opener_focused)
+    menu_->RequestFocus();
 }
 
 void LoginUserView::UpdateCurrentUserState() {
   base::string16 accessible_name;
   auto email = base::UTF8ToUTF16(current_user_.basic_user_info.display_email);
-  if (current_user_.user_enterprise_domain) {
+  if (current_user_.user_account_manager) {
     accessible_name = l10n_util::GetStringFUTF16(
         IDS_ASH_LOGIN_POD_MANAGED_ACCESSIBLE_NAME, email);
   } else if (current_user_.basic_user_info.type ==
@@ -611,8 +620,14 @@ void LoginUserView::UpdateCurrentUserState() {
   }
   tap_button_->SetAccessibleName(accessible_name);
   if (dropdown_) {
-    dropdown_->SetAccessibleName(l10n_util::GetStringFUTF16(
-        IDS_ASH_LOGIN_POD_MENU_BUTTON_ACCESSIBLE_NAME, email));
+    // The accessible name for the dropdown depends on whether it also contains
+    // the remove user button for the user in question.
+    accessible_name = l10n_util::GetStringFUTF16(
+        current_user_.can_remove
+            ? IDS_ASH_LOGIN_POD_REMOVE_ACCOUNT_DIALOG_BUTTON_ACCESSIBLE_NAME
+            : IDS_ASH_LOGIN_POD_ACCOUNT_DIALOG_BUTTON_ACCESSIBLE_NAME,
+        email);
+    dropdown_->SetAccessibleName(accessible_name);
   }
 
   user_image_->UpdateForUser(current_user_);

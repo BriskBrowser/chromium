@@ -4,20 +4,30 @@
 
 #include "weblayer/browser/favicon/favicon_service_impl_factory.h"
 
+#include "base/files/file_path.h"
+#include "components/favicon/content/large_favicon_provider_getter.h"
+#include "components/favicon/core/core_favicon_service.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
-#include "weblayer/browser/browser_context_impl.h"
+#include "content/public/browser/browser_context.h"
 #include "weblayer/browser/favicon/favicon_service_impl.h"
-#include "weblayer/browser/profile_impl.h"
 
 namespace weblayer {
 
+namespace {
+
+favicon::LargeFaviconProvider* GetLargeFaviconProvider(
+    content::BrowserContext* browser_context) {
+  return FaviconServiceImplFactory::GetForBrowserContext(browser_context);
+}
+
+}  // namespace
+
 // static
-FaviconServiceImpl* FaviconServiceImplFactory::GetForProfile(
-    ProfileImpl* profile) {
-  if (!profile->GetBrowserContext()->IsOffTheRecord()) {
+FaviconServiceImpl* FaviconServiceImplFactory::GetForBrowserContext(
+    content::BrowserContext* browser_context) {
+  if (!browser_context->IsOffTheRecord()) {
     return static_cast<FaviconServiceImpl*>(
-        GetInstance()->GetServiceForBrowserContext(profile->GetBrowserContext(),
-                                                   true));
+        GetInstance()->GetServiceForBrowserContext(browser_context, true));
   }
   return nullptr;
 }
@@ -31,7 +41,10 @@ FaviconServiceImplFactory* FaviconServiceImplFactory::GetInstance() {
 FaviconServiceImplFactory::FaviconServiceImplFactory()
     : BrowserContextKeyedServiceFactory(
           "FaviconServiceImpl",
-          BrowserContextDependencyManager::GetInstance()) {}
+          BrowserContextDependencyManager::GetInstance()) {
+  favicon::SetLargeFaviconProviderGetter(
+      base::BindRepeating(&GetLargeFaviconProvider));
+}
 
 FaviconServiceImplFactory::~FaviconServiceImplFactory() = default;
 
@@ -40,10 +53,7 @@ KeyedService* FaviconServiceImplFactory::BuildServiceInstanceFor(
   DCHECK(!context->IsOffTheRecord());
   std::unique_ptr<FaviconServiceImpl> service =
       std::make_unique<FaviconServiceImpl>();
-  service->Init(static_cast<BrowserContextImpl*>(context)
-                    ->profile_impl()
-                    ->data_path()
-                    .AppendASCII("Favicons"));
+  service->Init(context->GetPath().AppendASCII("Favicons"));
   return service.release();
 }
 

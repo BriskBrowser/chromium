@@ -18,6 +18,7 @@
 #include "components/autofill/ios/form_util/unique_id_data_tab_helper.h"
 #include "components/password_manager/ios/account_select_fill_data.h"
 #include "components/password_manager/ios/js_password_manager.h"
+#include "components/password_manager/ios/password_manager_ios_util.h"
 #import "ios/web/public/js_messaging/web_frame.h"
 #import "ios/web/public/js_messaging/web_frame_util.h"
 #import "ios/web/public/web_state.h"
@@ -35,6 +36,7 @@ using base::SysNSStringToUTF16;
 using base::UTF16ToUTF8;
 using password_manager::FillData;
 using password_manager::GetPageURLAndCheckTrustLevel;
+using password_manager::JsonStringToFormData;
 using password_manager::SerializePasswordFormFillData;
 
 namespace password_manager {
@@ -63,9 +65,9 @@ constexpr char kCommandPrefix[] = "passwordForm";
 
 // Parses the |jsonString| which contatins the password forms found on a web
 // page to populate the |forms| vector.
-- (void)getPasswordFormsFromJSON:(NSString*)jsonString
-                         pageURL:(const GURL&)pageURL
-                           forms:(std::vector<FormData>*)forms;
+- (void)getPasswordForms:(std::vector<FormData>*)forms
+                fromJSON:(NSString*)jsonString
+                 pageURL:(const GURL&)pageURL;
 
 @end
 
@@ -90,7 +92,7 @@ constexpr char kCommandPrefix[] = "passwordForm";
       _formActivityObserverBridge;
 
   // Subscription for JS message.
-  std::unique_ptr<web::WebState::ScriptCommandSubscription> _subscription;
+  base::CallbackListSubscription _subscription;
 }
 
 #pragma mark - Properties
@@ -183,8 +185,6 @@ constexpr char kCommandPrefix[] = "passwordForm";
   NSString* nsFormData = [NSString stringWithUTF8String:formData.c_str()];
   autofill::ExtractFormsData(nsFormData, false, base::string16(), pageURL,
                              pageURL.GetOrigin(), &forms);
-  UMA_HISTOGRAM_EXACT_LINEAR("PasswordManager.NumFormsExtractedIOS",
-                             forms.size(), 50);
   if (forms.size() != 1)
     return;
 
@@ -230,11 +230,11 @@ constexpr char kCommandPrefix[] = "passwordForm";
   return NO;
 }
 
-- (void)getPasswordFormsFromJSON:(NSString*)jsonString
-                         pageURL:(const GURL&)pageURL
-                           forms:(std::vector<FormData>*)forms {
+- (void)getPasswordForms:(std::vector<FormData>*)forms
+                fromJSON:(NSString*)JSONString
+                 pageURL:(const GURL&)pageURL {
   std::vector<FormData> formsData;
-  if (!autofill::ExtractFormsData(jsonString, false, base::string16(), pageURL,
+  if (!autofill::ExtractFormsData(JSONString, false, base::string16(), pageURL,
                                   pageURL.GetOrigin(), &formsData)) {
     return;
   }
@@ -248,8 +248,8 @@ constexpr char kCommandPrefix[] = "passwordForm";
 - (void)extractKnownFieldData:(FormData&)form {
   for (auto& field : form.fields) {
     if (self.fieldDataManager->HasFieldData(field.unique_renderer_id)) {
-      field.typed_value =
-          self.fieldDataManager->GetUserTypedValue(field.unique_renderer_id);
+      field.user_input =
+          self.fieldDataManager->GetUserInput(field.unique_renderer_id);
       field.properties_mask = self.fieldDataManager->GetFieldPropertiesMask(
           field.unique_renderer_id);
     }
@@ -278,11 +278,11 @@ constexpr char kCommandPrefix[] = "passwordForm";
   __weak PasswordFormHelper* weakSelf = self;
   [self.jsPasswordManager
       findPasswordFormsInFrame:GetMainFrame(_webState)
-             completionHandler:^(NSString* jsonString) {
+             completionHandler:^(NSString* JSONString) {
                std::vector<FormData> forms;
-               [weakSelf getPasswordFormsFromJSON:jsonString
-                                          pageURL:pageURL
-                                            forms:&forms];
+               [weakSelf getPasswordForms:&forms
+                                 fromJSON:JSONString
+                                  pageURL:pageURL];
                // Find the maximum extracted value.
                uint32_t maxID = 0;
                for (const auto& form : forms) {
@@ -328,10 +328,10 @@ constexpr char kCommandPrefix[] = "passwordForm";
                password:UTF16ToUTF8(passwordValue)
       completionHandler:^(BOOL success) {
         if (success) {
-          weakSelf.fieldDataManager->UpdateFieldDataWithAutofilledValue(
+          weakSelf.fieldDataManager->UpdateFieldDataMap(
               usernameID, usernameValue,
               FieldPropertiesFlags::kAutofilledOnPageLoad);
-          weakSelf.fieldDataManager->UpdateFieldDataWithAutofilledValue(
+          weakSelf.fieldDataManager->UpdateFieldDataMap(
               passwordID, passwordValue,
               FieldPropertiesFlags::kAutofilledOnPageLoad);
         }
@@ -356,11 +356,11 @@ constexpr char kCommandPrefix[] = "passwordForm";
               generatedPassword:generatedPassword
               completionHandler:^(BOOL success) {
                 if (success) {
-                  weakSelf.fieldDataManager->UpdateFieldDataWithAutofilledValue(
+                  weakSelf.fieldDataManager->UpdateFieldDataMap(
                       newPasswordIdentifier,
                       SysNSStringToUTF16(generatedPassword),
                       FieldPropertiesFlags::kAutofilledOnUserTrigger);
-                  weakSelf.fieldDataManager->UpdateFieldDataWithAutofilledValue(
+                  weakSelf.fieldDataManager->UpdateFieldDataMap(
                       confirmPasswordIdentifier,
                       SysNSStringToUTF16(generatedPassword),
                       FieldPropertiesFlags::kAutofilledOnUserTrigger);
@@ -372,6 +372,7 @@ constexpr char kCommandPrefix[] = "passwordForm";
 }
 
 - (void)fillPasswordFormWithFillData:(const password_manager::FillData&)fillData
+                    triggeredOnField:(FieldRendererId)uniqueFieldID
                    completionHandler:
                        (nullable void (^)(BOOL))completionHandler {
   // Necessary copy so the values can be used inside a block.
@@ -380,18 +381,22 @@ constexpr char kCommandPrefix[] = "passwordForm";
   base::string16 usernameValue = fillData.username_value;
   base::string16 passwordValue = fillData.password_value;
 
+  // Do not fill the username if filling was triggered on a password field and
+  // the username field has user typed input.
+  BOOL fillUsername = uniqueFieldID == usernameID ||
+                      !_fieldDataManager->DidUserType(usernameID);
   __weak PasswordFormHelper* weakSelf = self;
   [self.jsPasswordManager
-       fillPasswordForm:SerializeFillData(fillData)
+       fillPasswordForm:SerializeFillData(fillData, fillUsername)
                 inFrame:GetMainFrame(_webState)
            withUsername:UTF16ToUTF8(usernameValue)
                password:UTF16ToUTF8(passwordValue)
       completionHandler:^(BOOL success) {
         if (success) {
-          weakSelf.fieldDataManager->UpdateFieldDataWithAutofilledValue(
+          weakSelf.fieldDataManager->UpdateFieldDataMap(
               usernameID, usernameValue,
               FieldPropertiesFlags::kAutofilledOnUserTrigger);
-          weakSelf.fieldDataManager->UpdateFieldDataWithAutofilledValue(
+          weakSelf.fieldDataManager->UpdateFieldDataMap(
               passwordID, passwordValue,
               FieldPropertiesFlags::kAutofilledOnUserTrigger);
         }
@@ -420,15 +425,8 @@ constexpr char kCommandPrefix[] = "passwordForm";
   }
 
   id extractFormDataCompletionHandler = ^(NSString* jsonString) {
-    std::unique_ptr<base::Value> formValue = autofill::ParseJson(jsonString);
-    if (!formValue) {
-      completionHandler(NO, FormData());
-      return;
-    }
-
     FormData formData;
-    if (!autofill::ExtractFormData(*formValue, false, base::string16(), pageURL,
-                                   pageURL.GetOrigin(), &formData)) {
+    if (!JsonStringToFormData(jsonString, &formData, pageURL)) {
       completionHandler(NO, FormData());
       return;
     }

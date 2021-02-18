@@ -24,7 +24,6 @@
 #include "chrome/browser/chromeos/login/session/chrome_session_manager.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/mock_user_manager.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/browser/signin/identity_test_environment_profile_adaptor.h"
 #include "chrome/browser/ui/webui/chromeos/multidevice_setup/multidevice_setup_dialog.h"
@@ -161,7 +160,7 @@ class EasyUnlockServiceRegularTest : public testing::Test {
     TestingBrowserProcess::GetGlobal()->SetLocalState(nullptr);
   }
 
-  // Most tests will want to pass |should_initialize_all_dependencies| == true,
+  // Most tests will want to pass `should_initialize_all_dependencies` == true,
   // but may pass false if they wish to tweak the dependencies' state themselves
   // before initializing the service.
   void InitializeService(bool should_initialize_all_dependencies) {
@@ -287,7 +286,7 @@ TEST_F(EasyUnlockServiceRegularTest, NotAllowedForEphemeralAccounts) {
 
   // Only MockUserManager allows for stubbing
   // IsCurrentUserNonCryptohomeDataEphemeral() to return false so we use one
-  // here in place of |fake_chrome_user_manager_|. Injecting it into a local
+  // here in place of `fake_chrome_user_manager_`. Injecting it into a local
   // ScopedUserManager sets it up as the global UserManager instance.
   auto mock_user_manager =
       std::make_unique<testing::NiceMock<MockUserManager>>();

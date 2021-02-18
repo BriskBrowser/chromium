@@ -65,7 +65,6 @@ import org.chromium.android_webview.AwSettings;
 import org.chromium.android_webview.AwThreadUtils;
 import org.chromium.android_webview.gfx.AwDrawFnImpl;
 import org.chromium.android_webview.renderer_priority.RendererPriority;
-import org.chromium.base.BuildInfo;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.ScopedSysTraceEvent;
@@ -306,6 +305,10 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
             } else if (!mFactory.hasStarted()) {
                 if (Looper.myLooper() == Looper.getMainLooper()) {
                     mFactory.startYourEngines(true);
+                } else {
+                    // Record which thread we're on now so we can track whether the final UI thread
+                    // decision differed.
+                    mFactory.getAwInit().setFirstWebViewConstructedOn(Looper.myLooper());
                 }
             }
 
@@ -2533,7 +2536,7 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
 
         @Override
         public AwDrawFnImpl.DrawFnAccess getDrawFnAccess() {
-            if (BuildInfo.isAtLeastQ()) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 return mFactory.getWebViewDelegate();
             }
             return null;

@@ -7,8 +7,8 @@
 
 #include "base/barrier_closure.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/memory/ptr_util.h"
 #include "base/optional.h"
@@ -16,7 +16,7 @@
 #include "base/sequenced_task_runner.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread.h"
@@ -1077,8 +1077,8 @@ TEST_P(RemoteTest, SharedRemoteSyncCallsFromBoundNonConstructionSequence) {
   int32_t value = 0;
   base::RunLoop loop;
   base::OnceClosure quit = loop.QuitClosure();
-  SharedRemote<mojom::SharedRemoteSyncTest> remote(
-      std::move(pending_remote), std::move(background_task_runner));
+  SharedRemote<mojom::SharedRemoteSyncTest> remote(std::move(pending_remote),
+                                                   background_task_runner);
   background_task_runner->PostTask(
       FROM_HERE, base::BindLambdaForTesting([remote, &value, &quit] {
         EXPECT_TRUE(remote->Fetch(&value));

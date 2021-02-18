@@ -20,7 +20,6 @@ class MockCastWebContents : public CastWebContents {
   MOCK_METHOD(int, id, (), (const, override));
   MOCK_METHOD(content::WebContents*, web_contents, (), (const, override));
   MOCK_METHOD(PageState, page_state, (), (const, override));
-  MOCK_METHOD(QueryableDataHost*, queryable_data_host, (), (const, override));
   MOCK_METHOD(base::Optional<pid_t>,
               GetMainFrameRenderProcessPid,
               (),
@@ -65,6 +64,7 @@ class MockCastWebContents : public CastWebContents {
   MOCK_METHOD(bool, can_bind_interfaces, (), (override));
 
   service_manager::BinderRegistry* binder_registry() override;
+  bool TryBindReceiver(mojo::GenericPendingReceiver&) override;
 
  private:
   service_manager::BinderRegistry registry_;

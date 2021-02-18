@@ -9,7 +9,7 @@
 #include <string>
 
 #include "base/macros.h"
-#include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
+#include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_screen_handler.h"
 
 namespace base {
@@ -34,7 +34,7 @@ class WelcomeView {
   // Hides the contents of the screen.
   virtual void Hide() = 0;
 
-  // Binds |screen| to the view.
+  // Binds `screen` to the view.
   virtual void Bind(WelcomeScreen* screen) = 0;
 
   // Unbinds model from the view.
@@ -48,6 +48,11 @@ class WelcomeView {
 
   // Shows dialog to confirm starting Demo mode.
   virtual void ShowDemoModeConfirmationDialog() = 0;
+  virtual void ShowEditRequisitionDialog(const std::string& requisition) = 0;
+  virtual void ShowRemoraRequisitionDialog() = 0;
+
+  // ChromeVox hint.
+  virtual void GiveChromeVoxHint() = 0;
 };
 
 // WebUI implementation of WelcomeScreenView. It is used to interact with
@@ -68,6 +73,9 @@ class WelcomeScreenHandler : public WelcomeView, public BaseScreenHandler {
   void ReloadLocalizedContent() override;
   void SetInputMethodId(const std::string& input_method_id) override;
   void ShowDemoModeConfirmationDialog() override;
+  void ShowEditRequisitionDialog(const std::string& requisition) override;
+  void ShowRemoraRequisitionDialog() override;
+  void GiveChromeVoxHint() override;
 
   // BaseScreenHandler:
   void DeclareLocalizedValues(
@@ -88,6 +96,8 @@ class WelcomeScreenHandler : public WelcomeView, public BaseScreenHandler {
   void HandleEnableSpokenFeedback(bool /* enabled */);
   void HandleEnableSelectToSpeak(bool /* enabled */);
   void HandleEnableDockedMagnifier(bool /* enabled */);
+  void HandleSetDeviceRequisition(const std::string& requisition);
+  void HandleRecordChromeVoxHintSpokenSuccess();
 
   // Notification of a change in the accessibility settings.
   void OnAccessibilityStatusChanged(
@@ -105,7 +115,7 @@ class WelcomeScreenHandler : public WelcomeView, public BaseScreenHandler {
   // Keeps whether screen should be shown right after initialization.
   bool show_on_init_ = false;
 
-  std::unique_ptr<AccessibilityStatusSubscription> accessibility_subscription_;
+  base::CallbackListSubscription accessibility_subscription_;
 
   DISALLOW_COPY_AND_ASSIGN(WelcomeScreenHandler);
 };

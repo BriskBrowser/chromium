@@ -6,10 +6,11 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/logging.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 
 #if defined(USE_X11)
-#include "ui/base/x/x11_error_handler.h"
+#include "ui/gfx/x/connection.h"  // nogncheck
 #endif
 
 #if defined(USE_OZONE)
@@ -28,13 +29,17 @@ void ChromeBrowserMainExtraPartsOzone::PreEarlyInitialization() {
     return;
   }
 #endif
-#if defined(USE_X11)
-  ui::SetNullErrorHandlers();
-#endif
 }
 
 void ChromeBrowserMainExtraPartsOzone::PostMainMessageLoopStart() {
-  auto shutdown_cb = base::BindOnce(&chrome::SessionEnding);
+  auto shutdown_cb = base::BindOnce([] {
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+    // Force a crash so that a crash report is generated.
+    LOG(FATAL) << "Wayland protocol error.";
+#else
+    chrome::SessionEnding();
+#endif
+  });
 #if defined(USE_OZONE)
   if (features::IsUsingOzonePlatform()) {
     ui::OzonePlatform::GetInstance()->PostMainMessageLoopStart(
@@ -43,7 +48,7 @@ void ChromeBrowserMainExtraPartsOzone::PostMainMessageLoopStart() {
   }
 #endif
 #if defined(USE_X11)
-  ui::SetErrorHandlers(std::move(shutdown_cb));
+  x11::Connection::Get()->SetIOErrorHandler(std::move(shutdown_cb));
 #endif
 }
 
@@ -53,8 +58,5 @@ void ChromeBrowserMainExtraPartsOzone::PostMainMessageLoopRun() {
     ui::OzonePlatform::GetInstance()->PostMainMessageLoopRun();
     return;
   }
-#endif
-#if defined(USE_X11)
-  ui::SetEmptyErrorHandlers();
 #endif
 }

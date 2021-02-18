@@ -4,7 +4,7 @@
 -ActiveDirectoryJoinTest.*
 -ActiveDirectoryLoginAutocompleteTest.*
 -ActiveDirectoryLoginTest.*
--All/DiscoverScreenTest.*
+-All/PinSetupScreenTest.*
 -All/EphemeralUserOobeTest.*
 -All/GestureNavigationScreenTest.*
 -All/MergeSessionTest.*
@@ -14,6 +14,7 @@
 -All/OobeLocalizationTest.*
 -All/OobeZeroTouchInteractiveUITest.*
 -All/ParameterizedArcTermsOfServiceScreenTest.*
+-All/PendingUpdateScreenTest.*
 -All/PublicSessionOobeTest.*
 -All/PublicSessionWithTermsOfServiceOobeTest.*
 -All/SAMLPasswordAttributesTest.*
@@ -59,6 +60,9 @@
 -EnterpriseEnrollmentTestBase.*
 -EulaOfflineTest.*
 -EulaTest.*
+-FamilyLinkNoticeScreenChildTest.*
+-FamilyLinkNoticeScreenManagedTest.*
+-FamilyLinkNoticeScreenTest.*
 -FingerprintSetupTest.*
 -ForceMaximizeOnFirstRunTest.*
 -ForceMaximizePolicyFalseTest.*
@@ -67,6 +71,7 @@
 -HidDetectionTest.*
 -InitialEnrollmentTest.*
 -InterruptedAutoStartEnrollmentTest.*
+-InvalidPendingScreenTest.*
 -KioskEnrollmentTest.*
 -KioskEnterpriseTest.*
 -KioskHiddenWebUITest.*
@@ -93,6 +98,8 @@
 -OobeTest.*
 -OobeZeroTouchInteractiveUITest.*
 -PackagedLicenseScreenTest.*
+-ParentalHandoffScreenBrowserTest.*
+-ParentalHandoffScreenChildBrowserTest.*
 -PolicyProvidedCertsOnUserSessionInitTest.*
 -PresetPolicyDeviceDisablingTest.*
 -PrimaryUserPoliciesProxiedTest.*
@@ -113,6 +120,7 @@
 -SAMLPolicyTest.*
 -SamlTest.*
 -SecurityTokenSamlTest.*
+-SigninToUserProfileSwitchTest.*
 -SiteIsolationFlagHandlingTest.*
 -StartupBrowserWindowLaunchSuppressedTest.*
 -SyncConsentRecorderTest.*
@@ -121,9 +129,14 @@
 -SyncConsentTimezoneOverride.*
 -SystemWebDialogOobeTest.*
 -TermsOfServiceScreenTest.*
+-UpdateRequiredScreenPolicyPresentTest.*
 -UpdateRequiredScreenTest.*
 -UpdateScreenTest.*
+-BetterUpdateScreenTest.*
 -UserCloudExternalDataManagerTest.*
+-UserCreationScreenEnrolledTest.*
+-UserCreationScreenLoginTest.*
+-UserCreationScreenTest.*
 -WebKioskTest.*
 -WebviewClientCertsLoginTest.*
 -WebviewClientCertsLoginTestBase.*
@@ -131,6 +144,8 @@
 -WebviewLoginTest.*
 -WebviewProxyAuthLoginTest.*
 -WelcomeScreenBrowserTest.*
+-WelcomeScreenChromeVoxHintTest.*
+-WelcomeScreenInternationalChromeVoxHintTest.*
 -WelcomeScreenSystemDevModeBrowserTest.*
 -WelcomeScreenTimezone.*
 -WizardControllerBrokenLocalStateTest.*

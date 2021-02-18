@@ -31,10 +31,10 @@ namespace {
 
 struct RoutingInfoKey {
   int routing_id;
-  int script_id;
+  std::string script_id;
 
-  RoutingInfoKey(int routing_id, int script_id)
-      : routing_id(routing_id), script_id(script_id) {}
+  RoutingInfoKey(int routing_id, std::string script_id)
+      : routing_id(routing_id), script_id(std::move(script_id)) {}
 
   bool operator<(const RoutingInfoKey& other) const {
     return std::tie(routing_id, script_id) <
@@ -140,8 +140,16 @@ bool UserScriptInjector::ExpectsResults() const {
   return false;
 }
 
-base::Optional<CSSOrigin> UserScriptInjector::GetCssOrigin() const {
-  return base::nullopt;
+CSSOrigin UserScriptInjector::GetCssOrigin() const {
+  return CSSOrigin::kAuthor;
+}
+
+bool UserScriptInjector::IsRemovingCSS() const {
+  return false;
+}
+
+bool UserScriptInjector::IsAddingCSS() const {
+  return script_ && !script_->css_scripts().empty();
 }
 
 const base::Optional<std::string> UserScriptInjector::GetInjectionKey() const {
@@ -156,7 +164,7 @@ bool UserScriptInjector::ShouldInjectJs(
          ShouldInjectScripts(script_->js_scripts(), executing_scripts);
 }
 
-bool UserScriptInjector::ShouldInjectCss(
+bool UserScriptInjector::ShouldInjectOrRemoveCss(
     UserScript::RunLocation run_location,
     const std::set<std::string>& injected_stylesheets) const {
   return script_ && run_location == UserScript::DOCUMENT_START &&

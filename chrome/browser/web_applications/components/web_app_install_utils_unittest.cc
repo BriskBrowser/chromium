@@ -7,21 +7,23 @@
 #include <string>
 #include <utility>
 
+#include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
 #include "chrome/browser/web_applications/components/web_app_icon_generator.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "chrome/browser/web_applications/test/web_app_icon_test_utils.h"
 #include "chrome/common/chrome_features.h"
-#include "chrome/common/web_application_info.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/manifest/manifest.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 namespace web_app {
 
-using Purpose = blink::Manifest::ImageResource::Purpose;
+using Purpose = blink::mojom::ManifestImageResource_Purpose;
 
 namespace {
 
@@ -45,6 +47,10 @@ GURL AppUrl() {
 }
 GURL AlternativeAppUrl() {
   return GURL("http://www.notchromium.org");
+}
+
+GURL AppManifestUrl() {
+  return GURL("http://www.chromium.org/manifest.json");
 }
 
 const char kShortcutItemName[] = "shortcut item ";
@@ -82,7 +88,7 @@ class WebAppInstallUtilsWithShortcutsMenu : public testing::Test {
 TEST(WebAppInstallUtils, UpdateWebAppInfoFromManifest) {
   WebApplicationInfo web_app_info;
   web_app_info.title = base::UTF8ToUTF16(kAlternativeAppTitle);
-  web_app_info.app_url = AlternativeAppUrl();
+  web_app_info.start_url = AlternativeAppUrl();
   WebApplicationIconInfo info;
   info.url = AppIcon1();
   web_app_info.icon_infos.push_back(info);
@@ -90,8 +96,7 @@ TEST(WebAppInstallUtils, UpdateWebAppInfoFromManifest) {
   blink::Manifest manifest;
   manifest.start_url = AppUrl();
   manifest.scope = AppUrl().GetWithoutFilename();
-  manifest.short_name =
-      base::NullableString16(base::UTF8ToUTF16(kAppShortName), false);
+  manifest.short_name = base::ASCIIToUTF16(kAppShortName);
 
   {
     blink::Manifest::FileHandler handler;
@@ -109,12 +114,20 @@ TEST(WebAppInstallUtils, UpdateWebAppInfoFromManifest) {
     manifest.protocol_handlers.push_back(protocol_handler);
   }
 
-  UpdateWebAppInfoFromManifest(manifest, &web_app_info);
+  {
+    blink::Manifest::UrlHandler url_handler;
+    url_handler.origin =
+        url::Origin::Create(GURL("https://url_handlers_origin.com/"));
+    manifest.url_handlers.push_back(url_handler);
+  }
+
+  UpdateWebAppInfoFromManifest(manifest, AppManifestUrl(), &web_app_info);
   EXPECT_EQ(base::UTF8ToUTF16(kAppShortName), web_app_info.title);
-  EXPECT_EQ(AppUrl(), web_app_info.app_url);
+  EXPECT_EQ(AppUrl(), web_app_info.start_url);
   EXPECT_EQ(AppUrl().GetWithoutFilename(), web_app_info.scope);
   EXPECT_EQ(DisplayMode::kBrowser, web_app_info.display_mode);
   EXPECT_TRUE(web_app_info.display_override.empty());
+  EXPECT_EQ(AppManifestUrl(), web_app_info.manifest_url);
 
   // The icon info from |web_app_info| should be left as is, since the manifest
   // doesn't have any icon information.
@@ -123,7 +136,7 @@ TEST(WebAppInstallUtils, UpdateWebAppInfoFromManifest) {
 
   // Test that |manifest.name| takes priority over |manifest.short_name|, and
   // that icons provided by the manifest replace icons in |web_app_info|.
-  manifest.name = base::NullableString16(base::UTF8ToUTF16(kAppTitle), false);
+  manifest.name = base::ASCIIToUTF16(kAppTitle);
   manifest.display = DisplayMode::kMinimalUi;
 
   blink::Manifest::ImageResource icon;
@@ -138,7 +151,7 @@ TEST(WebAppInstallUtils, UpdateWebAppInfoFromManifest) {
   manifest.display_override.push_back(DisplayMode::kMinimalUi);
   manifest.display_override.push_back(DisplayMode::kStandalone);
 
-  UpdateWebAppInfoFromManifest(manifest, &web_app_info);
+  UpdateWebAppInfoFromManifest(manifest, AppManifestUrl(), &web_app_info);
   EXPECT_EQ(base::UTF8ToUTF16(kAppTitle), web_app_info.title);
   EXPECT_EQ(DisplayMode::kMinimalUi, web_app_info.display_mode);
   ASSERT_EQ(2u, web_app_info.display_override.size());
@@ -163,18 +176,21 @@ TEST(WebAppInstallUtils, UpdateWebAppInfoFromManifest) {
   auto protocol_handler = web_app_info.protocol_handlers[0];
   EXPECT_EQ(protocol_handler.protocol, base::UTF8ToUTF16("mailto"));
   EXPECT_EQ(protocol_handler.url, GURL("http://example.com/handle=%s"));
+
+  EXPECT_EQ(1u, web_app_info.url_handlers.size());
+  auto url_handler = web_app_info.url_handlers[0];
+  EXPECT_EQ(url_handler.origin,
+            url::Origin::Create(GURL("https://url_handlers_origin.com/")));
 }
 
 TEST(WebAppInstallUtils, UpdateWebAppInfoFromManifest_EmptyName) {
   WebApplicationInfo web_app_info;
 
   blink::Manifest manifest;
-  manifest.name =
-      base::NullableString16(base::ASCIIToUTF16(""), /*is_null=*/false);
-  manifest.short_name = base::NullableString16(
-      base::ASCIIToUTF16(kAppShortName), /*is_null=*/false);
+  manifest.name = base::string16();
+  manifest.short_name = base::ASCIIToUTF16(kAppShortName);
 
-  UpdateWebAppInfoFromManifest(manifest, &web_app_info);
+  UpdateWebAppInfoFromManifest(manifest, AppManifestUrl(), &web_app_info);
   EXPECT_EQ(base::UTF8ToUTF16(kAppShortName), web_app_info.title);
 }
 
@@ -194,7 +210,7 @@ TEST(WebAppInstallUtils, UpdateWebAppInfoFromManifest_MaskableIcon) {
   manifest.icons.push_back(icon);
   WebApplicationInfo web_app_info;
 
-  UpdateWebAppInfoFromManifest(manifest, &web_app_info);
+  UpdateWebAppInfoFromManifest(manifest, AppManifestUrl(), &web_app_info);
   EXPECT_EQ(3U, web_app_info.icon_infos.size());
   std::map<IconPurpose, int> purpose_to_count;
   for (const auto& icon_info : web_app_info.icon_infos) {
@@ -205,12 +221,103 @@ TEST(WebAppInstallUtils, UpdateWebAppInfoFromManifest_MaskableIcon) {
   EXPECT_EQ(2, purpose_to_count[IconPurpose::MASKABLE]);
 }
 
+TEST(WebAppInstallUtils,
+     UpdateWebAppInfoFromManifest_MaskableIconOnly_UsesManifestIcons) {
+  blink::Manifest manifest;
+  blink::Manifest::ImageResource icon;
+  icon.src = AppIcon1();
+  icon.purpose = {Purpose::MASKABLE};
+  manifest.icons.push_back(icon);
+  // WebApplicationInfo has existing icons (simulating found in page metadata).
+  WebApplicationInfo web_app_info;
+  WebApplicationIconInfo icon_info;
+  web_app_info.icon_infos.push_back(icon_info);
+  web_app_info.icon_infos.push_back(icon_info);
+
+  UpdateWebAppInfoFromManifest(manifest, AppManifestUrl(), &web_app_info);
+  // Metadata icons are replaced by manifest icon.
+  EXPECT_EQ(1U, web_app_info.icon_infos.size());
+}
+
+TEST(WebAppInstallUtils, UpdateWebAppInfoFromManifest_ShareTarget) {
+  blink::Manifest manifest;
+  WebApplicationInfo web_app_info;
+
+  {
+    blink::Manifest::ShareTarget share_target;
+    share_target.action = GURL("http://example.com/share1");
+    share_target.method = blink::mojom::ManifestShareTarget_Method::kPost;
+    share_target.enctype =
+        blink::mojom::ManifestShareTarget_Enctype::kMultipartFormData;
+    share_target.params.title = base::ASCIIToUTF16("kTitle");
+    share_target.params.text = base::ASCIIToUTF16("kText");
+
+    blink::Manifest::FileFilter file_filter;
+    file_filter.name = base::ASCIIToUTF16("kImages");
+    file_filter.accept.push_back(base::ASCIIToUTF16(".png"));
+    file_filter.accept.push_back(base::ASCIIToUTF16("image/png"));
+    share_target.params.files.push_back(std::move(file_filter));
+
+    manifest.share_target = std::move(share_target);
+  }
+
+  UpdateWebAppInfoFromManifest(manifest, AppManifestUrl(), &web_app_info);
+
+  {
+    EXPECT_TRUE(web_app_info.share_target.has_value());
+    const auto& share_target = *web_app_info.share_target;
+    EXPECT_EQ(share_target.action, GURL("http://example.com/share1"));
+    EXPECT_EQ(share_target.method, apps::ShareTarget::Method::kPost);
+    EXPECT_EQ(share_target.enctype,
+              apps::ShareTarget::Enctype::kMultipartFormData);
+    EXPECT_EQ(share_target.params.title, "kTitle");
+    EXPECT_EQ(share_target.params.text, "kText");
+    EXPECT_TRUE(share_target.params.url.empty());
+    EXPECT_EQ(share_target.params.files.size(), 1U);
+    EXPECT_EQ(share_target.params.files[0].name, "kImages");
+    EXPECT_EQ(share_target.params.files[0].accept.size(), 2U);
+    EXPECT_EQ(share_target.params.files[0].accept[0], ".png");
+    EXPECT_EQ(share_target.params.files[0].accept[1], "image/png");
+  }
+
+  {
+    blink::Manifest::ShareTarget share_target;
+    share_target.action = GURL("http://example.com/share2");
+    share_target.method = blink::mojom::ManifestShareTarget_Method::kGet;
+    share_target.enctype =
+        blink::mojom::ManifestShareTarget_Enctype::kFormUrlEncoded;
+    share_target.params.text = base::ASCIIToUTF16("kText");
+    share_target.params.url = base::ASCIIToUTF16("kUrl");
+
+    manifest.share_target = std::move(share_target);
+  }
+
+  UpdateWebAppInfoFromManifest(manifest, AppManifestUrl(), &web_app_info);
+
+  {
+    EXPECT_TRUE(web_app_info.share_target.has_value());
+    const auto& share_target = *web_app_info.share_target;
+    EXPECT_EQ(share_target.action, GURL("http://example.com/share2"));
+    EXPECT_EQ(share_target.method, apps::ShareTarget::Method::kGet);
+    EXPECT_EQ(share_target.enctype,
+              apps::ShareTarget::Enctype::kFormUrlEncoded);
+    EXPECT_TRUE(share_target.params.title.empty());
+    EXPECT_EQ(share_target.params.text, "kText");
+    EXPECT_EQ(share_target.params.url, "kUrl");
+    EXPECT_TRUE(share_target.params.files.empty());
+  }
+
+  manifest.share_target = base::nullopt;
+  UpdateWebAppInfoFromManifest(manifest, AppManifestUrl(), &web_app_info);
+  EXPECT_FALSE(web_app_info.share_target.has_value());
+}
+
 // Tests that WebAppInfo is correctly updated when Manifest contains Shortcuts.
 TEST_F(WebAppInstallUtilsWithShortcutsMenu,
        UpdateWebAppInfoFromManifestWithShortcuts) {
   WebApplicationInfo web_app_info;
   web_app_info.title = base::UTF8ToUTF16(kAlternativeAppTitle);
-  web_app_info.app_url = AlternativeAppUrl();
+  web_app_info.start_url = AlternativeAppUrl();
   WebApplicationIconInfo info;
   info.url = AppIcon1();
   web_app_info.icon_infos.push_back(info);
@@ -232,8 +339,7 @@ TEST_F(WebAppInstallUtilsWithShortcutsMenu,
   blink::Manifest manifest;
   manifest.start_url = AppUrl();
   manifest.scope = AppUrl().GetWithoutFilename();
-  manifest.short_name =
-      base::NullableString16(base::UTF8ToUTF16(kAppShortName), false);
+  manifest.short_name = base::ASCIIToUTF16(kAppShortName);
 
   {
     blink::Manifest::FileHandler handler;
@@ -251,9 +357,16 @@ TEST_F(WebAppInstallUtilsWithShortcutsMenu,
     manifest.protocol_handlers.push_back(protocol_handler);
   }
 
-  UpdateWebAppInfoFromManifest(manifest, &web_app_info);
+  {
+    blink::Manifest::UrlHandler url_handler;
+    url_handler.origin =
+        url::Origin::Create(GURL("https://url_handlers_origin.com/"));
+    manifest.url_handlers.push_back(url_handler);
+  }
+
+  UpdateWebAppInfoFromManifest(manifest, AppManifestUrl(), &web_app_info);
   EXPECT_EQ(base::UTF8ToUTF16(kAppShortName), web_app_info.title);
-  EXPECT_EQ(AppUrl(), web_app_info.app_url);
+  EXPECT_EQ(AppUrl(), web_app_info.start_url);
   EXPECT_EQ(AppUrl().GetWithoutFilename(), web_app_info.scope);
   EXPECT_EQ(DisplayMode::kBrowser, web_app_info.display_mode);
 
@@ -270,7 +383,7 @@ TEST_F(WebAppInstallUtilsWithShortcutsMenu,
 
   // Test that |manifest.name| takes priority over |manifest.short_name|, and
   // that icons provided by the manifest replace icons in |web_app_info|.
-  manifest.name = base::NullableString16(base::UTF8ToUTF16(kAppTitle), false);
+  manifest.name = base::ASCIIToUTF16(kAppTitle);
   manifest.display = DisplayMode::kMinimalUi;
 
   blink::Manifest::ImageResource icon;
@@ -306,7 +419,7 @@ TEST_F(WebAppInstallUtilsWithShortcutsMenu,
 
   manifest.shortcuts.push_back(shortcut_item);
 
-  UpdateWebAppInfoFromManifest(manifest, &web_app_info);
+  UpdateWebAppInfoFromManifest(manifest, AppManifestUrl(), &web_app_info);
   EXPECT_EQ(base::UTF8ToUTF16(kAppTitle), web_app_info.title);
   EXPECT_EQ(DisplayMode::kMinimalUi, web_app_info.display_mode);
 
@@ -341,6 +454,12 @@ TEST_F(WebAppInstallUtilsWithShortcutsMenu,
   auto protocol_handler = web_app_info.protocol_handlers[0];
   EXPECT_EQ(protocol_handler.protocol, base::UTF8ToUTF16("mailto"));
   EXPECT_EQ(protocol_handler.url, GURL("http://example.com/handle=%s"));
+
+  // Check URL handlers were updated
+  EXPECT_EQ(1u, web_app_info.url_handlers.size());
+  auto url_handler = web_app_info.url_handlers[0];
+  EXPECT_EQ(url_handler.origin,
+            url::Origin::Create(GURL("https://url_handlers_origin.com/")));
 }
 
 // Tests that we limit the number of icons declared by a site.
@@ -355,7 +474,7 @@ TEST(WebAppInstallUtils, UpdateWebAppInfoFromManifestTooManyIcons) {
   }
   WebApplicationInfo web_app_info;
 
-  UpdateWebAppInfoFromManifest(manifest, &web_app_info);
+  UpdateWebAppInfoFromManifest(manifest, AppManifestUrl(), &web_app_info);
   EXPECT_EQ(20U, web_app_info.icon_infos.size());
 }
 
@@ -378,7 +497,7 @@ TEST_F(WebAppInstallUtilsWithShortcutsMenu,
     manifest.shortcuts.push_back(shortcut_item);
   }
   WebApplicationInfo web_app_info;
-  UpdateWebAppInfoFromManifest(manifest, &web_app_info);
+  UpdateWebAppInfoFromManifest(manifest, AppManifestUrl(), &web_app_info);
 
   std::vector<WebApplicationShortcutsMenuItemInfo::Icon> all_icons;
   for (const auto& shortcut : web_app_info.shortcuts_menu_item_infos) {
@@ -402,7 +521,7 @@ TEST(WebAppInstallUtils, UpdateWebAppInfoFromManifestIconsTooLarge) {
     manifest.icons.push_back(std::move(icon));
   }
   WebApplicationInfo web_app_info;
-  UpdateWebAppInfoFromManifest(manifest, &web_app_info);
+  UpdateWebAppInfoFromManifest(manifest, AppManifestUrl(), &web_app_info);
 
   EXPECT_EQ(10U, web_app_info.icon_infos.size());
   for (const WebApplicationIconInfo& icon : web_app_info.icon_infos) {
@@ -430,7 +549,7 @@ TEST_F(WebAppInstallUtilsWithShortcutsMenu,
     manifest.shortcuts.push_back(shortcut_item);
   }
   WebApplicationInfo web_app_info;
-  UpdateWebAppInfoFromManifest(manifest, &web_app_info);
+  UpdateWebAppInfoFromManifest(manifest, AppManifestUrl(), &web_app_info);
 
   std::vector<WebApplicationShortcutsMenuItemInfo::Icon> all_icons;
   for (const auto& shortcut : web_app_info.shortcuts_menu_item_infos) {
@@ -573,6 +692,14 @@ TEST(WebAppInstallUtils,
   for (const auto& icon_bitmap : web_app_info.icon_bitmaps_any) {
     EXPECT_EQ(SK_ColorWHITE, icon_bitmap.second.getColor(0, 0));
   }
+}
+
+TEST(WebAppInstallUtils, UpdateWebAppInfoFromManifest_InvalidManifestUrl) {
+  WebApplicationInfo web_app_info;
+  blink::Manifest manifest;
+
+  UpdateWebAppInfoFromManifest(manifest, GURL("foo"), &web_app_info);
+  EXPECT_TRUE(web_app_info.manifest_url.is_empty());
 }
 
 // Tests that when FilterAndResizeIconsGenerateMissing is called with no

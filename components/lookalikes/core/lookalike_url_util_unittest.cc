@@ -6,7 +6,6 @@
 
 #include "base/bind.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/scoped_feature_list.h"
 #include "components/lookalikes/core/features.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -106,6 +105,14 @@ TEST(LookalikeUrlUtilTest, EditDistanceExcludesCommonFalsePositives) {
       {"abcde.com", "axbcde.com", false},   // Deletion
       {"axbcde.com", "abcde.com", false},   // Insertion
       {"axbcde.com", "aybcde.com", false},  // Substitution
+
+      // We permit matches that only differ due to a single "-".
+      {"-abcde.com", "abcde.com", true},
+      {"ab-cde.com", "abcde.com", true},
+      {"abcde-.com", "abcde.com", true},
+      {"abcde.com", "-abcde.com", true},
+      {"abcde.com", "ab-cde.com", true},
+      {"abcde.com", "abcde-.com", true},
   };
   for (const TestCase& test_case : kTestCases) {
     auto navigated =
@@ -135,8 +142,10 @@ struct TargetEmbeddingHeuristicTestCase {
 TEST(LookalikeUrlUtilTest, TargetEmbeddingTest) {
   const std::vector<DomainInfo> kEngagedSites = {
       GetDomainInfo(GURL("https://highengagement.com")),
+      GetDomainInfo(GURL("https://highengagement.inthesubdomain.com")),
       GetDomainInfo(GURL("https://highengagement.co.uk")),
       GetDomainInfo(GURL("https://subdomain.highengagement.com")),
+      GetDomainInfo(GURL("https://www.highengagementwithwww.com")),
       GetDomainInfo(GURL("https://subdomain.google.com")),
   };
   const std::vector<TargetEmbeddingHeuristicTestCase> kTestCases = {
@@ -198,7 +207,7 @@ TEST(LookalikeUrlUtilTest, TargetEmbeddingTest) {
       {"scholar.foo.google.com.foo.com", "google.com",
        TargetEmbeddingType::kInterstitial},
 
-      // Targets should be longer than 6 characters.
+      // e2LDs should be longer than 3 characters.
       {"hp.com-foo.com", "", TargetEmbeddingType::kNone},
 
       // Targets with common words as e2LD are not considered embedded targets
@@ -208,10 +217,20 @@ TEST(LookalikeUrlUtilTest, TargetEmbeddingTest) {
        TargetEmbeddingType::kInterstitial},
       {"foo.jobs.org-foo.com", "", TargetEmbeddingType::kNone},
       {"foo.office.org-foo.com", "", TargetEmbeddingType::kNone},
+      // Common words (like 'jobs' are included in the big common word list.
+      // Ensure that the supplemental kCommonWords list is also checked.
+      {"foo.hoteles.com-foo.com", "", TargetEmbeddingType::kNone},
 
       // Targets could be embedded without their dots and dashes.
+      {"googlecom-foo.com", "google.com", TargetEmbeddingType::kInterstitial},
       {"foo.googlecom-foo.com", "google.com",
        TargetEmbeddingType::kInterstitial},
+      // But should not be detected if they're using a common word. weather.com
+      // is on the top domain list, but 'weather' is a common word.
+      {"weathercom-foo.com", "", TargetEmbeddingType::kNone},
+      // And should also not be detected if they're too short. vk.com is on the
+      // top domain list, but is shorter than kMinE2LDLengthForTargetEmbedding.
+      {"vkcom-foo.com", "", TargetEmbeddingType::kNone},
 
       // Ensure legitimate domains don't trigger.
       {"foo.google.com", "", TargetEmbeddingType::kNone},
@@ -236,9 +255,52 @@ TEST(LookalikeUrlUtilTest, TargetEmbeddingTest) {
       {"foo.subdomain.google.com.foo.com", "subdomain.google.com",
        TargetEmbeddingType::kInterstitial},
 
-      // Skeleton matching should work against engaged sites at the eTLD level.
+      // Skeleton matching should work against engaged sites at a eTLD+1 level,
+      {"highengagement.inthesubdomain.com-foo.com",
+       "highengagement.inthesubdomain.com", TargetEmbeddingType::kInterstitial},
+      // but only if the bare eTLD+1, or www.[eTLD+1] has been engaged.
       {"subdomain.highéngagement.com-foo.com", "highengagement.com",
        TargetEmbeddingType::kInterstitial},
+      {"subdomain.highéngagementwithwww.com-foo.com",
+       "highengagementwithwww.com", TargetEmbeddingType::kInterstitial},
+      {"other.inthésubdomain.com-foo.com", "", TargetEmbeddingType::kNone},
+      // Ideally, we'd be able to combine subdomains and skeleton matching, but
+      // our current algorithm can't detect that precisely.
+      {"highengagement.inthésubdomain.com-foo.com", "",
+       TargetEmbeddingType::kNone},
+
+      // Domains should be allowed to embed themselves.
+      {"highengagement.com.highengagement.com", "", TargetEmbeddingType::kNone},
+      {"subdomain.highengagement.com.highengagement.com", "",
+       TargetEmbeddingType::kNone},
+      {"nothighengagement.highengagement.com.highengagement.com", "",
+       TargetEmbeddingType::kNone},
+      {"google.com.google.com", "", TargetEmbeddingType::kNone},
+      {"www.google.com.google.com", "", TargetEmbeddingType::kNone},
+
+      // Detect embeddings at the end of the domain, too.
+      {"www-google.com", "google.com", TargetEmbeddingType::kInterstitial},
+      {"www-highengagement.com", "highengagement.com",
+       TargetEmbeddingType::kInterstitial},
+      {"subdomain-highengagement.com", "subdomain.highengagement.com",
+       TargetEmbeddingType::kInterstitial},
+      {"google-com.google-com.com", "google.com",
+       TargetEmbeddingType::kInterstitial},
+      {"subdomain.google-com.google-com.com", "google.com",
+       TargetEmbeddingType::kInterstitial},
+      {"google.com-google.com-google.com", "google.com",
+       TargetEmbeddingType::kInterstitial},
+
+      // Ignore end-of-domain embeddings when they're also cross-TLD matches.
+      {"google.com.mx", "", TargetEmbeddingType::kNone},
+
+      // For a small set of high-value domains that are also common words (see
+      // kDomainsPermittedInEndEmbeddings), we block all embeddings except those
+      // at the very end of the domain (e.g. foo-{domain.com}). Ensure this
+      // works for domains on the list, but not for others.
+      {"office.com-foo.com", "office.com", TargetEmbeddingType::kInterstitial},
+      {"example-office.com", "", TargetEmbeddingType::kNone},
+      {"example-google.com", "google.com", TargetEmbeddingType::kInterstitial},
   };
 
   for (auto& test_case : kTestCases) {
@@ -252,7 +314,12 @@ TEST(LookalikeUrlUtilTest, TargetEmbeddingTest) {
           << test_case.expected_safe_host << ", but "
           << (safe_hostname.empty() ? "it didn't trigger at all."
                                     : "triggered on " + safe_hostname);
-      EXPECT_EQ(embedding_type, test_case.expected_type);
+      EXPECT_EQ(embedding_type, test_case.expected_type)
+          << test_case.hostname << " should trigger on "
+          << test_case.expected_safe_host << " but it returned "
+          << (embedding_type == TargetEmbeddingType::kNone
+                  ? "kNone."
+                  : "something unexpected");
     } else {
       EXPECT_EQ(embedding_type, TargetEmbeddingType::kNone)
           << test_case.hostname << " unexpectedly triggered on "

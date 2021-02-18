@@ -8,18 +8,16 @@
 
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/feature_list.h"
 #include "base/i18n/rtl.h"
-#include "base/metrics/field_trial.h"
-#include "base/metrics/histogram_macros.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/optional.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
@@ -37,7 +35,6 @@
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/launch_util.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
-#include "chrome/browser/installable/installable_metrics.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/apps/app_info_dialog.h"
 #include "chrome/browser/ui/browser_dialogs.h"
@@ -57,6 +54,7 @@
 #include "chrome/browser/web_applications/components/install_finalizer.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
 #include "chrome/browser/web_applications/components/web_app_provider_base.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "chrome/browser/web_applications/extensions/bookmark_app_finalizer_utils.h"
 #include "chrome/browser/web_applications/extensions/bookmark_app_util.h"
 #include "chrome/browser/web_applications/web_app_icon_manager.h"
@@ -69,12 +67,12 @@
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
-#include "chrome/common/web_application_info.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/favicon_base/favicon_types.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
+#include "components/webapps/browser/installable/installable_metrics.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/web_ui.h"
 #include "extensions/browser/app_sorting.h"
@@ -128,6 +126,11 @@ const char kPackagedAppKey[] = "packagedApp";
 const int kWebAppIconLargeNonDefault = 128;
 const int kWebAppIconSmallNonDefault = 16;
 
+// These Run on OS Login mode strings need to be in sync with
+// chrome/browser/resources/ntp4/apps_page.js:RUN_ON_OS_LOGIN_MODE enum.
+const char kRunOnOsLoginModeNotRun[] = "run_on_os_login_mode_not_run";
+const char kRunOnOsLoginModeWindowed[] = "run_on_os_login_mode_windowed";
+
 // The Youtube app is incorrectly harded to be a 'bookmark app'. However, it is
 // a platform app. This helper method special cases that, and should be used
 // instead of extension->from_bookmark().
@@ -161,14 +164,12 @@ bool DesktopPWAsWithoutExtensions() {
   return base::FeatureList::IsEnabled(features::kDesktopPWAsWithoutExtensions);
 }
 
-bool HasMatchingOrGreaterThanIcon(
-    std::vector<SquareSizePx> downloaded_icon_sizes,
-    int pixels) {
-  for (const SquareSizePx icon_size : downloaded_icon_sizes) {
-    if (icon_size >= pixels)
-      return true;
-  }
-  return false;
+bool HasMatchingOrGreaterThanIcon(const SortedSizesPx& downloaded_icon_sizes,
+                                  int pixels) {
+  if (downloaded_icon_sizes.empty())
+    return false;
+  SquareSizePx largest = *downloaded_icon_sizes.rbegin();
+  return largest >= pixels;
 }
 
 }  // namespace
@@ -205,7 +206,7 @@ void AppLauncherHandler::CreateWebAppInfo(const web_app::AppId& app_id,
 
   base::string16 name = base::UTF8ToUTF16(registrar.GetAppShortName(app_id));
   NewTabUI::SetUrlTitleAndDirection(value, name,
-                                    registrar.GetAppLaunchURL(app_id));
+                                    registrar.GetAppStartUrl(app_id));
   NewTabUI::SetFullNameAndDirection(name, value);
 
   GetWebAppBasicInfo(app_id, registrar, value);
@@ -275,6 +276,25 @@ void AppLauncherHandler::CreateWebAppInfo(const web_app::AppId& app_id,
     sorting->SetAppLaunchOrdinal(app_id, app_launch_ordinal);
   }
   value->SetString("app_launch_ordinal", app_launch_ordinal.ToInternalValue());
+
+  // Only show the Run on OS Login menu item for locally installed web apps
+  value->SetBoolean(
+      "mayShowRunOnOsLoginMode",
+      base::FeatureList::IsEnabled(features::kDesktopPWAsRunOnOsLogin) &&
+          is_locally_installed);
+
+  value->SetBoolean(
+      "mayToggleRunOnOsLoginMode",
+      web_app_provider_->policy_manager().GetUrlRunOnOsLoginPolicy(
+          policy_installed_apps_[app_id]) ==
+          web_app::RunOnOsLoginPolicy::kAllowed);
+
+  std::string runOnOsLoginModeString =
+      (registrar.GetAppRunOnOsLoginMode(app_id) ==
+       web_app::RunOnOsLoginMode::kNotRun)
+          ? kRunOnOsLoginModeNotRun
+          : kRunOnOsLoginModeWindowed;
+  value->SetString("runOnOsLoginMode", runOnOsLoginModeString);
 }
 
 void AppLauncherHandler::CreateExtensionInfo(const Extension* extension,
@@ -383,14 +403,19 @@ void AppLauncherHandler::CreateExtensionInfo(const Extension* extension,
     sorting->SetAppLaunchOrdinal(extension->id(), app_launch_ordinal);
   }
   value->SetString("app_launch_ordinal", app_launch_ordinal.ToInternalValue());
+
+  // Run on OS Login is not implemented for extension/bookmark apps.
+  value->SetBoolean("mayShowRunOnOsLoginMode", false);
+  value->SetBoolean("mayToggleRunOnOsLoginMode", false);
 }
 
 // static
-void AppLauncherHandler::GetLocalizedValues(Profile* profile,
-                                            base::DictionaryValue* values) {
+void AppLauncherHandler::RegisterLoadTimeData(
+    Profile* profile,
+    content::WebUIDataSource* source) {
   PrefService* prefs = profile->GetPrefs();
   int shown_page = prefs->GetInteger(prefs::kNtpShownPage);
-  values->SetInteger("shown_page_index", shown_page & INDEX_MASK);
+  source->AddInteger("shown_page_index", shown_page & INDEX_MASK);
 }
 
 // static
@@ -446,6 +471,10 @@ void AppLauncherHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
       "pageSelected",
       base::BindRepeating(&AppLauncherHandler::HandlePageSelected,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "runOnOsLogin",
+      base::BindRepeating(&AppLauncherHandler::HandleRunOnOsLogin,
                           base::Unretained(this)));
 }
 
@@ -547,19 +576,41 @@ void AppLauncherHandler::OnWebAppInstalled(const web_app::AppId& app_id) {
   web_ui()->CallJavascriptFunctionUnsafe("ntp.appAdded", *app_info, highlight);
 }
 
-void AppLauncherHandler::OnWebAppUninstalled(const web_app::AppId& app_id) {
+void AppLauncherHandler::OnWebAppWillBeUninstalled(
+    const web_app::AppId& app_id) {
   std::unique_ptr<base::DictionaryValue> app_info =
       std::make_unique<base::DictionaryValue>();
-  app_info->SetString(kInfoIdKey, app_id);
-  // Since |isUninstaLL| is true below, the only item needed in the app_info
+  // Since |isUninstall| is true below, the only item needed in the app_info
   // dictionary is the id.
+  app_info->SetString(kInfoIdKey, app_id);
   web_ui()->CallJavascriptFunctionUnsafe(
       "ntp.appRemoved", *app_info, /*isUninstall=*/base::Value(true),
       base::Value(!extension_id_prompting_.empty()));
 }
 
+void AppLauncherHandler::OnWebAppUninstalled(const web_app::AppId& app_id) {
+  // This can be redundant in most cases, however it is not uncommon for the
+  // chrome://apps page to be loaded, or reloaded, during the uninstallation of
+  // an app. In this state, the app is still in the registry, but the
+  // |OnWebAppWillBeUninstalled| event has already been sent. Thus we also
+  // listen to this event, to ensure that the app is removed.
+  std::unique_ptr<base::DictionaryValue> app_info =
+      std::make_unique<base::DictionaryValue>();
+  // Since |isUninstall| is true below, the only item needed in the app_info
+  // dictionary is the id.
+  app_info->SetString(kInfoIdKey, app_id);
+  web_ui()->CallJavascriptFunctionUnsafe(
+      "ntp.appRemoved", *app_info, /*isUninstall=*/base::Value(true),
+      base::Value(!extension_id_prompting_.empty()));
+}
+
+void AppLauncherHandler::OnPolicyChanged() {
+  HandleGetApps(nullptr);
+}
+
 void AppLauncherHandler::OnAppRegistrarDestroyed() {
-  web_apps_observer_.RemoveAll();
+  web_apps_observation_.Reset();
+  web_apps_policy_manager_observation_.Reset();
 }
 
 void AppLauncherHandler::FillAppDictionary(base::DictionaryValue* dictionary) {
@@ -668,6 +719,10 @@ void AppLauncherHandler::HandleGetApps(const base::ListValue* args) {
     }
   }
 
+  policy_installed_apps_ =
+      web_app_provider_->registrar().GetExternallyInstalledApps(
+          web_app::ExternalInstallSource::kExternalPolicy);
+
   SetAppToBeHighlighted();
   FillAppDictionary(&dictionary);
   web_ui()->CallJavascriptFunctionUnsafe("ntp.getAppsCallback", dictionary);
@@ -675,9 +730,9 @@ void AppLauncherHandler::HandleGetApps(const base::ListValue* args) {
   // First time we get here we set up the observer so that we can tell update
   // the apps as they change.
   if (!has_loaded_apps_) {
-    base::Closure callback = base::Bind(
-        &AppLauncherHandler::OnExtensionPreferenceChanged,
-        base::Unretained(this));
+    base::RepeatingClosure callback =
+        base::BindRepeating(&AppLauncherHandler::OnExtensionPreferenceChanged,
+                            base::Unretained(this));
     extension_pref_change_registrar_.Init(
         ExtensionPrefs::Get(profile)->pref_service());
     extension_pref_change_registrar_.Add(
@@ -688,7 +743,9 @@ void AppLauncherHandler::HandleGetApps(const base::ListValue* args) {
     registrar_.Add(this, chrome::NOTIFICATION_APP_LAUNCHER_REORDERED,
                    content::Source<AppSorting>(
                        ExtensionSystem::Get(profile)->app_sorting()));
-    web_apps_observer_.Add(&web_app_provider_->registrar());
+    web_apps_observation_.Observe(&web_app_provider_->registrar());
+    web_apps_policy_manager_observation_.Observe(
+        &web_app_provider_->policy_manager());
   }
 
   has_loaded_apps_ = true;
@@ -717,7 +774,7 @@ void AppLauncherHandler::HandleLaunchApp(const base::ListValue* args) {
   if (registrar.IsInstalled(extension_id) &&
       !IsYoutubeExtension(extension_id)) {
     type = extensions::Manifest::Type::TYPE_HOSTED_APP;
-    full_launch_url = registrar.GetAppLaunchURL(extension_id);
+    full_launch_url = registrar.GetAppStartUrl(extension_id);
     launch_container = web_app::ConvertDisplayModeToAppLaunchContainer(
         registrar.GetAppEffectiveDisplayMode(extension_id));
   } else {
@@ -770,7 +827,7 @@ void AppLauncherHandler::HandleLaunchApp(const base::ListValue* args) {
     params.override_url = override_url;
     apps::AppServiceProxyFactory::GetForProfile(profile)
         ->BrowserAppLauncher()
-        ->LaunchAppWithParams(params);
+        ->LaunchAppWithParams(std::move(params));
   } else {
     // To give a more "launchy" experience when using the NTP launcher, we close
     // it automatically.
@@ -789,7 +846,7 @@ void AppLauncherHandler::HandleLaunchApp(const base::ListValue* args) {
     WebContents* new_contents =
         apps::AppServiceProxyFactory::GetForProfile(profile)
             ->BrowserAppLauncher()
-            ->LaunchAppWithParams(params);
+            ->LaunchAppWithParams(std::move(params));
 
     // This will also destroy the handler, so do not perform any actions after.
     if (new_contents != old_contents && browser &&
@@ -829,7 +886,7 @@ void AppLauncherHandler::HandleSetLaunchType(const base::ListValue* args) {
     }
 
     web_app_provider_->registry_controller().SetAppUserDisplayMode(
-        app_id, display_mode);
+        app_id, display_mode, /*is_user_action=*/true);
     return;
   }
 
@@ -866,7 +923,6 @@ void AppLauncherHandler::HandleUninstallApp(const base::ListValue* args) {
     auto uninstall_success_callback = base::BindOnce(
         [](base::WeakPtr<AppLauncherHandler> app_launcher_handler,
            bool success) {
-          LOCAL_HISTOGRAM_BOOLEAN("Apps.Launcher.UninstallSuccess", success);
           if (app_launcher_handler)
             app_launcher_handler->CleanupAfterUninstall();
         },
@@ -934,8 +990,8 @@ void AppLauncherHandler::HandleCreateAppShortcut(const base::ListValue* args) {
         chrome::FindBrowserWithWebContents(web_ui()->GetWebContents());
     chrome::ShowCreateChromeAppShortcutsDialog(
         browser->window()->GetNativeWindow(), browser->profile(), app_id,
-        base::BindRepeating([](bool success) {
-          LOCAL_HISTOGRAM_BOOLEAN(
+        base::BindOnce([](bool success) {
+          base::UmaHistogramBoolean(
               "Apps.AppInfoDialog.CreateWebAppShortcutSuccess", success);
         }));
     return;
@@ -955,8 +1011,8 @@ void AppLauncherHandler::HandleCreateAppShortcut(const base::ListValue* args) {
         web_ui()->GetWebContents());
   chrome::ShowCreateChromeAppShortcutsDialog(
       browser->window()->GetNativeWindow(), browser->profile(), extension,
-      base::BindRepeating([](bool success) {
-        LOCAL_HISTOGRAM_BOOLEAN(
+      base::BindOnce([](bool success) {
+        base::UmaHistogramBoolean(
             "Apps.AppInfoDialog.CreateExtensionShortcutSuccess", success);
       }));
 }
@@ -968,20 +1024,12 @@ void AppLauncherHandler::HandleInstallAppLocally(const base::ListValue* args) {
   if (!web_app_provider_->registrar().IsInstalled(app_id))
     return;
 
+  InstallOsHooks(app_id);
+
   web_app_provider_->registry_controller().SetAppIsLocallyInstalled(app_id,
                                                                     true);
   web_app_provider_->registry_controller().SetAppInstallTime(app_id,
                                                              base::Time::Now());
-  web_app::InstallOsHooksOptions options;
-  options.add_to_applications_menu = true;
-  options.add_to_desktop = true;
-  options.add_to_quick_launch_bar = false;
-  options.run_on_os_login = false;
-  web_app_provider_->os_integration_manager().InstallOsHooks(
-      app_id,
-      base::BindOnce(&AppLauncherHandler::OnOsHooksInstalled,
-                     weak_ptr_factory_.GetWeakPtr(), app_id),
-      /*web_application_info=*/nullptr, std::move(options));
 
   // Use the appAdded to update the app icon's color to no longer be
   // greyscale.
@@ -998,7 +1046,7 @@ void AppLauncherHandler::HandleShowAppInfo(const base::ListValue* args) {
       !IsYoutubeExtension(extension_id)) {
     chrome::ShowSiteSettings(
         chrome::FindBrowserWithWebContents(web_ui()->GetWebContents()),
-        web_app_provider_->registrar().GetAppLaunchURL(extension_id));
+        web_app_provider_->registrar().GetAppStartUrl(extension_id));
     return;
   }
 
@@ -1012,13 +1060,9 @@ void AppLauncherHandler::HandleShowAppInfo(const base::ListValue* args) {
     return;
   DCHECK(!FromBookmark(extension));
 
-  UMA_HISTOGRAM_ENUMERATION("Apps.AppInfoDialog.Launches",
-                            AppInfoLaunchSource::FROM_APPS_PAGE,
-                            AppInfoLaunchSource::NUM_LAUNCH_SOURCES);
-
   ShowAppInfoInNativeDialog(web_ui()->GetWebContents(),
                             Profile::FromWebUI(web_ui()), extension,
-                            base::Closure());
+                            base::DoNothing());
 }
 
 void AppLauncherHandler::HandleReorderApps(const base::ListValue* args) {
@@ -1084,7 +1128,9 @@ void AppLauncherHandler::HandleGenerateAppForLink(const base::ListValue* args) {
   std::string url;
   CHECK(args->GetString(0, &url));
   GURL launch_url(url);
-
+  // Do not install app for invalid url.
+  if (!launch_url.SchemeIsHTTPOrHTTPS())
+    return;
   // Can only install one app at a time.
   if (attempting_web_app_install_page_ordinal_.has_value())
     return;
@@ -1116,7 +1162,7 @@ void AppLauncherHandler::HandleGenerateAppForLink(const base::ListValue* args) {
 
   favicon_service->GetFaviconImageForPageURL(
       launch_url,
-      base::BindOnce(&AppLauncherHandler::OnFaviconForApp,
+      base::BindOnce(&AppLauncherHandler::OnFaviconForAppInstallFromLink,
                      base::Unretained(this), base::Passed(&install_info)),
       &cancelable_task_tracker_);
 }
@@ -1130,12 +1176,51 @@ void AppLauncherHandler::HandlePageSelected(const base::ListValue* args) {
   prefs->SetInteger(prefs::kNtpShownPage, APPS_PAGE_ID | index);
 }
 
-void AppLauncherHandler::OnFaviconForApp(
+void AppLauncherHandler::HandleRunOnOsLogin(const base::ListValue* args) {
+  if (!base::FeatureList::IsEnabled(features::kDesktopPWAsRunOnOsLogin))
+    return;
+
+  std::string app_id;
+  std::string mode_string;
+  web_app::RunOnOsLoginMode mode;
+
+  CHECK(args->GetString(0, &app_id));
+  CHECK(args->GetString(1, &mode_string));
+
+  if (mode_string == kRunOnOsLoginModeNotRun) {
+    mode = web_app::RunOnOsLoginMode::kNotRun;
+  } else if (mode_string == kRunOnOsLoginModeWindowed) {
+    mode = web_app::RunOnOsLoginMode::kWindowed;
+  } else {
+    // Specified mode is not supported.
+    return;
+  }
+
+  if (!web_app_provider_->registrar().IsInstalled(app_id))
+    return;
+
+  web_app_provider_->registry_controller().SetAppRunOnOsLoginMode(app_id, mode);
+
+  if (mode == web_app::RunOnOsLoginMode::kNotRun) {
+    web_app::OsHooksResults os_hooks;
+    os_hooks[web_app::OsHookType::kRunOnOsLogin] = true;
+    web_app_provider_->os_integration_manager().UninstallOsHooks(
+        app_id, os_hooks, base::DoNothing());
+  } else {
+    web_app::InstallOsHooksOptions install_options;
+    install_options.os_hooks[web_app::OsHookType::kRunOnOsLogin] = true;
+    web_app_provider_->os_integration_manager().InstallOsHooks(
+        app_id, base::DoNothing(), /*web_application_info=*/nullptr,
+        std::move(install_options));
+  }
+}
+
+void AppLauncherHandler::OnFaviconForAppInstallFromLink(
     std::unique_ptr<AppInstallInfo> install_info,
     const favicon_base::FaviconImageResult& image_result) {
   auto web_app = std::make_unique<WebApplicationInfo>();
   web_app->title = install_info->title;
-  web_app->app_url = install_info->app_url;
+  web_app->start_url = install_info->app_url;
 
   if (!image_result.image.IsEmpty()) {
     web_app->icon_bitmaps_any[image_result.image.Width()] =
@@ -1149,11 +1234,16 @@ void AppLauncherHandler::OnFaviconForApp(
           [](base::WeakPtr<AppLauncherHandler> app_launcher_handler,
              const web_app::AppId& app_id,
              web_app::InstallResultCode install_result) {
-            LOCAL_HISTOGRAM_ENUMERATION(
-                "Apps.AppInfoDialog.InstallAppLocallyInstallResult",
-                install_result);
+            // Note: this installation path only happens when the user drags a
+            // link to chrome://apps, hence the specific metric name.
+            base::UmaHistogramEnumeration(
+                "Apps.Launcher.InstallAppFromLinkResult", install_result);
             if (!app_launcher_handler)
               return;
+            if (install_result ==
+                web_app::InstallResultCode::kSuccessNewInstall) {
+              app_launcher_handler->InstallOsHooks(app_id);
+            }
             if (install_result !=
                 web_app::InstallResultCode::kSuccessNewInstall) {
               app_launcher_handler->attempting_web_app_install_page_ordinal_ =
@@ -1164,7 +1254,7 @@ void AppLauncherHandler::OnFaviconForApp(
 
   web_app_provider_->install_manager().InstallWebAppFromInfo(
       std::move(web_app), web_app::ForInstallableSite::kUnknown,
-      WebappInstallSource::SYNC, std::move(install_complete_callback));
+      webapps::WebappInstallSource::SYNC, std::move(install_complete_callback));
 }
 
 void AppLauncherHandler::SetAppToBeHighlighted() {
@@ -1206,8 +1296,13 @@ void AppLauncherHandler::PromptToEnableApp(const std::string& extension_id) {
 void AppLauncherHandler::OnOsHooksInstalled(
     const web_app::AppId& app_id,
     const web_app::OsHooksResults os_hooks_results) {
-  LOCAL_HISTOGRAM_BOOLEAN("Apps.Launcher.InstallLocallyShortcutsCreated",
-                          os_hooks_results[web_app::OsHookType::kShortcuts]);
+  // TODO(dmurph): Once installation takes the OSHookResults bitfield, then
+  // use that to compare with the results, and record if they all were
+  // successful, instead of just shortcuts.
+  base::UmaHistogramBoolean("Apps.Launcher.InstallLocallyShortcutsCreated",
+                            os_hooks_results[web_app::OsHookType::kShortcuts]);
+
+  web_app_provider_->registrar().NotifyWebAppInstalledWithOsHooks(app_id);
 }
 
 void AppLauncherHandler::OnExtensionUninstallDialogClosed(
@@ -1287,4 +1382,21 @@ bool AppLauncherHandler::ShouldShow(const Extension* extension) const {
 
   Profile* profile = Profile::FromWebUI(web_ui());
   return extensions::ui_util::ShouldDisplayInNewTabPage(extension, profile);
+}
+
+void AppLauncherHandler::InstallOsHooks(const web_app::AppId& app_id) {
+  web_app::InstallOsHooksOptions options;
+  options.add_to_desktop = true;
+  options.add_to_quick_launch_bar = false;
+  options.os_hooks[web_app::OsHookType::kShortcuts] = true;
+  options.os_hooks[web_app::OsHookType::kShortcutsMenu] = true;
+  options.os_hooks[web_app::OsHookType::kFileHandlers] = true;
+  options.os_hooks[web_app::OsHookType::kRunOnOsLogin] = false;
+  options.os_hooks[web_app::OsHookType::kUninstallationViaOsSettings] = true;
+
+  web_app_provider_->os_integration_manager().InstallOsHooks(
+      app_id,
+      base::BindOnce(&AppLauncherHandler::OnOsHooksInstalled,
+                     weak_ptr_factory_.GetWeakPtr(), app_id),
+      /*web_application_info=*/nullptr, std::move(options));
 }

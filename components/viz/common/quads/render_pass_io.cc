@@ -16,8 +16,8 @@
 #include "base/strings/string_tokenizer.h"
 #include "cc/paint/paint_op_reader.h"
 #include "cc/paint/paint_op_writer.h"
+#include "components/viz/common/quads/compositor_render_pass_draw_quad.h"
 #include "components/viz/common/quads/picture_draw_quad.h"
-#include "components/viz/common/quads/render_pass_draw_quad.h"
 #include "components/viz/common/quads/solid_color_draw_quad.h"
 #include "components/viz/common/quads/stream_video_draw_quad.h"
 #include "components/viz/common/quads/surface_draw_quad.h"
@@ -25,6 +25,10 @@
 #include "components/viz/common/quads/tile_draw_quad.h"
 #include "components/viz/common/quads/video_hole_draw_quad.h"
 #include "components/viz/common/quads/yuv_video_draw_quad.h"
+
+namespace gl {
+struct HDRMetadata;
+}
 
 namespace viz {
 
@@ -49,8 +53,8 @@ enum RenderPassField {
   kRenderPassAllFields = 0xFFFFFFFF,
 };
 
-// This controls which fields are processed in RenderPass::ToDict() and
-// RenderPass::FromDict().
+// This controls which fields are processed in CompositorRenderPassToDict() and
+// CompositorRenderPassFromDict().
 // Values other than kAllFields should never be checked in. This is only for
 // local debugging convenience.
 RenderPassField g_render_pass_fields = kRenderPassAllFields;
@@ -381,7 +385,7 @@ std::string PaintFilterToString(const sk_sp<cc::PaintFilter>& filter) {
   // and serialization of PaintRecords.
   cc::PaintOp::SerializeOptions options(nullptr, nullptr, nullptr, nullptr,
                                         nullptr, nullptr, false, false, 0,
-                                        SkMatrix::I());
+                                        SkM44());
   cc::PaintOpWriter writer(buffer.data(), buffer.size(), options,
                            true /* enable_security_constraints */);
   writer.Write(filter.get());
@@ -451,7 +455,8 @@ base::Value FilterOperationToDict(const cc::FilterOperation& filter) {
       dict.SetIntKey("zoom_inset", filter.zoom_inset());
       break;
     case cc::FilterOperation::BLUR:
-      dict.SetIntKey("blur_tile_mode", filter.blur_tile_mode());
+      dict.SetIntKey("blur_tile_mode",
+                     static_cast<int>(filter.blur_tile_mode()));
       break;
     default:
       break;
@@ -532,7 +537,7 @@ bool FilterOperationFromDict(const base::Value& dict,
       if (!blur_tile_mode)
         return false;
       filter.set_blur_tile_mode(
-          static_cast<SkBlurImageFilter::TileMode>(blur_tile_mode.value()));
+          static_cast<SkTileMode>(blur_tile_mode.value()));
       break;
     default:
       break;
@@ -892,7 +897,7 @@ const char* DrawQuadMaterialToString(DrawQuad::Material material) {
     MAP_MATERIAL_TO_STRING(kInvalid)
     MAP_MATERIAL_TO_STRING(kDebugBorder)
     MAP_MATERIAL_TO_STRING(kPictureContent)
-    MAP_MATERIAL_TO_STRING(kRenderPass)
+    MAP_MATERIAL_TO_STRING(kCompositorRenderPass)
     MAP_MATERIAL_TO_STRING(kSolidColor)
     MAP_MATERIAL_TO_STRING(kStreamVideoContent)
     MAP_MATERIAL_TO_STRING(kSurfaceContent)
@@ -914,7 +919,7 @@ int StringToDrawQuadMaterial(const std::string& str) {
   MAP_STRING_TO_MATERIAL(kInvalid)
   MAP_STRING_TO_MATERIAL(kDebugBorder)
   MAP_STRING_TO_MATERIAL(kPictureContent)
-  MAP_STRING_TO_MATERIAL(kRenderPass)
+  MAP_STRING_TO_MATERIAL(kCompositorRenderPass)
   MAP_STRING_TO_MATERIAL(kSolidColor)
   MAP_STRING_TO_MATERIAL(kStreamVideoContent)
   MAP_STRING_TO_MATERIAL(kSurfaceContent)
@@ -1039,8 +1044,9 @@ base::Optional<ContentDrawQuadCommon> GetContentDrawQuadCommonFromDict(
       nearest_neighbor.value(), force_anti_aliasing_off.value()};
 }
 
-void RenderPassDrawQuadToDict(const RenderPassDrawQuad* draw_quad,
-                              base::Value* dict) {
+void CompositorRenderPassDrawQuadToDict(
+    const CompositorRenderPassDrawQuad* draw_quad,
+    base::Value* dict) {
   DCHECK(draw_quad);
   DCHECK(dict);
   dict->SetStringKey(
@@ -1055,8 +1061,8 @@ void RenderPassDrawQuadToDict(const RenderPassDrawQuad* draw_quad,
                      draw_quad->backdrop_filter_quality);
   dict->SetBoolKey("force_anti_aliasing_off",
                    draw_quad->force_anti_aliasing_off);
-  dict->SetBoolKey("can_use_backdrop_filter_cache",
-                   draw_quad->can_use_backdrop_filter_cache);
+  dict->SetBoolKey("intersects_damage_under",
+                   draw_quad->intersects_damage_under);
   DCHECK_GE(1u, draw_quad->resources.count);
 }
 
@@ -1181,7 +1187,8 @@ base::Value DrawQuadToDict(const DrawQuad* draw_quad,
   base::Value dict(base::Value::Type::DICTIONARY);
   DrawQuadCommonToDict(draw_quad, &dict, shared_quad_state_list);
   switch (draw_quad->material) {
-    WRITE_DRAW_QUAD_TYPE_FIELDS(kRenderPass, RenderPassDrawQuad)
+    WRITE_DRAW_QUAD_TYPE_FIELDS(kCompositorRenderPass,
+                                CompositorRenderPassDrawQuad)
     WRITE_DRAW_QUAD_TYPE_FIELDS(kSolidColor, SolidColorDrawQuad)
     WRITE_DRAW_QUAD_TYPE_FIELDS(kStreamVideoContent, StreamVideoDrawQuad)
     WRITE_DRAW_QUAD_TYPE_FIELDS(kTextureContent, TextureDrawQuad)
@@ -1208,9 +1215,10 @@ base::Value QuadListToList(const QuadList& quad_list,
   return list;
 }
 
-bool RenderPassDrawQuadFromDict(const base::Value& dict,
-                                const DrawQuadCommon& common,
-                                RenderPassDrawQuad* draw_quad) {
+bool CompositorRenderPassDrawQuadFromDict(
+    const base::Value& dict,
+    const DrawQuadCommon& common,
+    CompositorRenderPassDrawQuad* draw_quad) {
   DCHECK(draw_quad);
   if (!dict.is_dict())
     return false;
@@ -1226,8 +1234,8 @@ bool RenderPassDrawQuadFromDict(const base::Value& dict,
       dict.FindDoubleKey("backdrop_filter_quality");
   base::Optional<bool> force_anti_aliasing_off =
       dict.FindBoolKey("force_anti_aliasing_off");
-  base::Optional<bool> can_use_backdrop_filter_cache =
-      dict.FindBoolKey("can_use_backdrop_filter_cache");
+  base::Optional<bool> intersects_damage_under =
+      dict.FindBoolKey("intersects_damage_under");
 
   if (!render_pass_id || !mask_uv_rect || !mask_texture_size ||
       !filters_scale || !filters_origin || !tex_coord_rect ||
@@ -1247,11 +1255,11 @@ bool RenderPassDrawQuadFromDict(const base::Value& dict,
       !RectFFromDict(*tex_coord_rect, &t_tex_coord_rect)) {
     return false;
   }
-  RenderPassId t_render_pass_id{render_pass_id_as_int};
+  CompositorRenderPassId t_render_pass_id{render_pass_id_as_int};
 
   ResourceId mask_resource_id = 0u;
   if (common.resources.count == 1u) {
-    const size_t kIndex = RenderPassDrawQuad::kMaskResourceIdIndex;
+    const size_t kIndex = CompositorRenderPassDrawQuad::kMaskResourceIdIndex;
     mask_resource_id = common.resources.ids[kIndex];
   }
   draw_quad->SetAll(
@@ -1259,8 +1267,7 @@ bool RenderPassDrawQuadFromDict(const base::Value& dict,
       common.needs_blending, t_render_pass_id, mask_resource_id, t_mask_uv_rect,
       t_mask_texture_size, t_filters_scale, t_filters_origin, t_tex_coord_rect,
       force_anti_aliasing_off.value(), backdrop_filter_quality.value(),
-      can_use_backdrop_filter_cache ? can_use_backdrop_filter_cache.value()
-                                    : false);
+      intersects_damage_under ? intersects_damage_under.value() : false);
   return true;
 }
 
@@ -1460,7 +1467,8 @@ bool YUVVideoDrawQuadFromDict(const base::Value& dict,
       static_cast<float>(resource_offset.value()),
       static_cast<float>(resource_multiplier.value()),
       static_cast<uint32_t>(bits_per_channel.value()),
-      static_cast<gfx::ProtectedVideoType>(protected_video_type_index));
+      static_cast<gfx::ProtectedVideoType>(protected_video_type_index),
+      gfx::HDRMetadata());
   return true;
 }
 
@@ -1527,7 +1535,7 @@ bool QuadListFromList(const base::Value& list,
     if (!common)
       return false;
     switch (common->material) {
-      GET_QUAD_FROM_DICT(kRenderPass, RenderPassDrawQuad)
+      GET_QUAD_FROM_DICT(kCompositorRenderPass, CompositorRenderPassDrawQuad)
       GET_QUAD_FROM_DICT(kSolidColor, SolidColorDrawQuad)
       GET_QUAD_FROM_DICT(kStreamVideoContent, StreamVideoDrawQuad)
       GET_QUAD_FROM_DICT(kTextureContent, TextureDrawQuad)
@@ -1594,7 +1602,8 @@ base::Value SharedQuadStateToDict(const SharedQuadState& sqs) {
   dict.SetKey("quad_layer_rect", RectToDict(sqs.quad_layer_rect));
   dict.SetKey("visible_quad_layer_rect",
               RectToDict(sqs.visible_quad_layer_rect));
-  dict.SetKey("rounded_corner_bounds", RRectFToDict(sqs.rounded_corner_bounds));
+  dict.SetKey("rounded_corner_bounds",
+              RRectFToDict(sqs.mask_filter_info.rounded_corner_bounds()));
   dict.SetKey("clip_rect", RectToDict(sqs.clip_rect));
   dict.SetBoolKey("is_clipped", sqs.is_clipped);
   dict.SetBoolKey("are_contents_opaque", sqs.are_contents_opaque);
@@ -1602,10 +1611,6 @@ base::Value SharedQuadStateToDict(const SharedQuadState& sqs) {
   dict.SetStringKey("blend_mode", BlendModeToString(sqs.blend_mode));
   dict.SetIntKey("sorting_context_id", sqs.sorting_context_id);
   dict.SetBoolKey("is_fast_rounded_corner", sqs.is_fast_rounded_corner);
-  if (sqs.occluding_damage_rect) {
-    dict.SetKey("occluding_damage_rect",
-                RectToDict(sqs.occluding_damage_rect.value()));
-  }
   dict.SetDoubleKey("de_jelly_delta_y", sqs.de_jelly_delta_y);
   return dict;
 }
@@ -1668,8 +1673,6 @@ bool SharedQuadStateFromDict(const base::Value& dict, SharedQuadState* sqs) {
       dict.FindIntKey("sorting_context_id");
   base::Optional<bool> is_fast_rounded_corner =
       dict.FindBoolKey("is_fast_rounded_corner");
-  const base::Value* occluding_damage_rect =
-      dict.FindDictKey("occluding_damage_rect");
   base::Optional<double> de_jelly_delta_y =
       dict.FindDoubleKey("de_jelly_delta_y");
 
@@ -1695,20 +1698,13 @@ bool SharedQuadStateFromDict(const base::Value& dict, SharedQuadState* sqs) {
   if (blend_mode_index < 0)
     return false;
   SkBlendMode t_blend_mode = static_cast<SkBlendMode>(blend_mode_index);
-  gfx::Rect t_occluding_damage_rect;
-  if (occluding_damage_rect) {
-    if (!RectFromDict(*occluding_damage_rect, &t_occluding_damage_rect))
-      return false;
-  }
-
+  gfx::MaskFilterInfo mask_filter_info(t_rounded_corner_bounds);
   sqs->SetAll(t_quad_to_target_transform, t_quad_layer_rect,
-              t_visible_quad_layer_rect, t_rounded_corner_bounds, t_clip_rect,
+              t_visible_quad_layer_rect, mask_filter_info, t_clip_rect,
               is_clipped.value(), are_contents_opaque.value(),
               static_cast<float>(opacity.value()), t_blend_mode,
               sorting_context_id.value());
   sqs->is_fast_rounded_corner = is_fast_rounded_corner.value();
-  if (occluding_damage_rect)
-    sqs->occluding_damage_rect = t_occluding_damage_rect;
   sqs->de_jelly_delta_y = static_cast<float>(de_jelly_delta_y.value());
   return true;
 }
@@ -1740,7 +1736,7 @@ bool SharedQuadStateListFromList(const base::Value& list,
   return true;
 }
 
-base::Value GetRenderPassMetadata(const RenderPass& render_pass) {
+base::Value GetRenderPassMetadata(const CompositorRenderPass& render_pass) {
   base::Value dict(base::Value::Type::DICTIONARY);
   dict.SetStringKey(
       "render_pass_id",
@@ -1751,7 +1747,8 @@ base::Value GetRenderPassMetadata(const RenderPass& render_pass) {
   return dict;
 }
 
-base::Value GetRenderPassListMetadata(const RenderPassList& render_pass_list) {
+base::Value GetRenderPassListMetadata(
+    const CompositorRenderPassList& render_pass_list) {
   base::Value metadata(base::Value::Type::LIST);
   for (size_t ii = 0; ii < render_pass_list.size(); ++ii)
     metadata.Append(GetRenderPassMetadata(*(render_pass_list[ii].get())));
@@ -1760,7 +1757,8 @@ base::Value GetRenderPassListMetadata(const RenderPassList& render_pass_list) {
 
 }  // namespace
 
-base::Value RenderPassToDict(const RenderPass& render_pass) {
+base::Value CompositorRenderPassToDict(
+    const CompositorRenderPass& render_pass) {
   base::Value dict(base::Value::Type::DICTIONARY);
   if (ProcessRenderPassField(kRenderPassID))
     dict.SetStringKey(
@@ -1785,9 +1783,8 @@ base::Value RenderPassToDict(const RenderPass& render_pass) {
                 RRectFToDict(render_pass.backdrop_filter_bounds.value()));
   }
   if (ProcessRenderPassField(kRenderPassColorSpace)) {
-    // RenderPasses used to have a color space field, but this was removed in
-    // favor of color usage.
-    // https://crbug.com/1049334
+    // CompositorRenderPasses used to have a color space field, but this was
+    // removed in favor of color usage. https://crbug.com/1049334
     gfx::ColorSpace render_pass_color_space = gfx::ColorSpace::CreateSRGB();
     dict.SetKey("color_space", ColorSpaceToDict(render_pass_color_space));
   }
@@ -1818,10 +1815,11 @@ base::Value RenderPassToDict(const RenderPass& render_pass) {
   return dict;
 }
 
-std::unique_ptr<RenderPass> RenderPassFromDict(const base::Value& dict) {
+std::unique_ptr<CompositorRenderPass> CompositorRenderPassFromDict(
+    const base::Value& dict) {
   if (!dict.is_dict())
     return nullptr;
-  std::unique_ptr<RenderPass> pass = RenderPass::Create();
+  auto pass = CompositorRenderPass::Create();
 
   if (ProcessRenderPassField(kRenderPassID)) {
     const std::string* id = dict.FindStringKey("id");
@@ -1830,7 +1828,7 @@ std::unique_ptr<RenderPass> RenderPassFromDict(const base::Value& dict) {
     uint64_t pass_id_as_int = 0;
     if (!base::StringToUint64(*id, &pass_id_as_int))
       return nullptr;
-    pass->id = RenderPassId{pass_id_as_int};
+    pass->id = CompositorRenderPassId{pass_id_as_int};
   }
 
   if (ProcessRenderPassField(kRenderPassOutputRect)) {
@@ -1894,9 +1892,8 @@ std::unique_ptr<RenderPass> RenderPassFromDict(const base::Value& dict) {
     if (!color_space)
       return nullptr;
 
-    // RenderPasses used to have a color space field, but this was removed in
-    // favor of color usage.
-    // https://crbug.com/1049334
+    // CompositorRenderPasses used to have a color space field, but this was
+    // removed in favor of color usage. https://crbug.com/1049334
     gfx::ColorSpace pass_color_space = gfx::ColorSpace::CreateSRGB();
     if (!ColorSpaceFromDict(*color_space, &pass_color_space))
       return nullptr;
@@ -1964,7 +1961,8 @@ std::unique_ptr<RenderPass> RenderPassFromDict(const base::Value& dict) {
   return pass;
 }
 
-base::Value RenderPassListToDict(const RenderPassList& render_pass_list) {
+base::Value CompositorRenderPassListToDict(
+    const CompositorRenderPassList& render_pass_list) {
   base::Value dict(base::Value::Type::DICTIONARY);
   dict.SetIntKey("render_pass_count",
                  static_cast<int>(render_pass_list.size()));
@@ -1972,13 +1970,14 @@ base::Value RenderPassListToDict(const RenderPassList& render_pass_list) {
 
   base::Value list(base::Value::Type::LIST);
   for (size_t ii = 0; ii < render_pass_list.size(); ++ii)
-    list.Append(RenderPassToDict(*(render_pass_list[ii])));
+    list.Append(CompositorRenderPassToDict(*(render_pass_list[ii])));
   dict.SetKey("render_pass_list", std::move(list));
   return dict;
 }
 
-bool RenderPassListFromDict(const base::Value& dict,
-                            RenderPassList* render_pass_list) {
+bool CompositorRenderPassListFromDict(
+    const base::Value& dict,
+    CompositorRenderPassList* render_pass_list) {
   DCHECK(render_pass_list);
   DCHECK(render_pass_list->empty());
   if (!dict.is_dict())
@@ -1987,7 +1986,8 @@ bool RenderPassListFromDict(const base::Value& dict,
   if (!list || !list->is_list())
     return false;
   for (size_t ii = 0; ii < list->GetList().size(); ++ii) {
-    render_pass_list->push_back(RenderPassFromDict(list->GetList()[ii]));
+    render_pass_list->push_back(
+        CompositorRenderPassFromDict(list->GetList()[ii]));
     if (!(*render_pass_list)[ii].get()) {
       render_pass_list->clear();
       return false;

@@ -10,9 +10,6 @@ danakj@chromium.org
 vmpstr@chromium.org
 weiliangc@chromium.org
 
-# CopyOutputRequests/Results and FrameSinkVideoCapture
-miu@chromium.org
-
 # renderers (GL/Skia/Software)
 weiliangc@chromium.org
 rjkroege@chromium.org
@@ -44,7 +41,8 @@ flackr@chromium.org
 # overlays
 ccameron@chromium.org
 dcastagna@chromium.org
-khushalsagar@chromium.org
+vasilyt@chromium.org
+magchen@chromium.org
 
 # scheduling / begin frames
 sunnyps@chromium.org
@@ -53,6 +51,3 @@ sunnyps@chromium.org
 danakj@chromium.org
 vmpstr@chromium.org
 kylechar@chromium.org
-
-# TEAM: graphics-dev@chromium.org
-# COMPONENT: Internals>Compositing

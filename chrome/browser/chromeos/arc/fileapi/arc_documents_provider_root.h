@@ -41,8 +41,7 @@ class ArcDocumentsProviderRoot : public ArcFileSystemOperationRunner::Observer {
     base::Time last_modified;
   };
 
-  // Extra metadata about write capabilities. All fields are false on read-only
-  // roots.
+  // Extra metadata in addition to the metadata provided in base::File::Info.
   struct ExtraFileMetadata {
     // True if a document is deletable.
     bool supports_delete;
@@ -51,6 +50,17 @@ class ArcDocumentsProviderRoot : public ArcFileSystemOperationRunner::Observer {
     // True if a document is a directory that supports creation of new files
     // within it.
     bool dir_supports_create;
+    // True if a document will return a valid thumbnail from
+    // the DocumentsProvider.openDocumentThumbnail() Android API call.
+    bool supports_thumbnail;
+    // Last modified time of the the file, returned in the COLUMN_LAST_MODIFIED
+    // from the DocumentsProvider.queryDocument() and .queryChildDocuments(). If
+    // unknown, it's set to the Unix epoch time.
+    base::Time last_modified;
+    // Size of the file in bytes, returned in the COLUMN_SIZE from the
+    // DocumentsProvider.queryDocument() and .queryChildDocuments(). If the
+    // size unknown, it's set to -1.
+    int64_t size;
   };
 
   // TODO(crbug.com/755451): Use OnceCallback/RepeatingCallback.
@@ -65,7 +75,7 @@ class ArcDocumentsProviderRoot : public ArcFileSystemOperationRunner::Observer {
   using WatcherStatusCallback = storage::WatcherManager::StatusCallback;
   using ResolveToContentUrlCallback =
       base::OnceCallback<void(const GURL& content_url)>;
-  using GetMetadataCallback =
+  using GetExtraMetadataCallback =
       base::OnceCallback<void(base::File::Error error,
                               const ExtraFileMetadata& metadata)>;
 
@@ -77,8 +87,12 @@ class ArcDocumentsProviderRoot : public ArcFileSystemOperationRunner::Observer {
                            const std::vector<std::string>& mime_types);
   ~ArcDocumentsProviderRoot() override;
 
-  // Queries information of a file just like AsyncFileUtil.GetFileInfo().
-  void GetFileInfo(const base::FilePath& path, GetFileInfoCallback callback);
+  // Queries information of a file just like AsyncFileUtil.GetFileInfo(). If the
+  // file metadata reports unknown size, it will attempt to open the file and
+  // read the size from the file descriptor.
+  void GetFileInfo(const base::FilePath& path,
+                   int fields,
+                   GetFileInfoCallback callback);
 
   // Queries a list of files under a directory just like
   // AsyncFileUtil.ReadDirectory().
@@ -186,9 +200,8 @@ class ArcDocumentsProviderRoot : public ArcFileSystemOperationRunner::Observer {
                            ResolveToContentUrlCallback callback);
 
   // Get extra metadata of the file at |path|.
-  // The metadata is about capatility of write operations.
-  // See ExtraFileMetadata for the supported capabilities.
-  void GetMetadata(const base::FilePath& path, GetMetadataCallback callback);
+  void GetExtraFileMetadata(const base::FilePath& path,
+                            GetExtraMetadataCallback callback);
 
   // Instructs to make directory caches expire "soon" after callbacks are
   // called, that is, when the message loop gets idle.
@@ -214,14 +227,15 @@ class ArcDocumentsProviderRoot : public ArcFileSystemOperationRunner::Observer {
   using ReadDirectoryInternalCallback =
       base::OnceCallback<void(base::File::Error error,
                               const NameToDocumentMap& mapping)>;
+  using GetDocumentCallback =
+      base::OnceCallback<void(base::File::Error error,
+                              const mojom::DocumentPtr& document)>;
 
-  void GetFileInfoWithParentDocumentId(GetFileInfoCallback callback,
-                                       const base::FilePath& basename,
-                                       const std::string& parent_document_id);
-  void GetFileInfoWithNameToDocumentMap(GetFileInfoCallback callback,
-                                        const base::FilePath& basename,
-                                        base::File::Error error,
-                                        const NameToDocumentMap& mapping);
+  void GetFileInfoFromDocument(GetFileInfoCallback callback,
+                               const base::FilePath& path,
+                               int fields,
+                               base::File::Error error,
+                               const mojom::DocumentPtr& document);
 
   void ReadDirectoryWithDocumentId(ReadDirectoryCallback callback,
                                    const std::string& document_id);
@@ -315,11 +329,20 @@ class ArcDocumentsProviderRoot : public ArcFileSystemOperationRunner::Observer {
   void ResolveToContentUrlWithDocumentId(ResolveToContentUrlCallback callback,
                                          const std::string& document_id);
 
-  void GetMetadataWithDocumentId(GetMetadataCallback callback,
-                                 const std::string& document_id);
-  void OnMetadataGotten(GetMetadataCallback callback,
-                        mojom::DocumentPtr document);
+  void GetExtraMetadataFromDocument(GetExtraMetadataCallback callback,
+                                    base::File::Error error,
+                                    const mojom::DocumentPtr& document);
 
+  // Queries for a single document at the given |path|, using a directory cache,
+  // if present.
+  void GetDocument(const base::FilePath& path, GetDocumentCallback callback);
+  void GetDocumentWithParentDocumentId(GetDocumentCallback callback,
+                                       const base::FilePath& basename,
+                                       const std::string& parent_document_id);
+  void GetDocumentWithNameToDocumentMap(GetDocumentCallback callback,
+                                        const base::FilePath& basename,
+                                        base::File::Error error,
+                                        const NameToDocumentMap& mapping);
   // Resolves |path| to a document ID. Failures are indicated by an empty
   // document ID.
   void ResolveToDocumentId(const base::FilePath& path,

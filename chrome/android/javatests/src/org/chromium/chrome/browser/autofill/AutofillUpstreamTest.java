@@ -16,17 +16,15 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Restriction;
-import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.infobar.AutofillSaveCardInfoBar;
 import org.chromium.chrome.browser.sync.SyncTestRule;
-import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.components.infobars.InfoBar;
 import org.chromium.components.infobars.InfoBarLayout;
 import org.chromium.content_public.browser.WebContents;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.DOMUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServer;
@@ -49,17 +47,13 @@ public class AutofillUpstreamTest {
     private static final String CONTINUE_BUTTON_LABEL = "Continue";
 
     @Rule
-    public SyncTestRule mSyncTestRule = new SyncTestRule();
-
-    @Rule
-    public ChromeActivityTestRule<ChromeActivity> mActivityTestRule =
-            new ChromeActivityTestRule<>(ChromeActivity.class);
+    public SyncTestRule mActivityTestRule = new SyncTestRule();
 
     private EmbeddedTestServer mServer;
 
     @Before
     public void setUp() {
-        mSyncTestRule.setUpAccountAndSignInForTesting();
+        mActivityTestRule.setUpAccountAndEnableSyncForTesting();
         mServer = new EmbeddedTestServer();
         mServer.initializeNative(InstrumentationRegistry.getContext(),
                 EmbeddedTestServer.ServerHTTPSSetting.USE_HTTP);
@@ -111,7 +105,7 @@ public class AutofillUpstreamTest {
     @MediumTest
     @Restriction(Restriction.RESTRICTION_TYPE_INTERNET)
     public void testSaveCardInfoBarWithAllFieldsFilled() throws TimeoutException {
-        mActivityTestRule.startMainActivityWithURL(mServer.getURL(TEST_FORM_URL));
+        mActivityTestRule.loadUrl(mServer.getURL(TEST_FORM_URL));
         final WebContents webContents = mActivityTestRule.getActivity().getCurrentWebContents();
 
         DOMUtils.clickNode(webContents, "fill_form");
@@ -125,7 +119,7 @@ public class AutofillUpstreamTest {
     @MediumTest
     @Restriction(Restriction.RESTRICTION_TYPE_INTERNET)
     public void testSaveCardInfoBarWithEmptyMonth() throws TimeoutException {
-        mActivityTestRule.startMainActivityWithURL(mServer.getURL(TEST_FORM_URL));
+        mActivityTestRule.loadUrl(mServer.getURL(TEST_FORM_URL));
         final WebContents webContents = mActivityTestRule.getActivity().getCurrentWebContents();
 
         DOMUtils.clickNode(webContents, "fill_form");
@@ -141,7 +135,7 @@ public class AutofillUpstreamTest {
     @MediumTest
     @Restriction(Restriction.RESTRICTION_TYPE_INTERNET)
     public void testSaveCardInfoBarWithEmptyYear() throws TimeoutException {
-        mActivityTestRule.startMainActivityWithURL(mServer.getURL(TEST_FORM_URL));
+        mActivityTestRule.loadUrl(mServer.getURL(TEST_FORM_URL));
         final WebContents webContents = mActivityTestRule.getActivity().getCurrentWebContents();
 
         DOMUtils.clickNode(webContents, "fill_form");
@@ -157,7 +151,7 @@ public class AutofillUpstreamTest {
     @MediumTest
     @Restriction(Restriction.RESTRICTION_TYPE_INTERNET)
     public void testSaveCardInfoBarWithEmptyMonthAndYear() throws TimeoutException {
-        mActivityTestRule.startMainActivityWithURL(mServer.getURL(TEST_FORM_URL));
+        mActivityTestRule.loadUrl(mServer.getURL(TEST_FORM_URL));
         final WebContents webContents = mActivityTestRule.getActivity().getCurrentWebContents();
 
         DOMUtils.clickNode(webContents, "fill_form");
@@ -174,7 +168,7 @@ public class AutofillUpstreamTest {
     @Restriction(Restriction.RESTRICTION_TYPE_INTERNET)
     public void testSaveCardInfoBarContinueButton_EmptyExpDate_launchesExpDateFixFlow()
             throws TimeoutException {
-        mActivityTestRule.startMainActivityWithURL(mServer.getURL(TEST_FORM_URL));
+        mActivityTestRule.loadUrl(mServer.getURL(TEST_FORM_URL));
         final WebContents webContents = mActivityTestRule.getActivity().getCurrentWebContents();
 
         DOMUtils.clickNode(webContents, "fill_form");
@@ -195,7 +189,7 @@ public class AutofillUpstreamTest {
     @MediumTest
     @Restriction(Restriction.RESTRICTION_TYPE_INTERNET)
     public void testSaveCardInfoBarWithEmptyName() throws TimeoutException {
-        mActivityTestRule.startMainActivityWithURL(mServer.getURL(TEST_FORM_URL));
+        mActivityTestRule.loadUrl(mServer.getURL(TEST_FORM_URL));
         final WebContents webContents = mActivityTestRule.getActivity().getCurrentWebContents();
 
         DOMUtils.clickNode(webContents, "fill_form");
@@ -212,7 +206,7 @@ public class AutofillUpstreamTest {
     @Restriction(Restriction.RESTRICTION_TYPE_INTERNET)
     public void testSaveCardInfoBarContinueButton_EmptyName_launchesNameFixFlow()
             throws TimeoutException {
-        mActivityTestRule.startMainActivityWithURL(mServer.getURL(TEST_FORM_URL));
+        mActivityTestRule.loadUrl(mServer.getURL(TEST_FORM_URL));
         final WebContents webContents = mActivityTestRule.getActivity().getCurrentWebContents();
 
         DOMUtils.clickNode(webContents, "fill_form");

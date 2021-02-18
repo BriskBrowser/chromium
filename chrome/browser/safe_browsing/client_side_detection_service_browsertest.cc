@@ -2,15 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/safe_browsing/client_side_detection_service.h"
+#include "chrome/browser/safe_browsing/client_side_detection_service_delegate.h"
 
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/client_side_detection_service_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/prefs/pref_service.h"
+#include "components/safe_browsing/content/browser/client_side_detection_service.h"
 #include "components/safe_browsing/content/common/safe_browsing.mojom.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/safe_browsing/core/proto/client_model.pb.h"
@@ -29,7 +30,9 @@ namespace {
 class FakeModelLoader : public ModelLoader {
  public:
   explicit FakeModelLoader(std::string model_str)
-      : ModelLoader(base::Closure(), nullptr, /*is_extended_reporting=*/false) {
+      : ModelLoader(base::RepeatingClosure(),
+                    nullptr,
+                    /*is_extended_reporting=*/false) {
     model_str_ = model_str;
   }
   ~FakeModelLoader() override = default;

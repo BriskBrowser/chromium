@@ -23,6 +23,7 @@
 #include "base/timer/hi_res_timer_manager.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/viz/service/main/viz_main_impl.h"
 #include "content/common/content_constants_internal.h"
 #include "content/common/content_switches_internal.h"
@@ -81,9 +82,7 @@
 #include "ui/base/x/x11_ui_thread.h"                     // nogncheck
 #include "ui/base/x/x11_util.h"                          // nogncheck
 #include "ui/gfx/linux/gpu_memory_buffer_support_x11.h"  // nogncheck
-#include "ui/gfx/x/x11.h"                                // nogncheck
 #include "ui/gfx/x/x11_switches.h"                       // nogncheck
-#include "ui/gfx/x/x11_types.h"                          // nogncheck
 #endif
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
@@ -131,7 +130,7 @@ class ContentSandboxHelper : public gpu::GpuSandboxHelper {
 
  private:
   // SandboxHelper:
-  void PreSandboxStartup() override {
+  void PreSandboxStartup(const gpu::GpuPreferences& gpu_prefs) override {
     // Warm up resources that don't need access to GPUInfo.
     {
       TRACE_EVENT0("gpu", "Warm up rand");
@@ -141,8 +140,14 @@ class ContentSandboxHelper : public gpu::GpuSandboxHelper {
     }
 
 #if BUILDFLAG(USE_VAAPI)
+// TODO(andrescj) Make this work on LaCrOS, not just ASH.
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     media::VaapiWrapper::PreSandboxInitialization();
+#else  // For any non-ash chrome (ie: linux or lacros) that can support vaapi.
+    if (!gpu_prefs.disable_accelerated_video_decode)
+      media::VaapiWrapper::PreSandboxInitialization();
 #endif
+#endif  // BUILDFLAG(USE_VAAPI)
 #if defined(OS_WIN)
     media::DXVAVideoDecodeAccelerator::PreSandboxInitialization();
     media::MediaFoundationVideoEncodeAccelerator::PreSandboxInitialization();
@@ -280,8 +285,7 @@ int GpuMain(const MainFunctionParams& parameters) {
     if (!features::IsUsingOzonePlatform()) {
       // We need a UI loop so that we can grab the Expose events. See
       // GLSurfaceGLX and https://crbug.com/326995.
-      ui::SetDefaultX11ErrorHandlers();
-      if (!gfx::GetXDisplay())
+      if (!x11::Connection::Get()->Ready())
         return RESULT_CODE_GPU_DEAD_ON_ARRIVAL;
       main_thread_task_executor =
           std::make_unique<base::SingleThreadTaskExecutor>(
@@ -474,6 +478,8 @@ bool StartSandboxLinux(gpu::GpuWatchdogThread* watchdog_thread,
       gpu_info && angle::IsAMD(gpu_info->active_gpu().vendor_id);
   sandbox_options.use_intel_specific_policies =
       gpu_info && angle::IsIntel(gpu_info->active_gpu().vendor_id);
+  sandbox_options.use_nvidia_specific_policies =
+      gpu_info && angle::IsNVIDIA(gpu_info->active_gpu().vendor_id);
   sandbox_options.accelerated_video_decode_enabled =
       !gpu_prefs.disable_accelerated_video_decode;
   sandbox_options.accelerated_video_encode_enabled =

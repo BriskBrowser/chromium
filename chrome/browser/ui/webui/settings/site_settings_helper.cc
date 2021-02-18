@@ -9,8 +9,8 @@
 #include <set>
 #include <string>
 
+#include "base/containers/contains.h"
 #include "base/feature_list.h"
-#include "base/stl_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -23,8 +23,6 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/serial/serial_chooser_context.h"
 #include "chrome/browser/serial/serial_chooser_context_factory.h"
-#include "chrome/browser/subresource_filter/subresource_filter_content_settings_manager.h"
-#include "chrome/browser/subresource_filter/subresource_filter_profile_context.h"
 #include "chrome/browser/subresource_filter/subresource_filter_profile_context_factory.h"
 #include "chrome/browser/usb/usb_chooser_context.h"
 #include "chrome/browser/usb/usb_chooser_context_factory.h"
@@ -40,6 +38,8 @@
 #include "components/permissions/permission_util.h"
 #include "components/permissions/permissions_client.h"
 #include "components/prefs/pref_service.h"
+#include "components/subresource_filter/content/browser/subresource_filter_content_settings_manager.h"
+#include "components/subresource_filter/content/browser/subresource_filter_profile_context.h"
 #include "components/subresource_filter/core/browser/subresource_filter_features.h"
 #include "components/url_formatter/url_formatter.h"
 #include "content/public/common/content_features.h"
@@ -80,7 +80,6 @@ const ContentSettingsTypeNameEntry kContentSettingsTypeGroupNames[] = {
     {ContentSettingsType::COOKIES, "cookies"},
     {ContentSettingsType::IMAGES, "images"},
     {ContentSettingsType::JAVASCRIPT, "javascript"},
-    {ContentSettingsType::PLUGINS, "plugins"},
     {ContentSettingsType::POPUPS, "popups"},
     {ContentSettingsType::GEOLOCATION, "location"},
     {ContentSettingsType::NOTIFICATIONS, "notifications"},
@@ -134,7 +133,6 @@ const ContentSettingsTypeNameEntry kContentSettingsTypeGroupNames[] = {
     {ContentSettingsType::CLIENT_HINTS, nullptr},
     {ContentSettingsType::ACCESSIBILITY_EVENTS, nullptr},
     {ContentSettingsType::CLIPBOARD_SANITIZED_WRITE, nullptr},
-    {ContentSettingsType::PLUGINS_DATA, nullptr},
     {ContentSettingsType::BACKGROUND_FETCH, nullptr},
     {ContentSettingsType::INTENT_PICKER_DISPLAY, nullptr},
     {ContentSettingsType::PERIODIC_BACKGROUND_SYNC, nullptr},
@@ -148,8 +146,14 @@ const ContentSettingsTypeNameEntry kContentSettingsTypeGroupNames[] = {
     {ContentSettingsType::STORAGE_ACCESS, nullptr},
     {ContentSettingsType::CAMERA_PAN_TILT_ZOOM, nullptr},
     {ContentSettingsType::INSECURE_PRIVATE_NETWORK, nullptr},
+    {ContentSettingsType::PERMISSION_AUTOREVOCATION_DATA, nullptr},
+    {ContentSettingsType::FILE_SYSTEM_LAST_PICKED_DIRECTORY, nullptr},
+    {ContentSettingsType::DISPLAY_CAPTURE, nullptr},
 };
-static_assert(base::size(kContentSettingsTypeGroupNames) ==
+
+// TODO(crbug.com/1149878): After removing
+// ContentSettingsType::DEPRECATED_PLUGINS, remove +1.
+static_assert(base::size(kContentSettingsTypeGroupNames) + 1 ==
                   // ContentSettingsType starts at -1, so add 1 here.
                   static_cast<int32_t>(ContentSettingsType::NUM_TYPES) + 1,
               "kContentSettingsTypeGroupNames should have "
@@ -239,9 +243,10 @@ SiteSettingSource CalculateSiteSettingSource(
   if (content_type == ContentSettingsType::ADS &&
       base::FeatureList::IsEnabled(
           subresource_filter::kSafeBrowsingSubresourceFilter)) {
-    SubresourceFilterContentSettingsManager* settings_manager =
-        SubresourceFilterProfileContextFactory::GetForProfile(profile)
-            ->settings_manager();
+    subresource_filter::SubresourceFilterContentSettingsManager*
+        settings_manager =
+            SubresourceFilterProfileContextFactory::GetForProfile(profile)
+                ->settings_manager();
 
     if (settings_manager->GetSiteActivationFromMetadata(origin)) {
       return SiteSettingSource::kAdsFilterBlocklist;  // Source #6.
@@ -285,10 +290,9 @@ bool PatternAppliesToSingleOrigin(const ContentSettingPatternSource& pattern) {
   // Default settings and other patterns apply to multiple origins.
   if (url::Origin::Create(url).opaque())
     return false;
-  // Embedded content settings only when |url| is embedded in another origin, so
-  // ignore non-wildcard secondary patterns that are different to the primary.
-  if (pattern.primary_pattern != pattern.secondary_pattern &&
-      pattern.secondary_pattern != ContentSettingsPattern::Wildcard()) {
+  // Embedded content settings only match when |url| is embedded in another
+  // origin, so ignore non-wildcard secondary patterns.
+  if (pattern.secondary_pattern != ContentSettingsPattern::Wildcard()) {
     return false;
   }
   return true;
@@ -373,7 +377,7 @@ bool HasRegisteredGroupName(ContentSettingsType type) {
   return false;
 }
 
-ContentSettingsType ContentSettingsTypeFromGroupName(const std::string& name) {
+ContentSettingsType ContentSettingsTypeFromGroupName(base::StringPiece name) {
   for (size_t i = 0; i < base::size(kContentSettingsTypeGroupNames); ++i) {
     if (name == kContentSettingsTypeGroupNames[i].name)
       return kContentSettingsTypeGroupNames[i].type;
@@ -383,7 +387,7 @@ ContentSettingsType ContentSettingsTypeFromGroupName(const std::string& name) {
   return ContentSettingsType::DEFAULT;
 }
 
-std::string ContentSettingsTypeToGroupName(ContentSettingsType type) {
+base::StringPiece ContentSettingsTypeToGroupName(ContentSettingsType type) {
   for (size_t i = 0; i < base::size(kContentSettingsTypeGroupNames); ++i) {
     if (type == kContentSettingsTypeGroupNames[i].type) {
       const char* name = kContentSettingsTypeGroupNames[i].name;
@@ -395,7 +399,7 @@ std::string ContentSettingsTypeToGroupName(ContentSettingsType type) {
 
   NOTREACHED() << static_cast<int32_t>(type)
                << " is not a recognized content settings type.";
-  return std::string();
+  return base::StringPiece();
 }
 
 std::vector<ContentSettingsType> ContentSettingsTypesFromGroupNames(
@@ -454,8 +458,7 @@ std::unique_ptr<base::DictionaryValue> GetExceptionForPage(
     const ContentSetting& setting,
     const std::string& provider_name,
     bool incognito,
-    bool is_embargoed,
-    bool is_discarded) {
+    bool is_embargoed) {
   auto exception = std::make_unique<base::DictionaryValue>();
   exception->SetString(kOrigin, pattern.ToString());
   exception->SetString(kDisplayName, display_name);
@@ -472,7 +475,6 @@ std::unique_ptr<base::DictionaryValue> GetExceptionForPage(
   exception->SetString(kSource, provider_name);
   exception->SetBoolean(kIncognito, incognito);
   exception->SetBoolean(kIsEmbargoed, is_embargoed);
-  exception->SetBoolean(kIsDiscarded, is_discarded);
   return exception;
 }
 
@@ -539,12 +541,7 @@ void GetExceptionsForContentType(
   HostContentSettingsMap* map =
       HostContentSettingsMapFactory::GetForProfile(profile);
 
-  map->GetSettingsForOneType(type, std::string(), &all_settings);
-
-  // Will return only regular settings for a regular profile and only incognito
-  // settings for an incognito Profile.
-  ContentSettingsForOneType discarded_settings;
-  map->GetDiscardedSettingsForOneType(type, std::string(), &discarded_settings);
+  map->GetSettingsForOneType(type, &all_settings);
 
   // Group settings by primary_pattern.
   AllPatternsSettings all_patterns_settings;
@@ -575,7 +572,7 @@ void GetExceptionsForContentType(
 
   ContentSettingsForOneType embargo_settings;
   map->GetSettingsForOneType(ContentSettingsType::PERMISSION_AUTOBLOCKER_DATA,
-                             std::string(), &embargo_settings);
+                             &embargo_settings);
 
   permissions::PermissionDecisionAutoBlocker* auto_blocker =
       permissions::PermissionsClient::Get()->GetPermissionDecisionAutoBlocker(
@@ -669,15 +666,6 @@ void GetExceptionsForContentType(
     for (auto& exception : one_provider_exceptions)
       exceptions->Append(std::move(exception));
   }
-
-  for (auto& discarded_rule : discarded_settings) {
-    exceptions->Append(GetExceptionForPage(
-        discarded_rule.primary_pattern, discarded_rule.secondary_pattern,
-        GetDisplayNameForPattern(discarded_rule.primary_pattern,
-                                 extension_registry),
-        discarded_rule.GetContentSetting(), discarded_rule.source, incognito,
-        false /*is_embargoed*/, true /*is_discarded*/));
-  }
 }
 
 void GetContentCategorySetting(const HostContentSettingsMap* map,
@@ -705,8 +693,8 @@ ContentSetting GetContentSettingForOrigin(
   // content settings, not just the permissions, plus all the possible sources,
   // and the calls to HostContentSettingsMap should be removed.
   content_settings::SettingInfo info;
-  std::unique_ptr<base::Value> value = map->GetWebsiteSetting(
-      origin, origin, content_type, std::string(), &info);
+  std::unique_ptr<base::Value> value =
+      map->GetWebsiteSetting(origin, origin, content_type, &info);
 
   // Retrieve the content setting.
   permissions::PermissionResult result(
@@ -728,6 +716,11 @@ ContentSetting GetContentSettingForOrigin(
       CalculateSiteSettingSource(profile, content_type, origin, info, result));
   *display_name = GetDisplayNameForGURL(origin, extension_registry);
 
+  if (info.session_model == content_settings::SessionModel::OneTime) {
+    DCHECK_EQ(content_type, ContentSettingsType::GEOLOCATION);
+    DCHECK_EQ(result.content_setting, CONTENT_SETTING_ALLOW);
+    return CONTENT_SETTING_DEFAULT;
+  }
   return result.content_setting;
 }
 
@@ -735,7 +728,7 @@ std::vector<ContentSettingPatternSource> GetSiteExceptionsForContentType(
     HostContentSettingsMap* map,
     ContentSettingsType content_type) {
   ContentSettingsForOneType entries;
-  map->GetSettingsForOneType(content_type, std::string(), &entries);
+  map->GetSettingsForOneType(content_type, &entries);
   entries.erase(std::remove_if(entries.begin(), entries.end(),
                                [](const ContentSettingPatternSource& e) {
                                  return !PatternAppliesToSingleOrigin(e) ||

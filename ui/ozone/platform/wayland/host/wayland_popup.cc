@@ -4,11 +4,14 @@
 
 #include "ui/ozone/platform/wayland/host/wayland_popup.h"
 
+#include <aura-shell-client-protocol.h>
+
 #include "ui/ozone/platform/wayland/common/wayland_util.h"
 #include "ui/ozone/platform/wayland/host/shell_object_factory.h"
 #include "ui/ozone/platform/wayland/host/shell_popup_wrapper.h"
 #include "ui/ozone/platform/wayland/host/wayland_buffer_manager_host.h"
 #include "ui/ozone/platform/wayland/host/wayland_connection.h"
+#include "ui/ozone/platform/wayland/host/wayland_zaura_shell.h"
 
 namespace ui {
 
@@ -19,9 +22,6 @@ WaylandPopup::WaylandPopup(PlatformWindowDelegate* delegate,
 WaylandPopup::~WaylandPopup() = default;
 
 bool WaylandPopup::CreateShellPopup() {
-  if (GetBounds().IsEmpty())
-    return false;
-
   DCHECK(parent_window() && !shell_popup_);
 
   auto subsurface_bounds_dip =
@@ -36,7 +36,20 @@ bool WaylandPopup::CreateShellPopup() {
   }
 
   parent_window()->set_child_window(this);
+  InitializeAuraShellSurface();
   return true;
+}
+
+void WaylandPopup::InitializeAuraShellSurface() {
+  DCHECK(shell_popup_);
+  if (!connection()->zaura_shell() || aura_surface_)
+    return;
+  aura_surface_.reset(zaura_shell_get_aura_surface(
+      connection()->zaura_shell()->wl_object(), root_surface()->surface()));
+  if (shadow_type_ == PlatformWindowShadowType::kDrop) {
+    zaura_surface_set_frame(aura_surface_.get(),
+                            ZAURA_SURFACE_FRAME_TYPE_SHADOW);
+  }
 }
 
 void WaylandPopup::Show(bool inactive) {
@@ -50,6 +63,7 @@ void WaylandPopup::Show(bool inactive) {
 
   UpdateBufferScale(false);
   connection()->ScheduleFlush();
+  WaylandWindow::Show(inactive);
 }
 
 void WaylandPopup::Hide() {
@@ -123,6 +137,10 @@ void WaylandPopup::HandlePopupConfigure(const gfx::Rect& bounds_dip) {
   SetBoundsDip(new_bounds_dip);
 }
 
+void WaylandPopup::HandleSurfaceConfigure(uint32_t serial) {
+  shell_popup()->AckConfigure(serial);
+}
+
 void WaylandPopup::OnCloseRequest() {
   // Before calling OnCloseRequest, the |shell_popup_| must become hidden and
   // only then call OnCloseRequest().
@@ -131,17 +149,11 @@ void WaylandPopup::OnCloseRequest() {
 }
 
 bool WaylandPopup::OnInitialize(PlatformWindowInitProperties properties) {
-  if (!wl::IsMenuType(type()))
-    return false;
-
-  set_parent_window(GetParentWindow(properties.parent_widget));
-  if (!parent_window()) {
-    LOG(ERROR) << "Failed to get a parent window for this popup";
-    return false;
-  }
-  // If parent window is known in advanced, we may set the scale early.
+  DCHECK(wl::IsMenuType(type()));
+  DCHECK(parent_window());
   root_surface()->SetBufferScale(parent_window()->buffer_scale(), false);
   set_ui_scale(parent_window()->ui_scale());
+  shadow_type_ = properties.shadow_type;
   return true;
 }
 

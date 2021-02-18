@@ -27,13 +27,14 @@ using autofill::AutofillUploadContents;
 using autofill::FormData;
 using autofill::FormFieldData;
 using autofill::FormStructure;
-using autofill::PasswordForm;
 using autofill::PasswordFormFillData;
+using autofill::mojom::SubmissionIndicatorEvent;
 using base::ASCIIToUTF16;
 using base::TestMockTimeTaskRunner;
 using testing::_;
 using testing::AllOf;
 using testing::Contains;
+using testing::DoAll;
 using testing::ElementsAre;
 using testing::IsEmpty;
 using testing::Mock;
@@ -117,12 +118,9 @@ void CheckPasswordGenerationUKM(const ukm::TestAutoSetUkmRecorder& recorder,
 class MockFormSaver : public StubFormSaver {
  public:
   // FormSaver:
-  MOCK_METHOD(PasswordForm,
-              PermanentlyBlacklist,
-              (PasswordStore::FormDigest),
-              (override));
+  MOCK_METHOD(PasswordForm, Blocklist, (PasswordStore::FormDigest), (override));
   MOCK_METHOD(void,
-              Unblacklist,
+              Unblocklist,
               (const PasswordStore::FormDigest&),
               (override));
   MOCK_METHOD(void,
@@ -185,7 +183,7 @@ class MockAutofillDownloadManager : public autofill::AutofillDownloadManager {
   class StubObserver : public AutofillDownloadManager::Observer {
     void OnLoadedServerPredictions(
         std::string response,
-        const autofill::FormAndFieldSignatures& form_signatures) override {}
+        const std::vector<autofill::FormSignature>& form_signatures) override {}
   };
 
   StubObserver fake_observer;
@@ -354,7 +352,7 @@ class PasswordSaveManagerImplTest : public testing::Test,
   TestMockTimeTaskRunner* task_runner() { return task_runner_.get(); }
 
   void SetNonFederatedAndNotifyFetchCompleted(
-      const std::vector<const autofill::PasswordForm*>& non_federated) {
+      const std::vector<const PasswordForm*>& non_federated) {
     fetcher()->SetNonFederated(non_federated);
     fetcher()->NotifyFetchCompleted();
   }
@@ -383,18 +381,18 @@ class PasswordSaveManagerImplTest : public testing::Test,
   DISALLOW_COPY_AND_ASSIGN(PasswordSaveManagerImplTest);
 };
 
-TEST_P(PasswordSaveManagerImplTest, PermanentlyBlacklist) {
+TEST_P(PasswordSaveManagerImplTest, Blocklist) {
   PasswordStore::FormDigest form_digest(PasswordForm::Scheme::kDigest,
                                         "www.example.com", GURL("www.abc.com"));
-  EXPECT_CALL(*mock_form_saver(), PermanentlyBlacklist(form_digest));
-  password_save_manager_impl()->PermanentlyBlacklist(form_digest);
+  EXPECT_CALL(*mock_form_saver(), Blocklist(form_digest));
+  password_save_manager_impl()->Blocklist(form_digest);
 }
 
-TEST_P(PasswordSaveManagerImplTest, Unblacklist) {
+TEST_P(PasswordSaveManagerImplTest, Unblocklist) {
   PasswordStore::FormDigest form_digest(PasswordForm::Scheme::kDigest,
                                         "www.example.com", GURL("www.abc.com"));
-  EXPECT_CALL(*mock_form_saver(), Unblacklist(form_digest));
-  password_save_manager_impl()->Unblacklist(form_digest);
+  EXPECT_CALL(*mock_form_saver(), Unblocklist(form_digest));
+  password_save_manager_impl()->Unblocklist(form_digest);
 }
 
 // Tests creating pending credentials when the password store is empty.
@@ -577,6 +575,7 @@ TEST_P(PasswordSaveManagerImplTest, ResetPendingCredentials) {
 // successfully submitted, then they are saved correctly.
 TEST_P(PasswordSaveManagerImplTest, SaveNewCredentials) {
   TestMockTimeTaskRunner::ScopedContext scoped_context(task_runner());
+  base::HistogramTester histogram_tester;
   ukm::TestAutoSetUkmRecorder test_ukm_recorder;
   SetNonFederatedAndNotifyFetchCompleted({&saved_match_});
 
@@ -586,8 +585,13 @@ TEST_P(PasswordSaveManagerImplTest, SaveNewCredentials) {
   submitted_form.fields[kUsernameFieldIndex].value = new_username;
   submitted_form.fields[kPasswordFieldIndex].value = new_password;
 
+  PasswordForm parsed_submitted_form = Parse(submitted_form);
+  // Set SubmissionIndicatorEvent to test metrics recording.
+  parsed_submitted_form.submission_event =
+      SubmissionIndicatorEvent::HTML_FORM_SUBMISSION;
+
   password_save_manager_impl()->CreatePendingCredentials(
-      Parse(submitted_form), &observed_form_, submitted_form,
+      parsed_submitted_form, &observed_form_, submitted_form,
       /*is_http_auth=*/false,
       /*is_credential_api_save=*/false);
 
@@ -598,7 +602,7 @@ TEST_P(PasswordSaveManagerImplTest, SaveNewCredentials) {
   EXPECT_CALL(*mock_form_saver(), Save(_, _, _))
       .WillOnce(DoAll(SaveArg<0>(&saved_form), SaveArg<1>(&best_matches)));
 
-  password_save_manager_impl()->Save(&observed_form_, Parse(submitted_form));
+  password_save_manager_impl()->Save(&observed_form_, parsed_submitted_form);
 
   std::string expected_signon_realm = submitted_form.url.GetOrigin().spec();
   EXPECT_EQ(submitted_form.url, saved_form.url);
@@ -611,6 +615,11 @@ TEST_P(PasswordSaveManagerImplTest, SaveNewCredentials) {
   EXPECT_EQ(submitted_form.fields[kPasswordFieldIndex].name,
             saved_form.password_element);
   EXPECT_EQ(std::vector<const PasswordForm*>{&saved_match_}, best_matches);
+
+  // Check histograms.
+  histogram_tester.ExpectUniqueSample(
+      "PasswordManager.AcceptedSaveUpdateSubmissionIndicatorEvent",
+      SubmissionIndicatorEvent::HTML_FORM_SUBMISSION, 1);
 
   // Check UKM metrics.
   DestroySaveManagerAndMetricsRecorder();
@@ -1083,6 +1092,8 @@ TEST_P(PasswordSaveManagerImplTest, UserEventsForGeneration_Clear) {
 }
 
 TEST_P(PasswordSaveManagerImplTest, Update) {
+  base::HistogramTester histogram_tester;
+
   PasswordForm not_best_saved_match = saved_match_;
   PasswordForm saved_match_another_username = saved_match_;
   saved_match_another_username.username_value += ASCIIToUTF16("1");
@@ -1095,8 +1106,13 @@ TEST_P(PasswordSaveManagerImplTest, Update) {
   submitted_form.fields[kUsernameFieldIndex].value = username;
   submitted_form.fields[kPasswordFieldIndex].value = new_password;
 
+  PasswordForm parsed_submitted_form = Parse(submitted_form);
+  // Set SubmissionIndicatorEvent to test metrics recording.
+  parsed_submitted_form.submission_event =
+      SubmissionIndicatorEvent::HTML_FORM_SUBMISSION;
+
   password_save_manager_impl()->CreatePendingCredentials(
-      Parse(submitted_form), &observed_form_, submitted_form,
+      parsed_submitted_form, &observed_form_, submitted_form,
       /*is_http_auth=*/false,
       /*is_credential_api_save=*/false);
 
@@ -1112,11 +1128,16 @@ TEST_P(PasswordSaveManagerImplTest, Update) {
   const base::Time kNow = base::Time::Now();
 
   password_save_manager_impl()->Update(saved_match_, &observed_form_,
-                                       Parse(submitted_form));
+                                       parsed_submitted_form);
 
   EXPECT_TRUE(ArePasswordFormUniqueKeysEqual(saved_match_, updated_form));
   EXPECT_EQ(new_password, updated_form.password_value);
   EXPECT_GE(updated_form.date_last_used, kNow);
+
+  // Check histograms.
+  histogram_tester.ExpectUniqueSample(
+      "PasswordManager.AcceptedSaveUpdateSubmissionIndicatorEvent",
+      SubmissionIndicatorEvent::HTML_FORM_SUBMISSION, 1);
 }
 
 TEST_P(PasswordSaveManagerImplTest, HTTPAuthPasswordOverridden) {

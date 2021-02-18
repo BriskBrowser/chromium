@@ -12,6 +12,7 @@
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/hit_test.h"
 #include "ui/compositor/layer_animation_observer.h"
@@ -25,6 +26,7 @@
 #include "ui/gfx/native_widget_types.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/buildflags.h"
+#include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/event_monitor.h"
 #include "ui/views/layout/fill_layout.h"
@@ -33,6 +35,7 @@
 #include "ui/views/test/test_widget_observer.h"
 #include "ui/views/test/widget_test.h"
 #include "ui/views/view_test_api.h"
+#include "ui/views/views_test_suite.h"
 #include "ui/views/widget/native_widget_delegate.h"
 #include "ui/views/widget/native_widget_private.h"
 #include "ui/views/widget/root_view.h"
@@ -61,6 +64,11 @@
 #include "ui/wm/core/focus_controller.h"
 #include "ui/wm/core/shadow_controller.h"
 #include "ui/wm/core/shadow_controller_delegate.h"
+#endif
+
+#if defined(USE_OZONE)
+#include "ui/base/ui_base_features.h"
+#include "ui/ozone/public/ozone_platform.h"
 #endif
 
 namespace views {
@@ -173,20 +181,60 @@ TEST_F(WidgetTest, WidgetInitParams) {
 
 // Tests that the internal name is propagated through widget initialization to
 // the native widget and back.
-class WidgetNameTest : public WidgetTest {
+class WidgetWithCustomParamsTest : public WidgetTest {
  public:
+  using InitFunction = base::RepeatingCallback<void(Widget::InitParams*)>;
+  void SetInitFunction(const InitFunction& init) { init_ = std::move(init); }
   Widget::InitParams CreateParams(Widget::InitParams::Type type) override {
     Widget::InitParams params = WidgetTest::CreateParams(type);
-    params.name = "MyWidget";
+    DCHECK(init_) << "If you don't need an init function, use WidgetTest";
+    init_.Run(&params);
     return params;
   }
+
+ private:
+  InitFunction init_;
 };
 
-TEST_F(WidgetNameTest, GetName) {
+TEST_F(WidgetWithCustomParamsTest, NamePropagatedFromParams) {
+  SetInitFunction(base::BindLambdaForTesting(
+      [](Widget::InitParams* params) { params->name = "MyWidget"; }));
   std::unique_ptr<Widget> widget = CreateTestWidget();
 
   EXPECT_EQ("MyWidget", widget->native_widget_private()->GetName());
   EXPECT_EQ("MyWidget", widget->GetName());
+}
+
+TEST_F(WidgetWithCustomParamsTest, NamePropagatedFromDelegate) {
+  WidgetDelegate delegate;
+  delegate.set_internal_name("Foobar");
+  SetInitFunction(base::BindLambdaForTesting(
+      [&](Widget::InitParams* params) { params->delegate = &delegate; }));
+
+  std::unique_ptr<Widget> widget = CreateTestWidget();
+
+  EXPECT_EQ(delegate.internal_name(),
+            widget->native_widget_private()->GetName());
+  EXPECT_EQ(delegate.internal_name(), widget->GetName());
+}
+
+TEST_F(WidgetWithCustomParamsTest, NamePropagatedFromContentsViewClassName) {
+  class ViewWithClassName : public View {
+   public:
+    const char* GetClassName() const override { return "ViewWithClassName"; }
+  };
+
+  WidgetDelegate delegate;
+  auto view = std::make_unique<ViewWithClassName>();
+  auto* contents = delegate.SetContentsView(std::move(view));
+  SetInitFunction(base::BindLambdaForTesting(
+      [&](Widget::InitParams* params) { params->delegate = &delegate; }));
+
+  std::unique_ptr<Widget> widget = CreateTestWidget();
+
+  EXPECT_EQ(contents->GetClassName(),
+            widget->native_widget_private()->GetName());
+  EXPECT_EQ(contents->GetClassName(), widget->GetName());
 }
 
 TEST_F(WidgetTest, NativeWindowProperty) {
@@ -201,6 +249,166 @@ TEST_F(WidgetTest, NativeWindowProperty) {
 
   widget->SetNativeWindowProperty(key, nullptr);
   EXPECT_EQ(nullptr, widget->GetNativeWindowProperty(key));
+}
+
+TEST_F(WidgetTest, GetParent) {
+  // Create a hierarchy of native widgets.
+  WidgetAutoclosePtr toplevel(CreateTopLevelPlatformWidget());
+  Widget* child = CreateChildPlatformWidget(toplevel->GetNativeView());
+  Widget* grandchild = CreateChildPlatformWidget(child->GetNativeView());
+
+  EXPECT_EQ(nullptr, toplevel->parent());
+  EXPECT_EQ(child, grandchild->parent());
+  EXPECT_EQ(toplevel.get(), child->parent());
+
+  // children should be automatically destroyed with |toplevel|.
+}
+
+// Verify that there is no change in focus if |enable_arrow_key_traversal| is
+// false (the default).
+TEST_F(WidgetTest, ArrowKeyFocusTraversalOffByDefault) {
+  WidgetAutoclosePtr toplevel(CreateTopLevelPlatformWidget());
+
+  // Establish default value.
+  DCHECK(!toplevel->widget_delegate()->enable_arrow_key_traversal());
+
+  View* container = toplevel->client_view();
+  container->SetLayoutManager(std::make_unique<FillLayout>());
+  auto* const button1 =
+      container->AddChildView(std::make_unique<LabelButton>());
+  auto* const button2 =
+      container->AddChildView(std::make_unique<LabelButton>());
+  toplevel->Show();
+  button1->RequestFocus();
+
+  ui::KeyEvent right_arrow(ui::ET_KEY_PRESSED, ui::VKEY_RIGHT, ui::EF_NONE);
+  toplevel->OnKeyEvent(&right_arrow);
+  EXPECT_TRUE(button1->HasFocus());
+  EXPECT_FALSE(button2->HasFocus());
+
+  ui::KeyEvent left_arrow(ui::ET_KEY_PRESSED, ui::VKEY_LEFT, ui::EF_NONE);
+  toplevel->OnKeyEvent(&left_arrow);
+  EXPECT_TRUE(button1->HasFocus());
+  EXPECT_FALSE(button2->HasFocus());
+
+  ui::KeyEvent up_arrow(ui::ET_KEY_PRESSED, ui::VKEY_UP, ui::EF_NONE);
+  toplevel->OnKeyEvent(&up_arrow);
+  EXPECT_TRUE(button1->HasFocus());
+  EXPECT_FALSE(button2->HasFocus());
+
+  ui::KeyEvent down_arrow(ui::ET_KEY_PRESSED, ui::VKEY_DOWN, ui::EF_NONE);
+  toplevel->OnKeyEvent(&down_arrow);
+  EXPECT_TRUE(button1->HasFocus());
+  EXPECT_FALSE(button2->HasFocus());
+}
+
+// Verify that arrow keys can change focus if |enable_arrow_key_traversal| is
+// set to true.
+TEST_F(WidgetTest, ArrowKeyTraversalMovesFocusBetweenViews) {
+  WidgetAutoclosePtr toplevel(CreateTopLevelPlatformWidget());
+  toplevel->widget_delegate()->SetEnableArrowKeyTraversal(true);
+
+  View* container = toplevel->client_view();
+  container->SetLayoutManager(std::make_unique<FillLayout>());
+  auto* const button1 =
+      container->AddChildView(std::make_unique<LabelButton>());
+  auto* const button2 =
+      container->AddChildView(std::make_unique<LabelButton>());
+  auto* const button3 =
+      container->AddChildView(std::make_unique<LabelButton>());
+  toplevel->Show();
+  button1->RequestFocus();
+
+  // Right should advance focus (similar to TAB).
+  ui::KeyEvent right_arrow(ui::ET_KEY_PRESSED, ui::VKEY_RIGHT, ui::EF_NONE);
+  toplevel->OnKeyEvent(&right_arrow);
+  EXPECT_FALSE(button1->HasFocus());
+  EXPECT_TRUE(button2->HasFocus());
+  EXPECT_FALSE(button3->HasFocus());
+
+  // Down should also advance focus.
+  ui::KeyEvent down_arrow(ui::ET_KEY_PRESSED, ui::VKEY_DOWN, ui::EF_NONE);
+  toplevel->OnKeyEvent(&down_arrow);
+  EXPECT_FALSE(button1->HasFocus());
+  EXPECT_FALSE(button2->HasFocus());
+  EXPECT_TRUE(button3->HasFocus());
+
+  // Left should reverse focus (similar to SHIFT+TAB).
+  ui::KeyEvent left_arrow(ui::ET_KEY_PRESSED, ui::VKEY_LEFT, ui::EF_NONE);
+  toplevel->OnKeyEvent(&left_arrow);
+  EXPECT_FALSE(button1->HasFocus());
+  EXPECT_TRUE(button2->HasFocus());
+  EXPECT_FALSE(button3->HasFocus());
+
+  // Up should also reverse focus.
+  ui::KeyEvent up_arrow(ui::ET_KEY_PRESSED, ui::VKEY_UP, ui::EF_NONE);
+  toplevel->OnKeyEvent(&up_arrow);
+  EXPECT_TRUE(button1->HasFocus());
+  EXPECT_FALSE(button2->HasFocus());
+  EXPECT_FALSE(button3->HasFocus());
+
+  // Test backwards wrap-around.
+  ui::KeyEvent up_arrow2(ui::ET_KEY_PRESSED, ui::VKEY_UP, ui::EF_NONE);
+  toplevel->OnKeyEvent(&up_arrow2);
+  EXPECT_FALSE(button1->HasFocus());
+  EXPECT_FALSE(button2->HasFocus());
+  EXPECT_TRUE(button3->HasFocus());
+
+  // Test forward wrap-around.
+  ui::KeyEvent down_arrow2(ui::ET_KEY_PRESSED, ui::VKEY_DOWN, ui::EF_NONE);
+  toplevel->OnKeyEvent(&down_arrow2);
+  EXPECT_TRUE(button1->HasFocus());
+  EXPECT_FALSE(button2->HasFocus());
+  EXPECT_FALSE(button3->HasFocus());
+}
+
+TEST_F(WidgetTest, ArrowKeyTraversalNotInheritedByChildWidgets) {
+  WidgetAutoclosePtr parent(CreateTopLevelPlatformWidget());
+  Widget* child = CreateChildPlatformWidget(parent->GetNativeView());
+
+  parent->widget_delegate()->SetEnableArrowKeyTraversal(true);
+
+  View* container = child->GetContentsView();
+  DCHECK(container);
+  container->SetLayoutManager(std::make_unique<FillLayout>());
+  auto* const button1 =
+      container->AddChildView(std::make_unique<LabelButton>());
+  auto* const button2 =
+      container->AddChildView(std::make_unique<LabelButton>());
+  parent->Show();
+  child->Show();
+  button1->RequestFocus();
+
+  // Arrow key should not cause focus change on child since only the parent
+  // Widget has |enable_arrow_key_traversal| set.
+  ui::KeyEvent right_arrow(ui::ET_KEY_PRESSED, ui::VKEY_RIGHT, ui::EF_NONE);
+  child->OnKeyEvent(&right_arrow);
+  EXPECT_TRUE(button1->HasFocus());
+  EXPECT_FALSE(button2->HasFocus());
+}
+
+TEST_F(WidgetTest, ArrowKeyTraversalMayBeExplicitlyEnabledByChildWidgets) {
+  WidgetAutoclosePtr parent(CreateTopLevelPlatformWidget());
+  Widget* child = CreateChildPlatformWidget(parent->GetNativeView());
+
+  child->widget_delegate()->SetEnableArrowKeyTraversal(true);
+
+  View* container = child->GetContentsView();
+  container->SetLayoutManager(std::make_unique<FillLayout>());
+  auto* const button1 =
+      container->AddChildView(std::make_unique<LabelButton>());
+  auto* const button2 =
+      container->AddChildView(std::make_unique<LabelButton>());
+  parent->Show();
+  child->Show();
+  button1->RequestFocus();
+
+  // Arrow key should cause focus key on child since child has flag set, even
+  // if the parent Widget does not.
+  ui::KeyEvent right_arrow(ui::ET_KEY_PRESSED, ui::VKEY_RIGHT, ui::EF_NONE);
+  child->OnKeyEvent(&right_arrow);
+  EXPECT_FALSE(button1->HasFocus());
+  EXPECT_TRUE(button2->HasFocus());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1009,14 +1217,7 @@ TEST_F(WidgetTest, GetWindowPlacement) {
 #else
 TEST_F(DesktopWidgetTest, GetWindowPlacement) {
 #endif
-#if defined(OS_APPLE)
-  if (base::mac::IsOS10_10())
-    return;  // Fails when swarmed. http://crbug.com/660582
-#endif
-#if defined(USE_X11)
-  if (features::IsUsingOzonePlatform())
-    return;  // TODO(https://crbug.com/1109112): Will be enabled later.
-#endif
+  SKIP_TEST_IF_NOT_OZONE_X11();
 
   WidgetAutoclosePtr widget;
   widget.reset(CreateTopLevelNativeWidget());
@@ -1292,7 +1493,7 @@ class DesktopAuraTestValidPaintWidget : public Widget, public WidgetObserver {
  public:
   explicit DesktopAuraTestValidPaintWidget(Widget::InitParams init_params)
       : Widget(std::move(init_params)) {
-    observer_.Add(this);
+    observation_.Observe(this);
   }
   ~DesktopAuraTestValidPaintWidget() override = default;
 
@@ -1335,7 +1536,7 @@ class DesktopAuraTestValidPaintWidget : public Widget, public WidgetObserver {
   bool expect_paint_ = true;
   bool received_paint_while_hidden_ = false;
   base::OnceClosure quit_closure_;
-  ScopedObserver<Widget, WidgetObserver> observer_{this};
+  base::ScopedObservation<Widget, WidgetObserver> observation_{this};
 
   DISALLOW_COPY_AND_ASSIGN(DesktopAuraTestValidPaintWidget);
 };
@@ -1488,10 +1689,9 @@ TEST_F(WidgetTest, EventHandlersOnRootView) {
   WidgetAutoclosePtr widget(CreateTopLevelNativeWidget());
   View* root_view = widget->GetRootView();
 
-  std::unique_ptr<EventCountView> view(new EventCountView());
-  view->set_owned_by_client();
+  EventCountView* view =
+      root_view->AddChildView(std::make_unique<EventCountView>());
   view->SetBounds(0, 0, 20, 20);
-  root_view->AddChildView(view.get());
 
   EventCountHandler h1;
   root_view->AddPreTargetHandler(&h1);
@@ -2261,7 +2461,9 @@ TEST_F(DesktopWidgetTest, ValidDuringOnNativeWidgetDestroyingFromClose) {
   EXPECT_EQ(gfx::Rect(), observer.bounds());
   base::RunLoop().RunUntilIdle();
 // Broken on Linux. See http://crbug.com/515379.
-#if !defined(OS_LINUX) || defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if !(defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
   EXPECT_EQ(screen_rect, observer.bounds());
 #endif
 }
@@ -3866,6 +4068,21 @@ TEST_F(DesktopWidgetTest, WindowModalOwnerDestroyedEnabledTest) {
 
 namespace {
 
+bool CanHaveCompositingManager() {
+#if defined(USE_OZONE)
+  if (features::IsUsingOzonePlatform()) {
+    const auto* const egl_utility =
+        ui::OzonePlatform::GetInstance()->GetPlatformGLEGLUtility();
+    return egl_utility != nullptr;
+  }
+#endif
+#if defined(USE_X11)
+  return true;
+#else
+  return false;
+#endif
+}
+
 class CompositingWidgetTest : public DesktopWidgetTest {
  public:
   CompositingWidgetTest()
@@ -3921,17 +4138,15 @@ class CompositingWidgetTest : public DesktopWidgetTest {
       EXPECT_EQ(IsNativeWindowTransparent(widget->GetNativeWindow()),
                 should_be_transparent);
 
-#if defined(USE_X11)
-      if (features::IsUsingOzonePlatform())
-        return;
-      if (HasCompositingManager() &&
-          (widget_type == Widget::InitParams::TYPE_DRAG ||
-           widget_type == Widget::InitParams::TYPE_WINDOW)) {
-        EXPECT_TRUE(widget->IsTranslucentWindowOpacitySupported());
-      } else {
-        EXPECT_FALSE(widget->IsTranslucentWindowOpacitySupported());
+      if (CanHaveCompositingManager()) {
+        if (HasCompositingManager() &&
+            (widget_type == Widget::InitParams::TYPE_DRAG ||
+             widget_type == Widget::InitParams::TYPE_WINDOW)) {
+          EXPECT_TRUE(widget->IsTranslucentWindowOpacitySupported());
+        } else {
+          EXPECT_FALSE(widget->IsTranslucentWindowOpacitySupported());
+        }
       }
-#endif
     }
   }
 

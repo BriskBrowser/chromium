@@ -19,6 +19,7 @@ import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.os.SystemClock;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
@@ -26,6 +27,7 @@ import org.chromium.base.Log;
 import org.chromium.base.StrictModeContext;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.base.supplier.Supplier;
 import org.chromium.base.task.AsyncTask;
 import org.chromium.base.task.PostTask;
 import org.chromium.components.browser_ui.util.ConversionUtils;
@@ -46,6 +48,9 @@ public class DecoderServiceHost
         extends IDecoderServiceCallback.Stub implements DecodeVideoTask.VideoDecodingCallback {
     // A tag for logging error messages.
     private static final String TAG = "ImageDecoderHost";
+
+    // The current context.
+    private final Context mContext;
 
     // A content resolver for providing file descriptors for the images.
     private ContentResolver mContentResolver;
@@ -74,14 +79,36 @@ public class DecoderServiceHost
     // The number of io failures during video decoding, per batch.
     private int mFailedVideoDecodesUnknown;
 
+    // Whether animated thumbnails should be generated for video clips.
+    private final boolean mAnimatedThumbnailsSupported;
+
     // A worker task for asynchronously handling video decode requests.
     private DecodeVideoTask mWorkerTask;
+
+    // The current processing request.
+    private DecoderServiceParams mProcessingRequest;
+
+    // The callbacks used to notify the clients when the service is ready.
+    private final List<DecoderStatusCallback> mCallbacks = new ArrayList<DecoderStatusCallback>();
 
     // Keeps track of the last decoding ordinal issued.
     static int sLastDecodingOrdinal = 0;
 
     // A callback to use for testing to see if decoder is ready.
     static DecoderStatusCallback sStatusCallbackForTesting;
+
+    // Used to create intents for launching the {@link DecoderService} service.
+    private static Supplier<Intent> sIntentSupplier;
+
+    /**
+     * Sets a factory for creating intents that launch the {@link DecoderService} service.
+     * This must be called prior to using the PhotoPicker.
+     * @param intentSupplier a factory that creates a new Intent. Will be called every time the
+     *         PhotoPicker is launched.
+     */
+    public static void setIntentSupplier(@NonNull Supplier<Intent> intentSupplier) {
+        sIntentSupplier = intentSupplier;
+    }
 
     IDecoderService mIRemoteService;
     private ServiceConnection mConnection = new ServiceConnection() {
@@ -200,20 +227,17 @@ public class DecoderServiceHost
     PriorityQueue<DecoderServiceParams> mPendingRequests =
             new PriorityQueue<>(/*initialCapacity=*/1, mRequestComparator);
 
-    // The current processing request.
-    private DecoderServiceParams mProcessingRequest;
-
-    // The callbacks used to notify the clients when the service is ready.
-    private final List<DecoderStatusCallback> mCallbacks = new ArrayList<DecoderStatusCallback>();
-
-    private final Context mContext;
-
     /**
      * The DecoderServiceHost constructor.
      * @param callback The callback to use when communicating back to the client.
+     * @param context The current context.
+     * @param animatedThumbnailsSupported Whether animated thumbnails should be generated for video
+     *         clips.
      */
-    public DecoderServiceHost(DecoderStatusCallback callback, Context context) {
+    public DecoderServiceHost(
+            DecoderStatusCallback callback, Context context, boolean animatedThumbnailsSupported) {
         mCallbacks.add(callback);
+        mAnimatedThumbnailsSupported = animatedThumbnailsSupported;
         if (sStatusCallbackForTesting != null) {
             mCallbacks.add(sStatusCallbackForTesting);
         }
@@ -226,7 +250,7 @@ public class DecoderServiceHost
      * @param context The context to use.
      */
     public void bind(Context context) {
-        Intent intent = new Intent(mContext, DecoderService.class);
+        Intent intent = sIntentSupplier.get();
         intent.setAction(IDecoderService.class.getName());
         mContext.bindService(intent, mConnection, Context.BIND_AUTO_CREATE);
     }
@@ -258,7 +282,7 @@ public class DecoderServiceHost
         DecoderServiceParams params = new DecoderServiceParams(
                 uri, width, fullWidth, fileType, /*firstFrame=*/true, callback);
         mPendingRequests.add(params);
-        if (params.mFileType == PickerBitmap.TileTypes.VIDEO) {
+        if (params.mFileType == PickerBitmap.TileTypes.VIDEO && mAnimatedThumbnailsSupported) {
             // Decoding requests for videos are requests for first frames only. Add another
             // low-priority request for decoding the rest of the frames.
             DecoderServiceParams lowPriorityRequest =
@@ -398,14 +422,14 @@ public class DecoderServiceHost
             long decodeTime = -1;
             try {
                 // Read the reply back from the service.
-                filePath = payload.getString(DecoderService.KEY_FILE_PATH);
-                Boolean success = payload.getBoolean(DecoderService.KEY_SUCCESS);
+                filePath = payload.getString(ImageDecoder.KEY_FILE_PATH);
+                Boolean success = payload.getBoolean(ImageDecoder.KEY_SUCCESS);
                 Bitmap bitmap = success
-                        ? (Bitmap) payload.getParcelable(DecoderService.KEY_IMAGE_BITMAP)
+                        ? (Bitmap) payload.getParcelable(ImageDecoder.KEY_IMAGE_BITMAP)
                         : null;
-                ratio = payload.getFloat(DecoderService.KEY_RATIO);
-                decodeTime = payload.getLong(DecoderService.KEY_DECODE_TIME);
-                fullWidth = payload.getBoolean(DecoderService.KEY_FULL_WIDTH);
+                ratio = payload.getFloat(ImageDecoder.KEY_RATIO);
+                decodeTime = payload.getLong(ImageDecoder.KEY_DECODE_TIME);
+                fullWidth = payload.getBoolean(ImageDecoder.KEY_FULL_WIDTH);
                 mSuccessfulImageDecodes++;
                 bitmaps = new ArrayList<>(1);
                 bitmaps.add(bitmap);
@@ -541,10 +565,10 @@ public class DecoderServiceHost
         }
 
         // Prepare and send the data over.
-        bundle.putString(DecoderService.KEY_FILE_PATH, params.mUri.getPath());
-        bundle.putParcelable(DecoderService.KEY_FILE_DESCRIPTOR, pfd);
-        bundle.putInt(DecoderService.KEY_WIDTH, params.mWidth);
-        bundle.putBoolean(DecoderService.KEY_FULL_WIDTH, params.mFullWidth);
+        bundle.putString(ImageDecoder.KEY_FILE_PATH, params.mUri.getPath());
+        bundle.putParcelable(ImageDecoder.KEY_FILE_DESCRIPTOR, pfd);
+        bundle.putInt(ImageDecoder.KEY_WIDTH, params.mWidth);
+        bundle.putBoolean(ImageDecoder.KEY_FULL_WIDTH, params.mFullWidth);
         try {
             mIRemoteService.decodeImage(bundle, this);
             pfd.close();

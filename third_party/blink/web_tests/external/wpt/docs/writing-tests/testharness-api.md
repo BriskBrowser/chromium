@@ -434,7 +434,7 @@ These functions are preferred over `step_timeout` as they end when a condition o
 `step_wait(cond, description, timeout=3000, interval=100)` is useful inside `promise_test`, e.g.:
 
 ```js
-promise_test(t => {
+promise_test(async t => {
   // …
   await t.step_wait(() => frame.contentDocument === null, "Frame navigated to a cross-origin document");
   // …
@@ -652,8 +652,8 @@ the following methods:
 
   `add_result_callback(callback)` - callback called with a test argument
 
-  `add_completion_callback(callback)` - callback called with an array of tests
-                                        and a status object
+  `add_completion_callback(callback)` - callback called with an array of tests,
+                                        a status object, and an array of asserts
 
 Tests have the following properties:
 
@@ -672,6 +672,21 @@ Tests have the following properties:
 
  * `message` - An error message set when the status is `PRECONDITION_FAILED`
                or `ERROR`.
+
+  Asserts have the following properties:
+
+  * `test` - The test that caused the assert.
+
+  * `assert_name` - The name of the assert that ran e.g. `assert_equals`
+
+  * `args` - An array of string representations of arguments passed to the assert
+             function.
+
+  * `status` - An integer representing the assert status. This has the same values
+               as the status property on a test.
+
+For performance reasons asserts are only tracked when visual output is enabled.
+When it's disabled the array of asserts will be empty.
 
 ## External API ##
 
@@ -866,6 +881,8 @@ asserts that `expected` is an Array, and `actual` is equal to one of the
 members i.e. `expected.indexOf(actual) != -1`
 
 ### `assert_object_equals(actual, expected, description)`
+**DEPRECATED**: see [issue #2033](https://github.com/web-platform-tests/wpt/issues/2033).
+
 asserts that `actual` is an object and not null and that all enumerable
 properties on `actual` are own properties on `expected` with the same values,
 recursing if the value is an object and not null.

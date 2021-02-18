@@ -469,7 +469,7 @@ implicitly](#Implicit-bypass-rules).
 
 *Subtracts* the [implicit proxy bypass rules](#Implicit-bypass-rules)
 (localhost and link local addresses). This is generally only needed for test
-setupe. Beware of the security implications to proxying localhost.
+setups. Beware of the security implications to proxying localhost.
 
 Whereas regular bypass rules instruct the browser about URLs that should *not*
 use the proxy, this rule has the opposite effect and tells the browser to
@@ -523,8 +523,7 @@ localhost
 ```
 
 The complete rules are slightly more complicated. For instance on
-Windows we will also recognize `loopback`, and there is special casing of
-`localhost6` and `localhost6.localdomain6` in Chrome's localhost matching.
+Windows we will also recognize `loopback`.
 
 This concept of implicit proxy bypass rules is consistent with the
 platform-level proxy support on Windows and macOS (albeit with some differences

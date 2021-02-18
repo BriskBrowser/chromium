@@ -34,7 +34,6 @@
 namespace blink {
 
 class DocumentMarker;
-class GraphicsContext;
 class TextMarkerBase;
 
 class CORE_EXPORT InlineTextBox : public InlineBox {
@@ -49,11 +48,13 @@ class CORE_EXPORT InlineTextBox : public InlineBox {
     SetIsText(true);
   }
 
+  void Trace(Visitor*) const override;
+
   LineLayoutText GetLineLayoutItem() const {
     return LineLayoutText(InlineBox::GetLineLayoutItem());
   }
 
-  void Destroy() final;
+  void Destroy() override;
 
   InlineTextBox* PrevForSameLayoutObject() const { return prev_text_box_; }
   InlineTextBox* NextForSameLayoutObject() const { return next_text_box_; }
@@ -135,7 +136,7 @@ class CORE_EXPORT InlineTextBox : public InlineBox {
       bool include_newline_space_width = true) const;
   void SelectionStartEnd(int& s_pos, int& e_pos) const;
 
-  virtual void PaintDocumentMarker(GraphicsContext&,
+  virtual void PaintDocumentMarker(const PaintInfo&,
                                    const PhysicalOffset& box_origin,
                                    const DocumentMarker&,
                                    const ComputedStyle&,
@@ -221,8 +222,8 @@ class CORE_EXPORT InlineTextBox : public InlineBox {
 
  private:
   // The next/previous box that also uses our LayoutObject.
-  InlineTextBox* prev_text_box_;
-  InlineTextBox* next_text_box_;
+  Member<InlineTextBox> prev_text_box_;
+  Member<InlineTextBox> next_text_box_;
 
   int start_;
   uint16_t len_;
@@ -241,7 +242,10 @@ class CORE_EXPORT InlineTextBox : public InlineBox {
   }
 };
 
-DEFINE_INLINE_BOX_TYPE_CASTS(InlineTextBox);
+template <>
+struct DowncastTraits<InlineTextBox> {
+  static bool AllowFrom(const InlineBox& box) { return box.IsInlineTextBox(); }
+};
 
 }  // namespace blink
 

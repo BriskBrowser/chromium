@@ -25,10 +25,11 @@
 #include "ash/test/ash_test_base.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "components/exo/buffer.h"
 #include "components/exo/keyboard.h"
 #include "components/exo/keyboard_delegate.h"
+#include "components/exo/keyboard_modifiers.h"
 #include "components/exo/notification_surface.h"
 #include "components/exo/seat.h"
 #include "components/exo/surface.h"
@@ -40,10 +41,12 @@
 #include "ui/aura/window.h"
 #include "ui/events/keycodes/dom/dom_code.h"
 #include "ui/events/test/event_generator.h"
+#include "ui/message_center/public/cpp/message_center_constants.h"
 #include "ui/message_center/public/cpp/notification.h"
 #include "ui/message_center/views/message_view_factory.h"
 #include "ui/message_center/views/notification_control_buttons_view.h"
 #include "ui/message_center/views/padded_button.h"
+#include "ui/views/test/button_test_api.h"
 #include "ui/views/test/views_test_base.h"
 #include "ui/views/widget/native_widget_delegate.h"
 
@@ -75,11 +78,15 @@ class MockKeyboardDelegate : public exo::KeyboardDelegate {
               OnKeyboardKey,
               (base::TimeTicks, ui::DomCode, bool),
               (override));
-  MOCK_METHOD(void, OnKeyboardModifiers, (int), (override));
+  MOCK_METHOD(void,
+              OnKeyboardModifiers,
+              (const exo::KeyboardModifiers&),
+              (override));
   MOCK_METHOD(void,
               OnKeyRepeatSettingsChanged,
               (bool, base::TimeDelta, base::TimeDelta),
               (override));
+  MOCK_METHOD(void, OnKeyboardLayoutUpdated, (base::StringPiece), (override));
 };
 
 class FakeNotificationSurface : public exo::NotificationSurface {
@@ -130,9 +137,8 @@ class ArcNotificationContentViewTest : public AshTestBase {
 
     surface_manager_ = std::make_unique<ArcNotificationSurfaceManagerImpl>();
 
-    message_center::MessageViewFactory::
-        ClearCustomNotificationViewFactoryForTest(
-            kArcNotificationCustomViewType);
+    message_center::MessageViewFactory::ClearCustomNotificationViewFactory(
+        kArcNotificationCustomViewType);
     ArcNotificationManager::SetCustomNotificationViewFactory();
   }
 
@@ -162,7 +168,7 @@ class ArcNotificationContentViewTest : public AshTestBase {
     views::Button* close_button = control_buttons_view->close_button();
     ASSERT_NE(nullptr, close_button);
     close_button->RequestFocus();
-    control_buttons_view->ButtonPressed(close_button, dummy_event);
+    views::test::ButtonTestApi(close_button).NotifyClick(dummy_event);
   }
 
   void CreateAndShowNotificationView(const Notification& notification) {
@@ -340,7 +346,7 @@ TEST_F(ArcNotificationContentViewTest, CloseButton) {
 TEST_F(ArcNotificationContentViewTest, CloseButtonInMessageCenterView) {
   std::string notification_key("notification id");
 
-  message_center::MessageViewFactory::ClearCustomNotificationViewFactoryForTest(
+  message_center::MessageViewFactory::ClearCustomNotificationViewFactory(
       kArcNotificationCustomViewType);
 
   // Override MessageView factory to capture the created notification view in
@@ -589,14 +595,16 @@ TEST_F(ArcNotificationContentViewTest, AcceptInputTextWithActivate) {
   ActivateArcNotification();
   EXPECT_EQ(surface()->window(), GetFocusedWindow());
 
-  MockKeyboardDelegate delegate;
-  EXPECT_CALL(delegate, CanAcceptKeyboardEventsForSurface(surface()))
+  auto delegate = std::make_unique<MockKeyboardDelegate>();
+  auto* delegate_ptr = delegate.get();
+  EXPECT_CALL(*delegate, CanAcceptKeyboardEventsForSurface(surface()))
       .WillOnce(testing::Return(true));
   exo::Seat seat;
-  auto keyboard = std::make_unique<exo::Keyboard>(&delegate, &seat);
+  auto keyboard = std::make_unique<exo::Keyboard>(std::move(delegate), &seat);
 
   ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow());
-  EXPECT_CALL(delegate, OnKeyboardKey(testing::_, ui::DomCode::US_A, true));
+  EXPECT_CALL(*delegate_ptr,
+              OnKeyboardKey(testing::_, ui::DomCode::US_A, true));
   seat.set_physical_code_for_currently_processing_event_for_testing(
       ui::DomCode::US_A);
   generator.PressKey(ui::VKEY_A, 0);
@@ -615,13 +623,15 @@ TEST_F(ArcNotificationContentViewTest, NotAcceptInputTextWithoutActivate) {
   CreateAndShowNotificationView(notification);
   EXPECT_FALSE(GetFocusedWindow());
 
-  MockKeyboardDelegate delegate;
-  EXPECT_CALL(delegate, CanAcceptKeyboardEventsForSurface(surface())).Times(0);
+  auto delegate = std::make_unique<MockKeyboardDelegate>();
+  auto* delegate_ptr = delegate.get();
+  EXPECT_CALL(*delegate_ptr, CanAcceptKeyboardEventsForSurface(surface()))
+      .Times(0);
   exo::Seat seat;
-  auto keyboard = std::make_unique<exo::Keyboard>(&delegate, &seat);
+  auto keyboard = std::make_unique<exo::Keyboard>(std::move(delegate), &seat);
 
   ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow());
-  EXPECT_CALL(delegate, OnKeyboardKey(testing::_, testing::_, testing::_))
+  EXPECT_CALL(*delegate_ptr, OnKeyboardKey(testing::_, testing::_, testing::_))
       .Times(0);
   seat.set_physical_code_for_currently_processing_event_for_testing(
       ui::DomCode::US_A);

@@ -10,6 +10,7 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/debug/crash_logging.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/environment.h"
@@ -18,26 +19,29 @@
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/ranges.h"
-#include "base/stl_util.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/timer/timer.h"
 #include "base/values.h"
 #include "build/chromecast_buildflags.h"
+#include "build/chromeos_buildflags.h"
 #include "components/network_session_configurator/common/network_features.h"
 #include "components/os_crypt/os_crypt.h"
 #include "mojo/public/cpp/bindings/scoped_message_error_crash_key.h"
 #include "mojo/public/cpp/system/functions.h"
+#include "net/base/features.h"
 #include "net/base/logging_network_change_observer.h"
 #include "net/base/network_change_notifier.h"
 #include "net/base/network_change_notifier_posix.h"
 #include "net/base/port_util.h"
 #include "net/cert/cert_database.h"
 #include "net/cert/ct_log_response_parser.h"
+#include "net/cert/internal/system_trust_store.h"
 #include "net/cert/signed_tree_head.h"
-#include "net/dns/dns_config_overrides.h"
+#include "net/cookies/cookie_util.h"
 #include "net/dns/host_resolver.h"
 #include "net/dns/host_resolver_manager.h"
+#include "net/dns/public/dns_config_overrides.h"
 #include "net/http/http_auth_handler_factory.h"
 #include "net/log/file_net_log_observer.h"
 #include "net/log/net_log.h"
@@ -48,8 +52,8 @@
 #include "net/ssl/ssl_key_logger_impl.h"
 #include "net/url_request/url_request_context.h"
 #include "services/network/crl_set_distributor.h"
-#include "services/network/cross_origin_read_blocking_exception_for_plugin.h"
 #include "services/network/dns_config_change_manager.h"
+#include "services/network/first_party_sets/first_party_sets.h"
 #include "services/network/http_auth_cache_copier.h"
 #include "services/network/legacy_tls_config_distributor.h"
 #include "services/network/net_log_exporter.h"
@@ -62,7 +66,6 @@
 #include "services/network/public/cpp/initiator_lock_compatibility.h"
 #include "services/network/public/cpp/load_info_util.h"
 #include "services/network/public/cpp/network_switches.h"
-#include "services/network/sct_auditing_cache.h"
 #include "services/network/url_loader.h"
 
 #if defined(OS_ANDROID) && defined(ARCH_CPU_ARMEL)
@@ -70,13 +73,18 @@
 #include "third_party/boringssl/src/include/openssl/cpu.h"
 #endif
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS) && !BUILDFLAG(IS_CHROMECAST)
+#if (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) && \
+    !BUILDFLAG(IS_CHROMECAST)
 #include "components/os_crypt/key_storage_config_linux.h"
 #endif
 
 #if defined(OS_ANDROID)
 #include "base/android/application_status_listener.h"
 #include "net/android/http_auth_negotiate_android.h"
+#endif
+
+#if BUILDFLAG(IS_CT_SUPPORTED)
+#include "services/network/sct_auditing_cache.h"
 #endif
 
 namespace network {
@@ -369,6 +377,13 @@ void NetworkService::Initialize(mojom::NetworkServiceParamsPtr params,
 
   trust_token_key_commitments_ = std::make_unique<TrustTokenKeyCommitments>();
 
+  first_party_sets_ = std::make_unique<FirstPartySets>();
+  if (net::cookie_util::IsFirstPartySetsEnabled() &&
+      command_line->HasSwitch(switches::kUseFirstPartySet)) {
+    first_party_sets_->SetManuallySpecifiedSet(
+        command_line->GetSwitchValueASCII(switches::kUseFirstPartySet));
+  }
+
 #if BUILDFLAG(IS_CT_SUPPORTED)
   constexpr size_t kMaxSCTAuditingCacheEntries = 1024;
   sct_auditing_cache_ =
@@ -436,7 +451,7 @@ void NetworkService::DeregisterNetworkContext(NetworkContext* network_context) {
   network_contexts_.erase(network_context);
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 void NetworkService::ReinitializeLogging(mojom::LoggingSettingsPtr settings) {
   logging::LoggingSettings logging_settings;
   logging_settings.logging_dest = settings->logging_dest;
@@ -476,8 +491,8 @@ void NetworkService::StartNetLog(base::File file,
   constants->MergeDictionary(&client_constants);
 
   file_net_log_observer_ = net::FileNetLogObserver::CreateUnboundedPreExisting(
-      std::move(file), std::move(constants));
-  file_net_log_observer_->StartObserving(net_log_, capture_mode);
+      std::move(file), capture_mode, std::move(constants));
+  file_net_log_observer_->StartObserving(net_log_);
 }
 
 void NetworkService::AttachNetLogProxy(
@@ -505,7 +520,7 @@ void NetworkService::CreateNetworkContext(
 
 void NetworkService::ConfigureStubHostResolver(
     bool insecure_dns_client_enabled,
-    net::DnsConfig::SecureDnsMode secure_dns_mode,
+    net::SecureDnsMode secure_dns_mode,
     base::Optional<std::vector<mojom::DnsOverHttpsServerPtr>>
         dns_over_https_servers) {
   DCHECK(!dns_over_https_servers || !dns_over_https_servers->empty());
@@ -530,13 +545,6 @@ void NetworkService::ConfigureStubHostResolver(
   overrides.disabled_upgrade_providers =
       SplitString(features::kDnsOverHttpsUpgradeDisabledProvidersParam.Get(),
                   ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
-
-  // Because SECURE mode does not allow any fallback, allow multiple retries as
-  // a quick hack to increase the timeout for these requests.
-  // TODO(crbug.com/1105138): Rethink the timeout logic to be less aggressive in
-  // cases where there is no fallback, without needing to make so many retries.
-  if (secure_dns_mode == net::DnsConfig::SecureDnsMode::SECURE)
-    overrides.doh_attempts = 3;
 
   host_resolver_manager_->SetDnsConfigOverrides(overrides);
 }
@@ -664,7 +672,7 @@ void NetworkService::OnCertDBChanged() {
   net::CertDatabase::GetInstance()->NotifyObserversCertDBChanged();
 }
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 void NetworkService::SetCryptConfig(mojom::CryptConfigPtr crypt_config) {
 #if !BUILDFLAG(IS_CHROMECAST)
   DCHECK(!os_crypt_config_set_);
@@ -686,11 +694,6 @@ void NetworkService::SetEncryptionKey(const std::string& encryption_key) {
 }
 #endif
 
-void NetworkService::AddCorbExceptionForPlugin(int32_t process_id) {
-  DCHECK_NE(mojom::kBrowserProcessId, process_id);
-  CrossOriginReadBlockingExceptionForPlugin::AddExceptionForPlugin(process_id);
-}
-
 void NetworkService::AddAllowedRequestInitiatorForPlugin(
     int32_t process_id,
     const url::Origin& allowed_request_initiator) {
@@ -701,9 +704,6 @@ void NetworkService::AddAllowedRequestInitiatorForPlugin(
 
 void NetworkService::RemoveSecurityExceptionsForPlugin(int32_t process_id) {
   DCHECK_NE(mojom::kBrowserProcessId, process_id);
-
-  CrossOriginReadBlockingExceptionForPlugin::RemoveExceptionForPlugin(
-      process_id);
 
   std::map<int, std::set<url::Origin>>& map = plugin_origins_;
   map.erase(process_id);
@@ -757,6 +757,19 @@ void NetworkService::SetTrustTokenKeyCommitments(
 void NetworkService::ClearSCTAuditingCache() {
   sct_auditing_cache_->ClearCache();
 }
+
+void NetworkService::ConfigureSCTAuditing(
+    bool enabled,
+    double sampling_rate,
+    const GURL& reporting_uri,
+    const net::MutableNetworkTrafficAnnotationTag& traffic_annotation,
+    mojo::PendingRemote<mojom::URLLoaderFactory> factory) {
+  sct_auditing_cache_->set_enabled(enabled);
+  sct_auditing_cache_->set_sampling_rate(sampling_rate);
+  sct_auditing_cache_->set_report_uri(reporting_uri);
+  sct_auditing_cache_->set_traffic_annotation(traffic_annotation);
+  sct_auditing_cache_->set_url_loader_factory(std::move(factory));
+}
 #endif
 
 #if defined(OS_ANDROID)
@@ -777,6 +790,10 @@ void NetworkService::BindTestInterface(
     auto pipe = receiver.PassPipe();
     registry_->TryBindInterface(mojom::NetworkServiceTest::Name_, &pipe);
   }
+}
+
+void NetworkService::SetPreloadedFirstPartySets(const std::string& raw_sets) {
+  first_party_sets_->ParseAndSet(raw_sets);
 }
 
 std::unique_ptr<net::HttpAuthHandlerFactory>

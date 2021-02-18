@@ -6,14 +6,11 @@ package org.chromium.chrome.browser;
 
 import android.content.Context;
 
-import com.android.webview.chromium.MonochromeLibraryPreloader;
-
 import org.chromium.android_webview.nonembedded.WebViewApkApplication;
 import org.chromium.base.ActivityState;
 import org.chromium.base.ApplicationStatus;
-import org.chromium.base.library_loader.LibraryLoader;
-import org.chromium.base.library_loader.LibraryProcessType;
-import org.chromium.content_public.browser.ChildProcessCreationParams;
+import org.chromium.chrome.browser.base.SplitMonochromeApplication;
+import org.chromium.chrome.browser.version.ChromeVersionInfo;
 
 /**
  * This is Application class for Monochrome.
@@ -28,50 +25,47 @@ import org.chromium.content_public.browser.ChildProcessCreationParams;
  * things specific to functioning as a WebView implementation.
  */
 public class MonochromeApplication extends ChromeApplication {
-    @Override
-    protected void attachBaseContext(Context context) {
-        super.attachBaseContext(context);
-        WebViewApkApplication.maybeInitProcessGlobals();
-        if (!LibraryLoader.getInstance().isLoadedByZygote()) {
-            LibraryLoader.getInstance().setNativeLibraryPreloader(new MonochromeLibraryPreloader());
-        }
-        // ChildProcessCreationParams is only needed for browser process, though it is
-        // created and set in all processes. We must set isExternalService to true for
-        // Monochrome because Monochrome's renderer services are shared with WebView
-        // and are external, and will fail to bind otherwise.
-        boolean bindToCaller = false;
-        boolean ignoreVisibilityForImportance = false;
-        ChildProcessCreationParams.set(getPackageName(), null /* privilegedServicesName */,
-                getPackageName(), null /* sandboxedServicesName */, true /* isExternalService */,
-                LibraryProcessType.PROCESS_CHILD, bindToCaller, ignoreVisibilityForImportance);
+    public MonochromeApplication() {
+        super(new MonochromeApplicationImpl());
     }
 
-    @Override
-    public void onCreate() {
-        super.onCreate();
-        if (!ChromeVersionInfo.isStableBuild()) {
-            // Performing Monochrome WebView DevTools Launcher icon showing/hiding logic in onCreate
-            // rather than in attachBaseContext() because it depends on application context being
-            // initiatied.
-            if (isWebViewProcess()) {
-                // Whenever a monochrome webview process is launched (WebView service or developer
-                // UI), post a background task to show/hide the DevTools icon.
-                WebViewApkApplication.postDeveloperUiLauncherIconTask();
-            } else if (isBrowserProcess()) {
-                // Frequently check current system webview provider and show/hide the icon
-                // accordingly by listening to Monochrome browser Activities status (whenever a
-                // browser activity comes to the foreground).
-                ApplicationStatus.registerStateListenerForAllActivities((activity, state) -> {
-                    if (state == ActivityState.STARTED) {
-                        WebViewApkApplication.postDeveloperUiLauncherIconTask();
-                    }
-                });
+    /** Monochrome application logic. */
+    public static class MonochromeApplicationImpl extends ChromeApplicationImpl {
+        public MonochromeApplicationImpl() {}
+
+        @Override
+        public void onCreate() {
+            super.onCreate();
+            if (!ChromeVersionInfo.isStableBuild()) {
+                // Performing Monochrome WebView DevTools Launcher icon showing/hiding logic in
+                // onCreate rather than in attachBaseContext() because it depends on application
+                // context being initiatied.
+                if (getApplication().isWebViewProcess()) {
+                    // Whenever a monochrome webview process is launched (WebView service or
+                    // developer UI), post a background task to show/hide the DevTools icon.
+                    WebViewApkApplication.postDeveloperUiLauncherIconTask();
+                } else if (isBrowserProcess()) {
+                    // Frequently check current system webview provider and show/hide the icon
+                    // accordingly by listening to Monochrome browser Activities status (whenever a
+                    // browser activity comes to the foreground).
+                    ApplicationStatus.registerStateListenerForAllActivities((activity, state) -> {
+                        if (state == ActivityState.STARTED) {
+                            WebViewApkApplication.postDeveloperUiLauncherIconTask();
+                        }
+                    });
+                }
             }
         }
     }
 
     @Override
-    protected boolean isWebViewProcess() {
+    public void attachBaseContext(Context context) {
+        super.attachBaseContext(context);
+        SplitMonochromeApplication.initializeMonochromeProcessCommon(getPackageName());
+    }
+
+    @Override
+    public boolean isWebViewProcess() {
         return WebViewApkApplication.isWebViewProcess();
     }
 }

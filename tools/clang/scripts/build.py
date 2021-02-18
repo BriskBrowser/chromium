@@ -52,21 +52,11 @@ BUG_REPORT_URL = ('https://crbug.com and run'
 
 
 win_sdk_dir = None
-dia_dll = None
 def GetWinSDKDir():
-  """Get the location of the current SDK. Sets dia_dll as a side-effect."""
+  """Get the location of the current SDK."""
   global win_sdk_dir
-  global dia_dll
   if win_sdk_dir:
     return win_sdk_dir
-
-  # Bump after VC updates.
-  DIA_DLL = {
-      '2013': 'msdia120.dll',
-      '2015': 'msdia140.dll',
-      '2017': 'msdia140.dll',
-      '2019': 'msdia140.dll',
-  }
 
   # Don't let vs_toolchain overwrite our environment.
   environ_bak = os.environ
@@ -84,8 +74,6 @@ def GetWinSDKDir():
     else:
       vs_path = os.environ['GYP_MSVS_OVERRIDE_PATH']
     dia_path = os.path.join(vs_path, 'DIA SDK', 'bin', 'amd64')
-
-  dia_dll = os.path.join(dia_path, DIA_DLL[msvs_version])
 
   os.environ = environ_bak
   return win_sdk_dir
@@ -128,11 +116,6 @@ def CopyFile(src, dst):
   """Copy a file from src to dst."""
   print("Copying %s to %s" % (src, dst))
   shutil.copy(src, dst)
-
-
-def CopyDiaDllTo(target_dir):
-  GetWinSDKDir()
-  CopyFile(dia_dll, target_dir)
 
 
 def CopyDirectoryContents(src, dst):
@@ -182,8 +165,9 @@ def UrlOpen(url):
 
 def GetLatestLLVMCommit():
   """Get the latest commit hash in the LLVM monorepo."""
-  ref = json.loads(UrlOpen(('https://api.github.com/repos/'
-                            'llvm/llvm-project/git/refs/heads/master')))
+  ref = json.loads(
+      UrlOpen(('https://api.github.com/repos/'
+               'llvm/llvm-project/git/refs/heads/main')))
   assert ref['object']['type'] == 'commit'
   return ref['object']['sha']
 
@@ -192,8 +176,9 @@ def GetCommitDescription(commit):
   """Get the output of `git describe`.
 
   Needs to be called from inside the git repository dir."""
+  git_exe = 'git.bat' if sys.platform.startswith('win') else 'git'
   return subprocess.check_output(
-      ['git', 'describe', '--long', '--abbrev=8', commit]).rstrip()
+      [git_exe, 'describe', '--long', '--abbrev=8', commit]).rstrip()
 
 
 def DeleteChromeToolsShim():
@@ -307,13 +292,35 @@ def AddZlibToPath():
   return zlib_dir
 
 
+def DownloadRPMalloc():
+  """Download rpmalloc."""
+  rpmalloc_dir = os.path.join(LLVM_BUILD_TOOLS_DIR, 'rpmalloc')
+  if os.path.exists(rpmalloc_dir):
+    RmTree(rpmalloc_dir)
+
+  # Using rpmalloc bc1923f rather than the latest release (1.4.1) because
+  # it contains the fix for https://github.com/mjansson/rpmalloc/pull/186
+  # which would cause lld to deadlock.
+  # The zip file was created and uploaded as follows:
+  # $ mkdir rpmalloc
+  # $ curl -L https://github.com/mjansson/rpmalloc/archive/bc1923f436539327707b08ef9751a7a87bdd9d2f.tar.gz \
+  #     | tar -C rpmalloc --strip-components=1 -xzf -
+  # $ GZIP=-9 tar vzcf rpmalloc-bc1923f.tgz rpmalloc
+  # $ gsutil.py cp -n -a public-read rpmalloc-bc1923f.tgz \
+  #     gs://chromium-browser-clang/tools/
+  zip_name = 'rpmalloc-bc1923f.tgz'
+  DownloadAndUnpack(CDS_URL + '/tools/' + zip_name, LLVM_BUILD_TOOLS_DIR)
+  rpmalloc_dir = rpmalloc_dir.replace('\\', '/')
+  return rpmalloc_dir
+
+
 def MaybeDownloadHostGcc(args):
   """Download a modern GCC host compiler on Linux."""
   if not sys.platform.startswith('linux') or args.gcc_toolchain:
     return
-  gcc_dir = os.path.join(LLVM_BUILD_TOOLS_DIR, 'gcc530trusty')
+  gcc_dir = os.path.join(LLVM_BUILD_TOOLS_DIR, 'gcc-10.2.0-trusty')
   if not os.path.exists(gcc_dir):
-    DownloadAndUnpack(CDS_URL + '/tools/gcc530trusty.tgz', gcc_dir)
+    DownloadAndUnpack(CDS_URL + '/tools/gcc-10.2.0-trusty.tgz', gcc_dir)
   args.gcc_toolchain = gcc_dir
 
 
@@ -373,6 +380,7 @@ def CopyLibstdcpp(args, build_dir):
   # The two fuzzer tests are weird in that they copy the fuzzer binary from bin/
   # into the test tree under a different name. To make the relative rpath in
   # them work, copy libstdc++ to the copied location for now.
+  # There is also a compiler-rt test that copies llvm-symbolizer out of bin/.
   # TODO(thakis): Instead, make the upstream lit.local.cfg.py for these 2 tests
   # check if the binary contains an rpath and if so disable the tests.
   for d in ['lib',
@@ -380,6 +388,17 @@ def CopyLibstdcpp(args, build_dir):
             'test/tools/llvm-opt-fuzzer/lib']:
     EnsureDirExists(os.path.join(build_dir, d))
     CopyFile(libstdcpp, os.path.join(build_dir, d))
+
+  sanitizer_common_tests = os.path.join(build_dir,
+                                 'projects/compiler-rt/test/sanitizer_common')
+  if os.path.exists(sanitizer_common_tests):
+    for d in ['asan-i386-Linux', 'asan-x86_64-Linux', 'lsan-i386-Linux',
+              'lsan-x86_64-Linux', 'msan-x86_64-Linux', 'tsan-x86_64-Linux',
+              'ubsan-i386-Linux', 'ubsan-x86_64-Linux']:
+      libpath = os.path.join(sanitizer_common_tests, d, 'Output', 'lib')
+      EnsureDirExists(libpath)
+      CopyFile(libstdcpp, libpath)
+
 
 def gn_arg(v):
   if v == 'True':
@@ -449,7 +468,9 @@ def main():
     print('Install the Fuchsia SDK by adding fuchsia to the ')
     print('target_os section in your .gclient and running hooks, ')
     print('or pass --without-fuchsia.')
-    print('https://chromium.googlesource.com/chromium/src/+/master/docs/fuchsia_build_instructions.md')
+    print(
+        'https://chromium.googlesource.com/chromium/src/+/master/docs/fuchsia/build_instructions.md'
+    )
     print('for general Fuchsia build instructions.')
     return 1
 
@@ -537,12 +558,12 @@ def main():
       '-DCLANG_ENABLE_STATIC_ANALYZER=OFF',
       '-DCLANG_ENABLE_ARCMT=OFF',
       '-DBUG_REPORT_URL=' + BUG_REPORT_URL,
-      # See PR41956: Don't link libcxx into libfuzzer.
-      '-DCOMPILER_RT_USE_LIBCXX=NO',
       # Don't run Go bindings tests; PGO makes them confused.
       '-DLLVM_INCLUDE_GO_TESTS=OFF',
       # TODO(crbug.com/1113475): Update binutils.
       '-DENABLE_X86_RELAX_RELOCATIONS=NO',
+      # See crbug.com/1126219: Use native symbolizer instead of DIA
+      '-DLLVM_ENABLE_DIA_SDK=OFF',
   ]
 
   if args.gcc_toolchain:
@@ -565,15 +586,15 @@ def main():
         '-DLIBCXX_INCLUDE_TESTS=OFF',
         '-DLIBCXX_ENABLE_EXPERIMENTAL_LIBRARY=OFF',
     ])
-    # Prefer Python 2. TODO(crbug.com/1076834): Remove this.
-    base_cmake_args.append('-DPython3_EXECUTABLE=/nonexistent')
 
   if args.gcc_toolchain:
-    # Don't use the custom gcc toolchain when building compiler-rt tests; those
-    # tests are built with the just-built Clang, and target both i386 and x86_64
-    # for example, so should use the system's libstdc++.
+    # Force compiler-rt tests to use our gcc toolchain (including libstdc++.so)
+    # because the one on the host may be too old.
     base_cmake_args.append(
-        '-DCOMPILER_RT_TEST_COMPILER_CFLAGS=--gcc-toolchain=')
+        '-DCOMPILER_RT_TEST_COMPILER_CFLAGS=--gcc-toolchain=' +
+        args.gcc_toolchain + ' -Wl,-rpath,' +
+        os.path.join(args.gcc_toolchain, 'lib64') + ' -Wl,-rpath,' +
+        os.path.join(args.gcc_toolchain, 'lib32'))
 
   if sys.platform == 'win32':
     base_cmake_args.append('-DLLVM_USE_CRT_RELEASE=MT')
@@ -583,6 +604,10 @@ def main():
     cflags.append('-I' + zlib_dir)
     cxxflags.append('-I' + zlib_dir)
     ldflags.append('-LIBPATH:' + zlib_dir)
+
+    # Use rpmalloc. For faster ThinLTO linking.
+    rpmalloc_dir = DownloadRPMalloc()
+    base_cmake_args.append('-DLLVM_INTEGRATED_CRT_ALLOC=' + rpmalloc_dir)
 
   if sys.platform != 'win32':
     # libxml2 is required by the Win manifest merging tool used in cross-builds.
@@ -631,6 +656,7 @@ def main():
           '-DCOMPILER_RT_BUILD_BUILTINS=ON',
           '-DCOMPILER_RT_BUILD_CRT=OFF',
           '-DCOMPILER_RT_BUILD_LIBFUZZER=OFF',
+          '-DCOMPILER_RT_BUILD_MEMPROF=OFF',
           '-DCOMPILER_RT_BUILD_SANITIZERS=OFF',
           '-DCOMPILER_RT_BUILD_XRAY=OFF',
           '-DCOMPILER_RT_ENABLE_IOS=OFF',
@@ -643,6 +669,7 @@ def main():
           '-DCOMPILER_RT_BUILD_BUILTINS=OFF',
           '-DCOMPILER_RT_BUILD_CRT=OFF',
           '-DCOMPILER_RT_BUILD_LIBFUZZER=OFF',
+          '-DCOMPILER_RT_BUILD_MEMPROF=OFF',
           '-DCOMPILER_RT_BUILD_PROFILE=ON',
           '-DCOMPILER_RT_BUILD_SANITIZERS=OFF',
           '-DCOMPILER_RT_BUILD_XRAY=OFF',
@@ -657,13 +684,7 @@ def main():
     CopyLibstdcpp(args, LLVM_BOOTSTRAP_INSTALL_DIR)
     RunCommand(['ninja'], msvc_arch='x64')
     if args.run_tests:
-      test_targets = [ 'check-all' ]
-      if sys.platform == 'darwin':
-        # TODO(crbug.com/731375): Run check-all on Darwin too.
-        test_targets = [ 'check-llvm', 'check-clang', 'check-builtins' ]
-      if sys.platform == 'win32':
-        CopyDiaDllTo(os.path.join(LLVM_BOOTSTRAP_DIR, 'bin'))
-      RunCommand(['ninja'] + test_targets, msvc_arch='x64')
+      RunCommand(['ninja', 'check-all'], msvc_arch='x64')
     RunCommand(['ninja', 'install'], msvc_arch='x64')
 
     if sys.platform == 'win32':
@@ -714,8 +735,6 @@ def main():
     if cc is not None:  instrument_args.append('-DCMAKE_C_COMPILER=' + cc)
     if cxx is not None: instrument_args.append('-DCMAKE_CXX_COMPILER=' + cxx)
     if lld is not None: instrument_args.append('-DCMAKE_LINKER=' + lld)
-    if args.thinlto:
-      instrument_args.append('-DLLVM_ENABLE_LTO=Thin')
 
     RunCommand(['cmake'] + instrument_args + [os.path.join(LLVM_DIR, 'llvm')],
                msvc_arch='x64')
@@ -765,6 +784,7 @@ def main():
   compiler_rt_args = [
     '-DCOMPILER_RT_BUILD_CRT=OFF',
     '-DCOMPILER_RT_BUILD_LIBFUZZER=OFF',
+    '-DCOMPILER_RT_BUILD_MEMPROF=OFF',
     '-DCOMPILER_RT_BUILD_PROFILE=ON',
     '-DCOMPILER_RT_BUILD_SANITIZERS=ON',
     '-DCOMPILER_RT_BUILD_XRAY=OFF',
@@ -778,11 +798,11 @@ def main():
         # armv7 is A5 and earlier, armv7s is A6+ (2012 and later, before 64-bit
         # iPhones). armv7k is Apple Watch, which we don't need.
         '-DDARWIN_ios_ARCHS=armv7;armv7s;arm64',
-        '-DDARWIN_iossim_ARCHS=i386;x86_64',
-        ])
+        '-DDARWIN_iossim_ARCHS=i386;x86_64;arm64',
+    ])
     if args.bootstrap:
-      # mac/arm64 needs MacOSX11.0.sdk. System Xcode (+ SDK) on the chrome bots
-      # is something much older.
+      # mac/arm64 needs MacOSX11.0.sdk. System Xcode (+ SDK) may be something
+      # else, so use the hermetic Xcode.
       # Options:
       # - temporarily set system Xcode to Xcode 12 beta while running this
       #   script, (cf build/swarming_xcode_install.py, but it looks unused)
@@ -794,24 +814,24 @@ def main():
       #   LLVM build without it being system Xcode.
       #
       # The last option seems best, so let's go with that. We need to pass
-      # -isysroot to the 11.0 SDK and -B to the /usr/bin so that the new ld64 is
+      # -isysroot to the SDK and -B to the /usr/bin so that the new ld64 is
       # used.
       # The compiler-rt build overrides -isysroot flags set via cflags, and we
       # only need to use the 11 SDK for the compiler-rt build. So set only
-      # DARWIN_macosx_CACHED_SYSROOT to the 11.0 SDK and use the regular SDK
+      # DARWIN_macosx_CACHED_SYSROOT to the 11 SDK and use the regular SDK
       # for the rest of the build. (The new ld is used for all links.)
       sys.path.insert(1, os.path.join(CHROMIUM_DIR, 'build'))
       import mac_toolchain
       LLVM_XCODE = os.path.join(THIRD_PARTY_DIR, 'llvm-xcode')
-      mac_toolchain.InstallXcodeBinaries('xcode_12_beta', LLVM_XCODE)
+      mac_toolchain.InstallXcodeBinaries(LLVM_XCODE)
       isysroot_11 = os.path.join(LLVM_XCODE, 'Contents', 'Developer',
                                  'Platforms', 'MacOSX.platform', 'Developer',
-                                 'SDKs', 'MacOSX11.0.sdk')
+                                 'SDKs', 'MacOSX11.1.sdk')
       xcode_bin = os.path.join(LLVM_XCODE, 'Contents', 'Developer',
                                'Toolchains', 'XcodeDefault.xctoolchain', 'usr',
                                'bin')
       # Include an arm64 slice for libclang_rt.osx.a. This requires using
-      # MacOSX11.0.sdk (via -isysroot, via DARWIN_macosx_CACHED_SYSROOT) and
+      # MacOSX11.x.sdk (via -isysroot, via DARWIN_macosx_CACHED_SYSROOT) and
       # the new ld, via -B
       compiler_rt_args.extend([
           # We don't need 32-bit intel support for macOS, we only ship 64-bit.
@@ -932,6 +952,7 @@ def main():
         '-DCOMPILER_RT_BUILD_BUILTINS=OFF',
         '-DCOMPILER_RT_BUILD_CRT=OFF',
         '-DCOMPILER_RT_BUILD_LIBFUZZER=OFF',
+        '-DCOMPILER_RT_BUILD_MEMPROF=OFF',
         '-DCOMPILER_RT_BUILD_PROFILE=ON',
         '-DCOMPILER_RT_BUILD_SANITIZERS=OFF',
         '-DCOMPILER_RT_BUILD_XRAY=OFF',
@@ -966,6 +987,10 @@ def main():
           '--target=' + target_triple,
           '--sysroot=%s/sysroot' % toolchain_dir,
           '--gcc-toolchain=' + toolchain_dir,
+          # android_ndk/toolchains/llvm/prebuilt/linux-x86_64/aarch64-linux-android/bin/ld
+          # depends on a newer version of libxml2.so than what's available on
+          # the bots. To make things work, use our just-built lld as linker.
+          '-fuse-ld=lld',
       ]
       android_args = base_cmake_args + [
         '-DCMAKE_C_COMPILER=' + os.path.join(LLVM_BUILD_DIR, 'bin/clang'),
@@ -977,6 +1002,7 @@ def main():
         '-DCOMPILER_RT_BUILD_BUILTINS=OFF',
         '-DCOMPILER_RT_BUILD_CRT=OFF',
         '-DCOMPILER_RT_BUILD_LIBFUZZER=OFF',
+        '-DCOMPILER_RT_BUILD_MEMPROF=OFF',
         '-DCOMPILER_RT_BUILD_PROFILE=ON',
         '-DCOMPILER_RT_BUILD_SANITIZERS=ON',
         '-DCOMPILER_RT_BUILD_XRAY=OFF',
@@ -1027,6 +1053,7 @@ def main():
         '-DCOMPILER_RT_BUILD_BUILTINS=ON',
         '-DCOMPILER_RT_BUILD_CRT=OFF',
         '-DCOMPILER_RT_BUILD_LIBFUZZER=OFF',
+        '-DCOMPILER_RT_BUILD_MEMPROF=OFF',
         '-DCOMPILER_RT_BUILD_PROFILE=OFF',
         '-DCOMPILER_RT_BUILD_SANITIZERS=OFF',
         '-DCOMPILER_RT_BUILD_XRAY=OFF',
@@ -1056,13 +1083,32 @@ def main():
       CopyFile(os.path.join(build_dir, 'lib', target_spec, builtins_a),
                fuchsia_lib_dst_dir)
 
+      # Build the Fuchsia profile runtime.
+      if target_arch == 'x86_64':
+        fuchsia_args.extend([
+            '-DCOMPILER_RT_BUILD_BUILTINS=OFF',
+            '-DCOMPILER_RT_BUILD_PROFILE=ON',
+            '-DCMAKE_CXX_COMPILER_TARGET=%s-fuchsia' % target_arch,
+            '-DCMAKE_CXX_COMPILER_WORKS=ON',
+        ])
+        profile_build_dir = os.path.join(LLVM_BUILD_DIR,
+                                         'fuchsia-profile-' + target_arch)
+        if not os.path.exists(profile_build_dir):
+          os.mkdir(os.path.join(profile_build_dir))
+        os.chdir(profile_build_dir)
+        RunCommand(['cmake'] +
+                   fuchsia_args +
+                   [COMPILER_RT_DIR])
+        profile_a = 'libclang_rt.profile.a'
+        RunCommand(['ninja', profile_a])
+        CopyFile(os.path.join(profile_build_dir, 'lib', target_spec, profile_a),
+                              fuchsia_lib_dst_dir)
+
   # Run tests.
   if args.run_tests or args.llvm_force_head_revision:
     RunCommand(['ninja', '-C', LLVM_BUILD_DIR, 'cr-check-all'], msvc_arch='x64')
 
   if args.run_tests:
-    if sys.platform == 'win32':
-      CopyDiaDllTo(os.path.join(LLVM_BUILD_DIR, 'bin'))
     test_targets = [ 'check-all' ]
     if sys.platform == 'darwin':
       # TODO(thakis): Run check-all on Darwin too, https://crbug.com/959361

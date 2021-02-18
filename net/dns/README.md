@@ -241,7 +241,7 @@ always be used for **address resolves** when **any** of the following are true:
 
 * Requests with the `HOST_RESOLVER_CANONNAME` flag
 * For hostnames ending in ".local"
-* When the Secure DNS mode is `net::DnsConfig::SecureDnsMode::OFF` and
+* When the Secure DNS mode is `net::SecureDnsMode::OFF` and
   `net::HostResolverSource::DNS` is not enabled via
   `net::HostResolverManager::SetInsecureDnsClientEnabled(true)`
 * When a system DNS configuration could not be determined
@@ -261,10 +261,6 @@ the actual call to `getaddrinfo()` using the
 `net::HostResolverProc` may be replaced by a chain of test implementations to
 override behavior.
 
-Data collected specifically for this source:
-
-* "Net.DNS.SecureDnsTaskFailure.FallbackProcTask.Error"
-
 #### DNS
 
 `net::HostResolverSource::DNS`
@@ -282,7 +278,7 @@ will be used when **all** of the following are true:
 
 * DnsClient is enabled for insecure requests enabled via
   `net::HostResolverManager::SetInsecureDnsClientEnabled(true)` or
-  the Secure DNS mode is not `net::DnsConfig::SecureDnsMode::OFF`.
+  the Secure DNS mode is not `net::SecureDnsMode::OFF`.
 * The system DNS configuration could be determined successfully
 * The request hostname does not end in ".local"
 * The request is not an address query with the `HOST_RESOLVER_CANONNAME` flag
@@ -318,7 +314,6 @@ Data collected specifically for this source (more internally to
 * "Net.DNS.SecureDnsTask.DnsModeAutomatic.FailureTime"
 * "Net.DNS.SecureDnsTask.ErrorBeforeFallback.Fast"
 * "Net.DNS.SecureDnsTask.ErrorBeforeFallback.Slow"
-* "Net.DNS.SecureDnsTaskFailure.FallbackDnsTask.Error"
 
 #### MULTICAST_DNS
 

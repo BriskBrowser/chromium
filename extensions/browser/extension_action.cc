@@ -17,8 +17,7 @@
 #include "extensions/common/extension_icon_set.h"
 #include "extensions/common/manifest_handlers/icons_handler.h"
 #include "extensions/grit/extensions_browser_resources.h"
-#include "ipc/ipc_message.h"
-#include "ipc/ipc_message_utils.h"
+#include "skia/public/mojom/bitmap.mojom.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkPaint.h"
@@ -32,7 +31,6 @@
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_source.h"
-#include "ui/gfx/ipc/skia/gfx_skia_param_traits.h"
 #include "ui/gfx/skbitmap_operations.h"
 #include "url/gurl.h"
 
@@ -123,24 +121,26 @@ ExtensionAction::IconParseResult ExtensionAction::ParseIconFromCanvasDictionary(
     gfx::ImageSkia* icon) {
   for (base::DictionaryValue::Iterator iter(dict); !iter.IsAtEnd();
        iter.Advance()) {
-    std::string binary_string64;
-    IPC::Message pickle;
+    std::string byte_string;
+    std::string base64_string;
+    const void* bytes = nullptr;
+    size_t num_bytes = 0;
     if (iter.value().is_blob()) {
-      pickle = IPC::Message(
-          reinterpret_cast<const char*>(iter.value().GetBlob().data()),
-          iter.value().GetBlob().size());
-    } else if (iter.value().GetAsString(&binary_string64)) {
-      std::string binary_string;
-      if (!base::Base64Decode(binary_string64, &binary_string))
+      bytes = iter.value().GetBlob().data();
+      num_bytes = iter.value().GetBlob().size();
+    } else if (iter.value().GetAsString(&base64_string)) {
+      if (!base::Base64Decode(base64_string, &byte_string))
         return IconParseResult::kDecodeFailure;
-      pickle = IPC::Message(binary_string.c_str(), binary_string.length());
+      bytes = byte_string.c_str();
+      num_bytes = byte_string.length();
     } else {
       continue;
     }
-    base::PickleIterator pickle_iter(pickle);
     SkBitmap bitmap;
-    if (!IPC::ReadParam(&pickle, &pickle_iter, &bitmap))
+    if (!skia::mojom::InlineBitmap::Deserialize(bytes, num_bytes, &bitmap)) {
       return IconParseResult::kUnpickleFailure;
+    }
+    // A well-behaved renderer will never send a null bitmap to us here.
     CHECK(!bitmap.isNull());
 
     // Chrome helpfully scales the provided icon(s), but let's not go overboard.
@@ -251,16 +251,13 @@ gfx::Image ExtensionAction::GetPlaceholderIconImage() const {
 }
 
 std::string ExtensionAction::GetDisplayBadgeText(int tab_id) const {
-  return UseDNRActionCountAsBadgeText(tab_id)
-             ? base::NumberToString(GetDNRActionCount(tab_id))
-             : GetExplicitlySetBadgeText(tab_id);
-}
-
-bool ExtensionAction::UseDNRActionCountAsBadgeText(int tab_id) const {
   // Tab specific badge text set by an extension overrides the automatically set
   // action count. Action count should only be shown if at least one action is
   // matched.
-  return !HasBadgeText(tab_id) && GetDNRActionCount(tab_id) > 0;
+  bool use_dnr_action_count =
+      !HasBadgeText(tab_id) && GetDNRActionCount(tab_id) > 0;
+  return use_dnr_action_count ? base::NumberToString(GetDNRActionCount(tab_id))
+                              : GetExplicitlySetBadgeText(tab_id);
 }
 
 bool ExtensionAction::HasPopupUrl(int tab_id) const {

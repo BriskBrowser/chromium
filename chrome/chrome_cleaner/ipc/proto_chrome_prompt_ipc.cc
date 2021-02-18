@@ -6,7 +6,7 @@
 
 #include <windows.h>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -55,20 +55,6 @@ void ProtoChromePromptIPC::PostPromptUserTask(
       base::BindOnce(&ProtoChromePromptIPC::RunPromptUserTask,
                      base::Unretained(this), files_to_delete, registry_keys,
                      extension_ids, std::move(callback)));
-}
-
-void ProtoChromePromptIPC::PostDisableExtensionsTask(
-    const std::vector<std::wstring>& extension_ids,
-    DisableExtensionsCallback callback) {
-  NOTIMPLEMENTED();
-  OnConnectionError();
-}
-
-void ProtoChromePromptIPC::TryDeleteExtensions(
-    base::OnceClosure delete_allowed_callback,
-    base::OnceClosure delete_not_allowed_callback) {
-  NOTIMPLEMENTED();
-  OnConnectionError();
 }
 
 void ProtoChromePromptIPC::InitializeImpl() {

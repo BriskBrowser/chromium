@@ -12,12 +12,13 @@
 #include "base/notreached.h"
 #import "base/numerics/safe_conversions.h"
 #include "base/strings/sys_string_conversions.h"
+#include "components/prefs/pref_service.h"
 #include "components/sessions/core/tab_restore_service.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/sync_sessions/open_tabs_ui_delegate.h"
 #include "components/sync_sessions/session_sync_service.h"
+#import "ios/chrome/app/tests_hook.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/drag_and_drop/drag_and_drop_flag.h"
 #import "ios/chrome/browser/drag_and_drop/drag_item_util.h"
 #import "ios/chrome/browser/drag_and_drop/table_view_url_drag_drop_handler.h"
 #import "ios/chrome/browser/main/browser.h"
@@ -29,6 +30,7 @@
 #import "ios/chrome/browser/ui/authentication/cells/signin_promo_view_configurator.h"
 #import "ios/chrome/browser/ui/authentication/cells/signin_promo_view_consumer.h"
 #import "ios/chrome/browser/ui/authentication/cells/table_view_signin_promo_item.h"
+#import "ios/chrome/browser/ui/authentication/signin/signin_utils.h"
 #import "ios/chrome/browser/ui/authentication/signin_promo_view_mediator.h"
 #include "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
@@ -51,6 +53,7 @@
 #import "ios/chrome/browser/ui/table_view/cells/table_view_url_item.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_styler.h"
 #import "ios/chrome/browser/ui/table_view/table_view_favicon_data_source.h"
+#import "ios/chrome/browser/ui/table_view/table_view_utils.h"
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/ui/util/menu_util.h"
 #include "ios/chrome/browser/ui/util/ui_util.h"
@@ -96,6 +99,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
   ItemTypeSessionHeader,
   ItemTypeSessionTabData,
   ItemTypeShowFullHistory,
+  ItemTypeSigninDisabled,
 };
 
 // Key for saving whether the Other Device section is collapsed.
@@ -112,6 +116,13 @@ const CGFloat kSeparationSpaceBetweenSections = 9;
 const int kRecentlyClosedTabsSectionIndex = 0;
 
 }  // namespace
+
+API_AVAILABLE(ios(13.0))
+@interface ListModelCollapsedSceneSessionMediator : ListModelCollapsedMediator
+// Creates a collapsed section mediator that stores data in the session's
+// userInfo instead of NSUserDefaults, which allows different states per window.
+- (instancetype)initWithSession:(UISceneSession*)session;
+@end
 
 @interface RecentTabsTableViewController () <SigninPromoViewConsumer,
                                              SigninPresenter,
@@ -144,7 +155,10 @@ const int kRecentlyClosedTabsSectionIndex = 0;
 #pragma mark - Public Interface
 
 - (instancetype)init {
-  self = [super initWithStyle:UITableViewStylePlain];
+  UITableViewStyle style = base::FeatureList::IsEnabled(kSettingsRefresh)
+                               ? ChromeTableViewStyle()
+                               : UITableViewStylePlain;
+  self = [super initWithStyle:style];
   if (self) {
     _sessionState = SessionsSyncUserState::USER_SIGNED_OUT;
     _syncedSessions.reset(new synced_sessions::SyncedSessions());
@@ -170,13 +184,11 @@ const int kRecentlyClosedTabsSectionIndex = 0;
   self.tableView.sectionFooterHeight = 0.0;
   self.title = l10n_util::GetNSString(IDS_IOS_CONTENT_SUGGESTIONS_RECENT_TABS);
 
-  if (DragAndDropIsEnabled()) {
     self.dragDropHandler = [[TableViewURLDragDropHandler alloc] init];
     self.dragDropHandler.origin = WindowActivityRecentTabsOrigin;
     self.dragDropHandler.dragDataSource = self;
     self.tableView.dragDelegate = self.dragDropHandler;
-    self.tableView.dragInteractionEnabled = YES;
-  }
+    self.tableView.dragInteractionEnabled = true;
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -227,6 +239,16 @@ const int kRecentlyClosedTabsSectionIndex = 0;
 
 - (void)loadModel {
   [super loadModel];
+
+  if (@available(iOS 13, *)) {
+    if (self.session) {
+      // Replace mediator to store collapsed keys in scene session.
+      self.tableViewModel.collapsableMediator =
+          [[ListModelCollapsedSceneSessionMediator alloc]
+              initWithSession:self.session];
+    }
+  }
+
   [self addRecentlyClosedSection];
 
   if (self.sessionState ==
@@ -475,7 +497,17 @@ const int kRecentlyClosedTabsSectionIndex = 0;
         [self.tableViewModel sectionIsCollapsed:SectionIdentifierOtherDevices];
   }
 
-  if (base::FeatureList::IsEnabled(kIllustratedEmptyStates)) {
+  if (!signin::IsSigninAllowed(self.browserState->GetPrefs())) {
+    // If sign-in is disabled, don't show an illustration or a sign-in promo.
+    TableViewTextItem* disabledByOrganizationText =
+        [[TableViewTextItem alloc] initWithType:ItemTypeSigninDisabled];
+    disabledByOrganizationText.text =
+        l10n_util::GetNSString(IDS_IOS_RECENT_TABS_DISABLED_BY_ORGANIZATION);
+    disabledByOrganizationText.textColor =
+        [UIColor colorNamed:kTextSecondaryColor];
+    [self.tableViewModel addItem:disabledByOrganizationText
+         toSectionWithIdentifier:SectionIdentifierOtherDevices];
+  } else if (base::FeatureList::IsEnabled(kIllustratedEmptyStates)) {
     ItemType itemType;
     NSString* itemSubtitle;
     NSString* itemButtonText;
@@ -797,6 +829,7 @@ const int kRecentlyClosedTabsSectionIndex = 0;
     case ItemTypeOtherDevicesSyncOff:
     case ItemTypeOtherDevicesNoSessions:
     case ItemTypeOtherDevicesSigninPromo:
+    case ItemTypeSigninDisabled:
       break;
   }
 }
@@ -841,8 +874,10 @@ const int kRecentlyClosedTabsSectionIndex = 0;
       itemTypeSelected == ItemTypeSessionTabData) {
     [self loadFaviconForCell:cell indexPath:indexPath];
   }
-  // ItemTypeOtherDevicesNoSessions should not be selectable.
-  if (itemTypeSelected == ItemTypeOtherDevicesNoSessions) {
+  // ItemTypeOtherDevicesNoSessions and ItemTypeSigninDisabled should not be
+  // selectable.
+  if (itemTypeSelected == ItemTypeOtherDevicesNoSessions ||
+      itemTypeSelected == ItemTypeSigninDisabled) {
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
   }
   // Set button action method for ItemTypeOtherDevicesSyncOff.
@@ -978,6 +1013,7 @@ const int kRecentlyClosedTabsSectionIndex = 0;
     case ItemTypeOtherDevicesSyncInProgressHeader:
     case ItemTypeSessionHeader:
     case ItemTypeShowFullHistory:
+    case ItemTypeSigninDisabled:
       break;
   }
   return nil;
@@ -1405,8 +1441,7 @@ const int kRecentlyClosedTabsSectionIndex = 0;
 - (void)presentationControllerDidDismiss:
     (UIPresentationController*)presentationController {
   base::RecordAction(base::UserMetricsAction("IOSRecentTabsCloseWithSwipe"));
-  // Call dismissRecentTabs so the Coordinator cleans up any state it needs to.
-  [self.presentationDelegate dismissRecentTabs];
+  [self.presentationDelegate showActiveRegularTabFromRecentTabs];
 }
 
 #pragma mark - Accessibility
@@ -1428,6 +1463,36 @@ const int kRecentlyClosedTabsSectionIndex = 0;
   } else if (ShouldShowSyncPassphraseSettings(syncState)) {
     [self showSyncPassphraseSettings];
   }
+}
+
+@end
+
+@implementation ListModelCollapsedSceneSessionMediator {
+  UISceneSession* _session;
+}
+
+- (instancetype)initWithSession:(UISceneSession*)session {
+  self = [super init];
+  if (self) {
+    _session = session;
+  }
+  return self;
+}
+
+- (void)setSectionKey:(NSString*)sectionKey collapsed:(BOOL)collapsed {
+  NSMutableDictionary* newUserInfo =
+      [NSMutableDictionary dictionaryWithDictionary:_session.userInfo];
+  NSMutableDictionary* newCollapsedSection = [NSMutableDictionary
+      dictionaryWithDictionary:newUserInfo[kListModelCollapsedKey]];
+  newUserInfo[kListModelCollapsedKey] = newCollapsedSection;
+  newCollapsedSection[sectionKey] = [NSNumber numberWithBool:collapsed];
+  _session.userInfo = newUserInfo;
+}
+
+- (BOOL)sectionKeyIsCollapsed:(NSString*)sectionKey {
+  NSDictionary* collapsedSections = _session.userInfo[kListModelCollapsedKey];
+  NSNumber* value = (NSNumber*)[collapsedSections valueForKey:sectionKey];
+  return [value boolValue];
 }
 
 @end

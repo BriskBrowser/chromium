@@ -11,7 +11,7 @@
 #include "base/command_line.h"
 #include "base/run_loop.h"
 #include "base/test/task_environment.h"
-#include "chromeos/constants/chromeos_switches.h"
+#include "chromeos/dbus/constants/dbus_switches.h"
 #include "chromeos/dbus/shill/shill_clients.h"
 #include "chromeos/dbus/shill/shill_device_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -26,12 +26,11 @@ class TestObserver : public NetworkSmsHandler::Observer {
   TestObserver() = default;
   ~TestObserver() override = default;
 
-  void MessageReceived(const base::DictionaryValue& message) override {
-    std::string text;
-    if (message.GetStringWithoutPathExpansion(
-            NetworkSmsHandler::kTextKey, &text)) {
-      messages_.insert(text);
-    }
+  void MessageReceived(const base::Value& message) override {
+    const std::string* text =
+        message.FindStringKey(NetworkSmsHandler::kTextKey);
+    if (text)
+      messages_.insert(*text);
   }
 
   void ClearMessages() {

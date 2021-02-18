@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/webui/settings/chromeos/bluetooth_section.h"
 
 #include "base/bind.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/no_destructor.h"
 #include "chrome/browser/ui/webui/chromeos/bluetooth_dialog_localized_strings_provider.h"
 #include "chrome/browser/ui/webui/settings/chromeos/constants/routes.mojom.h"
@@ -124,8 +125,8 @@ BluetoothSection::BluetoothSection(Profile* profile,
   // Note: May be uninitialized in tests.
   if (bluez::BluezDBusManager::IsInitialized()) {
     device::BluetoothAdapterFactory::Get()->GetAdapter(
-        base::Bind(&BluetoothSection::OnFetchBluetoothAdapter,
-                   weak_ptr_factory_.GetWeakPtr()));
+        base::BindOnce(&BluetoothSection::OnFetchBluetoothAdapter,
+                       weak_ptr_factory_.GetWeakPtr()));
   }
 }
 
@@ -158,6 +159,8 @@ void BluetoothSection::AddLoadTimeData(content::WebUIDataSource* html_source) {
       {"bluetoothRemove", IDS_SETTINGS_BLUETOOTH_REMOVE},
       {"bluetoothPrimaryUserControlled",
        IDS_SETTINGS_BLUETOOTH_PRIMARY_USER_CONTROLLED},
+      {"bluetoothDeviceWithConnectionStatus",
+       IDS_BLUETOOTH_ACCESSIBILITY_DEVICE_TYPE_AND_CONNECTION_STATUS},
       {"bluetoothDeviceType_computer",
        IDS_BLUETOOTH_ACCESSIBILITY_DEVICE_TYPE_COMPUTER},
       {"bluetoothDeviceType_phone",
@@ -187,7 +190,7 @@ void BluetoothSection::AddLoadTimeData(content::WebUIDataSource* html_source) {
       {"bluetoothDeviceType_unknown",
        IDS_BLUETOOTH_ACCESSIBILITY_DEVICE_TYPE_UNKNOWN},
   };
-  AddLocalizedStringsBulk(html_source, kLocalizedStrings);
+  html_source->AddLocalizedStrings(kLocalizedStrings);
   chromeos::bluetooth_dialog::AddLocalizedStrings(html_source);
 }
 
@@ -205,6 +208,19 @@ mojom::SearchResultIcon BluetoothSection::GetSectionIcon() const {
 
 std::string BluetoothSection::GetSectionPath() const {
   return mojom::kBluetoothSectionPath;
+}
+
+bool BluetoothSection::LogMetric(mojom::Setting setting,
+                                 base::Value& value) const {
+  switch (setting) {
+    case mojom::Setting::kBluetoothOnOff:
+      base::UmaHistogramBoolean("ChromeOS.Settings.Bluetooth.BluetoothOnOff",
+                                value.GetBool());
+      return true;
+
+    default:
+      return false;
+  }
 }
 
 void BluetoothSection::RegisterHierarchy(HierarchyGenerator* generator) const {

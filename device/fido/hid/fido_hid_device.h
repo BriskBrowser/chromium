@@ -29,7 +29,7 @@ namespace device {
 
 class FidoHidMessage;
 
-class COMPONENT_EXPORT(DEVICE_FIDO) FidoHidDevice : public FidoDevice {
+class COMPONENT_EXPORT(DEVICE_FIDO) FidoHidDevice final : public FidoDevice {
  public:
   FidoHidDevice(device::mojom::HidDeviceInfoPtr device_info,
                 device::mojom::HidManager* hid_manager);
@@ -44,6 +44,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoHidDevice : public FidoDevice {
                              DeviceCallback callback) final;
   void TryWink(base::OnceClosure callback) final;
   void Cancel(CancelToken token) final;
+  std::string GetDisplayName() const final;
   std::string GetId() const final;
   FidoTransportProtocol DeviceTransport() const final;
   void DiscoverSupportedProtocolAndDeviceInfo(base::OnceClosure done) override;

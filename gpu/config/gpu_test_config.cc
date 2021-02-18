@@ -11,6 +11,7 @@
 #include "base/logging.h"
 #include "base/system/sys_info.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "gpu/config/gpu_info.h"
 #include "gpu/config/gpu_info_collector.h"
 #include "gpu/config/gpu_test_expectations_parser.h"
@@ -25,9 +26,10 @@ namespace gpu {
 namespace {
 
 GPUTestConfig::OS GetCurrentOS() {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   return GPUTestConfig::kOsChromeOS;
-#elif defined(OS_LINUX) || defined(OS_OPENBSD)
+#elif (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) || \
+    defined(OS_OPENBSD)
   return GPUTestConfig::kOsLinux;
 #elif defined(OS_WIN)
   int32_t major_version = 0;
@@ -191,8 +193,14 @@ void GPUTestBotConfig::AddGPUVendor(uint32_t gpu_vendor) {
 }
 
 bool GPUTestBotConfig::SetGPUInfo(const GPUInfo& gpu_info) {
-  if (gpu_info.gpu.device_id == 0 || gpu_info.gpu.vendor_id == 0)
+  if (gpu_info.gpu.vendor_id == 0)
     return false;
+#if !defined(OS_MAC)
+  // ARM-based Mac GPUs do not have valid PCI device IDs.
+  // https://crbug.com/1110421
+  if (gpu_info.gpu.device_id == 0)
+    return false;
+#endif
   ClearGPUVendor();
   AddGPUVendor(gpu_info.gpu.vendor_id);
   set_gpu_device_id(gpu_info.gpu.device_id);
@@ -233,8 +241,12 @@ bool GPUTestBotConfig::IsValid() const {
   }
   if (gpu_vendor().size() != 1 || gpu_vendor()[0] == 0)
     return false;
-  if (gpu_device_id() == 0)
-    return false;
+  if (!(os() & gpu::GPUTestConfig::kOsMac)) {
+    // ARM-based Mac GPUs do not have valid PCI device IDs.
+    // https://crbug.com/1110421
+    if (gpu_device_id() == 0)
+      return false;
+  }
   switch (build_type()) {
     case kBuildTypeRelease:
     case kBuildTypeDebug:

@@ -59,7 +59,8 @@ sk_sp<SkSurface> SharedImageRepresentationSkiaVkAndroid::BeginWriteAccess(
     int final_msaa_count,
     const SkSurfaceProps& surface_props,
     std::vector<GrBackendSemaphore>* begin_semaphores,
-    std::vector<GrBackendSemaphore>* end_semaphores) {
+    std::vector<GrBackendSemaphore>* end_semaphores,
+    std::unique_ptr<GrBackendSurfaceMutableState>* end_state) {
   DCHECK_EQ(mode_, RepresentationAccessMode::kNone);
   DCHECK(promise_texture_);
 
@@ -87,16 +88,48 @@ sk_sp<SkSurface> SharedImageRepresentationSkiaVkAndroid::BeginWriteAccess(
     }
     surface_msaa_count_ = final_msaa_count;
   }
+
+  // If the backing could be used for scanout, we always set the layout to
+  // VK_IMAGE_LAYOUT_PRESENT_SRC_KHR after each accessing.
+  if (android_backing()->usage() & SHARED_IMAGE_USAGE_SCANOUT) {
+    *end_state = std::make_unique<GrBackendSurfaceMutableState>(
+        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_QUEUE_FAMILY_IGNORED);
+  }
+
   return surface_;
+}
+
+sk_sp<SkPromiseImageTexture>
+SharedImageRepresentationSkiaVkAndroid::BeginWriteAccess(
+    std::vector<GrBackendSemaphore>* begin_semaphores,
+    std::vector<GrBackendSemaphore>* end_semaphores,
+    std::unique_ptr<GrBackendSurfaceMutableState>* end_state) {
+  DCHECK_EQ(mode_, RepresentationAccessMode::kNone);
+  DCHECK(promise_texture_);
+
+  if (!BeginAccess(false /* readonly */, begin_semaphores, end_semaphores,
+                   base::ScopedFD()))
+    return nullptr;
+
+  // If the backing could be used for scanout, we always set the layout to
+  // VK_IMAGE_LAYOUT_PRESENT_SRC_KHR after each accessing.
+  if (android_backing()->usage() & SHARED_IMAGE_USAGE_SCANOUT) {
+    *end_state = std::make_unique<GrBackendSurfaceMutableState>(
+        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_QUEUE_FAMILY_IGNORED);
+  }
+
+  return promise_texture_;
 }
 
 void SharedImageRepresentationSkiaVkAndroid::EndWriteAccess(
     sk_sp<SkSurface> surface) {
   DCHECK_EQ(mode_, RepresentationAccessMode::kWrite);
-  DCHECK_EQ(surface.get(), surface_.get());
+  if (surface) {
+    DCHECK_EQ(surface.get(), surface_.get());
 
-  surface.reset();
-  DCHECK(surface_->unique());
+    surface.reset();
+    DCHECK(surface_->unique());
+  }
   // TODO(penghuang): reset canvas cached in |surface_|, when skia provides an
   // API to do it.
   // Currently, the |surface_| is only used with SkSurface::draw(ddl), it
@@ -109,7 +142,8 @@ void SharedImageRepresentationSkiaVkAndroid::EndWriteAccess(
 sk_sp<SkPromiseImageTexture>
 SharedImageRepresentationSkiaVkAndroid::BeginReadAccess(
     std::vector<GrBackendSemaphore>* begin_semaphores,
-    std::vector<GrBackendSemaphore>* end_semaphores) {
+    std::vector<GrBackendSemaphore>* end_semaphores,
+    std::unique_ptr<GrBackendSurfaceMutableState>* end_state) {
   DCHECK_EQ(mode_, RepresentationAccessMode::kNone);
   DCHECK(!surface_);
   DCHECK(promise_texture_);
@@ -117,6 +151,14 @@ SharedImageRepresentationSkiaVkAndroid::BeginReadAccess(
   if (!BeginAccess(true /* readonly */, begin_semaphores, end_semaphores,
                    std::move(init_read_fence_)))
     return nullptr;
+
+  // If the backing could be used for scanout, we always set the layout to
+  // VK_IMAGE_LAYOUT_PRESENT_SRC_KHR after each accessing.
+  if (android_backing()->usage() & SHARED_IMAGE_USAGE_SCANOUT) {
+    *end_state = std::make_unique<GrBackendSurfaceMutableState>(
+        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_QUEUE_FAMILY_IGNORED);
+  }
+
   return promise_texture_;
 }
 

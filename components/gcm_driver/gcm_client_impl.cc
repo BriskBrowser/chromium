@@ -932,9 +932,6 @@ void GCMClientImpl::Register(
         senders.append(",");
       senders.append(*iter);
     }
-    UMA_HISTOGRAM_COUNTS_1M("GCM.RegistrationSenderIdCount",
-                            gcm_registration_info->sender_ids.size());
-
     request_handler.reset(new GCMRegistrationRequestHandler(senders));
     source_to_record = senders;
   }
@@ -950,7 +947,7 @@ void GCMClientImpl::Register(
         instance_id_token_info->authorized_entity,
         instance_id_token_info->scope,
         ConstructGCMVersion(chrome_build_info_.version),
-        instance_id_token_info->time_to_live, instance_id_token_info->options));
+        instance_id_token_info->time_to_live));
     source_to_record = instance_id_token_info->authorized_entity + "/" +
                        instance_id_token_info->scope;
   }

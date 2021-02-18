@@ -6,6 +6,8 @@
 
 #include <utility>
 
+#include "ash/components/account_manager/account_manager.h"
+#include "ash/components/account_manager/account_manager_factory.h"
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/logging.h"
@@ -19,8 +21,6 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/ui/webui/signin/inline_login_dialog_chromeos.h"
-#include "chromeos/components/account_manager/account_manager.h"
-#include "chromeos/components/account_manager/account_manager_factory.h"
 #include "components/image_fetcher/core/image_fetcher_service.h"
 #include "components/image_fetcher/core/request_metadata.h"
 #include "components/signin/public/base/avatar_icon_util.h"
@@ -218,15 +218,14 @@ void EduAccountLoginHandler::HandleUpdateEduCoexistenceFlowResult(
 void EduAccountLoginHandler::FetchFamilyMembers() {
   DCHECK(!family_fetcher_);
   Profile* profile = Profile::FromWebUI(web_ui());
-  chromeos::AccountManager* account_manager =
-      g_browser_process->platform_part()
-          ->GetAccountManagerFactory()
-          ->GetAccountManager(profile->GetPath().value());
+  auto* account_manager = g_browser_process->platform_part()
+                              ->GetAccountManagerFactory()
+                              ->GetAccountManager(profile->GetPath().value());
   DCHECK(account_manager);
 
   family_fetcher_ = std::make_unique<FamilyInfoFetcher>(
       this, IdentityManagerFactory::GetForProfile(profile),
-      account_manager->GetUrlLoaderFactory());
+      profile->GetURLLoaderFactory());
   family_fetcher_->StartGetFamilyMembers();
 }
 
@@ -261,7 +260,8 @@ void EduAccountLoginHandler::FetchAccessToken(
               &EduAccountLoginHandler::CreateReAuthProofTokenForParent,
               base::Unretained(this), std::move(obfuscated_gaia_id),
               std::move(password)),
-          signin::PrimaryAccountAccessTokenFetcher::Mode::kImmediate);
+          signin::PrimaryAccountAccessTokenFetcher::Mode::kImmediate,
+          signin::ConsentLevel::kNotRequired);
 }
 
 void EduAccountLoginHandler::FetchReAuthProofTokenForParent(
@@ -270,14 +270,13 @@ void EduAccountLoginHandler::FetchReAuthProofTokenForParent(
     const std::string& parent_credential) {
   DCHECK(!gaia_auth_fetcher_);
   Profile* profile = Profile::FromWebUI(web_ui());
-  chromeos::AccountManager* account_manager =
-      g_browser_process->platform_part()
-          ->GetAccountManagerFactory()
-          ->GetAccountManager(profile->GetPath().value());
+  auto* account_manager = g_browser_process->platform_part()
+                              ->GetAccountManagerFactory()
+                              ->GetAccountManager(profile->GetPath().value());
   DCHECK(account_manager);
 
   gaia_auth_fetcher_ = std::make_unique<GaiaAuthFetcher>(
-      this, gaia::GaiaSource::kChrome, account_manager->GetUrlLoaderFactory());
+      this, gaia::GaiaSource::kChrome, profile->GetURLLoaderFactory());
   gaia_auth_fetcher_->StartCreateReAuthProofTokenForParent(
       child_oauth_access_token, parent_obfuscated_gaia_id, parent_credential);
 }

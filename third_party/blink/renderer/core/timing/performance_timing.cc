@@ -35,11 +35,9 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/document_parser_timing.h"
 #include "third_party/blink/renderer/core/dom/document_timing.h"
-#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/inspector/identifiers_factory.h"
 #include "third_party/blink/renderer/core/loader/document_load_timing.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
-#include "third_party/blink/renderer/core/loader/frame_loader.h"
 #include "third_party/blink/renderer/core/loader/interactive_detector.h"
 #include "third_party/blink/renderer/core/paint/image_paint_timing_detector.h"
 #include "third_party/blink/renderer/core/paint/paint_timing.h"
@@ -62,8 +60,8 @@ static uint64_t ToIntegerMilliseconds(base::TimeDelta duration) {
   return static_cast<uint64_t>(clamped_seconds * 1000.0);
 }
 
-PerformanceTiming::PerformanceTiming(LocalFrame* frame)
-    : ExecutionContextClient(frame) {}
+PerformanceTiming::PerformanceTiming(ExecutionContext* context)
+    : ExecutionContextClient(context) {}
 
 uint64_t PerformanceTiming::navigationStart() const {
   DocumentLoadTiming* timing = GetDocumentLoadTiming();
@@ -87,7 +85,7 @@ uint64_t PerformanceTiming::unloadEventStart() const {
     return 0;
 
   if (timing->HasCrossOriginRedirect() ||
-      !timing->HasSameOriginAsPreviousDocument())
+      !timing->CanRequestFromPreviousDocument())
     return 0;
 
   return MonotonicTimeToIntegerMilliseconds(timing->UnloadEventStart());
@@ -99,7 +97,7 @@ uint64_t PerformanceTiming::unloadEventEnd() const {
     return 0;
 
   if (timing->HasCrossOriginRedirect() ||
-      !timing->HasSameOriginAsPreviousDocument())
+      !timing->CanRequestFromPreviousDocument())
     return 0;
 
   return MonotonicTimeToIntegerMilliseconds(timing->UnloadEventEnd());
@@ -339,9 +337,16 @@ PerformanceTiming::BackForwardCacheRestore() const {
       load_timing->BackForwardCacheRestoreNavigationStarts();
   WTF::Vector<base::TimeTicks> first_paints =
       paint_timing->FirstPaintsAfterBackForwardCacheRestore();
+  WTF::Vector<std::array<
+      base::TimeTicks,
+      WebPerformance::
+          kRequestAnimationFramesToRecordAfterBackForwardCacheRestore>>
+      request_animation_frames =
+          paint_timing->RequestAnimationFramesAfterBackForwardCacheRestore();
   WTF::Vector<base::Optional<base::TimeDelta>> first_input_delays =
       interactive_detector->GetFirstInputDelaysAfterBackForwardCacheRestore();
   DCHECK_EQ(navigation_starts.size(), first_paints.size());
+  DCHECK_EQ(navigation_starts.size(), request_animation_frames.size());
   DCHECK_EQ(navigation_starts.size(), first_input_delays.size());
 
   WTF::Vector<BackForwardCacheRestoreTiming> restore_timings(
@@ -351,6 +356,10 @@ PerformanceTiming::BackForwardCacheRestore() const {
         MonotonicTimeToIntegerMilliseconds(navigation_starts[i]);
     restore_timings[i].first_paint =
         MonotonicTimeToIntegerMilliseconds(first_paints[i]);
+    for (size_t j = 0; j < request_animation_frames[i].size(); j++) {
+      restore_timings[i].request_animation_frames[j] =
+          MonotonicTimeToIntegerMilliseconds(request_animation_frames[i][j]);
+    }
     restore_timings[i].first_input_delay = first_input_delays[i];
   }
   return restore_timings;
@@ -471,6 +480,15 @@ uint64_t PerformanceTiming::ExperimentalLargestTextPaintSize() const {
     return 0;
 
   return paint_timing_detector->ExperimentalLargestTextPaintSize();
+}
+
+base::TimeTicks PerformanceTiming::LargestContentfulPaintAsMonotonicTime()
+    const {
+  PaintTimingDetector* paint_timing_detector = GetPaintTimingDetector();
+  if (!paint_timing_detector)
+    return base::TimeTicks();
+
+  return paint_timing_detector->LargestContentfulPaint();
 }
 
 uint64_t PerformanceTiming::FirstEligibleToPaint() const {
@@ -615,44 +633,51 @@ base::Optional<base::TimeTicks> PerformanceTiming::LastPortalActivatedPaint()
   return timing->LastPortalActivatedPaint();
 }
 
-DocumentLoader* PerformanceTiming::GetDocumentLoader() const {
-  if (!GetFrame())
-    return nullptr;
+base::Optional<base::TimeTicks> PerformanceTiming::UnloadStart() const {
+  DocumentLoadTiming* timing = GetDocumentLoadTiming();
+  if (!timing)
+    return base::nullopt;
 
-  return GetFrame()->Loader().GetDocumentLoader();
+  return timing->UnloadEventStart();
+}
+
+base::Optional<base::TimeTicks> PerformanceTiming::UnloadEnd() const {
+  DocumentLoadTiming* timing = GetDocumentLoadTiming();
+  if (!timing)
+    return base::nullopt;
+
+  return timing->UnloadEventEnd();
+}
+
+base::Optional<base::TimeTicks> PerformanceTiming::CommitNavigationEnd() const {
+  DocumentLoadTiming* timing = GetDocumentLoadTiming();
+  if (!timing)
+    return base::nullopt;
+
+  return timing->CommitNavigationEnd();
+}
+
+DocumentLoader* PerformanceTiming::GetDocumentLoader() const {
+  return DomWindow() ? DomWindow()->GetFrame()->Loader().GetDocumentLoader()
+                     : nullptr;
 }
 
 const DocumentTiming* PerformanceTiming::GetDocumentTiming() const {
-  if (!GetFrame())
+  if (!DomWindow() || !DomWindow()->document())
     return nullptr;
-
-  Document* document = GetFrame()->GetDocument();
-  if (!document)
-    return nullptr;
-
-  return &document->GetTiming();
+  return &DomWindow()->document()->GetTiming();
 }
 
 const PaintTiming* PerformanceTiming::GetPaintTiming() const {
-  if (!GetFrame())
+  if (!DomWindow() || !DomWindow()->document())
     return nullptr;
-
-  Document* document = GetFrame()->GetDocument();
-  if (!document)
-    return nullptr;
-
-  return &PaintTiming::From(*document);
+  return &PaintTiming::From(*DomWindow()->document());
 }
 
 const DocumentParserTiming* PerformanceTiming::GetDocumentParserTiming() const {
-  if (!GetFrame())
+  if (!DomWindow() || !DomWindow()->document())
     return nullptr;
-
-  Document* document = GetFrame()->GetDocument();
-  if (!document)
-    return nullptr;
-
-  return &DocumentParserTiming::From(*document);
+  return &DocumentParserTiming::From(*DomWindow()->document());
 }
 
 DocumentLoadTiming* PerformanceTiming::GetDocumentLoadTiming() const {
@@ -672,25 +697,15 @@ ResourceLoadTiming* PerformanceTiming::GetResourceLoadTiming() const {
 }
 
 InteractiveDetector* PerformanceTiming::GetInteractiveDetector() const {
-  if (!GetFrame())
+  if (!DomWindow() || !DomWindow()->document())
     return nullptr;
-
-  Document* document = GetFrame()->GetDocument();
-  if (!document)
-    return nullptr;
-
-  return InteractiveDetector::From(*document);
+  return InteractiveDetector::From(*DomWindow()->document());
 }
 
 PaintTimingDetector* PerformanceTiming::GetPaintTimingDetector() const {
-  if (!GetFrame())
+  if (!DomWindow())
     return nullptr;
-
-  LocalFrameView* view = GetFrame()->View();
-  if (!view)
-    return nullptr;
-
-  return &view->GetPaintTimingDetector();
+  return &DomWindow()->GetFrame()->View()->GetPaintTimingDetector();
 }
 
 base::Optional<base::TimeDelta>

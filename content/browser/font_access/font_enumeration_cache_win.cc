@@ -12,6 +12,7 @@
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
+#include "base/timer/elapsed_timer.h"
 #include "third_party/blink/public/common/features.h"
 #include "ui/gfx/win/direct_write.h"
 
@@ -49,14 +50,13 @@ base::Optional<std::string> GetLocalizedString(
 
 std::unique_ptr<content::FontEnumerationCacheWin::FamilyDataResult>
 ExtractNamesFromFamily(Microsoft::WRL::ComPtr<IDWriteFontCollection> collection,
-                       uint32_t family_index) {
+                       uint32_t family_index,
+                       const std::string& locale) {
   auto family_result =
       std::make_unique<content::FontEnumerationCacheWin::FamilyDataResult>();
   family_result->fonts =
       std::vector<blink::FontEnumerationTable_FontMetadata>();
   family_result->exit_hresult = S_OK;
-
-  std::string locale = base::i18n::GetConfiguredLocale();
 
   Microsoft::WRL::ComPtr<IDWriteFontFamily> family;
   Microsoft::WRL::ComPtr<IDWriteLocalizedStrings> family_names;
@@ -78,11 +78,6 @@ ExtractNamesFromFamily(Microsoft::WRL::ComPtr<IDWriteFontCollection> collection,
     family_result->exit_hresult = kErrorNoFamilyName;
     return family_result;
   }
-
-  base::Optional<std::string> localized_family_name =
-      GetLocalizedString(family_names.Get(), locale);
-  if (!localized_family_name)
-    localized_family_name = native_family_name;
 
   UINT32 font_count = family->GetFontCount();
   for (UINT32 font_index = 0; font_index < font_count; ++font_index) {
@@ -107,6 +102,7 @@ ExtractNamesFromFamily(Microsoft::WRL::ComPtr<IDWriteFontCollection> collection,
 
     Microsoft::WRL::ComPtr<IDWriteLocalizedStrings> postscript_name;
     Microsoft::WRL::ComPtr<IDWriteLocalizedStrings> full_name;
+    Microsoft::WRL::ComPtr<IDWriteLocalizedStrings> style;
 
     // DWRITE_INFORMATIONAL_STRING_POSTSCRIPT_NAME and
     // DWRITE_INFORMATIONAL_STRING_FULL_NAME are only supported on Windows 7
@@ -115,6 +111,7 @@ ExtractNamesFromFamily(Microsoft::WRL::ComPtr<IDWriteFontCollection> collection,
     // in Firefox: https://bugzilla.mozilla.org/show_bug.cgi?id=947812 However,
     // this might not be worth the effort.
 
+    // Extracting the postscript name.
     {
       base::ScopedBlockingCall scoped_blocking_call(
           FROM_HERE, base::BlockingType::MAY_BLOCK);
@@ -138,6 +135,7 @@ ExtractNamesFromFamily(Microsoft::WRL::ComPtr<IDWriteFontCollection> collection,
       return family_result;
     }
 
+    // Extracting the full name.
     {
       base::ScopedBlockingCall scoped_blocking_call(
           FROM_HERE, base::BlockingType::MAY_BLOCK);
@@ -160,10 +158,40 @@ ExtractNamesFromFamily(Microsoft::WRL::ComPtr<IDWriteFontCollection> collection,
     if (!localized_full_name)
       localized_full_name = native_postscript_name;
 
+    // Extracting Style.
+    {
+      base::ScopedBlockingCall scoped_blocking_call(
+          FROM_HERE, base::BlockingType::MAY_BLOCK);
+      hr = font->GetInformationalStrings(
+          DWRITE_INFORMATIONAL_STRING_PREFERRED_SUBFAMILY_NAMES, &style,
+          &exists);
+    }
+    if (FAILED(hr)) {
+      family_result->exit_hresult = hr;
+      return family_result;
+    }
+    if (!exists) {
+      {
+        base::ScopedBlockingCall scoped_blocking_call(
+            FROM_HERE, base::BlockingType::MAY_BLOCK);
+        hr = font->GetInformationalStrings(
+            DWRITE_INFORMATIONAL_STRING_WIN32_SUBFAMILY_NAMES, &style, &exists);
+      }
+      if (FAILED(hr)) {
+        family_result->exit_hresult = hr;
+        return family_result;
+      }
+    }
+    base::Optional<std::string> native_style_name;
+    if (exists) {
+      native_style_name = GetNativeString(style);
+    }
+
     blink::FontEnumerationTable_FontMetadata metadata;
     metadata.set_postscript_name(native_postscript_name.value());
     metadata.set_full_name(localized_full_name.value());
-    metadata.set_family(localized_family_name.value());
+    metadata.set_family(native_family_name.value());
+    metadata.set_style(native_style_name ? native_style_name.value() : "");
 
     family_result->fonts.push_back(std::move(metadata));
   }
@@ -179,35 +207,9 @@ FontEnumerationCacheWin::FamilyDataResult::~FamilyDataResult() = default;
 FontEnumerationCacheWin::FamilyDataResult::FamilyDataResult() = default;
 
 // static
-FontEnumerationCacheWin* FontEnumerationCacheWin::GetInstance() {
+FontEnumerationCache* FontEnumerationCache::GetInstance() {
   static base::NoDestructor<FontEnumerationCacheWin> instance;
   return instance.get();
-}
-
-void FontEnumerationCacheWin::QueueShareMemoryRegionWhenReady(
-    scoped_refptr<base::TaskRunner> task_runner,
-    blink::mojom::FontAccessManager::EnumerateLocalFontsCallback callback) {
-  DCHECK(base::FeatureList::IsEnabled(blink::features::kFontAccess));
-
-  callbacks_task_runner_->PostTask(
-      FROM_HERE,
-      base::BindOnce(
-          &FontEnumerationCacheWin::RunPendingCallback,
-          // Safe because this is an initialized singleton.
-          base::Unretained(this),
-          CallbackOnTaskRunner(std::move(task_runner), std::move(callback))));
-
-  if (!enumeration_cache_build_started_.IsSet()) {
-    enumeration_cache_build_started_.Set();
-
-    SchedulePrepareFontEnumerationCache();
-  }
-}
-
-bool FontEnumerationCacheWin::IsFontEnumerationCacheReady() {
-  DCHECK(base::FeatureList::IsEnabled(blink::features::kFontAccess));
-
-  return enumeration_cache_built_.IsSet() && IsFontEnumerationCacheValid();
 }
 
 void FontEnumerationCacheWin::InitializeDirectWrite() {
@@ -260,7 +262,10 @@ void FontEnumerationCacheWin::SchedulePrepareFontEnumerationCache() {
 }
 
 void FontEnumerationCacheWin::PrepareFontEnumerationCache() {
-  DCHECK(!enumeration_cache_built_.IsSet());
+  DCHECK(!enumeration_cache_built_->IsSet());
+  DCHECK(!enumeration_timer_);
+
+  enumeration_timer_ = std::make_unique<base::ElapsedTimer>();
 
   font_enumeration_table_ = std::make_unique<blink::FontEnumerationTable>();
 
@@ -270,10 +275,13 @@ void FontEnumerationCacheWin::PrepareFontEnumerationCache() {
 
     outstanding_family_results_ = collection_->GetFontFamilyCount();
 
-    UMA_HISTOGRAM_CUSTOM_COUNTS(
+    base::UmaHistogramCustomCounts(
         "Fonts.AccessAPI.EnumerationCache.Dwrite.FamilyCount",
         outstanding_family_results_, 1, 5000, 50);
   }
+
+  std::string locale =
+      locale_override_.value_or(base::i18n::GetConfiguredLocale());
 
   for (UINT32 family_index = 0; family_index < outstanding_family_results_;
        ++family_index) {
@@ -284,7 +292,8 @@ void FontEnumerationCacheWin::PrepareFontEnumerationCache() {
         FROM_HERE,
         {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
          base::ThreadPolicy::MUST_USE_FOREGROUND},
-        base::BindOnce(&ExtractNamesFromFamily, collection_, family_index),
+        base::BindOnce(&ExtractNamesFromFamily, collection_, family_index,
+                       locale),
         base::BindOnce(
             &FontEnumerationCacheWin::AppendFontDataAndFinalizeIfNeeded,
             // Safe because this is an initialized singleton.
@@ -298,13 +307,26 @@ void FontEnumerationCacheWin::AppendFontDataAndFinalizeIfNeeded(
 
   // If this task's response came late for some reason, we do not need the
   // results anymore and the table was already finalized.
-  if (enumeration_cache_built_.IsSet())
+  if (enumeration_cache_built_->IsSet())
     return;
 
   if (FAILED(family_data_result->exit_hresult))
     enumeration_errors_[family_data_result->exit_hresult]++;
 
+  // Used to filter duplicates.
+  std::set<std::string> fonts_seen;
+  int duplicate_count = 0;
+
   for (const auto& font_meta : family_data_result->fonts) {
+    const std::string& postscript_name = font_meta.postscript_name();
+
+    if (fonts_seen.count(postscript_name) != 0) {
+      ++duplicate_count;
+      // Skip duplicates.
+      continue;
+    }
+    fonts_seen.insert(postscript_name);
+
     blink::FontEnumerationTable_FontMetadata* added_font_meta =
         font_enumeration_table_->add_fonts();
     *added_font_meta = font_meta;
@@ -313,10 +335,14 @@ void FontEnumerationCacheWin::AppendFontDataAndFinalizeIfNeeded(
   if (!outstanding_family_results_) {
     FinalizeEnumerationCache();
   }
+
+  base::UmaHistogramCounts100(
+      "Fonts.AccessAPI.EnumerationCache.DuplicateFontCount", duplicate_count);
 }
 
 void FontEnumerationCacheWin::FinalizeEnumerationCache() {
-  DCHECK(!enumeration_cache_built_.IsSet());
+  DCHECK(!enumeration_cache_built_->IsSet());
+  DCHECK(enumeration_timer_);
 
   if (enumeration_errors_.size() > 0) {
     auto most_frequent_hresult = std::max_element(
@@ -335,17 +361,11 @@ void FontEnumerationCacheWin::FinalizeEnumerationCache() {
   // out of scope.
   std::unique_ptr<blink::FontEnumerationTable> enumeration_table(
       std::move(font_enumeration_table_));
-  enumeration_cache_memory_ = base::ReadOnlySharedMemoryRegion::Create(
-      enumeration_table->ByteSizeLong());
+  BuildEnumerationCache(std::move(enumeration_table));
 
-  if (!IsFontEnumerationCacheValid() ||
-      !enumeration_table->SerializeToArray(
-          enumeration_cache_memory_.mapping.memory(),
-          enumeration_cache_memory_.mapping.size())) {
-    enumeration_cache_memory_ = base::MappedReadOnlyRegion();
-  }
-
-  enumeration_cache_built_.Set();
+  base::UmaHistogramMediumTimes("Fonts.AccessAPI.EnumerationTime",
+                                enumeration_timer_->Elapsed());
+  enumeration_timer_.reset();
 
   // Respond to pending and future requests.
   StartCallbacksTaskQueue();

@@ -78,6 +78,45 @@
 #include <wrl/client.h>
 #endif
 
+namespace blink {
+
+// This class allows us to access the LayerTreeHost on WebFrameWidget. It is
+// hidden from the public interface. It also extracts some commonly
+// used objects from RenderFrameImpl.
+class GpuBenchmarkingContext {
+ public:
+  explicit GpuBenchmarkingContext(content::RenderFrameImpl* frame)
+      : web_frame_(frame->GetWebFrame()),
+        web_view_(web_frame_->View()),
+        frame_widget_(frame->GetLocalRootWebFrameWidget()),
+        layer_tree_host_(frame_widget_->LayerTreeHost()) {}
+
+  WebLocalFrame* web_frame() const {
+    DCHECK(web_frame_ != nullptr);
+    return web_frame_;
+  }
+  WebView* web_view() const {
+    DCHECK(web_view_ != nullptr);
+    return web_view_;
+  }
+  WebFrameWidget* frame_widget() const { return frame_widget_; }
+  cc::LayerTreeHost* layer_tree_host() const {
+    DCHECK(layer_tree_host_ != nullptr);
+    return layer_tree_host_;
+  }
+
+ private:
+  WebLocalFrame* web_frame_;
+  WebView* web_view_;
+  WebFrameWidget* frame_widget_;
+  cc::LayerTreeHost* layer_tree_host_;
+
+  DISALLOW_COPY_AND_ASSIGN(GpuBenchmarkingContext);
+};
+
+}  // namespace blink
+
+using blink::GpuBenchmarkingContext;
 using blink::WebImageCache;
 using blink::WebLocalFrame;
 using blink::WebPrivatePtr;
@@ -190,40 +229,6 @@ class CallbackAndContext : public base::RefCounted<CallbackAndContext> {
   DISALLOW_COPY_AND_ASSIGN(CallbackAndContext);
 };
 
-// This class is a mostly unnecessary helper class. It extracts some commonly
-// used objects from RenderFrameImpl.
-class GpuBenchmarkingContext {
- public:
-  explicit GpuBenchmarkingContext(RenderFrameImpl* frame) {
-    web_frame_ = frame->GetWebFrame();
-    web_view_ = web_frame_->View();
-    render_widget_ = frame->GetLocalRootRenderWidget();
-    layer_tree_host_ = render_widget_->layer_tree_host();
-  }
-
-  WebLocalFrame* web_frame() const {
-    DCHECK(web_frame_ != nullptr);
-    return web_frame_;
-  }
-  WebView* web_view() const {
-    DCHECK(web_view_ != nullptr);
-    return web_view_;
-  }
-  RenderWidget* render_widget() const { return render_widget_; }
-  cc::LayerTreeHost* layer_tree_host() const {
-    DCHECK(layer_tree_host_ != nullptr);
-    return layer_tree_host_;
-  }
-
- private:
-  WebLocalFrame* web_frame_ = nullptr;
-  WebView* web_view_ = nullptr;
-  RenderWidget* render_widget_ = nullptr;
-  cc::LayerTreeHost* layer_tree_host_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(GpuBenchmarkingContext);
-};
-
 void OnMicroBenchmarkCompleted(CallbackAndContext* callback_and_context,
                                std::unique_ptr<base::Value> result) {
   v8::Isolate* isolate = callback_and_context->isolate();
@@ -262,7 +267,7 @@ bool ThrowIfPointOutOfBounds(GpuBenchmarkingContext* context,
                              gin::Arguments* args,
                              const gfx::Point& point,
                              const std::string& message) {
-  gfx::Rect rect = context->render_widget()->GetWebWidget()->ViewRect();
+  gfx::Rect rect = context->frame_widget()->ViewRect();
   rect -= rect.OffsetFromOrigin();
 
   // If the bounds are not available here, as is the case with an OOPIF,
@@ -469,8 +474,8 @@ static void PrintDocument(blink::WebLocalFrame* frame, SkDocument* doc) {
   const int kContentHeight = 735;    // 10.21 inch
   blink::WebPrintParams params(blink::WebSize(kContentWidth, kContentHeight));
   params.printer_dpi = 300;
-  int page_count = frame->PrintBegin(params);
-  for (int i = 0; i < page_count; ++i) {
+  uint32_t page_count = frame->PrintBegin(params, blink::WebNode());
+  for (uint32_t i = 0; i < page_count; ++i) {
     SkCanvas* sk_canvas = doc->beginPage(kPageWidth, kPageHeight);
     cc::SkiaPaintCanvas canvas(sk_canvas);
     cc::PaintCanvasAutoRestore auto_restore(&canvas, true);
@@ -711,12 +716,12 @@ bool GpuBenchmarking::GestureSourceTypeSupported(int gesture_source_type) {
 // SmoothScrollByXY in telemetry/internal/actions/scroll.js.
 bool GpuBenchmarking::SmoothScrollBy(gin::Arguments* args) {
   GpuBenchmarkingContext context(render_frame_.get());
-  blink::WebRect rect = context.render_widget()->GetWebWidget()->ViewRect();
+  gfx::Rect rect = context.frame_widget()->ViewRect();
 
   float pixels_to_scroll = 0;
   v8::Local<v8::Function> callback;
-  float start_x = rect.width / 2;
-  float start_y = rect.height / 2;
+  float start_x = rect.width() / 2;
+  float start_y = rect.height() / 2;
   int gesture_source_type = SyntheticGestureParams::DEFAULT_INPUT;
   std::string direction = "down";
   float speed_in_pixels_s = 800;
@@ -783,13 +788,13 @@ bool GpuBenchmarking::SmoothScrollBy(gin::Arguments* args) {
 // scroll left.
 bool GpuBenchmarking::SmoothScrollByXY(gin::Arguments* args) {
   GpuBenchmarkingContext context(render_frame_.get());
-  blink::WebRect rect = context.render_widget()->GetWebWidget()->ViewRect();
+  gfx::Rect rect = context.frame_widget()->ViewRect();
 
   float pixels_to_scroll_x = 0;
   float pixels_to_scroll_y = 0;
   v8::Local<v8::Function> callback;
-  float start_x = rect.width / 2;
-  float start_y = rect.height / 2;
+  float start_x = rect.width() / 2;
+  float start_y = rect.height() / 2;
   int gesture_source_type = SyntheticGestureParams::DEFAULT_INPUT;
   float speed_in_pixels_s = 800;
   bool precise_scrolling_deltas = true;
@@ -891,13 +896,13 @@ bool GpuBenchmarking::SmoothDrag(gin::Arguments* args) {
 // should change this to match with SmoothScrollBy or SmoothScrollByXY.
 bool GpuBenchmarking::Swipe(gin::Arguments* args) {
   GpuBenchmarkingContext context(render_frame_.get());
-  blink::WebRect rect = context.render_widget()->GetWebWidget()->ViewRect();
+  gfx::Rect rect = context.frame_widget()->ViewRect();
 
   std::string direction = "up";
   float pixels_to_scroll = 0;
   v8::Local<v8::Function> callback;
-  float start_x = rect.width / 2;
-  float start_y = rect.height / 2;
+  float start_x = rect.width() / 2;
+  float start_y = rect.height() / 2;
   float speed_in_pixels_s = 800;
   float fling_velocity = 0;
   int gesture_source_type = SyntheticGestureParams::TOUCH_INPUT;
@@ -941,16 +946,15 @@ bool GpuBenchmarking::Swipe(gin::Arguments* args) {
 
 bool GpuBenchmarking::ScrollBounce(gin::Arguments* args) {
   GpuBenchmarkingContext context(render_frame_.get());
-  blink::WebRect content_rect =
-      context.render_widget()->GetWebWidget()->ViewRect();
+  gfx::Rect content_rect = context.frame_widget()->ViewRect();
 
   std::string direction = "down";
   float distance_length = 0;
   float overscroll_length = 0;
   int repeat_count = 1;
   v8::Local<v8::Function> callback;
-  float start_x = content_rect.width / 2;
-  float start_y = content_rect.height / 2;
+  float start_x = content_rect.width() / 2;
+  float start_y = content_rect.height() / 2;
   float speed_in_pixels_s = 800;
 
   if (!GetOptionalArg(args, &direction) ||
@@ -1091,33 +1095,33 @@ void GpuBenchmarking::SetBrowserControlsShown(bool show) {
 float GpuBenchmarking::VisualViewportY() {
   GpuBenchmarkingContext context(render_frame_.get());
   float y = context.web_view()->VisualViewportOffset().y();
-  blink::WebRect rect(0, y, 0, 0);
-  context.render_widget()->ConvertViewportToWindow(&rect);
-  return rect.y;
+  gfx::RectF rect_in_dips =
+      context.frame_widget()->BlinkSpaceToDIPs(gfx::RectF(0, y, 0, 0));
+  return rect_in_dips.y();
 }
 
 float GpuBenchmarking::VisualViewportX() {
   GpuBenchmarkingContext context(render_frame_.get());
   float x = context.web_view()->VisualViewportOffset().x();
-  blink::WebRect rect(x, 0, 0, 0);
-  context.render_widget()->ConvertViewportToWindow(&rect);
-  return rect.x;
+  gfx::RectF rect_in_dips =
+      context.frame_widget()->BlinkSpaceToDIPs(gfx::RectF(x, 0, 0, 0));
+  return rect_in_dips.x();
 }
 
 float GpuBenchmarking::VisualViewportHeight() {
   GpuBenchmarkingContext context(render_frame_.get());
   float height = context.web_view()->VisualViewportSize().height();
-  blink::WebRect rect(0, 0, 0, height);
-  context.render_widget()->ConvertViewportToWindow(&rect);
-  return rect.height;
+  gfx::RectF rect_in_dips =
+      context.frame_widget()->BlinkSpaceToDIPs(gfx::RectF(0, 0, 0, height));
+  return rect_in_dips.height();
 }
 
 float GpuBenchmarking::VisualViewportWidth() {
   GpuBenchmarkingContext context(render_frame_.get());
   float width = context.web_view()->VisualViewportSize().width();
-  blink::WebRect rect(0, 0, width, 0);
-  context.render_widget()->ConvertViewportToWindow(&rect);
-  return rect.width;
+  gfx::RectF rect_in_dips =
+      context.frame_widget()->BlinkSpaceToDIPs(gfx::RectF(0, 0, width, 0));
+  return rect_in_dips.width();
 }
 
 bool GpuBenchmarking::Tap(gin::Arguments* args) {
@@ -1191,7 +1195,7 @@ bool GpuBenchmarking::PointerActionSequence(gin::Arguments* args) {
   // SyntheticPointerActionListParams object.
   ActionsParser actions_parser(
       base::Value::FromUniquePtrValue(std::move(value)));
-  if (!actions_parser.ParsePointerActionSequence()) {
+  if (!actions_parser.Parse()) {
     // TODO(dtapuska): Throw an error here, some web tests start
     // failing when this is done though.
     // args->ThrowTypeError(actions_parser.error_message());
@@ -1208,10 +1212,22 @@ bool GpuBenchmarking::PointerActionSequence(gin::Arguments* args) {
       new CallbackAndContext(args->isolate(), callback,
                              context.web_frame()->MainWorldScriptContext());
   EnsureRemoteInterface();
-  input_injector_->QueueSyntheticPointerAction(
-      actions_parser.gesture_params(),
-      base::BindOnce(&OnSyntheticGestureCompleted,
-                     base::RetainedRef(callback_and_context)));
+  if (actions_parser.gesture_params().GetGestureType() ==
+      SyntheticGestureParams::SMOOTH_SCROLL_GESTURE) {
+    input_injector_->QueueSyntheticSmoothScroll(
+        static_cast<const SyntheticSmoothScrollGestureParams&>(
+            actions_parser.gesture_params()),
+        base::BindOnce(&OnSyntheticGestureCompleted,
+                       base::RetainedRef(callback_and_context)));
+  } else {
+    DCHECK(actions_parser.gesture_params().GetGestureType() ==
+           SyntheticGestureParams::POINTER_ACTION_LIST);
+    input_injector_->QueueSyntheticPointerAction(
+        static_cast<const SyntheticPointerActionListParams&>(
+            actions_parser.gesture_params()),
+        base::BindOnce(&OnSyntheticGestureCompleted,
+                       base::RetainedRef(callback_and_context)));
+  }
   return true;
 }
 

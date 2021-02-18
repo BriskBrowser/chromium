@@ -9,11 +9,10 @@
 
 #include <map>
 #include <set>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "base/containers/flat_map.h"
+#include "base/containers/flat_set.h"
 #include "base/containers/id_map.h"
 #include "base/macros.h"
 #include "base/optional.h"
@@ -24,7 +23,6 @@
 #include "content/public/browser/media_session.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
-#include "mojo/public/cpp/bindings/interface_ptr_set.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "mojo/public/cpp/bindings/remote_set.h"
 #include "services/media_session/public/mojom/audio_focus.mojom.h"
@@ -83,6 +81,9 @@ class MediaSessionImpl : public MediaSession,
   CONTENT_EXPORT static MediaSessionImpl* Get(WebContents* web_contents);
 
   ~MediaSessionImpl() override;
+
+  CONTENT_EXPORT void SetDelegateForTests(
+      std::unique_ptr<AudioFocusDelegate> delegate);
 
 #if defined(OS_ANDROID)
   void ClearMediaSessionAndroid();
@@ -280,6 +281,10 @@ class MediaSessionImpl : public MediaSession,
   // output device.
   void OnAudioOutputSinkIdChanged();
 
+  // Called when any of the normal players can no longer support audio output
+  // device switching.
+  void OnAudioOutputSinkChangingDisabled();
+
   // Returns whether the action should be routed to |routed_service_|.
   bool ShouldRouteAction(media_session::mojom::MediaSessionAction action) const;
 
@@ -301,30 +306,25 @@ class MediaSessionImpl : public MediaSession,
   friend class MediaSessionImplTest;
   friend class MediaInternalsAudioFocusTest;
 
-  CONTENT_EXPORT void SetDelegateForTests(
-      std::unique_ptr<AudioFocusDelegate> delegate);
   CONTENT_EXPORT void RemoveAllPlayersForTest();
   CONTENT_EXPORT MediaSessionUmaHelper* uma_helper_for_test();
 
   // Representation of a player for the MediaSessionImpl.
   struct PlayerIdentifier {
     PlayerIdentifier(MediaSessionPlayerObserver* observer, int player_id);
+
     PlayerIdentifier(const PlayerIdentifier&) = default;
+    PlayerIdentifier(PlayerIdentifier&&) = default;
 
-    void operator=(const PlayerIdentifier&) = delete;
-    bool operator==(const PlayerIdentifier& player_identifier) const;
-    bool operator<(const PlayerIdentifier&) const;
+    PlayerIdentifier& operator=(const PlayerIdentifier&) = default;
+    PlayerIdentifier& operator=(PlayerIdentifier&&) = default;
 
-    // Hash operator for std::unordered_map<>.
-    struct Hash {
-      size_t operator()(const PlayerIdentifier& player_identifier) const;
-    };
+    bool operator==(const PlayerIdentifier& other) const;
+    bool operator<(const PlayerIdentifier& other) const;
 
     MediaSessionPlayerObserver* observer;
     int player_id;
   };
-  using PlayersMap =
-      std::unordered_set<PlayerIdentifier, PlayerIdentifier::Hash>;
 
   CONTENT_EXPORT explicit MediaSessionImpl(WebContents* web_contents);
 
@@ -334,6 +334,7 @@ class MediaSessionImpl : public MediaSession,
   void OnImageDownloadComplete(GetMediaImageBitmapCallback callback,
                                int minimum_size_px,
                                int desired_size_px,
+                               bool source_icon,
                                int id,
                                int http_status_code,
                                const GURL& image_url,
@@ -401,16 +402,19 @@ class MediaSessionImpl : public MediaSession,
   // device, the id of the default device will be returned.
   std::string GetSharedAudioOutputDeviceId() const;
 
+  bool IsAudioOutputDeviceSwitchingSupported() const;
+
   // Called when a MediaSessionAction is received. The action will be forwarded
   // to blink::MediaSession corresponding to the current routed service.
   void DidReceiveAction(media_session::mojom::MediaSessionAction action,
                         blink::mojom::MediaSessionActionDetailsPtr details);
 
-  // Returns the media audio video state. This is whether the players associated
-  // with the media session are audio-only or have audio and video. If we have
-  // a |routed_service_| then we limit to players on that frame because this
-  // should align with the metadata.
-  media_session::mojom::MediaAudioVideoState GetMediaAudioVideoState();
+  // Returns the media audio video state for each player. This is whether the
+  // players associated with the media session are audio-only, video-only, or
+  // have both audio and video. If we have a |routed_service_| then we limit to
+  // players on that frame because this should align with the metadata.
+  std::vector<media_session::mojom::MediaAudioVideoState>
+  GetMediaAudioVideoStates();
 
   // Calls the callback with each |PlayerIdentifier| for every player associated
   // with this media session.
@@ -423,11 +427,11 @@ class MediaSessionImpl : public MediaSession,
   std::unique_ptr<AudioFocusDelegate> delegate_;
   std::map<PlayerIdentifier, media_session::mojom::AudioFocusType>
       normal_players_;
-  PlayersMap pepper_players_;
+  base::flat_set<PlayerIdentifier> pepper_players_;
 
   // Players that are playing in the web contents but we cannot control (e.g.
   // WebAudio or MediaStream).
-  PlayersMap one_shot_players_;
+  base::flat_set<PlayerIdentifier> one_shot_players_;
 
   State audio_focus_state_ = State::INACTIVE;
   MediaSession::SuspendType suspend_type_;
@@ -473,6 +477,9 @@ class MediaSessionImpl : public MediaSession,
   base::flat_map<media_session::mojom::MediaSessionImageType,
                  std::vector<media_session::MediaImage>>
       images_;
+
+  // Cache of images that have been requested by clients.
+  base::flat_map<GURL, SkBitmap> image_cache_;
 
   // The collection of all managed services (non-owned pointers). The services
   // are owned by RenderFrameHost and should be registered on creation and

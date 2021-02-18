@@ -17,11 +17,11 @@
 #include "components/autofill/core/browser/personal_data_manager.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/keyed_service/core/service_access_type.h"
-#include "components/metrics/test/demographic_metrics_test_utils.h"
+#include "components/metrics/demographics/demographic_metrics_test_utils.h"
 #include "components/sync/base/pref_names.h"
 #include "components/sync/driver/profile_sync_service.h"
 #include "components/sync/driver/sync_service.h"
-#include "components/sync/engine_impl/loopback_server/loopback_server_entity.h"
+#include "components/sync/engine/loopback_server/loopback_server_entity.h"
 #include "components/sync/nigori/nigori_test_utils.h"
 #include "components/sync/test/fake_server/entity_builder_factory.h"
 #include "components/sync/test/fake_server/fake_server.h"
@@ -104,6 +104,10 @@ void StartSync() {
   SyncSetupService* sync_setup_service =
       SyncSetupServiceFactory::GetForBrowserState(browser_state);
   sync_setup_service->SetSyncEnabled(true);
+  syncer::ProfileSyncService* sync_service =
+      ProfileSyncServiceFactory::GetAsProfileSyncServiceForBrowserState(
+          browser_state);
+  sync_service->TriggerPoliciesLoadedForTest();
 }
 
 void StopSync() {
@@ -124,8 +128,10 @@ void TriggerSyncCycle(syncer::ModelType type) {
 }
 
 void ClearSyncServerData() {
-  DCHECK(gSyncFakeServer);
-  gSyncFakeServer->ClearServerData();
+  // Allow the caller to preventively clear server data.
+  if (gSyncFakeServer) {
+    gSyncFakeServer->ClearServerData();
+  }
 }
 
 int GetNumberOfSyncEntities(syncer::ModelType type) {
@@ -197,6 +203,23 @@ std::string GetSyncCacheGuid() {
   const syncer::LocalDeviceInfoProvider* info_provider =
       service->GetLocalDeviceInfoProvider();
   return info_provider->GetLocalDeviceInfo()->guid();
+}
+
+bool VerifySyncInvalidationFieldsPopulated() {
+  DCHECK(IsFakeSyncServerSetUp());
+  const std::string cache_guid = GetSyncCacheGuid();
+  std::vector<sync_pb::SyncEntity> entities =
+      gSyncFakeServer->GetSyncEntitiesByModelType(syncer::DEVICE_INFO);
+  for (const sync_pb::SyncEntity& entity : entities) {
+    if (entity.specifics().device_info().cache_guid() == cache_guid) {
+      const sync_pb::InvalidationSpecificFields& invalidation_fields =
+          entity.specifics().device_info().invalidation_fields();
+      return !invalidation_fields.interested_data_type_ids().empty() &&
+             invalidation_fields.has_instance_id_token();
+    }
+  }
+  // The local DeviceInfo hasn't been committed yet.
+  return false;
 }
 
 void AddUserDemographicsToSyncServer(

@@ -11,26 +11,19 @@ package video_tutorials.proto;
 // Represents the feature where the video tutorial targeted to.
 enum FeatureType {
   INVALID = 0;
-  DEBUG = 1;
-  DOWNLOAD = 2;
-  SEARCH = 3;
+  SUMMARY = 1;
+  CHROME_INTRO = 2;
+  DOWNLOAD = 3;
+  SEARCH = 4;
+  VOICE_SEARCH = 5;
   // For test only.
   TEST = 9999999;
 }
 
-// All groups of video tutorials with different languages.
-message VideoTutorialGroups {
-  // Records the prefferd language picked from UI.
-  string preferred_locale = 1;
-
-  // A list of video tutorial groups.
-  repeated VideoTutorialGroup groups = 2;
-}
-
 // A group of video tutorials with same language.
 message VideoTutorialGroup {
-  // Language of the video, in ISO-639-1 two character format. Eg: en, pl, hi.
-  string locale = 1;
+  // Language of the video.
+  string language = 1;
 
   // A list of video tutorials metadata.
   repeated VideoTutorial tutorials = 2;
@@ -47,10 +40,11 @@ message VideoTutorial {
   // The complete URL for the video.
   string video_url = 3;
 
-  // Youtube Video URL for sharing.
+  // The URL of the video for sharing.
   string share_url = 4;
 
-  // The complete URL of the thumbnail image.
+  // The URL of the video poster. Shown while the video is loading in the
+  // player.
   string poster_url = 5;
 
   // The URL of this video's caption.
@@ -58,4 +52,16 @@ message VideoTutorial {
 
   // Duration of the video in seconds.
   int64 video_length = 7;
+
+  // The URL of the animated thumbnail. Shown in the IPH cards.
+  string animated_gif_url = 8;
+
+  // The URL of the thumbnail image. Shown in the video list.
+  string thumbnail_url = 9;
+}
+
+// Response from the server containing tutorial groups for all languages.
+message ServerResponse {
+  // Tutorials for all available languages.
+  repeated VideoTutorialGroup tutorial_groups = 1;
 }

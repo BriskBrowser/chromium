@@ -24,8 +24,11 @@
 #include "extensions/browser/api/declarative_net_request/flat/extension_ruleset_generated.h"
 #include "extensions/browser/api/declarative_net_request/ruleset_matcher.h"
 #include "extensions/browser/api/web_request/web_request_info.h"
+#include "extensions/browser/api/web_request/web_request_resource_type.h"
 #include "extensions/common/api/declarative_net_request/constants.h"
 #include "extensions/common/api/declarative_net_request/dnr_manifest_data.h"
+#include "extensions/common/permissions/api_permission.h"
+#include "extensions/common/permissions/permissions_data.h"
 #include "third_party/flatbuffers/src/include/flatbuffers/flatbuffers.h"
 
 namespace extensions {
@@ -56,9 +59,10 @@ constexpr int kInvalidOverrideChecksumForTest = -1;
 int g_override_checksum_for_test = kInvalidOverrideChecksumForTest;
 
 constexpr int kInvalidRuleLimit = -1;
-int g_static_rule_limit_for_testing = kInvalidRuleLimit;
+int g_static_guaranteed_minimum_for_testing = kInvalidRuleLimit;
 int g_global_static_rule_limit_for_testing = kInvalidRuleLimit;
 int g_regex_rule_limit_for_testing = kInvalidRuleLimit;
+int g_dynamic_and_session_rule_limit_for_testing = kInvalidRuleLimit;
 
 int GetIndexedRulesetFormatVersion() {
   return g_indexed_ruleset_format_version_for_testing ==
@@ -75,12 +79,6 @@ std::string GetVersionHeader() {
 }
 
 }  // namespace
-
-bool IsValidRulesetData(base::span<const uint8_t> data, int expected_checksum) {
-  flatbuffers::Verifier verifier(data.data(), data.size());
-  return expected_checksum == GetChecksum(data) &&
-         flat::VerifyExtensionIndexedRulesetBuffer(verifier);
-}
 
 std::string GetVersionHeaderForTesting() {
   return GetVersionHeader();
@@ -125,10 +123,7 @@ void OverrideGetChecksumForTest(int checksum) {
 }
 
 bool PersistIndexedRuleset(const base::FilePath& path,
-                           base::span<const uint8_t> data,
-                           int* ruleset_checksum) {
-  DCHECK(ruleset_checksum);
-
+                           base::span<const uint8_t> data) {
   // Create the directory corresponding to |path| if it does not exist.
   if (!base::CreateDirectory(path.DirName()))
     return false;
@@ -155,7 +150,6 @@ bool PersistIndexedRuleset(const base::FilePath& path,
     return false;
   }
 
-  *ruleset_checksum = GetChecksum(data);
   return true;
 }
 
@@ -168,43 +162,35 @@ void LogReadDynamicRulesStatus(ReadJSONRulesResult::Status status) {
   base::UmaHistogramEnumeration(kReadDynamicRulesJSONStatusHistogram, status);
 }
 
-// Maps blink::mojom::ResourceType to
-// api::declarative_net_request::ResourceType.
-dnr_api::ResourceType GetDNRResourceType(
-    blink::mojom::ResourceType resource_type) {
+// Maps WebRequestResourceType to api::declarative_net_request::ResourceType.
+dnr_api::ResourceType GetDNRResourceType(WebRequestResourceType resource_type) {
   switch (resource_type) {
-    case blink::mojom::ResourceType::kPrefetch:
-    case blink::mojom::ResourceType::kSubResource:
+    case WebRequestResourceType::OTHER:
       return dnr_api::RESOURCE_TYPE_OTHER;
-    case blink::mojom::ResourceType::kMainFrame:
-    case blink::mojom::ResourceType::kNavigationPreloadMainFrame:
+    case WebRequestResourceType::MAIN_FRAME:
       return dnr_api::RESOURCE_TYPE_MAIN_FRAME;
-    case blink::mojom::ResourceType::kCspReport:
+    case WebRequestResourceType::CSP_REPORT:
       return dnr_api::RESOURCE_TYPE_CSP_REPORT;
-    case blink::mojom::ResourceType::kScript:
-    case blink::mojom::ResourceType::kWorker:
-    case blink::mojom::ResourceType::kSharedWorker:
-    case blink::mojom::ResourceType::kServiceWorker:
+    case WebRequestResourceType::SCRIPT:
       return dnr_api::RESOURCE_TYPE_SCRIPT;
-    case blink::mojom::ResourceType::kImage:
-    case blink::mojom::ResourceType::kFavicon:
+    case WebRequestResourceType::IMAGE:
       return dnr_api::RESOURCE_TYPE_IMAGE;
-    case blink::mojom::ResourceType::kStylesheet:
+    case WebRequestResourceType::STYLESHEET:
       return dnr_api::RESOURCE_TYPE_STYLESHEET;
-    case blink::mojom::ResourceType::kObject:
-    case blink::mojom::ResourceType::kPluginResource:
+    case WebRequestResourceType::OBJECT:
       return dnr_api::RESOURCE_TYPE_OBJECT;
-    case blink::mojom::ResourceType::kXhr:
+    case WebRequestResourceType::XHR:
       return dnr_api::RESOURCE_TYPE_XMLHTTPREQUEST;
-    case blink::mojom::ResourceType::kSubFrame:
-    case blink::mojom::ResourceType::kNavigationPreloadSubFrame:
+    case WebRequestResourceType::SUB_FRAME:
       return dnr_api::RESOURCE_TYPE_SUB_FRAME;
-    case blink::mojom::ResourceType::kPing:
+    case WebRequestResourceType::PING:
       return dnr_api::RESOURCE_TYPE_PING;
-    case blink::mojom::ResourceType::kMedia:
+    case WebRequestResourceType::MEDIA:
       return dnr_api::RESOURCE_TYPE_MEDIA;
-    case blink::mojom::ResourceType::kFontResource:
+    case WebRequestResourceType::FONT:
       return dnr_api::RESOURCE_TYPE_FONT;
+    case WebRequestResourceType::WEB_SOCKET:
+      return dnr_api::RESOURCE_TYPE_WEBSOCKET;
   }
   NOTREACHED();
   return dnr_api::RESOURCE_TYPE_OTHER;
@@ -224,7 +210,7 @@ dnr_api::RequestDetails CreateRequestDetails(const WebRequestInfo& request) {
   details.frame_id = request.frame_data.frame_id;
   details.parent_frame_id = request.frame_data.parent_frame_id;
   details.tab_id = request.frame_data.tab_id;
-  details.type = GetDNRResourceType(request.type);
+  details.type = GetDNRResourceType(request.web_request_type);
   return details;
 }
 
@@ -276,6 +262,8 @@ std::string GetPublicRulesetID(const Extension& extension,
                                RulesetID ruleset_id) {
   if (ruleset_id == kDynamicRulesetID)
     return dnr_api::DYNAMIC_RULESET_ID;
+  if (ruleset_id == kSessionRulesetID)
+    return dnr_api::SESSION_RULESET_ID;
 
   DCHECK_GE(ruleset_id, kMinValidStaticRulesetID);
   return DNRManifestData::GetRuleset(extension, ruleset_id).manifest_id;
@@ -291,31 +279,26 @@ std::vector<std::string> GetPublicRulesetIDs(const Extension& extension,
   return ids;
 }
 
-int GetStaticRuleLimit() {
-  bool global_rules_enabled =
-      base::FeatureList::IsEnabled(kDeclarativeNetRequestGlobalRules);
-
-  int default_static_rule_constant =
-      global_rules_enabled ? dnr_api::GUARANTEED_MINIMUM_STATIC_RULES
-                           : dnr_api::MAX_NUMBER_OF_RULES;
-
-  int static_rule_limit = g_static_rule_limit_for_testing == kInvalidRuleLimit
-                              ? default_static_rule_constant
-                              : g_static_rule_limit_for_testing;
-
-  if (!global_rules_enabled)
-    return static_rule_limit;
-
-  int global_rule_limit =
-      g_global_static_rule_limit_for_testing == kInvalidRuleLimit
-          ? kMaxStaticRulesPerProfile
-          : g_global_static_rule_limit_for_testing;
-
-  return static_rule_limit + global_rule_limit;
+int GetStaticGuaranteedMinimumRuleCount() {
+  return g_static_guaranteed_minimum_for_testing == kInvalidRuleLimit
+             ? dnr_api::GUARANTEED_MINIMUM_STATIC_RULES
+             : g_static_guaranteed_minimum_for_testing;
 }
 
-int GetDynamicRuleLimit() {
-  return dnr_api::MAX_NUMBER_OF_DYNAMIC_RULES;
+int GetGlobalStaticRuleLimit() {
+  return g_global_static_rule_limit_for_testing == kInvalidRuleLimit
+             ? kMaxStaticRulesPerProfile
+             : g_global_static_rule_limit_for_testing;
+}
+
+int GetMaximumRulesPerRuleset() {
+  return GetStaticGuaranteedMinimumRuleCount() + GetGlobalStaticRuleLimit();
+}
+
+int GetDynamicAndSessionRuleLimit() {
+  return g_dynamic_and_session_rule_limit_for_testing == kInvalidRuleLimit
+             ? dnr_api::MAX_NUMBER_OF_DYNAMIC_AND_SESSION_RULES
+             : g_dynamic_and_session_rule_limit_for_testing;
 }
 
 int GetRegexRuleLimit() {
@@ -324,9 +307,10 @@ int GetRegexRuleLimit() {
              : g_regex_rule_limit_for_testing;
 }
 
-ScopedRuleLimitOverride CreateScopedStaticRuleLimitOverrideForTesting(
-    int limit) {
-  return base::AutoReset<int>(&g_static_rule_limit_for_testing, limit);
+ScopedRuleLimitOverride CreateScopedStaticGuaranteedMinimumOverrideForTesting(
+    int minimum) {
+  return base::AutoReset<int>(&g_static_guaranteed_minimum_for_testing,
+                              minimum);
 }
 
 ScopedRuleLimitOverride CreateScopedGlobalStaticRuleLimitOverrideForTesting(
@@ -337,6 +321,38 @@ ScopedRuleLimitOverride CreateScopedGlobalStaticRuleLimitOverrideForTesting(
 ScopedRuleLimitOverride CreateScopedRegexRuleLimitOverrideForTesting(
     int limit) {
   return base::AutoReset<int>(&g_regex_rule_limit_for_testing, limit);
+}
+
+ScopedRuleLimitOverride
+CreateScopedDynamicAndSessionRuleLimitOverrideForTesting(int limit) {
+  return base::AutoReset<int>(&g_dynamic_and_session_rule_limit_for_testing,
+                              limit);
+}
+
+size_t GetEnabledStaticRuleCount(const CompositeMatcher* composite_matcher) {
+  if (!composite_matcher)
+    return 0;
+
+  size_t enabled_static_rule_count = 0;
+  for (const std::unique_ptr<RulesetMatcher>& matcher :
+       composite_matcher->matchers()) {
+    if (matcher->id() == kDynamicRulesetID)
+      continue;
+
+    enabled_static_rule_count += matcher->GetRulesCount();
+  }
+
+  return enabled_static_rule_count;
+}
+
+bool HasDNRFeedbackPermission(const Extension* extension,
+                              const base::Optional<int>& tab_id) {
+  const PermissionsData* permissions_data = extension->permissions_data();
+  return tab_id.has_value()
+             ? permissions_data->HasAPIPermissionForTab(
+                   *tab_id, APIPermission::kDeclarativeNetRequestFeedback)
+             : permissions_data->HasAPIPermission(
+                   APIPermission::kDeclarativeNetRequestFeedback);
 }
 
 }  // namespace declarative_net_request

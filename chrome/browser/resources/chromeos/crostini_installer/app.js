@@ -412,14 +412,14 @@ Polymer({
       case InstallerState.kInstallImageLoader:
         messageId = 'loadTerminaMessage';
         break;
-      case InstallerState.kStartConcierge:
-        messageId = 'startConciergeMessage';
-        break;
       case InstallerState.kCreateDiskImage:
         messageId = 'createDiskImageMessage';
         break;
       case InstallerState.kStartTerminaVm:
         messageId = 'startTerminaVmMessage';
+        break;
+      case InstallerState.kStartLxd:
+        messageId = 'startLxdMessage';
         break;
       case InstallerState.kCreateContainer:
         // TODO(crbug.com/1015722): we are using the same message as for
@@ -461,14 +461,14 @@ Polymer({
       case InstallerError.kErrorLoadingTermina:
         messageId = 'loadTerminaError';
         break;
-      case InstallerError.kErrorStartingConcierge:
-        messageId = 'startConciergeError';
-        break;
       case InstallerError.kErrorCreatingDiskImage:
         messageId = 'createDiskImageError';
         break;
       case InstallerError.kErrorStartingTermina:
         messageId = 'startTerminaVmError';
+        break;
+      case InstallerError.kErrorStartingLxd:
+        messageId = 'startLxdError';
         break;
       case InstallerError.kErrorStartingContainer:
         messageId = 'startContainerError';

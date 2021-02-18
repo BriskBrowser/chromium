@@ -81,6 +81,10 @@ const char kOfflineSigninLimit[] = "offline_signin_limit";
 // Key of the boolean flag telling if user is enterprise managed.
 const char kIsEnterpriseManaged[] = "is_enterprise_managed";
 
+// Key of the name of the entity (either a domain or email address) that manages
+// the policies for this account.
+const char kAccountManager[] = "enterprise_account_manager";
+
 // Key of the last input method user used which is suitable for login/lock
 // screen.
 const char kLastInputMethod[] = "last_input_method";
@@ -112,6 +116,7 @@ const char* kReservedKeys[] = {kCanonicalEmail,
                                kLastOnlineSignin,
                                kOfflineSigninLimit,
                                kIsEnterpriseManaged,
+                               kAccountManager,
                                kLastInputMethod,
                                kPinAutosubmitLength,
                                kPinAutosubmitBackfillNeeded,
@@ -652,18 +657,22 @@ base::Time GetLastOnlineSignin(const AccountId& account_id) {
 }
 
 void SetOfflineSigninLimit(const AccountId& account_id,
-                           base::TimeDelta time_delta) {
-  SetPref(account_id, kOfflineSigninLimit, util::TimeDeltaToValue(time_delta));
+                           base::Optional<base::TimeDelta> time_delta) {
+  if (!time_delta) {
+    ClearPref(account_id, kOfflineSigninLimit);
+  } else {
+    SetPref(account_id, kOfflineSigninLimit,
+            util::TimeDeltaToValue(time_delta.value()));
+  }
 }
 
-base::TimeDelta GetOfflineSigninLimit(const AccountId& account_id) {
+base::Optional<base::TimeDelta> GetOfflineSigninLimit(
+    const AccountId& account_id) {
   const base::Value* value = nullptr;
   if (!GetPref(account_id, kOfflineSigninLimit, &value))
-    return base::TimeDelta();
+    return base::nullopt;
   base::Optional<base::TimeDelta> time_delta = util::ValueToTimeDelta(value);
-  if (!time_delta)
-    return base::TimeDelta();
-  return *time_delta;
+  return time_delta;
 }
 
 void SetIsEnterpriseManaged(const AccountId& account_id,
@@ -678,8 +687,17 @@ bool GetIsEnterpriseManaged(const AccountId& account_id) {
   return false;
 }
 
-void SetUserLastInputMethod(const AccountId& account_id,
-                            const std::string& input_method) {
+void SetAccountManager(const AccountId& account_id,
+                       const std::string& manager) {
+  SetStringPref(account_id, kAccountManager, manager);
+}
+
+bool GetAccountManager(const AccountId& account_id, std::string* manager) {
+  return GetStringPref(account_id, kAccountManager, manager);
+}
+
+void SetUserLastLoginInputMethod(const AccountId& account_id,
+                                 const std::string& input_method) {
   SetStringPref(account_id, kLastInputMethod, input_method);
 }
 

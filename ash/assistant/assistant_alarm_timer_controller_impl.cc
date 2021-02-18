@@ -16,9 +16,9 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
-#include "chromeos/services/assistant/public/cpp/assistant_notification.h"
 #include "chromeos/services/assistant/public/cpp/assistant_service.h"
 #include "chromeos/services/assistant/public/cpp/features.h"
+#include "chromeos/services/libassistant/public/cpp/assistant_notification.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "third_party/icu/source/common/unicode/utypes.h"
@@ -333,7 +333,7 @@ AssistantAlarmTimerControllerImpl::AssistantAlarmTimerControllerImpl(
     AssistantControllerImpl* assistant_controller)
     : assistant_controller_(assistant_controller) {
   model_.AddObserver(this);
-  assistant_controller_observer_.Add(AssistantController::Get());
+  assistant_controller_observation_.Observe(AssistantController::Get());
 }
 
 AssistantAlarmTimerControllerImpl::~AssistantAlarmTimerControllerImpl() {

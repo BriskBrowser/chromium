@@ -50,15 +50,20 @@ class CONTENT_EXPORT VirtualAuthenticatorManagerImpl
       mojo::PendingReceiver<blink::test::mojom::VirtualAuthenticatorManager>
           receiver);
 
-  // Creates an authenticator that will generate virtual devices for the given
-  // parameters. Returns nullptr if an error occurs when trying to create the
-  // authenticator.
-  VirtualAuthenticator* CreateAuthenticator(
-      device::ProtocolVersion protocol,
+  // Creates an authenticator backed by a virtual U2F device. Returns nullptr
+  // if an error occurs when trying to create the authenticator.
+  VirtualAuthenticator* CreateU2FAuthenticator(
+      device::FidoTransportProtocol transport);
+
+  // Creates an authenticator backed by a virtual CTAP2 device. Returns nullptr
+  // if an error occurs when trying to create the authenticator.
+  VirtualAuthenticator* CreateCTAP2Authenticator(
+      device::Ctap2Version ctap2_version,
       device::FidoTransportProtocol transport,
       device::AuthenticatorAttachment attachment,
       bool has_resident_key,
-      bool has_user_verification);
+      bool has_user_verification,
+      bool has_large_blob);
 
   // Returns the authenticator with the given |id|. Returns nullptr if no
   // authenticator matches the ID.
@@ -84,6 +89,9 @@ class CONTENT_EXPORT VirtualAuthenticatorManagerImpl
   void ClearAuthenticators(ClearAuthenticatorsCallback callback) override;
 
  private:
+  VirtualAuthenticator* AddAuthenticator(
+      std::unique_ptr<VirtualAuthenticator> authenticator);
+
   base::ObserverList<Observer> observers_;
 
   // The key is the unique_id of the corresponding value (the authenticator).

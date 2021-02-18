@@ -15,11 +15,9 @@ import static org.junit.Assert.assertTrue;
 
 import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.createTabs;
 import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.enterTabSwitcher;
-import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.rotateDeviceToOrientation;
 import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.verifyTabSwitcherCardCount;
 
 import android.content.Context;
-import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
 import android.util.Pair;
 import android.view.View;
@@ -36,6 +34,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.compositor.layouts.Layout;
@@ -45,8 +44,8 @@ import org.chromium.chrome.features.start_surface.StartSurfaceLayout;
 import org.chromium.chrome.tab_ui.R;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.util.ActivityUtils;
 import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.ui.test.util.UiRestriction;
 
 import java.lang.annotation.Retention;
@@ -88,8 +87,7 @@ public class TabGridAccessibilityHelperTest {
 
     @After
     public void tearDown() {
-        mActivityTestRule.getActivity().setRequestedOrientation(
-                ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+        ActivityUtils.clearActivityOrientation(mActivityTestRule.getActivity());
     }
 
     @Test
@@ -142,7 +140,7 @@ public class TabGridAccessibilityHelperTest {
                             new ArrayList<>(Arrays.asList(TabMovementDirection.UP)));
                 });
 
-        rotateDeviceToOrientation(cta, Configuration.ORIENTATION_LANDSCAPE);
+        ActivityUtils.rotateActivityToOrientation(cta, Configuration.ORIENTATION_LANDSCAPE);
 
         // Verify action list in landscape mode with span count = 3.
         onView(allOf(withParent(withId(R.id.compositor_view_holder)), withId(R.id.tab_list_view)))
@@ -222,7 +220,7 @@ public class TabGridAccessibilityHelperTest {
                     assertEquals(1, (int) positions.second);
                 });
 
-        rotateDeviceToOrientation(cta, Configuration.ORIENTATION_LANDSCAPE);
+        ActivityUtils.rotateActivityToOrientation(cta, Configuration.ORIENTATION_LANDSCAPE);
 
         onView(allOf(withParent(withId(R.id.compositor_view_holder)), withId(R.id.tab_list_view)))
                 .check((v, noMatchingViewException) -> {

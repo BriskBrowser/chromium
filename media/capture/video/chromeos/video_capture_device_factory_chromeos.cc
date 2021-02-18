@@ -9,7 +9,10 @@
 #include "base/memory/ptr_util.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/capture/video/chromeos/camera_app_device_bridge_impl.h"
-#include "media/capture/video/chromeos/camera_hal_dispatcher_impl.h"
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "media/capture/video/chromeos/ash/camera_hal_dispatcher_impl.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace media {
 
@@ -76,14 +79,19 @@ bool VideoCaptureDeviceFactoryChromeOS::Init() {
     return false;
   }
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (!CameraHalDispatcherImpl::GetInstance()->IsStarted()) {
     LOG(ERROR) << "CameraHalDispatcherImpl is not started";
     return false;
   }
-
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   camera_hal_delegate_ =
       new CameraHalDelegate(camera_hal_ipc_thread_.task_runner());
-  camera_hal_delegate_->RegisterCameraClient();
+
+  if (!camera_hal_delegate_->RegisterCameraClient()) {
+    LOG(ERROR) << "Failed to register camera client";
+    return false;
+  }
 
   // Since the |camera_hal_delegate_| is initialized on the constructor of this
   // object and is destroyed after |camera_app_device_bridge_| unsetting its
@@ -92,12 +100,17 @@ bool VideoCaptureDeviceFactoryChromeOS::Init() {
     camera_app_device_bridge_->SetCameraInfoGetter(
         base::BindRepeating(&CameraHalDelegate::GetCameraInfoFromDeviceId,
                             base::Unretained(camera_hal_delegate_.get())));
+    camera_app_device_bridge_->SetVirtualDeviceController(
+        base::BindRepeating(&CameraHalDelegate::EnableVirtualDevice,
+                            base::Unretained(camera_hal_delegate_.get())));
   }
   return true;
 }
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 bool VideoCaptureDeviceFactoryChromeOS::IsSupportedCameraAppDeviceBridge() {
   return true;
 }
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 }  // namespace media

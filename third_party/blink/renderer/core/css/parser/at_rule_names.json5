@@ -15,6 +15,9 @@
 
   data: [
     {
+      name: "additive-symbols",
+    },
+    {
       name: "ascent-override",
     },
     {
@@ -58,6 +61,9 @@
       name: "advance-override"
     },
     {
+      name: "fallback",
+    },
+    {
       name: "line-gap-override",
     },
     {
@@ -79,10 +85,25 @@
       name: "min-zoom",
     },
     {
+      name: "negative",
+    },
+    {
       name: "orientation",
     },
     {
+      name: "pad",
+    },
+    {
+      name: "prefix",
+    },
+    {
+      name: "range",
+    },
+    {
       name: "source",
+    },
+    {
+      name: "speak-as",
     },
     {
       name: "src",
@@ -91,7 +112,16 @@
       name: "start",
     },
     {
+      name: "suffix",
+    },
+    {
+      name: "symbols",
+    },
+    {
       name: "syntax"
+    },
+    {
+      name: "system",
     },
     {
       name: "time-range",

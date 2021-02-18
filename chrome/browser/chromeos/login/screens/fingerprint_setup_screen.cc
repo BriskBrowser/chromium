@@ -5,9 +5,9 @@
 #include "chrome/browser/chromeos/login/screens/fingerprint_setup_screen.h"
 
 #include "base/metrics/histogram_functions.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_utils.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager_util.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/webui/chromeos/login/fingerprint_setup_screen_handler.h"
@@ -21,10 +21,9 @@ namespace chromeos {
 namespace {
 
 constexpr char kUserActionSetupDone[] = "setup-done";
-constexpr char kUserActionSetupSkipped[] = "setup-skipped";
-constexpr char kUserActionDoItLater[] = "do-it-later";
+constexpr char kUserActionSetupSkippedOnStart[] = "setup-skipped-on-start";
+constexpr char kUserActionSetupSkippedInFlow[] = "setup-skipped-in-flow";
 constexpr char kUserActionAddAnotherFinger[] = "add-another-finger";
-constexpr char kUserActionShowSensorLocation[] = "show-sensor-location";
 
 struct FingerprintSetupUserAction {
   const char* name_;
@@ -33,13 +32,12 @@ struct FingerprintSetupUserAction {
 
 const FingerprintSetupUserAction actions[] = {
     {kUserActionSetupDone, FingerprintSetupScreen::UserAction::kSetupDone},
-    {kUserActionSetupSkipped,
-     FingerprintSetupScreen::UserAction::kSetupSkipped},
-    {kUserActionDoItLater, FingerprintSetupScreen::UserAction::kDoItLater},
     {kUserActionAddAnotherFinger,
      FingerprintSetupScreen::UserAction::kAddAnotherFinger},
-    {kUserActionShowSensorLocation,
-     FingerprintSetupScreen::UserAction::kShowSensorLocation},
+    {kUserActionSetupSkippedOnStart,
+     FingerprintSetupScreen::UserAction::kSkipButtonClickedOnStart},
+    {kUserActionSetupSkippedInFlow,
+     FingerprintSetupScreen::UserAction::kSkipButtonClickedInFlow},
 };
 
 void RecordFingerprintSetupUserAction(
@@ -97,16 +95,9 @@ std::string FingerprintSetupScreen::GetResultString(Result result) {
       return "Done";
     case Result::SKIPPED:
       return "Skipped";
-    case Result::DO_IT_LATER:
-      return "DoItLater";
     case Result::NOT_APPLICABLE:
       return BaseScreen::kNotApplicable;
   }
-}
-
-FingerprintSetupScreen* FingerprintSetupScreen::Get(ScreenManager* manager) {
-  return static_cast<FingerprintSetupScreen*>(
-      manager->GetScreen(FingerprintSetupScreenView::kScreenId));
 }
 
 FingerprintSetupScreen::FingerprintSetupScreen(
@@ -124,7 +115,8 @@ FingerprintSetupScreen::FingerprintSetupScreen(
 }
 
 FingerprintSetupScreen::~FingerprintSetupScreen() {
-  view_->Bind(nullptr);
+  if (view_)
+    view_->Bind(nullptr);
 }
 
 bool FingerprintSetupScreen::MaybeSkip(WizardContext* context) {
@@ -160,10 +152,9 @@ void FingerprintSetupScreen::OnUserAction(const std::string& action_id) {
   RecordUserAction(action_id);
   if (action_id == kUserActionSetupDone) {
     exit_callback_.Run(Result::DONE);
-  } else if (action_id == kUserActionSetupSkipped) {
+  } else if (action_id == kUserActionSetupSkippedOnStart ||
+             action_id == kUserActionSetupSkippedInFlow) {
     exit_callback_.Run(Result::SKIPPED);
-  } else if (action_id == kUserActionDoItLater) {
-    exit_callback_.Run(Result::DO_IT_LATER);
   } else if (action_id == kUserActionAddAnotherFinger) {
     StartAddingFinger();
   }

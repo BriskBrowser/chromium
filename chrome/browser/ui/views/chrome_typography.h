@@ -6,17 +6,19 @@
 #define CHROME_BROWSER_UI_VIEWS_CHROME_TYPOGRAPHY_H_
 
 #include "base/macros.h"
+#include "build/chromeos_buildflags.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/font.h"
 #include "ui/views/style/typography.h"
 #include "ui/views/style/typography_provider.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // gn check complains on Linux Ozone.
 #include "ash/public/cpp/ash_typography.h"  // nogncheck
 #endif
 
 enum ChromeTextContext {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   CHROME_TEXT_CONTEXT_START = ash::ASH_TEXT_CONTEXT_END,
 #else
   CHROME_TEXT_CONTEXT_START = views::style::VIEWS_TEXT_CONTEXT_END,
@@ -25,17 +27,14 @@ enum ChromeTextContext {
   // Headline text. Usually 20pt. Never multi-line.
   CONTEXT_HEADLINE = CHROME_TEXT_CONTEXT_START,
 
-  // "Body 1". Usually 13pt.
-  CONTEXT_BODY_TEXT_LARGE,
-
-  // "Body 2". Usually 12pt.
-  CONTEXT_BODY_TEXT_SMALL,
+  // Smaller version of CONTEXT_DIALOG_BODY_TEXT. Usually 12pt.
+  CONTEXT_DIALOG_BODY_TEXT_SMALL,
 
   // Text of the page title in the tab hover card.
   CONTEXT_TAB_HOVER_CARD_TITLE,
 
-  // Text of the number of tabs in the webui tab counter.
-  CONTEXT_WEB_UI_TAB_COUNTER,
+  // Text of the number of tabs in the tab counter used in tablet mode.
+  CONTEXT_TAB_COUNTER,
 
   // Text in the location bar entry, and primary text in the omnibox dropdown.
   CONTEXT_OMNIBOX_PRIMARY,
@@ -58,10 +57,22 @@ enum ChromeTextContext {
 
   // Status labels in the download shelf.  Usually 10pt.
   CONTEXT_DOWNLOAD_SHELF_STATUS,
+
+  // Title label in the IPH bubble. Usually 18pt.
+  CONTEXT_IPH_BUBBLE_TITLE,
+
+  // Body text label in the IPH bubble when a title exists. Usually 13pt.
+  CONTEXT_IPH_BUBBLE_BODY_WITH_TITLE,
+
+  // Body text label in the IPH bubble when no title exists. Usually 14pt.
+  CONTEXT_IPH_BUBBLE_BODY_WITHOUT_TITLE,
+
+  // Button label in the IPH bubble. Usually 13pt.
+  CONTEXT_IPH_BUBBLE_BUTTON
 };
 
 enum ChromeTextStyle {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   CHROME_TEXT_STYLE_START = ash::ASH_TEXT_STYLE_END,
 #else
   CHROME_TEXT_STYLE_START = views::style::VIEWS_TEXT_STYLE_END,
@@ -100,11 +111,9 @@ int GetFontSizeDeltaBoundedByAvailableHeight(int available_height,
 // out any font size changes made to account for locale or user settings.
 int GetFontSizeDeltaIgnoringUserOrLocaleSettings(int desired_font_size);
 
-// Sets the |size_delta| and |font_weight| for text that should not be affected
-// by the Harmony spec.
+// Sets the |details| for text that should not be affected by the Harmony spec.
 void ApplyCommonFontStyles(int context,
                            int style,
-                           int* size_delta,
-                           gfx::Font::Weight* weight);
+                           ui::ResourceBundle::FontDetails& details);
 
 #endif  // CHROME_BROWSER_UI_VIEWS_CHROME_TYPOGRAPHY_H_

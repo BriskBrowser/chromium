@@ -51,7 +51,7 @@ class PrefsTabHelper : public content::NotificationObserver,
                const content::NotificationSource& source,
                const content::NotificationDetails& details) override;
 
-  // Update the WebContents's blink::mojom::RendererPreferences.
+  // Update the WebContents's blink::RendererPreferences.
   void UpdateRendererPreferences();
 
   void OnFontFamilyPrefChanged(const std::string& pref_name);
@@ -63,8 +63,7 @@ class PrefsTabHelper : public content::NotificationObserver,
   Profile* profile_;
   content::NotificationRegistrar registrar_;
 #if !defined(OS_ANDROID)
-  std::unique_ptr<ChromeZoomLevelPrefs::DefaultZoomLevelSubscription>
-      default_zoom_level_subscription_;
+  base::CallbackListSubscription default_zoom_level_subscription_;
   FontPrefChangeNotifier::Registrar font_change_registrar_;
 #endif  // !defined(OS_ANDROID)
   base::WeakPtrFactory<PrefsTabHelper> weak_ptr_factory_{this};

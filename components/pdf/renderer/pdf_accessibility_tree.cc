@@ -1302,9 +1302,10 @@ void PdfAccessibilityTree::SetAccessibilityDocInfo(
   if (!render_accessibility)
     return;
 
+  ClearAccessibilityNodes();
   doc_info_ = doc_info;
   doc_node_ =
-      CreateNode(ax::mojom::Role::kDocument, ax::mojom::Restriction::kReadOnly,
+      CreateNode(ax::mojom::Role::kPdfRoot, ax::mojom::Restriction::kReadOnly,
                  render_accessibility, &nodes_);
   doc_node_->AddStringAttribute(
       ax::mojom::StringAttribute::kName,
@@ -1323,6 +1324,11 @@ void PdfAccessibilityTree::SetAccessibilityPageInfo(
     const std::vector<ppapi::PdfAccessibilityTextRunInfo>& text_runs,
     const std::vector<PP_PrivateAccessibilityCharInfo>& chars,
     const ppapi::PdfAccessibilityPageObjects& page_objects) {
+  // Outdated calls are ignored.
+  uint32_t page_index = page_info.page_index;
+  if (page_index != next_page_index_)
+    return;
+
   content::RenderAccessibility* render_accessibility = GetRenderAccessibility();
   if (!render_accessibility)
     return;
@@ -1336,9 +1342,9 @@ void PdfAccessibilityTree::SetAccessibilityPageInfo(
   if (invalid_plugin_message_received_)
     return;
 
-  uint32_t page_index = page_info.page_index;
   CHECK_GE(page_index, 0U);
   CHECK_LT(page_index, doc_info_.page_count);
+  ++next_page_index_;
 
   ui::AXNodeData* page_node =
       CreateNode(ax::mojom::Role::kRegion, ax::mojom::Restriction::kReadOnly,
@@ -1460,6 +1466,13 @@ bool PdfAccessibilityTree::FindCharacterOffset(
   return true;
 }
 
+void PdfAccessibilityTree::ClearAccessibilityNodes() {
+  next_page_index_ = 0;
+  nodes_.clear();
+  node_id_to_page_char_index_.clear();
+  node_id_to_annotation_info_.clear();
+}
+
 content::RenderAccessibility* PdfAccessibilityTree::GetRenderAccessibility() {
   content::RenderFrame* render_frame =
       host_->GetRenderFrameForInstance(instance_);
@@ -1484,9 +1497,9 @@ PdfAccessibilityTree::MakeTransformFromViewInfo() const {
   double applicable_scale_factor =
       content::RenderThread::Get()->IsUseZoomForDSF() ? scale_ : 1;
   auto transform = std::make_unique<gfx::Transform>();
-  // |scroll_| represents the x offset from which PDF content starts. It is the
-  // width of the PDF toolbar in pixels. Size of PDF toolbar does not change
-  // with zoom.
+  // |scroll_| represents the offset from which PDF content starts. It is the
+  // height of the PDF toolbar and the width of sidenav in pixels if it is open.
+  // Sizes of PDF toolbar and sidenav do not change with zoom.
   transform->Scale(applicable_scale_factor, applicable_scale_factor);
   transform->Translate(-scroll_);
   transform->Scale(zoom_, zoom_);

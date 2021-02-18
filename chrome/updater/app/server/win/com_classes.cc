@@ -2,24 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// This macro is used in <wrl/module.h>. Since only the COM functionality is
-// used here (while WinRT is not being used), define this macro to optimize
-// compilation of <wrl/module.h> for COM-only.
-#ifndef __WRL_CLASSIC_COM_STRICT__
-#define __WRL_CLASSIC_COM_STRICT__
-#endif  // __WRL_CLASSIC_COM_STRICT__
-
 #include "chrome/updater/app/server/win/com_classes.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
+#include "base/version.h"
 #include "base/win/scoped_bstr.h"
 #include "chrome/updater/app/server/win/server.h"
+#include "chrome/updater/updater_version.h"
 
 namespace updater {
 
@@ -39,12 +34,11 @@ STDMETHODIMP UpdateStateImpl::get_appId(BSTR* app_id) {
 STDMETHODIMP UpdateStateImpl::get_nextVersion(BSTR* next_version) {
   DCHECK(next_version);
   *next_version =
-      update_state_.next_version.IsValid()
-          ? base::win::ScopedBstr(
-                base::UTF8ToWide(update_state_.next_version.GetString()))
-                .Release()
-          : nullptr;
-
+      base::win::ScopedBstr(
+          update_state_.next_version.IsValid()
+              ? base::UTF8ToWide(update_state_.next_version.GetString())
+              : L"")
+          .Release();
   return S_OK;
 }
 
@@ -96,15 +90,29 @@ STDMETHODIMP CompleteStatusImpl::get_statusMessage(BSTR* message) {
   return S_OK;
 }
 
-HRESULT UpdaterImpl::CheckForUpdate(const base::char16* app_id) {
+HRESULT UpdaterImpl::GetVersion(BSTR* version) {
+  DCHECK(version);
+
+  // Return the hardcoded version instead of calling the corresponding
+  // non-blocking function of `UpdateServiceImpl`. This results in some
+  // code duplication but it avoids the complexities of making this function
+  // non-blocking.
+  *version =
+      base::win::ScopedBstr(
+          base::UTF8ToWide(base::Version(UPDATER_VERSION_STRING).GetString()))
+          .Release();
+  return S_OK;
+}
+
+HRESULT UpdaterImpl::CheckForUpdate(const wchar_t* app_id) {
   return E_NOTIMPL;
 }
 
-HRESULT UpdaterImpl::Register(const base::char16* app_id,
-                              const base::char16* brand_code,
-                              const base::char16* tag,
-                              const base::char16* version,
-                              const base::char16* existence_checker_path) {
+HRESULT UpdaterImpl::Register(const wchar_t* app_id,
+                              const wchar_t* brand_code,
+                              const wchar_t* tag,
+                              const wchar_t* version,
+                              const wchar_t* existence_checker_path) {
   return E_NOTIMPL;
 }
 
@@ -112,10 +120,9 @@ HRESULT UpdaterImpl::Register(const base::char16* app_id,
 // |update_service| on the main sequence. The callbacks received from
 // |update_service| arrive in the main sequence too. Since handling these
 // callbacks involves issuing outgoing COM RPC calls, which block, such COM
-// calls must be done through a task runner, bound to the closures provided]
+// calls must be done through a task runner, bound to the closures provided
 // as parameters for the UpdateService::Update call.
-HRESULT UpdaterImpl::Update(const base::char16* app_id,
-                            IUpdaterObserver* observer) {
+HRESULT UpdaterImpl::Update(const wchar_t* app_id, IUpdaterObserver* observer) {
   using IUpdaterObserverPtr = Microsoft::WRL::ComPtr<IUpdaterObserver>;
   scoped_refptr<ComServerApp> com_server = AppServerSingletonInstance();
 
@@ -144,7 +151,7 @@ HRESULT UpdaterImpl::Update(const base::char16* app_id,
                                          Microsoft::WRL::Make<UpdateStateImpl>(
                                              update_state)),
                           base::BindOnce([](HRESULT hr) {
-                            DVLOG(2)
+                            DVLOG(4)
                                 << "IUpdaterObserver::OnStateChange returned "
                                 << std::hex << hr;
                           }));
@@ -161,13 +168,13 @@ HRESULT UpdaterImpl::Update(const base::char16* app_id,
                               Microsoft::WRL::Make<CompleteStatusImpl>(
                                   static_cast<int>(result), L"")),
                           base::BindOnce([](HRESULT hr) {
-                            DVLOG(2) << "IUpdaterObserver::OnComplete returned "
-                                     << std::hex << hr;
+                            DVLOG(2) << "UpdaterImpl::Update "
+                                     << "callback returned " << std::hex << hr;
                           }));
                     },
                     task_runner, observer));
           },
-          com_server->update_service(), task_runner, base::UTF16ToUTF8(app_id),
+          com_server->update_service(), task_runner, base::WideToUTF8(app_id),
           IUpdaterObserverPtr(observer)));
 
   // Always return S_OK from this function. Errors must be reported using the
@@ -204,8 +211,8 @@ HRESULT UpdaterImpl::UpdateAll(IUpdaterObserver* observer) {
                               Microsoft::WRL::Make<CompleteStatusImpl>(
                                   static_cast<int>(result), L"")),
                           base::BindOnce([](HRESULT hr) {
-                            DVLOG(2) << "IUpdaterObserver::OnComplete returned "
-                                     << std::hex << hr;
+                            DVLOG(2) << "UpdaterImpl::UpdateAll "
+                                     << "callback returned " << std::hex << hr;
                           }));
                     },
                     task_runner, observer));
@@ -219,8 +226,9 @@ HRESULT UpdaterImpl::UpdateAll(IUpdaterObserver* observer) {
 }
 
 // See the comment for the UpdaterImpl::Update.
-HRESULT UpdaterControlImpl::Run(IUpdaterObserver* observer) {
-  using IUpdaterObserverPtr = Microsoft::WRL::ComPtr<IUpdaterObserver>;
+HRESULT UpdaterInternalImpl::Run(IUpdaterInternalCallback* callback) {
+  using IUpdaterInternalCallbackPtr =
+      Microsoft::WRL::ComPtr<IUpdaterInternalCallback>;
   scoped_refptr<ComServerApp> com_server = AppServerSingletonInstance();
 
   auto task_runner = base::ThreadPool::CreateSequencedTaskRunner(
@@ -229,29 +237,66 @@ HRESULT UpdaterControlImpl::Run(IUpdaterObserver* observer) {
   com_server->main_task_runner()->PostTask(
       FROM_HERE,
       base::BindOnce(
-          [](scoped_refptr<ControlService> control_service,
+          [](scoped_refptr<UpdateServiceInternal> update_service_internal,
              scoped_refptr<base::SequencedTaskRunner> task_runner,
-             IUpdaterObserverPtr observer) {
-            control_service->Run(base::BindOnce(
+             IUpdaterInternalCallbackPtr callback) {
+            update_service_internal->Run(base::BindOnce(
                 [](scoped_refptr<base::SequencedTaskRunner> task_runner,
-                   IUpdaterObserverPtr observer) {
+                   IUpdaterInternalCallbackPtr callback) {
                   task_runner->PostTaskAndReplyWithResult(
                       FROM_HERE,
-                      base::BindOnce(
-                          &IUpdaterObserver::OnComplete, observer,
-                          Microsoft::WRL::Make<CompleteStatusImpl>(0, L"")),
+                      base::BindOnce(&IUpdaterInternalCallback::Run, callback,
+                                     0),
                       base::BindOnce([](HRESULT hr) {
-                        DVLOG(2) << "IUpdaterObserver::OnComplete returned "
-                                 << std::hex << hr;
+                        DVLOG(2) << "UpdaterInternalImpl::Run "
+                                 << "callback returned " << std::hex << hr;
                       }));
                 },
-                task_runner, observer));
+                task_runner, callback));
           },
-          com_server->control_service(), task_runner,
-          IUpdaterObserverPtr(observer)));
+          com_server->update_service_internal(), task_runner,
+          IUpdaterInternalCallbackPtr(callback)));
 
   // Always return S_OK from this function. Errors must be reported using the
-  // observer interface.
+  // callback interface.
+  return S_OK;
+}
+
+HRESULT UpdaterInternalImpl::InitializeUpdateService(
+    IUpdaterInternalCallback* callback) {
+  using IUpdaterInternalCallbackPtr =
+      Microsoft::WRL::ComPtr<IUpdaterInternalCallback>;
+  scoped_refptr<ComServerApp> com_server = AppServerSingletonInstance();
+
+  auto task_runner = base::ThreadPool::CreateSequencedTaskRunner(
+      {base::MayBlock(), base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN});
+
+  com_server->main_task_runner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](scoped_refptr<UpdateServiceInternal> update_service_internal,
+             scoped_refptr<base::SequencedTaskRunner> task_runner,
+             IUpdaterInternalCallbackPtr callback) {
+            update_service_internal->InitializeUpdateService(base::BindOnce(
+                [](scoped_refptr<base::SequencedTaskRunner> task_runner,
+                   IUpdaterInternalCallbackPtr callback) {
+                  task_runner->PostTaskAndReplyWithResult(
+                      FROM_HERE,
+                      base::BindOnce(&IUpdaterInternalCallback::Run, callback,
+                                     0),
+                      base::BindOnce([](HRESULT hr) {
+                        DVLOG(2)
+                            << "UpdaterInternalImpl::InitializeUpdateService "
+                            << "callback returned " << std::hex << hr;
+                      }));
+                },
+                task_runner, callback));
+          },
+          com_server->update_service_internal(), task_runner,
+          IUpdaterInternalCallbackPtr(callback)));
+
+  // Always return S_OK from this function. Errors must be reported using the
+  // callback interface.
   return S_OK;
 }
 

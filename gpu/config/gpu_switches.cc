@@ -10,6 +10,10 @@ namespace switches {
 // Overrides the kEnableGpuRasterization flag.
 const char kDisableGpuRasterization[] = "disable-gpu-rasterization";
 
+// Disables mipmap generation in Skia. Used a workaround for select low memory
+// devices, see https://crbug.com/1138979 for details.
+const char kDisableMipmapGeneration[] = "disable-mipmap-generation";
+
 // Allow heuristics to determine when a layer tile should be drawn with the
 // Skia GPU backend. Only valid with GPU accelerated compositing.
 const char kEnableGpuRasterization[] = "enable-gpu-rasterization";
@@ -28,10 +32,6 @@ const char kGpuPreferences[] = "gpu-preferences";
 // Ignores GPU blocklist.
 const char kIgnoreGpuBlocklist[] = "ignore-gpu-blocklist";
 
-// Ignores GPU blocklist.
-// TODO(crbug.com/1101491): remove in 2020Q4 in favor of --ignore-gpu-blocklist.
-const char kIgnoreGpuBlacklist[] = "ignore-gpu-blacklist";
-
 // Allows explicitly specifying the shader disk cache size for embedded devices.
 // Default value is 6MB. On Android, 2MB is default and 128KB for low-end
 // devices.
@@ -45,6 +45,12 @@ const char kEnableUnsafeWebGPU[] = "enable-unsafe-webgpu";
 
 // Enable validation layers in Dawn backends.
 const char kEnableDawnBackendValidation[] = "enable-dawn-backend-validation";
+
+// Set the Dawn features(toggles) enabled on the creation of Dawn devices.
+const char kEnableDawnFeatures[] = "enable-dawn-features";
+
+// Set the Dawn features(toggles) disabled on the creation of Dawn devices.
+const char kDisableDawnFeatures[] = "disable-dawn-features";
 
 // Increases the priority (to REALTIME_AUDIO) of gpu process and compositor
 // thread.
@@ -80,5 +86,32 @@ const char kGpuRevision[] = "gpu-revision";
 // Passes the active graphics driver version from browser process to info
 // collection GPU process.
 const char kGpuDriverVersion[] = "gpu-driver-version";
+
+// Indicate that the this is being used by Android WebView and its draw functor
+// is using vulkan.
+const char kWebViewDrawFunctorUsesVulkan[] = "webview-draw-functor-uses-vulkan";
+
+// Enables using protected memory for vulkan resources.
+const char kEnableVulkanProtectedMemory[] = "enable-vulkan-protected-memory";
+
+// Forces vulkan resources to use protected memory for vulkan compositing.
+const char kEnforceVulkanProtectedMemory[] = "enforce-vulkan-protected-memory";
+
+// Disables falling back to GL based hardware rendering if initializing Vulkan
+// fails. This is to allow tests to catch regressions in Vulkan.
+const char kDisableVulkanFallbackToGLForTesting[] =
+    "disable-vulkan-fallback-to-gl-for-testing";
+
+// Specifies the heap limit for Vulkan memory.
+// TODO(crbug/1158000): Remove this switch.
+const char kVulkanHeapMemoryLimitMb[] = "vulkan-heap-memory-limit-mb";
+
+// Specifies the sync CPU limit for total Vulkan memory.
+// TODO(crbug/1158000): Remove this switch.
+const char kVulkanSyncCpuMemoryLimitMb[] = "vulkan-sync-cpu-memory-limit-mb";
+
+// Crash Chrome if GPU process crashes. This is to force a test to fail when
+// GPU process crashes unexpectedly.
+const char kForceBrowserCrashOnGpuCrash[] = "force-browser-crash-on-gpu-crash";
 
 }  // namespace switches

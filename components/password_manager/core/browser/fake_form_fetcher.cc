@@ -6,11 +6,9 @@
 
 #include <memory>
 
-#include "components/autofill/core/common/password_form.h"
+#include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/browser/statistics_table.h"
-
-using autofill::PasswordForm;
 
 namespace password_manager {
 
@@ -39,9 +37,9 @@ const std::vector<InteractionsStats>& FakeFormFetcher::GetInteractionsStats()
   return stats_;
 }
 
-base::span<const CompromisedCredentials>
-FakeFormFetcher::GetCompromisedCredentials() const {
-  return base::make_span(compromised_);
+base::span<const InsecureCredential> FakeFormFetcher::GetInsecureCredentials()
+    const {
+  return base::make_span(insecure_credentials_);
 }
 
 std::vector<const PasswordForm*> FakeFormFetcher::GetNonFederatedMatches()
@@ -53,8 +51,8 @@ std::vector<const PasswordForm*> FakeFormFetcher::GetFederatedMatches() const {
   return federated_;
 }
 
-bool FakeFormFetcher::IsBlacklisted() const {
-  return is_blacklisted_;
+bool FakeFormFetcher::IsBlocklisted() const {
+  return is_blocklisted_;
 }
 
 bool FakeFormFetcher::IsMovingBlocked(const autofill::GaiaIdHash& destination,
@@ -107,8 +105,8 @@ void FakeFormFetcher::SetNonFederated(
                                          &best_matches_, &preferred_match_);
 }
 
-void FakeFormFetcher::SetBlacklisted(bool is_blacklisted) {
-  is_blacklisted_ = is_blacklisted;
+void FakeFormFetcher::SetBlocklisted(bool is_blocklisted) {
+  is_blocklisted_ = is_blocklisted;
 }
 
 void FakeFormFetcher::NotifyFetchCompleted() {

@@ -9,7 +9,20 @@ namespace chromeos {
 
 namespace prefs {
 
+extern const char kLastLoginInputMethod[];
+extern const char kOobeComplete[];
 extern const char kOobeOnboardingTime[];
+extern const char kOobeMarketingOptInScreenFinished[];
+extern const char kOobeMarketingOptInChoice[];
+extern const char kOobeScreenPending[];
+extern const char kGaiaOfflineSigninTimeLimitDays[];
+extern const char kGaiaLastOnlineSignInTime[];
+extern const char kSAMLOfflineSigninTimeLimit[];
+extern const char kSAMLLastGAIASignInTime[];
+extern const char kSamlInSessionPasswordChangeEnabled[];
+extern const char kSamlPasswordExpirationAdvanceWarningDays[];
+extern const char kSamlLockScreenReauthenticationEnabled[];
+extern const char kSamlPasswordSyncToken[];
 
 }  // namespace prefs
 

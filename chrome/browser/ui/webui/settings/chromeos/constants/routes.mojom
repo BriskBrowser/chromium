@@ -27,6 +27,8 @@ enum Section {
   kAccessibility = 15,
   kReset = 16,
   kAboutChromeOs = 17,
+  kKerberos = 18,
+  kOnStartup = 19,
 };
 
 // Chrome OS Settings subpages (i.e., nested pages within a section). Each
@@ -59,7 +61,7 @@ enum Subpage {
   kSecurityAndSignIn = 304,
   kFingerprint = 305,
   kManageOtherPeople = 306,
-  kKerberos = 307,
+  kKerberosAccounts = 307,
 
   // Device section.
   kPointers = 400,
@@ -78,6 +80,7 @@ enum Subpage {
   // Note: Value 502 was for deprecated kAmbientModePhotos. Do not reuse.
   kAmbientModeGooglePhotosAlbum = 503,
   kAmbientModeArtGalleryAlbum = 504,
+  kWallpaper = 505,
 
   // Search and Assistant section.
   kAssistant = 600,
@@ -87,6 +90,7 @@ enum Subpage {
   kAppDetails = 701,
   kGooglePlayStore = 702,
   kPluginVmSharedPaths = 703,
+  kPluginVmUsbPreferences = 704,
 
   // Crostini section.
   kCrostiniDetails = 800,
@@ -101,7 +105,10 @@ enum Subpage {
   // Date and Time section.
   kTimeZone = 1000,
 
-  // Note: Privacy section has no subpages.
+  // Privacy section.
+  kManageOtherPeopleV2 = 1100,
+  kSecurityAndSignInV2 = 1101,
+  kFingerprintV2 = 1102,
 
   // Languages and Input section.
   kLanguagesAndInputDetails = 1200,
@@ -110,6 +117,7 @@ enum Subpage {
   kInputMethodOptions = 1203,
   kLanguages = 1204,
   kInput = 1205,
+  kEditDictionary = 1206,
 
   // Files section.
   kNetworkFileShares = 1300,
@@ -128,6 +136,9 @@ enum Subpage {
   // About Chrome OS section.
   kAboutChromeOsDetails = 1700,
   kDetailedBuildInfo = 1701,
+
+  // Kerberos section.
+  kKerberosAccountsV2 = 1800,
 };
 
 // Network section.
@@ -136,6 +147,7 @@ const string kEthernetDetailsSubpagePath = "networkDetail";
 const string kWifiNetworksSubpagePath = "networks?type=WiFi";
 const string kWifiDetailsSubpagePath = "networkDetail";
 const string kKnownNetworksSubpagePath = "knownNetworks";
+const string kCellularNetworksSubpagePath = "networks?type=Cellular";
 const string kMobileDataNetworksSubpagePath = "networks?type=Tether";
 const string kCellularDetailsSubpagePath = "networkDetail";
 const string kTetherDetailsSubpagePath = "networkDetail";
@@ -160,7 +172,7 @@ const string kSyncDeprecatedAdvancedSubpagePath = "syncSetup/advanced";
 const string kSecurityAndSignInSubpagePath = "lockScreen";
 const string kFingerprintSubpagePath = "lockScreen/fingerprint";
 const string kManageOtherPeopleSubpagePath = "accounts";
-const string kKerberosSubpagePath = "kerberosAccounts";
+const string kKerberosAccountsSubpagePath = "kerberosAccounts";
 
 // Device section.
 const string kDeviceSectionPath = "device";
@@ -175,6 +187,7 @@ const string kPowerSubpagePath = "power";
 // Personalization section.
 const string kPersonalizationSectionPath = "personalization";
 const string kChangePictureSubpagePath = "changePicture";
+const string kWallpaperSubpagePath = "wallpaper";
 const string kAmbientModeSubpagePath = "ambientMode";
 const string kAmbientModeGooglePhotosAlbumSubpagePath =
     "ambientMode/photos?topicSource=0";
@@ -192,6 +205,8 @@ const string kAppDetailsSubpagePath = "app-management/detail";
 const string kGooglePlayStoreSubpagePath = "androidAppsDetails";
 const string kPluginVmSharedPathsSubpagePath =
     "app-management/pluginVm/sharedPaths";
+const string kPluginVmUsbPreferencesSubpagePath =
+    "app-management/pluginVm/sharedUsbDevices";
 
 // Crostini section.
 const string kCrostiniSectionPath = "crostini";
@@ -202,12 +217,18 @@ const string kCrostiniBackupAndRestoreSubpagePath = "crostini/exportImport";
 const string kCrostiniDevelopAndroidAppsSubpagePath = "crostini/androidAdb";
 const string kCrostiniPortForwardingSubpagePath = "crostini/portForwarding";
 
+// On Startup section.
+const string kOnStartupSectionPath = "onstartup";
+
 // Date and Time section.
 const string kDateAndTimeSectionPath = "dateTime";
 const string kTimeZoneSubpagePath = "dateTime/timeZone";
 
 // Privacy and Security section.
 const string kPrivacyAndSecuritySectionPath = "osPrivacy";
+const string kManageOtherPeopleSubpagePathV2 = "osPrivacy/accounts";
+const string kSecurityAndSignInSubpagePathV2 = "osPrivacy/lockScreen";
+const string kFingerprintSubpagePathV2 = "osPrivacy/lockScreen/fingerprint";
 
 // Languages and Input section.
 const string kLanguagesAndInputSectionPath = "osLanguages";
@@ -217,6 +238,7 @@ const string kSmartInputsSubpagePath = "osLanguages/smartInputs";
 const string kInputMethodOptionsSubpagePath = "osLanguages/inputMethodOptions";
 const string kLanguagesSubpagePath = "osLanguages/languages";
 const string kInputSubpagePath = "osLanguages/input";
+const string kEditDictionarySubpagePath = "osLanguages/editDictionary";
 
 // Files section.
 const string kFilesSectionPath = "files";
@@ -241,3 +263,7 @@ const string kResetSectionPath = "osReset";
 const string kAboutChromeOsSectionPath = "help";
 const string kAboutChromeOsDetailsSubpagePath = "help/about";
 const string kDetailedBuildInfoSubpagePath = "help/details";
+
+// Kerberos section.
+const string kKerberosSectionPath = "kerberos";
+const string kKerberosAccountsV2SubpagePath = "kerberos/kerberosAccounts";

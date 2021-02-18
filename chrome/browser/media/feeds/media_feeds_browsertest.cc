@@ -8,9 +8,11 @@
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/media/feeds/media_feeds_contents_observer.h"
 #include "chrome/browser/media/feeds/media_feeds_service.h"
 #include "chrome/browser/media/feeds/media_feeds_store.mojom-forward.h"
@@ -51,7 +53,10 @@ constexpr base::FilePath::CharType kMediaFeedsTestDir[] =
 
 const char kMediaFeedsTestHTML[] =
     "  <!DOCTYPE html>"
-    "  <head>%s</head>";
+    "  <head>"
+    "  <link rel=\"icon\" type=\"image/png\" href=\"https://a.com/icon.png\">"
+    "  %s"
+    "  </head>";
 
 const char kMediaFeedsTestHeadHTML[] =
     "<link rel=media-feed type=\"application/ld+json\" "
@@ -264,6 +269,7 @@ IN_PROC_BROWSER_TEST_F(MediaFeedsBrowserTest, DiscoverAndFetch) {
   std::vector<media_feeds::mojom::MediaFeedPtr> discovered_feeds =
       GetDiscoveredFeeds();
   EXPECT_EQ(1u, discovered_feeds.size());
+  EXPECT_EQ(GURL("https://a.com/icon.png"), discovered_feeds[0]->favicon);
 
   base::RunLoop run_loop;
   GetMediaFeedsService()->FetchMediaFeed(
@@ -918,8 +924,17 @@ IN_PROC_BROWSER_TEST_F(MediaFeedsBrowserTest,
   }
 }
 
+// Flaky on lacros and windows: crbug.com/1124983
+#if BUILDFLAG(IS_CHROMEOS_LACROS) || defined(OS_WIN) || \
+    defined(UNDEFINED_SANITIZER)
+#define MAYBE_ResetMediaFeed_WebContentsDestroyed \
+  DISABLED_ResetMediaFeed_WebContentsDestroyed
+#else
+#define MAYBE_ResetMediaFeed_WebContentsDestroyed \
+  ResetMediaFeed_WebContentsDestroyed
+#endif
 IN_PROC_BROWSER_TEST_F(MediaFeedsBrowserTest,
-                       ResetMediaFeed_WebContentsDestroyed) {
+                       MAYBE_ResetMediaFeed_WebContentsDestroyed) {
   DiscoverFeed(kMediaFeedsTestURL);
 
   {

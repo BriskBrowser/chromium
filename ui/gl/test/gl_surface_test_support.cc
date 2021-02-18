@@ -23,7 +23,6 @@
 #endif
 
 #if defined(USE_X11)
-#include "ui/gfx/x/x11.h"  // nogncheck
 #endif
 
 #if defined(USE_X11) || defined(USE_OZONE)
@@ -35,14 +34,6 @@ namespace gl {
 namespace {
 void InitializeOneOffHelper(bool init_extensions) {
   DCHECK_EQ(kGLImplementationNone, GetGLImplementation());
-
-  // TODO(https://crbug.com/1036285): delete this once USE_X11 is removed. If
-  // Ozone/X11 is used, XThreads are initialized with the
-  // OzonePlatform::InitializeForGPU call.
-#if defined(USE_X11)
-  if (!features::IsUsingOzonePlatform())
-    XInitThreads();
-#endif
 
 #if defined(USE_OZONE)
   if (features::IsUsingOzonePlatform()) {
@@ -75,8 +66,29 @@ void InitializeOneOffHelper(bool init_extensions) {
   DCHECK(!allowed_impls.empty());
 
   GLImplementation impl = allowed_impls[0];
-  if (use_software_gl)
+  if (use_software_gl) {
     impl = gl::GetSoftwareGLImplementation();
+
+#if !defined(OS_ANDROID) && !defined(OS_FUCHSIA)
+#if defined(USE_OZONE)
+    if (!features::IsUsingOzonePlatform())
+#endif
+    {
+      // If ANGLE is available use it with SwiftShader Vulkan instead of using
+      // SwiftShader GL
+      for (auto i : allowed_impls) {
+        if (i == kGLImplementationEGLANGLE) {
+          impl = kGLImplementationEGLANGLE;
+          base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+              switches::kUseANGLE, kANGLEImplementationSwiftShaderName);
+          base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+              switches::kUseCmdDecoder, kCmdDecoderValidatingName);
+          break;
+        }
+      }
+    }
+#endif
+  }
 
   DCHECK(!base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kUseGL))
       << "kUseGL has not effect in tests";

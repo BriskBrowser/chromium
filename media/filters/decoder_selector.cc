@@ -13,10 +13,11 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/single_thread_task_runner.h"
+#include "base/sequenced_task_runner.h"
 #include "base/strings/stringprintf.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "media/base/audio_decoder.h"
 #include "media/base/cdm_context.h"
 #include "media/base/demuxer_stream.h"
@@ -32,59 +33,104 @@ namespace {
 
 const char kSelectDecoderTrace[] = "DecoderSelector::SelectDecoder";
 
-template <typename T>
-DecoderPriority UnspecifiedDecoderPriority(const T& /*config*/) {
-  return DecoderPriority::kUnspecified;
+bool SkipDecoderForRTC(const AudioDecoderConfig& /*config*/,
+                       const AudioDecoder& /*decoder*/) {
+  return false;
 }
 
-DecoderPriority GetDefaultVideoDecoderPriority(
-    const VideoDecoderConfig& config) {
+bool SkipDecoderForRTC(const VideoDecoderConfig& config,
+                       const VideoDecoder& decoder) {
+  // For now, we assume that RTC decoders are able to decode non-RTC streams,
+  // presumably by configuring themselves based on the config's rtc bit.  Since
+  // no decoders take any action at all based on it, this is as good as any.
+  return config.is_rtc() && !decoder.IsOptimizedForRTC();
+}
+
+template <typename ConfigT, typename DecoderT>
+DecoderPriority NormalDecoderPriority(const ConfigT& config,
+                                      const DecoderT& decoder) {
+  if (SkipDecoderForRTC(config, decoder))
+    return DecoderPriority::kSkipped;
+
+  return DecoderPriority::kNormal;
+}
+
+DecoderPriority ResolutionBasedDecoderPriority(const VideoDecoderConfig& config,
+                                               const VideoDecoder& decoder) {
 #if defined(OS_ANDROID)
   constexpr auto kSoftwareDecoderHeightCutoff = 360;
-#elif defined(OS_CHROMEOS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH)
   constexpr auto kSoftwareDecoderHeightCutoff = 360;
 #else
   constexpr auto kSoftwareDecoderHeightCutoff = 720;
 #endif
 
-  // We only do a height check to err on the side of hardware decoding
-  return config.visible_rect().height() < kSoftwareDecoderHeightCutoff
-             ? DecoderPriority::kPreferSoftwareDecoders
-             : DecoderPriority::kPreferPlatformDecoders;
+  if (SkipDecoderForRTC(config, decoder))
+    return DecoderPriority::kSkipped;
+
+  // We only do a height check to err on the side of prioritizing platform
+  // decoders.
+  const auto at_or_above_software_cutoff =
+      config.visible_rect().height() >= kSoftwareDecoderHeightCutoff;
+
+  // Platform decoders are deprioritized below the cutoff, and non-platform
+  // decoders are deprioritized above it.
+  return at_or_above_software_cutoff == decoder.IsPlatformDecoder()
+             ? DecoderPriority::kNormal
+             : DecoderPriority::kDeprioritized;
+}
+
+template <typename ConfigT, typename DecoderT>
+DecoderPriority SkipNonPlatformDecoders(const ConfigT& config,
+                                        const DecoderT& decoder) {
+  if (SkipDecoderForRTC(config, decoder))
+    return DecoderPriority::kSkipped;
+
+  return decoder.IsPlatformDecoder() ? DecoderPriority::kNormal
+                                     : DecoderPriority::kSkipped;
 }
 
 void SetDefaultDecoderPriorityCB(VideoDecoderSelector::DecoderPriorityCB* out) {
-  if (base::FeatureList::IsEnabled(kResolutionBasedDecoderPriority)) {
-    *out = base::BindRepeating(GetDefaultVideoDecoderPriority);
+  if (base::FeatureList::IsEnabled(kForceHardwareVideoDecoders)) {
+    *out = base::BindRepeating(
+        SkipNonPlatformDecoders<VideoDecoderConfig, VideoDecoder>);
+  } else if (base::FeatureList::IsEnabled(kResolutionBasedDecoderPriority)) {
+    *out = base::BindRepeating(ResolutionBasedDecoderPriority);
   } else {
-    *out = base::BindRepeating<DecoderPriority(const VideoDecoderConfig&)>(
-        UnspecifiedDecoderPriority);
+    *out = base::BindRepeating(
+        NormalDecoderPriority<VideoDecoderConfig, VideoDecoder>);
   }
 }
 
 void SetDefaultDecoderPriorityCB(AudioDecoderSelector::DecoderPriorityCB* out) {
-  // Platform audio decoders are not currently prioritized or deprioritized
-  *out = base::BindRepeating<DecoderPriority(const AudioDecoderConfig&)>(
-      UnspecifiedDecoderPriority);
+  if (base::FeatureList::IsEnabled(kForceHardwareAudioDecoders)) {
+    *out = base::BindRepeating(
+        SkipNonPlatformDecoders<AudioDecoderConfig, AudioDecoder>);
+  } else {
+    // Platform audio decoders are not currently prioritized or deprioritized
+    *out = base::BindRepeating(
+        NormalDecoderPriority<AudioDecoderConfig, AudioDecoder>);
+  }
 }
 
 }  // namespace
 
 template <DemuxerStream::Type StreamType>
 DecoderSelector<StreamType>::DecoderSelector(
-    scoped_refptr<base::SingleThreadTaskRunner> task_runner,
+    scoped_refptr<base::SequencedTaskRunner> task_runner,
     CreateDecodersCB create_decoders_cb,
     MediaLog* media_log)
     : task_runner_(std::move(task_runner)),
       create_decoders_cb_(std::move(create_decoders_cb)),
       media_log_(media_log) {
+  DETACH_FROM_SEQUENCE(sequence_checker_);
   SetDefaultDecoderPriorityCB(&decoder_priority_cb_);
 }
 
 template <DemuxerStream::Type StreamType>
 DecoderSelector<StreamType>::~DecoderSelector() {
   DVLOG(2) << __func__;
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (select_decoder_cb_)
     ReturnNullDecoder();
 }
@@ -109,7 +155,7 @@ void DecoderSelector<StreamType>::SelectDecoder(
     SelectDecoderCB select_decoder_cb,
     typename Decoder::OutputCB output_cb) {
   DVLOG(2) << __func__;
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(select_decoder_cb);
   DCHECK(!select_decoder_cb_);
   select_decoder_cb_ = std::move(select_decoder_cb);
@@ -140,7 +186,7 @@ void DecoderSelector<StreamType>::SelectDecoder(
 template <DemuxerStream::Type StreamType>
 void DecoderSelector<StreamType>::FinalizeDecoderSelection() {
   DVLOG(2) << __func__;
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!select_decoder_cb_);
   is_selecting_decoders_ = false;
 
@@ -174,7 +220,7 @@ void DecoderSelector<StreamType>::FinalizeDecoderSelection() {
 template <DemuxerStream::Type StreamType>
 void DecoderSelector<StreamType>::NotifyConfigChanged() {
   DVLOG(2) << __func__;
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   is_selecting_for_config_change_ = true;
 
@@ -189,7 +235,7 @@ template <DemuxerStream::Type StreamType>
 void DecoderSelector<StreamType>::PrependDecoder(
     std::unique_ptr<Decoder> decoder) {
   DVLOG(2) << __func__;
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   // Decoders inserted directly should be given priority over those returned by
   // |create_decoders_cb_|.
@@ -220,7 +266,7 @@ void DecoderSelector<StreamType>::CreateDecoders() {
 template <DemuxerStream::Type StreamType>
 void DecoderSelector<StreamType>::InitializeDecoder() {
   DVLOG(2) << __func__;
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!decoder_);
 
   if (decoders_.empty()) {
@@ -255,7 +301,7 @@ template <DemuxerStream::Type StreamType>
 void DecoderSelector<StreamType>::OnDecoderInitializeDone(Status status) {
   DVLOG(2) << __func__ << ": " << decoder_->GetDisplayName()
            << " success=" << std::hex << status.code();
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   if (!status.is_ok()) {
     // TODO(tmathmeyer) this was too noisy in media log. Batch all the logs
@@ -276,7 +322,7 @@ void DecoderSelector<StreamType>::OnDecoderInitializeDone(Status status) {
 template <DemuxerStream::Type StreamType>
 void DecoderSelector<StreamType>::ReturnNullDecoder() {
   DVLOG(1) << __func__ << ": No decoder selected";
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   decrypting_demuxer_stream_.reset();
   decoder_.reset();
@@ -306,7 +352,7 @@ template <DemuxerStream::Type StreamType>
 void DecoderSelector<StreamType>::OnDecryptingDemuxerStreamInitializeDone(
     PipelineStatus status) {
   DVLOG(2) << __func__ << ": status=" << status;
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   if (status != PIPELINE_OK) {
     // Since we already tried every potential decoder without DDS, give up.
@@ -346,31 +392,31 @@ void DecoderSelector<StreamType>::RunSelectDecoderCB() {
 
 template <DemuxerStream::Type StreamType>
 void DecoderSelector<StreamType>::FilterAndSortAvailableDecoders() {
-  // Filter out any decoders that do not support decryption
-  if (config_.is_encrypted()) {
-    auto const non_decrypting = std::remove_if(
-        decoders_.begin(), decoders_.end(),
-        [](auto& decoder) { return !decoder->SupportsDecryption(); });
-    decoders_.erase(non_decrypting, decoders_.end());
+  std::vector<std::unique_ptr<Decoder>> decoders = std::move(decoders_);
+  std::vector<std::unique_ptr<Decoder>> deprioritized_decoders;
+
+  for (auto& decoder : decoders) {
+    // Skip the decoder if this decoder doesn't support encryption for a
+    // decrypting config
+    if (config_.is_encrypted() && !decoder->SupportsDecryption())
+      continue;
+
+    // Run the predicate on this decoder.
+    switch (decoder_priority_cb_.Run(config_, *decoder)) {
+      case DecoderPriority::kSkipped:
+        continue;
+      case DecoderPriority::kNormal:
+        decoders_.push_back(std::move(decoder));
+        break;
+      case DecoderPriority::kDeprioritized:
+        deprioritized_decoders.push_back(std::move(decoder));
+        break;
+    }
   }
 
-  // If platform decoders are prioritized for this config, shift all platform
-  // decoders to the front of the list (retaining their relative order).
-  const auto decoder_priority = decoder_priority_cb_.Run(config_);
-  switch (decoder_priority) {
-    case DecoderPriority::kUnspecified:
-      break;
-    case DecoderPriority::kPreferPlatformDecoders:
-    case DecoderPriority::kPreferSoftwareDecoders: {
-      auto prefer_platform_decoder =
-          decoder_priority == DecoderPriority::kPreferPlatformDecoders;
-      std::stable_partition(decoders_.begin(), decoders_.end(),
-                            [prefer_platform_decoder](auto& decoder) {
-                              return decoder->IsPlatformDecoder() ==
-                                     prefer_platform_decoder;
-                            });
-    } break;
-  }
+  // Post-insert deprioritized decoders
+  std::move(deprioritized_decoders.begin(), deprioritized_decoders.end(),
+            std::inserter(decoders_, decoders_.end()));
 }
 
 // These forward declarations tell the compiler that we will use

@@ -10,6 +10,8 @@
 
 namespace blink {
 
+class NGTableNode;
+
 // Table size distribution algorithms.
 class CORE_EXPORT NGTableAlgorithmHelpers {
  public:
@@ -24,30 +26,27 @@ class CORE_EXPORT NGTableAlgorithmHelpers {
     return current_column + 1;
   }
 
-  // Flex/grid containing blocks need Table minmax size to be computed without
-  // using percentages.
-  // |containing_block_expects_minmax_without_percentages| is used to do
-  // this.
   // |undistributable_space| is size of space not occupied by cells
   // (borders, border spacing).
-  static void ComputeGridInlineMinmax(
-      NGTableTypes::Columns& column_constraints,
-      bool is_fixed_layout,
-      bool containing_block_expects_minmax_without_percentages,
+  static MinMaxSizes ComputeGridInlineMinMax(
+      const NGTableNode& node,
+      const NGTableTypes::Columns& column_constraints,
       LayoutUnit undistributable_space,
-      MinMaxSizes* minmax_sum);
+      bool is_fixed_layout,
+      bool is_layout_pass,
+      bool skip_collapsed_columns);
 
-  static void DistributeColspanCellToColumns(
-      const NGTableTypes::ColspanCell& colspan_cell,
+  static void DistributeColspanCellsToColumns(
+      const NGTableTypes::ColspanCells& colspan_cells,
       LayoutUnit inline_border_spacing,
       bool is_fixed_layout,
       NGTableTypes::Columns* column_constraints);
 
-  static void SynchronizeAssignableTableInlineSizeAndColumns(
+  static Vector<LayoutUnit> SynchronizeAssignableTableInlineSizeAndColumns(
       LayoutUnit assignable_table_inline_size,
       LayoutUnit inline_border_spacing,
       bool is_fixed_layout,
-      NGTableTypes::Columns* column_constraints);
+      const NGTableTypes::Columns& column_constraints);
 
   static void DistributeRowspanCellToRows(
       const NGTableTypes::RowspanCell& rowspan_cell,

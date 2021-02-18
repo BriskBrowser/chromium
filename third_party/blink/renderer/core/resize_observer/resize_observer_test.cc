@@ -254,21 +254,18 @@ TEST_F(ResizeObserverUnitTest, TestMemoryLeaks) {
   const HeapLinkedHashSet<WeakMember<ResizeObserver>>& observers =
       controller.Observers();
   ASSERT_EQ(observers.size(), 0U);
-  v8::HandleScope scope(v8::Isolate::GetCurrent());
-
-  LocalFrame* frame = Window().GetFrame();
 
   //
   // Test whether ResizeObserver is kept alive by direct JS reference
   //
   ClassicScript::CreateUnspecifiedScript(
       ScriptSourceCode("var ro = new ResizeObserver( entries => {});"))
-      ->RunScriptAndReturnValue(
-          frame, ScriptController::kExecuteScriptWhenScriptsDisabled);
+      ->RunScript(&Window(),
+                  ExecuteScriptPolicy::kExecuteScriptWhenScriptsDisabled);
   ASSERT_EQ(observers.size(), 1U);
   ClassicScript::CreateUnspecifiedScript(ScriptSourceCode("ro = undefined;"))
-      ->RunScriptAndReturnValue(
-          frame, ScriptController::kExecuteScriptWhenScriptsDisabled);
+      ->RunScript(&Window(),
+                  ExecuteScriptPolicy::kExecuteScriptWhenScriptsDisabled);
   ThreadState::Current()->CollectAllGarbageForTesting();
   WebHeap::CollectAllGarbageForTesting();
   ASSERT_EQ(observers.IsEmpty(), true);
@@ -281,15 +278,15 @@ TEST_F(ResizeObserverUnitTest, TestMemoryLeaks) {
                        "var el = document.createElement('div');"
                        "ro.observe(el);"
                        "ro = undefined;"))
-      ->RunScriptAndReturnValue(
-          frame, ScriptController::kExecuteScriptWhenScriptsDisabled);
+      ->RunScript(&Window(),
+                  ExecuteScriptPolicy::kExecuteScriptWhenScriptsDisabled);
   ASSERT_EQ(observers.size(), 1U);
   ThreadState::Current()->CollectAllGarbageForTesting();
   WebHeap::CollectAllGarbageForTesting();
   ASSERT_EQ(observers.size(), 1U);
   ClassicScript::CreateUnspecifiedScript(ScriptSourceCode("el = undefined;"))
-      ->RunScriptAndReturnValue(
-          frame, ScriptController::kExecuteScriptWhenScriptsDisabled);
+      ->RunScript(&Window(),
+                  ExecuteScriptPolicy::kExecuteScriptWhenScriptsDisabled);
   ThreadState::Current()->CollectAllGarbageForTesting();
   WebHeap::CollectAllGarbageForTesting();
   ASSERT_EQ(observers.IsEmpty(), true);

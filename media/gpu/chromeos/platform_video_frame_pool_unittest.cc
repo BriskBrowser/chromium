@@ -9,7 +9,7 @@
 #include <memory>
 #include <vector>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "gpu/command_buffer/common/mailbox_holder.h"
@@ -23,12 +23,14 @@ namespace media {
 
 namespace {
 
+template <uint64_t modifier>
 scoped_refptr<VideoFrame> CreateGpuMemoryBufferVideoFrame(
     gpu::GpuMemoryBufferFactory* factory,
     VideoPixelFormat format,
     const gfx::Size& coded_size,
     const gfx::Rect& visible_rect,
     const gfx::Size& natural_size,
+    bool use_protected,
     base::TimeDelta timestamp) {
   base::Optional<gfx::BufferFormat> gfx_format =
       VideoPixelFormatToGfxBufferFormat(format);
@@ -36,7 +38,7 @@ scoped_refptr<VideoFrame> CreateGpuMemoryBufferVideoFrame(
   const gpu::MailboxHolder mailbox_holders[VideoFrame::kMaxPlanes] = {};
   return VideoFrame::WrapExternalGpuMemoryBuffer(
       visible_rect, natural_size,
-      std::make_unique<FakeGpuMemoryBuffer>(coded_size, *gfx_format),
+      std::make_unique<FakeGpuMemoryBuffer>(coded_size, *gfx_format, modifier),
       mailbox_holders, base::NullCallback(), timestamp);
 }
 
@@ -48,7 +50,9 @@ class PlatformVideoFramePoolTest
   PlatformVideoFramePoolTest()
       : task_environment_(base::test::TaskEnvironment::TimeSource::MOCK_TIME),
         pool_(new PlatformVideoFramePool(nullptr)) {
-    SetCreateFrameCB(base::BindRepeating(&CreateGpuMemoryBufferVideoFrame));
+    SetCreateFrameCB(
+        base::BindRepeating(&CreateGpuMemoryBufferVideoFrame<
+                            gfx::NativePixmapHandle::kNoModifier>));
     pool_->set_parent_task_runner(base::ThreadTaskRunnerHandle::Get());
   }
 
@@ -65,7 +69,8 @@ class PlatformVideoFramePoolTest
     visible_rect_ = visible_rect;
     natural_size_ = visible_rect.size();
     layout_ = pool_->Initialize(fourcc, coded_size, visible_rect_,
-                                natural_size_, kNumFrames);
+                                natural_size_, kNumFrames,
+                                /*use_protected=*/false);
     return !!layout_;
   }
 
@@ -73,6 +78,7 @@ class PlatformVideoFramePoolTest
     scoped_refptr<VideoFrame> frame = pool_->GetFrame();
     frame->set_timestamp(base::TimeDelta::FromMilliseconds(timestamp_ms));
 
+    EXPECT_EQ(layout_->modifier(), frame->layout().modifier());
     EXPECT_EQ(layout_->fourcc(),
               *Fourcc::FromVideoPixelFormat(frame->format()));
     EXPECT_EQ(layout_->size(), frame->coded_size());
@@ -284,12 +290,25 @@ TEST_P(PlatformVideoFramePoolTest, InitializeFail) {
   SetCreateFrameCB(base::BindRepeating(
       [](gpu::GpuMemoryBufferFactory* factory, VideoPixelFormat format,
          const gfx::Size& coded_size, const gfx::Rect& visible_rect,
-         const gfx::Size& natural_size, base::TimeDelta timestamp) {
+         const gfx::Size& natural_size, bool use_protected,
+         base::TimeDelta timestamp) {
         auto frame = scoped_refptr<VideoFrame>(nullptr);
         return frame;
       }));
 
   EXPECT_FALSE(Initialize(fourcc.value()));
+}
+
+TEST_P(PlatformVideoFramePoolTest, ModifierIsPassed) {
+  const uint64_t kSampleModifier = 0x001234567890abcdULL;
+  const auto fourcc = Fourcc::FromVideoPixelFormat(GetParam());
+  ASSERT_TRUE(fourcc.has_value());
+  SetCreateFrameCB(
+      base::BindRepeating(&CreateGpuMemoryBufferVideoFrame<kSampleModifier>));
+  ASSERT_TRUE(Initialize(fourcc.value()));
+
+  EXPECT_EQ(layout_->modifier(), kSampleModifier);
+  EXPECT_TRUE(GetFrame(10));
 }
 
 // TODO(akahuang): Add a testcase to verify calling Initialize() only with

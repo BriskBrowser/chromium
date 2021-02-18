@@ -39,7 +39,7 @@ void HttpCredentialCleaner::StartCleaning(Observer* observer) {
 }
 
 void HttpCredentialCleaner::OnGetPasswordStoreResults(
-    std::vector<std::unique_ptr<autofill::PasswordForm>> results) {
+    std::vector<std::unique_ptr<PasswordForm>> results) {
   // Non HTTP or HTTPS credentials are ignored, in particular Android or
   // federated credentials.
   for (auto& form : RemoveNonHTTPOrHTTPSForms(std::move(results))) {
@@ -52,7 +52,8 @@ void HttpCredentialCleaner::OnGetPasswordStoreResults(
       PostHSTSQueryForHostAndNetworkContext(
           origin, network_context_getter_.Run(),
           base::BindOnce(&HttpCredentialCleaner::OnHSTSQueryResult,
-                         base::Unretained(this), std::move(form), form_key));
+                         weak_ptr_factory_.GetWeakPtr(), std::move(form),
+                         form_key));
       ++total_http_credentials_;
     } else {  // HTTPS
       https_credentials_map_[form_key].insert(form->password_value);
@@ -64,7 +65,7 @@ void HttpCredentialCleaner::OnGetPasswordStoreResults(
 }
 
 void HttpCredentialCleaner::OnHSTSQueryResult(
-    std::unique_ptr<autofill::PasswordForm> form,
+    std::unique_ptr<PasswordForm> form,
     FormKey key,
     HSTSResult hsts_result) {
   ++processed_results_;

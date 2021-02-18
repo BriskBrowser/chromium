@@ -27,14 +27,13 @@
 #include "build/build_config.h"
 #include "gpu/command_buffer/common/mailbox_holder.h"
 #include "gpu/ipc/common/vulkan_ycbcr_info.h"
-#include "media/base/hdr_metadata.h"
-#include "media/base/video_frame_feedback.h"
 #include "media/base/video_frame_layout.h"
 #include "media/base/video_frame_metadata.h"
 #include "media/base/video_types.h"
 #include "ui/gfx/color_space.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/gfx/hdr_metadata.h"
 
 #if defined(OS_MAC)
 #include <CoreVideo/CVPixelBuffer.h>
@@ -47,6 +46,7 @@
 
 namespace gfx {
 class GpuMemoryBuffer;
+struct GpuMemoryBufferHandle;
 }
 
 namespace media {
@@ -235,6 +235,19 @@ class MEDIA_EXPORT VideoFrame : public base::RefCountedThreadSafe<VideoFrame> {
       uint8_t* a_data,
       base::TimeDelta timestamp);
 
+  // Wraps external NV12 data of the given parameters with a VideoFrame.
+  // The returned VideoFrame does not own the data passed in.
+  static scoped_refptr<VideoFrame> WrapExternalYuvData(
+      VideoPixelFormat format,
+      const gfx::Size& coded_size,
+      const gfx::Rect& visible_rect,
+      const gfx::Size& natural_size,
+      int32_t y_stride,
+      int32_t uv_stride,
+      uint8_t* y_data,
+      uint8_t* uv_data,
+      base::TimeDelta timestamp);
+
   // Wraps |gpu_memory_buffer| along with the mailboxes created from
   // |gpu_memory_buffer|. |mailbox_holders_release_cb| will be called with a
   // sync token as the argument when the VideoFrame is to be destroyed.
@@ -276,6 +289,16 @@ class MEDIA_EXPORT VideoFrame : public base::RefCountedThreadSafe<VideoFrame> {
   // http://crbug.com/401308
   static scoped_refptr<VideoFrame> WrapCVPixelBuffer(
       CVPixelBufferRef cv_pixel_buffer,
+      base::TimeDelta timestamp);
+
+  // Wraps a provided IOSurface with a VideoFrame. The IOSurface is retained
+  // and locked for the lifetime of the VideoFrame. This is for unaccelerated
+  // (CPU-only) access to the IOSurface, and is not efficient. It is the path
+  // that video capture uses when hardware acceleration is disabled.
+  // https://crbug.com/1125879
+  static scoped_refptr<VideoFrame> WrapUnacceleratedIOSurface(
+      gfx::GpuMemoryBufferHandle handle,
+      const gfx::Rect& visible_rect,
       base::TimeDelta timestamp);
 #endif
 
@@ -419,11 +442,11 @@ class MEDIA_EXPORT VideoFrame : public base::RefCountedThreadSafe<VideoFrame> {
     color_space_ = color_space;
   }
 
-  const base::Optional<HDRMetadata>& hdr_metadata() const {
+  const base::Optional<gfx::HDRMetadata>& hdr_metadata() const {
     return hdr_metadata_;
   }
 
-  void set_hdr_metadata(const base::Optional<HDRMetadata>& hdr_metadata) {
+  void set_hdr_metadata(const base::Optional<gfx::HDRMetadata>& hdr_metadata) {
     hdr_metadata_ = hdr_metadata;
   }
 
@@ -536,19 +559,14 @@ class MEDIA_EXPORT VideoFrame : public base::RefCountedThreadSafe<VideoFrame> {
   //
   // TODO(miu): Move some of the "extra" members of VideoFrame (below) into
   // here as a later clean-up step.
-  //
-  // TODO(https://crbug.com/1096727): change the return type to const&.
-  const VideoFrameMetadata* metadata() const { return &metadata_; }
-  VideoFrameMetadata* metadata() { return &metadata_; }
+  const VideoFrameMetadata& metadata() const { return metadata_; }
+  VideoFrameMetadata& metadata() { return metadata_; }
   void set_metadata(const VideoFrameMetadata& metadata) {
     metadata_ = metadata;
   }
 
   // Resets |metadata_|.
   void clear_metadata() { set_metadata(VideoFrameMetadata()); }
-
-  const VideoFrameFeedback* feedback() const { return &feedback_; }
-  VideoFrameFeedback* feedback() { return &feedback_; }
 
   // The time span between the current frame and the first frame of the stream.
   // This is the media timestamp, and not the reference time.
@@ -703,13 +721,11 @@ class MEDIA_EXPORT VideoFrame : public base::RefCountedThreadSafe<VideoFrame> {
 
   VideoFrameMetadata metadata_;
 
-  VideoFrameFeedback feedback_;
-
   // Generated at construction time.
   const int unique_id_;
 
   gfx::ColorSpace color_space_;
-  base::Optional<HDRMetadata> hdr_metadata_;
+  base::Optional<gfx::HDRMetadata> hdr_metadata_;
 
   // Sampler conversion information which is used in vulkan context for android.
   base::Optional<gpu::VulkanYCbCrInfo> ycbcr_info_;

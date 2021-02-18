@@ -77,6 +77,8 @@
                                recentTabsContextMenuDelegate:self];
     self.recentTabsTableViewController.menuProvider =
         self.recentTabsContextMenuHelper;
+    self.recentTabsTableViewController.session =
+        self.baseViewController.view.window.windowScene.session;
   }
 
   // Adds the "Done" button and hooks it up to |stop|.
@@ -179,14 +181,10 @@
   [self showActiveRegularTabFromRecentTabs];
 }
 
-- (void)dismissRecentTabs {
+- (void)showActiveRegularTabFromRecentTabs {
   // Stopping this coordinator reveals the tab UI underneath.
   self.completion = nil;
   [self stop];
-}
-
-- (void)showActiveRegularTabFromRecentTabs {
-  [self dismissRecentTabs];
 }
 
 - (void)showHistoryFromRecentTabs {

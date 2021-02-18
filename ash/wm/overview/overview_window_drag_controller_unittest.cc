@@ -22,9 +22,8 @@
 #include "ash/wm/splitview/split_view_controller.h"
 #include "ash/wm/splitview/split_view_drag_indicators.h"
 #include "ash/wm/window_util.h"
-#include "base/stl_util.h"
+#include "base/containers/contains.h"
 #include "base/test/scoped_feature_list.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/display/test/display_manager_test_api.h"
 #include "ui/events/test/event_generator.h"
@@ -98,93 +97,6 @@ class WindowCloseWaiter : public aura::WindowObserver {
 };
 
 }  // namespace
-
-// Tests the behavior of window dragging in overview when the Clamshell
-// SplitView feature is disabled.
-class NoClamshellSplitViewTest : public AshTestBase {
- public:
-  NoClamshellSplitViewTest() = default;
-  ~NoClamshellSplitViewTest() override = default;
-
-  // AshTestBase:
-  void SetUp() override {
-    scoped_feature_list_.InitWithFeatures(
-        /*enabled_features=*/{},
-        /*disabled_features=*/{features::kDragToSnapInClamshellMode});
-
-    AshTestBase::SetUp();
-  }
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(NoClamshellSplitViewTest);
-};
-
-TEST_F(NoClamshellSplitViewTest, NormalDragIsNotPossible) {
-  auto window = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
-  wm::ActivateWindow(window.get());
-  EXPECT_EQ(window.get(), window_util::GetActiveWindow());
-  auto* overview_controller = Shell::Get()->overview_controller();
-  overview_controller->StartOverview();
-  EXPECT_TRUE(overview_controller->InOverviewSession());
-  auto* overview_session = overview_controller->overview_session();
-  auto* overview_item =
-      overview_session->GetOverviewItemForWindow(window.get());
-  ASSERT_TRUE(overview_item);
-
-  auto* event_generator = GetEventGenerator();
-  // Drag the item by an enough amount in X that would normally trigger the
-  // normal drag mode.
-  StartDraggingItemBy(overview_item, 50, 0, /*by_touch_gestures=*/true,
-                      event_generator);
-  OverviewWindowDragController* drag_controller =
-      overview_session->window_drag_controller();
-  EXPECT_EQ(OverviewWindowDragController::DragBehavior::kUndefined,
-            drag_controller->current_drag_behavior());
-
-  // Drop the window, and expect that overview mode exits and the window is
-  // activated.
-  event_generator->ReleaseTouch();
-  EXPECT_FALSE(overview_controller->InOverviewSession());
-  EXPECT_EQ(window.get(), window_util::GetActiveWindow());
-}
-
-TEST_F(NoClamshellSplitViewTest, CanDoDragToClose) {
-  auto window = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
-  wm::ActivateWindow(window.get());
-  EXPECT_EQ(window.get(), window_util::GetActiveWindow());
-  auto* overview_controller = Shell::Get()->overview_controller();
-  overview_controller->StartOverview();
-  EXPECT_TRUE(overview_controller->InOverviewSession());
-  auto* overview_session = overview_controller->overview_session();
-  auto* overview_item =
-      overview_session->GetOverviewItemForWindow(window.get());
-  ASSERT_TRUE(overview_item);
-
-  auto* event_generator = GetEventGenerator();
-  // Dragging with a bigger Y-component than X should trigger the drag-to-close
-  // mode.
-  StartDraggingItemBy(overview_item, 30, 50, /*by_touch_gestures=*/true,
-                      event_generator);
-  OverviewWindowDragController* drag_controller =
-      overview_session->window_drag_controller();
-  EXPECT_EQ(OverviewWindowDragController::DragBehavior::kDragToClose,
-            drag_controller->current_drag_behavior());
-
-  // Continue dragging vertically and drop. Expect that overview exists since
-  // it's the only window on the grid.
-  event_generator->MoveMouseBy(0, 200);
-  // release() the window as it will be closed and destroyed when we drop it.
-  aura::Window* window_ptr = window.release();
-  WindowCloseWaiter waiter{window_ptr};
-  event_generator->ReleaseTouch();
-  waiter.Wait();
-  EXPECT_FALSE(overview_controller->InOverviewSession());
-  EXPECT_FALSE(base::Contains(
-      Shell::Get()->mru_window_tracker()->BuildMruWindowList(kAllDesks),
-      window_ptr));
-}
 
 using OverviewWindowDragControllerTest = AshTestBase;
 
@@ -281,9 +193,7 @@ TEST_F(OverviewWindowDragControllerTest,
 
 // Tests the behavior of dragging a window in portrait tablet mode with virtual
 // desks enabled.
-class OverviewWindowDragControllerDesksPortraitTabletTest
-    : public AshTestBase,
-      public testing::WithParamInterface<bool> {
+class OverviewWindowDragControllerDesksPortraitTabletTest : public AshTestBase {
  public:
   OverviewWindowDragControllerDesksPortraitTabletTest() = default;
   ~OverviewWindowDragControllerDesksPortraitTabletTest() override = default;
@@ -321,20 +231,10 @@ class OverviewWindowDragControllerDesksPortraitTabletTest
 
   // AshTestBase:
   void SetUp() override {
-    if (GetParam()) {
-      scoped_feature_list_.InitWithFeatures(
-          /* enabled */ {chromeos::features::kShelfHotseat},
-          /* disabled */ {});
-    } else {
-      scoped_feature_list_.InitWithFeatures(
-          /* enabled */ {},
-          /* disabled */ {chromeos::features::kShelfHotseat});
-    }
-
     AshTestBase::SetUp();
 
     // Setup a portrait internal display in tablet mode.
-    UpdateDisplay("800x600");
+    UpdateDisplay("800x700");
     const int64_t display_id =
         display::Screen::GetScreen()->GetPrimaryDisplay().id();
     display::test::ScopedSetInternalDisplayId set_internal(display_manager(),
@@ -388,12 +288,10 @@ class OverviewWindowDragControllerDesksPortraitTabletTest
   }
 
  private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-
   DISALLOW_COPY_AND_ASSIGN(OverviewWindowDragControllerDesksPortraitTabletTest);
 };
 
-TEST_P(OverviewWindowDragControllerDesksPortraitTabletTest,
+TEST_F(OverviewWindowDragControllerDesksPortraitTabletTest,
        DragAndDropInEmptyArea) {
   auto window = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
   StartDraggingAndValidateDesksBarShifted(window.get());
@@ -407,7 +305,7 @@ TEST_P(OverviewWindowDragControllerDesksPortraitTabletTest,
   EXPECT_EQ(0, desks_bar_widget()->GetWindowBoundsInScreen().y());
 }
 
-TEST_P(OverviewWindowDragControllerDesksPortraitTabletTest,
+TEST_F(OverviewWindowDragControllerDesksPortraitTabletTest,
        DragAndDropInSnapAreas) {
   auto window = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
   StartDraggingAndValidateDesksBarShifted(window.get());
@@ -450,7 +348,7 @@ TEST_P(OverviewWindowDragControllerDesksPortraitTabletTest,
             desks_bar_widget()->GetWindowBoundsInScreen().y());
 }
 
-TEST_P(OverviewWindowDragControllerDesksPortraitTabletTest, DragAndDropInDesk) {
+TEST_F(OverviewWindowDragControllerDesksPortraitTabletTest, DragAndDropInDesk) {
   auto window = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
   StartDraggingAndValidateDesksBarShifted(window.get());
 
@@ -482,9 +380,5 @@ TEST_P(OverviewWindowDragControllerDesksPortraitTabletTest, DragAndDropInDesk) {
   EXPECT_EQ(SplitViewDragIndicators::WindowDraggingState::kNoDrag,
             drag_indicators()->current_window_dragging_state());
 }
-
-INSTANTIATE_TEST_SUITE_P(All,
-                         OverviewWindowDragControllerDesksPortraitTabletTest,
-                         testing::Bool());
 
 }  // namespace ash

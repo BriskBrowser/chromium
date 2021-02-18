@@ -24,7 +24,6 @@ class PseudoDir;
 }  // namespace vfs
 
 namespace base {
-namespace fuchsia {
 
 template <typename Interface>
 class BASE_EXPORT ScopedServiceBinding {
@@ -32,13 +31,14 @@ class BASE_EXPORT ScopedServiceBinding {
   // Published a public service in the specified |outgoing_directory|.
   // |outgoing_directory| and |impl| must outlive the binding.
   ScopedServiceBinding(sys::OutgoingDirectory* outgoing_directory,
-                       Interface* impl)
-      : publisher_(outgoing_directory, bindings_.GetHandler(impl)) {}
+                       Interface* impl, base::StringPiece name = Interface::Name_)
+      : publisher_(outgoing_directory, bindings_.GetHandler(impl), name) {}
 
   // Publishes a service in the specified |pseudo_dir|. |pseudo_dir| and |impl|
   // must outlive the binding.
-  ScopedServiceBinding(vfs::PseudoDir* pseudo_dir, Interface* impl)
-      : publisher_(pseudo_dir, bindings_.GetHandler(impl)) {}
+  ScopedServiceBinding(vfs::PseudoDir* pseudo_dir, Interface* impl,
+                       base::StringPiece name = Interface::Name_)
+      : publisher_(pseudo_dir, bindings_.GetHandler(impl), name) {}
 
   ~ScopedServiceBinding() = default;
 
@@ -73,11 +73,13 @@ class BASE_EXPORT ScopedSingleClientServiceBinding {
  public:
   // |outgoing_directory| and |impl| must outlive the binding.
   ScopedSingleClientServiceBinding(sys::OutgoingDirectory* outgoing_directory,
-                                   Interface* impl)
+                                   Interface* impl,
+                                   base::StringPiece name = Interface::Name_)
       : binding_(impl) {
     publisher_.emplace(
         outgoing_directory,
-        fit::bind_member(this, &ScopedSingleClientServiceBinding::BindClient));
+        fit::bind_member(this, &ScopedSingleClientServiceBinding::BindClient),
+        name);
     binding_.set_error_handler(fit::bind_member(
         this, &ScopedSingleClientServiceBinding::OnBindingEmpty));
   }
@@ -120,7 +122,6 @@ class BASE_EXPORT ScopedSingleClientServiceBinding {
   DISALLOW_COPY_AND_ASSIGN(ScopedSingleClientServiceBinding);
 };
 
-}  // namespace fuchsia
 }  // namespace base
 
 #endif  // BASE_FUCHSIA_SCOPED_SERVICE_BINDING_H_

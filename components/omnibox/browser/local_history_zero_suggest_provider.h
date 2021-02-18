@@ -17,15 +17,13 @@ namespace history {
 class QueryResults;
 }  // namespace history
 
+extern const int kLocalHistoryZPSAuthenticatedRelevance;
+extern const int kLocalHistoryZPSUnauthenticatedRelevance;
+
 // Autocomplete provider for on-focus zero-prefix query suggestions from local
 // history when Google is the default search engine.
 class LocalHistoryZeroSuggestProvider : public AutocompleteProvider {
  public:
-  // ZeroSuggestVariant field trial param value for the local history query
-  // suggestions.
-  // Public for testing.
-  static const char kZeroSuggestLocalVariant[];
-
   // Creates and returns an instance of this provider.
   static LocalHistoryZeroSuggestProvider* Create(
       AutocompleteProviderClient* client,
@@ -45,6 +43,9 @@ class LocalHistoryZeroSuggestProvider : public AutocompleteProvider {
       delete;
   LocalHistoryZeroSuggestProvider& operator=(
       const LocalHistoryZeroSuggestProvider&) = delete;
+
+  // Returns whether the primary account is available. No sync consent required.
+  bool IsSignedIn();
 
   // Queries the keyword search terms table of the in-memory URLDatabase for the
   // recent search terms submitted to the default search provider.

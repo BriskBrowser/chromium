@@ -32,19 +32,24 @@
 #define THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_VIEW_H_
 
 #include "base/time/time.h"
-#include "third_party/blink/public/common/page/web_drag_operation.h"
+#include "third_party/blink/public/common/page/drag_operation.h"
+#include "third_party/blink/public/common/renderer_preferences/renderer_preferences.h"
+#include "third_party/blink/public/common/web_preferences/web_preferences.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom-shared.h"
 #include "third_party/blink/public/mojom/page/page.mojom-shared.h"
 #include "third_party/blink/public/mojom/page/page_visibility_state.mojom-shared.h"
+#include "third_party/blink/public/mojom/renderer_preference_watcher.mojom-shared.h"
 #include "third_party/blink/public/mojom/widget/screen_orientation.mojom-shared.h"
 #include "third_party/blink/public/platform/cross_variant_mojo_util.h"
+#include "third_party/blink/public/platform/scheduler/web_agent_group_scheduler.h"
 #include "third_party/blink/public/platform/web_string.h"
+#include "third_party/blink/public/platform/web_url.h"
+#include "third_party/blink/public/web/web_settings.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/geometry/size.h"
 
 namespace cc {
 class PaintCanvas;
-struct BrowserControlsParams;
 }
 
 namespace gfx {
@@ -61,17 +66,14 @@ class WebFrame;
 class WebFrameWidget;
 class WebHitTestResult;
 class WebLocalFrame;
-class WebPageImportanceSignals;
+class WebNoStatePrefetchClient;
 class WebPagePopup;
-class WebPrerendererClient;
 class WebRemoteFrame;
 class WebSettings;
 class WebString;
 class WebViewClient;
 class WebWidget;
 struct DeviceEmulationParams;
-struct WebRect;
-struct WebSize;
 struct WebWindowFeatures;
 
 class WebView {
@@ -110,13 +112,11 @@ class WebView {
       bool compositing_enabled,
       WebView* opener,
       CrossVariantMojoAssociatedReceiver<mojom::PageBroadcastInterfaceBase>
-          page_handle);
+          page_handle,
+      scheduler::WebAgentGroupScheduler& agent_group_scheduler);
 
   // Destroys the WebView.
   virtual void Close() = 0;
-
-  // Sets whether the WebView is focused.
-  virtual void SetFocus(bool enable) = 0;
 
   // Called to inform WebViewImpl that a local main frame has been attached.
   // After this call MainFrameImpl() will return a valid frame until it is
@@ -133,13 +133,7 @@ class WebView {
   // Called to inform WebViewImpl that a remote main frame has been detached.
   virtual void DidDetachRemoteMainFrame() = 0;
 
-  // Initializes the various client interfaces.
-  virtual void SetPrerendererClient(WebPrerendererClient*) = 0;
-
-  // Called when some JS code has instructed the window associated to the main
-  // frame to close, which will result in a request to the browser to close the
-  // RenderWidget associated to it.
-  virtual void CloseWindowSoon() = 0;
+  virtual void SetNoStatePrefetchClient(WebNoStatePrefetchClient*) = 0;
 
   // Options -------------------------------------------------------------
 
@@ -150,13 +144,8 @@ class WebView {
   // encoding may cause the main frame to reload.
   virtual WebString PageEncoding() const = 0;
 
-  // Controls whether pressing Tab key advances focus to links.
-  virtual bool TabsToLinks() const = 0;
-  virtual void SetTabsToLinks(bool) = 0;
-
   // Method that controls whether pressing Tab key cycles through page
   // elements or inserts a '\t' char in the focused text area.
-  virtual bool TabKeyCyclesThroughElements() const = 0;
   virtual void SetTabKeyCyclesThroughElements(bool) = 0;
 
   // Controls the WebView's active state, which may affect the rendering
@@ -190,14 +179,6 @@ class WebView {
   // Advance the focus of the WebView forward to the next element or to the
   // previous element in the tab sequence (if reverse is true).
   virtual void AdvanceFocus(bool reverse) {}
-
-  // Changes the zoom and scroll for zooming into an editable element
-  // with bounds |element_bounds_in_document| and caret bounds
-  // |caret_bounds_in_document|.
-  virtual void ZoomAndScrollToFocusedEditableElementRect(
-      const WebRect& element_bounds_in_document,
-      const WebRect& caret_bounds_in_document,
-      bool zoom_into_legible_scale) = 0;
 
   // Zoom ----------------------------------------------------------------
 
@@ -246,19 +227,8 @@ class WebView {
   // page scale set in the page's viewport meta tag.
   virtual void SetInitialPageScaleOverride(float) = 0;
 
-  // Sets the maximum page scale considered to be legible. Automatic zooms (e.g,
-  // double-tap or find in page) will have the page scale limited to this value
-  // times the font scale factor. Manual pinch zoom will not be affected by this
-  // limit.
-  virtual void SetMaximumLegibleScale(float) = 0;
-
   // Reset any saved values for the scroll and scale state.
   virtual void ResetScrollAndScaleState() = 0;
-
-  // Prevent the web page from setting min/max scale via the viewport meta
-  // tag. This is an accessibility feature that lets folks zoom in to web
-  // pages even if the web page tries to block scaling.
-  virtual void SetIgnoreViewportTagScaleLimits(bool) = 0;
 
   // Returns the "preferred" contents size, defined as the preferred minimum
   // width of the main document's contents and the minimum height required to
@@ -269,7 +239,7 @@ class WebView {
   //
   // This may only be called when there is a local main frame attached to this
   // WebView.
-  virtual WebSize ContentsPreferredMinimumSize() = 0;
+  virtual gfx::Size ContentsPreferredMinimumSize() = 0;
 
   // Check whether the preferred size has changed. This should only be called
   // with up-to-date layout.
@@ -277,9 +247,6 @@ class WebView {
 
   // Indicates that view's preferred size changes will be sent to the browser.
   virtual void EnablePreferredSizeChangedMode() = 0;
-
-  // Asks the browser process to activate this web view.
-  virtual void Focus() = 0;
 
   // Sets the ratio as computed by computePageScaleConstraints.
   // TODO(oshima): Remove this once the device scale factor implementation is
@@ -293,39 +260,17 @@ class WebView {
 
   virtual float ZoomFactorForDeviceScaleFactor() = 0;
 
-  // This method is used for testing.
-  // Resize the view at the same time as changing the state of the top
-  // controls. If |browser_controls_shrink_layout| is true, the embedder shrunk
-  // the WebView size by the browser controls height.
-  virtual void ResizeWithBrowserControls(
-      const WebSize& main_frame_widget_size,
-      float top_controls_height,
-      float bottom_controls_height,
-      bool browser_controls_shrink_layout) = 0;
-  // This method is used for testing.
-  // Resizes the unscaled (page scale = 1.0) visual viewport. Normally the
-  // unscaled visual viewport is the same size as the main frame. The passed
-  // size becomes the size of the viewport when page scale = 1. This
-  // is used to shrink the visible viewport to allow things like the ChromeOS
-  // virtual keyboard to overlay over content but allow scrolling it into view.
-  virtual void ResizeVisualViewport(const WebSize&) = 0;
-
-  // Same as ResizeWithBrowserControls(const WebSize&,float,float,bool), but
-  // includes all browser controls params such as the min heights.
-  virtual void ResizeWithBrowserControls(
-      const WebSize& main_frame_widget_size,
-      const WebSize& visible_viewport_size,
-      cc::BrowserControlsParams browser_controls_params) = 0;
-
-  // Same as ResizeWithBrowserControls, but keeps the same BrowserControl
-  // settings.
-  virtual void Resize(const WebSize&) = 0;
-
-  virtual WebSize GetSize() = 0;
-
   // Override the screen orientation override.
   virtual void SetScreenOrientationOverrideForTesting(
       base::Optional<blink::mojom::ScreenOrientation> orientation) = 0;
+
+  // Enable/Disable synchronous resize mode that is used for web tests.
+  virtual void UseSynchronousResizeModeForTesting(bool enable) = 0;
+
+  // Set the window rect synchronously for testing. The normal flow is an
+  // asynchronous request to the browser.
+  virtual void SetWindowRectSynchronouslyForTesting(
+      const gfx::Rect& new_window_rect) = 0;
 
   // Auto-Resize -----------------------------------------------------------
 
@@ -344,13 +289,7 @@ class WebView {
   // Do a hit test equivalent to what would be done for a GestureTap event
   // that has width/height corresponding to the supplied |tapArea|.
   virtual WebHitTestResult HitTestResultForTap(const gfx::Point& tap_point,
-                                               const WebSize& tap_area) = 0;
-
-  // Support for resource loading initiated by plugins -------------------
-
-  // Returns next unused request identifier which is unique within the
-  // parent Page.
-  virtual uint64_t CreateUniqueIdentifierForRequest() = 0;
+                                               const gfx::Size& tap_area) = 0;
 
   // Developer tools -----------------------------------------------------
 
@@ -427,17 +366,6 @@ class WebView {
       mojom::PageVisibilityState visibility,
       mojom::PagehideDispatch pagehide_dispatch) = 0;
 
-  // Page Importance Signals ----------------------------------------------
-
-  virtual WebPageImportanceSignals* PageImportanceSignals() { return nullptr; }
-
-  // i18n -----------------------------------------------------------------
-
-  // Inform the WebView that the accept languages have changed.
-  // If the WebView wants to get the accept languages value, it will have
-  // to call the WebViewClient::acceptLanguages().
-  virtual void AcceptLanguagesChanged() = 0;
-
   // Lifecycle state ------------------------------------------------------
 
   // Freezes or unfreezes the page and all the local frames.
@@ -451,7 +379,7 @@ class WebView {
   virtual void AddAutoplayFlags(int32_t flags) = 0;
   virtual void ClearAutoplayFlags() = 0;
   virtual int32_t AutoplayFlagsForTest() = 0;
-  virtual WebSize GetPreferredSizeForTest() = 0;
+  virtual gfx::Size GetPreferredSizeForTest() = 0;
 
   // Non-composited support -----------------------------------------------
 
@@ -476,7 +404,26 @@ class WebView {
   // after.
   virtual void PaintContent(cc::PaintCanvas*, const gfx::Rect& viewport) = 0;
 
-  // Suspend and resume ---------------------------------------------------
+  // Renderer preferences ---------------------------------------------------
+
+  virtual void RegisterRendererPreferenceWatcher(
+      CrossVariantMojoRemote<mojom::RendererPreferenceWatcherInterfaceBase>
+          watcher) = 0;
+
+  virtual void SetRendererPreferences(
+      const RendererPreferences& preferences) = 0;
+  virtual const RendererPreferences& GetRendererPreferences() = 0;
+
+  // Web preferences ---------------------------------------------------
+
+  // Applies blink related preferences to this view.
+  BLINK_EXPORT static void ApplyWebPreferences(
+      const web_pref::WebPreferences& prefs,
+      WebView* web_view);
+
+  virtual void SetWebPreferences(
+      const web_pref::WebPreferences& preferences) = 0;
+  virtual const web_pref::WebPreferences& GetWebPreferences() = 0;
 
   // TODO(lfg): Remove this once the refactor of WebView/WebWidget is
   // completed.

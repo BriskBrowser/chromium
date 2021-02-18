@@ -177,21 +177,22 @@ TEST(PerformanceLifetimeTest, SurviveContextSwitch) {
   ASSERT_TRUE(document_loader);
   document_loader->GetTiming().SetNavigationStart(base::TimeTicks::Now());
 
-  EXPECT_EQ(&page_holder->GetFrame(), perf->GetFrame());
-  EXPECT_EQ(&page_holder->GetFrame(), timing->GetFrame());
+  EXPECT_EQ(page_holder->GetFrame().DomWindow(), perf->DomWindow());
+  EXPECT_EQ(page_holder->GetFrame().DomWindow(), timing->DomWindow());
   auto navigation_start = timing->navigationStart();
   EXPECT_NE(0U, navigation_start);
 
   // Simulate changing the document while keeping the window.
   std::unique_ptr<WebNavigationParams> params =
-      WebNavigationParams::CreateWithHTMLBuffer(SharedBuffer::Create(), url);
+      WebNavigationParams::CreateWithHTMLBufferForTesting(
+          SharedBuffer::Create(), url);
   page_holder->GetFrame().Loader().CommitNavigation(std::move(params), nullptr);
 
   EXPECT_EQ(perf, DOMWindowPerformance::performance(
                       *page_holder->GetFrame().DomWindow()));
   EXPECT_EQ(timing, perf->timing());
-  EXPECT_EQ(&page_holder->GetFrame(), perf->GetFrame());
-  EXPECT_EQ(&page_holder->GetFrame(), timing->GetFrame());
+  EXPECT_EQ(page_holder->GetFrame().DomWindow(), perf->DomWindow());
+  EXPECT_EQ(page_holder->GetFrame().DomWindow(), timing->DomWindow());
   EXPECT_LE(navigation_start, timing->navigationStart());
 }
 

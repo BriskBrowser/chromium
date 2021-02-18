@@ -82,22 +82,22 @@ void WebStateDelegateBridge::OnAuthRequired(
     WebState* source,
     NSURLProtectionSpace* protection_space,
     NSURLCredential* proposed_credential,
-    const AuthCallback& callback) {
-  AuthCallback local_callback(callback);
+    AuthCallback callback) {
   if ([delegate_
           respondsToSelector:@selector(webState:
                                  didRequestHTTPAuthForProtectionSpace:
                                                    proposedCredential:
                                                     completionHandler:)]) {
+    __block AuthCallback local_callback = std::move(callback);
     [delegate_ webState:source
         didRequestHTTPAuthForProtectionSpace:protection_space
                           proposedCredential:proposed_credential
                            completionHandler:^(NSString* username,
                                                NSString* password) {
-                             local_callback.Run(username, password);
+                             std::move(local_callback).Run(username, password);
                            }];
   } else {
-    local_callback.Run(nil, nil);
+    std::move(callback).Run(nil, nil);
   }
 }
 
@@ -140,16 +140,20 @@ UIView* WebStateDelegateBridge::GetWebViewContainer(WebState* source) {
 
 void WebStateDelegateBridge::ContextMenuConfiguration(
     WebState* source,
-    const GURL& link_url,
+    const ContextMenuParams& params,
+    UIContextMenuContentPreviewProvider preview_provider,
     void (^completion_handler)(UIContextMenuConfiguration*))
     API_AVAILABLE(ios(13.0)) {
-  if ([delegate_
-          respondsToSelector:@selector
-          (webState:
-              contextMenuConfigurationForLinkWithURL:completionHandler:)]) {
+  if ([delegate_ respondsToSelector:@selector
+                 (webState:
+                     contextMenuConfigurationForParams:previewProvider
+                                                      :completionHandler:)]) {
     [delegate_ webState:source
-        contextMenuConfigurationForLinkWithURL:link_url
-                             completionHandler:completion_handler];
+        contextMenuConfigurationForParams:params
+                          previewProvider:preview_provider
+                        completionHandler:completion_handler];
+  } else {
+    completion_handler(nil);
   }
 }
 
@@ -183,6 +187,14 @@ void WebStateDelegateBridge::ContextMenuWillPresent(WebState* source,
                  (webState:contextMenuWillPresentForLinkWithURL:)]) {
     [delegate_ webState:source contextMenuWillPresentForLinkWithURL:link_url];
   }
+}
+
+id<CRWResponderInputView> WebStateDelegateBridge::GetResponderInputView(
+    WebState* source) {
+  if ([delegate_ respondsToSelector:@selector(webStateInputViewProvider:)]) {
+    return [delegate_ webStateInputViewProvider:source];
+  }
+  return nil;
 }
 
 }  // web

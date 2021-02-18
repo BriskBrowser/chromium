@@ -8,6 +8,7 @@
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -39,13 +40,13 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/base_window.h"
 
-#if defined(OS_CHROMEOS)
-#include "ash/public/cpp/window_pin_type.h"
-#include "ash/public/cpp/window_properties.h"
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/extensions/window_controller.h"
 #include "chrome/browser/extensions/window_controller_list.h"
 #include "chrome/browser/ui/browser_command_controller.h"
+#include "chromeos/ui/base/window_pin_type.h"
+#include "chromeos/ui/base/window_properties.h"
 #include "ui/aura/window.h"
 #endif
 
@@ -84,7 +85,7 @@ bool WaitForTabsPopupsApps(Browser* browser,
         browser->tab_strip_model()->count() == num_tabs)
       break;
 
-    content::RunAllPendingInMessageLoop();
+    content::RunAllTasksUntilIdle();
   }
 
   EXPECT_EQ(num_browsers, chrome::GetBrowserCount(browser->profile()));
@@ -360,7 +361,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest,
   }
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace {
 
@@ -377,14 +378,14 @@ aura::Window* GetCurrentWindow() {
   return controller->window()->GetNativeWindow();
 }
 
-ash::WindowPinType GetCurrentWindowPinType() {
-  ash::WindowPinType type =
-      GetCurrentWindow()->GetProperty(ash::kWindowPinTypeKey);
+chromeos::WindowPinType GetCurrentWindowPinType() {
+  chromeos::WindowPinType type =
+      GetCurrentWindow()->GetProperty(chromeos::kWindowPinTypeKey);
   return type;
 }
 
-void SetCurrentWindowPinType(ash::WindowPinType type) {
-  GetCurrentWindow()->SetProperty(ash::kWindowPinTypeKey, type);
+void SetCurrentWindowPinType(chromeos::WindowPinType type) {
+  GetCurrentWindow()->SetProperty(chromeos::kWindowPinTypeKey, type);
 }
 
 }  // namespace
@@ -396,7 +397,7 @@ IN_PROC_BROWSER_TEST_F(WindowOpenApiTest, OpenLockedFullscreenWindow) {
 
   // Make sure the newly created window is "trusted pinned" (which means that
   // it's in locked fullscreen mode).
-  EXPECT_EQ(ash::WindowPinType::kTrustedPinned, GetCurrentWindowPinType());
+  EXPECT_EQ(chromeos::WindowPinType::kTrustedPinned, GetCurrentWindowPinType());
 }
 
 IN_PROC_BROWSER_TEST_F(WindowOpenApiTest, UpdateWindowToLockedFullscreen) {
@@ -405,13 +406,13 @@ IN_PROC_BROWSER_TEST_F(WindowOpenApiTest, UpdateWindowToLockedFullscreen) {
       << message_;
 
   // Make sure the current window is put into the "trusted pinned" state.
-  EXPECT_EQ(ash::WindowPinType::kTrustedPinned, GetCurrentWindowPinType());
+  EXPECT_EQ(chromeos::WindowPinType::kTrustedPinned, GetCurrentWindowPinType());
 }
 
 IN_PROC_BROWSER_TEST_F(WindowOpenApiTest, RemoveLockedFullscreenFromWindow) {
   // After locking the window, do a LockedFullscreenStateChanged so the
   // command_controller state catches up as well.
-  SetCurrentWindowPinType(ash::WindowPinType::kTrustedPinned);
+  SetCurrentWindowPinType(chromeos::WindowPinType::kTrustedPinned);
   browser()->command_controller()->LockedFullscreenStateChanged();
 
   ASSERT_TRUE(RunExtensionTestWithArg("locked_fullscreen/with_permission",
@@ -419,7 +420,7 @@ IN_PROC_BROWSER_TEST_F(WindowOpenApiTest, RemoveLockedFullscreenFromWindow) {
       << message_;
 
   // Make sure the current window is removed from locked-fullscreen state.
-  EXPECT_EQ(ash::WindowPinType::kNone, GetCurrentWindowPinType());
+  EXPECT_EQ(chromeos::WindowPinType::kNone, GetCurrentWindowPinType());
 }
 
 // Make sure that commands disabling code works in locked fullscreen mode.
@@ -439,7 +440,7 @@ IN_PROC_BROWSER_TEST_F(WindowOpenApiTest, VerifyCommandsInLockedFullscreen) {
   EXPECT_FALSE(
       browser()->command_controller()->IsCommandEnabled(IDC_ZOOM_PLUS));
 
-  // Verify some whitelisted commands.
+  // Verify some allowlisted commands.
   EXPECT_TRUE(browser()->command_controller()->IsCommandEnabled(IDC_COPY));
   EXPECT_TRUE(browser()->command_controller()->IsCommandEnabled(IDC_PASTE));
 }
@@ -465,12 +466,12 @@ IN_PROC_BROWSER_TEST_F(WindowOpenApiTest,
 
   // chrome.windows.update call fails since this extension doesn't have the
   // correct permission and hence the current window has NONE as WindowPinType.
-  EXPECT_EQ(ash::WindowPinType::kNone, GetCurrentWindowPinType());
+  EXPECT_EQ(chromeos::WindowPinType::kNone, GetCurrentWindowPinType());
 }
 
 IN_PROC_BROWSER_TEST_F(WindowOpenApiTest,
                        RemoveLockedFullscreenFromWindowWithoutPermission) {
-  SetCurrentWindowPinType(ash::WindowPinType::kTrustedPinned);
+  SetCurrentWindowPinType(chromeos::WindowPinType::kTrustedPinned);
   browser()->command_controller()->LockedFullscreenStateChanged();
 
   ASSERT_TRUE(RunExtensionTestWithArg("locked_fullscreen/without_permission",
@@ -478,19 +479,19 @@ IN_PROC_BROWSER_TEST_F(WindowOpenApiTest,
       << message_;
 
   // The current window is still locked-fullscreen.
-  EXPECT_EQ(ash::WindowPinType::kTrustedPinned, GetCurrentWindowPinType());
+  EXPECT_EQ(chromeos::WindowPinType::kTrustedPinned, GetCurrentWindowPinType());
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 // Loading an extension requiring the 'lockWindowFullscreenPrivate' permission
 // on non Chrome OS platforms should always fail since the API is available only
 // on Chrome OS.
 IN_PROC_BROWSER_TEST_F(WindowOpenApiTest,
                        OpenLockedFullscreenWindowNonChromeOS) {
-  const extensions::Extension* extension = LoadExtensionWithFlags(
+  const extensions::Extension* extension = LoadExtension(
       test_data_dir_.AppendASCII("locked_fullscreen/with_permission"),
-      kFlagIgnoreManifestWarnings);
+      {.ignore_manifest_warnings = true});
   ASSERT_TRUE(extension);
   EXPECT_EQ(1u, extension->install_warnings().size());
   EXPECT_EQ(std::string("'lockWindowFullscreenPrivate' "

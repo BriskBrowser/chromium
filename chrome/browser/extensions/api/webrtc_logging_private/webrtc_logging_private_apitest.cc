@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/json/json_writer.h"
 #include "base/strings/string_split.h"
@@ -398,7 +398,8 @@ class WebrtcLoggingPrivateApiTest : public extensions::ExtensionApiTest {
 
   void SetUpPeerConnection(const std::string& session_id = "") {
     auto* manager = WebRtcEventLogManager::GetInstance();
-    auto* rph = web_contents()->GetRenderViewHost()->GetProcess();
+    auto* rph =
+        web_contents()->GetMainFrame()->GetRenderViewHost()->GetProcess();
 
     const int render_process_id = rph->GetID();
     const int lid = 0;
@@ -696,8 +697,10 @@ class WebrtcLoggingPrivateApiStartEventLoggingTestBase
   }
 
   void SetUpInProcessBrowserTestFixture() override {
-    EXPECT_CALL(provider_, IsInitializationComplete(testing::_))
-        .WillRepeatedly(testing::Return(true));
+    ON_CALL(provider_, IsInitializationComplete(testing::_))
+        .WillByDefault(testing::Return(true));
+    ON_CALL(provider_, IsFirstPolicyLoadComplete(testing::_))
+        .WillByDefault(testing::Return(true));
 
     policy::BrowserPolicyConnector::SetPolicyProviderForTesting(&provider_);
     policy::PolicyMap values;
@@ -719,7 +722,7 @@ class WebrtcLoggingPrivateApiStartEventLoggingTestBase
   virtual bool WebRtcEventLogCollectionPolicy() const = 0;
 
  private:
-  policy::MockConfigurationPolicyProvider provider_;
+  testing::NiceMock<policy::MockConfigurationPolicyProvider> provider_;
 };
 
 // Test StartEventLogging's behavior when the feature is active (kill-switch

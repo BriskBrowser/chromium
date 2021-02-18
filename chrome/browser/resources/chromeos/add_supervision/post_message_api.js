@@ -3,12 +3,24 @@
 // found in the LICENSE file.
 
 /**
+ *  Initialization retry wait in milliseconds (subject to exponential backoff).
+ */
+const INITIALIZATION_ATTEMPT_RETRY_WAIT_MS = 100;
+
+/**
+ * Maximum number of initialization attempts before resetting the
+ * initialization attempt cycle.  With exponential backoff, this works out
+ * a maximum wait of 25 seconds on the 8th attempt before restarting.
+ */
+const MAX_INITIALIZATION_ATTEMPTS = 8;
+
+/**
  * Class that provides the functionality for talking to a client
  * over the PostMessageAPI.  This should be subclassed and the
  * methods provided in methodList should be implemented as methods
  * of the subclass.
  */
-class PostMessageAPIServer {
+export class PostMessageAPIServer {
   constructor(clientElement, methodList, targetURL, messageOriginURLFilter) {
     /**
      * The Window type element to which this server will listen for messages,
@@ -36,16 +48,36 @@ class PostMessageAPIServer {
 
     /**
      * Map that stores references to the methods implemented by the API.
-     * @private {!Map<string, function(!Array): (Promise|undefined)>}
+     * @private {!Map<string, function(!Array):?>}
      */
     this.apiFns_ = new Map();
 
-    // Listen for the embedding element to finish loading, then
-    // tell it to initialize by sending it a message, which will include
-    // a handle for it to use to send messages back.
+    /**
+     *  The ID of the timeout set before checking whether initialization has
+     * taken place yet.
+     * @private {number}
+     */
+    this.initialization_timeout_id_ = 0;
+
+    /**
+     * Indicates how many attempts have been made to initialize the channel.
+     * @private {number}
+     */
+    this.numInitializationAttempts_ = 0;
+
+    /**
+     * Indicates whether the communication channel between this server and the
+     * WebView has been established.
+     * @private {boolean}
+     */
+    this.isInitialized_ = false;
+
+    // Wait for content to load before attempting to initializing the
+    // message listener.
     this.clientElement_.addEventListener('contentload', () => {
-      this.clientElement_.contentWindow.postMessage(
-          'init', this.targetURL_.toString());
+      this.numInitializationAttempts_ = 0;
+      this.isInitialized_ = false;
+      this.initialize();
     });
 
     // Listen for events.
@@ -59,20 +91,67 @@ class PostMessageAPIServer {
    * function.
    *
    * @param {!string} methodName name of the method to register.
-   * @param {!function(!Array): (Promise|undefined)} method The function to
-   *     associate with the name.
+   * @param {!function(!Array):?} method The function to associate with the
+   *     name.
    */
   registerMethod(methodName, method) {
     this.apiFns_.set(methodName, method);
   }
 
   /**
+   * Send initialization message to client element.
+   */
+  initialize() {
+    if (this.isInitialized_ ||
+        !this.originMatchesFilter(this.clientElement_.src)) {
+      return;
+    }
+
+    if (this.numInitializationAttempts_ < MAX_INITIALIZATION_ATTEMPTS) {
+      // Tell the embedded webviews whose src matches our origin to initialize
+      // by sending it a message, which will include a handle for it to use to
+      // send messages back.
+      console.log(
+          'Sending init message to guest content,  attempt # :' +
+          this.numInitializationAttempts_);
+
+      this.clientElement_.contentWindow.postMessage(
+          'init', this.targetURL_.toString());
+
+      // Set timeout to check if initialization message has been received using
+      // exponential backoff.
+      this.initialization_timeout_id_ = setTimeout(
+          () => {
+            // If the timeout id is non-zero, that indicates that initialization
+            // hasn't succeeded yet, so  try to initialize again.
+            this.initialize();
+          },
+          INITIALIZATION_ATTEMPT_RETRY_WAIT_MS *
+              (2 ** this.numInitializationAttempts_));
+
+      this.numInitializationAttempts_++;
+    } else {
+      // Exponential backoff has maxed out. Show error page if present.
+      this.onInitializationError(this.clientElement_.src);
+    }
+  }
+
+  /**
+   *  Virtual method to be overridden by implementations of this class to notify
+   * them that we were unable to initialize communication channel with the
+   * `clientElement_`.
+   *
+   * @param {!string} origin The origin URL that was not able to initialize
+   *     communication.
+   */
+  onInitializationError(origin) {}
+
+  /**
    * Determines if the specified origin matches the origin filter.
-   * @private
    * @param {!string} origin The origin URL to match with the filter.
    * @return {boolean}  whether the specified origin matches the filter.
    */
-  originMatchesFilter_(origin) {
+  originMatchesFilter(origin) {
     const originURL = new URL(origin);
 
     // We allow the pathname portion of the URL to be a prefix filter,
@@ -88,11 +167,29 @@ class PostMessageAPIServer {
    * @param {Event} event  The postMessage event to handle.
    */
   onMessage_(event) {
-    if (!this.originMatchesFilter_(event.origin)) {
-      console.error(
-          'Message received from unauthorized origin: ' + event.origin);
+    if (!this.originMatchesFilter(event.origin)) {
+      console.log('Message received from unauthorized origin: ' + event.origin);
       return;
     }
+
+    if (event.data === 'init') {
+      if (this.initialization_timeout_id_) {
+        // Cancel the current init timeout, and signal to the initialization
+        // polling process that we have received an init message from the guest
+        // content, so it doesn't reschedule the timer.
+        clearTimeout(this.initialization_timeout_id_);
+        this.initialization_timeout_id_ = 0;
+      }
+
+      this.isInitialized_ = true;
+      return;
+    }
+    // If we have gotten this far, we have received a message from a trusted
+    // origin, and we should try to process it.  We can't gate this on whether
+    // the channel is initialized, because we can receive events out of order,
+    // and method calls can be received before the init event. Essentially, we
+    // should treat the channel as being potentially as soon as we send 'init'
+    // to the guest content.
     const methodId = event.data.methodId;
     const fn = event.data.fn;
     const args = event.data.args || [];
@@ -128,7 +225,7 @@ class PostMessageAPIServer {
  * over the postMessage API.  This should be subclassed and the methods in the
  * server that the client needs to access should be provided in methodList.
  */
-class PostMessageAPIClient {
+export class PostMessageAPIClient {
   /**
    * @param {!Array<string>} methodList The list of methods accessible via the
    *     client.
@@ -199,7 +296,7 @@ class PostMessageAPIClient {
    *     sent from the server.
    */
   onInitialize_(event) {
-    if (!this.originMatchesFilter_(event.origin)) {
+    if (!this.originMatchesFilter(event.origin)) {
       console.error(
           'Initialization event received from non-authorized origin: ' +
           event.origin);
@@ -216,7 +313,7 @@ class PostMessageAPIClient {
    * @param {!string} origin The origin URL to match with the filter.
    * @return {boolean}  whether the specified origin matches the filter.
    */
-  originMatchesFilter_(origin) {
+  originMatchesFilter(origin) {
     return origin == this.serverOriginURLFilter_;
   }
 
@@ -226,7 +323,7 @@ class PostMessageAPIClient {
    *     API.
    */
   onMessage_(event) {
-    if (!this.originMatchesFilter_(event.origin)) {
+    if (!this.originMatchesFilter(event.origin)) {
       console.error(
           'Message received from non-authorized origin: ' + event.origin);
       return;

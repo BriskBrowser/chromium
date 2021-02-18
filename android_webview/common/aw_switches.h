@@ -10,7 +10,6 @@ namespace switches {
 extern const char kWebViewLogJsConsoleMessages[];
 extern const char kWebViewSandboxedRenderer[];
 extern const char kWebViewDisableSafebrowsingSupport[];
-extern const char kWebViewEnableVulkan[];
 extern const char kWebViewSafebrowsingBlockAllResources[];
 extern const char kHighlightAllWebViews[];
 extern const char kWebViewVerboseLogging[];
@@ -18,6 +17,7 @@ extern const char kFinchSeedExpirationAge[];
 extern const char kFinchSeedIgnorePendingDownload[];
 extern const char kFinchSeedMinDownloadPeriod[];
 extern const char kFinchSeedMinUpdatePeriod[];
+extern const char kWebViewEnableModernCookieSameSite[];
 
 }  // namespace switches
 

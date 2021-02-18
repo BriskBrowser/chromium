@@ -14,11 +14,12 @@
 #include "base/optional.h"
 #include "base/strings/string16.h"
 #include "chrome/browser/notifications/notification_common.h"
+#include "chrome/browser/notifications/notification_display_queue.h"
 #include "chrome/browser/notifications/notification_display_service.h"
 #include "chrome/browser/notifications/notification_handler.h"
+#include "chrome/browser/notifications/notification_platform_bridge_delegator.h"
 
 class GURL;
-class NotificationPlatformBridge;
 class Profile;
 
 namespace user_prefs {
@@ -52,7 +53,7 @@ class NotificationDisplayServiceImpl : public NotificationDisplayService {
   // received and dispatched to the right consumer depending on the type of
   // notification. Consumers include, service workers, pages, extensions...
   //
-  // TODO(peter): Remove this in favor of multiple targetted methods.
+  // TODO(peter): Remove this in favor of multiple targeted methods.
   virtual void ProcessNotificationOperation(
       NotificationCommon::Operation operation,
       NotificationHandler::Type notification_type,
@@ -92,22 +93,47 @@ class NotificationDisplayServiceImpl : public NotificationDisplayService {
                                     const base::Optional<bool>& by_user,
                                     Profile* profile);
 
+  // Sets the list of |blockers| to be used by the |notification_queue_|. Only
+  // used in tests.
+  void SetBlockersForTesting(
+      NotificationDisplayQueue::NotificationBlockers blockers);
+
+  // Sets the platform bridge delegator for tests.
+  void SetNotificationPlatformBridgeDelegatorForTesting(
+      std::unique_ptr<NotificationPlatformBridgeDelegator> bridge_delegator);
+
+  // Sets an implementation object to handle notification operations for
+  // |notification_type| and overrides any existing ones.
+  void OverrideNotificationHandlerForTesting(
+      NotificationHandler::Type notification_type,
+      std::unique_ptr<NotificationHandler> handler);
+
  private:
-  // Called when the NotificationPlatformBridge may have been initialized.
-  void OnNotificationPlatformBridgeReady(bool success);
+  // Called when the NotificationPlatformBridgeDelegator has been initialized.
+  void OnNotificationPlatformBridgeReady();
+
+  // Called after getting displayed notifications from the bridge so we can add
+  // any currently queued notification ids.
+  void OnGetDisplayed(DisplayedNotificationsCallback callback,
+                      std::set<std::string> notification_ids,
+                      bool supports_synchronization);
 
   Profile* profile_;
 
-  // Bridge responsible for displaying notifications on the platform. The
-  // message center's bridge is maintained for platforms where it is available.
-  std::unique_ptr<NotificationPlatformBridge> message_center_bridge_;
-  NotificationPlatformBridge* bridge_;
+  // This NotificationPlatformBridgeDelegator delegates to either the native
+  // bridge or to the MessageCenter if there is no native bridge or it does not
+  // support certain notification types.
+  std::unique_ptr<NotificationPlatformBridgeDelegator> bridge_delegator_;
 
   // Tasks that need to be run once the display bridge has been initialized.
   base::queue<base::OnceClosure> actions_;
 
-  // Boolean tracking whether the |bridge_| has been initialized for use.
-  bool bridge_initialized_ = false;
+  // Boolean tracking whether the |bridge_delegator_| has been initialized.
+  bool bridge_delegator_initialized_ = false;
+
+  // Notification queue that holds on to notifications instead of displaying
+  // them if certain blockers are temporarily active.
+  NotificationDisplayQueue notification_queue_{this};
 
   // Map containing the notification handlers responsible for processing events.
   std::map<NotificationHandler::Type, std::unique_ptr<NotificationHandler>>

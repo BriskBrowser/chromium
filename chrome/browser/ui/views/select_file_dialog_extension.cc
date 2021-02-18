@@ -9,18 +9,20 @@
 #include <string>
 #include <utility>
 
+#include "ash/constants/ash_features.h"
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/feature_list.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
-#include "base/memory/singleton.h"
+#include "base/no_destructor.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/apps/platform_apps/app_window_registry_util.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/extensions/file_manager/select_file_dialog_extension_user_data.h"
 #include "chrome/browser/chromeos/file_manager/app_id.h"
 #include "chrome/browser/chromeos/file_manager/fileapi_util.h"
@@ -29,7 +31,6 @@
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/chromeos/login/ui/login_web_dialog.h"
 #include "chrome/browser/chromeos/login/ui/webui_login_view.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_view_host.h"
@@ -40,7 +41,6 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/extensions/extension_dialog.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "extensions/browser/app_window/app_window.h"
 #include "extensions/browser/app_window/native_app_window.h"
 #include "extensions/browser/extension_system.h"
@@ -84,7 +84,8 @@ class PendingDialog {
 
 // static
 PendingDialog* PendingDialog::GetInstance() {
-  return base::Singleton<PendingDialog>::get();
+  static base::NoDestructor<PendingDialog> instance;
+  return instance.get();
 }
 
 void PendingDialog::Add(SelectFileDialogExtension::RoutingID id,
@@ -294,9 +295,9 @@ void SelectFileDialogExtension::OnFileSelectionCanceled(RoutingID routing_id) {
   dialog->selection_index_ = 0;
 }
 
-content::RenderViewHost* SelectFileDialogExtension::GetRenderViewHost() {
-  if (extension_dialog_.get())
-    return extension_dialog_->host()->render_view_host();
+content::RenderFrameHost* SelectFileDialogExtension::GetMainFrame() {
+  if (extension_dialog_)
+    return extension_dialog_->host()->main_frame_host();
   return nullptr;
 }
 
@@ -308,6 +309,7 @@ void SelectFileDialogExtension::SelectFileWithFileManagerParams(
     int file_type_index,
     void* params,
     const Owner& owner,
+    const std::string& search_query,
     bool show_android_picker_apps) {
   if (owner_window_) {
     LOG(ERROR) << "File dialog already in use!";
@@ -394,14 +396,16 @@ void SelectFileDialogExtension::SelectFileWithFileManagerParams(
       file_manager::util::GetFileManagerMainPageUrlWithParams(
           type, title, current_directory_url, selection_url,
           default_path.BaseName().value(), file_types, file_type_index,
-          show_android_picker_apps);
+          search_query, show_android_picker_apps);
 
   ExtensionDialog::InitParams dialog_params(
       {kFileManagerWidth, kFileManagerHeight});
   dialog_params.is_modal = (owner.window != nullptr);
   dialog_params.min_size = {kFileManagerMinimumWidth,
                             kFileManagerMinimumHeight};
-  dialog_params.title = file_manager::util::GetSelectFileDialogTitle(type);
+  dialog_params.title =
+      !title.empty() ? title
+                     : file_manager::util::GetSelectFileDialogTitle(type);
   if (base::FeatureList::IsEnabled(chromeos::features::kFilesNG)) {
     dialog_params.title_color = kFilePickerActiveTitleColor;
     dialog_params.title_inactive_color = kFilePickerInactiveTitleColor;
@@ -442,6 +446,7 @@ void SelectFileDialogExtension::SelectFileImpl(
   owner.window = owner_window;
   SelectFileWithFileManagerParams(type, title, default_path, file_types,
                                   file_type_index, params, owner,
+                                  /*search_query=*/"",
                                   /*show_android_picker_apps=*/false);
 }
 

@@ -33,6 +33,7 @@
 #include "third_party/blink/renderer/core/editing/frame_selection.h"
 #include "third_party/blink/renderer/core/editing/position_with_affinity.h"
 #include "third_party/blink/renderer/core/editing/text_granularity.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/page/event_with_hit_test_results.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 
@@ -46,7 +47,7 @@ class CORE_EXPORT SelectionController final
       public ExecutionContextLifecycleObserver {
  public:
   explicit SelectionController(LocalFrame&);
-  virtual ~SelectionController();
+  ~SelectionController() override;
   void Trace(Visitor*) const override;
 
   bool HandleMousePressEvent(const MouseEventWithHitTestResults&);

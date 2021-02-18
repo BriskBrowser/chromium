@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/guid.h"
 #include "base/rand_util.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -139,6 +139,16 @@ void TileServiceImpl::OnPrefetchImagesDone(
 
 TileGroup* TileServiceImpl::GetTileGroup() {
   return tile_manager_->GetTileGroup();
+}
+
+void TileServiceImpl::OnTileClicked(const std::string& tile_id) {
+  tile_manager_->OnTileClicked(tile_id);
+}
+
+void TileServiceImpl::OnQuerySelected(
+    const base::Optional<std::string>& parent_tile_id,
+    const base::string16& query_text) {
+  tile_manager_->OnQuerySelected(std::move(parent_tile_id), query_text);
 }
 
 Logger* TileServiceImpl::GetLogger() {

@@ -13,7 +13,6 @@
 #include "base/bind.h"
 #include "base/callback_list.h"
 #include "base/containers/flat_map.h"
-#include "base/macros.h"
 #include "base/no_destructor.h"
 #include "base/observer_list.h"
 #include "base/sequence_checker.h"
@@ -53,6 +52,9 @@ class AppListLaunchRecorder {
 
   static AppListLaunchRecorder* GetInstance();
 
+  AppListLaunchRecorder(const AppListLaunchRecorder&) = delete;
+  AppListLaunchRecorder& operator=(const AppListLaunchRecorder&) = delete;
+
  private:
   friend class base::NoDestructor<AppListLaunchRecorder>;
   friend class app_list::AppListLaunchMetricsProvider;
@@ -60,7 +62,6 @@ class AppListLaunchRecorder {
   using EventFn = void(const LaunchInfo&);
   using LaunchEventCallback = base::RepeatingCallback<EventFn>;
   using LaunchEventCallbackList = base::CallbackList<EventFn>;
-  using LaunchEventSubscription = LaunchEventCallbackList::Subscription;
 
   AppListLaunchRecorder();
   ~AppListLaunchRecorder();
@@ -92,14 +93,12 @@ class AppListLaunchRecorder {
   }
 
   // Registers a callback to be invoked on a call to Log().
-  std::unique_ptr<LaunchEventSubscription> RegisterCallback(
+  base::CallbackListSubscription RegisterCallback(
       const LaunchEventCallback& callback);
 
   LaunchEventCallbackList callback_list_;
 
   SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(AppListLaunchRecorder);
 };
 
 }  // namespace app_list

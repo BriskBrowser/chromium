@@ -32,7 +32,8 @@ void FakeLocalFrame::SendInterventionReport(const std::string& id,
 void FakeLocalFrame::SetFrameOwnerProperties(
     blink::mojom::FrameOwnerPropertiesPtr properties) {}
 
-void FakeLocalFrame::NotifyUserActivation() {}
+void FakeLocalFrame::NotifyUserActivation(
+    blink::mojom::UserActivationNotificationType notification_type) {}
 
 void FakeLocalFrame::NotifyVirtualKeyboardOverlayRect(const gfx::Rect&) {}
 
@@ -43,6 +44,8 @@ void FakeLocalFrame::AddMessageToConsole(
 
 void FakeLocalFrame::AddInspectorIssue(
     blink::mojom::InspectorIssueInfoPtr info) {}
+
+void FakeLocalFrame::SwapInImmediately() {}
 
 void FakeLocalFrame::CheckCompleted() {}
 
@@ -81,7 +84,7 @@ void FakeLocalFrame::MediaPlayerActionAt(
 
 void FakeLocalFrame::AdvanceFocusInFrame(
     blink::mojom::FocusType focus_type,
-    const base::Optional<base::UnguessableToken>& source_frame_token) {}
+    const base::Optional<blink::RemoteFrameToken>& source_frame_token) {}
 
 void FakeLocalFrame::AdvanceFocusInForm(blink::mojom::FocusType focus_type) {}
 
@@ -94,7 +97,7 @@ void FakeLocalFrame::DidUpdateFramePolicy(
 void FakeLocalFrame::OnScreensChange() {}
 
 void FakeLocalFrame::PostMessageEvent(
-    const base::Optional<base::UnguessableToken>& source_frame_token,
+    const base::Optional<blink::RemoteFrameToken>& source_frame_token,
     const base::string16& source_origin,
     const base::string16& target_origin,
     blink::TransferableMessage message) {}
@@ -116,6 +119,15 @@ void FakeLocalFrame::BindReportingObserver(
 
 void FakeLocalFrame::UpdateOpener(
     const base::Optional<base::UnguessableToken>& opener_frame_token) {}
+
+void FakeLocalFrame::MixedContentFound(
+    const GURL& main_resource_url,
+    const GURL& mixed_content_url,
+    blink::mojom::RequestContextType request_context,
+    bool was_allowed,
+    const GURL& url_before_redirects,
+    bool had_redirect,
+    network::mojom::SourceLocationPtr source_location) {}
 
 void FakeLocalFrame::BindFrameHostReceiver(
     mojo::ScopedInterfaceEndpointHandle handle) {

@@ -6,8 +6,10 @@ package org.chromium.chrome.browser;
 
 import android.app.Activity;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.res.Resources;
 import android.net.Uri;
 import android.os.ParcelFileDescriptor;
 import android.view.Window;
@@ -21,6 +23,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.supplier.ObservableSupplier;
+import org.chromium.base.supplier.OneshotSupplierImpl;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.task.TaskTraits;
 import org.chromium.base.test.util.CommandLineFlags;
@@ -154,7 +157,22 @@ public class ShareIntentTest {
         public Object getSystemService(String name) {
             // Prevents a scenario where InputMethodManager#hideSoftInput()
             // gets called before Activity#onCreate() gets called in this test.
-            return null;
+            return name.equals(Context.INPUT_SERVICE) ? null : mActivity.getSystemService(name);
+        }
+
+        @Override
+        public String getSystemServiceName(Class<?> serviceClass) {
+            return mActivity.getSystemServiceName(serviceClass);
+        }
+
+        @Override
+        public Resources getResources() {
+            return mActivity.getResources();
+        }
+
+        @Override
+        public Resources.Theme getTheme() {
+            return mActivity.getTheme();
         }
     }
 
@@ -170,7 +188,8 @@ public class ShareIntentTest {
         RootUiCoordinator rootUiCoordinator = TestThreadUtils.runOnUiThreadBlocking(() -> {
             return new RootUiCoordinator(mockActivity, null,
                     mockActivity.getShareDelegateSupplier(), mockActivity.getActivityTabProvider(),
-                    null, null, mockActivity.getOverviewModeBehaviorSupplier(), null);
+                    null, null, null, null, new OneshotSupplierImpl<>(),
+                    new OneshotSupplierImpl<>(), new OneshotSupplierImpl<>(), () -> null);
         });
         ShareHelper.setLastShareComponentName(new ComponentName("test.package", "test.activity"));
         // Skips the capture of screenshot and notifies with an empty file.

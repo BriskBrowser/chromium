@@ -65,6 +65,15 @@ _SUITE_REQUIRES_TEST_SERVER_SPAWNER = [
   'net_unittests', 'services_unittests', 'unit_tests'
 ]
 
+# These are use for code coverage.
+_LLVM_PROFDATA_PATH = os.path.join(constants.DIR_SOURCE_ROOT, 'third_party',
+                                   'llvm-build', 'Release+Asserts', 'bin',
+                                   'llvm-profdata')
+# Name of the file extension for profraw data files.
+_PROFRAW_FILE_EXTENSION = 'profraw'
+# Name of the file where profraw data files are merged.
+_MERGE_PROFDATA_FILE_NAME = 'coverage_merged.' + _PROFRAW_FILE_EXTENSION
+
 # No-op context manager. If we used Python 3, we could change this to
 # contextlib.ExitStack()
 class _NullContextManager(object):
@@ -105,6 +114,59 @@ def _ExtractTestsFromFilter(gtest_filter):
   if '*' in gtest_filter:
     return None
   return patterns
+
+
+def _MergeCoverageFiles(coverage_dir, profdata_dir):
+  """Merge coverage data files.
+
+  Each instrumentation activity generates a separate profraw data file. This
+  merges all profraw files in profdata_dir into a single file in
+  coverage_dir. This happens after each test, rather than waiting until after
+  all tests are ran to reduce the memory footprint used by all the profraw
+  files.
+
+  Args:
+    coverage_dir: The path to the coverage directory.
+    profdata_dir: The directory where the profraw data file(s) are located.
+
+  Return:
+    None
+  """
+  # profdata_dir may not exist if pulling coverage files failed.
+  if not os.path.exists(profdata_dir):
+    logging.debug('Profraw directory does not exist.')
+    return
+
+  merge_file = os.path.join(coverage_dir, _MERGE_PROFDATA_FILE_NAME)
+  profraw_files = [
+      os.path.join(profdata_dir, f) for f in os.listdir(profdata_dir)
+      if f.endswith(_PROFRAW_FILE_EXTENSION)
+  ]
+
+  try:
+    logging.debug('Merging target profraw files into merged profraw file.')
+    subprocess_cmd = [
+        _LLVM_PROFDATA_PATH,
+        'merge',
+        '-o',
+        merge_file,
+        '-sparse=true',
+    ]
+    # Grow the merge file by merging it with itself and the new files.
+    if os.path.exists(merge_file):
+      subprocess_cmd.append(merge_file)
+    subprocess_cmd.extend(profraw_files)
+    output = subprocess.check_output(subprocess_cmd)
+    logging.debug('Merge output: %s', output)
+  except subprocess.CalledProcessError:
+    # Don't raise error as that will kill the test run. When code coverage
+    # generates a report, that will raise the error in the report generation.
+    logging.error(
+        'Failed to merge target profdata files to create merged profraw file.')
+
+  # Free up memory space on bot as all data is in the merge file.
+  for f in profraw_files:
+    os.remove(f)
 
 
 def _PullCoverageFiles(device, device_coverage_dir, output_dir):
@@ -235,8 +297,11 @@ class _ApkDelegate(object):
         extras[_EXTRA_TEST] = test[0]
     # pylint: enable=redefined-variable-type
 
+    # We need to use GetAppWritablePath here instead of GetExternalStoragePath
+    # since we will not have yet applied legacy storage permission workarounds
+    # on R+.
     stdout_file = device_temp_file.DeviceTempFile(
-        device.adb, dir=device.GetExternalStoragePath(), suffix='.gtest_out')
+        device.adb, dir=device.GetAppWritablePath(), suffix='.gtest_out')
     extras[_EXTRA_STDOUT_FILE] = stdout_file.name
 
     if self._wait_for_java_debugger:
@@ -262,9 +327,13 @@ class _ApkDelegate(object):
         raise
       finally:
         if self._coverage_dir and device_api >= version_codes.LOLLIPOP:
-          _PullCoverageFiles(
-              device, device_coverage_dir,
-              os.path.join(self._coverage_dir, str(self._coverage_index)))
+          if not os.path.isdir(self._coverage_dir):
+            os.makedirs(self._coverage_dir)
+          with tempfile_ext.NamedTemporaryDirectory(
+              prefix=self._coverage_dir) as temp_d:
+            _PullCoverageFiles(device, device_coverage_dir, temp_d)
+            _MergeCoverageFiles(self._coverage_dir,
+                                os.path.join(temp_d, 'profraw'))
 
       return device.ReadFile(stdout_file.name).splitlines()
 
@@ -376,6 +445,11 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
     assert isinstance(test_instance, gtest_test_instance.GtestTestInstance)
     super(LocalDeviceGtestRun, self).__init__(env, test_instance)
 
+    if self._test_instance.apk_helper:
+      self._installed_packages = [
+          self._test_instance.apk_helper.GetPackageName()
+      ]
+
     # pylint: disable=redefined-variable-type
     if self._test_instance.apk:
       self._delegate = _ApkDelegate(self._test_instance, env.tool)
@@ -397,7 +471,7 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
   #override
   def SetUp(self):
     @local_device_environment.handle_shard_failures_with(
-        on_failure=self._env.BlacklistDevice)
+        on_failure=self._env.DenylistDevice)
     @trace_event.traced
     def individual_device_set_up(device, host_device_tuples):
       def install_apk(dev):
@@ -453,6 +527,15 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
 
       def bind_crash_handler(step, dev):
         return lambda: crash_handler.RetryOnSystemCrash(step, dev)
+
+      # Explicitly enable root to ensure that tests run under deterministic
+      # conditions. Without this explicit call, EnableRoot() is called from
+      # push_test_data() when PushChangedFiles() determines that it should use
+      # _PushChangedFilesZipped(), which is only most of the time.
+      # Root is required (amongst maybe other reasons) to pull the results file
+      # from the device, since it lives within the application's data directory
+      # (via GetApplicationDataDirectory()).
+      device.EnableRoot()
 
       steps = [
           bind_crash_handler(s, device)
@@ -510,7 +593,7 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
     # test list so that tests can be split up and run in batches rather than all
     # at once (since test output is not streamed).
     @local_device_environment.handle_shard_failures_with(
-        on_failure=self._env.BlacklistDevice)
+        on_failure=self._env.DenylistDevice)
     def list_tests(dev):
       timeout = 30
       retries = 1
@@ -581,6 +664,24 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
           return link
     return None
 
+  def _PullRenderTestOutput(self, device, render_test_output_device_dir):
+    # We pull the render tests into a temp directory then copy them over
+    # individually. Otherwise we end up with a temporary directory name
+    # in the host output directory.
+    with tempfile_ext.NamedTemporaryDirectory() as tmp_host_dir:
+      try:
+        device.PullFile(render_test_output_device_dir, tmp_host_dir)
+      except device_errors.CommandFailedError:
+        logging.exception('Failed to pull render test output dir %s',
+                          render_test_output_device_dir)
+      temp_host_dir = os.path.join(
+          tmp_host_dir, os.path.basename(render_test_output_device_dir))
+      for output_file in os.listdir(temp_host_dir):
+        src_path = os.path.join(temp_host_dir, output_file)
+        dst_path = os.path.join(self._test_instance.render_test_output_dir,
+                                output_file)
+        shutil.move(src_path, dst_path)
+
   @contextlib.contextmanager
   def _ArchiveLogcat(self, device, test):
     if isinstance(test, str):
@@ -621,10 +722,15 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
       tombstones.ClearAllTombstones(device)
     test_perf_output_filename = next(self._test_perf_output_filenames)
 
+    if self._test_instance.isolated_script_test_output:
+      suffix = '.json'
+    else:
+      suffix = '.xml'
+
     with device_temp_file.DeviceTempFile(
         adb=device.adb,
         dir=self._delegate.ResultsDirectory(device),
-        suffix='.xml') as device_tmp_results_file:
+        suffix=suffix) as device_tmp_results_file:
       with contextlib_ext.Optional(
           device_temp_file.NamedDeviceTemporaryDirectory(
               adb=device.adb, dir='/sdcard/'),
@@ -633,52 +739,72 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
             device_temp_file.DeviceTempFile(
                 adb=device.adb, dir=self._delegate.ResultsDirectory(device)),
             test_perf_output_filename)) as isolated_script_test_perf_output:
+          with contextlib_ext.Optional(
+              device_temp_file.NamedDeviceTemporaryDirectory(adb=device.adb,
+                                                             dir='/sdcard/'),
+              self._test_instance.render_test_output_dir
+          ) as render_test_output_dir:
 
-          flags = list(self._test_instance.flags)
-          if self._test_instance.enable_xml_result_parsing:
-            flags.append('--gtest_output=xml:%s' % device_tmp_results_file.name)
+            flags = list(self._test_instance.flags)
+            if self._test_instance.enable_xml_result_parsing:
+              flags.append('--gtest_output=xml:%s' %
+                           device_tmp_results_file.name)
 
-          if self._test_instance.gs_test_artifacts_bucket:
-            flags.append('--test_artifacts_dir=%s' % test_artifacts_dir.name)
+            if self._test_instance.gs_test_artifacts_bucket:
+              flags.append('--test_artifacts_dir=%s' % test_artifacts_dir.name)
 
-          if test_perf_output_filename:
-            flags.append('--isolated_script_test_perf_output=%s'
-                         % isolated_script_test_perf_output.name)
+            if self._test_instance.isolated_script_test_output:
+              flags.append('--isolated-script-test-output=%s' %
+                           device_tmp_results_file.name)
 
-          logging.info('flags:')
-          for f in flags:
-            logging.info('  %s', f)
+            if test_perf_output_filename:
+              flags.append('--isolated_script_test_perf_output=%s' %
+                           isolated_script_test_perf_output.name)
 
-          with self._ArchiveLogcat(device, test) as logcat_file:
-            output = self._delegate.Run(test,
-                                        device,
-                                        flags=' '.join(flags),
-                                        timeout=timeout,
-                                        retries=0)
+            if self._test_instance.render_test_output_dir:
+              flags.append('--render-test-output-dir=%s' %
+                           render_test_output_dir.name)
 
-          if self._test_instance.enable_xml_result_parsing:
-            try:
-              gtest_xml = device.ReadFile(
-                  device_tmp_results_file.name,
-                  as_root=True)
-            except device_errors.CommandFailedError as e:
-              logging.warning(
-                  'Failed to pull gtest results XML file %s: %s',
-                  device_tmp_results_file.name,
-                  str(e))
-              gtest_xml = None
+            logging.info('flags:')
+            for f in flags:
+              logging.info('  %s', f)
 
-          if test_perf_output_filename:
-            try:
-              device.PullFile(isolated_script_test_perf_output.name,
-                              test_perf_output_filename)
-            except device_errors.CommandFailedError as e:
-              logging.warning(
-                  'Failed to pull chartjson results %s: %s',
-                  isolated_script_test_perf_output.name, str(e))
+            with self._ArchiveLogcat(device, test) as logcat_file:
+              output = self._delegate.Run(test,
+                                          device,
+                                          flags=' '.join(flags),
+                                          timeout=timeout,
+                                          retries=0)
 
-          test_artifacts_url = self._UploadTestArtifacts(device,
-                                                         test_artifacts_dir)
+            if self._test_instance.enable_xml_result_parsing:
+              try:
+                gtest_xml = device.ReadFile(device_tmp_results_file.name)
+              except device_errors.CommandFailedError:
+                logging.exception('Failed to pull gtest results XML file %s',
+                                  device_tmp_results_file.name)
+                gtest_xml = None
+
+            if self._test_instance.isolated_script_test_output:
+              try:
+                gtest_json = device.ReadFile(device_tmp_results_file.name)
+              except device_errors.CommandFailedError:
+                logging.exception('Failed to pull gtest results JSON file %s',
+                                  device_tmp_results_file.name)
+                gtest_json = None
+
+            if test_perf_output_filename:
+              try:
+                device.PullFile(isolated_script_test_perf_output.name,
+                                test_perf_output_filename)
+              except device_errors.CommandFailedError:
+                logging.exception('Failed to pull chartjson results %s',
+                                  isolated_script_test_perf_output.name)
+
+            test_artifacts_url = self._UploadTestArtifacts(
+                device, test_artifacts_dir)
+
+            if render_test_output_dir:
+              self._PullRenderTestOutput(device, render_test_output_dir.name)
 
     for s in self._servers[str(device)]:
       s.Reset()
@@ -695,6 +821,8 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
     # TODO(jbudorick): Transition test scripts away from parsing stdout.
     if self._test_instance.enable_xml_result_parsing:
       results = gtest_test_instance.ParseGTestXML(gtest_xml)
+    elif self._test_instance.isolated_script_test_output:
+      results = gtest_test_instance.ParseGTestJSON(gtest_json)
     else:
       results = gtest_test_instance.ParseGTestOutput(
           output, self._test_instance.symbolizer, device.product_cpu_abi)

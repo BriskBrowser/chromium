@@ -83,11 +83,6 @@ void ServicesDelegateDesktop::Initialize() {
        services_creator_->CanCreateIncidentReportingService())
           ? services_creator_->CreateIncidentReportingService()
           : CreateIncidentReportingService());
-  resource_request_detector_.reset(
-      (services_creator_ &&
-       services_creator_->CanCreateResourceRequestDetector())
-          ? services_creator_->CreateResourceRequestDetector()
-          : CreateResourceRequestDetector());
 }
 
 void ServicesDelegateDesktop::SetDatabaseManagerForTest(
@@ -102,7 +97,6 @@ void ServicesDelegateDesktop::ShutdownServices() {
 
   download_service_.reset();
 
-  resource_request_detector_.reset();
   incident_service_.reset();
 
   ServicesDelegate::ShutdownServices();
@@ -114,13 +108,6 @@ void ServicesDelegateDesktop::RefreshState(bool enable) {
     download_service_->SetEnabled(enable);
 }
 
-void ServicesDelegateDesktop::ProcessResourceRequest(
-    const ResourceRequestInfo* request) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  if (resource_request_detector_)
-    resource_request_detector_->ProcessResourceRequest(request);
-}
-
 std::unique_ptr<prefs::mojom::TrackedPreferenceValidationDelegate>
 ServicesDelegateDesktop::CreatePreferenceValidationDelegate(Profile* profile) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
@@ -128,9 +115,9 @@ ServicesDelegateDesktop::CreatePreferenceValidationDelegate(Profile* profile) {
 }
 
 void ServicesDelegateDesktop::RegisterDelayedAnalysisCallback(
-    const DelayedAnalysisCallback& callback) {
+    DelayedAnalysisCallback callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  incident_service_->RegisterDelayedAnalysisCallback(callback);
+  incident_service_->RegisterDelayedAnalysisCallback(std::move(callback));
 }
 
 void ServicesDelegateDesktop::AddDownloadManager(
@@ -161,12 +148,6 @@ ServicesDelegateDesktop::CreateDownloadProtectionService() {
 IncidentReportingService*
 ServicesDelegateDesktop::CreateIncidentReportingService() {
   return new IncidentReportingService(safe_browsing_service_);
-}
-
-ResourceRequestDetector*
-ServicesDelegateDesktop::CreateResourceRequestDetector() {
-  return new ResourceRequestDetector(safe_browsing_service_->database_manager(),
-                                     incident_service_->GetIncidentReceiver());
 }
 
 void ServicesDelegateDesktop::StartOnIOThread(

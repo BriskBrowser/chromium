@@ -25,15 +25,13 @@ public class PrefetchConfiguration {
     }
 
     /**
-     * Returns true if PrefetchBackgroundTask should load native in service manager only mode.
+     * Returns true if PrefetchBackgroundTask should load native in minimal browser mode.
      *
      * Can be called even when native is not loaded yet.
      */
-    public static boolean isServiceManagerForBackgroundPrefetchEnabled() {
+    public static boolean isMinimalBrowserForBackgroundPrefetchEnabled() {
         return CachedFeatureFlags.isEnabled(
-                       ChromeFeatureList.SERVICE_MANAGER_FOR_BACKGROUND_PREFETCH)
-                && CachedFeatureFlags.isEnabled(
-                        ChromeFeatureList.INTEREST_FEED_CONTENT_SUGGESTIONS);
+                ChromeFeatureList.SERVICE_MANAGER_FOR_BACKGROUND_PREFETCH);
     }
 
     /**

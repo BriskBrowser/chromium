@@ -24,6 +24,7 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/layout/grid_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 
 namespace chromeos {
@@ -49,6 +50,10 @@ RequestPinView::RequestPinView(
   SetDialogParameters(code_type, security_token_pin::ErrorLabel::kNone,
                       attempts_left, accept_input);
   chrome::RecordDialogCreation(chrome::DialogIdentifier::REQUEST_PIN);
+
+  SetShowCloseButton(false);
+  set_fixed_width(views::LayoutProvider::Get()->GetDistanceMetric(
+      views::DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH));
 }
 
 RequestPinView::~RequestPinView() {
@@ -109,16 +114,6 @@ views::View* RequestPinView::GetInitiallyFocusedView() {
 
 base::string16 RequestPinView::GetWindowTitle() const {
   return window_title_;
-}
-
-bool RequestPinView::ShouldShowCloseButton() const {
-  return false;
-}
-
-gfx::Size RequestPinView::CalculatePreferredSize() const {
-  int default_width = views::LayoutProvider::Get()->GetDistanceMetric(
-      DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH);
-  return gfx::Size(default_width, GetHeightForWidth(default_width));
 }
 
 void RequestPinView::SetDialogParameters(
@@ -242,5 +237,8 @@ void RequestPinView::SetErrorMessage(security_token_pin::ErrorLabel error_label,
   error_label_->SizeToPreferredSize();
   textfield_->SetInvalid(true);
 }
+
+BEGIN_METADATA(RequestPinView, views::DialogDelegateView)
+END_METADATA
 
 }  // namespace chromeos

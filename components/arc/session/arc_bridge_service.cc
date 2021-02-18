@@ -6,6 +6,7 @@
 
 // These header is necessary for instantiation of ConnectionHolder.
 #include "components/arc/mojom/accessibility_helper.mojom.h"
+#include "components/arc/mojom/adbd.mojom.h"
 #include "components/arc/mojom/app.mojom.h"
 #include "components/arc/mojom/app_permissions.mojom.h"
 #include "components/arc/mojom/appfuse.mojom.h"
@@ -20,9 +21,11 @@
 #include "components/arc/mojom/cert_store.mojom.h"
 #include "components/arc/mojom/clipboard.mojom.h"
 #include "components/arc/mojom/crash_collector.mojom.h"
+#include "components/arc/mojom/digital_goods.mojom.h"
 #include "components/arc/mojom/disk_quota.mojom.h"
 #include "components/arc/mojom/enterprise_reporting.mojom.h"
 #include "components/arc/mojom/file_system.mojom.h"
+#include "components/arc/mojom/iio_sensor.mojom.h"
 #include "components/arc/mojom/ime.mojom.h"
 #include "components/arc/mojom/input_method_manager.mojom.h"
 #include "components/arc/mojom/intent_helper.mojom.h"
@@ -45,6 +48,7 @@
 #include "components/arc/mojom/rotation_lock.mojom.h"
 #include "components/arc/mojom/screen_capture.mojom.h"
 #include "components/arc/mojom/sensor.mojom.h"
+#include "components/arc/mojom/sharesheet.mojom.h"
 #include "components/arc/mojom/storage_manager.mojom.h"
 #include "components/arc/mojom/timer.mojom.h"
 #include "components/arc/mojom/tracing.mojom.h"

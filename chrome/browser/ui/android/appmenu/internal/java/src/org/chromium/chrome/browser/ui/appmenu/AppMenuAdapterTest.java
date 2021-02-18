@@ -4,6 +4,7 @@
 
 package org.chromium.chrome.browser.ui.appmenu;
 
+import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
@@ -41,7 +42,7 @@ import java.util.concurrent.TimeoutException;
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 public class AppMenuAdapterTest extends DummyUiActivityTestCase {
-    static class TestClickHandler implements AppMenuAdapter.OnClickHandler {
+    static class TestClickHandler implements AppMenuClickHandler {
         public CallbackHelper onClickCallback = new CallbackHelper();
         public MenuItem lastClickedItem;
 
@@ -537,12 +538,17 @@ public class AppMenuAdapterTest extends DummyUiActivityTestCase {
 
         @Override
         public View getView(MenuItem item, @Nullable View convertView, ViewGroup parent,
-                LayoutInflater inflater) {
+                LayoutInflater inflater, AppMenuClickHandler appMenuClickHandler,
+                @Nullable Integer highlightedItemId) {
             int itemId = item.getItemId();
             Assert.assertTrue("getView called for incorrect item",
                     itemId == supportedId1 || itemId == supportedId2 || itemId == supportedId3);
 
             getViewItemCallbackHelper.notifyCalled();
+
+            if (convertView != null) {
+                convertView.setOnClickListener(v -> appMenuClickHandler.onItemClick(item));
+            }
 
             return convertView != null ? convertView : new View(parent.getContext());
         }
@@ -550,6 +556,11 @@ public class AppMenuAdapterTest extends DummyUiActivityTestCase {
         @Override
         public boolean supportsEnterAnimation(int id) {
             return true;
+        }
+
+        @Override
+        public int getPixelHeight(Context context) {
+            return 0;
         }
     }
 
@@ -576,18 +587,27 @@ public class AppMenuAdapterTest extends DummyUiActivityTestCase {
 
         @Override
         public View getView(MenuItem item, @Nullable View convertView, ViewGroup parent,
-                LayoutInflater inflater) {
+                LayoutInflater inflater, AppMenuClickHandler appMenuClickHandler,
+                @Nullable Integer highlightedItemId) {
             int itemId = item.getItemId();
             Assert.assertTrue("getView called for incorrect item", itemId == supportedId1);
 
             getViewItemCallbackHelper.notifyCalled();
 
+            if (convertView != null) {
+                convertView.setOnClickListener(v -> appMenuClickHandler.onItemClick(item));
+            }
             return convertView != null ? convertView : new View(parent.getContext());
         }
 
         @Override
         public boolean supportsEnterAnimation(int id) {
             return false;
+        }
+
+        @Override
+        public int getPixelHeight(Context context) {
+            return 0;
         }
     }
 }

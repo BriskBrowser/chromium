@@ -4,11 +4,16 @@
 
 #include "third_party/blink/renderer/platform/graphics/compositing/paint_chunks_to_cc_layer.h"
 
+#include "base/containers/adapters.h"
 #include "base/numerics/safe_conversions.h"
+#include "cc/base/features.h"
+#include "cc/input/layer_selection_bound.h"
+#include "cc/layers/layer.h"
 #include "cc/paint/display_item_list.h"
 #include "cc/paint/paint_op_buffer.h"
 #include "cc/paint/render_surface_filters.h"
 #include "third_party/blink/renderer/platform/graphics/compositing/chunk_to_layer_mapper.h"
+#include "third_party/blink/renderer/platform/graphics/compositing/property_tree_manager.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
 #include "third_party/blink/renderer/platform/graphics/paint/display_item_list.h"
 #include "third_party/blink/renderer/platform/graphics/paint/drawing_display_item.h"
@@ -86,7 +91,7 @@ class ConversionContext {
   // At last, close all pushed states to balance pairs (this happens when the
   // context object is destructed):
   //   Output: End_C4 End_C3 End_C2 End_C1
-  void Convert(const PaintChunkSubset&, const DisplayItemList&);
+  void Convert(const PaintChunkSubset&);
 
  private:
   // Adjust the translation of the whole display list relative to layer offset.
@@ -146,7 +151,7 @@ class ConversionContext {
                                        translation.Height());
       }
     } else {
-      cc_list_.push<cc::ConcatOp>(translation_2d_or_matrix.ToSkMatrix());
+      cc_list_.push<cc::ConcatOp>(translation_2d_or_matrix.ToSkM44());
     }
   }
 
@@ -576,15 +581,18 @@ void ConversionContext::StartEffect(const EffectPaintPropertyNode& effect) {
   current_effect_ = &effect;
 
   if (effect.Filter().HasReferenceFilter()) {
-    auto reference_box = effect.Filter().ReferenceBox();
-    effect_bounds_stack_.back().bounds = reference_box;
-    if (current_effect_->Filter().HasReferenceFilter()) {
-      // Emit an empty paint operation to add the filter's source bounds (mapped
-      // to layer space) to the visual rect of the filter's SaveLayerOp.
-      cc_list_.StartPaint();
-      cc_list_.EndPaintOfUnpaired(chunk_to_layer_mapper_.MapVisualRect(
-          EnclosingIntRect(reference_box)));
-    }
+    // Map a random point in the reference box through the filter to determine
+    // the bounds of the effect on an empty source. For empty chunks, or chunks
+    // with empty bounds, with a filter applied that produces output even when
+    // there's no input this will expand the bounds to match.
+    FloatRect filtered_bounds = current_effect_->MapRect(
+        FloatRect(effect.Filter().ReferenceBox().Center(), FloatSize()));
+    effect_bounds_stack_.back().bounds = filtered_bounds;
+    // Emit an empty paint operation to add the filtered bounds (mapped to layer
+    // space) to the visual rect of the filter's SaveLayerOp.
+    cc_list_.StartPaint();
+    cc_list_.EndPaintOfUnpaired(chunk_to_layer_mapper_.MapVisualRect(
+        EnclosingIntRect(filtered_bounds)));
   }
 }
 
@@ -681,7 +689,7 @@ void ConversionContext::SwitchToTransform(
     const auto& translation = translation_2d_or_matrix.Translation2D();
     cc_list_.push<cc::TranslateOp>(translation.Width(), translation.Height());
   } else {
-    cc_list_.push<cc::ConcatOp>(translation_2d_or_matrix.ToSkMatrix());
+    cc_list_.push<cc::ConcatOp>(translation_2d_or_matrix.ToSkM44());
   }
   cc_list_.EndPaintOfPairedBegin();
   previous_transform_ = current_transform_;
@@ -699,13 +707,13 @@ void ConversionContext::EndTransform() {
   previous_transform_ = nullptr;
 }
 
-void ConversionContext::Convert(const PaintChunkSubset& paint_chunks,
-                                const DisplayItemList& display_items) {
-  for (const auto& chunk : paint_chunks) {
+void ConversionContext::Convert(const PaintChunkSubset& chunks) {
+  for (auto it = chunks.begin(); it != chunks.end(); ++it) {
+    const auto& chunk = *it;
     const auto& chunk_state = chunk.properties;
     bool switched_to_chunk_state = false;
 
-    for (const auto& item : display_items.ItemsInPaintChunk(chunk)) {
+    for (const auto& item : it.DisplayItems()) {
       sk_sp<const PaintRecord> record;
       if (item.IsScrollbar())
         record = static_cast<const ScrollbarDisplayItem&>(item).Paint();
@@ -743,8 +751,8 @@ void ConversionContext::Convert(const PaintChunkSubset& paint_chunks,
       SwitchToChunkState(chunk);
 
     // Most effects apply to drawable contents only. Reference filters are
-    // exceptions, for which we have already added the reference box to the
-    // bounds of the effect in StartEffect().
+    // exceptions, for which we have already added the chunk bounds mapped
+    // through the filter to the bounds of the effect in StartEffect().
     UpdateEffectBounds(FloatRect(chunk.drawable_bounds),
                        chunk_state.Transform().Unalias());
   }
@@ -752,25 +760,21 @@ void ConversionContext::Convert(const PaintChunkSubset& paint_chunks,
 
 }  // unnamed namespace
 
-void PaintChunksToCcLayer::ConvertInto(
-    const PaintChunkSubset& paint_chunks,
-    const PropertyTreeState& layer_state,
-    const gfx::Vector2dF& layer_offset,
-    const DisplayItemList& display_items,
-    cc::DisplayItemList& cc_list) {
-  ConversionContext(layer_state, layer_offset, cc_list)
-      .Convert(paint_chunks, display_items);
+void PaintChunksToCcLayer::ConvertInto(const PaintChunkSubset& chunks,
+                                       const PropertyTreeState& layer_state,
+                                       const gfx::Vector2dF& layer_offset,
+                                       cc::DisplayItemList& cc_list) {
+  ConversionContext(layer_state, layer_offset, cc_list).Convert(chunks);
 }
 
 scoped_refptr<cc::DisplayItemList> PaintChunksToCcLayer::Convert(
     const PaintChunkSubset& paint_chunks,
     const PropertyTreeState& layer_state,
     const gfx::Vector2dF& layer_offset,
-    const DisplayItemList& display_items,
     cc::DisplayItemList::UsageHint hint,
     RasterUnderInvalidationCheckingParams* under_invalidation_checking_params) {
   auto cc_list = base::MakeRefCounted<cc::DisplayItemList>(hint);
-  ConvertInto(paint_chunks, layer_state, layer_offset, display_items, *cc_list);
+  ConvertInto(paint_chunks, layer_state, layer_offset, *cc_list);
 
   if (under_invalidation_checking_params) {
     auto& params = *under_invalidation_checking_params;
@@ -780,8 +784,7 @@ scoped_refptr<cc::DisplayItemList> PaintChunksToCcLayer::Convert(
     // use cc_list because it is not finalized yet.
     auto list_clone = base::MakeRefCounted<cc::DisplayItemList>(
         cc::DisplayItemList::kToBeReleasedAsPaintOpBuffer);
-    ConvertInto(paint_chunks, layer_state, layer_offset, display_items,
-                *list_clone);
+    ConvertInto(paint_chunks, layer_state, layer_offset, *list_clone);
     recorder.getRecordingCanvas()->drawPicture(list_clone->ReleaseAsRecord());
     params.tracking.CheckUnderInvalidations(params.debug_name,
                                             recorder.finishRecordingAsPicture(),
@@ -795,6 +798,263 @@ scoped_refptr<cc::DisplayItemList> PaintChunksToCcLayer::Convert(
 
   cc_list->Finalize();
   return cc_list;
+}
+
+// The heuristic for picking a checkerboarding color works as follows:
+//   - During paint, PaintChunker will look for background color display items,
+//     and record the blending of background colors if the background is larger
+//     than a ratio of the chunk bounds.
+//   - After layer allocation, the paint chunks assigned to a layer are
+//     examined for a background color annotation.
+//   - The blending of background colors of chunks having background larger than
+//     a ratio of the layer is set as the layer's background color.
+//   - If the above color exists, it's also used as the safe opaque background
+//     color. Otherwise the color of the largest background is used, without the
+//     size requirement, as safe opaque background color should always get a
+//     value if possible.
+static void UpdateBackgroundColor(cc::Layer& layer,
+                                  const EffectPaintPropertyNode& layer_effect,
+                                  const PaintChunkSubset& paint_chunks) {
+  Vector<Color, 4> background_colors;
+  float min_background_area = kMinBackgroundColorCoverageRatio *
+                              layer.bounds().width() * layer.bounds().height();
+  for (auto it = paint_chunks.end(); it != paint_chunks.begin();) {
+    const auto& chunk = *(--it);
+    if (chunk.background_color == Color::kTransparent)
+      continue;
+    if (chunk.background_color_area >= min_background_area) {
+      Color chunk_background_color = chunk.background_color;
+      const auto& chunk_effect = chunk.properties.Effect().Unalias();
+      if (&chunk_effect != &layer_effect) {
+        if (chunk_effect.UnaliasedParent() != &layer_effect ||
+            !chunk_effect.IsOpacityOnly()) {
+          continue;
+        }
+        chunk_background_color =
+            chunk_background_color.CombineWithAlpha(chunk_effect.Opacity());
+      }
+      background_colors.push_back(chunk_background_color);
+      if (!chunk_background_color.HasAlpha()) {
+        // If this color is opaque, blending it with subsequent colors will have
+        // no effect.
+        break;
+      }
+    }
+  }
+
+  Color background_color;
+  for (Color color : base::Reversed(background_colors))
+    background_color = background_color.Blend(color);
+  layer.SetBackgroundColor(background_color.Rgb());
+}
+
+static void UpdateTouchActionRegion(
+    const HitTestData& hit_test_data,
+    const PropertyTreeState& layer_state,
+    const PropertyTreeState& chunk_state,
+    const FloatPoint& layer_offset,
+    cc::TouchActionRegion& touch_action_region) {
+  // If the element has an horizontal scrollable ancestor (including itself), we
+  // need to disable cursor control by setting the bit kInternalPanXScrolls.
+  TouchAction disable_cursor_control = TouchAction::kNone;
+  // TODO(input-dev): Consider to share the code with
+  // ThreadedInputHandler::FindNodeToLatch.
+  for (const auto* scroll_node = chunk_state.Transform().ScrollNode();
+       scroll_node; scroll_node = scroll_node->Parent()) {
+    if (scroll_node->UserScrollableHorizontal() &&
+        scroll_node->ContainerRect().Width() <
+            scroll_node->ContentsSize().Width()) {
+      disable_cursor_control = TouchAction::kInternalPanXScrolls;
+      break;
+    }
+    // If it is not kAuto, scroll can't propagate, so break here.
+    if (scroll_node->OverscrollBehaviorX() !=
+        cc::OverscrollBehavior::Type::kAuto)
+      break;
+  }
+
+  for (const auto& touch_action_rect : hit_test_data.touch_action_rects) {
+    auto rect = FloatClipRect(FloatRect(touch_action_rect.rect));
+    if (!GeometryMapper::LocalToAncestorVisualRect(chunk_state, layer_state,
+                                                   rect)) {
+      continue;
+    }
+    rect.MoveBy(-layer_offset);
+    TouchAction touch_action = touch_action_rect.allowed_touch_action;
+    if ((touch_action & TouchAction::kPanX) != TouchAction::kNone)
+      touch_action |= disable_cursor_control;
+    touch_action_region.Union(touch_action,
+                              gfx::Rect(EnclosingIntRect(rect.Rect())));
+  }
+}
+
+static void UpdateWheelEventRegion(const HitTestData& hit_test_data,
+                                   const PropertyTreeState& layer_state,
+                                   const PropertyTreeState& chunk_state,
+                                   const FloatPoint& layer_offset,
+                                   cc::Region& wheel_event_region) {
+  for (const auto& wheel_event_rect : hit_test_data.wheel_event_rects) {
+    auto rect = FloatClipRect(FloatRect(wheel_event_rect));
+    if (!GeometryMapper::LocalToAncestorVisualRect(chunk_state, layer_state,
+                                                   rect)) {
+      continue;
+    }
+    rect.MoveBy(-layer_offset);
+    wheel_event_region.Union(gfx::Rect(EnclosingIntRect(rect.Rect())));
+  }
+}
+
+static void UpdateNonFastScrollableRegion(
+    cc::Layer& layer,
+    const HitTestData& hit_test_data,
+    const PropertyTreeState& layer_state,
+    const PropertyTreeState& chunk_state,
+    const FloatPoint& layer_offset,
+    PropertyTreeManager* property_tree_manager,
+    cc::Region& non_fast_scrollable_region) {
+  if (hit_test_data.scroll_hit_test_rect.IsEmpty())
+    return;
+
+  // Skip the scroll hit test rect if it is for scrolling this cc::Layer.
+  // This is only needed for CompositeAfterPaint because
+  // pre-CompositeAfterPaint does not paint scroll hit test data for
+  // composited scrollers.
+  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
+    if (const auto* scroll_translation = hit_test_data.scroll_translation) {
+      const auto& scroll_node = *scroll_translation->ScrollNode();
+      auto scroll_element_id = scroll_node.GetCompositorElementId();
+      if (layer.element_id() == scroll_element_id)
+        return;
+      // Ensure the cc scroll node to prepare for possible descendant nodes
+      // referenced by later composited layers. This can't be done by ensuring
+      // parent transform node in EnsureCompositorTransformNode() if the
+      // transform tree and the scroll tree have different topologies.
+      // This is not necessary with ScrollUnification which ensures the
+      // complete scroll tree.
+      if (!RuntimeEnabledFeatures::ScrollUnificationEnabled()) {
+        DCHECK(property_tree_manager);
+        property_tree_manager->EnsureCompositorScrollNode(*scroll_translation);
+      }
+    }
+  }
+
+  FloatClipRect rect(FloatRect(hit_test_data.scroll_hit_test_rect));
+  if (!GeometryMapper::LocalToAncestorVisualRect(chunk_state, layer_state,
+                                                 rect))
+    return;
+
+  rect.MoveBy(-layer_offset);
+  non_fast_scrollable_region.Union(EnclosingIntRect(rect.Rect()));
+}
+
+static void UpdateTouchActionWheelEventHandlerAndNonFastScrollableRegions(
+    cc::Layer& layer,
+    const PropertyTreeState& layer_state,
+    const PaintChunkSubset& chunks,
+    PropertyTreeManager* property_tree_manager) {
+  gfx::Vector2dF cc_layer_offset = layer.offset_to_transform_parent();
+  FloatPoint layer_offset(cc_layer_offset.x(), cc_layer_offset.y());
+  cc::TouchActionRegion touch_action_region;
+  cc::Region wheel_event_region;
+  cc::Region non_fast_scrollable_region;
+  for (const auto& chunk : chunks) {
+    if (!chunk.hit_test_data)
+      continue;
+    auto chunk_state = chunk.properties.GetPropertyTreeState().Unalias();
+    UpdateTouchActionRegion(*chunk.hit_test_data, layer_state, chunk_state,
+                            layer_offset, touch_action_region);
+    // TODO(https://crbug.com/841364): Checking for empty rect here is to avoid
+    // costly checks for kWheelEventRegions. This "if" condition will be gone
+    // once kWheelEventRegions feature flag is removed.
+    if (!chunk.hit_test_data->wheel_event_rects.IsEmpty() &&
+        base::FeatureList::IsEnabled(::features::kWheelEventRegions)) {
+      UpdateWheelEventRegion(*chunk.hit_test_data, layer_state, chunk_state,
+                             layer_offset, wheel_event_region);
+    }
+    UpdateNonFastScrollableRegion(
+        layer, *chunk.hit_test_data, layer_state, chunk_state, layer_offset,
+        property_tree_manager, non_fast_scrollable_region);
+  }
+  layer.SetTouchActionRegion(std::move(touch_action_region));
+  // TODO(https://crbug.com/841364): Fist condition in the "if" statement below
+  // is to avoid costly checks for kWheelEventRegions. This "if" condition will
+  // be gone once kWheelEventRegions feature flag is removed.
+  if (wheel_event_region != layer.wheel_event_region() &&
+      base::FeatureList::IsEnabled(::features::kWheelEventRegions))
+    layer.SetWheelEventRegion(std::move(wheel_event_region));
+
+  layer.SetNonFastScrollableRegion(std::move(non_fast_scrollable_region));
+}
+
+static gfx::Point MapSelectionBoundPoint(const IntPoint& point,
+                                         const PropertyTreeState& layer_state,
+                                         const PropertyTreeState& chunk_state,
+                                         const FloatPoint& layer_offset) {
+  FloatPoint mapped_point =
+      GeometryMapper::SourceToDestinationProjection(chunk_state.Transform(),
+                                                    layer_state.Transform())
+          .MapPoint(FloatPoint(point));
+
+  mapped_point.MoveBy(-layer_offset);
+  gfx::Point out_point(RoundedIntPoint(mapped_point));
+  return out_point;
+}
+
+static cc::LayerSelectionBound
+ConvertPaintedSelectionBoundToLayerSelectionBound(
+    const PaintedSelectionBound& bound,
+    const PropertyTreeState& layer_state,
+    const PropertyTreeState& chunk_state,
+    const FloatPoint& layer_offset) {
+  cc::LayerSelectionBound layer_bound;
+  layer_bound.type = bound.type;
+  layer_bound.hidden = bound.hidden;
+  layer_bound.edge_start = MapSelectionBoundPoint(bound.edge_start, layer_state,
+                                                  chunk_state, layer_offset);
+  layer_bound.edge_end = MapSelectionBoundPoint(bound.edge_end, layer_state,
+                                                chunk_state, layer_offset);
+  return layer_bound;
+}
+
+static void UpdateLayerSelection(cc::Layer& layer,
+                                 const PropertyTreeState& layer_state,
+                                 const PaintChunkSubset& chunks,
+                                 cc::LayerSelection& layer_selection) {
+  gfx::Vector2dF cc_layer_offset = layer.offset_to_transform_parent();
+  FloatPoint layer_offset(cc_layer_offset.x(), cc_layer_offset.y());
+  for (const auto& chunk : chunks) {
+    if (!chunk.layer_selection_data)
+      continue;
+
+    auto chunk_state = chunk.properties.GetPropertyTreeState().Unalias();
+    if (chunk.layer_selection_data->start) {
+      const PaintedSelectionBound& bound =
+          chunk.layer_selection_data->start.value();
+      layer_selection.start = ConvertPaintedSelectionBoundToLayerSelectionBound(
+          bound, layer_state, chunk_state, layer_offset);
+      layer_selection.start.layer_id = layer.id();
+    }
+
+    if (chunk.layer_selection_data->end) {
+      const PaintedSelectionBound& bound =
+          chunk.layer_selection_data->end.value();
+      layer_selection.end = ConvertPaintedSelectionBoundToLayerSelectionBound(
+          bound, layer_state, chunk_state, layer_offset);
+      layer_selection.end.layer_id = layer.id();
+    }
+  }
+}
+
+void PaintChunksToCcLayer::UpdateLayerProperties(
+    cc::Layer& layer,
+    const PropertyTreeState& layer_state,
+    const PaintChunkSubset& chunks,
+    cc::LayerSelection& layer_selection,
+    PropertyTreeManager* property_tree_manager) {
+  UpdateBackgroundColor(layer, layer_state.Effect(), chunks);
+  UpdateTouchActionWheelEventHandlerAndNonFastScrollableRegions(
+      layer, layer_state, chunks, property_tree_manager);
+  UpdateLayerSelection(layer, layer_state, chunks, layer_selection);
 }
 
 }  // namespace blink

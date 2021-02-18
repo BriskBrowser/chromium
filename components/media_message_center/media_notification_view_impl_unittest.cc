@@ -7,7 +7,7 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/containers/flat_set.h"
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
@@ -16,7 +16,7 @@
 #include "base/test/task_environment.h"
 #include "base/unguessable_token.h"
 #include "build/build_config.h"
-#include "components/media_message_center/media_notification_background.h"
+#include "components/media_message_center/media_notification_background_impl.h"
 #include "components/media_message_center/media_notification_constants.h"
 #include "components/media_message_center/media_notification_container.h"
 #include "components/media_message_center/media_notification_controller.h"
@@ -34,6 +34,7 @@
 #include "ui/message_center/views/notification_control_buttons_view.h"
 #include "ui/message_center/views/notification_header_view.h"
 #include "ui/views/controls/image_view.h"
+#include "ui/views/test/button_test_api.h"
 #include "ui/views/test/views_test_base.h"
 
 namespace media_message_center {
@@ -68,15 +69,16 @@ class MockMediaNotificationController : public MediaNotificationController {
   ~MockMediaNotificationController() = default;
 
   // MediaNotificationController implementation.
-  MOCK_METHOD1(ShowNotification, void(const std::string& id));
-  MOCK_METHOD1(HideNotification, void(const std::string& id));
-  MOCK_METHOD1(RemoveItem, void(const std::string& id));
+  MOCK_METHOD(void, ShowNotification, (const std::string& id));
+  MOCK_METHOD(void, HideNotification, (const std::string& id));
+  MOCK_METHOD(void, RemoveItem, (const std::string& id));
   scoped_refptr<base::SequencedTaskRunner> GetTaskRunner() const override {
     return nullptr;
   }
-  MOCK_METHOD2(LogMediaSessionActionButtonPressed,
-               void(const std::string& id,
-                    media_session::mojom::MediaSessionAction action));
+  MOCK_METHOD(void,
+              LogMediaSessionActionButtonPressed,
+              (const std::string& id,
+               media_session::mojom::MediaSessionAction action));
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockMediaNotificationController);
@@ -247,7 +249,9 @@ class MediaNotificationViewImplTest : public views::ViewsTestBase {
   MediaSessionNotificationItem* GetItem() const { return item_.get(); }
 
   const gfx::ImageSkia& GetArtworkImage() const {
-    return view()->GetMediaNotificationBackground()->artwork_;
+    return static_cast<MediaNotificationBackgroundImpl*>(
+               view()->GetMediaNotificationBackground())
+        ->artwork_;
   }
 
   const gfx::ImageSkia& GetAppIcon() const {
@@ -258,22 +262,21 @@ class MediaNotificationViewImplTest : public views::ViewsTestBase {
     return header_row()->expand_button()->GetVisible();
   }
 
-  bool IsActuallyExpanded() const { return view()->IsActuallyExpanded(); }
+  bool GetActuallyExpanded() const { return view()->GetActuallyExpanded(); }
 
   void SimulateButtonClick(MediaSessionAction action) {
     views::Button* button = GetButtonForAction(action);
     EXPECT_TRUE(button->GetVisible());
 
-    view()->ButtonPressed(
-        button, ui::MouseEvent(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
-                               ui::EventTimeForNow(), 0, 0));
+    views::test::ButtonTestApi(button).NotifyClick(
+        ui::MouseEvent(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
+                       ui::EventTimeForNow(), 0, 0));
   }
 
   void SimulateHeaderClick() {
-    view()->ButtonPressed(
-        header_row(),
-        ui::MouseEvent(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
-                       ui::EventTimeForNow(), 0, 0));
+    views::test::ButtonTestApi(header_row())
+        .NotifyClick(ui::MouseEvent(ui::ET_MOUSE_PRESSED, gfx::Point(),
+                                    gfx::Point(), ui::EventTimeForNow(), 0, 0));
   }
 
   void SimulateTab() {
@@ -539,7 +542,7 @@ TEST_F(MAYBE_MediaNotificationViewImplTest, PlayToggle_FromObserver_Empty) {
     views::ToggleImageButton* button = static_cast<views::ToggleImageButton*>(
         GetButtonForAction(MediaSessionAction::kPlay));
     ASSERT_EQ(views::ToggleImageButton::kViewClassName, button->GetClassName());
-    EXPECT_FALSE(button->toggled());
+    EXPECT_FALSE(button->GetToggled());
   }
 
   view()->UpdateWithMediaSessionInfo(
@@ -549,7 +552,7 @@ TEST_F(MAYBE_MediaNotificationViewImplTest, PlayToggle_FromObserver_Empty) {
     views::ToggleImageButton* button = static_cast<views::ToggleImageButton*>(
         GetButtonForAction(MediaSessionAction::kPlay));
     ASSERT_EQ(views::ToggleImageButton::kViewClassName, button->GetClassName());
-    EXPECT_FALSE(button->toggled());
+    EXPECT_FALSE(button->GetToggled());
   }
 }
 
@@ -562,7 +565,7 @@ TEST_F(MAYBE_MediaNotificationViewImplTest,
     views::ToggleImageButton* button = static_cast<views::ToggleImageButton*>(
         GetButtonForAction(MediaSessionAction::kPlay));
     ASSERT_EQ(views::ToggleImageButton::kViewClassName, button->GetClassName());
-    EXPECT_FALSE(button->toggled());
+    EXPECT_FALSE(button->GetToggled());
   }
 
   media_session::mojom::MediaSessionInfoPtr session_info(
@@ -576,7 +579,7 @@ TEST_F(MAYBE_MediaNotificationViewImplTest,
     views::ToggleImageButton* button = static_cast<views::ToggleImageButton*>(
         GetButtonForAction(MediaSessionAction::kPause));
     ASSERT_EQ(views::ToggleImageButton::kViewClassName, button->GetClassName());
-    EXPECT_TRUE(button->toggled());
+    EXPECT_TRUE(button->GetToggled());
   }
 
   session_info->playback_state =
@@ -587,7 +590,7 @@ TEST_F(MAYBE_MediaNotificationViewImplTest,
     views::ToggleImageButton* button = static_cast<views::ToggleImageButton*>(
         GetButtonForAction(MediaSessionAction::kPlay));
     ASSERT_EQ(views::ToggleImageButton::kViewClassName, button->GetClassName());
-    EXPECT_FALSE(button->toggled());
+    EXPECT_FALSE(button->GetToggled());
   }
 }
 
@@ -691,7 +694,7 @@ TEST_F(MAYBE_MediaNotificationViewImplTest, Buttons_WhenCollapsed) {
   view()->SetExpanded(false);
   testing::Mock::VerifyAndClearExpectations(&container());
 
-  EXPECT_FALSE(IsActuallyExpanded());
+  EXPECT_FALSE(GetActuallyExpanded());
 
   EXPECT_TRUE(IsActionButtonVisible(MediaSessionAction::kPlay));
   EXPECT_TRUE(IsActionButtonVisible(MediaSessionAction::kPreviousTrack));
@@ -763,7 +766,7 @@ TEST_F(MAYBE_MediaNotificationViewImplTest, Buttons_WhenExpanded) {
   view()->SetExpanded(true);
   testing::Mock::VerifyAndClearExpectations(&container());
 
-  EXPECT_TRUE(IsActuallyExpanded());
+  EXPECT_TRUE(GetActuallyExpanded());
 
   EXPECT_TRUE(IsActionButtonVisible(MediaSessionAction::kPlay));
   EXPECT_TRUE(IsActionButtonVisible(MediaSessionAction::kPreviousTrack));
@@ -776,15 +779,15 @@ TEST_F(MAYBE_MediaNotificationViewImplTest, ClickHeader_ToggleExpand) {
   view()->SetExpanded(true);
   EnableAllActions();
 
-  EXPECT_TRUE(IsActuallyExpanded());
+  EXPECT_TRUE(GetActuallyExpanded());
 
   SimulateHeaderClick();
 
-  EXPECT_FALSE(IsActuallyExpanded());
+  EXPECT_FALSE(GetActuallyExpanded());
 
   SimulateHeaderClick();
 
-  EXPECT_TRUE(IsActuallyExpanded());
+  EXPECT_TRUE(GetActuallyExpanded());
 }
 
 TEST_F(MAYBE_MediaNotificationViewImplTest, ActionButtonsHiddenByDefault) {
@@ -860,7 +863,7 @@ TEST_F(MAYBE_MediaNotificationViewImplTest, UpdateArtworkFromItem) {
 }
 
 TEST_F(MAYBE_MediaNotificationViewImplTest, ExpandableDefaultState) {
-  EXPECT_FALSE(IsActuallyExpanded());
+  EXPECT_FALSE(GetActuallyExpanded());
   EXPECT_FALSE(expand_button_enabled());
 }
 
@@ -868,7 +871,7 @@ TEST_F(MAYBE_MediaNotificationViewImplTest,
        ExpandablePlayPauseActionCountsOnce) {
   view()->SetExpanded(true);
 
-  EXPECT_FALSE(IsActuallyExpanded());
+  EXPECT_FALSE(GetActuallyExpanded());
   EXPECT_FALSE(expand_button_enabled());
 
   EnableAction(MediaSessionAction::kPreviousTrack);
@@ -876,7 +879,7 @@ TEST_F(MAYBE_MediaNotificationViewImplTest,
   EnableAction(MediaSessionAction::kPlay);
   EnableAction(MediaSessionAction::kPause);
 
-  EXPECT_FALSE(IsActuallyExpanded());
+  EXPECT_FALSE(GetActuallyExpanded());
   EXPECT_FALSE(expand_button_enabled());
 
   media_session::mojom::MediaSessionInfoPtr session_info(
@@ -885,12 +888,12 @@ TEST_F(MAYBE_MediaNotificationViewImplTest,
       media_session::mojom::MediaPlaybackState::kPlaying;
   view()->UpdateWithMediaSessionInfo(session_info);
 
-  EXPECT_FALSE(IsActuallyExpanded());
+  EXPECT_FALSE(GetActuallyExpanded());
   EXPECT_FALSE(expand_button_enabled());
 
   EnableAction(MediaSessionAction::kSeekForward);
 
-  EXPECT_TRUE(IsActuallyExpanded());
+  EXPECT_TRUE(GetActuallyExpanded());
   EXPECT_TRUE(expand_button_enabled());
 }
 
@@ -898,12 +901,12 @@ TEST_F(MAYBE_MediaNotificationViewImplTest,
        BecomeExpandableAndWasNotExpandable) {
   view()->SetExpanded(true);
 
-  EXPECT_FALSE(IsActuallyExpanded());
+  EXPECT_FALSE(GetActuallyExpanded());
   EXPECT_FALSE(expand_button_enabled());
 
   EnableAllActions();
 
-  EXPECT_TRUE(IsActuallyExpanded());
+  EXPECT_TRUE(GetActuallyExpanded());
   EXPECT_TRUE(expand_button_enabled());
 }
 
@@ -911,17 +914,17 @@ TEST_F(MAYBE_MediaNotificationViewImplTest,
        BecomeExpandableButWasAlreadyExpandable) {
   view()->SetExpanded(true);
 
-  EXPECT_FALSE(IsActuallyExpanded());
+  EXPECT_FALSE(GetActuallyExpanded());
   EXPECT_FALSE(expand_button_enabled());
 
   EnableAllActions();
 
-  EXPECT_TRUE(IsActuallyExpanded());
+  EXPECT_TRUE(GetActuallyExpanded());
   EXPECT_TRUE(expand_button_enabled());
 
   DisableAction(MediaSessionAction::kSeekForward);
 
-  EXPECT_TRUE(IsActuallyExpanded());
+  EXPECT_TRUE(GetActuallyExpanded());
   EXPECT_TRUE(expand_button_enabled());
 }
 
@@ -929,12 +932,12 @@ TEST_F(MAYBE_MediaNotificationViewImplTest,
        BecomeNotExpandableAndWasExpandable) {
   view()->SetExpanded(true);
 
-  EXPECT_FALSE(IsActuallyExpanded());
+  EXPECT_FALSE(GetActuallyExpanded());
   EXPECT_FALSE(expand_button_enabled());
 
   EnableAllActions();
 
-  EXPECT_TRUE(IsActuallyExpanded());
+  EXPECT_TRUE(GetActuallyExpanded());
   EXPECT_TRUE(expand_button_enabled());
 
   DisableAction(MediaSessionAction::kPreviousTrack);
@@ -942,7 +945,7 @@ TEST_F(MAYBE_MediaNotificationViewImplTest,
   DisableAction(MediaSessionAction::kSeekBackward);
   DisableAction(MediaSessionAction::kSeekForward);
 
-  EXPECT_FALSE(IsActuallyExpanded());
+  EXPECT_FALSE(GetActuallyExpanded());
   EXPECT_FALSE(expand_button_enabled());
 }
 
@@ -950,12 +953,12 @@ TEST_F(MAYBE_MediaNotificationViewImplTest,
        BecomeNotExpandableButWasAlreadyNotExpandable) {
   view()->SetExpanded(true);
 
-  EXPECT_FALSE(IsActuallyExpanded());
+  EXPECT_FALSE(GetActuallyExpanded());
   EXPECT_FALSE(expand_button_enabled());
 
   EnableAction(MediaSessionAction::kSeekForward);
 
-  EXPECT_FALSE(IsActuallyExpanded());
+  EXPECT_FALSE(GetActuallyExpanded());
   EXPECT_FALSE(expand_button_enabled());
 }
 
@@ -966,7 +969,7 @@ TEST_F(MAYBE_MediaNotificationViewImplTest, ActionButtonRowSizeAndAlignment) {
   int button_x = button->GetBoundsInScreen().x();
 
   // When collapsed the button row should be a fixed width.
-  EXPECT_FALSE(IsActuallyExpanded());
+  EXPECT_FALSE(GetActuallyExpanded());
   EXPECT_EQ(124, button_row()->width());
 
   EnableAllActions();
@@ -974,7 +977,7 @@ TEST_F(MAYBE_MediaNotificationViewImplTest, ActionButtonRowSizeAndAlignment) {
 
   // When expanded the button row should be wider and the play button should
   // have shifted to the left.
-  EXPECT_TRUE(IsActuallyExpanded());
+  EXPECT_TRUE(GetActuallyExpanded());
   EXPECT_LT(124, button_row()->width());
   EXPECT_GT(button_x, button->GetBoundsInScreen().x());
 }
@@ -1393,30 +1396,30 @@ TEST_F(MAYBE_MediaNotificationViewImplTest, ForcedExpandedState) {
   // Force it to be expanded.
   bool expanded_state = true;
   view()->SetForcedExpandedState(&expanded_state);
-  EXPECT_TRUE(IsActuallyExpanded());
+  EXPECT_TRUE(GetActuallyExpanded());
 
   // Since it's forced, clicking on the header should not toggle the expanded
   // state.
   SimulateHeaderClick();
-  EXPECT_TRUE(IsActuallyExpanded());
+  EXPECT_TRUE(GetActuallyExpanded());
 
   // Force it to be not expanded.
   expanded_state = false;
   view()->SetForcedExpandedState(&expanded_state);
-  EXPECT_FALSE(IsActuallyExpanded());
+  EXPECT_FALSE(GetActuallyExpanded());
 
   // Since it's forced, clicking on the header should not toggle the expanded
   // state.
   SimulateHeaderClick();
-  EXPECT_FALSE(IsActuallyExpanded());
+  EXPECT_FALSE(GetActuallyExpanded());
 
   // Stop forcing expanded state.
   view()->SetForcedExpandedState(nullptr);
-  EXPECT_FALSE(IsActuallyExpanded());
+  EXPECT_FALSE(GetActuallyExpanded());
 
   // Clicking on the header should toggle the expanded state.
   SimulateHeaderClick();
-  EXPECT_TRUE(IsActuallyExpanded());
+  EXPECT_TRUE(GetActuallyExpanded());
 }
 
 TEST_F(MAYBE_MediaNotificationViewImplTest, AllowsHidingOfAppIcon) {

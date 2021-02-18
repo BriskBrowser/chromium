@@ -277,44 +277,39 @@ cr.define('cr.translateInternals', function() {
 
     p.innerHTML = emptyHTML();
 
-    if ('country' in details) {
-      const country = details['country'];
+    const country = details['country'] || '';
+    const h2 = $('override-variations-country');
+    h2.title =
+        ('Changing this value will override the permanent country stored ' +
+         'by variations. The overridden country is not automatically ' +
+         'updated when Chrome is updated and overrides all variations ' +
+         'country settings. After clicking clear button or the overridden ' +
+         'country is not set, the text box shows the country used by ' +
+         'permanent consistency studies. The value that this is overriding ' +
+         'gets automatically updated with a new value received from the ' +
+         'variations server when Chrome is updated.');
 
-      const h2 = $('override-variations-country');
-      h2.title =
-          ('Changing this value will override the permanent country stored ' +
-           'by variations. The overridden country is not automatically ' +
-           'updated when Chrome is updated and overrides all variations ' +
-           'country settings. After clicking clear button or the overridden ' +
-           'country is not set, the text box shows the country used by ' +
-           'permanent consistency studies. The value that this is overriding ' +
-           'gets automatically updated with a new value received from the ' +
-           'variations server when Chrome is updated.');
+    // Add the button to override the country. Note: The country-override
+    // component is re-created on country update, so there is no issue of this
+    // being called multiple times.
+    appendTextFieldWithButton(p, country, function(value) {
+      chrome.send('overrideCountry', [value]);
+    });
 
-      // Add the button to override the country. Note: The country-override
-      // component is re-created on country update, so there is no issue of this
-      // being called multiple times.
-      appendTextFieldWithButton(p, country, function(value) {
-        chrome.send('overrideCountry', [value]);
-      });
+    appendClearButton(
+        p, 'overridden' in details && details['overridden'], function() {
+          chrome.send('overrideCountry', ['']);
+        });
 
-      appendClearButton(
-          p, 'overridden' in details && details['overridden'], function() {
-            chrome.send('overrideCountry', ['']);
-          });
-
-      if ('update' in details && details['update']) {
-        const div1 = document.createElement('div');
-        div1.textContent = 'Permanent stored country updated.';
-        const div2 = document.createElement('div');
-        div2.textContent =
-            ('You will need to restart your browser ' +
-             'for the changes to take effect.');
-        p.appendChild(div1);
-        p.appendChild(div2);
-      }
-    } else {
-      p.textContent = 'Could not load country info from Variations.';
+    if ('update' in details && details['update']) {
+      const div1 = document.createElement('div');
+      div1.textContent = 'Permanent stored country updated.';
+      const div2 = document.createElement('div');
+      div2.textContent =
+          ('You will need to restart your browser ' +
+           'for the changes to take effect.');
+      p.appendChild(div1);
+      p.appendChild(div2);
     }
   }
 
@@ -403,13 +398,19 @@ cr.define('cr.translateInternals', function() {
         tr, formatLanguageCode(detail['content_language']),
         'detection-logs-content-language');
     appendTD(
-        tr, formatLanguageCode(detail['cld_language']),
-        'detection-logs-cld-language');
-    appendTD(tr, detail['is_cld_reliable'], 'detection-logs-is-cld-reliable');
-    appendTD(tr, detail['has_notranslate'], 'detection-logs-has-notranslate');
-    appendTD(
         tr, formatLanguageCode(detail['html_root_language']),
         'detection-logs-html-root-language');
+    appendTD(
+        tr, formatLanguageCode(detail['model_detected_language']),
+        'detection-logs-cld-language');
+    appendTD(
+        tr, detail['detection_model_version'],
+        'detection-logs-detection-model-version');
+    appendTD(
+        tr, detail['model_reliability_score'].toFixed(2),
+        'detection-logs-model-reliability');
+    appendTD(tr, detail['is_model_reliable'], 'detection-logs-is-cld-reliable');
+    appendTD(tr, detail['has_notranslate'], 'detection-logs-has-notranslate');
     appendTD(
         tr, formatLanguageCode(detail['adopted_language']),
         'detection-logs-adopted-language');

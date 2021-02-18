@@ -2,14 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "ash/constants/ash_switches.h"
+#include "chrome/browser/chromeos/login/login_pref_names.h"
 #include "chrome/browser/chromeos/login/saml/in_session_password_change_manager.h"
 #include "chrome/browser/chromeos/login/test/embedded_test_server_mixin.h"
 #include "chrome/browser/chromeos/login/test/js_checker.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/common/pref_names.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/test/browser_test.h"
 #include "net/base/url_util.h"
@@ -136,8 +136,8 @@ class PasswordChangeExtensionTest : public extensions::ExtensionBrowserTest {
   // here because ExtensionBrowserTest doesn't inherit from that class.
   void SetUp() override {
     embedded_test_server_.RegisterRequestHandler(
-        base::Bind(&FakeChangePasswordIdp::HandleHttpRequest,
-                   base::Unretained(&fake_idp_)));
+        base::BindRepeating(&FakeChangePasswordIdp::HandleHttpRequest,
+                            base::Unretained(&fake_idp_)));
     mixin_host_.SetUp();
     extensions::ExtensionBrowserTest::SetUp();
   }

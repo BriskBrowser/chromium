@@ -21,9 +21,6 @@
 #include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/bindings/remote_set.h"
 
-class PrefRegistrySimple;
-class PrefService;
-
 namespace apps {
 
 // The implementation of the apps::mojom::AppService Mojo interface.
@@ -32,14 +29,11 @@ namespace apps {
 class AppServiceImpl : public apps::mojom::AppService {
  public:
   AppServiceImpl(
-      PrefService* profile_prefs,
       const base::FilePath& profile_dir,
       bool is_share_intents_supported,
       base::OnceClosure read_completed_for_testing = base::OnceClosure(),
       base::OnceClosure write_completed_for_testing = base::OnceClosure());
   ~AppServiceImpl() override;
-
-  static void RegisterProfilePrefs(PrefRegistrySimple* registry);
 
   void BindReceiver(mojo::PendingReceiver<apps::mojom::AppService> receiver);
 
@@ -63,7 +57,7 @@ class AppServiceImpl : public apps::mojom::AppService {
               const std::string& app_id,
               int32_t event_flags,
               apps::mojom::LaunchSource launch_source,
-              int64_t display_id) override;
+              apps::mojom::WindowInfoPtr window_info) override;
   void LaunchAppWithFiles(apps::mojom::AppType app_type,
                           const std::string& app_id,
                           apps::mojom::LaunchContainer container,
@@ -75,7 +69,7 @@ class AppServiceImpl : public apps::mojom::AppService {
                            int32_t event_flags,
                            apps::mojom::IntentPtr intent,
                            apps::mojom::LaunchSource launch_source,
-                           int64_t display_id) override;
+                           apps::mojom::WindowInfoPtr window_info) override;
   void SetPermission(apps::mojom::AppType app_type,
                      const std::string& app_id,
                      apps::mojom::PermissionPtr permission) override;
@@ -95,6 +89,11 @@ class AppServiceImpl : public apps::mojom::AppService {
                     apps::mojom::MenuType menu_type,
                     int64_t display_id,
                     GetMenuModelCallback callback) override;
+  void ExecuteContextMenuCommand(apps::mojom::AppType app_type,
+                                 const std::string& app_id,
+                                 int command_id,
+                                 const std::string& shortcut_id,
+                                 int64_t display_id) override;
   void OpenNativeSettings(apps::mojom::AppType app_type,
                           const std::string& app_id) override;
   void AddPreferredApp(apps::mojom::AppType app_type,
@@ -139,8 +138,6 @@ class AppServiceImpl : public apps::mojom::AppService {
   // Must come after the publisher and subscriber maps to ensure it is
   // destroyed first, closing the connection to avoid dangling callbacks.
   mojo::ReceiverSet<apps::mojom::AppService> receivers_;
-
-  PrefService* const pref_service_;
 
   PreferredAppsList preferred_apps_;
 

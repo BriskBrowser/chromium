@@ -16,6 +16,7 @@
 #include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/mock_autocomplete_history_manager.h"
+#include "components/autofill/core/browser/payments/autofill_offer_manager.h"
 #include "components/autofill/core/browser/payments/legal_message_line.h"
 #include "components/autofill/core/browser/payments/test_payments_client.h"
 #include "components/autofill/core/browser/payments/test_strike_database.h"
@@ -24,7 +25,10 @@
 #include "components/autofill/core/browser/test_personal_data_manager.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/public/identity_manager/identity_test_environment.h"
+#include "components/translate/core/browser/language_state.h"
+#include "components/translate/core/browser/mock_translate_driver.h"
 #include "components/ukm/test_ukm_recorder.h"
+#include "components/version_info/channel.h"
 #include "services/metrics/public/cpp/delegating_ukm_recorder.h"
 
 #if !defined(OS_IOS)
@@ -40,9 +44,11 @@ class TestAutofillClient : public AutofillClient {
   ~TestAutofillClient() override;
 
   // AutofillClient:
+  version_info::Channel GetChannel() const override;
   PersonalDataManager* GetPersonalDataManager() override;
   AutocompleteHistoryManager* GetAutocompleteHistoryManager() override;
   PrefService* GetPrefs() override;
+  const PrefService* GetPrefs() const override;
   syncer::SyncService* GetSyncService() override;
   signin::IdentityManager* GetIdentityManager() override;
   FormDataImporter* GetFormDataImporter() override;
@@ -51,9 +57,11 @@ class TestAutofillClient : public AutofillClient {
   ukm::UkmRecorder* GetUkmRecorder() override;
   ukm::SourceId GetUkmSourceId() override;
   AddressNormalizer* GetAddressNormalizer() override;
-  const GURL& GetLastCommittedURL() override;
+  AutofillOfferManager* GetAutofillOfferManager() override;
+  const GURL& GetLastCommittedURL() const override;
   security_state::SecurityLevel GetSecurityLevelForUmaHistograms() override;
-  std::string GetPageLanguage() const override;
+  translate::LanguageState* GetLanguageState() override;
+  translate::TranslateDriver* GetTranslateDriver() override;
 #if !defined(OS_IOS)
   std::unique_ptr<InternalAuthenticator> CreateCreditCardInternalAuthenticator(
       content::RenderFrameHost* rfh) override;
@@ -114,6 +122,9 @@ class TestAutofillClient : public AutofillClient {
   void CreditCardUploadCompleted(bool card_saved) override;
   void ConfirmCreditCardFillAssist(const CreditCard& card,
                                    base::OnceClosure callback) override;
+  void ConfirmSaveAddressProfile(
+      const AutofillProfile& profile,
+      AddressProfileSavePromptCallback callback) override;
   bool HasCreditCardScanFeature() override;
   void ScanCreditCard(CreditCardScanCallback callback) override;
   void ShowAutofillPopup(
@@ -137,14 +148,18 @@ class TestAutofillClient : public AutofillClient {
   // By default, TestAutofillClient will report that the context is
   // secure. This can be adjusted by calling set_form_origin() with an
   // http:// URL.
-  bool IsContextSecure() override;
+  bool IsContextSecure() const override;
   bool ShouldShowSigninPromo() override;
-  bool AreServerCardsSupported() override;
+  bool AreServerCardsSupported() const override;
   void ExecuteCommand(int id) override;
 
   // RiskDataLoader:
   void LoadRiskData(
       base::OnceCallback<void(const std::string&)> callback) override;
+
+#if defined(OS_IOS)
+  bool IsQueryIDRelevant(int query_id) override;
+#endif
 
   // Initializes UKM source from form_origin_. This needs to be called
   // in unittests after calling Purge for ukm recorder to re-initialize
@@ -163,11 +178,6 @@ class TestAutofillClient : public AutofillClient {
   void set_test_payments_client(
       std::unique_ptr<payments::TestPaymentsClient> payments_client) {
     payments_client_ = std::move(payments_client);
-  }
-
-  // Sets the page language that is retrieved by |GetPageLanguage()|.
-  void set_page_language(std::string page_language) {
-    page_language_ = page_language;
   }
 
   void set_test_form_data_importer(
@@ -222,6 +232,15 @@ class TestAutofillClient : public AutofillClient {
     migration_card_selection_ = migration_card_selection;
   }
 
+  void set_autofill_offer_manager(
+      std::unique_ptr<AutofillOfferManager> autofill_offer_manager) {
+    autofill_offer_manager_ = std::move(autofill_offer_manager);
+  }
+
+  void set_channel_for_testing(const version_info::Channel channel) {
+    channel_for_testing_ = channel;
+  }
+
   GURL form_origin() { return form_origin_; }
 
   ukm::TestUkmRecorder* GetTestUkmRecorder();
@@ -233,6 +252,7 @@ class TestAutofillClient : public AutofillClient {
   TestAddressNormalizer test_address_normalizer_;
   TestPersonalDataManager test_personal_data_manager_;
   MockAutocompleteHistoryManager mock_autocomplete_history_manager_;
+  std::unique_ptr<AutofillOfferManager> autofill_offer_manager_;
 
   // NULL by default.
   std::unique_ptr<PrefService> prefs_;
@@ -256,13 +276,15 @@ class TestAutofillClient : public AutofillClient {
   // otherwise.
   base::Optional<bool> credit_card_name_fix_flow_bubble_was_shown_;
 
+  version_info::Channel channel_for_testing_ = version_info::Channel::UNKNOWN;
+
   // Populated if local save or upload was offered.
   base::Optional<SaveCreditCardOptions> save_credit_card_options_;
 
   std::vector<std::string> migration_card_selection_;
 
-  // The language that is returned by |GetPageLanguage()|.
-  std::string page_language_;
+  // A mock translate driver which provides the language state.
+  translate::testing::MockTranslateDriver mock_translate_driver_;
 
   // The last URL submitted by the user in the URL bar. Set in the constructor.
   GURL last_committed_url_;

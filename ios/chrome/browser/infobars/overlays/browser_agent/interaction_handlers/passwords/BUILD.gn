@@ -44,7 +44,6 @@ source_set("unit_tests") {
   deps = [
     ":passwords",
     "//base/test:test_support",
-    "//components/infobars/core:feature_flags",
     "//components/password_manager/core/browser:test_support",
     "//ios/chrome/browser/browser_state:test_support",
     "//ios/chrome/browser/infobars",
@@ -56,6 +55,7 @@ source_set("unit_tests") {
     "//ios/chrome/browser/main:test_support",
     "//ios/chrome/browser/overlays",
     "//ios/chrome/browser/overlays/public/common/infobars",
+    "//ios/chrome/browser/overlays/public/infobar_banner",
     "//ios/chrome/browser/overlays/public/infobar_modal",
     "//ios/chrome/browser/overlays/test",
     "//ios/chrome/browser/passwords:infobar_delegates",

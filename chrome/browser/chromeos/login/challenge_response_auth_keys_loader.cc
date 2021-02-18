@@ -17,10 +17,10 @@
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "base/values.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/certificate_provider/certificate_provider.h"
 #include "chrome/browser/chromeos/certificate_provider/certificate_provider_service.h"
 #include "chrome/browser/chromeos/certificate_provider/certificate_provider_service_factory.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chromeos/login/auth/challenge_response/cert_utils.h"
 #include "chromeos/login/auth/challenge_response/known_user_pref_utils.h"
@@ -54,7 +54,7 @@ base::flat_set<std::string> GetLoginScreenPolicyExtensionIds() {
             PrefService::INITIALIZATION_STATUS_SUCCESS);
 
   const PrefService::Preference* const pref =
-      prefs->FindPreference(extensions::pref_names::kLoginScreenExtensions);
+      prefs->FindPreference(extensions::pref_names::kInstallForceList);
   if (!pref || !pref->IsManaged() ||
       pref->GetType() != base::Value::Type::DICTIONARY)
     return {};
@@ -145,8 +145,8 @@ class ExtensionLoadObserver final
       public extensions::ExtensionHostObserver,
       public extensions::ExtensionRegistryObserver {
  public:
-  // Waits until all extensions in |extension_ids| are ready and invokes
-  // |callback| afterwards.
+  // Waits until all extensions in `extension_ids` are ready and invokes
+  // `callback` afterwards.
   static void WaitUntilExtensionsReady(
       const base::flat_set<std::string>& extension_ids,
       base::TimeDelta maximum_waiting_time,
@@ -246,21 +246,21 @@ class ExtensionLoadObserver final
     std::move(callback).Run();
   }
 
-  // Waits until all extensions in |extension_ids| are ready and invokes
-  // |callback| afterwards.
+  // Waits until all extensions in `extension_ids` are ready and invokes
+  // `callback` afterwards.
   void StartWaiting(const base::flat_set<std::string>& extension_ids,
                     base::OnceClosure callback) {
     extensions_ready_callback_ = std::move(callback);
 
-    // Do not wait longer than |maximum_waiting_time_|.
+    // Do not wait longer than `maximum_waiting_time_`.
     stop_waiting_timer_.Start(
         FROM_HERE, maximum_waiting_time_, this,
         &ExtensionLoadObserver::TriggerExtensionsReadyCallback);
 
     base::flat_set<std::string> login_screen_policy_extension_ids =
         GetLoginScreenPolicyExtensionIds();
-    // Get all ids that are both in |extension_ids| and
-    // |login_screen_policy_extension_ids|.
+    // Get all ids that are both in `extension_ids` and
+    // `login_screen_policy_extension_ids`.
     std::vector<std::string> extension_ids_to_wait_for;
     for (const std::string& extension_id : extension_ids) {
       if (login_screen_policy_extension_ids.contains(extension_id)) {
@@ -284,7 +284,7 @@ class ExtensionLoadObserver final
                              /*is_update=*/false);
       }
     }
-    // OnExtensionInstalled() can cause |this| to be destroyed, so it needs to
+    // OnExtensionInstalled() can cause `this` to be destroyed, so it needs to
     // be the last call of the method.
   }
 
@@ -323,7 +323,7 @@ class ExtensionLoadObserver final
     }
   }
 
-  // Triggers the callback. |this| may be destroyed after this function.
+  // Triggers the callback. `this` may be destroyed after this function.
   void TriggerExtensionsReadyCallback() {
     if (extensions_ready_callback_) {
       std::move(extensions_ready_callback_).Run();

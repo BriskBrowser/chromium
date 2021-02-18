@@ -85,7 +85,6 @@ void FrameOverlay::UpdatePrePaint() {
     parent_layer->AddChild(layer_.get());
   layer_->SetLayerState(DefaultPropertyTreeState(), IntPoint());
   layer_->SetSize(gfx::Size(Size()));
-  layer_->SetNeedsDisplay();
 }
 
 IntSize FrameOverlay::Size() const {
@@ -98,6 +97,14 @@ IntSize FrameOverlay::Size() const {
 IntRect FrameOverlay::ComputeInterestRect(const GraphicsLayer* graphics_layer,
                                           const IntRect&) const {
   DCHECK(!RuntimeEnabledFeatures::CompositeAfterPaintEnabled());
+  DCHECK(!RuntimeEnabledFeatures::CullRectUpdateEnabled());
+  return IntRect(IntPoint(), Size());
+}
+
+IntRect FrameOverlay::PaintableRegion(
+    const GraphicsLayer* graphics_layer) const {
+  DCHECK(!RuntimeEnabledFeatures::CompositeAfterPaintEnabled());
+  DCHECK(RuntimeEnabledFeatures::CullRectUpdateEnabled());
   return IntRect(IntPoint(), Size());
 }
 
@@ -112,7 +119,7 @@ void FrameOverlay::PaintContents(const GraphicsLayer* graphics_layer,
 }
 
 void FrameOverlay::GraphicsLayersDidChange() {
-  frame_->View()->SetForeignLayerListNeedsUpdate();
+  frame_->View()->SetPaintArtifactCompositorNeedsUpdate();
 }
 
 void FrameOverlay::ServiceScriptedAnimations(

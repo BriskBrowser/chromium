@@ -12,7 +12,7 @@ namespace blink {
 namespace {
 
 struct SameSizeAsNGInlineBreakToken : NGBreakToken {
-  scoped_refptr<const ComputedStyle> style_;
+  Member<const ComputedStyle> style_;
   unsigned numbers[2];
 };
 
@@ -27,34 +27,30 @@ NGInlineBreakToken::NGInlineBreakToken(
     unsigned item_index,
     unsigned text_offset,
     unsigned flags /* NGInlineBreakTokenFlags */)
-    : NGBreakToken(kInlineBreakToken, kUnfinished, node),
+    : NGBreakToken(kInlineBreakToken, node),
       style_(style),
       item_index_(item_index),
       text_offset_(text_offset) {
   flags_ = flags;
 }
 
-NGInlineBreakToken::NGInlineBreakToken(PassKey key, NGLayoutInputNode node)
-    : NGBreakToken(kInlineBreakToken, kFinished, node),
-      item_index_(0),
-      text_offset_(0) {}
-
-NGInlineBreakToken::~NGInlineBreakToken() = default;
-
 #if DCHECK_IS_ON()
 
 String NGInlineBreakToken::ToString() const {
   StringBuilder string_builder;
   string_builder.Append(NGBreakToken::ToString());
-  if (!IsFinished()) {
-    string_builder.Append(
-        String::Format(" index:%u offset:%u", ItemIndex(), TextOffset()));
-    if (IsForcedBreak())
-      string_builder.Append(" forced");
-  }
+  string_builder.Append(
+      String::Format(" index:%u offset:%u", ItemIndex(), TextOffset()));
+  if (IsForcedBreak())
+    string_builder.Append(" forced");
   return string_builder.ToString();
 }
 
 #endif  // DCHECK_IS_ON()
+
+void NGInlineBreakToken::Trace(Visitor* visitor) const {
+  visitor->Trace(style_);
+  NGBreakToken::Trace(visitor);
+}
 
 }  // namespace blink

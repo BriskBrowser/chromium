@@ -26,12 +26,12 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import json
+import mock
 import optparse
 import unittest
-import mock
 
 from blinkpy.common.path_finder import RELATIVE_WEB_TESTS
+from blinkpy.common.host_mock import MockHost
 from blinkpy.common.system.executive_mock import MockExecutive
 from blinkpy.common.system.log_testing import LoggingTestCase
 from blinkpy.common.system.output_capture import OutputCapture
@@ -39,7 +39,10 @@ from blinkpy.common.system.platform_info_mock import MockPlatformInfo
 from blinkpy.common.system.system_host import SystemHost
 from blinkpy.common.system.system_host_mock import MockSystemHost
 from blinkpy.web_tests.port.base import Port, VirtualTestSuite
-from blinkpy.web_tests.port.test import add_unit_tests_to_mock_filesystem, WEB_TEST_DIR, TestPort
+from blinkpy.web_tests.port.factory import PortFactory
+from blinkpy.web_tests.port.test import (add_unit_tests_to_mock_filesystem,
+                                         add_manifest_to_mock_filesystem,
+                                         WEB_TEST_DIR, TestPort)
 
 MOCK_WEB_TESTS = '/mock-checkout/' + RELATIVE_WEB_TESTS
 
@@ -50,7 +53,7 @@ class PortTest(LoggingTestCase):
                   with_tests=False,
                   port_name=None,
                   **kwargs):
-        host = MockSystemHost()
+        host = MockHost()
         if executive:
             host.executive = executive
         if with_tests:
@@ -792,121 +795,16 @@ class PortTest(LoggingTestCase):
         self.assertEqual(len(port.host.filesystem.written_files), 1)
         self.assertEqual(len(port.host.executive.calls), 1)
 
-    @staticmethod
-    def _add_manifest_to_mock_file_system(port):
-        # Disable manifest update otherwise they'll be overwritten.
-        port.set_option_default('manifest_update', False)
-        filesystem = port.host.filesystem
-        filesystem.write_text_file(
-            WEB_TEST_DIR + '/external/wpt/MANIFEST.json',
-            json.dumps({
-                'items': {
-                    'testharness': {
-                        'dom': {
-                            'ranges': {
-                                'Range-attributes.html':
-                                ['acbdef123', [None, {}]],
-                                'Range-attributes-slow.html':
-                                ['abcdef123', [None, {
-                                    'timeout': 'long'
-                                }]],
-                            },
-                        },
-                        'console': {
-                            'console-is-a-namespace.any.js': [
-                                'abcdef1234',
-                                [
-                                    'console/console-is-a-namespace.any.html',
-                                    {}
-                                ],
-                                [
-                                    'console/console-is-a-namespace.any.worker.html',
-                                    {
-                                        'timeout': 'long'
-                                    }
-                                ],
-                            ],
-                        },
-                        'html': {
-                            'parse.html': [
-                                'abcdef123',
-                                ['html/parse.html?run_type=uri', {}],
-                                [
-                                    'html/parse.html?run_type=write',
-                                    {
-                                        'timeout': 'long'
-                                    }
-                                ],
-                            ],
-                        },
-                    },
-                    'manual': {},
-                    'reftest': {
-                        'html': {
-                            'dom': {
-                                'elements': {
-                                    'global-attributes': {
-                                        'dir_auto-EN-L.html': [
-                                            'abcdef123',
-                                            [
-                                                None,
-                                                [[
-                                                    '/html/dom/elements/global-attributes/dir_auto-EN-L-ref.html',
-                                                    '=='
-                                                ]], {
-                                                    'timeout': 'long'
-                                                }
-                                            ],
-                                        ]
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    'crashtest': {
-                        'portals': {
-                            'portals-no-frame-crash.html':
-                            ['abcdef123', [None, {}]],
-                        },
-                    },
-                }
-            }))
-        filesystem.write_text_file(
-            WEB_TEST_DIR + '/external/wpt/dom/ranges/Range-attributes.html',
-            '')
-        filesystem.write_text_file(
-            WEB_TEST_DIR +
-            '/external/wpt/dom/ranges/Range-attributes-slow.html', '')
-        filesystem.write_text_file(
-            WEB_TEST_DIR +
-            '/external/wpt/console/console-is-a-namespace.any.js', '')
-        filesystem.write_text_file(
-            WEB_TEST_DIR + '/external/wpt/common/blank.html', 'foo')
-
-        filesystem.write_text_file(
-            WEB_TEST_DIR + '/wpt_internal/MANIFEST.json',
-            json.dumps({
-                'items': {
-                    'testharness': {
-                        'dom': {
-                            'bar.html': ['abcdef123', [None, {}]]
-                        }
-                    }
-                }
-            }))
-        filesystem.write_text_file(WEB_TEST_DIR + '/wpt_internal/dom/bar.html',
-                                   'baz')
-
     def test_find_none_if_not_in_manifest(self):
         port = self.make_port(with_tests=True)
-        PortTest._add_manifest_to_mock_file_system(port)
+        add_manifest_to_mock_filesystem(port)
         self.assertNotIn('external/wpt/common/blank.html', port.tests([]))
         self.assertNotIn('external/wpt/console/console-is-a-namespace.any.js',
                          port.tests([]))
 
     def test_find_one_if_in_manifest(self):
         port = self.make_port(with_tests=True)
-        PortTest._add_manifest_to_mock_file_system(port)
+        add_manifest_to_mock_filesystem(port)
         self.assertIn('external/wpt/dom/ranges/Range-attributes.html',
                       port.tests([]))
         self.assertIn('external/wpt/console/console-is-a-namespace.any.html',
@@ -914,7 +812,7 @@ class PortTest(LoggingTestCase):
 
     def test_wpt_tests_paths(self):
         port = self.make_port(with_tests=True)
-        PortTest._add_manifest_to_mock_file_system(port)
+        add_manifest_to_mock_filesystem(port)
         all_wpt = [
             'external/wpt/console/console-is-a-namespace.any.html',
             'external/wpt/console/console-is-a-namespace.any.worker.html',
@@ -975,7 +873,7 @@ class PortTest(LoggingTestCase):
 
     def test_virtual_wpt_tests_paths(self):
         port = self.make_port(with_tests=True)
-        PortTest._add_manifest_to_mock_file_system(port)
+        add_manifest_to_mock_filesystem(port)
         all_wpt = [
             'virtual/virtual_wpt/external/wpt/console/console-is-a-namespace.any.html',
             'virtual/virtual_wpt/external/wpt/console/console-is-a-namespace.any.worker.html',
@@ -1026,7 +924,7 @@ class PortTest(LoggingTestCase):
 
     def test_virtual_test_paths(self):
         port = self.make_port(with_tests=True)
-        PortTest._add_manifest_to_mock_file_system(port)
+        add_manifest_to_mock_filesystem(port)
         ssl_tests = [
             'virtual/mixed_wpt/http/tests/ssl/text.html',
         ]
@@ -1144,7 +1042,7 @@ class PortTest(LoggingTestCase):
 
     def test_is_wpt_crash_test(self):
         port = self.make_port(with_tests=True)
-        PortTest._add_manifest_to_mock_file_system(port)
+        add_manifest_to_mock_filesystem(port)
 
         self.assertTrue(
             port.is_wpt_crash_test(
@@ -1160,7 +1058,7 @@ class PortTest(LoggingTestCase):
 
     def test_is_slow_wpt_test(self):
         port = self.make_port(with_tests=True)
-        PortTest._add_manifest_to_mock_file_system(port)
+        add_manifest_to_mock_filesystem(port)
 
         self.assertFalse(
             port.is_slow_wpt_test(
@@ -1178,7 +1076,7 @@ class PortTest(LoggingTestCase):
 
     def test_is_slow_wpt_test_idlharness_with_dcheck(self):
         port = self.make_port(with_tests=True)
-        PortTest._add_manifest_to_mock_file_system(port)
+        add_manifest_to_mock_filesystem(port)
         port.host.filesystem.write_text_file(port._build_path('args.gn'),
                                              'dcheck_always_on=true\n')
         # We always consider idlharness tests slow, even if they aren't marked
@@ -1189,7 +1087,7 @@ class PortTest(LoggingTestCase):
 
     def test_is_slow_wpt_test_with_variations(self):
         port = self.make_port(with_tests=True)
-        PortTest._add_manifest_to_mock_file_system(port)
+        add_manifest_to_mock_filesystem(port)
 
         self.assertFalse(
             port.is_slow_wpt_test(
@@ -1205,7 +1103,7 @@ class PortTest(LoggingTestCase):
 
     def test_is_slow_wpt_test_takes_virtual_tests(self):
         port = self.make_port(with_tests=True)
-        PortTest._add_manifest_to_mock_file_system(port)
+        add_manifest_to_mock_filesystem(port)
 
         self.assertFalse(
             port.is_slow_wpt_test(
@@ -1218,7 +1116,7 @@ class PortTest(LoggingTestCase):
 
     def test_is_slow_wpt_test_returns_false_for_illegal_paths(self):
         port = self.make_port(with_tests=True)
-        PortTest._add_manifest_to_mock_file_system(port)
+        add_manifest_to_mock_filesystem(port)
 
         self.assertFalse(
             port.is_slow_wpt_test('dom/ranges/Range-attributes.html'))
@@ -1228,6 +1126,31 @@ class PortTest(LoggingTestCase):
             port.is_slow_wpt_test('/dom/ranges/Range-attributes.html'))
         self.assertFalse(
             port.is_slow_wpt_test('/dom/ranges/Range-attributes-slow.html'))
+
+    def test_get_file_path_for_wpt_test(self):
+        port = self.make_port(with_tests=True)
+        add_manifest_to_mock_filesystem(port)
+
+        self.assertEqual(
+            port.get_file_path_for_wpt_test(
+                'virtual/virtual_wpt/external/wpt/dom/ranges/Range-attributes.html'
+            ),
+            'external/wpt/dom/ranges/Range-attributes.html',
+        )
+        self.assertEqual(
+            port.get_file_path_for_wpt_test(
+                'external/wpt/console/console-is-a-namespace.any.worker.html'),
+            'external/wpt/console/console-is-a-namespace.any.js',
+        )
+        self.assertEqual(
+            port.get_file_path_for_wpt_test(
+                'external/wpt/html/parse.html?run_type=uri'),
+            'external/wpt/html/parse.html',
+        )
+
+        self.assertIsNone(port.get_file_path_for_wpt_test('non-wpt/test.html'))
+        self.assertIsNone(
+            port.get_file_path_for_wpt_test('external/wpt/non-existent.html'))
 
     def test_reference_files(self):
         port = self.make_port(with_tests=True)
@@ -1245,7 +1168,7 @@ class PortTest(LoggingTestCase):
 
     def test_reference_files_from_manifest(self):
         port = self.make_port(with_tests=True)
-        PortTest._add_manifest_to_mock_file_system(port)
+        add_manifest_to_mock_filesystem(port)
 
         self.assertEqual(
             port.reference_files(
@@ -1712,7 +1635,6 @@ class PortTest(LoggingTestCase):
         self.assertIn('--disable-system-font-check',
                       port.additional_driver_flags())
 
-
     def test_enable_tracing(self):
         options, _ = optparse.OptionParser().parse_args([])
         options.enable_tracing = '*,-blink'
@@ -1723,6 +1645,27 @@ class PortTest(LoggingTestCase):
                 '--trace-startup-duration=0',
                 '--trace-startup-file=trace_layout_test_non_virtual_TIME.json',
             ], port.args_for_test('non/virtual'))
+
+    def test_all_systems(self):
+        # Port.ALL_SYSTEMS should match CONFIGURATION_SPECIFIER_MACROS.
+        all_systems = []
+        for system in Port.ALL_SYSTEMS:
+            self.assertEqual(len(system), 2)
+            all_systems.append(system[0])
+        all_systems.sort()
+        configuration_specifier_macros = []
+        for macros in Port.CONFIGURATION_SPECIFIER_MACROS.values():
+            configuration_specifier_macros += macros
+        configuration_specifier_macros.sort()
+        self.assertListEqual(all_systems, configuration_specifier_macros)
+
+    def test_configuration_specifier_macros(self):
+        # CONFIGURATION_SPECIFIER_MACROS should contain all SUPPORTED_VERSIONS
+        # of each port. Must use real Port classes in this test.
+        for port_name, versions in Port.CONFIGURATION_SPECIFIER_MACROS.items():
+            port_class, _ = PortFactory.get_port_class(port_name)
+            self.assertIsNotNone(port_class, port_name)
+            self.assertListEqual(versions, list(port_class.SUPPORTED_VERSIONS))
 
 
 class NaturalCompareTest(unittest.TestCase):

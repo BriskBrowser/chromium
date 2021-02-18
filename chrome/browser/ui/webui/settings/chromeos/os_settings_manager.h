@@ -37,7 +37,7 @@ class AndroidSmsService;
 }  // namespace android_sms
 
 namespace local_search_service {
-class LocalSearchService;
+class LocalSearchServiceProxy;
 }  // namespace local_search_service
 
 namespace multidevice_setup {
@@ -54,6 +54,7 @@ class Hierarchy;
 class OsSettingsSections;
 class SearchHandler;
 class SearchTagRegistry;
+class SettingsUserActionTracker;
 
 // Manager for the Chrome OS settings page. This class is implemented as a
 // KeyedService, so one instance of the class is intended to be active for the
@@ -62,7 +63,8 @@ class SearchTagRegistry;
 // Main responsibilities:
 //
 // (1) Support search queries for settings content. OsSettingsManager is
-//     responsible for updating the kCroSettings index of the LocalSearchService
+//     responsible for updating the kCroSettings index of the
+//     LocalSearchService
 //     with search tags corresponding to all settings which are available.
 //
 //     The availability of settings depends on the user's account (e.g.,
@@ -84,7 +86,7 @@ class OsSettingsManager : public KeyedService {
  public:
   OsSettingsManager(
       Profile* profile,
-      local_search_service::LocalSearchService* local_search_service,
+      local_search_service::LocalSearchServiceProxy* local_search_service_proxy,
       multidevice_setup::MultiDeviceSetupClient* multidevice_setup_client,
       phonehub::PhoneHubManager* phone_hub_manager,
       syncer::SyncService* sync_service,
@@ -107,8 +109,11 @@ class OsSettingsManager : public KeyedService {
   // Adds SettingsPageUIHandlers to an OS settings instance.
   void AddHandlers(content::WebUI* web_ui);
 
-  // Note: Returns null when the kNewOsSettingsSearch flag is disabled.
   SearchHandler* search_handler() { return search_handler_.get(); }
+
+  SettingsUserActionTracker* settings_user_action_tracker() {
+    return settings_user_action_tracker_.get();
+  }
 
   const Hierarchy* hierarchy() const { return hierarchy_.get(); }
 
@@ -121,6 +126,7 @@ class OsSettingsManager : public KeyedService {
   std::unique_ptr<SearchTagRegistry> search_tag_registry_;
   std::unique_ptr<OsSettingsSections> sections_;
   std::unique_ptr<Hierarchy> hierarchy_;
+  std::unique_ptr<SettingsUserActionTracker> settings_user_action_tracker_;
   std::unique_ptr<SearchHandler> search_handler_;
 };
 

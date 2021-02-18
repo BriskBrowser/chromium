@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/containers/circular_deque.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
@@ -17,11 +17,13 @@
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "cc/layers/layer.h"
+#include "media/base/media_content_type.h"
 #include "media/base/media_util.h"
 #include "media/base/test_helpers.h"
 #include "media/base/video_frame.h"
 #include "media/video/mock_gpu_memory_buffer_video_frame_pool.h"
 #include "media/video/mock_gpu_video_accelerator_factories.h"
+#include "third_party/blink/public/common/media/display_type.h"
 #include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
 #include "third_party/blink/public/platform/web_fullscreen_video_status.h"
 #include "third_party/blink/public/platform/web_media_player.h"
@@ -62,7 +64,6 @@ class MockSurfaceLayerBridge : public WebSurfaceLayerBridge {
   MOCK_CONST_METHOD0(GetCcLayer, cc::Layer*());
   MOCK_CONST_METHOD0(GetFrameSinkId, const viz::FrameSinkId&());
   MOCK_CONST_METHOD0(GetSurfaceId, const viz::SurfaceId&());
-  MOCK_CONST_METHOD0(GetLocalSurfaceIdAllocationTime, base::TimeTicks());
   MOCK_METHOD1(SetContentsOpaque, void(bool));
   MOCK_METHOD0(CreateSurfaceLayer, void());
   MOCK_METHOD0(ClearSurfaceId, void());
@@ -110,29 +111,13 @@ class FakeWebMediaPlayerDelegate
 
   void DidPlay(int delegate_id) override {
     EXPECT_EQ(delegate_id_, delegate_id);
-    EXPECT_FALSE(playing_);
-    playing_ = true;
     is_gone_ = false;
-  }
-
-  void DidPlayerMutedStatusChange(int delegate_id, bool muted) override {
-    EXPECT_EQ(delegate_id_, delegate_id);
   }
 
   void DidPause(int delegate_id, bool reached_end_of_stream) override {
     EXPECT_EQ(delegate_id_, delegate_id);
     EXPECT_FALSE(reached_end_of_stream);
-    EXPECT_TRUE(playing_);
     EXPECT_FALSE(is_gone_);
-    playing_ = false;
-  }
-
-  void DidPlayerSizeChange(int delegate_id, const gfx::Size& size) override {
-    EXPECT_EQ(delegate_id_, delegate_id);
-  }
-
-  void DidBufferUnderflow(int delegate_id) override {
-    EXPECT_EQ(delegate_id_, delegate_id);
   }
 
   void PlayerGone(int delegate_id) override {
@@ -159,12 +144,6 @@ class FakeWebMediaPlayerDelegate
     return false;
   }
 
-  void SetIsEffectivelyFullscreen(
-      int delegate_id,
-      WebFullscreenVideoStatus fullscreen_video_status) override {
-    EXPECT_EQ(delegate_id_, delegate_id);
-  }
-
   bool IsFrameHidden() override { return is_hidden_; }
   bool IsFrameClosed() override { return false; }
 
@@ -172,30 +151,9 @@ class FakeWebMediaPlayerDelegate
 
   int delegate_id() { return delegate_id_; }
 
-  void DidPlayerMediaPositionStateChange(
-      int delegate_id,
-      const media_session::MediaPosition& position) override {
-    EXPECT_EQ(delegate_id_, delegate_id);
-  }
-
-  void DidPictureInPictureAvailabilityChange(int delegate_id,
-                                             bool available) override {
-    EXPECT_EQ(delegate_id_, delegate_id);
-  }
-
-  void DidAudioOutputSinkChange(int delegate_id,
-                                const std::string& hashed_device_id) override {
-    EXPECT_EQ(delegate_id_, delegate_id);
-  }
-
-  void DidDisableAudioOutputSinkChanges(int delegate_id) override {
-    EXPECT_EQ(delegate_id_, delegate_id);
-  }
-
  private:
   int delegate_id_ = 1234;
   Observer* observer_ = nullptr;
-  bool playing_ = false;
   bool is_hidden_ = false;
   bool is_gone_ = true;
   bool is_idle_ = false;
@@ -371,9 +329,9 @@ void MockMediaStreamVideoRenderer::QueueFrames(
       // MediaStreamRemoteVideoSource does not explicitly set the rotation
       // for unrotated frames, so that is not done here either.
       if (rotation != media::VIDEO_ROTATION_0)
-        frame->metadata()->rotation = rotation;
+        frame->metadata().transformation = rotation;
 
-      frame->metadata()->reference_time =
+      frame->metadata().reference_time =
           base::TimeTicks::Now() + base::TimeDelta::FromMilliseconds(token);
 
       AddFrame(FrameType::NORMAL_FRAME, frame);
@@ -433,7 +391,7 @@ class MockWebVideoFrameSubmitter : public WebVideoFrameSubmitter {
   // WebVideoFrameSubmitter implementation.
   MOCK_METHOD0(StopUsingProvider, void());
   MOCK_METHOD0(DidReceiveFrame, void());
-  MOCK_METHOD2(EnableSubmission, void(viz::SurfaceId, base::TimeTicks));
+  MOCK_METHOD1(EnableSubmission, void(viz::SurfaceId));
   MOCK_METHOD0(StartRendering, void());
   MOCK_METHOD0(StopRendering, void());
   MOCK_METHOD1(MockInitialize, void(cc::VideoFrameProvider*));
@@ -596,7 +554,6 @@ class WebMediaPlayerMSTest
   void AddTextTrack(WebInbandTextTrack*) override {}
   void RemoveTextTrack(WebInbandTextTrack*) override {}
   void MediaSourceOpened(WebMediaSource*) override {}
-  void RequestSeek(double) override {}
   void RemotePlaybackCompatibilityChanged(const WebURL& url,
                                           bool is_compatible) override {}
   void OnBecamePersistentVideo(bool) override {}
@@ -611,11 +568,23 @@ class WebMediaPlayerMSTest
   void MediaRemotingStarted(
       const WebString& remote_device_friendly_name) override {}
   void MediaRemotingStopped(int error_code) override {}
-  void RequestPlay() override {}
-  void RequestPause() override {}
-  void RequestMuted(bool muted) override {}
-  void RequestEnterPictureInPicture() override {}
-  void RequestExitPictureInPicture() override {}
+  void ResumePlayback() override {}
+  void PausePlayback() override {}
+  void DidPlayerStartPlaying() override {}
+  void DidPlayerPaused(bool) override {}
+  void DidPlayerMutedStatusChange(bool muted) override {}
+  void DidMediaMetadataChange(
+      bool has_audio,
+      bool has_video,
+      media::MediaContentType media_content_type) override {}
+  void DidPlayerMediaPositionStateChange(double playback_rate,
+                                         base::TimeDelta duration,
+                                         base::TimeDelta position) override {}
+  void DidDisableAudioOutputSinkChanges() override {}
+  void DidPlayerSizeChange(const gfx::Size& size) override {}
+  void DidBufferUnderflow() override {}
+  void DidSeek() override {}
+
   Features GetFeatures() override { return Features(); }
 
   // Implementation of cc::VideoFrameProvider::Client
@@ -654,7 +623,7 @@ class WebMediaPlayerMSTest
   MOCK_METHOD1(DoNetworkStateChanged, void(WebMediaPlayer::NetworkState));
   MOCK_METHOD1(DoReadyStateChanged, void(WebMediaPlayer::ReadyState));
   MOCK_METHOD1(CheckSizeChanged, void(gfx::Size));
-  MOCK_CONST_METHOD0(DisplayType, WebMediaPlayer::DisplayType());
+  MOCK_CONST_METHOD0(GetDisplayType, DisplayType());
   MOCK_CONST_METHOD0(CouldPlayIfEnoughData, bool());
   MOCK_METHOD0(OnRequestVideoFrameCallback, void());
 
@@ -722,7 +691,8 @@ MockMediaStreamVideoRenderer* WebMediaPlayerMSTest::LoadAndGetFrameProvider(
   EXPECT_CALL(*this,
               DoReadyStateChanged(WebMediaPlayer::kReadyStateHaveNothing));
   player_->Load(WebMediaPlayer::kLoadTypeURL, WebMediaPlayerSource(),
-                WebMediaPlayer::kCorsModeUnspecified);
+                WebMediaPlayer::kCorsModeUnspecified,
+                /*is_cache_disabled=*/false);
   compositor_ = player_->compositor_.get();
   EXPECT_TRUE(!!compositor_);
   compositor_->SetAlgorithmEnabledForTesting(algorithm_enabled);
@@ -867,7 +837,8 @@ TEST_P(WebMediaPlayerMSTest, NoWaitForFrameForAudio) {
               DoReadyStateChanged(WebMediaPlayer::kReadyStateHaveEnoughData));
 
   player_->Load(WebMediaPlayer::kLoadTypeURL, WebMediaPlayerSource(),
-                WebMediaPlayer::kCorsModeUnspecified);
+                WebMediaPlayer::kCorsModeUnspecified,
+                /*is_cache_disabled=*/false);
 
   message_loop_controller_.RunAndWaitForStatus(
       media::PipelineStatus::PIPELINE_OK);
@@ -1348,11 +1319,6 @@ TEST_P(WebMediaPlayerMSTest, HiddenPlayerTests) {
   player_->Play();
   EXPECT_FALSE(player_->Paused());
 
-  // A pause delivered via the delegate should not pause the video since these
-  // calls are currently ignored.
-  player_->OnPause();
-  EXPECT_FALSE(player_->Paused());
-
   // A hidden player should start still be playing upon shown.
   delegate_.set_hidden(false);
   player_->OnFrameShown();
@@ -1399,7 +1365,7 @@ TEST_P(WebMediaPlayerMSTest, RequestVideoFrameCallback) {
   Vector<int> timestamps({0, 33, kTestBrake, 66, 100, 133, 166});
   provider->QueueFrames(timestamps);
 
-  // Verify a basic call to RAF.
+  // Verify a basic call to rVFC
   player_->RequestVideoFrameCallback();
   EXPECT_CALL(*this, OnRequestVideoFrameCallback()).Times(1);
   message_loop_controller_.RunAndWaitForStatus(
@@ -1411,7 +1377,8 @@ TEST_P(WebMediaPlayerMSTest, RequestVideoFrameCallback) {
   EXPECT_GE(metadata->expected_display_time, metadata->presentation_time);
   testing::Mock::VerifyAndClearExpectations(this);
 
-  // Make sure multiple calls to RAF only result in one call per frame to OnRAF.
+  // Make sure multiple calls to rVFC only result in one call per frame to
+  // OnRVFC.
   player_->RequestVideoFrameCallback();
   player_->RequestVideoFrameCallback();
   player_->RequestVideoFrameCallback();
@@ -1454,12 +1421,12 @@ TEST_P(WebMediaPlayerMSTest, GetVideoFramePresentationMetadata) {
   Vector<int> timestamps({0, kTestBrake, 33, kTestBrake, 66, kTestBrake});
   provider->QueueFrames(timestamps);
 
-  // Chain calls to video.rAF.
+  // Chain calls to video.rVFC.
   int num_frames = 3;
   player_->RequestVideoFrameCallback();
 
   // Verify that the presentation frame counter is monotonically increasing.
-  // Queue up a rAF call immediately after each frame.
+  // Queue up a rVFC call immediately after each frame.
   int last_frame_counter = -1;
   EXPECT_CALL(*this, OnRequestVideoFrameCallback())
       .Times(num_frames)

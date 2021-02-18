@@ -9,8 +9,8 @@
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/task/post_task.h"
-#include "content/browser/frame_host/frame_tree_node.h"
-#include "content/browser/frame_host/render_frame_host_impl.h"
+#include "content/browser/renderer_host/frame_tree_node.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/browser/service_worker/service_worker_consts.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_version.h"
@@ -23,7 +23,6 @@
 #include "mojo/public/cpp/bindings/message.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/messaging/message_port_channel.h"
-#include "third_party/blink/public/common/service_worker/service_worker_utils.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_client.mojom.h"
 
 namespace content {
@@ -33,16 +32,17 @@ namespace {
 void CreateQuicTransportConnectorImpl(
     int process_id,
     const url::Origin& origin,
+    const net::NetworkIsolationKey& network_isolation_key,
     mojo::PendingReceiver<blink::mojom::QuicTransportConnector> receiver) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   auto* process = RenderProcessHost::FromID(process_id);
   if (!process)
     return;
 
-  mojo::MakeSelfOwnedReceiver(std::make_unique<QuicTransportConnectorImpl>(
-                                  process_id, /*frame=*/nullptr, origin,
-                                  net::NetworkIsolationKey(origin, origin)),
-                              std::move(receiver));
+  mojo::MakeSelfOwnedReceiver(
+      std::make_unique<QuicTransportConnectorImpl>(
+          process_id, /*frame=*/nullptr, origin, network_isolation_key),
+      std::move(receiver));
 }
 
 }  // anonymous namespace
@@ -62,8 +62,7 @@ ServiceWorkerHost::ServiceWorkerHost(
   container_host_->set_service_worker_host(this);
   container_host_->UpdateUrls(
       version_->script_url(),
-      net::SiteForCookies::FromUrl(version_->script_url()),
-      version_->script_origin());
+      net::SiteForCookies::FromUrl(version_->script_url()), version_->origin());
 }
 
 ServiceWorkerHost::~ServiceWorkerHost() {
@@ -96,7 +95,8 @@ void ServiceWorkerHost::CreateQuicTransportConnector(
   RunOrPostTaskOnThread(
       FROM_HERE, BrowserThread::UI,
       base::BindOnce(&CreateQuicTransportConnectorImpl, worker_process_id_,
-                     version_->script_origin(), std::move(receiver)));
+                     version_->origin(), GetNetworkIsolationKey(),
+                     std::move(receiver)));
 }
 
 void ServiceWorkerHost::BindCacheStorage(
@@ -105,6 +105,14 @@ void ServiceWorkerHost::BindCacheStorage(
   DCHECK(!base::FeatureList::IsEnabled(
       blink::features::kEagerCacheStorageSetupForServiceWorkers));
   version_->embedded_worker()->BindCacheStorage(std::move(receiver));
+}
+
+net::NetworkIsolationKey ServiceWorkerHost::GetNetworkIsolationKey() const {
+  // TODO(https://crbug.com/1147281): This is the NetworkIsolationKey of a
+  // top-level browsing context, which shouldn't be use for ServiceWorkers used
+  // in iframes.
+  return net::NetworkIsolationKey::ToDoUseTopFrameOriginAsWell(
+      version_->origin());
 }
 
 base::WeakPtr<ServiceWorkerHost> ServiceWorkerHost::GetWeakPtr() {

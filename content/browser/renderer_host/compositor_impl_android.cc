@@ -34,6 +34,7 @@
 #include "cc/input/input_handler.h"
 #include "cc/layers/layer.h"
 #include "cc/metrics/begin_main_frame_metrics.h"
+#include "cc/metrics/web_vital_metrics.h"
 #include "cc/mojo_embedder/async_layer_tree_frame_sink.h"
 #include "cc/resources/ui_resource_manager.h"
 #include "cc/trees/layer_tree_host.h"
@@ -41,7 +42,7 @@
 #include "components/viz/common/features.h"
 #include "components/viz/common/gpu/context_provider.h"
 #include "components/viz/common/quads/compositor_frame.h"
-#include "components/viz/common/surfaces/local_surface_id_allocation.h"
+#include "components/viz/common/surfaces/local_surface_id.h"
 #include "components/viz/common/viz_utils.h"
 #include "components/viz/host/host_display_client.h"
 #include "content/browser/compositor/surface_utils.h"
@@ -340,8 +341,6 @@ void CompositorImpl::SetRootWindow(gfx::NativeWindow root_window) {
   }
 
   root_window_ = root_window;
-  if (base::FeatureList::IsEnabled(features::kForce60HzRefreshRate))
-    root_window_->SetForce60HzRefreshRate();
   root_window_->SetLayer(root_layer ? root_layer : cc::Layer::Create());
   root_window_->GetLayer()->SetBounds(size_);
   root_window->AttachCompositor(this);
@@ -365,11 +364,8 @@ void CompositorImpl::SetRootLayer(scoped_refptr<cc::Layer> root_layer) {
   }
 }
 
-void CompositorImpl::SetSurface(jobject surface,
+void CompositorImpl::SetSurface(const base::android::JavaRef<jobject>& surface,
                                 bool can_be_used_with_surface_control) {
-  can_be_used_with_surface_control &=
-      !root_window_->ApplyDisableSurfaceControlWorkaround();
-
   JNIEnv* env = base::android::AttachCurrentThread();
   gpu::GpuSurfaceTracker* tracker = gpu::GpuSurfaceTracker::Get();
 
@@ -388,7 +384,7 @@ void CompositorImpl::SetSurface(jobject surface,
     // ANativeWindow_fromSurface are released immediately. This is needed as a
     // workaround for https://code.google.com/p/android/issues/detail?id=68174
     base::android::ScopedJavaLocalFrame scoped_local_reference_frame(env);
-    window = ANativeWindow_fromSurface(env, surface);
+    window = ANativeWindow_fromSurface(env, surface.obj());
   }
 
   if (window) {
@@ -709,6 +705,10 @@ CompositorImpl::GetBeginMainFrameMetrics() {
   return nullptr;
 }
 
+std::unique_ptr<cc::WebVitalMetrics> CompositorImpl::GetWebVitalMetrics() {
+  return nullptr;
+}
+
 std::unique_ptr<ui::WindowAndroidCompositor::ReadbackRef>
 CompositorImpl::TakeReadbackRef() {
   ++pending_readbacks_;
@@ -871,9 +871,9 @@ void CompositorImpl::InitializeVizLayerTreeFrameSink(
       root_window_->GetSupportedRefreshRates());
 }
 
-viz::LocalSurfaceIdAllocation CompositorImpl::GenerateLocalSurfaceId() {
+viz::LocalSurfaceId CompositorImpl::GenerateLocalSurfaceId() {
   local_surface_id_allocator_.GenerateId();
-  return local_surface_id_allocator_.GetCurrentLocalSurfaceIdAllocation();
+  return local_surface_id_allocator_.GetCurrentLocalSurfaceId();
 }
 
 void CompositorImpl::OnContextCreationResult(

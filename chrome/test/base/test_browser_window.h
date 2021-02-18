@@ -9,7 +9,6 @@
 #include <string>
 #include <vector>
 
-#include "base/macros.h"
 #include "build/build_config.h"
 #include "chrome/browser/download/test_download_shelf.h"
 #include "chrome/browser/ui/autofill/test/test_autofill_bubble_handler.h"
@@ -23,12 +22,9 @@
 #include "chrome/browser/apps/intent_helper/apps_navigation_types.h"
 #endif  //  !defined(OS_ANDROID)
 
+class FeaturePromoController;
 class LocationBarTesting;
 class OmniboxView;
-
-namespace extensions {
-class Extension;
-}
 
 namespace qrcode_generator {
 class QRCodeGeneratorBubbleController;
@@ -47,6 +43,8 @@ class SendTabToSelfBubbleView;
 class TestBrowserWindow : public BrowserWindow {
  public:
   TestBrowserWindow();
+  TestBrowserWindow(const TestBrowserWindow&) = delete;
+  TestBrowserWindow& operator=(const TestBrowserWindow&) = delete;
   ~TestBrowserWindow() override;
 
   // BrowserWindow:
@@ -113,6 +111,7 @@ class TestBrowserWindow : public BrowserWindow {
   ExtensionsContainer* GetExtensionsContainer() override;
   void ToolbarSizeChanged(bool is_animating) override {}
   void TabDraggingStatusChanged(bool is_dragging) override {}
+  void LinkOpeningFromGesture(WindowOpenDisposition disposition) override {}
   void FocusAppMenu() override {}
   void FocusBookmarksToolbar() override {}
   void FocusInactivePopupForAccessibility() override {}
@@ -165,8 +164,7 @@ class TestBrowserWindow : public BrowserWindow {
   void ConfirmBrowserCloseWithPendingDownloads(
       int download_count,
       Browser::DownloadCloseType dialog_type,
-      bool app_modal,
-      const base::Callback<void(bool)>& callback) override {}
+      base::OnceCallback<void(bool)> callback) override {}
   void UserChangedTheme(BrowserThemeChangeType theme_change_type) override {}
   void CutCopyPaste(int command_id) override {}
   std::unique_ptr<FindBar> CreateFindBar() override;
@@ -179,11 +177,11 @@ class TestBrowserWindow : public BrowserWindow {
 
 #if defined(OS_CHROMEOS) || defined(OS_MAC) || defined(OS_WIN) || \
     defined(OS_LINUX)
-  void ShowHatsBubble(const std::string& site_id) override {}
+  void ShowHatsDialog(const std::string& site_id,
+                      base::OnceClosure success_callback,
+                      base::OnceClosure failure_callback) override {}
 #endif
 
-  void ExecuteExtensionCommand(const extensions::Extension* extension,
-                               const extensions::Command& command) override;
   ExclusiveAccessContext* GetExclusiveAccessContext() override;
   std::string GetWorkspace() const override;
   bool IsVisibleOnAllWorkspaces() const override;
@@ -200,6 +198,19 @@ class TestBrowserWindow : public BrowserWindow {
   void SetCloseCallback(base::OnceClosure close_callback);
 
   void CreateTabSearchBubble() override {}
+  void CloseTabSearchBubble() override {}
+
+  FeaturePromoController* GetFeaturePromoController() override;
+
+  // Sets the controller returned by GetFeaturePromoController().
+  // Deletes the existing one, if any.
+  FeaturePromoController* SetFeaturePromoController(
+      std::unique_ptr<FeaturePromoController> feature_promo_controller);
+
+  void set_workspace(std::string workspace) { workspace_ = workspace; }
+  void set_visible_on_all_workspaces(bool visible_on_all_workspaces) {
+    visible_on_all_workspaces_ = visible_on_all_workspaces;
+  }
 
  protected:
   void DestroyBrowser() override {}
@@ -208,10 +219,13 @@ class TestBrowserWindow : public BrowserWindow {
   class TestLocationBar : public LocationBar {
    public:
     TestLocationBar() = default;
+    TestLocationBar(const TestLocationBar&) = delete;
+    TestLocationBar& operator=(const TestLocationBar&) = delete;
     ~TestLocationBar() override = default;
 
     // LocationBar:
     GURL GetDestinationURL() const override;
+    bool IsInputTypedUrlWithoutScheme() const override;
     WindowOpenDisposition GetWindowOpenDisposition() const override;
     ui::PageTransition GetPageTransition() const override;
     base::TimeTicks GetMatchSelectionTimestamp() const override;
@@ -225,9 +239,6 @@ class TestBrowserWindow : public BrowserWindow {
     const OmniboxView* GetOmniboxView() const override;
     OmniboxView* GetOmniboxView() override;
     LocationBarTesting* GetLocationBarForTesting() override;
-
-   private:
-    DISALLOW_COPY_AND_ASSIGN(TestLocationBar);
   };
 
   autofill::TestAutofillBubbleHandler autofill_bubble_handler_;
@@ -235,9 +246,12 @@ class TestBrowserWindow : public BrowserWindow {
   TestLocationBar location_bar_;
   gfx::NativeWindow native_window_ = nullptr;
 
-  base::OnceClosure close_callback_;
+  std::string workspace_;
+  bool visible_on_all_workspaces_ = false;
 
-  DISALLOW_COPY_AND_ASSIGN(TestBrowserWindow);
+  std::unique_ptr<FeaturePromoController> feature_promo_controller_;
+
+  base::OnceClosure close_callback_;
 };
 
 // Handles destroying a TestBrowserWindow when the Browser it is attached to is
@@ -245,18 +259,18 @@ class TestBrowserWindow : public BrowserWindow {
 class TestBrowserWindowOwner : public BrowserListObserver {
  public:
   explicit TestBrowserWindowOwner(TestBrowserWindow* window);
+  TestBrowserWindowOwner(const TestBrowserWindowOwner&) = delete;
+  TestBrowserWindowOwner& operator=(const TestBrowserWindowOwner&) = delete;
   ~TestBrowserWindowOwner() override;
 
  private:
   // Overridden from BrowserListObserver:
   void OnBrowserRemoved(Browser* browser) override;
   std::unique_ptr<TestBrowserWindow> window_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestBrowserWindowOwner);
 };
 
 // Helper that handle the lifetime of TestBrowserWindow instances.
 std::unique_ptr<Browser> CreateBrowserWithTestWindowForParams(
-    Browser::CreateParams* params);
+    Browser::CreateParams params);
 
 #endif  // CHROME_TEST_BASE_TEST_BROWSER_WINDOW_H_

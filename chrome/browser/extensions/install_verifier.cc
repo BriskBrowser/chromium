@@ -11,10 +11,10 @@
 #include "base/base_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/one_shot_event.h"
-#include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
@@ -59,37 +59,12 @@ enum class VerifyStatus {
   VERIFY_STATUS_MAX
 };
 
-const char kExperimentName[] = "ExtensionInstallVerification";
-
 VerifyStatus GetExperimentStatus() {
-  const std::string group = base::FieldTrialList::FindFullName(
-      kExperimentName);
-
-  std::string forced_trials =
-      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-          ::switches::kForceFieldTrials);
-  if (forced_trials.find(kExperimentName) != std::string::npos) {
-    // We don't want to allow turning off enforcement by forcing the field
-    // trial group to something other than enforcement.
-    return VerifyStatus::ENFORCE_STRICT;
-  }
-
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING) && (defined(OS_WIN) || defined(OS_MAC))
-  VerifyStatus default_status = VerifyStatus::ENFORCE;
+  return VerifyStatus::ENFORCE;
 #else
-  VerifyStatus default_status = VerifyStatus::NONE;
+  return VerifyStatus::NONE;
 #endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
-
-  if (group == "EnforceStrict")
-    return VerifyStatus::ENFORCE_STRICT;
-  else if (group == "Enforce")
-    return VerifyStatus::ENFORCE;
-  else if (group == "Bootstrap")
-    return VerifyStatus::BOOTSTRAP;
-  else if (group == "None" || group == "Control")
-    return VerifyStatus::NONE;
-
-  return default_status;
 }
 
 VerifyStatus GetCommandLineStatus() {
@@ -206,14 +181,17 @@ bool InstallVerifier::ShouldEnforce() {
 }
 
 // static
-bool InstallVerifier::NeedsVerification(const Extension& extension) {
-  return IsFromStore(extension) && CanUseExtensionApis(extension);
+bool InstallVerifier::NeedsVerification(const Extension& extension,
+                                        content::BrowserContext* context) {
+  return IsFromStore(extension, context) && CanUseExtensionApis(extension);
 }
 
 // static
-bool InstallVerifier::IsFromStore(const Extension& extension) {
+bool InstallVerifier::IsFromStore(const Extension& extension,
+                                  content::BrowserContext* context) {
   return extension.from_webstore() ||
-         ManifestURL::UpdatesFromGallery(&extension);
+         ExtensionManagementFactory::GetForBrowserContext(context)
+             ->UpdatesFromWebstore(extension);
 }
 
 void InstallVerifier::Init() {
@@ -357,7 +335,7 @@ bool InstallVerifier::MustRemainDisabled(const Extension* extension,
   if (base::Contains(InstallSigner::GetForcedNotFromWebstore(),
                      extension->id())) {
     verified = false;
-  } else if (!IsFromStore(*extension)) {
+  } else if (!IsFromStore(*extension, context_)) {
     verified = false;
   } else if (!signature_ && (!bootstrap_check_complete_ ||
                              GetStatus() < VerifyStatus::ENFORCE_STRICT)) {
@@ -411,7 +389,7 @@ ExtensionIdSet InstallVerifier::GetExtensionsToVerify() const {
   for (ExtensionSet::const_iterator iter = extensions->begin();
        iter != extensions->end();
        ++iter) {
-    if (NeedsVerification(**iter))
+    if (NeedsVerification(**iter, context_))
       result.insert((*iter)->id());
   }
   return result;

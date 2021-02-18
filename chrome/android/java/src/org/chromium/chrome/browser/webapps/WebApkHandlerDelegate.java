@@ -12,8 +12,8 @@ import android.content.pm.PackageManager;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
-import org.chromium.chrome.browser.ShortcutSource;
 import org.chromium.components.webapk.lib.client.WebApkValidator;
+import org.chromium.components.webapps.ShortcutSource;
 
 /**
  * Delegate for retrieving WebApkInfo.
@@ -56,6 +56,7 @@ public class WebApkHandlerDelegate {
      * Calls the native WebApkHandlerDelegate with information for each installed WebAPK.
      */
     @CalledByNative
+    @SuppressWarnings("QueryPermissionsNeeded")
     public void retrieveWebApks() {
         if (mNativePointer == 0) {
             return;

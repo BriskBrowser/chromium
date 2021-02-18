@@ -22,7 +22,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
@@ -39,12 +39,12 @@
 #include "components/viz/common/frame_sinks/copy_output_result.h"
 #include "components/viz/common/resources/transferable_resource.h"
 #include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
+#include "components/viz/common/surfaces/subtree_capture_id.h"
 #include "components/viz/common/surfaces/surface_id.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "ui/compositor/compositor_observer.h"
-#include "ui/compositor/dip_util.h"
 #include "ui/compositor/layer_animation_element.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/compositor/layer_animation_sequence.h"
@@ -756,6 +756,7 @@ TEST_F(LayerWithDelegateTest, Cloning) {
   layer->SetClipRect(clip_rect);
   layer->SetRoundedCornerRadius({1, 2, 4, 5});
   layer->SetIsFastRoundedCorner(true);
+  layer->SetSubtreeCaptureId(viz::SubtreeCaptureId(1));
 
   auto clone = layer->Clone();
 
@@ -773,6 +774,10 @@ TEST_F(LayerWithDelegateTest, Cloning) {
   EXPECT_EQ(clip_rect, clone->clip_rect());
   EXPECT_EQ(layer->rounded_corner_radii(), clone->rounded_corner_radii());
   EXPECT_EQ(layer->is_fast_rounded_corner(), clone->is_fast_rounded_corner());
+
+  // However, the SubtreeCaptureId is not cloned.
+  EXPECT_TRUE(layer->GetSubtreeCaptureId().is_valid());
+  EXPECT_FALSE(clone->GetSubtreeCaptureId().is_valid());
 
   layer->SetTransform(gfx::Transform());
   layer->SetColor(SK_ColorGREEN);
@@ -840,6 +845,25 @@ TEST_F(LayerWithDelegateTest, Cloning) {
   EXPECT_FALSE(clone->visible());
   EXPECT_EQ(0.0f, clone->opacity());
   EXPECT_EQ(SK_ColorGREEN, clone->background_color());
+}
+
+TEST_F(LayerWithDelegateTest, CloneDamagedRegion) {
+  std::unique_ptr<Layer> layer = CreateLayer(LAYER_TEXTURED);
+  // Set a delegate so that the damage region is accumulated.
+  DrawTreeLayerDelegate delegate(gfx::Rect(0, 0, 10, 10));
+  layer->set_delegate(&delegate);
+
+  cc::Region damaged_region;
+  damaged_region.Union(gfx::Rect(10, 10, 5, 5));
+  damaged_region.Union(gfx::Rect(20, 20, 7, 7));
+
+  for (auto rect : damaged_region)
+    layer->SchedulePaint(rect);
+
+  ASSERT_EQ(damaged_region, layer->damaged_region());
+
+  auto clone = layer->Clone();
+  EXPECT_EQ(damaged_region, clone->damaged_region());
 }
 
 TEST_F(LayerWithDelegateTest, Mirroring) {
@@ -922,8 +946,7 @@ TEST_F(LayerWithDelegateTest, SurfaceLayerCloneAndMirror) {
   std::unique_ptr<Layer> layer = CreateLayer(LAYER_SOLID_COLOR);
 
   allocator.GenerateId();
-  viz::LocalSurfaceId local_surface_id =
-      allocator.GetCurrentLocalSurfaceIdAllocation().local_surface_id();
+  viz::LocalSurfaceId local_surface_id = allocator.GetCurrentLocalSurfaceId();
   viz::SurfaceId surface_id_one(arbitrary_frame_sink, local_surface_id);
   layer->SetShowSurface(surface_id_one, gfx::Size(10, 10), SK_ColorWHITE,
                         cc::DeadlinePolicy::UseDefaultDeadline(), false);
@@ -935,8 +958,7 @@ TEST_F(LayerWithDelegateTest, SurfaceLayerCloneAndMirror) {
   EXPECT_FALSE(mirror->StretchContentToFillBounds());
 
   allocator.GenerateId();
-  local_surface_id =
-      allocator.GetCurrentLocalSurfaceIdAllocation().local_surface_id();
+  local_surface_id = allocator.GetCurrentLocalSurfaceId();
   viz::SurfaceId surface_id_two(arbitrary_frame_sink, local_surface_id);
   layer->SetShowSurface(surface_id_two, gfx::Size(10, 10), SK_ColorWHITE,
                         cc::DeadlinePolicy::UseDefaultDeadline(), true);
@@ -1002,6 +1024,8 @@ TEST_F(LayerWithNullDelegateTest, SwitchLayerPreservesCCLayerState) {
   constexpr gfx::RoundedCornersF kCornerRadii(1, 2, 3, 4);
   l1->SetRoundedCornerRadius(kCornerRadii);
   l1->SetIsFastRoundedCorner(true);
+  constexpr viz::SubtreeCaptureId kSubtreeCaptureId(22);
+  l1->SetSubtreeCaptureId(kSubtreeCaptureId);
 
   EXPECT_EQ(gfx::Point3F(), l1->cc_layer_for_testing()->transform_origin());
   EXPECT_TRUE(l1->cc_layer_for_testing()->DrawsContent());
@@ -1011,6 +1035,9 @@ TEST_F(LayerWithNullDelegateTest, SwitchLayerPreservesCCLayerState) {
   EXPECT_TRUE(l1->cc_layer_for_testing()->HasRoundedCorner());
   EXPECT_EQ(l1->cc_layer_for_testing()->corner_radii(), kCornerRadii);
   EXPECT_TRUE(l1->cc_layer_for_testing()->is_fast_rounded_corner());
+  EXPECT_EQ(kSubtreeCaptureId,
+            l1->cc_layer_for_testing()->subtree_capture_id());
+  EXPECT_EQ(kSubtreeCaptureId, l1->GetSubtreeCaptureId());
 
   cc::Layer* before_layer = l1->cc_layer_for_testing();
 
@@ -1034,6 +1061,9 @@ TEST_F(LayerWithNullDelegateTest, SwitchLayerPreservesCCLayerState) {
   EXPECT_TRUE(l1->cc_layer_for_testing()->HasRoundedCorner());
   EXPECT_EQ(l1->cc_layer_for_testing()->corner_radii(), kCornerRadii);
   EXPECT_TRUE(l1->cc_layer_for_testing()->is_fast_rounded_corner());
+  EXPECT_EQ(kSubtreeCaptureId,
+            l1->cc_layer_for_testing()->subtree_capture_id());
+  EXPECT_EQ(kSubtreeCaptureId, l1->GetSubtreeCaptureId());
   EXPECT_FALSE(callback1_run);
 
   bool callback2_run = false;
@@ -1434,8 +1464,7 @@ TEST_F(LayerWithNullDelegateTest, UpdateDamageInDeferredPaint) {
   EXPECT_EQ(bound1, root->damaged_region_for_testing());
   root->SendDamagedRects();
   EXPECT_EQ(gfx::Rect(), root->cc_layer_for_testing()->update_rect());
-  root->PaintContentsToDisplayList(
-      cc::ContentLayerClient::PAINTING_BEHAVIOR_NORMAL);
+  root->PaintContentsToDisplayList();
   EXPECT_EQ(gfx::Rect(), LastInvalidation());
 
   // During deferring paint request, a new invalid_rect will be accumulated.
@@ -1446,8 +1475,7 @@ TEST_F(LayerWithNullDelegateTest, UpdateDamageInDeferredPaint) {
   EXPECT_EQ(bound_union, root->damaged_region_for_testing().bounds());
   root->SendDamagedRects();
   EXPECT_EQ(gfx::Rect(), root->cc_layer_for_testing()->update_rect());
-  root->PaintContentsToDisplayList(
-      cc::ContentLayerClient::PAINTING_BEHAVIOR_NORMAL);
+  root->PaintContentsToDisplayList();
   EXPECT_EQ(gfx::Rect(), LastInvalidation());
 
   // Remove deferring paint request.
@@ -1457,8 +1485,7 @@ TEST_F(LayerWithNullDelegateTest, UpdateDamageInDeferredPaint) {
   // paint, i.e. union of bound1 and bound2.
   root->SendDamagedRects();
   EXPECT_EQ(bound_union, root->cc_layer_for_testing()->update_rect());
-  root->PaintContentsToDisplayList(
-      cc::ContentLayerClient::PAINTING_BEHAVIOR_NORMAL);
+  root->PaintContentsToDisplayList();
   EXPECT_EQ(bound_union, LastInvalidation());
 }
 
@@ -1788,8 +1815,8 @@ TEST_P(LayerWithRealCompositorTest, MAYBE_CompositorObservers) {
 TEST_P(LayerWithRealCompositorTest, ModifyHierarchy) {
   viz::ParentLocalSurfaceIdAllocator allocator;
   allocator.GenerateId();
-  GetCompositor()->SetScaleAndSize(
-      1.0f, gfx::Size(50, 50), allocator.GetCurrentLocalSurfaceIdAllocation());
+  GetCompositor()->SetScaleAndSize(1.0f, gfx::Size(50, 50),
+                                   allocator.GetCurrentLocalSurfaceId());
 
   // l0
   //  +-l11
@@ -1854,12 +1881,17 @@ TEST_P(LayerWithRealCompositorTest, ModifyHierarchy) {
 }
 
 // Checks that basic background blur is working.
-TEST_P(LayerWithRealCompositorTest, BackgroundBlur) {
+// TODO(crbug.com/1174372) Flaky on Windows
+#if defined(OS_WIN)
+#define MAYBE_BackgroundBlur DISABLED_BackgroundBlur
+#else
+#define MAYBE_BackgroundBlur BackgroundBlur
+#endif
+TEST_P(LayerWithRealCompositorTest, MAYBE_BackgroundBlur) {
   viz::ParentLocalSurfaceIdAllocator allocator;
   allocator.GenerateId();
-  GetCompositor()->SetScaleAndSize(
-      1.0f, gfx::Size(200, 200),
-      allocator.GetCurrentLocalSurfaceIdAllocation());
+  GetCompositor()->SetScaleAndSize(1.0f, gfx::Size(200, 200),
+                                   allocator.GetCurrentLocalSurfaceId());
   // l0
   //  +-l1
   //  +-l2
@@ -1901,9 +1933,8 @@ TEST_P(LayerWithRealCompositorTest, BackgroundBlur) {
 TEST_P(LayerWithRealCompositorTest, BackgroundBlurChangeDeviceScale) {
   viz::ParentLocalSurfaceIdAllocator allocator;
   allocator.GenerateId();
-  GetCompositor()->SetScaleAndSize(
-      1.0f, gfx::Size(200, 200),
-      allocator.GetCurrentLocalSurfaceIdAllocation());
+  GetCompositor()->SetScaleAndSize(1.0f, gfx::Size(200, 200),
+                                   allocator.GetCurrentLocalSurfaceId());
   // l0
   //  +-l1
   //  +-l2
@@ -1936,9 +1967,8 @@ TEST_P(LayerWithRealCompositorTest, BackgroundBlurChangeDeviceScale) {
 
   allocator.GenerateId();
   // Now change the scale, and make sure the bounds are still correct.
-  GetCompositor()->SetScaleAndSize(
-      2.0f, gfx::Size(200, 200),
-      allocator.GetCurrentLocalSurfaceIdAllocation());
+  GetCompositor()->SetScaleAndSize(2.0f, gfx::Size(200, 200),
+                                   allocator.GetCurrentLocalSurfaceId());
   DrawTree(l0.get());
   ReadPixels(&bitmap);
   ASSERT_FALSE(bitmap.empty());
@@ -1951,8 +1981,8 @@ TEST_P(LayerWithRealCompositorTest, BackgroundBlurChangeDeviceScale) {
 TEST_P(LayerWithRealCompositorTest, Opacity) {
   viz::ParentLocalSurfaceIdAllocator allocator;
   allocator.GenerateId();
-  GetCompositor()->SetScaleAndSize(
-      1.0f, gfx::Size(50, 50), allocator.GetCurrentLocalSurfaceIdAllocation());
+  GetCompositor()->SetScaleAndSize(1.0f, gfx::Size(50, 50),
+                                   allocator.GetCurrentLocalSurfaceId());
 
   // l0
   //  +-l11
@@ -2070,9 +2100,8 @@ TEST_P(LayerWithRealCompositorTest, ScaleUpDown) {
 
   viz::ParentLocalSurfaceIdAllocator allocator;
   allocator.GenerateId();
-  GetCompositor()->SetScaleAndSize(
-      1.0f, gfx::Size(500, 500),
-      allocator.GetCurrentLocalSurfaceIdAllocation());
+  GetCompositor()->SetScaleAndSize(1.0f, gfx::Size(500, 500),
+                                   allocator.GetCurrentLocalSurfaceId());
   GetCompositor()->SetRootLayer(root.get());
   root->Add(l1.get());
   WaitForDraw();
@@ -2089,9 +2118,8 @@ TEST_P(LayerWithRealCompositorTest, ScaleUpDown) {
 
   // Scale up to 2.0. Changing scale doesn't change the bounds in DIP.
   allocator.GenerateId();
-  GetCompositor()->SetScaleAndSize(
-      2.0f, gfx::Size(500, 500),
-      allocator.GetCurrentLocalSurfaceIdAllocation());
+  GetCompositor()->SetScaleAndSize(2.0f, gfx::Size(500, 500),
+                                   allocator.GetCurrentLocalSurfaceId());
   EXPECT_EQ("10,20 200x220", root->bounds().ToString());
   EXPECT_EQ("10,20 140x180", l1->bounds().ToString());
   // CC layer should still match the UI layer bounds.
@@ -2106,9 +2134,8 @@ TEST_P(LayerWithRealCompositorTest, ScaleUpDown) {
 
   // Scale down back to 1.0f.
   allocator.GenerateId();
-  GetCompositor()->SetScaleAndSize(
-      1.0f, gfx::Size(500, 500),
-      allocator.GetCurrentLocalSurfaceIdAllocation());
+  GetCompositor()->SetScaleAndSize(1.0f, gfx::Size(500, 500),
+                                   allocator.GetCurrentLocalSurfaceId());
   EXPECT_EQ("10,20 200x220", root->bounds().ToString());
   EXPECT_EQ("10,20 140x180", l1->bounds().ToString());
   // CC layer should still match the UI layer bounds.
@@ -2126,9 +2153,8 @@ TEST_P(LayerWithRealCompositorTest, ScaleUpDown) {
   // Just changing the size shouldn't notify the scale change nor
   // trigger repaint.
   allocator.GenerateId();
-  GetCompositor()->SetScaleAndSize(
-      1.0f, gfx::Size(1000, 1000),
-      allocator.GetCurrentLocalSurfaceIdAllocation());
+  GetCompositor()->SetScaleAndSize(1.0f, gfx::Size(1000, 1000),
+                                   allocator.GetCurrentLocalSurfaceId());
   // No scale change, so no scale notification.
   EXPECT_EQ(0.0f, root_delegate.device_scale_factor());
   EXPECT_EQ(0.0f, l1_delegate.device_scale_factor());
@@ -2146,9 +2172,8 @@ TEST_P(LayerWithRealCompositorTest, ScaleReparent) {
   l1->set_delegate(&l1_delegate);
   l1_delegate.set_layer_bounds(l1->bounds());
 
-  GetCompositor()->SetScaleAndSize(
-      1.0f, gfx::Size(500, 500),
-      allocator.GetCurrentLocalSurfaceIdAllocation());
+  GetCompositor()->SetScaleAndSize(1.0f, gfx::Size(500, 500),
+                                   allocator.GetCurrentLocalSurfaceId());
   GetCompositor()->SetRootLayer(root.get());
 
   root->Add(l1.get());
@@ -2162,9 +2187,8 @@ TEST_P(LayerWithRealCompositorTest, ScaleReparent) {
   EXPECT_EQ(NULL, l1->parent());
   EXPECT_EQ(NULL, l1->GetCompositor());
   allocator.GenerateId();
-  GetCompositor()->SetScaleAndSize(
-      2.0f, gfx::Size(500, 500),
-      allocator.GetCurrentLocalSurfaceIdAllocation());
+  GetCompositor()->SetScaleAndSize(2.0f, gfx::Size(500, 500),
+                                   allocator.GetCurrentLocalSurfaceId());
   // Sanity check on root and l1.
   EXPECT_EQ("10,20 200x220", root->bounds().ToString());
   cc_bounds_size = l1->cc_layer_for_testing()->bounds();
@@ -2241,9 +2265,7 @@ TEST_F(LayerWithDelegateTest, ExternalContent) {
   before = child->cc_layer_for_testing();
   allocator.GenerateId();
   child->SetShowSurface(
-      viz::SurfaceId(
-          frame_sink_id,
-          allocator.GetCurrentLocalSurfaceIdAllocation().local_surface_id()),
+      viz::SurfaceId(frame_sink_id, allocator.GetCurrentLocalSurfaceId()),
       gfx::Size(10, 10), SK_ColorWHITE,
       cc::DeadlinePolicy::UseDefaultDeadline(), false);
   scoped_refptr<cc::Layer> after = child->cc_layer_for_testing();
@@ -2254,9 +2276,7 @@ TEST_F(LayerWithDelegateTest, ExternalContent) {
 
   allocator.GenerateId();
   child->SetShowSurface(
-      viz::SurfaceId(
-          frame_sink_id,
-          allocator.GetCurrentLocalSurfaceIdAllocation().local_surface_id()),
+      viz::SurfaceId(frame_sink_id, allocator.GetCurrentLocalSurfaceId()),
       gfx::Size(10, 10), SK_ColorWHITE,
       cc::DeadlinePolicy::UseSpecifiedDeadline(4u), false);
   EXPECT_EQ(4u, surface->deadline_in_frames());
@@ -2866,9 +2886,8 @@ TEST_P(LayerWithRealCompositorTest, SnapLayerToPixels) {
 
   viz::ParentLocalSurfaceIdAllocator allocator;
   allocator.GenerateId();
-  GetCompositor()->SetScaleAndSize(
-      1.25f, gfx::Size(100, 100),
-      allocator.GetCurrentLocalSurfaceIdAllocation());
+  GetCompositor()->SetScaleAndSize(1.25f, gfx::Size(100, 100),
+                                   allocator.GetCurrentLocalSurfaceId());
   GetCompositor()->SetRootLayer(root.get());
   root->Add(c1.get());
   c1->Add(c11.get());
@@ -2881,9 +2900,8 @@ TEST_P(LayerWithRealCompositorTest, SnapLayerToPixels) {
             Vector2dFTo100thPrecisionString(c11->GetSubpixelOffset()));
 
   allocator.GenerateId();
-  GetCompositor()->SetScaleAndSize(
-      1.5f, gfx::Size(100, 100),
-      allocator.GetCurrentLocalSurfaceIdAllocation());
+  GetCompositor()->SetScaleAndSize(1.5f, gfx::Size(100, 100),
+                                   allocator.GetCurrentLocalSurfaceId());
   // 1 at 1.5 scale = 1.5 : (round(1.5) - 1.5) / 1.5 = 0.33
   EXPECT_EQ("0.33 0.33",
             Vector2dFTo100thPrecisionString(c11->GetSubpixelOffset()));

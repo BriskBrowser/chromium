@@ -17,6 +17,12 @@ namespace policy {
 const char kCameraFeature[] = "camera";
 const char kBrowserSettingsFeature[] = "browser_settings";
 const char kOsSettingsFeature[] = "os_settings";
+const char kScanningFeature[] = "scanning";
+const char kWebStoreFeature[] = "web_store";
+const char kCanvasFeature[] = "canvas";
+
+const char kBlockedDisableMode[] = "blocked";
+const char kHiddenDisableMode[] = "hidden";
 
 const char kSystemFeaturesDisableListHistogram[] =
     "Enterprise.SystemFeaturesDisableList";
@@ -31,6 +37,8 @@ SystemFeaturesDisableListPolicyHandler::
 void SystemFeaturesDisableListPolicyHandler::RegisterPrefs(
     PrefRegistrySimple* registry) {
   registry->RegisterListPref(policy_prefs::kSystemFeaturesDisableList);
+  registry->RegisterStringPref(policy_prefs::kSystemFeaturesDisableMode,
+                               kBlockedDisableMode);
 }
 
 void SystemFeaturesDisableListPolicyHandler::ApplyList(
@@ -47,7 +55,7 @@ void SystemFeaturesDisableListPolicyHandler::ApplyList(
   for (const auto& element : filtered_list.GetList()) {
     SystemFeature feature = ConvertToEnum(element.GetString());
     enums_list.Append(feature);
-    if (feature == SystemFeature::OS_SETTINGS)
+    if (feature == SystemFeature::kOsSettings)
       os_settings_enabled = false;
 
     if (!old_list ||
@@ -65,14 +73,20 @@ void SystemFeaturesDisableListPolicyHandler::ApplyList(
 SystemFeature SystemFeaturesDisableListPolicyHandler::ConvertToEnum(
     const std::string& system_feature) {
   if (system_feature == kCameraFeature)
-    return SystemFeature::CAMERA;
+    return SystemFeature::kCamera;
   if (system_feature == kOsSettingsFeature)
-    return SystemFeature::OS_SETTINGS;
+    return SystemFeature::kOsSettings;
   if (system_feature == kBrowserSettingsFeature)
-    return SystemFeature::BROWSER_SETTINGS;
+    return SystemFeature::kBrowserSettings;
+  if (system_feature == kScanningFeature)
+    return SystemFeature::kScanning;
+  if (system_feature == kWebStoreFeature)
+    return SystemFeature::kWebStore;
+  if (system_feature == kCanvasFeature)
+    return SystemFeature::kCanvas;
 
   LOG(ERROR) << "Unsupported system feature: " << system_feature;
-  return UNKNOWN_SYSTEM_FEATURE;
+  return kUnknownSystemFeature;
 }
 
 }  // namespace policy

@@ -10,17 +10,19 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/pref_names.h"
+#include "components/language/core/browser/language_prefs.h"
 #include "components/language/core/browser/pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_accessibility_state.h"
 #include "content/public/browser/renderer_preferences_util.h"
 #include "media/media_buildflags.h"
 #include "third_party/blink/public/common/peerconnection/webrtc_ip_handling_policy.h"
-#include "third_party/blink/public/mojom/renderer_preferences.mojom.h"
+#include "third_party/blink/public/common/renderer_preferences/renderer_preferences.h"
 #include "third_party/blink/public/public_buildflags.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/ui_base_features.h"
@@ -33,7 +35,7 @@
 #include "ui/base/cocoa/defaults_utils.h"
 #endif
 
-#if defined(USE_AURA) && defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#if defined(USE_AURA) && (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "ui/views/linux_ui/linux_ui.h"
@@ -93,11 +95,13 @@ std::vector<std::string> GetLocalIpsAllowedUrls(
 
 namespace renderer_preferences_util {
 
-void UpdateFromSystemSettings(blink::mojom::RendererPreferences* prefs,
+void UpdateFromSystemSettings(blink::RendererPreferences* prefs,
                               Profile* profile) {
   const PrefService* pref_service = profile->GetPrefs();
   if (profile->IsOffTheRecord()) {
-    prefs->accept_languages = g_browser_process->GetApplicationLocale();
+    // In incognito mode return only the first language.
+    prefs->accept_languages = language::GetFirstLanguage(
+        pref_service->GetString(language::prefs::kAcceptLanguages));
   } else {
     prefs->accept_languages =
         pref_service->GetString(language::prefs::kAcceptLanguages);
@@ -115,17 +119,6 @@ void UpdateFromSystemSettings(blink::mojom::RendererPreferences* prefs,
       prefs->caret_browsing_enabled);
 #endif
 
-  // Handling the backward compatibility of previous boolean versions of policy
-  // controls.
-  if (!pref_service->HasPrefPath(prefs::kWebRTCIPHandlingPolicy)) {
-    if (!pref_service->GetBoolean(prefs::kWebRTCNonProxiedUdpEnabled)) {
-      prefs->webrtc_ip_handling_policy =
-          blink::kWebRTCIPHandlingDisableNonProxiedUdp;
-    } else if (!pref_service->GetBoolean(prefs::kWebRTCMultipleRoutesEnabled)) {
-      prefs->webrtc_ip_handling_policy =
-          blink::kWebRTCIPHandlingDefaultPublicInterfaceOnly;
-    }
-  }
   if (prefs->webrtc_ip_handling_policy.empty()) {
     prefs->webrtc_ip_handling_policy =
         pref_service->GetString(prefs::kWebRTCIPHandlingPolicy);
@@ -138,9 +131,11 @@ void UpdateFromSystemSettings(blink::mojom::RendererPreferences* prefs,
   const base::ListValue* allowed_urls =
       pref_service->GetList(prefs::kWebRtcLocalIpsAllowedUrls);
   prefs->webrtc_local_ips_allowed_urls = GetLocalIpsAllowedUrls(allowed_urls);
+  prefs->webrtc_allow_legacy_tls_protocols =
+      pref_service->GetBoolean(prefs::kWebRTCAllowLegacyTLSProtocols);
 #if defined(USE_AURA)
   prefs->focus_ring_color = SkColorSetRGB(0x4D, 0x90, 0xFE);
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   // This color is 0x544d90fe modulated with 0xffffff.
   prefs->active_selection_bg_color = SkColorSetRGB(0xCB, 0xE4, 0xFA);
   prefs->active_selection_fg_color = SK_ColorBLACK;
@@ -159,7 +154,7 @@ void UpdateFromSystemSettings(blink::mojom::RendererPreferences* prefs,
     prefs->caret_blink_interval = interval;
 #endif
 
-#if defined(USE_AURA) && defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#if defined(USE_AURA) && (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
   views::LinuxUI* linux_ui = views::LinuxUI::instance();
   if (linux_ui) {
     if (ThemeServiceFactory::GetForProfile(profile)->UsingSystemTheme()) {

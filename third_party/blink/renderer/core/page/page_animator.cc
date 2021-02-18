@@ -5,6 +5,7 @@
 #include "third_party/blink/renderer/core/page/page_animator.h"
 
 #include "base/auto_reset.h"
+#include "cc/animation/animation_host.h"
 #include "third_party/blink/renderer/core/animation/document_animations.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
@@ -12,7 +13,6 @@
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/page/validation_message_client.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
-#include "third_party/blink/renderer/core/svg/svg_document_extensions.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 
@@ -22,12 +22,19 @@ namespace {
 
 typedef HeapVector<Member<Document>, 32> DocumentsVector;
 
+enum OnlyThrottledOrNot { OnlyNonThrottled, AllDocuments };
+
 // We walk through all the frames in DOM tree order and get all the documents
-DocumentsVector GetAllDocuments(Frame* main_frame) {
+DocumentsVector GetAllDocuments(Frame* main_frame,
+                                OnlyThrottledOrNot which_documents) {
   DocumentsVector documents;
   for (Frame* frame = main_frame; frame; frame = frame->Tree().TraverseNext()) {
-    if (auto* local_frame = DynamicTo<LocalFrame>(frame))
-      documents.push_back(local_frame->GetDocument());
+    if (auto* local_frame = DynamicTo<LocalFrame>(frame)) {
+      Document* document = local_frame->GetDocument();
+      if (which_documents == AllDocuments || !document->View() ||
+          !document->View()->CanThrottleRendering())
+        documents.push_back(document);
+    }
   }
   return documents;
 }
@@ -52,49 +59,19 @@ void PageAnimator::ServiceScriptedAnimations(
   Clock().SetAllowedToDynamicallyUpdateTime(false);
   Clock().UpdateTime(monotonic_animation_start_time);
 
-  DocumentsVector documents = GetAllDocuments(page_->MainFrame());
+  DocumentsVector documents =
+      GetAllDocuments(page_->MainFrame(), OnlyNonThrottled);
 
   for (auto& document : documents) {
     ScopedFrameBlamer frame_blamer(document->GetFrame());
     TRACE_EVENT0("blink,rail", "PageAnimator::serviceScriptedAnimations");
-    if (document->View()) {
-      if (document->View()->ShouldThrottleRendering()) {
-        document->GetDocumentAnimations()
-            .UpdateAnimationTimingForAnimationFrame();
-        continue;
-      }
-      // Disallow throttling in case any script needs to do a synchronous
-      // lifecycle update in other frames which are throttled.
-      DocumentLifecycle::DisallowThrottlingScope no_throttling_scope(
-          document->Lifecycle());
-      if (ScrollableArea* scrollable_area =
-              document->View()->GetScrollableArea()) {
-        scrollable_area->ServiceScrollAnimations(
-            monotonic_animation_start_time.since_origin().InSecondsF());
-      }
-
-      if (const LocalFrameView::ScrollableAreaSet* animating_scrollable_areas =
-              document->View()->AnimatingScrollableAreas()) {
-        // Iterate over a copy, since ScrollableAreas may deregister
-        // themselves during the iteration.
-        HeapVector<Member<PaintLayerScrollableArea>>
-            animating_scrollable_areas_copy;
-        CopyToVector(*animating_scrollable_areas,
-                     animating_scrollable_areas_copy);
-        for (PaintLayerScrollableArea* scrollable_area :
-             animating_scrollable_areas_copy) {
-          scrollable_area->ServiceScrollAnimations(
-              monotonic_animation_start_time.since_origin().InSecondsF());
-        }
-      }
-      document->GetFrame()->AnimateSnapFling(monotonic_animation_start_time);
-      SVGDocumentExtensions::ServiceOnAnimationFrame(*document);
+    if (!document->View()) {
+      document->GetDocumentAnimations()
+          .UpdateAnimationTimingForAnimationFrame();
+      continue;
     }
-    document->GetDocumentAnimations().UpdateAnimationTimingForAnimationFrame();
-    // TODO(skyostil): This function should not run for documents without views.
-    DocumentLifecycle::DisallowThrottlingScope no_throttling_scope(
-        document->Lifecycle());
-    document->ServiceScriptedAnimations(monotonic_animation_start_time);
+    DCHECK(!document->View()->CanThrottleRendering());
+    document->View()->ServiceScriptedAnimations(monotonic_animation_start_time);
   }
 
   page_->GetValidationMessageClient().LayoutOverlay();
@@ -120,6 +97,19 @@ void PageAnimator::PostAnimate() {
     Clock().SetAllowedToDynamicallyUpdateTime(true);
 }
 
+void PageAnimator::SetHasCanvasInvalidation() {
+  has_canvas_invalidation_ = true;
+}
+
+void PageAnimator::ReportFrameAnimations(cc::AnimationHost* animation_host) {
+  if (animation_host) {
+    animation_host->SetHasCanvasInvalidation(has_canvas_invalidation_);
+    animation_host->SetHasInlineStyleMutation(has_inline_style_mutation_);
+  }
+  has_canvas_invalidation_ = false;
+  has_inline_style_mutation_ = false;
+}
+
 void PageAnimator::SetSuppressFrameRequestsWorkaroundFor704763Only(
     bool suppress_frame_requests) {
   // If we are enabling the suppression and it was already enabled then we must
@@ -127,6 +117,10 @@ void PageAnimator::SetSuppressFrameRequestsWorkaroundFor704763Only(
   DCHECK(!suppress_frame_requests_workaround_for704763_only_ ||
          !suppress_frame_requests);
   suppress_frame_requests_workaround_for704763_only_ = suppress_frame_requests;
+}
+
+void PageAnimator::SetHasInlineStyleMutation() {
+  has_inline_style_mutation_ = true;
 }
 
 DISABLE_CFI_PERF
@@ -146,13 +140,12 @@ void PageAnimator::UpdateAllLifecyclePhases(LocalFrame& root_frame,
   view->UpdateAllLifecyclePhases(reason);
 }
 
-void PageAnimator::UpdateAllLifecyclePhasesExceptPaint(
-    LocalFrame& root_frame,
-    DocumentUpdateReason reason) {
+void PageAnimator::UpdateLifecycleToPrePaintClean(LocalFrame& root_frame,
+                                                  DocumentUpdateReason reason) {
   LocalFrameView* view = root_frame.View();
   base::AutoReset<bool> servicing(&updating_layout_and_style_for_painting_,
                                   true);
-  view->UpdateAllLifecyclePhasesExceptPaint(reason);
+  view->UpdateLifecycleToPrePaintClean(reason);
 }
 
 void PageAnimator::UpdateLifecycleToLayoutClean(LocalFrame& root_frame,
@@ -166,7 +159,7 @@ void PageAnimator::UpdateLifecycleToLayoutClean(LocalFrame& root_frame,
 HeapVector<Member<Animation>> PageAnimator::GetAnimations(
     const TreeScope& tree_scope) {
   HeapVector<Member<Animation>> animations;
-  DocumentsVector documents = GetAllDocuments(page_->MainFrame());
+  DocumentsVector documents = GetAllDocuments(page_->MainFrame(), AllDocuments);
   for (auto& document : documents) {
     document->GetDocumentAnimations().GetAnimationsTargetingTreeScope(
         animations, tree_scope);

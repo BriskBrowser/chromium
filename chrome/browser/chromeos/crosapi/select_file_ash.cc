@@ -9,12 +9,13 @@
 
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/shell.h"
+#include "ash/wm/desks/desks_util.h"
 #include "base/files/file_path.h"
 #include "base/memory/ref_counted.h"
 #include "base/numerics/ranges.h"
+#include "chrome/browser/chromeos/crosapi/window_util.h"
 #include "chrome/browser/ui/views/select_file_dialog_extension.h"
 #include "chromeos/crosapi/mojom/select_file.mojom.h"
-#include "components/exo/shell_surface_util.h"
 #include "ui/shell_dialogs/select_file_dialog.h"
 #include "ui/shell_dialogs/select_file_policy.h"
 #include "ui/shell_dialogs/selected_file_info.h"
@@ -52,49 +53,24 @@ ui::SelectFileDialog::FileTypeInfo::AllowedPaths GetUiAllowedPaths(
   }
 }
 
-// Performs a depth-first search for a window with a given exo ShellSurface
-// |app_id| starting at |root|.
-aura::Window* FindWindowWithShellAppId(aura::Window* root,
-                                       const std::string& app_id) {
-  const std::string* id = exo::GetShellApplicationId(root);
-  if (id && *id == app_id)
-    return root;
-  for (aura::Window* child : root->children()) {
-    aura::Window* found = FindWindowWithShellAppId(child, app_id);
-    if (found)
-      return found;
-  }
-  return nullptr;
-}
-
-// Searches all displays for a ShellSurfaceBase with |app_id| and
-// returns its aura::Window. Returns null if no such shell surface exists.
-aura::Window* GetShellSurfaceWindow(const std::string& app_id) {
-  for (aura::Window* display_root : ash::Shell::GetAllRootWindows()) {
-    aura::Window* window = FindWindowWithShellAppId(display_root, app_id);
-    if (window)
-      return window;
-  }
-  return nullptr;
-}
-
 // Manages a single open/save dialog. There may be multiple dialogs showing at
 // the same time. Deletes itself when the dialog is closed.
 class SelectFileDialogHolder : public ui::SelectFileDialog::Listener {
  public:
-  SelectFileDialogHolder(aura::Window* shell_surface_window,
+  // |owner_window| is either the ShellSurface window that spawned the dialog,
+  // or an ash container window for a modeless dialog.
+  SelectFileDialogHolder(aura::Window* owner_window,
                          mojom::SelectFileOptionsPtr options,
                          mojom::SelectFile::SelectCallback callback)
       : select_callback_(std::move(callback)) {
-    DCHECK(shell_surface_window);
+    DCHECK(owner_window);
     // Policy is null because showing the file-dialog-blocked infobar is handled
     // client-side in lacros-chrome.
     select_file_dialog_ =
         SelectFileDialogExtension::Create(this, /*policy=*/nullptr);
 
     SelectFileDialogExtension::Owner owner;
-    // Parent to the ShellSurface window that spawned the dialog.
-    owner.window = shell_surface_window;
+    owner.window = owner_window;
     owner.lacros_window_id = options->owning_shell_window_id;
 
     int file_type_index = 0;
@@ -121,6 +97,7 @@ class SelectFileDialogHolder : public ui::SelectFileDialog::Listener {
         GetUiType(options->type), options->title, options->default_path,
         file_types_.get(), file_type_index,
         /*params=*/nullptr, owner,
+        /*search_query=*/"",
         /*show_android_picker_apps=*/false);
   }
 
@@ -190,24 +167,37 @@ class SelectFileDialogHolder : public ui::SelectFileDialog::Listener {
 
 }  // namespace
 
-// TODO(https://crbug.com/1090587): Connection error handling.
-SelectFileAsh::SelectFileAsh(mojo::PendingReceiver<mojom::SelectFile> receiver)
-    : receiver_(this, std::move(receiver)) {}
+SelectFileAsh::SelectFileAsh() = default;
 
 SelectFileAsh::~SelectFileAsh() = default;
 
+void SelectFileAsh::BindReceiver(
+    mojo::PendingReceiver<mojom::SelectFile> receiver) {
+  receivers_.Add(this, std::move(receiver));
+}
+
 void SelectFileAsh::Select(mojom::SelectFileOptionsPtr options,
                            SelectCallback callback) {
-  aura::Window* shell_surface_window =
-      GetShellSurfaceWindow(options->owning_shell_window_id);
-  // Bail out if the shell surface doesn't exist any more.
-  if (!shell_surface_window) {
-    std::move(callback).Run(mojom::SelectFileResult::kInvalidShellWindow, {},
-                            0);
-    return;
+  aura::Window* owner_window = nullptr;
+  if (!options->owning_shell_window_id.empty()) {
+    // In the typical case, parent the dialog to the Lacros browser window's
+    // shell surface.
+    owner_window = GetShellSurfaceWindow(options->owning_shell_window_id);
+    // Bail out if the shell surface doesn't exist any more.
+    if (!owner_window) {
+      std::move(callback).Run(mojom::SelectFileResult::kInvalidShellWindow, {},
+                              0);
+      return;
+    }
+  } else {
+    // For modeless dialogs, parent the window to the active desk container on
+    // the default display.
+    owner_window =
+        ash::Shell::GetContainer(ash::Shell::GetRootWindowForNewWindows(),
+                                 ash::desks_util::GetActiveDeskContainerId());
   }
   // Deletes itself when the dialog closes.
-  new SelectFileDialogHolder(shell_surface_window, std::move(options),
+  new SelectFileDialogHolder(owner_window, std::move(options),
                              std::move(callback));
 }
 

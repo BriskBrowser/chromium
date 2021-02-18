@@ -20,16 +20,17 @@
 
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
 
-#include "services/network/public/cpp/features.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
+#include "third_party/blink/public/mojom/frame/color_scheme.mojom-blink.h"
 #include "third_party/blink/public/mojom/frame/frame_owner_properties.mojom-blink.h"
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache.h"
 #include "third_party/blink/renderer/core/css/style_change_reason.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/events/current_input_event.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/exported/web_plugin_container_impl.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
@@ -53,6 +54,7 @@
 #include "third_party/blink/renderer/core/timing/window_performance.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/heap/heap_allocator.h"
+#include "third_party/blink/renderer/platform/instrumentation/resource_coordinator/renderer_resource_coordinator.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/network/network_state_notifier.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
@@ -83,7 +85,7 @@ bool DoesParentAllowLazyLoadingChildren(Document& document) {
   return containing_frame_owner->ShouldLazyLoadChildren();
 }
 
-bool IsFrameLazyLoadable(const ExecutionContext* context,
+bool IsFrameLazyLoadable(ExecutionContext* context,
                          const KURL& url,
                          bool is_loading_attr_lazy,
                          bool should_lazy_load_children) {
@@ -96,6 +98,11 @@ bool IsFrameLazyLoadable(const ExecutionContext* context,
   // URLs like invalid or empty URLs, "about:blank", local file URLs, etc.
   // that it doesn't make sense to lazily load.
   if (!url.ProtocolIsInHTTPFamily())
+    return false;
+
+  // Do not lazyload frames when JavaScript is disabled, regardless of the
+  // `loading` attribute.
+  if (!context->CanExecuteScripts(kNotAboutToExecuteScript))
     return false;
 
   if (is_loading_attr_lazy)
@@ -182,9 +189,7 @@ HTMLFrameOwnerElement::HTMLFrameOwnerElement(const QualifiedName& tag_name,
 LayoutEmbeddedContent* HTMLFrameOwnerElement::GetLayoutEmbeddedContent() const {
   // HTMLObjectElement and HTMLEmbedElement may return arbitrary layoutObjects
   // when using fallback content.
-  if (!GetLayoutObject() || !GetLayoutObject()->IsLayoutEmbeddedContent())
-    return nullptr;
-  return ToLayoutEmbeddedContent(GetLayoutObject());
+  return DynamicTo<LayoutEmbeddedContent>(GetLayoutObject());
 }
 
 void HTMLFrameOwnerElement::SetContentFrame(Frame& frame) {
@@ -198,6 +203,12 @@ void HTMLFrameOwnerElement::SetContentFrame(Frame& frame) {
   // |this| frame element should have been disconnected.
   DCHECK(!lazy_load_frame_observer_ ||
          !lazy_load_frame_observer_->IsLazyLoadPending());
+
+  DCHECK_NE(content_frame_, &frame);
+  auto* resource_coordinator = RendererResourceCoordinator::Get();
+  if (content_frame_)
+    resource_coordinator->OnBeforeContentFrameDetached(*content_frame_, *this);
+  resource_coordinator->OnBeforeContentFrameAttached(frame, *this);
 
   content_frame_ = &frame;
 
@@ -227,6 +238,9 @@ void HTMLFrameOwnerElement::ClearContentFrame() {
   CancelPendingLazyLoad();
 
   DCHECK_EQ(content_frame_->Owner(), this);
+  RendererResourceCoordinator::Get()->OnBeforeContentFrameDetached(
+      *content_frame_, *this);
+
   content_frame_ = nullptr;
 
   for (ContainerNode* node = this; node; node = node->ParentOrShadowHostNode())
@@ -374,6 +388,7 @@ void HTMLFrameOwnerElement::FrameOwnerPropertiesChanged() {
   properties->allow_fullscreen = AllowFullscreen();
   properties->allow_payment_request = AllowPaymentRequest();
   properties->is_display_none = IsDisplayNone();
+  properties->color_scheme = GetColorScheme();
   properties->required_csp =
       RequiredCsp().IsNull() ? WTF::g_empty_string : RequiredCsp();
 
@@ -385,9 +400,6 @@ void HTMLFrameOwnerElement::FrameOwnerPropertiesChanged() {
 }
 
 void HTMLFrameOwnerElement::CSPAttributeChanged() {
-  if (!base::FeatureList::IsEnabled(network::features::kOutOfBlinkCSPEE))
-    return;
-
   // Don't notify about updates if ContentFrame() is null, for example when
   // the subframe hasn't been created yet; or if we are in the middle of
   // swapping one frame for another, in which case the final state
@@ -397,8 +409,14 @@ void HTMLFrameOwnerElement::CSPAttributeChanged() {
 
   String fake_header =
       "HTTP/1.1 200 OK\nContent-Security-Policy: " + RequiredCsp();
+  // ParseHeaders needs a url to resolve report endpoints and for matching the
+  // keyword 'self'. However, the csp attribute does not allow report
+  // endpoints. Moreover, in the csp attribute, 'self' should not match the
+  // owner's url, but rather the frame src url. This is taken care by the
+  // Content-Security-Policy Embedded Enforcement algorithm, implemented in the
+  // AncestorThrottle. That's why we pass an empty url here.
   network::mojom::blink::ParsedHeadersPtr parsed_headers =
-      ParseHeaders(fake_header, GetDocument().Url());
+      ParseHeaders(fake_header, KURL());
 
   DCHECK_LE(parsed_headers->content_security_policy.size(), 1u);
 
@@ -442,8 +460,9 @@ void HTMLFrameOwnerElement::SetEmbeddedContentView(
   if (doc && doc->GetFrame()) {
     bool will_be_display_none = !embedded_content_view;
     if (IsDisplayNone() != will_be_display_none) {
-      doc->WillChangeFrameOwnerProperties(
-          MarginWidth(), MarginHeight(), ScrollbarMode(), will_be_display_none);
+      doc->WillChangeFrameOwnerProperties(MarginWidth(), MarginHeight(),
+                                          ScrollbarMode(), will_be_display_none,
+                                          GetColorScheme());
     }
   }
 
@@ -542,6 +561,9 @@ bool HTMLFrameOwnerElement::LoadOrRedirectSubframe(
       // frames that have multiple layers of iframes inside them can load faster
       // once they're near the viewport or visible.
       should_lazy_load_children_ = false;
+
+      if (lazy_load_frame_observer_)
+        lazy_load_frame_observer_->CancelPendingLazyLoad();
 
       lazy_load_frame_observer_ = MakeGarbageCollected<LazyLoadFrameObserver>(
           *this, LazyLoadFrameObserver::LoadType::kSubsequent);
@@ -666,6 +688,23 @@ bool HTMLFrameOwnerElement::IsAdRelated() const {
     return false;
 
   return content_frame_->IsAdSubframe();
+}
+
+mojom::blink::ColorScheme HTMLFrameOwnerElement::GetColorScheme() const {
+  if (const auto* style = GetComputedStyle())
+    return style->UsedColorSchemeForInitialColors();
+  return mojom::blink::ColorScheme::kLight;
+}
+
+void HTMLFrameOwnerElement::SetColorScheme(
+    mojom::blink::ColorScheme color_scheme) {
+  Document* doc = contentDocument();
+  if (doc && doc->GetFrame()) {
+    doc->WillChangeFrameOwnerProperties(MarginWidth(), MarginHeight(),
+                                        ScrollbarMode(), IsDisplayNone(),
+                                        color_scheme);
+  }
+  FrameOwnerPropertiesChanged();
 }
 
 void HTMLFrameOwnerElement::Trace(Visitor* visitor) const {

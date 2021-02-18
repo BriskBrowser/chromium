@@ -30,6 +30,7 @@
 #include "ui/views/border.h"
 #include "ui/views/controls/highlight_path_generator.h"
 #include "ui/views/controls/image_view.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 
 namespace {
@@ -113,6 +114,11 @@ void IconLabelBubbleView::SeparatorView::UpdateOpacity() {
   layer()->SetOpacity(opacity);
 }
 
+using SeparatorView = IconLabelBubbleView::SeparatorView;
+
+BEGIN_METADATA(SeparatorView, views::View)
+END_METADATA
+
 class IconLabelBubbleView::HighlightPathGenerator
     : public views::HighlightPathGenerator {
  public:
@@ -138,23 +144,23 @@ IconLabelBubbleView::IconLabelBubbleView(const gfx::FontList& font_list,
 
   separator_view_->SetVisible(ShouldShowSeparator());
 
-  set_ink_drop_visible_opacity(
-      GetOmniboxStateOpacity(OmniboxPartState::SELECTED));
-  set_ink_drop_highlight_opacity(
-      GetOmniboxStateOpacity(OmniboxPartState::HOVERED));
+  SetInkDropVisibleOpacity(GetOmniboxStateOpacity(OmniboxPartState::SELECTED));
+  SetInkDropHighlightOpacity(GetOmniboxStateOpacity(OmniboxPartState::HOVERED));
 
   views::HighlightPathGenerator::Install(
       this, std::make_unique<HighlightPathGenerator>());
+  SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
 
   UpdateBorder();
 
-  set_notify_enter_exit_on_child(true);
+  SetNotifyEnterExitOnChild(true);
 
   // Flip the canvas in RTL so the separator is drawn on the correct side.
-  separator_view_->EnableCanvasFlippingForRTLUI(true);
+  separator_view_->SetFlipCanvasOnPaintForRTLUI(true);
 
   auto alert_view = std::make_unique<views::AXVirtualView>();
   alert_view->GetCustomData().role = ax::mojom::Role::kAlert;
+  alert_view->GetCustomData().AddState(ax::mojom::State::kInvisible);
   alert_virtual_view_ = alert_view.get();
   GetViewAccessibility().AddVirtualChildView(std::move(alert_view));
 }
@@ -391,9 +397,9 @@ void IconLabelBubbleView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
     node_data->SetNameExplicitlyEmpty();
 }
 
-void IconLabelBubbleView::SetImage(const gfx::ImageSkia& image_skia) {
-  DCHECK(!image_skia.isNull());
-  LabelButton::SetImage(STATE_NORMAL, image_skia);
+void IconLabelBubbleView::SetImageModel(const ui::ImageModel& image_model) {
+  DCHECK(!image_model.IsEmpty());
+  LabelButton::SetImageModel(STATE_NORMAL, image_model);
 }
 
 gfx::Size IconLabelBubbleView::GetSizeForLabelWidth(int label_width) const {
@@ -440,10 +446,6 @@ int IconLabelBubbleView::GetEndPaddingWithSeparator() const {
   return end_padding;
 }
 
-const char* IconLabelBubbleView::GetClassName() const {
-  return "IconLabelBubbleView";
-}
-
 void IconLabelBubbleView::SetUpForAnimation() {
   SetInkDropMode(InkDropMode::ON);
   SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
@@ -479,6 +481,8 @@ void IconLabelBubbleView::AnimateIn(base::Optional<int> string_id) {
       // which serves to announce it. This is done unconditionally here if there
       // is text because the animation is intended to draw attention to the
       // instance anyway.
+      alert_virtual_view_->GetCustomData().RemoveState(
+          ax::mojom::State::kInvisible);
       alert_virtual_view_->GetCustomData().SetName(label);
       alert_virtual_view_->NotifyAccessibilityEvent(ax::mojom::Event::kAlert);
     }
@@ -490,6 +494,8 @@ void IconLabelBubbleView::AnimateIn(base::Optional<int> string_id) {
 void IconLabelBubbleView::AnimateOut() {
   if (label()->GetVisible()) {
     label()->SetVisible(false);
+    alert_virtual_view_->GetCustomData().AddState(ax::mojom::State::kInvisible);
+    alert_virtual_view_->NotifyAccessibilityEvent(ax::mojom::Event::kHide);
     HideAnimation();
   }
 }
@@ -567,3 +573,14 @@ void IconLabelBubbleView::UpdateBorder() {
       gfx::Insets(GetLayoutConstant(LOCATION_BAR_CHILD_INTERIOR_PADDING),
                   GetLayoutInsets(LOCATION_BAR_ICON_INTERIOR_PADDING).left())));
 }
+
+BEGIN_METADATA(IconLabelBubbleView, views::LabelButton)
+ADD_READONLY_PROPERTY_METADATA(SkColor,
+                               ForegroundColor,
+                               views::metadata::SkColorConverter)
+ADD_READONLY_PROPERTY_METADATA(double, AnimationValue)
+ADD_READONLY_PROPERTY_METADATA(int, InternalSpacing)
+ADD_READONLY_PROPERTY_METADATA(int, ExtraInternalSpacing)
+ADD_READONLY_PROPERTY_METADATA(int, WidthBetweenIconAndSeparator)
+ADD_READONLY_PROPERTY_METADATA(int, EndPaddingWithSeparator)
+END_METADATA

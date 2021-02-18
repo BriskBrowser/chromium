@@ -65,19 +65,9 @@ bool ChromeIdentityService::IsValidIdentity(ChromeIdentity* identity) {
   return false;
 }
 
-ChromeIdentity* ChromeIdentityService::GetIdentityWithEmail(
-    const std::string& email) {
-  return nil;
-}
-
 ChromeIdentity* ChromeIdentityService::GetIdentityWithGaiaID(
     const std::string& gaia_id) {
   return nil;
-}
-
-std::vector<std::string>
-ChromeIdentityService::GetCanonicalizeEmailsForAllIdentities() {
-  return std::vector<std::string>();
 }
 
 bool ChromeIdentityService::HasIdentities() {
@@ -158,9 +148,9 @@ bool ChromeIdentityService::IsInvalidGrantError(NSDictionary* user_info) {
   return false;
 }
 
-void ChromeIdentityService::FireIdentityListChanged() {
+void ChromeIdentityService::FireIdentityListChanged(bool keychainReload) {
   for (auto& observer : observer_list_)
-    observer.OnIdentityListChanged();
+    observer.OnIdentityListChanged(keychainReload);
 }
 
 void ChromeIdentityService::FireAccessTokenRefreshFailed(

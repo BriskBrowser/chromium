@@ -11,8 +11,7 @@
 #include "base/threading/thread_checker.h"
 #include "ui/events/keyboard_hook_base.h"
 #include "ui/gfx/native_widget_types.h"
-#include "ui/gfx/x/x11.h"
-#include "ui/gfx/x/x11_types.h"
+#include "ui/gfx/x/connection.h"
 
 namespace ui {
 
@@ -37,9 +36,9 @@ class KeyboardHookX11 : public KeyboardHookBase {
 
   THREAD_CHECKER(thread_checker_);
 
-  // The x11 default display and the owner's native window.
-  XDisplay* const x_display_ = nullptr;
-  const gfx::AcceleratedWidget x_window_ = gfx::kNullAcceleratedWidget;
+  // The x11 default connection and the owner's native window.
+  x11::Connection* const connection_ = nullptr;
+  const x11::Window x_window_ = x11::Window::None;
 
   // Tracks the keys that were grabbed.
   std::vector<int> grabbed_keys_;

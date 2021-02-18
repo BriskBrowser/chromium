@@ -8,7 +8,6 @@
 #include "base/strings/stringprintf.h"
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
-#include "components/policy/core/common/cloud/dm_auth.h"
 #include "net/base/url_util.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
@@ -75,13 +74,20 @@ const char* JobTypeToRequestType(
       return dm_protocol::kValueRequestPublicSamlUser;
     case DeviceManagementService::JobConfiguration::
         TYPE_UPLOAD_REAL_TIME_REPORT:
-      NOTREACHED() << "Not a DMServer request type" << type;
+      NOTREACHED() << "Not a DMServer request type " << type;
       break;
     case DeviceManagementService::JobConfiguration::TYPE_CHROME_OS_USER_REPORT:
       return dm_protocol::kValueRequestChromeOsUserReport;
     case DeviceManagementService::JobConfiguration::
         TYPE_CERT_PROVISIONING_REQUEST:
       return dm_protocol::kValueRequestCertProvisioningRequest;
+    case DeviceManagementService::JobConfiguration::
+        TYPE_PSM_HAS_DEVICE_STATE_REQUEST:
+      return dm_protocol::kValueRequestPsmHasDeviceState;
+    case DeviceManagementService::JobConfiguration::
+        TYPE_UPLOAD_ENCRYPTED_REPORT:
+      NOTREACHED() << "Not a DMServer request type " << type;
+      break;
   }
   NOTREACHED() << "Invalid job type " << type;
   return "";
@@ -94,7 +100,7 @@ DMServerJobConfiguration::DMServerJobConfiguration(
     JobType type,
     const std::string& client_id,
     bool critical,
-    std::unique_ptr<DMAuth> auth_data,
+    DMAuth auth_data,
     base::Optional<std::string> oauth_token,
     scoped_refptr<network::SharedURLLoaderFactory> factory,
     Callback callback)
@@ -119,7 +125,7 @@ DMServerJobConfiguration::DMServerJobConfiguration(
     JobType type,
     CloudPolicyClient* client,
     bool critical,
-    std::unique_ptr<DMAuth> auth_data,
+    DMAuth auth_data,
     base::Optional<std::string> oauth_token,
     Callback callback)
     : DMServerJobConfiguration(client->service(),
@@ -180,6 +186,9 @@ DMServerJobConfiguration::MapNetErrorAndResponseCodeToDMStatus(
       case DeviceManagementService::kInvalidSerialNumber:
         code = DM_STATUS_SERVICE_INVALID_SERIAL_NUMBER;
         break;
+      case DeviceManagementService::kTooManyRequests:
+        code = DM_STATUS_SERVICE_TOO_MANY_REQUESTS;
+        break;
       case DeviceManagementService::kDomainMismatch:
         code = DM_STATUS_SERVICE_DOMAIN_MISMATCH;
         break;
@@ -197,6 +206,9 @@ DMServerJobConfiguration::MapNetErrorAndResponseCodeToDMStatus(
         break;
       case DeviceManagementService::kTosHasNotBeenAccepted:
         code = DM_STATUS_SERVICE_ENTERPRISE_TOS_HAS_NOT_BEEN_ACCEPTED;
+        break;
+      case DeviceManagementService::kIllegalAccountForPackagedEDULicense:
+        code = DM_STATUS_SERVICE_ILLEGAL_ACCOUNT_FOR_PACKAGED_EDU_LICENSE;
         break;
       default:
         // Handle all unknown 5xx HTTP error codes as temporary and any other
@@ -248,7 +260,7 @@ void DMServerJobConfiguration::OnURLLoadComplete(
   std::move(callback_).Run(job, code, net_error, response);
 }
 
-GURL DMServerJobConfiguration::GetURL(int last_error) {
+GURL DMServerJobConfiguration::GetURL(int last_error) const {
   // DM server requests always expect a dm_protocol::kParamRetry URL parameter
   // to indicate if this request is a retry.  Furthermore, if so then the
   // dm_protocol::kParamLastError URL parameter is also expected with the value
@@ -269,7 +281,7 @@ GURL DMServerJobConfiguration::GetURL(int last_error) {
 RegistrationJobConfiguration::RegistrationJobConfiguration(
     JobType type,
     CloudPolicyClient* client,
-    std::unique_ptr<DMAuth> auth_data,
+    DMAuth auth_data,
     base::Optional<std::string> oauth_token,
     Callback callback)
     : DMServerJobConfiguration(type,

@@ -199,8 +199,6 @@ std::string BaseTestServer::GetScheme() const {
       return "ws";
     case TYPE_WSS:
       return "wss";
-    case TYPE_TCP_ECHO:
-    case TYPE_UDP_ECHO:
     default:
       NOTREACHED();
   }
@@ -420,8 +418,7 @@ bool BaseTestServer::GenerateArguments(base::DictionaryValue* arguments) const {
 
   arguments->SetString("host", host_port_pair_.host());
   arguments->SetInteger("port", host_port_pair_.port());
-  arguments->SetStringKey("data-dir",
-                          base::AsCrossPlatformPiece(document_root_.value()));
+  arguments->SetStringKey("data-dir", document_root_.AsUTF8Unsafe());
 
   if (VLOG_IS_ON(1) || log_to_console_)
     arguments->Set("log-to-console", std::make_unique<base::Value>());
@@ -454,9 +451,8 @@ bool BaseTestServer::GenerateArguments(base::DictionaryValue* arguments) const {
                    << " doesn't exist. Can't launch https server.";
         return false;
       }
-      arguments->SetStringKey(
-          "cert-and-key-file",
-          base::AsCrossPlatformPiece(certificate_path.value()));
+      arguments->SetStringKey("cert-and-key-file",
+                              certificate_path.AsUTF8Unsafe());
     }
 
     // Check the client certificate related arguments.
@@ -472,7 +468,7 @@ bool BaseTestServer::GenerateArguments(base::DictionaryValue* arguments) const {
                    << " doesn't exist. Can't launch https server.";
         return false;
       }
-      ssl_client_certs->Append(base::AsCrossPlatformPiece(it->value()));
+      ssl_client_certs->Append(it->AsUTF8Unsafe());
     }
 
     if (ssl_client_certs->GetSize())

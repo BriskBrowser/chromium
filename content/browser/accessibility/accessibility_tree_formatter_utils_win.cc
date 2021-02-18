@@ -15,9 +15,16 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "third_party/iaccessible2/ia2_api_all.h"
+#include "ui/accessibility/platform/inspect/ax_inspect.h"
 
 namespace content {
 namespace {
+
+const wchar_t kChromeTitle[] = L"Google Chrome";
+const wchar_t kChromiumTitle[] = L"Chromium";
+const wchar_t kEdgeTitle[] = L"Edge";
+const wchar_t kFirefoxTitle[] = L"Firefox";
+
 struct PlatformConstantToNameEntry {
   int32_t value;
   const char* name;
@@ -32,7 +39,7 @@ base::string16 GetNameForPlatformConstant(
     if (entry.value == value)
       return base::ASCIIToUTF16(entry.name);
   }
-  return L"";
+  return base::string16();
 }
 
 struct HwndWithProcId {
@@ -677,8 +684,8 @@ CONTENT_EXPORT base::string16 UiaLiveSettingToString(int32_t identifier) {
 }
 
 CONTENT_EXPORT std::string BstrToUTF8(BSTR bstr) {
-  base::string16 str16(bstr, SysStringLen(bstr));
-  return base::UTF16ToUTF8(str16);
+  std::wstring str(bstr, SysStringLen(bstr));
+  return base::WideToUTF8(str);
 }
 
 CONTENT_EXPORT std::string UiaIdentifierToStringUTF8(int32_t id) {
@@ -690,4 +697,50 @@ CONTENT_EXPORT HWND GetHwndForProcess(base::ProcessId pid) {
   EnumWindows(&EnumWindowsProcPid, (LPARAM)&hwnd_with_proc_id);
   return hwnd_with_proc_id.hwnd;
 }
+
+struct HWNDSearchInfo {
+  base::string16 title;
+  HWND hwnd;
+};
+
+BOOL CALLBACK MatchWindow(HWND hwnd, LPARAM lParam) {
+  const auto num_chars = ::GetWindowTextLength(hwnd);
+  if (!num_chars) {
+    return TRUE;
+  }
+
+  base::string16 title(num_chars + 1, '\0');
+  if (!::GetWindowText(hwnd, &title.front(), title.size())) {
+    return TRUE;
+  }
+
+  auto* info = reinterpret_cast<HWNDSearchInfo*>(lParam);
+  if (title.find(info->title) != std::string::npos) {
+    info->hwnd = hwnd;
+    return FALSE;
+  }
+  return TRUE;
+}
+
+CONTENT_EXPORT HWND GetHWNDBySelector(const ui::AXTreeSelector& selector) {
+  HWNDSearchInfo info;
+  if (selector.types & ui::AXTreeSelector::Chrome) {
+    info.title = kChromeTitle;
+  } else if (selector.types & ui::AXTreeSelector::Chromium) {
+    info.title = kChromiumTitle;
+  } else if (selector.types & ui::AXTreeSelector::Edge) {
+    info.title = kEdgeTitle;
+  } else if (selector.types & ui::AXTreeSelector::Firefox) {
+    info.title = kFirefoxTitle;
+  } else {
+    return NULL;
+  }
+
+  if (::EnumWindows(MatchWindow, reinterpret_cast<LPARAM>(&info))) {
+    return NULL;
+  }
+
+  return info.hwnd;
+}
+
 }  // namespace content

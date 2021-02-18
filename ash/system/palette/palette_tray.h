@@ -11,6 +11,7 @@
 #include "ash/public/cpp/session/session_observer.h"
 #include "ash/shell_observer.h"
 #include "ash/system/palette/palette_tool_manager.h"
+#include "ash/system/palette/stylus_battery_delegate.h"
 #include "ash/system/tray/tray_background_view.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
@@ -72,6 +73,7 @@ class ASH_EXPORT PaletteTray : public TrayBackgroundView,
 
   // TrayBackgroundView:
   void ClickedOutsideBubble() override;
+  void OnThemeChanged() override;
   base::string16 GetAccessibleNameForTray() override;
   void HandleLocaleChange() override;
   void HideBubbleWithView(const TrayBubbleView* bubble_view) override;
@@ -89,6 +91,10 @@ class ASH_EXPORT PaletteTray : public TrayBackgroundView,
   void RecordPaletteOptionsUsage(PaletteTrayOptions option,
                                  PaletteInvocationMethod method) override;
   void RecordPaletteModeCancellation(PaletteModeCancelType type) override;
+
+  StylusBatteryDelegate* stylus_battery_delegate() {
+    return &stylus_battery_delegate_;
+  }
 
  private:
   friend class PaletteTrayTestApi;
@@ -153,6 +159,8 @@ class ASH_EXPORT PaletteTray : public TrayBackgroundView,
 
   // Number of actions in pen palette bubble.
   int num_actions_in_bubble_ = 0;
+
+  StylusBatteryDelegate stylus_battery_delegate_;
 
   ScopedSessionObserver scoped_session_observer_;
 

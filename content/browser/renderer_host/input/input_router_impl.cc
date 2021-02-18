@@ -13,12 +13,12 @@
 #include "base/command_line.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
+#include "content/browser/renderer_host/frame_tree_node.h"
 #include "content/browser/renderer_host/input/gesture_event_queue.h"
 #include "content/browser/renderer_host/input/input_disposition_handler.h"
 #include "content/browser/renderer_host/input/input_router_client.h"
 #include "content/common/content_constants_internal.h"
 #include "content/common/input/web_touch_event_traits.h"
-#include "content/common/input_messages.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
 #include "content/public/common/content_switches.h"
@@ -88,7 +88,7 @@ InputRouterImpl::InputRouterImpl(
     const Config& config)
     : client_(client),
       disposition_handler_(disposition_handler),
-      frame_tree_node_id_(-1),
+      frame_tree_node_id_(FrameTreeNode::kFrameTreeNodeInvalidId),
       touch_scroll_started_sent_(false),
       wheel_event_queue_(this),
       touch_event_queue_(this, config.touch_config),
@@ -201,7 +201,6 @@ void InputRouterImpl::SendGestureEventWithoutQueueing(
       touch_scroll_started_sent_ = true;
       touch_event_queue_.PrependTouchScrollNotification();
     }
-    touch_event_queue_.OnGestureScrollEvent(gesture_event);
   }
 
   if (gesture_event.event.IsTouchpadZoomEvent() &&
@@ -329,10 +328,9 @@ void InputRouterImpl::SetMouseCapture(bool capture) {
 }
 
 void InputRouterImpl::RequestMouseLock(bool from_user_gesture,
-                                       bool privileged,
                                        bool unadjusted_movement,
                                        RequestMouseLockCallback response) {
-  client_->RequestMouseLock(from_user_gesture, privileged, unadjusted_movement,
+  client_->RequestMouseLock(from_user_gesture, unadjusted_movement,
                             std::move(response));
 }
 

@@ -2,11 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {ActionManager} from './action_manager.js';
+import {Navigator} from './navigator.js';
+import {SwitchAccess} from './switch_access.js';
+import {SAConstants, SwitchAccessMenuAction} from './switch_access_constants.js';
+
+const AutomationNode = chrome.automation.AutomationNode;
+
 /**
  * Class to handle navigating text. Currently, only
  * navigation and selection in editable text fields is supported.
  */
-class TextNavigationManager {
+export class TextNavigationManager {
   /** @private */
   constructor() {
     /** @private {number} */
@@ -77,7 +84,7 @@ class TextNavigationManager {
     if (manager.currentlySelecting_) {
       manager.setupDynamicSelection_(false /* resetCursor */);
     }
-    EventHelper.simulateKeyPress(EventHelper.KeyCode.HOME, {ctrl: true});
+    EventGenerator.sendKeyPress(KeyCode.HOME, {ctrl: true});
   }
 
   /**
@@ -89,7 +96,7 @@ class TextNavigationManager {
     if (manager.currentlySelecting_) {
       manager.setupDynamicSelection_(false /* resetCursor */);
     }
-    EventHelper.simulateKeyPress(EventHelper.KeyCode.END, {ctrl: true});
+    EventGenerator.sendKeyPress(KeyCode.END, {ctrl: true});
   }
 
   /**
@@ -102,7 +109,7 @@ class TextNavigationManager {
     if (manager.currentlySelecting_) {
       manager.setupDynamicSelection_(true /* resetCursor */);
     }
-    EventHelper.simulateKeyPress(EventHelper.KeyCode.LEFT_ARROW);
+    EventGenerator.sendKeyPress(KeyCode.LEFT);
   }
 
   /**
@@ -116,7 +123,7 @@ class TextNavigationManager {
     if (manager.currentlySelecting_) {
       manager.setupDynamicSelection_(false /* resetCursor */);
     }
-    EventHelper.simulateKeyPress(EventHelper.KeyCode.LEFT_ARROW, {ctrl: true});
+    EventGenerator.sendKeyPress(KeyCode.LEFT, {ctrl: true});
   }
 
   /**
@@ -129,7 +136,7 @@ class TextNavigationManager {
     if (manager.currentlySelecting_) {
       manager.setupDynamicSelection_(true /* resetCursor */);
     }
-    EventHelper.simulateKeyPress(EventHelper.KeyCode.DOWN_ARROW);
+    EventGenerator.sendKeyPress(KeyCode.DOWN);
   }
 
   /**
@@ -142,7 +149,7 @@ class TextNavigationManager {
     if (manager.currentlySelecting_) {
       manager.setupDynamicSelection_(true /* resetCursor */);
     }
-    EventHelper.simulateKeyPress(EventHelper.KeyCode.RIGHT_ARROW);
+    EventGenerator.sendKeyPress(KeyCode.RIGHT);
   }
 
   /**
@@ -156,7 +163,7 @@ class TextNavigationManager {
     if (manager.currentlySelecting_) {
       manager.setupDynamicSelection_(false /* resetCursor */);
     }
-    EventHelper.simulateKeyPress(EventHelper.KeyCode.RIGHT_ARROW, {ctrl: true});
+    EventGenerator.sendKeyPress(KeyCode.RIGHT, {ctrl: true});
   }
 
   /**
@@ -169,7 +176,7 @@ class TextNavigationManager {
     if (manager.currentlySelecting_) {
       manager.setupDynamicSelection_(true /* resetCursor */);
     }
-    EventHelper.simulateKeyPress(EventHelper.KeyCode.UP_ARROW);
+    EventGenerator.sendKeyPress(KeyCode.UP);
   }
 
   /**
@@ -185,7 +192,7 @@ class TextNavigationManager {
     if (manager.currentlySelecting_) {
       manager.setupDynamicSelection_(true /* resetCursor */);
     }
-    EventHelper.simulateKeyPress(EventHelper.KeyCode.DOWN_ARROW);
+    EventGenerator.sendKeyPress(KeyCode.DOWN);
   }
 
   /** @return {boolean} */
@@ -325,8 +332,8 @@ class TextNavigationManager {
    * @private
    */
   saveSelection_() {
-    if (this.selectionStartIndex_ == TextNavigationManager.NO_SELECT_INDEX ||
-        this.selectionEndIndex_ == TextNavigationManager.NO_SELECT_INDEX) {
+    if (this.selectionStartIndex_ === TextNavigationManager.NO_SELECT_INDEX ||
+        this.selectionEndIndex_ === TextNavigationManager.NO_SELECT_INDEX) {
       console.error(SwitchAccess.error(
           SAConstants.ErrorType.INVALID_SELECTION_BOUNDS,
           'Selection bounds are not set properly: ' +
@@ -351,7 +358,7 @@ class TextNavigationManager {
      */
     if (needToResetCursor) {
       if (TextNavigationManager.currentlySelecting() &&
-          this.selectionEndIndex_ != TextNavigationManager.NO_SELECT_INDEX) {
+          this.selectionEndIndex_ !== TextNavigationManager.NO_SELECT_INDEX) {
         // Move the cursor to the end of the existing selection.
         this.setSelection_();
       }
@@ -386,9 +393,9 @@ class TextNavigationManager {
    */
   updateClipboardHasData_() {
     this.clipboardHasData_ = true;
-    const node = NavigationManager.currentNode;
+    const node = Navigator.instance.currentNode;
     if (node.hasAction(SwitchAccessMenuAction.PASTE)) {
-      MenuManager.reloadActionsForNode(node);
+      ActionManager.refreshMenuForNode(node);
     }
   }
 }

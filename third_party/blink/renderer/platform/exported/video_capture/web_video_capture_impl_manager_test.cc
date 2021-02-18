@@ -51,7 +51,7 @@ class MockVideoCaptureImpl : public VideoCaptureImpl,
   MockVideoCaptureImpl(const media::VideoCaptureSessionId& session_id,
                        PauseResumeCallback* pause_callback,
                        base::OnceClosure destruct_callback)
-      : VideoCaptureImpl(session_id),
+      : VideoCaptureImpl(session_id, base::ThreadTaskRunnerHandle::Get()),
         pause_callback_(pause_callback),
         destruct_callback_(std::move(destruct_callback)) {}
 
@@ -196,8 +196,9 @@ class VideoCaptureImplManagerTest : public ::testing::Test,
     run_loop.Run();
   }
 
-  MOCK_METHOD2(OnFrameReady,
+  MOCK_METHOD3(OnFrameReady,
                void(scoped_refptr<media::VideoFrame>,
+                    std::vector<scoped_refptr<media::VideoFrame>>,
                     base::TimeTicks estimated_capture_time));
   MOCK_METHOD1(OnStarted, void(const media::VideoCaptureSessionId& id));
   MOCK_METHOD1(OnStopped, void(const media::VideoCaptureSessionId& id));

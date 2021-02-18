@@ -34,6 +34,7 @@ class NavigationClient : mojom::NavigationClient {
       mojo::PendingRemote<network::mojom::URLLoaderFactory>
           prefetch_loader_factory,
       const base::UnguessableToken& devtools_navigation_token,
+      blink::mojom::PolicyContainerPtr policy_container,
       CommitNavigationCallback callback) override;
   void CommitFailedNavigation(
       mojom::CommonNavigationParamsPtr common_params,
@@ -43,6 +44,7 @@ class NavigationClient : mojom::NavigationClient {
       const net::ResolveErrorInfo& resolve_error_info,
       const base::Optional<std::string>& error_page_content,
       std::unique_ptr<blink::PendingURLLoaderFactoryBundle> subresource_loaders,
+      blink::mojom::PolicyContainerPtr policy_container,
       CommitFailedNavigationCallback callback) override;
 
   void Bind(mojo::PendingAssociatedReceiver<mojom::NavigationClient> receiver);

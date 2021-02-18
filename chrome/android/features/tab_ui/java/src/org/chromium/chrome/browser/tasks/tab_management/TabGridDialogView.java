@@ -27,7 +27,6 @@ import android.widget.RelativeLayout;
 import android.widget.TextView;
 
 import androidx.annotation.IntDef;
-import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.drawable.DrawableCompat;
@@ -51,8 +50,7 @@ import java.util.Map;
 /**
  * Parent for TabGridDialog component.
  */
-public class TabGridDialogView extends FrameLayout
-        implements TabSelectionEditorMediator.TabSelectionEditorPositionProvider {
+public class TabGridDialogView extends FrameLayout {
     private static final int DIALOG_ANIMATION_DURATION = 300;
     private static final int DIALOG_ALPHA_ANIMATION_DURATION = 150;
     private static final int CARD_FADE_ANIMATION_DURATION = 50;
@@ -620,14 +618,22 @@ public class TabGridDialogView extends FrameLayout
         mAnimationCardView.findViewById(R.id.card_view)
                 .setBackground(view.findViewById(R.id.card_view).getBackground());
 
-        ((ImageView) (mAnimationCardView.findViewById(R.id.tab_favicon)))
-                .setImageDrawable(
-                        ((ImageView) (view.findViewById(R.id.tab_favicon))).getDrawable());
+        ImageView sourceCardFavicon = view.findViewById(R.id.tab_favicon);
+        ImageView animationCardFavicon = mAnimationCardView.findViewById(R.id.tab_favicon);
+        if (sourceCardFavicon.getDrawable() != null) {
+            int padding =
+                    mContext.getResources().getDimensionPixelSize(R.dimen.tab_list_card_padding);
+            animationCardFavicon.setPadding(padding, padding, padding, padding);
+            animationCardFavicon.setImageDrawable(sourceCardFavicon.getDrawable());
+        } else {
+            animationCardFavicon.setImageDrawable(null);
+        }
 
         ((TextView) (mAnimationCardView.findViewById(R.id.tab_title)))
                 .setText(((TextView) (view.findViewById(R.id.tab_title))).getText());
-        ((TextView) (mAnimationCardView.findViewById(R.id.tab_title)))
-                .setTextColor(((TextView) (view.findViewById(R.id.tab_title))).getTextColors());
+        ApiCompatibilityUtils.setTextAppearance(
+                (TextView) (mAnimationCardView.findViewById(R.id.tab_title)),
+                R.style.TextAppearance_TextMediumThick_Primary);
 
         ((ImageView) (mAnimationCardView.findViewById(R.id.tab_thumbnail)))
                 .setImageDrawable(
@@ -652,12 +658,13 @@ public class TabGridDialogView extends FrameLayout
      * @param scrimClickRunnable The {@link Runnable} that runs when scrim view is clicked.
      */
     void setScrimClickRunnable(Runnable scrimClickRunnable) {
-        mScrimPropertyModel = new PropertyModel.Builder(ScrimProperties.REQUIRED_KEYS)
+        mScrimPropertyModel = new PropertyModel.Builder(ScrimProperties.ALL_KEYS)
                                       .with(ScrimProperties.ANCHOR_VIEW, mDialogContainerView)
                                       .with(ScrimProperties.SHOW_IN_FRONT_OF_ANCHOR_VIEW, false)
                                       .with(ScrimProperties.AFFECTS_STATUS_BAR, true)
                                       .with(ScrimProperties.TOP_MARGIN, 0)
                                       .with(ScrimProperties.CLICK_DELEGATE, scrimClickRunnable)
+                                      .with(ScrimProperties.AFFECTS_NAVIGATION_BAR, true)
                                       .build();
     }
 
@@ -710,20 +717,6 @@ public class TabGridDialogView extends FrameLayout
         mCurrentDialogAnimator = mHideDialogAnimation;
         mScrimCoordinator.hideScrim(true);
         mHideDialogAnimation.start();
-    }
-
-    /**
-     * {@link TabSelectionEditorMediator.TabSelectionEditorPositionProvider} implementation.
-     * Returns a {@link Rect} that indicates the current position of dialog.
-     */
-    @Override
-    @NonNull
-    public Rect getSelectionEditorPositionRect() {
-        // Get the status bar height as offset.
-        Rect parentRect = new Rect();
-        mParent.getGlobalVisibleRect(parentRect);
-        return new Rect(mSideMargin, mTopMargin + parentRect.top, mParentWidth - mSideMargin,
-                mParentHeight - mTopMargin + parentRect.top);
     }
 
     /**

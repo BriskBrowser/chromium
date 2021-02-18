@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/features.gni")
 import("//testing/libfuzzer/fuzzer_test.gni")
 import("//third_party/protobuf/proto_library.gni")
@@ -16,8 +17,11 @@ component("fido") {
     "cable/cable_discovery_data.h",
     "cable/noise.cc",
     "cable/noise.h",
+    "cable/v2_constants.h",
     "cable/v2_handshake.cc",
     "cable/v2_handshake.h",
+    "cable/websocket_adapter.cc",
+    "cable/websocket_adapter.h",
     "cbor_extract.cc",
     "ed25519_public_key.cc",
     "ed25519_public_key.h",
@@ -48,6 +52,7 @@ component("fido") {
   defines = [ "IS_DEVICE_FIDO_IMPL" ]
 
   deps = [
+    "//build:chromeos_buildflags",
     "//components/apdu",
     "//components/cbor",
     "//components/device_event_log",
@@ -79,6 +84,8 @@ component("fido") {
       "attestation_statement.h",
       "attestation_statement_formats.cc",
       "attestation_statement_formats.h",
+      "auth_token_requester.cc",
+      "auth_token_requester.h",
       "authenticator_data.cc",
       "authenticator_data.h",
       "authenticator_get_assertion_response.cc",
@@ -113,17 +120,15 @@ component("fido") {
       "cable/fido_cable_handshake_handler.h",
       "cable/fido_tunnel_device.cc",
       "cable/fido_tunnel_device.h",
-      "cable/websocket_adapter.cc",
-      "cable/websocket_adapter.h",
-      "client_data.cc",
-      "client_data.h",
+      "cable/v2_discovery.cc",
+      "cable/v2_discovery.h",
       "credential_management.cc",
       "credential_management.h",
       "credential_management_handler.cc",
       "credential_management_handler.h",
       "ctap2_device_operation.h",
-      "ctap_empty_authenticator_request.cc",
-      "ctap_empty_authenticator_request.h",
+      "ctap_authenticator_selection_request.cc",
+      "ctap_authenticator_selection_request.h",
       "ctap_get_assertion_request.cc",
       "ctap_get_assertion_request.h",
       "ctap_make_credential_request.cc",
@@ -148,6 +153,8 @@ component("fido") {
       "fido_task.cc",
       "fido_task.h",
       "fido_types.h",
+      "filter.cc",
+      "filter.h",
       "get_assertion_request_handler.cc",
       "get_assertion_request_handler.h",
       "get_assertion_task.cc",
@@ -160,6 +167,8 @@ component("fido") {
       "hid/fido_hid_message.h",
       "hid/fido_hid_packet.cc",
       "hid/fido_hid_packet.h",
+      "large_blob.cc",
+      "large_blob.h",
       "make_credential_request_handler.cc",
       "make_credential_request_handler.h",
       "make_credential_task.cc",
@@ -168,6 +177,8 @@ component("fido") {
       "opaque_attestation_statement.h",
       "pin.cc",
       "pin.h",
+      "pin_internal.cc",
+      "pin_internal.h",
       "platform_credential_store.h",
       "reset_request_handler.cc",
       "reset_request_handler.h",
@@ -246,7 +257,7 @@ component("fido") {
     ]
   }
 
-  if (is_chromeos) {
+  if (is_chromeos_ash) {
     sources += [
       "cros/authenticator.cc",
       "cros/authenticator.h",
@@ -261,7 +272,51 @@ component("fido") {
   }
 }
 
-if (is_chromeos) {
+static_library("cablev2_registration") {
+  sources = [
+    "cable/v2_registration.cc",
+    "cable/v2_registration.h",
+  ]
+  deps = [
+    ":fido",
+    "//base",
+    "//components/cbor",
+    "//components/device_event_log",
+    "//components/gcm_driver",
+    "//components/gcm_driver/instance_id",
+  ]
+}
+
+static_library("cablev2_authenticator") {
+  sources = [
+    "cable/v2_authenticator.cc",
+    "cable/v2_authenticator.h",
+  ]
+  deps = [
+    ":fido",
+    "//components/cbor",
+    "//components/device_event_log",
+    "//services/network/public/mojom",
+  ]
+}
+
+static_library("cablev2_test_util") {
+  testonly = true
+  sources = [
+    "cable/v2_test_util.cc",
+    "cable/v2_test_util.h",
+  ]
+  deps = [
+    ":cablev2_authenticator",
+    ":fido",
+    "//components/cbor",
+    "//crypto",
+    "//services/network:test_support",
+    "//services/network/public/mojom",
+  ]
+}
+
+if (is_chromeos_ash) {
   proto_library("u2f_proto") {
     sources = [ "//third_party/cros_system_api/dbus/u2f/u2f_interface.proto" ]
 
@@ -367,10 +422,15 @@ source_set("test_support") {
       "hid/fake_hid_impl_for_testing.cc",
       "hid/fake_hid_impl_for_testing.h",
     ]
+    deps += [ "//services/device/public/cpp/hid" ]
   }
 
   if (!is_android) {
     sources += [
+      "multiple_virtual_fido_device_factory.cc",
+      "multiple_virtual_fido_device_factory.h",
+      "virtual_fido_device_discovery.cc",
+      "virtual_fido_device_discovery.h",
       "virtual_fido_device_factory.cc",
       "virtual_fido_device_factory.h",
     ]

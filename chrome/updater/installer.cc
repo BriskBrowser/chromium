@@ -64,6 +64,7 @@ update_client::CrxComponent Installer::MakeCrxComponent() {
   const auto pv = persisted_data_->GetProductVersion(app_id_);
   if (pv.IsValid()) {
     pv_ = pv;
+    checker_path_ = persisted_data_->GetExistenceCheckerPath(app_id_);
     fingerprint_ = persisted_data_->GetFingerprint(app_id_);
   } else {
     pv_ = base::Version(kNullVersion);
@@ -84,8 +85,10 @@ update_client::CrxComponent Installer::MakeCrxComponent() {
   // |component.channel| is an empty string. Possible failure cases are if the
   // machine is not managed, the policy was not set or any other unexpected
   // error.
-  if (!GetUpdaterPolicyService()->GetTargetChannel(app_id_, &component.channel))
+  if (!GetUpdaterPolicyService()->GetTargetChannel(app_id_, nullptr,
+                                                   &component.channel)) {
     component.channel.clear();
+  }
   return component;
 }
 
@@ -175,17 +178,13 @@ Installer::Result Installer::InstallHelper(
   if (!base::PathExists(application_installer))
     return Result(kErrorMissingRunableFile);
 
-  // TODO(crbug.com/1014630): handle the installer API.
-  const int exit_code =
-      RunApplicationInstaller(application_installer, install_params->arguments,
-                              std::move(progress_callback));
-
   // Upon success, when the control flow returns back to the |update_client|,
   // the prefs are updated asynchronously with the new |pv| and |fingerprint|.
   // The task sequencing guarantees that the prefs will be updated by the
   // time another CrxDataCallback is invoked, which needs updated values.
-  return exit_code == 0 ? Result(update_client::InstallError::NONE)
-                        : Result(kErrorApplicationInstallerFailed, exit_code);
+  return RunApplicationInstaller(application_installer,
+                                 install_params->arguments,
+                                 std::move(progress_callback));
 }
 
 void Installer::InstallWithSyncPrimitives(
@@ -244,12 +243,13 @@ base::FilePath Installer::GetCurrentInstallDir() const {
   return GetAppInstallDir(app_id_).AppendASCII(pv_.GetString());
 }
 
-#if defined(OS_LINUX)
-int Installer::RunApplicationInstaller(const base::FilePath& app_installer,
-                                       const std::string& arguments) {
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+Installer::Result Installer::RunApplicationInstaller(
+    const base::FilePath& app_installer,
+    const std::string& arguments) {
   NOTREACHED();
-  return -1;
+  return Installer::Result(-1);
 }
-#endif  // OS_LINUX
+#endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
 
 }  // namespace updater

@@ -7,7 +7,6 @@
 
 #include <memory>
 
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/single_thread_task_runner.h"
@@ -17,6 +16,7 @@
 #include "base/task/task_observer.h"
 #include "base/threading/platform_thread.h"
 #include "base/time/time.h"
+#include "third_party/perfetto/include/perfetto/tracing/traced_value_forward.h"
 
 namespace base {
 
@@ -138,6 +138,8 @@ class BASE_EXPORT TaskQueue : public RefCountedThreadSafe<TaskQueue> {
   // TODO(altimin): Make this private after TaskQueue/TaskQueueImpl refactoring.
   TaskQueue(std::unique_ptr<internal::TaskQueueImpl> impl,
             const TaskQueue::Spec& spec);
+  TaskQueue(const TaskQueue&) = delete;
+  TaskQueue& operator=(const TaskQueue&) = delete;
 
   // Information about task execution.
   //
@@ -255,6 +257,9 @@ class BASE_EXPORT TaskQueue : public RefCountedThreadSafe<TaskQueue> {
   // Can be called on any thread.
   virtual const char* GetName() const;
 
+  // Serialise this object into a trace.
+  void WriteIntoTracedValue(perfetto::TracedValue context) const;
+
   // Set the priority of the queue to |priority|. NOTE this must be called on
   // the thread this TaskQueue was created by.
   void SetQueuePriority(QueuePriority priority);
@@ -337,8 +342,41 @@ class BASE_EXPORT TaskQueue : public RefCountedThreadSafe<TaskQueue> {
   scoped_refptr<SingleThreadTaskRunner> CreateTaskRunner(TaskType task_type);
 
   // Default task runner which doesn't annotate tasks with a task type.
-  scoped_refptr<SingleThreadTaskRunner> task_runner() const {
+  const scoped_refptr<SingleThreadTaskRunner>& task_runner() const {
     return default_task_runner_;
+  }
+
+  // Checks whether or not this TaskQueue has a TaskQueueImpl.
+  // TODO(kdillon): Remove this method when TaskQueueImpl inherits from
+  // TaskQueue and TaskQueue no longer owns an Impl.
+  bool HasImpl() { return !!impl_; }
+
+  using OnTaskStartedHandler =
+      RepeatingCallback<void(const Task&, const TaskQueue::TaskTiming&)>;
+  using OnTaskCompletedHandler =
+      RepeatingCallback<void(const Task&, TaskQueue::TaskTiming*, LazyNow*)>;
+  using OnTaskPostedHandler = RepeatingCallback<void(const Task&)>;
+
+  // Sets a handler to subscribe for notifications about started and completed
+  // tasks.
+  void SetOnTaskStartedHandler(OnTaskStartedHandler handler);
+
+  // |task_timing| may be passed in Running state and may not have the end time,
+  // so that the handler can run an additional task that is counted as a part of
+  // the main task.
+  // The handler can call TaskTiming::RecordTaskEnd, which is optional, to
+  // finalize the task, and use the resulting timing.
+  void SetOnTaskCompletedHandler(OnTaskCompletedHandler handler);
+
+  // Set a callback for adding custom functionality for processing posted task.
+  // Callback will be dispatched while holding a scheduler lock. As a result,
+  // callback should not call scheduler APIs directly, as this can lead to
+  // deadlocks. For example, PostTask should not be called directly and
+  // ScopedDeferTaskPosting::PostOrDefer should be used instead.
+  void SetOnTaskPostedHandler(OnTaskPostedHandler handler);
+
+  base::WeakPtr<TaskQueue> AsWeakPtr() {
+    return weak_ptr_factory_.GetWeakPtr();
   }
 
  protected:
@@ -382,7 +420,7 @@ class BASE_EXPORT TaskQueue : public RefCountedThreadSafe<TaskQueue> {
   int voter_count_ = 0;
   const char* name_;
 
-  DISALLOW_COPY_AND_ASSIGN(TaskQueue);
+  base::WeakPtrFactory<TaskQueue> weak_ptr_factory_{this};
 };
 
 }  // namespace sequence_manager

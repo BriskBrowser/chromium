@@ -24,6 +24,8 @@ CascadeFilter AddValidPropertiesFilter(
       return filter.Add(CSSProperty::kValidForFirstLetter, false);
     case ValidPropertyFilter::kMarker:
       return filter.Add(CSSProperty::kValidForMarker, false);
+    case ValidPropertyFilter::kHighlight:
+      return filter.Add(CSSProperty::kValidForHighlight, false);
   }
 }
 
@@ -135,7 +137,7 @@ void CascadeExpansion::AdvanceNormal() {
       break;
     case CSSPropertyID::kAll:
       state_ = State::kAll;
-      id_ = firstCSSProperty;
+      id_ = kFirstCSSProperty;
       property_ = &CSSProperty::Get(id_);
       // If this DCHECK is triggered, it means firstCSSProperty is not affected
       // by 'all', and we need a function for figuring out the first property
@@ -169,7 +171,7 @@ void CascadeExpansion::AdvanceAll() {
   int end = kIntLastCSSProperty + 1;
 
   for (; i < end; ++i) {
-    id_ = convertToCSSPropertyID(i);
+    id_ = ConvertToCSSPropertyID(i);
     if (IsAffectedByAll(id_))
       break;
   }
@@ -184,6 +186,10 @@ CSSPropertyValueSet::PropertyReference CascadeExpansion::PropertyAt(
     size_t index) const {
   DCHECK(!AtEnd());
   return matched_properties_.properties->PropertyAt(index_);
+}
+
+uint16_t CascadeExpansion::TreeOrder() const {
+  return matched_properties_.types_.tree_order;
 }
 
 }  // namespace blink

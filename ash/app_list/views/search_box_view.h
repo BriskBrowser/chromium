@@ -11,7 +11,7 @@
 #include "ash/app_list/app_list_view_delegate.h"
 #include "ash/app_list/model/search/search_box_model_observer.h"
 #include "ash/public/cpp/app_list/app_list_types.h"
-#include "ui/chromeos/search_box/search_box_view_base.h"
+#include "ash/search_box/search_box_view_base.h"
 
 namespace views {
 class Textfield;
@@ -25,14 +25,14 @@ class AppListViewDelegate;
 class ContentsView;
 class SearchModel;
 
-// Subclass of search_box::SearchBoxViewBase. SearchBoxModel is its data model
+// Subclass of SearchBoxViewBase. SearchBoxModel is its data model
 // that controls what icon to display, what placeholder text to use for
 // Textfield. The text and selection model part could be set to change the
 // contents and selection model of the Textfield.
-class APP_LIST_EXPORT SearchBoxView : public search_box::SearchBoxViewBase,
+class APP_LIST_EXPORT SearchBoxView : public SearchBoxViewBase,
                                       public SearchBoxModelObserver {
  public:
-  SearchBoxView(search_box::SearchBoxViewDelegate* delegate,
+  SearchBoxView(SearchBoxViewDelegate* delegate,
                 AppListViewDelegate* view_delegate,
                 AppListView* app_list_view = nullptr);
   ~SearchBoxView() override;
@@ -48,9 +48,8 @@ class APP_LIST_EXPORT SearchBoxView : public search_box::SearchBoxViewBase,
   // Returns the total focus ring spacing for use in folders.
   static int GetFocusRingSpacing();
 
-  // Overridden from search_box::SearchBoxViewBase:
+  // Overridden from SearchBoxViewBase:
   void ClearSearch() override;
-  views::View* GetSelectedViewInContentsView() override;
   void HandleSearchBoxEvent(ui::LocatedEvent* located_event) override;
   void ModelChanged() override;
   void UpdateKeyboardVisibility() override;
@@ -61,6 +60,7 @@ class APP_LIST_EXPORT SearchBoxView : public search_box::SearchBoxViewBase,
   void SetupCloseButton() override;
   void SetupBackButton() override;
   void RecordSearchBoxActivationHistogram(ui::EventType event_type) override;
+  void OnSearchBoxActiveChanged(bool active) override;
 
   // Overridden from views::View:
   void OnKeyEvent(ui::KeyEvent* event) override;
@@ -68,9 +68,7 @@ class APP_LIST_EXPORT SearchBoxView : public search_box::SearchBoxViewBase,
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   void OnPaintBackground(gfx::Canvas* canvas) override;
   const char* GetClassName() const override;
-
-  // Overridden from views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
+  void OnThemeChanged() override;
 
   // Updates the search box's background corner radius and color based on the
   // state of AppListModel.
@@ -111,6 +109,10 @@ class APP_LIST_EXPORT SearchBoxView : public search_box::SearchBoxViewBase,
   }
   ContentsView* contents_view() { return contents_view_; }
 
+  void set_a11y_selection_on_search_result(bool value) {
+    a11y_selection_on_search_result_ = value;
+  }
+
   void set_highlight_range_for_test(const gfx::Range& range) {
     highlight_range_ = range;
   }
@@ -134,6 +136,7 @@ class APP_LIST_EXPORT SearchBoxView : public search_box::SearchBoxViewBase,
   void SetAutocompleteText(const base::string16& autocomplete_text);
 
   // Overridden from views::TextfieldController:
+  void OnBeforeUserAction(views::Textfield* sender) override;
   void ContentsChanged(views::Textfield* sender,
                        const base::string16& new_contents) override;
   bool HandleKeyEvent(views::Textfield* sender,
@@ -176,9 +179,12 @@ class APP_LIST_EXPORT SearchBoxView : public search_box::SearchBoxViewBase,
   // True if app list search autocomplete is enabled.
   const bool is_app_list_search_autocomplete_enabled_;
 
-
   // Whether tablet mode is active.
   bool is_tablet_mode_ = false;
+
+  // Set by SearchResultPageView when the accessibility selection moves to a
+  // search result view.
+  bool a11y_selection_on_search_result_ = false;
 
   base::WeakPtrFactory<SearchBoxView> weak_ptr_factory_{this};
 

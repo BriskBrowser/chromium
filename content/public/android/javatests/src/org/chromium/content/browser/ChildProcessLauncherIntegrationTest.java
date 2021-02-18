@@ -19,10 +19,10 @@ import org.junit.runner.RunWith;
 import org.chromium.base.process_launcher.ChildConnectionAllocator;
 import org.chromium.base.process_launcher.ChildProcessConnection;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.NavigationController;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestCallbackHelperContainer;
 import org.chromium.content_shell_apk.ChildProcessLauncherTestUtils;
 import org.chromium.content_shell_apk.ContentShellActivity;
@@ -80,8 +80,8 @@ public class ChildProcessLauncherIntegrationTest {
         }
 
         @Override
-        public void removeModerateBinding() {
-            super.removeModerateBinding();
+        public void removeModerateBinding(boolean waiveCpuPrority) {
+            super.removeModerateBinding(waiveCpuPrority);
             if (mRemovedBothModerateAndStrongBinding == null && !isStrongBindingBound()) {
                 mRemovedBothModerateAndStrongBinding =
                         new RuntimeException("removeModerateBinding");

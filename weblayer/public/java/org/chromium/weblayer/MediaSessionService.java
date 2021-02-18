@@ -9,8 +9,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.media.AudioManager;
-import android.os.IBinder;
 import android.os.RemoteException;
+
+import androidx.annotation.NonNull;
 
 import org.chromium.weblayer_private.interfaces.ObjectWrapper;
 
@@ -19,27 +20,21 @@ import org.chromium.weblayer_private.interfaces.ObjectWrapper;
  * This class is a thin wrapper that forwards lifecycle events to the WebLayer implementation, which
  * in turn manages a system notification and {@link MediaSession}. This service will be in the
  * foreground when the MediaSession is active.
- * @since 85
  */
-public class MediaSessionService extends Service {
+public class MediaSessionService extends MediaPlaybackBaseService {
     // A helper to automatically pause the media session when a user removes headphones.
     private BroadcastReceiver mAudioBecomingNoisyReceiver;
 
-    public MediaSessionService() {
-        if (WebLayer.getSupportedMajorVersionInternal() < 85) {
-            throw new UnsupportedOperationException();
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (mAudioBecomingNoisyReceiver != null) {
+            unregisterReceiver(mAudioBecomingNoisyReceiver);
         }
     }
 
     @Override
-    public IBinder onBind(Intent intent) {
-        return null;
-    }
-
-    @Override
-    public void onCreate() {
-        super.onCreate();
-
+    void init() {
         mAudioBecomingNoisyReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
@@ -58,39 +53,13 @@ public class MediaSessionService extends Service {
     }
 
     @Override
-    public void onDestroy() {
-        super.onDestroy();
-
-        try {
-            getWebLayer().getImpl().onMediaSessionServiceDestroyed();
-        } catch (RemoteException e) {
-            throw new RuntimeException(e);
-        }
-
-        unregisterReceiver(mAudioBecomingNoisyReceiver);
+    void forwardStartCommandToImpl(@NonNull WebLayer webLayer, Intent intent)
+            throws RemoteException {
+        webLayer.getImpl().onMediaSessionServiceStarted(ObjectWrapper.wrap(this), intent);
     }
 
     @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
-        try {
-            getWebLayer().getImpl().onMediaSessionServiceStarted(ObjectWrapper.wrap(this), intent);
-        } catch (RemoteException e) {
-            throw new RuntimeException(e);
-        }
-
-        return START_NOT_STICKY;
-    }
-
-    private WebLayer getWebLayer() {
-        WebLayer webLayer;
-        try {
-            webLayer = WebLayer.getLoadedWebLayer(getApplication());
-        } catch (UnsupportedVersionException e) {
-            throw new RuntimeException(e);
-        }
-        if (webLayer == null) {
-            throw new IllegalStateException("WebLayer not initialized");
-        }
-        return webLayer;
+    void forwardDestroyToImpl() throws RemoteException {
+        getWebLayer().getImpl().onMediaSessionServiceDestroyed();
     }
 }

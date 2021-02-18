@@ -8,7 +8,6 @@
 
 #include "base/android/build_info.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/single_thread_task_runner.h"
@@ -51,6 +50,10 @@ MediaCodecAudioDecoder::~MediaCodecAudioDecoder() {
 
 std::string MediaCodecAudioDecoder::GetDisplayName() const {
   return "MediaCodecAudioDecoder";
+}
+
+AudioDecoderType MediaCodecAudioDecoder::GetDecoderType() const {
+  return AudioDecoderType::kMediaCodec;
 }
 
 void MediaCodecAudioDecoder::Initialize(const AudioDecoderConfig& config,

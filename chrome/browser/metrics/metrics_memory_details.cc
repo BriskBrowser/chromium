@@ -14,6 +14,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/site_isolation/site_details.h"
 #include "components/nacl/common/nacl_process_type.h"
 #include "content/public/browser/browser_thread.h"
@@ -157,12 +158,14 @@ void MetricsMemoryDetails::UpdateHistograms() {
         continue;
     }
   }
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Chrome OS exposes system-wide graphics driver memory which has historically
   // been a source of leak/bloat.
-  base::SystemMemoryInfoKB meminfo;
-  if (base::GetSystemMemoryInfo(&meminfo) && meminfo.gem_size != -1)
-    UMA_HISTOGRAM_MEMORY_MB("Memory.Graphics", meminfo.gem_size / 1024 / 1024);
+  base::GraphicsMemoryInfoKB meminfo;
+  if (base::GetGraphicsMemoryInfo(&meminfo)) {
+    UMA_HISTOGRAM_MEMORY_MB("Memory.Graphics",
+                            meminfo.gpu_memory_size / 1024 / 1024);
+  }
 #endif
 
   UpdateSiteIsolationMetrics();
@@ -206,7 +209,7 @@ void MetricsMemoryDetails::UpdateSiteIsolationMetrics() {
 
     // If this is a RVH for a subframe; skip it to avoid double-counting the
     // WebContents.
-    if (rvh != contents->GetRenderViewHost())
+    if (rvh != contents->GetMainFrame()->GetRenderViewHost())
       continue;
 
     // The rest of this block will happen only once per WebContents.

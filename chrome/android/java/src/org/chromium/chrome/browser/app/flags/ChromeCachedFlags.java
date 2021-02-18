@@ -13,10 +13,11 @@ import org.chromium.chrome.browser.firstrun.FirstRunUtils;
 import org.chromium.chrome.browser.flags.CachedFeatureFlags;
 import org.chromium.chrome.browser.flags.CachedFieldTrialParameter;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.page_annotations.PageAnnotationsServiceConfig;
+import org.chromium.chrome.browser.tab.state.ShoppingPersistedTabData;
 import org.chromium.chrome.browser.tasks.ConditionalTabStripUtils;
 import org.chromium.chrome.browser.tasks.ReturnToChromeExperimentsUtil;
 import org.chromium.chrome.browser.tasks.tab_management.TabUiFeatureUtilities;
-import org.chromium.chrome.browser.toolbar.bottom.BottomToolbarVariationManager;
 import org.chromium.chrome.features.start_surface.StartSurfaceConfiguration;
 
 import java.util.ArrayList;
@@ -51,25 +52,24 @@ public class ChromeCachedFlags {
         List<String> featuresToCache = Arrays.asList(
                 ChromeFeatureList.ANDROID_MANAGED_BY_MENU_ITEM,
                 ChromeFeatureList.ANDROID_PARTNER_CUSTOMIZATION_PHENOTYPE,
-                ChromeFeatureList.CHROME_DUET,
-                ChromeFeatureList.CHROME_DUET_ADAPTIVE,
-                ChromeFeatureList.CHROME_DUET_LABELED,
+                ChromeFeatureList.CCT_INCOGNITO_AVAILABLE_TO_THIRD_PARTY,
+                ChromeFeatureList.CCT_REMOVE_REMOTE_VIEW_IDS,
+                ChromeFeatureList.CHROME_STARTUP_DELEGATE,
                 ChromeFeatureList.CLOSE_TAB_SUGGESTIONS,
                 ChromeFeatureList.CRITICAL_PERSISTED_TAB_DATA,
                 ChromeFeatureList.COMMAND_LINE_ON_NON_ROOTED,
                 ChromeFeatureList.CONDITIONAL_TAB_STRIP_ANDROID,
+                ChromeFeatureList.DEX_FIXER,
                 ChromeFeatureList.DOWNLOADS_AUTO_RESUMPTION_NATIVE,
-                ChromeFeatureList.DUET_TABSTRIP_INTEGRATION_ANDROID,
-                ChromeFeatureList.HOMEPAGE_LOCATION_POLICY,
+                ChromeFeatureList.EARLY_LIBRARY_LOAD,
                 ChromeFeatureList.IMMERSIVE_UI_MODE,
                 ChromeFeatureList.INSTANT_START,
-                ChromeFeatureList.INTEREST_FEED_CONTENT_SUGGESTIONS,
                 ChromeFeatureList.INTEREST_FEED_V2,
-                ChromeFeatureList.OMNIBOX_SUGGESTIONS_RECYCLER_VIEW,
                 ChromeFeatureList.PAINT_PREVIEW_DEMO,
                 ChromeFeatureList.PAINT_PREVIEW_SHOW_ON_STARTUP,
                 ChromeFeatureList.PRIORITIZE_BOOTSTRAP_TASKS,
                 ChromeFeatureList.REPORT_FEED_USER_ACTIONS,
+                ChromeFeatureList.SHARE_BY_DEFAULT_IN_CCT,
                 ChromeFeatureList.START_SURFACE_ANDROID,
                 ChromeFeatureList.SWAP_PIXEL_FORMAT_TO_FIX_CONVERT_FROM_TRANSLUCENT,
                 ChromeFeatureList.TAB_GRID_LAYOUT_ANDROID,
@@ -77,7 +77,11 @@ public class ChromeCachedFlags {
                 ChromeFeatureList.TAB_GROUPS_CONTINUATION_ANDROID,
                 ChromeFeatureList.TAB_TO_GTS_ANIMATION,
                 ChromeFeatureList.TABBED_APP_OVERFLOW_MENU_ICONS,
-                ChromeFeatureList.TABBED_APP_OVERFLOW_MENU_REGROUP);
+                ChromeFeatureList.TABBED_APP_OVERFLOW_MENU_REGROUP,
+                ChromeFeatureList.TABBED_APP_OVERFLOW_MENU_THREE_BUTTON_ACTIONBAR,
+                ChromeFeatureList.USE_CHIME_ANDROID_SDK,
+                ChromeFeatureList.READ_LATER,
+                ChromeFeatureList.OFFLINE_MEASUREMENTS_BACKGROUND_TASK);
         // clang-format on
         CachedFeatureFlags.cacheNativeFlags(featuresToCache);
         CachedFeatureFlags.cacheAdditionalNativeFlags();
@@ -85,16 +89,19 @@ public class ChromeCachedFlags {
         // clang-format off
         List<CachedFieldTrialParameter> fieldTrialsToCache = Arrays.asList(
                 AppMenuPropertiesDelegateImpl.ACTION_BAR_VARIATION,
-                BottomToolbarVariationManager.BOTTOM_TOOLBAR_VARIATION,
+                AppMenuPropertiesDelegateImpl.THREE_BUTTON_ACTION_BAR_VARIATION,
                 ConditionalTabStripUtils.CONDITIONAL_TAB_STRIP_INFOBAR_LIMIT,
                 ConditionalTabStripUtils.CONDITIONAL_TAB_STRIP_INFOBAR_PERIOD,
                 ConditionalTabStripUtils.CONDITIONAL_TAB_STRIP_SESSION_TIME_MS,
+                PageAnnotationsServiceConfig.PAGE_ANNOTATIONS_BASE_URL,
                 ReturnToChromeExperimentsUtil.TAB_SWITCHER_ON_RETURN_MS,
+                StartSurfaceConfiguration.HOME_BUTTON_ON_GRID_TAB_SWITCHER,
+                StartSurfaceConfiguration.OMNIBOX_FOCUSED_ON_NEW_TAB,
                 StartSurfaceConfiguration.START_SURFACE_EXCLUDE_MV_TILES,
                 StartSurfaceConfiguration.START_SURFACE_HIDE_INCOGNITO_SWITCH,
+                StartSurfaceConfiguration.START_SURFACE_HIDE_INCOGNITO_SWITCH_NO_TAB,
                 StartSurfaceConfiguration.START_SURFACE_LAST_ACTIVE_TAB_ONLY,
                 StartSurfaceConfiguration.START_SURFACE_OPEN_NTP_INSTEAD_OF_START,
-                StartSurfaceConfiguration.START_SURFACE_SHOW_STACK_TAB_SWITCHER,
                 StartSurfaceConfiguration.START_SURFACE_VARIATION,
                 StartSurfaceConfiguration.START_SURFACE_OMNIBOX_SCROLL_MODE,
                 StartSurfaceConfiguration.TRENDY_ENABLED,
@@ -102,7 +109,13 @@ public class ChromeCachedFlags {
                 StartSurfaceConfiguration.TRENDY_FAILURE_MIN_PERIOD_MS,
                 StartSurfaceConfiguration.TRENDY_SUCCESS_MIN_PERIOD_MS,
                 TabContentManager.ALLOW_TO_REFETCH_TAB_THUMBNAIL_VARIATION,
+                TabUiFeatureUtilities.ENABLE_LAUNCH_BUG_FIX,
+                TabUiFeatureUtilities.ENABLE_LAUNCH_POLISH,
                 TabUiFeatureUtilities.ENABLE_SEARCH_CHIP,
+                ShoppingPersistedTabData.TIME_TO_LIVE_MS,
+                ShoppingPersistedTabData.DISPLAY_TIME_MS,
+                ShoppingPersistedTabData.STALE_TAB_THRESHOLD_SECONDS,
+                TabUiFeatureUtilities.ENABLE_PRICE_TRACKING,
                 TabUiFeatureUtilities.ENABLE_SEARCH_CHIP_ADAPTIVE,
                 TabUiFeatureUtilities.ZOOMING_MIN_MEMORY,
                 TabUiFeatureUtilities.ZOOMING_MIN_SDK,
@@ -133,12 +146,12 @@ public class ChromeCachedFlags {
     }
 
     /**
-     * Caches flags that are enabled in ServiceManager only mode and must take effect on startup but
-     * are set via native code. This function needs to be called in ServiceManager only mode to mark
-     * these field trials as active, otherwise histogram data recorded in ServiceManager only mode
+     * Caches flags that are enabled in minimal browser mode and must take effect on startup but
+     * are set via native code. This function needs to be called in minimal browser mode to mark
+     * these field trials as active, otherwise histogram data recorded in minimal browser mode
      * won't be tagged with their corresponding field trial experiments.
      */
-    public void cacheServiceManagerOnlyFlags() {
+    public void cacheMinimalBrowserFlags() {
         // TODO(crbug.com/995355): Move other related flags from cacheNativeFlags() to here.
         CachedFeatureFlags.cacheNativeFlags(
                 Arrays.asList(ChromeFeatureList.SERVICE_MANAGER_FOR_DOWNLOAD,

@@ -63,7 +63,7 @@ const filesSpinnerTemplate = `
 /**
  * FilesSpinner.
  */
-class FilesSpinner extends HTMLElement {
+/* #export */ class FilesSpinner extends HTMLElement {
   constructor() {
     super().attachShadow({mode: 'open'}).innerHTML = filesSpinnerTemplate;
   }
@@ -82,3 +82,5 @@ class FilesSpinner extends HTMLElement {
 }
 
 customElements.define('files-spinner', FilesSpinner);
+
+//# sourceURL=//ui/file_manager/file_manager/foreground/elements/files_spinner.js

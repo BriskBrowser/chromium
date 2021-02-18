@@ -2,10 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import {strf, util} from '../../../common/js/util.m.js';
+// #import {NativeEventTarget as EventTarget} from 'chrome://resources/js/cr/event_target.m.js';
+// #import {dispatchSimpleEvent} from 'chrome://resources/js/cr.m.js';
+// clang-format on
+
 /**
  * Formatter class for file metadatas.
  */
-class FileMetadataFormatter extends cr.EventTarget {
+/* #export */ class FileMetadataFormatter extends cr.EventTarget {
   constructor() {
     super();
     this.setDateTimeFormat(true);
@@ -23,9 +29,9 @@ class FileMetadataFormatter extends cr.EventTarget {
    */
   setDateTimeFormat(use12hourClock) {
     this.timeFormatter_ = new Intl.DateTimeFormat(
-        [] /* default locale */,
+        navigator.language,
         {hour: 'numeric', minute: 'numeric', hour12: use12hourClock});
-    this.dateFormatter_ = new Intl.DateTimeFormat([] /* default locale */, {
+    this.dateFormatter_ = new Intl.DateTimeFormat(navigator.language, {
       year: 'numeric',
       month: 'short',
       day: 'numeric',

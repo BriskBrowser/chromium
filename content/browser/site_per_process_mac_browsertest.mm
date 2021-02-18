@@ -7,7 +7,6 @@
 #include <Cocoa/Cocoa.h>
 
 #include "base/bind.h"
-#include "base/mac/mac_util.h"
 #include "content/browser/renderer_host/render_widget_host_input_event_router.h"
 #include "content/browser/renderer_host/render_widget_host_view_mac.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -92,8 +91,8 @@ IN_PROC_BROWSER_TEST_P(SitePerProcessMacBrowserTest,
   EXPECT_TRUE(NavigateToURL(shell(), main_url));
   FrameTreeNode* root = web_contents()->GetFrameTree()->root();
   FrameTreeNode* child = root->child_at(0);
-  NavigateFrameToURL(child,
-                     embedded_test_server()->GetURL("b.com", "/title1.html"));
+  EXPECT_TRUE(NavigateToURLFromRenderer(
+      child, embedded_test_server()->GetURL("b.com", "/title1.html")));
   web_contents()->GetFrameTree()->SetFocusedFrame(
       child, web_contents()->GetSiteInstance());
 
@@ -252,14 +251,6 @@ id MockGestureEvent(NSEventType type,
   return event;
 }
 
-bool ShouldSendGestureEvents() {
-#if defined(MAC_OS_X_VERSION_10_11) && \
-    MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_11
-  return base::mac::IsAtMostOS10_10();
-#endif
-  return true;
-}
-
 void SendMacTouchpadPinchSequenceWithExpectedTarget(
     RenderWidgetHostViewBase* root_view,
     const gfx::Point& gesture_point,
@@ -271,8 +262,6 @@ void SendMacTouchpadPinchSequenceWithExpectedTarget(
   NSEvent* pinchBeginEvent =
       MockGestureEvent(NSEventTypeMagnify, 0, gesture_point.x(),
                        gesture_point.y(), NSEventPhaseBegan);
-  if (ShouldSendGestureEvents())
-    [cocoa_view beginGestureWithEvent:pinchBeginEvent];
   [cocoa_view magnifyWithEvent:pinchBeginEvent];
   // We don't check the gesture target yet, since on mac the GesturePinchBegin
   // isn't sent until the first PinchUpdate.
@@ -290,8 +279,6 @@ void SendMacTouchpadPinchSequenceWithExpectedTarget(
       MockGestureEvent(NSEventTypeMagnify, 0, gesture_point.x(),
                        gesture_point.y(), NSEventPhaseEnded);
   [cocoa_view magnifyWithEvent:pinchEndEvent];
-  if (ShouldSendGestureEvents())
-    [cocoa_view endGestureWithEvent:pinchEndEvent];
   EXPECT_EQ(nullptr, router_touchpad_gesture_target);
 }
 
@@ -309,7 +296,7 @@ IN_PROC_BROWSER_TEST_P(SitePerProcessMacBrowserTest,
 
   GURL frame_url(
       embedded_test_server()->GetURL("b.com", "/page_with_click_handler.html"));
-  NavigateFrameToURL(root->child_at(0), frame_url);
+  EXPECT_TRUE(NavigateToURLFromRenderer(root->child_at(0), frame_url));
   auto* child_frame_host = root->child_at(0)->current_frame_host();
 
   // Synchronize with the child and parent renderers to guarantee that the

@@ -5,7 +5,9 @@
 #ifndef ASH_AMBIENT_UI_GLANCEABLE_INFO_VIEW_H_
 #define ASH_AMBIENT_UI_GLANCEABLE_INFO_VIEW_H_
 
+#include "ash/ambient/model/ambient_backend_model.h"
 #include "ash/ambient/model/ambient_backend_model_observer.h"
+#include "base/scoped_observation.h"
 #include "ui/views/view.h"
 
 namespace views {
@@ -25,17 +27,15 @@ class AmbientViewDelegate;
 class GlanceableInfoView : public views::View,
                            public AmbientBackendModelObserver {
  public:
+  METADATA_HEADER(GlanceableInfoView);
+
   explicit GlanceableInfoView(AmbientViewDelegate* delegate);
   GlanceableInfoView(const GlanceableInfoView&) = delete;
   GlanceableInfoView& operator=(const GlanceableInfoView&) = delete;
   ~GlanceableInfoView() override;
 
-  // views::View:
-  const char* GetClassName() const override;
-
   // AmbientBackendModelObserver:
   void OnWeatherInfoUpdated() override;
-  void OnImagesChanged() override {}
 
   void Show();
 
@@ -47,16 +47,15 @@ class GlanceableInfoView : public views::View,
   // View for the time info. Owned by the view hierarchy.
   ash::tray::TimeView* time_view_ = nullptr;
 
-  // Container holding weather-related views. Owned by the view hierarchy.
-  views::View* weather_info_ = nullptr;
-
   // Views for weather icon and temperature.
-  // Child views of |weather_info_| and owned by the view hierarchy.
   views::ImageView* weather_condition_icon_ = nullptr;
   views::Label* temperature_ = nullptr;
 
   // Owned by |AmbientController|.
   AmbientViewDelegate* const delegate_ = nullptr;
+
+  base::ScopedObservation<AmbientBackendModel, AmbientBackendModelObserver>
+      scoped_backend_model_observer_{this};
 };
 
 }  // namespace ash

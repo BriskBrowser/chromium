@@ -13,9 +13,9 @@
 #include "base/feature_list.h"
 #include "base/optional.h"
 #include "build/build_config.h"
+#include "cc/input/browser_controls_state.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/global_routing_id.h"
-#include "content/public/common/browser_controls_state.h"
 #include "content/public/common/isolated_world_ids.h"
 #include "content/public/common/page_visibility_state.h"
 #include "ipc/ipc_listener.h"
@@ -32,8 +32,8 @@
 #include "third_party/blink/public/mojom/frame/frame.mojom.h"
 #include "third_party/blink/public/mojom/frame/frame_owner_element_type.mojom.h"
 #include "third_party/blink/public/mojom/frame/sudden_termination_disabler_type.mojom.h"
+#include "third_party/blink/public/mojom/frame/user_activation_notification_type.mojom.h"
 #include "third_party/blink/public/mojom/loader/pause_subresource_loading_handle.mojom-forward.h"
-#include "third_party/blink/public/mojom/webauthn/authenticator.mojom.h"
 #include "ui/accessibility/ax_tree_id.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
@@ -43,6 +43,7 @@
 namespace blink {
 class AssociatedInterfaceProvider;
 namespace mojom {
+enum class AuthenticatorStatus;
 enum class FeaturePolicyFeature;
 }  // namespace mojom
 }  // namespace blink
@@ -77,6 +78,7 @@ namespace content {
 
 class RenderProcessHost;
 class RenderViewHost;
+class RenderWidgetHost;
 class RenderWidgetHostView;
 class SiteInstance;
 class BrowserContext;
@@ -84,6 +86,9 @@ class StoragePartition;
 class WebUI;
 
 // The interface provides a communication conduit with a frame in the renderer.
+// The preferred way to keep a reference to a RenderFrameHost is storing a
+// GlobalFrameRoutingId and using RenderFrameHost::FromID() when you need to
+// access it.
 class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
                                        public IPC::Sender {
  public:
@@ -94,6 +99,13 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // Returns nullptr if the IDs do not correspond to a live RenderFrameHost.
   static RenderFrameHost* FromID(GlobalFrameRoutingId id);
   static RenderFrameHost* FromID(int render_process_id, int render_frame_id);
+
+  // Returns the RenderFrameHost given its frame token and its process
+  // ID. Returns nullptr if the frame token does not correspond to a live
+  // RenderFrameHost.
+  static RenderFrameHost* FromFrameToken(
+      int initiator_process_id,
+      const base::UnguessableToken& frame_token);
 
   // Globally allows for injecting JavaScript into the main world. This feature
   // is present only to support Android WebView, WebLayer, Fuchsia web.Contexts,
@@ -144,6 +156,10 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // Associated RenderProcessHost never changes.
   virtual RenderProcessHost* GetProcess() = 0;
 
+  // Returns the GlobalFrameRoutingId for this frame. Embedders should store
+  // this instead of a raw RenderFrameHost pointer.
+  virtual GlobalFrameRoutingId GetGlobalFrameRoutingId() = 0;
+
   // Returns a StoragePartition associated with this RenderFrameHost.
   // Associated StoragePartition never changes.
   virtual StoragePartition* GetStoragePartition() = 0;
@@ -152,9 +168,27 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // Associated BrowserContext never changes.
   virtual BrowserContext* GetBrowserContext() = 0;
 
-  // Returns the RenderWidgetHostView that can be used to control focus and
-  // visibility for this frame.
+  // Returns the RenderWidgetHostView for this frame or the nearest ancestor
+  // frame, which can be used to control input, focus, rendering and visibility
+  // for this frame.
+  // This returns null when there is no connection to a renderer process, which
+  // can be checked with IsRenderFrameLive().
+  // NOTE: Due to historical relationships between RenderViewHost and
+  // RenderWidgetHost, the main frame RenderWidgetHostView may initially exist
+  // before IsRenderFrameCreated() is true, but they would afterward change
+  // values together. It is better to not rely on this behaviour as it is
+  // intended to change. See https://crbug.com/419087.
   virtual RenderWidgetHostView* GetView() = 0;
+
+  // Returns the RenderWidgetHost attached to this frame or the nearest ancestor
+  // frame, which could potentially be the root. This allows access to the
+  // RenderWidgetHost without having to go through GetView() which can be null,
+  // so should be preferred to GetView()->GetRenderWidgetHost().
+  //
+  // This method is not valid to be called when the RenderFrameHost is detached
+  // from the frame tree, though this would only happen during destruction of
+  // the RenderFrameHost.
+  virtual RenderWidgetHost* GetRenderWidgetHost() = 0;
 
   // Returns the parent of this RenderFrameHost, or nullptr if this
   // RenderFrameHost is the main one and there is no parent.
@@ -236,10 +270,70 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // Returns true if the frame is out of process.
   virtual bool IsCrossProcessSubframe() = 0;
 
-  // Returns the last committed URL of the frame.
+  // Indicates whether this frame is in a cross-origin isolated agent cluster.
+  // See [1] and [2] for a description of what this means for web content.
+  // Specifically, an agent cluster may be cross-origin isolated if:
+  // - its top-level document has "Cross-Origin-Opener-Policy: same-origin" and
+  //   "Cross-Origin-Embedder-Policy: require-corp" HTTP headers; or,
+  // - its top-level worker script has a
+  //   "Cross-Origin-Embedder-Policy: require-corp" HTTP header.
+  //
+  // In practice this means that the frame is guaranteed to be hosted in a
+  // process that is isolated to the frame's origin. The process may also host
+  // cross-origin frames and workers only if they have opted in to being
+  // embedded with CORS or CORP headers.
+  //
+  // Certain advanced web platform APIs are gated behind this property. It will
+  // correspond to the value returned by accessing
+  // "WindowOrWorkerGlobalScope.crossOriginIsolated" in Javascript.
+  //
+  // NOTE: some of the information needed to fully determine a frame's
+  // cross-isolation status is currently not available in the browser process.
+  // Access to web platform API's must be checked in the renderer, with the
+  // CrossOriginIsolationStatus on the browser side only used as a backup to
+  // catch misbehaving renderers.
+  //
+  // [1]
+  // https://developer.mozilla.org/en-US/docs/Web/API/WindowOrWorkerGlobalScope/crossOriginIsolated
+  // [2] https://w3c.github.io/webappsec-permissions-policy/
+  enum class CrossOriginIsolationStatus {
+    // The frame is in a cross-origin isolated process and agent cluster.
+    // It is allowed to call web platform API's gated behind the
+    // crossOriginIsolated property.
+    kIsolated,
+
+    // The frame is not in a cross-origin isolated agent cluster. It may be
+    // hosted in a cross-origin isolated process but it is not allowed to call
+    // web platform API's gated behind the crossOriginIsolated property.
+    kNotIsolated,
+
+    // The frame is in a cross-origin isolated process, but it's not possible
+    // to determine whether it's in a cross-origin isolated agent cluster. The
+    // browser process should not prevent it from calling web platform API's
+    // gated behind the crossOriginIsolated property because it may be allowed.
+    // TODO(clamy): Remove this status once the document policy is available on
+    // the browser side.
+    kMaybeIsolated,
+  };
+
+  // Returns whether the frame is in a cross-origin isolated agent cluster.
+  //
+  // Note that this is a property of the document so can change as the frame
+  // navigates.
+  //
+  // TODO(https://936696): Once RenderDocument ships this should be exposed as
+  // an invariant of the document host.
+  virtual CrossOriginIsolationStatus GetCrossOriginIsolationStatus() = 0;
+
+  // Returns the last committed URL of this RenderFrameHost. This will be empty
+  // until the first commit in this RenderFrameHost.
+  //
+  // Note that this does not reflect navigations in other RenderFrameHosts,
+  // frames, or pages within the same WebContents, so it may differ from
+  // NavigationController::GetLastCommittedEntry().
   virtual const GURL& GetLastCommittedURL() = 0;
 
-  // Returns the last committed origin of the frame.
+  // Returns the last committed origin of this RenderFrameHost.
   virtual const url::Origin& GetLastCommittedOrigin() = 0;
 
   // Returns the network isolation key used for subresources from the currently
@@ -254,6 +348,14 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // navigation is committed.
   virtual const net::IsolationInfo& GetIsolationInfoForSubresources() = 0;
 
+  // Returns the IsolationInfo used for subresources for the pending commit, if
+  // there is one. Otherwise, returns the IsolationInfo used for subresources of
+  // the last committed page load.
+  //
+  // TODO(https://936696): Remove this once RenderDocument ships, at which point
+  // it will no longer be needed.
+  virtual net::IsolationInfo GetPendingIsolationInfoForSubresources() = 0;
+
   // Returns the associated widget's native view.
   virtual gfx::NativeView GetNativeView() = 0;
 
@@ -266,6 +368,23 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // result, pass in a default-constructed callback. If provided, the callback
   // will be invoked on the UI thread.
   using JavaScriptResultCallback = base::OnceCallback<void(base::Value)>;
+
+  // This API allows to execute JavaScript methods in this frame, without
+  // having to serialize the arguments into a single string, and is a lot
+  // cheaper than ExecuteJavaScript below since it avoids the need to compile
+  // and evaluate new scripts all the time.
+  //
+  // Calling
+  //
+  //   ExecuteJavaScriptMethod("obj", "foo", [1, true], callback)
+  //
+  // is semantically equivalent to
+  //
+  //   ExecuteJavaScript("obj.foo(1, true)", callback)
+  virtual void ExecuteJavaScriptMethod(const base::string16& object_name,
+                                       const base::string16& method_name,
+                                       base::Value arguments,
+                                       JavaScriptResultCallback callback) = 0;
 
   // This is the default API to run JavaScript in this frame. This API can only
   // be called on chrome:// or devtools:// URLs.
@@ -304,11 +423,7 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // result.
   virtual void ActivateFindInPageResultForAccessibility(int request_id) = 0;
 
-  // Roundtrips through the renderer and compositor pipeline to ensure that any
-  // changes to the contents resulting from operations executed prior to this
-  // call are visible on screen. The call completes asynchronously by running
-  // the supplied |callback| with a value of true upon successful completion and
-  // false otherwise when the widget is destroyed.
+  // See RenderWidgetHost::InsertVisualStateCallback().
   using VisualStateCallback = base::OnceCallback<void(bool)>;
   virtual void InsertVisualStateCallback(VisualStateCallback callback) = 0;
 
@@ -340,7 +455,7 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // of a frame are defined in Blink.
   virtual PageVisibilityState GetVisibilityState() = 0;
 
-  // Returns true if WebContentsObserver::RenderFrameCreate notification has
+  // Returns true if WebContentsObserver::RenderFrameCreated notification has
   // been dispatched for this frame, and so a RenderFrameDeleted notification
   // will later be dispatched for this frame.
   virtual bool IsRenderFrameCreated() = 0;
@@ -364,6 +479,12 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   //  deletion").
   // In both cases, IsCurrent() becomes false for this frame and all its
   // children.
+  //
+  // This method should be called before trying to display some UI to the user
+  // on behalf of the given RenderFrameHost (or when crossing document / tab
+  // boundary in general, e.g. when using WebContents::FromRenderFrameHost) to
+  // check if the given RenderFrameHost is currently being displayed in a given
+  // tab.
   virtual bool IsCurrent() = 0;
 
   // Returns true iff the RenderFrameHost is inactive i.e., when the
@@ -447,18 +568,6 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // feature policy.
   virtual bool IsFeatureEnabled(blink::mojom::FeaturePolicyFeature feature) = 0;
 
-  // Returns true if the given |threshold_value| is below the threshold value
-  // specified in the policy for |feature| for this RenderFrameHost. See
-  // third_party/blink/public/common/feature_policy/document_policy.h for how to
-  // compare values of different types. Use this in the browser process to
-  // determine whether access to a feature is allowed.
-  virtual bool IsFeatureEnabled(blink::mojom::DocumentPolicyFeature feature,
-                                blink::PolicyValue threshold_value) = 0;
-  // Same as above, with |threshold_value| set to the max value the given
-  // |feature| can have.
-  virtual bool IsFeatureEnabled(
-      blink::mojom::DocumentPolicyFeature feature) = 0;
-
   // Opens view-source tab for the document last committed in this
   // RenderFrameHost.
   virtual void ViewSource() = 0;
@@ -522,11 +631,6 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   virtual void PrepareForInnerWebContentsAttach(
       PrepareForInnerWebContentsAttachCallback callback) = 0;
 
-  // Re-creates loader factories and pushes them to |RenderFrame|.
-  // Used in case we need to add or remove intercepting proxies to the
-  // running renderer, or in case of Network Service connection errors.
-  virtual void UpdateSubresourceLoaderFactories() = 0;
-
   // Returns the type of frame owner element for the FrameTreeNode associated
   // with this RenderFrameHost (e.g., <iframe>, <object>, etc). Note that it
   // returns blink::mojom::FrameOwnerElementType::kNone if the RenderFrameHost
@@ -537,11 +641,16 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // FrameTreeNode associated with this RenderFrameHost.
   virtual bool HasTransientUserActivation() = 0;
 
+  // Notifies the renderer of a user activation event for the associated frame.
+  // The |notification_type| parameter is used for histograms only.
+  virtual void NotifyUserActivation(
+      blink::mojom::UserActivationNotificationType notification_type) = 0;
+
   // Notifies the renderer whether hiding/showing the browser controls is
   // enabled, what the current state should be, and whether or not to animate to
   // the proper state.
-  virtual void UpdateBrowserControlsState(BrowserControlsState constraints,
-                                          BrowserControlsState current,
+  virtual void UpdateBrowserControlsState(cc::BrowserControlsState constraints,
+                                          cc::BrowserControlsState current,
                                           bool animate) = 0;
 
   // Reloads the frame. It initiates a reload but doesn't wait for it to finish.
@@ -592,22 +701,21 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // DidChangeLifecycleState.
   virtual bool IsInBackForwardCache() = 0;
 
-  // Return the UKM source id for the page load (last committed cross-document
+  // Returns the UKM source id for the page load (last committed cross-document
   // non-bfcache navigation in the main frame).
   // This id typically has an associated PageLoad UKM event.
   // Note: this can be called on any frame, but this id for all subframes is the
   // same as the id for the main frame.
   virtual ukm::SourceId GetPageUkmSourceId() = 0;
 
-  // Report an inspector issue to devtools due the frame using an excessive
-  // amount of resources (cpu or network).  Invoked only for ad frames.
+  // Report an inspector issue to devtools. Note that the issue is stored on the
+  // browser-side, and may contain information that we don't want to share
+  // with the renderer.
   // TODO(crbug.com/1091720): This reporting should be done directly in the
   // chrome layer in the future.
-  virtual void ReportHeavyAdIssue(
-      blink::mojom::HeavyAdResolutionStatus resolution,
-      blink::mojom::HeavyAdReason reason) = 0;
+  virtual void ReportInspectorIssue(blink::mojom::InspectorIssueInfoPtr) = 0;
 
-  // Returns whether a document uses WebOTP. Returns true if an SmsService is
+  // Returns whether a document uses WebOTP. Returns true if a WebOTPService is
   // created on the document.
   virtual bool DocumentUsedWebOTP() = 0;
 

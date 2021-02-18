@@ -6,7 +6,7 @@
 
 #include <memory>
 
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "content/browser/service_worker/embedded_worker_test_helper.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_context_core_observer.h"
@@ -308,7 +308,7 @@ TEST_F(ServiceWorkerContextCoreTest, DeleteForOrigin_UnregisterFail) {
                   }));
   // Disable storage before it finishes. This causes the Unregister job to
   // complete with an error.
-  context()->GetStorageControl()->Disable();
+  context()->registry()->DisableStorageForTesting(base::DoNothing());
   loop.Run();
 
   // The operation should still complete.

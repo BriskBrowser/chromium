@@ -33,13 +33,14 @@
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
+
 class LocalFrame;
 class MediaQuery;
 class MediaQueryExp;
 class MediaQueryResult;
 class MediaQuerySet;
+class MediaQuerySetResult;
 class MediaValues;
-class MediaValuesInitialViewport;
 
 using MediaQueryResultList = Vector<MediaQueryResult>;
 
@@ -73,7 +74,6 @@ class CORE_EXPORT MediaQueryEvaluator final
   // values.
   explicit MediaQueryEvaluator(const MediaValues&);
 
-  explicit MediaQueryEvaluator(MediaValuesInitialViewport*);
   MediaQueryEvaluator(const MediaQueryEvaluator&) = delete;
   MediaQueryEvaluator& operator=(const MediaQueryEvaluator&) = delete;
 
@@ -98,6 +98,10 @@ class CORE_EXPORT MediaQueryEvaluator final
   // evaluation.
   bool DidResultsChange(const MediaQueryResultList& results) const;
 
+  // Returns true if any of the media queries in the results lists changed its
+  // evaluation.
+  bool DidResultsChange(const Vector<MediaQuerySetResult>& results) const;
+
   void Trace(Visitor*) const;
 
  private:
@@ -105,6 +109,10 @@ class CORE_EXPORT MediaQueryEvaluator final
 
   String media_type_;
   Member<MediaValues> media_values_;
+
+  // Even if UKM reporting is enabled, do not report any media query evaluation
+  // results if this is set to true.
+  mutable bool skip_ukm_reporting_{false};
 };
 
 }  // namespace blink

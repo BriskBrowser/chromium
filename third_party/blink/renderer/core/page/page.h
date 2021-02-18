@@ -30,6 +30,7 @@
 #include "third_party/blink/public/mojom/frame/frame.mojom-blink.h"
 #include "third_party/blink/public/mojom/page/page.mojom-blink.h"
 #include "third_party/blink/public/mojom/page/page_visibility_state.mojom-blink.h"
+#include "third_party/blink/public/platform/scheduler/web_agent_group_scheduler.h"
 #include "third_party/blink/public/platform/scheduler/web_scoped_virtual_time_pauser.h"
 #include "third_party/blink/public/web/web_window_features.h"
 #include "third_party/blink/renderer/core/core_export.h"
@@ -54,7 +55,6 @@ class AnimationHost;
 }
 
 namespace blink {
-class AgentMetricsCollector;
 class AutoscrollController;
 class BrowserControls;
 class ChromeClient;
@@ -76,7 +76,6 @@ class PageScaleConstraintsSet;
 class PluginData;
 class PluginsChangedObserver;
 class PointerLockController;
-class TextFragmentSelectorGenerator;
 class ScopedPagePauser;
 class ScrollingCoordinator;
 class ScrollbarTheme;
@@ -115,12 +114,19 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   };
 
   // Any pages not owned by a web view should be created using this method.
-  static Page* CreateNonOrdinary(PageClients& pages_clients);
+  static Page* CreateNonOrdinary(
+      PageClients& pages_clients,
+      scheduler::WebAgentGroupScheduler& agent_group_scheduler);
 
   // An "ordinary" page is a fully-featured page owned by a web view.
-  static Page* CreateOrdinary(PageClients&, Page* opener);
+  static Page* CreateOrdinary(
+      PageClients&,
+      Page* opener,
+      scheduler::WebAgentGroupScheduler& agent_group_scheduler);
 
-  explicit Page(PageClients&);
+  Page(PageClients&,
+       scheduler::WebAgentGroupScheduler& agent_group_scheduler,
+       bool is_ordinary);
   ~Page() override;
 
   void CloseSoon();
@@ -193,9 +199,6 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   }
   ValidationMessageClient& GetValidationMessageClient() const {
     return *validation_message_client_;
-  }
-  AgentMetricsCollector* GetAgentMetricsCollector() const {
-    return agent_metrics_collector_.Get();
   }
   void SetValidationMessageClientForTesting(ValidationMessageClient*);
 
@@ -317,6 +320,7 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
 
   ScrollbarTheme& GetScrollbarTheme() const;
 
+  scheduler::WebAgentGroupScheduler& GetAgentGroupScheduler() const;
   PageScheduler* GetPageScheduler() const;
 
   // PageScheduler::Delegate implementation.
@@ -325,6 +329,7 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   bool RequestBeginMainFrameNotExpected(bool new_state) override;
   void OnSetPageFrozen(bool is_frozen) override;
   bool LocalMainFrameNetworkIsAlmostIdle() const override;
+  bool IsFocused() const override;
 
   void AddAutoplayFlags(int32_t flags);
   void ClearAutoplayFlags();
@@ -375,11 +380,11 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   // still hidden (possibly preserved in the back-forward cache, or unloaded).
   bool DispatchedPagehideAndStillHidden();
 
-  static void PrepareForLeakDetection();
+  // Similar to above, but will only return true if we've dispatched 'pagehide'
+  // with the 'persisted' property set to 'true'.
+  bool DispatchedPagehidePersistedAndStillHidden();
 
-  TextFragmentSelectorGenerator& GetTextFragmentSelectorGenerator() const {
-    return *text_fragment_selector_generator_;
-  }
+  static void PrepareForLeakDetection();
 
  private:
   friend class ScopedPagePauser;
@@ -391,8 +396,6 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
 
   // Notify |plugins_changed_observers_| that plugins have changed.
   void NotifyPluginsChanged() const;
-
-  void SetPageScheduler(std::unique_ptr<PageScheduler>);
 
   void InvalidateColorScheme();
   void InvalidatePaint();
@@ -410,6 +413,7 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   // longer needed.
   Member<Frame> main_frame_;
 
+  scheduler::WebAgentGroupScheduler& agent_group_scheduler_;
   Member<PageAnimator> animator_;
   const Member<AutoscrollController> autoscroll_controller_;
   Member<ChromeClient> chrome_client_;
@@ -434,10 +438,6 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   Member<PluginData> plugin_data_;
 
   Member<ValidationMessageClient> validation_message_client_;
-
-  // Stored only for ordinary pages to avoid adding metrics from things like
-  // overlays, popups and SVG.
-  Member<AgentMetricsCollector> agent_metrics_collector_;
 
   Deprecation deprecation_;
   WebWindowFeatures window_features_;
@@ -501,8 +501,6 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   mojom::blink::TextAutosizerPageInfo web_text_autosizer_page_info_;
 
   WebScopedVirtualTimePauser history_navigation_virtual_time_pauser_;
-
-  const Member<TextFragmentSelectorGenerator> text_fragment_selector_generator_;
 
   DISALLOW_COPY_AND_ASSIGN(Page);
 };

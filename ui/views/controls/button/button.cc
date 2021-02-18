@@ -27,6 +27,7 @@
 #include "ui/views/controls/button/radio_button.h"
 #include "ui/views/controls/button/toggle_button.h"
 #include "ui/views/controls/focus_ring.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/painter.h"
 #include "ui/views/style/platform_style.h"
 
@@ -91,6 +92,28 @@ bool Button::DefaultButtonControllerDelegate::InDrag() {
   return button()->InDrag();
 }
 
+Button::PressedCallback::PressedCallback(
+    Button::PressedCallback::Callback callback)
+    : callback_(std::move(callback)) {}
+
+Button::PressedCallback::PressedCallback(base::RepeatingClosure closure)
+    : callback_(
+          base::BindRepeating([](base::RepeatingClosure closure,
+                                 const ui::Event& event) { closure.Run(); },
+                              std::move(closure))) {}
+
+Button::PressedCallback::PressedCallback(const PressedCallback&) = default;
+
+Button::PressedCallback::PressedCallback(PressedCallback&&) = default;
+
+Button::PressedCallback& Button::PressedCallback::operator=(
+    const PressedCallback&) = default;
+
+Button::PressedCallback& Button::PressedCallback::operator=(PressedCallback&&) =
+    default;
+
+Button::PressedCallback::~PressedCallback() = default;
+
 // static
 constexpr Button::ButtonState Button::kButtonStates[STATE_COUNT];
 
@@ -125,26 +148,25 @@ Button::ButtonState Button::GetButtonStateFrom(ui::NativeTheme::State state) {
 
 Button::~Button() = default;
 
-void Button::SetFocusForPlatform() {
-#if defined(OS_APPLE)
-  // On Mac, buttons are focusable only in full keyboard access mode.
-  SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
-#else
-  SetFocusBehavior(FocusBehavior::ALWAYS);
-#endif
-}
-
 void Button::SetTooltipText(const base::string16& tooltip_text) {
   if (tooltip_text == tooltip_text_)
     return;
   tooltip_text_ = tooltip_text;
   OnSetTooltipText(tooltip_text);
   TooltipTextChanged();
+  OnPropertyChanged(&tooltip_text_, kPropertyEffectsNone);
   NotifyAccessibilityEvent(ax::mojom::Event::kTextChanged, true);
 }
 
+base::string16 Button::GetTooltipText() const {
+  return tooltip_text_;
+}
+
 void Button::SetAccessibleName(const base::string16& name) {
+  if (name == accessible_name_)
+    return;
   accessible_name_ = name;
+  OnPropertyChanged(&accessible_name_, kPropertyEffectsNone);
   NotifyAccessibilityEvent(ax::mojom::Event::kTextChanged, true);
 }
 
@@ -203,13 +225,98 @@ void Button::SetAnimationDuration(base::TimeDelta duration) {
   hover_animation_.SetSlideDuration(duration);
 }
 
+void Button::SetTriggerableEventFlags(int triggerable_event_flags) {
+  if (triggerable_event_flags == triggerable_event_flags_)
+    return;
+  triggerable_event_flags_ = triggerable_event_flags;
+  OnPropertyChanged(&triggerable_event_flags_, kPropertyEffectsNone);
+}
+
+int Button::GetTriggerableEventFlags() const {
+  return triggerable_event_flags_;
+}
+
+void Button::SetRequestFocusOnPress(bool value) {
+// On Mac, buttons should not request focus on a mouse press. Hence keep the
+// default value i.e. false.
+#if !defined(OS_APPLE)
+  if (request_focus_on_press_ == value)
+    return;
+  request_focus_on_press_ = value;
+  OnPropertyChanged(&request_focus_on_press_, kPropertyEffectsNone);
+#endif
+}
+
+bool Button::GetRequestFocusOnPress() const {
+  return request_focus_on_press_;
+}
+
+void Button::SetAnimateOnStateChange(bool value) {
+  if (value == animate_on_state_change_)
+    return;
+  animate_on_state_change_ = value;
+  OnPropertyChanged(&animate_on_state_change_, kPropertyEffectsNone);
+}
+
+bool Button::GetAnimateOnStateChange() const {
+  return animate_on_state_change_;
+}
+
+void Button::SetHideInkDropWhenShowingContextMenu(bool value) {
+  if (value == hide_ink_drop_when_showing_context_menu_)
+    return;
+  hide_ink_drop_when_showing_context_menu_ = value;
+  OnPropertyChanged(&hide_ink_drop_when_showing_context_menu_,
+                    kPropertyEffectsNone);
+}
+
+bool Button::GetHideInkDropWhenShowingContextMenu() const {
+  return hide_ink_drop_when_showing_context_menu_;
+}
+
+void Button::SetShowInkDropWhenHotTracked(bool value) {
+  if (value == show_ink_drop_when_hot_tracked_)
+    return;
+  show_ink_drop_when_hot_tracked_ = value;
+  OnPropertyChanged(&show_ink_drop_when_hot_tracked_, kPropertyEffectsNone);
+}
+
+bool Button::GetShowInkDropWhenHotTracked() const {
+  return show_ink_drop_when_hot_tracked_;
+}
+
+void Button::SetInkDropBaseColor(SkColor color) {
+  if (color == ink_drop_base_color_)
+    return;
+  ink_drop_base_color_ = color;
+  OnPropertyChanged(&ink_drop_base_color_, kPropertyEffectsNone);
+}
+
+void Button::SetHasInkDropActionOnClick(bool value) {
+  if (value == has_ink_drop_action_on_click_)
+    return;
+  has_ink_drop_action_on_click_ = value;
+  OnPropertyChanged(&has_ink_drop_action_on_click_, kPropertyEffectsNone);
+}
+
+bool Button::GetHasInkDropActionOnClick() const {
+  return has_ink_drop_action_on_click_;
+}
+
 void Button::SetInstallFocusRingOnFocus(bool install) {
+  if (install == GetInstallFocusRingOnFocus())
+    return;
   if (focus_ring_ && !install) {
     RemoveChildViewT(focus_ring_);
     focus_ring_ = nullptr;
   } else if (!focus_ring_ && install) {
     focus_ring_ = FocusRing::Install(this);
   }
+  OnPropertyChanged(&focus_ring_, kPropertyEffectsPaint);
+}
+
+bool Button::GetInstallFocusRingOnFocus() const {
+  return !!focus_ring_;
 }
 
 void Button::SetHotTracked(bool is_hot_tracked) {
@@ -240,7 +347,7 @@ void Button::SetHighlighted(bool bubble_visible) {
                  nullptr);
 }
 
-PropertyChangedSubscription Button::AddStateChangedCallback(
+base::CallbackListSubscription Button::AddStateChangedCallback(
     PropertyChangedCallback callback) {
   return AddPropertyChangedCallback(&state_, std::move(callback));
 }
@@ -480,14 +587,14 @@ void Button::AnimationProgressed(const gfx::Animation* animation) {
   SchedulePaint();
 }
 
-Button::Button(ButtonListener* listener)
+Button::Button(PressedCallback callback)
     : AnimationDelegateViews(this),
-      listener_(listener),
+      callback_(std::move(callback)),
       ink_drop_base_color_(gfx::kPlaceholderColor) {
-  SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
+  SetFocusBehavior(PlatformStyle::kDefaultFocusBehavior);
   SetProperty(kIsButtonProperty, true);
   hover_animation_.SetSlideDuration(base::TimeDelta::FromMilliseconds(150));
-  SetInstallFocusRingOnFocus(PlatformStyle::kPreferFocusRings);
+  SetInstallFocusRingOnFocus(true);
   button_controller_ = std::make_unique<ButtonController>(
       this, std::make_unique<DefaultButtonControllerDelegate>(this));
 }
@@ -503,10 +610,8 @@ void Button::NotifyClick(const ui::Event& event) {
                    ui::LocatedEvent::FromIfValid(&event));
   }
 
-  // We can be called when there is no listener, in cases like double clicks on
-  // menu buttons etc.
-  if (listener_)
-    listener_->ButtonPressed(this, event);
+  if (callback_)
+    callback_.Run(event);
 }
 
 void Button::OnClickCanceled(const ui::Event& event) {
@@ -585,7 +690,17 @@ DEFINE_ENUM_CONVERTERS(
     {Button::STATE_DISABLED, base::ASCIIToUTF16("STATE_DISABLED")})
 
 BEGIN_METADATA(Button, InkDropHostView)
+ADD_PROPERTY_METADATA(base::string16, AccessibleName)
+ADD_PROPERTY_METADATA(PressedCallback, Callback)
+ADD_PROPERTY_METADATA(bool, AnimateOnStateChange)
+ADD_PROPERTY_METADATA(bool, HasInkDropActionOnClick)
+ADD_PROPERTY_METADATA(bool, HideInkDropWhenShowingContextMenu)
+ADD_PROPERTY_METADATA(SkColor, InkDropBaseColor, metadata::SkColorConverter)
+ADD_PROPERTY_METADATA(bool, InstallFocusRingOnFocus)
+ADD_PROPERTY_METADATA(bool, RequestFocusOnPress)
 ADD_PROPERTY_METADATA(ButtonState, State)
-END_METADATA()
+ADD_PROPERTY_METADATA(base::string16, TooltipText)
+ADD_PROPERTY_METADATA(int, TriggerableEventFlags)
+END_METADATA
 
 }  // namespace views

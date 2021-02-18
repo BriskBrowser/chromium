@@ -10,6 +10,7 @@
 #include "base/json/json_string_value_serializer.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/values.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "components/account_id/account_id.h"
@@ -24,6 +25,8 @@
 #include "google_apis/gaia/gaia_auth_fetcher.h"
 #include "google_apis/gaia/gaia_constants.h"
 #include "google_apis/gaia/google_service_auth_error.h"
+#include "google_apis/google_api_keys.h"
+#include "net/base/escape.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_status_code.h"
 #include "net/url_request/url_request_context_getter.h"
@@ -34,6 +37,21 @@
 namespace chromeos {
 
 namespace {
+// These values should not be renumbered and numeric values should never
+// be reused. This must be kept in sync with SamlInSessionPasswordSyncEvent
+// in tools/metrics/histogram/enums.xml
+enum class InSessionPasswordSyncEvent {
+  kStartPollingInSession = 0,
+  kStartPollingOnLogin = 1,
+  kTokenValidationSuccess = 2,
+  kTokenValidationFailure = 3,
+  kErrorMissingAccessToken = 4,
+  kErrorWrongResponseCode = 5,
+  kErrorInSerializedResponse = 6,
+  kErrorNoTokenInCreateResponse = 7,
+  kErrorNoTokenInGetResponse = 8,
+  kMaxValue = kErrorNoTokenInGetResponse,
+};
 
 constexpr int kGetAuthCodeNetworkRetry = 1;
 constexpr int kMaxResponseSize = 5 * 1024;
@@ -52,31 +70,47 @@ const char kTokenTypeValue[] = "SAML_PASSWORD";
 const char kAcceptValue[] =
     "Accept=text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
 
-const char kPasswordSyncTokenCreateEndPoint[] =
+const char kPasswordSyncTokenBaseEndPoint[] =
     "https://chromedevicetoken.googleapis.com/v1/tokens";
 
-const char kPasswordSyncTokenGetEndPoint[] =
-    "https://chromedevicetoken.googleapis.com/v1/"
-    "tokens?token_type=SAML_PASSWORD";
+const char kPasswordSyncTokenCreateEndPoint[] = "";
+
+const char kPasswordSyncTokenGetEndPoint[] = "?token_type=SAML_PASSWORD";
 
 const char kPasswordSyncTokenVerifyEndPoint[] =
-    "https://chromedevicetoken.googleapis.com/v1/tokens/"
-    "%s:verify?token_type=SAML_PASSWORD";
+    "/%s:verify?token_type=SAML_PASSWORD&key=%s";
 
-GURL sync_token_create_url() {
-  return GURL(kPasswordSyncTokenCreateEndPoint);
+std::string GetBaseEndPoint() {
+  return kPasswordSyncTokenBaseEndPoint;
 }
 
-GURL sync_token_get_url() {
-  return GURL(kPasswordSyncTokenGetEndPoint);
+GURL GetSyncTokenCreateUrl() {
+  return GURL(GetBaseEndPoint() +
+              std::string(kPasswordSyncTokenCreateEndPoint));
 }
 
-GURL sync_token_verify_url(const std::string& sync_token) {
-  return GURL(
-      base::StringPrintf(kPasswordSyncTokenVerifyEndPoint, sync_token.c_str()));
+GURL GetSyncTokenGetUrl() {
+  return GURL(GetBaseEndPoint() + std::string(kPasswordSyncTokenGetEndPoint));
+}
+
+GURL GetSyncTokenVerifyUrl(const std::string& sync_token,
+                           const std::string& escaped_api_key) {
+  return GURL(GetBaseEndPoint() +
+              base::StringPrintf(kPasswordSyncTokenVerifyEndPoint,
+                                 sync_token.c_str(), escaped_api_key.c_str()));
+}
+
+void RecordEvent(InSessionPasswordSyncEvent event) {
+  base::UmaHistogramEnumeration("ChromeOS.SAML.InSessionPasswordSyncEvent",
+                                event);
 }
 
 }  // namespace
+
+void RecordStartOfSyncTokenPollingUMA(bool in_session) {
+  RecordEvent(in_session ? InSessionPasswordSyncEvent::kStartPollingInSession
+                         : InSessionPasswordSyncEvent::kStartPollingOnLogin);
+}
 
 PasswordSyncTokenFetcher::Consumer::Consumer() = default;
 
@@ -90,7 +124,6 @@ PasswordSyncTokenFetcher::PasswordSyncTokenFetcher(
       profile_(profile),
       consumer_(consumer),
       request_type_(RequestType::kNone) {
-  DCHECK(profile_);
   DCHECK(consumer_);
 }
 
@@ -112,10 +145,11 @@ void PasswordSyncTokenFetcher::StartTokenVerify(const std::string& sync_token) {
   DCHECK_EQ(request_type_, RequestType::kNone);
   request_type_ = RequestType::kVerifyToken;
   sync_token_ = sync_token;
-  StartAccessTokenFetch();
+  FetchSyncToken(/*access_token=*/std::string());
 }
 
 void PasswordSyncTokenFetcher::StartAccessTokenFetch() {
+  DCHECK(profile_);
   signin::IdentityManager* identity_manager =
       IdentityManagerFactory::GetForProfile(profile_);
   DCHECK(identity_manager);
@@ -124,7 +158,7 @@ void PasswordSyncTokenFetcher::StartAccessTokenFetch() {
   // if the refresh token is available, or that it will be requested once the
   // refresh token is available for the primary account.
   signin::ScopeSet scopes;
-  scopes.insert(GaiaConstants::kOAuthWrapBridgeUserInfoScope);
+  scopes.insert(GaiaConstants::kGoogleUserInfoEmail);
   scopes.insert(GaiaConstants::kDeviceManagementServiceOAuth);
 
   access_token_fetcher_ =
@@ -145,6 +179,7 @@ void PasswordSyncTokenFetcher::OnAccessTokenFetchComplete(
     LOG(ERROR)
         << "Could not get access token to authorize sync token operation: "
         << error.ToString();
+    RecordEvent(InSessionPasswordSyncEvent::kErrorMissingAccessToken);
     consumer_->OnApiCallFailed(ErrorType::kMissingAccessToken);
     return;
   }
@@ -179,13 +214,15 @@ void PasswordSyncTokenFetcher::FetchSyncToken(const std::string& access_token) {
   auto resource_request = std::make_unique<network::ResourceRequest>();
   switch (request_type_) {
     case RequestType::kCreateToken:
-      resource_request->url = sync_token_create_url();
+      resource_request->url = GetSyncTokenCreateUrl();
       break;
     case RequestType::kGetToken:
-      resource_request->url = sync_token_get_url();
+      resource_request->url = GetSyncTokenGetUrl();
       break;
     case RequestType::kVerifyToken:
-      resource_request->url = sync_token_verify_url(sync_token_);
+      resource_request->url = GetSyncTokenVerifyUrl(
+          sync_token_, net::EscapeQueryParamValue(google_apis::GetAPIKey(),
+                                                  /*use_plus=*/true));
       break;
     case RequestType::kNone:
       // Error: request type needs to be already set.
@@ -199,9 +236,11 @@ void PasswordSyncTokenFetcher::FetchSyncToken(const std::string& access_token) {
   } else {
     resource_request->method = net::HttpRequestHeaders::kGetMethod;
   }
-  resource_request->headers.SetHeader(
-      net::HttpRequestHeaders::kAuthorization,
-      base::StringPrintf(kAuthorizationHeaderFormat, access_token.c_str()));
+  if (request_type_ != RequestType::kVerifyToken) {
+    resource_request->headers.SetHeader(
+        net::HttpRequestHeaders::kAuthorization,
+        base::StringPrintf(kAuthorizationHeaderFormat, access_token.c_str()));
+  }
   resource_request->headers.SetHeader(net::HttpRequestHeaders::kContentType,
                                       kContentTypeJSON);
   resource_request->headers.SetHeader(net::HttpRequestHeaders::kAccept,
@@ -255,18 +294,21 @@ void PasswordSyncTokenFetcher::OnSimpleLoaderComplete(
     LOG(WARNING) << "Server returned wrong response code: " << response_code
                  << ": " << (error_value ? error_value->GetString() : "Unknown")
                  << ".";
+    RecordEvent(InSessionPasswordSyncEvent::kErrorWrongResponseCode);
     consumer_->OnApiCallFailed(ErrorType::kServerError);
     return;
   }
 
   if (!json_value) {
     LOG(WARNING) << "Unable to deserialize json data.";
+    RecordEvent(InSessionPasswordSyncEvent::kErrorInSerializedResponse);
     consumer_->OnApiCallFailed(ErrorType::kInvalidJson);
     return;
   }
 
   if (!json_value->is_dict()) {
     LOG(WARNING) << "Response is not a JSON dictionary.";
+    RecordEvent(InSessionPasswordSyncEvent::kErrorInSerializedResponse);
     consumer_->OnApiCallFailed(ErrorType::kNotJsonDict);
     return;
   }
@@ -284,6 +326,7 @@ void PasswordSyncTokenFetcher::ProcessValidTokenResponse(
           sync_token_value ? sync_token_value->GetString() : std::string();
       if (sync_token.empty()) {
         LOG(WARNING) << "Response does not contain sync token.";
+        RecordEvent(InSessionPasswordSyncEvent::kErrorNoTokenInCreateResponse);
         consumer_->OnApiCallFailed(ErrorType::kCreateNoToken);
         return;
       }
@@ -295,6 +338,7 @@ void PasswordSyncTokenFetcher::ProcessValidTokenResponse(
       const auto* token_list_entry = json_response->FindKey(kTokenEntry);
       if (!token_list_entry || !token_list_entry->is_list()) {
         LOG(WARNING) << "Response does not contain list of sync tokens.";
+        RecordEvent(InSessionPasswordSyncEvent::kErrorNoTokenInGetResponse);
         consumer_->OnApiCallFailed(ErrorType::kGetNoList);
         return;
       }
@@ -304,12 +348,14 @@ void PasswordSyncTokenFetcher::ProcessValidTokenResponse(
             list_of_tokens[0].FindKeyOfType(kToken, base::Value::Type::STRING);
         if (!sync_token_value) {
           LOG(WARNING) << "Response does not contain sync token.";
+          RecordEvent(InSessionPasswordSyncEvent::kErrorNoTokenInGetResponse);
           consumer_->OnApiCallFailed(ErrorType::kGetNoToken);
           return;
         }
         sync_token = sync_token_value->GetString();
         if (sync_token.empty()) {
           LOG(WARNING) << "Response does not contain sync token.";
+          RecordEvent(InSessionPasswordSyncEvent::kErrorNoTokenInGetResponse);
           consumer_->OnApiCallFailed(ErrorType::kGetNoToken);
           return;
         }
@@ -327,6 +373,9 @@ void PasswordSyncTokenFetcher::ProcessValidTokenResponse(
           sync_token_status->GetString() == kTokenStatusValid) {
         is_valid = true;
       }
+      RecordEvent(is_valid
+                      ? InSessionPasswordSyncEvent::kTokenValidationSuccess
+                      : InSessionPasswordSyncEvent::kTokenValidationFailure);
       consumer_->OnTokenVerified(is_valid);
       break;
     }

@@ -4,7 +4,6 @@
 
 package org.chromium.components.strictmode;
 
-import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.StrictMode.ThreadPolicy;
@@ -25,6 +24,18 @@ public interface ThreadStrictModeInterceptor {
      * Pre-P, this uses reflection.
      */
     void install(ThreadPolicy detectors);
+
+    /**
+     * Builds ThreadStrictModeInterceptor with the death penalty and with
+     * {@link KnownViolations} exempted.
+     */
+    public static ThreadStrictModeInterceptor buildWithDeathPenaltyAndKnownViolationExemptions() {
+        ThreadStrictModeInterceptor.Builder threadInterceptor =
+                new ThreadStrictModeInterceptor.Builder();
+        threadInterceptor.replaceAllPenaltiesWithDeathPenalty();
+        KnownViolations.addExemptions(threadInterceptor);
+        return threadInterceptor.build();
+    }
 
     /**
      * Builds a configuration for StrictMode enforcement.
@@ -169,11 +180,7 @@ public interface ThreadStrictModeInterceptor {
 
         /** Make immutable. */
         public ThreadStrictModeInterceptor build() {
-            if (Build.VERSION.SDK_INT >= 28) {
-                return new ThreadStrictModeInterceptorP(mWhitelistEntries, mCustomPenalty);
-            } else {
-                return new ReflectiveThreadStrictModeInterceptor(mWhitelistEntries, mCustomPenalty);
-            }
+            return new ReflectiveThreadStrictModeInterceptor(mWhitelistEntries, mCustomPenalty);
         }
     }
 }

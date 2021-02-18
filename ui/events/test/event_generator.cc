@@ -17,6 +17,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/tick_clock.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/events/event.h"
 #include "ui/events/event_source.h"
 #include "ui/events/event_utils.h"
@@ -26,7 +27,6 @@
 #if defined(USE_X11)
 #include "ui/events/test/events_test_utils_x11.h"
 #include "ui/events/x/events_x_utils.h"
-#include "ui/gfx/x/x11.h"
 #endif
 
 #if defined(OS_WIN)
@@ -178,7 +178,7 @@ void EventGenerator::SendMouseExit() {
   Dispatch(&mouseev);
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 void EventGenerator::MoveMouseToWithNative(const gfx::Point& point_in_host,
                                            const gfx::Point& point_for_native) {
   // Ozone uses the location in native event as a system location.

@@ -1,6 +1,11 @@
     <style>
-      :host {
+      /* A separate div is used because if the direction CSS property is applied
+       * to the host element, any margins or paddings set by the parent will be
+       * affected and be reversed. */
+      #content {
+        align-items: center;
         color: #fff;
+        direction: ltr;
         display: flex;
         font-size: 0.81rem;
         text-align: center;
@@ -8,8 +13,8 @@
         --page-selector-spacing: 4px;
       }
 
-      :host ::selection {
-        background: rgba(255, 255, 255, 0.3);
+      #pageselector::selection {
+        background-color: var(--viewer-text-input-selection-color);
       }
 
       input,
@@ -35,8 +40,10 @@
         margin: 0 var(--page-selector-spacing);
       }
     </style>
-    <input type="text" id="pageselector" value="[[pageNo]]" on-mouseup="select"
-        on-input="onInput_" on-change="pageNoCommitted"
-        aria-label$="$i18n{labelPageNumber}">
-    <span id="divider">/</span>
-    <span id="pagelength">[[docLength]]</span>
+    <div id="content">
+      <input part="input" type="text" id="pageselector" value="[[pageNo]]"
+          on-pointerup="select" on-input="onInput_" on-change="pageNoCommitted"
+          aria-label="$i18n{labelPageNumber}">
+      <span id="divider">/</span>
+      <span id="pagelength">[[docLength]]</span>
+    </div>

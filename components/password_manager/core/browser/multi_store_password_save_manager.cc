@@ -5,6 +5,7 @@
 #include "components/password_manager/core/browser/multi_store_password_save_manager.h"
 
 #include "base/metrics/histogram_functions.h"
+#include "base/ranges/algorithm.h"
 #include "components/autofill/core/common/gaia_id_hash.h"
 #include "components/password_manager/core/browser/form_fetcher.h"
 #include "components/password_manager/core/browser/form_saver.h"
@@ -13,8 +14,6 @@
 #include "components/password_manager/core/browser/password_form_metrics_recorder.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
-
-using autofill::PasswordForm;
 
 namespace password_manager {
 
@@ -45,13 +44,11 @@ std::vector<const PasswordForm*> ProfileStoreMatches(
 bool AccountStoreMatchesContainForm(
     const std::vector<const PasswordForm*>& matches,
     const PasswordForm& form) {
-  PasswordForm form_in_account_store(form);
-  form_in_account_store.in_store = PasswordForm::Store::kAccountStore;
-  for (const PasswordForm* match : matches) {
-    if (form_in_account_store == *match)
-      return true;
-  }
-  return false;
+  DCHECK(base::ranges::all_of(matches, &PasswordForm::IsUsingAccountStore));
+  return base::ranges::find_if(matches, [&form](const PasswordForm* match) {
+           return ArePasswordFormUniqueKeysEqual(*match, form) &&
+                  match->password_value == form.password_value;
+         }) != matches.end();
 }
 
 PendingCredentialsState ResolvePendingCredentialsStates(
@@ -223,25 +220,25 @@ void MultiStorePasswordSaveManager::SavePendingToStoreImpl(
   }
 }
 
-void MultiStorePasswordSaveManager::PermanentlyBlacklist(
+void MultiStorePasswordSaveManager::Blocklist(
     const PasswordStore::FormDigest& form_digest) {
   DCHECK(!client_->IsIncognito());
   if (IsOptedInForAccountStorage() && AccountStoreIsDefault()) {
-    account_store_form_saver_->PermanentlyBlacklist(form_digest);
+    account_store_form_saver_->Blocklist(form_digest);
   } else {
     // For users who aren't yet opted-in to the account storage, we store their
-    // blacklisted entries in the profile store.
-    form_saver_->PermanentlyBlacklist(form_digest);
+    // blocklisted entries in the profile store.
+    form_saver_->Blocklist(form_digest);
   }
 }
 
-void MultiStorePasswordSaveManager::Unblacklist(
+void MultiStorePasswordSaveManager::Unblocklist(
     const PasswordStore::FormDigest& form_digest) {
-  // Try to unblacklist in both stores anyway because if credentials don't
-  // exist, the unblacklist operation is no-op.
-  form_saver_->Unblacklist(form_digest);
+  // Try to unblocklist in both stores anyway because if credentials don't
+  // exist, the unblocklist operation is no-op.
+  form_saver_->Unblocklist(form_digest);
   if (IsOptedInForAccountStorage())
-    account_store_form_saver_->Unblacklist(form_digest);
+    account_store_form_saver_->Unblocklist(form_digest);
 }
 
 std::unique_ptr<PasswordSaveManager> MultiStorePasswordSaveManager::Clone() {

@@ -33,9 +33,11 @@
 #include "base/trace_event/traced_value.h"
 #include "build/build_config.h"
 #include "cc/base/devtools_instrumentation.h"
+#include "cc/base/features.h"
 #include "cc/base/histograms.h"
 #include "cc/base/math_util.h"
 #include "cc/debug/rendering_stats_instrumentation.h"
+#include "cc/document_transition/document_transition_request.h"
 #include "cc/input/layer_selection_bound.h"
 #include "cc/input/overscroll_behavior.h"
 #include "cc/input/page_scale_animation.h"
@@ -43,8 +45,10 @@
 #include "cc/layers/heads_up_display_layer_impl.h"
 #include "cc/layers/layer.h"
 #include "cc/layers/painted_scrollbar_layer.h"
+#include "cc/metrics/ukm_smoothness_data.h"
 #include "cc/paint/paint_worklet_layer_painter.h"
 #include "cc/resources/ui_resource_manager.h"
+#include "cc/tiles/raster_dark_mode_filter.h"
 #include "cc/trees/clip_node.h"
 #include "cc/trees/compositor_commit_data.h"
 #include "cc/trees/draw_property_utils.h"
@@ -140,7 +144,8 @@ LayerTreeHost::LayerTreeHost(InitParams params, CompositorMode mode)
       id_(s_layer_tree_host_sequence_number.GetNext() + 1),
       task_graph_runner_(params.task_graph_runner),
       event_listener_properties_(),
-      mutator_host_(params.mutator_host) {
+      mutator_host_(params.mutator_host),
+      dark_mode_filter_(params.dark_mode_filter) {
   DCHECK(task_graph_runner_);
   DCHECK(!settings_.enable_checker_imaging || image_worker_task_runner_);
 
@@ -194,8 +199,6 @@ void LayerTreeHost::InitializeProxy(std::unique_ptr<Proxy> proxy) {
   proxy_->Start();
 
   UpdateDeferMainFrameUpdateInternal();
-
-  mutator_host_->SetSupportsScrollAnimations(proxy_->SupportsImplScrolling());
 }
 
 LayerTreeHost::~LayerTreeHost() {
@@ -251,8 +254,8 @@ SwapPromiseManager* LayerTreeHost::GetSwapPromiseManager() {
 
 std::unique_ptr<EventsMetricsManager::ScopedMonitor>
 LayerTreeHost::GetScopedEventMetricsMonitor(
-    std::unique_ptr<EventMetrics> event_metrics) {
-  return events_metrics_manager_.GetScopedMonitor(std::move(event_metrics));
+    EventsMetricsManager::ScopedMonitor::DoneCallback done_callback) {
+  return events_metrics_manager_.GetScopedMonitor(std::move(done_callback));
 }
 
 void LayerTreeHost::ClearEventsMetrics() {
@@ -471,13 +474,12 @@ void LayerTreeHost::WillCommit() {
 }
 
 void LayerTreeHost::UpdateDeferMainFrameUpdateInternal() {
-  proxy_->SetDeferMainFrameUpdate(
-      defer_main_frame_update_count_ > 0 ||
-      !local_surface_id_allocation_from_parent_.IsValid());
+  proxy_->SetDeferMainFrameUpdate(defer_main_frame_update_count_ > 0 ||
+                                  !local_surface_id_from_parent_.is_valid());
 }
 
 bool LayerTreeHost::IsUsingLayerLists() const {
-  return settings_.use_layer_lists && !force_use_property_tree_builder_;
+  return settings_.use_layer_lists;
 }
 
 void LayerTreeHost::CommitComplete() {
@@ -488,6 +490,10 @@ void LayerTreeHost::CommitComplete() {
     client_->DidCompletePageScaleAnimation();
     did_complete_scale_animation_ = false;
   }
+
+  for (auto& closure : committed_document_transition_callbacks_)
+    std::move(closure).Run();
+  committed_document_transition_callbacks_.clear();
 }
 
 void LayerTreeHost::SetLayerTreeFrameSink(
@@ -532,9 +538,8 @@ std::unique_ptr<LayerTreeHostImpl> LayerTreeHost::CreateLayerTreeHostImpl(
     LayerTreeHostImplClient* client) {
   DCHECK(task_runner_provider_->IsImplThread());
 
-  const bool supports_impl_scrolling = task_runner_provider_->HasImplThread();
   std::unique_ptr<MutatorHost> mutator_host_impl =
-      mutator_host_->CreateImplInstance(supports_impl_scrolling);
+      mutator_host_->CreateImplInstance();
 
   if (!settings_.scroll_animation_duration_for_testing.is_zero()) {
     mutator_host_->SetScrollAnimationDurationForTesting(
@@ -544,15 +549,16 @@ std::unique_ptr<LayerTreeHostImpl> LayerTreeHost::CreateLayerTreeHostImpl(
   std::unique_ptr<LayerTreeHostImpl> host_impl = LayerTreeHostImpl::Create(
       settings_, client, task_runner_provider_.get(),
       rendering_stats_instrumentation_.get(), task_graph_runner_,
-      std::move(mutator_host_impl), id_, std::move(image_worker_task_runner_),
-      scheduling_client_);
+      std::move(mutator_host_impl), dark_mode_filter_, id_,
+      std::move(image_worker_task_runner_), scheduling_client_);
   if (ukm_recorder_factory_) {
     host_impl->InitializeUkm(ukm_recorder_factory_->CreateRecorder());
     ukm_recorder_factory_.reset();
   }
 
   task_graph_runner_ = nullptr;
-  input_handler_weak_ptr_ = host_impl->AsWeakPtr();
+  dark_mode_filter_ = nullptr;
+  compositor_delegate_weak_ptr_ = host_impl->AsWeakPtr();
   return host_impl;
 }
 
@@ -649,10 +655,7 @@ void LayerTreeHost::SetNeedsCommitWithForcedRedraw() {
   proxy_->SetNeedsCommit();
 }
 
-void LayerTreeHost::SetDebugState(const LayerTreeDebugState& debug_state) {
-  LayerTreeDebugState new_debug_state =
-      LayerTreeDebugState::Unite(settings_.initial_debug_state, debug_state);
-
+void LayerTreeHost::SetDebugState(const LayerTreeDebugState& new_debug_state) {
   if (LayerTreeDebugState::Equal(debug_state_, new_debug_state))
     return;
 
@@ -691,12 +694,13 @@ void LayerTreeHost::LayoutAndUpdateLayers() {
   UpdateLayers();
 }
 
-void LayerTreeHost::Composite(base::TimeTicks frame_begin_time, bool raster) {
+void LayerTreeHost::CompositeForTest(base::TimeTicks frame_begin_time,
+                                     bool raster) {
   DCHECK(IsSingleThreaded());
   // This function is only valid when not using the scheduler.
   DCHECK(!settings_.single_thread_proxy_scheduler);
   SingleThreadProxy* proxy = static_cast<SingleThreadProxy*>(proxy_.get());
-  proxy->CompositeImmediately(frame_begin_time, raster);
+  proxy->CompositeImmediatelyForTest(frame_begin_time, raster);  // IN-TEST
 }
 
 bool LayerTreeHost::UpdateLayers() {
@@ -774,15 +778,18 @@ std::string LayerTreeHost::LayersAsString() const {
   return layers;
 }
 
-bool LayerTreeHost::CaptureContent(std::vector<NodeId>* content) {
-  if (viewport_visible_rect_.IsEmpty())
+bool LayerTreeHost::CaptureContent(std::vector<NodeInfo>* content) {
+  if (visual_device_viewport_intersection_rect_.IsEmpty())
     return false;
 
-  gfx::Rect rect = gfx::Rect(viewport_visible_rect_.width(),
-                             viewport_visible_rect_.height());
-  for (auto* layer : *this)
+  gfx::Rect rect =
+      gfx::Rect(visual_device_viewport_intersection_rect_.width(),
+                visual_device_viewport_intersection_rect_.height());
+  for (auto* layer : *this) {
+    // Normally, the node won't be drawn in multiple layers, even it is, such as
+    // text strokes, the visual rect don't have too much different.
     layer->CaptureContent(rect, content);
-
+  }
   return true;
 }
 
@@ -793,11 +800,17 @@ void LayerTreeHost::DidObserveFirstScrollDelay(
                                       first_scroll_timestamp);
 }
 
+void LayerTreeHost::AddDocumentTransitionRequest(
+    std::unique_ptr<DocumentTransitionRequest> request) {
+  document_transition_requests_.push_back(std::move(request));
+  SetNeedsCommit();
+}
+
 bool LayerTreeHost::DoUpdateLayers() {
   TRACE_EVENT1("cc,benchmark", "LayerTreeHost::DoUpdateLayers",
                "source_frame_number", SourceFrameNumber());
 
-  UpdateHudLayer(debug_state_.ShowHudInfo());
+  UpdateHudLayer(debug_state_.ShouldCreateHudLayer());
 
   // In layer lists mode, the cc property trees are built directly and do not
   // need to be built here.
@@ -910,29 +923,6 @@ void LayerTreeHost::ApplyViewportChanges(
   SetNeedsUpdateLayers();
 }
 
-void LayerTreeHost::RecordManipulationTypeCounts(
-    const CompositorCommitData& commit_data) {
-  client_->RecordManipulationTypeCounts(commit_data.manipulation_info);
-}
-
-void LayerTreeHost::SendOverscrollAndScrollEndEventsFromImplSide(
-    const CompositorCommitData& commit_data) {
-  if (commit_data.scroll_latched_element_id == ElementId())
-    return;
-
-  if (!commit_data.overscroll_delta.IsZero()) {
-    client_->SendOverscrollEventFromImplSide(
-        commit_data.overscroll_delta, commit_data.scroll_latched_element_id);
-  }
-  // TODO(bokan): If a scroll ended and a new one began in the same Blink frame
-  // (e.g. during a long running main thread task), this will erroneously
-  // dispatch the scroll end to the latter (still-scrolling) element.
-  // https://crbug.com/1116780.
-  if (commit_data.scroll_gesture_did_end)
-    client_->SendScrollEndEventFromImplSide(
-        commit_data.scroll_latched_element_id);
-}
-
 void LayerTreeHost::UpdateScrollOffsetFromImpl(
     const ElementId& id,
     const gfx::ScrollOffset& delta,
@@ -1008,14 +998,12 @@ void LayerTreeHost::ApplyCompositorChanges(CompositorCommitData* commit_data) {
     }
   }
 
-  SendOverscrollAndScrollEndEventsFromImplSide(*commit_data);
+  client_->UpdateCompositorScrollState(*commit_data);
 
   // This needs to happen after scroll deltas have been sent to prevent top
   // controls from clamping the layout viewport both on the compositor and
   // on the main thread.
   ApplyViewportChanges(*commit_data);
-
-  RecordManipulationTypeCounts(*commit_data);
 }
 
 void LayerTreeHost::ApplyMutatorEvents(std::unique_ptr<MutatorEvents> events) {
@@ -1039,16 +1027,9 @@ void LayerTreeHost::NotifyThroughputTrackerResults(
   client_->NotifyThroughputTrackerResults(std::move(results));
 }
 
-void LayerTreeHost::SubmitThroughputData(ukm::SourceId source_id,
-                                         int aggregated_percent,
-                                         int impl_percent,
-                                         base::Optional<int> main_percent) {
-  client_->SubmitThroughputData(source_id, aggregated_percent, impl_percent,
-                                main_percent);
-}
-
-const base::WeakPtr<InputHandler>& LayerTreeHost::GetInputHandler() const {
-  return input_handler_weak_ptr_;
+const base::WeakPtr<CompositorDelegateForInput>&
+LayerTreeHost::GetDelegateForInput() const {
+  return compositor_delegate_weak_ptr_;
 }
 
 void LayerTreeHost::UpdateBrowserControlsState(BrowserControlsState constraints,
@@ -1158,18 +1139,7 @@ void LayerTreeHost::SetRootLayer(scoped_refptr<Layer> root_layer) {
   // This flag is sticky until a new tree comes along.
   gpu_rasterization_histogram_recorded_ = false;
 
-  force_use_property_tree_builder_ = false;
-
   SetNeedsFullTreeSync();
-}
-
-void LayerTreeHost::SetNonBlinkManagedRootLayer(
-    scoped_refptr<Layer> root_layer) {
-  SetRootLayer(std::move(root_layer));
-
-  DCHECK(!root_layer || root_layer_->children().empty());
-  if (IsUsingLayerLists() && root_layer_)
-    force_use_property_tree_builder_ = true;
 }
 
 void LayerTreeHost::RegisterViewportPropertyIds(
@@ -1228,7 +1198,8 @@ void LayerTreeHost::SetEventListenerProperties(
   // Thus when it changes, we want to request every layer to push properties
   // and recompute its wheel event handler region, since the computation is
   // done in PushPropertiesTo.
-  if (event_class == EventListenerClass::kMouseWheel) {
+  if (event_class == EventListenerClass::kMouseWheel &&
+      !base::FeatureList::IsEnabled(::features::kWheelEventRegions)) {
     bool new_property_is_blocking =
         properties == EventListenerProperties::kBlocking ||
         properties == EventListenerProperties::kBlockingAndPassive;
@@ -1250,12 +1221,17 @@ void LayerTreeHost::SetEventListenerProperties(
 void LayerTreeHost::SetViewportRectAndScale(
     const gfx::Rect& device_viewport_rect,
     float device_scale_factor,
-    const viz::LocalSurfaceIdAllocation&
-        local_surface_id_allocation_from_parent) {
+    const viz::LocalSurfaceId& local_surface_id_from_parent) {
   const viz::LocalSurfaceId previous_local_surface_id =
-      local_surface_id_allocation_from_parent_.local_surface_id();
-  SetLocalSurfaceIdAllocationFromParent(
-      local_surface_id_allocation_from_parent);
+      local_surface_id_from_parent_;
+  SetLocalSurfaceIdFromParent(local_surface_id_from_parent);
+
+  TRACE_EVENT_NESTABLE_ASYNC_END0("cc", "LayerTreeHostSize",
+                                  TRACE_ID_LOCAL(this));
+  TRACE_EVENT_NESTABLE_ASYNC_BEGIN2("cc", "LayerTreeHostSize",
+                                    TRACE_ID_LOCAL(this), "size",
+                                    device_viewport_rect.ToString(), "lsid",
+                                    local_surface_id_from_parent.ToString());
 
   bool device_viewport_rect_changed = false;
   if (device_viewport_rect_ != device_viewport_rect) {
@@ -1285,11 +1261,21 @@ void LayerTreeHost::SetViewportRectAndScale(
   }
 }
 
-void LayerTreeHost::SetViewportVisibleRect(const gfx::Rect& visible_rect) {
-  if (visible_rect == viewport_visible_rect_)
+void LayerTreeHost::SetVisualDeviceViewportIntersectionRect(
+    const gfx::Rect& intersection_rect) {
+  if (intersection_rect == visual_device_viewport_intersection_rect_)
     return;
 
-  viewport_visible_rect_ = visible_rect;
+  visual_device_viewport_intersection_rect_ = intersection_rect;
+}
+
+void LayerTreeHost::SetVisualDeviceViewportSize(
+    const gfx::Size& visual_device_viewport_size) {
+  if (visual_device_viewport_size == visual_device_viewport_size_)
+    return;
+
+  visual_device_viewport_size_ = visual_device_viewport_size;
+  SetNeedsCommit();
 }
 
 void LayerTreeHost::SetBrowserControlsParams(
@@ -1385,18 +1371,10 @@ void LayerTreeHost::SetExternalPageScaleFactor(
   SetNeedsCommit();
 }
 
-void LayerTreeHost::SetLocalSurfaceIdAllocationFromParent(
-    const viz::LocalSurfaceIdAllocation&
-        local_surface_id_allocation_from_parent) {
-  const viz::LocalSurfaceId& local_surface_id_from_parent =
-      local_surface_id_allocation_from_parent.local_surface_id();
+void LayerTreeHost::SetLocalSurfaceIdFromParent(
+    const viz::LocalSurfaceId& local_surface_id_from_parent) {
   const viz::LocalSurfaceId current_local_surface_id_from_parent =
-      local_surface_id_allocation_from_parent_.local_surface_id();
-
-  // If the viz::LocalSurfaceId is valid but the allocation time is invalid then
-  // this API is not being used correctly.
-  DCHECK_EQ(local_surface_id_from_parent.is_valid(),
-            local_surface_id_allocation_from_parent.IsValid());
+      local_surface_id_from_parent_;
 
   // These traces are split into two due to the usage of TRACE_ID_GLOBAL for the
   // incoming flow (it comes from a different process), and TRACE_ID_LOCAL for
@@ -1406,20 +1384,17 @@ void LayerTreeHost::SetLocalSurfaceIdAllocationFromParent(
       TRACE_DISABLED_BY_DEFAULT("viz.surface_id_flow"),
       "LocalSurfaceId.Submission.Flow",
       TRACE_ID_GLOBAL(local_surface_id_from_parent.submission_trace_id()),
-      TRACE_EVENT_FLAG_FLOW_IN, "step", "SetLocalSurfaceAllocationIdFromParent",
-      "local_surface_id_allocation",
-      local_surface_id_allocation_from_parent.ToString());
+      TRACE_EVENT_FLAG_FLOW_IN, "step", "SetLocalSurfaceIdFromParent",
+      "local_surface_id", local_surface_id_from_parent.ToString());
   TRACE_EVENT_WITH_FLOW2(
       TRACE_DISABLED_BY_DEFAULT("viz.surface_id_flow"),
       "LocalSurfaceId.Submission.Flow",
       TRACE_ID_LOCAL(local_surface_id_from_parent.submission_trace_id()),
-      TRACE_EVENT_FLAG_FLOW_OUT, "step",
-      "SetLocalSurfaceAllocationIdFromParent", "local_surface_id_allocation",
-      local_surface_id_allocation_from_parent.ToString());
+      TRACE_EVENT_FLAG_FLOW_OUT, "step", "SetLocalSurfaceIdFromParent",
+      "local_surface_id", local_surface_id_from_parent.ToString());
   // Always update the cached state of the viz::LocalSurfaceId to reflect the
   // latest value received from our parent.
-  local_surface_id_allocation_from_parent_ =
-      local_surface_id_allocation_from_parent;
+  local_surface_id_from_parent_ = local_surface_id_from_parent;
 
   // If the parent sequence number has not advanced, then there is no need to
   // commit anything. This can occur when the child sequence number has
@@ -1545,6 +1520,16 @@ void LayerTreeHost::UpdateHudLayer(bool show_hud_info) {
       root_layer_->AddChild(hud_layer_);
     hud_layer_->UpdateLocationAndSize(device_viewport_rect_.size(),
                                       device_scale_factor_);
+    if (debug_state_.show_web_vital_metrics) {
+      // This WebVitalMetrics is filled by the main frame, which is equivalent
+      // to WebPerf's numbers. The main frame's number doesn't include any
+      // iframes. UMA/UKM records metrics for the entire page aggregating all
+      // the frames. The page metrics are in the browser process.
+      // TODO(weiliangc): Get the page metrics for display.
+      auto metrics = client_->GetWebVitalMetrics();
+      if (metrics && metrics->HasValue())
+        hud_layer_->UpdateWebVitalMetrics(std::move(metrics));
+    }
   } else if (hud_layer_.get()) {
     hud_layer_->RemoveFromParent();
     hud_layer_ = nullptr;
@@ -1614,8 +1599,7 @@ void LayerTreeHost::PushLayerTreePropertiesTo(LayerTreeImpl* tree_impl) {
   if (TakeNewLocalSurfaceIdRequest())
     tree_impl->RequestNewLocalSurfaceId();
 
-  tree_impl->SetLocalSurfaceIdAllocationFromParent(
-      local_surface_id_allocation_from_parent_);
+  tree_impl->SetLocalSurfaceIdFromParent(local_surface_id_from_parent_);
 
   if (pending_page_scale_animation_) {
     tree_impl->SetPendingPageScaleAnimation(
@@ -1640,6 +1624,16 @@ void LayerTreeHost::PushLayerTreePropertiesTo(LayerTreeImpl* tree_impl) {
 
   if (delegated_ink_metadata_)
     tree_impl->set_delegated_ink_metadata(std::move(delegated_ink_metadata_));
+
+  // Transfer page transition directives.
+  for (auto& request : document_transition_requests_) {
+    // Store the commit callback on LayerTreeHost, so that we can invoke them in
+    // CommitComplete.
+    committed_document_transition_callbacks_.push_back(
+        request->TakeCommitCallback());
+    tree_impl->AddDocumentTransitionRequest(std::move(request));
+  }
+  document_transition_requests_.clear();
 }
 
 void LayerTreeHost::PushSurfaceRangesTo(LayerTreeImpl* tree_impl) {
@@ -1653,11 +1647,14 @@ void LayerTreeHost::PushSurfaceRangesTo(LayerTreeImpl* tree_impl) {
 
 void LayerTreeHost::PushLayerTreeHostPropertiesTo(
     LayerTreeHostImpl* host_impl) {
-  host_impl->GetInputHandler().set_external_pinch_gesture_active(
-      is_external_pinch_gesture_active_);
+  // TODO(bokan): The |external_pinch_gesture_active| should not be going
+  // through the LayerTreeHost but directly from InputHandler to InputHandler.
+  host_impl->SetExternalPinchGestureActive(is_external_pinch_gesture_active_);
+
   RecordGpuRasterizationHistogram(host_impl);
 
   host_impl->SetDebugState(debug_state_);
+  host_impl->SetVisualDeviceViewportSize(visual_device_viewport_size_);
 }
 
 Layer* LayerTreeHost::LayerByElementId(ElementId element_id) const {
@@ -1816,13 +1813,11 @@ void LayerTreeHost::ElementIsAnimatingChanged(
                                               true);
 }
 
-void LayerTreeHost::AnimationScalesChanged(ElementId element_id,
-                                           ElementListType list_type,
-                                           float maximum_scale,
-                                           float starting_scale) {
+void LayerTreeHost::MaximumScaleChanged(ElementId element_id,
+                                        ElementListType list_type,
+                                        float maximum_scale) {
   DCHECK_EQ(ElementListType::ACTIVE, list_type);
-  property_trees()->AnimationScalesChanged(element_id, maximum_scale,
-                                           starting_scale);
+  property_trees()->MaximumAnimationScaleChanged(element_id, maximum_scale);
 }
 
 gfx::ScrollOffset LayerTreeHost::GetScrollOffsetForAnimation(
@@ -1878,6 +1873,17 @@ void LayerTreeHost::SetSourceURL(ukm::SourceId source_id, const GURL& url) {
   proxy_->SetSourceURL(source_id, url);
 }
 
+base::ReadOnlySharedMemoryRegion
+LayerTreeHost::CreateSharedMemoryForSmoothnessUkm() {
+  const auto size = sizeof(UkmSmoothnessDataShared);
+  auto ukm_smoothness_mapping = base::ReadOnlySharedMemoryRegion::Create(size);
+  if (!ukm_smoothness_mapping.IsValid())
+    return {};
+  proxy_->SetUkmSmoothnessDestination(
+      std::move(ukm_smoothness_mapping.mapping));
+  return std::move(ukm_smoothness_mapping.region);
+}
+
 void LayerTreeHost::SetRenderFrameObserver(
     std::unique_ptr<RenderFrameMetadataObserver> observer) {
   proxy_->SetRenderFrameObserver(std::move(observer));
@@ -1892,6 +1898,17 @@ bool LayerTreeHost::TakeForceSendMetadataRequest() {
 void LayerTreeHost::SetEnableFrameRateThrottling(
     bool enable_frame_rate_throttling) {
   proxy_->SetEnableFrameRateThrottling(enable_frame_rate_throttling);
+}
+
+void LayerTreeHost::SetDelegatedInkMetadata(
+    std::unique_ptr<viz::DelegatedInkMetadata> metadata) {
+  delegated_ink_metadata_ = std::move(metadata);
+  SetNeedsCommit();
+}
+
+std::vector<std::unique_ptr<DocumentTransitionRequest>>
+LayerTreeHost::TakeDocumentTransitionRequestsForTesting() {
+  return std::move(document_transition_requests_);
 }
 
 }  // namespace cc

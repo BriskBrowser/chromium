@@ -22,10 +22,6 @@ class LayoutBoxTest : public testing::WithParamInterface<bool>,
   LayoutBoxTest() : ScopedLayoutNGForTest(GetParam()) {}
 
  protected:
-  LayoutBox* GetLayoutBoxByElementId(const char* id) const {
-    return ToLayoutBox(GetLayoutObjectByElementId(id));
-  }
-
   bool ForegroundIsKnownToBeOpaqueInRect(const LayoutBox& box,
                                          const PhysicalRect& rect) {
     return box.ForegroundIsKnownToBeOpaqueInRect(rect, 10);
@@ -290,7 +286,10 @@ TEST_P(LayoutBoxTest, LocationContainer) {
   EXPECT_EQ(body, table->LocationContainer());
   EXPECT_EQ(table, tbody->LocationContainer());
   EXPECT_EQ(tbody, row->LocationContainer());
-  EXPECT_EQ(tbody, cell->LocationContainer());
+  if (RuntimeEnabledFeatures::LayoutNGTableEnabled())
+    EXPECT_EQ(row, cell->LocationContainer());
+  else
+    EXPECT_EQ(tbody, cell->LocationContainer());
 }
 
 TEST_P(LayoutBoxTest, TopLeftLocationFlipped) {
@@ -337,14 +336,22 @@ TEST_P(LayoutBoxTest, TableRowCellTopLeftLocationFlipped) {
 
   const LayoutBox* cell1 = GetLayoutBoxByElementId("cell1");
   EXPECT_EQ(LayoutPoint(0, 0), cell1->Location());
-  EXPECT_EQ(PhysicalOffset(300, 0), cell1->PhysicalLocation());
+  // TablesNG cells are container is row, Legacy is section.
+  if (RuntimeEnabledFeatures::LayoutNGTableEnabled())
+    EXPECT_EQ(PhysicalOffset(0, 0), cell1->PhysicalLocation());
+  else
+    EXPECT_EQ(PhysicalOffset(300, 0), cell1->PhysicalLocation());
 
   const LayoutBox* row2 = GetLayoutBoxByElementId("row2");
   EXPECT_EQ(LayoutPoint(100, 0), row2->Location());
   EXPECT_EQ(PhysicalOffset(0, 0), row2->PhysicalLocation());
 
   const LayoutBox* cell2 = GetLayoutBoxByElementId("cell2");
-  EXPECT_EQ(LayoutPoint(100, 0), cell2->Location());
+  // TablesNG cells are container is row, Legacy is section.
+  if (RuntimeEnabledFeatures::LayoutNGTableEnabled())
+    EXPECT_EQ(LayoutPoint(0, 0), cell2->Location());
+  else
+    EXPECT_EQ(LayoutPoint(100, 0), cell2->Location());
   EXPECT_EQ(PhysicalOffset(0, 0), cell2->PhysicalLocation());
 }
 
@@ -392,80 +399,197 @@ TEST_P(LayoutBoxTest, ControlClip) {
   LayoutBox* target = GetLayoutBoxByElementId("target");
   EXPECT_TRUE(target->HasControlClip());
   EXPECT_TRUE(target->HasClipRelatedProperty());
-  EXPECT_TRUE(target->ShouldClipOverflow());
+  EXPECT_TRUE(target->ShouldClipOverflowAlongEitherAxis());
   EXPECT_EQ(PhysicalRect(2, 2, 96, 46), target->ClippingRect(PhysicalOffset()));
 }
 
-TEST_P(LayoutBoxTest, LocalVisualRectWithMask) {
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled())
-    return;
-
+TEST_P(LayoutBoxTest, VisualOverflowRectWithMask) {
   SetBodyInnerHTML(R"HTML(
     <div id='target' style='-webkit-mask-image: url(#a);
-         width: 100px; height: 100px; background: blue'>
-      <div style='width: 300px; height: 10px; background: green'></div>
+         width: 100px; height: 100px; baground: blue'>
+      <div style='width: 300px; height: 300px; background: green'></div>
     </div>
   )HTML");
 
   LayoutBox* target = GetLayoutBoxByElementId("target");
   EXPECT_TRUE(target->HasMask());
-  EXPECT_EQ(PhysicalRect(0, 0, 100, 100), target->LocalVisualRect());
+  EXPECT_FALSE(target->IsScrollContainer());
+  EXPECT_FALSE(target->ShouldClipOverflowAlongEitherAxis());
+  EXPECT_EQ(LayoutRect(0, 0, 100, 100), target->SelfVisualOverflowRect());
   EXPECT_EQ(LayoutRect(0, 0, 100, 100), target->VisualOverflowRect());
 }
 
-TEST_P(LayoutBoxTest, LocalVisualRectWithMaskAndOverflowClip) {
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled())
-    return;
-
+TEST_P(LayoutBoxTest, VisualOverflowRectWithMaskAndOverflowHidden) {
   SetBodyInnerHTML(R"HTML(
     <div id='target' style='-webkit-mask-image: url(#a); overflow: hidden;
          width: 100px; height: 100px; background: blue'>
-      <div style='width: 300px; height: 10px; background: green'></div>
+      <div style='width: 300px; height: 300px; background: green'></div>
     </div>
   )HTML");
 
   LayoutBox* target = GetLayoutBoxByElementId("target");
   EXPECT_TRUE(target->HasMask());
-  EXPECT_TRUE(target->HasNonVisibleOverflow());
-  EXPECT_EQ(PhysicalRect(0, 0, 100, 100), target->LocalVisualRect());
+  EXPECT_TRUE(target->IsScrollContainer());
+  EXPECT_TRUE(target->ShouldClipOverflowAlongBothAxis());
+  EXPECT_EQ(LayoutRect(0, 0, 100, 100), target->SelfVisualOverflowRect());
   EXPECT_EQ(LayoutRect(0, 0, 100, 100), target->VisualOverflowRect());
 }
 
-TEST_P(LayoutBoxTest, LocalVisualRectWithMaskWithOutset) {
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled())
-    return;
-
+TEST_P(LayoutBoxTest, VisualOverflowRectWithMaskWithOutset) {
   SetBodyInnerHTML(R"HTML(
     <div id='target' style='-webkit-mask-box-image-source: url(#a);
     -webkit-mask-box-image-outset: 10px 20px;
          width: 100px; height: 100px; background: blue'>
-      <div style='width: 300px; height: 10px; background: green'></div>
+      <div style='width: 300px; height: 300px; background: green'></div>
     </div>
   )HTML");
 
   LayoutBox* target = GetLayoutBoxByElementId("target");
   EXPECT_TRUE(target->HasMask());
-  EXPECT_EQ(PhysicalRect(-20, -10, 140, 120), target->LocalVisualRect());
+  EXPECT_FALSE(target->IsScrollContainer());
+  EXPECT_FALSE(target->ShouldClipOverflowAlongEitherAxis());
+  EXPECT_EQ(LayoutRect(-20, -10, 140, 120), target->SelfVisualOverflowRect());
   EXPECT_EQ(LayoutRect(-20, -10, 140, 120), target->VisualOverflowRect());
 }
 
-TEST_P(LayoutBoxTest, LocalVisualRectWithMaskWithOutsetAndOverflowClip) {
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled())
-    return;
-
+TEST_P(LayoutBoxTest, VisualOverflowRectWithMaskWithOutsetAndOverflowHidden) {
   SetBodyInnerHTML(R"HTML(
     <div id='target' style='-webkit-mask-box-image-source: url(#a);
     -webkit-mask-box-image-outset: 10px 20px; overflow: hidden;
          width: 100px; height: 100px; background: blue'>
-      <div style='width: 300px; height: 10px; background: green'></div>
+      <div style='width: 300px; height: 300px; background: green'></div>
     </div>
   )HTML");
 
   LayoutBox* target = GetLayoutBoxByElementId("target");
   EXPECT_TRUE(target->HasMask());
-  EXPECT_TRUE(target->HasNonVisibleOverflow());
-  EXPECT_EQ(PhysicalRect(-20, -10, 140, 120), target->LocalVisualRect());
+  EXPECT_TRUE(target->IsScrollContainer());
+  EXPECT_TRUE(target->ShouldClipOverflowAlongBothAxis());
+  EXPECT_EQ(LayoutRect(-20, -10, 140, 120), target->SelfVisualOverflowRect());
   EXPECT_EQ(LayoutRect(-20, -10, 140, 120), target->VisualOverflowRect());
+}
+
+TEST_P(LayoutBoxTest, VisualOverflowRectOverflowHidden) {
+  SetBodyInnerHTML(R"HTML(
+    <div id='target' style='overflow: hidden;
+         width: 100px; height: 100px; background: blue'>
+      <div style='width: 300px; height: 300px; background: green'></div>
+    </div>
+  )HTML");
+
+  LayoutBox* target = GetLayoutBoxByElementId("target");
+  EXPECT_TRUE(target->IsScrollContainer());
+  EXPECT_TRUE(target->ShouldClipOverflowAlongBothAxis());
+  EXPECT_EQ(LayoutRect(0, 0, 100, 100), target->SelfVisualOverflowRect());
+  EXPECT_EQ(LayoutRect(0, 0, 100, 100), target->VisualOverflowRect());
+}
+
+TEST_P(LayoutBoxTest, VisualOverflowRectOverflowClip) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      .parent { width: 100px; height: 50px; }
+      .child { width: 300px; height: 300px; }
+    </style>
+    <div id="clip" style="overflow: clip" class="parent">
+      <div class="child"></div>
+    </div>
+    <div id="clip-x" style="overflow-x: clip" class="parent">
+      <div class="child"></div>
+    </div>
+    <div id="clip-y" style="overflow-y: clip" class="parent">
+      <div class="child"></div>
+    </div>
+  )HTML");
+
+  LayoutBox* clip = GetLayoutBoxByElementId("clip");
+  EXPECT_FALSE(clip->IsScrollContainer());
+  EXPECT_TRUE(clip->ShouldClipOverflowAlongBothAxis());
+  EXPECT_EQ(LayoutRect(0, 0, 100, 50), clip->SelfVisualOverflowRect());
+  EXPECT_EQ(LayoutRect(0, 0, 100, 50), clip->VisualOverflowRect());
+
+  LayoutBox* clip_x = GetLayoutBoxByElementId("clip-x");
+  EXPECT_FALSE(clip_x->IsScrollContainer());
+  EXPECT_EQ(kOverflowClipX, clip_x->GetOverflowClipAxes());
+  EXPECT_EQ(LayoutRect(0, 0, 100, 50), clip_x->SelfVisualOverflowRect());
+  EXPECT_EQ(LayoutRect(0, 0, 100, 300), clip_x->VisualOverflowRect());
+
+  LayoutBox* clip_y = GetLayoutBoxByElementId("clip-y");
+  EXPECT_FALSE(clip_y->IsScrollContainer());
+  EXPECT_EQ(kOverflowClipY, clip_y->GetOverflowClipAxes());
+  EXPECT_EQ(LayoutRect(0, 0, 100, 50), clip_y->SelfVisualOverflowRect());
+  EXPECT_EQ(LayoutRect(0, 0, 300, 50), clip_y->VisualOverflowRect());
+}
+
+TEST_P(LayoutBoxTest, VisualOverflowRectWithOverflowClipMargin) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      .parent { width: 100px; height: 50px; overflow: clip; }
+      .parent2 { width: 100px; height: 50px; contain: paint; }
+      .child { width: 110px; height: 55px; }
+    </style>
+    <div id="clip1" style="overflow-clip-margin: 4px" class="parent">
+      <div class="child"></div>
+    </div>
+    <div id="clip2" style="overflow-clip-margin: 11px" class="parent">
+      <div class="child"></div>
+    </div>
+    <div id="clip3" style="overflow-clip-margin: 11px" class="parent2">
+      <div class="child"></div>
+    </div>
+  )HTML");
+
+  LayoutBox* clip1 = GetLayoutBoxByElementId("clip1");
+  EXPECT_FALSE(clip1->IsScrollContainer());
+  EXPECT_TRUE(clip1->ShouldClipOverflowAlongBothAxis());
+  EXPECT_EQ(LayoutRect(0, 0, 104, 54), clip1->VisualOverflowRect());
+
+  LayoutBox* clip2 = GetLayoutBoxByElementId("clip2");
+  EXPECT_FALSE(clip2->IsScrollContainer());
+  EXPECT_TRUE(clip2->ShouldClipOverflowAlongBothAxis());
+  EXPECT_EQ(LayoutRect(0, 0, 110, 55), clip2->VisualOverflowRect());
+
+  LayoutBox* clip3 = GetLayoutBoxByElementId("clip3");
+  EXPECT_FALSE(clip3->IsScrollContainer());
+  EXPECT_TRUE(clip3->ShouldClipOverflowAlongBothAxis());
+  EXPECT_EQ(LayoutRect(0, 0, 110, 55), clip3->VisualOverflowRect());
+}
+
+TEST_P(LayoutBoxTest, LayoutOverflowRectWithOverflowClipMargin) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      .parent { width: 100px; height: 50px; overflow: clip; }
+      .parent2 { width: 100px; height: 50px; contain: paint; }
+      .child { position: relative; top: -5px; left: -6px; width: 110px;
+               height: 112px; }
+    </style>
+    <div id="clip1" style="overflow-clip-margin: 4px" class="parent">
+      <div class="child"></div>
+    </div>
+    <div id="clip2" style="overflow-clip-margin: 10px" class="parent">
+      <div class="child"></div>
+    </div>
+    <div id="clip3" style="overflow-clip-margin: 10px" class="parent2">
+      <div class="child"></div>
+    </div>
+  )HTML");
+
+  LayoutBox* clip1 = GetLayoutBoxByElementId("clip1");
+  EXPECT_FALSE(clip1->IsScrollContainer());
+  EXPECT_TRUE(clip1->ShouldClipOverflowAlongBothAxis());
+  EXPECT_EQ(LayoutRect(-4, -4, 108, 58),
+            clip1->LayoutOverflowRectForPropagation(clip1->Parent()));
+
+  LayoutBox* clip2 = GetLayoutBoxByElementId("clip2");
+  EXPECT_FALSE(clip2->IsScrollContainer());
+  EXPECT_TRUE(clip2->ShouldClipOverflowAlongBothAxis());
+  EXPECT_EQ(LayoutRect(-6, -5, 110, 65),
+            clip2->LayoutOverflowRectForPropagation(clip2->Parent()));
+
+  LayoutBox* clip3 = GetLayoutBoxByElementId("clip3");
+  EXPECT_FALSE(clip3->IsScrollContainer());
+  EXPECT_TRUE(clip3->ShouldClipOverflowAlongBothAxis());
+  EXPECT_EQ(LayoutRect(-6, -5, 110, 65),
+            clip3->LayoutOverflowRectForPropagation(clip3->Parent()));
 }
 
 TEST_P(LayoutBoxTest, ContentsVisualOverflowPropagation) {
@@ -533,6 +657,44 @@ TEST_P(LayoutBoxTest, HitTestContainPaint) {
   EXPECT_EQ(GetDocument().documentElement(), HitTest(10, 250));
 }
 
+TEST_P(LayoutBoxTest, OverflowRectsContainPaint) {
+  SetBodyInnerHTML(R"HTML(
+    <div id='container' style='width: 100px; height: 200px; contain: paint;
+                               border: 10px solid blue'>
+      <div id='child' style='width: 300px; height: 400px;'></div>
+    </div>
+  )HTML");
+
+  auto* container = GetLayoutBoxByElementId("container");
+  EXPECT_TRUE(container->ShouldClipOverflowAlongEitherAxis());
+  EXPECT_EQ(LayoutRect(10, 10, 300, 400), container->LayoutOverflowRect());
+  EXPECT_EQ(LayoutRect(0, 0, 120, 220), container->VisualOverflowRect());
+  EXPECT_EQ(LayoutRect(0, 0, 120, 220), container->SelfVisualOverflowRect());
+  EXPECT_EQ(LayoutRect(10, 10, 300, 400),
+            container->ContentsVisualOverflowRect());
+  EXPECT_EQ(PhysicalRect(10, 10, 100, 200),
+            container->OverflowClipRect(PhysicalOffset()));
+}
+
+TEST_P(LayoutBoxTest, OverflowRectsOverflowHidden) {
+  SetBodyInnerHTML(R"HTML(
+    <div id='container' style='width: 100px; height: 200px; overflow: hidden;
+                               border: 10px solid blue'>
+      <div id='child' style='width: 300px; height: 400px;'></div>
+    </div>
+  )HTML");
+
+  auto* container = GetLayoutBoxByElementId("container");
+  EXPECT_TRUE(container->ShouldClipOverflowAlongEitherAxis());
+  EXPECT_EQ(LayoutRect(10, 10, 300, 400), container->LayoutOverflowRect());
+  EXPECT_EQ(LayoutRect(0, 0, 120, 220), container->VisualOverflowRect());
+  EXPECT_EQ(LayoutRect(0, 0, 120, 220), container->SelfVisualOverflowRect());
+  EXPECT_EQ(LayoutRect(10, 10, 300, 400),
+            container->ContentsVisualOverflowRect());
+  EXPECT_EQ(PhysicalRect(10, 10, 100, 200),
+            container->OverflowClipRect(PhysicalOffset()));
+}
+
 class AnimatedImage : public StubImage {
  public:
   bool MaybeAnimated() override { return true; }
@@ -547,8 +709,8 @@ TEST_P(LayoutBoxTest, DelayedInvalidation) {
   // animated images.
   auto* image =
       ImageResourceContent::CreateLoaded(base::AdoptRef(new AnimatedImage()));
-  ToLayoutImage(obj)->ImageResource()->SetImageResource(image);
-  ASSERT_TRUE(ToLayoutImage(obj)->CachedImage()->GetImage()->MaybeAnimated());
+  To<LayoutImage>(obj)->ImageResource()->SetImageResource(image);
+  ASSERT_TRUE(To<LayoutImage>(obj)->CachedImage()->GetImage()->MaybeAnimated());
 
   obj->ClearPaintInvalidationFlags();
   EXPECT_FALSE(obj->ShouldDoFullPaintInvalidation());
@@ -580,8 +742,8 @@ TEST_P(LayoutBoxTest, MarkerContainerLayoutOverflowRect) {
     </div>
   )HTML");
 
-  LayoutBox* marker_container =
-      ToLayoutBox(GetLayoutObjectByElementId("target")->SlowFirstChild());
+  auto* marker_container =
+      To<LayoutBox>(GetLayoutObjectByElementId("target")->SlowFirstChild());
   if (RuntimeEnabledFeatures::LayoutNGEnabled()) {
     EXPECT_GE(marker_container->Location().Y() +
                   marker_container->LayoutOverflowRect().MaxY(),
@@ -1530,6 +1692,35 @@ TEST_P(LayoutBoxTest, PartialInvalidationRect) {
   display_item_client->ClearPartialInvalidationVisualRect();
   EXPECT_FALSE(target->HasPartialInvalidationRect());
   EXPECT_EQ(IntRect(), display_item_client->PartialInvalidationVisualRect());
+}
+
+TEST_P(LayoutBoxTest, HasReflection) {
+  SetBodyInnerHTML(R"HTML(
+    <style>* { -webkit-box-reflect: above; }</style>
+    <table id="table">
+      <colgroup id="colgroup">
+        <col id="col">
+      </colgroup>
+      <tr id="tr"><td id="td">TD</td></tr>
+    </table>
+    <svg id="svg">
+      <text id="svg-text">SVG text</text>
+    </svg>
+  )HTML");
+
+  auto check_has_layer_and_reflection = [&](const char* element_id,
+                                            bool expected) {
+    auto* object = GetLayoutObjectByElementId(element_id);
+    EXPECT_EQ(expected, object->HasLayer()) << element_id;
+    EXPECT_EQ(expected, object->HasReflection()) << element_id;
+  };
+  check_has_layer_and_reflection("table", true);
+  check_has_layer_and_reflection("tr", true);
+  check_has_layer_and_reflection("colgroup", false);
+  check_has_layer_and_reflection("col", false);
+  check_has_layer_and_reflection("td", true);
+  check_has_layer_and_reflection("svg", true);
+  check_has_layer_and_reflection("svg-text", false);
 }
 
 }  // namespace blink

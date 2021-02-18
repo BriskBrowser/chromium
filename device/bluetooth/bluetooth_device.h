@@ -26,6 +26,7 @@
 #include "base/strings/string_piece_forward.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "device/bluetooth/bluetooth_common.h"
 #include "device/bluetooth/bluetooth_export.h"
 #include "device/bluetooth/bluetooth_remote_gatt_service.h"
@@ -588,7 +589,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
   std::vector<BluetoothRemoteGattService*> GetPrimaryServicesByUUID(
       const BluetoothUUID& service_uuid);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   using ExecuteWriteErrorCallback =
       base::OnceCallback<void(device::BluetoothGattService::GattErrorCode)>;
   using AbortWriteErrorCallback =
@@ -604,12 +605,8 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
 #if defined(OS_CHROMEOS) || defined(OS_LINUX)
   // Set the remaining battery of the device to show in the UI. This value must
   // be between 0 and 100, inclusive.
-  // TODO(http://b/160905785): Battery percentage is populated by
-  // ash::HfpBatteryListener, ash::HidBatteryListener, and
-  // device::BluetoothAdapterBlueZ. When Battery information is entirely
-  // consolidated in BlueZ's Battery API, only device::BluetoothAdapterBlueZ
-  // should have control over this field with the value originating from a
-  // single source, the BlueZ Battery API..
+  // Only device::BluetoothAdapterBlueZ has control over this field with the
+  // value originating from a single source, the BlueZ Battery API.
   void SetBatteryPercentage(base::Optional<uint8_t> battery_percentage);
 
   // Returns the remaining battery for the device.
@@ -670,6 +667,8 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
     // Service UUIDs functions
     void ReplaceServiceUUIDs(
         const BluetoothDevice::GattServiceMap& gatt_services);
+
+    void ReplaceServiceUUIDs(UUIDList new_service_uuids);
 
     void ClearServiceUUIDs();
 

@@ -25,15 +25,18 @@
 
 #include "third_party/blink/renderer/core/layout/layout_list_marker.h"
 
+#include "third_party/blink/renderer/core/css/counter_style.h"
 #include "third_party/blink/renderer/core/layout/api/line_layout_block_flow.h"
 #include "third_party/blink/renderer/core/layout/layout_analyzer.h"
 #include "third_party/blink/renderer/core/layout/layout_list_item.h"
 #include "third_party/blink/renderer/core/layout/list_marker.h"
 #include "third_party/blink/renderer/core/layout/list_marker_text.h"
 #include "third_party/blink/renderer/core/paint/list_marker_painter.h"
+#include "third_party/blink/renderer/core/style/list_style_type_data.h"
 #include "third_party/blink/renderer/platform/fonts/font.h"
 
 namespace blink {
+class HTMLLIElement;
 
 LayoutListMarker::LayoutListMarker(Element* element) : LayoutBox(element) {
   DCHECK(ListItem());
@@ -43,20 +46,27 @@ LayoutListMarker::LayoutListMarker(Element* element) : LayoutBox(element) {
 
 LayoutListMarker::~LayoutListMarker() = default;
 
+void LayoutListMarker::Trace(Visitor* visitor) const {
+  visitor->Trace(image_);
+  LayoutBox::Trace(visitor);
+}
+
 void LayoutListMarker::WillBeDestroyed() {
+  NOT_DESTROYED();
   if (image_)
     image_->RemoveClient(this);
   LayoutBox::WillBeDestroyed();
 }
 
 const LayoutListItem* LayoutListMarker::ListItem() const {
+  NOT_DESTROYED();
   LayoutObject* list_item = GetNode()->parentNode()->GetLayoutObject();
   DCHECK(list_item);
-  DCHECK(list_item->IsListItem());
-  return ToLayoutListItem(list_item);
+  return To<LayoutListItem>(list_item);
 }
 
 LayoutSize LayoutListMarker::ImageBulletSize() const {
+  NOT_DESTROYED();
   DCHECK(IsImage());
   const SimpleFontData* font_data = StyleRef().GetFont().PrimaryFont();
   DCHECK(font_data);
@@ -75,13 +85,23 @@ LayoutSize LayoutListMarker::ImageBulletSize() const {
 }
 
 void LayoutListMarker::ListStyleTypeChanged() {
+  NOT_DESTROYED();
   if (IsImage())
     return;
   SetNeedsLayoutAndIntrinsicWidthsRecalcAndFullPaintInvalidation(
       layout_invalidation_reason::kListStyleTypeChange);
 }
 
+void LayoutListMarker::CounterStyleChanged() {
+  NOT_DESTROYED();
+  if (IsImage())
+    return;
+  SetNeedsLayoutAndIntrinsicWidthsRecalcAndFullPaintInvalidation(
+      layout_invalidation_reason::kCounterStyleChange);
+}
+
 void LayoutListMarker::UpdateMarkerImageIfNeeded(StyleImage* image) {
+  NOT_DESTROYED();
   if (image_ != image) {
     if (image_)
       image_->RemoveClient(this);
@@ -92,20 +112,24 @@ void LayoutListMarker::UpdateMarkerImageIfNeeded(StyleImage* image) {
 }
 
 InlineBox* LayoutListMarker::CreateInlineBox() {
+  NOT_DESTROYED();
   InlineBox* result = LayoutBox::CreateInlineBox();
   result->SetIsText(IsText());
   return result;
 }
 
 bool LayoutListMarker::IsImage() const {
+  NOT_DESTROYED();
   return image_ && !image_->ErrorOccurred();
 }
 
 void LayoutListMarker::Paint(const PaintInfo& paint_info) const {
+  NOT_DESTROYED();
   ListMarkerPainter(*this).Paint(paint_info);
 }
 
 void LayoutListMarker::UpdateLayout() {
+  NOT_DESTROYED();
   DCHECK(NeedsLayout());
   LayoutAnalyzer::Scope analyzer(*this);
 
@@ -138,6 +162,7 @@ void LayoutListMarker::UpdateLayout() {
 }
 
 void LayoutListMarker::ImageChanged(WrappedImagePtr o, CanDeferInvalidation) {
+  NOT_DESTROYED();
   // A list marker can't have a background or border image, so no need to call
   // the base class method.
   if (!image_ || o != image_->Data())
@@ -153,6 +178,7 @@ void LayoutListMarker::ImageChanged(WrappedImagePtr o, CanDeferInvalidation) {
 }
 
 void LayoutListMarker::UpdateContent() {
+  NOT_DESTROYED();
   DCHECK(IntrinsicLogicalWidthsDirty());
 
   text_ = "";
@@ -164,12 +190,20 @@ void LayoutListMarker::UpdateContent() {
     case ListMarker::ListStyleCategory::kNone:
       break;
     case ListMarker::ListStyleCategory::kSymbol:
-      text_ = list_marker_text::GetText(StyleRef().ListStyleType(),
-                                        0);  // value is ignored for these types
+      // value is ignored for these types
+      if (RuntimeEnabledFeatures::CSSAtRuleCounterStyleEnabled()) {
+        text_ = GetCounterStyle().GenerateRepresentation(0);
+      } else {
+        text_ = list_marker_text::GetText(StyleRef().ListStyleType(), 0);
+      }
       break;
     case ListMarker::ListStyleCategory::kLanguage:
-      text_ = list_marker_text::GetText(StyleRef().ListStyleType(),
-                                        ListItem()->Value());
+      if (RuntimeEnabledFeatures::CSSAtRuleCounterStyleEnabled()) {
+        text_ = GetCounterStyle().GenerateRepresentation(ListItem()->Value());
+      } else {
+        text_ = list_marker_text::GetText(StyleRef().ListStyleType(),
+                                          ListItem()->Value());
+      }
       break;
     case ListMarker::ListStyleCategory::kStaticString:
       text_ = StyleRef().ListStyleStringValue();
@@ -178,16 +212,29 @@ void LayoutListMarker::UpdateContent() {
 }
 
 String LayoutListMarker::TextAlternative() const {
+  NOT_DESTROYED();
   if (GetListStyleCategory() == ListMarker::ListStyleCategory::kStaticString)
     return text_;
+
+  // Return prefix, marker text and then suffix even in RTL, reflecting speech
+  // order.
+
+  if (RuntimeEnabledFeatures::CSSAtRuleCounterStyleEnabled()) {
+    if (GetListStyleCategory() == ListMarker::ListStyleCategory::kNone)
+      return "";
+
+    const CounterStyle& counter_style = GetCounterStyle();
+    return counter_style.GetPrefix() + text_ + counter_style.GetSuffix();
+  }
+
   UChar suffix =
       list_marker_text::Suffix(StyleRef().ListStyleType(), ListItem()->Value());
-  // Return suffix after the marker text, even in RTL, reflecting speech order.
   return text_ + suffix + ' ';
 }
 
 LayoutUnit LayoutListMarker::GetWidthOfText(
     ListMarker::ListStyleCategory category) const {
+  NOT_DESTROYED();
   // TODO(crbug.com/1012289): this code doesn't support bidi algorithm.
   if (text_.IsEmpty())
     return LayoutUnit();
@@ -197,6 +244,18 @@ LayoutUnit LayoutListMarker::GetWidthOfText(
     // Don't add a suffix.
     return item_width;
   }
+
+  if (RuntimeEnabledFeatures::CSSAtRuleCounterStyleEnabled()) {
+    // This doesn't seem correct, e.g., ligatures. We don't fix it since it's
+    // legacy layout.
+    const CounterStyle& counter_style = GetCounterStyle();
+    if (counter_style.GetPrefix())
+      item_width += LayoutUnit(font.Width(TextRun(counter_style.GetPrefix())));
+    if (counter_style.GetSuffix())
+      item_width += LayoutUnit(font.Width(TextRun(counter_style.GetSuffix())));
+    return item_width;
+  }
+
   // TODO(wkorman): Look into constructing a text run for both text and suffix
   // and painting them together.
   UChar suffix[2] = {
@@ -209,6 +268,7 @@ LayoutUnit LayoutListMarker::GetWidthOfText(
 }
 
 MinMaxSizes LayoutListMarker::ComputeIntrinsicLogicalWidths() const {
+  NOT_DESTROYED();
   DCHECK(IntrinsicLogicalWidthsDirty());
   const_cast<LayoutListMarker*>(this)->UpdateContent();
 
@@ -237,20 +297,22 @@ MinMaxSizes LayoutListMarker::ComputeIntrinsicLogicalWidths() const {
 }
 
 MinMaxSizes LayoutListMarker::PreferredLogicalWidths() const {
+  NOT_DESTROYED();
   return IntrinsicLogicalWidths();
 }
 
 void LayoutListMarker::UpdateMargins(LayoutUnit marker_inline_size) {
+  NOT_DESTROYED();
   LayoutUnit margin_start;
   LayoutUnit margin_end;
   const ComputedStyle& style = StyleRef();
   const ComputedStyle& list_item_style = ListItem()->StyleRef();
   if (IsInside()) {
-    std::tie(margin_start, margin_end) =
-        ListMarker::InlineMarginsForInside(style, list_item_style);
+    std::tie(margin_start, margin_end) = ListMarker::InlineMarginsForInside(
+        GetDocument(), style, list_item_style);
   } else {
     std::tie(margin_start, margin_end) = ListMarker::InlineMarginsForOutside(
-        style, list_item_style, marker_inline_size);
+        GetDocument(), style, list_item_style, marker_inline_size);
   }
 
   SetMarginStart(margin_start);
@@ -258,6 +320,7 @@ void LayoutListMarker::UpdateMargins(LayoutUnit marker_inline_size) {
 }
 
 void LayoutListMarker::UpdateMargins() {
+  NOT_DESTROYED();
   UpdateMargins(PreferredLogicalWidths().min_size);
 }
 
@@ -265,6 +328,7 @@ LayoutUnit LayoutListMarker::LineHeight(
     bool first_line,
     LineDirectionMode direction,
     LinePositionMode line_position_mode) const {
+  NOT_DESTROYED();
   if (!IsImage())
     return ListItem()->LineHeight(first_line, direction,
                                   kPositionOfInteriorLineBoxes);
@@ -276,6 +340,7 @@ LayoutUnit LayoutListMarker::BaselinePosition(
     bool first_line,
     LineDirectionMode direction,
     LinePositionMode line_position_mode) const {
+  NOT_DESTROYED();
   DCHECK_EQ(line_position_mode, kPositionOnContainingLine);
   if (!IsImage())
     return ListItem()->BaselinePosition(baseline_type, first_line, direction,
@@ -285,10 +350,20 @@ LayoutUnit LayoutListMarker::BaselinePosition(
 }
 
 ListMarker::ListStyleCategory LayoutListMarker::GetListStyleCategory() const {
-  return ListMarker::GetListStyleCategory(StyleRef().ListStyleType());
+  NOT_DESTROYED();
+  return ListMarker::GetListStyleCategory(GetDocument(), StyleRef());
+}
+
+const CounterStyle& LayoutListMarker::GetCounterStyle() const {
+  NOT_DESTROYED();
+  const ListStyleTypeData* list_style_data = StyleRef().GetListStyleType();
+  DCHECK(list_style_data);
+  DCHECK(list_style_data->IsCounterStyle());
+  return list_style_data->GetCounterStyle(GetDocument());
 }
 
 bool LayoutListMarker::IsInside() const {
+  NOT_DESTROYED();
   const LayoutListItem* list_item = ListItem();
   const ComputedStyle& parent_style = list_item->StyleRef();
   return parent_style.ListStylePosition() == EListStylePosition::kInside ||
@@ -297,6 +372,7 @@ bool LayoutListMarker::IsInside() const {
 }
 
 LayoutRect LayoutListMarker::GetRelativeMarkerRect() const {
+  NOT_DESTROYED();
   if (IsImage())
     return LayoutRect(LayoutPoint(), ImageBulletSize());
 

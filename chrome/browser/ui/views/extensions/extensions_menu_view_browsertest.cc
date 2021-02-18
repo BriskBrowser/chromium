@@ -9,6 +9,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/chrome_test_extension_loader.h"
 #include "chrome/browser/extensions/extension_action_runner.h"
 #include "chrome/browser/extensions/extension_context_menu_model.h"
@@ -37,6 +38,7 @@
 #include "extensions/test/test_extension_dir.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/views/animation/ink_drop.h"
+#include "ui/views/bubble/bubble_dialog_model_host.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/layout/animating_layout_manager.h"
 #include "ui/views/layout/animating_layout_manager_test_util.h"
@@ -61,7 +63,9 @@ class ExtensionsMenuViewBrowserTest : public ExtensionsToolbarBrowserTest {
   }
 
   void ShowUi(const std::string& name) override {
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
     // The extensions menu can appear offscreen on Linux, so verifying bounds
     // makes the tests flaky.
     set_should_verify_dialog_bounds(false);
@@ -88,10 +92,10 @@ class ExtensionsMenuViewBrowserTest : public ExtensionsToolbarBrowserTest {
       // Trigger uninstall dialog.
       views::NamedWidgetShownWaiter waiter(
           views::test::AnyWidgetTestPasskey{},
-          "ExtensionUninstallDialogDelegateView");
+          views::BubbleDialogModelHost::kViewClassName);
       extensions::ExtensionContextMenuModel menu_model(
           extensions()[0].get(), browser(),
-          extensions::ExtensionContextMenuModel::VISIBLE, nullptr,
+          extensions::ExtensionContextMenuModel::PINNED, nullptr,
           false /* can_show_icon_in_toolbar */);
       menu_model.ExecuteCommand(
           extensions::ExtensionContextMenuModel::UNINSTALL, 0);
@@ -148,7 +152,7 @@ class ExtensionsMenuViewBrowserTest : public ExtensionsToolbarBrowserTest {
     if (ui_test_name_ == "InstallDialog") {
       ExtensionsToolbarContainer* const container =
           GetExtensionsToolbarContainer();
-      views::BubbleDialogDelegate* const install_bubble =
+      views::DialogDelegate* const install_bubble =
           container->GetViewForId(extensions()[0]->id())
               ->GetProperty(views::kAnchoredDialogKey);
       ASSERT_TRUE(install_bubble);
@@ -164,7 +168,7 @@ class ExtensionsMenuViewBrowserTest : public ExtensionsToolbarBrowserTest {
     ExtensionsToolbarContainer* const container =
         GetExtensionsToolbarContainer();
     // Accept or cancel the dialog.
-    views::BubbleDialogDelegate* const uninstall_bubble =
+    views::DialogDelegate* const uninstall_bubble =
         container->GetViewForId(extensions()[0]->id())
             ->GetProperty(views::kAnchoredDialogKey);
     ASSERT_TRUE(uninstall_bubble);
@@ -292,6 +296,10 @@ class ExtensionsMenuViewBrowserTest : public ExtensionsToolbarBrowserTest {
 
     // Removing the last extension. All actions now have the same state.
     RemoveExtension(method, extensions()[1]->id());
+
+    // Container should remain visible during the removal animation.
+    EXPECT_TRUE(GetExtensionsToolbarContainer()->IsDrawn());
+    views::test::WaitForAnimatingLayoutManager(GetExtensionsToolbarContainer());
     EXPECT_EQ(expected_visibility, GetExtensionsToolbarContainer()->IsDrawn());
   }
 
@@ -548,8 +556,14 @@ IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest,
   DismissUi();
 }
 
+// Failing on Mac. https://crbug.com/1176703
+#if defined(OS_MAC)
+#define MAYBE_PinningDisabledInIncognito DISABLED_PinningDisabledInIncognito
+#else
+#define MAYBE_PinningDisabledInIncognito PinningDisabledInIncognito
+#endif
 IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest,
-                       PinningDisabledInIncognito) {
+                       MAYBE_PinningDisabledInIncognito) {
   LoadTestExtension("extensions/uitest/window_open", true);
   SetUpIncognitoBrowser();
 
@@ -557,7 +571,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest,
   // browser.
   extensions::ExtensionContextMenuModel menu(
       extensions()[0].get(), incognito_browser(),
-      extensions::ExtensionContextMenuModel::VISIBLE, nullptr,
+      extensions::ExtensionContextMenuModel::PINNED, nullptr,
       true /* can_show_icon_in_toolbar */);
   EXPECT_FALSE(menu.IsCommandIdEnabled(
       extensions::ExtensionContextMenuModel::TOGGLE_VISIBILITY));

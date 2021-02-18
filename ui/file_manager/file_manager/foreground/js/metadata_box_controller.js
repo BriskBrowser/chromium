@@ -2,11 +2,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// #import {MetadataItem} from './metadata/metadata_item.m.js';
+// #import {VolumeManager} from '../../../externs/volume_manager.m.js';
+// #import {FileMetadataFormatter} from './ui/file_metadata_formatter.m.js';
+// #import {QuickViewModel} from './quick_view_model.m.js';
+// #import {MetadataModel} from './metadata/metadata_model.m.js';
+// #import {PathComponent} from './path_component.m.js';
+// #import {FileType} from '../../common/js/file_type.m.js';
+// #import {util} from '../../common/js/util.m.js';
+// #import {FilesQuickView} from '../elements/files_quick_view.m.js';
+// #import {assert} from 'chrome://resources/js/assert.m.js';
+
 /**
  * Controller of metadata box.
  * This should be initialized with |init| method.
  */
-class MetadataBoxController {
+/* #export */ class MetadataBoxController {
   /**
    * @param {!MetadataModel} metadataModel
    * @param {!QuickViewModel} quickViewModel
@@ -28,7 +39,7 @@ class MetadataBoxController {
     this.quickViewModel_ = quickViewModel;
 
     /**
-     * @type {FilesMetadataBox} metadataBox
+     * @type {FilesMetadataBoxElement} metadataBox
      * @private
      */
     this.metadataBox_ = null;
@@ -160,10 +171,16 @@ class MetadataBoxController {
     this.updateModificationTime_(entry, items);
 
     if (!entry.isDirectory) {
-      const sniffMimeType = (item.externalFileUrl || item.alternateUrl) ?
-          'contentMimeType' :
-          'mediaMimeType';
-      this.metadataModel_.get([entry], [sniffMimeType])
+      let media = [];  // Extra metadata types for local video media.
+
+      let sniffMimeType = 'mediaMimeType';
+      if (item.externalFileUrl || item.alternateUrl) {
+        sniffMimeType = 'contentMimeType';
+      } else if (type === 'video') {
+        media = MetadataBoxController.EXTRA_METADATA_NAMES;
+      }
+
+      this.metadataModel_.get([entry], [sniffMimeType].concat(media))
           .then(items => {
             this.metadataBox_.mediaMimeType = items[0][sniffMimeType] || '';
             this.metadataBox_.metadataRendered('mime');

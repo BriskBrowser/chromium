@@ -5,7 +5,7 @@
 /**
  * Manages getting and storing user preferences.
  */
-class PrefsManager {
+export class PrefsManager {
   constructor() {
     /** @private {?string} */
     this.voiceNameFromPrefs_ = null;
@@ -36,6 +36,9 @@ class PrefsManager {
 
     /** @private {boolean} */
     this.backgroundShadingEnabled_ = false;
+
+    /** @private {boolean} */
+    this.navigationControlsEnabled_ = true;
   }
 
   /**
@@ -49,7 +52,7 @@ class PrefsManager {
     chrome.tts.getVoices((voices) => {
       this.validVoiceNames_ = new Set();
 
-      if (voices.length == 0) {
+      if (voices.length === 0) {
         return;
       }
 
@@ -70,10 +73,10 @@ class PrefsManager {
           }
           var lang = voice.lang.toLowerCase();
           var s = 0;
-          if (lang == uiLocale) {
+          if (lang === uiLocale) {
             s += 2;
           }
-          if (lang.substr(0, 2) == uiLocale.substr(0, 2)) {
+          if (lang.substr(0, 2) === uiLocale.substr(0, 2)) {
             s += 1;
           }
           return s;
@@ -139,13 +142,14 @@ class PrefsManager {
     Promise.all(getPrefsPromises)
         .then(
             () => {
-              const stsOptionsModified = stsRate != PrefsManager.DEFAULT_RATE ||
-                  stsPitch != PrefsManager.DEFAULT_PITCH;
+              const stsOptionsModified =
+                  stsRate !== PrefsManager.DEFAULT_RATE ||
+                  stsPitch !== PrefsManager.DEFAULT_PITCH;
               const globalOptionsModified =
-                  globalRate != PrefsManager.DEFAULT_RATE ||
-                  globalPitch != PrefsManager.DEFAULT_PITCH;
+                  globalRate !== PrefsManager.DEFAULT_RATE ||
+                  globalPitch !== PrefsManager.DEFAULT_PITCH;
               const optionsEqual =
-                  stsRate == globalRate && stsPitch == globalPitch;
+                  stsRate === globalRate && stsPitch === globalPitch;
               if (optionsEqual) {
                 // No need to write global prefs if all the prefs are the same
                 // as defaults. Just remove STS rate and pitch.
@@ -213,14 +217,13 @@ class PrefsManager {
    * Loads preferences from chrome.storage, sets default values if
    * necessary, and registers a listener to update prefs when they
    * change.
-   * @public
    */
   initPreferences() {
     var updatePrefs = () => {
       chrome.storage.sync.get(
           [
             'voice', 'rate', 'pitch', 'wordHighlight', 'highlightColor',
-            'backgroundShading'
+            'backgroundShading', 'navigationControls'
           ],
           (prefs) => {
             if (prefs['voice']) {
@@ -241,6 +244,12 @@ class PrefsManager {
             } else {
               chrome.storage.sync.set(
                   {'backgroundShading': this.backgroundShadingEnabled_});
+            }
+            if (prefs['navigationControls'] !== undefined) {
+              this.navigationControlsEnabled_ = prefs['navigationControls'];
+            } else {
+              chrome.storage.sync.set(
+                  {'navigationControls': this.navigationControlsEnabled_});
             }
             if (prefs['rate'] && prefs['pitch']) {
               // Removes 'rate' and 'pitch' prefs after migrating data to global
@@ -263,7 +272,6 @@ class PrefsManager {
    * Generates the basic speech options for Select-to-Speak based on user
    * preferences. Call for each chrome.tts.speak.
    * @return {!TtsOptions} options The TTS options.
-   * @public
    */
   speechOptions() {
     const options = {enqueue: true};
@@ -299,7 +307,6 @@ class PrefsManager {
   /**
    * Gets the user's word highlighting enabled preference.
    * @return {boolean} True if word highlighting is enabled.
-   * @public
    */
   wordHighlightingEnabled() {
     return this.wordHighlight_;
@@ -308,7 +315,6 @@ class PrefsManager {
   /**
    * Gets the user's word highlighting color preference.
    * @return {string} Highlight color.
-   * @public
    */
   highlightColor() {
     return this.highlightColor_;
@@ -318,7 +324,6 @@ class PrefsManager {
    * Gets the focus ring color. This is not currently a user preference but it
    * could be in the future; stored here for similarity to highlight color.
    * @return {string} Highlight color.
-   * @public
    */
   focusRingColor() {
     return this.color_;
@@ -328,17 +333,25 @@ class PrefsManager {
    * Gets the user's focus ring background color. If the user disabled greying
    * out the background, alpha will be set to fully transparent.
    * @return {boolean} True if the background shade should be drawn.
-   * @public
    */
   backgroundShadingEnabled() {
     return this.backgroundShadingEnabled_;
+  }
+
+  /**
+   * Gets the user's preference for showing navigation controls that allow them
+   * to navigate to next/previous sentences, paragraphs, and more.
+   * @return {boolean} True if navigation controls should be shown when STS is
+   *     active.
+   */
+  navigationControlsEnabled() {
+    return this.navigationControlsEnabled_;
   }
 }
 
 /**
  * Constant representing the system TTS voice.
  * @type {string}
- * @public
  */
 PrefsManager.SYSTEM_VOICE = 'select_to_speak_system_voice';
 

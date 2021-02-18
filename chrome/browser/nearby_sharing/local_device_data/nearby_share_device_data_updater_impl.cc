@@ -5,17 +5,19 @@
 #include "chrome/browser/nearby_sharing/local_device_data/nearby_share_device_data_updater_impl.h"
 
 #include "base/memory/ptr_util.h"
+#include "base/metrics/histogram_functions.h"
 #include "chrome/browser/nearby_sharing/client/nearby_share_client.h"
 #include "chrome/browser/nearby_sharing/proto/rpc_resources.pb.h"
 
 namespace {
 
 const char kDeviceIdPrefix[] = "users/me/devices/";
-const char kContactsFieldMaskPath[] = "device.contacts";
-const char kCertificatesFieldMaskPath[] = "device.public_certificates";
+const char kContactsFieldMaskPath[] = "contacts";
+const char kCertificatesFieldMaskPath[] = "public_certificates";
 
 void RecordResultMetrics(NearbyShareHttpResult result) {
-  // TODO(crbug.com/1105579): Record a histogram value for each result.
+  base::UmaHistogramEnumeration(
+      "Nearby.Share.LocalDeviceData.DeviceDataUpdater.HttpResult", result);
 }
 
 }  // namespace

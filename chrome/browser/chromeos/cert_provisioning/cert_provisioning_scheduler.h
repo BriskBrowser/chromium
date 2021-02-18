@@ -50,9 +50,23 @@ struct FailedWorkerInfo {
       CertProvisioningWorkerState::kInitState;
   // The DER-encoded X.509 SPKI.
   std::string public_key;
+  // Human-readable certificate profile name (UTF-8).
+  std::string cert_profile_name;
   // The time the worker was last updated, i.e. when it transferred to the
   // failed state.
   base::Time last_update_time;
+};
+
+// An observer that gets notified about state changes of the
+// CertProvisioningScheduler.
+class CertProvisioningSchedulerObserver : public base::CheckedObserver {
+ public:
+  // Called when the "visible state" of the observerd CertProvisioningScheduler
+  // has changed, i.e. when:
+  // (*) the list of active workers changed,
+  // (*) the list of recently failed workers changed,
+  // (*) the state of a worker changed.
+  virtual void OnVisibleStateChanged() = 0;
 };
 
 // Interface for the scheduler for client certificate provisioning using device
@@ -73,6 +87,12 @@ class CertProvisioningScheduler {
   // failed and have not been restarted (yet).
   virtual const base::flat_map<CertProfileId, FailedWorkerInfo>&
   GetFailedCertProfileIds() const = 0;
+
+  // Adds |observer| which will observer this CertProvisioningScheduler.
+  virtual void AddObserver(CertProvisioningSchedulerObserver* observer) = 0;
+
+  // Removes a previously added |observer|.
+  virtual void RemoveObserver(CertProvisioningSchedulerObserver* observer) = 0;
 };
 
 // This class is a part of certificate provisioning feature. It tracks updates
@@ -90,6 +110,7 @@ class CertProvisioningSchedulerImpl
   CreateUserCertProvisioningScheduler(Profile* profile);
   static std::unique_ptr<CertProvisioningScheduler>
   CreateDeviceCertProvisioningScheduler(
+      policy::CloudPolicyClient* cloud_policy_client,
       policy::AffiliatedInvalidationServiceProvider*
           invalidation_service_provider);
 
@@ -113,9 +134,18 @@ class CertProvisioningSchedulerImpl
   const WorkerMap& GetWorkers() const override;
   const base::flat_map<CertProfileId, FailedWorkerInfo>&
   GetFailedCertProfileIds() const override;
+  void AddObserver(CertProvisioningSchedulerObserver* observer) override;
+  void RemoveObserver(CertProvisioningSchedulerObserver* observer) override;
 
+  // Invoked when the CertProvisioningWorker corresponding to |profile| reached
+  // its final state.
+  // Public so it can be called from tests.
   void OnProfileFinished(const CertProfile& profile,
                          CertProvisioningWorkerState state);
+
+  // Called when any state visible from the outside has changed.
+  // Public so it can be called from tests.
+  void OnVisibleStateChanged();
 
  private:
   void ScheduleInitialUpdate();
@@ -129,7 +159,7 @@ class CertProvisioningSchedulerImpl
   void OnDeleteCertsWithoutPolicyDone(platform_keys::Status status);
   void CancelWorkersWithoutPolicy(const std::vector<CertProfile>& profiles);
   void CleanVaKeysIfIdle();
-  void OnCleanVaKeysIfIdleDone(base::Optional<bool> delete_result);
+  void OnCleanVaKeysIfIdleDone(bool delete_result);
   void RegisterForPrefsChanges();
 
   void InitiateRenewal(const CertProfileId& cert_profile_id);
@@ -156,6 +186,13 @@ class CertProvisioningSchedulerImpl
 
   void CreateCertProvisioningWorker(CertProfile profile);
   CertProvisioningWorker* FindWorker(CertProfileId profile_id);
+  // Adds |worker| to |workers_| and returns an unowned pointer to |worker|.
+  // Triggers a state change notification.
+  CertProvisioningWorker* AddWorkerToMap(
+      std::unique_ptr<CertProvisioningWorker> worker);
+  // Removes the element referenced by |worker_iter| from |workers_|.
+  // Triggers a state change notification.
+  void RemoveWorkerFromMap(WorkerMap::iterator worker_iter);
 
   // Returns true if the process can be continued (if it's not required to
   // wait).
@@ -170,6 +207,9 @@ class CertProvisioningSchedulerImpl
 
   // PlatformKeysServiceObserver
   void OnPlatformKeysServiceShutDown() override;
+
+  // Notifies each observer from |observers_| that the state has changed.
+  void NotifyObserversVisibleStateChanged();
 
   CertScope cert_scope_ = CertScope::kUser;
   // |profile_| can be nullptr for the device-wide instance of
@@ -203,6 +243,12 @@ class CertProvisioningSchedulerImpl
   LatestCertsWithIdsGetter certs_with_ids_getter_;
   CertDeleter cert_deleter_;
   std::unique_ptr<CertProvisioningInvalidatorFactory> invalidator_factory_;
+
+  // Observers that are observing this CertProvisioningSchedulerImpl.
+  base::ObserverList<CertProvisioningSchedulerObserver> observers_;
+  // True when a task for notifying observers about a state change has been
+  // scheduled but not executed yet.
+  bool notify_observers_pending_ = false;
 
   ScopedObserver<platform_keys::PlatformKeysService,
                  platform_keys::PlatformKeysServiceObserver>

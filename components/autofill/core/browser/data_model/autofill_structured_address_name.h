@@ -22,7 +22,6 @@ namespace structured_address {
 // Atomic component that represents the honorific prefix of a name.
 class NameHonorific : public AddressComponent {
  public:
-  NameHonorific();
   explicit NameHonorific(AddressComponent* parent);
   ~NameHonorific() override;
 };
@@ -30,7 +29,6 @@ class NameHonorific : public AddressComponent {
 // Atomic components that represents the first name.
 class NameFirst : public AddressComponent {
  public:
-  NameFirst();
   explicit NameFirst(AddressComponent* parent);
   ~NameFirst() override;
 };
@@ -38,7 +36,6 @@ class NameFirst : public AddressComponent {
 // Atomic component that represents the middle name.
 class NameMiddle : public AddressComponent {
  public:
-  NameMiddle();
   explicit NameMiddle(AddressComponent* parent);
   ~NameMiddle() override;
 
@@ -46,7 +43,7 @@ class NameMiddle : public AddressComponent {
       ServerFieldTypeSet* supported_types) const override;
 
  protected:
-  // Implements support for getting for a value for the |MIDDLE_NAME_INITIAL|
+  // Implements support for getting the value for the |MIDDLE_NAME_INITIAL|
   // type.
   bool ConvertAndGetTheValueForAdditionalFieldTypeName(
       const std::string& type_name,
@@ -62,7 +59,6 @@ class NameMiddle : public AddressComponent {
 // Atomic component that represents the first part of a last name.
 class NameLastFirst : public AddressComponent {
  public:
-  NameLastFirst();
   explicit NameLastFirst(AddressComponent* parent);
   ~NameLastFirst() override;
 };
@@ -71,7 +67,6 @@ class NameLastFirst : public AddressComponent {
 // surname.
 class NameLastConjunction : public AddressComponent {
  public:
-  NameLastConjunction();
   explicit NameLastConjunction(AddressComponent* parent);
   ~NameLastConjunction() override;
 };
@@ -79,7 +74,6 @@ class NameLastConjunction : public AddressComponent {
 // Atomic component that represents the second part of a surname.
 class NameLastSecond : public AddressComponent {
  public:
-  NameLastSecond();
   explicit NameLastSecond(AddressComponent* parent);
   ~NameLastSecond() override;
 };
@@ -102,7 +96,6 @@ class NameLastSecond : public AddressComponent {
 //
 class NameLast : public AddressComponent {
  public:
-  NameLast();
   explicit NameLast(AddressComponent* parent);
   ~NameLast() override;
 
@@ -113,31 +106,30 @@ class NameLast : public AddressComponent {
   // As the fallback, write everything to the second last name.
   void ParseValueAndAssignSubcomponentsByFallbackMethod() override;
 
-  NameLastFirst first_;
-  NameLastConjunction conjunction_;
-  NameLastSecond second_;
+  NameLastFirst first_{this};
+  NameLastConjunction conjunction_{this};
+  NameLastSecond second_{this};
 };
 
 // Compound that represents a full name. It contains a honorific, a first
 // name, a middle name and a last name. The last name is a compound itself.
 //
-//                     +----------+
-//                     | NAME_FULL|
-//                     +----------+
-//                    /  |      |  \
-//                  /    |      |    \
-//                /      |      |      \
-//              /        |      |        \
-// +------------+ +--------+ +---------+ +-------+
-// | _HONORIFIC | | _FIRST | | _MIDDLE | | _LAST |
-// +------------+ +--------+ +---------+ +-------+
-//                                        /   |   \
-//                                      /     |     \
+//                     +------------+
+//                     | NAME_FULL  |
+//                     +------------+
+//                    /       |      \
+//                   /        |       \
+//                  /         |        \
+//    +------------+  +-------------+   +-----------+
+//    | NAME_FIRST |  | NAME_MIDDLE |   | NAME_LAST |
+//    +------------+  +-------------+   +-----------+
+//                                     /      |      \
 //                                    /       |       \
+//                                   /        |        \
 //                                  /         |         \
-//                         +--------+ +-----------+ +---------+
-//                         | _FIRST | | _CONJUNC. | | _SECOND |
-//                         +--------+ +-----------+ +---------+
+//                          +--------+ +--------------+ +---------+
+//                          | _FIRST | | _CONJUNCTION | | _SECOND |
+//                          +--------+ +--------------+ +---------+
 //
 class NameFull : public AddressComponent {
  public:
@@ -146,22 +138,69 @@ class NameFull : public AddressComponent {
   NameFull(const NameFull& other);
   ~NameFull() override;
 
+  void MigrateLegacyStructure(bool is_verified_profile) override;
+
+ protected:
   std::vector<const re2::RE2*> GetParseRegularExpressionsByRelevance()
       const override;
 
   // Returns the format string to create the full name from its subcomponents.
   base::string16 GetBestFormatString() const override;
 
-  // Migrates from a legacy structure in which name tokens are imported without
-  // a status.
-  void MigrateLegacyStructure(bool is_verified_profile);
-
  private:
-  // TODO(crbug.com/1113617): Honorifics are temporally disabled.
-  // NameHonorific name_honorific_;
-  NameFirst name_first_;
-  NameMiddle name_middle_;
-  NameLast name_last_;
+  NameFirst name_first_{this};
+  NameMiddle name_middle_{this};
+  NameLast name_last_{this};
+};
+
+// Atomic component that represents a honorific prefix.
+class NameHonorificPrefix : public AddressComponent {
+ public:
+  explicit NameHonorificPrefix(AddressComponent* parent);
+  ~NameHonorificPrefix() override;
+};
+
+// Compound that represent a full name and a honorific prefix.
+//
+//             +-----------------------+
+//             | NAME_FULL_WITH_PREFIX |
+//             +-----------------------+
+//                   /            \
+//                  /              \
+//                 /                \
+//                /                  \
+//   +-------------------+      +------------+
+//   | HONORIFIC_PREFIX  |      | NAME_FULL  |
+//   +-------------------+      +------------+
+//                             /       |      \
+//                            /        |       \
+//                           /         |        \
+//             +------------+  +-------------+   +-----------+
+//             | NAME_FIRST |  | NAME_MIDDLE |   | NAME_LAST |
+//             +------------+  +-------------+   +-----------+
+//                                              /      |      \
+//                                             /       |       \
+//                                            /        |        \
+//                                           /         |         \
+//                                   +--------+ +--------------+ +---------+
+//                                   | _FIRST | | _CONJUNCTION | | _SECOND |
+//                                   +--------+ +--------------+ +---------+
+//
+class NameFullWithPrefix : public AddressComponent {
+ public:
+  NameFullWithPrefix();
+  explicit NameFullWithPrefix(AddressComponent* parent);
+  NameFullWithPrefix(const NameFullWithPrefix& other);
+  ~NameFullWithPrefix() override;
+
+  void MigrateLegacyStructure(bool is_verified_profile) override;
+
+ protected:
+  std::vector<const re2::RE2*> GetParseRegularExpressionsByRelevance()
+      const override;
+
+  NameHonorificPrefix honorific_prefix_{this};
+  NameFull name_full_{this};
 };
 
 }  // namespace structured_address

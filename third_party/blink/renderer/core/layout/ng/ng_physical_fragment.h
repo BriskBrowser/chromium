@@ -5,7 +5,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_NG_PHYSICAL_FRAGMENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_NG_PHYSICAL_FRAGMENT_H_
 
-#include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/editing/forward.h"
 #include "third_party/blink/renderer/core/layout/geometry/physical_offset.h"
@@ -14,7 +13,6 @@
 #include "third_party/blink/renderer/core/layout/layout_box.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_style_variant.h"
 #include "third_party/blink/renderer/platform/graphics/touch_action.h"
-#include "third_party/blink/renderer/platform/wtf/ref_counted.h"
 
 #include <unicode/ubidi.h>
 
@@ -45,12 +43,11 @@ struct CORE_EXPORT NGPhysicalFragmentTraits {
 // NGFragment wrapper classes which transforms information into the logical
 // coordinate system.
 class CORE_EXPORT NGPhysicalFragment
-    : public RefCounted<const NGPhysicalFragment, NGPhysicalFragmentTraits> {
+    : public GarbageCollected<NGPhysicalFragment> {
  public:
   enum NGFragmentType {
     kFragmentBox = 0,
-    kFragmentText = 1,
-    kFragmentLineBox = 2,
+    kFragmentLineBox = 1,
     // When adding new values, make sure the bit size of |type_| is large
     // enough to store.
   };
@@ -74,6 +71,18 @@ class CORE_EXPORT NGPhysicalFragment
     kMinimumFormattingContextRoot = kAtomicInline
   };
 
+  NGPhysicalFragment(NGFragmentBuilder*,
+                     NGFragmentType type,
+                     unsigned sub_type);
+
+  NGPhysicalFragment(LayoutObject* layout_object,
+                     NGStyleVariant,
+                     PhysicalSize size,
+                     NGFragmentType type,
+                     unsigned sub_type);
+
+  NGPhysicalFragment(const NGPhysicalFragment& other);
+
   ~NGPhysicalFragment();
 
   NGFragmentType Type() const { return static_cast<NGFragmentType>(type_); }
@@ -82,7 +91,6 @@ class CORE_EXPORT NGPhysicalFragment
            Type() == NGFragmentType::kFragmentLineBox;
   }
   bool IsBox() const { return Type() == NGFragmentType::kFragmentBox; }
-  bool IsText() const { return Type() == NGFragmentType::kFragmentText; }
   bool IsLineBox() const { return Type() == NGFragmentType::kFragmentLineBox; }
 
   // Returns the box type of this fragment.
@@ -100,7 +108,7 @@ class CORE_EXPORT NGPhysicalFragment
   }
   bool IsFragmentainerBox() const { return IsColumnBox(); }
   bool IsColumnSpanAll() const {
-    if (const LayoutBox* box = ToLayoutBoxOrNull(GetLayoutObject()))
+    if (const auto* box = DynamicTo<LayoutBox>(GetLayoutObject()))
       return box->IsColumnSpanAll();
     return false;
   }
@@ -110,9 +118,7 @@ class CORE_EXPORT NGPhysicalFragment
     return IsBox() && BoxType() == NGBoxType::kAtomicInline;
   }
   // True if this fragment is in-flow in an inline formatting context.
-  bool IsInline() const {
-    return IsText() || IsInlineBox() || IsAtomicInline();
-  }
+  bool IsInline() const { return IsInlineBox() || IsAtomicInline(); }
   bool IsFloating() const {
     return IsBox() && BoxType() == NGBoxType::kFloating;
   }
@@ -128,6 +134,8 @@ class CORE_EXPORT NGPhysicalFragment
     return IsBox() && BoxType() == NGBoxType::kRenderedLegend;
   }
   bool IsMathMLFraction() const { return IsBox() && is_math_fraction_; }
+
+  bool IsMathMLOperator() const { return IsBox() && is_math_operator_; }
 
   // Return true if this fragment corresponds directly to an entry in the CSS
   // box tree [1]. Note that anonymous blocks also exist in the CSS box
@@ -158,7 +166,26 @@ class CORE_EXPORT NGPhysicalFragment
            layout_object_->IsRubyBase();
   }
 
-  bool IsTable() const { return layout_object_->IsTable(); }
+  bool IsTableNGPart() const { return is_table_ng_part_; }
+
+  bool IsTableNG() const {
+    return IsTableNGPart() && layout_object_->IsTable();
+  }
+
+  bool IsTableNGRow() const {
+    return IsTableNGPart() && layout_object_->IsTableRow();
+  }
+
+  bool IsTableNGSection() const {
+    return IsTableNGPart() && layout_object_->IsTableSection();
+  }
+
+  bool IsTableNGCell() const {
+    return IsTableNGPart() && layout_object_->IsTableCell() &&
+           !layout_object_->IsTableCellLegacy();
+  }
+
+  bool IsTextControlPlaceholder() const;
 
   // Return true if this fragment is a container established by a fieldset
   // element. Such a fragment contains an optional rendered legend fragment and
@@ -171,6 +198,9 @@ class CORE_EXPORT NGPhysicalFragment
 
   // Returns whether the fragment should be atomically painted.
   bool IsPaintedAtomically() const { return is_painted_atomically_; }
+
+  // Returns whether the fragment is a table part with collapsed borders.
+  bool HasCollapsedBorders() const { return has_collapsed_borders_; }
 
   bool IsFormattingContextRoot() const {
     return (IsBox() && BoxType() >= NGBoxType::kMinimumFormattingContextRoot) ||
@@ -225,8 +255,12 @@ class CORE_EXPORT NGPhysicalFragment
   // from GetNode() when this fragment is content of a pseudo node.
   Node* NodeForHitTest() const { return layout_object_->NodeForHitTest(); }
 
+  Node* NonPseudoNode() const {
+    return IsCSSBox() ? layout_object_->NonPseudoNode() : nullptr;
+  }
+
   bool IsInSelfHitTestingPhase(HitTestAction action) const {
-    if (const auto* box = ToLayoutBoxOrNull(GetLayoutObject()))
+    if (const auto* box = DynamicTo<LayoutBox>(GetLayoutObject()))
       return box->IsInSelfHitTestingPhase(action);
     if (IsInlineBox())
       return action == kHitTestForeground;
@@ -243,13 +277,13 @@ class CORE_EXPORT NGPhysicalFragment
   PaintLayer* Layer() const {
     if (!HasLayer())
       return nullptr;
-    return To<LayoutBoxModelObject>(layout_object_)->Layer();
+    return To<LayoutBoxModelObject>(layout_object_.Get())->Layer();
   }
 
   // Whether this object has a self-painting |Layer()|.
   bool HasSelfPaintingLayer() const {
-    return HasLayer() &&
-           To<LayoutBoxModelObject>(layout_object_)->HasSelfPaintingLayer();
+    return HasLayer() && To<LayoutBoxModelObject>(layout_object_.Get())
+                             ->HasSelfPaintingLayer();
   }
 
   // True if overflow != 'visible', except for certain boxes that do not allow
@@ -258,8 +292,32 @@ class CORE_EXPORT NGPhysicalFragment
     return IsCSSBox() && layout_object_->HasNonVisibleOverflow();
   }
 
-  bool ShouldClipOverflow() const {
-    return IsCSSBox() && layout_object_->ShouldClipOverflow();
+  // True if this is considered a scroll-container. See
+  // ComputedStyle::IsScrollContainer() for details.
+  bool IsScrollContainer() const {
+    return IsCSSBox() && layout_object_->IsScrollContainer();
+  }
+
+  // Return true if the given object is the effective root scroller in its
+  // Document. See |effective root scroller| in page/scrolling/README.md.
+  // Note: a root scroller always establishes a PaintLayer.
+  // This bit is updated in
+  // RootScrollerController::RecomputeEffectiveRootScroller in the LayoutClean
+  // document lifecycle phase.
+  bool IsEffectiveRootScroller() const {
+    return IsCSSBox() && layout_object_->IsEffectiveRootScroller();
+  }
+
+  bool ShouldApplyLayoutContainment() const {
+    return IsCSSBox() && layout_object_->ShouldApplyLayoutContainment();
+  }
+
+  bool ShouldClipOverflowAlongEitherAxis() const {
+    return IsCSSBox() && layout_object_->ShouldClipOverflowAlongEitherAxis();
+  }
+
+  bool ShouldClipOverflowAlongBothAxis() const {
+    return IsCSSBox() && layout_object_->ShouldClipOverflowAlongBothAxis();
   }
 
   bool IsFragmentationContextRoot() const {
@@ -291,7 +349,7 @@ class CORE_EXPORT NGPhysicalFragment
     const LayoutObject* layout_object = GetLayoutObject();
     if (!layout_object || !IsBox() || !layout_object->IsBox())
       return false;
-    return ToLayoutBox(layout_object)->GetPaginationBreakability() ==
+    return To<LayoutBox>(layout_object)->GetNGPaginationBreakability() ==
            LayoutBox::kForbidBreaks;
   }
 
@@ -333,11 +391,6 @@ class CORE_EXPORT NGPhysicalFragment
   // check if there were newer generations.
   const NGPhysicalFragment* PostLayout() const;
 
-  PhysicalRect InkOverflow() const {
-    // TODO(layout-dev): Implement box fragment overflow.
-    return LocalRect();
-  }
-
   // Specifies the type of scrollable overflow computation.
   enum TextHeightType {
     // Apply text fragment size as is.
@@ -357,11 +410,15 @@ class CORE_EXPORT NGPhysicalFragment
       TextHeightType height_type) const;
   void AdjustScrollableOverflowForPropagation(
       const NGPhysicalBoxFragment& container,
+      TextHeightType height_type,
       PhysicalRect* overflow) const;
 
   // The allowed touch action is the union of the effective touch action
   // (from style) and blocking touch event handlers.
   TouchAction EffectiveAllowedTouchAction() const;
+
+  // Returns if this fragment is inside a non-passive wheel event handler.
+  bool InsideBlockingWheelEventHandler() const;
 
   // Returns the bidi level of a text or atomic inline fragment.
   UBiDiLevel BidiLevel() const;
@@ -399,6 +456,7 @@ class CORE_EXPORT NGPhysicalFragment
     DumpSelfPainting = 0x80,
     DumpNodeName = 0x100,
     DumpItems = 0x200,
+    DumpLegacyDescendants = 0x400,
     DumpAll = -1
   };
   typedef int DumpFlags;
@@ -407,24 +465,19 @@ class CORE_EXPORT NGPhysicalFragment
                           base::Optional<PhysicalOffset> = base::nullopt,
                           unsigned indent = 2) const;
 
+  static String DumpFragmentTree(const LayoutObject& root, DumpFlags);
+
 #if DCHECK_IS_ON()
   void ShowFragmentTree() const;
+  static void ShowFragmentTree(const LayoutObject& root);
 #endif
 
+  virtual void Trace(Visitor*) const;
+
  protected:
-  NGPhysicalFragment(NGFragmentBuilder*,
-                     NGFragmentType type,
-                     unsigned sub_type);
-
-  NGPhysicalFragment(LayoutObject* layout_object,
-                     NGStyleVariant,
-                     PhysicalSize size,
-                     NGFragmentType type,
-                     unsigned sub_type);
-
   const ComputedStyle& SlowEffectiveStyle() const;
 
-  const Vector<NGInlineItem>& InlineItemsOfContainingBlock() const;
+  const HeapVector<NGInlineItem>& InlineItemsOfContainingBlock() const;
 
   // The following bitfields are only to be used by NGPhysicalContainerFragment
   // (it's defined here to save memory, since that class has no bitfields).
@@ -440,24 +493,27 @@ class CORE_EXPORT NGPhysicalFragment
   // The following bitfields are only to be used by NGPhysicalBoxFragment
   // (it's defined here to save memory, since that class has no bitfields).
   unsigned is_inline_formatting_context_ : 1;
-  unsigned has_fragment_items_ : 1;
+  unsigned const_has_fragment_items_ : 1;
   unsigned include_border_top_ : 1;
   unsigned include_border_right_ : 1;
   unsigned include_border_bottom_ : 1;
   unsigned include_border_left_ : 1;
+  unsigned has_layout_overflow_ : 1;
   unsigned has_borders_ : 1;
   unsigned has_padding_ : 1;
+  unsigned has_inflow_bounds_ : 1;
+  unsigned const_has_rare_data_ : 1;
   unsigned is_first_for_node_ : 1;
-  unsigned has_rare_data_ : 1;
 
-  LayoutObject* layout_object_;
+  Member<LayoutObject> layout_object_;
   const PhysicalSize size_;
 
-  const unsigned type_ : 2;           // NGFragmentType
+  const unsigned type_ : 1;           // NGFragmentType
   const unsigned sub_type_ : 3;       // NGBoxType, NGTextType, or NGLineBoxType
   const unsigned style_variant_ : 2;  // NGStyleVariant
   const unsigned is_hidden_for_paint_ : 1;
   unsigned is_math_fraction_ : 1;
+  unsigned is_math_operator_ : 1;
   // base (line box) or resolve (text) direction
   unsigned base_or_resolved_direction_ : 1;  // TextDirection
   unsigned may_have_descendant_above_block_start_ : 1;
@@ -465,14 +521,12 @@ class CORE_EXPORT NGPhysicalFragment
   // The following are only used by NGPhysicalBoxFragment but are initialized
   // for all types to allow methods using them to be inlined.
   unsigned is_fieldset_container_ : 1;
+  unsigned is_table_ng_part_ : 1;
   unsigned is_legacy_layout_root_ : 1;
   unsigned is_painted_atomically_ : 1;
+  unsigned has_collapsed_borders_ : 1;
   unsigned has_baseline_ : 1;
   unsigned has_last_baseline_ : 1;
-
-  // The following bitfields are only to be used by NGPhysicalTextFragment
-  // (it's defined here to save memory, since that class has no bitfields).
-  mutable unsigned ink_overflow_computed_ : 1;
 
   // Note: We've used 32-bit bit field. If you need more bits, please think to
   // share bit fields, or put them before layout_object_ to fill the gap after
@@ -487,7 +541,10 @@ class CORE_EXPORT NGPhysicalFragment
 struct CORE_EXPORT NGPhysicalFragmentWithOffset {
   DISALLOW_NEW();
 
-  scoped_refptr<const NGPhysicalFragment> fragment;
+ public:
+  void Trace(Visitor* visitor) const { visitor->Trace(fragment); }
+
+  Member<const NGPhysicalFragment> fragment;
   PhysicalOffset offset_to_container_box;
 
   PhysicalRect RectInContainerBox() const;
@@ -502,5 +559,8 @@ inline void NGPhysicalFragment::CheckCanUpdateInkOverflow() const {}
 #endif
 
 }  // namespace blink
+
+WTF_ALLOW_CLEAR_UNUSED_SLOTS_WITH_MEM_FUNCTIONS(
+    blink::NGPhysicalFragmentWithOffset)
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_NG_PHYSICAL_FRAGMENT_H_

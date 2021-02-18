@@ -12,18 +12,18 @@ import org.chromium.chrome.browser.tab.TabSelectionType;
 import org.chromium.content_public.browser.LoadUrlParams;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 /**
  * Implement methods shared across the different model implementations.
  */
-public abstract class TabModelSelectorBase implements TabModelSelector {
+public abstract class TabModelSelectorBase implements TabModelSelector, IncognitoTabModelObserver {
     private static final int MODEL_NOT_FOUND = -1;
 
     private static TabModelSelectorObserver sObserver;
 
     private List<TabModel> mTabModels = new ArrayList<>();
+    private IncognitoTabModel mIncognitoTabModel;
 
     /**
      * This is a dummy implementation intended to stub out TabModelFilterProvider before native is
@@ -34,6 +34,8 @@ public abstract class TabModelSelectorBase implements TabModelSelector {
     private final TabModelFilterFactory mTabModelFilterFactory;
     private int mActiveModelIndex;
     private final ObserverList<TabModelSelectorObserver> mObservers = new ObserverList<>();
+    private final ObserverList<IncognitoTabModelObserver> mIncognitoObservers =
+            new ObserverList<>();
     private boolean mTabStateInitialized;
     private boolean mStartIncognito;
     private boolean mReparentingInProgress;
@@ -47,15 +49,16 @@ public abstract class TabModelSelectorBase implements TabModelSelector {
         mStartIncognito = startIncognito;
     }
 
-    protected final void initialize(TabModel... models) {
+    protected final void initialize(TabModel normalModel, IncognitoTabModel incognitoModel) {
         // Only normal and incognito supported for now.
         assert mTabModels.isEmpty();
-        assert models.length > 0;
 
-        Collections.addAll(mTabModels, models);
+        mTabModels.add(normalModel);
+        mTabModels.add(incognitoModel);
+        mIncognitoTabModel = incognitoModel;
         mActiveModelIndex = getModelIndex(mStartIncognito);
         assert mActiveModelIndex != MODEL_NOT_FOUND;
-        mTabModelFilterProvider = new TabModelFilterProvider(mTabModelFilterFactory, mTabModels);
+        mTabModelFilterProvider.init(mTabModelFilterFactory, mTabModels);
         addObserver(mTabModelFilterProvider);
 
         TabModelObserver tabModelObserver = new TabModelObserver() {
@@ -83,6 +86,11 @@ public abstract class TabModelSelectorBase implements TabModelSelector {
             addObserver(sObserver);
         }
 
+        mIncognitoTabModel.addIncognitoObserver(this);
+
+        incognitoModel.setActive(mStartIncognito);
+        normalModel.setActive(!mStartIncognito);
+
         notifyChanged();
     }
 
@@ -102,6 +110,8 @@ public abstract class TabModelSelectorBase implements TabModelSelector {
 
         TabModel newModel = mTabModels.get(newIndex);
         TabModel previousModel = mTabModels.get(mActiveModelIndex);
+        previousModel.setActive(false);
+        newModel.setActive(true);
         mActiveModelIndex = newIndex;
         for (TabModelSelectorObserver listener : mObservers) {
             listener.onTabModelSelected(newModel, previousModel);
@@ -255,12 +265,13 @@ public abstract class TabModelSelectorBase implements TabModelSelector {
     }
 
     @Override
-    public void mergeState() {}
-
-    @Override
     public void destroy() {
         removeObserver(mTabModelFilterProvider);
         mTabModelFilterProvider.destroy();
+
+        if (mIncognitoTabModel != null) {
+            mIncognitoTabModel.removeIncognitoObserver(this);
+        }
         for (int i = 0; i < getModels().size(); i++) mTabModels.get(i).destroy();
         mTabModels.clear();
     }
@@ -278,11 +289,21 @@ public abstract class TabModelSelectorBase implements TabModelSelector {
     /**
      * Notifies all the listeners that a new tab has been created.
      * @param tab The tab that has been created.
-     * @param creationSTate How the tab was created.
+     * @param creationState How the tab was created.
      */
     private void notifyNewTabCreated(Tab tab, @TabCreationState int creationState) {
         for (TabModelSelectorObserver listener : mObservers) {
             listener.onNewTabCreated(tab, creationState);
+        }
+    }
+
+    /**
+     * Notifies all the listeners that a tab has been hidden to switch to another.
+     * @param tab The tab that has been hidden.
+     */
+    protected void notifyTabHidden(Tab tab) {
+        for (TabModelSelectorObserver listener : mObservers) {
+            listener.onTabHidden(tab);
         }
     }
 
@@ -298,5 +319,29 @@ public abstract class TabModelSelectorBase implements TabModelSelector {
     @Override
     public boolean isReparentingInProgress() {
         return mReparentingInProgress;
+    }
+
+    @Override
+    public void addIncognitoTabModelObserver(IncognitoTabModelObserver incognitoObserver) {
+        mIncognitoObservers.addObserver(incognitoObserver);
+    }
+
+    @Override
+    public void removeIncognitoTabModelObserver(IncognitoTabModelObserver incognitoObserver) {
+        mIncognitoObservers.removeObserver(incognitoObserver);
+    }
+
+    @Override
+    public void wasFirstTabCreated() {
+        for (IncognitoTabModelObserver observer : mIncognitoObservers) {
+            observer.wasFirstTabCreated();
+        }
+    }
+
+    @Override
+    public void didBecomeEmpty() {
+        for (IncognitoTabModelObserver observer : mIncognitoObservers) {
+            observer.didBecomeEmpty();
+        }
     }
 }

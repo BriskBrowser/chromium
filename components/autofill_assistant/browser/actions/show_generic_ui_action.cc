@@ -5,11 +5,14 @@
 #include "components/autofill_assistant/browser/actions/show_generic_ui_action.h"
 
 #include <utility>
-#include "base/optional.h"
 
+#include "base/containers/flat_map.h"
+#include "base/optional.h"
 #include "components/autofill_assistant/browser/actions/action_delegate.h"
 #include "components/autofill_assistant/browser/client_status.h"
+#include "components/autofill_assistant/browser/user_data_util.h"
 #include "components/autofill_assistant/browser/user_model.h"
+#include "components/autofill_assistant/browser/web/element.h"
 #include "content/public/browser/web_contents.h"
 
 namespace autofill_assistant {
@@ -85,6 +88,21 @@ void WriteLoginOptionsToUserModel(
 }
 }  // namespace
 
+void ShowGenericUiAction::OnInterruptStarted() {
+  delegate_->GetPersonalDataManager()->RemoveObserver(this);
+  delegate_->ClearGenericUi();
+}
+
+void ShowGenericUiAction::OnInterruptFinished() {
+  delegate_->SetGenericUi(
+      std::make_unique<GenericUserInterfaceProto>(
+          proto_.show_generic_ui().generic_user_interface()),
+      base::BindOnce(&ShowGenericUiAction::OnEndActionInteraction,
+                     weak_ptr_factory_.GetWeakPtr()),
+      base::BindOnce(&ShowGenericUiAction::OnViewInflationFinished,
+                     weak_ptr_factory_.GetWeakPtr(), false));
+}
+
 ShowGenericUiAction::ShowGenericUiAction(ActionDelegate* delegate,
                                          const ActionProto& proto)
     : Action(delegate, proto) {
@@ -117,34 +135,6 @@ void ShowGenericUiAction::InternalProcessAction(
       return;
     }
   }
-
-  base::OnceCallback<void()> end_on_navigation_callback;
-  if (proto_.show_generic_ui().end_on_navigation()) {
-    end_on_navigation_callback =
-        base::BindOnce(&ShowGenericUiAction::OnNavigationEnded,
-                       weak_ptr_factory_.GetWeakPtr());
-  }
-  delegate_->Prompt(/* user_actions = */ nullptr,
-                    /* disable_force_expand_sheet = */ false,
-                    std::move(end_on_navigation_callback));
-  delegate_->SetGenericUi(
-      std::make_unique<GenericUserInterfaceProto>(
-          proto_.show_generic_ui().generic_user_interface()),
-      base::BindOnce(&ShowGenericUiAction::OnEndActionInteraction,
-                     weak_ptr_factory_.GetWeakPtr()),
-      base::BindOnce(&ShowGenericUiAction::OnViewInflationFinished,
-                     weak_ptr_factory_.GetWeakPtr()));
-}
-
-void ShowGenericUiAction::OnViewInflationFinished(const ClientStatus& status) {
-  if (!status.ok()) {
-    EndAction(status);
-    return;
-  }
-
-  // Note: it is important to write autofill profiles etc. to the model AFTER
-  // the UI has been inflated, otherwise the UI won't get change notifications
-  // for them.
   for (const auto& additional_value :
        proto_.show_generic_ui().request_user_data().additional_values()) {
     if (!delegate_->GetUserData()->has_additional_value(
@@ -182,8 +172,40 @@ void ShowGenericUiAction::OnViewInflationFinished(const ClientStatus& status) {
           /* logins = */ std::vector<WebsiteLoginManager::Login>());
     }
   }
+
+  base::OnceCallback<void()> end_on_navigation_callback;
+  if (proto_.show_generic_ui().end_on_navigation()) {
+    end_on_navigation_callback =
+        base::BindOnce(&ShowGenericUiAction::OnNavigationEnded,
+                       weak_ptr_factory_.GetWeakPtr());
+  }
+  delegate_->Prompt(/* user_actions = */ nullptr,
+                    /* disable_force_expand_sheet = */ false,
+                    std::move(end_on_navigation_callback));
+  delegate_->SetGenericUi(
+      std::make_unique<GenericUserInterfaceProto>(
+          proto_.show_generic_ui().generic_user_interface()),
+      base::BindOnce(&ShowGenericUiAction::OnEndActionInteraction,
+                     weak_ptr_factory_.GetWeakPtr()),
+      base::BindOnce(&ShowGenericUiAction::OnViewInflationFinished,
+                     weak_ptr_factory_.GetWeakPtr(),
+                     /* first_inflation= */ true));
+}
+
+void ShowGenericUiAction::OnViewInflationFinished(bool first_inflation,
+                                                  const ClientStatus& status) {
+  if (!status.ok()) {
+    EndAction(status);
+    return;
+  }
+
   delegate_->GetPersonalDataManager()->AddObserver(this);
   OnPersonalDataChanged();
+
+  if (!first_inflation) {
+    return;
+  }
+
   for (const auto& element_check :
        proto_.show_generic_ui().periodic_element_checks().element_checks()) {
     preconditions_.emplace_back(std::make_unique<ElementPrecondition>(
@@ -194,16 +216,23 @@ void ShowGenericUiAction::OnViewInflationFinished(const ClientStatus& status) {
           preconditions_.begin(), preconditions_.end(),
           [&](const auto& precondition) { return !precondition->empty(); })) {
     has_pending_wait_for_dom_ = true;
+
     delegate_->WaitForDom(
         base::TimeDelta::Max(), proto_.show_generic_ui().allow_interrupt(),
+        this,
         base::BindRepeating(&ShowGenericUiAction::RegisterChecks,
                             weak_ptr_factory_.GetWeakPtr()),
-        base::BindOnce(&ShowGenericUiAction::OnDoneWaitForDom,
-                       weak_ptr_factory_.GetWeakPtr()));
+        base::BindOnce(&ShowGenericUiAction::OnWaitForElementTimed,
+                       weak_ptr_factory_.GetWeakPtr(),
+                       base::BindOnce(&ShowGenericUiAction::OnDoneWaitForDom,
+                                      weak_ptr_factory_.GetWeakPtr())));
   }
+  wait_time_start_ = base::TimeTicks::Now();
 }
 
 void ShowGenericUiAction::OnNavigationEnded() {
+  action_stopwatch_.TransferToWaitTime(base::TimeTicks::Now() -
+                                       wait_time_start_);
   processed_action_proto_->mutable_show_generic_ui_result()
       ->set_navigation_ended(true);
   OnEndActionInteraction(ClientStatus(ACTION_APPLIED));
@@ -232,7 +261,8 @@ void ShowGenericUiAction::RegisterChecks(
 void ShowGenericUiAction::OnPreconditionResult(
     size_t precondition_index,
     const ClientStatus& status,
-    const std::vector<std::string>& ignored_payloads) {
+    const std::vector<std::string>& ignored_payloads,
+    const base::flat_map<std::string, DomObjectFrameStack>& ignored_elements) {
   if (should_end_action_) {
     return;
   }
@@ -272,6 +302,8 @@ void ShowGenericUiAction::OnEndActionInteraction(const ClientStatus& status) {
     should_end_action_ = true;
     return;
   }
+  action_stopwatch_.TransferToWaitTime(base::TimeTicks::Now() -
+                                       wait_time_start_);
   EndAction(status);
 }
 
@@ -314,8 +346,7 @@ void ShowGenericUiAction::OnPersonalDataChanged() {
         std::vector<std::unique_ptr<autofill::AutofillProfile>>>();
     for (const auto* profile :
          delegate_->GetPersonalDataManager()->GetProfilesToSuggest()) {
-      profiles->emplace_back(
-          std::make_unique<autofill::AutofillProfile>(*profile));
+      profiles->emplace_back(MakeUniqueFromProfile(*profile));
     }
     WriteProfilesToUserModel(std::move(profiles),
                              proto_.show_generic_ui().request_profiles(),

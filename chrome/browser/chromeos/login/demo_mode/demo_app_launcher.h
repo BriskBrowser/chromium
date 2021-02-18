@@ -10,7 +10,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "chrome/browser/chromeos/app_mode/kiosk_profile_loader.h"
+#include "chrome/browser/ash/app_mode/kiosk_profile_loader.h"
 
 class AccountId;
 
@@ -49,5 +49,10 @@ class DemoAppLauncher : public KioskProfileLoader::Delegate {
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove when moved to chrome/browser/ash/.
+namespace ash {
+using ::chromeos::DemoAppLauncher;
+}
 
 #endif  // CHROME_BROWSER_CHROMEOS_LOGIN_DEMO_MODE_DEMO_APP_LAUNCHER_H_

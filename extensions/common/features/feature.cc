@@ -11,7 +11,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
-#include "build/lacros_buildflags.h"
+#include "build/chromeos_buildflags.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest.h"
 
@@ -20,11 +20,11 @@ namespace extensions {
 // static
 Feature::Platform Feature::GetCurrentPlatform() {
 // TODO(https://crbug.com/1052397): For readability, this should become
-// defined(OS_CHROMEOS) && BUILDFLAG(IS_LACROS). The second conditional should
-// be defined(OS_CHROMEOS) && BUILDFLAG(IS_ASH).
-#if BUILDFLAG(IS_LACROS)
+// defined(OS_CHROMEOS) && BUILDFLAG(IS_CHROMEOS_LACROS). The second conditional
+// should be defined(OS_CHROMEOS) && BUILDFLAG(IS_CHROMEOS_ASH).
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
   return LACROS_PLATFORM;
-#elif defined(OS_CHROMEOS) && !BUILDFLAG(IS_LACROS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
   return CHROMEOS_PLATFORM;
 #elif defined(OS_LINUX)
   return LINUX_PLATFORM;

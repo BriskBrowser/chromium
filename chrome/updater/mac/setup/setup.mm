@@ -8,6 +8,7 @@
 
 #include "base/at_exit.h"
 #include "base/command_line.h"
+#include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
@@ -15,6 +16,8 @@
 #include "base/mac/foundation_util.h"
 #include "base/mac/scoped_nsobject.h"
 #include "base/path_service.h"
+#include "base/process/launch.h"
+#include "base/process/process.h"
 #include "base/strings/strcat.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
@@ -24,8 +27,9 @@
 #include "chrome/updater/constants.h"
 #include "chrome/updater/crash_client.h"
 #include "chrome/updater/crash_reporter.h"
+#import "chrome/updater/mac/util.h"
 #import "chrome/updater/mac/xpc_service_names.h"
-#include "chrome/updater/updater_version.h"
+#include "chrome/updater/updater_branding.h"
 #include "chrome/updater/util.h"
 #include "components/crash/core/common/crash_key.h"
 
@@ -33,12 +37,10 @@ namespace updater {
 
 namespace {
 
-#pragma mark Helpers
-const base::FilePath GetUpdateFolderName() {
-  return base::FilePath(COMPANY_SHORTNAME_STRING)
-      .AppendASCII(PRODUCT_FULLNAME_STRING);
-}
+constexpr char kLoggingModuleSwitchValue[] =
+    "*/updater/*=2,*/update_client/*=2";
 
+#pragma mark Helpers
 const base::FilePath GetUpdaterAppName() {
   return base::FilePath(PRODUCT_FULLNAME_STRING ".app");
 }
@@ -47,36 +49,10 @@ const base::FilePath GetUpdaterAppExecutablePath() {
   return base::FilePath("Contents/MacOS").AppendASCII(PRODUCT_FULLNAME_STRING);
 }
 
-bool IsSystemInstall() {
-  return geteuid() == 0;
-}
-
-const base::FilePath GetLibraryFolderPath() {
-  // For user installations: the "~/Library" for the logged in user.
-  // For system installations: "/Library".
-  if (IsSystemInstall()) {
-    base::FilePath local_library_path;
-    if (!base::mac::GetLocalDirectory(NSLibraryDirectory,
-                                      &local_library_path)) {
-      VLOG(1) << "Could not get local library path";
-    }
-    return local_library_path;
-  }
-  return base::mac::GetUserLibraryPath();
-}
-
-const base::FilePath GetUpdaterFolderPath() {
-  // For user installations:
-  // ~/Library/COMPANY_SHORTNAME_STRING/PRODUCT_FULLNAME_STRING.
-  // e.g. ~/Library/Google/GoogleUpdater
-  // For system installations:
-  // /Library/COMPANY_SHORTNAME_STRING/PRODUCT_FULLNAME_STRING.
-  // e.g. /Library/Google/GoogleUpdater
-  return GetLibraryFolderPath().Append(GetUpdateFolderName());
-}
-
-const base::FilePath GetVersionedUpdaterFolderPath() {
-  return GetUpdaterFolderPath().AppendASCII(UPDATER_VERSION_STRING);
+const base::FilePath GetUpdaterExecutablePath(
+    const base::FilePath& updater_folder_path) {
+  return updater_folder_path.Append(GetUpdaterAppName())
+      .Append(GetUpdaterAppExecutablePath());
 }
 
 Launchd::Domain LaunchdDomain() {
@@ -113,17 +89,26 @@ NSString* MakeProgramArgument(const char* argument) {
   return base::SysUTF8ToNSString(base::StrCat({"--", argument}));
 }
 
+NSString* MakeProgramArgumentWithValue(const char* argument,
+                                       const char* value) {
+  return base::SysUTF8ToNSString(base::StrCat({"--", argument, "=", value}));
+}
+
 base::ScopedCFTypeRef<CFDictionaryRef> CreateServiceLaunchdPlist(
     const base::FilePath& updater_path) {
   // See the man page for launchd.plist.
   NSDictionary<NSString*, id>* launchd_plist = @{
-    @LAUNCH_JOBKEY_LABEL : GetServiceLaunchdLabel(),
+    @LAUNCH_JOBKEY_LABEL : GetUpdateServiceLaunchdLabel(),
     @LAUNCH_JOBKEY_PROGRAMARGUMENTS : @[
       base::SysUTF8ToNSString(updater_path.value()),
       MakeProgramArgument(kServerSwitch),
-      @"--vmodule=*/updater/*=2",
+      MakeProgramArgumentWithValue(kServerServiceSwitch,
+                                   kServerUpdateServiceSwitchValue),
+      MakeProgramArgument(kEnableLoggingSwitch),
+      MakeProgramArgumentWithValue(kLoggingModuleSwitch,
+                                   kLoggingModuleSwitchValue),
     ],
-    @LAUNCH_JOBKEY_MACHSERVICES : @{GetServiceMachName() : @YES},
+    @LAUNCH_JOBKEY_MACHSERVICES : @{GetUpdateServiceMachName() : @YES},
     @LAUNCH_JOBKEY_ABANDONPROCESSGROUP : @NO,
     @LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE : @"Aqua"
   };
@@ -140,7 +125,7 @@ base::ScopedCFTypeRef<CFDictionaryRef> CreateWakeLaunchdPlist(
       [NSMutableArray<NSString*> array];
   [program_arguments addObjectsFromArray:@[
     base::SysUTF8ToNSString(updater_path.value()),
-    MakeProgramArgument(kWakeSwitch)
+    MakeProgramArgument(kWakeSwitch), MakeProgramArgument(kEnableLoggingSwitch)
   ]];
   if (IsSystemInstall())
     [program_arguments addObject:MakeProgramArgument(kSystemSwitch)];
@@ -158,18 +143,22 @@ base::ScopedCFTypeRef<CFDictionaryRef> CreateWakeLaunchdPlist(
       base::scoped_policy::RETAIN);
 }
 
-base::ScopedCFTypeRef<CFDictionaryRef> CreateControlLaunchdPlist(
+base::ScopedCFTypeRef<CFDictionaryRef> CreateUpdateServiceInternalLaunchdPlist(
     const base::FilePath& updater_path) {
   // See the man page for launchd.plist.
   NSDictionary<NSString*, id>* launchd_plist = @{
-    @LAUNCH_JOBKEY_LABEL : GetControlLaunchdLabel(),
+    @LAUNCH_JOBKEY_LABEL : GetUpdateServiceInternalLaunchdLabel(),
     @LAUNCH_JOBKEY_PROGRAMARGUMENTS : @[
       base::SysUTF8ToNSString(updater_path.value()),
       MakeProgramArgument(kServerSwitch),
-      @"--vmodule=*/updater/*=2",
+      MakeProgramArgumentWithValue(kServerServiceSwitch,
+                                   kServerUpdateServiceInternalSwitchValue),
+      MakeProgramArgument(kEnableLoggingSwitch),
+      MakeProgramArgumentWithValue(kLoggingModuleSwitch,
+                                   kLoggingModuleSwitchValue),
     ],
-    @LAUNCH_JOBKEY_MACHSERVICES : @{GetVersionedServiceMachName() : @YES},
-    @LAUNCH_JOBKEY_ABANDONPROCESSGROUP : @NO,
+    @LAUNCH_JOBKEY_MACHSERVICES : @{GetUpdateServiceInternalMachName() : @YES},
+    @LAUNCH_JOBKEY_ABANDONPROCESSGROUP : @YES,
     @LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE : @"Aqua"
   };
 
@@ -186,7 +175,8 @@ bool CreateUpdateServiceLaunchdJobPlist(const base::FilePath& updater_path) {
   base::ScopedCFTypeRef<CFDictionaryRef> plist(
       CreateServiceLaunchdPlist(updater_path));
   return Launchd::GetInstance()->WritePlistToFile(
-      LaunchdDomain(), ServiceLaunchdType(), CopyServiceLaunchdName(), plist);
+      LaunchdDomain(), ServiceLaunchdType(), CopyUpdateServiceLaunchdName(),
+      plist);
 }
 
 bool CreateWakeLaunchdJobPlist(const base::FilePath& updater_path) {
@@ -199,14 +189,16 @@ bool CreateWakeLaunchdJobPlist(const base::FilePath& updater_path) {
       LaunchdDomain(), ServiceLaunchdType(), CopyWakeLaunchdName(), plist);
 }
 
-bool CreateControlLaunchdJobPlist(const base::FilePath& updater_path) {
+bool CreateUpdateServiceInternalLaunchdJobPlist(
+    const base::FilePath& updater_path) {
   // We're creating directories and writing a file.
   base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
                                                 base::BlockingType::MAY_BLOCK);
   base::ScopedCFTypeRef<CFDictionaryRef> plist(
-      CreateControlLaunchdPlist(updater_path));
+      CreateUpdateServiceInternalLaunchdPlist(updater_path));
   return Launchd::GetInstance()->WritePlistToFile(
-      LaunchdDomain(), ServiceLaunchdType(), CopyControlLaunchdName(), plist);
+      LaunchdDomain(), ServiceLaunchdType(),
+      CopyUpdateServiceInternalLaunchdName(), plist);
 }
 
 bool StartUpdateServiceVersionedLaunchdJob(
@@ -221,14 +213,14 @@ bool StartUpdateWakeVersionedLaunchdJob() {
       CFSTR("Aqua"));
 }
 
-bool StartUpdateControlVersionedLaunchdJob() {
+bool StartUpdateServiceInternalVersionedLaunchdJob() {
   return Launchd::GetInstance()->RestartJob(
-      LaunchdDomain(), ServiceLaunchdType(), CopyControlLaunchdName(),
-      CFSTR("Aqua"));
+      LaunchdDomain(), ServiceLaunchdType(),
+      CopyUpdateServiceInternalLaunchdName(), CFSTR("Aqua"));
 }
 
 bool StartLaunchdServiceJob() {
-  return StartUpdateServiceVersionedLaunchdJob(CopyServiceLaunchdName());
+  return StartUpdateServiceVersionedLaunchdJob(CopyUpdateServiceLaunchdName());
 }
 
 bool RemoveJobFromLaunchd(Launchd::Domain domain,
@@ -237,8 +229,15 @@ bool RemoveJobFromLaunchd(Launchd::Domain domain,
   // This may block while deleting the launchd plist file.
   base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
                                                 base::BlockingType::MAY_BLOCK);
-  Launchd::GetInstance()->RemoveJob(base::SysCFStringRefToUTF8(name));
-  return Launchd::GetInstance()->DeletePlist(domain, type, name);
+
+  // If the job doesn't exist return true.
+  if (!Launchd::GetInstance()->PlistExists(domain, type, name))
+    return true;
+
+  if (!Launchd::GetInstance()->DeletePlist(domain, type, name))
+    return false;
+
+  return Launchd::GetInstance()->RemoveJob(base::SysCFStringRefToUTF8(name));
 }
 
 bool RemoveClientJobFromLaunchd(base::ScopedCFTypeRef<CFStringRef> name) {
@@ -255,18 +254,18 @@ bool RemoveUpdateServiceJobFromLaunchd(
 }
 
 bool RemoveUpdateServiceJobFromLaunchd() {
-  return RemoveUpdateServiceJobFromLaunchd(CopyServiceLaunchdName());
+  return RemoveUpdateServiceJobFromLaunchd(CopyUpdateServiceLaunchdName());
 }
 
 bool RemoveUpdateWakeJobFromLaunchd() {
   return RemoveClientJobFromLaunchd(CopyWakeLaunchdName());
 }
 
-bool RemoveUpdateControlJobFromLaunchd() {
-  return RemoveClientJobFromLaunchd(CopyControlLaunchdName());
+bool RemoveUpdateServiceInternalJobFromLaunchd() {
+  return RemoveServiceJobFromLaunchd(CopyUpdateServiceInternalLaunchdName());
 }
 
-bool DeleteInstallFolder(const base::FilePath& installed_path) {
+bool DeleteFolder(const base::FilePath& installed_path) {
   if (!base::DeletePathRecursively(installed_path)) {
     LOG(ERROR) << "Deleting " << installed_path << " failed";
     return false;
@@ -275,19 +274,23 @@ bool DeleteInstallFolder(const base::FilePath& installed_path) {
 }
 
 bool DeleteInstallFolder() {
-  return DeleteInstallFolder(GetUpdaterFolderPath());
+  return DeleteFolder(GetUpdaterFolderPath());
+}
+
+bool DeleteCandidateInstallFolder() {
+  return DeleteFolder(GetVersionedUpdaterFolderPath());
 }
 
 bool DeleteDataFolder() {
   base::FilePath data_path;
   if (!GetBaseDirectory(&data_path))
     return false;
-  return DeleteInstallFolder(data_path);
+  return DeleteFolder(data_path);
 }
 
 }  // namespace
 
-int InstallCandidate() {
+int Setup() {
   const base::FilePath dest_path = GetVersionedUpdaterFolderPath();
 
   if (!CopyBundle(dest_path))
@@ -300,22 +303,16 @@ int InstallCandidate() {
   if (!CreateWakeLaunchdJobPlist(updater_executable_path))
     return setup_exit_codes::kFailedToCreateWakeLaunchdJobPlist;
 
-  if (!CreateControlLaunchdJobPlist(updater_executable_path))
-    return setup_exit_codes::kFailedToCreateControlLaunchdJobPlist;
+  if (!CreateUpdateServiceInternalLaunchdJobPlist(updater_executable_path))
+    return setup_exit_codes::
+        kFailedToCreateUpdateServiceInternalLaunchdJobPlist;
 
-  if (!StartUpdateControlVersionedLaunchdJob())
-    return setup_exit_codes::kFailedToStartLaunchdControlJob;
+  if (!StartUpdateServiceInternalVersionedLaunchdJob())
+    return setup_exit_codes::kFailedToStartLaunchdUpdateServiceInternalJob;
 
   if (!StartUpdateWakeVersionedLaunchdJob())
     return setup_exit_codes::kFailedToStartLaunchdWakeJob;
 
-  return setup_exit_codes::kSuccess;
-}
-
-int UninstallCandidate() {
-  RemoveUpdateControlJobFromLaunchd();
-  RemoveUpdateWakeJobFromLaunchd();
-  DeleteInstallFolder(GetVersionedUpdaterFolderPath());
   return setup_exit_codes::kSuccess;
 }
 
@@ -335,14 +332,61 @@ int PromoteCandidate() {
 }
 
 #pragma mark Uninstall
+int UninstallCandidate() {
+  if (!DeleteCandidateInstallFolder())
+    return setup_exit_codes::kFailedToDeleteFolder;
+
+  if (!RemoveUpdateWakeJobFromLaunchd())
+    return setup_exit_codes::kFailedToRemoveWakeJobFromLaunchd;
+
+  // Removing the Update Internal job has to be the last step because launchd is
+  // likely to terminate the current process. Clients should expect the
+  // connection to invalidate (possibly with an interruption beforehand) as a
+  // result of service uninstallation.
+  if (!RemoveUpdateServiceInternalJobFromLaunchd())
+    return setup_exit_codes::kFailedToRemoveUpdateServiceInternalJobFromLaunchd;
+
+  return setup_exit_codes::kSuccess;
+}
+
+void UninstallOtherVersions() {
+  base::FileEnumerator file_enumerator(GetUpdaterFolderPath(), true,
+                                       base::FileEnumerator::DIRECTORIES);
+  for (base::FilePath version_folder_path = file_enumerator.Next();
+       !version_folder_path.empty() &&
+       version_folder_path != GetVersionedUpdaterFolderPath();
+       version_folder_path = file_enumerator.Next()) {
+    const base::FilePath version_executable_path =
+        GetUpdaterExecutablePath(version_folder_path);
+
+    if (base::PathExists(version_executable_path)) {
+      base::CommandLine command_line(version_executable_path);
+      command_line.AppendSwitch(kUninstallSelfSwitch);
+      command_line.AppendSwitch("--enable-logging");
+      command_line.AppendSwitchASCII("--vmodule", "*/chrome/updater/*=2");
+
+      int exit_code = -1;
+      std::string output;
+      base::GetAppOutputWithExitCode(command_line, &output, &exit_code);
+    } else {
+      VLOG(1) << base::CommandLine::ForCurrentProcess()->GetCommandLineString()
+              << " : Path doesn't exist: " << version_executable_path;
+    }
+  }
+}
+
 int Uninstall(bool is_machine) {
   ALLOW_UNUSED_LOCAL(is_machine);
+  VLOG(1) << base::CommandLine::ForCurrentProcess()->GetCommandLineString()
+          << " : " << __func__;
   const int exit = UninstallCandidate();
   if (exit != setup_exit_codes::kSuccess)
     return exit;
 
   if (!RemoveUpdateServiceJobFromLaunchd())
     return setup_exit_codes::kFailedToRemoveActiveUpdateServiceJobFromLaunchd;
+
+  UninstallOtherVersions();
 
   if (!DeleteDataFolder())
     return setup_exit_codes::kFailedToDeleteDataFolder;

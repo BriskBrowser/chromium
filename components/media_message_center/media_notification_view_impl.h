@@ -10,9 +10,9 @@
 #include "base/optional.h"
 #include "components/media_message_center/media_notification_view.h"
 #include "services/media_session/public/mojom/media_session.mojom.h"
-#include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/label.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 
 namespace message_center {
 class NotificationHeaderView;
@@ -20,6 +20,7 @@ class NotificationHeaderView;
 
 namespace views {
 class BoxLayout;
+class Button;
 class ToggleImageButton;
 }  // namespace views
 
@@ -29,10 +30,19 @@ class MediaNotificationBackground;
 class MediaNotificationContainer;
 class MediaNotificationItem;
 
+struct COMPONENT_EXPORT(MEDIA_MESSAGE_CENTER) NotificationTheme {
+  SkColor primary_text_color = 0;
+  SkColor secondary_text_color = 0;
+  SkColor enabled_icon_color = 0;
+  SkColor disabled_icon_color = 0;
+  SkColor separator_color = 0;
+};
+
 class COMPONENT_EXPORT(MEDIA_MESSAGE_CENTER) MediaNotificationViewImpl
-    : public MediaNotificationView,
-      public views::ButtonListener {
+    : public MediaNotificationView {
  public:
+  METADATA_HEADER(MediaNotificationViewImpl);
+
   // The name of the histogram used when recorded whether the artwork was
   // present.
   static const char kArtworkHistogramName[];
@@ -58,14 +68,15 @@ class COMPONENT_EXPORT(MEDIA_MESSAGE_CENTER) MediaNotificationViewImpl
       std::unique_ptr<views::View> header_row_controls_view,
       const base::string16& default_app_name,
       int notification_width,
-      bool should_show_icon);
+      bool should_show_icon,
+      base::Optional<NotificationTheme> theme = base::nullopt);
+  MediaNotificationViewImpl(const MediaNotificationViewImpl&) = delete;
+  MediaNotificationViewImpl& operator=(const MediaNotificationViewImpl&) =
+      delete;
   ~MediaNotificationViewImpl() override;
 
   // views::View:
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
-
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
   // MediaNotificationView:
   void SetExpanded(bool expanded) override;
@@ -81,9 +92,9 @@ class COMPONENT_EXPORT(MEDIA_MESSAGE_CENTER) MediaNotificationViewImpl
   void UpdateWithMediaArtwork(const gfx::ImageSkia& image) override;
   void UpdateWithFavicon(const gfx::ImageSkia& icon) override;
   void UpdateWithVectorIcon(const gfx::VectorIcon& vector_icon) override;
-  void OnThemeChanged() override;
+  void UpdateDeviceSelectorAvailability(bool availability) override;
 
-  void UpdateDeviceSelectorAvailability(bool availability);
+  void OnThemeChanged() override;
 
   const views::Label* title_label_for_testing() const { return title_label_; }
 
@@ -112,15 +123,24 @@ class COMPONENT_EXPORT(MEDIA_MESSAGE_CENTER) MediaNotificationViewImpl
   void CreateMediaButton(media_session::mojom::MediaSessionAction action,
                          const base::string16& accessible_name);
 
+  void CreateHeaderRow(std::unique_ptr<views::View> header_row_controls_view,
+                       bool should_show_icon);
+  void CreateCrOSHeaderRow(
+      std::unique_ptr<views::View> header_row_controls_view);
+
   void UpdateActionButtonsVisibility();
   void UpdateViewForExpandedState();
 
   MediaNotificationBackground* GetMediaNotificationBackground();
 
-  bool IsExpandable() const;
-  bool IsActuallyExpanded() const;
+  bool GetExpandable() const;
+  bool GetActuallyExpanded() const;
 
   void UpdateForegroundColor();
+
+  void ButtonPressed(views::Button* button);
+
+  void MaybeShowOrHideArtistLabel();
 
   // Returns the buttons contained in the button row and playback button
   // container.
@@ -160,6 +180,7 @@ class COMPONENT_EXPORT(MEDIA_MESSAGE_CENTER) MediaNotificationViewImpl
 
   // Container views directly attached to this view.
   message_center::NotificationHeaderView* header_row_ = nullptr;
+  views::Label* cros_header_label_ = nullptr;
   views::View* button_row_ = nullptr;
   views::View* playback_button_container_ = nullptr;
   views::View* pip_button_separator_view_ = nullptr;
@@ -174,7 +195,9 @@ class COMPONENT_EXPORT(MEDIA_MESSAGE_CENTER) MediaNotificationViewImpl
   views::BoxLayout* title_artist_row_layout_ = nullptr;
   const gfx::VectorIcon* vector_header_icon_ = nullptr;
 
-  DISALLOW_COPY_AND_ASSIGN(MediaNotificationViewImpl);
+  base::Optional<NotificationTheme> theme_;
+
+  const bool is_cros_;
 };
 
 }  // namespace media_message_center

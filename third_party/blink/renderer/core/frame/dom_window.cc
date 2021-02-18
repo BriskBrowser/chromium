@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/frame/dom_window.h"
 
+#include <algorithm>
 #include <memory>
 
 #include "base/metrics/histogram_macros.h"
@@ -67,6 +68,21 @@ v8::Local<v8::Value> DOMWindow::Wrap(v8::Isolate* isolate,
   // even if the frame is detached because the global proxy must always exist
   // per spec.
   ScriptState* script_state = ScriptState::From(isolate->GetCurrentContext());
+  return frame->GetWindowProxy(script_state->World())
+      ->GlobalProxyIfNotDetached();
+}
+
+v8::MaybeLocal<v8::Value> DOMWindow::WrapV2(ScriptState* script_state) {
+  // TODO(yukishiino): Get understanding of why it's possible to initialize
+  // the context after the frame is detached.  And then, remove the following
+  // lines.  See also https://crbug.com/712638 .
+  Frame* frame = GetFrame();
+  if (!frame)
+    return v8::Null(script_state->GetIsolate());
+
+  // TODO(yukishiino): Make this function always return the non-empty handle
+  // even if the frame is detached because the global proxy must always exist
+  // per spec.
   return frame->GetWindowProxy(script_state->World())
       ->GlobalProxyIfNotDetached();
 }
@@ -439,18 +455,48 @@ void DOMWindow::InstallCoopAccessMonitor(
     network::mojom::blink::CoopAccessReportType report_type,
     LocalFrame* accessing_frame,
     mojo::PendingRemote<network::mojom::blink::CrossOriginOpenerPolicyReporter>
-        pending_reporter) {
+        pending_reporter,
+    bool endpoint_defined,
+    const WTF::String& reported_window_url) {
   CoopAccessMonitor monitor;
 
   DCHECK(accessing_frame->IsMainFrame());
   monitor.report_type = report_type;
   monitor.accessing_main_frame = accessing_frame->GetFrameToken();
+  monitor.endpoint_defined = endpoint_defined;
+  monitor.reported_window_url = std::move(reported_window_url);
 
-  // TODO(arthursonzogni): Clean coop_access_monitor_ when a reporter is gone.
-  // Use mojo::Remote::set_disconnect_handler.
   monitor.reporter.Bind(std::move(pending_reporter));
+  // CoopAccessMonitor are cleared when their reporter are gone. This avoids
+  // accumulation. However it would have been interesting continuing reporting
+  // accesses past this point, at least for the ReportingObserver and Devtool.
+  // TODO(arthursonzogni): Consider observing |accessing_main_frame| deletion
+  // instead.
+  monitor.reporter.set_disconnect_handler(
+      WTF::Bind(&DOMWindow::DisconnectCoopAccessMonitor,
+                WrapWeakPersistent(this), monitor.accessing_main_frame));
 
+  // As long as RenderDocument isn't shipped, it can exist a CoopAccessMonitor
+  // for the same |accessing_main_frame|, because it might now host a different
+  // Document. Same is true for |this| DOMWindow, it might refer to a window
+  // hosting a different document.
+  // The new documents will still be part of a different virtual browsing
+  // context group, however the new COOPAccessMonitor might now contain updated
+  // URLs.
+  //
+  // There are up to 2 CoopAccessMonitor for the same access, because it can be
+  // reported to the accessing and the accessed window at the same time.
+  for (CoopAccessMonitor& old : coop_access_monitor_) {
+    if (old.accessing_main_frame == monitor.accessing_main_frame &&
+        network::IsAccessFromCoopPage(old.report_type) ==
+            network::IsAccessFromCoopPage(monitor.report_type)) {
+      old = std::move(monitor);
+      return;
+    }
+  }
   coop_access_monitor_.push_back(std::move(monitor));
+  // Any attempts to access |this| window from |accessing_main_frame| will now
+  // trigger reports (network, ReportingObserver, Devtool).
 }
 
 // Check if the accessing context would be able to access this window if COOP
@@ -489,25 +535,34 @@ void DOMWindow::ReportCoopAccess(const char* property_name) {
 
     auto location = SourceLocation::Capture(
         ExecutionContext::From(isolate->GetCurrentContext()));
-    // TODO(arthursonzogni): Once implemented, use the SourceLocation typemape
+    // TODO(arthursonzogni): Once implemented, use the SourceLocation typemap
     // https://chromium-review.googlesource.com/c/chromium/src/+/2041657
     auto source_location = network::mojom::blink::SourceLocation::New(
         location->Url() ? location->Url() : "", location->LineNumber(),
         location->ColumnNumber());
 
-    it->reporter->QueueAccessReport(it->report_type, property_name,
-                                    std::move(source_location));
+    // TODO(https://crbug.com/1124251): Notify Devtool about the access attempt.
 
-    // TODO(arthursonzogni): Dispatch a console error/warning message.
-
-    // Send a coop-access-violation report.
-    if (network::IsAccessFromCoopPage(it->report_type)) {
-      ReportingContext::From(accessing_main_frame.DomWindow())
-          ->QueueReport(MakeGarbageCollected<Report>(
-              ReportType::kCoopAccessViolation,
-              accessing_main_frame.GetDocument()->Url().GetString(),
-              MakeGarbageCollected<CoopAccessViolationReportBody>(
-                  std::move(location), String(property_name))));
+    // If the reporting document hasn't specified any network report
+    // endpoint(s), then it is likely not interested in receiving
+    // ReportingObserver's reports.
+    //
+    // TODO(arthursonzogni): Reconsider this decision later, developers might be
+    // interested.
+    if (it->endpoint_defined) {
+      it->reporter->QueueAccessReport(it->report_type, property_name,
+                                      std::move(source_location),
+                                      std::move(it->reported_window_url));
+      // Send a coop-access-violation report.
+      if (network::IsAccessFromCoopPage(it->report_type)) {
+        ReportingContext::From(accessing_main_frame.DomWindow())
+            ->QueueReport(MakeGarbageCollected<Report>(
+                ReportType::kCoopAccessViolation,
+                accessing_main_frame.GetDocument()->Url().GetString(),
+                MakeGarbageCollected<CoopAccessViolationReportBody>(
+                    std::move(location), it->report_type, String(property_name),
+                    it->reported_window_url)));
+      }
     }
 
     // CoopAccessMonitor are used once and destroyed. This avoids sending
@@ -521,16 +576,23 @@ void DOMWindow::DoPostMessage(scoped_refptr<SerializedScriptValue> message,
                               const WindowPostMessageOptions* options,
                               LocalDOMWindow* source,
                               ExceptionState& exception_state) {
-  if (GetFrame() && GetFrame()->GetPage() &&
-      GetFrame()->GetPage()->DispatchedPagehideAndStillHidden()) {
+  TRACE_EVENT0("blink", "DOMWindow::DoPostMessage");
+  auto* source_frame = source->GetFrame();
+  bool unload_event_in_progress =
+      source_frame && source_frame->GetDocument() &&
+      source_frame->GetDocument()->UnloadEventInProgress();
+  if (!unload_event_in_progress && source_frame && source_frame->GetPage() &&
+      source_frame->GetPage()->DispatchedPagehideAndStillHidden()) {
     // The postMessage call is done after the pagehide event got dispatched
     // and the page is still hidden, which is not normally possible (this
     // might happen if we're doing a same-site cross-RenderFrame navigation
     // where we dispatch pagehide during the new RenderFrame's commit but
     // won't unload/freeze the page after the new RenderFrame finished
     // committing). We should track this case to measure how often this is
-    // happening.
-    UMA_HISTOGRAM_ENUMERATION("BackForwardCache.SameSite.ActionAfterPagehide",
+    // happening, except for when the unload event is currently in progress,
+    // which means the page is not actually stored in the back-forward cache and
+    // this behavior is ok.
+    UMA_HISTOGRAM_ENUMERATION("BackForwardCache.SameSite.ActionAfterPagehide2",
                               ActionAfterPagehide::kSentPostMessage);
   }
   if (!IsCurrentlyDisplayedInFrame())
@@ -609,10 +671,24 @@ void DOMWindow::DoPostMessage(scoped_refptr<SerializedScriptValue> message,
   if (options->includeUserActivation())
     user_activation = UserActivation::CreateSnapshot(source);
 
+  // TODO(mustaq): This is an ad-hoc mechanism to support delegating a single
+  // capability.  We need to add a structure to support passing other
+  // capabilities.  An explainer for the general delegation API is here:
+  // https://github.com/mustaqahmed/capability-delegation
+  bool delegate_payment_request = false;
+  if (RuntimeEnabledFeatures::CapabilityDelegationPaymentRequestEnabled(
+          GetExecutionContext()) &&
+      LocalFrame::HasTransientUserActivation(source_frame) &&
+      options->hasCreateToken()) {
+    Vector<String> capability_list;
+    options->createToken().Split(' ', capability_list);
+    delegate_payment_request = capability_list.Contains("paymentrequest");
+  }
+
   MessageEvent* event =
       MessageEvent::Create(std::move(channels), std::move(message),
                            source->GetSecurityOrigin()->ToString(), String(),
-                           source, user_activation);
+                           source, user_activation, delegate_payment_request);
 
   SchedulePostMessage(event, std::move(target), source);
 }
@@ -623,6 +699,17 @@ void DOMWindow::Trace(Visitor* visitor) const {
   visitor->Trace(input_capabilities_);
   visitor->Trace(location_);
   EventTargetWithInlineData::Trace(visitor);
+}
+
+void DOMWindow::DisconnectCoopAccessMonitor(
+    base::UnguessableToken accessing_main_frame) {
+  auto* it = coop_access_monitor_.begin();
+  while (it != coop_access_monitor_.end()) {
+    if (it->accessing_main_frame == accessing_main_frame)
+      it = coop_access_monitor_.erase(it);
+    else
+      ++it;
+  }
 }
 
 }  // namespace blink

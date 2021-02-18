@@ -4,11 +4,13 @@
 
 #include "chrome/browser/performance_manager/chrome_browser_main_extra_parts_performance_manager.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/feature_list.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/performance_manager/browser_child_process_watcher.h"
 #include "chrome/browser/performance_manager/decorators/frozen_frame_aggregator.h"
@@ -18,6 +20,7 @@
 #include "chrome/browser/performance_manager/metrics/memory_pressure_metrics.h"
 #include "chrome/browser/performance_manager/observers/isolation_context_metrics.h"
 #include "chrome/browser/performance_manager/observers/metrics_collector.h"
+#include "chrome/browser/performance_manager/observers/page_load_metrics_observer.h"
 #include "chrome/browser/performance_manager/policies/background_tab_loading_policy.h"
 #include "chrome/browser/performance_manager/policies/high_pmf_discard_policy.h"
 #include "chrome/browser/performance_manager/policies/policy_features.h"
@@ -33,7 +36,7 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_features.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "base/allocator/buildflags.h"
 #include "chrome/browser/performance_manager/policies/userspace_swap_policy_chromeos.h"
 
@@ -42,10 +45,12 @@
 #include "chrome/common/performance_manager/mojom/tcmalloc.mojom.h"
 #endif  // BUILDFLAG(USE_TCMALLOC)
 
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if !defined(OS_ANDROID)
+#include "chrome/browser/performance_manager/mechanisms/page_freezer.h"
 #include "chrome/browser/performance_manager/policies/page_discarding_helper.h"
+#include "chrome/browser/performance_manager/policies/page_freezing_policy.h"
 #include "chrome/browser/performance_manager/policies/urgent_page_discarding_policy.h"
 #include "chrome/browser/tab_contents/form_interaction_tab_helper.h"
 #endif  // !defined(OS_ANDROID)
@@ -93,7 +98,7 @@ void ChromeBrowserMainExtraPartsPerformanceManager::CreatePoliciesAndDecorators(
                            CreatePolicyForPlatform());
   }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (performance_manager::policies::UserspaceSwapPolicy::
           UserspaceSwapSupportedAndEnabled()) {
     graph->PassToGraph(
@@ -107,16 +112,26 @@ void ChromeBrowserMainExtraPartsPerformanceManager::CreatePoliciesAndDecorators(
                        performance_manager::policies::DynamicTcmallocPolicy>());
   }
 #endif  // BUILDFLAG(USE_TCMALLOC)
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if !defined(OS_ANDROID)
   graph->PassToGraph(FormInteractionTabHelper::CreateGraphObserver());
 
+  // The PageDiscardingHelper instance is required by the HighPMFDiscardPolicy
+  // and by UrgentDiscardingFromPerformanceManager.
+
   if (base::FeatureList::IsEnabled(
+          performance_manager::features::kHighPMFDiscardPolicy) ||
+      base::FeatureList::IsEnabled(
           performance_manager::features::
               kUrgentDiscardingFromPerformanceManager)) {
     graph->PassToGraph(std::make_unique<
                        performance_manager::policies::PageDiscardingHelper>());
+  }
+
+  if (base::FeatureList::IsEnabled(
+          performance_manager::features::
+              kUrgentDiscardingFromPerformanceManager)) {
     graph->PassToGraph(
         std::make_unique<
             performance_manager::policies::UrgentPageDiscardingPolicy>());
@@ -135,6 +150,12 @@ void ChromeBrowserMainExtraPartsPerformanceManager::CreatePoliciesAndDecorators(
     graph->PassToGraph(std::make_unique<
                        performance_manager::policies::HighPMFDiscardPolicy>());
   }
+
+  // The freezing policy isn't enabled on Android yet as it doesn't play well
+  // with the freezing logic already in place in renderers. This logic should be
+  // moved to PerformanceManager, this is tracked in https://crbug.com/1156803.
+  graph->PassToGraph(
+      std::make_unique<performance_manager::policies::PageFreezingPolicy>());
 #endif  // !defined(OS_ANDROID)
 
   graph->PassToGraph(
@@ -168,6 +189,8 @@ void ChromeBrowserMainExtraPartsPerformanceManager::PostCreateThreads() {
 
   g_browser_process->profile_manager()->AddObserver(this);
 
+  page_load_metrics_observer_ =
+      std::make_unique<performance_manager::PageLoadMetricsObserver>();
   page_live_state_data_helper_ =
       std::make_unique<performance_manager::PageLiveStateDecoratorHelper>();
   page_load_tracker_decorator_helper_ =
@@ -181,10 +204,11 @@ void ChromeBrowserMainExtraPartsPerformanceManager::PostMainMessageLoopRun() {
   browser_child_process_watcher_.reset();
 
   g_browser_process->profile_manager()->RemoveObserver(this);
-  observed_profiles_.RemoveAll();
+  profile_observations_.RemoveAllObservations();
 
   page_load_tracker_decorator_helper_.reset();
   page_live_state_data_helper_.reset();
+  page_load_metrics_observer_.reset();
 
   // There may still be worker hosts, WebContents and RenderProcessHosts with
   // attached user data, retaining WorkerNodes, PageNodes, FrameNodes and
@@ -199,7 +223,7 @@ void ChromeBrowserMainExtraPartsPerformanceManager::PostMainMessageLoopRun() {
 
 void ChromeBrowserMainExtraPartsPerformanceManager::OnProfileAdded(
     Profile* profile) {
-  observed_profiles_.Add(profile);
+  profile_observations_.AddObservation(profile);
   registry_->NotifyBrowserContextAdded(profile);
 }
 
@@ -210,6 +234,6 @@ void ChromeBrowserMainExtraPartsPerformanceManager::
 
 void ChromeBrowserMainExtraPartsPerformanceManager::OnProfileWillBeDestroyed(
     Profile* profile) {
-  observed_profiles_.Remove(profile);
+  profile_observations_.RemoveObservation(profile);
   registry_->NotifyBrowserContextRemoved(profile);
 }

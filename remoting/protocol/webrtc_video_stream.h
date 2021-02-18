@@ -23,7 +23,6 @@
 #include "remoting/protocol/video_stream.h"
 #include "third_party/webrtc/api/scoped_refptr.h"
 #include "third_party/webrtc/api/video_codecs/sdp_video_format.h"
-#include "third_party/webrtc/common_types.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_capturer.h"
 
 namespace webrtc {
@@ -118,6 +117,9 @@ class WebrtcVideoStream : public VideoStream,
   // new SDP offer/answer exchange, and therefore it cannot be changed directly
   // via video-control message.
   bool lossless_encode_ = false;
+
+  // Flag set when SDP is renegotiated and a new codec needs to be used.
+  bool recreate_encoder_ = false;
 
   base::WeakPtrFactory<WebrtcVideoStream> weak_factory_{this};
 

@@ -76,14 +76,18 @@ namespace content {
 // the event could occur in either.
 class TracingRenderWidgetHost : public RenderWidgetHostImpl {
  public:
-  TracingRenderWidgetHost(RenderWidgetHostDelegate* delegate,
+  TracingRenderWidgetHost(FrameTree* frame_tree,
+                          RenderWidgetHostDelegate* delegate,
                           AgentSchedulingGroupHost& agent_scheduling_group,
                           int32_t routing_id,
                           bool hidden)
-      : RenderWidgetHostImpl(delegate,
+      : RenderWidgetHostImpl(frame_tree,
+                             /*self_owned=*/false,
+                             delegate,
                              agent_scheduling_group,
                              routing_id,
                              hidden,
+                             /*renderer_initiated_creation=*/false,
                              std::make_unique<FrameTokenMessageQueue>()) {}
 
   void OnMouseEventAck(
@@ -92,8 +96,6 @@ class TracingRenderWidgetHost : public RenderWidgetHostImpl {
       blink::mojom::InputEventResultState ack_result) override {
     RenderWidgetHostImpl::OnMouseEventAck(event, ack_source, ack_result);
   }
-
- private:
 };
 
 class TracingRenderWidgetHostFactory : public RenderWidgetHostFactory {
@@ -107,12 +109,13 @@ class TracingRenderWidgetHostFactory : public RenderWidgetHostFactory {
   }
 
   std::unique_ptr<RenderWidgetHostImpl> CreateRenderWidgetHost(
+      FrameTree* frame_tree,
       RenderWidgetHostDelegate* delegate,
       AgentSchedulingGroupHost& agent_scheduling_group,
       int32_t routing_id,
       bool hidden) override {
     return std::make_unique<TracingRenderWidgetHost>(
-        delegate, agent_scheduling_group, routing_id, hidden);
+        frame_tree, delegate, agent_scheduling_group, routing_id, hidden);
   }
 
  private:
@@ -125,8 +128,11 @@ class MouseLatencyBrowserTest : public ContentBrowserTest {
   ~MouseLatencyBrowserTest() override {}
 
   RenderWidgetHostImpl* GetWidgetHost() {
-    return RenderWidgetHostImpl::From(
-        shell()->web_contents()->GetRenderViewHost()->GetWidget());
+    return RenderWidgetHostImpl::From(shell()
+                                          ->web_contents()
+                                          ->GetMainFrame()
+                                          ->GetRenderViewHost()
+                                          ->GetWidget());
   }
 
   void OnSyntheticGestureCompleted(SyntheticGesture::Result result) {
@@ -358,8 +364,7 @@ IN_PROC_BROWSER_TEST_F(MouseLatencyBrowserTest,
                        gfx::Vector2dF(250, 250));
   // The following wait is the upper bound for gpu swap completed callback. It
   // is two frames to account for double buffering.
-  MainThreadFrameObserver observer(RenderWidgetHostImpl::From(
-      shell()->web_contents()->GetRenderViewHost()->GetWidget()));
+  MainThreadFrameObserver observer(GetWidgetHost());
   observer.Wait();
   observer.Wait();
 

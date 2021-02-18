@@ -5,7 +5,6 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "net/proxy_resolution/configured_proxy_resolution_service.h"
@@ -50,8 +49,6 @@ class CorsURLLoaderFactoryTest : public testing::Test {
  protected:
   // testing::Test implementation.
   void SetUp() override {
-    feature_list_.InitAndEnableFeature(features::kOutOfBlinkCors);
-
     network_service_ = NetworkService::CreateForTesting();
 
     auto context_params = mojom::NetworkContextParams::New();
@@ -94,9 +91,6 @@ class CorsURLLoaderFactoryTest : public testing::Test {
   void ResetFactory() { cors_url_loader_factory_.reset(); }
 
  private:
-  // Testing instance to enable kOutOfBlinkCors feature.
-  base::test::ScopedFeatureList feature_list_;
-
   // Test environment.
   base::test::TaskEnvironment task_environment_;
   std::unique_ptr<net::URLRequestContext> url_request_context_;

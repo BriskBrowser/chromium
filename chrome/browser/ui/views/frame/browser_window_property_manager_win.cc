@@ -36,8 +36,9 @@ BrowserWindowPropertyManager::BrowserWindowPropertyManager(
   // relaunch icon when the version changes (e.g on initial icon creation).
   profile_pref_registrar_.Add(
       prefs::kProfileIconVersion,
-      base::Bind(&BrowserWindowPropertyManager::OnProfileIconVersionChange,
-                 base::Unretained(this)));
+      base::BindRepeating(
+          &BrowserWindowPropertyManager::OnProfileIconVersionChange,
+          base::Unretained(this)));
 }
 
 BrowserWindowPropertyManager::~BrowserWindowPropertyManager() {
@@ -50,14 +51,15 @@ void BrowserWindowPropertyManager::UpdateWindowProperties() {
 
   // Set the app user model id for this application to that of the application
   // name. See http://crbug.com/7028.
-  base::string16 app_id =
-      browser->deprecated_is_app()
+  std::wstring app_id =
+      browser->is_type_app() || browser->is_type_app_popup() ||
+              browser->is_type_devtools()
           ? shell_integration::win::GetAppUserModelIdForApp(
                 base::UTF8ToWide(browser->app_name()), profile->GetPath())
           : shell_integration::win::GetAppUserModelIdForBrowser(
                 profile->GetPath());
   // Apps set their relaunch details based on app's details.
-  if (browser->deprecated_is_app()) {
+  if (browser->is_type_app() || browser->is_type_app_popup()) {
     ExtensionRegistry* registry = ExtensionRegistry::Get(profile);
     const extensions::Extension* extension = registry->GetExtensionById(
         web_app::GetAppIdFromApplicationName(browser->app_name()),
@@ -75,11 +77,11 @@ void BrowserWindowPropertyManager::UpdateWindowProperties() {
   // The profile manager may be null in testing.
 
   base::FilePath icon_path;
-  base::string16 command_line_string;
-  base::string16 pinned_name;
-  if (!browser->deprecated_is_app() && shortcut_manager &&
+  std::wstring command_line_string;
+  std::wstring pinned_name;
+  if ((browser->is_type_normal() || browser->is_type_popup()) &&
+      shortcut_manager &&
       profile->GetPrefs()->HasPrefPath(prefs::kProfileIconVersion)) {
-
     // Set relaunch details to use profile.
     base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
     shortcut_manager->GetShortcutProperties(profile->GetPath(), &command_line,

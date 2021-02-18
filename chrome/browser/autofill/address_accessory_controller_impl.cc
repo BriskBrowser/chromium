@@ -100,10 +100,15 @@ AddressAccessoryController* AddressAccessoryController::GetOrCreate(
   return AddressAccessoryControllerImpl::FromWebContents(web_contents);
 }
 
-// static
-AddressAccessoryController* AddressAccessoryController::GetIfExisting(
-    content::WebContents* web_contents) {
-  return AddressAccessoryControllerImpl::FromWebContents(web_contents);
+void AddressAccessoryControllerImpl::RegisterFillingSourceObserver(
+    FillingSourceObserver observer) {
+  NOTIMPLEMENTED();
+}
+
+base::Optional<autofill::AccessorySheetData>
+AddressAccessoryControllerImpl::GetSheetData() const {
+  NOTIMPLEMENTED();
+  return base::nullopt;
 }
 
 void AddressAccessoryControllerImpl::OnFillingTriggered(

@@ -15,6 +15,7 @@ import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
 import org.chromium.base.ApiCompatibilityUtils;
+import org.chromium.base.BuildInfo;
 import org.chromium.base.ContextUtils;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.notifications.NotificationUmaTracker;
@@ -31,9 +32,6 @@ import org.chromium.components.browser_ui.notifications.PendingIntentProvider;
  * Provides common functionality for handling sharing notifications.
  */
 public final class SharingNotificationUtil {
-    // TODO(himanshujaju) - We have only two small icons, one for error and one for non error. We
-    // could avoid passing them around.
-
     /**
      * Shows a notification with a configuration common to all sharing notifications.
      *
@@ -45,10 +43,12 @@ public final class SharingNotificationUtil {
      * @param contentText The notification content text.
      * @param largeIconId The large notification icon resource id, 0 if not used.
      * @param color The color to be used for the notification.
+     * @param startsActivity Whether the {@code contentIntent} starts an Activity.
      */
     public static void showNotification(@SystemNotificationType int type, String group, int id,
             PendingIntentProvider contentIntent, String contentTitle, String contentText,
-            @DrawableRes int smallIconId, @DrawableRes int largeIconId, int color) {
+            @DrawableRes int smallIconId, @DrawableRes int largeIconId, int color,
+            boolean startsActivity) {
         Context context = ContextUtils.getApplicationContext();
         Resources resources = context.getResources();
         NotificationWrapperBuilder builder =
@@ -57,7 +57,6 @@ public final class SharingNotificationUtil {
                                 ChromeChannelDefinitions.ChannelId.SHARING,
                                 /*remoteAppPackageName=*/null,
                                 new NotificationMetadata(type, group, id))
-                        .setContentIntent(contentIntent)
                         .setContentTitle(contentTitle)
                         .setContentText(contentText)
                         .setColor(ApiCompatibilityUtils.getColor(context.getResources(), color))
@@ -66,6 +65,15 @@ public final class SharingNotificationUtil {
                         .setSmallIcon(smallIconId)
                         .setAutoCancel(true)
                         .setDefaults(Notification.DEFAULT_ALL);
+
+        if (startsActivity && BuildInfo.isAtLeastS()) {
+            // We can't use the NotificationIntentInterceptor to start Activities starting in
+            // Android S. Use the unmodified PendingIntent directly instead.
+            builder.setContentIntent(contentIntent.getPendingIntent());
+        } else {
+            builder.setContentIntent(contentIntent);
+        }
+
         if (largeIconId != 0) {
             Bitmap largeIcon = BitmapFactory.decodeResource(resources, largeIconId);
             if (largeIcon != null) builder.setLargeIcon(largeIcon);

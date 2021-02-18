@@ -22,17 +22,16 @@
 #include "base/time/default_clock.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/login/easy_unlock/chrome_proximity_auth_client.h"
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_key_manager.h"
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_key_names.h"
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_notification_controller.h"
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/gcm/gcm_profile_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/chromeos/multidevice_setup/multidevice_setup_dialog.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/components/multidevice/logging/logging.h"
@@ -41,7 +40,6 @@
 #include "chromeos/components/proximity_auth/proximity_auth_system.h"
 #include "chromeos/components/proximity_auth/screenlock_bridge.h"
 #include "chromeos/components/proximity_auth/smart_lock_metrics_recorder.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "components/gcm_driver/gcm_profile_service.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
@@ -107,13 +105,13 @@ EasyUnlockServiceRegular::EasyUnlockServiceRegular(
 
 EasyUnlockServiceRegular::~EasyUnlockServiceRegular() = default;
 
-// TODO(jhawkins): This method with |has_unlock_keys| == true is the only signal
+// TODO(jhawkins): This method with `has_unlock_keys` == true is the only signal
 // that SmartLock setup has completed successfully. Make this signal more
 // explicit.
 void EasyUnlockServiceRegular::LoadRemoteDevices() {
   if (!device_sync_client_->is_ready()) {
     // OnEnrollmentFinished() or OnNewDevicesSynced() will call back on this
-    // method once |device_sync_client_| is ready.
+    // method once `device_sync_client_` is ready.
     PA_LOG(VERBOSE) << "DeviceSyncClient is not ready yet, delaying "
                        "UseLoadedRemoteDevices().";
     return;
@@ -135,7 +133,7 @@ void EasyUnlockServiceRegular::LoadRemoteDevices() {
   // IsEnabled().
   pref_manager_->SetIsEasyUnlockEnabled(has_unlock_keys);
   if (has_unlock_keys) {
-    // If |has_unlock_keys| is true, then the user must have successfully
+    // If `has_unlock_keys` is true, then the user must have successfully
     // completed setup. Track that the IsEasyUnlockEnabled pref is actively set
     // by the user, as opposed to passively being set to disabled (the default
     // state).
@@ -179,7 +177,7 @@ void EasyUnlockServiceRegular::UseLoadedRemoteDevices(
   SetProximityAuthDevices(GetAccountId(), remote_devices,
                           device_sync_client_->GetLocalDeviceMetadata());
 
-  // We need to store a copy of |local_and_remote_devices| in the TPM, so it can
+  // We need to store a copy of `local_and_remote_devices` in the TPM, so it can
   // be retrieved on the sign-in screen when a user session has not been started
   // yet. This expects a final size of 2 (the one remote device, and the local
   // device).
@@ -327,10 +325,11 @@ void EasyUnlockServiceRegular::InitializeInternal() {
   registrar_.Init(profile()->GetPrefs());
   registrar_.Add(
       proximity_auth::prefs::kProximityAuthIsChromeOSLoginEnabled,
-      base::Bind(&EasyUnlockServiceRegular::CheckCryptohomeKeysAndMaybeHardlock,
-                 weak_ptr_factory_.GetWeakPtr()));
+      base::BindRepeating(
+          &EasyUnlockServiceRegular::CheckCryptohomeKeysAndMaybeHardlock,
+          weak_ptr_factory_.GetWeakPtr()));
 
-  // If |device_sync_client_| is not ready yet, wait for it to call back on
+  // If `device_sync_client_` is not ready yet, wait for it to call back on
   // OnReady().
   if (device_sync_client_->is_ready())
     OnReady();
@@ -520,6 +519,7 @@ void EasyUnlockServiceRegular::OnScreenDidUnlock(
     RecordEasyUnlockScreenUnlockEvent(event);
 
     if (will_authenticate_using_easy_unlock()) {
+      // TODO(crbug.com/1171972): Deprecate the AuthMethodChoice metric.
       SmartLockMetricsRecorder::RecordSmartLockUnlockAuthMethodChoice(
           SmartLockMetricsRecorder::SmartLockAuthMethodChoice::kSmartLock);
       SmartLockMetricsRecorder::RecordAuthResultUnlockSuccess();
@@ -528,6 +528,7 @@ void EasyUnlockServiceRegular::OnScreenDidUnlock(
     } else {
       SmartLockMetricsRecorder::RecordAuthMethodChoiceUnlockPasswordState(
           GetSmartUnlockPasswordAuthEvent());
+      // TODO(crbug.com/1171972): Deprecate the AuthMethodChoice metric.
       SmartLockMetricsRecorder::RecordSmartLockUnlockAuthMethodChoice(
           SmartLockMetricsRecorder::SmartLockAuthMethodChoice::kOther);
       OnUserEnteredPassword();

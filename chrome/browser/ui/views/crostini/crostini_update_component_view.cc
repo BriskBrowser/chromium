@@ -20,6 +20,7 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/layout_provider.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace {
 
@@ -38,19 +39,15 @@ void crostini::ShowCrostiniUpdateComponentView(
 }
 
 void CrostiniUpdateComponentView::Show(Profile* profile) {
-  DCHECK(crostini::CrostiniFeatures::Get()->IsUIAllowed(profile));
+  if (!crostini::CrostiniFeatures::Get()->IsAllowedNow(profile)) {
+    return;
+  }
+
   if (!g_crostini_upgrade_view) {
     g_crostini_upgrade_view = new CrostiniUpdateComponentView;
     CreateDialogWidget(g_crostini_upgrade_view, nullptr, nullptr);
   }
   g_crostini_upgrade_view->GetWidget()->Show();
-}
-
-gfx::Size CrostiniUpdateComponentView::CalculatePreferredSize() const {
-  const int dialog_width = ChromeLayoutProvider::Get()->GetDistanceMetric(
-                               DISTANCE_STANDALONE_BUBBLE_PREFERRED_WIDTH) -
-                           margins().width();
-  return gfx::Size(dialog_width, GetHeightForWidth(dialog_width));
 }
 
 // static
@@ -63,6 +60,8 @@ CrostiniUpdateComponentView::CrostiniUpdateComponentView() {
   SetButtons(ui::DIALOG_BUTTON_OK);
   SetShowCloseButton(false);
   SetTitle(IDS_CROSTINI_TERMINA_UPDATE_REQUIRED);
+  set_fixed_width(ChromeLayoutProvider::Get()->GetDistanceMetric(
+      DISTANCE_STANDALONE_BUBBLE_PREFERRED_WIDTH));
 
   views::LayoutProvider* provider = views::LayoutProvider::Get();
   SetLayoutManager(std::make_unique<views::BoxLayout>(
@@ -83,3 +82,6 @@ CrostiniUpdateComponentView::CrostiniUpdateComponentView() {
 CrostiniUpdateComponentView::~CrostiniUpdateComponentView() {
   g_crostini_upgrade_view = nullptr;
 }
+
+BEGIN_METADATA(CrostiniUpdateComponentView, views::BubbleDialogDelegateView)
+END_METADATA

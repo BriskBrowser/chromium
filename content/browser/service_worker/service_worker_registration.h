@@ -16,13 +16,14 @@
 #include "base/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
-#include "content/browser/service_worker/service_worker_version.h"
 #include "content/common/content_export.h"
+#include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
 #include "url/gurl.h"
 
 namespace content {
 
+class ServiceWorkerContextCore;
 class ServiceWorkerVersion;
 struct ServiceWorkerRegistrationInfo;
 
@@ -76,6 +77,7 @@ class CONTENT_EXPORT ServiceWorkerRegistration
 
   int64_t id() const { return registration_id_; }
   const GURL& scope() const { return scope_; }
+  const url::Origin& origin() const { return origin_; }
   blink::mojom::ServiceWorkerUpdateViaCache update_via_cache() const {
     return update_via_cache_;
   }
@@ -255,6 +257,7 @@ class CONTENT_EXPORT ServiceWorkerRegistration
   };
 
   const GURL scope_;
+  const url::Origin origin_;
   blink::mojom::ServiceWorkerUpdateViaCache update_via_cache_;
   const int64_t registration_id_;
   Status status_;
@@ -282,6 +285,9 @@ class CONTENT_EXPORT ServiceWorkerRegistration
   // It is stopped when activation completes or the active version is no
   // longer considered a lame duck.
   base::RepeatingTimer lame_duck_timer_;
+
+  // TODO(crbug.com/1159778): Remove once the bug is fixed.
+  bool in_activate_waiting_version_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(ServiceWorkerRegistration);
 };

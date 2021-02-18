@@ -32,14 +32,17 @@ PostSaveCompromisedBubbleView::PostSaveCompromisedBubbleView(
     SetButtonLabel(ui::DIALOG_BUTTON_OK, std::move(button));
   }
 
-  auto label = std::make_unique<views::StyledLabel>(this);
+  auto label = std::make_unique<views::StyledLabel>();
   label->SetText(controller_.GetBody());
-  label->SetTextContext(CONTEXT_BODY_TEXT_LARGE);
+  label->SetTextContext(views::style::CONTEXT_DIALOG_BODY_TEXT);
   label->SetDefaultTextStyle(views::style::STYLE_SECONDARY);
   gfx::Range range = controller_.GetSettingLinkRange();
   if (!range.is_empty()) {
-    label->AddStyleRange(range,
-                         views::StyledLabel::RangeStyleInfo::CreateForLink());
+    label->AddStyleRange(
+        range,
+        views::StyledLabel::RangeStyleInfo::CreateForLink(base::BindRepeating(
+            &PostSaveCompromisedBubbleController::OnSettingsClicked,
+            base::Unretained(&controller_))));
   }
   AddChildView(std::move(label));
 
@@ -60,17 +63,6 @@ PostSaveCompromisedBubbleView::GetController() const {
   return &controller_;
 }
 
-gfx::Size PostSaveCompromisedBubbleView::CalculatePreferredSize() const {
-  const int width = ChromeLayoutProvider::Get()->GetDistanceMetric(
-                        DISTANCE_BUBBLE_PREFERRED_WIDTH) -
-                    margins().width();
-  return gfx::Size(width, GetHeightForWidth(width));
-}
-
-bool PostSaveCompromisedBubbleView::ShouldShowCloseButton() const {
-  return true;
-}
-
 void PostSaveCompromisedBubbleView::OnThemeChanged() {
   PasswordBubbleViewBase::OnThemeChanged();
   int image_id = controller_.GetImageID(
@@ -79,11 +71,4 @@ void PostSaveCompromisedBubbleView::OnThemeChanged() {
   image_view->SetImage(
       *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(image_id));
   GetBubbleFrameView()->SetHeaderView(std::move(image_view));
-}
-
-void PostSaveCompromisedBubbleView::StyledLabelLinkClicked(
-    views::StyledLabel* label,
-    const gfx::Range& range,
-    int event_flags) {
-  controller_.OnSettingsClicked();
 }

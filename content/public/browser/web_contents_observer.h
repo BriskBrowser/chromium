@@ -19,7 +19,6 @@
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/reload_type.h"
 #include "content/public/browser/visibility.h"
-#include "content/public/common/frame_navigate_params.h"
 #include "ipc/ipc_listener.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 #include "services/network/public/mojom/fetch_api.mojom-forward.h"
@@ -107,14 +106,6 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
   // Use |RenderFrameHostChanged| to listen for when a RenderFrameHost object is
   // made the current host for a frame.
   virtual void FrameDeleted(RenderFrameHost* render_frame_host) {}
-
-  // This is called when a RVH is created for a WebContents, but not if it's an
-  // interstitial.
-  virtual void RenderViewCreated(RenderViewHost* render_view_host) {}
-
-  // Called for every RenderFrameHost that's created for an interstitial.
-  virtual void RenderFrameForInterstitialPageCreated(
-      RenderFrameHost* render_frame_host) {}
 
   // This method is invoked when the RenderView of the current RenderViewHost
   // is ready, e.g. because we recreated it after a crash.
@@ -394,6 +385,11 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
   virtual void FrameSizeChanged(RenderFrameHost* render_frame_host,
                                 const gfx::Size& frame_size) {}
 
+  // Invoked when the state of render_frame_host->IsInBackForwardCache()
+  // changes.
+  virtual void FrameBackForwardCacheStateChanged(
+      RenderFrameHost* render_frame_host) {}
+
   // This method is invoked when the title of the WebContents is set. Note that
   // |entry| may be null if the web page whose title changed has not yet had a
   // NavigationEntry assigned to it.
@@ -486,11 +482,6 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
   // Invoked when the WebContents is muted/unmuted.
   virtual void DidUpdateAudioMutingState(bool muted) {}
 
-  // Invoked when a pepper plugin creates and shows or destroys a fullscreen
-  // RenderWidget.
-  virtual void DidShowFullscreenWidget() {}
-  virtual void DidDestroyFullscreenWidget() {}
-
   // Invoked when the renderer process has toggled the tab into/out of
   // fullscreen mode.
   virtual void DidToggleFullscreenModeForTab(bool entered_fullscreen,
@@ -543,11 +534,15 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
 
   // Called when a message is added to the console of the WebContents. This is
   // invoked before forwarding the message to the WebContents' delegate.
+  // |source_id| is a URL. |untrusted_stack_trace| is not present for most
+  // messages; only when requested in advance and only for exceptions.
   virtual void OnDidAddMessageToConsole(
+      RenderFrameHost* source_frame,
       blink::mojom::ConsoleMessageLevel log_level,
       const base::string16& message,
       int32_t line_no,
-      const base::string16& source_id) {}
+      const base::string16& source_id,
+      const base::Optional<base::string16>& untrusted_stack_trace) {}
 
   // Invoked when media is playing or paused.  |id| is unique per player and per
   // RenderFrameHost.  There may be multiple players within a RenderFrameHost
@@ -586,6 +581,8 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
   virtual void MediaPictureInPictureChanged(bool is_picture_in_picture) {}
   virtual void MediaMutedStatusChanged(const MediaPlayerId& id, bool muted) {}
   virtual void MediaBufferUnderflow(const MediaPlayerId& id) {}
+  virtual void MediaPlayerSeek(const MediaPlayerId& id) {}
+  virtual void MediaDestroyed(const MediaPlayerId& id) {}
 
   // Invoked when the renderer process changes the page scale factor.
   virtual void OnPageScaleFactorChanged(float page_scale_factor) {}

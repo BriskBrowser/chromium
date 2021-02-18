@@ -30,6 +30,7 @@
 #import "ios/chrome/browser/ui/table_view/cells/table_view_link_header_footer_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_header_footer_item.h"
 #import "ios/chrome/browser/ui/table_view/table_view_model.h"
+#import "ios/chrome/browser/ui/table_view/table_view_utils.h"
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
@@ -85,10 +86,8 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 - (instancetype)initWithBrowserState:(ChromeBrowserState*)browserState {
   DCHECK(browserState);
-  UITableViewStyle style = base::FeatureList::IsEnabled(kSettingsRefresh)
-                               ? UITableViewStylePlain
-                               : UITableViewStyleGrouped;
-  self = [super initWithStyle:style];
+
+  self = [super initWithStyle:ChromeTableViewStyle()];
   if (self) {
     self.title = l10n_util::GetNSString(IDS_AUTOFILL_ADDRESSES_SETTINGS_TITLE);
     self.shouldHideDoneButton = YES;
@@ -162,7 +161,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
   switchItem.text =
       l10n_util::GetNSString(IDS_AUTOFILL_ENABLE_PROFILES_TOGGLE_LABEL);
   switchItem.on = [self isAutofillProfileEnabled];
-  switchItem.accessibilityIdentifier = @"addressItem_switch";
+  switchItem.accessibilityIdentifier = kAutofillAddressSwitchViewId;
   return switchItem;
 }
 
@@ -173,7 +172,9 @@ typedef NS_ENUM(NSInteger, ItemType) {
       l10n_util::GetNSString(IDS_AUTOFILL_ENABLE_PROFILES_TOGGLE_LABEL);
   // The status could only be off when the pref is managed.
   managedAddressItem.statusText = l10n_util::GetNSString(IDS_IOS_SETTING_OFF);
-  managedAddressItem.accessibilityIdentifier = @"addressItem_managed";
+  managedAddressItem.accessibilityHint =
+      l10n_util::GetNSString(IDS_IOS_TOGGLE_SETTING_MANAGED_ACCESSIBILITY_HINT);
+  managedAddressItem.accessibilityIdentifier = kAutofillAddressManagedViewId;
   return managedAddressItem;
 }
 

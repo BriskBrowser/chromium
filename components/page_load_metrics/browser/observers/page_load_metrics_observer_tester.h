@@ -141,6 +141,13 @@ class PageLoadMetricsObserverTester : public test::WeakMockTimerProvider {
                              bool blocked_by_policy,
                              StorageType storage_type);
 
+  // Simulate a V8 per-frame memory update.
+  void SimulateMemoryUpdate(content::RenderFrameHost* render_frame_host,
+                            int64_t delta_bytes);
+
+  void SimulateMobileFriendlinessUpdate(
+      blink::MobileFriendliness& mobile_friendliness);
+
   MetricsWebContentsObserver* metrics_web_contents_observer() {
     return metrics_web_contents_observer_;
   }
@@ -162,6 +169,7 @@ class PageLoadMetricsObserverTester : public test::WeakMockTimerProvider {
       const mojom::CpuTiming& cpu_timing,
       const mojom::DeferredResourceCounts& new_deferred_resource_data,
       const mojom::InputTiming& input_timing,
+      const blink::MobileFriendliness& mobile_friendliness,
       content::RenderFrameHost* rfh);
 
   content::WebContents* web_contents() const { return web_contents_; }

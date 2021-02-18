@@ -15,14 +15,12 @@
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
 #include "chrome/browser/chromeos/login/ui/user_adding_screen.h"
-#include "chrome/browser/chromeos/login/user_flow.h"
-#include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/multi_profile_user_controller.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/profiles/profile.h"
@@ -105,19 +103,6 @@ std::unique_ptr<ash::UserSession> UserToUserSession(const User& user) {
         *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
             IDR_LOGIN_DEFAULT_USER);
   }
-
-  if (user.IsSupervised()) {
-    SupervisedUserService* service =
-        SupervisedUserServiceFactory::GetForProfile(profile);
-    session->custodian_email = service->GetCustodianEmailAddress();
-    session->second_custodian_email = service->GetSecondCustodianEmailAddress();
-  }
-
-  chromeos::UserFlow* const user_flow =
-      chromeos::ChromeUserManager::Get()->GetUserFlow(user.GetAccountId());
-  session->should_enable_settings = user_flow->ShouldEnableSettings();
-  session->should_show_notification_tray =
-      user_flow->ShouldShowNotificationTray();
 
   return session;
 }
@@ -246,6 +231,10 @@ void SessionControllerClientImpl::RequestSignOut() {
   chrome::AttemptUserExit();
 }
 
+void SessionControllerClientImpl::AttemptRestartChrome() {
+  chrome::AttemptRestart();
+}
+
 void SessionControllerClientImpl::SwitchActiveUser(
     const AccountId& account_id) {
   DoSwitchActiveUser(account_id);
@@ -266,32 +255,29 @@ void SessionControllerClientImpl::ShowMultiProfileLogin() {
     return;
   }
 
-  if (UserManager::Get()->GetLoggedInUsers().size() >=
-      session_manager::kMaximumNumberOfUserSessions) {
-    return;
-  }
+  DCHECK(UserManager::Get()->GetLoggedInUsers().size() <
+         session_manager::kMaximumNumberOfUserSessions);
 
   // Launch sign in screen to add another user to current session.
-  if (!UserManager::Get()->GetUsersAllowedForMultiProfile().empty()) {
-    // Don't show the dialog if any logged-in user in the multi-profile session
-    // dismissed it.
-    bool show_intro = true;
-    const user_manager::UserList logged_in_users =
-        UserManager::Get()->GetLoggedInUsers();
-    for (User* user : logged_in_users) {
-      show_intro &=
-          !multi_user_util::GetProfileFromAccountId(user->GetAccountId())
-               ->GetPrefs()
-               ->GetBoolean(prefs::kMultiProfileNeverShowIntro);
-      if (!show_intro)
-        break;
-    }
-    if (show_intro) {
-      session_controller_->ShowMultiprofilesIntroDialog(
-          base::BindOnce(&OnAcceptMultiprofilesIntroDialog));
-    } else {
-      chromeos::UserAddingScreen::Get()->Start();
-    }
+  DCHECK(!UserManager::Get()->GetUsersAllowedForMultiProfile().empty());
+  // Don't show the dialog if any logged-in user in the multi-profile session
+  // dismissed it.
+  bool show_intro = true;
+  const user_manager::UserList logged_in_users =
+      UserManager::Get()->GetLoggedInUsers();
+  for (User* user : logged_in_users) {
+    show_intro &=
+        !multi_user_util::GetProfileFromAccountId(user->GetAccountId())
+             ->GetPrefs()
+             ->GetBoolean(prefs::kMultiProfileNeverShowIntro);
+    if (!show_intro)
+      break;
+  }
+  if (show_intro) {
+    session_controller_->ShowMultiprofilesIntroDialog(
+        base::BindOnce(&OnAcceptMultiprofilesIntroDialog));
+  } else {
+    chromeos::UserAddingScreen::Get()->Start();
   }
 }
 
@@ -370,8 +356,6 @@ bool SessionControllerClientImpl::CanLockScreen() {
 
 // static
 bool SessionControllerClientImpl::ShouldLockScreenAutomatically() {
-  // TODO(xiyuan): Observe ash::prefs::kEnableAutoScreenLock and update ash.
-  // Tracked in http://crbug.com/670423
   const UserList logged_in_users = UserManager::Get()->GetLoggedInUsers();
   for (auto* user : logged_in_users) {
     Profile* profile = chromeos::ProfileHelper::Get()->GetProfileByUser(user);

@@ -97,6 +97,12 @@ cr.define('settings', function() {
       showReset_: Boolean,
 
       /** @private */
+      showStartup_: Boolean,
+
+      /** @private */
+      showKerberosSection_: Boolean,
+
+      /** @private */
       lastSearchQuery_: {
         type: String,
         value: '',
@@ -125,9 +131,16 @@ cr.define('settings', function() {
      */
     activeRoute_: null,
 
+    /**
+     * Converts prefs to settings metrics to help record pref changes.
+     * @private {PrefToSettingMetricConverter}
+     */
+    prefToSettingMetricConverter_: null,
+
     /** @override */
     created() {
       settings.Router.getInstance().initializeRouteFromUrl();
+      this.prefToSettingMetricConverter_ = new PrefToSettingMetricConverter();
     },
 
     /**
@@ -136,7 +149,7 @@ cr.define('settings', function() {
      * ES5 strict mode.
      */
     ready() {
-      CrPolicyStrings = {
+      window.CrPolicyStrings = {
         controlledSettingExtension:
             loadTimeData.getString('controlledSettingExtension'),
         controlledSettingExtensionWithoutName:
@@ -166,6 +179,13 @@ cr.define('settings', function() {
       this.showNavMenu_ = !loadTimeData.getBoolean('isKioskModeActive');
       this.showToolbar_ = !loadTimeData.getBoolean('isKioskModeActive');
       this.showReset_ = loadTimeData.getBoolean('allowPowerwash');
+      this.showStartup_ = loadTimeData.getBoolean('showStartup');
+
+      this.showKerberosSection_ =
+          loadTimeData.valueExists('isKerberosEnabled') &&
+          loadTimeData.getBoolean('isKerberosEnabled') &&
+          loadTimeData.valueExists('isKerberosSettingsSectionEnabled') &&
+          loadTimeData.getBoolean('isKerberosSettingsSectionEnabled');
 
       this.addEventListener('show-container', () => {
         this.$.container.style.visibility = 'visible';
@@ -183,7 +203,7 @@ cr.define('settings', function() {
       this.async(() => {
         // Lazy-create the drawer the first time it is opened or swiped into
         // view.
-        const drawer = this.$$('#drawer');
+        const drawer = /** @type {!CrDrawerElement} */ (this.$$('#drawer'));
         assert(drawer);
         listenOnce(drawer, 'cr-drawer-opening', () => {
           this.$$('#drawerTemplate').if = true;
@@ -259,7 +279,7 @@ cr.define('settings', function() {
      * @param {!settings.Route} oldRoute
      */
     currentRouteChanged(newRoute, oldRoute) {
-      if (oldRoute && newRoute != oldRoute) {
+      if (oldRoute && newRoute !== oldRoute) {
         // Search triggers route changes and currentRouteChanged() is called
         // in attached() state which is extraneous for this metric.
         settings.recordNavigation();
@@ -284,7 +304,7 @@ cr.define('settings', function() {
           settings.Router.getInstance().getQueryParameters().get('search') ||
           '';
 
-      if (urlSearchQuery == this.lastSearchQuery_) {
+      if (urlSearchQuery === this.lastSearchQuery_) {
         return;
       }
 
@@ -312,14 +332,15 @@ cr.define('settings', function() {
 
       // If the search was initiated by directly entering a search URL, need to
       // sync the URL parameter to the textbox.
-      if (urlSearchQuery != searchField.getValue()) {
+      if (urlSearchQuery !== searchField.getValue()) {
         // Setting the search box value without triggering a 'search-changed'
         // event, to prevent an unnecessary duplicate entry in |window.history|.
         searchField.setValue(urlSearchQuery, true /* noEvent */);
       }
 
       settings.recordSearch();
-      this.$.main.searchContents(urlSearchQuery);
+      /** @type {!OsSettingsMainElement} */ (
+          this.$.main.searchContents(urlSearchQuery));
     },
 
     // Override FindShortcutBehavior methods.
@@ -350,10 +371,26 @@ cr.define('settings', function() {
     },
 
     /**
+     * @param {!CustomEvent<!{prefKey: string, prefValue: *}>} e
      * @private
      */
-    onSettingChange_() {
-      settings.recordSettingChange();
+    onSettingChange_(e) {
+      const {prefKey, prefValue} = e.detail;
+      const settingMetric =
+          this.prefToSettingMetricConverter_.convertPrefToSettingMetric(
+              prefKey, prefValue);
+
+      // New metrics for this setting pref have not yet been implemented.
+      if (!settingMetric) {
+        settings.recordSettingChange();
+        return;
+      }
+
+      const setting = /** @type {!chromeos.settings.mojom.Setting} */ (
+          settingMetric.setting);
+      const value = /** @type {!chromeos.settings.mojom.SettingChangeValue} */ (
+          settingMetric.value);
+      settings.recordSettingChange(setting, value);
     },
 
     /**

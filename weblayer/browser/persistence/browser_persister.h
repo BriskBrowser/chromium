@@ -53,6 +53,8 @@ class BrowserPersister : public sessions::CommandStorageManagerDelegate,
 
   ~BrowserPersister() override;
 
+  bool is_restore_in_progress() const { return is_restore_in_progress_; }
+
   void SaveIfNecessary();
 
   // Returns the key used to encrypt the file. Empty if not encrypted.
@@ -68,6 +70,7 @@ class BrowserPersister : public sessions::CommandStorageManagerDelegate,
   bool ShouldUseDelayedSave() override;
   void OnWillSaveCommands() override;
   void OnGeneratedNewCryptoKey(const std::vector<uint8_t>& key) override;
+  void OnErrorWritingSessionCommands() override;
 
   // BrowserObserver;
   void OnTabAdded(Tab* tab) override;
@@ -101,8 +104,9 @@ class BrowserPersister : public sessions::CommandStorageManagerDelegate,
   void ScheduleRebuildOnNextSave();
 
   // Called with the contents of the previous session.
-  void OnGotCurrentSessionCommands(
-      std::vector<std::unique_ptr<sessions::SessionCommand>> commands);
+  void OnGotLastSessionCommands(
+      std::vector<std::unique_ptr<sessions::SessionCommand>> commands,
+      bool read_error);
 
   // Schedules commands to recreate the state of the specified tab.
   void BuildCommandsForTab(TabImpl* tab, int index_in_window);
@@ -138,6 +142,9 @@ class BrowserPersister : public sessions::CommandStorageManagerDelegate,
                  &TabImpl::AddDataObserver,
                  &TabImpl::RemoveDataObserver>
       data_observer_{this};
+
+  // True while asynchronously reading the state to restore.
+  bool is_restore_in_progress_ = true;
 
   base::WeakPtrFactory<BrowserPersister> weak_factory_{this};
 };

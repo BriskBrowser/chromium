@@ -26,9 +26,9 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ApiCompatibilityUtils;
-import org.chromium.base.BuildInfo;
 import org.chromium.base.Callback;
 import org.chromium.base.ContextUtils;
+import org.chromium.base.StrictModeContext;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
@@ -38,9 +38,11 @@ import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.task.AsyncTask;
 import org.chromium.ui.R;
 import org.chromium.ui.widget.Toast;
+import org.chromium.url.GURL;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Simple proxy that provides C++ code with an access pathway to the Android clipboard.
@@ -68,13 +70,12 @@ public class Clipboard implements ClipboardManager.OnPrimaryClipChangedListener 
          * Saves the given set of image bytes and provides that URI to a callback for
          * sharing the image.
          *
-         * @param context The context used to trigger the action.
          * @param imageData The image data to be shared in |fileExtension| format.
          * @param fileExtension File extension which |imageData| encoded to.
          * @param callback A provided callback function which will act on the generated URI.
          */
-        void storeImageAndGenerateUri(final Context context, final byte[] imageData,
-                String fileExtension, Callback<Uri> callback);
+        void storeImageAndGenerateUri(
+                final byte[] imageData, String fileExtension, Callback<Uri> callback);
 
         /**
          * Store the last image uri we put in the sytstem clipboard, this is special case for
@@ -315,7 +316,7 @@ public class Clipboard implements ClipboardManager.OnPrimaryClipChangedListener 
         }
 
         mImageFileProvider.storeImageAndGenerateUri(
-                mContext, imageData, extension, (Uri uri) -> { setImageUri(uri); });
+                imageData, extension, (Uri uri) -> { setImageUri(uri); });
     }
 
     /**
@@ -328,7 +329,12 @@ public class Clipboard implements ClipboardManager.OnPrimaryClipChangedListener 
     }
 
     private boolean setPrimaryClipNoException(ClipData clip) {
-        try {
+        final String manufacturer = Build.MANUFACTURER.toLowerCase(Locale.US);
+        // See crbug.com/1123727, there are OEM devices having strict mode violations in their
+        // Android framework code. Disabling strict mode for non-google devices.
+        try (StrictModeContext ignored = manufacturer.equals("google")
+                        ? null
+                        : StrictModeContext.allowAllThreadPolicies()) {
             mClipboardManager.setPrimaryClip(clip);
             return true;
         } catch (Exception ex) {
@@ -374,8 +380,8 @@ public class Clipboard implements ClipboardManager.OnPrimaryClipChangedListener 
      * Copy the specified URL to the clipboard and show a toast indicating the action occurred.
      * @param url The URL to copy to the clipboard.
      */
-    public void copyUrlToClipboard(String url) {
-        ClipData clip = ClipData.newPlainText("url", url);
+    public void copyUrlToClipboard(GURL url) {
+        ClipData clip = ClipData.newPlainText("url", url.getSpec());
         if (setPrimaryClipNoException(clip)) {
             Toast.makeText(mContext, R.string.link_copied, Toast.LENGTH_SHORT).show();
         }
@@ -387,7 +393,9 @@ public class Clipboard implements ClipboardManager.OnPrimaryClipChangedListener 
      * @param hasFocus Whether or not {@code activity} gained or lost focus.
      */
     public void onWindowFocusChanged(boolean hasFocus) {
-        if (mNativeClipboard == 0 || !hasFocus || !BuildInfo.isAtLeastQ()) return;
+        if (mNativeClipboard == 0 || !hasFocus || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return;
+        }
         onPrimaryClipTimestampInvalidated();
     }
 
@@ -418,6 +426,7 @@ public class Clipboard implements ClipboardManager.OnPrimaryClipChangedListener 
      * system. But on Android O, sharing images/files needs to grant permission to each app/packages
      * individually. Note: Don't forget to revoke the permission once the clipboard is updated.
      */
+    @SuppressWarnings("QueryPermissionsNeeded")
     private void grantUriPermission(@NonNull Uri uri) {
         if ((Build.VERSION.SDK_INT != Build.VERSION_CODES.O
                     && Build.VERSION.SDK_INT != Build.VERSION_CODES.O_MR1)

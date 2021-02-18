@@ -69,7 +69,7 @@ SharedWorker::SharedWorker(ExecutionContext* context)
       is_being_connected_(false),
       feature_handle_for_scheduler_(context->GetScheduler()->RegisterFeature(
           SchedulingPolicy::Feature::kSharedWorker,
-          {SchedulingPolicy::RecordMetricsForBackForwardCache()})) {}
+          {SchedulingPolicy::DisableBackForwardCache()})) {}
 
 SharedWorker* SharedWorker::Create(ExecutionContext* context,
                                    const String& url,
@@ -122,7 +122,7 @@ SharedWorker* SharedWorker::Create(ExecutionContext* context,
       return nullptr;
     }
     options->name = worker_options->name();
-    base::Optional<mojom::ScriptType> type_result =
+    base::Optional<mojom::blink::ScriptType> type_result =
         Script::ParseScriptType(worker_options->type());
     DCHECK(type_result);
     options->type = type_result.value();

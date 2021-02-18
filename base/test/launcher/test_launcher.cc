@@ -30,6 +30,7 @@
 #include "base/numerics/safe_conversions.h"
 #include "base/process/kill.h"
 #include "base/process/launch.h"
+#include "base/ranges/algorithm.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/pattern.h"
@@ -53,6 +54,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if defined(OS_POSIX)
@@ -73,6 +75,7 @@
 #if defined(OS_FUCHSIA)
 #include <lib/fdio/namespace.h>
 #include <lib/zx/job.h>
+#include <lib/zx/time.h>
 #include "base/atomic_sequence_num.h"
 #include "base/base_paths_fuchsia.h"
 #include "base/fuchsia/default_job.h"
@@ -142,6 +145,22 @@ TestLauncherTracer* GetTestLauncherTracer() {
   static auto* tracer = new TestLauncherTracer;
   return tracer;
 }
+
+#if defined(OS_FUCHSIA)
+zx_status_t WaitForJobExit(const zx::job& job) {
+  zx::time deadline =
+      zx::deadline_after(zx::duration(kOutputTimeout.ToZxDuration()));
+  zx_signals_t to_wait_for = ZX_JOB_NO_JOBS | ZX_JOB_NO_PROCESSES;
+  while (to_wait_for) {
+    zx_signals_t observed = 0;
+    zx_status_t status = job.wait_one(to_wait_for, deadline, &observed);
+    if (status != ZX_OK)
+      return status;
+    to_wait_for &= ~observed;
+  }
+  return ZX_OK;
+}
+#endif  // defined(OS_FUCHSIA)
 
 #if defined(OS_POSIX)
 // Self-pipe that makes it possible to do complex shutdown handling
@@ -234,7 +253,8 @@ bool BotModeEnabled(const CommandLine* command_line) {
 // Returns command line command line after gtest-specific processing
 // and applying |wrapper|.
 CommandLine PrepareCommandLineForGTest(const CommandLine& command_line,
-                                       const std::string& wrapper) {
+                                       const std::string& wrapper,
+                                       const size_t retries_left) {
   CommandLine new_command_line(command_line.GetProgram());
   CommandLine::SwitchMap switches = command_line.GetSwitches();
 
@@ -244,6 +264,16 @@ CommandLine PrepareCommandLineForGTest(const CommandLine& command_line,
 
   // Don't try to write the final XML report in child processes.
   switches.erase(kGTestOutputFlag);
+
+  if (switches.find(switches::kTestLauncherRetriesLeft) == switches.end()) {
+    switches[switches::kTestLauncherRetriesLeft] =
+#if defined(OS_WIN)
+        base::NumberToWString(
+#else
+        base::NumberToString(
+#endif
+            retries_left);
+  }
 
   for (CommandLine::SwitchMap::const_iterator iter = switches.begin();
        iter != switches.end(); ++iter) {
@@ -315,7 +345,7 @@ int LaunchChildTestProcessWithOptions(const CommandLine& command_line,
   // that we can install a different /data.
   new_options.spawn_flags = FDIO_SPAWN_CLONE_STDIO | FDIO_SPAWN_CLONE_JOB;
 
-  const base::FilePath kDataPath(base::fuchsia::kPersistedDataDirectoryPath);
+  const base::FilePath kDataPath(base::kPersistedDataDirectoryPath);
 
   // Clone all namespace entries from the current process, except /data, which
   // is overridden below.
@@ -358,7 +388,7 @@ int LaunchChildTestProcessWithOptions(const CommandLine& command_line,
   // Bind the new test subdirectory to /data in the child process' namespace.
   new_options.paths_to_transfer.push_back(
       {kDataPath,
-       base::fuchsia::OpenDirectory(nested_data_path).TakeChannel().release()});
+       base::OpenDirectoryHandle(nested_data_path).TakeChannel().release()});
 #endif  // defined(OS_FUCHSIA)
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
@@ -424,6 +454,14 @@ int LaunchChildTestProcessWithOptions(const CommandLine& command_line,
       process.Terminate(-1, true);
     }
   }
+
+#if defined(OS_FUCHSIA)
+  zx_status_t wait_status = WaitForJobExit(job_handle);
+  if (wait_status != ZX_OK) {
+    LOG(ERROR) << "Batch leaked jobs or processes.";
+    exit_code = -1;
+  }
+#endif  // defined(OS_FUCHSIA)
 
   {
     // Note how we grab the log before issuing a possibly broad process kill.
@@ -670,7 +708,7 @@ void TestRunner::Run(const std::vector<std::string>& test_names) {
   CHECK_GT(runner_count_, 0u);
   tests_to_run_ = test_names;
   // Reverse test order to avoid coping the whole vector when removing tests.
-  std::reverse(tests_to_run_.begin(), tests_to_run_.end());
+  ranges::reverse(tests_to_run_);
   runners_done_ = 0;
   task_runners_.clear();
   for (size_t i = 0; i < runner_count_; i++) {
@@ -859,6 +897,7 @@ TestLauncher::TestLauncher(TestLauncherDelegate* launcher_delegate,
       test_finished_count_(0),
       test_success_count_(0),
       test_broken_count_(0),
+      retries_left_(0),
       retry_limit_(retry_limit),
       force_run_broken_tests_(false),
       watchdog_timer_(FROM_HERE,
@@ -903,11 +942,18 @@ bool TestLauncher::Run(CommandLine* command_line) {
 
   // Indicate a test did not succeed.
   bool test_failed = false;
-  int cycles = cycles_;
+  int iterations = cycles_;
+  if (cycles_ > 1 && !stop_on_failure_) {
+    // If we don't stop on failure, execute all the repeats in all iteration,
+    // which allows us to parallelize the execution.
+    iterations = 1;
+    repeats_per_iteration_ = cycles_;
+  }
   // Set to false if any iteration fails.
   bool run_result = true;
 
-  while ((cycles > 0 || cycles == -1) && !(stop_on_failure_ && test_failed)) {
+  while ((iterations > 0 || iterations == -1) &&
+         !(stop_on_failure_ && test_failed)) {
     OnTestIterationStart();
 
     RunTests();
@@ -924,7 +970,7 @@ bool TestLauncher::Run(CommandLine* command_line) {
     test_failed = test_success_count_ != test_finished_count_;
     OnTestIterationFinished();
     // Special value "-1" means "repeat indefinitely".
-    cycles = (cycles == -1) ? cycles : cycles - 1;
+    iterations = (iterations == -1) ? iterations : iterations - 1;
   }
 
   if (cycles_ != 1)
@@ -945,8 +991,8 @@ void TestLauncher::LaunchChildGTestProcess(
       test_names, task_temp_dir, &result_file);
 
   // Record the exact command line used to launch the child.
-  CommandLine new_command_line(
-      PrepareCommandLineForGTest(cmd_line, launcher_delegate_->GetWrapper()));
+  CommandLine new_command_line(PrepareCommandLineForGTest(
+      cmd_line, launcher_delegate_->GetWrapper(), retries_left_));
   LaunchOptions options;
   options.flags = launcher_delegate_->GetLaunchOptions();
 
@@ -1214,9 +1260,8 @@ bool LoadFilterFile(const FilePath& file_path,
     }
 
     // Strip comments and whitespace from each line.
-    std::string trimmed_line =
-        TrimWhitespaceASCII(filter_line.substr(0, hash_pos), TRIM_ALL)
-            .as_string();
+    std::string trimmed_line(
+        TrimWhitespaceASCII(filter_line.substr(0, hash_pos), TRIM_ALL));
 
     if (trimmed_line.substr(0, 2) == "//") {
       LOG(ERROR) << "Line " << line_num << " in " << file_path
@@ -1322,6 +1367,11 @@ bool TestLauncher::Init(CommandLine* command_line) {
     }
 
     retry_limit_ = retry_limit;
+  } else if (command_line->HasSwitch(kGTestRepeatFlag) ||
+             command_line->HasSwitch(kGTestBreakOnFailure)) {
+    // If we are repeating tests or waiting for the first test to fail, disable
+    // retries.
+    retry_limit_ = 0U;
   } else if (!BotModeEnabled(command_line) &&
              (command_line->HasSwitch(kGTestFilterFlag) ||
               command_line->HasSwitch(kIsolatedScriptTestFilterFlag))) {
@@ -1330,6 +1380,7 @@ bool TestLauncher::Init(CommandLine* command_line) {
     retry_limit_ = 0U;
   }
 
+  retries_left_ = retry_limit_;
   force_run_broken_tests_ =
       command_line->HasSwitch(switches::kTestLauncherForceRunBrokenTests);
 
@@ -1468,7 +1519,7 @@ bool TestLauncher::Init(CommandLine* command_line) {
   results_tracker_.AddGlobalTag("OS_LINUX");
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   results_tracker_.AddGlobalTag("OS_CHROMEOS");
 #endif
 
@@ -1554,7 +1605,7 @@ bool TestLauncher::ShuffleTests(CommandLine* command_line) {
 
     std::mt19937 randomizer;
     randomizer.seed(shuffle_seed);
-    std::shuffle(tests_.begin(), tests_.end(), randomizer);
+    ranges::shuffle(tests_, randomizer);
 
     fprintf(stdout, "Randomizing with seed %u\n", shuffle_seed);
     fflush(stdout);
@@ -1653,14 +1704,10 @@ void TestLauncher::CombinePositiveTestFilters(
   }
 }
 
-void TestLauncher::RunTests() {
+std::vector<std::string> TestLauncher::CollectTests() {
   std::vector<std::string> test_names;
-  size_t test_found_count = 0;
   for (const TestInfo& test_info : tests_) {
     std::string test_name = test_info.GetFullName();
-
-    // Count tests in the binary, before we apply filter and sharding.
-    test_found_count++;
 
     std::string prefix_stripped_name = test_info.GetPrefixStrippedName();
 
@@ -1713,11 +1760,19 @@ void TestLauncher::RunTests() {
     test_names.push_back(test_name);
   }
 
-  // Save an early test summary in case the launcher crashes or gets killed.
-  results_tracker_.GeneratePlaceholderIteration();
-  MaybeSaveSummaryAsJSON({"EARLY_SUMMARY"});
+  return test_names;
+}
 
-  broken_threshold_ = std::max(static_cast<size_t>(20), test_found_count / 10);
+void TestLauncher::RunTests() {
+  std::vector<std::string> original_test_names = CollectTests();
+
+  std::vector<std::string> test_names;
+  for (int i = 0; i < repeats_per_iteration_; ++i) {
+    test_names.insert(test_names.end(), original_test_names.begin(),
+                      original_test_names.end());
+  }
+
+  broken_threshold_ = std::max(static_cast<size_t>(20), tests_.size() / 10);
 
   test_started_count_ = test_names.size();
 
@@ -1729,8 +1784,17 @@ void TestLauncher::RunTests() {
     fflush(stdout);
   }
 
-  TestRunner test_runner(this, parallel_jobs_,
-                         launcher_delegate_->GetBatchSize());
+  // Save an early test summary in case the launcher crashes or gets killed.
+  results_tracker_.GeneratePlaceholderIteration();
+  MaybeSaveSummaryAsJSON({"EARLY_SUMMARY"});
+
+  // If we are repeating the test, set batch size to 1 to ensure that batch size
+  // does not interfere with repeats (unittests are using filter for batches and
+  // can't run the same test twice in the same batch).
+  size_t batch_size =
+      repeats_per_iteration_ > 1 ? 1U : launcher_delegate_->GetBatchSize();
+
+  TestRunner test_runner(this, parallel_jobs_, batch_size);
   test_runner.Run(test_names);
 }
 
@@ -1759,9 +1823,7 @@ void TestLauncher::PrintFuzzyMatchingTestNames() {
 }
 
 bool TestLauncher::RunRetryTests() {
-  // Number of retries in this iteration.
-  size_t retry_count = 0;
-  while (!tests_to_retry_.empty() && retry_count < retry_limit_) {
+  while (!tests_to_retry_.empty() && retries_left_ > 0) {
     // Retry all tests that depend on a failing test.
     std::vector<std::string> test_names;
     for (const TestInfo& test_info : tests_) {
@@ -1778,12 +1840,12 @@ bool TestLauncher::RunRetryTests() {
       return false;
 
     fprintf(stdout, "Retrying %zu test%s (retry #%zu)\n", retry_started_count,
-            retry_started_count > 1 ? "s" : "", retry_count);
+            retry_started_count > 1 ? "s" : "", retry_limit_ - retries_left_);
     fflush(stdout);
 
+    --retries_left_;
     TestRunner test_runner(this);
     test_runner.Run(test_names);
-    retry_count++;
   }
   return tests_to_retry_.empty();
 }
@@ -1902,12 +1964,19 @@ std::string GetTestOutputSnippet(const TestResult& result,
                                     result.full_name,
                                     run_pos);
   // Only clip the snippet to the "OK" message if the test really
-  // succeeded. It still might have e.g. crashed after printing it.
+  // succeeded or was skipped. It still might have e.g. crashed
+  // after printing it.
   if (end_pos == std::string::npos) {
     if (result.status == TestResult::TEST_SUCCESS) {
       end_pos = full_output.find(std::string("[       OK ] ") +
                                 result.full_name,
                                 run_pos);
+
+      // Also handle SKIPPED next to SUCCESS because the GTest XML output
+      // doesn't make a difference between SKIPPED and SUCCESS
+      if (end_pos == std::string::npos)
+        end_pos = full_output.find(
+            std::string("[  SKIPPED ] ") + result.full_name, run_pos);
     } else {
       // If test is not successful, include all output until subsequent test.
       end_pos = full_output.find(std::string("[ RUN      ]"), run_pos + 1);

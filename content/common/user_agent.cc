@@ -6,14 +6,17 @@
 
 #include <stdint.h>
 
-#include "base/feature_list.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
 #include "build/build_config.h"
-#include "build/lacros_buildflags.h"
+#include "build/chromeos_buildflags.h"
 #include "build/util/webkit_version.h"
+
+#if defined(OS_MAC)
+#include "base/mac/mac_util.h"
+#endif
 
 #if defined(OS_WIN)
 #include "base/win/windows_version.h"
@@ -90,10 +93,27 @@ std::string BuildCpuInfo() {
   return cpuinfo;
 }
 
-// Return the CPU architecture in Linux or Windows and the empty string
+// Return the CPU architecture in Windows/Mac/POSIX and the empty string
 // elsewhere.
 std::string GetLowEntropyCpuArchitecture() {
-#if !defined(OS_MAC) && !defined(OS_ANDROID) && defined(OS_POSIX)
+#if defined(OS_WIN)
+  base::win::OSInfo::WindowsArchitecture windows_architecture =
+      base::win::OSInfo::GetInstance()->GetArchitecture();
+  if (windows_architecture == base::win::OSInfo::ARM64_ARCHITECTURE) {
+    return "arm";
+  } else if ((windows_architecture == base::win::OSInfo::X86_ARCHITECTURE) ||
+             (windows_architecture == base::win::OSInfo::X64_ARCHITECTURE)) {
+    return "x86";
+  }
+#elif defined(OS_MAC)
+  base::mac::CPUType cpu_type = base::mac::GetCPUType();
+  if (cpu_type == base::mac::CPUType::kIntel) {
+    return "x86";
+  } else if (cpu_type == base::mac::CPUType::kArm ||
+             cpu_type == base::mac::CPUType::kTranslatedIntel) {
+    return "arm";
+  }
+#elif defined(OS_POSIX) && !defined(OS_ANDROID)
   // This extra cpu_info_str variable is required to make sure the compiler
   // doesn't optimize the copy away and have the StringPiece point at the
   // internal std::string, resulting in a memory violation.
@@ -107,15 +127,6 @@ std::string GetLowEntropyCpuArchitecture() {
              base::StartsWith(cpu_info, "x86")) {
     return "x86";
   }
-#elif defined(OS_WIN)
-  base::win::OSInfo::WindowsArchitecture windows_architecture =
-      base::win::OSInfo::GetInstance()->GetArchitecture();
-  if (windows_architecture == base::win::OSInfo::ARM64_ARCHITECTURE) {
-    return "arm";
-  } else if ((windows_architecture == base::win::OSInfo::X86_ARCHITECTURE) ||
-             (windows_architecture == base::win::OSInfo::X64_ARCHITECTURE)) {
-    return "x86";
-  }
 #endif
   return std::string();
 }
@@ -123,8 +134,8 @@ std::string GetLowEntropyCpuArchitecture() {
 std::string GetOSVersion(IncludeAndroidBuildNumber include_android_build_number,
                          IncludeAndroidModel include_android_model) {
   std::string os_version;
-#if defined(OS_WIN) || defined(OS_MAC) || defined(OS_CHROMEOS) || \
-    BUILDFLAG(IS_LACROS)
+#if defined(OS_WIN) || defined(OS_MAC) || BUILDFLAG(IS_CHROMEOS_ASH) || \
+    BUILDFLAG(IS_CHROMEOS_LACROS)
   int32_t os_major_version = 0;
   int32_t os_minor_version = 0;
   int32_t os_bugfix_version = 0;
@@ -144,7 +155,7 @@ std::string GetOSVersion(IncludeAndroidBuildNumber include_android_build_number,
 #elif defined(OS_MAC)
                       "%d_%d_%d", os_major_version, os_minor_version,
                       os_bugfix_version
-#elif defined(OS_CHROMEOS) || BUILDFLAG(IS_LACROS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
                       "%d.%d.%d", os_major_version, os_minor_version,
                       os_bugfix_version
 #elif defined(OS_ANDROID)
@@ -185,7 +196,7 @@ std::string BuildOSCpuInfoFromOSVersionAndCpuType(const std::string& os_version,
   base::StringAppendF(&os_cpu,
 #if defined(OS_MAC)
                       "%s Mac OS X %s", cpu_type.c_str(), os_version.c_str()
-#elif defined(OS_CHROMEOS) || BUILDFLAG(IS_LACROS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
                       "CrOS "
                       "%s %s",
                       cpu_type.c_str(),  // e.g. i686

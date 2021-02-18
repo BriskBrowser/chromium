@@ -27,7 +27,7 @@ import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.contextualsearch.ContextualSearchUma;
 import org.chromium.chrome.browser.contextualsearch.QuickActionCategory;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.toolbar.ToolbarColors;
+import org.chromium.chrome.browser.theme.ThemeUtils;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.ui.resources.dynamics.DynamicResourceLoader;
 import org.chromium.ui.resources.dynamics.ViewResourceInflater;
@@ -38,6 +38,8 @@ import java.util.List;
 
 /**
  * Stores information related to a Contextual Search "quick action."
+ * Actions can be activated through a tap on the Bar and include intents like calling a phone
+ * number or launching Maps for a street address.
  */
 public class ContextualSearchQuickActionControl extends ViewResourceInflater {
     private Context mContext;
@@ -302,7 +304,7 @@ public class ContextualSearchQuickActionControl extends ViewResourceInflater {
 
                 Resources res = mContext.getResources();
                 if (mToolbarBackgroundColor != 0
-                        && !ToolbarColors.isUsingDefaultToolbarColor(
+                        && !ThemeUtils.isUsingDefaultToolbarColor(
                                 res, false, mToolbarBackgroundColor)
                         && ColorUtils.shouldUseLightForegroundOnBackground(
                                 mToolbarBackgroundColor)) {

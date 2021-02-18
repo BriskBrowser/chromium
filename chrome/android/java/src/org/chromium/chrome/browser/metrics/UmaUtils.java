@@ -4,12 +4,14 @@
 
 package org.chromium.chrome.browser.metrics;
 
+import android.os.Build;
 import android.os.SystemClock;
 
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.MainDex;
 import org.chromium.base.annotations.NativeMethods;
+import org.chromium.base.compat.ApiHelperForN;
 
 /**
  * Utilities to support startup metrics - Android version.
@@ -91,14 +93,17 @@ public class UmaUtils {
         return sApplicationStartTimeMs;
     }
 
+    @CalledByNative
+    public static long getProcessStartTime() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            return 0;
+        }
+        return ApiHelperForN.getStartUptimeMillis();
+    }
+
     public static long getForegroundStartTicks() {
         assert sForegroundStartTimeMs != 0;
         return sForegroundStartTimeMs;
-    }
-
-    @CalledByNative
-    private static void setUsageAndCrashReportingFromNative(boolean enabled) {
-        UmaSessionStats.changeMetricsReportingConsent(enabled);
     }
 
     @NativeMethods

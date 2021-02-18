@@ -11,14 +11,14 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/rand_util.h"
 #include "base/run_loop.h"
 #include "base/sequenced_task_runner.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_restrictions.h"
 #include "mojo/public/cpp/bindings/associated_receiver.h"
@@ -645,7 +645,9 @@ TEST_F(BlobRegistryImplTest, Register_FileSystemFile_Valid) {
   ASSERT_EQ(BlobStatus::DONE, handle->GetBlobStatus());
 
   BlobDataBuilder expected_blob_data(kId);
-  expected_blob_data.AppendFileSystemFile(url, 0, 16, base::Time(), nullptr);
+  expected_blob_data.AppendFileSystemFile(file_system_context_->CrackURL(url),
+                                          0, 16, base::Time(),
+                                          file_system_context_);
 
   EXPECT_EQ(expected_blob_data, *handle->CreateSnapshot());
   EXPECT_EQ(0u, BlobsUnderConstruction());
@@ -1159,11 +1161,20 @@ TEST_F(BlobRegistryImplTest, RegisterFromStream_NoDiskSpace) {
 }
 
 TEST_F(BlobRegistryImplTest, DestroyWithUnfinishedStream) {
-  mojo::DataPipe pipe1, pipe2;
-  registry_->RegisterFromStream("", "", 0, std::move(pipe1.consumer_handle),
+  mojo::ScopedDataPipeProducerHandle producer_handle1;
+  mojo::ScopedDataPipeConsumerHandle consumer_handle1;
+  ASSERT_EQ(mojo::CreateDataPipe(nullptr, producer_handle1, consumer_handle1),
+            MOJO_RESULT_OK);
+
+  mojo::ScopedDataPipeProducerHandle producer_handle2;
+  mojo::ScopedDataPipeConsumerHandle consumer_handle2;
+  ASSERT_EQ(mojo::CreateDataPipe(nullptr, producer_handle2, consumer_handle2),
+            MOJO_RESULT_OK);
+
+  registry_->RegisterFromStream("", "", 0, std::move(consumer_handle1),
                                 mojo::NullAssociatedRemote(),
                                 base::DoNothing());
-  registry_->RegisterFromStream("", "", 0, std::move(pipe2.consumer_handle),
+  registry_->RegisterFromStream("", "", 0, std::move(consumer_handle2),
                                 mojo::NullAssociatedRemote(),
                                 base::DoNothing());
   registry_.FlushForTesting();

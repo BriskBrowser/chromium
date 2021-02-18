@@ -3,7 +3,6 @@ from six import text_type
 from webdriver.error import NoSuchAlertException
 
 from tests.support.asserts import assert_error, assert_success
-from tests.support.inline import inline
 from tests.support.sync import Poll
 
 
@@ -12,9 +11,14 @@ def get_alert_text(session):
         "GET", "session/{session_id}/alert/text".format(**vars(session)))
 
 
-def test_no_browsing_context(session, closed_window):
+def test_no_top_browsing_context(session, closed_window):
     response = get_alert_text(session)
     assert_error(response, "no such window")
+
+
+def test_no_browsing_context(session, closed_frame):
+    response = get_alert_text(session)
+    assert_error(response, "no such alert")
 
 
 def test_no_user_prompt(session):
@@ -22,7 +26,7 @@ def test_no_user_prompt(session):
     assert_error(response, "no such alert")
 
 
-def test_get_alert_text(session):
+def test_get_alert_text(session, inline):
     session.url = inline("<script>window.alert('Hello');</script>")
     response = get_alert_text(session)
     assert_success(response)
@@ -33,7 +37,7 @@ def test_get_alert_text(session):
     assert alert_text == "Hello"
 
 
-def test_get_confirm_text(session):
+def test_get_confirm_text(session, inline):
     session.url = inline("<script>window.confirm('Hello');</script>")
     response = get_alert_text(session)
     assert_success(response)
@@ -44,7 +48,7 @@ def test_get_confirm_text(session):
     assert confirm_text == "Hello"
 
 
-def test_get_prompt_text(session):
+def test_get_prompt_text(session, inline):
     session.url = inline("<script>window.prompt('Enter Your Name: ', 'Federer');</script>")
     response = get_alert_text(session)
     assert_success(response)

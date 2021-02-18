@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/values.h"
@@ -126,7 +126,7 @@ void GcmInternalsUIMessageHandler::SetRecording(const base::ListValue* args) {
   }
   // Get fresh stats after changing recording setting.
   profile_service->driver()->SetGCMRecording(
-      base::Bind(
+      base::BindRepeating(
           &GcmInternalsUIMessageHandler::RequestGCMStatisticsFinished,
           weak_ptr_factory_.GetWeakPtr()),
       recording);

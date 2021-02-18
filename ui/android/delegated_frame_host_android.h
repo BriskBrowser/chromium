@@ -49,6 +49,11 @@ class UI_ANDROID_EXPORT DelegatedFrameHostAndroid
 
   ~DelegatedFrameHostAndroid() override;
 
+  static int64_t TimeDeltaToFrames(base::TimeDelta delta) {
+    return base::ClampRound<int64_t>(delta /
+                                     viz::BeginFrameArgs::DefaultInterval());
+  }
+
   // Wait up to 5 seconds for the first frame to be produced. Having Android
   // display a placeholder for a longer period of time is preferable to drawing
   // nothing, and the first frame can take a while on low-end systems.
@@ -56,8 +61,7 @@ class UI_ANDROID_EXPORT DelegatedFrameHostAndroid
     return base::TimeDelta::FromSeconds(5);
   }
   static int64_t FirstFrameTimeoutFrames() {
-    return base::ClampRound<int64_t>(FirstFrameTimeout() /
-                                     viz::BeginFrameArgs::DefaultInterval());
+    return TimeDeltaToFrames(FirstFrameTimeout());
   }
 
   // Wait up to 1 second for a frame of the correct size to be produced. Android
@@ -67,8 +71,7 @@ class UI_ANDROID_EXPORT DelegatedFrameHostAndroid
     return base::TimeDelta::FromSeconds(1);
   }
   static int64_t ResizeTimeoutFrames() {
-    return base::ClampRound<int64_t>(ResizeTimeout() /
-                                     viz::BeginFrameArgs::DefaultInterval());
+    return TimeDeltaToFrames(ResizeTimeout());
   }
 
   // Advances the fallback surface to the first surface after navigation. This
@@ -118,7 +121,15 @@ class UI_ANDROID_EXPORT DelegatedFrameHostAndroid
 
   void TakeFallbackContentFrom(DelegatedFrameHostAndroid* other);
 
+  // Called when navigation has completed, and this DelegatedFrameHost is
+  // visible. A new Surface will have been embedded at this point. If navigation
+  // is done while hidden, this will be called upon becoming visible.
   void DidNavigate();
+  // Navigation to a different page than the current one has begun. This is
+  // called regardless of the visibility of the page. Caches the current
+  // LocalSurfaceId information so that old content can be evicted if
+  // navigation fails to complete.
+  void OnNavigateToNewPage();
 
   void SetTopControlsVisibleHeight(float height);
 
@@ -148,6 +159,10 @@ class UI_ANDROID_EXPORT DelegatedFrameHostAndroid
   // Whether we've received a frame from the renderer since navigating.
   // Only used when surface synchronization is on.
   viz::LocalSurfaceId first_local_surface_id_after_navigation_;
+  // While navigating we have no active |local_surface_id_|. Track the one from
+  // before a navigation, because if the navigation fails to complete, we will
+  // need to evict its surface.
+  viz::LocalSurfaceId pre_navigation_local_surface_id_;
 
   // The LocalSurfaceId of the currently embedded surface. If surface sync is
   // on, this surface is not necessarily active.

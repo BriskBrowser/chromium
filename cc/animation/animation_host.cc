@@ -6,11 +6,12 @@
 
 #include <algorithm>
 #include <memory>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/containers/contains.h"
 #include "base/memory/ptr_util.h"
-#include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/traced_value.h"
 #include "cc/animation/animation.h"
@@ -56,16 +57,12 @@ std::unique_ptr<AnimationHost> AnimationHost::CreateForTesting(
     ThreadInstance thread_instance) {
   auto animation_host = base::WrapUnique(new AnimationHost(thread_instance));
 
-  if (thread_instance == ThreadInstance::IMPL)
-    animation_host->SetSupportsScrollAnimations(true);
-
   return animation_host;
 }
 
 AnimationHost::AnimationHost(ThreadInstance thread_instance)
     : mutator_host_client_(nullptr),
       thread_instance_(thread_instance),
-      supports_scroll_animations_(false),
       needs_push_properties_(false),
       mutator_(nullptr) {
   if (thread_instance_ == ThreadInstance::IMPL) {
@@ -84,13 +81,10 @@ AnimationHost::~AnimationHost() {
   DCHECK(element_to_animations_map_.empty());
 }
 
-std::unique_ptr<MutatorHost> AnimationHost::CreateImplInstance(
-    bool supports_impl_scrolling) const {
+std::unique_ptr<MutatorHost> AnimationHost::CreateImplInstance() const {
   DCHECK_EQ(thread_instance_, ThreadInstance::MAIN);
-
   auto mutator_host_impl =
       base::WrapUnique<MutatorHost>(new AnimationHost(ThreadInstance::IMPL));
-  mutator_host_impl->SetSupportsScrollAnimations(supports_impl_scrolling);
   return mutator_host_impl;
 }
 
@@ -127,13 +121,34 @@ void AnimationHost::RemoveAnimationTimeline(
   SetNeedsPushProperties();
 }
 
+void AnimationHost::SetHasCanvasInvalidation(bool has_canvas_invalidation) {
+  has_canvas_invalidation_ = has_canvas_invalidation;
+}
+
+bool AnimationHost::HasCanvasInvalidation() const {
+  return has_canvas_invalidation_;
+}
+
+bool AnimationHost::HasJSAnimation() const {
+  return has_inline_style_mutation_;
+}
+
+void AnimationHost::SetHasInlineStyleMutation(bool has_inline_style_mutation) {
+  has_inline_style_mutation_ = has_inline_style_mutation;
+}
+
 void AnimationHost::UpdateRegisteredElementIds(ElementListType changed_list) {
   for (auto map_entry : element_to_animations_map_) {
+    // kReservedElementId is reserved for a paint worklet element that animates
+    // a custom property. This element is assumed to always be present as no
+    // element is needed to tick this animation.
     if (mutator_host_client()->IsElementInPropertyTrees(map_entry.first,
-                                                        changed_list))
+                                                        changed_list) ||
+        map_entry.first.GetStableId() == ElementId::kReservedElementId) {
       map_entry.second->ElementIdRegistered(map_entry.first, changed_list);
-    else
+    } else {
       map_entry.second->ElementIdUnregistered(map_entry.first, changed_list);
+    }
   }
 }
 
@@ -236,6 +251,8 @@ void AnimationHost::PushPropertiesTo(MutatorHost* mutator_host_impl) {
   host_impl->main_thread_animations_count_ = main_thread_animations_count_;
   host_impl->current_frame_had_raf_ = current_frame_had_raf_;
   host_impl->next_frame_has_pending_raf_ = next_frame_has_pending_raf_;
+  host_impl->has_canvas_invalidation_ = has_canvas_invalidation_;
+  host_impl->has_inline_style_mutation_ = has_inline_style_mutation_;
 
   if (needs_push_properties_) {
     needs_push_properties_ = false;
@@ -315,18 +332,9 @@ AnimationHost::GetElementAnimationsForElementId(ElementId element_id) const {
   return iter == element_to_animations_map_.end() ? nullptr : iter->second;
 }
 
-void AnimationHost::SetSupportsScrollAnimations(
-    bool supports_scroll_animations) {
-  supports_scroll_animations_ = supports_scroll_animations;
-}
-
 void AnimationHost::SetScrollAnimationDurationForTesting(
     base::TimeDelta duration) {
   ScrollOffsetAnimationCurve::SetAnimationDurationForTesting(duration);
-}
-
-bool AnimationHost::SupportsScrollAnimations() const {
-  return supports_scroll_animations_;
 }
 
 bool AnimationHost::NeedsTickAnimations() const {
@@ -622,17 +630,11 @@ bool AnimationHost::AnimationsPreserveAxisAlignment(
              : true;
 }
 
-void AnimationHost::GetAnimationScales(ElementId element_id,
-                                       ElementListType list_type,
-                                       float* maximum_scale,
-                                       float* starting_scale) const {
-  if (auto element_animations = GetElementAnimationsForElementId(element_id)) {
-    element_animations->GetAnimationScales(list_type, maximum_scale,
-                                           starting_scale);
-    return;
-  }
-  *maximum_scale = kNotScaled;
-  *starting_scale = kNotScaled;
+float AnimationHost::MaximumScale(ElementId element_id,
+                                  ElementListType list_type) const {
+  if (auto element_animations = GetElementAnimationsForElementId(element_id))
+    return element_animations->MaximumScale(list_type);
+  return kInvalidScale;
 }
 
 bool AnimationHost::IsElementAnimating(ElementId element_id) const {

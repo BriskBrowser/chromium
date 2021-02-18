@@ -36,7 +36,6 @@
 
 namespace blink {
 
-class FilterEffect;
 class PaintLayer;
 
 // PaintLayerResourceInfo holds the filter information for painting
@@ -64,12 +63,13 @@ class PaintLayerResourceInfo final
 
   void ClearLayer() { layer_ = nullptr; }
 
-  void ResourceContentChanged(InvalidationModeMask) override;
-  void ResourceElementChanged() override;
+  void ResourceContentChanged(SVGResource*) override;
+
+  void Trace(Visitor* visitor) const override { visitor->Trace(layer_); }
 
  private:
   // |ClearLayer| must be called before *layer_ becomes invalid.
-  PaintLayer* layer_;
+  Member<PaintLayer> layer_;
   FloatRect filter_reference_box_;
 };
 

@@ -8,9 +8,10 @@
 
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/enterprise/reporting/reporting_delegate_factory_desktop.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/test/base/testing_browser_process.h"
@@ -41,14 +42,19 @@ const char kActiveProfileName2[] = "active_profile2";
 
 // TODO(crbug.com/1103732): Get rid of chrome/browser dependencies and then
 // move this file to components/enterprise/browser.
-class ReportRequestQueueGeneratorTest : public ::testing::Test {
+class ReportRequestQueueGeneratorTest
+    : public ::testing::Test,
+      public ::testing::WithParamInterface<bool> {
  public:
   using ReportRequest = definition::ReportRequest;
 
   ReportRequestQueueGeneratorTest()
       : profile_manager_(TestingBrowserProcess::GetGlobal()),
         browser_report_generator_(&reporting_delegate_factory_),
-        report_request_queue_generator_(&reporting_delegate_factory_) {}
+        report_request_queue_generator_(&reporting_delegate_factory_) {
+    TestingProfile::SetScopedFeatureListForEphemeralGuestProfiles(
+        scoped_feature_list_, GetParam());
+  }
 
   ~ReportRequestQueueGeneratorTest() override = default;
 
@@ -115,11 +121,13 @@ class ReportRequestQueueGeneratorTest : public ::testing::Test {
     auto request = std::make_unique<ReportRequest>();
     base::RunLoop run_loop;
 
-    browser_report_generator_.Generate(base::BindLambdaForTesting(
-        [&run_loop, &request](std::unique_ptr<em::BrowserReport> report) {
-          request->set_allocated_browser_report(report.release()),
-              run_loop.Quit();
-        }));
+    browser_report_generator_.Generate(
+        ReportType::kFull,
+        base::BindLambdaForTesting(
+            [&run_loop, &request](std::unique_ptr<em::BrowserReport> report) {
+              request->set_allocated_browser_report(report.release()),
+                  run_loop.Quit();
+            }));
 
     run_loop.Run();
     return request;
@@ -129,7 +137,7 @@ class ReportRequestQueueGeneratorTest : public ::testing::Test {
       const ReportRequest& request) {
     histogram_tester_ = std::make_unique<base::HistogramTester>();
     std::queue<std::unique_ptr<ReportRequest>> requests =
-        report_request_queue_generator_.Generate(request);
+        report_request_queue_generator_.Generate(ReportType::kFull, request);
     std::vector<std::unique_ptr<ReportRequest>> result;
     while (!requests.empty()) {
       result.push_back(std::move(requests.front()));
@@ -164,7 +172,7 @@ class ReportRequestQueueGeneratorTest : public ::testing::Test {
       EXPECT_EQ(0u, profile.id().find(profiles_dir));
       EXPECT_LE(0u, profile.id().find(profile.name()));
 
-      if (profile.is_full_report())
+      if (profile.is_detail_available())
         FindAndRemove(mutable_active_profile_names, profile.name());
       else
         FindAndRemove(mutable_idle_profile_names, profile.name());
@@ -204,11 +212,12 @@ class ReportRequestQueueGeneratorTest : public ::testing::Test {
   BrowserReportGenerator browser_report_generator_;
   ReportRequestQueueGenerator report_request_queue_generator_;
   std::unique_ptr<base::HistogramTester> histogram_tester_;
+  base::test::ScopedFeatureList scoped_feature_list_;
 
   DISALLOW_COPY_AND_ASSIGN(ReportRequestQueueGeneratorTest);
 };
 
-TEST_F(ReportRequestQueueGeneratorTest, GenerateReport) {
+TEST_P(ReportRequestQueueGeneratorTest, GenerateReport) {
   auto idle_profile_names = CreateIdleProfiles();
   auto basic_request = GenerateBasicRequest();
   auto requests = GenerateRequests(*basic_request);
@@ -219,7 +228,7 @@ TEST_F(ReportRequestQueueGeneratorTest, GenerateReport) {
                                         /*report size floor to KB*/ 0, 1);
 }
 
-TEST_F(ReportRequestQueueGeneratorTest, GenerateActiveProfiles) {
+TEST_P(ReportRequestQueueGeneratorTest, GenerateActiveProfiles) {
   auto idle_profile_names = CreateIdleProfiles();
   auto active_profile_names = CreateActiveProfiles();
   auto basic_request = GenerateBasicRequest();
@@ -232,7 +241,7 @@ TEST_F(ReportRequestQueueGeneratorTest, GenerateActiveProfiles) {
                                         /*report size floor to KB*/ 0, 1);
 }
 
-TEST_F(ReportRequestQueueGeneratorTest, BasicReportIsTooBig) {
+TEST_P(ReportRequestQueueGeneratorTest, BasicReportIsTooBig) {
   // Set a super small limitation.
   SetAndVerifyMaximumRequestSize(5);
 
@@ -246,8 +255,8 @@ TEST_F(ReportRequestQueueGeneratorTest, BasicReportIsTooBig) {
                                        0);
 }
 
-TEST_F(ReportRequestQueueGeneratorTest, ReportSeparation) {
-  CreateActiveProfilesWithContent();
+TEST_P(ReportRequestQueueGeneratorTest, ReportSeparation) {
+  auto active_profiles = CreateActiveProfilesWithContent();
   auto basic_request = GenerateBasicRequest();
   auto requests = GenerateRequests(*basic_request);
   EXPECT_EQ(1u, requests.size());
@@ -258,17 +267,32 @@ TEST_F(ReportRequestQueueGeneratorTest, ReportSeparation) {
   requests = GenerateRequests(*basic_request);
   EXPECT_EQ(2u, requests.size());
 
+  // The profile order in requests should match the return value of
+  // GetAllProfilesAttributes().
+  std::vector<std::string> expected_active_profiles_in_requests;
+  for (const auto* entry : profile_manager()
+                               ->profile_attributes_storage()
+                               ->GetAllProfilesAttributes()) {
+    std::string profile_name = base::UTF16ToUTF8(entry->GetName());
+    if (active_profiles.find(profile_name) != active_profiles.end())
+      expected_active_profiles_in_requests.push_back(profile_name);
+  }
+
   // The first profile is activated in the first request only while the second
   // profile is activated in the second request.
-  VerifyProfiles(requests[0]->browser_report(), {kActiveProfileName1},
-                 {kActiveProfileName2});
-  VerifyProfiles(requests[1]->browser_report(), {kActiveProfileName2},
-                 {kActiveProfileName1});
+  VerifyProfiles(
+      requests[0]->browser_report(),
+      {/* idle_profile_names */ expected_active_profiles_in_requests[1]},
+      {/* active_profile_names */ expected_active_profiles_in_requests[0]});
+  VerifyProfiles(
+      requests[1]->browser_report(),
+      {/* idle_profile_names */ expected_active_profiles_in_requests[0]},
+      {/* active_profile_names */ expected_active_profiles_in_requests[1]});
   histogram_tester()->ExpectBucketCount("Enterprise.CloudReportingRequestSize",
                                         /*report size floor to KB*/ 0, 2);
 }
 
-TEST_F(ReportRequestQueueGeneratorTest, ProfileReportIsTooBig) {
+TEST_P(ReportRequestQueueGeneratorTest, ProfileReportIsTooBig) {
   CreateActiveProfileWithContent(kActiveProfileName1);
   auto basic_request = GenerateBasicRequest();
   auto requests = GenerateRequests(*basic_request);
@@ -291,7 +315,7 @@ TEST_F(ReportRequestQueueGeneratorTest, ProfileReportIsTooBig) {
                                         /*report size floor to KB*/ 0, 2);
 }
 
-TEST_F(ReportRequestQueueGeneratorTest, ChromePoliciesCollection) {
+TEST_P(ReportRequestQueueGeneratorTest, ChromePoliciesCollection) {
   auto policy_service = std::make_unique<policy::MockPolicyService>();
   policy::PolicyMap policy_map;
 
@@ -319,7 +343,7 @@ TEST_F(ReportRequestQueueGeneratorTest, ChromePoliciesCollection) {
 
   auto profile_info = browser_report.chrome_user_profile_infos(0);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // In Chrome OS, the collection of policies is disabled.
   EXPECT_EQ(0, profile_info.chrome_policies_size());
 #else
@@ -327,5 +351,9 @@ TEST_F(ReportRequestQueueGeneratorTest, ChromePoliciesCollection) {
   EXPECT_EQ(2, profile_info.chrome_policies_size());
 #endif
 }
+
+INSTANTIATE_TEST_SUITE_P(AllGuestTypes,
+                         ReportRequestQueueGeneratorTest,
+                         /*is_ephemeral=*/testing::Bool());
 
 }  // namespace enterprise_reporting

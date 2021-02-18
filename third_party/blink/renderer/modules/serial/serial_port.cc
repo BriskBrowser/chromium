@@ -12,8 +12,10 @@
 #include "third_party/blink/renderer/bindings/modules/v8/v8_serial_output_signals.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_serial_port_info.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
+#include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/streams/readable_stream.h"
 #include "third_party/blink/renderer/core/streams/writable_stream.h"
+#include "third_party/blink/renderer/modules/event_target_modules_names.h"
 #include "third_party/blink/renderer/modules/serial/serial.h"
 #include "third_party/blink/renderer/modules/serial/serial_port_underlying_sink.h"
 #include "third_party/blink/renderer/modules/serial/serial_port_underlying_source.h"
@@ -122,7 +124,7 @@ class ContinueCloseFunction : public ScriptFunction {
       : ScriptFunction(script_state), port_(port) {}
 
   ScriptValue Call(ScriptValue) override {
-    return port_->ContinueClose(GetScriptState()).GetScriptValue();
+    return port_->ContinueClose(GetScriptState()).AsScriptValue();
   }
 
   void Trace(Visitor* visitor) const override {
@@ -259,18 +261,13 @@ ScriptPromise SerialPort::open(ScriptState* script_state,
   mojo_options->cts_flow_control = options->flowControl() == "hardware";
 
   mojo::PendingRemote<device::mojom::blink::SerialPortClient> client;
-  parent_->GetPort(
-      info_->token,
-      port_.BindNewPipeAndPassReceiver(
-          GetExecutionContext()->GetTaskRunner(TaskType::kMiscPlatformAPI)));
-  port_.set_disconnect_handler(
-      WTF::Bind(&SerialPort::OnConnectionError, WrapWeakPersistent(this)));
-
   open_resolver_ = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   auto callback = WTF::Bind(&SerialPort::OnOpen, WrapPersistent(this),
                             client.InitWithNewPipeAndPassReceiver());
 
-  port_->Open(std::move(mojo_options), std::move(client), std::move(callback));
+  parent_->OpenPort(info_->token, std::move(mojo_options), std::move(client),
+                    std::move(callback));
+
   return open_resolver_->Promise();
 }
 
@@ -433,21 +430,33 @@ ScriptPromise SerialPort::close(ScriptState* script_state,
 
 ScriptPromise SerialPort::ContinueClose(ScriptState* script_state) {
   DCHECK(closing_);
-  DCHECK(!readable_);
-  DCHECK(!writable_);
   DCHECK(!close_resolver_);
 
   if (!port_.is_bound())
     return ScriptPromise::CastUndefined(script_state);
 
   close_resolver_ = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
-  port_->Close(WTF::Bind(&SerialPort::OnClose, WrapPersistent(this)));
+
+  // readable.cancel() and writable.abort() can resolve before |readable_| or
+  // |writable_| are set to null if the streams were already erroring. Wait
+  // until UnderlyingSourceClosed() and UnderlyingSinkClosed() have been called
+  // before continuing.
+  if (!readable_ && !writable_) {
+    StreamsClosed();
+  }
+
   return close_resolver_->Promise();
 }
 
 void SerialPort::AbortClose() {
   DCHECK(closing_);
   closing_ = false;
+}
+
+void SerialPort::StreamsClosed() {
+  DCHECK(!readable_);
+  DCHECK(!writable_);
+  port_->Close(WTF::Bind(&SerialPort::OnClose, WrapPersistent(this)));
 }
 
 void SerialPort::Flush(
@@ -467,12 +476,20 @@ void SerialPort::UnderlyingSourceClosed() {
   DCHECK(readable_);
   readable_ = nullptr;
   underlying_source_ = nullptr;
+
+  if (close_resolver_ && !writable_) {
+    StreamsClosed();
+  }
 }
 
 void SerialPort::UnderlyingSinkClosed() {
   DCHECK(writable_);
   writable_ = nullptr;
   underlying_sink_ = nullptr;
+
+  if (close_resolver_ && !readable_) {
+    StreamsClosed();
+  }
 }
 
 void SerialPort::ContextDestroyed() {
@@ -494,10 +511,6 @@ void SerialPort::Trace(Visitor* visitor) const {
   ScriptWrappable::Trace(visitor);
 }
 
-ExecutionContext* SerialPort::GetExecutionContext() const {
-  return parent_->GetExecutionContext();
-}
-
 bool SerialPort::HasPendingActivity() const {
   // There is no need to check if the execution context has been destroyed, this
   // is handled by the common tracing logic.
@@ -505,6 +518,40 @@ bool SerialPort::HasPendingActivity() const {
   // This object should be considered active as long as it is open so that any
   // chain of streams originating from this port are not closed prematurely.
   return port_.is_bound();
+}
+
+ExecutionContext* SerialPort::GetExecutionContext() const {
+  return parent_->GetExecutionContext();
+}
+
+const AtomicString& SerialPort::InterfaceName() const {
+  return event_target_names::kSerialPort;
+}
+
+DispatchEventResult SerialPort::DispatchEventInternal(Event& event) {
+  event.SetTarget(this);
+
+  // Events fired on a SerialPort instance bubble to the parent Serial instance.
+  event.SetEventPhase(Event::kCapturingPhase);
+  event.SetCurrentTarget(parent_);
+  parent_->FireEventListeners(event);
+  if (event.PropagationStopped())
+    goto doneDispatching;
+
+  event.SetEventPhase(Event::kAtTarget);
+  event.SetCurrentTarget(this);
+  FireEventListeners(event);
+  if (event.PropagationStopped() || !event.bubbles())
+    goto doneDispatching;
+
+  event.SetEventPhase(Event::kBubblingPhase);
+  event.SetCurrentTarget(parent_);
+  parent_->FireEventListeners(event);
+
+doneDispatching:
+  event.SetCurrentTarget(nullptr);
+  event.SetEventPhase(Event::kNone);
+  return EventTarget::GetDispatchEventResult(event);
 }
 
 void SerialPort::OnReadError(device::mojom::blink::SerialReceiveError error) {
@@ -579,12 +626,12 @@ void SerialPort::OnConnectionError() {
 void SerialPort::OnOpen(
     mojo::PendingReceiver<device::mojom::blink::SerialPortClient>
         client_receiver,
-    bool success) {
+    mojo::PendingRemote<device::mojom::blink::SerialPort> port) {
   ScriptState* script_state = open_resolver_->GetScriptState();
   if (!script_state->ContextIsValid())
     return;
 
-  if (!success) {
+  if (!port) {
     ScriptPromiseResolver* resolver = open_resolver_;
     open_resolver_ = nullptr;
     resolver->Reject(MakeGarbageCollected<DOMException>(
@@ -592,9 +639,14 @@ void SerialPort::OnOpen(
     return;
   }
 
+  port_.Bind(std::move(port),
+             GetExecutionContext()->GetTaskRunner(TaskType::kMiscPlatformAPI));
+  port_.set_disconnect_handler(
+      WTF::Bind(&SerialPort::OnConnectionError, WrapWeakPersistent(this)));
   client_receiver_.Bind(
       std::move(client_receiver),
       GetExecutionContext()->GetTaskRunner(TaskType::kMiscPlatformAPI));
+
   open_resolver_->Resolve();
   open_resolver_ = nullptr;
 }

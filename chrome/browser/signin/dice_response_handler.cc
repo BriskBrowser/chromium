@@ -5,7 +5,7 @@
 #include "chrome/browser/signin/dice_response_handler.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/singleton.h"
@@ -37,8 +37,8 @@ const int kDiceTokenFetchTimeoutSeconds = 10;
 // there was OAuth outage in Dice.
 const int kLockAccountReconcilorTimeoutHours = 12;
 
-const base::Feature kSupportOAuthOutageInDice{
-    "SupportOAuthOutageInDice", base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kSupportOAuthOutageInDice{"SupportOAuthOutageInDice",
+                                              base::FEATURE_ENABLED_BY_DEFAULT};
 
 namespace {
 
@@ -151,8 +151,8 @@ DiceResponseHandler::DiceTokenFetcher::DiceTokenFetcher(
       delegate_(std::move(delegate)),
       dice_response_handler_(dice_response_handler),
       timeout_closure_(
-          base::Bind(&DiceResponseHandler::DiceTokenFetcher::OnTimeout,
-                     base::Unretained(this))),
+          base::BindOnce(&DiceResponseHandler::DiceTokenFetcher::OnTimeout,
+                         base::Unretained(this))),
       should_enable_sync_(false) {
   DCHECK(dice_response_handler_);
   account_reconcilor_lock_ =
@@ -276,6 +276,8 @@ void DiceResponseHandler::ProcessDiceSigninHeader(
   if (no_authorization_code) {
     if (base::FeatureList::IsEnabled(kSupportOAuthOutageInDice)) {
       lock_ = std::make_unique<AccountReconcilor::Lock>(account_reconcilor_);
+      about_signin_internals_->OnRefreshTokenReceived(
+          "Missing authorization code due to OAuth outage in Dice.");
       if (!timer_) {
         timer_ = std::make_unique<base::OneShotTimer>();
         if (task_runner_)
@@ -336,7 +338,8 @@ void DiceResponseHandler::ProcessDiceSignoutHeader(
     const std::vector<signin::DiceResponseParams::AccountInfo>& account_infos) {
   VLOG(1) << "Start processing Dice signout response";
 
-  CoreAccountId primary_account = identity_manager_->GetPrimaryAccountId();
+  CoreAccountId primary_account =
+      identity_manager_->GetPrimaryAccountId(signin::ConsentLevel::kSync);
   bool primary_account_signed_out = false;
   auto* accounts_mutator = identity_manager_->GetAccountsMutator();
   for (const auto& account_info : account_infos) {

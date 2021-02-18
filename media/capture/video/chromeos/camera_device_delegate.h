@@ -6,11 +6,14 @@
 #define MEDIA_CAPTURE_VIDEO_CHROMEOS_CAMERA_DEVICE_DELEGATE_H_
 
 #include <memory>
+#include <queue>
 
+#include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/single_thread_task_runner.h"
+#include "media/capture/video/chromeos/camera_device_context.h"
 #include "media/capture/video/chromeos/capture_metadata_dispatcher.h"
 #include "media/capture/video/chromeos/mojom/camera3.mojom.h"
 #include "media/capture/video/chromeos/mojom/camera_common.mojom.h"
@@ -24,7 +27,6 @@ namespace media {
 
 class Camera3AController;
 class CameraAppDeviceImpl;
-class CameraDeviceContext;
 class CameraHalDelegate;
 class RequestManager;
 
@@ -33,7 +35,19 @@ enum class StreamType : uint64_t {
   kJpegOutput = 1,
   kYUVInput = 2,
   kYUVOutput = 3,
-  kUnknown,
+  kRecordingOutput = 4,
+  kUnknown = 5,
+};
+
+// A map to know that each StreamType belongs to which ClientType.
+// The index is StreamType value.
+constexpr std::array<ClientType, static_cast<int>(StreamType::kUnknown)>
+    kStreamClientTypeMap = {
+        ClientType::kPreviewClient,  // kPreviewOutput
+        ClientType::kPreviewClient,  // kJpegOutput
+        ClientType::kPreviewClient,  // kYUVInput
+        ClientType::kPreviewClient,  // kYUVOutput
+        ClientType::kVideoClient,    // kRecordingOutput
 };
 
 // The metadata might be large so clone a whole metadata might be relatively
@@ -42,10 +56,17 @@ struct ResultMetadata {
   ResultMetadata();
   ~ResultMetadata();
 
+  base::Optional<uint8_t> ae_mode;
+  base::Optional<int32_t> ae_compensation;
+  base::Optional<uint8_t> af_mode;
+  base::Optional<uint8_t> awb_mode;
   base::Optional<int32_t> brightness;
   base::Optional<int32_t> contrast;
+  base::Optional<int64_t> exposure_time;
+  base::Optional<float> focus_distance;
   base::Optional<int32_t> pan;
   base::Optional<int32_t> saturation;
+  base::Optional<int32_t> sensitivity;
   base::Optional<int32_t> sharpness;
   base::Optional<int32_t> tilt;
   base::Optional<int32_t> zoom;
@@ -88,6 +109,11 @@ class CAPTURE_EXPORT StreamCaptureInterface {
 // AllocateAndStart of VideoCaptureDeviceArcChromeOS runs on.  All the methods
 // in CameraDeviceDelegate run on |ipc_task_runner_| and hence all the
 // access to member variables is sequenced.
+//
+// CameraDeviceDelegate supports multiple clients.
+// It will use the first client for preview stream and photo stream and use
+// second client for recording stream.
+// The second client will be a virtual camera device which is only used in CCA.
 class CAPTURE_EXPORT CameraDeviceDelegate final
     : public CaptureMetadataDispatcher::ResultMetadataObserver {
  public:
@@ -100,13 +126,17 @@ class CAPTURE_EXPORT CameraDeviceDelegate final
   ~CameraDeviceDelegate() final;
 
   // Delegation methods for the VideoCaptureDevice interface.
-  void AllocateAndStart(const VideoCaptureParams& params,
-                        CameraDeviceContext* device_context);
+  void AllocateAndStart(
+      const base::flat_map<ClientType, VideoCaptureParams>& params,
+      CameraDeviceContext* device_context);
   void StopAndDeAllocate(base::OnceClosure device_close_callback);
   void TakePhoto(VideoCaptureDevice::TakePhotoCallback callback);
   void GetPhotoState(VideoCaptureDevice::GetPhotoStateCallback callback);
   void SetPhotoOptions(mojom::PhotoSettingsPtr settings,
                        VideoCaptureDevice::SetPhotoOptionsCallback callback);
+
+  void ReconfigureStreams(
+      const base::flat_map<ClientType, VideoCaptureParams>& params);
 
   // Sets the frame rotation angle in |rotation_|.  |rotation_| is clockwise
   // rotation in degrees, and is passed to |client_| along with the captured
@@ -120,13 +150,19 @@ class CAPTURE_EXPORT CameraDeviceDelegate final
 
   friend class CameraDeviceDelegateTest;
 
+  // Reconfigures the streams to include photo stream according to |settings|.
+  // Returns true if the reconfigure process is triggered.
+  bool MaybeReconfigureForPhotoStream(mojom::PhotoSettingsPtr settings);
+
   void TakePhotoImpl();
 
   // Mojo connection error handler.
   void OnMojoConnectionError();
 
-  // Reconfigure streams for picture taking.
-  void OnFlushed(base::Optional<gfx::Size> new_blob_resolution, int32_t result);
+  // Reconfigure streams for picture taking and recording.
+  void OnFlushed(bool require_photo,
+                 base::Optional<gfx::Size> new_blob_resolution,
+                 int32_t result);
 
   // Callback method for the Close Mojo IPC call.  This method resets the Mojo
   // connection and closes the camera device.
@@ -213,7 +249,8 @@ class CAPTURE_EXPORT CameraDeviceDelegate final
 
   const scoped_refptr<CameraHalDelegate> camera_hal_delegate_;
 
-  VideoCaptureParams chrome_capture_params_;
+  // Map client type to video capture parameter.
+  base::flat_map<ClientType, VideoCaptureParams> chrome_capture_params_;
 
   CameraDeviceContext* device_context_;
 
@@ -235,12 +272,28 @@ class CAPTURE_EXPORT CameraDeviceDelegate final
 
   base::OnceClosure device_close_callback_;
 
-  VideoCaptureDevice::SetPhotoOptionsCallback set_photo_option_callback_;
+  std::queue<base::OnceClosure> on_reconfigured_callbacks_;
 
   CameraAppDeviceImpl* camera_app_device_;  // Weak.
 
+  // States of SetPhotoOptions
+  bool is_set_awb_mode_;
+  bool is_set_brightness_;
+  bool is_set_contrast_;
+  bool is_set_exposure_compensation_;
+  bool is_set_exposure_time_;
+  bool is_set_focus_distance_;
+  bool is_set_iso_;
+  bool is_set_pan_;
+  bool is_set_saturation_;
+  bool is_set_sharpness_;
+  bool is_set_tilt_;
+  bool is_set_zoom_;
+
   std::vector<base::OnceClosure> get_photo_state_queue_;
   bool use_digital_zoom_;
+  float ae_compensation_step_;
+
   // We reply GetPhotoState when |result_metadata_frame_number_| >
   // |result_metadata_frame_number_for_photo_state_|. Otherwise javascript API
   // getSettings() will get non-updated settings.

@@ -35,17 +35,17 @@ import org.junit.runner.RunWith;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.MetricsUtils;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.browser.WarmupManager;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
-import org.chromium.chrome.browser.privacy.settings.PrivacyPreferencesManager;
+import org.chromium.chrome.browser.privacy.settings.PrivacyPreferencesManagerImpl;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.content_public.browser.WebContents;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.browser.test.util.WebContentsUtils;
 
@@ -623,8 +623,8 @@ public class CustomTabsConnectionTest {
         // Needs the browser process to be initialized.
         boolean enabled = TestThreadUtils.runOnUiThreadBlocking(() -> {
             boolean oldEnabled =
-                    PrivacyPreferencesManager.getInstance().getNetworkPredictionEnabled();
-            PrivacyPreferencesManager.getInstance().setNetworkPredictionEnabled(false);
+                    PrivacyPreferencesManagerImpl.getInstance().getNetworkPredictionEnabled();
+            PrivacyPreferencesManagerImpl.getInstance().setNetworkPredictionEnabled(false);
             return oldEnabled;
         });
 
@@ -635,8 +635,8 @@ public class CustomTabsConnectionTest {
         } finally {
             TestThreadUtils.runOnUiThreadBlocking(
                     ()
-                            -> PrivacyPreferencesManager.getInstance().setNetworkPredictionEnabled(
-                                    enabled));
+                            -> PrivacyPreferencesManagerImpl.getInstance()
+                                       .setNetworkPredictionEnabled(enabled));
         }
     }
 

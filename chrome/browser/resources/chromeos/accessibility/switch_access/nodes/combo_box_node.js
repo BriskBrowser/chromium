@@ -2,11 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {Navigator} from '../navigator.js';
+import {SAConstants, SwitchAccessMenuAction} from '../switch_access_constants.js';
+
+import {BasicNode} from './basic_node.js';
+import {SAChildNode, SARootNode} from './switch_access_node.js';
+
+const AutomationNode = chrome.automation.AutomationNode;
+
 /**
  * This class handles interactions with combo boxes.
  * TODO(anastasi): Add a test for this class.
  */
-class ComboBoxNode extends NodeWrapper {
+class ComboBoxNode extends BasicNode {
   /**
    * @param {!AutomationNode} baseNode
    * @param {?SARootNode} parent
@@ -15,7 +23,7 @@ class ComboBoxNode extends NodeWrapper {
     super(baseNode, parent);
 
     /** @private {?RepeatedEventHandler} */
-    this.childrenChangedHandler_;
+    this.expandedChangedHandler_;
   }
 
   /** @override */
@@ -31,23 +39,20 @@ class ComboBoxNode extends NodeWrapper {
 
   /** @override */
   onFocus() {
-    if (this.automationNode) {
-      this.childrenChangedHandler_ = new RepeatedEventHandler(
-          this.automationNode, chrome.automation.EventType.CHILDREN_CHANGED,
-          () => this.onChildrenChanged(), {exactMatch: true});
-    }
-
     super.onFocus();
-    this.automationNode.focus();
+
+    this.expandedChangedHandler_ = new RepeatedEventHandler(
+        this.automationNode, chrome.automation.EventType.EXPANDED,
+        () => this.onExpandedChanged(), {exactMatch: true});
   }
 
   /** @override */
   onUnfocus() {
     super.onUnfocus();
 
-    if (this.childrenChangedHandler_) {
-      this.childrenChangedHandler_.stopListening();
-      this.childrenChangedHandler_ = null;
+    if (this.expandedChangedHandler_) {
+      this.expandedChangedHandler_.stop();
+      this.expandedChangedHandler_ = null;
     }
   }
 
@@ -59,21 +64,26 @@ class ComboBoxNode extends NodeWrapper {
     // arrows.
     switch (action) {
       case SwitchAccessMenuAction.DECREMENT:
-        EventHelper.simulateKeyPress(EventHelper.KeyCode.UP_ARROW);
+        EventGenerator.sendKeyPress(KeyCode.UP);
         return SAConstants.ActionResponse.REMAIN_OPEN;
       case SwitchAccessMenuAction.INCREMENT:
-        EventHelper.simulateKeyPress(EventHelper.KeyCode.DOWN_ARROW);
+        EventGenerator.sendKeyPress(KeyCode.DOWN);
         return SAConstants.ActionResponse.REMAIN_OPEN;
     }
     return super.performAction(action);
   }
 
-  onChildrenChanged() {
+  onExpandedChanged() {
     // TODO: figure out why a short timeout is needed here.
     window.setTimeout(() => {
       if (this.isGroup()) {
-        NavigationManager.enterGroup();
+        Navigator.instance.enterGroup();
       }
     }, 250);
   }
 }
+
+BasicNode.creators.push({
+  predicate: AutomationPredicate.comboBox,
+  creator: (node, parent) => new ComboBoxNode(node, parent)
+});

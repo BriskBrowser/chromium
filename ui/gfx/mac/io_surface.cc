@@ -10,6 +10,7 @@
 #include <stdint.h>
 
 #include "base/command_line.h"
+#include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/mach_logging.h"
@@ -17,11 +18,15 @@
 #include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
 #include "ui/gfx/buffer_format_util.h"
+#include "ui/gfx/color_space.h"
 #include "ui/gfx/icc_profile.h"
 
 namespace gfx {
 
 namespace {
+
+const base::Feature kIOSurfaceUseNamedSRGBForREC709{
+    "IOSurfaceUseNamedSRGBForREC709", base::FEATURE_ENABLED_BY_DEFAULT};
 
 void AddIntegerValue(CFMutableDictionaryRef dictionary,
                      const CFStringRef key,
@@ -70,7 +75,9 @@ int32_t BytesPerElement(gfx::BufferFormat format, int plane) {
   return 0;
 }
 
-int32_t PixelFormat(gfx::BufferFormat format) {
+}  // namespace
+
+uint32_t BufferFormatToIOSurfacePixelFormat(gfx::BufferFormat format) {
   switch (format) {
     case gfx::BufferFormat::R_8:
       return 'L008';
@@ -95,15 +102,12 @@ int32_t PixelFormat(gfx::BufferFormat format) {
     // Technically RGBA_1010102 should be accepted as 'R10k', but then it won't
     // be supported by CGLTexImageIOSurface2D(), so it's best to reject it here.
     case gfx::BufferFormat::YVU_420:
-      NOTREACHED();
       return 0;
   }
 
   NOTREACHED();
   return 0;
 }
-
-}  // namespace
 
 namespace internal {
 
@@ -134,7 +138,9 @@ bool IOSurfaceSetColorSpace(IOSurfaceRef io_surface,
   // Prefer using named spaces.
   CFStringRef color_space_name = nullptr;
   if (__builtin_available(macos 10.12, *)) {
-    if (color_space == ColorSpace::CreateSRGB()) {
+    if (color_space == ColorSpace::CreateSRGB() ||
+        (base::FeatureList::IsEnabled(kIOSurfaceUseNamedSRGBForREC709) &&
+         color_space == ColorSpace::CreateREC709())) {
       color_space_name = kCGColorSpaceSRGB;
     } else if (color_space == ColorSpace::CreateDisplayP3D65()) {
       color_space_name = kCGColorSpaceDisplayP3;
@@ -157,12 +163,20 @@ bool IOSurfaceSetColorSpace(IOSurfaceRef io_surface,
                                   ColorSpace::TransferID::SMPTEST2084,
                                   ColorSpace::MatrixID::BT2020_NCL,
                                   ColorSpace::RangeID::LIMITED)) {
-      return true;
+      if (__builtin_available(macos 11.0, *)) {
+        color_space_name = kCGColorSpaceITUR_2100_PQ;
+      } else {
+        return true;
+      }
     } else if (color_space == ColorSpace(ColorSpace::PrimaryID::BT2020,
                                          ColorSpace::TransferID::ARIB_STD_B67,
                                          ColorSpace::MatrixID::BT2020_NCL,
                                          ColorSpace::RangeID::LIMITED)) {
-      return true;
+      if (__builtin_available(macos 11.0, *)) {
+        color_space_name = kCGColorSpaceITUR_2100_HLG;
+      } else {
+        return true;
+      }
     }
   }
   if (color_space_name) {
@@ -192,6 +206,7 @@ bool IOSurfaceSetColorSpace(IOSurfaceRef io_surface,
   base::ScopedCFTypeRef<CFDataRef> cf_data_icc_profile(CFDataCreate(
       nullptr, reinterpret_cast<const UInt8*>(icc_profile_data.data()),
       icc_profile_data.size()));
+
   IOSurfaceSetValue(io_surface, CFSTR("IOSurfaceColorSpace"),
                     cf_data_icc_profile);
   return true;
@@ -205,43 +220,65 @@ IOSurfaceRef CreateIOSurface(const gfx::Size& size,
   TRACE_EVENT0("ui", "CreateIOSurface");
   base::TimeTicks start_time = base::TimeTicks::Now();
 
-  size_t num_planes = gfx::NumberOfPlanesForLinearBufferFormat(format);
-  base::ScopedCFTypeRef<CFMutableArrayRef> planes(CFArrayCreateMutable(
-      kCFAllocatorDefault, num_planes, &kCFTypeArrayCallBacks));
-
-  // Don't specify plane information unless there are indeed multiple planes
-  // because DisplayLink drivers do not support this.
-  // http://crbug.com/527556
-  if (num_planes > 1) {
-    for (size_t plane = 0; plane < num_planes; ++plane) {
-      size_t factor = gfx::SubsamplingFactorForBufferFormat(format, plane);
-
-      base::ScopedCFTypeRef<CFMutableDictionaryRef> plane_info(
-          CFDictionaryCreateMutable(kCFAllocatorDefault, 0,
-                                    &kCFTypeDictionaryKeyCallBacks,
-                                    &kCFTypeDictionaryValueCallBacks));
-      AddIntegerValue(plane_info, kIOSurfacePlaneWidth, size.width() / factor);
-      AddIntegerValue(plane_info, kIOSurfacePlaneHeight,
-                      size.height() / factor);
-      AddIntegerValue(plane_info, kIOSurfacePlaneBytesPerElement,
-                      BytesPerElement(format, plane));
-
-      CFArrayAppendValue(planes, plane_info);
-    }
-  }
-
   base::ScopedCFTypeRef<CFMutableDictionaryRef> properties(
       CFDictionaryCreateMutable(kCFAllocatorDefault, 0,
                                 &kCFTypeDictionaryKeyCallBacks,
                                 &kCFTypeDictionaryValueCallBacks));
   AddIntegerValue(properties, kIOSurfaceWidth, size.width());
   AddIntegerValue(properties, kIOSurfaceHeight, size.height());
-  AddIntegerValue(properties, kIOSurfacePixelFormat, PixelFormat(format));
+  AddIntegerValue(properties, kIOSurfacePixelFormat,
+                  BufferFormatToIOSurfacePixelFormat(format));
+
+  // Don't specify plane information unless there are indeed multiple planes
+  // because DisplayLink drivers do not support this.
+  // http://crbug.com/527556
+  size_t num_planes = gfx::NumberOfPlanesForLinearBufferFormat(format);
   if (num_planes > 1) {
+    base::ScopedCFTypeRef<CFMutableArrayRef> planes(CFArrayCreateMutable(
+        kCFAllocatorDefault, num_planes, &kCFTypeArrayCallBacks));
+    size_t total_bytes_alloc = 0;
+    for (size_t plane = 0; plane < num_planes; ++plane) {
+      const size_t factor =
+          gfx::SubsamplingFactorForBufferFormat(format, plane);
+      const size_t plane_width = size.width() / factor;
+      const size_t plane_height = size.height() / factor;
+      const size_t plane_bytes_per_element = BytesPerElement(format, plane);
+      const size_t plane_bytes_per_row = IOSurfaceAlignProperty(
+          kIOSurfacePlaneBytesPerRow, plane_width * plane_bytes_per_element);
+      const size_t plane_bytes_alloc = IOSurfaceAlignProperty(
+          kIOSurfacePlaneSize, plane_height * plane_bytes_per_row);
+      const size_t plane_offset =
+          IOSurfaceAlignProperty(kIOSurfacePlaneOffset, total_bytes_alloc);
+
+      base::ScopedCFTypeRef<CFMutableDictionaryRef> plane_info(
+          CFDictionaryCreateMutable(kCFAllocatorDefault, 0,
+                                    &kCFTypeDictionaryKeyCallBacks,
+                                    &kCFTypeDictionaryValueCallBacks));
+      AddIntegerValue(plane_info, kIOSurfacePlaneWidth, plane_width);
+      AddIntegerValue(plane_info, kIOSurfacePlaneHeight, plane_height);
+      AddIntegerValue(plane_info, kIOSurfacePlaneBytesPerElement,
+                      plane_bytes_per_element);
+      AddIntegerValue(plane_info, kIOSurfacePlaneBytesPerRow,
+                      plane_bytes_per_row);
+      AddIntegerValue(plane_info, kIOSurfacePlaneSize, plane_bytes_alloc);
+      AddIntegerValue(plane_info, kIOSurfacePlaneOffset, plane_offset);
+      CFArrayAppendValue(planes, plane_info);
+      total_bytes_alloc = plane_offset + plane_bytes_alloc;
+    }
     CFDictionaryAddValue(properties, kIOSurfacePlaneInfo, planes);
+
+    total_bytes_alloc =
+        IOSurfaceAlignProperty(kIOSurfaceAllocSize, total_bytes_alloc);
+    AddIntegerValue(properties, kIOSurfaceAllocSize, total_bytes_alloc);
   } else {
-    AddIntegerValue(properties, kIOSurfaceBytesPerElement,
-                    BytesPerElement(format, 0));
+    const size_t bytes_per_element = BytesPerElement(format, 0);
+    const size_t bytes_per_row = IOSurfaceAlignProperty(
+        kIOSurfaceBytesPerRow, size.width() * bytes_per_element);
+    const size_t bytes_alloc = IOSurfaceAlignProperty(
+        kIOSurfaceAllocSize, size.height() * bytes_per_row);
+    AddIntegerValue(properties, kIOSurfaceBytesPerElement, bytes_per_element);
+    AddIntegerValue(properties, kIOSurfaceBytesPerRow, bytes_per_row);
+    AddIntegerValue(properties, kIOSurfaceAllocSize, bytes_alloc);
   }
 
   IOSurfaceRef surface = IOSurfaceCreate(properties);
@@ -250,11 +287,6 @@ IOSurfaceRef CreateIOSurface(const gfx::Size& size,
                << ".";
     return nullptr;
   }
-
-  // IOSurface clearing causes significant performance regression on about half
-  // of all devices running Yosemite. https://crbug.com/606850#c22.
-  if (base::mac::IsOS10_10())
-    should_clear = false;
 
   if (should_clear) {
     // Zero-initialize the IOSurface. Calling IOSurfaceLock/IOSurfaceUnlock
@@ -290,6 +322,21 @@ void IOSurfaceSetColorSpace(IOSurfaceRef io_surface,
     DLOG(ERROR) << "Failed to set color space for IOSurface: "
                 << color_space.ToString();
   }
+}
+
+GFX_EXPORT base::ScopedCFTypeRef<IOSurfaceRef> IOSurfaceMachPortToIOSurface(
+    ScopedRefCountedIOSurfaceMachPort io_surface_mach_port) {
+  base::ScopedCFTypeRef<IOSurfaceRef> io_surface;
+  if (!io_surface_mach_port) {
+    DLOG(ERROR) << "Invalid mach port.";
+    return io_surface;
+  }
+  io_surface.reset(IOSurfaceLookupFromMachPort(io_surface_mach_port));
+  if (!io_surface) {
+    DLOG(ERROR) << "Unable to lookup IOSurface.";
+    return io_surface;
+  }
+  return io_surface;
 }
 
 }  // namespace gfx

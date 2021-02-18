@@ -194,7 +194,8 @@ Status DevToolsClientImpl::SetUpDevTools() {
   unnotified_event_listeners_.clear();
   response_info_map_.clear();
 
-  if (id_ != kBrowserwideDevToolsClientId) {
+  if (id_ != kBrowserwideDevToolsClientId &&
+      (GetOwner() == nullptr || !GetOwner()->IsServiceWorker())) {
     base::DictionaryValue params;
     std::string script =
         "(function () {"
@@ -334,12 +335,16 @@ void DevToolsClientImpl::SetOwner(WebViewImpl* owner) {
   owner_ = owner;
 }
 
+WebViewImpl* DevToolsClientImpl::GetOwner() const {
+  return owner_;
+}
+
 DevToolsClientImpl::ResponseInfo::ResponseInfo(const std::string& method)
     : state(kWaiting), method(method) {}
 
 DevToolsClientImpl::ResponseInfo::~ResponseInfo() {}
 
-DevToolsClientImpl* DevToolsClientImpl::GetRootClient() {
+DevToolsClient* DevToolsClientImpl::GetRootClient() {
   return parent_ ? parent_ : this;
 }
 
@@ -370,7 +375,8 @@ Status DevToolsClientImpl::SendCommandInternal(
     VLOG(1) << "DevTools WebSocket Command: " << method << " (id=" << command_id
             << ") " << id_ << " " << FormatValueForDisplay(params);
   }
-  SyncWebSocket* socket = GetRootClient()->socket_.get();
+  SyncWebSocket* socket =
+      static_cast<DevToolsClientImpl*>(GetRootClient())->socket_.get();
   if (!socket->Send(message)) {
     return Status(kDisconnected, "unable to send message to renderer");
   }

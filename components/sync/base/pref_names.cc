@@ -4,6 +4,8 @@
 
 #include "components/sync/base/pref_names.h"
 
+#include "build/chromeos_buildflags.h"
+
 namespace syncer {
 
 namespace prefs {
@@ -27,7 +29,7 @@ const char kSyncFirstSetupComplete[] = "sync.has_setup_completed";
 // (kSyncBookmarks, kSyncPasswords, etc.) can all be ignored.
 const char kSyncKeepEverythingSynced[] = "sync.keep_everything_synced";
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // Boolean pref that records whether OS sync preferences were migrated due to
 // SplitSettingsSync rollout.
 const char kOsSyncPrefsMigrated[] = "sync.os_sync_prefs_migrated";
@@ -45,7 +47,7 @@ const char kSyncAllOsTypes[] = "sync.all_os_types";
 // OS user selectable types.
 const char kSyncOsApps[] = "sync.os_apps";
 const char kSyncOsPreferences[] = "sync.os_preferences";
-#endif
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 // Booleans specifying whether the user has selected to sync the following
 // user selectable types.
@@ -86,16 +88,14 @@ const char kSyncCacheGuid[] = "sync.cache_guid";
 const char kSyncBirthday[] = "sync.birthday";
 const char kSyncBagOfChips[] = "sync.bag_of_chips";
 
-// Stores whether a platform specific passphrase error prompt has been shown to
-// the user (e.g. an Android system notification). Used for out of band prompts
-// that we only want to use once.
-const char kSyncPassphrasePrompted[] = "sync.passphrase_prompted";
+// Stores whether a platform specific passphrase error prompt has been muted by
+// the user (e.g. an Android system notification). Specifically, it stores which
+// major product version was used to mute this error.
+const char kSyncPassphrasePromptMutedProductVersion[] =
+    "sync.passphrase_prompt_muted_product_version";
 
 // Dictionary of last seen invalidation versions for each model type.
 const char kSyncInvalidationVersions[] = "sync.invalidation_versions";
-
-// The product version from the last restart of Chrome.
-const char kSyncLastRunVersion[] = "sync.last_run_version";
 
 // Enabled the local sync backend implemented by the LoopbackServer.
 const char kEnableLocalSyncBackend[] = "sync.enable_local_sync_backend";
@@ -105,34 +105,13 @@ const char kEnableLocalSyncBackend[] = "sync.enable_local_sync_backend";
 // flag is present.
 const char kLocalSyncBackendDir[] = "sync.local_sync_backend_dir";
 
-// Root dictionary pref to store the user's birth year and gender that are
-// provided by the sync server. This is a read-only syncable priority pref, sent
-// from the sync server to the client.
-const char kSyncDemographics[] = "sync.demographics";
-
-// This pref value is subordinate to the kSyncDemographics dictionary pref and
-// is synced to the client. It stores the self-reported birth year of the
-// syncing user. as provided by the sync server. This value should not be logged
-// to UMA directly; instead, it should be summed with the
-// kSyncDemographicsBirthYearNoiseOffset.
-const char kSyncDemographics_BirthYearPath[] = "birth_year";
-
-// This pref value is subordinate to the kSyncDemographics dictionary pref and
-// is synced to the client. It stores the self-reported gender of the syncing
-// user, as provided by the sync server. The gender is encoded using the Gender
-// enum defined in metrics::UserDemographicsProto
-// (see third_party/metrics_proto/user_demographics.proto).
-const char kSyncDemographics_GenderPath[] = "gender";
-
-// Stores a "secret" offset that is used to randomize the birth year for metrics
-// reporting. This value should not be logged to UMA directly; instead, it
-// should be summed with the kSyncDemographicsBirthYear. This value is generated
-// locally on the client the first time a user begins to merge birth year data
-// into their UMA reports. The value is synced to the user's other devices so
-// that the user consistently uses the same offset across login/logout events
-// and after clearing their other browser data.
-const char kSyncDemographicsBirthYearOffset[] =
-    "sync.demographics_birth_year_offset";
+#if defined(OS_ANDROID)
+// Stores whether sync should no longer respect the state of master toggle for
+// this user.
+// TODO(crbug.com/1107904): Clean pref when the decoupling logic is removed.
+const char kSyncDecoupledFromAndroidMasterSync[] =
+    "sync.decoupled_from_master_sync";
+#endif  // defined(OS_ANDROID)
 
 }  // namespace prefs
 

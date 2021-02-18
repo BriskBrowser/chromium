@@ -27,7 +27,7 @@ namespace test {
 class ScrollViewTestApi;
 }
 
-class Separator;
+enum class OverflowIndicatorAlignment { kLeft, kTop, kRight, kBottom };
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -47,7 +47,28 @@ class VIEWS_EXPORT ScrollView : public View, public ScrollBarController {
  public:
   METADATA_HEADER(ScrollView);
 
+  // Indicates whether or not scroll view is initialized with layer-scrolling.
+  enum class ScrollWithLayers { kDisabled, kEnabled };
+
+  // Controls how a scroll bar appears and functions.
+  enum class ScrollBarMode {
+    // The scrollbar is hidden, and the pane will not respond to e.g. mousewheel
+    // events even if the contents are larger than the viewport.
+    kDisabled,
+    // The scrollbar is hidden whether or not the contents are larger than the
+    // viewport, but the pane will respond to scroll events.
+    kHiddenButEnabled,
+    // The scrollbar will be visible if the contents are larger than the
+    // viewport and the pane will respond to scroll events.
+    kEnabled
+  };
+
   ScrollView();
+
+  // Additional constructor for overriding scrolling as defined by
+  // |kUiCompositorScrollWithLayers|. See crbug.com/873923 for more details on
+  // enabling by default this for all platforms.
+  explicit ScrollView(ScrollWithLayers scroll_with_layers);
 
   ~ScrollView() override;
 
@@ -102,11 +123,27 @@ class VIEWS_EXPORT ScrollView : public View, public ScrollBarController {
 
   bool GetUseColorId() const { return !!background_color_id_; }
 
-  bool GetHideHorizontalScrollBar() const { return hide_horizontal_scrollbar_; }
-  void SetHideHorizontalScrollBar(bool visible);
+  ScrollBarMode GetHorizontalScrollBarMode() const {
+    return horizontal_scroll_bar_mode_;
+  }
+  ScrollBarMode GetVerticalScrollBarMode() const {
+    return vertical_scroll_bar_mode_;
+  }
+  bool GetTreatAllScrollEventsAsHorizontal() const {
+    return treat_all_scroll_events_as_horizontal_;
+  }
+  void SetHorizontalScrollBarMode(ScrollBarMode horizontal_scroll_bar_mode);
+  void SetVerticalScrollBarMode(ScrollBarMode vertical_scroll_bar_mode);
+  void SetTreatAllScrollEventsAsHorizontal(
+      bool treat_all_scroll_events_as_horizontal);
 
   bool GetDrawOverflowIndicator() const { return draw_overflow_indicator_; }
   void SetDrawOverflowIndicator(bool draw_overflow_indicator);
+
+  View* SetCustomOverflowIndicator(OverflowIndicatorAlignment side,
+                                   std::unique_ptr<View> indicator,
+                                   int thickness,
+                                   bool fills_opaquely);
 
   // Turns this scroll view into a bounded scroll view, with a fixed height.
   // By default, a ScrollView will stretch to fill its outer container.
@@ -156,6 +193,9 @@ class VIEWS_EXPORT ScrollView : public View, public ScrollBarController {
   friend class test::ScrollViewTestApi;
 
   class Viewport;
+
+  bool IsHorizontalScrollEnabled() const;
+  bool IsVerticalScrollEnabled() const;
 
   // Forces |contents_viewport_| to have a Layer (assuming it doesn't already).
   void EnableViewportLayer();
@@ -209,6 +249,9 @@ class VIEWS_EXPORT ScrollView : public View, public ScrollBarController {
   // Callback entrypoint when hosted Layers are scrolled by the Compositor.
   void OnLayerScrolled(const gfx::ScrollOffset&, const cc::ElementId&);
 
+  // Updates accessory elements when |contents_| is scrolled.
+  void OnScrolled(const gfx::ScrollOffset& offset);
+
   // Horizontally scrolls the header (if any) to match the contents.
   void ScrollHeader();
 
@@ -244,12 +287,16 @@ class VIEWS_EXPORT ScrollView : public View, public ScrollBarController {
   std::unique_ptr<View> corner_view_;
 
   // Hidden content indicators
-  std::unique_ptr<Separator> more_content_left_ = std::make_unique<Separator>();
-  std::unique_ptr<Separator> more_content_top_ = std::make_unique<Separator>();
-  std::unique_ptr<Separator> more_content_right_ =
-      std::make_unique<Separator>();
-  std::unique_ptr<Separator> more_content_bottom_ =
-      std::make_unique<Separator>();
+  // TODO(https://crbug.com/1166949): Use preferred width/height instead of
+  // thickness members.
+  std::unique_ptr<View> more_content_left_ = std::make_unique<Separator>();
+  int more_content_left_thickness_ = Separator::kThickness;
+  std::unique_ptr<View> more_content_top_ = std::make_unique<Separator>();
+  int more_content_top_thickness_ = Separator::kThickness;
+  std::unique_ptr<View> more_content_right_ = std::make_unique<Separator>();
+  int more_content_right_thickness_ = Separator::kThickness;
+  std::unique_ptr<View> more_content_bottom_ = std::make_unique<Separator>();
+  int more_content_bottom_thickness_ = Separator::kThickness;
 
   // The min and max height for the bounded scroll view. These are negative
   // values if the view is not bounded.
@@ -261,9 +308,14 @@ class VIEWS_EXPORT ScrollView : public View, public ScrollBarController {
   base::Optional<ui::NativeTheme::ColorId> background_color_id_ =
       ui::NativeTheme::kColorId_DialogBackground;
 
-  // If true, never show the horizontal scrollbar (even if the contents is wider
-  // than the viewport).
-  bool hide_horizontal_scrollbar_ = false;
+  // How to handle the case when the contents overflow the viewport.
+  ScrollBarMode horizontal_scroll_bar_mode_ = ScrollBarMode::kEnabled;
+  ScrollBarMode vertical_scroll_bar_mode_ = ScrollBarMode::kEnabled;
+
+  // Causes vertical scroll events (e.g. scrolling with the mousewheel) as
+  // horizontal events, to make scrolling in horizontal-only scroll situations
+  // easier for the user.
+  bool treat_all_scroll_events_as_horizontal_ = false;
 
   // In Harmony, the indicator is a focus ring. Pre-Harmony, the indicator is a
   // different border painter.
@@ -284,6 +336,21 @@ class VIEWS_EXPORT ScrollView : public View, public ScrollBarController {
 
   DISALLOW_COPY_AND_ASSIGN(ScrollView);
 };
+
+BEGIN_VIEW_BUILDER(VIEWS_EXPORT, ScrollView, View)
+VIEW_BUILDER_VIEW_TYPE_PROPERTY(View, Contents)
+VIEW_BUILDER_VIEW_TYPE_PROPERTY(View, Header)
+VIEW_BUILDER_PROPERTY(base::Optional<ui::NativeTheme::ColorId>,
+                      BackgroundThemeColorId)
+VIEW_BUILDER_PROPERTY(ScrollView::ScrollBarMode, HorizontalScrollBarMode)
+VIEW_BUILDER_PROPERTY(ScrollView::ScrollBarMode, VerticalScrollBarMode)
+VIEW_BUILDER_PROPERTY(bool, TreatAllScrollEventsAsHorizontal)
+VIEW_BUILDER_PROPERTY(bool, DrawOverflowIndicator)
+VIEW_BUILDER_PROPERTY(base::Optional<SkColor>, BackgroundColor)
+VIEW_BUILDER_VIEW_PROPERTY(ScrollBar, HorizontalScrollBar)
+VIEW_BUILDER_VIEW_PROPERTY(ScrollBar, VerticalScrollBar)
+VIEW_BUILDER_PROPERTY(bool, HasFocusIndicator)
+END_VIEW_BUILDER
 
 // VariableRowHeightScrollHelper is intended for views that contain rows of
 // varying height. To use a VariableRowHeightScrollHelper create one supplying
@@ -358,5 +425,7 @@ class FixedRowHeightScrollHelper : public VariableRowHeightScrollHelper {
 };
 
 }  // namespace views
+
+DEFINE_VIEW_BUILDER(VIEWS_EXPORT, ScrollView)
 
 #endif  // UI_VIEWS_CONTROLS_SCROLL_VIEW_H_

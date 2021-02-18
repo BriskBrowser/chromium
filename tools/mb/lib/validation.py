@@ -6,20 +6,21 @@
 import ast
 import collections
 import json
+import os
 import re
 
 
-def GetAllConfigs(masters):
+def GetAllConfigs(builder_groups):
   """Build a list of all of the configs referenced by builders.
   """
   all_configs = {}
-  for master in masters:
-    for config in masters[master].values():
+  for builder_group in builder_groups:
+    for config in builder_groups[builder_group].values():
       if isinstance(config, dict):
         for c in config.values():
-          all_configs[c] = master
+          all_configs[c] = builder_group
       else:
-        all_configs[config] = master
+        all_configs[config] = builder_group
   return all_configs
 
 
@@ -54,44 +55,42 @@ def CheckAllConfigsAndMixinsReferenced(errs, all_configs, configs, mixins):
   return errs
 
 
-def EnsureNoProprietaryMixins(errs, default_config, config_file, masters,
-                              configs, mixins):
+def EnsureNoProprietaryMixins(errs, builder_groups, configs, mixins):
   """If we're checking the Chromium config, check that the 'chromium' bots
   which build public artifacts do not include the chrome_with_codecs mixin.
   """
-  if config_file == default_config:
-    if 'chromium' in masters:
-      for builder in masters['chromium']:
-        config = masters['chromium'][builder]
+  if 'chromium' in builder_groups:
+    for builder in builder_groups['chromium']:
+      config = builder_groups['chromium'][builder]
 
-        def RecurseMixins(current_mixin):
-          if current_mixin == 'chrome_with_codecs':
-            errs.append('Public artifact builder "%s" can not contain the '
-                        '"chrome_with_codecs" mixin.' % builder)
-            return
-          if not 'mixins' in mixins[current_mixin]:
-            return
-          for mixin in mixins[current_mixin]['mixins']:
-            RecurseMixins(mixin)
-
-        for mixin in configs[config]:
+      def RecurseMixins(current_mixin):
+        if current_mixin == 'chrome_with_codecs':
+          errs.append('Public artifact builder "%s" can not contain the '
+                      '"chrome_with_codecs" mixin.' % builder)
+          return
+        if not 'mixins' in mixins[current_mixin]:
+          return
+        for mixin in mixins[current_mixin]['mixins']:
           RecurseMixins(mixin)
-    else:
-      errs.append('Missing "chromium" master. Please update this '
-                  'proprietary codecs check with the name of the master '
-                  'responsible for public build artifacts.')
+
+      for mixin in configs[config]:
+        RecurseMixins(mixin)
+  else:
+    errs.append('Missing "chromium" builder_group. Please update this '
+                'proprietary codecs check with the name of the builder_group '
+                'responsible for public build artifacts.')
 
 
-def _GetConfigsByBuilder(masters):
+def _GetConfigsByBuilder(builder_groups):
   """Builds a mapping from buildername -> [config]
 
     Args
-      masters: the master's dict from mb_config.pyl
+      builder_groups: the builder_group's dict from mb_config.pyl
     """
 
   result = collections.defaultdict(list)
-  for master in masters.values():
-    for buildername, builder in master.items():
+  for builder_group in builder_groups.values():
+    for buildername, builder in builder_group.items():
       result[buildername].append(builder)
 
   return result
@@ -136,3 +135,25 @@ def CheckDuplicateConfigs(errs, config_pool, mixin_pool, grouping,
           'following configs are all equivalent: %s. Please '
           'consolidate these configs into only one unique name per '
           'configuration value.' % (', '.join(sorted('%r' % val for val in v))))
+
+
+def CheckExpectations(mbw, jsonish_blob, expectations_dir):
+  """Checks that the expectation files match the config file.
+
+  Returns: True if expectations are up-to-date. False otherwise.
+  """
+  # Assert number of builder_groups == number of expectation files.
+  if len(mbw.ListDir(expectations_dir)) != len(jsonish_blob):
+    return False
+  for builder_group, builders in jsonish_blob.items():
+    if not mbw.Exists(os.path.join(expectations_dir, builder_group + '.json')):
+      return False  # No expecation file for the builder_group.
+    expectation = mbw.ReadFile(os.path.join(expectations_dir,
+                                            builder_group + '.json'))
+    builders_json = json.dumps(builders,
+                               indent=2,
+                               sort_keys=True,
+                               separators=(',', ': '))
+    if builders_json != expectation:
+      return False  # Builders' expectation out of sync.
+  return True

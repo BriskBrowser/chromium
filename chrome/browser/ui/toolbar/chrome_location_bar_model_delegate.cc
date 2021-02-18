@@ -11,7 +11,6 @@
 #include "chrome/browser/autocomplete/autocomplete_classifier_factory.h"
 #include "chrome/browser/autocomplete/chrome_autocomplete_scheme_classifier.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/search/ntp_features.h"
 #include "chrome/browser/search/search.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/ssl/security_state_tab_helper.h"
@@ -22,9 +21,9 @@
 #include "components/offline_pages/buildflags/buildflags.h"
 #include "components/omnibox/browser/autocomplete_input.h"
 #include "components/omnibox/browser/omnibox_prefs.h"
-#include "components/omnibox/common/omnibox_features.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
+#include "components/search/ntp_features.h"
 #include "components/security_interstitials/content/security_interstitial_tab_helper.h"
 #include "components/security_state/core/security_state.h"
 #include "content/public/browser/navigation_controller.h"
@@ -79,15 +78,6 @@ bool ChromeLocationBarModelDelegate::GetURL(GURL* url) const {
 }
 
 bool ChromeLocationBarModelDelegate::ShouldPreventElision() {
-  // Don't record a histogram or prevent elision if the user is in a state
-  // where the show full URLs pref is enabled but the context menu option is
-  // disabled.
-  if (!base::FeatureList::IsEnabled(omnibox::kOmniboxContextMenuShowFullUrls) &&
-      GetElisionConfig() == ELISION_CONFIG_TURNED_OFF_BY_PREF) {
-    return false;
-  }
-
-  RecordElisionConfig();
   if (GetElisionConfig() != ELISION_CONFIG_DEFAULT) {
     return true;
   }
@@ -119,10 +109,8 @@ bool ChromeLocationBarModelDelegate::ShouldDisplayURL() const {
   if (login_tab_helper && login_tab_helper->IsShowingPrompt())
     return login_tab_helper->ShouldDisplayURL();
 
-  if (entry->IsViewSourceMode() ||
-      entry->GetPageType() == content::PAGE_TYPE_INTERSTITIAL) {
+  if (entry->IsViewSourceMode())
     return true;
-  }
 
   const auto is_ntp = [](const GURL& url) {
     return url.SchemeIs(content::kChromeUIScheme) &&
@@ -258,18 +246,6 @@ ChromeLocationBarModelDelegate::GetElisionConfig() const {
   }
 #endif
   return ELISION_CONFIG_DEFAULT;
-}
-
-void ChromeLocationBarModelDelegate::RecordElisionConfig() {
-  Profile* const profile = GetProfile();
-  // Only record metrics once for this object, and only record if the profile
-  // has already been created to avoid false logging of the default config.
-  if (elision_config_recorded_ || !profile) {
-    return;
-  }
-  UMA_HISTOGRAM_ENUMERATION("Omnibox.ElisionConfig", GetElisionConfig(),
-                            ELISION_CONFIG_MAX);
-  elision_config_recorded_ = true;
 }
 
 AutocompleteClassifier*

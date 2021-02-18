@@ -33,6 +33,7 @@
 #include "third_party/blink/renderer/platform/geometry/float_rounded_rect.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_types.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
+#include "third_party/blink/renderer/platform/transforms/transformation_matrix.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
@@ -64,6 +65,12 @@ struct PathElement {
   FloatPoint* points;
 };
 
+// Result structure from Path::PointAndNormalAtLength() (and similar).
+struct PointAndTangent {
+  FloatPoint point;
+  float tangent_in_degrees = 0;
+};
+
 typedef void (*PathApplierFunction)(void* info, const PathElement*);
 
 class PLATFORM_EXPORT Path {
@@ -91,12 +98,16 @@ class PLATFORM_EXPORT Path {
                       const AffineTransform&) const;
   SkPath StrokePath(const StrokeData&, const AffineTransform&) const;
 
+  // Tight Bounding calculation is very expensive, but it guarantees the strict
+  // bounding box. It's always included in BoundingRect. For a logical bounding
+  // box (used for clipping or damage) BoundingRect is recommended.
+  FloatRect TightBoundingRect() const;
   FloatRect BoundingRect() const;
   FloatRect StrokeBoundingRect(const StrokeData&) const;
 
   float length() const;
   FloatPoint PointAtLength(float length) const;
-  void PointAndNormalAtLength(float length, FloatPoint&, float&) const;
+  PointAndTangent PointAndNormalAtLength(float length) const;
 
   // Helper for computing a sequence of positions and normals (normal angles) on
   // a path. The best possible access pattern will be one where the |length|
@@ -110,7 +121,7 @@ class PLATFORM_EXPORT Path {
    public:
     explicit PositionCalculator(const Path&);
 
-    void PointAndNormalAtLength(float length, FloatPoint&, float&);
+    PointAndTangent PointAndNormalAtLength(float length);
 
    private:
     SkPath path_;
@@ -179,6 +190,7 @@ class PLATFORM_EXPORT Path {
 
   void Apply(void* info, PathApplierFunction) const;
   void Transform(const AffineTransform&);
+  void Transform(const TransformationMatrix&);
 
   void AddPathForRoundedRect(const FloatRect&,
                              const FloatSize& top_left_radius,

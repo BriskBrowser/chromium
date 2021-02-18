@@ -19,6 +19,7 @@
 #include "base/values.h"
 #include "cc/base/unique_notifier.h"
 #include "cc/raster/raster_buffer_provider.h"
+#include "cc/raster/raster_query_queue.h"
 #include "cc/raster/raster_source.h"
 #include "cc/resources/memory_history.h"
 #include "cc/resources/resource_pool.h"
@@ -64,15 +65,15 @@ class CC_EXPORT TileManagerClient {
   virtual void NotifyTileStateChanged(const Tile* tile) = 0;
 
   // Given an empty raster tile priority queue, this will build a priority queue
-  // that will return tiles in order in which they should be rasterized.
-  // Note if the queue was previous built, Reset must be called on it.
+  // that will return tiles in the order in which they should be rasterized.
+  // Note if the queue was previously built, Reset must be called on it.
   virtual std::unique_ptr<RasterTilePriorityQueue> BuildRasterQueue(
       TreePriority tree_priority,
       RasterTilePriorityQueue::Type type) = 0;
 
   // Given an empty eviction tile priority queue, this will build a priority
-  // queue that will return tiles in order in which they should be evicted.
-  // Note if the queue was previous built, Reset must be called on it.
+  // queue that will return tiles in the order in which they should be evicted.
+  // Note if the queue was previously built, Reset must be called on it.
   virtual std::unique_ptr<EvictionTilePriorityQueue> BuildEvictionQueue(
       TreePriority tree_priority) = 0;
 
@@ -103,6 +104,9 @@ class CC_EXPORT TileManagerClient {
   // Returns the sample count to use if MSAA is enabled for a tile.
   virtual int GetMSAASampleCountForRaster(
       const scoped_refptr<DisplayItemList>& display_list) = 0;
+
+  // True if there is a pending tree.
+  virtual bool HasPendingTree() = 0;
 
  protected:
   virtual ~TileManagerClient() {}
@@ -177,7 +181,8 @@ class CC_EXPORT TileManager : CheckerImageTrackerClient {
                     TaskGraphRunner* task_graph_runner,
                     RasterBufferProvider* raster_buffer_provider,
                     bool use_gpu_rasterization,
-                    bool use_oop_rasterization);
+                    bool use_oop_rasterization,
+                    RasterQueryQueue* pending_raster_queries);
 
   // This causes any completed raster work to finalize, so that tiles get up to
   // date draw information.
@@ -255,6 +260,11 @@ class CC_EXPORT TileManager : CheckerImageTrackerClient {
   void SetRasterBufferProviderForTesting(
       RasterBufferProvider* raster_buffer_provider) {
     raster_buffer_provider_ = raster_buffer_provider;
+  }
+
+  void SetPendingRasterQueriesForTesting(
+      RasterQueryQueue* pending_raster_queries) {
+    pending_raster_queries_ = pending_raster_queries;
   }
 
   std::vector<Tile*> AllTilesForTesting() const {
@@ -439,6 +449,7 @@ class CC_EXPORT TileManager : CheckerImageTrackerClient {
   const TileManagerSettings tile_manager_settings_;
   bool use_gpu_rasterization_;
   bool use_oop_rasterization_;
+  RasterQueryQueue* pending_raster_queries_ = nullptr;
 
   std::unordered_map<Tile::Id, Tile*> tiles_;
 

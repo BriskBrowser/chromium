@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_CROSTINI_CROSTINI_UPDATE_COMPONENT_VIEW_H_
 
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 
 namespace crostini {
 enum class CrostiniResult;
@@ -17,10 +18,9 @@ class Profile;
 // connection is needed.
 class CrostiniUpdateComponentView : public views::BubbleDialogDelegateView {
  public:
-  static void Show(Profile* profile);
+  METADATA_HEADER(CrostiniUpdateComponentView);
 
-  // views::DialogDelegateView:
-  gfx::Size CalculatePreferredSize() const override;
+  static void Show(Profile* profile);
 
   static CrostiniUpdateComponentView* GetActiveViewForTesting();
 

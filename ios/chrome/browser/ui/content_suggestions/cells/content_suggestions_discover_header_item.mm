@@ -5,7 +5,6 @@
 #import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_discover_header_item.h"
 
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_constants.h"
-#import "ios/chrome/browser/ui/util/named_guide.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/colors/UIColor+cr_semantic_colors.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
@@ -18,8 +17,12 @@
 #endif
 
 namespace {
-// Leading and trailing margin for label and button.
-const CGFloat kHeaderHorizontalMargin = 20;
+// Leading margin for title label. Its used to align with the Card leading
+// margin.
+const CGFloat kTitleHorizontalMargin = 19;
+// Trailing margin for menu button. Its used to align with the Card trailing
+// margin.
+const CGFloat kMenuButtonHorizontalMargin = 14;
 // Font size for label text in header.
 const CGFloat kDiscoverFeedTitleFontSize = 16;
 // Insets for header menu button.
@@ -27,6 +30,9 @@ const CGFloat kHeaderMenuButtonInsetTopAndBottom = 2;
 const CGFloat kHeaderMenuButtonInsetSides = 2;
 // Duration for the header animation when Discover feed visibility changes.
 const CGFloat kHeaderChangeAnimationDuration = 0.3;
+// Max width for cards in non Max/Plus iPhones, this is used to align the header
+// to the card margins. This is currently hard coded by Discover.
+const CGFloat kFeedCardIPhoneWidth = 375;
 }
 
 #pragma mark - ContentSuggestionsDiscoverHeaderItem
@@ -99,19 +105,53 @@ const CGFloat kHeaderChangeAnimationDuration = 0.3;
         kHeaderMenuButtonInsetTopAndBottom, kHeaderMenuButtonInsetSides,
         kHeaderMenuButtonInsetTopAndBottom, kHeaderMenuButtonInsetSides);
 
-    [self.contentView addSubview:_menuButton];
-    [self.contentView addSubview:_titleLabel];
+    UIView* container = [[UIView alloc] init];
+    container.translatesAutoresizingMaskIntoConstraints = NO;
+    [container addSubview:_menuButton];
+    [container addSubview:_titleLabel];
+    [self.contentView addSubview:container];
 
-    [NSLayoutConstraint activateConstraints:@[
+    NSMutableArray* constraintsArray = [[NSMutableArray alloc] init];
+    [constraintsArray addObjectsFromArray:@[
+      [container.topAnchor constraintEqualToAnchor:self.contentView.topAnchor],
+      [container.bottomAnchor
+          constraintEqualToAnchor:self.contentView.bottomAnchor],
       [_titleLabel.leadingAnchor
-          constraintEqualToAnchor:self.contentView.leadingAnchor
-                         constant:kHeaderHorizontalMargin],
+          constraintEqualToAnchor:container.leadingAnchor
+                         constant:kTitleHorizontalMargin],
       [_titleLabel.trailingAnchor
           constraintLessThanOrEqualToAnchor:_menuButton.leadingAnchor],
       [_menuButton.trailingAnchor
-          constraintEqualToAnchor:self.contentView.trailingAnchor
-                         constant:-kHeaderHorizontalMargin],
+          constraintEqualToAnchor:container.trailingAnchor
+                         constant:-kMenuButtonHorizontalMargin],
+      [_titleLabel.centerYAnchor
+          constraintEqualToAnchor:container.centerYAnchor],
+      [_menuButton.centerYAnchor
+          constraintEqualToAnchor:container.centerYAnchor],
     ]];
+
+    // TODO(b/167703449): Once the card width and padding is exposed we should
+    // stop hardcoding this for some iPhones (the ones with a portrait width of
+    // kFeedCardIPhoneWidth) and use those values instead.
+    BOOL shouldFixWidth = IsPortrait(self.window)
+                              ? (CurrentScreenWidth() == kFeedCardIPhoneWidth)
+                              : (CurrentScreenHeight() == kFeedCardIPhoneWidth);
+    if (shouldFixWidth) {
+      [constraintsArray addObjectsFromArray:@[
+        [container.centerXAnchor
+            constraintEqualToAnchor:self.contentView.centerXAnchor],
+        [container.widthAnchor constraintEqualToConstant:kFeedCardIPhoneWidth],
+      ]];
+    } else {
+      [constraintsArray addObjectsFromArray:@[
+        [container.leadingAnchor
+            constraintEqualToAnchor:self.contentView.leadingAnchor],
+        [container.trailingAnchor
+            constraintEqualToAnchor:self.contentView.trailingAnchor],
+      ]];
+    }
+
+    [NSLayoutConstraint activateConstraints:constraintsArray];
   }
   return self;
 }
@@ -134,6 +174,9 @@ const CGFloat kHeaderChangeAnimationDuration = 0.3;
   } else {
     [self setHeaderForFeedVisible:visible animate:NO];
   }
+  // TODO(crbug.com/1131571)(adamta@): Check if still necessary to layout
+  // content view.
+  [self.contentView layoutIfNeeded];
   self.discoverFeedVisible = [NSNumber numberWithBool:visible];
 }
 

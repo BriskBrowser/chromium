@@ -98,7 +98,7 @@
     Check your administrator's policies
   </message>
   <message name="IDS_ERRORPAGES_SUGGESTION_VIEW_POLICIES_BODY" desc="When a webpage fails to load, sometimes we suggest to the user to view the current policies.  These are instructions below a header.">
-    Visit &lt;strong&gt;chrome://policy&lt;/strong&gt; to see the list of blacklisted URLs and other policies enforced by your system administrator.
+    Visit &lt;strong&gt;chrome://policy&lt;/strong&gt; to see the list of blocked URLs and other policies enforced by your system administrator.
   </message>
   <message name="IDS_ERRORPAGES_SUGGESTION_UNSUPPORTED_CIPHER_HEADER" desc="This is the header displayed above the explanation for SSL cipher and version errors.">
     Unsupported protocol
@@ -367,6 +367,16 @@
     </message>
     <message name="IDS_ERRORPAGES_SUGGESTION_DIAGNOSE_CHECK_TYPO_STANDALONE" desc="Suggestion text that follows request to check for typos in the URL. This provides a link that invokes the connection diagnostic tool on the error page">
       If spelling is correct, <ph name="BEGIN_LINK">&lt;a href="javascript:diagnoseErrors()" id="diagnose-link"&gt;</ph>try running Connectivity Diagnostics<ph name="END_LINK">&lt;/a&gt;</ph>.
+    </message>
+  </if>
+  <if expr="is_android or is_ios">
+    <message name="IDS_ERRORPAGES_GAME_INSTRUCTIONS" desc="Mobile: Instructions on how to start playing the offline game. 'dino' is an acceptable English nickname that refers to 'dinosaur'">
+      Tap the dino to play
+    </message>
+  </if>
+  <if expr="not is_android and not is_ios">
+    <message name="IDS_ERRORPAGES_GAME_INSTRUCTIONS" desc="Instructions on how to start playing the offline game.">
+      Press space to play
     </message>
   </if>
 

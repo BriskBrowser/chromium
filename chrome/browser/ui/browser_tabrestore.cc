@@ -16,6 +16,8 @@
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/tabs/tab_group.h"
+#include "chrome/browser/ui/tabs/tab_group_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "components/sessions/content/content_serialized_navigation_builder.h"
 #include "components/tab_groups/tab_group_id.h"
@@ -26,6 +28,7 @@
 #include "content/public/browser/web_contents.h"
 #include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/gfx/range/range.h"
 
 using content::NavigationEntry;
 using content::RestoreType;
@@ -37,20 +40,11 @@ namespace chrome {
 
 namespace {
 
-RestoreType GetRestoreType(Browser* browser, bool from_last_session) {
-  if (!from_last_session)
-    return RestoreType::CURRENT_SESSION;
-  return browser->profile()->GetLastSessionExitType() == Profile::EXIT_CRASHED
-             ? RestoreType::LAST_SESSION_CRASHED
-             : RestoreType::LAST_SESSION_EXITED_CLEANLY;
-}
-
 std::unique_ptr<WebContents> CreateRestoredTab(
     Browser* browser,
     const std::vector<SerializedNavigationEntry>& navigations,
     int selected_navigation,
     const std::string& extension_app_id,
-    bool from_last_session,
     base::TimeTicks last_active_time,
     content::SessionStorageNamespace* session_storage_namespace,
     const sessions::SerializedUserAgentOverride& user_agent_override,
@@ -88,9 +82,8 @@ std::unique_ptr<WebContents> CreateRestoredTab(
   ua_override.ua_metadata_override = blink::UserAgentMetadata::Demarshal(
       user_agent_override.opaque_ua_metadata_override);
   web_contents->SetUserAgentOverride(ua_override, false);
-  web_contents->GetController().Restore(
-      selected_navigation, GetRestoreType(browser, from_last_session),
-      &entries);
+  web_contents->GetController().Restore(selected_navigation,
+                                        RestoreType::kRestored, &entries);
   DCHECK_EQ(0u, entries.size());
 
   return web_contents;
@@ -132,7 +125,6 @@ WebContents* AddRestoredTab(
     base::Optional<tab_groups::TabGroupId> group,
     bool select,
     bool pin,
-    bool from_last_session,
     base::TimeTicks last_active_time,
     content::SessionStorageNamespace* session_storage_namespace,
     const sessions::SerializedUserAgentOverride& user_agent_override,
@@ -140,23 +132,36 @@ WebContents* AddRestoredTab(
   const bool initially_hidden = !select || browser->window()->IsMinimized();
   std::unique_ptr<WebContents> web_contents = CreateRestoredTab(
       browser, navigations, selected_navigation, extension_app_id,
-      from_last_session, last_active_time, session_storage_namespace,
-      user_agent_override, initially_hidden, from_session_restore);
+      last_active_time, session_storage_namespace, user_agent_override,
+      initially_hidden, from_session_restore);
+
+  TabStripModel* const tab_strip_model = browser->tab_strip_model();
 
   int add_types = select ? TabStripModel::ADD_ACTIVE : TabStripModel::ADD_NONE;
   if (pin) {
-    tab_index = std::min(
-        tab_index, browser->tab_strip_model()->IndexOfFirstNonPinnedTab());
+    tab_index =
+        std::min(tab_index, tab_strip_model->IndexOfFirstNonPinnedTab());
     add_types |= TabStripModel::ADD_PINNED;
   }
 
+  const base::Optional<tab_groups::TabGroupId> surrounding_group =
+      tab_strip_model->GetSurroundingTabGroup(tab_index);
+
+  // If inserting at |tab_index| would put the tab within a different
+  // group, adjust the index to put it outside.
+  if (surrounding_group && surrounding_group != group) {
+    tab_index = tab_strip_model->group_model()
+                    ->GetTabGroup(*surrounding_group)
+                    ->ListTabs()
+                    .end();
+  }
+
   WebContents* raw_web_contents = web_contents.get();
-  const int actual_index = browser->tab_strip_model()->InsertWebContentsAt(
+  const int actual_index = tab_strip_model->InsertWebContentsAt(
       tab_index, std::move(web_contents), add_types);
 
   if (group.has_value()) {
-    browser->tab_strip_model()->AddToGroupForRestore({actual_index},
-                                                     group.value());
+    tab_strip_model->AddToGroupForRestore({actual_index}, group.value());
   }
 
   if (initially_hidden) {
@@ -206,15 +211,14 @@ WebContents* ReplaceRestoredTab(
     Browser* browser,
     const std::vector<SerializedNavigationEntry>& navigations,
     int selected_navigation,
-    bool from_last_session,
     const std::string& extension_app_id,
     content::SessionStorageNamespace* session_storage_namespace,
     const sessions::SerializedUserAgentOverride& user_agent_override,
     bool from_session_restore) {
   std::unique_ptr<WebContents> web_contents = CreateRestoredTab(
       browser, navigations, selected_navigation, extension_app_id,
-      from_last_session, base::TimeTicks(), session_storage_namespace,
-      user_agent_override, false, from_session_restore);
+      base::TimeTicks(), session_storage_namespace, user_agent_override, false,
+      from_session_restore);
   WebContents* raw_web_contents = web_contents.get();
 
   // ReplaceWebContentsAt won't animate in the restoration, so manually do the

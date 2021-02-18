@@ -5,18 +5,22 @@
 #include "components/autofill_assistant/browser/protocol_utils.h"
 
 #include "base/macros.h"
+#include "base/optional.h"
+#include "components/autofill_assistant/browser/selector.h"
 #include "components/autofill_assistant/browser/service.pb.h"
+#include "components/autofill_assistant/browser/test_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "url/gurl.h"
 
 namespace autofill_assistant {
-namespace {
 
 using ::testing::ElementsAre;
 using ::testing::Eq;
 using ::testing::IsEmpty;
 using ::testing::Not;
 using ::testing::Pair;
+using ::testing::Pointee;
+using ::testing::Property;
 using ::testing::SizeIs;
 using ::testing::UnorderedElementsAreArray;
 
@@ -51,16 +55,6 @@ void AssertClientContext(const ClientContextProto& context) {
   EXPECT_FALSE(context.is_direct_action());
   EXPECT_THAT(context.accounts_matching_status(),
               Eq(ClientContextProto::UNKNOWN));
-}
-
-void AssertScriptParameters(
-    const google::protobuf::RepeatedPtrField<ScriptParameterProto>& actual,
-    const std::map<std::string, std::string>& expected) {
-  std::map<std::string, std::string> actual_as_map;
-  for (const auto& actual_parameter : actual) {
-    actual_as_map[actual_parameter.name()] = actual_parameter.value();
-  }
-  EXPECT_THAT(actual_as_map, UnorderedElementsAreArray(expected));
 }
 
 TEST_F(ProtocolUtilsTest, ScriptMissingPath) {
@@ -118,22 +112,28 @@ TEST_F(ProtocolUtilsTest, InterruptsCannotBeAutostart) {
 }
 
 TEST_F(ProtocolUtilsTest, CreateInitialScriptActionsRequest) {
-  std::map<std::string, std::string> parameters = {{"key_a", "value_a"},
-                                                   {"key_b", "value_b"}};
+  ScriptParameters parameters = {{{"key_a", "value_a"}, {"key_b", "value_b"}}};
   ScriptActionRequestProto request;
+  ScriptStoreConfig config;
+  config.set_bundle_path("bundle/path");
+  config.set_bundle_version(12);
   EXPECT_TRUE(
       request.ParseFromString(ProtocolUtils::CreateInitialScriptActionsRequest(
           "script_path", GURL("http://example.com/"), "global_payload",
-          "script_payload", client_context_proto_, parameters)));
+          "script_payload", client_context_proto_, parameters,
+          base::Optional<ScriptStoreConfig>(config))));
 
   const InitialScriptActionsRequestProto& initial = request.initial_request();
   EXPECT_THAT(initial.query().script_path(), ElementsAre("script_path"));
   EXPECT_EQ(initial.query().url(), "http://example.com/");
-  AssertScriptParameters(initial.script_parameters(), parameters);
+  EXPECT_THAT(initial.script_parameters(),
+              UnorderedElementsAreArray(parameters.ToProto()));
 
   AssertClientContext(request.client_context());
   EXPECT_EQ("global_payload", request.global_payload());
   EXPECT_EQ("script_payload", request.script_payload());
+  EXPECT_EQ("bundle/path", initial.script_store_config().bundle_path());
+  EXPECT_EQ(12, initial.script_store_config().bundle_version());
 }
 
 TEST_F(ProtocolUtilsTest, CreateNextScriptActionsRequest) {
@@ -143,22 +143,21 @@ TEST_F(ProtocolUtilsTest, CreateNextScriptActionsRequest) {
   EXPECT_TRUE(
       request.ParseFromString(ProtocolUtils::CreateNextScriptActionsRequest(
           "global_payload", "script_payload", processed_actions,
-          client_context_proto_)));
+          RoundtripTimingStats(), client_context_proto_)));
 
   AssertClientContext(request.client_context());
   EXPECT_EQ(1, request.next_request().processed_actions().size());
 }
 
 TEST_F(ProtocolUtilsTest, CreateGetScriptsRequest) {
-  std::map<std::string, std::string> parameters = {{"key_a", "value_a"},
-                                                   {"key_b", "value_b"}};
-
+  ScriptParameters parameters = {{{"key_a", "value_a"}, {"key_b", "value_b"}}};
   SupportsScriptRequestProto request;
   EXPECT_TRUE(request.ParseFromString(ProtocolUtils::CreateGetScriptsRequest(
       GURL("http://example.com/"), client_context_proto_, parameters)));
 
   AssertClientContext(request.client_context());
-  AssertScriptParameters(request.script_parameters(), parameters);
+  EXPECT_THAT(request.script_parameters(),
+              UnorderedElementsAreArray(parameters.ToProto()));
   EXPECT_EQ("http://example.com/", request.url());
 }
 
@@ -321,5 +320,183 @@ TEST_F(ProtocolUtilsTest, ParseActionsUpdateScriptListFullFeatured) {
   EXPECT_THAT("name", Eq(scripts[0]->handle.chip.text));
 }
 
-}  // namespace
+TEST_F(ProtocolUtilsTest, ParseTriggerScriptsParseError) {
+  std::vector<std::unique_ptr<TriggerScript>> trigger_scripts;
+  std::vector<std::string> additional_allowed_domains;
+  int interval_ms;
+  base::Optional<int> timeout_ms;
+  EXPECT_FALSE(ProtocolUtils::ParseTriggerScripts("invalid", &trigger_scripts,
+                                                  &additional_allowed_domains,
+                                                  &interval_ms, &timeout_ms));
+  EXPECT_TRUE(trigger_scripts.empty());
+}
+
+TEST_F(ProtocolUtilsTest, CreateGetTriggerScriptsRequest) {
+  ScriptParameters parameters = {
+      {{"key_a", "value_a"}, {"DEBUG_BUNDLE_ID", "123"}}};
+  GetTriggerScriptsRequestProto request;
+  EXPECT_TRUE(
+      request.ParseFromString(ProtocolUtils::CreateGetTriggerScriptsRequest(
+          GURL("http://example.com/"), client_context_proto_, parameters)));
+
+  AssertClientContext(request.client_context());
+  EXPECT_THAT(request.debug_script_parameters(),
+              UnorderedElementsAreArray(
+                  ScriptParameters(std::map<std::string, std::string>{
+                                       {"DEBUG_BUNDLE_ID", "123"}})
+                      .ToProto()));
+  EXPECT_EQ("http://example.com/", request.url());
+}
+
+TEST_F(ProtocolUtilsTest, ParseTriggerScriptsValid) {
+  GetTriggerScriptsResponseProto proto;
+  proto.add_additional_allowed_domains("example.com");
+  proto.add_additional_allowed_domains("other-example.com");
+
+  proto.set_trigger_condition_check_interval_ms(2000);
+  proto.set_timeout_ms(500000);
+
+  TriggerScriptProto trigger_script_1;
+  *trigger_script_1.mutable_trigger_condition()->mutable_selector() =
+      ToSelectorProto("fake_element_1");
+  TriggerScriptProto trigger_script_2;
+
+  *proto.add_trigger_scripts() = trigger_script_1;
+  *proto.add_trigger_scripts() = trigger_script_2;
+
+  std::string proto_str;
+  proto.SerializeToString(&proto_str);
+
+  std::vector<std::unique_ptr<TriggerScript>> trigger_scripts;
+  std::vector<std::string> additional_allowed_domains;
+  int interval_ms;
+  base::Optional<int> timeout_ms;
+  EXPECT_TRUE(ProtocolUtils::ParseTriggerScripts(proto_str, &trigger_scripts,
+                                                 &additional_allowed_domains,
+                                                 &interval_ms, &timeout_ms));
+  EXPECT_THAT(
+      trigger_scripts,
+      ElementsAre(
+          Pointee(Property(&TriggerScript::AsProto, Eq(trigger_script_1))),
+          Pointee(Property(&TriggerScript::AsProto, Eq(trigger_script_2)))));
+  EXPECT_THAT(additional_allowed_domains,
+              ElementsAre("example.com", "other-example.com"));
+  EXPECT_EQ(interval_ms, 2000);
+  EXPECT_EQ(timeout_ms, 500000);
+}
+
+TEST_F(ProtocolUtilsTest, TurnOffResizeVisualViewport) {
+  GetTriggerScriptsResponseProto proto;
+
+  auto* script1 = proto.add_trigger_scripts();
+  script1->mutable_user_interface()->set_scroll_to_hide(true);
+  script1->mutable_user_interface()->set_resize_visual_viewport(true);
+
+  auto* script2 = proto.add_trigger_scripts();
+  script2->mutable_user_interface()->set_resize_visual_viewport(true);
+
+  std::string proto_str;
+  proto.SerializeToString(&proto_str);
+
+  std::vector<std::unique_ptr<TriggerScript>> trigger_scripts;
+  std::vector<std::string> additional_allowed_domains;
+  int interval_ms;
+  base::Optional<int> timeout_ms;
+
+  EXPECT_TRUE(ProtocolUtils::ParseTriggerScripts(proto_str, &trigger_scripts,
+                                                 &additional_allowed_domains,
+                                                 &interval_ms, &timeout_ms));
+  ASSERT_THAT(trigger_scripts, SizeIs(2));
+
+  EXPECT_TRUE(trigger_scripts[0]->AsProto().user_interface().scroll_to_hide());
+  EXPECT_FALSE(
+      trigger_scripts[0]->AsProto().user_interface().resize_visual_viewport());
+
+  EXPECT_FALSE(trigger_scripts[1]->AsProto().user_interface().scroll_to_hide());
+  EXPECT_TRUE(
+      trigger_scripts[1]->AsProto().user_interface().resize_visual_viewport());
+}
+
+TEST_F(ProtocolUtilsTest, ParseTriggerScriptsFailsOnInvalidConditions) {
+  GetTriggerScriptsResponseProto proto;
+
+  TriggerScriptProto trigger_script_1;
+  TriggerScriptProto trigger_script_2;
+  trigger_script_2.mutable_trigger_condition()->set_domain_with_scheme(
+      "invalid");
+
+  *proto.add_trigger_scripts() = trigger_script_1;
+  *proto.add_trigger_scripts() = trigger_script_2;
+
+  std::string proto_str;
+  proto.SerializeToString(&proto_str);
+
+  std::vector<std::unique_ptr<TriggerScript>> trigger_scripts;
+  std::vector<std::string> additional_allowed_domains;
+  int interval_ms;
+  base::Optional<int> timeout_ms;
+
+  EXPECT_FALSE(ProtocolUtils::ParseTriggerScripts(proto_str, &trigger_scripts,
+                                                  &additional_allowed_domains,
+                                                  &interval_ms, &timeout_ms));
+  EXPECT_THAT(trigger_scripts, IsEmpty());
+}
+
+TEST_F(ProtocolUtilsTest, ValidateTriggerConditionsSimpleConditions) {
+  TriggerScriptConditionProto condition;
+
+  condition.set_path_pattern("(blahblah)*[A-Z]");
+  EXPECT_TRUE(ProtocolUtils::ValidateTriggerCondition(condition));
+
+  condition.set_path_pattern("");
+  EXPECT_TRUE(ProtocolUtils::ValidateTriggerCondition(condition));
+
+  condition.set_path_pattern("[invalid");
+  EXPECT_FALSE(ProtocolUtils::ValidateTriggerCondition(condition));
+
+  condition.set_domain_with_scheme("https://www.example.com");
+  EXPECT_TRUE(ProtocolUtils::ValidateTriggerCondition(condition));
+
+  condition.set_domain_with_scheme("");
+  EXPECT_FALSE(ProtocolUtils::ValidateTriggerCondition(condition));
+
+  condition.set_domain_with_scheme("www.example.com");
+  EXPECT_FALSE(ProtocolUtils::ValidateTriggerCondition(condition));
+
+  condition.set_domain_with_scheme("https");
+  EXPECT_FALSE(ProtocolUtils::ValidateTriggerCondition(condition));
+}
+
+TEST_F(ProtocolUtilsTest, ValidateTriggerConditionsComplexConditions) {
+  TriggerScriptConditionProto valid_condition_1;
+  valid_condition_1.set_path_pattern("pattern1");
+  TriggerScriptConditionProto valid_condition_2;
+  valid_condition_2.set_path_pattern("pattern.*");
+  TriggerScriptConditionProto invalid_condition;
+  invalid_condition.set_path_pattern("[invalid");
+
+  TriggerScriptConditionProto condition;
+
+  TriggerScriptConditionsProto valid_conditions;
+  *valid_conditions.add_conditions() = valid_condition_1;
+  *valid_conditions.add_conditions() = valid_condition_2;
+
+  *condition.mutable_all_of() = valid_conditions;
+  EXPECT_TRUE(ProtocolUtils::ValidateTriggerCondition(condition));
+  *condition.mutable_any_of() = valid_conditions;
+  EXPECT_TRUE(ProtocolUtils::ValidateTriggerCondition(condition));
+  *condition.mutable_none_of() = valid_conditions;
+  EXPECT_TRUE(ProtocolUtils::ValidateTriggerCondition(condition));
+
+  TriggerScriptConditionsProto invalid_conditions = valid_conditions;
+  *invalid_conditions.add_conditions() = invalid_condition;
+
+  *condition.mutable_all_of() = invalid_conditions;
+  EXPECT_FALSE(ProtocolUtils::ValidateTriggerCondition(condition));
+  *condition.mutable_any_of() = invalid_conditions;
+  EXPECT_FALSE(ProtocolUtils::ValidateTriggerCondition(condition));
+  *condition.mutable_none_of() = invalid_conditions;
+  EXPECT_FALSE(ProtocolUtils::ValidateTriggerCondition(condition));
+}
+
 }  // namespace autofill_assistant

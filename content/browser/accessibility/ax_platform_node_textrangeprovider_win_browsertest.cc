@@ -15,14 +15,20 @@
 #include "content/public/test/accessibility_notification_waiter.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
+#include "content/public/test/content_browser_test_utils.h"
 #include "content/public/test/hit_test_region_observer.h"
 #include "content/shell/browser/shell.h"
 #include "content/test/content_browser_test_utils_internal.h"
 #include "net/dns/mock_host_resolver.h"
+#include "ui/accessibility/ax_node_position.h"
+#include "ui/accessibility/ax_tree_id.h"
 
 using Microsoft::WRL::ComPtr;
 
 namespace content {
+
+#define ASSERT_UIA_ELEMENTNOTAVAILABLE(expr) \
+  ASSERT_EQ(static_cast<HRESULT>(UIA_E_ELEMENTNOTAVAILABLE), (expr))
 
 #define EXPECT_UIA_DOUBLE_SAFEARRAY_EQ(safearray, expected_property_values) \
   {                                                                         \
@@ -223,7 +229,7 @@ class AXPlatformNodeTextRangeProviderWinBrowserTest
     ASSERT_EQ(ax::mojom::Role::kIframe,
               leaf_iframe_browser_accessibility->GetRole());
 
-    AXTreeID iframe_tree_id = AXTreeID::FromString(
+    ui::AXTreeID iframe_tree_id = ui::AXTreeID::FromString(
         leaf_iframe_browser_accessibility->GetStringAttribute(
             ax::mojom::StringAttribute::kChildTreeId));
     BrowserAccessibilityManager* iframe_browser_accessibility_manager =
@@ -254,9 +260,9 @@ class AXPlatformNodeTextRangeProviderWinBrowserTest
                             BrowserAccessibility* browser_accessibility_start,
                             BrowserAccessibility* browser_accessibility_end,
                             const bool align_to_top) {
-    ui::AXNodePosition::AXPositionInstance start =
+    BrowserAccessibility::AXPosition start =
         browser_accessibility_start->CreateTextPositionAt(0);
-    ui::AXNodePosition::AXPositionInstance end =
+    BrowserAccessibility::AXPosition end =
         browser_accessibility_end->CreateTextPositionAt(0)
             ->CreatePositionAtEndOfAnchor();
 
@@ -436,8 +442,8 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
       <!DOCTYPE html>
       <html>
         <body>
-          <input type='text' aria-label='input_text'>
-          <input type='search' aria-label='input_search'>
+          <input type="text" aria-label="input_text">
+          <input type="search" aria-label="input_search">
         </body>
       </html>
   )HTML"));
@@ -451,7 +457,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   GetTextRangeProviderFromTextNode(*input_text_node, &text_range_provider);
   ASSERT_NE(nullptr, text_range_provider.Get());
   EXPECT_UIA_TEXTRANGE_EQ(text_range_provider,
-                          kEmbeddedCharacterAsString.c_str());
+                          base::as_wcstr(kEmbeddedCharacterAsString));
 
   base::win::ScopedVariant value;
   EXPECT_HRESULT_SUCCEEDED(text_range_provider->GetAttributeValue(
@@ -470,7 +476,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   GetTextRangeProviderFromTextNode(*input_search_node, &text_range_provider);
   ASSERT_NE(nullptr, text_range_provider.Get());
   EXPECT_UIA_TEXTRANGE_EQ(text_range_provider,
-                          kEmbeddedCharacterAsString.c_str());
+                          base::as_wcstr(kEmbeddedCharacterAsString));
 
   EXPECT_HRESULT_SUCCEEDED(text_range_provider->GetAttributeValue(
       UIA_IsReadOnlyAttributeId, value.Receive()));
@@ -523,7 +529,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
       <html>
         <body>
           <div aria-value="wrapper">
-            <input type='text' aria-label='input_text'><span
+            <input type="text" aria-label="input_text"><span
               style="font-size: 12pt">Text1</span>
           </div>
           <div contenteditable="true">
@@ -540,7 +546,8 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   // input, first change the value of the text input and then focus it. Only
   // editing the value won't show the cursor and only focusing will put the
   // cursor at the beginning of the text input, so both steps are necessary.
-  auto* input_text_node = FindNode(ax::mojom::Role::kTextField, "input_text");
+  BrowserAccessibility* input_text_node =
+      FindNode(ax::mojom::Role::kTextField, "input_text");
   ASSERT_NE(nullptr, input_text_node);
   EXPECT_TRUE(input_text_node->PlatformIsLeaf());
   EXPECT_EQ(0u, input_text_node->PlatformChildCount());
@@ -606,7 +613,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
 
   // Case 2: Inside of a rich text field, NormalizeTextRange should modify the
   //         text range endpoints.
-  auto* node = FindNode(ax::mojom::Role::kStaticText, "item");
+  BrowserAccessibility* node = FindNode(ax::mojom::Role::kStaticText, "item");
   ASSERT_NE(nullptr, node);
   EXPECT_TRUE(node->PlatformIsLeaf());
   EXPECT_EQ(0u, node->PlatformChildCount());
@@ -649,6 +656,84 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
       TextPatternRangeEndpoint_End, text_range_provider_clone.Get(),
       TextPatternRangeEndpoint_Start, &result));
   ASSERT_EQ(1, result);
+}
+
+IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
+                       TextInputWithNewline) {
+  LoadInitialAccessibilityTreeFromHtml(std::string(R"HTML(
+      <!DOCTYPE html>
+      <html>
+        <body>
+          <div aria-value='wrapper'>
+            <input type='text' aria-label='input_text'><br>
+          </div>
+        </body>
+      </html>
+  )HTML"));
+
+  // This test validates an important scenario for editing. UIA clients such as
+  // Narrator expect newlines to be contained within their adjacent nodes.
+  // This test validates this scenario for GetEnclosingElement and
+  // GetAttributeValue, both of which are essential for text editing scenarios.
+  //
+  // In order for the test harness to effectively simulate typing in a text
+  // input, first change the value of the text input and then focus it. Only
+  // editing the value won't show the cursor and only focusing will put the
+  // cursor at the beginning of the text input, so both steps are necessary.
+  auto* input_text_node = FindNode(ax::mojom::Role::kTextField, "input_text");
+  ASSERT_NE(nullptr, input_text_node);
+  EXPECT_TRUE(input_text_node->PlatformIsLeaf());
+  EXPECT_EQ(0u, input_text_node->PlatformChildCount());
+
+  AccessibilityNotificationWaiter edit_waiter(shell()->web_contents(),
+                                              ui::kAXModeComplete,
+                                              ax::mojom::Event::kValueChanged);
+  ui::AXActionData edit_data;
+  edit_data.target_node_id = input_text_node->GetId();
+  edit_data.action = ax::mojom::Action::kSetValue;
+  edit_data.value = "test";
+  input_text_node->AccessibilityPerformAction(edit_data);
+  edit_waiter.WaitForNotification();
+
+  AccessibilityNotificationWaiter focus_waiter(
+      shell()->web_contents(), ui::kAXModeComplete, ax::mojom::Event::kFocus);
+  ui::AXActionData focus_data;
+  focus_data.target_node_id = input_text_node->GetId();
+  focus_data.action = ax::mojom::Action::kFocus;
+  input_text_node->AccessibilityPerformAction(focus_data);
+  focus_waiter.WaitForNotification();
+
+  ComPtr<ITextRangeProvider> text_range_provider;
+  GetTextRangeProviderFromTextNode(*input_text_node, &text_range_provider);
+  ASSERT_NE(nullptr, text_range_provider.Get());
+  EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"test");
+
+  // Move the first position so that both endpoints are at the end of the text
+  // input.
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Character,
+      /*count*/ 4,
+      /*expected_text*/ L"",
+      /*expected_count*/ 4);
+
+  ComPtr<IRawElementProviderSimple> text_input_provider =
+      QueryInterfaceFromNode<IRawElementProviderSimple>(input_text_node);
+
+  // Validate that the enclosing element is the text input node and not the
+  // parent node that includes the newline.
+  ComPtr<IRawElementProviderSimple> enclosing_element;
+  ASSERT_HRESULT_SUCCEEDED(
+      text_range_provider->GetEnclosingElement(&enclosing_element));
+  EXPECT_EQ(text_input_provider.Get(), enclosing_element.Get());
+
+  // Calling GetAttributeValue on the editable text input should return false,
+  // verifying that the read-only newline is not interfering.
+  base::win::ScopedVariant value;
+  EXPECT_HRESULT_SUCCEEDED(text_range_provider->GetAttributeValue(
+      UIA_IsReadOnlyAttributeId, value.Receive()));
+  EXPECT_EQ(value.type(), VT_BOOL);
+  EXPECT_EQ(V_BOOL(value.ptr()), VARIANT_FALSE);
+  value.Reset();
 }
 
 IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
@@ -1791,9 +1876,9 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   ASSERT_NE(nullptr, end_node);
 
   std::vector<base::string16> paragraphs = {
-      L"start",
+      STRING16_LITERAL("start"),
       kEmbeddedCharacterAsString,
-      L"end",
+      STRING16_LITERAL("end"),
   };
 
   // FORWARD NAVIGATION
@@ -1805,7 +1890,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
       /*count*/ -1,
-      /*expected_text*/ paragraphs[0].c_str(),
+      /*expected_text*/ base::as_wcstr(paragraphs[0]),
       /*expected_count*/ 0);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
@@ -1815,32 +1900,32 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
       /*count*/ 1,
-      /*expected_text*/ paragraphs[0].c_str(),
+      /*expected_text*/ base::as_wcstr(paragraphs[0]),
       /*expected_count*/ 1);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
       /*count*/ 1,
-      /*expected_text*/ (paragraphs[0] + paragraphs[1]).c_str(),
+      /*expected_text*/ base::as_wcstr(paragraphs[0] + paragraphs[1]),
       /*expected_count*/ 1);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
       /*count*/ 1,
-      /*expected_text*/ paragraphs[1].c_str(),
+      /*expected_text*/ base::as_wcstr(paragraphs[1]),
       /*expected_count*/ 1);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
       /*count*/ 1,
-      /*expected_text*/ (paragraphs[1] + paragraphs[2]).c_str(),
+      /*expected_text*/ base::as_wcstr(paragraphs[1] + paragraphs[2]),
       /*expected_count*/ 1);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
       /*count*/ 1,
-      /*expected_text*/ paragraphs[2].c_str(),
+      /*expected_text*/ base::as_wcstr(paragraphs[2]),
       /*expected_count*/ 1);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
       /*count*/ 1,
-      /*expected_text*/ paragraphs[2].c_str(),
+      /*expected_text*/ base::as_wcstr(paragraphs[2]),
       /*expected_count*/ 0);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
@@ -1856,7 +1941,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
       /*count*/ 1,
-      /*expected_text*/ paragraphs[2].c_str(),
+      /*expected_text*/ base::as_wcstr(paragraphs[2]),
       /*expected_count*/ 0);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
@@ -1866,32 +1951,32 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
       /*count*/ -1,
-      /*expected_text*/ paragraphs[2].c_str(),
+      /*expected_text*/ base::as_wcstr(paragraphs[2]),
       /*expected_count*/ -1);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
       /*count*/ -1,
-      /*expected_text*/ (paragraphs[1] + paragraphs[2]).c_str(),
+      /*expected_text*/ base::as_wcstr(paragraphs[1] + paragraphs[2]),
       /*expected_count*/ -1);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
       /*count*/ -1,
-      /*expected_text*/ paragraphs[1].c_str(),
+      /*expected_text*/ base::as_wcstr(paragraphs[1]),
       /*expected_count*/ -1);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
       /*count*/ -1,
-      /*expected_text*/ (paragraphs[0] + paragraphs[1]).c_str(),
+      /*expected_text*/ base::as_wcstr(paragraphs[0] + paragraphs[1]),
       /*expected_count*/ -1);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
       /*count*/ -1,
-      /*expected_text*/ paragraphs[0].c_str(),
+      /*expected_text*/ base::as_wcstr(paragraphs[0]),
       /*expected_count*/ -1);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
       /*count*/ -1,
-      /*expected_text*/ paragraphs[0].c_str(),
+      /*expected_text*/ base::as_wcstr(paragraphs[0]),
       /*expected_count*/ 0);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
@@ -2026,7 +2111,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
     AccessibilityNotificationWaiter waiter(iframe_web_contents,
                                            ui::kAXModeComplete,
                                            ax::mojom::Event::kLoadComplete);
-    NavigateFrameToURL(iframe_node, iframe_url);
+    EXPECT_TRUE(NavigateToURLFromRenderer(iframe_node, iframe_url));
     waiter.WaitForNotification();
   }
 
@@ -2035,13 +2120,12 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
                                                 "Text in iframe");
 
   WaitForHitTestData(iframe_node->current_frame_host());
-  FrameTreeVisualizer visualizer;
   ASSERT_EQ(
       " Site A ------------ proxies for B\n"
       "   +--Site B ------- proxies for A\n"
       "Where A = http://a.com/\n"
       "      B = http://b.com/",
-      visualizer.DepictFrameTree(root));
+      DepictFrameTree(*root));
 
   auto* node = FindNode(ax::mojom::Role::kStaticText, "After frame");
   ASSERT_NE(nullptr, node);
@@ -2281,7 +2365,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
 
   AssertMoveByUnitForMarkup(
       TextUnit_Format, "before <img src='test'> after",
-      {L"before ", kEmbeddedCharacterAsString.c_str(), L" after"});
+      {L"before ", base::as_wcstr(kEmbeddedCharacterAsString), L" after"});
 
   AssertMoveByUnitForMarkup(TextUnit_Format,
                             "before <a href='test'>link</a> after",
@@ -2370,7 +2454,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
 
   const std::vector<const wchar_t*> characters = {
       L"S", L"o", L"m", L"e", L" ",
-      L"t", L"e", L"x", L"t", kEmbeddedCharacterAsString.c_str(),
+      L"t", L"e", L"x", L"t", base::as_wcstr(kEmbeddedCharacterAsString),
       L"a", L"f", L"t", L"e", L"r"};
 
   AssertMoveByUnitForMarkup(TextUnit_Character, html_markup, characters);
@@ -2391,8 +2475,8 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   </html>)HTML";
 
   const std::vector<const wchar_t*> words = {
-      L"Some ",  L"text ", kEmbeddedCharacterAsString.c_str(),
-      L"after ", L"input", kEmbeddedCharacterAsString.c_str()};
+      L"Some ",  L"text ", base::as_wcstr(kEmbeddedCharacterAsString),
+      L"after ", L"input", base::as_wcstr(kEmbeddedCharacterAsString)};
 
   AssertMoveByUnitForMarkup(TextUnit_Word, html_markup, words);
 }
@@ -2488,8 +2572,10 @@ IN_PROC_BROWSER_TEST_F(
   AssertMoveByUnitForMarkup(TextUnit_Format, html_markup, format_units);
 }
 
+// Flaky.
+// TODO(https://crbug.com/1132248): Re-enable.
 IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
-                       IframeSelect) {
+                       DISABLED_IframeSelect) {
   LoadInitialAccessibilityTreeFromHtmlFilePath(
       "/accessibility/html/iframe-cross-process.html");
 
@@ -2516,7 +2602,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
       /*expected_text*/ L"Text in iframe\nAfter frame",
       /*expected_count*/ 1);
 
-  // Validiate this selection with a waiter.
+  // Validate this selection with a waiter.
   AccessibilityNotificationWaiter waiter(
       shell()->web_contents(), ui::kAXModeComplete,
       ax::mojom::Event::kDocumentSelectionChanged);
@@ -2544,6 +2630,218 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
       /*expected_text*/ L"Before frame\nText in ifram",
       /*expected_count*/ -12);
   EXPECT_HRESULT_SUCCEEDED(text_range_provider->Select());
+}
+
+IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
+                       ReplaceStartAndEndEndpointNodeInMultipleTrees) {
+  LoadInitialAccessibilityTreeFromHtmlFilePath(
+      "/accessibility/html/replaced-node-across-trees.html");
+  auto* web_contents = static_cast<WebContentsImpl*>(shell()->web_contents());
+  WaitForAccessibilityTreeToContainNodeWithName(web_contents, "Text in iframe");
+
+  auto* before_frame_node =
+      FindNode(ax::mojom::Role::kStaticText, "Before frame");
+  ASSERT_NE(nullptr, before_frame_node);
+
+  // 1. Test when |start_| and |end_| are both not in the iframe.
+  {
+    ComPtr<ITextRangeProvider> text_range_provider;
+    GetTextRangeProviderFromTextNode(*before_frame_node, &text_range_provider);
+    ASSERT_NE(nullptr, text_range_provider.Get());
+    EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"Before frame");
+
+    AccessibilityNotificationWaiter waiter(web_contents, ui::kAXModeComplete,
+                                           ax::mojom::Event::kChildrenChanged);
+
+    // Updating the style on that particular node is going to invalidate the
+    // leaf text node and will replace it with a new one with the updated style.
+    // We don't care about the style - we use it to trigger a node replacement.
+    EXPECT_TRUE(ExecuteScript(
+        web_contents,
+        "document.getElementById('s1').style.outline = '1px solid black';"));
+
+    waiter.WaitForNotification();
+    EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"Before frame");
+  }
+
+  // 2. Test when |start_| is not in the iframe but |end_| is.
+  {
+    ComPtr<ITextRangeProvider> text_range_provider;
+    GetTextRangeProviderFromTextNode(*before_frame_node, &text_range_provider);
+    ASSERT_NE(nullptr, text_range_provider.Get());
+    EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"Before frame");
+
+    // Move the range from "<B>efore frame<>" to "<B>efore frame/nText< >"
+    EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+        text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Word,
+        /*count*/ 1,
+        /*expected_text*/ L"Before frame\nText ",
+        /*expected_count*/ 1);
+
+    AccessibilityNotificationWaiter waiter(web_contents, ui::kAXModeComplete,
+                                           ax::mojom::Event::kChildrenChanged);
+
+    // Updating the style on that particular node is going to invalidate the
+    // leaf text node and will replace it with a new one with the updated style.
+    // We don't care about the style - we use it to trigger a node replacement.
+    EXPECT_TRUE(ExecuteScript(
+        web_contents,
+        "document.getElementsByTagName('iframe')[0].contentWindow.document."
+        "getElementById('s1').style.outline = '1px solid black';"));
+
+    waiter.WaitForNotification();
+    EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"Before frame\nText ");
+  }
+
+  // 3. Test when |start_| is in the iframe but |end_| is not.
+  {
+    ComPtr<ITextRangeProvider> text_range_provider;
+    auto* after_frame_node =
+        FindNode(ax::mojom::Role::kStaticText, "After frame");
+    ASSERT_NE(nullptr, after_frame_node);
+    GetTextRangeProviderFromTextNode(*after_frame_node, &text_range_provider);
+    ASSERT_NE(nullptr, text_range_provider.Get());
+    EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"After frame");
+
+    // Move the range from "<B>efore frame<>" to "<B>efore frame/nText< >"
+    EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+        text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Word,
+        /*count*/ -1,
+        /*expected_text*/ L"iframe\nAfter frame",
+        /*expected_count*/ -1);
+
+    AccessibilityNotificationWaiter waiter(web_contents, ui::kAXModeComplete,
+                                           ax::mojom::Event::kChildrenChanged);
+
+    // Updating the style on that particular node is going to invalidate the
+    // leaf text node and will replace it with a new one with the updated style.
+    // We don't care about the style - we use it to trigger a node replacement.
+    EXPECT_TRUE(ExecuteScript(
+        web_contents,
+        "document.getElementById('s2').style.outline = '1px solid black';"));
+
+    waiter.WaitForNotification();
+    EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"iframe\nAfter frame");
+  }
+}
+
+// Test that a page reload removes the AXTreeObserver from the AXTree's
+// observers list. If it doesn't, this test will crash.
+IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
+                       ReloadTreeShouldRemoveObserverFromTree) {
+  LoadInitialAccessibilityTreeFromHtmlFilePath(
+      "/accessibility/html/simple_spans.html");
+  auto* web_contents = static_cast<WebContentsImpl*>(shell()->web_contents());
+  WaitForAccessibilityTreeToContainNodeWithName(web_contents, "Some text");
+
+  // 1. Reload the page and trigger a tree update - this should update the tree
+  // id without modifying the observers from the tree.
+  {
+    auto* node = FindNode(ax::mojom::Role::kStaticText, "Some text");
+    ASSERT_NE(nullptr, node);
+
+    ComPtr<ITextRangeProvider> text_range_provider;
+    GetTextRangeProviderFromTextNode(*node, &text_range_provider);
+    ASSERT_NE(nullptr, text_range_provider.Get());
+    EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"Some text");
+    ui::AXTreeID old_tree_id = GetManager()->GetTreeID();
+
+    // Reloading changes the tree id, triggering an AXTreeManager replacement.
+    shell()->Reload();
+
+    AccessibilityNotificationWaiter waiter(web_contents, ui::kAXModeComplete,
+                                           ax::mojom::Event::kChildrenChanged);
+
+    // We do a style change here only to trigger an AXTree update - apparently,
+    // a shell reload doesn't update the tree by itself.
+    EXPECT_TRUE(ExecuteScript(
+        web_contents,
+        "document.getElementById('s1').style.outline = '1px solid black';"));
+
+    waiter.WaitForNotification();
+    ASSERT_NE(old_tree_id, GetManager()->GetTreeID());
+
+    // |text_range_provider| should now be invalid since it is using nodes
+    // pointing to the previous tree id. If the tree id has not been updated
+    // from the page reload, this should fail.
+    base::win::ScopedSafearray children;
+    ASSERT_UIA_ELEMENTNOTAVAILABLE(
+        text_range_provider->GetChildren(children.Receive()));
+  }
+
+  // 2. Validate that the observer for the previous range has been removed. Also
+  // test that the new observer has been added correctly.
+  {
+    auto* node = FindNode(ax::mojom::Role::kStaticText, "Some text");
+    ASSERT_NE(nullptr, node);
+
+    ComPtr<ITextRangeProvider> text_range_provider;
+    GetTextRangeProviderFromTextNode(*node, &text_range_provider);
+    ASSERT_NE(nullptr, text_range_provider.Get());
+    EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"Some text");
+
+    // Make the range span the entire document.
+    EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+        text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+        /*count*/ 1,
+        /*expected_text*/ L"Some text 3.14159",
+        /*expected_count*/ 1);
+
+    AccessibilityNotificationWaiter waiter(web_contents, ui::kAXModeComplete,
+                                           ax::mojom::Event::kChildrenChanged);
+
+    // We do a style change here only to trigger an AXTree update.
+    EXPECT_TRUE(ExecuteScript(
+        web_contents,
+        "document.getElementById('s2').style.outline = '1px solid black';"));
+
+    waiter.WaitForNotification();
+
+    // If the previous observer was not removed correctly, this will cause a
+    // crash. If it was removed correctly and this EXPECT fails, it's likely
+    // because the new observer has not been added as expected.
+    EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"Some text 3.14159");
+  }
+}
+
+IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
+                       GetAttributeValueNormalizesClonedRange) {
+  LoadInitialAccessibilityTreeFromHtml(
+      R"HTML(<!DOCTYPE html>
+      <html>
+        <body>
+          <p>Text before list</p>
+          <div role="listbox">
+            <div role="option"><i aria-hidden="true">i</i>One</div>
+          </div>
+        </body>
+      </html>)HTML");
+
+  BrowserAccessibility* text_before_list =
+      FindNode(ax::mojom::Role::kStaticText, "Text before list");
+  ASSERT_NE(nullptr, text_before_list);
+
+  ComPtr<ITextRangeProvider> text_range_provider;
+  GetTextRangeProviderFromTextNode(*text_before_list, &text_range_provider);
+  ASSERT_NE(nullptr, text_range_provider.Get());
+
+  EXPECT_UIA_MOVE(text_range_provider, TextUnit_Format,
+                  /*count*/ 1,
+                  /*expected_text*/ L"\nOne",
+                  /*expected_count*/ 1);
+
+  // GetAttributeValue calls NormalizeTextRange but should not modify the
+  // internal endpoints. However, the value returned by GetAttributeValue should
+  // still be computed from a normalized range.
+  base::win::ScopedVariant value;
+  EXPECT_HRESULT_SUCCEEDED(text_range_provider->GetAttributeValue(
+      UIA_IsItalicAttributeId, value.Receive()));
+  EXPECT_EQ(value.type(), VT_BOOL);
+  EXPECT_EQ(V_BOOL(value.ptr()), 0);
+
+  // The text should be the same as before since the internal endpoints didn't
+  // move.
+  EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"\nOne");
 }
 
 }  // namespace content

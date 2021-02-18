@@ -8,6 +8,7 @@
 #include <string>
 #include <utility>
 
+#include "base/allocator/buildflags.h"
 #include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/containers/flat_map.h"
@@ -27,6 +28,7 @@
 #include "components/performance_manager/public/graph/page_node.h"
 #include "components/performance_manager/public/graph/process_node.h"
 #include "components/performance_manager/public/performance_manager.h"
+#include "components/services/paint_preview_compositor/public/mojom/paint_preview_compositor.mojom.h"
 #include "content/public/browser/audio_service_info.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/common/content_switches.h"
@@ -171,6 +173,8 @@ const Metric kAllocatorDumpNamesForMetrics[] = {
      EmitTo::kSizeInUkmAndUma, &Memory_Experimental::SetDiscardable},
     {"discardable", "Discardable.FreelistSize", MetricSize::kSmall,
      "freelist_size", EmitTo::kSizeInUmaOnly, nullptr},
+    {"discardable", "Discardable.ResidentSize", MetricSize::kSmall,
+     "resident_size", EmitTo::kSizeInUmaOnly, nullptr},
     {"discardable", "Discardable.VirtualSize", MetricSize::kSmall,
      "virtual_size", EmitTo::kSizeInUmaOnly, nullptr},
     {"extensions/functions", "ExtensionFunctions", MetricSize::kLarge,
@@ -207,6 +211,10 @@ const Metric kAllocatorDumpNamesForMetrics[] = {
     {"malloc/allocated_objects", "Malloc.AllocatedObjects", MetricSize::kLarge,
      kEffectiveSize, EmitTo::kSizeInUkmAndUma,
      &Memory_Experimental::SetMalloc_AllocatedObjects},
+#if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+    {"malloc/thread_cache", "Malloc.ThreadCache", MetricSize::kSmall, kSize,
+     EmitTo::kSizeInUmaOnly, nullptr},
+#endif
     {"mojo", "NumberOfMojoHandles", MetricSize::kSmall,
      MemoryAllocatorDump::kNameObjectCount, EmitTo::kCountsInUkmOnly,
      &Memory_Experimental::SetNumberOfMojoHandles},
@@ -248,9 +256,16 @@ const Metric kAllocatorDumpNamesForMetrics[] = {
      "PartitionAlloc.Partitions.FastMalloc", MetricSize::kLarge, kSize,
      EmitTo::kSizeInUkmAndUma,
      &Memory_Experimental::SetPartitionAlloc_Partitions_FastMalloc},
+#if !BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+    {"partition_alloc/partitions/fast_malloc/thread_cache",
+     "PartitionAlloc.Partitions.FastMalloc.ThreadCache", MetricSize::kSmall,
+     kSize, EmitTo::kSizeInUmaOnly, nullptr},
+#endif
     {"partition_alloc/partitions/layout", "PartitionAlloc.Partitions.Layout",
      MetricSize::kLarge, kSize, EmitTo::kSizeInUkmAndUma,
      &Memory_Experimental::SetPartitionAlloc_Partitions_Layout},
+    {"passwords", "ManualFillingCache", MetricSize::kSmall, kEffectiveSize,
+     EmitTo::kSizeInUmaOnly, nullptr},
     {"site_storage", "SiteStorage", MetricSize::kLarge, kEffectiveSize,
      EmitTo::kSizeInUkmAndUma, &Memory_Experimental::SetSiteStorage},
     {"site_storage/blob_storage", "SiteStorage.BlobStorage", MetricSize::kLarge,
@@ -294,9 +309,12 @@ const Metric kAllocatorDumpNamesForMetrics[] = {
     {"v8/main", "V8.Main.AllocatedObjects", MetricSize::kLarge,
      kAllocatedObjectsSize, EmitTo::kSizeInUkmAndUma,
      &Memory_Experimental::SetV8_Main_AllocatedObjects},
-    {"v8/main/global_handles", "V8.Main.GlobalHandles", MetricSize::kSmall,
+    {"v8/main/global_handles", "V8.Main.GlobalHandles", MetricSize::kLarge,
      kEffectiveSize, EmitTo::kSizeInUkmAndUma,
      &Memory_Experimental::SetV8_Main_GlobalHandles},
+    {"v8/main/global_handles", "V8.Main.GlobalHandles.AllocatedObjects",
+     MetricSize::kLarge, kAllocatedObjectsSize, EmitTo::kSizeInUkmAndUma,
+     &Memory_Experimental::SetV8_Main_GlobalHandles_AllocatedObjects},
     {"v8/main/heap", "V8.Main.Heap", MetricSize::kLarge, kEffectiveSize,
      EmitTo::kSizeInUkmAndUma, &Memory_Experimental::SetV8_Main_Heap},
     {"v8/main/heap", "V8.Main.Heap.AllocatedObjects", MetricSize::kLarge,
@@ -496,7 +514,7 @@ void EmitProcessUmaAndUkm(const GlobalMemoryDump::ProcessDump& pmd,
 
   builder->SetPrivateMemoryFootprint(pmd.os_dump().private_footprint_kb / kKiB);
   builder->SetSharedMemoryFootprint(pmd.os_dump().shared_footprint_kb / kKiB);
-#if defined(OS_LINUX) || defined(OS_ANDROID)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID)
   builder->SetPrivateSwapFootprint(pmd.os_dump().private_footprint_swap_kb /
                                    kKiB);
 #endif
@@ -519,7 +537,7 @@ void EmitProcessUmaAndUkm(const GlobalMemoryDump::ProcessDump& pmd,
   MEMORY_METRICS_HISTOGRAM_MB(std::string(kMemoryHistogramPrefix) +
                                   process_name + ".SharedMemoryFootprint",
                               pmd.os_dump().shared_footprint_kb / kKiB);
-#if defined(OS_LINUX) || defined(OS_ANDROID)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID)
   MEMORY_METRICS_HISTOGRAM_MB(std::string(kMemoryHistogramPrefix) +
                                   process_name + ".PrivateSwapFootprint",
                               pmd.os_dump().private_footprint_swap_kb / kKiB);
@@ -620,7 +638,8 @@ void EmitGpuMemoryMetrics(const GlobalMemoryDump::ProcessDump& pmd,
   builder.Record(ukm_recorder);
 }
 
-void EmitUtilityMemoryMetrics(const GlobalMemoryDump::ProcessDump& pmd,
+void EmitUtilityMemoryMetrics(HistogramProcessType ptype,
+                              const GlobalMemoryDump::ProcessDump& pmd,
                               ukm::SourceId ukm_source_id,
                               ukm::UkmRecorder* ukm_recorder,
                               const base::Optional<base::TimeDelta>& uptime,
@@ -628,38 +647,7 @@ void EmitUtilityMemoryMetrics(const GlobalMemoryDump::ProcessDump& pmd,
   Memory_Experimental builder(ukm_source_id);
   builder.SetProcessType(static_cast<int64_t>(
       memory_instrumentation::mojom::ProcessType::UTILITY));
-  EmitProcessUmaAndUkm(pmd, HistogramProcessType::kUtility, uptime, record_uma,
-                       &builder);
-
-  builder.Record(ukm_recorder);
-}
-
-void EmitAudioServiceMemoryMetrics(
-    const GlobalMemoryDump::ProcessDump& pmd,
-    ukm::SourceId ukm_source_id,
-    ukm::UkmRecorder* ukm_recorder,
-    const base::Optional<base::TimeDelta>& uptime,
-    bool record_uma) {
-  Memory_Experimental builder(ukm_source_id);
-  builder.SetProcessType(static_cast<int64_t>(
-      memory_instrumentation::mojom::ProcessType::UTILITY));
-  EmitProcessUmaAndUkm(pmd, HistogramProcessType::kAudioService, uptime,
-                       record_uma, &builder);
-
-  builder.Record(ukm_recorder);
-}
-
-void EmitNetworkServiceMemoryMetrics(
-    const GlobalMemoryDump::ProcessDump& pmd,
-    ukm::SourceId ukm_source_id,
-    ukm::UkmRecorder* ukm_recorder,
-    const base::Optional<base::TimeDelta>& uptime,
-    bool record_uma) {
-  Memory_Experimental builder(ukm_source_id);
-  builder.SetProcessType(static_cast<int64_t>(
-      memory_instrumentation::mojom::ProcessType::UTILITY));
-  EmitProcessUmaAndUkm(pmd, HistogramProcessType::kNetworkService, uptime,
-                       record_uma, &builder);
+  EmitProcessUmaAndUkm(pmd, ptype, uptime, record_uma, &builder);
 
   builder.Record(ukm_recorder);
 }
@@ -678,18 +666,23 @@ void ProcessMemoryMetricsEmitter::FetchAndEmitProcessMemoryMetrics() {
 
   MarkServiceRequestsInProgress();
 
-  // The callback keeps this object alive until the callback is invoked.
-  auto callback =
-      base::Bind(&ProcessMemoryMetricsEmitter::ReceivedMemoryDump, this);
-  std::vector<std::string> mad_list;
-  for (const auto& metric : kAllocatorDumpNamesForMetrics)
-    mad_list.push_back(metric.dump_name);
-  if (pid_scope_ != base::kNullProcessId) {
-    memory_instrumentation::MemoryInstrumentation::GetInstance()
-        ->RequestGlobalDumpForPid(pid_scope_, mad_list, callback);
-  } else {
-    memory_instrumentation::MemoryInstrumentation::GetInstance()
-        ->RequestGlobalDump(mad_list, callback);
+  auto* instrumentation =
+      memory_instrumentation::MemoryInstrumentation::GetInstance();
+  // nullptr means content layer is not initialized yet (there's no memory
+  // metrics to log in this case)
+  if (instrumentation) {
+    // The callback keeps this object alive until the callback is invoked.
+    auto callback =
+        base::BindOnce(&ProcessMemoryMetricsEmitter::ReceivedMemoryDump, this);
+    std::vector<std::string> mad_list;
+    for (const auto& metric : kAllocatorDumpNamesForMetrics)
+      mad_list.push_back(metric.dump_name);
+    if (pid_scope_ != base::kNullProcessId) {
+      instrumentation->RequestGlobalDumpForPid(pid_scope_, mad_list,
+                                               std::move(callback));
+    } else {
+      instrumentation->RequestGlobalDump(mad_list, std::move(callback));
+    }
   }
 
   // Use a lambda adapter to post the results back to this sequence.
@@ -890,20 +883,22 @@ void ProcessMemoryMetricsEmitter::CollateResults() {
         break;
       }
       case memory_instrumentation::mojom::ProcessType::UTILITY: {
+        HistogramProcessType ptype;
         if (pmd.pid() == content::GetProcessIdForAudioService()) {
-          EmitAudioServiceMemoryMetrics(
-              pmd, ukm::UkmRecorder::GetNewSourceID(), GetUkmRecorder(),
-              GetProcessUptime(now, pmd.pid()), emit_metrics_for_all_processes);
+          ptype = HistogramProcessType::kAudioService;
         } else if (pmd.service_name() ==
                    network::mojom::NetworkService::Name_) {
-          EmitNetworkServiceMemoryMetrics(
-              pmd, ukm::UkmRecorder::GetNewSourceID(), GetUkmRecorder(),
-              GetProcessUptime(now, pmd.pid()), emit_metrics_for_all_processes);
+          ptype = HistogramProcessType::kNetworkService;
+        } else if (pmd.service_name() ==
+                   paint_preview::mojom::PaintPreviewCompositorCollection::
+                       Name_) {
+          ptype = HistogramProcessType::kPaintPreviewCompositor;
         } else {
-          EmitUtilityMemoryMetrics(
-              pmd, ukm::UkmRecorder::GetNewSourceID(), GetUkmRecorder(),
-              GetProcessUptime(now, pmd.pid()), emit_metrics_for_all_processes);
+          ptype = HistogramProcessType::kUtility;
         }
+        EmitUtilityMemoryMetrics(
+            ptype, pmd, ukm::UkmRecorder::GetNewSourceID(), GetUkmRecorder(),
+            GetProcessUptime(now, pmd.pid()), emit_metrics_for_all_processes);
         break;
       }
       case memory_instrumentation::mojom::ProcessType::PLUGIN:
@@ -929,7 +924,7 @@ void ProcessMemoryMetricsEmitter::CollateResults() {
       // Size of the native library on android is ~40MB.
       // More precision is needed in the middle buckets, hence the range.
       base::UmaHistogramCustomCounts(
-          "Memory.NativeLibrary.MappedAndResidentMemoryFootprint2",
+          "Memory.NativeLibrary.MappedAndResidentMemoryFootprint3",
           native_resident_kb, 1000, 100000, 100);
       if (native_library_not_resident_ordered_kb != metrics.kInvalid) {
         base::UmaHistogramCustomCounts(

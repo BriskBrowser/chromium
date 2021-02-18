@@ -24,6 +24,7 @@
 #include "base/strings/string_split.h"
 #include "base/threading/thread_checker.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
+#include "components/policy/core/common/cloud/dm_auth.h"
 #include "components/policy/policy_export.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "services/network/public/cpp/simple_url_loader.h"
@@ -32,13 +33,15 @@ namespace base {
 class SequencedTaskRunner;
 }
 
+namespace content {
+class BrowserContext;
+}
+
 namespace network {
 class SharedURLLoaderFactory;
 }
 
 namespace policy {
-
-class DMAuth;
 
 // Used in the Enterprise.DMServerRequestSuccess histogram, shows how many
 // retries we had to do to execute the DeviceManagementRequestJob.
@@ -55,7 +58,6 @@ enum class DMServerRequestSuccess {
   kRequestError = 11,
 
   kMaxValue = kRequestError,
-
 };
 
 // The device management service is responsible for everything related to
@@ -80,6 +82,7 @@ class POLICY_EXPORT DeviceManagementService {
   static constexpr int kPendingApproval = 412;
   static constexpr int kRequestTooLarge = 413;
   static constexpr int kConsumerAccountWithPackagedLicense = 417;
+  static constexpr int kTooManyRequests = 429;
   static constexpr int kInternalServerError = 500;
   static constexpr int kServiceUnavailable = 503;
   static constexpr int kPolicyNotFound = 902;
@@ -87,6 +90,7 @@ class POLICY_EXPORT DeviceManagementService {
   static constexpr int kArcDisabled = 904;
   static constexpr int kInvalidDomainlessCustomer = 905;
   static constexpr int kTosHasNotBeenAccepted = 906;
+  static constexpr int kIllegalAccountForPackagedEDULicense = 907;
 
   // Number of times to retry on ERR_NETWORK_CHANGED errors.
   static const int kMaxRetries = 3;
@@ -109,11 +113,15 @@ class POLICY_EXPORT DeviceManagementService {
     virtual std::string GetPlatformParameter() = 0;
 
     // Server at which to contact the real time reporting service.
-    virtual std::string GetReportingServerUrl() = 0;
+    virtual std::string GetRealtimeReportingServerUrl() = 0;
+
+    // Server endpoint for encrypted events.
+    virtual std::string GetEncryptedReportingServerUrl() = 0;
 
     // Server at which to contact the real time reporting service for
     // enterprise connectors.
-    virtual std::string GetReportingConnectorServerUrl() = 0;
+    virtual std::string GetReportingConnectorServerUrl(
+        content::BrowserContext* context) = 0;
   };
 
   // A DeviceManagementService job manages network requests to the device
@@ -182,6 +190,8 @@ class POLICY_EXPORT DeviceManagementService {
       TYPE_REQUEST_SAML_URL = 23,
       TYPE_CHROME_OS_USER_REPORT = 24,
       TYPE_CERT_PROVISIONING_REQUEST = 25,
+      TYPE_PSM_HAS_DEVICE_STATE_REQUEST = 26,
+      TYPE_UPLOAD_ENCRYPTED_REPORT = 27,
     };
 
     // The set of HTTP query parameters of the request.
@@ -193,6 +203,8 @@ class POLICY_EXPORT DeviceManagementService {
     virtual ~JobConfiguration() {}
 
     virtual JobType GetType() = 0;
+
+    virtual const DMAuth& GetAuth() const = 0;
 
     virtual const ParameterMap& GetQueryParams() = 0;
 
@@ -364,17 +376,16 @@ class POLICY_EXPORT JobConfigurationBase
     : public DeviceManagementService::JobConfiguration {
  protected:
   JobConfigurationBase(JobType type,
-                       std::unique_ptr<DMAuth> auth_data,
+                       DMAuth auth_data,
                        base::Optional<std::string> oauth_token,
                        scoped_refptr<network::SharedURLLoaderFactory> factory);
   ~JobConfigurationBase() override;
 
- protected:
   // Adds the query parameter to the network request's URL.  If the parameter
   // already exists its value is replaced.
   void AddParameter(const std::string& name, const std::string& value);
 
-  const DMAuth& GetAuth() { return *auth_data_.get(); }
+  const DMAuth& GetAuth() const override;
 
   // DeviceManagementService::JobConfiguration.
   JobType GetType() override;
@@ -389,7 +400,7 @@ class POLICY_EXPORT JobConfigurationBase
       const std::string& response_body) override;
 
   // Derived classes should return the base URL for the request.
-  virtual GURL GetURL(int last_error) = 0;
+  virtual GURL GetURL(int last_error) const = 0;
 
  private:
   JobType type_;
@@ -397,7 +408,7 @@ class POLICY_EXPORT JobConfigurationBase
 
   // Auth data that will be passed as 'Authorization' header. Both |auth_data_|
   // and |oauth_token_| can be specified for one request.
-  std::unique_ptr<DMAuth> auth_data_;
+  DMAuth auth_data_;
 
   // OAuth token that will be passed as a query parameter. Both |auth_data_|
   // and |oauth_token_| can be specified for one request.

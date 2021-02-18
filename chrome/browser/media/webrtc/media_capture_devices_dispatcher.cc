@@ -15,6 +15,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/media/media_access_handler.h"
 #include "chrome/browser/media/webrtc/media_stream_capture_indicator.h"
 #include "chrome/browser/media/webrtc/permission_bubble_media_access_handler.h"
@@ -37,16 +38,18 @@
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/mojom/mediastream/media_stream.mojom-shared.h"
 
-#if !defined(OS_ANDROID)
+#if defined(OS_ANDROID)
+#include "content/public/common/content_features.h"
+#else  // !OS_ANDROID
 #include "chrome/browser/media/webrtc/display_media_access_handler.h"
 #endif  //  defined(OS_ANDROID)
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/shell.h"
 #include "chrome/browser/media/chromeos_login_media_access_handler.h"
 #include "chrome/browser/media/public_session_media_access_handler.h"
 #include "chrome/browser/media/public_session_tab_capture_access_handler.h"
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "chrome/browser/media/extension_media_access_handler.h"
@@ -88,7 +91,7 @@ MediaCaptureDevicesDispatcher::MediaCaptureDevicesDispatcher()
 #endif  //  defined(OS_ANDROID)
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   media_access_handlers_.push_back(
       std::make_unique<ChromeOSLoginMediaAccessHandler>());
   // Wrapper around ExtensionMediaAccessHandler used in Public Sessions.
@@ -100,7 +103,7 @@ MediaCaptureDevicesDispatcher::MediaCaptureDevicesDispatcher()
 #endif
   media_access_handlers_.push_back(
       std::make_unique<DesktopCaptureAccessHandler>());
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Wrapper around TabCaptureAccessHandler used in Public Sessions.
   media_access_handlers_.push_back(
       std::make_unique<PublicSessionTabCaptureAccessHandler>());
@@ -149,15 +152,30 @@ void MediaCaptureDevicesDispatcher::ProcessMediaAccessRequest(
     const extensions::Extension* extension) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
+#if defined(OS_ANDROID)
   // Kill switch for getDisplayMedia() on browser side to prevent renderer from
   // bypassing blink side checks.
   if (request.video_type ==
           blink::mojom::MediaStreamType::DISPLAY_VIDEO_CAPTURE &&
-      !base::FeatureList::IsEnabled(blink::features::kRTCGetDisplayMedia)) {
+      !base::FeatureList::IsEnabled(features::kUserMediaScreenCapturing)) {
     std::move(callback).Run(
         blink::MediaStreamDevices(),
         blink::mojom::MediaStreamRequestResult::NOT_SUPPORTED, nullptr);
     return;
+  }
+#endif
+
+  // Kill switch for getCurrentBrowsingContextMedia() on browser side to prevent
+  // renderer from bypassing blink side checks.
+  if (request.video_type ==
+      blink::mojom::MediaStreamType::DISPLAY_VIDEO_CAPTURE_THIS_TAB) {
+    if (!base::FeatureList::IsEnabled(
+            blink::features::kRTCGetCurrentBrowsingContextMedia)) {
+      std::move(callback).Run(
+          blink::MediaStreamDevices(),
+          blink::mojom::MediaStreamRequestResult::NOT_SUPPORTED, nullptr);
+      return;
+    }
   }
 
   for (const auto& handler : media_access_handlers_) {
@@ -384,7 +402,7 @@ void MediaCaptureDevicesDispatcher::UpdateMediaRequestStateOnUIThread(
     }
   }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (IsOriginForCasting(security_origin) &&
       blink::IsVideoInputMediaType(stream_type)) {
     // Notify ash that casting state has changed.

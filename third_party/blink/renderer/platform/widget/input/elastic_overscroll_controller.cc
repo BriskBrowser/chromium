@@ -195,11 +195,9 @@ void ElasticOverscrollController::Overscroll(
 
   // Don't allow overscrolling in a direction that has
   // OverscrollBehaviorTypeNone.
-  if (overscroll_behavior_.x ==
-      cc::OverscrollBehavior::kOverscrollBehaviorTypeNone)
+  if (overscroll_behavior_.x == cc::OverscrollBehavior::Type::kNone)
     adjusted_overscroll_delta.set_x(0);
-  if (overscroll_behavior_.y ==
-      cc::OverscrollBehavior::kOverscrollBehaviorTypeNone)
+  if (overscroll_behavior_.y == cc::OverscrollBehavior::Type::kNone)
     adjusted_overscroll_delta.set_y(0);
 
   // Require a minimum of 10 units of overscroll before starting the rubber-band
@@ -251,7 +249,6 @@ void ElasticOverscrollController::EnterStateMomentumAnimated(
   momentum_animation_start_time_ = triggering_event_timestamp;
   momentum_animation_initial_stretch_ = helper_->StretchAmount();
   momentum_animation_initial_velocity_ = scroll_velocity_;
-  momentum_animation_reset_at_next_frame_ = false;
 
   // Similarly to the logic in Overscroll, prefer vertical scrolling to
   // horizontal scrolling.
@@ -277,13 +274,6 @@ void ElasticOverscrollController::EnterStateMomentumAnimated(
 void ElasticOverscrollController::Animate(base::TimeTicks time) {
   if (state_ != kStateMomentumAnimated)
     return;
-
-  if (momentum_animation_reset_at_next_frame_) {
-    momentum_animation_start_time_ = time;
-    momentum_animation_initial_stretch_ = helper_->StretchAmount();
-    momentum_animation_initial_velocity_ = gfx::Vector2dF();
-    momentum_animation_reset_at_next_frame_ = false;
-  }
 
   // If the new stretch amount is near zero, set it directly to zero and enter
   // the inactive state.
@@ -368,21 +358,10 @@ void ElasticOverscrollController::ReconcileStretchAndScroll() {
   helper_->ScrollBy(-stretch_adjustment);
   helper_->SetStretchAmount(new_stretch_amount);
 
-  // Update the internal state for the active scroll or animation to avoid
-  // discontinuities.
-  switch (state_) {
-    case kStateActiveScroll:
-      stretch_scroll_force_ =
-          AccumulatedOverscrollForStretchAmount(new_stretch_amount);
-      break;
-    case kStateMomentumAnimated:
-      momentum_animation_reset_at_next_frame_ = true;
-      break;
-    default:
-      // These cases should not be hit because the stretch must be zero in the
-      // Inactive and MomentumScroll states.
-      NOTREACHED();
-      break;
+  // Update the internal state for the active scroll to avoid discontinuities.
+  if (state_ == kStateActiveScroll) {
+    stretch_scroll_force_ =
+        AccumulatedOverscrollForStretchAmount(new_stretch_amount);
   }
 }
 

@@ -4,6 +4,8 @@
 
 package org.chromium.content.browser;
 
+import android.webkit.JavascriptInterface;
+
 import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;
@@ -17,6 +19,7 @@ import org.chromium.base.test.params.ParameterAnnotations.UseMethodParameter;
 import org.chromium.base.test.params.ParameterAnnotations.UseMethodParameterBefore;
 import org.chromium.base.test.params.ParameterAnnotations.UseRunnerDelegate;
 import org.chromium.base.test.params.ParameterizedRunner;
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.Feature;
 import org.chromium.content.browser.JavaBridgeActivityTestRule.Controller;
 
@@ -26,19 +29,21 @@ import org.chromium.content.browser.JavaBridgeActivityTestRule.Controller;
  */
 @RunWith(ParameterizedRunner.class)
 @UseRunnerDelegate(BaseJUnit4RunnerDelegate.class)
+@Batch(JavaBridgeActivityTestRule.BATCH)
 public class JavaBridgeFieldsTest {
     @Rule
-    public JavaBridgeActivityTestRule mActivityTestRule =
-            new JavaBridgeActivityTestRule().shouldSetUp(true);
+    public JavaBridgeActivityTestRule mActivityTestRule = new JavaBridgeActivityTestRule();
 
     private static class TestObject extends Controller {
         private String mStringValue;
 
+        @JavascriptInterface
         // These methods are used to control the test.
         public synchronized void setStringValue(String x) {
             mStringValue = x;
             notifyResultIsReady();
         }
+        @JavascriptInterface
         public synchronized String waitForStringValue() {
             waitForResult();
             return mStringValue;

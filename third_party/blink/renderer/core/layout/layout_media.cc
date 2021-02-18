@@ -41,11 +41,18 @@ LayoutMedia::LayoutMedia(HTMLMediaElement* video) : LayoutImage(video) {
 
 LayoutMedia::~LayoutMedia() = default;
 
+void LayoutMedia::Trace(Visitor* visitor) const {
+  visitor->Trace(children_);
+  LayoutImage::Trace(visitor);
+}
+
 HTMLMediaElement* LayoutMedia::MediaElement() const {
+  NOT_DESTROYED();
   return To<HTMLMediaElement>(GetNode());
 }
 
 void LayoutMedia::UpdateLayout() {
+  NOT_DESTROYED();
   LayoutSize old_size(ContentWidth(), ContentHeight());
 
   LayoutImage::UpdateLayout();
@@ -91,7 +98,7 @@ void LayoutMedia::UpdateLayout() {
       width = ComputePanelWidth(new_rect);
     }
 
-    LayoutBox* layout_box = ToLayoutBox(child);
+    auto* layout_box = To<LayoutBox>(child);
     layout_box->SetLocation(new_rect.Location());
     layout_box->SetOverrideLogicalWidth(width);
     layout_box->SetOverrideLogicalHeight(new_rect.Height());
@@ -104,6 +111,7 @@ void LayoutMedia::UpdateLayout() {
 
 bool LayoutMedia::IsChildAllowed(LayoutObject* child,
                                  const ComputedStyle& style) const {
+  NOT_DESTROYED();
   // Two types of child layout objects are allowed: media controls
   // and the text track container. Filter children by node type.
   DCHECK(child->GetNode());
@@ -132,9 +140,12 @@ bool LayoutMedia::IsChildAllowed(LayoutObject* child,
 }
 
 void LayoutMedia::PaintReplaced(const PaintInfo&,
-                                const PhysicalOffset& paint_offset) const {}
+                                const PhysicalOffset& paint_offset) const {
+  NOT_DESTROYED();
+}
 
 LayoutUnit LayoutMedia::ComputePanelWidth(const LayoutRect& media_rect) const {
+  NOT_DESTROYED();
   // TODO(mlamouri): we don't know if the main frame has an horizontal scrollbar
   // if it is out of process. See https://crbug.com/662480
   if (GetDocument().GetPage()->MainFrame()->IsRemoteFrame())

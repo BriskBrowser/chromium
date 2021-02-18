@@ -83,6 +83,37 @@ FieldRendererId MakeFieldRendererId() {
 
 }  // namespace
 
+void SetFormGroupValues(FormGroup& form_group,
+                        const std::vector<FormGroupValue>& values) {
+  for (const auto& value : values) {
+    form_group.SetRawInfoWithVerificationStatus(
+        value.type, base::UTF8ToUTF16(value.value), value.verification_status);
+  }
+}
+
+void VerifyFormGroupValues(const FormGroup& form_group,
+                           const std::vector<FormGroupValue>& values,
+                           bool ignore_status) {
+  for (const auto& value : values) {
+    SCOPED_TRACE(testing::Message()
+                 << "Expected for type "
+                 << AutofillType::ServerFieldTypeToString(value.type) << "\n\t"
+                 << value.value << " with status "
+                 << (ignore_status ? "(ignored)" : "")
+                 << value.verification_status << "\nFound:"
+                 << "\n\t" << form_group.GetRawInfo(value.type)
+                 << " with status "
+                 << form_group.GetVerificationStatus(value.type));
+
+    EXPECT_EQ(form_group.GetRawInfo(value.type),
+              base::UTF8ToUTF16(value.value));
+    if (!ignore_status) {
+      EXPECT_EQ(form_group.GetVerificationStatus(value.type),
+                value.verification_status);
+    }
+  }
+}
+
 std::unique_ptr<PrefService> PrefServiceForTesting() {
   scoped_refptr<user_prefs::PrefRegistrySyncable> registry(
       new user_prefs::PrefRegistrySyncable());
@@ -176,9 +207,9 @@ void CreateTestAddressFormData(FormData* form,
   form->button_titles = {
       std::make_pair(ASCIIToUTF16("Submit"),
                      mojom::ButtonTitleType::BUTTON_ELEMENT_SUBMIT_TYPE)};
-  form->url = GURL("http://myform.com/form.html");
-  form->full_url = GURL("http://myform.com/form.html?foo=bar");
-  form->action = GURL("http://myform.com/submit.html");
+  form->url = GURL("https://myform.com/form.html");
+  form->full_url = GURL("https://myform.com/form.html?foo=bar");
+  form->action = GURL("https://myform.com/submit.html");
   form->is_action_empty = true;
   form->main_frame_origin =
       url::Origin::Create(GURL("https://myform_root.com/form.html"));
@@ -254,9 +285,9 @@ void CreateTestPersonalInformationFormData(FormData* form,
   form->unique_renderer_id = MakeFormRendererId();
   form->name =
       ASCIIToUTF16("MyForm") + ASCIIToUTF16(unique_id ? unique_id : "");
-  form->url = GURL("http://myform.com/form.html");
-  form->full_url = GURL("http://myform.com/form.html?foo=bar");
-  form->action = GURL("http://myform.com/submit.html");
+  form->url = GURL("https://myform.com/form.html");
+  form->full_url = GURL("https://myform.com/form.html?foo=bar");
+  form->action = GURL("https://myform.com/submit.html");
   form->main_frame_origin =
       url::Origin::Create(GURL("https://myform_root.com/form.html"));
 
@@ -281,7 +312,7 @@ void CreateTestCreditCardFormData(FormData* form,
       ASCIIToUTF16("MyForm") + ASCIIToUTF16(unique_id ? unique_id : "");
   if (is_https) {
     form->url = GURL("https://myform.com/form.html");
-    form->full_url = GURL("http://myform.com/form.html?foo=bar");
+    form->full_url = GURL("https://myform.com/form.html?foo=bar");
     form->action = GURL("https://myform.com/submit.html");
     form->main_frame_origin =
         url::Origin::Create(GURL("https://myform_root.com/form.html"));
@@ -487,6 +518,7 @@ CreditCard GetMaskedServerCard() {
                           "2109" /* Mastercard */, NextMonth().c_str(),
                           NextYear().c_str(), "1");
   credit_card.SetNetworkForMaskedCard(kMasterCard);
+  credit_card.set_instrument_id(1);
   return credit_card;
 }
 
@@ -577,6 +609,30 @@ CreditCardCloudTokenData GetCreditCardCloudTokenData2() {
   data.exp_year += 1;
   data.card_art_url = "fake url 2";
   data.instrument_token = "fake token 2";
+  return data;
+}
+
+AutofillOfferData GetCardLinkedOfferData1() {
+  AutofillOfferData data;
+  data.offer_id = 111;
+  data.offer_reward_amount = "5%";
+  // Sets the expiry to be 45 days later.
+  data.expiry = AutofillClock::Now() + base::TimeDelta::FromDays(45);
+  data.offer_details_url = GURL("http://www.example1.com");
+  data.merchant_domain.emplace_back("http://www.example1.com");
+  data.eligible_instrument_id.emplace_back(111111);
+  return data;
+}
+
+AutofillOfferData GetCardLinkedOfferData2() {
+  AutofillOfferData data;
+  data.offer_id = 222;
+  data.offer_reward_amount = "$10";
+  // Sets the expiry to be 40 days later.
+  data.expiry = AutofillClock::Now() + base::TimeDelta::FromDays(40);
+  data.offer_details_url = GURL("http://www.example2.com");
+  data.merchant_domain.emplace_back("http://www.example2.com");
+  data.eligible_instrument_id.emplace_back(222222);
   return data;
 }
 
@@ -693,6 +749,7 @@ void SetServerCreditCards(AutofillTable* table,
     card.set_record_type(CreditCard::MASKED_SERVER_CARD);
     card.SetNumber(card.LastFourDigits());
     card.SetNetworkForMaskedCard(card.network());
+    card.set_instrument_id(card.instrument_id());
   }
   table->SetServerCreditCards(as_masked_cards);
 
@@ -804,28 +861,6 @@ void FillUploadField(AutofillUploadContents::Field* field,
     type_validities->add_validity(validity_states[i]);
 }
 
-void FillQueryField(AutofillQueryContents::Form::Field* field,
-                    unsigned signature,
-                    const char* name,
-                    const char* control_type) {
-  field->set_signature(signature);
-  if (name)
-    field->set_name(name);
-  if (control_type)
-    field->set_type(control_type);
-}
-
-void FillQueryField(AutofillPageQueryRequest_Form_Field* field,
-                    unsigned signature,
-                    const char* name,
-                    const char* control_type) {
-  field->set_signature(signature);
-  if (name)
-    field->set_name(name);
-  if (control_type)
-    field->set_control_type(control_type);
-}
-
 void GenerateTestAutofillPopup(
     AutofillExternalDelegate* autofill_external_delegate) {
   int query_id = 1;
@@ -868,27 +903,55 @@ std::string TenYearsFromNow() {
   return base::NumberToString(now.year + 10);
 }
 
-FormAndFieldSignatures GetEncodedSignatures(const FormStructure& form) {
-  FormAndFieldSignatures signatures;
-  signatures.emplace_back(form.form_signature(),
-                          std::vector<autofill::FieldSignature>{});
-  for (const auto& field : form) {
-    if (form.ShouldSkipFieldVisibleForTesting(*field))
-      continue;
-    signatures.back().second.push_back(field->GetFieldSignature());
-  }
+std::vector<FormSignature> GetEncodedSignatures(const FormStructure& form) {
+  std::vector<FormSignature> signatures;
+  signatures.push_back(form.form_signature());
   return signatures;
 }
 
-FormAndFieldSignatures GetEncodedSignatures(
+std::vector<FormSignature> GetEncodedSignatures(
     const std::vector<FormStructure*>& forms) {
-  FormAndFieldSignatures all_signatures;
-  for (const FormStructure* form : forms) {
-    FormAndFieldSignatures form_signatures = GetEncodedSignatures(*form);
-    std::move(form_signatures.begin(), form_signatures.end(),
-              std::back_inserter(all_signatures));
-  }
+  std::vector<FormSignature> all_signatures;
+  for (const FormStructure* form : forms)
+    all_signatures.push_back(form->form_signature());
   return all_signatures;
+}
+
+void AddFieldSuggestionToForm(
+    const autofill::FormFieldData& field_data,
+    ServerFieldType field_type,
+    ::autofill::AutofillQueryResponse_FormSuggestion* form_suggestion) {
+  auto* field_suggestion = form_suggestion->add_field_suggestions();
+  field_suggestion->set_field_signature(
+      CalculateFieldSignatureForField(field_data).value());
+  field_suggestion->set_primary_type_prediction(field_type);
+}
+
+void AddFieldPredictionsToForm(
+    const autofill::FormFieldData& field_data,
+    const std::vector<int>& field_types,
+    ::autofill::AutofillQueryResponse_FormSuggestion* form_suggestion) {
+  std::vector<ServerFieldType> types;
+  for (auto type : field_types) {
+    types.emplace_back(static_cast<ServerFieldType>(type));
+  }
+  AddFieldPredictionsToForm(field_data, types, form_suggestion);
+}
+
+void AddFieldPredictionsToForm(
+    const autofill::FormFieldData& field_data,
+    const std::vector<ServerFieldType>& field_types,
+    ::autofill::AutofillQueryResponse_FormSuggestion* form_suggestion) {
+  // According to api_v1.proto, the first element is always set to primary type.
+  auto* field_suggestion = form_suggestion->add_field_suggestions();
+  field_suggestion->set_field_signature(
+      CalculateFieldSignatureForField(field_data).value());
+  field_suggestion->set_primary_type_prediction(*field_types.begin());
+  for (auto field_type : field_types) {
+    AutofillQueryResponse_FormSuggestion_FieldSuggestion_FieldPrediction*
+        prediction = field_suggestion->add_predictions();
+    prediction->set_type(field_type);
+  }
 }
 
 }  // namespace test

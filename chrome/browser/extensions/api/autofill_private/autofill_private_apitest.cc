@@ -3,10 +3,13 @@
 // found in the LICENSE file.
 
 #include "base/command_line.h"
-#include "base/macros.h"
 #include "base/values.h"
+#include "build/build_config.h"
+#include "chrome/browser/autofill/autofill_uitest_util.h"
+#include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/common/extensions/api/autofill_private.h"
+#include "components/autofill/core/browser/personal_data_manager.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
@@ -18,8 +21,10 @@ namespace {
 
 class AutofillPrivateApiTest : public ExtensionApiTest {
  public:
-  AutofillPrivateApiTest() {}
-  ~AutofillPrivateApiTest() override {}
+  AutofillPrivateApiTest() = default;
+  AutofillPrivateApiTest(const AutofillPrivateApiTest&) = delete;
+  AutofillPrivateApiTest& operator=(const AutofillPrivateApiTest&) = delete;
+  ~AutofillPrivateApiTest() override = default;
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionApiTest::SetUpCommandLine(command_line);
@@ -32,12 +37,11 @@ class AutofillPrivateApiTest : public ExtensionApiTest {
 
  protected:
   bool RunAutofillSubtest(const std::string& subtest) {
+    autofill::WaitForPersonalDataManagerToBeLoaded(profile());
+
     return RunExtensionSubtest("autofill_private", "main.html?" + subtest,
                                kFlagNone, kFlagLoadAsComponent);
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(AutofillPrivateApiTest);
 };
 
 }  // namespace
@@ -52,8 +56,7 @@ IN_PROC_BROWSER_TEST_F(AutofillPrivateApiTest, GetAddressComponents) {
   EXPECT_TRUE(RunAutofillSubtest("getAddressComponents")) << message_;
 }
 
-// TODO(crbug.com/643097) Disabled for flakiness.
-IN_PROC_BROWSER_TEST_F(AutofillPrivateApiTest, DISABLED_RemoveEntry) {
+IN_PROC_BROWSER_TEST_F(AutofillPrivateApiTest, RemoveEntry) {
   EXPECT_TRUE(RunAutofillSubtest("removeEntry")) << message_;
 }
 

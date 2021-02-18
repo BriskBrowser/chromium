@@ -8,9 +8,11 @@
 
 #include "base/callback.h"
 #include "base/feature_list.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/web_applications/components/app_icon_manager.h"
 #include "chrome/common/chrome_features.h"
@@ -20,6 +22,23 @@
 namespace web_app {
 
 namespace {
+
+// UMA metric name for shortcuts creation result.
+constexpr const char* kCreationResultMetric =
+    "WebApp.Shortcuts.Creation.Result";
+
+// UMA metric name for shortcuts deletion result.
+constexpr const char* kDeletionResultMetric =
+    "WebApp.Shortcuts.Deletion.Success";
+
+// Result of shortcuts creation process.
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class CreationResult {
+  kSuccess = 0,
+  kFailToCreateShortcut = 1,
+  kMaxValue = kFailToCreateShortcut
+};
 
 AppShortcutManager::ShortcutCallback& GetShortcutUpdateCallbackForTesting() {
   static base::NoDestructor<AppShortcutManager::ShortcutCallback> callback;
@@ -55,7 +74,7 @@ void AppShortcutManager::SetShortcutUpdateCallbackForTesting(
 }
 
 bool AppShortcutManager::CanCreateShortcuts() const {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   return false;
 #else
   return true;
@@ -79,6 +98,21 @@ void AppShortcutManager::CreateShortcuts(const AppId& app_id,
                   base::BindOnce(&AppShortcutManager::OnShortcutsCreated,
                                  weak_ptr_factory_.GetWeakPtr(), app_id,
                                  std::move(callback))));
+}
+
+void AppShortcutManager::DeleteShortcuts(
+    const AppId& app_id,
+    const base::FilePath& shortcuts_data_dir,
+    std::unique_ptr<ShortcutInfo> shortcut_info,
+    DeleteShortcutsCallback callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  DCHECK(CanCreateShortcuts());
+
+  internals::ScheduleDeletePlatformShortcuts(
+      shortcuts_data_dir, std::move(shortcut_info),
+      base::BindOnce(&AppShortcutManager::OnShortcutsDeleted,
+                     weak_ptr_factory_.GetWeakPtr(), app_id,
+                     std::move(callback)));
 }
 
 void AppShortcutManager::ReadAllShortcutsMenuIconsAndRegisterShortcutsMenu(
@@ -130,11 +164,22 @@ void AppShortcutManager::UnregisterShortcutsMenuWithOs(const AppId& app_id) {
   web_app::UnregisterShortcutsMenuWithOs(app_id, profile_->GetPath());
 }
 
-
 void AppShortcutManager::OnShortcutsCreated(const AppId& app_id,
                                             CreateShortcutsCallback callback,
                                             bool success) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  UMA_HISTOGRAM_ENUMERATION(kCreationResultMetric,
+                            success ? CreationResult::kSuccess
+                                    : CreationResult::kFailToCreateShortcut);
+  std::move(callback).Run(success);
+}
+
+void AppShortcutManager::OnShortcutsDeleted(const AppId& app_id,
+                                            DeleteShortcutsCallback callback,
+                                            bool success) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  UMA_HISTOGRAM_BOOLEAN(kDeletionResultMetric, success);
+
   std::move(callback).Run(success);
 }
 

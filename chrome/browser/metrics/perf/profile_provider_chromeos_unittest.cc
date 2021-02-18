@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "base/time/time.h"
@@ -109,9 +109,9 @@ class TestProfileProvider : public ProfileProvider {
 
     collectors_.clear();
     collectors_.push_back(std::make_unique<MetricProvider>(
-        std::make_unique<TestMetricCollector<100>>(test_params)));
+        std::make_unique<TestMetricCollector<100>>(test_params), nullptr));
     collectors_.push_back(std::make_unique<MetricProvider>(
-        std::make_unique<TestMetricCollector<200>>(test_params)));
+        std::make_unique<TestMetricCollector<200>>(test_params), nullptr));
   }
 
   using ProfileProvider::collectors_;

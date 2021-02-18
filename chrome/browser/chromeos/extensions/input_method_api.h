@@ -265,6 +265,18 @@ class InputMethodPrivateSetCompositionRangeFunction : public ExtensionFunction {
   ResponseAction Run() override;
 };
 
+class InputMethodPrivateSetComposingRangeFunction : public ExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("inputMethodPrivate.setComposingRange",
+                             INPUTMETHODPRIVATE_SETCOMPOSINGRANGE)
+
+ protected:
+  ~InputMethodPrivateSetComposingRangeFunction() override {}
+
+  // ExtensionFunction:
+  ResponseAction Run() override;
+};
+
 class InputMethodPrivateSetSelectionRangeFunction : public ExtensionFunction {
  public:
   InputMethodPrivateSetSelectionRangeFunction(
@@ -355,6 +367,24 @@ class InputMethodPrivateResetFunction : public ExtensionFunction {
  private:
   DECLARE_EXTENSION_FUNCTION("inputMethodPrivate.reset",
                              INPUTMETHODPRIVATE_RESET)
+};
+
+class InputMethodPrivateOnAutocorrectFunction : public ExtensionFunction {
+ public:
+  InputMethodPrivateOnAutocorrectFunction(
+      const InputMethodPrivateOnAutocorrectFunction&) = delete;
+  InputMethodPrivateOnAutocorrectFunction& operator=(
+      const InputMethodPrivateOnAutocorrectFunction&) = delete;
+  InputMethodPrivateOnAutocorrectFunction() = default;
+
+ protected:
+  ~InputMethodPrivateOnAutocorrectFunction() override = default;
+  // ExtensionFunction:
+  ResponseAction Run() override;
+
+ private:
+  DECLARE_EXTENSION_FUNCTION("inputMethodPrivate.onAutocorrect",
+                             INPUTMETHODPRIVATE_ONAUTOCORRECT)
 };
 
 class InputMethodAPI : public BrowserContextKeyedAPI,

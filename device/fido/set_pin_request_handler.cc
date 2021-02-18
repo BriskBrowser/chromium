@@ -17,10 +17,13 @@ namespace device {
 SetPINRequestHandler::SetPINRequestHandler(
     const base::flat_set<FidoTransportProtocol>& supported_transports,
     GetPINCallback get_pin_callback,
-    FinishedCallback finished_callback)
-    : FidoRequestHandlerBase(&fido_discovery_factory_, supported_transports),
+    FinishedCallback finished_callback,
+    std::unique_ptr<FidoDiscoveryFactory> fido_discovery_factory)
+    : FidoRequestHandlerBase(fido_discovery_factory.get(),
+                             supported_transports),
       get_pin_callback_(std::move(get_pin_callback)),
-      finished_callback_(std::move(finished_callback)) {
+      finished_callback_(std::move(finished_callback)),
+      fido_discovery_factory_(std::move(fido_discovery_factory)) {
   Start();
 }
 
@@ -32,7 +35,7 @@ void SetPINRequestHandler::ProvidePIN(const std::string& old_pin,
                                       const std::string& new_pin) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(my_sequence_checker_);
   DCHECK_EQ(State::kWaitingForPIN, state_);
-  DCHECK(pin::IsValid(new_pin));
+  DCHECK_EQ(pin::ValidatePIN(new_pin), pin::PINEntryError::kNoError);
 
   if (authenticator_ == nullptr) {
     // Authenticator was detached.
@@ -104,7 +107,9 @@ void SetPINRequestHandler::OnTouch(FidoAuthenticator* authenticator) {
         kSupportedButPinNotSet:
       state_ = State::kWaitingForPIN;
       CancelActiveAuthenticators(authenticator->GetId());
-      std::move(get_pin_callback_).Run(base::nullopt);
+      std::move(get_pin_callback_)
+          .Run(authenticator->CurrentMinPINLength(),
+               authenticator->NewMinPINLength(), base::nullopt);
       break;
   }
 }
@@ -122,7 +127,9 @@ void SetPINRequestHandler::OnRetriesResponse(
   }
 
   state_ = State::kWaitingForPIN;
-  std::move(get_pin_callback_).Run(response->retries);
+  std::move(get_pin_callback_)
+      .Run(authenticator_->CurrentMinPINLength(),
+           authenticator_->NewMinPINLength(), response->retries);
 }
 
 void SetPINRequestHandler::OnSetPINComplete(

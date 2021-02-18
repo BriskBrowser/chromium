@@ -39,6 +39,7 @@ class BrowserLiveTabContext : public sessions::LiveTabContext {
   int GetTabCount() const override;
   int GetSelectedIndex() const override;
   std::string GetAppName() const override;
+  std::string GetUserTitle() const override;
   sessions::LiveTab* GetLiveTabAt(int index) const override;
   sessions::LiveTab* GetActiveLiveTab() const override;
   bool IsTabPinned(int index) const override;
@@ -62,15 +63,13 @@ class BrowserLiveTabContext : public sessions::LiveTabContext {
       const tab_groups::TabGroupVisualData& group_visual_data,
       bool select,
       bool pin,
-      bool from_last_session,
       const sessions::PlatformSpecificTabData* storage_namespace,
-      const sessions::SerializedUserAgentOverride& user_agent_override)
-      override;
+      const sessions::SerializedUserAgentOverride& user_agent_override,
+      const SessionID* tab_id) override;
   sessions::LiveTab* ReplaceRestoredTab(
       const std::vector<sessions::SerializedNavigationEntry>& navigations,
       base::Optional<tab_groups::TabGroupId> group,
       int selected_navigation,
-      bool from_last_session,
       const std::string& extension_app_id,
       const sessions::PlatformSpecificTabData* tab_platform_data,
       const sessions::SerializedUserAgentOverride& user_agent_override)
@@ -82,7 +81,8 @@ class BrowserLiveTabContext : public sessions::LiveTabContext {
                                           const std::string& app_name,
                                           const gfx::Rect& bounds,
                                           ui::WindowShowState show_state,
-                                          const std::string& workspace);
+                                          const std::string& workspace,
+                                          const std::string& user_title);
 
   // see browser::FindBrowserForWebContents
   static sessions::LiveTabContext* FindContextForWebContents(

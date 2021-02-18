@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/guid.h"
 #include "base/logging.h"
 #include "components/policy/core/common/cloud/device_management_service.h"
@@ -39,11 +39,11 @@ AndroidManagementClient::AndroidManagementClient(
 AndroidManagementClient::~AndroidManagementClient() {}
 
 void AndroidManagementClient::StartCheckAndroidManagement(
-    const StatusCallback& callback) {
+    StatusCallback callback) {
   DCHECK(device_management_service_);
   DCHECK(callback_.is_null());
 
-  callback_ = callback;
+  callback_ = std::move(callback);
   RequestAccessToken();
 }
 
@@ -69,7 +69,7 @@ void AndroidManagementClient::RequestAccessToken() {
 
   signin::ScopeSet scopes;
   scopes.insert(GaiaConstants::kDeviceManagementServiceOAuth);
-  scopes.insert(GaiaConstants::kOAuthWrapBridgeUserInfoScope);
+  scopes.insert(GaiaConstants::kGoogleUserInfoEmail);
 
   access_token_fetcher_ = identity_manager_->CreateAccessTokenFetcherForAccount(
       account_id_, "android_management_client", scopes,

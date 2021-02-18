@@ -9,93 +9,57 @@
 #include "base/callback.h"
 #include "chrome/services/sharing/nearby/decoder/nearby_decoder.h"
 #include "chrome/services/sharing/nearby/nearby_connections.h"
-#include "chrome/services/sharing/public/mojom/nearby_decoder.mojom.h"
-#include "chrome/services/sharing/webrtc/sharing_webrtc_connection.h"
-#include "jingle/glue/thread_wrapper.h"
-#include "third_party/webrtc/api/peer_connection_interface.h"
-#include "third_party/webrtc_overrides/task_queue_factory.h"
+#include "chromeos/services/nearby/public/mojom/nearby_decoder.mojom.h"
 
 namespace sharing {
 
-SharingImpl::SharingImpl(mojo::PendingReceiver<mojom::Sharing> receiver)
-    : receiver_(this, std::move(receiver)) {}
+SharingImpl::SharingImpl(
+    mojo::PendingReceiver<mojom::Sharing> receiver,
+    scoped_refptr<base::SequencedTaskRunner> io_task_runner)
+    : receiver_(this, std::move(receiver)),
+      io_task_runner_(std::move(io_task_runner)) {}
 
-SharingImpl::~SharingImpl() = default;
-
-void SharingImpl::CreateSharingWebRtcConnection(
-    mojo::PendingRemote<mojom::SignalingSender> signaling_sender,
-    mojo::PendingReceiver<mojom::SignalingReceiver> signaling_receiver,
-    mojo::PendingRemote<mojom::SharingWebRtcConnectionDelegate> delegate,
-    mojo::PendingReceiver<mojom::SharingWebRtcConnection> connection,
-    mojo::PendingRemote<network::mojom::P2PSocketManager> socket_manager,
-    mojo::PendingRemote<network::mojom::MdnsResponder> mdns_responder,
-    std::vector<mojom::IceServerPtr> ice_servers) {
-  if (!webrtc_peer_connection_factory_)
-    InitializeWebRtcFactory();
-
-  // base::Unretained is safe as the |peer_connection| is owned by |this|.
-  auto sharing_connection = std::make_unique<SharingWebRtcConnection>(
-      webrtc_peer_connection_factory_.get(), std::move(ice_servers),
-      std::move(signaling_sender), std::move(signaling_receiver),
-      std::move(delegate), std::move(connection), std::move(socket_manager),
-      std::move(mdns_responder),
-      base::BindOnce(&SharingImpl::SharingWebRtcConnectionDisconnected,
-                     base::Unretained(this)));
-  SharingWebRtcConnection* sharing_connection_ptr = sharing_connection.get();
-  sharing_webrtc_connections_.emplace(sharing_connection_ptr,
-                                      std::move(sharing_connection));
+SharingImpl::~SharingImpl() {
+  // No need to call DoShutDown() from the destructor because SharingImpl should
+  // only be destroyed after SharingImpl::ShutDown() has been called.
+  DCHECK(!nearby_connections_ && !nearby_decoder_);
 }
 
-void SharingImpl::CreateNearbyConnections(
-    NearbyConnectionsDependenciesPtr dependencies,
-    CreateNearbyConnectionsCallback callback) {
-  // Reset old instance of Nearby Connections stack.
-  nearby_connections_.reset();
+void SharingImpl::Connect(
+    NearbyConnectionsDependenciesPtr deps,
+    mojo::PendingReceiver<NearbyConnectionsMojom> connections_receiver,
+    mojo::PendingReceiver<sharing::mojom::NearbySharingDecoder>
+        decoder_receiver) {
+  DCHECK(!nearby_connections_);
+  DCHECK(!nearby_decoder_);
 
-  mojo::PendingRemote<NearbyConnectionsMojom> remote;
   nearby_connections_ = std::make_unique<NearbyConnections>(
-      remote.InitWithNewPipeAndPassReceiver(), std::move(dependencies),
+      std::move(connections_receiver), std::move(deps), io_task_runner_,
       base::BindOnce(&SharingImpl::NearbyConnectionsDisconnected,
                      weak_ptr_factory_.GetWeakPtr()));
-  std::move(callback).Run(std::move(remote));
+  nearby_decoder_ =
+      std::make_unique<NearbySharingDecoder>(std::move(decoder_receiver));
 }
 
-void SharingImpl::CreateNearbySharingDecoder(
-    CreateNearbySharingDecoderCallback callback) {
-  // Reset old instance of Nearby Sharing Decoder stack.
+void SharingImpl::ShutDown(ShutDownCallback callback) {
+  DoShutDown(/*is_expected=*/true);
+  std::move(callback).Run();
+}
+
+void SharingImpl::DoShutDown(bool is_expected) {
+  if (!nearby_connections_ && !nearby_decoder_)
+    return;
+
+  nearby_connections_.reset();
   nearby_decoder_.reset();
 
-  mojo::PendingRemote<sharing::mojom::NearbySharingDecoder> remote;
-  nearby_decoder_ = std::make_unique<NearbySharingDecoder>(
-      remote.InitWithNewPipeAndPassReceiver());
-  std::move(callback).Run(std::move(remote));
+  // Leave |receiver_| valid. Its disconnection is reserved as a signal that the
+  // Sharing utility process has crashed.
 }
 
 void SharingImpl::NearbyConnectionsDisconnected() {
-  nearby_connections_.reset();
-}
-
-size_t SharingImpl::GetWebRtcConnectionCountForTesting() const {
-  return sharing_webrtc_connections_.size();
-}
-
-void SharingImpl::SharingWebRtcConnectionDisconnected(
-    SharingWebRtcConnection* peer_connection) {
-  sharing_webrtc_connections_.erase(peer_connection);
-}
-
-void SharingImpl::InitializeWebRtcFactory() {
-  jingle_glue::JingleThreadWrapper::EnsureForCurrentMessageLoop();
-  jingle_glue::JingleThreadWrapper::current()->set_send_allowed(true);
-
-  webrtc::PeerConnectionFactoryDependencies dependencies;
-  dependencies.task_queue_factory = CreateWebRtcTaskQueueFactory();
-  dependencies.network_thread = rtc::Thread::Current();
-  dependencies.worker_thread = rtc::Thread::Current();
-  dependencies.signaling_thread = rtc::Thread::Current();
-
-  webrtc_peer_connection_factory_ =
-      webrtc::CreateModularPeerConnectionFactory(std::move(dependencies));
+  LOG(ERROR) << "A Sharing process dependency has unexpectedly disconnected.";
+  DoShutDown(/*is_expected=*/false);
 }
 
 }  // namespace sharing

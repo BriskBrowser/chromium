@@ -21,6 +21,9 @@ OmniboxSuggestionIconType GetOmniboxSuggestionIconTypeForAutocompleteMatchType(
   if (is_starred)
     return BOOKMARK;
 
+  // TODO(crbug.com/1122669): Handle trending zero-prefix suggestions by
+  // checking the match subtype similar to AutocompleteMatch::GetVectorIcon().
+
   switch (type) {
     case AutocompleteMatchType::BOOKMARK_TITLE:
     case AutocompleteMatchType::CLIPBOARD_URL:
@@ -56,6 +59,7 @@ OmniboxSuggestionIconType GetOmniboxSuggestionIconTypeForAutocompleteMatchType(
       return CALCULATOR;
     case AutocompleteMatchType::EXTENSION_APP_DEPRECATED:
     case AutocompleteMatchType::TILE_SUGGESTION:
+    case AutocompleteMatchType::TILE_NAVSUGGEST:
     case AutocompleteMatchType::NUM_TYPES:
       NOTREACHED();
       return DEFAULT_FAVICON;
@@ -86,14 +90,11 @@ LocationBarSecurityIconType GetLocationBarSecurityIconTypeForSecurityState(
     case security_state::NONE:
       return INFO;
     case security_state::WARNING:
-      if (security_state::ShouldShowDangerTriangleForWarningLevel())
-        return NOT_SECURE_WARNING;
-      return INFO;
+    case security_state::DANGEROUS:
+      return NOT_SECURE_WARNING;
     case security_state::SECURE:
     case security_state::SECURE_WITH_POLICY_INSTALLED_CERT:
       return SECURE;
-    case security_state::DANGEROUS:
-      return NOT_SECURE_WARNING;
     case security_state::SECURITY_LEVEL_COUNT:
       NOTREACHED();
       return LOCATION_BAR_SECURITY_ICON_TYPE_COUNT;

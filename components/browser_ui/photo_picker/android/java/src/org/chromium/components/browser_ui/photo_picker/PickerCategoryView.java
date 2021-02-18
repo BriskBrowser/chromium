@@ -4,7 +4,6 @@
 
 package org.chromium.components.browser_ui.photo_picker;
 
-import android.app.Activity;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.DialogInterface;
@@ -20,6 +19,7 @@ import android.util.DisplayMetrics;
 import android.util.LruCache;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.RelativeLayout;
@@ -37,9 +37,7 @@ import org.chromium.components.browser_ui.widget.selectable_list.SelectableListL
 import org.chromium.components.browser_ui.widget.selectable_list.SelectionDelegate;
 import org.chromium.net.MimeTypeFilter;
 import org.chromium.ui.base.PhotoPickerListener;
-import org.chromium.ui.base.SelectFileDialog;
 import org.chromium.ui.base.WindowAndroid;
-import org.chromium.ui.vr.VrModeProvider;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -90,7 +88,7 @@ public class PickerCategoryView extends RelativeLayout
     // The view containing the RecyclerView and the toolbar, etc.
     private SelectableListLayout<PickerBitmap> mSelectableListLayout;
 
-    // The {@link WindowAndroid} for the {@link Activity}.
+    // The {@link WindowAndroid} for the hosting WebContents.
     private WindowAndroid mWindowAndroid;
 
     // The ContentResolver to use to retrieve image metadata from disk.
@@ -190,22 +188,24 @@ public class PickerCategoryView extends RelativeLayout
     private ImageView mZoom;
 
     /**
-     * @param windowAndroid The window of the hosting {@link Activity}.
+     * @param windowAndroid The window of the {@link WebContents} that requested the photo
+     *         selection.
      * @param contentResolver The ContentResolver to use to retrieve image metadata from disk.
      * @param multiSelectionAllowed Whether to allow the user to select more than one image.
-     * @param vrModeProvider The VR mode provider for querying VR mode state.
+     * @param animatedThumbnailsSupported Whether animated thumbnails should be generated for video
+     *         clips.
      */
     @SuppressWarnings("unchecked") // mSelectableListLayout
     public PickerCategoryView(WindowAndroid windowAndroid, ContentResolver contentResolver,
-            boolean multiSelectionAllowed, PhotoPickerToolbar.PhotoPickerToolbarDelegate delegate,
-            VrModeProvider vrModeProvider) {
+            boolean multiSelectionAllowed, boolean animatedThumbnailsSupported,
+            PhotoPickerToolbar.PhotoPickerToolbarDelegate delegate) {
         super(windowAndroid.getContext().get());
         mWindowAndroid = windowAndroid;
         Context context = mWindowAndroid.getContext().get();
         mContentResolver = contentResolver;
         mMultiSelectionAllowed = multiSelectionAllowed;
 
-        mDecoderServiceHost = new DecoderServiceHost(this, context);
+        mDecoderServiceHost = new DecoderServiceHost(this, context, animatedThumbnailsSupported);
         mDecoderServiceHost.bind(context);
 
         mSelectionDelegate = new SelectionDelegate<PickerBitmap>();
@@ -222,7 +222,7 @@ public class PickerCategoryView extends RelativeLayout
                                             : R.string.photo_picker_select_image;
         PhotoPickerToolbar toolbar = (PhotoPickerToolbar) mSelectableListLayout.initializeToolbar(
                 R.layout.photo_picker_toolbar, mSelectionDelegate, titleId, 0, 0, null, false,
-                false, vrModeProvider);
+                false);
         toolbar.setNavigationOnClickListener(this);
         toolbar.setDelegate(delegate);
         Button doneButton = (Button) toolbar.findViewById(R.id.done);
@@ -278,6 +278,8 @@ public class PickerCategoryView extends RelativeLayout
             mDecoderServiceHost.unbind(mWindowAndroid.getContext().get());
             mDecoderServiceHost = null;
         }
+
+        mDialog = null;
     }
 
     /**
@@ -285,6 +287,7 @@ public class PickerCategoryView extends RelativeLayout
      * @param uri The uri of the video to start playing.
      */
     public void startVideoPlaybackAsync(Uri uri) {
+        if (mDialog == null) return;
         mVideoPlayer.startVideoPlaybackAsync(uri, mDialog.getWindow().getDecorView());
     }
 
@@ -529,15 +532,17 @@ public class PickerCategoryView extends RelativeLayout
      */
     private void calculateGridMetrics() {
         DisplayMetrics displayMetrics = new DisplayMetrics();
-        Activity activity = (Activity) mWindowAndroid.getContext().get();
-        activity.getWindowManager().getDefaultDisplay().getMetrics(displayMetrics);
+        Context context = mWindowAndroid.getContext().get();
+        WindowManager windowManager =
+                (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
+        windowManager.getDefaultDisplay().getMetrics(displayMetrics);
 
         int width = displayMetrics.widthPixels;
         int minSize =
-                activity.getResources().getDimensionPixelSize(R.dimen.photo_picker_tile_min_size);
+                context.getResources().getDimensionPixelSize(R.dimen.photo_picker_tile_min_size);
         mPadding = mMagnifyingMode
                 ? 0
-                : activity.getResources().getDimensionPixelSize(R.dimen.photo_picker_tile_gap);
+                : context.getResources().getDimensionPixelSize(R.dimen.photo_picker_tile_gap);
         mColumns = mMagnifyingMode ? 1 : Math.max(1, (width - mPadding) / (minSize + mPadding));
         mImageWidth = (width - mPadding * (mColumns + 1)) / (mColumns);
         mImageHeight = mMagnifyingMode
@@ -640,8 +645,7 @@ public class PickerCategoryView extends RelativeLayout
     private void executeAction(
             @PhotoPickerListener.PhotoPickerAction int action, Uri[] photos, int umaId) {
         mListener.onPhotoPickerUserAction(action, photos);
-        mDialog.dismiss();
-        SelectFileDialog.onPhotoPickerDismissed();
+        if (mDialog != null) mDialog.dismiss();
         recordFinalUmaStats(umaId);
     }
 

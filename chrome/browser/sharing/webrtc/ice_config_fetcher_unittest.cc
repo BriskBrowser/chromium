@@ -8,7 +8,7 @@
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/strcat.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
 #include "chrome/common/chrome_paths.h"
@@ -109,4 +109,35 @@ TEST_F(IceConfigFetcherTest, ResponseError) {
   const std::string metric_name = "Sharing.WebRtc.IceConfigFetched";
   histogram_tester_.ExpectTotalCount(metric_name, 1);
   histogram_tester_.ExpectBucketCount(metric_name, 0, 1);
+}
+
+TEST_F(IceConfigFetcherTest, OverlappingCalls) {
+  base::RunLoop run_loop;
+  int counter = 2;
+  auto callback = [&](std::vector<sharing::mojom::IceServerPtr> ice_servers) {
+    CheckSuccessResponse(ice_servers);
+    counter -= 1;
+    if (counter == 0) {
+      run_loop.Quit();
+    }
+  };
+  // First call.
+  ice_config_fetcher_.GetIceServers(base::BindLambdaForTesting(callback));
+  // Second call overlaps before any responses are processed. This previously
+  // prevented the first call from ever returning.
+  ice_config_fetcher_.GetIceServers(base::BindLambdaForTesting(callback));
+
+  const std::string expected_api_url = GetApiUrl();
+  std::string response;
+  GetSuccessResponse(&response);
+
+  ASSERT_TRUE(test_url_loader_factory_.IsPending(expected_api_url, nullptr));
+
+  test_url_loader_factory_.AddResponse(expected_api_url, response,
+                                       net::HTTP_OK);
+  run_loop.Run();
+
+  const std::string metric_name = "Sharing.WebRtc.IceConfigFetched";
+  histogram_tester_.ExpectTotalCount(metric_name, 2);
+  histogram_tester_.ExpectBucketCount(metric_name, 2, 2);
 }

@@ -16,10 +16,11 @@
 
 namespace autofill {
 struct FormData;
-struct PasswordForm;
 }  // namespace autofill
 
 namespace password_manager {
+
+struct PasswordForm;
 
 // The susbset of autocomplete flags related to passwords.
 enum class AutocompleteFlag {
@@ -123,15 +124,16 @@ class FormDataParser {
     predictions_ = std::move(predictions);
   }
 
+  void reset_predictions() { predictions_.reset(); }
+
   const base::Optional<FormPredictions>& predictions() { return predictions_; }
 
   ReadonlyPasswordFields readonly_status() { return readonly_status_; }
 
   // Parse DOM information |form_data| into Password Manager's form
   // representation PasswordForm. Return nullptr when parsing is unsuccessful.
-  std::unique_ptr<autofill::PasswordForm> Parse(
-      const autofill::FormData& form_data,
-      Mode mode);
+  std::unique_ptr<PasswordForm> Parse(const autofill::FormData& form_data,
+                                      Mode mode);
 
  private:
   // Predictions are an optional source of server-side information about field

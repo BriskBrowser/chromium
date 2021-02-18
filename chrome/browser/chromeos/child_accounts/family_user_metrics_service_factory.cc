@@ -4,6 +4,8 @@
 
 #include "chrome/browser/chromeos/child_accounts/family_user_metrics_service_factory.h"
 
+#include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
+#include "chrome/browser/chromeos/child_accounts/child_user_service_factory.h"
 #include "chrome/browser/chromeos/child_accounts/family_user_metrics_service.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "content/public/browser/browser_context.h"
@@ -27,7 +29,10 @@ FamilyUserMetricsServiceFactory::GetInstance() {
 FamilyUserMetricsServiceFactory::FamilyUserMetricsServiceFactory()
     : BrowserContextKeyedServiceFactory(
           "FamilyUserMetricsServiceFactory",
-          BrowserContextDependencyManager::GetInstance()) {}
+          BrowserContextDependencyManager::GetInstance()) {
+  DependsOn(apps::AppServiceProxyFactory::GetInstance());
+  DependsOn(ChildUserServiceFactory::GetInstance());
+}
 
 FamilyUserMetricsServiceFactory::~FamilyUserMetricsServiceFactory() = default;
 

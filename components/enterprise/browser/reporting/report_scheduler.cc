@@ -13,6 +13,7 @@
 #include "base/task/post_task.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/enterprise/browser/controller/browser_dm_token_storage.h"
 #include "components/enterprise/browser/reporting/common_pref_names.h"
 #include "components/enterprise/browser/reporting/reporting_delegate_factory.h"
@@ -29,6 +30,30 @@ namespace {
 constexpr base::TimeDelta kDefaultUploadInterval =
     base::TimeDelta::FromHours(24);  // Default upload interval is 24 hours.
 const int kMaximumRetry = 10;  // Retry 10 times takes about 15 to 19 hours.
+
+bool IsBrowserVersionUploaded(ReportScheduler::ReportTrigger trigger) {
+  switch (trigger) {
+    case ReportScheduler::kTriggerTimer:
+    case ReportScheduler::kTriggerUpdate:
+    case ReportScheduler::kTriggerNewVersion:
+      return true;
+    case ReportScheduler::kTriggerNone:
+    case ReportScheduler::kTriggerExtensionRequest:
+      return false;
+  }
+}
+
+bool IsExtensionRequestUploaded(ReportScheduler::ReportTrigger trigger) {
+  switch (trigger) {
+    case ReportScheduler::kTriggerTimer:
+    case ReportScheduler::kTriggerExtensionRequest:
+      return true;
+    case ReportScheduler::kTriggerNone:
+    case ReportScheduler::kTriggerUpdate:
+    case ReportScheduler::kTriggerNewVersion:
+      return false;
+  }
+}
 
 }  // namespace
 
@@ -100,7 +125,7 @@ void ReportScheduler::OnReportEnabledPrefChanged() {
   // For Chrome OS, it needn't register the cloud policy client here. The
   // |dm_token| and |client_id| should have already existed after the client is
   // initialized, and will keep valid during whole life-cycle.
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
   if (!SetupBrowserPolicyClientRegistration()) {
     Stop();
     return;
@@ -114,11 +139,13 @@ void ReportScheduler::OnReportEnabledPrefChanged() {
 
   delegate_->StartWatchingUpdatesIfNeeded(last_upload_timestamp,
                                           kDefaultUploadInterval);
+  delegate_->StartWatchingExtensionRequestIfNeeded();
 }
 
 void ReportScheduler::Stop() {
   request_timer_.Stop();
   delegate_->StopWatchingUpdates();
+  delegate_->StopWatchingExtensionRequest();
 }
 
 bool ReportScheduler::SetupBrowserPolicyClientRegistration() {
@@ -164,7 +191,7 @@ void ReportScheduler::GenerateAndUploadReport(ReportTrigger trigger) {
   }
 
   active_trigger_ = trigger;
-  bool with_profiles = true;
+  ReportType report_type = kFull;
   switch (trigger) {
     case kTriggerNone:
       NOTREACHED();
@@ -174,17 +201,21 @@ void ReportScheduler::GenerateAndUploadReport(ReportTrigger trigger) {
       break;
     case kTriggerUpdate:
       VLOG(1) << "Generating basic enterprise report upon update.";
-      with_profiles = false;
+      report_type = kBrowserVersion;
       break;
     case kTriggerNewVersion:
       VLOG(1) << "Generating basic enterprise report upon new version.";
-      with_profiles = false;
+      report_type = kBrowserVersion;
+      break;
+    case kTriggerExtensionRequest:
+      VLOG(1) << "Generating extension request partially report.";
+      report_type = kExtensionRequest;
       break;
   }
 
   report_generator_->Generate(
-      with_profiles, base::BindOnce(&ReportScheduler::OnReportGenerated,
-                                    base::Unretained(this)));
+      report_type, base::BindOnce(&ReportScheduler::OnReportGenerated,
+                                  base::Unretained(this)));
 }
 
 void ReportScheduler::OnReportGenerated(
@@ -218,7 +249,11 @@ void ReportScheduler::OnReportUploaded(ReportUploader::ReportStatus status) {
       // Schedule the next report for success. Reset uploader to reset failure
       // count.
       report_uploader_.reset();
-      delegate_->SaveLastUploadVersion();
+      if (IsBrowserVersionUploaded(active_trigger_))
+        delegate_->OnBrowserVersionUploaded();
+
+      if (IsExtensionRequestUploaded(active_trigger_))
+        delegate_->OnExtensionRequestUploaded();
       FALLTHROUGH;
     case ReportUploader::kTransientError:
       // Stop retrying and schedule the next report to avoid stale report.
@@ -231,6 +266,7 @@ void ReportScheduler::OnReportUploaded(ReportUploader::ReportStatus status) {
       }
       break;
     case ReportUploader::kPersistentError:
+      Stop();
       // No future upload until Chrome relaunch or pref change event.
       break;
   }
@@ -246,12 +282,21 @@ void ReportScheduler::RunPendingTriggers() {
 
   // Timer-triggered reports are a superset of those triggered by an update or a
   // new version, so favor them and consider that they serve all purposes.
-  uint32_t pending_triggers = std::exchange(pending_triggers_, 0);
-  ReportTrigger trigger = kTriggerTimer;
-  if ((pending_triggers & kTriggerTimer) == 0) {
-    trigger = (pending_triggers & kTriggerUpdate) != 0 ? kTriggerUpdate
-                                                       : kTriggerNewVersion;
+
+  ReportTrigger trigger;
+  if ((pending_triggers_ & kTriggerTimer) != 0) {
+    // Timer-triggered reports contain data of all other report types.
+    trigger = kTriggerTimer;
+    pending_triggers_ = 0;
+  } else if ((pending_triggers_ & kTriggerExtensionRequest) != 0) {
+    trigger = kTriggerExtensionRequest;
+    pending_triggers_ -= kTriggerExtensionRequest;
+  } else {
+    trigger = (pending_triggers_ & kTriggerUpdate) != 0 ? kTriggerUpdate
+                                                        : kTriggerNewVersion;
+    pending_triggers_ = 0;
   }
+
   GenerateAndUploadReport(trigger);
 }
 
@@ -264,7 +309,8 @@ void ReportScheduler::RecordUploadTrigger(ReportTrigger trigger) {
     kTimer = 1,
     kUpdate = 2,
     kNewVersion = 3,
-    kMaxValue = kNewVersion
+    kExtensionRequest = 4,
+    kMaxValue = kExtensionRequest
   } sample = Sample::kNone;
   switch (trigger) {
     case kTriggerNone:
@@ -277,6 +323,9 @@ void ReportScheduler::RecordUploadTrigger(ReportTrigger trigger) {
       break;
     case kTriggerNewVersion:
       sample = Sample::kNewVersion;
+      break;
+    case kTriggerExtensionRequest:
+      sample = Sample::kExtensionRequest;
       break;
   }
   base::UmaHistogramEnumeration("Enterprise.CloudReportingUploadTrigger",

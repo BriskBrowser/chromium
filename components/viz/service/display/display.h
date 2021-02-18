@@ -20,6 +20,7 @@
 #include "components/viz/common/resources/returned_resource.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "components/viz/common/surfaces/surface_id.h"
+#include "components/viz/service/display/display_compositor_memory_and_task_controller.h"
 #include "components/viz/service/display/display_resource_provider.h"
 #include "components/viz/service/display/display_scheduler.h"
 #include "components/viz/service/display/frame_rate_decider.h"
@@ -81,14 +82,16 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   // a MessageLoop.
   // TODO(penghuang): Remove skia_output_surface when all DirectRenderer
   // subclasses are replaced by SkiaRenderer.
-  Display(SharedBitmapManager* bitmap_manager,
-          const RendererSettings& settings,
-          const DebugRendererSettings* debug_settings,
-          const FrameSinkId& frame_sink_id,
-          std::unique_ptr<OutputSurface> output_surface,
-          std::unique_ptr<OverlayProcessorInterface> overlay_processor,
-          std::unique_ptr<DisplaySchedulerBase> scheduler,
-          scoped_refptr<base::SingleThreadTaskRunner> current_task_runner);
+  Display(
+      SharedBitmapManager* bitmap_manager,
+      const RendererSettings& settings,
+      const DebugRendererSettings* debug_settings,
+      const FrameSinkId& frame_sink_id,
+      std::unique_ptr<DisplayCompositorMemoryAndTaskController> gpu_dependency,
+      std::unique_ptr<OutputSurface> output_surface,
+      std::unique_ptr<OverlayProcessorInterface> overlay_processor,
+      std::unique_ptr<DisplaySchedulerBase> scheduler,
+      scoped_refptr<base::SingleThreadTaskRunner> current_task_runner);
 
   ~Display() override;
 
@@ -108,8 +111,7 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   void Initialize(DisplayClient* client,
                   SurfaceManager* surface_manager,
                   bool enable_shared_images = kEnableSharedImages,
-                  bool hw_support_for_multiple_refresh_rates = false,
-                  size_t num_of_frames_to_toggle_interval = 60);
+                  bool hw_support_for_multiple_refresh_rates = false);
 
   void AddObserver(DisplayObserver* observer);
   void RemoveObserver(DisplayObserver* observer);
@@ -156,6 +158,8 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   void DidSwapWithSize(const gfx::Size& pixel_size) override;
   void DidReceivePresentationFeedback(
       const gfx::PresentationFeedback& feedback) override;
+  void DidReceiveReleasedOverlays(
+      const std::vector<gpu::Mailbox>& released_overlays) override;
 
   // LatestLocalSurfaceIdLookupDelegate implementation.
   LocalSurfaceId GetSurfaceAtAggregation(
@@ -173,6 +177,10 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
 
   bool has_scheduler() const { return !!scheduler_; }
   DirectRenderer* renderer_for_testing() const { return renderer_.get(); }
+
+  bool resize_based_on_root_surface() const {
+    return output_surface_->capabilities().resize_based_on_root_surface;
+  }
 
   void ForceImmediateDrawAndSwapIfPossible();
   void SetNeedsOneBeginFrame();
@@ -251,6 +259,7 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   std::unique_ptr<gpu::ScopedAllowScheduleGpuTask>
       allow_schedule_gpu_task_during_destruction_;
 #endif
+  std::unique_ptr<DisplayCompositorMemoryAndTaskController> gpu_dependency_;
   std::unique_ptr<OutputSurface> output_surface_;
   SkiaOutputSurface* const skia_output_surface_;
   std::unique_ptr<DisplayDamageTracker> damage_tracker_;
@@ -280,8 +289,6 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
 
   bool disable_swap_until_resize_ = true;
 
-  bool enable_quad_splitting_ = true;
-
   // Callback that will be run after all pending swaps have acked.
   base::OnceClosure no_pending_swaps_callback_;
 
@@ -290,6 +297,7 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   int64_t last_presented_trace_id_ = 0;
   int pending_swaps_ = 0;
 
+  uint64_t frame_sequence_number_ = 0;
   // The height of the top-controls in the previously drawn frame.
   float last_top_controls_visible_height_ = 0.f;
 

@@ -10,6 +10,7 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/values.h"
+#include "build/chromeos_buildflags.h"
 #include "printing/mojom/print.mojom.h"
 #include "printing/print_settings.h"
 #include "printing/printing_context.h"
@@ -51,7 +52,7 @@ class PrinterQuery {
   // |ask_for_user_settings| is DEFAULTS.
   // Caller has to ensure that |this| is alive until |callback| is run.
   void GetSettings(GetSettingsAskParam ask_user_for_settings,
-                   int expected_page_count,
+                   uint32_t expected_page_count,
                    bool has_selection,
                    mojom::MarginType margin_type,
                    bool is_scripted,
@@ -63,7 +64,7 @@ class PrinterQuery {
   virtual void SetSettings(base::Value new_settings,
                            base::OnceClosure callback);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Updates the current settings with |new_settings|.
   // Caller has to ensure that |this| is alive until |callback| is run.
   void SetSettingsFromPOD(std::unique_ptr<PrintSettings> new_settings,

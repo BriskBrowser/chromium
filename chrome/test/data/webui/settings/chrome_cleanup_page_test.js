@@ -40,8 +40,9 @@ class TestChromeCleanupProxy extends TestBrowserProxy {
   }
 
   /** @override */
-  startScanning(logsUploadEnabled) {
-    this.methodCalled('startScanning', logsUploadEnabled);
+  startScanning(logsUploadEnabled, notificationEnabled) {
+    this.methodCalled(
+        'startScanning', [logsUploadEnabled, notificationEnabled]);
   }
 
   /** @override */
@@ -85,23 +86,16 @@ const shortRegistryKeysList = ['key 1', 'key 2'];
 const exactSizeRegistryKeysList = ['key 1', 'key 2', 'key 3', 'key 4'];
 const longRegistryKeysList =
     ['key 1', 'key 2', 'key 3', 'key 4', 'key 5', 'key 6'];
-const shortExtensionList = ['ext 1', 'ext 2'];
-const exactSizeExtensionList = ['ext 1', 'ext 2', 'ext 3', 'ext 4'];
-const longExtensionList =
-    ['ext 1', 'ext 2', 'ext 3', 'ext 4', 'ext 5', 'ext 6'];
 
 const fileLists = [[], shortFileList, exactSizeFileList, longFileList];
 const registryKeysLists = [
   [], shortRegistryKeysList, exactSizeRegistryKeysList, longRegistryKeysList
 ];
-const extensionLists =
-    [[], shortExtensionList, exactSizeExtensionList, longExtensionList];
 const descriptors = ['No', 'Few', 'ExactSize', 'Many'];
 
 const defaultScannerResults = {
   'files': shortFileList,
   'registryKeys': shortRegistryKeysList,
-  'extensions': shortExtensionList,
 };
 
 /**
@@ -151,13 +145,11 @@ function validateHighlightSuffix(originalItems, container, expectSuffix) {
 /**
  * @param {!Array} files The list of files to be cleaned.
  * @param {!Array} registryKeys The list of registry entries to be cleaned.
- * @param {!Array} extensions The list of extensions to be cleaned.
  */
-function startCleanupFromInfected(files, registryKeys, extensions) {
+function startCleanupFromInfected(files, registryKeys) {
   const scannerResults = {
     'files': files,
     'registryKeys': registryKeys,
-    'extensions': extensions
   };
 
   updateReportingEnabledPref(false);
@@ -185,18 +177,6 @@ function startCleanupFromInfected(files, registryKeys, extensions) {
         registryKeys, registryKeysListContainer, false /* expectSuffix */);
   } else {
     assertTrue(registryKeysListContainer.hidden);
-  }
-
-  const extensionsListContainer = chromeCleanupPage.$$('#extensions-list');
-  assertTrue(!!extensionsListContainer);
-  if (extensions.length > 0) {
-    assertFalse(extensionsListContainer.hidden);
-    assertTrue(!!extensionsListContainer);
-    validateVisibleItemsList(extensions, extensionsListContainer);
-    validateHighlightSuffix(
-        extensions, extensionsListContainer, false /* expectSuffix */);
-  } else {
-    assertTrue(extensionsListContainer.hidden);
   }
 
   const actionButton = chromeCleanupPage.$$('#action-button');
@@ -375,24 +355,45 @@ suite('ChromeCleanupHandler', function() {
     assertFalse(!!actionButton);
   });
 
-  test('startScanFromIdle', function() {
+  /**
+   * @param {boolean} clickNotification Whether to test the case
+   *     where the user clicks on the completion notification option.
+   * @return {!Promise}
+   */
+  async function startScanFromIdle(clickNotification) {
     updateReportingEnabledPref(false);
     webUIListenerCallback(
         'chrome-cleanup-on-idle', ChromeCleanupIdleReason.INITIAL);
     flush();
 
+    if (clickNotification) {
+      const notificationControl =
+          chromeCleanupPage.$$('#chromeCleanupShowNotificationControl');
+      assertTrue(!!notificationControl);
+      notificationControl.$.checkbox.click();
+    }
+
     const actionButton = chromeCleanupPage.$$('#action-button');
     assertTrue(!!actionButton);
     actionButton.click();
-    return chromeCleanupProxy.whenCalled('startScanning')
-        .then(function(logsUploadEnabled) {
-          assertFalse(logsUploadEnabled);
-          webUIListenerCallback('chrome-cleanup-on-scanning', false);
-          flush();
+    const [logsUploadEnabled, notificationEnabled] =
+        await chromeCleanupProxy.whenCalled('startScanning');
+    assertFalse(logsUploadEnabled);
+    // Notification is disabled by default, hence a click enables it.
+    assertEquals(clickNotification, notificationEnabled);
+    webUIListenerCallback('chrome-cleanup-on-scanning', false);
+    flush();
 
-          const spinner = chromeCleanupPage.$$('#waiting-spinner');
-          assertTrue(spinner.active);
-        });
+    const spinner = chromeCleanupPage.$$('#waiting-spinner');
+    assertTrue(spinner.active);
+  }
+
+  test('startScanFromIdle_NotificationDisabled', function() {
+    return startScanFromIdle(false);
+  });
+
+  test('startScanFromIdle_NotificationEnabled', function() {
+    return startScanFromIdle(true);
   });
 
   test('scanFoundNothing', function() {
@@ -420,20 +421,14 @@ suite('ChromeCleanupHandler', function() {
   for (let file_index = 0; file_index < fileLists.length; file_index++) {
     for (let registry_index = 0; registry_index < registryKeysLists.length;
          registry_index++) {
-      for (let extension_index = 0; extension_index < extensionLists.length;
-           extension_index++) {
-        const testName = 'startCleanupFromInfected_' + descriptors[file_index] +
-            'Files' + descriptors[registry_index] + 'RegistryKeys' +
-            descriptors[extension_index] + 'Extensions';
-        const fileList = fileLists[file_index];
-        const registryKeysList = registryKeysLists[registry_index];
-        const extensionList = extensionLists[extension_index];
+      const testName = 'startCleanupFromInfected_' + descriptors[file_index] +
+          'Files' + descriptors[registry_index] + 'RegistryKeys';
+      const fileList = fileLists[file_index];
+      const registryKeysList = registryKeysLists[registry_index];
 
-        test(testName, function() {
-          return startCleanupFromInfected(
-              fileList, registryKeysList, extensionList);
-        });
-      }
+      test(testName, function() {
+        return startCleanupFromInfected(fileList, registryKeysList);
+      });
     }
   }
 

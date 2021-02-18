@@ -90,6 +90,32 @@ static GridTrackSizingDirection GridDirectionForAxis(GridAxis axis) {
   return axis == kGridRowAxis ? kForColumns : kForRows;
 }
 
+template <typename F>
+static void IterateGridItemsInTrackIndices(const Grid& grid,
+                                           GridTrackSizingDirection direction,
+                                           Vector<size_t>& track_indices,
+                                           F callback) {
+#if DCHECK_IS_ON()
+  HeapHashSet<Member<LayoutBox>> items_set;
+#endif
+  for (size_t i = 0; i < track_indices.size(); ++i) {
+    auto iterator = grid.CreateIterator(direction, track_indices[i]);
+    while (LayoutBox* grid_item = iterator->NextGridItem()) {
+      const GridSpan& span = grid.GridItemSpan(*grid_item, direction);
+      if (i > 0) {
+        // Skip items already processed in an earlier track.
+        DCHECK_LT(track_indices[i - 1], track_indices[i]);
+        if (span.StartLine() <= track_indices[i - 1])
+          continue;
+      }
+#if DCHECK_IS_ON()
+      DCHECK(items_set.insert(grid_item).is_new_entry);
+#endif
+      callback(grid_item, span);
+    }
+  }
+}
+
 class IndefiniteSizeStrategy final : public GridTrackSizingAlgorithmStrategy {
  public:
   IndefiniteSizeStrategy(GridTrackSizingAlgorithm& algorithm)
@@ -174,10 +200,10 @@ bool GridTrackSizingAlgorithmStrategy::HasRelativeOrIntrinsicSizeForChild(
       GridLayoutUtils::FlowAwareDirectionForChild(grid, child, kForColumns);
   if (direction == child_inline_direction) {
     return child.HasRelativeLogicalWidth() ||
-           child.StyleRef().LogicalWidth().IsIntrinsicOrAuto();
+           !child.StyleRef().LogicalWidth().IsSpecified();
   }
   return child.HasRelativeLogicalHeight() ||
-         child.StyleRef().LogicalHeight().IsIntrinsicOrAuto();
+         !child.StyleRef().LogicalHeight().IsSpecified();
 }
 
 bool GridTrackSizingAlgorithmStrategy::
@@ -357,6 +383,8 @@ LayoutUnit GridTrackSizingAlgorithmStrategy::MinContentForChild(
     // FIXME: It's unclear if we should return the intrinsic width or the
     // preferred width.
     // See http://lists.w3.org/Archives/Public/www-style/2013Jan/0245.html
+    if (child.NeedsPreferredWidthsRecalculation())
+      child.SetIntrinsicLogicalWidthsDirty();
     return child.PreferredLogicalWidths().min_size +
            GridLayoutUtils::MarginLogicalWidthForChild(*GetLayoutGrid(),
                                                        child) +
@@ -381,6 +409,8 @@ LayoutUnit GridTrackSizingAlgorithmStrategy::MaxContentForChild(
     // FIXME: It's unclear if we should return the intrinsic width or the
     // preferred width.
     // See http://lists.w3.org/Archives/Public/www-style/2013Jan/0245.html
+    if (child.NeedsPreferredWidthsRecalculation())
+      child.SetIntrinsicLogicalWidthsDirty();
     return child.PreferredLogicalWidths().max_size +
            GridLayoutUtils::MarginLogicalWidthForChild(*GetLayoutGrid(),
                                                        child) +
@@ -573,15 +603,6 @@ LayoutUnit GridTrackSizingAlgorithmStrategy::MinLogicalSizeForChild(
   bool override_size_has_changed =
       UpdateOverrideContainingBlockContentSizeForChild(
           child, child_inline_direction, available_size);
-  GridTrackSizingDirection child_block_direction =
-      GridLayoutUtils::FlowAwareDirectionForChild(*GetLayoutGrid(), child,
-                                                  kForRows);
-  if (ShouldClearOverrideContainingBlockContentSizeForChild(
-          *GetLayoutGrid(), child, child_block_direction)) {
-    SetOverrideContainingBlockContentSizeForChild(child, child_block_direction,
-                                                  LayoutUnit(-1));
-    override_size_has_changed = true;
-  }
   LayoutGridItemForMinSizeComputation(child, override_size_has_changed);
 
   return child.ComputeLogicalHeightUsing(kMinSize, child_min_size,
@@ -703,27 +724,19 @@ double IndefiniteSizeStrategy::FindUsedFlexFraction(
   if (!grid.HasGridItems())
     return flex_fraction;
 
-  for (size_t i = 0; i < flexible_sized_tracks_index.size(); ++i) {
-    auto iterator =
-        grid.CreateIterator(direction, flexible_sized_tracks_index[i]);
-    while (LayoutBox* grid_item = iterator->NextGridItem()) {
-      const GridSpan& span = grid.GridItemSpan(*grid_item, direction);
-
-      // Do not include already processed items.
-      if (i > 0 && span.StartLine() <= flexible_sized_tracks_index[i - 1])
-        continue;
-
-      // Removing gutters from the max-content contribution of the item,
-      // so they are not taken into account in FindFrUnitSize().
-      LayoutUnit left_over_space =
-          MaxContentForChild(*grid_item) -
-          GetLayoutGrid()->GuttersSize(algorithm_.GetGrid(), direction,
-                                       span.StartLine(), span.IntegerSpan(),
-                                       AvailableSpace());
-      flex_fraction =
-          std::max(flex_fraction, FindFrUnitSize(span, left_over_space));
-    }
-  }
+  IterateGridItemsInTrackIndices(
+      grid, direction, flexible_sized_tracks_index,
+      [&](LayoutBox* grid_item, const GridSpan& span) {
+        // Removing gutters from the max-content contribution of the item,
+        // so they are not taken into account in FindFrUnitSize().
+        LayoutUnit left_over_space =
+            MaxContentForChild(*grid_item) -
+            GetLayoutGrid()->GuttersSize(algorithm_.GetGrid(), direction,
+                                         span.StartLine(), span.IntegerSpan(),
+                                         AvailableSpace());
+        flex_fraction =
+            std::max(flex_fraction, FindFrUnitSize(span, left_over_space));
+      });
 
   return flex_fraction;
 }
@@ -1134,7 +1147,7 @@ class GridItemWithSpan {
   }
 
  private:
-  LayoutBox* grid_item_;
+  UntracedMember<LayoutBox> grid_item_;
   GridSpan grid_span_;
 };
 
@@ -1268,9 +1281,9 @@ LayoutUnit GridTrackSizingAlgorithm::ItemSizeForTrackSizeComputationPhase(
     LayoutBox& grid_item) const {
   switch (phase) {
     case kResolveIntrinsicMinimums:
-    case kResolveIntrinsicMaximums:
       return strategy_->MinSizeForChild(grid_item);
     case kResolveContentBasedMinimums:
+    case kResolveIntrinsicMaximums:
       return strategy_->MinContentForChild(grid_item);
     case kResolveMaxContentMinimums:
     case kResolveMaxContentMaximums:
@@ -1458,22 +1471,17 @@ void GridTrackSizingAlgorithm::ResolveIntrinsicTrackSizes() {
   Vector<GridTrack>& all_tracks = Tracks(direction_);
   Vector<GridItemWithSpan> items_sorted_by_increasing_span;
   if (grid_.HasGridItems()) {
-    HashSet<LayoutBox*> items_set;
-    for (const auto& track_index : content_sized_tracks_index_) {
-      auto iterator = grid_.CreateIterator(direction_, track_index);
-      GridTrack& track = all_tracks[track_index];
-      while (auto* grid_item = iterator->NextGridItem()) {
-        if (items_set.insert(grid_item).is_new_entry) {
-          const GridSpan& span = grid_.GridItemSpan(*grid_item, direction_);
+    IterateGridItemsInTrackIndices(
+        grid_, direction_, content_sized_tracks_index_,
+        [&](LayoutBox* grid_item, const GridSpan& span) {
           if (span.IntegerSpan() == 1) {
-            SizeTrackToFitNonSpanningItem(span, *grid_item, track);
+            SizeTrackToFitNonSpanningItem(span, *grid_item,
+                                          all_tracks[span.StartLine()]);
           } else if (!SpanningItemCrossesFlexibleSizedTracks(span)) {
             items_sorted_by_increasing_span.push_back(
                 GridItemWithSpan(*grid_item, span));
           }
-        }
-      }
-    }
+        });
     std::sort(items_sorted_by_increasing_span.begin(),
               items_sorted_by_increasing_span.end());
   }
@@ -1751,7 +1759,7 @@ void GridTrackSizingAlgorithm::ComputeBaselineAlignmentContext() {
   BaselineItemsCache& baseline_items_cache = axis == kGridColumnAxis
                                                  ? column_baseline_items_map_
                                                  : row_baseline_items_map_;
-  for (auto* child : baseline_items_cache.Keys()) {
+  for (auto& child : baseline_items_cache.Keys()) {
     // TODO (jfernandez): We may have to get rid of the baseline participation
     // flag (hence just using a HashSet) depending on the CSS WG resolution on
     // https://github.com/w3c/csswg-drafts/issues/3046

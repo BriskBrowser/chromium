@@ -17,7 +17,7 @@
 #include "fuchsia/fidl/chromium/cast/cpp/fidl.h"
 #include "fuchsia/runners/cast/api_bindings_client.h"
 #include "fuchsia/runners/cast/application_controller_impl.h"
-#include "fuchsia/runners/cast/named_message_port_connector.h"
+#include "fuchsia/runners/cast/named_message_port_connector_fuchsia.h"
 #include "fuchsia/runners/common/web_component.h"
 
 namespace cr_fuchsia {
@@ -40,7 +40,7 @@ class CastComponent : public WebComponent,
     bool AreComplete() const;
 
     // Parameters populated directly from the StartComponent() arguments.
-    std::unique_ptr<base::fuchsia::StartupContext> startup_context;
+    std::unique_ptr<base::StartupContext> startup_context;
     fidl::InterfaceRequest<fuchsia::sys::ComponentController>
         controller_request;
 
@@ -59,7 +59,15 @@ class CastComponent : public WebComponent,
     base::Optional<uint64_t> media_session_id;
   };
 
-  CastComponent(WebContentRunner* runner, Params params, bool is_headless);
+  // See WebComponent documentation for details of |debug_name| and |runner|.
+  // |params| provides the Cast application configuration to use.
+  // |is_headless| must match the headless setting of the specfied |runner|, to
+  //   have CreateView() operations trigger enabling & disabling of off-screen
+  //   rendering.
+  CastComponent(base::StringPiece debug_name,
+                WebContentRunner* runner,
+                Params params,
+                bool is_headless);
   ~CastComponent() final;
 
   void SetOnDestroyedCallback(base::OnceClosure on_destroyed);
@@ -108,7 +116,7 @@ class CastComponent : public WebComponent,
   std::vector<fuchsia::web::UrlRequestRewriteRule> initial_url_rewrite_rules_;
 
   bool constructor_active_ = false;
-  std::unique_ptr<NamedMessagePortConnector> connector_;
+  std::unique_ptr<NamedMessagePortConnectorFuchsia> connector_;
   std::unique_ptr<ApiBindingsClient> api_bindings_client_;
   std::unique_ptr<ApplicationControllerImpl> application_controller_;
   chromium::cast::ApplicationContextPtr application_context_;

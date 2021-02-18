@@ -206,6 +206,7 @@ class CastActivityManager : public CastActivityManagerBase,
   };
 
   void DoLaunchSession(DoLaunchSessionParams params);
+  void SetPendingLaunch(DoLaunchSessionParams params);
   void OnActivityStopped(const std::string& route_id);
 
   // Removes an activity, terminating any associated connections, then
@@ -273,7 +274,7 @@ class CastActivityManager : public CastActivityManagerBase,
   std::string ChooseAppId(const CastMediaSource& source,
                           const MediaSinkInternal& sink) const;
 
-  void TerminateAllMirroringActivities();
+  void TerminateAllLocalMirroringActivities();
 
   static CastActivityFactoryForTest* cast_activity_factory_for_test_;
 

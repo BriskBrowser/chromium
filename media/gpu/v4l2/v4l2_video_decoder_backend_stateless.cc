@@ -11,7 +11,8 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/sequenced_task_runner.h"
 #include "media/base/decode_status.h"
@@ -25,7 +26,7 @@
 #include "media/gpu/v4l2/v4l2_h264_accelerator_legacy.h"
 #include "media/gpu/v4l2/v4l2_vp8_accelerator.h"
 #include "media/gpu/v4l2/v4l2_vp8_accelerator_legacy.h"
-#include "media/gpu/v4l2/v4l2_vp9_accelerator.h"
+#include "media/gpu/v4l2/v4l2_vp9_accelerator_legacy.h"
 
 namespace media {
 
@@ -379,6 +380,12 @@ bool V4L2StatelessVideoDecoderBackend::PumpDecodeTask() {
   while (true) {
     switch (avd_->Decode()) {
       case AcceleratedVideoDecoder::kConfigChange:
+        if (avd_->GetBitDepth() != 8u) {
+          VLOGF(2) << "Unsupported bit depth: "
+                   << base::strict_cast<int>(avd_->GetBitDepth());
+          return false;
+        }
+
         if (profile_ != avd_->GetProfile()) {
           DVLOGF(3) << "Profile is changed: " << profile_ << " -> "
                     << avd_->GetProfile();
@@ -655,7 +662,8 @@ bool V4L2StatelessVideoDecoderBackend::CreateAvd() {
     }
   } else if (profile_ >= VP9PROFILE_MIN && profile_ <= VP9PROFILE_MAX) {
     avd_ = std::make_unique<VP9Decoder>(
-        std::make_unique<V4L2VP9Accelerator>(this, device_.get()), profile_);
+        std::make_unique<V4L2LegacyVP9Accelerator>(this, device_.get()),
+        profile_);
   } else {
     VLOGF(1) << "Unsupported profile " << GetProfileName(profile_);
     return false;

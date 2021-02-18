@@ -7,10 +7,10 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "device/bluetooth/bluetooth_adapter.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
@@ -643,7 +643,7 @@ TEST_F(BluetoothSocketBlueZTest, SocketListenTwice) {
         base::BindOnce(&BluetoothSocketBlueZTest::ErrorCallback,
                        base::Unretained(this), run_loop.QuitWhenIdleClosure()));
 
-    server_socket->Close();
+    server_socket->Disconnect(base::DoNothing());
 
     server_socket = nullptr;
     run_loop.RunUntilIdle();
@@ -679,7 +679,7 @@ TEST_F(BluetoothSocketBlueZTest, SocketListenTwice) {
         base::BindOnce(&BluetoothSocketBlueZTest::ErrorCallback,
                        base::Unretained(this), run_loop.QuitWhenIdleClosure()));
 
-    server_socket->Close();
+    server_socket->Disconnect(base::DoNothing());
 
     server_socket = nullptr;
     run_loop.RunUntilIdle();

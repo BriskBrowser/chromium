@@ -55,9 +55,10 @@ class BrowserGpuVideoAcceleratorFactories
   gpu::SharedImageInterface* SharedImageInterface() override;
   gpu::GpuMemoryBufferManager* GpuMemoryBufferManager() override;
   base::UnsafeSharedMemoryRegion CreateSharedMemoryRegion(size_t size) override;
-  scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner() override;
+  scoped_refptr<base::SequencedTaskRunner> GetTaskRunner() override;
   viz::RasterContextProvider* GetMediaContextProvider() override;
   void SetRenderingColorSpace(const gfx::ColorSpace& color_space) override;
+  const gfx::ColorSpace& GetRenderingColorSpace() const override;
 
   scoped_refptr<viz::ContextProviderCommandBuffer> context_provider_;
   base::UnguessableToken channel_token_;

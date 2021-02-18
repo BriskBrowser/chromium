@@ -11,11 +11,13 @@
 namespace ash {
 
 // SystemLabelButton provides styled buttons with label for the login screen.
+// It is assumed that it lives in a login bubble, with a defined background;
+// ripple effects may be inappropriate for a different usage.
 class ASH_EXPORT SystemLabelButton : public views::LabelButton {
  public:
   enum class DisplayType { DEFAULT, ALERT_NO_ICON, ALERT_WITH_ICON };
 
-  SystemLabelButton(views::ButtonListener* listener,
+  SystemLabelButton(PressedCallback callback,
                     const base::string16& text,
                     DisplayType display_type,
                     bool multiline = false);
@@ -37,6 +39,8 @@ class ASH_EXPORT SystemLabelButton : public views::LabelButton {
   // font accordingly.
   void SetAlertMode(bool alert_mode);
 
+  // Absurd color to show the developer that background color has not been
+  // initialized properly.
   SkColor background_color_ = SK_ColorGREEN;
   // Used only to ensure that we do not call SetDisplayType when the current
   // display type is ALERT_WITH_ICON.

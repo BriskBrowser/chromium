@@ -9,7 +9,7 @@
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "build/build_config.h"
-#include "build/lacros_buildflags.h"
+#include "build/chromeos_buildflags.h"
 #include "cc/test/pixel_test_utils.h"
 #include "components/viz/common/features.h"
 #include "content/browser/media/capture/content_capture_device_browsertest_base.h"
@@ -373,12 +373,12 @@ class WebContentsVideoCaptureDeviceBrowserTestP
   }
 };
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_ANDROID)
 INSTANTIATE_TEST_SUITE_P(
     All,
     WebContentsVideoCaptureDeviceBrowserTestP,
     testing::Combine(
-        // Note: On ChromeOS, software compositing is not an option.
+        // Note: On ChromeOS and Android, software compositing is not an option.
         testing::Values(false /* GPU-accelerated compositing */),
         testing::Values(false /* variable aspect ratio */,
                         true /* fixed aspect ratio */),
@@ -395,15 +395,15 @@ INSTANTIATE_TEST_SUITE_P(
                         true /* fixed aspect ratio */),
         testing::Values(false /* page has only a main frame */,
                         true /* page contains a cross-site iframe */)));
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 // Tests that the device successfully captures a series of content changes,
 // whether the browser is running with software compositing or GPU-accelerated
 // compositing, whether the WebContents is visible/hidden or occluded/unoccluded
 // and whether the main document contains a cross-site iframe.
 
-// Fails on LACROS and linux. http://crbug.com/1108205
-#if BUILDFLAG(IS_LACROS) || defined(OS_LINUX)
+// Fails on LACROS for Chrome OS and linux. http://crbug.com/1108205
+#if BUILDFLAG(IS_CHROMEOS_LACROS) || defined(OS_LINUX) || defined(OS_CHROMEOS)
 #define MAYBE_CapturesContentChanges DISABLED_CapturesContentChanges
 #else
 #define MAYBE_CapturesContentChanges CapturesContentChanges

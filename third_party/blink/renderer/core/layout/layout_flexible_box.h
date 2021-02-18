@@ -47,12 +47,25 @@ class CORE_EXPORT LayoutFlexibleBox : public LayoutBlock {
  public:
   explicit LayoutFlexibleBox(Element*);
   ~LayoutFlexibleBox() override;
+  void Trace(Visitor*) const override;
 
-  const char* GetName() const override { return "LayoutFlexibleBox"; }
+  const char* GetName() const override {
+    NOT_DESTROYED();
+    return "LayoutFlexibleBox";
+  }
 
-  bool IsFlexibleBox() const final { return true; }
-  bool IsFlexibleBoxIncludingNG() const final { return true; }
-  bool IsFlexibleBoxIncludingDeprecatedAndNG() const final { return true; }
+  bool IsFlexibleBox() const final {
+    NOT_DESTROYED();
+    return true;
+  }
+  bool IsFlexibleBoxIncludingNG() const final {
+    NOT_DESTROYED();
+    return true;
+  }
+  bool IsFlexibleBoxIncludingDeprecatedAndNG() const final {
+    NOT_DESTROYED();
+    return true;
+  }
   void UpdateBlockLayout(bool relayout_children) final;
 
   bool IsChildAllowed(LayoutObject* object,
@@ -76,7 +89,10 @@ class CORE_EXPORT LayoutFlexibleBox : public LayoutBlock {
 
   bool IsHorizontalFlow() const;
 
-  const OrderIterator& GetOrderIterator() const { return order_iterator_; }
+  const OrderIterator& GetOrderIterator() const {
+    NOT_DESTROYED();
+    return order_iterator_;
+  }
 
   // These three functions are used when resolving percentages against a
   // flex item's logical height. In flexbox, sometimes a logical height
@@ -169,7 +185,6 @@ class CORE_EXPORT LayoutFlexibleBox : public LayoutBlock {
   EOverflow MainAxisOverflowForChild(const LayoutBox& child) const;
   EOverflow CrossAxisOverflowForChild(const LayoutBox& child) const;
   void CacheChildMainSize(const LayoutBox& child);
-  bool CanAvoidLayoutForNGChild(const LayoutBox& child) const;
 
   void LayoutFlexItems(bool relayout_children, SubtreeLayoutScope&);
   bool HasAutoMarginsInCrossAxis(const LayoutBox& child) const;
@@ -216,14 +231,15 @@ class CORE_EXPORT LayoutFlexibleBox : public LayoutBlock {
 
   // This is used to cache the preferred size for orthogonal flow children so we
   // don't have to relayout to get it
-  HashMap<const LayoutObject*, LayoutUnit> intrinsic_size_along_main_axis_;
+  HeapHashMap<Member<const LayoutObject>, LayoutUnit>
+      intrinsic_size_along_main_axis_;
 
   // This set is used to keep track of which children we laid out in this
   // current layout iteration. We need it because the ones in this set may
   // need an additional layout pass for correct stretch alignment handling, as
   // the first layout likely did not use the correct value for percentage
   // sizing of children.
-  HashSet<const LayoutObject*> relaid_out_children_;
+  HeapHashSet<Member<const LayoutObject>> relaid_out_children_;
 
   mutable OrderIterator order_iterator_;
   int number_of_in_flow_children_on_first_line_;
@@ -233,7 +249,12 @@ class CORE_EXPORT LayoutFlexibleBox : public LayoutBlock {
   bool in_layout_;
 };
 
-DEFINE_LAYOUT_OBJECT_TYPE_CASTS(LayoutFlexibleBox, IsFlexibleBox());
+template <>
+struct DowncastTraits<LayoutFlexibleBox> {
+  static bool AllowFrom(const LayoutObject& object) {
+    return object.IsFlexibleBox();
+  }
+};
 
 }  // namespace blink
 

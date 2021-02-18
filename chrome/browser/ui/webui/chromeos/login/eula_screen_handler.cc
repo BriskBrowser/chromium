@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 
+#include "ash/constants/ash_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/macros.h"
@@ -21,7 +22,6 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "components/login/localized_values_builder.h"
 #include "components/strings/grit/components_strings.h"
 #include "rlz/buildflags/buildflags.h"
@@ -92,10 +92,6 @@ void EulaScreenHandler::DeclareLocalizedValues(
   builder->Add("eulaSystemSecuritySettings", IDS_EULA_SYSTEM_SECURITY_SETTING);
 
   builder->Add("eulaTpmDesc", IDS_EULA_SECURE_MODULE_DESCRIPTION);
-  builder->Add("eulaTpmKeyDesc", IDS_EULA_SECURE_MODULE_KEY_DESCRIPTION);
-  builder->Add("eulaTpmDescPowerwash",
-               IDS_EULA_SECURE_MODULE_KEY_DESCRIPTION_POWERWASH);
-  builder->Add("eulaTpmBusy", IDS_EULA_SECURE_MODULE_BUSY);
   ::login::GetSecureModuleUsed(base::BindOnce(
       &EulaScreenHandler::UpdateLocalizedValues, weak_factory_.GetWeakPtr()));
 
@@ -143,11 +139,6 @@ void EulaScreenHandler::Initialize() {
   }
 }
 
-void EulaScreenHandler::OnPasswordFetched(const std::string& tpm_password) {
-  CallJS("login.EulaScreen.setTpmPassword", tpm_password);
-  CallJS("login.EulaScreen.showSecuritySettingsDialog");
-}
-
 void EulaScreenHandler::ShowStatsUsageLearnMore() {
   if (!help_app_.get())
     help_app_ = new HelpAppLauncher(
@@ -159,6 +150,10 @@ void EulaScreenHandler::ShowAdditionalTosDialog() {
   CallJS("login.EulaScreen.showAdditionalTosDialog");
 }
 
+void EulaScreenHandler::ShowSecuritySettingsDialog() {
+  CallJS("login.EulaScreen.showSecuritySettingsDialog");
+}
+
 void EulaScreenHandler::UpdateLocalizedValues(
     ::login::SecureModuleUsed secure_module_used) {
   base::DictionaryValue updated_secure_module_strings;
@@ -166,10 +161,6 @@ void EulaScreenHandler::UpdateLocalizedValues(
       &updated_secure_module_strings);
   if (secure_module_used == ::login::SecureModuleUsed::TPM) {
     builder->Add("eulaTpmDesc", IDS_EULA_TPM_DESCRIPTION);
-    builder->Add("eulaTpmKeyDesc", IDS_EULA_TPM_KEY_DESCRIPTION);
-    builder->Add("eulaTpmDescPowerwash",
-                 IDS_EULA_TPM_KEY_DESCRIPTION_POWERWASH);
-    builder->Add("eulaTpmBusy", IDS_EULA_TPM_BUSY);
     core_oobe_view_->ReloadEulaContent(updated_secure_module_strings);
   }
 }

@@ -15,6 +15,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/optional.h"
 #include "base/process/process_handle.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string16.h"
@@ -30,14 +31,13 @@
 #include "content/browser/devtools/protocol/devtools_mhtml_helper.h"
 #include "content/browser/devtools/protocol/emulation_handler.h"
 #include "content/browser/devtools/protocol/handler_helpers.h"
-#include "content/browser/frame_host/navigation_request.h"
-#include "content/browser/frame_host/navigator.h"
 #include "content/browser/manifest/manifest_manager_host.h"
+#include "content/browser/renderer_host/navigation_request.h"
+#include "content/browser/renderer_host/navigator.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/browser/web_contents/web_contents_view.h"
-#include "content/common/widget_messages.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_manager.h"
@@ -78,6 +78,8 @@ constexpr int kDefaultScreenshotQuality = 80;
 constexpr int kFrameRetryDelayMs = 100;
 constexpr int kCaptureRetryLimit = 2;
 constexpr int kMaxScreencastFramesInFlight = 2;
+constexpr char kCommandIsOnlyAvailableAtTopTarget[] =
+    "Command can only be executed on top-level targets";
 
 Binary EncodeImage(const gfx::Image& image,
                    const std::string& format,
@@ -161,11 +163,22 @@ void GetMetadataFromFrame(const media::VideoFrame& frame,
                           gfx::Vector2dF* root_scroll_offset,
                           double* top_controls_visible_height) {
   // Get metadata from |frame|. This will CHECK if metadata is missing.
-  *device_scale_factor = *frame.metadata()->device_scale_factor;
-  *page_scale_factor = *frame.metadata()->page_scale_factor;
-  root_scroll_offset->set_x(*frame.metadata()->root_scroll_offset_x);
-  root_scroll_offset->set_y(*frame.metadata()->root_scroll_offset_y);
-  *top_controls_visible_height = *frame.metadata()->top_controls_visible_height;
+  *device_scale_factor = *frame.metadata().device_scale_factor;
+  *page_scale_factor = *frame.metadata().page_scale_factor;
+  root_scroll_offset->set_x(*frame.metadata().root_scroll_offset_x);
+  root_scroll_offset->set_y(*frame.metadata().root_scroll_offset_y);
+  *top_controls_visible_height = *frame.metadata().top_controls_visible_height;
+}
+
+template <typename ProtocolCallback>
+bool CanExecuteGlobalCommands(
+    RenderFrameHost* host,
+    const std::unique_ptr<ProtocolCallback>& callback) {
+  if (!host || !host->GetParent())
+    return true;
+  callback->sendFailure(
+      Response::ServerError(kCommandIsOnlyAvailableAtTopTarget));
+  return false;
 }
 
 }  // namespace
@@ -199,6 +212,8 @@ PageHandler::PageHandler(EmulationHandler* emulation_handler,
     video_consumer_ = std::make_unique<DevToolsVideoConsumer>(
         base::BindRepeating(&PageHandler::OnFrameFromVideoConsumer,
                             weak_factory_.GetWeakPtr()));
+    video_consumer_->SetFormat(media::PIXEL_FORMAT_ARGB,
+                               gfx::ColorSpace::CreateREC709());
   }
   DCHECK(emulation_handler_);
 }
@@ -233,14 +248,14 @@ void PageHandler::SetRenderer(int process_host_id,
 
   RenderWidgetHostImpl* widget_host =
       host_ ? host_->GetRenderWidgetHost() : nullptr;
-  if (widget_host && observer_.IsObserving(widget_host))
-    observer_.Remove(widget_host);
+  if (widget_host && observation_.IsObservingSource(widget_host))
+    observation_.Reset();
 
   host_ = frame_host;
   widget_host = host_ ? host_->GetRenderWidgetHost() : nullptr;
 
   if (widget_host)
-    observer_.Add(widget_host);
+    observation_.Observe(widget_host);
 
   if (video_consumer_ && frame_host) {
     video_consumer_->SetFrameSinkId(
@@ -271,7 +286,8 @@ void PageHandler::RenderWidgetHostVisibilityChanged(
 }
 
 void PageHandler::RenderWidgetHostDestroyed(RenderWidgetHost* widget_host) {
-  observer_.Remove(widget_host);
+  DCHECK(observation_.IsObservingSource(widget_host));
+  observation_.Reset();
 }
 
 void PageHandler::DidAttachInterstitialPage() {
@@ -488,7 +504,7 @@ void PageHandler::Navigate(const std::string& url,
   params.referrer = Referrer(GURL(referrer.fromMaybe("")), policy);
   params.transition_type = type;
   params.frame_tree_node_id = frame_tree_node->frame_tree_node_id();
-  frame_tree_node->navigator().GetController()->LoadURLWithParams(params);
+  frame_tree_node->navigator().controller().LoadURLWithParams(params);
 
   base::UnguessableToken frame_token = frame_tree_node->devtools_frame_token();
   auto navigate_callback = navigate_callbacks_.find(frame_token);
@@ -653,6 +669,8 @@ Response PageHandler::ResetNavigationHistory() {
 void PageHandler::CaptureSnapshot(
     Maybe<std::string> format,
     std::unique_ptr<CaptureSnapshotCallback> callback) {
+  if (!CanExecuteGlobalCommands(host_, callback))
+    return;
   std::string snapshot_format = format.fromMaybe(kMhtml);
   if (snapshot_format != kMhtml) {
     callback->sendFailure(Response::ServerError("Unsupported snapshot format"));
@@ -666,12 +684,15 @@ void PageHandler::CaptureScreenshot(
     Maybe<int> quality,
     Maybe<Page::Viewport> clip,
     Maybe<bool> from_surface,
+    Maybe<bool> capture_beyond_viewport,
     std::unique_ptr<CaptureScreenshotCallback> callback) {
   if (!host_ || !host_->GetRenderWidgetHost() ||
       !host_->GetRenderWidgetHost()->GetView()) {
     callback->sendFailure(Response::InternalError());
     return;
   }
+  if (!CanExecuteGlobalCommands(host_, callback))
+    return;
   if (clip.isJust()) {
     if (clip.fromJust()->GetWidth() == 0) {
       callback->sendFailure(
@@ -695,7 +716,8 @@ void PageHandler::CaptureScreenshot(
         base::BindOnce(&PageHandler::ScreenshotCaptured,
                        weak_factory_.GetWeakPtr(), std::move(callback),
                        screenshot_format, screenshot_quality, gfx::Size(),
-                       gfx::Size(), blink::DeviceEmulationParams()),
+                       gfx::Size(), blink::DeviceEmulationParams(),
+                       base::nullopt),
         false);
     return;
   }
@@ -758,6 +780,30 @@ void PageHandler::CaptureScreenshot(
     }
   }
 
+  base::Optional<blink::web_pref::WebPreferences> maybe_original_web_prefs;
+  if (capture_beyond_viewport.fromMaybe(false)) {
+    blink::web_pref::WebPreferences original_web_prefs =
+        host_->GetRenderViewHost()->GetDelegate()->GetOrCreateWebPreferences();
+    maybe_original_web_prefs = original_web_prefs;
+
+    blink::web_pref::WebPreferences modified_web_prefs = original_web_prefs;
+    // Hiding scrollbar is needed to avoid scrollbar artefacts on the
+    // screenshot. Details: https://crbug.com/1003629.
+    modified_web_prefs.hide_scrollbars = true;
+    modified_web_prefs.record_whole_document = true;
+    host_->GetRenderViewHost()->GetDelegate()->SetWebPreferences(
+        modified_web_prefs);
+
+    {
+      // TODO(crbug.com/1141835): Remove the bug is fixed.
+      // Walkaround for the bug. Emulated `view_size` has to be set twice,
+      // otherwise the scrollbar will be on the screenshot present.
+      blink::DeviceEmulationParams tmp_params = modified_params;
+      tmp_params.view_size = gfx::Size(1, 1);
+      emulation_handler_->SetDeviceEmulationParams(tmp_params);
+    }
+  }
+
   // We use DeviceEmulationParams to either emulate, set viewport or both.
   emulation_handler_->SetDeviceEmulationParams(modified_params);
 
@@ -790,7 +836,8 @@ void PageHandler::CaptureScreenshot(
       base::BindOnce(&PageHandler::ScreenshotCaptured,
                      weak_factory_.GetWeakPtr(), std::move(callback),
                      screenshot_format, screenshot_quality, original_view_size,
-                     requested_image_size, original_params),
+                     requested_image_size, original_params,
+                     maybe_original_web_prefs),
       true);
 }
 
@@ -928,6 +975,8 @@ Response PageHandler::SetDownloadBehavior(const std::string& behavior,
       host_ ? host_->GetProcess()->GetBrowserContext() : nullptr;
   if (!browser_context)
     return Response::ServerError("Could not fetch browser context");
+  if (host_ && host_->GetParent())
+    return Response::ServerError(kCommandIsOnlyAvailableAtTopTarget);
   return browser_handler_->DoSetDownloadBehavior(behavior, browser_context,
                                                  std::move(download_path));
 }
@@ -938,6 +987,8 @@ void PageHandler::GetAppManifest(
     callback->sendFailure(Response::ServerError("Cannot retrieve manifest"));
     return;
   }
+  if (!CanExecuteGlobalCommands(host_, callback))
+    return;
   ManifestManagerHost::GetOrCreateForCurrentDocument(host_->GetMainFrame())
       ->RequestManifestDebugInfo(base::BindOnce(&PageHandler::GotManifest,
                                                 weak_factory_.GetWeakPtr(),
@@ -957,14 +1008,16 @@ void PageHandler::NotifyScreencastVisibility(bool visible) {
   frontend_->ScreencastVisibilityChanged(visible);
 }
 
+bool PageHandler::ShouldCaptureNextScreencastFrame() {
+  return frames_in_flight_ <= kMaxScreencastFramesInFlight &&
+         !(++frame_counter_ % capture_every_nth_frame_);
+}
+
 void PageHandler::InnerSwapCompositorFrame() {
   if (!host_)
     return;
 
-  if (frames_in_flight_ > kMaxScreencastFramesInFlight)
-    return;
-
-  if (++frame_counter_ % capture_every_nth_frame_)
+  if (!ShouldCaptureNextScreencastFrame())
     return;
 
   RenderWidgetHostViewBase* const view =
@@ -1007,6 +1060,9 @@ void PageHandler::OnFrameFromVideoConsumer(
   if (!host_)
     return;
 
+  if (!ShouldCaptureNextScreencastFrame())
+    return;
+
   RenderWidgetHostViewBase* const view =
       static_cast<RenderWidgetHostViewBase*>(host_->GetView());
   if (!view)
@@ -1038,6 +1094,7 @@ void PageHandler::OnFrameFromVideoConsumer(
   if (!page_metadata)
     return;
 
+  frames_in_flight_++;
   ScreencastFrameCaptured(std::move(page_metadata),
                           DevToolsVideoConsumer::GetSkBitmapFromFrame(frame));
 }
@@ -1083,11 +1140,18 @@ void PageHandler::ScreenshotCaptured(
     const gfx::Size& original_view_size,
     const gfx::Size& requested_image_size,
     const blink::DeviceEmulationParams& original_emulation_params,
+    const base::Optional<blink::web_pref::WebPreferences>&
+        maybe_original_web_prefs,
     const gfx::Image& image) {
   if (original_view_size.width()) {
     RenderWidgetHostImpl* widget_host = host_->GetRenderWidgetHost();
     widget_host->GetView()->SetSize(original_view_size);
     emulation_handler_->SetDeviceEmulationParams(original_emulation_params);
+  }
+
+  if (maybe_original_web_prefs) {
+    host_->GetRenderViewHost()->GetDelegate()->SetWebPreferences(
+        maybe_original_web_prefs.value());
   }
 
   if (image.IsEmpty()) {

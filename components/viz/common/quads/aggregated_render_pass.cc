@@ -9,11 +9,11 @@
 #include "base/values.h"
 #include "cc/base/math_util.h"
 #include "components/viz/common/quads/aggregated_render_pass_draw_quad.h"
+#include "components/viz/common/quads/compositor_render_pass_draw_quad.h"
 #include "components/viz/common/quads/debug_border_draw_quad.h"
 #include "components/viz/common/quads/draw_quad.h"
 #include "components/viz/common/quads/largest_draw_quad.h"
 #include "components/viz/common/quads/picture_draw_quad.h"
-#include "components/viz/common/quads/render_pass_draw_quad.h"
 #include "components/viz/common/quads/shared_quad_state.h"
 #include "components/viz/common/quads/solid_color_draw_quad.h"
 #include "components/viz/common/quads/stream_video_draw_quad.h"
@@ -86,7 +86,7 @@ void AggregatedRenderPass::SetAll(
 
 AggregatedRenderPassDrawQuad*
 AggregatedRenderPass::CopyFromAndAppendRenderPassDrawQuad(
-    const RenderPassDrawQuad* quad,
+    const CompositorRenderPassDrawQuad* quad,
     AggregatedRenderPassId render_pass_id) {
   DCHECK(!shared_quad_state_list.empty());
   auto* copy_quad = CreateAndAppendDrawQuad<AggregatedRenderPassDrawQuad>();
@@ -95,7 +95,7 @@ AggregatedRenderPass::CopyFromAndAppendRenderPassDrawQuad(
       quad->needs_blending, render_pass_id, quad->mask_resource_id(),
       quad->mask_uv_rect, quad->mask_texture_size, quad->filters_scale,
       quad->filters_origin, quad->tex_coord_rect, quad->force_anti_aliasing_off,
-      quad->backdrop_filter_quality, quad->can_use_backdrop_filter_cache);
+      quad->backdrop_filter_quality, quad->intersects_damage_under);
   return copy_quad;
 }
 
@@ -142,7 +142,7 @@ DrawQuad* AggregatedRenderPass::CopyFromAndAppendDrawQuad(
       break;
     // RenderPass quads need to use specific CopyFrom function.
     case DrawQuad::Material::kAggregatedRenderPass:
-    case DrawQuad::Material::kRenderPass:
+    case DrawQuad::Material::kCompositorRenderPass:
     case DrawQuad::Material::kInvalid:
       // TODO(danakj): Why is this a check instead of dcheck, and validate from
       // IPC?

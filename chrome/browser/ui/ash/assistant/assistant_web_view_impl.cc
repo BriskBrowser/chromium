@@ -10,7 +10,7 @@
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
-#include "third_party/blink/public/mojom/renderer_preferences.mojom.h"
+#include "third_party/blink/public/common/renderer_preferences/renderer_preferences.h"
 #include "ui/aura/window.h"
 #include "ui/views/controls/webview/web_contents_set_background_color.h"
 #include "ui/views/controls/webview/webview.h"
@@ -131,6 +131,13 @@ void AssistantWebViewImpl::DidStopLoading() {
 
 void AssistantWebViewImpl::OnFocusChangedInPage(
     content::FocusedNodeDetails* details) {
+  // When navigating to the |web_contents_|, it may not focus it. Request focus
+  // as needed. This is a workaround to get a non-empty rect of the focused
+  // node. See details in b/177047240.
+  auto* native_view = web_contents_->GetContentNativeView();
+  if (native_view && !native_view->HasFocus())
+    web_contents_->Focus();
+
   for (auto& observer : observers_)
     observer.DidChangeFocusedNode(details->node_bounds_in_screen);
 }

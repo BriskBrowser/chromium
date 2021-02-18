@@ -4,8 +4,11 @@
 
 #include "content/shell/browser/shell_browser_main_parts.h"
 
+#include <utility>
+
 #include "base/base_switches.h"
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -13,12 +16,15 @@
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "cc/base/switches.h"
+#include "components/performance_manager/embedder/performance_manager_lifetime.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/main_function_params.h"
+#include "content/public/common/result_codes.h"
 #include "content/public/common/url_constants.h"
 #include "content/shell/android/shell_descriptors.h"
 #include "content/shell/browser/shell.h"
@@ -30,7 +36,6 @@
 #include "net/base/filename_util.h"
 #include "net/base/net_module.h"
 #include "net/grit/net_resources.h"
-#include "services/service_manager/embedder/result_codes.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "url/gurl.h"
 
@@ -50,21 +55,20 @@
 #if defined(USE_AURA) && defined(USE_X11)
 #include "ui/events/devices/x11/touch_factory_x11.h"  // nogncheck
 #endif
-#if !defined(OS_CHROMEOS) && defined(USE_AURA) && defined(OS_LINUX)
+#if defined(USE_AURA) && (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
 #include "ui/base/ime/init/input_method_initializer.h"
 #endif
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "device/bluetooth/dbus/bluez_dbus_manager.h"
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 #include "device/bluetooth/dbus/dbus_bluez_manager_wrapper_linux.h"
-#endif  // #elif defined(OS_LINUX)
+#endif  // #elif (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
 
 #if BUILDFLAG(USE_GTK)
 #include "ui/gtk/gtk_ui.h"
 #include "ui/gtk/gtk_ui_delegate.h"
 #if defined(USE_X11)
-#include "ui/gfx/x/x11_types.h"            // nogncheck
 #include "ui/gtk/x/gtk_ui_delegate_x11.h"  // nogncheck
 #endif
 #endif
@@ -124,27 +128,23 @@ void ShellBrowserMainParts::PreMainMessageLoopStart() {
 #endif
 
 void ShellBrowserMainParts::PostMainMessageLoopStart() {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   chromeos::DBusThreadManager::Initialize();
   bluez::BluezDBusManager::InitializeFake();
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   bluez::DBusBluezManagerWrapperLinux::Initialize();
 #endif
 }
 
 int ShellBrowserMainParts::PreEarlyInitialization() {
-#if defined(USE_X11)
-  if (!features::IsUsingOzonePlatform())
-    ui::SetDefaultX11ErrorHandlers();
-#endif
-#if !defined(OS_CHROMEOS) && defined(USE_AURA) && defined(OS_LINUX)
+#if defined(USE_AURA) && (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
   ui::InitializeInputMethodForTesting();
 #endif
 #if defined(OS_ANDROID)
   net::NetworkChangeNotifier::SetFactory(
       new net::NetworkChangeNotifierFactoryAndroid());
 #endif
-  return service_manager::RESULT_CODE_NORMAL_EXIT;
+  return RESULT_CODE_NORMAL_EXIT;
 }
 
 void ShellBrowserMainParts::InitializeBrowserContexts() {
@@ -190,6 +190,12 @@ int ShellBrowserMainParts::PreCreateThreads() {
   return 0;
 }
 
+void ShellBrowserMainParts::PostCreateThreads() {
+  performance_manager_lifetime_ =
+      std::make_unique<performance_manager::PerformanceManagerLifetime>(
+          performance_manager::Decorators::kMinimal, base::DoNothing());
+}
+
 void ShellBrowserMainParts::PreMainMessageLoopRun() {
   InitializeBrowserContexts();
   Shell::Initialize(CreateShellPlatformDelegate());
@@ -215,6 +221,7 @@ void ShellBrowserMainParts::PostMainMessageLoopRun() {
 #if BUILDFLAG(USE_GTK)
   views::LinuxUI::SetInstance(nullptr);
 #endif
+  performance_manager_lifetime_.reset();
 }
 
 void ShellBrowserMainParts::PreDefaultMainMessageLoopRun(
@@ -223,11 +230,11 @@ void ShellBrowserMainParts::PreDefaultMainMessageLoopRun(
 }
 
 void ShellBrowserMainParts::PostDestroyThreads() {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   device::BluetoothAdapterFactory::Shutdown();
   bluez::BluezDBusManager::Shutdown();
   chromeos::DBusThreadManager::Shutdown();
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   device::BluetoothAdapterFactory::Shutdown();
   bluez::DBusBluezManagerWrapperLinux::Shutdown();
 #endif

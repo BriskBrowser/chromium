@@ -15,7 +15,6 @@
 #include "ui/display/display_change_notifier.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/x/event.h"
-#include "ui/gfx/x/x11_types.h"
 
 namespace views {
 class DesktopScreenX11Test;
@@ -48,7 +47,7 @@ class COMPONENT_EXPORT(UI_BASE_X) XDisplayManager
 
   void Init();
   bool IsXrandrAvailable() const;
-  bool ProcessEvent(x11::Event* xev);
+  void OnEvent(const x11::Event& xev);
   void UpdateDisplayList();
   void DispatchDelayedDisplayListUpdate();
   display::Display GetPrimaryDisplay() const;

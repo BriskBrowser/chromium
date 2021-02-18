@@ -48,6 +48,9 @@ enum class TaskType : unsigned char {
   // This is a part of Networking task source used to annotate tasks which are
   // posted from the loading stack (i.e. WebURLLoader).
   kNetworkingWithURLLoaderAnnotation = 50,
+  // This is a part of Networking task that should not be frozen when a page is
+  // frozen.
+  kNetworkingUnfreezable = 75,
   // This task source is used for control messages between kNetworking tasks.
   kNetworkingControl = 4,
   // This task source is used to queue calls to history.back() and similar APIs.
@@ -73,14 +76,17 @@ enum class TaskType : unsigned char {
   kMicrotask = 9,
 
   // https://html.spec.whatwg.org/multipage/webappapis.html#timers
-  // For tasks queued by setInterval() and similar APIs. A different type is
-  // used depending on whether the timeout is zero or non-zero. Tasks with
-  // a zero timeout and a nesting level <= 5 will be associated with task
-  // queues that are not throttlable. This complies with the spec since it
-  // does not reduce the timeout to less than zero or bypass the timeout
-  // extension triggered on nesting level >= 5.
-  kJavascriptTimerDelayed = 10,
+  // For tasks queued by setTimeout() or setInterval().
+  //
+  // Task nesting level is < 5 and timeout is zero.
   kJavascriptTimerImmediate = 72,
+  // Task nesting level is < 5 and timeout is > 0.
+  kJavascriptTimerDelayedLowNesting = 73,
+  // Task nesting level is >= 5.
+  kJavascriptTimerDelayedHighNesting = 10,
+  // Note: The timeout is increased to be at least 4ms when the task nesting
+  // level is >= 5. Therefore, the timeout is necessarily > 0 for
+  // kJavascriptTimerDelayedHighNesting.
 
   // https://html.spec.whatwg.org/multipage/comms.html#sse-processing-model
   // This task source is used for any tasks that are queued by EventSource
@@ -156,6 +162,9 @@ enum class TaskType : unsigned char {
 
   // https://wicg.github.io/web-locks/#web-locks-tasks-source
   kWebLocks = 66,
+
+  // https://w3c.github.io/screen-wake-lock/#dfn-screen-wake-lock-task-source
+  kWakeLock = 76,
 
   ///////////////////////////////////////
   // Not-speced tasks should use one of the following task types
@@ -265,13 +274,14 @@ enum class TaskType : unsigned char {
   // kMainThreadTaskQueueCleanup = 52,
   kMainThreadTaskQueueMemoryPurge = 62,
   kMainThreadTaskQueueNonWaking = 69,
+  kMainThreadTaskQueueIPCTracking = 74,
   kCompositorThreadTaskQueueDefault = 45,
   kCompositorThreadTaskQueueInput = 49,
   kWorkerThreadTaskQueueDefault = 46,
   kWorkerThreadTaskQueueV8 = 47,
   kWorkerThreadTaskQueueCompositor = 48,
 
-  kCount = 73,
+  kCount = 77,
 };
 
 }  // namespace blink

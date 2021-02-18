@@ -79,6 +79,21 @@ class CHROMECAST_EXPORT RebootShlib {
     // A reboot is triggered when the utility process is found to be in
     // crash loop.
     UTILITY_PROCESS_CRASH = 14,
+
+    // Restart of the Cast component following a graceful teardown, e.g.,
+    // intended by the platform. Device has not rebooted. This only makes sense
+    // on platforms that allow a component restart without a full device reboot.
+    GRACEFUL_RESTART = 15,
+
+    // Restart of the Cast component following an ungraceful teardown, e.g.,
+    // a crash.. Device has not rebooted. This only makes sense on platforms
+    // that allow a component restart without a full device reboot.
+    UNGRACEFUL_RESTART = 16,
+
+    // A dirty reboot is triggered due to multiple services are affected by
+    // bugs. In that case, business logic can't proceed and busy references
+    // can't be trusted, so a dirty reboot will be executed.
+    MULTI_SERVICE_BUG = 17,
   };
 
   // Initializes any platform-specific reboot systems.

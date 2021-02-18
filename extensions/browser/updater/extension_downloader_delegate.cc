@@ -54,10 +54,6 @@ void ExtensionDownloaderDelegate::OnExtensionDownloadCacheStatusRetrieved(
     const ExtensionId& id,
     CacheStatus cache_status) {}
 
-void ExtensionDownloaderDelegate::OnExtensionManifestUpdateCheckStatusReceived(
-    const ExtensionId& id,
-    const std::string& status) {}
-
 void ExtensionDownloaderDelegate::OnExtensionDownloadFailed(
     const ExtensionId& id,
     Error error,
@@ -71,11 +67,6 @@ bool ExtensionDownloaderDelegate::GetPingDataForExtension(
     const ExtensionId& id,
     ManifestFetchData::PingData* ping) {
   return false;
-}
-
-std::string ExtensionDownloaderDelegate::GetUpdateUrlData(
-    const ExtensionId& id) {
-  return std::string();
 }
 
 }  // namespace extensions

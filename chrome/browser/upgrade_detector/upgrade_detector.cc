@@ -10,6 +10,7 @@
 #include "base/time/tick_clock.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_otr_state.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -83,7 +84,7 @@ UpgradeDetector::~UpgradeDetector() {
 
 void UpgradeDetector::NotifyOutdatedInstall() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (!observer_list_.might_have_observers())
+  if (observer_list_.empty())
     return;
 
   for (auto& observer : observer_list_)
@@ -92,7 +93,7 @@ void UpgradeDetector::NotifyOutdatedInstall() {
 
 void UpgradeDetector::NotifyOutdatedInstallNoAutoUpdate() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (!observer_list_.might_have_observers())
+  if (observer_list_.empty())
     return;
 
   for (auto& observer : observer_list_)
@@ -152,7 +153,7 @@ void UpgradeDetector::NotifyUpgrade() {
 
 void UpgradeDetector::NotifyUpgradeRecommended() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (!observer_list_.might_have_observers())
+  if (observer_list_.empty())
     return;
 
   for (auto& observer : observer_list_)
@@ -161,7 +162,7 @@ void UpgradeDetector::NotifyUpgradeRecommended() {
 
 void UpgradeDetector::NotifyCriticalUpgradeInstalled() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (!observer_list_.might_have_observers())
+  if (observer_list_.empty())
     return;
 
   for (auto& observer : observer_list_)
@@ -170,7 +171,7 @@ void UpgradeDetector::NotifyCriticalUpgradeInstalled() {
 
 void UpgradeDetector::NotifyUpdateOverCellularAvailable() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (!observer_list_.might_have_observers())
+  if (observer_list_.empty())
     return;
 
   for (auto& observer : observer_list_)
@@ -179,7 +180,7 @@ void UpgradeDetector::NotifyUpdateOverCellularAvailable() {
 
 void UpgradeDetector::NotifyUpdateOverCellularOneTimePermissionGranted() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (!observer_list_.might_have_observers())
+  if (observer_list_.empty())
     return;
 
   for (auto& observer : observer_list_)
@@ -188,7 +189,7 @@ void UpgradeDetector::NotifyUpdateOverCellularOneTimePermissionGranted() {
 
 void UpgradeDetector::NotifyRelaunchOverriddenToRequired(bool override) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (!observer_list_.might_have_observers())
+  if (observer_list_.empty())
     return;
 
   for (auto& observer : observer_list_)
@@ -207,10 +208,13 @@ void UpgradeDetector::TriggerCriticalUpdate() {
 
 void UpgradeDetector::CheckIdle() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  // Don't proceed while an off-the-record window is open. The timer will still
-  // keep firing, so this function will get a chance to re-evaluate this.
-  if (chrome::IsOffTheRecordSessionActive())
+  // Don't proceed while an off-the-record or Guest window is open. The timer
+  // will still keep firing, so this function will get a chance to re-evaluate
+  // this.
+  if (chrome::IsOffTheRecordSessionActive() ||
+      BrowserList::GetGuestBrowserCount()) {
     return;
+  }
 
   // CalculateIdleState expects an interval in seconds.
   int idle_time_allowed =

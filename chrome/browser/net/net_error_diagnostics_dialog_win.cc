@@ -12,7 +12,7 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/check.h"
 #include "base/files/file_path.h"
 #include "base/location.h"
@@ -64,7 +64,7 @@ class NetErrorDiagnosticsDialog : public ui::BaseShellDialogImpl {
  private:
   void ShowDialogOnPrivateThread(HWND parent, const std::string& failed_url) {
     NDFHANDLE incident_handle;
-    base::string16 failed_url_wide = base::UTF8ToUTF16(failed_url);
+    std::wstring failed_url_wide = base::UTF8ToWide(failed_url);
     if (!SUCCEEDED(NdfCreateWebIncident(failed_url_wide.c_str(),
                                         &incident_handle))) {
       return;
@@ -89,7 +89,8 @@ bool CanShowNetworkDiagnosticsDialog(content::WebContents* web_contents) {
       Profile::FromBrowserContext(web_contents->GetBrowserContext());
   // The Windows diagnostic tool logs URLs it's run with, so it shouldn't be
   // used with incognito or guest profiles.  See https://crbug.com/929141
-  return !profile->IsOffTheRecord() && !profile->IsGuestSession();
+  return !profile->IsIncognitoProfile() && !profile->IsGuestSession() &&
+         !profile->IsEphemeralGuestProfile();
 }
 
 void ShowNetworkDiagnosticsDialog(content::WebContents* web_contents,

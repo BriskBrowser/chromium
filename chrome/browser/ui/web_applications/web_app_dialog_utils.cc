@@ -8,12 +8,10 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/feature_list.h"
 #include "base/no_destructor.h"
-#include "chrome/browser/banners/app_banner_manager.h"
-#include "chrome/browser/installable/installable_metrics.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_dialogs.h"
@@ -22,9 +20,10 @@
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
 #include "chrome/browser/web_applications/components/web_app_install_utils.h"
 #include "chrome/browser/web_applications/components/web_app_utils.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
-#include "chrome/common/chrome_features.h"
-#include "chrome/common/web_application_info.h"
+#include "components/webapps/browser/banners/app_banner_manager.h"
+#include "components/webapps/browser/installable/installable_metrics.h"
 #include "content/public/browser/navigation_entry.h"
 
 namespace web_app {
@@ -32,7 +31,8 @@ namespace web_app {
 namespace {
 
 void WebAppInstallDialogCallback(
-    WebappInstallSource install_source,
+    webapps::WebappInstallSource install_source,
+    chrome::PwaInProductHelpState iph_state,
     content::WebContents* initiator_web_contents,
     std::unique_ptr<WebApplicationInfo> web_app_info,
     ForInstallableSite for_installable_site,
@@ -41,9 +41,9 @@ void WebAppInstallDialogCallback(
   DCHECK(web_app_info);
   if (for_installable_site == ForInstallableSite::kYes) {
     web_app_info->open_as_window = true;
-    chrome::ShowPWAInstallBubble(initiator_web_contents,
-                                 std::move(web_app_info),
-                                 std::move(web_app_acceptance_callback));
+    chrome::ShowPWAInstallBubble(
+        initiator_web_contents, std::move(web_app_info),
+        std::move(web_app_acceptance_callback), iph_state);
   } else {
     chrome::ShowWebAppInstallDialog(initiator_web_contents,
                                     std::move(web_app_info),
@@ -85,8 +85,8 @@ bool CanCreateWebApp(const Browser* browser) {
     return false;
 
   // Check whether the app is externally installed.
-  banners::AppBannerManager* app_banner_manager =
-      banners::AppBannerManager::FromWebContents(web_contents);
+  webapps::AppBannerManager* app_banner_manager =
+      webapps::AppBannerManager::FromWebContents(web_contents);
 
   if (app_banner_manager && app_banner_manager->IsExternallyInstalledWebApp())
     return false;
@@ -96,7 +96,7 @@ bool CanCreateWebApp(const Browser* browser) {
 
 bool CanPopOutWebApp(Profile* profile) {
   return AreWebAppsEnabled(profile) && !profile->IsGuestSession() &&
-         !profile->IsOffTheRecord();
+         !profile->IsEphemeralGuestProfile() && !profile->IsOffTheRecord();
 }
 
 void CreateWebAppFromCurrentWebContents(Browser* browser,
@@ -108,28 +108,33 @@ void CreateWebAppFromCurrentWebContents(Browser* browser,
   auto* provider = WebAppProvider::GetForWebContents(web_contents);
   DCHECK(provider);
 
-  WebappInstallSource install_source =
-      InstallableMetrics::GetInstallSource(web_contents, InstallTrigger::MENU);
+  webapps::WebappInstallSource install_source =
+      webapps::InstallableMetrics::GetInstallSource(
+          web_contents, force_shortcut_app
+                            ? webapps::InstallTrigger::CREATE_SHORTCUT
+                            : webapps::InstallTrigger::MENU);
 
   WebAppInstalledCallback callback = base::DoNothing();
 
   provider->install_manager().InstallWebAppFromManifestWithFallback(
       web_contents, force_shortcut_app, install_source,
-      base::BindOnce(WebAppInstallDialogCallback, install_source),
+      base::BindOnce(WebAppInstallDialogCallback, install_source,
+                     chrome::PwaInProductHelpState::kNotShown),
       base::BindOnce(OnWebAppInstalled, std::move(callback)));
 }
 
 bool CreateWebAppFromManifest(content::WebContents* web_contents,
                               bool bypass_service_worker_check,
-                              WebappInstallSource install_source,
-                              WebAppInstalledCallback installed_callback) {
+                              webapps::WebappInstallSource install_source,
+                              WebAppInstalledCallback installed_callback,
+                              chrome::PwaInProductHelpState iph_state) {
   auto* provider = WebAppProvider::GetForWebContents(web_contents);
   if (!provider)
     return false;
 
   provider->install_manager().InstallWebAppFromManifest(
       web_contents, bypass_service_worker_check, install_source,
-      base::BindOnce(WebAppInstallDialogCallback, install_source),
+      base::BindOnce(WebAppInstallDialogCallback, install_source, iph_state),
       base::BindOnce(OnWebAppInstalled, std::move(installed_callback)));
   return true;
 }

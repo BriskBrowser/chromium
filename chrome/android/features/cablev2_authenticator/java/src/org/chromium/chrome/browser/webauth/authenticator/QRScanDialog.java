@@ -12,6 +12,8 @@ import android.util.SparseArray;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.CheckBox;
+import android.widget.LinearLayout;
 
 import androidx.fragment.app.DialogFragment;
 
@@ -30,22 +32,25 @@ import java.nio.ByteBuffer;
 /**
  * Displays a preview of what the default (rear) camera can see and processes images for QR
  * codes. Closes once an applicable QR code has been found.
+ *
+ * (Needs to be public because of the way that the Android system works.)
  */
 public class QRScanDialog extends DialogFragment implements Camera.PreviewCallback {
     /**
      * FIDO QR codes begin with this prefix. This class will ignore QR codes that don't match
      * this.
      */
-    public static final String FIDO_QR_PREFIX = "fido://c1/";
+    public static final String FIDO_QR_PREFIX = "fido://";
     private static final String TAG = "QRScanDialog";
     /**
      * Receives a single call containing the decoded QR value. It will
      * begin with FIDO_QR_PREFIX.
      */
-    public static interface Callback { void onQRCode(String value); }
+    public static interface Callback { void onQRCode(String value, boolean link); }
 
     private final Callback mCallback;
     private BarcodeDetector mQRScanner;
+    private CheckBox mLinkCheckbox;
     private CameraView mCameraView;
     private ByteBuffer mBuffer;
     private boolean mDismissed;
@@ -58,9 +63,22 @@ public class QRScanDialog extends DialogFragment implements Camera.PreviewCallba
     @Override
     public View onCreateView(
             LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
-        mCameraView = new CameraView(
-                getContext(), getActivity().getWindowManager().getDefaultDisplay(), this);
-        return mCameraView;
+        View v = inflater.inflate(R.layout.cablev2_qr_dialog, container, false);
+        // CameraView is not referenced from the XML in order to avoid issues
+        // with reflection of custom Views inside of split and isolated
+        // modules.
+        mCameraView = new CameraView(getContext(), null);
+        ViewGroup.LayoutParams params = new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+
+        ((LinearLayout) v.findViewById(R.id.qr_dialog_layout))
+                .addView(mCameraView, /*index=*/0, params);
+
+        mCameraView.setCallback(this);
+        mCameraView.setDisplay(getActivity().getWindowManager().getDefaultDisplay());
+
+        mLinkCheckbox = v.findViewById(R.id.link_checkbox);
+        return v;
     }
 
     @Override
@@ -124,7 +142,7 @@ public class QRScanDialog extends DialogFragment implements Camera.PreviewCallba
         for (int i = 0; i < barcodes.size(); i++) {
             String value = barcodes.valueAt(i).rawValue;
             if (value.startsWith(FIDO_QR_PREFIX)) {
-                mCallback.onQRCode(value);
+                mCallback.onQRCode(value, mLinkCheckbox.isChecked());
                 dismiss();
                 return;
             }

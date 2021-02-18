@@ -442,9 +442,6 @@ class AppWindow : public content::WebContentsDelegate,
                           bool last_unlocked_by_target) override;
   bool PreHandleGestureEvent(content::WebContents* source,
                              const blink::WebGestureEvent& event) override;
-  std::unique_ptr<content::BluetoothChooser> RunBluetoothChooser(
-      content::RenderFrameHost* frame,
-      const content::BluetoothChooser::EventHandler& event_handler) override;
   bool TakeFocus(content::WebContents* source, bool reverse) override;
   content::PictureInPictureResult EnterPictureInPicture(
       content::WebContents* web_contents,
@@ -456,7 +453,7 @@ class AppWindow : public content::WebContentsDelegate,
   // content::WebContentsObserver implementation.
   bool OnMessageReceived(const IPC::Message& message,
                          content::RenderFrameHost* render_frame_host) override;
-  void RenderViewCreated(content::RenderViewHost* render_view_host) override;
+  void RenderFrameCreated(content::RenderFrameHost* frame_host) override;
 
   // ExtensionFunctionDispatcher::Delegate implementation.
   WindowController* GetExtensionWindowController() const override;

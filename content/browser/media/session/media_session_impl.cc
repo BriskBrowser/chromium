@@ -9,6 +9,7 @@
 
 #include "base/bind.h"
 #include "base/numerics/ranges.h"
+#include "base/ranges/algorithm.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/timer/timer.h"
@@ -135,6 +136,8 @@ MediaSessionUserAction MediaSessionActionToUserAction(
       return MediaSessionUserAction::EnterPictureInPicture;
     case media_session::mojom::MediaSessionAction::kExitPictureInPicture:
       return MediaSessionUserAction::ExitPictureInPicture;
+    case media_session::mojom::MediaSessionAction::kSwitchAudioDevice:
+      return MediaSessionUserAction::SwitchAudioDevice;
   }
   NOTREACHED();
   return MediaSessionUserAction::Play;
@@ -149,6 +152,19 @@ void MaybePushBackString(std::vector<std::string>& vector,
 
 bool IsSizeAtLeast(const gfx::Size& size, int min_size) {
   return size.width() >= min_size || size.height() >= min_size;
+}
+
+bool IsSizesAtLeast(const std::vector<gfx::Size>& sizes, int min_size) {
+  // If we haven't found an image based on size then we should check if there
+  // are any images that have no size data or have an "any" size which is
+  // denoted by a single empty gfx::Size value.
+  if (sizes.size() == 0 || (sizes.size() == 1 && sizes[0].IsEmpty()))
+    return true;
+
+  bool check_size = false;
+  for (auto& size : sizes)
+    check_size = check_size || IsSizeAtLeast(size, min_size);
+  return check_size;
 }
 
 base::string16 SanitizeMediaTitle(const base::string16 title) {
@@ -171,16 +187,8 @@ bool MediaSessionImpl::PlayerIdentifier::operator==(
 
 bool MediaSessionImpl::PlayerIdentifier::operator<(
     const PlayerIdentifier& other) const {
-  return MediaSessionImpl::PlayerIdentifier::Hash()(*this) <
-         MediaSessionImpl::PlayerIdentifier::Hash()(other);
-}
-
-size_t MediaSessionImpl::PlayerIdentifier::Hash::operator()(
-    const PlayerIdentifier& player_identifier) const {
-  size_t hash =
-      std::hash<MediaSessionPlayerObserver*>()(player_identifier.observer);
-  hash += std::hash<int>()(player_identifier.player_id);
-  return hash;
+  return observer != other.observer ? observer < other.observer
+                                    : player_id < other.player_id;
 }
 
 // static
@@ -268,6 +276,8 @@ void MediaSessionImpl::DidFinishNavigation(
       navigation_handle->IsSameDocument()) {
     return;
   }
+
+  image_cache_.clear();
 
   auto new_origin = url::Origin::Create(navigation_handle->GetURL());
   if (navigation_handle->IsInMainFrame() &&
@@ -418,19 +428,10 @@ bool MediaSessionImpl::AddPlayer(MediaSessionPlayerObserver* observer,
 
 void MediaSessionImpl::RemovePlayer(MediaSessionPlayerObserver* observer,
                                     int player_id) {
-  PlayerIdentifier identifier(observer, player_id);
-
-  auto iter = normal_players_.find(identifier);
-  if (iter != normal_players_.end())
-    normal_players_.erase(iter);
-
-  auto it = pepper_players_.find(identifier);
-  if (it != pepper_players_.end())
-    pepper_players_.erase(it);
-
-  it = one_shot_players_.find(identifier);
-  if (it != one_shot_players_.end())
-    one_shot_players_.erase(it);
+  const PlayerIdentifier identifier(observer, player_id);
+  normal_players_.erase(identifier);
+  pepper_players_.erase(identifier);
+  one_shot_players_.erase(identifier);
 
   AbandonSystemAudioFocusIfNeeded();
   UpdateRoutedService();
@@ -739,6 +740,7 @@ void MediaSessionImpl::OnImageDownloadComplete(
     GetMediaImageBitmapCallback callback,
     int minimum_size_px,
     int desired_size_px,
+    bool source_icon,
     int id,
     int http_status_code,
     const GURL& image_url,
@@ -768,6 +770,9 @@ void MediaSessionImpl::OnImageDownloadComplete(
         image.readPixels(info, bitmap.getPixels(), bitmap.rowBytes(), 0, 0);
     }
   }
+
+  if (source_icon)
+    image_cache_.emplace(image_url, bitmap);
 
   std::move(callback).Run(bitmap);
 }
@@ -954,7 +959,7 @@ MediaSessionImpl::GetMediaSessionInfoSync() {
     info->playback_state = MediaPlaybackState::kPlaying;
   }
 
-  info->audio_video_state = GetMediaAudioVideoState();
+  info->audio_video_states = GetMediaAudioVideoStates();
   info->is_controllable = IsControllable();
 
   // If the browser context is off the record then it should be sensitive.
@@ -1104,16 +1109,26 @@ void MediaSessionImpl::GetMediaImageBitmap(
     GetMediaImageBitmapCallback callback) {
   // We should make sure |image| is in |images_|.
   bool found = false;
-  for (auto& image_type : images_)
-    found = found || base::Contains(image_type.second, image);
+  bool source_icon = false;
+  for (auto& image_type : images_) {
+    if (base::Contains(image_type.second, image)) {
+      found = true;
 
-  // Check that |image.sizes| contains a size that is above the minimum size.
-  bool check_size = false;
-  for (auto& size : image.sizes)
-    check_size = check_size || IsSizeAtLeast(size, minimum_size_px);
+      if (image_type.first ==
+          media_session::mojom::MediaSessionImageType::kSourceIcon) {
+        source_icon = true;
+      }
+    }
+  }
 
-  if (!found || !check_size) {
+  if (!found || !IsSizesAtLeast(image.sizes, minimum_size_px)) {
     std::move(callback).Run(SkBitmap());
+    return;
+  }
+
+  // Check the cache.
+  if (source_icon && base::Contains(image_cache_, image.src)) {
+    std::move(callback).Run(image_cache_.at(image.src));
     return;
   }
 
@@ -1124,7 +1139,7 @@ void MediaSessionImpl::GetMediaImageBitmap(
                      base::Unretained(this),
                      mojo::WrapCallbackWithDefaultInvokeIfNotRun(
                          std::move(callback), SkBitmap()),
-                     minimum_size_px, desired_size_px));
+                     minimum_size_px, desired_size_px, source_icon));
 }
 
 void MediaSessionImpl::AbandonSystemAudioFocusIfNeeded() {
@@ -1385,6 +1400,10 @@ void MediaSessionImpl::OnAudioOutputSinkIdChanged() {
   RebuildAndNotifyMediaSessionInfoChanged();
 }
 
+void MediaSessionImpl::OnAudioOutputSinkChangingDisabled() {
+  RebuildAndNotifyMediaSessionInfoChanged();
+}
+
 bool MediaSessionImpl::ShouldRouteAction(
     media_session::mojom::MediaSessionAction action) const {
   return routed_service_ && base::Contains(routed_service_->actions(), action);
@@ -1427,6 +1446,13 @@ void MediaSessionImpl::RebuildAndNotifyActionsChanged() {
         media_session::mojom::MediaSessionAction::kEnterPictureInPicture);
     actions.insert(
         media_session::mojom::MediaSessionAction::kExitPictureInPicture);
+  }
+
+  if (base::FeatureList::IsEnabled(
+          media::kGlobalMediaControlsSeamlessTransfer) &&
+      IsAudioOutputDeviceSwitchingSupported()) {
+    actions.insert(
+        media_session::mojom::MediaSessionAction::kSwitchAudioDevice);
   }
 
   // If we support kSeekTo then we support kScrubTo as well.
@@ -1522,28 +1548,43 @@ std::string MediaSessionImpl::GetSharedAudioOutputDeviceId() const {
   return media::AudioDeviceDescription::kDefaultDeviceId;
 }
 
-MediaAudioVideoState MediaSessionImpl::GetMediaAudioVideoState() {
+bool MediaSessionImpl::IsAudioOutputDeviceSwitchingSupported() const {
+  if (normal_players_.empty())
+    return false;
+
+  return base::ranges::all_of(normal_players_, [](const auto& player) {
+    return player.first.observer->SupportsAudioOutputDeviceSwitching(
+        player.first.player_id);
+  });
+}
+
+std::vector<MediaAudioVideoState> MediaSessionImpl::GetMediaAudioVideoStates() {
   RenderFrameHost* routed_rfh =
       routed_service_ ? routed_service_->GetRenderFrameHost() : nullptr;
-  MediaAudioVideoState state = MediaAudioVideoState::kUnknown;
+  std::vector<MediaAudioVideoState> states;
 
   ForAllPlayers(base::BindRepeating(
-      [](RenderFrameHost* routed_rfh, MediaAudioVideoState* state,
+      [](RenderFrameHost* routed_rfh, std::vector<MediaAudioVideoState>* states,
          const PlayerIdentifier& player) {
         // If we have a routed frame then we should limit the players to the
         // frame so it is aligned with the media metadata.
         if (routed_rfh && player.observer->render_frame_host() != routed_rfh)
           return;
 
-        if (player.observer->HasVideo(player.player_id))
-          *state = MediaAudioVideoState::kAudioVideo;
-
-        if (*state != MediaAudioVideoState::kAudioVideo)
-          *state = MediaAudioVideoState::kAudioOnly;
+        const bool has_audio = player.observer->HasAudio(player.player_id);
+        const bool has_video = player.observer->HasVideo(player.player_id);
+        if (has_audio && has_video) {
+          states->push_back(MediaAudioVideoState::kAudioVideo);
+        } else if (has_audio) {
+          states->push_back(MediaAudioVideoState::kAudioOnly);
+        } else {
+          DCHECK(has_video);
+          states->push_back(MediaAudioVideoState::kVideoOnly);
+        }
       },
-      routed_rfh, &state));
+      routed_rfh, &states));
 
-  return state;
+  return states;
 }
 
 void MediaSessionImpl::ForAllPlayers(

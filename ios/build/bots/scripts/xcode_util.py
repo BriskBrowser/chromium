@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import distutils.version
 import logging
 import subprocess
 
@@ -20,9 +21,14 @@ def select(xcode_app_path):
       '-s',
       xcode_app_path,
   ]
-  LOGGER.debug("Selecting XCode with command: %s" % cmd)
-
+  LOGGER.debug('Selecting XCode with command: %s and "xcrun simctl list".' % cmd)
   output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+
+  # This is to avoid issues caused by mixed usage of different Xcode versions on
+  # one machine.
+  xcrun_simctl_cmd = ['xcrun', 'simctl', 'list']
+  output += subprocess.check_output(xcrun_simctl_cmd, stderr=subprocess.STDOUT)
+
   return output
 
 
@@ -79,3 +85,9 @@ def version():
   build_version = output[1].decode('UTF-8').split(' ')[2].lower()
 
   return version, build_version
+
+def using_xcode_11_or_higher():
+  """Returns true if using Xcode version 11 or higher."""
+  LOGGER.debug("Checking if Xcode version is 11 or higher")
+  return distutils.version.LooseVersion(
+      '11.0') <= distutils.version.LooseVersion(version()[0])

@@ -36,11 +36,11 @@
 #include "components/crx_file/id_util.h"
 #include "components/sync/driver/sync_service.h"
 #include "components/sync/driver/sync_user_settings.h"
-#include "components/sync/model/fake_sync_change_processor.h"
-#include "components/sync/model/sync_change_processor_wrapper_for_test.h"
 #include "components/sync/model/sync_data.h"
-#include "components/sync/model/sync_error_factory_mock.h"
 #include "components/sync/protocol/sync.pb.h"
+#include "components/sync/test/model/fake_sync_change_processor.h"
+#include "components/sync/test/model/sync_change_processor_wrapper_for_test.h"
+#include "components/sync/test/model/sync_error_factory_mock.h"
 #include "components/variations/variations_associated_data.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/storage_partition.h"
@@ -52,6 +52,7 @@
 #include "extensions/browser/extension_util.h"
 #include "extensions/browser/management_policy.h"
 #include "extensions/common/extension_builder.h"
+#include "extensions/common/extension_urls.h"
 #include "extensions/common/manifest_url_handlers.h"
 #include "extensions/common/permissions/permission_set.h"
 
@@ -83,7 +84,7 @@ ExtensionSyncData GetDisableSyncData(const Extension& extension,
   bool incognito_enabled = false;
   bool remote_install = false;
   return ExtensionSyncData(extension, enabled, disable_reasons,
-                           incognito_enabled, remote_install);
+                           incognito_enabled, remote_install, GURL());
 }
 
 ExtensionSyncData GetEnableSyncData(const Extension& extension) {
@@ -92,7 +93,7 @@ ExtensionSyncData GetEnableSyncData(const Extension& extension) {
   bool remote_install = false;
   return ExtensionSyncData(extension, enabled,
                            extensions::disable_reason::DISABLE_NONE,
-                           incognito_enabled, remote_install);
+                           incognito_enabled, remote_install, GURL());
 }
 
 SyncChangeList MakeSyncChangeList(const std::string& id,
@@ -242,11 +243,10 @@ TEST_F(ExtensionServiceSyncTest, DeferredSyncStartupPreInstalledComponent) {
   bool flare_was_called = false;
   syncer::ModelType triggered_type(syncer::UNSPECIFIED);
   base::WeakPtrFactory<ExtensionServiceSyncTest> factory(this);
-  extension_sync_service()->SetSyncStartFlareForTesting(
-      base::Bind(&ExtensionServiceSyncTest::MockSyncStartFlare,
-                 factory.GetWeakPtr(),
-                 &flare_was_called,  // Safe due to WeakPtrFactory scope.
-                 &triggered_type));  // Safe due to WeakPtrFactory scope.
+  extension_sync_service()->SetSyncStartFlareForTesting(base::BindRepeating(
+      &ExtensionServiceSyncTest::MockSyncStartFlare, factory.GetWeakPtr(),
+      &flare_was_called,  // Safe due to WeakPtrFactory scope.
+      &triggered_type));  // Safe due to WeakPtrFactory scope.
 
   // Install a component extension.
   std::string manifest;
@@ -268,11 +268,10 @@ TEST_F(ExtensionServiceSyncTest, DeferredSyncStartupPreInstalledNormal) {
   bool flare_was_called = false;
   syncer::ModelType triggered_type(syncer::UNSPECIFIED);
   base::WeakPtrFactory<ExtensionServiceSyncTest> factory(this);
-  extension_sync_service()->SetSyncStartFlareForTesting(
-      base::Bind(&ExtensionServiceSyncTest::MockSyncStartFlare,
-                 factory.GetWeakPtr(),
-                 &flare_was_called,  // Safe due to WeakPtrFactory scope.
-                 &triggered_type));  // Safe due to WeakPtrFactory scope.
+  extension_sync_service()->SetSyncStartFlareForTesting(base::BindRepeating(
+      &ExtensionServiceSyncTest::MockSyncStartFlare, factory.GetWeakPtr(),
+      &flare_was_called,  // Safe due to WeakPtrFactory scope.
+      &triggered_type));  // Safe due to WeakPtrFactory scope.
 
   ASSERT_FALSE(extension_system()->is_ready());
   service()->Init();
@@ -292,11 +291,10 @@ TEST_F(ExtensionServiceSyncTest, DeferredSyncStartupOnInstall) {
   bool flare_was_called = false;
   syncer::ModelType triggered_type(syncer::UNSPECIFIED);
   base::WeakPtrFactory<ExtensionServiceSyncTest> factory(this);
-  extension_sync_service()->SetSyncStartFlareForTesting(
-      base::Bind(&ExtensionServiceSyncTest::MockSyncStartFlare,
-                 factory.GetWeakPtr(),
-                 &flare_was_called,  // Safe due to WeakPtrFactory scope.
-                 &triggered_type));  // Safe due to WeakPtrFactory scope.
+  extension_sync_service()->SetSyncStartFlareForTesting(base::BindRepeating(
+      &ExtensionServiceSyncTest::MockSyncStartFlare, factory.GetWeakPtr(),
+      &flare_was_called,  // Safe due to WeakPtrFactory scope.
+      &triggered_type));  // Safe due to WeakPtrFactory scope.
 
   base::FilePath path = data_dir().AppendASCII("good.crx");
   InstallCRX(path, INSTALL_NEW);
@@ -352,7 +350,7 @@ TEST_F(ExtensionServiceSyncTest, DisableExtensionFromSync) {
   // Then sync data arrives telling us to disable |good0|.
   ExtensionSyncData disable_good_crx(
       *extension, false, extensions::disable_reason::DISABLE_USER_ACTION, false,
-      false);
+      false, extension_urls::GetWebstoreUpdateUrl());
   SyncChangeList list(
       1, disable_good_crx.GetSyncChange(SyncChange::ACTION_UPDATE));
   extension_sync_service()->ProcessSyncChanges(FROM_HERE, list);
@@ -547,10 +545,10 @@ TEST_F(ExtensionServiceSyncTest, IgnoreSyncChangesWhenLocalStateIsMoreRecent) {
   // Now sync data comes in that says to disable good0 and enable good2.
   ExtensionSyncData disable_good0(
       *extension0, false, extensions::disable_reason::DISABLE_USER_ACTION,
-      false, false);
-  ExtensionSyncData enable_good2(*extension2, true,
-                                 extensions::disable_reason::DISABLE_NONE,
-                                 false, false);
+      false, false, extension_urls::GetWebstoreUpdateUrl());
+  ExtensionSyncData enable_good2(
+      *extension2, true, extensions::disable_reason::DISABLE_NONE, false, false,
+      extension_urls::GetWebstoreUpdateUrl());
   syncer::SyncDataList sync_data;
   sync_data.push_back(disable_good0.GetSyncData());
   sync_data.push_back(enable_good2.GetSyncData());
@@ -603,9 +601,9 @@ TEST_F(ExtensionServiceSyncTest, DontSelfNotify) {
     ASSERT_TRUE(extension);
 
     // Disable the extension.
-    ExtensionSyncData data(*extension, false,
-                           extensions::disable_reason::DISABLE_USER_ACTION,
-                           false, false);
+    ExtensionSyncData data(
+        *extension, false, extensions::disable_reason::DISABLE_USER_ACTION,
+        false, false, extension_urls::GetWebstoreUpdateUrl());
     SyncChangeList list(1, data.GetSyncChange(SyncChange::ACTION_UPDATE));
 
     extension_sync_service()->ProcessSyncChanges(FROM_HERE, list);
@@ -621,7 +619,7 @@ TEST_F(ExtensionServiceSyncTest, DontSelfNotify) {
     // Set incognito enabled to true.
     ExtensionSyncData data(*extension, false,
                            extensions::disable_reason::DISABLE_NONE, true,
-                           false);
+                           false, extension_urls::GetWebstoreUpdateUrl());
     SyncChangeList list(1, data.GetSyncChange(SyncChange::ACTION_UPDATE));
 
     extension_sync_service()->ProcessSyncChanges(FROM_HERE, list);
@@ -639,7 +637,7 @@ TEST_F(ExtensionServiceSyncTest, DontSelfNotify) {
         *extension, false,
         extensions::disable_reason::DISABLE_USER_ACTION |
             extensions::disable_reason::DISABLE_PERMISSIONS_INCREASE,
-        false, false);
+        false, false, extension_urls::GetWebstoreUpdateUrl());
     SyncChangeList list(1, data.GetSyncChange(SyncChange::ACTION_UPDATE));
 
     extension_sync_service()->ProcessSyncChanges(FROM_HERE, list);
@@ -657,7 +655,7 @@ TEST_F(ExtensionServiceSyncTest, DontSelfNotify) {
         *extension, false,
         extensions::disable_reason::DISABLE_USER_ACTION |
             extensions::disable_reason::DISABLE_PERMISSIONS_INCREASE,
-        false, false);
+        false, false, extension_urls::GetWebstoreUpdateUrl());
     SyncChangeList list(1, data.GetSyncChange(SyncChange::ACTION_DELETE));
 
     extension_sync_service()->ProcessSyncChanges(FROM_HERE, list);

@@ -10,9 +10,9 @@
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
-#include "content/browser/frame_host/frame_tree.h"
-#include "content/browser/frame_host/frame_tree_node.h"
-#include "content/browser/frame_host/render_frame_host_impl.h"
+#include "content/browser/renderer_host/frame_tree.h"
+#include "content/browser/renderer_host/frame_tree_node.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_delegate.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "ui/base/mojom/attributed_string.mojom.h"
@@ -21,23 +21,9 @@ namespace content {
 
 namespace {
 
-// TODO(ekaramad): TextInputClientMac expects to have a RenderWidgetHost to use
-// for handling mojo calls. However, for fullscreen flash, we end up with a
-// PepperWidget. For those scenarios, do not send the mojo calls. We need to
-// figure out what features are properly supported and perhaps send the
-// mojo call to the parent widget of the plugin (https://crbug.com/663384).
-bool IsFullScreenRenderWidget(RenderWidgetHost* widget) {
-  RenderWidgetHostImpl* rwhi = RenderWidgetHostImpl::From(widget);
-  if (!rwhi->delegate() ||
-      rwhi == rwhi->delegate()->GetFullscreenRenderWidgetHost()) {
-    return true;
-  }
-  return false;
-}
-
 RenderFrameHostImpl* GetFocusedRenderFrameHostImpl(RenderWidgetHost* widget) {
   RenderWidgetHostImpl* rwhi = RenderWidgetHostImpl::From(widget);
-  FrameTree* tree = rwhi->delegate()->GetFrameTree();
+  FrameTree* tree = rwhi->frame_tree();
   FrameTreeNode* focused_node = tree->GetFocusedFrame();
   return focused_node ? focused_node->current_frame_host() : nullptr;
 }
@@ -65,8 +51,12 @@ void TextInputClientMac::GetStringAtPoint(RenderWidgetHost* rwh,
                                           const gfx::Point& point,
                                           GetStringCallback callback) {
   RenderWidgetHostImpl* rwhi = RenderWidgetHostImpl::From(rwh);
-  rwhi->GetAssociatedFrameWidget()->GetStringAtPoint(point,
-                                                     std::move(callback));
+  if (rwhi && rwhi->GetAssociatedFrameWidget()) {
+    rwhi->GetAssociatedFrameWidget()->GetStringAtPoint(point,
+                                                       std::move(callback));
+  } else {
+    std::move(callback).Run(nullptr, gfx::Point());
+  }
 }
 
 void TextInputClientMac::GetStringFromRange(RenderWidgetHost* rwh,
@@ -84,9 +74,6 @@ void TextInputClientMac::GetStringFromRange(RenderWidgetHost* rwh,
 
 uint32_t TextInputClientMac::GetCharacterIndexAtPoint(RenderWidgetHost* rwh,
                                                       const gfx::Point& point) {
-  if (IsFullScreenRenderWidget(rwh))
-    return UINT32_MAX;
-
   RenderFrameHostImpl* rfhi = GetFocusedRenderFrameHostImpl(rwh);
   // If it doesn't have a focused frame, it calls
   // SetCharacterIndexAndSignal() with index 0.
@@ -113,9 +100,6 @@ uint32_t TextInputClientMac::GetCharacterIndexAtPoint(RenderWidgetHost* rwh,
 
 gfx::Rect TextInputClientMac::GetFirstRectForRange(RenderWidgetHost* rwh,
                                                    const gfx::Range& range) {
-  if (IsFullScreenRenderWidget(rwh))
-    return gfx::Rect();
-
   RenderFrameHostImpl* rfhi = GetFocusedRenderFrameHostImpl(rwh);
   if (!rfhi)
     return gfx::Rect();

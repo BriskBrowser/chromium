@@ -22,6 +22,7 @@
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
+#include "cc/mojom/render_frame_metadata.mojom.h"
 #include "cc/trees/render_frame_metadata.h"
 #include "components/viz/common/surfaces/local_surface_id.h"
 #include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
@@ -29,6 +30,7 @@
 #include "content/browser/gpu/compositor_util.h"
 #include "content/browser/renderer_host/agent_scheduling_group_host.h"
 #include "content/browser/renderer_host/display_feature.h"
+#include "content/browser/renderer_host/drop_data_util.h"
 #include "content/browser/renderer_host/frame_token_message_queue.h"
 #include "content/browser/renderer_host/input/mock_input_router.h"
 #include "content/browser/renderer_host/input/touch_emulator.h"
@@ -36,13 +38,12 @@
 #include "content/browser/renderer_host/render_view_host_delegate_view.h"
 #include "content/browser/renderer_host/render_widget_host_delegate.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
+#include "content/browser/storage_partition_impl.h"
 #include "content/common/content_constants_internal.h"
-#include "content/common/input_messages.h"
-#include "content/common/render_frame_metadata.mojom.h"
-#include "content/common/widget_messages.h"
 #include "content/public/browser/keyboard_event_processing_result.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/common/drop_data.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/test_browser_context.h"
@@ -50,9 +51,11 @@
 #include "content/test/mock_widget_input_handler.h"
 #include "content/test/stub_render_widget_host_owner_delegate.h"
 #include "content/test/test_render_view_host.h"
+#include "content/test/test_render_widget_host.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "skia/ext/skia_utils_base.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/input/synthetic_web_input_event_builders.h"
@@ -60,6 +63,7 @@
 #include "third_party/blink/public/common/widget/visual_properties.h"
 #include "third_party/blink/public/mojom/input/input_handler.mojom-shared.h"
 #include "third_party/blink/public/mojom/input/touch_event.mojom.h"
+#include "third_party/blink/public/mojom/page/drag.mojom.h"
 #include "ui/display/screen.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/blink/blink_features.h"
@@ -85,7 +89,6 @@
 #include "ui/events/event.h"
 #endif
 
-using base::TimeDelta;
 using blink::WebGestureDevice;
 using blink::WebGestureEvent;
 using blink::WebInputEvent;
@@ -93,7 +96,6 @@ using blink::WebKeyboardEvent;
 using blink::WebMouseEvent;
 using blink::WebMouseWheelEvent;
 using blink::WebTouchEvent;
-using blink::WebTouchPoint;
 
 using testing::_;
 using testing::Return;
@@ -189,9 +191,8 @@ class TestView : public TestRenderWidgetHostView {
 
   // RenderWidgetHostView override.
   gfx::Rect GetViewBounds() override { return bounds_; }
-  const viz::LocalSurfaceIdAllocation& GetLocalSurfaceIdAllocation()
-      const override {
-    return local_surface_id_allocator_.GetCurrentLocalSurfaceIdAllocation();
+  const viz::LocalSurfaceId& GetLocalSurfaceId() const override {
+    return local_surface_id_allocator_.GetCurrentLocalSurfaceId();
   }
 
   void SetInsets(const gfx::Insets& insets) override { insets_ = insets; }
@@ -254,10 +255,10 @@ class MockRenderViewHostDelegateView : public RenderViewHostDelegateView {
 
   // RenderViewHostDelegateView:
   void StartDragging(const DropData& drop_data,
-                     blink::WebDragOperationsMask allowed_ops,
+                     blink::DragOperationsMask allowed_ops,
                      const gfx::ImageSkia& image,
                      const gfx::Vector2d& image_offset,
-                     const DragEventSourceInfo& event_info,
+                     const blink::mojom::DragEventSourceInfo& event_info,
                      RenderWidgetHostImpl* source_rwh) override {
     ++start_dragging_count_;
   }
@@ -276,11 +277,11 @@ class MockRenderViewHostDelegateView : public RenderViewHostDelegateView {
 // All methods are no-opts, the provided mojo receiver and remote are held, but
 // never bound.
 class FakeRenderFrameMetadataObserver
-    : public mojom::RenderFrameMetadataObserver {
+    : public cc::mojom::RenderFrameMetadataObserver {
  public:
   FakeRenderFrameMetadataObserver(
-      mojo::PendingReceiver<mojom::RenderFrameMetadataObserver> receiver,
-      mojo::PendingRemote<mojom::RenderFrameMetadataObserverClient>
+      mojo::PendingReceiver<cc::mojom::RenderFrameMetadataObserver> receiver,
+      mojo::PendingRemote<cc::mojom::RenderFrameMetadataObserverClient>
           client_remote);
   ~FakeRenderFrameMetadataObserver() override {}
 
@@ -290,14 +291,16 @@ class FakeRenderFrameMetadataObserver
   void ReportAllFrameSubmissionsForTesting(bool enabled) override {}
 
  private:
-  mojo::PendingReceiver<mojom::RenderFrameMetadataObserver> receiver_;
-  mojo::PendingRemote<mojom::RenderFrameMetadataObserverClient> client_remote_;
+  mojo::PendingReceiver<cc::mojom::RenderFrameMetadataObserver> receiver_;
+  mojo::PendingRemote<cc::mojom::RenderFrameMetadataObserverClient>
+      client_remote_;
   DISALLOW_COPY_AND_ASSIGN(FakeRenderFrameMetadataObserver);
 };
 
 FakeRenderFrameMetadataObserver::FakeRenderFrameMetadataObserver(
-    mojo::PendingReceiver<mojom::RenderFrameMetadataObserver> receiver,
-    mojo::PendingRemote<mojom::RenderFrameMetadataObserverClient> client_remote)
+    mojo::PendingReceiver<cc::mojom::RenderFrameMetadataObserver> receiver,
+    mojo::PendingRemote<cc::mojom::RenderFrameMetadataObserverClient>
+        client_remote)
     : receiver_(std::move(receiver)),
       client_remote_(std::move(client_remote)) {}
 
@@ -522,7 +525,8 @@ class RenderWidgetHostTest : public testing::Test {
     command_line->AppendSwitch(switches::kValidateInputEventStream);
     browser_context_ = std::make_unique<TestBrowserContext>();
     delegate_ = std::make_unique<MockRenderWidgetHostDelegate>();
-    process_ = new RenderWidgetHostProcess(browser_context_.get());
+    process_ =
+        std::make_unique<RenderWidgetHostProcess>(browser_context_.get());
     agent_scheduling_group_host_ =
         std::make_unique<AgentSchedulingGroupHost>(*process_);
     sink_ = &process_->sink();
@@ -538,9 +542,10 @@ class RenderWidgetHostTest : public testing::Test {
     screen_.reset(aura::TestScreen::Create(gfx::Size()));
     display::Screen::SetScreenInstance(screen_.get());
 #endif
-    host_.reset(MockRenderWidgetHost::Create(
-        delegate_.get(), *agent_scheduling_group_host_,
-        process_->GetNextRoutingID(), widget_.GetNewRemote()));
+    host_ = MockRenderWidgetHost::Create(
+        /* frame_tree= */ nullptr, delegate_.get(),
+        *agent_scheduling_group_host_, process_->GetNextRoutingID(),
+        widget_.GetNewRemote());
     // Set up the RenderWidgetHost as being for a main frame.
     host_->set_owner_delegate(&mock_owner_delegate_);
     // Act like there is no RenderWidget present in the renderer yet.
@@ -555,14 +560,12 @@ class RenderWidgetHostTest : public testing::Test {
     host_->GetInitialVisualProperties();
     EXPECT_CALL(mock_owner_delegate_, IsMainFrameActive())
         .WillRepeatedly(Return(true));
-    // Init() happens once the navigation completes.
-    host_->Init();
 
-    mojo::PendingRemote<mojom::RenderFrameMetadataObserver>
+    mojo::PendingRemote<cc::mojom::RenderFrameMetadataObserver>
         renderer_render_frame_metadata_observer_remote;
-    mojo::PendingRemote<mojom::RenderFrameMetadataObserverClient>
+    mojo::PendingRemote<cc::mojom::RenderFrameMetadataObserverClient>
         render_frame_metadata_observer_remote;
-    mojo::PendingReceiver<mojom::RenderFrameMetadataObserverClient>
+    mojo::PendingReceiver<cc::mojom::RenderFrameMetadataObserverClient>
         render_frame_metadata_observer_client_receiver =
             render_frame_metadata_observer_remote
                 .InitWithNewPipeAndPassReceiver();
@@ -575,13 +578,24 @@ class RenderWidgetHostTest : public testing::Test {
     host_->RegisterRenderFrameMetadataObserver(
         std::move(render_frame_metadata_observer_client_receiver),
         std::move(renderer_render_frame_metadata_observer_remote));
+
+    // The blink::mojom::Widget is already set during MockRenderWidgetHost
+    // construction.
+    host_->BindFrameWidgetInterfaces(
+        mojo::PendingAssociatedRemote<blink::mojom::FrameWidgetHost>()
+            .InitWithNewEndpointAndPassReceiver(),
+        TestRenderWidgetHost::CreateStubFrameWidgetRemote());
+
+    host_->RendererWidgetCreated(/*for_frame_widget=*/true);
   }
 
   void TearDown() override {
     view_.reset();
     host_.reset();
     delegate_.reset();
-    process_ = nullptr;
+    process_->Cleanup();
+    agent_scheduling_group_host_.reset();
+    process_.reset();
     browser_context_.reset();
 
 #if defined(USE_AURA)
@@ -603,20 +617,16 @@ class RenderWidgetHostTest : public testing::Test {
   }
 
   void ReinitalizeHost() {
-    mojo::AssociatedRemote<blink::mojom::WidgetHost> widget_host;
     host_->BindWidgetInterfaces(
-        widget_host.BindNewEndpointAndPassDedicatedReceiverForTesting(),
+        mojo::AssociatedRemote<blink::mojom::WidgetHost>()
+            .BindNewEndpointAndPassDedicatedReceiver(),
         widget_.GetNewRemote());
-
-    mojo::AssociatedRemote<blink::mojom::FrameWidgetHost> frame_widget_host;
-    mojo::AssociatedRemote<blink::mojom::FrameWidget> frame_widget;
-    auto frame_widget_receiver =
-        frame_widget.BindNewEndpointAndPassDedicatedReceiverForTesting();
     host_->BindFrameWidgetInterfaces(
-        frame_widget_host.BindNewEndpointAndPassDedicatedReceiverForTesting(),
-        frame_widget.Unbind());
+        mojo::AssociatedRemote<blink::mojom::FrameWidgetHost>()
+            .BindNewEndpointAndPassDedicatedReceiver(),
+        TestRenderWidgetHost::CreateStubFrameWidgetRemote());
 
-    host_->Init();
+    host_->RendererWidgetCreated(/*for_frame_widget=*/true);
   }
 
   base::TimeTicks GetNextSimulatedEventTime() {
@@ -769,8 +779,7 @@ class RenderWidgetHostTest : public testing::Test {
   BrowserTaskEnvironment task_environment_{
       base::test::TaskEnvironment::TimeSource::MOCK_TIME};
   std::unique_ptr<TestBrowserContext> browser_context_;
-  RenderWidgetHostProcess* process_ =
-      nullptr;  // Deleted automatically by the widget.
+  std::unique_ptr<RenderWidgetHostProcess> process_;
   std::unique_ptr<AgentSchedulingGroupHost> agent_scheduling_group_host_;
   std::unique_ptr<MockRenderWidgetHostDelegate> delegate_;
   testing::NiceMock<MockRenderWidgetHostOwnerDelegate> mock_owner_delegate_;
@@ -867,7 +876,7 @@ TEST_F(RenderWidgetHostTest, SynchronizeVisualProperties) {
   EXPECT_EQ(original_size.size(), host_->old_visual_properties_->new_size);
   cc::RenderFrameMetadata metadata;
   metadata.viewport_size_in_pixels = original_size.size();
-  metadata.local_surface_id_allocation = base::nullopt;
+  metadata.local_surface_id = base::nullopt;
   static_cast<RenderFrameMetadataProvider::Observer&>(*host_)
       .OnLocalSurfaceIdChanged(metadata);
   EXPECT_FALSE(host_->visual_properties_ack_pending_);
@@ -900,7 +909,7 @@ TEST_F(RenderWidgetHostTest, SynchronizeVisualProperties) {
   // sent. Since this isn't the second_size, the message handler should
   // immediately send a new resize message for the new size to the renderer.
   metadata.viewport_size_in_pixels = original_size.size();
-  metadata.local_surface_id_allocation = base::nullopt;
+  metadata.local_surface_id = base::nullopt;
   static_cast<RenderFrameMetadataProvider::Observer&>(*host_)
       .OnLocalSurfaceIdChanged(metadata);
   EXPECT_TRUE(host_->visual_properties_ack_pending_);
@@ -912,7 +921,7 @@ TEST_F(RenderWidgetHostTest, SynchronizeVisualProperties) {
 
   // Send the visual properties ACK for the latest size.
   metadata.viewport_size_in_pixels = third_size.size();
-  metadata.local_surface_id_allocation = base::nullopt;
+  metadata.local_surface_id = base::nullopt;
   static_cast<RenderFrameMetadataProvider::Observer&>(*host_)
       .OnLocalSurfaceIdChanged(metadata);
   EXPECT_FALSE(host_->visual_properties_ack_pending_);
@@ -980,8 +989,8 @@ TEST_F(RenderWidgetHostTest, SynchronizeVisualProperties) {
 TEST_F(RenderWidgetHostTest, ResizeScreenInfo) {
   blink::ScreenInfo screen_info;
   screen_info.device_scale_factor = 1.f;
-  screen_info.rect = blink::WebRect(0, 0, 800, 600);
-  screen_info.available_rect = blink::WebRect(0, 0, 800, 600);
+  screen_info.rect = gfx::Rect(0, 0, 800, 600);
+  screen_info.available_rect = gfx::Rect(0, 0, 800, 600);
   screen_info.orientation_angle = 0;
   screen_info.orientation_type =
       blink::mojom::ScreenOrientation::kPortraitPrimary;
@@ -1098,7 +1107,9 @@ TEST_F(RenderWidgetHostTest, RootWindowSegments) {
       DisplayFeature::Orientation::kVertical,
       /* offset */ screen_rect.width() / 2 - kDisplayFeatureLength / 2,
       /* mask_length */ kDisplayFeatureLength};
-  view_->SetDisplayFeatureForTesting(emulated_display_feature);
+  RenderWidgetHostViewBase* render_widget_host_view = view_.get();
+  render_widget_host_view->SetDisplayFeatureForTesting(
+      &emulated_display_feature);
 
   ClearScreenRects();
 
@@ -1143,7 +1154,7 @@ TEST_F(RenderWidgetHostTest, RootWindowSegments) {
   // resized the widget and causes a pending ack. This is unrelated to what
   // we're testing here so ignore the pending ack by using
   // |SynchronizeVisualPropertiesIgnoringPendingAck()|.
-  view_->SetDisplayFeatureForTesting(base::nullopt);
+  render_widget_host_view->SetDisplayFeatureForTesting(nullptr);
   host_->SynchronizeVisualPropertiesIgnoringPendingAck();
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(1u, widget_.ReceivedVisualProperties().size());
@@ -1159,7 +1170,8 @@ TEST_F(RenderWidgetHostTest, RootWindowSegments) {
       DisplayFeature::Orientation::kHorizontal,
       /* offset */ screen_rect.height() / 2 - kDisplayFeatureLength / 2,
       /* mask_length */ kDisplayFeatureLength};
-  view_->SetDisplayFeatureForTesting(emulated_display_feature);
+  render_widget_host_view->SetDisplayFeatureForTesting(
+      &emulated_display_feature);
   host_->SynchronizeVisualPropertiesIgnoringPendingAck();
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(1u, widget_.ReceivedVisualProperties().size());
@@ -1235,15 +1247,15 @@ TEST_F(RenderWidgetHostTest, ReceiveFrameTokenFromDeletedRenderWidget) {
 #if !defined(OS_MAC)
 // Tests setting background transparency.
 TEST_F(RenderWidgetHostTest, Background) {
-  std::unique_ptr<RenderWidgetHostViewBase> view;
+  RenderWidgetHostViewBase* view;
 #if defined(USE_AURA)
-  view.reset(new RenderWidgetHostViewAura(host_.get()));
+  view = new RenderWidgetHostViewAura(host_.get());
   // TODO(derat): Call this on all platforms: http://crbug.com/102450.
   view->InitAsChild(nullptr);
 #elif defined(OS_ANDROID)
-  view.reset(new RenderWidgetHostViewAndroid(host_.get(), NULL));
+  view = new RenderWidgetHostViewAndroid(host_.get(), nullptr);
 #endif
-  host_->SetView(view.get());
+  host_->SetView(view);
 
   ASSERT_FALSE(view->GetBackgroundColor());
 
@@ -1276,7 +1288,7 @@ TEST_F(RenderWidgetHostTest, Background) {
   }
 
   host_->SetView(nullptr);
-  static_cast<RenderWidgetHostViewBase*>(view.release())->Destroy();
+  view->Destroy();
 }
 #endif
 
@@ -1285,27 +1297,39 @@ TEST_F(RenderWidgetHostTest, Background) {
 TEST_F(RenderWidgetHostTest, HideShowMessages) {
   // Hide the widget, it should have sent out a message to the renderer.
   EXPECT_FALSE(host_->is_hidden_);
-  host_->WasHidden();
+  {
+    base::RunLoop run_loop;
+    widget_.SetShownHiddenCallback(run_loop.QuitClosure());
+    host_->WasHidden();
+    run_loop.Run();
+  }
   EXPECT_TRUE(host_->is_hidden_);
-  EXPECT_TRUE(
-      process_->sink().GetUniqueMessageMatching(WidgetMsg_WasHidden::ID));
+  ASSERT_TRUE(widget_.IsHidden().has_value());
+  EXPECT_TRUE(widget_.IsHidden().value());
 
   // Send it an update as from the renderer.
   process_->sink().ClearMessages();
   cc::RenderFrameMetadata metadata;
   metadata.viewport_size_in_pixels = gfx::Size(100, 100);
-  metadata.local_surface_id_allocation = base::nullopt;
+  metadata.local_surface_id = base::nullopt;
   static_cast<RenderFrameMetadataProvider::Observer&>(*host_)
       .OnLocalSurfaceIdChanged(metadata);
 
   // Now unhide.
-  process_->sink().ClearMessages();
-  host_->WasShown({} /* record_tab_switch_time_request */);
+  widget_.ClearHidden();
+  ASSERT_FALSE(widget_.IsHidden().has_value());
+  {
+    base::RunLoop run_loop;
+    widget_.SetShownHiddenCallback(run_loop.QuitClosure());
+
+    host_->WasShown({} /* record_tab_switch_time_request */);
+    run_loop.Run();
+  }
   EXPECT_FALSE(host_->is_hidden_);
 
-  // It should have sent out a restored message.
-  EXPECT_TRUE(
-      process_->sink().GetUniqueMessageMatching(WidgetMsg_WasShown::ID));
+  // It should have sent out a mojo message.
+  ASSERT_TRUE(widget_.IsHidden().has_value());
+  EXPECT_FALSE(widget_.IsHidden().value());
 }
 
 TEST_F(RenderWidgetHostTest, IgnoreKeyEventsHandledByRenderer) {
@@ -1993,17 +2017,23 @@ TEST_F(RenderWidgetHostTest, RendererExitedNoDrag) {
   DropData drop_data;
   drop_data.url = http_url;
   drop_data.html_base_url = http_url;
-  blink::WebDragOperationsMask drag_operation = blink::kWebDragOperationEvery;
-  DragEventSourceInfo event_info;
-  host_->OnStartDragging(drop_data, drag_operation, SkBitmap(), gfx::Vector2d(),
-                         event_info);
+  FileSystemAccessManagerImpl* file_system_manager =
+      static_cast<StoragePartitionImpl*>(process_->GetStoragePartition())
+          ->GetFileSystemAccessManager();
+  blink::DragOperationsMask drag_operation = blink::kDragOperationEvery;
+  host_->StartDragging(
+      DropDataToDragData(drop_data, file_system_manager, process_->GetID()),
+      drag_operation, SkBitmap(), gfx::Vector2d(),
+      blink::mojom::DragEventSourceInfo::New());
   EXPECT_EQ(delegate_->mock_delegate_view()->start_dragging_count(), 1);
 
   // Simulate that renderer exited due navigation to the next page.
   host_->RendererExited();
   EXPECT_FALSE(host_->GetView());
-  host_->OnStartDragging(drop_data, drag_operation, SkBitmap(), gfx::Vector2d(),
-                         event_info);
+  host_->StartDragging(
+      DropDataToDragData(drop_data, file_system_manager, process_->GetID()),
+      drag_operation, SkBitmap(), gfx::Vector2d(),
+      blink::mojom::DragEventSourceInfo::New());
   EXPECT_EQ(delegate_->mock_delegate_view()->start_dragging_count(), 1);
 }
 
@@ -2091,31 +2121,6 @@ TEST_F(RenderWidgetHostTest, NavigateInBackgroundShowsBlank) {
   host_->DidNavigate();
   host_->WasShown({} /* record_tab_switch_time_request */);
   EXPECT_TRUE(host_->new_content_rendering_timeout_fired());
-}
-
-TEST_F(RenderWidgetHostTest, RendererHangRecordsMetrics) {
-  base::SimpleTestTickClock clock;
-  host_->set_clock_for_testing(&clock);
-  base::HistogramTester tester;
-
-  // RenderWidgetHost makes private the methods it overrides from
-  // InputRouterClient. Call them through the base class.
-  InputRouterClient* input_router_client = host_.get();
-
-  // Do a 3s hang. This shouldn't affect metrics.
-  input_router_client->IncrementInFlightEventCount();
-  clock.Advance(base::TimeDelta::FromSeconds(3));
-  input_router_client->DecrementInFlightEventCount(
-      blink::mojom::InputEventResultSource::kUnknown);
-  tester.ExpectTotalCount("Renderer.Hung.Duration", 0u);
-
-  // Do a 17s hang. This should affect metrics.
-  input_router_client->IncrementInFlightEventCount();
-  clock.Advance(base::TimeDelta::FromSeconds(17));
-  input_router_client->DecrementInFlightEventCount(
-      blink::mojom::InputEventResultSource::kUnknown);
-  tester.ExpectTotalCount("Renderer.Hung.Duration", 1u);
-  tester.ExpectUniqueSample("Renderer.Hung.Duration", 17000, 1);
 }
 
 TEST_F(RenderWidgetHostTest, PendingUserActivationTimeout) {
@@ -2250,7 +2255,7 @@ TEST_F(RenderWidgetHostTest, OnVerticalScrollDirectionChanged) {
 
         cc::RenderFrameMetadata metadata;
         metadata.new_vertical_scroll_direction = scroll_direction;
-        static_cast<mojom::RenderFrameMetadataObserverClient*>(
+        static_cast<cc::mojom::RenderFrameMetadataObserverClient*>(
             host_->render_frame_metadata_provider())
             ->OnRenderFrameMetadataChanged(frame_token++, metadata);
       };
@@ -2278,6 +2283,18 @@ TEST_F(RenderWidgetHostTest, OnVerticalScrollDirectionChanged) {
   EXPECT_EQ(2, delegate_->GetOnVerticalScrollDirectionChangedCallCount());
   EXPECT_EQ(viz::VerticalScrollDirection::kDown,
             delegate_->GetLastVerticalScrollDirection());
+}
+
+TEST_F(RenderWidgetHostTest, SetCursorWithBitmap) {
+  ui::Cursor cursor;
+
+  SkBitmap bitmap;
+  bitmap.allocN32Pixels(1, 1);
+  bitmap.eraseColor(SK_ColorGREEN);
+  cursor.set_custom_bitmap(bitmap);
+
+  host_->SetCursor(cursor);
+  EXPECT_EQ(WebCursor(cursor), view_->last_cursor());
 }
 
 }  // namespace content

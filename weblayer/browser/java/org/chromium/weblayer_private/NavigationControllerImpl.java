@@ -5,13 +5,20 @@
 package org.chromium.weblayer_private;
 
 import android.os.RemoteException;
+import android.os.SystemClock;
+import android.webkit.WebResourceResponse;
 
+import org.chromium.base.TimeUtilsJni;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
+import org.chromium.components.embedder_support.util.WebResourceResponseInfo;
+import org.chromium.weblayer_private.interfaces.INavigateParams;
 import org.chromium.weblayer_private.interfaces.INavigationController;
 import org.chromium.weblayer_private.interfaces.INavigationControllerClient;
+import org.chromium.weblayer_private.interfaces.IObjectWrapper;
 import org.chromium.weblayer_private.interfaces.NavigateParams;
+import org.chromium.weblayer_private.interfaces.ObjectWrapper;
 import org.chromium.weblayer_private.interfaces.StrictModeWorkaround;
 
 /**
@@ -19,10 +26,16 @@ import org.chromium.weblayer_private.interfaces.StrictModeWorkaround;
  */
 @JNINamespace("weblayer")
 public final class NavigationControllerImpl extends INavigationController.Stub {
+    private final TabImpl mTab;
     private long mNativeNavigationController;
     private INavigationControllerClient mNavigationControllerClient;
 
+    // Conversion between native TimeTicks and SystemClock.uptimeMillis().
+    private long mNativeTickOffsetUs;
+    private boolean mNativeTickOffsetUsComputed;
+
     public NavigationControllerImpl(TabImpl tab, INavigationControllerClient client) {
+        mTab = tab;
         mNavigationControllerClient = client;
         mNativeNavigationController =
                 NavigationControllerImplJni.get().getNavigationController(tab.getNativeTab());
@@ -31,20 +44,60 @@ public final class NavigationControllerImpl extends INavigationController.Stub {
     }
 
     @Override
-    public void navigate(String uri, NavigateParams params) throws RemoteException {
+    public void navigate(String uri, NavigateParams params) {
         StrictModeWorkaround.apply();
         if (WebLayerFactoryImpl.getClientMajorVersion() < 83) {
             assert params == null;
         }
-        navigate2(uri, params == null ? false : params.mShouldReplaceCurrentEntry, false);
+        NavigationControllerImplJni.get().navigate(mNativeNavigationController, uri,
+                params == null ? false : params.mShouldReplaceCurrentEntry, false, false, false,
+                false, null);
     }
 
     @Override
     public void navigate2(String uri, boolean shouldReplaceCurrentEntry,
-            boolean disableIntentProcessing) throws RemoteException {
+            boolean disableIntentProcessing, boolean disableNetworkErrorAutoReload,
+            boolean enableAutoPlay) {
         StrictModeWorkaround.apply();
         NavigationControllerImplJni.get().navigate(mNativeNavigationController, uri,
-                shouldReplaceCurrentEntry, disableIntentProcessing);
+                shouldReplaceCurrentEntry, disableIntentProcessing,
+                /*allowIntentLaunchesInBackground=*/false, disableNetworkErrorAutoReload,
+                enableAutoPlay, null);
+    }
+
+    @Override
+    public INavigateParams createNavigateParams() {
+        StrictModeWorkaround.apply();
+        return new NavigateParamsImpl();
+    }
+
+    @Override
+    public void navigate3(String uri, INavigateParams iParams) {
+        StrictModeWorkaround.apply();
+        NavigateParamsImpl params = (NavigateParamsImpl) iParams;
+        WebResourceResponseInfo responseInfo = null;
+        if (params.getResponse() != null) {
+            if (mTab.isActiveTab()) {
+                BrowserImpl browser = mTab.getBrowser();
+                UrlBarControllerImpl urlBarController = browser.getUrlBarControllerImpl();
+                if (urlBarController != null && urlBarController.hasActiveView()) {
+                    throw new IllegalStateException(
+                            "Can't navigate to an InputStream if the stock URL bar is visible.");
+                }
+            }
+
+            WebResourceResponse response =
+                    ObjectWrapper.unwrap(params.getResponse(), WebResourceResponse.class);
+            responseInfo = new WebResourceResponseInfo(response.getMimeType(),
+                    response.getEncoding(), response.getData(), response.getStatusCode(),
+                    response.getReasonPhrase(), response.getResponseHeaders());
+        }
+
+        NavigationControllerImplJni.get().navigate(mNativeNavigationController, uri,
+                params.shouldReplaceCurrentEntry(), params.isIntentProcessingDisabled(),
+                params.areIntentLaunchesAllowedInBackground(),
+                params.isNetworkErrorAutoReloadDisabled(), params.isAutoPlayEnabled(),
+                responseInfo);
     }
 
     @Override
@@ -123,6 +176,12 @@ public final class NavigationControllerImpl extends INavigationController.Stub {
                 mNativeNavigationController, index);
     }
 
+    public NavigationImpl getNavigationImplFromId(long id) {
+        StrictModeWorkaround.apply();
+        return NavigationControllerImplJni.get().getNavigationImplFromId(
+                mNativeNavigationController, id);
+    }
+
     @CalledByNative
     private NavigationImpl createNavigation(long nativeNavigationImpl) {
         return new NavigationImpl(mNavigationControllerClient, nativeNavigationImpl);
@@ -170,9 +229,103 @@ public final class NavigationControllerImpl extends INavigationController.Stub {
     }
 
     @CalledByNative
+    private void onFirstContentfulPaint2(
+            long navigationStartTick, long firstContentfulPaintDurationMs) throws RemoteException {
+        if (WebLayerFactoryImpl.getClientMajorVersion() < 88) return;
+
+        mNavigationControllerClient.onFirstContentfulPaint2(
+                (navigationStartTick - getNativeTickOffsetUs()) / 1000,
+                firstContentfulPaintDurationMs);
+    }
+
+    @CalledByNative
+    private void onLargestContentfulPaint(long navigationStartTick,
+            long largestContentfulPaintDurationMs) throws RemoteException {
+        if (WebLayerFactoryImpl.getClientMajorVersion() < 88) return;
+
+        mNavigationControllerClient.onLargestContentfulPaint(
+                (navigationStartTick - getNativeTickOffsetUs()) / 1000,
+                largestContentfulPaintDurationMs);
+    }
+
+    @CalledByNative
     private void onOldPageNoLongerRendered(String uri) throws RemoteException {
-        if (WebLayerFactoryImpl.getClientMajorVersion() < 85) return;
         mNavigationControllerClient.onOldPageNoLongerRendered(uri);
+    }
+
+    private long getNativeTickOffsetUs() {
+        // See logic in CustomTabsConnection.java that this was based on.
+        if (!mNativeTickOffsetUsComputed) {
+            // Compute offset from time ticks to uptimeMillis.
+            mNativeTickOffsetUsComputed = true;
+            long nativeNowUs = TimeUtilsJni.get().getTimeTicksNowUs();
+            long javaNowUs = SystemClock.uptimeMillis() * 1000;
+            mNativeTickOffsetUs = nativeNowUs - javaNowUs;
+        }
+        return mNativeTickOffsetUs;
+    }
+
+    private static final class NavigateParamsImpl extends INavigateParams.Stub {
+        private boolean mReplaceCurrentEntry;
+        private boolean mIntentProcessingDisabled;
+        private boolean mIntentLaunchesAllowedInBackground;
+        private boolean mNetworkErrorAutoReloadDisabled;
+        private boolean mAutoPlayEnabled;
+        private IObjectWrapper mResponse;
+
+        @Override
+        public void replaceCurrentEntry() {
+            mReplaceCurrentEntry = true;
+        }
+
+        @Override
+        public void disableIntentProcessing() {
+            mIntentProcessingDisabled = true;
+        }
+
+        @Override
+        public void allowIntentLaunchesInBackground() {
+            mIntentLaunchesAllowedInBackground = true;
+        }
+
+        @Override
+        public void disableNetworkErrorAutoReload() {
+            mNetworkErrorAutoReloadDisabled = true;
+        }
+
+        @Override
+        public void enableAutoPlay() {
+            mAutoPlayEnabled = true;
+        }
+
+        @Override
+        public void setResponse(IObjectWrapper response) {
+            mResponse = response;
+        }
+
+        public boolean shouldReplaceCurrentEntry() {
+            return mReplaceCurrentEntry;
+        }
+
+        public boolean isIntentProcessingDisabled() {
+            return mIntentProcessingDisabled;
+        }
+
+        public boolean areIntentLaunchesAllowedInBackground() {
+            return mIntentLaunchesAllowedInBackground;
+        }
+
+        public boolean isNetworkErrorAutoReloadDisabled() {
+            return mNetworkErrorAutoReloadDisabled;
+        }
+
+        public boolean isAutoPlayEnabled() {
+            return mAutoPlayEnabled;
+        }
+
+        IObjectWrapper getResponse() {
+            return mResponse;
+        }
     }
 
     @NativeMethods
@@ -181,7 +334,9 @@ public final class NavigationControllerImpl extends INavigationController.Stub {
                 long nativeNavigationControllerImpl, NavigationControllerImpl caller);
         long getNavigationController(long tab);
         void navigate(long nativeNavigationControllerImpl, String uri,
-                boolean shouldReplaceCurrentEntry, boolean disableIntentProcessing);
+                boolean shouldReplaceCurrentEntry, boolean disableIntentProcessing,
+                boolean allowIntentLaunchesInBackground, boolean disableNetworkErrorAutoReload,
+                boolean enableAutoPlay, WebResourceResponseInfo response);
         void goBack(long nativeNavigationControllerImpl);
         void goForward(long nativeNavigationControllerImpl);
         boolean canGoBack(long nativeNavigationControllerImpl);
@@ -194,5 +349,6 @@ public final class NavigationControllerImpl extends INavigationController.Stub {
         String getNavigationEntryDisplayUri(long nativeNavigationControllerImpl, int index);
         String getNavigationEntryTitle(long nativeNavigationControllerImpl, int index);
         boolean isNavigationEntrySkippable(long nativeNavigationControllerImpl, int index);
+        NavigationImpl getNavigationImplFromId(long nativeNavigationControllerImpl, long id);
     }
 }

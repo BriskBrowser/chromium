@@ -65,8 +65,7 @@ class CORE_EXPORT ScriptedAnimationController
 
   // Animation frame callbacks are used for requestAnimationFrame().
   typedef int CallbackId;
-  CallbackId RegisterFrameCallback(
-      FrameRequestCallbackCollection::FrameCallback*);
+  CallbackId RegisterFrameCallback(FrameCallback*);
   void CancelFrameCallback(CallbackId);
   // Returns true if any callback is currently registered.
   bool HasFrameCallback() const;
@@ -122,9 +121,11 @@ class CORE_EXPORT ScriptedAnimationController
   using PerFrameEventsMap =
       HeapHashMap<Member<const EventTarget>, HashSet<const StringImpl*>>;
   PerFrameEventsMap per_frame_events_;
-  using MediaQueryListListeners =
-      HeapListHashSet<Member<MediaQueryListListener>>;
+  using MediaQueryListListeners = HeapVector<Member<MediaQueryListListener>>;
   MediaQueryListListeners media_query_list_listeners_;
+  // This is used to quickly lookup if a listener exists in
+  // media_query_list_listeners_. The contents should be exactly the same.
+  HeapHashSet<Member<MediaQueryListListener>> media_query_list_listeners_set_;
   double current_frame_time_ms_ = 0.0;
   double current_frame_legacy_time_ms_ = 0.0;
 

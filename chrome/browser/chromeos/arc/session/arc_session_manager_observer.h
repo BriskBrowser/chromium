@@ -45,7 +45,9 @@ class ArcSessionManagerObserver {
   // displayed in the support host. This is called even if Support UI is
   // disabled. Note that this is not called in cases when the support app
   // switches to an error page by itself.
-  virtual void OnArcErrorShowRequested(ArcSupportHost::Error error) {}
+  // |error| points to the top level error indicating the type of problem and an
+  // optional argument to format the error message for display on the UI.
+  virtual void OnArcErrorShowRequested(ArcSupportHost::ErrorInfo error_info) {}
 
   // Called with true when the /run/arc[vm]/host_generated/*.prop files are
   // generated (and false when the attempt fails.) The function is called once

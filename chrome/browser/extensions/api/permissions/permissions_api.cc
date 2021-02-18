@@ -259,7 +259,7 @@ ExtensionFunction::ResponseAction PermissionsRequestFunction::Run() {
   // If all permissions are already active, nothing left to do.
   if (total_new_permissions->IsEmpty()) {
     constexpr bool granted = true;
-    return RespondNow(OneArgument(std::make_unique<base::Value>(granted)));
+    return RespondNow(OneArgument(base::Value(granted)));
   }
 
   // Automatically declines api permissions requests, which are blocked by
@@ -319,8 +319,8 @@ ExtensionFunction::ResponseAction PermissionsRequestFunction::Run() {
   install_ui_.reset(new ExtensionInstallPrompt(
       Profile::FromBrowserContext(browser_context()), native_window));
   install_ui_->ShowDialog(
-      base::Bind(&PermissionsRequestFunction::OnInstallPromptDone,
-                 base::RetainedRef(this)),
+      base::BindOnce(&PermissionsRequestFunction::OnInstallPromptDone,
+                     base::RetainedRef(this)),
       extension(), nullptr,
       std::make_unique<ExtensionInstallPrompt::Prompt>(
           ExtensionInstallPrompt::PERMISSIONS_PROMPT),

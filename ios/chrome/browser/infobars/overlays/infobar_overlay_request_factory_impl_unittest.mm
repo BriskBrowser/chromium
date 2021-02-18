@@ -6,13 +6,11 @@
 
 #include "base/feature_list.h"
 #include "base/guid.h"
-#include "base/test/scoped_feature_list.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/autofill/core/browser/data_model/credit_card.h"
-#include "components/autofill/core/common/password_form.h"
 #include "components/infobars/core/infobar.h"
-#include "components/infobars/core/infobar_feature.h"
 #include "components/password_manager/core/browser/mock_password_form_manager_for_ui.h"
+#include "components/password_manager/core/browser/password_form.h"
 #include "components/translate/core/browser/mock_translate_infobar_delegate.h"
 #include "ios/chrome/browser/infobars/infobar_ios.h"
 #include "ios/chrome/browser/infobars/overlays/browser_agent/interaction_handlers/test/mock_autofill_save_card_infobar_delegate_mobile.h"
@@ -21,12 +19,12 @@
 #import "ios/chrome/browser/overlays/public/infobar_banner/save_card_infobar_banner_overlay_request_config.h"
 #import "ios/chrome/browser/overlays/public/infobar_banner/save_password_infobar_banner_overlay.h"
 #import "ios/chrome/browser/overlays/public/infobar_banner/translate_infobar_banner_overlay_request_config.h"
+#import "ios/chrome/browser/overlays/public/infobar_banner/update_password_infobar_banner_overlay.h"
 #import "ios/chrome/browser/overlays/public/infobar_modal/password_infobar_modal_overlay_request_config.h"
 #import "ios/chrome/browser/overlays/public/infobar_modal/save_card_infobar_modal_overlay_request_config.h"
 #import "ios/chrome/browser/overlays/public/infobar_modal/translate_infobar_modal_overlay_request_config.h"
 #import "ios/chrome/browser/passwords/ios_chrome_save_password_infobar_delegate.h"
 #import "ios/chrome/browser/passwords/test/mock_ios_chrome_save_passwords_infobar_delegate.h"
-#import "ios/chrome/browser/ui/infobars/infobar_feature.h"
 #import "ios/chrome/browser/ui/infobars/test/fake_infobar_ui_delegate.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -50,15 +48,11 @@ class InfobarOverlayRequestFactoryImplTest : public PlatformTest {
   InfobarOverlayRequestFactoryImplTest()
       : prefs_(autofill::test::PrefServiceForTesting()),
         card_(base::GenerateGUID(), "https://www.example.com/"),
-        translate_delegate_factory_("fr", "en") {
-    feature_list_.InitWithFeatures({kIOSInfobarUIReboot},
-                                   {kInfobarUIRebootOnlyiOS13});
-  }
+        translate_delegate_factory_("fr", "en") {}
 
   InfobarOverlayRequestFactory* factory() { return &factory_; }
 
  protected:
-  base::test::ScopedFeatureList feature_list_;
   InfobarOverlayRequestFactoryImpl factory_;
   std::unique_ptr<PrefService> prefs_;
   autofill::CreditCard card_;
@@ -101,8 +95,9 @@ TEST_F(InfobarOverlayRequestFactoryImplTest, UpdatePasswords) {
   // Test banner request creation.
   std::unique_ptr<OverlayRequest> banner_request =
       factory()->CreateInfobarRequest(&infobar, InfobarOverlayType::kBanner);
-  EXPECT_TRUE(banner_request
-                  ->GetConfig<SavePasswordInfobarBannerOverlayRequestConfig>());
+  EXPECT_TRUE(
+      banner_request
+          ->GetConfig<UpdatePasswordInfobarBannerOverlayRequestConfig>());
 
   // Test modal request creation.
   std::unique_ptr<OverlayRequest> modal_request =

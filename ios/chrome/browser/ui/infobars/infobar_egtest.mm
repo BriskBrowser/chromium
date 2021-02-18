@@ -6,11 +6,8 @@
 
 #include "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
-#include "base/test/scoped_feature_list.h"
-#include "components/infobars/core/infobar_feature.h"
 #import "ios/chrome/browser/ui/infobars/banners/infobar_banner_constants.h"
 #import "ios/chrome/browser/ui/infobars/infobar_constants.h"
-#import "ios/chrome/browser/ui/infobars/infobar_feature.h"
 #import "ios/chrome/browser/ui/infobars/infobar_manager_app_interface.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
@@ -25,14 +22,12 @@
 #error "This file requires ARC support."
 #endif
 
-#if defined(CHROME_EARL_GREY_2)
 // TODO(crbug.com/1015113): The EG2 macro is breaking indexing for some reason
 // without the trailing semicolon.  For now, disable the extra semi warning
 // so Xcode indexing works for the egtest.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wc++98-compat-extra-semi"
 GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(InfobarManagerAppInterface);
-#endif  // defined(CHROME_EARL_GREY_2)
 
 using base::test::ios::WaitUntilConditionOrTimeout;
 
@@ -44,20 +39,6 @@ void VerifyTestInfoBarVisibleForCurrentTab(bool visible, NSString* message) {
   NSString* condition_name =
       visible ? @"Waiting for infobar to show" : @"Waiting for infobar to hide";
   id<GREYMatcher> expected_visibility = visible ? grey_notNil() : grey_nil();
-#if defined(CHROME_EARL_GREY_1)
-  CFTimeInterval kTimeout = 4.0;
-  [[GREYCondition
-      conditionWithName:condition_name
-                  block:^BOOL {
-                    NSError* error = nil;
-                    [[EarlGrey
-                        selectElementWithMatcher:
-                            chrome_test_util::StaticTextWithAccessibilityLabel(
-                                message)] assertWithMatcher:expected_visibility
-                                                      error:&error];
-                    return error == nil;
-                  }] waitWithTimeout:kTimeout];
-#elif defined(CHROME_EARL_GREY_2)
   BOOL bannerShown = WaitUntilConditionOrTimeout(
       kInfobarBannerDefaultPresentationDurationInSeconds, ^{
         NSError* error = nil;
@@ -72,9 +53,6 @@ void VerifyTestInfoBarVisibleForCurrentTab(bool visible, NSString* message) {
       });
 
   GREYAssertTrue(bannerShown, condition_name);
-#else
-#error Must define either CHROME_EARL_GREY_1 or CHROME_EARL_GREY_2.
-#endif
 }
 
 }  // namespace
@@ -83,16 +61,7 @@ void VerifyTestInfoBarVisibleForCurrentTab(bool visible, NSString* message) {
 @interface InfobarTestCase : ChromeTestCase
 @end
 
-@implementation InfobarTestCase {
-  base::test::ScopedFeatureList _featureList;
-}
-
-- (AppLaunchConfiguration)appConfigurationForTestCase {
-  AppLaunchConfiguration config;
-  config.features_enabled.push_back(kIOSInfobarUIReboot);
-  config.features_disabled.push_back(kInfobarUIRebootOnlyiOS13);
-  return config;
-}
+@implementation InfobarTestCase
 
 - (void)setUp {
   [super setUp];
@@ -199,13 +168,6 @@ void VerifyTestInfoBarVisibleForCurrentTab(bool visible, NSString* message) {
 
 // Tests adding an Infobar on top of an existing one.
 - (void)testInfobarTopMostVisible {
-// Turn on Messages UI.
-#if defined(CHROME_EARL_GREY_1)
-  _featureList.InitWithFeatures(
-      /*enabled_features=*/{kIOSInfobarUIReboot},
-      /*disabled_features=*/{kInfobarUIRebootOnlyiOS13});
-#endif
-
   // Open a new tab and navigate to the test page.
   const GURL testURL = self.testServer->GetURL("/pony.html");
   [ChromeEarlGrey loadURL:testURL];
@@ -244,13 +206,6 @@ void VerifyTestInfoBarVisibleForCurrentTab(bool visible, NSString* message) {
 
 // Tests that a taller Infobar layout is correct and the OK button is tappable.
 - (void)testInfobarTallerLayout {
-  // Turn on Messages UI.
-#if defined(CHROME_EARL_GREY_1)
-  _featureList.InitWithFeatures(
-      /*enabled_features=*/{kIOSInfobarUIReboot},
-      /*disabled_features=*/{kInfobarUIRebootOnlyiOS13});
-#endif
-
   // Open a new tab and navigate to the test page.
   const GURL testURL = self.testServer->GetURL("/pony.html");
   [ChromeEarlGrey loadURL:testURL];

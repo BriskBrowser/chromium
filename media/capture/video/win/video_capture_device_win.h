@@ -20,6 +20,7 @@
 
 #include "base/containers/queue.h"
 #include "base/macros.h"
+#include "base/optional.h"
 #include "base/threading/thread_checker.h"
 #include "media/capture/video/video_capture_device.h"
 #include "media/capture/video/win/capability_list_win.h"
@@ -57,6 +58,8 @@ class VideoCaptureDeviceWin : public VideoCaptureDevice,
     AM_MEDIA_TYPE* media_type_;
   };
 
+  static VideoCaptureControlSupport GetControlSupport(
+      Microsoft::WRL::ComPtr<IBaseFilter> capture_filter);
   static void GetDeviceCapabilityList(
       Microsoft::WRL::ComPtr<IBaseFilter> capture_filter,
       bool query_detailed_frame_rates,
@@ -71,8 +74,6 @@ class VideoCaptureDeviceWin : public VideoCaptureDevice,
       PIN_DIRECTION pin_dir,
       REFGUID category,
       REFGUID major_type);
-  static bool IsPanTiltZoomSupported(
-      Microsoft::WRL::ComPtr<IBaseFilter> capture_filter);
   static VideoPixelFormat TranslateMediaSubtypeToPixelFormat(
       const GUID& sub_type);
 
@@ -154,6 +155,8 @@ class VideoCaptureDeviceWin : public VideoCaptureDevice,
   base::ThreadChecker thread_checker_;
 
   bool enable_get_photo_state_;
+
+  base::Optional<int> camera_rotation_;
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(VideoCaptureDeviceWin);
 };

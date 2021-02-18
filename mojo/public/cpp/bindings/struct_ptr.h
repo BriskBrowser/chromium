@@ -15,6 +15,7 @@
 #include "base/optional.h"
 #include "mojo/public/cpp/bindings/lib/hash_util.h"
 #include "mojo/public/cpp/bindings/type_converter.h"
+#include "third_party/perfetto/include/perfetto/tracing/traced_value.h"
 
 namespace mojo {
 namespace internal {
@@ -34,6 +35,10 @@ template <typename S>
 class StructPtr {
  public:
   using Struct = S;
+
+  // Exposing StructPtr<S>::element_type allows gmock's Pointee matcher to
+  // dereference StructPtr's.
+  using element_type = S;
 
   StructPtr() = default;
   StructPtr(std::nullptr_t) {}
@@ -104,6 +109,13 @@ class StructPtr {
 
   explicit operator bool() const { return !is_null(); }
 
+  // If T is serialisable into trace, StructPtr<T> is also serialisable.
+  template <class U = S>
+  perfetto::check_traced_value_support_t<U> WriteIntoTracedValue(
+      perfetto::TracedValue context) const {
+    perfetto::WriteIntoTracedValue(std::move(context), ptr_);
+  }
+
  private:
   friend class internal::StructPtrWTFHelper<Struct>;
   void Take(StructPtr* other) {
@@ -121,6 +133,10 @@ template <typename S>
 class InlinedStructPtr {
  public:
   using Struct = S;
+
+  // Exposing InlinedStructPtr<S>::element_type allows gmock's Pointee matcher
+  // to dereference InlinedStructPtr's.
+  using element_type = S;
 
   InlinedStructPtr() = default;
   InlinedStructPtr(std::nullptr_t) {}
@@ -163,7 +179,11 @@ class InlinedStructPtr {
     DCHECK(state_ == VALID);
     return &value_;
   }
-  Struct* get() const { return &value_; }
+  Struct* get() const {
+    if (state_ == NIL)
+      return nullptr;
+    return &value_;
+  }
 
   void Swap(InlinedStructPtr* other) {
     std::swap(value_, other->value_);
@@ -189,6 +209,17 @@ class InlinedStructPtr {
   }
 
   explicit operator bool() const { return !is_null(); }
+
+  // If T is serialisable into trace, StructPtr<T> is also serialisable.
+  template <class U = S>
+  perfetto::check_traced_value_support_t<U> WriteIntoTracedValue(
+      perfetto::TracedValue context) const {
+    if (is_null()) {
+      std::move(context).WritePointer(nullptr);
+      return;
+    }
+    perfetto::WriteIntoTracedValue(std::move(context), value_);
+  }
 
  private:
   friend class internal::InlinedStructPtrWTFHelper<Struct>;

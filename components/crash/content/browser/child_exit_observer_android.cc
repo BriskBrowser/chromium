@@ -8,7 +8,7 @@
 
 #include "base/bind.h"
 #include "base/check_op.h"
-#include "base/stl_util.h"
+#include "base/containers/contains.h"
 #include "components/crash/content/browser/crash_memory_metrics_collector_android.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_data.h"
@@ -81,7 +81,7 @@ ChildExitObserver::ChildExitObserver() {
                               content::NOTIFICATION_RENDERER_PROCESS_CLOSED,
                               content::NotificationService::AllSources());
   BrowserChildProcessObserver::Add(this);
-  scoped_observer_.Add(crashpad::CrashHandlerHost::Get());
+  scoped_observation_.Observe(crashpad::CrashHandlerHost::Get());
 }
 
 ChildExitObserver::~ChildExitObserver() {

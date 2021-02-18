@@ -69,9 +69,11 @@ void Decompress(const char* gzipped,
 
 std::vector<const char*> ReadValuesFromLine(char** rest,
                                             const char* delimiter) {
-  char* rest_of_line = strsep(rest, "\n");
-
   std::vector<const char*> ret;
+  char* rest_of_line = strsep(rest, "\n");
+  // Check for empty line (otherwise "" is added).
+  if (!*rest_of_line)
+    return ret;
   while (true) {
     char* token = strsep(&rest_of_line, delimiter);
     if (!token)
@@ -405,7 +407,9 @@ void ParseSizeInfo(const char* gzipped, unsigned long len, SizeInfo* info) {
       new_sym.size_ = cur_sizes[i];
       if (has_padding) {
         new_sym.padding_ = cur_paddings[i];
-        new_sym.size_ += new_sym.padding_;
+        if (!new_sym.IsOverhead()) {
+          new_sym.size_ += new_sym.padding_;
+        }
       }
       new_sym.section_name_ = cur_section_name;
       new_sym.object_path_ = info->object_paths[cur_path_indices[i]];

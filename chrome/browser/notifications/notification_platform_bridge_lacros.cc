@@ -12,8 +12,6 @@
 #include "base/numerics/safe_conversions.h"
 #include "base/optional.h"
 #include "chrome/browser/notifications/notification_platform_bridge_delegate.h"
-#include "chromeos/crosapi/cpp/bitmap.h"
-#include "chromeos/crosapi/cpp/bitmap_util.h"
 #include "chromeos/crosapi/mojom/message_center.mojom.h"
 #include "chromeos/crosapi/mojom/notification.mojom.h"
 #include "ui/message_center/public/cpp/notification.h"
@@ -59,21 +57,15 @@ crosapi::mojom::NotificationPtr ToMojo(
   mojo_note->message = notification.message();
   mojo_note->display_source = notification.display_source();
   mojo_note->origin_url = notification.origin_url();
-  if (!notification.icon().IsEmpty()) {
-    SkBitmap icon = notification.icon().AsBitmap();
-    mojo_note->icon = crosapi::BitmapFromSkBitmap(icon);
-  }
+  if (!notification.icon().IsEmpty())
+    mojo_note->icon = notification.icon().AsImageSkia();
   mojo_note->priority = base::ClampToRange(notification.priority(), -2, 2);
   mojo_note->require_interaction = notification.never_timeout();
   mojo_note->timestamp = notification.timestamp();
-  if (!notification.image().IsEmpty()) {
-    SkBitmap image = notification.image().AsBitmap();
-    mojo_note->image = crosapi::BitmapFromSkBitmap(image);
-  }
-  if (!notification.small_image().IsEmpty()) {
-    SkBitmap badge = notification.small_image().AsBitmap();
-    mojo_note->badge = crosapi::BitmapFromSkBitmap(badge);
-  }
+  if (!notification.image().IsEmpty())
+    mojo_note->image = notification.image().AsImageSkia();
+  if (!notification.small_image().IsEmpty())
+    mojo_note->badge = notification.small_image().AsImageSkia();
   for (const auto& item : notification.items()) {
     auto mojo_item = crosapi::mojom::NotificationItem::New();
     mojo_item->title = item.title;
@@ -163,7 +155,6 @@ NotificationPlatformBridgeLacros::NotificationPlatformBridgeLacros(
     : bridge_delegate_(delegate),
       message_center_remote_(message_center_remote) {
   DCHECK(bridge_delegate_);
-  DCHECK(message_center_remote_);
 }
 
 NotificationPlatformBridgeLacros::~NotificationPlatformBridgeLacros() = default;
@@ -173,6 +164,9 @@ void NotificationPlatformBridgeLacros::Display(
     Profile* profile,
     const message_center::Notification& notification,
     std::unique_ptr<NotificationCommon::Metadata> metadata) {
+  if (!message_center_remote_)
+    return;
+
   // |profile| is ignored because Profile management is handled in
   // NotificationPlatformBridgeChromeOs, which includes a profile ID as part of
   // the notification ID. Lacros does not support Chrome OS multi-signin, so we
@@ -192,6 +186,9 @@ void NotificationPlatformBridgeLacros::Display(
 void NotificationPlatformBridgeLacros::Close(
     Profile* profile,
     const std::string& notification_id) {
+  if (!message_center_remote_)
+    return;
+
   (*message_center_remote_)->CloseNotification(notification_id);
   // |remote_notifications_| is cleaned up after the remote notification closes
   // and notifies us via the delegate.
@@ -206,9 +203,7 @@ void NotificationPlatformBridgeLacros::GetDisplayed(
 
 void NotificationPlatformBridgeLacros::SetReadyCallback(
     NotificationBridgeReadyCallback callback) {
-  // We don't handle the absence of Ash or a failure to open a Mojo connection,
-  // so just assume the client is ready.
-  std::move(callback).Run(true);
+  std::move(callback).Run(!!message_center_remote_);
 }
 
 void NotificationPlatformBridgeLacros::DisplayServiceShutDown(

@@ -8,8 +8,7 @@
 #include "base/bind.h"
 #include "base/containers/queue.h"
 #include "base/run_loop.h"
-#include "base/test/bind_test_util.h"
-#include "base/test/scoped_feature_list.h"
+#include "base/test/bind.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/service_worker/service_worker_test_utils.h"
 #include "content/public/test/browser_task_environment.h"
@@ -142,9 +141,7 @@ class ServiceWorkerSingleScriptUpdateCheckerTest : public testing::Test {
         GURL(url), url == main_script_url, GURL(main_script_url), scope,
         force_bypass_cache, update_via_cache,
         std::move(fetch_client_settings_object), time_since_last_check,
-        net::HttpRequestHeaders(),
-        base::BindRepeating([](BrowserContext* context) { return context; },
-                            browser_context_.get()),
+        net::HttpRequestHeaders(), browser_context_.get(),
         base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
             loader_factory),
         WrapReader(std::move(compare_reader)),

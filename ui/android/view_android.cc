@@ -11,7 +11,7 @@
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
 #include "base/containers/adapters.h"
-#include "base/stl_util.h"
+#include "base/containers/contains.h"
 #include "cc/layers/layer.h"
 #include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -112,6 +112,32 @@ void ViewAndroid::UpdateFrameInfo(const FrameInfo& frame_info) {
 
 float ViewAndroid::GetDipScale() {
   return ui::GetScaleFactorForNativeView(this);
+}
+
+base::Optional<gfx::Rect> ViewAndroid::GetDisplayFeature() {
+  ScopedJavaLocalRef<jobject> delegate(GetViewAndroidDelegate());
+  if (delegate.is_null())
+    return base::nullopt;
+
+  JNIEnv* env = base::android::AttachCurrentThread();
+  base::android::ScopedJavaLocalRef<jintArray> jni_display_feature =
+      Java_ViewAndroidDelegate_getDisplayFeature(env, delegate);
+  std::vector<int> display_feature_values;
+  if (jni_display_feature.obj()) {
+    // In order to reduce jni overhead, the DisplayFeature is returned in
+    // an integer array. This array must have 4 items in it (or the return
+    // value should be null).
+    base::android::JavaIntArrayToIntVector(env, jni_display_feature,
+                                           &display_feature_values);
+    CHECK(display_feature_values.size() == 4);
+    gfx::Rect display_feature;
+    display_feature.SetByBounds(
+        display_feature_values[0], display_feature_values[1],
+        display_feature_values[2], display_feature_values[3]);
+    return display_feature;
+  }
+
+  return base::nullopt;
 }
 
 ScopedJavaLocalRef<jobject> ViewAndroid::GetEventForwarder() {
@@ -407,7 +433,7 @@ void ViewAndroid::OnCursorChanged(const Cursor& cursor) {
           env, delegate, static_cast<int>(mojom::CursorType::kPointer));
       return;
     }
-    ScopedJavaLocalRef<jobject> java_bitmap = gfx::ConvertToJavaBitmap(&bitmap);
+    ScopedJavaLocalRef<jobject> java_bitmap = gfx::ConvertToJavaBitmap(bitmap);
     Java_ViewAndroidDelegate_onCursorChangedToCustom(env, delegate, java_bitmap,
                                                      hotspot.x(), hotspot.y());
   } else {
@@ -511,15 +537,17 @@ void ViewAndroid::DispatchOnSizeChanged() {
   }
 }
 
-void ViewAndroid::OnPhysicalBackingSizeChanged(const gfx::Size& size) {
+void ViewAndroid::OnPhysicalBackingSizeChanged(
+    const gfx::Size& size,
+    base::Optional<base::TimeDelta> deadline_override) {
   if (physical_size_ == size)
     return;
   physical_size_ = size;
   if (event_handler_)
-    event_handler_->OnPhysicalBackingSizeChanged();
+    event_handler_->OnPhysicalBackingSizeChanged(deadline_override);
 
   for (auto* child : children_)
-    child->OnPhysicalBackingSizeChanged(size);
+    child->OnPhysicalBackingSizeChanged(size, deadline_override);
 }
 
 void ViewAndroid::OnControlsResizeViewChanged(bool controls_resize_view) {
@@ -655,6 +683,16 @@ bool ViewAndroid::ScrollTo(float x, float y) {
       return true;
   }
   return false;
+}
+
+void ViewAndroid::NotifyVirtualKeyboardOverlayRect(
+    const gfx::Rect& keyboard_rect) {
+  if (event_handler_)
+    event_handler_->NotifyVirtualKeyboardOverlayRect(keyboard_rect);
+
+  for (auto* child : children_) {
+    child->NotifyVirtualKeyboardOverlayRect(keyboard_rect);
+  }
 }
 
 template <typename E>

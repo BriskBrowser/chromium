@@ -70,6 +70,14 @@ class Navigation {
   // NavigationObserver::NavigationFailed.
   virtual bool IsDownload() = 0;
 
+  // Whether the target URL can be handled by the browser's internal protocol
+  // handlers, i.e., has a scheme that the browser knows how to process
+  // internally. Examples of such URLs are http(s) URLs, data URLs, and file
+  // URLs. A typical example of a URL for which there is no internal protocol
+  // handler (and for which this method would return false) is an intent:// URL.
+  // Added in 89.
+  virtual bool IsKnownProtocol() = 0;
+
   // Returns true if the navigation was stopped before it could complete because
   // NavigationController::Stop() was called.
   virtual bool WasStopCalled() = 0;
@@ -82,7 +90,8 @@ class Navigation {
     kHttpServerError = 2,    // Server responded with 5xx status code.
     kSSLError = 3,           // Certificate error.
     kConnectivityError = 4,  // Problem connecting to server.
-    kOtherError = 5,         // An error not listed above occurred.
+    kOtherError = 5,         // An error not listed above or below occurred.
+    kSafeBrowsingError = 6,  // Safe browsing error.
   };
 
   // Return information about the error, if any, that was encountered while
@@ -110,6 +119,11 @@ class Navigation {
   // SetRequestHeader().
   virtual void SetUserAgentString(const std::string& value) = 0;
 
+  // Disables auto-reload for this navigation if the network is down and comes
+  // back later. Auto-reload is enabled by default. This function may only be
+  // called from NavigationObserver::NavigationStarted().
+  virtual void DisableNetworkErrorAutoReload() = 0;
+
   // Whether the navigation was initiated by the page. Examples of
   // page-initiated navigations include:
   //  * <a> link click
@@ -126,6 +140,14 @@ class Navigation {
   // * page-initiated reloads, e.g. location.reload()
   // * reloads when the network interface is reconnected
   virtual bool IsReload() = 0;
+
+  // Whether the navigation is restoring a page from back-forward cache (see
+  // https://web.dev/bfcache/). Since a previously loaded page is being reused,
+  // there are some things embedders have to keep in mind such as:
+  //   * there will be no NavigationObserver::onFirstContentfulPaint callbacks
+  //   * if an embedder injects code using Tab::ExecuteScript there is no need
+  //     to reinject scripts
+  virtual bool IsServedFromBackForwardCache() = 0;
 };
 
 }  // namespace weblayer

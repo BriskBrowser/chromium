@@ -9,7 +9,6 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "chrome/browser/policy/cloud/policy_invalidation_util.h"
-#include "chrome/common/chrome_features.h"
 #include "components/invalidation/public/invalidation.h"
 #include "components/invalidation/public/invalidation_service.h"
 #include "components/invalidation/public/invalidation_util.h"
@@ -71,23 +70,23 @@ void RemoteCommandsInvalidator::Stop() {
 }
 
 void RemoteCommandsInvalidator::OnInvalidatorStateChange(
-    syncer::InvalidatorState state) {
+    invalidation::InvalidatorState state) {
   DCHECK_EQ(STARTED, state_);
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  invalidation_service_enabled_ = state == syncer::INVALIDATIONS_ENABLED;
+  invalidation_service_enabled_ = state == invalidation::INVALIDATIONS_ENABLED;
   UpdateInvalidationsEnabled();
 }
 
 void RemoteCommandsInvalidator::OnIncomingInvalidation(
-    const syncer::TopicInvalidationMap& invalidation_map) {
+    const invalidation::TopicInvalidationMap& invalidation_map) {
   DCHECK_EQ(STARTED, state_);
   DCHECK(thread_checker_.CalledOnValidThread());
 
   if (!invalidation_service_enabled_)
     LOG(WARNING) << "Unexpected invalidation received.";
 
-  const syncer::SingleObjectInvalidationSet& list =
+  const invalidation::SingleObjectInvalidationSet& list =
       invalidation_map.ForTopic(topic_);
   if (list.IsEmpty()) {
     NOTREACHED();
@@ -106,7 +105,7 @@ std::string RemoteCommandsInvalidator::GetOwnerName() const {
 }
 
 bool RemoteCommandsInvalidator::IsPublicTopic(
-    const syncer::Topic& topic) const {
+    const invalidation::Topic& topic) const {
   return IsPublicInvalidationTopic(topic);
 }
 
@@ -119,7 +118,7 @@ void RemoteCommandsInvalidator::ReloadPolicyData(
 
   // Create the Topic based on the policy data.
   // If the policy does not specify the Topic, then unregister.
-  syncer::Topic topic;
+  invalidation::Topic topic;
   if (!policy || !GetRemoteCommandTopicFromPolicy(*policy, &topic)) {
     Unregister();
     return;
@@ -131,7 +130,7 @@ void RemoteCommandsInvalidator::ReloadPolicyData(
     Register(topic);
 }
 
-void RemoteCommandsInvalidator::Register(const syncer::Topic& topic) {
+void RemoteCommandsInvalidator::Register(const invalidation::Topic& topic) {
   // Register this handler with the invalidation service if needed.
   if (!is_registered_) {
     OnInvalidatorStateChange(invalidation_service_->GetInvalidatorState());
@@ -152,8 +151,8 @@ void RemoteCommandsInvalidator::Register(const syncer::Topic& topic) {
 
 void RemoteCommandsInvalidator::Unregister() {
   if (is_registered_) {
-    CHECK(invalidation_service_->UpdateInterestedTopics(this,
-                                                        syncer::TopicSet()));
+    CHECK(invalidation_service_->UpdateInterestedTopics(
+        this, invalidation::TopicSet()));
     invalidation_service_->UnregisterInvalidationHandler(this);
     is_registered_ = false;
     UpdateInvalidationsEnabled();

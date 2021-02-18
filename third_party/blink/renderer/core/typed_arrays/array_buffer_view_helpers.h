@@ -17,7 +17,7 @@ namespace blink {
 // backed by a SharedArrayBuffer.  It is usable like a smart pointer.
 //
 //   void Foo(NotShared<DOMUint32Array> param) {
-//     size_t length = param->lengthAsSizeT();
+//     size_t length = param->length();
 //     ...
 //   }
 template <typename T>
@@ -52,8 +52,6 @@ class NotShared {
     return *this;
   }
 
-  // |View()| is a legacy API and deprecated.  Use Get() instead.
-  T* View() const { return GetRaw(); }
   T* Get() const { return GetRaw(); }
   void Clear() { typed_array_ = nullptr; }
 
@@ -110,8 +108,6 @@ class MaybeShared {
     return *this;
   }
 
-  // |View()| is a legacy API and deprecated.  Use Get() instead.
-  T* View() const { return GetRaw(); }
   T* Get() const { return GetRaw(); }
   void Clear() { typed_array_ = nullptr; }
 

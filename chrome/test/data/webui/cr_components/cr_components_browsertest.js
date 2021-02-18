@@ -8,6 +8,7 @@
 GEN_INCLUDE(['//chrome/test/data/webui/polymer_browser_test_base.js']);
 
 GEN('#include "content/public/test/browser_test.h"');
+GEN('#include "build/chromeos_buildflags.h"');
 
 /**
  * Test fixture for shared Polymer components.
@@ -17,7 +18,7 @@ GEN('#include "content/public/test/browser_test.h"');
 function CrComponentsBrowserTest() {}
 
 CrComponentsBrowserTest.prototype = {
-  __proto__: PolymerTest.prototype,
+  __proto__: Polymer2DeprecatedTest.prototype,
 
   /** @override */
   get browsePreload() {
@@ -62,7 +63,7 @@ TEST_F('CrComponentsManagedFootnoteTest', 'Events', function() {
   runMochaTest(this.suiteName, managed_footnote_test.TestNames.Events);
 });
 
-GEN('#if defined(OS_CHROMEOS)');
+GEN('#if BUILDFLAG(IS_CHROMEOS_ASH)');
 
 TEST_F('CrComponentsManagedFootnoteTest', 'LoadTimeDataDevice', function() {
   runMochaTest(

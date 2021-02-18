@@ -20,6 +20,7 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/bubble/bubble_frame_view.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "url/origin.h"
 
 LocationBarBubbleDelegateView::WebContentMouseHandler::WebContentMouseHandler(
@@ -56,7 +57,7 @@ LocationBarBubbleDelegateView::LocationBarBubbleDelegateView(
     Browser* browser = chrome::FindBrowserWithWebContents(web_contents);
     // |browser| can be null in tests.
     if (browser)
-      fullscreen_observer_.Add(
+      fullscreen_observation_.Observe(
           browser->exclusive_access_manager()->fullscreen_controller());
   }
 }
@@ -65,6 +66,8 @@ LocationBarBubbleDelegateView::~LocationBarBubbleDelegateView() = default;
 
 void LocationBarBubbleDelegateView::ShowForReason(DisplayReason reason,
                                                   bool allow_refocus_alert) {
+  display_reason_ = reason;
+
   // These bubbles all anchor to the location bar or toolbar. We selectively
   // anchor location bar bubbles to one end or the other of the toolbar based on
   // whether their normal anchor point is visible. However, if part or all of
@@ -77,7 +80,7 @@ void LocationBarBubbleDelegateView::ShowForReason(DisplayReason reason,
   // standards, however in this case there is no good reason not to ensure the
   // bubbles are displayed on-screen.
   set_adjust_if_offscreen(true);
-  GetBubbleFrameView()->set_preferred_arrow_adjustment(
+  GetBubbleFrameView()->SetPreferredArrowAdjustment(
       views::BubbleFrameView::PreferredArrowAdjustment::kOffset);
 
   if (reason == USER_GESTURE) {
@@ -94,10 +97,30 @@ void LocationBarBubbleDelegateView::ShowForReason(DisplayReason reason,
           l10n_util::GetStringUTF8(IDS_SHOW_BUBBLE_INACTIVE_DESCRIPTION));
     }
   }
-  if (ui::IsAlert(GetAccessibleWindowRole())) {
-    GetWidget()->GetRootView()->NotifyAccessibilityEvent(
-        ax::mojom::Event::kAlert, true);
+}
+
+ax::mojom::Role LocationBarBubbleDelegateView::GetAccessibleWindowRole() {
+  if (display_reason_ == USER_GESTURE) {
+    // crbug.com/1132318: The bubble appears as a direct result of a user
+    // action and will get focused. If we used an alert-like role, it would
+    // produce an event that would cause double-speaking the bubble.
+    return ax::mojom::Role::kDialog;
   }
+
+  // crbug.com/1079320, crbug.com/1119367, crbug.com/1119734: The bubble
+  // appears spontaneously over the course of the user's interaction with
+  // Chrome and doesn't get focused. We need an alert-like role so the
+  // corresponding event is triggered and ATs announce the bubble.
+#if defined(OS_WIN)
+  // crbug.com/1125118: Windows ATs only announce these bubbles if the alert
+  // role is used, despite it not being the most appropriate choice.
+  // TODO(accessibility): review the role mappings for alerts and dialogs,
+  // making sure they are translated to the best candidate in each flatform
+  // without resorting to hacks like this.
+  return ax::mojom::Role::kAlert;
+#else
+  return ax::mojom::Role::kAlertDialog;
+#endif
 }
 
 void LocationBarBubbleDelegateView::OnFullscreenStateChanged() {
@@ -124,7 +147,7 @@ void LocationBarBubbleDelegateView::DidFinishNavigation(
   }
 
   // Close dialog when navigating to a different domain.
-  if (!url::IsSameOriginWith(navigation_handle->GetPreviousURL(),
+  if (!url::IsSameOriginWith(navigation_handle->GetPreviousMainFrameURL(),
                              navigation_handle->GetURL())) {
     CloseBubble();
   }
@@ -153,3 +176,17 @@ void LocationBarBubbleDelegateView::AdjustForFullscreen(
 void LocationBarBubbleDelegateView::CloseBubble() {
   GetWidget()->Close();
 }
+
+void LocationBarBubbleDelegateView::SetCloseOnMainFrameOriginNavigation(
+    bool close) {
+  close_on_main_frame_origin_navigation_ = close;
+}
+
+bool LocationBarBubbleDelegateView::GetCloseOnMainFrameOriginNavigation()
+    const {
+  return close_on_main_frame_origin_navigation_;
+}
+
+BEGIN_METADATA(LocationBarBubbleDelegateView, views::BubbleDialogDelegateView)
+ADD_READONLY_PROPERTY_METADATA(bool, CloseOnMainFrameOriginNavigation)
+END_METADATA

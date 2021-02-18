@@ -13,6 +13,8 @@ on Windows:
   https://www.microsoft.com/en-us/download/details.aspx?id=14632
 
 Install selenium via pip: `pip install selenium`
+Selenium 4 is required for Edge. Selenium 4.00-alpha5 or later is recommended:
+  `pip install selenium==4.0.0a5`
 
 And finally install the web drivers for Chrome (and Edge if needed):
   http://chromedriver.chromium.org/downloads
@@ -22,7 +24,11 @@ Sample runs:
 
 python measure_power_intel.py --browser=canary --duration=10 --delay=5
   --verbose --url="https://www.youtube.com/watch?v=0XdS37Re1XQ"
-  --extra-browser-args="--no-sandbox --disable-features=UseSurfaceLayerForVideo"
+  --extra-browser-args="--no-sandbox"
+
+Supported browsers (--browser=xxx): 'stable', 'beta', 'dev', 'canary',
+  'chromium', 'edge', and path_to_exe_file.
+For Edge from insider channels (beta, dev, can), use path_to_exe_file.
 
 It is recommended to test with optimized builds of Chromium e.g. these GN args:
 
@@ -52,6 +58,7 @@ import time
 
 try:
   from selenium import webdriver
+  from selenium.common import exceptions
 except ImportError as error:
   logging.error(
       "This script needs selenium and appropriate web drivers to be installed.")
@@ -145,8 +152,17 @@ def LocateBrowser(options_browser):
 
 def CreateWebDriver(browser, user_data_dir, url, fullscreen,
                     extra_browser_args):
-  if browser == 'edge':
-    driver = webdriver.Edge()
+  if browser == 'edge' or browser.endswith('msedge.exe'):
+    options = webdriver.EdgeOptions()
+    # Set use_chromium to true or an error will be triggered that the latest
+    # MSEdgeDriver doesn't support an older version (non-chrome based) of
+    # MSEdge.
+    options.use_chromium = True
+    options.binary_location = browser
+    for arg in extra_browser_args:
+      options.add_argument(arg)
+    logging.debug(" ".join(options.arguments))
+    driver = webdriver.Edge(options=options)
   else:
     options = webdriver.ChromeOptions()
     options.binary_location = browser
@@ -169,7 +185,7 @@ def CreateWebDriver(browser, user_data_dir, url, fullscreen,
       actions.move_to_element(video_el)
       actions.double_click(video_el)
       actions.perform()
-    except:
+    except exceptions.InvalidSelectorException:
       logging.warning('Could not locate video element to make fullscreen')
   return driver
 
@@ -282,9 +298,9 @@ def main(argv):
       logging.error("Can't locate file at %s",
                     options.extra_browser_args_filename)
     else:
-      with open(options.extra_browser_args_filename, 'r') as file:
-        extra_browser_args.extend(file.read().split())
-        file.close()
+      with open(options.extra_browser_args_filename, 'r') as f:
+        extra_browser_args.extend(f.read().split())
+        f.close()
 
   for run in range(1, options.repeat + 1):
     logfile = ipg_utils.GenerateIPGLogFilename(log_prefix, options.logdir, run,

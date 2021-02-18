@@ -26,19 +26,22 @@ AutofillCreditCardFillingInfoBar::AutofillCreditCardFillingInfoBar(
 AutofillCreditCardFillingInfoBar::~AutofillCreditCardFillingInfoBar() {}
 
 base::android::ScopedJavaLocalRef<jobject>
-AutofillCreditCardFillingInfoBar::CreateRenderInfoBar(JNIEnv* env) {
+AutofillCreditCardFillingInfoBar::CreateRenderInfoBar(
+    JNIEnv* env,
+    const ResourceIdMapper& resource_id_mapper) {
   autofill::AutofillCreditCardFillingInfoBarDelegateMobile* delegate =
       static_cast<autofill::AutofillCreditCardFillingInfoBarDelegateMobile*>(
           GetDelegate());
   ScopedJavaLocalRef<jobject> java_bitmap;
   if (delegate->GetIconId() == infobars::InfoBarDelegate::kNoIconID &&
       !delegate->GetIcon().IsEmpty()) {
-    java_bitmap = gfx::ConvertToJavaBitmap(delegate->GetIcon().ToSkBitmap());
+    java_bitmap = gfx::ConvertToJavaBitmap(*delegate->GetIcon().ToSkBitmap());
   }
 
   base::android::ScopedJavaLocalRef<jobject> java_delegate =
       Java_AutofillCreditCardFillingInfoBar_create(
-          env, reinterpret_cast<intptr_t>(this), GetJavaIconId(), java_bitmap,
+          env, reinterpret_cast<intptr_t>(this),
+          resource_id_mapper.Run(delegate->GetIconId()), java_bitmap,
           base::android::ConvertUTF16ToJavaString(env,
                                                   delegate->GetMessageText()),
           base::android::ConvertUTF16ToJavaString(

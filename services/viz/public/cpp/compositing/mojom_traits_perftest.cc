@@ -10,6 +10,7 @@
 #include "components/viz/common/quads/solid_color_draw_quad.h"
 #include "components/viz/common/quads/texture_draw_quad.h"
 #include "components/viz/common/quads/tile_draw_quad.h"
+#include "components/viz/common/surfaces/subtree_capture_id.h"
 #include "components/viz/test/compositor_frame_helpers.h"
 #include "gpu/ipc/common/mailbox_holder_mojom_traits.h"
 #include "gpu/ipc/common/mailbox_mojom_traits.h"
@@ -191,28 +192,24 @@ class VizSerializationPerfTest : public testing::Test {
     ResourceId arbitrary_resourceid3 = 23;
     ResourceId arbitrary_resourceid4 = 16;
     SkScalar arbitrary_sigma = SkFloatToScalar(2.0f);
-    gfx::ContentColorUsage arbitrary_content_color_usage =
-        gfx::ContentColorUsage::kSRGB;
-    RenderPassId root_id{14};
+    CompositorRenderPassId root_id{14};
 
     cc::FilterOperations arbitrary_filters1;
     arbitrary_filters1.Append(
         cc::FilterOperation::CreateGrayscaleFilter(arbitrary_float1));
     arbitrary_filters1.Append(cc::FilterOperation::CreateReferenceFilter(
-        sk_make_sp<cc::BlurPaintFilter>(
-            arbitrary_sigma, arbitrary_sigma,
-            cc::BlurPaintFilter::TileMode::kClampToBlack_TileMode, nullptr)));
+        sk_make_sp<cc::BlurPaintFilter>(arbitrary_sigma, arbitrary_sigma,
+                                        SkTileMode::kDecal, nullptr)));
 
     cc::FilterOperations arbitrary_filters2;
     arbitrary_filters2.Append(
         cc::FilterOperation::CreateBrightnessFilter(arbitrary_float2));
 
-    std::unique_ptr<RenderPass> pass_in = RenderPass::Create();
+    auto pass_in = CompositorRenderPass::Create();
     pass_in->SetAll(root_id, arbitrary_rect1, arbitrary_rect2,
                     arbitrary_matrix1, arbitrary_filters2, arbitrary_filters1,
-                    arbitrary_rrectf1, arbitrary_content_color_usage,
-                    arbitrary_bool1, arbitrary_bool1, arbitrary_bool1,
-                    arbitrary_bool1);
+                    arbitrary_rrectf1, SubtreeCaptureId(), arbitrary_bool1,
+                    arbitrary_bool1, arbitrary_bool1, arbitrary_bool1);
 
     // Texture quads
     for (uint32_t i = 0; i < 10; ++i) {
@@ -220,8 +217,9 @@ class VizSerializationPerfTest : public testing::Test {
           pass_in->CreateAndAppendSharedQuadState();
       shared_state1_in->SetAll(
           arbitrary_matrix1, arbitrary_rect1, arbitrary_rect1,
-          arbitrary_rrectf1, arbitrary_rect2, arbitrary_bool1, arbitrary_bool1,
-          arbitrary_float1, arbitrary_blend_mode1, arbitrary_context_id1);
+          gfx::MaskFilterInfo(arbitrary_rrectf1), arbitrary_rect2,
+          arbitrary_bool1, arbitrary_bool1, arbitrary_float1,
+          arbitrary_blend_mode1, arbitrary_context_id1);
 
       auto* texture_in = pass_in->CreateAndAppendDrawQuad<TextureDrawQuad>();
       texture_in->SetAll(
@@ -262,8 +260,9 @@ class VizSerializationPerfTest : public testing::Test {
           pass_in->CreateAndAppendSharedQuadState();
       shared_state2_in->SetAll(
           arbitrary_matrix2, arbitrary_rect2, arbitrary_rect2,
-          arbitrary_rrectf2, arbitrary_rect3, arbitrary_bool1, arbitrary_bool1,
-          arbitrary_float2, arbitrary_blend_mode2, arbitrary_context_id2);
+          gfx::MaskFilterInfo(arbitrary_rrectf2), arbitrary_rect3,
+          arbitrary_bool1, arbitrary_bool1, arbitrary_float2,
+          arbitrary_blend_mode2, arbitrary_context_id2);
       for (uint32_t j = 0; j < 6; ++j) {
         auto* tile_in = pass_in->CreateAndAppendDrawQuad<TileDrawQuad>();
         tile_in->SetAll(
@@ -279,8 +278,9 @@ class VizSerializationPerfTest : public testing::Test {
           pass_in->CreateAndAppendSharedQuadState();
       shared_state3_in->SetAll(
           arbitrary_matrix1, arbitrary_rect3, arbitrary_rect3,
-          arbitrary_rrectf3, arbitrary_rect1, arbitrary_bool1, arbitrary_bool1,
-          arbitrary_float3, arbitrary_blend_mode3, arbitrary_context_id3);
+          gfx::MaskFilterInfo(arbitrary_rrectf3), arbitrary_rect1,
+          arbitrary_bool1, arbitrary_bool1, arbitrary_float3,
+          arbitrary_blend_mode3, arbitrary_context_id3);
       for (uint32_t j = 0; j < 5; ++j) {
         auto* solidcolor_in =
             pass_in->CreateAndAppendDrawQuad<SolidColorDrawQuad>();
@@ -301,9 +301,9 @@ class VizSerializationPerfTest : public testing::Test {
     CompositorFrame frame = MakeEmptyCompositorFrame();
 
     for (uint32_t i = 0; i < num_passes; ++i) {
-      std::unique_ptr<RenderPass> render_pass = RenderPass::Create();
-      render_pass->SetNew(RenderPassId{1}, gfx::Rect(20, 20), gfx::Rect(),
-                          gfx::Transform());
+      auto render_pass = CompositorRenderPass::Create();
+      render_pass->SetNew(CompositorRenderPassId{1}, gfx::Rect(20, 20),
+                          gfx::Rect(), gfx::Transform());
       for (uint32_t j = 0; j < num_quads; ++j) {
         if (j == 0 || single_sqs == UseSingleSharedQuadState::NO)
           render_pass->CreateAndAppendSharedQuadState();

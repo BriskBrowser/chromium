@@ -15,7 +15,6 @@
 #include "net/base/net_export.h"
 #include "net/base/network_isolation_key.h"
 #include "net/cert/cert_verify_result.h"
-#include "net/cert/ct_verify_result.h"
 #include "net/cert/x509_certificate.h"
 #include "net/log/net_log_with_source.h"
 #include "net/third_party/quiche/src/quic/core/crypto/proof_verifier.h"
@@ -24,7 +23,6 @@ namespace net {
 
 class CTPolicyEnforcer;
 class CertVerifier;
-class CTVerifier;
 class SCTAuditingDelegate;
 class TransportSecurityState;
 
@@ -41,7 +39,6 @@ class NET_EXPORT_PRIVATE ProofVerifyDetailsChromium
   quic::ProofVerifyDetails* Clone() const override;
 
   CertVerifyResult cert_verify_result;
-  ct::CTVerifyResult ct_verify_result;
 
   // pinning_failure_log contains a message produced by
   // TransportSecurityState::PKPState::CheckPublicKeyPins in the event of a
@@ -75,7 +72,6 @@ class NET_EXPORT_PRIVATE ProofVerifierChromium : public quic::ProofVerifier {
   ProofVerifierChromium(CertVerifier* cert_verifier,
                         CTPolicyEnforcer* ct_policy_enforcer,
                         TransportSecurityState* transport_security_state,
-                        CTVerifier* cert_transparency_verifier,
                         SCTAuditingDelegate* sct_auditing_delegate,
                         std::set<std::string> hostnames_to_allow_unknown_roots,
                         const NetworkIsolationKey& network_isolation_key);
@@ -87,7 +83,7 @@ class NET_EXPORT_PRIVATE ProofVerifierChromium : public quic::ProofVerifier {
       const uint16_t port,
       const std::string& server_config,
       quic::QuicTransportVersion quic_version,
-      quiche::QuicheStringPiece chlo_hash,
+      absl::string_view chlo_hash,
       const std::vector<std::string>& certs,
       const std::string& cert_sct,
       const std::string& signature,
@@ -104,6 +100,7 @@ class NET_EXPORT_PRIVATE ProofVerifierChromium : public quic::ProofVerifier {
       const quic::ProofVerifyContext* verify_context,
       std::string* error_details,
       std::unique_ptr<quic::ProofVerifyDetails>* verify_details,
+      uint8_t* out_alert,
       std::unique_ptr<quic::ProofVerifierCallback> callback) override;
   std::unique_ptr<quic::ProofVerifyContext> CreateDefaultContext() override;
 
@@ -120,7 +117,6 @@ class NET_EXPORT_PRIVATE ProofVerifierChromium : public quic::ProofVerifier {
   CTPolicyEnforcer* const ct_policy_enforcer_;
 
   TransportSecurityState* const transport_security_state_;
-  CTVerifier* const cert_transparency_verifier_;
 
   SCTAuditingDelegate* const sct_auditing_delegate_;
 

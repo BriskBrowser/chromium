@@ -10,15 +10,15 @@
 #include "ash/focus_cycler.h"
 #include "ash/metrics/pip_uma.h"
 #include "ash/public/cpp/app_types.h"
+#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/window_animation_types.h"
-#include "ash/public/cpp/window_pin_type.h"
 #include "ash/public/cpp/window_properties.h"
-#include "ash/public/cpp/window_state_type.h"
 #include "ash/screen_util.h"
 #include "ash/shell.h"
 #include "ash/wm/collision_detection/collision_detection_utils.h"
 #include "ash/wm/default_state.h"
+#include "ash/wm/full_restore/full_restore_controller.h"
 #include "ash/wm/pip/pip_positioner.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_animations.h"
@@ -31,11 +31,13 @@
 #include "base/auto_reset.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "chromeos/ui/base/window_pin_type.h"
+#include "chromeos/ui/base/window_properties.h"
+#include "chromeos/ui/base/window_state_type.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/layout_manager.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_delegate.h"
-#include "ui/compositor/animation_metrics_reporter.h"
 #include "ui/compositor/layer_tree_owner.h"
 #include "ui/compositor/paint_recorder.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
@@ -50,6 +52,13 @@
 
 namespace ash {
 namespace {
+
+using ::chromeos::kHideShelfWhenFullscreenKey;
+using ::chromeos::kImmersiveIsActive;
+using ::chromeos::kWindowManagerManagesOpacityKey;
+using ::chromeos::kWindowPinTypeKey;
+using ::chromeos::WindowPinType;
+using ::chromeos::WindowStateType;
 
 bool IsTabletModeEnabled() {
   return Shell::Get()->tablet_mode_controller()->InTabletMode();
@@ -111,13 +120,13 @@ WMEventType WMEventTypeFromShowState(ui::WindowShowState requested_show_state) {
   return WM_EVENT_NORMAL;
 }
 
-WMEventType WMEventTypeFromWindowPinType(ash::WindowPinType type) {
+WMEventType WMEventTypeFromWindowPinType(chromeos::WindowPinType type) {
   switch (type) {
-    case ash::WindowPinType::kNone:
+    case chromeos::WindowPinType::kNone:
       return WM_EVENT_NORMAL;
-    case ash::WindowPinType::kPinned:
+    case chromeos::WindowPinType::kPinned:
       return WM_EVENT_PIN;
-    case ash::WindowPinType::kTrustedPinned:
+    case chromeos::WindowPinType::kTrustedPinned:
       return WM_EVENT_TRUSTED_PIN;
   }
   NOTREACHED() << "No WMEvent defined for the window pin type:" << type;
@@ -166,6 +175,16 @@ void ReportAshPipAndroidPipUseTime(base::TimeDelta duration) {
   UMA_HISTOGRAM_CUSTOM_TIMES(kAshPipAndroidPipUseTimeHistogramName, duration,
                              base::TimeDelta::FromSeconds(1),
                              base::TimeDelta::FromHours(10), 50);
+}
+
+// Notifies the full restore controller to write to file.
+void SaveWindowForFullRestore(WindowState* window_state) {
+  if (!features::IsFullRestoreEnabled())
+    return;
+
+  auto* controller = FullRestoreController::Get();
+  if (controller)
+    controller->SaveWindow(window_state);
 }
 
 }  // namespace
@@ -517,6 +536,7 @@ void WindowState::OnCompleteDrag(const gfx::PointF& location) {
   DCHECK(drag_details_);
   if (delegate_)
     delegate_->OnDragFinished(/*canceled=*/false, location);
+  SaveWindowForFullRestore(this);
 }
 
 void WindowState::OnRevertDrag(const gfx::PointF& location) {
@@ -563,7 +583,8 @@ WindowState::WindowState(aura::Window* window)
       autohide_shelf_when_maximized_or_fullscreen_(false),
       cached_z_order_(ui::ZOrderLevel::kNormal),
       ignore_property_change_(false),
-      current_state_(new DefaultState(ToWindowStateType(GetShowState()))) {
+      current_state_(
+          new DefaultState(chromeos::ToWindowStateType(GetShowState()))) {
   window_->AddObserver(this);
   UpdateWindowPropertiesFromStateType();
   OnPrePipStateChange(WindowStateType::kDefault);
@@ -618,9 +639,9 @@ void WindowState::UpdateWindowPropertiesFromStateType() {
     window_->SetProperty(aura::client::kShowStateKey, new_window_state);
   }
 
-  if (GetStateType() != window_->GetProperty(kWindowStateTypeKey)) {
+  if (GetStateType() != window_->GetProperty(chromeos::kWindowStateTypeKey)) {
     base::AutoReset<bool> resetter(&ignore_property_change_, true);
-    window_->SetProperty(kWindowStateTypeKey, GetStateType());
+    window_->SetProperty(chromeos::kWindowStateTypeKey, GetStateType());
   }
 
   // sync up current window show state with PinType property.
@@ -660,6 +681,7 @@ void WindowState::NotifyPostStateTypeChange(
   for (auto& observer : observer_list_)
     observer.OnPostWindowStateTypeChange(this, old_window_state_type);
   OnPostPipStateChange(old_window_state_type);
+  SaveWindowForFullRestore(this);
 }
 
 void WindowState::OnPostPipStateChange(WindowStateType old_window_state_type) {
@@ -813,7 +835,7 @@ void WindowState::UpdatePipBounds() {
 }
 
 void WindowState::CollectPipEnterExitMetrics(bool enter) {
-  const bool is_arc = window_util::IsArcWindow(window());
+  const bool is_arc = IsArcWindow(window());
   if (enter) {
     pip_start_time_ = base::TimeTicks::Now();
 
@@ -895,11 +917,21 @@ void WindowState::OnWindowPropertyChanged(aura::Window* window,
     }
     return;
   }
-  if (key == kWindowStateTypeKey) {
+  if (key == chromeos::kWindowStateTypeKey) {
     if (!ignore_property_change_) {
       // This change came from somewhere else. Revert it.
-      window->SetProperty(kWindowStateTypeKey, GetStateType());
+      window->SetProperty(chromeos::kWindowStateTypeKey, GetStateType());
     }
+    return;
+  }
+  if (key == aura::client::kWindowWorkspaceKey) {
+    // Save the window for full restore purposes unless
+    // |ignore_property_change_| is true. Note that moving windows across
+    // displays will also trigger a property change, even if the value stays the
+    // same, so we do not need to save the window when it changes root windows
+    // (OnWindowAddedToRootWindow).
+    if (!ignore_property_change_)
+      SaveWindowForFullRestore(this);
     return;
   }
 
@@ -949,6 +981,9 @@ void WindowState::OnWindowBoundsChanged(aura::Window* window,
       window_->GetProperty(ash::kWindowManagerManagesOpacityKey)) {
     window_->SetOpaqueRegionsForOcclusion({gfx::Rect(new_bounds.size())});
   }
+
+  if (reason != ui::PropertyChangeReason::FROM_ANIMATION && !is_dragged())
+    SaveWindowForFullRestore(this);
 }
 
 }  // namespace ash

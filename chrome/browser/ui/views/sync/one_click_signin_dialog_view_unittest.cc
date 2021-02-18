@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "chrome/browser/ui/views/chrome_constrained_window_views_client.h"
@@ -48,7 +48,7 @@ class OneClickSigninDialogViewTest : public ChromeViewsTestBase,
 
     OneClickSigninDialogView* view =
         OneClickSigninDialogView::view_for_testing();
-    EXPECT_TRUE(view != NULL);
+    EXPECT_NE(nullptr, view);
     return view;
   }
 

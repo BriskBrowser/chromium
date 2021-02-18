@@ -56,7 +56,7 @@ health::mojom::ProbeErrorPtr UncheckedConvertPtr(
 }
 
 health::mojom::UInt64ValuePtr UncheckedConvertPtr(
-    cros_healthd::mojom::UInt64ValuePtr input) {
+    cros_healthd::mojom::NullableUint64Ptr input) {
   return health::mojom::UInt64Value::New(input->value);
 }
 
@@ -116,7 +116,9 @@ health::mojom::NonRemovableBlockDeviceResultPtr UncheckedConvertPtr(
 health::mojom::CachedVpdInfoPtr UncheckedConvertPtr(
     cros_healthd::mojom::SystemInfoPtr input) {
   return health::mojom::CachedVpdInfo::New(
-      std::move(input->product_sku_number));
+      std::move(input->product_sku_number),
+      std::move(input->product_serial_number),
+      std::move(input->product_model_name));
 }
 
 health::mojom::CachedVpdResultPtr UncheckedConvertPtr(

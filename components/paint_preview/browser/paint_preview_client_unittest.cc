@@ -77,6 +77,9 @@ class MockPaintPreviewRecorder : public mojom::PaintPreviewRecorder {
     EXPECT_EQ(input_params->guid, expected_params_->guid);
     EXPECT_EQ(input_params->clip_rect, expected_params_->clip_rect);
     EXPECT_EQ(input_params->is_main_frame, expected_params_->is_main_frame);
+    if (expected_params_->is_main_frame) {
+      EXPECT_FALSE(input_params->clip_rect_is_hint);
+    }
   }
 
   base::OnceClosure closure_;
@@ -204,7 +207,7 @@ TEST_P(PaintPreviewClientRenderViewHostTest, CaptureMainFrameMock) {
             base::ScopedAllowBlockingForTesting scope;
 #if defined(OS_WIN)
             base::FilePath path = base::FilePath(
-                base::UTF8ToUTF16(result->proto.root_frame().file_path()));
+                base::UTF8ToWide(result->proto.root_frame().file_path()));
 #else
             base::FilePath path =
                 base::FilePath(result->proto.root_frame().file_path());

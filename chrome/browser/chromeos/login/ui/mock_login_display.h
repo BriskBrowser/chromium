@@ -22,9 +22,8 @@ class MockLoginDisplay : public LoginDisplay {
   MOCK_METHOD1(OnUserImageChanged, void(const user_manager::User&));
   MOCK_METHOD1(SetUIEnabled, void(bool));
   MOCK_METHOD3(ShowError, void(int, int, HelpAppLauncher::HelpTopic));
-  MOCK_METHOD2(ShowPasswordChangedDialog, void(bool, const AccountId&));
   MOCK_METHOD1(ShowSigninUI, void(const std::string&));
-  MOCK_METHOD0(ShowWhitelistCheckFailedError, void(void));
+  MOCK_METHOD0(ShowAllowlistCheckFailedError, void(void));
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockLoginDisplay);

@@ -214,25 +214,26 @@ void WebEmbeddedWorkerImpl::StartWorkerThread(
       worker_start_data->script_url, worker_start_data->script_type,
       global_scope_name, worker_start_data->user_agent,
       worker_start_data->ua_metadata, std::move(web_worker_fetch_context),
-      Vector<CSPHeaderAndType>(), network::mojom::ReferrerPolicy::kDefault,
-      starter_origin.get(), starter_secure_context, starter_https_state,
-      nullptr /* worker_clients */, std::move(content_settings_proxy),
+      Vector<network::mojom::blink::ContentSecurityPolicyPtr>(),
+      network::mojom::ReferrerPolicy::kDefault, starter_origin.get(),
+      starter_secure_context, starter_https_state, nullptr /* worker_clients */,
+      std::move(content_settings_proxy),
       base::nullopt /* response_address_space */,
       nullptr /* OriginTrialTokens */, worker_start_data->devtools_worker_token,
       std::move(worker_settings),
       // Generate the full code cache in the first execution of the script.
-      kV8CacheOptionsFullCodeWithoutHeatCheck,
+      mojom::blink::V8CacheOptions::kFullCodeWithoutHeatCheck,
       nullptr /* worklet_module_respones_map */,
       std::move(browser_interface_broker), BeginFrameProviderParams(),
       nullptr /* parent_feature_policy */,
-      base::UnguessableToken() /* agent_cluster_id */);
+      base::UnguessableToken() /* agent_cluster_id */,
+      worker_start_data->ukm_source_id);
 
   worker_thread_ = std::make_unique<ServiceWorkerThread>(
       std::make_unique<ServiceWorkerGlobalScopeProxy>(
           *this, *worker_context_client_, initiator_thread_task_runner),
       std::move(installed_scripts_manager), std::move(cache_storage_remote),
-      initiator_thread_task_runner, worker_start_data->service_worker_token,
-      worker_start_data->ukm_source_id);
+      initiator_thread_task_runner, worker_start_data->service_worker_token);
 
   auto devtools_params = std::make_unique<WorkerDevToolsParams>();
   devtools_params->devtools_worker_token =
@@ -264,10 +265,10 @@ void WebEmbeddedWorkerImpl::StartWorkerThread(
     // > "classic": Fetch a classic worker script given job's serialized script
     // > url, job's client, "serviceworker", and the to-be-created environment
     // > settings object for this service worker.
-    case mojom::ScriptType::kClassic:
+    case mojom::blink::ScriptType::kClassic:
       worker_thread_->FetchAndRunClassicScript(
           worker_start_data->script_url,
-          nullptr /* worker_main_script_load_params */,
+          std::move(worker_start_data->main_script_load_params),
           std::move(fetch_client_setting_object_data),
           nullptr /* outside_resource_timing_notifier */,
           v8_inspector::V8StackTraceId());
@@ -276,10 +277,10 @@ void WebEmbeddedWorkerImpl::StartWorkerThread(
     // > "module": Fetch a module worker script graph given job’s serialized
     // > script url, job’s client, "serviceworker", "omit", and the
     // > to-be-created environment settings object for this service worker.
-    case mojom::ScriptType::kModule:
+    case mojom::blink::ScriptType::kModule:
       worker_thread_->FetchAndRunModuleScript(
           worker_start_data->script_url,
-          nullptr /* worker_main_script_load_params */,
+          std::move(worker_start_data->main_script_load_params),
           std::move(fetch_client_setting_object_data),
           nullptr /* outside_resource_timing_notifier */,
           network::mojom::CredentialsMode::kOmit);

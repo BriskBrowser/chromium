@@ -19,8 +19,11 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_throw_dom_exception.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_quic_transport_options.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_rtc_dtls_fingerprint.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_web_transport_close_info.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
+#include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/core/streams/readable_stream.h"
 #include "third_party/blink/renderer/core/streams/readable_stream_default_controller_with_script_scope.h"
 #include "third_party/blink/renderer/core/streams/underlying_sink_base.h"
@@ -36,6 +39,7 @@
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/heap/visitor.h"
+#include "third_party/blink/renderer/platform/loader/fetch/unique_identifier.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -72,8 +76,8 @@ bool CreateStreamDataPipe(mojo::ScopedDataPipeProducerHandle* producer,
 // Sends a datagram on write().
 class QuicTransport::DatagramUnderlyingSink final : public UnderlyingSinkBase {
  public:
-  explicit DatagramUnderlyingSink(QuicTransport* quic_transport)
-      : quic_transport_(quic_transport) {}
+  DatagramUnderlyingSink(QuicTransport* quic_transport, int high_water_mark)
+      : quic_transport_(quic_transport), high_water_mark_(high_water_mark) {}
 
   ScriptPromise start(ScriptState* script_state,
                       WritableStreamDefaultController*,
@@ -89,8 +93,8 @@ class QuicTransport::DatagramUnderlyingSink final : public UnderlyingSinkBase {
     if (v8chunk->IsArrayBuffer()) {
       DOMArrayBuffer* data =
           V8ArrayBuffer::ToImpl(v8chunk.As<v8::ArrayBuffer>());
-      return SendDatagram({static_cast<const uint8_t*>(data->Data()),
-                           data->ByteLengthAsSizeT()});
+      return SendDatagram(
+          {static_cast<const uint8_t*>(data->Data()), data->ByteLength()});
     }
 
     auto* isolate = script_state->GetIsolate();
@@ -102,10 +106,9 @@ class QuicTransport::DatagramUnderlyingSink final : public UnderlyingSinkBase {
         return ScriptPromise();
       }
 
-      return SendDatagram(
-          {static_cast<const uint8_t*>(data.View()->buffer()->Data()) +
-               data.View()->byteOffsetAsSizeT(),
-           data.View()->byteLengthAsSizeT()});
+      return SendDatagram({static_cast<const uint8_t*>(data->buffer()->Data()) +
+                               data->byteOffset(),
+                           data->byteLength()});
     }
 
     exception_state.ThrowTypeError(
@@ -127,6 +130,7 @@ class QuicTransport::DatagramUnderlyingSink final : public UnderlyingSinkBase {
 
   void Trace(Visitor* visitor) const override {
     visitor->Trace(quic_transport_);
+    visitor->Trace(pending_datagrams_);
     UnderlyingSinkBase::Trace(visitor);
   }
 
@@ -141,18 +145,31 @@ class QuicTransport::DatagramUnderlyingSink final : public UnderlyingSinkBase {
 
     auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(
         quic_transport_->script_state_);
+    pending_datagrams_.push_back(resolver);
+
     quic_transport_->quic_transport_->SendDatagram(
-        data, WTF::Bind(&DatagramSent, WrapPersistent(resolver)));
+        data, WTF::Bind(&DatagramUnderlyingSink::OnDatagramProcessed,
+                        WrapWeakPersistent(this)));
+    if (pending_datagrams_.size() < static_cast<wtf_size_t>(high_water_mark_)) {
+      // In this case we pretend that the datagram is processed immediately, to
+      // get more requests from the stream.
+      return ScriptPromise::CastUndefined(quic_transport_->script_state_);
+    }
     return resolver->Promise();
   }
 
-  // |sent| indicates whether the datagram was sent or dropped. Currently we
-  // |don't do anything with this information.
-  static void DatagramSent(ScriptPromiseResolver* resolver, bool sent) {
+  void OnDatagramProcessed(bool sent) {
+    DCHECK(!pending_datagrams_.empty());
+
+    ScriptPromiseResolver* resolver = pending_datagrams_.front();
+    pending_datagrams_.pop_front();
+
     resolver->Resolve();
   }
 
   Member<QuicTransport> quic_transport_;
+  const int high_water_mark_;
+  HeapDeque<Member<ScriptPromiseResolver>> pending_datagrams_;
 };
 
 // Captures a pointer to the ReadableStreamDefaultControllerWithScriptScope in
@@ -347,6 +364,7 @@ QuicTransport* QuicTransport::Create(ScriptState* script_state,
                                      ExceptionState& exception_state) {
   DVLOG(1) << "QuicTransport::Create() url=" << url;
   DCHECK(options);
+  ExecutionContext::From(script_state)->CountUse(WebFeature::kQuicTransport);
   auto* transport =
       MakeGarbageCollected<QuicTransport>(PassKey(), script_state, url);
   transport->Init(url, *options, exception_state);
@@ -366,12 +384,14 @@ QuicTransport::QuicTransport(ScriptState* script_state,
       url_(NullURL(), url),
       quic_transport_(context),
       handshake_client_receiver_(this, context),
-      client_receiver_(this, context) {}
+      client_receiver_(this, context),
+      inspector_transport_id_(CreateUniqueIdentifier()) {}
 
 ScriptPromise QuicTransport::createSendStream(ScriptState* script_state,
                                               ExceptionState& exception_state) {
   DVLOG(1) << "QuicTransport::createSendStream() this=" << this;
 
+  GetExecutionContext()->CountUse(WebFeature::kQuicTransportStreamApis);
   if (!quic_transport_.is_bound()) {
     // TODO(ricea): Should we wait if we're still connecting?
     exception_state.ThrowDOMException(DOMExceptionCode::kNetworkError,
@@ -398,11 +418,17 @@ ScriptPromise QuicTransport::createSendStream(ScriptState* script_state,
   return resolver->Promise();
 }
 
+ReadableStream* QuicTransport::receiveStreams() {
+  GetExecutionContext()->CountUse(WebFeature::kQuicTransportStreamApis);
+  return received_streams_;
+}
+
 ScriptPromise QuicTransport::createBidirectionalStream(
     ScriptState* script_state,
     ExceptionState& exception_state) {
   DVLOG(1) << "QuicTransport::createBidirectionalStream() this=" << this;
 
+  GetExecutionContext()->CountUse(WebFeature::kQuicTransportStreamApis);
   if (!quic_transport_.is_bound()) {
     // TODO(ricea): We should wait if we are still connecting.
     exception_state.ThrowDOMException(DOMExceptionCode::kNetworkError,
@@ -440,6 +466,21 @@ ScriptPromise QuicTransport::createBidirectionalStream(
                 std::move(outgoing_producer), std::move(incoming_consumer)));
 
   return resolver->Promise();
+}
+
+ReadableStream* QuicTransport::receiveBidirectionalStreams() {
+  GetExecutionContext()->CountUse(WebFeature::kQuicTransportStreamApis);
+  return received_bidirectional_streams_;
+}
+
+WritableStream* QuicTransport::sendDatagrams() {
+  GetExecutionContext()->CountUse(WebFeature::kQuicTransportDatagramApis);
+  return outgoing_datagrams_;
+}
+
+ReadableStream* QuicTransport::receiveDatagrams() {
+  GetExecutionContext()->CountUse(WebFeature::kQuicTransportDatagramApis);
+  return received_datagrams_;
 }
 
 void QuicTransport::close(const WebTransportCloseInfo* close_info) {
@@ -483,7 +524,8 @@ void QuicTransport::OnConnectionEstablished(
   DVLOG(1) << "QuicTransport::OnConnectionEstablished() this=" << this;
   handshake_client_receiver_.reset();
 
-  // TODO(ricea): Report to devtools.
+  probe::WebTransportConnectionEstablished(GetExecutionContext(),
+                                           inspector_transport_id_);
 
   auto task_runner =
       GetExecutionContext()->GetTaskRunner(TaskType::kNetworking);
@@ -577,6 +619,11 @@ void QuicTransport::AbortStream(uint32_t stream_id) {
 
 void QuicTransport::ForgetStream(uint32_t stream_id) {
   stream_map_.erase(stream_id);
+}
+
+void QuicTransport::SetDatagramWritableQueueExpirationDuration(
+    base::TimeDelta duration) {
+  quic_transport_->SetOutgoingDatagramExpirationDuration(duration);
 }
 
 void QuicTransport::Trace(Visitor* visitor) const {
@@ -676,7 +723,7 @@ void QuicTransport::Init(const String& url,
   handshake_client_receiver_.set_disconnect_handler(
       WTF::Bind(&QuicTransport::OnConnectionError, WrapWeakPersistent(this)));
 
-  // TODO(ricea): Report something to devtools.
+  probe::WebTransportCreated(execution_context, inspector_transport_id_, url_);
 
   // The choice of 1 for the ReadableStream means that it will queue one
   // datagram even when read() is not being called. Unfortunately, that datagram
@@ -685,8 +732,25 @@ void QuicTransport::Init(const String& url,
   received_datagrams_ = ReadableStream::CreateWithCountQueueingStrategy(
       script_state_,
       MakeGarbageCollected<DatagramUnderlyingSource>(script_state_, this), 1);
+  int outgoing_datagrams_high_water_mark = 1;
+  if (options.hasDatagramWritableHighWaterMark()) {
+    outgoing_datagrams_high_water_mark =
+        options.datagramWritableHighWaterMark();
+  }
+
+  // We create a WritableStream with high water mark 1 and try to mimic the
+  // given high water mark in the Sink, from two reasons:
+  // 1. This is better because we can hide the RTT between the renderer and the
+  //    network service.
+  // 2. Keeping datagrams in the renderer would be confusing for the timer for
+  // the datagram
+  //    queue in the network service, because the timestamp is taken when the
+  //    datagram is added to the queue.
   outgoing_datagrams_ = WritableStream::CreateWithCountQueueingStrategy(
-      script_state_, MakeGarbageCollected<DatagramUnderlyingSink>(this), 1);
+      script_state_,
+      MakeGarbageCollected<DatagramUnderlyingSink>(
+          this, outgoing_datagrams_high_water_mark),
+      1);
 
   received_streams_underlying_source_ =
       StreamVendingUnderlyingSource::CreateWithVendor<ReceiveStreamVendor>(
@@ -719,6 +783,7 @@ void QuicTransport::ResetAll() {
 
 void QuicTransport::Dispose() {
   DVLOG(1) << "QuicTransport::Dispose() this=" << this;
+  probe::WebTransportClosed(GetExecutionContext(), inspector_transport_id_);
   stream_map_.clear();
   quic_transport_.reset();
   handshake_client_receiver_.reset();

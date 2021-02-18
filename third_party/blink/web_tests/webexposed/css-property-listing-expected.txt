@@ -68,6 +68,7 @@ All changes to this list should go through Blink's feature review process: http:
     animation-iteration-count
     animation-name
     animation-play-state
+    animation-timeline
     animation-timing-function
     appearance
     aspect-ratio
@@ -98,6 +99,8 @@ All changes to this list should go through Blink's feature review process: http:
     border-bottom-style
     border-bottom-width
     border-collapse
+    border-end-end-radius
+    border-end-start-radius
     border-image-outset
     border-image-repeat
     border-image-slice
@@ -115,6 +118,8 @@ All changes to this list should go through Blink's feature review process: http:
     border-right-color
     border-right-style
     border-right-width
+    border-start-end-radius
+    border-start-start-radius
     border-top-color
     border-top-left-radius
     border-top-right-radius
@@ -187,6 +192,7 @@ All changes to this list should go through Blink's feature review process: http:
     font-variant-numeric
     font-variation-settings
     font-weight
+    forced-color-adjust
     grid-auto-columns
     grid-auto-flow
     grid-auto-rows
@@ -232,8 +238,9 @@ All changes to this list should go through Blink's feature review process: http:
     marker-start
     mask
     mask-type
+    math-depth
+    math-shift
     math-style
-    math-superscript-shift-style
     max-block-size
     max-height
     max-inline-size
@@ -259,6 +266,7 @@ All changes to this list should go through Blink's feature review process: http:
     outline-width
     overflow-anchor
     overflow-block
+    overflow-clip-margin
     overflow-inline
     overflow-wrap
     overflow-x
@@ -313,6 +321,7 @@ All changes to this list should go through Blink's feature review process: http:
     scroll-snap-stop
     scroll-snap-type
     scrollbar-gutter
+    scrollbar-width
     shape-image-threshold
     shape-margin
     shape-outside
@@ -420,6 +429,7 @@ All changes to this list should go through Blink's feature review process: http:
         animation-iteration-count
         animation-name
         animation-play-state
+        animation-timeline
         animation-timing-function
     background
         background-attachment

@@ -6,7 +6,9 @@
 #define ASH_ACCESSIBILITY_POINT_SCAN_CONTROLLER_H_
 
 #include "ash/accessibility/accessibility_layer.h"
+#include "ash/accessibility/point_scan_layer_animation_info.h"
 #include "ash/ash_export.h"
+#include "ui/gfx/geometry/point_f.h"
 
 namespace ash {
 
@@ -23,17 +25,51 @@ class ASH_EXPORT PointScanController : public AccessibilityLayerDelegate {
   PointScanController(const PointScanController&) = delete;
   PointScanController& operator=(const PointScanController&) = delete;
 
-  // Starts point scanning, by sweeping a line across the screen and waiting for
-  // user input.
-  // TODO(crbug/1061537): Animate the line across the screen.
+  enum class PointScanState {
+    // Point scanning is currently range scanning horizontally.
+    kHorizontalRangeScanning,
+    // Point scanning is currently scanning horizontally.
+    kHorizontalScanning,
+    // Point scanning is currently range scanning vertically.
+    kVerticalRangeScanning,
+    // Point scanning is currently scanning vertically.
+    kVerticalScanning,
+    // Point scanning is not scanning.
+    kOff,
+  };
+
+  // Starts point scanning, by sweeping a range across the screen and waiting
+  // for user input.
   void Start();
+  void StartHorizontalRangeScan();
+  void StartHorizontalLineScan();
+  void StartVerticalRangeScan();
+  void StartVerticalLineScan();
+  void Stop();
+  void HideAll();
+  void ResetAnimation();
+  base::Optional<gfx::PointF> OnPointSelect();
+  bool IsPointScanEnabled();
 
  private:
   // AccessibilityLayerDelegate implementation:
   void OnDeviceScaleFactorChanged() override;
   void OnAnimationStep(base::TimeTicks timestamp) override;
 
-  std::unique_ptr<PointScanLayer> point_scan_layer_;
+  void UpdateTimeInfo(PointScanLayerAnimationInfo* animation_info,
+                      base::TimeTicks timestamp);
+  void AnimateLine(base::TimeTicks timestamp);
+
+  PointScanLayerAnimationInfo horizontal_range_layer_info_;
+  std::unique_ptr<PointScanLayer> horizontal_range_layer_;
+  PointScanLayerAnimationInfo horizontal_line_layer_info_;
+  std::unique_ptr<PointScanLayer> horizontal_line_layer_;
+  PointScanLayerAnimationInfo vertical_range_layer_info_;
+  std::unique_ptr<PointScanLayer> vertical_range_layer_;
+  PointScanLayerAnimationInfo vertical_line_layer_info_;
+  std::unique_ptr<PointScanLayer> vertical_line_layer_;
+
+  PointScanState state_;
 };
 
 }  // namespace ash

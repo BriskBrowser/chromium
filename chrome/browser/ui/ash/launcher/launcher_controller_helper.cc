@@ -9,6 +9,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
+#include "chrome/browser/apps/app_service/launch_utils.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/arc/session/arc_session_manager.h"
@@ -91,8 +92,10 @@ base::Optional<std::string> GetAppIdForTab(Profile* profile,
 
       base::Optional<web_app::AppId> app_id =
           provider->registrar().FindAppWithUrlInScope(tab->GetURL());
-      if (app_id)
+      if (app_id && provider->registrar().GetAppUserDisplayMode(*app_id) ==
+                        web_app::DisplayMode::kBrowser) {
         return app_id;
+      }
     }
   }
 
@@ -187,7 +190,29 @@ base::string16 LauncherControllerHelper::GetAppTitle(
   return base::string16();
 }
 
+// static
+ash::AppStatus LauncherControllerHelper::GetAppStatus(
+    Profile* profile,
+    const std::string& app_id) {
+  ash::AppStatus status = ash::AppStatus::kReady;
+
+  if (!apps::AppServiceProxyFactory::IsAppServiceAvailableForProfile(profile))
+    return status;
+
+  apps::AppServiceProxyFactory::GetForProfile(profile)
+      ->AppRegistryCache()
+      .ForOneApp(app_id, [&status](const apps::AppUpdate& update) {
+        if (update.Readiness() == apps::mojom::Readiness::kDisabledByPolicy)
+          status = ash::AppStatus::kBlocked;
+        else if (update.Paused() == apps::mojom::OptionalBool::kTrue)
+          status = ash::AppStatus::kPaused;
+      });
+
+  return status;
+}
+
 std::string LauncherControllerHelper::GetAppID(content::WebContents* tab) {
+  DCHECK(tab);
   ProfileManager* profile_manager = g_browser_process->profile_manager();
   if (profile_manager) {
     const std::vector<Profile*> profile_list =
@@ -232,7 +257,8 @@ void LauncherControllerHelper::LaunchApp(const ash::ShelfID& id,
   // Launch apps with AppServiceProxy.Launch.
   if (proxy->AppRegistryCache().GetAppType(app_id) !=
       apps::mojom::AppType::kUnknown) {
-    proxy->Launch(app_id, event_flags, ConvertLaunchSource(source), display_id);
+    proxy->Launch(app_id, event_flags, ConvertLaunchSource(source),
+                  apps::MakeWindowInfo(display_id));
     return;
   }
 
@@ -272,7 +298,7 @@ void LauncherControllerHelper::LaunchApp(const ash::ShelfID& id,
   }
   params.launch_id = id.launch_id;
 
-  proxy->BrowserAppLauncher()->LaunchAppWithParams(params);
+  proxy->BrowserAppLauncher()->LaunchAppWithParams(std::move(params));
 }
 
 ArcAppListPrefs* LauncherControllerHelper::GetArcAppListPrefs() const {

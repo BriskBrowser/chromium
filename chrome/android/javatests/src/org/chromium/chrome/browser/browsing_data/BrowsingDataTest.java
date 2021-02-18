@@ -4,22 +4,22 @@
 
 package org.chromium.chrome.browser.browsing_data;
 
-import android.support.test.InstrumentationRegistry;
-
 import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
-import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
+import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.batch.BlankCTATabInitialStateRule;
 import org.chromium.content_public.browser.test.util.JavaScriptUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServer;
@@ -33,20 +33,23 @@ import java.util.concurrent.TimeoutException;
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
+@Batch(Batch.PER_CLASS)
 public class BrowsingDataTest {
     private static final String TEST_FILE = "/content/test/data/browsing_data/site_data.html";
 
     private EmbeddedTestServer mTestServer;
     private String mUrl;
 
-    @Rule
-    public ChromeActivityTestRule<ChromeActivity> mActivityTestRule =
-            new ChromeActivityTestRule<>(ChromeActivity.class);
+    @ClassRule
+    public static ChromeTabbedActivityTestRule sActivityTestRule =
+            new ChromeTabbedActivityTestRule();
 
+    @Rule
+    public BlankCTATabInitialStateRule mBlankCTATabInitialStateRule =
+            new BlankCTATabInitialStateRule(sActivityTestRule, false);
     @Before
     public void setUp() throws Exception {
-        mActivityTestRule.startMainActivityOnBlankPage();
-        mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
+        mTestServer = sActivityTestRule.getTestServer();
         mUrl = mTestServer.getURL(TEST_FILE);
     }
 
@@ -82,7 +85,7 @@ public class BrowsingDataTest {
 
     private String runJavascriptAsync(String type) throws Exception {
         return JavaScriptUtils.runJavascriptWithAsyncResult(
-                mActivityTestRule.getWebContents(), type);
+                sActivityTestRule.getWebContents(), type);
     }
 
     /**
@@ -92,7 +95,7 @@ public class BrowsingDataTest {
     @SmallTest
     public void testCookiesDeleted() throws Exception {
         Assert.assertEquals(0, getCookieCount());
-        mActivityTestRule.loadUrl(mUrl);
+        sActivityTestRule.loadUrl(mUrl);
         Assert.assertEquals("false", runJavascriptAsync("hasCookie()"));
 
         runJavascriptAsync("setCookie()");
@@ -113,7 +116,7 @@ public class BrowsingDataTest {
         // TODO(dullweber): Investigate, why WebSql fails this test.
         List<String> siteData = Arrays.asList("LocalStorage", "ServiceWorker", "CacheStorage",
                 "IndexedDb", "FileSystem" /*, "WebSql"*/);
-        mActivityTestRule.loadUrl(mUrl);
+        sActivityTestRule.loadUrl(mUrl);
 
         for (String type : siteData) {
             Assert.assertEquals(type, 0, getCookieCount());
@@ -160,7 +163,7 @@ public class BrowsingDataTest {
     @SmallTest
     public void testHistoryDeleted() throws Exception {
         Assert.assertEquals(0, getCookieCount());
-        mActivityTestRule.loadUrlInNewTab(mUrl);
+        sActivityTestRule.loadUrlInNewTab(mUrl);
         Assert.assertEquals("false", runJavascriptAsync("hasHistory()"));
 
         runJavascriptAsync("setHistory()");

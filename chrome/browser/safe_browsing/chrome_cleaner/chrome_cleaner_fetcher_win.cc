@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/check.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -188,7 +188,7 @@ void ChromeCleanerFetcher::OnTemporaryDirectoryCreated(bool success) {
   DCHECK(!scoped_temp_dir_->GetPath().empty());
 
   base::FilePath temp_file = scoped_temp_dir_->GetPath().Append(
-      base::ASCIIToUTF16(base::GenerateGUID()) + L".tmp");
+      base::ASCIIToWide(base::GenerateGUID()) + L".tmp");
 
   auto request = std::make_unique<network::ResourceRequest>();
   request->url = GetSRTDownloadURL();

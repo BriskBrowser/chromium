@@ -4,6 +4,8 @@
 
 #include "components/omnibox/browser/omnibox_pedal_provider.h"
 
+#include <numeric>
+
 #include "base/i18n/case_conversion.h"
 #include "base/i18n/char_iterator.h"
 #include "base/json/json_reader.h"
@@ -11,6 +13,8 @@
 #include "base/strings/string_tokenizer.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/trace_event/memory_usage_estimator.h"
+#include "components/omnibox/browser/autocomplete_input.h"
 #include "components/omnibox/browser/autocomplete_provider_client.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/browser/omnibox_pedal.h"
@@ -37,6 +41,12 @@ OmniboxPedalProvider::~OmniboxPedalProvider() {}
 void OmniboxPedalProvider::AddProviderInfo(ProvidersInfo* provider_info) const {
   provider_info->push_back(metrics::OmniboxEventProto_ProviderInfo());
   metrics::OmniboxEventProto_ProviderInfo& new_entry = provider_info->back();
+  // Note: SEARCH is used here because the suggestions that Pedals attach to are
+  // almost exclusively coming from search suggestions (they could in theory
+  // attach to others if the match content were a concept match, but in practice
+  // only search suggestions have the relevant text). PEDAL is not used because
+  // Pedals are not themselves suggestions produced by an autocomplete provider.
+  // This may change. See http://cl/327103601 for context and discussion.
   new_entry.set_provider(metrics::OmniboxEventProto::SEARCH);
   new_entry.set_provider_done(true);
 
@@ -57,7 +67,17 @@ void OmniboxPedalProvider::ResetSession() {
   field_trial_triggered_ = false;
 }
 
+size_t OmniboxPedalProvider::EstimateMemoryUsage() const {
+  size_t total = 0;
+  total += base::trace_event::EstimateMemoryUsage(dictionary_);
+  total += base::trace_event::EstimateMemoryUsage(ignore_group_);
+  total += base::trace_event::EstimateMemoryUsage(pedals_);
+  total += base::trace_event::EstimateMemoryUsage(tokenize_characters_);
+  return total;
+}
+
 OmniboxPedal* OmniboxPedalProvider::FindPedalMatch(
+    const AutocompleteInput& input,
     const base::string16& match_text) {
   OmniboxPedal::Tokens match_tokens = Tokenize(match_text);
   if (match_tokens.empty()) {
@@ -72,7 +92,7 @@ OmniboxPedal* OmniboxPedalProvider::FindPedalMatch(
 
   for (const auto& pedal : pedals_) {
     if (pedal.second->IsTriggerMatch(match_tokens) &&
-        pedal.second->IsReadyToTrigger(client_)) {
+        pedal.second->IsReadyToTrigger(input, client_)) {
       field_trial_triggered_ = true;
       field_trial_triggered_in_session_ = true;
 
@@ -89,7 +109,7 @@ OmniboxPedal::Tokens OmniboxPedalProvider::Tokenize(
   match_tokens.reserve(max_tokens_);
   if (tokenize_characters_.empty()) {
     // Tokenize on Unicode character boundaries when we have no delimiters.
-    base::i18n::UTF16CharIterator char_iter(&reduced_text);
+    base::i18n::UTF16CharIterator char_iter(reduced_text);
     int32_t left = 0;
     while (!char_iter.end()) {
       char_iter.Advance();

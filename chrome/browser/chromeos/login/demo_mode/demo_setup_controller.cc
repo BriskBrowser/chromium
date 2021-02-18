@@ -164,6 +164,7 @@ DemoSetupController::DemoSetupError CreateFromClientStatus(
     case policy::DM_STATUS_SERVICE_ACTIVATION_PENDING:
     case policy::DM_STATUS_SERVICE_ENTERPRISE_ACCOUNT_IS_NOT_ELIGIBLE_TO_ENROLL:
     case policy::DM_STATUS_SERVICE_ENTERPRISE_TOS_HAS_NOT_BEEN_ACCEPTED:
+    case policy::DM_STATUS_SERVICE_ILLEGAL_ACCOUNT_FOR_PACKAGED_EDU_LICENSE:
       return DemoSetupController::DemoSetupError(ErrorCode::kDemoAccountError,
                                                  RecoveryMethod::kUnknown,
                                                  debug_message);
@@ -180,6 +181,10 @@ DemoSetupController::DemoSetupError CreateFromClientStatus(
     case policy::DM_STATUS_SERVICE_DEVICE_ID_CONFLICT:
       return DemoSetupController::DemoSetupError(
           ErrorCode::kDeviceIdError, RecoveryMethod::kUnknown, debug_message);
+    case policy::DM_STATUS_SERVICE_TOO_MANY_REQUESTS:
+      return DemoSetupController::DemoSetupError(
+          ErrorCode::kTooManyRequestsError, RecoveryMethod::kRetry,
+          debug_message);
     case policy::DM_STATUS_SERVICE_MISSING_LICENSES:
       return DemoSetupController::DemoSetupError(
           ErrorCode::kLicenseError, RecoveryMethod::kUnknown, debug_message);
@@ -380,6 +385,8 @@ base::string16 DemoSetupController::DemoSetupError::GetLocalizedErrorMessage()
           IDS_DEMO_SETUP_INVALID_SERIAL_NUMBER_ERROR);
     case ErrorCode::kDeviceIdError:
       return l10n_util::GetStringUTF16(IDS_DEMO_SETUP_DEVICE_ID_ERROR);
+    case ErrorCode::kTooManyRequestsError:
+      return l10n_util::GetStringUTF16(IDS_DEMO_SETUP_TOO_MANY_REQUESTS_ERROR);
     case ErrorCode::kLicenseError:
       return l10n_util::GetStringUTF16(IDS_DEMO_SETUP_LICENSE_ERROR);
     case ErrorCode::kDeviceDeprovisioned:
@@ -463,7 +470,7 @@ void DemoSetupController::ClearDemoRequisition() {
   if (policy::EnrollmentRequisitionManager::GetDeviceRequisition() ==
       kDemoRequisition) {
     policy::EnrollmentRequisitionManager::SetDeviceRequisition(std::string());
-    // If device requisition is |kDemoRequisition|, it means the sub
+    // If device requisition is `kDemoRequisition`, it means the sub
     // organization was also set by the demo setup controller, so remove it as
     // well.
     policy::EnrollmentRequisitionManager::SetSubOrganization(std::string());
@@ -696,7 +703,7 @@ void DemoSetupController::OnOtherError(
 void DemoSetupController::OnDeviceEnrolled() {
   DCHECK_NE(demo_config_, DemoSession::DemoModeConfig::kNone);
 
-  // |enroll_start_time_| is only set for online enrollment.
+  // `enroll_start_time_` is only set for online enrollment.
   if (!enroll_start_time_.is_null()) {
     base::TimeDelta enroll_duration =
         base::TimeTicks::Now() - enroll_start_time_;
@@ -846,7 +853,7 @@ void DemoSetupController::SetupFailed(const DemoSetupError& error) {
 void DemoSetupController::Reset() {
   DCHECK_NE(demo_config_, DemoSession::DemoModeConfig::kNone);
 
-  // |demo_config_| is not reset here, because it is needed for retrying setup.
+  // `demo_config_` is not reset here, because it is needed for retrying setup.
   enrollment_helper_.reset();
   if (device_local_account_policy_store_) {
     device_local_account_policy_store_->RemoveObserver(this);

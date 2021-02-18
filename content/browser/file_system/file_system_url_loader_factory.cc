@@ -16,6 +16,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequenced_task_runner.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/task_traits.h"
 #include "build/build_config.h"
@@ -28,7 +29,6 @@
 #include "content/public/common/child_process_host.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
-#include "mojo/public/cpp/bindings/receiver_set.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/system/data_pipe_producer.h"
 #include "mojo/public/cpp/system/string_data_source.h"
@@ -39,6 +39,7 @@
 #include "net/base/mime_util.h"
 #include "net/http/http_byte_range.h"
 #include "net/http/http_util.h"
+#include "services/network/public/cpp/self_deleting_url_loader_factory.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
 #include "storage/browser/file_system/file_stream_reader.h"
@@ -542,7 +543,8 @@ class FileSystemFileURLLoader : public FileSystemEntryURLLoader {
         // Only sniff for mime-type in the first block of the file.
         std::string type_hint;
         GetMimeType(url_, &type_hint);
-        SniffMimeType(file_data_->data(), result, url_.ToGURL(), type_hint,
+        SniffMimeType(base::StringPiece(file_data_->data(), result),
+                      url_.ToGURL(), type_hint,
                       net::ForceSniffFileUrlsForHtml::kDisabled,
                       &head_->mime_type);
         head_->did_mime_sniff = true;
@@ -598,12 +600,16 @@ class FileSystemFileURLLoader : public FileSystemEntryURLLoader {
 
 // A URLLoaderFactory used for the filesystem:// scheme used when the Network
 // Service is enabled.
-class FileSystemURLLoaderFactory : public network::mojom::URLLoaderFactory {
+class FileSystemURLLoaderFactory
+    : public network::SelfDeletingURLLoaderFactory {
  public:
   FileSystemURLLoaderFactory(
       FactoryParams params,
-      scoped_refptr<base::SequencedTaskRunner> io_task_runner)
-      : params_(std::move(params)), io_task_runner_(io_task_runner) {}
+      scoped_refptr<base::SequencedTaskRunner> io_task_runner,
+      mojo::PendingReceiver<network::mojom::URLLoaderFactory> factory_receiver)
+      : network::SelfDeletingURLLoaderFactory(std::move(factory_receiver)),
+        params_(std::move(params)),
+        io_task_runner_(io_task_runner) {}
 
   ~FileSystemURLLoaderFactory() override = default;
 
@@ -636,13 +642,7 @@ class FileSystemURLLoaderFactory : public network::mojom::URLLoaderFactory {
                                             io_task_runner_);
   }
 
-  void Clone(
-      mojo::PendingReceiver<network::mojom::URLLoaderFactory> loader) override {
-    receivers_.Add(this, std::move(loader));
-  }
-
   const FactoryParams params_;
-  mojo::ReceiverSet<network::mojom::URLLoaderFactory> receivers_;
   scoped_refptr<base::SequencedTaskRunner> io_task_runner_;
 
   DISALLOW_COPY_AND_ASSIGN(FileSystemURLLoaderFactory);
@@ -650,16 +650,24 @@ class FileSystemURLLoaderFactory : public network::mojom::URLLoaderFactory {
 
 }  // anonymous namespace
 
-std::unique_ptr<network::mojom::URLLoaderFactory>
+mojo::PendingRemote<network::mojom::URLLoaderFactory>
 CreateFileSystemURLLoaderFactory(
     int render_process_host_id,
     int frame_tree_node_id,
     scoped_refptr<FileSystemContext> file_system_context,
     const std::string& storage_domain) {
+  mojo::PendingRemote<network::mojom::URLLoaderFactory> pending_remote;
   FactoryParams params = {render_process_host_id, frame_tree_node_id,
                           file_system_context, storage_domain};
-  return std::make_unique<FileSystemURLLoaderFactory>(
-      std::move(params), GetIOThreadTaskRunner({}));
+
+  // The FileSystemURLLoaderFactory will delete itself when there are no more
+  // receivers - see the network::SelfDeletingURLLoaderFactory::OnDisconnect
+  // method.
+  new FileSystemURLLoaderFactory(
+      std::move(params), GetIOThreadTaskRunner({}),
+      pending_remote.InitWithNewPipeAndPassReceiver());
+
+  return pending_remote;
 }
 
 }  // namespace content

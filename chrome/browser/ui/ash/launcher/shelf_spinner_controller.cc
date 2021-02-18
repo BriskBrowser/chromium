@@ -8,10 +8,11 @@
 
 #include "ash/public/cpp/shelf_model.h"
 #include "base/bind.h"
+#include "base/logging.h"
 #include "base/numerics/ranges.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/crostini/crostini_shelf_utils.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #include "chrome/browser/ui/ash/launcher/shelf_spinner_item_controller.h"
@@ -224,7 +225,9 @@ bool ShelfSpinnerController::RemoveSpinnerFromControllerMap(
 
   const ash::ShelfID shelf_id(app_id);
   DCHECK_EQ(it->second.controller(),
-            owner_->shelf_model()->GetShelfItemDelegate(shelf_id));
+            it->second.IsKilled()
+                ? nullptr
+                : owner_->shelf_model()->GetShelfItemDelegate(shelf_id));
   app_controller_map_.erase(it);
 
   return true;

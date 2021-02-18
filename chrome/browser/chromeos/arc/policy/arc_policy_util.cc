@@ -6,13 +6,13 @@
 
 #include <memory>
 
+#include "ash/constants/ash_switches.h"
 #include "base/command_line.h"
 #include "base/json/json_reader.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/policy/configuration_policy_handler_chromeos.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "components/arc/arc_prefs.h"
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/policy_constants.h"
@@ -40,32 +40,6 @@ bool IsAccountManaged(const Profile* profile) {
 bool IsArcDisabledForEnterprise() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
       chromeos::switches::kEnterpriseDisableArc);
-}
-
-base::Optional<EcryptfsMigrationAction> DecodeMigrationActionFromPolicy(
-    const enterprise_management::CloudPolicySettings& policy) {
-  if (!policy.has_ecryptfsmigrationstrategy())
-    return base::nullopt;
-  const enterprise_management::IntegerPolicyProto& policy_proto =
-      policy.ecryptfsmigrationstrategy();
-  if (!policy_proto.has_value())
-    return base::nullopt;
-
-  // Use |policy::EcryptfsMigrationStrategyPolicyHandler| to translate from
-  // policy to enum, as some obsolete policy settings need to be aliased to
-  // other enum values.
-  policy::PolicyMap policy_map;
-  policy_map.Set(policy::key::kEcryptfsMigrationStrategy,
-                 policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_USER,
-                 policy::POLICY_SOURCE_CLOUD,
-                 base::Value(static_cast<int>(policy_proto.value())), nullptr);
-  PrefValueMap prefs;
-  policy::EcryptfsMigrationStrategyPolicyHandler handler;
-  handler.ApplyPolicySettings(policy_map, &prefs);
-  int strategy = 0;
-  if (!prefs.GetInteger(arc::prefs::kEcryptfsMigrationStrategy, &strategy))
-    return base::nullopt;
-  return static_cast<EcryptfsMigrationAction>(strategy);
 }
 
 std::set<std::string> GetRequestedPackagesFromArcPolicy(

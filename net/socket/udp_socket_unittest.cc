@@ -19,6 +19,7 @@
 #include "base/threading/thread.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "net/base/features.h"
 #include "net/base/io_buffer.h"
 #include "net/base/ip_address.h"
@@ -316,12 +317,11 @@ TEST_F(UDPSocketTest, PartialRecv) {
   EXPECT_EQ(second_packet, received);
 }
 
-#if defined(OS_APPLE) || defined(OS_ANDROID) || defined(OS_FUCHSIA)
+#if defined(OS_APPLE) || defined(OS_ANDROID)
 // - MacOS: requires root permissions on OSX 10.7+.
 // - Android: devices attached to testbots don't have default network, so
 // broadcasting to 255.255.255.255 returns error -109 (Address not reachable).
 // crbug.com/139144.
-// - Fuchsia: TODO(crbug.com/959314): broadcast support is not implemented yet.
 #define MAYBE_LocalBroadcast DISABLED_LocalBroadcast
 #else
 #define MAYBE_LocalBroadcast LocalBroadcast
@@ -635,6 +635,8 @@ TEST_F(UDPSocketTest, JoinMulticastGroup) {
 
   IPAddress group_ip;
   EXPECT_TRUE(group_ip.AssignFromIPLiteral(kGroup));
+// TODO(https://github.com/google/gvisor/issues/3839): don't guard on
+// OS_FUCHSIA.
 #if defined(OS_WIN) || defined(OS_FUCHSIA)
   IPEndPoint bind_address(IPAddress::AllZeros(group_ip.size()), 0 /* port */);
 #else
@@ -666,6 +668,8 @@ TEST_F(UDPSocketTest, MAYBE_SharedMulticastAddress) {
 
   IPAddress group_ip;
   ASSERT_TRUE(group_ip.AssignFromIPLiteral(kGroup));
+// TODO(https://github.com/google/gvisor/issues/3839): don't guard on
+// OS_FUCHSIA.
 #if defined(OS_WIN) || defined(OS_FUCHSIA)
   IPEndPoint receive_address(IPAddress::AllZeros(group_ip.size()),
                              0 /* port */);
@@ -701,7 +705,7 @@ TEST_F(UDPSocketTest, MAYBE_SharedMulticastAddress) {
                                 NetLogSource());
   ASSERT_THAT(client_socket.Connect(send_address), IsOk());
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
   // Send a message via the multicast group. That message is expected be be
   // received by both receving sockets.
   //
@@ -711,7 +715,7 @@ TEST_F(UDPSocketTest, MAYBE_SharedMulticastAddress) {
   ASSERT_GE(WriteSocket(&client_socket, kMessage), 0);
   EXPECT_EQ(kMessage, RecvFromSocket(&socket1));
   EXPECT_EQ(kMessage, RecvFromSocket(&socket2));
-#endif  // !defined(OS_CHROMEOS)
+#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
 }
 #endif  // !defined(OS_ANDROID)
 

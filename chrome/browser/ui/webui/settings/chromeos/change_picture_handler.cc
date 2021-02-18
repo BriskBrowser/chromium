@@ -9,7 +9,7 @@
 
 #include "base/base64.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
@@ -20,12 +20,12 @@
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/values.h"
-#include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
+#include "chrome/browser/ash/accessibility/accessibility_manager.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/camera_presence_notifier.h"
 #include "chrome/browser/chromeos/login/users/avatar/user_image_manager.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/default_user_image/default_user_images.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_select_file_policy.h"
@@ -78,18 +78,15 @@ ui::SelectFileDialog::FileTypeInfo GetUserImageFileTypeInfo() {
   return file_type_info;
 }
 
-// Time histogram suffix for profile image download.
-const char kProfileDownloadReason[] = "Preferences";
-
 }  // namespace
 
 ChangePictureHandler::ChangePictureHandler()
     : previous_image_index_(user_manager::User::USER_IMAGE_INVALID) {
   ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
   audio::SoundsManager* manager = audio::SoundsManager::Get();
-  manager->Initialize(SOUND_OBJECT_DELETE,
+  manager->Initialize(static_cast<int>(Sound::kObjectDelete),
                       bundle.GetRawDataResource(IDR_SOUND_OBJECT_DELETE_WAV));
-  manager->Initialize(SOUND_CAMERA_SNAP,
+  manager->Initialize(static_cast<int>(Sound::kCameraSnap),
                       bundle.GetRawDataResource(IDR_SOUND_CAMERA_SNAP_WAV));
 }
 
@@ -124,13 +121,18 @@ void ChangePictureHandler::RegisterMessages() {
 }
 
 void ChangePictureHandler::OnJavascriptAllowed() {
-  user_manager_observer_.Add(user_manager::UserManager::Get());
-  camera_observer_.Add(CameraPresenceNotifier::GetInstance());
+  user_manager_observation_.Observe(user_manager::UserManager::Get());
+  camera_observation_.Observe(CameraPresenceNotifier::GetInstance());
 }
 
 void ChangePictureHandler::OnJavascriptDisallowed() {
-  user_manager_observer_.Remove(user_manager::UserManager::Get());
-  camera_observer_.Remove(CameraPresenceNotifier::GetInstance());
+  DCHECK(user_manager_observation_.IsObservingSource(
+      user_manager::UserManager::Get()));
+  user_manager_observation_.Reset();
+
+  DCHECK(camera_observation_.IsObservingSource(
+      CameraPresenceNotifier::GetInstance()));
+  camera_observation_.Reset();
 }
 
 void ChangePictureHandler::SendDefaultImages() {
@@ -167,13 +169,13 @@ void ChangePictureHandler::HandleChooseFile(const base::ListValue* args) {
 void ChangePictureHandler::HandleDiscardPhoto(const base::ListValue* args) {
   DCHECK(args->empty());
   AccessibilityManager::Get()->PlayEarcon(
-      SOUND_OBJECT_DELETE, PlaySoundOption::ONLY_IF_SPOKEN_FEEDBACK_ENABLED);
+      Sound::kObjectDelete, PlaySoundOption::kOnlyIfSpokenFeedbackEnabled);
 }
 
 void ChangePictureHandler::HandlePhotoTaken(const base::ListValue* args) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   AccessibilityManager::Get()->PlayEarcon(
-      SOUND_CAMERA_SNAP, PlaySoundOption::ONLY_IF_SPOKEN_FEEDBACK_ENABLED);
+      Sound::kCameraSnap, PlaySoundOption::kOnlyIfSpokenFeedbackEnabled);
 
   std::string image_url;
   if (!args || args->GetSize() != 1 || !args->GetString(0, &image_url))
@@ -278,7 +280,7 @@ void ChangePictureHandler::UpdateProfileImage() {
       !user_image_manager->DownloadedProfileImage().isNull()) {
     SendProfileImage(user_image_manager->DownloadedProfileImage(), false);
   }
-  user_image_manager->DownloadProfileImage(kProfileDownloadReason);
+  user_image_manager->DownloadProfileImage();
 }
 
 void ChangePictureHandler::SendOldImage(std::string&& image_url) {

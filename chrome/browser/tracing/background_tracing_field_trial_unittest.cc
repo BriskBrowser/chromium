@@ -40,7 +40,7 @@ const char kValidTracingConfig[] = R"(
     "scenario_name": "BrowserProcess",
     "configs": [
       {
-        "category": "BENCHMARK_NAVIGATION",
+        "custom_categories": "base,toplevel",
         "rule": "MONITOR_AND_DUMP_WHEN_SPECIFIC_HISTOGRAM_AND_VALUE",
         "histogram_name": "Omnibox.CharTypedToRepaintLatency.ToPaint",
         "histogram_lower_value": 1
@@ -50,9 +50,10 @@ const char kValidTracingConfig[] = R"(
   }
 )";
 
-void CheckConfig(std::string* config) {
-  if (*config == kTestConfig)
+std::string CheckConfig(const std::string& config) {
+  if (config == kTestConfig)
     g_test_config_loaded = true;
+  return config;
 }
 
 }  // namespace
@@ -71,7 +72,8 @@ TEST_F(BackgroundTracingTest, SetupBackgroundTracingFieldTrial) {
   // In case it is already set at previous test run.
   g_test_config_loaded = false;
 
-  tracing::SetConfigTextFilterForTesting(&CheckConfig);
+  content::BackgroundTracingManager::GetInstance()
+      ->SetConfigTextFilterForTesting(base::BindRepeating(&CheckConfig));
 
   tracing::SetupBackgroundTracingFieldTrial();
   EXPECT_TRUE(g_test_config_loaded);

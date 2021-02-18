@@ -23,12 +23,14 @@ using CompositingReasons = uint64_t;
   V(Canvas)                                                                   \
   V(Plugin)                                                                   \
   V(IFrame)                                                                   \
+  /* This is used for pre-CompositAfterPaint + CompositeSVG only. */          \
   V(SVGRoot)                                                                  \
   V(BackfaceVisibilityHidden)                                                 \
   V(ActiveTransformAnimation)                                                 \
   V(ActiveOpacityAnimation)                                                   \
   V(ActiveFilterAnimation)                                                    \
   V(ActiveBackdropFilterAnimation)                                            \
+  V(AffectedByOuterViewportBoundsDelta)                                       \
   V(ScrollDependentPosition)                                                  \
   V(OverflowScrolling)                                                        \
   V(OverflowScrollingParent)                                                  \
@@ -44,6 +46,7 @@ using CompositingReasons = uint64_t;
      are set. */                                                              \
   V(WillChangeOther)                                                          \
   V(BackdropFilter)                                                           \
+  V(BackdropFilterMask)                                                       \
   V(RootScroller)                                                             \
   V(XrOverlay)                                                                \
   V(Viewport)                                                                 \
@@ -128,14 +131,15 @@ class PLATFORM_EXPORT CompositingReason {
     kComboAllDirectNonStyleDeterminedReasons =
         kVideo | kCanvas | kPlugin | kIFrame | kSVGRoot |
         kOverflowScrollingParent | kOutOfFlowClipping | kVideoOverlay |
-        kXrOverlay | kRoot | kRootScroller | kScrollDependentPosition |
-        kBackfaceInvisibility3DAncestor,
+        kXrOverlay | kRoot | kRootScroller | kScrollDependentPosition | 
+        kAffectedByOuterViewportBoundsDelta | kBackfaceInvisibility3DAncestor,
 
     kComboAllDirectReasons = kComboAllDirectStyleDeterminedReasons |
                              kComboAllDirectNonStyleDeterminedReasons,
 
     kComboAllCompositedScrollingDeterminedReasons =
-        kScrollDependentPosition | kOverflowScrolling,
+        kScrollDependentPosition | kAffectedByOuterViewportBoundsDelta |
+        kOverflowScrolling,
 
     kComboCompositedDescendants =
         kIsolateCompositedDescendants | kOpacityWithCompositedDescendants |
@@ -153,12 +157,11 @@ class PLATFORM_EXPORT CompositingReason {
     kComboSquashableReasons =
         kOverlap | kAssumedOverlap | kOverflowScrollingParent,
 
-    kPreventingSubpixelAccumulationReasons =
-        kWillChangeTransform | kActiveTransformAnimation,
+    kPreventingSubpixelAccumulationReasons = kWillChangeTransform,
 
     kDirectReasonsForPaintOffsetTranslationProperty =
-        kScrollDependentPosition | kVideo | kCanvas | kPlugin | kIFrame |
-        kSVGRoot,
+        kScrollDependentPosition | kAffectedByOuterViewportBoundsDelta |
+        kVideo | kCanvas | kPlugin | kIFrame | kSVGRoot,
     kDirectReasonsForTransformProperty =
         k3DTransform | kTrivial3DTransform | kWillChangeTransform |
         kWillChangeOther | kPerspectiveWith3DDescendants |
@@ -170,6 +173,9 @@ class PLATFORM_EXPORT CompositingReason {
         kWillChangeBackdropFilter | kActiveBackdropFilterAnimation,
     kDirectReasonsForFilterProperty =
         kActiveFilterAnimation | kWillChangeFilter,
+    kDirectReasonsForBackdropFilter = kBackdropFilter |
+                                      kActiveBackdropFilterAnimation |
+                                      kWillChangeBackdropFilter,
   };
 };
 

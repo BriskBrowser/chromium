@@ -13,6 +13,7 @@
 #include "base/run_loop.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/image_fetcher/core/fake_image_decoder.h"
 #include "components/signin/internal/identity_manager/account_fetcher_service.h"
 #include "components/signin/internal/identity_manager/account_tracker_service.h"
@@ -35,9 +36,9 @@
 #include "google_apis/gaia/oauth2_access_token_consumer.h"
 #include "services/network/test/test_url_loader_factory.h"
 
-#if defined(OS_CHROMEOS)
-#include "chromeos/components/account_manager/account_manager.h"
-#include "chromeos/components/account_manager/account_manager_factory.h"
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/components/account_manager/account_manager.h"
+#include "ash/components/account_manager/account_manager_factory.h"
 #include "components/signin/internal/identity_manager/test_profile_oauth2_token_service_delegate_chromeos.h"
 #endif
 
@@ -50,7 +51,11 @@
 #include "components/signin/internal/identity_manager/accounts_mutator_impl.h"
 #endif
 
+using TokenResponseBuilder = OAuth2AccessTokenConsumer::TokenResponse::Builder;
+
 namespace signin {
+
+using ::ash::AccountManagerFactory;
 
 class IdentityManagerDependenciesOwner {
  public:
@@ -60,14 +65,14 @@ class IdentityManagerDependenciesOwner {
   ~IdentityManagerDependenciesOwner();
 
   sync_preferences::TestingPrefServiceSyncable* pref_service();
-#if defined(OS_CHROMEOS)
-  chromeos::AccountManagerFactory* account_manager_factory();
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  AccountManagerFactory* account_manager_factory();
 #endif
   TestSigninClient* signin_client();
 
  private:
-#if defined(OS_CHROMEOS)
-  std::unique_ptr<chromeos::AccountManagerFactory> account_manager_factory_;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  std::unique_ptr<AccountManagerFactory> account_manager_factory_;
 #endif
   // Depending on whether a |pref_service| instance is passed in
   // the constructor, exactly one of these will be non-null.
@@ -84,9 +89,8 @@ IdentityManagerDependenciesOwner::IdentityManagerDependenciesOwner(
     sync_preferences::TestingPrefServiceSyncable* pref_service_param,
     TestSigninClient* signin_client_param)
     :
-#if defined(OS_CHROMEOS)
-      account_manager_factory_(
-          std::make_unique<chromeos::AccountManagerFactory>()),
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+      account_manager_factory_(std::make_unique<AccountManagerFactory>()),
 #endif
       owned_pref_service_(
           pref_service_param
@@ -111,8 +115,8 @@ IdentityManagerDependenciesOwner::pref_service() {
   return raw_pref_service_ ? raw_pref_service_ : owned_pref_service_.get();
 }
 
-#if defined(OS_CHROMEOS)
-chromeos::AccountManagerFactory*
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+AccountManagerFactory*
 IdentityManagerDependenciesOwner::account_manager_factory() {
   DCHECK(account_manager_factory_);
   return account_manager_factory_.get();
@@ -181,8 +185,8 @@ IdentityTestEnvironment::IdentityTestEnvironment(
 
   IdentityManager::RegisterProfilePrefs(test_pref_service->registry());
   IdentityManager::RegisterLocalStatePrefs(test_pref_service->registry());
-#if defined(OS_CHROMEOS)
-  chromeos::AccountManager::RegisterPrefs(test_pref_service->registry());
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  ash::AccountManager::RegisterPrefs(test_pref_service->registry());
 
   owned_identity_manager_ = BuildIdentityManagerForTests(
       test_signin_client, test_pref_service, base::FilePath(),
@@ -191,33 +195,32 @@ IdentityTestEnvironment::IdentityTestEnvironment(
   owned_identity_manager_ =
       BuildIdentityManagerForTests(test_signin_client, test_pref_service,
                                    base::FilePath(), account_consistency);
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   Initialize();
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // static
 std::unique_ptr<IdentityManager>
 IdentityTestEnvironment::BuildIdentityManagerForTests(
     SigninClient* signin_client,
     PrefService* pref_service,
     base::FilePath user_data_dir,
-    chromeos::AccountManagerFactory* chromeos_account_manager_factory,
+    AccountManagerFactory* account_manager_factory,
     AccountConsistencyMethod account_consistency) {
   auto account_tracker_service = std::make_unique<AccountTrackerService>();
   account_tracker_service->Initialize(pref_service, user_data_dir);
 
   IdentityManager::InitParameters init_params;
-  chromeos::AccountManager* account_manager =
-      chromeos_account_manager_factory->GetAccountManager(
-          user_data_dir.value());
+  auto* account_manager =
+      account_manager_factory->GetAccountManager(user_data_dir.value());
 
   if (user_data_dir.empty()) {
     account_manager->InitializeInEphemeralMode(
         signin_client->GetURLLoaderFactory());
   } else {
-    chromeos::AccountManager::DelayNetworkCallRunner immediate_callback_runner =
+    ash::AccountManager::DelayNetworkCallRunner immediate_callback_runner =
         base::BindRepeating([](base::OnceClosure closure) -> void {
           std::move(closure).Run();
         });
@@ -228,7 +231,7 @@ IdentityTestEnvironment::BuildIdentityManagerForTests(
   account_manager->SetPrefService(pref_service);
   account_manager->SetUrlLoaderFactoryForTests(
       signin_client->GetURLLoaderFactory());
-  init_params.chromeos_account_manager = account_manager;
+  init_params.ash_account_manager = account_manager;
 
   auto token_service = std::make_unique<FakeProfileOAuth2TokenService>(
       pref_service,
@@ -258,7 +261,22 @@ IdentityTestEnvironment::BuildIdentityManagerForTests(
       std::move(token_service), signin_client, pref_service, user_data_dir,
       account_consistency);
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+IdentityTestEnvironment::PendingRequest::PendingRequest(
+    CoreAccountId account_id,
+    std::string client_id,
+    std::string client_secret,
+    OAuth2AccessTokenManager::ScopeSet scopes)
+    : account_id(account_id),
+      client_id(client_id),
+      client_secret(client_secret),
+      scopes(scopes) {}
+
+IdentityTestEnvironment::PendingRequest::PendingRequest(const PendingRequest&) =
+    default;
+
+IdentityTestEnvironment::PendingRequest::~PendingRequest() = default;
 
 // static
 std::unique_ptr<IdentityManager>
@@ -276,14 +294,14 @@ IdentityTestEnvironment::FinishBuildIdentityManagerForTests(
       std::make_unique<image_fetcher::FakeImageDecoder>());
 
   std::unique_ptr<PrimaryAccountPolicyManager> policy_manager;
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
   policy_manager =
       std::make_unique<PrimaryAccountPolicyManagerImpl>(signin_client);
 #endif
   std::unique_ptr<PrimaryAccountManager> primary_account_manager =
       std::make_unique<PrimaryAccountManager>(
           signin_client, token_service.get(), account_tracker_service.get(),
-          account_consistency, std::move(policy_manager));
+          std::move(policy_manager));
   primary_account_manager->Initialize(pref_service);
 
   std::unique_ptr<GaiaCookieManagerService> gaia_cookie_manager_service =
@@ -291,9 +309,9 @@ IdentityTestEnvironment::FinishBuildIdentityManagerForTests(
                                                  signin_client);
 
   init_params.primary_account_mutator =
-      std::make_unique<PrimaryAccountMutatorImpl>(account_tracker_service.get(),
-                                                  primary_account_manager.get(),
-                                                  pref_service);
+      std::make_unique<PrimaryAccountMutatorImpl>(
+          account_tracker_service.get(), token_service.get(),
+          primary_account_manager.get(), pref_service, account_consistency);
 
 #if !defined(OS_ANDROID) && !defined(OS_IOS)
   init_params.accounts_mutator = std::make_unique<AccountsMutatorImpl>(
@@ -374,17 +392,17 @@ AccountInfo IdentityTestEnvironment::MakePrimaryAccountAvailable(
 AccountInfo IdentityTestEnvironment::MakeUnconsentedPrimaryAccountAvailable(
     const std::string& email) {
   DCHECK(!identity_manager()->HasPrimaryAccount(ConsentLevel::kNotRequired));
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Chrome OS sets the unconsented primary account during login and does not
   // allow signout.
   AccountInfo account_info = MakeAccountAvailable(email);
   identity_manager()->GetPrimaryAccountMutator()->SetUnconsentedPrimaryAccount(
       account_info.account_id);
-#elif defined(OS_IOS) || defined(OS_ANDROID)
-  // iOS and Android only support the primary account.
+#elif defined(OS_IOS)
+  // iOS only support the primary account.
   AccountInfo account_info = MakePrimaryAccountAvailable(email);
 #else
-  // Desktop platforms.
+  // Android and Desktop platforms.
   AccountInfo account_info =
       MakeAccountAvailableWithCookies(email, GetTestGaiaIdForEmail(email));
   base::RunLoop().RunUntilIdle();
@@ -403,9 +421,12 @@ AccountInfo IdentityTestEnvironment::MakeUnconsentedPrimaryAccountAvailable(
   return account_info;
 }
 
-void IdentityTestEnvironment::ClearPrimaryAccount(
-    ClearPrimaryAccountPolicy policy) {
-  signin::ClearPrimaryAccount(identity_manager(), policy);
+void IdentityTestEnvironment::RevokeSyncConsent() {
+  signin::RevokeSyncConsent(identity_manager());
+}
+
+void IdentityTestEnvironment::ClearPrimaryAccount() {
+  signin::ClearPrimaryAccount(identity_manager());
 }
 
 AccountInfo IdentityTestEnvironment::MakeAccountAvailable(
@@ -460,7 +481,11 @@ void IdentityTestEnvironment::
         const std::string& id_token) {
   WaitForAccessTokenRequestIfNecessary(base::nullopt);
   fake_token_service()->IssueTokenForAllPendingRequests(
-      OAuth2AccessTokenConsumer::TokenResponse(token, expiration, id_token));
+      TokenResponseBuilder()
+          .WithAccessToken(token)
+          .WithExpirationTime(expiration)
+          .WithIdToken(id_token)
+          .build());
 }
 
 void IdentityTestEnvironment::
@@ -471,8 +496,11 @@ void IdentityTestEnvironment::
         const std::string& id_token) {
   WaitForAccessTokenRequestIfNecessary(account_id);
   fake_token_service()->IssueAllTokensForAccount(
-      account_id,
-      OAuth2AccessTokenConsumer::TokenResponse(token, expiration, id_token));
+      account_id, TokenResponseBuilder()
+                      .WithAccessToken(token)
+                      .WithExpirationTime(expiration)
+                      .WithIdToken(id_token)
+                      .build());
 }
 
 void IdentityTestEnvironment::
@@ -482,9 +510,12 @@ void IdentityTestEnvironment::
         const std::string& id_token,
         const ScopeSet& scopes) {
   WaitForAccessTokenRequestIfNecessary(base::nullopt);
-  fake_token_service()->IssueTokenForScope(
-      scopes,
-      OAuth2AccessTokenConsumer::TokenResponse(token, expiration, id_token));
+  fake_token_service()->IssueTokenForScope(scopes,
+                                           TokenResponseBuilder()
+                                               .WithAccessToken(token)
+                                               .WithExpirationTime(expiration)
+                                               .WithIdToken(id_token)
+                                               .build());
 }
 
 void IdentityTestEnvironment::
@@ -621,6 +652,18 @@ void IdentityTestEnvironment::ReloadAccountsFromDisk() {
 
 bool IdentityTestEnvironment::IsAccessTokenRequestPending() {
   return fake_token_service()->GetPendingRequests().size();
+}
+
+std::vector<IdentityTestEnvironment::PendingRequest>
+IdentityTestEnvironment::GetPendingAccessTokenRequests() {
+  std::vector<PendingRequest> result;
+
+  for (const auto& request : fake_token_service()->GetPendingRequests()) {
+    result.emplace_back(request.account_id, request.client_id,
+                        request.client_secret, request.scopes);
+  }
+
+  return result;
 }
 
 void IdentityTestEnvironment::SetFreshnessOfAccountsInGaiaCookie(

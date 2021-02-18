@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import {sendWithPromise, addSingletonGetter} from 'chrome://resources/js/cr.m.js';
+// clang-format on
+
 /**
  * These values should remain consistent with their C++ counterpart
  * (chrome/browser/chromeos/plugin_vm/plugin_vm_manager.h).
@@ -24,32 +28,12 @@ let PermissionSetting;
  */
 cr.define('settings', function() {
   /** @interface */
-  class PluginVmBrowserProxy {
+  /* #export */ class PluginVmBrowserProxy {
     /**
-     * @param {!Array<string>} paths Paths to sanitze.
-     * @return {!Promise<!Array<string>>} Text to display in UI.
-     */
-    getPluginVmSharedPathsDisplayText(paths) {}
-
-    /**
-     * @param {string} vmName VM to stop sharing path with.
-     * @param {string} path Path to stop sharing.
-     */
-    removePluginVmSharedPath(vmName, path) {}
-
-    /**
-     * @param {!PermissionSetting} permissionSetting The proposed change to
-     *     permissions
      * @return {!Promise<boolean>} Whether Plugin VM needs to be relaunched for
      *     permissions to take effect.
      */
-    wouldPermissionChangeRequireRelaunch(permissionSetting) {}
-
-    /**
-     * @param {!PermissionSetting} permissionSetting The change to make to the
-     *     permissions
-     */
-    setPluginVmPermission(permissionSetting) {}
+    isRelaunchNeededForNewPermissions() {}
 
     /**
      * Relaunches Plugin VM.
@@ -58,29 +42,10 @@ cr.define('settings', function() {
   }
 
   /** @implements {settings.PluginVmBrowserProxy} */
-  class PluginVmBrowserProxyImpl {
+  /* #export */ class PluginVmBrowserProxyImpl {
     /** @override */
-    getPluginVmSharedPathsDisplayText(paths) {
-      return cr.sendWithPromise('getPluginVmSharedPathsDisplayText', paths);
-    }
-
-    /** @override */
-    removePluginVmSharedPath(vmName, path) {
-      chrome.send('removePluginVmSharedPath', [vmName, path]);
-    }
-
-    /** @override */
-    wouldPermissionChangeRequireRelaunch(permissionSetting) {
-      return cr.sendWithPromise(
-          'wouldPermissionChangeRequireRelaunch',
-          permissionSetting.permissionType, permissionSetting.proposedValue);
-    }
-
-    /** @override */
-    setPluginVmPermission(permissionSetting) {
-      chrome.send(
-          'setPluginVmPermission',
-          [permissionSetting.permissionType, permissionSetting.proposedValue]);
+    isRelaunchNeededForNewPermissions() {
+      return cr.sendWithPromise('isRelaunchNeededForNewPermissions');
     }
 
     /** @override */

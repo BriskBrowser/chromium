@@ -6,13 +6,15 @@
 
 #include "base/json/json_reader.h"
 #include "base/json/json_string_value_serializer.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "base/values.h"
 
 namespace network {
 
-TestURLRequestMaker::TestURLRequestMaker() = default;
+TestURLRequestMaker::TestURLRequestMaker() {
+  context_.set_net_log(&net_log_);
+}
 TestURLRequestMaker::~TestURLRequestMaker() = default;
 
 std::unique_ptr<net::URLRequest> TestURLRequestMaker::MakeURLRequest(
@@ -69,9 +71,9 @@ std::string TrustTokenEnumToString(mojom::TrustTokenOperationType type) {
     case mojom::TrustTokenOperationType::kIssuance:
       return "token-request";
     case mojom::TrustTokenOperationType::kRedemption:
-      return "srr-token-redemption";
+      return "token-redemption";
     case mojom::TrustTokenOperationType::kSigning:
-      return "send-srr";
+      return "send-redemption-record";
   }
 }
 

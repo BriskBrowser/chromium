@@ -4,11 +4,12 @@
 
 #include "chrome/browser/ui/webui/settings/chromeos/multidevice_section.h"
 
+#include "ash/constants/ash_features.h"
 #include "base/feature_list.h"
 #include "base/no_destructor.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/browser_features.h"
 #include "chrome/browser/chromeos/android_sms/android_sms_service.h"
+#include "chrome/browser/nearby_sharing/common/nearby_share_features.h"
 #include "chrome/browser/nearby_sharing/common/nearby_share_prefs.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/nearby_share/shared_resources.h"
@@ -20,7 +21,7 @@
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/components/phonehub/phone_hub_manager.h"
-#include "chromeos/constants/chromeos_features.h"
+#include "chromeos/components/phonehub/url_constants.h"
 #include "chromeos/services/multidevice_setup/public/cpp/prefs.h"
 #include "chromeos/services/multidevice_setup/public/cpp/url_provider.h"
 #include "chromeos/services/multidevice_setup/public/mojom/multidevice_setup.mojom.h"
@@ -35,15 +36,11 @@ namespace chromeos {
 namespace settings {
 namespace {
 
+using FeatureState = multidevice_setup::mojom::FeatureState;
+
 const std::vector<SearchConcept>& GetMultiDeviceOptedInSearchConcepts() {
   static const base::NoDestructor<std::vector<SearchConcept>> tags(
-      {{IDS_OS_SETTINGS_TAG_MULTIDEVICE_SMART_LOCK_OPTIONS,
-        mojom::kSmartLockSubpagePath,
-        mojom::SearchResultIcon::kLock,
-        mojom::SearchResultDefaultRank::kMedium,
-        mojom::SearchResultType::kSubpage,
-        {.subpage = mojom::Subpage::kSmartLock}},
-       {IDS_OS_SETTINGS_TAG_MULTIDEVICE_FORGET,
+      {{IDS_OS_SETTINGS_TAG_MULTIDEVICE_FORGET,
         mojom::kMultiDeviceFeaturesSubpagePath,
         mojom::SearchResultIcon::kPhone,
         mojom::SearchResultDefaultRank::kMedium,
@@ -67,12 +64,29 @@ const std::vector<SearchConcept>& GetMultiDeviceOptedInSearchConcepts() {
         {.subpage = mojom::Subpage::kMultiDeviceFeatures},
         {IDS_OS_SETTINGS_TAG_MULTIDEVICE_ALT1, SearchConcept::kAltTagEnd}},
        {IDS_OS_SETTINGS_TAG_MULTIDEVICE_SMART_LOCK,
-        mojom::kMultiDeviceFeaturesSubpagePath,
+        mojom::kSmartLockSubpagePath,
         mojom::SearchResultIcon::kLock,
         mojom::SearchResultDefaultRank::kMedium,
-        mojom::SearchResultType::kSubpage,
-        {.subpage = mojom::Subpage::kSmartLock}},
-       {IDS_OS_SETTINGS_TAG_MULTIDEVICE_PHONE_HUB,
+        mojom::SearchResultType::kSetting,
+        {.setting = mojom::Setting::kSmartLockOnOff}}});
+  return *tags;
+}
+
+const std::vector<SearchConcept>& GetSmartLockOptionsSearchConcepts() {
+  static const base::NoDestructor<std::vector<SearchConcept>> tags(
+      {{IDS_OS_SETTINGS_TAG_MULTIDEVICE_SMART_LOCK_OPTIONS,
+        mojom::kSmartLockSubpagePath,
+        mojom::SearchResultIcon::kLock,
+        mojom::SearchResultDefaultRank::kMedium,
+        mojom::SearchResultType::kSetting,
+        {.setting = mojom::Setting::kSmartLockUnlockOrSignIn}}});
+  return *tags;
+}
+
+const std::vector<SearchConcept>&
+GetMultiDeviceOptedInPhoneHubSearchConcepts() {
+  static const base::NoDestructor<std::vector<SearchConcept>> tags(
+      {{IDS_OS_SETTINGS_TAG_MULTIDEVICE_PHONE_HUB,
         mojom::kMultiDeviceFeaturesSubpagePath,
         mojom::SearchResultIcon::kPhone,
         mojom::SearchResultDefaultRank::kMedium,
@@ -84,18 +98,24 @@ const std::vector<SearchConcept>& GetMultiDeviceOptedInSearchConcepts() {
         mojom::SearchResultDefaultRank::kMedium,
         mojom::SearchResultType::kSetting,
         {.setting = mojom::Setting::kPhoneHubNotificationsOnOff}},
-       {IDS_OS_SETTINGS_TAG_MULTIDEVICE_PHONE_HUB_NOTIFICATION_BADGE,
-        mojom::kMultiDeviceFeaturesSubpagePath,
-        mojom::SearchResultIcon::kPhone,
-        mojom::SearchResultDefaultRank::kMedium,
-        mojom::SearchResultType::kSetting,
-        {.setting = mojom::Setting::kPhoneHubNotificationBadgeOnOff}},
        {IDS_OS_SETTINGS_TAG_MULTIDEVICE_PHONE_HUB_TASK_CONTINUATION,
         mojom::kMultiDeviceFeaturesSubpagePath,
         mojom::SearchResultIcon::kPhone,
         mojom::SearchResultDefaultRank::kMedium,
         mojom::SearchResultType::kSetting,
         {.setting = mojom::Setting::kPhoneHubTaskContinuationOnOff}}});
+  return *tags;
+}
+
+const std::vector<SearchConcept>&
+GetMultiDeviceOptedInWifiSyncSearchConcepts() {
+  static const base::NoDestructor<std::vector<SearchConcept>> tags(
+      {{IDS_OS_SETTINGS_TAG_MULTIDEVICE_WIFI_SYNC,
+        mojom::kMultiDeviceFeaturesSubpagePath,
+        mojom::SearchResultIcon::kWifi,
+        mojom::SearchResultDefaultRank::kMedium,
+        mojom::SearchResultType::kSetting,
+        {.setting = mojom::Setting::kWifiSyncOnOff}}});
   return *tags;
 }
 
@@ -116,23 +136,31 @@ const std::vector<SearchConcept>& GetMultiDeviceOptedOutSearchConcepts() {
          IDS_OS_SETTINGS_TAG_MULTIDEVICE_SMART_LOCK, SearchConcept::kAltTagEnd},
     };
 
-    bool is_phone_hub_enabled = features::IsPhoneHubEnabled();
-    bool is_instant_tether_enabled =
-        base::FeatureList::IsEnabled(features::kInstantTethering);
+    // Include the following features in alternate message IDs if they are
+    // enabled and the alt tag limit has not been reached: Phone Hub, Instant
+    // Tethering and Wifi Sync.
+    int alt_tag_index = 3;
 
-    // If Phone Hub and/or Instant Tethering is available, also include them in
-    // the list.
-    if (is_phone_hub_enabled) {
-      set_up_concept.alt_tag_ids[3] = IDS_OS_SETTINGS_TAG_MULTIDEVICE_PHONE_HUB;
+    if (features::IsPhoneHubEnabled()) {
+      set_up_concept.alt_tag_ids[alt_tag_index] =
+          IDS_OS_SETTINGS_TAG_MULTIDEVICE_PHONE_HUB;
+      alt_tag_index++;
+    }
+    if (base::FeatureList::IsEnabled(features::kInstantTethering)) {
+      set_up_concept.alt_tag_ids[alt_tag_index] =
+          IDS_OS_SETTINGS_TAG_INSTANT_TETHERING;
+      alt_tag_index++;
+    }
 
-      if (is_instant_tether_enabled) {
-        set_up_concept.alt_tag_ids[4] = IDS_OS_SETTINGS_TAG_INSTANT_TETHERING;
-      } else {
-        set_up_concept.alt_tag_ids[4] = SearchConcept::kAltTagEnd;
-      }
-    } else if (is_instant_tether_enabled) {
-      set_up_concept.alt_tag_ids[3] = IDS_OS_SETTINGS_TAG_INSTANT_TETHERING;
-      set_up_concept.alt_tag_ids[4] = SearchConcept::kAltTagEnd;
+    // TODO(cvandermerwe): Update 5 alt tag limit to 6 and remove condition
+    if (alt_tag_index < 5 && features::IsWifiSyncAndroidEnabled()) {
+      set_up_concept.alt_tag_ids[alt_tag_index] =
+          IDS_OS_SETTINGS_TAG_MULTIDEVICE_WIFI_SYNC;
+      alt_tag_index++;
+    }
+
+    if (alt_tag_index < 5) {
+      set_up_concept.alt_tag_ids[alt_tag_index] = SearchConcept::kAltTagEnd;
     }
 
     return std::vector<SearchConcept>{set_up_concept};
@@ -156,6 +184,32 @@ const std::vector<SearchConcept>& GetNearbyShareOnSearchConcepts() {
        {.setting = mojom::Setting::kNearbyShareOnOff},
        {IDS_OS_SETTINGS_TAG_NEARBY_SHARE_TURN_OFF_ALT1,
         SearchConcept::kAltTagEnd}},
+      {IDS_OS_SETTINGS_TAG_NEARBY_SHARE_DEVICE_NAME,
+       mojom::kNearbyShareSubpagePath,
+       mojom::SearchResultIcon::kNearbyShare,
+       mojom::SearchResultDefaultRank::kMedium,
+       mojom::SearchResultType::kSetting,
+       {.setting = mojom::Setting::kNearbyShareDeviceName}},
+      {IDS_OS_SETTINGS_TAG_NEARBY_SHARE_DEVICE_VISIBILITY,
+       mojom::kNearbyShareSubpagePath,
+       mojom::SearchResultIcon::kNearbyShare,
+       mojom::SearchResultDefaultRank::kMedium,
+       mojom::SearchResultType::kSetting,
+       {.setting = mojom::Setting::kNearbyShareDeviceVisibility},
+       {IDS_OS_SETTINGS_TAG_NEARBY_SHARE_DEVICE_VISIBILITY_ALT1,
+        SearchConcept::kAltTagEnd}},
+      {IDS_OS_SETTINGS_TAG_NEARBY_SHARE_CONTACTS,
+       mojom::kNearbyShareSubpagePath,
+       mojom::SearchResultIcon::kNearbyShare,
+       mojom::SearchResultDefaultRank::kMedium,
+       mojom::SearchResultType::kSetting,
+       {.setting = mojom::Setting::kNearbyShareContacts}},
+      {IDS_OS_SETTINGS_TAG_NEARBY_SHARE_DATA_USAGE,
+       mojom::kNearbyShareSubpagePath,
+       mojom::SearchResultIcon::kNearbyShare,
+       mojom::SearchResultDefaultRank::kMedium,
+       mojom::SearchResultType::kSetting,
+       {.setting = mojom::Setting::kNearbyShareDataUsage}},
   });
   return *tags;
 }
@@ -182,7 +236,7 @@ void AddEasyUnlockStrings(content::WebUIDataSource* html_source) {
       {"easyUnlockUnlockDeviceAndAllowSignin",
        IDS_SETTINGS_EASY_UNLOCK_UNLOCK_DEVICE_AND_ALLOW_SIGNIN},
   };
-  AddLocalizedStringsBulk(html_source, kLocalizedStrings);
+  html_source->AddLocalizedStrings(kLocalizedStrings);
 }
 
 bool IsOptedIn(multidevice_setup::mojom::HostStatus host_status) {
@@ -221,6 +275,7 @@ MultiDeviceSection::MultiDeviceSection(
 
   multidevice_setup_client_->AddObserver(this);
   OnHostStatusChanged(multidevice_setup_client_->GetHostStatus());
+  OnFeatureStatesChanged(multidevice_setup_client_->GetFeatureStates());
 }
 
 MultiDeviceSection::~MultiDeviceSection() {
@@ -238,25 +293,51 @@ void MultiDeviceSection::AddLoadTimeData(
        IDS_SETTINGS_MULTIDEVICE_SETUP_ITEM_HEADING},
       {"multideviceEnabled", IDS_SETTINGS_MULTIDEVICE_ENABLED},
       {"multideviceDisabled", IDS_SETTINGS_MULTIDEVICE_DISABLED},
+      {"multideviceSuiteToggleA11yLabel",
+       IDS_SETTINGS_MULTIDEVICE_SUITE_TOGGLE_A11Y_LABEL},
       {"multideviceSmartLockItemTitle", IDS_SETTINGS_EASY_UNLOCK_SECTION_TITLE},
       {"multidevicePhoneHubItemTitle",
        IDS_SETTINGS_MULTIDEVICE_PHONE_HUB_SECTION_TITLE},
+      {"multidevicePhoneHubLearnMoreLabel",
+       IDS_SETTINGS_MULTIDEVICE_PHONE_HUB_LEARN_MORE_LABEL},
       {"multidevicePhoneHubNotificationsItemTitle",
        IDS_SETTINGS_MULTIDEVICE_PHONE_HUB_NOTIFICATIONS_SECTION_TITLE},
-      {"multidevicePhoneHubNotificationBadgeItemTitle",
-       IDS_SETTINGS_MULTIDEVICE_PHONE_HUB_NOTIFICATION_BADGE_SECTION_TITLE},
       {"multidevicePhoneHubTaskContinuationItemTitle",
        IDS_SETTINGS_MULTIDEVICE_PHONE_HUB_TASK_CONTINUATION_SECTION_TITLE},
-      {"multideviceNotificationAccessSetupAckTitle",
-       IDS_SETTINGS_MULTIDEVICE_NOTIFICATION_ACCESS_SETUP_DIALOG_ACK_TITLE},
+      {"multidevicePhoneHubTaskContinuationItemSummary",
+       IDS_SETTINGS_MULTIDEVICE_PHONE_HUB_TASK_CONTINUATION_SUMMARY},
+      {"multidevicePhoneHubTaskContinuationSyncLabel",
+       IDS_SETTINGS_MULTIDEVICE_PHONE_HUB_TASK_CONTINUATION_SYNC_LABEL},
+      {"multideviceWifiSyncItemTitle",
+       IDS_SETTINGS_MULTIDEVICE_WIFI_SYNC_SECTION_TITLE},
+      {"multideviceWifiSyncChromeSyncLabel",
+       IDS_SETTINGS_MULTIDEVICE_WIFI_SYNC_CHROME_SYNC_LABEL},
+      {"multideviceWifiSyncLearnMoreLabel",
+       IDS_SETTINGS_MULTIDEVICE_WIFI_SYNC_LEARN_MORE_LABEL},
       {"multideviceNotificationAccessSetupConnectingTitle",
        IDS_SETTINGS_MULTIDEVICE_NOTIFICATION_ACCESS_SETUP_DIALOG_CONNECTING_TITLE},
+      {"multideviceNotificationAccessSetupAwaitingResponseTitle",
+       IDS_SETTINGS_MULTIDEVICE_NOTIFICATION_ACCESS_SETUP_DIALOG_AWAITING_RESPONSE_TITLE},
       {"multideviceNotificationAccessSetupInstructions",
        IDS_SETTINGS_MULTIDEVICE_NOTIFICATION_ACCESS_SETUP_DIALOG_INSTRUCTIONS},
       {"multideviceNotificationAccessSetupCompletedTitle",
        IDS_SETTINGS_MULTIDEVICE_NOTIFICATION_ACCESS_SETUP_DIALOG_COMPLETED_TITLE},
-      {"multideviceNotificationAccessSetupCompletedSummary",
-       IDS_SETTINGS_MULTIDEVICE_NOTIFICATION_ACCESS_SETUP_DIALOG_COMPLETED_SUMMARY},
+      {"multideviceNotificationAccessSetupConnectionLostWithPhoneTitle",
+       IDS_SETTINGS_MULTIDEVICE_NOTIFICATION_ACCESS_SETUP_DIALOG_CONNECTION_LOST_WITH_PHONE_TITLE},
+      {"multideviceNotificationAccessSetupCouldNotEstablishConnectionTitle",
+       IDS_SETTINGS_MULTIDEVICE_NOTIFICATION_ACCESS_SETUP_DIALOG_COULD_NOT_ESTABLISH_CONNECTION_TITLE},
+      {"multideviceNotificationAccessSetupGetStarted",
+       IDS_SETTINGS_MULTIDEVICE_NOTIFICATION_ACCESS_SETUP_DIALOG_GET_STARTED_BUTTON_LABEL},
+      {"multideviceNotificationAccessSetupTryAgain",
+       IDS_SETTINGS_MULTIDEVICE_NOTIFICATION_ACCESS_SETUP_DIALOG_TRY_AGAIN_BUTTON_LABEL},
+      {"multideviceNotificationAccessSetupMaintainFailureSummary",
+       IDS_SETTINGS_MULTIDEVICE_NOTIFICATION_ACCESS_SETUP_DIALOG_CONNECTION_LOST_WITH_PHONE_SUMMARY},
+      {"multideviceNotificationAccessSetupEstablishFailureSummary",
+       IDS_SETTINGS_MULTIDEVICE_NOTIFICATION_ACCESS_SETUP_DIALOG_COULD_NOT_ESTABLISH_CONNECTION_SUMMARY},
+      {"multideviceNotificationAccessSetupAccessProhibitedTitle",
+       IDS_SETTINGS_MULTIDEVICE_NOTIFICATION_ACCESS_SETUP_DIALOG_ACCESS_PROHIBITED_TITLE},
+      {"multideviceNotificationAccessProhibitedTooltip",
+       IDS_SETTINGS_MULTIDEVICE_NOTIFICATION_ACCESS_PROHIBITED_TOOLTIP},
       {"multideviceInstantTetheringItemTitle",
        IDS_SETTINGS_MULTIDEVICE_INSTANT_TETHERING},
       {"multideviceInstantTetheringItemSummary",
@@ -269,13 +350,20 @@ void MultiDeviceSection::AddLoadTimeData(
       {"multideviceForgetDeviceDisconnect",
        IDS_SETTINGS_MULTIDEVICE_FORGET_THIS_DEVICE_DISCONNECT},
   };
-  AddLocalizedStringsBulk(html_source, kLocalizedStrings);
+  html_source->AddLocalizedStrings(kLocalizedStrings);
 
   html_source->AddBoolean(
       "multideviceAllowedByPolicy",
       chromeos::multidevice_setup::AreAnyMultiDeviceFeaturesAllowed(
           profile()->GetPrefs()));
-
+  html_source->AddString(
+      "multideviceNotificationAccessSetupAckSummary",
+      ui::SubstituteChromeOSDeviceType(
+          IDS_SETTINGS_MULTIDEVICE_NOTIFICATION_ACCESS_SETUP_DIALOG_ACK_SUMMARY));
+  html_source->AddString(
+      "multideviceNotificationAccessSetupCompletedSummary",
+      ui::SubstituteChromeOSDeviceType(
+          IDS_SETTINGS_MULTIDEVICE_NOTIFICATION_ACCESS_SETUP_DIALOG_COMPLETED_SUMMARY));
   html_source->AddString(
       "multideviceForgetDeviceSummary",
       ui::SubstituteChromeOSDeviceType(
@@ -322,6 +410,42 @@ void MultiDeviceSection::AddLoadTimeData(
           IDS_SETTINGS_MULTIDEVICE_SMART_LOCK_SUMMARY,
           ui::GetChromeOSDeviceName(),
           GetHelpUrlWithBoard(chrome::kEasyUnlockLearnMoreUrl)));
+  html_source->AddString(
+      "multidevicePhoneHubItemSummary",
+      l10n_util::GetStringFUTF16(IDS_SETTINGS_MULTIDEVICE_PHONE_HUB_SUMMARY,
+                                 ui::GetChromeOSDeviceName()));
+  html_source->AddString(
+      "multidevicePhoneHubNotificationsItemSummary",
+      ui::SubstituteChromeOSDeviceType(
+          IDS_SETTINGS_MULTIDEVICE_PHONE_HUB_NOTIFICATIONS_SUMMARY));
+  html_source->AddString(
+      "multideviceNotificationAccessSetupAckTitle",
+      ui::SubstituteChromeOSDeviceType(
+          IDS_SETTINGS_MULTIDEVICE_NOTIFICATION_ACCESS_SETUP_DIALOG_ACK_TITLE));
+  html_source->AddString(
+      "multideviceNotificationAccessSetupAwaitingResponseSummary",
+      ui::SubstituteChromeOSDeviceType(
+          IDS_SETTINGS_MULTIDEVICE_NOTIFICATION_ACCESS_SETUP_DIALOG_AWAITING_RESPONSE_SUMMARY));
+  html_source->AddString(
+      "multideviceNotificationAccessSetupAccessProhibitedSummary",
+      l10n_util::GetStringFUTF16(
+          IDS_SETTINGS_MULTIDEVICE_NOTIFICATION_ACCESS_SETUP_DIALOG_ACCESS_PROHIBITED_SUMMARY,
+          GetHelpUrlWithBoard(phonehub::kPhoneHubLearnMoreLink)));
+  html_source->AddString(
+      "multideviceWifiSyncItemSummary",
+      l10n_util::GetStringFUTF16(
+          IDS_SETTINGS_MULTIDEVICE_WIFI_SYNC_SUMMARY,
+          GetHelpUrlWithBoard(chrome::kWifiSyncLearnMoreURL)));
+  html_source->AddString(
+      "multideviceEnableWifiSyncV1ItemSummary",
+      l10n_util::GetStringFUTF16(
+          IDS_SETTINGS_MULTIDEVICE_ENABLE_WIFI_SYNC_V1_SUMMARY,
+          GetHelpUrlWithBoard(chrome::kWifiSyncLearnMoreURL)));
+  html_source->AddString(
+      "multidevicePhoneHubTaskContinuationDisabledSummary",
+      l10n_util::GetStringFUTF16(
+          IDS_SETTINGS_MULTIDEVICE_PHONE_HUB_TASK_CONTINUATION_DISABLED_SUMMARY,
+          GetHelpUrlWithBoard(phonehub::kPhoneHubLearnMoreLink)));
 
   AddEasyUnlockStrings(html_source);
   ::settings::AddNearbyShareData(html_source);
@@ -362,6 +486,12 @@ std::string MultiDeviceSection::GetSectionPath() const {
   return mojom::kMultiDeviceSectionPath;
 }
 
+bool MultiDeviceSection::LogMetric(mojom::Setting setting,
+                                   base::Value& value) const {
+  // Unimplemented.
+  return false;
+}
+
 void MultiDeviceSection::RegisterHierarchy(
     HierarchyGenerator* generator) const {
   generator->RegisterTopLevelSetting(mojom::Setting::kSetUpMultiDevice);
@@ -379,8 +509,8 @@ void MultiDeviceSection::RegisterHierarchy(
       mojom::Setting::kForgetPhone,
       mojom::Setting::kPhoneHubOnOff,
       mojom::Setting::kPhoneHubNotificationsOnOff,
-      mojom::Setting::kPhoneHubNotificationBadgeOnOff,
       mojom::Setting::kPhoneHubTaskContinuationOnOff,
+      mojom::Setting::kWifiSyncOnOff,
   };
   RegisterNestedSettingBulk(mojom::Subpage::kMultiDeviceFeatures,
                             kMultiDeviceFeaturesSettings, generator);
@@ -411,6 +541,10 @@ void MultiDeviceSection::RegisterHierarchy(
       mojom::SearchResultDefaultRank::kMedium, mojom::kNearbyShareSubpagePath);
   static constexpr mojom::Setting kNearbyShareSettings[] = {
       mojom::Setting::kNearbyShareOnOff,
+      mojom::Setting::kNearbyShareDeviceName,
+      mojom::Setting::kNearbyShareDeviceVisibility,
+      mojom::Setting::kNearbyShareContacts,
+      mojom::Setting::kNearbyShareDataUsage,
   };
   RegisterNestedSettingBulk(mojom::Subpage::kNearbyShare, kNearbyShareSettings,
                             generator);
@@ -421,14 +555,32 @@ void MultiDeviceSection::OnHostStatusChanged(
     const multidevice_setup::MultiDeviceSetupClient::HostStatusWithDevice&
         host_status_with_device) {
   SearchTagRegistry::ScopedTagUpdater updater = registry()->StartUpdate();
+  updater.RemoveSearchTags(GetMultiDeviceOptedOutSearchConcepts());
+  updater.RemoveSearchTags(GetMultiDeviceOptedInSearchConcepts());
 
   if (IsOptedIn(host_status_with_device.first)) {
-    updater.RemoveSearchTags(GetMultiDeviceOptedOutSearchConcepts());
     updater.AddSearchTags(GetMultiDeviceOptedInSearchConcepts());
   } else {
-    updater.RemoveSearchTags(GetMultiDeviceOptedInSearchConcepts());
     updater.AddSearchTags(GetMultiDeviceOptedOutSearchConcepts());
   }
+}
+
+void MultiDeviceSection::OnFeatureStatesChanged(
+    const multidevice_setup::MultiDeviceSetupClient::FeatureStatesMap&
+        feature_states_map) {
+  SearchTagRegistry::ScopedTagUpdater updater = registry()->StartUpdate();
+  updater.RemoveSearchTags(GetSmartLockOptionsSearchConcepts());
+  updater.RemoveSearchTags(GetMultiDeviceOptedInPhoneHubSearchConcepts());
+  updater.RemoveSearchTags(GetMultiDeviceOptedInWifiSyncSearchConcepts());
+
+  if (feature_states_map.at(multidevice_setup::mojom::Feature::kSmartLock) ==
+      multidevice_setup::mojom::FeatureState::kEnabledByUser) {
+    updater.AddSearchTags(GetSmartLockOptionsSearchConcepts());
+  }
+  if (IsFeatureSupported(multidevice_setup::mojom::Feature::kPhoneHub))
+    updater.AddSearchTags(GetMultiDeviceOptedInPhoneHubSearchConcepts());
+  if (IsFeatureSupported(multidevice_setup::mojom::Feature::kWifiSync))
+    updater.AddSearchTags(GetMultiDeviceOptedInWifiSyncSearchConcepts());
 }
 
 void MultiDeviceSection::OnNearbySharingEnabledChanged() {
@@ -441,6 +593,14 @@ void MultiDeviceSection::OnNearbySharingEnabledChanged() {
     updater.RemoveSearchTags(GetNearbyShareOnSearchConcepts());
     updater.AddSearchTags(GetNearbyShareOffSearchConcepts());
   }
+}
+
+bool MultiDeviceSection::IsFeatureSupported(
+    multidevice_setup::mojom::Feature feature) {
+  const FeatureState feature_state =
+      multidevice_setup_client_->GetFeatureState(feature);
+  return feature_state != FeatureState::kNotSupportedByPhone &&
+         feature_state != FeatureState::kNotSupportedByChromebook;
 }
 
 }  // namespace settings

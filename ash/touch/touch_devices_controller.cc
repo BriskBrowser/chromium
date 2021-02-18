@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/root_window_controller.h"
 #include "ash/session/session_controller_impl.h"
@@ -14,14 +15,12 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/metrics/histogram_macros.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "ui/ozone/public/input_controller.h"
 #include "ui/ozone/public/ozone_platform.h"
-#include "ui/wm/core/cursor_manager.h"
 
 namespace ash {
 
@@ -173,23 +172,11 @@ void TouchDevicesController::UpdateTapDraggingEnabled() {
 }
 
 void TouchDevicesController::UpdateTouchpadEnabled() {
-  bool enabled = GetTouchpadEnabled(TouchDeviceEnabledSource::GLOBAL) &&
-                 GetTouchpadEnabled(TouchDeviceEnabledSource::USER_PREF);
-  ui::InputController* input_controller =
-      ui::OzonePlatform::GetInstance()->GetInputController();
-  const bool old_value = input_controller->IsInternalTouchpadEnabled();
-  input_controller->SetInternalTouchpadEnabled(enabled);
-  if (old_value == input_controller->IsInternalTouchpadEnabled())
-    return;  // Value didn't actually change.
-
-  ::wm::CursorManager* cursor_manager = Shell::Get()->cursor_manager();
-  if (!cursor_manager)
-    return;
-
-  if (enabled)
-    cursor_manager->ShowCursor();
-  else
-    cursor_manager->HideCursor();
+  ui::OzonePlatform::GetInstance()
+      ->GetInputController()
+      ->SetInternalTouchpadEnabled(
+          GetTouchpadEnabled(TouchDeviceEnabledSource::GLOBAL) &&
+          GetTouchpadEnabled(TouchDeviceEnabledSource::USER_PREF));
 }
 
 void TouchDevicesController::UpdateTouchscreenEnabled() {

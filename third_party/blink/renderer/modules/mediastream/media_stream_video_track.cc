@@ -13,9 +13,12 @@
 #include "base/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "media/base/bind_to_current_loop.h"
+#include "media/base/limits.h"
 #include "media/capture/video_capture_types.h"
+#include "third_party/blink/public/web/modules/mediastream/media_stream_video_sink.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/blink/renderer/modules/mediastream/media_stream_constraints_util_video_device.h"
+#include "third_party/blink/renderer/modules/mediastream/media_stream_video_track_signal_observer.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_component.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
@@ -25,15 +28,42 @@
 namespace blink {
 namespace {
 
+// A lower-bound for the refresh interval.
+constexpr base::TimeDelta kLowerBoundRefreshInterval =
+    base::TimeDelta::FromHz(media::limits::kMaxFramesPerSecond);
+
 // This alias mimics the definition of VideoCaptureDeliverFrameCB.
-using VideoCaptureDeliverFrameInternalCallback =
-    WTF::CrossThreadFunction<void(scoped_refptr<media::VideoFrame> video_frame,
-                                  base::TimeTicks estimated_capture_time)>;
+using VideoCaptureDeliverFrameInternalCallback = WTF::CrossThreadFunction<void(
+    scoped_refptr<media::VideoFrame> video_frame,
+    std::vector<scoped_refptr<media::VideoFrame>> scaled_video_frames,
+    base::TimeTicks estimated_capture_time)>;
 
 // Mimics blink::EncodedVideoFrameCB
 using EncodedVideoFrameInternalCallback =
     WTF::CrossThreadFunction<void(scoped_refptr<EncodedVideoFrame> frame,
                                   base::TimeTicks estimated_capture_time)>;
+
+base::TimeDelta ComputeRefreshIntervalFromBounds(
+    const base::TimeDelta required_min_refresh_interval,
+    const base::Optional<double>& min_frame_rate,
+    const base::Optional<double>& max_frame_rate) {
+  // Start with the default required refresh interval, and refine based on
+  // constraints. If a minimum frameRate is provided, use that. Otherwise, use
+  // the maximum frameRate if it happens to be less than the default.
+  base::TimeDelta refresh_interval = required_min_refresh_interval;
+  if (min_frame_rate.has_value())
+    refresh_interval = base::TimeDelta::FromHz(*min_frame_rate);
+
+  if (max_frame_rate.has_value()) {
+    refresh_interval =
+        std::max(refresh_interval, base::TimeDelta::FromHz(*max_frame_rate));
+  }
+
+  if (refresh_interval < kLowerBoundRefreshInterval)
+    refresh_interval = kLowerBoundRefreshInterval;
+
+  return refresh_interval;
+}
 
 }  // namespace
 
@@ -79,13 +109,17 @@ class MediaStreamVideoTrack::FrameDeliverer
 
   // Triggers all registered callbacks with |frame| and |estimated_capture_time|
   // as parameters. Must be called on the IO-thread.
-  void DeliverFrameOnIO(scoped_refptr<media::VideoFrame> frame,
-                        base::TimeTicks estimated_capture_time);
+  void DeliverFrameOnIO(
+      scoped_refptr<media::VideoFrame> frame,
+      std::vector<scoped_refptr<media::VideoFrame>> scaled_video_frames,
+      base::TimeTicks estimated_capture_time);
 
   // Triggers all encoded callbacks with |frame| and |estimated_capture_time|.
   // Must be called on the IO-thread.
   void DeliverEncodedVideoFrameOnIO(scoped_refptr<EncodedVideoFrame> frame,
                                     base::TimeTicks estimated_capture_time);
+
+  void SetIsRefreshingForMinFrameRate(bool is_refreshing_for_min_frame_rate);
 
  private:
   friend class WTF::ThreadSafeRefCounted<FrameDeliverer>;
@@ -103,6 +137,9 @@ class MediaStreamVideoTrack::FrameDeliverer
       const scoped_refptr<base::SingleThreadTaskRunner>& task_runner);
 
   void SetEnabledOnIO(bool enabled, bool await_key_frame);
+
+  void SetIsRefreshingForMinFrameRateOnIO(
+      bool is_refreshing_for_min_frame_rate);
 
   // Returns a black frame where the size and time stamp is set to the same as
   // as in |reference_frame|.
@@ -127,6 +164,9 @@ class MediaStreamVideoTrack::FrameDeliverer
   Vector<VideoIdCallbackPair> callbacks_;
   HashMap<VideoSinkId, EncodedVideoFrameInternalCallback> encoded_callbacks_;
   bool await_next_key_frame_;
+
+  // This should only be accessed on the IO thread.
+  bool is_refreshing_for_min_frame_rate_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(FrameDeliverer);
 };
@@ -269,8 +309,25 @@ void MediaStreamVideoTrack::FrameDeliverer::SetEnabledOnIO(
   }
 }
 
+void MediaStreamVideoTrack::FrameDeliverer::SetIsRefreshingForMinFrameRate(
+    bool is_refreshing_for_min_frame_rate) {
+  DCHECK_CALLED_ON_VALID_THREAD(main_render_thread_checker_);
+  PostCrossThreadTask(
+      *io_task_runner_, FROM_HERE,
+      CrossThreadBindOnce(&FrameDeliverer::SetIsRefreshingForMinFrameRateOnIO,
+                          WrapRefCounted(this),
+                          is_refreshing_for_min_frame_rate));
+}
+
+void MediaStreamVideoTrack::FrameDeliverer::SetIsRefreshingForMinFrameRateOnIO(
+    bool is_refreshing_for_min_frame_rate) {
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
+  is_refreshing_for_min_frame_rate_ = is_refreshing_for_min_frame_rate;
+}
+
 void MediaStreamVideoTrack::FrameDeliverer::DeliverFrameOnIO(
     scoped_refptr<media::VideoFrame> frame,
+    std::vector<scoped_refptr<media::VideoFrame>> scaled_video_frames,
     base::TimeTicks estimated_capture_time) {
   DCHECK(io_task_runner_->BelongsToCurrentThread());
   if (!enabled_ && main_render_task_runner_ && emit_frame_drop_events_) {
@@ -286,9 +343,29 @@ void MediaStreamVideoTrack::FrameDeliverer::DeliverFrameOnIO(
             media::VideoCaptureFrameDropReason::
                 kVideoTrackFrameDelivererNotEnabledReplacingWithBlackFrame));
   }
-  auto video_frame = enabled_ ? std::move(frame) : GetBlackFrame(*frame);
+  scoped_refptr<media::VideoFrame> video_frame;
+  if (enabled_) {
+    video_frame = std::move(frame);
+  } else {
+    // When disabled, a black video frame is passed along instead. The original
+    // frames are dropped.
+    video_frame = GetBlackFrame(*frame);
+    scaled_video_frames.clear();
+  }
   for (const auto& entry : callbacks_)
-    entry.second.Run(video_frame, estimated_capture_time);
+    entry.second.Run(video_frame, scaled_video_frames, estimated_capture_time);
+
+  // The delay on refresh timer is reset each time a frame is received so that
+  // it will not fire for at least an additional period. This means refresh
+  // frames will only be requested when the source has halted delivery (e.g., a
+  // screen capturer stops sending frames because the screen is not being
+  // updated).
+  if (main_render_task_runner_ && is_refreshing_for_min_frame_rate_) {
+    PostCrossThreadTask(
+        *main_render_task_runner_, FROM_HERE,
+        CrossThreadBindOnce(&MediaStreamVideoTrack::ResetRefreshTimer,
+                            media_stream_video_track_));
+  }
 }
 
 void MediaStreamVideoTrack::FrameDeliverer::DeliverEncodedVideoFrameOnIO(
@@ -327,8 +404,8 @@ MediaStreamVideoTrack::FrameDeliverer::GetBlackFrame(
     return nullptr;
 
   wrapped_black_frame->set_timestamp(reference_frame.timestamp());
-  wrapped_black_frame->metadata()->reference_time =
-      reference_frame.metadata()->reference_time;
+  wrapped_black_frame->metadata().reference_time =
+      reference_frame.metadata().reference_time;
 
   return wrapped_black_frame;
 }
@@ -366,16 +443,14 @@ WebMediaStreamTrack MediaStreamVideoTrack::CreateVideoTrack(
 }
 
 // static
-MediaStreamVideoTrack* MediaStreamVideoTrack::GetVideoTrack(
-    const WebMediaStreamTrack& track) {
-  if (track.IsNull())
+MediaStreamVideoTrack* MediaStreamVideoTrack::From(
+    const MediaStreamComponent* component) {
+  if (!component ||
+      component->Source()->GetType() != MediaStreamSource::kTypeVideo) {
     return nullptr;
+  }
 
-  MediaStreamComponent& component = *track;
-  if (component.Source()->GetType() != MediaStreamSource::kTypeVideo)
-    return nullptr;
-
-  return static_cast<MediaStreamVideoTrack*>(component.GetPlatformTrack());
+  return static_cast<MediaStreamVideoTrack*>(component->GetPlatformTrack());
 }
 
 MediaStreamVideoTrack::MediaStreamVideoTrack(
@@ -482,9 +557,11 @@ void MediaStreamVideoTrack::AddSink(WebMediaStreamSink* sink,
   if (!source_)
     return;
   UpdateSourceHasConsumers();
-  source_->RequestRefreshFrame();
+  RequestRefreshFrame();
   source_->UpdateCapturingLinkSecure(this,
                                      secure_tracker_.is_capturing_secure());
+  if (is_screencast_)
+    StartTimerForRequestingFrames();
 }
 
 void MediaStreamVideoTrack::AddEncodedSink(WebMediaStreamSink* sink,
@@ -507,6 +584,9 @@ void MediaStreamVideoTrack::RemoveSink(WebMediaStreamSink* sink) {
   UpdateSourceHasConsumers();
   source_->UpdateCapturingLinkSecure(this,
                                      secure_tracker_.is_capturing_secure());
+  // Restart the timer with existing sinks.
+  if (is_screencast_)
+    StartTimerForRequestingFrames();
 }
 
 void MediaStreamVideoTrack::RemoveEncodedSink(WebMediaStreamSink* sink) {
@@ -534,7 +614,7 @@ void MediaStreamVideoTrack::SetEnabled(bool enabled) {
   bool maybe_await_key_frame = false;
   if (enabled && source_ && source_->SupportsEncodedOutput() &&
       !encoded_sinks_.IsEmpty()) {
-    source_->RequestRefreshFrame();
+    RequestRefreshFrame();
     maybe_await_key_frame = true;
   }
   frame_deliverer_->SetEnabled(enabled, maybe_await_key_frame);
@@ -542,6 +622,11 @@ void MediaStreamVideoTrack::SetEnabled(bool enabled) {
     sink->OnEnabledChanged(enabled);
   for (auto* encoded_sink : encoded_sinks_)
     encoded_sink->OnEnabledChanged(enabled);
+}
+
+size_t MediaStreamVideoTrack::CountSinks() const {
+  DCHECK_CALLED_ON_VALID_THREAD(main_render_thread_checker_);
+  return sinks_.size();
 }
 
 size_t MediaStreamVideoTrack::CountEncodedSinks() const {
@@ -567,6 +652,7 @@ void MediaStreamVideoTrack::StopAndNotify(base::OnceClosure callback) {
     std::move(callback).Run();
   }
   OnReadyStateChanged(WebMediaStreamSource::kReadyStateEnded);
+  refresh_timer_.Stop();
 }
 
 void MediaStreamVideoTrack::GetSettings(
@@ -599,7 +685,8 @@ void MediaStreamVideoTrack::GetSettings(
       settings.frame_rate = *computed_frame_rate_;
   }
 
-  settings.facing_mode = ToPlatformFacingMode(source_->device().video_facing);
+  settings.facing_mode = ToPlatformFacingMode(
+      static_cast<mojom::blink::FacingMode>(source_->device().video_facing));
   settings.resize_mode = WebString::FromASCII(std::string(
       adapter_settings().target_size() ? WebMediaStreamTrack::kResizeModeRescale
                                        : WebMediaStreamTrack::kResizeModeNone));
@@ -614,9 +701,16 @@ void MediaStreamVideoTrack::GetSettings(
 void MediaStreamVideoTrack::OnReadyStateChanged(
     WebMediaStreamSource::ReadyState state) {
   DCHECK_CALLED_ON_VALID_THREAD(main_render_thread_checker_);
-  for (auto* sink : sinks_)
+
+  // Copy the vectors first, since sinks might DisconnectFromTrack() and
+  // invalidate iterators.
+
+  Vector<WebMediaStreamSink*> sinks_copy(sinks_);
+  for (auto* sink : sinks_copy)
     sink->OnReadyStateChanged(state);
-  for (auto* encoded_sink : encoded_sinks_)
+
+  Vector<WebMediaStreamSink*> encoded_sinks_copy(encoded_sinks_);
+  for (auto* encoded_sink : encoded_sinks_copy)
     encoded_sink->OnReadyStateChanged(state);
 }
 
@@ -636,6 +730,64 @@ void MediaStreamVideoTrack::OnFrameDropped(
   if (!source_)
     return;
   source_->OnFrameDropped(reason);
+}
+
+void MediaStreamVideoTrack::SetMinimumFrameRate(double min_frame_rate) {
+  DCHECK_CALLED_ON_VALID_THREAD(main_render_thread_checker_);
+  min_frame_rate_ = min_frame_rate;
+  if (signal_observer_)
+    signal_observer_->SetMinimumFrameRate(min_frame_rate);
+}
+
+MediaStreamVideoTrackSignalObserver* MediaStreamVideoTrack::SignalObserver() {
+  DCHECK_CALLED_ON_VALID_THREAD(main_render_thread_checker_);
+  return signal_observer_.Get();
+}
+
+void MediaStreamVideoTrack::SetSignalObserver(
+    MediaStreamVideoTrackSignalObserver* observer) {
+  DCHECK_CALLED_ON_VALID_THREAD(main_render_thread_checker_);
+  signal_observer_ = observer;
+}
+
+void MediaStreamVideoTrack::StartTimerForRequestingFrames() {
+  DCHECK_CALLED_ON_VALID_THREAD(main_render_thread_checker_);
+
+  // Find the maximum of all the required min frames per second in the attached
+  // sinks.
+  double required_min_fps = 0;
+  for (auto* web_sink : sinks_) {
+    auto* sink = static_cast<MediaStreamVideoSink*>(web_sink);
+    required_min_fps =
+        std::max(required_min_fps, sink->GetRequiredMinFramesPerSec());
+  }
+
+  base::TimeDelta refresh_interval = ComputeRefreshIntervalFromBounds(
+      base::TimeDelta::FromHz(required_min_fps), min_frame_rate_,
+      max_frame_rate_);
+
+  if (refresh_interval.is_max()) {
+    refresh_timer_.Stop();
+    frame_deliverer_->SetIsRefreshingForMinFrameRate(false);
+  } else {
+    DVLOG(1) << "Starting frame refresh timer with interval "
+             << refresh_interval.InMillisecondsF() << " ms.";
+    refresh_timer_.Start(FROM_HERE, refresh_interval, this,
+                         &MediaStreamVideoTrack::RequestRefreshFrame);
+    frame_deliverer_->SetIsRefreshingForMinFrameRate(true);
+  }
+}
+
+void MediaStreamVideoTrack::RequestRefreshFrame() {
+  DCHECK_CALLED_ON_VALID_THREAD(main_render_thread_checker_);
+  if (source_)
+    source_->RequestRefreshFrame();
+}
+
+void MediaStreamVideoTrack::ResetRefreshTimer() {
+  DCHECK_CALLED_ON_VALID_THREAD(main_render_thread_checker_);
+  if (refresh_timer_.IsRunning())
+    refresh_timer_.Reset();
 }
 
 }  // namespace blink

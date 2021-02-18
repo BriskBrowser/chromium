@@ -16,10 +16,9 @@
 
 #include "base/callback_forward.h"
 #include "base/macros.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "build/build_config.h"
-#include "content/browser/accessibility/accessibility_buildflags.h"
-#include "content/browser/accessibility/browser_accessibility_position.h"
+#include "content/browser/accessibility/browser_accessibility.h"
 #include "content/common/content_export.h"
 #include "content/common/render_accessibility.mojom-forward.h"
 #include "content/public/browser/ax_event_notification_details.h"
@@ -29,6 +28,7 @@
 #include "ui/accessibility/ax_event_generator.h"
 #include "ui/accessibility/ax_node.h"
 #include "ui/accessibility/ax_node_data.h"
+#include "ui/accessibility/ax_node_position.h"
 #include "ui/accessibility/ax_range.h"
 #include "ui/accessibility/ax_serializable_tree.h"
 #include "ui/accessibility/ax_tree.h"
@@ -37,10 +37,11 @@
 #include "ui/accessibility/ax_tree_observer.h"
 #include "ui/accessibility/ax_tree_update.h"
 #include "ui/accessibility/platform/ax_platform_node.h"
+#include "ui/base/buildflags.h"
 #include "ui/gfx/native_widget_types.h"
 
 namespace content {
-class BrowserAccessibility;
+
 class BrowserAccessibilityDelegate;
 class BrowserAccessibilityManager;
 #if defined(OS_ANDROID)
@@ -52,6 +53,7 @@ class BrowserAccessibilityManagerAuraLinux;
 #elif defined(OS_MAC)
 class BrowserAccessibilityManagerMac;
 #endif
+class WebContentsAccessibility;
 
 // To be called when a BrowserAccessibilityManager fires a generated event.
 // Provides the host, the event fired, and which node id the event was for.
@@ -106,6 +108,8 @@ class CONTENT_EXPORT BrowserAccessibilityDelegate {
   // Returns true if this delegate represents the main (topmost) frame in a
   // tree of frames.
   virtual bool AccessibilityIsMainFrame() = 0;
+  virtual WebContentsAccessibility*
+  AccessibilityGetWebContentsAccessibility() = 0;
 };
 
 // This is all of the information about the current find in page result,
@@ -132,17 +136,12 @@ struct BrowserAccessibilityFindInPageInfo {
 class CONTENT_EXPORT BrowserAccessibilityManager : public ui::AXTreeObserver,
                                                    public ui::AXTreeManager,
                                                    public WebContentsObserver {
- protected:
-  using BrowserAccessibilityPositionInstance =
-      BrowserAccessibilityPosition::AXPositionInstance;
-  using BrowserAccessibilityRange =
-      ui::AXRange<BrowserAccessibilityPositionInstance::element_type>;
-
  public:
-  // Creates the platform-specific BrowserAccessibilityManager, but
-  // with no parent window pointer. Only useful for unit tests.
+  // Creates the platform-specific BrowserAccessibilityManager.
   static BrowserAccessibilityManager* Create(
       const ui::AXTreeUpdate& initial_tree,
+      BrowserAccessibilityDelegate* delegate);
+  static BrowserAccessibilityManager* Create(
       BrowserAccessibilityDelegate* delegate);
 
   static BrowserAccessibilityManager* FromID(ui::AXTreeID ax_tree_id);
@@ -191,6 +190,11 @@ class CONTENT_EXPORT BrowserAccessibilityManager : public ui::AXTreeObserver,
 
   // If this tree has a parent tree, return the parent node in that tree.
   BrowserAccessibility* GetParentNodeFromParentTree() const;
+
+  // Refreshes a parent node in a parent tree when it needs to be informed that
+  // this tree is ready or being destroyed. For example, an iframe object
+  // in a parent tree may need to link or unlink to this manager.
+  void ParentConnectionChanged(BrowserAccessibility* parent);
 
   // In general, there is only a single node with the role of kRootWebArea,
   // but if a popup is opened, a second nested "root" is created in the same
@@ -252,6 +256,12 @@ class CONTENT_EXPORT BrowserAccessibilityManager : public ui::AXTreeObserver,
   // had focus.
   static void NeverSuppressOrDelayEventsForTesting();
 
+  // Extra mac nodes are temporarily disabled, except for in tests.
+  static void AllowExtraMacNodesForTesting();
+  // Are extra mac nodes allowed at all? Currently only allowed in tests.
+  // Even when returning true, platforms other than Mac OS do not enable them.
+  static bool GetExtraMacNodesAllowed();
+
   // Accessibility actions. All of these are implemented asynchronously
   // by sending a message to the renderer to perform the respective action
   // on the given node.  See the definition of |ui::AXActionData| for more
@@ -285,7 +295,7 @@ class CONTENT_EXPORT BrowserAccessibilityManager : public ui::AXTreeObserver,
   void SetScrollOffset(const BrowserAccessibility& node, gfx::Point offset);
   void SetValue(const BrowserAccessibility& node, const std::string& value);
   void SetSelection(const ui::AXActionData& action_data);
-  void SetSelection(const BrowserAccessibilityRange& range);
+  void SetSelection(const BrowserAccessibility::AXRange& range);
   void ShowContextMenu(const BrowserAccessibility& node);
   void SignalEndOfTest();
 
@@ -358,9 +368,15 @@ class CONTENT_EXPORT BrowserAccessibilityManager : public ui::AXTreeObserver,
   // descendants.
   BrowserAccessibility* GetFocusFromThisOrDescendantFrame() const;
 
-  // Given a focused node |focus|, returns a descendant of that node if it
-  // has an active descendant, otherwise returns |focus|.
-  BrowserAccessibility* GetActiveDescendant(BrowserAccessibility* focus) const;
+  // Given a node, returns a descendant of that node if the node has an active
+  // descendant, otherwise returns the node itself. The node does not need to be
+  // focused.
+  BrowserAccessibility* GetActiveDescendant(BrowserAccessibility* node) const;
+
+  // Given a focused node |focus|, returns a list of nodes that the focused
+  // node controls.
+  std::vector<BrowserAccessibility*> GetAriaControls(
+      const BrowserAccessibility* focus) const;
 
   // Returns true if native focus is anywhere in this WebContents or not.
   bool NativeViewHasFocus();
@@ -445,12 +461,15 @@ class CONTENT_EXPORT BrowserAccessibilityManager : public ui::AXTreeObserver,
 
   // AXTreeManager overrides.
   ui::AXNode* GetNodeFromTree(ui::AXTreeID tree_id,
-                              ui::AXNode::AXID node_id) const override;
-  ui::AXNode* GetNodeFromTree(ui::AXNode::AXID node_id) const override;
-  AXTreeID GetTreeID() const override;
-  AXTreeID GetParentTreeID() const override;
+                              ui::AXNodeID node_id) const override;
+  ui::AXNode* GetNodeFromTree(ui::AXNodeID node_id) const override;
+  void AddObserver(ui::AXTreeObserver* observer) override;
+  void RemoveObserver(ui::AXTreeObserver* observer) override;
+  ui::AXTreeID GetTreeID() const override;
+  ui::AXTreeID GetParentTreeID() const override;
   ui::AXNode* GetRootAsAXNode() const override;
   ui::AXNode* GetParentNodeFromParentTreeAsAXNode() const override;
+  void WillBeRemovedFromMap() override;
 
   BrowserAccessibilityDelegate* delegate() const { return delegate_; }
 
@@ -575,6 +594,9 @@ class CONTENT_EXPORT BrowserAccessibilityManager : public ui::AXTreeObserver,
   // flakiness. See NeverSuppressOrDelayEventsForTesting() for details.
   static bool never_suppress_or_delay_events_for_testing_;
 
+  // Extra mac nodes are disabled even on mac currently, except for in tests.
+  static bool allow_extra_mac_nodes_for_testing_;
+
   const ui::AXEventGenerator& event_generator() const {
     return event_generator_;
   }
@@ -589,7 +611,16 @@ class CONTENT_EXPORT BrowserAccessibilityManager : public ui::AXTreeObserver,
   static base::Optional<int32_t> last_focused_node_id_;
   static base::Optional<ui::AXTreeID> last_focused_node_tree_id_;
 
+  // For debug only: True when handling OnAccessibilityEvents.
+#if DCHECK_IS_ON()
+  bool in_on_accessibility_events_ = false;
+#endif  // DCHECK_IS_ON()
+
  private:
+  // Helper that calls AXTree::Unserialize(). On failure it populates crash data
+  // with error information.
+  bool Unserialize(const ui::AXTreeUpdate& tree_update);
+
   // The underlying tree of accessibility objects.
   std::unique_ptr<ui::AXSerializableTree> tree_;
 
@@ -601,7 +632,8 @@ class CONTENT_EXPORT BrowserAccessibilityManager : public ui::AXTreeObserver,
   // This member needs to be destructed before any observed AXTrees. Since
   // destructors for non-static member fields are called in the reverse order of
   // declaration, do not move this member above other members.
-  ScopedObserver<ui::AXTree, ui::AXTreeObserver> tree_observer_{this};
+  base::ScopedObservation<ui::AXTree, ui::AXTreeObserver> tree_observation_{
+      this};
 
   DISALLOW_COPY_AND_ASSIGN(BrowserAccessibilityManager);
 };

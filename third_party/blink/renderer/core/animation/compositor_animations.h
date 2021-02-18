@@ -47,7 +47,9 @@ class Animation;
 class CompositorAnimation;
 class Element;
 class KeyframeEffectModelBase;
+class Node;
 class PaintArtifactCompositor;
+class SVGElement;
 
 class CORE_EXPORT CompositorAnimations {
   STATIC_ONLY(CompositorAnimations);
@@ -127,11 +129,13 @@ class CORE_EXPORT CompositorAnimations {
       double animation_playback_rate);
   static void CancelAnimationOnCompositor(const Element&,
                                           CompositorAnimation*,
-                                          int id);
+                                          int id,
+                                          const EffectModel& model);
   static void PauseAnimationForTestingOnCompositor(const Element&,
                                                    const Animation&,
                                                    int id,
-                                                   base::TimeDelta pause_time);
+                                                   base::TimeDelta pause_time,
+                                                   const EffectModel&);
 
   static void AttachCompositedLayers(Element&, CompositorAnimation*);
 
@@ -165,6 +169,8 @@ class CORE_EXPORT CompositorAnimations {
 
   static bool CheckUsesCompositedScrolling(Node* target);
 
+  static bool CanStartTransformAnimationOnCompositorForSVG(const SVGElement&);
+
  private:
   static FailureReasons CheckCanStartEffectOnCompositor(
       const Timing&,
@@ -174,7 +180,13 @@ class CORE_EXPORT CompositorAnimations {
       const PaintArtifactCompositor*,
       double animation_playback_rate,
       PropertyHandleSet* unsupported_properties = nullptr);
-  static FailureReasons CheckCanStartElementOnCompositor(const Element&);
+  static FailureReasons CheckCanStartElementOnCompositor(
+      const Element& element,
+      const EffectModel& model);
+  static FailureReasons CheckCanStartSVGElementOnCompositor(const SVGElement&);
+  // This doesn't include the reasons returned from the above function.
+  static FailureReasons CheckCanStartTransformAnimationOnCompositorForSVG(
+      const SVGElement&);
 
   friend class AnimationCompositorAnimationsTest;
 };

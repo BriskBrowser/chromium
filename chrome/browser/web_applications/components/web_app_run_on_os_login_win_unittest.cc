@@ -12,8 +12,8 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/web_applications/components/web_app_shortcut.h"
 #include "chrome/browser/web_applications/components/web_app_shortcut_win.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "chrome/browser/web_applications/test/web_app_test.h"
-#include "chrome/common/web_application_info.h"
 #include "chrome/installer/util/shell_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/image/image_skia.h"
@@ -88,7 +88,8 @@ TEST_F(WebAppRunOnOsLoginWinTest, Unregister) {
   EXPECT_TRUE(result);
   VerifyShortcutCreated();
 
-  internals::UnregisterRunOnOsLogin(profile()->GetPath(),
+  internals::UnregisterRunOnOsLogin(shortcut_info->extension_id,
+                                    profile()->GetPath(),
                                     base::UTF8ToUTF16(kAppTitle));
   VerifyShortcutDeleted();
 }

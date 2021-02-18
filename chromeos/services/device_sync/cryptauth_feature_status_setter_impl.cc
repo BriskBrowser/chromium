@@ -197,10 +197,10 @@ void CryptAuthFeatureStatusSetterImpl::ProcessRequestQueue() {
   cryptauth_client_ = client_factory_->CreateInstance();
   cryptauth_client_->BatchSetFeatureStatuses(
       request,
-      base::Bind(
+      base::BindOnce(
           &CryptAuthFeatureStatusSetterImpl::OnBatchSetFeatureStatusesSuccess,
           base::Unretained(this)),
-      base::Bind(
+      base::BindOnce(
           &CryptAuthFeatureStatusSetterImpl::OnBatchSetFeatureStatusesFailure,
           base::Unretained(this)));
 }
@@ -221,8 +221,10 @@ void CryptAuthFeatureStatusSetterImpl::OnBatchSetFeatureStatusesFailure(
 
 void CryptAuthFeatureStatusSetterImpl::FinishAttempt(
     base::Optional<NetworkRequestError> error) {
-  DCHECK(!pending_requests_.empty());
+  cryptauth_client_.reset();
+  SetState(State::kIdle);
 
+  DCHECK(!pending_requests_.empty());
   Request current_request = std::move(pending_requests_.front());
   pending_requests_.pop();
 
@@ -233,7 +235,6 @@ void CryptAuthFeatureStatusSetterImpl::FinishAttempt(
     std::move(current_request.success_callback).Run();
   }
 
-  SetState(State::kIdle);
   ProcessRequestQueue();
 }
 

@@ -43,6 +43,7 @@
 #include "third_party/blink/public/platform/web_runtime_features.h"
 #include "third_party/blink/renderer/platform/font_family_names.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/heap/heap_test_utilities.h"
 #include "third_party/blink/renderer/platform/language.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_initiator_type_names.h"
 #include "third_party/blink/renderer/platform/network/http_names.h"
@@ -124,7 +125,7 @@ TestingPlatformSupport::GetBrowserInterfaceBroker() {
 }
 
 void TestingPlatformSupport::RunUntilIdle() {
-  ThreadState::HeapPointersOnStackScope scan_stack(ThreadState::Current());
+  HeapPointersOnStackScope scan_stack(ThreadState::Current());
   base::RunLoop().RunUntilIdle();
 }
 
@@ -134,6 +135,14 @@ bool TestingPlatformSupport::IsThreadedAnimationEnabled() {
 
 void TestingPlatformSupport::SetThreadedAnimationEnabled(bool enabled) {
   is_threaded_animation_enabled_ = enabled;
+}
+
+bool TestingPlatformSupport::IsUseZoomForDSFEnabled() {
+  return is_zoom_for_dsf_enabled_;
+}
+
+void TestingPlatformSupport::SetUseZoomForDSF(bool enabled) {
+  is_zoom_for_dsf_enabled_ = enabled;
 }
 
 ScopedUnittestsEnvironmentSetup::ScopedUnittestsEnvironmentSetup(int argc,

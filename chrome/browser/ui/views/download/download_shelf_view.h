@@ -14,6 +14,7 @@
 #include "ui/views/accessible_pane_view.h"
 #include "ui/views/animation/animation_delegate_views.h"
 #include "ui/views/controls/button/button.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/mouse_watcher.h"
 #include "ui/views/mouse_watcher_view_host.h"
 
@@ -34,9 +35,9 @@ class MdTextButton;
 class DownloadShelfView : public DownloadShelf,
                           public views::AccessiblePaneView,
                           public views::AnimationDelegateViews,
-                          public views::ButtonListener,
                           public views::MouseWatcherListener {
  public:
+  METADATA_HEADER(DownloadShelfView);
   DownloadShelfView(Browser* browser, BrowserView* parent);
   DownloadShelfView(const DownloadShelfView&) = delete;
   DownloadShelfView& operator=(const DownloadShelfView&) = delete;
@@ -54,9 +55,6 @@ class DownloadShelfView : public DownloadShelf,
   // views::AnimationDelegateViews:
   void AnimationProgressed(const gfx::Animation* animation) override;
   void AnimationEnded(const gfx::Animation* animation) override;
-
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* button, const ui::Event& event) override;
 
   // views::MouseWatcherListener:
   void MouseMovedOutOfHost() override;

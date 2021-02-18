@@ -88,11 +88,15 @@ Polymer({
     },
 
     /** @private */
+    dataEncrypted_: {
+      type: Boolean,
+      computed: 'computeDataEncrypted_(syncPrefs.encryptAllData)'
+    },
+
+    /** @private */
     encryptionExpanded_: {
       type: Boolean,
       value: false,
-      computed:
-          'computeEncryptionExpanded_(syncPrefs.encryptAllData, forceEncryptionExpanded)',
     },
 
     /** If true, override |encryptionExpanded_| to be true. */
@@ -139,18 +143,11 @@ Polymer({
       type: Boolean,
       value: false,
     },
-
-    /**
-     * If sync page friendly settings is enabled.
-     * @private
-     */
-    syncSetupFriendlySettings_: {
-      type: Boolean,
-      value() {
-        return loadTimeData.getBoolean('syncSetupFriendlySettings');
-      }
-    },
   },
+
+  observers: [
+    'expandEncryptionIfNeeded_(dataEncrypted_, forceEncryptionExpanded)',
+  ],
 
   /** @private {?settings.SyncBrowserProxy} */
   browserProxy_: null,
@@ -450,17 +447,26 @@ Polymer({
   },
 
   /**
-   * Whether the encryption dropdown should be expanded by default.
    * @return {boolean}
    * @private
    */
-  computeEncryptionExpanded_() {
+  computeDataEncrypted_() {
+    return !!this.syncPrefs && this.syncPrefs.encryptAllData;
+  },
+
+  /**
+   * Whether the encryption dropdown should be expanded by default.
+   * @private
+   */
+  expandEncryptionIfNeeded_() {
     // Force the dropdown to expand.
     if (this.forceEncryptionExpanded) {
       this.forceEncryptionExpanded = false;
-      return true;
+      this.encryptionExpanded_ = true;
+      return;
     }
-    return !!this.syncPrefs && this.syncPrefs.encryptAllData;
+
+    this.encryptionExpanded_ = this.dataEncrypted_;
   },
 
   /**
@@ -485,22 +491,23 @@ Polymer({
       return;
     }
 
-    this.syncPrefs.setNewPassphrase = false;
+    this.browserProxy_.setDecryptionPassphrase(this.existingPassphrase_)
+        .then(
+            sucessfullySet => this.handlePageStatusChanged_(
+                sucessfullySet ? settings.PageStatus.DONE :
+                                 settings.PageStatus.PASSPHRASE_FAILED));
 
-    this.syncPrefs.passphrase = this.existingPassphrase_;
     this.existingPassphrase_ = '';
-
-    this.browserProxy_.setSyncEncryption(this.syncPrefs)
-        .then(this.handlePageStatusChanged_.bind(this));
   },
 
   /**
    * @private
-   * @param {!CustomEvent<!settings.PageStatus>} e
+   * @param {!CustomEvent<!{didChange: boolean}>} e
    */
   onPassphraseChanged_(e) {
     this.handlePageStatusChanged_(
-        /** @type {!settings.PageStatus} */ (e.detail));
+        e.detail.didChange ? settings.PageStatus.DONE :
+                             settings.PageStatus.PASSPHRASE_FAILED);
   },
 
   /**

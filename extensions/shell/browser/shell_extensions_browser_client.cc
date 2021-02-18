@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -29,11 +30,10 @@
 #include "extensions/shell/browser/shell_extension_system_factory.h"
 #include "extensions/shell/browser/shell_extension_web_contents_observer.h"
 #include "extensions/shell/browser/shell_extensions_api_client.h"
-#include "extensions/shell/browser/shell_extensions_browser_api_provider.h"
 #include "extensions/shell/browser/shell_navigation_ui_data.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chromeos/login/login_state/login_state.h"
 #endif
 
@@ -50,7 +50,6 @@ ShellExtensionsBrowserClient::ShellExtensionsBrowserClient()
   SetCurrentChannel(version_info::Channel::UNKNOWN);
 
   AddAPIProvider(std::make_unique<CoreExtensionsBrowserAPIProvider>());
-  AddAPIProvider(std::make_unique<ShellExtensionsBrowserAPIProvider>());
 }
 
 ShellExtensionsBrowserClient::~ShellExtensionsBrowserClient() {
@@ -92,7 +91,7 @@ BrowserContext* ShellExtensionsBrowserClient::GetOriginalContext(
   return context;
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 std::string ShellExtensionsBrowserClient::GetUserIdHashFromContext(
     content::BrowserContext* context) {
   if (!chromeos::LoginState::IsInitialized())
@@ -138,8 +137,8 @@ void ShellExtensionsBrowserClient::LoadResourceFromResourceBundle(
 }
 
 bool ShellExtensionsBrowserClient::AllowCrossRendererResourceLoad(
-    const GURL& url,
-    blink::mojom::ResourceType resource_type,
+    const network::ResourceRequest& request,
+    network::mojom::RequestDestination destination,
     ui::PageTransition page_transition,
     int child_id,
     bool is_incognito,
@@ -148,7 +147,7 @@ bool ShellExtensionsBrowserClient::AllowCrossRendererResourceLoad(
     const ProcessMap& process_map) {
   bool allowed = false;
   if (url_request_util::AllowCrossRendererResourceLoad(
-          url, resource_type, page_transition, child_id, is_incognito,
+          request, destination, page_transition, child_id, is_incognito,
           extension, extensions, process_map, &allowed)) {
     return allowed;
   }

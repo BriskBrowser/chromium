@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 load("//lib/builders.star", "cpu", "goma", "os")
+load("//lib/consoles.star", "consoles")
 load("//lib/try.star", "try_")
 
 luci.bucket(
@@ -25,6 +26,7 @@ luci.bucket(
 
 try_.defaults.bucket.set("codesearch")
 try_.defaults.build_numbers.set(True)
+try_.defaults.builder_group.set("tryserver.chromium.codesearch")
 try_.defaults.builderless.set(True)
 try_.defaults.cores.set(8)
 try_.defaults.cpu.set(cpu.X86_64)
@@ -33,7 +35,6 @@ try_.defaults.executable.set("recipe:chromium_codesearch")
 try_.defaults.execution_timeout.set(9 * time.hour)
 try_.defaults.expiration_timeout.set(2 * time.hour)
 try_.defaults.goma_backend.set(goma.backend.RBE_PROD)
-try_.defaults.mastername.set("tryserver.chromium.codesearch")
 try_.defaults.os.set(os.LINUX_DEFAULT)
 try_.defaults.pool.set("luci.chromium.try")
 try_.defaults.service_account.set("chromium-try-builder@chops-service-accounts.iam.gserviceaccount.com")
@@ -45,6 +46,10 @@ try_.defaults.caches.set([
         path = "win_toolchain",
     ),
 ])
+
+consoles.list_view(
+    name = "tryserver.chromium.codesearch",
+)
 
 try_.builder(
     name = "gen-android-try",

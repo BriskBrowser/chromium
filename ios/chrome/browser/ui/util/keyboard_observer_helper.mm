@@ -24,6 +24,10 @@
 @property(nonatomic, readwrite, getter=getKeyboardState)
     KeyboardState keyboardState;
 
+// The last known keyboard view. If this changes, it probably means that the
+// application lost focus in multiwindow mode.
+@property(nonatomic, weak) UIView* keyboardView;
+
 @end
 
 @implementation KeyboardObserverHelper
@@ -114,11 +118,13 @@
 
 - (void)keyboardWillHide:(NSNotification*)notification {
   self.keyboardOnScreen = NO;
+#if !defined(__IPHONE_13_0) || __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_13_0
   dispatch_async(dispatch_get_main_queue(), ^{
     if (self.keyboardOnScreen) {
       [self.consumer keyboardDidStayOnScreen];
     }
   });
+#endif
 }
 
 #pragma mark - Private
@@ -172,8 +178,10 @@
       isUndocked != self.keyboardState.isUndocked ||
       isSplit != self.keyboardState.isSplit ||
       isHardware != self.keyboardState.isHardware ||
-      isPicker != self.keyboardState.isPicker) {
+      isPicker != self.keyboardState.isPicker ||
+      keyboardView != self.keyboardView) {
     self.keyboardState = {isVisible, isUndocked, isSplit, isHardware, isPicker};
+    self.keyboardView = keyboardView;
     dispatch_async(dispatch_get_main_queue(), ^{
       [self.consumer keyboardWillChangeToState:self.keyboardState];
     });

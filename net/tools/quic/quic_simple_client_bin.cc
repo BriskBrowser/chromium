@@ -36,7 +36,6 @@
 #include "base/logging.h"
 #include "net/base/net_errors.h"
 #include "net/quic/address_utils.h"
-#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
 #include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 #include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
 #include "net/third_party/quiche/src/quic/core/quic_error_codes.h"
@@ -59,6 +58,7 @@ class QuicSimpleClientFactory : public quic::QuicToyClient::ClientFactory {
   std::unique_ptr<quic::QuicSpdyClientBase> CreateClient(
       std::string host_for_handshake,
       std::string host_for_lookup,
+      int address_family_for_lookup,
       uint16_t port,
       quic::ParsedQuicVersionVector versions,
       const quic::QuicConfig& config,

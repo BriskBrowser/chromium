@@ -15,9 +15,9 @@
 
 #include "base/check_op.h"
 #include "base/gtest_prod_util.h"
-#include "base/macros.h"
 #include "base/notreached.h"
 #include "base/observer_list_internal.h"
+#include "base/ranges/algorithm.h"
 #include "base/sequence_checker.h"
 #include "base/stl_util.h"
 
@@ -247,7 +247,8 @@ class ObserverList {
     // Sequence checks only apply when iterators are live.
     DETACH_FROM_SEQUENCE(iteration_sequence_checker_);
   }
-
+  ObserverList(const ObserverList&) = delete;
+  ObserverList& operator=(const ObserverList&) = delete;
   ~ObserverList() {
     // If there are live iterators, ensure destruction is thread-safe.
     if (!live_iterators_.empty())
@@ -272,6 +273,7 @@ class ObserverList {
       NOTREACHED() << "Observers can only be added once!";
       return;
     }
+    observers_count_++;
     observers_.emplace_back(ObserverStorageType(obs));
   }
 
@@ -279,12 +281,12 @@ class ObserverList {
   // not in this list.
   void RemoveObserver(const ObserverType* obs) {
     DCHECK(obs);
-    const auto it =
-        std::find_if(observers_.begin(), observers_.end(),
-                     [obs](const auto& o) { return o.IsEqual(obs); });
+    const auto it = ranges::find_if(
+        observers_, [obs](const auto& o) { return o.IsEqual(obs); });
     if (it == observers_.end())
       return;
-
+    if (!it->IsMarkedForRemoval())
+      observers_count_--;
     if (live_iterators_.empty()) {
       observers_.erase(it);
     } else {
@@ -300,9 +302,9 @@ class ObserverList {
     // probably DCHECK, but some client code currently does pass null.
     if (obs == nullptr)
       return false;
-    return std::find_if(observers_.begin(), observers_.end(),
-                        [obs](const auto& o) { return o.IsEqual(obs); }) !=
-           observers_.end();
+    return ranges::find_if(observers_, [obs](const auto& o) {
+             return o.IsEqual(obs);
+           }) != observers_.end();
   }
 
   // Removes all the observers from this list.
@@ -314,8 +316,13 @@ class ObserverList {
       for (auto& observer : observers_)
         observer.MarkForRemoval();
     }
+    observers_count_ = 0;
   }
 
+  bool empty() const { return !observers_count_; }
+
+  // Deprecated: use |has_observers()|.
+  // TODO(1155308): migrate all callers and make this test only.
   bool might_have_observers() const { return !observers_.empty(); }
 
  private:
@@ -334,11 +341,11 @@ class ObserverList {
 
   base::LinkedList<internal::WeakLinkNode<ObserverList>> live_iterators_;
 
+  size_t observers_count_{0};
+
   const ObserverListPolicy policy_;
 
   SEQUENCE_CHECKER(iteration_sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(ObserverList);
 };
 
 template <class ObserverType, bool check_empty = false>

@@ -133,18 +133,30 @@ const char* const kDisplayNamesBlockedForMediaFoundation[] = {
 const std::vector<
     std::pair<VideoCaptureApi, std::vector<std::pair<GUID, GUID>>>>&
 GetMFAttributes() {
+  if (base::FeatureList::IsEnabled(
+          media::kIncludeIRCamerasInDeviceEnumeration)) {
+    static const base::NoDestructor<std::vector<
+        std::pair<VideoCaptureApi, std::vector<std::pair<GUID, GUID>>>>>
+        mf_attributes({{{VideoCaptureApi::WIN_MEDIA_FOUNDATION,
+                         {
+                             {MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,
+                              MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID},
+                         }},
+                        {VideoCaptureApi::WIN_MEDIA_FOUNDATION_SENSOR,
+                         {{MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,
+                           MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID},
+                          {MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_CATEGORY,
+                           KSCATEGORY_SENSOR_CAMERA}}}}});
+    return *mf_attributes;
+  }
+
   static const base::NoDestructor<std::vector<
       std::pair<VideoCaptureApi, std::vector<std::pair<GUID, GUID>>>>>
-      mf_attributes({{{VideoCaptureApi::WIN_MEDIA_FOUNDATION,
-                       {
-                           {MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,
-                            MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID},
-                       }},
-                      {VideoCaptureApi::WIN_MEDIA_FOUNDATION_SENSOR,
-                       {{MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,
-                         MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID},
-                        {MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_CATEGORY,
-                         KSCATEGORY_SENSOR_CAMERA}}}}});
+      mf_attributes({{VideoCaptureApi::WIN_MEDIA_FOUNDATION,
+                      {
+                          {MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,
+                           MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID},
+                      }}});
   return *mf_attributes;
 }
 
@@ -312,6 +324,8 @@ bool VideoCaptureDeviceFactoryWin::PlatformSupportsMediaFoundation() {
 VideoCaptureDeviceFactoryWin::VideoCaptureDeviceFactoryWin()
     : use_media_foundation_(
           base::FeatureList::IsEnabled(media::kMediaFoundationVideoCapture)),
+      use_d3d11_with_media_foundation_(base::FeatureList::IsEnabled(
+          media::kMediaFoundationD3D11VideoCapture)),
       com_thread_("Windows Video Capture COM Thread") {
   if (use_media_foundation_ && !PlatformSupportsMediaFoundation()) {
     use_media_foundation_ = false;
@@ -348,7 +362,7 @@ std::unique_ptr<VideoCaptureDevice> VideoCaptureDeviceFactoryWin::CreateDevice(
         break;
       }
       auto device = std::make_unique<VideoCaptureDeviceMFWin>(
-          device_descriptor, std::move(source));
+          device_descriptor, std::move(source), dxgi_device_manager_);
       DVLOG(1) << " MediaFoundation Device: "
                << device_descriptor.display_name();
       if (device->Init())
@@ -457,7 +471,7 @@ bool VideoCaptureDeviceFactoryWin::CreateDeviceFilterDirectShow(
 
   // Mitigate the issues caused by loading DLLs on a background thread
   // (http://crbug/973868).
-  SCOPED_MAY_LOAD_LIBRARY_AT_BACKGROUND_PRIORITY();
+  SCOPED_MAY_LOAD_LIBRARY_AT_BACKGROUND_PRIORITY_REPEATEDLY();
 
   HRESULT hr = moniker->BindToObject(0, 0, IID_PPV_ARGS(capture_filter));
   if (FAILED(hr)) {
@@ -496,10 +510,16 @@ bool VideoCaptureDeviceFactoryWin::CreateDeviceSourceMediaFoundation(
 
 bool VideoCaptureDeviceFactoryWin::CreateDeviceSourceMediaFoundation(
     ComPtr<IMFAttributes> attributes,
-    IMFMediaSource** source) {
-  HRESULT hr = MFCreateDeviceSource(attributes.Get(), source);
+    IMFMediaSource** source_out) {
+  ComPtr<IMFMediaSource> source;
+  HRESULT hr = MFCreateDeviceSource(attributes.Get(), &source);
   DLOG_IF(ERROR, FAILED(hr)) << "MFCreateDeviceSource failed: "
                              << logging::SystemErrorCodeToString(hr);
+  if (SUCCEEDED(hr) && use_d3d11_with_media_foundation_ &&
+      dxgi_device_manager_) {
+    dxgi_device_manager_->RegisterWithMediaSource(source);
+  }
+  *source_out = source.Detach();
   return SUCCEEDED(hr);
 }
 
@@ -698,6 +718,10 @@ DevicesInfo VideoCaptureDeviceFactoryWin::GetDevicesInfoMediaFoundation() {
 
   DevicesInfo devices_info;
 
+  if (use_d3d11_with_media_foundation_ && !dxgi_device_manager_) {
+    dxgi_device_manager_ = VideoCaptureDXGIDeviceManager::Create();
+  }
+
   // Recent non-RGB (depth, IR) cameras could be marked as sensor cameras in
   // driver inf file and MFEnumDeviceSources enumerates them only if attribute
   // KSCATEGORY_SENSOR_CAMERA is supplied. We enumerate twice. As it is possible
@@ -740,18 +764,18 @@ DevicesInfo VideoCaptureDeviceFactoryWin::GetDevicesInfoMediaFoundation() {
           if (list_was_empty ||
               !DevicesInfoContainsDeviceId(devices_info, device_id)) {
             ComPtr<IMFMediaSource> source;
-            bool pan_tilt_zoom_supported = false;
+            VideoCaptureControlSupport control_support;
             VideoCaptureFormats supported_formats;
             if (CreateDeviceSourceMediaFoundation(
                     device_id, api_attributes.first, &source)) {
-              pan_tilt_zoom_supported =
-                  VideoCaptureDeviceMFWin::IsPanTiltZoomSupported(source);
+              control_support =
+                  VideoCaptureDeviceMFWin::GetControlSupport(source);
               supported_formats =
                   GetSupportedFormatsMediaFoundation(source, display_name);
             }
             devices_info.emplace_back(VideoCaptureDeviceDescriptor(
                 display_name, device_id, model_id, api_attributes.first,
-                pan_tilt_zoom_supported));
+                control_support));
             devices_info.back().supported_formats =
                 std::move(supported_formats);
           }
@@ -846,19 +870,19 @@ DevicesInfo VideoCaptureDeviceFactoryWin::GetDevicesInfoDirectShow() {
 
     const std::string model_id = GetDeviceModelId(id);
 
+    VideoCaptureControlSupport control_support;
     VideoCaptureFormats supported_formats;
-    bool pan_tilt_zoom_supported = false;
     ComPtr<IBaseFilter> capture_filter;
     if (CreateDeviceFilterDirectShow(std::move(moniker), &capture_filter)) {
+      control_support =
+          VideoCaptureDeviceWin::GetControlSupport(capture_filter);
       supported_formats =
           GetSupportedFormatsDirectShow(capture_filter, device_name);
-      pan_tilt_zoom_supported = VideoCaptureDeviceWin::IsPanTiltZoomSupported(
-          std::move(capture_filter));
     }
 
     devices_info.emplace_back(VideoCaptureDeviceDescriptor(
         device_name, id, model_id, VideoCaptureApi::WIN_DIRECT_SHOW,
-        pan_tilt_zoom_supported));
+        control_support));
     devices_info.back().supported_formats = std::move(supported_formats);
   }
 
@@ -886,9 +910,23 @@ VideoCaptureFormats
 VideoCaptureDeviceFactoryWin::GetSupportedFormatsMediaFoundation(
     ComPtr<IMFMediaSource> source,
     const std::string& display_name) {
+  ComPtr<IMFAttributes> source_reader_attributes;
+  if (dxgi_device_manager_) {
+    dxgi_device_manager_->RegisterWithMediaSource(source);
+
+    HRESULT hr = MFCreateAttributes(&source_reader_attributes, 1);
+    if (SUCCEEDED(hr)) {
+      dxgi_device_manager_->RegisterInSourceReaderAttributes(
+          source_reader_attributes.Get());
+    } else {
+      DLOG(ERROR) << "MFCreateAttributes failed: "
+                  << logging::SystemErrorCodeToString(hr);
+    }
+  }
+
   ComPtr<IMFSourceReader> reader;
-  HRESULT hr =
-      MFCreateSourceReaderFromMediaSource(source.Get(), nullptr, &reader);
+  HRESULT hr = MFCreateSourceReaderFromMediaSource(
+      source.Get(), source_reader_attributes.Get(), &reader);
   if (FAILED(hr)) {
     DLOG(ERROR) << "MFCreateSourceReaderFromMediaSource failed: "
                 << logging::SystemErrorCodeToString(hr);
@@ -899,6 +937,7 @@ VideoCaptureDeviceFactoryWin::GetSupportedFormatsMediaFoundation(
 
   DWORD stream_index = 0;
   ComPtr<IMFMediaType> type;
+  const bool dxgi_device_manager_available = dxgi_device_manager_ != nullptr;
   while (SUCCEEDED(hr = reader->GetNativeMediaType(
                        static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM),
                        stream_index, &type))) {
@@ -930,10 +969,16 @@ VideoCaptureDeviceFactoryWin::GetSupportedFormatsMediaFoundation(
       return {};
     }
     VideoCaptureDeviceMFWin::GetPixelFormatFromMFSourceMediaSubtype(
-        type_guid, &capture_format.pixel_format);
+        type_guid, /*use_hardware_format=*/dxgi_device_manager_available,
+        &capture_format.pixel_format);
     type.Reset();
     ++stream_index;
     if (capture_format.pixel_format == PIXEL_FORMAT_UNKNOWN)
+      continue;
+    // If we're using the hardware capture path, ignore non-NV12 pixel formats
+    // to prevent copies
+    if (dxgi_device_manager_available &&
+        capture_format.pixel_format != PIXEL_FORMAT_NV12)
       continue;
     formats.push_back(capture_format);
 

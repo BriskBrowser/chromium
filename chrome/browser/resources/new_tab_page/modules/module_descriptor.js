@@ -2,35 +2,30 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {BrowserProxy} from '../browser_proxy.js';
+import {mojoTimeDelta} from '../utils.js';
+
 /**
  * @fileoverview Provides the module descriptor. Each module must create a
  * module descriptor and register it at the NTP.
  */
 
 /**
- * @typedef {function(): !Promise<?{
- *    element: !HTMLElement,
- *    title: string,
- *   }>}
+ * @typedef {function(): !Promise<?HTMLElement>}
  */
 let InitializeModuleCallback;
 
 export class ModuleDescriptor {
   /**
    * @param {string} id
-   * @param {string} name
    * @param {number} heightPx
    * @param {!InitializeModuleCallback} initializeCallback
    */
-  constructor(id, name, heightPx, initializeCallback) {
+  constructor(id, heightPx, initializeCallback) {
     /** @private {string} */
     this.id_ = id;
-    /** @private {string} */
-    this.name_ = name;
     /** @private {number} */
     this.heightPx_ = heightPx;
-    /** @private {?string} */
-    this.title_ = null;
     /** @private {HTMLElement} */
     this.element_ = null;
     /** @private {!InitializeModuleCallback} */
@@ -42,32 +37,37 @@ export class ModuleDescriptor {
     return this.id_;
   }
 
-  /** @return {string} */
-  get name() {
-    return this.name_;
-  }
-
   /** @return {number} */
   get heightPx() {
     return this.heightPx_;
   }
 
-  /** @return {?string} */
-  get title() {
-    return this.title_;
-  }
-
-  /** @return {HTMLElement} */
+  /** @return {?HTMLElement} */
   get element() {
     return this.element_;
   }
 
-  async initialize() {
-    const info = await this.initializeCallback_();
-    if (!info) {
+  /**
+   * Initializes the module. On success, |this.element| will be populated after
+   * the returned promise has resolved.
+   * @param {number} timeout Timeout in milliseconds after which initialization
+   *     aborts.
+   * @return {!Promise}
+   */
+  async initialize(timeout) {
+    const loadStartTime = BrowserProxy.getInstance().now();
+    this.element_ = await Promise.race([
+      this.initializeCallback_(), new Promise(resolve => {
+        BrowserProxy.getInstance().setTimeout(() => {
+          resolve(null);
+        }, timeout);
+      })
+    ]);
+    if (!this.element_) {
       return;
     }
-    this.title_ = info.title;
-    this.element_ = info.element;
+    const loadEndTime = BrowserProxy.getInstance().now();
+    BrowserProxy.getInstance().handler.onModuleLoaded(
+        this.id_, loadEndTime, mojoTimeDelta(loadEndTime - loadStartTime));
   }
 }

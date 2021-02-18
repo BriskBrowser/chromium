@@ -24,9 +24,9 @@ import '../prefs/prefs.m.js';
 import '../settings_vars_css.m.js';
 
 import {CrContainerShadowBehavior} from 'chrome://resources/cr_elements/cr_container_shadow_behavior.m.js';
+import {FindShortcutBehavior} from 'chrome://resources/cr_elements/find_shortcut_behavior.m.js';
 import {assert} from 'chrome://resources/js/assert.m.js';
 import {isChromeOS} from 'chrome://resources/js/cr.m.js';
-import {FindShortcutBehavior} from 'chrome://resources/js/find_shortcut_behavior.m.js';
 import {listenOnce} from 'chrome://resources/js/util.m.js';
 import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
@@ -319,6 +319,27 @@ Polymer({
   onNarrowChanged_() {
     if (this.$.drawer.open && !this.narrow_) {
       this.$.drawer.close();
+    }
+
+    const focusedElement = this.shadowRoot.activeElement;
+    if (this.narrow_ && focusedElement === this.$.leftMenu) {
+      // If changed from non-narrow to narrow and the focus was on the left
+      // menu, move focus to the button that opens the drawer menu.
+      this.$.toolbar.focusMenuButton();
+    } else if (!this.narrow_ && this.$.toolbar.isMenuFocused()) {
+      // If changed from narrow to non-narrow and the focus was on the button
+      // that opens the drawer menu, move focus to the left menu.
+      this.$.leftMenu.focusFirstItem();
+    } else if (!this.narrow_ && focusedElement === this.$$('#drawerMenu')) {
+      // If changed from narrow to non-narrow and the focus was in the drawer
+      // menu, wait for the drawer to close and then move focus on the left
+      // menu. The drawer has a dialog element in it so moving focus to an
+      // element outside the dialog while it is open will not work.
+      const boundCloseListener = () => {
+        this.$.leftMenu.focusFirstItem();
+        this.$.drawer.removeEventListener('close', boundCloseListener);
+      };
+      this.$.drawer.addEventListener('close', boundCloseListener);
     }
   },
 

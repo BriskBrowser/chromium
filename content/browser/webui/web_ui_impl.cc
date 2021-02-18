@@ -9,24 +9,25 @@
 #include <string>
 #include <utility>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/json/json_writer.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "content/browser/child_process_security_policy_impl.h"
-#include "content/browser/frame_host/frame_tree.h"
-#include "content/browser/frame_host/frame_tree_node.h"
-#include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/renderer_host/dip_util.h"
+#include "content/browser/renderer_host/frame_tree.h"
+#include "content/browser/renderer_host/frame_tree_node.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/browser/web_contents/web_contents_view.h"
 #include "content/browser/webui/web_ui_controller_factory_registry.h"
+#include "content/browser/webui/web_ui_main_frame_observer.h"
 #include "content/common/frame_messages.h"
 #include "content/public/browser/content_browser_client.h"
-#include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents_observer.h"
@@ -37,27 +38,6 @@
 #include "services/service_manager/public/cpp/interface_provider.h"
 
 namespace content {
-
-class WebUIImpl::MainFrameNavigationObserver : public WebContentsObserver {
- public:
-  MainFrameNavigationObserver(WebUIImpl* web_ui, WebContents* contents)
-      : WebContentsObserver(contents), web_ui_(web_ui) {}
-  ~MainFrameNavigationObserver() override {}
-
- private:
-  void DidFinishNavigation(NavigationHandle* navigation_handle) override {
-    // Only disallow JavaScript on cross-document navigations in the main frame.
-    if (!navigation_handle->IsInMainFrame() ||
-        !navigation_handle->HasCommitted() ||
-        navigation_handle->IsSameDocument()) {
-      return;
-    }
-
-    web_ui_->DisallowJavascriptOnAllHandlers();
-  }
-
-  WebUIImpl* web_ui_;
-};
 
 const WebUI::TypeID WebUI::kNoWebUI = nullptr;
 
@@ -82,12 +62,12 @@ base::string16 WebUI::GetJavascriptCall(
   return result;
 }
 
-WebUIImpl::WebUIImpl(WebContentsImpl* contents, RenderFrameHost* frame_host)
+WebUIImpl::WebUIImpl(WebContentsImpl* contents, RenderFrameHostImpl* frame_host)
     : bindings_(BINDINGS_POLICY_WEB_UI),
       requestable_schemes_({kChromeUIScheme, url::kFileScheme}),
       frame_host_(frame_host),
       web_contents_(contents),
-      web_contents_observer_(new MainFrameNavigationObserver(this, contents)) {
+      web_contents_observer_(new WebUIMainFrameObserver(this, contents)) {
   DCHECK(contents);
 }
 
@@ -141,16 +121,19 @@ void WebUIImpl::RenderFrameHostUnloading() {
   DisallowJavascriptOnAllHandlers();
 }
 
+void WebUIImpl::RenderFrameDeleted() {
+  DisallowJavascriptOnAllHandlers();
+}
+
 void WebUIImpl::SetupMojoConnection() {
   // TODO(nasko): WebUI mojo might be useful to be registered for
   // subframes as well, though at this time there is no such usage.
   if (frame_host_->GetParent())
     return;
 
-  static_cast<RenderFrameHostImpl*>(frame_host_)
-      ->GetFrameBindingsControl()
-      ->BindWebUI(remote_.BindNewPipeAndPassReceiver(),
-                  receiver_.BindNewPipeAndPassRemote());
+  frame_host_->GetFrameBindingsControl()->BindWebUI(
+      remote_.BindNewEndpointAndPassReceiver(),
+      receiver_.BindNewEndpointAndPassRemote());
 }
 
 void WebUIImpl::InvalidateMojoConnection() {

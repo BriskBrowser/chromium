@@ -9,7 +9,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "chrome/browser/media/feeds/media_feeds_service.h"
@@ -110,6 +110,14 @@ class MediaHistoryBrowserTest : public InProcessBrowserTest,
         browser->tab_strip_model()->GetActiveWebContents(),
         "attemptPlayVideoOnly();", &played));
     return played;
+  }
+
+  static bool EnterPictureInPicture(Browser* browser) {
+    bool success = false;
+    return content::ExecuteScriptAndExtractBool(
+               browser->tab_strip_model()->GetActiveWebContents(),
+               "enterPictureInPicture();", &success) &&
+           success;
   }
 
   static bool SetMediaMetadata(Browser* browser) {
@@ -285,7 +293,8 @@ class MediaHistoryBrowserTest : public InProcessBrowserTest,
 
   void SimulateNavigationToCommit(Browser* browser) {
     // Navigate to trigger the session to be saved.
-    ui_test_utils::NavigateToURL(browser, embedded_test_server()->base_url());
+    ui_test_utils::NavigateToURL(browser,
+                                 embedded_test_server()->GetURL("/empty.html"));
 
     // Wait until the session has finished saving.
     WaitForDB(GetMediaHistoryService(browser));
@@ -398,8 +407,8 @@ IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest,
     observer.WaitForExpectedImagesOfType(
         media_session::mojom::MediaSessionImageType::kArtwork,
         expected_artwork);
-    observer.WaitForAudioVideoState(
-        media_session::mojom::MediaAudioVideoState::kAudioVideo);
+    observer.WaitForAudioVideoStates(
+        {media_session::mojom::MediaAudioVideoState::kAudioVideo});
   }
 
   SimulateNavigationToCommit(browser);
@@ -472,8 +481,8 @@ IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest,
     observer.WaitForState(
         media_session::mojom::MediaSessionInfo::SessionState::kActive);
     observer.WaitForExpectedMetadata(expected_metadata);
-    observer.WaitForAudioVideoState(
-        media_session::mojom::MediaAudioVideoState::kAudioVideo);
+    observer.WaitForAudioVideoStates(
+        {media_session::mojom::MediaAudioVideoState::kAudioVideo});
   }
 
   SimulateNavigationToCommit(browser);
@@ -517,8 +526,8 @@ IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest,
     observer.WaitForState(
         media_session::mojom::MediaSessionInfo::SessionState::kActive);
     observer.WaitForExpectedMetadata(expected_metadata);
-    observer.WaitForAudioVideoState(
-        media_session::mojom::MediaAudioVideoState::kAudioVideo);
+    observer.WaitForAudioVideoStates(
+        {media_session::mojom::MediaAudioVideoState::kAudioVideo});
   }
 
   SimulateNavigationToCommit(browser);
@@ -598,8 +607,8 @@ IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest, DISABLED_GetPlaybackSessions) {
     observer.WaitForState(
         media_session::mojom::MediaSessionInfo::SessionState::kActive);
     observer.WaitForExpectedMetadata(GetExpectedMetadata());
-    observer.WaitForAudioVideoState(
-        media_session::mojom::MediaAudioVideoState::kAudioVideo);
+    observer.WaitForAudioVideoStates(
+        {media_session::mojom::MediaAudioVideoState::kAudioVideo});
   }
 
   SimulateNavigationToCommit(browser);
@@ -613,8 +622,8 @@ IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest, DISABLED_GetPlaybackSessions) {
     observer.WaitForState(
         media_session::mojom::MediaSessionInfo::SessionState::kActive);
     observer.WaitForExpectedMetadata(expected_default_metadata);
-    observer.WaitForAudioVideoState(
-        media_session::mojom::MediaAudioVideoState::kAudioVideo);
+    observer.WaitForAudioVideoStates(
+        {media_session::mojom::MediaAudioVideoState::kAudioVideo});
   }
 
   SimulateNavigationToCommit(browser);
@@ -706,8 +715,8 @@ IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest, DISABLED_GetPlaybackSessions) {
     observer.WaitForState(
         media_session::mojom::MediaSessionInfo::SessionState::kActive);
     observer.WaitForExpectedMetadata(expected_default_metadata);
-    observer.WaitForAudioVideoState(
-        media_session::mojom::MediaAudioVideoState::kAudioVideo);
+    observer.WaitForAudioVideoStates(
+        {media_session::mojom::MediaAudioVideoState::kAudioVideo});
   }
 
   SimulateNavigationToCommit(browser);
@@ -739,8 +748,8 @@ IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest, DISABLED_GetPlaybackSessions) {
     observer.WaitForState(
         media_session::mojom::MediaSessionInfo::SessionState::kActive);
     observer.WaitForExpectedMetadata(GetExpectedMetadata());
-    observer.WaitForAudioVideoState(
-        media_session::mojom::MediaAudioVideoState::kAudioVideo);
+    observer.WaitForAudioVideoStates(
+        {media_session::mojom::MediaAudioVideoState::kAudioVideo});
   }
 
   SimulateNavigationToCommit(browser);
@@ -764,8 +773,9 @@ IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest, DISABLED_GetPlaybackSessions) {
   }
 }
 
+// TODO(crbug.com/1177109) Re-enable test
 IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest,
-                       SaveImagesWithDifferentSessions) {
+                       DISABLED_SaveImagesWithDifferentSessions) {
   auto* browser = CreateBrowserFromParam();
   auto expected_metadata = GetExpectedMetadata();
   auto expected_artwork = GetExpectedArtwork();
@@ -842,7 +852,14 @@ IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest,
             GetPlaybackSessionsSync(GetOTRMediaHistoryService(browser), 2));
 }
 
-IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest, RecordWatchtime_AudioVideo) {
+#if defined(OS_MAC) && !defined(NDEBUG)
+// TODO(crbug.com/1152073): This test has flaky timeouts on Mac Debug.
+#define MAYBE_RecordWatchtime_AudioVideo DISABLED_RecordWatchtime_AudioVideo
+#else
+#define MAYBE_RecordWatchtime_AudioVideo RecordWatchtime_AudioVideo
+#endif
+IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest,
+                       MAYBE_RecordWatchtime_AudioVideo) {
   auto* browser = CreateBrowserFromParam();
 
   // Start a page and wait for significant playback so we record watchtime.
@@ -1052,8 +1069,8 @@ IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest,
         *GetMediaSession(browser));
     observer.WaitForState(
         media_session::mojom::MediaSessionInfo::SessionState::kActive);
-    observer.WaitForAudioVideoState(
-        media_session::mojom::MediaAudioVideoState::kAudioOnly);
+    observer.WaitForAudioVideoStates(
+        {media_session::mojom::MediaAudioVideoState::kAudioOnly});
   }
 
   SimulateNavigationToCommit(browser);
@@ -1069,6 +1086,29 @@ IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest,
 
   SetupPageAndStartPlayingVideoOnly(browser, GetTestURL());
   WaitForSignificantPlayback(browser);
+
+  SimulateNavigationToCommit(browser);
+
+  // Verify the session was not recorded.
+  auto sessions = GetPlaybackSessionsSync(GetMediaHistoryService(browser), 1);
+  EXPECT_TRUE(sessions.empty());
+}
+
+IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest,
+                       DoNotRecordSessionForVideoOnlyInPictureInPicture) {
+  auto* browser = CreateBrowserFromParam();
+
+  ASSERT_TRUE(SetupPageAndStartPlayingVideoOnly(browser, GetTestURL()));
+  ASSERT_TRUE(EnterPictureInPicture(browser));
+
+  {
+    media_session::test::MockMediaSessionMojoObserver observer(
+        *GetMediaSession(browser));
+    observer.WaitForState(
+        media_session::mojom::MediaSessionInfo::SessionState::kActive);
+    observer.WaitForAudioVideoStates(
+        {media_session::mojom::MediaAudioVideoState::kVideoOnly});
+  }
 
   SimulateNavigationToCommit(browser);
 

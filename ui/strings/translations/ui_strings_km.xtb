@@ -23,6 +23,7 @@
 <translation id="1450753235335490080">មិន​អាច​ចែក​រំលែក <ph name="CONTENT_TYPE" />​ បាន​ទេ</translation>
 <translation id="1487931858675166540"><ph name="FIRST_ITEM_TITLE" /> បានប្ដូរ​ជាមួយ <ph name="SECOND_ITEM_TITLE" /></translation>
 <translation id="1498028757988366001">អ្នកបានស្វែងរកវាពីមុន។ ការលុប "<ph name="QUERY" />" ចេញពីប្រវត្តិ​របស់អ្នកនឹងលុបវាចេញពីគណនីនៅលើ​ឧបករណ៍​ទាំងអស់​របស់អ្នក​ជាអចិន្ត្រៃយ៍។</translation>
+<translation id="1510238584712386396">ឡាន់ឆ័រ</translation>
 <translation id="1591184457164800433">{MINUTES,plural, =1{1 នាទី និង }other{# នាទី និង }}</translation>
 <translation id="1643823602425662293">ការ​ជូន​ដំណឹង</translation>
 <translation id="169515659049020177">Shift</translation>
@@ -44,7 +45,6 @@
 <translation id="19085484004813472">នេះគឺជាមុខងារថ្មី</translation>
 <translation id="2006524834898217237">ត្រូវប្រាកដថា ឧបករណ៍នេះមានការតភ្ជាប់អ៊ីនធឺណិត។</translation>
 <translation id="208586643495776849">សូម​ព្យាយាម​ម្ដងទៀត</translation>
-<translation id="2090963878406559571">ដើម្បី​ផ្ញើ​លេខទូរសព្ទ​ពី <ph name="ORIGIN" /> ទៅ​ទូរសព្ទ Android របស់អ្នក សូម <ph name="TROUBLESHOOT_LINK" /> សម្រាប់​ឧបករណ៍​ទាំងពីរ​នៅក្នុង​ការកំណត់​។</translation>
 <translation id="2141853158323869627">{DAYS,plural, =1{1 ថ្ងៃ}other{# ថ្ងៃ}}</translation>
 <translation id="2148716181193084225">ថ្ងៃនេះ</translation>
 <translation id="2161656808144014275">អត្ថបទ</translation>
@@ -94,17 +94,20 @@
 <translation id="3306688585798492231">ផ្ទាំងអេក្រង់ដែលភ្ជាប់​មក​ស្រាប់</translation>
 <translation id="335581015389089642">ការនិយាយ</translation>
 <translation id="3389286852084373014">អត្ថបទធំពេក</translation>
+<translation id="3406306243914553062">ខ្លឹមសារ HTML</translation>
 <translation id="348799646910989694">លាក់​ធ្នើដោយ​ស្វ័យប្រវត្តិ</translation>
 <translation id="3554637740840164787"><ph name="ITEM_TITLE" /> ត្រូវបានដៅ</translation>
 <translation id="3600566671520689681">{DAYS,plural, =1{នៅសល់ 1 ថ្ងៃទៀត}other{នៅសល់ # ថ្ងៃទៀត}}</translation>
 <translation id="3600969208114796418">ឯកសារ <ph name="SAVEAS_EXTENSION_TYPE" /></translation>
 <translation id="3608915363409716668"><ph name="MAXIMUM_VALUE" />+</translation>
 <translation id="3618849550573277856">ស្វែងរក “<ph name="LOOKUP_STRING" />”</translation>
+<translation id="3622035490309591977">ប្រវត្តិ​ឃ្លីបបត</translation>
 <translation id="364720409959344976">ជ្រើសរើសថតឯកសារដើម្បីទាញឡើង</translation>
 <translation id="3660179305079774227">ព្រួញឡើងលើ</translation>
 <translation id="3670030362669914947">លេខ</translation>
 <translation id="3740362395218339114"><ph name="QUANTITY" /> GB/វិនាទី</translation>
 <translation id="3757388668994797779"><ph name="QUANTITY" /> GB</translation>
+<translation id="3804247818991980532"><ph name="TYPE_1" />។ <ph name="TYPE_2" />។</translation>
 <translation id="3842239759367498783">បន្ដ​អាន​ពី​ឧបករណ៍​ចល័ត​របស់អ្នក <ph name="TITLE" /></translation>
 <translation id="385051799172605136">ថយក្រោយ</translation>
 <translation id="3889424535448813030">សញ្ញាព្រួញទៅស្តាំ</translation>
@@ -117,6 +120,7 @@
 <translation id="4266252015790371705">{MONTHS,plural, =1{1 ខែមុន}other{# ខែមុន}}</translation>
 <translation id="4289300219472526559">ចាប់ផ្តើមនិយាយ</translation>
 <translation id="430191667033048642"><ph name="MOVED_APP_NAME" /> ត្រូវបាន​ផ្លាស់ទី​ទៅថត <ph name="FOLDER_NAME" />។</translation>
+<translation id="4306392492252714209">លុបចេញពី​ឃ្លីបបត។</translation>
 <translation id="4316910396681052118">កម្មវិធី​ទាំងអស់</translation>
 <translation id="4491109536499578614">រូបភាព</translation>
 <translation id="4588090240171750605">ទាញចុះទៅខាងស្តាំ</translation>
@@ -135,8 +139,8 @@
 <translation id="520299402983819650"><ph name="QUANTITY" /> PB</translation>
 <translation id="5266161281976477809">ព្រួញបង្ហាញ</translation>
 <translation id="5278860589123563674">មិន​អាច​ផ្ញើ​បាន​ទេ</translation>
+<translation id="5283099933536931082"><ph name="APP_ITEM_TITLE" /> ស្នើឱ្យអ្នកយកចិត្តទុកដាក់។</translation>
 <translation id="528468243742722775">បញ្ចប់</translation>
-<translation id="5327567770033251652">បើក​សមកាលកម្ម</translation>
 <translation id="5329858601952122676">លុប</translation>
 <translation id="5395308026110844773"><ph name="DRAGGED_APP_NAME" /> នៅលើ <ph name="IN_PLACE_APP" /> សូម​ព្រលែង ដើម្បីបង្កើត​ថត។</translation>
 <translation id="5463830097259460683">រូប​អារម្មណ៍ និង​និមិត្តសញ្ញា</translation>
@@ -146,11 +150,13 @@
 <translation id="5574202486608032840">ប្រព័ន្ធ <ph name="IDS_SHORT_PRODUCT_OS_NAME" /></translation>
 <translation id="5583640892426849032">Backspace</translation>
 <translation id="5613020302032141669">ព្រួញខាងឆ្វេង</translation>
+<translation id="5652575806481723716"><ph name="FOCUSED_APP_NAME" /> ស្នើឱ្យអ្នកយកចិត្តទុកដាក់។</translation>
 <translation id="5675363643668471212">ធាតុធ្នើរ</translation>
 <translation id="5754277640426581776">{MINUTES,plural, =1{ 1 នាទី}other{# នាទី}}</translation>
 <translation id="5763338081255973061">{DAYS,plural, =0{ដំណើរការ​ថ្ងៃនេះ}=1{ដំណើរការ 1 ថ្ងៃមុន}other{ដំណើរការ # ថ្ងៃមុន}}</translation>
 <translation id="5768079895599174203">{DAYS,plural, =1{1 ថ្ងៃ និង }other{# ថ្ងៃ និង }}</translation>
 <translation id="5789643057113097023">.</translation>
+<translation id="5843690142429128814">រូបភាព។</translation>
 <translation id="5866104238061687188">{YEARS,plural, =1{1 ឆ្នាំទៀត}other{# ឆ្នាំទៀត}}</translation>
 <translation id="588258955323874662">ពេញអេក្រង់</translation>
 <translation id="5906667377645263094">{SECONDS,plural, =1{នៅសល់ 1 វិនាទីទៀត}other{នៅសល់ # វិនាទីទៀត}}</translation>
@@ -183,16 +189,15 @@
 <translation id="6578407462441924264">គ្មាន​ឈ្មោះ</translation>
 <translation id="6612467943526193239">ដើម្បី​ចាក​ចេញ​ពី​ការ​ក្រិត​​ខ្នាត​ សូម​ចុច Esc ។</translation>
 <translation id="6620110761915583480">រក្សាទុកឯកសារ</translation>
-<translation id="6656912866303152668">ត្រូវប្រាកដថា <ph name="TARGET_DEVICE_NAME" /> បានបើក​ការធ្វើសមកាលកម្ម​នៅក្នុង Chrome រួច​សាកល្បងផ្ញើម្ដងទៀត។</translation>
 <translation id="6699343763173986273">Media Next Track</translation>
 <translation id="6710213216561001401">មុន</translation>
-<translation id="6779314412797872738">ដើម្បីផ្ញើ​លេខទូរសព្ទ​ពីទីនេះទៅទូរសព្ទ Android របស់អ្នក សូម<ph name="TROUBLESHOOT_LINK" />សម្រាប់​ឧបករណ៍​ទាំងពីរ​នៅក្នុង​ការកំណត់។</translation>
 <translation id="6786750046913594791">បិទថតឯកសារ</translation>
 <translation id="6808150112686056157">Media Stop</translation>
 <translation id="6845383723252244143">ជ្រើសរើសថតឯកសារ</translation>
 <translation id="6845533974506654842">ចុច</translation>
 <translation id="6863590663815976734">{HOURS,plural, =1{នៅសល់ 1 ម៉ោងទៀត}other{នៅសល់ # ម៉ោងទៀត}}</translation>
 <translation id="688711909580084195">គេហទំព័រគ្មានចំណងជើង</translation>
+<translation id="6902419395050653510">ខ្លឹមសារ HTML។</translation>
 <translation id="6907759265145635167"><ph name="QUANTITY" /> PB/វិនាទី</translation>
 <translation id="6917971086528278418">{YEARS,plural, =1{នៅសល់ 1 ឆ្នាំទៀត}other{នៅសល់ # ឆ្នាំទៀត}}</translation>
 <translation id="6945221475159498467">ជ្រើសរើស</translation>
@@ -210,6 +215,7 @@
 <translation id="7430878839542012341">លុប​ការស្វែងរក​នេះពីប្រវត្តិ​របស់អ្នក?</translation>
 <translation id="7460907917090416791"><ph name="QUANTITY" /> TB</translation>
 <translation id="7507604095951736240">រូប​អារម្មណ៍</translation>
+<translation id="7620655452534002301">បានលុបចេញ។</translation>
 <translation id="7658239707568436148">បដិសេធ</translation>
 <translation id="7781829728241885113">ម្សិលមិញ</translation>
 <translation id="7814458197256864873">ចម្លង</translation>
@@ -225,11 +231,11 @@
 <translation id="8106081041558092062">{HOURS,plural, =1{ 1 ម៉ោងមុន}other{# ម៉ោងមុន}}</translation>
 <translation id="8131263257437993507">{SECONDS,plural, =1{នៅសល់ 1 វិនាទីទៀត}other{នៅសល់ # វិនាទីទៀត}}</translation>
 <translation id="8134065097954893699">កំពុង​ផ្ទុកទំព័រនេះ​ឡើងវិញ</translation>
-<translation id="8144660977431427332">ការស្វែងរក​របស់អ្នកទទួល​បាន​ជំនួយពី Google ជំនួយការ។ <ph name="LEARN_MORE" /></translation>
 <translation id="8152264887680882389"><ph name="TEXT" /> បំពេញ​ស្វ័យ​ប្រវត្តិ</translation>
 <translation id="815598010540052116">ទាញចុះក្រោម</translation>
 <translation id="8179976553408161302">បញ្ចូល</translation>
 <translation id="8210608804940886430">Page Down</translation>
+<translation id="822964464349305906"><ph name="TYPE_1" />, <ph name="TYPE_2" /></translation>
 <translation id="8245914219290430011">ផ្ទាំង</translation>
 <translation id="8247998213073982446"><ph name="APP_NAME" />, កម្មវិធី</translation>
 <translation id="8259556432390118667">តម្លៃពណ៌ Hex</translation>

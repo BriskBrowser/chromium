@@ -11,6 +11,7 @@
 #include <vssym32.h>
 
 #include "base/bind.h"
+#include "base/callback.h"
 #include "base/check.h"
 #include "base/command_line.h"
 #include "base/notreached.h"
@@ -80,7 +81,7 @@ void SetCheckerboardShader(SkPaint* paint, const RECT& align_rect) {
   local_matrix.setTranslate(SkIntToScalar(align_rect.left),
                             SkIntToScalar(align_rect.top));
   paint->setShader(bitmap.makeShader(SkTileMode::kRepeat, SkTileMode::kRepeat,
-                                     &local_matrix));
+                                     SkSamplingOptions(), &local_matrix));
 }
 
 //    <-a->
@@ -288,11 +289,12 @@ NativeThemeWin::NativeThemeWin(bool configure_web_instance,
     }
   }
   if (!IsForcedHighContrast()) {
-    set_high_contrast(IsUsingHighContrastThemeInternal());
+    set_forced_colors(IsUsingHighContrastThemeInternal());
   }
   // Initialize the cached system colors.
   UpdateSystemColors();
   set_preferred_color_scheme(CalculatePreferredColorScheme());
+  set_preferred_contrast(CalculatePreferredContrast());
 
   memset(theme_handles_, 0, sizeof(theme_handles_));
 
@@ -303,8 +305,8 @@ NativeThemeWin::NativeThemeWin(bool configure_web_instance,
 void NativeThemeWin::ConfigureWebInstance() {
   if (!IsForcedDarkMode() && !IsForcedHighContrast() &&
       base::SequencedTaskRunnerHandle::IsSet()) {
-    // Add the web native theme as an observer to stay in sync with dark mode,
-    // high contrast, and preferred color scheme changes.
+    // Add the web native theme as an observer to stay in sync with color scheme
+    // changes.
     color_scheme_observer_ =
         std::make_unique<NativeTheme::ColorSchemeNativeThemeObserver>(
             NativeTheme::GetInstanceForWeb());
@@ -314,8 +316,9 @@ void NativeThemeWin::ConfigureWebInstance() {
   // Initialize the native theme web instance with the system color info.
   NativeTheme* web_instance = NativeTheme::GetInstanceForWeb();
   web_instance->set_use_dark_colors(ShouldUseDarkColors());
-  web_instance->set_high_contrast(UsesHighContrastColors());
+  web_instance->set_forced_colors(InForcedColorsMode());
   web_instance->set_preferred_color_scheme(GetPreferredColorScheme());
+  web_instance->set_preferred_contrast(GetPreferredContrast());
   web_instance->set_system_colors(GetSystemColors());
 }
 
@@ -344,8 +347,9 @@ void NativeThemeWin::CloseHandlesInternal() {
 void NativeThemeWin::OnSysColorChange() {
   UpdateSystemColors();
   if (!IsForcedHighContrast())
-    set_high_contrast(IsUsingHighContrastThemeInternal());
+    set_forced_colors(IsUsingHighContrastThemeInternal());
   set_preferred_color_scheme(CalculatePreferredColorScheme());
+  set_preferred_contrast(CalculatePreferredContrast());
   NotifyObservers();
 }
 
@@ -611,6 +615,7 @@ base::Optional<SkColor> NativeThemeWin::GetPlatformHighContrastColor(
     case kColorId_TableBackgroundAlternate:
     case kColorId_TooltipBackground:
     case kColorId_ProminentButtonDisabledColor:
+    case kColorId_NotificationDefaultBackground:
       return system_colors_[SystemThemeColor::kWindow];
 
     // Window Text
@@ -623,6 +628,7 @@ base::Optional<SkColor> NativeThemeWin::GetPlatformHighContrastColor(
     case kColorId_TableHeaderText:
     case kColorId_TableGroupingIndicatorColor:
     case kColorId_TableHeaderSeparator:
+    case kColorId_TooltipIcon:
     case kColorId_TooltipText:
     case kColorId_ThrobberSpinningColor:
     case kColorId_ThrobberLightColor:
@@ -678,6 +684,7 @@ base::Optional<SkColor> NativeThemeWin::GetPlatformHighContrastColor(
     case kColorId_FocusedMenuItemBackgroundColor:
     case kColorId_LabelTextSelectionBackgroundFocused:
     case kColorId_TextfieldSelectionBackgroundFocused:
+    case kColorId_TooltipIconHovered:
     case kColorId_TreeSelectionBackgroundFocused:
     case kColorId_TreeSelectionBackgroundUnfocused:
     case kColorId_TableSelectionBackgroundFocused:
@@ -720,14 +727,14 @@ bool NativeThemeWin::ShouldUseDarkColors() const {
   // Windows high contrast modes are entirely different themes,
   // so let them take priority over dark mode.
   // ...unless --force-dark-mode was specified in which case caveat emptor.
-  if (UsesHighContrastColors() && !IsForcedDarkMode())
+  if (InForcedColorsMode() && !IsForcedDarkMode())
     return false;
   return NativeTheme::ShouldUseDarkColors();
 }
 
 NativeTheme::PreferredColorScheme
 NativeThemeWin::CalculatePreferredColorScheme() const {
-  if (!UsesHighContrastColors())
+  if (!InForcedColorsMode())
     return NativeTheme::CalculatePreferredColorScheme();
 
   // According to the spec, the preferred color scheme for web content is 'dark'
@@ -742,9 +749,42 @@ NativeThemeWin::CalculatePreferredColorScheme() const {
   return NativeTheme::PreferredColorScheme::kLight;
 }
 
+NativeTheme::PreferredContrast NativeThemeWin::CalculatePreferredContrast()
+    const {
+  if (!InForcedColorsMode())
+    return NativeTheme::CalculatePreferredContrast();
+
+  // According to the spec [1], "when the user agent can determine whether the
+  // forced color palette chosen by the user has a high or low contrast, one of
+  // 'prefers-contrast: more' or 'prefers-contrast: less' must match in addition
+  // to 'prefers-contrast: forced'."
+  //
+  // Using WCAG definitions [2], we have decided to match 'more' in Forced
+  // Colors Mode if the contrast ratio between the foreground and background
+  // color is 7:1 or greater.
+  //
+  // "A contrast ratio of 3:1 is the minimum level recommended by [[ISO-9241-3]]
+  // and [[ANSI-HFES-100-1988]] for standard text and vision"[2]. Given this,
+  // we will start by matching to 'less' in Forced Colors Mode if the contrast
+  // ratio between the foreground and background color is 2.5:1 or less.
+  //
+  // These ratios will act as an experimental baseline that we can adjust based
+  // on user feedback.
+  //
+  // [1] https://www.w3.org/TR/css-color-adjust-1/#forced
+  // [2] https://www.w3.org/WAI/WCAG21/Understanding/contrast-enhanced
+  SkColor bg_color = system_colors_[SystemThemeColor::kWindow];
+  SkColor fg_color = system_colors_[SystemThemeColor::kWindowText];
+  float contrast_ratio = color_utils::GetContrastRatio(bg_color, fg_color);
+  if (contrast_ratio >= 7)
+    return NativeTheme::PreferredContrast::kMore;
+  return contrast_ratio <= 2.5 ? NativeTheme::PreferredContrast::kLess
+                               : NativeTheme::PreferredContrast::kNoPreference;
+}
+
 NativeTheme::ColorScheme NativeThemeWin::GetDefaultSystemColorScheme() const {
-  return UsesHighContrastColors() ? ColorScheme::kPlatformHighContrast
-                                  : NativeTheme::GetDefaultSystemColorScheme();
+  return InForcedColorsMode() ? ColorScheme::kPlatformHighContrast
+                              : NativeTheme::GetDefaultSystemColorScheme();
 }
 
 void NativeThemeWin::PaintIndirect(cc::PaintCanvas* destination_canvas,
@@ -776,10 +816,10 @@ void NativeThemeWin::PaintIndirect(cc::PaintCanvas* destination_canvas,
     return;
   }
 
-  if (!offscreen_hdc.SelectBitmap(skia::CreateHBitmap(
-          rect.width(), rect.height(), false, nullptr, nullptr))) {
+  base::win::ScopedBitmap hbitmap = skia::CreateHBitmapXRGB8888(
+      rect.width(), rect.height(), nullptr, nullptr);
+  if (!offscreen_hdc.SelectBitmap(hbitmap.release()))
     return;
-  }
 
   // Will be NULL if lower-level Windows calls fail, or if the backing
   // allocated is 0 pixels in size (which should never happen according to

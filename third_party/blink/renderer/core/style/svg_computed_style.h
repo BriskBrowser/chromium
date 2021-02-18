@@ -54,9 +54,7 @@ class SVGComputedStyle : public RefCounted<SVGComputedStyle> {
   CORE_EXPORT ~SVGComputedStyle();
 
   bool InheritedEqual(const SVGComputedStyle&) const;
-  bool NonInheritedEqual(const SVGComputedStyle&) const;
   void InheritFrom(const SVGComputedStyle&);
-  void CopyNonInheritedFromCached(const SVGComputedStyle&);
 
   CORE_EXPORT StyleDifference Diff(const SVGComputedStyle&) const;
 
@@ -64,12 +62,7 @@ class SVGComputedStyle : public RefCounted<SVGComputedStyle> {
   bool operator!=(const SVGComputedStyle& o) const { return !(*this == o); }
 
   // Initial values for all the properties
-  static EAlignmentBaseline InitialAlignmentBaseline() { return AB_AUTO; }
   static EDominantBaseline InitialDominantBaseline() { return DB_AUTO; }
-  static EBaselineShift InitialBaselineShift() { return BS_LENGTH; }
-  static Length InitialBaselineShiftValue() { return Length::Fixed(); }
-  static EVectorEffect InitialVectorEffect() { return VE_NONE; }
-  static EBufferedRendering InitialBufferedRendering() { return BR_AUTO; }
   static LineCap InitialCapStyle() { return kButtCap; }
   static WindRule InitialClipRule() { return RULE_NONZERO; }
   static EColorInterpolation InitialColorInterpolation() { return CI_SRGB; }
@@ -91,41 +84,14 @@ class SVGComputedStyle : public RefCounted<SVGComputedStyle> {
   static UnzoomedLength InitialStrokeWidth() {
     return UnzoomedLength(Length::Fixed(1));
   }
-  static float InitialStopOpacity() { return 1; }
-  static StyleColor InitialStopColor() { return StyleColor(Color::kBlack); }
-  static float InitialFloodOpacity() { return 1; }
-  static StyleColor InitialFloodColor() { return StyleColor(Color::kBlack); }
-  static StyleColor InitialLightingColor() { return StyleColor(Color::kWhite); }
-  static StyleSVGResource* InitialMaskerResource() { return nullptr; }
   static StyleSVGResource* InitialMarkerStartResource() { return nullptr; }
   static StyleSVGResource* InitialMarkerMidResource() { return nullptr; }
   static StyleSVGResource* InitialMarkerEndResource() { return nullptr; }
-  static EMaskType InitialMaskType() { return MT_LUMINANCE; }
   static EPaintOrder InitialPaintOrder() { return kPaintOrderNormal; }
-  static StylePath* InitialD() { return nullptr; }
-  static Length InitialCx() { return Length::Fixed(); }
-  static Length InitialCy() { return Length::Fixed(); }
-  static Length InitialX() { return Length::Fixed(); }
-  static Length InitialY() { return Length::Fixed(); }
-  static Length InitialR() { return Length::Fixed(); }
-  static Length InitialRx() { return Length::Auto(); }
-  static Length InitialRy() { return Length::Auto(); }
 
   // SVG CSS Property setters
-  void SetAlignmentBaseline(EAlignmentBaseline val) {
-    svg_noninherited_flags.f.alignment_baseline = val;
-  }
   void SetDominantBaseline(EDominantBaseline val) {
     svg_inherited_flags.dominant_baseline = val;
-  }
-  void SetBaselineShift(EBaselineShift val) {
-    svg_noninherited_flags.f.baseline_shift = val;
-  }
-  void SetVectorEffect(EVectorEffect val) {
-    svg_noninherited_flags.f.vector_effect = val;
-  }
-  void SetBufferedRendering(EBufferedRendering val) {
-    svg_noninherited_flags.f.buffered_rendering = val;
   }
   void SetCapStyle(LineCap val) { svg_inherited_flags.cap_style = val; }
   void SetClipRule(WindRule val) { svg_inherited_flags.clip_rule = val; }
@@ -144,41 +110,8 @@ class SVGComputedStyle : public RefCounted<SVGComputedStyle> {
     svg_inherited_flags.shape_rendering = val;
   }
   void SetTextAnchor(ETextAnchor val) { svg_inherited_flags.text_anchor = val; }
-  void SetMaskType(EMaskType val) { svg_noninherited_flags.f.mask_type = val; }
   void SetPaintOrder(EPaintOrder val) {
     svg_inherited_flags.paint_order = (int)val;
-  }
-  void SetD(scoped_refptr<StylePath> d) {
-    if (!(geometry->d == d))
-      geometry.Access()->d = std::move(d);
-  }
-  void SetCx(const Length& obj) {
-    if (!(geometry->cx == obj))
-      geometry.Access()->cx = obj;
-  }
-  void SetCy(const Length& obj) {
-    if (!(geometry->cy == obj))
-      geometry.Access()->cy = obj;
-  }
-  void SetX(const Length& obj) {
-    if (!(geometry->x == obj))
-      geometry.Access()->x = obj;
-  }
-  void SetY(const Length& obj) {
-    if (!(geometry->y == obj))
-      geometry.Access()->y = obj;
-  }
-  void SetR(const Length& obj) {
-    if (!(geometry->r == obj))
-      geometry.Access()->r = obj;
-  }
-  void SetRx(const Length& obj) {
-    if (!(geometry->rx == obj))
-      geometry.Access()->rx = obj;
-  }
-  void SetRy(const Length& obj) {
-    if (!(geometry->ry == obj))
-      geometry.Access()->ry = obj;
   }
   void SetFillOpacity(float obj) {
     if (!(fill->opacity == obj))
@@ -230,39 +163,6 @@ class SVGComputedStyle : public RefCounted<SVGComputedStyle> {
       stroke.Access()->dash_offset = dash_offset;
   }
 
-  void SetStopOpacity(float obj) {
-    if (!(stops->opacity == obj))
-      stops.Access()->opacity = obj;
-  }
-
-  void SetStopColor(const StyleColor& obj) {
-    if (!(stops->color == obj))
-      stops.Access()->color = obj;
-  }
-
-  void SetFloodOpacity(float obj) {
-    if (!(misc->flood_opacity == obj))
-      misc.Access()->flood_opacity = obj;
-  }
-
-  void SetFloodColor(const StyleColor& color) {
-    if (!(misc->flood_color == color))
-      misc.Access()->flood_color = color;
-  }
-
-  void SetLightingColor(const StyleColor& color) {
-    if (!(misc->lighting_color == color))
-      misc.Access()->lighting_color = color;
-  }
-
-  void SetBaselineShiftValue(const Length& baseline_shift_value) {
-    if (!(misc->baseline_shift_value == baseline_shift_value))
-      misc.Access()->baseline_shift_value = baseline_shift_value;
-  }
-
-  // Setters for non-inherited resources
-  void SetMaskerResource(scoped_refptr<StyleSVGResource> resource);
-
   // Setters for inherited resources
   void SetMarkerStartResource(scoped_refptr<StyleSVGResource> resource);
 
@@ -271,20 +171,8 @@ class SVGComputedStyle : public RefCounted<SVGComputedStyle> {
   void SetMarkerEndResource(scoped_refptr<StyleSVGResource> resource);
 
   // Read accessors for all the properties
-  EAlignmentBaseline AlignmentBaseline() const {
-    return (EAlignmentBaseline)svg_noninherited_flags.f.alignment_baseline;
-  }
   EDominantBaseline DominantBaseline() const {
     return (EDominantBaseline)svg_inherited_flags.dominant_baseline;
-  }
-  EBaselineShift BaselineShift() const {
-    return (EBaselineShift)svg_noninherited_flags.f.baseline_shift;
-  }
-  EVectorEffect VectorEffect() const {
-    return (EVectorEffect)svg_noninherited_flags.f.vector_effect;
-  }
-  EBufferedRendering BufferedRendering() const {
-    return (EBufferedRendering)svg_noninherited_flags.f.buffered_rendering;
   }
   LineCap CapStyle() const { return (LineCap)svg_inherited_flags.cap_style; }
   WindRule ClipRule() const { return (WindRule)svg_inherited_flags.clip_rule; }
@@ -315,23 +203,6 @@ class SVGComputedStyle : public RefCounted<SVGComputedStyle> {
   float StrokeMiterLimit() const { return stroke->miter_limit; }
   const UnzoomedLength& StrokeWidth() const { return stroke->width; }
   const Length& StrokeDashOffset() const { return stroke->dash_offset; }
-  float StopOpacity() const { return stops->opacity; }
-  const StyleColor& StopColor() const { return stops->color; }
-  float FloodOpacity() const { return misc->flood_opacity; }
-  const StyleColor& FloodColor() const { return misc->flood_color; }
-  const StyleColor& LightingColor() const { return misc->lighting_color; }
-  const Length& BaselineShiftValue() const {
-    return misc->baseline_shift_value;
-  }
-  StylePath* D() const { return geometry->d.get(); }
-  const Length& Cx() const { return geometry->cx; }
-  const Length& Cy() const { return geometry->cy; }
-  const Length& X() const { return geometry->x; }
-  const Length& Y() const { return geometry->y; }
-  const Length& R() const { return geometry->r; }
-  const Length& Rx() const { return geometry->rx; }
-  const Length& Ry() const { return geometry->ry; }
-  StyleSVGResource* MaskerResource() const { return resources->masker.get(); }
   StyleSVGResource* MarkerStartResource() const {
     return inherited_resources->marker_start.get();
   }
@@ -341,13 +212,9 @@ class SVGComputedStyle : public RefCounted<SVGComputedStyle> {
   StyleSVGResource* MarkerEndResource() const {
     return inherited_resources->marker_end.get();
   }
-  EMaskType MaskType() const {
-    return (EMaskType)svg_noninherited_flags.f.mask_type;
-  }
   EPaintOrder PaintOrder() const {
     return (EPaintOrder)svg_inherited_flags.paint_order;
   }
-  EPaintOrderType PaintOrderType(unsigned index) const;
 
   const SVGPaint& InternalVisitedFillPaint() const {
     return fill->visited_link_paint;
@@ -355,27 +222,6 @@ class SVGComputedStyle : public RefCounted<SVGComputedStyle> {
   const SVGPaint& InternalVisitedStrokePaint() const {
     return stroke->visited_link_paint;
   }
-
-  bool IsFillColorCurrentColor() const {
-    return FillPaint().HasCurrentColor() ||
-           InternalVisitedFillPaint().HasCurrentColor();
-  }
-
-  bool IsStrokeColorCurrentColor() const {
-    return StrokePaint().HasCurrentColor() ||
-           InternalVisitedStrokePaint().HasCurrentColor();
-  }
-
-  // convenience
-  bool HasMasker() const { return MaskerResource(); }
-  bool HasMarkers() const {
-    return MarkerStartResource() || MarkerMidResource() || MarkerEndResource();
-  }
-  bool HasStroke() const { return !StrokePaint().IsNone(); }
-  bool HasVisibleStroke() const {
-    return HasStroke() && !StrokeWidth().IsZero();
-  }
-  bool HasFill() const { return !FillPaint().IsNone(); }
 
  protected:
   // inherit
@@ -411,40 +257,10 @@ class SVGComputedStyle : public RefCounted<SVGComputedStyle> {
     unsigned dominant_baseline : 4;            // EDominantBaseline
   } svg_inherited_flags;
 
-  // don't inherit
-  struct NonInheritedFlags {
-    // 32 bit non-inherited, don't add to the struct, or the operator will
-    // break.
-    bool operator==(const NonInheritedFlags& other) const {
-      return niflags == other.niflags;
-    }
-    bool operator!=(const NonInheritedFlags& other) const {
-      return niflags != other.niflags;
-    }
-
-    union {
-      struct {
-        unsigned alignment_baseline : 4;  // EAlignmentBaseline
-        unsigned baseline_shift : 2;      // EBaselineShift
-        unsigned vector_effect : 1;       // EVectorEffect
-        unsigned buffered_rendering : 2;  // EBufferedRendering
-        unsigned mask_type : 1;           // EMaskType
-                                          // 18 bits unused
-      } f;
-      uint32_t niflags;
-    };
-  } svg_noninherited_flags;
-
   // inherited attributes
   DataRef<StyleFillData> fill;
   DataRef<StyleStrokeData> stroke;
   DataRef<StyleInheritedResourceData> inherited_resources;
-
-  // non-inherited attributes
-  DataRef<StyleStopData> stops;
-  DataRef<StyleMiscData> misc;
-  DataRef<StyleGeometryData> geometry;
-  DataRef<StyleResourceData> resources;
 
  private:
   enum CreateInitialType { kCreateInitial };
@@ -470,13 +286,6 @@ class SVGComputedStyle : public RefCounted<SVGComputedStyle> {
         InitialColorInterpolationFilters();
     svg_inherited_flags.paint_order = InitialPaintOrder();
     svg_inherited_flags.dominant_baseline = InitialDominantBaseline();
-
-    svg_noninherited_flags.niflags = 0;
-    svg_noninherited_flags.f.alignment_baseline = InitialAlignmentBaseline();
-    svg_noninherited_flags.f.baseline_shift = InitialBaselineShift();
-    svg_noninherited_flags.f.vector_effect = InitialVectorEffect();
-    svg_noninherited_flags.f.buffered_rendering = InitialBufferedRendering();
-    svg_noninherited_flags.f.mask_type = InitialMaskType();
   }
 };
 

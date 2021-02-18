@@ -36,6 +36,8 @@
 #include "third_party/blink/renderer/core/dom/tree_scope.h"
 #include "third_party/blink/renderer/core/scroll/scroll_customization.h"
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
+#include "third_party/blink/renderer/platform/heap/custom_spaces.h"
+#include "third_party/blink/renderer/platform/wtf/buildflags.h"
 
 // This needs to be here because element.cc also depends on it.
 #define DUMP_NODE_STATISTICS 0
@@ -83,8 +85,8 @@ struct PhysicalRect;
 
 const int kDOMNodeTypeShift = 2;
 const int kElementNamespaceTypeShift = 4;
-const int kNodeStyleChangeShift = 17;
-const int kNodeCustomElementShift = 19;
+const int kNodeStyleChangeShift = 15;
+const int kNodeCustomElementShift = 17;
 
 // Values for kChildNeedsStyleRecalcFlag, controlling whether a node gets its
 // style recalculated.
@@ -101,8 +103,9 @@ enum class CustomElementState : uint32_t {
   // https://dom.spec.whatwg.org/#concept-element-custom-element-state
   kUncustomized = 0,
   kCustom = 1 << kNodeCustomElementShift,
-  kUndefined = 2 << kNodeCustomElementShift,
-  kFailed = 3 << kNodeCustomElementShift,
+  kPreCustomized = 2 << kNodeCustomElementShift,
+  kUndefined = 3 << kNodeCustomElementShift,
+  kFailed = 4 << kNodeCustomElementShift,
 };
 
 enum class SlotChangeType {
@@ -165,6 +168,7 @@ class CORE_EXPORT Node : public EventTarget {
     kDocumentPositionImplementationSpecific = 0x20,
   };
 
+#if !BUILDFLAG(USE_V8_OILPAN)
   template <typename T>
   static void* AllocateObject(size_t size) {
     ThreadState* state =
@@ -174,6 +178,7 @@ class CORE_EXPORT Node : public EventTarget {
         state, size, BlinkGC::kNodeArenaIndex,
         GCInfoTrait<GCInfoFoldedType<T>>::Index(), type_name);
   }
+#endif  // !BUILDFLAG(USE_V8_OILPAN)
 
   static void DumpStatistics();
 
@@ -269,7 +274,7 @@ class CORE_EXPORT Node : public EventTarget {
 
   bool SupportsAltText();
 
-  void SetComputedStyle(scoped_refptr<const ComputedStyle> computed_style);
+  void SetComputedStyle(const ComputedStyle* computed_style);
 
   // Other methods (not part of DOM)
   ALWAYS_INLINE bool IsTextNode() const {
@@ -320,19 +325,6 @@ class CORE_EXPORT Node : public EventTarget {
     return GetCustomElementState() != CustomElementState::kUncustomized;
   }
   void SetCustomElementState(CustomElementState);
-  bool IsV0CustomElement() const { return GetFlag(kV0CustomElementFlag); }
-  enum V0CustomElementState {
-    kV0NotCustomElement = 0,
-    kV0WaitingForUpgrade = 1 << 0,
-    kV0Upgraded = 1 << 1
-  };
-  V0CustomElementState GetV0CustomElementState() const {
-    return IsV0CustomElement()
-               ? (GetFlag(kV0CustomElementUpgradedFlag) ? kV0Upgraded
-                                                        : kV0WaitingForUpgrade)
-               : kV0NotCustomElement;
-  }
-  void SetV0CustomElementState(V0CustomElementState new_state);
 
   virtual bool IsMediaControlElement() const { return false; }
   virtual bool IsMediaControls() const { return false; }
@@ -354,14 +346,10 @@ class CORE_EXPORT Node : public EventTarget {
   bool IsDocumentNode() const;
   bool IsTreeScope() const;
   bool IsShadowRoot() const { return IsDocumentFragment() && IsTreeScope(); }
-  bool IsV0InsertionPoint() const { return GetFlag(kIsV0InsertionPointFlag); }
 
   bool CanParticipateInFlatTree() const;
-  bool IsActiveSlotOrActiveV0InsertionPoint() const;
-  // A re-distribution across v0 and v1 shadow trees is not supported.
-  bool IsSlotable() const {
-    return IsTextNode() || (IsElementNode() && !IsV0InsertionPoint());
-  }
+  bool IsActiveSlot() const;
+  bool IsSlotable() const { return IsTextNode() || IsElementNode(); }
   AtomicString SlotName() const;
 
   bool HasCustomStyleCallbacks() const {
@@ -529,19 +517,6 @@ class CORE_EXPORT Node : public EventTarget {
     return NeedsStyleRecalc() || GetForceReattachLayoutTree();
   }
 
-  bool NeedsDistributionRecalc() const;
-
-  bool ChildNeedsDistributionRecalc() const {
-    return GetFlag(kChildNeedsDistributionRecalcFlag);
-  }
-  void SetChildNeedsDistributionRecalc() {
-    SetFlag(kChildNeedsDistributionRecalcFlag);
-  }
-  void ClearChildNeedsDistributionRecalc() {
-    ClearFlag(kChildNeedsDistributionRecalcFlag);
-  }
-  void MarkAncestorsWithChildNeedsDistributionRecalc();
-
   // True if the style invalidation process should traverse this node's children
   // when looking for pending invalidations.
   bool ChildNeedsStyleInvalidation() const {
@@ -564,20 +539,6 @@ class CORE_EXPORT Node : public EventTarget {
   // MarkAncestorsWithChildNeedsStyleInvalidation
   void SetNeedsStyleInvalidation();
 
-  // This needs to be called before using FlatTreeTraversal.
-  // Once Shadow DOM v0 is removed, this function can be removed.
-  void UpdateDistributionForFlatTreeTraversal() {
-    UpdateDistributionInternal();
-  }
-
-  // This is not what you might want to call in most cases.
-  // You should call UpdateDistributionForFlatTreeTraversal, instead.
-  // Only the implementation of v0 shadow trees uses this.
-  void UpdateDistributionForLegacyDistributedNodes() {
-    // The implementation is same to UpdateDistributionForFlatTreeTraversal.
-    UpdateDistributionInternal();
-  }
-
   // Please don't use this function.
   // Background: When we investigated the usage of (old) UpdateDistribution,
   // some caller's intents were unclear. Thus, we had to introduce this function
@@ -585,8 +546,6 @@ class CORE_EXPORT Node : public EventTarget {
   // can replace that with calling UpdateDistributionForFlatTreeTraversal (or
   // just RecalcSlotAssignments()) on a case-by-case basis.
   void UpdateDistributionForUnknownReasons();
-
-  bool MayContainLegacyNodeTreeWhereDistributionShouldBeSupported() const;
 
   void SetIsLink(bool f);
 
@@ -656,11 +615,8 @@ class CORE_EXPORT Node : public EventTarget {
   }
 
   ShadowRoot* ParentElementShadowRoot() const;
-  bool IsInV1ShadowTree() const;
-  bool IsInV0ShadowTree() const;
-  bool IsChildOfV1ShadowHost() const;
-  bool IsChildOfV0ShadowHost() const;
-  ShadowRoot* V1ShadowRootOfParent() const;
+  bool IsChildOfShadowHost() const;
+  ShadowRoot* ShadowRootOfParent() const;
   Element* FlatTreeParentForChildDirty() const;
   Element* GetStyleRecalcParent() const {
     return FlatTreeParentForChildDirty();
@@ -870,7 +826,6 @@ class CORE_EXPORT Node : public EventTarget {
                                                Event& underlying_event);
 
   void DispatchSimulatedClick(const Event* underlying_event,
-                              SimulatedClickMouseEventOptions = kSendNoEvents,
                               SimulatedClickCreationScope =
                                   SimulatedClickCreationScope::kFromUserAgent);
 
@@ -903,6 +858,7 @@ class CORE_EXPORT Node : public EventTarget {
   StaticNodeList* getDestinationInsertionPoints();
   HTMLSlotElement* AssignedSlot() const;
   HTMLSlotElement* assignedSlotForBinding();
+  HTMLSlotElement* AssignedSlotWithoutRecalc() const;
 
   bool IsFinishedParsingChildren() const {
     return GetFlag(kIsFinishedParsingChildrenFlag);
@@ -935,6 +891,20 @@ class CORE_EXPORT Node : public EventTarget {
   void RegisterScrollTimeline(ScrollTimeline*);
   void UnregisterScrollTimeline(ScrollTimeline*);
 
+  // For Element.
+  void SetHasDisplayLockContext() { SetFlag(kHasDisplayLockContext); }
+  bool HasDisplayLockContext() const { return GetFlag(kHasDisplayLockContext); }
+
+  bool SelfOrAncestorHasDirAutoAttribute() const {
+    return GetFlag(kSelfOrAncestorHasDirAutoAttribute);
+  }
+  void SetSelfOrAncestorHasDirAutoAttribute() {
+    SetFlag(kSelfOrAncestorHasDirAutoAttribute);
+  }
+  void ClearSelfOrAncestorHasDirAutoAttribute() {
+    ClearFlag(kSelfOrAncestorHasDirAutoAttribute);
+  }
+
   void Trace(Visitor*) const override;
 
  private:
@@ -945,49 +915,48 @@ class CORE_EXPORT Node : public EventTarget {
     kIsContainerFlag = 1 << 1,
     kDOMNodeTypeMask = 0x3 << kDOMNodeTypeShift,
     kElementNamespaceTypeMask = 0x3 << kElementNamespaceTypeShift,
-    kIsV0InsertionPointFlag = 1 << 6,
 
     // Changes based on if the element should be treated like a link,
     // ex. When setting the href attribute on an <a>.
-    kIsLinkFlag = 1 << 7,
+    kIsLinkFlag = 1 << 6,
 
     // Changes based on :hover, :active and :focus state.
-    kIsUserActionElementFlag = 1 << 8,
+    kIsUserActionElementFlag = 1 << 7,
 
     // Tree state flags. These change when the element is added/removed
     // from a DOM tree.
-    kIsConnectedFlag = 1 << 9,
-    kIsInShadowTreeFlag = 1 << 10,
+    kIsConnectedFlag = 1 << 8,
+    kIsInShadowTreeFlag = 1 << 9,
 
     // Set by the parser when the children are done parsing.
-    kIsFinishedParsingChildrenFlag = 1 << 11,
+    kIsFinishedParsingChildrenFlag = 1 << 10,
 
     // Flags related to recalcStyle.
-    kHasCustomStyleCallbacksFlag = 1 << 12,
-    kChildNeedsStyleInvalidationFlag = 1 << 13,
-    kNeedsStyleInvalidationFlag = 1 << 14,
-    kChildNeedsDistributionRecalcFlag = 1 << 15,
-    kChildNeedsStyleRecalcFlag = 1 << 16,
+    kHasCustomStyleCallbacksFlag = 1 << 11,
+    kChildNeedsStyleInvalidationFlag = 1 << 12,
+    kNeedsStyleInvalidationFlag = 1 << 13,
+    kChildNeedsStyleRecalcFlag = 1 << 14,
     kStyleChangeMask = 0x3 << kNodeStyleChangeShift,
 
-    kCustomElementStateMask = 0x3 << kNodeCustomElementShift,
+    kCustomElementStateMask = 0x7 << kNodeCustomElementShift,
 
-    kHasNameOrIsEditingTextFlag = 1 << 21,
-    kHasEventTargetDataFlag = 1 << 22,
+    kHasNameOrIsEditingTextFlag = 1 << 20,
+    kHasEventTargetDataFlag = 1 << 21,
 
-    kV0CustomElementFlag = 1 << 23,
-    kV0CustomElementUpgradedFlag = 1 << 24,
+    kNeedsReattachLayoutTree = 1 << 22,
+    kChildNeedsReattachLayoutTree = 1 << 23,
 
-    kNeedsReattachLayoutTree = 1 << 25,
-    kChildNeedsReattachLayoutTree = 1 << 26,
+    kHasDuplicateAttributes = 1 << 24,
 
-    kHasDuplicateAttributes = 1 << 27,
+    kForceReattachLayoutTree = 1 << 25,
 
-    kForceReattachLayoutTree = 1 << 28,
+    kHasDisplayLockContext = 1 << 26,
+
+    kSelfOrAncestorHasDirAutoAttribute = 1 << 27,
 
     kDefaultNodeFlags = kIsFinishedParsingChildrenFlag,
 
-    // 4 bits remaining.
+    // 5 bits remaining.
   };
 
   ALWAYS_INLINE bool GetFlag(NodeFlags mask) const {
@@ -1050,7 +1019,6 @@ class CORE_EXPORT Node : public EventTarget {
                         static_cast<NodeFlags>(DOMNodeType::kElement) |
                         static_cast<NodeFlags>(ElementNamespaceType::kSVG),
     kCreateDocument = kCreateContainer | kIsConnectedFlag,
-    kCreateV0InsertionPoint = kCreateHTMLElement | kIsV0InsertionPointFlag,
     kCreateEditingText = kCreateText | kHasNameOrIsEditingTextFlag,
   };
 
@@ -1087,6 +1055,8 @@ class CORE_EXPORT Node : public EventTarget {
     SetFlag(value, kIsFinishedParsingChildrenFlag);
   }
 
+  void InvalidateIfHasEffectiveAppearance() const;
+
  private:
   // Gets nodeName without caching AtomicStrings. Used by
   // debugName. Compositor may call debugName from the "impl" thread
@@ -1103,9 +1073,6 @@ class CORE_EXPORT Node : public EventTarget {
   bool IsUserActionElementHovered() const;
   bool IsUserActionElementFocused() const;
   bool IsUserActionElementHasFocusWithin() const;
-
-  void UpdateDistributionInternal();
-  void RecalcDistribution();
 
   void SetStyleChange(StyleChangeType change_type) {
     node_flags_ = (node_flags_ & ~kStyleChangeMask) | change_type;
@@ -1131,6 +1098,7 @@ class CORE_EXPORT Node : public EventTarget {
     DCHECK(!HasRareData());
     return reinterpret_cast<NodeRenderingData*>(data_.Get());
   }
+  ShadowRoot* GetSlotAssignmentRoot() const;
 
   uint32_t node_flags_;
   Member<Node> parent_or_shadow_host_node_;
@@ -1165,5 +1133,25 @@ void showNode(const blink::Node*);
 void showTree(const blink::Node*);
 void showNodePath(const blink::Node*);
 #endif
+
+#if BUILDFLAG(USE_V8_OILPAN)
+namespace cppgc {
+// Assign Node to be allocated on custom NodeSpace.
+template <typename T>
+struct SpaceTrait<T, std::enable_if_t<std::is_base_of<blink::Node, T>::value>> {
+  using Space = blink::NodeSpace;
+};
+}  // namespace cppgc
+
+namespace blink {
+template <typename T>
+struct ThreadingTrait<
+    T,
+    std::enable_if_t<std::is_base_of<blink::Node, T>::value>> {
+  static constexpr ThreadAffinity kAffinity = kMainThreadOnly;
+};
+}  // namespace blink
+
+#endif  // USE_V8_OILPAN
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_DOM_NODE_H_

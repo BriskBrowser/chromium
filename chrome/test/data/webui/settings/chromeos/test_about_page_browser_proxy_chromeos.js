@@ -20,10 +20,10 @@
       'getVersionInfo',
       'getRegulatoryInfo',
       'checkInternetConnection',
-      'getEnabledReleaseNotes',
       'getEndOfLifeInfo',
       'launchReleaseNotes',
       'openOsHelpPage',
+      'openDiagnostics',
       'refreshTPMFirmwareUpdateStatus',
       'setChannel',
     ]);
@@ -128,11 +128,6 @@
     this.endOfLifeInfo_ = endOfLifeInfo;
   }
 
-  /** @param {boolean|Promise} hasReleaseNotes */
-  setReleaseNotes(hasEnabledReleaseNotes) {
-    this.hasReleaseNotes_ = hasEnabledReleaseNotes;
-  }
-
   /** @param {boolean|Promise} hasInternetConnection */
   setInternetConnection(hasInternetConnection) {
     this.hasInternetConnection_ = hasInternetConnection;
@@ -154,12 +149,6 @@
   canChangeChannel() {
     this.methodCalled('canChangeChannel');
     return Promise.resolve(this.canChangeChannel_);
-  }
-
-  /** @override */
-  getEnabledReleaseNotes() {
-    this.methodCalled('getEnabledReleaseNotes');
-    return Promise.resolve(this.hasReleaseNotes_);
   }
 
   /** @override */
@@ -200,6 +189,11 @@
   /** @override */
   openOsHelpPage() {
     this.methodCalled('openOsHelpPage');
+  }
+
+  /** @override */
+  openDiagnostics() {
+    this.methodCalled('openDiagnostics');
   }
 
   /** @override */

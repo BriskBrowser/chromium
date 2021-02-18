@@ -77,12 +77,12 @@ class MimeHandlerViewGuest
 
   static const char Type[];
 
-  // BrowserPluginGuestDelegate overrides.
+  // GuestViewBase overrides.
   bool CanBeEmbeddedInsideCrossProcessFrames() override;
   content::RenderWidgetHost* GetOwnerRenderWidgetHost() override;
   content::SiteInstance* GetOwnerSiteInstance() override;
-  content::RenderFrameHost* GetEmbedderFrame() override;
 
+  content::RenderFrameHost* GetEmbedderFrame();
   void SetEmbedderFrame(int process_id, int routing_id);
 
   void SetBeforeUnloadController(
@@ -175,6 +175,7 @@ class MimeHandlerViewGuest
   void DocumentOnLoadCompletedInMainFrame() final;
   void ReadyToCommitNavigation(
       content::NavigationHandle* navigation_handle) final;
+  void DidFinishNavigation(content::NavigationHandle* navigation_handle) final;
 
   std::unique_ptr<MimeHandlerViewGuestDelegate> delegate_;
   std::unique_ptr<StreamContainer> stream_;

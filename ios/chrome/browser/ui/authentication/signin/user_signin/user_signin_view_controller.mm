@@ -6,14 +6,12 @@
 
 #import <MaterialComponents/MaterialActivityIndicator.h>
 
-#include "base/feature_list.h"
+#import "base/check_op.h"
 #import "base/logging.h"
 #import "ios/chrome/browser/ui/authentication/signin/signin_constants.h"
 #import "ios/chrome/browser/ui/authentication/signin/user_signin/gradient_view.h"
-#include "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/ui/util/rtl_geometry.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
-#import "ios/chrome/common/ui/colors/UIColor+cr_semantic_colors.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
 #import "ios/chrome/common/ui/util/pointer_interaction_util.h"
@@ -86,9 +84,8 @@ enum AuthenticationButtonType {
 // Button used to exit the sign-in operation without confirmation, e.g. "No
 // Thanks", "Cancel".
 @property(nonatomic, strong) UIButton* skipSigninButton;
-// Stack view that displays the skip and continue buttons on a horizontal
-// layout.
-@property(nonatomic, strong) UIStackView* horizontalButtonsView;
+// Stack view that displays the skip and continue buttons.
+@property(nonatomic, strong) UIStackView* actionButtonsView;
 // Property that denotes whether the unified consent screen reached bottom has
 // triggered.
 @property(nonatomic, assign) BOOL hasUnifiedConsentScreenReachedBottom;
@@ -114,7 +111,7 @@ enum AuthenticationButtonType {
 
 - (void)markUnifiedConsentScreenReachedBottom {
   // This is the first time the unified consent screen has reached the bottom.
-  if (self.hasUnifiedConsentScreenReachedBottom == NO) {
+  if (!self.hasUnifiedConsentScreenReachedBottom) {
     self.hasUnifiedConsentScreenReachedBottom = YES;
     [self setConfirmationButtonProperties];
   }
@@ -194,6 +191,7 @@ enum AuthenticationButtonType {
 
 - (void)viewDidLoad {
   [super viewDidLoad];
+  DCHECK(self.unifiedConsentViewController);
   self.view.backgroundColor = self.systemBackgroundColor;
 
   self.containerView = [[UIView alloc] init];
@@ -210,14 +208,12 @@ enum AuthenticationButtonType {
   [self maybeEnablePointerSupportWithButton:self.skipSigninButton];
   self.skipSigninButton.translatesAutoresizingMaskIntoConstraints = NO;
 
-  self.horizontalButtonsView = [[UIStackView alloc] initWithArrangedSubviews:@[
+  self.actionButtonsView = [[UIStackView alloc] initWithArrangedSubviews:@[
     self.skipSigninButton, self.confirmationButton
   ]];
-  self.horizontalButtonsView.distribution =
-      UIStackViewDistributionEqualCentering;
-  self.horizontalButtonsView.axis = UILayoutConstraintAxisHorizontal;
-  self.horizontalButtonsView.translatesAutoresizingMaskIntoConstraints = NO;
-  [self.view addSubview:self.horizontalButtonsView];
+  self.actionButtonsView.distribution = UIStackViewDistributionEqualCentering;
+  self.actionButtonsView.translatesAutoresizingMaskIntoConstraints = NO;
+  [self.view addSubview:self.actionButtonsView];
 
   self.unifiedConsentViewController.view
       .translatesAutoresizingMaskIntoConstraints = NO;
@@ -268,13 +264,13 @@ enum AuthenticationButtonType {
   NSMutableArray* constraints = [NSMutableArray array];
   [constraints addObjectsFromArray:@[
     [self.view.safeAreaLayoutGuide.trailingAnchor
-        constraintEqualToAnchor:self.horizontalButtonsView.trailingAnchor
+        constraintEqualToAnchor:self.actionButtonsView.trailingAnchor
                        constant:constants.ButtonHorizontalPadding],
     [self.view.safeAreaLayoutGuide.leadingAnchor
-        constraintEqualToAnchor:self.horizontalButtonsView.leadingAnchor
+        constraintEqualToAnchor:self.actionButtonsView.leadingAnchor
                        constant:-constants.ButtonHorizontalPadding],
     [self.view.safeAreaLayoutGuide.bottomAnchor
-        constraintEqualToAnchor:self.horizontalButtonsView.bottomAnchor
+        constraintEqualToAnchor:self.actionButtonsView.bottomAnchor
                        constant:constants.ButtonVerticalPadding]
   ]];
   return constraints;
@@ -296,12 +292,21 @@ enum AuthenticationButtonType {
   }
   [self applyDefaultSizeWithButton:self.confirmationButton fontStyle:fontStyle];
   [self applyDefaultSizeWithButton:self.skipSigninButton fontStyle:fontStyle];
+
+  // For larger texts update the layout to display buttons centered on the
+  // vertical axis.
+  if (UIContentSizeCategoryIsAccessibilityCategory(
+          self.traitCollection.preferredContentSizeCategory)) {
+    self.actionButtonsView.axis = UILayoutConstraintAxisVertical;
+  } else {
+    self.actionButtonsView.axis = UILayoutConstraintAxisHorizontal;
+  }
 }
 
 #pragma mark - Properties
 
 - (UIColor*)systemBackgroundColor {
-  return UIColor.cr_systemBackgroundColor;
+  return [UIColor colorNamed:kPrimaryBackgroundColor];
 }
 
 - (NSString*)confirmationButtonTitle {
@@ -356,7 +361,7 @@ enum AuthenticationButtonType {
       [self.unifiedConsentViewController.view.trailingAnchor
           constraintEqualToAnchor:self.containerView.trailingAnchor],
       // Constraint between the container view and the horizontal buttons.
-      [self.horizontalButtonsView.topAnchor
+      [self.actionButtonsView.topAnchor
           constraintEqualToAnchor:self.containerView.bottomAnchor
                          constant:kCompactConstants.ButtonVerticalPadding],
     ]];
@@ -388,7 +393,7 @@ enum AuthenticationButtonType {
       [self.unifiedConsentViewController.view.centerYAnchor
           constraintEqualToAnchor:self.containerView.centerYAnchor],
       // Constraint between the container view and the horizontal buttons.
-      [self.horizontalButtonsView.topAnchor
+      [self.actionButtonsView.topAnchor
           constraintEqualToAnchor:self.containerView.bottomAnchor
                          constant:kRegularConstants.ButtonVerticalPadding],
     ]];
@@ -450,15 +455,11 @@ enum AuthenticationButtonType {
 // Enables pointer support for the button if it is supported on the iOS version.
 - (void)maybeEnablePointerSupportWithButton:(UIButton*)button {
   DCHECK(button);
-#if defined(__IPHONE_13_4)
   if (@available(iOS 13.4, *)) {
-    if (base::FeatureList::IsEnabled(kPointerSupport)) {
       button.pointerInteractionEnabled = YES;
       button.pointerStyleProvider =
-          CreateTransparentButtonPointerStyleProvider();
-    }
+          CreateOpaqueOrTransparentButtonPointerStyleProvider();
   }
-#endif  // defined(__IPHONE_13_4)
 }
 
 - (void)setBlueBackgroundStylingWithButton:(UIButton*)button {
@@ -496,6 +497,7 @@ enum AuthenticationButtonType {
       UIEdgeInsetsMake(verticalContentInset, horizontalContentInset,
                        verticalContentInset, horizontalContentInset);
   button.titleLabel.font = [UIFont preferredFontForTextStyle:fontStyle];
+  button.titleLabel.numberOfLines = 0;
 }
 
 #pragma mark - Events

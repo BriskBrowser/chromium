@@ -29,6 +29,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_mutation_observer_init.h"
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/dom/events/simulated_click_options.h"
 #include "third_party/blink/renderer/core/dom/mutation_observer.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/node_traversal.h"
@@ -173,7 +174,8 @@ void HTMLOptionElement::setText(const String& text) {
     select->setSelectedIndex(old_selected_index);
 }
 
-void HTMLOptionElement::AccessKeyAction(bool) {
+void HTMLOptionElement::AccessKeyAction(SimulatedClickCreationScope) {
+  // TODO(crbug.com/1176745): why creation_scope arg is not used at all?
   if (HTMLSelectElement* select = OwnerSelectElement())
     select->SelectOptionByAccessKey(this);
 }
@@ -212,8 +214,7 @@ void HTMLOptionElement::ParseAttribute(
     if (params.old_value.IsNull() != params.new_value.IsNull()) {
       PseudoStateChanged(CSSSelector::kPseudoDisabled);
       PseudoStateChanged(CSSSelector::kPseudoEnabled);
-      if (LayoutObject* o = GetLayoutObject())
-        o->InvalidateIfControlStateChanged(kEnabledControlState);
+      InvalidateIfHasEffectiveAppearance();
     }
   } else if (name == html_names::kSelectedAttr) {
     if (params.old_value.IsNull() != params.new_value.IsNull() && !is_dirty_)

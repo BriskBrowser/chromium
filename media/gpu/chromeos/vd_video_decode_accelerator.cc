@@ -190,12 +190,12 @@ void VdVideoDecodeAccelerator::Decode(scoped_refptr<DecoderBuffer> buffer,
 }
 
 void VdVideoDecodeAccelerator::OnDecodeDone(int32_t bitstream_buffer_id,
-                                            DecodeStatus status) {
-  DVLOGF(4) << "status: " << status;
+                                            Status status) {
+  DVLOGF(4) << "status: " << status.code();
   DCHECK_CALLED_ON_VALID_SEQUENCE(client_sequence_checker_);
   DCHECK(client_);
 
-  if (status == DecodeStatus::DECODE_ERROR) {
+  if (!status.is_ok() && status.code() != StatusCode::kAborted) {
     OnError(FROM_HERE, PLATFORM_FAILURE);
     return;
   }
@@ -241,19 +241,19 @@ void VdVideoDecodeAccelerator::Flush() {
       base::BindOnce(&VdVideoDecodeAccelerator::OnFlushDone, weak_this_));
 }
 
-void VdVideoDecodeAccelerator::OnFlushDone(DecodeStatus status) {
-  DVLOGF(3) << "status: " << status;
+void VdVideoDecodeAccelerator::OnFlushDone(Status status) {
+  DVLOGF(3) << "status: " << status.code();
   DCHECK_CALLED_ON_VALID_SEQUENCE(client_sequence_checker_);
   DCHECK(client_);
 
-  switch (status) {
-    case DecodeStatus::OK:
+  switch (status.code()) {
+    case StatusCode::kOk:
       client_->NotifyFlushDone();
       break;
-    case DecodeStatus::ABORTED:
+    case StatusCode::kAborted:
       // Do nothing.
       break;
-    case DecodeStatus::DECODE_ERROR:
+    default:
       OnError(FROM_HERE, PLATFORM_FAILURE);
       break;
   }
@@ -290,6 +290,12 @@ void VdVideoDecodeAccelerator::RequestFrames(
 
   notify_layout_changed_cb_ = std::move(notify_layout_changed_cb);
   import_frame_cb_ = std::move(import_frame_cb);
+
+  // Stop tracking currently-allocated pictures, otherwise the count will be
+  // corrupted as we import new frames with the same IDs as the old ones.
+  // The client should still have its own reference to the frame data, which
+  // will keep it valid for as long as it needs it.
+  picture_at_client_.clear();
 
   // After calling ProvidePictureBuffersWithVisibleRect(), the client might
   // still send buffers with old coded size. We temporarily store at
@@ -329,20 +335,26 @@ void VdVideoDecodeAccelerator::ImportBufferForPicture(
       return;
     }
 
+    const uint64_t modifier = gmb_handle.type == gfx::NATIVE_PIXMAP
+                                  ? gmb_handle.native_pixmap_handle.modifier
+                                  : gfx::NativePixmapHandle::kNoModifier;
+
     std::vector<ColorPlaneLayout> planes = ExtractColorPlaneLayout(gmb_handle);
-    layout_ =
-        VideoFrameLayout::CreateWithPlanes(pixel_format, coded_size_, planes);
+    layout_ = VideoFrameLayout::CreateWithPlanes(
+        pixel_format, coded_size_, planes,
+        VideoFrameLayout::kBufferAddressAlignment, modifier);
     if (!layout_) {
       VLOGF(1) << "Failed to create VideoFrameLayout. format: "
                << VideoPixelFormatToString(pixel_format)
                << ", coded_size: " << coded_size_.ToString()
-               << ", planes: " << VectorToString(planes);
+               << ", planes: " << VectorToString(planes)
+               << ", modifier: " << std::hex << modifier;
       std::move(notify_layout_changed_cb_).Run(base::nullopt);
       return;
     }
 
     std::move(notify_layout_changed_cb_)
-        .Run(GpuBufferLayout::Create(*fourcc, coded_size_, planes));
+        .Run(GpuBufferLayout::Create(*fourcc, coded_size_, planes, modifier));
   }
 
   if (!layout_)
@@ -369,6 +381,16 @@ void VdVideoDecodeAccelerator::ImportBufferForPicture(
       base::BindOnce(&VdVideoDecodeAccelerator::OnFrameReleasedThunk,
                      weak_this_, client_task_runner_, std::move(origin_frame)));
 
+  // This should not happen - picture_at_client_ should either be initially
+  // empty, or be cleared as RequestFrames() is called. However for extra safety
+  // let's make sure the slot for the picture buffer ID is free, otherwise we
+  // might lose track of the reference count and keep frames out of the pool
+  // forever.
+  if (picture_at_client_.erase(picture_buffer_id) > 0) {
+    VLOGF(1) << "Picture " << picture_buffer_id
+             << " still referenced, dropping it.";
+  }
+
   DCHECK(import_frame_cb_);
   import_frame_cb_.Run(std::move(wrapped_frame));
 }
@@ -386,10 +408,9 @@ base::Optional<Picture> VdVideoDecodeAccelerator::GetPicture(
   }
   int32_t picture_buffer_id = it->second;
   int32_t bitstream_id = FakeTimestampToBitstreamId(frame.timestamp());
-  bool allow_overlay = frame.metadata()->allow_overlay;
   return base::make_optional(Picture(picture_buffer_id, bitstream_id,
                                      frame.visible_rect(), frame.ColorSpace(),
-                                     allow_overlay));
+                                     frame.metadata().allow_overlay));
 }
 
 // static

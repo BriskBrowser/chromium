@@ -9,7 +9,7 @@
 
 #include "base/optional.h"
 #include "chrome/browser/nearby_sharing/attachment.h"
-#include "chrome/services/sharing/public/mojom/nearby_decoder_types.mojom.h"
+#include "chromeos/services/nearby/public/mojom/nearby_decoder_types.mojom.h"
 
 // Represents a text attachment.
 class TextAttachment : public Attachment {
@@ -30,6 +30,10 @@ class TextAttachment : public Attachment {
 
   // Attachment:
   void MoveToShareTarget(ShareTarget& share_target) override;
+  const std::string& GetDescription() const override;
+  nearby_share::mojom::ShareType GetShareType() const override;
+
+  void set_text_body(std::string text_body);
 
  private:
   Type type_;

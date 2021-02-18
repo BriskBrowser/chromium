@@ -28,7 +28,6 @@
 #include "base/auto_reset.h"
 #include "base/memory/weak_ptr.h"
 #include "chromeos/audio/chromeos_sounds.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_element.h"
@@ -64,7 +63,7 @@ class BackdropEventHandler : public ui::EventHandler {
         case ui::ET_SCROLL:
         case ui::ET_SCROLL_FLING_START:
           Shell::Get()->accessibility_controller()->PlayEarcon(
-              chromeos::SOUND_VOLUME_ADJUST);
+              chromeos::Sound::kVolumeAdjust);
           break;
         default:
           break;
@@ -215,7 +214,7 @@ BackdropController::BackdropController(aura::Window* container)
 }
 
 BackdropController::~BackdropController() {
-  window_backdrop_observer_.RemoveAll();
+  window_backdrop_observations_.RemoveAllObservations();
   auto* shell = Shell::Get();
   // Shell destroys the TabletModeController before destroying all root windows.
   if (shell->tablet_mode_controller())
@@ -232,15 +231,15 @@ BackdropController::~BackdropController() {
 
 void BackdropController::OnWindowAddedToLayout(aura::Window* window) {
   if (DoesWindowCauseBackdropUpdates(window)) {
-    window_backdrop_observer_.Add(WindowBackdrop::Get(window));
+    window_backdrop_observations_.AddObservation(WindowBackdrop::Get(window));
     UpdateBackdrop();
   }
 }
 
 void BackdropController::OnWindowRemovedFromLayout(aura::Window* window) {
   WindowBackdrop* window_backdrop = WindowBackdrop::Get(window);
-  if (window_backdrop_observer_.IsObserving(window_backdrop))
-    window_backdrop_observer_.Remove(window_backdrop);
+  if (window_backdrop_observations_.IsObservingSource(window_backdrop))
+    window_backdrop_observations_.RemoveObservation(window_backdrop);
 
   if (DoesWindowCauseBackdropUpdates(window))
     UpdateBackdrop();
@@ -397,9 +396,7 @@ void BackdropController::UpdateBackdropInternal() {
 
   // Updating the back drop widget should not affect the shelf's auto hide
   // state.
-  base::Optional<Shelf::ScopedAutoHideLock> auto_hide_lock;
-  if (chromeos::switches::ShouldShowShelfHotseat())
-    auto_hide_lock.emplace(ash::Shelf::ForWindow(container_));
+  Shelf::ScopedAutoHideLock auto_hide_lock(ash::Shelf::ForWindow(container_));
 
   // We are either destroying the backdrop widget or changing the order of
   // windows which will cause recursion.
@@ -464,7 +461,7 @@ void BackdropController::UpdateAccessibilityMode() {
     return;
 
   const bool enabled =
-      Shell::Get()->accessibility_controller()->spoken_feedback_enabled();
+      Shell::Get()->accessibility_controller()->spoken_feedback().enabled();
   if (enabled) {
     if (!backdrop_event_handler_) {
       backdrop_event_handler_ = std::make_unique<BackdropEventHandler>();
@@ -493,7 +490,7 @@ bool BackdropController::WindowShouldHaveBackdrop(aura::Window* window) {
   if (window->GetProperty(aura::client::kAppType) ==
           static_cast<int>(AppType::ARC_APP) &&
       wm::IsActiveWindow(window) &&
-      Shell::Get()->accessibility_controller()->spoken_feedback_enabled()) {
+      Shell::Get()->accessibility_controller()->spoken_feedback().enabled()) {
     return true;
   }
 

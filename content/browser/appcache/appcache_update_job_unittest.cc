@@ -11,7 +11,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
@@ -713,6 +713,8 @@ class AppCacheUpdateJobTest : public testing::Test,
         process_id_(123) {
     appcache_require_origin_trial_feature_.InitAndDisableFeature(
         blink::features::kAppCacheRequireOriginTrial);
+    appcache_disable_corruption_feature_.InitAndDisableFeature(
+        kAppCacheCorruptionRecoveryFeature);
   }
 
   // TODO(ananta/michaeln): Remove dependencies on URLRequest based
@@ -784,13 +786,14 @@ class AppCacheUpdateJobTest : public testing::Test,
                 BrowserContext::GetDefaultStoragePartition(
                     browser_context_.get())));
 
-    ChildProcessSecurityPolicyImpl::GetInstance()->Add(process_id_,
-                                                       browser_context_.get());
+    ChildProcessSecurityPolicyImpl::GetInstance()->AddForTesting(
+        process_id_, browser_context_.get());
     blink::TrialTokenValidator::SetOriginTrialPolicyGetter(base::BindRepeating(
         []() -> blink::OriginTrialPolicy* { return &g_origin_trial_policy; }));
   }
 
   void TearDown() override {
+    blink::TrialTokenValidator::ResetOriginTrialPolicyGetter();
     weak_partition_factory_.reset();
     browser_context_.reset();
 
@@ -2463,7 +2466,7 @@ class AppCacheUpdateJobTest : public testing::Test,
   void FailStoreNewestCacheTest() {
     MakeService();
     MockAppCacheStorage* storage =
-        reinterpret_cast<MockAppCacheStorage*>(service_->storage());
+        static_cast<MockAppCacheStorage*>(service_->storage());
     storage->SimulateStoreGroupAndNewestCacheFailure();
 
     group_ = base::MakeRefCounted<AppCacheGroup>(
@@ -2490,7 +2493,7 @@ class AppCacheUpdateJobTest : public testing::Test,
   void UpgradeFailStoreNewestCacheTest() {
     MakeService();
     MockAppCacheStorage* storage =
-        reinterpret_cast<MockAppCacheStorage*>(service_->storage());
+        static_cast<MockAppCacheStorage*>(service_->storage());
     storage->SimulateStoreGroupAndNewestCacheFailure();
 
     group_ = base::MakeRefCounted<AppCacheGroup>(
@@ -2543,7 +2546,7 @@ class AppCacheUpdateJobTest : public testing::Test,
   void MasterEntryFailStoreNewestCacheTest() {
     MakeService();
     MockAppCacheStorage* storage =
-        reinterpret_cast<MockAppCacheStorage*>(service_->storage());
+        static_cast<MockAppCacheStorage*>(service_->storage());
     storage->SimulateStoreGroupAndNewestCacheFailure();
 
     const GURL kManifestUrl = MockHttpServer::GetMockUrl("files/notmodified");
@@ -2589,7 +2592,7 @@ class AppCacheUpdateJobTest : public testing::Test,
   void UpgradeFailMakeGroupObsoleteTest() {
     MakeService();
     MockAppCacheStorage* storage =
-        reinterpret_cast<MockAppCacheStorage*>(service_->storage());
+        static_cast<MockAppCacheStorage*>(service_->storage());
     storage->SimulateMakeGroupObsoleteFailure();
 
     group_ = base::MakeRefCounted<AppCacheGroup>(
@@ -4528,7 +4531,7 @@ class AppCacheUpdateJobTest : public testing::Test,
                 !group_->first_evictable_error_time().is_null());
       if (expect_evictable_error_) {
         MockAppCacheStorage* storage =
-            reinterpret_cast<MockAppCacheStorage*>(service_->storage());
+            static_cast<MockAppCacheStorage*>(service_->storage());
         EXPECT_EQ(group_->first_evictable_error_time(),
                   storage->stored_eviction_times_[group_->group_id()].second);
       }
@@ -4563,7 +4566,7 @@ class AppCacheUpdateJobTest : public testing::Test,
         // is unknown to the test). Check group and newest cache were stored
         // when update succeeds.
         MockAppCacheStorage* storage =
-            reinterpret_cast<MockAppCacheStorage*>(service_->storage());
+            static_cast<MockAppCacheStorage*>(service_->storage());
         EXPECT_TRUE(storage->IsGroupStored(group_.get()));
         EXPECT_TRUE(storage->IsCacheStored(group_->newest_complete_cache()));
 
@@ -5350,6 +5353,7 @@ class AppCacheUpdateJobTest : public testing::Test,
       http_headers_request_test_jobs_;
 
   base::test::ScopedFeatureList appcache_require_origin_trial_feature_;
+  base::test::ScopedFeatureList appcache_disable_corruption_feature_;
 
   // Lazily create these to avoid data races in the FeatureList between
   // service workers (reading) and appcache tests (writing).

@@ -8,9 +8,9 @@
 #include <sstream>
 #include <vector>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/run_loop.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "chrome/browser/web_applications/components/app_registrar.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
@@ -39,7 +39,8 @@ class PendingAppManagerTest : public testing::Test {
         std::move(install_options_list),
         ExternalInstallSource::kInternalDefault,
         base::BindLambdaForTesting(
-            [&run_loop, urls](std::map<GURL, InstallResultCode> install_results,
+            [&run_loop, urls](std::map<GURL, PendingAppManager::InstallResult>
+                                  install_results,
                               std::map<GURL, bool> uninstall_results) {
               run_loop.Quit();
             }));
@@ -114,7 +115,8 @@ TEST_F(PendingAppManagerTest, DestroyDuringUninstallInSynchronize) {
         std::move(install_options_list),
         ExternalInstallSource::kInternalDefault,
         base::BindLambdaForTesting(
-            [&](std::map<GURL, InstallResultCode> install_results,
+            [&](std::map<GURL, PendingAppManager::InstallResult>
+                    install_results,
                 std::map<GURL, bool> uninstall_results) { run_loop.Quit(); }));
     run_loop.Run();
   }

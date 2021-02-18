@@ -2,6 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//testing/libfuzzer/fuzzer_test.gni")
+
 static_library("feedback") {
   sources = [
     "feedback_common.cc",
@@ -30,7 +32,7 @@ static_library("feedback") {
 
   deps = [
     "//base",
-    "//build:lacros_buildflags",
+    "//build:chromeos_buildflags",
     "//components/feedback/proto",
     "//components/keyed_service/content",
     "//components/keyed_service/core",
@@ -61,7 +63,7 @@ source_set("unit_tests") {
   deps = [
     ":feedback",
     "//base",
-    "//build:lacros_buildflags",
+    "//build:chromeos_buildflags",
     "//components/feedback/proto",
     "//components/keyed_service/core",
     "//components/prefs:test_support",
@@ -75,4 +77,10 @@ source_set("unit_tests") {
     "//testing/gmock",
     "//testing/gtest",
   ]
+}
+
+fuzzer_test("redaction_tool_fuzzer") {
+  sources = [ "redaction_tool_fuzzer.cc" ]
+  deps = [ ":feedback" ]
+  dict = "redaction_tool_fuzzer.dict"
 }

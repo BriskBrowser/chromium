@@ -8,7 +8,6 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_fragment.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
-#include "third_party/blink/renderer/platform/text/text_direction.h"
 #include "third_party/blink/renderer/platform/text/writing_mode.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 
@@ -16,13 +15,13 @@ namespace blink {
 
 class CORE_EXPORT NGBoxFragment final : public NGFragment {
  public:
-  NGBoxFragment(WritingMode writing_mode,
-                TextDirection direction,
+  NGBoxFragment(WritingDirectionMode writing_direction,
                 const NGPhysicalBoxFragment& physical_fragment)
-      : NGFragment(writing_mode, physical_fragment), direction_(direction) {}
+      : NGFragment(writing_direction, physical_fragment) {}
 
   base::Optional<LayoutUnit> FirstBaseline() const {
-    if (GetWritingMode() != physical_fragment_.Style().GetWritingMode())
+    if (writing_direction_.GetWritingMode() !=
+        physical_fragment_.Style().GetWritingMode())
       return base::nullopt;
 
     return To<NGPhysicalBoxFragment>(physical_fragment_).Baseline();
@@ -37,7 +36,8 @@ class CORE_EXPORT NGBoxFragment final : public NGFragment {
   //  - The fragment has no baseline.
   //  - The writing modes differ.
   base::Optional<LayoutUnit> Baseline() const {
-    if (GetWritingMode() != physical_fragment_.Style().GetWritingMode())
+    if (writing_direction_.GetWritingMode() !=
+        physical_fragment_.Style().GetWritingMode())
       return base::nullopt;
 
     if (auto last_baseline =
@@ -60,18 +60,22 @@ class CORE_EXPORT NGBoxFragment final : public NGFragment {
   NGBoxStrut Borders() const {
     const NGPhysicalBoxFragment& physical_box_fragment =
         To<NGPhysicalBoxFragment>(physical_fragment_);
-    return physical_box_fragment.Borders().ConvertToLogical(GetWritingMode(),
-                                                            direction_);
+    return physical_box_fragment.Borders().ConvertToLogical(writing_direction_);
   }
   NGBoxStrut Padding() const {
     const NGPhysicalBoxFragment& physical_box_fragment =
         To<NGPhysicalBoxFragment>(physical_fragment_);
-    return physical_box_fragment.Padding().ConvertToLogical(GetWritingMode(),
-                                                            direction_);
+    return physical_box_fragment.Padding().ConvertToLogical(writing_direction_);
   }
 
- protected:
-  TextDirection direction_;
+  bool HasDescendantsForTablePart() const {
+    const NGPhysicalBoxFragment& box_fragment =
+        To<NGPhysicalBoxFragment>(physical_fragment_);
+    DCHECK(physical_fragment_.IsTableNGPart() || box_fragment.IsTableNGCell());
+    return !box_fragment.Children().empty() ||
+           box_fragment.HasOutOfFlowPositionedFragmentainerDescendants() ||
+           box_fragment.HasOutOfFlowPositionedDescendants();
+  }
 };
 
 }  // namespace blink

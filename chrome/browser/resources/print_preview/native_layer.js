@@ -5,15 +5,11 @@
 import {assert} from 'chrome://resources/js/assert.m.js';
 import {addSingletonGetter, sendWithPromise} from 'chrome://resources/js/cr.m.js';
 
-import {Cdd, Destination} from './data/destination.js';
+import {Cdd} from './data/cdd.js';
+import {Destination} from './data/destination.js';
 import {PrinterType} from './data/destination_match.js';
-// <if expr="chromeos">
-import {DestinationPolicies} from './data/destination_policies.js';
-// </if>
+import {LocalDestinationInfo, PrivetPrinterDescription} from './data/local_parsers.js';
 import {MeasurementSystemUnitType} from './data/measurement_system.js';
-// <if expr="chromeos">
-import {PrinterStatus, PrinterStatusReason} from './data/printer_status_cros.js';
-// </if>
 
 /**
  * @typedef {{selectSaveAsPdfDestination: boolean,
@@ -25,18 +21,6 @@ import {PrinterStatus, PrinterStatusReason} from './data/printer_status_cros.js'
  * @see chrome/browser/printing/print_preview_pdf_generated_browsertest.cc
  */
 export let PreviewSettings;
-
-/**
- * @typedef {{
- *   deviceName: string,
- *   printerName: string,
- *   printerDescription: (string | undefined),
- *   cupsEnterprisePrinter: (boolean | undefined),
- *   printerOptions: (Object | undefined),
- *   policies: (DestinationPolicies | undefined),
- * }}
- */
-export let LocalDestinationInfo;
 
 /**
  * Enumeration of background graphics printing mode restrictions used by
@@ -97,24 +81,12 @@ export let Policies;
  *   destinationsManaged: boolean,
  *   cloudPrintURL: (string | undefined),
  *   userAccounts: (Array<string> | undefined),
- *   syncAvailable: boolean
+ *   syncAvailable: boolean,
+ *   isDriveMounted: (boolean | undefined),
  * }}
  * @see corresponding field name definitions in print_preview_handler.cc
  */
 export let NativeInitialSettings;
-
-/**
- * @typedef {{
- *   serviceName: string,
- *   name: string,
- *   hasLocalPrinting: boolean,
- *   isUnregistered: boolean,
- *   cloudID: string,
- * }}
- * @see PrintPreviewHandler::FillPrinterDescription in
- * print_preview_handler.cc
- */
-export let PrivetPrinterDescription;
 
 /**
  * @typedef {{
@@ -127,39 +99,10 @@ export let PrivetPrinterDescription;
 export let CapabilitiesResponse;
 
 /**
- * @typedef {{
- *   printerId: string,
- *   success: boolean,
- *   capabilities: !Cdd,
- *   policies: (DestinationPolicies | undefined),
- * }}
- */
-export let PrinterSetupResponse;
-
-/**
- * @typedef {{
- *   extensionId: string,
- *   extensionName: string,
- *   id: string,
- *   name: string,
- *   description: (string|undefined),
- * }}
- */
-export let ProvisionalDestinationInfo;
-
-/**
  * An interface to the native Chromium printing system layer.
  * @interface
  */
 export class NativeLayer {
-  // <if expr="chromeos">
-  /**
-   * Requests access token for cloud print requests for DEVICE origin.
-   * @return {!Promise<string>}
-   */
-  getAccessToken() {}
-  // </if>
-
   /**
    * Gets the initial settings to initialize the print preview with.
    * @return {!Promise<!NativeInitialSettings>}
@@ -185,32 +128,6 @@ export class NativeLayer {
    */
   getPrinterCapabilities(destinationId, type) {}
 
-  // <if expr="chromeos">
-  /**
-   * Requests the destination's end user license information. Returns a promise
-   * that will be resolved with the destination's EULA URL if obtained
-   * successfully.
-   * @param {!string} destinationId ID of the destination.
-   * @return {!Promise<string>}
-   */
-  getEulaUrl(destinationId) {}
-
-  /**
-   * Requests Chrome to resolve provisional extension destination by granting
-   * the provider extension access to the printer.
-   * @param {string} provisionalDestinationId
-   * @return {!Promise<!ProvisionalDestinationInfo>}
-   */
-  grantExtensionPrinterAccess(provisionalDestinationId) {}
-
-  /**
-   * Requests that Chrome perform printer setup for the given printer.
-   * @param {string} printerId
-   * @return {!Promise<!PrinterSetupResponse>}
-   */
-  setupPrinter(printerId) {}
-  // </if>
-
   /**
    * Requests that a preview be generated. The following Web UI events may
    * be triggered in response:
@@ -225,10 +142,10 @@ export class NativeLayer {
   getPreview(printTicket) {}
 
   /**
-   * Opens the chrome://settings printing page. For Chrome OS, open the
-   * printing settings in the Settings App.
+   * Opens the OS's printer manager dialog. For Chrome OS, open the printing
+   * settings in the Settings App.
    */
-  openSettingsPrintPage() {}
+  managePrinters() {}
 
   /**
    * Requests that the document be printed.
@@ -271,25 +188,6 @@ export class NativeLayer {
    */
   signIn() {}
 
-  // <if expr="chromeos">
-  /**
-   * Sends a request to the printer with id |printerId| for its current status.
-   * @param {string} printerId
-   * @return {!Promise<!PrinterStatus>}
-   */
-  requestPrinterStatusUpdate(printerId) {}
-
-  /**
-   * Records the histogram to capture the printer status of the current
-   * destination and whether the user chose to print or cancel.
-   * @param {!PrinterStatusReason} statusReason Current destination printer
-   * status
-   * @param {boolean} didUserAttemptPrint True if user printed, false if user
-   * canceled.
-   */
-  recordPrinterStatusHistogram(statusReason, didUserAttemptPrint) {}
-  // </if>
-
   /**
    * Notifies the metrics handler to record a histogram value.
    * @param {string} histogram The name of the histogram to record
@@ -301,13 +199,6 @@ export class NativeLayer {
 
 /** @implements {NativeLayer} */
 export class NativeLayerImpl {
-  // <if expr="chromeos">
-  /** @override */
-  getAccessToken() {
-    return sendWithPromise('getAccessToken');
-  }
-  // </if>
-
   /** @override */
   getInitialSettings() {
     return sendWithPromise('getInitialSettings');
@@ -323,32 +214,14 @@ export class NativeLayerImpl {
     return sendWithPromise('getPrinterCapabilities', destinationId, type);
   }
 
-  // <if expr="chromeos">
-  /** @override */
-  getEulaUrl(destinationId) {
-    return sendWithPromise('getEulaUrl', destinationId);
-  }
-
-  /** @override */
-  grantExtensionPrinterAccess(provisionalDestinationId) {
-    return sendWithPromise(
-        'grantExtensionPrinterAccess', provisionalDestinationId);
-  }
-
-  /** @override */
-  setupPrinter(printerId) {
-    return sendWithPromise('setupPrinter', printerId);
-  }
-  // </if>
-
   /** @override */
   getPreview(printTicket) {
     return sendWithPromise('getPreview', printTicket);
   }
 
   /** @override */
-  openSettingsPrintPage() {
-    chrome.send('openPrinterSettings');
+  managePrinters() {
+    chrome.send('managePrinters');
   }
 
   /** @override */
@@ -390,33 +263,6 @@ export class NativeLayerImpl {
   signIn() {
     chrome.send('signIn');
   }
-
-  // <if expr="chromeos">
-  /** @override */
-  requestPrinterStatusUpdate(printerId) {
-    return sendWithPromise('requestPrinterStatus', printerId);
-  }
-
-  /** @override */
-  recordPrinterStatusHistogram(statusReason, didUserAttemptPrint) {
-    let histogram;
-    switch (statusReason) {
-      case (PrinterStatusReason.NO_ERROR):
-        histogram = 'PrintPreview.PrinterStatus.AttemptedPrintWithGoodStatus';
-        break;
-      case (PrinterStatusReason.UNKNOWN_REASON):
-        histogram =
-            'PrintPreview.PrinterStatus.AttemptedPrintWithUnknownStatus';
-        break;
-      default:
-        histogram = 'PrintPreview.PrinterStatus.AttemptedPrintWithErrorStatus';
-        break;
-    }
-    chrome.send(
-        'metricsHandler:recordBooleanHistogram',
-        [histogram, didUserAttemptPrint]);
-  }
-  // </if>
 
   /** @override */
   recordInHistogram(histogram, bucket, maxBucket) {

@@ -6,15 +6,13 @@
 
 #include <utility>
 
-#include "components/autofill/core/common/password_form.h"
 #include "components/autofill/core/common/save_password_progress_logger.h"
+#include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/password_form_manager.h"
 #include "components/password_manager/core/browser/password_form_manager_for_ui.h"
 #include "components/password_manager/core/browser/password_manager_client.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/browser/password_save_manager_impl.h"
-
-using autofill::PasswordForm;
 
 namespace password_manager {
 
@@ -84,8 +82,10 @@ void HttpAuthManagerImpl::Autofill(
 
 void HttpAuthManagerImpl::OnPasswordFormSubmitted(
     const PasswordForm& password_form) {
-  if (client_->IsSavingAndFillingEnabled(password_form.url))
+  if (client_->IsSavingAndFillingEnabled(password_form.url) &&
+      !password_form.password_value.empty()) {
     ProvisionallySaveForm(password_form);
+  }
 }
 
 void HttpAuthManagerImpl::OnPasswordFormDismissed() {

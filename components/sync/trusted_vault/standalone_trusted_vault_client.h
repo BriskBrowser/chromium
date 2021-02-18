@@ -12,11 +12,19 @@
 #include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/memory/weak_ptr.h"
+#include "base/observer_list.h"
+#include "base/sequence_checker.h"
 #include "base/sequenced_task_runner.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/sync/driver/trusted_vault_client.h"
+#include "components/sync/trusted_vault/trusted_vault_access_token_fetcher_frontend.h"
 
 struct CoreAccountInfo;
+
+namespace network {
+class SharedURLLoaderFactory;
+}  // namespace network
 
 namespace syncer {
 
@@ -30,8 +38,12 @@ class StandaloneTrustedVaultBackend;
 class StandaloneTrustedVaultClient : public TrustedVaultClient {
  public:
   // |identity_manager| must not be null and must outlive this object.
-  StandaloneTrustedVaultClient(const base::FilePath& file_path,
-                               signin::IdentityManager* identity_manager);
+  // |url_loader_factory| must not be null.
+  StandaloneTrustedVaultClient(
+      const base::FilePath& file_path,
+      signin::IdentityManager* identity_manager,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory);
+
   StandaloneTrustedVaultClient(const StandaloneTrustedVaultClient& other) =
       delete;
   StandaloneTrustedVaultClient& operator=(
@@ -39,8 +51,8 @@ class StandaloneTrustedVaultClient : public TrustedVaultClient {
   ~StandaloneTrustedVaultClient() override;
 
   // TrustedVaultClient implementation.
-  std::unique_ptr<Subscription> AddKeysChangedObserver(
-      const base::RepeatingClosure& cb) override;
+  void AddObserver(Observer* observer) override;
+  void RemoveObserver(Observer* observer) override;
   void FetchKeys(
       const CoreAccountInfo& account_info,
       base::OnceCallback<void(const std::vector<std::vector<uint8_t>>&)> cb)
@@ -53,36 +65,39 @@ class StandaloneTrustedVaultClient : public TrustedVaultClient {
                        base::OnceCallback<void(bool)> cb) override;
   void GetIsRecoverabilityDegraded(const CoreAccountInfo& account_info,
                                    base::OnceCallback<void(bool)> cb) override;
+  void AddTrustedRecoveryMethod(const std::string& gaia_id,
+                                const std::vector<uint8_t>& public_key,
+                                base::OnceClosure cb) override;
 
   // Runs |cb| when all requests have completed.
   void WaitForFlushForTesting(base::OnceClosure cb) const;
   void FetchBackendPrimaryAccountForTesting(
       base::OnceCallback<void(const base::Optional<CoreAccountInfo>&)> callback)
       const;
-  bool IsInitializationTriggeredForTesting() const;
   void SetRecoverabilityDegradedForTesting();
 
  private:
-  void TriggerLazyInitializationIfNeeded();
+  void NotifyRecoverabilityDegradedChanged();
 
-  // Never null and must outlive this object.
-  signin::IdentityManager* identity_manager_;
-
-  const base::FilePath file_path_;
   const scoped_refptr<base::SequencedTaskRunner> backend_task_runner_;
 
-  CallbackList observer_list_;
+  SEQUENCE_CHECKER(sequence_checker_);
 
-  // |backend_| constructed lazily in the UI thread, used in
-  // |backend_task_runner_| and destroyed (refcounted) on any thread.
+  base::ObserverList<Observer> observer_list_;
+
+  // Allows access token fetching for primary account on the ui thread. Passed
+  // as WeakPtr to TrustedVaultAccessTokenFetcherImpl.
+  TrustedVaultAccessTokenFetcherFrontend access_token_fetcher_frontend_;
+
+  // |backend_| constructed in the UI thread, used in |backend_task_runner_|
+  // and destroyed (refcounted) on any thread.
   scoped_refptr<StandaloneTrustedVaultBackend> backend_;
 
   // Observes changes of primary account and populates them into |backend_|.
-  // Created lazily together with |backend_| and holds reference to it and
-  // |backend_task_runner_|.
+  // Holds references to |backend_| and |backend_task_runner_|.
   std::unique_ptr<signin::IdentityManager::Observer> primary_account_observer_;
 
-  bool is_recoverability_degraded_for_testing_ = false;
+  base::WeakPtrFactory<StandaloneTrustedVaultClient> weak_ptr_factory_{this};
 };
 
 }  // namespace syncer

@@ -8,6 +8,8 @@
 #include <memory>
 #include <utility>
 
+#include "ash/constants/ash_features.h"
+#include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/ambient/ambient_ui_model.h"
 #include "ash/public/cpp/assistant/assistant_state.h"
 #include "ash/public/cpp/assistant/controller/assistant_alarm_timer_controller.h"
@@ -25,8 +27,6 @@
 #include "build/buildflag.h"
 #include "chromeos/assistant/buildflags.h"
 #include "chromeos/audio/cras_audio_handler.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/power_manager/power_supply_properties.pb.h"
 #include "chromeos/services/assistant/assistant_interaction_logger.h"
@@ -52,8 +52,6 @@
 #include "chromeos/assistant/internal/internal_constants.h"
 #include "chromeos/services/assistant/assistant_manager_service_impl.h"
 #include "chromeos/services/assistant/assistant_settings_impl.h"
-#include "chromeos/services/assistant/utils.h"
-#include "services/device/public/mojom/battery_monitor.mojom.h"
 #endif
 
 namespace chromeos {
@@ -67,7 +65,6 @@ using CommunicationErrorType = AssistantManagerService::CommunicationErrorType;
 constexpr char kScopeAuthGcm[] = "https://www.googleapis.com/auth/gcm";
 constexpr char kScopeAssistant[] =
     "https://www.googleapis.com/auth/assistant-sdk-prototype";
-constexpr char kScopeGeller[] = "https://www.googleapis.com/auth/webhistory";
 
 constexpr base::TimeDelta kMinTokenRefreshDelay =
     base::TimeDelta::FromMilliseconds(1000);
@@ -76,6 +73,9 @@ constexpr base::TimeDelta kMaxTokenRefreshDelay =
 
 // Testing override for the URI used to contact the s3 server.
 const char* g_s3_server_uri_override = nullptr;
+// Testing override for the device-id used by Libassistant to identify this
+// device.
+const char* g_device_id_override = nullptr;
 
 AssistantStatus ToAssistantStatus(AssistantManagerService::State state) {
   using State = AssistantManagerService::State;
@@ -94,6 +94,12 @@ AssistantStatus ToAssistantStatus(AssistantManagerService::State state) {
 base::Optional<std::string> GetS3ServerUriOverride() {
   if (g_s3_server_uri_override)
     return g_s3_server_uri_override;
+  return base::nullopt;
+}
+
+base::Optional<std::string> GetDeviceIdOverride() {
+  if (g_device_id_override)
+    return g_device_id_override;
   return base::nullopt;
 }
 #endif
@@ -207,10 +213,10 @@ class Service::Context : public ServiceContext {
 Service::Service(std::unique_ptr<network::PendingSharedURLLoaderFactory>
                      pending_url_loader_factory,
                  signin::IdentityManager* identity_manager)
-    : identity_manager_(identity_manager),
+    : context_(std::make_unique<Context>(this)),
+      identity_manager_(identity_manager),
       token_refresh_timer_(std::make_unique<base::OneShotTimer>()),
       main_task_runner_(base::SequencedTaskRunnerHandle::Get()),
-      context_(std::make_unique<Context>(this)),
       pending_url_loader_factory_(std::move(pending_url_loader_factory)) {
   DCHECK(identity_manager_);
   chromeos::PowerManagerClient* power_manager_client =
@@ -228,6 +234,11 @@ Service::~Service() {
 // static
 void Service::OverrideS3ServerUriForTesting(const char* uri) {
   g_s3_server_uri_override = uri;
+}
+
+// static
+void Service::OverrideDeviceIdForTesting(const char* device_id) {
+  g_device_id_override = device_id;
 }
 
 void Service::SetAssistantManagerServiceForTesting(
@@ -273,7 +284,7 @@ void Service::PowerChanged(const power_manager::PowerSupplyProperties& prop) {
   UpdateAssistantManagerState();
 }
 
-void Service::SuspendDone(const base::TimeDelta& sleep_duration) {
+void Service::SuspendDone(base::TimeDelta sleep_duration) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   // |token_refresh_timer_| may become stale during sleeping, so we immediately
   // request a new token to make sure it is fresh.
@@ -472,8 +483,6 @@ void Service::RequestAccessToken() {
   signin::ScopeSet scopes;
   scopes.insert(kScopeAssistant);
   scopes.insert(kScopeAuthGcm);
-  if (features::IsOnDeviceAssistantEnabled())
-    scopes.insert(kScopeGeller);
 
   access_token_fetcher_ = identity_manager_->CreateAccessTokenFetcherForAccount(
       account_info.account_id, "cros_assistant", scopes,
@@ -536,18 +545,14 @@ Service::CreateAndReturnAssistantManagerService() {
     return std::move(assistant_manager_service_for_testing_);
 
 #if BUILDFLAG(ENABLE_CROS_LIBASSISTANT)
-  mojo::PendingRemote<device::mojom::BatteryMonitor> battery_monitor;
-  AssistantClient::Get()->RequestBatteryMonitor(
-      battery_monitor.InitWithNewPipeAndPassReceiver());
-
-  auto delegate = std::make_unique<AssistantManagerServiceDelegateImpl>(
-      std::move(battery_monitor), context());
+  auto delegate =
+      std::make_unique<AssistantManagerServiceDelegateImpl>(context());
 
   // |assistant_manager_service_| is only created once.
   DCHECK(pending_url_loader_factory_);
   return std::make_unique<AssistantManagerServiceImpl>(
       context(), std::move(delegate), std::move(pending_url_loader_factory_),
-      GetS3ServerUriOverride());
+      GetS3ServerUriOverride(), GetDeviceIdOverride());
 #else
   return std::make_unique<FakeAssistantManagerServiceImpl>();
 #endif

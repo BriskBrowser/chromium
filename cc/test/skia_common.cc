@@ -59,7 +59,7 @@ void DrawDisplayList(unsigned char* buffer,
       SkImageInfo::MakeN32Premul(layer_rect.width(), layer_rect.height());
   SkBitmap bitmap;
   bitmap.installPixels(info, buffer, info.minRowBytes());
-  SkCanvas canvas(bitmap);
+  SkCanvas canvas(bitmap, SkSurfaceProps{});
   canvas.clipRect(gfx::RectToSkRect(layer_rect));
   list->Raster(&canvas);
 }
@@ -100,52 +100,43 @@ PaintImage CreatePaintWorkletPaintImage(
   return paint_image;
 }
 
-SkYUVASizeInfo GetYUVASizeInfo(const gfx::Size& image_size,
-                               YUVSubsampling format,
-                               uint8_t bytes_per_pixel,
-                               bool has_alpha) {
-  SkISize uv_size;
+SkYUVAPixmapInfo GetYUVAPixmapInfo(const gfx::Size& image_size,
+                                   YUVSubsampling format,
+                                   SkYUVAPixmapInfo::DataType yuv_data_type,
+                                   bool has_alpha) {
+  // TODO(skbug.com/10632): Update this when we have planar configs with alpha.
+  if (has_alpha) {
+    NOTREACHED();
+    return SkYUVAPixmapInfo();
+  }
+  SkYUVAInfo::Subsampling subsampling;
   switch (format) {
+    case YUVSubsampling::k410:
+      subsampling = SkYUVAInfo::Subsampling::k410;
+      break;
+    case YUVSubsampling::k411:
+      subsampling = SkYUVAInfo::Subsampling::k411;
+      break;
     case YUVSubsampling::k420:
-      // 4:2:0 has half sized width and height.
-      uv_size = SkISize::Make((image_size.width() + 1) / 2,
-                              (image_size.height() + 1) / 2);
+      subsampling = SkYUVAInfo::Subsampling::k420;
       break;
     case YUVSubsampling::k422:
-      // 4:2:2 has half sized width.
-      uv_size =
-          SkISize::Make((image_size.width() + 1) / 2, image_size.height());
+      subsampling = SkYUVAInfo::Subsampling::k422;
+      break;
+    case YUVSubsampling::k440:
+      subsampling = SkYUVAInfo::Subsampling::k440;
       break;
     case YUVSubsampling::k444:
-      // 4:4:4 has the same size for all planes.
-      uv_size = SkISize::Make(image_size.width(), image_size.height());
+      subsampling = SkYUVAInfo::Subsampling::k444;
       break;
     default:
       NOTREACHED();
-      return SkYUVASizeInfo();
+      return SkYUVAPixmapInfo();
   }
-  const size_t uv_width = base::checked_cast<size_t>(uv_size.width());
-  SkYUVASizeInfo yuva_size_info;
-  yuva_size_info.fSizes[SkYUVAIndex::kY_Index].set(image_size.width(),
-                                                   image_size.height());
-  yuva_size_info.fWidthBytes[SkYUVAIndex::kY_Index] =
-      base::checked_cast<size_t>(image_size.width()) * bytes_per_pixel;
-  yuva_size_info.fSizes[SkYUVAIndex::kU_Index] = uv_size;
-  yuva_size_info.fWidthBytes[SkYUVAIndex::kU_Index] =
-      uv_width * bytes_per_pixel;
-  yuva_size_info.fSizes[SkYUVAIndex::kV_Index] = uv_size;
-  yuva_size_info.fWidthBytes[SkYUVAIndex::kV_Index] =
-      uv_width * bytes_per_pixel;
-  if (has_alpha) {
-    yuva_size_info.fSizes[SkYUVAIndex::kA_Index].set(image_size.width(),
-                                                     image_size.height());
-    yuva_size_info.fWidthBytes[SkYUVAIndex::kA_Index] =
-        base::checked_cast<size_t>(image_size.width()) * bytes_per_pixel;
-  } else {
-    yuva_size_info.fSizes[SkYUVAIndex::kA_Index] = SkISize::MakeEmpty();
-    yuva_size_info.fWidthBytes[SkYUVAIndex::kA_Index] = 0u;
-  }
-  return yuva_size_info;
+  SkYUVAInfo yuva_info({image_size.width(), image_size.height()},
+                       SkYUVAInfo::PlaneConfig::kY_U_V, subsampling,
+                       kJPEG_Full_SkYUVColorSpace);
+  return SkYUVAPixmapInfo(yuva_info, yuv_data_type, /*row bytes*/ nullptr);
 }
 
 PaintImage CreateDiscardablePaintImage(
@@ -155,7 +146,7 @@ PaintImage CreateDiscardablePaintImage(
     PaintImage::Id id,
     SkColorType color_type,
     base::Optional<YUVSubsampling> yuv_format,
-    uint8_t yuv_bytes_per_pixel) {
+    SkYUVAPixmapInfo::DataType yuv_data_type) {
   if (!color_space)
     color_space = SkColorSpace::MakeSRGB();
   if (id == PaintImage::kInvalidId)
@@ -165,9 +156,10 @@ PaintImage CreateDiscardablePaintImage(
                                        kPremul_SkAlphaType, color_space);
   sk_sp<FakePaintImageGenerator> generator;
   if (yuv_format) {
+    SkYUVAPixmapInfo yuva_pixmap_info =
+        GetYUVAPixmapInfo(size, *yuv_format, yuv_data_type);
     generator = sk_make_sp<FakePaintImageGenerator>(
-        info, GetYUVASizeInfo(size, *yuv_format, yuv_bytes_per_pixel),
-        yuv_bytes_per_pixel * 8, std::vector<FrameMetadata>{FrameMetadata()},
+        info, yuva_pixmap_info, std::vector<FrameMetadata>{FrameMetadata()},
         allocate_encoded_data);
   } else {
     generator = sk_make_sp<FakePaintImageGenerator>(
@@ -194,7 +186,7 @@ DrawImage CreateDiscardableDrawImage(const gfx::Size& size,
   SkIRect irect;
   rect.roundOut(&irect);
 
-  return DrawImage(CreateDiscardablePaintImage(size, color_space), irect,
+  return DrawImage(CreateDiscardablePaintImage(size, color_space), false, irect,
                    filter_quality, matrix);
 }
 

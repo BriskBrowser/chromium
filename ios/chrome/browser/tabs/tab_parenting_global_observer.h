@@ -20,14 +20,14 @@ class WebState;
 // the TAB_PARENTED notification from all sources.
 class TabParentingGlobalObserver {
  public:
-  typedef base::Callback<void(web::WebState*)> OnTabParentedCallback;
+  using OnTabParentedCallback = base::RepeatingCallback<void(web::WebState*)>;
 
   // Returns the instance of TabParentingGlobalObserver.
   static TabParentingGlobalObserver* GetInstance();
 
   // Registers |cb| to be invoked when a tab is parented.
-  std::unique_ptr<base::CallbackList<void(web::WebState*)>::Subscription>
-  RegisterCallback(const OnTabParentedCallback& cb);
+  base::CallbackListSubscription RegisterCallback(
+      const OnTabParentedCallback& cb);
 
   // Called to notify all registered callbacks that |web_state| was parented.
   void OnTabParented(web::WebState* web_state);

@@ -639,6 +639,30 @@ TEST_F(PipelineImplTest, SetVolume) {
   base::RunLoop().RunUntilIdle();
 }
 
+TEST_F(PipelineImplTest, SetVolumeDuringStartup) {
+  CreateAudioStream();
+  SetDemuxerExpectations();
+
+  // The audio renderer should receive two calls to SetVolume().
+  float expected = 0.5f;
+  EXPECT_CALL(*renderer_, SetVolume(expected)).Times(2);
+  EXPECT_CALL(callbacks_, OnStart(PIPELINE_OK));
+  EXPECT_CALL(callbacks_, OnMetadata(_))
+      .WillOnce(RunOnceClosure(base::BindOnce(&PipelineImpl::SetVolume,
+                                              base::Unretained(pipeline_.get()),
+                                              expected)));
+  ExpectRendererInitialization();
+  EXPECT_CALL(*renderer_, SetPlaybackRate(0.0));
+  EXPECT_CALL(*renderer_, StartPlayingFrom(start_time_))
+      .WillOnce(SetBufferingState(&renderer_client_, BUFFERING_HAVE_ENOUGH,
+                                  BUFFERING_CHANGE_REASON_UNKNOWN));
+  EXPECT_CALL(callbacks_,
+              OnBufferingStateChange(BUFFERING_HAVE_ENOUGH,
+                                     BUFFERING_CHANGE_REASON_UNKNOWN));
+  StartPipeline();
+  base::RunLoop().RunUntilIdle();
+}
+
 TEST_F(PipelineImplTest, SetPreservesPitch) {
   CreateAudioStream();
   SetDemuxerExpectations();
@@ -700,14 +724,14 @@ TEST_F(PipelineImplTest, OnStatisticsUpdate) {
   StartPipelineAndExpect(PIPELINE_OK);
 
   PipelineStatistics stats;
-  stats.audio_decoder_info.decoder_name = "TestAudioDecoderName";
+  stats.audio_decoder_info.decoder_type = AudioDecoderType::kMojo;
   stats.audio_decoder_info.is_platform_decoder = false;
   EXPECT_CALL(callbacks_, OnAudioDecoderChange(_));
   renderer_client_->OnStatisticsUpdate(stats);
   base::RunLoop().RunUntilIdle();
 
   // VideoDecoderInfo changed and we expect OnVideoDecoderChange() to be called.
-  stats.video_decoder_info.decoder_name = "TestVideoDecoderName";
+  stats.video_decoder_info.decoder_type = VideoDecoderType::kMojo;
   stats.video_decoder_info.is_platform_decoder = true;
   EXPECT_CALL(callbacks_, OnVideoDecoderChange(_));
   renderer_client_->OnStatisticsUpdate(stats);
@@ -725,7 +749,7 @@ TEST_F(PipelineImplTest, OnStatisticsUpdate) {
   base::RunLoop().RunUntilIdle();
 
   // Both info changed.
-  stats.audio_decoder_info.decoder_name = "NewTestAudioDecoderName";
+  stats.audio_decoder_info.decoder_type = AudioDecoderType::kFFmpeg;
   stats.video_decoder_info.has_decrypting_demuxer_stream = true;
   EXPECT_CALL(callbacks_, OnAudioDecoderChange(_));
   EXPECT_CALL(callbacks_, OnVideoDecoderChange(_));

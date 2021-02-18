@@ -38,6 +38,12 @@ namespace apps {
 
 namespace {
 
+constexpr char kTestExtensionId[] = "behllobkkfkfnphdnhnkndlbkcpglgmj";
+
+// Lacros doesn't support launching with chrome already running. See the header
+// comment for InProcessBrowserTest::GetCommandLineForRelaunch().
+#if !BUILDFLAG(IS_CHROMEOS_LACROS)
+
 const char* kSwitchesToCopy[] = {
     sandbox::policy::switches::kNoSandbox,
     switches::kUserDataDir,
@@ -55,10 +61,6 @@ const char* kSwitchesToCopy[] = {
     switches::kEnableFeatures,
     switches::kDisableFeatures,
 };
-
-constexpr char kTestExtensionId[] = "behllobkkfkfnphdnhnkndlbkcpglgmj";
-
-}  // namespace
 
 // TODO(jackhou): Enable this test once it works on OSX. It currently does not
 // work for the same reason --app-id doesn't. See http://crbug.com/148465
@@ -99,7 +101,7 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
 }
 
 // TODO(jackhou): Enable this test once it works on OSX. It currently does not
-// work for the same reason --app-id doesn't. See http://crbug.com/148465
+// work for the same reason --app-id doesn't. See http://crbug.com/148465.
 #if defined(OS_MAC)
 #define MAYBE_LoadAndLaunchAppWithFile DISABLED_LoadAndLaunchAppWithFile
 #else
@@ -140,13 +142,19 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
   ASSERT_EQ(0, exit_code);
 }
 
-namespace {
+#endif  // !BUILDFLAG(IS_CHROMEOS_LACROS)
 
 // TestFixture that appends --load-and-launch-app with an app before calling
 // BrowserMain.
 class LoadAndLaunchPlatformAppBrowserTest : public PlatformAppBrowserTest {
+ public:
+  LoadAndLaunchPlatformAppBrowserTest(
+      const LoadAndLaunchPlatformAppBrowserTest&) = delete;
+  LoadAndLaunchPlatformAppBrowserTest& operator=(
+      const LoadAndLaunchPlatformAppBrowserTest&) = delete;
+
  protected:
-  LoadAndLaunchPlatformAppBrowserTest() {}
+  LoadAndLaunchPlatformAppBrowserTest() = default;
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     PlatformAppBrowserTest::SetUpCommandLine(command_line);
@@ -163,16 +171,19 @@ class LoadAndLaunchPlatformAppBrowserTest : public PlatformAppBrowserTest {
     // window.
     CreateBrowser(ProfileManager::GetActiveUserProfile());
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(LoadAndLaunchPlatformAppBrowserTest);
 };
 
 // TestFixture that appends --load-and-launch-app with an extension before
 // calling BrowserMain.
 class LoadAndLaunchExtensionBrowserTest : public PlatformAppBrowserTest {
+ public:
+  LoadAndLaunchExtensionBrowserTest(const LoadAndLaunchExtensionBrowserTest&) =
+      delete;
+  LoadAndLaunchExtensionBrowserTest& operator=(
+      const LoadAndLaunchExtensionBrowserTest&) = delete;
+
  protected:
-  LoadAndLaunchExtensionBrowserTest() {}
+  LoadAndLaunchExtensionBrowserTest() = default;
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     PlatformAppBrowserTest::SetUpCommandLine(command_line);
@@ -189,11 +200,7 @@ class LoadAndLaunchExtensionBrowserTest : public PlatformAppBrowserTest {
     // Skip showing the error message box to avoid freezing the main thread.
     chrome::internal::g_should_skip_message_box_for_test = true;
   }
-
-  DISALLOW_COPY_AND_ASSIGN(LoadAndLaunchExtensionBrowserTest);
 };
-
-}  // namespace
 
 // Case where Chrome is not running.
 IN_PROC_BROWSER_TEST_F(LoadAndLaunchPlatformAppBrowserTest,
@@ -230,4 +237,5 @@ IN_PROC_BROWSER_TEST_F(LoadAndLaunchExtensionBrowserTest,
                 kTestExtensionId, extensions::ExtensionRegistry::EVERYTHING));
 }
 
+}  // namespace
 }  // namespace apps

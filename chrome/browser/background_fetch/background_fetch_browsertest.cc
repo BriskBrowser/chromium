@@ -135,7 +135,8 @@ class WaitableDownloadLoggerObserver : public download::Logger::Observer {
 
 // Observes the offline item collection's content provider and then invokes the
 // associated test callbacks when one has been provided.
-class OfflineContentProviderObserver : public OfflineContentProvider::Observer {
+class OfflineContentProviderObserver final
+    : public OfflineContentProvider::Observer {
  public:
   using ItemsAddedCallback =
       base::OnceCallback<void(const std::vector<OfflineItem>&)>;
@@ -207,6 +208,7 @@ class OfflineContentProviderObserver : public OfflineContentProvider::Observer {
     DCHECK_GE(item.progress.value, latest_item_.progress.value);
     latest_item_ = item;
   }
+  void OnContentProviderGoingDown() override {}
 
   const OfflineItem& latest_item() const { return latest_item_; }
 
@@ -434,8 +436,8 @@ class BackgroundFetchBrowserTest : public InProcessBrowserTest {
         ContentSettingsPattern::FromURL(https_server_->base_url());
 
     settings_map->SetContentSettingCustomScope(
-        host_pattern, host_pattern, content_type,
-        std::string() /* resource_identifier */, setting);
+        host_pattern, ContentSettingsPattern::Wildcard(), content_type,
+        setting);
   }
 
   void DidUpdateItem(base::OnceClosure quit_closure,
@@ -600,7 +602,7 @@ IN_PROC_BROWSER_TEST_F(BackgroundFetchBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(
     BackgroundFetchBrowserTest,
-    OfflineItemCollection_VerifyResourceDownloadedWhenDownloadTotalLargerThanActualSize) {
+    DISABLED_OfflineItemCollection_VerifyResourceDownloadedWhenDownloadTotalLargerThanActualSize) {
   // Starts a Background Fetch for a single to-be-downloaded file and waits for
   // the fetch to be registered with the offline items collection.
   std::vector<OfflineItem> items;

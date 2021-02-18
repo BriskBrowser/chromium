@@ -21,13 +21,12 @@
 #import "chrome/updater/app/server/mac/server.h"
 #import "chrome/updater/app/server/mac/service_protocol.h"
 #import "chrome/updater/app/server/mac/update_service_wrappers.h"
-#include "chrome/updater/control_service.h"
 #include "chrome/updater/mac/setup/setup.h"
 #import "chrome/updater/mac/xpc_service_names.h"
 #include "chrome/updater/update_service.h"
-#include "chrome/updater/updater_version.h"
+#include "chrome/updater/update_service_internal.h"
 
-@interface CRUUpdateCheckServiceXPCImpl : NSObject <CRUUpdateChecking>
+@interface CRUUpdateServiceXPCImpl : NSObject <CRUUpdateServicing>
 
 - (instancetype)init NS_UNAVAILABLE;
 
@@ -41,7 +40,7 @@
 
 @end
 
-@implementation CRUUpdateCheckServiceXPCImpl {
+@implementation CRUUpdateServiceXPCImpl {
   updater::UpdateService* _service;
   scoped_refptr<updater::AppServerMac> _appServer;
   scoped_refptr<base::SequencedTaskRunner> _callbackRunner;
@@ -60,12 +59,31 @@
   return self;
 }
 
-#pragma mark CRUUpdateChecking
+#pragma mark CRUUpdateServicing
+- (void)getVersionWithReply:(void (^_Nonnull)(NSString* version))reply {
+  auto cb =
+      base::BindOnce(base::RetainBlock(^(const base::Version& updaterVersion) {
+        VLOG(0) << "GetVersion complete: version = "
+                << (updaterVersion.IsValid() ? updaterVersion.GetString() : "");
+        if (reply) {
+          reply(base::SysUTF8ToNSString(
+              updaterVersion.IsValid() ? updaterVersion.GetString() : nil));
+        }
+
+        _appServer->TaskCompleted();
+      }));
+
+  _appServer->TaskStarted();
+  _callbackRunner->PostTask(
+      FROM_HERE, base::BindOnce(&updater::UpdateService::GetVersion, _service,
+                                std::move(cb)));
+}
+
 - (void)checkForUpdatesWithUpdateState:(id<CRUUpdateStateObserving>)updateState
                                  reply:(void (^_Nonnull)(int rc))reply {
   auto cb =
       base::BindOnce(base::RetainBlock(^(updater::UpdateService::Result error) {
-        VLOG(0) << "UpdateAll complete: error = " << static_cast<int>(error);
+        VLOG(0) << "UpdateAll complete: error = " << error;
         if (reply)
           reply(static_cast<int>(error));
 
@@ -112,7 +130,7 @@
                           reply:(void (^_Nonnull)(int rc))reply {
   auto cb =
       base::BindOnce(base::RetainBlock(^(updater::UpdateService::Result error) {
-        VLOG(0) << "Update complete: error = " << static_cast<int>(error);
+        VLOG(0) << "Update complete: error = " << error;
         if (reply)
           reply(static_cast<int>(error));
 
@@ -187,31 +205,34 @@
 
 @end
 
-@interface CRUControlServiceXPCImpl : NSObject <CRUControlling>
+@interface CRUUpdateServiceInternalXPCImpl
+    : NSObject <CRUUpdateServicingInternal>
 
 - (instancetype)init NS_UNAVAILABLE;
 
 // Designated initializers.
 - (instancetype)
-    initWithControlService:(updater::ControlService*)service
-                 appServer:(scoped_refptr<updater::AppServerMac>)appServer
-            callbackRunner:
-                (scoped_refptr<base::SequencedTaskRunner>)callbackRunner
+    initWithUpdateServiceInternal:(updater::UpdateServiceInternal*)service
+                        appServer:
+                            (scoped_refptr<updater::AppServerMac>)appServer
+                   callbackRunner:
+                       (scoped_refptr<base::SequencedTaskRunner>)callbackRunner
     NS_DESIGNATED_INITIALIZER;
 
 @end
 
-@implementation CRUControlServiceXPCImpl {
-  updater::ControlService* _service;
+@implementation CRUUpdateServiceInternalXPCImpl {
+  updater::UpdateServiceInternal* _service;
   scoped_refptr<updater::AppServerMac> _appServer;
   scoped_refptr<base::SequencedTaskRunner> _callbackRunner;
 }
 
 - (instancetype)
-    initWithControlService:(updater::ControlService*)service
-                 appServer:(scoped_refptr<updater::AppServerMac>)appServer
-            callbackRunner:
-                (scoped_refptr<base::SequencedTaskRunner>)callbackRunner {
+    initWithUpdateServiceInternal:(updater::UpdateServiceInternal*)service
+                        appServer:
+                            (scoped_refptr<updater::AppServerMac>)appServer
+                   callbackRunner:(scoped_refptr<base::SequencedTaskRunner>)
+                                      callbackRunner {
   if (self = [super init]) {
     _service = service;
     _appServer = appServer;
@@ -220,10 +241,24 @@
   return self;
 }
 
-#pragma mark CRUControlling
-- (void)performControlTasksWithReply:(void (^)(void))reply {
+#pragma mark CRUUpdateServicingInternal
+- (void)performTasksWithReply:(void (^)(void))reply {
   auto cb = base::BindOnce(base::RetainBlock(^(void) {
-    VLOG(0) << "performControlTasks complete.";
+    VLOG(0) << "performTasks complete.";
+    if (reply)
+      reply();
+
+    _appServer->TaskCompleted();
+  }));
+
+  _appServer->TaskStarted();
+  _callbackRunner->PostTask(
+      FROM_HERE, base::BindOnce(&updater::UpdateServiceInternal::Run, _service,
+                                std::move(cb)));
+}
+
+- (void)performInitializeUpdateServiceWithReply:(void (^)(void))reply {
+  auto cb = base::BindOnce(base::RetainBlock(^(void) {
     if (reply)
       reply();
 
@@ -233,7 +268,8 @@
   _appServer->TaskStarted();
   _callbackRunner->PostTask(
       FROM_HERE,
-      base::BindOnce(&updater::ControlService::Run, _service, std::move(cb)));
+      base::BindOnce(&updater::UpdateServiceInternal::InitializeUpdateService,
+                     _service, std::move(cb)));
 }
 
 @end
@@ -260,10 +296,10 @@
   // Check to see if the other side of the connection is "okay";
   // if not, invalidate newConnection and return NO.
 
-  newConnection.exportedInterface = updater::GetXPCUpdateCheckingInterface();
+  newConnection.exportedInterface = updater::GetXPCUpdateServicingInterface();
 
-  base::scoped_nsobject<CRUUpdateCheckServiceXPCImpl> object(
-      [[CRUUpdateCheckServiceXPCImpl alloc]
+  base::scoped_nsobject<CRUUpdateServiceXPCImpl> object(
+      [[CRUUpdateServiceXPCImpl alloc]
           initWithUpdateService:_service.get()
                       appServer:_appServer
                  callbackRunner:_callbackRunner.get()]);
@@ -274,17 +310,20 @@
 
 @end
 
-@implementation CRUControlServiceXPCDelegate {
-  scoped_refptr<updater::ControlService> _service;
+@implementation CRUUpdateServiceInternalXPCDelegate {
+  scoped_refptr<updater::UpdateServiceInternal> _service;
   scoped_refptr<updater::AppServerMac> _appServer;
   scoped_refptr<base::SequencedTaskRunner> _callbackRunner;
 }
 
-- (instancetype)
-    initWithControlService:(scoped_refptr<updater::ControlService>)service
-                 appServer:(scoped_refptr<updater::AppServerMac>)appServer {
+- (instancetype)initWithUpdateServiceInternal:
+                    (scoped_refptr<updater::UpdateServiceInternal>)service
+                                    appServer:
+                                        (scoped_refptr<updater::AppServerMac>)
+                                            appServer {
   if (self = [super init]) {
     _service = service;
+    _appServer = appServer;
     _callbackRunner = base::SequencedTaskRunnerHandle::Get();
   }
   return self;
@@ -295,13 +334,14 @@
   // Check to see if the other side of the connection is "okay";
   // if not, invalidate newConnection and return NO.
 
-  newConnection.exportedInterface = updater::GetXPCControllingInterface();
+  newConnection.exportedInterface =
+      updater::GetXPCUpdateServicingInternalInterface();
 
-  base::scoped_nsobject<CRUControlServiceXPCImpl> object(
-      [[CRUControlServiceXPCImpl alloc]
-          initWithControlService:_service.get()
-                       appServer:_appServer
-                  callbackRunner:_callbackRunner.get()]);
+  base::scoped_nsobject<CRUUpdateServiceInternalXPCImpl> object(
+      [[CRUUpdateServiceInternalXPCImpl alloc]
+          initWithUpdateServiceInternal:_service.get()
+                              appServer:_appServer
+                         callbackRunner:_callbackRunner.get()]);
   newConnection.exportedObject = object.get();
   [newConnection resume];
   return YES;

@@ -109,7 +109,7 @@ MockFeedback = class {
    * to collect feedback.
    */
   install() {
-    assertFalse(this.replaying_);
+    assertFalse(this.replaying_, 'install: Should not already be replaying.');
 
     const MockTts = function() {};
     MockTts.prototype = {
@@ -160,7 +160,8 @@ MockFeedback = class {
    * @return {MockFeedback} |this| for chaining
    */
   expectSpeech() {
-    assertFalse(this.replaying_);
+    assertFalse(
+        this.replaying_, 'expectSpeech: Should not already be replaying.');
     Array.prototype.forEach.call(arguments, function(text) {
       this.pendingActions_.push({
         perform: function() {
@@ -232,7 +233,9 @@ MockFeedback = class {
    * @return {MockFeedback} |this| for chaining
    */
   expectSpeechWithProperties(expectedProps, ...rest) {
-    assertFalse(this.replaying_);
+    assertFalse(
+        this.replaying_,
+        'expectSpeechWithProperties: Should not already be replaying.');
     Array.prototype.forEach.call(rest, function(text) {
       this.pendingActions_.push({
         perform: function() {
@@ -261,11 +264,13 @@ MockFeedback = class {
    * @return {MockFeedback} |this| for chaining
    */
   expectNextSpeechUtteranceIsNot() {
-    assertFalse(this.replaying_);
+    assertFalse(
+        this.replaying_,
+        'expectNextSpeechUtteranceIsNot: Should not already be replaying.');
     Array.prototype.forEach.call(arguments, function(text) {
       this.pendingActions_.push({
         perform: function() {
-          if (this.pendingUtterances_.length == 0) {
+          if (this.pendingUtterances_.length === 0) {
             return false;
           }
           if (MockFeedback.matchAndConsume_(
@@ -290,7 +295,8 @@ MockFeedback = class {
    * @return {MockFeedback} |this| for chaining
    */
   expectBraille(text, opt_props) {
-    assertFalse(this.replaying_);
+    assertFalse(
+        this.replaying_, 'expectBraille: Should not already be replaying.');
     const props = opt_props || {};
     this.pendingActions_.push({
       perform: function() {
@@ -314,7 +320,8 @@ MockFeedback = class {
    * @return {MockFeedback} |this| for chaining
    */
   expectEarcon(earconName, opt_props) {
-    assertFalse(this.replaying_);
+    assertFalse(
+        this.replaying_, 'expectEarcon: Should not already be replaying.');
     this.pendingActions_.push({
       perform: function() {
         const match =
@@ -336,7 +343,7 @@ MockFeedback = class {
    * @return {MockFeedback} |this| for chaining
    */
   call(callback) {
-    assertFalse(this.replaying_);
+    assertFalse(this.replaying_, 'call: Should not already be replaying.');
     this.pendingActions_.push({
       perform() {
         callback();
@@ -371,11 +378,20 @@ MockFeedback = class {
    * When all expectations are satisfied and registered callbacks called,
    * the finish callbcak, if any, is called.
    * This function may only be called once.
+   * @return {!Promise} Mandatory to await on if used in async functions.
    */
   replay() {
-    assertFalse(this.replaying_);
+    assertFalse(this.replaying_, 'replay: Should not already be replaying.');
     this.replaying_ = true;
+
+    const promise = new Promise((resolve, reject) => {
+      this.resolve_ = resolve;
+      this.reject_ = reject;
+    });
+
     this.process_();
+
+    return promise;
   }
 
   /**
@@ -385,7 +401,8 @@ MockFeedback = class {
    * @type {NavBraille}
    */
   get lastMatchedBraille() {
-    assertTrue(this.replaying_);
+    assertTrue(
+        this.replaying_, 'Should already be replaying when getting braille.');
     return this.lastMatchedBraille_;
   }
 
@@ -443,11 +460,12 @@ MockFeedback = class {
           break;
         }
       }
-      if (this.pendingActions_.length == 0) {
+      if (this.pendingActions_.length === 0) {
         if (this.finishedCallback_) {
           this.finishedCallback_();
           this.finishedCallback_ = null;
         }
+        this.resolve_();
       } else {
         // If there are pending actions and no matching feedback for a few
         // seconds, log the pending state to ease debugging.
@@ -456,6 +474,9 @@ MockFeedback = class {
               window.setTimeout(this.logPendingState_.bind(this), 2000);
         }
       }
+    } catch (e) {
+      this.reject_(e);
+      throw e;
     } finally {
       this.inProcess_ = false;
     }
@@ -505,18 +526,18 @@ MockFeedback = class {
       let i, candidate;
       for (i = 0; candidate = pending[i]; ++i) {
         let candidateText = candidate.text;
-        if (typeof (candidateText) != 'string') {
+        if (typeof (candidateText) !== 'string') {
           candidateText = candidateText.toString();
         }
 
         if (text === candidateText ||
             (text instanceof RegExp && text.test(candidateText)) ||
-            (typeof (text) == 'function' && text(candidate))) {
+            (typeof (text) === 'function' && text(candidate))) {
           let matched = true;
           for (const prop in props) {
             if (candidate[prop] !== props[prop] &&
                 (!candidate.properties ||
-                 candidate.properties[prop] != props[prop])) {
+                 candidate.properties[prop] !== props[prop])) {
               matched = false;
               break;
             }

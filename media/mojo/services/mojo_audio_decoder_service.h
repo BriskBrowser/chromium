@@ -13,6 +13,7 @@
 #include "base/memory/weak_ptr.h"
 #include "media/base/audio_decoder.h"
 #include "media/base/cdm_context.h"
+#include "media/base/status.h"
 #include "media/mojo/mojom/audio_decoder.mojom.h"
 #include "media/mojo/services/media_mojo_export.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
@@ -23,7 +24,8 @@ namespace media {
 class MojoCdmServiceContext;
 class MojoDecoderBufferReader;
 
-class MEDIA_MOJO_EXPORT MojoAudioDecoderService : public mojom::AudioDecoder {
+class MEDIA_MOJO_EXPORT MojoAudioDecoderService final
+    : public mojom::AudioDecoder {
  public:
   MojoAudioDecoderService(MojoCdmServiceContext* mojo_cdm_service_context,
                           std::unique_ptr<media::AudioDecoder> decoder);
@@ -54,7 +56,7 @@ class MEDIA_MOJO_EXPORT MojoAudioDecoderService : public mojom::AudioDecoder {
   void OnReaderFlushDone(ResetCallback callback);
 
   // Called by |decoder_| when DecoderBuffer is accepted or rejected.
-  void OnDecodeStatus(DecodeCallback callback, media::DecodeStatus status);
+  void OnDecodeStatus(DecodeCallback callback, media::Status status);
 
   // Called by |decoder_| when reset sequence is finished.
   void OnResetDone(ResetCallback callback);

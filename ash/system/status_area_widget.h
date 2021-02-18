@@ -19,21 +19,22 @@ class Window;
 }
 
 namespace ash {
+class DictationButtonTray;
 class HoldingSpaceTray;
 class ImeMenuTray;
 class LogoutButtonTray;
-class StatusAreaOverflowButtonTray;
+class MediaTray;
 class OverviewButtonTray;
-class DictationButtonTray;
 class PaletteTray;
+class PhoneHubTray;
 class SelectToSpeakTray;
 class Shelf;
+class StatusAreaOverflowButtonTray;
 class StatusAreaWidgetDelegate;
 class StopRecordingButtonTray;
-class UnifiedSystemTray;
 class TrayBackgroundView;
+class UnifiedSystemTray;
 class VirtualKeyboardTray;
-class MediaTray;
 
 // Widget showing the system tray, notification tray, and other tray views in
 // the bottom-right of the screen. Exists separately from ShelfView/ShelfWidget
@@ -101,6 +102,9 @@ class ASH_EXPORT StatusAreaWidget : public SessionObserver,
   // |overview_button_tray_|.
   TrayBackgroundView* GetSystemTrayAnchor() const;
 
+  // Called by media tray to calculate anchor rect.
+  gfx::Rect GetMediaTrayAnchorRect() const;
+
   StatusAreaWidgetDelegate* status_area_widget_delegate() {
     return status_area_widget_delegate_;
   }
@@ -110,6 +114,7 @@ class ASH_EXPORT StatusAreaWidget : public SessionObserver,
   DictationButtonTray* dictation_button_tray() {
     return dictation_button_tray_.get();
   }
+  MediaTray* media_tray() { return media_tray_.get(); }
   StatusAreaOverflowButtonTray* overflow_button_tray() {
     return overflow_button_tray_.get();
   }
@@ -122,12 +127,17 @@ class ASH_EXPORT StatusAreaWidget : public SessionObserver,
   }
   ImeMenuTray* ime_menu_tray() { return ime_menu_tray_.get(); }
   HoldingSpaceTray* holding_space_tray() { return holding_space_tray_.get(); }
+  PhoneHubTray* phone_hub_tray() { return phone_hub_tray_.get(); }
 
   SelectToSpeakTray* select_to_speak_tray() {
     return select_to_speak_tray_.get();
   }
 
   Shelf* shelf() { return shelf_; }
+
+  const std::vector<TrayBackgroundView*>& tray_buttons() const {
+    return tray_buttons_;
+  }
 
   LoginStatus login_status() const { return login_status_; }
 
@@ -144,7 +154,6 @@ class ASH_EXPORT StatusAreaWidget : public SessionObserver,
   void SchedulePaint();
 
   // Overridden from views::Widget:
-  const ui::NativeTheme* GetNativeTheme() const override;
   bool OnNativeWidgetActivationChanged(bool active) override;
 
   // TODO(jamescook): Introduce a test API instead of these methods.
@@ -161,6 +170,8 @@ class ASH_EXPORT StatusAreaWidget : public SessionObserver,
   }
 
  private:
+  friend class MediaTrayTest;
+
   struct LayoutInputs {
     gfx::Rect bounds;
     CollapseState collapse_state = CollapseState::NOT_COLLAPSIBLE;
@@ -197,9 +208,6 @@ class ASH_EXPORT StatusAreaWidget : public SessionObserver,
   // Adds a new tray button to the status area.
   void AddTrayButton(TrayBackgroundView* tray_button);
 
-  // Update the colors used for the tray buttons.
-  void UpdateAfterColorModeChange();
-
   // Called when in the collapsed state to calculate and update the visibility
   // of each tray button.
   void CalculateButtonVisibilityForCollapsedState();
@@ -217,6 +225,7 @@ class ASH_EXPORT StatusAreaWidget : public SessionObserver,
   std::unique_ptr<UnifiedSystemTray> unified_system_tray_;
   std::unique_ptr<LogoutButtonTray> logout_button_tray_;
   std::unique_ptr<PaletteTray> palette_tray_;
+  std::unique_ptr<PhoneHubTray> phone_hub_tray_;
   std::unique_ptr<StopRecordingButtonTray> stop_recording_button_tray_;
   std::unique_ptr<VirtualKeyboardTray> virtual_keyboard_tray_;
   std::unique_ptr<ImeMenuTray> ime_menu_tray_;

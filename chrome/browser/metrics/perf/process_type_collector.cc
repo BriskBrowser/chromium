@@ -9,7 +9,6 @@
 #include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
 #include "content/public/common/content_switches.h"
-#include "services/service_manager/embedder/switches.h"
 #include "third_party/re2/src/re2/re2.h"
 
 namespace metrics {
@@ -102,12 +101,10 @@ std::map<uint32_t, Process> ProcessTypeCollector::ParseProcessTypes(
       process = Process::GPU_PROCESS;
     } else if (type == switches::kUtilityProcess) {
       process = Process::UTILITY_PROCESS;
-    } else if (type == service_manager::switches::kZygoteProcess) {
+    } else if (type == switches::kZygoteProcess) {
       process = Process::ZYGOTE_PROCESS;
     } else if (type == switches::kPpapiPluginProcess) {
       process = Process::PPAPI_PLUGIN_PROCESS;
-    } else if (type == switches::kPpapiBrokerProcess) {
-      process = Process::PPAPI_BROKER_PROCESS;
     }
 
     process_types.emplace(pid, process);
@@ -180,6 +177,18 @@ std::map<uint32_t, Thread> ProcessTypeCollector::ParseThreadTypes(
     } else if (base::StartsWith(cmd, "GpuMemory",
                                 base::CompareCase::SENSITIVE)) {
       thread = Thread::GPU_MEMORY_THREAD;
+    } else if (cmd == "MemoryInfra") {
+      thread = Thread::MEMORY_INFRA_THREAD;
+    } else if (cmd == "Media") {
+      thread = Thread::MEDIA_THREAD;
+    } else if (base::StartsWith(cmd, "DedicatedWorker",
+                                base::CompareCase::SENSITIVE)) {
+      thread = Thread::DEDICATED_WORKER_THREAD;
+    } else if (base::StartsWith(cmd, "ServiceWorker",
+                                base::CompareCase::SENSITIVE)) {
+      thread = Thread::SERVICE_WORKER_THREAD;
+    } else if (base::StartsWith(cmd, "WebRTC", base::CompareCase::SENSITIVE)) {
+      thread = Thread::WEBRTC_THREAD;
     }
 
     thread_types.emplace(tid, thread);

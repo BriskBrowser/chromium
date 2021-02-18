@@ -21,10 +21,13 @@ static_library("weblayer_shell_lib") {
     "app/shell_main_params.h",
     "browser/shell.cc",
     "browser/shell.h",
-    "browser/shell_android.cc",
     "common/shell_switches.cc",
     "common/shell_switches.h",
   ]
+
+  if (is_android) {
+    sources += [ "browser/shell_android.cc" ]
+  }
 
   configs += [
     "//build/config:precompiled_headers",
@@ -154,7 +157,6 @@ repack("support_pak") {
     "$root_gen_dir/components/strings/components_locale_settings_en-US.pak",
     "$root_gen_dir/components/strings/components_strings_en-US.pak",
     "$root_gen_dir/content/app/resources/content_resources_100_percent.pak",
-    "$root_gen_dir/content/browser/tracing/tracing_resources.pak",
     "$root_gen_dir/content/content_resources.pak",
     "$root_gen_dir/content/dev_ui_content_resources.pak",
     "$root_gen_dir/mojo/public/js/mojo_bindings_resources.pak",
@@ -163,6 +165,7 @@ repack("support_pak") {
     "$root_gen_dir/third_party/blink/public/resources/blink_scaled_resources_100_percent.pak",
     "$root_gen_dir/third_party/blink/public/strings/blink_strings_en-US.pak",
     "$root_gen_dir/ui/resources/ui_resources_100_percent.pak",
+    "$root_gen_dir/ui/resources/webui_generated_resources.pak",
     "$root_gen_dir/ui/resources/webui_resources.pak",
     "$root_gen_dir/ui/strings/app_locale_settings_en-US.pak",
     "$root_gen_dir/ui/strings/ui_strings_en-US.pak",
@@ -175,7 +178,6 @@ repack("support_pak") {
     "//content:content_resources",
     "//content:dev_ui_content_resources",
     "//content/app/resources",
-    "//content/browser/tracing:resources",
     "//mojo/public/js:resources",
     "//net:net_resources",
     "//third_party/blink/public:resources",
@@ -193,6 +195,9 @@ repack("support_pak") {
   }
   if (is_android) {
     deps += [ "//ui/android:ui_java_resources" ]
+  } else {
+    deps += [ "//content/browser/tracing:resources" ]
+    sources += [ "$root_gen_dir/content/browser/tracing/tracing_resources.pak" ]
   }
   output = "$root_out_dir/weblayer_support.pak"
 }

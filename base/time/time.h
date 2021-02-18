@@ -64,6 +64,7 @@
 #include "base/optional.h"
 #include "base/strings/string_piece.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 
 #if defined(OS_FUCHSIA)
 #include <zircon/types.h>
@@ -235,8 +236,8 @@ class BASE_EXPORT TimeDelta {
   int InDaysFloored() const;
   constexpr int InHours() const;
   constexpr int InMinutes() const;
-  double InSecondsF() const;
-  int64_t InSeconds() const;
+  constexpr double InSecondsF() const;
+  constexpr int64_t InSeconds() const;
   double InMillisecondsF() const;
   int64_t InMilliseconds() const;
   int64_t InMillisecondsRoundedUp() const;
@@ -295,7 +296,8 @@ class BASE_EXPORT TimeDelta {
     // (they are almost certainly not intentional, and result in NaN, which
     // turns into 0 if clamped to an integer; this makes introducing subtle bugs
     // too easy).
-    CHECK((!is_zero() || !a.is_zero()) && (!is_inf() || !a.is_inf()));
+    CHECK(!is_zero() || !a.is_zero());
+    CHECK(!is_inf() || !a.is_inf());
 
     return ToDouble() / a.ToDouble();
   }
@@ -305,7 +307,8 @@ class BASE_EXPORT TimeDelta {
 
     // For consistency, use the same edge case CHECKs and behavior as the code
     // above.
-    CHECK((!is_zero() || !a.is_zero()) && (!is_inf() || !a.is_inf()));
+    CHECK(!is_zero() || !a.is_zero());
+    CHECK(!is_inf() || !a.is_inf());
     return ((delta_ < 0) == (a.delta_ < 0))
                ? std::numeric_limits<int64_t>::max()
                : std::numeric_limits<int64_t>::min();
@@ -910,6 +913,17 @@ constexpr int TimeDelta::InMinutes() const {
   return saturated_cast<int>(delta_ / Time::kMicrosecondsPerMinute);
 }
 
+constexpr double TimeDelta::InSecondsF() const {
+  if (!is_inf())
+    return static_cast<double>(delta_) / Time::kMicrosecondsPerSecond;
+  return (delta_ < 0) ? -std::numeric_limits<double>::infinity()
+                      : std::numeric_limits<double>::infinity();
+}
+
+constexpr int64_t TimeDelta::InSeconds() const {
+  return is_inf() ? delta_ : (delta_ / Time::kMicrosecondsPerSecond);
+}
+
 constexpr int64_t TimeDelta::InNanoseconds() const {
   return base::ClampMul(delta_, Time::kNanosecondsPerMicrosecond);
 }
@@ -980,7 +994,7 @@ class BASE_EXPORT TimeTicks : public time_internal::TimeBase<TimeTicks> {
   static TimeTicks FromMachAbsoluteTime(uint64_t mach_absolute_time);
 #endif  // defined(OS_MAC)
 
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
+#if defined(OS_ANDROID) || BUILDFLAG(IS_CHROMEOS_ASH)
   // Converts to TimeTicks the value obtained from SystemClock.uptimeMillis().
   // Note: this convertion may be non-monotonic in relation to previously
   // obtained TimeTicks::Now() values because of the truncation (to

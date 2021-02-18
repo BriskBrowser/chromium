@@ -6,9 +6,9 @@
 
 #include <memory>
 
+#import "base/mac/foundation_util.h"
 #import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_controller.h"
-#import "ios/chrome/browser/ui/fullscreen/fullscreen_features.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_ui_updater.h"
 #import "ios/chrome/browser/ui/toolbar_container/toolbar_container_view_controller.h"
 #import "ios/chrome/browser/ui/toolbar_container/toolbar_height_range.h"
@@ -87,15 +87,9 @@
   self.containerViewController.collapsesSafeArea = !isPrimary;
   [self startToolbarCoordinators];
   // Start observing fullscreen events.
-  if (fullscreen::features::ShouldScopeFullscreenControllerToBrowser()) {
     _fullscreenUIUpdater = std::make_unique<FullscreenUIUpdater>(
         FullscreenController::FromBrowser(self.browser),
         self.containerViewController);
-  } else {
-    _fullscreenUIUpdater = std::make_unique<FullscreenUIUpdater>(
-        FullscreenController::FromBrowserState(self.browser->GetBrowserState()),
-        self.containerViewController);
-  }
   self.started = YES;
 }
 
@@ -120,8 +114,16 @@
       [[NSMutableArray alloc] init];
   for (ChromeCoordinator* coordinator in _toolbarCoordinators) {
     if ([coordinator respondsToSelector:@selector(viewController)]) {
+      // Since the selector is defined in a sub-class, the compiler does not
+      // accept calling it on `coordinator` directly. It is possible to call
+      // any defined selector on a object of type `id`. Though in that case,
+      // the compiler does not know which selector to call and the return
+      // type may be incorrect if the selector is overloaded. Add a checked
+      // cast to ensure at runtime that the returned type is correct.
       id toolbarCoordinator = coordinator;
-      [toolbarViewControllers addObject:[toolbarCoordinator viewController]];
+      [toolbarViewControllers
+          addObject:base::mac::ObjCCastStrict<UIViewController>(
+                        [toolbarCoordinator viewController])];
     }
   }
   return toolbarViewControllers;

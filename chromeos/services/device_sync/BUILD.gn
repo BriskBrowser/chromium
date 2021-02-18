@@ -154,11 +154,11 @@ static_library("device_sync") {
   ]
 
   deps = [
+    "//ash/constants",
     "//base",
     "//base/util/values:values_util",
     "//chromeos/components/multidevice",
     "//chromeos/components/multidevice/logging",
-    "//chromeos/constants",
     "//chromeos/network",
     "//chromeos/services/device_sync/proto:util",
     "//chromeos/services/device_sync/public/cpp",
@@ -174,6 +174,7 @@ static_library("device_sync") {
     ":*",
     "//chrome/browser/chromeos",
     "//chrome/test:test_support_ui",
+    "//chromeos/services/device_sync/public/cpp:prefs",
     "//chromeos/services/device_sync/public/cpp:unit_tests",
   ]
 }
@@ -247,6 +248,19 @@ static_library("test_support") {
   ]
 }
 
+source_set("stub_device_sync") {
+  sources = [
+    "stub_device_sync.cc",
+    "stub_device_sync.h",
+  ]
+
+  deps = [
+    ":device_sync",
+    "//base",
+    "//chromeos/components/multidevice:stub_multidevice_util",
+  ]
+}
+
 source_set("unit_tests") {
   testonly = true
 
@@ -290,16 +304,17 @@ source_set("unit_tests") {
     ":device_sync",
     ":feature_status_change",
     ":test_support",
+    "//ash/constants",
     "//base",
     "//base/test:test_support",
     "//chromeos/components/multidevice",
     "//chromeos/components/multidevice:test_support",
-    "//chromeos/constants",
     "//chromeos/dbus:test_support",
     "//chromeos/network",
     "//chromeos/network:test_support",
     "//chromeos/services/device_sync/proto:test_support",
     "//chromeos/services/device_sync/proto:util",
+    "//chromeos/services/device_sync/public/cpp:prefs",
     "//chromeos/services/device_sync/public/cpp:test_support",
     "//chromeos/services/device_sync/public/cpp:unit_tests",
     "//chromeos/services/device_sync/public/mojom",

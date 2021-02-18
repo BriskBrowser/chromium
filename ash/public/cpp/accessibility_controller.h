@@ -7,6 +7,8 @@
 
 #include <vector>
 
+#include "ash/public/cpp/accelerators.h"
+#include "ash/public/cpp/accessibility_controller_enums.h"
 #include "ash/public/cpp/ash_public_export.h"
 #include "base/macros.h"
 #include "base/strings/string16.h"
@@ -65,6 +67,19 @@ class ASH_PUBLIC_EXPORT AccessibilityController {
   virtual void SetSelectToSpeakEventHandlerDelegate(
       SelectToSpeakEventHandlerDelegate* delegate) = 0;
 
+  // Displays the Select-to-Speak panel.
+  virtual void ShowSelectToSpeakPanel(const gfx::Rect& anchor,
+                                      bool is_paused,
+                                      double speech_rate) = 0;
+
+  // Hides the Select-to-Speak panel.
+  virtual void HideSelectToSpeakPanel() = 0;
+
+  // Dispatches event to notify Select-to-speak that a panel action occurred,
+  // with an optional value.
+  virtual void OnSelectToSpeakPanelAction(SelectToSpeakPanelAction action,
+                                          double value) = 0;
+
   // Hides the Switch Access back button.
   virtual void HideSwitchAccessBackButton() = 0;
 
@@ -79,6 +94,12 @@ class ASH_PUBLIC_EXPORT AccessibilityController {
       const gfx::Rect& bounds,
       std::vector<std::string> actions_to_show) = 0;
 
+  // Starts point scanning in Switch Access.
+  virtual void StartPointScan() = 0;
+
+  // Stops point scanning in Switch Access.
+  virtual void StopPointScan() = 0;
+
   // Set whether dictation is active.
   virtual void SetDictationActive(bool is_active) = 0;
 
@@ -86,7 +107,7 @@ class ASH_PUBLIC_EXPORT AccessibilityController {
   virtual void ToggleDictationFromSource(DictationToggleSource source) = 0;
 
   // Called when the Automatic Clicks extension finds scrollable bounds.
-  virtual void OnAutoclickScrollableBoundsFound(
+  virtual void HandleAutoclickScrollableBoundsFound(
       gfx::Rect& bounds_in_screen) = 0;
 
   // Retrieves a string description of the current battery status.
@@ -94,6 +115,10 @@ class ASH_PUBLIC_EXPORT AccessibilityController {
 
   // Shows or hides the virtual keyboard.
   virtual void SetVirtualKeyboardVisible(bool is_visible) = 0;
+
+  // Performs the given accelerator action.
+  virtual void PerformAcceleratorAction(
+      AcceleratorAction accelerator_action) = 0;
 
   // Notify observers that the accessibility status has changed. This is part of
   // the public interface because a11y features like screen magnifier are
@@ -115,6 +140,12 @@ class ASH_PUBLIC_EXPORT AccessibilityController {
 
   // Shows floating accessibility menu if it was enabled by policy.
   virtual void ShowFloatingMenuIfEnabled() {}
+
+  // Suspends (or resumes) key handling for Switch Access.
+  virtual void SuspendSwitchAccessKeyHandling(bool suspend) {}
+
+  // Enables ChromeVox's volume slide gesture.
+  virtual void EnableChromeVoxVolumeSlideGesture() {}
 
  protected:
   AccessibilityController();

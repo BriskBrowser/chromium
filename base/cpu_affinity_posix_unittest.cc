@@ -6,6 +6,8 @@
 
 #include <sched.h>
 
+#include <string>
+
 #include "base/synchronization/waitable_event.h"
 #include "base/system/sys_info.h"
 #include "base/threading/platform_thread.h"
@@ -24,6 +26,8 @@ class TestThread : public PlatformThread::Delegate {
                            WaitableEvent::InitialState::NOT_SIGNALED),
         terminate_thread_(WaitableEvent::ResetPolicy::MANUAL,
                           WaitableEvent::InitialState::NOT_SIGNALED) {}
+  TestThread(const TestThread&) = delete;
+  TestThread& operator=(const TestThread&) = delete;
   ~TestThread() override {
     EXPECT_TRUE(terminate_thread_.IsSignaled())
         << "Need to mark thread for termination and join the underlying thread "
@@ -66,15 +70,12 @@ class TestThread : public PlatformThread::Delegate {
   mutable WaitableEvent termination_ready_;
   WaitableEvent terminate_thread_;
   bool done_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(TestThread);
 };
 
 }  // namespace
 
 #if defined(OS_ANDROID)
-// Flaky on Android. crbug.com/1113964
-#define MAYBE_SetThreadCpuAffinityMode DISABLED_SetThreadCpuAffinityMode
+#define MAYBE_SetThreadCpuAffinityMode SetThreadCpuAffinityMode
 #else
 // The test only considers Android device hardware models at the moment. Some
 // CrOS devices on the waterfall have asymmetric CPUs that aren't covered. The
@@ -100,6 +101,11 @@ TEST(CpuAffinityTest, MAYBE_SetThreadCpuAffinityMode) {
   } else if (device_model == "Pixel 3a" || device_model == "Pixel 3a XL") {
     expected_little_cores = 6;
     EXPECT_LT(expected_little_cores, expected_total_cores);
+  } else if (device_model == "Nexus 5" || device_model == "Nexus 7") {
+    // On our Nexus 5 and Nexus 7 bots, something else in the system seems to
+    // set affinity for the test process, making these tests flaky
+    // (crbug.com/1113964).
+    return;
   }
 
   TestThread thread;

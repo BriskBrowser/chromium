@@ -11,7 +11,9 @@
 
 #include "base/android/jni_android.h"
 #include "base/optional.h"
+#include "components/autofill_assistant/browser/bottom_sheet_state.h"
 #include "components/autofill_assistant/browser/service.pb.h"
+#include "components/autofill_assistant/browser/trigger_context.h"
 #include "components/autofill_assistant/browser/user_model.h"
 #include "components/autofill_assistant/browser/view_layout.pb.h"
 #include "url/gurl.h"
@@ -79,6 +81,42 @@ void ShowJavaInfoPopup(JNIEnv* env,
 std::string SafeConvertJavaStringToNative(
     JNIEnv* env,
     const base::android::JavaParamRef<jstring>& jstring);
+
+// Creates a BottomSheetState from the Android SheetState enum defined in
+// components/browser_ui/bottomsheet/BottomSheetController.java.
+BottomSheetState ToNativeBottomSheetState(int state);
+
+// Converts a BottomSheetState to the Android SheetState enum.
+int ToJavaBottomSheetState(BottomSheetState state);
+
+// Returns an instance of |AssistantChip| or nullptr if the chip type is
+// invalid.
+base::android::ScopedJavaLocalRef<jobject> CreateJavaAssistantChip(
+    JNIEnv* env,
+    const ChipProto& chip);
+
+// Returns a list of |AssistantChip| instances or nullptr if any of the chips
+// in |chips| has an invalid type.
+base::android::ScopedJavaLocalRef<jobject> CreateJavaAssistantChipList(
+    JNIEnv* env,
+    const std::vector<ChipProto>& chips);
+
+// Creates a std::map from an incoming set of Java string keys and values.
+std::map<std::string, std::string> CreateStringMapFromJava(
+    JNIEnv* env,
+    const base::android::JavaRef<jobjectArray>& keys,
+    const base::android::JavaRef<jobjectArray>& values);
+
+// Creates a C++ trigger context for the specified java inputs.
+std::unique_ptr<TriggerContext> CreateTriggerContext(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jstring>& jexperiment_ids,
+    const base::android::JavaParamRef<jobjectArray>& jparameter_names,
+    const base::android::JavaParamRef<jobjectArray>& jparameter_values,
+    jboolean is_cct,
+    jboolean onboarding_shown,
+    jboolean is_direct_action,
+    const base::android::JavaParamRef<jstring>& jcaller_account_hash);
 
 }  // namespace ui_controller_android_utils
 }  //  namespace autofill_assistant

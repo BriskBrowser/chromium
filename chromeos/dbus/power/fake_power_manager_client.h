@@ -79,6 +79,10 @@ class COMPONENT_EXPORT(DBUS_POWER) FakePowerManagerClient
   void set_user_activity_callback(base::RepeatingClosure callback) {
     user_activity_callback_ = std::move(callback);
   }
+  void set_peripheral_battery_refresh_level(const std::string& address,
+                                            int level) {
+    peripheral_battery_refresh_levels_[address] = level;
+  }
 
   // PowerManagerClient overrides:
   void AddObserver(Observer* observer) override;
@@ -98,6 +102,7 @@ class COMPONENT_EXPORT(DBUS_POWER) FakePowerManagerClient
   const base::Optional<power_manager::PowerSupplyProperties>& GetLastStatus()
       override;
   void RequestStatusUpdate() override;
+  void RequestThermalState() override;
   void RequestSuspend() override;
   void RequestRestart(power_manager::RequestRestartReason reason,
                       const std::string& description) override;
@@ -129,6 +134,7 @@ class COMPONENT_EXPORT(DBUS_POWER) FakePowerManagerClient
   void DeleteArcTimers(const std::string& tag,
                        VoidDBusMethodCallback callback) override;
   base::TimeDelta GetDarkSuspendDelayTimeout() override;
+  void RefreshBluetoothBattery(const std::string& address) override;
 
   // Pops the first report from |video_activity_reports_|, returning whether the
   // activity was fullscreen or not. There must be at least one report.
@@ -308,6 +314,9 @@ class COMPONENT_EXPORT(DBUS_POWER) FakePowerManagerClient
   // If set then |StartArcTimer| returns failure.
   bool simulate_start_arc_timer_failure_ = false;
 
+  // Used in RefreshBluetoothBattery.
+  base::flat_map<std::string, int> peripheral_battery_refresh_levels_;
+
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate its weak pointers before any other members are destroyed.
   base::WeakPtrFactory<FakePowerManagerClient> weak_ptr_factory_{this};
@@ -316,5 +325,10 @@ class COMPONENT_EXPORT(DBUS_POWER) FakePowerManagerClient
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove when moved to ash.
+namespace ash {
+using ::chromeos::FakePowerManagerClient;
+}
 
 #endif  // CHROMEOS_DBUS_POWER_FAKE_POWER_MANAGER_CLIENT_H_

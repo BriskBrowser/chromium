@@ -17,6 +17,7 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "printing/mojom/print.mojom.h"
 #include "printing/print_job_constants.h"
 #include "printing/print_settings.h"
@@ -96,12 +97,13 @@ PageRanges GetPageRangesFromJobSettings(const base::Value& job_settings) {
   return page_ranges;
 }
 
-bool PrintSettingsFromJobSettings(const base::Value& job_settings,
-                                  PrintSettings* settings) {
+std::unique_ptr<PrintSettings> PrintSettingsFromJobSettings(
+    const base::Value& job_settings) {
+  auto settings = std::make_unique<PrintSettings>();
   base::Optional<bool> display_header_footer =
       job_settings.FindBoolKey(kSettingHeaderFooterEnabled);
   if (!display_header_footer.has_value())
-    return false;
+    return nullptr;
 
   settings->set_display_header_footer(display_header_footer.value());
   if (settings->display_header_footer()) {
@@ -110,7 +112,7 @@ bool PrintSettingsFromJobSettings(const base::Value& job_settings,
     const std::string* url =
         job_settings.FindStringKey(kSettingHeaderFooterURL);
     if (!title || !url)
-      return false;
+      return nullptr;
 
     settings->set_title(base::UTF8ToUTF16(*title));
     settings->set_url(base::UTF8ToUTF16(*url));
@@ -121,7 +123,7 @@ bool PrintSettingsFromJobSettings(const base::Value& job_settings,
   base::Optional<bool> selection_only =
       job_settings.FindBoolKey(kSettingShouldPrintSelectionOnly);
   if (!backgrounds.has_value() || !selection_only.has_value())
-    return false;
+    return nullptr;
 
   settings->set_should_print_backgrounds(backgrounds.value());
   settings->set_selection_only(selection_only.value());
@@ -178,18 +180,16 @@ bool PrintSettingsFromJobSettings(const base::Value& job_settings,
       !duplex_mode.has_value() || !landscape.has_value() ||
       !scale_factor.has_value() || !rasterize_pdf.has_value() ||
       !pages_per_sheet.has_value()) {
-    return false;
+    return nullptr;
   }
-#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_CHROMEOS)
+
   base::Optional<int> dpi_horizontal =
       job_settings.FindIntKey(kSettingDpiHorizontal);
   base::Optional<int> dpi_vertical =
       job_settings.FindIntKey(kSettingDpiVertical);
   if (!dpi_horizontal.has_value() || !dpi_vertical.has_value())
-    return false;
-
+    return nullptr;
   settings->set_dpi_xy(dpi_horizontal.value(), dpi_vertical.value());
-#endif
 
   settings->set_collate(collate.value());
   settings->set_copies(copies.value());
@@ -211,16 +211,21 @@ bool PrintSettingsFromJobSettings(const base::Value& job_settings,
 #endif
   }
 
-#if defined(OS_CHROMEOS) || (defined(OS_LINUX) && defined(USE_CUPS))
+// TODO(crbug.com/1052397): Revisit once build flag switch of lacros-chrome is
+// complete.
+#if defined(OS_CHROMEOS) ||                                  \
+    ((defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) && \
+     defined(USE_CUPS))
   const base::Value* advanced_settings =
       job_settings.FindDictKey(kSettingAdvancedSettings);
   if (advanced_settings) {
     for (const auto& item : advanced_settings->DictItems())
       settings->advanced_settings().emplace(item.first, item.second.Clone());
   }
-#endif  // defined(OS_CHROMEOS) || (defined(OS_LINUX) && defined(USE_CUPS))
+#endif  // defined(OS_CHROMEOS) || ((defined(OS_LINUX) ||
+        // BUILDFLAG(IS_CHROMEOS_LACROS)) && defined(USE_CUPS))
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   bool send_user_info =
       job_settings.FindBoolKey(kSettingSendUserInfo).value_or(false);
   settings->set_send_user_info(send_user_info);
@@ -233,9 +238,9 @@ bool PrintSettingsFromJobSettings(const base::Value& job_settings,
   const std::string* pin_value = job_settings.FindStringKey(kSettingPinValue);
   if (pin_value)
     settings->set_pin_value(*pin_value);
-#endif
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
-  return true;
+  return settings;
 }
 
 void PrintSettingsToJobSettingsDebug(const PrintSettings& settings,

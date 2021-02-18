@@ -31,7 +31,7 @@
 namespace blink {
 
 bool RemoteFontFaceSource::NeedsInterventionToAlignWithLCPGoal() const {
-  DCHECK_EQ(display_, kFontDisplayAuto);
+  DCHECK_EQ(display_, FontDisplay::kAuto);
   if (!base::FeatureList::IsEnabled(
           features::kAlignFontDisplayAutoTimeoutWithLCPGoal)) {
     return false;
@@ -51,7 +51,7 @@ bool RemoteFontFaceSource::NeedsInterventionToAlignWithLCPGoal() const {
 
 RemoteFontFaceSource::DisplayPeriod
 RemoteFontFaceSource::ComputeFontDisplayAutoPeriod() const {
-  DCHECK_EQ(display_, kFontDisplayAuto);
+  DCHECK_EQ(display_, FontDisplay::kAuto);
   if (NeedsInterventionToAlignWithLCPGoal()) {
     using Mode = features::AlignFontDisplayAutoTimeoutWithLCPGoalMode;
     Mode mode =
@@ -79,9 +79,9 @@ RemoteFontFaceSource::ComputeFontDisplayAutoPeriod() const {
 RemoteFontFaceSource::DisplayPeriod RemoteFontFaceSource::ComputePeriod()
     const {
   switch (display_) {
-    case kFontDisplayAuto:
+    case FontDisplay::kAuto:
       return ComputeFontDisplayAutoPeriod();
-    case kFontDisplayBlock:
+    case FontDisplay::kBlock:
       switch (phase_) {
         case kNoLimitExceeded:
         case kShortLimitExceeded:
@@ -90,10 +90,10 @@ RemoteFontFaceSource::DisplayPeriod RemoteFontFaceSource::ComputePeriod()
           return kSwapPeriod;
       }
 
-    case kFontDisplaySwap:
+    case FontDisplay::kSwap:
       return kSwapPeriod;
 
-    case kFontDisplayFallback:
+    case FontDisplay::kFallback:
       switch (phase_) {
         case kNoLimitExceeded:
           return kBlockPeriod;
@@ -103,7 +103,7 @@ RemoteFontFaceSource::DisplayPeriod RemoteFontFaceSource::ComputePeriod()
           return kFailurePeriod;
       }
 
-    case kFontDisplayOptional: {
+    case FontDisplay::kOptional: {
       const bool use_phase_value =
           !base::FeatureList::IsEnabled(
               features::kFontPreloadingDelaysRendering) ||
@@ -132,9 +132,6 @@ RemoteFontFaceSource::DisplayPeriod RemoteFontFaceSource::ComputePeriod()
 
       return kSwapPeriod;
     }
-    case kFontDisplayEnumMax:
-      NOTREACHED();
-      break;
   }
   NOTREACHED();
   return kSwapPeriod;
@@ -147,9 +144,9 @@ RemoteFontFaceSource::RemoteFontFaceSource(CSSFontFace* css_font_face,
       font_selector_(font_selector),
       // No need to report the violation here since the font is not loaded yet
       display_(
-          GetFontDisplayWithFeaturePolicyCheck(display,
-                                               font_selector,
-                                               ReportOptions::kDoNotReport)),
+          GetFontDisplayWithDocumentPolicyCheck(display,
+                                                font_selector,
+                                                ReportOptions::kDoNotReport)),
       phase_(kNoLimitExceeded),
       is_intervention_triggered_(ShouldTriggerWebFontsIntervention()),
       finished_before_document_rendering_begin_(false),
@@ -194,7 +191,7 @@ void RemoteFontFaceSource::NotifyFinished(Resource* resource) {
   if (window && window->document()->IsDetached())
     return;
 
-  FontResource* font = ToFontResource(resource);
+  auto* font = To<FontResource>(resource);
   histograms_.RecordRemoteFont(font);
 
   custom_font_data_ = font->GetCustomFontData();
@@ -266,7 +263,7 @@ void RemoteFontFaceSource::SetDisplay(FontDisplay display) {
   // using the loaded font.
   if (IsLoaded())
     return;
-  display_ = GetFontDisplayWithFeaturePolicyCheck(
+  display_ = GetFontDisplayWithDocumentPolicyCheck(
       display, font_selector_, ReportOptions::kReportOnFailure);
   UpdatePeriod();
 }
@@ -290,16 +287,16 @@ bool RemoteFontFaceSource::UpdatePeriod() {
   return changed;
 }
 
-FontDisplay RemoteFontFaceSource::GetFontDisplayWithFeaturePolicyCheck(
+FontDisplay RemoteFontFaceSource::GetFontDisplayWithDocumentPolicyCheck(
     FontDisplay display,
     const FontSelector* font_selector,
     ReportOptions report_option) const {
   ExecutionContext* context = font_selector->GetExecutionContext();
-  if (display != kFontDisplayFallback && display != kFontDisplayOptional &&
+  if (display != FontDisplay::kFallback && display != FontDisplay::kOptional &&
       context && context->IsWindow() &&
       !context->IsFeatureEnabled(
           mojom::blink::DocumentPolicyFeature::kFontDisplay, report_option)) {
-    return kFontDisplayOptional;
+    return FontDisplay::kOptional;
   }
   return display;
 }
@@ -315,7 +312,7 @@ bool RemoteFontFaceSource::ShouldTriggerWebFontsIntervention() {
       WebEffectiveConnectionType::kTypeOffline <= connection_type &&
       connection_type <= WebEffectiveConnectionType::kType3G;
 
-  return network_is_slow && display_ == kFontDisplayAuto;
+  return network_is_slow && display_ == FontDisplay::kAuto;
 }
 
 bool RemoteFontFaceSource::IsLowPriorityLoadingAllowedForRemoteFont() const {
@@ -370,7 +367,7 @@ void RemoteFontFaceSource::BeginLoadIfNeeded() {
 
   SetDisplay(face_->GetFontFace()->GetFontDisplay());
 
-  FontResource* font = ToFontResource(GetResource());
+  auto* font = To<FontResource>(GetResource());
   if (font->StillNeedsLoad()) {
     if (font->IsLowPriorityLoadingAllowedForRemoteFont()) {
       font_selector_->GetExecutionContext()->AddConsoleMessage(
@@ -471,51 +468,27 @@ void RemoteFontFaceSource::FontLoadHistograms::RecordLoadTimeHistogram(
   // bucket.
   if (font->ErrorOccurred()) {
     base::UmaHistogramTimes("WebFont.DownloadTime.LoadError", delta);
-    if (data_source_ == kFromNetwork) {
-      base::UmaHistogramTimes("WebFont.MissedCache.DownloadTime.LoadError",
-                              delta);
-    }
     return;
   }
 
   size_t size = font->EncodedSize();
   if (size < 10 * 1024) {
     base::UmaHistogramTimes("WebFont.DownloadTime.0.Under10KB", delta);
-    if (data_source_ == kFromNetwork) {
-      base::UmaHistogramTimes("WebFont.MissedCache.DownloadTime.0.Under10KB",
-                              delta);
-    }
     return;
   }
   if (size < 50 * 1024) {
     base::UmaHistogramTimes("WebFont.DownloadTime.1.10KBTo50KB", delta);
-    if (data_source_ == kFromNetwork) {
-      base::UmaHistogramTimes("WebFont.MissedCache.DownloadTime.1.10KBTo50KB",
-                              delta);
-    }
     return;
   }
   if (size < 100 * 1024) {
     base::UmaHistogramTimes("WebFont.DownloadTime.2.50KBTo100KB", delta);
-    if (data_source_ == kFromNetwork) {
-      base::UmaHistogramTimes("WebFont.MissedCache.DownloadTime.2.50KBTo100KB",
-                              delta);
-    }
     return;
   }
   if (size < 1024 * 1024) {
     base::UmaHistogramTimes("WebFont.DownloadTime.3.100KBTo1MB", delta);
-    if (data_source_ == kFromNetwork) {
-      base::UmaHistogramTimes("WebFont.MissedCache.DownloadTime.3.100KBTo1MB",
-                              delta);
-    }
     return;
   }
   base::UmaHistogramTimes("WebFont.DownloadTime.4.Over1MB", delta);
-  if (data_source_ == kFromNetwork) {
-    base::UmaHistogramTimes("WebFont.MissedCache.DownloadTime.4.Over1MB",
-                            delta);
-  }
 }
 
 RemoteFontFaceSource::FontLoadHistograms::CacheHitMetrics

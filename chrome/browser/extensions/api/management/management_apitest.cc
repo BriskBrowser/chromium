@@ -17,13 +17,11 @@
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/web_applications/components/app_registrar.h"
-#include "chrome/browser/web_applications/components/app_shortcut_manager.h"
 #include "chrome/browser/web_applications/components/install_finalizer.h"
+#include "chrome/browser/web_applications/components/os_integration_manager.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
 #include "chrome/browser/web_applications/components/web_app_provider_base.h"
 #include "chrome/browser/web_applications/test/test_web_app_ui_manager.h"
-#include "chrome/browser/web_applications/test/web_app_test.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "content/public/test/browser_test.h"
@@ -41,7 +39,6 @@
 
 using extensions::Extension;
 using extensions::Manifest;
-using web_app::ProviderType;
 
 namespace {
 
@@ -130,14 +127,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, NoPermission) {
   ASSERT_TRUE(RunExtensionSubtest("management/no_permission", "test.html"));
 }
 
-// Disabled: http://crbug.com/174411
-#if defined(OS_WIN)
-#define MAYBE_Uninstall DISABLED_Uninstall
-#else
-#define MAYBE_Uninstall Uninstall
-#endif
-
-IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, MAYBE_Uninstall) {
+IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, Uninstall) {
   LoadExtensions();
   // Confirmation dialog will be shown for uninstallations except for self.
   extensions::ScopedTestDialogAutoConfirm auto_confirm(
@@ -155,37 +145,10 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, CreateAppShortcut) {
                                   "createAppShortcut.html"));
 }
 
-class GenerateAppManagementApiTest
-    : public ExtensionManagementApiTest,
-      public ::testing::WithParamInterface<ProviderType> {
- public:
-  void SetUp() override {
-    if (GetParam() == ProviderType::kWebApps) {
-      scoped_feature_list_.InitWithFeatures(
-          {features::kDesktopPWAsWithoutExtensions}, {});
-    } else {
-      DCHECK_EQ(GetParam(), ProviderType::kBookmarkApps);
-      scoped_feature_list_.InitWithFeatures(
-          {}, {features::kDesktopPWAsWithoutExtensions});
-    }
-
-    ExtensionManagementApiTest::SetUp();
-  }
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-};
-
-IN_PROC_BROWSER_TEST_P(GenerateAppManagementApiTest, GenerateAppForLink) {
+IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, GenerateAppForLink) {
   ASSERT_TRUE(RunExtensionSubtest("management/test",
                                   "generateAppForLink.html"));
 }
-
-INSTANTIATE_TEST_SUITE_P(All,
-                         GenerateAppManagementApiTest,
-                         ::testing::Values(ProviderType::kBookmarkApps,
-                                           ProviderType::kWebApps),
-                         web_app::ProviderTypeParamToString);
 
 class InstallReplacementWebAppApiTest : public ExtensionManagementApiTest {
  public:
@@ -196,15 +159,14 @@ class InstallReplacementWebAppApiTest : public ExtensionManagementApiTest {
  protected:
   static const char kManifest[];
   static const char kAppManifest[];
-
+  web_app::ScopedOsHooksSuppress os_hooks_suppress_;
   void SetUpOnMainThread() override {
     ExtensionManagementApiTest::SetUpOnMainThread();
     https_test_server_.ServeFilesFromDirectory(test_data_dir_);
     ASSERT_TRUE(https_test_server_.Start());
 
-    web_app::WebAppProviderBase::GetProviderBase(profile())
-        ->shortcut_manager()
-        .SuppressShortcutsForTesting();
+    os_hooks_suppress_ =
+        web_app::OsIntegrationManager::ScopedSuppressOsHooksForTesting();
   }
 
   void RunTest(const char* manifest,

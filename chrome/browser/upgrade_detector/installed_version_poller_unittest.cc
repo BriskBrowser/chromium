@@ -4,16 +4,22 @@
 
 #include "chrome/browser/upgrade_detector/installed_version_poller.h"
 
+#include "stdint.h"
+
+#include <memory>
+#include <utility>
 #include <vector>
 
 #include "base/test/mock_callback.h"
 #include "base/test/task_environment.h"
 #include "chrome/browser/upgrade_detector/build_state.h"
+#include "chrome/browser/upgrade_detector/installed_version_monitor.h"
 #include "chrome/browser/upgrade_detector/mock_build_state_observer.h"
 #include "components/version_info/version_info.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+using ::testing::_;
 using ::testing::AllOf;
 using ::testing::ByMove;
 using ::testing::Eq;
@@ -21,6 +27,25 @@ using ::testing::IsFalse;
 using ::testing::IsTrue;
 using ::testing::Property;
 using ::testing::Return;
+
+namespace {
+
+class FakeMonitor final : public InstalledVersionMonitor {
+ public:
+  FakeMonitor() = default;
+
+  // Simulate that either a change was detected (|error| is false) or that an
+  // error occurred (|error| is true).
+  void Notify(bool error) { callback_.Run(error); }
+
+  // InstalledVersionMonitor:
+  void Start(Callback callback) override { callback_ = std::move(callback); }
+
+ private:
+  Callback callback_;
+};
+
+}  // namespace
 
 class InstalledVersionPollerTest : public ::testing::Test {
  protected:
@@ -78,10 +103,23 @@ class InstalledVersionPollerTest : public ::testing::Test {
     return InstalledAndCriticalVersion(GetRollbackVersion());
   }
 
+  std::unique_ptr<InstalledVersionMonitor> MakeMonitor() {
+    EXPECT_FALSE(fake_monitor_);
+    auto monitor = std::make_unique<FakeMonitor>();
+    fake_monitor_ = monitor.get();
+    return monitor;
+  }
+
+  void TriggerMonitor() {
+    ASSERT_NE(fake_monitor_, nullptr);
+    fake_monitor_->Notify(false);
+  }
+
   base::test::TaskEnvironment task_environment_{
       base::test::TaskEnvironment::TimeSource::MOCK_TIME};
   ::testing::StrictMock<MockBuildStateObserver> mock_observer_;
   BuildState build_state_;
+  FakeMonitor* fake_monitor_ = nullptr;
 };
 
 // Tests that a poll returning the current version does not update the
@@ -89,7 +127,7 @@ class InstalledVersionPollerTest : public ::testing::Test {
 TEST_F(InstalledVersionPollerTest, TestNoUpdate) {
   base::MockRepeatingCallback<InstalledAndCriticalVersion()> callback;
   EXPECT_CALL(callback, Run()).WillOnce(Return(ByMove(MakeNoUpdateVersions())));
-  InstalledVersionPoller poller(&build_state_, callback.Get(),
+  InstalledVersionPoller poller(&build_state_, callback.Get(), MakeMonitor(),
                                 task_environment_.GetMockTickClock());
   task_environment_.RunUntilIdle();
   ::testing::Mock::VerifyAndClearExpectations(&callback);
@@ -109,7 +147,7 @@ TEST_F(InstalledVersionPollerTest, TestUpgrade) {
 
   // No update the first time.
   EXPECT_CALL(callback, Run()).WillOnce(Return(ByMove(MakeNoUpdateVersions())));
-  InstalledVersionPoller poller(&build_state_, callback.Get(),
+  InstalledVersionPoller poller(&build_state_, callback.Get(), MakeMonitor(),
                                 task_environment_.GetMockTickClock());
   task_environment_.RunUntilIdle();
   ::testing::Mock::VerifyAndClearExpectations(&callback);
@@ -157,7 +195,7 @@ TEST_F(InstalledVersionPollerTest, TestUpgradeThenDowngrade) {
           Property(&BuildState::installed_version,
                    Eq(base::Optional<base::Version>(GetUpgradeVersion()))),
           Property(&BuildState::critical_version, IsFalse()))));
-  InstalledVersionPoller poller(&build_state_, callback.Get(),
+  InstalledVersionPoller poller(&build_state_, callback.Get(), MakeMonitor(),
                                 task_environment_.GetMockTickClock());
   task_environment_.RunUntilIdle();
   ::testing::Mock::VerifyAndClearExpectations(&callback);
@@ -197,7 +235,7 @@ TEST_F(InstalledVersionPollerTest, TestCriticalUpgrade) {
           Property(&BuildState::critical_version, IsTrue()),
           Property(&BuildState::critical_version,
                    Eq(base::Optional<base::Version>(GetCriticalVersion()))))));
-  InstalledVersionPoller poller(&build_state_, callback.Get(),
+  InstalledVersionPoller poller(&build_state_, callback.Get(), MakeMonitor(),
                                 task_environment_.GetMockTickClock());
   task_environment_.RunUntilIdle();
   ::testing::Mock::VerifyAndClearExpectations(&callback);
@@ -216,7 +254,7 @@ TEST_F(InstalledVersionPollerTest, TestMissingVersion) {
                               Eq(BuildState::UpdateType::kNormalUpdate)),
                      Property(&BuildState::installed_version, IsFalse()),
                      Property(&BuildState::critical_version, IsFalse()))));
-  InstalledVersionPoller poller(&build_state_, callback.Get(),
+  InstalledVersionPoller poller(&build_state_, callback.Get(), MakeMonitor(),
                                 task_environment_.GetMockTickClock());
   task_environment_.RunUntilIdle();
   ::testing::Mock::VerifyAndClearExpectations(&callback);
@@ -238,9 +276,33 @@ TEST_F(InstalledVersionPollerTest, TestRollback) {
           Property(&BuildState::installed_version,
                    Eq(base::Optional<base::Version>(GetRollbackVersion()))),
           Property(&BuildState::critical_version, IsFalse()))));
-  InstalledVersionPoller poller(&build_state_, callback.Get(),
+  InstalledVersionPoller poller(&build_state_, callback.Get(), MakeMonitor(),
                                 task_environment_.GetMockTickClock());
   task_environment_.RunUntilIdle();
   ::testing::Mock::VerifyAndClearExpectations(&callback);
   ::testing::Mock::VerifyAndClearExpectations(&mock_observer_);
+}
+
+// Tests that a modification in the monitored location triggers a poll.
+TEST_F(InstalledVersionPollerTest, TestMonitor) {
+  // Provide a GetInstalledVersionCallback that always reports no update, and
+  // don't make any noise about it being called.
+  ::testing::NiceMock<
+      base::MockRepeatingCallback<InstalledAndCriticalVersion()>>
+      callback;
+  ON_CALL(callback, Run()).WillByDefault([]() {
+    return MakeNoUpdateVersions();
+  });
+
+  InstalledVersionPoller poller(&build_state_, callback.Get(), MakeMonitor(),
+                                task_environment_.GetMockTickClock());
+  task_environment_.RunUntilIdle();
+
+  // Poke the monitor so that it announces a change.
+  TriggerMonitor();
+  ::testing::Mock::VerifyAndClearExpectations(&callback);
+
+  // Expect a poll in ten seconds.
+  EXPECT_CALL(callback, Run());
+  task_environment_.FastForwardBy(base::TimeDelta::FromSeconds(10));
 }

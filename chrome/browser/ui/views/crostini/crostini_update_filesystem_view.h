@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_CROSTINI_CROSTINI_UPDATE_FILESYSTEM_VIEW_H_
 
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 
 class Profile;
 
@@ -17,10 +18,9 @@ void SetCrostiniUpdateFilesystemSkipDelayForTesting(bool should_skip);
 // start will take longer than usual.
 class CrostiniUpdateFilesystemView : public views::BubbleDialogDelegateView {
  public:
-  static void Show(Profile* profile);
+  METADATA_HEADER(CrostiniUpdateFilesystemView);
 
-  // views::DialogDelegateView:
-  gfx::Size CalculatePreferredSize() const override;
+  static void Show(Profile* profile);
 
   static CrostiniUpdateFilesystemView* GetActiveViewForTesting();
 

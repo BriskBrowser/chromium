@@ -20,6 +20,7 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/views/controls/button/md_text_button.h"
 #include "ui/views/layout/fill_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 PasswordSignInPromoView::DiceSyncPromoDelegate::DiceSyncPromoDelegate(
     SignInPromoBubbleController* controller)
@@ -31,9 +32,8 @@ PasswordSignInPromoView::DiceSyncPromoDelegate::~DiceSyncPromoDelegate() =
     default;
 
 void PasswordSignInPromoView::DiceSyncPromoDelegate::OnEnableSync(
-    const AccountInfo& account,
-    bool is_default_promo_account) {
-  controller_->OnSignInToChromeClicked(account, is_default_promo_account);
+    const AccountInfo& account) {
+  controller_->OnSignInToChromeClicked(account);
 }
 
 PasswordSignInPromoView::PasswordSignInPromoView(
@@ -53,3 +53,6 @@ PasswordSignInPromoView::PasswordSignInPromoView(
 }
 
 PasswordSignInPromoView::~PasswordSignInPromoView() = default;
+
+BEGIN_METADATA(PasswordSignInPromoView, views::View)
+END_METADATA

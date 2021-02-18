@@ -3,22 +3,22 @@
 // found in the LICENSE file.
 #include "chrome/browser/chromeos/login/screens/family_link_notice_screen.h"
 
+#include "ash/constants/ash_features.h"
 #include "chrome/browser/chromeos/login/oobe_screen.h"
 #include "chrome/browser/chromeos/login/test/fake_gaia_mixin.h"
 #include "chrome/browser/chromeos/login/test/js_checker.h"
 #include "chrome/browser/chromeos/login/test/local_policy_test_server_mixin.h"
 #include "chrome/browser/chromeos/login/test/login_manager_mixin.h"
 #include "chrome/browser/chromeos/login/test/oobe_base_test.h"
-#include "chrome/browser/chromeos/login/test/oobe_screen_exit_waiter.h"
 #include "chrome/browser/chromeos/login/test/oobe_screen_waiter.h"
 #include "chrome/browser/chromeos/login/test/user_policy_mixin.h"
+#include "chrome/browser/chromeos/login/test/wizard_controller_screen_exit_waiter.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/webui/chromeos/login/family_link_notice_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/user_creation_screen_handler.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/login/auth/stub_authenticator_builder.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/test/browser_test.h"
@@ -53,14 +53,12 @@ class FamilyLinkNoticeScreenTest : public OobeBaseTest {
 
   void LoginAsRegularUser() {
     login_manager_mixin_.LoginAsNewRegularUser();
-    OobeScreenExitWaiter(UserCreationView::kScreenId).Wait();
+    WizardControllerExitWaiter(UserCreationView::kScreenId).Wait();
   }
 
   void ExpectHelpAppPrefValue(bool expected) {
-    WizardController::default_controller()->PrepareFirstRunPrefs();
-    bool value = ProfileManager::GetActiveUserProfile()->GetPrefs()->GetBoolean(
-        prefs::kHelpAppShouldShowParentalControl);
-    EXPECT_EQ(value, expected);
+    EXPECT_TRUE(help_app_pref_fal_.has_value());
+    EXPECT_EQ(help_app_pref_fal_.value(), expected);
   }
 
   void ClickContinueButtonOnFamilyLinkScreen() {
@@ -87,12 +85,21 @@ class FamilyLinkNoticeScreenTest : public OobeBaseTest {
     ASSERT_FALSE(screen_exited_);
     screen_exited_ = true;
     screen_result_ = result;
+
+    // Fetch the values before OOBE is eventually destroyed after the exit
+    // callback.
+    WizardController::default_controller()->PrepareFirstRunPrefs();
+    help_app_pref_fal_ =
+        ProfileManager::GetActiveUserProfile()->GetPrefs()->GetBoolean(
+            prefs::kHelpAppShouldShowParentalControl);
+
     original_callback_.Run(result);
     if (screen_exit_callback_)
       std::move(screen_exit_callback_).Run();
   }
 
   bool screen_exited_ = false;
+  base::Optional<bool> help_app_pref_fal_;
   base::RepeatingClosure screen_exit_callback_;
   FamilyLinkNoticeScreen::ScreenExitCallback original_callback_;
 
@@ -138,7 +145,7 @@ class FamilyLinkNoticeScreenChildTest : public FamilyLinkNoticeScreenTest {
 
   void LoginAsChildUser() {
     login_manager_mixin_.LoginAsNewChildUser();
-    OobeScreenExitWaiter(UserCreationView::kScreenId).Wait();
+    WizardControllerExitWaiter(UserCreationView::kScreenId).Wait();
   }
 
  private:
@@ -179,7 +186,7 @@ class FamilyLinkNoticeScreenManagedTest : public FamilyLinkNoticeScreenTest {
   void LoginAsManagedUser() {
     user_policy_mixin_.RequestPolicyUpdate();
     login_manager_mixin_.LoginWithDefaultContext(test_user_);
-    OobeScreenExitWaiter(UserCreationView::kScreenId).Wait();
+    WizardControllerExitWaiter(UserCreationView::kScreenId).Wait();
   }
 
  private:

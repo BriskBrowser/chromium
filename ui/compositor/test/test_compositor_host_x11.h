@@ -12,12 +12,13 @@
 #include "ui/compositor/compositor.h"
 #include "ui/compositor/test/test_compositor_host.h"
 #include "ui/gfx/geometry/rect.h"
-#include "ui/gfx/x/x11.h"
-#include "ui/gfx/x/x11_types.h"
+#include "ui/gfx/x/xproto.h"
+
+namespace x11 {
+class XScopedEventSelector;
+}
 
 namespace ui {
-
-class XScopedEventSelector;
 
 class TestCompositorHostX11 : public TestCompositorHost {
  public:
@@ -40,7 +41,7 @@ class TestCompositorHostX11 : public TestCompositorHost {
 
   x11::Window window_;
 
-  std::unique_ptr<XScopedEventSelector> window_events_;
+  std::unique_ptr<x11::XScopedEventSelector> window_events_;
   viz::ParentLocalSurfaceIdAllocator allocator_;
 };
 

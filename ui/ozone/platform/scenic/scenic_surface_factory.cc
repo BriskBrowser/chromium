@@ -138,6 +138,7 @@ fuchsia::sysmem::AllocatorHandle ConnectSysmemAllocator() {
 
 ScenicSurfaceFactory::ScenicSurfaceFactory()
     : egl_implementation_(std::make_unique<GLOzoneEGLScenic>(this)),
+      sysmem_buffer_manager_(this),
       weak_ptr_factory_(this) {}
 
 ScenicSurfaceFactory::~ScenicSurfaceFactory() {
@@ -242,6 +243,7 @@ void ScenicSurfaceFactory::CreateNativePixmapAsync(
 #if BUILDFLAG(ENABLE_VULKAN)
 std::unique_ptr<gpu::VulkanImplementation>
 ScenicSurfaceFactory::CreateVulkanImplementation(
+    bool use_swiftshader,
     bool allow_protected_memory,
     bool enforce_protected_memory) {
   return std::make_unique<ui::VulkanImplementationScenic>(
@@ -270,7 +272,9 @@ void ScenicSurfaceFactory::RemoveSurface(gfx::AcceleratedWidget widget) {
 ScenicSurface* ScenicSurfaceFactory::GetSurface(gfx::AcceleratedWidget widget) {
   base::AutoLock lock(surface_lock_);
   auto it = surface_map_.find(widget);
-  DCHECK(it != surface_map_.end());
+  if (it == surface_map_.end())
+    return nullptr;
+
   ScenicSurface* surface = it->second;
   surface->AssertBelongsToCurrentThread();
   return surface;

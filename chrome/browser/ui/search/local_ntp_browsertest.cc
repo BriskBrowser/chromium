@@ -23,7 +23,6 @@
 #include "chrome/browser/search/instant_service.h"
 #include "chrome/browser/search/instant_service_factory.h"
 #include "chrome/browser/search/instant_service_observer.h"
-#include "chrome/browser/search/ntp_features.h"
 #include "chrome/browser/search/search.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -41,7 +40,9 @@
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/ntp_tiles/constants.h"
 #include "components/omnibox/browser/omnibox_view.h"
+#include "components/omnibox/common/omnibox_features.h"
 #include "components/prefs/pref_service.h"
+#include "components/search/ntp_features.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
@@ -379,8 +380,11 @@ IN_PROC_BROWSER_TEST_F(LocalNTPTest, GoogleNTPLoadsWithoutError) {
   EXPECT_TRUE(is_google);
 
   // We shouldn't have gotten any console error messages.
-  EXPECT_TRUE(console_observer.messages().empty())
-      << console_observer.GetMessageAt(0u);
+  for (const auto& message : console_observer.messages()) {
+    if (message.log_level == blink::mojom::ConsoleMessageLevel::kError) {
+      FAIL() << message.message;
+    }
+  }
 
   // Make sure load time metrics were recorded.
   histograms.ExpectTotalCount("NewTabPage.LoadTime", 1);
@@ -428,8 +432,11 @@ IN_PROC_BROWSER_TEST_F(LocalNTPTest, NonGoogleNTPLoadsWithoutError) {
   EXPECT_FALSE(is_google);
 
   // We shouldn't have gotten any console error messages.
-  EXPECT_TRUE(console_observer.messages().empty())
-      << console_observer.GetMessageAt(0u);
+  for (const auto& message : console_observer.messages()) {
+    if (message.log_level == blink::mojom::ConsoleMessageLevel::kError) {
+      FAIL() << message.message;
+    }
+  }
 
   // Make sure load time metrics were recorded.
   histograms.ExpectTotalCount("NewTabPage.LoadTime", 1);
@@ -470,8 +477,11 @@ IN_PROC_BROWSER_TEST_F(LocalNTPTest, FrenchGoogleNTPLoadsWithoutError) {
   ASSERT_EQ(base::ASCIIToUTF16("Nouvel onglet"), active_tab->GetTitle());
 
   // We shouldn't have gotten any console error messages.
-  EXPECT_TRUE(console_observer.messages().empty())
-      << console_observer.GetMessageAt(0u);
+  for (const auto& message : console_observer.messages()) {
+    if (message.log_level == blink::mojom::ConsoleMessageLevel::kError) {
+      FAIL() << message.message;
+    }
+  }
 }
 
 IN_PROC_BROWSER_TEST_F(LocalNTPTest, LoadsMDIframe) {
@@ -1162,10 +1172,17 @@ IN_PROC_BROWSER_TEST_F(LocalNTPTest, PendingNavigations) {
 
   // Verify that the omnibox displays |slow_url|.
   OmniboxView* view = browser()->window()->GetLocationBar()->GetOmniboxView();
-  std::string omnibox_text = base::UTF16ToUTF8(view->GetText());
-  EXPECT_THAT(omnibox_text, ::testing::StartsWith(slow_url.host()));
-  EXPECT_THAT(omnibox_text, ::testing::EndsWith(slow_url.path()));
-  EXPECT_THAT(slow_url.spec(), ::testing::EndsWith(omnibox_text));
+  // Depending on field trial configuration, the omnibox text might contain the
+  // full URL or just a portion of it.
+  if (base::FeatureList::IsEnabled(
+          omnibox::kRevealSteadyStateUrlPathQueryAndRefOnHover)) {
+    EXPECT_EQ(base::ASCIIToUTF16(slow_url.spec()), view->GetText());
+  } else {
+    std::string omnibox_text = base::UTF16ToUTF8(view->GetText());
+    EXPECT_THAT(omnibox_text, ::testing::StartsWith(slow_url.host()));
+    EXPECT_THAT(omnibox_text, ::testing::EndsWith(slow_url.path()));
+    EXPECT_THAT(slow_url.spec(), ::testing::EndsWith(omnibox_text));
+  }
 }
 
 // Verifies that Chrome won't spawn a separate renderer process for
@@ -1224,7 +1241,7 @@ IN_PROC_BROWSER_TEST_F(LocalNTPTest, ProcessPerSite) {
 // Just like LocalNTPTest.ProcessPerSite, but for an incognito window.
 IN_PROC_BROWSER_TEST_F(LocalNTPTest, ProcessPerSite_Incognito) {
   GURL ntp_url("chrome://newtab");
-  Browser* incognito_browser = new Browser(Browser::CreateParams(
+  Browser* incognito_browser = Browser::Create(Browser::CreateParams(
       browser()->profile()->GetPrimaryOTRProfile(), true));
 
   // Open NTP in |tab1|.

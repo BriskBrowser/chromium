@@ -27,10 +27,8 @@
 #include "content/public/browser/guest_host.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
-#include "third_party/blink/public/common/page/web_drag_operation.h"
 #include "third_party/blink/public/mojom/choosers/popup_menu.mojom.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom-forward.h"
-#include "third_party/blink/public/web/web_drag_status.h"
 #include "ui/base/ime/mojom/text_input_state.mojom.h"
 
 namespace content {
@@ -77,8 +75,8 @@ class CONTENT_EXPORT BrowserPluginGuest : public GuestHost,
   // container, then this call is a no-op. For guest types that can be
   // navigated, this call adds the associated RenderWdigetHostViewGuest to the
   // view hierarchy and sets up the appropriate
-  // blink::mojom::RendererPreferences so that this guest can navigate and
-  // resize offscreen.
+  // blink::RendererPreferences so that this guest can navigate and resize
+  // offscreen.
   void Init();
 
   // Returns a WeakPtr to this BrowserPluginGuest.
@@ -89,9 +87,8 @@ class CONTENT_EXPORT BrowserPluginGuest : public GuestHost,
   WebContentsImpl* CreateNewGuestWindow(
       const WebContents::CreateParams& params);
 
-  bool focused() const { return focused_; }
-
   // WebContentsObserver implementation.
+  void DidStartNavigation(NavigationHandle* navigation_handle) override;
   void DidFinishNavigation(NavigationHandle* navigation_handle) override;
 
   void RenderProcessGone(base::TerminationStatus status) override;
@@ -111,24 +108,12 @@ class CONTENT_EXPORT BrowserPluginGuest : public GuestHost,
 #endif
 
   // GuestHost implementation.
-  int LoadURLWithParams(
-      const NavigationController::LoadURLParams& load_params) override;
   void WillDestroy() override;
 
   // Exposes the protected web_contents() from WebContentsObserver.
   WebContentsImpl* GetWebContents() const;
 
   gfx::Point GetScreenCoordinates(const gfx::Point& relative_position) const;
-
-  void DragSourceEndedAt(float client_x,
-                         float client_y,
-                         float screen_x,
-                         float screen_y,
-                         blink::WebDragOperation operation);
-
-  // Called when the drag started by this guest ends at an OS-level.
-  void EmbedderSystemDragEnded();
-  void EndSystemDragIfApplicable();
 
  protected:
   // BrowserPluginGuest is a WebContentsObserver of |web_contents| and
@@ -147,12 +132,6 @@ class CONTENT_EXPORT BrowserPluginGuest : public GuestHost,
 
   WebContentsImpl* owner_web_contents_;
 
-  // Indicates whether this guest has been attached to a container.
-  bool attached_;
-
-  gfx::Rect frame_rect_;
-  bool focused_;
-
   // BrowserPluginGuest::Init can only be called once. This flag allows it to
   // exit early if it's already been called.
   bool initialized_;
@@ -161,18 +140,7 @@ class CONTENT_EXPORT BrowserPluginGuest : public GuestHost,
   // Using scoped_ptr to avoid including the header file: view_messages.h.
   ui::mojom::TextInputStatePtr last_text_input_state_;
 
-  // Last seen state of drag status update.
-  blink::WebDragStatus last_drag_status_;
-  // Whether or not our embedder has seen a SystemDragEnded() call.
-  bool seen_embedder_system_drag_ended_;
-  // Whether or not our embedder has seen a DragSourceEndedAt() call.
-  bool seen_embedder_drag_source_ended_at_;
-
   BrowserPluginGuestDelegate* const delegate_;
-
-  // Weak pointer used to ask GeolocationPermissionContext about geolocation
-  // permission.
-  base::WeakPtrFactory<BrowserPluginGuest> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(BrowserPluginGuest);
 };

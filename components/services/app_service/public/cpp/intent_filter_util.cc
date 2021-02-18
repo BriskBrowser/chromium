@@ -5,6 +5,7 @@
 #include "components/services/app_service/public/cpp/intent_filter_util.h"
 
 #include "components/services/app_service/public/cpp/intent_util.h"
+#include "url/url_constants.h"
 
 namespace {
 
@@ -112,6 +113,9 @@ int GetFilterMatchLevel(const apps::mojom::IntentFilterPtr& intent_filter) {
 
 bool FiltersHaveOverlap(const apps::mojom::IntentFilterPtr& filter1,
                         const apps::mojom::IntentFilterPtr& filter2) {
+  if (filter1->conditions.size() != filter2->conditions.size()) {
+    return false;
+  }
   if (GetFilterMatchLevel(filter1) != GetFilterMatchLevel(filter2)) {
     return false;
   }
@@ -141,6 +145,25 @@ void UpgradeFilter(apps::mojom::IntentFilterPtr& filter) {
   auto condition = apps_util::MakeCondition(apps::mojom::ConditionType::kAction,
                                             std::move(condition_values));
   filter->conditions.insert(filter->conditions.begin(), std::move(condition));
+}
+
+bool IsBrowserFilter(const apps::mojom::IntentFilterPtr& filter) {
+  if (GetFilterMatchLevel(filter) != IntentFilterMatchLevel::kScheme) {
+    return false;
+  }
+  for (const auto& condition : filter->conditions) {
+    if (condition->condition_type != apps::mojom::ConditionType::kScheme) {
+      continue;
+    }
+    for (const auto& condition_value : condition->condition_values) {
+      if (condition_value->value == url::kHttpScheme ||
+          condition_value->value == url::kHttpsScheme) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 }  // namespace apps_util

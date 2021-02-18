@@ -17,18 +17,16 @@ namespace blink {
 
 NGPageLayoutAlgorithm::NGPageLayoutAlgorithm(
     const NGLayoutAlgorithmParams& params)
-    : NGLayoutAlgorithm(params) {
-  container_builder_.SetIsNewFormattingContext(
-      params.space.IsNewFormattingContext());
-}
+    : NGLayoutAlgorithm(params) {}
 
-scoped_refptr<const NGLayoutResult> NGPageLayoutAlgorithm::Layout() {
+const NGLayoutResult* NGPageLayoutAlgorithm::Layout() {
   LogicalSize page_size = ChildAvailableSize();
 
   NGConstraintSpace child_space = CreateConstraintSpaceForPages(page_size);
 
-  WritingMode writing_mode = ConstraintSpace().GetWritingMode();
-  scoped_refptr<const NGBlockBreakToken> break_token = BreakToken();
+  WritingDirectionMode writing_direction =
+      ConstraintSpace().GetWritingDirection();
+  const NGBlockBreakToken* break_token = BreakToken();
   LayoutUnit intrinsic_block_size;
   LogicalOffset page_offset = BorderScrollbarPadding().StartOffset();
   // TODO(mstensho): Handle auto block size.
@@ -41,13 +39,14 @@ scoped_refptr<const NGLayoutResult> NGPageLayoutAlgorithm::Layout() {
     NGFragmentGeometry fragment_geometry =
         CalculateInitialFragmentGeometry(child_space, Node());
     NGBlockLayoutAlgorithm child_algorithm(
-        {Node(), fragment_geometry, child_space, break_token.get()});
-    scoped_refptr<const NGLayoutResult> result = child_algorithm.Layout();
+        {Node(), fragment_geometry, child_space, break_token});
+    const NGLayoutResult* result = child_algorithm.Layout();
     const auto& page = result->PhysicalFragment();
 
     container_builder_.AddChild(page, page_offset);
 
-    LayoutUnit page_block_size = NGFragment(writing_mode, page).BlockSize();
+    LayoutUnit page_block_size =
+        NGFragment(writing_direction, page).BlockSize();
     intrinsic_block_size = std::max(intrinsic_block_size,
                                     page_offset.block_offset + page_block_size);
     page_offset += page_progression;
@@ -81,9 +80,10 @@ MinMaxSizesResult NGPageLayoutAlgorithm::ComputeMinMaxSizes(
 NGConstraintSpace NGPageLayoutAlgorithm::CreateConstraintSpaceForPages(
     const LogicalSize& page_size) const {
   NGConstraintSpaceBuilder space_builder(
-      ConstraintSpace(), Style().GetWritingMode(), /* is_new_fc */ true);
+      ConstraintSpace(), Style().GetWritingDirection(), /* is_new_fc */ true);
   space_builder.SetAvailableSize(page_size);
   space_builder.SetPercentageResolutionSize(page_size);
+  space_builder.SetStretchInlineSizeIfAuto(true);
 
   // TODO(mstensho): Handle auto block size.
   space_builder.SetFragmentationType(kFragmentPage);

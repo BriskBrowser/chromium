@@ -17,7 +17,7 @@
 #include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_path_override.h"
 #include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -233,10 +233,12 @@ class ShortcutHandler {
   ~ShortcutHandler();
 
   static bool IsSupported();
-  ShortcutCommand CreateWithArguments(const base::string16& name,
-                                      const base::string16& args);
-  void CheckShortcutHasArguments(const base::string16& desired_args) const;
+  ShortcutCommand CreateWithArguments(const std::wstring& name,
+                                      const std::wstring& args);
+  void CheckShortcutHasArguments(const std::wstring& desired_args) const;
   void Delete();
+  void HideFile();
+  bool IsFileHidden() const;
 
  private:
 #if defined(OS_WIN)
@@ -259,9 +261,8 @@ bool ShortcutHandler::IsSupported() {
   return true;
 }
 
-ShortcutCommand ShortcutHandler::CreateWithArguments(
-    const base::string16& name,
-    const base::string16& args) {
+ShortcutCommand ShortcutHandler::CreateWithArguments(const std::wstring& name,
+                                                     const std::wstring& args) {
   EXPECT_TRUE(shortcut_path_.empty());
   base::FilePath path_to_create;
   EXPECT_TRUE(base::PathService::Get(base::DIR_USER_DESKTOP, &path_to_create));
@@ -281,9 +282,9 @@ ShortcutCommand ShortcutHandler::CreateWithArguments(
 }
 
 void ShortcutHandler::CheckShortcutHasArguments(
-    const base::string16& desired_args) const {
+    const std::wstring& desired_args) const {
   EXPECT_FALSE(shortcut_path_.empty());
-  base::string16 args;
+  std::wstring args;
   EXPECT_TRUE(base::win::ResolveShortcut(shortcut_path_, NULL, &args));
   EXPECT_EQ(desired_args, args);
 }
@@ -293,6 +294,20 @@ void ShortcutHandler::Delete() {
   EXPECT_TRUE(base::DeleteFile(shortcut_path_));
   shortcut_path_.clear();
 }
+
+void ShortcutHandler::HideFile() {
+  DWORD attributes = ::GetFileAttributes(shortcut_path_.value().c_str());
+  ASSERT_NE(attributes, INVALID_FILE_ATTRIBUTES);
+  ASSERT_TRUE(::SetFileAttributes(shortcut_path_.value().c_str(),
+                                  attributes | FILE_ATTRIBUTE_HIDDEN));
+}
+
+bool ShortcutHandler::IsFileHidden() const {
+  DWORD attributes = ::GetFileAttributes(shortcut_path_.value().c_str());
+  EXPECT_NE(attributes, INVALID_FILE_ATTRIBUTES);
+  return attributes & FILE_ATTRIBUTE_HIDDEN;
+}
+
 #else
 ShortcutHandler::ShortcutHandler() {}
 
@@ -303,17 +318,21 @@ bool ShortcutHandler::IsSupported() {
   return false;
 }
 
-ShortcutCommand ShortcutHandler::CreateWithArguments(
-    const base::string16& name,
-    const base::string16& args) {
+ShortcutCommand ShortcutHandler::CreateWithArguments(const std::wstring& name,
+                                                     const std::wstring& args) {
   return ShortcutCommand();
 }
 
 void ShortcutHandler::CheckShortcutHasArguments(
-    const base::string16& desired_args) const {
-}
+    const std::wstring& desired_args) const {}
 
 void ShortcutHandler::Delete() {
+}
+
+void ShortcutHandler::HideFile() {}
+
+bool ShortcutHandler::IsFileHidden() const {
+  return false;
 }
 #endif  // defined(OS_WIN)
 
@@ -473,10 +492,10 @@ TEST_F(ProfileResetterTest, ResetContentSettings) {
     }
     if (info->IsSettingValid(site_setting)) {
       host_content_settings_map->SetContentSettingDefaultScope(
-          url, url, content_type, std::string(), site_setting);
+          url, url, content_type, site_setting);
       ContentSettingsForOneType host_settings;
-      host_content_settings_map->GetSettingsForOneType(
-          content_type, std::string(), &host_settings);
+      host_content_settings_map->GetSettingsForOneType(content_type,
+                                                       &host_settings);
       EXPECT_EQ(2U, host_settings.size());
     }
   }
@@ -494,12 +513,12 @@ TEST_F(ProfileResetterTest, ResetContentSettings) {
     EXPECT_TRUE(default_settings.count(content_type));
     EXPECT_EQ(default_settings[content_type], default_setting);
     ContentSetting site_setting = host_content_settings_map->GetContentSetting(
-        GURL("example.org"), GURL(), content_type, std::string());
+        GURL("example.org"), GURL(), content_type);
     EXPECT_EQ(default_setting, site_setting);
 
     ContentSettingsForOneType host_settings;
-    host_content_settings_map->GetSettingsForOneType(
-        content_type, std::string(), &host_settings);
+    host_content_settings_map->GetSettingsForOneType(content_type,
+                                                     &host_settings);
     EXPECT_EQ(1U, host_settings.size());
   }
 }
@@ -727,15 +746,17 @@ TEST_F(PinnedTabsResetTest, ResetPinnedTabs) {
 TEST_F(ProfileResetterTest, ResetShortcuts) {
   ShortcutHandler shortcut;
   ShortcutCommand command_line = shortcut.CreateWithArguments(
-      base::ASCIIToUTF16("chrome.lnk"),
-      base::ASCIIToUTF16("--profile-directory=Default foo.com"));
-  shortcut.CheckShortcutHasArguments(base::ASCIIToUTF16(
-      "--profile-directory=Default foo.com"));
+      L"chrome.lnk", L"--profile-directory=Default foo.com");
+  shortcut.HideFile();
+  shortcut.CheckShortcutHasArguments(L"--profile-directory=Default foo.com");
+#if defined(OS_WIN)
+  ASSERT_TRUE(shortcut.IsFileHidden());
+#endif
 
   ResetAndWait(ProfileResetter::SHORTCUTS);
 
-  shortcut.CheckShortcutHasArguments(base::ASCIIToUTF16(
-      "--profile-directory=Default"));
+  shortcut.CheckShortcutHasArguments(L"--profile-directory=Default");
+  EXPECT_FALSE(shortcut.IsFileHidden());
 }
 
 TEST_F(ProfileResetterTest, ResetFewFlags) {
@@ -823,14 +844,12 @@ TEST_F(ProfileResetterTest, CheckSnapshots) {
                master_prefs);
   ShortcutHandler shortcut_hijacked;
   ShortcutCommand command_line = shortcut_hijacked.CreateWithArguments(
-      base::ASCIIToUTF16("chrome1.lnk"),
-      base::ASCIIToUTF16("--profile-directory=Default foo.com"));
+      L"chrome1.lnk", L"--profile-directory=Default foo.com");
   shortcut_hijacked.CheckShortcutHasArguments(
-      base::ASCIIToUTF16("--profile-directory=Default foo.com"));
+      L"--profile-directory=Default foo.com");
   ShortcutHandler shortcut_ok;
-  shortcut_ok.CreateWithArguments(
-      base::ASCIIToUTF16("chrome2.lnk"),
-      base::ASCIIToUTF16("--profile-directory=Default1"));
+  shortcut_ok.CreateWithArguments(L"chrome2.lnk",
+                                  L"--profile-directory=Default1");
 
   ResettableSettingsSnapshot nonorganic_snap(profile());
   nonorganic_snap.RequestShortcuts(base::OnceClosure());
@@ -901,8 +920,7 @@ TEST_F(ProfileResetterTest, FeedbackSerializationAsProtoTest) {
 
   ShortcutHandler shortcut;
   ShortcutCommand command_line = shortcut.CreateWithArguments(
-      base::ASCIIToUTF16("chrome.lnk"),
-      base::ASCIIToUTF16("--profile-directory=Default foo.com"));
+      L"chrome.lnk", L"--profile-directory=Default foo.com");
 
   ResettableSettingsSnapshot nonorganic_snap(profile());
   nonorganic_snap.RequestShortcuts(base::OnceClosure());
@@ -975,8 +993,7 @@ TEST_F(ProfileResetterTest, GetReadableFeedback) {
 
   ShortcutHandler shortcut;
   ShortcutCommand command_line = shortcut.CreateWithArguments(
-      base::ASCIIToUTF16("chrome.lnk"),
-      base::ASCIIToUTF16("--profile-directory=Default foo.com"));
+      L"chrome.lnk", L"--profile-directory=Default foo.com");
 
   FeedbackCapture capture;
   EXPECT_CALL(capture, OnUpdatedList());

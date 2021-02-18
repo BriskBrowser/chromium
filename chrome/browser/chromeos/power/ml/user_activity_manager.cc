@@ -6,6 +6,8 @@
 
 #include <cmath>
 
+#include "ash/constants/ash_features.h"
+#include "ash/constants/devicetype.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "base/bind.h"
 #include "base/metrics/field_trial_params.h"
@@ -20,8 +22,6 @@
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/devicetype.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/power_manager/power_supply_properties.pb.h"
 #include "components/ukm/content/source_url_recorder.h"
@@ -105,10 +105,8 @@ UserActivityManager::UserActivityManager(
     chromeos::PowerManagerClient* power_manager_client,
     session_manager::SessionManager* session_manager,
     mojo::PendingReceiver<viz::mojom::VideoDetectorObserver> receiver,
-    const chromeos::ChromeUserManager* user_manager,
-    SmartDimModel* smart_dim_model)
+    const chromeos::ChromeUserManager* user_manager)
     : ukm_logger_(ukm_logger),
-      smart_dim_model_(smart_dim_model),
       user_activity_observer_(this),
       power_manager_client_observer_(this),
       session_manager_observer_(this),
@@ -150,7 +148,7 @@ void UserActivityManager::OnUserActivity(const ui::Event* /* event */) {
 
 void UserActivityManager::LidEventReceived(
     chromeos::PowerManagerClient::LidState state,
-    const base::TimeTicks& /* timestamp */) {
+    base::TimeTicks /* timestamp */) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   lid_state_ = state;
 }
@@ -176,7 +174,7 @@ void UserActivityManager::PowerChanged(
 
 void UserActivityManager::TabletModeEventReceived(
     chromeos::PowerManagerClient::TabletMode mode,
-    const base::TimeTicks& /* timestamp */) {
+    base::TimeTicks /* timestamp */) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   tablet_mode_ = mode;
 }
@@ -263,19 +261,14 @@ void UserActivityManager::UpdateAndGetSmartDimDecision(
         profile->GetPrefs()->GetBoolean(ash::prefs::kPowerSmartDimEnabled);
   }
   if (smart_dim_enabled &&
-      base::FeatureList::IsEnabled(features::kUserActivityPrediction) &&
-      SmartDimModelReady()) {
+      base::FeatureList::IsEnabled(features::kUserActivityPrediction)) {
     waiting_for_model_decision_ = true;
     time_dim_decision_requested_ = base::TimeTicks::Now();
     auto request_callback =
         base::BindOnce(&UserActivityManager::HandleSmartDimDecision,
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback));
-    if (base::FeatureList::IsEnabled(features::kSmartDimNewMlAgent))
-      SmartDimMlAgent::GetInstance()->RequestDimDecision(
-          features_, std::move(request_callback));
-    else
-      smart_dim_model_->RequestDimDecision(features_,
-                                           std::move(request_callback));
+    SmartDimMlAgent::GetInstance()->RequestDimDecision(
+        features_, std::move(request_callback));
   }
   waiting_for_final_action_ = true;
 }
@@ -560,8 +553,7 @@ void UserActivityManager::PopulatePreviousEventData(
     const base::TimeDelta& now) {
   PreviousEventLoggingResult result = PreviousEventLoggingResult::kSuccess;
   if (!model_prediction_) {
-    result = base::FeatureList::IsEnabled(features::kUserActivityPrediction) &&
-                     SmartDimModelReady()
+    result = base::FeatureList::IsEnabled(features::kUserActivityPrediction)
                  ? PreviousEventLoggingResult::kErrorModelPredictionMissing
                  : PreviousEventLoggingResult::kErrorModelDisabled;
     LogPowerMLPreviousEventLoggingResult(result);
@@ -605,23 +597,13 @@ void UserActivityManager::ResetAfterLogging() {
 
 void UserActivityManager::CancelDimDecisionRequest() {
   LOG(WARNING) << "Cancelling pending Smart Dim decision request.";
-  if (base::FeatureList::IsEnabled(features::kSmartDimNewMlAgent))
-    SmartDimMlAgent::GetInstance()->CancelPreviousRequest();
-  else
-    smart_dim_model_->CancelPreviousRequest();
+  SmartDimMlAgent::GetInstance()->CancelPreviousRequest();
 
   waiting_for_model_decision_ = false;
   const base::TimeDelta wait_time =
       base::TimeTicks::Now() - time_dim_decision_requested_;
   LogPowerMLSmartDimModelRequestCancel(wait_time);
   time_dim_decision_requested_ = base::TimeTicks();
-}
-
-bool UserActivityManager::SmartDimModelReady() {
-  // We assume that BuiltinWorker of SmartDimMlAgent can always load model and
-  // preprocessor config from rootfs, therefore SmartDimMlAgent is always ready.
-  return base::FeatureList::IsEnabled(features::kSmartDimNewMlAgent) ||
-         smart_dim_model_;
 }
 
 }  // namespace ml

@@ -111,7 +111,8 @@ class GPU_GLES2_EXPORT SharedImageFactory {
   bool RegisterSysmemBufferCollection(gfx::SysmemBufferCollectionId id,
                                       zx::channel token,
                                       gfx::BufferFormat format,
-                                      gfx::BufferUsage usage);
+                                      gfx::BufferUsage usage,
+                                      bool register_with_image_pipe);
   bool ReleaseSysmemBufferCollection(gfx::SysmemBufferCollectionId id);
 #endif  // defined(OS_FUCHSIA)
 
@@ -210,6 +211,8 @@ class GPU_GLES2_EXPORT SharedImageRepresentationFactory {
       const Mailbox& mailbox,
       WGPUDevice device);
   std::unique_ptr<SharedImageRepresentationOverlay> ProduceOverlay(
+      const Mailbox& mailbox);
+  std::unique_ptr<SharedImageRepresentationMemory> ProduceMemory(
       const Mailbox& mailbox);
 
  private:

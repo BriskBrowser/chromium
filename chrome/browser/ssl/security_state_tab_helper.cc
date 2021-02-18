@@ -13,6 +13,7 @@
 #include "base/strings/pattern.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/reputation/reputation_web_contents_observer.h"
@@ -49,10 +50,10 @@
 #include "url/gurl.h"
 #include "url/origin.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/chromeos/policy/policy_cert_service.h"
 #include "chrome/browser/chromeos/policy/policy_cert_service_factory.h"
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if BUILDFLAG(FULL_SAFE_BROWSING)
 #include "chrome/browser/safe_browsing/chrome_password_protection_service.h"
@@ -262,7 +263,7 @@ void SecurityStateTabHelper::DidChangeVisibleSecurityState() {
 }
 
 bool SecurityStateTabHelper::UsedPolicyInstalledCertificate() const {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   policy::PolicyCertService* service =
       policy::PolicyCertServiceFactory::GetForProfile(
           Profile::FromBrowserContext(web_contents()->GetBrowserContext()));
@@ -284,7 +285,7 @@ SecurityStateTabHelper::GetMaliciousContentStatus() const {
     return security_state::MALICIOUS_CONTENT_STATUS_NONE;
   scoped_refptr<SafeBrowsingUIManager> sb_ui_manager = sb_service->ui_manager();
   safe_browsing::SBThreatType threat_type;
-  if (sb_ui_manager->IsUrlWhitelistedOrPendingForWebContents(
+  if (sb_ui_manager->IsUrlAllowlistedOrPendingForWebContents(
           entry->GetURL(), false, entry, web_contents(), false, &threat_type)) {
     switch (threat_type) {
       case safe_browsing::SB_THREAT_TYPE_UNUSED:
@@ -343,10 +344,10 @@ SecurityStateTabHelper::GetMaliciousContentStatus() const {
           DEPRECATED_SB_THREAT_TYPE_URL_PASSWORD_PROTECTION_PHISHING:
       case safe_browsing::SB_THREAT_TYPE_URL_BINARY_MALWARE:
       case safe_browsing::SB_THREAT_TYPE_EXTENSION:
-      case safe_browsing::SB_THREAT_TYPE_BLACKLISTED_RESOURCE:
+      case safe_browsing::SB_THREAT_TYPE_BLOCKLISTED_RESOURCE:
       case safe_browsing::SB_THREAT_TYPE_API_ABUSE:
       case safe_browsing::SB_THREAT_TYPE_SUBRESOURCE_FILTER:
-      case safe_browsing::SB_THREAT_TYPE_CSD_WHITELIST:
+      case safe_browsing::SB_THREAT_TYPE_CSD_ALLOWLIST:
       case safe_browsing::SB_THREAT_TYPE_AD_SAMPLE:
       case safe_browsing::SB_THREAT_TYPE_BLOCKED_AD_POPUP:
       case safe_browsing::SB_THREAT_TYPE_BLOCKED_AD_REDIRECT:

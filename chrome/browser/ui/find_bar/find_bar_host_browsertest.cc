@@ -12,6 +12,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -141,6 +142,16 @@ class FindInPageControllerTest : public InProcessBrowserTest {
 
   void EnsureFindBoxOpen() {
     EnsureFindBoxOpenForBrowser(browser());
+  }
+
+  int FindNext(WebContents* web_contents, int* ordinal) {
+    browser()->GetFindBarController()->Show(true /*find_next*/);
+    ui_test_utils::FindResultWaiter observer(web_contents);
+    observer.Wait();
+    if (ordinal) {
+      *ordinal = observer.active_match_ordinal();
+    }
+    return observer.number_of_matches();
   }
 
   int FindInPage16(WebContents* web_contents,
@@ -365,6 +376,40 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, NoAudibleAlertOnNavigation) {
   EXPECT_EQ(0u, GetFindBarAudibleAlertsForBrowser(browser()));
 }
 
+// See http://crbug.com/1131780
+IN_PROC_BROWSER_TEST_F(FindInPageControllerTest,
+                       AudibleAlertsWithPrepopulatedFind) {
+  ui_test_utils::NavigateToURL(browser(), GetURL(kSimple));
+
+  WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  EXPECT_EQ(0u, GetFindBarAudibleAlertsForBrowser(browser()));
+
+  // Do an initial find so the text will be prepopulated for the next one.
+  // This will produce an audible alert.
+  EXPECT_EQ(
+      0, FindInPageASCII(web_contents, "zzz", kFwd, kIgnoreCase, nullptr));
+  EXPECT_EQ(1u, GetFindBarAudibleAlertsForBrowser(browser()));
+  browser()->GetFindBarController()->EndFindSession(
+      find_in_page::SelectionAction::kKeep, find_in_page::ResultAction::kKeep);
+
+  // Now show the findbar (prepopulated) and ensure there's no alert.
+  browser()->GetFindBarController()->Show(false /*find_next*/);
+  EXPECT_EQ(ASCIIToUTF16("zzz"), GetFindBarText());
+  ui_test_utils::FindResultWaiter observer1(web_contents);
+  observer1.Wait();
+  EXPECT_EQ(0, observer1.number_of_matches());
+  EXPECT_EQ(1u, GetFindBarAudibleAlertsForBrowser(browser()));
+
+  // Now do a find-next and ensure there *is* an alert
+  browser()->GetFindBarController()->Show(true /*find_next*/);
+  EXPECT_EQ(ASCIIToUTF16("zzz"), GetFindBarText());
+  ui_test_utils::FindResultWaiter observer2(web_contents);
+  observer2.Wait();
+  EXPECT_EQ(0, observer2.number_of_matches());
+  EXPECT_EQ(2u, GetFindBarAudibleAlertsForBrowser(browser()));
+}
+
 // Verify search selection coordinates. The data file used is set-up such that
 // the text occurs on the same line, and we verify their positions by verifying
 // their relative positions.
@@ -391,6 +436,30 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, FindInPageSpecialURLs) {
   // We find next and we go back so find coordinates should be the same as
   // previous ones.
   ASSERT_EQ(first, first_reverse);
+}
+
+// This tests the following bug that used to exist:
+// 1) Do a find that has 0 results
+// 2) Navigate to a new page (on the same domain) that contains the search text.
+// 3) Open the find bar. It will be prepopulated with the previous search text
+// and should show the number of matches for that text. The bug caused it to
+// show 0 matches instead.
+IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, StaleCountAfterNoResults) {
+  WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  ui_test_utils::NavigateToURL(browser(), GetURL("simple.html"));
+  EXPECT_EQ(0, FindInPageASCII(web_contents, "link", kFwd, kIgnoreCase,
+                               nullptr));
+  browser()->GetFindBarController()->EndFindSession(
+      find_in_page::SelectionAction::kKeep, find_in_page::ResultAction::kKeep);
+
+  ui_test_utils::NavigateToURL(browser(), GetURL("link.html"));
+  browser()->GetFindBarController()->Show();
+  ui_test_utils::FindResultWaiter observer(web_contents);
+  observer.Wait();
+  EXPECT_EQ(1, observer.number_of_matches());
+  EXPECT_EQ(0, observer.active_match_ordinal());
 }
 
 // Verifies that comments and meta data are not searchable.
@@ -442,7 +511,7 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, MAYBE_LargePage) {
 #else
 #define MAYBE_FindLongString FindLongString
 #endif
-IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, FindLongString) {
+IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, MAYBE_FindLongString) {
   WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
   ui_test_utils::NavigateToURL(browser(), GetURL("largepage.html"));
@@ -470,7 +539,7 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, BigString) {
 
 // Search Back and Forward on a single occurrence.
 // TODO(crbug.com/1119361): Test is flaky on ChromeOS.
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #define MAYBE_SingleOccurrence DISABLED_SingleOccurrence
 #else
 #define MAYBE_SingleOccurrence SingleOccurrence
@@ -1032,9 +1101,8 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest,
 
   // Search for 'no_match'. No matches should be found.
   int ordinal = 0;
-  WebContents* web_contents =
-      browser()->tab_strip_model()->GetActiveWebContents();
-  EXPECT_EQ(0, FindInPageASCII(web_contents, "no_match",
+  auto* tab_strip = browser()->tab_strip_model();
+  EXPECT_EQ(0, FindInPageASCII(tab_strip->GetActiveWebContents(), "no_match",
                                kFwd, kIgnoreCase, &ordinal));
   EXPECT_EQ(0, ordinal);
 
@@ -1044,8 +1112,7 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest,
 
   // Simulate what happens when you press F3 for FindNext. We should get a
   // response here (a hang means search was aborted).
-  EXPECT_EQ(0, ui_test_utils::FindInPage(web_contents, base::string16(), kFwd,
-                                         kIgnoreCase, &ordinal, nullptr));
+  EXPECT_EQ(0, FindNext(tab_strip->GetActiveWebContents(), &ordinal));
   EXPECT_EQ(0, ordinal);
 
   // Open another tab (tab C).
@@ -1054,8 +1121,7 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest,
 
   // Simulate what happens when you press F3 for FindNext. We should get a
   // response here (a hang means search was aborted).
-  EXPECT_EQ(0, ui_test_utils::FindInPage(web_contents, base::string16(), kFwd,
-                                         kIgnoreCase, &ordinal, nullptr));
+  EXPECT_EQ(0, FindNext(tab_strip->GetActiveWebContents(), &ordinal));
   EXPECT_EQ(0, ordinal);
 }
 
@@ -1100,8 +1166,7 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, RestartSearchFromF3) {
 
   // Simulate what happens when you press F3 for FindNext. Still should show
   // one match. This cleared the pre-populate string at one point (see bug).
-  EXPECT_EQ(1, ui_test_utils::FindInPage(web_contents, base::string16(), kFwd,
-                                         kIgnoreCase, &ordinal, nullptr));
+  EXPECT_EQ(1, FindNext(web_contents, &ordinal));
   EXPECT_EQ(1, ordinal);
 
   // End the Find session, thereby making the next F3 start afresh.
@@ -1109,7 +1174,7 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, RestartSearchFromF3) {
       find_in_page::SelectionAction::kKeep, find_in_page::ResultAction::kKeep);
 
   // Simulate F3 while Find box is closed. Should have 1 match.
-  EXPECT_EQ(1, FindInPageASCII(web_contents, "", kFwd, kIgnoreCase, &ordinal));
+  EXPECT_EQ(1, FindNext(web_contents, &ordinal));
   EXPECT_EQ(1, ordinal);
 }
 
@@ -1153,8 +1218,7 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, MAYBE_PreferPreviousSearch) {
   browser()->GetFindBarController()->EndFindSession(
       find_in_page::SelectionAction::kKeep, find_in_page::ResultAction::kKeep);
   // Simulate F3.
-  ui_test_utils::FindInPage(web_contents_1, base::string16(), kFwd, kIgnoreCase,
-                            &ordinal, nullptr);
+  FindNext(web_contents_1, &ordinal);
   FindBar* find_bar = browser()->GetFindBarController()->find_bar();
   if (find_bar->HasGlobalFindPasteboard()) {
     EXPECT_EQ(find_in_page::FindTabHelper::FromWebContents(web_contents_1)
@@ -1325,7 +1389,7 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, NoIncognitoPrepopulate) {
   // Open a new incognito window and navigate to the same page.
   Profile* incognito_profile = browser()->profile()->GetPrimaryOTRProfile();
   Browser* incognito_browser =
-      new Browser(Browser::CreateParams(incognito_profile, true));
+      Browser::Create(Browser::CreateParams(incognito_profile, true));
   content::WindowedNotificationObserver observer(
       content::NOTIFICATION_LOAD_STOP,
       content::NotificationService::AllSources());
@@ -1387,7 +1451,7 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, ActivateLinkNavigatesPage) {
 IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, FitWindow) {
   Browser::CreateParams params(Browser::TYPE_POPUP, browser()->profile(), true);
   params.initial_bounds = gfx::Rect(0, 0, 250, 500);
-  Browser* popup = new Browser(params);
+  Browser* popup = Browser::Create(params);
   content::WindowedNotificationObserver observer(
       content::NOTIFICATION_LOAD_STOP,
       content::NotificationService::AllSources());

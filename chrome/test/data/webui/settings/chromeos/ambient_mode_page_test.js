@@ -5,10 +5,12 @@
 // clang-format off
 // #import 'chrome://os-settings/chromeos/os_settings.js';
 
-// #import {AmbientModeTopicSource, AmbientModeTemperatureUnit, AmbientModeBrowserProxyImpl, CrSettingsPrefs, Router} from 'chrome://os-settings/chromeos/os_settings.js';
+// #import {AmbientModeTopicSource, AmbientModeTemperatureUnit, AmbientModeBrowserProxyImpl, CrSettingsPrefs, routes, Router} from 'chrome://os-settings/chromeos/os_settings.js';
 // #import {TestBrowserProxy} from '../../test_browser_proxy.m.js';
 // #import {assertEquals, assertFalse, assertTrue} from '../../chai_assert.js';
 // #import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+// #import {getDeepActiveElement} from 'chrome://resources/js/util.m.js';
+// #import {waitAfterNextRender} from 'chrome://test/test_util.m.js';
 // clang-format on
 
 /**
@@ -20,7 +22,6 @@ class TestAmbientModeBrowserProxy extends TestBrowserProxy {
       'requestSettings',
       'requestAlbums',
       'setSelectedTemperatureUnit',
-      'setSelectedTopicSource',
       'setSelectedAlbums',
     ]);
   }
@@ -41,11 +42,6 @@ class TestAmbientModeBrowserProxy extends TestBrowserProxy {
   }
 
   /** @override */
-  setSelectedTopicSource(topicSource) {
-    this.methodCalled('setSelectedTopicSource', [topicSource]);
-  }
-
-  /** @override */
   setSelectedAlbums(settings) {
     this.methodCalled('setSelectedAlbums', [settings]);
   }
@@ -54,9 +50,6 @@ class TestAmbientModeBrowserProxy extends TestBrowserProxy {
 suite('AmbientModeHandler', function() {
   /** @type {SettingsAmbientModePageElement} */
   let ambientModePage = null;
-
-  /** @type {SettingsAmbientModePhotosPageElement} */
-  let ambientModePhotosPage = null;
 
   /** @type {?TestAmbientModeBrowserProxy} */
   let browserProxy = null;
@@ -71,10 +64,6 @@ suite('AmbientModeHandler', function() {
 
     const prefElement = document.createElement('settings-prefs');
     document.body.appendChild(prefElement);
-
-    ambientModePhotosPage =
-        document.createElement('settings-ambient-mode-photos-page');
-    document.body.appendChild(ambientModePhotosPage);
 
     return CrSettingsPrefs.initialized.then(function() {
       ambientModePage = document.createElement('settings-ambient-mode-page');
@@ -91,10 +80,10 @@ suite('AmbientModeHandler', function() {
 
   teardown(function() {
     ambientModePage.remove();
-    ambientModePhotosPage.remove();
+    settings.Router.getInstance().resetRouteForTesting();
   });
 
-  test('toggleAmbientMode', function() {
+  test('toggleAmbientMode', () => {
     const button = ambientModePage.$$('#ambientModeEnable');
     assertTrue(!!button);
     assertFalse(button.disabled);
@@ -121,10 +110,77 @@ suite('AmbientModeHandler', function() {
     assertEquals(enabled, enabled_toggled_twice);
   });
 
+  test('hasNoTopicSourceItemsWhenLoading', () => {
+    const spinner = ambientModePage.$$('paper-spinner-lite');
+    assertTrue(!!spinner);
+    assertTrue(spinner.active);
+    assertFalse(spinner.hidden);
+
+    const topicSourceListDiv = ambientModePage.$$('#topicSourceListDiv');
+    assertFalse(!!topicSourceListDiv);
+  });
+
+  test('hasTopicSourceItemsAfterLoad', function() {
+    const spinner = ambientModePage.$$('paper-spinner-lite');
+    assertTrue(!!spinner);
+    assertTrue(spinner.active);
+    assertFalse(spinner.hidden);
+
+    const topicSourceListDiv = ambientModePage.$$('#topicSourceListDiv');
+    assertFalse(!!topicSourceListDiv);
+
+    // Select the google photos topic source.
+    cr.webUIListenerCallback('topic-source-changed', {
+      'topicSource': AmbientModeTopicSource.GOOGLE_PHOTOS,
+      'hasAlbums': true
+    });
+    // Select celsius as the initial temperature unit.
+    cr.webUIListenerCallback(
+        'temperature-unit-changed', AmbientModeTemperatureUnit.CELSIUS);
+    Polymer.dom.flush();
+
+    // Spinner is not active and not visible.
+    assertFalse(spinner.active);
+    assertTrue(spinner.hidden);
+
+    const topicSourceList = ambientModePage.$$('topic-source-list');
+    const ironList = topicSourceList.$$('iron-list');
+    const topicSourceItems = ironList.querySelectorAll('topic-source-item');
+
+    // Only have two topics source items: GOOGLE_PHOTOS and ART_GALLERY.
+    assertEquals(2, topicSourceItems.length);
+  });
+
+  test('topicSourceItemHasCorrectRowHeight', function() {
+    // Select the google photos topic source.
+    cr.webUIListenerCallback('topic-source-changed', {
+      'topicSource': AmbientModeTopicSource.GOOGLE_PHOTOS,
+      'hasAlbums': true
+    });
+    // Select celsius as the initial temperature unit.
+    cr.webUIListenerCallback(
+        'temperature-unit-changed', AmbientModeTemperatureUnit.CELSIUS);
+    Polymer.dom.flush();
+
+    const topicSourceList = ambientModePage.$$('topic-source-list');
+    const ironList = topicSourceList.$$('iron-list');
+    const topicSourceItems = ironList.querySelectorAll('topic-source-item');
+
+    topicSourceItems.forEach((row) => {
+      assertEquals(64, row.offsetHeight);
+    });
+  });
+
   test('doubleClickTopicSource', () => {
     // Select the google photos topic source.
+    cr.webUIListenerCallback('topic-source-changed', {
+      'topicSource': AmbientModeTopicSource.GOOGLE_PHOTOS,
+      'hasAlbums': true
+    });
+    // Select celsius as the initial temperature unit.
     cr.webUIListenerCallback(
-        'topic-source-changed', AmbientModeTopicSource.GOOGLE_PHOTOS);
+        'temperature-unit-changed', AmbientModeTemperatureUnit.CELSIUS);
+    Polymer.dom.flush();
 
     const topicSourceList = ambientModePage.$$('topic-source-list');
     const ironList = topicSourceList.$$('iron-list');
@@ -149,56 +205,67 @@ suite('AmbientModeHandler', function() {
     assertEquals('topicSource=0', router.getQueryParameters().toString());
   });
 
-  test('hasTopicSourceItems', function() {
-    const topicSourceListElement = ambientModePage.$$('topic-source-list');
-    const ironList = topicSourceListElement.$$('iron-list');
-    const topicSourceItems = ironList.querySelectorAll('topic-source-item');
-    assertEquals(2, topicSourceItems.length);
-  });
+  test('Deep link to topic sources', async () => {
+    loadTimeData.overrideValues({isDeepLinkingEnabled: true});
+    assertTrue(loadTimeData.getBoolean('isDeepLinkingEnabled'));
 
-  test('hasAlbums', function() {
-    ambientModePhotosPage.albums_ = [
-      {albumId: 'id0', checked: true, title: 'album0'},
-      {albumId: 'id1', checked: false, title: 'album1'}
-    ];
-    Polymer.dom.flush();
+    const params = new URLSearchParams;
+    params.append('settingId', '502');
+    settings.Router.getInstance().navigateTo(
+        settings.routes.AMBIENT_MODE, params);
 
-    const ironList = ambientModePhotosPage.$$('iron-list');
-    const checkboxes = ironList.querySelectorAll('cr-checkbox');
-    assertEquals(2, checkboxes.length);
-
-    const checkbox0 = checkboxes[0];
-    const checkbox1 = checkboxes[1];
-    assertEquals('id0', checkbox0.dataset.id);
-    assertTrue(checkbox0.checked);
-    assertEquals('album0', checkbox0.label);
-    assertEquals('id1', checkbox1.dataset.id);
-    assertFalse(checkbox1.checked);
-    assertEquals('album1', checkbox1.label);
-  });
-
-  test('temperatureUnitRadioButtonsDisabled', () => {
-    // When |selectedTemperatureUnit_| is invalid the radio buttons should be
-    // disabled. This is the initial state.
-    const radioGroup = ambientModePage.$$('#weatherDiv cr-radio-group');
-
-    assertTrue(radioGroup.disabled);
-
-    // When |selectedTemperatureUnit_| is valid the radio buttons should be
-    // enabled.
+    // Select the google photos topic source.
+    cr.webUIListenerCallback('topic-source-changed', {
+      'topicSource': AmbientModeTopicSource.GOOGLE_PHOTOS,
+      'hasAlbums': true
+    });
+    // Select celsius as the initial temperature unit.
     cr.webUIListenerCallback(
         'temperature-unit-changed', AmbientModeTemperatureUnit.CELSIUS);
-    assertFalse(radioGroup.disabled);
+    Polymer.dom.flush();
 
+    const deepLinkElement =
+        ambientModePage.$$('topic-source-list').$$('topic-source-item');
+    await test_util.waitAfterNextRender(deepLinkElement);
+    assertEquals(
+        deepLinkElement, getDeepActiveElement(),
+        'Topic sources row should be focused for settingId=502.');
+  });
+
+  test('temperatureUnitRadioButtonsVisibility', () => {
+    // Select the google photos topic source.
+    cr.webUIListenerCallback('topic-source-changed', {
+      'topicSource': AmbientModeTopicSource.GOOGLE_PHOTOS,
+      'hasAlbums': true
+    });
+    Polymer.dom.flush();
+
+    // When |selectedTemperatureUnit_| is invalid the radio buttons is not
+    // visible. This is the initial state.
+    let radioGroup = ambientModePage.$$('#weatherDiv cr-radio-group');
+    assertFalse(!!radioGroup);
+
+    // When |selectedTemperatureUnit_| is valid the radio buttons should be
+    // visible and enabled.
     cr.webUIListenerCallback(
-        'temperature-unit-changed', AmbientModeTemperatureUnit.UNKNOWN);
-    assertTrue(radioGroup.disabled);
+        'temperature-unit-changed', AmbientModeTemperatureUnit.CELSIUS);
+    Polymer.dom.flush();
+
+    radioGroup = ambientModePage.$$('#weatherDiv cr-radio-group');
+    assertTrue(!!radioGroup);
+    assertFalse(radioGroup.disabled);
   });
 
   test('temperatureUnitRadioButtons', async () => {
-    // Simulate C++ setting celsius as the initial temperature unit.
+    // Select the google photos topic source.
+    cr.webUIListenerCallback('topic-source-changed', {
+      'topicSource': AmbientModeTopicSource.GOOGLE_PHOTOS,
+      'hasAlbums': true
+    });
+    // Select celsius as the initial temperature unit.
     cr.webUIListenerCallback(
         'temperature-unit-changed', AmbientModeTemperatureUnit.CELSIUS);
+    Polymer.dom.flush();
 
     const celsiusButton = ambientModePage.$$('cr-radio-button[name=celsius]');
     const fahrenheitButton =
@@ -237,9 +304,15 @@ suite('AmbientModeHandler', function() {
   });
 
   test('temperatureUnitRadioButtonsDoubleClick', async () => {
-    // Simulate C++ setting celsius as the default temperature unit.
+    // Select the google photos topic source.
+    cr.webUIListenerCallback('topic-source-changed', {
+      'topicSource': AmbientModeTopicSource.GOOGLE_PHOTOS,
+      'hasAlbums': true
+    });
+    // Select celsius as the initial temperature unit.
     cr.webUIListenerCallback(
         'temperature-unit-changed', AmbientModeTemperatureUnit.CELSIUS);
+    Polymer.dom.flush();
 
     const celsiusButton = ambientModePage.$$('cr-radio-button[name=celsius]');
 
@@ -249,4 +322,44 @@ suite('AmbientModeHandler', function() {
     celsiusButton.click();
     assertEquals(0, browserProxy.getCallCount('setSelectedTemperatureUnit'));
   });
+
+  test('topicSourceAndWeatherDisabledWhenToggleOff', () => {
+    // Select the google photos topic source.
+    cr.webUIListenerCallback('topic-source-changed', {
+      'topicSource': AmbientModeTopicSource.GOOGLE_PHOTOS,
+      'hasAlbums': true
+    });
+    // Select celsius as the initial temperature unit.
+    cr.webUIListenerCallback(
+        'temperature-unit-changed', AmbientModeTemperatureUnit.CELSIUS);
+    Polymer.dom.flush();
+
+    const button = ambientModePage.$$('#ambientModeEnable');
+    assertTrue(!!button);
+    assertFalse(button.disabled);
+
+    // The button's state is set by the pref value.
+    let enabled =
+        ambientModePage.getPref('settings.ambient_mode.enabled.value');
+    assertTrue(enabled);
+    assertEquals(enabled, button.checked);
+
+    // Topic source list and weather radio group are enabled.
+    const topicSourceList = ambientModePage.$$('topic-source-list');
+    assertFalse(topicSourceList.disabled);
+    const radioGroup = ambientModePage.$$('#weatherDiv cr-radio-group');
+    assertFalse(radioGroup.disabled);
+
+    // Click the button will toggle the pref value.
+    button.click();
+    Polymer.dom.flush();
+    enabled = ambientModePage.getPref('settings.ambient_mode.enabled.value');
+    assertFalse(enabled);
+    assertEquals(enabled, button.checked);
+
+    // Topic source list and weather radio group are disabled.
+    assertTrue(topicSourceList.disabled);
+    assertTrue(radioGroup.disabled);
+  });
+
 });

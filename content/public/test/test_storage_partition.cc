@@ -5,7 +5,7 @@
 #include "content/public/test/test_storage_partition.h"
 
 #include "components/leveldb_proto/public/proto_database_provider.h"
-#include "content/public/browser/native_file_system_entry_factory.h"
+#include "content/public/browser/file_system_access_entry_factory.h"
 #include "services/network/public/mojom/cookie_manager.mojom.h"
 
 namespace content {
@@ -47,6 +47,18 @@ void TestStoragePartition::CreateHasTrustTokensAnswerer(
   NOTREACHED() << "Not implemented.";
 }
 
+mojo::PendingRemote<network::mojom::AuthenticationAndCertificateObserver>
+TestStoragePartition::CreateAuthAndCertObserverForFrame(int process_id,
+                                                        int routing_id) {
+  return mojo::NullRemote();
+}
+
+mojo::PendingRemote<network::mojom::AuthenticationAndCertificateObserver>
+TestStoragePartition::CreateAuthAndCertObserverForNavigationRequest(
+    int frame_tree_id) {
+  return mojo::NullRemote();
+}
+
 storage::QuotaManager* TestStoragePartition::GetQuotaManager() {
   return quota_manager_;
 }
@@ -79,8 +91,12 @@ storage::mojom::IndexedDBControl& TestStoragePartition::GetIndexedDBControl() {
   return *indexed_db_control_;
 }
 
-NativeFileSystemEntryFactory*
-TestStoragePartition::GetNativeFileSystemEntryFactory() {
+FileSystemAccessEntryFactory*
+TestStoragePartition::GetFileSystemAccessEntryFactory() {
+  return nullptr;
+}
+
+FontAccessContext* TestStoragePartition::GetFontAccessContext() {
   return nullptr;
 }
 
@@ -96,8 +112,13 @@ SharedWorkerService* TestStoragePartition::GetSharedWorkerService() {
   return shared_worker_service_;
 }
 
-CacheStorageContext* TestStoragePartition::GetCacheStorageContext() {
-  return cache_storage_context_;
+storage::mojom::CacheStorageControl*
+TestStoragePartition::GetCacheStorageControl() {
+  // Bind and throw away the receiver. If testing is required, then add a method
+  // to set the remote.
+  if (!cache_storage_control_.is_bound())
+    ignore_result(cache_storage_control_.BindNewPipeAndPassReceiver());
+  return cache_storage_control_.get();
 }
 
 GeneratedCodeCacheContext*
@@ -126,6 +147,11 @@ TestStoragePartition::GetProtoDatabaseProvider() {
 
 void TestStoragePartition::SetProtoDatabaseProvider(
     std::unique_ptr<leveldb_proto::ProtoDatabaseProvider> proto_db_provider) {}
+
+leveldb_proto::ProtoDatabaseProvider*
+TestStoragePartition::GetProtoDatabaseProviderForTesting() {
+  return nullptr;
+}
 
 #if !defined(OS_ANDROID)
 HostZoomMap* TestStoragePartition::GetHostZoomMap() {

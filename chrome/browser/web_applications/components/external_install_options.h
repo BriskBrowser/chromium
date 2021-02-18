@@ -9,10 +9,12 @@
 #include <string>
 #include <vector>
 
+#include "base/optional.h"
 #include "chrome/browser/web_applications/components/install_manager.h"
+#include "chrome/browser/web_applications/components/system_web_app_types.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
 #include "chrome/browser/web_applications/components/web_app_id.h"
-#include "chrome/common/web_application_info.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "url/gurl.h"
 
 namespace web_app {
@@ -23,7 +25,7 @@ using WebApplicationInfoFactory =
 enum class ExternalInstallSource;
 
 struct ExternalInstallOptions {
-  ExternalInstallOptions(const GURL& url,
+  ExternalInstallOptions(const GURL& install_url,
                          DisplayMode user_display_mode,
                          ExternalInstallSource install_source);
   ~ExternalInstallOptions();
@@ -33,9 +35,13 @@ struct ExternalInstallOptions {
 
   bool operator==(const ExternalInstallOptions& other) const;
 
-  GURL url;
+  GURL install_url;
   DisplayMode user_display_mode;
   ExternalInstallSource install_source;
+
+  // App name to use for placeholder apps or web apps that have no name in
+  // their manifest.
+  base::Optional<std::string> fallback_app_name;
 
   // If true, a shortcut is added to the Applications folder on macOS, and Start
   // Menu on Linux and Windows and launcher on Chrome OS. If false, we skip
@@ -76,6 +82,25 @@ struct ExternalInstallOptions {
   // uninstalled it.
   bool override_previous_user_uninstall = false;
 
+  // Whether the app should only be installed if the user is using Chrome for
+  // the first time.
+  bool only_for_new_users = false;
+
+  // Which user types this app should be installed for.
+  // See apps::DetermineUserType() for relevant string constants.
+  std::vector<std::string> user_type_allowlist;
+
+  // Which feature flag should be enabled to install this app. See
+  // chrome/browser/web_applications/components/external_app_install_features.h
+  // for available features to gate on.
+  base::Optional<std::string> gate_on_feature;
+
+  // Whether this should not be installed for devices that support ARC.
+  bool disable_if_arc_supported = false;
+
+  // Whether this should not be installed for tablet devices.
+  bool disable_if_tablet_form_factor = false;
+
   // This must only be used by pre-installed default or system apps that are
   // valid PWAs if loading the real service worker is too costly to verify
   // programmatically.
@@ -88,6 +113,12 @@ struct ExternalInstallOptions {
   // Whether the app should be reinstalled even if it is already installed.
   bool force_reinstall = false;
 
+  // Whether we should update the app if the browser's binary milestone number
+  // goes from less the milestone specified to greater or equal than the
+  // milestone specified. For example, if this value is 89 then we update the
+  // app on all browser upgrades from <89 to >=89. The update happens only once.
+  base::Optional<int> force_reinstall_for_milestone;
+
   // Whether we should wait for all app windows being closed before reinstalling
   // the placeholder.
   bool wait_for_windows_closed = false;
@@ -96,12 +127,26 @@ struct ExternalInstallOptions {
   // metadata for the app. A placeholder app uses:
   //  - The default Chrome App icon for the icon
   //  - |url| as the start_url
-  //  - |url| as the app name
+  //  - |url| as the app name (unless fallback_app_name has been specified)
   bool install_placeholder = false;
 
   // Whether we should try to reinstall the app if there is a placeholder for
   // it.
   bool reinstall_placeholder = false;
+
+  // Optional query parameters to add to the start_url when launching the app.
+  base::Optional<std::string> launch_query_params;
+
+  // Whether we should load |service_worker_registration_url| after successful
+  // installation to allow the site to install its service worker and set up
+  // offline caching.
+  bool load_and_await_service_worker_registration = true;
+
+  // The URL to use for service worker registration. This is
+  // configurable by sites that wish to be able to track install metrics of the
+  // install_url separate from the service worker registration step. Defaults to
+  // install_url if unset.
+  base::Optional<GURL> service_worker_registration_url;
 
   // A list of app_ids that the Web App System should attempt to uninstall and
   // replace with this app (e.g maintain shelf pins, app list positions).
@@ -111,11 +156,17 @@ struct ExternalInstallOptions {
   // Only affects Chrome OS.
   std::vector<std::string> additional_search_terms;
 
-  // A factory callback that returns a unique_ptr<WebApplicationInfo>. If this
-  // is present, the generated WebApplicationInfo is used to install the app
-  // instead of loading the url, retrieving the manifest, and installing from
-  // that.
+  // Determines whether |app_info_factory| is used as a fallback or the primary
+  // source of app metadata. If true the |install_url| and
+  // |service_worker_registration_url| will not be loaded.
+  bool only_use_app_info_factory = false;
+
+  // A factory callback that returns a unique_ptr<WebApplicationInfo> to be used
+  // as the app's installation metadata.
   WebApplicationInfoFactory app_info_factory;
+
+  // The type of SystemWebApp, if this app is a System Web App.
+  base::Optional<SystemAppType> system_app_type = base::nullopt;
 };
 
 std::ostream& operator<<(std::ostream& out,

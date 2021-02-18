@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/containers/queue.h"
 #include "base/location.h"
 #include "base/logging.h"
@@ -21,8 +21,8 @@
 #include "chromecast/media/api/decoder_buffer_base.h"
 #include "chromecast/media/cma/base/decoder_buffer_adapter.h"
 #include "chromecast/media/cma/base/decoder_config_adapter.h"
-#include "chromecast/media/cma/base/decoder_config_logging.h"
 #include "chromecast/media/cma/decoder/external_audio_decoder_wrapper.h"
+#include "chromecast/media/common/base/decoder_config_logging.h"
 #include "media/base/audio_buffer.h"
 #include "media/base/audio_bus.h"
 #include "media/base/cdm_context.h"
@@ -184,15 +184,15 @@ class CastAudioDecoderImpl : public CastAudioDecoder {
   }
 
   void OnDecodeStatus(base::TimeDelta buffer_timestamp,
-                      ::media::DecodeStatus status) {
+                      ::media::Status status) {
     DCHECK(pending_decode_callback_);
 
     Status result_status = kDecodeOk;
     scoped_refptr<media::DecoderBufferBase> decoded;
-    if (status == ::media::DecodeStatus::OK && !decoded_chunks_.empty()) {
+    if (status.is_ok() && !decoded_chunks_.empty()) {
       decoded = ConvertDecoded();
     } else {
-      if (status != ::media::DecodeStatus::OK)
+      if (!status.is_ok())
         result_status = kDecodeError;
       decoded = base::MakeRefCounted<media::DecoderBufferAdapter>(
           output_config_.id, base::MakeRefCounted<::media::DecoderBuffer>(0));
@@ -266,8 +266,8 @@ class CastAudioDecoderImpl : public CastAudioDecoder {
     auto result = base::MakeRefCounted<::media::DecoderBuffer>(size);
 
     if (output_format_ == kOutputSigned16) {
-      bus->ToInterleaved(num_frames, OutputFormatSizeInBytes(output_format_),
-                         result->writable_data());
+      bus->ToInterleaved<::media::SignedInt16SampleTypeTraits>(
+          num_frames, reinterpret_cast<int16_t*>(result->writable_data()));
     } else if (output_format_ == kOutputPlanarFloat) {
       // Data in an AudioBus is already in planar float format; just copy each
       // channel into the result buffer in order.

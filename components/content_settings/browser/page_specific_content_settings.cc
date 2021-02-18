@@ -15,6 +15,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/browsing_data/content/appcache_helper.h"
 #include "components/browsing_data/content/cache_storage_helper.h"
 #include "components/browsing_data/content/cookie_helper.h"
@@ -109,22 +110,6 @@ void PageSpecificContentSettings::SiteDataObserver::WebContentsDestroyed() {
   web_contents_ = nullptr;
 }
 
-// static
-void PageSpecificContentSettings::WebContentsHandler::CreateForWebContents(
-    content::WebContents* web_contents,
-    std::unique_ptr<Delegate> delegate) {
-  DCHECK(web_contents);
-  if (PageSpecificContentSettings::WebContentsHandler::FromWebContents(
-          web_contents)) {
-    return;
-  }
-
-  web_contents->SetUserData(
-      PageSpecificContentSettings::WebContentsHandler::UserDataKey(),
-      base::WrapUnique(new PageSpecificContentSettings::WebContentsHandler(
-          web_contents, std::move(delegate))));
-}
-
 PageSpecificContentSettings::WebContentsHandler::WebContentsHandler(
     content::WebContents* web_contents,
     std::unique_ptr<Delegate> delegate)
@@ -211,18 +196,6 @@ void PageSpecificContentSettings::WebContentsHandler::OnServiceWorkerAccessed(
       PageSpecificContentSettings::GetForCurrentDocument(frame->GetMainFrame());
   if (tscs)
     tscs->OnServiceWorkerAccessed(scope, allowed);
-}
-
-void PageSpecificContentSettings::WebContentsHandler::
-    RenderFrameForInterstitialPageCreated(
-        content::RenderFrameHost* render_frame_host) {
-  // We want to tell the renderer-side code to ignore content settings for this
-  // page.
-  mojo::AssociatedRemote<content_settings::mojom::ContentSettingsAgent>
-      content_settings_agent;
-  render_frame_host->GetRemoteAssociatedInterfaces()->GetInterface(
-      &content_settings_agent);
-  content_settings_agent->SetAsInterstitial();
 }
 
 void PageSpecificContentSettings::WebContentsHandler::DidStartNavigation(
@@ -345,9 +318,8 @@ PageSpecificContentSettings::PageSpecificContentSettings(
           handler_.web_contents()->GetBrowserContext(),
           delegate_->GetAdditionalFileSystemTypes(),
           delegate_->GetIsDeletionDisabledCallback()),
-      load_plugins_link_enabled_(true),
       microphone_camera_state_(MICROPHONE_CAMERA_NOT_ACCESSED) {
-  observer_.Add(map_);
+  observation_.Observe(map_);
 }
 
 PageSpecificContentSettings::~PageSpecificContentSettings() = default;
@@ -482,7 +454,6 @@ bool PageSpecificContentSettings::IsContentBlocked(
 
   if (content_type == ContentSettingsType::IMAGES ||
       content_type == ContentSettingsType::JAVASCRIPT ||
-      content_type == ContentSettingsType::PLUGINS ||
       content_type == ContentSettingsType::COOKIES ||
       content_type == ContentSettingsType::POPUPS ||
       content_type == ContentSettingsType::MIXEDSCRIPT ||
@@ -574,10 +545,10 @@ void PageSpecificContentSettings::OnContentAllowed(ContentSettingsType type) {
     status.blocked = false;
     access_changed = true;
   }
-
   if (!status.allowed) {
     status.allowed = true;
     access_changed = true;
+    delegate_->OnContentAllowed(type);
   }
 
   if (access_changed)
@@ -725,7 +696,7 @@ void PageSpecificContentSettings::OnFileSystemAccessed(const GURL& url,
   handler_.NotifySiteDataObservers();
 }
 
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
+#if defined(OS_ANDROID) || BUILDFLAG(IS_CHROMEOS_ASH)
 void PageSpecificContentSettings::OnProtectedMediaIdentifierPermissionSet(
     const GURL& requesting_origin,
     bool allowed) {
@@ -775,6 +746,8 @@ void PageSpecificContentSettings::OnMediaStreamPermissionSet(
     bool mic_blocked = (new_microphone_camera_state & MICROPHONE_BLOCKED) != 0;
     ContentSettingsStatus& status =
         content_settings_status_[ContentSettingsType::MEDIASTREAM_MIC];
+    if (!status.allowed && !mic_blocked)
+      delegate_->OnContentAllowed(ContentSettingsType::MEDIASTREAM_MIC);
     status.allowed = !mic_blocked;
     status.blocked = mic_blocked;
   }
@@ -785,6 +758,8 @@ void PageSpecificContentSettings::OnMediaStreamPermissionSet(
     bool cam_blocked = (new_microphone_camera_state & CAMERA_BLOCKED) != 0;
     ContentSettingsStatus& status =
         content_settings_status_[ContentSettingsType::MEDIASTREAM_CAMERA];
+    if (!status.allowed && !cam_blocked)
+      delegate_->OnContentAllowed(ContentSettingsType::MEDIASTREAM_CAMERA);
     status.allowed = !cam_blocked;
     status.blocked = cam_blocked;
   }
@@ -793,10 +768,6 @@ void PageSpecificContentSettings::OnMediaStreamPermissionSet(
     microphone_camera_state_ = new_microphone_camera_state;
     delegate_->UpdateLocationBar();
   }
-}
-
-void PageSpecificContentSettings::FlashDownloadBlocked() {
-  OnContentBlocked(ContentSettingsType::PLUGINS);
 }
 
 void PageSpecificContentSettings::ClearPopupsBlocked() {
@@ -821,10 +792,9 @@ void PageSpecificContentSettings::SetPepperBrokerAllowed(bool allowed) {
 void PageSpecificContentSettings::OnContentSettingChanged(
     const ContentSettingsPattern& primary_pattern,
     const ContentSettingsPattern& secondary_pattern,
-    ContentSettingsType content_type,
-    const std::string& resource_identifier) {
+    ContentSettingsType content_type) {
   const ContentSettingsDetails details(primary_pattern, secondary_pattern,
-                                       content_type, resource_identifier);
+                                       content_type);
   if (!details.update_all() &&
       // The visible URL is the URL in the URL field of a tab.
       // Currently this should be matched by the |primary_pattern|.
@@ -837,8 +807,8 @@ void PageSpecificContentSettings::OnContentSettingChanged(
     case ContentSettingsType::MEDIASTREAM_MIC:
     case ContentSettingsType::MEDIASTREAM_CAMERA: {
       const GURL media_origin = media_stream_access_origin();
-      ContentSetting setting = map_->GetContentSetting(
-          media_origin, media_origin, content_type, std::string());
+      ContentSetting setting =
+          map_->GetContentSetting(media_origin, media_origin, content_type);
 
       if (content_type == ContentSettingsType::MEDIASTREAM_MIC &&
           setting == CONTENT_SETTING_ALLOW) {
@@ -855,15 +825,14 @@ void PageSpecificContentSettings::OnContentSettingChanged(
       break;
     }
     case ContentSettingsType::GEOLOCATION: {
-      ContentSetting geolocation_setting = map_->GetContentSetting(
-          visible_url_, visible_url_, content_type, std::string());
+      ContentSetting geolocation_setting =
+          map_->GetContentSetting(visible_url_, visible_url_, content_type);
       if (geolocation_setting == CONTENT_SETTING_ALLOW)
         geolocation_was_just_granted_on_site_level_ = true;
       FALLTHROUGH;
     }
     case ContentSettingsType::IMAGES:
     case ContentSettingsType::JAVASCRIPT:
-    case ContentSettingsType::PLUGINS:
     case ContentSettingsType::COOKIES:
     case ContentSettingsType::POPUPS:
     case ContentSettingsType::MIXEDSCRIPT:
@@ -873,8 +842,8 @@ void PageSpecificContentSettings::OnContentSettingChanged(
     case ContentSettingsType::SOUND:
     case ContentSettingsType::CLIPBOARD_READ_WRITE:
     case ContentSettingsType::SENSORS: {
-      ContentSetting setting = map_->GetContentSetting(
-          visible_url_, visible_url_, content_type, std::string());
+      ContentSetting setting =
+          map_->GetContentSetting(visible_url_, visible_url_, content_type);
       // If an indicator is shown and the content settings has changed, swap the
       // indicator for the one with the opposite meaning (allowed <=> blocked).
       if (setting == CONTENT_SETTING_BLOCK && status.allowed) {

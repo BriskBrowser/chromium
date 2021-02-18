@@ -12,7 +12,9 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "base/scoped_observer.h"
 #include "base/timer/timer.h"
+#include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/login/screens/base_screen.h"
 #include "chrome/browser/chromeos/login/screens/error_screen.h"
 #include "chrome/browser/chromeos/login/version_updater/version_updater.h"
@@ -25,7 +27,6 @@ class TickClock;
 namespace chromeos {
 
 class ErrorScreensHistogramHelper;
-class ScreenManager;
 class UpdateView;
 class WizardContext;
 
@@ -33,7 +34,7 @@ class WizardContext;
 //
 // The screen will request an update availability check from the update engine,
 // and track the update engine progress. When the UpdateScreen finishes, it will
-// run the |exit_callback| with the screen result.
+// run the `exit_callback` with the screen result.
 //
 // If the update engine reports no updates are found, or the available
 // update is not critical, UpdateScreen will report UPDATE_NOT_REQUIRED result.
@@ -59,13 +60,13 @@ class UpdateScreen : public BaseScreen,
                      public VersionUpdater::Delegate,
                      public PowerManagerClient::Observer {
  public:
+  using TView = UpdateView;
   using Result = VersionUpdater::Result;
 
   static std::string GetResultString(Result result);
 
-  static UpdateScreen* Get(ScreenManager* manager);
-
   using ScreenExitCallback = base::RepeatingCallback<void(Result result)>;
+
   UpdateScreen(UpdateView* view,
                ErrorScreen* error_screen,
                const ScreenExitCallback& exit_callback);
@@ -145,7 +146,11 @@ class UpdateScreen : public BaseScreen,
   // The user requested an attempt to connect to the network should be made.
   void OnConnectRequested();
 
-  // Callback passed to |error_screen_| when it's shown. Called when the error
+  // Notification of a change in the accessibility settings.
+  void OnAccessibilityStatusChanged(
+      const AccessibilityStatusEventDetails& details);
+
+  // Callback passed to `error_screen_` when it's shown. Called when the error
   // screen gets hidden.
   void OnErrorScreenHidden();
 
@@ -219,7 +224,14 @@ class UpdateScreen : public BaseScreen,
   base::TimeDelta verify_time_;
   base::TimeDelta finalize_time_;
 
-  ErrorScreen::ConnectRequestCallbackSubscription connect_request_subscription_;
+  base::CallbackListSubscription connect_request_subscription_;
+
+  base::CallbackListSubscription accessibility_subscription_;
+
+  // PowerManagerClient::Observer is used only when screen is shown.
+  std::unique_ptr<
+      ScopedObserver<PowerManagerClient, PowerManagerClient::Observer>>
+      power_manager_subscription_;
 
   base::WeakPtrFactory<UpdateScreen> weak_factory_{this};
 

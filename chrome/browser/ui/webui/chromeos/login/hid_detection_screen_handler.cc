@@ -15,7 +15,6 @@
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "components/login/localized_values_builder.h"
 #include "components/prefs/pref_service.h"
 
@@ -72,6 +71,10 @@ void HIDDetectionScreenHandler::SetKeyboardState(const std::string& value) {
 void HIDDetectionScreenHandler::SetMouseState(const std::string& value) {
   mouse_state_ = value;
   CallJS("login.HIDDetectionScreen.setMouseState", value);
+}
+
+void HIDDetectionScreenHandler::SetTouchscreenDetectedState(bool value) {
+  CallJS("login.HIDDetectionScreen.setTouchscreenDetectedState", value);
 }
 
 void HIDDetectionScreenHandler::SetKeyboardPinCode(const std::string& value) {
@@ -135,6 +138,8 @@ void HIDDetectionScreenHandler::DeclareLocalizedValues(
   builder->Add("hidDetectionBluetoothKeyboardPaired",
                IDS_HID_DETECTION_PAIRED_BLUETOOTH_KEYBOARD);
   builder->Add("oobeModalDialogClose", IDS_CHROMEOS_OOBE_CLOSE_DIALOG);
+  builder->Add("hidDetectionTouchscreenDetected",
+               IDS_HID_DETECTION_DETECTED_TOUCHSCREEN);
 }
 
 void HIDDetectionScreenHandler::Initialize() {

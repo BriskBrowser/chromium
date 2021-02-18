@@ -23,12 +23,35 @@
 #include "chrome/browser/android/vr/gvr_install_helper.h"
 #include "device/vr/android/gvr/gvr_device_provider.h"
 #if BUILDFLAG(ENABLE_ARCORE)
-#include "chrome/browser/android/vr/arcore_device/arcore_install_helper.h"
-#include "device/vr/android/arcore/arcore_device_provider_factory.h"
+#include "chrome/browser/android/vr/ar_jni_headers/ArCompositorDelegateProviderImpl_jni.h"
+#include "chrome/browser/infobars/infobar_service.h"
+#include "components/webxr/android/ar_compositor_delegate_provider.h"
+#include "components/webxr/android/arcore_device_provider.h"
+#include "components/webxr/android/arcore_install_helper.h"
+#include "components/webxr/android/xr_install_helper_delegate.h"
 #endif  // ENABLE_ARCORE
 #endif  // OS_WIN/OS_ANDROID
 
 namespace vr {
+
+// Note that this doesn't technically need to be behind this buildflag, but
+// ArCore is the only thing that's using it right now.
+#if BUILDFLAG(ENABLE_ARCORE)
+class ChromeXrInstallHelperDelegate : public webxr::XrInstallHelperDelegate {
+ public:
+  ChromeXrInstallHelperDelegate() = default;
+  ~ChromeXrInstallHelperDelegate() override = default;
+
+  ChromeXrInstallHelperDelegate(const ChromeXrInstallHelperDelegate&) = delete;
+  ChromeXrInstallHelperDelegate& operator=(
+      const ChromeXrInstallHelperDelegate&) = delete;
+
+  infobars::InfoBarManager* GetInfoBarManager(
+      content::WebContents* web_contents) override {
+    return InfoBarService::FromWebContents(web_contents);
+  }
+};
+#endif
 
 std::unique_ptr<content::XrInstallHelper>
 ChromeXrIntegrationClient::GetInstallHelper(
@@ -39,7 +62,8 @@ ChromeXrIntegrationClient::GetInstallHelper(
       return std::make_unique<GvrInstallHelper>();
 #if BUILDFLAG(ENABLE_ARCORE)
     case device::mojom::XRDeviceId::ARCORE_DEVICE_ID:
-      return std::make_unique<ArCoreInstallHelper>();
+      return std::make_unique<webxr::ArCoreInstallHelper>(
+          std::make_unique<ChromeXrInstallHelperDelegate>());
 #endif  // ENABLE_ARCORE
 #endif  // OS_ANDROID
     default:
@@ -55,16 +79,14 @@ content::XRProviderList ChromeXrIntegrationClient::GetAdditionalProviders() {
 #if BUILDFLAG(ENABLE_ARCORE)
   // TODO(https://crbug.com/966647) remove this check.
   if (base::FeatureList::IsEnabled(features::kWebXrArModule)) {
-    auto arcore_device_provider = device::ArCoreDeviceProviderFactory::Create();
-    if (arcore_device_provider) {
-      providers.push_back(std::move(arcore_device_provider));
-    } else {
-      // TODO(https://crbug.com/1050470): Remove this logging after
-      // investigation.
-      LOG(ERROR) << "Could not get ARCoreDeviceProviderFactory";
-      base::RecordAction(base::UserMetricsAction(
-          "XR.ARCoreDeviceProviderFactory.NotInstalled"));
-    }
+    base::android::ScopedJavaLocalRef<jobject>
+        j_ar_compositor_delegate_provider =
+            vr::Java_ArCompositorDelegateProviderImpl_Constructor(
+                base::android::AttachCurrentThread());
+
+    providers.push_back(std::make_unique<webxr::ArCoreDeviceProvider>(
+        webxr::ArCompositorDelegateProvider(
+            std::move(j_ar_compositor_delegate_provider))));
   }
 #endif  // BUILDFLAG(ENABLE_ARCORE)
 #endif  // defined(OS_ANDROID)

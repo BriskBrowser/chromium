@@ -4,50 +4,22 @@
 
 #include "chromeos/components/security_token_pin/error_generator.h"
 
-#include "base/base_paths.h"
-#include "base/files/file_path.h"
-#include "base/i18n/rtl.h"
-#include "base/path_service.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chromeos/components/security_token_pin/constants.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/base/l10n/l10n_util.h"
-#include "ui/base/resource/resource_bundle.h"
-#include "ui/base/resource/scale_factor.h"
-#include "ui/base/ui_base_paths.h"
 
 namespace chromeos {
 namespace security_token_pin {
 
 class SecurityTokenPinErrorGeneratorTest : public testing::Test {
  protected:
-  SecurityTokenPinErrorGeneratorTest() { InitI18n(); }
+  SecurityTokenPinErrorGeneratorTest() = default;
 
-  ~SecurityTokenPinErrorGeneratorTest() override {
-    ui::ResourceBundle::CleanupSharedInstance();
-  }
-
- private:
-  // Initializes the i18n stack and loads the necessary strings. Uses a specific
-  // locale, so that the tests can compare against golden strings without
-  // depending on the environment.
-  void InitI18n() {
-    base::i18n::SetICUDefaultLocale("en_US");
-
-    ui::RegisterPathProvider();
-
-    base::FilePath ui_test_pak_path;
-    ASSERT_TRUE(base::PathService::Get(ui::UI_TEST_PAK, &ui_test_pak_path));
-    ui::ResourceBundle::InitSharedInstanceWithPakPath(ui_test_pak_path);
-
-    base::FilePath dir_module_path;
-    ASSERT_TRUE(base::PathService::Get(base::DIR_MODULE, &dir_module_path));
-    base::FilePath chromeos_test_strings_path =
-        dir_module_path.Append(FILE_PATH_LITERAL("chromeos_test_strings.pak"));
-    ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(
-        chromeos_test_strings_path, ui::SCALE_FACTOR_NONE);
-  }
+  SecurityTokenPinErrorGeneratorTest(
+      const SecurityTokenPinErrorGeneratorTest&) = delete;
+  SecurityTokenPinErrorGeneratorTest& operator=(
+      const SecurityTokenPinErrorGeneratorTest&) = delete;
 };
 
 // Tests that an empty message is returned when there's neither an error nor the
@@ -98,6 +70,9 @@ TEST_F(SecurityTokenPinErrorGeneratorTest, UnknownError) {
 
 // Tests the message when the number of attempts left is given.
 TEST_F(SecurityTokenPinErrorGeneratorTest, Attempts) {
+  EXPECT_EQ(GenerateErrorMessage(ErrorLabel::kNone, /*attempts_left=*/1,
+                                 /*accept_input=*/true),
+            base::ASCIIToUTF16("1 attempt left"));
   EXPECT_EQ(GenerateErrorMessage(ErrorLabel::kNone, /*attempts_left=*/3,
                                  /*accept_input=*/true),
             base::ASCIIToUTF16("3 attempts left"));
@@ -113,6 +88,9 @@ TEST_F(SecurityTokenPinErrorGeneratorTest, HiddenAttempts) {
 
 // Tests the message for the kInvalidPin error with the number of attempts left.
 TEST_F(SecurityTokenPinErrorGeneratorTest, InvalidPinWithAttempts) {
+  EXPECT_EQ(GenerateErrorMessage(ErrorLabel::kInvalidPin, /*attempts_left=*/1,
+                                 /*accept_input=*/true),
+            base::ASCIIToUTF16("Invalid PIN. 1 attempt left"));
   EXPECT_EQ(GenerateErrorMessage(ErrorLabel::kInvalidPin, /*attempts_left=*/3,
                                  /*accept_input=*/true),
             base::ASCIIToUTF16("Invalid PIN. 3 attempts left"));

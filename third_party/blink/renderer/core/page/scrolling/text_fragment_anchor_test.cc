@@ -6,6 +6,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
 #include "third_party/blink/renderer/core/dom/element.h"
+#include "third_party/blink/renderer/core/editing/ephemeral_range.h"
 #include "third_party/blink/renderer/core/editing/markers/document_marker_controller.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -16,6 +17,7 @@
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
 #include "third_party/blink/renderer/core/input/event_handler.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
+#include "third_party/blink/renderer/core/page/scrolling/text_fragment_finder.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
 #include "third_party/blink/renderer/core/scroll/scrollable_area.h"
 #include "third_party/blink/renderer/core/testing/sim/sim_request.h"
@@ -32,7 +34,7 @@ class TextFragmentAnchorTest : public SimTest {
  public:
   void SetUp() override {
     SimTest::SetUp();
-    WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+    WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
   }
 
   void RunAsyncMatchingTasks() {
@@ -917,7 +919,7 @@ TEST_P(TextFragmentAnchorScrollTest, ScrollCancelled) {
     <img src="test.png">
   )HTML");
 
-  Compositor().PaintFrame();
+  GetDocument().View()->UpdateAllLifecyclePhasesForTest();
   mojom::blink::ScrollType scroll_type = GetParam();
 
   if (!RuntimeEnabledFeatures::BlockHTMLParserOnStyleSheetsEnabled()) {
@@ -1585,7 +1587,6 @@ TEST_F(TextFragmentAnchorTest, DismissTextHighlightOutOfView) {
     <p id="text">This is a test page</p>
   )HTML");
 
-  Compositor().PaintFrame();
   ASSERT_EQ(0u, GetDocument().Markers().Markers().size());
   SimulateClick(100, 100);
 
@@ -1947,6 +1948,69 @@ TEST_F(TextFragmentAnchorTest, PageVisibility) {
   EXPECT_EQ(p, *GetDocument().CssTarget());
 }
 
+// Regression test for https://crbug.com/1147568. Make sure a page setting
+// manual scroll restoration doesn't cause the fragment to avoid scrolling on
+// the initial load.
+TEST_F(TextFragmentAnchorTest, ManualRestorationDoesntBlockFragment) {
+  SimRequest request("https://example.com/test.html#:~:text=test", "text/html");
+  LoadURL("https://example.com/test.html#:~:text=test");
+  request.Complete(R"HTML(
+    <!DOCTYPE html>
+    <style>
+      body {
+        height: 1200px;
+      }
+      p {
+        position: absolute;
+        top: 1000px;
+      }
+    </style>
+    <script>
+      history.scrollRestoration = 'manual';
+    </script>
+    <p id="text">This is a test page</p>
+  )HTML");
+  RunAsyncMatchingTasks();
+
+  // Render two frames and ensure matching and scrolling does not occur.
+  BeginEmptyFrame();
+  BeginEmptyFrame();
+
+  Element& p = *GetDocument().getElementById("text");
+  EXPECT_TRUE(ViewportRect().Contains(BoundingRectInFrame(p)));
+}
+
+// Regression test for https://crbug.com/1147453. Ensure replaceState doesn't
+// clobber the text fragment token and allows fragment to scroll.
+TEST_F(TextFragmentAnchorTest, ReplaceStateDoesntBlockFragment) {
+  SimRequest request("https://example.com/test.html#:~:text=test", "text/html");
+  LoadURL("https://example.com/test.html#:~:text=test");
+  request.Complete(R"HTML(
+    <!DOCTYPE html>
+    <style>
+      body {
+        height: 1200px;
+      }
+      p {
+        position: absolute;
+        top: 1000px;
+      }
+    </style>
+    <script>
+      history.replaceState({}, 'test', '');
+    </script>
+    <p id="text">This is a test page</p>
+  )HTML");
+  RunAsyncMatchingTasks();
+
+  // Render two frames and ensure matching and scrolling does not occur.
+  BeginEmptyFrame();
+  BeginEmptyFrame();
+
+  Element& p = *GetDocument().getElementById("text");
+  EXPECT_TRUE(ViewportRect().Contains(BoundingRectInFrame(p)));
+}
+
 // Test that a text directive can match across comment nodes
 TEST_F(TextFragmentAnchorTest, MatchAcrossCommentNode) {
   SimRequest request("https://example.com/test.html#:~:text=abcdef",
@@ -1976,6 +2040,61 @@ TEST_F(TextFragmentAnchorTest, MatchAcrossCommentNode) {
   EXPECT_EQ(div, *GetDocument().CssTarget());
   EXPECT_TRUE(ViewportRect().Contains(BoundingRectInFrame(div)));
   EXPECT_EQ(2u, GetDocument().Markers().Markers().size());
+}
+
+// Checks that selection in the same text node is considerered uninterrupted.
+TEST_F(TextFragmentAnchorTest, IsInSameUninterruptedBlock_OneTextNode) {
+  SimRequest request("https://example.com/test.html", "text/html");
+  LoadURL("https://example.com/test.html");
+  request.Complete(R"HTML(
+    <!DOCTYPE html>
+    <div id='first'>First paragraph text</div>
+  )HTML");
+  Node* first_paragraph = GetDocument().getElementById("first")->firstChild();
+  const auto& start = PositionInFlatTree(first_paragraph, 0);
+  const auto& end = PositionInFlatTree(first_paragraph, 15);
+  ASSERT_EQ("First paragraph", PlainText(EphemeralRangeInFlatTree(start, end)));
+
+  EXPECT_TRUE(TextFragmentFinder::IsInSameUninterruptedBlock(start, end));
+}
+
+// Checks that selection in the same text node with nested non-block element is
+// considerered uninterrupted.
+TEST_F(TextFragmentAnchorTest,
+       IsInSameUninterruptedBlock_NonBlockInterruption) {
+  SimRequest request("https://example.com/test.html", "text/html");
+  LoadURL("https://example.com/test.html");
+  request.Complete(R"HTML(
+    <!DOCTYPE html>
+    <div id='first'>First <i>styled text</i> paragraph text</div>
+  )HTML");
+  Node* first_paragraph = GetDocument().getElementById("first")->firstChild();
+  const auto& start = PositionInFlatTree(first_paragraph, 0);
+  const auto& end =
+      PositionInFlatTree(first_paragraph->nextSibling()->nextSibling(), 10);
+  ASSERT_EQ("First styled text paragraph",
+            PlainText(EphemeralRangeInFlatTree(start, end)));
+
+  EXPECT_TRUE(TextFragmentFinder::IsInSameUninterruptedBlock(start, end));
+}
+
+// Checks that selection in the same text node with nested block element is
+// considerered interrupted.
+TEST_F(TextFragmentAnchorTest, IsInSameUninterruptedBlock_BlockInterruption) {
+  SimRequest request("https://example.com/test.html", "text/html");
+  LoadURL("https://example.com/test.html");
+  request.Complete(R"HTML(
+    <!DOCTYPE html>
+    <div id='first'>First <div>block text</div> paragraph text</div>
+  )HTML");
+  Node* first_paragraph = GetDocument().getElementById("first")->firstChild();
+  const auto& start = PositionInFlatTree(first_paragraph, 0);
+  const auto& end =
+      PositionInFlatTree(first_paragraph->nextSibling()->nextSibling(), 10);
+  ASSERT_EQ("First\nblock text\nparagraph",
+            PlainText(EphemeralRangeInFlatTree(start, end)));
+
+  EXPECT_FALSE(TextFragmentFinder::IsInSameUninterruptedBlock(start, end));
 }
 
 }  // namespace

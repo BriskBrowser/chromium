@@ -175,10 +175,6 @@ UIView* GetFirstResponderSubview(UIView* view) {
   return [_contentView addSubview:view];
 }
 
-- (BOOL)hasSearchableTextContent {
-  return _contentView != nil && [_webController contentIsHTML];
-}
-
 - (UIView*)keyboardAccessory {
   if (!_contentView)
     return nil;
@@ -188,6 +184,10 @@ UIView* GetFirstResponderSubview(UIView* view) {
 
 - (BOOL)becomeFirstResponder {
   return [_contentView becomeFirstResponder];
+}
+
+- (void)surfaceSizeChanged {
+  [_webController surfaceSizeChanged];
 }
 
 @end

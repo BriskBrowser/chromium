@@ -71,7 +71,7 @@ class CORE_EXPORT WorkerClassicScriptLoader final
   void LoadSynchronously(ExecutionContext&,
                          ResourceFetcher* fetch_client_settings_object_fetcher,
                          const KURL&,
-                         mojom::RequestContextType,
+                         mojom::blink::RequestContextType,
                          network::mojom::RequestDestination);
 
   // Note that callbacks could be invoked before
@@ -84,19 +84,13 @@ class CORE_EXPORT WorkerClassicScriptLoader final
   //
   // |worker_main_script_load_params| is valid for dedicated workers (when
   // PlzDedicatedWorker is enabled) and shared workers.
-  //
-  // |resource_load_info_notifier| is valid and used to notify of the loading
-  // status of the top-level script for DedicatedWorker only when
-  // PlzDedicatedWorker is enabled
   void LoadTopLevelScriptAsynchronously(
       ExecutionContext&,
       ResourceFetcher* fetch_client_settings_object_fetcher,
       const KURL&,
       std::unique_ptr<WorkerMainScriptLoadParameters>
           worker_main_script_load_params,
-      CrossVariantMojoRemote<mojom::ResourceLoadInfoNotifierInterfaceBase>
-          resource_load_info_notifier,
-      mojom::RequestContextType,
+      mojom::blink::RequestContextType,
       network::mojom::RequestDestination,
       network::mojom::RequestMode,
       network::mojom::CredentialsMode,
@@ -141,7 +135,7 @@ class CORE_EXPORT WorkerClassicScriptLoader final
   void DidReceiveResponse(uint64_t /*identifier*/,
                           const ResourceResponse&) override;
   void DidReceiveData(const char* data, unsigned data_length) override;
-  void DidReceiveCachedMetadata(const char*, int /*dataLength*/) override;
+  void DidReceiveCachedMetadata(mojo_base::BigBuffer) override;
   void DidFinishLoading(uint64_t identifier) override;
   void DidFail(const ResourceError&) override;
   void DidFailRedirectCheck() override;

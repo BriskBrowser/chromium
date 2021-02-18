@@ -7,6 +7,7 @@
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/ui/views/infobars/infobar_container_view.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
+#include "ui/views/test/ax_event_counter.h"
 
 class TestInfoBarDelegate : public infobars::InfoBarDelegate {
  public:
@@ -56,13 +57,13 @@ class InfoBarViewTest : public BrowserWithTestWindowTest {
   DISALLOW_COPY_AND_ASSIGN(InfoBarViewTest);
 };
 
-TEST_F(InfoBarViewTest, ShouldDrawSeparator) {
+TEST_F(InfoBarViewTest, GetDrawSeparator) {
   // Add multiple infobars.  The top infobar should not draw a separator; the
   // others should.
   for (int i = 0; i < 3; ++i) {
     InfoBarView* infobar = TestInfoBarDelegate::Create(infobar_service());
     ASSERT_TRUE(infobar);
-    EXPECT_EQ(i > 0, infobar->ShouldDrawSeparator());
+    EXPECT_EQ(i > 0, infobar->GetDrawSeparator());
   }
 }
 
@@ -75,4 +76,11 @@ TEST_F(InfoBarViewTest, LayoutOnHiddenInfoBar) {
   // Neither should calling it on an infobar not in a container.
   DetachContainer();
   infobar->Layout();
+}
+
+TEST_F(InfoBarViewTest, AlertAccessibleEvent) {
+  views::test::AXEventCounter counter(views::AXEventManager::Get());
+  EXPECT_EQ(0, counter.GetCount(ax::mojom::Event::kAlert));
+  TestInfoBarDelegate::Create(infobar_service());
+  EXPECT_EQ(1, counter.GetCount(ax::mojom::Event::kAlert));
 }

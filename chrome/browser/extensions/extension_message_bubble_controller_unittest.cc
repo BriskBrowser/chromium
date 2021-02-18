@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
@@ -141,8 +141,8 @@ class FakeExtensionMessageBubble {
   bool is_closed() { return is_closed_; }
 
   void Show() {
-    controller_->OnShown(
-        base::Bind(&FakeExtensionMessageBubble::Close, base::Unretained(this)));
+    controller_->OnShown(base::BindOnce(&FakeExtensionMessageBubble::Close,
+                                        base::Unretained(this)));
 
     // Depending on the user action, the bubble may be closed as result.
     switch (action_) {
@@ -432,8 +432,10 @@ class ExtensionMessageBubbleTestWithParam
 // Test that the bubble correctly treats dismissal due to deactivation.
 // Currently, the NTP bubble is the only one that has flexible behavior (toggled
 // by a feature).
+// TODO(https://crbug.com/1177315): This test is flaky. When the flake is fixed,
+// re-enable this test.
 TEST_P(ExtensionMessageBubbleTestWithParam,
-       BubbleCorrectlyReshowsOnDeactivationDismissal) {
+       DISABLED_BubbleCorrectlyReshowsOnDeactivationDismissal) {
   const bool kAcknowledgeOnDeactivate = GetParam();
   base::test::ScopedFeatureList feature_list;
   if (kAcknowledgeOnDeactivate) {

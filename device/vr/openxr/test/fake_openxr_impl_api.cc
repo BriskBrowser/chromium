@@ -16,6 +16,8 @@ namespace {
 OpenXrTestHelper g_test_helper;
 }  // namespace
 
+// Extension methods
+
 // Mock implementations of openxr runtime.dll APIs.
 // Please add new APIs in alphabetical order.
 
@@ -150,10 +152,6 @@ XrResult xrCreateInstance(const XrInstanceCreateInfo* create_info,
       XR_ERROR_VALIDATION_FAILURE,
       "XrInstanceCreateInfo ApiLayer is not supported by this version of test");
 
-  RETURN_IF(create_info->enabledExtensionCount !=
-                OpenXrTestHelper::kNumExtensionsSupported,
-            XR_ERROR_VALIDATION_FAILURE, "enabledExtensionCount invalid");
-
   for (uint32_t i = 0; i < create_info->enabledExtensionCount; i++) {
     bool valid_extension = false;
     for (size_t j = 0; j < OpenXrTestHelper::kNumExtensionsSupported; j++) {
@@ -287,6 +285,11 @@ XrResult xrDestroyActionSet(XrActionSet action_set) {
 XrResult xrDestroyInstance(XrInstance instance) {
   DVLOG(2) << __FUNCTION__;
   RETURN_IF_XR_FAILED(g_test_helper.ValidateInstance(instance));
+  // Though Reset() primarily clears variables relating to being able to create
+  // a new session, some tests may instead destroy the device (to simulate a
+  // crash or simply removing the headset). It is impossible to keep an active
+  // session with a destroyed instance, so this ensures that the test helper is
+  // setup to allow a new session to be requested.
   g_test_helper.Reset();
   return XR_SUCCESS;
 }
@@ -294,6 +297,8 @@ XrResult xrDestroyInstance(XrInstance instance) {
 XrResult xrDestroySession(XrSession session) {
   DVLOG(2) << __FUNCTION__;
   RETURN_IF_XR_FAILED(g_test_helper.ValidateSession(session));
+  // Clear the test helper state so that tests can request multiple sessions.
+  g_test_helper.Reset();
   return XR_SUCCESS;
 }
 
@@ -660,6 +665,31 @@ XrResult xrGetReferenceSpaceBoundsRect(
   return XR_SUCCESS;
 }
 
+XrResult xrGetViewConfigurationProperties(
+    XrInstance instance,
+    XrSystemId system_id,
+    XrViewConfigurationType view_configuration_type,
+    XrViewConfigurationProperties* configuration_properties) {
+  DVLOG(2) << __FUNCTION__;
+  RETURN_IF_XR_FAILED(g_test_helper.ValidateInstance(instance));
+  RETURN_IF_XR_FAILED(g_test_helper.ValidateSystemId(system_id));
+  RETURN_IF(
+      view_configuration_type != XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
+      XR_ERROR_VALIDATION_FAILURE, "viewConfigurationType must be stereo");
+  RETURN_IF(
+      configuration_properties->type == XR_TYPE_VIEW_CONFIGURATION_PROPERTIES,
+      XR_ERROR_VALIDATION_FAILURE,
+      "XrViewConfigurationProperties.type must be "
+      "XR_TYPE_VIEW_CONFIGURATION_PROPERTIES");
+  RETURN_IF(configuration_properties->next == nullptr,
+            XR_ERROR_VALIDATION_FAILURE,
+            "XrViewConfigurationProperties.next must be nullptr");
+  configuration_properties->viewConfigurationType =
+      XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+  configuration_properties->fovMutable = XR_TRUE;
+  return XR_SUCCESS;
+}
+
 XrResult xrGetSystem(XrInstance instance,
                      const XrSystemGetInfo* get_info,
                      XrSystemId* system_id) {
@@ -904,6 +934,108 @@ XrResult xrWaitSwapchainImage(XrSwapchain swapchain,
   RETURN_IF(wait_info->timeout != XR_INFINITE_DURATION,
             XR_ERROR_VALIDATION_FAILURE,
             "xrWaitSwapchainImage timeout not XR_INFINITE_DURATION");
+
+  return XR_SUCCESS;
+}
+
+// Getter for extension methods. Casts the correct function dynamically based on
+// the method name provided.
+// Please add new OpenXR APIs below in alphabetical order.
+XrResult XRAPI_PTR xrGetInstanceProcAddr(XrInstance instance,
+                                         const char* name,
+                                         PFN_xrVoidFunction* function) {
+  if (strcmp(name, "xrAcquireSwapchainImage") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrAcquireSwapchainImage);
+  } else if (strcmp(name, "xrAttachSessionActionSets") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrAttachSessionActionSets);
+  } else if (strcmp(name, "xrBeginFrame") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrBeginFrame);
+  } else if (strcmp(name, "xrBeginSession") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrBeginSession);
+  } else if (strcmp(name, "xrCreateAction") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrCreateAction);
+  } else if (strcmp(name, "xrCreateActionSet") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrCreateActionSet);
+  } else if (strcmp(name, "xrCreateActionSpace") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrCreateActionSpace);
+  } else if (strcmp(name, "xrCreateInstance") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrCreateInstance);
+  } else if (strcmp(name, "xrCreateReferenceSpace") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrCreateReferenceSpace);
+  } else if (strcmp(name, "xrCreateSession") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrCreateSession);
+  } else if (strcmp(name, "xrCreateSwapchain") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrCreateSwapchain);
+  } else if (strcmp(name, "xrDestroyActionSet") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrDestroyActionSet);
+  } else if (strcmp(name, "xrDestroyInstance") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrDestroyInstance);
+  } else if (strcmp(name, "xrDestroySession") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrDestroySession);
+  } else if (strcmp(name, "xrDestroySpace") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrDestroySpace);
+  } else if (strcmp(name, "xrEndFrame") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrEndFrame);
+  } else if (strcmp(name, "xrEndSession") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrEndSession);
+  } else if (strcmp(name, "xrEnumerateEnvironmentBlendModes") == 0) {
+    *function =
+        reinterpret_cast<PFN_xrVoidFunction>(xrEnumerateEnvironmentBlendModes);
+  } else if (strcmp(name, "xrEnumerateInstanceExtensionProperties") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(
+        xrEnumerateInstanceExtensionProperties);
+  } else if (strcmp(name, "xrEnumerateSwapchainImages") == 0) {
+    *function =
+        reinterpret_cast<PFN_xrVoidFunction>(xrEnumerateSwapchainImages);
+  } else if (strcmp(name, "xrEnumerateViewConfigurationViews") == 0) {
+    *function =
+        reinterpret_cast<PFN_xrVoidFunction>(xrEnumerateViewConfigurationViews);
+  } else if (strcmp(name, "xrGetD3D11GraphicsRequirementsKHR") == 0) {
+    *function =
+        reinterpret_cast<PFN_xrVoidFunction>(xrGetD3D11GraphicsRequirementsKHR);
+  } else if (strcmp(name, "xrGetActionStateFloat") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrGetActionStateFloat);
+  } else if (strcmp(name, "xrGetActionStateBoolean") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrGetActionStateBoolean);
+  } else if (strcmp(name, "xrGetActionStateVector2f") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrGetActionStateVector2f);
+  } else if (strcmp(name, "xrGetActionStatePose") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrGetActionStatePose);
+  } else if (strcmp(name, "xrGetCurrentInteractionProfile") == 0) {
+    *function =
+        reinterpret_cast<PFN_xrVoidFunction>(xrGetCurrentInteractionProfile);
+  } else if (strcmp(name, "xrGetReferenceSpaceBoundsRect") == 0) {
+    *function =
+        reinterpret_cast<PFN_xrVoidFunction>(xrGetReferenceSpaceBoundsRect);
+  } else if (strcmp(name, "xrGetViewConfigurationProperties") == 0) {
+    *function =
+        reinterpret_cast<PFN_xrVoidFunction>(xrGetViewConfigurationProperties);
+  } else if (strcmp(name, "xrGetSystem") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrGetSystem);
+  } else if (strcmp(name, "xrLocateSpace") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrLocateSpace);
+  } else if (strcmp(name, "xrLocateViews") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrLocateViews);
+  } else if (strcmp(name, "xrPollEvent") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrPollEvent);
+  } else if (strcmp(name, "xrReleaseSwapchainImage") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrReleaseSwapchainImage);
+  } else if (strcmp(name, "xrSuggestInteractionProfileBindings") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(
+        xrSuggestInteractionProfileBindings);
+  } else if (strcmp(name, "xrStringToPath") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrStringToPath);
+  } else if (strcmp(name, "xrPathToString") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrPathToString);
+  } else if (strcmp(name, "xrSyncActions") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrSyncActions);
+  } else if (strcmp(name, "xrWaitFrame") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrWaitFrame);
+  } else if (strcmp(name, "xrWaitSwapchainImage") == 0) {
+    *function = reinterpret_cast<PFN_xrVoidFunction>(xrWaitSwapchainImage);
+  } else {
+    return XR_ERROR_FUNCTION_UNSUPPORTED;
+  }
 
   return XR_SUCCESS;
 }

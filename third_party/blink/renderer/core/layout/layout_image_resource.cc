@@ -43,6 +43,11 @@ LayoutImageResource::LayoutImageResource()
 
 LayoutImageResource::~LayoutImageResource() = default;
 
+void LayoutImageResource::Trace(Visitor* visitor) const {
+  visitor->Trace(layout_object_);
+  visitor->Trace(cached_image_);
+}
+
 void LayoutImageResource::Initialize(LayoutObject* layout_object) {
   DCHECK(!layout_object_);
   DCHECK(layout_object);
@@ -95,6 +100,15 @@ bool LayoutImageResource::HasIntrinsicSize() const {
   return !cached_image_ || cached_image_->GetImage()->HasIntrinsicSize();
 }
 
+RespectImageOrientationEnum LayoutImageResource::ImageOrientation() const {
+  DCHECK(cached_image_);
+  // Always respect the orientation of opaque origin images to avoid leaking
+  // image data. Otherwise pull orientation from the layout object's style.
+  RespectImageOrientationEnum respect_orientation =
+      LayoutObject::ShouldRespectImageOrientation(layout_object_);
+  return cached_image_->ForceOrientationIfNecessary(respect_orientation);
+}
+
 FloatSize LayoutImageResource::ImageSize(float multiplier) const {
   if (!cached_image_)
     return FloatSize();
@@ -112,7 +126,7 @@ FloatSize LayoutImageResource::ImageSize(float multiplier) const {
   }
   if (layout_object_ && layout_object_->IsLayoutImage() && size.Width() &&
       size.Height())
-    size.Scale(ToLayoutImage(layout_object_)->ImageDevicePixelRatio());
+    size.Scale(To<LayoutImage>(layout_object_.Get())->ImageDevicePixelRatio());
   return size;
 }
 

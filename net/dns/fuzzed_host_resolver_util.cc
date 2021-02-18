@@ -132,10 +132,10 @@ DnsConfig GetFuzzedDnsConfig(FuzzedDataProvider* data_provider) {
   config.ndots = data_provider->ConsumeIntegralInRange(0, 3);
   config.attempts = data_provider->ConsumeIntegralInRange(1, 3);
 
-  // Timeouts don't really work for fuzzing. Even a timeout of 0 milliseconds
-  // will be increased after the first timeout, resulting in inconsistent
-  // behavior.
-  config.timeout = base::TimeDelta::FromDays(10);
+  // Fallback periods don't really work for fuzzing. Even a period of 0
+  // milliseconds will be increased after the first expiration, resulting in
+  // inconsistent behavior.
+  config.fallback_period = base::TimeDelta::FromDays(10);
 
   config.rotate = data_provider->ConsumeBool();
 
@@ -200,7 +200,8 @@ class FuzzedHostResolverProc : public HostResolverProc {
 
     if (host_resolver_flags & HOST_RESOLVER_CANONNAME) {
       // Don't bother to fuzz this - almost nothing cares.
-      result.set_canonical_name("foo.com");
+      std::vector<std::string> aliases({"foo.com"});
+      result.SetDnsAliases(std::move(aliases));
     }
 
     *addrlist = result;

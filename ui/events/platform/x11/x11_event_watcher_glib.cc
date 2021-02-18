@@ -6,7 +6,6 @@
 
 #include <glib.h>
 
-#include "ui/gfx/x/x11.h"
 
 namespace ui {
 
@@ -60,12 +59,12 @@ void X11EventWatcherGlib::StartWatching() {
   if (started_)
     return;
 
-  XDisplay* display = event_source_->connection()->display();
-  if (!display)
+  auto* connection = event_source_->connection();
+  if (!connection->Ready())
     return;
 
   x_poll_ = std::make_unique<GPollFD>();
-  x_poll_->fd = ConnectionNumber(display);
+  x_poll_->fd = connection->GetFd();
   x_poll_->events = G_IO_IN;
   x_poll_->revents = 0;
 

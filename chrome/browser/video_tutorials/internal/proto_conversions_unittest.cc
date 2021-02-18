@@ -3,33 +3,39 @@
 // found in the LICENSE file.
 
 #include "chrome/browser/video_tutorials/internal/proto_conversions.h"
-
+#include "chrome/browser/video_tutorials/test/test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace video_tutorials {
 namespace {
 
-const char kTestTitle[] = "Test Title";
-const char kTestURL[] = "https://www.example.com";
+// Verify round-way conversion of feature enum type.
+TEST(VideoTutorialsProtoConversionsTest, FeatureConversion) {
+  Tutorial expected, actual;
+  TutorialProto intermediate;
+  FeatureType features[] = {FeatureType::kTest,       FeatureType::kInvalid,
+                            FeatureType::kSummary,    FeatureType::kChromeIntro,
+                            FeatureType::kDownload,   FeatureType::kSearch,
+                            FeatureType::kVoiceSearch};
+  for (FeatureType feature : features) {
+    expected.feature = feature;
+    TutorialToProto(&expected, &intermediate);
+    TutorialFromProto(&intermediate, &actual);
+    EXPECT_EQ(expected, actual);
+  }
 
-void ResetTutorialEntry(Tutorial* entry) {
-  *entry = Tutorial(FeatureType::kTest, kTestTitle, kTestURL, kTestURL,
-                    kTestURL, kTestURL, 60);
-}
-
-void ResetTutorialGroup(TutorialGroup* group) {
-  *group = TutorialGroup("cn");
-  group->tutorials.clear();
-  Tutorial entry1;
-  ResetTutorialEntry(&entry1);
-  group->tutorials.emplace_back(entry1);
-  group->tutorials.emplace_back(entry1);
+  // Test an unknown feature.
+  FeatureType unknown = static_cast<FeatureType>(80);
+  expected.feature = unknown;
+  TutorialToProto(&expected, &intermediate);
+  TutorialFromProto(&intermediate, &actual);
+  EXPECT_EQ(expected, actual);
 }
 
 // Verify round-way conversion of Tutorial struct.
 TEST(VideoTutorialsProtoConversionsTest, TutorialConversion) {
   Tutorial expected, actual;
-  ResetTutorialEntry(&expected);
+  test::BuildTestEntry(&expected);
   TutorialProto intermediate;
   TutorialToProto(&expected, &intermediate);
   TutorialFromProto(&intermediate, &actual);
@@ -39,11 +45,21 @@ TEST(VideoTutorialsProtoConversionsTest, TutorialConversion) {
 // Verify round-way conversion of TutorialGroup struct.
 TEST(VideoTutorialsProtoConversionsTest, TutorialGroupConversion) {
   TutorialGroup expected, actual;
-  ResetTutorialGroup(&expected);
+  test::BuildTestGroup(&expected);
   TutorialGroupProto intermediate;
   TutorialGroupToProto(&expected, &intermediate);
   TutorialGroupFromProto(&intermediate, &actual);
   EXPECT_EQ(expected, actual);
+}
+
+// Verify server response to client conversion.
+TEST(VideoTutorialsProtoConversionsTest, ServerResponseToClientConversion) {
+  ServerResponseProto server_response;
+  std::vector<TutorialGroup> groups;
+  server_response.add_tutorial_groups();
+  server_response.add_tutorial_groups();
+  TutorialGroupsFromServerResponseProto(&server_response, &groups);
+  EXPECT_EQ(groups.size(), 2u);
 }
 
 }  // namespace

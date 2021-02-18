@@ -16,6 +16,7 @@
 #include "build/build_config.h"
 #include "media/renderers/paint_canvas_video_renderer.h"
 #include "media/video/gpu_video_accelerator_factories.h"
+#include "third_party/blink/public/common/media/display_type.h"
 #include "third_party/blink/public/platform/media/webmediaplayer_delegate.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_stream.h"
 #include "third_party/blink/public/platform/web_common.h"
@@ -44,7 +45,7 @@ using CreateSurfaceLayerBridgeCB =
         cc::UpdateSubmissionStateCB)>;
 
 class MediaStreamInternalFrameWrapper;
-template <typename TimerFiredClass, bool>
+template <typename TimerFiredClass>
 class TaskRunnerTimer;
 class TimerBase;
 class WebLocalFrame;
@@ -98,7 +99,8 @@ class BLINK_MODULES_EXPORT WebMediaPlayerMS
 
   WebMediaPlayer::LoadTiming Load(LoadType load_type,
                                   const WebMediaPlayerSource& source,
-                                  CorsMode cors_mode) override;
+                                  CorsMode cors_mode,
+                                  bool is_cache_disabled) override;
 
   // WebSurfaceLayerBridgeObserver implementation.
   void OnWebLayerUpdated() override;
@@ -114,9 +116,9 @@ class BLINK_MODULES_EXPORT WebMediaPlayerMS
   void SetVolume(double volume) override;
   void SetLatencyHint(double seconds) override;
   void SetPreservesPitch(bool preserves_pitch) override;
+  void SetAutoplayInitiated(bool autoplay_initiated) override;
   void OnRequestPictureInPicture() override;
-  void OnPictureInPictureAvailabilityChanged(bool available) override;
-  void SetSinkId(const WebString& sink_id,
+  bool SetSinkId(const WebString& sink_id,
                  WebSetSinkIdCompleteCallback completion_callback) override;
   void SetPreload(WebMediaPlayer::Preload preload) override;
   WebTimeRanges Buffered() const override;
@@ -124,10 +126,11 @@ class BLINK_MODULES_EXPORT WebMediaPlayerMS
 
   // Methods for painting.
   void Paint(cc::PaintCanvas* canvas,
-             const WebRect& rect,
+             const gfx::Rect& rect,
              cc::PaintFlags& flags,
              int already_uploaded_id,
              VideoFrameUploadMetadata* out_metadata) override;
+  scoped_refptr<media::VideoFrame> GetCurrentFrame() override;
   media::PaintCanvasVideoRenderer* GetPaintCanvasVideoRenderer();
   void ResetCanvasCache();
 
@@ -175,14 +178,6 @@ class BLINK_MODULES_EXPORT WebMediaPlayerMS
   void OnFrameClosed() override;
   void OnFrameShown() override;
   void OnIdleTimeout() override;
-  void OnPlay() override;
-  void OnPause() override;
-  void OnMuted(bool muted) override;
-  void OnSeekForward(double seconds) override;
-  void OnSeekBackward(double seconds) override;
-  void OnEnterPictureInPicture() override;
-  void OnExitPictureInPicture() override;
-  void OnSetAudioSink(const std::string& sink_id) override;
   void OnVolumeMultiplierUpdate(double multiplier) override;
   void OnBecamePersistentVideo(bool value) override;
 
@@ -240,7 +235,7 @@ class BLINK_MODULES_EXPORT WebMediaPlayerMS
 
   base::WeakPtr<WebMediaPlayer> AsWeakPtr() override;
 
-  void OnDisplayTypeChanged(WebMediaPlayer::DisplayType) override;
+  void OnDisplayTypeChanged(DisplayType) override;
 
   void RequestVideoFrameCallback() override;
   std::unique_ptr<WebMediaPlayer::VideoFramePresentationMetadata>
@@ -372,7 +367,7 @@ class BLINK_MODULES_EXPORT WebMediaPlayerMS
 
   // Resets the ForceBeginFrames flag once we stop receiving calls to
   // requestVideoFrameCallback().
-  std::unique_ptr<TaskRunnerTimer<WebMediaPlayerMS, false>>
+  std::unique_ptr<TaskRunnerTimer<WebMediaPlayerMS>>
       stop_force_begin_frames_timer_;
 
   std::unique_ptr<WebVideoFrameSubmitter> submitter_;

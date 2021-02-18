@@ -123,12 +123,10 @@ class TestResponseDelegate
     return false;
   }
 
-  bool GetCharset(JNIEnv* env,
+  void GetCharset(JNIEnv* env,
                   const GURL& url,
                   embedder_support::InputStream* stream,
-                  std::string* charset) override {
-    return false;
-  }
+                  std::string* charset) override {}
 
   void AppendResponseHeaders(JNIEnv* env,
                              net::HttpResponseHeaders* headers) override {
@@ -249,8 +247,6 @@ TEST_F(AndroidStreamReaderURLLoaderTest, ReadFakeStream) {
   EXPECT_EQ(net::OK, client->completion_status().error_code);
   EXPECT_EQ("HTTP/1.1 200 OK",
             client->response_head()->headers->GetStatusLine());
-  VerifyHeaderNameAndValue(client->response_head()->headers.get(), "Client-Via",
-                           "shouldInterceptRequest");
 }
 
 TEST_F(AndroidStreamReaderURLLoaderTest, ReadFailingStream) {
@@ -305,8 +301,6 @@ TEST_F(AndroidStreamReaderURLLoaderTest, NullInputStream) {
   EXPECT_EQ(net::OK, client->completion_status().error_code);
   EXPECT_EQ("HTTP/1.1 404 Not Found",
             client->response_head()->headers->GetStatusLine());
-  VerifyHeaderNameAndValue(client->response_head()->headers.get(), "Client-Via",
-                           "shouldInterceptRequest");
 }
 
 TEST_F(AndroidStreamReaderURLLoaderTest, ReadFakeStreamWithBody) {
@@ -322,8 +316,6 @@ TEST_F(AndroidStreamReaderURLLoaderTest, ReadFakeStreamWithBody) {
   EXPECT_EQ(net::OK, client->completion_status().error_code);
   EXPECT_EQ("HTTP/1.1 200 OK",
             client->response_head()->headers->GetStatusLine());
-  VerifyHeaderNameAndValue(client->response_head()->headers.get(), "Client-Via",
-                           "shouldInterceptRequest");
   std::string body = ReadAvailableBody(client.get());
   EXPECT_EQ(expected_body, body);
 }
@@ -392,8 +384,6 @@ TEST_F(AndroidStreamReaderURLLoaderTest, CustomResponseHeaderAndStatus) {
             client->response_head()->headers->GetStatusLine());
   VerifyHeaderNameAndValue(client->response_head()->headers.get(),
                            custom_header_name, custom_header_value);
-  VerifyHeaderNameAndValue(client->response_head()->headers.get(), "Client-Via",
-                           "shouldInterceptRequest");
 }
 
 }  // namespace embedder_support

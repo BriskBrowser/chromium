@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/chromeos/cert_provisioning/cert_provisioning_common.h"
 #include "chrome/browser/invalidation/profile_invalidation_provider_factory.h"
@@ -18,6 +19,11 @@ namespace chromeos {
 namespace cert_provisioning {
 
 namespace {
+
+// Topics that start with this prefix are considered to be "public" FCM topics.
+// This allows us to migrate to "private" FCM topics (which would get a
+// different prefix) server-side without client-side changes.
+constexpr char kFcmCertProvisioningPublicTopicPrefix[] = "cert-";
 
 // Shall be expanded to cert.[scope].[topic]
 const char* kOwnerNameFormat = "cert.%s.%s";
@@ -45,7 +51,7 @@ std::unique_ptr<CertProvisioningInvalidationHandler>
 CertProvisioningInvalidationHandler::BuildAndRegister(
     CertScope scope,
     invalidation::InvalidationService* invalidation_service,
-    const syncer::Topic& topic,
+    const invalidation::Topic& topic,
     OnInvalidationCallback on_invalidation_callback) {
   auto invalidator = std::make_unique<CertProvisioningInvalidationHandler>(
       scope, invalidation_service, topic, std::move(on_invalidation_callback));
@@ -60,7 +66,7 @@ CertProvisioningInvalidationHandler::BuildAndRegister(
 CertProvisioningInvalidationHandler::CertProvisioningInvalidationHandler(
     CertScope scope,
     invalidation::InvalidationService* invalidation_service,
-    const syncer::Topic& topic,
+    const invalidation::Topic& topic,
     OnInvalidationCallback on_invalidation_callback)
     : scope_(scope),
       invalidation_service_(invalidation_service),
@@ -103,8 +109,8 @@ void CertProvisioningInvalidationHandler::Unregister() {
   // Assuming that updating invalidator's topics with empty set can never fail
   // since failure is only possible non-empty set with topic associated with
   // some other invalidator.
-  const bool topics_reset =
-      invalidation_service_->UpdateInterestedTopics(this, syncer::TopicSet());
+  const bool topics_reset = invalidation_service_->UpdateInterestedTopics(
+      this, invalidation::TopicSet());
   DCHECK(topics_reset);
   invalidation_service_observer_.Remove(invalidation_service_);
 
@@ -112,22 +118,22 @@ void CertProvisioningInvalidationHandler::Unregister() {
 }
 
 void CertProvisioningInvalidationHandler::OnInvalidatorStateChange(
-    syncer::InvalidatorState state) {
+    invalidation::InvalidatorState state) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   state_.is_invalidation_service_enabled =
-      state == syncer::INVALIDATIONS_ENABLED;
+      state == invalidation::INVALIDATIONS_ENABLED;
 }
 
 void CertProvisioningInvalidationHandler::OnIncomingInvalidation(
-    const syncer::TopicInvalidationMap& invalidation_map) {
+    const invalidation::TopicInvalidationMap& invalidation_map) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   if (!state_.is_invalidation_service_enabled) {
     LOG(WARNING) << "Unexpected invalidation received.";
   }
 
-  const syncer::SingleObjectInvalidationSet& list =
+  const invalidation::SingleObjectInvalidationSet& list =
       invalidation_map.ForTopic(topic_);
   if (list.IsEmpty()) {
     NOTREACHED() << "Incoming invlaidation does not contain invalidation"
@@ -148,8 +154,9 @@ std::string CertProvisioningInvalidationHandler::GetOwnerName() const {
 }
 
 bool CertProvisioningInvalidationHandler::IsPublicTopic(
-    const syncer::Topic& /*topic*/) const {
-  return false;
+    const invalidation::Topic& topic) const {
+  return base::StartsWith(topic, kFcmCertProvisioningPublicTopicPrefix,
+                          base::CompareCase::SENSITIVE);
 }
 
 }  // namespace internal
@@ -188,7 +195,7 @@ CertProvisioningUserInvalidator::CertProvisioningUserInvalidator(
 }
 
 void CertProvisioningUserInvalidator::Register(
-    const syncer::Topic& topic,
+    const invalidation::Topic& topic,
     OnInvalidationCallback on_invalidation_callback) {
   invalidation::ProfileInvalidationProvider* invalidation_provider =
       invalidation::ProfileInvalidationProviderFactory::GetForProfile(profile_);
@@ -234,7 +241,7 @@ CertProvisioningDeviceInvalidator::~CertProvisioningDeviceInvalidator() {
 }
 
 void CertProvisioningDeviceInvalidator::Register(
-    const syncer::Topic& topic,
+    const invalidation::Topic& topic,
     OnInvalidationCallback on_invalidation_callback) {
   topic_ = topic;
   on_invalidation_callback_ = std::move(on_invalidation_callback);

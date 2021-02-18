@@ -14,11 +14,16 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/optional.h"
+#include "base/test/scoped_feature_list.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/buildflags.h"
 #include "components/domain_reliability/clear_mode.h"
+#include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
+#include "components/keyed_service/core/simple_dependency_manager.h"
 #include "components/keyed_service/core/simple_factory_key.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/buildflags/buildflags.h"
@@ -28,12 +33,10 @@
 #include "services/network/public/mojom/network_service.mojom.h"
 #include "services/service_manager/public/mojom/service.mojom.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/chromeos/settings/scoped_cros_settings_test_helper.h"
 #endif
 
-class BrowserContextDependencyManager;
-class SimpleDependencyManager;
 class ExtensionSpecialStoragePolicy;
 class HostContentSettingsMap;
 class TestingPrefStore;
@@ -54,7 +57,11 @@ namespace policy {
 class PolicyService;
 class ProfilePolicyConnector;
 class SchemaRegistryService;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+class UserCloudPolicyManagerChromeOS;
+#else
 class UserCloudPolicyManager;
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }  // namespace policy
 
 namespace storage {
@@ -68,6 +75,8 @@ class TestingPrefServiceSyncable;
 
 class TestingProfile : public Profile {
  public:
+  static const char kDefaultProfileUserName[];
+
   // Profile directory name for the test user. This is "Default" on most
   // platforms but must be different on ChromeOS because a logged-in user cannot
   // use "Default" as profile directory.
@@ -75,6 +84,15 @@ class TestingProfile : public Profile {
   // directory. Unit-tests, though, should use |kInitialProfile|, which is
   // always "Default", because they are runnining without logged-in user.
   static const char kTestUserProfileDir[];
+
+  // Sets the feature list to enable/disable ephemeral Guest profiles.
+  // Returns true if ephemeral Guest profiles are supported on the platform and
+  // feature list is initialized.
+  // TODO(https://crbug.com/1125474): Expand to cover ChromeOS when ChromeOS
+  // code supports ephemeral Guest profiles.
+  static bool SetScopedFeatureListForEphemeralGuestProfiles(
+      base::test::ScopedFeatureList& scoped_feature_list,
+      bool enabled);
 
   // Default constructor that cannot be used with multi-profiles.
   TestingProfile();
@@ -131,17 +149,22 @@ class TestingProfile : public Profile {
     // Makes Profile::AllowsBrowserWindows() return false.
     void DisallowBrowserWindows();
 
-    // Override the default behavior of is_new_profile to return the provided
-    // value.
-    void OverrideIsNewProfile(bool is_new_profile);
+    // Set the value to be returned by Profile::IsNewProfile().
+    void SetIsNewProfile(bool is_new_profile);
 
     // Sets the supervised user ID (which is empty by default). If it is set to
     // a non-empty string, the profile is supervised.
     void SetSupervisedUserId(const std::string& supervised_user_id);
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    void SetUserCloudPolicyManagerChromeOS(
+        std::unique_ptr<policy::UserCloudPolicyManagerChromeOS>
+            user_cloud_policy_manager);
+#else
     void SetUserCloudPolicyManager(
         std::unique_ptr<policy::UserCloudPolicyManager>
             user_cloud_policy_manager);
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
     // Sets the PolicyService to be used by this profile.
     void SetPolicyService(
@@ -165,7 +188,7 @@ class TestingProfile : public Profile {
 
    private:
     // If true, Build() has already been called.
-    bool build_called_;
+    bool build_called_ = false;
 
     // Various staging variables where values are held until Build() is invoked.
     std::unique_ptr<sync_preferences::PrefServiceSyncable> pref_service_;
@@ -173,15 +196,20 @@ class TestingProfile : public Profile {
     scoped_refptr<ExtensionSpecialStoragePolicy> extension_policy_;
 #endif
     base::FilePath path_;
-    Delegate* delegate_;
-    bool guest_session_;
-    bool allows_browser_windows_;
-    base::Optional<bool> is_new_profile_;
+    Delegate* delegate_ = nullptr;
+    bool guest_session_ = false;
+    bool allows_browser_windows_ = true;
+    bool is_new_profile_ = false;
     std::string supervised_user_id_;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    std::unique_ptr<policy::UserCloudPolicyManagerChromeOS>
+        user_cloud_policy_manager_;
+#else
     std::unique_ptr<policy::UserCloudPolicyManager> user_cloud_policy_manager_;
+#endif
     std::unique_ptr<policy::PolicyService> policy_service_;
     TestingFactories testing_factories_;
-    std::string profile_name_;
+    std::string profile_name_{kDefaultProfileUserName};
     base::Optional<bool> override_policy_connector_is_managed_;
   };
 
@@ -200,23 +228,28 @@ class TestingProfile : public Profile {
 
   // Full constructor allowing the setting of all possible instance data.
   // Callers should use Builder::Build() instead of invoking this constructor.
-  TestingProfile(const base::FilePath& path,
-                 Delegate* delegate,
+  TestingProfile(
+      const base::FilePath& path,
+      Delegate* delegate,
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-                 scoped_refptr<ExtensionSpecialStoragePolicy> extension_policy,
+      scoped_refptr<ExtensionSpecialStoragePolicy> extension_policy,
 #endif
-                 std::unique_ptr<sync_preferences::PrefServiceSyncable> prefs,
-                 TestingProfile* parent,
-                 bool guest_session,
-                 bool allows_browser_windows,
-                 base::Optional<bool> is_new_profile,
-                 const std::string& supervised_user_id,
-                 std::unique_ptr<policy::UserCloudPolicyManager> policy_manager,
-                 std::unique_ptr<policy::PolicyService> policy_service,
-                 TestingFactories testing_factories,
-                 const std::string& profile_name,
-                 base::Optional<bool> override_policy_connector_is_managed,
-                 base::Optional<OTRProfileID> otr_profile_id);
+      std::unique_ptr<sync_preferences::PrefServiceSyncable> prefs,
+      TestingProfile* parent,
+      bool guest_session,
+      bool allows_browser_windows,
+      bool is_new_profile,
+      const std::string& supervised_user_id,
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+      std::unique_ptr<policy::UserCloudPolicyManagerChromeOS> policy_manager,
+#else
+      std::unique_ptr<policy::UserCloudPolicyManager> policy_manager,
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+      std::unique_ptr<policy::PolicyService> policy_service,
+      TestingFactories testing_factories,
+      const std::string& profile_name,
+      base::Optional<bool> override_policy_connector_is_managed,
+      base::Optional<OTRProfileID> otr_profile_id);
 
   ~TestingProfile() override;
 
@@ -264,6 +297,9 @@ class TestingProfile : public Profile {
   // profile dynamically.
   bool IsOffTheRecord() final;
   bool IsOffTheRecord() const final;
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  bool IsMainProfile() const override;
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
   const OTRProfileID& GetOTRProfileID() const override;
   content::DownloadManagerDelegate* GetDownloadManagerDelegate() override;
   content::ResourceContext* GetResourceContext() override;
@@ -281,6 +317,7 @@ class TestingProfile : public Profile {
   content::BrowsingDataRemoverDelegate* GetBrowsingDataRemoverDelegate()
       override;
   void SetCorsOriginAccessListForOrigin(
+      TargetBrowserContexts target_mode,
       const url::Origin& source_origin,
       std::vector<network::mojom::CorsOriginPatternPtr> allow_patterns,
       std::vector<network::mojom::CorsOriginPatternPtr> block_patterns,
@@ -300,7 +337,6 @@ class TestingProfile : public Profile {
   const Profile* GetOriginalProfile() const override;
   bool IsSupervised() const override;
   bool IsChild() const override;
-  bool IsLegacySupervised() const override;
   bool AllowsBrowserWindows() const override;
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   void SetExtensionSpecialStoragePolicy(
@@ -322,14 +358,14 @@ class TestingProfile : public Profile {
   base::Time GetStartTime() const override;
   ProfileKey* GetProfileKey() const override;
   policy::SchemaRegistryService* GetPolicySchemaRegistryService() override;
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   policy::UserCloudPolicyManagerChromeOS* GetUserCloudPolicyManagerChromeOS()
       override;
   policy::ActiveDirectoryPolicyManager* GetActiveDirectoryPolicyManager()
       override;
 #else
   policy::UserCloudPolicyManager* GetUserCloudPolicyManager() override;
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   policy::ProfilePolicyConnector* GetProfilePolicyConnector() override;
   const policy::ProfilePolicyConnector* GetProfilePolicyConnector()
       const override;
@@ -337,24 +373,19 @@ class TestingProfile : public Profile {
   void set_last_selected_directory(const base::FilePath& path) override;
   bool WasCreatedByVersionOrLater(const std::string& version) override;
   bool IsGuestSession() const override;
+  bool IsEphemeralGuestProfile() const override;
   bool IsNewProfile() const override;
   void SetExitType(ExitType exit_type) override {}
   ExitType GetLastSessionExitType() const override;
-  void ConfigureNetworkContextParams(
-      bool in_memory,
-      const base::FilePath& relative_partition_path,
-      network::mojom::NetworkContextParams* network_context_params,
-      network::mojom::CertVerifierCreationParams* cert_verifier_creation_params)
-      override;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   void ChangeAppLocale(const std::string&, AppLocaleChangedVia) override;
   void OnLogin() override {}
   void InitChromeOSPreferences() override {}
   chromeos::ScopedCrosSettingsTestHelper* ScopedCrosSettingsTestHelper();
 
   base::Optional<std::string> requested_locale() { return requested_locale_; }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   // Schedules a task on the history backend and runs a nested loop until the
   // task is processed.  This has the effect of blocking the caller until the
@@ -364,9 +395,10 @@ class TestingProfile : public Profile {
   GURL GetHomePage() override;
 
   void SetCreationTimeForTesting(base::Time creation_time) override;
-  bool ShouldEnableOutOfBlinkCors() override;
 
   PrefService* GetOffTheRecordPrefs() override;
+
+  void RecordMainFrameNavigation() override {}
 
   void set_profile_name(const std::string& profile_name) {
     profile_name_ = profile_name;
@@ -382,7 +414,7 @@ class TestingProfile : public Profile {
   ProfileDestructionCallback profile_destruction_callback_;
 
  protected:
-  base::Time start_time_;
+  base::Time start_time_{base::Time::Now()};
 
   // The key to index KeyedService instances created by
   // SimpleKeyedServiceFactory.
@@ -390,7 +422,10 @@ class TestingProfile : public Profile {
 
   std::unique_ptr<sync_preferences::PrefServiceSyncable> prefs_;
   // ref only for right type, lifecycle is managed by prefs_
-  sync_preferences::TestingPrefServiceSyncable* testing_prefs_;
+  sync_preferences::TestingPrefServiceSyncable* testing_prefs_ = nullptr;
+
+  // Profile implementation.
+  bool IsSignedIn() override;
 
  private:
   // Common initialization between the two constructors.
@@ -419,18 +454,18 @@ class TestingProfile : public Profile {
       extensions_cookie_store_;
 
   std::map<OTRProfileID, std::unique_ptr<Profile>> otr_profiles_;
-  TestingProfile* original_profile_;
+  TestingProfile* original_profile_ = nullptr;
 
-  bool guest_session_;
+  bool guest_session_ = false;
 
-  bool allows_browser_windows_;
+  bool allows_browser_windows_ = true;
 
-  base::Optional<bool> is_new_profile_;
+  bool is_new_profile_ = false;
 
   std::string supervised_user_id_;
 
-  // Did the last session exit cleanly? Default is true.
-  bool last_session_exited_cleanly_;
+  // Whether the last session exited cleanly.
+  bool last_session_exited_cleanly_ = true;
 
   scoped_refptr<HostContentSettingsMap> host_content_settings_map_;
 
@@ -450,31 +485,38 @@ class TestingProfile : public Profile {
   // We keep a weak pointer to the dependency manager we want to notify on our
   // death. Defaults to the Singleton implementation but overridable for
   // testing.
-  SimpleDependencyManager* simple_dependency_manager_;
-  BrowserContextDependencyManager* browser_context_dependency_manager_;
+  SimpleDependencyManager* simple_dependency_manager_{
+      SimpleDependencyManager::GetInstance()};
+  BrowserContextDependencyManager* browser_context_dependency_manager_{
+      BrowserContextDependencyManager::GetInstance()};
 
   // Owned, but must be deleted on the IO thread so not placing in a
   // std::unique_ptr<>.
-  content::MockResourceContext* resource_context_;
+  content::MockResourceContext* resource_context_ = nullptr;
 
   std::unique_ptr<policy::SchemaRegistryService> schema_registry_service_;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  std::unique_ptr<policy::UserCloudPolicyManagerChromeOS>
+      user_cloud_policy_manager_;
+#else
   std::unique_ptr<policy::UserCloudPolicyManager> user_cloud_policy_manager_;
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   std::unique_ptr<policy::ProfilePolicyConnector> profile_policy_connector_;
 
   // Weak pointer to a delegate for indicating that a profile was created.
-  Delegate* delegate_;
+  Delegate* delegate_ = nullptr;
 
-  std::string profile_name_;
+  std::string profile_name_{kDefaultProfileUserName};
 
   base::Optional<bool> override_policy_connector_is_managed_;
   base::Optional<OTRProfileID> otr_profile_id_;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   std::unique_ptr<chromeos::ScopedCrosSettingsTestHelper>
       scoped_cros_settings_test_helper_;
 
   base::Optional<std::string> requested_locale_;
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   std::unique_ptr<policy::PolicyService> policy_service_;
 

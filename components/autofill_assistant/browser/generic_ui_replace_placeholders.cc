@@ -157,9 +157,8 @@ void ReplacePlaceholdersInValue(
 void ReplacePlaceholdersInInteraction(
     InteractionProto* in_out_proto,
     const std::map<std::string, std::string>& placeholders) {
-  if (in_out_proto->has_trigger_event()) {
-    ReplacePlaceholdersInEvent(in_out_proto->mutable_trigger_event(),
-                               placeholders);
+  for (auto& trigger_event : *in_out_proto->mutable_trigger_event()) {
+    ReplacePlaceholdersInEvent(&trigger_event, placeholders);
   }
 
   for (auto& callback : *in_out_proto->mutable_callbacks()) {
@@ -322,6 +321,14 @@ void ReplacePlaceholdersInCallback(
                     ->mutable_create_login_option_response()
                     ->mutable_value(),
                 placeholders);
+          }
+          return;
+        case ComputeValueProto::kStringEmpty:
+          if (in_out_proto->compute_value().string_empty().has_value()) {
+            ReplacePlaceholdersInValue(in_out_proto->mutable_compute_value()
+                                           ->mutable_string_empty()
+                                           ->mutable_value(),
+                                       placeholders);
           }
           return;
         case ComputeValueProto::KIND_NOT_SET:

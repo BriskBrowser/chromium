@@ -90,6 +90,14 @@ Polymer({
       value: CookiePrimarySetting,
     },
 
+    /** @private */
+    enableContentSettingsRedesign_: {
+      type: Boolean,
+      value() {
+        return loadTimeData.getBoolean('enableContentSettingsRedesign');
+      }
+    },
+
     /**
      * Used for HTML bindings. This is defined as a property rather than
      * within the ready callback, because the value needs to be available
@@ -208,6 +216,25 @@ Polymer({
       this.metricsBrowserProxy_.recordSettingsPageHistogram(
           PrivacyElementInteractions.COOKIES_BLOCK);
     }
+
+    // If this change resulted in the user now blocking 3P cookies where they
+    // previously were not, and privacy sandbox APIs are enabled, the privacy
+    // sandbox toast should be shown.
+    const currentCookieSetting =
+        this.getPref('generated.cookie_primary_setting').value;
+    if (loadTimeData.getBoolean('privacySandboxSettingsEnabled') &&
+        this.getPref('privacy_sandbox.apis_enabled').value &&
+        (currentCookieSetting === CookiePrimarySetting.ALLOW_ALL ||
+         currentCookieSetting ===
+             CookiePrimarySetting.BLOCK_THIRD_PARTY_INCOGNITO) &&
+        (selection === CookiePrimarySetting.BLOCK_THIRD_PARTY ||
+         selection === CookiePrimarySetting.BLOCK_ALL)) {
+      this.$.toast.show();
+      this.metricsBrowserProxy_.recordAction(
+          'Settings.PrivacySandbox.Block3PCookies');
+    }
+
+    this.$.primarySettingGroup.sendPrefChange();
   },
 
   /** @private */
@@ -225,5 +252,14 @@ Polymer({
   onNetworkPredictionChange_() {
     this.metricsBrowserProxy_.recordSettingsPageHistogram(
         PrivacyElementInteractions.NETWORK_PREDICTION);
+  },
+
+  /** @private */
+  onPrivacySandboxClick_() {
+    this.metricsBrowserProxy_.recordAction(
+        'Settings.PrivacySandbox.OpenedFromCookiesPageToast');
+    this.$.toast.hide();
+    // TODO(crbug/1159942): Replace this with an ordinary OpenWindowProxy call.
+    this.shadowRoot.getElementById('privacySandboxLink').click();
   },
 });

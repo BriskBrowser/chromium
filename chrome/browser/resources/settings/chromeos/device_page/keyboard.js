@@ -35,6 +35,12 @@ cr.define('settings', function() {
         notify: true,
       },
 
+      /** @private {!Map<string, (string|Function)>} */
+      focusConfig: {
+        type: Object,
+        observer: 'onFocusConfigChange_',
+      },
+
       /** @private Whether to show Caps Lock options. */
       showCapsLock_: Boolean,
 
@@ -97,6 +103,17 @@ cr.define('settings', function() {
           chromeos.settings.mojom.Setting.kKeyboardAutoRepeat,
           chromeos.settings.mojom.Setting.kKeyboardShortcuts,
         ]),
+      },
+
+      /**
+       * This is enabled when language settings update feature flag is enabled.
+       * @private
+       */
+      languageSettingsV2Enabled_: {
+        type: Boolean,
+        value() {
+          return loadTimeData.getBoolean('enableLanguageSettingsV2');
+        },
       },
     },
 
@@ -163,6 +180,24 @@ cr.define('settings', function() {
       ];
     },
 
+    /** @private */
+    onFocusConfigChange_() {
+      let path, id;
+      if (this.languageSettingsV2Enabled_) {
+        path = settings.routes.OS_LANGUAGES_INPUT.path;
+        id = '#showLanguagesInput';
+      } else {
+        path = settings.routes.OS_LANGUAGES_DETAILS.path;
+        id = '#showLanguagesDetails';
+      }
+
+      this.focusConfig.set(path, () => {
+        Polymer.RenderStatus.afterNextRender(this, () => {
+          cr.ui.focusWithoutInk(assert(this.$$(id)));
+        });
+      });
+    },
+
     /**
      * Handler for updating which keys to show.
      * @param {Object} keyboardParams
@@ -176,22 +211,33 @@ cr.define('settings', function() {
       this.showAppleCommandKey_ = keyboardParams['showAppleCommandKey'];
     },
 
+    /** @private */
     onShowKeyboardShortcutViewerTap_() {
       settings.DevicePageBrowserProxyImpl.getInstance()
           .showKeyboardShortcutViewer();
     },
 
+    /** @private */
     onShowLanguageInputTap_() {
       settings.Router.getInstance().navigateTo(
           settings.routes.OS_LANGUAGES_DETAILS,
-          /* dynamicParams */ null, /* removeSearch */ true);
+          /*dynamicParams=*/ null, /*removeSearch=*/ true);
     },
 
+    /** @private */
+    onShowInputSettingsTap_() {
+      settings.Router.getInstance().navigateTo(
+          settings.routes.OS_LANGUAGES_INPUT,
+          /*dynamicParams=*/ null, /*removeSearch=*/ true);
+    },
+
+    /** @private */
     getExternalMetaKeyLabel_(hasInternalKeyboard) {
       return loadTimeData.getString(
           hasInternalKeyboard ? 'keyboardKeyExternalMeta' : 'keyboardKeyMeta');
     },
 
+    /** @private */
     getExternalCommandKeyLabel_(hasInternalKeyboard) {
       return loadTimeData.getString(
           hasInternalKeyboard ? 'keyboardKeyExternalCommand' :

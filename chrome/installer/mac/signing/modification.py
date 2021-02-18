@@ -12,6 +12,7 @@ import os.path
 
 from . import commands, parts
 
+_CF_BUNDLE_DISPLAY_NAME = 'CFBundleDisplayName'
 _CF_BUNDLE_EXE = 'CFBundleExecutable'
 _CF_BUNDLE_ID = 'CFBundleIdentifier'
 _CF_BUNDLE_NAME = 'CFBundleName'
@@ -47,8 +48,10 @@ def _modify_plists(paths, dist, config):
                                 config.base_config.base_bundle_id,
                                 config.base_bundle_id)
 
-            app_plist[_CF_BUNDLE_ID] = config.base_bundle_id
+            app_plist[_CF_BUNDLE_DISPLAY_NAME] = '{} {}'.format(
+                app_plist[_CF_BUNDLE_DISPLAY_NAME], dist.app_name_fragment)
             app_plist[_CF_BUNDLE_EXE] = config.app_product
+            app_plist[_CF_BUNDLE_ID] = config.base_bundle_id
             app_plist[_CF_BUNDLE_NAME] = '{} {}'.format(
                 app_plist[_CF_BUNDLE_NAME], dist.app_name_fragment)
             app_plist[_KS_PRODUCT_ID] += '.' + dist.channel
@@ -59,8 +62,15 @@ def _modify_plists(paths, dist, config):
         elif _KS_BRAND_ID in app_plist:
             del app_plist[_KS_BRAND_ID]
 
+        base_tag = app_plist.get(_KS_CHANNEL_ID)
+        base_channel_tag_components = []
+        if base_tag:
+            base_channel_tag_components.append(base_tag)
         if dist.channel:
-            app_plist[_KS_CHANNEL_ID] = dist.channel
+            base_channel_tag_components.append(dist.channel)
+        base_channel_tag = '-'.join(base_channel_tag_components)
+        if base_channel_tag:
+            app_plist[_KS_CHANNEL_ID] = base_channel_tag
         elif _KS_CHANNEL_ID in app_plist:
             del app_plist[_KS_CHANNEL_ID]
 
@@ -75,9 +85,8 @@ def _modify_plists(paths, dist, config):
         for key in app_plist.keys():
             if not key.startswith(_KS_CHANNEL_ID + '-'):
                 continue
-            orig_channel, tag = key.split('-')
-            channel_str = dist.channel if dist.channel else ''
-            app_plist[key] = '{}-{}'.format(channel_str, tag)
+            ignore, extra = key.split('-')
+            app_plist[key] = '{}-{}'.format(base_channel_tag, extra)
 
 
 def _replace_icons(paths, dist, config):

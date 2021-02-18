@@ -7,6 +7,7 @@
 #include "base/check_op.h"
 #include "base/command_line.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/extension_management.h"
 #include "chrome/browser/profiles/profile.h"
@@ -21,10 +22,10 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/permissions/permissions_data.h"
 
-#if defined(OS_CHROMEOS)
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
-#include "chrome/browser/extensions/component_extensions_whitelist/whitelist.h"
-#include "chromeos/constants/chromeos_switches.h"
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/ash_switches.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
+#include "chrome/browser/extensions/component_extensions_allowlist/allowlist.h"
 #endif
 
 namespace extensions {
@@ -70,7 +71,7 @@ bool ChromeProcessManagerDelegate::AreBackgroundPagesAllowedForContext(
 bool ChromeProcessManagerDelegate::IsExtensionBackgroundPageAllowed(
     content::BrowserContext* context,
     const Extension& extension) const {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   Profile* profile = Profile::FromBrowserContext(context);
 
   const bool is_signin_profile =
@@ -90,9 +91,9 @@ bool ChromeProcessManagerDelegate::IsExtensionBackgroundPageAllowed(
             ->GetForceInstallList();
 
     // For the ChromeOS login profile, only allow apps installed by device
-    // policy or that are explicitly whitelisted.
+    // policy or that are explicitly allowlisted.
     return login_screen_apps_list->HasKey(extension.id()) ||
-           IsComponentExtensionWhitelistedForSignInProfile(extension.id());
+           IsComponentExtensionAllowlistedForSignInProfile(extension.id());
   }
 
   if (chromeos::ProfileHelper::IsLockScreenAppProfile(profile) &&

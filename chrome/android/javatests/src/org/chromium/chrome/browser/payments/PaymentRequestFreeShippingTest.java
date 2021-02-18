@@ -53,8 +53,16 @@ public class PaymentRequestFreeShippingTest implements MainActivityStartCallback
     public PaymentRequestTestRule mPaymentRequestTestRule =
             new PaymentRequestTestRule("payment_request_free_shipping_test.html", this, true);
 
+    private static final int RENDER_TEST_REVISION = 1;
+    private static final String RENDER_TEST_REVISION_DESCRIPTION =
+            "Updated EditText hint color for a11y";
+
     @Rule
-    public RenderTestRule mRenderTestRule = RenderTestRule.Builder.withPublicCorpus().build();
+    public RenderTestRule mRenderTestRule =
+            RenderTestRule.Builder.withPublicCorpus()
+                    .setRevision(RENDER_TEST_REVISION)
+                    .setDescription(RENDER_TEST_REVISION_DESCRIPTION)
+                    .build();
 
     @BeforeClass
     public static void setUpBeforeActivityLaunched() {
@@ -82,8 +90,8 @@ public class PaymentRequestFreeShippingTest implements MainActivityStartCallback
         AutofillTestHelper helper = new AutofillTestHelper();
         // The user has a shipping address on disk.
         String billingAddressId = helper.setProfile(new AutofillProfile("", "https://example.com",
-                true, "Jon Doe", "Google", "340 Main St", "CA", "Los Angeles", "", "90291", "",
-                "US", "650-253-0000", "", "en-US"));
+                true, "" /* honorific prefix */, "Jon Doe", "Google", "340 Main St", "CA",
+                "Los Angeles", "", "90291", "", "US", "650-253-0000", "", "en-US"));
         helper.setCreditCard(new CreditCard("", "https://example.com", true, true, "Jon Doe",
                 "4111111111111111", "1111", "12", "2050", "amex", R.drawable.amex_card,
                 billingAddressId, "" /* serverId */));

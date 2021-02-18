@@ -10,6 +10,7 @@
 
 #include "base/bind.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/stl_util.h"
 #include "build/build_config.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
@@ -419,8 +420,8 @@ void StringifyAndParseMethodSpecificData(ExecutionContext& execution_context,
                                          PaymentMethodDataPtr& output,
                                          ExceptionState& exception_state) {
   PaymentsValidators::ValidateAndStringifyObject(
-      execution_context.GetIsolate(), "Payment method data", input,
-      output->stringified_data, exception_state);
+      execution_context.GetIsolate(), input, output->stringified_data,
+      exception_state);
   if (exception_state.HadException())
     return;
 
@@ -598,7 +599,8 @@ void ValidateAndConvertPaymentDetailsUpdate(const PaymentDetailsUpdate* input,
   if (exception_state.HadException())
     return;
   if (input->hasTotal()) {
-    DCHECK(!RuntimeEnabledFeatures::DigitalGoodsEnabled() || !ignore_total);
+    DCHECK(!RuntimeEnabledFeatures::DigitalGoodsEnabled(&execution_context) ||
+           !ignore_total);
     if (ignore_total) {
       output->total =
           CreateTotalPlaceHolderForAppStoreBilling(execution_context);
@@ -634,9 +636,7 @@ void ValidateAndConvertPaymentDetailsUpdate(const PaymentDetailsUpdate* input,
 
   if (input->hasPaymentMethodErrors()) {
     PaymentsValidators::ValidateAndStringifyObject(
-        execution_context.GetIsolate(), "Payment method errors",
-        input->paymentMethodErrors(),
-
+        execution_context.GetIsolate(), input->paymentMethodErrors(),
         output->stringified_payment_method_errors, exception_state);
   }
 }
@@ -795,41 +795,69 @@ ScriptPromise PaymentRequest::show(ScriptState* script_state,
     return ScriptPromise();
   }
 
+  if (!not_supported_for_invalid_origin_or_ssl_error_.IsEmpty()) {
+    return ScriptPromise::RejectWithDOMException(
+        script_state, MakeGarbageCollected<DOMException>(
+                          DOMExceptionCode::kNotSupportedError,
+                          not_supported_for_invalid_origin_or_ssl_error_));
+  }
+
   if (!payment_provider_.is_bound() || accept_resolver_) {
     exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
                                       "Already called show() once");
     return ScriptPromise();
   }
 
-  // TODO(crbug.com/825270): Reject with SecurityError DOMException if triggered
-  // without user activation.
-  bool is_user_gesture = LocalFrame::HasTransientUserActivation(GetFrame());
-  if (!is_user_gesture) {
+  LocalFrame* local_frame = DomWindow()->GetFrame();
+
+  bool payment_request_allowed =
+      LocalFrame::HasTransientUserActivation(local_frame);
+  if (!payment_request_allowed) {
     UseCounter::Count(GetExecutionContext(),
                       WebFeature::kPaymentRequestShowWithoutGesture);
   }
 
-  // TODO(crbug.com/825270): Pretend that a user gesture is provided to allow
-  // origins that are part of the Secure Payment Confirmation Origin Trial to
-  // use skip-the-sheet flow as a hack for secure modal window
-  // (crbug.com/1122028). Remove this after user gesture delegation ships.
-  if (RuntimeEnabledFeatures::SecurePaymentConfirmationEnabled(
+  if (RuntimeEnabledFeatures::CapabilityDelegationPaymentRequestEnabled(
           GetExecutionContext())) {
-    is_user_gesture = true;
+    payment_request_allowed |= local_frame->IsPaymentRequestTokenActive();
+    if (!payment_request_allowed) {
+      String message =
+          "PaymentRequest.show() requires either transient user activation or "
+          "delegated payment request capability";
+      GetExecutionContext()->AddConsoleMessage(
+          MakeGarbageCollected<ConsoleMessage>(
+              mojom::blink::ConsoleMessageSource::kJavaScript,
+              mojom::blink::ConsoleMessageLevel::kWarning, message));
+      exception_state.ThrowDOMException(DOMExceptionCode::kNotAllowedError,
+                                        message);
+      return ScriptPromise();
+    }
+    LocalFrame::ConsumeTransientUserActivation(local_frame);
+    local_frame->ConsumePaymentRequestToken();
+
+  } else if (RuntimeEnabledFeatures::SecurePaymentConfirmationEnabled(
+                 GetExecutionContext())) {
+    // TODO(crbug.com/825270): Pretend that a user gesture is provided to allow
+    // origins that are part of the Secure Payment Confirmation Origin Trial to
+    // use skip-the-sheet flow as a hack for secure modal window
+    // (crbug.com/1122028). Remove this after user gesture delegation ships.
+    payment_request_allowed = true;
   }
 
   // TODO(crbug.com/779126): add support for handling payment requests in
   // immersive mode.
-  if (GetFrame()->GetDocument()->GetSettings()->GetImmersiveModeEnabled()) {
+  if (local_frame->GetSettings()->GetImmersiveModeEnabled()) {
     exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
                                       "Page popups are suppressed");
     return ScriptPromise();
   }
 
+  VLOG(2) << "Renderer: PaymentRequest (" << id_.Utf8() << "): show()";
+
   UseCounter::Count(GetExecutionContext(), WebFeature::kPaymentRequestShow);
 
   is_waiting_for_show_promise_to_resolve_ = !details_promise.IsEmpty();
-  payment_provider_->Show(is_user_gesture,
+  payment_provider_->Show(payment_request_allowed,
                           is_waiting_for_show_promise_to_resolve_);
   if (is_waiting_for_show_promise_to_resolve_) {
     // If the website does not calculate the final shopping cart contents within
@@ -871,6 +899,8 @@ ScriptPromise PaymentRequest::abort(ScriptState* script_state,
     return ScriptPromise();
   }
 
+  VLOG(2) << "Renderer: PaymentRequest (" << id_.Utf8() << "): abort()";
+
   abort_resolver_ = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   payment_provider_->Abort();
   return abort_resolver_->Promise();
@@ -878,12 +908,20 @@ ScriptPromise PaymentRequest::abort(ScriptState* script_state,
 
 ScriptPromise PaymentRequest::canMakePayment(ScriptState* script_state,
                                              ExceptionState& exception_state) {
+  if (!not_supported_for_invalid_origin_or_ssl_error_.IsEmpty()) {
+    return ScriptPromise::Cast(script_state,
+                               ScriptValue::From(script_state, false));
+  }
+
   if (!payment_provider_.is_bound() || GetPendingAcceptPromiseResolver() ||
       can_make_payment_resolver_ || !script_state->ContextIsValid()) {
     exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
                                       "Cannot query payment request");
     return ScriptPromise();
   }
+
+  VLOG(2) << "Renderer: PaymentRequest (" << id_.Utf8()
+          << "): canMakePayment()";
 
   payment_provider_->CanMakePayment();
 
@@ -895,12 +933,20 @@ ScriptPromise PaymentRequest::canMakePayment(ScriptState* script_state,
 ScriptPromise PaymentRequest::hasEnrolledInstrument(
     ScriptState* script_state,
     ExceptionState& exception_state) {
+  if (!not_supported_for_invalid_origin_or_ssl_error_.IsEmpty()) {
+    return ScriptPromise::Cast(script_state,
+                               ScriptValue::From(script_state, false));
+  }
+
   if (!payment_provider_.is_bound() || GetPendingAcceptPromiseResolver() ||
       has_enrolled_instrument_resolver_ || !script_state->ContextIsValid()) {
     exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
                                       "Cannot query payment request");
     return ScriptPromise();
   }
+
+  VLOG(2) << "Renderer: PaymentRequest (" << id_.Utf8()
+          << "): hasEnrolledInstrument()";
 
   payment_provider_->HasEnrolledInstrument();
 
@@ -910,7 +956,9 @@ ScriptPromise PaymentRequest::hasEnrolledInstrument(
 }
 
 bool PaymentRequest::HasPendingActivity() const {
-  return GetPendingAcceptPromiseResolver() || complete_resolver_;
+  return accept_resolver_ || retry_resolver_ || complete_resolver_ ||
+         has_enrolled_instrument_resolver_ || can_make_payment_resolver_ ||
+         abort_resolver_;
 }
 
 const AtomicString& PaymentRequest::InterfaceName() const {
@@ -1140,6 +1188,8 @@ void PaymentRequest::Trace(Visitor* visitor) const {
   visitor->Trace(has_enrolled_instrument_resolver_);
   visitor->Trace(payment_provider_);
   visitor->Trace(client_receiver_);
+  visitor->Trace(complete_timer_);
+  visitor->Trace(update_payment_details_timer_);
   EventTargetWithInlineData::Trace(visitor);
   ExecutionContextLifecycleObserver::Trace(visitor);
 }
@@ -1181,7 +1231,11 @@ PaymentRequest::PaymentRequest(
           this,
           &PaymentRequest::OnUpdatePaymentDetailsTimeout),
       is_waiting_for_show_promise_to_resolve_(false) {
+  // options_, details has default value, so could never be null, according to
+  // payment_request.idl.
+  DCHECK(options_);
   DCHECK(details);
+
   DCHECK(GetExecutionContext()->IsSecureContext());
   if (!AllowedToUsePaymentRequest(execution_context)) {
     exception_state.ThrowSecurityError(
@@ -1201,6 +1255,8 @@ PaymentRequest::PaymentRequest(
   validated_details->id = id_ =
       details->hasId() ? details->id() : WTF::CreateCanonicalUUIDString();
 
+  VLOG(2) << "Renderer: New PaymentRequest (" << id_.Utf8() << ")";
+
   // This flag is set to true by ValidateAndConvertPaymentMethodData() if this
   // request is eligible for the Skip-to-GPay experimental flow and the GPay
   // payment method data has been patched to delegate shipping and contact
@@ -1214,8 +1270,9 @@ PaymentRequest::PaymentRequest(
   if (exception_state.HadException())
     return;
 
-  ignore_total_ = RuntimeEnabledFeatures::DigitalGoodsEnabled() &&
-                  RequestingOnlyAppStoreBillingMethods(validated_method_data);
+  ignore_total_ =
+      RuntimeEnabledFeatures::DigitalGoodsEnabled(GetExecutionContext()) &&
+      RequestingOnlyAppStoreBillingMethods(validated_method_data);
   ValidateAndConvertPaymentDetailsInit(details, options_, validated_details,
                                        shipping_option_, ignore_total_,
                                        *GetExecutionContext(), exception_state);
@@ -1265,7 +1322,7 @@ PaymentRequest::PaymentRequest(
         std::move(mock_payment_provider),
         execution_context->GetTaskRunner(TaskType::kMiscPlatformAPI));
   } else {
-    GetFrame()->GetBrowserInterfaceBroker().GetInterface(
+    DomWindow()->GetBrowserInterfaceBroker().GetInterface(
         payment_provider_.BindNewPipeAndPassReceiver(task_runner));
   }
   payment_provider_.set_disconnect_handler(
@@ -1466,6 +1523,10 @@ void PaymentRequest::OnError(PaymentErrorReason error,
 
   switch (error) {
     case PaymentErrorReason::USER_CANCEL:
+    // Intentional fall through.
+    case PaymentErrorReason::INVALID_DATA_FROM_RENDERER:
+    // Intentional fall through.
+    case PaymentErrorReason::ALREADY_SHOWING:
       exception_code = DOMExceptionCode::kAbortError;
       break;
 
@@ -1473,8 +1534,9 @@ void PaymentRequest::OnError(PaymentErrorReason error,
       exception_code = DOMExceptionCode::kNotSupportedError;
       break;
 
-    case PaymentErrorReason::ALREADY_SHOWING:
-      exception_code = DOMExceptionCode::kAbortError;
+    case PaymentErrorReason::NOT_SUPPORTED_FOR_INVALID_ORIGIN_OR_SSL:
+      exception_code = DOMExceptionCode::kNotSupportedError;
+      not_supported_for_invalid_origin_or_ssl_error_ = error_message;
       break;
 
     case PaymentErrorReason::UNKNOWN:
@@ -1502,13 +1564,21 @@ void PaymentRequest::OnError(PaymentErrorReason error,
   }
 
   if (can_make_payment_resolver_) {
-    can_make_payment_resolver_->Reject(
-        MakeGarbageCollected<DOMException>(exception_code, error_message));
+    if (!not_supported_for_invalid_origin_or_ssl_error_.IsEmpty()) {
+      can_make_payment_resolver_->Reject(false);
+    } else {
+      can_make_payment_resolver_->Reject(
+          MakeGarbageCollected<DOMException>(exception_code, error_message));
+    }
   }
 
   if (has_enrolled_instrument_resolver_) {
-    has_enrolled_instrument_resolver_->Reject(
-        MakeGarbageCollected<DOMException>(exception_code, error_message));
+    if (!not_supported_for_invalid_origin_or_ssl_error_.IsEmpty()) {
+      has_enrolled_instrument_resolver_->Reject(false);
+    } else {
+      has_enrolled_instrument_resolver_->Reject(
+          MakeGarbageCollected<DOMException>(exception_code, error_message));
+    }
   }
 
   ClearResolversAndCloseMojoConnection();

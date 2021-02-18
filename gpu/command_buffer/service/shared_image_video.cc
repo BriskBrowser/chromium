@@ -187,7 +187,10 @@ class SharedImageRepresentationGLTexturePassthroughVideo
       : SharedImageRepresentationGLTexturePassthrough(manager,
                                                       backing,
                                                       tracker),
-        texture_(std::move(texture)) {}
+        texture_(std::move(texture)) {
+    // TODO(https://crbug.com/1172769): Remove this CHECK.
+    CHECK(texture_);
+  }
 
   const scoped_refptr<gles2::TexturePassthrough>& GetTexturePassthrough()
       override {
@@ -229,7 +232,8 @@ class SharedImageRepresentationVideoSkiaVk
       int final_msaa_count,
       const SkSurfaceProps& surface_props,
       std::vector<GrBackendSemaphore>* begin_semaphores,
-      std::vector<GrBackendSemaphore>* end_semaphores) override {
+      std::vector<GrBackendSemaphore>* end_semaphores,
+      std::unique_ptr<GrBackendSurfaceMutableState>* end_state) override {
     // Writes are not intended to used for video backed representations.
     NOTIMPLEMENTED();
     return nullptr;
@@ -239,7 +243,8 @@ class SharedImageRepresentationVideoSkiaVk
 
   sk_sp<SkPromiseImageTexture> BeginReadAccess(
       std::vector<GrBackendSemaphore>* begin_semaphores,
-      std::vector<GrBackendSemaphore>* end_semaphores) override {
+      std::vector<GrBackendSemaphore>* end_semaphores,
+      std::unique_ptr<GrBackendSurfaceMutableState>* end_state) override {
     DCHECK(!scoped_hardware_buffer_);
     auto* video_backing = static_cast<SharedImageVideo*>(backing());
     DCHECK(video_backing);
@@ -288,7 +293,7 @@ class SharedImageRepresentationVideoSkiaVk
     }
 
     return SharedImageRepresentationSkiaVkAndroid::BeginReadAccess(
-        begin_semaphores, end_semaphores);
+        begin_semaphores, end_semaphores, end_state);
   }
 
   void EndReadAccess() override {
@@ -412,7 +417,7 @@ class SharedImageRepresentationOverlayVideo
         stream_image_(backing->stream_texture_sii_) {}
 
  protected:
-  bool BeginReadAccess() override {
+  bool BeginReadAccess(std::vector<gfx::GpuFence>* acquire_fences) override {
     // A |CodecImage| is already in a SurfaceView, render content to the
     // overlay.
     if (!stream_image_->HasTextureOwner()) {
@@ -423,7 +428,9 @@ class SharedImageRepresentationOverlayVideo
     return true;
   }
 
-  void EndReadAccess() override {}
+  void EndReadAccess(gfx::GpuFenceHandle release_fence) override {
+    DCHECK(release_fence.is_null());
+  }
 
   gl::GLImage* GetGLImage() override {
     DCHECK(stream_image_->HasTextureOwner())

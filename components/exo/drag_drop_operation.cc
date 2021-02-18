@@ -5,23 +5,36 @@
 #include "components/exo/drag_drop_operation.h"
 
 #include "base/barrier_closure.h"
+#include "base/check.h"
+#include "base/strings/string_split.h"
 #include "base/threading/sequenced_task_runner_handle.h"
+#include "build/chromeos_buildflags.h"
+#include "components/exo/data_exchange_delegate.h"
 #include "components/exo/data_offer.h"
 #include "components/exo/data_source.h"
 #include "components/exo/seat.h"
 #include "components/exo/surface.h"
+#include "components/exo/surface_tree_host.h"
 #include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "components/viz/common/frame_sinks/copy_output_result.h"
 #include "ui/aura/client/drag_drop_client.h"
+#include "ui/base/clipboard/file_info.h"
+#include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
+#include "ui/gfx/geometry/point.h"
+#include "ui/gfx/geometry/point_conversions.h"
+#include "ui/gfx/geometry/point_f.h"
+#include "ui/gfx/geometry/vector2d.h"
 #include "ui/gfx/transform_util.h"
+#include "url/gurl.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/drag_drop/drag_drop_controller.h"
-#endif  // defined(OS_CHROMEOS)
+#include "components/exo/extended_drag_source.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace exo {
 
@@ -47,7 +60,7 @@ uint32_t DndActionsToDragOperations(const base::flat_set<DndAction>& actions) {
   return dnd_operations;
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 DndAction DragOperationsToPreferredDndAction(int op) {
   if (op & ui::DragDropTypes::DragOperation::DRAG_COPY)
     return DndAction::kCopy;
@@ -75,32 +88,90 @@ DndAction DragOperationToDndAction(int op) {
 
 }  // namespace
 
+// Internal representation of a drag icon surface. Used when a non-null surface
+// is passed in wl_data_device::start_drag requests.
+// TODO(crbug.com/1119385): Rework icon implementation to avoid frame copies.
+class DragDropOperation::IconSurface final : public SurfaceTreeHost,
+                                             public ScopedSurface {
+ public:
+  IconSurface(Surface* icon, DragDropOperation* operation)
+      : SurfaceTreeHost("ExoDragIcon"),
+        ScopedSurface(icon, operation),
+        operation_(operation) {
+    DCHECK(operation_);
+    DCHECK(!icon->HasSurfaceDelegate());
+
+    Surface* origin_surface = operation_->origin_->get();
+    origin_surface->window()->AddChild(host_window());
+    SetRootSurface(icon);
+  }
+
+  IconSurface(const IconSurface&) = delete;
+  IconSurface& operator=(const IconSurface&) = delete;
+  ~IconSurface() override = default;
+
+ private:
+  // SurfaceTreeHost:
+  void OnSurfaceCommit() override {
+    SurfaceTreeHost::OnSurfaceCommit();
+    RequestCaptureIcon();
+  }
+
+  void RequestCaptureIcon() {
+    SubmitCompositorFrame();
+
+    std::unique_ptr<viz::CopyOutputRequest> request =
+        std::make_unique<viz::CopyOutputRequest>(
+            viz::CopyOutputRequest::ResultFormat::RGBA_BITMAP,
+            base::BindOnce(&IconSurface::OnCaptured,
+                           weak_ptr_factory_.GetWeakPtr()));
+    request->set_result_task_runner(base::SequencedTaskRunnerHandle::Get());
+
+    host_window()->layer()->RequestCopyOfOutput(std::move(request));
+  }
+
+  void OnCaptured(std::unique_ptr<viz::CopyOutputResult> icon_result) {
+    // An empty response means the request was deleted before it was completed.
+    // If this happens, and no operation has yet finished, restart the capture.
+    if (icon_result->IsEmpty()) {
+      RequestCaptureIcon();
+      return;
+    }
+
+    operation_->OnDragIconCaptured(icon_result->AsSkBitmap());
+  }
+
+  DragDropOperation* const operation_;
+  base::WeakPtrFactory<IconSurface> weak_ptr_factory_{this};
+};
+
 base::WeakPtr<DragDropOperation> DragDropOperation::Create(
+    DataExchangeDelegate* data_exchange_delegate,
     DataSource* source,
     Surface* origin,
     Surface* icon,
-    const gfx::Point& drag_start_point,
+    const gfx::PointF& drag_start_point,
     ui::mojom::DragEventSource event_source) {
-  auto* dnd_op = new DragDropOperation(source, origin, icon, drag_start_point,
-                                       event_source);
+  auto* dnd_op = new DragDropOperation(data_exchange_delegate, source, origin,
+                                       icon, drag_start_point, event_source);
   return dnd_op->weak_ptr_factory_.GetWeakPtr();
 }
 
-DragDropOperation::DragDropOperation(DataSource* source,
-                                     Surface* origin,
-                                     Surface* icon,
-                                     const gfx::Point& drag_start_point,
-                                     ui::mojom::DragEventSource event_source)
-    : SurfaceTreeHost("ExoDragDropOperation"),
-      source_(std::make_unique<ScopedDataSource>(source, this)),
+DragDropOperation::DragDropOperation(
+    DataExchangeDelegate* data_exchange_delegate,
+    DataSource* source,
+    Surface* origin,
+    Surface* icon,
+    const gfx::PointF& drag_start_point,
+    ui::mojom::DragEventSource event_source)
+    : source_(std::make_unique<ScopedDataSource>(source, this)),
       origin_(std::make_unique<ScopedSurface>(origin, this)),
       drag_start_point_(drag_start_point),
       os_exchange_data_(std::make_unique<ui::OSExchangeData>()),
-      event_source_(event_source),
-      weak_ptr_factory_(this) {
+      event_source_(event_source) {
   aura::Window* root_window = origin_->get()->window()->GetRootWindow();
   DCHECK(root_window);
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   drag_drop_controller_ = static_cast<ash::DragDropController*>(
       aura::client::GetDragDropClient(root_window));
 #else
@@ -113,8 +184,21 @@ DragDropOperation::DragDropOperation(DataSource* source,
 
   drag_drop_controller_->AddObserver(this);
 
+  os_exchange_data_->SetSource(std::make_unique<ui::DataTransferEndpoint>(
+      data_exchange_delegate->GetDataTransferEndpointType(
+          origin_->get()->window())));
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  extended_drag_source_ = ExtendedDragSource::Get();
+  if (extended_drag_source_) {
+    drag_drop_controller_->set_toplevel_window_drag_delegate(
+        extended_drag_source_);
+    extended_drag_source_->AddObserver(this);
+  }
+#endif
+
   if (icon)
-    icon_ = std::make_unique<ScopedSurface>(icon, this);
+    icon_ = std::make_unique<IconSurface>(icon, this);
 
   auto start_op_callback =
       base::BindOnce(&DragDropOperation::ScheduleStartDragDropOperation,
@@ -131,12 +215,11 @@ DragDropOperation::DragDropOperation(DataSource* source,
       DataSource::ReadDataCallback(),
       base::BindOnce(&DragDropOperation::OnHTMLRead,
                      weak_ptr_factory_.GetWeakPtr()),
-      DataSource::ReadDataCallback(), counter_);
-
-  if (icon) {
-    origin_->get()->window()->AddChild(host_window());
-    SetRootSurface(icon);
-  }
+      DataSource::ReadDataCallback(),
+      base::BindOnce(&DragDropOperation::OnFilenamesRead,
+                     weak_ptr_factory_.GetWeakPtr(), data_exchange_delegate,
+                     origin->window()),
+      counter_);
 }
 
 DragDropOperation::~DragDropOperation() {
@@ -147,6 +230,11 @@ DragDropOperation::~DragDropOperation() {
 
   if (drag_drop_controller_->IsDragDropInProgress() && started_by_this_object_)
     drag_drop_controller_->DragCancel();
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  if (extended_drag_source_)
+    ResetExtendedDragSource();
+#endif
 }
 
 void DragDropOperation::AbortIfPending() {
@@ -173,48 +261,31 @@ void DragDropOperation::OnHTMLRead(const std::string& mime_type,
   counter_.Run();
 }
 
-void DragDropOperation::OnSurfaceCommit() {
-  SurfaceTreeHost::OnSurfaceCommit();
-
-  if (icon_)
-    CaptureDragIcon();
+void DragDropOperation::OnFilenamesRead(
+    DataExchangeDelegate* data_exchange_delegate,
+    aura::Window* source,
+    const std::string& mime_type,
+    const std::vector<uint8_t>& data) {
+  DCHECK(os_exchange_data_);
+  os_exchange_data_->SetFilenames(data_exchange_delegate->GetFilenames(
+      data_exchange_delegate->GetDataTransferEndpointType(source), data));
+  mime_type_ = mime_type;
+  counter_.Run();
 }
 
-void DragDropOperation::CaptureDragIcon() {
-  SubmitCompositorFrame();
-
-  std::unique_ptr<viz::CopyOutputRequest> request =
-      std::make_unique<viz::CopyOutputRequest>(
-          viz::CopyOutputRequest::ResultFormat::RGBA_BITMAP,
-          base::BindOnce(&DragDropOperation::OnDragIconCaptured,
-                         weak_ptr_factory_.GetWeakPtr()));
-  request->set_result_task_runner(base::SequencedTaskRunnerHandle::Get());
-
-  host_window()->layer()->RequestCopyOfOutput(std::move(request));
-}
-
-void DragDropOperation::OnDragIconCaptured(
-    std::unique_ptr<viz::CopyOutputResult> icon_result) {
-  gfx::ImageSkia icon_skia;
-
-  // An empty response means the request was deleted before it was completed. If
-  // this happens, and no operation has yet finished, restart the capture.
-  if (icon_result->IsEmpty()) {
-    CaptureDragIcon();
-    return;
-  }
+void DragDropOperation::OnDragIconCaptured(const SkBitmap& icon_bitmap) {
+  DCHECK(icon_);
 
   float scale_factor = origin_->get()->window()->layer()->device_scale_factor();
-  icon_skia = gfx::ImageSkia(
-      gfx::ImageSkiaRep(icon_result->AsSkBitmap(), scale_factor));
+  gfx::ImageSkia icon_skia =
+      gfx::ImageSkia::CreateFromBitmap(icon_bitmap, scale_factor);
+  gfx::Vector2d icon_offset = -icon_->get()->GetBufferOffset();
 
   if (os_exchange_data_) {
-    os_exchange_data_->provider().SetDragImage(
-        icon_skia, -icon_->get()->GetBufferOffset());
+    os_exchange_data_->provider().SetDragImage(icon_skia, icon_offset);
   } else {
-#if defined(OS_CHROMEOS)
-    drag_drop_controller_->SetDragImage(icon_skia,
-                                        -icon_->get()->GetBufferOffset());
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    drag_drop_controller_->SetDragImage(icon_skia, icon_offset);
 #endif
   }
 
@@ -242,11 +313,13 @@ void DragDropOperation::StartDragDropOperation() {
   base::WeakPtr<DragDropOperation> weak_ptr = weak_ptr_factory_.GetWeakPtr();
 
   started_by_this_object_ = true;
+  gfx::Point drag_start_point = gfx::ToFlooredPoint(drag_start_point_);
+
   // This triggers a nested run loop that terminates when the drag and drop
   // operation is completed.
   int op = drag_drop_controller_->StartDragAndDrop(
       std::move(os_exchange_data_), origin_->get()->window()->GetRootWindow(),
-      origin_->get()->window(), drag_start_point_, dnd_operations,
+      origin_->get()->window(), drag_start_point, dnd_operations,
       event_source_);
 
   // The instance deleted during StartDragAndDrop's nested RunLoop.
@@ -281,7 +354,7 @@ void DragDropOperation::OnDragStarted() {
 
 void DragDropOperation::OnDragEnded() {}
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 void DragDropOperation::OnDragActionsChanged(int actions) {
   if (!started_by_this_object_)
     return;
@@ -298,22 +371,29 @@ void DragDropOperation::OnDragActionsChanged(int actions) {
 
   source_->get()->Action(dnd_action);
 }
+
+void DragDropOperation::OnExtendedDragSourceDestroying(
+    ExtendedDragSource* source) {
+  ResetExtendedDragSource();
+}
+
+void DragDropOperation::ResetExtendedDragSource() {
+  DCHECK(extended_drag_source_);
+  extended_drag_source_->RemoveObserver(this);
+  drag_drop_controller_->set_toplevel_window_drag_delegate(nullptr);
+  extended_drag_source_ = nullptr;
+}
 #endif
 
 void DragDropOperation::OnSurfaceDestroying(Surface* surface) {
-  if (surface == origin_->get() || surface == icon_->get()) {
-    delete this;
-  } else {
-    NOTREACHED();
-  }
+  DCHECK(surface == origin_->get() || (icon_ && surface == icon_->get()));
+  delete this;
 }
 
 void DragDropOperation::OnDataSourceDestroying(DataSource* source) {
-  if (source == source_->get()) {
-    source_.reset();
-    delete this;
-  } else {
-    NOTREACHED();
-  }
+  DCHECK_EQ(source, source_->get());
+  source_.reset();
+  delete this;
 }
+
 }  // namespace exo

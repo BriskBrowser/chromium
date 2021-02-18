@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/stl_util.h"
+#include "base/containers/contains.h"
 #include "components/performance_manager/graph/frame_node_impl.h"
 #include "components/performance_manager/graph/page_node_impl.h"
 #include "components/performance_manager/graph/process_node_impl.h"
@@ -185,14 +185,6 @@ void PerformanceManagerTabHelper::RenderFrameCreated(
 void PerformanceManagerTabHelper::RenderFrameDeleted(
     content::RenderFrameHost* render_frame_host) {
   auto it = frames_.find(render_frame_host);
-  if (it == frames_.end()) {
-    // https://crbug.com/948088.
-    // At the present time (May 2019), it's possible for speculative render
-    // frame hosts to exist at the time this TabHelper is attached to a
-    // WebContents. These speculative render frame hosts are not exposed in
-    // enumeration, and so may be first observed at deletion time.
-    return;
-  }
   DCHECK(it != frames_.end());
 
   std::unique_ptr<FrameNodeImpl> frame_node = std::move(it->second);
@@ -235,14 +227,10 @@ void PerformanceManagerTabHelper::RenderFrameHostChanged(
   auto it = frames_.find(new_host);
   if (it != frames_.end()) {
     new_frame = it->second.get();
-  } else if (new_host->IsRenderFrameCreated()) {
-    // https://crbug.com/948088.
-    // In the case of speculative frames already existent and created at attach
-    // time, fake the creation event at this point.
-    RenderFrameCreated(new_host);
-
-    new_frame = frames_[new_host].get();
-    DCHECK_NE(nullptr, new_frame);
+  } else {
+    DCHECK(!new_host->IsRenderFrameCreated())
+        << "There shouldn't be a case where RenderFrameHostChanged is "
+           "dispatched before RenderFrameCreated with a live RenderFrame\n";
   }
   // If neither frame could be looked up there's nothing to do.
   if (!old_frame && !new_frame)
@@ -376,9 +364,6 @@ void PerformanceManagerTabHelper::InnerWebContentsAttached(
   // Determine the opened type.
   auto opened_type = PageNode::OpenedType::kInvalid;
   if (inner_web_contents->IsPortal()) {
-    // Portals don't have openers.
-    DCHECK(!inner_web_contents->HasOpener() &&
-           !inner_web_contents->HasOriginalOpener());
     opened_type = PageNode::OpenedType::kPortal;
 
     // In the case of portals there can be a temporary RFH that is created that
@@ -398,7 +383,16 @@ void PerformanceManagerTabHelper::InnerWebContentsAttached(
     // severed.
   }
   DCHECK_NE(PageNode::OpenedType::kInvalid, opened_type);
-  DCHECK(frame);
+  if (!frame) {
+    DCHECK(!render_frame_host->IsRenderFrameCreated());
+    DCHECK(!inner_web_contents->IsPortal());
+    // TODO(crbug.com/1133361):
+    // WebContentsImplBrowserTest.AttachNestedInnerWebContents calls
+    // WebContents::AttachInnerWebContents without creating RenderFrame.
+    // Removing this conditional once either the test is fixed or this function
+    // is adjusted to handle the case without the render frame.
+    return;
+  }
 
   PerformanceManagerImpl::CallOnGraphImpl(
       FROM_HERE, base::BindOnce(&PageNodeImpl::SetOpenerFrameNodeAndOpenedType,

@@ -17,8 +17,8 @@ void FakeRemoteFrameHost::SetInheritedEffectiveTouchAction(
     cc::TouchAction touch_action) {}
 
 void FakeRemoteFrameHost::UpdateRenderThrottlingStatus(bool is_throttled,
-                                                       bool subtree_throttled) {
-}
+                                                       bool subtree_throttled,
+                                                       bool display_locked) {}
 
 void FakeRemoteFrameHost::VisibilityChanged(
     mojom::blink::FrameVisibility visibility) {}
@@ -50,6 +50,13 @@ void FakeRemoteFrameHost::PrintCrossProcessSubframe(const gfx::Rect& rect,
                                                     int document_cookie) {}
 
 void FakeRemoteFrameHost::Detach() {}
+
+void FakeRemoteFrameHost::UpdateViewportIntersection(
+    blink::mojom::blink::ViewportIntersectionStatePtr intersection_state,
+    const base::Optional<FrameVisualProperties>& visual_properties) {}
+
+void FakeRemoteFrameHost::SynchronizeVisualProperties(
+    const blink::FrameVisualProperties& properties) {}
 
 void FakeRemoteFrameHost::BindFrameHostReceiver(
     mojo::ScopedInterfaceEndpointHandle handle) {

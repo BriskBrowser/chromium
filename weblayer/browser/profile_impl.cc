@@ -32,7 +32,6 @@
 #include "services/network/public/mojom/network_context.mojom.h"
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/image/image_skia.h"
-#include "weblayer/browser/android/metrics/weblayer_metrics_service_client.h"
 #include "weblayer/browser/browser_context_impl.h"
 #include "weblayer/browser/browser_impl.h"
 #include "weblayer/browser/browser_list.h"
@@ -40,6 +39,7 @@
 #include "weblayer/browser/cookie_manager_impl.h"
 #include "weblayer/browser/favicon/favicon_service_impl.h"
 #include "weblayer/browser/favicon/favicon_service_impl_factory.h"
+#include "weblayer/browser/no_state_prefetch/prerender_controller_impl.h"
 #include "weblayer/browser/persistence/browser_persister_file_utils.h"
 #include "weblayer/browser/tab_impl.h"
 
@@ -51,10 +51,10 @@
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/unified_consent/pref_names.h"
 #include "ui/gfx/android/java_bitmap.h"
+#include "weblayer/browser/android/metrics/weblayer_metrics_service_client.h"
 #include "weblayer/browser/browser_process.h"
 #include "weblayer/browser/java/jni/ProfileImpl_jni.h"
 #include "weblayer/browser/safe_browsing/safe_browsing_service.h"
-#include "weblayer/browser/user_agent.h"
 #endif
 
 #if defined(OS_POSIX)
@@ -123,7 +123,7 @@ void OnDidGetCachedFaviconForPageUrl(
     gfx::Image image) {
   SkBitmap favicon = image.AsImageSkia().GetRepresentation(1.0f).GetBitmap();
   base::android::RunObjectCallbackAndroid(
-      callback, favicon.empty() ? nullptr : gfx::ConvertToJavaBitmap(&favicon));
+      callback, favicon.empty() ? nullptr : gfx::ConvertToJavaBitmap(favicon));
 }
 
 #endif  // OS_ANDROID
@@ -144,8 +144,6 @@ class ProfileImpl::DataClearer : public content::BrowsingDataRemover::Observer {
                  uint64_t mask,
                  base::Time from_time,
                  base::Time to_time) {
-    if (mask & BrowsingDataRemoverDelegate::DATA_TYPE_FAVICONS)
-      ClearFavicons(profile);
     uint64_t origin_types =
         content::BrowsingDataRemover::ORIGIN_TYPE_UNPROTECTED_WEB |
         content::BrowsingDataRemover::ORIGIN_TYPE_PROTECTED_WEB;
@@ -154,47 +152,17 @@ class ProfileImpl::DataClearer : public content::BrowsingDataRemover::Observer {
 
   // content::BrowsingDataRemover::Observer:
   void OnBrowsingDataRemoverDone(uint64_t failed_data_types) override {
-    waiting_for_remover_ = false;
     // Remove the observer now as after this returns the BrowserContext may
     // be destroyed, which owns |remover_|.
     remover_->RemoveObserver(this);
-    remover_ = nullptr;
-    RunCallbackAndDeleteThisIfDone();
+    std::move(callback_).Run();
+    delete this;
   }
 
  private:
   // DataClearer deletes itself when removal is done.
   ~DataClearer() override = default;
 
-  void ClearFavicons(ProfileImpl* profile) {
-    auto* service = FaviconServiceImplFactory::GetForProfile(profile);
-    if (!service)
-      return;
-    waiting_for_favicon_removal_ = true;
-    // The favicon database doesn't track enough information to remove favicons
-    // in a time range. Delete everything.
-    service->DeleteAndRecreateDatabase(base::BindOnce(
-        &DataClearer::OnFaviconsCleared, base::Unretained(this)));
-  }
-
-  // Called when a phase of cleanup completes. If done, deletes this and
-  // notifies |callback_|.
-  void RunCallbackAndDeleteThisIfDone() {
-    if (waiting_for_favicon_removal_ || waiting_for_remover_)
-      return;
-
-    std::move(callback_).Run();
-    delete this;
-  }
-
-  // Callback when favicons have been cleared.
-  void OnFaviconsCleared() {
-    waiting_for_favicon_removal_ = false;
-    RunCallbackAndDeleteThisIfDone();
-  }
-
-  bool waiting_for_remover_ = true;
-  bool waiting_for_favicon_removal_ = false;
   content::BrowsingDataRemover* remover_;
   base::OnceCallback<void()> callback_;
 };
@@ -206,11 +174,11 @@ base::FilePath ProfileImpl::GetCachePath(content::BrowserContext* context) {
   return profile->info_.cache_path;
 }
 
-ProfileImpl::ProfileImpl(const std::string& name)
+ProfileImpl::ProfileImpl(const std::string& name, bool is_incognito)
     : download_directory_(BrowserContextImpl::GetDefaultDownloadDirectory()) {
   {
     base::ScopedAllowBlocking allow_blocking;
-    info_ = CreateProfileInfo(name);
+    info_ = CreateProfileInfo(name, is_incognito);
   }
 
   GetProfiles().insert(this);
@@ -294,6 +262,11 @@ void ProfileImpl::DownloadsInitialized() {
 #endif
 }
 
+void ProfileImpl::MarkAsDeleted() {
+  GetBackgroundDiskOperationTaskRunner()->PostTask(
+      FROM_HERE, base::BindOnce(&MarkProfileAsDeleted, info_));
+}
+
 void ProfileImpl::ClearBrowsingData(
     const std::vector<BrowsingDataType>& data_types,
     base::Time from_time,
@@ -315,10 +288,15 @@ void ProfileImpl::ClearBrowsingData(
         remove_mask |= content::BrowsingDataRemover::DATA_TYPE_MEDIA_LICENSES;
         remove_mask |= BrowsingDataRemoverDelegate::DATA_TYPE_ISOLATED_ORIGINS;
         remove_mask |= BrowsingDataRemoverDelegate::DATA_TYPE_FAVICONS;
+        remove_mask |= content::BrowsingDataRemover::DATA_TYPE_TRUST_TOKENS;
+        remove_mask |= content::BrowsingDataRemover::DATA_TYPE_CONVERSIONS;
         break;
       case BrowsingDataType::CACHE:
         remove_mask |= content::BrowsingDataRemover::DATA_TYPE_CACHE;
         ClearRendererCache();
+        break;
+      case BrowsingDataType::SITE_SETTINGS:
+        remove_mask |= BrowsingDataRemoverDelegate::DATA_TYPE_SITE_SETTINGS;
         break;
       default:
         NOTREACHED();
@@ -335,10 +313,22 @@ void ProfileImpl::SetDownloadDelegate(DownloadDelegate* delegate) {
   download_delegate_ = delegate;
 }
 
+void ProfileImpl::SetGoogleAccountAccessTokenFetchDelegate(
+    GoogleAccountAccessTokenFetchDelegate* delegate) {
+  access_token_fetch_delegate_ = delegate;
+}
+
 CookieManager* ProfileImpl::GetCookieManager() {
   if (!cookie_manager_)
     cookie_manager_ = std::make_unique<CookieManagerImpl>(GetBrowserContext());
   return cookie_manager_.get();
+}
+
+PrerenderController* ProfileImpl::GetPrerenderController() {
+  if (!prerender_controller_)
+    prerender_controller_ =
+        std::make_unique<PrerenderControllerImpl>(GetBrowserContext());
+  return prerender_controller_.get();
 }
 
 void ProfileImpl::GetBrowserPersistenceIds(
@@ -407,8 +397,9 @@ void ProfileImpl::OnLocaleChanged() {
 }
 
 // static
-std::unique_ptr<Profile> Profile::Create(const std::string& name) {
-  return std::make_unique<ProfileImpl>(name);
+std::unique_ptr<Profile> Profile::Create(const std::string& name,
+                                         bool is_incognito) {
+  return std::make_unique<ProfileImpl>(name, is_incognito);
 }
 
 // static
@@ -428,8 +419,9 @@ std::unique_ptr<ProfileImpl> ProfileImpl::DestroyAndDeleteDataFromDisk(
   if (profile->GetNumberOfBrowsers() > 0)
     return profile;
 
+  ProfileInfo profile_info = profile->info_;
   GetBackgroundDiskOperationTaskRunner()->PostTaskAndReply(
-      FROM_HERE, base::BindOnce(&MarkProfileAsDeleted, profile->info_),
+      FROM_HERE, base::BindOnce(&MarkProfileAsDeleted, profile_info),
       base::BindOnce(&ProfileImpl::OnProfileMarked, std::move(profile),
                      std::move(done_callback)));
   return nullptr;
@@ -443,7 +435,7 @@ void ProfileImpl::OnProfileMarked(std::unique_ptr<ProfileImpl> profile,
 
   ProfileImpl* raw_profile = profile.get();
   auto* clearer = new DataClearer(
-      profile->GetBrowserContext(),
+      raw_profile->GetBrowserContext(),
       base::BindOnce(&ProfileImpl::NukeDataAfterRemovingData,
                      std::move(profile), std::move(done_callback)));
   uint64_t remove_all_mask = 0xffffffffffffffffull;
@@ -455,16 +447,19 @@ void ProfileImpl::OnProfileMarked(std::unique_ptr<ProfileImpl> profile,
 ProfileImpl::ProfileImpl(
     JNIEnv* env,
     const base::android::JavaParamRef<jstring>& name,
-    const base::android::JavaParamRef<jobject>& java_profile)
-    : ProfileImpl(ConvertJavaStringToUTF8(env, name)) {
+    const base::android::JavaParamRef<jobject>& java_profile,
+    bool is_incognito)
+    : ProfileImpl(ConvertJavaStringToUTF8(env, name), is_incognito) {
   java_profile_ = java_profile;
 }
 
 static jlong JNI_ProfileImpl_CreateProfile(
     JNIEnv* env,
     const base::android::JavaParamRef<jstring>& name,
-    const base::android::JavaParamRef<jobject>& java_profile) {
-  return reinterpret_cast<jlong>(new ProfileImpl(env, name, java_profile));
+    const base::android::JavaParamRef<jobject>& java_profile,
+    jboolean is_incognito) {
+  return reinterpret_cast<jlong>(
+      new ProfileImpl(env, name, java_profile, is_incognito));
 }
 
 static void JNI_ProfileImpl_DeleteProfile(JNIEnv* env, jlong profile) {
@@ -535,6 +530,10 @@ void ProfileImpl::SetDownloadDirectory(
 
 jlong ProfileImpl::GetCookieManager(JNIEnv* env) {
   return reinterpret_cast<jlong>(GetCookieManager());
+}
+
+jlong ProfileImpl::GetPrerenderController(JNIEnv* env) {
+  return reinterpret_cast<jlong>(GetPrerenderController());
 }
 
 void ProfileImpl::EnsureBrowserContextInitialized(JNIEnv* env) {
@@ -662,7 +661,8 @@ bool ProfileImpl::GetBooleanSetting(SettingType type) {
 void ProfileImpl::GetCachedFaviconForPageUrl(
     const GURL& page_url,
     base::OnceCallback<void(gfx::Image)> callback) {
-  auto* service = FaviconServiceImplFactory::GetForProfile(this);
+  auto* service =
+      FaviconServiceImplFactory::GetForBrowserContext(GetBrowserContext());
   if (!service) {
     std::move(callback).Run({});
     return;

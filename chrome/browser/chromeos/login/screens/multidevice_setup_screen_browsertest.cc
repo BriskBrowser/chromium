@@ -17,19 +17,17 @@
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/multidevice_setup_screen_handler.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/services/multidevice_setup/public/cpp/fake_multidevice_setup_client.h"
 #include "content/public/test/browser_test.h"
 
 namespace chromeos {
 
+constexpr test::UIPath kMultideviceSetupPath = {"multidevice-setup-screen",
+                                                "impl", "multideviceSetup"};
+
 class MultiDeviceSetupScreenTest : public OobeBaseTest {
  public:
-  MultiDeviceSetupScreenTest() {
-    // To reuse existing wizard controller in the flow.
-    feature_list_.InitAndEnableFeature(
-        chromeos::features::kOobeScreensPriority);
-  }
+  MultiDeviceSetupScreenTest() = default;
   ~MultiDeviceSetupScreenTest() override = default;
 
   void SetUpOnMainThread() override {
@@ -66,17 +64,17 @@ class MultiDeviceSetupScreenTest : public OobeBaseTest {
   }
 
   void FinishDeviceSetup() {
+    const std::string elementJS =
+        test::GetOobeElementPath(kMultideviceSetupPath);
     test::OobeJS().Evaluate(
-        R"($('multidevice-setup-impl')
-          .$['multideviceSetup']
-          .fire('setup-exited', {didUserCompleteSetup: true});)");
+        elementJS + R"(.fire('setup-exited', {didUserCompleteSetup: true});)");
   }
 
   void CancelDeviceSetup() {
+    const std::string elementJS =
+        test::GetOobeElementPath(kMultideviceSetupPath);
     test::OobeJS().Evaluate(
-        R"($('multidevice-setup-impl')
-          .$['multideviceSetup']
-          .fire('setup-exited', {didUserCompleteSetup: false});)");
+        elementJS + R"(.fire('setup-exited', {didUserCompleteSetup: false});)");
   }
 
   void WaitForScreenShown() {
@@ -118,8 +116,6 @@ class MultiDeviceSetupScreenTest : public OobeBaseTest {
 
   bool screen_exited_ = false;
   base::RepeatingClosure screen_exit_callback_;
-
-  base::test::ScopedFeatureList feature_list_;
   std::unique_ptr<multidevice_setup::FakeMultiDeviceSetupClient>
       fake_multidevice_setup_client_;
 
@@ -136,9 +132,9 @@ IN_PROC_BROWSER_TEST_F(MultiDeviceSetupScreenTest, Accepted) {
   WaitForScreenExit();
   EXPECT_EQ(screen_result_.value(), MultiDeviceSetupScreen::Result::NEXT);
   histogram_tester_.ExpectTotalCount(
-      "OOBE.StepCompletionTimeByExitReason.Multidevice-setup.Next", 1);
+      "OOBE.StepCompletionTimeByExitReason.Multidevice-setup-screen.Next", 1);
   histogram_tester_.ExpectTotalCount(
-      "OOBE.StepCompletionTime.Multidevice-setup", 1);
+      "OOBE.StepCompletionTime.Multidevice-setup-screen", 1);
   CheckUserChoice(true);
 }
 
@@ -152,9 +148,9 @@ IN_PROC_BROWSER_TEST_F(MultiDeviceSetupScreenTest, Declined) {
   WaitForScreenExit();
   EXPECT_EQ(screen_result_.value(), MultiDeviceSetupScreen::Result::NEXT);
   histogram_tester_.ExpectTotalCount(
-      "OOBE.StepCompletionTimeByExitReason.Multidevice-setup.Next", 1);
+      "OOBE.StepCompletionTimeByExitReason.Multidevice-setup-screen.Next", 1);
   histogram_tester_.ExpectTotalCount(
-      "OOBE.StepCompletionTime.Multidevice-setup", 1);
+      "OOBE.StepCompletionTime.Multidevice-setup-screen", 1);
   CheckUserChoice(false);
 }
 
@@ -165,9 +161,9 @@ IN_PROC_BROWSER_TEST_F(MultiDeviceSetupScreenTest, Skipped) {
   EXPECT_EQ(screen_result_.value(),
             MultiDeviceSetupScreen::Result::NOT_APPLICABLE);
   histogram_tester_.ExpectTotalCount(
-      "OOBE.StepCompletionTimeByExitReason.Multidevice-setup.Next", 0);
+      "OOBE.StepCompletionTimeByExitReason.Multidevice-setup-screen.Next", 0);
   histogram_tester_.ExpectTotalCount(
-      "OOBE.StepCompletionTime.Multidevice-setup", 0);
+      "OOBE.StepCompletionTime.Multidevice-setup-screen", 0);
 }
 
 }  // namespace chromeos

@@ -10,6 +10,7 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/lite_video/lite_video_features.h"
 #include "chrome/browser/lite_video/lite_video_hint.h"
@@ -24,8 +25,8 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/metrics/content/subprocess_metrics_provider.h"
-#include "components/optimization_guide/optimization_guide_decider.h"
-#include "components/optimization_guide/optimization_guide_features.h"
+#include "components/optimization_guide/content/browser/optimization_guide_decider.h"
+#include "components/optimization_guide/core/optimization_guide_features.h"
 #include "components/optimization_guide/proto/hints.pb.h"
 #include "components/optimization_guide/proto/lite_video_metadata.pb.h"
 #include "components/ukm/test_ukm_recorder.h"
@@ -123,6 +124,7 @@ class LiteVideoKeyedServiceBrowserTest
       scoped_feature_list_.InitWithFeaturesAndParameters(
           {{::features::kLiteVideo,
             {{"use_optimization_guide", "true"},
+             {"permanent_host_blocklist", "[\"blockedhost.com\"]"},
              {"user_blocklist_opt_out_history_threshold", "1"}}},
            {optimization_guide::features::kOptimizationHints, {}}},
           /*disabled_features=*/{});
@@ -130,6 +132,7 @@ class LiteVideoKeyedServiceBrowserTest
       scoped_feature_list_.InitAndEnableFeatureWithParameters(
           {::features::kLiteVideo},
           {{"lite_video_origin_hints", "{\"litevideo.com\": 123}"},
+           {"permanent_host_blocklist", "[\"blockedhost.com\"]"},
            {"user_blocklist_opt_out_history_threshold", "1"}});
     }
     SetUpHTTPSServer();
@@ -240,7 +243,7 @@ IN_PROC_BROWSER_TEST_P(LiteVideoKeyedServiceBrowserTest,
 }
 
 // Fails occasionally on ChromeOS. http://crbug.com/1102563
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #define MAYBE_LiteVideoCanApplyLiteVideo_NoHintForHost \
   DISABLED_LiteVideoCanApplyLiteVideo_NoHintForHost
 #else
@@ -492,8 +495,18 @@ IN_PROC_BROWSER_TEST_P(LiteVideoKeyedServiceBrowserTest,
           lite_video::LiteVideoThrottleResult::kThrottledWithoutStop));
 }
 
+#if defined(OS_MAC)
+// Flaky on Mac, and in any case the feature under test is not used on Mac:
+// https://crbug.com/1172472
+#define MAYBE_MultipleNavigationsNotBlocklisted \
+  DISABLED_MultipleNavigationsNotBlocklisted
+#else
+#define MAYBE_MultipleNavigationsNotBlocklisted \
+  MultipleNavigationsNotBlocklisted
+#endif
+
 IN_PROC_BROWSER_TEST_P(LiteVideoKeyedServiceBrowserTest,
-                       MultipleNavigationsNotBlocklisted) {
+                       MAYBE_MultipleNavigationsNotBlocklisted) {
   ukm::TestAutoSetUkmRecorder ukm_recorder;
   WaitForBlocklistToBeLoaded();
   EXPECT_TRUE(
@@ -821,4 +834,32 @@ IN_PROC_BROWSER_TEST_P(LiteVideoKeyedServiceCoinflipBrowserTest,
   ukm_recorder.ExpectEntryMetric(
       entry, ukm::builders::LiteVideo::kThrottlingStartDecisionName,
       static_cast<int>(lite_video::LiteVideoDecision::kHoldback));
+}
+
+IN_PROC_BROWSER_TEST_P(LiteVideoKeyedServiceBrowserTest,
+                       HostPermanentlyBlocklisted) {
+  ukm::TestAutoSetUkmRecorder ukm_recorder;
+  SetEffectiveConnectionType(
+      net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_4G);
+
+  WaitForBlocklistToBeLoaded();
+  EXPECT_TRUE(
+      LiteVideoKeyedServiceFactory::GetForProfile(browser()->profile()));
+
+  GURL navigation_url("https://blockedhost.com");
+
+  // Navigate metrics get recorded.
+  ui_test_utils::NavigateToURL(browser(), navigation_url);
+
+  EXPECT_GT(RetryForHistogramUntilCountReached(
+                *histogram_tester(), "LiteVideo.Navigation.HasHint", 1),
+            0);
+  histogram_tester()->ExpectUniqueSample("LiteVideo.Navigation.HasHint", false,
+                                         1);
+  histogram_tester()->ExpectTotalCount("LiteVideo.HintAgent.HasHint", 0);
+  histogram_tester()->ExpectUniqueSample(
+      "LiteVideo.CanApplyLiteVideo.UserBlocklist.MainFrame",
+      lite_video::LiteVideoBlocklistReason::kHostPermanentlyBlocklisted, 1);
+  histogram_tester()->ExpectTotalCount(
+      "LiteVideo.CanApplyLiteVideo.UserBlocklist.SubFrame", 0);
 }

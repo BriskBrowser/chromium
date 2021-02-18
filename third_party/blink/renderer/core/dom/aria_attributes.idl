@@ -16,7 +16,7 @@
     [CEReactions, Reflect=aria_colindex] attribute DOMString? ariaColIndex;
     [CEReactions, Reflect=aria_colspan] attribute DOMString? ariaColSpan;
     [CEReactions, Reflect=aria_current] attribute DOMString? ariaCurrent;
-    [RuntimeEnabled=AccessibilityExposeARIAAnnotations, CEReactions, Reflect=aria_description] attribute DOMString? ariaDescription;
+    [CEReactions, Reflect=aria_description] attribute DOMString? ariaDescription;
     [CEReactions, Reflect=aria_disabled] attribute DOMString? ariaDisabled;
     [CEReactions, Reflect=aria_expanded] attribute DOMString? ariaExpanded;
     [CEReactions, Reflect=aria_haspopup] attribute DOMString? ariaHasPopup;
@@ -46,6 +46,7 @@
     [CEReactions, Reflect=aria_valuemin] attribute DOMString? ariaValueMin;
     [CEReactions, Reflect=aria_valuenow] attribute DOMString? ariaValueNow;
     [CEReactions, Reflect=aria_valuetext] attribute DOMString? ariaValueText;
+    [RuntimeEnabled=AccessibilityAriaVirtualContent, CEReactions, Reflect=aria_virtualcontent] attribute DOMString? ariaVirtualContent;
 };
 
 Element includes AriaAttributes;

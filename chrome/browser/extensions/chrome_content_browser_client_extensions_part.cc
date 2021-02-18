@@ -16,6 +16,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
 #include "base/strings/string_piece.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/component_loader.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -23,7 +24,6 @@
 #include "chrome/browser/extensions/extension_webkit_preferences.h"
 #include "chrome/browser/media_galleries/fileapi/media_file_system_backend.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/profiles/profile_io_data.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/renderer_host/chrome_extension_message_filter.h"
 #include "chrome/browser/sync_file_system/local/sync_file_system_backend.h"
@@ -63,7 +63,6 @@
 #include "extensions/browser/view_type_utils.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension_urls.h"
-#include "extensions/common/extensions_client.h"
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/manifest_handlers/app_isolation_info.h"
 #include "extensions/common/manifest_handlers/background_info.h"
@@ -72,18 +71,18 @@
 #include "extensions/common/switches.h"
 #include "url/origin.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "extensions/browser/api/vpn_provider/vpn_service.h"
 #include "extensions/browser/api/vpn_provider/vpn_service_factory.h"
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
+using blink::web_pref::WebPreferences;
 using content::BrowserContext;
 using content::BrowserThread;
 using content::BrowserURLHandler;
 using content::RenderViewHost;
 using content::SiteInstance;
 using content::WebContents;
-using content::WebPreferences;
 
 namespace extensions {
 
@@ -313,7 +312,7 @@ bool ChromeContentBrowserClientExtensionsPart::DoesSiteRequireDedicatedProcess(
 }
 
 // static
-bool ChromeContentBrowserClientExtensionsPart::ShouldLockProcess(
+bool ChromeContentBrowserClientExtensionsPart::ShouldLockProcessToSite(
     content::BrowserContext* browser_context,
     const GURL& effective_site_url) {
   if (!effective_site_url.SchemeIs(kExtensionScheme))
@@ -568,24 +567,7 @@ bool ChromeContentBrowserClientExtensionsPart::
 }
 
 // static
-bool ChromeContentBrowserClientExtensionsPart::AllowServiceWorkerOnIO(
-    const GURL& scope,
-    const GURL& first_party_url,
-    const GURL& script_url,
-    content::ResourceContext* context) {
-  // We only care about extension urls.
-  if (!first_party_url.SchemeIs(kExtensionScheme))
-    return true;
-
-  ProfileIOData* io_data = ProfileIOData::FromResourceContext(context);
-  InfoMap* extension_info_map = io_data->GetExtensionInfoMap();
-  const Extension* extension =
-      extension_info_map->extensions().GetExtensionOrAppByURL(first_party_url);
-  return AllowServiceWorker(scope, script_url, extension);
-}
-
-// static
-bool ChromeContentBrowserClientExtensionsPart::AllowServiceWorkerOnUI(
+bool ChromeContentBrowserClientExtensionsPart::AllowServiceWorker(
     const GURL& scope,
     const GURL& first_party_url,
     const GURL& script_url,
@@ -597,7 +579,7 @@ bool ChromeContentBrowserClientExtensionsPart::AllowServiceWorkerOnUI(
   const Extension* extension = ExtensionRegistry::Get(context)
                                    ->enabled_extensions()
                                    .GetExtensionOrAppByURL(first_party_url);
-  return AllowServiceWorker(scope, script_url, extension);
+  return ::extensions::AllowServiceWorker(scope, script_url, extension);
 }
 
 // static
@@ -616,7 +598,7 @@ std::vector<url::Origin> ChromeContentBrowserClientExtensionsPart::
 std::unique_ptr<content::VpnServiceProxy>
 ChromeContentBrowserClientExtensionsPart::GetVpnServiceProxy(
     content::BrowserContext* browser_context) {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   chromeos::VpnService* vpn_service =
       chromeos::VpnServiceFactory::GetForBrowserContext(browser_context);
   if (!vpn_service)
@@ -656,14 +638,11 @@ void ChromeContentBrowserClientExtensionsPart::RenderProcessWillLaunch(
   int id = host->GetID();
   Profile* profile = Profile::FromBrowserContext(host->GetBrowserContext());
 
-  host->AddFilter(new ChromeExtensionMessageFilter(id, profile));
+  host->AddFilter(new ChromeExtensionMessageFilter(profile));
   host->AddFilter(new ExtensionMessageFilter(id, profile));
   host->AddFilter(new ExtensionsGuestViewMessageFilter(id, profile));
-  if (extensions::ExtensionsClient::Get()
-          ->ExtensionAPIEnabledInExtensionServiceWorkers()) {
-    host->AddFilter(new ExtensionServiceWorkerMessageFilter(
-        id, profile, host->GetStoragePartition()->GetServiceWorkerContext()));
-  }
+  host->AddFilter(new ExtensionServiceWorkerMessageFilter(
+      id, profile, host->GetStoragePartition()->GetServiceWorkerContext()));
 }
 
 void ChromeContentBrowserClientExtensionsPart::SiteInstanceGotProcess(
@@ -705,10 +684,10 @@ void ChromeContentBrowserClientExtensionsPart::SiteInstanceDeleting(
 }
 
 void ChromeContentBrowserClientExtensionsPart::OverrideWebkitPrefs(
-    RenderViewHost* rvh,
+    content::WebContents* web_contents,
     WebPreferences* web_prefs) {
   const ExtensionRegistry* registry =
-      ExtensionRegistry::Get(rvh->GetProcess()->GetBrowserContext());
+      ExtensionRegistry::Get(web_contents->GetBrowserContext());
   if (!registry)
     return;
 
@@ -719,11 +698,11 @@ void ChromeContentBrowserClientExtensionsPart::OverrideWebkitPrefs(
   // the correct scheme. Without this check, chrome-guest:// schemes used by
   // webview tags as well as hosts that happen to match the id of an
   // installed extension would get the wrong preferences.
-  const GURL& site_url = rvh->GetSiteInstance()->GetSiteURL();
+  const GURL& site_url =
+      web_contents->GetMainFrame()->GetSiteInstance()->GetSiteURL();
   if (!site_url.SchemeIs(kExtensionScheme))
     return;
 
-  WebContents* web_contents = WebContents::FromRenderViewHost(rvh);
   ViewType view_type = GetViewType(web_contents);
   const Extension* extension =
       registry->enabled_extensions().GetByID(site_url.host());
@@ -746,8 +725,8 @@ void ChromeContentBrowserClientExtensionsPart::
 
 void ChromeContentBrowserClientExtensionsPart::GetURLRequestAutoMountHandlers(
     std::vector<storage::URLRequestAutoMountHandler>* handlers) {
-  handlers->push_back(
-      base::Bind(MediaFileSystemBackend::AttemptAutoMountForURLRequest));
+  handlers->push_back(base::BindRepeating(
+      MediaFileSystemBackend::AttemptAutoMountForURLRequest));
 }
 
 void ChromeContentBrowserClientExtensionsPart::GetAdditionalFileSystemBackends(

@@ -13,12 +13,12 @@
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/heap/heap_allocator.h"
 #include "third_party/blink/renderer/platform/heap/heap_buildflags.h"
-#include "third_party/blink/renderer/platform/heap/heap_compact.h"
 #include "third_party/blink/renderer/platform/heap/heap_test_utilities.h"
+#include "third_party/blink/renderer/platform/heap/impl/heap_compact.h"
+#include "third_party/blink/renderer/platform/heap/impl/trace_traits.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/heap/thread_state.h"
-#include "third_party/blink/renderer/platform/heap/trace_traits.h"
 #include "third_party/blink/renderer/platform/heap/visitor.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
@@ -55,12 +55,10 @@ class BackingVisitor : public Visitor {
       EXPECT_TRUE(header->TryMark());
   }
 
-  void VisitEphemeron(const void* key,
-                      const void* value,
-                      TraceCallback value_trace_callback) final {
+  void VisitEphemeron(const void* key, TraceDescriptor value_desc) final {
     if (!HeapObjectHeader::FromPayload(key)->IsMarked())
       return;
-    value_trace_callback(this, value);
+    value_desc.callback(this, value_desc.base_object_payload);
   }
 
  private:
@@ -506,79 +504,77 @@ class NonGarbageCollectedContainerRoot {
 
 TEST_F(IncrementalMarkingTest, HeapVectorPushBackMember) {
   auto* obj = MakeGarbageCollected<Object>();
-  auto* vec = MakeGarbageCollected<HeapVector<Member<Object>>>();
+  HeapVector<Member<Object>> vec;
   {
     ExpectWriteBarrierFires scope(ThreadState::Current(), {obj});
-    vec->push_back(obj);
+    vec.push_back(obj);
   }
 }
 
 TEST_F(IncrementalMarkingTest, HeapVectorPushBackNonGCedContainer) {
   auto* obj = MakeGarbageCollected<Object>();
-  auto* vec = MakeGarbageCollected<HeapVector<NonGarbageCollectedContainer>>();
+  HeapVector<NonGarbageCollectedContainer> vec;
   {
     ExpectWriteBarrierFires scope(ThreadState::Current(), {obj});
-    vec->push_back(NonGarbageCollectedContainer(obj, 1));
+    vec.push_back(NonGarbageCollectedContainer(obj, 1));
   }
 }
 
 TEST_F(IncrementalMarkingTest, HeapVectorPushBackStdPair) {
   auto* obj1 = MakeGarbageCollected<Object>();
   auto* obj2 = MakeGarbageCollected<Object>();
-  auto* vec = MakeGarbageCollected<
-      HeapVector<std::pair<Member<Object>, Member<Object>>>>();
+  HeapVector<std::pair<Member<Object>, Member<Object>>> vec;
   {
     ExpectWriteBarrierFires scope(ThreadState::Current(), {obj1, obj2});
-    vec->push_back(std::make_pair(Member<Object>(obj1), Member<Object>(obj2)));
+    vec.push_back(std::make_pair(Member<Object>(obj1), Member<Object>(obj2)));
   }
 }
 
 TEST_F(IncrementalMarkingTest, HeapVectorEmplaceBackMember) {
   auto* obj = MakeGarbageCollected<Object>();
-  auto* vec = MakeGarbageCollected<HeapVector<Member<Object>>>();
+  HeapVector<Member<Object>> vec;
   {
     ExpectWriteBarrierFires scope(ThreadState::Current(), {obj});
-    vec->emplace_back(obj);
+    vec.emplace_back(obj);
   }
 }
 
 TEST_F(IncrementalMarkingTest, HeapVectorEmplaceBackNonGCedContainer) {
   auto* obj = MakeGarbageCollected<Object>();
-  auto* vec = MakeGarbageCollected<HeapVector<NonGarbageCollectedContainer>>();
+  HeapVector<NonGarbageCollectedContainer> vec;
   {
     ExpectWriteBarrierFires scope(ThreadState::Current(), {obj});
-    vec->emplace_back(obj, 1);
+    vec.emplace_back(obj, 1);
   }
 }
 
 TEST_F(IncrementalMarkingTest, HeapVectorEmplaceBackStdPair) {
   auto* obj1 = MakeGarbageCollected<Object>();
   auto* obj2 = MakeGarbageCollected<Object>();
-  auto* vec = MakeGarbageCollected<
-      HeapVector<std::pair<Member<Object>, Member<Object>>>>();
+  HeapVector<std::pair<Member<Object>, Member<Object>>> vec;
   {
     ExpectWriteBarrierFires scope(ThreadState::Current(), {obj1, obj2});
-    vec->emplace_back(obj1, obj2);
+    vec.emplace_back(obj1, obj2);
   }
 }
 
 TEST_F(IncrementalMarkingTest, HeapVectorCopyMember) {
   auto* object = MakeGarbageCollected<Object>();
-  auto* vec1 = MakeGarbageCollected<HeapVector<Member<Object>>>();
-  vec1->push_back(object);
+  HeapVector<Member<Object>> vec1;
+  vec1.push_back(object);
   {
     ExpectWriteBarrierFires scope(ThreadState::Current(), {object});
-    MakeGarbageCollected<HeapVector<Member<Object>>>(*vec1);
+    HeapVector<Member<Object>> vec2(vec1);
   }
 }
 
 TEST_F(IncrementalMarkingTest, HeapVectorCopyNonGCedContainer) {
   auto* obj = MakeGarbageCollected<Object>();
-  auto* vec1 = MakeGarbageCollected<HeapVector<NonGarbageCollectedContainer>>();
-  vec1->emplace_back(obj, 1);
+  HeapVector<NonGarbageCollectedContainer> vec1;
+  vec1.emplace_back(obj, 1);
   {
     ExpectWriteBarrierFires scope(ThreadState::Current(), {obj});
-    MakeGarbageCollected<HeapVector<NonGarbageCollectedContainer>>(*vec1);
+    HeapVector<NonGarbageCollectedContainer> vec2(vec1);
   }
 }
 
@@ -586,32 +582,31 @@ TEST_F(IncrementalMarkingTest, HeapVectorCopyStdPair) {
   using ValueType = std::pair<Member<Object>, Member<Object>>;
   auto* obj1 = MakeGarbageCollected<Object>();
   auto* obj2 = MakeGarbageCollected<Object>();
-  auto* vec1 = MakeGarbageCollected<HeapVector<ValueType>>();
-  vec1->emplace_back(obj1, obj2);
+  HeapVector<ValueType> vec1;
+  vec1.emplace_back(obj1, obj2);
   {
     ExpectWriteBarrierFires scope(ThreadState::Current(), {obj1, obj2});
-    MakeGarbageCollected<HeapVector<ValueType>>(*vec1);
+    HeapVector<ValueType> vec2(vec1);
   }
 }
 
 TEST_F(IncrementalMarkingTest, HeapVectorMoveMember) {
   auto* obj = MakeGarbageCollected<Object>();
-  auto* vec1 = MakeGarbageCollected<HeapVector<Member<Object>>>();
-  vec1->push_back(obj);
+  HeapVector<Member<Object>> vec1;
+  vec1.push_back(obj);
   {
     ExpectWriteBarrierFires scope(ThreadState::Current(), {obj});
-    MakeGarbageCollected<HeapVector<Member<Object>>>(std::move(*vec1));
+    HeapVector<Member<Object>> vec2(std::move(vec1));
   }
 }
 
 TEST_F(IncrementalMarkingTest, HeapVectorMoveNonGCedContainer) {
   auto* obj = MakeGarbageCollected<Object>();
-  auto* vec1 = MakeGarbageCollected<HeapVector<NonGarbageCollectedContainer>>();
-  vec1->emplace_back(obj, 1);
+  HeapVector<NonGarbageCollectedContainer> vec1;
+  vec1.emplace_back(obj, 1);
   {
     ExpectWriteBarrierFires scope(ThreadState::Current(), {obj});
-    MakeGarbageCollected<HeapVector<NonGarbageCollectedContainer>>(
-        std::move(*vec1));
+    HeapVector<NonGarbageCollectedContainer> vec2(std::move(vec1));
   }
 }
 
@@ -1752,8 +1747,7 @@ TEST_F(IncrementalMarkingTest, HeapCompactWithStaleSlotInNestedContainer) {
   using Nested = HeapVector<HeapVector<Member<Object>>>;
 
   // Allocate dummy storage so that other vector backings are actually moved.
-  MakeGarbageCollected<HeapVector<Member<Object>>>()->push_back(
-      MakeGarbageCollected<Object>());
+  HeapVector<Member<Object>> unused{MakeGarbageCollected<Object>()};
 
   IncrementalMarkingTestDriver driver(ThreadState::Current());
   ThreadState::Current()->EnableCompactionForNextGCForTesting();
@@ -1826,6 +1820,54 @@ TEST_F(IncrementalMarkingTest, LinkedHashSetMovingCallback) {
   PreciselyCollectGarbage();
 
   EXPECT_EQ(10u, Destructed::n_destructed);
+}
+
+class DestructedAndTraced final : public GarbageCollected<DestructedAndTraced> {
+ public:
+  ~DestructedAndTraced() { n_destructed++; }
+
+  void Trace(Visitor*) const { n_traced++; }
+
+  static size_t n_destructed;
+  static size_t n_traced;
+};
+
+size_t DestructedAndTraced::n_destructed = 0;
+size_t DestructedAndTraced::n_traced = 0;
+
+TEST_F(IncrementalMarkingTest, ConservativeGCOfWeakContainer) {
+  // Regression test: https://crbug.com/1108676
+  //
+  // Test ensures that on-stack references to weak containers (e.g. iterators)
+  // force re-tracing of the entire container. Otherwise, if the container was
+  // previously traced and is not re-traced, some bucket might be deleted which
+  // will make existing iterators invalid.
+
+  using WeakContainer = HeapHashMap<WeakMember<DestructedAndTraced>, size_t>;
+  Persistent<WeakContainer> map = MakeGarbageCollected<WeakContainer>();
+  static constexpr size_t kNumObjects = 10u;
+  for (size_t i = 0; i < kNumObjects; ++i) {
+    map->insert(MakeGarbageCollected<DestructedAndTraced>(), i);
+  }
+  DestructedAndTraced::n_destructed = 0;
+
+  for (auto it = map->begin(); it != map->end(); ++it) {
+    size_t value = it->value;
+    DestructedAndTraced::n_traced = 0;
+    IncrementalMarkingTestDriver driver(ThreadState::Current());
+    driver.Start();
+    driver.FinishSteps();
+    // map should now be marked, but has not been traced since it's weak.
+    EXPECT_EQ(0u, DestructedAndTraced::n_traced);
+    ConservativelyCollectGarbage();
+    // map buckets were traced (at least once).
+    EXPECT_NE(kNumObjects, DestructedAndTraced::n_traced);
+    // Check that iterator is still valid.
+    EXPECT_EQ(value, it->value);
+  }
+
+  // All buckets were kept alive.
+  EXPECT_EQ(0u, DestructedAndTraced::n_destructed);
 }
 
 }  // namespace incremental_marking_test

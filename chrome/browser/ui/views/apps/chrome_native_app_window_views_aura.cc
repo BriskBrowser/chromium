@@ -9,6 +9,7 @@
 #include "apps/ui/views/app_window_frame_view.h"
 #include "base/macros.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/views/apps/app_window_easy_resize_window_targeter.h"
 #include "chrome/browser/ui/views/apps/shaped_app_window_targeter.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
@@ -19,9 +20,10 @@
 #include "ui/gfx/image/image_skia.h"
 #include "ui/views/widget/widget.h"
 
-#if defined(USE_X11)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 #include "chrome/browser/shell_integration_linux.h"
-#include "ui/base/ui_base_features.h"
 #endif
 
 using extensions::AppWindow;
@@ -57,20 +59,19 @@ void ChromeNativeAppWindowViewsAura::OnBeforeWidgetInit(
     const AppWindow::CreateParams& create_params,
     views::Widget::InitParams* init_params,
     views::Widget* widget) {
-#if defined(USE_X11)
-  if (!features::IsUsingOzonePlatform()) {
-    std::string app_name =
-        web_app::GenerateApplicationNameFromAppId(app_window()->extension_id());
-    // Set up a custom WM_CLASS for app windows. This allows task switchers in
-    // X11 environments to distinguish them from main browser windows.
-    init_params->wm_class_name =
-        shell_integration_linux::GetWMClassFromAppName(app_name);
-    init_params->wm_class_class =
-        shell_integration_linux::GetProgramClassClass();
-    const char kX11WindowRoleApp[] = "app";
-    init_params->wm_role_name = std::string(kX11WindowRoleApp);
-  }
-#endif
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+  std::string app_name =
+      web_app::GenerateApplicationNameFromAppId(app_window()->extension_id());
+  // Set up a custom WM_CLASS for app windows. This allows task switchers in
+  // X11 environments to distinguish them from main browser windows.
+  init_params->wm_class_name =
+      shell_integration_linux::GetWMClassFromAppName(app_name);
+  init_params->wm_class_class = shell_integration_linux::GetProgramClassClass();
+  const char kX11WindowRoleApp[] = "app";
+  init_params->wm_role_name = std::string(kX11WindowRoleApp);
+#endif  // defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 
   ChromeNativeAppWindowViews::OnBeforeWidgetInit(create_params, init_params,
                                                  widget);

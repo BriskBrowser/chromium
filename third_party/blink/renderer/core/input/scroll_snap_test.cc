@@ -5,6 +5,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/core/input/event_handler.h"
 #include "third_party/blink/renderer/core/input/scroll_manager.h"
 #include "third_party/blink/renderer/core/layout/layout_box.h"
@@ -34,7 +35,7 @@ class ScrollSnapTest : public SimTest {
 
 void ScrollSnapTest::SetUpForDiv() {
   v8::HandleScope HandleScope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(400, 400));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(400, 400));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -208,7 +209,7 @@ TEST_F(ScrollSnapTest, AnimateFlingToArriveAtSnapPoint) {
 
 TEST_F(ScrollSnapTest, SnapWhenBodyViewportDefining) {
   v8::HandleScope HandleScope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(300, 300));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(300, 300));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -274,7 +275,7 @@ TEST_F(ScrollSnapTest, SnapWhenBodyViewportDefining) {
 
 TEST_F(ScrollSnapTest, SnapWhenHtmlViewportDefining) {
   v8::HandleScope HandleScope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(300, 300));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(300, 300));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(
@@ -341,7 +342,7 @@ TEST_F(ScrollSnapTest, SnapWhenHtmlViewportDefining) {
 
 TEST_F(ScrollSnapTest, SnapWhenBodyOverflowHtmlViewportDefining) {
   v8::HandleScope HandleScope(v8::Isolate::GetCurrent());
-  WebView().MainFrameWidget()->Resize(WebSize(300, 300));
+  WebView().MainFrameViewWidget()->Resize(gfx::Size(300, 300));
   SimRequest request("https://example.com/test.html", "text/html");
   LoadURL("https://example.com/test.html");
   request.Complete(R"HTML(

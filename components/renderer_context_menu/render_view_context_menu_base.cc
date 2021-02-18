@@ -11,18 +11,18 @@
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
+#include "build/chromeos_buildflags.h"
 #include "content/public/browser/global_routing_id.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/menu_item.h"
 #include "ppapi/buildflags/buildflags.h"
+#include "third_party/blink/public/common/context_menu_data/menu_item.h"
 #include "ui/base/models/image_model.h"
+#include "url/origin.h"
 
-using blink::WebString;
-using blink::WebURL;
 using content::BrowserContext;
 using content::GlobalFrameRoutingId;
 using content::OpenURLParams;
@@ -36,7 +36,7 @@ namespace {
 int content_context_custom_first = -1;
 int content_context_custom_last = -1;
 
-bool IsCustomItemEnabledInternal(const std::vector<content::MenuItem>& items,
+bool IsCustomItemEnabledInternal(const std::vector<blink::MenuItem>& items,
                                  int id) {
   DCHECK(RenderViewContextMenuBase::IsContentCustomCommandId(id));
   for (size_t i = 0; i < items.size(); ++i) {
@@ -44,7 +44,7 @@ bool IsCustomItemEnabledInternal(const std::vector<content::MenuItem>& items,
         items[i].action);
     if (action_id == id)
       return items[i].enabled;
-    if (items[i].type == content::MenuItem::SUBMENU) {
+    if (items[i].type == blink::MenuItem::SUBMENU) {
       if (IsCustomItemEnabledInternal(items[i].submenu, id))
         return true;
     }
@@ -52,7 +52,7 @@ bool IsCustomItemEnabledInternal(const std::vector<content::MenuItem>& items,
   return false;
 }
 
-bool IsCustomItemCheckedInternal(const std::vector<content::MenuItem>& items,
+bool IsCustomItemCheckedInternal(const std::vector<blink::MenuItem>& items,
                                  int id) {
   DCHECK(RenderViewContextMenuBase::IsContentCustomCommandId(id));
   for (size_t i = 0; i < items.size(); ++i) {
@@ -60,7 +60,7 @@ bool IsCustomItemCheckedInternal(const std::vector<content::MenuItem>& items,
         items[i].action);
     if (action_id == id)
       return items[i].checked;
-    if (items[i].type == content::MenuItem::SUBMENU) {
+    if (items[i].type == blink::MenuItem::SUBMENU) {
       if (IsCustomItemCheckedInternal(items[i].submenu, id))
         return true;
     }
@@ -72,7 +72,7 @@ const size_t kMaxCustomMenuDepth = 5;
 const size_t kMaxCustomMenuTotalItems = 1000;
 
 void AddCustomItemsToMenu(
-    const std::vector<content::MenuItem>& items,
+    const std::vector<blink::MenuItem>& items,
     size_t depth,
     size_t* total_items,
     std::vector<std::unique_ptr<ui::SimpleMenuModel>>* submenus,
@@ -95,26 +95,26 @@ void AddCustomItemsToMenu(
     }
     (*total_items)++;
     switch (items[i].type) {
-      case content::MenuItem::OPTION:
+      case blink::MenuItem::OPTION:
         menu_model->AddItem(
             RenderViewContextMenuBase::ConvertToContentCustomCommandId(
                 items[i].action),
             items[i].label);
         break;
-      case content::MenuItem::CHECKABLE_OPTION:
+      case blink::MenuItem::CHECKABLE_OPTION:
         menu_model->AddCheckItem(
             RenderViewContextMenuBase::ConvertToContentCustomCommandId(
                 items[i].action),
             items[i].label);
         break;
-      case content::MenuItem::GROUP:
+      case blink::MenuItem::GROUP:
         // TODO(viettrungluu): I don't know what this is supposed to do.
         NOTREACHED();
         break;
-      case content::MenuItem::SEPARATOR:
+      case blink::MenuItem::SEPARATOR:
         menu_model->AddSeparator(ui::NORMAL_SEPARATOR);
         break;
-      case content::MenuItem::SUBMENU: {
+      case blink::MenuItem::SUBMENU: {
         ui::SimpleMenuModel* submenu = new ui::SimpleMenuModel(delegate);
         submenus->push_back(base::WrapUnique(submenu));
         AddCustomItemsToMenu(items[i].submenu, depth + 1, total_items, submenus,
@@ -165,6 +165,7 @@ RenderViewContextMenuBase::RenderViewContextMenuBase(
       browser_context_(source_web_contents_->GetBrowserContext()),
       menu_model_(this),
       render_frame_id_(render_frame_host->GetRoutingID()),
+      render_frame_token_(render_frame_host->GetFrameToken()),
       render_process_id_(render_frame_host->GetProcess()->GetID()),
       command_executed_(false) {}
 
@@ -259,7 +260,7 @@ void RenderViewContextMenuBase::UpdateMenuIcon(int command_id,
     return;
 
   menu_model_.SetIcon(index, icon);
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (toolkit_delegate_)
     toolkit_delegate_->RebuildMenu();
 #endif
@@ -295,7 +296,7 @@ void RenderViewContextMenuBase::RemoveAdjacentSeparators() {
 }
 
 RenderViewHost* RenderViewContextMenuBase::GetRenderViewHost() const {
-  return source_web_contents_->GetRenderViewHost();
+  return source_web_contents_->GetMainFrame()->GetRenderViewHost();
 }
 
 WebContents* RenderViewContextMenuBase::GetWebContents() const {
@@ -369,12 +370,12 @@ void RenderViewContextMenuBase::ExecuteCommand(int id, int event_flags) {
   // Process custom actions range.
   if (IsContentCustomCommandId(id)) {
     unsigned action = id - content_context_custom_first;
-    const content::CustomContextMenuContext& context = params_.custom_context;
+    const GURL& link_followed = params_.link_followed;
 #if BUILDFLAG(ENABLE_PLUGINS)
-    if (context.request_id && !context.is_pepper_menu)
-      HandleAuthorizeAllPlugins();
+    HandleAuthorizeAllPlugins();
 #endif
-    source_web_contents_->ExecuteCustomContextMenuCommand(action, context);
+    source_web_contents_->ExecuteCustomContextMenuCommand(action,
+                                                          link_followed);
     return;
   }
   command_executed_ = false;
@@ -404,7 +405,7 @@ void RenderViewContextMenuBase::MenuClosed(ui::SimpleMenuModel* source) {
     return;
 
   source_web_contents_->SetShowingContextMenu(false);
-  source_web_contents_->NotifyContextMenuClosed(params_.custom_context);
+  source_web_contents_->NotifyContextMenuClosed(params_.link_followed);
   for (auto& observer : observers_) {
     observer.OnMenuClosed();
   }
@@ -439,7 +440,7 @@ void RenderViewContextMenuBase::OpenURLWithExtraHeaders(
 
   if (params_.link_url == url &&
       disposition != WindowOpenDisposition::OFF_THE_RECORD)
-    params_.custom_context.link_followed = url;
+    params_.link_followed = url;
 
   OpenURLParams open_url_params(url, referrer, disposition, transition, false,
                                 started_from_context_menu);
@@ -449,8 +450,9 @@ void RenderViewContextMenuBase::OpenURLWithExtraHeaders(
   open_url_params.source_render_process_id = render_process_id_;
   open_url_params.source_render_frame_id = render_frame_id_;
 
-  open_url_params.initiator_routing_id =
-      GlobalFrameRoutingId(render_process_id_, render_frame_id_);
+  open_url_params.initiator_frame_token = render_frame_token_;
+  open_url_params.initiator_process_id = render_process_id_;
+  open_url_params.initiator_origin = url::Origin::Create(referring_url);
 
   if (disposition != WindowOpenDisposition::OFF_THE_RECORD)
     open_url_params.impression = params_.impression;

@@ -15,7 +15,6 @@
 //    --use_virtualized_gl_contexts=1
 
 #include "base/bind.h"
-#include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
 #include "base/metrics/histogram.h"
@@ -27,7 +26,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "base/timer/lap_timer.h"
+#include "build/build_config.h"
 #include "components/viz/client/client_resource_provider.h"
 #include "components/viz/common/display/renderer_settings.h"
 #include "components/viz/common/quads/render_pass_io.h"
@@ -38,6 +37,7 @@
 #include "components/viz/service/display/output_surface_client.h"
 #include "components/viz/service/display/overlay_processor_stub.h"
 #include "components/viz/service/display/skia_renderer.h"
+#include "components/viz/service/display/viz_perf_test.h"
 #include "components/viz/service/display_embedder/gl_output_surface_offscreen.h"
 #include "components/viz/service/display_embedder/in_process_gpu_memory_buffer_manager.h"
 #include "components/viz/service/display_embedder/server_shared_bitmap_manager.h"
@@ -77,21 +77,6 @@ perf_test::PerfResultReporter SetUpRendererReporter(const std::string& story) {
   return reporter;
 }
 
-base::TimeDelta TestTimeLimit() {
-  static const char kPerfTestTimeMillis[] = "perf-test-time-ms";
-  auto* command_line = base::CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch(kPerfTestTimeMillis)) {
-    const std::string delay_millis_string(
-        command_line->GetSwitchValueASCII(kPerfTestTimeMillis));
-    int delay_millis;
-    if (base::StringToInt(delay_millis_string, &delay_millis) &&
-        delay_millis > 0) {
-      return base::TimeDelta::FromMilliseconds(delay_millis);
-    }
-  }
-  return base::TimeDelta::FromSeconds(3);
-}
-
 class WaitForSwapDisplayClient : public DisplayClient {
  public:
   WaitForSwapDisplayClient() = default;
@@ -128,12 +113,12 @@ class WaitForSwapDisplayClient : public DisplayClient {
   DISALLOW_COPY_AND_ASSIGN(WaitForSwapDisplayClient);
 };
 
-std::unique_ptr<RenderPass> CreateTestRootRenderPass() {
-  const RenderPassId id{1};
+std::unique_ptr<CompositorRenderPass> CreateTestRootRenderPass() {
+  const CompositorRenderPassId id{1};
   const gfx::Rect output_rect = kSurfaceRect;
   const gfx::Rect damage_rect = kSurfaceRect;
   const gfx::Transform transform_to_root_target;
-  std::unique_ptr<RenderPass> pass = RenderPass::Create();
+  auto pass = CompositorRenderPass::Create();
   pass->SetNew(id, output_rect, damage_rect, transform_to_root_target);
   pass->has_transparent_background = false;
   return pass;
@@ -142,20 +127,19 @@ std::unique_ptr<RenderPass> CreateTestRootRenderPass() {
 SharedQuadState* CreateTestSharedQuadState(
     gfx::Transform quad_to_target_transform,
     const gfx::Rect& rect,
-    RenderPass* render_pass,
-    const gfx::RRectF& rrect) {
+    CompositorRenderPass* render_pass,
+    const gfx::MaskFilterInfo& mask_filter_info) {
   const gfx::Rect layer_rect = rect;
   const gfx::Rect visible_layer_rect = rect;
   const gfx::Rect clip_rect = rect;
   const bool is_clipped = false;
   const bool are_contents_opaque = false;
   const float opacity = 1.0f;
-  const gfx::RRectF rounded_corner_bounds = rrect;
   const SkBlendMode blend_mode = SkBlendMode::kSrcOver;
   const int sorting_context_id = 0;
   SharedQuadState* shared_state = render_pass->CreateAndAppendSharedQuadState();
   shared_state->SetAll(quad_to_target_transform, layer_rect, visible_layer_rect,
-                       rounded_corner_bounds, clip_rect, is_clipped,
+                       mask_filter_info, clip_rect, is_clipped,
                        are_contents_opaque, opacity, blend_mode,
                        sorting_context_id);
   return shared_state;
@@ -218,7 +202,7 @@ void CreateTestTextureDrawQuad(ResourceId resource_id,
                                SkColor background_color,
                                bool premultiplied_alpha,
                                const SharedQuadState* shared_state,
-                               RenderPass* render_pass) {
+                               CompositorRenderPass* render_pass) {
   const bool needs_blending = true;
   const gfx::PointF uv_top_left(0.0f, 0.0f);
   const gfx::PointF uv_bottom_right(1.0f, 1.0f);
@@ -237,7 +221,7 @@ void CreateTestTileDrawQuad(ResourceId resource_id,
                             const gfx::Size& texture_size,
                             bool premultiplied_alpha,
                             const SharedQuadState* shared_state,
-                            RenderPass* render_pass) {
+                            CompositorRenderPass* render_pass) {
   // TileDrawQuads are non-normalized texture coords, so assume it's 1-1 with
   // the visible rect.
   const gfx::RectF tex_coord_rect(rect);
@@ -250,11 +234,12 @@ void CreateTestTileDrawQuad(ResourceId resource_id,
                nearest_neighbor, force_anti_aliasing_off);
 }
 
-bool RenderPassListFromJSON(const std::string& tag,
-                            const std::string& site,
-                            uint32_t year,
-                            size_t frame_index,
-                            RenderPassList* render_pass_list) {
+bool CompositorRenderPassListFromJSON(
+    const std::string& tag,
+    const std::string& site,
+    uint32_t year,
+    size_t frame_index,
+    CompositorRenderPassList* render_pass_list) {
   base::FilePath json_path;
   if (!base::PathService::Get(Paths::DIR_TEST_DATA, &json_path))
     return false;
@@ -275,13 +260,13 @@ bool RenderPassListFromJSON(const std::string& tag,
   base::Optional<base::Value> dict = base::JSONReader::Read(json_text);
   if (!dict.has_value())
     return false;
-  return RenderPassListFromDict(dict.value(), render_pass_list);
+  return CompositorRenderPassListFromDict(dict.value(), render_pass_list);
 }
 
 }  // namespace
 
 template <typename RendererType>
-class RendererPerfTest : public testing::Test {
+class RendererPerfTest : public VizPerfTest {
  public:
   RendererPerfTest()
       : manager_(&shared_bitmap_manager_),
@@ -289,14 +274,12 @@ class RendererPerfTest : public testing::Test {
             std::make_unique<CompositorFrameSinkSupport>(nullptr,
                                                          &manager_,
                                                          kArbitraryFrameSinkId,
-                                                         true /* is_root */)),
-        timer_(/*warmup_laps=*/100,
-               /*time_limit=*/TestTimeLimit(),
-               /*check_interval=*/10) {}
+                                                         true /* is_root */)) {}
 
   // Overloaded for concrete RendererType below.
   std::unique_ptr<OutputSurface> CreateOutputSurface(
-      GpuServiceImpl* gpu_service);
+      GpuServiceImpl* gpu_service,
+      DisplayCompositorMemoryAndTaskController* display_controller);
 
   void SetUp() override {
     enable_pixel_output_ = std::make_unique<gl::DisableNullDrawGLBindings>();
@@ -307,6 +290,11 @@ class RendererPerfTest : public testing::Test {
     else
       printf("Using GLRenderer\n");
 
+#if defined(OS_ANDROID)
+    renderer_settings_.color_space = gfx::ColorSpace::CreateSRGB();
+    renderer_settings_.initial_screen_size = kSurfaceSize;
+#endif
+
     auto* gpu_service = TestGpuServiceHolder::GetInstance()->gpu_service();
 
     gpu_memory_buffer_manager_ =
@@ -316,30 +304,51 @@ class RendererPerfTest : public testing::Test {
     gpu::ImageFactory* image_factory = gpu_service->gpu_image_factory();
     auto* gpu_channel_manager_delegate =
         gpu_service->gpu_channel_manager()->delegate();
+    auto child_task_scheduler = std::make_unique<gpu::GpuTaskSchedulerHelper>(
+        TestGpuServiceHolder::GetInstance()->task_executor());
+    child_gpu_dependency_ =
+        std::make_unique<DisplayCompositorMemoryAndTaskController>(
+            TestGpuServiceHolder::GetInstance()->task_executor(),
+            image_factory);
     child_context_provider_ = base::MakeRefCounted<VizProcessContextProvider>(
         TestGpuServiceHolder::GetInstance()->task_executor(),
         gpu::kNullSurfaceHandle, gpu_memory_buffer_manager_.get(),
-        image_factory, gpu_channel_manager_delegate, renderer_settings_);
+        image_factory, gpu_channel_manager_delegate,
+        child_gpu_dependency_.get(), renderer_settings_);
     child_context_provider_->BindToCurrentThread();
     child_resource_provider_ = std::make_unique<ClientResourceProvider>();
 
-    auto output_surface = CreateOutputSurface(gpu_service);
+    std::unique_ptr<DisplayCompositorMemoryAndTaskController>
+        display_controller;
+    if (renderer_settings_.use_skia_renderer) {
+      auto skia_deps = std::make_unique<SkiaOutputSurfaceDependencyImpl>(
+          gpu_service, gpu::kNullSurfaceHandle);
+      display_controller =
+          std::make_unique<DisplayCompositorMemoryAndTaskController>(
+              std::move(skia_deps));
+    } else {
+      auto* task_executor =
+          TestGpuServiceHolder::GetInstance()->task_executor();
+      display_controller =
+          std::make_unique<DisplayCompositorMemoryAndTaskController>(
+              task_executor, image_factory);
+    }
+    auto output_surface =
+        CreateOutputSurface(gpu_service, display_controller.get());
     // WaitForSwapDisplayClient depends on this.
     output_surface->SetNeedsSwapSizeNotifications(true);
     auto overlay_processor = std::make_unique<OverlayProcessorStub>();
     display_ = std::make_unique<Display>(
         &shared_bitmap_manager_, renderer_settings_, &debug_settings_,
-        kArbitraryFrameSinkId, std::move(output_surface),
-        std::move(overlay_processor),
+        kArbitraryFrameSinkId, std::move(display_controller),
+        std::move(output_surface), std::move(overlay_processor),
         /*display_scheduler=*/nullptr, base::ThreadTaskRunnerHandle::Get());
     display_->SetVisible(true);
     display_->Initialize(&client_, manager_.surface_manager());
     display_->Resize(kSurfaceSize);
 
     id_allocator_.GenerateId();
-    display_->SetLocalSurfaceId(
-        id_allocator_.GetCurrentLocalSurfaceIdAllocation().local_surface_id(),
-        1.f);
+    display_->SetLocalSurfaceId(id_allocator_.GetCurrentLocalSurfaceId(), 1.f);
   }
 
   void TearDown() override {
@@ -382,19 +391,19 @@ class RendererPerfTest : public testing::Test {
     child_resource_provider_->ShutdownAndReleaseAllResources();
     child_resource_provider_.reset();
     child_context_provider_.reset();
+    child_gpu_dependency_.reset();
     gpu_memory_buffer_manager_.reset();
 
     display_.reset();
   }
 
-  void DrawFrame(RenderPassList pass_list) {
+  void DrawFrame(CompositorRenderPassList pass_list) {
     CompositorFrame frame = CompositorFrameBuilder()
                                 .SetRenderPassList(std::move(pass_list))
                                 .SetTransferableResources(resource_list_)
                                 .Build();
-    support_->SubmitCompositorFrame(
-        id_allocator_.GetCurrentLocalSurfaceIdAllocation().local_surface_id(),
-        std::move(frame));
+    support_->SubmitCompositorFrame(id_allocator_.GetCurrentLocalSurfaceId(),
+                                    std::move(frame));
     ASSERT_TRUE(display_->DrawAndSwap(base::TimeTicks::Now()));
   }
 
@@ -417,7 +426,8 @@ class RendererPerfTest : public testing::Test {
     return actual_id;
   }
 
-  void SetUpRenderPassListResources(RenderPassList* render_pass_list) {
+  void SetUpRenderPassListResources(
+      CompositorRenderPassList* render_pass_list) {
     base::flat_map<ResourceId, ResourceId> resource_map;
     for (auto& render_pass : *render_pass_list) {
       for (auto* quad : render_pass->quad_list) {
@@ -483,17 +493,17 @@ class RendererPerfTest : public testing::Test {
 
     timer_.Reset();
     do {
-      std::unique_ptr<RenderPass> pass = CreateTestRootRenderPass();
+      std::unique_ptr<CompositorRenderPass> pass = CreateTestRootRenderPass();
 
       SharedQuadState* shared_state = CreateTestSharedQuadState(
-          gfx::Transform(), kSurfaceRect, pass.get(), gfx::RRectF());
+          gfx::Transform(), kSurfaceRect, pass.get(), gfx::MaskFilterInfo());
 
       CreateTestTextureDrawQuad(resource_list_.back().id, kSurfaceRect,
                                 /*background_color=*/SK_ColorTRANSPARENT,
                                 /*premultiplied_alpha=*/false, shared_state,
                                 pass.get());
 
-      RenderPassList pass_list;
+      CompositorRenderPassList pass_list;
       pass_list.push_back(std::move(pass));
 
       DrawFrame(std::move(pass_list));
@@ -519,9 +529,9 @@ class RendererPerfTest : public testing::Test {
 
     timer_.Reset();
     do {
-      std::unique_ptr<RenderPass> pass = CreateTestRootRenderPass();
+      std::unique_ptr<CompositorRenderPass> pass = CreateTestRootRenderPass();
       SharedQuadState* shared_state = CreateTestSharedQuadState(
-          gfx::Transform(), kSurfaceRect, pass.get(), gfx::RRectF());
+          gfx::Transform(), kSurfaceRect, pass.get(), gfx::MaskFilterInfo());
 
       for (int i = 0; i < 5; i++) {
         for (int j = 0; j < 5; j++) {
@@ -534,7 +544,7 @@ class RendererPerfTest : public testing::Test {
         }
       }
 
-      RenderPassList pass_list;
+      CompositorRenderPassList pass_list;
       pass_list.push_back(std::move(pass));
       DrawFrame(std::move(pass_list));
 
@@ -556,9 +566,9 @@ class RendererPerfTest : public testing::Test {
 
     timer_.Reset();
     do {
-      std::unique_ptr<RenderPass> pass = CreateTestRootRenderPass();
+      std::unique_ptr<CompositorRenderPass> pass = CreateTestRootRenderPass();
       SharedQuadState* shared_state = CreateTestSharedQuadState(
-          gfx::Transform(), kSurfaceRect, pass.get(), gfx::RRectF());
+          gfx::Transform(), kSurfaceRect, pass.get(), gfx::MaskFilterInfo());
 
       for (int i = 0; i < 5; i++) {
         for (int j = 0; j < 5; j++) {
@@ -571,7 +581,7 @@ class RendererPerfTest : public testing::Test {
         }
       }
 
-      RenderPassList pass_list;
+      CompositorRenderPassList pass_list;
       pass_list.push_back(std::move(pass));
       DrawFrame(std::move(pass_list));
 
@@ -610,14 +620,14 @@ class RendererPerfTest : public testing::Test {
 
     timer_.Reset();
     do {
-      std::unique_ptr<RenderPass> pass = CreateTestRootRenderPass();
+      std::unique_ptr<CompositorRenderPass> pass = CreateTestRootRenderPass();
       gfx::Transform current_transform = starting_transform;
       for (int i = 0; i < tile_count; ++i) {
         // Every TileDrawQuad is at at different transform, so always need a new
         // SharedQuadState
         SharedQuadState* shared_state = CreateTestSharedQuadState(
             current_transform, gfx::Rect(kSurfaceSize), pass.get(),
-            gfx::RRectF());
+            gfx::MaskFilterInfo());
         ResourceId resource_id =
             share_resources ? resource_list_[0].id : resource_list_[i].id;
         CreateTestTileDrawQuad(resource_id, gfx::Rect(kTileSize), kTextureSize,
@@ -627,7 +637,7 @@ class RendererPerfTest : public testing::Test {
         current_transform.ConcatTransform(transform_step);
       }
 
-      RenderPassList pass_list;
+      CompositorRenderPassList pass_list;
       pass_list.push_back(std::move(pass));
       DrawFrame(std::move(pass_list));
 
@@ -656,9 +666,9 @@ class RendererPerfTest : public testing::Test {
                                        const std::string& site,
                                        uint32_t year,
                                        size_t index) {
-    RenderPassList render_pass_list;
-    ASSERT_TRUE(
-        RenderPassListFromJSON(tag, site, year, index, &render_pass_list));
+    CompositorRenderPassList render_pass_list;
+    ASSERT_TRUE(CompositorRenderPassListFromJSON(tag, site, year, index,
+                                                 &render_pass_list));
     ASSERT_FALSE(render_pass_list.empty());
     // Root render pass damage needs to match the output surface size.
     auto& last_render_pass = *render_pass_list.back();
@@ -668,8 +678,8 @@ class RendererPerfTest : public testing::Test {
 
     timer_.Reset();
     do {
-      RenderPassList local_list;
-      RenderPass::CopyAllForTest(render_pass_list, &local_list);
+      CompositorRenderPassList local_list;
+      CompositorRenderPass::CopyAllForTest(render_pass_list, &local_list);
       DrawFrame(std::move(local_list));
       client_.WaitForSwap();
       timer_.NextLap();
@@ -687,10 +697,11 @@ class RendererPerfTest : public testing::Test {
   RendererSettings renderer_settings_;
   DebugRendererSettings debug_settings_;
   std::unique_ptr<Display> display_;
+  std::unique_ptr<DisplayCompositorMemoryAndTaskController>
+      child_gpu_dependency_;
   scoped_refptr<ContextProvider> child_context_provider_;
   std::unique_ptr<ClientResourceProvider> child_resource_provider_;
   std::vector<TransferableResource> resource_list_;
-  base::LapTimer timer_;
   std::unique_ptr<gl::DisableNullDrawGLBindings> enable_pixel_output_;
 
   DISALLOW_COPY_AND_ASSIGN(RendererPerfTest);
@@ -699,23 +710,24 @@ class RendererPerfTest : public testing::Test {
 template <>
 std::unique_ptr<OutputSurface>
 RendererPerfTest<SkiaRenderer>::CreateOutputSurface(
-    GpuServiceImpl* gpu_service) {
+    GpuServiceImpl* gpu_service,
+    DisplayCompositorMemoryAndTaskController* display_controller) {
   return SkiaOutputSurfaceImpl::Create(
-      std::make_unique<SkiaOutputSurfaceDependencyImpl>(
-          gpu_service, gpu::kNullSurfaceHandle),
-      renderer_settings_, &debug_settings_);
+      display_controller, renderer_settings_, &debug_settings_);
 }
 
 template <>
 std::unique_ptr<OutputSurface>
-RendererPerfTest<GLRenderer>::CreateOutputSurface(GpuServiceImpl* gpu_service) {
+RendererPerfTest<GLRenderer>::CreateOutputSurface(
+    GpuServiceImpl* gpu_service,
+    DisplayCompositorMemoryAndTaskController* display_controller) {
   gpu::ImageFactory* image_factory = gpu_service->gpu_image_factory();
   auto* gpu_channel_manager_delegate =
       gpu_service->gpu_channel_manager()->delegate();
   auto context_provider = base::MakeRefCounted<VizProcessContextProvider>(
       TestGpuServiceHolder::GetInstance()->task_executor(),
       gpu::kNullSurfaceHandle, gpu_memory_buffer_manager_.get(), image_factory,
-      gpu_channel_manager_delegate, renderer_settings_);
+      gpu_channel_manager_delegate, display_controller, renderer_settings_);
   context_provider->BindToCurrentThread();
   return std::make_unique<GLOutputSurfaceOffscreen>(
       std::move(context_provider));

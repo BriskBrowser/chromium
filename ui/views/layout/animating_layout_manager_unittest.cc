@@ -8,7 +8,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/test/task_environment.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -31,10 +31,8 @@ constexpr gfx::Size kChildViewSize{10, 10};
 // provided by |bounds|, if any.
 gfx::Size ConstrainSizeToBounds(const gfx::Size& size,
                                 const SizeBounds& bounds) {
-  return gfx::Size{
-      bounds.width() ? std::min(size.width(), *bounds.width()) : size.width(),
-      bounds.height() ? std::min(size.height(), *bounds.height())
-                      : size.height()};
+  return gfx::Size(bounds.width().min_of(size.width()),
+                   bounds.height().min_of(size.height()));
 }
 
 // View that allows directly setting minimum size.
@@ -110,7 +108,7 @@ class AnimationEventLogger : public AnimatingLayoutManager::Observer {
   ~AnimationEventLogger() override = default;
 
   explicit AnimationEventLogger(AnimatingLayoutManager* layout) {
-    scoped_observer_.Add(layout);
+    scoped_observation_.Observe(layout);
   }
 
   void OnLayoutIsAnimatingChanged(AnimatingLayoutManager* source,
@@ -122,7 +120,8 @@ class AnimationEventLogger : public AnimatingLayoutManager::Observer {
 
  private:
   std::vector<bool> events_;
-  ScopedObserver<AnimatingLayoutManager, Observer> scoped_observer_{this};
+  base::ScopedObservation<AnimatingLayoutManager, Observer> scoped_observation_{
+      this};
 };
 
 }  // anonymous namespace
@@ -2881,7 +2880,7 @@ class AnimationWatcher : public AnimatingLayoutManager::Observer {
  public:
   explicit AnimationWatcher(AnimatingLayoutManager* layout_manager)
       : layout_manager_(layout_manager) {
-    observer_.Add(layout_manager);
+    observation_.Observe(layout_manager);
   }
 
   void OnLayoutIsAnimatingChanged(AnimatingLayoutManager*,
@@ -2903,8 +2902,9 @@ class AnimationWatcher : public AnimatingLayoutManager::Observer {
 
  private:
   AnimatingLayoutManager* const layout_manager_;
-  ScopedObserver<AnimatingLayoutManager, AnimatingLayoutManager::Observer>
-      observer_{this};
+  base::ScopedObservation<AnimatingLayoutManager,
+                          AnimatingLayoutManager::Observer>
+      observation_{this};
   std::unique_ptr<base::RunLoop> run_loop_;
   bool waiting_ = false;
 };
@@ -3983,7 +3983,7 @@ TEST_F(AnimatingLayoutManagerFlexRuleTest,
              gfx::Size(5, 5), true);
   const gfx::Size preferred = flex_layout()->GetPreferredSize(view());
   const gfx::Size result =
-      RunFlexRule(SizeBounds(preferred.width() + 5, base::nullopt));
+      RunFlexRule(SizeBounds(preferred.width() + 5, SizeBound()));
   EXPECT_EQ(preferred, result);
   EXPECT_EQ(3U, GetVisibleChildCount(result));
 }
@@ -3998,7 +3998,7 @@ TEST_F(AnimatingLayoutManagerFlexRuleTest,
   const int height_for_width =
       flex_layout()->GetPreferredHeightForWidth(view(), width);
   DCHECK_GT(height_for_width, preferred.height());
-  const gfx::Size result = RunFlexRule(SizeBounds(width, base::nullopt));
+  const gfx::Size result = RunFlexRule(SizeBounds(width, SizeBound()));
   EXPECT_EQ(gfx::Size(width, height_for_width), result);
   EXPECT_EQ(3U, GetVisibleChildCount(result));
 }
@@ -4148,8 +4148,8 @@ TEST_F(AnimatingLayoutManagerInFlexLayoutTest, NoAnimation) {
   const gfx::Size preferred = target_layout()->GetPreferredSize(view());
   root_view()->SetSize(preferred);
   layout()->ResetLayout();
-  root_view()->Layout();
   AnimationEventLogger logger(layout());
+  root_view()->Layout();
   EXPECT_EQ(preferred, view()->size());
   const std::vector<bool> expected_events{};
   EXPECT_EQ(expected_events, logger.events());
@@ -4643,7 +4643,7 @@ TEST_F(AnimatingLayoutManagerRealtimeTest, TestAnimateStretch) {
 
 TEST_F(AnimatingLayoutManagerRealtimeTest, TestConstrainedSpaceStopsAnimation) {
   constexpr gfx::Insets kChildMargins(5);
-  constexpr SizeBounds kSizeBounds(45, base::nullopt);
+  constexpr SizeBounds kSizeBounds(45, SizeBound());
   layout()->SetBoundsAnimationMode(
       AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetAnimationDuration(kMinimumAnimationTime);
@@ -4688,7 +4688,7 @@ TEST_F(AnimatingLayoutManagerRealtimeTest, TestConstrainedSpaceStopsAnimation) {
 
 TEST_F(AnimatingLayoutManagerRealtimeTest, TestConstrainedSpaceDoesNotRestart) {
   constexpr gfx::Insets kChildMargins(5);
-  constexpr SizeBounds kSizeBounds(45, base::nullopt);
+  constexpr SizeBounds kSizeBounds(45, SizeBound());
   layout()->SetBoundsAnimationMode(
       AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetAnimationDuration(kMinimumAnimationTime);
@@ -4737,7 +4737,7 @@ TEST_F(AnimatingLayoutManagerRealtimeTest, TestConstrainedSpaceDoesNotRestart) {
 TEST_F(AnimatingLayoutManagerRealtimeTest,
        TestConstrainedSpaceRestartedAnimationSucceeds) {
   constexpr gfx::Insets kChildMargins(5);
-  constexpr SizeBounds kSizeBounds(45, base::nullopt);
+  constexpr SizeBounds kSizeBounds(45, SizeBound());
   layout()->SetBoundsAnimationMode(
       AnimatingLayoutManager::BoundsAnimationMode::kAnimateBothAxes);
   layout()->SetAnimationDuration(kMinimumAnimationTime);

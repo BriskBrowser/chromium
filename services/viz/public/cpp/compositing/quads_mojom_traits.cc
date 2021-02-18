@@ -4,7 +4,7 @@
 
 #include "services/viz/public/cpp/compositing/quads_mojom_traits.h"
 
-#include "services/viz/public/cpp/compositing/render_pass_id_mojom_traits.h"
+#include "services/viz/public/cpp/compositing/compositor_render_pass_id_mojom_traits.h"
 #include "services/viz/public/cpp/crash_keys.h"
 #include "ui/gfx/mojom/color_space_mojom_traits.h"
 #include "ui/gfx/mojom/transform_mojom_traits.h"
@@ -21,8 +21,8 @@ viz::DrawQuad* AllocateAndConstruct(
       quad->material = viz::DrawQuad::Material::kDebugBorder;
       return quad;
     case viz::mojom::DrawQuadStateDataView::Tag::RENDER_PASS_QUAD_STATE:
-      quad = list->AllocateAndConstruct<viz::RenderPassDrawQuad>();
-      quad->material = viz::DrawQuad::Material::kRenderPass;
+      quad = list->AllocateAndConstruct<viz::CompositorRenderPassDrawQuad>();
+      quad->material = viz::DrawQuad::Material::kCompositorRenderPass;
       return quad;
     case viz::mojom::DrawQuadStateDataView::Tag::SOLID_COLOR_QUAD_STATE:
       quad = list->AllocateAndConstruct<viz::SolidColorDrawQuad>();
@@ -67,11 +67,12 @@ bool StructTraits<viz::mojom::DebugBorderQuadStateDataView, viz::DrawQuad>::
 }
 
 // static
-bool StructTraits<viz::mojom::RenderPassQuadStateDataView, viz::DrawQuad>::Read(
-    viz::mojom::RenderPassQuadStateDataView data,
-    viz::DrawQuad* out) {
-  viz::RenderPassDrawQuad* quad = static_cast<viz::RenderPassDrawQuad*>(out);
-  quad->resources.ids[viz::RenderPassDrawQuad::kMaskResourceIdIndex] =
+bool StructTraits<
+    viz::mojom::CompositorRenderPassQuadStateDataView,
+    viz::DrawQuad>::Read(viz::mojom::CompositorRenderPassQuadStateDataView data,
+                         viz::DrawQuad* out) {
+  auto* quad = static_cast<viz::CompositorRenderPassDrawQuad*>(out);
+  quad->resources.ids[viz::CompositorRenderPassDrawQuad::kMaskResourceIdIndex] =
       data.mask_resource_id();
   quad->resources.count = data.mask_resource_id() ? 1 : 0;
   if (!data.ReadMaskUvRect(&quad->mask_uv_rect) ||
@@ -82,14 +83,14 @@ bool StructTraits<viz::mojom::RenderPassQuadStateDataView, viz::DrawQuad>::Read(
       !data.ReadRenderPassId(&quad->render_pass_id)) {
     return false;
   }
-  // RenderPass ids are never zero.
+  // CompositorRenderPass ids are never zero.
   if (!quad->render_pass_id) {
     viz::SetDeserializationCrashKeyString("Draw quad invalid render pass ID");
     return false;
   }
   quad->force_anti_aliasing_off = data.force_anti_aliasing_off();
   quad->backdrop_filter_quality = data.backdrop_filter_quality();
-  quad->can_use_backdrop_filter_cache = data.can_use_backdrop_filter_cache();
+  quad->intersects_damage_under = data.intersects_damage_under();
   return true;
 }
 
@@ -159,6 +160,7 @@ bool StructTraits<viz::mojom::TextureQuadStateDataView, viz::DrawQuad>::Read(
   quad->nearest_neighbor = data.nearest_neighbor();
   quad->secure_output_only = data.secure_output_only();
   quad->is_video_frame = data.is_video_frame();
+  quad->hw_protected_validation_id = data.hw_protected_validation_id();
   return true;
 }
 
@@ -199,7 +201,8 @@ bool StructTraits<viz::mojom::YUVVideoQuadStateDataView, viz::DrawQuad>::Read(
       !data.ReadYaTexSize(&quad->ya_tex_size) ||
       !data.ReadUvTexSize(&quad->uv_tex_size) ||
       !data.ReadVideoColorSpace(&quad->video_color_space) ||
-      !data.ReadProtectedVideoType(&quad->protected_video_type)) {
+      !data.ReadProtectedVideoType(&quad->protected_video_type) ||
+      !data.ReadHdrMetadata(&quad->hdr_metadata)) {
     return false;
   }
   quad->resources.ids[viz::YUVVideoDrawQuad::kYPlaneResourceIdIndex] =

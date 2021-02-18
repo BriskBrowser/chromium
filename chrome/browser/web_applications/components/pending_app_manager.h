@@ -13,7 +13,6 @@
 
 #include "base/callback.h"
 #include "base/containers/flat_map.h"
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/web_applications/components/external_install_options.h"
 #include "chrome/browser/web_applications/components/web_app_id.h"
@@ -39,21 +38,28 @@ enum class RegistrationResultCode { kSuccess, kAlreadyRegistered, kTimeout };
 // should wait for the update request to finish before uninstalling the app.
 class PendingAppManager {
  public:
+  struct InstallResult {
+    InstallResultCode code;
+    bool did_uninstall_and_replace = false;
+    bool operator==(const InstallResult& other) const;
+  };
+
   using OnceInstallCallback =
-      base::OnceCallback<void(const GURL& app_url, InstallResultCode code)>;
+      base::OnceCallback<void(const GURL& app_url, InstallResult result)>;
   using RepeatingInstallCallback =
-      base::RepeatingCallback<void(const GURL& app_url,
-                                   InstallResultCode code)>;
+      base::RepeatingCallback<void(const GURL& app_url, InstallResult result)>;
   using RegistrationCallback =
       base::RepeatingCallback<void(const GURL& launch_url,
                                    RegistrationResultCode code)>;
   using UninstallCallback =
       base::RepeatingCallback<void(const GURL& app_url, bool succeeded)>;
   using SynchronizeCallback =
-      base::OnceCallback<void(std::map<GURL, InstallResultCode> install_results,
+      base::OnceCallback<void(std::map<GURL, InstallResult> install_results,
                               std::map<GURL, bool> uninstall_results)>;
 
   PendingAppManager();
+  PendingAppManager(const PendingAppManager&) = delete;
+  PendingAppManager& operator=(const PendingAppManager&) = delete;
   virtual ~PendingAppManager();
 
   void SetSubsystems(AppRegistrar* registrar,
@@ -112,6 +118,7 @@ class PendingAppManager {
 
   void SetRegistrationCallbackForTesting(RegistrationCallback callback);
   void ClearRegistrationCallbackForTesting();
+  void SetRegistrationsCompleteCallbackForTesting(base::OnceClosure callback);
   void ClearSynchronizeRequestsForTesting();
 
   virtual void Shutdown() = 0;
@@ -128,9 +135,13 @@ class PendingAppManager {
   virtual void OnRegistrationFinished(const GURL& launch_url,
                                       RegistrationResultCode result);
 
+  base::OnceClosure registrations_complete_callback_;
+
  private:
   struct SynchronizeRequest {
     SynchronizeRequest(SynchronizeCallback callback, int remaining_requests);
+    SynchronizeRequest(const SynchronizeRequest&) = delete;
+    SynchronizeRequest& operator=(const SynchronizeRequest&) = delete;
     ~SynchronizeRequest();
 
     SynchronizeRequest& operator=(SynchronizeRequest&&);
@@ -138,16 +149,14 @@ class PendingAppManager {
 
     SynchronizeCallback callback;
     int remaining_requests;
-    std::map<GURL, InstallResultCode> install_results;
+    std::map<GURL, InstallResult> install_results;
     std::map<GURL, bool> uninstall_results;
 
-   private:
-    DISALLOW_COPY_AND_ASSIGN(SynchronizeRequest);
   };
 
   void InstallForSynchronizeCallback(ExternalInstallSource source,
                                      const GURL& app_url,
-                                     InstallResultCode code);
+                                     PendingAppManager::InstallResult result);
   void UninstallForSynchronizeCallback(ExternalInstallSource source,
                                        const GURL& app_url,
                                        bool succeeded);
@@ -166,7 +175,6 @@ class PendingAppManager {
 
   base::WeakPtrFactory<PendingAppManager> weak_ptr_factory_{this};
 
-  DISALLOW_COPY_AND_ASSIGN(PendingAppManager);
 };
 
 }  // namespace web_app

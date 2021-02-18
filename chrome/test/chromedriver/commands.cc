@@ -11,13 +11,13 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
+#include "base/containers/contains.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
 #include "base/task/current_thread.h"
@@ -61,16 +61,13 @@ void ExecuteGetStatus(
                std::string(), kW3CDefault);
 }
 
-void ExecuteCreateSession(
-    SessionThreadMap* session_thread_map,
-    const Command& init_session_cmd,
-    const base::DictionaryValue& params,
-    const std::string& session_id,
-    const CommandCallback& callback) {
-  std::string new_id = session_id;
-  if (new_id.empty())
-    new_id = GenerateId();
-  std::unique_ptr<Session> session = std::make_unique<Session>(new_id);
+void ExecuteCreateSession(SessionThreadMap* session_thread_map,
+                          const Command& init_session_cmd,
+                          const base::DictionaryValue& params,
+                          const std::string& host,
+                          const CommandCallback& callback) {
+  std::string new_id = GenerateId();
+  std::unique_ptr<Session> session = std::make_unique<Session>(new_id, host);
   std::unique_ptr<SessionThreadInfo> threadInfo =
       std::make_unique<SessionThreadInfo>(new_id, GetW3CSetting(params));
   if (!threadInfo->thread()->Start()) {
@@ -90,7 +87,7 @@ void ExecuteCreateSession(
 namespace {
 
 void OnGetSession(const base::WeakPtr<size_t>& session_remaining_count,
-                  const base::Closure& all_get_session_func,
+                  const base::RepeatingClosure& all_get_session_func,
                   base::ListValue* session_list,
                   const Status& status,
                   std::unique_ptr<base::Value> value,
@@ -147,7 +144,7 @@ void ExecuteGetSessions(const Command& session_capabilities_command,
 namespace {
 
 void OnSessionQuit(const base::WeakPtr<size_t>& quit_remaining_count,
-                   const base::Closure& all_quit_func,
+                   const base::RepeatingClosure& all_quit_func,
                    const Status& status,
                    std::unique_ptr<base::Value> value,
                    const std::string& session_id,
@@ -208,7 +205,7 @@ void ExecuteSessionCommandOnSessionThread(
     std::unique_ptr<base::DictionaryValue> params,
     scoped_refptr<base::SingleThreadTaskRunner> cmd_task_runner,
     const CommandCallback& callback_on_cmd,
-    const base::Closure& terminate_on_cmd) {
+    const base::RepeatingClosure& terminate_on_cmd) {
   Session* session = GetThreadLocalSession();
 
   if (!session) {

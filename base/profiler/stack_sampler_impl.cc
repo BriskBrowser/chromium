@@ -16,6 +16,7 @@
 #include "base/profiler/stack_copier.h"
 #include "base/profiler/suspendable_thread_delegate.h"
 #include "base/profiler/unwinder.h"
+#include "base/ranges/algorithm.h"
 #include "build/build_config.h"
 
 // IMPORTANT NOTE: Some functions within this implementation are invoked while
@@ -64,30 +65,44 @@ class StackCopierDelegate : public StackCopier::Delegate {
 
 }  // namespace
 
-// |core_unwinders| is iterated backward since |core_unwinders| is passed in
-// increasing priority order while |unwinders_| is stored in decreasing priority
-// order.
-StackSamplerImpl::StackSamplerImpl(
-    std::unique_ptr<StackCopier> stack_copier,
-    std::vector<std::unique_ptr<Unwinder>> core_unwinders,
-    ModuleCache* module_cache,
-    RepeatingClosure record_sample_callback,
-    StackSamplerTestDelegate* test_delegate)
+StackSamplerImpl::StackSamplerImpl(std::unique_ptr<StackCopier> stack_copier,
+                                   UnwindersFactory core_unwinders_factory,
+                                   ModuleCache* module_cache,
+                                   RepeatingClosure record_sample_callback,
+                                   StackSamplerTestDelegate* test_delegate)
     : stack_copier_(std::move(stack_copier)),
-      unwinders_(std::make_move_iterator(core_unwinders.rbegin()),
-                 std::make_move_iterator(core_unwinders.rend())),
+      unwinders_factory_(std::move(core_unwinders_factory)),
       module_cache_(module_cache),
       record_sample_callback_(std::move(record_sample_callback)),
       test_delegate_(test_delegate) {
-  DCHECK(!unwinders_.empty());
-  for (const auto& unwinder : unwinders_)
-    unwinder->AddInitialModules(module_cache_);
+  DCHECK(unwinders_factory_);
 }
 
 StackSamplerImpl::~StackSamplerImpl() = default;
 
+void StackSamplerImpl::Initialize() {
+  std::vector<std::unique_ptr<Unwinder>> unwinders =
+      std::move(unwinders_factory_).Run();
+
+  // |unwinders| is iterated backward since |unwinders_factory_| generates
+  // unwinders in increasing priority order. |unwinders_| is stored in
+  // decreasing priority order for ease of use within the class.
+  unwinders_.insert(unwinders_.end(),
+                    std::make_move_iterator(unwinders.rbegin()),
+                    std::make_move_iterator(unwinders.rend()));
+
+  for (const auto& unwinder : unwinders_)
+    unwinder->Initialize(module_cache_);
+
+  was_initialized_ = true;
+}
+
 void StackSamplerImpl::AddAuxUnwinder(std::unique_ptr<Unwinder> unwinder) {
-  unwinder->AddInitialModules(module_cache_);
+  // Initialize() invokes Initialize() on the unwinders that are present
+  // at the time. If it hasn't occurred yet, we allow it to add the initial
+  // modules, otherwise we do it here.
+  if (was_initialized_)
+    unwinder->Initialize(module_cache_);
   unwinders_.push_front(std::move(unwinder));
 }
 
@@ -120,7 +135,7 @@ void StackSamplerImpl::RecordStackFrames(StackBuffer* stack_buffer,
   }
 
   for (const auto& unwinder : unwinders_)
-    unwinder->UpdateModules(module_cache_);
+    unwinder->UpdateModules();
 
   if (test_delegate_)
     test_delegate_->OnPreStackWalk();
@@ -161,17 +176,15 @@ std::vector<Frame> StackSamplerImpl::WalkStack(
   do {
     // Choose an authoritative unwinder for the current module. Use the first
     // unwinder that thinks it can unwind from the current frame.
-    auto unwinder =
-        std::find_if(unwinders.begin(), unwinders.end(),
-                     [&stack](const std::unique_ptr<Unwinder>& unwinder) {
-                       return unwinder->CanUnwindFrom(stack.back());
-                     });
+    auto unwinder = ranges::find_if(
+        unwinders, [&stack](const std::unique_ptr<Unwinder>& unwinder) {
+          return unwinder->CanUnwindFrom(stack.back());
+        });
     if (unwinder == unwinders.end())
       return stack;
 
     prior_stack_size = stack.size();
-    result = unwinder->get()->TryUnwind(thread_context, stack_top, module_cache,
-                                        &stack);
+    result = unwinder->get()->TryUnwind(thread_context, stack_top, &stack);
 
     // The unwinder with the lowest priority should be the only one that returns
     // COMPLETED since the stack starts in native code.

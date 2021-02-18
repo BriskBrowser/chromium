@@ -9,10 +9,9 @@
 
 #include "ui/base/x/x11_menu_list.h"
 #include "ui/base/x/x11_util.h"
-#include "ui/events/x/x11_window_event_manager.h"
-#include "ui/gfx/x/x11.h"
+#include "ui/gfx/x/scoped_ignore_errors.h"
 #include "ui/gfx/x/x11_atom_cache.h"
-#include "ui/gfx/x/x11_error_tracker.h"
+#include "ui/gfx/x/x11_window_event_manager.h"
 #include "ui/gfx/x/xproto.h"
 
 namespace {
@@ -33,24 +32,22 @@ X11MenuRegistrar* X11MenuRegistrar::Get() {
 }
 
 X11MenuRegistrar::X11MenuRegistrar() {
-  if (ui::X11EventSource::HasInstance())
-    ui::X11EventSource::GetInstance()->AddXEventDispatcher(this);
+  x11::Connection::Get()->AddEventObserver(this);
 
-  x_root_window_events_ = std::make_unique<ui::XScopedEventSelector>(
-      ui::GetX11RootWindow(), StructureNotifyMask | SubstructureNotifyMask);
+  x_root_window_events_ = std::make_unique<x11::XScopedEventSelector>(
+      ui::GetX11RootWindow(),
+      x11::EventMask::StructureNotify | x11::EventMask::SubstructureNotify);
 }
 
 X11MenuRegistrar::~X11MenuRegistrar() {
-  if (ui::X11EventSource::HasInstance())
-    ui::X11EventSource::GetInstance()->RemoveXEventDispatcher(this);
+  x11::Connection::Get()->RemoveEventObserver(this);
 }
 
-bool X11MenuRegistrar::DispatchXEvent(x11::Event* xev) {
-  if (auto* create = xev->As<x11::CreateNotifyEvent>())
+void X11MenuRegistrar::OnEvent(const x11::Event& xev) {
+  if (auto* create = xev.As<x11::CreateNotifyEvent>())
     OnWindowCreatedOrDestroyed(true, create->window);
-  else if (auto* destroy = xev->As<x11::DestroyNotifyEvent>())
+  else if (auto* destroy = xev.As<x11::DestroyNotifyEvent>())
     OnWindowCreatedOrDestroyed(false, destroy->window);
-  return false;
 }
 
 void X11MenuRegistrar::OnWindowCreatedOrDestroyed(bool created,
@@ -65,7 +62,7 @@ void X11MenuRegistrar::OnWindowCreatedOrDestroyed(bool created,
   if (created) {
     // The window might be destroyed if the message pump did not get a chance to
     // run but we can safely ignore the X error.
-    gfx::X11ErrorTracker error_tracker;
+    x11::ScopedIgnoreErrors ignore_errors(x11::Connection::Get());
     XMenuList::GetInstance()->MaybeRegisterMenu(window);
   } else {
     XMenuList::GetInstance()->MaybeUnregisterMenu(window);

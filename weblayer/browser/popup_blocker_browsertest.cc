@@ -44,7 +44,6 @@ class PopupBlockerBrowserTest : public WebLayerBrowserTest,
 
   // NewTabDelegate:
   void OnNewTab(Tab* new_tab, NewTabType type) override {}
-  void CloseTab() override {}
 
   // BrowserObserver:
   void OnTabAdded(Tab* tab) override {
@@ -167,7 +166,7 @@ IN_PROC_BROWSER_TEST_F(PopupBlockerBrowserTest,
       GetWebContents(original_tab())->GetBrowserContext())
       ->SetContentSettingDefaultScope(popup_url, GURL(),
                                       ContentSettingsType::POPUPS,
-                                      std::string(), CONTENT_SETTING_ALLOW);
+                                      CONTENT_SETTING_ALLOW);
   ExecuteScript(
       original_tab(),
       base::StringPrintf("window.open('%s')", popup_url.spec().c_str()), true);
@@ -202,7 +201,7 @@ IN_PROC_BROWSER_TEST_F(PopupBlockerBrowserTest,
       GetWebContents(original_tab())->GetBrowserContext())
       ->SetContentSettingDefaultScope(popup_url, GURL(),
                                       ContentSettingsType::POPUPS,
-                                      std::string(), CONTENT_SETTING_BLOCK);
+                                      CONTENT_SETTING_BLOCK);
   ExecuteScript(
       original_tab(),
       base::StringPrintf("window.open('%s')", popup_url.spec().c_str()), true);

@@ -2,6 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+assert(is_chromeos, "Nearby Share is CrOS only")
+
 source_set("client") {
   sources = [
     "nearby_share_api_call_flow.h",
@@ -12,8 +14,6 @@ source_set("client") {
     "nearby_share_client_impl.h",
     "nearby_share_http_notifier.cc",
     "nearby_share_http_notifier.h",
-    "nearby_share_switches.cc",
-    "nearby_share_switches.h",
   ]
 
   deps = [

@@ -5,6 +5,7 @@
 #include "ash/app_list/views/app_list_folder_view.h"
 
 #include <algorithm>
+#include <utility>
 #include <vector>
 
 #include "ash/app_list/app_list_metrics.h"
@@ -22,6 +23,7 @@
 #include "ash/app_list/views/search_box_view.h"
 #include "ash/app_list/views/top_icon_animation_view.h"
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
+#include "ash/public/cpp/app_list/app_list_color_provider.h"
 #include "ash/public/cpp/app_list/app_list_config.h"
 #include "ash/public/cpp/app_list/app_list_features.h"
 #include "ash/public/cpp/metrics_util.h"
@@ -39,6 +41,7 @@
 #include "ui/views/animation/animation_delegate_views.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/textfield/textfield.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/painter.h"
 #include "ui/views/view_model.h"
 #include "ui/views/view_model_utils.h"
@@ -90,15 +93,18 @@ class BackgroundAnimation : public AppListFolderView::Animation,
                               : folder_view_->folder_item_icon_bounds();
     to_rect -= background_view_->bounds().OffsetFromOrigin();
     const SkColor background_color =
-        folder_view_->GetAppListConfig().folder_background_color();
+        AppListColorProvider::Get()->GetFolderBackgroundColor(
+            folder_view_->GetAppListConfig().folder_background_color());
     const SkColor from_color =
-        show_ ? folder_view_->GetAppListConfig().folder_bubble_color()
+        show_ ? AppListColorProvider::Get()->GetFolderBubbleColor()
               : background_color;
     const SkColor to_color =
         show_ ? background_color
-              : folder_view_->GetAppListConfig().folder_bubble_color();
+              : AppListColorProvider::Get()->GetFolderBubbleColor();
 
     background_view_->layer()->SetColor(from_color);
+    background_view_->layer()->SetBackgroundBlur(
+        AppListColorProvider::Get()->GetFolderBackgrounBlurSigma());
     background_view_->layer()->SetClipRect(from_rect);
     background_view_->layer()->SetRoundedCornerRadius(
         gfx::RoundedCornersF(from_radius));
@@ -146,10 +152,14 @@ class FolderItemTitleAnimation : public AppListFolderView::Animation,
         animation_(this),
         folder_view_(folder_view) {
     // Calculate the source and target states.
-    from_color_ = show_ ? folder_view_->GetAppListConfig().grid_title_color()
-                        : SK_ColorTRANSPARENT;
-    to_color_ = show_ ? SK_ColorTRANSPARENT
-                      : folder_view_->GetAppListConfig().grid_title_color();
+    from_color_ = show_
+                      ? AppListColorProvider::Get()->GetFolderTitleTextColor(
+                            folder_view_->GetAppListConfig().grid_title_color())
+                      : SK_ColorTRANSPARENT;
+    to_color_ = show_
+                    ? SK_ColorTRANSPARENT
+                    : AppListColorProvider::Get()->GetFolderTitleTextColor(
+                          folder_view_->GetAppListConfig().grid_title_color());
 
     animation_.SetTweenType(gfx::Tween::FAST_OUT_SLOW_IN);
     animation_.SetSlideDuration(
@@ -419,8 +429,6 @@ class ContentsContainerAnimation : public AppListFolderView::Animation,
     // preferred bounds is calculated correctly.
     folder_view_->contents_container()->layer()->SetTransform(gfx::Transform());
     folder_view_->RecordAnimationSmoothness();
-
-    folder_view_->NotifyAccessibilityLocationChanges();
   }
 
  private:
@@ -471,7 +479,9 @@ AppListFolderView::AppListFolderView(AppsContainerView* container_view,
   page_switcher_ =
       contents_container_->AddChildView(std::make_unique<PageSwitcher>(
           items_grid_view_->pagination_model(), false /* vertical */,
-          contents_view_->app_list_view()->is_tablet_mode()));
+          contents_view_->app_list_view()->is_tablet_mode(),
+          AppListColorProvider::Get()->GetFolderBackgroundColor(
+              items_grid_view_->GetAppListConfig().folder_background_color())));
   view_model_->Add(page_switcher_, kIndexPageSwitcher);
 
   model_->AddObserver(this);
@@ -558,10 +568,6 @@ bool AppListFolderView::OnKeyPressed(const ui::KeyEvent& event) {
     return true;
   }
   return false;
-}
-
-const char* AppListFolderView::GetClassName() const {
-  return "AppListFolderView";
 }
 
 void AppListFolderView::OnAppListItemWillBeDeleted(AppListItem* item) {
@@ -684,17 +690,6 @@ void AppListFolderView::OnTabletModeChanged(bool started) {
   page_switcher_->set_is_tablet_mode(started);
 }
 
-void AppListFolderView::NotifyAccessibilityLocationChanges() {
-  contents_container_->NotifyAccessibilityEvent(
-      ax::mojom::Event::kLocationChanged, true);
-  items_grid_view_->NotifyAccessibilityEvent(ax::mojom::Event::kLocationChanged,
-                                             true);
-  folder_header_view_->NotifyAccessibilityEvent(
-      ax::mojom::Event::kLocationChanged, true);
-  page_switcher_->NotifyAccessibilityEvent(ax::mojom::Event::kLocationChanged,
-                                           true);
-}
-
 void AppListFolderView::CalculateIdealBounds() {
   gfx::Rect rect(GetContentsBounds());
   if (rect.IsEmpty())
@@ -749,8 +744,9 @@ void AppListFolderView::StartSetupDragInRootLevelAppsGridView(
           has_native_drag);
 }
 
-bool AppListFolderView::IsPointOutsideOfFolderBoundary(
-    const gfx::Point& point) {
+bool AppListFolderView::IsViewOutsideOfFolder(AppListItemView* view) {
+  gfx::Point point = view->GetLocalBounds().CenterPoint();
+  ConvertPointToTarget(view, this, &point);
   return !GetLocalBounds().Contains(point);
 }
 
@@ -823,7 +819,8 @@ void AppListFolderView::HideViewImmediately() {
   if (activated_folder_item_view) {
     activated_folder_item_view->SetIconVisible(true);
     activated_folder_item_view->title()->SetEnabledColor(
-        GetAppListConfig().grid_title_color());
+        AppListColorProvider::Get()->GetFolderTitleTextColor(
+            GetAppListConfig().grid_title_color()));
     activated_folder_item_view->title()->SetVisible(true);
   }
 }
@@ -898,5 +895,8 @@ void AppListFolderView::CreateOpenOrCloseFolderAccessibilityEvent(bool open) {
                : IDS_APP_LIST_FOLDER_CLOSE_FOLDER_ACCESSIBILE_NAME));
   announcement_view->NotifyAccessibilityEvent(ax::mojom::Event::kAlert, true);
 }
+
+BEGIN_METADATA(AppListFolderView, views::View)
+END_METADATA
 
 }  // namespace ash

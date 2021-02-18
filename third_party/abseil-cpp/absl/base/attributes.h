@@ -121,7 +121,7 @@
 #if ABSL_HAVE_ATTRIBUTE(disable_tail_calls)
 #define ABSL_HAVE_ATTRIBUTE_NO_TAIL_CALL 1
 #define ABSL_ATTRIBUTE_NO_TAIL_CALL __attribute__((disable_tail_calls))
-#elif defined(__GNUC__) && !defined(__clang__)
+#elif defined(__GNUC__) && !defined(__clang__) && !defined(__e2k__)
 #define ABSL_HAVE_ATTRIBUTE_NO_TAIL_CALL 1
 #define ABSL_ATTRIBUTE_NO_TAIL_CALL \
   __attribute__((optimize("no-optimize-sibling-calls")))
@@ -607,6 +607,7 @@
 // When used with unsupported compilers, the ABSL_FALLTHROUGH_INTENDED macro
 // has no effect on diagnostics. In any case this macro has no effect on runtime
 // behavior and performance of code.
+
 #ifdef ABSL_FALLTHROUGH_INTENDED
 #error "ABSL_FALLTHROUGH_INTENDED should not be defined."
 #endif
@@ -645,7 +646,7 @@
 // Every usage of a deprecated entity will trigger a warning when compiled with
 // clang's `-Wdeprecated-declarations` option. This option is turned off by
 // default, but the warnings will be reported by clang-tidy.
-#if defined(__clang__) && __cplusplus >= 201103L
+#if defined(__clang__) && defined(__cplusplus) && __cplusplus >= 201103L
 #define ABSL_DEPRECATED(message) __attribute__((deprecated(message)))
 #endif
 

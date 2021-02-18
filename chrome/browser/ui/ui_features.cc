@@ -4,7 +4,20 @@
 
 #include "chrome/browser/ui/ui_features.h"
 
+#include "base/feature_list.h"
+#include "build/chromeos_buildflags.h"
+
 namespace features {
+
+// Enables Chrome Labs menu in the toolbar. See https://crbug.com/1145666
+const base::Feature kChromeLabs{"ChromeLabs",
+                                base::FEATURE_DISABLED_BY_DEFAULT};
+
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
+// Enables "Tips for Chrome" in Main Chrome Menu | Help.
+const base::Feature kChromeTipsInMainMenu{"ChromeTipsInMainMenu",
+                                          base::FEATURE_DISABLED_BY_DEFAULT};
+#endif
 
 // Enables showing the EV certificate details in the Page Info bubble.
 const base::Feature kEvDetailsInPageInfo{"EvDetailsInPageInfo",
@@ -23,9 +36,10 @@ const base::Feature kExtensionSettingsOverriddenDialogs{
 const base::Feature kExtensionsToolbarMenu{"ExtensionsToolbarMenu",
                                            base::FEATURE_ENABLED_BY_DEFAULT};
 
-// Force enables the legacy chrome://devices page. To be removed in M88.
-const base::Feature kForceEnableDevicesPage{"ForceEnableDevicesPage",
-                                            base::FEATURE_DISABLED_BY_DEFAULT};
+// Force enables legacy privet printers that are already registered in Print
+// Preview. To be removed in M90.
+const base::Feature kForceEnablePrivetPrinting{
+    "ForceEnablePrivetPrinting", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Enables the new profile picker.
 // https:://crbug.com/1063856
@@ -37,35 +51,36 @@ const base::Feature kNewProfilePicker{"NewProfilePicker",
 const base::Feature kNewTabstripAnimation{"NewTabstripAnimation",
                                           base::FEATURE_ENABLED_BY_DEFAULT};
 
-// Enables an experimental permission prompt that uses a chip in the location
-// bar.
-const base::Feature kPermissionChip{"PermissionChip",
-                                    base::FEATURE_DISABLED_BY_DEFAULT};
-
 // Enables a more prominent active tab title in dark mode to aid with
 // accessibility.
 const base::Feature kProminentDarkModeActiveTabTitle{
     "ProminentDarkModeActiveTabTitle", base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Allow users to save tabs for later. Enables a new button and menu for
-// accessing tabs saved for later. https://crbug.com/1109316
-const base::Feature kReadLater{"ReadLater", base::FEATURE_DISABLED_BY_DEFAULT};
-
 // Enables tabs to scroll in the tabstrip. https://crbug.com/951078
 const base::Feature kScrollableTabStrip{"ScrollableTabStrip",
                                         base::FEATURE_DISABLED_BY_DEFAULT};
+const char kMinimumTabWidthFeatureParameterName[] = "minTabWidth";
 
-// Enables the signin promo page for the profile creation flow.
-// https:://crbug.com/1105865
-const base::Feature kSignInProfileCreationFlow{
-    "SignInProfileCreationFlow", base::FEATURE_DISABLED_BY_DEFAULT};
+// Enables buttons to permanently appear on the tabstrip when
+// scrollable-tabstrip is enabled. https://crbug.com/1116118
+const base::Feature kScrollableTabStripButtons{
+    "ScrollableTabStripButtons", base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Enables grouping tabs together in the tab strip. https://crbug.com/905491
-const base::Feature kTabGroups{"TabGroups", base::FEATURE_DISABLED_BY_DEFAULT};
+// Hosts some content in a side panel. https://crbug.com/1149995
+const base::Feature kSidePanel{"SidePanel", base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Enables tab groups to be collapsed and expanded. https://crbug.com/1018230
-const base::Feature kTabGroupsCollapse{"TabGroupsCollapse",
-                                       base::FEATURE_DISABLED_BY_DEFAULT};
+// Updated managed profile sign-in popup. https://crbug.com/1141224
+const base::Feature kSyncConfirmationUpdatedText{
+    "SyncConfirmationUpdatedText", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Sign-in functionality in the profile creation flow. https://crbug.com/1126913
+const base::Feature kSignInProfileCreation{"SignInProfileCreation",
+                                           base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Automatically create groups for users based on domain.
+// https://crbug.com/1128703
+const base::Feature kTabGroupsAutoCreate{"TabGroupsAutoCreate",
+                                         base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Enables tabs to be frozen when collapsed. https://crbug.com/1110108
 const base::Feature kTabGroupsCollapseFreezing{
@@ -75,6 +90,13 @@ const base::Feature kTabGroupsCollapseFreezing{
 // https://crbug.com/1067062
 const base::Feature kTabGroupsFeedback{"TabGroupsFeedback",
                                        base::FEATURE_ENABLED_BY_DEFAULT};
+
+// Directly controls the "new" badge (as opposed to old "master switch"; see
+// https://crbug.com/1169907 for master switch deprecation and
+// https://crbug.com/968587 for the feature itself)
+// https://crbug.com/1173792
+const base::Feature kTabGroupsNewBadgePromo{"TabGroupsNewBadgePromo",
+                                            base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Enables popup cards containing tab information when hovering over a tab.
 // https://crbug.com/910739
@@ -94,13 +116,35 @@ const base::Feature kTabHoverCardImages{"TabHoverCardImages",
 const base::Feature kTabOutlinesInLowContrastThemes{
     "TabOutlinesInLowContrastThemes", base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Enables searching tabs across multiple windows.
+// Enables searching tabs across multiple windows. This feature launch is
+// staggered to release to ChromeOS first and other platforms later. Tab Search
+// is enabled by default on ChromeOS following its launch on the platform.
+// TODO(crbug.com/1137558): Remove this after launch to the remaining desktop
+// platforms.
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+const base::Feature kTabSearch{"TabSearch", base::FEATURE_ENABLED_BY_DEFAULT};
+#else
 const base::Feature kTabSearch{"TabSearch", base::FEATURE_DISABLED_BY_DEFAULT};
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
-// Enables showing text next to the 3-dot menu when an update is available.
-// See https://crbug.com/1001731
-const base::Feature kUseTextForUpdateButton{"UseTextForUpdateButton",
-                                            base::FEATURE_DISABLED_BY_DEFAULT};
+// Enables the tab search submit feedback button.
+const base::Feature kTabSearchFeedback{"TabSearchFeedback",
+                                       base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::FeatureParam<bool> kTabSearchSearchIgnoreLocation{
+    &kTabSearch, "TabSearchSearchIgnoreLocation", true};
+
+const base::FeatureParam<int> kTabSearchSearchDistance{
+    &kTabSearch, "TabSearchSearchDistance", 200};
+
+const base::FeatureParam<double> kTabSearchSearchThreshold{
+    &kTabSearch, "TabSearchSearchThreshold", 0.0};
+
+const base::FeatureParam<double> kTabSearchTitleToHostnameWeightRatio{
+    &kTabSearch, "TabSearchTitleToHostnameWeightRatio", 2.0};
+
+const base::FeatureParam<bool> kTabSearchMoveActiveTabToBottom{
+    &kTabSearch, "TabSearchMoveActiveTabToBottom", true};
 
 // Enables a web-based separator that's only used for performance testing. See
 // https://crbug.com/993502.
@@ -112,15 +156,16 @@ const base::Feature kWebFooterExperiment{"WebFooterExperiment",
 const base::Feature kWebUITabStrip{"WebUITabStrip",
                                    base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Enables friendly settings for the |chrome://settings/syncSetup| page.
-// https://crbug.com/1035421.
-const base::Feature kSyncSetupFriendlySettings{
-    "SyncSetupFriendlySettings", base::FEATURE_ENABLED_BY_DEFAULT};
-
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // Enables a warning about connecting to hidden WiFi networks.
 // https://crbug.com/903908
 const base::Feature kHiddenNetworkWarning{"HiddenNetworkWarning",
                                           base::FEATURE_DISABLED_BY_DEFAULT};
-#endif  // defined(OS_CHROMEOS)
+
+// Enables a separate group of settings (speed, button swap, and acceleration)
+// for pointing sticks (such as TrackPoints).
+const base::Feature kSeparatePointingStickSettings{
+    "SeparatePointingStickSettings", base::FEATURE_ENABLED_BY_DEFAULT};
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
 }  // namespace features

@@ -16,6 +16,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/time/clock.h"
 #include "base/time/default_clock.h"
 #include "base/trace_event/trace_event.h"
@@ -24,7 +25,10 @@
 #include "components/crx_file/id_util.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
+#include "extensions/browser/allowlist_state.h"
+#include "extensions/browser/api/declarative_net_request/utils.h"
 #include "extensions/browser/app_sorting.h"
+#include "extensions/browser/blocklist_state.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_pref_store.h"
 #include "extensions/browser/extension_prefs_factory.h"
@@ -72,6 +76,9 @@ constexpr const char kPrefManifestVersion[] = "manifest.version";
 
 // Indicates whether an extension is blocklisted.
 constexpr const char kPrefBlocklist[] = "blacklist";
+
+// Indicates whether an extension is included in the Safe Browsing allowlist.
+constexpr const char kPrefAllowlist[] = "allowlist";
 
 // If extension is greylisted.
 constexpr const char kPrefBlocklistState[] = "blacklist_state";
@@ -236,6 +243,16 @@ constexpr const char kPrefDNRUseActionCountAsBadgeText[] =
 
 // A boolean that indicates if a ruleset should be ignored.
 constexpr const char kDNRIgnoreRulesetKey[] = "ignore_ruleset";
+
+// A preference that indicates the amount of rules allocated to an extension
+// from the global pool.
+constexpr const char kDNRExtensionRulesAllocated[] =
+    "dnr_extension_rules_allocated";
+
+// A boolean that indicates if an extension should have its unused rule
+// allocation kept during its next load.
+constexpr const char kPrefDNRKeepExcessAllocation[] =
+    "dnr_keep_excess_allocation";
 
 // The default value to use for permission withholding when setting the pref on
 // installation or for extensions where the pref has not been set.
@@ -408,17 +425,20 @@ ExtensionPrefs* ExtensionPrefs::Get(content::BrowserContext* context) {
   return ExtensionPrefsFactory::GetInstance()->GetForBrowserContext(context);
 }
 
-static base::FilePath::StringType MakePathRelative(const base::FilePath& parent,
-                                             const base::FilePath& child) {
+static std::string MakePathRelative(const base::FilePath& parent,
+                                    const base::FilePath& child) {
   if (!parent.IsParent(child))
-    return child.value();
+    return child.AsUTF8Unsafe();
 
   base::FilePath::StringType retval = child.value().substr(
       parent.value().length());
   if (base::FilePath::IsSeparator(retval[0]))
-    return retval.substr(1);
-  else
-    return retval;
+    retval = retval.substr(1);
+#if defined(OS_WIN)
+  return base::WideToUTF8(retval);
+#else
+  return retval;
+#endif
 }
 
 void ExtensionPrefs::MakePathsRelative() {
@@ -440,10 +460,10 @@ void ExtensionPrefs::MakePathsRelative() {
       // Unpacked extensions can have absolute paths.
       continue;
     }
-    base::FilePath::StringType path_string;
+    std::string path_string;
     if (!extension_dict->GetString(kPrefPath, &path_string))
       continue;
-    base::FilePath path(path_string);
+    base::FilePath path = base::FilePath::FromUTF8Unsafe(path_string);
     if (path.IsAbsolute())
       absolute_keys.insert(i.key());
   }
@@ -459,9 +479,9 @@ void ExtensionPrefs::MakePathsRelative() {
       NOTREACHED() << "Control should never reach here for extension " << *i;
       continue;
     }
-    base::FilePath::StringType path_string;
+    std::string path_string;
     extension_dict->GetString(kPrefPath, &path_string);
-    base::FilePath path(path_string);
+    base::FilePath path = base::FilePath::FromUTF8Unsafe(path_string);
     extension_dict->SetString(kPrefPath,
         MakePathRelative(install_directory_, path));
   }
@@ -953,17 +973,13 @@ bool ExtensionPrefs::HasDisableReason(
 void ExtensionPrefs::AddDisableReason(
     const std::string& extension_id,
     disable_reason::DisableReason disable_reason) {
-  // TODO(https://crbug.com/1073570): Extensions can be blocklisted but in
-  // enabled state. This checks the kPrefState which is the state of the
-  // extension.
-  DCHECK(!DoesExtensionHaveState(extension_id, Extension::ENABLED) ||
-         disable_reason == disable_reason::DISABLE_REMOTELY_FOR_MALWARE);
-  ModifyDisableReasons(extension_id, disable_reason, DISABLE_REASON_ADD);
+  AddDisableReasons(extension_id, disable_reason);
 }
 
 void ExtensionPrefs::AddDisableReasons(const std::string& extension_id,
                                        int disable_reasons) {
-  DCHECK(!DoesExtensionHaveState(extension_id, Extension::ENABLED));
+  DCHECK(!DoesExtensionHaveState(extension_id, Extension::ENABLED) ||
+         IsExtensionBlocklisted(extension_id));
   ModifyDisableReasons(extension_id, disable_reasons, DISABLE_REASON_ADD);
 }
 
@@ -1067,6 +1083,25 @@ std::set<std::string> ExtensionPrefs::GetBlocklistedExtensions() const {
 bool ExtensionPrefs::IsExtensionBlocklisted(const std::string& id) const {
   const base::DictionaryValue* ext_prefs = GetExtensionPref(id);
   return ext_prefs && IsBlocklistBitSet(ext_prefs);
+}
+
+AllowlistState ExtensionPrefs::GetExtensionAllowlistState(
+    const std::string& extension_id) const {
+  int value;
+  if (!ReadPrefAsInteger(extension_id, kPrefAllowlist, &value))
+    return ALLOWLIST_UNDEFINED;
+
+  return static_cast<AllowlistState>(value);
+}
+
+void ExtensionPrefs::SetExtensionAllowlistState(const std::string& extension_id,
+                                                AllowlistState state) {
+  DCHECK_NE(state, ALLOWLIST_UNDEFINED);
+
+  if (state != GetExtensionAllowlistState(extension_id)) {
+    UpdateExtensionPref(extension_id, kPrefAllowlist,
+                        std::make_unique<base::Value>(state));
+  }
 }
 
 namespace {
@@ -1520,16 +1555,17 @@ std::unique_ptr<ExtensionInfo> ExtensionPrefs::GetInstalledInfoHelper(
     // Just a warning for now.
   }
 
-  base::FilePath::StringType path;
+  std::string path;
   if (!extension->GetString(kPrefPath, &path))
     return std::unique_ptr<ExtensionInfo>();
+  base::FilePath file_path = base::FilePath::FromUTF8Unsafe(path);
 
   // Make path absolute. Most (but not all) extension types have relative paths.
-  if (!base::FilePath(path).IsAbsolute())
-    path = install_directory_.Append(path).value();
+  if (!file_path.IsAbsolute())
+    file_path = install_directory_.Append(file_path);
 
-  return std::unique_ptr<ExtensionInfo>(new ExtensionInfo(
-      manifest, extension_id, base::FilePath(path), location));
+  return std::make_unique<ExtensionInfo>(manifest, extension_id, file_path,
+                                         location);
 }
 
 std::unique_ptr<ExtensionInfo> ExtensionPrefs::GetInstalledExtensionInfo(
@@ -1962,7 +1998,7 @@ void ExtensionPrefs::RemoveObserver(ExtensionPrefsObserver* observer) {
 }
 
 void ExtensionPrefs::InitPrefStore() {
-  TRACE_EVENT0("browser,startup", "ExtensionPrefs::InitPrefStore")
+  TRACE_EVENT0("browser,startup", "ExtensionPrefs::InitPrefStore");
 
   // When this is called, the PrefService is initialized and provides access
   // to the user preferences stored in a JSON file.
@@ -2168,6 +2204,52 @@ bool ExtensionPrefs::ShouldIgnoreDNRRuleset(
   return ReadPrefAsBooleanAndReturn(extension_id, pref);
 }
 
+bool ExtensionPrefs::GetDNRAllocatedGlobalRuleCount(
+    const ExtensionId& extension_id,
+    size_t* rule_count) const {
+  int rule_count_value = -1;
+  if (!ReadPrefAsInteger(extension_id, kDNRExtensionRulesAllocated,
+                         &rule_count_value)) {
+    return false;
+  }
+
+  DCHECK_GT(rule_count_value, 0);
+  *rule_count = static_cast<size_t>(rule_count_value);
+  return true;
+}
+
+void ExtensionPrefs::SetDNRAllocatedGlobalRuleCount(
+    const ExtensionId& extension_id,
+    size_t rule_count) {
+  DCHECK_LE(
+      rule_count,
+      static_cast<size_t>(declarative_net_request::GetGlobalStaticRuleLimit()));
+
+  // Clear the pref entry if the extension has a global allocation of 0.
+  std::unique_ptr<base::Value> pref_value =
+      rule_count > 0
+          ? std::make_unique<base::Value>(static_cast<int>(rule_count))
+          : nullptr;
+  UpdateExtensionPref(extension_id, kDNRExtensionRulesAllocated,
+                      std::move(pref_value));
+}
+
+bool ExtensionPrefs::GetDNRKeepExcessAllocation(
+    const ExtensionId& extension_id) const {
+  return ReadPrefAsBooleanAndReturn(extension_id, kPrefDNRKeepExcessAllocation);
+}
+
+void ExtensionPrefs::SetDNRKeepExcessAllocation(const ExtensionId& extension_id,
+                                                bool keep_excess_allocation) {
+  // Clear the pref entry if the extension will not keep its excess global rules
+  // allocation.
+  std::unique_ptr<base::Value> pref_value =
+      keep_excess_allocation ? std::make_unique<base::Value>(true) : nullptr;
+
+  UpdateExtensionPref(extension_id, kPrefDNRKeepExcessAllocation,
+                      std::move(pref_value));
+}
+
 // static
 void ExtensionPrefs::SetRunAlertsInFirstRunForTest() {
   g_run_alerts_in_first_run_for_testing = true;
@@ -2251,7 +2333,6 @@ void ExtensionPrefs::RegisterProfilePrefs(
   registry->RegisterListPref(pref_names::kInstallAllowList);
   registry->RegisterListPref(pref_names::kInstallDenyList);
   registry->RegisterDictionaryPref(pref_names::kInstallForceList);
-  registry->RegisterDictionaryPref(pref_names::kLoginScreenExtensions);
   registry->RegisterListPref(pref_names::kAllowedTypes);
   registry->RegisterBooleanPref(pref_names::kStorageGarbageCollect, false);
   registry->RegisterListPref(pref_names::kAllowedInstallSites);
@@ -2377,8 +2458,7 @@ void ExtensionPrefs::PopulateExtensionInfoPrefs(
     }
   }
 
-  base::FilePath::StringType path = MakePathRelative(install_directory_,
-                                                     extension->path());
+  std::string path = MakePathRelative(install_directory_, extension->path());
   extension_dict->SetString(kPrefPath, path);
   if (!install_parameter.empty()) {
     extension_dict->SetString(kPrefInstallParam, install_parameter);
@@ -2400,7 +2480,7 @@ void ExtensionPrefs::PopulateExtensionInfoPrefs(
 void ExtensionPrefs::InitExtensionControlledPrefs(
     const ExtensionsInfo& extensions_info) {
   TRACE_EVENT0("browser,startup",
-               "ExtensionPrefs::InitExtensionControlledPrefs")
+               "ExtensionPrefs::InitExtensionControlledPrefs");
 
   for (const auto& info : extensions_info) {
     const ExtensionId& extension_id = info->extension_id;

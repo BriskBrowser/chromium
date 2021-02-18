@@ -23,7 +23,6 @@
 #include "chrome/browser/win/conflicts/module_load_attempt_log_listener.h"
 #include "chrome/browser/win/conflicts/third_party_conflicts_manager.h"
 #include "chrome/chrome_elf/third_party_dlls/public_api.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -198,7 +197,7 @@ void ModuleDatabase::OnModuleLoad(content::ProcessType process_type,
 
   DCHECK(process_type == content::PROCESS_TYPE_BROWSER ||
          process_type == content::PROCESS_TYPE_RENDERER)
-      << "The current logic in ModuleBlacklistCacheUpdater does not support "
+      << "The current logic in ModuleBlocklistCacheUpdater does not support "
          "other process types yet. See https://crbug.com/662084 for details.";
 
   ModuleInfo* module_info = nullptr;
@@ -257,7 +256,7 @@ void ModuleDatabase::OnModuleBlocked(const base::FilePath& module_path,
   module_info->second.module_properties |= ModuleInfoData::kPropertyBlocked;
 }
 
-void ModuleDatabase::OnModuleAddedToBlacklist(const base::FilePath& module_path,
+void ModuleDatabase::OnModuleAddedToBlocklist(const base::FilePath& module_path,
                                               uint32_t module_size,
                                               uint32_t module_time_date_stamp) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -265,10 +264,10 @@ void ModuleDatabase::OnModuleAddedToBlacklist(const base::FilePath& module_path,
   auto iter = modules_.find(
       ModuleInfoKey(module_path, module_size, module_time_date_stamp));
 
-  // Only known modules should be added to the blacklist.
+  // Only known modules should be added to the blocklist.
   DCHECK(iter != modules_.end());
 
-  iter->second.module_properties |= ModuleInfoData::kPropertyAddedToBlacklist;
+  iter->second.module_properties |= ModuleInfoData::kPropertyAddedToBlocklist;
 }
 
 void ModuleDatabase::AddObserver(ModuleDatabaseObserver* observer) {
@@ -427,7 +426,7 @@ void ModuleDatabase::MaybeInitializeThirdPartyConflictsManager(
     return;
 
   if (IncompatibleApplicationsUpdater::IsWarningEnabled() ||
-      ModuleBlacklistCacheUpdater::IsBlockingEnabled()) {
+      ModuleBlocklistCacheUpdater::IsBlockingEnabled()) {
     DCHECK(base::FeatureList::IsEnabled(quarantine::kOutOfProcessQuarantine));
 
     third_party_conflicts_manager_ =

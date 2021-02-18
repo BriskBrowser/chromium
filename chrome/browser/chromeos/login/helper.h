@@ -40,13 +40,13 @@ namespace chromeos {
 
 // Returns bounds of the screen to use for login wizard.
 // The rect is centered within the default monitor and sized accordingly if
-// |size| is not empty. Otherwise the whole monitor is occupied.
+// `size` is not empty. Otherwise the whole monitor is occupied.
 gfx::Rect CalculateScreenBounds(const gfx::Size& size);
 
 // Returns the size of user image required for proper display under current DPI.
 int GetCurrentUserImageSize();
 
-// Define the constants in |login| namespace to avoid potential
+// Define the constants in `login` namespace to avoid potential
 // conflict with other chromeos components.
 namespace login {
 
@@ -78,7 +78,7 @@ class NetworkStateHelper {
   virtual bool IsConnecting() const;
 
  private:
-  void OnCreateConfiguration(const base::Closure& success_callback,
+  void OnCreateConfiguration(base::OnceClosure success_callback,
                              network_handler::ErrorCallback error_callback,
                              const std::string& service_path,
                              const std::string& guid) const;
@@ -110,6 +110,11 @@ scoped_refptr<network::SharedURLLoaderFactory> GetSigninURLLoaderFactory();
 // detect Gaia password reuses.
 void SaveSyncPasswordDataToProfile(const UserContext& user_context,
                                    Profile* profile);
+
+// Returns time remaining to the next online login. The value can be negative
+// which means that online login should have been already happened in the past.
+base::TimeDelta TimeToOnlineSignIn(base::Time last_online_signin,
+                                   base::TimeDelta offline_signin_limit);
 
 }  // namespace login
 

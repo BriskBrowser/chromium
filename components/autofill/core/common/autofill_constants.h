@@ -18,9 +18,9 @@ extern const char kSettingsOrigin[];
 
 // The number of fields required by Autofill to execute its heuristic and
 // crowd-sourcing query/upload routines.
-size_t MinRequiredFieldsForHeuristics();
-size_t MinRequiredFieldsForQuery();
-size_t MinRequiredFieldsForUpload();
+constexpr size_t kMinRequiredFieldsForHeuristics = 3;
+constexpr size_t kMinRequiredFieldsForQuery = 1;
+constexpr size_t kMinRequiredFieldsForUpload = 1;
 
 // The maximum number of form fields we are willing to parse, due to
 // computational costs.  Several examples of forms with lots of fields that are
@@ -68,12 +68,14 @@ const int64_t kAutocompleteRetentionPolicyPeriodInDays = 14 * 31;
 
 // Limits the number of times the value of a specific type can be filled into a
 // form.
-constexpr int kTypeValueFormFillingLimit = 9;
-
 // Credit card numbers are sometimes distributed between up to 19 individual
-// fields. Therefore, credit cards need a higher limit compared to
-// |kTypeValueFormFillingLimit|.
-constexpr int kCreditCardTypeValueFormFillingLimit = 19;
+// fields. Therefore, credit cards need a higher limit.
+// State fields are effecectively unlimited because there are sometimes hidden
+// fields select boxes, each with a list of states for one specific countries,
+// which are displayed only upon country selection.
+constexpr size_t kTypeValueFormFillingLimit = 9;
+constexpr size_t kCreditCardTypeValueFormFillingLimit = 19;
+constexpr size_t kStateTypeValueFormFillingLimit = 1000;
 
 }  // namespace autofill
 

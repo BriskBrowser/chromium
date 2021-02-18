@@ -30,6 +30,9 @@
       • Create a 3D map of your surroundings and track camera position
       • Use your camera
     </message>
+    <message name="IDS_IDLE_DETECTION_INFOBAR_TEXT" desc="Text requesting permission for a site to know when the user is idle.">
+      <ph name="URL">$1<ex>google.com</ex></ph> wants to know when you're present
+    </message>
     <message name="IDS_NOTIFICATION_QUIET_PERMISSION_PROMPT_TITLE" desc="Text used as notification title when requesting permission for Web Notifications via a notification.">
       Notifications for <ph name="ORIGIN">$1<ex>example.com</ex></ph> are blocked
     </message>
@@ -78,12 +81,6 @@
   <message name="IDS_MIDI_SYSEX_PERMISSION_FRAGMENT" desc="Permission asked in the permission bubble when a URL wants to access MIDI devices with system exclusive messages, along with other permissions requests. Preceded by the prompt 'This site would like to:'">
     Use your MIDI devices
   </message>
-  <message name="IDS_FLASH_PERMISSION_FRAGMENT" desc="Permission asked in the permission bubble when a URL wants to use Flash Plugins on the page. Preceded by the prompt 'This site would like to:'. 'Flash' is the name of a plugin and should not be translated.">
-    Run Flash
-  </message>
-  <message name="IDS_FLASH_PERMISSION_WARNING_FRAGMENT" desc="Warning in the permission bubble when a URL wants to use Flash Plugins on the page.">
-    Flash Player will no longer be supported after December 2020.
-  </message>
   <message name="IDS_MEDIA_CAPTURE_AUDIO_ONLY_PERMISSION_FRAGMENT" desc="Permission fragment shown in the permissions bubble when a web page requests access to the computer's microphone.">
     Use your microphone
   </message>
@@ -108,9 +105,10 @@
   <message name="IDS_AR_PERMISSION_FRAGMENT" desc="Permission request shown if the user is visiting a site that wants to use AR. Follows a prompt: 'This site would like to:">
     Create a 3D map of your surroundings and track camera position
   </message>
-  <message name="IDS_STORAGE_ACCESS_PERMISSION_FRAGMENT" desc="Permission request shown if the user is visiting a site needs access to its data while it is embedded into another site. Follows a prompt: 'This site would like to:">
+  <message name="IDS_STORAGE_ACCESS_PERMISSION_FRAGMENT" desc="Permission request shown if the user is visiting a site needs access to its data while it is embedded into another site. Follows a prompt: 'This site would like to:'">
     Access cookies and site data.
-
+  </message>
+  <message name="IDS_STORAGE_ACCESS_PERMISSION_EXPLANATION" desc="Explanation of the permission request shown if the user is visiting a site needs access to its data while it is embedded into another site. Follows this text: 'This site would like to: Access cookies and site data.'">
 Do you want to allow <ph name="EMBEDDED_URL">$1<ex>news.site</ex></ph> to use cookies and site data on <ph name="TOP_LEVEL_URL">$2<ex>content_domain.site</ex></ph>?
 
 This will otherwise be blocked by your privacy settings. This will allow the content you interacted with to work correctly, but may allow <ph name="EMBEDDED_URL">$1<ex>news.site</ex></ph> to track your activity.
@@ -119,13 +117,25 @@ This will otherwise be blocked by your privacy settings. This will allow the con
     Open and place windows on your screens
   </message>
   <message name="IDS_FONT_ACCESS_PERMISSION_FRAGMENT" desc="Permission request shown if the user is visiting a site that wants to access locally installed font data. Follows a prompt: 'This site would like to:'">
-    Use the fonts installed on your computer so you can create advanced typography
+    Use the fonts on your computer so you can create high-fidelity content
+  </message>
+  <message name="IDS_IDLE_DETECTION_PERMISSION_FRAGMENT" desc="Permission request shown if the user is visiting a site that wants to monitor when the user is interacting with their device. Follows a prompt: 'This site would like to:'">
+    Know when you're present
   </message>
   <message name="IDS_PERMISSION_ALLOW" desc="Label on button to allow a permissions request.">
     Allow
   </message>
   <message name="IDS_PERMISSION_DENY" desc="Label on button to deny a permissions request.">
     Block
+  </message>
+  <message name="IDS_PERMISSION_ALLOW_ONCE">
+    Only this time
+  </message>
+  <message name="IDS_PERMISSION_ALLOW_ALWAYS">
+    On every visit
+  </message>
+  <message name="IDS_PERMISSIONS_BUBBLE_PROMPT_ONE_TIME" desc="The label that is used to introduce permission request details to the user in a popup.">
+    Allow <ph name="SITE_NAME">$1<ex>google.com</ex></ph> to:
   </message>
 
   <if expr="not is_android">
@@ -155,6 +165,9 @@ This will otherwise be blocked by your privacy settings. This will allow the con
     </message>
     <message name="IDS_AR_PERMISSION_CHIP" desc="Button text representing a request for using AR from a website. When clicked, shows a permission prompt bubble with more information.">
       Allow AR?
+    </message>
+    <message name="IDS_IDLE_DETECTION_PERMISSION_CHIP" desc="Button text representing a request for using using idle detection from a website. When clicked, shows a permission prompt bubble with more information.">
+      Share your presence?
     </message>
   </if>
 

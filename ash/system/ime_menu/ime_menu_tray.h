@@ -14,6 +14,7 @@
 #include "ash/system/virtual_keyboard/virtual_keyboard_observer.h"
 #include "base/macros.h"
 #include "ui/base/ime/chromeos/ime_keyset.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 
 namespace views {
 class ImageView;
@@ -33,7 +34,11 @@ class ASH_EXPORT ImeMenuTray : public TrayBackgroundView,
                                public KeyboardControllerObserver,
                                public VirtualKeyboardObserver {
  public:
+  METADATA_HEADER(ImeMenuTray);
+
   explicit ImeMenuTray(Shelf* shelf);
+  ImeMenuTray(const ImeMenuTray&) = delete;
+  ImeMenuTray& operator=(const ImeMenuTray&) = delete;
   ~ImeMenuTray() override;
 
   // Shows the virtual keyboard with the given keyset: emoji, handwriting or
@@ -50,6 +55,7 @@ class ASH_EXPORT ImeMenuTray : public TrayBackgroundView,
   bool ShouldShowKeyboardToggle() const;
 
   // TrayBackgroundView:
+  void OnThemeChanged() override;
   base::string16 GetAccessibleNameForTray() override;
   void HandleLocaleChange() override;
   void HideBubbleWithView(const TrayBubbleView* bubble_view) override;
@@ -58,7 +64,6 @@ class ASH_EXPORT ImeMenuTray : public TrayBackgroundView,
   void CloseBubble() override;
   void ShowBubble(bool show_by_click) override;
   TrayBubbleView* GetBubbleView() override;
-  const char* GetClassName() const override;
 
   // IMEObserver:
   void OnIMERefresh() override;
@@ -104,8 +109,6 @@ class ASH_EXPORT ImeMenuTray : public TrayBackgroundView,
   bool is_voice_enabled_;
 
   base::WeakPtrFactory<ImeMenuTray> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ImeMenuTray);
 };
 
 }  // namespace ash

@@ -13,11 +13,11 @@
 #include "base/test/simple_test_clock.h"
 #include "base/values.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
-#include "chrome/browser/engagement/site_engagement_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
+#include "components/site_engagement/content/site_engagement_service.h"
 #include "media/base/media_switches.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -251,7 +251,7 @@ TEST_F(MediaEngagementScoreTest, ContentSettings) {
   score_dict->SetBoolean(MediaEngagementScore::kHasHighScoreKey, false);
   settings_map->SetWebsiteSettingDefaultScope(
       origin.GetURL(), GURL(), ContentSettingsType::MEDIA_ENGAGEMENT,
-      content_settings::ResourceIdentifier(), std::move(score_dict));
+      std::move(score_dict));
 
   // Make sure we read that data back correctly.
   MediaEngagementScore* score =
@@ -274,7 +274,7 @@ TEST_F(MediaEngagementScoreTest, ContentSettings) {
   std::unique_ptr<base::DictionaryValue> values =
       base::DictionaryValue::From(settings_map->GetWebsiteSetting(
           origin.GetURL(), GURL(), ContentSettingsType::MEDIA_ENGAGEMENT,
-          content_settings::ResourceIdentifier(), nullptr));
+          nullptr));
   values->GetInteger(MediaEngagementScore::kVisitsKey, &stored_visits);
   values->GetInteger(MediaEngagementScore::kMediaPlaybacksKey,
                      &stored_media_playbacks);
@@ -318,7 +318,7 @@ TEST_F(MediaEngagementScoreTest, HighScoreLegacy_High) {
     dict->SetInteger(MediaEngagementScore::kMediaPlaybacksKey, 6);
     settings_map->SetWebsiteSettingDefaultScope(
         origin.GetURL(), GURL(), ContentSettingsType::MEDIA_ENGAGEMENT,
-        content_settings::ResourceIdentifier(), std::move(dict));
+        std::move(dict));
   }
 
   {
@@ -341,7 +341,7 @@ TEST_F(MediaEngagementScoreTest, HighScoreLegacy_Low) {
     dict->SetInteger(MediaEngagementScore::kMediaPlaybacksKey, 4);
     settings_map->SetWebsiteSettingDefaultScope(
         origin.GetURL(), GURL(), ContentSettingsType::MEDIA_ENGAGEMENT,
-        content_settings::ResourceIdentifier(), std::move(dict));
+        std::move(dict));
   }
 
   {
@@ -369,7 +369,7 @@ TEST_F(MediaEngagementScoreTest, HighScoreUpdated) {
 
     settings_map->SetWebsiteSettingDefaultScope(
         origin.GetURL(), GURL(), ContentSettingsType::MEDIA_ENGAGEMENT,
-        content_settings::ResourceIdentifier(), std::move(dict));
+        std::move(dict));
   }
 
   {
@@ -383,7 +383,7 @@ TEST_F(MediaEngagementScoreTest, HighScoreUpdated) {
     std::unique_ptr<base::DictionaryValue> dict =
         base::DictionaryValue::From(settings_map->GetWebsiteSetting(
             origin.GetURL(), GURL(), ContentSettingsType::MEDIA_ENGAGEMENT,
-            content_settings::ResourceIdentifier(), nullptr));
+            nullptr));
 
     bool stored_high_score = false;
     dict->GetBoolean(MediaEngagementScore::kHasHighScoreKey,
@@ -497,7 +497,7 @@ TEST_F(MediaEngagementScoreTest, DoNotStoreDeprecatedFields) {
   score_dict->SetInteger(kNotDeprectedUnknown, 10);
   settings_map->SetWebsiteSettingDefaultScope(
       origin.GetURL(), GURL(), ContentSettingsType::MEDIA_ENGAGEMENT,
-      content_settings::ResourceIdentifier(), std::move(score_dict));
+      std::move(score_dict));
 
   // Run the data through media engagement score.
   auto score =
@@ -509,7 +509,7 @@ TEST_F(MediaEngagementScoreTest, DoNotStoreDeprecatedFields) {
   std::unique_ptr<base::DictionaryValue> values =
       base::DictionaryValue::From(settings_map->GetWebsiteSetting(
           origin.GetURL(), GURL(), ContentSettingsType::MEDIA_ENGAGEMENT,
-          content_settings::ResourceIdentifier(), nullptr));
+          nullptr));
   EXPECT_FALSE(values->HasKey(kVisitsWithMediaTag));
   EXPECT_FALSE(values->HasKey(kAudiblePlaybacks));
   EXPECT_FALSE(values->HasKey(kSignificantPlaybacks));

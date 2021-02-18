@@ -8,12 +8,12 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/arc/session/arc_session_manager.h"
 #include "chrome/browser/chromeos/login/oobe_screen.h"
 #include "chrome/browser/chromeos/login/screens/supervision_transition_screen.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/ash/login_screen_client.h"
 #include "chrome/browser/ui/ash/system_tray_client.h"
@@ -106,7 +106,7 @@ void SupervisionTransitionScreenHandler::Show() {
   SystemTrayClient::Get()->SetPrimaryTrayEnabled(false);
   ash::LoginScreen::Get()->EnableShutdownButton(false);
   ash::LoginScreen::Get()->SetAllowLoginAsGuest(false);
-  ash::LoginScreen::Get()->ShowGuestButtonInOobe(false);
+  ash::LoginScreen::Get()->SetIsFirstSigninStep(false);
 
   base::DictionaryValue data;
   data.SetBoolean("isRemovingSupervision",

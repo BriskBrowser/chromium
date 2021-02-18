@@ -135,7 +135,7 @@ void CustomScrollbarTheme::PaintScrollCorner(
     const Scrollbar* vertical_scrollbar,
     const DisplayItemClient& display_item_client,
     const IntRect& corner_rect,
-    WebColorScheme color_scheme) {
+    mojom::blink::ColorScheme color_scheme) {
   if (DrawingRecorder::UseCachedDrawingIfPossible(context, display_item_client,
                                                   DisplayItem::kScrollCorner))
     return;
@@ -206,7 +206,7 @@ void CustomScrollbarTheme::PaintIntoRect(
     const LayoutCustomScrollbarPart& layout_custom_scrollbar_part,
     GraphicsContext& graphics_context,
     const PhysicalRect& rect) {
-  PaintInfo paint_info(graphics_context, PixelSnappedIntRect(rect),
+  PaintInfo paint_info(graphics_context, CullRect(PixelSnappedIntRect(rect)),
                        PaintPhase::kForeground, kGlobalPaintNormalPhase,
                        kPaintLayerNoFlag);
   ObjectPainter(layout_custom_scrollbar_part)

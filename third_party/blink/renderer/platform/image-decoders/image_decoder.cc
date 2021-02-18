@@ -26,7 +26,6 @@
 #include "base/sys_byteorder.h"
 #include "build/build_config.h"
 #include "media/media_buildflags.h"
-#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/platform/image-decoders/bmp/bmp_image_decoder.h"
 #include "third_party/blink/renderer/platform/image-decoders/fast_shared_buffer_reader.h"
@@ -140,10 +139,8 @@ String SniffMimeTypeInternal(scoped_refptr<SegmentReader> reader) {
   if (MatchesBMPSignature(contents))
     return "image/bmp";
 #if BUILDFLAG(ENABLE_AV1_DECODER)
-  if (base::FeatureList::IsEnabled(features::kAVIF) &&
-      AVIFImageDecoder::MatchesAVIFSignature(fast_reader)) {
+  if (AVIFImageDecoder::MatchesAVIFSignature(fast_reader))
     return "image/avif";
-  }
 #endif
 
   return String();
@@ -160,7 +157,6 @@ std::unique_ptr<ImageDecoder> ImageDecoder::Create(
     AlphaOption alpha_option,
     HighBitDepthDecodingOption high_bit_depth_decoding_option,
     const ColorBehavior& color_behavior,
-    const OverrideAllowDecodeToYuv allow_decode_to_yuv,
     const SkISize& desired_size,
     AnimationOption animation_option) {
   auto type = SniffMimeTypeInternal(data);
@@ -169,7 +165,7 @@ std::unique_ptr<ImageDecoder> ImageDecoder::Create(
 
   return CreateByMimeType(type, std::move(data), data_complete, alpha_option,
                           high_bit_depth_decoding_option, color_behavior,
-                          allow_decode_to_yuv, desired_size, animation_option);
+                          desired_size, animation_option);
 }
 
 std::unique_ptr<ImageDecoder> ImageDecoder::CreateByMimeType(
@@ -179,19 +175,19 @@ std::unique_ptr<ImageDecoder> ImageDecoder::CreateByMimeType(
     AlphaOption alpha_option,
     HighBitDepthDecodingOption high_bit_depth_decoding_option,
     const ColorBehavior& color_behavior,
-    const OverrideAllowDecodeToYuv allow_decode_to_yuv,
     const SkISize& desired_size,
     AnimationOption animation_option) {
   const size_t max_decoded_bytes =
       CalculateMaxDecodedBytes(high_bit_depth_decoding_option, desired_size);
 
   // Note: The mime types below should match those supported by
-  // MimeUtil::IsSupportedImageMimeType().
+  // MimeUtil::IsSupportedImageMimeType() (which forces lowercase).
   std::unique_ptr<ImageDecoder> decoder;
+  mime_type = mime_type.LowerASCII();
   if (mime_type == "image/jpeg" || mime_type == "image/pjpeg" ||
       mime_type == "image/jpg") {
-    decoder = std::make_unique<JPEGImageDecoder>(
-        alpha_option, color_behavior, max_decoded_bytes, allow_decode_to_yuv);
+    decoder = std::make_unique<JPEGImageDecoder>(alpha_option, color_behavior,
+                                                 max_decoded_bytes);
   } else if (mime_type == "image/png" || mime_type == "image/x-png" ||
              mime_type == "image/apng") {
     decoder = std::make_unique<PNGImageDecoder>(
@@ -211,8 +207,7 @@ std::unique_ptr<ImageDecoder> ImageDecoder::CreateByMimeType(
     decoder = std::make_unique<BMPImageDecoder>(alpha_option, color_behavior,
                                                 max_decoded_bytes);
 #if BUILDFLAG(ENABLE_AV1_DECODER)
-  } else if (base::FeatureList::IsEnabled(features::kAVIF) &&
-             mime_type == "image/avif") {
+  } else if (mime_type == "image/avif") {
     decoder = std::make_unique<AVIFImageDecoder>(
         alpha_option, high_bit_depth_decoding_option, color_behavior,
         max_decoded_bytes, animation_option);
@@ -231,7 +226,7 @@ bool ImageDecoder::HasSufficientDataToSniffMimeType(const SharedBuffer& data) {
     return false;
 
 #if BUILDFLAG(ENABLE_AV1_DECODER)
-  if (base::FeatureList::IsEnabled(features::kAVIF)) {
+  {
     // Check for an ISO BMFF File Type Box. Assume that 'largesize' is not used.
     // The first eight bytes would be a big-endian 32-bit unsigned integer
     // 'size' and a four-byte 'type'.
@@ -250,6 +245,7 @@ bool ImageDecoder::HasSufficientDataToSniffMimeType(const SharedBuffer& data) {
     }
   }
 #endif
+
   return true;
 }
 
@@ -325,10 +321,8 @@ ImageDecoder::CompressionFormat ImageDecoder::GetCompressionFormat(
   // compression algorithm.
   // TODO(wtc): Implement this. Figure out whether to return kUndefinedFormat or
   // a new kAVIFAnimationFormat in the case of an animated AVIF image.
-  if (base::FeatureList::IsEnabled(features::kAVIF) &&
-      EqualIgnoringASCIICase(mime_type, "image/avif")) {
+  if (EqualIgnoringASCIICase(mime_type, "image/avif"))
     return kLossyFormat;
-  }
 #endif
 
   if (MIMETypeRegistry::IsLossyImageMIMEType(mime_type))
@@ -726,32 +720,28 @@ size_t ImageDecoder::FindRequiredPreviousFrame(size_t frame_index,
 
 ImagePlanes::ImagePlanes() {
   color_type_ = kUnknown_SkColorType;
-  for (int i = 0; i < 3; ++i) {
+  for (int i = 0; i < cc::kNumYUVPlanes; ++i) {
     planes_[i] = nullptr;
     row_bytes_[i] = 0;
   }
 }
 
-ImagePlanes::ImagePlanes(void* planes[3],
-                         const size_t row_bytes[3],
+ImagePlanes::ImagePlanes(void* planes[cc::kNumYUVPlanes],
+                         const size_t row_bytes[cc::kNumYUVPlanes],
                          SkColorType color_type)
     : color_type_(color_type) {
-  for (int i = 0; i < 3; ++i) {
+  for (int i = 0; i < cc::kNumYUVPlanes; ++i) {
     planes_[i] = planes[i];
     row_bytes_[i] = row_bytes[i];
   }
 }
 
-void* ImagePlanes::Plane(int i) {
-  DCHECK_GE(i, 0);
-  DCHECK_LT(i, 3);
-  return planes_[i];
+void* ImagePlanes::Plane(cc::YUVIndex index) {
+  return planes_[static_cast<size_t>(index)];
 }
 
-size_t ImagePlanes::RowBytes(int i) const {
-  DCHECK_GE(i, 0);
-  DCHECK_LT(i, 3);
-  return row_bytes_[i];
+size_t ImagePlanes::RowBytes(cc::YUVIndex index) const {
+  return row_bytes_[static_cast<size_t>(index)];
 }
 
 ColorProfile::ColorProfile(const skcms_ICCProfile& profile,

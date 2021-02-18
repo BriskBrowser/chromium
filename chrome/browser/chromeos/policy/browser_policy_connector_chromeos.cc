@@ -7,6 +7,7 @@
 #include <string>
 #include <utility>
 
+#include "ash/constants/ash_paths.h"
 #include "base/bind.h"
 #include "base/check.h"
 #include "base/command_line.h"
@@ -22,6 +23,7 @@
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "chrome/browser/ash/system/timezone_util.h"
 #include "chrome/browser/chromeos/attestation/attestation_ca_client.h"
 #include "chrome/browser/chromeos/policy/active_directory_policy_manager.h"
 #include "chrome/browser/chromeos/policy/adb_sideloading_allowance_mode_policy_handler.h"
@@ -54,17 +56,13 @@
 #include "chrome/browser/chromeos/printing/bulk_printers_calculator_factory.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
-#include "chrome/browser/chromeos/system/timezone_util.h"
 #include "chrome/browser/chromeos/ui/adb_sideloading_policy_change_notification.h"
 #include "chrome/browser/policy/device_management_service_configuration.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/attestation/attestation_flow.h"
-#include "chromeos/attestation/attestation_flow_integrated.h"
-#include "chromeos/constants/chromeos_paths.h"
-#include "chromeos/constants/chromeos_switches.h"
-#include "chromeos/cryptohome/async_method_caller.h"
 #include "chromeos/cryptohome/system_salt_getter.h"
+#include "chromeos/dbus/cryptohome/cryptohome_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/session_manager/session_manager_client.h"
 #include "chromeos/dbus/upstart/upstart_client.h"
@@ -292,6 +290,7 @@ void BrowserPolicyConnectorChromeOS::Init(
   adb_sideloading_allowance_mode_policy_handler_ =
       std::make_unique<AdbSideloadingAllowanceModePolicyHandler>(
           chromeos::CrosSettings::Get(), local_state,
+          chromeos::PowerManagerClient::Get(),
           new chromeos::AdbSideloadingPolicyChangeNotification());
 }
 
@@ -339,6 +338,8 @@ void BrowserPolicyConnectorChromeOS::Shutdown() {
     device_cloud_external_data_policy_handler->Shutdown();
   }
 
+  adb_sideloading_allowance_mode_policy_handler_.reset();
+
   ChromeBrowserPolicyConnector::Shutdown();
 }
 
@@ -369,6 +370,13 @@ std::string BrowserPolicyConnectorChromeOS::GetEnterpriseDisplayDomain() const {
   if (policy && policy->has_display_domain())
     return policy->display_domain();
   return GetEnterpriseEnrollmentDomain();
+}
+
+std::string BrowserPolicyConnectorChromeOS::GetEnterpriseDomainManager() const {
+  const em::PolicyData* policy = GetDevicePolicy();
+  if (policy && policy->has_managed_by())
+    return policy->managed_by();
+  return GetEnterpriseDisplayDomain();
 }
 
 std::string BrowserPolicyConnectorChromeOS::GetRealm() const {
@@ -462,11 +470,17 @@ void BrowserPolicyConnectorChromeOS::OnDeviceCloudPolicyManagerConnected() {
   base::ThreadTaskRunnerHandle::Get()->DeleteSoon(
       FROM_HERE, std::move(device_cloud_policy_initializer_));
 
-  // TODO(miersh) Move to BrowserPolicyConnectorChromeOS::Init() when
-  // CertProvisioningScheduler does not depend on SignIn Profile.
   if (!device_cert_provisioning_scheduler_) {
+    // CertProvisioningScheduler depends on the device-wide CloudPolicyClient to
+    // be available so it can only be created when the CloudPolicyManager is
+    // connected.
+    // |device_cloud_policy_manager_| and its CloudPolicyClient are guaranteed
+    // to be non-null when this observer function has been called.
+    CloudPolicyClient* cloud_policy_client =
+        device_cloud_policy_manager_->core()->client();
     device_cert_provisioning_scheduler_ = chromeos::cert_provisioning::
         CertProvisioningSchedulerImpl::CreateDeviceCertProvisioningScheduler(
+            cloud_policy_client,
             affiliated_invalidation_service_provider_.get());
   }
 }
@@ -475,6 +489,10 @@ void BrowserPolicyConnectorChromeOS::OnDeviceCloudPolicyManagerDisconnected() {
   DCHECK(!device_cloud_policy_initializer_);
 
   RestartDeviceCloudPolicyInitializer();
+}
+
+bool BrowserPolicyConnectorChromeOS::IsCommandLineSwitchSupported() const {
+  return true;
 }
 
 std::vector<std::unique_ptr<policy::ConfigurationPolicyProvider>>
@@ -510,15 +528,15 @@ void BrowserPolicyConnectorChromeOS::RestartDeviceCloudPolicyInitializer() {
           local_state_, device_management_service(), GetBackgroundTaskRunner(),
           chromeos::InstallAttributes::Get(), state_keys_broker_.get(),
           device_cloud_policy_manager_->device_store(),
-          device_cloud_policy_manager_,
-          cryptohome::AsyncMethodCaller::GetInstance(), CreateAttestationFlow(),
+          device_cloud_policy_manager_, CreateAttestationFlow(),
           chromeos::system::StatisticsProvider::GetInstance());
   device_cloud_policy_initializer_->Init();
 }
 
 std::unique_ptr<chromeos::attestation::AttestationFlow>
 BrowserPolicyConnectorChromeOS::CreateAttestationFlow() {
-  return std::make_unique<chromeos::attestation::AttestationFlowIntegrated>();
+  return std::make_unique<chromeos::attestation::AttestationFlow>(
+      std::make_unique<chromeos::attestation::AttestationCAClient>());
 }
 
 chromeos::AffiliationIDSet

@@ -10,15 +10,12 @@
 #include <tuple>
 #include <vector>
 
+#include "base/containers/contains.h"
 #include "base/memory/ptr_util.h"
-#include "base/stl_util.h"
-#include "base/test/scoped_feature_list.h"
 #include "cc/animation/animation.h"
 #include "cc/animation/animation_host.h"
 #include "cc/animation/animation_id_provider.h"
 #include "cc/animation/keyframed_animation_curve.h"
-#include "cc/animation/transform_operations.h"
-#include "cc/base/math_util.h"
 #include "cc/layers/content_layer_client.h"
 #include "cc/layers/effect_tree_layer_list_iterator.h"
 #include "cc/layers/layer.h"
@@ -44,6 +41,8 @@
 #include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/geometry/vector2d_conversions.h"
 #include "ui/gfx/transform.h"
+#include "ui/gfx/transform_operations.h"
+#include "ui/gfx/transform_util.h"
 
 namespace cc {
 namespace {
@@ -68,20 +67,15 @@ class DrawPropertiesTestBase : public LayerTreeImplTestBase {
           layer_impl->element_id());
   }
 
-  static float GetMaximumAnimationScale(LayerImpl* layer_impl) {
+  static float MaximumAnimationToScreenScale(LayerImpl* layer_impl) {
     return layer_impl->layer_tree_impl()
         ->property_trees()
-        ->GetAnimationScales(layer_impl->transform_tree_index(),
-                             layer_impl->layer_tree_impl())
-        .maximum_animation_scale;
+        ->MaximumAnimationToScreenScale(layer_impl->transform_tree_index());
   }
-
-  static float GetStartingAnimationScale(LayerImpl* layer_impl) {
+  static bool AnimationAffectedByInvalidScale(LayerImpl* layer_impl) {
     return layer_impl->layer_tree_impl()
         ->property_trees()
-        ->GetAnimationScales(layer_impl->transform_tree_index(),
-                             layer_impl->layer_tree_impl())
-        .starting_animation_scale;
+        ->AnimationAffectedByInvalidScale(layer_impl->transform_tree_index());
   }
 
   void UpdateMainDrawProperties(float device_scale_factor = 1.0f) {
@@ -292,8 +286,8 @@ TEST_F(DrawPropertiesTest, TransformsForSingleLayer) {
   // Case 5: The layer transform should occur with respect to the anchor point.
   gfx::Transform translation_to_anchor;
   translation_to_anchor.Translate(5.0, 0.0);
-  gfx::Transform expected_result =
-      translation_to_anchor * layer_transform * Inverse(translation_to_anchor);
+  gfx::Transform expected_result = translation_to_anchor * layer_transform *
+                                   gfx::InvertAndCheck(translation_to_anchor);
   SetTransformOrigin(layer, gfx::Point3F(5.f, 0.f, 0.f));
   UpdateActiveTreeDrawProperties();
   EXPECT_TRANSFORMATION_MATRIX_EQ(
@@ -307,7 +301,8 @@ TEST_F(DrawPropertiesTest, TransformsForSingleLayer) {
   // current implementation of CalculateDrawProperties does this implicitly, but
   // it is still worth testing to detect accidental regressions.
   expected_result = position_transform * translation_to_anchor *
-                    layer_transform * Inverse(translation_to_anchor);
+                    layer_transform *
+                    gfx::InvertAndCheck(translation_to_anchor);
   SetPostTranslation(layer, gfx::Vector2dF(0.f, 1.2f));
   UpdateActiveTreeDrawProperties();
   EXPECT_TRANSFORMATION_MATRIX_EQ(
@@ -466,7 +461,7 @@ TEST_F(DrawPropertiesTest, TransformsForSimpleHierarchy) {
   parent_translation_to_anchor.Translate(2.5, 3.0);
   gfx::Transform parent_composite_transform =
       parent_translation_to_anchor * parent_layer_transform *
-      Inverse(parent_translation_to_anchor);
+      gfx::InvertAndCheck(parent_translation_to_anchor);
   SetTransform(parent, parent_layer_transform);
   SetPostTranslation(parent, gfx::Vector2dF());
   UpdateActiveTreeDrawProperties();
@@ -498,15 +493,15 @@ TEST_F(DrawPropertiesTest, TransformsForSingleRenderSurface) {
 
   gfx::Transform parent_composite_transform =
       parent_translation_to_anchor * parent_layer_transform *
-      Inverse(parent_translation_to_anchor);
+      gfx::InvertAndCheck(parent_translation_to_anchor);
   gfx::Vector2dF parent_composite_scale =
-      MathUtil::ComputeTransform2dScaleComponents(parent_composite_transform,
-                                                  1.f);
+      gfx::ComputeTransform2dScaleComponents(parent_composite_transform, 1.f);
   gfx::Transform surface_sublayer_transform;
   surface_sublayer_transform.Scale(parent_composite_scale.x(),
                                    parent_composite_scale.y());
   gfx::Transform surface_sublayer_composite_transform =
-      parent_composite_transform * Inverse(surface_sublayer_transform);
+      parent_composite_transform *
+      gfx::InvertAndCheck(surface_sublayer_transform);
 
   root->SetBounds(gfx::Size(1, 2));
   parent->SetBounds(gfx::Size(100, 120));
@@ -587,11 +582,11 @@ TEST_F(DrawPropertiesTest, TransformsForRenderSurfaceHierarchy) {
   gfx::Transform layer_transform;
   layer_transform.Translate(1.0, 1.0);
 
-  gfx::Transform A =
-      translation_to_anchor * layer_transform * Inverse(translation_to_anchor);
+  gfx::Transform A = translation_to_anchor * layer_transform *
+                     gfx::InvertAndCheck(translation_to_anchor);
 
   gfx::Vector2dF surface1_parent_transform_scale =
-      MathUtil::ComputeTransform2dScaleComponents(A, 1.f);
+      gfx::ComputeTransform2dScaleComponents(A, 1.f);
   gfx::Transform surface1_sublayer_transform;
   surface1_sublayer_transform.Scale(surface1_parent_transform_scale.x(),
                                     surface1_parent_transform_scale.y());
@@ -600,10 +595,10 @@ TEST_F(DrawPropertiesTest, TransformsForRenderSurfaceHierarchy) {
   gfx::Transform SS1 = surface1_sublayer_transform;
   // S1 = transform to move from render_surface1 pixels to the layer space of
   // the owning layer
-  gfx::Transform S1 = Inverse(surface1_sublayer_transform);
+  gfx::Transform S1 = gfx::InvertAndCheck(surface1_sublayer_transform);
 
   gfx::Vector2dF surface2_parent_transform_scale =
-      MathUtil::ComputeTransform2dScaleComponents(SS1 * A, 1.f);
+      gfx::ComputeTransform2dScaleComponents(SS1 * A, 1.f);
   gfx::Transform surface2_sublayer_transform;
   surface2_sublayer_transform.Scale(surface2_parent_transform_scale.x(),
                                     surface2_parent_transform_scale.y());
@@ -612,7 +607,7 @@ TEST_F(DrawPropertiesTest, TransformsForRenderSurfaceHierarchy) {
   gfx::Transform SS2 = surface2_sublayer_transform;
   // S2 = transform to move from render_surface2 pixels to the layer space of
   // the owning layer
-  gfx::Transform S2 = Inverse(surface2_sublayer_transform);
+  gfx::Transform S2 = gfx::InvertAndCheck(surface2_sublayer_transform);
 
   root->SetBounds(gfx::Size(1, 2));
   parent->SetBounds(gfx::Size(10, 10));
@@ -1748,7 +1743,7 @@ TEST_F(DrawPropertiesTest,
   // Add a transform animation with a start delay to |grand_child|.
   std::unique_ptr<KeyframeModel> keyframe_model = KeyframeModel::Create(
       std::unique_ptr<AnimationCurve>(new FakeTransformTransition(1.0)), 0, 1,
-      TargetProperty::TRANSFORM);
+      KeyframeModel::TargetPropertyId(TargetProperty::TRANSFORM));
   keyframe_model->set_fill_mode(KeyframeModel::FillMode::NONE);
   keyframe_model->set_time_offset(base::TimeDelta::FromMilliseconds(-1000));
   AddKeyframeModelToElementWithAnimation(
@@ -2027,7 +2022,7 @@ TEST_F(DrawPropertiesDrawRectsTest, DrawRectsFor3dPerspectiveWhenClippedByW) {
 
 static bool ProjectionClips(const gfx::Transform& map_transform,
                             const gfx::RectF& mapped_rect) {
-  gfx::Transform inverse(Inverse(map_transform));
+  gfx::Transform inverse(gfx::InvertAndCheck(map_transform));
   bool clipped = false;
   if (!clipped)
     MathUtil::ProjectPoint(inverse, mapped_rect.top_right(), &clipped);
@@ -3238,14 +3233,14 @@ TEST_F(DrawPropertiesScalingTest, SurfaceLayerTransformsInHighDPI) {
   transform.Scale(device_scale_factor * page_scale_factor,
                   device_scale_factor * page_scale_factor);
   gfx::Vector2dF scales =
-      MathUtil::ComputeTransform2dScaleComponents(transform, 0.f);
+      gfx::ComputeTransform2dScaleComponents(transform, 0.f);
   float max_2d_scale = std::max(scales.x(), scales.y());
   EXPECT_FLOAT_EQ(max_2d_scale, scale_surface->GetIdealContentsScale());
 
   // The ideal scale will draw 1:1 with its render target space along
   // the larger-scale axis.
   gfx::Vector2dF target_space_transform_scales =
-      MathUtil::ComputeTransform2dScaleComponents(
+      gfx::ComputeTransform2dScaleComponents(
           scale_surface->draw_properties().target_space_transform, 0.f);
   EXPECT_FLOAT_EQ(max_2d_scale, std::max(target_space_transform_scales.x(),
                                          target_space_transform_scales.y()));
@@ -4639,9 +4634,9 @@ TEST_F(DrawPropertiesTest, ScrollSnappingWithAnimatedScreenSpaceTransform) {
 
   gfx::Transform end_scale;
   end_scale.Scale(2.f, 2.f);
-  TransformOperations start_operations;
+  gfx::TransformOperations start_operations;
   start_operations.AppendMatrix(start_scale);
-  TransformOperations end_operations;
+  gfx::TransformOperations end_operations;
   end_operations.AppendMatrix(end_scale);
 
   AddAnimatedTransformToElementWithAnimation(animated_layer->element_id(),
@@ -5483,17 +5478,17 @@ TEST_F(DrawPropertiesTest, MaximumAnimationScaleFactor) {
   UpdateActiveTreeDrawProperties();
 
   // No layers have animations.
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_parent));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(parent));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(child));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_child));
+  EXPECT_EQ(1.f, MaximumAnimationToScreenScale(grand_child));
+  EXPECT_EQ(1.f, MaximumAnimationToScreenScale(child));
+  EXPECT_EQ(1.f, MaximumAnimationToScreenScale(parent));
+  EXPECT_EQ(1.f, MaximumAnimationToScreenScale(grand_parent));
 
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_parent));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(parent));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(child));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_child));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(grand_child));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(child));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(parent));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(grand_parent));
 
-  TransformOperations translation;
+  gfx::TransformOperations translation;
   translation.AppendTranslate(1.f, 2.f, 3.f);
 
   scoped_refptr<Animation> grand_parent_animation =
@@ -5517,68 +5512,70 @@ TEST_F(DrawPropertiesTest, MaximumAnimationScaleFactor) {
   grand_child_animation->AttachElement(grand_child->element_id());
 
   AddAnimatedTransformToAnimation(parent_animation.get(), 1.0,
-                                  TransformOperations(), translation);
+                                  gfx::TransformOperations(), translation);
 
   // No layers have scale-affecting animations.
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_parent));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(parent));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(child));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_child));
+  EXPECT_EQ(1.f, MaximumAnimationToScreenScale(grand_child));
+  EXPECT_EQ(1.f, MaximumAnimationToScreenScale(child));
+  EXPECT_EQ(1.f, MaximumAnimationToScreenScale(parent));
+  EXPECT_EQ(1.f, MaximumAnimationToScreenScale(grand_parent));
 
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_parent));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(parent));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(child));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_child));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(grand_child));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(child));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(parent));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(grand_parent));
 
-  TransformOperations scale;
+  gfx::TransformOperations scale;
   scale.AppendScale(5.f, 4.f, 3.f);
 
   AddAnimatedTransformToAnimation(child_animation.get(), 1.0,
-                                  TransformOperations(), scale);
+                                  gfx::TransformOperations(), scale);
   UpdateActiveTreeDrawProperties();
 
   // Only |child| has a scale-affecting animation.
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_parent));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(parent));
-  EXPECT_EQ(5.f, GetMaximumAnimationScale(child));
-  EXPECT_EQ(5.f, GetMaximumAnimationScale(grand_child));
+  EXPECT_EQ(5.f, MaximumAnimationToScreenScale(grand_child));
+  EXPECT_EQ(5.f, MaximumAnimationToScreenScale(child));
+  EXPECT_EQ(1.f, MaximumAnimationToScreenScale(parent));
+  EXPECT_EQ(1.f, MaximumAnimationToScreenScale(grand_parent));
 
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_parent));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(parent));
-  EXPECT_EQ(1.f, GetStartingAnimationScale(child));
-  EXPECT_EQ(1.f, GetStartingAnimationScale(grand_child));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(grand_child));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(child));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(parent));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(grand_parent));
 
   AddAnimatedTransformToAnimation(grand_parent_animation.get(), 1.0,
-                                  TransformOperations(), scale);
+                                  gfx::TransformOperations(), scale);
   UpdateActiveTreeDrawProperties();
 
   // |grand_parent| and |child| have scale-affecting animations.
-  EXPECT_EQ(5.f, GetMaximumAnimationScale(grand_parent));
-  EXPECT_EQ(5.f, GetMaximumAnimationScale(parent));
-  // We don't support combining animated scales from two nodes; 0.f means
-  // that the maximum scale could not be computed.
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(child));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_child));
+  // With nested animated scales, the child will use the parent's maximum
+  // animation scale, without combining the multiple animated scales.
+  EXPECT_EQ(5.f, MaximumAnimationToScreenScale(grand_child));
+  EXPECT_EQ(5.f, MaximumAnimationToScreenScale(child));
+  EXPECT_EQ(5.f, MaximumAnimationToScreenScale(parent));
+  EXPECT_EQ(5.f, MaximumAnimationToScreenScale(grand_parent));
 
-  EXPECT_EQ(1.f, GetStartingAnimationScale(grand_parent));
-  EXPECT_EQ(1.f, GetStartingAnimationScale(parent));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(child));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_child));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(grand_child));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(child));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(parent));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(grand_parent));
 
   AddAnimatedTransformToAnimation(parent_animation.get(), 1.0,
-                                  TransformOperations(), scale);
+                                  gfx::TransformOperations(), scale);
   UpdateActiveTreeDrawProperties();
 
   // |grand_parent|, |parent|, and |child| have scale-affecting animations.
-  EXPECT_EQ(5.f, GetMaximumAnimationScale(grand_parent));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(parent));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(child));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_child));
+  // For nested scale animations, the child uses the parent's maximum scale
+  // instead of combining them.
+  EXPECT_EQ(5.f, MaximumAnimationToScreenScale(grand_child));
+  EXPECT_EQ(5.f, MaximumAnimationToScreenScale(child));
+  EXPECT_EQ(5.f, MaximumAnimationToScreenScale(parent));
+  EXPECT_EQ(5.f, MaximumAnimationToScreenScale(grand_parent));
 
-  EXPECT_EQ(1.f, GetStartingAnimationScale(grand_parent));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(parent));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(child));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_child));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(grand_child));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(child));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(parent));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(grand_parent));
 
   grand_parent_animation->AbortKeyframeModelsWithProperty(
       TargetProperty::TRANSFORM, false);
@@ -5587,24 +5584,30 @@ TEST_F(DrawPropertiesTest, MaximumAnimationScaleFactor) {
   child_animation->AbortKeyframeModelsWithProperty(TargetProperty::TRANSFORM,
                                                    false);
 
-  TransformOperations perspective;
+  // Recreate child_animation containing keyframes with perspective.
+  timeline_impl()->DetachAnimation(child_animation);
+  child_animation = Animation::Create(AnimationIdProvider::NextAnimationId());
+  timeline_impl()->AttachAnimation(child_animation);
+  child_animation->AttachElement(child->element_id());
+
+  gfx::TransformOperations perspective;
   perspective.AppendPerspective(10.f);
 
-  AddAnimatedTransformToAnimation(child_animation.get(), 1.0,
-                                  TransformOperations(), perspective);
+  AddAnimatedTransformToAnimation(child_animation.get(), 1.0, perspective,
+                                  perspective);
   UpdateActiveTreeDrawProperties();
 
   // |child| has a scale-affecting animation but computing the maximum of this
   // animation is not supported.
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_parent));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(parent));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(child));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_child));
+  EXPECT_EQ(1.f, MaximumAnimationToScreenScale(grand_child));
+  EXPECT_EQ(1.f, MaximumAnimationToScreenScale(child));
+  EXPECT_EQ(1.f, MaximumAnimationToScreenScale(parent));
+  EXPECT_EQ(1.f, MaximumAnimationToScreenScale(grand_parent));
 
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_parent));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(parent));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(child));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_child));
+  EXPECT_TRUE(AnimationAffectedByInvalidScale(grand_child));
+  EXPECT_TRUE(AnimationAffectedByInvalidScale(child));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(parent));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(grand_parent));
 
   child_animation->AbortKeyframeModelsWithProperty(TargetProperty::TRANSFORM,
                                                    false);
@@ -5613,22 +5616,23 @@ TEST_F(DrawPropertiesTest, MaximumAnimationScaleFactor) {
   scale_matrix.Scale(1.f, 2.f);
   SetTransform(grand_parent, scale_matrix);
   SetTransform(parent, scale_matrix);
+  SetTransform(child, scale_matrix);
 
   AddAnimatedTransformToAnimation(parent_animation.get(), 1.0,
-                                  TransformOperations(), scale);
+                                  gfx::TransformOperations(), scale);
   UpdateActiveTreeDrawProperties();
 
-  // |grand_parent| and |parent| each have scale 2.f. |parent| has a  scale
-  // animation with maximum scale 5.f.
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_parent));
-  EXPECT_EQ(10.f, GetMaximumAnimationScale(parent));
-  EXPECT_EQ(10.f, GetMaximumAnimationScale(child));
-  EXPECT_EQ(10.f, GetMaximumAnimationScale(grand_child));
+  // |grand_parent|, |parent| and |child| each has scale 2.f. |parent| has a
+  // scale animation with maximum scale 5.f.
+  EXPECT_EQ(20.f, MaximumAnimationToScreenScale(grand_child));
+  EXPECT_EQ(20.f, MaximumAnimationToScreenScale(child));
+  EXPECT_EQ(10.f, MaximumAnimationToScreenScale(parent));
+  EXPECT_EQ(2.f, MaximumAnimationToScreenScale(grand_parent));
 
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_parent));
-  EXPECT_EQ(2.f, GetStartingAnimationScale(parent));
-  EXPECT_EQ(2.f, GetStartingAnimationScale(child));
-  EXPECT_EQ(2.f, GetStartingAnimationScale(grand_child));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(grand_child));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(child));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(parent));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(grand_parent));
 
   gfx::Transform perspective_matrix;
   perspective_matrix.ApplyPerspectiveDepth(2.f);
@@ -5636,47 +5640,47 @@ TEST_F(DrawPropertiesTest, MaximumAnimationScaleFactor) {
   UpdateActiveTreeDrawProperties();
 
   // |child| has a transform that's neither a translation nor a scale.
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_parent));
-  EXPECT_EQ(10.f, GetMaximumAnimationScale(parent));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(child));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_child));
+  // Use |parent|'s maximum animation scale.
+  EXPECT_EQ(10.f, MaximumAnimationToScreenScale(grand_child));
+  EXPECT_EQ(10.f, MaximumAnimationToScreenScale(child));
+  EXPECT_EQ(10.f, MaximumAnimationToScreenScale(parent));
+  EXPECT_EQ(2.f, MaximumAnimationToScreenScale(grand_parent));
 
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_parent));
-  EXPECT_EQ(2.f, GetStartingAnimationScale(parent));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(child));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_child));
+  EXPECT_TRUE(AnimationAffectedByInvalidScale(grand_child));
+  EXPECT_TRUE(AnimationAffectedByInvalidScale(child));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(parent));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(grand_parent));
 
   SetTransform(parent, perspective_matrix);
   UpdateActiveTreeDrawProperties();
 
   // |parent| and |child| have transforms that are neither translations nor
-  // scales.
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_parent));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(parent));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(child));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_child));
+  // scales. Use |grand_parent|'s maximum animation scale.
+  EXPECT_EQ(2.f, MaximumAnimationToScreenScale(grand_child));
+  EXPECT_EQ(2.f, MaximumAnimationToScreenScale(child));
+  EXPECT_EQ(2.f, MaximumAnimationToScreenScale(parent));
+  EXPECT_EQ(2.f, MaximumAnimationToScreenScale(grand_parent));
 
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_parent));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(parent));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(child));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_child));
+  EXPECT_TRUE(AnimationAffectedByInvalidScale(grand_child));
+  EXPECT_TRUE(AnimationAffectedByInvalidScale(child));
+  EXPECT_TRUE(AnimationAffectedByInvalidScale(parent));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(grand_parent));
 
   SetTransform(parent, gfx::Transform());
   SetTransform(child, gfx::Transform());
   SetTransform(grand_parent, perspective_matrix);
-
   UpdateActiveTreeDrawProperties();
 
   // |grand_parent| has a transform that's neither a translation nor a scale.
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_parent));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(parent));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(child));
-  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_child));
+  EXPECT_EQ(1.f, MaximumAnimationToScreenScale(grand_child));
+  EXPECT_EQ(1.f, MaximumAnimationToScreenScale(child));
+  EXPECT_EQ(1.f, MaximumAnimationToScreenScale(parent));
+  EXPECT_EQ(1.f, MaximumAnimationToScreenScale(grand_parent));
 
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_parent));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(parent));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(child));
-  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_child));
+  EXPECT_TRUE(AnimationAffectedByInvalidScale(grand_child));
+  EXPECT_TRUE(AnimationAffectedByInvalidScale(child));
+  EXPECT_TRUE(AnimationAffectedByInvalidScale(parent));
+  EXPECT_TRUE(AnimationAffectedByInvalidScale(grand_parent));
 }
 
 static void GatherDrawnLayers(LayerTreeImpl* tree_impl,
@@ -5920,14 +5924,14 @@ TEST_F(DrawPropertiesTestWithLayerTree, DrawPropertyDeviceScale) {
   host()->SetRootLayer(root);
   host()->SetElementIdsForTesting();
 
-  TransformOperations scale;
+  gfx::TransformOperations scale;
   scale.AppendScale(5.f, 8.f, 3.f);
 
   child2->SetTransform(scale_transform_child2);
   child2->SetBounds(gfx::Size(1, 1));
   child2->SetIsDrawable(true);
-  AddAnimatedTransformToElementWithAnimation(child2->element_id(), timeline(),
-                                             1.0, TransformOperations(), scale);
+  AddAnimatedTransformToElementWithAnimation(
+      child2->element_id(), timeline(), 1.0, gfx::TransformOperations(), scale);
 
   CommitAndActivate();
 
@@ -5936,9 +5940,9 @@ TEST_F(DrawPropertiesTestWithLayerTree, DrawPropertyDeviceScale) {
   EXPECT_FLOAT_EQ(3.f, ImplOf(mask)->GetIdealContentsScale());
   EXPECT_FLOAT_EQ(5.f, ImplOf(child2)->GetIdealContentsScale());
 
-  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(ImplOf(root)));
-  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(ImplOf(child1)));
-  EXPECT_FLOAT_EQ(8.f, GetMaximumAnimationScale(ImplOf(child2)));
+  EXPECT_FLOAT_EQ(8.f, MaximumAnimationToScreenScale(ImplOf(child2)));
+  EXPECT_FLOAT_EQ(3.f, MaximumAnimationToScreenScale(ImplOf(child1)));
+  EXPECT_FLOAT_EQ(1.f, MaximumAnimationToScreenScale(ImplOf(root)));
 
   // Changing device-scale would affect ideal_contents_scale and
   // maximum_animation_contents_scale.
@@ -5951,9 +5955,9 @@ TEST_F(DrawPropertiesTestWithLayerTree, DrawPropertyDeviceScale) {
   EXPECT_FLOAT_EQ(12.f, ImplOf(mask)->GetIdealContentsScale());
   EXPECT_FLOAT_EQ(20.f, ImplOf(child2)->GetIdealContentsScale());
 
-  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(ImplOf(root)));
-  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(ImplOf(child1)));
-  EXPECT_FLOAT_EQ(32.f, GetMaximumAnimationScale(ImplOf(child2)));
+  EXPECT_FLOAT_EQ(32.f, MaximumAnimationToScreenScale(ImplOf(child2)));
+  EXPECT_FLOAT_EQ(12.f, MaximumAnimationToScreenScale(ImplOf(child1)));
+  EXPECT_FLOAT_EQ(4.f, MaximumAnimationToScreenScale(ImplOf(root)));
 }
 
 TEST_F(DrawPropertiesTest, DrawPropertyScales) {
@@ -5992,11 +5996,11 @@ TEST_F(DrawPropertiesTest, DrawPropertyScales) {
       page_scale->transform_tree_index();
   host()->RegisterViewportPropertyIds(viewport_property_ids);
 
-  TransformOperations scale;
+  gfx::TransformOperations scale;
   scale.AppendScale(5.f, 8.f, 3.f);
 
-  AddAnimatedTransformToElementWithAnimation(child2->element_id(), timeline(),
-                                             1.0, TransformOperations(), scale);
+  AddAnimatedTransformToElementWithAnimation(
+      child2->element_id(), timeline(), 1.0, gfx::TransformOperations(), scale);
 
   CommitAndActivate();
 
@@ -6005,10 +6009,10 @@ TEST_F(DrawPropertiesTest, DrawPropertyScales) {
   EXPECT_FLOAT_EQ(3.f, ImplOf(child1)->GetIdealContentsScale());
   EXPECT_FLOAT_EQ(5.f, ImplOf(child2)->GetIdealContentsScale());
 
-  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(ImplOf(root)));
-  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(ImplOf(page_scale)));
-  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(ImplOf(child1)));
-  EXPECT_FLOAT_EQ(8.f, GetMaximumAnimationScale(ImplOf(child2)));
+  EXPECT_FLOAT_EQ(8.f, MaximumAnimationToScreenScale(ImplOf(child2)));
+  EXPECT_FLOAT_EQ(3.f, MaximumAnimationToScreenScale(ImplOf(child1)));
+  EXPECT_FLOAT_EQ(1.f, MaximumAnimationToScreenScale(ImplOf(page_scale)));
+  EXPECT_FLOAT_EQ(1.f, MaximumAnimationToScreenScale(ImplOf(root)));
 
   // Changing page-scale would affect ideal_contents_scale and
   // maximum_animation_contents_scale.
@@ -6022,10 +6026,10 @@ TEST_F(DrawPropertiesTest, DrawPropertyScales) {
   EXPECT_FLOAT_EQ(9.f, ImplOf(child1)->GetIdealContentsScale());
   EXPECT_FLOAT_EQ(15.f, ImplOf(child2)->GetIdealContentsScale());
 
-  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(ImplOf(root)));
-  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(ImplOf(page_scale)));
-  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(ImplOf(child1)));
-  EXPECT_FLOAT_EQ(24.f, GetMaximumAnimationScale(ImplOf(child2)));
+  EXPECT_FLOAT_EQ(24.f, MaximumAnimationToScreenScale(ImplOf(child2)));
+  EXPECT_FLOAT_EQ(9.f, MaximumAnimationToScreenScale(ImplOf(child1)));
+  EXPECT_FLOAT_EQ(3.f, MaximumAnimationToScreenScale(ImplOf(page_scale)));
+  EXPECT_FLOAT_EQ(1.f, MaximumAnimationToScreenScale(ImplOf(root)));
 
   // Changing device-scale would affect ideal_contents_scale and
   // maximum_animation_contents_scale.
@@ -6038,10 +6042,10 @@ TEST_F(DrawPropertiesTest, DrawPropertyScales) {
   EXPECT_FLOAT_EQ(36.f, ImplOf(child1)->GetIdealContentsScale());
   EXPECT_FLOAT_EQ(60.f, ImplOf(child2)->GetIdealContentsScale());
 
-  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(ImplOf(root)));
-  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(ImplOf(page_scale)));
-  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(ImplOf(child1)));
-  EXPECT_FLOAT_EQ(96.f, GetMaximumAnimationScale(ImplOf(child2)));
+  EXPECT_FLOAT_EQ(96.f, MaximumAnimationToScreenScale(ImplOf(child2)));
+  EXPECT_FLOAT_EQ(36.f, MaximumAnimationToScreenScale(ImplOf(child1)));
+  EXPECT_FLOAT_EQ(12.f, MaximumAnimationToScreenScale(ImplOf(page_scale)));
+  EXPECT_FLOAT_EQ(4.f, MaximumAnimationToScreenScale(ImplOf(root)));
 }
 
 TEST_F(DrawPropertiesTest, AnimationScales) {
@@ -6063,34 +6067,83 @@ TEST_F(DrawPropertiesTest, AnimationScales) {
   CopyProperties(child1, child2);
   CreateTransformNode(child2).local = scale_transform_child2;
 
-  TransformOperations scale;
+  gfx::TransformOperations scale;
   scale.AppendScale(5.f, 8.f, 3.f);
 
-  AddAnimatedTransformToElementWithAnimation(
-      child2->element_id(), timeline_impl(), 1.0, TransformOperations(), scale);
+  AddAnimatedTransformToElementWithAnimation(child2->element_id(),
+                                             timeline_impl(), 1.0,
+                                             gfx::TransformOperations(), scale);
   UpdateActiveTreeDrawProperties();
 
-  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(root));
-  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(child1));
-  EXPECT_FLOAT_EQ(24.f, GetMaximumAnimationScale(child2));
-
-  EXPECT_FLOAT_EQ(kNotScaled, GetStartingAnimationScale(root));
-  EXPECT_FLOAT_EQ(kNotScaled, GetStartingAnimationScale(child1));
-  EXPECT_FLOAT_EQ(3.f, GetStartingAnimationScale(child2));
+  EXPECT_FLOAT_EQ(24.f, MaximumAnimationToScreenScale(child2));
+  EXPECT_FLOAT_EQ(3.f, MaximumAnimationToScreenScale(child1));
+  EXPECT_FLOAT_EQ(1.f, MaximumAnimationToScreenScale(root));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(child2));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(child1));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(root));
 
   // Correctly updates animation scale when layer property changes.
   SetTransform(child1, gfx::Transform());
   root->layer_tree_impl()->SetTransformMutated(child1->element_id(),
                                                gfx::Transform());
   UpdateActiveTreeDrawProperties();
-  EXPECT_FLOAT_EQ(8.f, GetMaximumAnimationScale(child2));
-  EXPECT_FLOAT_EQ(1.f, GetStartingAnimationScale(child2));
+  EXPECT_FLOAT_EQ(8.f, MaximumAnimationToScreenScale(child2));
 
   // Do not update animation scale if already updated.
-  host_impl()->active_tree()->property_trees()->SetAnimationScalesForTesting(
-      child2->transform_tree_index(), 100.f, 100.f);
-  EXPECT_FLOAT_EQ(100.f, GetMaximumAnimationScale(child2));
-  EXPECT_FLOAT_EQ(100.f, GetStartingAnimationScale(child2));
+  bool affected_by_invalid_scale = true;
+  host_impl()
+      ->active_tree()
+      ->property_trees()
+      ->SetMaximumAnimationToScreenScaleForTesting(
+          child2->transform_tree_index(), 100.f, affected_by_invalid_scale);
+  EXPECT_FLOAT_EQ(100.f, MaximumAnimationToScreenScale(child2));
+  EXPECT_TRUE(AnimationAffectedByInvalidScale(child2));
+}
+
+TEST_F(DrawPropertiesTest, AnimationScaleFromSmallToOne) {
+  LayerImpl* root = root_layer();
+  root->SetBounds(gfx::Size(1, 1));
+  auto* parent = AddLayer<LayerImpl>();
+  parent->SetBounds(gfx::Size(1, 1));
+  auto* child = AddLayer<LayerImpl>();
+  child->SetBounds(gfx::Size(1, 1));
+  auto* grandchild = AddLayer<LayerImpl>();
+  grandchild->SetBounds(gfx::Size(1, 1));
+  SetElementIdsForTesting();
+
+  gfx::Transform parent_scale;
+  parent_scale.Scale(1, 2);
+  gfx::Transform small_scale;
+  small_scale.Scale(0.1, 0.2);
+
+  CopyProperties(root, parent);
+  CreateTransformNode(parent).local = parent_scale;
+  CopyProperties(parent, child);
+  CreateTransformNode(child).local = small_scale;
+  CopyProperties(child, grandchild);
+  CreateTransformNode(grandchild).local = small_scale;
+
+  gfx::TransformOperations small_scale_operations;
+  small_scale_operations.AppendMatrix(small_scale);
+  gfx::TransformOperations scale_one_operations;
+
+  // Both child and grandchild animate scale from 0.1x0.2 to 1.
+  AddAnimatedTransformToElementWithAnimation(
+      child->element_id(), timeline_impl(), 1.0, small_scale_operations,
+      scale_one_operations);
+  AddAnimatedTransformToElementWithAnimation(
+      grandchild->element_id(), timeline_impl(), 1.0, small_scale_operations,
+      scale_one_operations);
+  UpdateActiveTreeDrawProperties();
+
+  EXPECT_FLOAT_EQ(2.f, MaximumAnimationToScreenScale(grandchild));
+  EXPECT_FLOAT_EQ(2.f, MaximumAnimationToScreenScale(child));
+  EXPECT_FLOAT_EQ(2.f, MaximumAnimationToScreenScale(parent));
+  EXPECT_FLOAT_EQ(1.f, MaximumAnimationToScreenScale(root));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(grandchild));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(child));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(parent));
+  EXPECT_FALSE(AnimationAffectedByInvalidScale(root));
 }
 
 TEST_F(DrawPropertiesTest, VisibleContentRectInChildRenderSurface) {
@@ -6214,9 +6267,9 @@ TEST_F(DrawPropertiesTest,
   CreateEffectNode(surface).render_surface_reason = RenderSurfaceReason::kTest;
   CopyProperties(surface, descendant_of_keyframe_model);
 
-  TransformOperations start_transform_operations;
+  gfx::TransformOperations start_transform_operations;
   start_transform_operations.AppendMatrix(uninvertible_matrix);
-  TransformOperations end_transform_operations;
+  gfx::TransformOperations end_transform_operations;
 
   AddAnimatedTransformToElementWithAnimation(
       animated->element_id(), timeline_impl(), 10.0, start_transform_operations,
@@ -6411,7 +6464,8 @@ TEST_F(DrawPropertiesTestWithLayerTree, SkippingSubtreeMain) {
   int keyframe_model_id = 0;
   std::unique_ptr<KeyframeModel> keyframe_model = KeyframeModel::Create(
       std::unique_ptr<AnimationCurve>(new FakeTransformTransition(1.0)),
-      keyframe_model_id, 1, TargetProperty::TRANSFORM);
+      keyframe_model_id, 1,
+      KeyframeModel::TargetPropertyId(TargetProperty::TRANSFORM));
   keyframe_model->set_fill_mode(KeyframeModel::FillMode::NONE);
   keyframe_model->set_time_offset(base::TimeDelta::FromMilliseconds(-1000));
   AddKeyframeModelToElementWithAnimation(child->element_id(), timeline(),
@@ -6438,7 +6492,8 @@ TEST_F(DrawPropertiesTestWithLayerTree, SkippingSubtreeMain) {
   keyframe_model_id = 1;
   keyframe_model = KeyframeModel::Create(
       std::unique_ptr<AnimationCurve>(new FakeFloatTransition(1.0, 0.f, 1.f)),
-      keyframe_model_id, 1, TargetProperty::OPACITY);
+      keyframe_model_id, 1,
+      KeyframeModel::TargetPropertyId(TargetProperty::OPACITY));
   keyframe_model->set_fill_mode(KeyframeModel::FillMode::NONE);
   keyframe_model->set_time_offset(base::TimeDelta::FromMilliseconds(-1000));
   AddKeyframeModelToElementWithExistingKeyframeEffect(
@@ -6546,18 +6601,19 @@ TEST_F(DrawPropertiesTestWithLayerTree, SkippingLayerImpl) {
 
   std::unique_ptr<KeyframedTransformAnimationCurve> curve(
       KeyframedTransformAnimationCurve::Create());
-  TransformOperations start;
+  gfx::TransformOperations start;
   start.AppendTranslate(1.f, 2.f, 3.f);
   gfx::Transform transform;
   transform.Scale3d(1.0, 2.0, 3.0);
-  TransformOperations operation;
+  gfx::TransformOperations operation;
   operation.AppendMatrix(transform);
   curve->AddKeyframe(
       TransformKeyframe::Create(base::TimeDelta(), start, nullptr));
   curve->AddKeyframe(TransformKeyframe::Create(
       base::TimeDelta::FromSecondsD(1.0), operation, nullptr));
-  std::unique_ptr<KeyframeModel> transform_animation(
-      KeyframeModel::Create(std::move(curve), 3, 3, TargetProperty::TRANSFORM));
+  std::unique_ptr<KeyframeModel> transform_animation(KeyframeModel::Create(
+      std::move(curve), 3, 3,
+      KeyframeModel::TargetPropertyId(TargetProperty::TRANSFORM)));
   scoped_refptr<Animation> animation(Animation::Create(1));
   timeline()->AttachAnimation(animation);
   animation->AttachElement(parent->element_id());
@@ -6578,18 +6634,19 @@ TEST_F(DrawPropertiesTest, LayerSkippingInSubtreeOfSingularTransform) {
   // Set up a transform animation
   std::unique_ptr<KeyframedTransformAnimationCurve> curve(
       KeyframedTransformAnimationCurve::Create());
-  TransformOperations start;
+  gfx::TransformOperations start;
   start.AppendTranslate(1.f, 2.f, 3.f);
   gfx::Transform transform;
   transform.Scale3d(1.0, 2.0, 3.0);
-  TransformOperations operation;
+  gfx::TransformOperations operation;
   operation.AppendMatrix(transform);
   curve->AddKeyframe(
       TransformKeyframe::Create(base::TimeDelta(), start, nullptr));
   curve->AddKeyframe(TransformKeyframe::Create(
       base::TimeDelta::FromSecondsD(1.0), operation, nullptr));
-  std::unique_ptr<KeyframeModel> transform_animation(
-      KeyframeModel::Create(std::move(curve), 3, 3, TargetProperty::TRANSFORM));
+  std::unique_ptr<KeyframeModel> transform_animation(KeyframeModel::Create(
+      std::move(curve), 3, 3,
+      KeyframeModel::TargetPropertyId(TargetProperty::TRANSFORM)));
   scoped_refptr<Animation> animation(Animation::Create(1));
   timeline_impl()->AttachAnimation(animation);
   animation->AddKeyframeModel(std::move(transform_animation));
@@ -6700,8 +6757,9 @@ TEST_F(DrawPropertiesTestWithLayerTree, SkippingPendingLayerImpl) {
       FloatKeyframe::Create(base::TimeDelta(), 0.9f, std::move(func)));
   curve->AddKeyframe(
       FloatKeyframe::Create(base::TimeDelta::FromSecondsD(1.0), 0.3f, nullptr));
-  std::unique_ptr<KeyframeModel> keyframe_model(
-      KeyframeModel::Create(std::move(curve), 3, 3, TargetProperty::OPACITY));
+  std::unique_ptr<KeyframeModel> keyframe_model(KeyframeModel::Create(
+      std::move(curve), 3, 3,
+      KeyframeModel::TargetPropertyId(TargetProperty::OPACITY)));
   scoped_refptr<Animation> animation(Animation::Create(1));
   timeline()->AttachAnimation(animation);
   animation->AddKeyframeModel(std::move(keyframe_model));
@@ -7506,7 +7564,8 @@ TEST_F(DrawPropertiesTestWithLayerTree, OpacityAnimationsTrackingTest) {
   int keyframe_model_id = 0;
   std::unique_ptr<KeyframeModel> keyframe_model = KeyframeModel::Create(
       std::unique_ptr<AnimationCurve>(new FakeFloatTransition(1.0, 0.f, 1.f)),
-      keyframe_model_id, 1, TargetProperty::OPACITY);
+      keyframe_model_id, 1,
+      KeyframeModel::TargetPropertyId(TargetProperty::OPACITY));
   keyframe_model->set_fill_mode(KeyframeModel::FillMode::NONE);
   keyframe_model->set_time_offset(base::TimeDelta::FromMilliseconds(-1000));
   KeyframeModel* keyframe_model_ptr = keyframe_model.get();
@@ -7552,18 +7611,19 @@ TEST_F(DrawPropertiesTestWithLayerTree, TransformAnimationsTrackingTest) {
 
   std::unique_ptr<KeyframedTransformAnimationCurve> curve(
       KeyframedTransformAnimationCurve::Create());
-  TransformOperations start;
+  gfx::TransformOperations start;
   start.AppendTranslate(1.f, 2.f, 3.f);
   gfx::Transform transform;
   transform.Scale3d(1.0, 2.0, 3.0);
-  TransformOperations operation;
+  gfx::TransformOperations operation;
   operation.AppendMatrix(transform);
   curve->AddKeyframe(
       TransformKeyframe::Create(base::TimeDelta(), start, nullptr));
   curve->AddKeyframe(TransformKeyframe::Create(
       base::TimeDelta::FromSecondsD(1.0), operation, nullptr));
-  std::unique_ptr<KeyframeModel> keyframe_model(
-      KeyframeModel::Create(std::move(curve), 3, 3, TargetProperty::TRANSFORM));
+  std::unique_ptr<KeyframeModel> keyframe_model(KeyframeModel::Create(
+      std::move(curve), 3, 3,
+      KeyframeModel::TargetPropertyId(TargetProperty::TRANSFORM)));
   keyframe_model->set_fill_mode(KeyframeModel::FillMode::NONE);
   keyframe_model->set_time_offset(base::TimeDelta::FromMilliseconds(-1000));
   KeyframeModel* keyframe_model_ptr = keyframe_model.get();
@@ -8123,12 +8183,12 @@ TEST_F(DrawPropertiesTestWithLayerTree, RoundedCornerOnRenderSurface) {
   UpdateMainDrawProperties();
   CommitAndActivate();
 
-  EXPECT_FALSE(
-      GetRenderSurfaceImpl(child_1)->rounded_corner_bounds().IsEmpty());
-  EXPECT_FALSE(
-      GetRenderSurfaceImpl(child_2)->rounded_corner_bounds().IsEmpty());
-  EXPECT_FALSE(
-      GetRenderSurfaceImpl(child_3)->rounded_corner_bounds().IsEmpty());
+  EXPECT_TRUE(
+      GetRenderSurfaceImpl(child_1)->mask_filter_info().HasRoundedCorners());
+  EXPECT_TRUE(
+      GetRenderSurfaceImpl(child_2)->mask_filter_info().HasRoundedCorners());
+  EXPECT_TRUE(
+      GetRenderSurfaceImpl(child_3)->mask_filter_info().HasRoundedCorners());
 }
 
 }  // namespace

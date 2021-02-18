@@ -583,6 +583,9 @@ size_t RenderText::GetTextIndexOfLine(size_t line) {
 }
 
 void RenderText::SetWordWrapBehavior(WordWrapBehavior behavior) {
+  // TODO(1150235): ELIDE_LONG_WORDS is not supported.
+  DCHECK_NE(behavior, ELIDE_LONG_WORDS);
+
   if (word_wrap_behavior_ != behavior) {
     word_wrap_behavior_ = behavior;
     if (multiline_) {
@@ -601,7 +604,6 @@ void RenderText::SetMinLineHeight(int line_height) {
 }
 
 void RenderText::SetElideBehavior(ElideBehavior elide_behavior) {
-  // TODO(skanuj) : Add a test for triggering layout change.
   if (elide_behavior_ != elide_behavior) {
     elide_behavior_ = elide_behavior;
     OnDisplayTextAttributeChanged();
@@ -1188,6 +1190,10 @@ const Vector2d& RenderText::GetUpdatedDisplayOffset() {
 }
 
 void RenderText::SetDisplayOffset(int horizontal_offset) {
+  SetDisplayOffset({horizontal_offset, display_offset_.y()});
+}
+
+void RenderText::SetDisplayOffset(Vector2d offset) {
   const int extra_content = GetContentWidth() - display_rect_.width();
   const int cursor_width = cursor_enabled_ ? 1 : 0;
 
@@ -1213,24 +1219,30 @@ void RenderText::SetDisplayOffset(int horizontal_offset) {
         break;
     }
   }
-  if (horizontal_offset < min_offset)
-    horizontal_offset = min_offset;
-  else if (horizontal_offset > max_offset)
-    horizontal_offset = max_offset;
+
+  const int horizontal_offset =
+      base::ClampToRange(offset.x(), min_offset, max_offset);
+
+  // y-offset is set only when the vertical alignment is ALIGN_TOP.
+  // TODO(jongkown.lee): Support other vertical alignments.
+  DCHECK(vertical_alignment_ == ALIGN_TOP || offset.y() == 0);
+  const int vertical_offset = base::ClampToRange(
+      offset.y(),
+      std::min(display_rect_.height() - GetStringSize().height(), 0), 0);
 
   cached_bounds_and_offset_valid_ = true;
-  display_offset_.set_x(horizontal_offset);
+  display_offset_ = {horizontal_offset, vertical_offset};
   cursor_bounds_ = GetCursorBounds(selection_model_, true);
 }
 
 Vector2d RenderText::GetLineOffset(size_t line_number) {
   const internal::ShapedText* shaped_text = GetShapedText();
   Vector2d offset = display_rect().OffsetFromOrigin();
-  // TODO(ckocagil): Apply the display offset for multiline scrolling.
   if (!multiline()) {
     offset.Add(GetUpdatedDisplayOffset());
   } else {
     DCHECK_LT(line_number, shaped_text->lines().size());
+    offset.Add(GetUpdatedDisplayOffset());
     offset.Add(
         Vector2d(0, shaped_text->lines()[line_number].preceding_heights));
   }
@@ -1483,7 +1495,7 @@ void RenderText::EnsureLayoutTextUpdated() const {
 
   // Iterates through graphemes from |text_| and rewrite its codepoints to
   // |layout_text_|.
-  base::i18n::UTF16CharIterator text_iter(&text_);
+  base::i18n::UTF16CharIterator text_iter(text_);
   internal::StyleIterator styles = GetTextStyleIterator();
   bool text_truncated = false;
   while (!text_iter.end() && !text_truncated) {
@@ -1958,6 +1970,31 @@ Rect RenderText::ExpandToBeVerticallySymmetric(const Rect& rect,
   return result;
 }
 
+// static
+void RenderText::MergeIntersectingRects(std::vector<Rect>& rects) {
+  if (rects.size() < 2)
+    return;
+
+  std::sort(rects.begin(), rects.end(),
+            [](const Rect& a, const Rect& b) { return a.x() < b.x(); });
+
+  size_t merge_candidate = 0;
+  for (size_t i = 1; i < rects.size(); i++) {
+    if (rects[i].Intersects(rects[merge_candidate]) ||
+        rects[i].SharesEdgeWith(rects[merge_candidate])) {
+      DCHECK_EQ(rects[i].y(), rects[merge_candidate].y());
+      DCHECK_EQ(rects[i].height(), rects[merge_candidate].height());
+      rects[merge_candidate].Union(rects[i]);
+    } else {
+      merge_candidate++;
+      if (merge_candidate != i)
+        rects[merge_candidate] = rects[i];
+    }
+  }
+
+  rects.resize(merge_candidate + 1);
+}
+
 void RenderText::OnTextAttributeChanged() {
   layout_text_.clear();
   display_text_.clear();
@@ -2056,11 +2093,15 @@ base::string16 RenderText::Elide(const base::string16& text,
       if (trailing_text_direction != text_direction &&
           new_text.length() + 2 > text.length() && guess >= 1) {
         new_text = slicer.CutString(guess - 1, false);
+        trailing_text_direction =
+            base::i18n::GetLastStrongCharacterDirection(new_text);
       }
 
       // Append the ellipsis and the optional directional marker characters.
+      // Do not append the BiDi marker if the only codepoint in the text is
+      // an ellipsis.
       new_text.append(ellipsis);
-      if (trailing_text_direction != text_direction) {
+      if (new_text.size() != 1 && trailing_text_direction != text_direction) {
         if (trailing_text_direction == base::i18n::LEFT_TO_RIGHT)
           new_text += base::i18n::kLeftToRightMark;
         else
@@ -2117,23 +2158,51 @@ base::string16 RenderText::ElideEmail(const base::string16& email,
   // spec allows for @ symbols in the username under some special requirements,
   // but not in the domain part, so splitting at the last @ symbol is safe.
   const size_t split_index = email.find_last_of('@');
-  DCHECK_NE(split_index, base::string16::npos);
+  if (split_index == base::string16::npos)
+    return Elide(email, 0, available_width, ELIDE_TAIL);
+
   base::string16 username = email.substr(0, split_index);
   base::string16 domain = email.substr(split_index + 1);
-  DCHECK(!username.empty());
-  DCHECK(!domain.empty());
+
+  // TODO(http://crbug.com/1085014): Fix eliding of text with styles.
+  DCHECK(IsHomogeneous())
+      << "ElideEmail(...) doesn't work with non homogeneous styles.";
+  auto render_text = CreateInstanceOfSameStyle(base::string16());
+  auto get_string_width = [&](const base::string16& text) {
+    render_text->SetText(text);
+    return render_text->GetStringSizeF().width();
+  };
 
   // Subtract the @ symbol from the available width as it is mandatory.
   const base::string16 kAtSignUTF16 = base::ASCIIToUTF16("@");
-  available_width -= GetStringWidthF(kAtSignUTF16, font_list());
+  float at_width = get_string_width(kAtSignUTF16);
+  if (available_width < at_width)
+    return Elide(kEllipsisUTF16, 0, available_width, ELIDE_TAIL);
+  const float remaining_width = available_width - at_width;
+
+  // Handle corner cases where one of username or domain is empty.
+  if (username.empty() && domain.empty()) {
+    return Elide(email, 0, available_width, ELIDE_TAIL);
+  } else if (username.empty()) {
+    domain = Elide(domain, 0, remaining_width, ELIDE_MIDDLE);
+    if (domain.empty() || domain == kEllipsisUTF16)
+      return Elide(kEllipsisUTF16, 0, available_width, ELIDE_TAIL);
+    return kAtSignUTF16 + domain;
+  } else if (domain.empty()) {
+    username = Elide(username, 0, remaining_width, ELIDE_TAIL);
+    if (username.empty() || username == kEllipsisUTF16)
+      return Elide(kEllipsisUTF16, 0, available_width, ELIDE_TAIL);
+    return username + kAtSignUTF16;
+  }
 
   // Check whether eliding the domain is necessary: if eliding the username
   // is sufficient, the domain will not be elided.
-  const float full_username_width = GetStringWidthF(username, font_list());
-  const float available_domain_width = available_width -
+  const float full_username_width = get_string_width(username);
+  const float available_domain_width =
+      remaining_width -
       std::min(full_username_width,
-          GetStringWidthF(username.substr(0, 1) + kEllipsisUTF16, font_list()));
-  if (GetStringWidthF(domain, font_list()) > available_domain_width) {
+               get_string_width(username.substr(0, 1) + kEllipsisUTF16));
+  if (get_string_width(domain) > available_domain_width) {
     // Elide the domain so that it only takes half of the available width.
     // Should the username not need all the width available in its half, the
     // domain will occupy the leftover width.
@@ -2142,20 +2211,22 @@ base::string16 RenderText::ElideEmail(const base::string16& email,
     // |desired_domain_width| must be <= |available_domain_width| at all cost.
     const float desired_domain_width =
         std::min<float>(available_domain_width,
-            std::max<float>(available_width - full_username_width,
-                            available_width / 2));
+                        std::max<float>(remaining_width - full_username_width,
+                                        remaining_width / 2));
     domain = Elide(domain, 0, desired_domain_width, ELIDE_MIDDLE);
     // Failing to elide the domain such that at least one character remains
     // (other than the ellipsis itself) remains: return a single ellipsis.
-    if (domain.length() <= 1U)
-      return base::string16(kEllipsisUTF16);
+    if (domain.empty() || domain == kEllipsisUTF16)
+      return Elide(kEllipsisUTF16, 0, available_width, ELIDE_TAIL);
   }
 
   // Fit the username in the remaining width (at this point the elided username
   // is guaranteed to fit with at least one character remaining given all the
   // precautions taken earlier).
-  available_width -= GetStringWidthF(domain, font_list());
-  username = Elide(username, 0, available_width, ELIDE_TAIL);
+  const float domain_width = get_string_width(domain);
+  const float available_username_width = remaining_width - domain_width;
+  username = Elide(username, 0, available_username_width, ELIDE_TAIL);
+
   return username + kAtSignUTF16 + domain;
 }
 
@@ -2163,9 +2234,8 @@ void RenderText::UpdateCachedBoundsAndOffset() {
   if (cached_bounds_and_offset_valid_)
     return;
 
-  // TODO(ckocagil): Add support for scrolling multiline text.
-
   int delta_x = 0;
+  int delta_y = 0;
 
   if (cursor_enabled()) {
     // When cursor is enabled, ensure it is visible. For this, set the valid
@@ -2180,9 +2250,16 @@ void RenderText::UpdateCachedBoundsAndOffset() {
       delta_x = display_rect_.right() - cursor_bounds_.right();
     else if (cursor_bounds_.x() < display_rect_.x())
       delta_x = display_rect_.x() - cursor_bounds_.x();
+
+    if (vertical_alignment_ == ALIGN_TOP) {
+      if (cursor_bounds_.bottom() > display_rect_.bottom())
+        delta_y = display_rect_.bottom() - cursor_bounds_.bottom();
+      else if (cursor_bounds_.y() < display_rect_.y())
+        delta_y = display_rect_.y() - cursor_bounds_.y();
+    }
   }
 
-  SetDisplayOffset(display_offset_.x() + delta_x);
+  SetDisplayOffset(display_offset_ + Vector2d(delta_x, delta_y));
 }
 
 internal::GraphemeIterator RenderText::GetGraphemeIteratorAtIndex(

@@ -7,6 +7,7 @@ package org.chromium.chrome.browser.password_check;
 import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.action.ViewActions.click;
 import static androidx.test.espresso.matcher.RootMatchers.withDecorView;
+import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
 
 import static org.hamcrest.CoreMatchers.not;
@@ -15,10 +16,13 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import static org.chromium.base.test.util.CriteriaHelper.pollUiThread;
 import static org.chromium.chrome.browser.password_check.PasswordCheckProperties.CompromisedCredentialProperties.COMPROMISED_CREDENTIAL;
 import static org.chromium.chrome.browser.password_check.PasswordCheckProperties.CompromisedCredentialProperties.CREDENTIAL_HANDLER;
 import static org.chromium.chrome.browser.password_check.PasswordCheckProperties.CompromisedCredentialProperties.HAS_MANUAL_CHANGE_BUTTON;
@@ -30,6 +34,7 @@ import static org.chromium.chrome.browser.password_check.PasswordCheckProperties
 import static org.chromium.chrome.browser.password_check.PasswordCheckProperties.HeaderProperties.COMPROMISED_CREDENTIALS_COUNT;
 import static org.chromium.chrome.browser.password_check.PasswordCheckProperties.HeaderProperties.LAUNCH_ACCOUNT_CHECKUP_ACTION;
 import static org.chromium.chrome.browser.password_check.PasswordCheckProperties.HeaderProperties.RESTART_BUTTON_ACTION;
+import static org.chromium.chrome.browser.password_check.PasswordCheckProperties.HeaderProperties.SHOW_CHECK_SUBTITLE;
 import static org.chromium.chrome.browser.password_check.PasswordCheckProperties.HeaderProperties.UNKNOWN_PROGRESS;
 import static org.chromium.chrome.browser.password_check.PasswordCheckProperties.ITEMS;
 import static org.chromium.chrome.browser.password_check.PasswordCheckProperties.VIEW_CREDENTIAL;
@@ -43,9 +48,10 @@ import static org.chromium.chrome.browser.password_check.PasswordCheckUIStatus.E
 import static org.chromium.chrome.browser.password_check.PasswordCheckUIStatus.IDLE;
 import static org.chromium.chrome.browser.password_check.PasswordCheckUIStatus.RUNNING;
 import static org.chromium.chrome.browser.password_manager.settings.ReauthenticationManager.VALID_REAUTHENTICATION_TIME_INTERVAL_MILLIS;
-import static org.chromium.content_public.browser.test.util.CriteriaHelper.pollUiThread;
 import static org.chromium.content_public.browser.test.util.TestThreadUtils.runOnUiThreadBlocking;
 
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
@@ -73,6 +79,9 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.ScalableTimeout;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.password_check.PasswordCheckProperties.HeaderProperties;
@@ -82,8 +91,6 @@ import org.chromium.chrome.browser.password_manager.settings.ReauthenticationMan
 import org.chromium.chrome.browser.settings.SettingsActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.components.browser_ui.widget.listmenu.ListMenuButton;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TouchCommon;
 import org.chromium.ui.modelutil.MVCListAdapter;
 import org.chromium.ui.modelutil.PropertyModel;
@@ -98,26 +105,26 @@ import java.util.concurrent.atomic.AtomicInteger;
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 public class PasswordCheckViewTest {
-    private static final CompromisedCredential ANA =
-            new CompromisedCredential("https://some-url.com/signin",
-                    new GURL("https://some-url.com/"), "Ana", "some-url.com", "Ana", "password",
-                    "https://some-url.com/.well-known/change-password", "", 1, true, false, false);
-    private static final CompromisedCredential PHISHED =
-            new CompromisedCredential("http://example.com/signin", new GURL("http://example.com/"),
-                    "", "http://example.com", "(No username)", "DoSomething",
-                    "http://example.com/.well-known/change-password", "", 1, false, true, false);
+    private static final CompromisedCredential ANA = new CompromisedCredential(
+            "https://some-url.com/signin", new GURL("https://some-url.com/"), "Ana", "some-url.com",
+            "Ana", "password", "https://some-url.com/.well-known/change-password", "", 1, true,
+            false, false, false);
+    private static final CompromisedCredential PHISHED = new CompromisedCredential(
+            "http://example.com/signin", new GURL("http://example.com/"), "", "http://example.com",
+            "(No username)", "DoSomething", "http://example.com/.well-known/change-password", "", 1,
+            false, true, false, false);
     private static final CompromisedCredential LEAKED =
             new CompromisedCredential("https://some-other-url.com/signin",
                     new GURL("https://some-other-url.com/"), "AZiegler", "some-other-url.com",
-                    "AZiegler", "N0M3rcy", "", "com.other.package", 1, true, false, false);
+                    "AZiegler", "N0M3rcy", "", "com.other.package", 1, true, false, false, false);
     private static final CompromisedCredential LEAKED_AND_PHISHED =
             new CompromisedCredential("https://super-important.com/signin",
                     new GURL("https://super-important.com/"), "HSong", "super-important.com",
-                    "HSong", "N3rfTh1s", "", "com.important.super", 1, true, true, false);
-    private static final CompromisedCredential SCRIPTED =
-            new CompromisedCredential("https://script.com/signin", new GURL("https://script.com/"),
-                    "Charlie", "script.com", "Charlie", "secret",
-                    "https://script.com/.well-known/change-password", "", 1, true, false, true);
+                    "HSong", "N3rfTh1s", "", "com.important.super", 1, true, true, false, false);
+    private static final CompromisedCredential SCRIPTED = new CompromisedCredential(
+            "https://script.com/signin", new GURL("https://script.com/"), "Charlie", "script.com",
+            "Charlie", "secret", "https://script.com/.well-known/change-password", "", 1, true,
+            false, true, true);
 
     private static final int LEAKS_COUNT = 2;
 
@@ -145,11 +152,13 @@ public class PasswordCheckViewTest {
     @Before
     public void setUp() throws InterruptedException {
         MockitoAnnotations.initMocks(this);
-        PasswordCheckComponentUiFactory.setCreationStrategy(fragmentView -> {
-            mPasswordCheckView = (PasswordCheckFragmentView) fragmentView;
-            mPasswordCheckView.setComponentDelegate(mComponentUi);
-            return mComponentUi;
-        });
+        PasswordCheckComponentUiFactory.setCreationStrategy(
+                (fragmentView, helpAndFeedbackLauncher, settingsLauncher, customTabIntentHelper,
+                        trustedIntentHelper) -> {
+                    mPasswordCheckView = (PasswordCheckFragmentView) fragmentView;
+                    mPasswordCheckView.setComponentDelegate(mComponentUi);
+                    return mComponentUi;
+                });
         setUpUiLaunchedFromSettings();
         runOnUiThreadBlocking(() -> {
             PasswordCheckCoordinator.setUpModelChangeProcessors(mModel, mPasswordCheckView);
@@ -175,6 +184,10 @@ public class PasswordCheckViewTest {
         assertThat(getCredentialMoreButtonAt(1).getVisibility(), is(View.VISIBLE));
         assertThat(getCredentialMoreButtonAt(1).getContentDescription(),
                 is(getString(org.chromium.chrome.R.string.more)));
+
+        // Has a favicon.
+        assertNotNull(getCredentialFaviconAt(1));
+        assertThat(getCredentialFaviconAt(1).getVisibility(), is(View.VISIBLE));
     }
 
     @Test
@@ -189,6 +202,7 @@ public class PasswordCheckViewTest {
 
     @Test
     @MediumTest
+    @DisabledTest(message = "https://crbug.com/1133604")
     public void testStatusIllustrationWarning() {
         Long checkTimestamp = System.currentTimeMillis();
         runOnUiThreadBlocking(
@@ -259,6 +273,24 @@ public class PasswordCheckViewTest {
     @MediumTest
     public void testStatusNotDisplaysRestartAction() {
         runOnUiThreadBlocking(() -> { mModel.get(ITEMS).add(buildHeader(RUNNING)); });
+        waitForListViewToHaveLength(1);
+        assertThat(getActionButton().getVisibility(), is(View.GONE));
+        assertFalse(getActionButton().isClickable());
+    }
+
+    @Test
+    @MediumTest
+    public void testStatusDisplaysRestartForOffline() {
+        runOnUiThreadBlocking(() -> { mModel.get(ITEMS).add(buildHeader(ERROR_OFFLINE)); });
+        waitForListViewToHaveLength(1);
+        assertThat(getActionButton().getVisibility(), is(View.VISIBLE));
+        assertTrue(getActionButton().isClickable());
+    }
+
+    @Test
+    @MediumTest
+    public void testStatusDoesNotDisplayRestartForNoPasswords() {
+        runOnUiThreadBlocking(() -> { mModel.get(ITEMS).add(buildHeader(ERROR_NO_PASSWORDS)); });
         waitForListViewToHaveLength(1);
         assertThat(getActionButton().getVisibility(), is(View.GONE));
         assertFalse(getActionButton().isClickable());
@@ -400,8 +432,19 @@ public class PasswordCheckViewTest {
 
     @Test
     @MediumTest
+    public void testStatusDisplaysSubtitle() {
+        runOnUiThreadBlocking(() -> { mModel.get(ITEMS).add(buildHeader(ERROR_UNKNOWN, true)); });
+        waitForListViewToHaveLength(1);
+        assertThat(getHeaderSubtitle().getText(),
+                is(getString(
+                        R.string.password_check_status_subtitle_found_compromised_credentials)));
+        assertThat(getHeaderSubtitle().getVisibility(), is(View.VISIBLE));
+    }
+
+    @Test
+    @MediumTest
     public void testStatusNotDisplaysSubtitle() {
-        runOnUiThreadBlocking(() -> { mModel.get(ITEMS).add(buildHeader(ERROR_UNKNOWN)); });
+        runOnUiThreadBlocking(() -> { mModel.get(ITEMS).add(buildHeader(ERROR_UNKNOWN, false)); });
         waitForListViewToHaveLength(1);
         assertThat(getHeaderSubtitle().getVisibility(), is(View.GONE));
     }
@@ -606,6 +649,30 @@ public class PasswordCheckViewTest {
 
     @Test
     @MediumTest
+    public void testCopyPasswordViewDialog() {
+        PasswordCheckDeletionDialogFragment.Handler fakeHandler =
+                new PasswordCheckDeletionDialogFragment.Handler() {
+                    @Override
+                    public void onDismiss() {}
+                    @Override
+                    public void onClick(DialogInterface dialogInterface, int i) {}
+                };
+        ReauthenticationManager.recordLastReauth(
+                System.currentTimeMillis(), ReauthScope.ONE_AT_A_TIME);
+
+        mModel.set(VIEW_CREDENTIAL, ANA);
+        runOnUiThreadBlocking(() -> mModel.set(VIEW_DIALOG_HANDLER, fakeHandler));
+        onView(withId(R.id.view_dialog_copy_button)).perform(click());
+
+        ClipboardManager clipboard = (ClipboardManager) mPasswordCheckView.getActivity()
+                                             .getApplicationContext()
+                                             .getSystemService(Context.CLIPBOARD_SERVICE);
+        assertThat(clipboard.getPrimaryClip().getItemAt(0).getText().toString(),
+                is(ANA.getPassword()));
+    }
+
+    @Test
+    @MediumTest
     public void testCloseViewDialogTriggersHandler() {
         final AtomicInteger recordedClosure = new AtomicInteger(0);
         PasswordCheckDeletionDialogFragment.Handler fakeHandler =
@@ -660,23 +727,36 @@ public class PasswordCheckViewTest {
         CriteriaHelper.pollInstrumentationThread(() -> recordedDismiss.get() == 1);
     }
 
+    @Test
+    @SmallTest
+    public void testHelpHandlerCalled() {
+        when(mComponentUi.handleHelp(any())).thenReturn(true);
+        onView(withId(R.id.menu_id_targeted_help)).perform(click());
+        verify(mComponentUi).handleHelp(any());
+    }
+
     private MVCListAdapter.ListItem buildHeader(@PasswordCheckUIStatus int status,
             Integer compromisedCredentialsCount, Long checkTimestamp) {
-        return buildHeader(status, compromisedCredentialsCount, checkTimestamp, null);
+        return buildHeader(status, compromisedCredentialsCount, checkTimestamp, null, true);
     }
 
     private MVCListAdapter.ListItem buildHeader(
             @PasswordCheckUIStatus int status, Pair<Integer, Integer> progress) {
-        return buildHeader(status, null, null, progress);
+        return buildHeader(status, null, null, progress, false);
+    }
+
+    private MVCListAdapter.ListItem buildHeader(
+            @PasswordCheckUIStatus int status, boolean showStatusSubtitle) {
+        return buildHeader(status, null, null, null, showStatusSubtitle);
     }
 
     private MVCListAdapter.ListItem buildHeader(@PasswordCheckUIStatus int status) {
-        return buildHeader(status, null, null, null);
+        return buildHeader(status, null, null, null, false);
     }
 
     private MVCListAdapter.ListItem buildHeader(@PasswordCheckUIStatus int status,
             Integer compromisedCredentialsCount, Long checkTimestamp,
-            Pair<Integer, Integer> progress) {
+            Pair<Integer, Integer> progress, boolean showStatusSubtitle) {
         return new MVCListAdapter.ListItem(PasswordCheckProperties.ItemType.HEADER,
                 new PropertyModel.Builder(HeaderProperties.ALL_KEYS)
                         .with(CHECK_PROGRESS, progress)
@@ -685,11 +765,12 @@ public class PasswordCheckViewTest {
                         .with(COMPROMISED_CREDENTIALS_COUNT, compromisedCredentialsCount)
                         .with(LAUNCH_ACCOUNT_CHECKUP_ACTION, mMockLaunchCheckupInAccount)
                         .with(RESTART_BUTTON_ACTION, mMockStartButtonCallback)
+                        .with(SHOW_CHECK_SUBTITLE, showStatusSubtitle)
                         .build());
     }
 
     private MVCListAdapter.ListItem buildCredentialItem(CompromisedCredential credential) {
-        return new MVCListAdapter.ListItem(credential.hasScript()
+        return new MVCListAdapter.ListItem(credential.hasAutoChangeButton()
                         ? PasswordCheckProperties.ItemType.COMPROMISED_CREDENTIAL_WITH_SCRIPT
                         : PasswordCheckProperties.ItemType.COMPROMISED_CREDENTIAL,
                 new PropertyModel
@@ -807,6 +888,10 @@ public class PasswordCheckViewTest {
     private ListMenuButton getCredentialMoreButtonAt(int index) {
         return getPasswordCheckViewList().getChildAt(index).findViewById(
                 R.id.credential_menu_button);
+    }
+
+    private ImageView getCredentialFaviconAt(int index) {
+        return getPasswordCheckViewList().getChildAt(index).findViewById(R.id.credential_favicon);
     }
 
     private String getString(@IdRes int stringResource) {

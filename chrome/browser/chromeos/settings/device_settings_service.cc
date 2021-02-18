@@ -156,19 +156,19 @@ void DeviceSettingsService::LoadImmediately() {
   }
   std::unique_ptr<SessionManagerOperation> operation(new LoadSettingsOperation(
       request_key_load, cloud_validations, true /*force_immediate_load*/,
-      base::Bind(&DeviceSettingsService::HandleCompletedOperation,
-                 weak_factory_.GetWeakPtr(), base::Closure())));
+      base::BindOnce(&DeviceSettingsService::HandleCompletedOperation,
+                     weak_factory_.GetWeakPtr(), base::OnceClosure())));
   operation->Start(session_manager_client_, owner_key_util_, public_key_);
 }
 
 void DeviceSettingsService::Store(
     std::unique_ptr<em::PolicyFetchResponse> policy,
-    const base::Closure& callback) {
+    base::OnceClosure callback) {
   // On Active Directory managed devices policy is written only by authpolicyd.
   CHECK(device_mode_ != policy::DEVICE_MODE_ENTERPRISE_AD);
   Enqueue(std::make_unique<StoreSettingsOperation>(
-      base::Bind(&DeviceSettingsService::HandleCompletedAsyncOperation,
-                 weak_factory_.GetWeakPtr(), callback),
+      base::BindOnce(&DeviceSettingsService::HandleCompletedAsyncOperation,
+                     weak_factory_.GetWeakPtr(), std::move(callback)),
       std::move(policy)));
 }
 
@@ -182,16 +182,16 @@ DeviceSettingsService::OwnershipStatus
 }
 
 void DeviceSettingsService::GetOwnershipStatusAsync(
-    const OwnershipStatusCallback& callback) {
+    OwnershipStatusCallback callback) {
   if (GetOwnershipStatus() != OWNERSHIP_UNKNOWN) {
     // Report status immediately.
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::BindOnce(callback, GetOwnershipStatus()));
+        FROM_HERE, base::BindOnce(std::move(callback), GetOwnershipStatus()));
   } else {
     // If the key hasn't been loaded yet, enqueue the callback to be fired when
     // the next SessionManagerOperation completes. If no operation is pending,
     // start a load operation to fetch the key and report the result.
-    pending_ownership_status_callbacks_.push_back(callback);
+    pending_ownership_status_callbacks_.push_back(std::move(callback));
     if (pending_operations_.empty())
       EnqueueLoad(false);
   }
@@ -281,8 +281,8 @@ void DeviceSettingsService::EnqueueLoad(bool request_key_load) {
   }
   Enqueue(std::make_unique<LoadSettingsOperation>(
       request_key_load, cloud_validations, false /*force_immediate_load*/,
-      base::Bind(&DeviceSettingsService::HandleCompletedAsyncOperation,
-                 weak_factory_.GetWeakPtr(), base::Closure())));
+      base::BindOnce(&DeviceSettingsService::HandleCompletedAsyncOperation,
+                     weak_factory_.GetWeakPtr(), base::OnceClosure())));
 }
 
 void DeviceSettingsService::EnsureReload(bool request_key_load) {
@@ -301,11 +301,11 @@ void DeviceSettingsService::StartNextOperation() {
 }
 
 void DeviceSettingsService::HandleCompletedAsyncOperation(
-    const base::Closure& callback,
+    base::OnceClosure callback,
     SessionManagerOperation* operation,
     Status status) {
   DCHECK_EQ(operation, pending_operations_.front().get());
-  HandleCompletedOperation(callback, operation, status);
+  HandleCompletedOperation(std::move(callback), operation, status);
   // Only remove the pending operation here, so new operations triggered by
   // any of the callbacks above are queued up properly.
   pending_operations_.pop_front();
@@ -314,7 +314,7 @@ void DeviceSettingsService::HandleCompletedAsyncOperation(
 }
 
 void DeviceSettingsService::HandleCompletedOperation(
-    const base::Closure& callback,
+    base::OnceClosure callback,
     SessionManagerOperation* operation,
     Status status) {
   store_status_ = status;
@@ -349,7 +349,7 @@ void DeviceSettingsService::HandleCompletedOperation(
   // The completion callback happens after the notification so clients can
   // filter self-triggered updates.
   if (!callback.is_null())
-    callback.Run();
+    std::move(callback).Run();
 }
 
 void DeviceSettingsService::NotifyOwnershipStatusChanged() const {
@@ -365,8 +365,8 @@ void DeviceSettingsService::NotifyDeviceSettingsUpdated() const {
 void DeviceSettingsService::RunPendingOwnershipStatusCallbacks() {
   std::vector<OwnershipStatusCallback> callbacks;
   callbacks.swap(pending_ownership_status_callbacks_);
-  for (const auto& callback : callbacks) {
-    callback.Run(GetOwnershipStatus());
+  for (auto& callback : callbacks) {
+    std::move(callback).Run(GetOwnershipStatus());
   }
 }
 

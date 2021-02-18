@@ -15,7 +15,7 @@
 
 namespace blink {
 
-class LocalFrame;
+class LocalDOMWindow;
 class WorkerOrWorkletGlobalScope;
 
 // https://html.spec.whatwg.org/C/#concept-script
@@ -25,8 +25,8 @@ class CORE_EXPORT Script : public GarbageCollected<Script> {
 
   virtual ~Script() {}
 
-  virtual mojom::ScriptType GetScriptType() const = 0;
-  static base::Optional<mojom::ScriptType> ParseScriptType(
+  virtual mojom::blink::ScriptType GetScriptType() const = 0;
+  static base::Optional<mojom::blink::ScriptType> ParseScriptType(
       const String& script_type);
 
   // https://html.spec.whatwg.org/C/#run-a-classic-script
@@ -35,7 +35,7 @@ class CORE_EXPORT Script : public GarbageCollected<Script> {
   // depending on the script type,
   // on Window or on WorkerGlobalScope, respectively.
   // RunScriptOnWorkerOrWorklet returns true if evaluated successfully.
-  virtual void RunScript(LocalFrame*) = 0;
+  virtual void RunScript(LocalDOMWindow*) = 0;
   virtual bool RunScriptOnWorkerOrWorklet(WorkerOrWorkletGlobalScope&) = 0;
 
   const ScriptFetchOptions& FetchOptions() const { return fetch_options_; }

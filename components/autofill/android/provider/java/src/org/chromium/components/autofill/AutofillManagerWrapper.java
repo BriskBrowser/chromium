@@ -5,6 +5,7 @@
 package org.chromium.components.autofill;
 
 import android.annotation.TargetApi;
+import android.content.ComponentName;
 import android.content.Context;
 import android.graphics.Rect;
 import android.os.Build;
@@ -14,11 +15,11 @@ import android.view.autofill.AutofillValue;
 
 import androidx.annotation.VisibleForTesting;
 
+import org.chromium.base.CollectionUtil;
 import org.chromium.base.Log;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
-import java.util.Iterator;
 
 /**
  * The class to call Android's AutofillManager.
@@ -29,7 +30,8 @@ public class AutofillManagerWrapper {
     // NOTE: As a result of the above, the tag below still references the name of this class from
     // when it was originally developed specifically for Android WebView.
     public static final String TAG = "AwAutofillManager";
-
+    private static final String AWG_COMPONENT_NAME =
+            "com.google.android.gms/com.google.android.gms.autofill.service.AutofillService";
     /**
      * The observer of suggestion window.
      */
@@ -58,17 +60,32 @@ public class AutofillManagerWrapper {
     private boolean mDestroyed;
     private boolean mDisabled;
     private ArrayList<WeakReference<InputUIObserver>> mInputUIObservers;
+    // Indicates if AwG is the current Android autofill service.
+    private final boolean mIsAwGCurrentAutofillService;
 
     public AutofillManagerWrapper(Context context) {
         updateLogStat();
         if (isLoggable()) log("constructor");
         mAutofillManager = context.getSystemService(AutofillManager.class);
         mDisabled = mAutofillManager == null || !mAutofillManager.isEnabled();
+
         if (mDisabled) {
+            mIsAwGCurrentAutofillService = false;
             if (isLoggable()) log("disabled");
             return;
         }
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            ComponentName componentName = mAutofillManager.getAutofillServiceComponentName();
+            if (componentName != null) {
+                mIsAwGCurrentAutofillService =
+                        AWG_COMPONENT_NAME.equals(componentName.flattenToString());
+            } else {
+                mIsAwGCurrentAutofillService = false;
+            }
+        } else {
+            mIsAwGCurrentAutofillService = false;
+        }
         mMonitor = new AutofillInputUIMonitor(this);
         mAutofillManager.registerCallback(mMonitor);
     }
@@ -142,6 +159,14 @@ public class AutofillManagerWrapper {
         return mDisabled;
     }
 
+    /**
+     * Only work for Android P and beyond. Always return false for Android O.
+     * @return if the Autofill with Google is the current autofill service.
+     */
+    public boolean isAwGCurrentAutofillService() {
+        return mIsAwGCurrentAutofillService;
+    }
+
     private boolean checkAndWarnIfDestroyed() {
         if (mDestroyed) {
             Log.w(TAG, "Application attempted to call on a destroyed AutofillManagerWrapper",
@@ -158,32 +183,20 @@ public class AutofillManagerWrapper {
         mInputUIObservers.add(new WeakReference<InputUIObserver>(observer));
     }
 
-    public void removeInputUIObserver(InputUIObserver observer) {
-        if (observer == null) return;
-        for (Iterator<WeakReference<InputUIObserver>> i = mInputUIObservers.listIterator();
-                i.hasNext();) {
-            WeakReference<InputUIObserver> o = i.next();
-            if (o.get() == null || o.get() == observer) i.remove();
-        }
-    }
-
     @VisibleForTesting
     public void notifyInputUIChange() {
-        for (Iterator<WeakReference<InputUIObserver>> i = mInputUIObservers.listIterator();
-                i.hasNext();) {
-            WeakReference<InputUIObserver> o = i.next();
-            InputUIObserver observer = o.get();
-            if (observer == null) {
-                i.remove();
-                continue;
-            }
+        for (InputUIObserver observer : CollectionUtil.strengthen(mInputUIObservers)) {
             observer.onInputUIShown();
         }
     }
 
-    public void notifyNewSessionStarted() {
+    public void notifyNewSessionStarted(boolean hasServerPrediction) {
         updateLogStat();
-        if (isLoggable()) log("Session starts");
+        if (isLoggable()) log("Session starts, has server prediction = " + hasServerPrediction);
+    }
+
+    public void onQueryDone(boolean success) {
+        if (isLoggable()) log("Query " + (success ? "succeed" : "failed"));
     }
 
     /**
@@ -201,6 +214,7 @@ public class AutofillManagerWrapper {
     private static void updateLogStat() {
         // Use 'setprop log.tag.AwAutofillManager DEBUG' to enable the log at runtime.
         // NOTE: See the comment on TAG above for why this is still AwAutofillManager.
-        sIsLoggable = Log.isLoggable(TAG, Log.DEBUG);
+        // Check the system setting directly.
+        sIsLoggable = android.util.Log.isLoggable(TAG, Log.DEBUG);
     }
 }

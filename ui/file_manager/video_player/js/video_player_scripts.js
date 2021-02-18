@@ -13,11 +13,8 @@
 // <include src="../../file_manager/common/js/metrics_base.js">
 // <include src="video_player_metrics.js">
 
-// <include src="../../file_manager/common/js/lru_cache.js">
-// <include src="../../image_loader/load_image_request.js">
-// <include src="../../image_loader/image_loader_client.js">
-
 // <include src="../../../webui/resources/js/cr.js">
+// <include src="../../../webui/resources/js/assert.js">
 // <include src="../../../webui/resources/js/util.js">
 // <include src="../../../webui/resources/js/load_time_data.js">
 
@@ -31,7 +28,6 @@
 'use strict';
 
 // <include src="../../../webui/resources/js/load_time_data.js">
-// <include src="../../../webui/resources/js/i18n_template_no_process.js">
 
 // <include src="../../file_manager/common/js/async_util.js">
 // <include src="../../file_manager/common/js/file_type.js">

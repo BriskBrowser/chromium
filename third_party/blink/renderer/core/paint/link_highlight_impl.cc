@@ -33,7 +33,6 @@
 #include "cc/layers/picture_layer.h"
 #include "cc/paint/display_item_list.h"
 #include "third_party/blink/public/platform/platform.h"
-#include "third_party/blink/public/platform/web_rect.h"
 #include "third_party/blink/public/platform/web_size.h"
 #include "third_party/blink/public/web/blink.h"
 #include "third_party/blink/renderer/core/dom/layout_tree_builder_traversal.h"
@@ -42,7 +41,7 @@
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
-#include "third_party/blink/renderer/core/frame/web_frame_widget_base.h"
+#include "third_party/blink/renderer/core/frame/web_frame_widget_impl.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
 #include "third_party/blink/renderer/core/layout/layout_box_model_object.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
@@ -154,13 +153,12 @@ LinkHighlightImpl::LinkHighlightFragment::~LinkHighlightFragment() {
   layer_->ClearClient();
 }
 
-gfx::Rect LinkHighlightImpl::LinkHighlightFragment::PaintableRegion() {
+gfx::Rect LinkHighlightImpl::LinkHighlightFragment::PaintableRegion() const {
   return gfx::Rect(layer_->bounds());
 }
 
 scoped_refptr<cc::DisplayItemList>
-LinkHighlightImpl::LinkHighlightFragment::PaintContentsToDisplayList(
-    PaintingControlSetting painting_control) {
+LinkHighlightImpl::LinkHighlightFragment::PaintContentsToDisplayList() {
   auto display_list = base::MakeRefCounted<cc::DisplayItemList>();
 
   PaintRecorder recorder;
@@ -296,8 +294,7 @@ void LinkHighlightImpl::Paint(GraphicsContext& context) {
     // NGFragmentItem to renderer rounded rect even if nested inline, e.g.
     // <a>ABC<b>DEF</b>GHI</a>.
     // See gesture-tapHighlight-simple-nested.html
-    if (RuntimeEnabledFeatures::LayoutNGFragmentItemEnabled() &&
-        use_rounded_rects && object->IsLayoutInline() &&
+    if (use_rounded_rects && object->IsLayoutInline() &&
         object->IsInLayoutNGInlineFormattingContext()) {
       NGInlineCursor cursor;
       cursor.MoveTo(*object);
@@ -323,7 +320,7 @@ void LinkHighlightImpl::Paint(GraphicsContext& context) {
     auto bounding_rect = EnclosingIntRect(new_path.BoundingRect());
     new_path.Translate(-FloatSize(ToIntSize(bounding_rect.Location())));
 
-    auto* layer = link_highlight_fragment.Layer();
+    cc::Layer* layer = link_highlight_fragment.Layer();
     DCHECK(layer);
     if (link_highlight_fragment.GetPath() != new_path) {
       link_highlight_fragment.SetPath(new_path);
@@ -346,11 +343,8 @@ void LinkHighlightImpl::Paint(GraphicsContext& context) {
 
 void LinkHighlightImpl::SetPaintArtifactCompositorNeedsUpdate() {
   DCHECK(node_);
-  if (auto* frame_view = node_->GetDocument().View()) {
+  if (auto* frame_view = node_->GetDocument().View())
     frame_view->SetPaintArtifactCompositorNeedsUpdate();
-    if (!RuntimeEnabledFeatures::CompositeAfterPaintEnabled())
-      frame_view->SetForeignLayerListNeedsUpdate();
-  }
 }
 
 void LinkHighlightImpl::UpdateOpacity(float opacity) {

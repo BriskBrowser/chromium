@@ -23,10 +23,11 @@ class CONTENT_EXPORT BrowserAccessibilityAndroid : public BrowserAccessibility {
   static BrowserAccessibilityAndroid* GetFromUniqueId(int32_t unique_id);
   int32_t unique_id() const { return GetUniqueId().Get(); }
 
-  // Overrides from BrowserAccessibility.
+  // BrowserAccessibility Overrides.
   void OnDataChanged() override;
   void OnLocationChanged() override;
-  base::string16 GetValue() const override;
+  base::string16 GetLocalizedStringForImageAnnotationStatus(
+      ax::mojom::ImageAnnotationStatus status) const override;
 
   bool IsCheckable() const;
   bool IsChecked() const;
@@ -34,20 +35,22 @@ class CONTENT_EXPORT BrowserAccessibilityAndroid : public BrowserAccessibility {
   bool IsCollapsed() const;
   bool IsCollection() const;
   bool IsCollectionItem() const;
+  bool IsCombobox() const;
+  bool IsComboboxControl() const;
   bool IsContentInvalid() const;
   bool IsDismissable() const;
   bool IsEnabled() const;
   bool IsExpanded() const;
   bool IsFocusable() const;
-  bool IsFocused() const;
   bool IsFormDescendant() const;
   bool IsHeading() const;
   bool IsHierarchical() const;
   bool IsLink() const;
   bool IsMultiLine() const;
   bool IsMultiselectable() const;
-  bool IsRangeType() const;
+  bool IsReportingCheckable() const;
   bool IsScrollable() const;
+  bool IsSeekControl() const;
   bool IsSelected() const;
   bool IsSlider() const;
   bool IsVisibleToUser() const;
@@ -73,6 +76,8 @@ class CONTENT_EXPORT BrowserAccessibilityAndroid : public BrowserAccessibility {
 
   bool CanOpenPopup() const;
 
+  bool HasAriaCurrent() const;
+
   bool HasFocusableNonOptionChild() const;
   bool HasNonEmptyValue() const;
 
@@ -83,6 +88,7 @@ class CONTENT_EXPORT BrowserAccessibilityAndroid : public BrowserAccessibility {
   bool IsChildOfLeaf() const override;
   bool IsLeaf() const override;
   base::string16 GetInnerText() const override;
+  base::string16 GetValueForControl() const override;
   base::string16 GetHint() const;
 
   std::string GetRoleString() const;
@@ -91,11 +97,20 @@ class CONTENT_EXPORT BrowserAccessibilityAndroid : public BrowserAccessibility {
 
   base::string16 GetStateDescription() const;
   base::string16 GetMultiselectableStateDescription() const;
+  base::string16 GetToggleButtonStateDescription() const;
+  base::string16 GetCheckboxStateDescription() const;
+  base::string16 GetListBoxStateDescription() const;
+  base::string16 GetListBoxItemStateDescription() const;
+  base::string16 GetAriaCurrentStateDescription() const;
+
+  base::string16 GetComboboxExpandedText() const;
+  base::string16 GetComboboxExpandedTextFallback() const;
 
   base::string16 GetRoleDescription() const;
 
   int GetItemIndex() const;
   int GetItemCount() const;
+  int GetSelectedItemCount() const;
 
   bool CanScrollForward() const;
   bool CanScrollBackward() const;
@@ -169,22 +184,26 @@ class CONTENT_EXPORT BrowserAccessibilityAndroid : public BrowserAccessibility {
   // This gives BrowserAccessibility::Create access to the class constructor.
   friend class BrowserAccessibility;
 
-  BrowserAccessibilityAndroid();
-  ~BrowserAccessibilityAndroid() override;
-
-  bool HasOnlyTextChildren() const;
-  bool HasOnlyTextAndImageChildren() const;
-  bool IsIframe() const;
-  bool ShouldExposeValueAsName() const;
-
-  int CountChildrenWithRole(ax::mojom::Role role) const;
-
   static size_t CommonPrefixLength(const base::string16 a,
                                    const base::string16 b);
   static size_t CommonSuffixLength(const base::string16 a,
                                    const base::string16 b);
   static size_t CommonEndLengths(const base::string16 a,
                                  const base::string16 b);
+
+  BrowserAccessibilityAndroid();
+  ~BrowserAccessibilityAndroid() override;
+
+  // BrowserAccessibility overrides.
+  BrowserAccessibility* PlatformGetLowestPlatformAncestor() const override;
+
+  bool HasOnlyTextChildren() const;
+  bool HasOnlyTextAndImageChildren() const;
+  bool ShouldExposeValueAsName() const;
+  int CountChildrenWithRole(ax::mojom::Role role) const;
+
+  void AppendTextToString(base::string16 extra_text,
+                          base::string16* string) const;
 
   base::string16 cached_text_;
   base::string16 old_value_;

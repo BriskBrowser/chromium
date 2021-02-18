@@ -28,9 +28,8 @@ TypeConverter<ui::ozone::mojom::WaylandOverlayConfigPtr,
   wayland_overlay_config->enable_blend = input.enable_blend;
   wayland_overlay_config->access_fence_handle =
       !input.gpu_fence || input.gpu_fence->GetGpuFenceHandle().is_null()
-          ? base::Optional<gfx::GpuFenceHandle>()
-          : base::Optional<gfx::GpuFenceHandle>(
-                gfx::CloneHandleForIPC(input.gpu_fence->GetGpuFenceHandle()));
+          ? gfx::GpuFenceHandle()
+          : input.gpu_fence->GetGpuFenceHandle().Clone();
 
   return wayland_overlay_config;
 }
@@ -45,7 +44,8 @@ void WaylandBufferManagerGpu::Initialize(
     mojo::PendingRemote<ozone::mojom::WaylandBufferManagerHost> remote_host,
     const base::flat_map<::gfx::BufferFormat, std::vector<uint64_t>>&
         buffer_formats_with_modifiers,
-    bool supports_dma_buf) {
+    bool supports_dma_buf,
+    bool supports_acquire_fence) {
   DCHECK(supported_buffer_formats_with_modifiers_.empty());
   supported_buffer_formats_with_modifiers_ = buffer_formats_with_modifiers;
 
@@ -53,6 +53,7 @@ void WaylandBufferManagerGpu::Initialize(
   if (!supports_dma_buf)
     set_gbm_device(nullptr);
 #endif
+  supports_acquire_fence_ = supports_acquire_fence;
 
   BindHostInterface(std::move(remote_host));
 
@@ -64,9 +65,12 @@ void WaylandBufferManagerGpu::OnSubmission(gfx::AcceleratedWidget widget,
                                            gfx::SwapResult swap_result) {
   base::AutoLock scoped_lock(lock_);
   DCHECK(io_thread_runner_->BelongsToCurrentThread());
-  DCHECK_EQ(commit_thread_runners_.count(widget), 1u);
+  DCHECK_LE(commit_thread_runners_.count(widget), 1u);
   // Return back to the same thread where the commit request came from.
-  commit_thread_runners_.find(widget)->second->PostTask(
+  auto it = commit_thread_runners_.find(widget);
+  if (it == commit_thread_runners_.end())
+    return;
+  it->second->PostTask(
       FROM_HERE,
       base::BindOnce(&WaylandBufferManagerGpu::SubmitSwapResultOnOriginThread,
                      base::Unretained(this), widget, buffer_id, swap_result));
@@ -78,9 +82,12 @@ void WaylandBufferManagerGpu::OnPresentation(
     const gfx::PresentationFeedback& feedback) {
   base::AutoLock scoped_lock(lock_);
   DCHECK(io_thread_runner_->BelongsToCurrentThread());
-  DCHECK_EQ(commit_thread_runners_.count(widget), 1u);
+  DCHECK_LE(commit_thread_runners_.count(widget), 1u);
   // Return back to the same thread where the commit request came from.
-  commit_thread_runners_.find(widget)->second->PostTask(
+  auto it = commit_thread_runners_.find(widget);
+  if (it == commit_thread_runners_.end())
+    return;
+  it->second->PostTask(
       FROM_HERE,
       base::BindOnce(&WaylandBufferManagerGpu::SubmitPresentationOnOriginThread,
                      base::Unretained(this), widget, buffer_id, feedback));
@@ -177,18 +184,16 @@ void WaylandBufferManagerGpu::CreateShmBasedBuffer(
 
 void WaylandBufferManagerGpu::CommitBuffer(gfx::AcceleratedWidget widget,
                                            uint32_t buffer_id,
+                                           const gfx::Rect& bounds_rect,
                                            const gfx::Rect& damage_region) {
-  if (!remote_host_) {
-    LOG(ERROR) << "Interface is not bound. Can't request "
-                  "WaylandBufferManagerHost to create/commit/destroy buffers.";
-    return;
-  }
+  std::vector<ui::ozone::mojom::WaylandOverlayConfigPtr> overlay_configs;
+  // This surface only commits one buffer per frame, use INT32_MIN to attach
+  // the buffer to root_surface of wayland window.
+  overlay_configs.push_back(ui::ozone::mojom::WaylandOverlayConfig::New(
+      INT32_MIN, gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE, buffer_id,
+      bounds_rect, gfx::RectF(), damage_region, false, gfx::GpuFenceHandle()));
 
-  // Do the mojo call on the IO child thread.
-  io_thread_runner_->PostTask(
-      FROM_HERE,
-      base::BindOnce(&WaylandBufferManagerGpu::CommitBufferInternal,
-                     base::Unretained(this), widget, buffer_id, damage_region));
+  CommitOverlays(widget, std::move(overlay_configs));
 }
 
 void WaylandBufferManagerGpu::CommitOverlays(
@@ -264,14 +269,6 @@ void WaylandBufferManagerGpu::CreateShmBasedBufferInternal(
   DCHECK(io_thread_runner_->BelongsToCurrentThread());
   remote_host_->CreateShmBasedBuffer(mojo::PlatformHandle(std::move(shm_fd)),
                                      length, size, buffer_id);
-}
-
-void WaylandBufferManagerGpu::CommitBufferInternal(
-    gfx::AcceleratedWidget widget,
-    uint32_t buffer_id,
-    const gfx::Rect& damage_region) {
-  DCHECK(io_thread_runner_->BelongsToCurrentThread());
-  remote_host_->CommitBuffer(widget, buffer_id, damage_region);
 }
 
 void WaylandBufferManagerGpu::CommitOverlaysInternal(

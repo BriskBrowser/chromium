@@ -5,9 +5,9 @@
 #include "base/test/scoped_run_loop_timeout.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/location.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/gtest_util.h"
 #include "base/test/task_environment.h"
 #include "base/threading/sequenced_task_runner_handle.h"
@@ -72,7 +72,11 @@ TEST(ScopedRunLoopTimeoutTest, OnTimeoutLog) {
 
   // EXPECT_FATAL_FAILURE() can only reference globals and statics.
   static RunLoop& static_loop = run_loop;
-  EXPECT_FATAL_FAILURE(static_loop.Run(), "Run() timed out.\nI like kittens!");
+  EXPECT_FATAL_FAILURE(
+      static_loop.Run(),
+      "Run() timed out. Timeout set at "
+      "TestBody@../../base/test/scoped_run_loop_timeout_unittest.cc:70.\n"
+      "I like kittens!");
 }
 
 }  // namespace test

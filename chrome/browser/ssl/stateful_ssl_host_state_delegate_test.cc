@@ -12,9 +12,7 @@
 #include "base/command_line.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/test/simple_test_clock.h"
-#include "components/browsing_data/content/browsing_data_helper.h"
-
-#include "chrome/browser/browsing_data/chrome_browsing_data_remover_delegate.h"
+#include "chrome/browser/browsing_data/chrome_browsing_data_remover_constants.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/extensions/chrome_test_extension_loader.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
@@ -183,8 +181,8 @@ IN_PROC_BROWSER_TEST_F(StatefulSSLHostStateDelegateTest, Clear) {
   EXPECT_TRUE(state->HasAllowException(kExampleHost, tab));
 
   // Clear data for kWWWGoogleHost. kExampleHost will not be modified.
-  state->Clear(
-      base::Bind(&CStrStringMatcher, base::Unretained(kWWWGoogleHost)));
+  state->Clear(base::BindRepeating(&CStrStringMatcher,
+                                   base::Unretained(kWWWGoogleHost)));
 
   EXPECT_FALSE(state->HasAllowException(kWWWGoogleHost, tab));
   EXPECT_TRUE(state->HasAllowException(kExampleHost, tab));
@@ -192,7 +190,7 @@ IN_PROC_BROWSER_TEST_F(StatefulSSLHostStateDelegateTest, Clear) {
   // Do a full clear, then make sure that both kWWWGoogleHost and kExampleHost,
   // which had a decision made, and kGoogleHost, which was untouched, are now
   // in a denied state.
-  state->Clear(base::Callback<bool(const std::string&)>());
+  state->Clear(base::RepeatingCallback<bool(const std::string&)>());
   EXPECT_FALSE(state->HasAllowException(kWWWGoogleHost, tab));
   EXPECT_EQ(content::SSLHostStateDelegate::DENIED,
             state->QueryPolicy(kWWWGoogleHost, *cert,
@@ -284,67 +282,6 @@ IN_PROC_BROWSER_TEST_F(StatefulSSLHostStateDelegateTest,
       content::SSLHostStateDelegate::CERT_ERRORS_CONTENT));
   EXPECT_FALSE(state->DidHostRunInsecureContent(
       "www.google.com", 191, content::SSLHostStateDelegate::MIXED_CONTENT));
-}
-
-// Test the migration code needed as a result of changing how the content
-// setting is stored. We used to map the settings dictionary to the pattern
-// pair <origin, origin> but now we map it to <origin, wildcard>.
-IN_PROC_BROWSER_TEST_F(StatefulSSLHostStateDelegateTest, Migrate) {
-  scoped_refptr<net::X509Certificate> cert = GetOkCert();
-  content::WebContents* tab =
-      browser()->tab_strip_model()->GetActiveWebContents();
-  Profile* profile = Profile::FromBrowserContext(tab->GetBrowserContext());
-  StatefulSSLHostStateDelegate* state =
-      StatefulSSLHostStateDelegateFactory::GetForProfile(profile);
-
-  // Simulate a user decision to allow an invalid certificate exception for
-  // kWWWGoogleHost and for kExampleHost.
-  state->AllowCert(kWWWGoogleHost, *cert, net::ERR_CERT_DATE_INVALID, tab);
-
-  // Move the new-format setting (<origin, wildcard>) to be an old-format one
-  // (<origin, origin>).
-  HostContentSettingsMap* map =
-      HostContentSettingsMapFactory::GetForProfile(profile);
-  GURL url(std::string("https://") + kWWWGoogleHost);
-  std::unique_ptr<base::Value> new_format =
-      map->GetWebsiteSetting(url, url, ContentSettingsType::SSL_CERT_DECISIONS,
-                             std::string(), nullptr);
-  // Delete the new-format setting.
-  map->SetWebsiteSettingDefaultScope(url, GURL(),
-                                     ContentSettingsType::SSL_CERT_DECISIONS,
-                                     std::string(), nullptr);
-
-  // No exception should exist.
-  EXPECT_FALSE(state->HasAllowException(kWWWGoogleHost, tab));
-  // Create the old-format one.
-  map->SetWebsiteSettingCustomScope(
-      ContentSettingsPattern::FromURLNoWildcard(url),
-      ContentSettingsPattern::FromURLNoWildcard(url),
-      ContentSettingsType::SSL_CERT_DECISIONS, std::string(),
-      std::move(new_format));
-
-  // Test that the old-format setting works.
-  EXPECT_TRUE(state->HasAllowException(kWWWGoogleHost, tab));
-
-  // Trigger the migration code that happens on construction.
-  {
-    std::unique_ptr<StatefulSSLHostStateDelegate> temp_delegate(
-        new StatefulSSLHostStateDelegate(
-            profile, profile->GetPrefs(),
-            HostContentSettingsMapFactory::GetForProfile(profile)));
-  }
-
-  // Test that the new style setting still works.
-  EXPECT_TRUE(state->HasAllowException(kWWWGoogleHost, tab));
-
-  // Check that the old-format setting is removed and only the new one exists.
-  ContentSettingsForOneType settings;
-  map->GetSettingsForOneType(ContentSettingsType::SSL_CERT_DECISIONS,
-                             std::string(), &settings);
-  EXPECT_EQ(1u, settings.size());
-  EXPECT_EQ(ContentSettingsPattern::FromURLNoWildcard(url),
-            settings[0].primary_pattern);
-  EXPECT_EQ(ContentSettingsPattern::Wildcard(), settings[0].secondary_pattern);
 }
 
 // Tests that StatefulSSLHostStateDelegate::HasSeenRecurrentErrors returns true
@@ -680,7 +617,7 @@ class RemoveBrowsingHistorySSLHostStateDelegateTest
             browsing_data::TimePeriod::LAST_HOUR),
         browsing_data::CalculateEndDeleteTime(
             browsing_data::TimePeriod::LAST_HOUR),
-        ChromeBrowsingDataRemoverDelegate::DATA_TYPE_HISTORY,
+        chrome_browsing_data_remover::DATA_TYPE_HISTORY,
         content::BrowsingDataRemover::ORIGIN_TYPE_UNPROTECTED_WEB,
         &completion_observer);
     completion_observer.BlockUntilCompletion();

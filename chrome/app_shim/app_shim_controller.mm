@@ -9,6 +9,7 @@
 
 #include <utility>
 
+#include "base/base_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
@@ -122,14 +123,14 @@ void AppShimController::OnAppFinishedLaunching() {
 void AppShimController::FindOrLaunchChrome() {
   DCHECK(!chrome_to_connect_to_);
   DCHECK(!chrome_launched_by_app_);
+  const base::CommandLine* app_command_line =
+      base::CommandLine::ForCurrentProcess();
 
   // If this shim was launched by Chrome, only connect to that that specific
   // process.
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          app_mode::kLaunchedByChromeProcessId)) {
-    std::string chrome_pid_string =
-        base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-            app_mode::kLaunchedByChromeProcessId);
+  if (app_command_line->HasSwitch(app_mode::kLaunchedByChromeProcessId)) {
+    std::string chrome_pid_string = app_command_line->GetSwitchValueASCII(
+        app_mode::kLaunchedByChromeProcessId);
     int chrome_pid;
     if (!base::StringToInt(chrome_pid_string, &chrome_pid))
       LOG(FATAL) << "Invalid PID: " << chrome_pid_string;
@@ -151,21 +152,30 @@ void AppShimController::FindOrLaunchChrome() {
     return;
 
   // In tests, launching Chrome does nothing.
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          app_mode::kLaunchedForTest)) {
+  if (app_command_line->HasSwitch(app_mode::kLaunchedForTest)) {
     return;
   }
 
   // Otherwise, launch Chrome.
   base::FilePath chrome_bundle_path = base::mac::OuterBundlePath();
   LOG(INFO) << "Launching " << chrome_bundle_path.value();
-  base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
-  command_line.AppendSwitch(switches::kSilentLaunch);
-  command_line.AppendSwitchPath(switches::kUserDataDir, params_.user_data_dir);
-  chrome_launched_by_app_.reset(
-      base::mac::OpenApplicationWithPath(chrome_bundle_path, command_line,
-                                         NSWorkspaceLaunchNewInstance),
-      base::scoped_policy::RETAIN);
+  base::CommandLine browser_command_line(base::CommandLine::NO_PROGRAM);
+  browser_command_line.AppendSwitchPath(switches::kUserDataDir,
+                                        params_.user_data_dir);
+  if (app_command_line->HasSwitch(switches::kEnableFeatures)) {
+    browser_command_line.AppendSwitchASCII(
+        switches::kEnableFeatures,
+        app_command_line->GetSwitchValueASCII(switches::kEnableFeatures));
+  }
+  if (app_command_line->HasSwitch(switches::kDisableFeatures)) {
+    browser_command_line.AppendSwitchASCII(
+        switches::kDisableFeatures,
+        app_command_line->GetSwitchValueASCII(switches::kDisableFeatures));
+  }
+  chrome_launched_by_app_.reset(base::mac::OpenApplicationWithPath(
+                                    chrome_bundle_path, browser_command_line,
+                                    NSWorkspaceLaunchNewInstance),
+                                base::scoped_policy::RETAIN);
   if (!chrome_launched_by_app_)
     LOG(FATAL) << "Failed to launch Chrome.";
 }
@@ -337,9 +347,11 @@ void AppShimController::SendBootstrapOnShimConnected(
 void AppShimController::SetUpMenu() {
   chrome::BuildMainMenu(NSApp, delegate_, params_.app_name, true);
 
-  // Initialize the profiles menu to be empty. It will be updated from the
-  // browser.
-  UpdateProfileMenu(std::vector<chrome::mojom::ProfileMenuItemPtr>());
+  // Initialize the profiles menu to be empty (the value of `use_new_picker` is
+  // chosen arbitrarily as it does not matter for an empty menu). It will be
+  // updated from the browser.
+  UpdateProfileMenu(std::vector<chrome::mojom::ProfileMenuItemPtr>(),
+                    /*use_new_picker=*/false);
 }
 
 void AppShimController::BootstrapChannelError(uint32_t custom_reason,
@@ -426,7 +438,8 @@ void AppShimController::SetBadgeLabel(const std::string& badge_label) {
 }
 
 void AppShimController::UpdateProfileMenu(
-    std::vector<chrome::mojom::ProfileMenuItemPtr> profile_menu_items) {
+    std::vector<chrome::mojom::ProfileMenuItemPtr> profile_menu_items,
+    bool use_new_picker) {
   profile_menu_items_ = std::move(profile_menu_items);
 
   NSMenuItem* cocoa_profile_menu =
@@ -438,9 +451,10 @@ void AppShimController::UpdateProfileMenu(
   }
   [cocoa_profile_menu setHidden:NO];
 
-  base::scoped_nsobject<NSMenu> menu(
-      [[NSMenu alloc] initWithTitle:l10n_util::GetNSStringWithFixup(
-                                        IDS_PROFILES_OPTIONS_GROUP_NAME)]);
+  base::scoped_nsobject<NSMenu> menu([[NSMenu alloc]
+      initWithTitle:l10n_util::GetNSStringWithFixup(
+                        use_new_picker ? IDS_PROFILES_MENU_NAME
+                                       : IDS_PROFILES_OPTIONS_GROUP_NAME)]);
   [cocoa_profile_menu setSubmenu:menu];
 
   // Note that this code to create menu items is nearly identical to the code

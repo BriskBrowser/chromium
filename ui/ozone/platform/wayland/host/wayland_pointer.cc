@@ -5,8 +5,6 @@
 #include "ui/ozone/platform/wayland/host/wayland_pointer.h"
 
 #include <linux/input.h>
-#include <wayland-client-protocol.h>
-#include <wayland-client.h>
 
 #include "ui/events/event.h"
 #include "ui/events/types/event_type.h"
@@ -23,18 +21,21 @@ WaylandPointer::WaylandPointer(wl_pointer* pointer,
                                Delegate* delegate)
     : obj_(pointer), connection_(connection), delegate_(delegate) {
   static const wl_pointer_listener listener = {
-      &WaylandPointer::Enter,  &WaylandPointer::Leave, &WaylandPointer::Motion,
-      &WaylandPointer::Button, &WaylandPointer::Axis,
-  };
-
-  DCHECK(delegate_);
-  delegate_->OnPointerCreated(this);
+      &WaylandPointer::Enter,       &WaylandPointer::Leave,
+      &WaylandPointer::Motion,      &WaylandPointer::Button,
+      &WaylandPointer::Axis,        &WaylandPointer::Frame,
+      &WaylandPointer::AxisSource,  &WaylandPointer::AxisStop,
+      &WaylandPointer::AxisDiscrete};
 
   wl_pointer_add_listener(obj_.get(), &listener, this);
 }
 
 WaylandPointer::~WaylandPointer() {
-  delegate_->OnPointerDestroyed(this);
+  // Even though, WaylandPointer::Leave is always called when Wayland destroys
+  // wl_pointer, it's better to be explicit as some Wayland compositors may have
+  // bugs.
+  delegate_->OnPointerFocusChanged(nullptr, {});
+  delegate_->OnResetPointerFlags();
 }
 
 // static
@@ -105,14 +106,10 @@ void WaylandPointer::Button(void* data,
       return;
   }
 
-  // Set serial only on button presses. Popup windows can be created on
-  // button/touch presses, and, thus, require the serial of the last serial when
-  // the button was pressed. Otherwise, Wayland server dismisses the popup
-  // requests (see the protocol definition).
-  if (state == WL_POINTER_BUTTON_STATE_PRESSED)
-    pointer->connection_->set_serial(serial);
   EventType type = state == WL_POINTER_BUTTON_STATE_PRESSED ? ET_MOUSE_PRESSED
                                                             : ET_MOUSE_RELEASED;
+  if (type == ET_MOUSE_PRESSED)
+    pointer->connection_->set_serial(serial, type);
   pointer->delegate_->OnPointerButtonEvent(type, changed_button);
 }
 
@@ -134,12 +131,45 @@ void WaylandPointer::Axis(void* data,
     offset.set_y(-wl_fixed_to_double(value) / kAxisValueScale *
                  MouseWheelEvent::kWheelDelta);
   } else if (axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL) {
-    offset.set_x(wl_fixed_to_double(value) / kAxisValueScale *
+    offset.set_x(-wl_fixed_to_double(value) / kAxisValueScale *
                  MouseWheelEvent::kWheelDelta);
   } else {
     return;
   }
   pointer->delegate_->OnPointerAxisEvent(offset);
+}
+
+// static
+void WaylandPointer::Frame(void* data, wl_pointer* obj) {
+  WaylandPointer* pointer = static_cast<WaylandPointer*>(data);
+  pointer->delegate_->OnPointerFrameEvent();
+}
+
+// static
+void WaylandPointer::AxisSource(void* data,
+                                wl_pointer* obj,
+                                uint32_t axis_source) {
+  WaylandPointer* pointer = static_cast<WaylandPointer*>(data);
+  pointer->delegate_->OnPointerAxisSourceEvent(axis_source);
+}
+
+// static
+void WaylandPointer::AxisStop(void* data,
+                              wl_pointer* obj,
+                              uint32_t time,
+                              uint32_t axis) {
+  WaylandPointer* pointer = static_cast<WaylandPointer*>(data);
+  pointer->delegate_->OnPointerAxisStopEvent(axis);
+}
+
+// static
+void WaylandPointer::AxisDiscrete(void* data,
+                                  wl_pointer* obj,
+                                  uint32_t axis,
+                                  int32_t discrete) {
+  // TODO(fukino): Use this events for better handling of mouse wheel events.
+  // crbug.com/1129259.
+  NOTIMPLEMENTED_LOG_ONCE();
 }
 
 }  // namespace ui

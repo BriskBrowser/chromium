@@ -99,11 +99,8 @@ BaseAutomationHandler = class {
     }
 
     // Decide whether to announce and sync this event.
-    const isFocusOnRoot = evt.type == 'focus' && evt.target == evt.target.root;
     if (!DesktopAutomationHandler.announceActions &&
-        evt.eventFrom == 'action' &&
-        (EventSourceState.get() != EventSourceType.TOUCH_GESTURE ||
-         isFocusOnRoot)) {
+        evt.eventFrom === 'action') {
       return;
     }
 
@@ -113,9 +110,9 @@ BaseAutomationHandler = class {
 
     // Don't output if focused node hasn't changed. Allow focus announcements
     // when interacting via touch. Touch never sets focus without a double tap.
-    if (prevRange && evt.type == 'focus' &&
+    if (prevRange && evt.type === 'focus' &&
         ChromeVoxState.instance.currentRange.equalsWithoutRecovery(prevRange) &&
-        EventSourceState.get() != EventSourceType.TOUCH_GESTURE) {
+        EventSourceState.get() !== EventSourceType.TOUCH_GESTURE) {
       return;
     }
 

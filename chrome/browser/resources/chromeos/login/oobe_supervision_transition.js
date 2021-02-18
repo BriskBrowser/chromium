@@ -7,16 +7,39 @@
  * transition screen.
  */
 
-Polymer({
-  is: 'supervision-transition-md',
+(function() {
 
-  behaviors: [OobeI18nBehavior, OobeDialogHostBehavior],
+const UIState = {
+  PROGRESS: 'progress',
+  ERROR: 'error',
+};
+
+Polymer({
+  is: 'supervision-transition-element',
+
+  behaviors: [OobeI18nBehavior, LoginScreenBehavior, MultiStepBehavior],
 
   properties: {
     /**
      * Flag that determines whether supervision is being removed or added.
      */
     isRemovingSupervision_: Boolean,
+  },
+
+  UI_STEPS: UIState,
+
+  defaultUIStep() {
+    return UIState.PROGRESS;
+  },
+
+  ready() {
+    this.initializeLoginScreen('SupervisionTransitionScreen', {
+      resetAllowed: false,
+    });
+  },
+
+  onBeforeShow(data) {
+    this.setIsRemovingSupervision(data['isRemovingSupervision']);
   },
 
   setIsRemovingSupervision(is_removing_supervision) {
@@ -38,10 +61,7 @@ Polymer({
 
   /** @private */
   showSupervisionTransitionFailedScreen_() {
-    this.$.supervisionTransitionDialog.hidden = true;
-    this.$.supervisionTransitionErrorDialog.hidden = false;
-    this.$.supervisionTransitionErrorDialog.show();
-    this.$.supervisionTransitionErrorDialog.focus();
+    this.setUIStep(UIState.ERROR);
   },
 
   /**
@@ -53,3 +73,4 @@ Polymer({
     chrome.send('finishSupervisionTransition');
   },
 });
+})();

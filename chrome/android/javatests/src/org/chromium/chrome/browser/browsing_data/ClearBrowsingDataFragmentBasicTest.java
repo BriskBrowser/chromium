@@ -16,21 +16,19 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.RuleChain;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.CollectionUtil;
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.browsing_data.ClearBrowsingDataFragment.DialogOption;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.settings.SettingsActivityTestRule;
-import org.chromium.chrome.browser.sync.AndroidSyncSettings;
 import org.chromium.chrome.browser.sync.ProfileSyncService;
-import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
+import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.browser.signin.AccountManagerTestRule;
 import org.chromium.components.sync.ModelType;
-import org.chromium.components.sync.test.util.MockSyncContentResolverDelegate;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 import java.util.HashSet;
@@ -42,13 +40,17 @@ import java.util.Set;
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 public class ClearBrowsingDataFragmentBasicTest {
-    @Rule
-    public final ChromeActivityTestRule<ChromeActivity> mActivityTestRule =
-            new ChromeActivityTestRule<>(ChromeActivity.class);
-    @Rule
+    public final ChromeTabbedActivityTestRule mActivityTestRule =
+            new ChromeTabbedActivityTestRule();
     public final SettingsActivityTestRule<ClearBrowsingDataFragmentBasic>
             mSettingsActivityTestRule =
                     new SettingsActivityTestRule<>(ClearBrowsingDataFragmentBasic.class);
+
+    // SettingsActivity has to be finished before the outer CTA can be finished or trying to finish
+    // CTA won't work.
+    @Rule
+    public final RuleChain mRuleChain =
+            RuleChain.outerRule(mActivityTestRule).around(mSettingsActivityTestRule);
 
     @Rule
     public final AccountManagerTestRule mAccountManagerTestRule = new AccountManagerTestRule();
@@ -57,9 +59,18 @@ public class ClearBrowsingDataFragmentBasicTest {
     private static final String OTHER_ACTIVITY = "other forms of browsing history";
     private static final String SIGNED_IN_DEVICES = "signed-in devices";
 
+    private StubProfileSyncService mStubProfileSyncService;
+
     @Before
     public void setUp() throws InterruptedException {
         mActivityTestRule.startMainActivityOnBlankPage();
+
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            // Can only construct StubProfileSyncService after native was initialized by
+            // startMainActivityOnBlankPage() above.
+            mStubProfileSyncService = new StubProfileSyncService();
+            ProfileSyncService.overrideForTests(mStubProfileSyncService);
+        });
     }
 
     @After
@@ -68,11 +79,15 @@ public class ClearBrowsingDataFragmentBasicTest {
     }
 
     private static class StubProfileSyncService extends ProfileSyncService {
-        private final boolean mSyncable;
+        private boolean mSyncable;
 
-        StubProfileSyncService(boolean syncable) {
-            super();
+        public void setSyncable(boolean syncable) {
             mSyncable = syncable;
+        }
+
+        @Override
+        public boolean isSyncRequested() {
+            return mSyncable;
         }
 
         @Override
@@ -80,21 +95,6 @@ public class ClearBrowsingDataFragmentBasicTest {
             return mSyncable ? CollectionUtil.newHashSet(ModelType.HISTORY_DELETE_DIRECTIVES)
                              : new HashSet<Integer>();
         }
-    }
-
-    private void setSyncable(final boolean syncable) {
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            MockSyncContentResolverDelegate delegate = new MockSyncContentResolverDelegate();
-            delegate.setMasterSyncAutomatically(syncable);
-            AndroidSyncSettings.overrideForTests(new AndroidSyncSettings(delegate));
-            if (syncable) {
-                AndroidSyncSettings.get().enableChromeSync();
-            } else {
-                AndroidSyncSettings.get().disableChromeSync();
-            }
-
-            ProfileSyncService.overrideForTests(new StubProfileSyncService(syncable));
-        });
     }
 
     private String getCheckboxSummary(PreferenceScreen screen, String preference) {
@@ -107,7 +107,7 @@ public class ClearBrowsingDataFragmentBasicTest {
      */
     @Test
     @SmallTest
-    public void testCheckBoxTextNonsigned() {
+    public void testCheckBoxTextNotSignedIn() {
         mSettingsActivityTestRule.startSettingsActivity();
 
         TestThreadUtils.runOnUiThreadBlocking(() -> {
@@ -127,15 +127,15 @@ public class ClearBrowsingDataFragmentBasicTest {
     }
 
     /**
-     * Tests that for users who are signed in but don't have sync activated,
-     * only information about your "google account" which will stay signed in
-     * and "other activity" is shown.
+     * Tests that for users who are signed in with a primary account but have
+     * sync disabled, only "google account" and "other activity" are shown.
      */
     @Test
     @SmallTest
-    public void testCheckBoxTextSigned() {
-        mAccountManagerTestRule.addAndSignInTestAccount();
-        setSyncable(false);
+    public void testCheckBoxTextSignedInButNotSyncing() {
+        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync();
+        // Simulate that Sync was stopped but the primary account remained.
+        TestThreadUtils.runOnUiThreadBlocking(() -> mStubProfileSyncService.setSyncable(false));
 
         mSettingsActivityTestRule.startSettingsActivity();
 
@@ -162,9 +162,9 @@ public class ClearBrowsingDataFragmentBasicTest {
      */
     @Test
     @SmallTest
-    public void testCheckBoxTextSignedAndSynced() {
-        mAccountManagerTestRule.addAndSignInTestAccount();
-        setSyncable(true);
+    public void testCheckBoxTextSignedInAndSyncing() {
+        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync();
+        TestThreadUtils.runOnUiThreadBlocking(() -> mStubProfileSyncService.setSyncable(true));
 
         mSettingsActivityTestRule.startSettingsActivity();
 

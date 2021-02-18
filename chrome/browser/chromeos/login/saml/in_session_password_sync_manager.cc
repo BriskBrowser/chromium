@@ -5,11 +5,12 @@
 #include "chrome/browser/chromeos/login/saml/in_session_password_sync_manager.h"
 
 #include "base/time/default_clock.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/login/lock/screen_locker.h"
+#include "chrome/browser/chromeos/login/login_pref_names.h"
 #include "chrome/browser/chromeos/login/saml/password_sync_token_fetcher.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
-#include "chrome/common/pref_names.h"
 #include "chromeos/components/proximity_auth/screenlock_bridge.h"
+#include "chromeos/login/auth/extended_authenticator.h"
 #include "chromeos/login/auth/user_context.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/core/session_manager.h"
@@ -26,7 +27,6 @@ InSessionPasswordSyncManager::InSessionPasswordSyncManager(
       clock_(base::DefaultClock::GetInstance()),
       primary_user_(ProfileHelper::Get()->GetUserByProfile(primary_profile)) {
   DCHECK(primary_user_);
-
   auto* session_manager = session_manager::SessionManager::Get();
   // Extra check as SessionManager may be not initialized in some unit
   // tests
@@ -139,6 +139,11 @@ void InSessionPasswordSyncManager::CreateTokenAsync() {
 }
 
 void InSessionPasswordSyncManager::OnTokenCreated(const std::string& token) {
+  PrefService* prefs = primary_profile_->GetPrefs();
+
+  // Set token value in prefs for in-session operations and ephemeral users and
+  // local settings for login screen sync.
+  prefs->SetString(prefs::kSamlPasswordSyncToken, token);
   user_manager::known_user::SetPasswordSyncToken(primary_user_->GetAccountId(),
                                                  token);
   lock_screen_reauth_reason_ = ReauthenticationReason::kNone;
@@ -152,7 +157,9 @@ void InSessionPasswordSyncManager::FetchTokenAsync() {
 
 void InSessionPasswordSyncManager::OnTokenFetched(const std::string& token) {
   if (!token.empty()) {
-    // Set token fetched from the endpoint.
+    // Set token fetched from the endpoint in prefs and local settings.
+    PrefService* prefs = primary_profile_->GetPrefs();
+    prefs->SetString(prefs::kSamlPasswordSyncToken, token);
     user_manager::known_user::SetPasswordSyncToken(
         primary_user_->GetAccountId(), token);
     lock_screen_reauth_reason_ = ReauthenticationReason::kNone;
@@ -171,6 +178,33 @@ void InSessionPasswordSyncManager::OnApiCallFailed(
     PasswordSyncTokenFetcher::ErrorType error_type) {
   // Ignore API errors since they are logged by TokenFetcher and will be
   // re-tried after the next verify interval.
+}
+
+void InSessionPasswordSyncManager::CheckCredentials(
+    const UserContext& user_context) {
+  extended_authenticator_ = ExtendedAuthenticator::Create(this);
+  extended_authenticator_.get()->AuthenticateToCheck(
+      user_context,
+      base::BindOnce(&InSessionPasswordSyncManager::OnPasswordAuthSuccess,
+                     weak_factory_.GetWeakPtr(), user_context));
+}
+
+void InSessionPasswordSyncManager::OnPasswordAuthSuccess(
+    const UserContext& user_context) {
+  OnAuthSucceeded(user_context);
+  lock_screen_start_reauth_dialog->Dismiss();
+}
+
+// TODO(crbug.com/1163777): Add UMA histograms for lockscreen online
+// re-authentication.
+void InSessionPasswordSyncManager::OnAuthFailure(
+    const chromeos::AuthFailure& error) {
+  NOTIMPLEMENTED();
+}
+
+void InSessionPasswordSyncManager::OnAuthSuccess(
+    const UserContext& user_context) {
+  NOTIMPLEMENTED();
 }
 
 }  // namespace chromeos

@@ -67,7 +67,6 @@ need to be translated for each locale.-->
     </if>
     <output filename="ui_strings_et.pak" type="data_package" lang="et" />
     <output filename="ui_strings_fa.pak" type="data_package" lang="fa" />
-    <output filename="ui_strings_fake-bidi.pak" type="data_package" lang="fake-bidi" />
     <output filename="ui_strings_fi.pak" type="data_package" lang="fi" />
     <output filename="ui_strings_fil.pak" type="data_package" lang="fil" />
     <output filename="ui_strings_fr.pak" type="data_package" lang="fr" />
@@ -114,6 +113,10 @@ need to be translated for each locale.-->
     <output filename="ui_strings_vi.pak" type="data_package" lang="vi" />
     <output filename="ui_strings_zh-CN.pak" type="data_package" lang="zh-CN" />
     <output filename="ui_strings_zh-TW.pak" type="data_package" lang="zh-TW" />
+
+    <!-- Pseudolocales -->
+    <output filename="ui_strings_ar-XB.pak" type="data_package" lang="ar-XB" />
+    <output filename="ui_strings_en-XA.pak" type="data_package" lang="en-XA" />
   </outputs>
   <translations>
     <file path="translations/ui_strings_af.xtb" lang="af" />
@@ -198,7 +201,7 @@ need to be translated for each locale.-->
     <file path="translations/ui_strings_zh-TW.xtb" lang="zh-TW" />
     <file path="translations/ui_strings_zu.xtb" lang="zu" />
   </translations>
-  <release seq="1" allow_pseudo="false">
+  <release seq="1">
     <messages fallback_to_english="true">
 
       <!-- time format -->
@@ -366,6 +369,9 @@ need to be translated for each locale.-->
       <message name="IDS_APP_MENU_EMPTY_SUBMENU" desc="Used when a submenu has no entries">
         (empty)
       </message>
+        <message name="IDS_CLIPBOARD_MENU_HTML" desc="Used when HTML is stored in the clipboard history">
+        HTML Content
+      </message>
       <message name="IDS_CLIPBOARD_MENU_IMAGE" desc="Used when an image is stored in the clipboard history">
         Image
       </message>
@@ -381,17 +387,25 @@ need to be translated for each locale.-->
       <message name="IDS_CLIPBOARD_MENU_DELETE_ALL" desc="Used to indicate to a user that all clipboard items will be deleted if selected">
         Delete All
       </message>
-      <message name="IDS_MENU_ITEM_NEW_BADGE" desc="Appears as a badge on menu items denoting new features">
+
+      <!-- New Badge (user education) -->
+      <message name="IDS_NEW_BADGE" desc="Appears as a badge on UI elements like menus, denoting new features">
         New
       </message>
-      <message name="IDS_MENU_ITEM_NEW_BADGE_SCREEN_READER_MESSAGE"
-               desc="Message appended to screen reader description of menu items which have the 'New' badge">
+      <message name="IDS_NEW_BADGE_SCREEN_READER_MESSAGE"
+               desc="Message appended to screen reader description of UI elements which have the 'New' badge">
         This is a new feature
       </message>
 
       <!-- General application strings -->
       <message name="IDS_SENTENCE_END" desc="The symbol that is used to end a sentence.">
         .
+      </message>
+      <message name="IDS_CONCAT_TWO_STRINGS_WITH_COMMA" desc="This string concatenates two other strings. In the English language, this particular concatenation is done via a comma and a whitespace in between the other strings. For example: '1 compromised password, 2 weak passwords'">
+        <ph name="TYPE_1">$1<ex>2 compromised passwords</ex></ph>, <ph name="TYPE_2">$2<ex>7 weak passwords</ex></ph>
+      </message>
+      <message name="IDS_CONCAT_TWO_STRINGS_WITH_PERIODS" desc="This string concatenates two other strings. In the English language, this particular concatenation is done via a period and a whitespace after the first string, and a period after the second string. For example: '1 compromised password. 2 weak passwords.'">
+        <ph name="TYPE_1">$1<ex>2 compromised passwords</ex></ph>. <ph name="TYPE_2">$2<ex>7 weak passwords</ex></ph>.
       </message>
       <if expr="is_win or is_ios">
         <message name="IDS_APP_UNTITLED_SHORTCUT_FILE_NAME" desc="The name of the Internet Shortcut file created for URLs dragged that have no title">
@@ -607,6 +621,11 @@ need to be translated for each locale.-->
       <if expr="is_macosx">
         <message name="IDS_CONTENT_CONTEXT_EMOJI" desc="The context menu item to display the OS-provided emoji picker.">
           Emoji &amp;&amp; Symbols
+        </message>
+      </if>
+      <if expr="chromeos">
+        <message name="IDS_APP_SHOW_CLIPBOARD_HISTORY" desc="The context menu item to show the clipboard history menu.">
+          Clipboard
         </message>
       </if>
 
@@ -895,6 +914,9 @@ need to be translated for each locale.-->
       <message name="IDS_ALL_APPS_INDICATOR" desc="Indicator text in the launcher on top of all apps.">
         ALL APPS
       </message>
+      <message name="IDS_APP_LIST_APP_FOCUS_NOTIFICATION_BADGE" desc="The spoken feedback text for when an app icon is focused and has a notification badge shown on the icon.">
+        <ph name="FOCUSED_APP_NAME">$1<ex>App Name</ex></ph> requests your attention.
+      </message>
       <message name="IDS_APP_LIST_APP_DRAG_LOCATION_ACCESSIBILE_NAME" desc="The spoken feedback which tells the location that a dragged app has dropped to.">
         Moved to Page <ph name="PAGE_NUMBER">$1<ex>1</ex></ph>, row <ph name="ROW_NUMBER">$2<ex>4</ex></ph>, column <ph name="COLUMN_NUMBER">$3<ex>2</ex></ph>.
       </message>
@@ -936,6 +958,9 @@ need to be translated for each locale.-->
       </message>
       <message name="IDS_APP_LIST_SUGGESTED_APPS_ACCESSIBILITY_ANNOUNCEMENT" desc="The accessibility announcement that notifies users that the UI is showing a small version of the app list">
         Launcher, partial view
+      </message>
+      <message name="IDS_APP_LIST_LAUNCHER_ACCESSIBILITY_ANNOUNCEMENT" desc="The accessibility announcement that notifies users that the UI is showing the search results">
+        Launcher
       </message>
       <message name="IDS_APP_LIST_CLEAR_SEARCHBOX" desc="Tooltip for the button that clears all text from the search box in the app list.">
         Clear searchbox text
@@ -979,6 +1004,9 @@ need to be translated for each locale.-->
       <message name="IDS_SHELF_ITEMS_WERE_SWAPPED" desc="Accessibility announcement notifying users that two shelf items have been swapped">
         <ph name="FIRST_ITEM_TITLE">$1<ex>Files</ex></ph> swapped with <ph name="SECOND_ITEM_TITLE">$2<ex>Settings</ex></ph>
       </message>
+      <message name="IDS_SHELF_ITEM_HAS_NOTIFICATION_BADGE" desc="Accessibility announcement notifying users that the currently focused shelf app button has a notification badge shown on the app button's icon.">
+        <ph name="APP_ITEM_TITLE">$1<ex>App Name</ex></ph> requests your attention.
+      </message>
       <message name="IDS_SHELF_NEXT" desc="Tooltip for the shelf arrow button that scrolls the shelf forward">
         Next
       </message>
@@ -1008,12 +1036,6 @@ need to be translated for each locale.-->
       </message>
       <message name="IDS_APP_LIST_MANAGE_SETTINGS" desc="Text of Manage settings links.">
         Manage settings
-      </message>
-      <message name="IDS_APP_LIST_ASSISTANT_PRIVACY_INFO" desc="Text shown in Launcher to imply Assistant search.">
-        Your searches are powered by the Google Assistant. <ph name="LEARN_MORE">$1<ex>Learn more</ex></ph>
-      </message>
-      <message name="IDS_APP_LIST_ASSISTANT_PRIVACY_INFO_CLOSE" desc="Close button text.">
-        Close
       </message>
       <message name="IDS_APP_LIST_SUGGESTED_CONTENT_INFO" desc="Text shown in launcher to notify users about Suggested Content. Suggested Content includes app search recommendations and website recommendations which can show up in places such as launcher search and suggestion chips.">
           Chrome OS shows suggestions for new content to explore. Sends statistics to improve quality only if you’ve chosen to share usage data. <ph name="MANAGE_SETTINGS">$1<ex>Manage settings</ex></ph>
@@ -1046,6 +1068,23 @@ need to be translated for each locale.-->
       </message>
       <message name="IDS_APP_LIST_SEARCH_BOX_PLACEHOLDER" desc="Placeholder text for the search box shown in the app list UI.">
         Search your device, apps, settings, web...
+      </message>
+
+      <!-- Clipboard history menu -->
+      <message name="IDS_CLIPBOARD_HISTORY_MENU_BITMAP_IMAGE" desc="Accessibility text for the bitmap image shown on the clipboard history menu">
+        Image.
+      </message>
+      <message name="IDS_CLIPBOARD_HISTORY_MENU_HTML_IMAGE" desc="Accessibility text for the HTML-rendered image shown on the clipboard history menu">
+        HTML content.
+      </message>
+      <message name="IDS_CLIPBOARD_HISTORY_MENU_TITLE" desc="The title of the clipboard history menu which shows the history of the clipboard data">
+        Clipboard history
+      </message>
+      <message name="IDS_CLIPBOARD_HISTORY_DELETE_BUTTON" desc="Accessibility name of the button which functions to delete a clipboard history menu entry">
+        Remove from clipboard.
+      </message>
+      <message name="IDS_CLIPBOARD_HISTORY_ITEM_DELETION" desc="Accessibility text when a clipboard history menu entry is deleted">
+        Removed.
       </message>
 
       <!-- Strings describing the touch calibration UX -->
@@ -1105,15 +1144,6 @@ need to be translated for each locale.-->
       <message name="IDS_BROWSER_SHARING_CLICK_TO_CALL_DIALOG_TITLE_NO_DEVICES" desc="The label to be shown as the title of the dialog when user click on a phone number, if there are no phones or apps to choose from.">
         Call this number from your phone?
       </message>
-      <message name="IDS_BROWSER_SHARING_CLICK_TO_CALL_DIALOG_HELP_TEXT_NO_DEVICES" desc="The label to be shown as a help text of the dialog when user click on a phone number, if there are no phones to choose from.">
-        To send a number from here to your Android phone, <ph name="TROUBLESHOOT_LINK">$1<ex>turn on sync</ex></ph> for both devices in settings.
-      </message>
-      <message name="IDS_BROWSER_SHARING_CLICK_TO_CALL_DIALOG_HELP_TEXT_NO_DEVICES_ORIGIN" desc="The label to be shown as a help text of the dialog when user click on a phone number, if there are no phones to choose from.">
-        To send a number from <ph name="ORIGIN">$1<ex>www.google.com</ex></ph> to your Android phone, <ph name="TROUBLESHOOT_LINK">$2<ex>turn on sync</ex></ph> for both devices in settings.
-      </message>
-      <message name="IDS_BROWSER_SHARING_CLICK_TO_CALL_DIALOG_TROUBLESHOOT_LINK" desc="The label to be shown on the dialog when user click on a phone number for the link to a help page to turn on sync.">
-        turn on sync
-      </message>
       <message name="IDS_BROWSER_SHARING_CLICK_TO_CALL_DIALOG_CALL_BUTTON_LABEL" desc="The button label to make a call, shown in the Click to Call dialog.">
         Make call
       </message>
@@ -1143,9 +1173,6 @@ need to be translated for each locale.-->
         Couldn't share <ph name="CONTENT_TYPE">$1<ex>video</ex></ph>
       </message>
 
-      <message name="IDS_BROWSER_SHARING_ERROR_DIALOG_TEXT_DEVICE_NOT_FOUND" desc="The text to be shown on the dialog when an error occurred because the device is not synced.">
-        Make sure <ph name="TARGET_DEVICE_NAME">$1<ex>Pixel XL</ex></ph> has sync turned on in Chrome, and then try sending again.
-      </message>
       <message name="IDS_BROWSER_SHARING_ERROR_DIALOG_TEXT_NETWORK_ERROR" desc="The text to be shown on the dialog when the sender device has network issues.">
         Make sure this device is connected to the internet.
       </message>

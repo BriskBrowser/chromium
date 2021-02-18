@@ -24,10 +24,10 @@ struct AllowlistEntry {
   const char* const* arg_name_filter;
 };
 
-const char* const kScopedBlockingCallAllowedArgs[] = {"file_name",
-                                                      "function_name", nullptr};
+const char* const kScopedBlockingCallAllowedArgs[] = {
+    "file_name", "function_name", "source_location", nullptr};
 const char* const kPeekMessageAllowedArgs[] = {"sent_messages_in_queue",
-                                               nullptr};
+                                               "chrome_message_pump", nullptr};
 const char* const kFallbackFontAllowedArgs[] = {"font_name",
                                                 "primary_font_name", nullptr};
 const char* const kGetFallbackFontsAllowedArgs[] = {"script", nullptr};
@@ -38,7 +38,8 @@ const char* const kMemoryDumpAllowedArgs[] = {
 const char* const kRendererHostAllowedArgs[] = {
     "class",           "line", "should_background", "has_pending_views",
     "bytes_allocated", nullptr};
-const char* const kUIAllowedArgs[] = {"dpi", "message_id", nullptr};
+const char* const kUIAllowedArgs[] = {
+    "dpi", "message_id", "chrome_window_handle_event_info", nullptr};
 const char* const kV8GCAllowedArgs[] = {"num_items", "num_tasks", nullptr};
 const char* const kTopLevelFlowAllowedArgs[] = {"task_queue_name", nullptr};
 const char* const kTopLevelIpcRunTaskAllowedArgs[] = {"ipc_hash", nullptr};
@@ -49,6 +50,7 @@ const char* const kMemoryPressureEventsAllowedArgs[] = {
     "level", "listener_creation_info", nullptr};
 
 const AllowlistEntry kEventArgsAllowlist[] = {
+    // Thread and process names are now recorded in perfetto.
     {"__metadata", "thread_name", nullptr},
     {"__metadata", "process_name", nullptr},
     {"__metadata", "process_uptime_seconds", nullptr},
@@ -69,7 +71,6 @@ const AllowlistEntry kEventArgsAllowlist[] = {
     {"base", "ScopedBlockingCall*", kScopedBlockingCallAllowedArgs},
     {"base", "ScopedMayLoadLibraryAtBackgroundPriority",
      kScopedBlockingCallAllowedArgs},
-    {"benchmark", "TestAllowlist*", nullptr},
     {"blink", "MemoryPressureListenerRegistry::onMemoryPressure",
      kMemoryPressureEventsAllowedArgs},
     {"browser", "KeyedServiceFactory::GetServiceForContext", nullptr},
@@ -86,8 +87,10 @@ const AllowlistEntry kEventArgsAllowlist[] = {
      kMemoryPressureEventsAllowedArgs},
     {"renderer_host", "*", kRendererHostAllowedArgs},
     {"shutdown", "*", nullptr},
+    // Now recorded in perfetto proto:
+    // perfetto/trace/track_event/chrome_content_settings_event_info.proto.
     {"startup", "PrefProvider::PrefProvider", nullptr},
-    {"task_scheduler", "*", nullptr},
+    {"startup", "TestAllowlist*", nullptr},
     {"toplevel", "*", nullptr},
     {"toplevel.ipc", "TaskAnnotator::RunTask", kTopLevelIpcRunTaskAllowedArgs},
     {TRACE_DISABLED_BY_DEFAULT("cpu_profiler"), "*", nullptr},

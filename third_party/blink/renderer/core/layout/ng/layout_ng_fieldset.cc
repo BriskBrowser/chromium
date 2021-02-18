@@ -113,6 +113,13 @@ void LayoutNGFieldset::UpdateAnonymousChildStyle(
   child_style.SetOverflowX(StyleRef().OverflowX());
   child_style.SetOverflowY(StyleRef().OverflowY());
   child_style.SetUnicodeBidi(StyleRef().GetUnicodeBidi());
+
+  // If the FIELDSET is an OOF container, the anonymous content box should be
+  // an OOF container to steal OOF objects under the FIELDSET.
+  if (CanContainFixedPositionObjects())
+    child_style.SetContain(kContainsPaint);
+  else if (StyleRef().CanContainAbsolutePositionObjects())
+    child_style.SetPosition(EPosition::kRelative);
 }
 
 bool LayoutNGFieldset::IsOfType(LayoutObjectType type) const {
@@ -140,17 +147,40 @@ bool LayoutNGFieldset::BackgroundIsKnownToBeOpaqueInRect(
   return LayoutBlockFlow::BackgroundIsKnownToBeOpaqueInRect(local_rect);
 }
 
+bool LayoutNGFieldset::HitTestChildren(HitTestResult& result,
+                                       const HitTestLocation& hit_test_location,
+                                       const PhysicalOffset& accumulated_offset,
+                                       HitTestAction hit_test_action) {
+  if (LayoutNGBlockFlow::HitTestChildren(result, hit_test_location,
+                                         accumulated_offset, hit_test_action))
+    return true;
+
+  DCHECK(!RuntimeEnabledFeatures::LayoutNGFragmentTraversalEnabled());
+  LayoutBox* legend = LayoutFieldset::FindInFlowLegend(*this);
+  if (!legend || legend->HasSelfPaintingLayer() || legend->IsColumnSpanAll())
+    return false;
+  if (legend->NodeAtPoint(result, hit_test_location,
+                          accumulated_offset + legend->PhysicalLocation(this),
+                          hit_test_action == kHitTestChildBlockBackgrounds
+                              ? kHitTestChildBlockBackground
+                              : hit_test_action)) {
+    UpdateHitTestResult(result, hit_test_location.Point() - accumulated_offset);
+    return true;
+  }
+  return false;
+}
+
 LayoutUnit LayoutNGFieldset::ScrollWidth() const {
   const LayoutObject* child = FirstChild();
   if (child && child->IsAnonymous())
-    return ToLayoutBox(child)->ScrollWidth();
+    return To<LayoutBox>(child)->ScrollWidth();
   return LayoutNGBlockFlow::ScrollWidth();
 }
 
 LayoutUnit LayoutNGFieldset::ScrollHeight() const {
   const LayoutObject* child = FirstChild();
   if (child && child->IsAnonymous())
-    return ToLayoutBox(child)->ScrollHeight();
+    return To<LayoutBox>(child)->ScrollHeight();
   return LayoutNGBlockFlow::ScrollHeight();
 }
 

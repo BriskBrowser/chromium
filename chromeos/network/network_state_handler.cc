@@ -21,10 +21,8 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/network/device_state.h"
 #include "chromeos/network/network_connection_handler.h"
-#include "chromeos/network/network_device_handler.h"
 #include "chromeos/network/network_event_log.h"
 #include "chromeos/network/network_handler_callbacks.h"
 #include "chromeos/network/network_state_handler_observer.h"
@@ -45,8 +43,8 @@ constexpr char kReasonTether[] = "Tether Change";
 
 bool ConnectionStateChanged(const NetworkState* network,
                             const std::string& prev_connection_state,
-                            bool prev_is_captive_portal) {
-  if (network->is_captive_portal() != prev_is_captive_portal)
+                            NetworkState::PortalState prev_portal_state) {
+  if (network->portal_state() != prev_portal_state)
     return true;
   std::string connection_state = network->connection_state();
   bool prev_idle = prev_connection_state.empty() ||
@@ -201,6 +199,10 @@ const NetworkState* NetworkStateHandler::GetAvailableManagedWifiNetwork()
   return GetNetworkState(available_managed_network_path);
 }
 
+bool NetworkStateHandler::IsProfileNetworksLoaded() {
+  return is_profile_networks_loaded_;
+}
+
 bool NetworkStateHandler::OnlyManagedWifiNetworksAllowed() const {
   return allow_only_policy_networks_to_connect_ ||
          (allow_only_policy_networks_to_connect_if_available_ &&
@@ -339,6 +341,9 @@ void NetworkStateHandler::SetTetherScanState(bool is_scanning) {
   if (was_scanning && !is_scanning) {
     // If a scan was in progress but has completed, notify observers.
     NotifyScanCompleted(tether_device_state);
+  } else if (!was_scanning && is_scanning) {
+    // If a scan was started, notify observers.
+    NotifyScanStarted(tether_device_state);
   }
 }
 
@@ -498,8 +503,18 @@ void NetworkStateHandler::SetNetworkConnectRequested(
   if (!network)
     return;
   network->connect_requested_ = connect_requested;
+  network->shill_connect_error_.clear();
   network_list_sorted_ = false;
   OnNetworkConnectionStateChanged(network);
+}
+
+void NetworkStateHandler::SetShillConnectError(
+    const std::string& service_path,
+    const std::string& shill_connect_error) {
+  NetworkState* network = GetModifiableNetworkState(service_path);
+  if (!network)
+    return;
+  network->shill_connect_error_ = shill_connect_error;
 }
 
 void NetworkStateHandler::SetNetworkChromePortalDetected(
@@ -510,8 +525,7 @@ void NetworkStateHandler::SetNetworkChromePortalDetected(
     return;
   bool was_captive_portal = network->IsCaptivePortal();
   network->is_chrome_captive_portal_ = portal_detected;
-  // Only notify a connection state change if IsCaptivePortal() changed, i.e.
-  // is_chrome_captive_portal_ != (shill) is_captive_portal_.
+  // Only notify a connection state change if IsCaptivePortal() changed.
   if (was_captive_portal == network->IsCaptivePortal())
     return;
   network_list_sorted_ = false;
@@ -933,9 +947,8 @@ void NetworkStateHandler::SetTetherNetworkStateConnectionState(
   tether_network_state->SetConnectionState(connection_state);
   network_list_sorted_ = false;
 
-  DCHECK(!tether_network_state->is_captive_portal());
   if (ConnectionStateChanged(tether_network_state, prev_connection_state,
-                             false /* prev_is_captive_portal */)) {
+                             tether_network_state->portal_state())) {
     NET_LOG(EVENT) << "Changing connection state for Tether network with GUID "
                    << guid << ". Old state: " << prev_connection_state << ", "
                    << "New state: " << connection_state;
@@ -1111,38 +1124,6 @@ void NetworkStateHandler::SetCheckPortalList(
   shill_property_handler_->SetCheckPortalList(check_portal_list);
 }
 
-void NetworkStateHandler::SetCaptivePortalProviderForHexSsid(
-    const std::string& hex_ssid,
-    const std::string& provider_id,
-    const std::string& provider_name) {
-  NET_LOG(EVENT) << "SetCaptivePortalProviderForHexSsid: " << hex_ssid
-                 << " -> (" << provider_id << ", " << provider_name << ")";
-  // NetworkState hex SSIDs are always uppercase.
-  std::string hex_ssid_uc = hex_ssid;
-  transform(hex_ssid_uc.begin(), hex_ssid_uc.end(), hex_ssid_uc.begin(),
-            toupper);
-  if (provider_id.empty()) {
-    hex_ssid_to_captive_portal_provider_map_.erase(hex_ssid_uc);
-  } else {
-    NetworkState::CaptivePortalProviderInfo provider_info;
-    provider_info.id = provider_id;
-    provider_info.name = provider_name;
-    hex_ssid_to_captive_portal_provider_map_[hex_ssid_uc] =
-        std::move(provider_info);
-  }
-  // When a new entry is added or removed from the map, check all networks
-  // for a matching hex SSID and update the provider info. (This should occur
-  // infrequently). New networks will be updated when added.
-  for (auto& managed : network_list_) {
-    NetworkState* network = managed->AsNetworkState();
-    if (network->GetHexSsid() == hex_ssid_uc) {
-      NET_LOG(EVENT) << "Setting captive portal provider for network: "
-                     << NetworkId(network) << " = " << provider_id;
-      network->SetCaptivePortalProvider(provider_id, provider_name);
-    }
-  }
-}
-
 void NetworkStateHandler::SetWakeOnLanEnabled(bool enabled) {
   NET_LOG(EVENT) << "SetWakeOnLanEnabled: " << enabled;
   shill_property_handler_->SetWakeOnLanEnabled(enabled);
@@ -1312,8 +1293,9 @@ void NetworkStateHandler::UpdateManagedList(ManagedState::ManagedType type,
   }
 }
 
-void NetworkStateHandler::ProfileListChanged() {
+void NetworkStateHandler::ProfileListChanged(const base::Value& profile_list) {
   NET_LOG(EVENT) << "ProfileListChanged. Re-Requesting Network Properties";
+  ProcessIsUserLoggedIn(profile_list);
   for (ManagedStateList::iterator iter = network_list_.begin();
        iter != network_list_.end(); ++iter) {
     const NetworkState* network = (*iter)->AsNetworkState();
@@ -1356,7 +1338,7 @@ void NetworkStateHandler::UpdateNetworkStateProperties(
   DCHECK(network);
   bool network_property_updated = false;
   std::string prev_connection_state = network->connection_state();
-  bool prev_is_captive_portal = network->is_captive_portal();
+  NetworkState::PortalState prev_portal_state = network->portal_state();
   bool metered = false;
   for (const auto iter : properties.DictItems()) {
     if (network->PropertyChanged(iter.first, iter.second))
@@ -1372,7 +1354,6 @@ void NetworkStateHandler::UpdateNetworkStateProperties(
   network_property_updated |= network->InitialPropertiesReceived(properties);
 
   UpdateGuid(network);
-  UpdateCaptivePortalProvider(network);
   if (network->Matches(NetworkTypePattern::Cellular()))
     UpdateCellularStateFromDevice(network);
 
@@ -1382,7 +1363,7 @@ void NetworkStateHandler::UpdateNetworkStateProperties(
   if (network_property_updated || network->update_requested()) {
     // Signal connection state changed after all properties have been updated.
     if (ConnectionStateChanged(network, prev_connection_state,
-                               prev_is_captive_portal)) {
+                               prev_portal_state)) {
       // Also notifies that the default network changed if this is the default.
       OnNetworkConnectionStateChanged(network);
     } else if (network->path() == default_network_path_ &&
@@ -1411,7 +1392,7 @@ void NetworkStateHandler::UpdateNetworkServiceProperty(
     return;
   }
   std::string prev_connection_state = network->connection_state();
-  bool prev_is_captive_portal = network->is_captive_portal();
+  NetworkState::PortalState prev_portal_state = network->portal_state();
   std::string prev_profile_path = network->profile_path();
   changed |= network->PropertyChanged(key, value);
   changed |= UpdateBlockedByPolicy(network);
@@ -1429,7 +1410,7 @@ void NetworkStateHandler::UpdateNetworkServiceProperty(
   if (key == shill::kStateProperty || key == shill::kVisibleProperty) {
     network_list_sorted_ = false;
     if (ConnectionStateChanged(network, prev_connection_state,
-                               prev_is_captive_portal)) {
+                               prev_portal_state)) {
       notify_connection_state = true;
       notify_active = true;
       if (notify_default)
@@ -1569,6 +1550,7 @@ void NetworkStateHandler::CheckPortalListChanged(
 }
 
 void NetworkStateHandler::HostnameChanged(const std::string& hostname) {
+  NET_LOG(EVENT) << "HostnameChanged: " << hostname;
   hostname_ = hostname;
   for (auto& observer : observers_)
     observer.HostnameChanged(hostname);
@@ -1590,6 +1572,10 @@ void NetworkStateHandler::ManagedStateListChanged(
       NotifyIfActiveNetworksChanged();
       NotifyNetworkListChanged();
       UpdateManagedWifiNetworkAvailable();
+      // ManagedStateListChanged only gets executed if all pending updates have
+      // completed. Profile networks are loaded if a user is logged in and all
+      // pending updates are complete.
+      is_profile_networks_loaded_ = is_user_logged_in_;
       return;
     case ManagedState::MANAGED_TYPE_DEVICE:
       std::string devices;
@@ -1796,19 +1782,6 @@ void NetworkStateHandler::UpdateGuid(NetworkState* network) {
   network->SetGuid(guid);
 }
 
-void NetworkStateHandler::UpdateCaptivePortalProvider(NetworkState* network) {
-  auto portal_iter =
-      hex_ssid_to_captive_portal_provider_map_.find(network->GetHexSsid());
-  if (portal_iter == hex_ssid_to_captive_portal_provider_map_.end()) {
-    network->SetCaptivePortalProvider("", "");
-    return;
-  }
-  NET_LOG(EVENT) << "Setting captive portal provider for network: "
-                 << NetworkId(network) << " = " << portal_iter->second.id;
-  network->SetCaptivePortalProvider(portal_iter->second.id,
-                                    portal_iter->second.name);
-}
-
 void NetworkStateHandler::UpdateCellularStateFromDevice(NetworkState* network) {
   const DeviceState* device = GetDeviceState(network->device_path());
   if (!device)
@@ -1945,8 +1918,10 @@ void NetworkStateHandler::OnNetworkConnectionStateChanged(
 bool NetworkStateHandler::VerifyDefaultNetworkConnectionStateChange(
     NetworkState* network) {
   DCHECK(network->path() == default_network_path_);
-  if (network->IsConnectedState())
+  if (network->IsConnectedState() ||
+      NetworkState::StateIsPortalled(network->connection_state())) {
     return true;
+  }
   if (network->IsConnectingState()) {
     // Wait until the network is actually connected to notify that the default
     // network changed.
@@ -1991,6 +1966,24 @@ void NetworkStateHandler::NotifyDefaultNetworkChanged(
   notifying_network_observers_ = true;
   for (auto& observer : observers_)
     observer.DefaultNetworkChanged(default_network);
+
+  if (default_network &&
+      (default_network->portal_state() != default_network_portal_state_ ||
+       default_network->proxy_config() != default_network_proxy_config_)) {
+    default_network_portal_state_ = default_network->portal_state();
+    default_network_proxy_config_ = default_network->proxy_config().Clone();
+    for (auto& observer : observers_) {
+      observer.PortalStateChanged(default_network,
+                                  default_network_portal_state_);
+    }
+  } else if (!default_network && (default_network_portal_state_ !=
+                                      NetworkState::PortalState::kUnknown ||
+                                  !default_network_proxy_config_.is_none())) {
+    default_network_portal_state_ = NetworkState::PortalState::kUnknown;
+    default_network_proxy_config_ = base::Value();
+    for (auto& observer : observers_)
+      observer.PortalStateChanged(nullptr, NetworkState::PortalState::kUnknown);
+  }
   notifying_network_observers_ = false;
 }
 
@@ -2060,6 +2053,13 @@ void NetworkStateHandler::NotifyScanCompleted(const DeviceState* device) {
     observer.ScanCompleted(device);
 }
 
+void NetworkStateHandler::NotifyScanStarted(const DeviceState* device) {
+  SCOPED_NET_LOG_IF_SLOW();
+  NET_LOG(EVENT) << "NOTIFY: ScanStarted for: " << device->path();
+  for (auto& observer : observers_)
+    observer.ScanStarted(device);
+}
+
 void NetworkStateHandler::LogPropertyUpdated(const ManagedState* state,
                                              const std::string& key,
                                              const base::Value& value) {
@@ -2069,9 +2069,7 @@ void NetworkStateHandler::LogPropertyUpdated(const ManagedState* state,
           : state->path() == default_network_path_ ? "DefaultNetwork"
                                                    : "Network";
   device_event_log::LogLevel log_level = device_event_log::LOG_LEVEL_EVENT;
-  if (key == shill::kErrorProperty || key == shill::kErrorDetailsProperty)
-    log_level = device_event_log::LOG_LEVEL_ERROR;
-  else if (key == shill::kSignalStrengthProperty && !state->IsActive())
+  if (key == shill::kSignalStrengthProperty && !state->IsActive())
     log_level = device_event_log::LOG_LEVEL_DEBUG;
   DEVICE_LOG(::device_event_log::LOG_TYPE_NETWORK, log_level)
       << type_str << "PropertyUpdated: " << GetLogName(state) << ", " << key
@@ -2118,6 +2116,16 @@ void NetworkStateHandler::SetDefaultNetworkValues(const std::string& path,
                                                   bool metered) {
   default_network_path_ = path;
   default_network_is_metered_ = metered;
+}
+
+void NetworkStateHandler::ProcessIsUserLoggedIn(
+    const base::Value& profile_list) {
+  if (!profile_list.is_list()) {
+    return;
+  }
+  // The profile list contains the shared profile on the login screen. Once the
+  // user is logged in there is more than one profile in the profile list.
+  is_user_logged_in_ = profile_list.GetList().size() > 1;
 }
 
 }  // namespace chromeos

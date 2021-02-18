@@ -12,7 +12,6 @@
 #include "base/callback_forward.h"
 #include "base/containers/span.h"
 #include "base/files/file_path.h"
-#include "base/macros.h"
 #include "base/sequence_checker.h"
 #include "base/strings/string16.h"
 #include "ui/gfx/image/image_family.h"
@@ -31,6 +30,8 @@ namespace web_app {
 // Represents the info required to create a shortcut for an app.
 struct ShortcutInfo {
   ShortcutInfo();
+  ShortcutInfo(const ShortcutInfo&) = delete;
+  ShortcutInfo& operator=(const ShortcutInfo&) = delete;
   ~ShortcutInfo();
 
   GURL url;
@@ -58,7 +59,6 @@ struct ShortcutInfo {
   // its member and is bound to current thread, always destroy ShortcutInfo
   // instance on the same thread.
   SEQUENCE_CHECKER(sequence_checker_);
-  DISALLOW_COPY_AND_ASSIGN(ShortcutInfo);
 };
 
 // This specifies a folder in the system applications menu (e.g the Start Menu
@@ -94,7 +94,8 @@ struct ShortcutLocations {
   bool in_quick_launch_bar;
 
   // For Windows, this refers to the Startup folder.
-  // TODO(crbug.com/897302): where to create shortcuts in other OS.
+  // For Mac, this refers to the Login Items list.
+  // For Linux, this refers to the autostart folder.
   bool in_startup;
 };
 
@@ -164,6 +165,10 @@ void ScheduleDeletePlatformShortcuts(
     std::unique_ptr<ShortcutInfo> shortcut_info,
     DeleteShortcutsCallback callback);
 
+void ScheduleDeleteMultiProfileShortcutsForApp(
+    const std::string& app_id,
+    DeleteShortcutsCallback callback);
+
 // Delete all the shortcuts we have added for this extension. This is the
 // platform specific implementation of the DeleteAllShortcuts function, and
 // is executed on the FILE thread.
@@ -196,10 +201,6 @@ void PostShortcutIOTaskAndReply(
 // with ensuring Profile changes are reflected on disk, so shutdown is always
 // blocked so that an inconsistent shortcut state is not left on disk.
 scoped_refptr<base::TaskRunner> GetShortcutIOTaskRunner();
-
-// Sanitizes |name| and returns a version of it that is safe to use as an
-// on-disk file name .
-base::FilePath GetSanitizedFileName(const base::string16& name);
 
 base::FilePath GetShortcutDataDir(const ShortcutInfo& shortcut_info);
 

@@ -13,9 +13,9 @@
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
-#include "content/browser/frame_host/frame_tree_node.h"
-#include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/loader/merkle_integrity_source_stream.h"
+#include "content/browser/renderer_host/frame_tree_node.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/web_package/prefetched_signed_exchange_cache_entry.h"
 #include "content/browser/web_package/signed_exchange_cert_fetcher_factory.h"
@@ -80,19 +80,18 @@ bool IsSupportedSignedExchangeVersion(
   return version == SignedExchangeVersion::kB3;
 }
 
-using VerifyCallback = base::OnceCallback<void(int32_t,
-                                               const net::CertVerifyResult&,
-                                               const net::ct::CTVerifyResult&)>;
+using VerifyCallback =
+    base::OnceCallback<void(int32_t, const net::CertVerifyResult&)>;
 
 void VerifyCert(const scoped_refptr<net::X509Certificate>& certificate,
                 const GURL& url,
+                const net::NetworkIsolationKey& network_isolation_key,
                 const std::string& ocsp_result,
                 const std::string& sct_list,
                 int frame_tree_node_id,
                 VerifyCallback callback) {
   VerifyCallback wrapped_callback = mojo::WrapCallbackWithDefaultInvokeIfNotRun(
-      std::move(callback), net::ERR_FAILED, net::CertVerifyResult(),
-      net::ct::CTVerifyResult());
+      std::move(callback), net::ERR_FAILED, net::CertVerifyResult());
 
   network::mojom::NetworkContext* network_context =
       g_network_context_for_testing;
@@ -108,7 +107,8 @@ void VerifyCert(const scoped_refptr<net::X509Certificate>& certificate,
   }
 
   network_context->VerifyCertForSignedExchange(
-      certificate, url, ocsp_result, sct_list, std::move(wrapped_callback));
+      certificate, url, network_isolation_key, ocsp_result, sct_list,
+      std::move(wrapped_callback));
 }
 
 std::string OCSPErrorToString(const net::OCSPVerifyResult& ocsp_result) {
@@ -171,7 +171,9 @@ SignedExchangeHandler::SignedExchangeHandler(
     std::unique_ptr<net::SourceStream> body,
     ExchangeHeadersCallback headers_callback,
     std::unique_ptr<SignedExchangeCertFetcherFactory> cert_fetcher_factory,
+    const net::NetworkIsolationKey& network_isolation_key,
     int load_flags,
+    const net::IPEndPoint& remote_endpoint,
     std::unique_ptr<blink::WebPackageRequestMatcher> request_matcher,
     std::unique_ptr<SignedExchangeDevToolsProxy> devtools_proxy,
     SignedExchangeReporter* reporter,
@@ -181,7 +183,9 @@ SignedExchangeHandler::SignedExchangeHandler(
       headers_callback_(std::move(headers_callback)),
       source_(std::move(body)),
       cert_fetcher_factory_(std::move(cert_fetcher_factory)),
+      network_isolation_key_(network_isolation_key),
       load_flags_(load_flags),
+      remote_endpoint_(remote_endpoint),
       request_matcher_(std::move(request_matcher)),
       devtools_proxy_(std::move(devtools_proxy)),
       reporter_(reporter),
@@ -523,8 +527,8 @@ void SignedExchangeHandler::OnCertReceived(
   //   property, or
   const std::string& stapled_ocsp_response = unverified_cert_chain_->ocsp();
 
-  VerifyCert(certificate, url, stapled_ocsp_response, sct_list_from_cert_cbor,
-             frame_tree_node_id_,
+  VerifyCert(certificate, url, network_isolation_key_, stapled_ocsp_response,
+             sct_list_from_cert_cbor, frame_tree_node_id_,
              base::BindOnce(&SignedExchangeHandler::OnVerifyCert,
                             weak_factory_.GetWeakPtr()));
 }
@@ -538,14 +542,10 @@ SignedExchangeLoadResult SignedExchangeHandler::CheckCertRequirements(
   if (!net::asn1::HasCanSignHttpExchangesDraftExtension(
           net::x509_util::CryptoBufferAsStringPiece(
               verified_cert->cert_buffer())) &&
-      !base::FeatureList::IsEnabled(
-          features::kAllowSignedHTTPExchangeCertsWithoutExtension) &&
       !unverified_cert_chain_->ShouldIgnoreErrors()) {
     signed_exchange_utils::ReportErrorAndTraceEvent(
         devtools_proxy_.get(),
-        "Certificate must have CanSignHttpExchangesDraft extension. To ignore "
-        "this error for testing, enable "
-        "chrome://flags/#allow-sxg-certs-without-extension.",
+        "Certificate must have CanSignHttpExchangesDraft extension.",
         std::make_pair(0 /* signature_index */,
                        SignedExchangeError::Field::kSignatureCertUrl));
     return SignedExchangeLoadResult::kCertRequirementsNotMet;
@@ -597,14 +597,13 @@ bool SignedExchangeHandler::CheckOCSPStatus(
 
 void SignedExchangeHandler::OnVerifyCert(
     int32_t error_code,
-    const net::CertVerifyResult& cv_result,
-    const net::ct::CTVerifyResult& ct_result) {
+    const net::CertVerifyResult& cv_result) {
   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("loading"),
                "SignedExchangeHandler::OnCertVerifyComplete");
   // net::Error codes are negative, so we put - in front of it.
   base::UmaHistogramSparse(kHistogramCertVerificationResult, -error_code);
   UMA_HISTOGRAM_ENUMERATION(kHistogramCTVerificationResult,
-                            ct_result.policy_compliance,
+                            cv_result.policy_compliance,
                             net::ct::CTPolicyCompliance::CT_POLICY_COUNT);
 
   if (error_code != net::OK) {
@@ -614,7 +613,7 @@ void SignedExchangeHandler::OnVerifyCert(
       error_message = base::StringPrintf(
           "CT verification failed. result: %s, policy compliance: %d",
           net::ErrorToShortString(error_code).c_str(),
-          ct_result.policy_compliance);
+          cv_result.policy_compliance);
       result = SignedExchangeLoadResult::kCTVerificationError;
     } else {
       error_message =
@@ -674,6 +673,7 @@ void SignedExchangeHandler::OnVerifyCert(
   response_head->load_timing.send_end = now;
   response_head->load_timing.receive_headers_end = now;
   response_head->content_length = response_head->headers->GetContentLength();
+  response_head->remote_endpoint = remote_endpoint_;
 
   auto body_stream = CreateResponseBodyStream();
   if (!body_stream) {
@@ -690,7 +690,8 @@ void SignedExchangeHandler::OnVerifyCert(
   ssl_info.public_key_hashes = cv_result.public_key_hashes;
   ssl_info.ocsp_result = cv_result.ocsp_result;
   ssl_info.is_fatal_cert_error = net::IsCertStatusError(ssl_info.cert_status);
-  ssl_info.UpdateCertificateTransparencyInfo(ct_result);
+  ssl_info.signed_certificate_timestamps = cv_result.scts;
+  ssl_info.ct_policy_compliance = cv_result.policy_compliance;
 
   if (devtools_proxy_) {
     devtools_proxy_->OnSignedExchangeReceived(

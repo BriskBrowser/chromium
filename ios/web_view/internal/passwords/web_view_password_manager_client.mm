@@ -8,11 +8,11 @@
 #include <utility>
 
 #include "components/autofill/core/browser/logging/log_manager.h"
-#include "components/autofill/core/common/password_form.h"
 #include "components/keyed_service/core/service_access_type.h"
+#include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
-#include "components/password_manager/ios/credential_manager_util.h"
+#include "components/password_manager/ios/password_manager_ios_util.h"
 #import "ios/web_view/internal/passwords/web_view_account_password_store_factory.h"
 #import "ios/web_view/internal/passwords/web_view_password_manager_log_router_factory.h"
 #import "ios/web_view/internal/passwords/web_view_password_requirements_service_factory.h"
@@ -97,17 +97,21 @@ SyncState WebViewPasswordManagerClient::GetPasswordSyncState() const {
 }
 
 bool WebViewPasswordManagerClient::PromptUserToChooseCredentials(
-    std::vector<std::unique_ptr<autofill::PasswordForm>> local_forms,
+    std::vector<std::unique_ptr<password_manager::PasswordForm>> local_forms,
     const url::Origin& origin,
     CredentialsCallback callback) {
   NOTIMPLEMENTED();
   return false;
 }
 
+bool WebViewPasswordManagerClient::RequiresReauthToFill() {
+  return true;
+}
+
 bool WebViewPasswordManagerClient::PromptUserToSaveOrUpdatePassword(
     std::unique_ptr<PasswordFormManagerForUI> form_to_save,
     bool update_password) {
-  if (form_to_save->IsBlacklisted()) {
+  if (form_to_save->IsBlocklisted()) {
     return false;
   }
   if (!password_feature_manager_.IsOptedInForAccountStorage()) {
@@ -126,11 +130,6 @@ bool WebViewPasswordManagerClient::PromptUserToSaveOrUpdatePassword(
 void WebViewPasswordManagerClient::PromptUserToMovePasswordToAccount(
     std::unique_ptr<PasswordFormManagerForUI> form_to_move) {
   NOTIMPLEMENTED();
-}
-
-bool WebViewPasswordManagerClient::ShowOnboarding(
-    std::unique_ptr<password_manager::PasswordFormManagerForUI> form_to_save) {
-  return false;
 }
 
 void WebViewPasswordManagerClient::ShowManualFallbackForSaving(
@@ -187,7 +186,7 @@ PasswordStore* WebViewPasswordManagerClient::GetAccountPasswordStore() const {
 }
 
 void WebViewPasswordManagerClient::NotifyUserAutoSignin(
-    std::vector<std::unique_ptr<autofill::PasswordForm>> local_forms,
+    std::vector<std::unique_ptr<password_manager::PasswordForm>> local_forms,
     const url::Origin& origin) {
   DCHECK(!local_forms.empty());
   helper_.NotifyUserAutoSignin();
@@ -195,7 +194,7 @@ void WebViewPasswordManagerClient::NotifyUserAutoSignin(
 }
 
 void WebViewPasswordManagerClient::NotifyUserCouldBeAutoSignedIn(
-    std::unique_ptr<autofill::PasswordForm> form) {
+    std::unique_ptr<password_manager::PasswordForm> form) {
   helper_.NotifyUserCouldBeAutoSignedIn(std::move(form));
 }
 
@@ -289,8 +288,31 @@ WebViewPasswordManagerClient::GetFieldInfoManager() const {
   return nullptr;
 }
 
+bool WebViewPasswordManagerClient::IsAutofillAssistantUIVisible() const {
+  return false;
+}
+
 const syncer::SyncService* WebViewPasswordManagerClient::GetSyncService() {
   return sync_service_;
+}
+
+safe_browsing::PasswordProtectionService*
+WebViewPasswordManagerClient::GetPasswordProtectionService() const {
+  // TODO(crbug.com/1148229): Enable PhishGuard in web_view.
+  return nullptr;
+}
+
+void WebViewPasswordManagerClient::CheckProtectedPasswordEntry(
+    password_manager::metrics_util::PasswordType password_type,
+    const std::string& username,
+    const std::vector<password_manager::MatchingReusedCredential>&
+        matching_reused_credentials,
+    bool password_field_exists) {
+  // TODO(crbug.com/1147967): Enable PhishGuard in web_view.
+}
+
+void WebViewPasswordManagerClient::LogPasswordReuseDetectedEvent() {
+  // TODO(crbug.com/1147967): Enable PhishGuard in web_view.
 }
 
 }  // namespace ios_web_view

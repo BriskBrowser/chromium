@@ -49,6 +49,7 @@
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/svg/svg_element.h"
+#include "third_party/blink/renderer/platform/animation/compositor_animation.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
@@ -385,10 +386,12 @@ bool KeyframeEffect::CancelAnimationOnCompositor(
     return false;
   if (!effect_target_ || !effect_target_->GetLayoutObject())
     return false;
+  DCHECK(Model());
   for (const auto& compositor_keyframe_model_id :
        compositor_keyframe_model_ids_) {
     CompositorAnimations::CancelAnimationOnCompositor(
-        *effect_target_, compositor_animation, compositor_keyframe_model_id);
+        *effect_target_, compositor_animation, compositor_keyframe_model_id,
+        *Model());
   }
   compositor_keyframe_model_ids_.clear();
   return true;
@@ -396,6 +399,7 @@ bool KeyframeEffect::CancelAnimationOnCompositor(
 
 void KeyframeEffect::CancelIncompatibleAnimationsOnCompositor() {
   if (effect_target_ && GetAnimation() && model_->HasFrames()) {
+    DCHECK(Model());
     CompositorAnimations::CancelIncompatibleAnimationsOnCompositor(
         *effect_target_, *GetAnimation(), *Model());
   }
@@ -407,19 +411,33 @@ void KeyframeEffect::PauseAnimationForTestingOnCompositor(
   if (!effect_target_ || !effect_target_->GetLayoutObject())
     return;
   DCHECK(GetAnimation());
+  DCHECK(Model());
   for (const auto& compositor_keyframe_model_id :
        compositor_keyframe_model_ids_) {
     CompositorAnimations::PauseAnimationForTestingOnCompositor(
         *effect_target_, *GetAnimation(), compositor_keyframe_model_id,
-        pause_time);
+        pause_time, *Model());
   }
 }
 
 void KeyframeEffect::AttachCompositedLayers() {
   DCHECK(effect_target_);
   DCHECK(GetAnimation());
-  CompositorAnimations::AttachCompositedLayers(
-      *effect_target_, GetAnimation()->GetCompositorAnimation());
+  CompositorAnimation* compositor_animation =
+      GetAnimation()->GetCompositorAnimation();
+  // If this is a paint worklet element and it is animating custom property
+  // only, it doesn't require an element id to run on the compositor thread.
+  // However, our compositor animation system requires the element to be on the
+  // property tree in order to keep ticking the animation. Therefore, we give a
+  // very special element id for this animation so that the compositor animation
+  // system recognize it. We do not use 0 as the element id because 0 is
+  // kInvalidElementId.
+  if (compositor_animation && !Model()->RequiresPropertyNode()) {
+    compositor_animation->AttachNoElement();
+    return;
+  }
+  CompositorAnimations::AttachCompositedLayers(*effect_target_,
+                                               compositor_animation);
 }
 
 bool KeyframeEffect::HasAnimation() const {
@@ -438,24 +456,6 @@ void KeyframeEffect::Trace(Visitor* visitor) const {
   AnimationEffect::Trace(visitor);
 }
 
-bool KeyframeEffect::AnimationsPreserveAxisAlignment(
-    const PropertyHandle& property) const {
-  const auto* keyframes = Model()->GetPropertySpecificKeyframes(property);
-  if (!keyframes)
-    return true;
-  for (const auto& keyframe : *keyframes) {
-    const auto* value = keyframe->GetCompositorKeyframeValue();
-    if (!value)
-      continue;
-    DCHECK(value->IsTransform());
-    const auto& transform_operations =
-        To<CompositorKeyframeTransform>(value)->GetTransformOperations();
-    if (!transform_operations.PreservesAxisAlignment())
-      return false;
-  }
-  return true;
-}
-
 namespace {
 
 static const size_t num_transform_properties = 4;
@@ -469,13 +469,83 @@ const CSSProperty** TransformProperties() {
 
 }  // namespace
 
-bool KeyframeEffect::AnimationsPreserveAxisAlignment() const {
+bool KeyframeEffect::UpdateBoxSizeAndCheckTransformAxisAlignment(
+    const FloatSize& box_size) {
   static const auto** properties = TransformProperties();
+  bool preserves_axis_alignment = true;
+  bool has_transform = false;
+  TransformOperation::BoxSizeDependency size_dependencies =
+      TransformOperation::kDependsNone;
   for (size_t i = 0; i < num_transform_properties; i++) {
-    if (!AnimationsPreserveAxisAlignment(PropertyHandle(*properties[i])))
-      return false;
+    const auto* keyframes =
+        Model()->GetPropertySpecificKeyframes(PropertyHandle(*properties[i]));
+    if (!keyframes)
+      continue;
+
+    has_transform = true;
+    for (const auto& keyframe : *keyframes) {
+      const auto* value = keyframe->GetCompositorKeyframeValue();
+      if (!value)
+        continue;
+      const auto& transform_operations =
+          To<CompositorKeyframeTransform>(value)->GetTransformOperations();
+      if (!transform_operations.PreservesAxisAlignment())
+        preserves_axis_alignment = false;
+      size_dependencies = TransformOperation::CombineDependencies(
+          size_dependencies, transform_operations.BoxSizeDependencies());
+    }
   }
 
+  if (!has_transform)
+    return true;
+
+  if (HasAnimation()) {
+    if (effect_target_size_) {
+      if ((size_dependencies & TransformOperation::kDependsWidth) &&
+          (effect_target_size_->Width() != box_size.Width()))
+        RestartRunningAnimationOnCompositor();
+      else if ((size_dependencies & TransformOperation::kDependsHeight) &&
+               (effect_target_size_->Height() != box_size.Height()))
+        RestartRunningAnimationOnCompositor();
+    }
+  }
+
+  effect_target_size_ = box_size;
+
+  return preserves_axis_alignment;
+}
+
+void KeyframeEffect::RestartRunningAnimationOnCompositor() {
+  Animation* animation = GetAnimation();
+  if (!animation)
+    return;
+
+  // No need to to restart an animation that is in the process of starting up,
+  // paused or idle.
+  if (!animation->StartTimeInternal())
+    return;
+
+  animation->RestartAnimationOnCompositor();
+}
+
+bool KeyframeEffect::IsIdentityOrTranslation() const {
+  static const auto** properties = TransformProperties();
+  for (size_t i = 0; i < num_transform_properties; i++) {
+    const auto* keyframes =
+        Model()->GetPropertySpecificKeyframes(PropertyHandle(*properties[i]));
+    if (!keyframes)
+      continue;
+
+    for (const auto& keyframe : *keyframes) {
+      if (const auto* value = keyframe->GetCompositorKeyframeValue()) {
+        if (!To<CompositorKeyframeTransform>(value)
+                 ->GetTransformOperations()
+                 .IsIdentityOrTranslation()) {
+          return false;
+        }
+      }
+    }
+  }
   return true;
 }
 
@@ -689,12 +759,24 @@ ActiveInterpolationsMap KeyframeEffect::InterpolationsForCommitStyles() {
   return results;
 }
 
+void KeyframeEffect::SetLogicalPropertyResolutionContext(
+    TextDirection text_direction,
+    WritingMode writing_mode) {
+  if (auto* model = DynamicTo<StringKeyframeEffectModel>(Model())) {
+    if (model->SetLogicalPropertyResolutionContext(text_direction,
+                                                   writing_mode)) {
+      ClearEffects();
+      InvalidateAndNotifyOwner();
+    }
+  }
+}
+
 void KeyframeEffect::CountAnimatedProperties() const {
   if (target_element_) {
     Document& document = target_element_->GetDocument();
     for (const auto& property : model_->Properties()) {
       if (property.IsCSSProperty()) {
-        DCHECK(isValidCSSPropertyID(property.GetCSSProperty().PropertyID()));
+        DCHECK(IsValidCSSPropertyID(property.GetCSSProperty().PropertyID()));
         document.CountAnimatedProperty(property.GetCSSProperty().PropertyID());
       }
     }

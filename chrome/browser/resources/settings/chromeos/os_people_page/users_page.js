@@ -54,11 +54,31 @@ Polymer({
         chromeos.settings.mojom.Setting.kGuestBrowsing,
         chromeos.settings.mojom.Setting.kShowUsernamesAndPhotosAtSignIn,
         chromeos.settings.mojom.Setting.kRestrictSignIn,
-        chromeos.settings.mojom.Setting.kAddToUserWhitelist,
-        chromeos.settings.mojom.Setting.kRemoveFromUserWhitelist,
+        chromeos.settings.mojom.Setting.kAddToUserAllowlist,
+        chromeos.settings.mojom.Setting.kRemoveFromUserAllowlist,
+
+        chromeos.settings.mojom.Setting.kGuestBrowsingV2,
+        chromeos.settings.mojom.Setting.kShowUsernamesAndPhotosAtSignInV2,
+        chromeos.settings.mojom.Setting.kRestrictSignInV2,
+        chromeos.settings.mojom.Setting.kAddToUserAllowlistV2,
+        chromeos.settings.mojom.Setting.kRemoveFromUserAllowlistV2,
       ]),
     },
+
+    /**
+     * True if redesign of account management flows is enabled.
+     * @private
+     */
+    isAccountManagementFlowsV2Enabled_: {
+      type: Boolean,
+      value() {
+        return loadTimeData.getBoolean('isAccountManagementFlowsV2Enabled');
+      },
+      readOnly: true,
+    },
   },
+
+  listeners: {'all-managed-users-removed': 'focusAddUserButton_'},
 
   /** @override */
   created() {
@@ -78,7 +98,9 @@ Polymer({
    */
   beforeDeepLinkAttempt(settingId) {
     if (settingId !==
-        chromeos.settings.mojom.Setting.kRemoveFromUserWhitelist) {
+            chromeos.settings.mojom.Setting.kRemoveFromUserAllowlist &&
+        settingId !==
+            chromeos.settings.mojom.Setting.kRemoveFromUserAllowlistV2) {
       // Continue with deep linking attempt.
       return true;
     }
@@ -123,7 +145,7 @@ Polymer({
 
   /** @private */
   onAddUserDialogClose_() {
-    cr.ui.focusWithoutInk(assert(this.$$('#add-user-button a')));
+    this.focusAddUserButton_();
   },
 
   /**
@@ -151,5 +173,10 @@ Polymer({
   /** @return {boolean} */
   shouldHideModifiedByOwnerLabel_() {
     return this.isUserListManaged_ || this.isOwner_;
+  },
+
+  /** @private */
+  focusAddUserButton_() {
+    cr.ui.focusWithoutInk(assert(this.$$('#add-user-button a')));
   },
 });

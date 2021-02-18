@@ -2,25 +2,26 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/login_screen_test_api.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/files/file_util.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/login/test/fake_gaia_mixin.h"
 #include "chrome/browser/chromeos/login/test/js_checker.h"
 #include "chrome/browser/chromeos/login/test/oobe_base_test.h"
 #include "chrome/browser/chromeos/login/test/oobe_screen_waiter.h"
 #include "chrome/browser/chromeos/login/test/session_manager_state_waiter.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/signin/chrome_device_id_helper.h"
 #include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/public/base/signin_pref_names.h"
 #include "components/user_manager/known_user.h"
@@ -81,8 +82,8 @@ class DeviceIDTest : public OobeBaseTest,
 
   // Checks that user's device ID retrieved from UserManager and Profile are the
   // same.
-  // If |refresh_token| is not empty, checks that device ID associated with the
-  // |refresh_token| in GAIA is the same as ID saved on device.
+  // If `refresh_token` is not empty, checks that device ID associated with the
+  // `refresh_token` in GAIA is the same as ID saved on device.
   void CheckDeviceIDIsConsistent(const AccountId& account_id,
                                  const std::string& refresh_token) {
     const std::string device_id_in_profile = GetDeviceIdFromProfile(account_id);
@@ -303,7 +304,7 @@ IN_PROC_BROWSER_TEST_F(DeviceIDTest, LegacyUsers) {
           .empty());
   SignInOffline(FakeGaiaMixin::kFakeUserEmail,
                 FakeGaiaMixin::kFakeUserPassword);
-  // Last param |auth_code| is empty, because we don't pass a device ID to GAIA
+  // Last param `auth_code` is empty, because we don't pass a device ID to GAIA
   // in this case.
   CheckDeviceIDIsConsistent(
       AccountId::FromUserEmail(FakeGaiaMixin::kFakeUserEmail), std::string());

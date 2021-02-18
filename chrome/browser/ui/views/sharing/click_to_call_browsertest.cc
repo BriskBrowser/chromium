@@ -5,14 +5,15 @@
 #include <memory>
 #include <string>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/strings/strcat.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/policy/policy_test_utils.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_test_util.h"
@@ -40,6 +41,7 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/views/layout/grid_layout.h"
+#include "ui/views/test/button_test_api.h"
 #include "url/gurl.h"
 
 namespace {
@@ -86,13 +88,7 @@ class BaseClickToCallBrowserTest : public SharingBrowserTest {
 
   base::HistogramTester::CountsMap GetTotalHistogramCounts(
       const base::HistogramTester& histograms) {
-    base::HistogramTester::CountsMap counts =
-        histograms.GetTotalCountsForPrefix(HistogramName(""));
-    // PhoneNumberPrecompileTime will be logged 15 seconds after startup but
-    // we want to ignore it in these browser tests as we don't know if the
-    // test takes more or less time than that.
-    counts.erase(HistogramName("PhoneNumberPrecompileTime"));
-    return counts;
+    return histograms.GetTotalCountsForPrefix(HistogramName(""));
   }
 };
 
@@ -148,8 +144,7 @@ IN_PROC_BROWSER_TEST_F(ClickToCallBrowserTest, ContextMenu_NoDevicesAvailable) {
 
 IN_PROC_BROWSER_TEST_F(ClickToCallBrowserTest,
                        ContextMenu_DevicesAvailable_SyncTurnedOff) {
-  if (base::FeatureList::IsEnabled(kSharingSendViaSync) &&
-      base::FeatureList::IsEnabled(switches::kSyncDeviceInfoInTransportMode)) {
+  if (base::FeatureList::IsEnabled(kSharingSendViaSync)) {
     // Turning off sync will have no effect when Click to Call is available on
     // sign-in.
     return;
@@ -379,7 +374,7 @@ IN_PROC_BROWSER_TEST_F(ClickToCallBrowserTest, CloseTabWithBubble) {
 }
 
 // TODO(himanshujaju) - Add chromeos test for same flow.
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 IN_PROC_BROWSER_TEST_F(ClickToCallBrowserTest, LeftClick_ChooseDevice) {
   Init(sync_pb::SharingSpecificFields::CLICK_TO_CALL_V2,
        sync_pb::SharingSpecificFields::UNKNOWN);
@@ -409,15 +404,13 @@ IN_PROC_BROWSER_TEST_F(ClickToCallBrowserTest, LeftClick_ChooseDevice) {
       static_cast<SharingDialogView*>(controller->dialog());
   EXPECT_EQ(SharingDialogType::kDialogWithDevicesMaybeApps,
             dialog->GetDialogType());
-  EXPECT_EQ(1u, dialog->data_.devices.size());
-  EXPECT_EQ(dialog->data_.devices.size() + dialog->data_.apps.size(),
-            dialog->dialog_buttons_.size());
-
-  const ui::MouseEvent event(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
-                             ui::EventTimeForNow(), 0, 0);
 
   // Choose first device.
-  dialog->ButtonPressed(dialog->dialog_buttons_[0], event);
+  const auto& buttons = dialog->button_list_for_testing()->children();
+  ASSERT_GT(buttons.size(), 0u);
+  views::test::ButtonTestApi(static_cast<views::Button*>(buttons[0]))
+      .NotifyClick(ui::MouseEvent(ui::ET_MOUSE_PRESSED, gfx::Point(),
+                                  gfx::Point(), ui::EventTimeForNow(), 0, 0));
 
   CheckLastReceiver(*devices[0]);
   // Defined in tel.html
@@ -453,7 +446,7 @@ IN_PROC_BROWSER_TEST_F(ClickToCallBrowserTest, OpenNewTabAndShowBubble) {
       GetPageActionIconView(PageActionIconType::kClickToCall)->GetBubble();
   ASSERT_NE(nullptr, bubble);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Ensure that the dialog shows the origin in column id 1.
   EXPECT_NE(nullptr, static_cast<views::GridLayout*>(
                          bubble->GetContentsView()->GetLayoutManager())
@@ -461,7 +454,7 @@ IN_PROC_BROWSER_TEST_F(ClickToCallBrowserTest, OpenNewTabAndShowBubble) {
 #else
   // Ensure that the dialog shows the origin in the footnote.
   EXPECT_NE(nullptr, bubble->GetFootnoteViewForTesting());
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
 IN_PROC_BROWSER_TEST_F(ClickToCallBrowserTest, NavigateDifferentOrigin) {

@@ -13,7 +13,7 @@
 #include "ash/wm/window_state_observer.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/weak_ptr.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_context.h"
 #include "chrome/browser/ui/views/apps/chrome_native_app_window_views_aura.h"
 #include "chrome/browser/ui/views/exclusive_access_bubble_views_context.h"
@@ -67,8 +67,6 @@ class ChromeNativeAppWindowViewsAuraAsh
   std::unique_ptr<views::NonClientFrameView> CreateNonStandardAppFrame()
       override;
   bool ShouldRemoveStandardFrame() override;
-  void AdjustBoundsToBeVisibleOnDisplayForNewWindows(
-      gfx::Rect* out_bounds) override;
   void EnsureAppIconCreated() override;
 
   // ui::BaseWindow:
@@ -132,7 +130,7 @@ class ChromeNativeAppWindowViewsAuraAsh
 
   // ash::WindowStateObserver:
   void OnPostWindowStateTypeChange(ash::WindowState* window_state,
-                                   ash::WindowStateType old_type) override;
+                                   chromeos::WindowStateType old_type) override;
 
   // aura::WindowObserver:
   void OnWindowPropertyChanged(aura::Window* window,
@@ -148,7 +146,7 @@ class ChromeNativeAppWindowViewsAuraAsh
   FRIEND_TEST_ALL_PREFIXES(ChromeNativeAppWindowViewsAuraAshBrowserTest,
                            NoImmersiveModeWhenForcedFullscreen);
   FRIEND_TEST_ALL_PREFIXES(ChromeNativeAppWindowViewsAuraAshBrowserTest,
-                           PublicSessionImmersiveMode);
+                           PublicSessionNoImmersiveModeWhenFullscreen);
   FRIEND_TEST_ALL_PREFIXES(ChromeNativeAppWindowViewsAuraAshBrowserTest,
                            RestoreImmersiveMode);
   FRIEND_TEST_ALL_PREFIXES(ChromeNativeAppWindowViewsAuraAshBrowserTest,
@@ -156,9 +154,9 @@ class ChromeNativeAppWindowViewsAuraAsh
   FRIEND_TEST_ALL_PREFIXES(ChromeNativeAppWindowViewsAuraAshBrowserTest,
                            NoImmersiveOrBubbleOutsidePublicSessionDom);
   FRIEND_TEST_ALL_PREFIXES(ChromeNativeAppWindowViewsAuraAshBrowserTest,
-                           ImmersiveAndBubbleInsidePublicSessionWindow);
+                           BubbleInsidePublicSessionWindow);
   FRIEND_TEST_ALL_PREFIXES(ChromeNativeAppWindowViewsAuraAshBrowserTest,
-                           ImmersiveAndBubbleInsidePublicSessionDom);
+                           BubbleInsidePublicSessionDom);
   FRIEND_TEST_ALL_PREFIXES(ShapedAppWindowTargeterTest,
                            ResizeInsetsWithinBounds);
 
@@ -198,9 +196,10 @@ class ChromeNativeAppWindowViewsAuraAsh
   bool tablet_mode_enabled_ = false;
   bool draggable_regions_sent_ = false;
 
-  ScopedObserver<aura::Window, aura::WindowObserver> observed_window_{this};
-  ScopedObserver<ash::WindowState, ash::WindowStateObserver>
-      observed_window_state_{this};
+  base::ScopedObservation<aura::Window, aura::WindowObserver>
+      window_observation_{this};
+  base::ScopedObservation<ash::WindowState, ash::WindowStateObserver>
+      window_state_observation_{this};
 
   base::WeakPtrFactory<ChromeNativeAppWindowViewsAuraAsh> weak_ptr_factory_{
       this};

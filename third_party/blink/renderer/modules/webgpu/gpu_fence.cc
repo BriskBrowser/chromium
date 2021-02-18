@@ -17,13 +17,6 @@ namespace blink {
 GPUFence::GPUFence(GPUDevice* device, WGPUFence fence)
     : DawnObject<WGPUFence>(device, fence) {}
 
-GPUFence::~GPUFence() {
-  if (IsDawnControlClientDestroyed()) {
-    return;
-  }
-  GetProcs().fenceRelease(GetHandle());
-}
-
 uint64_t GPUFence::getCompletedValue() const {
   return GetProcs().fenceGetCompletedValue(GetHandle());
 }
@@ -56,11 +49,9 @@ ScriptPromise GPUFence::onCompletion(ScriptState* script_state,
 
   GetProcs().fenceOnCompletion(GetHandle(), value, callback->UnboundCallback(),
                                callback->AsUserdata());
-
-  // WebGPU guarantees that submitted commands finish in finite time so we
-  // flush commands to the GPU process now.
-  device_->GetInterface()->FlushCommands();
-
+  // WebGPU guarantees that promises are resolved in finite time so we
+  // need to ensure commands are flushed.
+  EnsureFlush();
   return promise;
 }
 

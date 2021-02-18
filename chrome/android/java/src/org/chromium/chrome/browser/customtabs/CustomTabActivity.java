@@ -8,6 +8,7 @@ import static androidx.browser.customtabs.CustomTabsIntent.COLOR_SCHEME_DARK;
 import static androidx.browser.customtabs.CustomTabsIntent.COLOR_SCHEME_LIGHT;
 
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
@@ -20,32 +21,34 @@ import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 import androidx.browser.customtabs.CustomTabsIntent;
 import androidx.browser.customtabs.CustomTabsSessionToken;
 
-import org.chromium.base.ApiCompatibilityUtils;
+import org.chromium.base.Callback;
 import org.chromium.base.IntentUtils;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.LaunchIntentDispatcher;
+import org.chromium.chrome.browser.app.metrics.LaunchCauseMetrics;
 import org.chromium.chrome.browser.autofill_assistant.AutofillAssistantFacade;
 import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
 import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider.CustomTabsUiType;
+import org.chromium.chrome.browser.customtabs.content.CustomTabActivityNavigationController;
 import org.chromium.chrome.browser.customtabs.content.CustomTabActivityTabProvider;
 import org.chromium.chrome.browser.customtabs.features.CustomTabNavigationBarController;
 import org.chromium.chrome.browser.firstrun.FirstRunSignInProcessor;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.infobar.InfoBarContainer;
-import org.chromium.chrome.browser.night_mode.NightModeUtils;
+import org.chromium.chrome.browser.night_mode.NightModeStateProvider;
 import org.chromium.chrome.browser.offlinepages.OfflinePageUtils;
 import org.chromium.chrome.browser.page_info.ChromePageInfoControllerDelegate;
 import org.chromium.chrome.browser.page_info.ChromePermissionParamsListBuilderDelegate;
-import org.chromium.chrome.browser.previews.Previews;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.components.page_info.PageInfoController;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.WebContents;
+import org.chromium.ui.util.ColorUtils;
 
 /**
  * The activity for custom tabs. It will be launched on top of a client's task.
@@ -92,6 +95,16 @@ public class CustomTabActivity extends BaseCustomTabActivity {
 
         mSession = mIntentDataProvider.getSession();
 
+        // shouldHideOmniboxSuggestionsForCctVisits() can not be called immediately as it depends
+        // upon FeatureList, which has not been initialized yet.
+        getStartupTabPreloader().setTabCreatedCallback(new Callback<Tab>() {
+            @Override
+            public void onResult(Tab tab) {
+                CustomTabActivityNavigationController.applyExperimentsToNewTab(
+                        tab, mIntentDataProvider);
+            }
+        });
+
         CustomTabNavigationBarController.update(getWindow(), mIntentDataProvider, getResources());
     }
 
@@ -109,8 +122,9 @@ public class CustomTabActivity extends BaseCustomTabActivity {
         }
 
         // Setting task title and icon to be null will preserve the client app's title and icon.
-        ApiCompatibilityUtils.setTaskDescription(this, null, null,
-                mIntentDataProvider.getToolbarColor());
+        setTaskDescription(new ActivityManager.TaskDescription(
+                null, null, mIntentDataProvider.getToolbarColor()));
+
         getComponent().resolveBottomBarDelegate().showBottomBarIfNecessary();
     }
 
@@ -119,6 +133,14 @@ public class CustomTabActivity extends BaseCustomTabActivity {
         if (!mIntentDataProvider.isInfoPage()) FirstRunSignInProcessor.start(this);
 
         mConnection.showSignInToastIfNecessary(mSession, getIntent());
+
+        new CustomTabTrustedCdnPublisherUrlVisibility(
+                getWindowAndroid(), getLifecycleDispatcher(), () -> {
+                    String urlPackage = mConnection.getTrustedCdnPublisherUrlPackage();
+                    return urlPackage != null
+                            && urlPackage.equals(
+                                    mConnection.getClientPackageNameForSession(mSession));
+                });
 
         super.finishNativeInitialization();
 
@@ -176,6 +198,11 @@ public class CustomTabActivity extends BaseCustomTabActivity {
             if (mNavigationController.openCurrentUrlInBrowser(false)) {
                 RecordUserAction.record("CustomTabsMenuOpenInChrome");
                 WebContents webContents = tab == null ? null : tab.getWebContents();
+                if (tab != null) {
+                    tab.setAddApi2TransitionToFutureNavigations(false);
+                    tab.setHideFutureNavigations(false);
+                    tab.setShouldBlockNewNotificationRequests(false);
+                }
                 mConnection.notifyOpenInBrowser(mSession, webContents);
             }
             return true;
@@ -189,7 +216,8 @@ public class CustomTabActivity extends BaseCustomTabActivity {
                             this::getModalDialogManager,
                             /*offlinePageLoadUrlDelegate=*/
                             new OfflinePageUtils.TabOfflinePageLoadUrlDelegate(tab)),
-                    new ChromePermissionParamsListBuilderDelegate());
+                    new ChromePermissionParamsListBuilderDelegate(),
+                    PageInfoController.NO_HIGHLIGHTED_PERMISSION);
             return true;
         }
         return super.onMenuOrKeyboardAction(id, fromMenu);
@@ -226,8 +254,8 @@ public class CustomTabActivity extends BaseCustomTabActivity {
         CustomTabsIntent customTabIntent =
                 new CustomTabsIntent.Builder()
                         .setShowTitle(true)
-                        .setColorScheme(NightModeUtils.isInNightMode(context) ? COLOR_SCHEME_DARK
-                                                                              : COLOR_SCHEME_LIGHT)
+                        .setColorScheme(ColorUtils.inNightMode(context) ? COLOR_SCHEME_DARK
+                                                                        : COLOR_SCHEME_LIGHT)
                         .build();
         customTabIntent.intent.setData(Uri.parse(url));
 
@@ -255,19 +283,6 @@ public class CustomTabActivity extends BaseCustomTabActivity {
         return super.requiresFirstRunToBeCompleted(intent);
     }
 
-    @Override
-    public boolean canShowTrustedCdnPublisherUrl() {
-        if (!ChromeFeatureList.isEnabled(ChromeFeatureList.SHOW_TRUSTED_PUBLISHER_URL)) {
-            return false;
-        }
-
-        if (Previews.isPreview(mTabProvider.getTab())) return false;
-
-        String publisherUrlPackage = mConnection.getTrustedCdnPublisherUrlPackage();
-        return publisherUrlPackage != null
-                && publisherUrlPackage.equals(mConnection.getClientPackageNameForSession(mSession));
-    }
-
     /**
      * @return The package name of the Trusted Web Activity, if the activity is a TWA; null
      * otherwise.
@@ -275,5 +290,15 @@ public class CustomTabActivity extends BaseCustomTabActivity {
     @Nullable
     public String getTwaPackage() {
         return mTwaCoordinator == null ? null : mTwaCoordinator.getTwaPackage();
+    }
+
+    @Override
+    protected LaunchCauseMetrics createLaunchCauseMetrics() {
+        return new CustomTabLaunchCauseMetrics(this);
+    }
+
+    @VisibleForTesting
+    NightModeStateProvider getNightModeStateProviderForTesting() {
+        return super.getNightModeStateProvider();
     }
 }

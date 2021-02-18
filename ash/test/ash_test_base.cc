@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "ash/accessibility/accessibility_panel_layout_manager.h"
+#include "ash/ambient/test/ambient_ash_test_helper.h"
 #include "ash/app_list/test/app_list_test_helper.h"
 #include "ash/display/extended_mouse_warp_controller.h"
 #include "ash/display/mouse_cursor_event_filter.h"
@@ -26,10 +27,11 @@
 #include "ash/shell.h"
 #include "ash/system/status_area_widget.h"
 #include "ash/test/ash_test_helper.h"
+#include "ash/test/test_widget_builder.h"
+#include "ash/test/test_window_builder.h"
 #include "ash/test_screenshot_delegate.h"
 #include "ash/test_shell_delegate.h"
 #include "ash/utility/screenshot_controller.h"
-#include "ash/window_factory.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_positioner.h"
 #include "ash/wm/work_area_insets.h"
@@ -90,27 +92,6 @@ class AshEventGeneratorDelegate
 
  private:
   DISALLOW_COPY_AND_ASSIGN(AshEventGeneratorDelegate);
-};
-
-// WidgetDelegate that is resizable and creates ash's NonClientFrameView
-// implementation.
-class TestWidgetDelegate : public views::WidgetDelegateView {
- public:
-  TestWidgetDelegate() {
-    SetCanMaximize(true);
-    SetCanMinimize(true);
-    SetCanResize(true);
-  }
-  ~TestWidgetDelegate() override = default;
-
-  // views::WidgetDelegateView:
-  std::unique_ptr<views::NonClientFrameView> CreateNonClientFrameView(
-      views::Widget* widget) override {
-    return Shell::Get()->CreateDefaultNonClientFrameView(widget);
-  }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TestWidgetDelegate);
 };
 
 }  // namespace
@@ -225,38 +206,31 @@ std::unique_ptr<views::Widget> AshTestBase::CreateTestWidget(
     int container_id,
     const gfx::Rect& bounds,
     bool show) {
-  std::unique_ptr<views::Widget> widget(new views::Widget);
-  views::Widget::InitParams params;
-  params.delegate = delegate;
-  params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  params.bounds = bounds;
-  params.parent = Shell::GetPrimaryRootWindow()->GetChildById(container_id);
-  widget->Init(std::move(params));
-  if (show)
-    widget->Show();
-  return widget;
+  return TestWidgetBuilder()
+      .SetDelegate(delegate)
+      .SetBounds(bounds)
+      .SetParent(Shell::GetPrimaryRootWindow()->GetChildById(container_id))
+      .SetShow(show)
+      .BuildOwnsNativeWidget();
 }
 
 std::unique_ptr<aura::Window> AshTestBase::CreateAppWindow(
     const gfx::Rect& bounds_in_screen,
     AppType app_type,
     int shell_window_id) {
-  // |widget| is configured to be owned by the underlying window.
-  views::Widget* widget = new views::Widget;
-  views::Widget::InitParams params;
-  // TestWidgetDelegate is owned by |widget|.
-  params.delegate = new TestWidgetDelegate();
-  params.ownership = views::Widget::InitParams::NATIVE_WIDGET_OWNS_WIDGET;
-  params.bounds =
-      bounds_in_screen.IsEmpty() ? gfx::Rect(0, 0, 300, 300) : bounds_in_screen;
-  params.context = Shell::GetPrimaryRootWindow();
+  TestWidgetBuilder builder;
   if (app_type != AppType::NON_APP) {
-    params.init_properties_container.SetProperty(aura::client::kAppType,
-                                                 static_cast<int>(app_type));
+    builder.SetWindowProperty(aura::client::kAppType,
+                              static_cast<int>(app_type));
   }
-  widget->Init(std::move(params));
-  widget->GetNativeWindow()->set_id(shell_window_id);
-  widget->Show();
+  // |widget| is configured to be owned by the underlying window.
+  views::Widget* widget =
+      builder.SetTestWidgetDelegate()
+          .SetBounds(bounds_in_screen.IsEmpty() ? gfx::Rect(0, 0, 300, 300)
+                                                : bounds_in_screen)
+          .SetContext(Shell::GetPrimaryRootWindow())
+          .SetWindowId(shell_window_id)
+          .BuildOwnedByNativeWidget();
   return base::WrapUnique(widget->GetNativeWindow());
 }
 
@@ -292,27 +266,6 @@ aura::Window* AshTestBase::CreateTestWindowInShellWithBounds(
   return CreateTestWindowInShellWithDelegate(NULL, 0, bounds);
 }
 
-aura::Window* AshTestBase::CreateTestWindowInShell(SkColor color,
-                                                   int id,
-                                                   const gfx::Rect& bounds) {
-  return CreateTestWindowInShellWithDelegate(
-      new aura::test::ColorTestWindowDelegate(color), id, bounds);
-}
-
-std::unique_ptr<aura::Window> AshTestBase::CreateChildWindow(
-    aura::Window* parent,
-    const gfx::Rect& bounds,
-    int shell_window_id) {
-  std::unique_ptr<aura::Window> window =
-      window_factory::NewWindow(nullptr, aura::client::WINDOW_TYPE_NORMAL);
-  window->Init(ui::LAYER_NOT_DRAWN);
-  window->SetBounds(bounds);
-  window->set_id(shell_window_id);
-  parent->AddChild(window.get());
-  window->Show();
-  return window;
-}
-
 aura::Window* AshTestBase::CreateTestWindowInShellWithDelegate(
     aura::WindowDelegate* delegate,
     int id,
@@ -326,29 +279,14 @@ aura::Window* AshTestBase::CreateTestWindowInShellWithDelegateAndType(
     aura::client::WindowType type,
     int id,
     const gfx::Rect& bounds) {
-  aura::Window* window = window_factory::NewWindow(delegate).release();
-  window->set_id(id);
-  window->SetType(type);
-  window->Init(ui::LAYER_TEXTURED);
-
-  if (bounds.IsEmpty()) {
-    ParentWindowInPrimaryRootWindow(window);
-  } else {
-    display::Display display =
-        display::Screen::GetScreen()->GetDisplayMatching(bounds);
-    aura::Window* root = Shell::GetRootWindowForDisplayId(display.id());
-    gfx::Point origin = bounds.origin();
-    ::wm::ConvertPointFromScreen(root, &origin);
-    window->SetBounds(gfx::Rect(origin, bounds.size()));
-    aura::client::ParentWindowWithContext(window, root, bounds);
-  }
-  window->Show();
-
-  window->SetProperty(aura::client::kResizeBehaviorKey,
-                      aura::client::kResizeBehaviorCanMaximize |
-                          aura::client::kResizeBehaviorCanMinimize |
-                          aura::client::kResizeBehaviorCanResize);
-  return window;
+  return TestWindowBuilder()
+      .SetBounds(bounds)
+      .SetDelegate(delegate)
+      .SetWindowType(type)
+      .SetWindowId(id)
+      .AllowAllWindowStates()
+      .Build()
+      .release();
 }
 
 void AshTestBase::ParentWindowInPrimaryRootWindow(aura::Window* window) {
@@ -382,6 +320,10 @@ AppListTestHelper* AshTestBase::GetAppListTestHelper() {
   return ash_test_helper_->app_list_test_helper();
 }
 
+AmbientAshTestHelper* AshTestBase::GetAmbientAshTestHelper() {
+  return ash_test_helper_->ambient_ash_test_helper();
+}
+
 void AshTestBase::CreateUserSessions(int n) {
   GetSessionControllerClient()->CreatePredefinedUserSessions(n);
 }
@@ -396,9 +338,9 @@ void AshTestBase::SimulateUserLogin(const std::string& user_email,
 
 void AshTestBase::SimulateNewUserFirstLogin(const std::string& user_email) {
   TestSessionControllerClient* session = GetSessionControllerClient();
-  session->AddUserSession(
-      user_email, user_manager::USER_TYPE_REGULAR, true /* enable_settings */,
-      true /* provide_pref_service */, true /* is_new_profile */);
+  session->AddUserSession(user_email, user_manager::USER_TYPE_REGULAR,
+                          true /* provide_pref_service */,
+                          true /* is_new_profile */);
   session->SwitchActiveUser(AccountId::FromUserEmail(user_email));
   session->SetSessionState(session_manager::SessionState::ACTIVE);
 }

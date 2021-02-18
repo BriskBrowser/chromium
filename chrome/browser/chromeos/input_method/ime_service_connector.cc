@@ -9,7 +9,6 @@
 
 #include "base/files/file_util.h"
 #include "chrome/browser/chromeos/service_sandbox_type.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/services/ime/constants.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
 #include "content/public/browser/service_process_host.h"
@@ -56,7 +55,7 @@ bool IsDownloadPathValid(const base::FilePath& file_path) {
 }
 
 bool IsDownloadURLValid(const GURL& url) {
-  // TODO(https://crbug.com/837156): Whitelist all URLs instead of some general
+  // TODO(https://crbug.com/837156): Allowlist all URLs instead of some general
   // checks below.
   return url.SchemeIs(url::kHttpsScheme) &&
          url.DomainIs(chromeos::ime::kGoogleKeyboardDownloadDomain);

@@ -28,13 +28,13 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
-#include "third_party/blink/public/platform/web_rect.h"
 #include "third_party/blink/public/platform/web_text_input_info.h"
 #include "third_party/blink/public/platform/web_text_input_type.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/editing/commands/typing_command.h"
 #include "third_party/blink/renderer/core/editing/forward.h"
+#include "third_party/blink/renderer/core/editing/ime/cached_text_input_info.h"
 #include "third_party/blink/renderer/core/editing/ime/ime_text_span.h"
 #include "third_party/blink/renderer/core/editing/plain_text_range.h"
 #include "third_party/blink/renderer/core/events/input_event.h"
@@ -60,7 +60,7 @@ class CORE_EXPORT InputMethodController final
   };
 
   explicit InputMethodController(LocalDOMWindow&, LocalFrame&);
-  virtual ~InputMethodController();
+  ~InputMethodController() override;
   void Trace(Visitor*) const override;
 
   // international text input composition
@@ -110,6 +110,11 @@ class CORE_EXPORT InputMethodController final
                                          size_t text_length) const;
   void DeleteSurroundingText(int before, int after);
   void DeleteSurroundingTextInCodePoints(int before, int after);
+
+  void DidLayoutSubtree(const LayoutObject& layout_object);
+  void DidUpdateLayout(const LayoutObject& layout_object);
+  void LayoutObjectWillBeDestroyed(const LayoutObject& layout_object);
+
   WebTextInputInfo TextInputInfo() const;
   // For finding NEXT/PREVIOUS everytime during frame update is a costly
   // operation, so making it specific whenever needed by splitting from
@@ -128,7 +133,7 @@ class CORE_EXPORT InputMethodController final
 
   // Returns either the focused editable element's control bounds or the
   // EditContext's control and selection bounds if available.
-  void GetLayoutBounds(WebRect* control_bounds, WebRect* selection_bounds);
+  void GetLayoutBounds(gfx::Rect* control_bounds, gfx::Rect* selection_bounds);
 
   // Sets the state of the VK show()/hide() calls from virtualkeyboard.
   void SetVirtualKeyboardVisibilityRequest(
@@ -140,6 +145,10 @@ class CORE_EXPORT InputMethodController final
     return last_vk_visibility_request_;
   }
 
+  CachedTextInputInfo& GetCachedTextInputInfoForTesting() {
+    return cached_text_input_info_;
+  }
+
  private:
   friend class InputMethodControllerTest;
 
@@ -147,6 +156,8 @@ class CORE_EXPORT InputMethodController final
   bool IsAvailable() const;
 
   Member<LocalFrame> frame_;
+  // Root editable text content cache for |TextInputInfo()|.
+  CachedTextInputInfo cached_text_input_info_;
   Member<Range> composition_range_;
   Member<EditContext> active_edit_context_;
   bool has_composition_;
@@ -237,9 +248,7 @@ class CORE_EXPORT InputMethodController final
       TypingCommand::TextCompositionType composition_type);
   void DispatchCompositionEndEvent(LocalFrame& frame, const String& text);
 
-  // Gets ime text spans of interest at the cursor position.
-  WebVector<ui::ImeTextSpan> GetImeTextSpansAroundPosition(
-      unsigned position) const;
+  WebVector<ui::ImeTextSpan> GetImeTextSpans() const;
 
   FRIEND_TEST_ALL_PREFIXES(InputMethodControllerTest,
                            InputModeOfFocusedElement);

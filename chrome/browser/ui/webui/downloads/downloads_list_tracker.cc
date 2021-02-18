@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/i18n/rtl.h"
 #include "base/i18n/unicodestring.h"
 #include "base/strings/string16.h"
@@ -82,13 +82,13 @@ const char* GetDangerTypeString(download::DownloadDangerType danger_type) {
     case download::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS:
     case download::DOWNLOAD_DANGER_TYPE_MAYBE_DANGEROUS_CONTENT:
     case download::DOWNLOAD_DANGER_TYPE_USER_VALIDATED:
-    case download::DOWNLOAD_DANGER_TYPE_WHITELISTED_BY_POLICY:
+    case download::DOWNLOAD_DANGER_TYPE_ALLOWLISTED_BY_POLICY:
     case download::DOWNLOAD_DANGER_TYPE_MAX:
       break;
   }
 
   // Don't return a danger type string if it is NOT_DANGEROUS,
-  // MAYBE_DANGEROUS_CONTENT, or USER_VALIDATED, or WHITELISTED_BY_POLICY.
+  // MAYBE_DANGEROUS_CONTENT, or USER_VALIDATED, or ALLOWLISTED_BY_POLICY.
   return "";
 }
 
@@ -200,10 +200,10 @@ void DownloadsListTracker::OnDownloadRemoved(DownloadManager* manager,
 DownloadsListTracker::DownloadsListTracker(
     DownloadManager* download_manager,
     mojo::PendingRemote<downloads::mojom::Page> page,
-    base::Callback<bool(const DownloadItem&)> should_show)
+    base::RepeatingCallback<bool(const DownloadItem&)> should_show)
     : main_notifier_(download_manager, this),
       page_(std::move(page)),
-      should_show_(should_show) {
+      should_show_(std::move(should_show)) {
   DCHECK(page_);
   Init();
 }
@@ -331,6 +331,8 @@ downloads::mojom::DataPtr DownloadsListTracker::CreateDownloadData(
   DCHECK(state);
 
   file_value->danger_type = danger_type;
+  file_value->is_dangerous = download_item->IsDangerous();
+  file_value->is_mixed_content = download_item->IsMixedContent();
   file_value->last_reason_text = base::UTF16ToUTF8(last_reason_text);
   file_value->percent = percent;
   file_value->progress_status_text = base::UTF16ToUTF8(progress_status_text);

@@ -7,6 +7,10 @@ import("//skia/features.gni")
 
 import("//cc/cc.gni")
 
+if (is_android) {
+  import("//build/config/android/rules.gni")
+}
+
 cc_component("cc") {
   sources = [
     "benchmarks/benchmark_instrumentation.cc",
@@ -29,9 +33,13 @@ cc_component("cc") {
     "benchmarks/unittest_only_benchmark.h",
     "benchmarks/unittest_only_benchmark_impl.cc",
     "benchmarks/unittest_only_benchmark_impl.h",
+    "document_transition/document_transition_request.cc",
+    "document_transition/document_transition_request.h",
+    "input/actively_scrolling_type.h",
     "input/browser_controls_offset_manager.cc",
     "input/browser_controls_offset_manager.h",
     "input/browser_controls_offset_manager_client.h",
+    "input/browser_controls_state.h",
     "input/compositor_input_interfaces.h",
     "input/input_handler.h",
     "input/layer_selection_bound.cc",
@@ -176,18 +184,24 @@ cc_component("cc") {
     "metrics/frame_sequence_tracker.h",
     "metrics/frame_sequence_tracker_collection.cc",
     "metrics/frame_sequence_tracker_collection.h",
+    "metrics/frame_sorter.cc",
+    "metrics/frame_sorter.h",
     "metrics/jank_metrics.cc",
     "metrics/jank_metrics.h",
     "metrics/latency_ukm_reporter.cc",
     "metrics/latency_ukm_reporter.h",
     "metrics/lcd_text_metrics_reporter.cc",
     "metrics/lcd_text_metrics_reporter.h",
+    "metrics/shared_metrics_buffer.h",
     "metrics/throughput_ukm_reporter.cc",
     "metrics/throughput_ukm_reporter.h",
     "metrics/total_frame_counter.cc",
     "metrics/total_frame_counter.h",
+    "metrics/ukm_smoothness_data.h",
     "metrics/video_playback_roughness_reporter.cc",
     "metrics/video_playback_roughness_reporter.h",
+    "metrics/web_vital_metrics.cc",
+    "metrics/web_vital_metrics.h",
     "raster/bitmap_raster_buffer_provider.cc",
     "raster/bitmap_raster_buffer_provider.h",
     "raster/gpu_raster_buffer_provider.cc",
@@ -204,6 +218,8 @@ cc_component("cc") {
     "raster/raster_buffer.h",
     "raster/raster_buffer_provider.cc",
     "raster/raster_buffer_provider.h",
+    "raster/raster_query_queue.cc",
+    "raster/raster_query_queue.h",
     "raster/raster_source.cc",
     "raster/raster_source.h",
     "raster/scoped_gpu_raster.cc",
@@ -277,6 +293,7 @@ cc_component("cc") {
     "tiles/picture_layer_tiling_set.h",
     "tiles/prioritized_tile.cc",
     "tiles/prioritized_tile.h",
+    "tiles/raster_dark_mode_filter.h",
     "tiles/raster_tile_priority_queue.cc",
     "tiles/raster_tile_priority_queue.h",
     "tiles/raster_tile_priority_queue_all.cc",
@@ -412,7 +429,9 @@ cc_component("cc") {
   deps = [
     "//base",
     "//base/third_party/dynamic_annotations",
+    "//build:chromeos_buildflags",
     "//components/viz/client",
+    "//device/base/synchronization",
     "//gpu",
     "//gpu/command_buffer/client:gles2_interface",
     "//gpu/command_buffer/client:raster_interface",
@@ -475,6 +494,8 @@ cc_test_static_library("test_support") {
     "test/fake_proxy.h",
     "test/fake_raster_buffer_provider.cc",
     "test/fake_raster_buffer_provider.h",
+    "test/fake_raster_query_queue.cc",
+    "test/fake_raster_query_queue.h",
     "test/fake_raster_source.cc",
     "test/fake_raster_source.h",
     "test/fake_recording_source.cc",
@@ -494,7 +515,6 @@ cc_test_static_library("test_support") {
     "test/fake_ui_resource_layer_tree_host_impl.h",
     "test/fake_video_frame_provider.cc",
     "test/fake_video_frame_provider.h",
-    "test/geometry_test_utils.cc",
     "test/geometry_test_utils.h",
     "test/layer_test_common.cc",
     "test/layer_test_common.h",
@@ -619,6 +639,8 @@ cc_test_static_library("test_support") {
 }
 
 cc_test("cc_unittests") {
+  use_xvfb = use_xvfb_in_this_config
+
   sources = [
     "base/delayed_unique_notifier_unittest.cc",
     "base/float_quad_unittest.cc",
@@ -635,6 +657,7 @@ cc_test("cc_unittests") {
     "base/unique_notifier_unittest.cc",
     "benchmarks/micro_benchmark_controller_unittest.cc",
     "debug/rendering_stats_unittest.cc",
+    "document_transition/document_transition_request_unittest.cc",
     "input/browser_controls_offset_manager_unittest.cc",
     "input/main_thread_scrolling_reason_unittest.cc",
     "input/scroll_snap_data_unittest.cc",
@@ -683,6 +706,7 @@ cc_test("cc_unittests") {
     "metrics/events_metrics_manager_unittest.cc",
     "metrics/frame_sequence_metrics_unittest.cc",
     "metrics/frame_sequence_tracker_unittest.cc",
+    "metrics/frame_sorter_unittest.cc",
     "metrics/jank_metrics_unittest.cc",
     "metrics/total_frame_counter_unittest.cc",
     "metrics/video_playback_roughness_reporter_unittest.cc",
@@ -699,6 +723,7 @@ cc_test("cc_unittests") {
     "paint/paint_op_buffer_unittest.cc",
     "paint/paint_op_helper_unittest.cc",
     "paint/paint_shader_unittest.cc",
+    "paint/paint_worklet_input_unittest.cc",
     "paint/scoped_raster_flags_unittest.cc",
     "paint/skia_paint_canvas_unittest.cc",
     "paint/solid_color_analyzer_unittest.cc",
@@ -742,6 +767,7 @@ cc_test("cc_unittests") {
     "trees/layer_tree_host_pixeltest_tiles.cc",
     "trees/layer_tree_host_unittest.cc",
     "trees/layer_tree_host_unittest_animation.cc",
+    "trees/layer_tree_host_unittest_capture.cc",
     "trees/layer_tree_host_unittest_capture_content.cc",
     "trees/layer_tree_host_unittest_checkerimaging.cc",
     "trees/layer_tree_host_unittest_context.cc",
@@ -773,7 +799,6 @@ cc_test("cc_unittests") {
     "animation/keyframed_animation_curve_unittest.cc",
     "animation/scroll_offset_animation_curve_unittest.cc",
     "animation/scroll_timeline_unittest.cc",
-    "animation/transform_operations_unittest.cc",
     "animation/worklet_animation_unittest.cc",
 
     # Setup.
@@ -791,6 +816,7 @@ cc_test("cc_unittests") {
     ":cc",
     ":test_support",
     "//base/test:test_support",
+    "//build:chromeos_buildflags",
     "//cc/mojo_embedder",
     "//cc/paint",
     "//components/ukm:test_support",
@@ -809,6 +835,7 @@ cc_test("cc_unittests") {
     "//media",
     "//mojo/core/embedder",
     "//mojo/public/cpp/bindings",
+    "//skia:skcms",
     "//testing/gmock",
     "//testing/gtest",
     "//ui/events:events_base",
@@ -823,8 +850,6 @@ cc_test("cc_unittests") {
     "//third_party/mesa_headers",
   ]
 
-  defines = []
-
   if (is_fuchsia) {
     manifest = "//build/config/fuchsia/gfx_tests.cmx"
   }
@@ -834,19 +859,6 @@ cc_test("cc_unittests") {
       "//gpu/vulkan:test_support",
       "//gpu/vulkan/init",
     ]
-
-    # TODO(samans): Support more configurations.
-    # CFI issue: https://crbug.com/967819
-    # LSAN issue: https://crbug.com/971325
-    # Fuchsia ARM64 https://crbug.com/1058247
-    if ((use_x11 && !is_cfi && !is_lsan) ||
-        (is_fuchsia && target_cpu == "x64")) {
-      defines += [ "ENABLE_CC_VULKAN_TESTS" ]
-    }
-  }
-
-  if (skia_use_dawn && enable_skia_dawn_gtests) {
-    defines += [ "ENABLE_CC_DAWN_TESTS" ]
   }
 }
 
@@ -908,4 +920,20 @@ cc_test("cc_perftests") {
     # Needed for isolate script to execute.
     "//testing:run_perf_test",
   ]
+}
+
+if (is_android) {
+  java_cpp_enum("cc_android_java_enums_srcjar") {
+    sources = [ "//cc/input/browser_controls_state.h" ]
+  }
+
+  android_library("cc_java") {
+    # Right now, this only includes the Java switches. But if we need more Java
+    # files, they should be added here as necessary.
+    srcjar_deps = [ ":cc_android_java_enums_srcjar" ]
+    deps = [
+      "//base:base_java",
+      "//third_party/androidx:androidx_annotation_annotation_java",
+    ]
+  }
 }

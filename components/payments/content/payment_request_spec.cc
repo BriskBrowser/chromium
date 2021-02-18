@@ -7,9 +7,9 @@
 #include <utility>
 
 #include "base/check.h"
+#include "base/containers/contains.h"
 #include "base/feature_list.h"
 #include "base/notreached.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/payments/content/payment_app.h"
@@ -78,7 +78,7 @@ PaymentRequestSpec::PaymentRequestSpec(
     mojom::PaymentOptionsPtr options,
     mojom::PaymentDetailsPtr details,
     std::vector<mojom::PaymentMethodDataPtr> method_data,
-    Observer* observer,
+    base::WeakPtr<Observer> observer,
     const std::string& app_locale)
     : options_(std::move(options)),
       details_(std::move(details)),
@@ -87,7 +87,7 @@ PaymentRequestSpec::PaymentRequestSpec(
       selected_shipping_option_(nullptr),
       current_update_reason_(UpdateReason::NONE) {
   if (observer)
-    AddObserver(observer);
+    AddObserver(observer.get());
   if (!details_->display_items)
     details_->display_items = std::vector<mojom::PaymentItemPtr>();
   if (!details_->shipping_options)
@@ -111,6 +111,8 @@ PaymentRequestSpec::PaymentRequestSpec(
              ToString(request_payer_phone()), ToString(request_shipping())},
             nullptr)};
   }
+
+  app_store_billing_methods_.insert(methods::kGooglePlayBilling);
 }
 PaymentRequestSpec::~PaymentRequestSpec() {}
 
@@ -364,6 +366,16 @@ bool PaymentRequestSpec::IsSecurePaymentConfirmationRequested() const {
   return payment_method_identifiers_set_.size() == 1 &&
          *payment_method_identifiers_set_.begin() ==
              methods::kSecurePaymentConfirmation;
+}
+
+bool PaymentRequestSpec::IsAppStoreBillingAlsoRequested() const {
+  return !base::STLSetIntersection<std::set<std::string>>(
+              app_store_billing_methods_, payment_method_identifiers_set_)
+              .empty();
+}
+
+base::WeakPtr<PaymentRequestSpec> PaymentRequestSpec::AsWeakPtr() {
+  return weak_ptr_factory_.GetWeakPtr();
 }
 
 const mojom::PaymentDetailsModifierPtr*

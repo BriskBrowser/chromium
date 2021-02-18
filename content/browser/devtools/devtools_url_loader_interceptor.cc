@@ -8,13 +8,14 @@
 #include "base/bind.h"
 #include "base/no_destructor.h"
 #include "base/strings/pattern.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
 #include "base/unguessable_token.h"
 #include "content/browser/devtools/protocol/network.h"
 #include "content/browser/devtools/protocol/network_handler.h"
-#include "content/browser/frame_host/frame_tree_node.h"
 #include "content/browser/loader/download_utils_impl.h"
+#include "content/browser/renderer_host/frame_tree_node.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_client.h"
@@ -316,6 +317,7 @@ class InterceptionJob : public network::mojom::URLLoaderClient,
 
   void StartRequest();
   void CancelRequest();
+  void CompleteRequest(const network::URLLoaderCompletionStatus& status);
   void Shutdown();
 
   std::unique_ptr<InterceptedRequestInfo> BuildRequestInfo(
@@ -853,9 +855,10 @@ void InterceptionJob::Detach() {
 
 Response InterceptionJob::InnerContinueRequest(
     std::unique_ptr<Modifications> modifications) {
-  if (!waiting_for_resolution_)
+  if (!waiting_for_resolution_) {
     return Response::ServerError(
         "Invalid state for continueInterceptedRequest");
+  }
   waiting_for_resolution_ = false;
 
   if (state_ == State::kAuthRequired) {
@@ -879,15 +882,15 @@ Response InterceptionJob::InnerContinueRequest(
       status.extended_error_code =
           static_cast<int>(blink::ResourceRequestBlockedReason::kInspector);
     }
-    client_->OnComplete(status);
-    Shutdown();
+    CompleteRequest(status);
     return Response::Success();
   }
 
-  if (modifications->response_headers || modifications->response_body)
+  if (modifications->response_headers || modifications->response_body) {
     return ProcessResponseOverride(std::move(modifications->response_headers),
                                    std::move(modifications->response_body),
                                    modifications->body_offset);
+  }
 
   if (state_ == State::kFollowRedirect) {
     if (modifications->modified_url.isJust()) {
@@ -933,6 +936,10 @@ Response InterceptionJob::InnerContinueRequest(
           "Unable to continue request as is after body is taken");
     }
     // TODO(caseq): report error if other modifications are present.
+    if (response_metadata_->status.error_code) {
+      CompleteRequest(response_metadata_->status);
+      return Response::Success();
+    }
     DCHECK_EQ(State::kResponseReceived, state_);
     DCHECK(!body_reader_);
     client_->OnReceiveResponse(std::move(response_metadata_->head));
@@ -1029,10 +1036,11 @@ Response InterceptionJob::ProcessResponseOverride(
   if (head->mime_type.empty() && body_size) {
     size_t bytes_to_sniff =
         std::min(body_size, static_cast<size_t>(net::kMaxBytesToSniff));
-    net::SniffMimeType(body->front_as<const char>() + response_body_offset,
-                       bytes_to_sniff, create_loader_params_->request.url, "",
-                       net::ForceSniffFileUrlsForHtml::kDisabled,
-                       &head->mime_type);
+    net::SniffMimeType(
+        base::StringPiece(body->front_as<const char>() + response_body_offset,
+                          bytes_to_sniff),
+        create_loader_params_->request.url, "",
+        net::ForceSniffFileUrlsForHtml::kDisabled, &head->mime_type);
     head->did_mime_sniff = true;
   }
   // TODO(caseq): we're cheating here a bit, raw_headers() have \0's
@@ -1109,8 +1117,8 @@ void InterceptionJob::ProcessSetCookies(const net::HttpResponseHeaders& headers,
           create_loader_params_->request.url,
           create_loader_params_->request.site_for_cookies,
           create_loader_params_->request.request_initiator,
-          (create_loader_params_->request.force_ignore_site_for_cookies ||
-           should_treat_as_first_party)));
+          create_loader_params_->request.is_main_frame,
+          should_treat_as_first_party));
 
   // |this| might be deleted here if |cookies| is empty!
   auto on_cookie_set = base::BindRepeating(
@@ -1161,18 +1169,20 @@ void InterceptionJob::SendResponse(scoped_refptr<base::RefCountedMemory> body,
     // but just in case...
     DCHECK_LE(body_size, UINT32_MAX)
         << "Response bodies larger than " << UINT32_MAX << " are not supported";
-    mojo::DataPipe pipe(body_size);
+    mojo::ScopedDataPipeProducerHandle producer_handle;
+    mojo::ScopedDataPipeConsumerHandle consumer_handle;
+    CHECK_EQ(mojo::CreateDataPipe(body_size, producer_handle, consumer_handle),
+             MOJO_RESULT_OK);
     uint32_t num_bytes = body_size;
-    MojoResult res = pipe.producer_handle->WriteData(
+    MojoResult res = producer_handle->WriteData(
         body->front() + offset, &num_bytes, MOJO_WRITE_DATA_FLAG_NONE);
     DCHECK_EQ(0u, res);
     DCHECK_EQ(num_bytes, body_size);
-    client_->OnStartLoadingResponseBody(std::move(pipe.consumer_handle));
+    client_->OnStartLoadingResponseBody(std::move(consumer_handle));
   }
   if (response_metadata_->transfer_size)
     client_->OnTransferSizeUpdated(response_metadata_->transfer_size);
-  client_->OnComplete(response_metadata_->status);
-  Shutdown();
+  CompleteRequest(response_metadata_->status);
 }
 
 void InterceptionJob::ResponseBodyComplete() {
@@ -1256,15 +1266,15 @@ void InterceptionJob::FetchCookies(
   options.set_same_site_cookie_context(
       net::cookie_util::ComputeSameSiteContextForRequest(
           request.method, request.url, request.site_for_cookies,
-          request.request_initiator,
-          (request.force_ignore_site_for_cookies ||
-           should_treat_as_first_party)));
+          request.request_initiator, request.is_main_frame,
+          should_treat_as_first_party));
 
   cookie_manager_->GetCookieList(request.url, options, std::move(callback));
 }
 
 void InterceptionJob::NotifyClient(
     std::unique_ptr<InterceptedRequestInfo> request_info) {
+  DCHECK(!waiting_for_resolution_);
   FetchCookies(base::BindOnce(&InterceptionJob::NotifyClientWithCookies,
                               base::Unretained(this), std::move(request_info)));
 }
@@ -1288,6 +1298,12 @@ void InterceptionJob::NotifyClientWithCookies(
   interceptor_->request_intercepted_callback_.Run(std::move(request_info));
 }
 
+void InterceptionJob::CompleteRequest(
+    const network::URLLoaderCompletionStatus& status) {
+  client_->OnComplete(status);
+  Shutdown();
+}
+
 void InterceptionJob::Shutdown() {
   if (interceptor_)
     interceptor_->RemoveJob(current_id_);
@@ -1307,8 +1323,9 @@ void InterceptionJob::FollowRedirect(
   network::ResourceRequest* request = &create_loader_params_->request;
   const net::RedirectInfo& info = *response_metadata_->redirect_info;
   const auto current_origin = url::Origin::Create(request->url);
+  const auto new_origin = url::Origin::Create(info.new_url);
   if (request->request_initiator &&
-      (!url::Origin::Create(info.new_url).IsSameOriginWith(current_origin) &&
+      (!new_origin.IsSameOriginWith(current_origin) &&
        !request->request_initiator->IsSameOriginWith(current_origin))) {
     tainted_origin_ = true;
   }
@@ -1328,6 +1345,10 @@ void InterceptionJob::FollowRedirect(
   request->site_for_cookies = info.new_site_for_cookies;
   request->referrer_policy = info.new_referrer_policy;
   request->referrer = GURL(info.new_referrer);
+  if (request->trusted_params) {
+    request->trusted_params->isolation_info =
+        request->trusted_params->isolation_info.CreateForRedirect(new_origin);
+  }
   response_metadata_.reset();
 
   UpdateCORSFlag();
@@ -1454,18 +1475,32 @@ void InterceptionJob::OnStartLoadingResponseBody(
 
 void InterceptionJob::OnComplete(
     const network::URLLoaderCompletionStatus& status) {
-  // Essentially ShouldBypassForResponse(), but skip DCHECKs
-  // since this may be called in any state during shutdown.
-  if (!response_metadata_) {
-    client_->OnComplete(status);
-    Shutdown();
-    return;
-  }
-  response_metadata_->status = status;
   // No need to listen to the channel any more, so just reset it, so if the pipe
   // is closed by the other end, |shutdown| isn't run.
   client_receiver_.reset();
   loader_.reset();
+
+  if (!response_metadata_) {
+    // If we haven't seen response and get an error completion,
+    // treat it as a response and intercept (provided response are
+    // being intercepted).
+    if (!(stage_ & InterceptionStage::RESPONSE) || !status.error_code) {
+      CompleteRequest(status);
+      return;
+    }
+    response_metadata_ = std::make_unique<ResponseMetadata>();
+    response_metadata_->status = status;
+    auto request_info = BuildRequestInfo(nullptr);
+    request_info->response_error_code = status.error_code;
+    NotifyClient(std::move(request_info));
+    return;
+  }
+  // Since we're not forwarding OnComplete right now, make sure
+  // we're in the proper state. The completion is due upon client response.
+  DCHECK(state_ == State::kResponseReceived || state_ == State::kResponseTaken);
+  DCHECK(waiting_for_resolution_);
+
+  response_metadata_->status = status;
 }
 
 void InterceptionJob::OnAuthRequest(

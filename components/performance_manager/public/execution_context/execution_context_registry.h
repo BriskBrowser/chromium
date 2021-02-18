@@ -5,7 +5,6 @@
 #ifndef COMPONENTS_PERFORMANCE_MANAGER_PUBLIC_EXECUTION_CONTEXT_EXECUTION_CONTEXT_REGISTRY_H_
 #define COMPONENTS_PERFORMANCE_MANAGER_PUBLIC_EXECUTION_CONTEXT_EXECUTION_CONTEXT_REGISTRY_H_
 
-#include "components/performance_manager/public/execution_context/execution_context_token.h"
 #include "components/performance_manager/public/graph/frame_node.h"
 #include "components/performance_manager/public/graph/worker_node.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
@@ -34,9 +33,18 @@ class ExecutionContextRegistry {
   // Graph.
   static ExecutionContextRegistry* GetFromGraph(Graph* graph);
 
+  // Returns the ExecutionContext associated with a node.
+  static const ExecutionContext* GetExecutionContextForFrameNode(
+      const FrameNode* frame_node);
+  static const ExecutionContext* GetExecutionContextForWorkerNode(
+      const WorkerNode* worker_node);
+
   // Adds an observer to the registry. The observer needs to be removed before
   // the registry is torn down.
   virtual void AddObserver(ExecutionContextObserver* observer) = 0;
+
+  // Determines if an observer is in the registry.
+  virtual bool HasObserver(ExecutionContextObserver* observer) const = 0;
 
   // Removes an observer from the registry.
   virtual void RemoveObserver(ExecutionContextObserver* observer) = 0;
@@ -44,7 +52,7 @@ class ExecutionContextRegistry {
   // Looks up an ExecutionContext by token. Returns nullptr if no such context
   // exists.
   virtual const ExecutionContext* GetExecutionContextByToken(
-      const ExecutionContextToken& token) = 0;
+      const blink::ExecutionContextToken& token) = 0;
 
   // Does a typed lookup of a FrameNode ExecutionContext by FrameToken, returns
   // nullptr if no such FrameNode exists.
@@ -56,10 +64,11 @@ class ExecutionContextRegistry {
   virtual const WorkerNode* GetWorkerNodeByWorkerToken(
       const blink::WorkerToken& token) = 0;
 
-  // Returns the ExecutionContext associated with a node.
-  virtual const ExecutionContext* GetExecutionContextForFrameNode(
+  // Returns the ExecutionContext associated with a node. These provide
+  // implementations for the static functions above, which should be preferred.
+  virtual const ExecutionContext* GetExecutionContextForFrameNodeImpl(
       const FrameNode* frame_node) = 0;
-  virtual const ExecutionContext* GetExecutionContextForWorkerNode(
+  virtual const ExecutionContext* GetExecutionContextForWorkerNodeImpl(
       const WorkerNode* worker_node) = 0;
 };
 

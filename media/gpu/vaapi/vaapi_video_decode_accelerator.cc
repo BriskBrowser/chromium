@@ -10,7 +10,7 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/cpu.h"
 #include "base/files/scoped_file.h"
 #include "base/json/json_writer.h"
@@ -18,6 +18,7 @@
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/ranges.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/synchronization/waitable_event.h"
@@ -204,9 +205,9 @@ bool VaapiVideoDecodeAccelerator::Initialize(const Config& config,
   VLOGF(2) << "Initializing VAVDA, profile: " << GetProfileName(profile);
 
   vaapi_wrapper_ = VaapiWrapper::CreateForVideoCodec(
-      VaapiWrapper::kDecode, profile,
-      base::Bind(&ReportVaapiErrorToUMA,
-                 "Media.VaapiVideoDecodeAccelerator.VAAPIError"));
+      VaapiWrapper::kDecode, profile, EncryptionScheme::kUnencrypted,
+      base::BindRepeating(&ReportVaapiErrorToUMA,
+                          "Media.VaapiVideoDecodeAccelerator.VAAPIError"));
 
   UMA_HISTOGRAM_BOOLEAN("Media.VAVDA.VaapiWrapperCreationSuccess",
                         vaapi_wrapper_.get());
@@ -349,7 +350,7 @@ void VaapiVideoDecodeAccelerator::QueueInputBuffer(
     auto input_buffer = std::make_unique<InputBuffer>(
         bitstream_id, std::move(buffer),
         BindToCurrentLoop(
-            base::Bind(&Client::NotifyEndOfBitstreamBuffer, client_)));
+            base::BindOnce(&Client::NotifyEndOfBitstreamBuffer, client_)));
     input_buffers_.push(std::move(input_buffer));
   }
 
@@ -468,6 +469,11 @@ void VaapiVideoDecodeAccelerator::DecodeTask() {
 
     switch (res) {
       case AcceleratedVideoDecoder::kConfigChange: {
+        const uint8_t bit_depth = decoder_->GetBitDepth();
+        RETURN_AND_NOTIFY_ON_FAILURE(
+            bit_depth == 8u,
+            "Unsupported bit depth: " << base::strict_cast<int>(bit_depth),
+            PLATFORM_FAILURE, );
         // The visible rect should be a subset of the picture size. Otherwise,
         // the encoded stream is bad.
         const gfx::Size pic_size = decoder_->GetPicSize();
@@ -491,6 +497,11 @@ void VaapiVideoDecodeAccelerator::DecodeTask() {
           required_num_of_pictures =
               std::max(kMinNumOfPics, required_num_of_pictures);
         }
+
+        // Notify |decoder_delegate_| of an imminent VAContextID destruction, so
+        // it can destroy any internal structures making use of it.
+        decoder_delegate_->OnVAContextDestructionSoon();
+
         task_runner_->PostTask(
             FROM_HERE,
             base::BindOnce(
@@ -605,14 +616,13 @@ void VaapiVideoDecodeAccelerator::TryFinishSurfaceSetChange() {
   // All surfaces released, destroy them and dismiss all PictureBuffers.
   awaiting_va_surfaces_recycle_ = false;
 
-  VideoCodecProfile new_profile = decoder_->GetProfile();
+  const VideoCodecProfile new_profile = decoder_->GetProfile();
   if (profile_ != new_profile) {
-    DCHECK(decoder_delegate_);
     profile_ = new_profile;
     auto new_vaapi_wrapper = VaapiWrapper::CreateForVideoCodec(
-        VaapiWrapper::kDecode, profile_,
-        base::Bind(&ReportVaapiErrorToUMA,
-                   "Media.VaapiVideoDecodeAccelerator.VAAPIError"));
+        VaapiWrapper::kDecode, profile_, EncryptionScheme::kUnencrypted,
+        base::BindRepeating(&ReportVaapiErrorToUMA,
+                            "Media.VaapiVideoDecodeAccelerator.VAAPIError"));
     RETURN_AND_NOTIFY_ON_FAILURE(new_vaapi_wrapper.get(),
                                  "Failed creating VaapiWrapper",
                                  INVALID_ARGUMENT, );
@@ -695,19 +705,20 @@ void VaapiVideoDecodeAccelerator::AssignPictureBuffers(
   std::vector<VASurfaceID> va_surface_ids;
   scoped_refptr<VaapiWrapper> vaapi_wrapper_for_picture = vaapi_wrapper_;
 
-  // The X11/ANGLE implementation can use |vaapi_wrapper_| to copy from an
-  // internal libva buffer into an X Pixmap without having to use a processing
-  // wrapper.
-#if !defined(USE_X11)
-  // If we aren't in BufferAllocationMode::kNone, we have to allocate a
-  // |vpp_vaapi_wrapper_| for VaapiPicture to DownloadFromSurface() the VA's
-  // internal decoded frame.
-  if (buffer_allocation_mode_ != BufferAllocationMode::kNone) {
+  const bool requires_vpp =
+      vaapi_picture_factory_->NeedsProcessingPipelineForDownloading();
+  // If we aren't in BufferAllocationMode::kNone mode and the VaapiPicture
+  // implementation we get from |vaapi_picture_factory_| requires the video
+  // processing pipeline for downloading the decoded frame from the internal
+  // surface, we need to create a |vpp_vaapi_wrapper_|.
+  if (requires_vpp && buffer_allocation_mode_ != BufferAllocationMode::kNone) {
     if (!vpp_vaapi_wrapper_) {
       vpp_vaapi_wrapper_ = VaapiWrapper::Create(
           VaapiWrapper::kVideoProcess, VAProfileNone,
-          base::Bind(&ReportVaapiErrorToUMA,
-                     "Media.VaapiVideoDecodeAccelerator.Vpp.VAAPIError"));
+          EncryptionScheme::kUnencrypted,
+          base::BindRepeating(
+              &ReportVaapiErrorToUMA,
+              "Media.VaapiVideoDecodeAccelerator.Vpp.VAAPIError"));
       RETURN_AND_NOTIFY_ON_FAILURE(vpp_vaapi_wrapper_,
                                    "Failed to initialize VppVaapiWrapper",
                                    PLATFORM_FAILURE, );
@@ -718,8 +729,6 @@ void VaapiVideoDecodeAccelerator::AssignPictureBuffers(
     }
     vaapi_wrapper_for_picture = vpp_vaapi_wrapper_;
   }
-
-#endif  // !defined(USE_X11)
 
   for (size_t i = 0; i < buffers.size(); ++i) {
     // TODO(b/139460315): Create with buffers[i] once the AMD driver issue is
@@ -1060,6 +1069,11 @@ void VaapiVideoDecodeAccelerator::Cleanup() {
   if (buffer_allocation_mode_ != BufferAllocationMode::kNone)
     available_va_surfaces_.clear();
 
+  // Notify |decoder_delegate_| of an imminent VAContextID destruction, so it
+  // can destroy any internal structures making use of it. At this point
+  // |decoder_thread_| is stopped so we can access |decoder_delegate_| from
+  // |task_runner_|.
+  decoder_delegate_->OnVAContextDestructionSoon();
   vaapi_wrapper_->DestroyContext();
 
   if (vpp_vaapi_wrapper_)
@@ -1182,12 +1196,16 @@ void VaapiVideoDecodeAccelerator::RecycleVASurface(
 
 // static
 VideoDecodeAccelerator::SupportedProfiles
-VaapiVideoDecodeAccelerator::GetSupportedProfiles() {
+VaapiVideoDecodeAccelerator::GetSupportedProfiles(
+    const gpu::GpuDriverBugWorkarounds& workarounds) {
   VideoDecodeAccelerator::SupportedProfiles profiles =
-      VaapiWrapper::GetSupportedDecodeProfiles();
-  // VaVDA never supported VP9 Profile 2, but VaapiWrapper does. Filter it out.
+      VaapiWrapper::GetSupportedDecodeProfiles(workarounds);
+  // VaVDA never supported VP9 Profile 2, AV1 and HEVC, but VaapiWrapper does.
+  // Filter them out.
   base::EraseIf(profiles, [](const auto& profile) {
-    return profile.profile == VP9PROFILE_PROFILE2;
+    VideoCodec codec = VideoCodecProfileToVideoCodec(profile.profile);
+    return profile.profile == VP9PROFILE_PROFILE2 ||
+           codec == VideoCodec::kCodecAV1 || codec == VideoCodec::kCodecHEVC;
   });
   return profiles;
 }

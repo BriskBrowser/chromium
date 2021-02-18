@@ -8,6 +8,7 @@
 #include "ash/frame/non_client_frame_view_ash.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/test/shell_test_api.h"
+#include "ash/public/cpp/window_properties.h"
 #include "ash/shell.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/wm_event.h"
@@ -16,6 +17,7 @@
 #include "base/callback.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/bind.h"
 #include "components/exo/buffer.h"
 #include "components/exo/permission.h"
 #include "components/exo/shell_surface_util.h"
@@ -42,6 +44,9 @@
 #include "ui/wm/core/shadow_types.h"
 #include "ui/wm/core/window_util.h"
 
+#include "ash/wm/resize_shadow.h"
+#include "ash/wm/resize_shadow_controller.h"
+
 namespace exo {
 
 using ShellSurfaceTest = test::ExoTestBase;
@@ -53,11 +58,11 @@ bool HasBackdrop() {
 
 uint32_t ConfigureFullscreen(uint32_t serial,
                              const gfx::Size& size,
-                             ash::WindowStateType state_type,
+                             chromeos::WindowStateType state_type,
                              bool resizing,
                              bool activated,
                              const gfx::Vector2d& origin_offset) {
-  EXPECT_EQ(ash::WindowStateType::kFullscreen, state_type);
+  EXPECT_EQ(chromeos::WindowStateType::kFullscreen, state_type);
   return serial;
 }
 
@@ -198,6 +203,42 @@ TEST_F(ShellSurfaceTest, Maximize) {
   ash::WindowState::Get(window)->OnWMEvent(&maximize_event);
   EXPECT_TRUE(shell_surface->GetWidget()->IsMaximized());
   EXPECT_FALSE(HasBackdrop());
+}
+
+TEST_F(ShellSurfaceTest, CanMaximizeResizableWindow) {
+  gfx::Size buffer_size(400, 300);
+  std::unique_ptr<Buffer> buffer(
+      new Buffer(exo_test_helper()->CreateGpuMemoryBuffer(buffer_size)));
+  std::unique_ptr<Surface> surface(new Surface);
+  std::unique_ptr<ShellSurface> shell_surface(new ShellSurface(surface.get()));
+
+  surface->Attach(buffer.get());
+  surface->Commit();
+
+  // Make sure we've created a resizable window.
+  EXPECT_TRUE(shell_surface->CanResize());
+
+  // Assert: Resizable windows can be maximized.
+  EXPECT_TRUE(shell_surface->CanMaximize());
+}
+
+TEST_F(ShellSurfaceTest, CannotMaximizeNonResizableWindow) {
+  gfx::Size buffer_size(400, 300);
+  std::unique_ptr<Buffer> buffer(
+      new Buffer(exo_test_helper()->CreateGpuMemoryBuffer(buffer_size)));
+  std::unique_ptr<Surface> surface(new Surface);
+  std::unique_ptr<ShellSurface> shell_surface(new ShellSurface(surface.get()));
+
+  surface->Attach(buffer.get());
+  shell_surface->SetMinimumSize(buffer_size);
+  shell_surface->SetMaximumSize(buffer_size);
+  surface->Commit();
+
+  // Make sure we've created a non-resizable window.
+  EXPECT_FALSE(shell_surface->CanResize());
+
+  // Assert: Non-resizable windows cannot be maximized.
+  EXPECT_FALSE(shell_surface->CanMaximize());
 }
 
 TEST_F(ShellSurfaceTest, Minimize) {
@@ -350,24 +391,61 @@ TEST_F(ShellSurfaceTest, ActivationPermission) {
   EXPECT_FALSE(HasPermissionToActivate(window));
 
   // Can grant permission.
-  std::unique_ptr<exo::Permission> permission =
-      GrantPermissionToActivate(window, base::TimeDelta::FromDays(1));
+  GrantPermissionToActivate(window, base::TimeDelta::FromDays(1));
+  exo::Permission* permission = window->GetProperty(kPermissionKey);
   EXPECT_TRUE(permission->Check(Permission::Capability::kActivate));
   EXPECT_TRUE(HasPermissionToActivate(window));
 
-  // Overriding the permission revokes the previous one.
-  std::unique_ptr<exo::Permission> permission2 =
-      GrantPermissionToActivate(window, base::TimeDelta::FromDays(2));
-  EXPECT_FALSE(permission->Check(Permission::Capability::kActivate));
-  EXPECT_TRUE(permission2->Check(Permission::Capability::kActivate));
-
-  // The old permission no longer affects the window
-  permission.reset();
-  EXPECT_TRUE(HasPermissionToActivate(window));
-
-  // Deleting the permission revokes.
-  permission2.reset();
+  // Can revoke permission.
+  RevokePermissionToActivate(window);
   EXPECT_FALSE(HasPermissionToActivate(window));
+
+  // Can grant permission again.
+  GrantPermissionToActivate(window, base::TimeDelta::FromDays(2));
+  exo::Permission* permission2 = window->GetProperty(kPermissionKey);
+  EXPECT_TRUE(permission2->Check(Permission::Capability::kActivate));
+  EXPECT_TRUE(HasPermissionToActivate(window));
+}
+
+TEST_F(ShellSurfaceTest, WidgetActivation) {
+  gfx::Size buffer_size(64, 64);
+  auto buffer1 = std::make_unique<Buffer>(
+      exo_test_helper()->CreateGpuMemoryBuffer(buffer_size));
+  auto surface1 = std::make_unique<Surface>();
+  auto shell_surface1 = std::make_unique<ShellSurface>(surface1.get());
+  surface1->Attach(buffer1.get());
+  surface1->Commit();
+
+  // The window is active.
+  views::Widget* widget1 = shell_surface1->GetWidget();
+  EXPECT_TRUE(widget1->IsActive());
+
+  // Create a second window.
+  auto buffer2 = std::make_unique<Buffer>(
+      exo_test_helper()->CreateGpuMemoryBuffer(buffer_size));
+  auto surface2 = std::make_unique<Surface>();
+  auto shell_surface2 = std::make_unique<ShellSurface>(surface2.get());
+  surface2->Attach(buffer2.get());
+  surface2->Commit();
+
+  // Now the second window is active.
+  views::Widget* widget2 = shell_surface2->GetWidget();
+  EXPECT_FALSE(widget1->IsActive());
+  EXPECT_TRUE(widget2->IsActive());
+
+  // Grant permission to activate the first window.
+  GrantPermissionToActivate(widget1->GetNativeWindow(),
+                            base::TimeDelta::FromDays(1));
+
+  // The first window can activate itself.
+  surface1->RequestActivation();
+  EXPECT_TRUE(widget1->IsActive());
+  EXPECT_FALSE(widget2->IsActive());
+
+  // The second window cannot activate itself.
+  surface2->RequestActivation();
+  EXPECT_TRUE(widget1->IsActive());
+  EXPECT_FALSE(widget2->IsActive());
 }
 
 TEST_F(ShellSurfaceTest, EmulateOverrideRedirect) {
@@ -435,11 +513,17 @@ TEST_F(ShellSurfaceTest, SetStartupId) {
 }
 
 TEST_F(ShellSurfaceTest, StartMove) {
+  // TODO: Ractor out the shell surface creation.
+  gfx::Size buffer_size(64, 64);
+  std::unique_ptr<Buffer> buffer(
+      new Buffer(exo_test_helper()->CreateGpuMemoryBuffer(buffer_size)));
   std::unique_ptr<Surface> surface(new Surface);
   std::unique_ptr<ShellSurface> shell_surface(new ShellSurface(surface.get()));
 
   // Map shell surface.
+  surface->Attach(buffer.get());
   surface->Commit();
+  ASSERT_TRUE(shell_surface->GetWidget());
 
   // The interactive move should end when surface is destroyed.
   shell_surface->StartMove();
@@ -449,17 +533,61 @@ TEST_F(ShellSurfaceTest, StartMove) {
 }
 
 TEST_F(ShellSurfaceTest, StartResize) {
+  gfx::Size buffer_size(64, 64);
+  std::unique_ptr<Buffer> buffer(
+      new Buffer(exo_test_helper()->CreateGpuMemoryBuffer(buffer_size)));
   std::unique_ptr<Surface> surface(new Surface);
   std::unique_ptr<ShellSurface> shell_surface(new ShellSurface(surface.get()));
 
   // Map shell surface.
+  surface->Attach(buffer.get());
   surface->Commit();
+  ASSERT_TRUE(shell_surface->GetWidget());
 
   // The interactive resize should end when surface is destroyed.
   shell_surface->StartResize(HTBOTTOMRIGHT);
 
   // Test that destroying the surface before resize ends is OK.
   surface.reset();
+}
+
+TEST_F(ShellSurfaceTest, StartResizeAndDestroyShell) {
+  gfx::Size buffer_size(64, 64);
+  std::unique_ptr<Buffer> buffer(
+      new Buffer(exo_test_helper()->CreateGpuMemoryBuffer(buffer_size)));
+  std::unique_ptr<Surface> surface(new Surface);
+  std::unique_ptr<ShellSurface> shell_surface(new ShellSurface(surface.get()));
+
+  uint32_t serial = 0;
+  auto configure_callback = base::BindRepeating(
+      [](uint32_t* const serial_ptr, const gfx::Size& size,
+         chromeos::WindowStateType state_type, bool resizing, bool activated,
+         const gfx::Vector2d& origin_offset) { return ++(*serial_ptr); },
+      &serial);
+
+  // Map shell surface.
+  surface->Attach(buffer.get());
+  shell_surface->set_configure_callback(configure_callback);
+
+  surface->Commit();
+  ASSERT_TRUE(shell_surface->GetWidget());
+
+  // The interactive resize should end when surface is destroyed.
+  shell_surface->StartResize(HTBOTTOMRIGHT);
+
+  // Go through configure/commit stage to update the resize component.
+  shell_surface->AcknowledgeConfigure(serial);
+  surface->Commit();
+
+  shell_surface->set_configure_callback(base::BindRepeating(
+      [](const gfx::Size& size, chromeos::WindowStateType state_type,
+         bool resizing, bool activated, const gfx::Vector2d& origin_offset) {
+        ADD_FAILURE() << "Configure Should not be called";
+        return uint32_t{0};
+      }));
+
+  // Test that destroying the surface before resize ends is OK.
+  shell_surface.reset();
 }
 
 TEST_F(ShellSurfaceTest, SetGeometry) {
@@ -608,11 +736,11 @@ TEST_F(ShellSurfaceTest, ForceClose) {
 }
 
 uint32_t Configure(gfx::Size* suggested_size,
-                   ash::WindowStateType* has_state_type,
+                   chromeos::WindowStateType* has_state_type,
                    bool* is_resizing,
                    bool* is_active,
                    const gfx::Size& size,
-                   ash::WindowStateType state_type,
+                   chromeos::WindowStateType state_type,
                    bool resizing,
                    bool activated,
                    const gfx::Vector2d& origin_offset) {
@@ -627,7 +755,7 @@ TEST_F(ShellSurfaceTest, ConfigureCallback) {
   // Must be before shell_surface so it outlives it, for shell_surface's
   // destructor calls Configure() referencing these 4 variables.
   gfx::Size suggested_size;
-  ash::WindowStateType has_state_type = ash::WindowStateType::kNormal;
+  chromeos::WindowStateType has_state_type = chromeos::WindowStateType::kNormal;
   bool is_resizing = false;
   bool is_active = false;
 
@@ -656,7 +784,7 @@ TEST_F(ShellSurfaceTest, ConfigureCallback) {
 
   EXPECT_FALSE(shell_surface->GetWidget());
   EXPECT_TRUE(suggested_size.IsEmpty());
-  EXPECT_EQ(ash::WindowStateType::kNormal, has_state_type);
+  EXPECT_EQ(chromeos::WindowStateType::kNormal, has_state_type);
 
   gfx::Size buffer_size(64, 64);
   std::unique_ptr<Buffer> buffer(
@@ -668,7 +796,7 @@ TEST_F(ShellSurfaceTest, ConfigureCallback) {
       display::Screen::GetScreen()->GetPrimaryDisplay().work_area();
   EXPECT_TRUE(shell_surface->GetWidget());
   EXPECT_EQ(maximized_bounds.size(), suggested_size);
-  EXPECT_EQ(ash::WindowStateType::kMaximized, has_state_type);
+  EXPECT_EQ(chromeos::WindowStateType::kMaximized, has_state_type);
   shell_surface->Restore();
   shell_surface->AcknowledgeConfigure(0);
   // It should be restored to the original geometry size.
@@ -678,7 +806,7 @@ TEST_F(ShellSurfaceTest, ConfigureCallback) {
   shell_surface->AcknowledgeConfigure(0);
   EXPECT_EQ(GetContext()->bounds().size().ToString(),
             suggested_size.ToString());
-  EXPECT_EQ(ash::WindowStateType::kFullscreen, has_state_type);
+  EXPECT_EQ(chromeos::WindowStateType::kFullscreen, has_state_type);
   shell_surface->SetFullscreen(false);
   shell_surface->AcknowledgeConfigure(0);
   EXPECT_EQ(geometry.size(), shell_surface->CalculatePreferredSize());
@@ -1156,6 +1284,127 @@ TEST_F(ShellSurfaceTest, NotifyLeaveEnter) {
   EXPECT_EQ(display::Screen::GetScreen()->GetPrimaryDisplay().id(),
             new_display_id);
   EXPECT_EQ(secondary_id, old_display_id);
+}
+
+// Make sure that the server side triggers resize when the
+// set_server_start_resize is called, and the resize shadow is created for the
+// window.
+TEST_F(ShellSurfaceTest, ServerStartResize) {
+  gfx::Size buffer_size(64, 64);
+  std::unique_ptr<Buffer> buffer(
+      new Buffer(exo_test_helper()->CreateGpuMemoryBuffer(buffer_size)));
+  std::unique_ptr<Surface> surface(new Surface);
+  std::unique_ptr<ShellSurface> shell_surface(new ShellSurface(surface.get()));
+  shell_surface->OnSetServerStartResize();
+
+  surface->Attach(buffer.get());
+  surface->Commit();
+  ASSERT_TRUE(shell_surface->GetWidget());
+
+  auto* widget = shell_surface->GetWidget();
+
+  gfx::Size size = widget->GetWindowBoundsInScreen().size();
+  widget->SetBounds(gfx::Rect(size));
+
+  ui::test::EventGenerator* event_generator = GetEventGenerator();
+  event_generator->MoveMouseTo(size.width() + 2, size.height() / 2);
+
+  // Ash creates resize shadow for resizable exo window when the
+  // server_start_resize is set.
+  ash::ResizeShadow* resize_shadow =
+      ash::Shell::Get()->resize_shadow_controller()->GetShadowForWindowForTest(
+          widget->GetNativeWindow());
+  ASSERT_TRUE(resize_shadow);
+
+  constexpr int kDragAmount = 10;
+  event_generator->PressLeftButton();
+  event_generator->MoveMouseBy(kDragAmount, 0);
+  event_generator->ReleaseLeftButton();
+
+  EXPECT_EQ(widget->GetWindowBoundsInScreen().size().width(),
+            size.width() + kDragAmount);
+}
+
+TEST_F(ShellSurfaceTest, PropertyResolverTest) {
+  class TestPropertyResolver : public exo::WMHelper::AppPropertyResolver {
+   public:
+    TestPropertyResolver() = default;
+    ~TestPropertyResolver() override = default;
+    void PopulateProperties(
+        const std::string& app_id,
+        const std::string& startup_id,
+        bool for_creation,
+        ui::PropertyHandler& out_properties_container) override {
+      if (expected_app_id == app_id) {
+        out_properties_container.AcquireAllPropertiesFrom(
+            std::move(for_creation ? properties_for_creation
+                                   : properties_after_creation));
+      }
+    }
+    std::string expected_app_id;
+    ui::PropertyHandler properties_for_creation;
+    ui::PropertyHandler properties_after_creation;
+  };
+  std::unique_ptr<TestPropertyResolver> resolver_holder =
+      std::make_unique<TestPropertyResolver>();
+  auto* resolver = resolver_holder.get();
+  WMHelper::GetInstance()->RegisterAppPropertyResolver(
+      std::move(resolver_holder));
+
+  resolver->properties_for_creation.SetProperty(ash::kShelfItemTypeKey, 1);
+  resolver->properties_after_creation.SetProperty(ash::kShelfItemTypeKey, 2);
+  resolver->expected_app_id = "test";
+
+  // Make sure that properties are properly populated for both
+  // "before widget creation", and "after widget creation".
+  {
+    // TODO(oshima): create a test API to create a shell surface.
+    gfx::Size buffer_size(256, 256);
+    auto buffer = std::make_unique<Buffer>(
+        exo_test_helper()->CreateGpuMemoryBuffer(buffer_size));
+    auto surface = std::make_unique<Surface>();
+    auto shell_surface = std::make_unique<ShellSurface>(surface.get());
+
+    surface->SetApplicationId("test");
+    surface->Attach(buffer.get());
+    surface->Commit();
+    EXPECT_EQ(1, shell_surface->GetWidget()->GetNativeWindow()->GetProperty(
+                     ash::kShelfItemTypeKey));
+    surface->SetApplicationId("test");
+    EXPECT_EQ(2, shell_surface->GetWidget()->GetNativeWindow()->GetProperty(
+                     ash::kShelfItemTypeKey));
+  }
+
+  // Make sure that properties are will not be popluated when the app ids
+  // mismatch "before" and "after" widget is created.
+  resolver->properties_for_creation.SetProperty(ash::kShelfItemTypeKey, 1);
+  resolver->properties_after_creation.SetProperty(ash::kShelfItemTypeKey, 2);
+  {
+    gfx::Size buffer_size(256, 256);
+    auto buffer = std::make_unique<Buffer>(
+        exo_test_helper()->CreateGpuMemoryBuffer(buffer_size));
+    auto surface = std::make_unique<Surface>();
+    auto shell_surface = std::make_unique<ShellSurface>(surface.get());
+
+    surface->SetApplicationId("testx");
+    surface->Attach(buffer.get());
+    surface->Commit();
+    EXPECT_NE(1, shell_surface->GetWidget()->GetNativeWindow()->GetProperty(
+                     ash::kShelfItemTypeKey));
+
+    surface->SetApplicationId("testy");
+    surface->Attach(buffer.get());
+    surface->Commit();
+    EXPECT_NE(1, shell_surface->GetWidget()->GetNativeWindow()->GetProperty(
+                     ash::kShelfItemTypeKey));
+    EXPECT_NE(2, shell_surface->GetWidget()->GetNativeWindow()->GetProperty(
+                     ash::kShelfItemTypeKey));
+
+    // Updating to the matching |app_id| should set the window property.
+    surface->SetApplicationId("test");
+    EXPECT_EQ(2, shell_surface->GetWidget()->GetNativeWindow()->GetProperty(
+                     ash::kShelfItemTypeKey));
+  }
 }
 
 }  // namespace exo

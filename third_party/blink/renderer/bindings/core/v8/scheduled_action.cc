@@ -39,7 +39,6 @@
 #include "third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
-#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
 #include "third_party/blink/renderer/core/workers/worker_thread.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
@@ -57,9 +56,9 @@ ScheduledAction::ScheduledAction(ScriptState* script_state,
     : script_state_(
           MakeGarbageCollected<ScriptStateProtectingContext>(script_state)) {
   if (script_state->World().IsWorkerWorld() ||
-      BindingSecurity::ShouldAllowAccessToFrame(
+      BindingSecurity::ShouldAllowAccessTo(
           EnteredDOMWindow(script_state->GetIsolate()),
-          To<LocalDOMWindow>(target)->GetFrame(),
+          To<LocalDOMWindow>(target),
           BindingSecurity::ErrorReportOption::kDoNotReport)) {
     function_ = handler;
     arguments_ = arguments;
@@ -74,9 +73,9 @@ ScheduledAction::ScheduledAction(ScriptState* script_state,
     : script_state_(
           MakeGarbageCollected<ScriptStateProtectingContext>(script_state)) {
   if (script_state->World().IsWorkerWorld() ||
-      BindingSecurity::ShouldAllowAccessToFrame(
+      BindingSecurity::ShouldAllowAccessTo(
           EnteredDOMWindow(script_state->GetIsolate()),
-          To<LocalDOMWindow>(target)->GetFrame(),
+          To<LocalDOMWindow>(target),
           BindingSecurity::ErrorReportOption::kDoNotReport)) {
     code_ = handler;
   } else {
@@ -116,25 +115,53 @@ void ScheduledAction::Execute(ExecutionContext* context) {
     DVLOG(1) << "ScheduledAction::execute " << this << ": context is empty";
     return;
   }
-  // ExecutionContext::CanExecuteScripts() relies on the current context to
-  // determine if it is allowed. Enter the scope here.
-  ScriptState::Scope scope(script_state_->Get());
 
-  if (LocalDOMWindow* window = DynamicTo<LocalDOMWindow>(context)) {
-    LocalFrame* frame = window->GetFrame();
-    if (!frame) {
-      DVLOG(1) << "ScheduledAction::execute " << this << ": no frame";
-      return;
-    }
+  {
+    // ExecutionContext::CanExecuteScripts() relies on the current context to
+    // determine if it is allowed. Enter the scope here.
+    // TODO(crbug.com/1151165): Consider merging CanExecuteScripts() calls,
+    // because once crbug.com/1111134 is done, CanExecuteScripts() will be
+    // always called below inside
+    // - InvokeAndReportException() => V8Function::Invoke() =>
+    //   IsCallbackFunctionRunnable() and
+    // - V8ScriptRunner::CompileAndRunScript().
+    ScriptState::Scope scope(script_state_->Get());
     if (!context->CanExecuteScripts(kAboutToExecuteScript)) {
       DVLOG(1) << "ScheduledAction::execute " << this
-               << ": frame can not execute scripts";
+               << ": window can not execute scripts";
       return;
     }
-    Execute(frame);
+
+    // https://html.spec.whatwg.org/C/#timer-initialisation-steps
+    if (function_) {
+      DVLOG(1) << "ScheduledAction::execute " << this << ": have function";
+      function_->InvokeAndReportException(context->ToScriptWrappable(),
+                                          arguments_);
+      return;
+    }
+
+    // We exit the scope here, because we enter v8::Context during the main
+    // evaluation below.
+  }
+
+  // We use |SanitizeScriptErrors::kDoNotSanitize| because muted errors flag is
+  // not set in https://html.spec.whatwg.org/C/#timer-initialisation-steps
+  DVLOG(1) << "ScheduledAction::execute " << this << ": executing from source";
+  v8::HandleScope scope(script_state_->GetIsolate());
+  if (LocalDOMWindow* window = DynamicTo<LocalDOMWindow>(context)) {
+    window->GetScriptController().ExecuteScriptAndReturnValue(
+        script_state_->GetContext(),
+        ScriptSourceCode(code_,
+                         ScriptSourceLocationType::kEvalForScheduledAction),
+        KURL(), SanitizeScriptErrors::kDoNotSanitize, ScriptFetchOptions(),
+        ExecuteScriptPolicy::kDoNotExecuteScriptWhenScriptsDisabled);
   } else {
-    DVLOG(1) << "ScheduledAction::execute " << this << ": worker scope";
-    Execute(To<WorkerGlobalScope>(context));
+    WorkerGlobalScope* worker = To<WorkerGlobalScope>(context);
+    DCHECK(worker->GetThread()->IsCurrentThread());
+    worker->ScriptController()->EvaluateAndReturnValue(
+        ScriptSourceCode(code_,
+                         ScriptSourceLocationType::kEvalForScheduledAction),
+        SanitizeScriptErrors::kDoNotSanitize);
   }
 }
 
@@ -142,52 +169,6 @@ void ScheduledAction::Trace(Visitor* visitor) const {
   visitor->Trace(script_state_);
   visitor->Trace(function_);
   visitor->Trace(arguments_);
-}
-
-void ScheduledAction::Execute(LocalFrame* frame) {
-  DCHECK(script_state_->ContextIsValid());
-
-  // https://html.spec.whatwg.org/C/#timer-initialisation-steps
-  TRACE_EVENT0("v8", "ScheduledAction::execute");
-  if (function_) {
-    DVLOG(1) << "ScheduledAction::execute " << this << ": have function";
-    function_->InvokeAndReportException(frame->DomWindow(), arguments_);
-  } else {
-    DVLOG(1) << "ScheduledAction::execute " << this
-             << ": executing from source";
-    // We're using |SanitizeScriptErrors::kDoNotSanitize| to keep the existing
-    // behavior, but this causes failures on
-    // wpt/html/webappapis/scripting/processing-model-2/compile-error-cross-origin-setTimeout.html
-    // and friends.
-    frame->GetScriptController().ExecuteScriptAndReturnValue(
-        script_state_->GetContext(),
-        ScriptSourceCode(code_,
-                         ScriptSourceLocationType::kEvalForScheduledAction),
-        KURL(), SanitizeScriptErrors::kDoNotSanitize);
-  }
-
-  // The frame might be invalid at this point because JavaScript could have
-  // released it.
-}
-
-void ScheduledAction::Execute(WorkerGlobalScope* worker) {
-  DCHECK(script_state_->ContextIsValid());
-  DCHECK(worker->GetThread()->IsCurrentThread());
-
-  // https://html.spec.whatwg.org/C/#timer-initialisation-steps
-  if (function_) {
-    function_->InvokeAndReportException(worker, arguments_);
-  } else {
-    // We're using |SanitizeScriptErrors::kDoNotSanitize| to keep the existing
-    // behavior, but this causes failures on
-    // wpt/html/webappapis/scripting/processing-model-2/compile-error-cross-origin-setTimeout.html
-    // and friends.
-    ScriptState::Scope scope(worker->ScriptController()->GetScriptState());
-    worker->ScriptController()->EvaluateAndReturnValue(
-        ScriptSourceCode(code_,
-                         ScriptSourceLocationType::kEvalForScheduledAction),
-        SanitizeScriptErrors::kDoNotSanitize);
-  }
 }
 
 }  // namespace blink

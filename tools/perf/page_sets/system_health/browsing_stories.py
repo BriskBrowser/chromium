@@ -13,6 +13,7 @@ from page_sets.system_health import platforms
 from page_sets.system_health import story_tags
 from page_sets.system_health import system_health_story
 
+from page_sets.login_helpers import autocad_login
 from page_sets.login_helpers import facebook_login
 from page_sets.login_helpers import google_login
 from page_sets.login_helpers import pinterest_login
@@ -130,12 +131,12 @@ class _ArticleBrowsingStory(_BrowsingStory):
 
 class CnnStory2020(_ArticleBrowsingStory):
   """The second top website in http://www.alexa.com/topsites/category/News"""
-  NAME = 'browse:news:cnn:2020'
+  NAME = 'browse:news:cnn:2021'
   URL = 'http://edition.cnn.com/'
   ITEM_SELECTOR = '.cd__content > h3 > a'
   ITEMS_TO_VISIT = 2
   TAGS = [
-      story_tags.HEALTH_CHECK, story_tags.JAVASCRIPT_HEAVY, story_tags.YEAR_2020
+      story_tags.HEALTH_CHECK, story_tags.JAVASCRIPT_HEAVY, story_tags.YEAR_2021
   ]
 
 
@@ -194,21 +195,21 @@ class InstagramMobileStory2019(_ArticleBrowsingStory):
     action_runner.NavigateBack()
 
 
-class FlipboardDesktopStory2018(_ArticleBrowsingStory):
-  NAME = 'browse:news:flipboard:2018'
+class FlipboardDesktopStory2020(_ArticleBrowsingStory):
+  NAME = 'browse:news:flipboard:2020'
   URL = 'https://flipboard.com/explore'
   IS_SINGLE_PAGE_APP = True
   ITEM_SELECTOR = '.cover-image'
   SUPPORTED_PLATFORMS = platforms.DESKTOP_ONLY
-  TAGS = [story_tags.YEAR_2018]
+  TAGS = [story_tags.YEAR_2020]
 
 
-class HackerNewsDesktopStory2018(_ArticleBrowsingStory):
-  NAME = 'browse:news:hackernews:2018'
+class HackerNewsDesktopStory2020(_ArticleBrowsingStory):
+  NAME = 'browse:news:hackernews:2020'
   URL = 'https://news.ycombinator.com'
   ITEM_SELECTOR = '.athing .title > a'
   SUPPORTED_PLATFORMS = platforms.DESKTOP_ONLY
-  TAGS = [story_tags.YEAR_2018]
+  TAGS = [story_tags.YEAR_2020]
 
 
 class NytimesDesktopStory2020(_ArticleBrowsingStory):
@@ -247,14 +248,14 @@ class QqMobileStory2019(_ArticleBrowsingStory):
   TAGS = [story_tags.INTERNATIONAL, story_tags.YEAR_2019]
 
 
-class RedditDesktopStory2018(_ArticleBrowsingStory):
+class RedditDesktopStory2020(_ArticleBrowsingStory):
   """The top website in http://www.alexa.com/topsites/category/News"""
-  NAME = 'browse:news:reddit:2018'
+  NAME = 'browse:news:reddit:2020'
   URL = 'https://www.reddit.com/r/news/top/?sort=top&t=week'
   IS_SINGLE_PAGE_APP = True
   ITEM_SELECTOR = 'article'
   SUPPORTED_PLATFORMS = platforms.DESKTOP_ONLY
-  TAGS = [story_tags.YEAR_2018]
+  TAGS = [story_tags.YEAR_2020]
 
 
 class RedditMobileStory2019(_ArticleBrowsingStory):
@@ -396,12 +397,12 @@ class GoogleDesktopStory2018(_ArticleBrowsingStory):
     _ Scroll the search page.
 
   """
-  NAME = 'browse:search:google:2018'
+  NAME = 'browse:search:google:2020'
   URL = 'https://www.google.com/search?q=flower&hl=en'
   _SEARCH_BOX_SELECTOR = 'input[aria-label="Search"]'
   _SEARCH_PAGE_2_SELECTOR = 'a[aria-label="Page 2"]'
   SUPPORTED_PLATFORMS = platforms.DESKTOP_ONLY
-  TAGS = [story_tags.YEAR_2018]
+  TAGS = [story_tags.YEAR_2020]
 
   def _DidLoadDocument(self, action_runner):
     # Click on flower Wikipedia link.
@@ -447,13 +448,13 @@ class GoogleIndiaDesktopStory2018(_ArticleBrowsingStory):
     6. Scroll the search result page.
 
   """
-  NAME = 'browse:search:google_india:2018'
+  NAME = 'browse:search:google_india:2021'
   URL = 'https://www.google.co.in/search?q=%E0%A4%AB%E0%A5%82%E0%A4%B2&hl=hi'
   _SEARCH_BOX_SELECTOR = 'input[name="q"]'
-  _SEARCH_BUTTON_SELECTOR = 'button[name="btnG"]'
+  _SEARCH_BUTTON_SELECTOR = 'button[aria-label="Google Search"]'
   _SEARCH_PAGE_2_SELECTOR = 'a[aria-label="Page 2"]'
   SUPPORTED_PLATFORMS = platforms.DESKTOP_ONLY
-  TAGS = [story_tags.INTERNATIONAL, story_tags.YEAR_2018]
+  TAGS = [story_tags.INTERNATIONAL, story_tags.YEAR_2021]
 
   def _DidLoadDocument(self, action_runner):
     # Refine search query in the search box.
@@ -593,6 +594,50 @@ class YouTubeDesktopStory2019(_MediaBrowsingStory):
   ITEM_SELECTOR_INDEX = 3
   PLATFORM_SPECIFIC = True
   TAGS = [story_tags.JAVASCRIPT_HEAVY, story_tags.YEAR_2019]
+
+
+class AutoCADDesktopStory2021(_MediaBrowsingStory):
+  """AutoCAD desktop story,
+  TODO: add a description here.
+  """
+  NAME = 'browse:tools:autocad:2021'
+  URL = 'https://web.autocad.com'
+  SUPPORTED_PLATFORMS = platforms.DESKTOP_ONLY
+  TAGS = [
+      story_tags.YEAR_2021, story_tags.WEBASSEMBLY, story_tags.WEBGL,
+      story_tags.KEYBOARD_INPUT
+  ]
+
+  def __init__(self, story_set, take_memory_measurement):
+    super(AutoCADDesktopStory2021, self).__init__(story_set,
+                                                  take_memory_measurement)
+
+  def _Login(self, action_runner):
+    autocad_login.LoginWithDesktopSite(action_runner, 'autocad')
+
+  def _DidLoadDocument(self, action_runner):
+    action_runner.WaitForElement(text="Sign in")
+    action_runner.ClickElement(text="Sign in")
+    # Now we are done with the login.
+    action_runner.WaitForElement(text="OK")
+    action_runner.ClickElement(text="OK")
+
+    action_runner.WaitForElement(text="Samples")
+    action_runner.ClickElement(text="Samples")
+
+    action_runner.WaitForElement(text="Dog House Plan Sample.dwg")
+    action_runner.ClickElement(text="Dog House Plan Sample.dwg")
+
+    # We cannot wait for an element, because the result of the loading
+    # action is just a drawing on the canvas.
+    action_runner.Wait(10)
+    action_runner.EnterText('MEASURE')
+    action_runner.PressKey('Return')
+    action_runner.Wait(1)
+    action_runner.EnterText('-3,1')
+    action_runner.PressKey('Return')
+
+    action_runner.Wait(5)
 
 
 class EarthDesktopStory2020(_MediaBrowsingStory):
@@ -1296,7 +1341,7 @@ class GmailLabelClickStory2020(_GmailBrowsingStory):
   TAGS = [story_tags.YEAR_2020]
   SKIP_LOGIN = False
 
-  _UPDATES_SELECTOR = 'div[data-tooltip="Updates"]'
+  _IMPORTANT_SELECTOR = 'div[data-tooltip="Important"]'
 
   # Page event queries.
   LABEL_CLICK_BEGIN_EVENT = '''
@@ -1334,8 +1379,8 @@ class GmailLabelClickStory2020(_GmailBrowsingStory):
         "document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null)"
         ".singleNodeValue.click();"
     )
-    action_runner.WaitForElement(selector=self._UPDATES_SELECTOR)
-    action_runner.ClickElement(selector=self._UPDATES_SELECTOR)
+    action_runner.WaitForElement(selector=self._IMPORTANT_SELECTOR)
+    action_runner.ClickElement(selector=self._IMPORTANT_SELECTOR)
     action_runner.WaitForJavaScriptCondition(self.LABEL_CLICK_BEGIN_EVENT)
     action_runner.WaitForJavaScriptCondition(self.LABEL_CLICK_END_EVENT)
 
@@ -1393,7 +1438,7 @@ class GmailSearchStory2020(_GmailBrowsingStory):
   TAGS = [story_tags.YEAR_2020]
   SKIP_LOGIN = False
 
-  _SEARCH_SELECTOR = 'input[aria-label="Search mail"]'
+  _SEARCH_SELECTOR = 'input[aria-label="Search mail and chat"]'
 
   # Page event queries.
   SEARCH_BEGIN_EVENT = '''

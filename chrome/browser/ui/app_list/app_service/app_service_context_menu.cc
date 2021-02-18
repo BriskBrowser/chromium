@@ -6,11 +6,14 @@
 
 #include "ash/public/cpp/app_menu_constants.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/apps/app_service/menu_util.h"
+#include "chrome/browser/chromeos/borealis/borealis_service.h"
+#include "chrome/browser/chromeos/borealis/borealis_shutdown_monitor.h"
+#include "chrome/browser/chromeos/borealis/borealis_util.h"
 #include "chrome/browser/chromeos/crosapi/browser_manager.h"
 #include "chrome/browser/chromeos/crostini/crostini_manager.h"
 #include "chrome/browser/chromeos/crostini/crostini_terminal.h"
@@ -24,14 +27,11 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/app_context_menu_delegate.h"
 #include "chrome/browser/ui/app_list/app_list_controller_delegate.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/app_list/extension_app_utils.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/webui/settings/chromeos/app_management/app_management_uma.h"
 #include "chrome/browser/web_applications/components/app_registry_controller.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/grit/generated_resources.h"
 #include "content/public/browser/context_menu_params.h"
 #include "ui/display/scoped_display_for_new_windows.h"
@@ -141,6 +141,10 @@ void AppServiceContextMenu::ExecuteCommand(int command_id, int event_flags) {
       } else if (app_id() == plugin_vm::kPluginVmShelfAppId) {
         plugin_vm::PluginVmManagerFactory::GetForProfile(profile())
             ->StopPluginVm(plugin_vm::kPluginVmName, /*force=*/false);
+      } else if (app_id() == borealis::kBorealisAppId) {
+        borealis::BorealisService::GetForProfile(profile())
+            ->ShutdownMonitor()
+            .ShutdownNow();
       } else {
         LOG(ERROR) << "App " << app_id()
                    << " should not have a shutdown guest OS command.";
@@ -155,7 +159,7 @@ void AppServiceContextMenu::ExecuteCommand(int command_id, int event_flags) {
           auto* provider = web_app::WebAppProvider::Get(profile());
           DCHECK(provider);
           provider->registry_controller().SetExperimentalTabbedWindowMode(
-              app_id(), true);
+              app_id(), true, /*is_user_action=*/true);
           return;
         }
 
@@ -172,7 +176,7 @@ void AppServiceContextMenu::ExecuteCommand(int command_id, int event_flags) {
 
       if (command_id >= ash::LAUNCH_APP_SHORTCUT_FIRST &&
           command_id <= ash::LAUNCH_APP_SHORTCUT_LAST) {
-        ExecuteArcShortcutCommand(command_id);
+        ExecutePublisherContextMenuCommand(command_id);
         return;
       }
 
@@ -258,6 +262,7 @@ void AppServiceContextMenu::OnGetMenuModel(
 
   // Create default items for non-Remote apps.
   if (app_id() != extension_misc::kChromeAppId &&
+      app_id() != extension_misc::kLacrosAppId &&
       app_type_ != apps::mojom::AppType::kUnknown &&
       app_type_ != apps::mojom::AppType::kRemote) {
     app_list::AppContextMenu::BuildMenu(menu_model.get());
@@ -274,7 +279,6 @@ void AppServiceContextMenu::OnGetMenuModel(
           static_cast<ash::CommandId>(menu_items->items[i]->command_id),
           menu_items->items[i]->string_id);
     } else {
-      DCHECK_EQ(apps::mojom::AppType::kArc, app_type_);
       apps::PopulateItemFromMojoMenuItems(std::move(menu_items->items[i]),
                                           menu_model.get(),
                                           app_shortcut_items_.get());
@@ -287,7 +291,8 @@ void AppServiceContextMenu::OnGetMenuModel(
 void AppServiceContextMenu::BuildExtensionAppShortcutsMenu(
     ui::SimpleMenuModel* menu_model) {
   extension_menu_items_ = std::make_unique<extensions::ContextMenuMatcher>(
-      profile(), this, menu_model, base::Bind(MenuItemHasLauncherContext));
+      profile(), this, menu_model,
+      base::BindRepeating(MenuItemHasLauncherContext));
 
   // Assign unique IDs to commands added by the app itself.
   int index = ash::USE_LAUNCH_TYPE_COMMAND_END;
@@ -322,9 +327,9 @@ void AppServiceContextMenu::SetLaunchType(int command_id) {
         auto* provider = web_app::WebAppProvider::Get(profile());
         DCHECK(provider);
         provider->registry_controller().SetExperimentalTabbedWindowMode(
-            app_id(), false);
+            app_id(), false, /*is_user_action=*/true);
         provider->registry_controller().SetAppUserDisplayMode(
-            app_id(), user_display_mode);
+            app_id(), user_display_mode, /*is_user_action=*/true);
       }
       return;
     }
@@ -354,14 +359,17 @@ void AppServiceContextMenu::SetLaunchType(int command_id) {
   }
 }
 
-void AppServiceContextMenu::ExecuteArcShortcutCommand(int command_id) {
+void AppServiceContextMenu::ExecutePublisherContextMenuCommand(int command_id) {
   DCHECK(command_id >= ash::LAUNCH_APP_SHORTCUT_FIRST &&
          command_id <= ash::LAUNCH_APP_SHORTCUT_LAST);
   const size_t index = command_id - ash::LAUNCH_APP_SHORTCUT_FIRST;
   DCHECK(app_shortcut_items_);
   DCHECK_LT(index, app_shortcut_items_->size());
 
-  arc::ExecuteArcShortcutCommand(profile(), app_id(),
-                                 app_shortcut_items_->at(index).shortcut_id,
-                                 controller()->GetAppListDisplayId());
+  apps::AppServiceProxy* proxy =
+      apps::AppServiceProxyFactory::GetForProfile(profile());
+
+  proxy->ExecuteContextMenuCommand(app_id(), command_id,
+                                   app_shortcut_items_->at(index).shortcut_id,
+                                   controller()->GetAppListDisplayId());
 }

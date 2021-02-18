@@ -13,12 +13,15 @@
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 
 class ToolbarActionView;
 
 // The dialog's view, owned by the views framework.
 class PrintJobConfirmationDialogView : public views::BubbleDialogDelegateView {
  public:
+  METADATA_HEADER(PrintJobConfirmationDialogView);
+
   static void Show(gfx::NativeWindow parent,
                    const std::string& extension_id,
                    const base::string16& extension_name,
@@ -33,30 +36,18 @@ class PrintJobConfirmationDialogView : public views::BubbleDialogDelegateView {
                                  const base::string16& print_job_title,
                                  const base::string16& printer_name,
                                  base::OnceCallback<void(bool)> callback);
-
-  ~PrintJobConfirmationDialogView() override;
-
   PrintJobConfirmationDialogView(const PrintJobConfirmationDialogView&) =
       delete;
   PrintJobConfirmationDialogView& operator=(
       const PrintJobConfirmationDialogView&) = delete;
+  ~PrintJobConfirmationDialogView() override;
 
  private:
-  // views::DialogDelegateView:
-  gfx::Size CalculatePreferredSize() const override;
-
-  // views::WidgetDelegate:
-  ui::ModalType GetModalType() const override;
-
   // The name of the extension we are showing the dialog for.
   const base::string16 extension_name_;
 
   // Callback to call after the dialog is accepted or rejected.
   base::OnceCallback<void(bool)> callback_;
-
-  // TODO(pbos): Find a more direct way of determining if there's a bubble than
-  // checking |anchor_view|.
-  const bool dialog_is_bubble_;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_EXTENSIONS_PRINT_JOB_CONFIRMATION_DIALOG_VIEW_H_

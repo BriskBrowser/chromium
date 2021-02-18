@@ -14,7 +14,7 @@
 #include "content/browser/devtools/protocol/devtools_domain_handler.h"
 #include "content/browser/devtools/protocol/protocol.h"
 #include "content/browser/devtools/render_frame_devtools_agent_host.h"
-#include "content/browser/frame_host/render_frame_host_impl.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/public/browser/devtools_external_agent_proxy_delegate.h"
 #include "content/public/browser/devtools_manager_delegate.h"
 #include "third_party/inspector_protocol/crdtp/cbor.h"
@@ -71,6 +71,7 @@ const char kSessionId[] = "sessionId";
 
 // Clients match against this error message verbatim (http://crbug.com/1001678).
 const char kTargetClosedMessage[] = "Inspected target navigated or closed";
+const char kTargetCrashedMessage[] = "Target crashed";
 }  // namespace
 
 DevToolsSession::PendingMessage::PendingMessage(PendingMessage&&) = default;
@@ -415,6 +416,24 @@ void DevToolsSession::ResumeSendingMessagesToAgent() {
       continue;
     DispatchToAgent(message);
     waiting_for_response_[message.call_id] = it;
+  }
+}
+
+void DevToolsSession::ClearPendingMessages() {
+  for (auto it = pending_messages_.begin(); it != pending_messages_.end();) {
+    const PendingMessage& message = *it;
+    if (SpanEquals(crdtp::SpanFrom("Page.reload"),
+                   crdtp::SpanFrom(message.method))) {
+      ++it;
+      continue;
+    }
+    // Send error to the client and remove the message from pending.
+    SendProtocolResponse(
+        message.call_id,
+        crdtp::CreateErrorResponse(
+            message.call_id,
+            crdtp::DispatchResponse::ServerError(kTargetCrashedMessage)));
+    it = pending_messages_.erase(it);
   }
 }
 

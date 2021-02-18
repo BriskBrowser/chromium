@@ -26,12 +26,10 @@
 #error "This file requires ARC support."
 #endif
 
-#if defined(CHROME_EARL_GREY_2)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wc++98-compat-extra-semi"
 GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(LookalikeUrlAppInterface);
 #pragma clang diagnostic pop
-#endif  // defined(CHROME_EARL_GREY_2)
 
 using chrome_test_util::BackButton;
 using chrome_test_util::ForwardButton;
@@ -67,9 +65,6 @@ const char kLookalikeInNewTabContent[] = "New tab";
 
 - (AppLaunchConfiguration)appConfigurationForTestCase {
   AppLaunchConfiguration config;
-  config.features_enabled.push_back(
-      web::features::kIOSLookalikeUrlNavigationSuggestionsUI);
-  config.features_enabled.push_back(web::features::kSSLCommittedInterstitials);
   config.relaunch_policy = NoForceRelaunchAndResetState;
   return config;
 }

@@ -10,7 +10,6 @@
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/paint/compositing/composited_layer_mapping.h"
-#include "third_party/blink/renderer/core/paint/ng/ng_paint_fragment.h"
 #include "third_party/blink/renderer/core/paint/paint_invalidator.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_layer.h"
@@ -123,8 +122,8 @@ static void TraverseNonCompositingDescendantsInPaintOrder(
 static void SetPaintingLayerNeedsRepaintDuringTraverse(
     const LayoutObject& object) {
   if (object.HasLayer() &&
-      ToLayoutBoxModelObject(object).HasSelfPaintingLayer()) {
-    ToLayoutBoxModelObject(object).Layer()->SetNeedsRepaint();
+      To<LayoutBoxModelObject>(object).HasSelfPaintingLayer()) {
+    To<LayoutBoxModelObject>(object).Layer()->SetNeedsRepaint();
   } else if (object.IsFloating() && object.Parent() &&
              MayBeSkippedContainerForFloating(*object.Parent())) {
     // The following is for legacy layout only because LayoutNG allows an
@@ -175,12 +174,12 @@ ObjectPaintInvalidatorWithContext::ComputePaintInvalidationReason() {
     return PaintInvalidationReason::kNone;
   }
 
+  if (object_.ShouldDoFullPaintInvalidation())
+    return object_.FullPaintInvalidationReason();
+
   if (context_.subtree_flags &
       PaintInvalidatorContext::kSubtreeFullInvalidation)
     return PaintInvalidationReason::kSubtree;
-
-  if (object_.ShouldDoFullPaintInvalidation())
-    return object_.FullPaintInvalidationReason();
 
   if (context_.fragment_data->PaintOffset() != context_.old_paint_offset)
     return PaintInvalidationReason::kGeometry;

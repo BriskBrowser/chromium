@@ -46,19 +46,26 @@ class CORE_EXPORT LayoutShiftTracker final
   // |old_rect| and |old_paint_offset| so that we can calculate the correct old
   // visual representation and old starting point in the initial containing
   // block and the viewport with the new property tree state in most cases.
-  void NotifyBoxPrePaint(const LayoutBox& box,
-                         const PropertyTreeStateOrAlias& property_tree_state,
-                         const PhysicalRect& old_rect,
-                         const PhysicalRect& new_rect,
-                         const PhysicalOffset& old_paint_offset,
-                         const PhysicalOffset& new_paint_offset);
+  // |old_transform_indifferent_paint_offset| is the adjusted old paint offset
+  // with transform changes excluded.
+  void NotifyBoxPrePaint(
+      const LayoutBox& box,
+      const PropertyTreeStateOrAlias& property_tree_state,
+      const PhysicalRect& old_rect,
+      const PhysicalRect& new_rect,
+      const PhysicalOffset& old_paint_offset,
+      const PhysicalOffset& old_transform_indifferent_paint_offset,
+      const PhysicalOffset& new_paint_offset);
 
-  void NotifyTextPrePaint(const LayoutText& text,
-                          const PropertyTreeStateOrAlias& property_tree_state,
-                          const LogicalOffset& old_starting_point,
-                          const LogicalOffset& new_starting_point,
-                          const PhysicalOffset& old_paint_offset,
-                          const PhysicalOffset& new_paint_offset);
+  void NotifyTextPrePaint(
+      const LayoutText& text,
+      const PropertyTreeStateOrAlias& property_tree_state,
+      const LogicalOffset& old_starting_point,
+      const LogicalOffset& new_starting_point,
+      const PhysicalOffset& old_paint_offset,
+      const PhysicalOffset& old_transform_indifferent_paint_offset,
+      const PhysicalOffset& new_paint_offset,
+      const LayoutUnit logical_height);
 
   void NotifyPrePaintFinished();
   void NotifyInput(const WebInputEvent&);
@@ -97,8 +104,8 @@ class CORE_EXPORT LayoutShiftTracker final
     struct Geometry {
       PhysicalOffset paint_offset;
       LayoutSize size;
-      bool has_overflow_clip;
-      PhysicalRect layout_overflow_rect;
+      PhysicalRect visual_overflow_rect;
+      bool has_paint_offset_translation;
     };
     HeapHashMap<Member<const Node>, Geometry> geometries_before_detach_;
   };
@@ -137,7 +144,6 @@ class CORE_EXPORT LayoutShiftTracker final
     PhysicalSize new_size_;
     PhysicalRect old_rect_;
     PhysicalRect new_rect_;
-    LayoutUnit max_text_shift_distance_;
   };
 
  private:
@@ -146,11 +152,13 @@ class CORE_EXPORT LayoutShiftTracker final
                      const PhysicalRect& old_rect,
                      const PhysicalRect& new_rect,
                      const FloatPoint& old_starting_point,
+                     const FloatPoint& old_transform_indifferent_starting_point,
                      const FloatPoint& new_starting_point);
 
   void ReportShift(double score_delta, double weighted_score_delta);
   void TimerFired(TimerBase*) {}
   std::unique_ptr<TracedValue> PerFrameTraceData(double score_delta,
+                                                 double weighted_score_delta,
                                                  bool input_detected) const;
   void AttributionsToTracedValue(TracedValue&) const;
   double SubframeWeightingFactor() const;
@@ -158,6 +166,7 @@ class CORE_EXPORT LayoutShiftTracker final
   void UpdateInputTimestamp(base::TimeTicks timestamp);
   LayoutShift::AttributionList CreateAttributionList() const;
   void SubmitPerformanceEntry(double score_delta, bool input_detected) const;
+  void NotifyPrePaintFinishedInternal();
 
   Member<LocalFrameView> frame_view_;
   bool is_active_;
@@ -194,7 +203,7 @@ class CORE_EXPORT LayoutShiftTracker final
   // Tracks the short period after an input event during which we ignore shifts
   // for the purpose of cumulative scoring, and report them to the web perf API
   // with hadRecentInput == true.
-  TaskRunnerTimer<LayoutShiftTracker> timer_;
+  HeapTaskRunnerTimer<LayoutShiftTracker> timer_;
 
   // The maximum distance any layout object has moved in the current animation
   // frame.

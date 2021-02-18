@@ -16,11 +16,11 @@
 #include "base/optional.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/timer/mock_timer.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_resources.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/component_updater/fake_cros_component_manager.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/browser/ui/apps/chrome_app_delegate.h"
@@ -447,7 +447,7 @@ TEST_F(DemoSessionTest, ShowAndRemoveSplashScreen) {
           .SetID(DemoSession::GetScreensaverAppId())
           .Build();
   extensions::AppWindow* app_window = new extensions::AppWindow(
-      profile, new ChromeAppDelegate(true /* keep_alive */),
+      profile, new ChromeAppDelegate(profile, true /* keep_alive */),
       screensaver_app.get());
   demo_session->OnAppWindowActivated(app_window);
   // The splash screen is not removed until active session starts.
@@ -507,7 +507,7 @@ TEST_F(DemoSessionTest, RemoveSplashScreenWhenTimeout) {
           .SetID(DemoSession::GetScreensaverAppId())
           .Build();
   extensions::AppWindow* app_window = new extensions::AppWindow(
-      profile, new ChromeAppDelegate(true /* keep_alive */),
+      profile, new ChromeAppDelegate(profile, true /* keep_alive */),
       screensaver_app.get());
   demo_session->OnAppWindowActivated(app_window);
   EXPECT_EQ(1, test_wallpaper_controller_.show_always_on_top_wallpaper_count());

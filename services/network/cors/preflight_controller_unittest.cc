@@ -284,6 +284,9 @@ class MockNetworkServiceClient : public TestNetworkServiceClient {
       const {
     return preflight_status_;
   }
+  const std::string& initiator_devtools_request_id() const {
+    return initiator_devtools_request_id_;
+  }
 
  private:
   // mojom::NetworkServiceClient:
@@ -292,7 +295,8 @@ class MockNetworkServiceClient : public TestNetworkServiceClient {
       int32_t routing_id,
       const std::string& devtools_request_id,
       const net::CookieAccessResultList& cookies_with_access_result,
-      std::vector<network::mojom::HttpRawHeaderPairPtr> headers) override {
+      std::vector<network::mojom::HttpRawHeaderPairPtr> headers,
+      network::mojom::ClientSecurityStatePtr client_security_state) override {
     on_raw_request_called_ = true;
   }
   void OnRawResponse(
@@ -301,15 +305,19 @@ class MockNetworkServiceClient : public TestNetworkServiceClient {
       const std::string& devtools_request_id,
       const net::CookieAndLineAccessResultList& cookies_with_access_result,
       std::vector<network::mojom::HttpRawHeaderPairPtr> headers,
-      const base::Optional<std::string>& raw_response_headers) override {
+      const base::Optional<std::string>& raw_response_headers,
+      network::mojom::IPAddressSpace resource_address_space) override {
     on_raw_response_called_ = true;
   }
-  void OnCorsPreflightRequest(int32_t process_id,
-                              int32_t routing_id,
-                              const base::UnguessableToken& devtool_request_id,
-                              const network::ResourceRequest& request,
-                              const GURL& initiator_url) override {
+  void OnCorsPreflightRequest(
+      int32_t process_id,
+      int32_t routing_id,
+      const base::UnguessableToken& devtool_request_id,
+      const network::ResourceRequest& request,
+      const GURL& initiator_url,
+      const std::string& initiator_devtools_request_id) override {
     preflight_request_ = request;
+    initiator_devtools_request_id_ = initiator_devtools_request_id;
   }
   void OnCorsPreflightResponse(
       int32_t process_id,
@@ -337,6 +345,7 @@ class MockNetworkServiceClient : public TestNetworkServiceClient {
   base::Optional<network::ResourceRequest> preflight_request_;
   network::mojom::URLResponseHeadPtr preflight_response_;
   base::Optional<network::URLLoaderCompletionStatus> preflight_status_;
+  std::string initiator_devtools_request_id_;
 };
 
 class PreflightControllerTest : public testing::Test {
@@ -536,9 +545,9 @@ TEST_F(PreflightControllerTest, CheckRequestNetworkIsolationKey) {
   const url::Origin& origin = test_initiator_origin();
   request.request_initiator = origin;
   ResourceRequest::TrustedParams trusted_params;
-  trusted_params.isolation_info = net::IsolationInfo::Create(
-      net::IsolationInfo::RedirectMode::kUpdateNothing, origin, origin,
-      net::SiteForCookies());
+  trusted_params.isolation_info =
+      net::IsolationInfo::Create(net::IsolationInfo::RequestType::kOther,
+                                 origin, origin, net::SiteForCookies());
   request.trusted_params = {trusted_params};
 
   PerformPreflightCheck(request);
@@ -554,9 +563,9 @@ TEST_F(PreflightControllerTest, CheckRequestNetworkIsolationKey) {
   url::Origin second_origin = url::Origin::Create(GURL("https://example.com/"));
   request.request_initiator = second_origin;
   SetAccessControlAllowOrigin(second_origin);
-  request.trusted_params->isolation_info = net::IsolationInfo::Create(
-      net::IsolationInfo::RedirectMode::kUpdateNothing, origin, second_origin,
-      net::SiteForCookies());
+  request.trusted_params->isolation_info =
+      net::IsolationInfo::Create(net::IsolationInfo::RequestType::kOther,
+                                 origin, second_origin, net::SiteForCookies());
   PerformPreflightCheck(request);
   EXPECT_EQ(net::OK, net_error());
   ASSERT_FALSE(status());
@@ -571,9 +580,9 @@ TEST_F(PreflightControllerTest, CheckFactoryNetworkIsolationKey) {
   const url::Origin& origin = test_initiator_origin();
   request.request_initiator = origin;
 
-  const net::IsolationInfo isolation_info = net::IsolationInfo::Create(
-      net::IsolationInfo::RedirectMode::kUpdateNothing, origin, origin,
-      net::SiteForCookies());
+  const net::IsolationInfo isolation_info =
+      net::IsolationInfo::Create(net::IsolationInfo::RequestType::kOther,
+                                 origin, origin, net::SiteForCookies());
 
   PerformPreflightCheck(request, false, isolation_info);
   EXPECT_EQ(net::OK, net_error());
@@ -659,6 +668,7 @@ TEST_F(PreflightControllerTest, DevToolsEvents) {
       network_service_client->preflight_response()->headers->response_code());
   ASSERT_TRUE(network_service_client->preflight_status().has_value());
   EXPECT_EQ(net::OK, network_service_client->preflight_status()->error_code);
+  EXPECT_EQ("TEST", network_service_client->initiator_devtools_request_id());
 }
 
 }  // namespace

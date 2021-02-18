@@ -43,9 +43,21 @@ class NearbyShareDialogUI : public ui::MojoWebUIController {
   // ui::MojoWebUIController
   void BindInterface(
       mojo::PendingReceiver<mojom::NearbyShareSettings> receiver);
+  // Binds to the existing contacts manager instance owned by the nearby share
+  // keyed service.
+  void BindInterface(
+      mojo::PendingReceiver<nearby_share::mojom::ContactManager> receiver);
 
  private:
   void HandleClose(const base::ListValue* args);
+
+  // Search for a query parameter such as file, text, address, phone, or url,
+  // then use it to populate an attachment, if found; otherwise, do nothing.
+  // For text attachments, the parameter value is used as the text body. For
+  // file attachments, the parameter value is used as a pipe-delimited list
+  // of file paths.
+  void SetAttachmentFromQueryParameter(const GURL& url);
+
   std::vector<std::unique_ptr<Attachment>> attachments_;
   base::ObserverList<Observer> observers_;
   NearbySharingService* nearby_service_;

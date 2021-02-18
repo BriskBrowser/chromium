@@ -12,8 +12,8 @@ source_set("application_delegate") {
   ]
   deps = [
     "//base",
+    "//components/previous_session_info",
     "//ios/chrome/browser/crash_report",
-    "//ios/chrome/browser/metrics",
   ]
   frameworks = [ "Foundation.framework" ]
 
@@ -43,6 +43,7 @@ source_set("unit_tests") {
     "//base/test:test_support",
     "//components/handoff",
     "//components/metrics",
+    "//components/previous_session_info",
     "//ios/chrome/app",
     "//ios/chrome/app:app_internal",
     "//ios/chrome/app:mode",
@@ -69,7 +70,6 @@ source_set("unit_tests") {
     "//ios/chrome/browser/ui/safe_mode",
     "//ios/chrome/browser/ui/settings",
     "//ios/chrome/browser/ui/settings:settings_root",
-    "//ios/chrome/browser/ui/util:multiwindow_util",
     "//ios/chrome/browser/url_loading",
     "//ios/chrome/browser/web:tab_id_tab_helper",
     "//ios/chrome/browser/web_state_list",
@@ -137,8 +137,14 @@ source_set("metric_kit_subscriber") {
 
 source_set("app_state_header") {
   configs += [ "//build/config/compiler:enable_arc" ]
-  sources = [ "app_state.h" ]
-  public_deps = [ "//ios/chrome/browser/ui/scoped_ui_blocker" ]
+  sources = [
+    "app_state.h",
+    "app_state_agent.h",
+  ]
+  public_deps = [
+    "//ios/chrome/browser/ui/main:scene_state_observer",
+    "//ios/chrome/browser/ui/scoped_ui_blocker",
+  ]
 }
 
 source_set("application_delegate_internal") {
@@ -168,8 +174,10 @@ source_set("application_delegate_internal") {
     "//components/handoff",
     "//components/metrics",
     "//components/prefs",
+    "//components/previous_session_info",
     "//components/search_engines",
     "//components/ukm/ios:features",
+    "//components/ukm/ios:ukm_reporting_ios_util",
     "//ios/chrome/app",
     "//ios/chrome/app:mode",
     "//ios/chrome/app/intents",
@@ -195,13 +203,15 @@ source_set("application_delegate_internal") {
     "//ios/chrome/browser/ui/commands",
     "//ios/chrome/browser/ui/main",
     "//ios/chrome/browser/ui/main:scene",
+    "//ios/chrome/browser/ui/ntp:util",
     "//ios/chrome/browser/ui/safe_mode",
     "//ios/chrome/browser/ui/util",
-    "//ios/chrome/browser/ui/util:multiwindow_util",
     "//ios/chrome/browser/url_loading",
     "//ios/chrome/browser/web:tab_id_tab_helper",
     "//ios/chrome/browser/web_state_list",
     "//ios/chrome/browser/web_state_list:agents",
+    "//ios/chrome/browser/web_state_list:session_metrics",
+    "//ios/chrome/browser/widget_kit",
     "//ios/chrome/common/app_group:main_app",
     "//ios/net",
     "//ios/public/provider/chrome/browser",

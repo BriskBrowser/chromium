@@ -68,13 +68,15 @@
 
   for (var i = 0; i < messages.length; ++i) {
     var consoleMessage = messages[i].consoleMessage();
-    var element = messages[i].toMessageElement();
+    var element = messages[i].element();
     var node = element.traverseNextNode(element);
 
     while (node) {
-      if (node._section) {
-        sections.push(node._section);
-        node._section.expand();
+      const section =
+          ObjectUI.ObjectPropertiesSection.getObjectPropertiesSectionFrom(node);
+      if (section) {
+        sections.push(section);
+        section.expand();
       }
 
       node = node.traverseNextNode(element);

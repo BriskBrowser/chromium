@@ -30,6 +30,8 @@
 #include "ui/display/screen.h"
 #include "ui/gfx/geometry/dip_util.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/rect_conversions.h"
+#include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/gpu_memory_buffer.h"
 #include "ui/views/widget/widget.h"
 
@@ -90,13 +92,12 @@ class ViewTreeHostRootView::LayerTreeViewTreeFrameSinkHolder
     frame.metadata.begin_frame_ack.has_damage = true;
     frame.metadata.device_scale_factor =
         holder->last_frame_device_scale_factor_;
-    frame.metadata.local_surface_id_allocation_time =
-        holder->last_local_surface_id_allocation_time_;
     frame.metadata.frame_token = ++holder->next_frame_token_;
-    std::unique_ptr<viz::RenderPass> pass = viz::RenderPass::Create();
-    pass->SetNew(
-        viz::RenderPassId{1}, gfx::Rect(holder->last_frame_size_in_pixels_),
-        gfx::Rect(holder->last_frame_size_in_pixels_), gfx::Transform());
+    auto pass = viz::CompositorRenderPass::Create();
+    pass->SetNew(viz::CompositorRenderPassId{1},
+                 gfx::Rect(holder->last_frame_size_in_pixels_),
+                 gfx::Rect(holder->last_frame_size_in_pixels_),
+                 gfx::Transform());
     frame.render_pass_list.push_back(std::move(pass));
     holder->frame_sink_->SubmitCompositorFrame(std::move(frame),
                                                /*hit_test_data_changed=*/true,
@@ -129,8 +130,6 @@ class ViewTreeHostRootView::LayerTreeViewTreeFrameSinkHolder
     exported_resources_[resource_id] = std::move(resource);
     last_frame_size_in_pixels_ = frame.size_in_pixels();
     last_frame_device_scale_factor_ = frame.metadata.device_scale_factor;
-    last_local_surface_id_allocation_time_ =
-        frame.metadata.local_surface_id_allocation_time;
     frame.metadata.frame_token = ++next_frame_token_;
     frame_sink_->SubmitCompositorFrame(std::move(frame),
                                        /*hit_test_data_changed=*/true,
@@ -214,7 +213,6 @@ class ViewTreeHostRootView::LayerTreeViewTreeFrameSinkHolder
   viz::FrameTokenGenerator next_frame_token_;
   gfx::Size last_frame_size_in_pixels_;
   float last_frame_device_scale_factor_ = 1.0f;
-  base::TimeTicks last_local_surface_id_allocation_time_;
   aura::Window* root_window_ = nullptr;
   bool delete_pending_ = false;
 
@@ -368,6 +366,14 @@ void ViewTreeHostRootView::SchedulePaintInRect(const gfx::Rect& rect) {
   }
 }
 
+bool ViewTreeHostRootView::GetIsOverlayCandidate() {
+  return is_overlay_candidate_;
+}
+
+void ViewTreeHostRootView::SetIsOverlayCandidate(bool is_overlay_candidate) {
+  is_overlay_candidate_ = is_overlay_candidate;
+}
+
 void ViewTreeHostRootView::UpdateSurface(const gfx::Rect& damage_rect,
                                          std::unique_ptr<Resource> resource) {
   damage_rect_.Union(damage_rect);
@@ -389,7 +395,11 @@ void ViewTreeHostRootView::SubmitCompositorFrame() {
 
   float device_scale_factor =
       GetWidget()->GetCompositor()->device_scale_factor();
-  gfx::Rect output_rect(gfx::ConvertSizeToPixel(device_scale_factor, size()));
+
+  // TODO(crbug.com/1131623): Should this be ceil? Why do we choose floor?
+  gfx::Size size_in_pixel =
+      gfx::ToFlooredSize(gfx::ConvertSizeToPixels(size(), device_scale_factor));
+  gfx::Rect output_rect(size_in_pixel);
 
   gfx::Rect quad_rect;
   quad_rect = gfx::Rect(buffer_size_);
@@ -397,7 +407,8 @@ void ViewTreeHostRootView::SubmitCompositorFrame() {
   gfx::Rect damage_rect;
 
   // TODO(oshima): Support partial content update.
-  damage_rect = gfx::ConvertRectToPixel(device_scale_factor, damage_rect_);
+  damage_rect = gfx::ToEnclosingRect(
+      gfx::ConvertRectToPixels(damage_rect_, device_scale_factor));
   damage_rect.Intersect(output_rect);
   damage_rect_ = gfx::Rect();
 
@@ -432,14 +443,14 @@ void ViewTreeHostRootView::SubmitCompositorFrame() {
   transferable_resource.size = buffer_size_;
   transferable_resource.mailbox_holder = gpu::MailboxHolder(
       resource->mailbox, resource->sync_token, GL_TEXTURE_2D);
-  transferable_resource.is_overlay_candidate = true;
+  transferable_resource.is_overlay_candidate = is_overlay_candidate_;
 
   gfx::Transform buffer_to_target_transform;
   bool rv = rotate_transform_.GetInverse(&buffer_to_target_transform);
   DCHECK(rv);
 
-  const viz::RenderPassId kRenderPassId{1};
-  std::unique_ptr<viz::RenderPass> render_pass = viz::RenderPass::Create();
+  const viz::CompositorRenderPassId kRenderPassId{1};
+  auto render_pass = viz::CompositorRenderPass::Create();
   render_pass->SetNew(kRenderPassId, output_rect, damage_rect,
                       buffer_to_target_transform);
 
@@ -449,7 +460,7 @@ void ViewTreeHostRootView::SubmitCompositorFrame() {
       buffer_to_target_transform,
       /*quad_layer_rect=*/output_rect,
       /*visible_quad_layer_rect=*/output_rect,
-      /*rounded_corner_bounds=*/gfx::RRectF(),
+      /*mask_filter_info=*/gfx::MaskFilterInfo(),
       /*clip_rect=*/gfx::Rect(),
       /*is_clipped=*/false, /*are_contents_opaque=*/false, /*opacity=*/1.f,
       /*blend_mode=*/SkBlendMode::kSrcOver, /*sorting_context_id=*/0);
@@ -460,11 +471,6 @@ void ViewTreeHostRootView::SubmitCompositorFrame() {
   frame.metadata.begin_frame_ack =
       viz::BeginFrameAck::CreateManualAckWithDamage();
   frame.metadata.device_scale_factor = device_scale_factor;
-  frame.metadata.local_surface_id_allocation_time =
-      GetWidget()
-          ->GetNativeView()
-          ->GetLocalSurfaceIdAllocation()
-          .allocation_time();
 
   frame.metadata.frame_token = ++next_frame_token_;
 

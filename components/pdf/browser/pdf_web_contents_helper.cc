@@ -40,6 +40,14 @@ PDFWebContentsHelper::~PDFWebContentsHelper() {
   if (!touch_selection_controller_client_manager_)
     return;
 
+  // PDFWebContentsHelperTest overrides TouchSelectionControllerClientManager
+  // to mock it and GetTouchSelectionController() returns nullptr in that case.
+  // This check prevents the tests from failing in that condition.
+  ui::TouchSelectionController* touch_selection_controller =
+      touch_selection_controller_client_manager_->GetTouchSelectionController();
+  if (touch_selection_controller)
+    touch_selection_controller->HideAndDisallowShowingAutomatically();
+
   touch_selection_controller_client_manager_->InvalidateClient(this);
   touch_selection_controller_client_manager_->RemoveObserver(this);
 }
@@ -151,7 +159,9 @@ void PDFWebContentsHelper::SelectBetweenCoordinates(const gfx::PointF& base,
 
 void PDFWebContentsHelper::OnSelectionEvent(ui::SelectionEventType event) {}
 
-void PDFWebContentsHelper::OnDragUpdate(const gfx::PointF& position) {}
+void PDFWebContentsHelper::OnDragUpdate(
+    const ui::TouchSelectionDraggable::Type type,
+    const gfx::PointF& position) {}
 
 std::unique_ptr<ui::TouchHandleDrawable>
 PDFWebContentsHelper::CreateDrawable() {

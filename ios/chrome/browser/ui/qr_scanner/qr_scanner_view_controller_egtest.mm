@@ -17,6 +17,7 @@
 #include "ios/chrome/test/earl_grey/earl_grey_scoped_block_swizzler.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
 #import "net/base/mac/url_conversions.h"
+#include "net/base/url_util.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
@@ -55,27 +56,29 @@ class ScopedQRScannerVoiceSearchOverride {
   DISALLOW_COPY_AND_ASSIGN(ScopedQRScannerVoiceSearchOverride);
 };
 
-#if defined(CHROME_EARL_GREY_2)
 // TODO(crbug.com/1015113) The EG2 macro is breaking indexing for some reason
 // without the trailing semicolon.  For now, disable the extra semi warning
 // so Xcode indexing works for the egtest.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wc++98-compat-extra-semi"
 GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(QRScannerAppInterface);
-#endif  // defined(CHROME_EARL_GREY_2)
 
 namespace {
 
 char kTestURL[] = "/testurl";
 char kTestURLResponse[] = "Test URL page";
-char kTestQuery[] = "testquery";
-char kTestQueryURL[] = "/searchurl/testquery";
-char kTestQueryResponse[] = "Test query page";
-
 char kTestURLEdited[] = "/testuredited";
 char kTestURLEditedResponse[] = "Test URL edited page";
-char kTestQueryEditedURL[] = "/searchurl/testqueredited";
-char kTestQueryEditedResponse[] = "Test query edited page";
+
+char kTestQuery[] = "testquery";
+char kTestQueryURL[] = "/search";
+char kTestQueryURLParams[] = "?q={searchTerms}";
+char kTestQueryResponse[] = "Query: testquery";
+char kTestQueryEditedResponse[] = "Query: testqueredited";
+
+char kTestDataURL[] = "data:dataURL";
+char kTestSanitizedDataURL[] = "\"data:dataURL\"";
+char kTestDataURLResponse[] = "Query: \"data:dataURL\"";
 
 // The GREYCondition timeout used for calls to waitWithTimeout:pollInterval:.
 CFTimeInterval kGREYConditionTimeout = 5;
@@ -170,19 +173,24 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
       std::make_unique<net::test_server::BasicHttpResponse>();
   http_response->set_code(net::HTTP_OK);
 
-  char* body_content = nullptr;
+  const char* body_content = nullptr;
   if (base::StartsWith(request.relative_url, kTestURL,
                        base::CompareCase::SENSITIVE)) {
     body_content = kTestURLResponse;
-  } else if (base::StartsWith(request.relative_url, kTestQueryURL,
-                              base::CompareCase::SENSITIVE)) {
-    body_content = kTestQueryResponse;
   } else if (base::StartsWith(request.relative_url, kTestURLEdited,
                               base::CompareCase::SENSITIVE)) {
     body_content = kTestURLEditedResponse;
-  } else if (base::StartsWith(request.relative_url, kTestQueryEditedURL,
+  } else if (base::StartsWith(request.relative_url, kTestQueryURL,
                               base::CompareCase::SENSITIVE)) {
-    body_content = kTestQueryEditedResponse;
+    GURL url = request.GetURL();
+    std::string query;
+    bool found = net::GetValueForKeyInQuery(url, "q", &query);
+    if (found) {
+      std::string content = "Query: " + query;
+      body_content = content.c_str();
+    } else {
+      body_content = "No query";
+    }
   } else {
     return nullptr;
   }
@@ -203,7 +211,6 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   GURL _testURL;
   GURL _testURLEdited;
   GURL _testQuery;
-  GURL _testQueryEdited;
 }
 
 @end
@@ -211,10 +218,6 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
 @implementation QRScannerViewControllerTestCase {
   // A swizzler for the CameraController method cameraControllerWithDelegate:.
   std::unique_ptr<EarlGreyScopedBlockSwizzler> _camera_controller_swizzler;
-  // A swizzler for the LocationBarCoordinator method
-  // loadGURLFromLocationBar:transition:.
-  std::unique_ptr<EarlGreyScopedBlockSwizzler>
-      _load_GURL_from_location_bar_swizzler;
 }
 
 - (void)setUp {
@@ -227,12 +230,15 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   _testURL = self.testServer->GetURL(kTestURL);
   _testURLEdited = self.testServer->GetURL(kTestURLEdited);
   _testQuery = self.testServer->GetURL(kTestQueryURL);
-  _testQueryEdited = self.testServer->GetURL(kTestQueryEditedURL);
+
+  NSString* templateURL =
+      base::SysUTF8ToNSString(_testQuery.spec() + kTestQueryURLParams);
+  [QRScannerAppInterface overrideSearchEngine:templateURL];
 }
 
 - (void)tearDown {
   [super tearDown];
-  _load_GURL_from_location_bar_swizzler.reset();
+  [QRScannerAppInterface resetSearchEngine];
   _camera_controller_swizzler.reset();
 }
 
@@ -364,22 +370,6 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   _camera_controller_swizzler = std::make_unique<EarlGreyScopedBlockSwizzler>(
       @"QRScannerViewController", @"cameraController",
       swizzleCameraControllerBlock);
-}
-
-// Swizzles the LocationBarCoordinator loadGURLFromLocationBarBlock:transition:
-// method to load |searchURL| instead of the generated search URL.
-- (void)swizzleLocationBarCoordinatorLoadGURLFromLocationBar:
-    (const GURL&)replacementURL {
-  NSURL* replacementNSURL = net::NSURLWithGURL(replacementURL);
-
-  id loadGURLFromLocationBarBlock = [QRScannerAppInterface
-      locationBarCoordinatorLoadGURLFromLocationBarSwizzleBlockForSearchURL:
-          replacementNSURL];
-  _load_GURL_from_location_bar_swizzler =
-      std::make_unique<EarlGreyScopedBlockSwizzler>(
-          @"LocationBarCoordinator",
-          @"loadGURLFromLocationBar:postContent:transition:disposition:",
-          loadGURLFromLocationBarBlock);
 }
 
 // Checks that the modal presented by |viewController| is of class |klass| and
@@ -652,15 +642,7 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
 }
 
 // Tests that an error dialog is dismissed if the camera becomes available.
-// TODO(crbug.com/1036094): Re-enable test on device.
-#if defined(CHROME_EARL_GREY_1) && !TARGET_IPHONE_SIMULATOR
-#define MAYBE_testDialogDismissedIfCameraBecomesAvailable \
-  DISABLED_testDialogDismissedIfCameraBecomesAvailable
-#else
-#define MAYBE_testDialogDismissedIfCameraBecomesAvailable \
-  testDialogDismissedIfCameraBecomesAvailable
-#endif
-- (void)MAYBE_testDialogDismissedIfCameraBecomesAvailable {
+- (void)testDialogDismissedIfCameraBecomesAvailable {
   id cameraControllerMock =
       [QRScannerAppInterface cameraControllerMockWithAuthorizationStatus:
                                  AVAuthorizationStatusAuthorized];
@@ -694,6 +676,7 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
 // which can be appended to the response in the omnibox before the page is
 // loaded.
 - (void)doTestReceivingResult:(std::string)result
+              sanitizedResult:(std::string)sanitizedResult
                      response:(std::string)response
                          edit:(NSString*)editString {
   id cameraControllerMock =
@@ -717,11 +700,11 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   [cameraControllerMock verify];
 
   // Optionally edit the text in the omnibox before pressing return.
-  [self assertOmniboxIsVisibleWithText:result];
+  [self assertOmniboxIsVisibleWithText:sanitizedResult];
   if (editString != nil) {
-    EditOmniboxTextAndTapKeyboardReturn(result, editString);
+    EditOmniboxTextAndTapKeyboardReturn(sanitizedResult, editString);
   } else {
-    TapKeyboardReturnKeyInOmniboxWithText(result);
+    TapKeyboardReturnKeyInOmniboxWithText(sanitizedResult);
   }
   [ChromeEarlGrey waitForWebStateContainingText:response];
 
@@ -732,6 +715,15 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
       assertModalOfClass:@"QRScannerViewController"
         isNotPresentedBy:QRScannerAppInterface.currentBrowserViewController];
   GREYAssertNil(error, error.localizedDescription);
+}
+
+- (void)doTestReceivingResult:(std::string)result
+                     response:(std::string)response
+                         edit:(NSString*)editString {
+  [self doTestReceivingResult:result
+              sanitizedResult:result
+                     response:response
+                         edit:editString];
 }
 
 // Test that the correct page is loaded if the scanner result is a URL which is
@@ -794,7 +786,6 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
 
 // Test that the correct page is loaded if the scanner result is a search query.
 - (void)testReceivingQRScannerSearchQueryResult {
-  [self swizzleLocationBarCoordinatorLoadGURLFromLocationBar:_testQuery];
   [self doTestReceivingResult:kTestQuery response:kTestQueryResponse edit:nil];
 }
 
@@ -807,10 +798,18 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
     EARL_GREY_TEST_DISABLED(@"Test disabled on iPad.");
   }
 
-  [self swizzleLocationBarCoordinatorLoadGURLFromLocationBar:_testQueryEdited];
   [self doTestReceivingResult:kTestQuery
                      response:kTestQueryEditedResponse
                          edit:@"\bedited"];
+}
+
+// Test that the correct page is loaded if the scanner result is a not supported
+// URL.
+- (void)testReceivingQRScannerLoadDataResult {
+  [self doTestReceivingResult:kTestDataURL
+              sanitizedResult:kTestSanitizedDataURL
+                     response:kTestDataURLResponse
+                         edit:nil];
 }
 
 @end

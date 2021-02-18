@@ -12,18 +12,17 @@
 #include "ash/ambient/model/ambient_backend_model.h"
 #include "ash/ambient/ui/ambient_background_image_view.h"
 #include "ash/ambient/ui/ambient_view_delegate.h"
-#include "ash/assistant/ui/assistant_view_ids.h"
+#include "ash/ambient/ui/ambient_view_ids.h"
 #include "ash/public/cpp/metrics_util.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/aura/window.h"
-#include "ui/compositor/animation_metrics_reporter.h"
 #include "ui/compositor/animation_throughput_reporter.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
-#include "ui/gfx/image/image_skia_operations.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/layout/fill_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace ash {
 
@@ -33,34 +32,8 @@ constexpr char kPhotoTransitionSmoothness[] =
     "Ash.AmbientMode.AnimationSmoothness.PhotoTransition";
 
 void ReportSmoothness(int value) {
-  base::UmaHistogramPercentage(kPhotoTransitionSmoothness, value);
-}
-
-gfx::ImageSkia ResizeImage(const gfx::ImageSkia& image,
-                           const gfx::Size& view_size) {
-  if (image.isNull())
-    return gfx::ImageSkia();
-
-  const double image_width = image.width();
-  const double image_height = image.height();
-  const double view_width = view_size.width();
-  const double view_height = view_size.height();
-  const double horizontal_ratio = view_width / image_width;
-  const double vertical_ratio = view_height / image_height;
-  const double image_ratio = image_height / image_width;
-  const double view_ratio = view_height / view_width;
-
-  // If the image and the container view has the same orientation, e.g. both
-  // portrait, the |scale| will make the image filled the whole view with
-  // possible cropping on one direction. If they are in different orientation,
-  // the |scale| will display the image in the view without any cropping, but
-  // with empty background.
-  const double scale = (image_ratio - 1) * (view_ratio - 1) > 0
-                           ? std::max(horizontal_ratio, vertical_ratio)
-                           : std::min(horizontal_ratio, vertical_ratio);
-  const gfx::Size& resized = gfx::ScaleToCeiledSize(image.size(), scale);
-  return gfx::ImageSkiaOperations::CreateResizedImage(
-      image, skia::ImageOperations::RESIZE_BEST, resized);
+  base::UmaHistogramPercentageObsoleteDoNotUse(kPhotoTransitionSmoothness,
+                                               value);
 }
 
 }  // namespace
@@ -68,27 +41,13 @@ gfx::ImageSkia ResizeImage(const gfx::ImageSkia& image,
 // PhotoView ------------------------------------------------------------------
 PhotoView::PhotoView(AmbientViewDelegate* delegate) : delegate_(delegate) {
   DCHECK(delegate_);
-  SetID(AssistantViewID::kAmbientPhotoView);
+  SetID(AmbientViewID::kAmbientPhotoView);
   Init();
 }
 
-PhotoView::~PhotoView() {
-  delegate_->GetAmbientBackendModel()->RemoveObserver(this);
-}
+PhotoView::~PhotoView() = default;
 
-const char* PhotoView::GetClassName() const {
-  return "PhotoView";
-}
-
-void PhotoView::OnBoundsChanged(const gfx::Rect& previous_bounds) {
-  for (const int index : {0, 1}) {
-    auto image = images_unscaled_[index];
-    auto image_resized = ResizeImage(image, size());
-    image_views_[index]->UpdateImage(image_resized);
-  }
-}
-
-void PhotoView::OnImagesChanged() {
+void PhotoView::OnImageAdded() {
   // If NeedToAnimate() is true, will start transition animation and
   // UpdateImages() when animation completes. Otherwise, update images
   // immediately.
@@ -97,7 +56,7 @@ void PhotoView::OnImagesChanged() {
     return;
   }
 
-  UpdateImages();
+  UpdateImage(delegate_->GetAmbientBackendModel()->GetNextImage());
 }
 
 void PhotoView::Init() {
@@ -115,27 +74,32 @@ void PhotoView::Init() {
   }
 
   // Hides one image view initially for fade in animation.
-  image_views_[1]->layer()->SetOpacity(0.0f);
+  image_views_.back()->layer()->SetOpacity(0.0f);
 
-  delegate_->GetAmbientBackendModel()->AddObserver(this);
+  auto* model = delegate_->GetAmbientBackendModel();
+  scoped_backend_model_observer_.Observe(model);
+
+  // |PhotoView::Init| is called after
+  // |AmbientBackendModelObserver::OnImagesReady| has been called.
+  // |AmbientBackendModel| has two images ready and views should be constructed
+  // for each one.
+  UpdateImage(model->GetCurrentImage());
+  UpdateImage(model->GetNextImage());
 }
 
-void PhotoView::UpdateImages() {
-  auto* model = delegate_->GetAmbientBackendModel();
-  auto& next_image = model->GetNextImage();
-  images_unscaled_[image_index_] = next_image.photo;
-  if (images_unscaled_[image_index_].isNull())
+void PhotoView::UpdateImage(const PhotoWithDetails& next_image) {
+  if (next_image.photo.isNull())
     return;
 
-  auto next_resized = ResizeImage(images_unscaled_[image_index_], size());
-  image_views_[image_index_]->UpdateImage(next_resized);
-  image_views_[image_index_]->UpdateImageDetails(
-      base::UTF8ToUTF16(next_image.details));
+  image_views_.at(image_index_)
+      ->UpdateImage(next_image.photo, next_image.related_photo);
+  image_views_.at(image_index_)
+      ->UpdateImageDetails(base::UTF8ToUTF16(next_image.details));
   image_index_ = 1 - image_index_;
 }
 
 void PhotoView::StartTransitionAnimation() {
-  ui::Layer* visible_layer = image_views_[image_index_]->layer();
+  ui::Layer* visible_layer = image_views_.at(image_index_)->layer();
   {
     ui::ScopedLayerAnimationSettings animation(visible_layer->GetAnimator());
     animation.SetTransitionDuration(kAnimationDuration);
@@ -151,7 +115,7 @@ void PhotoView::StartTransitionAnimation() {
     visible_layer->SetOpacity(0.0f);
   }
 
-  ui::Layer* invisible_layer = image_views_[1 - image_index_]->layer();
+  ui::Layer* invisible_layer = image_views_.at(1 - image_index_)->layer();
   {
     ui::ScopedLayerAnimationSettings animation(invisible_layer->GetAnimator());
     animation.SetTransitionDuration(kAnimationDuration);
@@ -171,18 +135,21 @@ void PhotoView::StartTransitionAnimation() {
 }
 
 void PhotoView::OnImplicitAnimationsCompleted() {
-  UpdateImages();
+  UpdateImage(delegate_->GetAmbientBackendModel()->GetNextImage());
   delegate_->OnPhotoTransitionAnimationCompleted();
 }
 
 bool PhotoView::NeedToAnimateTransition() const {
   // Can do transition animation if both two images in |images_unscaled_| are
   // not nullptr. Check the image index 1 is enough.
-  return !images_unscaled_[1].isNull();
+  return !image_views_.back()->GetCurrentImage().isNull();
 }
 
-const gfx::ImageSkia& PhotoView::GetCurrentImagesForTesting() {
-  return image_views_[image_index_]->GetCurrentImage();
+const gfx::ImageSkia& PhotoView::GetVisibleImageForTesting() {
+  return image_views_.at(image_index_)->GetCurrentImage();
 }
+
+BEGIN_METADATA(PhotoView, views::View)
+END_METADATA
 
 }  // namespace ash

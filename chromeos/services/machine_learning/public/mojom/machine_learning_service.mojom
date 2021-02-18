@@ -18,8 +18,10 @@ module chromeos.machine_learning.mojom;
 
 // NOTE: The base directory for 'import' statements is expected to differ
 //       between Chromium and Chrome OS versions of this file.
+import "chromeos/services/machine_learning/public/mojom/grammar_checker.mojom";
 import "chromeos/services/machine_learning/public/mojom/handwriting_recognizer.mojom";
 import "chromeos/services/machine_learning/public/mojom/model.mojom";
+import "chromeos/services/machine_learning/public/mojom/soda.mojom";
 import "chromeos/services/machine_learning/public/mojom/text_classifier.mojom";
 
 // These values are persisted to logs. Entries should not be renumbered and
@@ -33,7 +35,7 @@ enum LoadModelResult {
 };
 
 // Top-level interface between Chromium and the ML Service daemon.
-// Next ordinal: 6
+// Next ordinal: 8
 interface MachineLearningService {
   // Binds another pipe to this instance.
   Clone@5(pending_receiver<MachineLearningService> receiver);
@@ -50,12 +52,22 @@ interface MachineLearningService {
   // Create a new TextClassifier.
   LoadTextClassifier@2(pending_receiver<TextClassifier> receiver)
       => (LoadModelResult result);
-  // Create and initialize a handwriting recognizer.
-  LoadHandwritingModel@3(pending_receiver<HandwritingRecognizer> receiver)
-      => (LoadModelResult result);
   // Create and initialize a handwriting recognizer with given `spec`.
+  LoadHandwritingModel@3(
+      HandwritingRecognizerSpec spec,
+      pending_receiver<HandwritingRecognizer> receiver)
+      => (LoadHandwritingModelResult result);
+  // Will be deprecated soon.
   LoadHandwritingModelWithSpec@4(
       HandwritingRecognizerSpec spec,
       pending_receiver<HandwritingRecognizer> receiver)
+      => (LoadModelResult result);
+  // Create and initialize a speech recognizer with given `config`.
+  LoadSpeechRecognizer@6(SodaConfig config,
+      pending_remote<SodaClient> soda_client,
+      pending_receiver<SodaRecognizer> soda_recognizer)
+      => (LoadModelResult result);
+  // Create and initialize a grammar checker.
+  LoadGrammarChecker@7(pending_receiver<GrammarChecker> receiver)
       => (LoadModelResult result);
 };

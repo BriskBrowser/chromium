@@ -1,115 +1,136 @@
 <style>
-  #actions {
-    margin-inline-start: auto;
-    margin-top: auto;
+  #addContacts {
+    padding: 8px;
   }
 
-  #add-contacts {
-    margin-top: 32px;
-  }
-
-  #add-contacts-label {
-    color: rgb(32, 33, 36);
+  #addContactsLabel {
+    color: var(--google-grey-900);
     line-height: 138%;
   }
 
-  #add-contacts-label-secondary {
-    color: rgb(95, 99, 104);
+  #addContactsLabelSecondary {
+    color: var(--google-grey-refresh-700);
     line-height: 138%;
   }
 
-  #confirmation-token {
-    border-top: 1px dashed rgba(151, 151, 151, 0.74);
-    color: rgba(0, 0, 0, 0.4);
+  #confirmationToken {
+    border-top: 1px dashed var(--google-grey-600);
+    color: var(--google-grey-600);
     flex-grow: 1;
-    font-size: 90%;
+    font-size: 9px;
     letter-spacing: 0.3px;
-    margin-inline-end: -15px;
-    margin-top: 55px;
+    line-height: 12px;
+    margin-top: 46px;
     padding-top: 6px;
     text-align: center;
   }
 
-  nearby-preview {
-    margin-inline-end: 10px;
-    margin-inline-start: 10px;
-  }
-
   nearby-progress {
-    margin-top: 15px;
-    width: 126px;
+    width: 116px;
   }
 
-  #page-content {
+  #centerContent {
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    height: 100%;
-    padding: 27px 32px 25px 37px;
+    flex-grow: 1;
+    margin: 0 32px;
   }
 
-  #process-row {
+  #processRow {
     display: flex;
-    margin-top: 48px;
+    flex-grow: 1;
   }
 
-  #subtitle {
-    color: rgb(32, 33, 36);
-    font-size: 100%;
-    font-weight: normal;
-    line-height: 154%;
-    margin: 0;
+  #processRowContent {
+    align-self: center;
+    display: flex;
+    flex-grow: 1;
+    margin: 24px 8px;
   }
 
-  #title {
-    color: rgb(32, 33, 36);
-    font-size: 123%;
-    font-weight: normal;
-    letter-spacing: 0.27px;
-    line-height: 150%;
-    margin: 0;
+  #errorSection {
+    align-items: flex-start;
+    display: flex;
+    flex-direction: row;
+    padding: 8px;
+  }
+
+  #error {
+    align-items: flex-start;
+    display: flex;
+    flex-direction: column;
+    font-size: 12px;
+  }
+
+  #errorTitle {
+    color: var(--google-red-600);
+    font-weight: bold;
+    margin: 3px 0;
+  }
+
+  #errorDescription {
+    color: var(--google-grey-refresh-700);
+    line-height: 13px;
+  }
+
+  #errorIcon {
+    fill: var(--google-red-600);
+    flex-shrink: 0;
+    height: 20px;
+    margin-inline-end: 12px;
+    width: 20px;
   }
 </style>
 
-<div id="page-content">
-  <h1 id="title">Share with this device...</h1>
-  <h2 id="subtitle">Your Chromebook is ready to share</h2>
-
-  <div id="process-row">
-    <nearby-preview title="Doggo.jpg"></nearby-preview>
-    <div id="confirmation-token">
-      <template is="dom-if" if="[[confirmationToken_]]">
-        [[i18n('secureConnectionId', confirmationToken_)]]
-      </template>
+<nearby-page-template title="$i18n{nearbyShareConfirmationPageTitle}"
+        action-button-label="[[getActionButtonLabel_(needsConfirmation_)]]"
+        action-button-event-name="accept"
+        cancel-button-label="[[getCancelButtonLabel_(needsConfirmation_)]]"
+        cancel-button-event-name="[[getCancelEventName_(needsConfirmation_)]]"
+        close-only="[[errorTitle_]]">
+  <div id="centerContent" slot="content">
+    <div id="processRow">
+      <div id="processRowContent">
+        <nearby-preview payload-preview="[[payloadPreview]]"
+            disabled="[[errorTitle_]]">
+        </nearby-preview>
+        <div id="confirmationToken" aria-live="polite">
+          <template is="dom-if" if="[[confirmationToken_]]">
+            [[i18n('nearbyShareSecureConnectionId', confirmationToken_)]]
+          </template>
+        </div>
+        <nearby-progress share-target="[[shareTarget]]"
+            show-indeterminate-progress
+            has-error="[[errorTitle_]]">
+        </nearby-progress>
+      </div>
     </div>
-    <nearby-progress share-target="[[shareTarget]]"></nearby-progress>
-  </div>
 
-  <cr-checkbox id="add-contacts">
-    <div id="add-contacts-label">
-      Add Richard to contacts
-    </div>
-    <div id="add-contacts-label-secondary">
-      Adding this contact will remember the next time you share
-    </div>
-  </cr-checkbox>
-
-  <div id="actions">
-    <template is="dom-if" if="[[needsConfirmation_]]">
-      <cr-button id="reject-button" class="cancel-button"
-          on-click="onRejectTap_">
-        Reject
-      </cr-button>
-      <cr-button id="accept-button" class="action-button"
-          on-click="onAcceptTap_">
-        Confirm
-      </cr-button>
+    <template is="dom-if" if="[[contactName_(shareTarget, errorTitle_)]]">
+      <cr-checkbox id="addContacts" aria-labelledby="addContactsLabel"
+          aria-describedby="addContactsLabelSecondary">
+        <div id="addContactsLabel" aria-hidden="true">
+          [[contactName_(shareTarget)]]
+        </div>
+        <div id="addContactsLabelSecondary" aria-hidden="true">
+          [[i18n('nearbyShareConfirmationPageAddContactSubtitle')]]
+        </div>
+      </cr-checkbox>
     </template>
-    <template is="dom-if" if="[[!needsConfirmation_]]">
-      <cr-button id="cancel-button" class="action-button"
-          on-click="onCancelTap_">
-        Cancel
-      </cr-button>
+
+    <!-- TODO(crbug.com/1149546) factor error section into its own component -->
+    <template is="dom-if" if="[[errorTitle_]]">
+      <div id="errorSection">
+        <iron-icon id="errorIcon" icon="nearby20:info"></iron-icon>
+        <div id="error" role="alert" aria-labelledby="errorTitle"
+            aria-describedby="errorDescription">
+          <div id="errorTitle" aria-hidden="true">[[errorTitle_]]</div>
+          <div id="errorDescription" aria-hidden="true">
+            [[errorDescription_]]
+          </div>
+        </div>
+      </div>
     </template>
   </div>
-</div>
+</nearby-page-template>

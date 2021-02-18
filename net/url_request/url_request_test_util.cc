@@ -27,8 +27,9 @@
 #include "net/proxy_resolution/proxy_retry_info.h"
 #include "net/quic/quic_context.h"
 #include "net/url_request/static_http_user_agent_settings.h"
+#include "net/url_request/url_request_filter.h"
 #include "net/url_request/url_request_job.h"
-#include "net/url_request/url_request_job_factory_impl.h"
+#include "net/url_request/url_request_job_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
@@ -96,10 +97,6 @@ void TestURLRequestContext::Init() {
     context_storage_.set_transport_security_state(
         std::make_unique<TransportSecurityState>());
   }
-  if (!cert_transparency_verifier()) {
-    context_storage_.set_cert_transparency_verifier(
-        std::make_unique<DoNothingCTVerifier>());
-  }
   if (!ct_policy_enforcer()) {
     context_storage_.set_ct_policy_enforcer(
         std::make_unique<DefaultCTPolicyEnforcer>());
@@ -144,7 +141,6 @@ void TestURLRequestContext::Init() {
     session_context.client_socket_factory = client_socket_factory();
     session_context.host_resolver = host_resolver();
     session_context.cert_verifier = cert_verifier();
-    session_context.cert_transparency_verifier = cert_transparency_verifier();
     session_context.ct_policy_enforcer = ct_policy_enforcer();
     session_context.transport_security_state = transport_security_state();
     session_context.proxy_resolution_service = proxy_resolution_service();
@@ -166,8 +162,7 @@ void TestURLRequestContext::Init() {
         HttpCache::DefaultBackend::InMemory(0), true /* is_main_cache */));
   }
   if (!job_factory()) {
-    context_storage_.set_job_factory(
-        std::make_unique<URLRequestJobFactoryImpl>());
+    context_storage_.set_job_factory(std::make_unique<URLRequestJobFactory>());
   }
 }
 
@@ -646,19 +641,46 @@ int TestNetworkDelegate::GetRequestId(URLRequest* request) {
   return id;
 }
 
-TestJobInterceptor::TestJobInterceptor() = default;
+// URLRequestInterceptor that intercepts only the first request it sees,
+// returning the provided URLRequestJob.
+class TestScopedURLInterceptor::TestRequestInterceptor
+    : public URLRequestInterceptor {
+ public:
+  explicit TestRequestInterceptor(std::unique_ptr<URLRequestJob> intercept_job)
+      : intercept_job_(std::move(intercept_job)) {}
 
-TestJobInterceptor::~TestJobInterceptor() = default;
+  ~TestRequestInterceptor() override { CHECK(safe_to_delete_); }
 
-URLRequestJob* TestJobInterceptor::MaybeCreateJob(
-    URLRequest* request,
-    NetworkDelegate* network_delegate) const {
-  return main_intercept_job_.release();
+  std::unique_ptr<URLRequestJob> MaybeInterceptRequest(
+      URLRequest* request) const override {
+    return std::move(intercept_job_);
+  }
+
+  bool job_used() const { return intercept_job_.get() == nullptr; }
+  void set_safe_to_delete() { safe_to_delete_ = true; }
+
+ private:
+  mutable std::unique_ptr<URLRequestJob> intercept_job_;
+  // This is used to catch chases where the TestRequestInterceptor is destroyed
+  // before the TestScopedURLInterceptor.
+  bool safe_to_delete_ = false;
+};
+
+TestScopedURLInterceptor::TestScopedURLInterceptor(
+    const GURL& url,
+    std::unique_ptr<URLRequestJob> intercept_job)
+    : url_(url) {
+  std::unique_ptr<TestRequestInterceptor> interceptor =
+      std::make_unique<TestRequestInterceptor>(std::move(intercept_job));
+  interceptor_ = interceptor.get();
+  URLRequestFilter::GetInstance()->AddUrlInterceptor(url_,
+                                                     std::move(interceptor));
 }
 
-void TestJobInterceptor::set_main_intercept_job(
-    std::unique_ptr<URLRequestJob> job) {
-  main_intercept_job_ = std::move(job);
+TestScopedURLInterceptor::~TestScopedURLInterceptor() {
+  DCHECK(interceptor_->job_used());
+  interceptor_->set_safe_to_delete();
+  URLRequestFilter::GetInstance()->RemoveUrlHandler(url_);
 }
 
 }  // namespace net

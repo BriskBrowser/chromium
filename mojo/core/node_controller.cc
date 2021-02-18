@@ -21,7 +21,6 @@
 #include "mojo/core/broker.h"
 #include "mojo/core/broker_host.h"
 #include "mojo/core/configuration.h"
-#include "mojo/core/core.h"
 #include "mojo/core/request_context.h"
 #include "mojo/core/user_message_impl.h"
 #include "mojo/public/cpp/platform/named_platform_channel.h"
@@ -146,10 +145,8 @@ class ThreadDestructionObserver
 
 NodeController::~NodeController() = default;
 
-NodeController::NodeController(Core* core)
-    : core_(core),
-      name_(GetRandomNodeName()),
-      node_(new ports::Node(name_, this)) {
+NodeController::NodeController()
+    : name_(GetRandomNodeName()), node_(new ports::Node(name_, this)) {
   DVLOG(1) << "Initializing node " << name_;
 }
 
@@ -162,7 +159,7 @@ void NodeController::SetIOTaskRunner(
 }
 
 void NodeController::SendBrokerClientInvitation(
-    base::ProcessHandle target_process,
+    base::Process target_process,
     ConnectionParams connection_params,
     const std::vector<std::pair<std::string, ports::PortRef>>& attached_ports,
     const ProcessErrorCallback& process_error_callback) {
@@ -180,12 +177,10 @@ void NodeController::SendBrokerClientInvitation(
     }
   }
 
-  ScopedProcessHandle scoped_target_process =
-      ScopedProcessHandle::CloneFrom(target_process);
   io_task_runner_->PostTask(
       FROM_HERE,
       base::BindOnce(&NodeController::SendBrokerClientInvitationOnIOThread,
-                     base::Unretained(this), std::move(scoped_target_process),
+                     base::Unretained(this), std::move(target_process),
                      std::move(connection_params), temporary_node_name,
                      process_error_callback));
 }
@@ -361,7 +356,7 @@ void NodeController::DeserializeMessageAsEventForFuzzer(
 }
 
 void NodeController::SendBrokerClientInvitationOnIOThread(
-    ScopedProcessHandle target_process,
+    base::Process target_process,
     ConnectionParams connection_params,
     ports::NodeName temporary_node_name,
     const ProcessErrorCallback& process_error_callback) {
@@ -377,7 +372,7 @@ void NodeController::SendBrokerClientInvitationOnIOThread(
     node_connection_params = ConnectionParams(node_channel.TakeLocalEndpoint());
     // BrokerHost owns itself.
     BrokerHost* broker_host =
-        new BrokerHost(target_process.get(), std::move(connection_params),
+        new BrokerHost(target_process.Duplicate(), std::move(connection_params),
                        process_error_callback);
     bool channel_ok = broker_host->SendChannel(
         node_channel.TakeRemoteEndpoint().TakePlatformHandle());
@@ -446,6 +441,7 @@ void NodeController::AcceptBrokerClientInvitationOnIOThread(
       inviter_name_ = ports::kInvalidNodeName;
     }
 
+    const bool leak_endpoint = connection_params.leak_endpoint();
     // At this point we don't know the inviter's name, so we can't yet insert it
     // into our |peers_| map. That will happen as soon as we receive an
     // AcceptInvitee message from them.
@@ -454,7 +450,7 @@ void NodeController::AcceptBrokerClientInvitationOnIOThread(
                             Channel::HandlePolicy::kAcceptHandles,
                             io_task_runner_, ProcessErrorCallback());
 
-    if (connection_params.leak_endpoint()) {
+    if (leak_endpoint) {
       // Prevent the inviter pipe handle from being closed on shutdown. Pipe
       // closure may be used by the inviter to detect that the invited process
       // has terminated. In such cases, the invited process must not be invited
@@ -587,9 +583,16 @@ void NodeController::AddPeer(const ports::NodeName& name,
   }
 }
 
-void NodeController::DropPeer(const ports::NodeName& name,
+void NodeController::DropPeer(const ports::NodeName& node_name,
                               NodeChannel* channel) {
   DCHECK(io_task_runner_->RunsTasksInCurrentSequence());
+
+  // NOTE: Either the `peers_` erasure or the `pending_invitations_` erasure
+  // below, if executed, may drop the last reference to the named NodeChannel
+  // and thus result in its deletion. The passed `node_name` argument may be
+  // owned by that same NodeChannel, so we make a copy of it here to avoid
+  // potentially unsafe references further below.
+  ports::NodeName name = node_name;
 
   {
     base::AutoLock lock(peers_lock_);
@@ -713,7 +716,7 @@ void NodeController::DropAllPeers() {
   {
     base::AutoLock lock(inviter_lock_);
     if (bootstrap_inviter_channel_) {
-      // |bootstrap_inviter_channel_| isn't null'd here becuase we rely on its
+      // |bootstrap_inviter_channel_| isn't null'd here because we rely on its
       // existence to determine whether or not this is the root node. Once
       // bootstrap_inviter_channel_->ShutDown() has been called,
       // |bootstrap_inviter_channel_| is essentially a dead object and it
@@ -864,7 +867,8 @@ void NodeController::OnAcceptInvitation(const ports::NodeName& from_node,
 
     if (!inviter) {
       // Yes, we're the broker. We can initialize the client directly.
-      channel->AcceptBrokerClient(name_, PlatformHandle());
+      channel->AcceptBrokerClient(name_, PlatformHandle(),
+                                  channel->LocalCapabilities());
     } else {
       // We aren't the broker, so wait for a broker connection.
       base::AutoLock lock(broker_lock_);
@@ -876,7 +880,7 @@ void NodeController::OnAcceptInvitation(const ports::NodeName& from_node,
 void NodeController::OnAddBrokerClient(const ports::NodeName& from_node,
                                        const ports::NodeName& client_name,
                                        base::ProcessHandle process_handle) {
-  ScopedProcessHandle scoped_process_handle(process_handle);
+  base::Process scoped_process_handle(process_handle);
 
   scoped_refptr<NodeChannel> sender = GetPeerChannel(from_node);
   if (!sender) {
@@ -899,7 +903,7 @@ void NodeController::OnAddBrokerClient(const ports::NodeName& from_node,
 #if defined(OS_WIN)
   // The broker must have a working handle to the client process in order to
   // properly copy other handles to and from the client.
-  if (!scoped_process_handle.is_valid()) {
+  if (!scoped_process_handle.IsValid()) {
     DLOG(ERROR) << "Broker rejecting client with invalid process handle.";
     return;
   }
@@ -932,12 +936,14 @@ void NodeController::OnBrokerClientAdded(const ports::NodeName& from_node,
 
   DVLOG(1) << "Client " << client_name << " accepted by broker " << from_node;
 
-  client->AcceptBrokerClient(from_node, std::move(broker_channel));
+  client->AcceptBrokerClient(from_node, std::move(broker_channel),
+                             GetBrokerChannel()->RemoteCapabilities());
 }
 
 void NodeController::OnAcceptBrokerClient(const ports::NodeName& from_node,
                                           const ports::NodeName& broker_name,
-                                          PlatformHandle broker_channel) {
+                                          PlatformHandle broker_channel,
+                                          const uint64_t broker_capabilities) {
   DCHECK(!GetConfiguration().is_broker_process);
 
   // This node should already have an inviter in bootstrap mode.
@@ -976,6 +982,7 @@ void NodeController::OnAcceptBrokerClient(const ports::NodeName& from_node,
         ConnectionParams(PlatformChannelEndpoint(std::move(broker_channel))),
         Channel::HandlePolicy::kAcceptHandles, io_task_runner_,
         ProcessErrorCallback());
+    broker->SetRemoteCapabilities(broker_capabilities);
     AddPeer(broker_name, broker, true /* start_channel */);
   }
 
@@ -992,11 +999,8 @@ void NodeController::OnAcceptBrokerClient(const ports::NodeName& from_node,
   // Feed the broker any pending invitees of our own.
   while (!pending_broker_clients.empty()) {
     const ports::NodeName& invitee_name = pending_broker_clients.front();
-    auto it = pending_invitations_.find(invitee_name);
-    // If for any reason we don't have a pending invitation for the invitee,
-    // there's nothing left to do: we've already swapped the relevant state into
-    // the stack.
-    if (it != pending_invitations_.end()) {
+    auto it = peers_.find(invitee_name);
+    if (it != peers_.end()) {
       broker->AddBrokerClient(invitee_name,
                               it->second->CloneRemoteProcessHandle());
     }
@@ -1014,6 +1018,10 @@ void NodeController::OnAcceptBrokerClient(const ports::NodeName& from_node,
     }
   }
 #endif
+  if (inviter->HasLocalCapability(kNodeCapabilitySupportsUpgrade) &&
+      inviter->HasRemoteCapability(kNodeCapabilitySupportsUpgrade)) {
+    inviter->OfferChannelUpgrade();
+  }
 
   DVLOG(1) << "Client " << name_ << " accepted by broker " << broker_name;
 }
@@ -1092,19 +1100,22 @@ void NodeController::OnRequestIntroduction(const ports::NodeName& from_node,
   scoped_refptr<NodeChannel> new_friend = GetPeerChannel(name);
   if (!new_friend) {
     // We don't know who they're talking about!
-    requestor->Introduce(name, PlatformHandle());
+    requestor->Introduce(name, PlatformHandle(), kNodeCapabilityNone);
   } else {
     PlatformChannel new_channel;
     requestor->Introduce(name,
-                         new_channel.TakeLocalEndpoint().TakePlatformHandle());
-    new_friend->Introduce(
-        from_node, new_channel.TakeRemoteEndpoint().TakePlatformHandle());
+                         new_channel.TakeLocalEndpoint().TakePlatformHandle(),
+                         new_friend->RemoteCapabilities());
+    new_friend->Introduce(from_node,
+                          new_channel.TakeRemoteEndpoint().TakePlatformHandle(),
+                          requestor->RemoteCapabilities());
   }
 }
 
 void NodeController::OnIntroduce(const ports::NodeName& from_node,
                                  const ports::NodeName& name,
-                                 PlatformHandle channel_handle) {
+                                 PlatformHandle channel_handle,
+                                 const uint64_t remote_capabilities) {
   DCHECK(io_task_runner_->RunsTasksInCurrentSequence());
 
   if (!channel_handle.is_valid()) {
@@ -1131,6 +1142,13 @@ void NodeController::OnIntroduce(const ports::NodeName& from_node,
 
   DVLOG(1) << "Adding new peer " << name << " via broker introduction.";
   AddPeer(name, channel, true /* start_channel */);
+
+  channel->SetRemoteCapabilities(remote_capabilities);
+
+  if (channel->HasLocalCapability(kNodeCapabilitySupportsUpgrade) &&
+      channel->HasRemoteCapability(kNodeCapabilitySupportsUpgrade)) {
+    channel->OfferChannelUpgrade();
+  }
 }
 
 void NodeController::OnBroadcast(const ports::NodeName& from_node,
@@ -1312,7 +1330,7 @@ void NodeController::ForceDisconnectProcessForTestingOnIOThread(
   for (auto& peer : peers_) {
     NodeChannel* channel = peer.second.get();
     if (channel->HasRemoteProcessHandle()) {
-      base::Process process(channel->CloneRemoteProcessHandle().release());
+      base::Process process(channel->CloneRemoteProcessHandle());
       if (process.Pid() == process_id)
         peers_to_drop.emplace(peer.first, peer.second);
     }
@@ -1339,11 +1357,13 @@ NodeController::IsolatedConnection::IsolatedConnection(
 
 NodeController::IsolatedConnection::~IsolatedConnection() = default;
 
-NodeController::IsolatedConnection& NodeController::IsolatedConnection::
-operator=(const IsolatedConnection& other) = default;
+NodeController::IsolatedConnection&
+NodeController::IsolatedConnection::operator=(const IsolatedConnection& other) =
+    default;
 
-NodeController::IsolatedConnection& NodeController::IsolatedConnection::
-operator=(IsolatedConnection&& other) = default;
+NodeController::IsolatedConnection&
+NodeController::IsolatedConnection::operator=(IsolatedConnection&& other) =
+    default;
 
 }  // namespace core
 }  // namespace mojo

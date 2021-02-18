@@ -12,6 +12,7 @@
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/mojo/features.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_wrapper_mode.h"
+#include "third_party/blink/renderer/platform/mojo/mojo_binding_context.h"
 
 namespace blink {
 
@@ -64,9 +65,9 @@ class HeapMojoAssociatedRemote {
         std::move(task_runner));
   }
   mojo::PendingAssociatedReceiver<Interface>
-  BindNewEndpointAndPassDedicatedReceiverForTesting() WARN_UNUSED_RESULT {
+  BindNewEndpointAndPassDedicatedReceiver() WARN_UNUSED_RESULT {
     return wrapper_->associated_remote()
-        .BindNewEndpointAndPassDedicatedReceiverForTesting();
+        .BindNewEndpointAndPassDedicatedReceiver();
   }
   void Bind(mojo::PendingAssociatedRemote<Interface> pending_associated_remote,
             scoped_refptr<base::SequencedTaskRunner> task_runner) {

@@ -6,11 +6,10 @@
 
 #include <algorithm>
 #include <memory>
-#include <string>
 #include <utility>
 #include <vector>
 
-#include "base/strings/string16.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/time/clock.h"
 #include "base/time/default_clock.h"
 #include "base/time/time.h"
@@ -18,6 +17,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/read_later/reading_list_model_factory.h"
+#include "chrome/browser/ui/webui/read_later/read_later_ui.h"
 #include "components/reading_list/core/reading_list_entry.h"
 #include "components/reading_list/core/reading_list_model.h"
 #include "components/url_formatter/url_formatter.h"
@@ -41,10 +41,12 @@ int64_t TimeToUS(const base::Time& time) {
 
 ReadLaterPageHandler::ReadLaterPageHandler(
     mojo::PendingReceiver<read_later::mojom::PageHandler> receiver,
-    mojo::PendingRemote<read_later::mojom::Page> page)
+    mojo::PendingRemote<read_later::mojom::Page> page,
+    ReadLaterUI* read_later_ui)
     : receiver_(this, std::move(receiver)),
       page_(std::move(page)),
       browser_(chrome::FindLastActive()),
+      read_later_ui_(read_later_ui),
       clock_(base::DefaultClock::GetInstance()) {
   DCHECK(browser_);
 
@@ -56,6 +58,62 @@ ReadLaterPageHandler::~ReadLaterPageHandler() = default;
 
 void ReadLaterPageHandler::GetReadLaterEntries(
     GetReadLaterEntriesCallback callback) {
+  std::move(callback).Run(CreateReadLaterEntriesByStatusData());
+}
+
+void ReadLaterPageHandler::OpenSavedEntry(const GURL& url) {
+  content::OpenURLParams params(url, content::Referrer(),
+                                WindowOpenDisposition::NEW_FOREGROUND_TAB,
+                                ui::PAGE_TRANSITION_AUTO_BOOKMARK, false);
+  browser_->OpenURL(params);
+  reading_list_model_->SetReadStatus(url, true);
+}
+
+void ReadLaterPageHandler::UpdateReadStatus(const GURL& url, bool read) {
+  reading_list_model_->SetReadStatus(url, read);
+  page_->ItemsChanged(CreateReadLaterEntriesByStatusData());
+}
+
+void ReadLaterPageHandler::RemoveEntry(const GURL& url) {
+  reading_list_model_->RemoveEntryByURL(url);
+  page_->ItemsChanged(CreateReadLaterEntriesByStatusData());
+}
+
+void ReadLaterPageHandler::ShowUI() {
+  auto embedder = read_later_ui_->embedder();
+  if (embedder)
+    embedder->ShowUI();
+}
+
+void ReadLaterPageHandler::CloseUI() {
+  auto embedder = read_later_ui_->embedder();
+  if (embedder)
+    embedder->CloseUI();
+}
+
+read_later::mojom::ReadLaterEntryPtr ReadLaterPageHandler::GetEntryData(
+    const ReadingListEntry* entry) {
+  auto entry_data = read_later::mojom::ReadLaterEntry::New();
+
+  entry_data->title = entry->Title();
+  entry_data->url = entry->URL();
+  entry_data->display_url = base::UTF16ToUTF8(url_formatter::FormatUrl(
+      entry->URL(),
+      url_formatter::kFormatUrlOmitDefaults |
+          url_formatter::kFormatUrlOmitHTTPS |
+          url_formatter::kFormatUrlOmitTrivialSubdomains |
+          url_formatter::kFormatUrlTrimAfterHost,
+      net::UnescapeRule::NORMAL, nullptr, nullptr, nullptr));
+  entry_data->update_time = entry->UpdateTime();
+  entry_data->read = entry->IsRead();
+  entry_data->display_time_since_update =
+      GetTimeSinceLastUpdate(entry->UpdateTime());
+
+  return entry_data;
+}
+
+read_later::mojom::ReadLaterEntriesByStatusPtr
+ReadLaterPageHandler::CreateReadLaterEntriesByStatusData() {
   auto entries = read_later::mojom::ReadLaterEntriesByStatus::New();
 
   for (const auto& url : reading_list_model_->Keys()) {
@@ -73,52 +131,17 @@ void ReadLaterPageHandler::GetReadLaterEntries(
   std::sort(entries->unread_entries.begin(), entries->unread_entries.end(),
             EntrySorter);
 
-  std::move(callback).Run(std::move(entries));
+  return entries;
 }
 
-void ReadLaterPageHandler::OpenSavedEntry(const GURL& url) {
-  content::OpenURLParams params(url, content::Referrer(),
-                                WindowOpenDisposition::NEW_FOREGROUND_TAB,
-                                ui::PAGE_TRANSITION_AUTO_BOOKMARK, false);
-  browser_->OpenURL(params);
-  reading_list_model_->SetReadStatus(url, true);
-}
-
-void ReadLaterPageHandler::UpdateReadStatus(const GURL& url, bool read) {
-  reading_list_model_->SetReadStatus(url, read);
-}
-
-void ReadLaterPageHandler::RemoveEntry(const GURL& url) {
-  reading_list_model_->RemoveEntryByURL(url);
-}
-
-read_later::mojom::ReadLaterEntryPtr ReadLaterPageHandler::GetEntryData(
-    const ReadingListEntry* entry) {
-  auto entry_data = read_later::mojom::ReadLaterEntry::New();
-
-  entry_data->title = entry->Title();
-  entry_data->url = entry->URL();
-  entry_data->display_url = url_formatter::FormatUrl(
-      entry->URL(),
-      url_formatter::kFormatUrlOmitDefaults |
-          url_formatter::kFormatUrlOmitHTTPS |
-          url_formatter::kFormatUrlOmitTrivialSubdomains |
-          url_formatter::kFormatUrlTrimAfterHost,
-      net::UnescapeRule::NORMAL, nullptr, nullptr, nullptr);
-  entry_data->update_time = entry->UpdateTime();
-  entry_data->display_time_since_update =
-      GetTimeSinceLastUpdate(entry->UpdateTime());
-
-  return entry_data;
-}
-
-base::string16 ReadLaterPageHandler::GetTimeSinceLastUpdate(
+std::string ReadLaterPageHandler::GetTimeSinceLastUpdate(
     int64_t last_update_time) {
   const int64_t now = TimeToUS(clock_->Now());
   if (last_update_time > now)
-    return base::string16();
+    return std::string();
   const base::TimeDelta elapsed_time =
       base::TimeDelta::FromMicroseconds(now - last_update_time);
-  return ui::TimeFormat::Simple(ui::TimeFormat::FORMAT_ELAPSED,
-                                ui::TimeFormat::LENGTH_SHORT, elapsed_time);
+  return base::UTF16ToUTF8(
+      ui::TimeFormat::Simple(ui::TimeFormat::FORMAT_ELAPSED,
+                             ui::TimeFormat::LENGTH_SHORT, elapsed_time));
 }

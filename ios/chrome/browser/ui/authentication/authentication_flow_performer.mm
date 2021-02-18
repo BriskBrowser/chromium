@@ -91,13 +91,13 @@ const int64_t kAuthenticationFlowTimeoutSeconds = 10;
   return self;
 }
 
-- (void)cancelAndDismiss {
+- (void)cancelAndDismissAnimated:(BOOL)animated {
   [_alertCoordinator executeCancelHandler];
   [_alertCoordinator stop];
   if (_navigationController) {
     [_navigationController cleanUpSettings];
     _navigationController = nil;
-    [_delegate dismissPresentingViewControllerAnimated:NO completion:nil];
+    [_delegate dismissPresentingViewControllerAnimated:animated completion:nil];
   }
   [self stopWatchdogTimer];
 }
@@ -123,7 +123,7 @@ const int64_t kAuthenticationFlowTimeoutSeconds = 10;
   _watchdogTimer->Start(
       FROM_HERE,
       base::TimeDelta::FromSeconds(kAuthenticationFlowTimeoutSeconds),
-      base::Bind(onTimeout));
+      base::BindOnce(onTimeout));
 }
 
 - (BOOL)stopWatchdogTimer {
@@ -264,7 +264,8 @@ const int64_t kAuthenticationFlowTimeoutSeconds = 10;
         IdentityManagerFactory::GetForBrowserState(browserState);
     base::Optional<AccountInfo> primary_account_info =
         identity_manager->FindExtendedAccountInfoForAccountWithRefreshToken(
-            identity_manager->GetPrimaryAccountInfo());
+            identity_manager->GetPrimaryAccountInfo(
+                signin::ConsentLevel::kSync));
     DCHECK(primary_account_info);
     NSString* hostedDomain =
         base::SysUTF8ToNSString(primary_account_info->hosted_domain);

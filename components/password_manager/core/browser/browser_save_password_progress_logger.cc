@@ -4,7 +4,10 @@
 
 #include "components/password_manager/core/browser/browser_save_password_progress_logger.h"
 
+#include <sstream>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
@@ -15,16 +18,17 @@
 #include "components/autofill/core/browser/form_structure.h"
 #include "components/autofill/core/browser/logging/log_manager.h"
 #include "components/autofill/core/browser/proto/server.pb.h"
-#include "components/autofill/core/common/password_form.h"
 #include "components/autofill/core/common/signatures.h"
+#include "components/password_manager/core/browser/generation/password_requirements_spec_printer.h"
+#include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/password_form_metrics_recorder.h"
 #include "components/password_manager/core/browser/password_manager.h"
 
 using autofill::AutofillUploadContents;
 using autofill::FieldPropertiesFlags;
+using autofill::FieldTypeToStringPiece;
 using autofill::FormStructure;
 using autofill::PasswordAttribute;
-using autofill::PasswordForm;
 using autofill::ServerFieldType;
 using base::NumberToString;
 
@@ -209,16 +213,23 @@ std::string BrowserSavePasswordProgressLogger::FormStructureToFieldsLogString(
           ", autocomplete=" + ScrubElementID(field->autocomplete_attribute);
 
     if (field->server_type() != autofill::NO_SERVER_DATA) {
+      base::StrAppend(
+          &field_info,
+          {", Server Type: ", FieldTypeToStringPiece(field->server_type())});
+
+      std::vector<std::string> all_predictions;
+      for (const auto& p : field->server_predictions()) {
+        all_predictions.emplace_back(
+            FieldTypeToStringPiece(static_cast<ServerFieldType>(p.type())));
+      }
+
       base::StrAppend(&field_info,
-                      {", SERVER_PREDICTION: ",
-                       autofill::AutofillType::ServerFieldTypeToString(
-                           field->server_type())});
+                      {", All Server Predictions: [",
+                       base::JoinString(all_predictions, ", "), "]"});
     }
 
     for (ServerFieldType type : field->possible_types())
-      base::StrAppend(
-          &field_info,
-          {", VOTE: ", autofill::AutofillType::ServerFieldTypeToString(type)});
+      base::StrAppend(&field_info, {", VOTE: ", FieldTypeToStringPiece(type)});
 
     if (field->vote_type())
       field_info += ", vote_type=" + VoteTypeToString(field->vote_type());
@@ -246,7 +257,7 @@ std::string BrowserSavePasswordProgressLogger::FormStructureToFieldsLogString(
 
     if (field->initial_value_hash().has_value()) {
       field_info += ", initial value hash=";
-      field_info += field->initial_value_hash().value();
+      field_info += NumberToString(field->initial_value_hash().value());
     }
 
     std::string generation = GenerationTypeToString(field->generation_type());
@@ -255,6 +266,12 @@ std::string BrowserSavePasswordProgressLogger::FormStructureToFieldsLogString(
 
     if (field->generated_password_changed())
       field_info += ", generated password changed";
+
+    if (field->password_requirements()) {
+      std::ostringstream s;
+      s << *field->password_requirements();
+      base::StrAppend(&field_info, {", PASSWORD_REQUIREMENTS: ", s.str()});
+    }
 
     result += field_info + "\n";
   }

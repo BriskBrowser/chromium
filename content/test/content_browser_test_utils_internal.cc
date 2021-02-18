@@ -21,19 +21,19 @@
 #include "base/task/thread_pool.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "content/browser/frame_host/frame_tree_node.h"
-#include "content/browser/frame_host/navigator.h"
-#include "content/browser/frame_host/render_frame_host_delegate.h"
-#include "content/browser/frame_host/render_frame_proxy_host.h"
 #include "content/browser/renderer_host/delegated_frame_host.h"
+#include "content/browser/renderer_host/frame_tree_node.h"
+#include "content/browser/renderer_host/navigator.h"
+#include "content/browser/renderer_host/render_frame_host_delegate.h"
+#include "content/browser/renderer_host/render_frame_proxy_host.h"
+#include "content/browser/site_instance_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
-#include "content/common/frame_visual_properties.h"
-#include "content/common/view_messages.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/file_select_listener.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/site_isolation_policy.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/use_zoom_for_dsf_policy.h"
 #include "content/public/test/browser_test_utils.h"
@@ -42,6 +42,7 @@
 #include "content/public/test/test_navigation_observer.h"
 #include "content/shell/browser/shell.h"
 #include "content/shell/browser/shell_javascript_dialog_manager.h"
+#include "third_party/blink/public/common/frame/frame_visual_properties.h"
 
 namespace content {
 
@@ -50,14 +51,21 @@ bool NavigateFrameToURL(FrameTreeNode* node, const GURL& url) {
   NavigationController::LoadURLParams params(url);
   params.transition_type = ui::PAGE_TRANSITION_LINK;
   params.frame_tree_node_id = node->frame_tree_node_id();
-  node->navigator().GetController()->LoadURLWithParams(params);
+  FrameTree* frame_tree = node->frame_tree();
+
+  node->navigator().controller().LoadURLWithParams(params);
   observer.Wait();
 
   if (!observer.last_navigation_succeeded()) {
     DLOG(WARNING) << "Navigation did not succeed: " << url;
     return false;
   }
-  if (url != node->current_url()) {
+
+  // It's possible for JS handlers triggered during the navigation to remove
+  // the node, so retrieve it by ID again to check if that occurred.
+  node = frame_tree->FindByID(params.frame_tree_node_id);
+
+  if (node && url != node->current_url()) {
     DLOG(WARNING) << "Expected URL " << url << " but observed "
                   << node->current_url();
     return false;
@@ -85,9 +93,38 @@ bool NavigateToURLInSameBrowsingInstance(Shell* window, const GURL& url) {
                           ui::PageTransitionFromInt(ui::PAGE_TRANSITION_LINK));
   observer.Wait();
 
-  if (!IsLastCommittedEntryOfPageType(window->web_contents(), PAGE_TYPE_NORMAL))
+  if (!IsLastCommittedEntryOfPageType(window->web_contents(),
+                                      PAGE_TYPE_NORMAL)) {
+    NavigationEntry* last_entry =
+        window->web_contents()->GetController().GetLastCommittedEntry();
+    DLOG(WARNING) << "last_entry->GetPageType() = "
+                  << (last_entry ? last_entry->GetPageType() : -1);
     return false;
-  return window->web_contents()->GetLastCommittedURL() == url;
+  }
+
+  if (window->web_contents()->GetLastCommittedURL() != url) {
+    DLOG(WARNING) << "window->web_contents()->GetLastCommittedURL() = "
+                  << window->web_contents()->GetLastCommittedURL()
+                  << "; url = " << url;
+    return false;
+  }
+
+  return true;
+}
+
+bool IsExpectedSubframeErrorTransition(SiteInstance* start_site_instance,
+                                       SiteInstance* end_site_instance) {
+  bool site_instances_are_equal = (start_site_instance == end_site_instance);
+  bool is_error_page_site_instance =
+      (static_cast<SiteInstanceImpl*>(end_site_instance)
+           ->GetSiteInfo()
+           .is_error_page());
+  if (!SiteIsolationPolicy::IsErrorPageIsolationEnabled(
+          /*in_main_frame=*/false)) {
+    return site_instances_are_equal && !is_error_page_site_instance;
+  } else {
+    return !site_instances_are_equal && is_error_page_site_instance;
+  }
 }
 
 FrameTreeVisualizer::FrameTreeVisualizer() {
@@ -279,21 +316,40 @@ std::string FrameTreeVisualizer::GetName(SiteInstance* site_instance) {
     return base::StringPrintf("Z%d", static_cast<int>(index - 25));
 }
 
+std::string DepictFrameTree(FrameTreeNode& root) {
+  return FrameTreeVisualizer().DepictFrameTree(&root);
+}
+
 Shell* OpenPopup(const ToRenderFrameHost& opener,
                  const GURL& url,
                  const std::string& name) {
+  return OpenPopup(opener, url, name, "", true);
+}
+
+Shell* OpenPopup(const ToRenderFrameHost& opener,
+                 const GURL& url,
+                 const std::string& name,
+                 const std::string& features,
+                 bool expect_return_from_window_open) {
   TestNavigationObserver observer(url);
   observer.StartWatchingNewWebContents();
 
   ShellAddedObserver new_shell_observer;
   bool did_create_popup = false;
-  bool did_execute_script = ExecuteScriptAndExtractBool(
-      opener,
+  std::string popup_script =
       "window.domAutomationController.send("
-      "    !!window.open('" + url.spec() + "', '" + name + "'));",
-      &did_create_popup);
-  if (!did_execute_script || !did_create_popup)
+      "    !!window.open('" +
+      url.spec() + "', '" + name + "', '" + features + "'));";
+  bool did_execute_script =
+      ExecuteScriptAndExtractBool(opener, popup_script, &did_create_popup);
+
+  // Don't check the value of |did_create_popup| since there are valid reasons
+  // for it to be false, e.g. |features| specifies 'noopener', or 'noreferrer'
+  // or others.
+  if (!did_execute_script ||
+      !(did_create_popup || !expect_return_from_window_open)) {
     return nullptr;
+  }
 
   observer.Wait();
 
@@ -376,55 +432,53 @@ RenderProcessHostBadIpcMessageWaiter::Wait() {
   return static_cast<bad_message::BadMessageReason>(internal_result.value());
 }
 
-ShowWidgetMessageFilter::ShowWidgetMessageFilter(WebContents* web_contents)
-#if defined(OS_MAC) || defined(OS_ANDROID)
-    : BrowserMessageFilter(FrameMsgStart),
-#else
-    : BrowserMessageFilter(ViewMsgStart),
-#endif
-      run_loop_(std::make_unique<base::RunLoop>()) {
-  WebContentsObserver::Observe(web_contents);
+ShowPopupWidgetWaiter::ShowPopupWidgetWaiter(WebContents* web_contents,
+                                             RenderFrameHostImpl* frame_host)
+    : WebContentsObserver(web_contents), frame_host_(frame_host) {
+  frame_host_->SetCreateNewPopupCallbackForTesting(base::BindRepeating(
+      &ShowPopupWidgetWaiter::DidCreatePopupWidget, base::Unretained(this)));
 }
 
-ShowWidgetMessageFilter::~ShowWidgetMessageFilter() {
-  DCHECK(is_shut_down_);
+ShowPopupWidgetWaiter::~ShowPopupWidgetWaiter() {
+  if (auto* rwhi = RenderWidgetHostImpl::FromID(process_id_, routing_id_)) {
+    rwhi->popup_widget_host_receiver_for_testing().SwapImplForTesting(rwhi);
+  }
+  if (frame_host_)
+    frame_host_->SetCreateNewPopupCallbackForTesting(base::NullCallback());
 }
 
-void ShowWidgetMessageFilter::Shutdown() {
-  WebContentsObserver::Observe(nullptr);
-  is_shut_down_ = true;
+void ShowPopupWidgetWaiter::Wait() {
+  run_loop_.Run();
 }
 
-bool ShowWidgetMessageFilter::OnMessageReceived(const IPC::Message& message) {
-  IPC_BEGIN_MESSAGE_MAP(ShowWidgetMessageFilter, message)
-#if !defined(OS_MAC) && !defined(OS_ANDROID)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_ShowWidget, OnShowWidget)
-#endif
-  IPC_END_MESSAGE_MAP()
-  return false;
+void ShowPopupWidgetWaiter::Stop() {
+  Observe(nullptr);
+  frame_host_->SetCreateNewPopupCallbackForTesting(base::NullCallback());
+  frame_host_ = nullptr;
 }
 
-void ShowWidgetMessageFilter::Wait() {
-  DCHECK(!is_shut_down_);
-  run_loop_->Run();
+blink::mojom::PopupWidgetHost* ShowPopupWidgetWaiter::GetForwardingInterface() {
+  DCHECK_NE(MSG_ROUTING_NONE, routing_id_);
+  return RenderWidgetHostImpl::FromID(process_id_, routing_id_);
 }
 
-void ShowWidgetMessageFilter::Reset() {
-  DCHECK(!is_shut_down_);
-  initial_rect_ = gfx::Rect();
-  routing_id_ = MSG_ROUTING_NONE;
-  run_loop_ = std::make_unique<base::RunLoop>();
+void ShowPopupWidgetWaiter::ShowPopup(const gfx::Rect& initial_rect,
+                                      ShowPopupCallback callback) {
+  GetForwardingInterface()->ShowPopup(initial_rect, std::move(callback));
+  initial_rect_ = initial_rect;
+  run_loop_.Quit();
 }
 
-void ShowWidgetMessageFilter::OnShowWidget(int route_id,
-                                           const gfx::Rect& initial_rect) {
-  content::GetUIThreadTaskRunner({})->PostTask(
-      FROM_HERE, base::BindOnce(&ShowWidgetMessageFilter::OnShowWidgetOnUI,
-                                this, route_id, initial_rect));
+void ShowPopupWidgetWaiter::DidCreatePopupWidget(
+    RenderWidgetHostImpl* render_widget_host) {
+  process_id_ = render_widget_host->GetProcess()->GetID();
+  routing_id_ = render_widget_host->GetRoutingID();
+  render_widget_host->popup_widget_host_receiver_for_testing()
+      .SwapImplForTesting(this);
 }
 
 #if defined(OS_MAC) || defined(OS_ANDROID)
-bool ShowWidgetMessageFilter::ShowPopupMenu(
+bool ShowPopupWidgetWaiter::ShowPopupMenu(
     RenderFrameHost* render_frame_host,
     mojo::PendingRemote<blink::mojom::PopupMenuClient>* popup_client,
     const gfx::Rect& bounds,
@@ -434,19 +488,11 @@ bool ShowWidgetMessageFilter::ShowPopupMenu(
     std::vector<blink::mojom::MenuItemPtr>* menu_items,
     bool right_aligned,
     bool allow_multiple_selection) {
-  content::GetUIThreadTaskRunner({})->PostTask(
-      FROM_HERE, base::BindOnce(&ShowWidgetMessageFilter::OnShowWidgetOnUI,
-                                this, MSG_ROUTING_NONE, bounds));
+  initial_rect_ = bounds;
+  run_loop_.Quit();
   return true;
 }
 #endif
-
-void ShowWidgetMessageFilter::OnShowWidgetOnUI(int route_id,
-                                               const gfx::Rect& initial_rect) {
-  initial_rect_ = initial_rect;
-  routing_id_ = route_id;
-  run_loop_->Quit();
-}
 
 DropMessageFilter::DropMessageFilter(uint32_t message_class,
                                      uint32_t drop_message_id)

@@ -7,9 +7,11 @@
 
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/null_task_runner.h"
 #include "base/test/scoped_feature_list.h"
@@ -21,12 +23,13 @@
 #include "components/password_manager/core/browser/password_reuse_detector.h"
 #include "components/safe_browsing/content/common/safe_browsing.mojom-forward.h"
 #include "components/safe_browsing/content/common/safe_browsing.mojom.h"
-#include "components/safe_browsing/content/password_protection/metrics_util.h"
 #include "components/safe_browsing/content/password_protection/mock_password_protection_service.h"
 #include "components/safe_browsing/content/password_protection/password_protection_navigation_throttle.h"
-#include "components/safe_browsing/content/password_protection/password_protection_request.h"
+#include "components/safe_browsing/content/password_protection/password_protection_request_content.h"
 #include "components/safe_browsing/core/db/test_database_manager.h"
 #include "components/safe_browsing/core/features.h"
+#include "components/safe_browsing/core/password_protection/metrics_util.h"
+#include "components/safe_browsing/core/password_protection/password_protection_request.h"
 #include "components/safe_browsing/core/proto/csd.pb.h"
 #include "components/safe_browsing/core/verdict_cache_manager.h"
 #include "components/signin/public/identity_manager/account_info.h"
@@ -74,7 +77,7 @@ class MockSafeBrowsingDatabaseManager : public TestSafeBrowsingDatabaseManager {
  public:
   MockSafeBrowsingDatabaseManager() {}
 
-  MOCK_METHOD2(CheckCsdWhitelistUrl,
+  MOCK_METHOD2(CheckCsdAllowlistUrl,
                AsyncMatch(const GURL&, SafeBrowsingDatabaseManager::Client*));
 
  protected:
@@ -138,7 +141,9 @@ class TestPasswordProtectionService : public MockPasswordProtectionService {
                                       nullptr),
         cache_manager_(
             std::make_unique<VerdictCacheManager>(nullptr,
-                                                  content_setting_map.get())) {}
+                                                  content_setting_map.get())) {
+    cache_manager_->StopCleanUpTimerForTesting();
+  }
 
   void RequestFinished(
       PasswordProtectionRequest* request,
@@ -227,24 +232,88 @@ class TestPasswordProtectionService : public MockPasswordProtectionService {
   DISALLOW_COPY_AND_ASSIGN(TestPasswordProtectionService);
 };
 
-class MockPasswordProtectionNavigationThrottle
-    : public PasswordProtectionNavigationThrottle {
- public:
-  MockPasswordProtectionNavigationThrottle(
-      content::NavigationHandle* navigation_handle,
-      scoped_refptr<PasswordProtectionRequest> request,
-      bool is_warning_showing)
-      : PasswordProtectionNavigationThrottle(navigation_handle,
-                                             request,
-                                             is_warning_showing) {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockPasswordProtectionNavigationThrottle);
-};
-
-class PasswordProtectionServiceTest : public ::testing::TestWithParam<bool> {
+class PasswordProtectionServiceTest : public ::testing::Test {
  public:
   PasswordProtectionServiceTest()
+      : task_environment_(base::test::TaskEnvironment::TimeSource::MOCK_TIME) {}
+
+ protected:
+  void SetUp() override {
+    HostContentSettingsMap::RegisterProfilePrefs(test_pref_service_.registry());
+    content_setting_map_ = new HostContentSettingsMap(
+        &test_pref_service_, /*is_off_the_record=*/false,
+        /*store_last_modified=*/false, /*restore_session=*/false);
+    database_manager_ = new MockSafeBrowsingDatabaseManager();
+    password_protection_service_ =
+        std::make_unique<TestPasswordProtectionService>(
+            database_manager_,
+            base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
+                &test_url_loader_factory_),
+            content_setting_map_);
+    web_contents_ =
+        base::WrapUnique(content::WebContentsTester::CreateTestWebContents(
+            content::WebContents::CreateParams(&browser_context_)));
+    const std::vector<password_manager::MatchingReusedCredential>
+        matching_reused_credentials = {};
+    request_ =
+        base::MakeRefCounted<safe_browsing::PasswordProtectionRequestContent>(
+            web_contents_.get(), GURL(kTargetUrl),
+            /*password_form_action=*/GURL(),
+            /*password_form_frame_url=*/GURL(),
+            web_contents_->GetContentsMimeType(), kUserName,
+            PasswordType::PASSWORD_TYPE_UNKNOWN, matching_reused_credentials,
+            LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
+            /*password_field_exists=*/true, password_protection_service_.get(),
+            /*request_timeout_in_ms=*/10000);
+  }
+
+  void TearDown() override {
+    password_protection_service_.reset();
+    content_setting_map_->ShutdownOnUIThread();
+  }
+
+  size_t GetNumberOfNavigationThrottles() {
+    return request_ ? request_->throttles_.size() : 0u;
+  }
+
+  // |task_environment_| is needed here because this test involves both UI and
+  // IO threads.
+  content::BrowserTaskEnvironment task_environment_;
+  scoped_refptr<MockSafeBrowsingDatabaseManager> database_manager_;
+  sync_preferences::TestingPrefServiceSyncable test_pref_service_;
+  scoped_refptr<HostContentSettingsMap> content_setting_map_;
+  network::TestURLLoaderFactory test_url_loader_factory_;
+  std::unique_ptr<TestPasswordProtectionService> password_protection_service_;
+  content::TestBrowserContext browser_context_;
+  content::RenderViewHostTestEnabler rvh_test_enabler_;
+  std::unique_ptr<content::WebContents> web_contents_;
+  scoped_refptr<PasswordProtectionRequestContent> request_;
+};
+
+TEST_F(PasswordProtectionServiceTest,
+       VerifyNavigationThrottleNotRemovedWhenCanceledOnTimeout) {
+  request_->Start();
+  auto throttle = std::make_unique<PasswordProtectionNavigationThrottle>(
+      nullptr, request_, false);
+  EXPECT_EQ(1U, GetNumberOfNavigationThrottles());
+  request_->Cancel(/*timed_out=*/true);
+  EXPECT_EQ(1U, GetNumberOfNavigationThrottles());
+}
+
+TEST_F(PasswordProtectionServiceTest,
+       VerifyNavigationThrottleRemovedWhenCanceledNotOnTimeout) {
+  request_->Start();
+  auto throttle = std::make_unique<PasswordProtectionNavigationThrottle>(
+      nullptr, request_, false);
+  EXPECT_EQ(1U, GetNumberOfNavigationThrottles());
+  request_->Cancel(/*timed_out=*/false);
+  EXPECT_EQ(0U, GetNumberOfNavigationThrottles());
+}
+
+class PasswordProtectionServiceBaseTest
+    : public ::testing::TestWithParam<bool> {
+ public:
+  PasswordProtectionServiceBaseTest()
       : task_environment_(base::test::TaskEnvironment::TimeSource::MOCK_TIME) {}
 
   LoginReputationClientResponse CreateVerdictProto(
@@ -263,7 +332,6 @@ class PasswordProtectionServiceTest : public ::testing::TestWithParam<bool> {
     content_setting_map_ = new HostContentSettingsMap(
         &test_pref_service_, false /* is_off_the_record */,
         false /* store_last_modified */,
-        false /* migrate_requesting_and_top_level_origin_settings */,
         false /* restore_session*/);
     database_manager_ = new MockSafeBrowsingDatabaseManager();
     password_protection_service_ =
@@ -277,14 +345,14 @@ class PasswordProtectionServiceTest : public ::testing::TestWithParam<bool> {
     EXPECT_CALL(*password_protection_service_, IsIncognito())
         .WillRepeatedly(Return(false));
     EXPECT_CALL(*password_protection_service_,
-                IsURLWhitelistedForPasswordEntry(_))
+                IsURLAllowlistedForPasswordEntry(_))
         .WillRepeatedly(Return(false));
     EXPECT_CALL(*password_protection_service_,
                 GetPasswordProtectionWarningTriggerPref(_))
         .WillRepeatedly(Return(PASSWORD_PROTECTION_OFF));
     EXPECT_CALL(*password_protection_service_, IsUserMBBOptedIn())
         .WillRepeatedly(Return(true));
-    url_ = PasswordProtectionService::GetPasswordProtectionRequestUrl();
+    url_ = PasswordProtectionServiceBase::GetPasswordProtectionRequestUrl();
   }
 
   void TearDown() override {
@@ -294,17 +362,18 @@ class PasswordProtectionServiceTest : public ::testing::TestWithParam<bool> {
 
   // Sets up |database_manager_| and |pending_requests_| as needed.
   void InitializeAndStartPasswordOnFocusRequest(
-      bool match_whitelist,
+      bool match_allowlist,
       int timeout_in_ms,
       content::WebContents* web_contents) {
     GURL target_url(kTargetUrl);
-    EXPECT_CALL(*database_manager_, CheckCsdWhitelistUrl(target_url, _))
+    EXPECT_CALL(*database_manager_, CheckCsdAllowlistUrl(target_url, _))
         .WillRepeatedly(
-            Return(match_whitelist ? AsyncMatch::MATCH : AsyncMatch::NO_MATCH));
+            Return(match_allowlist ? AsyncMatch::MATCH : AsyncMatch::NO_MATCH));
 
-    request_ = new PasswordProtectionRequest(
+    request_ = new PasswordProtectionRequestContent(
         web_contents, target_url, GURL(kFormActionUrl), GURL(kPasswordFrameUrl),
-        kUserName, PasswordType::PASSWORD_TYPE_UNKNOWN, {},
+        web_contents->GetContentsMimeType(), kUserName,
+        PasswordType::PASSWORD_TYPE_UNKNOWN, {},
         LoginReputationClientRequest::UNFAMILIAR_LOGIN_PAGE, true,
         password_protection_service_.get(), timeout_in_ms);
     request_->Start();
@@ -314,16 +383,17 @@ class PasswordProtectionServiceTest : public ::testing::TestWithParam<bool> {
       PasswordType type,
       const std::vector<password_manager::MatchingReusedCredential>&
           matching_reused_credentials,
-      bool match_whitelist,
+      bool match_allowlist,
       int timeout_in_ms,
       content::WebContents* web_contents) {
     GURL target_url(kTargetUrl);
-    EXPECT_CALL(*database_manager_, CheckCsdWhitelistUrl(target_url, _))
+    EXPECT_CALL(*database_manager_, CheckCsdAllowlistUrl(target_url, _))
         .WillRepeatedly(
-            Return(match_whitelist ? AsyncMatch::MATCH : AsyncMatch::NO_MATCH));
+            Return(match_allowlist ? AsyncMatch::MATCH : AsyncMatch::NO_MATCH));
 
-    request_ = new PasswordProtectionRequest(
-        web_contents, target_url, GURL(), GURL(), kUserName, type,
+    request_ = new PasswordProtectionRequestContent(
+        web_contents, target_url, GURL(), GURL(),
+        web_contents->GetContentsMimeType(), kUserName, type,
         matching_reused_credentials,
         LoginReputationClientRequest::PASSWORD_REUSE_EVENT, true,
         password_protection_service_.get(), timeout_in_ms);
@@ -349,7 +419,7 @@ class PasswordProtectionServiceTest : public ::testing::TestWithParam<bool> {
     std::unique_ptr<base::DictionaryValue> verdict_dictionary =
         base::DictionaryValue::From(content_setting_map_->GetWebsiteSetting(
             invalid_hostname, GURL(), ContentSettingsType::PASSWORD_PROTECTION,
-            std::string(), nullptr));
+            nullptr));
 
     if (!verdict_dictionary)
       verdict_dictionary = std::make_unique<base::DictionaryValue>();
@@ -370,7 +440,7 @@ class PasswordProtectionServiceTest : public ::testing::TestWithParam<bool> {
         std::move(invalid_cache_expression_entry));
     content_setting_map_->SetWebsiteSettingDefaultScope(
         invalid_hostname, GURL(), ContentSettingsType::PASSWORD_PROTECTION,
-        std::string(), std::move(verdict_dictionary));
+        std::move(verdict_dictionary));
   }
 
   size_t GetStoredVerdictCount(LoginReputationClientRequest::TriggerType type) {
@@ -378,8 +448,13 @@ class PasswordProtectionServiceTest : public ::testing::TestWithParam<bool> {
   }
 
   std::unique_ptr<content::WebContents> GetWebContents() {
-    return base::WrapUnique(content::WebContentsTester::CreateTestWebContents(
-        content::WebContents::CreateParams(&browser_context_)));
+    std::unique_ptr<content::WebContents> contents =
+        base::WrapUnique(content::WebContentsTester::CreateTestWebContents(
+            content::WebContents::CreateParams(&browser_context_)));
+    // Initiate the connection to a (pretend) renderer process.
+    content::WebContentsTester::For(contents.get())
+        ->NavigateAndCommit(GURL("about:blank"));
+    return contents;
   }
 
 // Visual features are not supported on Android.
@@ -393,10 +468,6 @@ class PasswordProtectionServiceTest : public ::testing::TestWithParam<bool> {
     EXPECT_EQ(should_report_content_size, request.has_content_area_width());
   }
 #endif
-
-  size_t GetNumberOfNavigationThrottles() {
-    return request_ ? request_->throttles_.size() : 0u;
-  }
 
  protected:
   // |task_environment_| is needed here because this test involves both UI and
@@ -414,7 +485,7 @@ class PasswordProtectionServiceTest : public ::testing::TestWithParam<bool> {
   content::RenderViewHostTestEnabler rvh_test_enabler_;
 };
 
-TEST_P(PasswordProtectionServiceTest, TestCachePasswordReuseVerdicts) {
+TEST_P(PasswordProtectionServiceBaseTest, TestCachePasswordReuseVerdicts) {
   ASSERT_EQ(0U, GetStoredVerdictCount(
                     LoginReputationClientRequest::PASSWORD_REUSE_EVENT));
   EXPECT_CALL(*password_protection_service_, IsPrimaryAccountSignedIn())
@@ -491,7 +562,8 @@ TEST_P(PasswordProtectionServiceTest, TestCachePasswordReuseVerdicts) {
                     LoginReputationClientRequest::UNFAMILIAR_LOGIN_PAGE));
 }
 
-TEST_P(PasswordProtectionServiceTest, TestCachePasswordReuseVerdictsIncognito) {
+TEST_P(PasswordProtectionServiceBaseTest,
+       TestCachePasswordReuseVerdictsIncognito) {
   EXPECT_CALL(*password_protection_service_, IsIncognito())
       .WillRepeatedly(Return(true));
   ASSERT_EQ(0U, GetStoredVerdictCount(
@@ -534,7 +606,7 @@ TEST_P(PasswordProtectionServiceTest, TestCachePasswordReuseVerdictsIncognito) {
                     LoginReputationClientRequest::UNFAMILIAR_LOGIN_PAGE));
 }
 
-TEST_P(PasswordProtectionServiceTest, TestCacheUnfamiliarLoginVerdicts) {
+TEST_P(PasswordProtectionServiceBaseTest, TestCacheUnfamiliarLoginVerdicts) {
   ASSERT_EQ(0U, GetStoredVerdictCount(
                     LoginReputationClientRequest::UNFAMILIAR_LOGIN_PAGE));
   ReusedPasswordAccountType reused_password_account_type;
@@ -576,7 +648,7 @@ TEST_P(PasswordProtectionServiceTest, TestCacheUnfamiliarLoginVerdicts) {
                     LoginReputationClientRequest::PASSWORD_REUSE_EVENT));
 }
 
-TEST_P(PasswordProtectionServiceTest,
+TEST_P(PasswordProtectionServiceBaseTest,
        TestCacheUnfamiliarLoginVerdictsIncognito) {
   EXPECT_CALL(*password_protection_service_, IsIncognito())
       .WillRepeatedly(Return(true));
@@ -621,7 +693,7 @@ TEST_P(PasswordProtectionServiceTest,
                     LoginReputationClientRequest::PASSWORD_REUSE_EVENT));
 }
 
-TEST_P(PasswordProtectionServiceTest, TestGetCachedVerdicts) {
+TEST_P(PasswordProtectionServiceBaseTest, TestGetCachedVerdicts) {
   ASSERT_EQ(0U, GetStoredVerdictCount(
                     LoginReputationClientRequest::PASSWORD_REUSE_EVENT));
   ASSERT_EQ(0U, GetStoredVerdictCount(
@@ -732,7 +804,7 @@ TEST_P(PasswordProtectionServiceTest, TestGetCachedVerdicts) {
                 reused_password_account_type, &actual_verdict));
 }
 
-TEST_P(PasswordProtectionServiceTest, TestDoesNotCacheAboutBlank) {
+TEST_P(PasswordProtectionServiceBaseTest, TestDoesNotCacheAboutBlank) {
   ASSERT_EQ(0U, GetStoredVerdictCount(
                     LoginReputationClientRequest::PASSWORD_REUSE_EVENT));
   ReusedPasswordAccountType reused_password_account_type;
@@ -750,7 +822,7 @@ TEST_P(PasswordProtectionServiceTest, TestDoesNotCacheAboutBlank) {
                     LoginReputationClientRequest::PASSWORD_REUSE_EVENT));
 }
 
-TEST_P(PasswordProtectionServiceTest, VerifyCanGetReputationOfURL) {
+TEST_P(PasswordProtectionServiceBaseTest, VerifyCanGetReputationOfURL) {
   // Invalid main frame URL.
   EXPECT_FALSE(PasswordProtectionService::CanGetReputationOfURL(GURL()));
 
@@ -788,19 +860,19 @@ TEST_P(PasswordProtectionServiceTest, VerifyCanGetReputationOfURL) {
       GURL("http://www.chromium.org")));
 }
 
-TEST_P(PasswordProtectionServiceTest, TestNoRequestSentForWhitelistedURL) {
+TEST_P(PasswordProtectionServiceBaseTest, TestNoRequestSentForAllowlistedURL) {
   histograms_.ExpectTotalCount(kPasswordOnFocusRequestOutcomeHistogram, 0);
   std::unique_ptr<content::WebContents> web_contents = GetWebContents();
   content::WebContentsTester::For(web_contents.get())
       ->SetLastCommittedURL(GURL("http://safe.com/"));
-  InitializeAndStartPasswordOnFocusRequest(true /* match whitelist */,
+  InitializeAndStartPasswordOnFocusRequest(true /* match allowlist */,
                                            10000 /* timeout in ms */,
                                            web_contents.get());
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(nullptr, password_protection_service_->latest_response());
   EXPECT_THAT(
       histograms_.GetAllSamples(kPasswordOnFocusRequestOutcomeHistogram),
-      ElementsAre(base::Bucket(4 /* MATCHED_WHITELIST */, 1)));
+      ElementsAre(base::Bucket(4 /* MATCHED_ALLOWLIST */, 1)));
 }
 
 // crbug.com/1010007: crashes on win
@@ -811,7 +883,7 @@ TEST_P(PasswordProtectionServiceTest, TestNoRequestSentForWhitelistedURL) {
 #define MAYBE_TestNoRequestSentIfVerdictAlreadyCached \
   TestNoRequestSentIfVerdictAlreadyCached
 #endif
-TEST_P(PasswordProtectionServiceTest,
+TEST_P(PasswordProtectionServiceBaseTest,
        MAYBE_TestNoRequestSentIfVerdictAlreadyCached) {
   histograms_.ExpectTotalCount(kPasswordOnFocusRequestOutcomeHistogram, 0);
   ReusedPasswordAccountType reused_password_account_type;
@@ -823,7 +895,7 @@ TEST_P(PasswordProtectionServiceTest,
                reused_password_account_type,
                LoginReputationClientResponse::LOW_REPUTATION, 10 * kMinute,
                GURL(kTargetUrl).host().append("/"), base::Time::Now());
-  InitializeAndStartPasswordOnFocusRequest(/*match_whitelist=*/false,
+  InitializeAndStartPasswordOnFocusRequest(/*match_allowlist=*/false,
                                            /*timeout_in_ms=*/10000,
                                            web_contents.get());
   base::RunLoop().RunUntilIdle();
@@ -834,7 +906,7 @@ TEST_P(PasswordProtectionServiceTest,
             password_protection_service_->latest_response()->verdict_type());
 }
 
-TEST_P(PasswordProtectionServiceTest, TestResponseFetchFailed) {
+TEST_P(PasswordProtectionServiceBaseTest, TestResponseFetchFailed) {
   histograms_.ExpectTotalCount(kPasswordOnFocusRequestOutcomeHistogram, 0);
   // Set up failed response.
   network::URLLoaderCompletionStatus status(net::ERR_FAILED);
@@ -842,7 +914,7 @@ TEST_P(PasswordProtectionServiceTest, TestResponseFetchFailed) {
       url_, network::mojom::URLResponseHead::New(), std::string(), status);
   std::unique_ptr<content::WebContents> web_contents = GetWebContents();
 
-  InitializeAndStartPasswordOnFocusRequest(/*match_whitelist=*/false,
+  InitializeAndStartPasswordOnFocusRequest(/*match_allowlist=*/false,
                                            /*timeout_in_ms=*/10000,
                                            web_contents.get());
   password_protection_service_->WaitForResponse();
@@ -852,13 +924,13 @@ TEST_P(PasswordProtectionServiceTest, TestResponseFetchFailed) {
       ElementsAre(base::Bucket(9 /* FETCH_FAILED */, 1)));
 }
 
-TEST_P(PasswordProtectionServiceTest, TestMalformedResponse) {
+TEST_P(PasswordProtectionServiceBaseTest, TestMalformedResponse) {
   histograms_.ExpectTotalCount(kPasswordOnFocusRequestOutcomeHistogram, 0);
   // Set up malformed response.
   test_url_loader_factory_.AddResponse(url_.spec(), "invalid response");
   std::unique_ptr<content::WebContents> web_contents = GetWebContents();
 
-  InitializeAndStartPasswordOnFocusRequest(/*match_whitelist=*/false,
+  InitializeAndStartPasswordOnFocusRequest(/*match_allowlist=*/false,
                                            /*timeout_in_ms=*/10000,
                                            web_contents.get());
   password_protection_service_->WaitForResponse();
@@ -868,10 +940,10 @@ TEST_P(PasswordProtectionServiceTest, TestMalformedResponse) {
       ElementsAre(base::Bucket(10 /* RESPONSE_MALFORMED */, 1)));
 }
 
-TEST_P(PasswordProtectionServiceTest, TestRequestTimedout) {
+TEST_P(PasswordProtectionServiceBaseTest, TestRequestTimedout) {
   histograms_.ExpectTotalCount(kPasswordOnFocusRequestOutcomeHistogram, 0);
   std::unique_ptr<content::WebContents> web_contents = GetWebContents();
-  InitializeAndStartPasswordOnFocusRequest(/*match_whitelist=*/false,
+  InitializeAndStartPasswordOnFocusRequest(/*match_allowlist=*/false,
                                            /*timeout_in_ms=*/0,
                                            web_contents.get());
   base::RunLoop().RunUntilIdle();
@@ -881,7 +953,7 @@ TEST_P(PasswordProtectionServiceTest, TestRequestTimedout) {
       ElementsAre(base::Bucket(3 /* TIMEDOUT */, 1)));
 }
 
-TEST_P(PasswordProtectionServiceTest,
+TEST_P(PasswordProtectionServiceBaseTest,
        TestPasswordOnFocusRequestAndResponseSuccessfull) {
   histograms_.ExpectTotalCount(kPasswordOnFocusRequestOutcomeHistogram, 0);
   // Set up valid response.
@@ -892,7 +964,7 @@ TEST_P(PasswordProtectionServiceTest,
                                        expected_response.SerializeAsString());
   std::unique_ptr<content::WebContents> web_contents = GetWebContents();
 
-  InitializeAndStartPasswordOnFocusRequest(/*match_whitelist=*/false,
+  InitializeAndStartPasswordOnFocusRequest(/*match_allowlist=*/false,
                                            /*timeout_in_ms=*/10000,
                                            web_contents.get());
   password_protection_service_->WaitForResponse();
@@ -910,7 +982,7 @@ TEST_P(PasswordProtectionServiceTest,
             actual_response->cache_duration_sec());
 }
 
-TEST_P(PasswordProtectionServiceTest,
+TEST_P(PasswordProtectionServiceBaseTest,
        TestProtectedPasswordEntryRequestAndResponseSuccessfull) {
   histograms_.ExpectTotalCount(kAnyPasswordEntryRequestOutcomeHistogram, 0);
   histograms_.ExpectTotalCount(kSyncPasswordEntryRequestOutcomeHistogram, 0);
@@ -934,7 +1006,7 @@ TEST_P(PasswordProtectionServiceTest,
   InitializeAndStartPasswordEntryRequest(
       PasswordType::OTHER_GAIA_PASSWORD,
       {{"gmail.com", ASCIIToUTF16("username")}},
-      /*match_whitelist=*/false,
+      /*match_allowlist=*/false,
       /*timeout_in_ms=*/10000, web_contents.get());
   password_protection_service_->WaitForResponse();
 
@@ -957,7 +1029,7 @@ TEST_P(PasswordProtectionServiceTest,
               ElementsAre(base::Bucket(3 /* PHISHING */, 1)));
 }
 
-TEST_P(PasswordProtectionServiceTest,
+TEST_P(PasswordProtectionServiceBaseTest,
        TestSyncPasswordEntryRequestAndResponseSuccessfull) {
   histograms_.ExpectTotalCount(kAnyPasswordEntryRequestOutcomeHistogram, 0);
   histograms_.ExpectTotalCount(kSyncPasswordEntryRequestOutcomeHistogram, 0);
@@ -976,7 +1048,7 @@ TEST_P(PasswordProtectionServiceTest,
   std::unique_ptr<content::WebContents> web_contents = GetWebContents();
   InitializeAndStartPasswordEntryRequest(
       PasswordType::PRIMARY_ACCOUNT_PASSWORD, {},
-      /*match_whitelist=*/false,
+      /*match_allowlist=*/false,
       /*timeout_in_ms=*/10000, web_contents.get());
   password_protection_service_->WaitForResponse();
 
@@ -997,10 +1069,10 @@ TEST_P(PasswordProtectionServiceTest,
   histograms_.ExpectTotalCount(kNonSyncPasswordEntryVerdictHistogram, 0);
 }
 
-TEST_P(PasswordProtectionServiceTest, TestTearDownWithPendingRequests) {
+TEST_P(PasswordProtectionServiceBaseTest, TestTearDownWithPendingRequests) {
   histograms_.ExpectTotalCount(kPasswordOnFocusRequestOutcomeHistogram, 0);
   GURL target_url(kTargetUrl);
-  EXPECT_CALL(*database_manager_, CheckCsdWhitelistUrl(target_url, _))
+  EXPECT_CALL(*database_manager_, CheckCsdAllowlistUrl(target_url, _))
       .WillRepeatedly(Return(AsyncMatch::NO_MATCH));
   std::unique_ptr<content::WebContents> web_contents = GetWebContents();
   password_protection_service_->StartRequest(
@@ -1019,7 +1091,7 @@ TEST_P(PasswordProtectionServiceTest, TestTearDownWithPendingRequests) {
       IsEmpty());
 }
 
-TEST_P(PasswordProtectionServiceTest, VerifyPasswordOnFocusRequestProto) {
+TEST_P(PasswordProtectionServiceBaseTest, VerifyPasswordOnFocusRequestProto) {
   // Set up valid response.
   LoginReputationClientResponse expected_response =
       CreateVerdictProto(LoginReputationClientResponse::PHISHING, 10 * kMinute,
@@ -1028,7 +1100,7 @@ TEST_P(PasswordProtectionServiceTest, VerifyPasswordOnFocusRequestProto) {
                                        expected_response.SerializeAsString());
   std::unique_ptr<content::WebContents> web_contents = GetWebContents();
 
-  InitializeAndStartPasswordOnFocusRequest(/*match_whitelist=*/false,
+  InitializeAndStartPasswordOnFocusRequest(/*match_allowlist=*/false,
                                            /*timeout_in_ms=*/10000,
                                            web_contents.get());
   password_protection_service_->WaitForResponse();
@@ -1049,7 +1121,7 @@ TEST_P(PasswordProtectionServiceTest, VerifyPasswordOnFocusRequestProto) {
 #endif
 }
 
-TEST_P(PasswordProtectionServiceTest,
+TEST_P(PasswordProtectionServiceBaseTest,
        VerifyPasswordOnFocusRequestProtoForAllowlistMatch) {
   // Set up valid response.
   LoginReputationClientResponse expected_response =
@@ -1061,7 +1133,7 @@ TEST_P(PasswordProtectionServiceTest,
 
   EXPECT_CALL(*password_protection_service_, CanSendSamplePing())
       .WillRepeatedly(Return(true));
-  InitializeAndStartPasswordOnFocusRequest(/*match_whitelist=*/true,
+  InitializeAndStartPasswordOnFocusRequest(/*match_allowlist=*/true,
                                            /*timeout_in_ms=*/10000,
                                            web_contents.get());
   password_protection_service_->WaitForResponse();
@@ -1073,7 +1145,7 @@ TEST_P(PasswordProtectionServiceTest,
   EXPECT_EQ(kTargetUrl, actual_request->frames(0).url());
 }
 
-TEST_P(PasswordProtectionServiceTest,
+TEST_P(PasswordProtectionServiceBaseTest,
        VerifySyncPasswordProtectionRequestProto) {
   // Set up valid response.
   LoginReputationClientResponse expected_response =
@@ -1085,7 +1157,7 @@ TEST_P(PasswordProtectionServiceTest,
 
   // Initialize request triggered by chrome sync password reuse.
   InitializeAndStartPasswordEntryRequest(
-      PasswordType::PRIMARY_ACCOUNT_PASSWORD, {}, false /* match whitelist */,
+      PasswordType::PRIMARY_ACCOUNT_PASSWORD, {}, false /* match allowlist */,
       100000 /* timeout in ms*/, web_contents.get());
   password_protection_service_->WaitForResponse();
 
@@ -1107,7 +1179,7 @@ TEST_P(PasswordProtectionServiceTest,
 #endif
 }
 
-TEST_P(PasswordProtectionServiceTest,
+TEST_P(PasswordProtectionServiceBaseTest,
        VerifySavePasswordProtectionRequestProto) {
   // Set up valid response.
   LoginReputationClientResponse expected_response =
@@ -1123,7 +1195,7 @@ TEST_P(PasswordProtectionServiceTest,
       {{kSavedDomain, ASCIIToUTF16("username")},
        {kSavedDomain2, ASCIIToUTF16("username")},
        {"http://localhost:8080", ASCIIToUTF16("username")}},
-      false /* match whitelist */, 100000 /* timeout in ms*/,
+      false /* match allowlist */, 100000 /* timeout in ms*/,
       web_contents.get());
   password_protection_service_->WaitForResponse();
 
@@ -1148,7 +1220,7 @@ TEST_P(PasswordProtectionServiceTest,
 #endif
 }
 
-TEST_P(PasswordProtectionServiceTest, VerifyShouldShowModalWarning) {
+TEST_P(PasswordProtectionServiceBaseTest, VerifyShouldShowModalWarning) {
   EXPECT_CALL(*password_protection_service_,
               GetPasswordProtectionWarningTriggerPref(_))
       .WillRepeatedly(Return(PHISHING_REUSE));
@@ -1300,7 +1372,7 @@ TEST_P(PasswordProtectionServiceTest, VerifyShouldShowModalWarning) {
       reused_password_account_type, LoginReputationClientResponse::PHISHING));
 }
 
-TEST_P(PasswordProtectionServiceTest, VerifyContentTypeIsPopulated) {
+TEST_P(PasswordProtectionServiceBaseTest, VerifyContentTypeIsPopulated) {
   LoginReputationClientResponse response =
       CreateVerdictProto(LoginReputationClientResponse::SAFE, 10 * kMinute,
                          GURL(kTargetUrl).host());
@@ -1312,7 +1384,7 @@ TEST_P(PasswordProtectionServiceTest, VerifyContentTypeIsPopulated) {
   content::WebContentsTester::For(web_contents.get())
       ->SetMainFrameMimeType("application/pdf");
 
-  InitializeAndStartPasswordOnFocusRequest(false /* match whitelist */,
+  InitializeAndStartPasswordOnFocusRequest(false /* match allowlist */,
                                            10000 /* timeout in ms */,
                                            web_contents.get());
 
@@ -1323,7 +1395,8 @@ TEST_P(PasswordProtectionServiceTest, VerifyContentTypeIsPopulated) {
       password_protection_service_->GetLatestRequestProto()->content_type());
 }
 
-TEST_P(PasswordProtectionServiceTest, VerifyIsSupportedPasswordTypeForPinging) {
+TEST_P(PasswordProtectionServiceBaseTest,
+       VerifyIsSupportedPasswordTypeForPinging) {
   EXPECT_CALL(*password_protection_service_, IsPrimaryAccountSignedIn())
       .WillRepeatedly(Return(true));
   AccountInfo account_info;
@@ -1356,7 +1429,7 @@ TEST_P(PasswordProtectionServiceTest, VerifyIsSupportedPasswordTypeForPinging) {
   }
 }
 
-TEST_P(PasswordProtectionServiceTest, TestPingsForAboutBlank) {
+TEST_P(PasswordProtectionServiceBaseTest, TestPingsForAboutBlank) {
   histograms_.ExpectTotalCount(kPasswordOnFocusRequestOutcomeHistogram, 0);
   LoginReputationClientResponse expected_response =
       CreateVerdictProto(LoginReputationClientResponse::PHISHING, 10 * kMinute,
@@ -1375,7 +1448,7 @@ TEST_P(PasswordProtectionServiceTest, TestPingsForAboutBlank) {
 
 // DOM features and visual features are not supported on Android.
 #if !defined(OS_ANDROID)
-TEST_P(PasswordProtectionServiceTest,
+TEST_P(PasswordProtectionServiceBaseTest,
        TestVisualFeaturesPopulatedInOnFocusPing) {
   LoginReputationClientResponse expected_response =
       CreateVerdictProto(LoginReputationClientResponse::PHISHING, 10 * kMinute,
@@ -1401,7 +1474,7 @@ TEST_P(PasswordProtectionServiceTest,
   }
 }
 
-TEST_P(PasswordProtectionServiceTest, TestDomFeaturesPopulated) {
+TEST_P(PasswordProtectionServiceBaseTest, TestDomFeaturesPopulated) {
   LoginReputationClientResponse expected_response =
       CreateVerdictProto(LoginReputationClientResponse::PHISHING, 10 * kMinute,
                          GURL("about:blank").host());
@@ -1423,7 +1496,7 @@ TEST_P(PasswordProtectionServiceTest, TestDomFeaturesPopulated) {
                   ->has_dom_features());
 }
 
-TEST_P(PasswordProtectionServiceTest, TestDomFeaturesTimeout) {
+TEST_P(PasswordProtectionServiceBaseTest, TestDomFeaturesTimeout) {
   password_protection_service_->SetDomFeatureCollectionTimeout(true);
   LoginReputationClientResponse expected_response =
       CreateVerdictProto(LoginReputationClientResponse::PHISHING, 10 * kMinute,
@@ -1447,33 +1520,9 @@ TEST_P(PasswordProtectionServiceTest, TestDomFeaturesTimeout) {
 }
 #endif
 
-TEST_P(PasswordProtectionServiceTest, TestRequestCancelOnTimeout) {
+TEST_P(PasswordProtectionServiceBaseTest, TestWebContentsDestroyed) {
   std::unique_ptr<content::WebContents> web_contents = GetWebContents();
-  InitializeAndStartPasswordOnFocusRequest(true /* match whitelist */,
-                                           10000 /* timeout in ms */,
-                                           web_contents.get());
-  auto throttle = std::make_unique<MockPasswordProtectionNavigationThrottle>(
-      nullptr, request_, false);
-  EXPECT_EQ(1U, GetNumberOfNavigationThrottles());
-  request_->Cancel(true /* timeout */);
-  EXPECT_EQ(1U, GetNumberOfNavigationThrottles());
-}
-
-TEST_P(PasswordProtectionServiceTest, TestRequestCancelNotOnTimeout) {
-  std::unique_ptr<content::WebContents> web_contents = GetWebContents();
-  InitializeAndStartPasswordOnFocusRequest(true /* match whitelist */,
-                                           10000 /* timeout in ms */,
-                                           web_contents.get());
-  auto throttle = std::make_unique<MockPasswordProtectionNavigationThrottle>(
-      nullptr, request_, false);
-  EXPECT_EQ(1U, GetNumberOfNavigationThrottles());
-  request_->Cancel(false /* timeout */);
-  EXPECT_EQ(0U, GetNumberOfNavigationThrottles());
-}
-
-TEST_P(PasswordProtectionServiceTest, TestWebContentsDestroyed) {
-  std::unique_ptr<content::WebContents> web_contents = GetWebContents();
-  InitializeAndStartPasswordOnFocusRequest(false /* match whitelist */,
+  InitializeAndStartPasswordOnFocusRequest(false /* match allowlist */,
                                            10000 /* timeout in ms */,
                                            web_contents.get());
   web_contents.reset();
@@ -1481,9 +1530,9 @@ TEST_P(PasswordProtectionServiceTest, TestWebContentsDestroyed) {
 }
 
 INSTANTIATE_TEST_SUITE_P(Regular,
-                         PasswordProtectionServiceTest,
+                         PasswordProtectionServiceBaseTest,
                          ::testing::Values(false));
 INSTANTIATE_TEST_SUITE_P(SBER,
-                         PasswordProtectionServiceTest,
+                         PasswordProtectionServiceBaseTest,
                          ::testing::Values(true));
 }  // namespace safe_browsing

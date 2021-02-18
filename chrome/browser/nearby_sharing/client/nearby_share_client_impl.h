@@ -33,7 +33,8 @@ class GoogleServiceAuthError;
 class NearbyShareHttpNotifier;
 
 // An implementation of NearbyShareClient that fetches access tokens for the
-// primary account and makes HTTP calls using NearbyShareApiCallFlow.
+// primary account and makes HTTP calls using NearbyShareApiCallFlow. Callbacks
+// are guaranteed to not be invoked after NearbyShareClientImpl is destroyed.
 class NearbyShareClientImpl : public NearbyShareClient {
  public:
   // Creates the client using |url_loader_factory| to make the HTTP request
@@ -52,10 +53,6 @@ class NearbyShareClientImpl : public NearbyShareClient {
   void UpdateDevice(const nearbyshare::proto::UpdateDeviceRequest& request,
                     UpdateDeviceCallback&& callback,
                     ErrorCallback&& error_callback) override;
-  void CheckContactsReachability(
-      const nearbyshare::proto::CheckContactsReachabilityRequest& request,
-      CheckContactsReachabilityCallback&& callback,
-      ErrorCallback&& error_callback) override;
   void ListContactPeople(
       const nearbyshare::proto::ListContactPeopleRequest& request,
       ListContactPeopleCallback&& callback,

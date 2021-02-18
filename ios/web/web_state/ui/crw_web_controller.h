@@ -100,8 +100,8 @@ class WebStateImpl;
 - (void)clearTransientContentView;
 
 // Removes the back WebView. DANGER: this method is exposed for the sole purpose
-// of allowing WKBasedNavigationManagerImpl to reset the back-forward history.
-// Please reconsider before using this method.
+// of allowing NavigationManagerImpl to reset the back-forward history. Please
+// reconsider before using this method.
 - (void)removeWebView;
 
 // Call when the CRWWebController needs go away. Caller must reset the delegate
@@ -185,6 +185,15 @@ class WebStateImpl;
 
 // Creates a web view if it's not yet created. Returns the web view.
 - (WKWebView*)ensureWebViewCreated;
+
+// Removes the webView from the view hierarchy.
+- (void)removeWebViewFromViewHierarchy;
+// Adds the webView back in the view hierarchy.
+- (void)addWebViewToViewHierarchy;
+
+// Notifies this controller that the surface size has changed due to
+// multiwindow action or orientation change.
+- (void)surfaceSizeChanged;
 
 @end
 

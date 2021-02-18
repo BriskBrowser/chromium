@@ -44,6 +44,8 @@ class ExtensionsClient {
   static void Set(ExtensionsClient* client);
 
   ExtensionsClient();
+  ExtensionsClient(const ExtensionsClient&) = delete;
+  ExtensionsClient& operator=(const ExtensionsClient&) = delete;
   virtual ~ExtensionsClient();
 
   // Create a FeatureProvider for a specific feature type, e.g. "permission".
@@ -132,13 +134,6 @@ class ExtensionsClient {
   virtual std::set<base::FilePath> GetBrowserImagePaths(
       const Extension* extension);
 
-  // Returns whether or not extension APIs are allowed in extension service
-  // workers.
-  // This is currently disallowed as the code to support this is work in
-  // progress.
-  // Can be overridden in tests.
-  virtual bool ExtensionAPIEnabledInExtensionServiceWorkers() const;
-
   // Adds client specific permitted origins to |origin_patterns| for
   // cross-origin communication for an extension context.
   virtual void AddOriginAccessPermissions(
@@ -155,8 +150,6 @@ class ExtensionsClient {
 
   // Whether DoInitialize() has been called.
   bool initialize_called_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionsClient);
 };
 
 }  // namespace extensions

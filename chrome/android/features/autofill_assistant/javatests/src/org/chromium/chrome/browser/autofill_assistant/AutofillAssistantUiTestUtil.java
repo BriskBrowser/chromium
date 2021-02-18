@@ -7,13 +7,17 @@ package org.chromium.chrome.browser.autofill_assistant;
 import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
 
-import static org.chromium.content_public.browser.test.util.CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL;
-import static org.chromium.content_public.browser.test.util.CriteriaHelper.DEFAULT_POLLING_INTERVAL;
+import static org.chromium.base.test.util.CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL;
+import static org.chromium.base.test.util.CriteriaHelper.DEFAULT_POLLING_INTERVAL;
 
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.os.Build.VERSION;
 import android.support.test.InstrumentationRegistry;
 import android.text.Spanned;
@@ -36,6 +40,7 @@ import androidx.test.espresso.UiController;
 import androidx.test.espresso.ViewAction;
 import androidx.test.espresso.ViewAssertion;
 import androidx.test.espresso.matcher.BoundedMatcher;
+import androidx.test.espresso.matcher.ViewMatchers;
 
 import org.hamcrest.Description;
 import org.hamcrest.Matcher;
@@ -46,6 +51,9 @@ import org.json.JSONArray;
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.Callback;
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.CriteriaNotSatisfiedException;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.customtabs.CustomTabActivity;
 import org.chromium.chrome.browser.customtabs.CustomTabActivityTestRule;
@@ -55,9 +63,6 @@ import org.chromium.chrome.browser.image_fetcher.ImageFetcherConfig;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.content_public.browser.WebContents;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
-import org.chromium.content_public.browser.test.util.CriteriaNotSatisfiedException;
 import org.chromium.content_public.browser.test.util.TestCallbackHelperContainer;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.browser.test.util.TestTouchUtils;
@@ -236,6 +241,32 @@ class AutofillAssistantUiTestUtil {
         };
     }
 
+    static Matcher<View> hasBackgroundColor(final int colorResId) {
+        return new BoundedMatcher<View, View>(View.class) {
+            private Context mContext;
+
+            @Override
+            protected boolean matchesSafely(View imageView) {
+                this.mContext = imageView.getContext();
+                Drawable background = imageView.getBackground();
+                if (!(background instanceof ColorDrawable)) return false;
+                int expectedColor =
+                        ApiCompatibilityUtils.getColor(mContext.getResources(), colorResId);
+                return ((ColorDrawable) background).getColor() == expectedColor;
+            }
+
+            @Override
+            public void describeTo(Description description) {
+                String colorId = String.valueOf(colorResId);
+                if (this.mContext != null) {
+                    colorId = this.mContext.getResources().getResourceName(colorResId);
+                }
+
+                description.appendText("has background color with ID " + colorId);
+            }
+        };
+    }
+
     static Matcher<View> isNextAfterSibling(final Matcher<View> siblingMatcher) {
         assert siblingMatcher != null;
         return new TypeSafeMatcher<View>() {
@@ -389,6 +420,11 @@ class AutofillAssistantUiTestUtil {
         return viewsWithTag;
     }
 
+    static Matcher<View> withTextId(int id) {
+        return ViewMatchers.withText(
+                InstrumentationRegistry.getTargetContext().getResources().getString(id));
+    }
+
     /**
      * Waits until {@code matcher} matches {@code condition}. Will automatically fail after a
      * default timeout.
@@ -502,8 +538,9 @@ class AutofillAssistantUiTestUtil {
      * Starts the CCT test rule on a blank page.
      */
     public static void startOnBlankPage(CustomTabActivityTestRule testRule) {
-        testRule.startCustomTabActivityWithIntent(CustomTabsTestUtils.createMinimalCustomTabIntent(
-                InstrumentationRegistry.getTargetContext(), "about:blank"));
+        testRule.startCustomTabActivityWithIntent(
+                AutofillAssistantUiTestUtil.createMinimalCustomTabIntentForAutobot(
+                        "about:blank", /* startImmediately = */ true));
     }
 
     /**
@@ -525,11 +562,17 @@ class AutofillAssistantUiTestUtil {
 
         // Sanity check, can only click on coordinates on screen.
         DisplayMetrics displayMetrics = testRule.getActivity().getResources().getDisplayMetrics();
-        if (x < 0 || x > displayMetrics.widthPixels || y < 0 || y > displayMetrics.heightPixels) {
+        BottomSheetController bottomSheetController =
+                testRule.getActivity().getRootUiCoordinatorForTesting().getBottomSheetController();
+        int totalBottomSheetHeight = bottomSheetController.getCurrentOffset()
+                + bottomSheetController.getTopShadowHeight();
+        if (x < 0 || x > displayMetrics.widthPixels || y < 0
+                || y > displayMetrics.heightPixels - totalBottomSheetHeight) {
             throw new IllegalArgumentException(Arrays.toString(elementIds)
                     + " not on screen: tried to tap x=" + x + ", y=" + y
                     + ", which is outside of display with w=" + displayMetrics.widthPixels
-                    + ", h=" + displayMetrics.heightPixels);
+                    + ", h=" + displayMetrics.heightPixels
+                    + ", or obstructed by the BottomSheet with height=" + totalBottomSheetHeight);
         }
         TestTouchUtils.singleClick(InstrumentationRegistry.getInstrumentation(), x, y);
     }
@@ -652,7 +695,10 @@ class AutofillAssistantUiTestUtil {
         javascriptHelper.evaluateJavaScriptForTests(webContents,
                 "(function() {"
                         + " const v = window.visualViewport;"
-                        + " return [v.pageLeft, v.pageTop, v.width, v.height]"
+                        + " return ["
+                        + "   v.pageLeft, v.pageTop,"
+                        + "   v.pageLeft + v.width, v.pageTop + v.height"
+                        + " ];"
                         + "})()");
         javascriptHelper.waitUntilHasValue();
         JSONArray values = new JSONArray(javascriptHelper.getJsonResultAndClear());
@@ -678,6 +724,22 @@ class AutofillAssistantUiTestUtil {
         return result.getString(0);
     }
 
+    /**
+     * Converts a view into a bitmap.
+     */
+    public static Bitmap getBitmapFromView(View view) {
+        Bitmap resultBitmap =
+                Bitmap.createBitmap(view.getWidth(), view.getHeight(), Bitmap.Config.ARGB_8888);
+        Drawable backgroundDrawable = view.getBackground();
+        if (backgroundDrawable == null) {
+            return resultBitmap;
+        }
+        Canvas canvas = new Canvas(resultBitmap);
+        backgroundDrawable.draw(canvas);
+        view.draw(canvas);
+        return resultBitmap;
+    }
+
     private static String getElementSelectorString(String[] elementIds) {
         StringBuilder builder = new StringBuilder();
         builder.append("document");
@@ -694,5 +756,13 @@ class AutofillAssistantUiTestUtil {
         }
 
         return builder.toString();
+    }
+
+    public static Intent createMinimalCustomTabIntentForAutobot(
+            String url, boolean startImmediately) {
+        Intent intent = CustomTabsTestUtils.createMinimalCustomTabIntent(
+                InstrumentationRegistry.getTargetContext(), url);
+        intent.putExtra(AutofillAssistantArguments.PARAMETER_START_IMMEDIATELY, startImmediately);
+        return intent;
     }
 }

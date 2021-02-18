@@ -13,7 +13,7 @@
 #include "base/optional.h"
 #include "base/time/time.h"
 #include "components/sync/base/model_type.h"
-#include "components/sync/model/entity_data.h"
+#include "components/sync/engine/entity_data.h"
 #include "components/sync/model/model_error.h"
 #include "components/sync/model/model_type_controller_delegate.h"
 
@@ -27,8 +27,8 @@ class ModelTypeSyncBridge;
 // Interface used by the ModelTypeSyncBridge to inform sync of local changes.
 class ModelTypeChangeProcessor {
  public:
-  ModelTypeChangeProcessor();
-  virtual ~ModelTypeChangeProcessor();
+  ModelTypeChangeProcessor() = default;
+  virtual ~ModelTypeChangeProcessor() = default;
 
   // Inform the processor of a new or updated entity. The |entity_data| param
   // does not need to be fully set, but it should at least have specifics and
@@ -99,7 +99,7 @@ class ModelTypeChangeProcessor {
   // currently up to date and accurately tracking the model type's data. If
   // false, and ModelReadyToSync() has already been called, then Put and Delete
   // will no-op and can be omitted by bridge.
-  virtual bool IsTrackingMetadata() = 0;
+  virtual bool IsTrackingMetadata() const = 0;
 
   // Returns the account ID for which metadata is being tracked, or empty if not
   // tracking metadata.

@@ -37,7 +37,7 @@ class DriveServiceWrapper : public base::SupportsWeakPtr<DriveServiceWrapper> {
   void DownloadFile(
       const base::FilePath& local_cache_path,
       const std::string& resource_id,
-      const google_apis::DownloadActionCallback& download_action_callback,
+      google_apis::DownloadActionCallback download_action_callback,
       const google_apis::GetContentCallback& get_content_callback,
       google_apis::ProgressCallback progress_callback);
 
@@ -59,25 +59,22 @@ class DriveServiceWrapper : public base::SupportsWeakPtr<DriveServiceWrapper> {
   void GetRemainingTeamDriveList(const std::string& page_token,
                                  google_apis::TeamDriveListCallback callback);
 
-  void GetRemainingFileList(
-      const GURL& next_link,
-      const google_apis::FileListCallback& callback);
+  void GetRemainingFileList(const GURL& next_link,
+                            google_apis::FileListCallback callback);
 
   void GetFileResource(const std::string& resource_id,
                        google_apis::FileResourceCallback callback);
 
-  void GetFileListInDirectory(
-      const std::string& directory_resource_id,
-      const google_apis::FileListCallback& callback);
+  void GetFileListInDirectory(const std::string& directory_resource_id,
+                              google_apis::FileListCallback callback);
 
   void RemoveResourceFromDirectory(const std::string& parent_resource_id,
                                    const std::string& resource_id,
                                    google_apis::EntryActionCallback callback);
 
-  void SearchByTitle(
-      const std::string& title,
-      const std::string& directory_resource_id,
-      const google_apis::FileListCallback& callback);
+  void SearchByTitle(const std::string& title,
+                     const std::string& directory_resource_id,
+                     google_apis::FileListCallback callback);
 
  private:
   drive::DriveServiceInterface* drive_service_;

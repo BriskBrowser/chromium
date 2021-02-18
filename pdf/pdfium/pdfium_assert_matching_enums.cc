@@ -3,7 +3,8 @@
 // found in the LICENSE file.
 
 #include "build/build_config.h"
-#include "pdf/pdf_engine.h"
+#include "pdf/accessibility_structs.h"
+#include "pdf/document_metadata.h"
 #include "pdf/ppapi_migration/input_event_conversions.h"
 #include "ppapi/c/pp_input_event.h"
 #include "ppapi/c/private/ppb_pdf.h"
@@ -259,6 +260,8 @@ STATIC_ASSERT_ENUM(PP_PRIVATEDUPLEXMODE_SIMPLEX, Simplex);
 STATIC_ASSERT_ENUM(PP_PRIVATEDUPLEXMODE_SHORT_EDGE, DuplexFlipShortEdge);
 STATIC_ASSERT_ENUM(PP_PRIVATEDUPLEXMODE_LONG_EDGE, DuplexFlipLongEdge);
 
+STATIC_ASSERT_ENUM(PP_TEXTRENDERINGMODE_UNKNOWN, FPDF_TEXTRENDERMODE_UNKNOWN);
+STATIC_ASSERT_ENUM(PP_TEXTRENDERINGMODE_FIRST, FPDF_TEXTRENDERMODE_UNKNOWN);
 STATIC_ASSERT_ENUM(PP_TEXTRENDERINGMODE_FILL, FPDF_TEXTRENDERMODE_FILL);
 STATIC_ASSERT_ENUM(PP_TEXTRENDERINGMODE_STROKE, FPDF_TEXTRENDERMODE_STROKE);
 STATIC_ASSERT_ENUM(PP_TEXTRENDERINGMODE_FILLSTROKE,
@@ -272,15 +275,35 @@ STATIC_ASSERT_ENUM(PP_TEXTRENDERINGMODE_STROKECLIP,
 STATIC_ASSERT_ENUM(PP_TEXTRENDERINGMODE_FILLSTROKECLIP,
                    FPDF_TEXTRENDERMODE_FILL_STROKE_CLIP);
 STATIC_ASSERT_ENUM(PP_TEXTRENDERINGMODE_CLIP, FPDF_TEXTRENDERMODE_CLIP);
+STATIC_ASSERT_ENUM(PP_TEXTRENDERINGMODE_LAST, FPDF_TEXTRENDERMODE_LAST);
 
-STATIC_ASSERT_ENUM(chrome_pdf::PDFEngine::FormType::kNone, FORMTYPE_NONE);
-STATIC_ASSERT_ENUM(chrome_pdf::PDFEngine::FormType::kAcroForm,
-                   FORMTYPE_ACRO_FORM);
-STATIC_ASSERT_ENUM(chrome_pdf::PDFEngine::FormType::kXFAFull,
-                   FORMTYPE_XFA_FULL);
-STATIC_ASSERT_ENUM(chrome_pdf::PDFEngine::FormType::kXFAForeground,
+STATIC_ASSERT_ENUM(chrome_pdf::AccessibilityTextRenderMode::kUnknown,
+                   PP_TEXTRENDERINGMODE_UNKNOWN);
+STATIC_ASSERT_ENUM(chrome_pdf::AccessibilityTextRenderMode::kFill,
+                   PP_TEXTRENDERINGMODE_FILL);
+STATIC_ASSERT_ENUM(chrome_pdf::AccessibilityTextRenderMode::kStroke,
+                   PP_TEXTRENDERINGMODE_STROKE);
+STATIC_ASSERT_ENUM(chrome_pdf::AccessibilityTextRenderMode::kFillStroke,
+                   PP_TEXTRENDERINGMODE_FILLSTROKE);
+STATIC_ASSERT_ENUM(chrome_pdf::AccessibilityTextRenderMode::kInvisible,
+                   PP_TEXTRENDERINGMODE_INVISIBLE);
+STATIC_ASSERT_ENUM(chrome_pdf::AccessibilityTextRenderMode::kFillClip,
+                   PP_TEXTRENDERINGMODE_FILLCLIP);
+STATIC_ASSERT_ENUM(chrome_pdf::AccessibilityTextRenderMode::kStrokeClip,
+                   PP_TEXTRENDERINGMODE_STROKECLIP);
+STATIC_ASSERT_ENUM(chrome_pdf::AccessibilityTextRenderMode::kFillStrokeClip,
+                   PP_TEXTRENDERINGMODE_FILLSTROKECLIP);
+STATIC_ASSERT_ENUM(chrome_pdf::AccessibilityTextRenderMode::kClip,
+                   PP_TEXTRENDERINGMODE_CLIP);
+STATIC_ASSERT_ENUM(chrome_pdf::AccessibilityTextRenderMode::kMaxValue,
+                   PP_TEXTRENDERINGMODE_LAST);
+
+STATIC_ASSERT_ENUM(chrome_pdf::FormType::kNone, FORMTYPE_NONE);
+STATIC_ASSERT_ENUM(chrome_pdf::FormType::kAcroForm, FORMTYPE_ACRO_FORM);
+STATIC_ASSERT_ENUM(chrome_pdf::FormType::kXFAFull, FORMTYPE_XFA_FULL);
+STATIC_ASSERT_ENUM(chrome_pdf::FormType::kXFAForeground,
                    FORMTYPE_XFA_FOREGROUND);
-STATIC_ASSERT_ENUM(chrome_pdf::PDFEngine::FormType::kCount, FORMTYPE_COUNT);
+STATIC_ASSERT_ENUM(chrome_pdf::FormType::kMaxValue, FORMTYPE_COUNT - 1);
 
 STATIC_ASSERT_ENUM(PP_PRIVATEBUTTON_PUSHBUTTON, FPDF_FORMFIELD_PUSHBUTTON);
 STATIC_ASSERT_ENUM(PP_PRIVATEBUTTON_CHECKBOX, FPDF_FORMFIELD_CHECKBOX);
@@ -294,3 +317,45 @@ STATIC_ASSERT_ENUM(chrome_pdf::kPostScript3, FPDF_PRINTMODE_POSTSCRIPT3);
 STATIC_ASSERT_ENUM(chrome_pdf::kEmfWithReducedRasterization,
                    FPDF_PRINTMODE_EMF_IMAGE_MASKS);
 #endif
+
+STATIC_ASSERT_ENUM(chrome_pdf::AccessibilityTextDirection::kNone,
+                   PP_PRIVATEDIRECTION_NONE);
+STATIC_ASSERT_ENUM(chrome_pdf::AccessibilityTextDirection::kLeftToRight,
+                   PP_PRIVATEDIRECTION_LTR);
+STATIC_ASSERT_ENUM(chrome_pdf::AccessibilityTextDirection::kRightToLeft,
+                   PP_PRIVATEDIRECTION_RTL);
+STATIC_ASSERT_ENUM(chrome_pdf::AccessibilityTextDirection::kTopToBottom,
+                   PP_PRIVATEDIRECTION_TTB);
+STATIC_ASSERT_ENUM(chrome_pdf::AccessibilityTextDirection::kBottomToTop,
+                   PP_PRIVATEDIRECTION_BTT);
+STATIC_ASSERT_ENUM(chrome_pdf::AccessibilityTextDirection::kMaxValue,
+                   PP_PRIVATEDIRECTION_LAST);
+
+STATIC_ASSERT_ENUM(chrome_pdf::ChoiceFieldType::kListBox,
+                   PP_PRIVATECHOICEFIELD_LISTBOX);
+STATIC_ASSERT_ENUM(chrome_pdf::ChoiceFieldType::kComboBox,
+                   PP_PRIVATECHOICEFIELD_COMBOBOX);
+STATIC_ASSERT_ENUM(chrome_pdf::ChoiceFieldType::kMaxValue,
+                   PP_PRIVATECHOICEFIELD_LAST);
+
+STATIC_ASSERT_ENUM(chrome_pdf::ButtonType::kPushButton,
+                   PP_PRIVATEBUTTON_PUSHBUTTON);
+STATIC_ASSERT_ENUM(chrome_pdf::ButtonType::kPushButton, PP_PRIVATEBUTTON_FIRST);
+STATIC_ASSERT_ENUM(chrome_pdf::ButtonType::kCheckBox,
+                   PP_PRIVATEBUTTON_CHECKBOX);
+STATIC_ASSERT_ENUM(chrome_pdf::ButtonType::kRadioButton,
+                   PP_PRIVATEBUTTON_RADIOBUTTON);
+STATIC_ASSERT_ENUM(chrome_pdf::ButtonType::kMaxValue, PP_PRIVATEBUTTON_LAST);
+
+STATIC_ASSERT_ENUM(chrome_pdf::FocusObjectType::kNone,
+                   PP_PRIVATEFOCUSOBJECT_NONE);
+STATIC_ASSERT_ENUM(chrome_pdf::FocusObjectType::kDocument,
+                   PP_PRIVATEFOCUSOBJECT_DOCUMENT);
+STATIC_ASSERT_ENUM(chrome_pdf::FocusObjectType::kLink,
+                   PP_PRIVATEFOCUSOBJECT_LINK);
+STATIC_ASSERT_ENUM(chrome_pdf::FocusObjectType::kHighlight,
+                   PP_PRIVATEFOCUSOBJECT_HIGHLIGHT);
+STATIC_ASSERT_ENUM(chrome_pdf::FocusObjectType::kTextField,
+                   PP_PRIVATEFOCUSOBJECT_TEXT_FIELD);
+STATIC_ASSERT_ENUM(chrome_pdf::FocusObjectType::kMaxValue,
+                   PP_PRIVATEFOCUSOBJECT_LAST);

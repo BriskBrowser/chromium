@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#include "ash/constants/ash_pref_names.h"
 #include "ash/public/cpp/app_list/app_list_config.h"
 #include "ash/public/cpp/app_list/app_list_features.h"
 #include "ash/public/cpp/app_list/app_list_metrics.h"
@@ -17,7 +18,6 @@
 #include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/app_list_controller_delegate.h"
 #include "chrome/browser/ui/app_list/app_list_model_updater.h"
@@ -30,13 +30,12 @@
 #include "chrome/browser/ui/app_list/search/search_result_ranker/ranking_item_util.h"
 #include "chrome/browser/ui/app_list/search/search_result_ranker/search_result_ranker.h"
 #include "components/metrics/structured/structured_events.h"
+#include "components/prefs/pref_service.h"
 
 namespace app_list {
 
 namespace {
 
-constexpr char kLogDisplayTypeClickedResultZeroState[] =
-    "Apps.LogDisplayTypeClickedResultZeroState";
 constexpr char kLauncherSearchQueryLengthJumped[] =
     "Apps.LauncherSearchQueryLengthJumped";
 
@@ -116,13 +115,6 @@ void SearchController::OpenResult(ChromeSearchResult* result, int event_flags) {
   // Log the length of the last query that led to the clicked result.
   ash::RecordLauncherClickedSearchQueryLength(last_query_.length());
 
-  // Log the display type of the clicked result in zero-state
-  if (query_for_recommendation_) {
-    UMA_HISTOGRAM_ENUMERATION(kLogDisplayTypeClickedResultZeroState,
-                              result->display_type(),
-                              ash::SearchResultDisplayType::kLast);
-  }
-
   const bool dismiss_view_on_open = result->dismiss_view_on_open();
 
   // Open() may cause |result| to be deleted.
@@ -137,10 +129,9 @@ void SearchController::OpenResult(ChromeSearchResult* result, int event_flags) {
 }
 
 void SearchController::InvokeResultAction(ChromeSearchResult* result,
-                                          int action_index,
-                                          int event_flags) {
+                                          int action_index) {
   // TODO(xiyuan): Hook up with user learning.
-  result->InvokeAction(action_index, event_flags);
+  result->InvokeAction(action_index);
 }
 
 size_t SearchController::AddGroup(size_t max_results) {
@@ -150,8 +141,8 @@ size_t SearchController::AddGroup(size_t max_results) {
 void SearchController::AddProvider(size_t group_id,
                                    std::unique_ptr<SearchProvider> provider) {
   provider->set_result_changed_callback(
-      base::Bind(&SearchController::OnResultsChangedWithType,
-                 base::Unretained(this), provider->ResultType()));
+      base::BindRepeating(&SearchController::OnResultsChangedWithType,
+                          base::Unretained(this), provider->ResultType()));
   mixer_->AddProviderToGroup(group_id, provider.get());
   providers_.emplace_back(std::move(provider));
 }
@@ -185,7 +176,7 @@ ChromeSearchResult* SearchController::FindSearchResult(
   return nullptr;
 }
 
-void SearchController::OnSearchResultsDisplayed(
+void SearchController::OnSearchResultsImpressionMade(
     const base::string16& trimmed_query,
     const ash::SearchResultIdWithPositionIndices& results,
     int launched_index) {
@@ -202,7 +193,6 @@ void SearchController::OnSearchResultsDisplayed(
       result_types.push_back(
           RankingItemTypeFromSearchResult(*FindSearchResult(result.id)));
     }
-    LogZeroStateResultsListMetrics(result_types, launched_index);
   }
 }
 
@@ -235,7 +225,7 @@ void SearchController::Train(AppLaunchData&& app_launch_data) {
     base::Time::Exploded now_exploded;
     now.LocalExplode(&now_exploded);
 
-    metrics::structured::events::LauncherUsage()
+    metrics::structured::events::launcher_usage::LauncherUsage()
         .SetTarget(NormalizeId(app_launch_data.id))
         .SetApp(last_launched_app_id_)
         .SetSearchQuery(base::UTF16ToUTF8(last_query_))
@@ -254,6 +244,9 @@ void SearchController::Train(AppLaunchData&& app_launch_data) {
           RemoveAppShortcutLabel(NormalizeId(app_launch_data.id));
     }
   }
+
+  profile_->GetPrefs()->SetBoolean(chromeos::prefs::kLauncherResultEverLaunched,
+                                   true);
 
   // CrOS action recorder.
   CrOSActionRecorder::GetCrosActionRecorder()->RecordAction(

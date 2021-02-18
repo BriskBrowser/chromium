@@ -22,6 +22,7 @@
 #include "ui/views/controls/progress_bar.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/layout_provider.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace {
 
@@ -41,7 +42,10 @@ void crostini::ShowCrostiniUninstallerView(
 }
 
 void CrostiniUninstallerView::Show(Profile* profile) {
-  DCHECK(crostini::CrostiniFeatures::Get()->IsUIAllowed(profile));
+  if (!crostini::CrostiniFeatures::Get()->IsAllowedNow(profile)) {
+    return;
+  }
+
   if (!g_crostini_uninstaller_view) {
     g_crostini_uninstaller_view = new CrostiniUninstallerView(profile);
     views::DialogDelegate::CreateDialogWidget(g_crostini_uninstaller_view,
@@ -78,13 +82,6 @@ bool CrostiniUninstallerView::Cancel() {
   return true;  // Should close the dialog
 }
 
-gfx::Size CrostiniUninstallerView::CalculatePreferredSize() const {
-  const int dialog_width = ChromeLayoutProvider::Get()->GetDistanceMetric(
-                               DISTANCE_STANDALONE_BUBBLE_PREFERRED_WIDTH) -
-                           margins().width();
-  return gfx::Size(dialog_width, GetHeightForWidth(dialog_width));
-}
-
 // static
 CrostiniUninstallerView* CrostiniUninstallerView::GetActiveViewForTesting() {
   return g_crostini_uninstaller_view;
@@ -97,7 +94,8 @@ CrostiniUninstallerView::CrostiniUninstallerView(Profile* profile)
   SetButtonLabel(
       ui::DIALOG_BUTTON_OK,
       l10n_util::GetStringUTF16(IDS_CROSTINI_UNINSTALLER_UNINSTALL_BUTTON));
-
+  set_fixed_width(ChromeLayoutProvider::Get()->GetDistanceMetric(
+      DISTANCE_STANDALONE_BUBBLE_PREFERRED_WIDTH));
   views::LayoutProvider* provider = views::LayoutProvider::Get();
   SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kVertical,
@@ -156,3 +154,6 @@ void CrostiniUninstallerView::RecordUninstallResultHistogram(
                                 UninstallResult::kCount);
   has_logged_result_ = true;
 }
+
+BEGIN_METADATA(CrostiniUninstallerView, views::BubbleDialogDelegateView)
+END_METADATA

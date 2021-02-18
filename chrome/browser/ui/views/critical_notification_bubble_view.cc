@@ -25,6 +25,7 @@
 #include "ui/views/bubble/bubble_frame_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/fill_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/style/typography.h"
 #include "ui/views/widget/widget.h"
 
@@ -117,18 +118,16 @@ void CriticalNotificationBubbleView::OnDialogAccepted() {
 void CriticalNotificationBubbleView::Init() {
   bubble_created_ = base::TimeTicks::Now();
 
-  SetLayoutManager(std::make_unique<views::FillLayout>());
+  SetUseDefaultFillLayout(true);
 
   auto message = std::make_unique<views::Label>(
       l10n_util::GetStringUTF16(IDS_CRITICAL_NOTIFICATION_TEXT),
-      views::style::CONTEXT_MESSAGE_BOX_BODY_TEXT,
-      views::style::STYLE_SECONDARY);
+      views::style::CONTEXT_DIALOG_BODY_TEXT, views::style::STYLE_SECONDARY);
   message->SetMultiLine(true);
   message->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  message->SizeToFit(
-      ChromeLayoutProvider::Get()->GetDistanceMetric(
-          ChromeDistanceMetric::DISTANCE_BUBBLE_PREFERRED_WIDTH) -
-      margins().width());
+  message->SizeToFit(ChromeLayoutProvider::Get()->GetDistanceMetric(
+                         views::DISTANCE_BUBBLE_PREFERRED_WIDTH) -
+                     margins().width());
   AddChildView(std::move(message));
 
   refresh_timer_.Start(FROM_HERE, base::TimeDelta::FromSeconds(1), this,
@@ -147,3 +146,6 @@ void CriticalNotificationBubbleView::ViewHierarchyChanged(
   if (details.is_add && details.child == this)
     NotifyAccessibilityEvent(ax::mojom::Event::kAlert, true);
 }
+
+BEGIN_METADATA(CriticalNotificationBubbleView, views::BubbleDialogDelegateView)
+END_METADATA

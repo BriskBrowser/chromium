@@ -28,11 +28,13 @@ CrossOriginEmbedderPolicyReporter::CrossOriginEmbedderPolicyReporter(
     StoragePartition* storage_partition,
     const GURL& context_url,
     const base::Optional<std::string>& endpoint,
-    const base::Optional<std::string>& report_only_endpoint)
+    const base::Optional<std::string>& report_only_endpoint,
+    const net::NetworkIsolationKey& network_isolation_key)
     : storage_partition_(storage_partition),
       context_url_(context_url),
       endpoint_(endpoint),
-      report_only_endpoint_(report_only_endpoint) {
+      report_only_endpoint_(report_only_endpoint),
+      network_isolation_key_(network_isolation_key) {
   DCHECK(storage_partition_);
 }
 
@@ -44,11 +46,8 @@ void CrossOriginEmbedderPolicyReporter::QueueCorpViolationReport(
     network::mojom::RequestDestination destination,
     bool report_only) {
   GURL url_to_pass = StripUsernameAndPassword(blocked_url);
-  // We're migrating from "blocked-url" to "blockedURL".
-  // TODO(crbug.com/1119676): Remove "blocked-url" in M90.
   QueueAndNotify(
       {std::make_pair("type", "corp"),
-       std::make_pair("blocked-url", url_to_pass.spec()),
        std::make_pair("blockedURL", url_to_pass.spec()),
        std::make_pair("destination",
                       network::RequestDestinationToString(destination))},
@@ -64,10 +63,16 @@ void CrossOriginEmbedderPolicyReporter::QueueNavigationReport(
     const GURL& blocked_url,
     bool report_only) {
   GURL url_to_pass = StripUsernameAndPassword(blocked_url);
-  // We're migrating from "blocked-url" to "blockedURL".
-  // TODO(crbug.com/1119676): Remove "blocked-url" in M90.
   QueueAndNotify({std::make_pair("type", "navigation"),
-                  std::make_pair("blocked-url", url_to_pass.spec()),
+                  std::make_pair("blockedURL", url_to_pass.spec())},
+                 report_only);
+}
+
+void CrossOriginEmbedderPolicyReporter::QueueWorkerInitializationReport(
+    const GURL& blocked_url,
+    bool report_only) {
+  GURL url_to_pass = StripUsernameAndPassword(blocked_url);
+  QueueAndNotify({std::make_pair("type", "worker initialization"),
                   std::make_pair("blockedURL", url_to_pass.spec())},
                  report_only);
 }
@@ -103,9 +108,10 @@ void CrossOriginEmbedderPolicyReporter::QueueAndNotify(
       body_to_pass.SetString(pair.first, pair.second);
     }
     body_to_pass.SetString("disposition", disposition);
+
     storage_partition_->GetNetworkContext()->QueueReport(
-        kType, *endpoint, context_url_, /*user_agent=*/base::nullopt,
-        std::move(body_to_pass));
+        kType, *endpoint, context_url_, network_isolation_key_,
+        /*user_agent=*/base::nullopt, std::move(body_to_pass));
   }
 }
 

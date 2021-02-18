@@ -46,6 +46,8 @@ AwRenderProcess::AwRenderProcess(RenderProcessHost* render_process_host)
   if (render_process_host_->IsReady()) {
     Ready();
   }
+  render_process_host_->GetChannel()->GetRemoteAssociatedInterface(
+      &renderer_remote_);
   render_process_host->AddObserver(this);
 }
 
@@ -54,6 +56,18 @@ AwRenderProcess::~AwRenderProcess() {
 
   Java_AwRenderProcess_setNative(AttachCurrentThread(), java_obj_, 0);
   java_obj_.Reset();
+}
+
+void AwRenderProcess::ClearCache() {
+  renderer_remote_->ClearCache();
+}
+
+void AwRenderProcess::SetJsOnlineProperty(bool network_up) {
+  renderer_remote_->SetJsOnlineProperty(network_up);
+}
+
+void AwRenderProcess::SetCpuAffinityToLittleCores() {
+  renderer_remote_->SetCpuAffinityToLittleCores();
 }
 
 void AwRenderProcess::Ready() {
@@ -79,12 +93,12 @@ bool AwRenderProcess::TerminateChildProcess(
   return render_process_host_->Shutdown(0);
 }
 
-bool AwRenderProcess::IsProcessLockedForTesting(
+bool AwRenderProcess::IsProcessLockedToSiteForTesting(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& obj) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  return render_process_host_->IsProcessLockedForTesting();
+  return render_process_host_->IsProcessLockedToSiteForTesting();  // IN-TEST
 }
 
 base::android::ScopedJavaLocalRef<jobject> AwRenderProcess::GetJavaObject() {

@@ -9,6 +9,7 @@
 #include <memory>
 
 #include "ash/ash_export.h"
+#include "ash/login/ui/login_error_bubble.h"
 #include "ash/login/ui/login_password_view.h"
 #include "ash/login/ui/login_user_view.h"
 #include "ash/login/ui/non_accessible_view.h"
@@ -37,8 +38,7 @@ class LoginPinInputView;
 // This class will make call mojo authentication APIs directly. The embedder can
 // receive some events about the results of those mojo
 // authentication attempts (ie, success/failure).
-class ASH_EXPORT LoginAuthUserView : public NonAccessibleView,
-                                     public views::ButtonListener {
+class ASH_EXPORT LoginAuthUserView : public NonAccessibleView {
  public:
   // Flags which describe the set of currently visible auth methods.
   enum AuthMethods {
@@ -52,17 +52,24 @@ class ASH_EXPORT LoginAuthUserView : public NonAccessibleView,
                                        // protocol using security token.
     AUTH_DISABLED = 1 << 6,  // Disable all the auth methods and show a
                              // message to user.
+    AUTH_DISABLED_TPM_LOCKED = 1 << 7,  // Disable all the auth methods due
+                                        // to the TPM being locked
   };
 
   // Extra control parameters to be passed when setting the auth methods.
   struct AuthMethodsMetadata {
-    explicit AuthMethodsMetadata() {}
+    AuthMethodsMetadata();
+    ~AuthMethodsMetadata();
+    AuthMethodsMetadata(const AuthMethodsMetadata&);
+
     // If the virtual keyboard is visible, the pinpad is hidden.
     bool virtual_keyboard_visible = false;
     // Whether to show the pinpad for the password field.
     bool show_pinpad_for_pw = false;
     // User's pin length to use for autosubmit.
     size_t autosubmit_pin_length = 0;
+    // Only present when the TPM is locked.
+    base::Optional<base::TimeDelta> time_until_tpm_unlock = base::nullopt;
   };
 
   // Possible states that the input fields (PasswordView & PinInputView)
@@ -101,7 +108,6 @@ class ASH_EXPORT LoginAuthUserView : public NonAccessibleView,
   using OnAuthCallback =
       base::RepeatingCallback<void(bool auth_success,
                                    bool display_error_messages)>;
-  using OnEasyUnlockIconTapped = base::RepeatingClosure;
   using OnEasyUnlockIconHovered = base::RepeatingClosure;
 
   struct Callbacks {
@@ -122,7 +128,7 @@ class ASH_EXPORT LoginAuthUserView : public NonAccessibleView,
     // Called when the easy unlock icon is hovered.
     OnEasyUnlockIconHovered on_easy_unlock_icon_hovered;
     // Called when the easy unlock icon is tapped.
-    OnEasyUnlockIconTapped on_easy_unlock_icon_tapped;
+    views::Button::PressedCallback on_easy_unlock_icon_tapped;
   };
 
   LoginAuthUserView(const LoginUserInfo& user, const Callbacks& callbacks);
@@ -134,7 +140,7 @@ class ASH_EXPORT LoginAuthUserView : public NonAccessibleView,
   // `CaptureStateForAnimationPreLayout` and `ApplyAnimationPostLayout`.
   void SetAuthMethods(
       uint32_t auth_methods,
-      AuthMethodsMetadata auth_metadata = AuthMethodsMetadata());
+      const AuthMethodsMetadata& auth_metadata = AuthMethodsMetadata());
   AuthMethods auth_methods() const { return auth_methods_; }
   InputFieldMode input_field_mode() const { return input_field_mode_; }
 
@@ -175,14 +181,12 @@ class ASH_EXPORT LoginAuthUserView : public NonAccessibleView,
   gfx::Size CalculatePreferredSize() const override;
   void RequestFocus() override;
 
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
-
  private:
   struct UiState;
   class FingerprintView;
   class ChallengeResponseView;
   class DisabledAuthMessageView;
+  class LockedTpmMessageView;
 
   // Called when the user submits an auth method. Runs mojo call.
   void OnAuthSubmit(const base::string16& password);
@@ -211,6 +215,9 @@ class ASH_EXPORT LoginAuthUserView : public NonAccessibleView,
   // Helper method to check if an auth method is enable. Use it like this:
   // bool has_tap = HasAuthMethod(AUTH_TAP).
   bool HasAuthMethod(AuthMethods auth_method) const;
+
+  // Whether the authentication attempt should use the user's PIN.
+  bool ShouldAuthenticateWithPin() const;
 
   // TODO(crbug/899812): remove this and pass a handler in via the Callbacks
   // struct instead.
@@ -262,6 +269,7 @@ class ASH_EXPORT LoginAuthUserView : public NonAccessibleView,
   DisabledAuthMessageView* disabled_auth_message_ = nullptr;
   FingerprintView* fingerprint_view_ = nullptr;
   ChallengeResponseView* challenge_response_view_ = nullptr;
+  LockedTpmMessageView* locked_tpm_message_view_ = nullptr;
 
   // Padding below the user view. Grows when there isn't an input field
   // or smart card login.

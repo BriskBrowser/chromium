@@ -5,7 +5,7 @@
 #include "chrome/browser/chromeos/policy/network_configuration_updater.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/values.h"
 #include "chromeos/network/onc/onc_utils.h"
@@ -160,8 +160,8 @@ NetworkConfigurationUpdater::NetworkConfigurationUpdater(
 void NetworkConfigurationUpdater::Init() {
   policy_change_registrar_.Observe(
       policy_key_,
-      base::Bind(&NetworkConfigurationUpdater::OnPolicyChanged,
-                 base::Unretained(this)));
+      base::BindRepeating(&NetworkConfigurationUpdater::OnPolicyChanged,
+                          base::Unretained(this)));
 
   if (policy_service_->IsInitializationComplete(POLICY_DOMAIN_CHROME)) {
     VLOG(1) << LogHeader() << " is already initialized.";

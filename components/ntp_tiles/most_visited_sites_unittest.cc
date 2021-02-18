@@ -65,6 +65,7 @@ using testing::AnyNumber;
 using testing::AtLeast;
 using testing::ByMove;
 using testing::Contains;
+using testing::DoAll;
 using testing::ElementsAre;
 using testing::Eq;
 using testing::Ge;
@@ -202,9 +203,9 @@ class MockSuggestionsService : public SuggestionsService {
   MOCK_METHOD0(FetchSuggestionsData, bool());
   MOCK_CONST_METHOD0(GetSuggestionsDataFromCache,
                      base::Optional<SuggestionsProfile>());
-  MOCK_METHOD1(AddCallback,
-               std::unique_ptr<ResponseCallbackList::Subscription>(
-                   const ResponseCallback& callback));
+  MOCK_METHOD1(
+      AddCallback,
+      base::CallbackListSubscription(const ResponseCallback& callback));
   MOCK_METHOD1(BlocklistURL, bool(const GURL& candidate_url));
   MOCK_METHOD1(UndoBlocklistURL, bool(const GURL& url));
   MOCK_METHOD0(ClearBlocklist, void());
@@ -283,8 +284,7 @@ class MockCustomLinksManager : public CustomLinksManager {
   MOCK_METHOD1(DeleteLink, bool(const GURL& url));
   MOCK_METHOD0(UndoAction, bool());
   MOCK_METHOD1(RegisterCallbackForOnChanged,
-               std::unique_ptr<base::RepeatingClosureList::Subscription>(
-                   base::RepeatingClosure callback));
+               base::CallbackListSubscription(base::RepeatingClosure callback));
 };
 
 class PopularSitesFactoryForTest {
@@ -474,9 +474,9 @@ class MostVisitedSitesTest
     EXPECT_CALL(*icon_cacher, StartFetchMostLikely(_, _)).Times(AtLeast(0));
 
     most_visited_sites_ = std::make_unique<MostVisitedSites>(
-        &pref_service_, mock_top_sites_, &mock_suggestions_service_,
-        popular_sites_factory_.New(), std::move(mock_custom_links),
-        std::move(icon_cacher),
+        &pref_service_, mock_top_sites_, /*repeatable_queries=*/nullptr,
+        &mock_suggestions_service_, popular_sites_factory_.New(),
+        std::move(mock_custom_links), std::move(icon_cacher),
         /*supervisor=*/nullptr);
   }
 
@@ -1158,9 +1158,10 @@ TEST_P(MostVisitedSitesWithCustomLinksTest,
   most_visited_sites_->SetMostVisitedURLsObserver(&mock_observer_,
                                                   /*num_sites=*/1);
   base::RunLoop().RunUntilIdle();
-  EXPECT_THAT(
-      sections.at(SectionType::PERSONALIZED),
-      ElementsAre(MatchesTile(kTestTitle, kTestUrl, TileSource::TOP_SITES)));
+  NTPTilesVector tiles = sections.at(SectionType::PERSONALIZED);
+  ASSERT_THAT(tiles.size(), Ge(1ul));
+  ASSERT_THAT(tiles[0],
+              MatchesTile(kTestTitle, kTestUrl, TileSource::TOP_SITES));
 
   // Initialize custom links and rebuild tiles. Tiles should be custom links.
   EXPECT_CALL(*mock_custom_links_, Initialize(_)).WillOnce(Return(true));
@@ -1183,9 +1184,10 @@ TEST_P(MostVisitedSitesWithCustomLinksTest,
       .WillOnce(SaveArg<0>(&sections));
   most_visited_sites_->UninitializeCustomLinks();
   base::RunLoop().RunUntilIdle();
-  EXPECT_THAT(
-      sections.at(SectionType::PERSONALIZED),
-      ElementsAre(MatchesTile(kTestTitle, kTestUrl, TileSource::TOP_SITES)));
+  tiles = sections.at(SectionType::PERSONALIZED);
+  ASSERT_THAT(tiles.size(), Ge(1ul));
+  ASSERT_THAT(tiles[0],
+              MatchesTile(kTestTitle, kTestUrl, TileSource::TOP_SITES));
 }
 
 TEST_P(MostVisitedSitesWithCustomLinksTest,
@@ -1206,9 +1208,10 @@ TEST_P(MostVisitedSitesWithCustomLinksTest,
   most_visited_sites_->SetMostVisitedURLsObserver(&mock_observer_,
                                                   /*num_sites=*/1);
   base::RunLoop().RunUntilIdle();
-  ASSERT_THAT(
-      sections.at(SectionType::PERSONALIZED),
-      ElementsAre(MatchesTile(kTestTitle, kTestUrl, TileSource::TOP_SITES)));
+  NTPTilesVector tiles = sections.at(SectionType::PERSONALIZED);
+  ASSERT_THAT(tiles.size(), Ge(1ul));
+  ASSERT_THAT(tiles[0],
+              MatchesTile(kTestTitle, kTestUrl, TileSource::TOP_SITES));
 
   // Initialize custom links and rebuild tiles. Tiles should be custom links.
   EXPECT_CALL(*mock_custom_links_, Initialize(_)).WillOnce(Return(true));
@@ -1248,9 +1251,10 @@ TEST_P(MostVisitedSitesWithCustomLinksTest,
   most_visited_sites_->SetMostVisitedURLsObserver(&mock_observer_,
                                                   /*num_sites=*/1);
   base::RunLoop().RunUntilIdle();
-  ASSERT_THAT(sections.at(SectionType::PERSONALIZED),
-              ElementsAre(MatchesTile(kTestTitle, kTestUrl,
-                                      TileSource::SUGGESTIONS_SERVICE)));
+  NTPTilesVector tiles = sections.at(SectionType::PERSONALIZED);
+  ASSERT_THAT(tiles.size(), Ge(1ul));
+  ASSERT_THAT(tiles[0], MatchesTile(kTestTitle, kTestUrl,
+                                    TileSource::SUGGESTIONS_SERVICE));
 
   // Initialize custom links and rebuild tiles. Tiles should be custom links.
   EXPECT_CALL(*mock_custom_links_, Initialize(_)).WillOnce(Return(true));
@@ -1287,14 +1291,16 @@ TEST_P(MostVisitedSitesWithCustomLinksTest,
   most_visited_sites_->SetMostVisitedURLsObserver(&mock_observer_,
                                                   /*num_sites=*/1);
   base::RunLoop().RunUntilIdle();
-  ASSERT_THAT(sections.at(SectionType::PERSONALIZED),
-              ElementsAre(MatchesTile(kTestTitle, kTestUrl,
-                                      TileSource::SUGGESTIONS_SERVICE)));
+  NTPTilesVector tiles = sections.at(SectionType::PERSONALIZED);
+  ASSERT_THAT(tiles.size(), Ge(1ul));
+  ASSERT_THAT(tiles[0], MatchesTile(kTestTitle, kTestUrl,
+                                    TileSource::SUGGESTIONS_SERVICE));
 
-  // Disable custom links. Tiles should rebuild but not send an update.
+  // Disable custom links. Tiles should rebuild.
   EXPECT_CALL(mock_suggestions_service_, GetSuggestionsDataFromCache())
       .WillOnce(Return(MakeProfile({MakeSuggestion(kTestTitle, kTestUrl)})));
-  EXPECT_CALL(mock_observer_, OnURLsAvailable(_)).Times(0);
+  EXPECT_CALL(mock_observer_, OnURLsAvailable(_))
+      .Times(IsPopularSitesFeatureEnabled() ? 1 : 0);
   most_visited_sites_->EnableCustomLinks(false);
   base::RunLoop().RunUntilIdle();
 
@@ -1378,17 +1384,21 @@ TEST_P(MostVisitedSitesWithCustomLinksTest,
                                                   /*num_sites=*/3);
   base::RunLoop().RunUntilIdle();
 
-  EXPECT_THAT(
-      sections.at(SectionType::PERSONALIZED),
-      ElementsAre(
-          MatchesTile(/* The short title generated by the heuristic */ "IMDb",
-                      kTestUrl1, TileSource::TOP_SITES),
-          MatchesTile(
-              /* The short title generated by the heuristic */ "Google Drive",
-              kTestUrl2, TileSource::TOP_SITES),
-          MatchesTile(
-              /* The short title generated by the heuristic */ "Amazon.com",
-              kTestUrl3, TileSource::TOP_SITES)));
+  NTPTilesVector tiles = sections.at(SectionType::PERSONALIZED);
+  ASSERT_THAT(tiles.size(), Ge(3ul));
+  ASSERT_THAT(
+      tiles[0],
+      MatchesTile(/* The short title generated by the heuristic */ "IMDb",
+                  kTestUrl1, TileSource::TOP_SITES));
+  ASSERT_THAT(
+      tiles[1],
+      MatchesTile(
+          /* The short title generated by the heuristic */ "Google Drive",
+          kTestUrl2, TileSource::TOP_SITES));
+  ASSERT_THAT(tiles[2],
+              MatchesTile(
+                  /* The short title generated by the heuristic */ "Amazon.com",
+                  kTestUrl3, TileSource::TOP_SITES));
 }
 
 TEST_P(MostVisitedSitesWithCustomLinksTest,
@@ -1414,17 +1424,21 @@ TEST_P(MostVisitedSitesWithCustomLinksTest,
                                                   /*num_sites=*/3);
   base::RunLoop().RunUntilIdle();
 
-  EXPECT_THAT(
-      sections.at(SectionType::PERSONALIZED),
-      ElementsAre(
-          MatchesTile(/* The short title generated by the heuristic */ "IMDb",
-                      kTestUrl1, TileSource::SUGGESTIONS_SERVICE),
-          MatchesTile(
-              /* The short title generated by the heuristic */ "Google Drive",
-              kTestUrl2, TileSource::SUGGESTIONS_SERVICE),
-          MatchesTile(
-              /* The short title generated by the heuristic */ "Amazon.com",
-              kTestUrl3, TileSource::SUGGESTIONS_SERVICE)));
+  NTPTilesVector tiles = sections.at(SectionType::PERSONALIZED);
+  ASSERT_THAT(tiles.size(), Ge(3ul));
+  ASSERT_THAT(
+      tiles[0],
+      MatchesTile(/* The short title generated by the heuristic */ "IMDb",
+                  kTestUrl1, TileSource::SUGGESTIONS_SERVICE));
+  ASSERT_THAT(
+      tiles[1],
+      MatchesTile(
+          /* The short title generated by the heuristic */ "Google Drive",
+          kTestUrl2, TileSource::SUGGESTIONS_SERVICE));
+  ASSERT_THAT(tiles[2],
+              MatchesTile(
+                  /* The short title generated by the heuristic */ "Amazon.com",
+                  kTestUrl3, TileSource::SUGGESTIONS_SERVICE));
 }
 
 TEST_P(MostVisitedSitesWithCustomLinksTest,
@@ -1447,9 +1461,10 @@ TEST_P(MostVisitedSitesWithCustomLinksTest,
   base::RunLoop().RunUntilIdle();
 
   // Both cases should not crash and generate an empty title tile.
-  EXPECT_THAT(sections.at(SectionType::PERSONALIZED),
-              ElementsAre(MatchesTile("", kTestUrl1, TileSource::TOP_SITES),
-                          MatchesTile("", kTestUrl2, TileSource::TOP_SITES)));
+  NTPTilesVector tiles = sections.at(SectionType::PERSONALIZED);
+  ASSERT_THAT(tiles.size(), Ge(2ul));
+  ASSERT_THAT(tiles[0], MatchesTile("", kTestUrl1, TileSource::TOP_SITES));
+  ASSERT_THAT(tiles[1], MatchesTile("", kTestUrl2, TileSource::TOP_SITES));
 }
 
 TEST_P(MostVisitedSitesWithCustomLinksTest,
@@ -1469,9 +1484,10 @@ TEST_P(MostVisitedSitesWithCustomLinksTest,
   most_visited_sites_->SetMostVisitedURLsObserver(&mock_observer_,
                                                   /*num_sites=*/1);
   base::RunLoop().RunUntilIdle();
-  ASSERT_THAT(
-      sections.at(SectionType::PERSONALIZED),
-      ElementsAre(MatchesTile(kTestTitle, kTestUrl, TileSource::TOP_SITES)));
+  NTPTilesVector tiles = sections.at(SectionType::PERSONALIZED);
+  ASSERT_THAT(tiles.size(), Ge(1ul));
+  ASSERT_THAT(tiles[0],
+              MatchesTile(kTestTitle, kTestUrl, TileSource::TOP_SITES));
 
   // Initialize custom links and complete a custom link action.
   EXPECT_CALL(*mock_custom_links_, Initialize(_)).WillOnce(Return(true));
@@ -1501,9 +1517,10 @@ TEST_P(MostVisitedSitesWithCustomLinksTest,
       .WillOnce(SaveArg<0>(&sections));
   most_visited_sites_->UndoCustomLinkAction();
   base::RunLoop().RunUntilIdle();
-  ASSERT_THAT(
-      sections.at(SectionType::PERSONALIZED),
-      ElementsAre(MatchesTile(kTestTitle, kTestUrl, TileSource::TOP_SITES)));
+  tiles = sections.at(SectionType::PERSONALIZED);
+  ASSERT_THAT(tiles.size(), Ge(1ul));
+  ASSERT_THAT(tiles[0],
+              MatchesTile(kTestTitle, kTestUrl, TileSource::TOP_SITES));
 }
 
 TEST_P(MostVisitedSitesWithCustomLinksTest,
@@ -1523,9 +1540,10 @@ TEST_P(MostVisitedSitesWithCustomLinksTest,
   most_visited_sites_->SetMostVisitedURLsObserver(&mock_observer_,
                                                   /*num_sites=*/1);
   base::RunLoop().RunUntilIdle();
-  ASSERT_THAT(
-      sections.at(SectionType::PERSONALIZED),
-      ElementsAre(MatchesTile(kTestTitle, kTestUrl, TileSource::TOP_SITES)));
+  NTPTilesVector tiles = sections.at(SectionType::PERSONALIZED);
+  ASSERT_THAT(tiles.size(), Ge(1ul));
+  ASSERT_THAT(tiles[0],
+              MatchesTile(kTestTitle, kTestUrl, TileSource::TOP_SITES));
 
   // Initialize custom links and complete a custom link action.
   EXPECT_CALL(*mock_custom_links_, Initialize(_)).WillOnce(Return(true));
@@ -1580,9 +1598,10 @@ TEST_P(MostVisitedSitesWithCustomLinksTest,
   most_visited_sites_->SetMostVisitedURLsObserver(&mock_observer_,
                                                   /*num_sites=*/1);
   base::RunLoop().RunUntilIdle();
-  ASSERT_THAT(
-      sections.at(SectionType::PERSONALIZED),
-      ElementsAre(MatchesTile(kTestTitle, kTestUrl, TileSource::TOP_SITES)));
+  NTPTilesVector tiles = sections.at(SectionType::PERSONALIZED);
+  ASSERT_THAT(tiles.size(), Ge(1ul));
+  ASSERT_THAT(tiles[0],
+              MatchesTile(kTestTitle, kTestUrl, TileSource::TOP_SITES));
 
   // Fail to add a custom link. This should not initialize custom links nor
   // notify.
@@ -1644,17 +1663,18 @@ TEST_P(MostVisitedSitesWithCustomLinksTest, RebuildTilesOnCustomLinksChanged) {
   // Build initial tiles with Top Sites.
   base::RepeatingClosure custom_links_callback;
   EXPECT_CALL(*mock_custom_links_, RegisterCallbackForOnChanged(_))
-      .WillOnce(
-          DoAll(SaveArg<0>(&custom_links_callback), Return(ByMove(nullptr))));
+      .WillOnce(DoAll(SaveArg<0>(&custom_links_callback),
+                      Return(ByMove(base::CallbackListSubscription()))));
   ExpectBuildWithTopSites(
       MostVisitedURLList{MakeMostVisitedURL(kTestTitle1, kTestUrl1)},
       &sections);
   most_visited_sites_->SetMostVisitedURLsObserver(&mock_observer_,
                                                   /*num_sites=*/1);
   base::RunLoop().RunUntilIdle();
-  ASSERT_THAT(
-      sections.at(SectionType::PERSONALIZED),
-      ElementsAre(MatchesTile(kTestTitle1, kTestUrl1, TileSource::TOP_SITES)));
+  NTPTilesVector tiles = sections.at(SectionType::PERSONALIZED);
+  ASSERT_THAT(tiles.size(), Ge(1ul));
+  ASSERT_THAT(tiles[0],
+              MatchesTile(kTestTitle1, kTestUrl1, TileSource::TOP_SITES));
 
   // Notify that there is a new set of custom links. This should replace the
   // current tiles with custom links.
@@ -1683,9 +1703,10 @@ TEST_P(MostVisitedSitesWithCustomLinksTest, RebuildTilesOnCustomLinksChanged) {
       .WillOnce(SaveArg<0>(&sections));
   custom_links_callback.Run();
   base::RunLoop().RunUntilIdle();
-  EXPECT_THAT(
-      sections.at(SectionType::PERSONALIZED),
-      ElementsAre(MatchesTile(kTestTitle1, kTestUrl1, TileSource::TOP_SITES)));
+  tiles = sections.at(SectionType::PERSONALIZED);
+  ASSERT_THAT(tiles.size(), Ge(1ul));
+  ASSERT_THAT(tiles[0],
+              MatchesTile(kTestTitle1, kTestUrl1, TileSource::TOP_SITES));
 }
 
 // These tests expect Most Likely to be enabled, and exclude Android and iOS,
@@ -2170,7 +2191,7 @@ TEST(MostVisitedSitesMergeTest, ShouldMergeTilesWithPersonalOnly) {
   // Without any popular tiles, the result after merge should be the personal
   // tiles.
   EXPECT_THAT(MostVisitedSites::MergeTiles(std::move(personal_tiles),
-                                           /*whitelist_tiles=*/NTPTilesVector(),
+                                           /*allowlist_tiles=*/NTPTilesVector(),
                                            /*popular_tiles=*/NTPTilesVector(),
                                            /*explore_tile=*/base::nullopt),
               ElementsAre(MatchesTile("Site 1", "https://www.site1.com/",
@@ -2194,7 +2215,7 @@ TEST(MostVisitedSitesMergeTest, ShouldMergeTilesWithPopularOnly) {
   // tiles.
   EXPECT_THAT(
       MostVisitedSites::MergeTiles(/*personal_tiles=*/NTPTilesVector(),
-                                   /*whitelist_tiles=*/NTPTilesVector(),
+                                   /*allowlist_tiles=*/NTPTilesVector(),
                                    /*popular_tiles=*/std::move(popular_tiles),
                                    /*explore_tile=*/base::nullopt),
       ElementsAre(
@@ -2219,7 +2240,7 @@ TEST(MostVisitedSitesMergeTest, ShouldMergeTilesFavoringPersonalOverPopular) {
   };
   EXPECT_THAT(
       MostVisitedSites::MergeTiles(std::move(personal_tiles),
-                                   /*whitelist_tiles=*/NTPTilesVector(),
+                                   /*allowlist_tiles=*/NTPTilesVector(),
                                    /*popular_tiles=*/std::move(popular_tiles),
                                    /*explore_tiles=*/explore_tile),
       ElementsAre(

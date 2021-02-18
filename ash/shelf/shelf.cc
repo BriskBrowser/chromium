@@ -29,11 +29,10 @@
 #include "ash/system/status_area_widget.h"
 #include "ash/wm/work_area_insets.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/check.h"
 #include "base/memory/weak_ptr.h"
 #include "base/notreached.h"
-#include "ui/compositor/animation_metrics_reporter.h"
 #include "ui/display/types/display_constants.h"
 #include "ui/gfx/geometry/rect.h"
 
@@ -249,7 +248,7 @@ class Shelf::AutoDimEventHandler : public ui::EventHandler,
  public:
   explicit AutoDimEventHandler(Shelf* shelf) : shelf_(shelf) {
     Shell::Get()->AddPreTargetHandler(this);
-    shelf_observer_.Add(shelf_);
+    shelf_observation_.Observe(shelf_);
     UndimShelf();
   }
 
@@ -313,7 +312,7 @@ class Shelf::AutoDimEventHandler : public ui::EventHandler,
   base::OneShotTimer dim_shelf_timer_;
   // An observer that notifies the AutoDimHandler that shelf visibility has
   // changed.
-  ScopedObserver<Shelf, ShelfObserver> shelf_observer_{this};
+  base::ScopedObservation<Shelf, ShelfObserver> shelf_observation_{this};
 
   // Delay before dimming the shelf.
   const base::TimeDelta kDimDelay = base::TimeDelta::FromSeconds(5);

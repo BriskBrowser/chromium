@@ -4,12 +4,12 @@
 
 #include "chrome/browser/ui/webui/chromeos/login/sync_consent_screen_handler.h"
 
+#include "ash/constants/ash_features.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/login/screens/sync_consent_screen.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "components/login/localized_values_builder.h"
 #include "components/user_manager/user_manager.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -42,7 +42,7 @@ void GetConsentIDs(const std::unordered_set<int>& known_ids,
   }
 
   // The strings returned by the WebUI are not free-form, they must belong into
-  // a pre-determined set of strings (stored in |string_to_grd_id_map_|). As
+  // a pre-determined set of strings (stored in `string_to_grd_id_map_`). As
   // this has privacy and legal implications, CHECK the integrity of the strings
   // received from the renderer process before recording the consent.
   for (const std::string& text : consent_description) {
@@ -138,6 +138,8 @@ void SyncConsentScreenHandler::Show() {
   base::DictionaryValue data;
   data.SetBoolean("isChildAccount", user_manager->IsLoggedInAsChildUser());
   data.SetString("deviceType", ui::GetChromeOSDeviceName());
+  data.SetBoolean("splitSettingsSyncEnabled",
+                  chromeos::features::IsSplitSettingsSyncEnabled());
   ShowScreenWithData(kScreenId, &data);
 }
 
@@ -158,13 +160,6 @@ void SyncConsentScreenHandler::RegisterMessages() {
               &SyncConsentScreenHandler::HandleAcceptAndContinue);
   AddCallback("login.SyncConsentScreen.declineAndContinue",
               &SyncConsentScreenHandler::HandleDeclineAndContinue);
-}
-
-void SyncConsentScreenHandler::GetAdditionalParameters(
-    base::DictionaryValue* parameters) {
-  parameters->SetBoolean("splitSettingsSyncEnabled",
-                         chromeos::features::IsSplitSettingsSyncEnabled());
-  BaseScreenHandler::GetAdditionalParameters(parameters);
 }
 
 void SyncConsentScreenHandler::HandleContinueAndReview(

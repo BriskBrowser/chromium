@@ -5,6 +5,7 @@
 #include "third_party/blink/public/common/manifest/manifest_util.h"
 
 #include "base/strings/string_util.h"
+#include "third_party/blink/public/mojom/manifest/capture_links.mojom.h"
 #include "third_party/blink/public/mojom/manifest/display_mode.mojom.h"
 
 namespace blink {
@@ -21,6 +22,8 @@ std::string DisplayModeToString(blink::mojom::DisplayMode display) {
       return "standalone";
     case blink::mojom::DisplayMode::kFullscreen:
       return "fullscreen";
+    case blink::mojom::DisplayMode::kWindowControlsOverlay:
+      return "window-controls-overlay";
   }
   return "";
 }
@@ -34,7 +37,20 @@ blink::mojom::DisplayMode DisplayModeFromString(const std::string& display) {
     return blink::mojom::DisplayMode::kStandalone;
   if (base::LowerCaseEqualsASCII(display, "fullscreen"))
     return blink::mojom::DisplayMode::kFullscreen;
+  if (base::LowerCaseEqualsASCII(display, "window-controls-overlay"))
+    return blink::mojom::DisplayMode::kWindowControlsOverlay;
   return blink::mojom::DisplayMode::kUndefined;
+}
+
+bool IsBasicDisplayMode(blink::mojom::DisplayMode display) {
+  if (display == blink::mojom::DisplayMode::kBrowser ||
+      display == blink::mojom::DisplayMode::kMinimalUi ||
+      display == blink::mojom::DisplayMode::kStandalone ||
+      display == blink::mojom::DisplayMode::kFullscreen) {
+    return true;
+  }
+
+  return false;
 }
 
 std::string WebScreenOrientationLockTypeToString(
@@ -81,6 +97,16 @@ device::mojom::ScreenOrientationLockType WebScreenOrientationLockTypeFromString(
   if (base::LowerCaseEqualsASCII(orientation, "natural"))
     return device::mojom::ScreenOrientationLockType::NATURAL;
   return device::mojom::ScreenOrientationLockType::DEFAULT;
+}
+
+mojom::CaptureLinks CaptureLinksFromString(const std::string& capture_links) {
+  if (base::LowerCaseEqualsASCII(capture_links, "none"))
+    return mojom::CaptureLinks::kNone;
+  if (base::LowerCaseEqualsASCII(capture_links, "new-client"))
+    return mojom::CaptureLinks::kNewClient;
+  if (base::LowerCaseEqualsASCII(capture_links, "existing-client-navigate"))
+    return mojom::CaptureLinks::kExistingClientNavigate;
+  return mojom::CaptureLinks::kUndefined;
 }
 
 }  // namespace blink

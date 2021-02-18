@@ -7,10 +7,10 @@
 // Polymer BrowserTest fixture.
 GEN_INCLUDE(['//chrome/test/data/webui/polymer_browser_test_base.js']);
 
-GEN('#include "chrome/browser/browser_features.h"');
+GEN('#include "chrome/browser/nearby_sharing/common/nearby_share_features.h"');
 GEN('#include "content/public/test/browser_test.h"');
 
-const NearbySharedBrowserTest = class extends PolymerTest {
+const NearbySharedBrowserTest = class extends Polymer2DeprecatedTest {
   /** @override */
   get browsePreload() {
     return 'chrome://os-settings/';
@@ -33,20 +33,51 @@ const NearbySharedBrowserTest = class extends PolymerTest {
       '../../test_util.js',
       '../../settings/ensure_lazy_loaded.js',
       'fake_nearby_share_settings.js',
+      'fake_nearby_contact_manager.js',
     ]);
   }
 };
 
+/**
+ * @extends {NearbySharedBrowserTest}
+ */
+var NearbyDeviceIconTest = class extends NearbySharedBrowserTest {
+  /** @override */
+  get browsePreload() {
+    return super.browsePreload + 'shared/nearby_device_icon.html';
+  }
+  /** @override */
+  get extraLibraries() {
+    return super.extraLibraries.concat([
+      'nearby_device_icon_test.js',
+    ]);
+  }
+};
+
+TEST_F('NearbyDeviceIconTest', 'All', () => mocha.run());
+
+/**
+ * @extends {NearbySharedBrowserTest}
+ */
+var NearbyDeviceTest = class extends NearbySharedBrowserTest {
+  /** @override */
+  get browsePreload() {
+    return super.browsePreload + 'shared/nearby_device.html';
+  }
+  /** @override */
+  get extraLibraries() {
+    return super.extraLibraries.concat([
+      'nearby_device_test.js',
+    ]);
+  }
+};
+
+TEST_F('NearbyDeviceTest', 'All', () => mocha.run());
 
 /**
  * @extends {NearbySharedBrowserTest}
  */
 var NearbyOnboardingPageTest = class extends NearbySharedBrowserTest {
-  /** @override */
-  get browsePreload() {
-    return super.browsePreload + 'shared/nearby_onboarding_page.html';
-  }
-
   /** @override */
   get extraLibraries() {
     return super.extraLibraries.concat([
@@ -79,12 +110,62 @@ TEST_F('NearbyVisibilityPageTest', 'All', () => mocha.run());
 /**
  * @extends {NearbySharedBrowserTest}
  */
-var NearbyContactVisibilityTest = class extends NearbySharedBrowserTest {
+var NearbyPageTemplateTest = class extends NearbySharedBrowserTest {
   /** @override */
   get browsePreload() {
-    return super.browsePreload + 'shared/nearby_contact_visibility.html';
+    return super.browsePreload + 'shared/nearby_page_template.html';
   }
 
+  /** @override */
+  get extraLibraries() {
+    return super.extraLibraries.concat([
+      'nearby_page_template_test.js',
+    ]);
+  }
+};
+
+TEST_F('NearbyPageTemplateTest', 'All', () => mocha.run());
+
+/**
+ * @extends {NearbySharedBrowserTest}
+ */
+var NearbyPreviewTest = class extends NearbySharedBrowserTest {
+  /** @override */
+  get browsePreload() {
+    return super.browsePreload + 'shared/nearby_preview.html';
+  }
+  /** @override */
+  get extraLibraries() {
+    return super.extraLibraries.concat([
+      'nearby_preview_test.js',
+    ]);
+  }
+};
+
+TEST_F('NearbyPreviewTest', 'All', () => mocha.run());
+
+/**
+ * @extends {NearbySharedBrowserTest}
+ */
+var NearbyProgressTest = class extends NearbySharedBrowserTest {
+  /** @override */
+  get browsePreload() {
+    return super.browsePreload + 'shared/nearby_progress.html';
+  }
+  /** @override */
+  get extraLibraries() {
+    return super.extraLibraries.concat([
+      'nearby_progress_test.js',
+    ]);
+  }
+};
+
+TEST_F('NearbyProgressTest', 'All', () => mocha.run());
+
+/**
+ * @extends {NearbySharedBrowserTest}
+ */
+var NearbyContactVisibilityTest = class extends NearbySharedBrowserTest {
   /** @override */
   get extraLibraries() {
     return super.extraLibraries.concat([

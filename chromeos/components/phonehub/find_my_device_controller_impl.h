@@ -5,23 +5,35 @@
 #ifndef CHROMEOS_COMPONENTS_PHONEHUB_FIND_MY_DEVICE_CONTROLLER_IMPL_H_
 #define CHROMEOS_COMPONENTS_PHONEHUB_FIND_MY_DEVICE_CONTROLLER_IMPL_H_
 
+#include "chromeos/components/phonehub/do_not_disturb_controller.h"
 #include "chromeos/components/phonehub/find_my_device_controller.h"
 
 namespace chromeos {
 namespace phonehub {
 
-// TODO(https://crbug.com/1106937): Add real implementation.
+class MessageSender;
+class UserActionRecorder;
+
+// Responsible for sending and receiving updates in regards to the Find My
+// Device feature which involves ringing the user's remote phone.
 class FindMyDeviceControllerImpl : public FindMyDeviceController {
  public:
-  FindMyDeviceControllerImpl();
+  FindMyDeviceControllerImpl(MessageSender* message_sender,
+                             UserActionRecorder* user_action_recorder);
   ~FindMyDeviceControllerImpl() override;
 
  private:
-  // FindMyDeviceController:
-  bool IsPhoneRinging() const override;
-  void SetPhoneRingingState(bool ringing) override;
+  friend class FindMyDeviceControllerImplTest;
 
-  bool is_phone_ringing_ = false;
+  // FindMyDeviceController:
+  void SetPhoneRingingStatusInternal(Status status) override;
+  void RequestNewPhoneRingingState(bool ringing) override;
+  Status GetPhoneRingingStatus() override;
+
+  Status phone_ringing_status_ = Status::kRingingOff;
+
+  MessageSender* message_sender_;
+  UserActionRecorder* user_action_recorder_;
 };
 
 }  // namespace phonehub

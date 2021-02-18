@@ -19,10 +19,8 @@
 /** @const */ var SCREEN_OOBE_DEMO_SETUP = 'demo-setup';
 /** @const */ var SCREEN_OOBE_DEMO_PREFERENCES = 'demo-preferences';
 /** @const */ var SCREEN_OOBE_KIOSK_ENABLE = 'kiosk-enable';
-/** @const */ var SCREEN_OOBE_AUTO_ENROLLMENT_CHECK = 'auto-enrollment-check';
 /** @const */ var SCREEN_PACKAGED_LICENSE = 'packaged-license';
 /** @const */ var SCREEN_GAIA_SIGNIN = 'gaia-signin';
-/** @const */ var SCREEN_ACCOUNT_PICKER = 'account-picker';
 /** @const */ var SCREEN_ERROR_MESSAGE = 'error-message';
 /** @const */ var SCREEN_PASSWORD_CHANGED = 'gaia-password-changed';
 /** @const */ var SCREEN_APP_LAUNCH_SPLASH = 'app-launch-splash';
@@ -46,28 +44,11 @@
  * Must be kept in sync with webui_accelerator_mapping.cc.
  */
 /** @const */ var ACCELERATOR_CANCEL = 'cancel';
-/** @const */ var ACCELERATOR_ENROLLMENT = 'enrollment';
-/** @const */ var ACCELERATOR_KIOSK_ENABLE = 'kiosk_enable';
 /** @const */ var ACCELERATOR_VERSION = 'version';
 /** @const */ var ACCELERATOR_RESET = 'reset';
-/** @const */ var ACCELERATOR_DEVICE_REQUISITION = 'device_requisition';
-/** @const */ var ACCELERATOR_DEVICE_REQUISITION_REMORA =
-    'device_requisition_remora';
 /** @const */ var ACCELERATOR_APP_LAUNCH_BAILOUT = 'app_launch_bailout';
 /** @const */ var ACCELERATOR_APP_LAUNCH_NETWORK_CONFIG =
     'app_launch_network_config';
-/** @const */ var ACCELERATOR_SEND_FEEDBACK = "send_feedback";
-
-/* Possible UI states of the error screen. */
-/** @const */ var ERROR_SCREEN_UI_STATE = {
-  UNKNOWN: 'ui-state-unknown',
-  UPDATE: 'ui-state-update',
-  SIGNIN: 'ui-state-signin',
-  KIOSK_MODE: 'ui-state-kiosk-mode',
-  LOCAL_STATE_ERROR: 'ui-state-local-state-error',
-  AUTO_ENROLLMENT_ERROR: 'ui-state-auto-enrollment-error',
-  ROLLBACK_ERROR: 'ui-state-rollback-error'
-};
 
 /** @const */ var USER_ACTION_ROLLBACK_TOGGLED = 'rollback-toggled';
 
@@ -93,16 +74,13 @@ cr.define('cr.ui.login', function() {
    */
   var RESET_AVAILABLE_SCREEN_GROUP = [
     SCREEN_OOBE_NETWORK,
-    SCREEN_OOBE_AUTO_ENROLLMENT_CHECK,
     SCREEN_GAIA_SIGNIN,
-    SCREEN_ACCOUNT_PICKER,
     SCREEN_KIOSK_ENABLE,
     SCREEN_ERROR_MESSAGE,
     SCREEN_PASSWORD_CHANGED,
     SCREEN_ARC_TERMS_OF_SERVICE,
     SCREEN_CONFIRM_PASSWORD,
     SCREEN_UPDATE_REQUIRED,
-    SCREEN_FATAL_ERROR,
     SCREEN_SYNC_CONSENT,
     SCREEN_APP_DOWNLOADING,
     SCREEN_DISCOVER,
@@ -267,10 +245,7 @@ cr.define('cr.ui.login', function() {
      * @return {boolean}
      */
     get hasUserPods() {
-      if (this.showingViewsLogin)
-        return this.userCount_ > 0;
-      return this.displayType_ == DISPLAY_TYPE.USER_ADDING &&
-          $('pod-row').pods.length > 0;
+      return this.showingViewsLogin && this.userCount_ > 0;
     },
 
     /**
@@ -293,6 +268,21 @@ cr.define('cr.ui.login', function() {
     setShelfHeight: function(height) {
       document.documentElement.style.setProperty(
           '--shelf-area-height-base', height + 'px');
+    },
+
+    setOrientation: function(isHorizontal) {
+      if (isHorizontal) {
+        document.documentElement.setAttribute('orientation', 'horizontal');
+      } else {
+        document.documentElement.setAttribute('orientation', 'vertical');
+      }
+    },
+
+    setDialogSize: function(width, height) {
+      document.documentElement.style.setProperty(
+        '--oobe-oobe-dialog-height-base', height + 'px');
+      document.documentElement.style.setProperty(
+        '--oobe-oobe-dialog-width-base', width + 'px');
     },
 
     /**
@@ -378,21 +368,6 @@ cr.define('cr.ui.login', function() {
         if (this.currentScreen && this.currentScreen.cancel) {
           this.currentScreen.cancel();
         }
-      } else if (name == ACCELERATOR_ENROLLMENT) {
-        if (attributes.startEnrollmentAllowed ||
-            currentStepId == SCREEN_GAIA_SIGNIN ||
-            currentStepId == SCREEN_PACKAGED_LICENSE ||
-            currentStepId == SCREEN_ACCOUNT_PICKER) {
-          chrome.send('toggleEnrollmentScreen');
-        } else {
-          console.warn('No action for current step ID: ' + currentStepId);
-        }
-      } else if (name == ACCELERATOR_KIOSK_ENABLE) {
-        if (attributes.toggleKioskAllowed ||
-            currentStepId == SCREEN_GAIA_SIGNIN ||
-            currentStepId == SCREEN_ACCOUNT_PICKER) {
-          chrome.send('toggleKioskEnableScreen');
-        }
       } else if (name == ACCELERATOR_VERSION) {
         if (this.allowToggleVersion_)
           $('version-labels').hidden = !$('version-labels').hidden;
@@ -403,21 +378,12 @@ cr.define('cr.ui.login', function() {
             RESET_AVAILABLE_SCREEN_GROUP.indexOf(currentStepId) != -1) {
           chrome.send('toggleResetScreen');
         }
-      } else if (name == ACCELERATOR_DEVICE_REQUISITION) {
-        if (this.isOobeUI())
-          this.showDeviceRequisitionPrompt_();
-      } else if (name == ACCELERATOR_DEVICE_REQUISITION_REMORA) {
-        if (this.isOobeUI() && !attributes.changeRequisitonProhibited)
-          this.showDeviceRequisitionRemoraPrompt_(
-              'deviceRequisitionRemoraPromptText', 'remora');
       } else if (name == ACCELERATOR_APP_LAUNCH_BAILOUT) {
         if (currentStepId == SCREEN_APP_LAUNCH_SPLASH)
           chrome.send('cancelAppLaunch');
       } else if (name == ACCELERATOR_APP_LAUNCH_NETWORK_CONFIG) {
         if (currentStepId == SCREEN_APP_LAUNCH_SPLASH)
           chrome.send('networkConfigRequest');
-      } else if (name == ACCELERATOR_SEND_FEEDBACK) {
-        chrome.send('sendFeedback');
       }
     },
 
@@ -588,21 +554,9 @@ cr.define('cr.ui.login', function() {
       }
 
       var screenId = screen.id;
-      if (screenId == SCREEN_ACCOUNT_PICKER && this.showingViewsLogin) {
-        chrome.send('hideOobeDialog');
-        return;
-      }
 
       // Make sure the screen is decorated.
       this.preloadScreen(screen);
-
-
-      // Show sign-in screen instead of account picker if pod row is empty.
-      if (screenId == SCREEN_ACCOUNT_PICKER && $('pod-row').pods.length == 0 &&
-          cr.isChromeOS) {
-        Oobe.showSigninUI();
-        return;
-      }
 
       var data = screen.data;
       var index = this.getScreenIndex_(screenId);
@@ -768,34 +722,6 @@ cr.define('cr.ui.login', function() {
     },
 
     /**
-     * Shows the device requisition prompt.
-     */
-    showDeviceRequisitionPrompt_: function() {
-      if (!this.deviceRequisitionDialog_) {
-        this.deviceRequisitionDialog_ =
-            new cr.ui.dialogs.PromptDialog(document.body);
-        this.deviceRequisitionDialog_.setOkLabel(
-            loadTimeData.getString('deviceRequisitionPromptOk'));
-        this.deviceRequisitionDialog_.setCancelLabel(
-            loadTimeData.getString('deviceRequisitionPromptCancel'));
-      }
-      this.deviceRequisitionDialog_.show(
-          loadTimeData.getString('deviceRequisitionPromptText'),
-          this.deviceRequisition_,
-          this.onConfirmDeviceRequisitionPrompt_.bind(this));
-    },
-
-    /**
-     * Confirmation handle for the device requisition prompt.
-     * @param {string} value The value entered by the user.
-     * @private
-     */
-    onConfirmDeviceRequisitionPrompt_: function(value) {
-      this.deviceRequisition_ = value;
-      chrome.send('setDeviceRequisition', [value == '' ? 'none' : value]);
-    },
-
-    /**
      * Called when window size changed. Notifies current screen about
      * change.
      * @private
@@ -806,38 +732,6 @@ cr.define('cr.ui.login', function() {
         if (screen.onWindowResize)
           screen.onWindowResize();
       }
-    },
-
-    /*
-     * Updates the device requisition string shown in the requisition
-     * prompt.
-     * @param {string} requisition The device requisition.
-     */
-    updateDeviceRequisition: function(requisition) {
-      this.deviceRequisition_ = requisition;
-    },
-
-    /**
-     * Shows the special remora/shark device requisition prompt.
-     * @private
-     */
-    showDeviceRequisitionRemoraPrompt_: function(promptText, requisition) {
-      if (!this.deviceRequisitionRemoraDialog_) {
-        this.deviceRequisitionRemoraDialog_ =
-            new cr.ui.dialogs.ConfirmDialog(document.body);
-        this.deviceRequisitionRemoraDialog_.setOkLabel(
-            loadTimeData.getString('deviceRequisitionRemoraPromptOk'));
-        this.deviceRequisitionRemoraDialog_.setCancelLabel(
-            loadTimeData.getString('deviceRequisitionRemoraPromptCancel'));
-      }
-      this.deviceRequisitionRemoraDialog_.show(
-          loadTimeData.getString(promptText),
-          function() {  // onShow
-            chrome.send('setDeviceRequisition', [requisition]);
-          },
-          function() {  // onCancel
-            chrome.send('setDeviceRequisition', ['none']);
-          });
     },
 
     /**
@@ -931,11 +825,15 @@ cr.define('cr.ui.login', function() {
     };
   };
 
+  // Only called from user-manager code, can be removed once desktop is
+  // migrated to profile-manager UI.
   /**
    * Disables signin UI.
    */
   DisplayManager.disableSigninUI = function() {
-    $('pod-row').disabled = true;
+    if ($('pod-row')) {
+      $('pod-row').disabled = true;
+    }
   };
 
   /**
@@ -961,7 +859,6 @@ cr.define('cr.ui.login', function() {
       $(SCREEN_GAIA_SIGNIN)
           .reset(currentScreenId == SCREEN_GAIA_SIGNIN, forceOnline);
     }
-    $('pod-row').reset(currentScreenId == SCREEN_ACCOUNT_PICKER);
   };
 
   /**
@@ -1016,43 +913,6 @@ cr.define('cr.ui.login', function() {
   };
 
   /**
-   * Shows a warning to the user that the detachable base (keyboard) different
-   * than the one previously used by the user got attached to the device. It
-   * warn the user that the attached base might be untrusted.
-   *
-   * @param {string} username The username of the user with which the error
-   *     bubble is associated. For example, in the account picker screen, it
-   *     identifies the user pod under which the error bubble should be shown.
-   * @param {string} message Error message to show.
-   * @param {string} link Text to use for help link.
-   * @param {number} helpId Help topic Id associated with help link.
-   */
-  DisplayManager.showDetachableBaseChangedWarning = function(
-      username, message, link, helpId) {
-    var error = DisplayManager.createErrorElement_(message, link, helpId);
-
-    var currentScreen = Oobe.getInstance().currentScreen;
-    if (currentScreen &&
-        typeof currentScreen.showDetachableBaseWarningBubble === 'function') {
-      currentScreen.showDetachableBaseWarningBubble(username, error);
-    }
-  };
-
-  /**
-   * Hides the warning bubble shown by {@code showDetachableBaseChangedWarning}.
-   *
-   * @param {string} username The username of the user with wich the warning was
-   *     associated.
-   */
-  DisplayManager.hideDetachableBaseChangedWarning = function(username) {
-    var currentScreen = Oobe.getInstance().currentScreen;
-    if (currentScreen &&
-        typeof currentScreen.hideDetachableBaseWarningBubble === 'function') {
-      currentScreen.hideDetachableBaseWarningBubble(username);
-    }
-  };
-
-  /**
    * Clears error bubble.
    */
   DisplayManager.clearErrors = function() {
@@ -1091,20 +951,6 @@ cr.define('cr.ui.login', function() {
   DisplayManager.setBluetoothDeviceInfo = function(bluetoothName) {
     $('bluetooth-name').hidden = false;
     $('bluetooth-name').textContent = bluetoothName;
-  };
-
-  /**
-   * Clears password field in user-pod.
-   */
-  DisplayManager.clearUserPodPassword = function() {
-    $('pod-row').clearFocusedPod();
-  };
-
-  /**
-   * Restores input focus to currently selected pod.
-   */
-  DisplayManager.refocusCurrentPod = function() {
-    $('pod-row').refocusCurrentPod();
   };
 
   // Export

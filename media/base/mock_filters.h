@@ -42,6 +42,7 @@
 #include "media/base/time_source.h"
 #include "media/base/video_decoder.h"
 #include "media/base/video_decoder_config.h"
+#include "media/base/video_encoder.h"
 #include "media/base/video_frame.h"
 #include "media/base/video_renderer.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -69,8 +70,8 @@ class MockPipelineClient : public Pipeline::Client {
   MOCK_METHOD1(OnVideoOpacityChange, void(bool));
   MOCK_METHOD1(OnVideoFrameRateChange, void(base::Optional<int>));
   MOCK_METHOD0(OnVideoAverageKeyframeDistanceUpdate, void());
-  MOCK_METHOD1(OnAudioDecoderChange, void(const PipelineDecoderInfo&));
-  MOCK_METHOD1(OnVideoDecoderChange, void(const PipelineDecoderInfo&));
+  MOCK_METHOD1(OnAudioDecoderChange, void(const AudioDecoderInfo&));
+  MOCK_METHOD1(OnVideoDecoderChange, void(const VideoDecoderInfo&));
   MOCK_METHOD1(OnRemotePlayStateChange, void(MediaStatus::State state));
 };
 
@@ -116,6 +117,7 @@ class MockPipeline : public Pipeline {
   MOCK_METHOD1(SetVolume, void(float));
   MOCK_METHOD1(SetLatencyHint, void(base::Optional<base::TimeDelta>));
   MOCK_METHOD1(SetPreservesPitch, void(bool));
+  MOCK_METHOD1(SetAutoplayInitiated, void(bool));
 
   // TODO(sandersd): These should probably have setters too.
   MOCK_CONST_METHOD0(GetMediaTime, base::TimeDelta());
@@ -227,6 +229,7 @@ class MockVideoDecoder : public VideoDecoder {
   bool IsPlatformDecoder() const override;
   bool SupportsDecryption() const override;
   std::string GetDisplayName() const override;
+  VideoDecoderType GetDecoderType() const override;
 
   // VideoDecoder implementation.
   void Initialize(const VideoDecoderConfig& config,
@@ -253,12 +256,50 @@ class MockVideoDecoder : public VideoDecoder {
   MOCK_CONST_METHOD0(GetMaxDecodeRequests, int());
   MOCK_CONST_METHOD0(CanReadWithoutStalling, bool());
   MOCK_CONST_METHOD0(NeedsBitstreamConversion, bool());
+  MOCK_CONST_METHOD0(IsOptimizedForRTC, bool());
 
  private:
   const bool is_platform_decoder_;
   const bool supports_decryption_;
   const std::string decoder_name_;
   DISALLOW_COPY_AND_ASSIGN(MockVideoDecoder);
+};
+
+class MockVideoEncoder : public VideoEncoder {
+ public:
+  MockVideoEncoder();
+  ~MockVideoEncoder() override;
+
+  // VideoEncoder implementation.
+  MOCK_METHOD(void,
+              Initialize,
+              (VideoCodecProfile profile,
+               const VideoEncoder::Options& options,
+               VideoEncoder::OutputCB output_cb,
+               VideoEncoder::StatusCB done_cb),
+              (override));
+
+  MOCK_METHOD(void,
+              Encode,
+              (scoped_refptr<VideoFrame> frame,
+               bool key_frame,
+               VideoEncoder::StatusCB done_cb),
+              (override));
+
+  MOCK_METHOD(void,
+              ChangeOptions,
+              (const VideoEncoder::Options& options,
+               VideoEncoder::OutputCB output_cb,
+               VideoEncoder::StatusCB done_cb),
+              (override));
+
+  MOCK_METHOD(void, Flush, (VideoEncoder::StatusCB done_cb), (override));
+
+  // A function for mocking destructor calls
+  MOCK_METHOD(void, Dtor, ());
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(MockVideoEncoder);
 };
 
 class MockAudioDecoder : public AudioDecoder {
@@ -274,6 +315,7 @@ class MockAudioDecoder : public AudioDecoder {
   bool IsPlatformDecoder() const override;
   bool SupportsDecryption() const override;
   std::string GetDisplayName() const override;
+  AudioDecoderType GetDecoderType() const override;
 
   // AudioDecoder implementation.
   void Initialize(const AudioDecoderConfig& config,
@@ -376,6 +418,7 @@ class MockAudioRenderer : public AudioRenderer {
   MOCK_METHOD1(SetLatencyHint,
                void(base::Optional<base::TimeDelta> latency_hint));
   MOCK_METHOD1(SetPreservesPitch, void(bool));
+  MOCK_METHOD1(SetAutoplayInitiated, void(bool));
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockAudioRenderer);
@@ -398,6 +441,7 @@ class MockRenderer : public Renderer {
                     PipelineStatusCallback& init_cb));
   MOCK_METHOD1(SetLatencyHint, void(base::Optional<base::TimeDelta>));
   MOCK_METHOD1(SetPreservesPitch, void(bool));
+  MOCK_METHOD1(SetAutoplayInitiated, void(bool));
   void Flush(base::OnceClosure flush_cb) override { OnFlush(flush_cb); }
   MOCK_METHOD1(OnFlush, void(base::OnceClosure& flush_cb));
   MOCK_METHOD1(StartPlayingFrom, void(base::TimeDelta timestamp));

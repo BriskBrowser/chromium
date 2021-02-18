@@ -6,14 +6,17 @@
 
 #include <stddef.h>
 
+#include "base/feature_list.h"
 #include "base/no_destructor.h"
 #include "base/notreached.h"
 #include "base/stl_util.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "printing/buildflags/buildflags.h"
 #include "ui/base/accelerators/accelerator.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/events/event_constants.h"
 
 namespace {
@@ -29,7 +32,7 @@ const AcceleratorMapping kAcceleratorMap[] = {
 //      modifier.
 //   2) Update GetShortcutsNotPresentInMainMenu() in
 //      global_keyboard_shortcuts_mac.mm.
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
     {ui::VKEY_F7, ui::EF_NONE, IDC_CARET_BROWSING_TOGGLE},
 #endif
     {ui::VKEY_F12, ui::EF_NONE, IDC_DEV_TOOLS_TOGGLE},
@@ -43,7 +46,7 @@ const AcceleratorMapping kAcceleratorMap[] = {
     {ui::VKEY_W, ui::EF_SHIFT_DOWN | ui::EF_PLATFORM_ACCELERATOR,
      IDC_CLOSE_WINDOW},
     {ui::VKEY_F, ui::EF_PLATFORM_ACCELERATOR, IDC_FIND},
-    {ui::VKEY_E, ui::EF_SHIFT_DOWN | ui::EF_PLATFORM_ACCELERATOR,
+    {ui::VKEY_A, ui::EF_SHIFT_DOWN | ui::EF_PLATFORM_ACCELERATOR,
      IDC_TAB_SEARCH},
     {ui::VKEY_G, ui::EF_PLATFORM_ACCELERATOR, IDC_FIND_NEXT},
     {ui::VKEY_G, ui::EF_SHIFT_DOWN | ui::EF_PLATFORM_ACCELERATOR,
@@ -57,7 +60,9 @@ const AcceleratorMapping kAcceleratorMap[] = {
     {ui::VKEY_S, ui::EF_PLATFORM_ACCELERATOR, IDC_SAVE_PAGE},
     {ui::VKEY_9, ui::EF_PLATFORM_ACCELERATOR, IDC_SELECT_LAST_TAB},
     {ui::VKEY_NUMPAD9, ui::EF_PLATFORM_ACCELERATOR, IDC_SELECT_LAST_TAB},
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
     {ui::VKEY_9, ui::EF_ALT_DOWN, IDC_SELECT_LAST_TAB},
     {ui::VKEY_NUMPAD9, ui::EF_ALT_DOWN, IDC_SELECT_LAST_TAB},
     {ui::VKEY_NEXT, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN, IDC_MOVE_TAB_NEXT},
@@ -87,7 +92,9 @@ const AcceleratorMapping kAcceleratorMap[] = {
     {ui::VKEY_NUMPAD7, ui::EF_PLATFORM_ACCELERATOR, IDC_SELECT_TAB_6},
     {ui::VKEY_8, ui::EF_PLATFORM_ACCELERATOR, IDC_SELECT_TAB_7},
     {ui::VKEY_NUMPAD8, ui::EF_PLATFORM_ACCELERATOR, IDC_SELECT_TAB_7},
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
     {ui::VKEY_1, ui::EF_ALT_DOWN, IDC_SELECT_TAB_0},
     {ui::VKEY_NUMPAD1, ui::EF_ALT_DOWN, IDC_SELECT_TAB_0},
     {ui::VKEY_2, ui::EF_ALT_DOWN, IDC_SELECT_TAB_1},
@@ -130,7 +137,7 @@ const AcceleratorMapping kAcceleratorMap[] = {
     {ui::VKEY_M, ui::EF_SHIFT_DOWN | ui::EF_PLATFORM_ACCELERATOR,
      IDC_SHOW_AVATAR_MENU},
 
-  // Platform-specific key maps.
+// Platform-specific key maps.
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
     {ui::VKEY_BROWSER_BACK, ui::EF_NONE, IDC_BACK},
     {ui::VKEY_BROWSER_FORWARD, ui::EF_NONE, IDC_FORWARD},
@@ -140,7 +147,7 @@ const AcceleratorMapping kAcceleratorMap[] = {
     {ui::VKEY_BROWSER_REFRESH, ui::EF_SHIFT_DOWN, IDC_RELOAD_BYPASSING_CACHE},
 #endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     // On Chrome OS, VKEY_BROWSER_SEARCH is handled in Ash.
     {ui::VKEY_BACK, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN,
      IDC_CLEAR_BROWSING_DATA},
@@ -151,8 +158,6 @@ const AcceleratorMapping kAcceleratorMap[] = {
     {ui::VKEY_BROWSER_STOP, ui::EF_NONE, IDC_STOP},
     // On Chrome OS, Search + Esc is used to call out task manager.
     {ui::VKEY_ESCAPE, ui::EF_COMMAND_DOWN, IDC_TASK_MANAGER},
-    {ui::VKEY_7, ui::EF_CONTROL_DOWN | ui::EF_COMMAND_DOWN,
-     IDC_CARET_BROWSING_TOGGLE},
 #else  // !OS_CHROMEOS
     {ui::VKEY_ESCAPE, ui::EF_SHIFT_DOWN, IDC_TASK_MANAGER},
     {ui::VKEY_LMENU, ui::EF_NONE, IDC_FOCUS_MENU_BAR},
@@ -182,7 +187,7 @@ const AcceleratorMapping kAcceleratorMap[] = {
 #if BUILDFLAG(ENABLE_PRINTING)
     {ui::VKEY_P, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN, IDC_BASIC_PRINT},
 #endif  // ENABLE_PRINTING
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
     {ui::VKEY_DELETE, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN,
      IDC_CLEAR_BROWSING_DATA},
 #endif  // !OS_CHROMEOS
@@ -208,13 +213,43 @@ const AcceleratorMapping kAcceleratorMap[] = {
     {ui::VKEY_J, ui::EF_CONTROL_DOWN, IDC_SHOW_DOWNLOADS},
     {ui::VKEY_H, ui::EF_CONTROL_DOWN, IDC_SHOW_HISTORY},
     {ui::VKEY_U, ui::EF_CONTROL_DOWN, IDC_VIEW_SOURCE},
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
     // On Chrome OS, these keys are assigned to change UI scale.
     {ui::VKEY_OEM_MINUS, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN,
      IDC_ZOOM_MINUS},
     {ui::VKEY_OEM_PLUS, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN, IDC_ZOOM_PLUS},
+    // TODO(https://crbug.com/1016439): This is a temporary hotkey. Chrome OS
+    // uses this for switching IMEs, but since this feature is only exposed via
+    // command line flag at the moment, we'll exclude them entirely for now.
+    {ui::VKEY_SPACE, ui::EF_CONTROL_DOWN, IDC_TOGGLE_COMMANDER},
 #endif  // !OS_CHROMEOS
 #endif  // !OS_MAC
+};
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+// Accelerators to enable if features::IsNewShortcutMappingEnabled is false.
+const AcceleratorMapping kDisableWithNewMappingAcceleratorMap[] = {
+    // On Chrome OS, Control + Search + 7 toggles caret browsing.
+    // Note that VKEY_F7 is not a typo; Search + 7 maps to F7 for accelerators.
+    {ui::VKEY_F7, ui::EF_CONTROL_DOWN, IDC_CARET_BROWSING_TOGGLE},
+};
+
+// Accelerators to enable if features::IsNewShortcutMappingEnabled is true.
+const AcceleratorMapping kEnableWithNewMappingAcceleratorMap[] = {
+    // On Chrome OS, Control + Search + 7 toggles caret browsing.
+    {ui::VKEY_7, ui::EF_CONTROL_DOWN | ui::EF_COMMAND_DOWN,
+     IDC_CARET_BROWSING_TOGGLE},
+};
+#endif
+
+constexpr int kDebugModifier =
+    ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN | ui::EF_SHIFT_DOWN;
+
+// Accelerators to enable if features::UIDebugTools is true.
+constexpr AcceleratorMapping kUIDebugAcceleratorMap[] = {
+    {ui::VKEY_T, kDebugModifier, IDC_DEBUG_TOGGLE_TABLET_MODE},
+    {ui::VKEY_V, kDebugModifier, IDC_DEBUG_PRINT_VIEW_TREE},
+    {ui::VKEY_M, kDebugModifier, IDC_DEBUG_PRINT_VIEW_TREE_DETAILS},
 };
 
 const int kRepeatableCommandIds[] = {
@@ -232,8 +267,31 @@ const size_t kRepeatableCommandIdsLength = base::size(kRepeatableCommandIds);
 } // namespace
 
 std::vector<AcceleratorMapping> GetAcceleratorList() {
-  static base::NoDestructor<std::vector<AcceleratorMapping>> accelerators(
-      std::begin(kAcceleratorMap), std::end(kAcceleratorMap));
+  static base::NoDestructor<std::vector<AcceleratorMapping>> accelerators;
+
+  if (accelerators->empty()) {
+    accelerators->insert(accelerators->begin(), std::begin(kAcceleratorMap),
+                         std::end(kAcceleratorMap));
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    if (::features::IsNewShortcutMappingEnabled()) {
+      accelerators->insert(accelerators->begin(),
+                           std::begin(kEnableWithNewMappingAcceleratorMap),
+                           std::end(kEnableWithNewMappingAcceleratorMap));
+    } else {
+      accelerators->insert(accelerators->begin(),
+                           std::begin(kDisableWithNewMappingAcceleratorMap),
+                           std::end(kDisableWithNewMappingAcceleratorMap));
+    }
+#endif
+
+    if (base::FeatureList::IsEnabled(features::kUIDebugTools)) {
+      accelerators->insert(accelerators->begin(),
+                           std::begin(kUIDebugAcceleratorMap),
+                           std::end(kUIDebugAcceleratorMap));
+    }
+  }
+
   return *accelerators;
 }
 

@@ -8,6 +8,7 @@
 
 #include "base/containers/flat_set.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/ranges/algorithm.h"
 #include "base/values.h"
 #include "components/autofill/core/common/gaia_id_hash.h"
 #include "components/password_manager/core/common/password_manager_features.h"
@@ -19,7 +20,6 @@
 #include "google_apis/gaia/gaia_urls.h"
 
 using autofill::GaiaIdHash;
-using autofill::PasswordForm;
 using password_manager::metrics_util::PasswordAccountStorageUsageLevel;
 using password_manager::metrics_util::PasswordAccountStorageUserState;
 
@@ -38,6 +38,11 @@ bool CanAccountStorageBeEnabled(const syncer::SyncService* sync_service) {
   // |sync_service| is null in incognito mode, or if --disable-sync was
   // specified on the command-line.
   if (!sync_service)
+    return false;
+
+  // The account-scoped password storage does not work with LocalSync aka
+  // roaming profiles.
+  if (sync_service->IsLocalSyncEnabled())
     return false;
 
   return true;
@@ -223,15 +228,12 @@ bool ShouldShowAccountStorageReSignin(const PrefService* pref_service,
     return false;
   }
 
-  const base::DictionaryValue* global_pref =
-      pref_service->GetDictionary(prefs::kAccountStoragePerAccountSettings);
   // Show the opt-in if any known previous user opted into using the account
   // storage before and might want to access it again.
-  return std::any_of(
-      global_pref->begin(), global_pref->end(),
-      [](const std::pair<std::string, std::unique_ptr<base::Value>>& prefs) {
-        return prefs.second->FindBoolKey(kAccountStorageOptedInKey)
-            .value_or(false);
+  return base::ranges::any_of(
+      *pref_service->GetDictionary(prefs::kAccountStoragePerAccountSettings),
+      [](const std::pair<std::string, std::unique_ptr<base::Value>>& p) {
+        return p.second->FindBoolKey(kAccountStorageOptedInKey).value_or(false);
       });
 }
 
@@ -261,6 +263,18 @@ void OptInToAccountStorage(PrefService* pref_service,
   ScopedAccountStorageSettingsUpdate(pref_service,
                                      GaiaIdHash::FromGaiaId(gaia_id))
       .SetOptedIn();
+
+  // Potentially also set the default store to the account one, based on a
+  // feature param.
+  bool save_to_account_store = base::GetFieldTrialParamByFeatureAsBool(
+      features::kEnablePasswordsAccountStorage,
+      features::kSaveToAccountStoreOnOptIn,
+      features::kSaveToAccountStoreOnOptInDefaultValue);
+  if (save_to_account_store) {
+    ScopedAccountStorageSettingsUpdate(pref_service,
+                                       GaiaIdHash::FromGaiaId(gaia_id))
+        .SetDefaultStore(PasswordForm::Store::kAccountStore);
+  }
 
   // Record the total number of (now) opted-in accounts.
   base::UmaHistogramExactLinear(
@@ -330,9 +344,17 @@ PasswordForm::Store GetDefaultPasswordStore(
           .GetDefaultStore();
   // If none of the early-outs above triggered, then we *can* save to the
   // account store in principle (though the user might not have opted in to that
-  // yet). In this case, default to the account store.
-  if (default_store == PasswordForm::Store::kNotSet)
-    return PasswordForm::Store::kAccountStore;
+  // yet).
+  if (default_store == PasswordForm::Store::kNotSet) {
+    // If the user hasn't made a choice about the default store yet, retrieve it
+    // from a feature param.
+    bool save_to_profile_store = base::GetFieldTrialParamByFeatureAsBool(
+        features::kEnablePasswordsAccountStorage,
+        features::kSaveToProfileStoreByDefault,
+        features::kSaveToProfileStoreByDefaultDefaultValue);
+    return save_to_profile_store ? PasswordForm::Store::kProfileStore
+                                 : PasswordForm::Store::kAccountStore;
+  }
   return default_store;
 }
 

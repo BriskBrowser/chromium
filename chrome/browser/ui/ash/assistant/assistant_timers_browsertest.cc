@@ -15,7 +15,7 @@
 #include "ash/system/unified/unified_system_tray.h"
 #include "base/scoped_observer.h"
 #include "base/strings/string_util.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/icu_test_util.h"
 #include "chrome/browser/ui/ash/assistant/assistant_test_mixin.h"
 #include "chrome/browser/ui/ash/assistant/test_support/test_util.h"
@@ -339,6 +339,7 @@ IN_PROC_BROWSER_TEST_F(AssistantTimersBrowserTest,
   std::deque<std::string> expected_titles = {"0:04",  "0:03",  "0:02",  "0:01",
                                              "0:00",  "-0:01", "-0:02", "-0:03",
                                              "-0:04", "-0:05"};
+  bool is_first_update = true;
 
   auto* title_label =
       FindTitleLabelForNotification(*FindAssistantNotifications().begin());
@@ -350,9 +351,19 @@ IN_PROC_BROWSER_TEST_F(AssistantTimersBrowserTest,
         base::Time now = base::Time::Now();
 
         // Assert that the update was received within our expected time frame.
-        EXPECT_NEAR((now - last_update).InMilliseconds(),
-                    kExpectedMillisBetweenUpdates,
-                    kMillisBetweenUpdatesTolerance);
+        if (is_first_update) {
+          is_first_update = false;
+          // Our updates are synced to the nearest full second, meaning our
+          // first update can come anywhere from 1 ms to 1000 ms from the time
+          // our notification was shown.
+          EXPECT_LE((now - last_update).InMilliseconds(),
+                    1000 + kMillisBetweenUpdatesTolerance);
+        } else {
+          // Consecutive updates must come regularly.
+          EXPECT_NEAR((now - last_update).InMilliseconds(),
+                      kExpectedMillisBetweenUpdates,
+                      kMillisBetweenUpdatesTolerance);
+        }
 
         // Assert that the notification has the expected title.
         auto title = base::UTF16ToUTF8(title_label->GetText());

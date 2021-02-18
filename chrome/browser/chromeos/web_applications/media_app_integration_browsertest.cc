@@ -2,17 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "ash/constants/ash_features.h"
 #include "base/files/file_path.h"
+#include "base/files/file_util.h"
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/apps/app_service/app_launch_params.h"
-#include "chrome/browser/apps/app_service/app_service_proxy.h"
-#include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/chromeos/file_manager/file_manager_test_util.h"
 #include "chrome/browser/chromeos/file_manager/web_file_tasks.h"
 #include "chrome/browser/chromeos/web_applications/system_web_app_integration_test.h"
+#include "chrome/browser/error_reporting/mock_chrome_js_error_report_processor.h"
 #include "chrome/browser/extensions/component_loader.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/ui/browser.h"
@@ -20,12 +22,12 @@
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
 #include "chrome/browser/web_applications/system_web_app_manager.h"
 #include "chrome/common/chrome_paths.h"
+#include "chromeos/components/media_app_ui/buildflags.h"
 #include "chromeos/components/media_app_ui/test/media_app_ui_browsertest.h"
 #include "chromeos/components/media_app_ui/url_constants.h"
-#include "chromeos/constants/chromeos_features.h"
+#include "components/crash/content/browser/error_reporting/mock_crash_endpoint.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
-#include "extensions/browser/api/crash_report_private/mock_crash_endpoint.h"
 #include "extensions/browser/entry_info.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/features.h"
@@ -44,6 +46,10 @@ constexpr char kFilePng800x600[] = "image.png";
 
 // A 640x480 image/jpeg (all green pixels).
 constexpr char kFileJpeg640x480[] = "image3.jpg";
+
+// A RAW file from an Olympus camera with the original preview/thumbnail data
+// swapped out with "exif.jpg".
+constexpr char kRaw378x272[] = "raw.orf";
 
 // A 1-second long 648x486 VP9-encoded video with stereo Opus-encoded audio.
 constexpr char kFileVideoVP9[] = "world.webm";
@@ -78,6 +84,10 @@ class MediaAppIntegrationWithFilesAppTest : public MediaAppIntegrationTest {
   }
 };
 
+using MediaAppIntegrationAllProfilesTest = MediaAppIntegrationTest;
+using MediaAppIntegrationWithFilesAppAllProfilesTest =
+    MediaAppIntegrationWithFilesAppTest;
+
 // Gets the base::FilePath for a named file in the test folder.
 base::FilePath TestFile(const std::string& ascii_name) {
   base::FilePath path;
@@ -88,37 +98,6 @@ base::FilePath TestFile(const std::string& ascii_name) {
   base::ScopedAllowBlockingForTesting allow_blocking;
   EXPECT_TRUE(base::PathExists(path));
   return path;
-}
-
-// Use platform_util::OpenItem() on the given |path| to simulate a user request
-// to open that path, e.g., from the Files app or chrome://downloads.
-OpenOperationResult OpenPathWithPlatformUtil(Profile* profile,
-                                             const base::FilePath& path) {
-  base::RunLoop run_loop;
-  OpenOperationResult open_result;
-  platform_util::OpenItem(
-      profile, path, platform_util::OPEN_FILE,
-      base::BindLambdaForTesting([&](OpenOperationResult result) {
-        open_result = result;
-        run_loop.Quit();
-      }));
-  run_loop.Run();
-
-  // On ChromeOS, the OpenOperationResult is determined in
-  // OpenFileMimeTypeAfterTasksListed() which also invokes
-  // ExecuteFileTaskForUrl(). For WebApps like chrome://media-app, that invokes
-  // WebApps::LaunchAppWithFiles() via AppServiceProxy.
-  // Depending how the mime type of |path| is determined (e.g. extension,
-  // metadata sniffing), there may be a number of asynchronous steps involved
-  // before the call to ExecuteFileTaskForUrl(). After that, the OpenItem
-  // callback is invoked, which exits the RunLoop above.
-  // That used to be enough to also launch a Browser for the WebApp. However,
-  // since r755257, ExecuteFileTaskForUrl() goes through the mojo AppService, so
-  // it's necessary to flush those calls for the WebApp to open.
-  apps::AppServiceProxyFactory::GetForProfile(profile)
-      ->FlushMojoCallsForTesting();
-
-  return open_result;
 }
 
 void PrepareAppForTest(content::WebContents* web_ui) {
@@ -183,27 +162,161 @@ IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest, MediaApp) {
 // params.
 IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest, MediaAppLaunchWithFile) {
   WaitForTestSystemAppInstall();
-  auto params = LaunchParamsForApp(web_app::SystemAppType::MEDIA);
+  content::WebContents* app;
+  {
+    auto params = LaunchParamsForApp(web_app::SystemAppType::MEDIA);
 
-  // Add the 800x600 PNG image to launch params.
-  params.launch_files.push_back(TestFile(kFilePng800x600));
+    // Add the 800x600 PNG image to launch params.
+    params.launch_files.push_back(TestFile(kFilePng800x600));
 
-  content::WebContents* app = LaunchApp(params);
+    app = LaunchApp(std::move(params));
+  }
   PrepareAppForTest(app);
 
   EXPECT_EQ("800x600", WaitForImageAlt(app, kFilePng800x600));
 
   // Relaunch with a different file. This currently re-uses the existing window,
   // so we don't wait for page load here.
-  params.launch_files = {TestFile(kFileJpeg640x480)};
-  LaunchAppWithoutWaiting(params);
+  {
+    auto params = LaunchParamsForApp(web_app::SystemAppType::MEDIA);
+    params.launch_files = {TestFile(kFileJpeg640x480)};
+    LaunchAppWithoutWaiting(std::move(params));
+  }
 
   EXPECT_EQ("640x480", WaitForImageAlt(app, kFileJpeg640x480));
 }
 
+// Regression test for b/172881869.
+IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest, LoadsPdf) {
+  WaitForTestSystemAppInstall();
+  LaunchApp(web_app::SystemAppType::MEDIA);
+  content::WebContents* app = PrepareActiveBrowserForTest();
+  // TODO(crbug/1148090): To fully load PDFs, "frame-src" needs to be set, this
+  // test doesn't provide coverage for that.
+  // Note: If "object-src" is not set in the CSP, the `<embed>` element fails to
+  // load and times out.
+  constexpr char loadPdf[] = R"(
+      (() => {
+        const embedBlob =  document.createElement('embed');
+        embedBlob.type ='application/pdf';
+        embedBlob.height = '100%';
+        embedBlob.width = '100%';
+        const loadPromise = new Promise((resolve, reject) => {
+          embedBlob.addEventListener('load', () => resolve(true));
+          embedBlob.addEventListener('error', () => reject(false));
+        });
+        document.body.appendChild(embedBlob);
+        embedBlob.src = 'blob:chrome-untrusted://media-app/fake-pdf-blob-hash';
+        return loadPromise;
+      })();
+  )";
+
+  EXPECT_EQ(true, MediaAppUiBrowserTest::EvalJsInAppFrame(app, loadPdf));
+}
+
+// This test tries to load files bundled in our CIPD package. The CIPD package
+// is included in the `linux-chromeos-chrome` trybot but not in
+// `linux-chromeos-rel` trybot. Only include this test when our CIPD package is
+// present.
+#if BUILDFLAG(ENABLE_CROS_MEDIA_APP)
+IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest, LoadsInkForImageAnnotation) {
+  WaitForTestSystemAppInstall();
+  auto params = LaunchParamsForApp(web_app::SystemAppType::MEDIA);
+  params.launch_files = {TestFile(kFileJpeg640x480)};
+  content::WebContents* app = LaunchApp(std::move(params));
+  PrepareAppForTest(app);
+
+  // Ensure test image loaded.
+  EXPECT_EQ("640x480", WaitForImageAlt(app, kFileJpeg640x480));
+
+  // TODO(b/175766054): Decipher if we can one line getting the annotate button
+  // in `waitForNode`.
+  constexpr char clickAnnotate[] = R"(
+    (async () => {
+      const appBar = await waitForNode('backlight-app-bar', ['backlight-app']);
+      const annotateButton = appBar.shadowRoot.querySelector('[label="Annotate"]');
+      annotateButton.click();
+      return true;
+    })();
+  )";
+  EXPECT_EQ(true, MediaAppUiBrowserTest::EvalJsInAppFrame(app, clickAnnotate));
+
+  // Checks ink is loaded for images by ensuring the ink engine canvas has a non
+  // zero width and height attributes (checking <canvas.width/height is
+  // insufficient since it has a default width of 300 and height of 150).
+  // Note: The loading of ink engine elements can be async.
+  constexpr char checkInkLoaded[] = R"(
+    (async () => {
+      const inkEngineCanvas = await waitForNode('canvas#ink-engine[width]', ['backlight-image-handler']);
+      return !!inkEngineCanvas &&
+        !!inkEngineCanvas.getAttribute('height') &&
+        inkEngineCanvas.getAttribute('height') !== '0' &&
+        !!inkEngineCanvas.getAttribute('width') &&
+        inkEngineCanvas.getAttribute('width') !== '0';
+    })();
+  )";
+  // TODO(b/175840855): Consider checking `inkEngineCanvas` size, it is
+  // currently different to image size.
+  EXPECT_EQ(true, MediaAppUiBrowserTest::EvalJsInAppFrame(app, checkInkLoaded));
+}
+#endif  // BUILDFLAG(ENABLE_CROS_MEDIA_APP)
+
+// Test that the MediaApp can load RAW files passed on launch params.
+IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest, HandleRawFiles) {
+  WaitForTestSystemAppInstall();
+
+  content::WebContents* web_ui;
+  {
+    auto params = LaunchParamsForApp(web_app::SystemAppType::MEDIA);
+
+    // Add the handcrafted RAW file to launch params and launch.
+    params.launch_files.push_back(TestFile(kRaw378x272));
+    web_ui = LaunchApp(std::move(params));
+    PrepareAppForTest(web_ui);
+  }
+
+  EXPECT_EQ("378x272", WaitForImageAlt(web_ui, kRaw378x272));
+
+  // Loading a raw file will put the RAW loading module into the JS context.
+  // Inject a script to manipulate the RAW loader into returning a result that
+  // includes an Exif rotation.
+  constexpr char kAdd270DegreeRotation[] = R"(
+    (function() {
+      const realPiexImage = PiexModule.image;
+      PiexModule.image = (memory, length) => {
+        const response = realPiexImage(memory, length);
+        response.preview.orientation = 8;
+        return response;
+      };
+    })();
+  )";
+  content::RenderFrameHost* app = MediaAppUiBrowserTest::GetAppFrame(web_ui);
+  EXPECT_EQ(true, ExecuteScript(app, kAdd270DegreeRotation));
+
+  // Launch with a file that has a different name to ensure the rotated version
+  // of the file is detected robustly.
+  {
+    auto clearFileParams = LaunchParamsForApp(web_app::SystemAppType::MEDIA);
+    clearFileParams.launch_files = {TestFile(kFileJpeg640x480)};
+    LaunchAppWithoutWaiting(std::move(clearFileParams));
+  }
+  EXPECT_EQ("640x480", WaitForImageAlt(web_ui, kFileJpeg640x480));
+
+  {
+    auto params = LaunchParamsForApp(web_app::SystemAppType::MEDIA);
+
+    // Add the handcrafted RAW file to launch params and launch.
+    params.launch_files.push_back(TestFile(kRaw378x272));
+    LaunchAppWithoutWaiting(std::move(params));
+  }
+  // Width and height should be swapped now.
+  EXPECT_EQ("272x378", WaitForImageAlt(web_ui, kRaw378x272));
+}
+
 // Ensures that chrome://media-app is available as a file task for the ChromeOS
 // file manager and eligible for opening appropriate files / mime types.
-IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest, MediaAppEligibleOpenTask) {
+IN_PROC_BROWSER_TEST_P(MediaAppIntegrationAllProfilesTest,
+                       MediaAppEligibleOpenTask) {
   constexpr bool kIsDirectory = false;
   const extensions::EntryInfo image_entry(TestFile(kFilePng800x600),
                                           "image/png", kIsDirectory);
@@ -233,7 +346,8 @@ IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest, MediaAppEligibleOpenTask) {
   }
 }
 
-IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest, HiddenInLauncherAndSearch) {
+IN_PROC_BROWSER_TEST_P(MediaAppIntegrationAllProfilesTest,
+                       HiddenInLauncherAndSearch) {
   WaitForTestSystemAppInstall();
 
   // Check system_web_app_manager has the correct attributes for Media App.
@@ -247,6 +361,7 @@ IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest, HiddenInLauncherAndSearch) {
 IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest,
                        TrustedContextReportsConsoleErrors) {
   MockCrashEndpoint endpoint(embedded_test_server());
+  ScopedMockChromeJsErrorReportProcessor processor(endpoint);
 
   WaitForTestSystemAppInstall();
   content::WebContents* web_ui = LaunchApp(web_app::SystemAppType::MEDIA);
@@ -268,6 +383,7 @@ IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest,
 IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest,
                        TrustedContextReportsDomExceptions) {
   MockCrashEndpoint endpoint(embedded_test_server());
+  ScopedMockChromeJsErrorReportProcessor processor(endpoint);
 
   WaitForTestSystemAppInstall();
   content::WebContents* web_ui = LaunchApp(web_app::SystemAppType::MEDIA);
@@ -284,6 +400,7 @@ IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest,
 IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest,
                        UntrustedContextReportsDomExceptions) {
   MockCrashEndpoint endpoint(embedded_test_server());
+  ScopedMockChromeJsErrorReportProcessor processor(endpoint);
 
   WaitForTestSystemAppInstall();
   content::WebContents* app = LaunchApp(web_app::SystemAppType::MEDIA);
@@ -300,6 +417,7 @@ IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest,
 IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest,
                        TrustedContextReportsUnhandledExceptions) {
   MockCrashEndpoint endpoint(embedded_test_server());
+  ScopedMockChromeJsErrorReportProcessor processor(endpoint);
 
   WaitForTestSystemAppInstall();
   content::WebContents* web_ui = LaunchApp(web_app::SystemAppType::MEDIA);
@@ -316,6 +434,7 @@ IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest,
 IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest,
                        UntrustedContextReportsUnhandledExceptions) {
   MockCrashEndpoint endpoint(embedded_test_server());
+  ScopedMockChromeJsErrorReportProcessor processor(endpoint);
 
   WaitForTestSystemAppInstall();
   content::WebContents* app = LaunchApp(web_app::SystemAppType::MEDIA);
@@ -331,6 +450,7 @@ IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest,
 IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest,
                        TrustedContextReportsTypeErrors) {
   MockCrashEndpoint endpoint(embedded_test_server());
+  ScopedMockChromeJsErrorReportProcessor processor(endpoint);
 
   WaitForTestSystemAppInstall();
   content::WebContents* web_ui = LaunchApp(web_app::SystemAppType::MEDIA);
@@ -348,6 +468,7 @@ IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest,
 IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest,
                        UntrustedContextReportsTypeErrors) {
   MockCrashEndpoint endpoint(embedded_test_server());
+  ScopedMockChromeJsErrorReportProcessor processor(endpoint);
 
   WaitForTestSystemAppInstall();
   content::WebContents* app = LaunchApp(web_app::SystemAppType::MEDIA);
@@ -356,8 +477,7 @@ IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest,
             MediaAppUiBrowserTest::EvalJsInAppFrame(app, kTypeErrorScript));
   auto report = endpoint.WaitForReport();
   EXPECT_NE(std::string::npos,
-            report.query.find(
-                "error_message=event.notAFunction%20is%20not%20a%20function"))
+            report.query.find("event.notAFunction%20is%20not%20a%20function"))
       << report.query;
   EXPECT_NE(std::string::npos, report.query.find("prod=ChromeOS_MediaApp"));
 }
@@ -365,16 +485,14 @@ IN_PROC_BROWSER_TEST_P(MediaAppIntegrationTest,
 // End-to-end test to ensure that the MediaApp successfully registers as a file
 // handler with the ChromeOS file manager on startup and acts as the default
 // handler for a given file.
-IN_PROC_BROWSER_TEST_P(MediaAppIntegrationWithFilesAppTest,
+IN_PROC_BROWSER_TEST_P(MediaAppIntegrationWithFilesAppAllProfilesTest,
                        FileOpenUsesMediaApp) {
   WaitForTestSystemAppInstall();
   Browser* test_browser = chrome::FindBrowserWithActiveWindow();
 
   file_manager::test::FolderInMyFiles folder(profile());
   folder.Add({TestFile(kFilePng800x600)});
-
-  OpenOperationResult open_result =
-      OpenPathWithPlatformUtil(profile(), folder.files()[0]);
+  OpenOperationResult open_result = folder.Open(TestFile(kFilePng800x600));
 
   // Window focus changes on ChromeOS are synchronous, so just get the newly
   // focused window.
@@ -394,7 +512,7 @@ IN_PROC_BROWSER_TEST_P(MediaAppIntegrationWithFilesAppTest,
 
 // Test that the MediaApp can navigate other files in the directory of a file
 // that was opened, even if those files have changed since launch.
-IN_PROC_BROWSER_TEST_P(MediaAppIntegrationWithFilesAppTest,
+IN_PROC_BROWSER_TEST_P(MediaAppIntegrationWithFilesAppAllProfilesTest,
                        FileOpenCanTraverseDirectory) {
   WaitForTestSystemAppInstall();
 
@@ -416,7 +534,7 @@ IN_PROC_BROWSER_TEST_P(MediaAppIntegrationWithFilesAppTest,
                 base::Time::UnixEpoch() + base::TimeDelta::FromDays(1));
 
   // Sent an open request using only the 640x480 JPEG file.
-  OpenPathWithPlatformUtil(profile(), copied_jpeg_640x480);
+  folder.Open(copied_jpeg_640x480);
   content::WebContents* web_ui = PrepareActiveBrowserForTest();
 
   EXPECT_EQ("640x480", WaitForImageAlt(web_ui, kFileJpeg640x480));
@@ -453,20 +571,51 @@ IN_PROC_BROWSER_TEST_P(MediaAppIntegrationWithFilesAppTest,
   // test mixed file types.
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    All,
-    MediaAppIntegrationTest,
-    ::testing::Combine(
-        ::testing::Values(web_app::ProviderType::kBookmarkApps,
-                          web_app::ProviderType::kWebApps),
-        ::testing::Values(web_app::InstallationType::kManifestInstall)),
-    web_app::ProviderAndInstallationTypeToString);
+// Integration test for rename using the WritableFileSystem and Streams APIs.
+IN_PROC_BROWSER_TEST_P(MediaAppIntegrationWithFilesAppAllProfilesTest,
+                       RenameFile) {
+  WaitForTestSystemAppInstall();
 
-INSTANTIATE_TEST_SUITE_P(
-    All,
-    MediaAppIntegrationWithFilesAppTest,
-    ::testing::Combine(
-        ::testing::Values(web_app::ProviderType::kBookmarkApps,
-                          web_app::ProviderType::kWebApps),
-        ::testing::Values(web_app::InstallationType::kManifestInstall)),
-    web_app::ProviderAndInstallationTypeToString);
+  file_manager::test::FolderInMyFiles folder(profile());
+  folder.Add({TestFile(kFileJpeg640x480)});
+  folder.Open(TestFile(kFileJpeg640x480));
+  content::WebContents* web_ui = PrepareActiveBrowserForTest();
+  content::RenderFrameHost* app = MediaAppUiBrowserTest::GetAppFrame(web_ui);
+
+  // Rename "image3.jpg" to "x.jpg".
+  constexpr int kRenameResultSuccess = 0;
+  constexpr char kScript[] =
+      "lastLoadedReceivedFileList.item(0).renameOriginalFile('x.jpg')"
+      ".then(result => domAutomationController.send(result));";
+  int result = ~kRenameResultSuccess;
+  EXPECT_EQ(true, content::ExecuteScriptAndExtractInt(app, kScript, &result));
+  EXPECT_EQ(kRenameResultSuccess, result);
+
+  folder.Refresh();
+
+  EXPECT_EQ(1u, folder.files().size());
+  EXPECT_EQ("x.jpg", folder.files()[0].BaseName().value());
+
+  std::string expected_contents, renamed_contents;
+  base::ScopedAllowBlockingForTesting allow_blocking;
+  EXPECT_TRUE(
+      base::ReadFileToString(TestFile(kFileJpeg640x480), &expected_contents));
+  // Consistency check against the file size (2108 bytes) of image3.jpg in the
+  // test data directory.
+  EXPECT_EQ(2108u, expected_contents.size());
+  EXPECT_TRUE(base::ReadFileToString(folder.files()[0], &renamed_contents));
+  EXPECT_EQ(expected_contents, renamed_contents);
+}
+
+INSTANTIATE_SYSTEM_WEB_APP_MANAGER_TEST_SUITE_REGULAR_PROFILE_P(
+    MediaAppIntegrationTest);
+
+INSTANTIATE_SYSTEM_WEB_APP_MANAGER_TEST_SUITE_ALL_PROFILE_TYPES_P(
+    MediaAppIntegrationAllProfilesTest);
+
+// Note: All MediaAppIntegrationWithFilesAppTest cases above currently want
+// coverage for all profile types, so the "less" prarameterized prefix is not
+// instantiated to avoid a gtest warning.
+
+INSTANTIATE_SYSTEM_WEB_APP_MANAGER_TEST_SUITE_ALL_PROFILE_TYPES_P(
+    MediaAppIntegrationWithFilesAppAllProfilesTest);

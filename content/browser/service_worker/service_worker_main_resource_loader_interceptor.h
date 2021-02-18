@@ -13,14 +13,15 @@
 #include "content/browser/loader/navigation_loader_interceptor.h"
 #include "content/browser/loader/single_request_url_loader_factory.h"
 #include "content/browser/navigation_subresource_loader_params.h"
+#include "content/browser/service_worker/service_worker_controllee_request_handler.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/service_worker_client_info.h"
 #include "content/public/common/child_process_host.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
+#include "services/network/public/mojom/fetch_api.mojom.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
-#include "third_party/blink/public/mojom/loader/resource_load_info.mojom-shared.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_provider.mojom.h"
 
 namespace content {
@@ -32,8 +33,10 @@ struct NavigationRequestInfo;
 // Lives on the UI thread.
 //
 // The corresponding legacy class is ServiceWorkerControlleeRequestHandler which
-// lives on the service worker context core thread. Currently, this class just
-// delegates to the legacy class by posting tasks to it on the core thread.
+// used to live on a different thread. Currently, this class just delegates to
+// the legacy class.
+// TODO(crbug.com/1138155): Merge the classes together now that they are on
+// the same thread.
 class CONTENT_EXPORT ServiceWorkerMainResourceLoaderInterceptor final
     : public NavigationLoaderInterceptor {
  public:
@@ -70,22 +73,12 @@ class CONTENT_EXPORT ServiceWorkerMainResourceLoaderInterceptor final
   base::Optional<SubresourceLoaderParams> MaybeCreateSubresourceLoaderParams()
       override;
 
-  // These are called back from the core thread helper functions:
-  void LoaderCallbackWrapper(
-      base::Optional<SubresourceLoaderParams> subresource_loader_params,
-      LoaderCallback loader_callback,
-      SingleRequestURLLoaderFactory::RequestHandler handler_on_core_thread);
-  void FallbackCallbackWrapper(FallbackCallback fallback_callback,
-                               bool reset_subresource_loader_params);
-
-  base::WeakPtr<ServiceWorkerMainResourceLoaderInterceptor> GetWeakPtr();
-
  private:
   friend class ServiceWorkerMainResourceLoaderInterceptorTest;
 
   ServiceWorkerMainResourceLoaderInterceptor(
       base::WeakPtr<ServiceWorkerMainResourceHandle> handle,
-      blink::mojom::ResourceType resource_type,
+      network::mojom::RequestDestination request_destination,
       bool skip_service_worker,
       bool are_ancestors_secure,
       int frame_tree_node_id,
@@ -96,11 +89,12 @@ class CONTENT_EXPORT ServiceWorkerMainResourceLoaderInterceptor final
   // created for a navigation to |url|.
   static bool ShouldCreateForNavigation(
       const GURL& url,
-      network::mojom::RequestDestination request_destination);
+      network::mojom::RequestDestination request_destination,
+      BrowserContext* browser_context);
 
   // Given as a callback to NavigationURLLoaderImpl.
   void RequestHandlerWrapper(
-      SingleRequestURLLoaderFactory::RequestHandler handler_on_core_thread,
+      SingleRequestURLLoaderFactory::RequestHandler handler,
       const network::ResourceRequest& resource_request,
       mojo::PendingReceiver<network::mojom::URLLoader> receiver,
       mojo::PendingRemote<network::mojom::URLLoaderClient> client);
@@ -114,7 +108,7 @@ class CONTENT_EXPORT ServiceWorkerMainResourceLoaderInterceptor final
   const base::WeakPtr<ServiceWorkerMainResourceHandle> handle_;
 
   // For all clients:
-  const blink::mojom::ResourceType resource_type_;
+  const network::mojom::RequestDestination request_destination_;
   const bool skip_service_worker_;
 
   // For window clients:
@@ -133,10 +127,8 @@ class CONTENT_EXPORT ServiceWorkerMainResourceLoaderInterceptor final
   const int process_id_;
   const base::Optional<DedicatedOrSharedWorkerToken> worker_token_;
 
-  base::Optional<SubresourceLoaderParams> subresource_loader_params_;
-
-  base::WeakPtrFactory<ServiceWorkerMainResourceLoaderInterceptor>
-      weak_factory_{this};
+  // Handles a single request. Set to a new instance on redirects.
+  std::unique_ptr<ServiceWorkerControlleeRequestHandler> request_handler_;
 
   DISALLOW_COPY_AND_ASSIGN(ServiceWorkerMainResourceLoaderInterceptor);
 };

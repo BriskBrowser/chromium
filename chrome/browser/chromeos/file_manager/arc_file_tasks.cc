@@ -10,19 +10,21 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
+#include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/arc/fileapi/arc_content_file_system_url_util.h"
 #include "chrome/browser/chromeos/file_manager/app_id.h"
 #include "chrome/browser/chromeos/file_manager/fileapi_util.h"
 #include "chrome/browser/chromeos/file_manager/path_util.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/extensions/api/file_manager_private.h"
 #include "components/arc/arc_service_manager.h"
@@ -135,6 +137,7 @@ void OnArcHandlerList(
   auto* intent_helper_bridge =
       arc::ArcIntentHelperBridge::GetForBrowserContext(profile);
   if (!intent_helper_bridge) {
+    LOG(ERROR) << "Failed to get ArcIntentHelperBridge";
     std::move(callback).Run(std::move(result_list));
     return;
   }
@@ -190,12 +193,16 @@ void OnArcIconLoaded(
   std::move(callback).Run(std::move(result_list));
 }
 
+// |ignore_paths_to_share| contains the paths to be shared to
+// ARCVM via Seneschal. For FindArcTasksAfterContentUrlsResolved(),
+// this can be ignored because the paths are not yet accessed.
 void FindArcTasksAfterContentUrlsResolved(
     Profile* profile,
     const std::vector<extensions::EntryInfo>& entries,
     std::unique_ptr<std::vector<FullTaskDescriptor>> result_list,
     FindTasksCallback callback,
-    const std::vector<GURL>& content_urls) {
+    const std::vector<GURL>& content_urls,
+    const std::vector<base::FilePath>& ignore_paths_to_share) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK_EQ(entries.size(), content_urls.size());
 
@@ -207,9 +214,12 @@ void FindArcTasksAfterContentUrlsResolved(
       arc_intent_helper = ARC_GET_INSTANCE_FOR_METHOD(
           arc_service_manager->arc_bridge_service()->intent_helper(),
           RequestUrlListHandlerList);
+    } else {
+      LOG(ERROR) << "Failed to get ArcServiceManager";
     }
   }
   if (!arc_intent_helper) {
+    LOG(ERROR) << "Failed to get arc_intent_helper";
     std::move(callback).Run(std::move(result_list));
     return;
   }
@@ -270,6 +280,7 @@ void ExecuteArcTaskAfterContentUrlsResolved(
 
   auto* arc_service_manager = arc::ArcServiceManager::Get();
   if (!arc_service_manager) {
+    LOG(ERROR) << "Failed to get ArcServiceManager";
     std::move(done).Run(
         extensions::api::file_manager_private::TASK_RESULT_FAILED,
         "No ArcServiceManager");
@@ -290,6 +301,8 @@ void ExecuteArcTaskAfterContentUrlsResolved(
       ConstructOpenUrlsRequest(task, content_urls, mime_types);
   arc_file_system->OpenUrlsWithPermission(std::move(request),
                                           base::DoNothing());
+  // TODO(benwells): return the correct code here, depending on how the app
+  // will be opened in multiprofile.
   std::move(done).Run(
       extensions::api::file_manager_private::TASK_RESULT_MESSAGE_SENT, "");
 
@@ -319,7 +332,7 @@ void FindArcTasks(Profile* profile,
   // Using base::Unretained(profile) is safe because callback will be invoked on
   // UI thread, where |profile| should be alive.
   file_manager::util::ConvertToContentUrls(
-      file_system_urls,
+      ProfileManager::GetPrimaryUserProfile(), file_system_urls,
       base::BindOnce(&FindArcTasksAfterContentUrlsResolved,
                      base::Unretained(profile), entries, std::move(result_list),
                      std::move(callback)));
@@ -335,10 +348,11 @@ void ExecuteArcTask(Profile* profile,
 
   // Using base::Unretained(profile) is safe because callback will be invoked on
   // UI thread, where |profile| should be alive.
-  file_manager::util::ConvertToContentUrls(
-      file_system_urls, base::BindOnce(&ExecuteArcTaskAfterContentUrlsResolved,
-                                       base::Unretained(profile), task,
-                                       mime_types, std::move(done)));
+  arc::ConvertToContentUrlsAndShare(
+      ProfileManager::GetPrimaryUserProfile(), file_system_urls,
+      base::BindOnce(&ExecuteArcTaskAfterContentUrlsResolved,
+                     base::Unretained(profile), task, mime_types,
+                     std::move(done)));
 }
 
 }  // namespace file_tasks

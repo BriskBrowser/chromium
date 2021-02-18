@@ -24,6 +24,7 @@
 #include "ui/views/controls/progress_bar.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace {
 
@@ -72,16 +73,10 @@ AuthenticatorRequestSheetView::BuildStepSpecificContent() {
   return nullptr;
 }
 
-void AuthenticatorRequestSheetView::ButtonPressed(views::Button* sender,
-                                                  const ui::Event& event) {
-  DCHECK_EQ(sender, back_arrow_button_);
-  model()->OnBack();
-}
-
 std::unique_ptr<views::View>
 AuthenticatorRequestSheetView::CreateIllustrationWithOverlays() {
   const int illustration_width = ChromeLayoutProvider::Get()->GetDistanceMetric(
-      DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH);
+      views::DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH);
   const gfx::Size illustration_size(illustration_width, kIllustrationHeight);
 
   // The container view has no layout, so its preferred size is hardcoded to
@@ -108,8 +103,8 @@ AuthenticatorRequestSheetView::CreateIllustrationWithOverlays() {
   }
 
   if (model()->IsBackButtonVisible()) {
-    auto back_arrow = views::CreateVectorImageButton(this);
-    back_arrow->SetFocusForPlatform();
+    auto back_arrow = views::CreateVectorImageButton(base::BindRepeating(
+        &AuthenticatorRequestSheetModel::OnBack, base::Unretained(model())));
     back_arrow->SetAccessibleName(l10n_util::GetStringUTF16(
         IDS_BACK_BUTTON_AUTHENTICATOR_REQUEST_DIALOG));
 
@@ -163,7 +158,7 @@ AuthenticatorRequestSheetView::CreateContentsBelowIllustration() {
   base::string16 description = model()->GetStepDescription();
   if (!description.empty()) {
     auto description_label = std::make_unique<views::Label>(
-        std::move(description), views::style::CONTEXT_MESSAGE_BOX_BODY_TEXT);
+        std::move(description), views::style::CONTEXT_DIALOG_BODY_TEXT);
     description_label->SetMultiLine(true);
     description_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
     description_label->SetAllowCharacterBreak(true);
@@ -172,9 +167,9 @@ AuthenticatorRequestSheetView::CreateContentsBelowIllustration() {
 
   base::string16 additional_desciption = model()->GetAdditionalDescription();
   if (!additional_desciption.empty()) {
-    auto label = std::make_unique<views::Label>(
-        std::move(additional_desciption),
-        views::style::CONTEXT_MESSAGE_BOX_BODY_TEXT);
+    auto label =
+        std::make_unique<views::Label>(std::move(additional_desciption),
+                                       views::style::CONTEXT_DIALOG_BODY_TEXT);
     label->SetMultiLine(true);
     label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
     label->SetAllowCharacterBreak(true);
@@ -227,3 +222,6 @@ void AuthenticatorRequestSheetView::UpdateIconColors() {
             *this, views::style::CONTEXT_LABEL, views::style::STYLE_PRIMARY)));
   }
 }
+
+BEGIN_METADATA(AuthenticatorRequestSheetView, views::View)
+END_METADATA

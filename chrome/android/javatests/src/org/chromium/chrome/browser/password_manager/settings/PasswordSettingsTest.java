@@ -4,14 +4,13 @@
 
 package org.chromium.chrome.browser.password_manager.settings;
 
-import static android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD;
-
 import static androidx.test.espresso.Espresso.openActionBarOverflowOrOptionsMenu;
 import static androidx.test.espresso.action.ViewActions.click;
 import static androidx.test.espresso.action.ViewActions.closeSoftKeyboard;
 import static androidx.test.espresso.action.ViewActions.typeText;
 import static androidx.test.espresso.assertion.ViewAssertions.doesNotExist;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
+import static androidx.test.espresso.contrib.RecyclerViewActions.scrollToHolder;
 import static androidx.test.espresso.intent.Intents.intended;
 import static androidx.test.espresso.intent.Intents.intending;
 import static androidx.test.espresso.intent.matcher.BundleMatchers.hasEntry;
@@ -38,8 +37,6 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.sameInstance;
-import static org.mockito.Mockito.timeout;
-import static org.mockito.Mockito.verify;
 
 import static org.chromium.chrome.test.util.ViewUtils.VIEW_GONE;
 import static org.chromium.chrome.test.util.ViewUtils.VIEW_INVISIBLE;
@@ -58,15 +55,17 @@ import android.os.Bundle;
 import android.support.test.InstrumentationRegistry;
 import android.view.MenuItem;
 import android.view.View;
-import android.widget.EditText;
 import android.widget.LinearLayout;
 
 import androidx.annotation.IdRes;
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
+import androidx.annotation.VisibleForTesting;
 import androidx.appcompat.view.menu.ActionMenuItemView;
 import androidx.core.graphics.drawable.DrawableCompat;
+import androidx.preference.PreferenceViewHolder;
+import androidx.recyclerview.widget.RecyclerView.ViewHolder;
 import androidx.test.espresso.Espresso;
 import androidx.test.espresso.intent.Intents;
 import androidx.test.espresso.intent.rule.IntentsTestRule;
@@ -88,36 +87,30 @@ import org.mockito.MockitoAnnotations;
 import org.chromium.base.Callback;
 import org.chromium.base.CollectionUtil;
 import org.chromium.base.IntStringCallback;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.ScalableTimeout;
+import org.chromium.base.test.util.FlakyTest;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.history.HistoryActivity;
 import org.chromium.chrome.browser.history.HistoryManager;
 import org.chromium.chrome.browser.history.StubbedHistoryProvider;
 import org.chromium.chrome.browser.password_check.PasswordCheck;
 import org.chromium.chrome.browser.password_check.PasswordCheckFactory;
-import org.chromium.chrome.browser.password_check.PasswordCheckPreference;
 import org.chromium.chrome.browser.password_manager.ManagePasswordsReferrer;
 import org.chromium.chrome.browser.password_manager.PasswordManagerHelper;
 import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.settings.SettingsActivity;
 import org.chromium.chrome.browser.settings.SettingsActivityTestRule;
-import org.chromium.chrome.browser.settings.SettingsLauncher;
-import org.chromium.chrome.browser.settings.SettingsLauncherImpl;
 import org.chromium.chrome.browser.sync.ProfileSyncService;
 import org.chromium.chrome.test.ChromeBrowserTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
-import org.chromium.components.browser_ui.settings.ChromeBaseCheckBoxPreference;
 import org.chromium.components.browser_ui.settings.ChromeSwitchPreference;
+import org.chromium.components.browser_ui.settings.SettingsLauncher;
 import org.chromium.components.prefs.PrefService;
 import org.chromium.components.sync.ModelType;
 import org.chromium.components.user_prefs.UserPrefs;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 import java.io.File;
@@ -136,8 +129,6 @@ import java.util.concurrent.atomic.AtomicReference;
 @RunWith(ChromeJUnit4ClassRunner.class)
 public class PasswordSettingsTest {
     private static final long UI_UPDATING_TIMEOUT_MS = 3000;
-    @Mock
-    private PasswordEditingDelegate mMockPasswordEditingDelegate;
 
     @Rule
     public final ChromeBrowserTestRule mBrowserTestRule = new ChromeBrowserTestRule();
@@ -150,11 +141,29 @@ public class PasswordSettingsTest {
     public SettingsActivityTestRule<PasswordSettings> mSettingsActivityTestRule =
             new SettingsActivityTestRule<>(PasswordSettings.class);
 
-    @Rule
-    public SettingsActivityTestRule<PasswordEntryEditor> mEditorActivityTestRule =
-            new SettingsActivityTestRule<>(PasswordEntryEditor.class);
     @Mock
     private PasswordCheck mPasswordCheck;
+
+    /**
+     * @param text The text that the view holder has in its view hierarchy.
+     * @return A Matcher to find a particular {@link ViewHolder} that contains certain text.
+     */
+    private static Matcher<ViewHolder> hasTextInViewHolder(String text) {
+        return new BoundedMatcher<ViewHolder, PreferenceViewHolder>(PreferenceViewHolder.class) {
+            @Override
+            public void describeTo(Description description) {
+                description.appendText("has text: " + text);
+            }
+
+            @Override
+            protected boolean matchesSafely(PreferenceViewHolder preferenceViewHolder) {
+                ArrayList<View> outViews = new ArrayList<>();
+                preferenceViewHolder.itemView.findViewsWithText(
+                        outViews, text, View.FIND_VIEWS_WITH_TEXT);
+                return !outViews.isEmpty();
+            }
+        };
+    }
 
     private static final class FakePasswordManagerHandler implements PasswordManagerHandler {
         // This class has exactly one observer, set on construction and expected to last at least as
@@ -177,10 +186,6 @@ public class PasswordSettingsTest {
         @Nullable
         private String mExportTargetPath;
 
-        // This is set to the last entry index {@link #showPasswordEntryEditingView()} was called
-        // with.
-        private int mLastEntryIndex;
-
         public void setSavedPasswords(ArrayList<SavedPasswordEntry> savedPasswords) {
             mSavedPasswords = savedPasswords;
         }
@@ -201,16 +206,18 @@ public class PasswordSettingsTest {
             return mExportTargetPath;
         }
 
-        public int getLastEntryIndex() {
-            return mLastEntryIndex;
-        }
-
         /**
          * Constructor.
          * @param PasswordListObserver The only observer.
          */
         public FakePasswordManagerHandler(PasswordListObserver observer) {
             mObserver = observer;
+        }
+
+        @Override
+        @VisibleForTesting
+        public void insertPasswordEntryForTesting(String origin, String username, String password) {
+            mSavedPasswords.add(new SavedPasswordEntry(origin, username, password));
         }
 
         // Pretends that the updated lists are |mSavedPasswords| for the saved passwords and an
@@ -250,18 +257,9 @@ public class PasswordSettingsTest {
         }
 
         @Override
-        public void showPasswordEntryEditingView(Context context, int index) {
-            mLastEntryIndex = index;
-            Bundle fragmentArgs = new Bundle();
-            fragmentArgs.putString(
-                    PasswordEntryEditor.CREDENTIAL_URL, getSavedPasswordEntry(index).getUrl());
-            fragmentArgs.putString(PasswordEntryEditor.CREDENTIAL_NAME,
-                    getSavedPasswordEntry(index).getUserName());
-            fragmentArgs.putString(PasswordEntryEditor.CREDENTIAL_PASSWORD,
-                    getSavedPasswordEntry(index).getPassword());
-            SettingsLauncher settingsLauncher = new SettingsLauncherImpl();
-            settingsLauncher.launchSettingsActivity(
-                    context, PasswordEntryEditor.class, fragmentArgs);
+        public void showPasswordEntryEditingView(
+                Context context, SettingsLauncher launcher, int index) {
+            assert false : "Define this method before starting to use it in tests.";
         }
     }
 
@@ -366,30 +364,6 @@ public class PasswordSettingsTest {
     }
 
     /**
-     * Matches any {@link EditText} which has the content visibility matching to |shouldBeVisible|.
-     * @return The matcher checking the input type.
-     */
-    private static Matcher<View> isVisiblePasswordInput(final boolean shouldBeVisible) {
-        return new BoundedMatcher<View, EditText>(EditText.class) {
-            @Override
-            public boolean matchesSafely(EditText editText) {
-                return ((editText.getInputType() & TYPE_TEXT_VARIATION_VISIBLE_PASSWORD)
-                               == TYPE_TEXT_VARIATION_VISIBLE_PASSWORD)
-                        == shouldBeVisible;
-            }
-
-            @Override
-            public void describeTo(Description description) {
-                if (shouldBeVisible) {
-                    description.appendText("The content should be visible.");
-                } else {
-                    description.appendText("The content should not be visible.");
-                }
-            }
-        };
-    }
-
-    /**
      * Looks for the icon by id. If it cannot be found, it's probably hidden in the overflow
      * menu. In that case, open the menu and search for its title.
      * @return Returns either the icon button or the menu option.
@@ -415,23 +389,6 @@ public class PasswordSettingsTest {
     }
 
     /**
-     * Looks for the edit saved password icon by id or by its title.
-     * @return Returns either the icon button or the menu option.
-     */
-    public static Matcher<View> withEditMenuIdOrText() {
-        return withMenuIdOrText(R.id.action_edit_saved_password,
-                R.string.password_entry_viewer_edit_stored_password_action_title);
-    }
-
-    /**
-     * Looks for the save edited password icon by id or by its title.
-     * @return Returns either the icon button or the menu option.
-     */
-    public static Matcher<View> withSaveMenuIdOrText() {
-        return withMenuIdOrText(R.id.action_save_edited_password, R.string.save);
-    }
-
-    /**
      * Taps the menu item to trigger exporting and ensures that reauthentication passes.
      * It also disables the timer in {@link DialogManager} which is used to allow hiding the
      * progress bar after an initial period. Hiding can be later allowed manually in tests with
@@ -444,7 +401,9 @@ public class PasswordSettingsTest {
         // Avoid launching the Android-provided reauthentication challenge, which cannot be
         // completed in the test.
         ReauthenticationManager.setSkipSystemReauth(true);
-        Espresso.onView(withText(R.string.password_settings_export_action_title)).perform(click());
+        onViewWaiting(
+                allOf(withText(R.string.password_settings_export_action_title), isDisplayed()))
+                .perform(click());
 
         // Now Chrome thinks it triggered the challenge and is waiting to be resumed. Once resumed
         // it will check the reauthentication result. First, update the reauth timestamp to indicate
@@ -648,7 +607,7 @@ public class PasswordSettingsTest {
         // empty.
         setPasswordSource(new SavedPasswordEntry("https://example.com", "test user", "password"));
         overrideProfileSyncService(false, false);
-        mBrowserTestRule.addAndSignInTestAccount();
+        mBrowserTestRule.addTestAccountThenSigninAndEnableSync();
 
         startPasswordSettingsFromMainSettings();
         PasswordSettings savedPasswordPrefs = mSettingsActivityTestRule.getFragment();
@@ -669,7 +628,7 @@ public class PasswordSettingsTest {
         // empty.
         setPasswordSource(new SavedPasswordEntry("https://example.com", "test user", "password"));
         overrideProfileSyncService(false, true);
-        mBrowserTestRule.addAndSignInTestAccount();
+        mBrowserTestRule.addTestAccountThenSigninAndEnableSync();
 
         startPasswordSettingsFromMainSettings();
         PasswordSettings savedPasswordPrefs = mSettingsActivityTestRule.getFragment();
@@ -690,7 +649,7 @@ public class PasswordSettingsTest {
         // empty.
         setPasswordSource(new SavedPasswordEntry("https://example.com", "test user", "password"));
         overrideProfileSyncService(true, true);
-        mBrowserTestRule.addAndSignInTestAccount();
+        mBrowserTestRule.addTestAccountThenSigninAndEnableSync();
 
         startPasswordSettingsFromMainSettings();
         PasswordSettings savedPasswordPrefs = mSettingsActivityTestRule.getFragment();
@@ -714,8 +673,8 @@ public class PasswordSettingsTest {
 
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             PasswordSettings passwordPrefs = mSettingsActivityTestRule.getFragment();
-            ChromeBaseCheckBoxPreference onOffSwitch =
-                    (ChromeBaseCheckBoxPreference) passwordPrefs.findPreference(
+            ChromeSwitchPreference onOffSwitch =
+                    (ChromeSwitchPreference) passwordPrefs.findPreference(
                             PasswordSettings.PREF_AUTOSIGNIN_SWITCH);
             Assert.assertTrue(onOffSwitch.isChecked());
 
@@ -732,20 +691,19 @@ public class PasswordSettingsTest {
         startPasswordSettingsFromMainSettings();
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             PasswordSettings passwordPrefs = mSettingsActivityTestRule.getFragment();
-            ChromeBaseCheckBoxPreference onOffSwitch =
-                    (ChromeBaseCheckBoxPreference) passwordPrefs.findPreference(
+            ChromeSwitchPreference onOffSwitch =
+                    (ChromeSwitchPreference) passwordPrefs.findPreference(
                             PasswordSettings.PREF_AUTOSIGNIN_SWITCH);
             Assert.assertFalse(onOffSwitch.isChecked());
         });
     }
 
     /**
-     * Check that the check passwords preference is shown when the corresponding feature is enabled.
+     * Check that the check passwords preference is shown.
      */
     @Test
     @SmallTest
     @Feature({"Preferences"})
-    @EnableFeatures(ChromeFeatureList.PASSWORD_CHECK)
     public void testCheckPasswordsEnabled() {
         startPasswordSettingsFromMainSettings();
         TestThreadUtils.runOnUiThreadBlocking(() -> {
@@ -753,234 +711,6 @@ public class PasswordSettingsTest {
             Assert.assertNotNull(
                     passwordPrefs.findPreference(PasswordSettings.PREF_CHECK_PASSWORDS));
         });
-    }
-
-    /**
-     * Check that Pref.SETTINGS_LAUNCHED_PASSWORD_CHECKS is being correctly incremented when
-     * the Check passwords preference is clicked.
-     */
-    @Test
-    @SmallTest
-    @Feature({"Preferences"})
-    @EnableFeatures(ChromeFeatureList.PASSWORD_CHECK)
-    public void testCheckPasswordsPrefIncremented() {
-        TestThreadUtils.runOnUiThreadBlocking(
-                () -> { getPrefService().setInteger(Pref.SETTINGS_LAUNCHED_PASSWORD_CHECKS, 0); });
-
-        startPasswordSettingsDirectly();
-        PasswordSettings passwordPrefs = mSettingsActivityTestRule.getFragment();
-        PasswordCheckPreference passwordCheck =
-                passwordPrefs.findPreference(PasswordSettings.PREF_CHECK_PASSWORDS);
-        Assert.assertNotNull(passwordCheck);
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            passwordCheck.performClick();
-            Assert.assertEquals(
-                    getPrefService().getInteger(Pref.SETTINGS_LAUNCHED_PASSWORD_CHECKS), 1);
-        });
-    }
-
-    /**
-     * Check that the image above the Check passwords preference is shown if the value of
-     * Pref.SETTINGS_LAUNCHED_PASSWORD_CHECKS is less than 3.
-     */
-    @Test
-    @SmallTest
-    @Feature({"Preferences"})
-    @EnableFeatures(ChromeFeatureList.PASSWORD_CHECK)
-    public void testCheckPasswordsImageShown() {
-        TestThreadUtils.runOnUiThreadBlocking(
-                () -> { getPrefService().setInteger(Pref.SETTINGS_LAUNCHED_PASSWORD_CHECKS, 2); });
-
-        startPasswordSettingsDirectly();
-        PasswordSettings passwordPrefs = mSettingsActivityTestRule.getFragment();
-        PasswordCheckPreference passwordCheck =
-                passwordPrefs.findPreference(PasswordSettings.PREF_CHECK_PASSWORDS);
-        Assert.assertNotNull(passwordCheck);
-        int promoImageVisibility =
-                passwordCheck.getPromoImageView(passwordPrefs.getActivity()).getVisibility();
-        Assert.assertEquals(promoImageVisibility, View.VISIBLE);
-    }
-
-    /**
-     * Check that the image above the Check passwords preference is not shown if the value of
-     * Pref.SETTINGS_LAUNCHED_PASSWORD_CHECKS is greater than or equal to 3.
-     */
-    @Test
-    @SmallTest
-    @Feature({"Preferences"})
-    @EnableFeatures(ChromeFeatureList.PASSWORD_CHECK)
-    public void testCheckPasswordsImageNotShown() {
-        TestThreadUtils.runOnUiThreadBlocking(
-                () -> { getPrefService().setInteger(Pref.SETTINGS_LAUNCHED_PASSWORD_CHECKS, 3); });
-
-        startPasswordSettingsDirectly();
-        PasswordSettings passwordPrefs = mSettingsActivityTestRule.getFragment();
-        PasswordCheckPreference passwordCheck =
-                passwordPrefs.findPreference(PasswordSettings.PREF_CHECK_PASSWORDS);
-        Assert.assertNotNull(passwordCheck);
-        int promoImageVisibility =
-                passwordCheck.getPromoImageView(passwordPrefs.getActivity()).getVisibility();
-        Assert.assertEquals(promoImageVisibility, View.GONE);
-    }
-
-    /**
-     * Check that the check passwords preference is not shown when the corresponding feature is
-     * disabled.
-     */
-    @Test
-    @SmallTest
-    @Feature({"Preferences"})
-    @DisableFeatures(ChromeFeatureList.PASSWORD_CHECK)
-    public void testCheckPasswordsDisabled() {
-        mBrowserTestRule.addAndSignInTestAccount();
-        final SettingsActivity settingsActivity = startPasswordSettingsFromMainSettings();
-
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            PasswordSettings passwordPrefs = mSettingsActivityTestRule.getFragment();
-            Assert.assertNull(passwordPrefs.findPreference(PasswordSettings.PREF_CHECK_PASSWORDS));
-        });
-    }
-
-    /**
-     * Check that {@link #showPasswordEntryEditingView()} was called with the index matching the one
-     * of the password that was clicked.
-     */
-    @Test
-    @SmallTest
-    @Feature({"Preferences"})
-    @EnableFeatures(ChromeFeatureList.PASSWORD_EDITING_ANDROID)
-    public void testSelectedStoredPasswordIndexIsSameAsInShowPasswordEntryEditingView() {
-        PasswordEditingDelegateProvider.getInstance().setPasswordEditingDelegate(
-                mMockPasswordEditingDelegate);
-        setPasswordSourceWithMultipleEntries( // Initialize preferences
-                new SavedPasswordEntry[] {new SavedPasswordEntry("https://example.com",
-                                                  "example user", "example password"),
-                        new SavedPasswordEntry("https://test.com", "test user", "test password")});
-
-        startPasswordSettingsFromMainSettings();
-
-        Espresso.onView(withText(containsString("test user"))).perform(click());
-
-        Espresso.onView(withEditMenuIdOrText()).perform(click());
-
-        Assert.assertEquals(mHandler.getLastEntryIndex(), 1);
-    }
-
-    /**
-     * Check that the password editing activity displays the data received through arguments.
-     */
-    @Test
-    @SmallTest
-    @Feature({"Preferences"})
-    @EnableFeatures(ChromeFeatureList.PASSWORD_EDITING_ANDROID)
-    public void testPasswordDataDisplayedInEditingActivity() {
-        PasswordEditingDelegateProvider.getInstance().setPasswordEditingDelegate(
-                mMockPasswordEditingDelegate);
-        Bundle fragmentArgs = new Bundle();
-        fragmentArgs.putString(PasswordEntryEditor.CREDENTIAL_URL, "https://example.com");
-        fragmentArgs.putString(PasswordEntryEditor.CREDENTIAL_NAME, "test user");
-        fragmentArgs.putString(PasswordEntryEditor.CREDENTIAL_PASSWORD, "test password");
-        mEditorActivityTestRule.startSettingsActivity(fragmentArgs);
-
-        Espresso.onView(withId(R.id.site_edit)).check(matches(withText("https://example.com")));
-        Espresso.onView(withId(R.id.username_edit)).check(matches(withText("test user")));
-        Espresso.onView(withId(R.id.password_edit)).check(matches(withText("test password")));
-    }
-
-    /**
-     * Check that the password editing method from the PasswordEditingDelegate was called when the
-     * save button in the password editing activity was clicked.
-     */
-    @Test
-    @SmallTest
-    @Feature({"Preferences"})
-    @EnableFeatures(ChromeFeatureList.PASSWORD_EDITING_ANDROID)
-    @DisabledTest(message = "crbug.com/1122310")
-    public void testPasswordEditingMethodWasCalled() throws Exception {
-        PasswordEditingDelegateProvider.getInstance().setPasswordEditingDelegate(
-                mMockPasswordEditingDelegate);
-        setPasswordSource(new SavedPasswordEntry("https://example.com", "test user", "password"));
-
-        startPasswordSettingsFromMainSettings();
-
-        Espresso.onView(withText(containsString("test user"))).perform(click());
-
-        Espresso.onView(withEditMenuIdOrText()).perform(click());
-
-        Espresso.onView(withId(R.id.username_edit)).perform(typeText(" new"));
-
-        Espresso.onView(withSaveMenuIdOrText()).perform(click());
-
-        verify(mMockPasswordEditingDelegate).editSavedPasswordEntry("test user new", "password");
-
-        // Verify that the delegate was destroyed when the password editing activity finished.
-        waitForEvent().destroy();
-    }
-
-    /**
-     * Check that the changes of password data are shown in the password viewing activity and in the
-     * list of passwords after the save button was clicked.
-     */
-    @Test
-    @SmallTest
-    @Feature({"Preferences"})
-    @EnableFeatures(ChromeFeatureList.PASSWORD_EDITING_ANDROID)
-    public void testChangeOfStoredPasswordDataIsPropagated() throws Exception {
-        PasswordEditingDelegateProvider.getInstance().setPasswordEditingDelegate(
-                mMockPasswordEditingDelegate);
-        setPasswordSource(new SavedPasswordEntry("https://example.com", "test user", "password"));
-
-        startPasswordSettingsFromMainSettings();
-
-        Espresso.onView(withText(containsString("test user"))).perform(click());
-
-        Espresso.onView(withEditMenuIdOrText()).perform(click());
-
-        // Performing a change of saved credentials.
-        mHandler.mSavedPasswords.set(
-                0, new SavedPasswordEntry("https://example.com", "test user new", "password"));
-
-        Espresso.onView(withSaveMenuIdOrText()).perform(click());
-
-        // Check if the password viewing activity has the updated data.
-        Espresso.onView(withText("test user new")).check(matches(isDisplayed()));
-
-        Espresso.pressBack();
-        // Check if the password preferences activity has the updated data in the list of passwords.
-        Espresso.onView(withText("test user new")).check(matches(isDisplayed()));
-    }
-
-    /**
-     * Check that the stored password is visible after clicking the unmasking icon and invisible
-     * after another click.
-     */
-    @Test
-    @SmallTest
-    @Feature({"Preferences"})
-    @EnableFeatures(ChromeFeatureList.PASSWORD_EDITING_ANDROID)
-    public void testStoredPasswordCanBeUnmaskedAndMaskedAgain() {
-        PasswordEditingDelegateProvider.getInstance().setPasswordEditingDelegate(
-                mMockPasswordEditingDelegate);
-        Bundle fragmentArgs = new Bundle();
-        fragmentArgs.putString(PasswordSettings.PASSWORD_LIST_NAME, "test user");
-        fragmentArgs.putString(PasswordSettings.PASSWORD_LIST_URL, "https://example.com");
-        fragmentArgs.putString(PasswordSettings.PASSWORD_LIST_PASSWORD, "test password");
-        mEditorActivityTestRule.startSettingsActivity(fragmentArgs);
-
-        ReauthenticationManager.setApiOverride(ReauthenticationManager.OverrideState.AVAILABLE);
-        ReauthenticationManager.setScreenLockSetUpOverride(
-                ReauthenticationManager.OverrideState.AVAILABLE);
-
-        ReauthenticationManager.recordLastReauth(
-                System.currentTimeMillis(), ReauthenticationManager.ReauthScope.BULK);
-
-        Espresso.onView(withId(R.id.password_entry_editor_view_password)).perform(click());
-
-        Espresso.onView(withId(R.id.password_edit)).check(matches(isVisiblePasswordInput(true)));
-
-        Espresso.onView(withId(R.id.password_entry_editor_view_password)).perform(click());
-
-        Espresso.onView(withId(R.id.password_edit)).check(matches(isVisiblePasswordInput(false)));
     }
 
     /**
@@ -1037,7 +767,9 @@ public class PasswordSettingsTest {
         // reauthentication just happened. This will allow the export flow to continue.
         ReauthenticationManager.recordLastReauth(
                 System.currentTimeMillis(), ReauthenticationManager.ReauthScope.BULK);
-        Espresso.onView(withText(R.string.password_settings_export_action_title)).perform(click());
+        onViewWaiting(
+                allOf(withText(R.string.password_settings_export_action_title), isDisplayed()))
+                .perform(click());
 
         Assert.assertNotNull(mHandler.getExportTargetPath());
         Assert.assertFalse(mHandler.getExportTargetPath().isEmpty());
@@ -1095,7 +827,9 @@ public class PasswordSettingsTest {
         // Avoid launching the Android-provided reauthentication challenge, which cannot be
         // completed in the test.
         ReauthenticationManager.setSkipSystemReauth(true);
-        Espresso.onView(withText(R.string.password_settings_export_action_title)).perform(click());
+        onViewWaiting(
+                allOf(withText(R.string.password_settings_export_action_title), isDisplayed()))
+                .perform(click());
 
         // Now Chrome thinks it triggered the challenge and is waiting to be resumed. Once resumed
         // it will check the reauthentication result. First, update the reauth timestamp to indicate
@@ -1132,7 +866,9 @@ public class PasswordSettingsTest {
         View mainDecorView = settingsActivity.getWindow().getDecorView();
         openActionBarOverflowOrOptionsMenu(
                 InstrumentationRegistry.getInstrumentation().getTargetContext());
-        Espresso.onView(withText(R.string.password_settings_export_action_title)).perform(click());
+        onViewWaiting(
+                allOf(withText(R.string.password_settings_export_action_title), isDisplayed()))
+                .perform(click());
         Espresso.onView(withText(R.string.password_export_set_lock_screen))
                 .inRoot(withDecorView(not(is(mainDecorView))))
                 .check(matches(isDisplayed()));
@@ -1157,7 +893,9 @@ public class PasswordSettingsTest {
         // Trigger exporting and let it fail on the unavailable lock.
         openActionBarOverflowOrOptionsMenu(
                 InstrumentationRegistry.getInstrumentation().getTargetContext());
-        Espresso.onView(withText(R.string.password_settings_export_action_title)).perform(click());
+        onViewWaiting(
+                allOf(withText(R.string.password_settings_export_action_title), isDisplayed()))
+                .perform(click());
 
         // Check that for re-triggering, the export menu item is enabled.
         checkExportMenuItemState(MenuItemState.ENABLED);
@@ -1180,7 +918,9 @@ public class PasswordSettingsTest {
 
         openActionBarOverflowOrOptionsMenu(
                 InstrumentationRegistry.getInstrumentation().getTargetContext());
-        Espresso.onView(withText(R.string.password_settings_export_action_title)).perform(click());
+        onViewWaiting(
+                allOf(withText(R.string.password_settings_export_action_title), isDisplayed()))
+                .perform(click());
         // The reauthentication dialog is skipped and the last reauthentication timestamp is not
         // reset. This looks like a failed reauthentication to PasswordSettings' onResume.
         TestThreadUtils.runOnUiThreadBlocking(
@@ -1215,7 +955,9 @@ public class PasswordSettingsTest {
         // Avoid launching the Android-provided reauthentication challenge, which cannot be
         // completed in the test.
         ReauthenticationManager.setSkipSystemReauth(true);
-        Espresso.onView(withText(R.string.password_settings_export_action_title)).perform(click());
+        onViewWaiting(
+                allOf(withText(R.string.password_settings_export_action_title), isDisplayed()))
+                .perform(click());
 
         // Check that Chrome indeed issued an (ignored) request to reauthenticate the user rather
         // than re-using the recent reauthentication, by observing that the next step in the flow
@@ -1253,7 +995,9 @@ public class PasswordSettingsTest {
                 .respondWith(new Instrumentation.ActivityResult(Activity.RESULT_OK, null));
 
         // Confirm the export warning to fire the sharing intent.
-        Espresso.onView(withText(R.string.password_settings_export_action_title)).perform(click());
+        onViewWaiting(
+                allOf(withText(R.string.password_settings_export_action_title), isDisplayed()))
+                .perform(click());
 
         intended(allOf(hasAction(equalTo(Intent.ACTION_CHOOSER)),
                 hasExtras(hasEntry(equalTo(Intent.EXTRA_INTENT),
@@ -1299,7 +1043,9 @@ public class PasswordSettingsTest {
                 .respondWith(new Instrumentation.ActivityResult(Activity.RESULT_OK, null));
 
         // Confirm the export warning to fire the sharing intent.
-        Espresso.onView(withText(R.string.password_settings_export_action_title)).perform(click());
+        onViewWaiting(
+                allOf(withText(R.string.password_settings_export_action_title), isDisplayed()))
+                .perform(click());
 
         intended(allOf(hasAction(equalTo(Intent.ACTION_CHOOSER)),
                 hasExtras(hasEntry(equalTo(Intent.EXTRA_INTENT),
@@ -1393,7 +1139,9 @@ public class PasswordSettingsTest {
                         - ReauthenticationManager.VALID_REAUTHENTICATION_TIME_INTERVAL_MILLIS - 1,
                 ReauthenticationManager.ReauthScope.BULK);
 
-        Espresso.onView(withText(R.string.password_settings_export_action_title)).perform(click());
+        onViewWaiting(
+                allOf(withText(R.string.password_settings_export_action_title), isDisplayed()))
+                .perform(click());
 
         // Call onResume to simulate that the user put Chrome into background by opening "recent
         // apps" and then restored Chrome by choosing it from the list.
@@ -1465,7 +1213,9 @@ public class PasswordSettingsTest {
                 .respondWith(new Instrumentation.ActivityResult(Activity.RESULT_OK, null));
 
         // Confirm the export warning to fire the sharing intent.
-        Espresso.onView(withText(R.string.password_settings_export_action_title)).perform(click());
+        onViewWaiting(
+                allOf(withText(R.string.password_settings_export_action_title), isDisplayed()))
+                .perform(click());
 
         // Before simulating the serialized passwords being received, check that the progress bar is
         // shown.
@@ -1521,7 +1271,9 @@ public class PasswordSettingsTest {
                 .respondWith(new Instrumentation.ActivityResult(Activity.RESULT_OK, null));
 
         // Confirm the export warning to fire the sharing intent.
-        Espresso.onView(withText(R.string.password_settings_export_action_title)).perform(click());
+        onViewWaiting(
+                allOf(withText(R.string.password_settings_export_action_title), isDisplayed()))
+                .perform(click());
 
         // Before simulating the serialized passwords being received, check that the progress bar is
         // shown.
@@ -1566,7 +1318,9 @@ public class PasswordSettingsTest {
         reauthenticateAndRequestExport(settingsActivity);
 
         // Confirm the export warning to fire the sharing intent.
-        Espresso.onView(withText(R.string.password_settings_export_action_title)).perform(click());
+        onViewWaiting(
+                allOf(withText(R.string.password_settings_export_action_title), isDisplayed()))
+                .perform(click());
 
         // Simulate the minimal time for showing the progress bar to have passed, to ensure that it
         // is kept live because of the pending serialization.
@@ -1602,7 +1356,9 @@ public class PasswordSettingsTest {
         reauthenticateAndRequestExport(settingsActivity);
 
         // Confirm the export warning.
-        Espresso.onView(withText(R.string.password_settings_export_action_title)).perform(click());
+        onViewWaiting(
+                allOf(withText(R.string.password_settings_export_action_title), isDisplayed()))
+                .perform(click());
 
         // Show an arbitrary error. This should replace the progress bar if that has been shown in
         // the meantime.
@@ -1640,7 +1396,9 @@ public class PasswordSettingsTest {
         reauthenticateAndRequestExport(settingsActivity);
 
         // Confirm the export warning.
-        Espresso.onView(withText(R.string.password_settings_export_action_title)).perform(click());
+        onViewWaiting(
+                allOf(withText(R.string.password_settings_export_action_title), isDisplayed()))
+                .perform(click());
 
         // Show an arbitrary error but ensure that the positive button label is the one for "try
         // again".
@@ -1674,7 +1432,9 @@ public class PasswordSettingsTest {
         reauthenticateAndRequestExport(settingsActivity);
 
         // Confirm the export warning.
-        Espresso.onView(withText(R.string.password_settings_export_action_title)).perform(click());
+        onViewWaiting(
+                allOf(withText(R.string.password_settings_export_action_title), isDisplayed()))
+                .perform(click());
 
         // Show an arbitrary error but ensure that the positive button label is the one for the
         // Google Drive help site.
@@ -1722,7 +1482,9 @@ public class PasswordSettingsTest {
         requestShowingExportError();
 
         // Check that the confirmation dialog is showing and dismiss it.
-        Espresso.onView(withText(R.string.password_settings_export_action_title)).perform(click());
+        onViewWaiting(
+                allOf(withText(R.string.password_settings_export_action_title), isDisplayed()))
+                .perform(click());
 
         // Check that now the error is displayed, instead of the progress bar.
         allowProgressBarToBeHidden(settingsActivity);
@@ -1755,6 +1517,8 @@ public class PasswordSettingsTest {
         final SettingsActivity settingsActivity = startPasswordSettingsFromMainSettings();
 
         View mainDecorView = settingsActivity.getWindow().getDecorView();
+        Espresso.onView(withId(R.id.recycler_view))
+                .perform(scrollToHolder(hasTextInViewHolder("test user")));
         Espresso.onView(withText(containsString("test user"))).perform(click());
         Espresso.onView(withContentDescription(R.string.password_entry_viewer_copy_stored_password))
                 .perform(click());
@@ -1778,7 +1542,8 @@ public class PasswordSettingsTest {
                 ReauthenticationManager.OverrideState.AVAILABLE);
 
         startPasswordSettingsFromMainSettings();
-
+        Espresso.onView(withId(R.id.recycler_view))
+                .perform(scrollToHolder(hasTextInViewHolder("test user")));
         Espresso.onView(withText(containsString("test user"))).perform(click());
 
         // Before tapping the view button, pretend that the last successful reauthentication just
@@ -1796,6 +1561,7 @@ public class PasswordSettingsTest {
     @Test
     @SmallTest
     @Feature({"Preferences"})
+    @FlakyTest(message = "crbug.com/1154362")
     @SuppressWarnings("AlwaysShowAction") // We need to ensure the icon is in the action bar.
     public void testSearchIconVisibleInActionBarWithFeature() {
         setPasswordSource(null); // Initialize empty preferences.
@@ -1813,29 +1579,12 @@ public class PasswordSettingsTest {
     }
 
     /**
-     * Check that the icon for editing saved passwords is visible if the Feature is enabled.
-     */
-    @Test
-    @SmallTest
-    @Feature({"Preferences"})
-    @EnableFeatures(ChromeFeatureList.PASSWORD_EDITING_ANDROID)
-    public void testEditSavedPasswordIconVisibleInActionBarWithFeature() {
-        setPasswordSource( // Initialize preferences
-                new SavedPasswordEntry("https://example.com", "test user", "test password"));
-
-        startPasswordSettingsFromMainSettings();
-
-        Espresso.onView(withText(containsString("test user"))).perform(click());
-
-        Espresso.onView(withEditMenuIdOrText()).check(matches(isDisplayed()));
-    }
-
-    /**
      * Check that the search item is visible if the Feature is enabled.
      */
     @Test
     @SmallTest
     @Feature({"Preferences"})
+    @DisabledTest(message = "crbug.com/1153707")
     public void testSearchTextInOverflowMenuVisibleWithFeature() {
         setPasswordSource(null); // Initialize empty preferences.mSettingsActivityTestRule
         startPasswordSettingsFromMainSettings();
@@ -1906,6 +1655,7 @@ public class PasswordSettingsTest {
     @Test
     @SmallTest
     @Feature({"Preferences"})
+    @DisabledTest(message = "crbug.com/1148376")
     public void testSearchFiltersByUserName() {
         setPasswordSourceWithMultipleEntries(GREEK_GODS);
         startPasswordSettingsFromMainSettings();
@@ -2203,10 +1953,9 @@ public class PasswordSettingsTest {
     @Test
     @MediumTest
     @Feature({"Preferences"})
-    @EnableFeatures({ChromeFeatureList.PASSWORD_CHECK})
     @DisabledTest(message = "crbug.com/1110965")
     public void testDestroysPasswordCheckIfFirstInSettingsStack() {
-        mBrowserTestRule.addAndSignInTestAccount();
+        mBrowserTestRule.addTestAccountThenSigninAndEnableSync();
         SettingsActivity activity = startPasswordSettingsDirectly();
         activity.finish();
         CriteriaHelper.pollInstrumentationThread(() -> activity.isDestroyed());
@@ -2216,20 +1965,14 @@ public class PasswordSettingsTest {
     @Test
     @MediumTest
     @Feature({"Preferences"})
-    @EnableFeatures({ChromeFeatureList.PASSWORD_CHECK})
     public void testDoesNotDestroyPasswordCheckIfNotFirstInSettingsStack() {
-        mBrowserTestRule.addAndSignInTestAccount();
+        mBrowserTestRule.addTestAccountThenSigninAndEnableSync();
         SettingsActivity activity = startPasswordSettingsFromMainSettings();
         activity.finish();
         CriteriaHelper.pollInstrumentationThread(() -> activity.isDestroyed());
         Assert.assertNotNull(PasswordCheckFactory.getPasswordCheckInstance());
         // Clean up the password check component.
         PasswordCheckFactory.destroy();
-    }
-
-    PasswordEditingDelegate waitForEvent() {
-        return verify(mMockPasswordEditingDelegate,
-                timeout(ScalableTimeout.scaleTimeout(CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL)));
     }
 
     PrefService getPrefService() {

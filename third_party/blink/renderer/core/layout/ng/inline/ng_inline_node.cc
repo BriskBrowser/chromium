@@ -32,7 +32,6 @@
 #include "third_party/blink/renderer/core/layout/ng/ng_positioned_float.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_space_utils.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_unpositioned_float.h"
-#include "third_party/blink/renderer/core/paint/ng/ng_paint_fragment.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/harfbuzz_shaper.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/run_segmenter.h"
@@ -148,9 +147,11 @@ unsigned EstimateOffsetMappingItemsCount(const LayoutBlockFlow& block) {
 // Wrapper over ShapeText that re-uses existing shape results for items that
 // haven't changed.
 class ReusingTextShaper final {
+  STACK_ALLOCATED();
+
  public:
   ReusingTextShaper(NGInlineItemsData* data,
-                    const Vector<NGInlineItem>* reusable_items)
+                    const HeapVector<NGInlineItem>* reusable_items)
       : data_(*data),
         reusable_items_(reusable_items),
         shaper_(data->text_content) {}
@@ -231,6 +232,8 @@ class ReusingTextShaper final {
         continue;
       if (!item->TextShapeResult() || item->Direction() != direction)
         continue;
+      if (item->TextShapeResult()->IsAppliedSpacing())
+        continue;
       shape_results.push_back(item->TextShapeResult());
     }
     return shape_results;
@@ -254,7 +257,7 @@ class ReusingTextShaper final {
   }
 
   NGInlineItemsData& data_;
-  const Vector<NGInlineItem>* const reusable_items_;
+  const HeapVector<NGInlineItem>* const reusable_items_;
   HarfBuzzShaper shaper_;
 };
 
@@ -278,7 +281,7 @@ void CollectInlinesInternal(ItemsBuilder* builder,
   const LayoutObject* symbol =
       LayoutNGListItem::FindSymbolMarkerLayoutText(block);
   while (node) {
-    if (LayoutText* layout_text = ToLayoutTextOrNull(node)) {
+    if (auto* layout_text = DynamicTo<LayoutText>(node)) {
       builder->AppendText(layout_text, previous_data);
 
       if (symbol == layout_text)
@@ -319,7 +322,7 @@ void CollectInlinesInternal(ItemsBuilder* builder,
       // should not appear. LayoutObject tree should have created an anonymous
       // box to prevent having inline/block-mixed children.
       DCHECK(node->IsInline());
-      LayoutInline* layout_inline = ToLayoutInline(node);
+      auto* layout_inline = To<LayoutInline>(node);
       builder->UpdateShouldCreateBoxFragment(layout_inline);
 
       builder->EnterInline(layout_inline);
@@ -414,10 +417,22 @@ inline bool ShouldBreakShapingAfterBox(const NGInlineItem& item,
 }
 
 inline bool NeedsShaping(const NGInlineItem& item) {
-  return item.Type() == NGInlineItem::kText && !item.TextShapeResult() &&
-         // Text item with length==0 exists to maintain LayoutObject states such
-         // as ClearNeedsLayout, but not needed to shape.
-         item.Length();
+  if (item.Type() != NGInlineItem::kText)
+    return false;
+  // Text item with length==0 exists to maintain LayoutObject states such as
+  // ClearNeedsLayout, but not needed to shape.
+  if (!item.Length())
+    return false;
+  const ShapeResult* shape_result = item.TextShapeResult();
+  if (!shape_result)
+    return true;
+  // |StartOffset| is usually safe-to-break, but it is not when we shape across
+  // elements and split the |ShapeResult|. Such |ShapeResult| is not safe to
+  // reuse.
+  DCHECK_EQ(item.StartOffset(), shape_result->StartIndex());
+  if (!shape_result->IsStartSafeToBreak())
+    return true;
+  return false;
 }
 
 // Determine if reshape is needed for ::first-line style.
@@ -455,31 +470,30 @@ NGInlineNode::NGInlineNode(LayoutBlockFlow* block)
 
 bool NGInlineNode::IsPrepareLayoutFinished() const {
   const NGInlineNodeData* data =
-      To<LayoutBlockFlow>(box_)->GetNGInlineNodeData();
+      To<LayoutBlockFlow>(box_.Get())->GetNGInlineNodeData();
   return data && !data->text_content.IsNull();
 }
 
 void NGInlineNode::PrepareLayoutIfNeeded() const {
-  std::unique_ptr<NGInlineNodeData> previous_data;
+  NGInlineNodeData* previous_data = nullptr;
   LayoutBlockFlow* block_flow = GetLayoutBlockFlow();
   if (IsPrepareLayoutFinished()) {
     if (!block_flow->NeedsCollectInlines())
       return;
 
-    previous_data.reset(block_flow->TakeNGInlineNodeData());
+    previous_data = block_flow->TakeNGInlineNodeData();
     block_flow->ResetNGInlineNodeData();
   }
 
-  PrepareLayout(std::move(previous_data));
+  PrepareLayout(previous_data);
 }
 
-void NGInlineNode::PrepareLayout(
-    std::unique_ptr<NGInlineNodeData> previous_data) const {
+void NGInlineNode::PrepareLayout(NGInlineNodeData* previous_data) const {
   // Scan list of siblings collecting all in-flow non-atomic inlines. A single
   // NGInlineNode represent a collection of adjacent non-atomic inlines.
   NGInlineNodeData* data = MutableData();
   DCHECK(data);
-  CollectInlines(data, previous_data.get());
+  CollectInlines(data, previous_data);
   SegmentText(data);
   ShapeText(data, previous_data ? &previous_data->text_content : nullptr);
   ShapeTextForFirstLineIfNeeded(data);
@@ -495,7 +509,7 @@ void NGInlineNode::PrepareLayout(
   DCHECK(!data->offset_mapping);
   ComputeOffsetMappingIfNeeded();
   DCHECK(data->offset_mapping);
-  data->offset_mapping.reset();
+  data->offset_mapping.Clear();
 #endif
 }
 
@@ -522,7 +536,8 @@ class NGInlineNodeDataEditor final {
         block_flow_->NeedsLayout() ||
         block_flow_->GetDocument().NeedsLayoutTreeUpdate() ||
         !block_flow_->GetNGInlineNodeData() ||
-        block_flow_->GetNGInlineNodeData()->text_content.IsNull())
+        block_flow_->GetNGInlineNodeData()->text_content.IsNull() ||
+        block_flow_->GetNGInlineNodeData()->items.IsEmpty())
       return nullptr;
 
     // Because of current text content has secured text, e.g. whole text is
@@ -541,97 +556,97 @@ class NGInlineNodeDataEditor final {
     const NGOffsetMapping* const offset_mapping =
         NGInlineNode::GetOffsetMapping(block_flow_);
     DCHECK(offset_mapping);
-    const auto units =
-        offset_mapping->GetMappingUnitsForLayoutObject(layout_text_);
-    start_offset_ = ConvertDOMOffsetToTextContent(units, offset);
-    end_offset_ = ConvertDOMOffsetToTextContent(units, offset + length);
-    DCHECK_LE(start_offset_, end_offset_);
-    data_.reset(block_flow_->TakeNGInlineNodeData());
-    return data_.get();
+    data_ = block_flow_->TakeNGInlineNodeData();
+    return data_;
   }
 
   void Run() {
     const NGInlineNodeData& new_data = *block_flow_->GetNGInlineNodeData();
-    const int diff =
-        new_data.text_content.length() - data_->text_content.length();
-    // |inserted_text_length| can be negative when white space is collapsed
-    // after text change.
+    const unsigned old_length = data_->text_content.length();
+    const unsigned new_length = new_data.text_content.length();
+    const unsigned start_offset = Mismatch(*data_, new_data);
     //  * "ab cd ef" => delete "cd" => "ab ef"
     //    We should not reuse " " before "ef"
     //  * "a bc" => delete "bc" => "a"
     //    There are no spaces after "a".
-    const int inserted_text_length = end_offset_ - start_offset_ + diff;
-    DCHECK_GE(inserted_text_length, -1);
-    const unsigned start_offset =
-        inserted_text_length < 0 && end_offset_ == data_->text_content.length()
-            ? start_offset_ - 1
-            : start_offset_;
-    const unsigned end_offset =
-        inserted_text_length < 0 && start_offset_ == start_offset
-            ? end_offset_ + 1
-            : end_offset_;
-    DCHECK_LE(end_offset, data_->text_content.length());
+    const unsigned matched_length = MismatchFromEnd(
+        *data_, new_data,
+        std::min(old_length - start_offset, new_length - start_offset));
+    DCHECK_LE(start_offset, old_length - matched_length);
+    DCHECK_LE(start_offset, new_length - matched_length);
+    const unsigned end_offset = old_length - matched_length;
     DCHECK_LE(start_offset, end_offset);
-#if DCHECK_IS_ON()
-    if (start_offset_ != start_offset) {
-      DCHECK_EQ(data_->text_content[start_offset], ' ');
-      DCHECK_EQ(end_offset, end_offset_);
-    }
-    if (end_offset_ != end_offset) {
-      DCHECK_EQ(data_->text_content[end_offset_], ' ');
-      DCHECK_EQ(start_offset, start_offset_);
-    }
-#endif
-    Vector<NGInlineItem> items;
+    HeapVector<NGInlineItem> items;
+
     // +3 for before and after replaced text.
     items.ReserveInitialCapacity(data_->items.size() + 3);
 
     // Copy items before replaced range
+    auto const* end = data_->items.end();
     auto* it = data_->items.begin();
-    while (it->end_offset_ < start_offset ||
-           it->layout_object_ != layout_text_) {
+    while (it != end && it->end_offset_ < start_offset) {
       DCHECK(it != data_->items.end());
       items.push_back(*it);
       ++it;
     }
 
-    DCHECK_EQ(it->layout_object_, layout_text_);
+    for (;;) {
+      if (it == end)
+        break;
 
-    // Copy part of item before replaced range.
-    if (it->start_offset_ < start_offset)
-      items.push_back(CopyItemBefore(*it, start_offset));
-
-    // Skip items in replaced range.
-    while (it->end_offset_ < end_offset)
-      ++it;
-
-    // Inserted text
-    if (it->layout_object_ == layout_text_) {
-      if (inserted_text_length > 0) {
-        const unsigned inserted_start_offset =
-            items.IsEmpty() ? 0 : items.back().end_offset_;
-        const unsigned inserted_end_offset =
-            inserted_start_offset + inserted_text_length;
-        items.push_back(NGInlineItem(*it, inserted_start_offset,
-                                     inserted_end_offset, nullptr));
+      // Copy part of item before replaced range.
+      if (it->start_offset_ < start_offset) {
+        const NGInlineItem& new_item = CopyItemBefore(*it, start_offset);
+        items.push_back(new_item);
+        if (new_item.EndOffset() < start_offset) {
+          items.push_back(
+              NGInlineItem(*it, new_item.EndOffset(), start_offset, nullptr));
+        }
       }
-    } else {
-      DCHECK_LE(inserted_text_length, 0);
-    }
 
-    // Copy part of item after replaced range.
-    if (end_offset < it->end_offset_) {
-      items.push_back(CopyItemAfter(*it, end_offset));
-      ShiftItem(&items.back(), diff);
-    }
+      // Skip items in replaced range.
+      while (it != end && it->end_offset_ < end_offset)
+        ++it;
 
-    // Copy items after replaced range
-    ++it;
-    while (it != data_->items.end()) {
-      DCHECK_LE(end_offset, it->start_offset_);
-      items.push_back(*it);
-      ShiftItem(&items.back(), diff);
+      if (it == end)
+        break;
+
+      // Inserted text
+      const int diff = new_length - old_length;
+      const unsigned inserted_end = AdjustOffset(end_offset, diff);
+      if (start_offset < inserted_end)
+        items.push_back(NGInlineItem(*it, start_offset, inserted_end, nullptr));
+
+      // Copy part of item after replaced range.
+      if (end_offset < it->end_offset_) {
+        const NGInlineItem& new_item = CopyItemAfter(*it, end_offset);
+        if (end_offset < new_item.StartOffset()) {
+          items.push_back(
+              NGInlineItem(*it, end_offset, new_item.StartOffset(), nullptr));
+          ShiftItem(&items.back(), diff);
+        }
+        items.push_back(new_item);
+        ShiftItem(&items.back(), diff);
+      }
+
+      // Copy items after replaced range
       ++it;
+      while (it != end) {
+        DCHECK_LE(end_offset, it->start_offset_);
+        items.push_back(*it);
+        ShiftItem(&items.back(), diff);
+        ++it;
+      }
+      break;
+    }
+
+    if (items.IsEmpty()) {
+      items.push_back(NGInlineItem(data_->items.front(), 0,
+                                   new_data.text_content.length(), nullptr));
+    } else if (items.back().end_offset_ < new_data.text_content.length()) {
+      items.push_back(NGInlineItem(data_->items.back(),
+                                   items.back().end_offset_,
+                                   new_data.text_content.length(), nullptr));
     }
 
     VerifyItems(items);
@@ -662,11 +677,11 @@ class NGInlineNodeDataEditor final {
                              unsigned start_offset) const {
     DCHECK_LE(item.start_offset_, start_offset);
     DCHECK_LT(start_offset, item.end_offset_);
+    const unsigned end_offset = item.end_offset_;
+    if (!item.shape_result_ || item.shape_result_->IsAppliedSpacing())
+      return NGInlineItem(item, start_offset, end_offset, nullptr);
     if (item.start_offset_ == start_offset)
       return item;
-    const unsigned end_offset = item.end_offset_;
-    if (!item.shape_result_)
-      return NGInlineItem(item, start_offset, end_offset, nullptr);
     // TODO(yosin): We should handle |shape_result| doesn't have safe-to-break
     // at start and end, because of |ShapeText()| splits |ShapeResult| ignoring
     // safe-to-break offset.
@@ -676,7 +691,7 @@ class NGInlineNodeDataEditor final {
     if (end_offset == safe_start_offset)
       return NGInlineItem(item, start_offset, end_offset, nullptr);
     return NGInlineItem(
-        item, start_offset, end_offset,
+        item, safe_start_offset, end_offset,
         item.shape_result_->SubRange(safe_start_offset, end_offset));
   }
 
@@ -685,23 +700,89 @@ class NGInlineNodeDataEditor final {
                               unsigned end_offset) const {
     DCHECK_LT(item.start_offset_, end_offset);
     DCHECK_LE(end_offset, item.end_offset_);
-    DCHECK_EQ(item.layout_object_, layout_text_);
-    if (item.end_offset_ == end_offset)
-      return item;
+    const unsigned safe_end_offset = GetLastSafeToReuse(item, end_offset);
     const unsigned start_offset = item.start_offset_;
-    if (!item.shape_result_)
-      return NGInlineItem(item, start_offset, end_offset, nullptr);
-    // TODO(yosin): We should handle |shape_result| doesn't have safe-to-break
-    // at start and end, because of |ShapeText()| splits |ShapeResult| ignoring
-    // safe-to-break offset.
-    item.shape_result_->EnsurePositionData();
-    const unsigned safe_end_offset =
-        item.shape_result_->CachedPreviousSafeToBreakOffset(end_offset);
     if (start_offset == safe_end_offset)
       return NGInlineItem(item, start_offset, end_offset, nullptr);
+    // To handle kerning, e.g. "AV", we should not reuse last glyph.
+    // See http://crbug.com/1129710
+    DCHECK_LT(safe_end_offset, item.end_offset_);
     return NGInlineItem(
-        item, start_offset, end_offset,
+        item, start_offset, safe_end_offset,
         item.shape_result_->SubRange(start_offset, safe_end_offset));
+  }
+
+  unsigned GetLastSafeToReuse(const NGInlineItem& item,
+                              unsigned end_offset) const {
+    DCHECK_LT(item.start_offset_, end_offset);
+    DCHECK_LE(end_offset, item.end_offset_);
+    const unsigned start_offset = item.start_offset_;
+    if (!item.shape_result_ || item.shape_result_->IsAppliedSpacing() ||
+        end_offset - start_offset <= 1)
+      return start_offset;
+    item.shape_result_->EnsurePositionData();
+    // Note: Because |CachedPreviousSafeToBreakOffset()| assumes |end_offset|
+    // is always safe to break offset, we try to search before |end_offset|.
+    return item.shape_result_->CachedPreviousSafeToBreakOffset(end_offset - 1);
+  }
+
+  template <typename Span1, typename Span2>
+  static unsigned MismatchInternal(const Span1& span1, const Span2& span2) {
+    const auto old_new =
+        std::mismatch(span1.begin(), span1.end(), span2.begin(), span2.end());
+    return static_cast<unsigned>(old_new.first - span1.begin());
+  }
+
+  static unsigned Mismatch(const NGInlineItemsData& old_data,
+                           const NGInlineItemsData& new_data) {
+    const StringImpl& old_text = *old_data.text_content.Impl();
+    const StringImpl& new_text = *new_data.text_content.Impl();
+    if (old_text.Is8Bit()) {
+      const auto old_span8 = old_text.Span8();
+      if (new_text.Is8Bit())
+        return MismatchInternal(old_span8, new_text.Span8());
+      return MismatchInternal(old_span8, new_text.Span16());
+    }
+    const auto old_span16 = old_text.Span16();
+    if (new_text.Is8Bit())
+      return MismatchInternal(old_span16, new_text.Span8());
+    return MismatchInternal(old_span16, new_text.Span16());
+  }
+
+  template <typename Span1, typename Span2>
+  static unsigned MismatchFromEnd(const Span1& span1, const Span2& span2) {
+    const auto old_new = std::mismatch(span1.rbegin(), span1.rend(),
+                                       span2.rbegin(), span2.rend());
+    return static_cast<unsigned>(old_new.first - span1.rbegin());
+  }
+
+  static unsigned MismatchFromEnd(const NGInlineItemsData& old_data,
+                                  const NGInlineItemsData& new_data,
+                                  unsigned max_length) {
+    const StringImpl& old_text = *old_data.text_content.Impl();
+    const StringImpl& new_text = *new_data.text_content.Impl();
+    const unsigned old_length = old_text.length();
+    const unsigned new_length = new_text.length();
+    DCHECK_LE(max_length, old_length);
+    DCHECK_LE(max_length, new_length);
+    const unsigned old_start = old_length - max_length;
+    const unsigned new_start = new_length - max_length;
+    if (old_text.Is8Bit()) {
+      const auto old_span8 = old_text.Span8().subspan(old_start, max_length);
+      if (new_text.Is8Bit()) {
+        return MismatchFromEnd(old_span8,
+                               new_text.Span8().subspan(new_start, max_length));
+      }
+      return MismatchFromEnd(old_span8,
+                             new_text.Span16().subspan(new_start, max_length));
+    }
+    const auto old_span16 = old_text.Span16().subspan(old_start, max_length);
+    if (new_text.Is8Bit()) {
+      return MismatchFromEnd(old_span16,
+                             new_text.Span8().subspan(new_start, max_length));
+    }
+    return MismatchFromEnd(old_span16,
+                           new_text.Span16().subspan(new_start, max_length));
   }
 
   static void ShiftItem(NGInlineItem* item, int delta) {
@@ -715,33 +796,29 @@ class NGInlineNodeDataEditor final {
         item->shape_result_->CopyAdjustedOffset(item->start_offset_);
   }
 
-  // TODO(yosin): Once we can reproduce invalid |ShapeResult| offsets, we
-  // should make this function works only for |DCHECK_IS_ON()|.
-  void VerifyItems(const Vector<NGInlineItem>& items) const {
+  void VerifyItems(const HeapVector<NGInlineItem>& items) const {
+#if DCHECK_IS_ON()
+    if (items.IsEmpty())
+      return;
     unsigned last_offset = items.front().start_offset_;
     for (const NGInlineItem& item : items) {
-      CHECK_LE(item.start_offset_, item.end_offset_);
-      CHECK_EQ(last_offset, item.start_offset_);
+      DCHECK_LE(item.start_offset_, item.end_offset_);
+      DCHECK_EQ(last_offset, item.start_offset_);
       last_offset = item.end_offset_;
-      if (!item.shape_result_ || item.layout_object_ != layout_text_)
+      if (!item.shape_result_)
         continue;
-      CHECK_LT(item.start_offset_, item.end_offset_);
-      if (item.shape_result_->StartIndex() == item.start_offset_) {
-        CHECK_LE(item.shape_result_->EndIndex(), item.end_offset_);
-      } else {
-        CHECK_LE(item.start_offset_, item.shape_result_->StartIndex());
-        CHECK_EQ(item.end_offset_, item.shape_result_->EndIndex());
-      }
+      DCHECK_LT(item.start_offset_, item.end_offset_);
+      DCHECK_EQ(item.shape_result_->StartIndex(), item.start_offset_);
+      DCHECK_EQ(item.shape_result_->EndIndex(), item.end_offset_);
     }
-    CHECK_EQ(last_offset,
-             block_flow_->GetNGInlineNodeData()->text_content.length());
+    DCHECK_EQ(last_offset,
+              block_flow_->GetNGInlineNodeData()->text_content.length());
+#endif
   }
 
-  std::unique_ptr<NGInlineNodeData> data_;
+  NGInlineNodeData* data_;
   LayoutBlockFlow* const block_flow_;
   const LayoutText& layout_text_;
-  unsigned start_offset_ = 0;
-  unsigned end_offset_ = 0;
 };
 
 // static
@@ -797,7 +874,8 @@ const NGInlineNodeData& NGInlineNode::EnsureData() const {
 }
 
 const NGOffsetMapping* NGInlineNode::ComputeOffsetMappingIfNeeded() const {
-  DCHECK(!GetLayoutBlockFlow()->GetDocument().NeedsLayoutTreeUpdate());
+  DCHECK(!GetLayoutBlockFlow()->GetDocument().NeedsLayoutTreeUpdate() ||
+         GetLayoutBlockFlow()->IsLayoutNGObjectForCanvasFormattedText());
 
   NGInlineNodeData* data = MutableData();
   if (!data->offset_mapping) {
@@ -806,19 +884,20 @@ const NGOffsetMapping* NGInlineNode::ComputeOffsetMappingIfNeeded() const {
     DCHECK(data->offset_mapping);
   }
 
-  return data->offset_mapping.get();
+  return data->offset_mapping;
 }
 
 void NGInlineNode::ComputeOffsetMapping(LayoutBlockFlow* layout_block_flow,
                                         NGInlineNodeData* data) {
   DCHECK(!data->offset_mapping);
-  DCHECK(!layout_block_flow->GetDocument().NeedsLayoutTreeUpdate());
+  DCHECK(!layout_block_flow->GetDocument().NeedsLayoutTreeUpdate() ||
+         layout_block_flow->IsLayoutNGObjectForCanvasFormattedText());
 
   // TODO(xiaochengh): ComputeOffsetMappingIfNeeded() discards the
   // NGInlineItems and text content built by |builder|, because they are
   // already there in NGInlineNodeData. For efficiency, we should make
   // |builder| not construct items and text content.
-  Vector<NGInlineItem> items;
+  HeapVector<NGInlineItem> items;
   items.ReserveCapacity(EstimateInlineItemsCount(*layout_block_flow));
   NGInlineItemsBuilderForOffsetMapping builder(layout_block_flow, &items);
   builder.GetOffsetMappingBuilder().ReserveCapacity(
@@ -864,13 +943,13 @@ const NGOffsetMapping* NGInlineNode::GetOffsetMapping(
   }
 
   // If this is not LayoutNG, compute the offset mapping and store into
-  // |LayoutBlockFlowRateData|.
+  // |LayoutBlockFlowRareData|.
   if (const NGOffsetMapping* mapping = layout_block_flow->GetOffsetMapping())
     return mapping;
-  NGInlineNodeData data;
-  ComputeOffsetMapping(layout_block_flow, &data);
-  NGOffsetMapping* const mapping = data.offset_mapping.get();
-  layout_block_flow->SetOffsetMapping(std::move(data.offset_mapping));
+  NGInlineNodeData* data = MakeGarbageCollected<NGInlineNodeData>();
+  ComputeOffsetMapping(layout_block_flow, data);
+  NGOffsetMapping* const mapping = data->offset_mapping.Release();
+  layout_block_flow->SetOffsetMapping(mapping);
   return mapping;
 }
 
@@ -889,6 +968,9 @@ void NGInlineNode::CollectInlines(NGInlineNodeData* data,
   NGInlineItemsBuilder builder(block, &data->items);
   CollectInlinesInternal(&builder, previous_data);
   builder.DidFinishCollectInlines(data);
+
+  if (UNLIKELY(builder.HasUnicodeBidiPlainText()))
+    UseCounter::Count(GetDocument(), WebFeature::kUnicodeBidiPlainText);
 }
 
 void NGInlineNode::SegmentText(NGInlineNodeData* data) const {
@@ -908,7 +990,7 @@ void NGInlineNode::SegmentScriptRuns(NGInlineNodeData* data) const {
     return;
   }
 
-  Vector<NGInlineItem>& items = data->items;
+  HeapVector<NGInlineItem>& items = data->items;
   if (items.IsEmpty()) {
     return;
   }
@@ -989,7 +1071,7 @@ void NGInlineNode::SegmentFontOrientation(NGInlineNodeData* data) const {
   if (GetLayoutBlockFlow()->IsHorizontalWritingMode())
     return;
 
-  Vector<NGInlineItem>& items = data->items;
+  HeapVector<NGInlineItem>& items = data->items;
   if (items.IsEmpty())
     return;
   String& text_content = data->text_content;
@@ -1048,7 +1130,7 @@ void NGInlineNode::SegmentBidiRuns(NGInlineNodeData* data) const {
     return;
   }
 
-  Vector<NGInlineItem>& items = data->items;
+  HeapVector<NGInlineItem>& items = data->items;
   unsigned item_index = 0;
   for (unsigned start = 0; start < data->text_content.length();) {
     UBiDiLevel level;
@@ -1068,12 +1150,13 @@ void NGInlineNode::SegmentBidiRuns(NGInlineNodeData* data) const {
 #endif
 }
 
-void NGInlineNode::ShapeText(NGInlineItemsData* data,
-                             const String* previous_text,
-                             const Vector<NGInlineItem>* previous_items) const {
+void NGInlineNode::ShapeText(
+    NGInlineItemsData* data,
+    const String* previous_text,
+    const HeapVector<NGInlineItem>* previous_items) const {
   TRACE_EVENT0("fonts", "NGInlineNode::ShapeText");
   const String& text_content = data->text_content;
-  Vector<NGInlineItem>* items = &data->items;
+  HeapVector<NGInlineItem>* items = &data->items;
 
   // Provide full context of the entire node to the shaper.
   ReusingTextShaper shaper(data, previous_items);
@@ -1252,7 +1335,7 @@ void NGInlineNode::ShapeText(NGInlineItemsData* data,
 #endif
 }
 
-// Create Vector<NGInlineItem> with :first-line rules applied if needed.
+// Create HeapVector<NGInlineItem> with :first-line rules applied if needed.
 void NGInlineNode::ShapeTextForFirstLineIfNeeded(NGInlineNodeData* data) const {
   // First check if the document has any :first-line rules.
   DCHECK(!data->first_line_items_);
@@ -1266,7 +1349,7 @@ void NGInlineNode::ShapeTextForFirstLineIfNeeded(NGInlineNodeData* data) const {
   if (block_style == first_line_style)
     return;
 
-  auto first_line_items = std::make_unique<NGInlineItemsData>();
+  auto* first_line_items = MakeGarbageCollected<NGInlineItemsData>();
   first_line_items->text_content = data->text_content;
   bool needs_reshape = false;
   if (first_line_style->TextTransform() != block_style->TextTransform()) {
@@ -1293,92 +1376,44 @@ void NGInlineNode::ShapeTextForFirstLineIfNeeded(NGInlineNodeData* data) const {
 
   // Re-shape if the font is different.
   if (needs_reshape || FirstLineNeedsReshape(*first_line_style, *block_style))
-    ShapeText(first_line_items.get());
+    ShapeText(first_line_items);
 
-  data->first_line_items_ = std::move(first_line_items);
+  data->first_line_items_ = first_line_items;
 }
 
 void NGInlineNode::AssociateItemsWithInlines(NGInlineNodeData* data) const {
 #if DCHECK_IS_ON()
-  HashSet<LayoutObject*> associated_objects;
+  HeapHashSet<Member<LayoutObject>> associated_objects;
 #endif
-  Vector<NGInlineItem>& items = data->items;
-  for (NGInlineItem* item = items.begin(); item != items.end();) {
-    LayoutObject* object = item->GetLayoutObject();
-    if (LayoutNGText* layout_text = ToLayoutNGTextOrNull(object)) {
+  HeapVector<NGInlineItem>& items = data->items;
+  size_t size = items.size();
+  for (size_t i = 0; i != size;) {
+    LayoutObject* object = items[i].GetLayoutObject();
+    if (auto* layout_text = DynamicTo<LayoutNGText>(object)) {
 #if DCHECK_IS_ON()
       // Items split from a LayoutObject should be consecutive.
       DCHECK(associated_objects.insert(object).is_new_entry);
 #endif
       layout_text->ClearHasBidiControlInlineItems();
       bool has_bidi_control = false;
-      NGInlineItem* begin = item;
-      for (++item; item != items.end(); ++item) {
-        if (item->GetLayoutObject() != object)
+      size_t begin = i;
+      for (++i; i != size; ++i) {
+        auto& item = items[i];
+        if (item.GetLayoutObject() != object)
           break;
-        if (item->Type() == NGInlineItem::kBidiControl)
+        if (item.Type() == NGInlineItem::kBidiControl)
           has_bidi_control = true;
       }
-      layout_text->SetInlineItems(begin, item);
+      layout_text->SetInlineItems(data, begin, i - begin);
       if (has_bidi_control)
         layout_text->SetHasBidiControlInlineItems();
       continue;
     }
-    ++item;
+    ++i;
   }
 }
 
-void NGInlineNode::ClearAssociatedFragments(
-    const NGPhysicalFragment& fragment,
-    const NGBlockBreakToken* block_break_token) {
-  auto* block_flow = To<LayoutBlockFlow>(fragment.GetMutableLayoutObject());
-  if (!block_flow->ChildrenInline())
-    return;
-  DCHECK(AreNGBlockFlowChildrenInline(block_flow));
-  NGInlineNode node = NGInlineNode(block_flow);
-
-  DCHECK(node.IsPrepareLayoutFinished());
-  const Vector<NGInlineItem>& items = node.MaybeDirtyData().items;
-
-  unsigned start_index;
-  if (!block_break_token) {
-    start_index = 0;
-  } else {
-    // TODO(kojii): Not fully supported, need more logic when the block is
-    // fragmented, because one inline LayoutObject may span across
-    // fragmentainers.
-    // TODO(kojii): Not sure if using |block_break_token->InputNode()| is
-    // correct for multicol. Should verify and somehow get NGInlineNode from it.
-    // Also change |InlineBreakTokenFor| to receive NGInlineNode instead of
-    // NGLayoutInputNode once this is done.
-    const NGInlineBreakToken* inline_break_token =
-        block_break_token->InlineBreakTokenFor(block_break_token->InputNode());
-    // TODO(kojii): This needs to investigate in what case this happens. It's
-    // probably wrong to create NGPaintFragment when there's no inline break
-    // token.
-    if (!inline_break_token)
-      return;
-    start_index = inline_break_token->ItemIndex();
-  }
-
-  LayoutObject* last_object = nullptr;
-  for (unsigned i = start_index; i < items.size(); i++) {
-    const NGInlineItem& item = items[i];
-    if (item.Type() == NGInlineItem::kFloating ||
-        item.Type() == NGInlineItem::kOutOfFlowPositioned) {
-      // These items are not associated and that no need to clear.
-      DCHECK(!item.GetLayoutObject()->FirstInlineFragment());
-      continue;
-    }
-    LayoutObject* object = item.GetLayoutObject();
-    if (!object || object == last_object)
-      continue;
-    object->SetFirstInlineFragment(nullptr);
-    last_object = object;
-  }
-}
-
-scoped_refptr<const NGLayoutResult> NGInlineNode::Layout(
+const NGLayoutResult* NGInlineNode::Layout(
     const NGConstraintSpace& constraint_space,
     const NGBreakToken* break_token,
     NGInlineChildLayoutContext* context) const {
@@ -1387,27 +1422,7 @@ scoped_refptr<const NGLayoutResult> NGInlineNode::Layout(
   const auto* inline_break_token = To<NGInlineBreakToken>(break_token);
   NGInlineLayoutAlgorithm algorithm(*this, constraint_space, inline_break_token,
                                     context);
-  auto layout_result = algorithm.Layout();
-
-#if defined(OS_ANDROID)
-  if (!RuntimeEnabledFeatures::LayoutNGFragmentItemEnabled()) {
-    // Cached position data is crucial for line breaking performance and is
-    // preserved across layouts to speed up subsequent layout passes due to
-    // reflow, page zoom, window resize, etc. On Android though reflows are less
-    // common, page zoom isn't used (instead uses pinch-zoom), and the window
-    // typically can't be resized (apart from rotation). To reduce memory usage
-    // discard the cached position data after layout.
-    // TODO(crbug.com/1042604): FragmentItem should save memory enough to re-
-    // enable the position cache.
-    NGInlineNodeData* data = MutableData();
-    for (auto& item : data->items) {
-      if (item.shape_result_)
-        item.shape_result_->DiscardPositionData();
-    }
-  }
-#endif  // defined(OS_ANDROID)
-
-  return layout_result;
+  return algorithm.Layout();
 }
 
 namespace {
@@ -1463,14 +1478,13 @@ static LayoutUnit ComputeContentSize(
     base::Optional<LayoutUnit>* max_size_out,
     bool* depends_on_percentage_block_size_out) {
   const ComputedStyle& style = node.Style();
-  WritingMode writing_mode = style.GetWritingMode();
   LayoutUnit available_inline_size =
       mode == NGLineBreakerMode::kMaxContent ? LayoutUnit::Max() : LayoutUnit();
 
-  NGConstraintSpaceBuilder builder(/* parent_writing_mode */ writing_mode,
-                                   /* out_writing_mode */ writing_mode,
-                                   /* is_new_fc */ false);
-  builder.SetTextDirection(style.Direction());
+  NGConstraintSpaceBuilder builder(
+      /* parent_writing_mode */ style.GetWritingMode(),
+      style.GetWritingDirection(),
+      /* is_new_fc */ false);
   builder.SetAvailableSize({available_inline_size, kIndefiniteSize});
   builder.SetPercentageResolutionSize({LayoutUnit(), LayoutUnit()});
   builder.SetReplacedPercentageResolutionSize({LayoutUnit(), LayoutUnit()});
@@ -1514,7 +1528,7 @@ static LayoutUnit ComputeContentSize(
       EFloat previous_float_type = EFloat::kNone;
       for (const auto& floating_object : floating_objects_) {
         const EClear float_clear =
-            floating_object.float_style.Clear(floating_object.style);
+            floating_object.float_style->Clear(*floating_object.style);
 
         // If this float clears the previous float we start a new "line".
         // This is subtly different to block layout which will only reset either
@@ -1533,7 +1547,7 @@ static LayoutUnit ComputeContentSize(
         floats_inline_size_ += floating_object.float_inline_max_size_with_margin
                                    .ClampNegativeToZero();
         previous_float_type =
-            floating_object.float_style.Floating(floating_object.style);
+            floating_object.float_style->Floating(*floating_object.style);
       }
       max_inline_size =
           std::max(max_inline_size, line_inline_size + floats_inline_size_);
@@ -1662,6 +1676,7 @@ static LayoutUnit ComputeContentSize(
     }
   };
   FloatsMaxSize floats_max_size(input);
+  bool can_compute_max_size_from_min_size = true;
   MaxSizeFromMinSize max_size_from_min_size(items_data, *max_size_cache,
                                             &floats_max_size);
 
@@ -1672,16 +1687,6 @@ static LayoutUnit ComputeContentSize(
       break;
 
     LayoutUnit inline_size = line_info.Width();
-#if DCHECK_IS_ON()
-    // Text measurement is done using floats which may introduce small rounding
-    // errors for near-saturated values.
-    // See http://crbug.com/1112560
-    if (!LayoutUnit(line_info.ComputeWidthInFloat()).MightBeSaturated()) {
-      DCHECK_EQ(inline_size.Round(),
-                line_info.ComputeWidth().ClampNegativeToZero().Round());
-    }
-#endif
-
     for (const NGInlineItemResult& item_result : line_info.Results()) {
       DCHECK(item_result.item);
       const NGInlineItem& item = *item_result.item;
@@ -1690,7 +1695,7 @@ static LayoutUnit ComputeContentSize(
       LayoutObject* floating_object = item.GetLayoutObject();
       DCHECK(floating_object && floating_object->IsFloating());
 
-      NGBlockNode float_node(ToLayoutBox(floating_object));
+      NGBlockNode float_node(To<LayoutBox>(floating_object));
       const ComputedStyle& float_style = float_node.Style();
 
       // Floats don't intrude into floats.
@@ -1717,13 +1722,21 @@ static LayoutUnit ComputeContentSize(
 
     if (mode == NGLineBreakerMode::kMinContent) {
       result = std::max(result, inline_size);
-      max_size_from_min_size.ComputeFromMinSize(line_info);
+      can_compute_max_size_from_min_size =
+          can_compute_max_size_from_min_size &&
+          // `box-decoration-break: clone` clones box decorations to each
+          // fragment (line) that we cannot compute max-content from
+          // min-content.
+          !line_breaker.HasClonedBoxDecorations();
+      if (can_compute_max_size_from_min_size)
+        max_size_from_min_size.ComputeFromMinSize(line_info);
     } else {
       result = floats_max_size.ComputeMaxSizeForLine(inline_size, result);
     }
   } while (!line_breaker.IsFinished());
 
-  if (mode == NGLineBreakerMode::kMinContent) {
+  if (mode == NGLineBreakerMode::kMinContent &&
+      can_compute_max_size_from_min_size) {
     *max_size_out = max_size_from_min_size.Finish(items_data.items.end());
     // Check the max size matches to the value computed from 2 pass.
 #if DCHECK_IS_ON()
@@ -1758,13 +1771,18 @@ MinMaxSizesResult NGInlineNode::ComputeMinMaxSizes(
   sizes.min_size = ComputeContentSize(
       *this, container_writing_mode, input, NGLineBreakerMode::kMinContent,
       &max_size_cache, &max_size, &depends_on_percentage_block_size);
-  DCHECK(max_size.has_value());
-  sizes.max_size = *max_size;
+  if (max_size) {
+    sizes.max_size = *max_size;
+  } else {
+    sizes.max_size = ComputeContentSize(*this, container_writing_mode, input,
+                                        NGLineBreakerMode::kMaxContent,
+                                        &max_size_cache, nullptr, nullptr);
+  }
 
   // Negative text-indent can make min > max. Ensure min is the minimum size.
   sizes.min_size = std::min(sizes.min_size, sizes.max_size);
 
-  return {sizes, depends_on_percentage_block_size};
+  return MinMaxSizesResult(sizes, depends_on_percentage_block_size);
 }
 
 bool NGInlineNode::UseFirstLineStyle() const {
@@ -1774,7 +1792,7 @@ bool NGInlineNode::UseFirstLineStyle() const {
 
 void NGInlineNode::CheckConsistency() const {
 #if DCHECK_IS_ON()
-  const Vector<NGInlineItem>& items = Data().items;
+  const HeapVector<NGInlineItem>& items = Data().items;
   for (const NGInlineItem& item : items) {
     DCHECK(!item.GetLayoutObject() || !item.Style() ||
            item.Style() == item.GetLayoutObject()->Style());
@@ -1790,8 +1808,17 @@ bool NGInlineNode::ShouldReportLetterSpacingUseCounterForTesting(
                                              block_flow);
 }
 
+bool NGInlineNode::NeedsShapingForTesting(const NGInlineItem& item) {
+  return NeedsShaping(item);
+}
+
 String NGInlineNode::ToString() const {
-  return String::Format("NGInlineNode");
+  return "NGInlineNode";
+}
+
+void NGInlineNode::FloatingObject::Trace(Visitor* visitor) const {
+  visitor->Trace(float_style);
+  visitor->Trace(style);
 }
 
 }  // namespace blink

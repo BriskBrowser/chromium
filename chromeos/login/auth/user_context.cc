@@ -40,7 +40,8 @@ bool UserContext::operator==(const UserContext& context) const {
          context.is_using_oauth_ == is_using_oauth_ &&
          context.auth_flow_ == auth_flow_ && context.user_type_ == user_type_ &&
          context.public_session_locale_ == public_session_locale_ &&
-         context.public_session_input_method_ == public_session_input_method_;
+         context.public_session_input_method_ == public_session_input_method_ &&
+         context.login_input_method_used_ == login_input_method_used_;
 }
 
 bool UserContext::operator!=(const UserContext& context) const {
@@ -147,6 +148,11 @@ UserContext::GetSamlPasswordAttributes() const {
   return saml_password_attributes_;
 }
 
+const base::Optional<SyncTrustedVaultKeys>&
+UserContext::GetSyncTrustedVaultKeys() const {
+  return sync_trusted_vault_keys_;
+}
+
 bool UserContext::IsLockableManagedGuestSession() const {
   return !managed_guest_session_launch_extension_id_.empty();
 }
@@ -239,6 +245,11 @@ void UserContext::SetSamlPasswordAttributes(
   saml_password_attributes_ = saml_password_attributes;
 }
 
+void UserContext::SetSyncTrustedVaultKeys(
+    const SyncTrustedVaultKeys& sync_trusted_vault_keys) {
+  sync_trusted_vault_keys_ = sync_trusted_vault_keys;
+}
+
 void UserContext::SetIsUnderAdvancedProtection(
     bool is_under_advanced_protection) {
   is_under_advanced_protection_ = is_under_advanced_protection;
@@ -250,11 +261,21 @@ void UserContext::SetManagedGuestSessionLaunchExtensionId(
       managed_guest_session_launch_extension_id;
 }
 
+void UserContext::SetLoginInputMethodUsed(const std::string& input_method_id) {
+  DCHECK(login_input_method_used_.empty());
+  login_input_method_used_ = input_method_id;
+}
+
+const std::string& UserContext::GetLoginInputMethodUsed() const {
+  return login_input_method_used_;
+}
+
 void UserContext::ClearSecrets() {
   key_.ClearSecret();
   password_key_.ClearSecret();
   auth_code_.clear();
   refresh_token_.clear();
+  sync_trusted_vault_keys_.reset();
 }
 
 }  // namespace chromeos

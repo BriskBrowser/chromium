@@ -14,9 +14,9 @@
 #include "base/memory/ref_counted.h"
 #include "chrome/browser/media/router/event_page_request_manager.h"
 #include "chrome/browser/media/router/mojo/media_router_mojo_impl.h"
-#include "chrome/browser/media/router/test/mock_media_router.h"
-#include "chrome/browser/media/router/test/test_helper.h"
+#include "chrome/browser/media/router/test/provider_test_helpers.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/media_router/browser/test/mock_media_router.h"
 #include "components/media_router/common/mojom/media_router.mojom.h"
 #include "content/public/test/browser_task_environment.h"
 #include "extensions/browser/event_page_tracker.h"
@@ -128,8 +128,6 @@ class MockMediaRouteProvider : public mojom::MediaRouteProvider {
   MOCK_METHOD1(StopObservingMediaRoutes, void(const std::string& source));
   MOCK_METHOD0(EnableMdnsDiscovery, void());
   MOCK_METHOD1(UpdateMediaSinks, void(const std::string& source));
-  MOCK_METHOD2(ProvideSinks,
-               void(const std::string&, const std::vector<MediaSinkInternal>&));
   void CreateMediaRouteController(
       const std::string& route_id,
       mojo::PendingReceiver<mojom::MediaController> media_controller,

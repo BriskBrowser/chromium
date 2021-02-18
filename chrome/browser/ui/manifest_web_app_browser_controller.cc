@@ -4,14 +4,14 @@
 
 #include "chrome/browser/ui/manifest_web_app_browser_controller.h"
 
-#include "chrome/browser/installable/installable_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ssl/security_state_tab_helper.h"
 #include "chrome/browser/ui/browser.h"
+#include "components/webapps/browser/installable/installable_manager.h"
 #include "content/public/browser/navigation_entry.h"
-#include "content/public/common/origin_util.h"
 #include "content/public/common/url_constants.h"
 #include "extensions/common/constants.h"
+#include "services/network/public/cpp/is_potentially_trustworthy.h"
 #include "third_party/blink/public/common/manifest/manifest.h"
 #include "ui/gfx/favicon_size.h"
 #include "ui/gfx/image/image_skia.h"
@@ -36,7 +36,7 @@ bool ManifestWebAppBrowserController::ShouldShowCustomTabBar() const {
     return false;
 
   // Show if the web_contents is not on a secure origin.
-  if (!content::IsOriginSecure(app_launch_url_))
+  if (!network::IsUrlPotentiallyTrustworthy(app_start_url_))
     return true;
 
   // Show if web_contents is not currently in scope.
@@ -47,7 +47,7 @@ bool ManifestWebAppBrowserController::ShouldShowCustomTabBar() const {
 
   // Show if on a insecure external website. This checks the security level,
   // different from IsOriginSecure which just checks the origin itself.
-  if (!InstallableManager::IsContentSecure(web_contents))
+  if (!webapps::InstallableManager::IsContentSecure(web_contents))
     return true;
 
   return false;
@@ -75,11 +75,11 @@ base::string16 ManifestWebAppBrowserController::GetAppShortName() const {
 }
 
 base::string16 ManifestWebAppBrowserController::GetFormattedUrlOrigin() const {
-  return FormatUrlOrigin(GetAppLaunchURL());
+  return FormatUrlOrigin(GetAppStartUrl());
 }
 
-GURL ManifestWebAppBrowserController::GetAppLaunchURL() const {
-  return app_launch_url_;
+GURL ManifestWebAppBrowserController::GetAppStartUrl() const {
+  return app_start_url_;
 }
 
 bool ManifestWebAppBrowserController::IsUrlInAppScope(const GURL& url) const {
@@ -88,7 +88,7 @@ bool ManifestWebAppBrowserController::IsUrlInAppScope(const GURL& url) const {
   // query, and fragment.
   const GURL scope_url = !manifest_scope_.is_empty()
                              ? manifest_scope_
-                             : GetAppLaunchURL().GetWithoutFilename();
+                             : GetAppStartUrl().GetWithoutFilename();
 
   return IsInScope(url, scope_url);
 }
@@ -99,7 +99,7 @@ void ManifestWebAppBrowserController::OnTabInserted(
   // manifest if this is the first web contents being loaded in this window.
   DCHECK(!browser()->tab_strip_model()->empty());
   if (browser()->tab_strip_model()->count() == 1) {
-    app_launch_url_ = contents->GetURL();
+    app_start_url_ = contents->GetURL();
     contents->GetManifest(
         base::BindOnce(&ManifestWebAppBrowserController::OnManifestLoaded,
                        weak_factory_.GetWeakPtr()));

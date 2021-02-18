@@ -5,14 +5,17 @@
 #ifndef CHROME_BROWSER_COMPONENT_UPDATER_PEPPER_FLASH_COMPONENT_INSTALLER_H_
 #define CHROME_BROWSER_COMPONENT_UPDATER_PEPPER_FLASH_COMPONENT_INSTALLER_H_
 
+namespace base {
+class FilePath;
+}
+
 namespace component_updater {
 
-class ComponentUpdateService;
-
-// Our job is to 1) find what Pepper flash is installed (if any) and 2) register
-// with the component updater to download the latest version when available.
-// The first part is IO intensive so we do it asynchronously in the file thread.
-void RegisterPepperFlashComponent(ComponentUpdateService* cus);
+// Deletes any Flash component implementations that still reside on disk.
+// Historically, Flash was delivered via component update. It has since been
+// removed, but this function still is called to clean up any existing
+// flash component files.
+void CleanUpPepperFlashComponent(const base::FilePath& profile_path);
 
 }  // namespace component_updater
 

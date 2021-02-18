@@ -8,6 +8,7 @@
 #include "third_party/blink/renderer/core/css/resolver/filter_operation_resolver.h"
 #include "third_party/blink/renderer/core/css/resolver/style_builder.h"
 #include "third_party/blink/renderer/core/css/resolver/style_resolver_state.h"
+#include "third_party/blink/renderer/core/css/scoped_css_value.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
 #include "third_party/blink/renderer/core/paint/filter_effect_builder.h"
@@ -27,7 +28,6 @@
 #include "third_party/blink/renderer/platform/graphics/skia/skia_utils.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/skia/include/effects/SkDashPathEffect.h"
-#include "third_party/skia/include/effects/SkDropShadowImageFilter.h"
 
 static const char defaultFont[] = "10px sans-serif";
 static const char defaultFilter[] = "none";
@@ -38,15 +38,13 @@ CanvasRenderingContext2DState::CanvasRenderingContext2DState()
     : unrealized_save_count_(0),
       stroke_style_(MakeGarbageCollected<CanvasStyle>(SK_ColorBLACK)),
       fill_style_(MakeGarbageCollected<CanvasStyle>(SK_ColorBLACK)),
-      shadow_blur_(0),
+      shadow_blur_(0.0),
       shadow_color_(Color::kTransparent),
-      global_alpha_(1),
-      line_dash_offset_(0),
+      global_alpha_(1.0),
+      line_dash_offset_(0.0),
       unparsed_font_(defaultFont),
       unparsed_filter_(defaultFilter),
       text_align_(kStartTextAlign),
-      text_baseline_(kAlphabeticTextBaseline),
-      direction_(kDirectionInherit),
       realized_font_(false),
       is_transform_invertible_(true),
       has_clip_(false),
@@ -102,6 +100,12 @@ CanvasRenderingContext2DState::CanvasRenderingContext2DState(
       text_align_(other.text_align_),
       text_baseline_(other.text_baseline_),
       direction_(other.direction_),
+      letter_spacing_(other.letter_spacing_),
+      word_spacing_(other.word_spacing_),
+      text_rendering_mode_(other.text_rendering_mode_),
+      font_kerning_(other.font_kerning_),
+      font_stretch_(other.font_stretch_),
+      font_variant_caps_(other.font_variant_caps_),
       realized_font_(other.realized_font_),
       is_transform_invertible_(other.is_transform_invertible_),
       has_clip_(other.has_clip_),
@@ -125,11 +129,8 @@ void CanvasRenderingContext2DState::FontsNeedUpdate(FontSelector* font_selector,
   DCHECK_EQ(font_selector, font_.GetFontSelector());
   DCHECK(realized_font_);
 
-  if (!RuntimeEnabledFeatures::CSSReducedFontLoadingInvalidationsEnabled()) {
-    // With the feature enabled, |font_| will revalidate its FontFallbackList on
-    // demand. We don't need to manually reset the Font object here.
-    font_ = Font(font_.GetFontDescription(), font_selector);
-  }
+  // |font_| will revalidate its FontFallbackList on demand. We don't need to
+  // manually reset the Font object here.
 
   // FIXME: We only really need to invalidate the resolved filter if the font
   // update above changed anything and the filter uses font-dependent units.
@@ -252,7 +253,7 @@ void CanvasRenderingContext2DState::ClipPath(
     const SkPath& path,
     AntiAliasingMode anti_aliasing_mode) {
   clip_list_.ClipPath(path, anti_aliasing_mode,
-                      AffineTransformToSkMatrix(transform_));
+                      TransformationMatrixToSkMatrix(transform_));
   has_clip_ = true;
   if (!path.isRect(nullptr))
     has_complex_clip_ = true;
@@ -280,8 +281,45 @@ const FontDescription& CanvasRenderingContext2DState::GetFontDescription()
   return font_.GetFontDescription();
 }
 
+void CanvasRenderingContext2DState::SetFontKerning(
+    FontDescription::Kerning font_kerning,
+    FontSelector* selector) {
+  DCHECK(realized_font_);
+  FontDescription font_description(GetFontDescription());
+  font_description.SetKerning(font_kerning);
+  font_kerning_ = font_kerning;
+  SetFont(font_description, selector);
+}
+
+void CanvasRenderingContext2DState::SetFontStretch(
+    FontSelectionValue font_stretch,
+    FontSelector* selector) {
+  DCHECK(realized_font_);
+  FontDescription font_description(GetFontDescription());
+  font_description.SetStretch(font_stretch);
+  font_stretch_ = font_stretch;
+  SetFont(font_description, selector);
+}
+
+void CanvasRenderingContext2DState::SetFontVariantCaps(
+    FontDescription::FontVariantCaps font_variant_caps,
+    FontSelector* selector) {
+  DCHECK(realized_font_);
+  FontDescription font_description(GetFontDescription());
+  font_description.SetVariantCaps(font_variant_caps);
+  font_variant_caps_ = font_variant_caps;
+  SetFont(font_description, selector);
+}
+
+AffineTransform CanvasRenderingContext2DState::GetAffineTransform() const {
+  AffineTransform affine_transform =
+      AffineTransform(transform_.M11(), transform_.M12(), transform_.M21(),
+                      transform_.M22(), transform_.M41(), transform_.M42());
+  return affine_transform;
+}
+
 void CanvasRenderingContext2DState::SetTransform(
-    const AffineTransform& transform) {
+    const TransformationMatrix& transform) {
   is_transform_invertible_ = transform.IsInvertible();
   transform_ = transform;
 }
@@ -348,7 +386,7 @@ sk_sp<PaintFilter> CanvasRenderingContext2DState::GetFilter(
       filter_value_->ReResolveUrl(style_resolution_host->GetDocument());
     }
 
-    scoped_refptr<ComputedStyle> filter_style = ComputedStyle::Create();
+    ComputedStyle* filter_style = ComputedStyle::Create();
     // Must set font in case the filter uses any font-relative units (em, ex)
     // If font_for_filter_ was never set (ie frame-less documents) use base font
     if (LIKELY(font_for_filter_.GetFontSelector())) {
@@ -363,12 +401,13 @@ sk_sp<PaintFilter> CanvasRenderingContext2DState::GetFilter(
       }
     }
     StyleResolverState resolver_state(style_resolution_host->GetDocument(),
-                                      *style_resolution_host,
-                                      filter_style.get(), filter_style.get());
+                                      *style_resolution_host, filter_style,
+                                      filter_style);
     resolver_state.SetStyle(filter_style);
 
-    StyleBuilder::ApplyProperty(GetCSSPropertyFilter(), resolver_state,
-                                *filter_value_);
+    StyleBuilder::ApplyProperty(
+        GetCSSPropertyFilter(), resolver_state,
+        ScopedCSSValue(*filter_value_, &style_resolution_host->GetDocument()));
     resolver_state.LoadPendingResources();
 
     // We can't reuse m_fillFlags and m_strokeFlags for the filter, since these
@@ -457,24 +496,24 @@ SkDrawLooper* CanvasRenderingContext2DState::ShadowAndForegroundDrawLooper()
 
 sk_sp<PaintFilter> CanvasRenderingContext2DState::ShadowOnlyImageFilter()
     const {
+  using ShadowMode = DropShadowPaintFilter::ShadowMode;
   if (!shadow_only_image_filter_) {
     const auto sigma = BlurRadiusToStdDev(shadow_blur_);
     shadow_only_image_filter_ = sk_make_sp<DropShadowPaintFilter>(
         shadow_offset_.Width(), shadow_offset_.Height(), sigma, sigma,
-        shadow_color_, SkDropShadowImageFilter::kDrawShadowOnly_ShadowMode,
-        nullptr);
+        shadow_color_, ShadowMode::kDrawShadowOnly, nullptr);
   }
   return shadow_only_image_filter_;
 }
 
 sk_sp<PaintFilter>
 CanvasRenderingContext2DState::ShadowAndForegroundImageFilter() const {
+  using ShadowMode = DropShadowPaintFilter::ShadowMode;
   if (!shadow_and_foreground_image_filter_) {
     const auto sigma = BlurRadiusToStdDev(shadow_blur_);
     shadow_and_foreground_image_filter_ = sk_make_sp<DropShadowPaintFilter>(
         shadow_offset_.Width(), shadow_offset_.Height(), sigma, sigma,
-        shadow_color_,
-        SkDropShadowImageFilter::kDrawShadowAndForeground_ShadowMode, nullptr);
+        shadow_color_, ShadowMode::kDrawShadowAndForeground, nullptr);
   }
   return shadow_and_foreground_image_filter_;
 }
@@ -648,6 +687,35 @@ bool CanvasRenderingContext2DState::PatternIsAccelerated(
     PaintType paint_type) const {
   DCHECK(HasPattern(paint_type));
   return Style(paint_type)->GetCanvasPattern()->GetPattern()->IsTextureBacked();
+}
+
+void CanvasRenderingContext2DState::SetTextLetterSpacing(
+    float letter_spacing,
+    FontSelector* selector) {
+  DCHECK(realized_font_);
+  FontDescription font_description(GetFontDescription());
+  font_description.SetLetterSpacing(letter_spacing);
+  letter_spacing_ = letter_spacing;
+  SetFont(font_description, selector);
+}
+
+void CanvasRenderingContext2DState::SetTextWordSpacing(float word_spacing,
+                                                       FontSelector* selector) {
+  DCHECK(realized_font_);
+  FontDescription font_description(GetFontDescription());
+  font_description.SetWordSpacing(word_spacing);
+  word_spacing_ = word_spacing;
+  SetFont(font_description, selector);
+}
+
+void CanvasRenderingContext2DState::SetTextRendering(
+    TextRenderingMode text_rendering,
+    FontSelector* selector) {
+  DCHECK(realized_font_);
+  FontDescription font_description(GetFontDescription());
+  font_description.SetTextRendering(text_rendering);
+  text_rendering_mode_ = text_rendering;
+  SetFont(font_description, selector);
 }
 
 }  // namespace blink

@@ -11,14 +11,13 @@
 
 #include "base/callback.h"
 #include "base/files/file_path.h"
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/scoped_observer.h"
 #include "chrome/browser/web_applications/components/app_icon_manager.h"
 #include "chrome/browser/web_applications/components/app_registrar.h"
 #include "chrome/browser/web_applications/components/app_registrar_observer.h"
-#include "chrome/common/web_application_info.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 
 class Profile;
 
@@ -36,6 +35,8 @@ class WebAppIconManager : public AppIconManager, public AppRegistrarObserver {
   WebAppIconManager(Profile* profile,
                     WebAppRegistrar& registrar,
                     std::unique_ptr<FileUtilsWrapper> utils);
+  WebAppIconManager(const WebAppIconManager&) = delete;
+  WebAppIconManager& operator=(const WebAppIconManager&) = delete;
   ~WebAppIconManager() override;
 
   using WriteDataCallback = base::OnceCallback<void(bool success)>;
@@ -53,10 +54,9 @@ class WebAppIconManager : public AppIconManager, public AppRegistrarObserver {
   // AppIconManager:
   void Start() override;
   void Shutdown() override;
-  bool HasIcons(
-      const AppId& app_id,
-      IconPurpose purpose,
-      const std::vector<SquareSizePx>& icon_sizes_in_px) const override;
+  bool HasIcons(const AppId& app_id,
+                IconPurpose purpose,
+                const SortedSizesPx& icon_sizes) const override;
   base::Optional<IconSizeAndPurpose> FindIconMatchBigger(
       const AppId& app_id,
       const std::vector<IconPurpose>& purposes,
@@ -66,7 +66,7 @@ class WebAppIconManager : public AppIconManager, public AppRegistrarObserver {
                        SquareSizePx min_size) const override;
   void ReadIcons(const AppId& app_id,
                  IconPurpose purpose,
-                 const std::vector<SquareSizePx>& icon_sizes,
+                 const SortedSizesPx& icon_sizes,
                  ReadIconsCallback callback) const override;
   void ReadAllIcons(const AppId& app_id,
                     ReadIconBitmapsCallback callback) const override;
@@ -106,7 +106,8 @@ class WebAppIconManager : public AppIconManager, public AppRegistrarObserver {
       SquareSizePx max_size) const;
 
   void ReadFavicon(const AppId& app_id);
-  void OnReadFavicon(const AppId& app_id, const SkBitmap&);
+  void OnReadFavicon(const AppId& app_id,
+                     std::map<SquareSizePx, SkBitmap> icons);
 
   WebAppRegistrar& registrar_;
   base::FilePath web_apps_directory_;
@@ -121,7 +122,6 @@ class WebAppIconManager : public AppIconManager, public AppRegistrarObserver {
 
   base::WeakPtrFactory<WebAppIconManager> weak_ptr_factory_{this};
 
-  DISALLOW_COPY_AND_ASSIGN(WebAppIconManager);
 };
 
 }  // namespace web_app

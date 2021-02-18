@@ -21,8 +21,8 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_bubble_type.h"
-#include "chrome/browser/ui/in_product_help/in_product_help.h"
 #include "chrome/browser/ui/page_action/page_action_icon_type.h"
+#include "chrome/browser/ui/user_education/in_product_help.h"
 #include "chrome/common/buildflags.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/translate/core/common/translate_errors.h"
@@ -40,6 +40,7 @@ class SharingDialog;
 class DownloadShelf;
 class ExclusiveAccessContext;
 class ExtensionsContainer;
+class FeaturePromoController;
 class FindBar;
 class GURL;
 class LocationBar;
@@ -54,11 +55,6 @@ class WebContents;
 struct NativeWebKeyboardEvent;
 enum class KeyboardEventProcessingResult;
 }  // namespace content
-
-namespace extensions {
-class Command;
-class Extension;
-}  // namespace extensions
 
 namespace gfx {
 class Size;
@@ -304,6 +300,12 @@ class BrowserWindow : public ui::BaseWindow {
   // Called when the associated window's tab dragging status changed.
   virtual void TabDraggingStatusChanged(bool is_dragging) = 0;
 
+  // Called when a link is opened in the window from a user gesture.
+  // Link will be opened with |disposition|.
+  // TODO(crbug.com/1129028): see if this can't be piped through TabStripModel
+  // events instead.
+  virtual void LinkOpeningFromGesture(WindowOpenDisposition disposition) = 0;
+
   // Focuses the app menu like it was a menu bar.
   //
   // Not used on the Mac, which has a "normal" menu bar.
@@ -411,8 +413,7 @@ class BrowserWindow : public ui::BaseWindow {
   virtual void ConfirmBrowserCloseWithPendingDownloads(
       int download_count,
       Browser::DownloadCloseType dialog_type,
-      bool app_modal,
-      const base::Callback<void(bool)>& callback) = 0;
+      base::OnceCallback<void(bool)> callback) = 0;
 
   // ThemeService calls this when a user has changed their theme, indicating
   // that it's time to redraw everything.
@@ -464,14 +465,12 @@ class BrowserWindow : public ui::BaseWindow {
       signin_metrics::AccessPoint access_point,
       bool is_source_keyboard) = 0;
 
-  // Shows User Happiness Tracking Survey's invitation bubble when possible
-  // (such as having the proper anchor view).
-  // |site_id| is the site identification of the survey the bubble leads to.
-  virtual void ShowHatsBubble(const std::string& site_id) = 0;
-
-  // Executes |command| registered by |extension|.
-  virtual void ExecuteExtensionCommand(const extensions::Extension* extension,
-                                       const extensions::Command& command) = 0;
+  // Shows User Happiness Tracking Survey's dialog after the survey associated
+  // with |site_id| has been successfully loaded. Failure to load the survey
+  // will result in the dialog not being shown.
+  virtual void ShowHatsDialog(const std::string& site_id,
+                              base::OnceClosure success_callback,
+                              base::OnceClosure failure_callback) = 0;
 
   // Returns object implementing ExclusiveAccessContext interface.
   virtual ExclusiveAccessContext* GetExclusiveAccessContext() = 0;
@@ -497,6 +496,12 @@ class BrowserWindow : public ui::BaseWindow {
 
   // Create and open the tab search bubble.
   virtual void CreateTabSearchBubble() = 0;
+  // Closes the tab search bubble if open for the given browser instance.
+  virtual void CloseTabSearchBubble() = 0;
+
+  // Gets the windows's FeaturePromoController which manages display of
+  // in-product help.
+  virtual FeaturePromoController* GetFeaturePromoController() = 0;
 
  protected:
   friend class BrowserCloseManager;

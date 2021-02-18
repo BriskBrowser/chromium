@@ -184,10 +184,12 @@ class WebGLConformanceIntegrationTest(gpu_integration_test.GpuIntegrationTest):
           'WEBGL_lose_context',
           'WEBGL_multi_draw',
           'WEBGL_video_texture',
+          'WEBGL_webcodecs_video_frame',
       ]
     else:
       return [
           'EXT_color_buffer_float',
+          'EXT_color_buffer_half_float',
           'EXT_disjoint_timer_query_webgl2',
           'EXT_float_blend',
           'EXT_texture_compression_bptc',
@@ -211,6 +213,7 @@ class WebGLConformanceIntegrationTest(gpu_integration_test.GpuIntegrationTest):
           'WEBGL_multi_draw',
           'WEBGL_multi_draw_instanced_base_vertex_base_instance',
           'WEBGL_video_texture',
+          'WEBGL_webcodecs_video_frame',
       ]
 
   def RunActualGpuTest(self, test_path, *args):
@@ -225,7 +228,7 @@ class WebGLConformanceIntegrationTest(gpu_integration_test.GpuIntegrationTest):
     # Verify that Chrome's GL backend matches if a specific one was requested
     if self._gl_backend:
       if (self._gl_backend == 'angle'
-          and gpu_helper.GetANGLERenderer(gpu_info) == 'no_angle'):
+          and gpu_helper.GetANGLERenderer(gpu_info) == 'angle-disabled'):
         self.fail('requested GL backend (' + self._gl_backend + ')' +
                   ' had no effect on the browser: ' +
                   _GetGPUInfoErrorString(gpu_info))
@@ -237,15 +240,15 @@ class WebGLConformanceIntegrationTest(gpu_integration_test.GpuIntegrationTest):
       # GPU exepections use slightly different names for the angle backends
       # than the Chrome flags
       known_backend_flag_map = {
-          'd3d11': ['d3d11'],
-          'd3d9': ['d3d9'],
-          'opengl': ['gl'],
-          'opengles': ['gles'],
-          'metal': ['metal'],
-          'vulkan': ['vulkan'],
+          'angle-d3d11': ['d3d11'],
+          'angle-d3d9': ['d3d9'],
+          'angle-opengl': ['gl'],
+          'angle-opengles': ['gles'],
+          'angle-metal': ['metal'],
+          'angle-vulkan': ['vulkan'],
           # Support setting VK_ICD_FILENAMES for swiftshader when requesting
           # the 'vulkan' backend.
-          'swiftshader': ['swiftshader', 'vulkan'],
+          'angle-swiftshader': ['swiftshader', 'vulkan'],
       }
       current_angle_backend = gpu_helper.GetANGLERenderer(gpu_info)
       if (current_angle_backend not in known_backend_flag_map or
@@ -358,9 +361,6 @@ class WebGLConformanceIntegrationTest(gpu_integration_test.GpuIntegrationTest):
         # TODO(http://crbug.com/832952): Remove this when WebXR spec is more
         # stable and setCompatibleXRDevice is part of the conformance test.
         '--disable-blink-features=WebXR',
-        # TODO(crbug.com/830901): see whether disabling this feature
-        # makes the WebGL video upload tests reliable again.
-        '--disable-features=UseSurfaceLayerForVideo',
     ])
     # Note that the overriding of the default --js-flags probably
     # won't interact well with RestartBrowserIfNecessaryWithArgs, but

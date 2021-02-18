@@ -11,6 +11,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/time/time.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/child_accounts/child_user_service.h"
 #include "chrome/browser/chromeos/child_accounts/child_user_service_factory.h"
 #include "chrome/browser/chromeos/child_accounts/time_limits/app_time_controller.h"
@@ -18,17 +19,16 @@
 #include "chrome/browser/chromeos/child_accounts/time_limits/app_types.h"
 #include "chrome/browser/chromeos/child_accounts/time_limits/web_time_limit_enforcer.h"
 #include "chrome/browser/chromeos/child_accounts/time_limits/web_time_navigation_observer.h"
+#include "chrome/browser/chromeos/login/test/logged_in_user_mixin.h"
 #include "chrome/browser/chromeos/login/test/scoped_policy_update.h"
 #include "chrome/browser/chromeos/login/test/user_policy_mixin.h"
 #include "chrome/browser/chromeos/policy/user_policy_test_helper.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
-#include "chrome/browser/supervised_user/logged_in_user_mixin.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "chrome/common/chrome_features.h"
-#include "chrome/common/web_application_info.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/mixin_based_in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
@@ -38,7 +38,6 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test.h"
-#include "net/dns/mock_host_resolver.h"
 #include "ui/base/window_open_disposition.h"
 #include "url/gurl.h"
 
@@ -113,9 +112,9 @@ class WebTimeLimitEnforcerThrottleTest : public MixinBasedInProcessBrowserTest {
 
 void WebTimeLimitEnforcerThrottleTest::SetUp() {
   scoped_feature_list_.InitWithFeatures(
-      /* enabled_features */ {{features::kPerAppTimeLimits,
-                               features::kWebTimeLimits}},
-      /* disabled_features */ {{}});
+      /* enabled_features */ {features::kPerAppTimeLimits,
+                              features::kWebTimeLimits},
+      /* disabled_features */ {});
   builder_.SetUp();
   MixinBasedInProcessBrowserTest::SetUp();
 }
@@ -130,12 +129,7 @@ void WebTimeLimitEnforcerThrottleTest::SetUpOnMainThread() {
 
   ASSERT_TRUE(embedded_test_server()->Started());
 
-  // Resolve everything to localhost.
-  host_resolver()->AddIPLiteralRule("*", "127.0.0.1", "localhost");
-
-  logged_in_user_mixin_.LogInUser(false /*issue_any_scope_token*/,
-                                  true /*wait_for_active_session*/,
-                                  true /*request_policy_update*/);
+  logged_in_user_mixin_.LogInUser();
 }
 
 bool WebTimeLimitEnforcerThrottleTest::IsErrorPageBeingShownInWebContents(
@@ -188,7 +182,7 @@ content::WebContents* WebTimeLimitEnforcerThrottleTest::InstallAndLaunchWebApp(
   auto web_app_info = std::make_unique<WebApplicationInfo>();
   web_app_info->title = base::UTF8ToUTF16(url.host());
   web_app_info->description = base::UTF8ToUTF16("Web app");
-  web_app_info->app_url = url;
+  web_app_info->start_url = url;
   web_app_info->scope = url;
   web_app_info->open_as_window = true;
   web_app::AppId app_id =
@@ -438,8 +432,6 @@ IN_PROC_BROWSER_TEST_F(WebTimeLimitEnforcerThrottleTest, WebContentTitleSet) {
 }
 
 IN_PROC_BROWSER_TEST_F(WebTimeLimitEnforcerThrottleTest, EnsureQueryIsCleared) {
-  GURL whitelsited_url = embedded_test_server()->GetURL(
-      kExampleHost, "/supervised_user/simple.html");
   AllowlistUrlRegx(kExampleHost);
   BlockWeb();
 

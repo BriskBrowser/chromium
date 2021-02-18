@@ -13,6 +13,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/history/history_service_factory.h"
+#include "chrome/browser/interstitials/chrome_settings_page_helper.h"
 #include "chrome/browser/interstitials/enterprise_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_preferences_util.h"
@@ -22,10 +23,12 @@
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/content/browser/threat_details.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
+#include "components/safe_browsing/core/common/utils.h"
 #include "components/safe_browsing/core/features.h"
 #include "components/safe_browsing/core/triggers/trigger_manager.h"
 #include "components/security_interstitials/content/content_metrics_helper.h"
 #include "components/security_interstitials/content/security_interstitial_controller_client.h"
+#include "components/security_interstitials/content/settings_page_helper.h"
 #include "components/security_interstitials/content/unsafe_resource_util.h"
 #include "components/security_interstitials/core/controller_client.h"
 #include "components/security_interstitials/core/unsafe_resource.h"
@@ -82,7 +85,8 @@ class SafeBrowsingBlockingPageFactoryImpl
         IsEnhancedProtectionEnabled(*prefs), is_proceed_anyway_disabled,
         true,  // should_open_links_in_new_tab
         true,  // always_show_back_to_safety
-        kHelpCenterLink);
+        IsEnhancedProtectionMessageInInterstitialsEnabled(),
+        IsSafeBrowsingPolicyManaged(*prefs), kHelpCenterLink);
 
     return new SafeBrowsingBlockingPage(
         ui_manager, web_contents, main_frame_url, unsafe_resources,
@@ -210,8 +214,12 @@ SafeBrowsingBlockingPage* SafeBrowsingBlockingPage::CreateBlockingPage(
     const GURL& main_frame_url,
     const UnsafeResource& unsafe_resource,
     bool should_trigger_reporting) {
-  UMA_HISTOGRAM_ENUMERATION("SafeBrowsing.BlockingPage.ResourceType",
-                            unsafe_resource.resource_type);
+  UMA_HISTOGRAM_ENUMERATION(
+      "SafeBrowsing.BlockingPage.ResourceType",
+      safe_browsing::GetResourceTypeFromRequestDestination(
+          unsafe_resource.request_destination));
+  UMA_HISTOGRAM_ENUMERATION("SafeBrowsing.BlockingPage.RequestDestination",
+                            unsafe_resource.request_destination);
   const UnsafeResourceList resources{unsafe_resource};
   // Set up the factory if this has not been done already (tests do that
   // before this method is called).
@@ -239,9 +247,13 @@ SafeBrowsingBlockingPage::CreateControllerClient(
               ServiceAccessType::EXPLICIT_ACCESS),
           unsafe_resources[0].url, GetReportingInfo(unsafe_resources));
 
+  auto chrome_settings_page_helper =
+      std::make_unique<security_interstitials::ChromeSettingsPageHelper>();
+
   return std::make_unique<ChromeControllerClient>(
       web_contents, std::move(metrics_helper), profile->GetPrefs(),
-      ui_manager->app_locale(), ui_manager->default_safe_page());
+      ui_manager->app_locale(), ui_manager->default_safe_page(),
+      std::move(chrome_settings_page_helper));
 }
 
 }  // namespace safe_browsing

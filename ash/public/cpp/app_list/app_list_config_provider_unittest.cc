@@ -9,8 +9,7 @@
 
 #include "ash/public/cpp/app_list/app_list_config.h"
 #include "ash/public/cpp/app_list/app_list_features.h"
-#include "base/stl_util.h"
-#include "base/test/scoped_feature_list.h"
+#include "base/containers/contains.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace ash {

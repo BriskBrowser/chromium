@@ -16,7 +16,7 @@ hidden="true" so that these annotations don't show up in the document.
     <sender name="Unsorted Sender">
       <!-- TODO(nicolaso): do a pass through some of the recent ones, and find
            them a new home -->
-      <traffic_annotation unique_id="isolated_prerender_canary_check"/>
+      <traffic_annotation unique_id="prefetch_proxy_canary_check"/>
       <traffic_annotation unique_id="nearby_webrtc_connection"/>
       <traffic_annotation unique_id="proxy_config_windows_resolver"/>
       <traffic_annotation unique_id="remoting_directory_delete_host"/>
@@ -38,17 +38,17 @@ hidden="true" so that these annotations don't show up in the document.
       <traffic_annotation unique_id="browser_switcher_ieem_sitelist"/>
       <traffic_annotation unique_id="adb_client_socket"/>
       <traffic_annotation unique_id="devtools_network_resource"/>
+      <traffic_annotation unique_id="devtools_cdp_network_resource"/>
       <traffic_annotation unique_id="downloads_api_run_async"/>
       <traffic_annotation unique_id="media_feeds_checker"/>
-      <traffic_annotation unique_id="isolated_prerender_loader"/>
+      <traffic_annotation unique_id="prefetch_proxy_loader"/>
       <traffic_annotation unique_id="intranet_redirect_detector"/>
       <traffic_annotation unique_id="dial_url_fetcher"/>
       <traffic_annotation unique_id="send_message_express"/>
       <traffic_annotation unique_id="browser_switcher_ieem_sitelist"/>
-      <traffic_annotation unique_id="isolated_prerender_probe"/>
+      <traffic_annotation unique_id="prefetch_proxy_probe"/>
       <traffic_annotation unique_id="enterprise_safe_browsing_realtime_url_lookup"/>
       <traffic_annotation unique_id="remote_copy_message_handler"/>
-      <traffic_annotation unique_id="chrome_HaTS_service"/>
       <traffic_annotation unique_id="port_forwarding_controller_socket"/>
       <traffic_annotation unique_id="media_feeds"/>
       <traffic_annotation unique_id="receive_messages_express"/>
@@ -73,6 +73,7 @@ hidden="true" so that these annotations don't show up in the document.
       <traffic_annotation unique_id="cast_socket"/>
       <traffic_annotation unique_id="dom_distiller"/>
       <traffic_annotation unique_id="download_manager_resume"/>
+      <traffic_annotation unique_id="file_system_connector_to_box"/>
       <traffic_annotation unique_id="parallel_download_job"/>
       <traffic_annotation unique_id="interest_feedv2_send"/>
       <traffic_annotation unique_id="mirroring_get_setup_info"/>
@@ -87,6 +88,7 @@ hidden="true" so that these annotations don't show up in the document.
       <traffic_annotation unique_id="proxy_config_settings"/>
       <traffic_annotation unique_id="query_tiles_image_loader"/>
       <traffic_annotation unique_id="query_tiles_fetcher"/>
+      <traffic_annotation unique_id="video_tutorial_fetcher"/>
       <traffic_annotation unique_id="qr_code_save"/>
       <traffic_annotation unique_id="safe_browsing_cache_collector"/>
       <traffic_annotation unique_id="safety_check_update_connectivity"/>
@@ -150,10 +152,17 @@ hidden="true" so that these annotations don't show up in the document.
       <traffic_annotation unique_id="origin_policy_loader"/>
       <traffic_annotation unique_id="services_http_server_error_response"/>
       <traffic_annotation unique_id="webrtc_peer_connection"/>
-      <traffic_annotation unique_id="floc_id_provider_impl"/>
+      <traffic_annotation unique_id="direct_sockets"/>
+      <traffic_annotation unique_id="floc_event_logger"/>
       <traffic_annotation unique_id="gstatic_change_password_override_urls"/>
       <traffic_annotation unique_id="interest_feedv2_image_send"/>
       <traffic_annotation unique_id="sanitized_image_source"/>
+      <traffic_annotation unique_id="kaleidoscope_service"/>
+      <traffic_annotation unique_id="webid"/>
+      <traffic_annotation unique_id="managed_configuration_loader"/>
+      <traffic_annotation unique_id="box_access_token_fetcher"/>
+      <traffic_annotation unique_id="web_app_origin_association_download"/>
+      <traffic_annotation unique_id="digital_asset_links"/>
     </sender>
   </group>
   <group name="Admin Features">
@@ -198,6 +207,7 @@ hidden="true" so that these annotations don't show up in the document.
     <sender name="Safe Browsing">
       <traffic_annotation unique_id="client_download_request"/>
       <traffic_annotation unique_id="password_protection_request"/>
+      <traffic_annotation unique_id="permission_predictions"/>
       <traffic_annotation unique_id="safe_browsing_certificate_error_reporting"/>
       <traffic_annotation unique_id="safe_browsing_client_side_malware_detector"/>
       <traffic_annotation unique_id="safe_browsing_client_side_phishing_detector"/>
@@ -207,8 +217,10 @@ hidden="true" so that these annotations don't show up in the document.
       <traffic_annotation unique_id="safe_browsing_module_loader"/>
       <traffic_annotation unique_id="safe_browsing_v4_get_hash"/>
       <traffic_annotation unique_id="safe_browsing_v4_update"/>
-      <traffic_annotation unique_id="safe_browsing_binary_upload"/>
+      <traffic_annotation unique_id="safe_browsing_binary_upload_app"/>
+      <traffic_annotation unique_id="safe_browsing_binary_upload_connector"/>
       <traffic_annotation unique_id="safe_browsing_realtime_url_lookup"/>
+      <traffic_annotation unique_id="sct_auditing"/>
       <traffic_annotation unique_id="unwanted_software_report"/>
       <traffic_annotation unique_id="ppapi_download_request"/>
     </sender>
@@ -216,6 +228,7 @@ hidden="true" so that these annotations don't show up in the document.
   <group name="Identity and Security">
     <sender name="Accounts, Identity, and Authentication">
       <traffic_annotation unique_id="accounts_image_fetcher"/>
+      <traffic_annotation unique_id="affiliation_lookup_by_hash"/>
       <traffic_annotation unique_id="device_management_service"/>
       <traffic_annotation unique_id="lookup_single_password_leak"/>
     </sender>
@@ -235,9 +248,9 @@ hidden="true" so that these annotations don't show up in the document.
       <traffic_annotation unique_id="gaia_oauth_client_get_tokens"/>
       <traffic_annotation unique_id="gaia_oauth_client_get_user_info"/>
       <traffic_annotation unique_id="gaia_oauth_client_refresh_token"/>
-      <traffic_annotation unique_id="policy_blacklist_service"/>
       <traffic_annotation unique_id="oauth2_access_token_fetcher"/>
       <traffic_annotation unique_id="oauth2_mint_token_flow"/>
+      <traffic_annotation unique_id="safe_search_service"/>
     </sender>
     <sender name="Payments">
       <traffic_annotation unique_id="payments_sync_cards"/>
@@ -254,6 +267,9 @@ hidden="true" so that these annotations don't show up in the document.
     </sender>
   </group>
   <group name="Media">
+    <sender name="Kaleidoscope">
+      <traffic_annotation unique_id="kaleidoscope_service"/>
+    </sender>
     <sender name="Plugins">
       <traffic_annotation unique_id="plugins_resource_service"/>
     </sender>
@@ -284,7 +300,9 @@ hidden="true" so that these annotations don't show up in the document.
       <traffic_annotation unique_id="data_reduction_proxy_warmup"/>
       <traffic_annotation unique_id="hintsfetcher_gethintsrequest"/>
       <traffic_annotation unique_id="optimization_guide_model"/>
+      <traffic_annotation unique_id="optimization_guide_model_download"/>
       <traffic_annotation unique_id="previews_litepage_prober"/>
+      <traffic_annotation unique_id="litepages_robots_rules"/>
     </sender>
     <sender name="Network">
       <traffic_annotation unique_id="network_time_component"/>
@@ -313,6 +331,7 @@ hidden="true" so that these annotations don't show up in the document.
       <traffic_annotation unique_id="omnibox_documentsuggest"/>
       <traffic_annotation unique_id="omnibox_zerosuggest"/>
       <traffic_annotation unique_id="one_google_bar_service"/>
+      <traffic_annotation unique_id="search_prefetch_service"/>
     </sender>
   </group>
   <group name="Updates, Recovery, and Crash Reports">
@@ -326,12 +345,14 @@ hidden="true" so that these annotations don't show up in the document.
       <traffic_annotation unique_id="cros_recovery_image_download"/>
       <traffic_annotation unique_id="download_recovery_component"/>
     </sender>
+    <sender name="Crash Reports">
+      <traffic_annotation unique_id="javascript_report_error"/>
+    </sender>
     <sender name="Chrome Performance, Feedback, and Usage Statistics">
       <traffic_annotation unique_id="background_performance_tracer"/>
       <traffic_annotation unique_id="chrome_feedback_report_app"/>
       <traffic_annotation unique_id="metrics_report_ukm"/>
       <traffic_annotation unique_id="metrics_report_uma"/>
-      <traffic_annotation unique_id="rappor_report"/>
     </sender>
     <sender name="WebRTC">
       <traffic_annotation unique_id="webrtc_event_log_uploader"/>
@@ -372,6 +393,7 @@ hidden="true" so that these annotations don't show up in the document.
       <traffic_annotation unique_id="backdrop_collection_images_download"/>
       <traffic_annotation unique_id="backdrop_collection_names_download"/>
       <traffic_annotation unique_id="backdrop_next_image_download"/>
+      <traffic_annotation unique_id="drive_service"/>
       <traffic_annotation unique_id="ntp_snippets_fetch"/>
       <traffic_annotation unique_id="ntp_custom_background"/>
       <traffic_annotation unique_id="ntp_icon_source"/>
@@ -379,7 +401,10 @@ hidden="true" so that these annotations don't show up in the document.
       <traffic_annotation unique_id="popular_sites_fetch"/>
       <traffic_annotation unique_id="search_suggest_service"/>
       <traffic_annotation unique_id="remote_suggestions_provider"/>
+      <traffic_annotation unique_id="repeatable_queries_deletion"/>
+      <traffic_annotation unique_id="repeatable_queries_service"/>
       <traffic_annotation unique_id="promo_service"/>
+      <traffic_annotation unique_id="task_module_service"/>
     </sender>
     <sender name="Speech Recognition">
       <traffic_annotation unique_id="speech_recognition_downstream"/>
@@ -400,12 +425,14 @@ hidden="true" so that these annotations don't show up in the document.
       <traffic_annotation unique_id="sync_http_bridge"/>
       <traffic_annotation unique_id="sync_stop_reporter"/>
       <traffic_annotation unique_id="sync_clipboard_service"/>
+      <traffic_annotation unique_id="trusted_vault_request"/>
     </sender>
     <sender name="Assist Rank">
       <traffic_annotation unique_id="ranker_url_fetcher"/>
     </sender>
     <sender name="Phone as a Security Key">
       <traffic_annotation unique_id="cablev2_websocket_from_client"/>
+      <traffic_annotation unique_id="cablev2_websocket_from_authenticator"/>
     </sender>
   </group>
 </groups>

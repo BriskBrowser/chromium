@@ -14,6 +14,7 @@ import org.junit.runner.RunWith;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.util.Batch;
 import org.chromium.content_public.browser.test.NativeLibraryTestUtils;
+import org.chromium.url.GURL;
 
 /**
  * Unit tests for {@link UrlUtilities}.
@@ -112,26 +113,30 @@ public class UrlUtilitiesUnitTest {
     @Test
     @SmallTest
     public void testIsDownloadableScheme() {
-        Assert.assertTrue(UrlUtilities.isDownloadableScheme("data:data"));
+        Assert.assertTrue(UrlUtilities.isDownloadableScheme(new GURL("data:data")));
         Assert.assertTrue(UrlUtilities.isDownloadableScheme(
-                "https://user:pass@awesome.com:9000/bad-scheme:#fake:"));
-        Assert.assertTrue(UrlUtilities.isDownloadableScheme("http://awesome.example.com/"));
+                new GURL("https://user:pass@awesome.com:9000/bad-scheme:#fake:")));
+        Assert.assertTrue(
+                UrlUtilities.isDownloadableScheme(new GURL("http://awesome.example.com/")));
         Assert.assertTrue(UrlUtilities.isDownloadableScheme(
-                "filesystem:https://user:pass@google.com:99/t/foo;bar?q=a#ref"));
-        Assert.assertTrue(UrlUtilities.isDownloadableScheme("blob:https://awesome.example.com/"));
-        Assert.assertTrue(UrlUtilities.isDownloadableScheme("file://hostname/path/to/file"));
+                new GURL("filesystem:https://user:pass@google.com:99/t/foo;bar?q=a#ref")));
+        Assert.assertTrue(
+                UrlUtilities.isDownloadableScheme(new GURL("blob:https://awesome.example.com/")));
+        Assert.assertTrue(
+                UrlUtilities.isDownloadableScheme(new GURL("file://hostname/path/to/file")));
 
-        Assert.assertFalse(UrlUtilities.isDownloadableScheme("inline:skates.co.uk"));
-        Assert.assertFalse(UrlUtilities.isDownloadableScheme("javascript:alert(1)"));
-        Assert.assertFalse(UrlUtilities.isDownloadableScheme("about:awesome"));
-        Assert.assertFalse(UrlUtilities.isDownloadableScheme("super:awesome"));
-        Assert.assertFalse(UrlUtilities.isDownloadableScheme("ftp://https:password@example.com/"));
+        Assert.assertFalse(UrlUtilities.isDownloadableScheme(new GURL("inline:skates.co.uk")));
+        Assert.assertFalse(UrlUtilities.isDownloadableScheme(new GURL("javascript:alert(1)")));
+        Assert.assertFalse(UrlUtilities.isDownloadableScheme(new GURL("about:awesome")));
+        Assert.assertFalse(UrlUtilities.isDownloadableScheme(new GURL("super:awesome")));
         Assert.assertFalse(
-                UrlUtilities.isDownloadableScheme("ftp://https:password@example.com/?http:#http:"));
+                UrlUtilities.isDownloadableScheme(new GURL("ftp://https:password@example.com/")));
         Assert.assertFalse(UrlUtilities.isDownloadableScheme(
-                "google-search://https:password@example.com/?http:#http:"));
-        Assert.assertFalse(UrlUtilities.isDownloadableScheme("chrome://http://version"));
-        Assert.assertFalse(UrlUtilities.isDownloadableScheme(""));
+                new GURL("ftp://https:password@example.com/?http:#http:")));
+        Assert.assertFalse(UrlUtilities.isDownloadableScheme(
+                new GURL("google-search://https:password@example.com/?http:#http:")));
+        Assert.assertFalse(UrlUtilities.isDownloadableScheme(new GURL("chrome://http://version")));
+        Assert.assertFalse(UrlUtilities.isDownloadableScheme(GURL.emptyGURL()));
     }
 
     @Test
@@ -188,5 +193,52 @@ public class UrlUtilitiesUnitTest {
         String url = "http://www.example.com/path";
         Assert.assertFalse(UrlUtilities.urlsFragmentsDiffer(url, url));
         Assert.assertTrue(UrlUtilities.urlsFragmentsDiffer(url + "#fragment", url));
+    }
+
+    @Test
+    @SmallTest
+    public void testIsNtpUrlString() {
+        Assert.assertTrue(UrlUtilities.isNTPUrl("chrome-native://newtab"));
+        Assert.assertTrue(UrlUtilities.isNTPUrl("chrome://newtab"));
+        Assert.assertTrue(UrlUtilities.isNTPUrl("about:newtab"));
+
+        Assert.assertFalse(UrlUtilities.isNTPUrl("http://www.example.com"));
+        Assert.assertFalse(UrlUtilities.isNTPUrl("chrome://history"));
+        Assert.assertFalse(UrlUtilities.isNTPUrl("chrome-native://newtabz"));
+        Assert.assertFalse(UrlUtilities.isNTPUrl("newtab"));
+        Assert.assertFalse(UrlUtilities.isNTPUrl(""));
+    }
+
+    @Test
+    @SmallTest
+    public void testIsNtpUrlGurl() {
+        Assert.assertTrue(UrlUtilities.isNTPUrl(new GURL("chrome-native://newtab")));
+        Assert.assertTrue(UrlUtilities.isNTPUrl(new GURL("chrome://newtab")));
+
+        // Note that this intentionally differs from UrlUtilities#isNTPUrl(String) (see comments on
+        // method).
+        Assert.assertFalse(UrlUtilities.isNTPUrl(new GURL("about:newtab")));
+
+        Assert.assertFalse(UrlUtilities.isNTPUrl(new GURL("http://www.example.com")));
+        Assert.assertFalse(UrlUtilities.isNTPUrl(new GURL("chrome://history")));
+        Assert.assertFalse(UrlUtilities.isNTPUrl(new GURL("chrome-native://newtabz")));
+        Assert.assertFalse(UrlUtilities.isNTPUrl(new GURL("newtab")));
+        Assert.assertFalse(UrlUtilities.isNTPUrl(new GURL("")));
+    }
+
+    @Test
+    @SmallTest
+    public void testIsTelScheme() {
+        Assert.assertTrue(UrlUtilities.isTelScheme(new GURL("tel:123456789")));
+        Assert.assertFalse(UrlUtilities.isTelScheme(new GURL("teltel:123456789")));
+        Assert.assertFalse(UrlUtilities.isTelScheme(null));
+    }
+
+    @Test
+    @SmallTest
+    public void testGetTelNumber() {
+        Assert.assertEquals("123456789", UrlUtilities.getTelNumber(new GURL("tel:123456789")));
+        Assert.assertEquals("", UrlUtilities.getTelNumber(new GURL("about:123456789")));
+        Assert.assertEquals("", UrlUtilities.getTelNumber(null));
     }
 }

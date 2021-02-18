@@ -14,6 +14,7 @@
 #include "cc/trees/layer_tree_impl.h"
 #include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "components/viz/common/frame_sinks/copy_output_result.h"
+#include "components/viz/test/buildflags.h"
 #include "components/viz/test/paths.h"
 
 #if !defined(OS_ANDROID)
@@ -29,7 +30,7 @@ enum class TestReadBackType {
 };
 
 struct ReadbackTestConfig {
-  TestRendererType renderer_type;
+  viz::RendererType renderer_type;
   TestReadBackType readback_type;
 };
 
@@ -56,7 +57,7 @@ class LayerTreeHostReadbackPixelTest
       : LayerTreePixelTest(renderer_type()),
         insert_copy_request_after_frame_count_(0) {}
 
-  TestRendererType renderer_type() const { return GetParam().renderer_type; }
+  viz::RendererType renderer_type() const { return GetParam().renderer_type; }
 
   TestReadBackType readback_type() const { return GetParam().readback_type; }
 
@@ -70,7 +71,7 @@ class LayerTreeHostReadbackPixelTest
               &LayerTreeHostReadbackPixelTest::ReadbackResultAsBitmap,
               base::Unretained(this)));
     } else {
-      DCHECK_NE(renderer_type_, TestRendererType::kSoftware);
+      DCHECK_NE(renderer_type_, viz::RendererType::kSoftware);
       request = std::make_unique<viz::CopyOutputRequest>(
           viz::CopyOutputRequest::ResultFormat::RGBA_TEXTURE,
           base::BindOnce(
@@ -202,11 +203,7 @@ TEST_P(LayerTreeHostReadbackPixelTest, ReadbackSmallNonRootLayerWithChild) {
       base::FilePath(FILE_PATH_LITERAL("green_small_with_blue_corner.png")));
 }
 
-using LayerTreeHostReadbackPixelTestMaybeVulkan =
-    LayerTreeHostReadbackPixelTest;
-
-TEST_P(LayerTreeHostReadbackPixelTestMaybeVulkan,
-       ReadbackSubtreeSurroundsTargetLayer) {
+TEST_P(LayerTreeHostReadbackPixelTest, ReadbackSubtreeSurroundsTargetLayer) {
   scoped_refptr<SolidColorLayer> background =
       CreateSolidColorLayer(gfx::Rect(0, 0, 200, 200), SK_ColorWHITE);
 
@@ -393,7 +390,7 @@ TEST_P(LayerTreeHostReadbackPixelTest, ReadbackNonRootLayerOutsideViewport) {
       base::FilePath(FILE_PATH_LITERAL("green_with_blue_corner.png")));
 }
 
-TEST_P(LayerTreeHostReadbackPixelTestMaybeVulkan, ReadbackNonRootOrFirstLayer) {
+TEST_P(LayerTreeHostReadbackPixelTest, ReadbackNonRootOrFirstLayer) {
   // This test has 3 render passes with the copy request on the render pass in
   // the middle. This test caught an issue where copy requests on non-root
   // non-first render passes were being treated differently from the first
@@ -432,44 +429,24 @@ TEST_P(LayerTreeHostReadbackPixelTest, MultipleReadbacksOnLayer) {
 // TODO(crbug.com/971257): Enable these tests for Skia Vulkan using texture
 // readback.
 ReadbackTestConfig const kTestConfigs[] = {
-    ReadbackTestConfig{TestRendererType::kSoftware, TestReadBackType::kBitmap},
-    ReadbackTestConfig{TestRendererType::kGL, TestReadBackType::kTexture},
-    ReadbackTestConfig{TestRendererType::kGL, TestReadBackType::kBitmap},
-    ReadbackTestConfig{TestRendererType::kSkiaGL, TestReadBackType::kTexture},
-    ReadbackTestConfig{TestRendererType::kSkiaGL, TestReadBackType::kBitmap},
-#if defined(ENABLE_CC_VULKAN_TESTS)
-    ReadbackTestConfig{TestRendererType::kSkiaVk, TestReadBackType::kBitmap},
-#endif  // defined(ENABLE_CC_VULKAN_TESTS)
-#if defined(ENABLE_CC_DAWN_TESTS)
-    ReadbackTestConfig{TestRendererType::kSkiaDawn, TestReadBackType::kBitmap},
-#endif  // defined(ENABLE_CC_DAWN_TESTS)
+    ReadbackTestConfig{viz::RendererType::kSoftware, TestReadBackType::kBitmap},
+#if BUILDFLAG(ENABLE_GL_BACKEND_TESTS)
+    ReadbackTestConfig{viz::RendererType::kGL, TestReadBackType::kTexture},
+    ReadbackTestConfig{viz::RendererType::kGL, TestReadBackType::kBitmap},
+    ReadbackTestConfig{viz::RendererType::kSkiaGL, TestReadBackType::kTexture},
+    ReadbackTestConfig{viz::RendererType::kSkiaGL, TestReadBackType::kBitmap},
+#endif  // BUILDFLAG(ENABLE_GL_BACKEND_TESTS)
+#if BUILDFLAG(ENABLE_VULKAN_BACKEND_TESTS)
+    ReadbackTestConfig{viz::RendererType::kSkiaVk, TestReadBackType::kBitmap},
+#endif  // BUILDFLAG(ENABLE_VULKAN_BACKEND_TESTS)
+#if BUILDFLAG(ENABLE_DAWN_BACKEND_TESTS)
+    ReadbackTestConfig{viz::RendererType::kSkiaDawn, TestReadBackType::kBitmap},
+#endif  // BUILDFLAG(ENABLE_DAWN_BACKEND_TESTS)
 };
 
 INSTANTIATE_TEST_SUITE_P(All,
                          LayerTreeHostReadbackPixelTest,
                          ::testing::ValuesIn(kTestConfigs),
-                         ::testing::PrintToStringParamName());
-
-// TODO(crbug.com/974283): These tests are crashing with vulkan when TSan or
-// MSan are used.
-ReadbackTestConfig const kMaybeVulkanTestConfigs[] = {
-    ReadbackTestConfig{TestRendererType::kSoftware, TestReadBackType::kBitmap},
-    ReadbackTestConfig{TestRendererType::kGL, TestReadBackType::kTexture},
-    ReadbackTestConfig{TestRendererType::kGL, TestReadBackType::kBitmap},
-    ReadbackTestConfig{TestRendererType::kSkiaGL, TestReadBackType::kTexture},
-    ReadbackTestConfig{TestRendererType::kSkiaGL, TestReadBackType::kBitmap},
-#if defined(ENABLE_CC_VULKAN_TESTS) && !defined(THREAD_SANITIZER) && \
-    !defined(MEMORY_SANITIZER)
-    ReadbackTestConfig{TestRendererType::kSkiaVk, TestReadBackType::kBitmap},
-#endif
-#if defined(ENABLE_CC_DAWN_TESTS)
-    ReadbackTestConfig{TestRendererType::kSkiaDawn, TestReadBackType::kBitmap},
-#endif  // defined(ENABLE_CC_DAWN_TESTS)
-};
-
-INSTANTIATE_TEST_SUITE_P(All,
-                         LayerTreeHostReadbackPixelTestMaybeVulkan,
-                         ::testing::ValuesIn(kMaybeVulkanTestConfigs),
                          ::testing::PrintToStringParamName());
 
 class LayerTreeHostReadbackDeviceScalePixelTest

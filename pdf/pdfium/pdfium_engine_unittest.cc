@@ -8,8 +8,11 @@
 
 #include "base/hash/md5.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/gtest_util.h"
+#include "base/test/mock_callback.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
+#include "base/time/time.h"
 #include "pdf/document_attachment_info.h"
 #include "pdf/document_layout.h"
 #include "pdf/document_metadata.h"
@@ -19,9 +22,10 @@
 #include "pdf/ppapi_migration/input_event_conversions.h"
 #include "pdf/test/test_client.h"
 #include "pdf/test/test_document_loader.h"
-#include "ppapi/cpp/size.h"
+#include "pdf/thumbnail.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 
@@ -33,6 +37,7 @@ using ::testing::InSequence;
 using ::testing::Invoke;
 using ::testing::IsEmpty;
 using ::testing::NiceMock;
+using ::testing::Not;
 using ::testing::Return;
 using ::testing::StrictMock;
 
@@ -111,7 +116,6 @@ class PDFiumEngineTest : public PDFiumTestBase {
     return loaded_incrementally;
   }
 
- private:
   // Counts the number of available pages. Returns `int` instead of `size_t` for
   // consistency with `PDFiumEngine::GetNumberOfPages()`.
   int CountAvailablePages(const PDFiumEngine& engine) {
@@ -346,11 +350,23 @@ TEST_F(PDFiumEngineTest, GetDocumentMetadata) {
   const DocumentMetadata& doc_metadata = engine->GetDocumentMetadata();
 
   EXPECT_EQ(PdfVersion::k1_7, doc_metadata.version);
+  EXPECT_FALSE(doc_metadata.linearized);
   EXPECT_EQ("Sample PDF Document Info", doc_metadata.title);
   EXPECT_EQ("Chromium Authors", doc_metadata.author);
   EXPECT_EQ("Testing", doc_metadata.subject);
+  EXPECT_EQ("testing,chromium,pdfium,document,info", doc_metadata.keywords);
   EXPECT_EQ("Your Preferred Text Editor", doc_metadata.creator);
   EXPECT_EQ("fixup_pdf_template.py", doc_metadata.producer);
+
+  base::Time expected_creation_date;
+  ASSERT_TRUE(base::Time::FromUTCString("2020-02-05 15:39:12",
+                                        &expected_creation_date));
+  EXPECT_EQ(expected_creation_date, doc_metadata.creation_date);
+
+  base::Time expected_mod_date;
+  ASSERT_TRUE(
+      base::Time::FromUTCString("2020-02-06 09:42:34", &expected_mod_date));
+  EXPECT_EQ(expected_mod_date, doc_metadata.mod_date);
 }
 
 TEST_F(PDFiumEngineTest, GetEmptyDocumentMetadata) {
@@ -362,11 +378,23 @@ TEST_F(PDFiumEngineTest, GetEmptyDocumentMetadata) {
   const DocumentMetadata& doc_metadata = engine->GetDocumentMetadata();
 
   EXPECT_EQ(PdfVersion::k1_7, doc_metadata.version);
+  EXPECT_FALSE(doc_metadata.linearized);
   EXPECT_THAT(doc_metadata.title, IsEmpty());
   EXPECT_THAT(doc_metadata.author, IsEmpty());
   EXPECT_THAT(doc_metadata.subject, IsEmpty());
+  EXPECT_THAT(doc_metadata.keywords, IsEmpty());
   EXPECT_THAT(doc_metadata.creator, IsEmpty());
   EXPECT_THAT(doc_metadata.producer, IsEmpty());
+  EXPECT_TRUE(doc_metadata.creation_date.is_null());
+  EXPECT_TRUE(doc_metadata.mod_date.is_null());
+}
+
+TEST_F(PDFiumEngineTest, GetLinearizedDocumentMetadata) {
+  NiceMock<MockTestClient> client;
+  std::unique_ptr<PDFiumEngine> engine =
+      InitializeEngine(&client, FILE_PATH_LITERAL("linearized.pdf"));
+  ASSERT_TRUE(engine);
+  EXPECT_TRUE(engine->GetDocumentMetadata().linearized);
 }
 
 TEST_F(PDFiumEngineTest, GetBadPdfVersion) {
@@ -380,7 +408,7 @@ TEST_F(PDFiumEngineTest, GetBadPdfVersion) {
 }
 
 TEST_F(PDFiumEngineTest, IncrementalLoadingFeatureDefault) {
-  EXPECT_TRUE(TryLoadIncrementally());
+  EXPECT_FALSE(TryLoadIncrementally());
 }
 
 TEST_F(PDFiumEngineTest, IncrementalLoadingFeatureEnabled) {
@@ -393,6 +421,93 @@ TEST_F(PDFiumEngineTest, IncrementalLoadingFeatureDisabled) {
   base::test::ScopedFeatureList scoped_feature_list;
   scoped_feature_list.InitAndDisableFeature(features::kPdfIncrementalLoading);
   EXPECT_FALSE(TryLoadIncrementally());
+}
+
+TEST_F(PDFiumEngineTest, RequestThumbnail) {
+  TestClient client;
+  std::unique_ptr<PDFiumEngine> engine = InitializeEngine(
+      &client, FILE_PATH_LITERAL("rectangles_multi_pages.pdf"));
+  ASSERT_TRUE(engine);
+
+  const int num_pages = engine->GetNumberOfPages();
+  ASSERT_EQ(5, num_pages);
+  ASSERT_EQ(num_pages, CountAvailablePages(*engine));
+
+  // Each page should immediately return a thumbnail.
+  for (int i = 0; i < num_pages; ++i) {
+    base::MockCallback<SendThumbnailCallback> send_callback;
+    EXPECT_CALL(send_callback, Run);
+    engine->RequestThumbnail(/*page_index=*/i, /*device_pixel_ratio=*/1,
+                             send_callback.Get());
+  }
+}
+
+TEST_F(PDFiumEngineTest, RequestThumbnailLinearized) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(features::kPdfIncrementalLoading);
+
+  NiceMock<MockTestClient> client;
+  InitializeEngineResult initialize_result = InitializeEngineWithoutLoading(
+      &client, FILE_PATH_LITERAL("linearized.pdf"));
+  ASSERT_TRUE(initialize_result.engine);
+  PDFiumEngine& engine = *initialize_result.engine;
+
+  // Load only some pages.
+  initialize_result.document_loader->SimulateLoadData(8192);
+
+  // Note: Plugin size chosen so all pages of the document are visible. The
+  // engine only updates availability incrementally for visible pages.
+  engine.PluginSizeUpdated({1024, 4096});
+
+  const int num_pages = engine.GetNumberOfPages();
+  ASSERT_EQ(3, num_pages);
+  const int available_pages = CountAvailablePages(engine);
+  ASSERT_LT(0, available_pages);
+  ASSERT_GT(num_pages, available_pages);
+
+  // Initialize callbacks for first and last pages.
+  base::MockCallback<SendThumbnailCallback> first_loaded;
+  base::MockCallback<SendThumbnailCallback> last_loaded;
+
+  // When the document is partially loaded, `SendThumbnailCallback` is only run
+  // for the loaded page even though `RequestThumbnail()` gets called for both
+  // pages.
+  EXPECT_CALL(first_loaded, Run);
+  engine.RequestThumbnail(/*page_index=*/0, /*device_pixel_ratio=*/1,
+                          first_loaded.Get());
+  engine.RequestThumbnail(/*page_index=*/num_pages - 1,
+                          /*device_pixel_ratio=*/1, last_loaded.Get());
+
+  // Finish loading the document. `SendThumbnailCallback` should be run for the
+  // last page.
+  EXPECT_CALL(last_loaded, Run);
+  while (initialize_result.document_loader->SimulateLoadData(UINT32_MAX))
+    continue;
+}
+
+using PDFiumEngineDeathTest = PDFiumEngineTest;
+
+TEST_F(PDFiumEngineDeathTest, RequestThumbnailRedundant) {
+  ::testing::FLAGS_gtest_death_test_style = "threadsafe";
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(features::kPdfIncrementalLoading);
+
+  NiceMock<MockTestClient> client;
+  InitializeEngineResult initialize_result = InitializeEngineWithoutLoading(
+      &client, FILE_PATH_LITERAL("linearized.pdf"));
+  ASSERT_TRUE(initialize_result.engine);
+  PDFiumEngine& engine = *initialize_result.engine;
+
+  // Load only some pages.
+  initialize_result.document_loader->SimulateLoadData(8192);
+
+  // Twice request a thumbnail for the second page, which is not loaded. The
+  // second call should crash.
+  base::MockCallback<SendThumbnailCallback> mock_callback;
+  engine.RequestThumbnail(/*page_index=*/1, /*device_pixel_ratio=*/1,
+                          mock_callback.Get());
+  EXPECT_DCHECK_DEATH(engine.RequestThumbnail(
+      /*page_index=*/1, /*device_pixel_ratio=*/1, mock_callback.Get()));
 }
 
 class TabbingTestClient : public TestClient {
@@ -933,7 +1048,7 @@ class ScrollingTestClient : public TestClient {
 
   // Mock PDFEngine::Client methods.
   MOCK_METHOD(void, ScrollToX, (int), (override));
-  MOCK_METHOD(void, ScrollToY, (int, bool), (override));
+  MOCK_METHOD(void, ScrollToY, (int), (override));
 };
 
 TEST_F(PDFiumEngineTabbingTest, MaintainViewportWhenFocusIsUpdated) {
@@ -946,13 +1061,13 @@ TEST_F(PDFiumEngineTabbingTest, MaintainViewportWhenFocusIsUpdated) {
 
   {
     InSequence sequence;
-    static constexpr PP_Point kScrollValue = {510, 478};
-    EXPECT_CALL(client, ScrollToY(kScrollValue.y, false))
+    static constexpr gfx::Point kScrollValue = {510, 478};
+    EXPECT_CALL(client, ScrollToY(kScrollValue.y()))
         .WillOnce(Invoke(
-            [&engine]() { engine->ScrolledToYPosition(kScrollValue.y); }));
-    EXPECT_CALL(client, ScrollToX(kScrollValue.x)).WillOnce(Invoke([&engine]() {
-      engine->ScrolledToXPosition(kScrollValue.x);
-    }));
+            [&engine]() { engine->ScrolledToYPosition(kScrollValue.y()); }));
+    EXPECT_CALL(client, ScrollToX(kScrollValue.x()))
+        .WillOnce(Invoke(
+            [&engine]() { engine->ScrolledToXPosition(kScrollValue.x()); }));
   }
 
   EXPECT_EQ(PDFiumEngine::FocusElementType::kNone,
@@ -970,9 +1085,9 @@ TEST_F(PDFiumEngineTabbingTest, MaintainViewportWhenFocusIsUpdated) {
             GetFocusedElementType(engine.get()));
 
   // Scroll focused annotation out of viewport.
-  static constexpr PP_Point kScrollPosition = {242, 746};
-  engine->ScrolledToXPosition(kScrollPosition.x);
-  engine->ScrolledToYPosition(kScrollPosition.y);
+  static constexpr gfx::Point kScrollPosition = {242, 746};
+  engine->ScrolledToXPosition(kScrollPosition.x());
+  engine->ScrolledToYPosition(kScrollPosition.y());
 
   engine->UpdateFocus(/*has_focus=*/false);
   EXPECT_EQ(PDFiumEngine::FocusElementType::kPage,
@@ -999,16 +1114,16 @@ TEST_F(PDFiumEngineTabbingTest, ScrollFocusedAnnotationIntoView) {
 
   {
     InSequence sequence;
-    static constexpr PP_Point kScrollValues[] = {{510, 478}, {510, 478}};
+    static constexpr gfx::Point kScrollValues[] = {{510, 478}, {510, 478}};
 
     for (const auto& scroll_value : kScrollValues) {
-      EXPECT_CALL(client, ScrollToY(scroll_value.y, false))
+      EXPECT_CALL(client, ScrollToY(scroll_value.y()))
           .WillOnce(Invoke([&engine, &scroll_value]() {
-            engine->ScrolledToYPosition(scroll_value.y);
+            engine->ScrolledToYPosition(scroll_value.y());
           }));
-      EXPECT_CALL(client, ScrollToX(scroll_value.x))
+      EXPECT_CALL(client, ScrollToX(scroll_value.x()))
           .WillOnce(Invoke([&engine, &scroll_value]() {
-            engine->ScrolledToXPosition(scroll_value.x);
+            engine->ScrolledToXPosition(scroll_value.x());
           }));
     }
   }
@@ -1028,12 +1143,64 @@ TEST_F(PDFiumEngineTabbingTest, ScrollFocusedAnnotationIntoView) {
             GetFocusedElementType(engine.get()));
 
   // Scroll focused annotation out of viewport.
-  static constexpr PP_Point kScrollPosition = {242, 746};
-  engine->ScrolledToXPosition(kScrollPosition.x);
-  engine->ScrolledToYPosition(kScrollPosition.y);
+  static constexpr gfx::Point kScrollPosition = {242, 746};
+  engine->ScrolledToXPosition(kScrollPosition.x());
+  engine->ScrolledToYPosition(kScrollPosition.y());
 
   // Scroll the focused annotation into view.
   ScrollFocusedAnnotationIntoView(engine.get());
+}
+
+class ReadOnlyTestClient : public TestClient {
+ public:
+  ReadOnlyTestClient() = default;
+  ~ReadOnlyTestClient() override = default;
+  ReadOnlyTestClient(const ReadOnlyTestClient&) = delete;
+  ReadOnlyTestClient& operator=(const ReadOnlyTestClient&) = delete;
+
+  // Mock PDFEngine::Client methods.
+  MOCK_METHOD(void, FormTextFieldFocusChange, (bool), (override));
+  MOCK_METHOD(void, SetSelectedText, (const std::string&), (override));
+};
+
+using PDFiumEngineReadOnlyTest = PDFiumTestBase;
+
+TEST_F(PDFiumEngineReadOnlyTest, KillFormFocus) {
+  NiceMock<ReadOnlyTestClient> client;
+  std::unique_ptr<PDFiumEngine> engine = InitializeEngine(
+      &client, FILE_PATH_LITERAL("annotation_form_fields.pdf"));
+  ASSERT_TRUE(engine);
+
+  // Setting read-only mode should kill form focus.
+  EXPECT_FALSE(engine->IsReadOnly());
+  EXPECT_CALL(client, FormTextFieldFocusChange(false));
+  engine->SetReadOnly(true);
+
+  // Attempting to focus during read-only mode should once more trigger a
+  // killing of form focus.
+  EXPECT_TRUE(engine->IsReadOnly());
+  EXPECT_CALL(client, FormTextFieldFocusChange(false));
+  engine->UpdateFocus(true);
+}
+
+TEST_F(PDFiumEngineReadOnlyTest, UnselectText) {
+  NiceMock<ReadOnlyTestClient> client;
+  std::unique_ptr<PDFiumEngine> engine =
+      InitializeEngine(&client, FILE_PATH_LITERAL("hello_world2.pdf"));
+  ASSERT_TRUE(engine);
+
+  // Update the plugin size so that all the text is visible by
+  // `SelectionChangeInvalidator`.
+  engine->PluginSizeUpdated({500, 500});
+
+  // Select text before going into read-only mode.
+  EXPECT_FALSE(engine->IsReadOnly());
+  EXPECT_CALL(client, SetSelectedText(Not(IsEmpty())));
+  engine->SelectAll();
+
+  // Setting read-only mode should unselect the text.
+  EXPECT_CALL(client, SetSelectedText(IsEmpty()));
+  engine->SetReadOnly(true);
 }
 
 }  // namespace chrome_pdf

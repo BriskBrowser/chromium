@@ -11,10 +11,6 @@ namespace prefs {
 const char kCredentialsEnableAutosignin[] = "credentials_enable_autosignin";
 const char kCredentialsEnableService[] = "credentials_enable_service";
 
-#if !defined(OS_APPLE) && !defined(OS_CHROMEOS) && defined(OS_POSIX)
-const char kMigrationToLoginDBStep[] = "profile.migration_to_logindb_step";
-#endif
-
 #if defined(OS_WIN)
 const char kOsPasswordBlank[] = "password_manager.os_password_blank";
 const char kOsPasswordLastChanged[] =
@@ -28,6 +24,9 @@ const char kPasswordRecovery[] = "password_manager.password_recovery";
 
 const char kWasAutoSignInFirstRunExperienceShown[] =
     "profile.was_auto_sign_in_first_run_experience_shown";
+
+const char kWasPhishedCredentialsUploadedToSync[] =
+    "profile.was_phished_credentials_uploaded_to_sync";
 
 const char kWasSignInPasswordPromoClicked[] =
     "profile.was_sign_in_password_promo_clicked";
@@ -56,22 +55,13 @@ const char kLastTimePasswordCheckCompleted[] =
 
 const char kPasswordHashDataList[] = "profile.password_hash_data_list";
 
-const char kPasswordManagerOnboardingState[] =
-    "profile.password_manager_onboarding_state";
-
 const char kPasswordLeakDetectionEnabled[] =
     "profile.password_manager_leak_detection";
-
-const char kWasOnboardingFeatureCheckedBefore[] =
-    "profile.was_pwm_onboarding_feature_checked_before";
 
 const char kProfileStoreDateLastUsedForFilling[] =
     "password_manager.profile_store_date_last_used_for_filling";
 const char kAccountStoreDateLastUsedForFilling[] =
     "password_manager.account_store_date_last_used_for_filling";
-
-const char kSettingsLaunchedPasswordChecks[] =
-    "profile.settings_launched_password_checks";
 
 }  // namespace prefs
 }  // namespace password_manager

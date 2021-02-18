@@ -13,7 +13,7 @@
 
 #include "base/base64.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/containers/circular_deque.h"
 #include "base/files/file.h"
 #include "base/files/file_util.h"
@@ -64,7 +64,7 @@ struct ReverseIndexJSON {
   std::string model;
 
   // Restrictions for this manufacturer
-  PpdProvider::Restrictions restrictions;
+  PpdProvider::LegacyRestrictions restrictions;
 };
 
 struct PpdLicenseJSON {
@@ -84,7 +84,7 @@ struct ManufacturersJSON {
   std::string reference;
 
   // Restrictions for this manufacturer
-  PpdProvider::Restrictions restrictions;
+  PpdProvider::LegacyRestrictions restrictions;
 };
 
 // Holds a metadata_v2 printers response
@@ -96,7 +96,7 @@ struct PrintersJSON {
   std::string effective_make_and_model;
 
   // Restrictions for this printer
-  PpdProvider::Restrictions restrictions;
+  PpdProvider::LegacyRestrictions restrictions;
 };
 
 // Holds a metadata_v2 ppd-index response
@@ -276,9 +276,9 @@ std::string ComputeLicense(const base::Value& dict) {
 }
 
 // Constructs and returns a printers' restrictions parsed from |dict|.
-PpdProvider::Restrictions ComputeRestrictions(const base::Value& dict) {
+PpdProvider::LegacyRestrictions ComputeRestrictions(const base::Value& dict) {
   DCHECK(dict.is_dict());
-  PpdProvider::Restrictions restrictions;
+  PpdProvider::LegacyRestrictions restrictions;
 
   const base::Value* min_milestone =
       dict.FindKeyOfType({"min_milestone"}, base::Value::Type::DOUBLE);
@@ -301,7 +301,7 @@ PpdProvider::Restrictions ComputeRestrictions(const base::Value& dict) {
 // |current_version|.
 bool IsPrinterRestricted(const PrintersJSON& printer,
                          const base::Version& current_version) {
-  const PpdProvider::Restrictions& restrictions = printer.restrictions;
+  const PpdProvider::LegacyRestrictions& restrictions = printer.restrictions;
 
   if (restrictions.min_milestone != base::Version("0.0") &&
       restrictions.min_milestone > current_version) {
@@ -367,12 +367,12 @@ class PpdProviderImpl : public PpdProvider {
   };
 
   PpdProviderImpl(const std::string& browser_locale,
-                  network::mojom::URLLoaderFactory* loader_factory,
+                  LoaderFactoryGetter loader_factory_getter,
                   scoped_refptr<PpdCache> ppd_cache,
                   const base::Version& current_version,
                   const PpdProvider::Options& options)
       : browser_locale_(browser_locale),
-        loader_factory_(loader_factory),
+        loader_factory_getter_(loader_factory_getter),
         ppd_cache_(ppd_cache),
         disk_task_runner_(base::ThreadPool::CreateSequencedTaskRunner(
             {base::TaskPriority::USER_VISIBLE, base::MayBlock(),
@@ -786,7 +786,7 @@ class PpdProviderImpl : public PpdProvider {
 
       // TODO(luum): consider using unbounded size
       fetcher_->DownloadToString(
-          loader_factory_,
+          loader_factory_getter_.Run(),
           base::BindOnce(&PpdProviderImpl::OnURLFetchComplete, this),
           network::SimpleURLLoader::kMaxBoundedStringDownloadSize);
 
@@ -1734,7 +1734,7 @@ class PpdProviderImpl : public PpdProvider {
   // BrowserContext::GetApplicationLocale();
   const std::string browser_locale_;
 
-  network::mojom::URLLoaderFactory* loader_factory_;
+  LoaderFactoryGetter loader_factory_getter_;
 
   // For file:// fetches, a staging buffer and result flag for loading the file.
   std::string file_fetch_contents_;
@@ -1780,11 +1780,12 @@ PrinterSearchData::~PrinterSearchData() = default;
 // static
 scoped_refptr<PpdProvider> PpdProvider::Create(
     const std::string& browser_locale,
-    network::mojom::URLLoaderFactory* loader_factory,
+    LoaderFactoryGetter loader_factory_getter,
     scoped_refptr<PpdCache> ppd_cache,
     const base::Version& current_version,
     const PpdProvider::Options& options) {
-  return scoped_refptr<PpdProvider>(new PpdProviderImpl(
-      browser_locale, loader_factory, ppd_cache, current_version, options));
+  return scoped_refptr<PpdProvider>(
+      new PpdProviderImpl(browser_locale, loader_factory_getter, ppd_cache,
+                          current_version, options));
 }
 }  // namespace chromeos

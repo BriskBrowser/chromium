@@ -37,8 +37,8 @@ namespace content {
 class WebContents;
 }
 
-namespace rappor {
-class RapporServiceImpl;
+namespace ui {
+class Event;
 }
 
 // The hierarchy of bubble models:
@@ -182,7 +182,7 @@ class ContentSettingBubbleModel {
 
   void set_owner(Owner* owner) { owner_ = owner; }
 
-  virtual void OnListItemClicked(int index, int event_flags) {}
+  virtual void OnListItemClicked(int index, const ui::Event& event) {}
   virtual void OnCustomLinkClicked() {}
   virtual void OnManageButtonClicked() {}
   virtual void OnManageCheckboxChecked(bool is_checked) {}
@@ -219,12 +219,6 @@ class ContentSettingBubbleModel {
   // Cast this bubble into ContentSettingNotificationsBubbleModel if possible.
   virtual ContentSettingNotificationsBubbleModel* AsNotificationsBubbleModel();
 
-  // Sets the Rappor service used for testing.
-  void SetRapporServiceImplForTesting(
-      rappor::RapporServiceImpl* rappor_service) {
-    rappor_service_ = rappor_service;
-  }
-
  protected:
   // |web_contents| must outlive this.
   ContentSettingBubbleModel(Delegate* delegate,
@@ -240,6 +234,7 @@ class ContentSettingBubbleModel {
   void set_message(const base::string16& message) {
     bubble_content_.message = message;
   }
+  void clear_message() { bubble_content_.message.clear(); }
   void AddListItem(const ListItem& item);
   void RemoveListItem(int index);
   void set_radio_group(const RadioGroup& radio_group) {
@@ -276,15 +271,12 @@ class ContentSettingBubbleModel {
   void set_cancel_button_text(const base::string16& cancel_button_text) {
     bubble_content_.cancel_button_text = cancel_button_text;
   }
-  rappor::RapporServiceImpl* rappor_service() const { return rappor_service_; }
 
  private:
   content::WebContents* web_contents_;
   Owner* owner_;
   Delegate* delegate_;
   BubbleContent bubble_content_;
-  // The service used to record Rappor metrics. Can be set for testing.
-  rappor::RapporServiceImpl* rappor_service_;
 
   DISALLOW_COPY_AND_ASSIGN(ContentSettingBubbleModel);
 };
@@ -527,18 +519,17 @@ class ContentSettingGeolocationBubbleModel
   // ContentSettingBubbleModel:
   void OnManageButtonClicked() override;
   void OnDoneButtonClicked() override;
+  void CommitChanges() override;
 
  private:
   // Initialize the bubble with the elements specific to the scenario when
   // geolocation is disabled on the system (OS) level.
   void InitializeSystemGeolocationPermissionBubble();
+  void SetCustomLink();
 
-  // Whether or not to show the bubble UI specific to when geolocation
+  // Whether or not we are showing the bubble UI specific to when geolocation
   // permissions are turned off on a system level.
-  bool ShouldShowSystemGeolocationPermissions();
-
-  // Boolean indicating if geolocation is allowed by our Content Settings
-  bool is_allowed_ = false;
+  bool show_system_geolocation_bubble_ = false;
 };
 
 #if !defined(OS_ANDROID)
@@ -553,7 +544,7 @@ class ContentSettingFramebustBlockBubbleModel
   ~ContentSettingFramebustBlockBubbleModel() override;
 
   // ContentSettingBubbleModel:
-  void OnListItemClicked(int index, int event_flags) override;
+  void OnListItemClicked(int index, const ui::Event& event) override;
   ContentSettingFramebustBlockBubbleModel* AsFramebustBlockBubbleModel()
       override;
 

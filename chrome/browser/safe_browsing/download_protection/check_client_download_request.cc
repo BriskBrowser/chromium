@@ -15,15 +15,16 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/api/safe_browsing_private/safe_browsing_private_event_router.h"
 #include "chrome/browser/extensions/api/safe_browsing_private/safe_browsing_private_event_router_factory.h"
+#include "chrome/browser/policy/dm_token_utils.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/advanced_protection_status_manager.h"
 #include "chrome/browser/safe_browsing/advanced_protection_status_manager_factory.h"
 #include "chrome/browser/safe_browsing/cloud_content_scanning/binary_upload_service.h"
 #include "chrome/browser/safe_browsing/cloud_content_scanning/deep_scanning_utils.h"
-#include "chrome/browser/safe_browsing/dm_token_utils.h"
 #include "chrome/browser/safe_browsing/download_protection/check_client_download_request_base.h"
 #include "chrome/browser/safe_browsing/download_protection/deep_scanning_request.h"
 #include "chrome/browser/safe_browsing/download_protection/download_feedback_service.h"
@@ -39,7 +40,6 @@
 #include "components/safe_browsing/core/features.h"
 #include "components/safe_browsing/core/file_type_policies.h"
 #include "components/safe_browsing/core/proto/csd.pb.h"
-#include "components/safe_browsing/core/proto/webprotect.pb.h"
 #include "components/url_matcher/url_matcher.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/download_item_utils.h"
@@ -50,53 +50,52 @@ namespace {
 
 // This function is called when the result of malware scanning is already known
 // (via |reason|), but we still want to perform DLP scanning.
-void MaybeOverrideDlpScanResult(DownloadCheckResultReason reason,
-                                CheckDownloadRepeatingCallback callback,
-                                DownloadCheckResult deep_scan_result) {
-  if (reason == REASON_DOWNLOAD_DANGEROUS ||
-      reason == REASON_DOWNLOAD_DANGEROUS_HOST ||
-      reason == REASON_DOWNLOAD_POTENTIALLY_UNWANTED ||
-      reason == REASON_DOWNLOAD_UNCOMMON) {
-    // Don't let safe deep scanning results override these previous
-    // dangerous reasons.
-    switch (deep_scan_result) {
-      case DownloadCheckResult::UNKNOWN:
-      case DownloadCheckResult::SENSITIVE_CONTENT_WARNING:
-      case DownloadCheckResult::DEEP_SCANNED_SAFE:
-        if (reason == REASON_DOWNLOAD_DANGEROUS)
-          callback.Run(DownloadCheckResult::DANGEROUS);
-        else if (reason == REASON_DOWNLOAD_DANGEROUS_HOST)
-          callback.Run(DownloadCheckResult::DANGEROUS_HOST);
-        else if (reason == REASON_DOWNLOAD_POTENTIALLY_UNWANTED)
-          callback.Run(DownloadCheckResult::POTENTIALLY_UNWANTED);
-        else
-          callback.Run(DownloadCheckResult::UNCOMMON);
-        return;
+void MaybeOverrideScanResult(DownloadCheckResultReason reason,
+                             CheckDownloadRepeatingCallback callback,
+                             DownloadCheckResult deep_scan_result) {
+  switch (deep_scan_result) {
+    // These results are more dangerous or equivalent to any |reason|, so they
+    // take precedence.
+    case DownloadCheckResult::DANGEROUS_HOST:
+    case DownloadCheckResult::DANGEROUS:
+      callback.Run(deep_scan_result);
+      return;
 
-      case DownloadCheckResult::ASYNC_SCANNING:
-      case DownloadCheckResult::BLOCKED_PASSWORD_PROTECTED:
-      case DownloadCheckResult::BLOCKED_TOO_LARGE:
-      case DownloadCheckResult::SENSITIVE_CONTENT_BLOCK:
-      case DownloadCheckResult::BLOCKED_UNSUPPORTED_FILE_TYPE:
+    // These deep scanning results don't override any dangerous reasons.
+    case DownloadCheckResult::UNKNOWN:
+    case DownloadCheckResult::SENSITIVE_CONTENT_WARNING:
+    case DownloadCheckResult::DEEP_SCANNED_SAFE:
+    case DownloadCheckResult::SAFE:
+    case DownloadCheckResult::PROMPT_FOR_SCANNING:
+    case DownloadCheckResult::POTENTIALLY_UNWANTED:
+    case DownloadCheckResult::UNCOMMON:
+      if (reason == REASON_DOWNLOAD_DANGEROUS)
+        callback.Run(DownloadCheckResult::DANGEROUS);
+      else if (reason == REASON_DOWNLOAD_DANGEROUS_HOST)
+        callback.Run(DownloadCheckResult::DANGEROUS_HOST);
+      else if (reason == REASON_DOWNLOAD_POTENTIALLY_UNWANTED)
+        callback.Run(DownloadCheckResult::POTENTIALLY_UNWANTED);
+      else if (reason == REASON_DOWNLOAD_UNCOMMON)
+        callback.Run(DownloadCheckResult::UNCOMMON);
+      else
         callback.Run(deep_scan_result);
-        return;
+      return;
 
-      case DownloadCheckResult::SAFE:
-      case DownloadCheckResult::UNCOMMON:
-      case DownloadCheckResult::DANGEROUS_HOST:
-      case DownloadCheckResult::WHITELISTED_BY_POLICY:
-      case DownloadCheckResult::PROMPT_FOR_SCANNING:
-      case DownloadCheckResult::DANGEROUS:
-      case DownloadCheckResult::POTENTIALLY_UNWANTED:
-        NOTREACHED();
-        return;
-    }
-  } else if (reason == REASON_WHITELISTED_URL) {
-    callback.Run(deep_scan_result);
-    return;
+    // These other results have precedence over dangerous ones because they
+    // indicate the scan is not done, that the file is blocked for another
+    // reason, or that the file is allowed by policy.
+    case DownloadCheckResult::ASYNC_SCANNING:
+    case DownloadCheckResult::BLOCKED_PASSWORD_PROTECTED:
+    case DownloadCheckResult::BLOCKED_TOO_LARGE:
+    case DownloadCheckResult::SENSITIVE_CONTENT_BLOCK:
+    case DownloadCheckResult::BLOCKED_UNSUPPORTED_FILE_TYPE:
+    case DownloadCheckResult::ALLOWLISTED_BY_POLICY:
+      callback.Run(deep_scan_result);
+      return;
   }
 
-  NOTREACHED();
+  // This function should always run |callback| and return before reaching this.
+  CHECK(false);
 }
 
 }  // namespace
@@ -112,15 +111,12 @@ CheckClientDownloadRequest::CheckClientDownloadRequest(
     : CheckClientDownloadRequestBase(
           item->GetURL(),
           item->GetTargetFilePath(),
-          item->GetFullPath(),
-          {item->GetTabUrl(), item->GetTabReferrerUrl()},
-          item->GetMimeType(),
-          item->GetHash(),
           content::DownloadItemUtils::GetBrowserContext(item),
           callback,
           service,
           std::move(database_manager),
-          std::move(binary_feature_extractor)),
+          DownloadRequestMaker::CreateFromDownloadItem(binary_feature_extractor,
+                                                       item)),
       item_(item),
       callback_(callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
@@ -155,8 +151,7 @@ void CheckClientDownloadRequest::OnDownloadUpdated(
 bool CheckClientDownloadRequest::IsSupportedDownload(
     const download::DownloadItem& item,
     const base::FilePath& target_path,
-    DownloadCheckResultReason* reason,
-    ClientDownloadRequest::DownloadType* type) {
+    DownloadCheckResultReason* reason) {
   if (item.GetUrlChain().empty()) {
     *reason = REASON_EMPTY_URL_CHAIN;
     return false;
@@ -182,7 +177,6 @@ bool CheckClientDownloadRequest::IsSupportedDownload(
     *reason = REASON_NOT_BINARY_FILE;
     return false;
   }
-  *type = download_type_util::GetDownloadType(target_path);
   return true;
 }
 
@@ -192,9 +186,8 @@ CheckClientDownloadRequest::~CheckClientDownloadRequest() {
 }
 
 bool CheckClientDownloadRequest::IsSupportedDownload(
-    DownloadCheckResultReason* reason,
-    ClientDownloadRequest::DownloadType* type) {
-  return IsSupportedDownload(*item_, item_->GetTargetFilePath(), reason, type);
+    DownloadCheckResultReason* reason) {
+  return IsSupportedDownload(*item_, item_->GetTargetFilePath(), reason);
 }
 
 content::BrowserContext* CheckClientDownloadRequest::GetBrowserContext() const {
@@ -203,46 +196,6 @@ content::BrowserContext* CheckClientDownloadRequest::GetBrowserContext() const {
 
 bool CheckClientDownloadRequest::IsCancelled() {
   return item_->GetState() == download::DownloadItem::CANCELLED;
-}
-
-void CheckClientDownloadRequest::PopulateRequest(
-    ClientDownloadRequest* request) {
-  request->mutable_digests()->set_sha256(item_->GetHash());
-  request->set_length(item_->GetReceivedBytes());
-  for (size_t i = 0; i < item_->GetUrlChain().size(); ++i) {
-    ClientDownloadRequest::Resource* resource = request->add_resources();
-    resource->set_url(SanitizeUrl(item_->GetUrlChain()[i]));
-    if (i == item_->GetUrlChain().size() - 1) {
-      // The last URL in the chain is the download URL.
-      resource->set_type(ClientDownloadRequest::DOWNLOAD_URL);
-      resource->set_referrer(SanitizeUrl(item_->GetReferrerUrl()));
-      DVLOG(2) << "dl url " << resource->url();
-      if (!item_->GetRemoteAddress().empty()) {
-        resource->set_remote_ip(item_->GetRemoteAddress());
-        DVLOG(2) << "  dl url remote addr: " << resource->remote_ip();
-      }
-      DVLOG(2) << "dl referrer " << resource->referrer();
-    } else {
-      DVLOG(2) << "dl redirect " << i << " " << resource->url();
-      resource->set_type(ClientDownloadRequest::DOWNLOAD_REDIRECT);
-    }
-  }
-
-  request->set_user_initiated(item_->HasUserGesture());
-
-  auto* referrer_chain_data = static_cast<ReferrerChainData*>(
-      item_->GetUserData(ReferrerChainData::kDownloadReferrerChainDataKey));
-  if (referrer_chain_data &&
-      !referrer_chain_data->GetReferrerChain()->empty()) {
-    request->mutable_referrer_chain()->Swap(
-        referrer_chain_data->GetReferrerChain());
-    request->mutable_referrer_chain_options()
-        ->set_recent_navigations_to_collect(
-            referrer_chain_data->recent_navigations_to_collect());
-    UMA_HISTOGRAM_COUNTS_100(
-        "SafeBrowsing.ReferrerURLChainSize.DownloadAttribution",
-        referrer_chain_data->referrer_chain_length());
-  }
 }
 
 base::WeakPtr<CheckClientDownloadRequestBase>
@@ -254,6 +207,9 @@ void CheckClientDownloadRequest::NotifySendRequest(
     const ClientDownloadRequest* request) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   service()->client_download_request_callbacks_.Notify(item_, request);
+  UMA_HISTOGRAM_COUNTS_100(
+      "SafeBrowsing.ReferrerURLChainSize.DownloadAttribution",
+      request->referrer_chain().size());
 }
 
 void CheckClientDownloadRequest::SetDownloadPingToken(
@@ -281,7 +237,7 @@ CheckClientDownloadRequest::ShouldUploadBinary(
   auto settings = DeepScanningRequest::ShouldUploadBinary(item_);
   if (settings && (reason == REASON_DOWNLOAD_DANGEROUS ||
                    reason == REASON_DOWNLOAD_DANGEROUS_HOST ||
-                   reason == REASON_WHITELISTED_URL)) {
+                   reason == REASON_ALLOWLISTED_URL)) {
     settings->tags.erase("malware");
     if (settings->tags.empty())
       return base::nullopt;
@@ -296,10 +252,9 @@ void CheckClientDownloadRequest::UploadBinary(
   if (reason == REASON_DOWNLOAD_DANGEROUS ||
       reason == REASON_DOWNLOAD_DANGEROUS_HOST ||
       reason == REASON_DOWNLOAD_POTENTIALLY_UNWANTED ||
-      reason == REASON_DOWNLOAD_UNCOMMON || reason == REASON_WHITELISTED_URL) {
+      reason == REASON_DOWNLOAD_UNCOMMON || reason == REASON_ALLOWLISTED_URL) {
     service()->UploadForDeepScanning(
-        item_,
-        base::BindRepeating(&MaybeOverrideDlpScanResult, reason, callback_),
+        item_, base::BindRepeating(&MaybeOverrideScanResult, reason, callback_),
         DeepScanningRequest::DeepScanTrigger::TRIGGER_POLICY,
         std::move(settings));
   } else {
@@ -326,21 +281,26 @@ bool CheckClientDownloadRequest::ShouldPromptForDeepScanning(
   if (reason != REASON_DOWNLOAD_UNCOMMON)
     return false;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   return false;
 #else
   Profile* profile = Profile::FromBrowserContext(GetBrowserContext());
+  if (!profile)
+    return false;
+  AdvancedProtectionStatusManager* advanced_protection_status_manager =
+      AdvancedProtectionStatusManagerFactory::GetForProfile(profile);
+  if (!advanced_protection_status_manager)
+    return false;
   return base::FeatureList::IsEnabled(kPromptAppForDeepScanning) &&
-         AdvancedProtectionStatusManagerFactory::GetForProfile(profile)
-             ->IsUnderAdvancedProtection();
+         advanced_protection_status_manager->IsUnderAdvancedProtection();
 #endif
 }
 
-bool CheckClientDownloadRequest::IsWhitelistedByPolicy() const {
+bool CheckClientDownloadRequest::IsAllowlistedByPolicy() const {
   Profile* profile = Profile::FromBrowserContext(GetBrowserContext());
   if (!profile)
     return false;
-  return MatchesEnterpriseWhitelist(*profile->GetPrefs(), item_->GetUrlChain());
+  return MatchesEnterpriseAllowlist(*profile->GetPrefs(), item_->GetUrlChain());
 }
 
 }  // namespace safe_browsing

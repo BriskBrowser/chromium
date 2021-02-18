@@ -131,14 +131,13 @@ class CookieStoreIOS : public net::CookieStore,
   class Subscription : public base::LinkNode<Subscription>,
                        public CookieChangeSubscription {
    public:
-    explicit Subscription(
-        std::unique_ptr<CookieChangeCallbackList::Subscription> subscription);
+    explicit Subscription(base::CallbackListSubscription subscription);
     ~Subscription() override;
 
     void ResetSubscription();
 
    private:
-    std::unique_ptr<CookieChangeCallbackList::Subscription> subscription_;
+    base::CallbackListSubscription subscription_;
 
     DISALLOW_COPY_AND_ASSIGN(Subscription);
   };
@@ -198,7 +197,7 @@ class CookieStoreIOS : public net::CookieStore,
   std::unique_ptr<net::CookieMonster> cookie_monster_;
   std::unique_ptr<SystemCookieStore> system_store_;
   bool metrics_enabled_;
-  base::CancelableClosure flush_closure_;
+  base::CancelableOnceClosure flush_closure_;
 
   // Cookie notification methods.
   // The cookie cache is updated from both the system store and the

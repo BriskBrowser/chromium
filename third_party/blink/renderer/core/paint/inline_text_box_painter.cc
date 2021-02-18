@@ -19,9 +19,10 @@
 #include "third_party/blink/renderer/core/layout/text_decoration_offset.h"
 #include "third_party/blink/renderer/core/paint/applied_decoration_painter.h"
 #include "third_party/blink/renderer/core/paint/document_marker_painter.h"
+#include "third_party/blink/renderer/core/paint/highlight_painting_utils.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
 #include "third_party/blink/renderer/core/paint/paint_timing_detector.h"
-#include "third_party/blink/renderer/core/paint/selection_painting_utils.h"
+#include "third_party/blink/renderer/core/paint/selection_bounds_recorder.h"
 #include "third_party/blink/renderer/core/paint/text_decoration_info.h"
 #include "third_party/blink/renderer/core/paint/text_painter.h"
 #include "third_party/blink/renderer/platform/graphics/dom_node_id.h"
@@ -33,6 +34,8 @@
 #include "third_party/skia/include/effects/SkGradientShader.h"
 
 namespace blink {
+
+class HTMLAnchorElement;
 
 namespace {
 
@@ -60,10 +63,8 @@ std::pair<unsigned, unsigned> GetTextMatchMarkerPaintOffsets(
 }
 
 DOMNodeId GetNodeHolder(Node* node) {
-  if (node && node->GetLayoutObject()) {
-    DCHECK(node->GetLayoutObject()->IsText());
-    return (ToLayoutText(node->GetLayoutObject()))->EnsureNodeId();
-  }
+  if (node && node->GetLayoutObject())
+    return To<LayoutText>(node->GetLayoutObject())->EnsureNodeId();
   return kInvalidDOMNodeId;
 }
 
@@ -133,7 +134,8 @@ void InlineTextBoxPainter::Paint(const PaintInfo& paint_info,
   DCHECK(!ShouldPaintSelfOutline(paint_info.phase) &&
          !ShouldPaintDescendantOutlines(paint_info.phase));
 
-  bool is_printing = paint_info.IsPrinting();
+  bool is_printing =
+      inline_text_box_.GetLineLayoutItem().GetDocument().Printing();
 
   // Determine whether or not we're selected.
   bool have_selection = !is_printing &&
@@ -152,18 +154,6 @@ void InlineTextBoxPainter::Paint(const PaintInfo& paint_info,
   physical_overflow.Move(paint_offset);
   IntRect visual_rect = EnclosingIntRect(physical_overflow);
 
-  // The text clip phase already has a DrawingRecorder. Text clips are initiated
-  // only in BoxPainter::PaintFillLayer, which is already within a
-  // DrawingRecorder.
-  base::Optional<DrawingRecorder> recorder;
-  if (paint_info.phase != PaintPhase::kTextClip) {
-    if (DrawingRecorder::UseCachedDrawingIfPossible(
-            paint_info.context, inline_text_box_, paint_info.phase))
-      return;
-    recorder.emplace(paint_info.context, inline_text_box_, paint_info.phase,
-                     visual_rect);
-  }
-
   GraphicsContext& context = paint_info.context;
   PhysicalOffset box_origin =
       inline_text_box_.PhysicalLocation() + paint_offset;
@@ -180,6 +170,35 @@ void InlineTextBoxPainter::Paint(const PaintInfo& paint_info,
   PhysicalRect box_rect(box_origin,
                         PhysicalSize(inline_text_box_.LogicalWidth(),
                                      inline_text_box_.LogicalHeight()));
+
+  base::Optional<SelectionBoundsRecorder> selection_recorder;
+  if (have_selection && paint_info.phase == PaintPhase::kForeground &&
+      !is_printing) {
+    const FrameSelection& frame_selection =
+        InlineLayoutObject().GetFrame()->Selection();
+    SelectionState selection_state =
+        frame_selection.ComputeLayoutSelectionStateForInlineTextBox(
+            inline_text_box_);
+    if (SelectionBoundsRecorder::ShouldRecordSelection(frame_selection,
+                                                       selection_state)) {
+      PhysicalRect selection_rect =
+          GetSelectionRect<InlineTextBoxPainter::PaintOptions::kNormal>(
+              context, box_rect, style_to_use, style_to_use.GetFont());
+      selection_recorder.emplace(selection_state, selection_rect,
+                                 context.GetPaintController());
+    }
+  }
+
+  // The text clip phase already has a DrawingRecorder. Text clips are initiated
+  // only in BoxPainter::PaintFillLayer, which is already within a
+  // DrawingRecorder.
+  base::Optional<DrawingRecorder> recorder;
+  if (paint_info.phase != PaintPhase::kTextClip) {
+    if (DrawingRecorder::UseCachedDrawingIfPossible(context, inline_text_box_,
+                                                    paint_info.phase))
+      return;
+    recorder.emplace(context, inline_text_box_, paint_info.phase, visual_rect);
+  }
 
   unsigned length = inline_text_box_.Len();
   const String& layout_item_string =
@@ -228,7 +247,7 @@ void InlineTextBoxPainter::Paint(const PaintInfo& paint_info,
   if (!inline_text_box_.IsHorizontal()) {
     if (style_to_use.HasTextCombine() &&
         inline_text_box_.GetLineLayoutItem().IsCombineText()) {
-      combined_text = &ToLayoutTextCombine(InlineLayoutObject());
+      combined_text = &To<LayoutTextCombine>(InlineLayoutObject());
       if (!combined_text->IsCombined())
         combined_text = nullptr;
     }
@@ -260,10 +279,12 @@ void InlineTextBoxPainter::Paint(const PaintInfo& paint_info,
   TextPaintStyle text_style = TextPainterBase::TextPaintingStyle(
       inline_text_box_.GetLineLayoutItem().GetDocument(), style_to_use,
       paint_info);
-  TextPaintStyle selection_style = TextPainterBase::SelectionPaintingStyle(
-      inline_text_box_.GetLineLayoutItem().GetDocument(), style_to_use,
-      inline_text_box_.GetLineLayoutItem().GetNode(), have_selection,
-      paint_info, text_style);
+  TextPaintStyle selection_style = text_style;
+  if (have_selection) {
+    selection_style = TextPainterBase::SelectionPaintingStyle(
+        inline_text_box_.GetLineLayoutItem().GetDocument(), style_to_use,
+        inline_text_box_.GetLineLayoutItem().GetNode(), paint_info, text_style);
+  }
   bool paint_selected_text_only =
       (paint_info.phase == PaintPhase::kSelectionDragImage);
   bool paint_selected_text_separately =
@@ -373,9 +394,15 @@ void InlineTextBoxPainter::Paint(const PaintInfo& paint_info,
           EnclosingUnderlineObject(&inline_text_box_);
       const ComputedStyle* decorating_box_style =
           decorating_box ? decorating_box.Style() : nullptr;
+      base::Optional<AppliedTextDecoration> selection_text_decoration =
+          UNLIKELY(have_selection)
+              ? base::Optional<AppliedTextDecoration>(
+                    selection_style.selection_text_decoration)
+              : base::nullopt;
       decoration_info.emplace(box_origin, local_origin, width,
                               inline_text_box_.Root().BaselineType(),
-                              style_to_use, decorating_box_style);
+                              style_to_use, selection_text_decoration,
+                              decorating_box_style);
       TextDecorationOffset decoration_offset(decoration_info->Style(),
                                              &inline_text_box_, decorating_box);
       text_painter.PaintDecorationsExceptLineThrough(
@@ -420,7 +447,7 @@ void InlineTextBoxPainter::Paint(const PaintInfo& paint_info,
     // the first time, we draw the glyphs outside the selection area, with
     // the original style.
     {
-      GraphicsContextStateSaver state_saver(context);
+      GraphicsContextStateSaver inner_state_saver(context);
       context.ClipOut(FloatRect(selection_rect));
       text_painter.Paint(selection_start, selection_end, length, text_style,
                          node_id);
@@ -428,7 +455,7 @@ void InlineTextBoxPainter::Paint(const PaintInfo& paint_info,
     // the second time, we draw the glyphs inside the selection area, with
     // the selection style.
     {
-      GraphicsContextStateSaver state_saver(context);
+      GraphicsContextStateSaver inner_state_saver(context);
       context.Clip(FloatRect(selection_rect));
       text_painter.Paint(selection_start, selection_end, length,
                          selection_style, node_id);
@@ -584,14 +611,14 @@ void InlineTextBoxPainter::PaintDocumentMarkers(
       case DocumentMarker::kSpelling:
         if (marker_paint_phase == DocumentMarkerPaintPhase::kBackground)
           continue;
-        inline_text_box_.PaintDocumentMarker(paint_info.context, box_origin,
-                                             marker, style, font, false);
+        inline_text_box_.PaintDocumentMarker(paint_info, box_origin, marker,
+                                             style, font, false);
         break;
       case DocumentMarker::kGrammar:
         if (marker_paint_phase == DocumentMarkerPaintPhase::kBackground)
           continue;
-        inline_text_box_.PaintDocumentMarker(paint_info.context, box_origin,
-                                             marker, style, font, true);
+        inline_text_box_.PaintDocumentMarker(paint_info, box_origin, marker,
+                                             style, font, true);
         break;
       case DocumentMarker::kTextFragment:
       case DocumentMarker::kTextMatch:
@@ -627,7 +654,7 @@ void InlineTextBoxPainter::PaintDocumentMarkers(
   }
 }
 
-void InlineTextBoxPainter::PaintDocumentMarker(GraphicsContext& context,
+void InlineTextBoxPainter::PaintDocumentMarker(const PaintInfo& paint_info,
                                                const PhysicalOffset& box_origin,
                                                const DocumentMarker& marker,
                                                const ComputedStyle& style,
@@ -676,7 +703,7 @@ void InlineTextBoxPainter::PaintDocumentMarker(GraphicsContext& context,
     width = LayoutUnit(marker_rect.Width());
   }
   DocumentMarkerPainter::PaintDocumentMarker(
-      context, box_origin, style, marker.GetType(),
+      paint_info, box_origin, style, marker.GetType(),
       PhysicalRect(start, LayoutUnit(), width,
                    inline_text_box_.LogicalHeight()));
 }
@@ -781,8 +808,9 @@ PhysicalRect InlineTextBoxPainter::PaintSelection(
     Color text_color,
     LayoutTextCombine* combined_text) {
   auto layout_item = inline_text_box_.GetLineLayoutItem();
-  Color c = SelectionPaintingUtils::SelectionBackgroundColor(
-      layout_item.GetDocument(), layout_item.StyleRef(), layout_item.GetNode());
+  Color c = HighlightPaintingUtils::HighlightBackgroundColor(
+      layout_item.GetDocument(), layout_item.StyleRef(), layout_item.GetNode(),
+      kPseudoIdSelection);
   if (!c.Alpha())
     return PhysicalRect();
 
@@ -855,10 +883,9 @@ void InlineTextBoxPainter::PaintTextMarkerForeground(
 
   const TextPaintStyle text_style =
       DocumentMarkerPainter::ComputeTextPaintStyleFrom(
-          style, marker,
-          inline_text_box_.GetLineLayoutItem()
-              .GetDocument()
-              .InForcedColorsMode());
+          inline_text_box_.GetLineLayoutItem().GetDocument(),
+          inline_text_box_.GetLineLayoutItem().GetNode(), style, marker,
+          paint_info);
   if (text_style.current_color == Color::kTransparent)
     return;
 

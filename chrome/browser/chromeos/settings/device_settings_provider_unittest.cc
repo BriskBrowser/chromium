@@ -8,14 +8,16 @@
 #include <string>
 #include <utility>
 
+#include "ash/constants/ash_features.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
 #include "base/macros.h"
 #include "base/path_service.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/scoped_path_override.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/policy/device_local_account.h"
@@ -64,8 +66,8 @@ class DeviceSettingsProviderTest : public DeviceSettingsTestBase {
 
     EXPECT_CALL(*this, SettingChanged(_)).Times(AnyNumber());
     provider_.reset(new DeviceSettingsProvider(
-        base::Bind(&DeviceSettingsProviderTest::SettingChanged,
-                   base::Unretained(this)),
+        base::BindRepeating(&DeviceSettingsProviderTest::SettingChanged,
+                            base::Unretained(this)),
         device_settings_service_.get(), local_state_.Get()));
     Mock::VerifyAndClearExpectations(this);
   }
@@ -411,6 +413,20 @@ class DeviceSettingsProviderTest : public DeviceSettingsTestBase {
         device_policy_->payload()
             .mutable_device_show_low_disk_space_notification();
     proto->set_device_show_low_disk_space_notification(show);
+    BuildAndInstallDevicePolicy();
+  }
+
+  void SetDeviceFamilyLinkAccountsAllowed(bool allow) {
+    em::DeviceFamilyLinkAccountsAllowedProto* proto =
+        device_policy_->payload().mutable_family_link_accounts_allowed();
+    proto->set_family_link_accounts_allowed(allow);
+    BuildAndInstallDevicePolicy();
+  }
+
+  void AddUserToAllowlist(const std::string& user_id) {
+    em::UserAllowlistProto* proto =
+        device_policy_->payload().mutable_user_allowlist();
+    proto->add_user_allowlist(user_id);
     BuildAndInstallDevicePolicy();
   }
 
@@ -1168,6 +1184,59 @@ TEST_F(DeviceSettingsProviderTestEnterprise,
 
   SetDeviceShowLowDiskSpaceNotification(false);
   VerifyDeviceShowLowDiskSpaceNotification(false);
+}
+
+// Tests DeviceFamilyLinkAccountsAllowed policy with the feature disabled.
+// The policy should have no effect.
+TEST_F(DeviceSettingsProviderTest, DeviceFamilyLinkAccountsAllowedDisabled) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndDisableFeature(
+      chromeos::features::kFamilyLinkOnSchoolDevice);
+
+  base::Value default_value(false);
+  VerifyPolicyValue(kAccountsPrefFamilyLinkAccountsAllowed, &default_value);
+
+  // Family Link allowed with allowlist set, but the feature is disabled.
+  SetDeviceFamilyLinkAccountsAllowed(true);
+  AddUserToAllowlist("*@managedchrome.com");
+  EXPECT_EQ(base::Value(false),
+            *provider_->Get(kAccountsPrefFamilyLinkAccountsAllowed));
+}
+
+// Tests DeviceFamilyLinkAccountsAllowed policy with the feature enabled.
+TEST_F(DeviceSettingsProviderTest, DeviceFamilyLinkAccountsAllowedEnabled) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(
+      chromeos::features::kFamilyLinkOnSchoolDevice);
+
+  base::Value default_value(false);
+  VerifyPolicyValue(kAccountsPrefFamilyLinkAccountsAllowed, &default_value);
+
+  // Family Link allowed, but no allowlist set.
+  SetDeviceFamilyLinkAccountsAllowed(true);
+  EXPECT_EQ(base::Value(false),
+            *provider_->Get(kAccountsPrefFamilyLinkAccountsAllowed));
+
+  // Family Link allowed with allowlist set.
+  AddUserToAllowlist("*@managedchrome.com");
+  EXPECT_EQ(base::Value(true),
+            *provider_->Get(kAccountsPrefFamilyLinkAccountsAllowed));
+
+  // Family Link disallowed with allowlist set.
+  SetDeviceFamilyLinkAccountsAllowed(false);
+  EXPECT_EQ(base::Value(false),
+            *provider_->Get(kAccountsPrefFamilyLinkAccountsAllowed));
+}
+
+TEST_F(DeviceSettingsProviderTest, FeatureFlags) {
+  EXPECT_EQ(nullptr, provider_->Get(kFeatureFlags));
+
+  device_policy_->payload().mutable_feature_flags()->add_feature_flags("foo");
+  BuildAndInstallDevicePolicy();
+
+  base::ListValue expected_feature_flags;
+  expected_feature_flags.Append(base::Value("foo"));
+  EXPECT_EQ(expected_feature_flags, *provider_->Get(kFeatureFlags));
 }
 
 }  // namespace chromeos

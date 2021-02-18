@@ -144,11 +144,17 @@ class Flag {
   inline bool IsOfType() const {
     return GetImpl().template IsOfType<U>();
   }
-  T Get() const { return GetImpl().Get(); }
-  void Set(const T& v) { GetImpl().Set(v); }
+  T Get() const {
+    return flags_internal::FlagImplPeer::InvokeGet<T>(GetImpl());
+  }
+  void Set(const T& v) {
+    flags_internal::FlagImplPeer::InvokeSet(GetImpl(), v);
+  }
   void InvokeCallback() { GetImpl().InvokeCallback(); }
 
-  const CommandLineFlag& Reflect() const { return GetImpl().Reflect(); }
+  const CommandLineFlag& Reflect() const {
+    return flags_internal::FlagImplPeer::InvokeReflect(GetImpl());
+  }
 
   // The data members are logically private, but they need to be public for
   // this to be an aggregate type.
@@ -180,7 +186,7 @@ class Flag {
 //   std::string first_name = absl::GetFlag(FLAGS_firstname);
 template <typename T>
 ABSL_MUST_USE_RESULT T GetFlag(const absl::Flag<T>& flag) {
-  return flag.Get();
+  return flags_internal::FlagImplPeer::InvokeGet<T>(flag);
 }
 
 // SetFlag()
@@ -192,7 +198,7 @@ ABSL_MUST_USE_RESULT T GetFlag(const absl::Flag<T>& flag) {
 // but especially within performance-critical code.
 template <typename T>
 void SetFlag(absl::Flag<T>* flag, const T& v) {
-  flag->Set(v);
+  flags_internal::FlagImplPeer::InvokeSet(*flag, v);
 }
 
 // Overload of `SetFlag()` to allow callers to pass in a value that is
@@ -201,7 +207,7 @@ void SetFlag(absl::Flag<T>* flag, const T& v) {
 template <typename T, typename V>
 void SetFlag(absl::Flag<T>* flag, const V& v) {
   T value(v);
-  flag->Set(value);
+  flags_internal::FlagImplPeer::InvokeSet(*flag, value);
 }
 
 // GetFlagReflectionHandle()
@@ -216,7 +222,7 @@ void SetFlag(absl::Flag<T>* flag, const V& v) {
 
 template <typename T>
 const CommandLineFlag& GetFlagReflectionHandle(const absl::Flag<T>& f) {
-  return f.Reflect();
+  return flags_internal::FlagImplPeer::InvokeReflect(f);
 }
 
 ABSL_NAMESPACE_END
@@ -295,13 +301,15 @@ ABSL_NAMESPACE_END
 #if ABSL_FLAGS_STRIP_NAMES
 #define ABSL_FLAG_IMPL_FLAGNAME(txt) ""
 #define ABSL_FLAG_IMPL_FILENAME() ""
-#define ABSL_FLAG_IMPL_REGISTRAR(T, flag) \
-  absl::flags_internal::FlagRegistrar<T, false>(ABSL_FLAG_IMPL_FLAG_PTR(flag))
+#define ABSL_FLAG_IMPL_REGISTRAR(T, flag)                                      \
+  absl::flags_internal::FlagRegistrar<T, false>(ABSL_FLAG_IMPL_FLAG_PTR(flag), \
+                                                nullptr)
 #else
 #define ABSL_FLAG_IMPL_FLAGNAME(txt) txt
 #define ABSL_FLAG_IMPL_FILENAME() __FILE__
-#define ABSL_FLAG_IMPL_REGISTRAR(T, flag) \
-  absl::flags_internal::FlagRegistrar<T, true>(ABSL_FLAG_IMPL_FLAG_PTR(flag))
+#define ABSL_FLAG_IMPL_REGISTRAR(T, flag)                                     \
+  absl::flags_internal::FlagRegistrar<T, true>(ABSL_FLAG_IMPL_FLAG_PTR(flag), \
+                                               __FILE__)
 #endif
 
 // ABSL_FLAG_IMPL macro definition conditional on ABSL_FLAGS_STRIP_HELP

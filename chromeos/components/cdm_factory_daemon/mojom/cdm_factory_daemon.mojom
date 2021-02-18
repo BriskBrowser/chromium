@@ -9,24 +9,40 @@
 // interface can also be used to connect directly to the OEMCrypto
 // implementation for ARC.
 
+// Next MinVersion: 5
+
 module chromeos.cdm.mojom;
 
 import "chromeos/components/cdm_factory_daemon/mojom/cdm_storage.mojom";
 import "chromeos/components/cdm_factory_daemon/mojom/content_decryption_module.mojom";
+import "chromeos/components/cdm_factory_daemon/mojom/output_protection.mojom";
 import "components/arc/mojom/oemcrypto.mojom";
 import "components/arc/mojom/protected_buffer_manager.mojom";
+import "ui/gfx/geometry/mojom/geometry.mojom";
 
-// Next Method ID: 1
+// Next Method ID: 2
 interface CdmFactory {
-  // Creates a new ContentDecryptionModule instance with the corresponding
-  // client and remote storage implementation. Use an associated interface to
-  // ensure ordering and that all become invalidated at the same time.
-  CreateCdm@0(pending_associated_remote<ContentDecryptionModuleClient> client,
+  // Deprecated, do not use.
+  [MinVersion=1]
+  CreateCdmDeprecated@1(
+              pending_associated_remote<ContentDecryptionModuleClient> client,
               pending_associated_remote<CdmStorage> storage,
+              pending_associated_receiver<ContentDecryptionModule> cdm,
+              pending_remote<OutputProtection> output_protection);
+
+  // Creates a new ContentDecryptionModule instance for a |host| with the
+  // corresponding |client|, remote |storage| implementation and
+  // |output_protection|. Use an associated interface to ensure ordering and
+  // that all become invalidated at the same time.
+  [MinVersion=3]
+  CreateCdm@2(pending_associated_remote<ContentDecryptionModuleClient> client,
+              pending_associated_remote<CdmStorage> storage,
+              pending_remote<OutputProtection> output_protection,
+              string host,
               pending_associated_receiver<ContentDecryptionModule> cdm);
 };
 
-// Next Method ID: 2
+// Next Method ID: 6
 // Used for bootstrapping the connection between Chrome and the daemon, then
 // methods can be invoked to obtain interfaces to perform CDM or OEMCrypto
 // operations.
@@ -37,10 +53,32 @@ interface CdmFactoryDaemon {
   // get the interface from the daemon.
   CreateFactory@0(string key_system) => (pending_remote<CdmFactory>? factory);
 
-  // Used to establish a connection to the OEMCrypto implementation to provide
-  // that service to ARC.
-  ConnectOemCrypto@1(
+  // Deprecated, do not use.
+  ConnectOemCryptoDeprecated@1(
       pending_receiver<arc.mojom.OemCryptoService> oemcryptor,
       pending_remote<arc.mojom.ProtectedBufferManager>
           protected_buffer_manager);
+
+  // Used to establish a connection to the OEMCrypto implementation to provide
+  // that service to ARC.
+  [MinVersion=1] ConnectOemCrypto@2(
+      pending_receiver<arc.mojom.OemCryptoService> oemcryptor,
+      pending_remote<arc.mojom.ProtectedBufferManager>
+          protected_buffer_manager,
+      pending_remote<OutputProtection> output_protection);
+
+  // Creates a new OutputProtection interface to be used for passing into the
+  // CreateCdm call in CdmFactory.
+  [MinVersion=1]
+  GetOutputProtection@3(pending_receiver<OutputProtection> output_protection);
+
+  // Returns binary configuration data used for setting up HW decrypt+decode. If
+  // successful, |success| will be true and |config_data| will be valid.
+  // Otherwise |success| will be false and |config_data| should not be used.
+  [MinVersion=2]
+  GetHwConfigData@4() => (bool success, array<uint8> config_data);
+
+  // Returns an array of the screen resolutions of all the connected displays.
+  [MinVersion=4]
+  GetScreenResolutions@5() => (array<gfx.mojom.Size> resolutions);
 };

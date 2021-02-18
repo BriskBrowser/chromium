@@ -6,16 +6,16 @@ package org.chromium.components.permissions;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
-import android.content.Intent;
-import android.os.Build;
-import android.provider.Settings;
 
 import androidx.annotation.IntDef;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.BuildInfo;
 import org.chromium.base.ContextUtils;
+import org.chromium.base.ObserverList;
 import org.chromium.base.annotations.CalledByNative;
+import org.chromium.components.content_settings.ContentSettingValues;
+import org.chromium.components.content_settings.ContentSettingsType;
 import org.chromium.ui.modaldialog.DialogDismissalCause;
 import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.ui.modaldialog.ModalDialogProperties;
@@ -50,6 +50,22 @@ public class PermissionDialogController
         int REQUEST_ANDROID_PERMISSIONS = 5;
     }
 
+    /**
+     * Interface for a class that wants to receive updates from this controller.
+     */
+    public interface Observer {
+        /**
+         * Notifies the observer that the user has just completed a permissions prompt.
+         * @param permissions An array of ContentSettingsType, indicating the last dialog
+         *         permissions.
+         * @param result A ContentSettingValues type, indicating the last dialog result.
+         */
+        void onDialogResult(
+                @ContentSettingsType int[] permissions, @ContentSettingValues int result);
+    }
+
+    private final ObserverList<Observer> mObservers;
+
     private PropertyModel mDialogModel;
     private PropertyModel mOverlayDetectedDialogModel;
     private PermissionDialogDelegate mDialogDelegate;
@@ -80,6 +96,7 @@ public class PermissionDialogController
     private PermissionDialogController() {
         mRequestQueue = new LinkedList<>();
         mState = State.NOT_SHOWING;
+        mObservers = new ObserverList<>();
     }
 
     /**
@@ -90,6 +107,20 @@ public class PermissionDialogController
     @CalledByNative
     private static void createDialog(PermissionDialogDelegate delegate) {
         PermissionDialogController.getInstance().queueDialog(delegate);
+    }
+
+    /**
+     * @param observer An observer to be notified of changes.
+     */
+    public void addObserver(Observer observer) {
+        mObservers.addObserver(observer);
+    }
+
+    /**
+     * @param observer The observer to remove.
+     */
+    public void removeObserver(Observer observer) {
+        mObservers.removeObserver(observer);
     }
 
     /**
@@ -118,7 +149,7 @@ public class PermissionDialogController
             mState = State.NOT_SHOWING;
         } else {
             mDialogDelegate.onAccept();
-            destroyDelegate();
+            destroyDelegate(ContentSettingValues.ALLOW);
         }
         scheduleDisplay();
     }
@@ -132,7 +163,9 @@ public class PermissionDialogController
             mState = State.NOT_SHOWING;
         } else {
             mDialogDelegate.onDismiss();
-            destroyDelegate();
+            // The user accepted the site-level prompt but denied the app-level prompt.
+            // No content setting should be set.
+            destroyDelegate(ContentSettingValues.DEFAULT);
         }
         scheduleDisplay();
     }
@@ -155,7 +188,7 @@ public class PermissionDialogController
             // TODO(timloh): This probably doesn't work, as this happens synchronously when creating
             // the PermissionPromptAndroid, so the PermissionRequestManager won't be ready yet.
             mDialogDelegate.onDismiss();
-            destroyDelegate();
+            destroyDelegate(ContentSettingValues.DEFAULT);
             return;
         }
 
@@ -176,22 +209,18 @@ public class PermissionDialogController
 
     /**
      * Displays the dialog explaining that Chrome has detected an overlay. Offers the user to close
-     * overlay window or revoke "Draw on top" permission in Android settings.
+     * the overlay window and try again.
      */
     private void showFilteredTouchEventDialog(Context context) {
-        // Settings.ACTION_MANAGE_OVERLAY_PERMISSION is only supported on M+ therefore we shouldn't
-        // display this dialog on L. The function won't be called on L anyway because touch
-        // filtering was introduced in M.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
-
         // Don't show another dialog if one is already displayed.
         if (mOverlayDetectedDialogModel != null) return;
 
         ModalDialogProperties.Controller overlayDetectedDialogController =
                 new SimpleModalDialogController(mModalDialogManager, (Integer dismissalCause) -> {
-                    if (dismissalCause == DialogDismissalCause.POSITIVE_BUTTON_CLICKED) {
-                        context.startActivity(
-                                new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION));
+                    if (dismissalCause == DialogDismissalCause.POSITIVE_BUTTON_CLICKED
+                            && mDialogModel != null) {
+                        mModalDialogManager.dismissDialog(
+                                mDialogModel, DialogDismissalCause.NAVIGATE_BACK_OR_TOUCH_OUTSIDE);
                     }
                     mOverlayDetectedDialogModel = null;
                 });
@@ -204,7 +233,7 @@ public class PermissionDialogController
                         .with(ModalDialogProperties.MESSAGE, context.getResources(),
                                 R.string.overlay_detected_dialog_message)
                         .with(ModalDialogProperties.POSITIVE_BUTTON_TEXT, context.getResources(),
-                                R.string.open_settings)
+                                R.string.cancel)
                         .with(ModalDialogProperties.NEGATIVE_BUTTON_TEXT, context.getResources(),
                                 R.string.try_again)
                         .with(ModalDialogProperties.CANCEL_ON_TOUCH_OUTSIDE, true)
@@ -267,7 +296,7 @@ public class PermissionDialogController
                 assert mState == State.PROMPT_OPEN;
                 mDialogDelegate.onDismiss();
             }
-            destroyDelegate();
+            destroyDelegate(ContentSettingValues.BLOCK);
             scheduleDisplay();
         }
     }
@@ -291,7 +320,12 @@ public class PermissionDialogController
         }
     }
 
-    private void destroyDelegate() {
+    private void destroyDelegate(@ContentSettingValues int result) {
+        if (result != ContentSettingValues.DEFAULT) {
+            for (Observer obs : mObservers) {
+                obs.onDialogResult(mDialogDelegate.getContentSettingsTypes().clone(), result);
+            }
+        }
         mDialogDelegate.destroy();
         mDialogDelegate = null;
         mState = State.NOT_SHOWING;

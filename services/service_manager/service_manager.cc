@@ -8,7 +8,7 @@
 
 #include "base/base_paths.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
@@ -188,11 +188,6 @@ ServiceManager::~ServiceManager() {
   }
   service_manager_instance_->Stop();
   instances_.clear();
-}
-
-void ServiceManager::SetInstanceQuitCallback(
-    base::OnceCallback<void(const Identity&)> callback) {
-  instance_quit_callback_ = std::move(callback);
 }
 
 ServiceInstance* ServiceManager::FindOrCreateMatchingTargetInstance(
@@ -404,9 +399,6 @@ void ServiceManager::OnInstanceStopped(const Identity& identity) {
   for (auto& listener : listeners_) {
     listener->OnServiceStopped(identity);
   }
-
-  if (!instance_quit_callback_.is_null())
-    std::move(instance_quit_callback_).Run(identity);
 }
 
 ServiceInstance* ServiceManager::GetExistingInstance(

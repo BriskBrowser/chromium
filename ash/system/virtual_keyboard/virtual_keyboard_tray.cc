@@ -16,7 +16,6 @@
 #include "ash/system/tray/tray_constants.h"
 #include "ash/system/tray/tray_container.h"
 #include "ash/system/tray/tray_utils.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
@@ -52,7 +51,7 @@ VirtualKeyboardTray::~VirtualKeyboardTray() {
 void VirtualKeyboardTray::Initialize() {
   TrayBackgroundView::Initialize();
   SetVisiblePreferred(
-      Shell::Get()->accessibility_controller()->virtual_keyboard_enabled());
+      Shell::Get()->accessibility_controller()->virtual_keyboard().enabled());
 }
 
 base::string16 VirtualKeyboardTray::GetAccessibleNameForTray() {
@@ -61,7 +60,7 @@ base::string16 VirtualKeyboardTray::GetAccessibleNameForTray() {
 }
 
 void VirtualKeyboardTray::HandleLocaleChange() {
-  icon_->set_tooltip_text(l10n_util::GetStringUTF16(
+  icon_->SetTooltipText(l10n_util::GetStringUTF16(
       IDS_ASH_STATUS_TRAY_ACCESSIBILITY_VIRTUAL_KEYBOARD));
 }
 
@@ -100,7 +99,7 @@ bool VirtualKeyboardTray::PerformAction(const ui::Event& event) {
 
 void VirtualKeyboardTray::OnAccessibilityStatusChanged() {
   bool new_enabled =
-      Shell::Get()->accessibility_controller()->virtual_keyboard_enabled();
+      Shell::Get()->accessibility_controller()->virtual_keyboard().enabled();
   SetVisiblePreferred(new_enabled);
 }
 
@@ -123,7 +122,7 @@ void VirtualKeyboardTray::UpdateIcon() {
       icon,
       TrayIconColor(Shell::Get()->session_controller()->GetSessionState()));
   icon_->SetImage(image);
-  icon_->set_tooltip_text(l10n_util::GetStringUTF16(
+  icon_->SetTooltipText(l10n_util::GetStringUTF16(
       IDS_ASH_STATUS_TRAY_ACCESSIBILITY_VIRTUAL_KEYBOARD));
   const int vertical_padding = (kTrayItemSize - image.height()) / 2;
   const int horizontal_padding = (kTrayItemSize - image.width()) / 2;

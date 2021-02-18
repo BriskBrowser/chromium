@@ -76,6 +76,7 @@ namespace http://www.w3.org/1999/xhtml
     property ariaValueMin
     property ariaValueNow
     property ariaValueText
+    property ariaVirtualContent
     property assignedSlot
     property attachInternals
     property attachShadow
@@ -104,11 +105,11 @@ namespace http://www.w3.org/1999/xhtml
     property computedStyleMap
     property contains
     property contentEditable
-    property createShadowRoot
     property dataset
     property dir
     property dispatchEvent
     property draggable
+    property editContext
     property elementTiming
     property enterKeyHint
     property firstChild
@@ -122,7 +123,6 @@ namespace http://www.w3.org/1999/xhtml
     property getAttributeNodeNS
     property getBoundingClientRect
     property getClientRects
-    property getDestinationInsertionPoints
     property getElementsByClassName
     property getElementsByTagName
     property getElementsByTagNameNS
@@ -463,7 +463,6 @@ html element body
     property onpagehide
     property onpageshow
     property onpopstate
-    property onportalactivate
     property onrejectionhandled
     property onstorage
     property ontimezonechange
@@ -519,9 +518,6 @@ html element colgroup
     property span
     property vAlign
     property width
-html element content
-    property getDistributedNodes
-    property select
 html element data
     property value
 html element datalist
@@ -616,7 +612,6 @@ html element frameset
     property onpagehide
     property onpageshow
     property onpopstate
-    property onportalactivate
     property onrejectionhandled
     property onstorage
     property ontimezonechange
@@ -732,7 +727,6 @@ html element input
     property name
     property pattern
     property placeholder
-    property rawValue
     property readOnly
     property reportValidity
     property required
@@ -783,7 +777,6 @@ html element link
     property hreflang
     property imageSizes
     property imageSrcset
-    property import
     property importance
     property integrity
     property media
@@ -792,6 +785,7 @@ html element link
     property relList
     property resources
     property rev
+    property scopes
     property sheet
     property sizes
     property target
@@ -905,13 +899,10 @@ html element param
     property valueType
 html element picture
 html element plaintext
-html element portal
-    property activate
-    property onmessage
-    property onmessageerror
-    property postMessage
-    property referrerPolicy
-    property src
+html element popup
+    property hide
+    property open
+    property show
 html element pre
     property width
 html element progress
@@ -967,8 +958,6 @@ html element select
     property validity
     property value
     property willValidate
-html element shadow
-    property getDistributedNodes
 html element slot
     property assign
     property assignedElements
@@ -1292,6 +1281,7 @@ namespace http://www.w3.org/2000/svg
     property ariaValueMin
     property ariaValueNow
     property ariaValueText
+    property ariaVirtualContent
     property assignedSlot
     property attachShadow
     property attributeStyleMap
@@ -1316,9 +1306,9 @@ namespace http://www.w3.org/2000/svg
     property computedRole
     property computedStyleMap
     property contains
-    property createShadowRoot
     property dataset
     property dispatchEvent
+    property editContext
     property elementTiming
     property firstChild
     property firstElementChild
@@ -1331,7 +1321,6 @@ namespace http://www.w3.org/2000/svg
     property getAttributeNodeNS
     property getBoundingClientRect
     property getClientRects
-    property getDestinationInsertionPoints
     property getElementsByClassName
     property getElementsByTagName
     property getElementsByTagNameNS

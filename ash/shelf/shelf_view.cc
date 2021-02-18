@@ -15,10 +15,12 @@
 #include "ash/metrics/user_metrics_recorder.h"
 #include "ash/public/cpp/ash_constants.h"
 #include "ash/public/cpp/ash_features.h"
+#include "ash/public/cpp/metrics_util.h"
 #include "ash/public/cpp/shelf_model.h"
 #include "ash/public/cpp/shelf_types.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/screen_util.h"
+#include "ash/session/session_controller_impl.h"
 #include "ash/shelf/hotseat_widget.h"
 #include "ash/shelf/scrollable_shelf_view.h"
 #include "ash/shelf/shelf.h"
@@ -35,6 +37,7 @@
 #include "ash/shell.h"
 #include "ash/shell_delegate.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "ash/style/ash_color_provider.h"
 #include "ash/system/status_area_widget.h"
 #include "ash/wm/desks/desks_util.h"
 #include "ash/wm/mru_window_tracker.h"
@@ -42,21 +45,23 @@
 #include "ash/wm/window_util.h"
 #include "base/auto_reset.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/containers/adapters.h"
+#include "base/containers/contains.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/ranges.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/timer/timer.h"
-#include "chromeos/constants/chromeos_switches.h"
+#include "components/account_id/account_id.h"
+#include "components/services/app_service/public/cpp/app_registry_cache_wrapper.h"
+#include "components/services/app_service/public/mojom/types.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/dragdrop/mojom/drag_drop_types.mojom-shared.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/base/ui_base_features.h"
-#include "ui/compositor/animation_metrics_reporter.h"
+#include "ui/compositor/animation_throughput_reporter.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/compositor/layer_animator.h"
@@ -96,9 +101,6 @@ constexpr float kDraggedImageOpacity = 0.5f;
 
 namespace {
 
-// White with ~20% opacity.
-constexpr SkColor kSeparatorColor = SkColorSetARGB(0x32, 0xFF, 0xFF, 0xFF);
-
 // The dimensions, in pixels, of the separator between pinned and unpinned
 // items.
 constexpr int kSeparatorSize = 20;
@@ -110,12 +112,6 @@ constexpr char kShelfIconFadeInAnimationHistogram[] =
     "Ash.ShelfIcon.AnimationSmoothness.FadeIn";
 constexpr char kShelfIconFadeOutAnimationHistogram[] =
     "Ash.ShelfIcon.AnimationSmoothness.FadeOut";
-
-enum class IconAnimationType {
-  kMoveAnimation,
-  kFadeInAnimation,
-  kFadeOutAnimation
-};
 
 // Helper to check if tablet mode is enabled.
 bool IsTabletModeEnabled() {
@@ -195,32 +191,20 @@ class ShelfFocusSearch : public views::FocusSearch {
   DISALLOW_COPY_AND_ASSIGN(ShelfFocusSearch);
 };
 
-class IconAnimationMetricsReporter : public ui::AnimationMetricsReporter {
- public:
-  explicit IconAnimationMetricsReporter(IconAnimationType type) : type_(type) {}
-  IconAnimationMetricsReporter(const IconAnimationMetricsReporter&) = delete;
-  IconAnimationMetricsReporter& operator=(const IconAnimationMetricsReporter&) =
-      delete;
-  ~IconAnimationMetricsReporter() override = default;
+void ReportMoveAnimationSmoothness(int smoothness) {
+  base::UmaHistogramPercentageObsoleteDoNotUse(kShelfIconMoveAnimationHistogram,
+                                               smoothness);
+}
 
- private:
-  void Report(int value) override {
-    switch (type_) {
-      case IconAnimationType::kMoveAnimation:
-        base::UmaHistogramPercentage(kShelfIconMoveAnimationHistogram, value);
-        break;
-      case IconAnimationType::kFadeInAnimation:
-        base::UmaHistogramPercentage(kShelfIconFadeInAnimationHistogram, value);
-        break;
-      case IconAnimationType::kFadeOutAnimation:
-        base::UmaHistogramPercentage(kShelfIconFadeOutAnimationHistogram,
-                                     value);
-        break;
-    }
-  }
+void ReportFadeInAnimationSmoothness(int smoothness) {
+  base::UmaHistogramPercentageObsoleteDoNotUse(
+      kShelfIconFadeInAnimationHistogram, smoothness);
+}
 
-  IconAnimationType type_ = IconAnimationType::kMoveAnimation;
-};
+void ReportFadeOutAnimationSmoothness(int smoothness) {
+  base::UmaHistogramPercentageObsoleteDoNotUse(
+      kShelfIconFadeOutAnimationHistogram, smoothness);
+}
 
 // Returns the id of the display on which |view| is shown.
 int64_t GetDisplayIdForView(const View* view) {
@@ -251,6 +235,15 @@ bool ShouldIncludeMenuItem(aura::Window* window) {
   if (!features::IsPerDeskShelfEnabled())
     return true;
   return desks_util::BelongsToActiveDesk(window);
+}
+
+// Returns true if the app associated with |app_id| is a Remote App.
+bool IsRemoteApp(const std::string& app_id) {
+  AccountId account_id =
+      Shell::Get()->session_controller()->GetActiveAccountId();
+  apps::AppRegistryCache* cache =
+      apps::AppRegistryCacheWrapper::Get().GetAppRegistryCache(account_id);
+  return cache && cache->GetAppType(app_id) == apps::mojom::AppType::kRemote;
 }
 
 }  // namespace
@@ -377,15 +370,9 @@ int ShelfView::GetSizeOfAppButtons(int count, int button_size) {
 }
 
 void ShelfView::Init() {
-  move_animation_reporter_ = std::make_unique<IconAnimationMetricsReporter>(
-      IconAnimationType::kMoveAnimation);
-  fade_in_animation_reporter_ = std::make_unique<IconAnimationMetricsReporter>(
-      IconAnimationType::kFadeInAnimation);
-  fade_out_animation_reporter_ = std::make_unique<IconAnimationMetricsReporter>(
-      IconAnimationType::kFadeOutAnimation);
-
   separator_ = new views::Separator();
-  separator_->SetColor(kSeparatorColor);
+  separator_->SetColor(AshColorProvider::Get()->GetContentLayerColor(
+      AshColorProvider::ContentLayerType::kSeparatorColor));
   separator_->SetPreferredHeight(kSeparatorSize);
   separator_->SetVisible(false);
   ConfigureChildView(separator_, ui::LAYER_TEXTURED);
@@ -501,12 +488,24 @@ ShelfAppButton* ShelfView::GetShelfItemViewWithContextMenu() {
   return static_cast<ShelfAppButton*>(view_model_->view_at(item_index));
 }
 
+void ShelfView::AnnounceShelfItemNotificationBadge(views::View* button) {
+  announcement_view_->GetViewAccessibility().OverrideName(
+      l10n_util::GetStringFUTF16(IDS_SHELF_ITEM_HAS_NOTIFICATION_BADGE,
+                                 GetTitleForView(button)));
+  announcement_view_->NotifyAccessibilityEvent(ax::mojom::Event::kAlert,
+                                               /*send_native_event=*/true);
+}
+
+bool ShelfView::LocationInsideVisibleShelfItemBounds(
+    const gfx::Point& location) const {
+  return visible_shelf_item_bounds_union_.Contains(location);
+}
+
 bool ShelfView::ShouldHideTooltip(const gfx::Point& cursor_location) const {
   // There are thin gaps between launcher buttons but the tooltip shouldn't hide
   // in the gaps, but the tooltip should hide if the mouse moved totally outside
   // of the buttons area.
-
-  return !visible_shelf_item_bounds_union_.Contains(cursor_location);
+  return !LocationInsideVisibleShelfItemBounds(cursor_location);
 }
 
 const std::vector<aura::Window*> ShelfView::GetOpenWindowsForView(
@@ -641,6 +640,14 @@ views::FocusTraversable* ShelfView::GetPaneFocusTraversable() {
 
 const char* ShelfView::GetClassName() const {
   return "ShelfView";
+}
+
+void ShelfView::OnThemeChanged() {
+  views::AccessiblePaneView::OnThemeChanged();
+  if (!separator_)
+    return;
+  separator_->SetColor(AshColorProvider::Get()->GetContentLayerColor(
+      AshColorProvider::ContentLayerType::kSeparatorColor));
 }
 
 void ShelfView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
@@ -1025,6 +1032,7 @@ views::View* ShelfView::CreateViewForItem(const ShelfItem& item) {
       ShelfAppButton* button = new ShelfAppButton(
           this, shelf_button_delegate_ ? shelf_button_delegate_ : this);
       button->SetImage(item.image);
+      button->SetNotificationBadgeColor(item.notification_badge_color);
       button->ReflectItemStatus(item);
       view = button;
       break;
@@ -1111,6 +1119,10 @@ ShelfView::RetrieveDragIconProxyAndClearDragProxyState() {
 bool ShelfView::ShouldStartDrag(
     const std::string& app_id,
     const gfx::Point& location_in_screen_coordinates) const {
+  // Remote Apps are not pinnable.
+  if (IsRemoteApp(app_id))
+    return false;
+
   // Do not start drag if an operation is already going on - or the cursor is
   // not inside. This could happen if mouse / touch operations overlap.
   return (drag_and_drop_shelf_id_.IsNull() && !app_id.empty() &&
@@ -1355,7 +1367,11 @@ void ShelfView::OnTabletModeChanged() {
 
 void ShelfView::AnimateToIdealBounds() {
   CalculateIdealBounds();
-  bounds_animator_->SetAnimationMetricsReporter(move_animation_reporter_.get());
+
+  move_animation_tracker_.emplace(
+      GetWidget()->GetCompositor()->RequestNewThroughputTracker());
+  move_animation_tracker_->Start(metrics_util::ForSmoothness(
+      base::BindRepeating(&ReportMoveAnimationSmoothness)));
 
   for (int i = 0; i < view_model_->view_size(); ++i) {
     View* view = view_model_->view_at(i);
@@ -1378,8 +1394,12 @@ void ShelfView::FadeIn(views::View* view) {
   fade_in_animation_settings.SetPreemptionStrategy(
       ui::LayerAnimator::IMMEDIATELY_SET_NEW_TARGET);
   fade_in_animation_settings.AddObserver(fade_in_animation_delegate_.get());
-  fade_in_animation_settings.SetAnimationMetricsReporter(
-      fade_in_animation_reporter_.get());
+
+  ui::AnimationThroughputReporter reporter(
+      fade_in_animation_settings.GetAnimator(),
+      metrics_util::ForSmoothness(
+          base::BindRepeating(&ReportFadeInAnimationSmoothness)));
+
   view->layer()->SetOpacity(1.f);
 }
 
@@ -1782,6 +1802,11 @@ void ShelfView::OnFadeInAnimationEnded() {
 }
 
 void ShelfView::OnFadeOutAnimationEnded() {
+  if (fade_out_animation_tracker_) {
+    fade_out_animation_tracker_->Stop();
+    fade_out_animation_tracker_.reset();
+  }
+
   // Call PreferredSizeChanged() to notify container to re-layout at the end
   // of removal animation.
   PreferredSizeChanged();
@@ -1997,10 +2022,17 @@ void ShelfView::ShelfItemRemoved(int model_index, const ShelfItem& old_item) {
   if (view->GetVisible() && view->layer()->opacity() > 0.0f) {
     UpdateShelfItemViewsVisibility();
 
+    // There could be multiple fade out animations running. Only start
+    // tracking for the first one.
+    if (!fade_out_animation_tracker_) {
+      fade_out_animation_tracker_.emplace(
+          GetWidget()->GetCompositor()->RequestNewThroughputTracker());
+      fade_out_animation_tracker_->Start(metrics_util::ForSmoothness(
+          base::BindRepeating(&ReportFadeOutAnimationSmoothness)));
+    }
+
     // The first animation fades out the view. When done we'll animate the rest
     // of the views to their target location.
-    bounds_animator_->SetAnimationMetricsReporter(
-        fade_out_animation_reporter_.get());
     bounds_animator_->AnimateViewTo(view.get(), view->bounds());
     bounds_animator_->SetAnimationDelegate(
         view.get(), std::unique_ptr<gfx::AnimationDelegate>(
@@ -2089,6 +2121,7 @@ void ShelfView::ShelfItemChanged(int model_index, const ShelfItem& old_item) {
       ShelfAppButton* button = static_cast<ShelfAppButton*>(view);
       button->ReflectItemStatus(item);
       button->SetImage(item.image);
+      button->SetNotificationBadgeColor(item.notification_badge_color);
       button->SchedulePaint();
       break;
     }
@@ -2312,6 +2345,11 @@ void ShelfView::OnBoundsAnimatorProgressed(views::BoundsAnimator* animator) {
 
 void ShelfView::OnBoundsAnimatorDone(views::BoundsAnimator* animator) {
   shelf_->set_is_tablet_mode_animation_running(false);
+
+  if (move_animation_tracker_) {
+    move_animation_tracker_->Stop();
+    move_animation_tracker_.reset();
+  }
 
   if (snap_back_from_rip_off_view_ && animator == bounds_animator_.get()) {
     if (!animator->IsAnimating(snap_back_from_rip_off_view_)) {

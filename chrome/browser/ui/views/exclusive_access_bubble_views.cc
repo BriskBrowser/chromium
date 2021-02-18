@@ -13,6 +13,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
 #include "chrome/browser/ui/exclusive_access/fullscreen_controller.h"
@@ -51,9 +52,10 @@ ExclusiveAccessBubbleViews::ExclusiveAccessBubbleViews(
       bubble_first_hide_callback_(std::move(bubble_first_hide_callback)),
       animation_(new gfx::SlideAnimation(this)) {
   // Create the contents view.
-  view_ = new SubtleNotificationView();
+  auto content_view = std::make_unique<SubtleNotificationView>();
+  view_ = content_view.get();
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Technically the exit fullscreen key on ChromeOS is F11 and the
   // "Fullscreen" key on the keyboard is just translated to F11 or F4 (which
   // is also a toggle-fullscreen command on ChromeOS). However most Chromebooks
@@ -79,7 +81,8 @@ ExclusiveAccessBubbleViews::ExclusiveAccessBubbleViews(
 
   // Initialize the popup.
   popup_ = SubtleNotificationView::CreatePopupWidget(
-      bubble_view_context_->GetBubbleParentView(), view_);
+      bubble_view_context_->GetBubbleParentView(), std::move(content_view));
+
   gfx::Size size = GetPopupRect(true).size();
   // Bounds are in screen coordinates.
   popup_->SetBounds(GetPopupRect(false));
@@ -97,8 +100,9 @@ ExclusiveAccessBubbleViews::ExclusiveAccessBubbleViews(
   view_->SetBounds(0, 0, size.width(), size.height());
   popup_->AddObserver(this);
 
-  fullscreen_observer_.Add(bubble_view_context_->GetExclusiveAccessManager()
-                               ->fullscreen_controller());
+  fullscreen_observation_.Observe(
+      bubble_view_context_->GetExclusiveAccessManager()
+          ->fullscreen_controller());
 
   UpdateMouseWatcher();
 }
@@ -154,7 +158,16 @@ void ExclusiveAccessBubbleViews::UpdateContent(
 }
 
 void ExclusiveAccessBubbleViews::RepositionIfVisible() {
+#if defined(OS_MAC)
+  // Due to a quirk on the Mac, the popup will not be visible for a short period
+  // of time after it is shown (it's asynchronous) so if we don't check the
+  // value of the animation we'll have a stale version of the bounds when we
+  // show it and it will appear in the wrong place - typically where the window
+  // was located before going to fullscreen.
+  if (popup_->IsVisible() || animation_->GetCurrentValue() > 0.0)
+#else
   if (popup_->IsVisible())
+#endif
     UpdateBounds();
 }
 

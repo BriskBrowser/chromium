@@ -21,6 +21,7 @@
 #include "ui/views/buildflags.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/layout/layout_provider.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/style/platform_style.h"
 #include "ui/views/views_features.h"
 #include "ui/views/widget/widget.h"
@@ -58,6 +59,15 @@ Widget* DialogDelegate::CreateDialogWidget(WidgetDelegate* delegate,
       GetDialogWidgetInitParams(delegate, context, parent, gfx::Rect());
   widget->Init(std::move(params));
   return widget;
+}
+
+// static
+Widget* DialogDelegate::CreateDialogWidget(
+    std::unique_ptr<WidgetDelegate> delegate,
+    gfx::NativeWindow context,
+    gfx::NativeView parent) {
+  DCHECK(delegate->owned_by_widget());
+  return CreateDialogWidget(delegate.release(), context, parent);
 }
 
 // static
@@ -163,8 +173,8 @@ void DialogDelegate::RunCloseCallback(base::OnceClosure callback) {
 }
 
 View* DialogDelegate::GetInitiallyFocusedView() {
-  if (params_.initially_focused_view.has_value())
-    return *params_.initially_focused_view;
+  if (WidgetDelegate::HasConfiguredInitiallyFocusedView())
+    return WidgetDelegate::GetInitiallyFocusedView();
 
   // Focus the default button if any.
   const DialogClientView* dcv = GetDialogClientView();
@@ -192,7 +202,7 @@ DialogDelegate* DialogDelegate::AsDialogDelegate() {
 }
 
 ClientView* DialogDelegate::CreateClientView(Widget* widget) {
-  return new DialogClientView(widget, GetContentsView());
+  return new DialogClientView(widget, TransferOwnershipOfContentsView());
 }
 
 std::unique_ptr<NonClientFrameView> DialogDelegate::CreateNonClientFrameView(
@@ -359,10 +369,6 @@ void DialogDelegate::SetCloseCallback(base::OnceClosure callback) {
   close_callback_ = std::move(callback);
 }
 
-void DialogDelegate::SetInitiallyFocusedView(View* view) {
-  params_.initially_focused_view = view;
-}
-
 std::unique_ptr<View> DialogDelegate::DisownExtraView() {
   return std::move(extra_view_);
 }
@@ -381,6 +387,7 @@ void DialogDelegate::SetButtonRowInsets(const gfx::Insets& insets) {
 }
 
 void DialogDelegate::AcceptDialog() {
+  DCHECK(IsDialogButtonEnabled(ui::DIALOG_BUTTON_OK));
   if (already_started_close_ || !Accept())
     return;
 
@@ -390,6 +397,9 @@ void DialogDelegate::AcceptDialog() {
 }
 
 void DialogDelegate::CancelDialog() {
+  // Note: don't DCHECK(IsDialogButtonEnabled(ui::DIALOG_BUTTON_CANCEL)) here;
+  // CancelDialog() is *always* reachable via Esc closing the dialog, even if
+  // the cancel button is disabled or there is no cancel button at all.
   if (already_started_close_ || !Cancel())
     return;
 
@@ -408,11 +418,14 @@ ax::mojom::Role DialogDelegate::GetAccessibleWindowRole() {
 }
 
 int DialogDelegate::GetCornerRadius() const {
-  return base::FeatureList::IsEnabled(
-             features::kEnableMDRoundedCornersOnDialogs)
-             ? LayoutProvider::Get()->GetCornerRadiusMetric(
-                   views::EMPHASIS_MEDIUM)
-             : 2;
+#if defined(OS_MAC)
+  // TODO(crbug.com/1116680): On Mac MODAL_TYPE_WINDOW is implemented using
+  // sheets which causes visual artifacts when corner radius is increased for
+  // modal types. Remove this after this issue has been addressed.
+  if (GetModalType() == ui::MODAL_TYPE_WINDOW)
+    return 2;
+#endif
+  return LayoutProvider::Get()->GetCornerRadiusMetric(views::EMPHASIS_MEDIUM);
 }
 
 std::unique_ptr<View> DialogDelegate::DisownFootnoteView() {
@@ -446,12 +459,7 @@ View* DialogDelegateView::GetContentsView() {
   return this;
 }
 
-void DialogDelegateView::ViewHierarchyChanged(
-    const ViewHierarchyChangedDetails& details) {
-  if (details.is_add && details.child == this && GetWidget() &&
-      ui::IsAlert(GetAccessibleWindowRole())) {
-    NotifyAccessibilityEvent(ax::mojom::Event::kAlert, true);
-  }
-}
+BEGIN_METADATA(DialogDelegateView, View)
+END_METADATA
 
 }  // namespace views

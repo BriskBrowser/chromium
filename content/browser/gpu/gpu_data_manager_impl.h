@@ -25,11 +25,13 @@
 #include "gpu/config/device_perf_info.h"
 #include "gpu/config/gpu_control_list.h"
 #include "gpu/config/gpu_domain_guilt.h"
-#include "gpu/config/gpu_extra_info.h"
 #include "gpu/config/gpu_feature_info.h"
 #include "gpu/config/gpu_info.h"
 #include "gpu/config/gpu_mode.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "third_party/blink/public/mojom/gpu/gpu.mojom.h"
 #include "ui/display/display_observer.h"
+#include "ui/gfx/gpu_extra_info.h"
 
 class GURL;
 
@@ -72,6 +74,12 @@ class CONTENT_EXPORT GpuDataManagerImpl : public GpuDataManager,
   void AppendGpuCommandLine(base::CommandLine* command_line,
                             GpuProcessKind kind) override;
 
+  // Start a timer that occasionally reports UMA metrics. This is explicitly
+  // started because unit tests may create and use a GpuDataManager but they do
+  // not want surprise tasks being posted which can interfere with their ability
+  // to measure what tasks are in the queue or to move mock time forward.
+  void StartUmaTimer();
+
   bool GpuProcessStartAllowed() const;
 
   bool IsDx12VulkanVersionAvailable() const;
@@ -101,14 +109,19 @@ class CONTENT_EXPORT GpuDataManagerImpl : public GpuDataManager,
   void UpdateGpuFeatureInfo(const gpu::GpuFeatureInfo& gpu_feature_info,
                             const base::Optional<gpu::GpuFeatureInfo>&
                                 gpu_feature_info_for_hardware_gpu);
-  void UpdateGpuExtraInfo(const gpu::GpuExtraInfo& gpu_extra_info);
+  void UpdateGpuExtraInfo(const gfx::GpuExtraInfo& gpu_extra_info);
 
   gpu::GpuFeatureInfo GetGpuFeatureInfo() const;
 
+  // The following functions for cached GPUInfo and GpuFeatureInfo from the
+  // hardware GPU even if currently Chrome has fallen back to SwiftShader.
+  // Such info are displayed in about:gpu for diagostic purpose.
   gpu::GPUInfo GetGPUInfoForHardwareGpu() const;
   gpu::GpuFeatureInfo GetGpuFeatureInfoForHardwareGpu() const;
+  bool GpuAccessAllowedForHardwareGpu(std::string* reason);
+  bool IsGpuCompositingDisabledForHardwareGpu() const;
 
-  gpu::GpuExtraInfo GetGpuExtraInfo() const;
+  gfx::GpuExtraInfo GetGpuExtraInfo() const;
 
   bool IsGpuCompositingDisabled() const;
 
@@ -143,17 +156,11 @@ class CONTENT_EXPORT GpuDataManagerImpl : public GpuDataManager,
   // or a full URL to a page.
   void BlockDomainFrom3DAPIs(const GURL& url, gpu::DomainGuilt guilt);
   bool Are3DAPIsBlocked(const GURL& top_origin_url,
-                        int render_process_id,
-                        int render_frame_id,
                         ThreeDAPIType requester);
   void UnblockDomainFrom3DAPIs(const GURL& url);
 
   // Disables domain blocking for 3D APIs. For use only in tests.
   void DisableDomainBlockingFor3DAPIsForTesting();
-
-  // Set the active gpu.
-  // Return true if it's a different GPU from the previous active one.
-  bool UpdateActiveGpu(uint32_t vendor_id, uint32_t device_id);
 
   // Return mode describing what the GPU process will be launched to run.
   gpu::GpuMode GetGpuMode() const;
@@ -163,6 +170,9 @@ class CONTENT_EXPORT GpuDataManagerImpl : public GpuDataManager,
   // SwiftShader WebGL. It will also crash the browser process as a last resort
   // on Android and Chrome OS.
   void FallBackToNextGpuMode();
+
+  // Check if there is at least one fallback option available.
+  bool CanFallback() const;
 
   // Returns false if the latest GPUInfo gl_renderer is from SwiftShader or
   // Disabled (in the viz case).
@@ -175,6 +185,12 @@ class CONTENT_EXPORT GpuDataManagerImpl : public GpuDataManager,
   // DisplayObserver overrides.
   void OnDisplayAdded(const display::Display& new_display) override;
   void OnDisplayRemoved(const display::Display& old_display) override;
+  void OnDisplayMetricsChanged(const display::Display& display,
+                               uint32_t changed_metrics) override;
+
+  // Binds a new Mojo receiver to handle requests from a renderer.
+  static void BindReceiver(
+      mojo::PendingReceiver<blink::mojom::GpuDataManager> receiver);
 
  private:
   friend class GpuDataManagerImplPrivate;

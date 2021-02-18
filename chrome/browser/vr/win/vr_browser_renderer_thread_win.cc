@@ -290,20 +290,15 @@ void VRBrowserRendererThreadWin::StartOverlay() {
   initializing_graphics_->BindContext();
 
   // Create a vr::Ui
-  BrowserRendererBrowserInterface* browser_renderer_interface = nullptr;
   ui_browser_interface_ = std::make_unique<VRUiBrowserInterface>();
-  PlatformInputHandler* input = nullptr;
-  std::unique_ptr<KeyboardDelegate> keyboard_delegate;
-  std::unique_ptr<TextInputDelegate> text_input_delegate;
-  std::unique_ptr<AudioDelegate> audio_delegate;
   UiInitialState ui_initial_state = {};
   ui_initial_state.in_web_vr = true;
   ui_initial_state.browsing_disabled = true;
   ui_initial_state.supports_selection = false;
   std::unique_ptr<Ui> ui = std::make_unique<Ui>(
-      ui_browser_interface_.get(), input, std::move(keyboard_delegate),
-      std::move(text_input_delegate), std::move(audio_delegate),
-      ui_initial_state);
+      ui_browser_interface_.get(), nullptr /*input*/,
+      nullptr /*keyboard_delegate*/, nullptr /*text_input_delegate*/,
+      nullptr /*audio_delegate*/, ui_initial_state);
   static_cast<UiInterface*>(ui.get())->OnGlInitialized(
       kGlTextureLocationLocal,
       0 /* content_texture_id - we don't support content */,
@@ -338,7 +333,7 @@ void VRBrowserRendererThreadWin::StartOverlay() {
   browser_renderer_ = std::make_unique<BrowserRenderer>(
       std::move(ui), std::move(scheduler_delegate),
       std::move(initializing_graphics_), std::move(input_delegate),
-      browser_renderer_interface, kSlidingAverageSize);
+      nullptr /*browser_renderer_interface*/, kSlidingAverageSize);
 
   graphics_->ClearContext();
 
@@ -353,9 +348,14 @@ void VRBrowserRendererThreadWin::OnWebXRSubmitted() {
   StopWebXrTimeout();
 }
 
-device::mojom::XRFrameDataPtr ValidateFrameData(
-    device::mojom::XRFrameDataPtr& data) {
-  device::mojom::XRFrameDataPtr ret = device::mojom::XRFrameData::New();
+// Ensures that relevant XRRendererInfo entries are valid and returns patched up
+// XRRendererInfo to ensure that we always use normalized orientation
+// quaternion, and that we do not use position with out-of-range values.
+// In case the received data does not contain position and/or orientation, they
+// will be set to default values.
+device::mojom::XRRenderInfoPtr ValidateFrameData(
+    device::mojom::XRRenderInfoPtr data) {
+  device::mojom::XRRenderInfoPtr ret = device::mojom::XRRenderInfo::New();
   ret->pose = device::mojom::VRPose::New();
 
   if (data->pose) {
@@ -391,13 +391,11 @@ device::mojom::XRFrameDataPtr ValidateFrameData(
 
   ret->frame_id = data->frame_id;
 
-  // Frame data has several other fields that we are ignoring.  If they are
-  // used, validate them before use.
   return ret;
 }
 
 void VRBrowserRendererThreadWin::OnPose(int request_id,
-                                        device::mojom::XRFrameDataPtr data) {
+                                        device::mojom::XRRenderInfoPtr data) {
   if (request_id != current_request_id_) {
     // Old request. Do nothing.
     return;
@@ -412,10 +410,10 @@ void VRBrowserRendererThreadWin::OnPose(int request_id,
     return;
   }
 
-  if (!graphics_->PreRender())
+  if (!PreRender())
     return;
 
-  data = ValidateFrameData(data);
+  data = ValidateFrameData(std::move(data));
 
   // Deliver pose to input and scheduler.
   DCHECK(data);
@@ -442,17 +440,30 @@ void VRBrowserRendererThreadWin::OnPose(int request_id,
   // base::Unretained is safe because scheduler_ will be destroyed without
   // calling the callback if we are destroyed.
   scheduler_->OnPose(base::BindOnce(&VRBrowserRendererThreadWin::SubmitFrame,
-                                    base::Unretained(this), std::move(data)),
+                                    base::Unretained(this), data->frame_id),
                      head_from_world, draw_state_.ShouldDrawWebXR(),
                      draw_state_.ShouldDrawUI());
 }
 
-void VRBrowserRendererThreadWin::SubmitFrame(
-    device::mojom::XRFrameDataPtr data) {
+bool VRBrowserRendererThreadWin::PreRender() {
+  // GraphicsDelegateWin::PreRender can fail if the context has become lost
+  // due to hybrid adapter switching. Giving up on life means no overlays are
+  // submitted to the XR process, causing it hang, waiting forever. Instead,
+  // we shutdown and restart the overlay system, re-establishing the GPU process
+  // connection and all of the graphics related state in vr::Ui.
+  if (!graphics_->PreRender()) {
+    StopOverlay();
+    StartOverlay();
+    return graphics_->PreRender();
+  }
+  return true;
+}
+
+void VRBrowserRendererThreadWin::SubmitFrame(int16_t frame_id) {
   graphics_->PostRender();
 
   overlay_->SubmitOverlayTexture(
-      data->frame_id, graphics_->GetTexture(), graphics_->GetLeft(),
+      frame_id, graphics_->GetTexture(), graphics_->GetLeft(),
       graphics_->GetRight(),
       base::BindOnce(&VRBrowserRendererThreadWin::SubmitResult,
                      base::Unretained(this)));

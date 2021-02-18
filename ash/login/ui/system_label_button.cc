@@ -9,27 +9,13 @@
 #include "ash/style/ash_color_provider.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_palette.h"
+#include "ui/gfx/color_utils.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/controls/highlight_path_generator.h"
 
 namespace ash {
 
 namespace {
-
-// The color of the system button's text and icon in alert mode.
-constexpr SkColor kSystemButtonContentColorAlert =
-    SkColorSetA(gfx::kGoogleGrey900, SK_AlphaOPAQUE);
-// The background color of the system button in alert mode.
-constexpr SkColor kSystemButtonBackgroundColorAlert =
-    SkColorSetA(gfx::kGoogleRed300, SK_AlphaOPAQUE);
-
-// The color of the system button's text in default mode.
-constexpr SkColor kSystemButtonContentColorDefault =
-    SkColorSetA(gfx::kGoogleGrey200, SK_AlphaOPAQUE);
-
-// The color of the base color used for ink drop in default mode.
-constexpr SkColor kInkDropBaseColorDefault = SK_ColorWHITE;
-
 constexpr int kUserInfoBubbleWidth = 192;
 constexpr int kUserInfoBubbleExternalPadding = 8;
 constexpr int kSystemButtonHeight = 32;
@@ -43,6 +29,11 @@ constexpr int kSystemButtonMaxLabelWidthDp =
     kSystemButtonIconSize - kSystemButtonImageLabelSpacing -
     2 * kSystemButtonBorderRadius;
 
+// Default base layer used for the bubble background, above which the system
+// label button lives.
+constexpr const AshColorProvider::BaseLayerType kBubbleLayerType =
+    AshColorProvider::BaseLayerType::kTransparent80;
+
 SkPath GetSystemButtonHighlightPath(const views::View* view) {
   gfx::Rect rect(view->GetLocalBounds());
   return SkPath().addRoundRect(gfx::RectToSkRect(rect),
@@ -52,25 +43,26 @@ SkPath GetSystemButtonHighlightPath(const views::View* view) {
 
 }  // namespace
 
-SystemLabelButton::SystemLabelButton(views::ButtonListener* listener,
+SystemLabelButton::SystemLabelButton(PressedCallback callback,
                                      const base::string16& text,
                                      DisplayType display_type,
                                      bool multiline)
-    : LabelButton(listener, text), display_type_(display_type) {
+    : LabelButton(std::move(callback), text), display_type_(display_type) {
   SetImageLabelSpacing(kSystemButtonImageLabelSpacing);
   if (multiline) {
     label()->SetMultiLine(true);
     label()->SetMaximumWidth(kSystemButtonMaxLabelWidthDp);
   }
-  label()->SetFontList(
-      gfx::FontList().DeriveWithWeight(gfx::Font::Weight::BOLD));
   SetMinSize(gfx::Size(0, kSystemButtonHeight));
   SetPaintToLayer();
   layer()->SetFillsBoundsOpaquely(false);
   if (display_type == DisplayType::ALERT_WITH_ICON) {
     SetImage(
         views::Button::STATE_NORMAL,
-        CreateVectorIcon(kLockScreenAlertIcon, kSystemButtonContentColorAlert));
+        CreateVectorIcon(
+            kLockScreenAlertIcon,
+            AshColorProvider::Get()->GetContentLayerColor(
+                AshColorProvider::ContentLayerType::kButtonIconColorPrimary)));
   }
   SetTextSubpixelRenderingEnabled(false);
   SetInkDropMode(InkDropMode::ON);
@@ -109,29 +101,31 @@ void SystemLabelButton::SetDisplayType(DisplayType display_type) {
 }
 
 void SystemLabelButton::SetAlertMode(bool alert_mode) {
-  if (alert_mode)
-    background_color_ = kSystemButtonBackgroundColorAlert;
-  else {
-    background_color_ = AshColorProvider::Get()->GetControlsLayerColor(
-        AshColorProvider::ControlsLayerType::kControlBackgroundColorInactive,
-        AshColorProvider::AshColorMode::kDark);
-  }
+  background_color_ = AshColorProvider::Get()->GetControlsLayerColor(
+      alert_mode
+          ? AshColorProvider::ControlsLayerType::kControlBackgroundColorAlert
+          : AshColorProvider::ControlsLayerType::
+                kControlBackgroundColorInactive);
 
-  SkColor font_color = alert_mode ? kSystemButtonContentColorAlert
-                                  : kSystemButtonContentColorDefault;
-  SetEnabledTextColors(font_color);
+  label()->SetFontList(gfx::FontList().DeriveWithWeight(
+      alert_mode ? gfx::Font::Weight::BOLD : gfx::Font::Weight::MEDIUM));
 
-  if (alert_mode) {
-    const AshColorProvider::RippleAttributes ripple_attributes =
-        AshColorProvider::Get()->GetRippleAttributes(background_color_);
-    set_ink_drop_base_color(ripple_attributes.base_color);
-    set_ink_drop_visible_opacity(ripple_attributes.inkdrop_opacity);
-    set_ink_drop_highlight_opacity(ripple_attributes.highlight_opacity);
-  } else {
-    // using RippleAttributes here doesn't give visually satisfying results
-    // in default display mode
-    set_ink_drop_base_color(kInkDropBaseColorDefault);
-  }
+  SetEnabledTextColors(AshColorProvider::Get()->GetContentLayerColor(
+      alert_mode ? AshColorProvider::ContentLayerType::kButtonLabelColorPrimary
+                 : AshColorProvider::ContentLayerType::kButtonLabelColor));
+
+  // In default mode, this won't be the exact resulting color of the button as
+  // neither |background_color_| nor the color bubble below are fully opaque.
+  // Nevertheless, the result is visually satisfying and better than without
+  // applying any background color.
+  SkColor effective_background_color = color_utils::GetResultingPaintColor(
+      background_color_,
+      AshColorProvider::Get()->GetBaseLayerColor(kBubbleLayerType));
+  const AshColorProvider::RippleAttributes ripple_attributes =
+      AshColorProvider::Get()->GetRippleAttributes(effective_background_color);
+  SetInkDropBaseColor(ripple_attributes.base_color);
+  SetInkDropVisibleOpacity(ripple_attributes.inkdrop_opacity);
+  SetInkDropHighlightOpacity(ripple_attributes.highlight_opacity);
 }
 
 }  // namespace ash

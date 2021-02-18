@@ -21,6 +21,7 @@
 #include "third_party/blink/renderer/core/svg/svg_line_element.h"
 
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
+#include "third_party/blink/renderer/core/svg/svg_animated_length.h"
 #include "third_party/blink/renderer/core/svg/svg_length.h"
 #include "third_party/blink/renderer/platform/graphics/path.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
@@ -77,7 +78,9 @@ Path SVGLineElement::AsPath() const {
   return path;
 }
 
-void SVGLineElement::SvgAttributeChanged(const QualifiedName& attr_name) {
+void SVGLineElement::SvgAttributeChanged(
+    const SvgAttributeChangedParams& params) {
+  const QualifiedName& attr_name = params.name;
   if (attr_name == svg_names::kX1Attr || attr_name == svg_names::kY1Attr ||
       attr_name == svg_names::kX2Attr || attr_name == svg_names::kY2Attr) {
     UpdateRelativeLengthsInformation();
@@ -85,7 +88,7 @@ void SVGLineElement::SvgAttributeChanged(const QualifiedName& attr_name) {
     return;
   }
 
-  SVGGeometryElement::SvgAttributeChanged(attr_name);
+  SVGGeometryElement::SvgAttributeChanged(params);
 }
 
 bool SVGLineElement::SelfHasRelativeLengths() const {

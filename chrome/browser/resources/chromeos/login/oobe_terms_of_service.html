@@ -5,9 +5,17 @@
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-icon/iron-icon.html">
 <link rel="import" href="chrome://resources/cr_elements/icons.html">
 <link rel="import" href="chrome://resources/html/i18n_behavior.html">
+
 <link rel="import" href="chrome://oobe/custom_elements.html">
 
-<dom-module id="terms-of-service">
+<link rel="import" href="/components/common_styles.html">
+<link rel="import" href="/components/hd_iron_icon.html">
+<link rel="import" href="/components/oobe_dialog.html">
+<link rel="import" href="/components/oobe_i18n_behavior.html">
+<link rel="import" href="/components/throbber_notice.html">
+<link rel="import" href="/components/oobe_dialog_host_behavior.html">
+
+<dom-module id="terms-of-service-element">
   <template>
     <style include="oobe-dialog-host"></style>
     <link rel="stylesheet" href="chrome://resources/css/throbber.css">
@@ -18,17 +26,19 @@
         title-key="termsOfServiceError"
         subtitle-key="termsOfServiceTryAgain"
         aria-label$="[[i18nDynamic(locale, 'termsOfServiceError')]]"
-        hidden="[[!isInErrorState_(uiState)]]" has-buttons>
+        for-step="error" has-buttons>
       <iron-icon icon="cr:warning" slot="oobe-icon" class="warning">
       </iron-icon>
-      <div slot="bottom-buttons" class="flex layout horizontal">
+      <div slot="back-navigation">
         <oobe-back-button id="errorBackButton"
             disabled="[[backButtonDisabled_]]"
-            on-tap="onTosBackButtonPressed_"></oobe-back-button>
+            on-click="onTosBackButtonPressed_"></oobe-back-button>
+      </div>
+      <div slot="bottom-buttons">
         <oobe-text-button id="retryButton" inverse
             text-key="termsOfServiceRetryButton"
             disabled="[[retryButtonDisabled_]]"
-            on-tap="onTosRetryButtonPressed_"></oobe-text-button>
+            on-click="onTosRetryButtonPressed_"></oobe-text-button>
       </div>
     </oobe-dialog>
 
@@ -37,7 +47,7 @@
          dialog is marked as no-lazy. -->
     <oobe-dialog id="termsOfServiceDialog" role="dialog"
         aria-labelledby="title"
-        hidden="[[isInErrorState_(uiState)]]" has-buttons no-lazy>
+        for-step="loading, loaded" has-buttons no-lazy>
       <hd-iron-icon slot="oobe-icon" id="termsOfServiceGoogleIcon"
           icon1x="oobe-32:googleg" icon2x="oobe-64:googleg">
       </hd-iron-icon>
@@ -45,30 +55,32 @@
       <h1 id="title" slot="title">
         <div id="tosHeading">[[i18nDynamic(locale,
                                            'termsOfServiceScreenHeading',
-                                           tosDomain_)]]</div>
+                                           tosManager_)]]</div>
       </h1>
       <div slot="subtitle">
         <div id="tosSubheading">[[i18nDynamic(locale,
                                               'termsOfServiceScreenSubheading',
-                                              tosDomain_)]]</div>
+                                              tosManager_)]]</div>
       </div>
       <div slot="footer" class="flex layout center-justified vertical">
-        <div hidden="[[!isLoading_(uiState)]]">
+        <div hidden="[[!isLoading_()]]">
           <throbber-notice text-key="termsOfServiceLoading">
           </throbber-notice>
         </div>
-        <webview id="termsOfServiceFrame" hidden="[[isLoading_(uiState)]]"
+        <webview id="termsOfServiceFrame" hidden="[[isLoading_()]]"
             role="document" allowTransparency
             class="focus-on-show flex oobe-tos-webview">
         </webview>
       </div>
-      <div slot="bottom-buttons" class="flex layout horizontal end-justified">
+      <div slot="back-navigation">
         <oobe-back-button id="backButton" disabled="[[backButtonDisabled_]]"
-            on-tap="onTosBackButtonPressed_"></oobe-back-button>
+            on-click="onTosBackButtonPressed_"></oobe-back-button>
+      </div>
+      <div slot="bottom-buttons">
         <oobe-text-button id="acceptButton" inverse
             text-key="termsOfServiceAcceptButton"
             disabled="[[acceptButtonDisabled_]]"
-            on-tap="onTermsOfServiceAccepted_"></oobe-text-button>
+            on-click="onTermsOfServiceAccepted_"></oobe-text-button>
       </div>
     </oobe-dialog>
   </template>

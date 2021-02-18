@@ -14,8 +14,9 @@
 #include <fuchsia/intl/cpp/fidl.h>
 #include <fuchsia/logger/cpp/fidl.h>
 #include <fuchsia/mediacodec/cpp/fidl.h>
+#include <fuchsia/memorypressure/cpp/fidl.h>
 #include <fuchsia/net/cpp/fidl.h>
-#include <fuchsia/netstack/cpp/fidl.h>
+#include <fuchsia/net/interfaces/cpp/fidl.h>
 #include <fuchsia/sysmem/cpp/fidl.h>
 #include <fuchsia/ui/scenic/cpp/fidl.h>
 #include <lib/sys/cpp/component_context.h>
@@ -90,7 +91,7 @@ constexpr SandboxConfig kGpuConfig = {
 constexpr SandboxConfig kNetworkConfig = {
     base::make_span((const char* const[]){
         fuchsia::net::NameLookup::Name_,
-        fuchsia::netstack::Netstack::Name_,
+        fuchsia::net::interfaces::State::Name_,
         "fuchsia.posix.socket.Provider",
     }),
     kProvideSslConfig,
@@ -100,6 +101,7 @@ constexpr SandboxConfig kRendererConfig = {
     base::make_span((const char* const[]){
         fuchsia::fonts::Provider::Name_,
         fuchsia::mediacodec::CodecFactory::Name_,
+        fuchsia::memorypressure::Provider::Name_,
         fuchsia::sysmem::Allocator::Name_,
     }),
     kAmbientMarkVmoAsExecutable,
@@ -165,9 +167,8 @@ SandboxPolicyFuchsia::SandboxPolicyFuchsia(SandboxType type) {
   const SandboxConfig* config = GetConfigForSandboxType(type_);
   if (config && !(config->features & kUseServiceDirectoryOverride)) {
     service_directory_task_runner_ = base::ThreadTaskRunnerHandle::Get();
-    service_directory_ =
-        std::make_unique<base::fuchsia::FilteredServiceDirectory>(
-            base::ComponentContextForProcess()->svc().get());
+    service_directory_ = std::make_unique<base::FilteredServiceDirectory>(
+        base::ComponentContextForProcess()->svc().get());
     for (const char* service_name : kDefaultServices) {
       service_directory_->AddService(service_name);
     }

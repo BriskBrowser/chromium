@@ -7,7 +7,6 @@
 #include <utility>
 
 #include "ash/focus_cycler.h"
-#include "ash/login/parent_access_controller.h"
 #include "ash/login/security_token_request_controller.h"
 #include "ash/login/ui/lock_screen.h"
 #include "ash/login/ui/login_data_dispatcher.h"
@@ -290,16 +289,22 @@ void LoginScreenController::FocusLoginShelf(bool reverse) {
   Shelf* shelf = Shelf::ForWindow(Shell::Get()->GetPrimaryRootWindow());
   // Tell the focus direction to the status area or the shelf so they can focus
   // the correct child view.
-  if (reverse || !shelf->shelf_widget()->login_shelf_view()->IsFocusable()) {
-    if (!Shell::GetPrimaryRootWindowController()->IsSystemTrayVisible())
-      return;
+  if (Shell::GetPrimaryRootWindowController()->IsSystemTrayVisible() &&
+      (reverse || !shelf->shelf_widget()->login_shelf_view()->IsFocusable())) {
+    // Focus goes to system tray (status area) if one of the following is true:
+    //  - system tray is visible and tab is in reverse order;
+    //  - system tray is visible and there is no visible shelf buttons before.
     shelf->GetStatusAreaWidget()
         ->status_area_widget_delegate()
         ->set_default_last_focusable_child(reverse);
     Shell::Get()->focus_cycler()->FocusWidget(shelf->GetStatusAreaWidget());
-  } else {
+  } else if (shelf->shelf_widget()->login_shelf_view()->IsFocusable()) {
+    // Otherwise focus goes to shelf buttons when there is any.
     shelf->shelf_widget()->set_default_last_focusable_child(reverse);
     Shell::Get()->focus_cycler()->FocusWidget(shelf->shelf_widget());
+  } else {
+    // No elements to focus on the shelf.
+    NOTREACHED();
   }
 }
 
@@ -321,11 +326,18 @@ void LoginScreenController::EnableShutdownButton(bool enable) {
       ->SetShutdownButtonEnabled(enable);
 }
 
-void LoginScreenController::ShowGuestButtonInOobe(bool show) {
+void LoginScreenController::EnableShelfButtons(bool enable) {
   Shelf::ForWindow(Shell::Get()->GetPrimaryRootWindow())
       ->shelf_widget()
       ->login_shelf_view()
-      ->ShowGuestButtonInOobe(show);
+      ->SetButtonEnabled(enable);
+}
+
+void LoginScreenController::SetIsFirstSigninStep(bool is_first) {
+  Shelf::ForWindow(Shell::Get()->GetPrimaryRootWindow())
+      ->shelf_widget()
+      ->login_shelf_view()
+      ->SetIsFirstSigninStep(is_first);
 }
 
 void LoginScreenController::ShowParentAccessButton(bool show) {
@@ -348,18 +360,6 @@ LoginScreenController::GetScopedGuestButtonBlocker() {
       ->shelf_widget()
       ->login_shelf_view()
       ->GetScopedGuestButtonBlocker();
-}
-
-void LoginScreenController::ShowParentAccessWidget(
-    const AccountId& child_account_id,
-    base::OnceCallback<void(bool success)> callback,
-    ParentAccessRequestReason reason,
-    bool extra_dimmer,
-    base::Time validation_time) {
-  DCHECK(!PinRequestWidget::Get());
-  Shell::Get()->parent_access_controller()->ShowWidget(
-      child_account_id, std::move(callback), reason, extra_dimmer,
-      validation_time);
 }
 
 void LoginScreenController::RequestSecurityTokenPin(

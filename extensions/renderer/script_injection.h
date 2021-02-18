@@ -13,11 +13,11 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/metrics/ukm_source_id.h"
 #include "base/optional.h"
 #include "extensions/common/user_script.h"
 #include "extensions/renderer/injection_host.h"
 #include "extensions/renderer/script_injector.h"
+#include "services/metrics/public/cpp/ukm_source_id.h"
 
 struct HostID;
 
@@ -43,7 +43,7 @@ class ScriptInjection {
     INJECTION_WAITING
   };
 
-  using CompletionCallback = base::Callback<void(ScriptInjection*)>;
+  using CompletionCallback = base::OnceCallback<void(ScriptInjection*)>;
 
   // Return the id of the injection host associated with the given world.
   static std::string GetHostIdForIsolatedWorld(int world_id);
@@ -66,10 +66,9 @@ class ScriptInjection {
   // |run_location_|).
   // If INJECTION_BLOCKED is returned, |async_completion_callback| will be
   // called upon completion.
-  InjectionResult TryToInject(
-      UserScript::RunLocation current_location,
-      ScriptsRunInfo* scripts_run_info,
-      const CompletionCallback& async_completion_callback);
+  InjectionResult TryToInject(UserScript::RunLocation current_location,
+                              ScriptsRunInfo* scripts_run_info,
+                              CompletionCallback async_completion_callback);
 
   // Called when permission for the given injection has been granted.
   // Returns INJECTION_FINISHED if injection has injected or will never inject,
@@ -105,9 +104,9 @@ class ScriptInjection {
   void InjectJs(std::set<std::string>* executing_scripts,
                 size_t* num_injected_js_scripts);
 
-  // Inject any CSS source into the frame for the injection.
-  void InjectCss(std::set<std::string>* injected_stylesheets,
-                 size_t* num_injected_stylesheets);
+  // Inject or remove any CSS source into the frame for the injection.
+  void InjectOrRemoveCss(std::set<std::string>* injected_stylesheets,
+                         size_t* num_injected_stylesheets);
 
   // Notify that we will not inject, and mark it as acknowledged.
   void NotifyWillNotInject(ScriptInjector::InjectFailureReason reason);
@@ -129,7 +128,7 @@ class ScriptInjection {
   int64_t request_id_;
 
   // Identifies the frame we're injecting into.
-  base::UkmSourceId ukm_source_id_;
+  ukm::SourceIdObj ukm_source_id_;
 
   // Whether or not the injection is complete, either via injecting the script
   // or because it will never complete.

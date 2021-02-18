@@ -10,7 +10,6 @@ import("//chromecast/build/tests/cast_test.gni")
 import("//chromecast/chromecast.gni")
 import("//media/media_options.gni")
 import("//tools/grit/repack.gni")
-import("//ui/ozone/ozone.gni")
 import("//v8/gni/v8.gni")
 
 if (chromecast_branding != "public") {
@@ -83,6 +82,7 @@ cast_test_group("cast_tests") {
     "//chromecast/media:cast_media_unittests",
     "//chromecast/metrics:cast_metrics_unittest",
     "//chromecast/net:cast_net_unittests",
+    "//chromecast/ui/display_settings:cast_display_settings_unittests",
     "//chromecast/system/reboot:cast_reboot_unittests",
     "//content/test:content_unittests",
     "//crypto:crypto_unittests",
@@ -94,16 +94,18 @@ cast_test_group("cast_tests") {
     "//ui/base:ui_base_unittests",
   ]
 
+  if (enable_chromecast_extensions) {
+    tests += [
+      "//chromecast/browser/accessibility/flutter:cast_accessibility_unittests",
+    ]
+  }
+
   if (!is_cast_audio_only) {
     tests += [ "//gpu:gpu_unittests" ]
 
     if (use_aura) {
       tests += [ "//chromecast/graphics:cast_graphics_unittests" ]
     }
-  }
-
-  if (use_v4l2_codec && enable_video_capture_service) {
-    tests += [ "//media/gpu:video_encode_accelerator_unittest" ]
   }
 
   if (use_v4l2_codec) {
@@ -323,15 +325,12 @@ cast_test_group("cast_tests") {
       gtest_excludes += [ "NavigationEntryTest.NavigationEntryURLs" ]
     }
     if (enable_assistant && !is_cast_desktop_build) {
-      # Temporarily disable InvalidUUID and DefaultConstructor on assistant
-      # device builds. Cause of failure is unclear, but it's highly likely it's
-      # related to them being DEATH tests. These were passing until the
-      # is_official_build flag was enabled. These tests are considered
-      # non-critical in this context. (b/62469368)
-      gtest_excludes += [
-        "BluetoothBlocklistTest.InvalidUUID",
-        "WebBluetoothDeviceIdTest.DefaultConstructor",
-      ]
+      # Temporarily disable DefaultConstructor on assistant device builds. Cause
+      # of failure is unclear, but it's highly likely it's related to them being
+      # DEATH tests. These were passing until the is_official_build flag was
+      # enabled. These tests are considered non-critical in this context.
+      # (b/62469368)
+      gtest_excludes += [ "WebBluetoothDeviceIdTest.DefaultConstructor" ]
     }
   }
   filters += [ content_unittests_filter ]
@@ -496,7 +495,7 @@ cast_executable("cast_shell") {
 repack("cast_shell_pak") {
   sources = [
     "$root_gen_dir/chromecast/app/shell_resources.pak",
-    "$root_gen_dir/chromecast/bindings/bindings_resources.pak",
+    "$root_gen_dir/components/cast/named_message_port_connector/named_message_port_connector_resources.pak",
     "$root_gen_dir/content/app/resources/content_resources_100_percent.pak",
     "$root_gen_dir/content/content_resources.pak",
     "$root_gen_dir/content/dev_ui_content_resources.pak",
@@ -506,6 +505,7 @@ repack("cast_shell_pak") {
     "$root_gen_dir/third_party/blink/public/resources/blink_scaled_resources_100_percent.pak",
     "$root_gen_dir/third_party/blink/public/strings/blink_strings_en-US.pak",
     "$root_gen_dir/ui/resources/ui_resources_100_percent.pak",
+    "$root_gen_dir/ui/resources/webui_generated_resources.pak",
     "$root_gen_dir/ui/resources/webui_resources.pak",
     "$root_gen_dir/ui/strings/app_locale_settings_en-US.pak",
     "$root_gen_dir/ui/strings/ui_strings_en-US.pak",
@@ -515,7 +515,7 @@ repack("cast_shell_pak") {
 
   deps = [
     "//chromecast/app:resources",
-    "//chromecast/bindings:bindings_resources_grit",
+    "//components/cast/named_message_port_connector:resources",
     "//content:content_resources",
     "//content:dev_ui_content_resources",
     "//content/app/resources",
@@ -607,6 +607,7 @@ buildflag_header("chromecast_buildflags") {
     "SUPPORTS_MULTIZONE=$supports_multizone",
     "USE_ANDROID_USER_AGENT=$use_android_user_agent",
     "USE_CHROMECAST_CDMS=$use_chromecast_cdms",
+    "ENABLE_CHROMIUM_RUNTIME_CAST_RENDERER=$enable_chromium_runtime_cast_renderer",
   ]
 }
 
@@ -617,8 +618,6 @@ if (is_android) {
   }
 
   android_assets("cast_shell_apk_assets") {
-    assert(v8_use_external_startup_data)
-
     sources = [ "$root_out_dir/assets/cast_shell.pak" ]
 
     deps = [

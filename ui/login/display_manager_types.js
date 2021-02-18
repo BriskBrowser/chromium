@@ -10,9 +10,6 @@
 /**
  * @typedef {{
  *   resetAllowed: (boolean|undefined),
- *   startEnrollmentAllowed: (boolean|undefined),
- *   toggleKioskAllowed: (boolean|undefined),
- *   changeRequisitonProhibited: (boolean|undefined),
  * }}
  */
 var DisplayManagerScreenAttributes = {};
@@ -24,24 +21,6 @@ var DisplayManagerScreenAttributes = {};
 DisplayManagerScreenAttributes.resetAllowed;
 
 /**
- * True if enrollment accelerator should start enrollment.
- * @type {boolean|undefined}
- */
-DisplayManagerScreenAttributes.startEnrollmentAllowed;
-
-/**
- * True if "enable kiosk" accelerator is allowed.
- * @type {boolean|undefined}
- */
-DisplayManagerScreenAttributes.toggleKioskAllowed;
-
-/**
- * True if "enroll hangouts meet" accelerator is prohibited.
- * @type {boolean|undefined}
- */
-DisplayManagerScreenAttributes.changeRequisitonProhibited;
-
-/**
  * Possible types of UI.
  * @enum {string}
  */
@@ -50,7 +29,6 @@ var DISPLAY_TYPE = {
   OOBE: 'oobe',
   LOGIN: 'login',
   LOCK: 'lock',
-  USER_ADDING: 'user-adding',
   APP_LAUNCH_SPLASH: 'app-launch-splash',
   DESKTOP_USER_MANAGER: 'login-add-user',
   GAIA_SIGNIN: 'gaia-signin'
@@ -77,4 +55,19 @@ var OOBE_UI_STATE = {
   KIOSK: 11,
   MIGRATION: 12,
   USER_CREATION: 15,
+};
+
+/**
+ * Possible UI states of the error screen.
+ * @enum {string}
+ */
+var ERROR_SCREEN_UI_STATE = {
+  UNKNOWN: 'ui-state-unknown',
+  UPDATE: 'ui-state-update',
+  SIGNIN: 'ui-state-signin',
+  KIOSK_MODE: 'ui-state-kiosk-mode',
+  LOCAL_STATE_ERROR: 'ui-state-local-state-error',
+  AUTO_ENROLLMENT_ERROR: 'ui-state-auto-enrollment-error',
+  ROLLBACK_ERROR: 'ui-state-rollback-error',
+  SUPERVISED_USER_CREATION_FLOW: 'ui-state-supervised',
 };

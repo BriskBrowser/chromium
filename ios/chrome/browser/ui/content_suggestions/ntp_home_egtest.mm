@@ -93,17 +93,10 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
 
 @implementation NTPHomeTestCase
 
-#if defined(CHROME_EARL_GREY_1)
-+ (void)setUp {
-  [super setUp];
-  [NTPHomeTestCase setUpHelper];
-}
-#elif defined(CHROME_EARL_GREY_2)
 + (void)setUpForTestCase {
   [super setUpForTestCase];
   [NTPHomeTestCase setUpHelper];
 }
-#endif  // CHROME_EARL_GREY_2
 
 + (void)setUpHelper {
   // Clear the pasteboard in case there is a URL copied, triggering an omnibox
@@ -133,11 +126,7 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
 - (void)tearDown {
   [ContentSuggestionsAppInterface disableSuggestions];
   [EarlGrey rotateDeviceToOrientation:UIDeviceOrientationPortrait
-#if defined(CHROME_EARL_GREY_1)
-                           errorOrNil:nil];
-#elif defined(CHROME_EARL_GREY_2)
                                 error:nil];
-#endif
 
   [ContentSuggestionsAppInterface resetSearchEngineTo:self.defaultSearchEngine];
 
@@ -158,9 +147,9 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
       selectElementWithMatcher:chrome_test_util::ButtonWithAccessibilityLabelId(
                                    IDS_IOS_CONTENT_SUGGESTIONS_BOOKMARKS)]
       performAction:grey_tap()];
-  [[EarlGrey
-      selectElementWithMatcher:chrome_test_util::HeaderWithAccessibilityLabelId(
-                                   IDS_IOS_CONTENT_SUGGESTIONS_BOOKMARKS)]
+  [[EarlGrey selectElementWithMatcher:
+                 chrome_test_util::NavigationBarTitleWithAccessibilityLabelId(
+                     IDS_IOS_CONTENT_SUGGESTIONS_BOOKMARKS)]
       assertWithMatcher:grey_sufficientlyVisible()];
   [[EarlGrey
       selectElementWithMatcher:chrome_test_util::NavigationBarDoneButton()]
@@ -237,33 +226,33 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
     EARL_GREY_TEST_DISABLED(@"Disabled for iPad due to device rotation bug.");
   }
   [ChromeEarlGreyUI waitForAppToIdle];
-  UIEdgeInsets safeArea =
-      [ContentSuggestionsAppInterface collectionView].safeAreaInsets;
-  CGFloat collectionWidth = CGRectGetWidth(UIEdgeInsetsInsetRect(
-      [ContentSuggestionsAppInterface collectionView].bounds, safeArea));
+  UICollectionView* collectionView =
+      [ContentSuggestionsAppInterface collectionView];
+  UIEdgeInsets safeArea = collectionView.safeAreaInsets;
+  CGFloat collectionWidth =
+      CGRectGetWidth(UIEdgeInsetsInsetRect(collectionView.bounds, safeArea));
   GREYAssertTrue(collectionWidth > 0, @"The collection width is nil.");
   CGFloat fakeOmniboxWidth = [ContentSuggestionsAppInterface
-      searchFieldWidthForCollectionWidth:collectionWidth];
+      searchFieldWidthForCollectionWidth:collectionWidth
+                         traitCollection:collectionView.traitCollection];
 
   [[EarlGrey selectElementWithMatcher:chrome_test_util::FakeOmnibox()]
       assertWithMatcher:OmniboxWidth(fakeOmniboxWidth)];
 
   [EarlGrey rotateDeviceToOrientation:UIDeviceOrientationLandscapeLeft
-#if defined(CHROME_EARL_GREY_1)
-                           errorOrNil:nil];
-#elif defined(CHROME_EARL_GREY_2)
                                 error:nil];
-#endif
 
   [ChromeEarlGreyUI waitForAppToIdle];
 
-  safeArea = [ContentSuggestionsAppInterface collectionView].safeAreaInsets;
-  CGFloat collectionWidthAfterRotation = CGRectGetWidth(UIEdgeInsetsInsetRect(
-      [ContentSuggestionsAppInterface collectionView].bounds, safeArea));
+  collectionView = [ContentSuggestionsAppInterface collectionView];
+  safeArea = collectionView.safeAreaInsets;
+  CGFloat collectionWidthAfterRotation =
+      CGRectGetWidth(UIEdgeInsetsInsetRect(collectionView.bounds, safeArea));
   GREYAssertNotEqual(collectionWidth, collectionWidthAfterRotation,
                      @"The collection width has not changed.");
   fakeOmniboxWidth = [ContentSuggestionsAppInterface
-      searchFieldWidthForCollectionWidth:collectionWidthAfterRotation];
+      searchFieldWidthForCollectionWidth:collectionWidthAfterRotation
+                         traitCollection:collectionView.traitCollection];
 
   [[EarlGrey selectElementWithMatcher:chrome_test_util::FakeOmnibox()]
       assertWithMatcher:OmniboxWidth(fakeOmniboxWidth)];
@@ -278,13 +267,15 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
     EARL_GREY_TEST_DISABLED(@"Disabled for iPad due to device rotation bug.");
   }
   [ChromeEarlGreyUI waitForAppToIdle];
-  UIEdgeInsets safeArea =
-      [ContentSuggestionsAppInterface collectionView].safeAreaInsets;
-  CGFloat collectionWidth = CGRectGetWidth(UIEdgeInsetsInsetRect(
-      [ContentSuggestionsAppInterface collectionView].bounds, safeArea));
+  UICollectionView* collectionView =
+      [ContentSuggestionsAppInterface collectionView];
+  UIEdgeInsets safeArea = collectionView.safeAreaInsets;
+  CGFloat collectionWidth =
+      CGRectGetWidth(UIEdgeInsetsInsetRect(collectionView.bounds, safeArea));
   GREYAssertTrue(collectionWidth > 0, @"The collection width is nil.");
   CGFloat fakeOmniboxWidth = [ContentSuggestionsAppInterface
-      searchFieldWidthForCollectionWidth:collectionWidth];
+      searchFieldWidthForCollectionWidth:collectionWidth
+                         traitCollection:collectionView.traitCollection];
 
   [[EarlGrey selectElementWithMatcher:chrome_test_util::FakeOmnibox()]
       assertWithMatcher:OmniboxWidth(fakeOmniboxWidth)];
@@ -292,24 +283,22 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
   [ChromeEarlGreyUI openSettingsMenu];
 
   [EarlGrey rotateDeviceToOrientation:UIDeviceOrientationLandscapeLeft
-#if defined(CHROME_EARL_GREY_1)
-                           errorOrNil:nil];
-#elif defined(CHROME_EARL_GREY_2)
                                 error:nil];
-#endif
 
   [ChromeEarlGreyUI waitForAppToIdle];
 
   [[EarlGrey selectElementWithMatcher:chrome_test_util::SettingsDoneButton()]
       performAction:grey_tap()];
 
-  safeArea = [ContentSuggestionsAppInterface collectionView].safeAreaInsets;
-  CGFloat collectionWidthAfterRotation = CGRectGetWidth(UIEdgeInsetsInsetRect(
-      [ContentSuggestionsAppInterface collectionView].bounds, safeArea));
+  collectionView = [ContentSuggestionsAppInterface collectionView];
+  safeArea = collectionView.safeAreaInsets;
+  CGFloat collectionWidthAfterRotation =
+      CGRectGetWidth(UIEdgeInsetsInsetRect(collectionView.bounds, safeArea));
   GREYAssertNotEqual(collectionWidth, collectionWidthAfterRotation,
                      @"The collection width has not changed.");
   fakeOmniboxWidth = [ContentSuggestionsAppInterface
-      searchFieldWidthForCollectionWidth:collectionWidthAfterRotation];
+      searchFieldWidthForCollectionWidth:collectionWidthAfterRotation
+                         traitCollection:collectionView.traitCollection];
 
   [[EarlGrey selectElementWithMatcher:chrome_test_util::FakeOmnibox()]
       assertWithMatcher:OmniboxWidth(fakeOmniboxWidth)];
@@ -339,11 +328,7 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
       assertWithMatcher:OmniboxWidthBetween(collectionWidth + 1, 2)];
 
   [EarlGrey rotateDeviceToOrientation:UIDeviceOrientationLandscapeLeft
-#if defined(CHROME_EARL_GREY_1)
-                           errorOrNil:nil];
-#elif defined(CHROME_EARL_GREY_2)
                                 error:nil];
-#endif
 
   [ChromeEarlGreyUI waitForAppToIdle];
   CGFloat collectionWidthAfterRotation =
@@ -461,7 +446,8 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
     EARL_GREY_TEST_DISABLED(@"Test disabled on iPad.");
   }
   // Setup the server.
-  self.testServer->RegisterRequestHandler(base::Bind(&StandardResponse));
+  self.testServer->RegisterRequestHandler(
+      base::BindRepeating(&StandardResponse));
   GREYAssertTrue(self.testServer->Start(), @"Test server failed to start.");
   const GURL pageURL = self.testServer->GetURL(kPageURL);
 
@@ -640,7 +626,8 @@ id<GREYMatcher> OmniboxWidthBetween(CGFloat width, CGFloat margin) {
 #pragma mark - Helpers
 
 - (void)addMostVisitedTile {
-  self.testServer->RegisterRequestHandler(base::Bind(&StandardResponse));
+  self.testServer->RegisterRequestHandler(
+      base::BindRepeating(&StandardResponse));
   GREYAssertTrue(self.testServer->Start(), @"Test server failed to start.");
   const GURL pageURL = self.testServer->GetURL(kPageURL);
 

@@ -18,7 +18,7 @@
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
 #include "net/base/auth.h"
@@ -45,7 +45,6 @@
 #include "net/test/test_with_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/url_request.h"
-#include "net/url_request/url_request_job_factory_impl.h"
 #include "net/url_request/url_request_test_util.h"
 #include "net/url_request/websocket_handshake_userdata_key.h"
 #include "net/websockets/websocket_test_util.h"
@@ -89,8 +88,6 @@ const char kTrustAnchorRequestHistogram[] =
 
 const char kCTComplianceHistogramName[] =
     "Net.CertificateTransparency.RequestComplianceStatus";
-const char kCTRequiredHistogramName[] =
-    "Net.CertificateTransparency.CTRequiredRequestComplianceStatus";
 
 // Inherit from URLRequestHttpJob to expose the priority and some
 // other hidden functions.
@@ -98,7 +95,6 @@ class TestURLRequestHttpJob : public URLRequestHttpJob {
  public:
   explicit TestURLRequestHttpJob(URLRequest* request)
       : URLRequestHttpJob(request,
-                          request->context()->network_delegate(),
                           request->context()->http_user_agent_settings()),
         use_null_source_stream_(false) {}
 
@@ -129,19 +125,12 @@ class TestURLRequestHttpJob : public URLRequestHttpJob {
 class URLRequestHttpJobSetUpSourceTest : public TestWithTaskEnvironment {
  public:
   URLRequestHttpJobSetUpSourceTest() : context_(true) {
-    test_job_interceptor_ = new TestJobInterceptor();
-    EXPECT_TRUE(test_job_factory_.SetProtocolHandler(
-        url::kHttpScheme, base::WrapUnique(test_job_interceptor_)));
-    context_.set_job_factory(&test_job_factory_);
     context_.set_client_socket_factory(&socket_factory_);
     context_.Init();
   }
 
  protected:
   MockClientSocketFactory socket_factory_;
-  // |test_job_interceptor_| is owned by |test_job_factory_|.
-  TestJobInterceptor* test_job_interceptor_;
-  URLRequestJobFactoryImpl test_job_factory_;
 
   TestURLRequestContext context_;
   TestDelegate delegate_;
@@ -162,7 +151,7 @@ TEST_F(URLRequestHttpJobSetUpSourceTest, SetUpSourceFails) {
                              &delegate_, TRAFFIC_ANNOTATION_FOR_TESTS);
   auto job = std::make_unique<TestURLRequestHttpJob>(request.get());
   job->set_use_null_source_stream(true);
-  test_job_interceptor_->set_main_intercept_job(std::move(job));
+  TestScopedURLInterceptor interceptor(request->url(), std::move(job));
   request->Start();
 
   delegate_.RunUntilComplete();
@@ -185,7 +174,7 @@ TEST_F(URLRequestHttpJobSetUpSourceTest, UnknownEncoding) {
       context_.CreateRequest(GURL("http://www.example.com"), DEFAULT_PRIORITY,
                              &delegate_, TRAFFIC_ANNOTATION_FOR_TESTS);
   auto job = std::make_unique<TestURLRequestHttpJob>(request.get());
-  test_job_interceptor_->set_main_intercept_job(std::move(job));
+  TestScopedURLInterceptor interceptor(request->url(), std::move(job));
   request->Start();
 
   delegate_.RunUntilComplete();
@@ -345,12 +334,6 @@ class URLRequestHttpJobTest : public TestWithTaskEnvironment {
  protected:
   URLRequestHttpJobTest() : context_(true) {
     context_.set_http_transaction_factory(&network_layer_);
-
-    // The |test_job_factory_| takes ownership of the interceptor.
-    test_job_interceptor_ = new TestJobInterceptor();
-    EXPECT_TRUE(test_job_factory_.SetProtocolHandler(
-        url::kHttpScheme, base::WrapUnique(test_job_interceptor_)));
-    context_.set_job_factory(&test_job_factory_);
     context_.set_net_log(&net_log_);
     context_.Init();
 
@@ -360,10 +343,6 @@ class URLRequestHttpJobTest : public TestWithTaskEnvironment {
   }
 
   MockNetworkLayer network_layer_;
-
-  // |test_job_interceptor_| is owned by |test_job_factory_|.
-  TestJobInterceptor* test_job_interceptor_;
-  URLRequestJobFactoryImpl test_job_factory_;
 
   TestURLRequestContext context_;
   TestDelegate delegate_;
@@ -1059,7 +1038,6 @@ TEST_F(URLRequestHttpJobWithMockSocketsTest,
   ssl_socket_data.ssl_info.cert =
       ImportCertFromFile(GetTestCertsDirectory(), "ok_cert.pem");
   ssl_socket_data.ssl_info.is_issued_by_known_root = true;
-  ssl_socket_data.ssl_info.ct_policy_compliance_required = false;
   ssl_socket_data.ssl_info.ct_policy_compliance =
       ct::CTPolicyCompliance::CT_POLICY_NOT_DIVERSE_SCTS;
 
@@ -1105,7 +1083,6 @@ TEST_F(URLRequestHttpJobWithMockSocketsTest,
   ssl_socket_data.ssl_info.cert =
       ImportCertFromFile(GetTestCertsDirectory(), "ok_cert.pem");
   ssl_socket_data.ssl_info.is_issued_by_known_root = true;
-  ssl_socket_data.ssl_info.ct_policy_compliance_required = false;
   ssl_socket_data.ssl_info.ct_policy_compliance =
       ct::CTPolicyCompliance::CT_POLICY_NOT_DIVERSE_SCTS;
 
@@ -1132,9 +1109,6 @@ TEST_F(URLRequestHttpJobWithMockSocketsTest,
       kCTComplianceHistogramName,
       static_cast<int32_t>(ct::CTPolicyCompliance::CT_POLICY_NOT_DIVERSE_SCTS),
       1);
-  // CTRequiredRequestComplianceStatus should *not* have been recorded because
-  // it is only recorded for requests which are required to be compliant.
-  histograms.ExpectTotalCount(kCTRequiredHistogramName, 0);
 }
 
 // Tests that the CT compliance histograms are not recorded for
@@ -1145,7 +1119,6 @@ TEST_F(URLRequestHttpJobWithMockSocketsTest,
   ssl_socket_data.ssl_info.cert =
       ImportCertFromFile(GetTestCertsDirectory(), "ok_cert.pem");
   ssl_socket_data.ssl_info.is_issued_by_known_root = false;
-  ssl_socket_data.ssl_info.ct_policy_compliance_required = false;
   ssl_socket_data.ssl_info.ct_policy_compliance =
       ct::CTPolicyCompliance::CT_POLICY_NOT_DIVERSE_SCTS;
 
@@ -1169,7 +1142,6 @@ TEST_F(URLRequestHttpJobWithMockSocketsTest,
   EXPECT_THAT(delegate.request_status(), IsOk());
 
   histograms.ExpectTotalCount(kCTComplianceHistogramName, 0);
-  histograms.ExpectTotalCount(kCTRequiredHistogramName, 0);
 }
 
 // Tests that the CT compliance histogram is recorded when CT is required but
@@ -1180,7 +1152,6 @@ TEST_F(URLRequestHttpJobWithMockSocketsTest,
   ssl_socket_data.ssl_info.cert =
       ImportCertFromFile(GetTestCertsDirectory(), "ok_cert.pem");
   ssl_socket_data.ssl_info.is_issued_by_known_root = true;
-  ssl_socket_data.ssl_info.ct_policy_compliance_required = true;
   ssl_socket_data.ssl_info.ct_policy_compliance =
       ct::CTPolicyCompliance::CT_POLICY_NOT_DIVERSE_SCTS;
 
@@ -1207,10 +1178,6 @@ TEST_F(URLRequestHttpJobWithMockSocketsTest,
       kCTComplianceHistogramName,
       static_cast<int32_t>(ct::CTPolicyCompliance::CT_POLICY_NOT_DIVERSE_SCTS),
       1);
-  histograms.ExpectUniqueSample(
-      kCTRequiredHistogramName,
-      static_cast<int32_t>(ct::CTPolicyCompliance::CT_POLICY_NOT_DIVERSE_SCTS),
-      1);
 }
 
 // Tests that the CT compliance histograms are not recorded when there is an
@@ -1221,7 +1188,6 @@ TEST_F(URLRequestHttpJobWithMockSocketsTest,
   ssl_socket_data.ssl_info.cert =
       ImportCertFromFile(GetTestCertsDirectory(), "ok_cert.pem");
   ssl_socket_data.ssl_info.is_issued_by_known_root = true;
-  ssl_socket_data.ssl_info.ct_policy_compliance_required = true;
   ssl_socket_data.ssl_info.ct_policy_compliance =
       ct::CTPolicyCompliance::CT_POLICY_NOT_DIVERSE_SCTS;
   ssl_socket_data.ssl_info.cert_status = net::CERT_STATUS_DATE_INVALID;
@@ -1246,7 +1212,6 @@ TEST_F(URLRequestHttpJobWithMockSocketsTest,
   EXPECT_THAT(delegate.request_status(), IsOk());
 
   histograms.ExpectTotalCount(kCTComplianceHistogramName, 0);
-  histograms.ExpectTotalCount(kCTRequiredHistogramName, 0);
 }
 
 TEST_F(URLRequestHttpJobWithMockSocketsTest, EncodingAdvertisementOnRange) {
@@ -1359,8 +1324,8 @@ TEST_F(URLRequestHttpJobTest, SetPriorityBasic) {
 // Make sure that URLRequestHttpJob passes on its priority to its
 // transaction on start.
 TEST_F(URLRequestHttpJobTest, SetTransactionPriorityOnStart) {
-  test_job_interceptor_->set_main_intercept_job(
-      std::make_unique<TestURLRequestHttpJob>(req_.get()));
+  TestScopedURLInterceptor interceptor(
+      req_->url(), std::make_unique<TestURLRequestHttpJob>(req_.get()));
   req_->SetPriority(LOW);
 
   EXPECT_FALSE(network_layer_.last_transaction());
@@ -1374,8 +1339,8 @@ TEST_F(URLRequestHttpJobTest, SetTransactionPriorityOnStart) {
 // Make sure that URLRequestHttpJob passes on its priority updates to
 // its transaction.
 TEST_F(URLRequestHttpJobTest, SetTransactionPriority) {
-  test_job_interceptor_->set_main_intercept_job(
-      std::make_unique<TestURLRequestHttpJob>(req_.get()));
+  TestScopedURLInterceptor interceptor(
+      req_->url(), std::make_unique<TestURLRequestHttpJob>(req_.get()));
   req_->SetPriority(LOW);
   req_->Start();
   ASSERT_TRUE(network_layer_.last_transaction());

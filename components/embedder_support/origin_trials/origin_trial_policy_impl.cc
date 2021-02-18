@@ -15,7 +15,7 @@
 #include "components/embedder_support/origin_trials/features.h"
 #include "components/embedder_support/switches.h"
 #include "content/public/common/content_features.h"
-#include "content/public/common/origin_util.h"
+#include "services/network/public/cpp/is_potentially_trustworthy.h"
 
 namespace embedder_support {
 
@@ -83,8 +83,8 @@ bool OriginTrialPolicyImpl::IsFeatureDisabledForUser(
     const char* origin_trial_feature_name;
     const base::Feature field_trial_feature;
   } origin_trial_feature_to_field_trial_feature_map[] = {
-      {"FrobulateThirdParty",
-       kOriginTrialsSampleAPIThirdPartyAlternativeUsage}};
+      {"FrobulateThirdParty", kOriginTrialsSampleAPIThirdPartyAlternativeUsage},
+      {"ConversionMeasurement", kConversionMeasurementAPIAlternativeUsage}};
   for (const auto& mapping : origin_trial_feature_to_field_trial_feature_map) {
     if (feature == mapping.origin_trial_feature_name) {
       return !base::FeatureList::IsEnabled(mapping.field_trial_feature);
@@ -94,7 +94,7 @@ bool OriginTrialPolicyImpl::IsFeatureDisabledForUser(
 }
 
 bool OriginTrialPolicyImpl::IsOriginSecure(const GURL& url) const {
-  return content::IsOriginSecure(url);
+  return network::IsUrlPotentiallyTrustworthy(url);
 }
 
 bool OriginTrialPolicyImpl::SetPublicKeysFromASCIIString(

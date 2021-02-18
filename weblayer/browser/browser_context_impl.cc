@@ -5,6 +5,7 @@
 #include "weblayer/browser/browser_context_impl.h"
 
 #include "base/threading/thread_restrictions.h"
+#include "components/background_sync/background_sync_controller_impl.h"
 #include "components/blocked_content/safe_browsing_triggered_popup_blocker.h"
 #include "components/client_hints/browser/client_hints.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
@@ -12,6 +13,7 @@
 #include "components/embedder_support/pref_names.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/language/core/browser/language_prefs.h"
+#include "components/payments/core/payment_prefs.h"
 #include "components/permissions/permission_manager.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/in_memory_pref_store.h"
@@ -25,12 +27,15 @@
 #include "components/translate/core/browser/translate_pref_names.h"
 #include "components/translate/core/browser/translate_prefs.h"
 #include "components/user_prefs/user_prefs.h"
+#include "components/variations/proto/study.pb.h"
+#include "components/variations/variations.mojom.h"
 #include "components/variations/variations_client.h"
 #include "components/variations/variations_ids_provider.h"
 #include "content/public/browser/device_service.h"
 #include "content/public/browser/download_request_utils.h"
 #include "content/public/browser/resource_context.h"
 #include "content/public/browser/storage_partition.h"
+#include "weblayer/browser/background_sync/background_sync_controller_factory.h"
 #include "weblayer/browser/browsing_data_remover_delegate.h"
 #include "weblayer/browser/browsing_data_remover_delegate_factory.h"
 #include "weblayer/browser/client_hints_factory.h"
@@ -195,7 +200,7 @@ BrowserContextImpl::GetBackgroundFetchDelegate() {
 
 content::BackgroundSyncController*
 BrowserContextImpl::GetBackgroundSyncController() {
-  return nullptr;
+  return BackgroundSyncControllerFactory::GetForBrowserContext(this);
 }
 
 content::BrowsingDataRemoverDelegate*
@@ -268,6 +273,7 @@ void BrowserContextImpl::RegisterPrefs(
   translate::TranslatePrefs::RegisterProfilePrefs(pref_registry);
   blocked_content::SafeBrowsingTriggeredPopupBlocker::RegisterProfilePrefs(
       pref_registry);
+  payments::RegisterProfilePrefs(pref_registry);
   pref_registry->RegisterBooleanPref(
       ::prefs::kOfferTranslateEnabled, true,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
@@ -295,16 +301,20 @@ class BrowserContextImpl::WebLayerVariationsClient
     return browser_context_->IsOffTheRecord();
   }
 
-  std::string GetVariationsHeader() const override {
+  variations::mojom::VariationsHeadersPtr GetVariationsHeaders()
+      const override {
     return variations::VariationsIdsProvider::GetInstance()
-        ->GetClientDataHeader(IsSignedIn());
+        ->GetClientDataHeaders(IsSignedIn());
   }
 
  private:
-  bool IsSignedIn() const {
-    // TODO(weblayer-dev): Update when signin is supported.
-    return false;
-  }
+  // Signed-in state shouldn't control the set of variations for WebLayer,
+  // so this always returns true. This is particularly experiment for
+  // registering external experiment ids, which are registered assuming
+  // signed-in.
+  // TODO(sky): this is rather misleading, and needs to be resolved. Figure
+  // out right long term solution.
+  bool IsSignedIn() const { return true; }
 
   content::BrowserContext* browser_context_;
 };

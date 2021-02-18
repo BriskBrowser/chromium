@@ -23,6 +23,10 @@ These builders must pass before a CL may land that affects files outside of
 
 * [android-marshmallow-arm64-rel](https://ci.chromium.org/p/chromium/builders/try/android-marshmallow-arm64-rel) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+android-marshmallow-arm64-rel)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+android-marshmallow-arm64-rel))
 
+* [android-marshmallow-x86-rel](https://ci.chromium.org/p/chromium/builders/try/android-marshmallow-x86-rel) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+android-marshmallow-x86-rel)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+android-marshmallow-x86-rel))
+
+* [android-pie-arm64-rel](https://ci.chromium.org/p/chromium/builders/try/android-pie-arm64-rel) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+android-pie-arm64-rel)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+android-pie-arm64-rel))
+
 * [android_compile_dbg](https://ci.chromium.org/p/chromium/builders/try/android_compile_dbg) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+android_compile_dbg)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+android_compile_dbg))
 
 * [android_cronet](https://ci.chromium.org/p/chromium/builders/try/android_cronet) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+android_cronet)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+android_cronet))
@@ -44,6 +48,8 @@ These builders must pass before a CL may land that affects files outside of
 * [fuchsia_x64](https://ci.chromium.org/p/chromium/builders/try/fuchsia_x64) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+fuchsia_x64)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+fuchsia_x64))
 
 * [ios-simulator](https://ci.chromium.org/p/chromium/builders/try/ios-simulator) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+ios-simulator)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+ios-simulator))
+
+* [lacros-amd64-generic-rel](https://ci.chromium.org/p/chromium/builders/try/lacros-amd64-generic-rel) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+lacros-amd64-generic-rel)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+lacros-amd64-generic-rel))
 
 * [linux-chromeos-compile-dbg](https://ci.chromium.org/p/chromium/builders/try/linux-chromeos-compile-dbg) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+linux-chromeos-compile-dbg)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+linux-chromeos-compile-dbg))
 
@@ -79,6 +85,11 @@ These builders optionally run, depending on the files in a CL. For example, a CL
 which touches `//gpu/BUILD.gn` would trigger the builder
 `android_optional_gpu_tests_rel`, due to the `location_regexp` values for that
 builder.
+
+* [3pp-linux-amd64-packager](https://ci.chromium.org/p/chromium/builders/try/3pp-linux-amd64-packager) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+3pp-linux-amd64-packager)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+3pp-linux-amd64-packager))
+
+  Path regular expressions:
+  * [`//.+/3pp/.+`](https://cs.chromium.org/search?q=package:%5Echromium$+file:.+/3pp/)
 
 * [android-cronet-arm-dbg](https://ci.chromium.org/p/chromium/builders/try/android-cronet-arm-dbg) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+android-cronet-arm-dbg)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+android-cronet-arm-dbg))
 
@@ -162,11 +173,6 @@ builder.
   * [`//build/config/chromeos/.*`](https://cs.chromium.org/search?q=package:%5Echromium$+file:build/config/chromeos/.*)
   * [`//chromeos/CHROMEOS_LKGM`](https://cs.chromium.org/chromium/src/chromeos/CHROMEOS_LKGM)
 
-* [closure_compilation](https://ci.chromium.org/p/chromium/builders/try/closure_compilation) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+closure_compilation)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+closure_compilation))
-
-  Path regular expressions:
-  * [`//third_party/closure_compiler/.+`](https://cs.chromium.org/chromium/src/third_party/closure_compiler/)
-
 * [dawn-linux-x64-deps-rel](https://ci.chromium.org/p/chromium/builders/try/dawn-linux-x64-deps-rel) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+dawn-linux-x64-deps-rel)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+dawn-linux-x64-deps-rel))
 
   Path regular expressions:
@@ -224,6 +230,13 @@ builder.
   Path regular expressions:
   * [`//chromecast/.+`](https://cs.chromium.org/chromium/src/chromecast/)
 
+* [fuchsia-compile-x64-dbg](https://ci.chromium.org/p/chromium/builders/try/fuchsia-compile-x64-dbg) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+fuchsia-compile-x64-dbg)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+fuchsia-compile-x64-dbg))
+
+  Path regular expressions:
+  * [`//base/fuchsia/.+`](https://cs.chromium.org/chromium/src/base/fuchsia/)
+  * [`//fuchsia/.+`](https://cs.chromium.org/chromium/src/fuchsia/)
+  * [`//media/fuchsia/.+`](https://cs.chromium.org/chromium/src/media/fuchsia/)
+
 * [ios-simulator-cronet](https://ci.chromium.org/p/chromium/builders/try/ios-simulator-cronet) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+ios-simulator-cronet)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+ios-simulator-cronet))
 
   Path regular expressions:
@@ -246,6 +259,14 @@ builder.
   * [`//third_party/blink/renderer/core/paint/.+`](https://cs.chromium.org/chromium/src/third_party/blink/renderer/core/paint/)
   * [`//third_party/blink/renderer/core/svg/.+`](https://cs.chromium.org/chromium/src/third_party/blink/renderer/core/svg/)
   * [`//third_party/blink/renderer/platform/graphics/.+`](https://cs.chromium.org/chromium/src/third_party/blink/renderer/platform/graphics/)
+
+* [linux-cfm-rel](https://ci.chromium.org/p/chromium/builders/try/linux-cfm-rel) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+linux-cfm-rel)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+linux-cfm-rel))
+
+  Path regular expressions:
+  * [`//chromeos/components/chromebox_for_meetings/.+`](https://cs.chromium.org/chromium/src/chromeos/components/chromebox_for_meetings/)
+  * [`//chromeos/dbus/chromebox_for_meetings/.+`](https://cs.chromium.org/chromium/src/chromeos/dbus/chromebox_for_meetings/)
+  * [`//chromeos/services/chromebox_for_meetings/.+`](https://cs.chromium.org/chromium/src/chromeos/services/chromebox_for_meetings/)
+  * [`//chrome/browser/chromeos/chromebox_for_meetings/.+`](https://cs.chromium.org/chromium/src/chrome/browser/chromeos/chromebox_for_meetings/)
 
 * [linux_chromium_dbg_ng](https://ci.chromium.org/p/chromium/builders/try/linux_chromium_dbg_ng) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+linux_chromium_dbg_ng)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+linux_chromium_dbg_ng))
 
@@ -296,6 +317,16 @@ builder.
   * [`//chrome/browser/vr/.+`](https://cs.chromium.org/chromium/src/chrome/browser/vr/)
   * [`//content/browser/xr/.+`](https://cs.chromium.org/chromium/src/content/browser/xr/)
 
+* [mac-updater-try-builder-dbg](https://ci.chromium.org/p/chromium/builders/try/mac-updater-try-builder-dbg) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+mac-updater-try-builder-dbg)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+mac-updater-try-builder-dbg))
+
+  Path regular expressions:
+  * [`//chrome/updater/.+`](https://cs.chromium.org/chromium/src/chrome/updater/)
+
+* [mac-updater-try-builder-rel](https://ci.chromium.org/p/chromium/builders/try/mac-updater-try-builder-rel) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+mac-updater-try-builder-rel)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+mac-updater-try-builder-rel))
+
+  Path regular expressions:
+  * [`//chrome/updater/.+`](https://cs.chromium.org/chromium/src/chrome/updater/)
+
 * [mac_optional_gpu_tests_rel](https://ci.chromium.org/p/chromium/builders/try/mac_optional_gpu_tests_rel) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+mac_optional_gpu_tests_rel)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+mac_optional_gpu_tests_rel))
 
   Path regular expressions:
@@ -314,6 +345,16 @@ builder.
   * [`//third_party/blink/renderer/platform/graphics/gpu/.+`](https://cs.chromium.org/chromium/src/third_party/blink/renderer/platform/graphics/gpu/)
   * [`//tools/clang/scripts/update.py`](https://cs.chromium.org/search?q=package:%5Echromium$+file:tools/clang/scripts/update.py)
   * [`//ui/gl/.+`](https://cs.chromium.org/chromium/src/ui/gl/)
+
+* [win-updater-try-builder-dbg](https://ci.chromium.org/p/chromium/builders/try/win-updater-try-builder-dbg) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+win-updater-try-builder-dbg)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+win-updater-try-builder-dbg))
+
+  Path regular expressions:
+  * [`//chrome/updater/.+`](https://cs.chromium.org/chromium/src/chrome/updater/)
+
+* [win-updater-try-builder-rel](https://ci.chromium.org/p/chromium/builders/try/win-updater-try-builder-rel) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+win-updater-try-builder-rel)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+win-updater-try-builder-rel))
+
+  Path regular expressions:
+  * [`//chrome/updater/.+`](https://cs.chromium.org/chromium/src/chrome/updater/)
 
 * [win7-rel](https://ci.chromium.org/p/chromium/builders/try/win7-rel) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+win7-rel)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+win7-rel))
 
@@ -347,17 +388,8 @@ These builders are run on some percentage of builds. Their results are ignored
 by CQ. These are often used to test new configurations before they are added
 as required builders.
 
-* [android-marshmallow-x86-rel](https://ci.chromium.org/p/chromium/builders/try/android-marshmallow-x86-rel) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+android-marshmallow-x86-rel)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+android-marshmallow-x86-rel))
-  * Experiment percentage: 5
-
-* [fuchsia-compile-x64-dbg](https://ci.chromium.org/p/chromium/builders/try/fuchsia-compile-x64-dbg) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+fuchsia-compile-x64-dbg)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+fuchsia-compile-x64-dbg))
-  * Experiment percentage: 50
-
-* [ios-simulator-code-coverage](https://ci.chromium.org/p/chromium/builders/try/ios-simulator-code-coverage) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+ios-simulator-code-coverage)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+ios-simulator-code-coverage))
-  * Experiment percentage: 3
-
 * [linux-perfetto-rel](https://ci.chromium.org/p/chromium/builders/try/linux-perfetto-rel) ([definition](https://cs.chromium.org/search?q=package:%5Echromium$+file:/cq.star$+-file:/beta/+-file:/stable/+linux-perfetto-rel)) ([matching builders](https://cs.chromium.org/search?q=+file:trybots.py+linux-perfetto-rel))
-  * Experiment percentage: 100
+  * Experiment percentage: 100.0
 
   Path regular expressions:
   * [`//base/trace_event/.+`](https://cs.chromium.org/chromium/src/base/trace_event/)

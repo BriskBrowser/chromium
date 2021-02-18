@@ -13,6 +13,7 @@
 #include "base/trace_event/trace_event.h"
 #include "cc/paint/clear_for_opaque_raster.h"
 #include "cc/paint/scoped_raster_flags.h"
+#include "skia/ext/legacy_display_globals.h"
 #include "ui/gfx/skia_util.h"
 
 namespace cc {
@@ -31,23 +32,10 @@ class ScopedFlagsOverride {
   PaintOp::SerializeOptions* options_;
 };
 
-// Copied from viz::ClientResourceProvider.
-SkSurfaceProps ComputeSurfaceProps(bool can_use_lcd_text) {
-  uint32_t flags = 0;
-  // Use unknown pixel geometry to disable LCD text.
-  SkSurfaceProps surface_props(flags, kUnknown_SkPixelGeometry);
-  if (can_use_lcd_text) {
-    // LegacyFontHost will get LCD text and skia figures out what type to use.
-    surface_props =
-        SkSurfaceProps(flags, SkSurfaceProps::kLegacyFontHost_InitType);
-  }
-  return surface_props;
-}
-
 PlaybackParams MakeParams(const SkCanvas* canvas) {
   // We don't use an ImageProvider here since the ops are played onto a no-draw
   // canvas for state tracking and don't need decoded images.
-  return PlaybackParams(nullptr, canvas->getTotalMatrix());
+  return PlaybackParams(nullptr, canvas->getLocalToDevice());
 }
 
 // Use half of the max int as the extent for the SkNoDrawCanvas. The correct
@@ -81,7 +69,8 @@ PaintOpBufferSerializer::PaintOpBufferSerializer(
               ? std::make_unique<SkTextBlobCacheDiffCanvas>(
                     kMaxExtent,
                     kMaxExtent,
-                    ComputeSurfaceProps(can_use_lcd_text),
+                    skia::LegacyDisplayGlobals::ComputeSurfaceProps(
+                        can_use_lcd_text),
                     strike_server,
                     std::move(color_space),
                     context_supports_distance_field_text)
@@ -270,8 +259,7 @@ void PaintOpBufferSerializer::SerializeBuffer(
       Save(options, params);
       // The following ops are copying the canvas's ops from
       // DrawImageRectOp::RasterWithFlags.
-      SkMatrix trans = SkMatrix::MakeRectToRect(draw_op->src, draw_op->dst,
-                                                SkMatrix::kFill_ScaleToFit);
+      SkM44 trans = SkM44(SkMatrix::RectToRect(draw_op->src, draw_op->dst));
       ConcatOp concat_op(trans);
       bool success = SerializeOp(&concat_op, options, params);
       if (!success)
@@ -391,7 +379,7 @@ PaintOp::SerializeOptions PaintOpBufferSerializer::MakeSerializeOptions() {
       image_provider_, transfer_cache_, paint_cache_, text_blob_canvas_.get(),
       strike_server_, color_space_, can_use_lcd_text_,
       context_supports_distance_field_text_, max_texture_size_,
-      text_blob_canvas_->getTotalMatrix());
+      text_blob_canvas_->getLocalToDevice());
 }
 
 SimpleBufferSerializer::SimpleBufferSerializer(

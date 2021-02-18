@@ -4,6 +4,7 @@
 
 #include "ui/accessibility/ax_table_info.h"
 
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "ui/accessibility/ax_constants.mojom.h"
 #include "ui/accessibility/ax_enums.mojom.h"
@@ -505,7 +506,7 @@ void AXTableInfo::ClearExtraMacNodes() {
   for (AXNode* extra_mac_node : extra_mac_nodes) {
     for (AXTreeObserver& observer : tree_->observers())
       observer.OnNodeWillBeDeleted(tree_, extra_mac_node);
-    AXNode::AXID deleted_id = extra_mac_node->id();
+    AXNodeID deleted_id = extra_mac_node->id();
     delete extra_mac_node;
     for (AXTreeObserver& observer : tree_->observers())
       observer.OnNodeDeleted(tree_, deleted_id);

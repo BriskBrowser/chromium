@@ -69,7 +69,6 @@ class ServiceWorkerRegisterJob : public ServiceWorkerRegisterJobBase {
   // ServiceWorkerRegisterJobBase implementation:
   void Start() override;
   void Abort() override;
-  void WillShutDown() override;
   bool Equals(ServiceWorkerRegisterJobBase* job) const override;
   RegistrationJobType GetType() const override;
 
@@ -115,8 +114,6 @@ class ServiceWorkerRegisterJob : public ServiceWorkerRegisterJobBase {
       scoped_refptr<ServiceWorkerRegistration> registration);
 
   bool IsUpdateCheckNeeded() const;
-  void TriggerUpdateCheck(
-      scoped_refptr<network::SharedURLLoaderFactory> loader_factory);
 
   // Refer ServiceWorkerUpdateChecker::UpdateStatusCallback for the meaning of
   // the parameters.
@@ -146,8 +143,10 @@ class ServiceWorkerRegisterJob : public ServiceWorkerRegisterJobBase {
   void InstallAndContinue();
   void DispatchInstallEvent(blink::ServiceWorkerStatusCode start_worker_status);
   void OnInstallFinished(int request_id,
-                         blink::mojom::ServiceWorkerEventStatus event_status);
-  void OnInstallFailed(blink::ServiceWorkerStatusCode status);
+                         blink::mojom::ServiceWorkerEventStatus event_status,
+                         uint32_t fetch_count);
+  void OnInstallFailed(uint32_t fetch_count,
+                       blink::ServiceWorkerStatusCode status);
   void Complete(blink::ServiceWorkerStatusCode status);
   void Complete(blink::ServiceWorkerStatusCode status,
                 const std::string& status_message);
@@ -184,7 +183,6 @@ class ServiceWorkerRegisterJob : public ServiceWorkerRegisterJobBase {
       outside_fetch_client_settings_object_;
   std::vector<RegistrationCallback> callbacks_;
   Phase phase_;
-  bool is_shutting_down_;
   Internal internal_;
   bool is_promise_resolved_;
   bool should_uninstall_on_failure_;

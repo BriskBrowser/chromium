@@ -13,16 +13,15 @@
 #include "base/strings/string_number_conversions.h"
 #include "testing/gmock/include/gmock/gmock-matchers.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/accessibility/ax_common.h"
 #include "ui/accessibility/ax_node.h"
 #include "ui/accessibility/ax_serializable_tree.h"
-#include "ui/accessibility/ax_tree.h"
 
 using testing::UnorderedElementsAre;
 
 namespace ui {
 
-using BasicAXTreeSerializer =
-    AXTreeSerializer<const AXNode*, AXNodeData, AXTreeData>;
+using BasicAXTreeSerializer = AXTreeSerializer<const AXNode*>;
 
 // The framework for these tests is that each test sets up |treedata0_|
 // and |treedata1_| and then calls GetTreeSerializer, which creates a
@@ -42,10 +41,8 @@ class AXTreeSerializerTest : public testing::Test {
   AXTreeUpdate treedata1_;
   std::unique_ptr<AXSerializableTree> tree0_;
   std::unique_ptr<AXSerializableTree> tree1_;
-  std::unique_ptr<AXTreeSource<const AXNode*, AXNodeData, AXTreeData>>
-      tree0_source_;
-  std::unique_ptr<AXTreeSource<const AXNode*, AXNodeData, AXTreeData>>
-      tree1_source_;
+  std::unique_ptr<AXTreeSource<const AXNode*>> tree0_source_;
+  std::unique_ptr<AXTreeSource<const AXNode*>> tree1_source_;
   std::unique_ptr<BasicAXTreeSerializer> serializer_;
 
  private:
@@ -241,8 +238,7 @@ TEST_F(AXTreeSerializerTest, ReparentingWithInvalidationUpdatesSubtree) {
 
 // A variant of AXTreeSource that returns true for IsValid() for one
 // particular id.
-class AXTreeSourceWithInvalidId
-    : public AXTreeSource<const AXNode*, AXNodeData, AXTreeData> {
+class AXTreeSourceWithInvalidId : public AXTreeSource<const AXNode*> {
  public:
   AXTreeSourceWithInvalidId(AXTree* tree, int invalid_id)
       : tree_(tree),
@@ -342,11 +338,9 @@ TEST_F(AXTreeSerializerTest, MaximumSerializedNodeCount) {
   ASSERT_EQ(5u, update.nodes.size());
 }
 
-#if !defined(ADDRESS_SANITIZER)
+#if !defined(AX_FAIL_FAST_BUILD)
 // If duplicate ids are encountered, it returns an error and the next
 // update will re-send the entire tree.
-// Test does not work with address sanitizer -- if EXPECT_DEATH is used to
-// catch the "Illegal parenting" NOTREACHED(), an ASAN crash is still generated.
 TEST_F(AXTreeSerializerTest, DuplicateIdsReturnsErrorAndFlushes) {
   // (1 (2 (3 (4) 5)))
   treedata0_.root_id = 1;
@@ -397,7 +391,7 @@ TEST_F(AXTreeSerializerTest, DuplicateIdsReturnsErrorAndFlushes) {
   serializer_->SerializeChanges(tree1_->GetFromId(7), &update);
   ASSERT_EQ(5u, update.nodes.size());
 }
-#endif
+#endif  // !defined(AX_FAIL_FAST_BUILD)
 
 // If a tree serializer is reset, that means it doesn't know about
 // the state of the client tree anymore. The safest thing to do in
@@ -473,11 +467,9 @@ TEST_F(AXTreeSerializerTest, ResetWorksWithNewRootId) {
 
 // Wraps an AXTreeSource and provides access to the results of the
 // SerializerClearedNode callback.
-class AXTreeSourceTestWrapper
-    : public AXTreeSource<const AXNode*, AXNodeData, AXTreeData> {
+class AXTreeSourceTestWrapper : public AXTreeSource<const AXNode*> {
  public:
-  explicit AXTreeSourceTestWrapper(
-      AXTreeSource<const AXNode*, AXNodeData, AXTreeData>* tree_source)
+  explicit AXTreeSourceTestWrapper(AXTreeSource<const AXNode*>* tree_source)
       : tree_source_(tree_source) {}
   ~AXTreeSourceTestWrapper() override = default;
 
@@ -523,7 +515,7 @@ class AXTreeSourceTestWrapper
   }
 
  private:
-  AXTreeSource<const AXNode*, AXNodeData, AXTreeData>* tree_source_;
+  AXTreeSource<const AXNode*>* tree_source_;
   std::set<int32_t> cleared_node_ids_;
 };
 

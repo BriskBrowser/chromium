@@ -10,15 +10,16 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/containers/flat_map.h"
 #include "base/cpu.h"
 #include "base/lazy_instance.h"
-#include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
+#include "base/notreached.h"
 #include "base/process/process_metrics.h"
+#include "base/run_loop.h"
 #include "base/sequence_checker.h"
 #include "base/strings/pattern.h"
 #include "base/strings/string_util.h"
@@ -28,6 +29,7 @@
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread_id_name_manager.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "content/common/process_visibility_tracker.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/process_type.h"
 
@@ -73,8 +75,6 @@ ProcessTypeForUma CurrentProcessType() {
     return ProcessTypeForUma::kGpu;
   if (process_type == switches::kPpapiPluginProcess)
     return ProcessTypeForUma::kPpapiPlugin;
-  if (process_type == switches::kPpapiBrokerProcess)
-    return ProcessTypeForUma::kPpapiBroker;
   NOTREACHED() << "Unexpected process type: " << process_type;
   return ProcessTypeForUma::kUnknown;
 }
@@ -283,7 +283,9 @@ class TimeInStateReporter {
 // for CPU activity within this process. We sample more frequently when the
 // process is more active, thus ensuring we lose little CPU time attribution
 // when the process is terminated, even after it was very active.
-class ProcessCpuTimeTaskObserver : public base::TaskObserver {
+class ProcessCpuTimeTaskObserver
+    : public base::TaskObserver,
+      public ProcessVisibilityTracker::ProcessVisibilityObserver {
  public:
   static ProcessCpuTimeTaskObserver* GetInstance() {
     static base::NoDestructor<ProcessCpuTimeTaskObserver> instance;
@@ -300,6 +302,8 @@ class ProcessCpuTimeTaskObserver : public base::TaskObserver {
         process_type_(CurrentProcessType()),
         // The observer is created on the main thread of the process.
         main_thread_id_(base::PlatformThread::CurrentId()) {
+    ProcessVisibilityTracker::GetInstance()->AddObserver(this);
+
     // Browser and GPU processes have a longer lifetime (don't disappear between
     // navigations), and typically execute a large number of small main-thread
     // tasks. For these processes, choose a higher reporting interval.
@@ -310,6 +314,14 @@ class ProcessCpuTimeTaskObserver : public base::TaskObserver {
       reporting_interval_ = kReportAfterEveryNTasksOtherProcess;
     }
     DETACH_FROM_SEQUENCE(thread_pool_);
+    // Post a first collection to capture initial values for calculation of
+    // delta values in subsequent passes.
+    PostCollectionTask(is_visible_);
+  }
+
+  ~ProcessCpuTimeTaskObserver() override {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(main_thread_);
+    ProcessVisibilityTracker::GetInstance()->RemoveObserver(this);
   }
 
   // base::TaskObserver implementation:
@@ -326,19 +338,37 @@ class ProcessCpuTimeTaskObserver : public base::TaskObserver {
       return;
     task_counter_++;
     if (task_counter_ == reporting_interval_) {
-      // PostTask() applies a barrier, so this will be applied before the thread
-      // pool task executes and sets |collection_in_progress_| back to false.
-      collection_in_progress_.store(true, std::memory_order_relaxed);
-      task_runner_->PostTask(
-          FROM_HERE,
-          base::BindOnce(
-              &ProcessCpuTimeTaskObserver::CollectAndReportCpuTimeOnThreadPool,
-              base::Unretained(this)));
+      PostCollectionTask(is_visible_);
       task_counter_ = 0;
     }
   }
 
-  void CollectAndReportCpuTimeOnThreadPool() {
+  // ProcessVisibilityTracker::ProcessVisibilityObserver implementation:
+  void OnVisibilityChanged(bool visible) override {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(main_thread_);
+    base::Optional<bool> was_visible = is_visible_;
+    is_visible_ = visible;
+
+    if (collection_in_progress_.load(std::memory_order_relaxed))
+      return;
+
+    PostCollectionTask(std::move(was_visible));
+    task_counter_ = 0;
+  }
+
+  void PostCollectionTask(base::Optional<bool> was_visible) {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(main_thread_);
+    // PostTask() applies a barrier, so this will be applied before the thread
+    // pool task executes and sets |collection_in_progress_| back to false.
+    collection_in_progress_.store(true, std::memory_order_relaxed);
+    task_runner_->PostTask(
+        FROM_HERE,
+        base::BindOnce(
+            &ProcessCpuTimeTaskObserver::CollectAndReportCpuTimeOnThreadPool,
+            base::Unretained(this), std::move(was_visible)));
+  }
+
+  void CollectAndReportCpuTimeOnThreadPool(base::Optional<bool> was_visible) {
     DCHECK_CALLED_ON_VALID_SEQUENCE(thread_pool_);
 
     // This might overflow. We only care that it is different for each cycle.
@@ -354,6 +384,24 @@ class ProcessCpuTimeTaskObserver : public base::TaskObserver {
                                        process_type_,
                                        process_cpu_time_delta.InMicroseconds(),
                                        base::Time::kMicrosecondsPerSecond);
+      if (was_visible.has_value()) {
+        if (*was_visible) {
+          UMA_HISTOGRAM_SCALED_ENUMERATION(
+              "Power.CpuTimeSecondsPerProcessType.Foreground", process_type_,
+              process_cpu_time_delta.InMicroseconds(),
+              base::Time::kMicrosecondsPerSecond);
+        } else {
+          UMA_HISTOGRAM_SCALED_ENUMERATION(
+              "Power.CpuTimeSecondsPerProcessType.Background", process_type_,
+              process_cpu_time_delta.InMicroseconds(),
+              base::Time::kMicrosecondsPerSecond);
+        }
+      } else {
+        UMA_HISTOGRAM_SCALED_ENUMERATION(
+            "Power.CpuTimeSecondsPerProcessType.Unattributed", process_type_,
+            process_cpu_time_delta.InMicroseconds(),
+            base::Time::kMicrosecondsPerSecond);
+      }
       reported_cpu_time_ = cumulative_cpu_time;
     }
 
@@ -362,52 +410,7 @@ class ProcessCpuTimeTaskObserver : public base::TaskObserver {
     // kernels. This breakdown approximates Chrome's total per
     // core-type/frequency usage by splitting the process's CPU time across
     // cores/frequencies according to global per-core time_in_state values.
-    if (base::CPU::GetTimeInState(time_in_state_)) {
-      // Compute the total CPU time delta since the last cycle across all
-      // clusters and frequencies, so that we can compute proportional deltas in
-      // the second loop below.
-      base::TimeDelta total_cumulative;
-      for (const base::CPU::TimeInStateEntry& entry : time_in_state_) {
-        total_cumulative += entry.cumulative_cpu_time;
-      }
-
-      base::TimeDelta total_delta =
-          total_cumulative - total_reported_time_in_state_;
-      total_reported_time_in_state_ = total_cumulative;
-
-      if (process_cpu_time_delta > base::TimeDelta() &&
-          total_delta > base::TimeDelta()) {
-        for (const base::CPU::TimeInStateEntry& entry : time_in_state_) {
-          DCHECK_GT(approximate_time_in_state_reporters_.size(),
-                    static_cast<size_t>(entry.core_type));
-          std::unique_ptr<TimeInStateReporter>& reporter =
-              approximate_time_in_state_reporters_[static_cast<size_t>(
-                  entry.core_type)];
-          if (!reporter) {
-            reporter = std::make_unique<TimeInStateReporter>(
-                process_type_, entry.core_type, /*is_approximate=*/true);
-          }
-
-          // Compute delta since last cycle per entry.
-          uint32_t frequency_mhz = entry.core_frequency_khz / 1000;
-          base::TimeDelta& reported_time =
-              reported_time_in_state_[std::make_tuple(
-                  entry.core_type, entry.cluster_core_index, frequency_mhz)];
-          base::TimeDelta time_delta =
-              entry.cumulative_cpu_time - reported_time;
-          reported_time = entry.cumulative_cpu_time;
-
-          if (time_delta > base::TimeDelta()) {
-            // Scale the process's cpu time by each cluster/frequency pair's
-            // relative proportion of execution time.
-            uint64_t delta_us = (process_cpu_time_delta.InMicroseconds() *
-                                 time_delta.InMicroseconds()) /
-                                total_delta.InMicroseconds();
-            reporter->AddMicroseconds(frequency_mhz, delta_us);
-          }
-        }
-      }
-    }
+    CollectAndReportApproxTimeInState(process_cpu_time_delta);
 
     // Also report a breakdown by thread type.
     base::TimeDelta unattributed_delta = process_cpu_time_delta;
@@ -505,6 +508,13 @@ class ProcessCpuTimeTaskObserver : public base::TaskObserver {
     collection_in_progress_.store(false, std::memory_order_relaxed);
   }
 
+  void WaitForCollectionForTesting() const {
+    base::RunLoop run_loop;
+    // Post the QuitClosure to execute after any pending collection.
+    task_runner_->PostTask(FROM_HERE, run_loop.QuitClosure());
+    run_loop.Run();
+  }
+
  private:
   using ClusterFrequency = std::tuple<base::CPU::CoreType,
                                       uint32_t /*cluster_core_index*/,
@@ -538,6 +548,170 @@ class ProcessCpuTimeTaskObserver : public base::TaskObserver {
     return GetThreadTypeFromName(name);
   }
 
+  void CollectAndReportApproxTimeInState(
+      base::TimeDelta process_cpu_time_delta) {
+    if (!base::CPU::GetTimeInState(time_in_state_) || time_in_state_.empty() ||
+        !base::CPU::GetCumulativeCoreIdleTimes(core_idle_times_)) {
+      return;
+    }
+
+    if (core_idle_times_.size() > reported_core_idle_times_.size())
+      reported_core_idle_times_.resize(core_idle_times_.size());
+
+    // Compute the wall time delta since the last cycle, so that we can
+    // compute active times per core type below. cpuidle and time_in_state
+    // information tick with CLOCK_MONOTONIC, so we use base::TimeTicks (also
+    // CLOCK_MONOTONIC) as a reference here.
+    base::TimeTicks now = base::TimeTicks::Now();
+    base::TimeDelta wall_time_delta = now - last_time_in_state_walltime_;
+    last_time_in_state_walltime_ = now;
+
+    // Convert core_idle_times_ to delta values.
+    for (uint32_t core_index = 0; core_index < core_idle_times_.size();
+         ++core_index) {
+      base::TimeDelta absolute_idle_time = core_idle_times_[core_index];
+      core_idle_times_[core_index] -= reported_core_idle_times_[core_index];
+      reported_core_idle_times_[core_index] = absolute_idle_time;
+    }
+
+    // Compute total active time during this cycle.
+    base::TimeDelta total_active_time;
+    for (base::TimeDelta core_idle_time : core_idle_times_) {
+      base::TimeDelta active_time = wall_time_delta - core_idle_time;
+      if (active_time > base::TimeDelta())
+        total_active_time += active_time;
+    }
+
+    // Because time_in_state_ includes idle time and reports values for a
+    // single core of each cluster, we work out how much CPU time to attribute
+    // to each cluster and frequency through the following approximation:
+    // (1) For each cluster, we compute how much of the execution happened on
+    //     cores of the cluster vs. cores on other clusters
+    //     (current_cluster_proportion).
+    // (2) We assume that the time spent in idle will be mostly in the lower
+    //     frequency band of the cluster. For that reason, we subtract the
+    //     average idle time of a cluster's core from the cluster's first
+    //     entries (lowest frequencies) in time_in_state.
+    // (3) For the remaining frequencies, we calculate the proportion of
+    //     active time the cluster spent in each frequency
+    //     (frequency_proportion).
+    // (4) Finally, we split the process's CPU time across clusters and
+    //     frequencies based on current_cluster_proportion and
+    //     frequency_proportion.
+
+    uint32_t last_core_index = -1;
+    uint32_t next_core_index = -1;
+    // Idle time of the current cluster that hasn't been attributed to a
+    // specific frequency state yet, for (2).
+    base::TimeDelta current_cluster_unattributed_idle_wall_time;
+    // Average wall time the current cluster's cores were active for, for (3).
+    base::TimeDelta current_cluster_active_wall_time;
+    // Proportion of the current cluster's core's cumulative active time of
+    // the total active time across all cores, for (1).
+    double current_cluster_proportion = 0;
+
+    for (size_t state_index = 0; state_index < time_in_state_.size();
+         ++state_index) {
+      const base::CPU::TimeInStateEntry& entry = time_in_state_[state_index];
+      DCHECK_GT(approximate_time_in_state_reporters_.size(),
+                static_cast<size_t>(entry.core_type));
+      std::unique_ptr<TimeInStateReporter>& reporter =
+          approximate_time_in_state_reporters_[static_cast<size_t>(
+              entry.core_type)];
+      if (!reporter) {
+        reporter = std::make_unique<TimeInStateReporter>(
+            process_type_, entry.core_type, /*is_approximate=*/true);
+      }
+
+      // Compute delta since last cycle per entry.
+      uint32_t frequency_mhz = entry.core_frequency_khz / 1000;
+      base::TimeDelta& reported_time = reported_time_in_state_[std::make_tuple(
+          entry.core_type, entry.cluster_core_index, frequency_mhz)];
+      base::TimeDelta time_delta = entry.cumulative_time - reported_time;
+      reported_time = entry.cumulative_time;
+
+      // In the first cycle (wall_time_delta == now), we can't really trust
+      // active_time_per_core (because we don't know the absolute time
+      // domain of cpuidle values), so skip reporting.
+      bool first_cycle = wall_time_delta == (now - base::TimeTicks());
+
+      if (first_cycle || time_delta <= base::TimeDelta() ||
+          process_cpu_time_delta <= base::TimeDelta()) {
+        continue;
+      }
+
+      if (last_core_index != entry.cluster_core_index) {
+        // This is the first entry for a new cluster. Find the next
+        // cluster's first core and compute the cluster's active/idle wall
+        // time (3) and proportion of total execution time (1).
+        next_core_index = FindNextClusterCoreIndex(state_index);
+
+        base::TimeDelta cluster_active_time;
+        base::TimeDelta cluster_idle_time;
+        for (size_t core_index = entry.cluster_core_index;
+             core_index < next_core_index; ++core_index) {
+          cluster_idle_time += core_idle_times_[core_index];
+          cluster_active_time += wall_time_delta - core_idle_times_[core_index];
+        }
+
+        size_t num_cores = next_core_index - entry.cluster_core_index;
+        current_cluster_active_wall_time = cluster_active_time / num_cores;
+        current_cluster_unattributed_idle_wall_time =
+            cluster_idle_time / num_cores;
+
+        // (1) Proportion of execution on this cluster's cores vs others.
+        current_cluster_proportion = 0;
+        if (total_active_time > base::TimeDelta())
+          current_cluster_proportion = cluster_active_time / total_active_time;
+
+        last_core_index = entry.cluster_core_index;
+      }
+
+      // (2) Assign the cluster's idle wall time to the first entries, i.e.
+      // lowest frequencies.
+      if (time_delta < current_cluster_unattributed_idle_wall_time) {
+        // Attribute this frequency state entirely to idle time, skip it.
+        current_cluster_unattributed_idle_wall_time -= time_delta;
+        continue;
+      } else if (current_cluster_unattributed_idle_wall_time >
+                 base::TimeDelta()) {
+        time_delta -= current_cluster_unattributed_idle_wall_time;
+        current_cluster_unattributed_idle_wall_time = base::TimeDelta();
+      }
+
+      // (3) Proportion of active wall time that this cluster spent in the
+      // frequency state.
+      double frequency_proportion = 0;
+      if (current_cluster_active_wall_time > base::TimeDelta())
+        frequency_proportion = time_delta / current_cluster_active_wall_time;
+
+      // (4) Scale the process's cpu time by the cluster/frequency pair's
+      // relative proportion of execution time. Note that we calculate
+      // double values for the proportions above first to avoid integer
+      // overflow in the presence of large time_delta values.
+      uint64_t delta_us = process_cpu_time_delta.InMicroseconds() *
+                          frequency_proportion * current_cluster_proportion;
+
+      reporter->AddMicroseconds(frequency_mhz, delta_us);
+    }
+  }
+
+  // Returns the core index of the first core of the next cluster after the
+  // cluster of the given entry in |time_in_state_|. Returns max core_index + 1
+  // if no further clusters exist.
+  size_t FindNextClusterCoreIndex(size_t state_index) {
+    for (size_t next_state_index = state_index;
+         next_state_index < time_in_state_.size(); ++next_state_index) {
+      const auto& next_entry = time_in_state_[next_state_index];
+      if (next_entry.cluster_core_index !=
+          time_in_state_[state_index].cluster_core_index) {
+        return next_entry.cluster_core_index;
+      }
+    }
+    // No further clusters, return max core index + 1.
+    return core_idle_times_.size();
+  }
+
   // Sample CPU time after a certain number of main-thread task to balance
   // overhead of sampling and loss at process termination.
   static constexpr int kReportAfterEveryNTasksPersistentProcess = 500;
@@ -548,6 +722,7 @@ class ProcessCpuTimeTaskObserver : public base::TaskObserver {
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
   int task_counter_ = 0;
   int reporting_interval_ = 0;  // set in constructor.
+  base::Optional<bool> is_visible_;
 
   // Accessed on |task_runner_|.
   SEQUENCE_CHECKER(thread_pool_);
@@ -565,11 +740,13 @@ class ProcessCpuTimeTaskObserver : public base::TaskObserver {
       approximate_time_in_state_reporters_ = {};
   base::flat_map<ClusterFrequency, base::TimeDelta /*time_in_state*/>
       reported_time_in_state_;
-  base::TimeDelta total_reported_time_in_state_;
+  base::CPU::CoreIdleTimes reported_core_idle_times_;
+  base::TimeTicks last_time_in_state_walltime_;
   // Stored as instance variables to avoid allocation churn.
   base::ProcessMetrics::CPUUsagePerThread cumulative_thread_times_;
   base::ProcessMetrics::TimeInStatePerThread time_in_state_per_thread_;
   base::CPU::TimeInState time_in_state_;
+  base::CPU::CoreIdleTimes core_idle_times_;
 
   // Accessed on both sequences.
   std::atomic<bool> collection_in_progress_;
@@ -587,9 +764,9 @@ void SetupCpuTimeMetrics() {
   did_setup = true;
 }
 
-void SampleCpuTimeMetricsForTesting() {
-  ProcessCpuTimeTaskObserver::GetInstance()
-      ->CollectAndReportCpuTimeOnThreadPool();
+void WaitForCpuTimeMetricsForTesting() {
+  auto* instance = ProcessCpuTimeTaskObserver::GetInstance();
+  instance->WaitForCollectionForTesting();  // IN-TEST
 }
 
 }  // namespace content

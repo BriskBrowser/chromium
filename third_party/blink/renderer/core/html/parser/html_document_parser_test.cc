@@ -9,7 +9,7 @@
 #include "third_party/blink/renderer/core/html/html_document.h"
 #include "third_party/blink/renderer/core/html/parser/text_resource_decoder.h"
 #include "third_party/blink/renderer/core/html/parser/text_resource_decoder_builder.h"
-#include "third_party/blink/renderer/core/loader/prerenderer_client.h"
+#include "third_party/blink/renderer/core/loader/no_state_prefetch_client.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
@@ -18,10 +18,11 @@ namespace blink {
 
 namespace {
 
-class MockPrerendererClient : public PrerendererClient {
+class MockNoStatePrefetchClient : public NoStatePrefetchClient {
  public:
-  MockPrerendererClient(Page& page, bool is_prefetch_only)
-      : PrerendererClient(page, nullptr), is_prefetch_only_(is_prefetch_only) {}
+  MockNoStatePrefetchClient(Page& page, bool is_prefetch_only)
+      : NoStatePrefetchClient(page, nullptr),
+        is_prefetch_only_(is_prefetch_only) {}
 
  private:
   bool IsPrefetchOnly() override { return is_prefetch_only_; }
@@ -31,27 +32,31 @@ class MockPrerendererClient : public PrerendererClient {
 
 class HTMLDocumentParserTest
     : public PageTestBase,
-      public testing::WithParamInterface<ParserSynchronizationPolicy> {
+      public testing::WithParamInterface<
+          testing::tuple<ParserSynchronizationPolicy, int>> {
  protected:
   void SetUp() override {
     PageTestBase::SetUp();
     GetDocument().SetURL(KURL("https://example.test"));
-    if (GetParam() == ParserSynchronizationPolicy::kForceSynchronousParsing) {
+
+    ParserSynchronizationPolicy policy = testing::get<0>(GetParam());
+    if (policy == ParserSynchronizationPolicy::kForceSynchronousParsing) {
       Document::SetThreadedParsingEnabledForTesting(false);
     } else {
       Document::SetThreadedParsingEnabledForTesting(true);
     }
-    if (GetParam() == ParserSynchronizationPolicy::kAllowDeferredParsing) {
+    if (policy == ParserSynchronizationPolicy::kAllowDeferredParsing) {
       RuntimeEnabledFeatures::SetForceSynchronousHTMLParsingEnabled(true);
-    } else if (GetParam() ==
+    } else if (policy ==
                ParserSynchronizationPolicy::kAllowAsynchronousParsing) {
       RuntimeEnabledFeatures::SetForceSynchronousHTMLParsingEnabled(false);
     }
   }
 
   HTMLDocumentParser* CreateParser(HTMLDocument& document) {
-    auto* parser =
-        MakeGarbageCollected<HTMLDocumentParser>(document, GetParam());
+    auto* parser = MakeGarbageCollected<HTMLDocumentParser>(
+        document, testing::get<0>(GetParam()));
+    parser->SetMaxTokenizationBudgetForTesting(testing::get<1>(GetParam()));
     std::unique_ptr<TextResourceDecoder> decoder(
         BuildTextResourceDecoderFor(&document, "text/html", g_null_atom));
     parser->SetDecoder(std::move(decoder));
@@ -61,10 +66,12 @@ class HTMLDocumentParserTest
 
 }  // namespace
 
-INSTANTIATE_TEST_SUITE_P(HTMLDocumentParserTest,
-                         HTMLDocumentParserTest,
-                         testing::Values(kForceSynchronousParsing,
-                                         kAllowDeferredParsing));
+INSTANTIATE_TEST_SUITE_P(
+    HTMLDocumentParserTest,
+    HTMLDocumentParserTest,
+    testing::Combine(testing::Values(kForceSynchronousParsing,
+                                     kAllowDeferredParsing),
+                     testing::Values(250, 500, 1000)));
 
 TEST_P(HTMLDocumentParserTest, StopThenPrepareToStopShouldNotCrash) {
   auto& document = To<HTMLDocument>(GetDocument());
@@ -111,9 +118,9 @@ TEST_P(HTMLDocumentParserTest, HasNoPendingWorkAfterDetach) {
 
 TEST_P(HTMLDocumentParserTest, AppendPrefetch) {
   auto& document = To<HTMLDocument>(GetDocument());
-  ProvidePrerendererClientTo(
-      *document.GetPage(),
-      MakeGarbageCollected<MockPrerendererClient>(*document.GetPage(), true));
+  ProvideNoStatePrefetchClientTo(
+      *document.GetPage(), MakeGarbageCollected<MockNoStatePrefetchClient>(
+                               *document.GetPage(), true));
   EXPECT_TRUE(document.IsPrefetchOnly());
   HTMLDocumentParser* parser = CreateParser(document);
 
@@ -145,7 +152,8 @@ TEST_P(HTMLDocumentParserTest, AppendNoPrefetch) {
   // The bytes are forwarded to the tokenizer.
   HTMLParserScriptRunnerHost* script_runner_host =
       parser->AsHTMLParserScriptRunnerHostForTesting();
-  EXPECT_FALSE(script_runner_host->HasPreloadScanner());
+  EXPECT_EQ(script_runner_host->HasPreloadScanner(),
+            testing::get<0>(GetParam()) == kAllowDeferredParsing);
   EXPECT_EQ(HTMLTokenizer::kTagNameState, parser->Tokenizer()->GetState());
   // Cancel any pending work to make sure that RuntimeFeatures DCHECKs do not
   // fire.

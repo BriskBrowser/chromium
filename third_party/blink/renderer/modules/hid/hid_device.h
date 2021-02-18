@@ -8,8 +8,10 @@
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/device/public/mojom/hid.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/hid/hid.mojom-blink.h"
+#include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/bindings/core/v8/array_buffer_or_array_buffer_view.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_hid_report_item.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
@@ -32,6 +34,7 @@ class ScriptState;
 class MODULES_EXPORT HIDDevice
     : public EventTargetWithInlineData,
       public ExecutionContextLifecycleObserver,
+      public ActiveScriptWrappable<HIDDevice>,
       public device::mojom::blink::HidConnectionClient {
   DEFINE_WRAPPERTYPEINFO();
 
@@ -69,6 +72,12 @@ class MODULES_EXPORT HIDDevice
 
   // ExecutionContextLifecycleObserver:
   void ContextDestroyed() override;
+
+  // ActiveScriptWrappable:
+  bool HasPendingActivity() const override;
+
+  static HIDReportItem* ToHIDReportItem(
+      const device::mojom::blink::HidReportItem& report_item);
 
   void Trace(Visitor*) const override;
 

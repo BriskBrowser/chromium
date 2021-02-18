@@ -1092,7 +1092,6 @@ uint32_t GLES2Util::GetGLReadPixelsImplementationType(uint32_t internal_format,
     case GL_R16UI:
     case GL_RG16UI:
     case GL_RGBA16UI:
-    case GL_RGB10_A2:
     case GL_RGB10_A2UI:
     case GL_R16_EXT:
     case GL_RG16_EXT:
@@ -1167,6 +1166,7 @@ uint32_t GLES2Util::GetChannelsForFormat(int format) {
       return kRGB;
     case GL_RGB_YCRCB_420_CHROMIUM:
     case GL_RGB_YCBCR_420V_CHROMIUM:
+    case GL_RGB_YCBCR_P010_CHROMIUM:
     case GL_BGRA_EXT:
     case GL_BGRA8_EXT:
     case GL_RGBA16F_EXT:

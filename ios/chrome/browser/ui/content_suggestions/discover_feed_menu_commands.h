@@ -9,7 +9,11 @@
 @protocol DiscoverFeedMenuCommands
 
 // Opens Discover feed control menu.
-- (void)openDiscoverFeedMenu:(UIView*)menuButton;
+- (void)openDiscoverFeedMenu;
+
+// Sends a notification to indicate that the Discover feed has loaded, so the
+// IPH can be shown.
+- (void)notifyFeedLoadedForHeaderMenu;
 
 @end
 

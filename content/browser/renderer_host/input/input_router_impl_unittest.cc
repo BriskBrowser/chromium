@@ -28,7 +28,6 @@
 #include "content/browser/renderer_host/input/mock_input_disposition_handler.h"
 #include "content/browser/renderer_host/input/mock_input_router_client.h"
 #include "content/common/content_constants_internal.h"
-#include "content/common/input_messages.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/mock_render_process_host.h"
@@ -117,7 +116,6 @@ class MockInputRouterImplClient : public InputRouterImplClient {
 
   void RequestMouseLock(
       bool from_user_gesture,
-      bool privileged,
       bool unadjusted_movement,
       blink::mojom::WidgetInputHandlerHost::RequestMouseLockCallback response)
       override {}
@@ -749,8 +747,8 @@ TEST_F(InputRouterImplTest, TouchActionAutoWithAckStateConsumedShouldBubble) {
   base::Optional<cc::TouchAction> expected_touch_action;
   OnTouchEventAckWithAckState(
       blink::mojom::InputEventResultSource::kCompositorThread,
-      blink::mojom::InputEventResultState::kConsumedShouldBubble,
-      expected_touch_action, cc::TouchAction::kAuto);
+      blink::mojom::InputEventResultState::kNotConsumed, expected_touch_action,
+      cc::TouchAction::kAuto);
 }
 
 TEST_F(InputRouterImplTest, TouchActionAutoWithAckStateNoConsumerExists) {

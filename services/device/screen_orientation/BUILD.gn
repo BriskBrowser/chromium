@@ -11,10 +11,7 @@ if (is_android) {
 source_set("screen_orientation") {
   visibility = [ "//services/device:lib" ]
 
-  sources = [
-    "screen_orientation_listener_android.cc",
-    "screen_orientation_listener_android.h",
-  ]
+  sources = []
 
   deps = [
     "//base",
@@ -24,6 +21,10 @@ source_set("screen_orientation") {
   public_deps = [ "//services/device/public/mojom" ]
 
   if (is_android) {
+    sources += [
+      "screen_orientation_listener_android.cc",
+      "screen_orientation_listener_android.h",
+    ]
     deps += [ ":screen_orientation_jni_headers" ]
   }
 }

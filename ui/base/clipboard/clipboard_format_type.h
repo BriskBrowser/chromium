@@ -54,20 +54,16 @@ class COMPONENT_EXPORT(UI_BASE_CLIPBOARD_TYPES) ClipboardFormatType {
   static ClipboardFormatType GetType(const std::string& format_string);
 
   // Get format identifiers for various types.
+  static const ClipboardFormatType& GetFilenamesType();
   static const ClipboardFormatType& GetUrlType();
-  static const ClipboardFormatType& GetMozUrlType();
   static const ClipboardFormatType& GetPlainTextType();
-  static const ClipboardFormatType& GetFilenameType();
   static const ClipboardFormatType& GetWebKitSmartPasteType();
   // Win: MS HTML Format, Other: Generic HTML format
   static const ClipboardFormatType& GetHtmlType();
   static const ClipboardFormatType& GetSvgType();
   static const ClipboardFormatType& GetRtfType();
   static const ClipboardFormatType& GetBitmapType();
-  // TODO(raymes): Unify web custom data and pepper custom data:
-  // crbug.com/158399.
   static const ClipboardFormatType& GetWebCustomDataType();
-  static const ClipboardFormatType& GetPepperCustomDataType();
 
 #if defined(OS_WIN)
   // ANSI formats. Only Windows differentiates between ANSI and UNICODE formats
@@ -84,7 +80,9 @@ class COMPONENT_EXPORT(UI_BASE_CLIPBOARD_TYPES) ClipboardFormatType {
   static const ClipboardFormatType& GetFileDescriptorType();
   static const ClipboardFormatType& GetFileContentZeroType();
   static const ClipboardFormatType& GetFileContentAtIndexType(LONG index);
+  static const ClipboardFormatType& GetFilenameType();
   static const ClipboardFormatType& GetIDListType();
+  static const ClipboardFormatType& GetMozUrlType();
 #endif
 
   // ClipboardFormatType can be used in a set on some platforms.

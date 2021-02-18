@@ -31,6 +31,7 @@ namespace autofill {
 class AutofillChange;
 class AutofillEntry;
 struct AutofillMetadata;
+struct AutofillOfferData;
 class AutofillProfile;
 class AutofillTableEncryptor;
 class AutofillTableTest;
@@ -113,13 +114,33 @@ struct PaymentsCustomerData;
 //   house_number       The house number.
 //   subpremise         The floor, apartment number and staircase.
 //                      apartment number.
+//   dependent_locality
+//                      A sub-classification beneath the city, e.g. an
+//                      inner-city district or suburb.
+//   city               The city information of the address.
+//   state              The state information of the address.
+//   zip_code           The zip code of the address.
+//   country_code       The code of the country of the address.
+//   sorting_code       Similar to the zipcode column, but used for businesses
+//                      or organizations that might not be geographically
+//                      contiguous.
 //   premise_name       The name of the premise.
+//   apartment_number   The number of the apartment.
+//   floor              The floor in which the apartment is located.
 //   street_address_status
 //   street_name_status
 //   dependent_street_name_status
 //   house_number_status
 //   subpremise_status
 //   premise_name_status
+//   dependent_locality_status
+//   city_status
+//   state_status
+//   zip_code_status
+//   country_code_status
+//   sorting_code_status
+//   apartment_number_status
+//   floor_status
 //                      Each token of the address has an additional validation
 //                      status that indicates if Autofill parsed the value out
 //                      of an unstructured (last) name, or if autofill formatted
@@ -148,6 +169,9 @@ struct PaymentsCustomerData;
 //                      consisting of a single part are stored in the second
 //                      part by default.
 //   full_name          The unstructured full name of a person.
+//   full_name_with_honorific_prefix
+//                      The combination of the full name and the honorific
+//                      prefix.
 //   honorific_prefix_status
 //   first_name_status
 //   middle_name_status
@@ -155,6 +179,7 @@ struct PaymentsCustomerData;
 //   first_last_name_status
 //   conjunction_last_name_status
 //   second_last_name_status
+//   full_name_with_honorific_prefix_status
 //                      Each token of the names has an additional validation
 //                      status that indicates if Autofill parsed the value out
 //                      of an unstructured (last) name, or if autofill formatted
@@ -221,7 +246,8 @@ struct PaymentsCustomerData;
 //                      will additionally be added in unmasked_credit_cards.
 //
 //   id                 String assigned by the server to identify this card.
-//                      This is opaque to the client.
+//                      This is a legacy version of instrument_id and is opaque
+//                      to the client.
 //   status             Server's status of this card.
 //                      TODO(brettw) define constants for this.
 //   name_on_card
@@ -236,6 +262,9 @@ struct PaymentsCustomerData;
 //   card_issuer        Issuer for the card. An integer representing the
 //                      CardIssuer.Issuer enum from the Chrome Sync response.
 //                      For example, GOOGLE or ISSUER_UNKNOWN.
+//   instrument_id      Credit card id assigned by the server to identify this
+//                      card. This is opaque to the client, and |id| is the
+//                      legacy version of this.
 //
 // unmasked_credit_cards
 //                      When a masked credit credit card is unmasked and the
@@ -348,6 +377,36 @@ struct PaymentsCustomerData;
 //                      https://en.wikipedia.org/wiki/Unified_Payments_Interface
 //
 //   vpa_id             A string representing the UPI ID (a.k.a. VPA) value.
+//
+// offer_data           The data for credit card offers which will be presented
+//                      in payments autofill flows.
+//
+//   offer_id           The unique server ID for this offer data.
+//   offer_reward_amount
+//                      The string including the reward details of the offer.
+//                      Could be either percentage cashback (XXX%) or fixed
+//                      amount cashback (XXX$).
+//   expiry             The timestamp when the offer will go expired. Expired
+//                      offers will not be shown in the frontend.
+//   offer_details_url  The link leading to the offer details page on Gpay app.
+//
+// offer_eligible_instrument
+//                      Contains the mapping of credit cards and card linked
+//                      offers.
+//
+//   offer_id           Int 64 to identify the relevant offer. Matches the
+//                      offer_id in the offer_data table.
+//   instrument_id      The new form of instrument id of the card. Will not be
+//                      used for now.
+//
+// offer_merchant_domain
+//                      Contains the mapping of merchant domains and card linked
+//                      offers.
+//
+//   offer_id           Int 64 to identify the relevant offer. Matches the
+//                      offer_id in the offer_data table.
+//   merchant_domain    List of full origins for merchant websites on which
+//                      this offer would apply.
 
 class AutofillTable : public WebDatabaseTable,
                       public syncer::SyncMetadataStore {
@@ -516,6 +575,13 @@ class AutofillTable : public WebDatabaseTable,
   bool GetPaymentsCustomerData(
       std::unique_ptr<PaymentsCustomerData>* customer_data) const;
 
+  // |autofill_offer_data| must include all existing offers, since table will
+  // be completely overwritten.
+  void SetCreditCardOffers(
+      const std::vector<AutofillOfferData>& autofill_offer_data);
+  bool GetCreditCardOffers(
+      std::vector<std::unique_ptr<AutofillOfferData>>* autofill_offer_data);
+
   // Adds |upi_id| to the saved UPI IDs.
   bool InsertUpiId(const std::string& upi_id);
 
@@ -614,6 +680,10 @@ class AutofillTable : public WebDatabaseTable,
   bool MigrateToVersion86RemoveUnmaskedCreditCardsUseColumns();
   bool MigrateToVersion87AddCreditCardNicknameColumn();
   bool MigrateToVersion88AddNewNameColumns();
+  bool MigrateToVersion89AddInstrumentIdColumnToMaskedCreditCard();
+  bool MigrateToVersion90AddNewStructuredAddressColumns();
+  bool MigrateToVersion91AddMoreStructuredAddressColumns();
+  bool MigrateToVersion92AddNewPrefixedNameColumn();
 
   // Max data length saved in the table, AKA the maximum length allowed for
   // form data.
@@ -723,6 +793,9 @@ class AutofillTable : public WebDatabaseTable,
   bool InitPaymentsCustomerDataTable();
   bool InitPaymentsUPIVPATable();
   bool InitServerCreditCardCloudTokenDataTable();
+  bool InitOfferDataTable();
+  bool InitOfferEligibleInstrumentTable();
+  bool InitOfferMerchantDomainTable();
 
   std::unique_ptr<AutofillTableEncryptor> autofill_table_encryptor_;
 

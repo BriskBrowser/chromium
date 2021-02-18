@@ -12,6 +12,7 @@
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/rand_util.h"
+#include "base/strings/string_piece.h"
 #include "net/base/ip_address.h"
 #include "net/dns/dns_response.h"
 #include "net/dns/public/dns_protocol.h"
@@ -25,6 +26,9 @@ static const size_t kSrvRecordMinimumSize = 6;
 static constexpr size_t kIntegrityMinimumSize =
     sizeof(uint16_t) + IntegrityRecordRdata::kDigestLen;
 
+// Minimal HTTPS rdata is 2 octets priority + 1 octet empty name.
+static constexpr size_t kHttpsRdataMinimumSize = 3;
+
 bool RecordRdata::HasValidSize(const base::StringPiece& data, uint16_t type) {
   switch (type) {
     case dns_protocol::kTypeSRV:
@@ -35,6 +39,8 @@ bool RecordRdata::HasValidSize(const base::StringPiece& data, uint16_t type) {
       return data.size() == IPAddress::kIPv6AddressSize;
     case dns_protocol::kExperimentalTypeIntegrity:
       return data.size() >= kIntegrityMinimumSize;
+    case dns_protocol::kTypeHttps:
+      return data.size() >= kHttpsRdataMinimumSize;
     case dns_protocol::kTypeCNAME:
     case dns_protocol::kTypePTR:
     case dns_protocol::kTypeTXT:
@@ -43,8 +49,8 @@ bool RecordRdata::HasValidSize(const base::StringPiece& data, uint16_t type) {
     case dns_protocol::kTypeSOA:
       return true;
     default:
-      VLOG(1) << "Unsupported RDATA type.";
-      return false;
+      VLOG(1) << "Unrecognized RDATA type.";
+      return true;
   }
 }
 
@@ -211,7 +217,7 @@ std::unique_ptr<TxtRecordRdata> TxtRecordRdata::Create(
     if (i + length >= data.size())
       return std::unique_ptr<TxtRecordRdata>();
 
-    rdata->texts_.push_back(data.substr(i + 1, length).as_string());
+    rdata->texts_.push_back(std::string(data.substr(i + 1, length)));
 
     // Move to the next string.
     i += length + 1;

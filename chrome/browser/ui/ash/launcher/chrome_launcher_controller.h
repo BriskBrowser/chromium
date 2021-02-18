@@ -18,7 +18,6 @@
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ui/app_icon_loader_delegate.h"
 #include "chrome/browser/ui/app_list/app_list_syncable_service.h"
-#include "chrome/browser/ui/ash/launcher/discover_window_observer.h"
 #include "chrome/browser/ui/ash/launcher/launcher_app_updater.h"
 #include "chrome/browser/ui/ash/launcher/settings_window_observer.h"
 #include "components/account_id/account_id.h"
@@ -52,10 +51,8 @@ namespace ui {
 class BaseWindow;
 }
 
-namespace chromeos {
 FORWARD_DECLARE_TEST(SpokenFeedbackTest, ShelfIconFocusForward);
 FORWARD_DECLARE_TEST(SpokenFeedbackTest, SpeakingTextUnderMouseForShelfItem);
-}
 
 // ChromeLauncherController helps manage Ash's shelf for Chrome prefs and apps.
 // It helps synchronize shelf state with profile preferences and app content.
@@ -269,6 +266,9 @@ class ChromeLauncherController
   // CanDoShowAppInfoFlow() returns true.
   void DoShowAppInfoFlow(Profile* profile, const std::string& app_id);
 
+  SkColor CalculateNotificationBadgeColorForApp(const std::string& app_id,
+                                                const gfx::ImageSkia& icon);
+
   // LauncherAppUpdater::Delegate:
   void OnAppInstalled(content::BrowserContext* browser_context,
                       const std::string& app_id) override;
@@ -287,8 +287,8 @@ class ChromeLauncherController
   friend class ShelfAppBrowserTest;
   friend class TestChromeLauncherController;
 
-  FRIEND_TEST_ALL_PREFIXES(chromeos::SpokenFeedbackTest, ShelfIconFocusForward);
-  FRIEND_TEST_ALL_PREFIXES(chromeos::SpokenFeedbackTest,
+  FRIEND_TEST_ALL_PREFIXES(SpokenFeedbackTest, ShelfIconFocusForward);
+  FRIEND_TEST_ALL_PREFIXES(SpokenFeedbackTest,
                            SpeakingTextUnderMouseForShelfItem);
 
   using WebContentsToAppIDMap = std::map<content::WebContents*, std::string>;
@@ -418,12 +418,6 @@ class ChromeLauncherController
   // An observer that manages the shelf title and icon for settings windows.
   std::unique_ptr<SettingsWindowObserver> settings_window_observer_;
 
-  // TODO(crbug.com/836128): Remove this once SystemWebApps are enabled by
-  // default.
-  // An observer that manages the shelf title and icon for Chrome OS Discover
-  // windows.
-  std::unique_ptr<DiscoverWindowObserver> discover_window_observer_;
-
   // Used to load the images for app items.
   std::map<Profile*, std::vector<std::unique_ptr<AppIconLoader>>>
       app_icon_loaders_;
@@ -456,6 +450,9 @@ class ChromeLauncherController
   using RunningAppListIds = std::vector<std::string>;
   using RunningAppListIdMap = std::map<std::string, RunningAppListIds>;
   RunningAppListIdMap last_used_running_application_order_;
+
+  using AppIdBadgeColor = std::map<std::string, SkColor>;
+  AppIdBadgeColor app_id_badge_color_map_;
 
   base::WeakPtrFactory<ChromeLauncherController> weak_ptr_factory_{this};
 

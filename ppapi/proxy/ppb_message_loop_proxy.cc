@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/check.h"
 #include "base/compiler_specific.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -114,8 +114,8 @@ int32_t MessageLoopResource::Run() {
   run_loop_ = &run_loop;
 
   nested_invocations_++;
-  CallWhileUnlocked(
-      base::BindOnce(&base::RunLoop::Run, base::Unretained(run_loop_)));
+  CallWhileUnlocked(base::BindOnce(&base::RunLoop::Run,
+                                   base::Unretained(run_loop_), FROM_HERE));
   nested_invocations_--;
 
   run_loop_ = previous_run_loop;

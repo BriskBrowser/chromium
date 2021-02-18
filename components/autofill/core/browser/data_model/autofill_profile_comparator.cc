@@ -10,6 +10,7 @@
 #include "base/i18n/case_conversion.h"
 #include "base/i18n/char_iterator.h"
 #include "base/i18n/unicodestring.h"
+#include "base/optional.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversion_utils.h"
@@ -122,7 +123,7 @@ NormalizingIterator::NormalizingIterator(
     : previous_was_skippable_(false),
       collapse_skippable_(whitespace_spec ==
                           AutofillProfileComparator::RETAIN_WHITESPACE),
-      iter_(base::i18n::UTF16CharIterator(text.data(), text.length())) {
+      iter_(text) {
   int32_t character = iter_.get();
 
   while (!iter_.end() && IsPunctuationOrWhitespace(u_charType(character))) {
@@ -262,7 +263,7 @@ bool AutofillProfileComparator::HasOnlySkippableCharacters(
 
 base::string16 AutofillProfileComparator::NormalizeForComparison(
     base::StringPiece16 text,
-    AutofillProfileComparator::WhitespaceSpec whitespace_spec) const {
+    AutofillProfileComparator::WhitespaceSpec whitespace_spec) {
   // This algorithm is not designed to be perfect, we could get arbitrarily
   // fancy here trying to canonicalize address lines. Instead, this is designed
   // to handle common cases for all types of data (addresses and names) without
@@ -282,8 +283,7 @@ base::string16 AutofillProfileComparator::NormalizeForComparison(
   base::string16 result;
   result.reserve(text.length());
   bool previous_was_whitespace = (whitespace_spec == RETAIN_WHITESPACE);
-  for (base::i18n::UTF16CharIterator iter(text.data(), text.length());
-       !iter.end(); iter.Advance()) {
+  for (base::i18n::UTF16CharIterator iter(text); !iter.end(); iter.Advance()) {
     if (IsPunctuationOrWhitespace(u_charType(iter.get()))) {
       if (!previous_was_whitespace && whitespace_spec == RETAIN_WHITESPACE) {
         result.push_back(' ');
@@ -666,6 +666,15 @@ bool AutofillProfileComparator::MergeAddresses(const AutofillProfile& p1,
                                                Address* address) const {
   DCHECK(HaveMergeableAddresses(p1, p2));
 
+  // TODO(crbug.com/1130194): Clean legacy implementation once structured
+  // addresses are fully launched.
+  if (structured_address::StructuredAddressesEnabled()) {
+    // Note that p1 is the newer address. Using p2 as the base.
+    *address = p2.GetAddress();
+    return address->MergeStructuredAddress(p1.GetAddress(),
+                                           p2.use_date() < p1.use_date());
+  }
+
   // One of the countries is empty or they are the same modulo case, so we just
   // have to find the non-empty one, if any.
   const AutofillType kCountryCode(HTML_TYPE_COUNTRY_CODE, HTML_MODE_NONE);
@@ -693,13 +702,48 @@ bool AutofillProfileComparator::MergeAddresses(const AutofillProfile& p1,
   const AutofillType kState(ADDRESS_HOME_STATE);
   const base::string16& state1 = p1.GetInfo(kState, app_locale_);
   const base::string16& state2 = p2.GetInfo(kState, app_locale_);
-  if (state1.empty()) {
-    address->SetInfo(kState, state2, app_locale_);
-  } else if (state2.empty()) {
-    address->SetInfo(kState, state1, app_locale_);
+
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillUseAlternativeStateNameMap)) {
+    // Holds information about the state string that is going to be used as the
+    // state value in the merged profile.
+    base::string16 candidate_state = state1;
+
+    // Cases where the |state2| is used as the state value in the merged
+    // profile:
+    //  1. |state1| is empty.
+    //  2. |state2| has the canonical state name present in
+    //       AlternativeStateNameMap and |state1| does not.
+    //  3. |state2.size()| < |state1.size()| and either both or none of them
+    //       have canonical state name present in the AlternativeStateNameMap.
+    if (state1.empty()) {
+      candidate_state = state2;
+    } else if (!state2.empty()) {
+      bool state1_has_canonical_name_present =
+          p1.GetAddress().GetCanonicalizedStateName().has_value();
+      bool state2_has_canonical_name_present =
+          p2.GetAddress().GetCanonicalizedStateName().has_value();
+
+      if ((state2_has_canonical_name_present &&
+           !state1_has_canonical_name_present) ||
+          (state2_has_canonical_name_present ==
+               state1_has_canonical_name_present &&
+           state2.size() < state1.size())) {
+        candidate_state = state2;
+      }
+    }
+
+    address->SetInfo(kState, candidate_state, app_locale_);
   } else {
-    address->SetInfo(kState, (state2.size() < state1.size() ? state2 : state1),
-                     app_locale_);
+    if (state1.empty()) {
+      address->SetInfo(kState, state2, app_locale_);
+    } else if (state2.empty()) {
+      address->SetInfo(kState, state1, app_locale_);
+    } else {
+      address->SetInfo(kState,
+                       (state2.size() < state1.size() ? state2 : state1),
+                       app_locale_);
+    }
   }
 
   AddressRewriter rewriter = AddressRewriter::ForCountryCode(country_code);
@@ -1102,6 +1146,13 @@ bool AutofillProfileComparator::HaveMergeablePhoneNumbers(
 bool AutofillProfileComparator::HaveMergeableAddresses(
     const AutofillProfile& p1,
     const AutofillProfile& p2) const {
+  // TODO(crbug.com/1130194): Clean legacy implementation once structured
+  // addresses are fully launched.
+  if (structured_address::StructuredAddressesEnabled()) {
+    // Note that p1 is the newer address. Using p2 as the base.
+    return p2.GetAddress().IsStructuredAddressMergeable(p1.GetAddress());
+  }
+
   // If the address are not in the same country, then they're not the same. If
   // one of the address countries is unknown/invalid the comparison continues.
   const AutofillType kCountryCode(HTML_TYPE_COUNTRY_CODE, HTML_MODE_NONE);
@@ -1134,7 +1185,14 @@ bool AutofillProfileComparator::HaveMergeableAddresses(
 
   // State
   // ------
-  // Heuristic: States are mergeable if one is a (possibly empty) bag of words
+  // When |kAutofillUseAlternativeStateNameMap| is disabled: States are
+  // mergeable if one is a (possibly empty) bag of words subset of the other.
+  //
+  // When |kAutofillUseAlternativeStateNameMap| is enabled: The profiles
+  // w.r.t the state are mergeable if their canonical state names in
+  // AlternativeStateNameMap matches.
+  // In case one of the profile does not have a canonical state name present in
+  // the AlternativeStateNameMap, states are mergeable if one is a bag of words
   // subset of the other.
   //
   // TODO(rogerm): If the match is between non-empty zip codes then we can infer
@@ -1142,12 +1200,30 @@ bool AutofillProfileComparator::HaveMergeableAddresses(
   // handles the cases where we have invalid or poorly formed data in one of the
   // state values (like "Select one", or "CA - California").
   const AutofillType kState(ADDRESS_HOME_STATE);
-  const base::string16& state1 =
-      rewriter.Rewrite(NormalizeForComparison(p1.GetInfo(kState, app_locale_)));
-  const base::string16& state2 =
-      rewriter.Rewrite(NormalizeForComparison(p2.GetInfo(kState, app_locale_)));
-  if (CompareTokens(state1, state2) == DIFFERENT_TOKENS) {
-    return false;
+  bool canonical_state_names_match = false;
+  bool use_alternative_state_name_map_enabled = base::FeatureList::IsEnabled(
+      features::kAutofillUseAlternativeStateNameMap);
+  if (use_alternative_state_name_map_enabled) {
+    base::Optional<AlternativeStateNameMap::CanonicalStateName>
+        canonical_name_state1 = p1.GetAddress().GetCanonicalizedStateName();
+    base::Optional<AlternativeStateNameMap::CanonicalStateName>
+        canonical_name_state2 = p2.GetAddress().GetCanonicalizedStateName();
+    if (canonical_name_state1 && canonical_name_state2) {
+      if (canonical_name_state1.value() == canonical_name_state2.value())
+        canonical_state_names_match = true;
+      else
+        return false;
+    }
+  }
+
+  if (!use_alternative_state_name_map_enabled || !canonical_state_names_match) {
+    base::string16 state1 = rewriter.Rewrite(
+        NormalizeForComparison(p1.GetInfo(kState, app_locale_)));
+    base::string16 state2 = rewriter.Rewrite(
+        NormalizeForComparison(p2.GetInfo(kState, app_locale_)));
+    if (CompareTokens(state1, state2) == DIFFERENT_TOKENS) {
+      return false;
+    }
   }
 
   // City

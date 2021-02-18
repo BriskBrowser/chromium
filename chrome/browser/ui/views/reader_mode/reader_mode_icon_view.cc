@@ -18,6 +18,7 @@
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 using dom_distiller::UMAHelper;
 using dom_distiller::url_utils::IsDistilledPage;
@@ -66,17 +67,20 @@ void ReaderModeIconView::DidFinishNavigation(
 
 void ReaderModeIconView::ReadyToCommitNavigation(
     content::NavigationHandle* navigation_handle) {
-  if (!navigation_handle->IsInMainFrame())
+  content::WebContents* web_contents = GetWebContents();
+  if (!navigation_handle->IsInMainFrame() || !web_contents)
     return;
   // When navigation is about to happen, ensure timers are appropriately stopped
   // and reset.
   UMAHelper::UpdateTimersOnNavigation(GetWebContents(),
-                                      GetPageType(GetWebContents()));
+                                      GetPageType(web_contents));
 }
 
 void ReaderModeIconView::DocumentAvailableInMainFrame() {
-  UMAHelper::StartTimerIfNeeded(GetWebContents(),
-                                GetPageType(GetWebContents()));
+  content::WebContents* web_contents = GetWebContents();
+  if (!web_contents)
+    return;
+  UMAHelper::StartTimerIfNeeded(web_contents, GetPageType(web_contents));
 }
 
 void ReaderModeIconView::UpdateImpl() {
@@ -123,16 +127,12 @@ void ReaderModeIconView::UpdateImpl() {
 }
 
 const gfx::VectorIcon& ReaderModeIconView::GetVectorIcon() const {
-  return active() ? kReaderModeIcon : kReaderModeDisabledIcon;
+  return GetActive() ? kReaderModeIcon : kReaderModeDisabledIcon;
 }
 
 base::string16 ReaderModeIconView::GetTextForTooltipAndAccessibleName() const {
-  return l10n_util::GetStringUTF16(active() ? IDS_EXIT_DISTILLED_PAGE
-                                            : IDS_DISTILL_PAGE);
-}
-
-const char* ReaderModeIconView::GetClassName() const {
-  return "ReaderModeIconView";
+  return l10n_util::GetStringUTF16(GetActive() ? IDS_EXIT_DISTILLED_PAGE
+                                               : IDS_DISTILL_PAGE);
 }
 
 // TODO(gilmanmh): Consider displaying a bubble the first time a user
@@ -143,7 +143,7 @@ views::BubbleDialogDelegate* ReaderModeIconView::GetBubble() const {
 
 void ReaderModeIconView::OnExecuting(
     PageActionIconView::ExecuteSource execute_source) {
-  if (active()) {
+  if (GetActive()) {
     dom_distiller::UMAHelper::RecordReaderModeExit(
         dom_distiller::UMAHelper::ReaderModeEntryPoint::kOmniboxIcon);
   } else {
@@ -162,16 +162,27 @@ void ReaderModeIconView::OnExecuting(
 
 void ReaderModeIconView::OnResult(
     const dom_distiller::DistillabilityResult& result) {
-  content::WebContents* contents = GetWebContents();
-  if (contents && result.is_last) {
-    ukm::SourceId source_id = ukm::GetSourceIdForWebContentsDocument(contents);
+  content::WebContents* web_contents = GetWebContents();
+  if (!web_contents) {
+    Update();
+    return;
+  }
+
+  if (result.is_last) {
+    ukm::SourceId source_id =
+        ukm::GetSourceIdForWebContentsDocument(web_contents);
     ukm::builders::ReaderModeReceivedDistillability(source_id)
         .SetIsPageDistillable(result.is_distillable)
         .Record(ukm::UkmRecorder::Get());
   }
+
   Update();
+
   // Once we know the type of page we are on (distillable or not), we can
   // update the timers.
-  UMAHelper::ReaderModePageType page_type = GetPageType(contents);
-  UMAHelper::StartTimerIfNeeded(contents, page_type);
+  UMAHelper::ReaderModePageType page_type = GetPageType(web_contents);
+  UMAHelper::StartTimerIfNeeded(web_contents, page_type);
 }
+
+BEGIN_METADATA(ReaderModeIconView, PageActionIconView)
+END_METADATA

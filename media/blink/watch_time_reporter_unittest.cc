@@ -5,7 +5,7 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/task/current_thread.h"
@@ -15,13 +15,15 @@
 #include "media/base/mock_media_log.h"
 #include "media/base/pipeline_status.h"
 #include "media/base/watch_time_keys.h"
-#include "media/blink/watch_time_reporter.h"
 #include "media/mojo/mojom/media_metrics_provider.mojom.h"
 #include "media/mojo/mojom/watch_time_recorder.mojom.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/media/display_type.h"
+#include "third_party/blink/public/common/media/watch_time_component.h"
+#include "third_party/blink/public/common/media/watch_time_reporter.h"
 #include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
 
 namespace media {
@@ -29,7 +31,6 @@ namespace media {
 constexpr gfx::Size kSizeTooSmall = gfx::Size(101, 101);
 constexpr gfx::Size kSizeJustRight = gfx::Size(201, 201);
 
-using blink::WebMediaPlayer;
 using testing::_;
 
 #define EXPECT_WATCH_TIME(key, value)                                          \
@@ -276,8 +277,8 @@ class WatchTimeReporterTest
     void SetHaveEnough() override {}
     void SetHasAudio(AudioCodec audio_codec) override {}
     void SetHasVideo(VideoCodec video_codec) override {}
-    void SetVideoPipelineInfo(const PipelineDecoderInfo& info) override {}
-    void SetAudioPipelineInfo(const PipelineDecoderInfo& info) override {}
+    void SetVideoPipelineInfo(const VideoDecoderInfo& info) override {}
+    void SetAudioPipelineInfo(const AudioDecoderInfo& info) override {}
 
    private:
     WatchTimeReporterTest* parent_;
@@ -307,7 +308,7 @@ class WatchTimeReporterTest
     if (wtr_ && IsMonitoring())
       EXPECT_WATCH_TIME_FINALIZED();
 
-    wtr_.reset(new WatchTimeReporter(
+    wtr_ = std::make_unique<blink::WatchTimeReporter>(
         mojom::PlaybackProperties::New(has_audio_, has_video_, false, false,
                                        is_mse, is_encrypted, false),
         initial_video_size,
@@ -317,7 +318,7 @@ class WatchTimeReporterTest
                             base::Unretained(this)),
         &fake_metrics_provider_,
         blink::scheduler::GetSequencedTaskRunnerForTesting(),
-        task_runner_->GetMockTickClock()));
+        task_runner_->GetMockTickClock());
     reporting_interval_ = wtr_->reporting_interval_;
 
     // Most tests don't care about this.
@@ -368,7 +369,7 @@ class WatchTimeReporterTest
             : wtr_->OnNativeControlsDisabled();
   }
 
-  void OnDisplayTypeChanged(WebMediaPlayer::DisplayType display_type) {
+  void OnDisplayTypeChanged(blink::DisplayType display_type) {
     wtr_->OnDisplayTypeChanged(display_type);
   }
 
@@ -439,7 +440,7 @@ class WatchTimeReporterTest
     if (TestFlags & kStartWithNativeControls)
       OnNativeControlsEnabled(true);
     if (TestFlags & kStartWithDisplayFullscreen)
-      OnDisplayTypeChanged(WebMediaPlayer::DisplayType::kFullscreen);
+      OnDisplayTypeChanged(blink::DisplayType::kFullscreen);
 
     // Setup all current time expectations first since they need to use the
     // InSequence macro for ease of use, but we don't want the watch time
@@ -603,11 +604,12 @@ class WatchTimeReporterTest
       EXPECT_WATCH_TIME(Src, kWatchTime4);
       EXPECT_WATCH_TIME(Ac, kWatchTime4);
       EXPECT_WATCH_TIME(NativeControlsOff, kWatchTime4);
-      if (TestFlags & kStartWithDisplayFullscreen)
+      if (TestFlags & kStartWithDisplayFullscreen) {
         EXPECT_WATCH_TIME_IF_VIDEO(DisplayInline, kWatchTime4 - kWatchTime2);
-      else
+      } else {
         EXPECT_WATCH_TIME_IF_VIDEO(DisplayFullscreen,
                                    kWatchTime4 - kWatchTime2);
+      }
     }
 
     EXPECT_WATCH_TIME_FINALIZED();
@@ -642,7 +644,7 @@ class WatchTimeReporterTest
   scoped_refptr<base::SingleThreadTaskRunner> original_task_runner_;
 
   FakeMediaMetricsProvider fake_metrics_provider_;
-  std::unique_ptr<WatchTimeReporter> wtr_;
+  std::unique_ptr<blink::WatchTimeReporter> wtr_;
   base::TimeDelta reporting_interval_;
 
  private:
@@ -1104,8 +1106,8 @@ TEST_P(WatchTimeReporterTest, WatchTimeReporterSecondaryProperties) {
       has_video_ ? kCodecH264 : kUnknownVideoCodec,
       has_audio_ ? AudioCodecProfile::kXHE_AAC : AudioCodecProfile::kUnknown,
       has_video_ ? H264PROFILE_MAIN : VIDEO_CODEC_PROFILE_UNKNOWN,
-      has_audio_ ? "FirstAudioDecoder" : "",
-      has_video_ ? "FirstVideoDecoder" : "",
+      has_audio_ ? AudioDecoderType::kMojo : AudioDecoderType::kUnknown,
+      has_video_ ? VideoDecoderType::kMojo : VideoDecoderType::kUnknown,
       has_audio_ ? EncryptionScheme::kCenc : EncryptionScheme::kUnencrypted,
       has_video_ ? EncryptionScheme::kCbcs : EncryptionScheme::kUnencrypted,
       has_video_ ? gfx::Size(800, 600) : gfx::Size());
@@ -1141,7 +1143,8 @@ TEST_P(WatchTimeReporterTest, SecondaryProperties_SizeIncreased) {
       .Times((has_audio_ && has_video_) ? 3 : 2);
   wtr_->UpdateSecondaryProperties(mojom::SecondaryPlaybackProperties::New(
       kUnknownAudioCodec, kUnknownVideoCodec, AudioCodecProfile::kUnknown,
-      VIDEO_CODEC_PROFILE_UNKNOWN, "", "", EncryptionScheme::kUnencrypted,
+      VIDEO_CODEC_PROFILE_UNKNOWN, AudioDecoderType::kUnknown,
+      VideoDecoderType::kUnknown, EncryptionScheme::kUnencrypted,
       EncryptionScheme::kUnencrypted, kSizeJustRight));
   EXPECT_TRUE(IsMonitoring());
 
@@ -1163,7 +1166,8 @@ TEST_P(WatchTimeReporterTest, SecondaryProperties_SizeDecreased) {
       .Times((has_audio_ && has_video_) ? 3 : 2);
   wtr_->UpdateSecondaryProperties(mojom::SecondaryPlaybackProperties::New(
       kUnknownAudioCodec, kUnknownVideoCodec, AudioCodecProfile::kUnknown,
-      VIDEO_CODEC_PROFILE_UNKNOWN, "", "", EncryptionScheme::kUnencrypted,
+      VIDEO_CODEC_PROFILE_UNKNOWN, AudioDecoderType::kUnknown,
+      VideoDecoderType::kUnknown, EncryptionScheme::kUnencrypted,
       EncryptionScheme::kUnencrypted, kSizeTooSmall));
   EXPECT_WATCH_TIME_FINALIZED();
   CycleReportingTimer();
@@ -1433,7 +1437,7 @@ TEST_P(DisplayTypeWatchTimeReporterTest,
   EXPECT_TRUE(IsBackgroundMonitoring());
   EXPECT_FALSE(IsMonitoring());
 
-  OnDisplayTypeChanged(WebMediaPlayer::DisplayType::kFullscreen);
+  OnDisplayTypeChanged(blink::DisplayType::kFullscreen);
 
   EXPECT_BACKGROUND_WATCH_TIME(Ac, kWatchTime1);
   EXPECT_BACKGROUND_WATCH_TIME(All, kWatchTime1);
@@ -1567,7 +1571,7 @@ TEST_P(WatchTimeReporterTest, WatchTimeReporterMultiplePartialFinalize) {
     wtr_->OnPlaying();
     EXPECT_TRUE(IsMonitoring());
 
-    OnDisplayTypeChanged(WebMediaPlayer::DisplayType::kFullscreen);
+    OnDisplayTypeChanged(blink::DisplayType::kFullscreen);
     OnPowerStateChange(true);
 
     EXPECT_WATCH_TIME(Ac, kWatchTime1);
@@ -1609,7 +1613,7 @@ TEST_P(WatchTimeReporterTest, WatchTimeReporterMultiplePartialFinalize) {
 
     OnNativeControlsEnabled(true);
     OnPowerStateChange(true);
-    OnDisplayTypeChanged(WebMediaPlayer::DisplayType::kPictureInPicture);
+    OnDisplayTypeChanged(blink::DisplayType::kPictureInPicture);
 
     EXPECT_WATCH_TIME(Ac, kWatchTime1);
     EXPECT_WATCH_TIME(All, kWatchTime1);
@@ -1850,7 +1854,7 @@ TEST_P(WatchTimeReporterTest, WatchTimeCategoryMapping) {
       .WillOnce(testing::Return(base::TimeDelta()))
       .WillOnce(testing::Return(kWatchTime));
   Initialize(false, false, kSizeJustRight);
-  OnDisplayTypeChanged(WebMediaPlayer::DisplayType::kFullscreen);
+  OnDisplayTypeChanged(blink::DisplayType::kFullscreen);
   wtr_->OnPlaying();
   SetOnBatteryPower(true);
   EXPECT_TRUE(IsMonitoring());
@@ -1868,7 +1872,7 @@ TEST_P(WatchTimeReporterTest, WatchTimeCategoryMapping) {
       .WillOnce(testing::Return(kWatchTime));
   Initialize(false, false, kSizeJustRight);
   OnNativeControlsEnabled(true);
-  OnDisplayTypeChanged(WebMediaPlayer::DisplayType::kPictureInPicture);
+  OnDisplayTypeChanged(blink::DisplayType::kPictureInPicture);
   wtr_->OnPlaying();
   EXPECT_TRUE(IsMonitoring());
   EXPECT_WATCH_TIME(Ac, kWatchTime);
@@ -1999,8 +2003,8 @@ TEST_P(DisplayTypeWatchTimeReporterTest,
   RunHysteresisTest<kAccumulationContinuesAfterTest |
                     kFinalizeExitDoesNotRequireCurrentTime |
                     kStartWithDisplayFullscreen>([this]() {
-    OnDisplayTypeChanged(WebMediaPlayer::DisplayType::kInline);
-    OnDisplayTypeChanged(WebMediaPlayer::DisplayType::kFullscreen);
+    OnDisplayTypeChanged(blink::DisplayType::kInline);
+    OnDisplayTypeChanged(blink::DisplayType::kFullscreen);
   });
 }
 
@@ -2008,24 +2012,23 @@ TEST_P(DisplayTypeWatchTimeReporterTest,
        OnDisplayTypeChangeHysteresisNativeFinalized) {
   RunHysteresisTest<kAccumulationContinuesAfterTest |
                     kFinalizeDisplayWatchTime | kStartWithDisplayFullscreen>(
-      [this]() { OnDisplayTypeChanged(WebMediaPlayer::DisplayType::kInline); });
+      [this]() { OnDisplayTypeChanged(blink::DisplayType::kInline); });
 }
 
 TEST_P(DisplayTypeWatchTimeReporterTest,
        OnDisplayTypeChangeHysteresisInlineContinuation) {
   RunHysteresisTest<kAccumulationContinuesAfterTest |
                     kFinalizeExitDoesNotRequireCurrentTime>([this]() {
-    OnDisplayTypeChanged(WebMediaPlayer::DisplayType::kFullscreen);
-    OnDisplayTypeChanged(WebMediaPlayer::DisplayType::kInline);
+    OnDisplayTypeChanged(blink::DisplayType::kFullscreen);
+    OnDisplayTypeChanged(blink::DisplayType::kInline);
   });
 }
 
 TEST_P(DisplayTypeWatchTimeReporterTest,
        OnDisplayTypeChangeHysteresisNativeOffFinalized) {
   RunHysteresisTest<kAccumulationContinuesAfterTest |
-                    kFinalizeDisplayWatchTime>([this]() {
-    OnDisplayTypeChanged(WebMediaPlayer::DisplayType::kFullscreen);
-  });
+                    kFinalizeDisplayWatchTime>(
+      [this]() { OnDisplayTypeChanged(blink::DisplayType::kFullscreen); });
 }
 
 TEST_P(DisplayTypeWatchTimeReporterTest,
@@ -2033,16 +2036,14 @@ TEST_P(DisplayTypeWatchTimeReporterTest,
   RunHysteresisTest<kAccumulationContinuesAfterTest |
                     kFinalizeDisplayWatchTime | kStartWithDisplayFullscreen |
                     kTransitionDisplayWatchTime>(
-      [this]() { OnDisplayTypeChanged(WebMediaPlayer::DisplayType::kInline); });
+      [this]() { OnDisplayTypeChanged(blink::DisplayType::kInline); });
 }
 
 TEST_P(DisplayTypeWatchTimeReporterTest,
        OnDisplayTypeChangeFullscreenToInline) {
   RunHysteresisTest<kAccumulationContinuesAfterTest |
                     kFinalizeDisplayWatchTime | kTransitionDisplayWatchTime>(
-      [this]() {
-        OnDisplayTypeChanged(WebMediaPlayer::DisplayType::kFullscreen);
-      });
+      [this]() { OnDisplayTypeChanged(blink::DisplayType::kFullscreen); });
 }
 
 // Tests that the first finalize is the only one that matters.
@@ -2337,7 +2338,7 @@ TEST_P(MutedWatchTimeReporterTest, MutedDisplayType) {
   EXPECT_TRUE(IsMutedMonitoring());
   EXPECT_FALSE(IsMonitoring());
 
-  OnDisplayTypeChanged(WebMediaPlayer::DisplayType::kFullscreen);
+  OnDisplayTypeChanged(blink::DisplayType::kFullscreen);
   EXPECT_MUTED_WATCH_TIME_IF_AUDIO_VIDEO(Ac, kWatchTime1);
   EXPECT_MUTED_WATCH_TIME_IF_AUDIO_VIDEO(All, kWatchTime1);
   EXPECT_MUTED_WATCH_TIME_IF_AUDIO_VIDEO(Eme, kWatchTime1);

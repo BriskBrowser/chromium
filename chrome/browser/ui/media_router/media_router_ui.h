@@ -17,9 +17,6 @@
 #include "base/observer_list.h"
 #include "base/strings/string16.h"
 #include "build/build_config.h"
-#include "chrome/browser/media/router/issues_observer.h"
-#include "chrome/browser/media/router/media_router_dialog_controller.h"
-#include "chrome/browser/media/router/presentation/web_contents_presentation_manager.h"
 #include "chrome/browser/ui/media_router/cast_dialog_controller.h"
 #include "chrome/browser/ui/media_router/cast_dialog_model.h"
 #include "chrome/browser/ui/media_router/media_cast_mode.h"
@@ -28,6 +25,10 @@
 #include "chrome/browser/ui/media_router/media_sink_with_cast_modes.h"
 #include "chrome/browser/ui/media_router/query_result_manager.h"
 #include "chrome/browser/ui/webui/media_router/web_contents_display_observer.h"
+#include "components/media_router/browser/issues_observer.h"
+#include "components/media_router/browser/media_router_dialog_controller.h"
+#include "components/media_router/browser/presentation/start_presentation_context.h"
+#include "components/media_router/browser/presentation/web_contents_presentation_manager.h"
 #include "components/media_router/common/issue.h"
 #include "components/media_router/common/media_source.h"
 #include "url/gurl.h"
@@ -70,22 +71,26 @@ class MediaRouterUI
   void ClearIssue(const Issue::Id& issue_id) override;
 
   // Initializes internal state (e.g. starts listening for MediaSinks) for
-  // targeting the default MediaSource (if any) of |initiator_|, as well as
-  // mirroring sources of that tab. The contents of the UI will change as the
-  // default MediaSource changes. If there is a default MediaSource, then
-  // PRESENTATION MediaCastMode will be added to |cast_modes_|. Init* methods
-  // can only be called once.
+  // targeting the default MediaSource (if any) of |initiator_|. The contents of
+  // the UI will change as the default MediaSource changes. If there is a
+  // default MediaSource, then PRESENTATION MediaCastMode will be added to
+  // |cast_modes_|. Init* methods can only be called once.
   void InitWithDefaultMediaSource();
+  // Initializes mirroring sources of the tab in addition to what is done by
+  // |InitWithDefaultMediaSource()|.
+  void InitWithDefaultMediaSourceAndMirroring();
 
   // Initializes internal state targeting the presentation specified in
-  // |context|. Also sets up mirroring sources based on |initiator_|.
-  // This is different from InitWithDefaultMediaSource() in that it does not
-  // listen for default media source changes, as the UI is fixed to the source
-  // in |context|.
-  // Init* methods can only be called once.
+  // |context|. This is different from InitWithDefaultMediaSource*() in that it
+  // does not listen for default media source changes, as the UI is fixed to the
+  // source in |context|. Init* methods can only be called once.
   // |context|: Context object for the PresentationRequest. This instance will
-  //            take ownership of it. Must not be null.
+  // take ownership of it. Must not be null.
   void InitWithStartPresentationContext(
+      std::unique_ptr<StartPresentationContext> context);
+  // Initializes mirroring sources of the tab in addition to what is done by
+  // |InitWithStartPresentationContext()|.
+  void InitWithStartPresentationContextAndMirroring(
       std::unique_ptr<StartPresentationContext> context);
 
   // Requests a route be created from the source mapped to
@@ -219,6 +224,7 @@ class MediaRouterUI
 
   // Initializes the dialog with mirroring sources derived from |initiator_|.
   virtual void InitCommon();
+  void InitMirroring();
 
   // WebContentsPresentationManager::Observer
   void OnDefaultPresentationChanged(
@@ -375,8 +381,8 @@ class MediaRouterUI
   // This contains a value only when tracking a pending route request.
   base::Optional<RouteRequest> current_route_request_;
 
-  // Used for locale-aware sorting of sinks by name. Set during InitCommon()
-  // using the current locale.
+  // Used for locale-aware sorting of sinks by name. Set during
+  // InitCommon() using the current locale.
   std::unique_ptr<icu::Collator> collator_;
 
   std::vector<MediaSinkWithCastModes> sinks_;

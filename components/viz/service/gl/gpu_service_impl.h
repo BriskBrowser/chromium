@@ -19,11 +19,11 @@
 #include "base/task/cancelable_task_tracker.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/viz/service/viz_service_export.h"
 #include "gpu/command_buffer/client/gpu_memory_buffer_manager.h"
 #include "gpu/command_buffer/common/activity_flags.h"
 #include "gpu/command_buffer/service/sequence_id.h"
-#include "gpu/config/gpu_extra_info.h"
 #include "gpu/config/gpu_info.h"
 #include "gpu/config/gpu_preferences.h"
 #include "gpu/ipc/common/surface_handle.h"
@@ -41,13 +41,14 @@
 #include "services/viz/privileged/mojom/gl/gpu_service.mojom.h"
 #include "skia/buildflags.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
+#include "ui/gfx/gpu_extra_info.h"
 #include "ui/gfx/native_widget_types.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 namespace arc {
 class ProtectedBufferManager;
 }
-#endif  // OS_CHROMEOS
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace gpu {
 class GpuMemoryBufferFactory;
@@ -95,13 +96,14 @@ class VIZ_SERVICE_EXPORT GpuServiceImpl : public gpu::GpuChannelManagerDelegate,
       const base::Optional<gpu::GPUInfo>& gpu_info_for_hardware_gpu,
       const base::Optional<gpu::GpuFeatureInfo>&
           gpu_feature_info_for_hardware_gpu,
-      const gpu::GpuExtraInfo& gpu_extra_info,
+      const gfx::GpuExtraInfo& gpu_extra_info,
       gpu::VulkanImplementation* vulkan_implementation,
       base::OnceCallback<void(base::Optional<ExitCode>)> exit_callback);
 
   ~GpuServiceImpl() override;
 
   void UpdateGPUInfo();
+  void UpdateGPUInfoGL();
 
   void InitializeWithHost(
       mojo::PendingRemote<mojom::GpuHost> gpu_host,
@@ -127,7 +129,7 @@ class VIZ_SERVICE_EXPORT GpuServiceImpl : public gpu::GpuChannelManagerDelegate,
                            bool cache_shaders_on_disk,
                            EstablishGpuChannelCallback callback) override;
   void CloseChannel(int32_t client_id) override;
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   void CreateArcVideoDecodeAccelerator(
       mojo::PendingReceiver<arc::mojom::VideoDecodeAccelerator> vda_receiver)
       override;
@@ -146,7 +148,7 @@ class VIZ_SERVICE_EXPORT GpuServiceImpl : public gpu::GpuChannelManagerDelegate,
   void CreateJpegEncodeAccelerator(
       mojo::PendingReceiver<chromeos_camera::mojom::JpegEncodeAccelerator>
           jea_receiver) override;
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   void CreateVideoEncodeAcceleratorProvider(
       mojo::PendingReceiver<media::mojom::VideoEncodeAcceleratorProvider>
@@ -175,6 +177,7 @@ class VIZ_SERVICE_EXPORT GpuServiceImpl : public gpu::GpuChannelManagerDelegate,
   void GpuSwitched(gl::GpuPreference active_gpu_heuristic) override;
   void DisplayAdded() override;
   void DisplayRemoved() override;
+  void DisplayMetricsChanged() override;
   void DestroyAllChannels() override;
   void OnBackgroundCleanup() override;
   void OnBackgrounded() override;
@@ -316,7 +319,7 @@ class VIZ_SERVICE_EXPORT GpuServiceImpl : public gpu::GpuChannelManagerDelegate,
                         const std::string& header,
                         const std::string& message);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   void CreateArcVideoDecodeAcceleratorOnMainThread(
       mojo::PendingReceiver<arc::mojom::VideoDecodeAccelerator> vda_receiver);
   void CreateArcVideoEncodeAcceleratorOnMainThread(
@@ -326,7 +329,7 @@ class VIZ_SERVICE_EXPORT GpuServiceImpl : public gpu::GpuChannelManagerDelegate,
           pba_receiver);
   void CreateArcProtectedBufferManagerOnMainThread(
       mojo::PendingReceiver<arc::mojom::ProtectedBufferManager> pbm_receiver);
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   void RequestHDRStatusOnMainThread(RequestHDRStatusCallback callback);
 
@@ -372,7 +375,7 @@ class VIZ_SERVICE_EXPORT GpuServiceImpl : public gpu::GpuChannelManagerDelegate,
   base::Optional<gpu::GpuFeatureInfo> gpu_feature_info_for_hardware_gpu_;
 
   // Information about the GPU process populated on creation.
-  gpu::GpuExtraInfo gpu_extra_info_;
+  gfx::GpuExtraInfo gpu_extra_info_;
 
   mojo::SharedRemote<mojom::GpuHost> gpu_host_;
   std::unique_ptr<gpu::GpuChannelManager> gpu_channel_manager_;
@@ -418,9 +421,9 @@ class VIZ_SERVICE_EXPORT GpuServiceImpl : public gpu::GpuChannelManagerDelegate,
   // Should only be accessed on the IO thread after creation.
   mojo::Receiver<mojom::GpuService> receiver_{this};
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   scoped_refptr<arc::ProtectedBufferManager> protected_buffer_manager_;
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   // Display compositor contexts that don't have a corresponding GPU channel.
   base::ObserverList<gpu::DisplayContext>::Unchecked display_contexts_;

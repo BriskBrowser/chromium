@@ -25,6 +25,7 @@
 #import "ios/chrome/browser/ui/table_view/cells/table_view_info_button_cell.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_info_button_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_header_footer_item.h"
+#import "ios/chrome/browser/ui/table_view/table_view_utils.h"
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "net/base/mac/url_conversions.h"
@@ -47,6 +48,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
   ItemTypeManaged,
   ItemTypeHeader,
   ItemTypeException,
+  ItemTypeExceptionByPolicy,
 };
 
 }  // namespace
@@ -58,6 +60,9 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
   // List of url patterns that are allowed to display popups.
   base::ListValue _exceptions;
+
+  // List of url patterns set by policy that are allowed to display popups.
+  base::ListValue _allowPopupsByPolicy;
 
   // The observable boolean that binds to the "Disable Popups" setting state.
   ContentSettingBackedBoolean* _disablePopupsSetting;
@@ -75,10 +80,8 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 - (instancetype)initWithBrowserState:(ChromeBrowserState*)browserState {
   DCHECK(browserState);
-  UITableViewStyle style = base::FeatureList::IsEnabled(kSettingsRefresh)
-                               ? UITableViewStylePlain
-                               : UITableViewStyleGrouped;
-  self = [super initWithStyle:style];
+
+  self = [super initWithStyle:ChromeTableViewStyle()];
   if (self) {
     _browserState = browserState;
     HostContentSettingsMap* settingsMap =
@@ -131,7 +134,8 @@ typedef NS_ENUM(NSInteger, ItemType) {
         toSectionWithIdentifier:SectionIdentifierMainSwitch];
   }
 
-  if ([self popupsCurrentlyBlocked] && _exceptions.GetSize()) {
+  if ([self popupsCurrentlyBlocked] &&
+      (_exceptions.GetSize() || _allowPopupsByPolicy.GetSize())) {
     [self populateExceptionsItems];
   }
 }
@@ -160,6 +164,8 @@ typedef NS_ENUM(NSInteger, ItemType) {
       [_disablePopupsSetting value]
           ? l10n_util::GetNSString(IDS_IOS_SETTING_ON)
           : l10n_util::GetNSString(IDS_IOS_SETTING_OFF);
+  blockPopupsManagedItem.accessibilityHint =
+      l10n_util::GetNSString(IDS_IOS_TOGGLE_SETTING_MANAGED_ACCESSIBILITY_HINT);
   blockPopupsManagedItem.accessibilityIdentifier =
       @"blockPopupsContentView_managed";
   return blockPopupsManagedItem;
@@ -198,9 +204,12 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 - (BOOL)tableView:(UITableView*)tableView
     canEditRowAtIndexPath:(NSIndexPath*)indexPath {
-  // Any item in SectionIdentifierExceptions is editable.
-  return [self.tableViewModel sectionIdentifierForSection:indexPath.section] ==
-         SectionIdentifierExceptions;
+  // Only when items are in SectionIdentifierExceptions and are not set by the
+  // policy are editable.
+  return
+      [self.tableViewModel sectionIdentifierForSection:indexPath.section] ==
+          SectionIdentifierExceptions &&
+      [self.tableViewModel itemAtIndexPath:indexPath].type == ItemTypeException;
 }
 
 - (void)tableView:(UITableView*)tableView
@@ -210,7 +219,8 @@ typedef NS_ENUM(NSInteger, ItemType) {
     return;
   [self deleteItemAtIndexPaths:@[ indexPath ]];
   if (![self.tableViewModel
-          hasSectionForSectionIdentifier:SectionIdentifierExceptions]) {
+          hasSectionForSectionIdentifier:SectionIdentifierExceptions] ||
+      !_exceptions.GetSize()) {
     self.navigationItem.rightBarButtonItem.enabled = NO;
   }
 }
@@ -290,7 +300,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
         ->SetContentSettingCustomScope(
             ContentSettingsPattern::FromString(urlToRemove),
             ContentSettingsPattern::Wildcard(), ContentSettingsType::POPUPS,
-            std::string(), CONTENT_SETTING_DEFAULT);
+            CONTENT_SETTING_DEFAULT);
 
     // Remove the site from |_exceptions|.
     _exceptions.Remove(urlIndex, NULL);
@@ -320,15 +330,16 @@ typedef NS_ENUM(NSInteger, ItemType) {
   return [_disablePopupsSetting value];
 }
 
-// Fetch the urls that can display popups and add them to |_exceptions|.
+// Fetch the urls that can display popups and
+// add items set by the user to |_exceptions|,
+// add items set by the policy to |_allowPopupsByPolicy|.
 - (void)populateExceptionsList {
   // The body of this method was mostly copied from
   // chrome/browser/ui/webui/options/content_settings_handler.cc and simplified
   // to only deal with urls/patterns that allow popups.
   ContentSettingsForOneType entries;
   ios::HostContentSettingsMapFactory::GetForBrowserState(_browserState)
-      ->GetSettingsForOneType(ContentSettingsType::POPUPS, std::string(),
-                              &entries);
+      ->GetSettingsForOneType(ContentSettingsType::POPUPS, &entries);
   for (size_t i = 0; i < entries.size(); ++i) {
     // Skip default settings from extensions and policy, and the default content
     // settings; all of them will affect the default setting UI.
@@ -344,7 +355,14 @@ typedef NS_ENUM(NSInteger, ItemType) {
     // wildcard pattern. So only show settings that the user is able to modify.
     if (entries[i].secondary_pattern == ContentSettingsPattern::Wildcard() &&
         entries[i].GetContentSetting() == CONTENT_SETTING_ALLOW) {
-      _exceptions.AppendString(entries[i].primary_pattern.ToString());
+      if (entries[i].source == "policy") {
+        // Add the urls to |_allowPopupsByPolicy| if the allowed urls are set by
+        // the policy.
+        _allowPopupsByPolicy.AppendString(
+            entries[i].primary_pattern.ToString());
+      } else {
+        _exceptions.AppendString(entries[i].primary_pattern.ToString());
+      }
     } else {
       LOG(ERROR) << "Secondary content settings patterns are not "
                  << "supported by the content settings UI";
@@ -361,6 +379,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
   header.text = l10n_util::GetNSString(IDS_IOS_POPUPS_ALLOWED);
   [model setHeader:header forSectionWithIdentifier:SectionIdentifierExceptions];
 
+  // Populate the exception items set by the user.
   for (size_t i = 0; i < _exceptions.GetSize(); ++i) {
     std::string allowed_url;
     _exceptions.GetString(i, &allowed_url);
@@ -369,10 +388,20 @@ typedef NS_ENUM(NSInteger, ItemType) {
     item.text = base::SysUTF8ToNSString(allowed_url);
     [model addItem:item toSectionWithIdentifier:SectionIdentifierExceptions];
   }
+
+  // Populate the exception items set by the policy.
+  for (size_t l = 0; l < _allowPopupsByPolicy.GetSize(); ++l) {
+    std::string allowed_url_by_policy;
+    _allowPopupsByPolicy.GetString(l, &allowed_url_by_policy);
+    TableViewDetailTextItem* item = [[TableViewDetailTextItem alloc]
+        initWithType:ItemTypeExceptionByPolicy];
+    item.text = base::SysUTF8ToNSString(allowed_url_by_policy);
+    [model addItem:item toSectionWithIdentifier:SectionIdentifierExceptions];
+  }
 }
 
 - (void)layoutSections:(BOOL)blockPopupsIsOn {
-  BOOL hasExceptions = _exceptions.GetSize();
+  BOOL hasExceptions = _exceptions.GetSize() || _allowPopupsByPolicy.GetSize();
   BOOL exceptionsListShown = [self.tableViewModel
       hasSectionForSectionIdentifier:SectionIdentifierExceptions];
 

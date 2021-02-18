@@ -11,7 +11,6 @@
 
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
-#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/test/scoped_path_override.h"
 #include "chrome/test/base/scoped_testing_local_state.h"
@@ -39,6 +38,8 @@ class TestingProfileManager {
   explicit TestingProfileManager(TestingBrowserProcess* browser_process);
   TestingProfileManager(TestingBrowserProcess* browser_process,
                         ScopedTestingLocalState* local_state);
+  TestingProfileManager(const TestingProfileManager&) = delete;
+  TestingProfileManager& operator=(const TestingProfileManager&) = delete;
   ~TestingProfileManager();
 
   // This needs to be called in testing::Test::SetUp() to put the object in a
@@ -67,7 +68,7 @@ class TestingProfileManager {
       int avatar_id,
       const std::string& supervised_user_id,
       TestingProfile::TestingFactories testing_factories,
-      base::Optional<bool> override_new_profile = base::nullopt,
+      base::Optional<bool> is_new_profile = base::nullopt,
       base::Optional<std::unique_ptr<policy::PolicyService>> policy_service =
           base::nullopt);
 
@@ -159,8 +160,6 @@ class TestingProfileManager {
 
   // Map of profile_name to TestingProfile* from CreateTestingProfile().
   TestingProfilesMap testing_profiles_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestingProfileManager);
 };
 
 #endif  // CHROME_TEST_BASE_TESTING_PROFILE_MANAGER_H_

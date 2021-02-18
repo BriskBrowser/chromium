@@ -109,7 +109,7 @@ LayoutObject* TextTrackContainer::CreateLayoutObject(const ComputedStyle&,
   // typically be a child of LayoutVideo (a legacy type), and we'll typically
   // also insert a LayoutVTTCue (a LayoutBlockFlow type) child, which also isn't
   // implemented in NG.
-  return new LayoutBlockFlow(this);
+  return MakeGarbageCollected<LayoutBlockFlow>(this);
 }
 
 void TextTrackContainer::ObserveSizeChanges(Element& element) {
@@ -127,7 +127,7 @@ void TextTrackContainer::UpdateDefaultFontSize(
   // for lack of per-spec vh/vw support) but the whole media element is used
   // for cue rendering. This is inconsistent. See also the somewhat related
   // spec bug: https://www.w3.org/Bugs/Public/show_bug.cgi?id=28105
-  LayoutSize video_size = ToLayoutBox(media_layout_object)->ContentSize();
+  LayoutSize video_size = To<LayoutBox>(media_layout_object)->ContentSize();
   LayoutUnit smallest_dimension =
       std::min(video_size.Height(), video_size.Width());
   float font_size = smallest_dimension * 0.05f;

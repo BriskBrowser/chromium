@@ -17,9 +17,9 @@
 #include "gpu/config/gpu_feature_info.h"
 #include "gpu/config/gpu_preferences.h"
 #include "media/base/android_overlay_mojo_factory.h"
+#include "media/base/supported_video_decoder_config.h"
 #include "media/media_buildflags.h"
 #include "media/mojo/services/mojo_media_client.h"
-#include "media/video/supported_video_decoder_config.h"
 
 namespace gpu {
 class GpuMemoryBufferFactory;
@@ -29,7 +29,7 @@ namespace media {
 
 class MediaGpuChannelManager;
 
-class GpuMojoMediaClient : public MojoMediaClient {
+class GpuMojoMediaClient final : public MojoMediaClient {
  public:
   // |media_gpu_channel_manager| must only be used on |gpu_task_runner|, which
   // is expected to be the GPU main thread task runner.

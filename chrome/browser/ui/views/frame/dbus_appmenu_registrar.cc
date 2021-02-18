@@ -5,10 +5,10 @@
 #include "chrome/browser/ui/views/frame/dbus_appmenu_registrar.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/check_op.h"
+#include "base/containers/contains.h"
 #include "base/notreached.h"
-#include "base/stl_util.h"
 #include "chrome/browser/ui/views/frame/dbus_appmenu.h"
 #include "components/dbus/thread_linux/dbus_thread_linux.h"
 #include "dbus/bus.h"

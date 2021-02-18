@@ -20,7 +20,6 @@
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/browser/private_network_settings.h"
-#include "components/content_settings/core/common/features.h"
 #include "components/permissions/permission_manager.h"
 #include "components/permissions/permission_result.h"
 #include "components/policy/core/common/policy_map.h"
@@ -108,7 +107,7 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, PRE_WebsiteCookiesSetting) {
   // Now set the policy and the cookie should be gone after another restart.
   HostContentSettingsMapFactory::GetForProfile(browser()->profile())
       ->SetWebsiteSettingDefaultScope(
-          GURL(kURL), GURL(kURL), ContentSettingsType::COOKIES, std::string(),
+          GURL(kURL), GURL(kURL), ContentSettingsType::COOKIES,
           std::make_unique<base::Value>(CONTENT_SETTING_SESSION_ONLY));
 }
 
@@ -280,7 +279,7 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, ShouldAllowInsecurePrivateNetworkRequests) {
 
   // By default, we should block requests.
   EXPECT_FALSE(content_settings::ShouldAllowInsecurePrivateNetworkRequests(
-      settings_map, GURL("http://bleep.com")));
+      settings_map, url::Origin::Create(GURL("http://bleep.com"))));
 
   PolicyMap policies;
   SetPolicy(&policies, key::kInsecurePrivateNetworkRequestsAllowed,
@@ -289,7 +288,7 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, ShouldAllowInsecurePrivateNetworkRequests) {
 
   // Explicitly-disallowing is the same as not setting the policy.
   EXPECT_FALSE(content_settings::ShouldAllowInsecurePrivateNetworkRequests(
-      settings_map, GURL("http://bleep.com")));
+      settings_map, url::Origin::Create(GURL("http://bleep.com"))));
 
   base::Value allowlist(base::Value::Type::LIST);
   allowlist.Append(base::Value("http://bleep.com"));
@@ -298,75 +297,31 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, ShouldAllowInsecurePrivateNetworkRequests) {
             std::move(allowlist));
   UpdateProviderPolicy(policies);
 
+  // Domain is not the in allowlist.
   EXPECT_FALSE(content_settings::ShouldAllowInsecurePrivateNetworkRequests(
-      settings_map, GURL("http://default.com")));
+      settings_map, url::Origin::Create(GURL("http://default.com"))));
 
+  // Path does not matter, only the origin.
   EXPECT_TRUE(content_settings::ShouldAllowInsecurePrivateNetworkRequests(
-      settings_map, GURL("http://bleep.com/heyo")));
+      settings_map, url::Origin::Create(GURL("http://bleep.com/heyo"))));
 
+  // Scheme matters: https is not http.
   EXPECT_FALSE(content_settings::ShouldAllowInsecurePrivateNetworkRequests(
-      settings_map, GURL("https://bleep.com")));
+      settings_map, url::Origin::Create(GURL("https://bleep.com"))));
 
+  // Port is checked too.
   EXPECT_TRUE(content_settings::ShouldAllowInsecurePrivateNetworkRequests(
-      settings_map, GURL("http://woohoo.com:1234/index.html")));
+      settings_map,
+      url::Origin::Create(GURL("http://woohoo.com:1234/index.html"))));
 
+  // The wrong port does not match (default is 80).
   EXPECT_FALSE(content_settings::ShouldAllowInsecurePrivateNetworkRequests(
-      settings_map, GURL("http://woohoo.com/index.html")));
-}
+      settings_map, url::Origin::Create(GURL("http://woohoo.com/index.html"))));
 
-class DisallowWildcardPolicyTest : public PolicyTest {
- public:
-  DisallowWildcardPolicyTest() {
-    scoped_feature_list_.InitAndEnableFeature(
-        content_settings::kDisallowWildcardsInPluginContentSettings);
-  }
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-};
-
-IN_PROC_BROWSER_TEST_F(DisallowWildcardPolicyTest, PluginTest) {
-  PolicyMap policies;
-  base::Value policy_value(base::Value::Type::LIST);
-  policy_value.Append("[*.]google.com");
-  policy_value.Append("http://drive.google.com:443/home");
-  policy_value.Append("www.foo.com:*/*");
-  policy_value.Append("*://[*.]bar.com:*/*");
-  SetPolicy(&policies, key::kPluginsAllowedForUrls, std::move(policy_value));
-  UpdateProviderPolicy(policies);
-
-  constexpr char kGoogleMailUrl[] = "http://mail.google.com:443";
-  constexpr char kGoogleDriveUrl[] = "http://drive.google.com:443";
-  constexpr char kFooUrl[] = "https://www.foo.com:443/home";
-  constexpr char kBarUrl[] = "https://foobar.com:443/";
-
-  permissions::PermissionManager* permission_manager =
-      PermissionManagerFactory::GetForProfile(browser()->profile());
-  EXPECT_EQ(
-      permission_manager
-          ->GetPermissionStatus(ContentSettingsType::PLUGINS,
-                                GURL(kGoogleMailUrl), GURL(kGoogleMailUrl))
-          .content_setting,
-      ContentSetting::CONTENT_SETTING_BLOCK);
-
-  EXPECT_EQ(
-      permission_manager
-          ->GetPermissionStatus(ContentSettingsType::PLUGINS,
-                                GURL(kGoogleDriveUrl), GURL(kGoogleDriveUrl))
-          .content_setting,
-      ContentSetting::CONTENT_SETTING_ALLOW);
-
-  EXPECT_EQ(permission_manager
-                ->GetPermissionStatus(ContentSettingsType::PLUGINS,
-                                      GURL(kFooUrl), GURL(kFooUrl))
-                .content_setting,
-            ContentSetting::CONTENT_SETTING_ALLOW);
-
-  EXPECT_EQ(permission_manager
-                ->GetPermissionStatus(ContentSettingsType::PLUGINS,
-                                      GURL(kBarUrl), GURL(kBarUrl))
-                .content_setting,
-            ContentSetting::CONTENT_SETTING_BLOCK);
+  // Opaque origins never match the allowlist.
+  EXPECT_FALSE(content_settings::ShouldAllowInsecurePrivateNetworkRequests(
+      settings_map,
+      url::Origin::Create(GURL("http://bleep.com")).DeriveNewOpaqueOrigin()));
 }
 
 class ScrollToTextFragmentPolicyTest
@@ -408,7 +363,7 @@ IN_PROC_BROWSER_TEST_P(ScrollToTextFragmentPolicyTest, RunPolicyTest) {
         contents->GetMainFrame()->GetView()->GetRenderWidgetHost());
   }
   EXPECT_EQ(IsScrollToTextFragmentEnabled(),
-            !contents->GetMainFrame()->GetView()->IsScrollOffsetAtTop());
+            !frame_observer.LastRenderFrameMetadata().is_scroll_offset_at_top);
 }
 
 INSTANTIATE_TEST_SUITE_P(All,

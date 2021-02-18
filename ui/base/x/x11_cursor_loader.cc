@@ -4,18 +4,23 @@
 
 #include "ui/base/x/x11_cursor_loader.h"
 
+#include <dlfcn.h>
+
 #include <limits>
 #include <string>
 
 #include "base/bind.h"
+#include "base/compiler_specific.h"
 #include "base/environment.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/no_destructor.h"
 #include "base/sequence_checker.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_piece_forward.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/sys_byteorder.h"
@@ -26,7 +31,13 @@
 #include "ui/base/cursor/cursor_theme_manager.h"
 #include "ui/base/x/x11_util.h"
 #include "ui/gfx/x/connection.h"
+#include "ui/gfx/x/x11_atom_cache.h"
 #include "ui/gfx/x/xproto.h"
+#include "ui/gfx/x/xproto_util.h"
+
+extern "C" {
+const char* XcursorLibraryPath(void);
+}
 
 namespace ui {
 
@@ -120,12 +131,40 @@ std::string GetEnv(const std::string& var) {
   return value;
 }
 
-std::string CursorPath() {
+NO_SANITIZE("cfi-icall")
+std::string CursorPathFromLibXcursor() {
+  struct DlCloser {
+    void operator()(void* ptr) const { dlclose(ptr); }
+  };
+
+  std::unique_ptr<void, DlCloser> lib(dlopen("libXcursor.so.1", RTLD_LAZY));
+  if (!lib)
+    return "";
+
+  if (auto* sym = reinterpret_cast<decltype(&XcursorLibraryPath)>(
+          dlsym(lib.get(), "XcursorLibraryPath"))) {
+    if (const char* path = sym())
+      return path;
+  }
+  return "";
+}
+
+std::string CursorPathImpl() {
   constexpr const char kDefaultPath[] =
       "~/.local/share/icons:~/.icons:/usr/share/icons:/usr/share/pixmaps:"
       "/usr/X11R6/lib/X11/icons";
+
+  auto libxcursor_path = CursorPathFromLibXcursor();
+  if (!libxcursor_path.empty())
+    return libxcursor_path;
+
   std::string path = GetEnv("XCURSOR_PATH");
   return path.empty() ? kDefaultPath : path;
+}
+
+const std::string& CursorPath() {
+  static base::NoDestructor<std::string> path(CursorPathImpl());
+  return *path;
 }
 
 x11::Render::PictFormat GetRenderARGBFormat(
@@ -258,10 +297,11 @@ XCursorLoader::XCursorLoader(x11::Connection* connection)
   cursor_font_ = connection_->GenerateId<x11::Font>();
   connection_->OpenFont({cursor_font_, "cursor"});
 
-  std::string resource_manager;
-  if (ui::GetStringProperty(connection_->default_root(), "RESOURCE_MANAGER",
-                            &resource_manager)) {
-    ParseXResources(resource_manager);
+  std::vector<char> resource_manager;
+  if (GetArrayProperty(connection_->default_root(), x11::Atom::RESOURCE_MANAGER,
+                       &resource_manager)) {
+    ParseXResources(
+        base::StringPiece(resource_manager.data(), resource_manager.size()));
   }
 
   if (auto reply = ver_cookie.Sync()) {
@@ -418,7 +458,7 @@ uint32_t XCursorLoader::GetPreferredCursorSize() const {
          kScreenCursorRatio;
 }
 
-void XCursorLoader::ParseXResources(const std::string& resources) {
+void XCursorLoader::ParseXResources(base::StringPiece resources) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   base::StringPairs pairs;
   base::SplitStringIntoKeyValuePairs(resources, ':', '\n', &pairs);

@@ -4,9 +4,11 @@
 
 #include "chrome/browser/ui/views/sharing/sharing_dialog_view.h"
 
+#include "base/bind.h"
 #include "base/optional.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/sharing/sharing_app.h"
 #include "chrome/browser/sharing/sharing_metrics.h"
@@ -26,35 +28,18 @@
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/border.h"
 #include "ui/views/bubble/bubble_frame_view.h"
+#include "ui/views/controls/color_tracking_icon_view.h"
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/controls/styled_label.h"
 #include "ui/views/layout/box_layout.h"
-#include "ui/views/layout/fill_layout.h"
 #include "url/origin.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/ui/page_action/page_action_icon_type.h"
 #include "chrome/browser/ui/views/intent_picker_bubble_view.h"
 #endif
 
 namespace {
-
-class VectorIconView : public views::ImageView {
- public:
-  explicit VectorIconView(const gfx::VectorIcon& icon) : icon_(icon) {}
-
-  // views::ImageView
-  void OnThemeChanged() override {
-    ImageView::OnThemeChanged();
-    constexpr int kPrimaryIconSize = 20;
-    const SkColor color = GetNativeTheme()->GetSystemColor(
-        ui::NativeTheme::kColorId_DefaultIconColor);
-    SetImage(gfx::CreateVectorIcon(icon_, kPrimaryIconSize, color));
-  }
-
- private:
-  const gfx::VectorIcon& icon_;
-};
 
 class HeaderImageView : public NonAccessibleImageView {
  public:
@@ -98,42 +83,18 @@ bool ShouldShowOrigin(const SharingDialogData& data,
              web_contents->GetMainFrame()->GetLastCommittedOrigin());
 }
 
-base::string16 PrepareHelpTextWithoutOrigin(const SharingDialogData& data,
-                                            const base::string16& link,
-                                            size_t* link_offset) {
+base::string16 PrepareHelpTextWithoutOrigin(const SharingDialogData& data) {
   DCHECK_NE(0, data.help_text_id);
-  return l10n_util::GetStringFUTF16(data.help_text_id, link, link_offset);
+  return l10n_util::GetStringUTF16(data.help_text_id);
 }
 
-base::string16 PrepareHelpTextWithOrigin(const SharingDialogData& data,
-                                         const base::string16& link,
-                                         size_t* link_offset) {
+base::string16 PrepareHelpTextWithOrigin(const SharingDialogData& data) {
   DCHECK_NE(0, data.help_text_origin_id);
   base::string16 origin = url_formatter::FormatOriginForSecurityDisplay(
       *data.initiating_origin,
       url_formatter::SchemeDisplay::OMIT_HTTP_AND_HTTPS);
-  std::vector<size_t> offsets;
-  base::string16 text = l10n_util::GetStringFUTF16(data.help_text_origin_id,
-                                                   {origin, link}, &offsets);
-  *link_offset = offsets[1];
-  return text;
-}
 
-std::unique_ptr<views::StyledLabel> CreateHelpText(
-    const SharingDialogData& data,
-    views::StyledLabelListener* listener,
-    bool show_origin) {
-  DCHECK_NE(0, data.help_link_text_id);
-  const base::string16 link = l10n_util::GetStringUTF16(data.help_link_text_id);
-  size_t offset;
-  auto label = std::make_unique<views::StyledLabel>(listener);
-  label->SetText(show_origin
-                     ? PrepareHelpTextWithOrigin(data, link, &offset)
-                     : PrepareHelpTextWithoutOrigin(data, link, &offset));
-  views::StyledLabel::RangeStyleInfo link_style =
-      views::StyledLabel::RangeStyleInfo::CreateForLink();
-  label->AddStyleRange(gfx::Range(offset, offset + link.length()), link_style);
-  return label;
+  return l10n_util::GetStringFUTF16(data.help_text_origin_id, origin);
 }
 
 std::unique_ptr<views::View> CreateOriginView(const SharingDialogData& data) {
@@ -145,28 +106,12 @@ std::unique_ptr<views::View> CreateOriginView(const SharingDialogData& data) {
           url_formatter::FormatOriginForSecurityDisplay(
               *data.initiating_origin,
               url_formatter::SchemeDisplay::OMIT_HTTP_AND_HTTPS)),
-      ChromeTextContext::CONTEXT_BODY_TEXT_SMALL,
+      ChromeTextContext::CONTEXT_DIALOG_BODY_TEXT_SMALL,
       views::style::STYLE_SECONDARY);
   label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   label->SetAllowCharacterBreak(true);
   label->SetMultiLine(true);
   return label;
-}
-
-std::unique_ptr<views::View> CreateHelpOrOriginView(
-    const SharingDialogData& data,
-    content::WebContents* web_contents,
-    views::StyledLabelListener* listener) {
-  bool show_origin = ShouldShowOrigin(data, web_contents);
-  switch (data.type) {
-    case SharingDialogType::kDialogWithoutDevicesWithApp:
-      return CreateHelpText(data, listener, show_origin);
-    case SharingDialogType::kDialogWithDevicesMaybeApps:
-      return show_origin ? CreateOriginView(data) : nullptr;
-    case SharingDialogType::kErrorDialog:
-    case SharingDialogType::kEducationalDialog:
-      return nullptr;
-  }
 }
 
 }  // namespace
@@ -177,8 +122,18 @@ SharingDialogView::SharingDialogView(views::View* anchor_view,
     : LocationBarBubbleDelegateView(anchor_view, web_contents),
       data_(std::move(data)) {
   SetButtons(ui::DIALOG_BUTTON_NONE);
-  SetFootnoteView(CreateHelpOrOriginView(data_, web_contents, this));
-  set_close_on_main_frame_origin_navigation(true);
+
+  set_fixed_width(views::LayoutProvider::Get()->GetDistanceMetric(
+      views::DISTANCE_BUBBLE_PREFERRED_WIDTH));
+
+  if (data_.type == SharingDialogType::kDialogWithoutDevicesWithApp) {
+    SetFootnoteView(CreateHelpText());
+  } else if ((data_.type == SharingDialogType::kDialogWithDevicesMaybeApps) &&
+             ShouldShowOrigin(data_, web_contents)) {
+    SetFootnoteView(CreateOriginView(data_));
+  }
+
+  SetCloseOnMainFrameOriginNavigation(true);
 }
 
 SharingDialogView::~SharingDialogView() = default;
@@ -187,15 +142,70 @@ void SharingDialogView::Hide() {
   CloseBubble();
 }
 
-void SharingDialogView::StyledLabelLinkClicked(views::StyledLabel* label,
-                                               const gfx::Range& range,
-                                               int event_flags) {
-  std::move(data_.help_callback).Run(GetDialogType());
-  CloseBubble();
+bool SharingDialogView::ShouldShowCloseButton() const {
+  return true;
+}
+
+base::string16 SharingDialogView::GetWindowTitle() const {
+  return data_.title;
+}
+
+void SharingDialogView::WindowClosing() {
+  if (data_.close_callback)
+    std::move(data_.close_callback).Run(this);
+}
+
+void SharingDialogView::WebContentsDestroyed() {
+  LocationBarBubbleDelegateView::WebContentsDestroyed();
+  // Call the close callback here already so we can log metrics for closed
+  // dialogs before the controller is destroyed.
+  WindowClosing();
+}
+
+void SharingDialogView::AddedToWidget() {
+  views::BubbleFrameView* frame_view = GetBubbleFrameView();
+  if (frame_view && data_.header_icons) {
+    frame_view->SetHeaderView(
+        std::make_unique<HeaderImageView>(frame_view, *data_.header_icons));
+  }
 }
 
 SharingDialogType SharingDialogView::GetDialogType() const {
   return data_.type;
+}
+
+void SharingDialogView::DeviceButtonPressed(size_t index) {
+  DCHECK_LT(index, data_.devices.size());
+  LogSharingSelectedIndex(data_.prefix, kSharingUiDialog, index);
+  std::move(data_.device_callback).Run(*data_.devices[index]);
+  CloseBubble();
+}
+
+void SharingDialogView::AppButtonPressed(size_t index) {
+  DCHECK_LT(index, data_.apps.size());
+  LogSharingSelectedIndex(data_.prefix, kSharingUiDialog, index,
+                          SharingIndexType::kApp);
+  std::move(data_.app_callback).Run(data_.apps[index]);
+  CloseBubble();
+}
+
+// static
+views::BubbleDialogDelegateView* SharingDialogView::GetAsBubble(
+    SharingDialog* dialog) {
+  return static_cast<SharingDialogView*>(dialog);
+}
+
+// static
+views::BubbleDialogDelegateView* SharingDialogView::GetAsBubbleForClickToCall(
+    SharingDialog* dialog) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  if (!dialog) {
+    auto* bubble = IntentPickerBubbleView::intent_picker_bubble();
+    if (bubble && bubble->icon_type() == PageActionIconType::kClickToCall)
+      return bubble;
+  }
+#endif
+  return static_cast<SharingDialogView*>(dialog);
 }
 
 void SharingDialogView::Init() {
@@ -214,7 +224,7 @@ void SharingDialogView::Init() {
       InitErrorView();
       break;
     case SharingDialogType::kEducationalDialog:
-      InitEmptyView();
+      AddChildView(CreateHelpText());
       break;
     case SharingDialogType::kDialogWithoutDevicesWithApp:
     case SharingDialogType::kDialogWithDevicesMaybeApps:
@@ -231,40 +241,8 @@ void SharingDialogView::Init() {
     SizeToContents();
 }
 
-void SharingDialogView::ButtonPressed(views::Button* sender,
-                                      const ui::Event& event) {
-  DCHECK(data_.device_callback);
-  DCHECK(data_.app_callback);
-  if (!sender || sender->tag() < 0)
-    return;
-  size_t index{sender->tag()};
-
-  if (index < data_.devices.size()) {
-    LogSharingSelectedDeviceIndex(data_.prefix, kSharingUiDialog, index);
-    std::move(data_.device_callback).Run(*data_.devices[index]);
-    CloseBubble();
-    return;
-  }
-
-  index -= data_.devices.size();
-
-  if (index < data_.apps.size()) {
-    LogSharingSelectedAppIndex(data_.prefix, kSharingUiDialog, index);
-    std::move(data_.app_callback).Run(data_.apps[index]);
-    CloseBubble();
-  }
-}
-
-void SharingDialogView::AddedToWidget() {
-  views::BubbleFrameView* frame_view = GetBubbleFrameView();
-  if (frame_view && data_.header_icons) {
-    frame_view->SetHeaderView(
-        std::make_unique<HeaderImageView>(frame_view, *data_.header_icons));
-  }
-}
-
 void SharingDialogView::InitListView() {
-  int tag = 0;
+  constexpr int kPrimaryIconSize = 20;
   const gfx::Insets device_border =
       gfx::Insets(kSharingDialogSpacing, kSharingDialogSpacing * 2,
                   kSharingDialogSpacing, 0);
@@ -277,65 +255,66 @@ void SharingDialogView::InitListView() {
 
   // Devices:
   LogSharingDevicesToShow(data_.prefix, kSharingUiDialog, data_.devices.size());
+  size_t index = 0;
   for (const auto& device : data_.devices) {
-    auto icon = std::make_unique<VectorIconView>(
+    auto icon = std::make_unique<views::ColorTrackingIconView>(
         device->device_type() == sync_pb::SyncEnums::TYPE_TABLET
             ? kTabletIcon
-            : kHardwareSmartphoneIcon);
+            : kHardwareSmartphoneIcon,
+        kPrimaryIconSize);
 
-    auto dialog_button = std::make_unique<HoverButton>(
-        this, std::move(icon), base::UTF8ToUTF16(device->client_name()),
-        GetLastUpdatedTimeInDays(device->last_updated_timestamp()));
+    auto* dialog_button =
+        button_list->AddChildView(std::make_unique<HoverButton>(
+            base::BindRepeating(&SharingDialogView::DeviceButtonPressed,
+                                base::Unretained(this), index++),
+            std::move(icon), base::UTF8ToUTF16(device->client_name()),
+            GetLastUpdatedTimeInDays(device->last_updated_timestamp())));
     dialog_button->SetEnabled(true);
-    dialog_button->set_tag(tag++);
     dialog_button->SetBorder(views::CreateEmptyBorder(device_border));
-    dialog_buttons_.push_back(
-        button_list->AddChildView(std::move(dialog_button)));
   }
 
   // Apps:
   LogSharingAppsToShow(data_.prefix, kSharingUiDialog, data_.apps.size());
+  index = 0;
   for (const auto& app : data_.apps) {
     std::unique_ptr<views::ImageView> icon;
     if (app.vector_icon) {
-      icon = std::make_unique<VectorIconView>(*app.vector_icon);
+      icon = std::make_unique<views::ColorTrackingIconView>(*app.vector_icon,
+                                                            kPrimaryIconSize);
     } else {
       icon = std::make_unique<views::ImageView>();
       icon->SetImage(app.image.AsImageSkia());
     }
 
-    auto dialog_button =
-        std::make_unique<HoverButton>(this, std::move(icon), app.name,
-                                      /* subtitle= */ base::string16());
+    auto* dialog_button =
+        button_list->AddChildView(std::make_unique<HoverButton>(
+            base::BindRepeating(&SharingDialogView::AppButtonPressed,
+                                base::Unretained(this), index++),
+            std::move(icon), app.name,
+            /* subtitle= */ base::string16()));
     dialog_button->SetEnabled(true);
-    dialog_button->set_tag(tag++);
     dialog_button->SetBorder(views::CreateEmptyBorder(app_border));
-    dialog_buttons_.push_back(
-        button_list->AddChildView(std::move(dialog_button)));
   }
 
   // Allow up to 5 buttons in the list and let the rest scroll.
   constexpr size_t kMaxDialogButtons = 5;
-  if (dialog_buttons_.size() > kMaxDialogButtons) {
+  if (button_list->children().size() > kMaxDialogButtons) {
     const int bubble_width = ChromeLayoutProvider::Get()->GetDistanceMetric(
-        DISTANCE_BUBBLE_PREFERRED_WIDTH);
+        views::DISTANCE_BUBBLE_PREFERRED_WIDTH);
 
     int max_list_height = 0;
-    for (size_t i = 0; i < kMaxDialogButtons; ++i)
-      max_list_height += dialog_buttons_[i]->GetHeightForWidth(bubble_width);
+    for (size_t i = 0; i < kMaxDialogButtons; ++i) {
+      max_list_height +=
+          button_list->children()[i]->GetHeightForWidth(bubble_width);
+    }
     DCHECK_GT(max_list_height, 0);
 
     auto* scroll_view = AddChildView(std::make_unique<views::ScrollView>());
     scroll_view->ClipHeightTo(0, max_list_height);
-    scroll_view->SetContents(std::move(button_list));
+    button_list_ = scroll_view->SetContents(std::move(button_list));
   } else {
-    AddChildView(std::move(button_list));
+    button_list_ = AddChildView(std::move(button_list));
   }
-}
-
-void SharingDialogView::InitEmptyView() {
-  bool show_origin = ShouldShowOrigin(data_, web_contents());
-  AddChildView(CreateHelpText(data_, this, show_origin));
 }
 
 void SharingDialogView::InitErrorView() {
@@ -347,47 +326,12 @@ void SharingDialogView::InitErrorView() {
   AddChildView(std::move(label));
 }
 
-gfx::Size SharingDialogView::CalculatePreferredSize() const {
-  const int width = ChromeLayoutProvider::Get()->GetDistanceMetric(
-      DISTANCE_BUBBLE_PREFERRED_WIDTH);
-  return gfx::Size(width, GetHeightForWidth(width));
-}
+std::unique_ptr<views::StyledLabel> SharingDialogView::CreateHelpText() {
+  auto label = std::make_unique<views::StyledLabel>();
 
-bool SharingDialogView::ShouldShowCloseButton() const {
-  return true;
-}
+  label->SetText(ShouldShowOrigin(data_, web_contents())
+                     ? PrepareHelpTextWithOrigin(data_)
+                     : PrepareHelpTextWithoutOrigin(data_));
 
-base::string16 SharingDialogView::GetWindowTitle() const {
-  return data_.title;
-}
-
-void SharingDialogView::WebContentsDestroyed() {
-  LocationBarBubbleDelegateView::WebContentsDestroyed();
-  // Call the close callback here already so we can log metrics for closed
-  // dialogs before the controller is destroyed.
-  WindowClosing();
-}
-
-void SharingDialogView::WindowClosing() {
-  if (data_.close_callback)
-    std::move(data_.close_callback).Run(this);
-}
-
-// static
-views::BubbleDialogDelegateView* SharingDialogView::GetAsBubble(
-    SharingDialog* dialog) {
-  return static_cast<SharingDialogView*>(dialog);
-}
-
-// static
-views::BubbleDialogDelegateView* SharingDialogView::GetAsBubbleForClickToCall(
-    SharingDialog* dialog) {
-#if defined(OS_CHROMEOS)
-  if (!dialog) {
-    auto* bubble = IntentPickerBubbleView::intent_picker_bubble();
-    if (bubble && bubble->icon_type() == PageActionIconType::kClickToCall)
-      return bubble;
-  }
-#endif
-  return static_cast<SharingDialogView*>(dialog);
+  return label;
 }

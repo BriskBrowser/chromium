@@ -12,10 +12,10 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "content/browser/compositor/test/test_image_transport_factory.h"
-#include "content/browser/frame_host/frame_tree_node.h"
-#include "content/browser/frame_host/navigation_entry_impl.h"
-#include "content/browser/frame_host/navigation_request.h"
 #include "content/browser/gpu/gpu_data_manager_impl.h"
+#include "content/browser/renderer_host/frame_tree_node.h"
+#include "content/browser/renderer_host/navigation_entry_impl.h"
+#include "content/browser/renderer_host/navigation_request.h"
 #include "content/browser/renderer_host/render_view_host_factory.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_input_event_router.h"
@@ -24,7 +24,6 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_widget_host_iterator.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/navigation_policy.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/navigation_simulator.h"
@@ -124,7 +123,9 @@ void RenderViewHostTester::SendTouchEvent(
 
 RenderViewHostTestEnabler::RenderViewHostTestEnabler()
     : rph_factory_(new MockRenderProcessHostFactory()),
-      rvh_factory_(new TestRenderViewHostFactory(rph_factory_.get())),
+      asgh_factory_(new MockAgentSchedulingGroupHostFactory()),
+      rvh_factory_(new TestRenderViewHostFactory(rph_factory_.get(),
+                                                 asgh_factory_.get())),
       rfh_factory_(new TestRenderFrameHostFactory()),
       rwhi_factory_(new TestRenderWidgetHostFactory()),
       loader_factory_(new TestNavigationURLLoaderFactory()) {
@@ -167,6 +168,7 @@ RenderViewHostTestEnabler::~RenderViewHostTestEnabler() {
 // RenderViewHostTestHarness --------------------------------------------------
 
 RenderViewHostTestHarness::~RenderViewHostTestHarness() {
+  DCHECK(!task_environment_) << "TearDown() was not called.";
 }
 
 NavigationController& RenderViewHostTestHarness::controller() {
@@ -178,7 +180,7 @@ WebContents* RenderViewHostTestHarness::web_contents() {
 }
 
 RenderViewHost* RenderViewHostTestHarness::rvh() {
-  RenderViewHost* result = web_contents()->GetRenderViewHost();
+  RenderViewHost* result = web_contents()->GetMainFrame()->GetRenderViewHost();
   CHECK_EQ(result, web_contents()->GetMainFrame()->GetRenderViewHost());
   return result;
 }

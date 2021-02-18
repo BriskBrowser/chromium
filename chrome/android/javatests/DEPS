@@ -1,8 +1,10 @@
 include_rules = [
   "+chrome/app",
   "+chrome/android/java/src/org/chromium/chrome/browser/app/ChromeActivity.java",
+  "+chrome/browser/android/browserservices/verification",
   "+chrome/browser/android/lifecycle",
   "+chrome/browser/image_fetcher",
+  "+chrome/browser/paint_preview/android",
   "+chrome/browser/password_check/android",
   "+chrome/browser/profiles/android/java",
   "+chrome/browser/share/android/java",
@@ -10,9 +12,13 @@ include_rules = [
   "+chrome/browser/tabmodel/android/java",
   "+chrome/browser/tabpersistence/android/java",
   "+chrome/browser/thumbnail/generator/android/java",
+  "+chrome/browser/endpoint_fetcher",
   "+chrome/browser/ui/android/appmenu",
   "-chrome/browser/ui/android/appmenu/internal",
+  "+chrome/browser/optimization_guide/android/java/src/org/chromium/chrome/browser/optimization_guide",
+  "+chrome/browser/ui/android/theme/java",
   "+chrome/browser/ui/messages/android/java",
+  "+chrome/browser/signin/services/android/java",
   "+components/autofill/android/java/src/org/chromium/components/autofill",
   "+components/background_task_scheduler/android/java",
   "+components/bookmarks/common/android/java/src/org/chromium/components/bookmarks",
@@ -34,6 +40,8 @@ include_rules = [
   "+components/navigation_interception",
   "+components/offline_items_collection/core/android/java",
   "+components/omnibox/browser/android/java/src/org/chromium/components/omnibox",
+  "+components/paint_preview/browser/android",
+  "+components/paint_preview/player/android",
   "+components/payments/content/android/java/src/org/chromium/components/payments",
   "+components/permissions/android/java/src/org/chromium/components/permissions",
   "+components/safe_browsing/android/java/src/org/chromium/components/safe_browsing",
@@ -67,4 +75,7 @@ specific_include_rules = {
   "PageInfoPopupTest\.java": [
     "+content/public/android/java/src/org/chromium/content_public/common/ContentSwitches.java",
   ],
+  "ToolbarPhoneTest\.java": [
+    "+chrome/browser/ui/android/toolbar/java/src/org/chromium/chrome/browser/toolbar/ButtonData.java",
+  ]
 }

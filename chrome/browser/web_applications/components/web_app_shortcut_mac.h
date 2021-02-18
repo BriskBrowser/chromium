@@ -14,7 +14,6 @@
 #include "base/callback_forward.h"
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
-#include "base/macros.h"
 #include "base/process/process.h"
 #include "chrome/browser/web_applications/components/web_app_shortcut.h"
 
@@ -61,6 +60,30 @@ base::FilePath GetChromeAppsFolder();
 // Testing method to override calls to GetChromeAppsFolder.
 void SetChromeAppsFolderForTesting(const base::FilePath& path);
 
+// Remove the specified app from the OS login item list.
+void RemoveAppShimFromLoginItems(const std::string& app_id);
+
+class WebAppAutoLoginUtil {
+ public:
+  WebAppAutoLoginUtil() = default;
+  WebAppAutoLoginUtil(const WebAppAutoLoginUtil&) = delete;
+  WebAppAutoLoginUtil& operator=(const WebAppAutoLoginUtil&) = delete;
+
+  static WebAppAutoLoginUtil* GetInstance();
+
+  static void SetInstanceForTesting(WebAppAutoLoginUtil* auto_login_util);
+
+  // Adds the specified app to the list of login items.
+  virtual void AddToLoginItems(const base::FilePath& app_bundle_path,
+                               bool hide_on_startup);
+
+  // Removes the specified app from the list of login items.
+  virtual void RemoveFromLoginItems(const base::FilePath& app_bundle_path);
+
+ protected:
+  virtual ~WebAppAutoLoginUtil() = default;
+};
+
 // Creates a shortcut for a web application. The shortcut is a stub app
 // that simply loads the browser framework and runs the given app.
 class WebAppShortcutCreator {
@@ -72,6 +95,8 @@ class WebAppShortcutCreator {
   // the WebAppShortcutCreator.
   WebAppShortcutCreator(const base::FilePath& app_data_dir,
                         const ShortcutInfo* shortcut_info);
+  WebAppShortcutCreator(const WebAppShortcutCreator&) = delete;
+  WebAppShortcutCreator& operator=(const WebAppShortcutCreator&) = delete;
 
   virtual ~WebAppShortcutCreator();
 
@@ -150,8 +175,6 @@ class WebAppShortcutCreator {
 
   // Information about the app. Owned by the caller of the constructor.
   const ShortcutInfo* const info_;
-
-  DISALLOW_COPY_AND_ASSIGN(WebAppShortcutCreator);
 };
 
 }  // namespace web_app

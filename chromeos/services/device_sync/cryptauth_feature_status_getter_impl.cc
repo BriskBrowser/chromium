@@ -8,9 +8,9 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/stl_util.h"
 #include "chromeos/components/multidevice/logging/logging.h"
 #include "chromeos/components/multidevice/software_feature.h"
 #include "chromeos/components/multidevice/software_feature_state.h"
@@ -220,10 +220,10 @@ void CryptAuthFeatureStatusGetterImpl::OnAttemptStarted(
   cryptauth_client_ = client_factory_->CreateInstance();
   cryptauth_client_->BatchGetFeatureStatuses(
       request,
-      base::Bind(
+      base::BindOnce(
           &CryptAuthFeatureStatusGetterImpl::OnBatchGetFeatureStatusesSuccess,
           base::Unretained(this), device_ids),
-      base::Bind(
+      base::BindOnce(
           &CryptAuthFeatureStatusGetterImpl::OnBatchGetFeatureStatusesFailure,
           base::Unretained(this)));
 }

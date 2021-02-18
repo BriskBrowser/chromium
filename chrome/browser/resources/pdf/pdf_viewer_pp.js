@@ -15,7 +15,8 @@ import {html} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.
 
 import {BrowserApi} from './browser_api.js';
 import {FittingType} from './constants.js';
-import {MessageData, PrintPreviewParams} from './controller.js';
+import {MessageData, PluginController, PrintPreviewParams} from './controller.js';
+import {ViewerErrorScreenElement} from './elements/viewer-error-screen.js';
 import {DeserializeKeyEvent, LoadState, SerializeKeyEvent} from './pdf_scripting_api.js';
 import {PDFViewerBaseElement} from './pdf_viewer_base.js';
 import {DestinationMessageData, DocumentDimensionsMessageData, MessageObject, shouldIgnoreKeyEvents} from './pdf_viewer_utils.js';
@@ -78,8 +79,10 @@ class PDFViewerPPElement extends PDFViewerBaseElement {
   init(browserApi) {
     super.init(browserApi);
 
-    this.toolbarManager_ =
-        new ToolbarManager(window, null, this.getZoomToolbar_());
+    /** @private {?PluginController} */
+    this.pluginController_ = PluginController.getInstance();
+
+    this.toolbarManager_ = new ToolbarManager(window, this.getZoomToolbar_());
 
     // Setup the keyboard event listener.
     document.addEventListener(
@@ -94,11 +97,11 @@ class PDFViewerPPElement extends PDFViewerBaseElement {
    * @private
    */
   handleKeyEvent_(e) {
-    if (shouldIgnoreKeyEvents(document.activeElement) || e.defaultPrevented) {
+    if (shouldIgnoreKeyEvents() || e.defaultPrevented) {
       return;
     }
 
-    this.toolbarManager_.hideToolbarsAfterTimeout();
+    this.toolbarManager_.hideToolbarAfterTimeout();
     // Let the viewport handle directional key events.
     if (this.viewport.handleDirectionalKeyEvent(e, false)) {
       return;
@@ -106,30 +109,20 @@ class PDFViewerPPElement extends PDFViewerBaseElement {
 
     switch (e.key) {
       case 'Tab':
-        this.toolbarManager_.showToolbarsForKeyboardNavigation();
+        this.toolbarManager_.showToolbarForKeyboardNavigation();
         return;
       case 'Escape':
         break;  // Ensure escape falls through to the print-preview handler.
       case 'a':
         if (e.ctrlKey || e.metaKey) {
-          this.pluginController.selectAll();
+          this.pluginController_.selectAll();
           // Since we do selection ourselves.
           e.preventDefault();
-        }
-        return;
-      case '[':
-        if (e.ctrlKey) {
-          this.rotateCounterclockwise();
         }
         return;
       case '\\':
         if (e.ctrlKey) {
           this.getZoomToolbar_().fitToggleFromHotKey();
-        }
-        return;
-      case ']':
-        if (e.ctrlKey) {
-          this.rotateClockwise();
         }
         return;
     }
@@ -139,16 +132,16 @@ class PDFViewerPPElement extends PDFViewerBaseElement {
       this.sendScriptingMessage(
           {type: 'sendKeyEvent', keyEvent: SerializeKeyEvent(e)});
     } else {
-      // Show toolbars as a fallback.
+      // Show toolbar as a fallback.
       if (!(e.shiftKey || e.ctrlKey || e.altKey)) {
-        this.toolbarManager_.showToolbars();
+        this.getZoomToolbar_().show();
       }
     }
   }
 
   /** @private */
-  sendBackgroundColorForPrintPreview_() {
-    this.pluginController.backgroundColorChanged(
+  setBackgroundColorForPrintPreview_() {
+    this.pluginController_.setBackgroundColor(
         this.dark_ ? PRINT_PREVIEW_DARK_BACKGROUND_COLOR :
                      PRINT_PREVIEW_BACKGROUND_COLOR);
   }
@@ -192,7 +185,7 @@ class PDFViewerPPElement extends PDFViewerBaseElement {
       pageIndicator.style.visibility = 'hidden';
     }
 
-    this.pluginController.viewportChanged();
+    this.pluginController_.viewportChanged();
   }
 
   /** @override */
@@ -209,11 +202,11 @@ class PDFViewerPPElement extends PDFViewerBaseElement {
 
     switch (message.data.type.toString()) {
       case 'getSelectedText':
-        this.pluginController.getSelectedText().then(
+        this.pluginController_.getSelectedText().then(
             this.sendScriptingMessage.bind(this));
         break;
       case 'selectAll':
-        this.pluginController.selectAll();
+        this.pluginController_.selectAll();
         break;
     }
   }
@@ -230,7 +223,7 @@ class PDFViewerPPElement extends PDFViewerBaseElement {
       case 'loadPreviewPage':
         messageData =
             /** @type {{ url:  string, index: number }} */ (messageData);
-        this.pluginController.loadPreviewPage(
+        this.pluginController_.loadPreviewPage(
             messageData.url, messageData.index);
         return true;
       case 'resetPrintPreviewMode':
@@ -249,18 +242,18 @@ class PDFViewerPPElement extends PDFViewerBaseElement {
         this.lastViewportPosition = this.viewport.position;
         this.$$('#page-indicator').pageLabels = messageData.pageNumbers;
 
-        this.pluginController.resetPrintPreviewMode(messageData);
+        this.pluginController_.resetPrintPreviewMode(messageData);
         return true;
       case 'sendKeyEvent':
         this.handleKeyEvent_(/** @type {!KeyboardEvent} */ (DeserializeKeyEvent(
             /** @type {{ keyEvent: Object }} */ (message.data).keyEvent)));
         return true;
-      case 'hideToolbars':
-        this.toolbarManager_.resetKeyboardNavigationAndHideToolbars();
+      case 'hideToolbar':
+        this.toolbarManager_.resetKeyboardNavigationAndHideToolbar();
         return true;
       case 'darkModeChanged':
         this.dark_ = /** @type {{darkMode: boolean}} */ (message.data).darkMode;
-        this.sendBackgroundColorForPrintPreview_();
+        this.setBackgroundColorForPrintPreview_();
         return true;
       case 'scrollPosition':
         const position = this.viewport.position;
@@ -353,29 +346,29 @@ class PDFViewerPPElement extends PDFViewerBaseElement {
     if (!strings) {
       return;
     }
-    this.sendBackgroundColorForPrintPreview_();
+    this.setBackgroundColorForPrintPreview_();
   }
 
   /** @override */
   updateProgress(progress) {
     super.updateProgress(progress);
     if (progress === 100) {
-      this.toolbarManager_.hideToolbarsAfterTimeout();
+      this.toolbarManager_.hideToolbarAfterTimeout();
     }
   }
 }
 
 /**
  * The background color used for print preview (--google-grey-refresh-300).
- * @type {string}
+ * @type {number}
  */
-const PRINT_PREVIEW_BACKGROUND_COLOR = '0xFFDADCE0';
+const PRINT_PREVIEW_BACKGROUND_COLOR = 0xffdadce0;
 
 /**
  * The background color used for print preview when dark mode is enabled
  * (--google-grey-refresh-700).
- * @type {string}
+ * @type {number}
  */
-const PRINT_PREVIEW_DARK_BACKGROUND_COLOR = '0xFF5F6368';
+const PRINT_PREVIEW_DARK_BACKGROUND_COLOR = 0xff5f6368;
 
 customElements.define(PDFViewerPPElement.is, PDFViewerPPElement);

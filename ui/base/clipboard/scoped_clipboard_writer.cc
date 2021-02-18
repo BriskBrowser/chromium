@@ -19,7 +19,7 @@ namespace ui {
 
 ScopedClipboardWriter::ScopedClipboardWriter(
     ClipboardBuffer buffer,
-    std::unique_ptr<ClipboardDataEndpoint> data_src)
+    std::unique_ptr<DataTransferEndpoint> data_src)
     : buffer_(buffer), data_src_(std::move(data_src)) {}
 
 ScopedClipboardWriter::~ScopedClipboardWriter() {
@@ -85,6 +85,14 @@ void ScopedClipboardWriter::WriteRTF(const std::string& rtf_data) {
   objects_[Clipboard::PortableFormat::kRtf] = parameters;
 }
 
+void ScopedClipboardWriter::WriteFilenames(const std::string& uri_list) {
+  RecordWrite(ClipboardFormatMetric::kFilenames);
+  Clipboard::ObjectMapParams parameters;
+  parameters.push_back(
+      Clipboard::ObjectMapParam(uri_list.begin(), uri_list.end()));
+  objects_[Clipboard::PortableFormat::kFilenames] = parameters;
+}
+
 void ScopedClipboardWriter::WriteBookmark(const base::string16& bookmark_title,
                                           const std::string& url) {
   if (bookmark_title.empty() || url.empty())
@@ -124,6 +132,11 @@ void ScopedClipboardWriter::WriteImage(const SkBitmap& bitmap) {
     return;
   DCHECK(bitmap.getPixels());
   RecordWrite(ClipboardFormatMetric::kImage);
+
+  // The platform code that sets this bitmap into the system clipboard expects
+  // to get N32 32bpp bitmaps. If they get the wrong type and mishandle it, a
+  // memcpy of the pixels can cause out-of-bounds issues.
+  CHECK_EQ(bitmap.colorType(), kN32_SkColorType);
 
   bitmap_ = bitmap;
   // TODO(dcheng): This is slightly less horrible than what we used to do, but

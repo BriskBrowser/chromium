@@ -39,8 +39,12 @@ namespace content {
 
 namespace {
 
-// Set by SetNetworkTestCertsDirectoryForTesting().
-base::NoDestructor<base::Optional<base::FilePath>> g_network_test_certs_dir;
+base::Optional<base::FilePath>& GetNetworkTestCertsDirectory() {
+  // Set by SetNetworkTestCertsDirectoryForTesting().
+  static base::NoDestructor<base::Optional<base::FilePath>>
+      network_test_certs_dir;
+  return *network_test_certs_dir;
+}
 
 // Produce the OS version as an integer "1010", etc. and pass that to the
 // profile. The profile converts the string back to a number and can do
@@ -160,10 +164,10 @@ void SetupNetworkSandboxParameters(sandbox::SeatbeltExecClient* client) {
     CHECK(client->SetParameter(param_name, path.value())) << param_name;
   }
 
-  if (g_network_test_certs_dir->has_value()) {
+  if (GetNetworkTestCertsDirectory().has_value()) {
     CHECK(client->SetParameter("NETWORK_SERVICE_TEST_CERTS_DIR",
                                sandbox::policy::SandboxMac::GetCanonicalPath(
-                                   **g_network_test_certs_dir)
+                                   *GetNetworkTestCertsDirectory())
                                    .value()));
   }
 }
@@ -212,6 +216,25 @@ void SetupUtilitySandboxParameters(sandbox::SeatbeltExecClient* client,
   SetupCommonSandboxParameters(client);
 }
 
+void SetupGpuSandboxParameters(sandbox::SeatbeltExecClient* client,
+                               const base::CommandLine& command_line) {
+  SetupCommonSandboxParameters(client);
+  AddDarwinDirs(client);
+  CHECK(client->SetBooleanParameter(
+      sandbox::policy::SandboxMac::kSandboxDisableMetalShaderCache,
+      command_line.HasSwitch(
+          sandbox::policy::switches::kDisableMetalShaderCache)));
+
+  // Temporary for https://crbug.com/1126350.
+  CHECK(client->SetParameter("PARENT_DIR",
+                             sandbox::policy::SandboxMac::GetCanonicalPath(
+                                 base::mac::OuterBundlePath().DirName())
+                                 .value()));
+  base::FilePath pwd;
+  CHECK(base::GetCurrentDirectory(&pwd));
+  CHECK(client->SetParameter("PWD", pwd.value()));
+}
+
 }  // namespace
 
 void SetupSandboxParameters(sandbox::policy::SandboxType sandbox_type,
@@ -219,16 +242,15 @@ void SetupSandboxParameters(sandbox::policy::SandboxType sandbox_type,
                             sandbox::SeatbeltExecClient* client) {
   switch (sandbox_type) {
     case sandbox::policy::SandboxType::kAudio:
-    case sandbox::policy::SandboxType::kSpeechRecognition:
     case sandbox::policy::SandboxType::kNaClLoader:
     case sandbox::policy::SandboxType::kPrintCompositor:
     case sandbox::policy::SandboxType::kRenderer:
       SetupCommonSandboxParameters(client);
       break;
-    case sandbox::policy::SandboxType::kGpu:
-      SetupCommonSandboxParameters(client);
-      AddDarwinDirs(client);
+    case sandbox::policy::SandboxType::kGpu: {
+      SetupGpuSandboxParameters(client, command_line);
       break;
+    }
     case sandbox::policy::SandboxType::kCdm:
       SetupCDMSandboxParameters(client);
       break;
@@ -247,11 +269,17 @@ void SetupSandboxParameters(sandbox::policy::SandboxType sandbox_type,
     case sandbox::policy::SandboxType::kVideoCapture:
       CHECK(false) << "Unhandled parameters for sandbox_type "
                    << static_cast<int>(sandbox_type);
+      break;
+    // Setup parameters for sandbox types handled by embedders below.
+    case sandbox::policy::SandboxType::kSpeechRecognition:
+      SetupCommonSandboxParameters(client);
+      CHECK(GetContentClient()->browser()->SetupEmbedderSandboxParameters(
+          sandbox_type, client));
   }
 }
 
 void SetNetworkTestCertsDirectoryForTesting(const base::FilePath& path) {
-  g_network_test_certs_dir->emplace(path);
+  GetNetworkTestCertsDirectory().emplace(path);
 }
 
 }  // namespace content

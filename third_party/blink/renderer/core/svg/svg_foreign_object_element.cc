@@ -23,6 +23,7 @@
 #include "third_party/blink/renderer/core/css/style_change_reason.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_foreign_object.h"
+#include "third_party/blink/renderer/core/svg/svg_animated_length.h"
 #include "third_party/blink/renderer/core/svg/svg_length.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
@@ -96,7 +97,8 @@ void SVGForeignObjectElement::CollectStyleForPresentationAttribute(
 }
 
 void SVGForeignObjectElement::SvgAttributeChanged(
-    const QualifiedName& attr_name) {
+    const SvgAttributeChangedParams& params) {
+  const QualifiedName& attr_name = params.name;
   bool is_width_height_attribute =
       attr_name == svg_names::kWidthAttr || attr_name == svg_names::kHeightAttr;
   bool is_xy_attribute =
@@ -120,7 +122,7 @@ void SVGForeignObjectElement::SvgAttributeChanged(
     return;
   }
 
-  SVGGraphicsElement::SvgAttributeChanged(attr_name);
+  SVGGraphicsElement::SvgAttributeChanged(params);
 }
 
 LayoutObject* SVGForeignObjectElement::CreateLayoutObject(const ComputedStyle&,
@@ -140,7 +142,7 @@ LayoutObject* SVGForeignObjectElement::CreateLayoutObject(const ComputedStyle&,
         ancestor->GetLayoutObject()->IsSVGHiddenContainer())
       return nullptr;
   }
-  return new LayoutSVGForeignObject(this);
+  return MakeGarbageCollected<LayoutSVGForeignObject>(this);
 }
 
 bool SVGForeignObjectElement::SelfHasRelativeLengths() const {

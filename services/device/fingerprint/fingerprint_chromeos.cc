@@ -7,7 +7,6 @@
 #include <string.h>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
 #include "chromeos/dbus/biod/biod_client.h"
 #include "dbus/object_path.h"
@@ -252,8 +251,7 @@ void FingerprintChromeOS::BiodAuthScanDoneReceived(
   for (auto& observer : observers_) {
     observer->OnAuthScanDone(
         casted_scan_result,
-        base::flat_map<std::string, std::vector<std::string>>(
-            std::move(entries)));
+        base::flat_map<std::string, std::vector<std::string>>(entries));
   }
 }
 

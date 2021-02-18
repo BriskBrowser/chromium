@@ -8,7 +8,6 @@
 
 #include <string>
 
-#include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/chromeos/input_method/ui/candidate_view.h"
 #include "chrome/browser/chromeos/input_method/ui/candidate_window_constants.h"
@@ -28,6 +27,8 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/wm/core/window_animations.h"
 
 namespace ui {
@@ -39,12 +40,14 @@ class CandidateWindowBorder : public views::BubbleBorder {
  public:
   CandidateWindowBorder()
       : views::BubbleBorder(views::BubbleBorder::TOP_CENTER,
-                            views::BubbleBorder::BIG_SHADOW,
+                            views::BubbleBorder::STANDARD_SHADOW,
                             gfx::kPlaceholderColor),
         offset_(0) {
     set_use_theme_background_color(true);
   }
-  ~CandidateWindowBorder() override {}
+  CandidateWindowBorder(const CandidateWindowBorder&) = delete;
+  CandidateWindowBorder& operator=(const CandidateWindowBorder&) = delete;
+  ~CandidateWindowBorder() override = default;
 
   void set_offset(int offset) { offset_ = offset; }
 
@@ -74,8 +77,6 @@ class CandidateWindowBorder : public views::BubbleBorder {
   gfx::Insets GetInsets() const override { return gfx::Insets(); }
 
   int offset_;
-
-  DISALLOW_COPY_AND_ASSIGN(CandidateWindowBorder);
 };
 
 // Computes the page index. For instance, if the page size is 9, and the
@@ -91,6 +92,8 @@ int ComputePageIndex(const ui::CandidateWindow& candidate_window) {
 
 class InformationTextArea : public views::View {
  public:
+  METADATA_HEADER(InformationTextArea);
+
   // InformationTextArea's border is drawn as a separator, it should appear
   // at either top or bottom.
   enum BorderPosition { TOP, BOTTOM };
@@ -110,6 +113,9 @@ class InformationTextArea : public views::View {
                                     ui::NativeTheme::kColorId_WindowBackground),
                                 0.0625f)));
   }
+
+  InformationTextArea(const InformationTextArea&) = delete;
+  InformationTextArea& operator=(const InformationTextArea&) = delete;
 
   // Sets the text alignment.
   void SetAlignment(gfx::HorizontalAlignment alignment) {
@@ -137,9 +143,10 @@ class InformationTextArea : public views::View {
  private:
   views::Label* label_;
   int min_width_;
-
-  DISALLOW_COPY_AND_ASSIGN(InformationTextArea);
 };
+
+BEGIN_METADATA(InformationTextArea, views::View)
+END_METADATA
 
 CandidateWindowView::CandidateWindowView(gfx::NativeView parent)
     : selected_candidate_index_in_page_(-1),
@@ -282,7 +289,7 @@ void CandidateWindowView::UpdateCandidates(
     for (size_t i = 0; i < candidate_views_.size(); ++i) {
       const size_t index_in_page = i;
       const size_t candidate_index = start_from + index_in_page;
-      CandidateView* candidate_view = candidate_views_[index_in_page].get();
+      CandidateView* candidate_view = candidate_views_[index_in_page];
       // Set the candidate text.
       if (candidate_index < new_candidate_window.candidates().size()) {
         const ui::CandidateWindow::Entry& entry =
@@ -306,7 +313,7 @@ void CandidateWindowView::UpdateCandidates(
       }
     }
     if (new_candidate_window.orientation() == ui::CandidateWindow::VERTICAL) {
-      for (const auto& view : candidate_views_)
+      for (auto* view : candidate_views_)
         view->SetWidths(max_shortcut_width, max_candidate_width);
     }
 
@@ -362,17 +369,22 @@ void CandidateWindowView::MaybeInitializeCandidateViews(
   const size_t page_size = candidate_window.page_size();
 
   // Reset all candidate_views_ when orientation changes.
-  if (orientation != candidate_window_.orientation())
+  if (orientation != candidate_window_.orientation()) {
+    candidate_area_->RemoveAllChildViews(true);
     candidate_views_.clear();
+  }
 
-  while (page_size < candidate_views_.size())
+  while (page_size < candidate_views_.size()) {
+    candidate_area_->RemoveChildViewT(candidate_views_.back());
     candidate_views_.pop_back();
+  }
 
-  while (page_size > candidate_views_.size()) {
-    std::unique_ptr<CandidateView> new_candidate =
-        std::make_unique<CandidateView>(this, orientation);
-    candidate_area_->AddChildView(new_candidate.get());
-    candidate_views_.push_back(std::move(new_candidate));
+  for (size_t i = candidate_views_.size(); i < page_size; ++i) {
+    candidate_views_.push_back(
+        candidate_area_->AddChildView(std::make_unique<CandidateView>(
+            base::BindRepeating(&CandidateWindowView::CandidateViewPressed,
+                                base::Unretained(this), int{i}),
+            orientation)));
   }
 }
 
@@ -413,20 +425,13 @@ void CandidateWindowView::SelectCandidateAt(int index_in_page) {
                                                    total_candidates);
 }
 
-const char* CandidateWindowView::GetClassName() const {
-  return "CandidateWindowView";
+void CandidateWindowView::CandidateViewPressed(int index) {
+  for (Observer& observer : observers_)
+    observer.OnCandidateCommitted(index);
 }
 
-void CandidateWindowView::ButtonPressed(views::Button* sender,
-                                        const ui::Event& event) {
-  for (size_t i = 0; i < candidate_views_.size(); ++i) {
-    if (sender == candidate_views_[i].get()) {
-      for (Observer& observer : observers_)
-        observer.OnCandidateCommitted(i);
-      return;
-    }
-  }
-}
+BEGIN_METADATA(CandidateWindowView, views::BubbleDialogDelegateView)
+END_METADATA
 
 }  // namespace ime
 }  // namespace ui

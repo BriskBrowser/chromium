@@ -4,7 +4,10 @@
 
 #include "ash/login/ui/arrow_button_view.h"
 
+#include <utility>
+
 #include "ash/resources/vector_icons/vector_icons.h"
+#include "ash/style/ash_color_provider.h"
 #include "base/time/time.h"
 #include "cc/paint/paint_flags.h"
 #include "ui/accessibility/ax_node_data.h"
@@ -15,14 +18,18 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/skia_util.h"
+#include "ui/views/controls/highlight_path_generator.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace ash {
 namespace {
 
 // Arrow icon size.
 constexpr int kArrowIconSizeDp = 20;
-// An alpha value for disabled button.
-constexpr SkAlpha kButtonDisabledAlpha = 0x80;
+constexpr int kArrowIconBackroundRadius = 25;
+
+constexpr const int kBorderForFocusRingDp = 3;
+
 // How long does a single step of the loading animation take - i.e., the time it
 // takes for the arc to grow from a point to a full circle.
 constexpr base::TimeDelta kLoadingAnimationStepDuration =
@@ -40,7 +47,9 @@ void PaintLoadingArc(gfx::Canvas* canvas,
              /*sweepAngle=*/360 * loading_fraction, /*forceMoveTo=*/true);
 
   cc::PaintFlags flags;
-  flags.setColor(gfx::kGoogleGrey100);
+  // Use the same color as the arrow icon.
+  flags.setColor(AshColorProvider::Get()->GetContentLayerColor(
+      AshColorProvider::ContentLayerType::kButtonIconColor));
   flags.setStyle(cc::PaintFlags::kStroke_Style);
   flags.setAntiAlias(true);
   canvas->DrawPath(path, flags);
@@ -48,22 +57,25 @@ void PaintLoadingArc(gfx::Canvas* canvas,
 
 }  // namespace
 
-ArrowButtonView::ArrowButtonView(views::ButtonListener* listener, int size)
-    : LoginButton(listener), size_(size) {
-  SetPreferredSize(gfx::Size(size, size));
+ArrowButtonView::ArrowButtonView(PressedCallback callback, int size)
+    : LoginButton(std::move(callback)) {
+  SetBorder(views::CreateEmptyBorder(gfx::Insets(kBorderForFocusRingDp)));
+  SetPreferredSize(gfx::Size(size + 2 * kBorderForFocusRingDp,
+                             size + 2 * kBorderForFocusRingDp));
   SetFocusBehavior(FocusBehavior::ALWAYS);
 
   // Layer rendering is needed for animation.
   SetPaintToLayer();
   layer()->SetFillsBoundsOpaquely(false);
 
-  SetImage(Button::STATE_NORMAL,
-           gfx::CreateVectorIcon(kLockScreenArrowIcon, kArrowIconSizeDp,
-                                 SK_ColorWHITE));
-  SetImage(
-      views::Button::STATE_DISABLED,
-      gfx::CreateVectorIcon(kLockScreenArrowIcon, kArrowIconSizeDp,
-                            SkColorSetA(SK_ColorWHITE, kButtonDisabledAlpha)));
+  AshColorProvider::Get()->DecorateIconButton(
+      this, kLockScreenArrowIcon, /*toggled_=*/false, kArrowIconSizeDp);
+  focus_ring()->SetPathGenerator(
+      std::make_unique<views::FixedSizeCircleHighlightPathGenerator>(
+          kArrowIconBackroundRadius));
+
+  SetBackgroundColor(AshColorProvider::Get()->GetControlsLayerColor(
+      AshColorProvider::ControlsLayerType::kControlBackgroundColorInactive));
 }
 
 ArrowButtonView::~ArrowButtonView() = default;
@@ -76,7 +88,7 @@ void ArrowButtonView::PaintButtonContents(gfx::Canvas* canvas) {
   flags.setAntiAlias(true);
   flags.setColor(background_color_);
   flags.setStyle(cc::PaintFlags::kFill_Style);
-  canvas->DrawCircle(gfx::PointF(rect.CenterPoint()), size_ / 2, flags);
+  canvas->DrawCircle(gfx::PointF(rect.CenterPoint()), rect.width() / 2, flags);
 
   // Draw arrow icon.
   views::ImageButton::PaintButtonContents(canvas);
@@ -133,5 +145,8 @@ void ArrowButtonView::LoadingAnimationDelegate::AnimationProgressed(
     const gfx::Animation* /*animation*/) {
   owner_->SchedulePaint();
 }
+
+BEGIN_METADATA(ArrowButtonView, LoginButton)
+END_METADATA
 
 }  // namespace ash

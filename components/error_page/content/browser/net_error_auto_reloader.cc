@@ -22,11 +22,13 @@ namespace {
 bool ShouldAutoReload(content::NavigationHandle* handle) {
   DCHECK(handle->HasCommitted());
   const int net_error = handle->GetNetErrorCode();
-  return handle->IsErrorPage() && !handle->IsCustomErrorPage() &&
-         net_error != net::OK && !handle->IsPost() &&
+  return handle->IsErrorPage() && net_error != net::OK && !handle->IsPost() &&
          // For now, net::ERR_UNKNOWN_URL_SCHEME is only being displayed on
          // Chrome for Android.
          net_error != net::ERR_UNKNOWN_URL_SCHEME &&
+         // Do not trigger for SSL interstitials since they're not fixed by
+         // reloads.
+         !net::IsCertificateError(net_error) &&
          // Do not trigger if the server rejects a client certificate.
          // https://crbug.com/431387
          !net::IsClientCertificateError(net_error) &&
@@ -49,7 +51,10 @@ bool ShouldAutoReload(content::NavigationHandle* handle) {
          // TODO(crbug.com/1016164): Explore how to allow reloads for secure DNS
          // network errors without interfering with the captive portal probe
          // state.
-         !handle->GetResolveErrorInfo().is_secure_network_error;
+         !handle->GetResolveErrorInfo().is_secure_network_error &&
+         // Don't auto reload if the error is caused by the server returning a
+         // non-2xx HTTP response code.
+         net_error != net::ERR_HTTP_RESPONSE_CODE_FAILURE;
 }
 
 base::TimeDelta GetNextReloadDelay(size_t reload_count) {

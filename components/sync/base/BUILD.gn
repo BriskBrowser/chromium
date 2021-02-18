@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/features.gni")
 
 declare_args() {
@@ -12,10 +13,6 @@ declare_args() {
 static_library("base") {
   sources = [
     "bind_to_task_runner.h",
-    "cancelation_observer.cc",
-    "cancelation_observer.h",
-    "cancelation_signal.cc",
-    "cancelation_signal.h",
     "client_tag_hash.cc",
     "client_tag_hash.h",
     "data_type_histogram.cc",
@@ -69,15 +66,11 @@ static_library("base") {
     "unique_position.h",
     "unrecoverable_error_info.cc",
     "unrecoverable_error_info.h",
-    "user_demographics.cc",
-    "user_demographics.h",
     "user_selectable_type.cc",
     "user_selectable_type.h",
     "weak_handle.cc",
     "weak_handle.h",
   ]
-
-  configs += [ "//build/config:precompiled_headers" ]
 
   public_deps = [
     "//base",
@@ -87,6 +80,7 @@ static_library("base") {
   ]
   deps = [
     "//base:i18n",
+    "//build:chromeos_buildflags",
     "//components/os_crypt",
     "//components/pref_registry",
     "//components/prefs",
@@ -98,13 +92,15 @@ static_library("base") {
     "//ui/base",
   ]
 
-  if (is_chromeos) {
-    deps += [ "//chromeos/constants" ]
+  if (is_chromeos_ash) {
+    deps += [ "//ash/constants" ]
   }
 
   defines = [ "SYNC_USER_AGENT_PRODUCT=$sync_user_agent_product" ]
 }
 
+# TODO(crbug.com/948661): The other sync targets have their test support targets
+# declared outside of the production code directory. Do the same for this one.
 static_library("test_support") {
   testonly = true
   sources = [
@@ -113,7 +109,6 @@ static_library("test_support") {
     "../test/mock_invalidation.h",
     "../test/mock_invalidation_tracker.cc",
     "../test/mock_invalidation_tracker.h",
-    "../test/test_matchers.h",
     "../test/trackable_mock_invalidation.cc",
     "../test/trackable_mock_invalidation.h",
     "fake_encryptor.cc",
@@ -127,11 +122,6 @@ static_library("test_support") {
     "//components/sync/base",
     "//testing/gmock",
     "//testing/gtest",
-  ]
-
-  deps = [
-    # For test_matchers.h, which should probably be split up.
-    "//components/sync:rest_of_sync",
   ]
 
   configs += [ "//build/config/compiler:wexit_time_destructors" ]

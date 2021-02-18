@@ -8,7 +8,7 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
-#include "base/feature_list.h"
+#include "base/debug/crash_logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/optional.h"
@@ -17,8 +17,6 @@
 #include "content/common/fetch/fetch_request_type_converters.h"
 #include "content/common/service_worker/service_worker_loader_helpers.h"
 #include "content/common/service_worker/service_worker_utils.h"
-#include "content/public/common/content_features.h"
-#include "content/renderer/loader/web_url_request_util.h"
 #include "content/renderer/render_thread_impl.h"
 #include "content/renderer/renderer_blink_platform_impl.h"
 #include "content/renderer/service_worker/controller_service_worker_connector.h"
@@ -26,11 +24,8 @@
 #include "net/base/net_errors.h"
 #include "net/url_request/redirect_util.h"
 #include "net/url_request/url_request.h"
-#include "services/network/public/cpp/features.h"
-#include "services/network/public/cpp/network_switches.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "third_party/blink/public/common/blob/blob_utils.h"
-#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/service_worker/service_worker_type_converters.h"
 #include "third_party/blink/public/mojom/blob/blob.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/dispatch_fetch_event_params.mojom.h"
@@ -208,8 +203,8 @@ void ServiceWorkerSubresourceLoader::StartRequest(
       TRACE_EVENT_FLAG_FLOW_OUT, "url", resource_request.url.spec());
   TransitionToStatus(Status::kStarted);
 
-  DCHECK(!controller_connector_observer_.IsObservingSources());
-  controller_connector_observer_.Add(controller_connector_.get());
+  DCHECK(!controller_connector_observation_.IsObserving());
+  controller_connector_observation_.Observe(controller_connector_.get());
   fetch_request_restarted_ = false;
 
   // |service_worker_start_time| becomes web-exposed
@@ -366,11 +361,11 @@ void ServiceWorkerSubresourceLoader::OnConnectionClosed() {
 
 void ServiceWorkerSubresourceLoader::SettleFetchEventDispatch(
     base::Optional<blink::ServiceWorkerStatusCode> status) {
-  if (!controller_connector_observer_.IsObservingSources()) {
+  if (!controller_connector_observation_.IsObserving()) {
     // Already settled.
     return;
   }
-  controller_connector_observer_.RemoveAll();
+  controller_connector_observation_.Reset();
 
   if (status) {
     blink::ServiceWorkerStatusCode value = status.value();
@@ -410,38 +405,6 @@ void ServiceWorkerSubresourceLoader::OnFallback(
     blink::mojom::ServiceWorkerFetchEventTimingPtr timing) {
   SettleFetchEventDispatch(blink::ServiceWorkerStatusCode::kOk);
   UpdateResponseTiming(std::move(timing));
-  // When the request mode is CORS or CORS-with-forced-preflight and the origin
-  // of the request URL is different from the security origin of the document,
-  // we can't simply fallback to the network here. It is because the CORS
-  // preflight logic is implemented in Blink. So we return a "fallback required"
-  // response to Blink.
-  // TODO(falken): Remove this mechanism after OOB-CORS ships.
-  if ((base::CommandLine::ForCurrentProcess()->HasSwitch(
-           network::switches::kForceToDisableOutOfBlinkCors) ||
-       !base::FeatureList::IsEnabled(network::features::kOutOfBlinkCors)) &&
-      ((resource_request_.mode == network::mojom::RequestMode::kCors ||
-        resource_request_.mode ==
-            network::mojom::RequestMode::kCorsWithForcedPreflight) &&
-       (!resource_request_.request_initiator.has_value() ||
-        !resource_request_.request_initiator->IsSameOriginWith(
-            url::Origin::Create(resource_request_.url))))) {
-    TRACE_EVENT_WITH_FLOW0(
-        "ServiceWorker",
-        "ServiceWorkerSubresourceLoader::OnFallback - CORS workaround",
-        TRACE_ID_WITH_SCOPE(kServiceWorkerSubresourceLoaderScope,
-                            TRACE_ID_LOCAL(request_id_)),
-        TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT);
-    //  Add "Service Worker Fallback Required" which DevTools knows means to not
-    //  show the response in the Network tab as it's just an internal
-    //  implementation mechanism.
-    response_head_->headers = base::MakeRefCounted<net::HttpResponseHeaders>(
-        "HTTP/1.1 400 Service Worker Fallback Required");
-    response_head_->was_fetched_via_service_worker = true;
-    response_head_->was_fallback_required_by_service_worker = true;
-    CommitResponseHeaders();
-    CommitEmptyResponseAndComplete();
-    return;
-  }
   TRACE_EVENT_WITH_FLOW0(
       "ServiceWorker", "ServiceWorkerSubresourceLoader::OnFallback",
       TRACE_ID_WITH_SCOPE(kServiceWorkerSubresourceLoaderScope,
@@ -517,6 +480,7 @@ void ServiceWorkerSubresourceLoader::StartResponse(
       return;
     }
     response_head_->encoded_data_length = 0;
+    received_redirect_for_bug1162035_ = true;
     url_loader_client_->OnReceiveRedirect(*redirect_info_,
                                           response_head_.Clone());
     TransitionToStatus(Status::kSentRedirect);
@@ -540,8 +504,6 @@ void ServiceWorkerSubresourceLoader::StartResponse(
   // Handle a stream response body.
   if (body_stream_is_valid) {
     DCHECK(!response->blob);
-    if (response->side_data_blob)
-      DCHECK(base::FeatureList::IsEnabled(features::kCacheStorageEagerReading));
     DCHECK(url_loader_client_.is_bound());
     stream_waiter_ = std::make_unique<StreamWaiter>(
         this, std::move(body_as_stream->callback_receiver));
@@ -724,7 +686,18 @@ void ServiceWorkerSubresourceLoader::FollowRedirect(
          "https://crbug.com/845683";
   DCHECK(!new_url.has_value()) << "Redirect with modified url was not "
                                   "supported yet. crbug.com/845683";
-  DCHECK(redirect_info_);
+
+  // TODO(crbug.com/1162035): Replace with a DCHECK or early return when
+  // the bug is understood.
+  if (!redirect_info_) {
+    SCOPED_CRASH_KEY_NUMBER("bug1162035", "follow_status",
+                            static_cast<int>(status_));
+    SCOPED_CRASH_KEY_BOOL("bug1162035", "received_redirect",
+                          received_redirect_for_bug1162035_);
+    SCOPED_CRASH_KEY_BOOL("bug1162035", "followed_redirect",
+                          followed_redirect_for_bug1162035_);
+    CHECK(false);
+  }
 
   bool should_clear_upload = false;
   net::RedirectUtil::UpdateHttpRequest(
@@ -747,6 +720,7 @@ void ServiceWorkerSubresourceLoader::FollowRedirect(
   // Restart the request.
   TransitionToStatus(Status::kNotStarted);
   redirect_info_.reset();
+  followed_redirect_for_bug1162035_ = true;
   response_callback_receiver_.reset();
   StartRequest(resource_request_);
 }
@@ -793,13 +767,6 @@ void ServiceWorkerSubresourceLoader::OnSideDataReadingComplete(
 
   if (metadata.has_value())
     url_loader_client_->OnReceiveCachedMetadata(std::move(metadata.value()));
-
-  DCHECK(data_pipe.is_valid());
-
-  base::TimeDelta delay =
-      base::TimeTicks::Now() - response_head_->response_start;
-  UMA_HISTOGRAM_TIMES(
-      "ServiceWorker.SubresourceNotifyStartLoadingResponseBodyDelay", delay);
 
   DCHECK(data_pipe.is_valid());
   CommitResponseBody(std::move(data_pipe));
@@ -905,25 +872,31 @@ void ServiceWorkerSubresourceLoaderFactory::OnMojoDisconnect() {
 }
 
 void ServiceWorkerSubresourceLoader::TransitionToStatus(Status new_status) {
-#if DCHECK_IS_ON()
+  // TODO(crbug.com/1162035): Remove once the bug is understood and replace
+  // the CHECKs below to DCHECKs.
+  SCOPED_CRASH_KEY_NUMBER("bug1162035", "transition_old",
+                          static_cast<int>(status_));
+  SCOPED_CRASH_KEY_NUMBER("bug1162035", "transition_new",
+                          static_cast<int>(new_status));
+
   switch (new_status) {
     case Status::kNotStarted:
-      DCHECK_EQ(status_, Status::kSentRedirect);
+      CHECK_EQ(status_, Status::kSentRedirect);
       break;
     case Status::kStarted:
-      DCHECK_EQ(status_, Status::kNotStarted);
+      CHECK_EQ(status_, Status::kNotStarted);
       break;
     case Status::kSentRedirect:
-      DCHECK_EQ(status_, Status::kStarted);
+      CHECK_EQ(status_, Status::kStarted);
       break;
     case Status::kSentHeader:
-      DCHECK_EQ(status_, Status::kStarted);
+      CHECK_EQ(status_, Status::kStarted);
       break;
     case Status::kSentBody:
-      DCHECK_EQ(status_, Status::kSentHeader);
+      CHECK_EQ(status_, Status::kSentHeader);
       break;
     case Status::kCompleted:
-      DCHECK(
+      CHECK(
           // Network fallback before interception.
           status_ == Status::kNotStarted ||
           // Network fallback after interception.
@@ -934,7 +907,6 @@ void ServiceWorkerSubresourceLoader::TransitionToStatus(Status new_status) {
           status_ == Status::kSentBody);
       break;
   }
-#endif  // DCHECK_IS_ON()
 
   status_ = new_status;
 }

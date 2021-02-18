@@ -57,11 +57,13 @@ class BASE_EXPORT MessagePumpForUI : public MessagePump {
   void OnNonDelayedLooperCallback();
 
  protected:
-  void SetDelegate(Delegate* delegate) { delegate_ = delegate; }
-  void ResetShouldQuit() { quit_ = false; }
-  virtual bool IsTestImplementation() const;
+  Delegate* SetDelegate(Delegate* delegate);
+  bool SetQuit(bool quit);
+  virtual void DoDelayedLooperWork();
+  virtual void DoNonDelayedLooperWork(bool do_idle_work);
 
  private:
+  void ScheduleWorkInternal(bool do_idle_work);
   void DoIdleWork();
 
   // Unlike other platforms, we don't control the message loop as it's

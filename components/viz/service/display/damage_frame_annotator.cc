@@ -11,7 +11,7 @@
 #include "components/viz/common/quads/aggregated_render_pass.h"
 #include "components/viz/common/quads/debug_border_draw_quad.h"
 #include "components/viz/common/quads/shared_quad_state.h"
-#include "components/viz/common/surfaces/aggregated_frame.h"
+#include "components/viz/service/display/aggregated_frame.h"
 
 namespace viz {
 
@@ -53,7 +53,7 @@ void DamageFrameAnnotator::AnnotateRootRenderPass(
     SharedQuadState* new_sqs = render_pass->shared_quad_state_list
                                    .AllocateAndConstruct<SharedQuadState>();
     new_sqs->SetAll(annotation.transform, output_rect, output_rect,
-                    gfx::RRectF(), output_rect, true, false, 1.f,
+                    gfx::MaskFilterInfo(), output_rect, true, false, 1.f,
                     SkBlendMode::kSrcOver, 0);
 
     DebugBorderDrawQuad* new_quad =

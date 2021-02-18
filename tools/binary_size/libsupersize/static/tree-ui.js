@@ -445,16 +445,26 @@ const newTreeElement = (() => {
         dom.replace(_symbolTree, rootElement);
         if (!_doneLoad && percent === 1) {
           _doneLoad = true;
-          console.log('Pro Tip: await worker.openNode("$FILE_PATH")')
+          console.log(
+              '%cPro Tip: %cawait supersize.worker.openNode("$FILE_PATH")',
+              'font-weight:bold; color: red;', '')
         }
       })
     );
   }
 
   window.supersize.treeReady.then((message) => {
-    document.querySelector('#group-by-container')
-            .toggleAttribute('disabled', !message.isMultiContainer);
-    displayTree(message);
+    if (message.isMultiContainer) {
+      document.getElementById('group-by-container').checked = true;
+      // Fire a change event manually, to reload the tree otherwise it does not
+      // fire on its own. No need to display the tree since it is going to get
+      // reloaded anyways.
+      document.getElementById('options').dispatchEvent(new Event('change'));
+    } else {
+      document.querySelector('#group-by-container')
+        .toggleAttribute('disabled', true);
+      displayTree(message);
+    }
   });
   window.supersize.worker.setOnProgressHandler(displayTree);
 

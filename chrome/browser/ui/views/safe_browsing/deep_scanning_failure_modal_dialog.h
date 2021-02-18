@@ -10,6 +10,7 @@
 #include "base/timer/timer.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/views/controls/button/button.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/window/dialog_delegate.h"
 
 namespace content {
@@ -20,9 +21,10 @@ namespace safe_browsing {
 
 // A tab modal dialog that provides more information to the user about the
 // prompt for deep scanning.
-class DeepScanningFailureModalDialog : public views::DialogDelegateView,
-                                       public views::ButtonListener {
+class DeepScanningFailureModalDialog : public views::DialogDelegateView {
  public:
+  METADATA_HEADER(DeepScanningFailureModalDialog);
+
   // Show this dialog for the given |web_contents|.
   static void ShowForWebContents(content::WebContents* web_contents,
                                  base::OnceClosure accept_callback,
@@ -44,18 +46,7 @@ class DeepScanningFailureModalDialog : public views::DialogDelegateView,
   bool IsDialogButtonEnabled(ui::DialogButton button) const override;
   bool ShouldShowCloseButton() const override;
 
-  // views::WidgetDelegate implementation:
-  ui::ModalType GetModalType() const override;
-
-  // views::ButtonListener implementation:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
-
  private:
-  // The open now button for this dialog. The pointer is unowned, but this is a
-  // child View of this dialog's View, so it has the same lifetime.
-  views::Button* open_now_button_;
-
-  // The callbacks to trigger on each way the dialog is resolved.
   base::OnceClosure open_now_callback_;
 };
 

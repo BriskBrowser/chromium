@@ -2,12 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {ActionManager} from './action_manager.js';
+import {AutoScanManager} from './auto_scan_manager.js';
+import {Navigator} from './navigator.js';
+
 const SwitchAccessCommand = chrome.accessibilityPrivate.SwitchAccessCommand;
 
 /**
  * Runs user commands.
  */
-class Commands {
+export class Commands {
   /** @private */
   constructor() {
     /**
@@ -15,9 +19,15 @@ class Commands {
      * @private {!Map<!SwitchAccessCommand, !function(): void>}
      */
     this.commandMap_ = new Map([
-      [SwitchAccessCommand.SELECT, MenuManager.enter],
-      [SwitchAccessCommand.NEXT, NavigationManager.moveForward],
-      [SwitchAccessCommand.PREVIOUS, NavigationManager.moveBackward]
+      [SwitchAccessCommand.SELECT, ActionManager.onSelect],
+      [
+        SwitchAccessCommand.NEXT,
+        Navigator.instance.moveForward.bind(Navigator.instance)
+      ],
+      [
+        SwitchAccessCommand.PREVIOUS,
+        Navigator.instance.moveBackward.bind(Navigator.instance)
+      ]
     ]);
 
     chrome.accessibilityPrivate.onSwitchAccessCommand.addListener(

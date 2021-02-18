@@ -37,6 +37,7 @@
 #include "ui/views/controls/link.h"
 #include "ui/views/controls/progress_bar.h"
 #include "ui/views/layout/box_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view_class_properties.h"
 
 namespace {
@@ -146,7 +147,7 @@ PluginVmInstallerView::PluginVmInstallerView(Profile* profile)
   message_container_view->AddChildView(message_label_);
 
   learn_more_link_ = new views::Link(l10n_util::GetStringUTF16(IDS_LEARN_MORE));
-  learn_more_link_->set_callback(base::BindRepeating(
+  learn_more_link_->SetCallback(base::BindRepeating(
       &PluginVmInstallerView::OnLinkClicked, base::Unretained(this)));
   learn_more_link_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   message_container_view->AddChildView(learn_more_link_);
@@ -212,10 +213,6 @@ bool PluginVmInstallerView::Accept() {
 }
 
 bool PluginVmInstallerView::Cancel() {
-  // We call |Cancel()| if the user hasn't started installation to log to UMA.
-  if (state_ == State::kConfirmInstall || state_ == State::kInstalling)
-    plugin_vm_installer_->Cancel();
-
   return true;
 }
 
@@ -232,9 +229,9 @@ void PluginVmInstallerView::OnStateUpdated(InstallingState new_state) {
 }
 
 void PluginVmInstallerView::OnLinkClicked() {
-  NavigateParams params(
-      profile_, GURL("https://support.google.com/chromebook/?p=pluginvm"),
-      ui::PAGE_TRANSITION_LINK);
+  NavigateParams params(profile_,
+                        GURL("https://support.google.com/chrome/a/?p=pluginvm"),
+                        ui::PAGE_TRANSITION_LINK);
   params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
   Navigate(&params);
 }
@@ -257,13 +254,12 @@ void PluginVmInstallerView::OnDownloadProgressUpdated(uint64_t bytes_downloaded,
 void PluginVmInstallerView::OnVmExists() {
   DCHECK_EQ(installing_state_, InstallingState::kCheckingForExistingVm);
 
-  // TODO(b/154140429): Consider automatically dismissing the dialog.
-
-  // This case should only occur if the user manually installed a VM via vmc,
-  // which is rare enough so we just re-use the regular success strings.
   state_ = State::kImported;
   installing_state_ = InstallingState::kInactive;
   OnStateUpdated();
+  // Launch app now if the VM has previously been imported via
+  // 'vmc import -p PvmDefault image.zip'.
+  AcceptDialog();
 }
 
 void PluginVmInstallerView::OnCreated() {
@@ -344,9 +340,10 @@ base::string16 PluginVmInstallerView::GetMessage() const {
           NOTREACHED();
           FALLTHROUGH;
         case InstallingState::kCheckingLicense:
+        case InstallingState::kCheckingForExistingVm:
         case InstallingState::kCheckingDiskSpace:
         case InstallingState::kDownloadingDlc:
-        case InstallingState::kCheckingForExistingVm:
+        case InstallingState::kStartingDispatcher:
           return l10n_util::GetStringUTF16(
               IDS_PLUGIN_VM_INSTALLER_START_DOWNLOADING_MESSAGE);
         case InstallingState::kDownloadingImage:
@@ -436,6 +433,9 @@ void PluginVmInstallerView::SetFinishedCallbackForTesting(
 
 PluginVmInstallerView::~PluginVmInstallerView() {
   plugin_vm_installer_->RemoveObserver();
+  // We call |Cancel()| if the user hasn't started installation to log to UMA.
+  if (state_ == State::kConfirmInstall || state_ == State::kInstalling)
+    plugin_vm_installer_->Cancel();
   g_plugin_vm_installer_view = nullptr;
 }
 
@@ -585,5 +585,13 @@ void PluginVmInstallerView::StartInstallation() {
   OnStateUpdated();
 
   plugin_vm_installer_->SetObserver(this);
-  plugin_vm_installer_->Start();
+  base::Optional<plugin_vm::PluginVmInstaller::FailureReason> failure_reason =
+      plugin_vm_installer_->Start();
+  if (failure_reason)
+    OnError(failure_reason.value());
 }
+
+BEGIN_METADATA(PluginVmInstallerView, views::BubbleDialogDelegateView)
+ADD_READONLY_PROPERTY_METADATA(base::string16, Title)
+ADD_READONLY_PROPERTY_METADATA(base::string16, Message)
+END_METADATA

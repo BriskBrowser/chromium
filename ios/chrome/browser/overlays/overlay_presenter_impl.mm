@@ -131,7 +131,10 @@ void OverlayPresenterImpl::SetActiveWebState(
   if (active_web_state_ == web_state)
     return;
 
-  OverlayRequest* previously_active_request = GetActiveRequest();
+  OverlayRequest* previously_active_request =
+      removed_request_awaiting_dismissal_ != nullptr
+          ? removed_request_awaiting_dismissal_.get()
+          : GetActiveRequest();
 
   // The UI should be cancelled instead of hidden if the presenter does not
   // expect to show any more overlay UI for previously active WebState in the UI
@@ -152,6 +155,13 @@ void OverlayPresenterImpl::SetActiveWebState(
   // If not already presenting, immediately show the next overlay.
   if (!presenting_) {
     PresentOverlayForActiveRequest();
+    return;
+  }
+ 
+  // If presenting_ is true and there is no previously active request, this
+  // is likely because the presenting overlay is still in the process of being
+  // dismissed and multiple tabs have been opened in the process.
+  if (!previously_active_request) {
     return;
   }
 
@@ -301,11 +311,8 @@ void OverlayPresenterImpl::OverlayWasDismissed(
   // The OverlayPresenter remains as the delegate for
   // |detached_presenting_request_queue_| to ensure that |presented_request_| is
   // not deleted before the dismissal of its UI is finished.  Since the UI is
-  // now being dismissed, the delegate can be reset.
-  if (detached_presenting_request_queue_) {
-    detached_presenting_request_queue_->SetDelegate(nullptr);
-    detached_presenting_request_queue_ = nullptr;
-  }
+  // now being dismissed, this reference is not needed anymore.
+  detached_presenting_request_queue_ = nullptr;
 
   // Notify the observers that the overlay UI was hidden.
   for (auto& observer : observers_) {

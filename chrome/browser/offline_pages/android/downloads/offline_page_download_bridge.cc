@@ -11,7 +11,7 @@
 
 #include "base/android/jni_string.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/guid.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
@@ -147,7 +147,8 @@ void DownloadUIAdapterDelegate::GetShareInfoForItem(
     const ContentId& id,
     ShareCallback share_callback) {
   auto share_helper = std::make_unique<OfflinePageShareHelper>(model_);
-  share_helper->GetShareInfo(
+  auto* const share_helper_ptr = share_helper.get();
+  share_helper_ptr->GetShareInfo(
       id, base::BindOnce(&OnShareInfoRetrieved, std::move(share_helper),
                          std::move(share_callback)));
 }
@@ -262,7 +263,7 @@ content::WebContents::Getter GetWebContentsGetter(
     content::WebContents* web_contents) {
   // The FrameTreeNode ID should be used to access the WebContents.
   int frame_tree_node_id = web_contents->GetMainFrame()->GetFrameTreeNodeId();
-  if (frame_tree_node_id != -1) {
+  if (frame_tree_node_id != content::RenderFrameHost::kNoFrameTreeNodeId) {
     return base::BindRepeating(content::WebContents::FromFrameTreeNodeId,
                                frame_tree_node_id);
   }

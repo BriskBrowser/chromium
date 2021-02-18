@@ -73,7 +73,7 @@ class CONTENT_EXPORT RenderFrameDevToolsAgentHost
   static scoped_refptr<DevToolsAgentHost> FindForDangling(
       FrameTreeNode* frame_tree_node);
 
-  static void WebContentsCreated(WebContents* web_contents);
+  static void WebContentsMainFrameCreated(WebContents* web_contents);
 
 #if defined(OS_ANDROID)
   static void SignalSynchronousSwapCompositorFrame(
@@ -93,6 +93,7 @@ class CONTENT_EXPORT RenderFrameDevToolsAgentHost
   WebContents* GetWebContents() override;
   std::string GetParentId() override;
   std::string GetOpenerId() override;
+  std::string GetOpenerFrameId() override;
   bool CanAccessOpener() override;
   std::string GetType() override;
   std::string GetTitle() override;
@@ -105,13 +106,17 @@ class CONTENT_EXPORT RenderFrameDevToolsAgentHost
   bool Close() override;
   base::TimeTicks GetLastActivityTime() override;
 
+  base::Optional<network::CrossOriginEmbedderPolicy>
+  cross_origin_embedder_policy(const std::string& id) override;
+  base::Optional<network::CrossOriginOpenerPolicy> cross_origin_opener_policy(
+      const std::string& id) override;
+
   RenderFrameHostImpl* GetFrameHostForTesting() { return frame_host_; }
 
  private:
   friend class DevToolsAgentHost;
 
-  static void UpdateRawHeadersAccess(RenderFrameHostImpl* old_rfh,
-                                     RenderFrameHostImpl* new_rfh);
+  static void UpdateRawHeadersAccess(RenderFrameHostImpl* rfh);
 
   RenderFrameDevToolsAgentHost(FrameTreeNode*, RenderFrameHostImpl*);
   ~RenderFrameDevToolsAgentHost() override;

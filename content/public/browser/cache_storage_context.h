@@ -8,31 +8,27 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "base/memory/ref_counted.h"
-
-namespace url {
-class Origin;
-}
+#include "base/memory/ref_counted_delete_on_sequence.h"
+#include "components/services/storage/public/mojom/cache_storage_control.mojom.h"
 
 namespace content {
 
-struct StorageUsageInfo;
-
 // Represents the per-BrowserContext Cache Storage data.
+// TODO(enne): transition callers of this base class over to use mojo
+// interface, and then fold base class into CacheStorageContextImpl.
 class CacheStorageContext
-    : public base::RefCountedThreadSafe<CacheStorageContext> {
+    : public base::RefCountedDeleteOnSequence<CacheStorageContext>,
+      public storage::mojom::CacheStorageControl {
  public:
-  using GetUsageInfoCallback =
-      base::OnceCallback<void(const std::vector<StorageUsageInfo>& usage_info)>;
-
-  // Methods used in response to browsing data and quota manager requests.
-  // May be called on any sequence.
-  virtual void GetAllOriginsInfo(GetUsageInfoCallback callback) = 0;
-  virtual void DeleteForOrigin(const url::Origin& origin) = 0;
+  explicit CacheStorageContext(
+      scoped_refptr<base::SequencedTaskRunner> task_runner)
+      : RefCountedDeleteOnSequence<CacheStorageContext>(
+            std::move(task_runner)) {}
 
  protected:
-  friend class base::RefCountedThreadSafe<CacheStorageContext>;
-  virtual ~CacheStorageContext() {}
+  friend class base::RefCountedDeleteOnSequence<CacheStorageContext>;
+  friend class base::DeleteHelper<CacheStorageContext>;
+  ~CacheStorageContext() override = default;
 };
 
 }  // namespace content

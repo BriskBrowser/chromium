@@ -5,6 +5,7 @@
 #include "base/util/memory_pressure/system_memory_pressure_evaluator_linux.h"
 
 #include "base/bind.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/process/process_metrics.h"
 #include "base/single_thread_task_runner.h"
 #include "base/task/post_task.h"
@@ -32,7 +33,7 @@ int GetAvailableSystemMemoryMiB(const base::SystemMemoryInfoKB& mem_info) {
 }  // namespace
 
 namespace util {
-namespace linux {
+namespace os_linux {
 
 const base::TimeDelta SystemMemoryPressureEvaluator::kModeratePressureCooldown =
     base::TimeDelta::FromSeconds(10);
@@ -127,10 +128,20 @@ bool SystemMemoryPressureEvaluator::InferThresholds() {
   base::SystemMemoryInfoKB mem_info;
   if (!GetSystemMemoryInfo(&mem_info))
     return false;
-  critical_threshold_mb_ =
-      mem_info.total * (100 - kDefaultCriticalThresholdPc) / 100 / kKiBperMiB;
-  moderate_threshold_mb_ =
-      mem_info.total * (100 - kDefaultModerateThresholdPc) / 100 / kKiBperMiB;
+
+  // The computation of the different thresholds assumes that
+  // SystemMemoryInfoKB::total is stored as an integer and so the result of
+  // |static_cast<uint64_t>(mem_info.total) * (100 - kThresholdPc)| won't
+  // overflow.
+  static_assert(
+      std::is_same<decltype(mem_info.total), int>::value,
+      "SystemMemoryInfoKB::total is expected to be stored as an integer.");
+  critical_threshold_mb_ = base::checked_cast<int>(
+      static_cast<uint64_t>(mem_info.total) *
+      (100 - kDefaultCriticalThresholdPc) / 100 / kKiBperMiB);
+  moderate_threshold_mb_ = base::checked_cast<int>(
+      static_cast<uint64_t>(mem_info.total) *
+      (100 - kDefaultModerateThresholdPc) / 100 / kKiBperMiB);
   return true;
 }
 
@@ -153,5 +164,5 @@ SystemMemoryPressureEvaluator::CalculateCurrentPressureLevel() {
   return base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE;
 }
 
-}  // namespace linux
+}  // namespace os_linux
 }  // namespace util

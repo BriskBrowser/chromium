@@ -11,7 +11,7 @@
 #include "base/barrier_closure.h"
 #include "base/base64url.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/logging.h"
@@ -25,8 +25,11 @@
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/gcm/gcm_profile_service_factory.h"
 #include "chrome/browser/gcm/instance_id/instance_id_profile_service_factory.h"
+#include "chrome/browser/permissions/abusive_origin_permission_revocation_request.h"
 #include "chrome/browser/permissions/permission_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_keep_alive_types.h"
+#include "chrome/browser/profiles/scoped_profile_keep_alive.h"
 #include "chrome/browser/push_messaging/push_messaging_app_identifier.h"
 #include "chrome/browser/push_messaging/push_messaging_constants.h"
 #include "chrome/browser/push_messaging/push_messaging_features.h"
@@ -181,6 +184,12 @@ content::RenderFrameHost* GetMainFrameForRenderFrameHost(
 
   return web_contents ? web_contents->GetMainFrame() : nullptr;
 }
+
+PendingMessage::PendingMessage(std::string app_id, gcm::IncomingMessage message)
+    : app_id(std::move(app_id)), message(std::move(message)) {}
+PendingMessage::PendingMessage(PendingMessage&& other) = default;
+PendingMessage& PendingMessage::operator=(PendingMessage&& other) = default;
+PendingMessage::~PendingMessage() = default;
 
 }  // namespace
 
@@ -342,13 +351,13 @@ void PushMessagingServiceImpl::OnMessage(const std::string& app_id,
     in_flight_keep_alive_ = std::make_unique<ScopedKeepAlive>(
         KeepAliveOrigin::IN_FLIGHT_PUSH_MESSAGE,
         KeepAliveRestartOption::DISABLED);
+    in_flight_profile_keep_alive_ = std::make_unique<ScopedProfileKeepAlive>(
+        profile_, ProfileKeepAliveOrigin::kInFlightPushMessage);
   }
 #endif
 
-  base::OnceClosure message_handled_closure =
-      message_callback_for_testing_.is_null() ? base::DoNothing()
-                                              : message_callback_for_testing_;
   refresher_.GotMessageFrom(app_id);
+
   PushMessagingAppIdentifier app_identifier =
       PushMessagingAppIdentifier::FindByAppId(profile_, app_id);
   // Drop message and unregister if app_id was unknown (maybe recently deleted).
@@ -358,7 +367,7 @@ void PushMessagingServiceImpl::OnMessage(const std::string& app_id,
     if (!refresh_identifier) {
       DeliverMessageCallback(app_id, GURL::EmptyGURL(),
                              -1 /* kInvalidServiceWorkerRegistrationId */,
-                             message, std::move(message_handled_closure),
+                             message, message_handled_callback(),
                              blink::mojom::PushEventStatus::UNKNOWN_APP_ID);
       return;
     }
@@ -371,38 +380,104 @@ void PushMessagingServiceImpl::OnMessage(const std::string& app_id,
       /* was_encrypted= */ message.decrypted, std::string() /* error_message */,
       message.decrypted ? message.raw_data : std::string());
 
-  // Drop message and unregister if |origin| has lost push permission.
-  if (!IsPermissionSet(app_identifier.origin())) {
+  if (IsPermissionSet(app_identifier.origin())) {
+    messages_pending_permission_check_.emplace(app_id, message);
+    // Start abusive origin verification only if no other verification is in
+    // progress.
+    if (!abusive_origin_revocation_request_)
+      CheckOriginForAbuseAndDispatchNextMessage();
+  } else {
+    // Drop message and unregister if origin has lost push permission.
     DeliverMessageCallback(app_id, app_identifier.origin(),
                            app_identifier.service_worker_registration_id(),
-                           message, std::move(message_handled_closure),
+                           message, message_handled_callback(),
                            blink::mojom::PushEventStatus::PERMISSION_DENIED);
+  }
+}
+
+void PushMessagingServiceImpl::CheckOriginForAbuseAndDispatchNextMessage() {
+  if (messages_pending_permission_check_.empty())
+    return;
+
+  const std::string app_id =
+      std::move(messages_pending_permission_check_.front().app_id);
+  const gcm::IncomingMessage message =
+      std::move(messages_pending_permission_check_.front().message);
+  messages_pending_permission_check_.pop();
+
+  PushMessagingAppIdentifier app_identifier =
+      PushMessagingAppIdentifier::FindByAppId(profile_, app_id);
+
+  if (app_identifier.is_null()) {
+    CheckOriginForAbuseAndDispatchNextMessage();
     return;
   }
 
-  // The payload of a push message can be valid with content, valid with empty
-  // content, or null.
-  base::Optional<std::string> payload;
-  if (message.decrypted)
-    payload = message.raw_data;
+  DCHECK(!abusive_origin_revocation_request_)
+      << "Create one Abusive Origin Revocation instance per request.";
+  abusive_origin_revocation_request_ =
+      std::make_unique<AbusiveOriginPermissionRevocationRequest>(
+          profile_, app_identifier.origin(),
+          base::BindOnce(&PushMessagingServiceImpl::OnCheckedOriginForAbuse,
+                         weak_factory_.GetWeakPtr(), app_id, message));
+}
 
-  // Dispatch the message to the appropriate Service Worker.
-  content::BrowserContext::DeliverPushMessage(
-      profile_, app_identifier.origin(),
-      app_identifier.service_worker_registration_id(), message.message_id,
-      payload,
-      base::BindOnce(&PushMessagingServiceImpl::DeliverMessageCallback,
-                     weak_factory_.GetWeakPtr(), app_identifier.app_id(),
-                     app_identifier.origin(),
-                     app_identifier.service_worker_registration_id(), message,
-                     std::move(message_handled_closure)));
+void PushMessagingServiceImpl::OnCheckedOriginForAbuse(
+    const std::string& app_id,
+    const gcm::IncomingMessage& message,
+    AbusiveOriginPermissionRevocationRequest::Outcome outcome) {
+  abusive_origin_revocation_request_.reset();
 
-  // Inform tests observing message dispatching about the event.
-  if (!message_dispatched_callback_for_testing_.is_null()) {
-    message_dispatched_callback_for_testing_.Run(
-        app_id, app_identifier.origin(),
-        app_identifier.service_worker_registration_id(), std::move(payload));
+  PushMessagingAppIdentifier app_identifier =
+      PushMessagingAppIdentifier::FindByAppId(profile_, app_id);
+
+  if (app_identifier.is_null()) {
+    CheckOriginForAbuseAndDispatchNextMessage();
+    return;
   }
+
+  const GURL& origin = app_identifier.origin();
+  int64_t service_worker_registration_id =
+      app_identifier.service_worker_registration_id();
+
+  // It is possible that Notifications permission has been revoked by an user
+  // during abusive origin verification.
+  if (outcome == AbusiveOriginPermissionRevocationRequest::Outcome::
+                     PERMISSION_NOT_REVOKED &&
+      IsPermissionSet(origin)) {
+    // The payload of a push message can be valid with content, valid with empty
+    // content, or null.
+    base::Optional<std::string> payload;
+    if (message.decrypted)
+      payload = message.raw_data;
+
+    // Dispatch the message to the appropriate Service Worker.
+    content::BrowserContext::DeliverPushMessage(
+        profile_, origin, service_worker_registration_id, message.message_id,
+        payload,
+        base::BindOnce(&PushMessagingServiceImpl::DeliverMessageCallback,
+                       weak_factory_.GetWeakPtr(), app_id, origin,
+                       service_worker_registration_id, message,
+                       message_handled_callback()));
+
+    // Inform tests observing message dispatching about the event.
+    if (!message_dispatched_callback_for_testing_.is_null()) {
+      message_dispatched_callback_for_testing_.Run(
+          app_id, origin, service_worker_registration_id, std::move(payload));
+    }
+  } else {
+    // Drop message and unregister if origin has lost push permission.
+    DeliverMessageCallback(
+        app_id, app_identifier.origin(), service_worker_registration_id,
+        message, message_handled_callback(),
+        outcome == AbusiveOriginPermissionRevocationRequest::Outcome::
+                       PERMISSION_NOT_REVOKED
+            ? blink::mojom::PushEventStatus::PERMISSION_DENIED
+            : blink::mojom::PushEventStatus::PERMISSION_REVOKED_ABUSIVE);
+  }
+
+  // Verify the next message in the queue.
+  CheckOriginForAbuseAndDispatchNextMessage();
 }
 
 void PushMessagingServiceImpl::DeliverMessageCallback(
@@ -463,6 +538,10 @@ void PushMessagingServiceImpl::DeliverMessageCallback(
       unsubscribe_reason =
           blink::mojom::PushUnregistrationReason::DELIVERY_NO_SERVICE_WORKER;
       break;
+    case blink::mojom::PushEventStatus::PERMISSION_REVOKED_ABUSIVE:
+      unsubscribe_reason =
+          blink::mojom::PushUnregistrationReason::PERMISSION_REVOKED_ABUSIVE;
+      break;
   }
 
   // If |message_handled_closure| was not yet used, make a |completion_closure|
@@ -520,8 +599,10 @@ void PushMessagingServiceImpl::DidHandleMessage(
 
 #if BUILDFLAG(ENABLE_BACKGROUND_MODE)
   // Reset before running callbacks below, so tests can verify keep-alive reset.
-  if (in_flight_message_deliveries_.empty())
+  if (in_flight_message_deliveries_.empty()) {
     in_flight_keep_alive_.reset();
+    in_flight_profile_keep_alive_.reset();
+  }
 #endif
 
   std::move(message_handled_closure).Run();
@@ -548,7 +629,7 @@ void PushMessagingServiceImpl::DidHandleMessage(
 }
 
 void PushMessagingServiceImpl::SetMessageCallbackForTesting(
-    const base::Closure& callback) {
+    const base::RepeatingClosure& callback) {
   message_callback_for_testing_ = callback;
 }
 
@@ -674,10 +755,7 @@ void PushMessagingServiceImpl::SubscribeFromWorker(
     return;
   }
 
-  blink::mojom::PermissionStatus permission_status =
-      GetPermissionStatus(requesting_origin, options->user_visible_only);
-
-  if (permission_status != blink::mojom::PermissionStatus::GRANTED) {
+  if (!IsPermissionSet(requesting_origin, options->user_visible_only)) {
     SubscribeEndWithError(
         std::move(register_callback),
         blink::mojom::PushRegistrationStatus::PERMISSION_DENIED);
@@ -772,8 +850,7 @@ void PushMessagingServiceImpl::DoSubscribe(
       ->GetInstanceID(app_identifier.app_id())
       ->GetToken(
           push_messaging::NormalizeSenderInfo(application_server_key_string),
-          kGCMScope, ttl, std::map<std::string, std::string>() /* options */,
-          {} /* flags */,
+          kGCMScope, ttl, {} /* flags */,
           base::BindOnce(&PushMessagingServiceImpl::DidSubscribe,
                          weak_factory_.GetWeakPtr(), app_identifier,
                          application_server_key_string,
@@ -1083,12 +1160,12 @@ void PushMessagingServiceImpl::DidUnsubscribe(
     DecreasePushSubscriptionCount(1, false /* was_pending */);
 
   if (!unsubscribe_callback_for_testing_.is_null())
-    unsubscribe_callback_for_testing_.Run();
+    std::move(unsubscribe_callback_for_testing_).Run();
 }
 
 void PushMessagingServiceImpl::SetUnsubscribeCallbackForTesting(
-    const base::Closure& callback) {
-  unsubscribe_callback_for_testing_ = callback;
+    base::OnceClosure callback) {
+  unsubscribe_callback_for_testing_ = std::move(callback);
 }
 
 // DidDeleteServiceWorkerRegistration methods ----------------------------------
@@ -1157,8 +1234,7 @@ void PushMessagingServiceImpl::SetServiceWorkerDatabaseWipedCallbackForTesting(
 void PushMessagingServiceImpl::OnContentSettingChanged(
     const ContentSettingsPattern& primary_pattern,
     const ContentSettingsPattern& secondary_pattern,
-    ContentSettingsType content_type,
-    const std::string& resource_identifier) {
+    ContentSettingsType content_type) {
   if (content_type != ContentSettingsType::NOTIFICATIONS)
     return;
 
@@ -1343,6 +1419,7 @@ void PushMessagingServiceImpl::Observe(
   shutdown_started_ = true;
 #if BUILDFLAG(ENABLE_BACKGROUND_MODE)
   in_flight_keep_alive_.reset();
+  in_flight_profile_keep_alive_.reset();
 #endif  // BUILDFLAG(ENABLE_BACKGROUND_MODE)
 }
 
@@ -1455,8 +1532,14 @@ void PushMessagingServiceImpl::DidUpdateSubscription(
   PushMessagingAppIdentifier new_app_identifier =
       PushMessagingAppIdentifier::FindByAppId(profile_, new_app_id);
 
+  // Callback for testing
+  base::OnceClosure callback =
+      (invalidation_callback_for_testing_)
+          ? std::move(invalidation_callback_for_testing_)
+          : base::DoNothing();
+
   FirePushSubscriptionChange(
-      new_app_identifier, base::DoNothing(),
+      new_app_identifier, std::move(callback),
       blink::mojom::PushSubscription::New(
           endpoint, expiration_time, push_messaging::MakeOptions(sender_id),
           p256dh, auth),
@@ -1468,12 +1551,26 @@ void PushMessagingServiceImpl::DidUpdateSubscription(
 void PushMessagingServiceImpl::OnOldSubscriptionExpired(
     const std::string& app_id,
     const std::string& sender_id) {
-  NOTIMPLEMENTED();
+  // Unsubscribe without clearing SW database, since values of the new
+  // subscription are already saved there.
+  // After unsubscribing, the refresher will get notified.
+  UnsubscribeInternal(
+      blink::mojom::PushUnregistrationReason::REFRESH_FINISHED,
+      GURL::EmptyGURL() /* origin */, -1 /* service_worker_registration_id */,
+      app_id, sender_id,
+      base::BindOnce(&UnregisterCallbackToClosure,
+                     base::BindOnce(&PushMessagingRefresher::OnUnsubscribed,
+                                    refresher_.GetWeakPtr(), app_id)));
 }
 
 void PushMessagingServiceImpl::OnRefreshFinished(
     const PushMessagingAppIdentifier& app_identifier) {
-  NOTIMPLEMENTED();
+  // TODO(viviy): Log data in UMA
+}
+
+void PushMessagingServiceImpl::SetInvalidationCallbackForTesting(
+    base::OnceClosure callback) {
+  invalidation_callback_for_testing_ = std::move(callback);
 }
 
 // Helper methods --------------------------------------------------------------
@@ -1485,8 +1582,9 @@ void PushMessagingServiceImpl::SetRemoveExpiredSubscriptionsCallbackForTesting(
 
 // Assumes user_visible always since this is just meant to check
 // if the permission was previously granted and not revoked.
-bool PushMessagingServiceImpl::IsPermissionSet(const GURL& origin) {
-  return GetPermissionStatus(origin, true /* user_visible */) ==
+bool PushMessagingServiceImpl::IsPermissionSet(const GURL& origin,
+                                               bool user_visible) {
+  return GetPermissionStatus(origin, user_visible) ==
          blink::mojom::PermissionStatus::GRANTED;
 }
 

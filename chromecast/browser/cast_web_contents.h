@@ -16,6 +16,7 @@
 #include "base/strings/string16.h"
 #include "chromecast/common/mojom/feature_manager.mojom.h"
 #include "content/public/common/media_playback_renderer_type.mojom.h"
+#include "mojo/public/cpp/bindings/generic_pending_receiver.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "third_party/blink/public/common/messaging/web_message_port.h"
@@ -36,8 +37,6 @@ class OnLoadScriptInjectorHost;
 }  // namespace on_load_script_injector
 
 namespace chromecast {
-
-class QueryableDataHost;
 
 struct RendererFeature {
   const std::string name;
@@ -230,14 +229,13 @@ class CastWebContents {
     bool enable_websql = false;
     // Enable mixer audio support for this CastWebContents.
     bool enable_mixer_audio = false;
-    // Whether to provide a QueryableDataHost for this CastWebContents.
-    // Clients can use it to send queryable values to the render frames.
-    // queryable_data_host() will return a nullptr if this is false.
-    bool enable_queryable_data_host = false;
     // Whether to provide a URL filter applied to network requests for the
     // activity hosted by this CastWebContents.
     // No filters implies no restrictions.
     base::Optional<std::vector<std::string>> url_filters = base::nullopt;
+    // Whether WebRTC peer connections are allowed to use legacy versions of the
+    // TLS/DTLS protocols.
+    bool webrtc_allow_legacy_tls_protocols = false;
 
     InitParams();
     InitParams(const InitParams& other);
@@ -275,10 +273,6 @@ class CastWebContents {
   // TODO(seantopping): Hide this, clients shouldn't use WebContents directly.
   virtual content::WebContents* web_contents() const = 0;
   virtual PageState page_state() const = 0;
-
-  // Returns QueryableDataHost that is used to push values to the renderer.
-  // Returns nullptr if the new queryable data bindings is enabled.
-  virtual QueryableDataHost* queryable_data_host() const = 0;
 
   // Returns the PID of the main frame process if valid.
   virtual base::Optional<pid_t> GetMainFrameRenderProcessPid() const = 0;
@@ -389,6 +383,10 @@ class CastWebContents {
   // Delegate should register its mojo interface binders via this function
   // when it is ready.
   virtual service_manager::BinderRegistry* binder_registry() = 0;
+
+  // Asks the CastWebContents to bind an interface receiver using either its
+  // registry or any registered InterfaceProvider.
+  virtual bool TryBindReceiver(mojo::GenericPendingReceiver& receiver) = 0;
 
   // Used for owner to pass its |InterfaceProvider| pointers to CastWebContents.
   // It is owner's responsibility to make sure each |InterfaceProvider| pointer

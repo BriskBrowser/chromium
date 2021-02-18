@@ -22,9 +22,9 @@ extern const char kMessagesAllowedPrefName[];
 extern const char kSmartLockAllowedPrefName[];
 extern const char kSmartLockSigninAllowedPrefName[];
 extern const char kPhoneHubAllowedPrefName[];
-// Note: Notification pref is shared with the notification badge feature.
 extern const char kPhoneHubNotificationsAllowedPrefName[];
 extern const char kPhoneHubTaskContinuationAllowedPrefName[];
+extern const char kWifiSyncAllowedPrefName[];
 
 // Preferences which represent whether features are enabled by the user via
 // settings. If a feature is prohibited (see above preferences), the "enabled"
@@ -35,7 +35,6 @@ extern const char kMessagesEnabledPrefName[];
 extern const char kSmartLockEnabledPrefName[];
 extern const char kPhoneHubEnabledPrefName[];
 extern const char kPhoneHubNotificationsEnabledPrefName[];
-extern const char kPhoneHubNotificationBadgeEnabledPrefName[];
 extern const char kPhoneHubTaskContinuationEnabledPrefName[];
 
 // The old pref which controlled if Smart Lock was enabled, prior to the
@@ -45,7 +44,7 @@ extern const char kSmartLockEnabledDeprecatedPrefName[];
 
 void RegisterFeaturePrefs(PrefRegistrySimple* registry);
 bool AreAnyMultiDeviceFeaturesAllowed(const PrefService* pref_service);
-bool IsFeatureAllowed(mojom::Feature feature, PrefService* pref_service);
+bool IsFeatureAllowed(mojom::Feature feature, const PrefService* pref_service);
 
 }  // namespace multidevice_setup
 

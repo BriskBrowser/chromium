@@ -87,6 +87,9 @@ class EnrollmentScreen
                   const std::string& domain_join_config,
                   OnDomainJoinedCallback on_joined_callback) override;
 
+  // Notification that the browser is being restarted.
+  void OnBrowserRestart();
+
   // Used for testing.
   EnrollmentScreenView* GetView() { return view_; }
 
@@ -131,20 +134,20 @@ class EnrollmentScreen
   // Creates an enrollment helper if needed.
   void CreateEnrollmentHelper();
 
-  // Clears auth in |enrollment_helper_|. Deletes |enrollment_helper_| and runs
-  // |callback| on completion. See the comment for
+  // Clears auth in `enrollment_helper_`. Deletes `enrollment_helper_` and runs
+  // `callback` on completion. See the comment for
   // EnterpriseEnrollmentHelper::ClearAuth for details.
-  void ClearAuth(const base::Closure& callback);
+  void ClearAuth(base::OnceClosure callback);
 
   // Used as a callback for EnterpriseEnrollmentHelper::ClearAuth.
-  virtual void OnAuthCleared(const base::Closure& callback);
+  virtual void OnAuthCleared(base::OnceClosure callback);
 
   // Shows successful enrollment status after all enrollment related file
   // operations are completed.
   void ShowEnrollmentStatusOnSuccess();
 
   // Logs an UMA event in one of the "Enrollment.*" histograms, depending on
-  // |enrollment_mode_|.
+  // `enrollment_mode_`.
   void UMA(policy::MetricEnrollment sample);
 
   // Do attestation based enrollment.
@@ -199,7 +202,7 @@ class EnrollmentScreen
   std::unique_ptr<base::ElapsedTimer> elapsed_timer_;
   net::BackoffEntry::Policy retry_policy_;
   std::unique_ptr<net::BackoffEntry> retry_backoff_;
-  base::CancelableClosure retry_task_;
+  base::CancelableOnceClosure retry_task_;
   int num_retries_ = 0;
   std::unique_ptr<EnterpriseEnrollmentHelper> enrollment_helper_;
   OnDomainJoinedCallback on_joined_callback_;

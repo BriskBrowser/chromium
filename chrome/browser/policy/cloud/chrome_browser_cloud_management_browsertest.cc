@@ -8,7 +8,7 @@
 #include <tuple>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
@@ -38,6 +38,7 @@
 #include "components/enterprise/browser/controller/browser_dm_token_storage.h"
 #include "components/enterprise/browser/controller/chrome_browser_cloud_management_controller.h"
 #include "components/enterprise/browser/controller/fake_browser_dm_token_storage.h"
+#include "components/enterprise/browser/enterprise_switches.h"
 #include "components/policy/core/common/cloud/chrome_browser_cloud_management_metrics.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/device_management_service.h"
@@ -462,6 +463,7 @@ class ChromeBrowserCloudManagementEnrollmentTest
     base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
     command_line->AppendSwitchASCII(switches::kDeviceManagementUrl,
                                     test_server_.GetServiceURL().spec());
+    ChromeBrowserPolicyConnector::EnableCommandLineSupportForTesting();
 
     histogram_tester_.ExpectTotalCount(kEnrollmentResultMetrics, 0);
   }
@@ -602,6 +604,7 @@ class MachineLevelUserCloudPolicyPolicyFetchTest
     base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
     command_line->AppendSwitchASCII(switches::kDeviceManagementUrl,
                                     test_server_->GetServiceURL().spec());
+    ChromeBrowserPolicyConnector::EnableCommandLineSupportForTesting();
   }
 
 #if !BUILDFLAG(GOOGLE_CHROME_BRANDING)
@@ -762,6 +765,7 @@ class MachineLevelUserCloudPolicyRobotAuthTest
     base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
     command_line->AppendSwitchASCII(switches::kDeviceManagementUrl,
                                     test_server_->GetServiceURL().spec());
+    ChromeBrowserPolicyConnector::EnableCommandLineSupportForTesting();
   }
 
 #if !BUILDFLAG(GOOGLE_CHROME_BRANDING)
@@ -791,7 +795,7 @@ class MachineLevelUserCloudPolicyRobotAuthTest
 };  // namespace policy
 
 // Flaky on linux & win: https://crbug.com/1105167
-#if defined(OS_WIN) || defined(OS_LINUX)
+#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_CHROMEOS)
 #define MAYBE_Test DISABLED_Test
 #else
 #define MAYBE_Test Test

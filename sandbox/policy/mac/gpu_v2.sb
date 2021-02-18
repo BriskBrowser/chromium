@@ -4,12 +4,55 @@
 
 ; --- The contents of common.sb implicitly included here. ---
 
+(deny default (with partial-symbolication))
+(debug deny)
+
 ; Allow cf prefs to work.
 (allow user-preference-read)
 
 (allow-cvms-blobs)
 
 (allow ipc-posix-shm)
+
+(define disable-metal-shader-cache "DISABLE_METAL_SHADER_CACHE")
+
+; TODO(https://crbug.com/1126350): Remove this after debugging. These blocks
+; enumerate known denials, while turning unknown denials into fatal crashes.
+(define crash-on-unknown-denials #f) ; Single-line kill switch.
+(if crash-on-unknown-denials
+  (begin
+    (deny mach-lookup (with no-report)
+      (global-name "com.apple.GameController.gamecontrollerd")
+      (global-name "com.apple.UsageTrackingAgent")
+      (global-name "com.apple.analyticsd")
+      (global-name "com.apple.diagnosticd")
+      (global-name "com.apple.pasteboard.1") ; For tests only.
+      (global-name "com.apple.systemstats.analysis") ; https://crbug.com/1135413
+      (global-name "com.apple.tccd.system")
+    )
+    (deny mach-lookup (with send-signal SIGABRT))
+    (deny iokit-open (with send-signal SIGTRAP))
+    ; Added in 10.14, but only needed on 10.15+. Partial compatibility
+    ; definition.
+    (unless (defined? 'path-ancestors) (define (path-ancestors x) (path x)))
+    (deny file-read* (with no-report)
+      (path (param "PARENT_DIR"))
+      (path (param "PWD"))
+      (path-ancestors (param "PARENT_DIR")) ; libxpc.dylib`_xpc_bundle_resolve_sync walks the dir tree.
+      (subpath "/Library/Apple")
+      (subpath "/Library/Application Support/CrashReporter")
+      (subpath "/usr/share/locale")
+      (subpath (user-homedir-path "/Library/Containers"))
+    )
+    (deny file-read* (with send-signal SIGFPE))
+    (deny file-write-data (with no-report)
+      ; CoreServicesInternal`prepareValuesForBitmap() calls getattrlist(), which
+      ; results for some reason in a file-write-data evaluation in the kernel.
+      (subpath (param bundle-path))
+    )
+    (deny file-write* (with send-signal SIGSYS))
+  )
+)
 
 ; Allow communication between the GPU process and the UI server.
 (allow mach-lookup
@@ -27,6 +70,7 @@
   (global-name "com.apple.PowerManagement.control")
   (global-name "com.apple.SecurityServer")
   (global-name "com.apple.system.notification_center")
+  (global-name "com.apple.system.opendirectoryd.membership") ; https://crbug.com/1126350#c5
   (global-name "com.apple.tsm.uiserver")
   (global-name "com.apple.windowserver.active")
 )
@@ -38,7 +82,10 @@
 
 ; Needed for VideoToolbox H.264 SW and VP9 decoding - https://crbug.com/1113936
 (if (>= os-version 1016)
-  (allow mach-lookup (global-name "com.apple.trustd.agent"))
+  (begin
+    (allow mach-lookup (global-name "com.apple.trustd.agent"))
+    (allow file-read* (path "/Library/Preferences/com.apple.security.plist"))
+  )
 )
 
 ; Needed for WebGL - https://crbug.com/75343
@@ -81,6 +128,7 @@
 ))
 
 (allow sysctl-read
+  (sysctl-name "hw.busfrequency_max")
   (sysctl-name "hw.cachelinesize")
   (sysctl-name "hw.logicalcpu_max")
   (sysctl-name "hw.memsize")
@@ -90,10 +138,14 @@
 
 (allow file-read-data
   (path "/Library/MessageTracer/SubmitDiagInfo.default.domains.searchtree")
+  (path "/System/Library/MessageTracer/SubmitDiagInfo.default.domains.searchtree")
+  (regex (user-homedir-path #"/Library/Preferences/(.*/)?com\.apple\.driver\..*\.plist"))
   (regex (user-homedir-path #"/Library/Preferences/ByHost/com.apple.AppleGVA.*"))
 )
 
 (allow file-read*
+  (path (user-homedir-path "/Library/Preferences")) ; List contents of preference directories https://crbug.com/1126350#c14.
+  (path (user-homedir-path "/Library/Preferences/ByHost"))
   (subpath "/Library/GPUBundles")
   (subpath "/Library/Video/Plug-Ins")
   (subpath "/System/Library/ColorSync/Profiles")
@@ -121,3 +173,11 @@
       (syscall-number SYS_write)
       (syscall-number SYS_write_nocancel)
 )))
+
+; crbug.com/1159113
+(if (param-true? disable-metal-shader-cache)
+  (let ((metal-cache-dir (subpath (string-append (param darwin-user-cache-dir)
+                                                 "/com.apple.metal"))))
+    (deny file-read* metal-cache-dir)
+    (deny file-write* metal-cache-dir))
+)

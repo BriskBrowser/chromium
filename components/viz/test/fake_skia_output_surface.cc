@@ -162,7 +162,8 @@ void FakeSkiaOutputSurface::MakePromiseSkImage(ImageContext* image_context) {
 sk_sp<SkImage> FakeSkiaOutputSurface::MakePromiseSkImageFromYUV(
     const std::vector<ImageContext*>& contexts,
     sk_sp<SkColorSpace> image_color_space,
-    bool has_alpha) {
+    SkYUVAInfo::PlaneConfig plane_config,
+    SkYUVAInfo::Subsampling subsampling) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   NOTIMPLEMENTED();
   return nullptr;
@@ -178,6 +179,7 @@ FakeSkiaOutputSurface::CreateImageContext(
     const gpu::MailboxHolder& holder,
     const gfx::Size& size,
     ResourceFormat format,
+    bool concurrent_reads,
     const base::Optional<gpu::VulkanYCbCrInfo>& ycbcr_info,
     sk_sp<SkColorSpace> color_space) {
   return std::make_unique<ExternalUseClient::ImageContext>(
@@ -207,18 +209,13 @@ SkCanvas* FakeSkiaOutputSurface::BeginPaintRenderPass(
   return sk_surface->getCanvas();
 }
 
-gpu::SyncToken FakeSkiaOutputSurface::SubmitPaint(
-    base::OnceClosure on_finished) {
+void FakeSkiaOutputSurface::EndPaint(base::OnceClosure on_finished) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   sk_surfaces_[current_render_pass_id_]->flushAndSubmit();
   current_render_pass_id_ = AggregatedRenderPassId{0};
 
   if (on_finished)
     std::move(on_finished).Run();
-
-  gpu::SyncToken sync_token;
-  context_provider()->ContextGL()->GenSyncTokenCHROMIUM(sync_token.GetData());
-  return sync_token;
 }
 
 sk_sp<SkImage> FakeSkiaOutputSurface::MakePromiseSkImageFromRenderPass(
@@ -316,6 +313,29 @@ void FakeSkiaOutputSurface::RemoveContextLostObserver(
   NOTIMPLEMENTED();
 }
 
+gpu::SyncToken FakeSkiaOutputSurface::Flush() {
+  gpu::SyncToken sync_token;
+  context_provider()->ContextGL()->GenSyncTokenCHROMIUM(sync_token.GetData());
+  return sync_token;
+}
+
+#if defined(OS_APPLE)
+SkCanvas* FakeSkiaOutputSurface::BeginPaintRenderPassOverlay(
+    const gfx::Size& size,
+    ResourceFormat format,
+    bool mipmap,
+    sk_sp<SkColorSpace> color_space) {
+  NOTIMPLEMENTED();
+  return nullptr;
+}
+
+sk_sp<SkDeferredDisplayList>
+FakeSkiaOutputSurface::EndPaintRenderPassOverlay() {
+  NOTIMPLEMENTED();
+  return nullptr;
+}
+#endif
+
 void FakeSkiaOutputSurface::SetOutOfOrderCallbacks(
     bool out_of_order_callbacks) {
   TestContextSupport* support =
@@ -354,14 +374,4 @@ void FakeSkiaOutputSurface::ScheduleGpuTaskForTesting(
   NOTIMPLEMENTED();
 }
 
-scoped_refptr<gpu::GpuTaskSchedulerHelper>
-FakeSkiaOutputSurface::GetGpuTaskSchedulerHelper() {
-  NOTIMPLEMENTED();
-  return nullptr;
-}
-
-gpu::MemoryTracker* FakeSkiaOutputSurface::GetMemoryTracker() {
-  NOTIMPLEMENTED();
-  return nullptr;
-}
 }  // namespace viz

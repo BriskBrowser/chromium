@@ -33,6 +33,7 @@
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/controls/button/button_controller.h"
 #include "ui/views/controls/button/label_button_border.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace {
 
@@ -42,16 +43,12 @@ constexpr int kIconSizeForNonTouchUi = 22;
 
 }  // namespace
 
-// static
-const char AvatarToolbarButton::kAvatarToolbarButtonClassName[] =
-    "AvatarToolbarButton";
-
 AvatarToolbarButton::AvatarToolbarButton(Browser* browser)
     : AvatarToolbarButton(browser, nullptr) {}
 
 AvatarToolbarButton::AvatarToolbarButton(Browser* browser,
                                          ToolbarIconContainerView* parent)
-    : ToolbarButton(nullptr),
+    : ToolbarButton(PressedCallback()),
       delegate_(std::make_unique<AvatarToolbarButtonDelegate>()),
       browser_(browser),
       parent_(parent) {
@@ -61,13 +58,13 @@ AvatarToolbarButton::AvatarToolbarButton(Browser* browser,
   // without drag-drop actions (specifically the adjacent browser menu).
   button_controller()->set_notify_action(
       views::ButtonController::NotifyAction::kOnPress);
-  set_triggerable_event_flags(ui::EF_LEFT_MOUSE_BUTTON);
+  SetTriggerableEventFlags(ui::EF_LEFT_MOUSE_BUTTON);
 
   SetID(VIEW_ID_AVATAR_BUTTON);
 
   // The avatar should not flip with RTL UI. This does not affect text rendering
   // and LabelButton image/label placement is still flipped like usual.
-  EnableCanvasFlippingForRTLUI(false);
+  SetFlipCanvasOnPaintForRTLUI(false);
 
   GetViewAccessibility().OverrideHasPopup(ax::mojom::HasPopup::kMenu);
 
@@ -129,7 +126,7 @@ void AvatarToolbarButton::UpdateText() {
 
   switch (delegate_->GetState()) {
     case State::kIncognitoProfile: {
-      int incognito_window_count = delegate_->GetIncognitoWindowsCount();
+      const int incognito_window_count = delegate_->GetWindowCount();
       SetAccessibleName(l10n_util::GetPluralStringFUTF16(
           IDS_INCOGNITO_BUBBLE_ACCESSIBLE_TITLE, incognito_window_count));
       text = l10n_util::GetPluralStringFUTF16(IDS_AVATAR_BUTTON_INCOGNITO,
@@ -153,9 +150,14 @@ void AvatarToolbarButton::UpdateText() {
           gfx::kGoogleBlue050, gfx::kGoogleBlue900);
       text = l10n_util::GetStringUTF16(IDS_AVATAR_BUTTON_SYNC_PAUSED);
       break;
-    case State::kGuestSession:
-      text = l10n_util::GetStringUTF16(IDS_GUEST_PROFILE_NAME);
+    case State::kGuestSession: {
+      const int guest_window_count = delegate_->GetWindowCount();
+      SetAccessibleName(l10n_util::GetPluralStringFUTF16(
+          IDS_GUEST_BUBBLE_ACCESSIBLE_TITLE, guest_window_count));
+      text = l10n_util::GetPluralStringFUTF16(IDS_AVATAR_BUTTON_GUEST,
+                                              guest_window_count);
       break;
+    }
     case State::kGenericProfile:
     case State::kNormal:
       if (delegate_->IsHighlightAnimationVisible()) {
@@ -187,10 +189,6 @@ void AvatarToolbarButton::ShowAvatarHighlightAnimation() {
   delegate_->ShowHighlightAnimation();
 }
 
-bool AvatarToolbarButton::IsParentHighlighted() const {
-  return parent_ && parent_->IsHighlighted();
-}
-
 void AvatarToolbarButton::AddObserver(Observer* observer) {
   observer_list_.AddObserver(observer);
 }
@@ -202,10 +200,6 @@ void AvatarToolbarButton::RemoveObserver(Observer* observer) {
 void AvatarToolbarButton::NotifyHighlightAnimationFinished() {
   for (AvatarToolbarButton::Observer& observer : observer_list_)
     observer.OnAvatarHighlightAnimationFinished();
-}
-
-const char* AvatarToolbarButton::GetClassName() const {
-  return kAvatarToolbarButtonClassName;
 }
 
 void AvatarToolbarButton::OnMouseExited(const ui::MouseEvent& event) {
@@ -231,9 +225,10 @@ void AvatarToolbarButton::OnHighlightChanged() {
 void AvatarToolbarButton::NotifyClick(const ui::Event& event) {
   Button::NotifyClick(event);
   delegate_->NotifyClick();
-  // TODO(bsep): Other toolbar buttons have ToolbarView as a listener and let it
-  // call ExecuteCommandWithDisposition on their behalf. Unfortunately, it's not
-  // possible to plumb IsKeyEvent through, so this has to be a special case.
+  // TODO(bsep): Other toolbar buttons have a ToolbarView method as a callback
+  // and let it call ExecuteCommandWithDisposition on their behalf.
+  // Unfortunately, it's not possible to plumb IsKeyEvent through, so this has
+  // to be a special case.
   browser_->window()->ShowAvatarBubbleFromAvatarButton(
       BrowserWindow::AVATAR_BUBBLE_MODE_DEFAULT,
       signin_metrics::AccessPoint::ACCESS_POINT_AVATAR_BUBBLE_SIGN_IN,
@@ -245,7 +240,7 @@ base::string16 AvatarToolbarButton::GetAvatarTooltipText() const {
     case State::kIncognitoProfile:
       return l10n_util::GetStringUTF16(IDS_AVATAR_BUTTON_INCOGNITO_TOOLTIP);
     case State::kGuestSession:
-      return l10n_util::GetStringUTF16(IDS_GUEST_PROFILE_NAME);
+      return l10n_util::GetStringUTF16(IDS_AVATAR_BUTTON_GUEST_TOOLTIP);
     case State::kGenericProfile:
       return l10n_util::GetStringUTF16(IDS_GENERIC_USER_AVATAR_LABEL);
     case State::kAnimatedUserIdentity:
@@ -308,3 +303,6 @@ void AvatarToolbarButton::SetInsets() {
       touch_ui ? 0 : (kDefaultIconSize - kIconSizeForNonTouchUi) / 2);
   SetLayoutInsetDelta(layout_insets);
 }
+
+BEGIN_METADATA(AvatarToolbarButton, ToolbarButton)
+END_METADATA

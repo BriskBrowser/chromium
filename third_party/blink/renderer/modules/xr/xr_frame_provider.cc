@@ -10,15 +10,14 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/dom/frame_request_callback_collection.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/imagebitmap/image_bitmap.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
-#include "third_party/blink/renderer/modules/xr/xr_plane_detection_state.h"
 #include "third_party/blink/renderer/modules/xr/xr_session.h"
 #include "third_party/blink/renderer/modules/xr/xr_system.h"
 #include "third_party/blink/renderer/modules/xr/xr_viewport.h"
 #include "third_party/blink/renderer/modules/xr/xr_webgl_layer.h"
-#include "third_party/blink/renderer/modules/xr/xr_world_tracking_state.h"
 #include "third_party/blink/renderer/platform/graphics/gpu/xr_frame_transport.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/transforms/transformation_matrix.h"
@@ -29,8 +28,7 @@ namespace blink {
 
 namespace {
 
-class XRFrameProviderRequestCallback
-    : public FrameRequestCallbackCollection::FrameCallback {
+class XRFrameProviderRequestCallback : public FrameCallback {
  public:
   explicit XRFrameProviderRequestCallback(XRFrameProvider* frame_provider)
       : frame_provider_(frame_provider) {}
@@ -41,8 +39,7 @@ class XRFrameProviderRequestCallback
 
   void Trace(Visitor* visitor) const override {
     visitor->Trace(frame_provider_);
-
-    FrameRequestCallbackCollection::FrameCallback::Trace(visitor);
+    FrameCallback::Trace(visitor);
   }
 
   Member<XRFrameProvider> frame_provider_;
@@ -60,6 +57,11 @@ XRFrameProvider::XRFrameProvider(XRSystem* xr)
       immersive_presentation_provider_(xr->GetExecutionContext()),
       last_has_focus_(xr->IsFrameFocused()) {}
 
+void XRFrameProvider::AddImmersiveSessionObserver(
+    ImmersiveSessionObserver* observer) {
+  immersive_observers_.insert(observer);
+}
+
 void XRFrameProvider::OnSessionStarted(
     XRSession* session,
     device::mojom::blink::XRSessionPtr session_ptr) {
@@ -72,6 +74,10 @@ void XRFrameProvider::OnSessionStarted(
     DCHECK(session_ptr->submit_frame_sink);
 
     immersive_session_ = session;
+
+    for (auto& observer : immersive_observers_) {
+      observer->OnImmersiveSessionStart();
+    }
 
     immersive_data_provider_.Bind(
         std::move(session_ptr->data_provider),
@@ -156,6 +162,10 @@ void XRFrameProvider::OnSessionEnded(XRSession* session) {
         session->GetExecutionContext(),
         session->GetExecutionContext()->GetTaskRunner(
             TaskType::kMiscPlatformAPI));
+
+    for (auto& observer : immersive_observers_) {
+      observer->OnImmersiveSessionEnd();
+    }
   } else {
     non_immersive_data_providers_.erase(session);
     requesting_sessions_.erase(session);
@@ -182,8 +192,9 @@ void XRFrameProvider::RequestFrame(XRSession* session) {
   TRACE_EVENT0("gpu", __FUNCTION__);
   DCHECK(session);
 
-  auto options = device::mojom::blink::XRFrameDataRequestOptions::New(
-      session->LightEstimationEnabled());
+  auto options = device::mojom::blink::XRFrameDataRequestOptions::New();
+  options->include_lighting_estimation_data = session->LightEstimationEnabled();
+  options->stage_parameters_id = session->StageParametersId();
 
   // Immersive frame logic.
   if (session->immersive()) {
@@ -237,20 +248,14 @@ void XRFrameProvider::ScheduleNonImmersiveFrame(
     return;
   }
 
-  LocalFrame* frame = xr_->GetFrame();
-  if (!frame)
-    return;
-
-  // TODO(https://crbug.com/856224) Review the lifetime of this object and
-  // ensure that doc can never be null and remove this check.
-  Document* doc = frame->GetDocument();
-  if (!doc)
+  LocalDOMWindow* window = xr_->DomWindow();
+  if (!window)
     return;
 
   pending_non_immersive_vsync_ = true;
 
   // Calls |OnNonImmersiveVSync|
-  doc->RequestAnimationFrame(
+  window->document()->RequestAnimationFrame(
       MakeGarbageCollected<XRFrameProviderRequestCallback>(this));
 }
 
@@ -267,11 +272,8 @@ void XRFrameProvider::OnImmersiveFrameData(
     return;
   }
 
-  LocalFrame* frame = xr_->GetFrame();
-  if (!frame)
-    return;
-  Document* doc = frame->GetDocument();
-  if (!doc)
+  LocalDOMWindow* window = xr_->DomWindow();
+  if (!window)
     return;
 
   if (!first_immersive_frame_time_) {
@@ -287,7 +289,8 @@ void XRFrameProvider::OnImmersiveFrameData(
       *first_immersive_frame_time_ + current_frame_time_from_first_frame;
 
   double high_res_now_ms =
-      doc->Loader()
+      window->document()
+          ->Loader()
           ->GetTiming()
           .MonotonicTimeToZeroBasedDocumentTime(current_frame_time)
           .InMillisecondsF();
@@ -309,6 +312,10 @@ void XRFrameProvider::OnImmersiveFrameData(
 
   pending_immersive_vsync_ = false;
 
+  for (auto& observer : immersive_observers_) {
+    observer->OnImmersiveFrame();
+  }
+
   // Post a task to handle scheduled animations after the current
   // execution context finishes, so that we yield to non-mojo tasks in
   // between frames. Executing mojo tasks back to back within the same
@@ -317,7 +324,7 @@ void XRFrameProvider::OnImmersiveFrameData(
   //
   // Used kInternalMedia since 1) this is not spec-ed and 2) this is media
   // related then tasks should not be throttled or frozen in background tabs.
-  frame->GetTaskRunner(blink::TaskType::kInternalMedia)
+  window->GetTaskRunner(blink::TaskType::kInternalMedia)
       ->PostTask(FROM_HERE, WTF::Bind(&XRFrameProvider::ProcessScheduledFrame,
                                       WrapWeakPersistent(this), std::move(data),
                                       high_res_now_ms));
@@ -333,11 +340,11 @@ void XRFrameProvider::OnNonImmersiveVSync(double high_res_now_ms) {
   if (immersive_session_)
     return;
 
-  LocalFrame* frame = xr_->GetFrame();
-  if (!frame)
+  LocalDOMWindow* window = xr_->DomWindow();
+  if (!window)
     return;
 
-  frame->GetTaskRunner(blink::TaskType::kInternalMedia)
+  window->GetTaskRunner(blink::TaskType::kInternalMedia)
       ->PostTask(FROM_HERE,
                  WTF::Bind(&XRFrameProvider::ProcessScheduledFrame,
                            WrapWeakPersistent(this), nullptr, high_res_now_ms));
@@ -350,12 +357,8 @@ void XRFrameProvider::OnNonImmersiveFrameData(
   DVLOG(2) << __FUNCTION__;
 
   // TODO(https://crbug.com/837834): add unit tests for this code path.
-
-  LocalFrame* frame = xr_->GetFrame();
-  if (!frame)
-    return;
-  Document* doc = frame->GetDocument();
-  if (!doc)
+  LocalDOMWindow* window = xr_->DomWindow();
+  if (!window)
     return;
 
   // Look up the request for this session. The session may have ended between
@@ -380,7 +383,7 @@ void XRFrameProvider::OnNonImmersiveFrameData(
     // Try to request a regular animation frame to avoid getting stuck.
     DVLOG(1) << __FUNCTION__ << ": NO FRAME DATA!";
     request->value = nullptr;
-    doc->RequestAnimationFrame(
+    window->document()->RequestAnimationFrame(
         MakeGarbageCollected<XRFrameProviderRequestCallback>(this));
   }
 }
@@ -402,8 +405,10 @@ void XRFrameProvider::RequestNonImmersiveFrameData(XRSession* session) {
     request->value = nullptr;
   } else {
     auto& data_provider = provider->value->Value();
-    auto options = device::mojom::blink::XRFrameDataRequestOptions::New(
-        session->LightEstimationEnabled());
+    auto options = device::mojom::blink::XRFrameDataRequestOptions::New();
+    options->include_lighting_estimation_data =
+        session->LightEstimationEnabled();
+    options->stage_parameters_id = session->StageParametersId();
 
     data_provider->GetFrameData(
         std::move(options),
@@ -421,10 +426,9 @@ void XRFrameProvider::ProcessScheduledFrame(
   TRACE_EVENT2("gpu", "XRFrameProvider::ProcessScheduledFrame", "frame",
                frame_id_, "timestamp", high_res_now_ms);
 
-  LocalFrame* frame = xr_->GetFrame();
-  if (!frame) {
+  LocalDOMWindow* window = xr_->DomWindow();
+  if (!window)
     return;
-  }
 
   if (!xr_->IsFrameFocused() && !immersive_session_) {
     return;  // Not currently focused, so we won't expose poses (except to
@@ -481,14 +485,15 @@ void XRFrameProvider::ProcessScheduledFrame(
                                               frame_data->right_eye);
     }
 
-    if (frame_data && frame_data->stage_parameters_updated) {
-      immersive_session_->UpdateStageParameters(frame_data->stage_parameters);
+    if (frame_data) {
+      immersive_session_->UpdateStageParameters(frame_data->stage_parameters_id,
+                                                frame_data->stage_parameters);
     }
 
     // Run immersive_session_->OnFrame() in a posted task to ensure that
     // createAnchor promises get a chance to run - the presentation frame state
     // is already updated.
-    frame->GetTaskRunner(blink::TaskType::kInternalMedia)
+    window->GetTaskRunner(blink::TaskType::kInternalMedia)
         ->PostTask(FROM_HERE,
                    WTF::Bind(&XRSession::OnFrame,
                              WrapWeakPersistent(immersive_session_.Get()),
@@ -528,6 +533,11 @@ void XRFrameProvider::ProcessScheduledFrame(
       if (session->ended())
         continue;
 
+      if (inline_frame_data) {
+        session->UpdateStageParameters(inline_frame_data->stage_parameters_id,
+                                       inline_frame_data->stage_parameters);
+      }
+
       if (inline_frame_data && inline_frame_data->mojo_space_reset) {
         session->OnMojoSpaceReset();
       }
@@ -542,7 +552,7 @@ void XRFrameProvider::ProcessScheduledFrame(
       // Note that rather than call session->OnFrame() directly, we dispatch to
       // a helper method who can determine if the state requirements are still
       // met that would allow the frame to be served.
-      frame->GetTaskRunner(blink::TaskType::kInternalMedia)
+      window->GetTaskRunner(blink::TaskType::kInternalMedia)
           ->PostTask(
               FROM_HERE,
               WTF::Bind(&XRFrameProvider::OnPreDispatchInlineFrame,
@@ -689,6 +699,7 @@ void XRFrameProvider::Trace(Visitor* visitor) const {
   visitor->Trace(immersive_presentation_provider_);
   visitor->Trace(non_immersive_data_providers_);
   visitor->Trace(requesting_sessions_);
+  visitor->Trace(immersive_observers_);
 }
 
 }  // namespace blink

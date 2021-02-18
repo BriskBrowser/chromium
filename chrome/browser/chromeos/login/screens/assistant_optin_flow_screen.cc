@@ -6,14 +6,12 @@
 
 #include <memory>
 
-#include "chrome/browser/chromeos/assistant/assistant_util.h"
-#include "chrome/browser/chromeos/login/screen_manager.h"
+#include "chrome/browser/ash/assistant/assistant_util.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/webui/chromeos/login/assistant_optin_flow_screen_handler.h"
 #include "chromeos/assistant/buildflags.h"
-#include "chromeos/constants/chromeos_features.h"
 
 namespace chromeos {
 namespace {
@@ -36,13 +34,6 @@ std::string AssistantOptInFlowScreen::GetResultString(Result result) {
     case Result::NOT_APPLICABLE:
       return BaseScreen::kNotApplicable;
   }
-}
-
-// static
-AssistantOptInFlowScreen* AssistantOptInFlowScreen::Get(
-    ScreenManager* manager) {
-  return static_cast<AssistantOptInFlowScreen*>(
-      manager->GetScreen(AssistantOptInFlowScreenView::kScreenId));
 }
 
 AssistantOptInFlowScreen::AssistantOptInFlowScreen(

@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/files/file_util.h"
 #include "base/optional.h"
 #include "base/path_service.h"
 #include "base/stl_util.h"
@@ -15,6 +16,7 @@
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/apps/app_service/app_launch_params.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
@@ -107,11 +109,14 @@ using content::RenderViewHost;
       RunTestWithSSLServer(STRIP_PREFIXES(test_name)); \
     }
 
-// Disable all NaCl tests for --disable-nacl flag and on Mac ASAN builds.
-// Flaky on Mac ASAN:
-//    http://crbug.com/428670
+// Disable all NaCl tests for --disable-nacl flag and on Mac ASAN and Windows
+// builds.
+//
+// Flaky on Mac ASAN: https://crbug.com/428670
+// Flaky on Win7: https://crbug.com/1003252
 
-#if !BUILDFLAG(ENABLE_NACL) || (defined(OS_MAC) && defined(ADDRESS_SANITIZER))
+#if !BUILDFLAG(ENABLE_NACL) || \
+    (defined(OS_MAC) && defined(ADDRESS_SANITIZER)) || defined(OS_WIN)
 
 #define MAYBE_PPAPI_NACL(test_name) DISABLED_##test_name
 #define MAYBE_PPAPI_PNACL(test_name) DISABLED_##test_name
@@ -126,8 +131,8 @@ using content::RenderViewHost;
 
 #define MAYBE_PPAPI_NACL(test_name) test_name
 #if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_CHROMEOS) || \
-    defined(ADDRESS_SANITIZER)
-// http://crbug.com/633067, http://crbug.com/727989
+    defined(OS_MACOSX) || defined(ADDRESS_SANITIZER)
+// http://crbug.com/633067, http://crbug.com/727989, http://crbug.com/1076806
 #define MAYBE_PPAPI_PNACL(test_name) DISABLED_##test_name
 #else
 #define MAYBE_PPAPI_PNACL(test_name) test_name
@@ -191,76 +196,10 @@ using content::RenderViewHost;
 // Interface tests.
 //
 
-// Flaky, http://crbug.com/111355
-TEST_PPAPI_OUT_OF_PROCESS(DISABLED_Broker)
-
-IN_PROC_BROWSER_TEST_F(PPAPIBrokerInfoBarTest, Accept) {
-  // Accepting the infobar should grant permission to access the PPAPI broker.
-  InfoBarObserver observer(this);
-  observer.ExpectInfoBarAndAccept(true);
-
-  // PPB_Broker_Trusted::IsAllowed should return false before the infobar is
-  // popped and true after the infobar is popped.
-  RunTest("Broker_IsAllowedPermissionDenied");
-  RunTest("Broker_ConnectPermissionGranted");
-  RunTest("Broker_IsAllowedPermissionGranted");
-
-  // It should also set a content settings exception for the site.
-  GURL url = GetTestFileUrl("Broker_ConnectPermissionGranted");
-  HostContentSettingsMap* content_settings =
-      HostContentSettingsMapFactory::GetForProfile(browser()->profile());
-  EXPECT_EQ(CONTENT_SETTING_ALLOW,
-            content_settings->GetContentSetting(
-                url, url, ContentSettingsType::PPAPI_BROKER, std::string()));
-}
-
-IN_PROC_BROWSER_TEST_F(PPAPIBrokerInfoBarTest, Deny) {
-  // Canceling the infobar should deny permission to access the PPAPI broker.
-  InfoBarObserver observer(this);
-  observer.ExpectInfoBarAndAccept(false);
-
-  // PPB_Broker_Trusted::IsAllowed should return false before and after the
-  // infobar is popped.
-  RunTest("Broker_IsAllowedPermissionDenied");
-  RunTest("Broker_ConnectPermissionDenied");
-  RunTest("Broker_IsAllowedPermissionDenied");
-
-  // It should also set a content settings exception for the site.
-  GURL url = GetTestFileUrl("Broker_ConnectPermissionDenied");
-  HostContentSettingsMap* content_settings =
-      HostContentSettingsMapFactory::GetForProfile(browser()->profile());
-  EXPECT_EQ(CONTENT_SETTING_BLOCK,
-            content_settings->GetContentSetting(
-                url, url, ContentSettingsType::PPAPI_BROKER, std::string()));
-}
-
-IN_PROC_BROWSER_TEST_F(PPAPIBrokerInfoBarTest, Blocked) {
-  // Block access to the PPAPI broker.
-  HostContentSettingsMapFactory::GetForProfile(browser()->profile())
-      ->SetDefaultContentSetting(ContentSettingsType::PPAPI_BROKER,
-                                 CONTENT_SETTING_BLOCK);
-
-  // We shouldn't see an infobar.
-  InfoBarObserver observer(this);
-
-  RunTest("Broker_ConnectPermissionDenied");
-  RunTest("Broker_IsAllowedPermissionDenied");
-}
-
-IN_PROC_BROWSER_TEST_F(PPAPIBrokerInfoBarTest, Allowed) {
-  // Always allow access to the PPAPI broker.
-  HostContentSettingsMapFactory::GetForProfile(browser()->profile())
-      ->SetDefaultContentSetting(ContentSettingsType::PPAPI_BROKER,
-                                 CONTENT_SETTING_ALLOW);
-
-  // We shouldn't see an infobar.
-  InfoBarObserver observer(this);
-
-  RunTest("Broker_ConnectPermissionGranted");
-  RunTest("Broker_IsAllowedPermissionGranted");
-}
-
+// Flaky on Windows https://crbug.com/1059468
+#if !defined(OS_WIN) || !defined(ARCH_CPU_32_BITS)
 TEST_PPAPI_NACL(Console)
+#endif
 
 TEST_PPAPI_NACL(Core)
 
@@ -333,11 +272,18 @@ TEST_PPAPI_NACL(ImageData)
 // failing, and reducing chance of timeout.
 PPAPI_SOCKET_TEST(TCPSocket_Connect)
 PPAPI_SOCKET_TEST(TCPSocket_ReadWrite)
+// Flaky on Windows https://crbug.com/1059468#c18
+#if !defined(OS_WIN) || !defined(ARCH_CPU_32_BITS)
 PPAPI_SOCKET_TEST(TCPSocket_SetOption)
-PPAPI_SOCKET_TEST(TCPSocket_Listen)
 PPAPI_SOCKET_TEST(TCPSocket_Backlog)
+#endif
+PPAPI_SOCKET_TEST(TCPSocket_Listen)
 PPAPI_SOCKET_TEST(TCPSocket_Interface_1_0)
+
+// Flaky on Windows https://crbug.com/1143728
+#if !defined(OS_WIN)
 PPAPI_SOCKET_TEST(TCPSocket_UnexpectedCalls)
+#endif
 
 TEST_PPAPI_OUT_OF_PROCESS_VIA_HTTP(TCPServerSocketPrivate_Listen)
 TEST_PPAPI_OUT_OF_PROCESS_VIA_HTTP(TCPServerSocketPrivate_Backlog)
@@ -456,15 +402,19 @@ class MockTCPConnectedSocket : public network::mojom::TCPConnectedSocket,
       return;
     }
 
-    mojo::DataPipe send_pipe;
-    mojo::DataPipe receive_pipe;
+    mojo::ScopedDataPipeProducerHandle send_producer_handle;
+    EXPECT_EQ(
+        mojo::CreateDataPipe(nullptr, send_producer_handle, send_pipe_handle_),
+        MOJO_RESULT_OK);
 
-    receive_pipe_handle_ = std::move(receive_pipe.producer_handle);
-    send_pipe_handle_ = std::move(send_pipe.consumer_handle);
+    mojo::ScopedDataPipeConsumerHandle receive_consumer_handle;
+    EXPECT_EQ(mojo::CreateDataPipe(nullptr, receive_pipe_handle_,
+                                   receive_consumer_handle),
+              MOJO_RESULT_OK);
 
     std::move(callback).Run(net::OK, LocalAddress(), RemoteAddress(),
-                            std::move(receive_pipe.consumer_handle),
-                            std::move(send_pipe.producer_handle));
+                            std::move(receive_consumer_handle),
+                            std::move(send_producer_handle));
     ClosePipeIfNeeded();
   }
 
@@ -489,16 +439,19 @@ class MockTCPConnectedSocket : public network::mojom::TCPConnectedSocket,
       return;
     }
 
-    mojo::DataPipe send_pipe;
-    mojo::DataPipe receive_pipe;
+    mojo::ScopedDataPipeProducerHandle send_producer_handle;
+    EXPECT_EQ(
+        mojo::CreateDataPipe(nullptr, send_producer_handle, send_pipe_handle_),
+        MOJO_RESULT_OK);
 
-    receive_pipe_handle_ = std::move(receive_pipe.producer_handle);
-    send_pipe_handle_ = std::move(send_pipe.consumer_handle);
+    mojo::ScopedDataPipeConsumerHandle receive_consumer_handle;
+    EXPECT_EQ(mojo::CreateDataPipe(nullptr, receive_pipe_handle_,
+                                   receive_consumer_handle),
+              MOJO_RESULT_OK);
 
-    std::move(callback).Run(net::OK, RemoteAddress(),
-                            receiver_.BindNewPipeAndPassRemote(),
-                            std::move(receive_pipe.consumer_handle),
-                            std::move(send_pipe.producer_handle));
+    std::move(callback).Run(
+        net::OK, RemoteAddress(), receiver_.BindNewPipeAndPassRemote(),
+        std::move(receive_consumer_handle), std::move(send_producer_handle));
     ClosePipeIfNeeded();
   }
 
@@ -541,14 +494,18 @@ class MockTCPConnectedSocket : public network::mojom::TCPConnectedSocket,
     // that use a real NetworkContext already make sure that the class correctly
     // closes the sockets when upgrading.
 
-    mojo::DataPipe send_pipe;
-    mojo::DataPipe receive_pipe;
-    receive_pipe_handle_ = std::move(receive_pipe.producer_handle);
-    send_pipe_handle_ = std::move(send_pipe.consumer_handle);
+    mojo::ScopedDataPipeProducerHandle send_producer_handle;
+    EXPECT_EQ(
+        mojo::CreateDataPipe(nullptr, send_producer_handle, send_pipe_handle_),
+        MOJO_RESULT_OK);
 
-    std::move(callback).Run(net::OK, std::move(receive_pipe.consumer_handle),
-                            std::move(send_pipe.producer_handle),
-                            net::SSLInfo());
+    mojo::ScopedDataPipeConsumerHandle receive_consumer_handle;
+    EXPECT_EQ(mojo::CreateDataPipe(nullptr, receive_pipe_handle_,
+                                   receive_consumer_handle),
+              MOJO_RESULT_OK);
+
+    std::move(callback).Run(net::OK, std::move(receive_consumer_handle),
+                            std::move(send_producer_handle), net::SSLInfo());
 
     if (tcp_failure_type_ == TCPFailureType::kSSLWriteClosePipe) {
       observer_.reset();
@@ -1239,9 +1196,12 @@ UDPSOCKET_FAILURE_TEST(UDPSocket_BindError,
 UDPSOCKET_FAILURE_TEST(UDPSocket_BindDropPipe,
                        UDPSocket_BindFails,
                        WrappedUDPSocket::FailureType::kBindDropPipe)
+// Flaky on Windows https://crbug.com/1059468#c18
+#if !defined(OS_WIN) || !defined(ARCH_CPU_32_BITS)
 UDPSOCKET_FAILURE_TEST(UDPSocket_SetBroadcastError,
                        UDPSocket_SetBroadcastFails,
                        WrappedUDPSocket::FailureType::kBroadcastError)
+#endif
 UDPSOCKET_FAILURE_TEST(UDPSocket_SetBroadcastDropPipe,
                        UDPSocket_SetBroadcastFails,
                        WrappedUDPSocket::FailureType::kBroadcastDropPipe)
@@ -1462,9 +1422,12 @@ IN_PROC_BROWSER_TEST_F(PPAPINaClNewlibTest, MAYBE_PPAPI_NACL(URLLoader1)) {
   RUN_URLLOADER_SUBTESTS_1;
 }
 
+// Flaky on Windows https://crbug.com/1059468#c18
+#if !defined(OS_WIN) || !defined(ARCH_CPU_32_BITS)
 IN_PROC_BROWSER_TEST_F(PPAPINaClNewlibTest, MAYBE_PPAPI_NACL(URLLoader2)) {
   RUN_URLLOADER_SUBTESTS_2;
 }
+#endif
 IN_PROC_BROWSER_TEST_F(PPAPINaClNewlibTest, MAYBE_PPAPI_NACL(URLLoader3)) {
   RUN_URLLOADER_SUBTESTS_3;
 }
@@ -1713,9 +1676,12 @@ IN_PROC_BROWSER_TEST_F(OutOfProcessPPAPITest, FileRef2) {
 IN_PROC_BROWSER_TEST_F(PPAPINaClNewlibTest, MAYBE_PPAPI_NACL(FileRef1)) {
   RUN_FILEREF_SUBTESTS_1;
 }
+// Flaky on Windows https://crbug.com/1059468#c18
+#if !defined(OS_WIN) || !defined(ARCH_CPU_32_BITS)
 IN_PROC_BROWSER_TEST_F(PPAPINaClNewlibTest, MAYBE_PPAPI_NACL(FileRef2)) {
   RUN_FILEREF_SUBTESTS_2;
 }
+#endif
 IN_PROC_BROWSER_TEST_F(PPAPINaClPNaClTest, MAYBE_PPAPI_PNACL(FileRef1)) {
   RUN_FILEREF_SUBTESTS_1;
 }
@@ -1853,17 +1819,6 @@ IN_PROC_BROWSER_TEST_F(PPAPINaClPNaClNonSfiTest,
   RUN_NETWORK_MONITOR_SUBTESTS;
 }
 
-// Flash tests.
-#define RUN_FLASH_SUBTESTS \
-  RunTestViaHTTP( \
-      LIST_TEST(Flash_SetInstanceAlwaysOnTop) \
-      LIST_TEST(Flash_GetCommandLineArgs) \
-  )
-
-IN_PROC_BROWSER_TEST_F(OutOfProcessPPAPITest, Flash) {
-  RUN_FLASH_SUBTESTS;
-}
-
 // In-process WebSocket tests. Note, the WebSocket tests are split into two,
 // because all of them together sometimes take too long on windows:
 // crbug.com/336999
@@ -1955,8 +1910,6 @@ IN_PROC_BROWSER_TEST_F(PPAPINaClPNaClNonSfiTest,
                        MAYBE_PNACL_NONSFI(AudioConfig)) {
   RUN_AUDIO_CONFIG_SUBTESTS;
 }
-
-TEST_PPAPI_NACL(AudioEncoder)
 
 // PPB_Audio tests.
 #define RUN_AUDIO_SUBTESTS \
@@ -2120,24 +2073,6 @@ IN_PROC_BROWSER_TEST_F(PPAPINaClPNaClNonSfiTest, MAYBE_PNACL_NONSFI(View)) {
   RUN_VIEW_SUBTESTS;
 }
 
-// FlashMessageLoop tests.
-#define RUN_FLASH_MESSAGE_LOOP_SUBTESTS \
-  RunTest( \
-      LIST_TEST(FlashMessageLoop_Basics) \
-      LIST_TEST(FlashMessageLoop_RunWithoutQuit) \
-      LIST_TEST(FlashMessageLoop_SuspendScriptCallbackWhileRunning) \
-  )
-
-// Disabled due to flakiness http://crbug.com/1036287
-#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_MAC)
-#define MAYBE_FlashMessageLoop DISABLED_FlashMessageLoop
-#else
-#define MAYBE_FlashMessageLoop FlashMessageLoop
-#endif
-IN_PROC_BROWSER_TEST_F(OutOfProcessPPAPITest, MAYBE_FlashMessageLoop) {
-  RUN_FLASH_MESSAGE_LOOP_SUBTESTS;
-}
-
 // The compositor test timeouts sometimes, so we have to split it to two
 // subtests.
 #define RUN_COMPOSITOR_SUBTESTS_0 \
@@ -2197,16 +2132,8 @@ TEST_PPAPI_NACL(MouseCursor)
 
 TEST_PPAPI_NACL(NetworkProxy)
 
-// TODO(crbug.com/619765): get working on CrOS build.
-#if defined(OS_CHROMEOS)
-#define MAYBE_TrueTypeFont DISABLED_TrueTypeFont
-#else
-#define MAYBE_TrueTypeFont TrueTypeFont
-#endif
-TEST_PPAPI_NACL(MAYBE_TrueTypeFont)
-
 // TODO(crbug.com/602875), TODO(crbug.com/602876) Flaky on Win and CrOS.
-#if defined(OS_CHROMEOS) || defined(OS_WIN)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_WIN)
 #define MAYBE_VideoDecoder DISABLED_VideoDecoder
 #else
 #define MAYBE_VideoDecoder VideoDecoder
@@ -2235,41 +2162,7 @@ TEST_PPAPI_NACL(MAYBE_MessageHandler)
 TEST_PPAPI_NACL(MessageLoop_Basics)
 TEST_PPAPI_NACL(MessageLoop_Post)
 
-// Going forward, Flash APIs will only work out-of-process.
-TEST_PPAPI_OUT_OF_PROCESS(Flash_GetLocalTimeZoneOffset)
-TEST_PPAPI_OUT_OF_PROCESS(Flash_GetProxyForURL)
-TEST_PPAPI_OUT_OF_PROCESS(Flash_GetSetting)
-TEST_PPAPI_OUT_OF_PROCESS(Flash_SetCrashData)
-// http://crbug.com/176822
-#if !defined(OS_WIN) && !defined(OS_MAC)
-TEST_PPAPI_OUT_OF_PROCESS(FlashClipboard)
-#endif
-TEST_PPAPI_OUT_OF_PROCESS(FlashFile)
-// Mac/Aura reach NOTIMPLEMENTED/time out.
-// mac: http://crbug.com/96767
-// aura: http://crbug.com/104384
-// cros: http://crbug.com/396502
-// windows: http://crbug.com/899893
-// linux: http://crbug.com/899893
-#if defined(OS_MAC) || defined(OS_CHROMEOS) || defined(OS_WIN) || \
-    defined(OS_LINUX)
-#define MAYBE_FlashFullscreen DISABLED_FlashFullscreen
-#else
-#define MAYBE_FlashFullscreen FlashFullscreen
-#endif
-TEST_PPAPI_OUT_OF_PROCESS(MAYBE_FlashFullscreen)
-
 TEST_PPAPI_OUT_OF_PROCESS(PDF)
-
-IN_PROC_BROWSER_TEST_F(OutOfProcessPPAPITest, FlashDRM) {
-  RunTest(
-#if (defined(OS_WIN) && BUILDFLAG(ENABLE_RLZ)) || defined(OS_CHROMEOS)
-          // Only implemented on Windows and ChromeOS currently.
-          LIST_TEST(FlashDRM_GetDeviceID)
-#endif
-          LIST_TEST(FlashDRM_GetHmonitor)
-          LIST_TEST(FlashDRM_GetVoucherFile));
-}
 
 #if BUILDFLAG(ENABLE_NACL)
 class PackagedAppTest : public extensions::ExtensionBrowserTest {
@@ -2299,7 +2192,7 @@ class PackagedAppTest : public extensions::ExtensionBrowserTest {
     params.command_line = *base::CommandLine::ForCurrentProcess();
     apps::AppServiceProxyFactory::GetForProfile(browser()->profile())
         ->BrowserAppLauncher()
-        ->LaunchAppWithParams(params);
+        ->LaunchAppWithParams(std::move(params));
   }
 
   void RunTests(const std::string& extension_dirname) {

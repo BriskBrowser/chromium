@@ -17,7 +17,6 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/path_service.h"
 #include "base/stl_util.h"
-#include "base/strings/string16.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_path_override.h"
@@ -92,7 +91,7 @@ class CreateVisualElementsManifestTest
     base::FilePath visual_elements_dir =
         version_dir_.Append(installer::kVisualElements);
     ASSERT_TRUE(base::CreateDirectory(visual_elements_dir));
-    base::string16 light_logo_file_name = base::StringPrintf(
+    std::wstring light_logo_file_name = base::StringPrintf(
         L"Logo%ls.png", install_static::InstallDetails::Get().logo_suffix());
     ASSERT_NO_FATAL_FAILURE(
         CreateTestFile(visual_elements_dir.Append(light_logo_file_name)));
@@ -242,8 +241,8 @@ class InstallShortcutTest : public testing::Test {
     common_start_menu_override_.reset(new base::ScopedPathOverride(
         base::DIR_COMMON_START_MENU, fake_common_start_menu_.GetPath()));
 
-    base::string16 shortcut_name(InstallUtil::GetShortcutName() +
-                                 installer::kLnkExt);
+    std::wstring shortcut_name(InstallUtil::GetShortcutName() +
+                               installer::kLnkExt);
 
     user_desktop_shortcut_ = fake_user_desktop_.GetPath().Append(shortcut_name);
     user_quick_launch_shortcut_ =
@@ -273,29 +272,29 @@ class InstallShortcutTest : public testing::Test {
     base::win::UnpinShortcutFromTaskbar(system_start_menu_subdir_shortcut_);
   }
 
-  installer::MasterPreferences* GetFakeMasterPrefs(
+  installer::InitialPreferences* GetFakeMasterPrefs(
       bool do_not_create_desktop_shortcut,
       bool do_not_create_quick_launch_shortcut) {
     const struct {
       const char* pref_name;
       bool is_desired;
     } desired_prefs[] = {
-        {installer::master_preferences::kDoNotCreateDesktopShortcut,
+        {installer::initial_preferences::kDoNotCreateDesktopShortcut,
          do_not_create_desktop_shortcut},
-        {installer::master_preferences::kDoNotCreateQuickLaunchShortcut,
+        {installer::initial_preferences::kDoNotCreateQuickLaunchShortcut,
          do_not_create_quick_launch_shortcut},
     };
 
-    std::string master_prefs("{\"distribution\":{");
+    std::string initial_prefs("{\"distribution\":{");
     for (size_t i = 0; i < base::size(desired_prefs); ++i) {
-      master_prefs += (i == 0 ? "\"" : ",\"");
-      master_prefs += desired_prefs[i].pref_name;
-      master_prefs += "\":";
-      master_prefs += desired_prefs[i].is_desired ? "true" : "false";
+      initial_prefs += (i == 0 ? "\"" : ",\"");
+      initial_prefs += desired_prefs[i].pref_name;
+      initial_prefs += "\":";
+      initial_prefs += desired_prefs[i].is_desired ? "true" : "false";
     }
-    master_prefs += "}}";
+    initial_prefs += "}}";
 
-    return new installer::MasterPreferences(master_prefs);
+    return new installer::InitialPreferences(initial_prefs);
   }
 
   base::win::ScopedCOMInitializer com_initializer_;
@@ -304,7 +303,7 @@ class InstallShortcutTest : public testing::Test {
   base::win::ShortcutProperties expected_start_menu_properties_;
 
   base::FilePath chrome_exe_;
-  std::unique_ptr<installer::MasterPreferences> prefs_;
+  std::unique_ptr<installer::InitialPreferences> prefs_;
 
   base::ScopedTempDir temp_dir_;
   base::ScopedTempDir fake_user_desktop_;
@@ -375,7 +374,7 @@ TEST_F(InstallShortcutTest, CreateAllShortcutsSystemLevel) {
 }
 
 TEST_F(InstallShortcutTest, CreateAllShortcutsButDesktopShortcut) {
-  std::unique_ptr<installer::MasterPreferences> prefs_no_desktop(
+  std::unique_ptr<installer::InitialPreferences> prefs_no_desktop(
       GetFakeMasterPrefs(true, false));
   installer::CreateOrUpdateShortcuts(chrome_exe_, *prefs_no_desktop,
                                      installer::CURRENT_USER,
@@ -388,7 +387,7 @@ TEST_F(InstallShortcutTest, CreateAllShortcutsButDesktopShortcut) {
 }
 
 TEST_F(InstallShortcutTest, CreateAllShortcutsButQuickLaunchShortcut) {
-  std::unique_ptr<installer::MasterPreferences> prefs_no_ql(
+  std::unique_ptr<installer::InitialPreferences> prefs_no_ql(
       GetFakeMasterPrefs(false, true));
   installer::CreateOrUpdateShortcuts(chrome_exe_, *prefs_no_ql,
                                      installer::CURRENT_USER,

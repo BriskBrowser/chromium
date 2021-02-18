@@ -40,13 +40,13 @@ class AXObjectCacheImpl;
 class Element;
 class HTMLAreaElement;
 class IntPoint;
-class LocalFrameView;
 class Node;
 
 class MODULES_EXPORT AXLayoutObject : public AXNodeObject {
  public:
   AXLayoutObject(LayoutObject*, AXObjectCacheImpl&);
   ~AXLayoutObject() override;
+  void Trace(Visitor*) const override;
 
   // Public, overridden from AXObject.
   LayoutObject* GetLayoutObject() const final { return layout_object_; }
@@ -58,31 +58,20 @@ class MODULES_EXPORT AXLayoutObject : public AXNodeObject {
   Node* GetNodeOrContainingBlockNode() const;
 
   // DOM and layout tree access.
-  Node* GetNode() const override;
   Document* GetDocument() const override;
-  LocalFrameView* DocumentFrameView() const override;
   Element* AnchorElement() const override;
 
  protected:
-  LayoutObject* layout_object_;
-
-  LayoutBoxModelObject* GetLayoutBoxModelObject() const override;
-
-  LayoutObject* LayoutObjectForRelativeBounds() const override {
-    return layout_object_;
-  }
+  Member<LayoutObject> layout_object_;
 
   //
   // Overridden from AXObject.
   //
 
-  void Init() override;
   void Detach() override;
-  bool IsDetached() const override;
   bool IsAXLayoutObject() const final;
 
   // Check object role or purpose.
-  bool IsAutofillAvailable() const override;
   bool IsEditable() const override;
   bool IsRichlyEditable() const override;
   bool IsLineBreakingObject() const override;
@@ -91,11 +80,6 @@ class MODULES_EXPORT AXLayoutObject : public AXNodeObject {
   bool IsVisited() const override;
 
   // Check object state.
-  bool IsFocused() const override;
-  // aria-grabbed is deprecated in WAI-ARIA 1.1.
-  AccessibilityGrabbedState IsGrabbed() const override;
-  AccessibilitySelectedState IsSelected() const override;
-  bool IsSelectedFromFocus() const override;
   bool IsNotUserSelectable() const override;
 
   // Whether objects are ignored, i.e. not included in the tree.
@@ -129,22 +113,9 @@ class MODULES_EXPORT AXLayoutObject : public AXNodeObject {
                          AXRelatedObjectVector*,
                          NameSources*) const override;
 
-  // Modify or take an action on an object.
-  bool OnNativeSetValueAction(const String&) override;
-
   // Hit testing.
   AXObject* AccessibilityHitTest(const IntPoint&) const override;
-  AXObject* ElementAccessibilityHitTest(const IntPoint&) const override;
 
-  // High-level accessibility tree access. Other modules should only use these
-  // functions.
-  AXObject* ComputeParent() const override;
-  AXObject* ComputeParentIfExists() const override;
-
-  // Low-level accessibility tree exploration, only for use within the
-  // accessibility module.
-  AXObject* RawFirstChild() const override;
-  AXObject* RawNextSibling() const override;
   bool CanHaveChildren() const override;
 
   // Notifications that this object may have changed.
@@ -152,7 +123,6 @@ class MODULES_EXPORT AXLayoutObject : public AXNodeObject {
   void HandleAriaExpandedChanged() override;
   // Called when autofill/autocomplete state changes on a form control.
   void HandleAutofillStateChanged(WebAXAutofillState state) override;
-  void TextChanged() override;
 
   // For a table.
   bool IsDataTable() const override;
@@ -184,20 +154,12 @@ class MODULES_EXPORT AXLayoutObject : public AXNodeObject {
       ax::mojom::blink::Role dom_role) const override;
 
  private:
-  bool IsTabItemSelected() const;
   AXObject* AccessibilityImageMapHitTest(HTMLAreaElement*,
                                          const IntPoint&) const;
-  void DetachRemoteSVGRoot();
-  AXObject* RemoteSVGElementHitTest(const IntPoint&) const;
-  void OffsetBoundingBoxForRemoteSVGElement(LayoutRect&) const;
   bool FindAllTableCellsWithRole(ax::mojom::blink::Role, AXObjectVector&) const;
 
   LayoutRect ComputeElementRect() const;
-  bool CanIgnoreTextAsEmpty() const;
-  bool CanIgnoreSpaceNextTo(LayoutObject*, bool is_after) const;
-  bool HasAriaCellRole(Element*) const;
   bool IsPlaceholder() const;
-  bool SelectionShouldFollowFocus() const;
 
   static ax::mojom::blink::TextDecorationStyle
   TextDecorationStyleToAXTextDecorationStyle(

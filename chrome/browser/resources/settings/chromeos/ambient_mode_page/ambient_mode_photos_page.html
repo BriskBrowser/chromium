@@ -2,6 +2,7 @@
 
 <link rel="import" href="album_list.html">
 <link rel="import" href="ambient_mode_browser_proxy.html">
+<link rel="import" href="art_album_dialog.html">
 <link rel="import" href="chrome://resources/cr_elements/cr_checkbox/cr_checkbox.html">
 <link rel="import" href="chrome://resources/html/assert.html">
 <link rel="import" href="chrome://resources/html/load_time_data.html">
@@ -16,14 +17,30 @@
 <dom-module id="settings-ambient-mode-photos-page">
   <template>
     <style include="settings-shared">
+      #pageDescription {
+        display: flex;
+        min-height: 32px;
+        padding: 0 var(--cr-section-padding);
+      }
     </style>
-    <settings-localized-link class="cr-row first"
-        localized-string="[[getTitleInnerHtml_(topicSource_)]]">
+    <settings-localized-link id="pageDescription"
+        localized-string="[[getTitleInnerHtml_(topicSource)]]">
     </settings-localized-link>
+
+    <template is="dom-if" if="[[hasNoAlbums_(albums)]]">
+      <settings-localized-link class="cr-row first"
+          localized-string=
+              $i18nPolymer{ambientModeAlbumsSubpageGooglePhotosNoAlbum}
+      </settings-localized-link>
+    </template>
+
+    <template is="dom-if" if="[[showArtAlbumDialog_]]" restamp>
+      <art-album-dialog on-close="onArtAlbumDialogClose_"></art-album-dialog>
+    </template>
 
     <!-- Text based album selection. -->
     <template is="dom-if" if="[[!photoPreviewEnabled]]">
-      <iron-list id="albums" class="list-frame" items="[[albums_]]">
+      <iron-list id="albums" class="list-frame" items="[[albums]]">
         <template>
           <cr-checkbox class="list-item"
               checked="[[item.checked]]"
@@ -38,7 +55,7 @@
 
     <!-- Photo based album selection. -->
     <template is="dom-if" if="[[photoPreviewEnabled]]">
-      <album-list albums="{{albums_}}" topic-source="[[topicSource_]]">
+      <album-list albums="{{albums}}" topic-source="[[topicSource]]">
       </album-list>
     </template>
   </template>

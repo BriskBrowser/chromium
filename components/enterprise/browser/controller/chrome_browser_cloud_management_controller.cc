@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/command_line.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
@@ -17,6 +18,7 @@
 #include "build/build_config.h"
 #include "components/enterprise/browser/controller/browser_dm_token_storage.h"
 #include "components/enterprise/browser/controller/chrome_browser_cloud_management_helper.h"
+#include "components/enterprise/browser/enterprise_switches.h"
 #include "components/enterprise/browser/reporting/report_generator.h"
 #include "components/enterprise/browser/reporting/report_scheduler.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
@@ -67,7 +69,12 @@ const base::FilePath::CharType
         FILE_PATH_LITERAL("Policy");
 
 bool ChromeBrowserCloudManagementController::IsEnabled() {
-  return delegate_->IsEnabled();
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
+  return true;
+#else
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kEnableChromeBrowserCloudManagement);
+#endif
 }
 
 ChromeBrowserCloudManagementController::ChromeBrowserCloudManagementController(
@@ -87,7 +94,7 @@ ChromeBrowserCloudManagementController::
 std::unique_ptr<MachineLevelUserCloudPolicyManager>
 ChromeBrowserCloudManagementController::CreatePolicyManager(
     ConfigurationPolicyProvider* platform_provider) {
-  if (!delegate_->IsEnabled())
+  if (!IsEnabled())
     return nullptr;
 
   std::string enrollment_token =
@@ -148,7 +155,7 @@ ChromeBrowserCloudManagementController::CreatePolicyManager(
 void ChromeBrowserCloudManagementController::Init(
     PrefService* local_state,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
-  if (!delegate_->IsEnabled())
+  if (!IsEnabled())
     return;
 
   if (base::FeatureList::IsEnabled(
@@ -156,13 +163,13 @@ void ChromeBrowserCloudManagementController::Init(
     delegate_->InitializeOAuthTokenFactory(url_loader_factory, local_state);
   }
 
-  base::ThreadPool::PostTask(
+  // Post the task of CreateReportScheduler to run on best effort after launch
+  // is completed.
+  delegate_->GetBestEffortTaskRunner()->PostTask(
       FROM_HERE,
-      {base::TaskPriority::BEST_EFFORT,
-       base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
       base::BindOnce(
-          &ChromeBrowserCloudManagementController::CreateReportSchedulerAsync,
-          base::Unretained(this), base::ThreadTaskRunnerHandle::Get()));
+          &ChromeBrowserCloudManagementController::CreateReportScheduler,
+          weak_factory_.GetWeakPtr()));
 
   MachineLevelUserCloudPolicyManager* policy_manager =
       delegate_->GetMachineLevelUserCloudPolicyManager();
@@ -216,9 +223,10 @@ void ChromeBrowserCloudManagementController::Init(
     // Not registered already, so do it now.
     cloud_management_registrar_->RegisterForCloudManagementWithEnrollmentToken(
         enrollment_token, client_id,
-        base::Bind(&ChromeBrowserCloudManagementController::
-                       RegisterForCloudManagementWithEnrollmentTokenCallback,
-                   base::Unretained(this)));
+        base::BindRepeating(
+            &ChromeBrowserCloudManagementController::
+                RegisterForCloudManagementWithEnrollmentTokenCallback,
+            weak_factory_.GetWeakPtr()));
     // On Windows, if Chrome is installed on the user level, we can't store the
     // DM token in the registry at the end of enrollment. Hence Chrome needs to
     // re-enroll every launch.
@@ -254,7 +262,7 @@ void ChromeBrowserCloudManagementController::UnenrollBrowser() {
   // Invalidate DM token in storage.
   BrowserDMTokenStorage::Get()->InvalidateDMToken(base::BindOnce(
       &ChromeBrowserCloudManagementController::InvalidateDMTokenCallback,
-      base::Unretained(this)));
+      weak_factory_.GetWeakPtr()));
 }
 
 void ChromeBrowserCloudManagementController::InvalidatePolicies() {
@@ -395,15 +403,6 @@ void ChromeBrowserCloudManagementController::
   }
 
   NotifyPolicyRegisterFinished(true);
-}
-
-void ChromeBrowserCloudManagementController::CreateReportSchedulerAsync(
-    scoped_refptr<base::SequencedTaskRunner> task_runner) {
-  task_runner->PostTask(
-      FROM_HERE,
-      base::BindOnce(
-          &ChromeBrowserCloudManagementController::CreateReportScheduler,
-          base::Unretained(this)));
 }
 
 void ChromeBrowserCloudManagementController::CreateReportScheduler() {

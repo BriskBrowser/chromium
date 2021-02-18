@@ -14,7 +14,8 @@
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "net/dns/public/resolve_error_info.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
-#include "third_party/blink/public/mojom/loader/referrer.mojom.h"
+#include "third_party/blink/public/common/feature_policy/feature_policy.h"
+#include "third_party/blink/public/mojom/loader/referrer.mojom-forward.h"
 #include "ui/base/page_transition_types.h"
 
 class GURL;
@@ -203,12 +204,6 @@ class NavigationSimulator {
   // Note: this is only valid for renderer-initiated navigations.
   virtual void AbortFromRenderer() = 0;
 
-  // Simulates the navigation failing with the error code |error_code| and
-  // response headers |response_headers|.
-  virtual void FailWithResponseHeaders(
-      int error_code,
-      scoped_refptr<net::HttpResponseHeaders> response_headers) = 0;
-
   // Simulates the navigation failing with the error code |error_code|.
   // IMPORTANT NOTE: This is simulating a network connection error and implies
   // we do not get a response. Error codes like 204 are not properly managed.
@@ -261,9 +256,6 @@ class NavigationSimulator {
   // Sets whether this navigation originated as the result of a form submission.
   virtual void SetIsFormSubmission(bool is_form_submission) = 0;
 
-  // Sets whether this navigation originated as the result of a link click.
-  virtual void SetWasInitiatedByLinkClick(bool was_initiated_by_link_click) = 0;
-
   // The following parameters can change during redirects. They should be
   // specified before calling |Start| if they need to apply to the navigation to
   // the original url. Otherwise, they should be specified before calling
@@ -281,21 +273,20 @@ class NavigationSimulator {
   virtual void SetIsSignedExchangeInnerResponse(
       bool is_signed_exchange_inner_response) = 0;
 
-  // Sets the InterfaceProvider interface receiver to pass in as an argument to
-  // DidCommitProvisionalLoad for cross-document navigations. If not called,
-  // a stub will be passed in (which will never receive any interface
-  // receivers).
-  //
-  // This interface connection would normally be created by the RenderFrame,
-  // with the client end bound to |remote_interfaces_| to allow the new document
-  // to access services exposed by the RenderFrameHost.
-  virtual void SetInterfaceProviderReceiver(
-      mojo::PendingReceiver<service_manager::mojom::InterfaceProvider>
-          receiver) = 0;
+  // Simulate receiving Feature-Policy headers.
+  virtual void SetFeaturePolicyHeader(
+      blink::ParsedFeaturePolicy feature_policy_header) = 0;
 
   // Provides the contents mime type to be set at commit. It should be
-  // specified before calling |Commit|.
+  // specified before calling |ReadyToCommit| or |Commit|.
   virtual void SetContentsMimeType(const std::string& contents_mime_type) = 0;
+
+  // Provides the response headers received during |ReadyToCommit| specified
+  // before calling |ReadyToCommit| or |Commit|.
+  // Note that the mime type should be specified separately with
+  // |SectContentsMimeType|.
+  virtual void SetResponseHeaders(
+      scoped_refptr<net::HttpResponseHeaders> response_headers) = 0;
 
   // Whether or not the NavigationSimulator automatically advances the
   // navigation past the stage requested (e.g. through asynchronous
@@ -313,6 +304,12 @@ class NavigationSimulator {
   // Sets the SSLInfo to be set on the response. This should be called before
   // Commit().
   virtual void SetSSLInfo(const net::SSLInfo& ssl_info) = 0;
+
+  // Sets the DNS aliases to be received in the URLResponseHead. The aliases
+  // are what would be read from DNS CNAME records, and the alias chain should
+  // be preserved in reverse order, from canonical name (i.e. address record
+  // name) through to query name. This method should be called before Commit().
+  virtual void SetResponseDnsAliases(std::vector<std::string> aliases) = 0;
 
   // --------------------------------------------------------------------------
 
@@ -341,9 +338,6 @@ class NavigationSimulator {
 
   // Simulate the ongoing load stopping successfully.
   virtual void StopLoading() = 0;
-
-  // Simulates the ongoing load stopping due to |error_code|.
-  virtual void FailLoading(const GURL& url, int error_code) = 0;
 
  private:
   // This interface should only be implemented inside content.

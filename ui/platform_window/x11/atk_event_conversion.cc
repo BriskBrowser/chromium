@@ -7,17 +7,17 @@
 #include "base/check.h"
 #include "base/notreached.h"
 #include "ui/events/x/events_x_utils.h"
+#include "ui/gfx/x/connection.h"
 #include "ui/gfx/x/xproto.h"
 #include "ui/gfx/x/xproto_types.h"
 
 namespace ui {
 
 std::unique_ptr<AtkKeyEventStruct> AtkKeyEventFromXEvent(
-    x11::Event* x11_event) {
-  DCHECK(x11_event);
+    const x11::Event& x11_event) {
   auto atk_key_event = std::make_unique<AtkKeyEventStruct>();
 
-  auto* xkey = x11_event->As<x11::KeyEvent>();
+  auto* xkey = x11_event.As<x11::KeyEvent>();
   DCHECK(xkey);
 
   atk_key_event->type = xkey->opcode == x11::KeyEvent::Press
@@ -25,12 +25,12 @@ std::unique_ptr<AtkKeyEventStruct> AtkKeyEventFromXEvent(
                             : ATK_KEY_EVENT_RELEASE;
 
   auto state = static_cast<int>(xkey->state);
-  auto keycode = static_cast<int>(xkey->detail);
+  auto keycode = xkey->detail;
   auto keysym = x11::Connection::Get()->KeycodeToKeysym(keycode, state);
 
   atk_key_event->state = state;
-  atk_key_event->keyval = static_cast<uint32_t>(keysym);
-  atk_key_event->keycode = keycode;
+  atk_key_event->keyval = keysym;
+  atk_key_event->keycode = static_cast<uint8_t>(keycode);
   atk_key_event->timestamp = static_cast<uint32_t>(xkey->time);
 
   // This string property matches the one that was removed from GdkEventKey. In
@@ -38,7 +38,7 @@ std::unique_ptr<AtkKeyEventStruct> AtkKeyEventFromXEvent(
   atk_key_event->string = nullptr;
   atk_key_event->length = 0;
 
-  int flags = ui::EventFlagsFromXEvent(*x11_event);
+  int flags = ui::EventFlagsFromXEvent(x11_event);
   if (flags & ui::EF_SHIFT_DOWN)
     atk_key_event->state |= AtkKeyModifierMask::kAtkShiftMask;
   if (flags & ui::EF_CAPS_LOCK_ON)

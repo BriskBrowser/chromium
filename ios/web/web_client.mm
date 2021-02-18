@@ -75,6 +75,11 @@ base::RefCountedMemory* WebClient::GetDataResourceBytes(int resource_id) const {
   return nullptr;
 }
 
+std::vector<JavaScriptFeature*> WebClient::GetJavaScriptFeatures(
+    BrowserState* browser_state) const {
+  return std::vector<JavaScriptFeature*>();
+}
+
 NSString* WebClient::GetDocumentStartScriptForAllFrames(
     BrowserState* browser_state) const {
   return @"";
@@ -85,15 +90,14 @@ NSString* WebClient::GetDocumentStartScriptForMainFrame(
   return @"";
 }
 
-void WebClient::AllowCertificateError(
-    WebState* web_state,
-    int cert_error,
-    const net::SSLInfo& ssl_info,
-    const GURL& request_url,
-    bool overridable,
-    int64_t navigation_id,
-    const base::Callback<void(bool)>& callback) {
-  callback.Run(false);
+void WebClient::AllowCertificateError(WebState* web_state,
+                                      int cert_error,
+                                      const net::SSLInfo& ssl_info,
+                                      const GURL& request_url,
+                                      bool overridable,
+                                      int64_t navigation_id,
+                                      base::OnceCallback<void(bool)> callback) {
+  std::move(callback).Run(false);
 }
 
 bool WebClient::IsLegacyTLSAllowedForHost(WebState* web_state,
@@ -119,6 +123,10 @@ UIView* WebClient::GetWindowedContainer() {
 
 bool WebClient::EnableLongPressAndForceTouchHandling() const {
   return true;
+}
+
+bool WebClient::EnableLongPressUIContextMenu() const {
+  return false;
 }
 
 bool WebClient::ForceMobileVersionByDefault(const GURL&) {

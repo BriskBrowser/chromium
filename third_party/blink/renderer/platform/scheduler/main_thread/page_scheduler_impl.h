@@ -25,11 +25,11 @@
 #include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
+#include "third_party/perfetto/include/perfetto/tracing/traced_value_forward.h"
 
 namespace base {
 namespace trace_event {
 class BlameContext;
-class TracedValue;
 }  // namespace trace_event
 }  // namespace base
 
@@ -54,7 +54,7 @@ class PLATFORM_EXPORT PageSchedulerImpl : public PageScheduler {
   static constexpr base::TimeDelta kDefaultThrottledWakeUpInterval =
       base::TimeDelta::FromSeconds(1);
 
-  PageSchedulerImpl(PageScheduler::Delegate*, AgentGroupSchedulerImpl*);
+  PageSchedulerImpl(PageScheduler::Delegate*, AgentGroupSchedulerImpl&);
 
   ~PageSchedulerImpl() override;
 
@@ -63,7 +63,7 @@ class PLATFORM_EXPORT PageSchedulerImpl : public PageScheduler {
   void SetPageVisible(bool page_visible) override;
   void SetPageFrozen(bool) override;
   void SetPageBackForwardCached(bool) override;
-  bool IsStoredInBackForwardCache() { return is_stored_in_back_forward_cache_; }
+  void OnFocusChanged(bool focused) override;
   void SetKeepActive(bool) override;
   bool IsMainFrameLocal() const override;
   void SetIsMainFrameLocal(bool is_local) override;
@@ -71,6 +71,10 @@ class PLATFORM_EXPORT PageSchedulerImpl : public PageScheduler {
   base::TimeTicks GetStoredInBackForwardCacheTimestamp() {
     return stored_in_back_forward_cache_timestamp_;
   }
+  bool IsInBackForwardCache() const override {
+    return is_stored_in_back_forward_cache_;
+  }
+  bool has_ipc_detection_enabled() { return has_ipc_detection_enabled_; }
 
   std::unique_ptr<FrameScheduler> CreateFrameScheduler(
       FrameScheduler::Delegate* delegate,
@@ -101,7 +105,6 @@ class PLATFORM_EXPORT PageSchedulerImpl : public PageScheduler {
 
   bool IsPageVisible() const;
   bool IsFrozen() const;
-  bool OptedOutFromAllThrottling() const;
   bool OptedOutFromAggressiveThrottling() const;
   // Returns whether CPU time is throttled for the page. Note: This is
   // independent from wake up rate throttling.
@@ -115,7 +118,7 @@ class PLATFORM_EXPORT PageSchedulerImpl : public PageScheduler {
   bool IsOrdinary() const;
 
   MainThreadSchedulerImpl* GetMainThreadScheduler() const;
-  AgentGroupSchedulerImpl* GetAgentGroupScheduler();
+  AgentGroupSchedulerImpl& GetAgentGroupScheduler() override;
 
   void Unregister(FrameSchedulerImpl*);
   void OnNavigation();
@@ -123,6 +126,8 @@ class PLATFORM_EXPORT PageSchedulerImpl : public PageScheduler {
   void OnThrottlingStatusUpdated();
 
   void OnTraceLogEnabled();
+
+  bool IsPageFocused() const;
 
   // Virtual for testing.
   virtual bool IsWaitingForMainFrameContentfulPaint() const;
@@ -134,6 +139,9 @@ class PLATFORM_EXPORT PageSchedulerImpl : public PageScheduler {
   PageLifecycleState GetPageLifecycleState() const;
 
   void SetUpIPCTaskDetection();
+  // This flag tracks whether or not IPC tasks are tracked if they are posted to
+  // frames or pages that are stored in the back-forward cache
+  bool has_ipc_detection_enabled_ = false;
 
   // Generally UKMs are associated with the main frame of a page, but the
   // implementation allows to request a recorder from any local frame with
@@ -143,7 +151,7 @@ class PLATFORM_EXPORT PageSchedulerImpl : public PageScheduler {
   // frame it not a local one.
   FrameSchedulerImpl* SelectFrameForUkmAttribution();
 
-  void AsValueInto(base::trace_event::TracedValue* state) const;
+  void WriteIntoTracedValue(perfetto::TracedValue context) const;
 
   base::WeakPtr<PageSchedulerImpl> GetWeakPtr() {
     return weak_factory_.GetWeakPtr();
@@ -236,8 +244,10 @@ class PLATFORM_EXPORT PageSchedulerImpl : public PageScheduler {
       MainThreadTaskQueue* task_queue,
       FrameOriginType frame_origin_type,
       base::sequence_manager::LazyNow* lazy_now);
-  // Returns the WakeUpBudgetPool to use for a frame with |frame_origin_type|.
-  WakeUpBudgetPool* GetWakeUpBudgetPool(FrameOriginType frame_origin_type);
+  // Returns the WakeUpBudgetPool to use for |task_queue| which belongs to a
+  // frame with |frame_origin_type|.
+  WakeUpBudgetPool* GetWakeUpBudgetPool(MainThreadTaskQueue* task_queue,
+                                        FrameOriginType frame_origin_type);
   // Initializes WakeUpBudgetPools, if not already initialized.
   void MaybeInitializeWakeUpBudgetPools(
       base::sequence_manager::LazyNow* lazy_now);
@@ -285,17 +295,23 @@ class PLATFORM_EXPORT PageSchedulerImpl : public PageScheduler {
   // be freezable.
   void DoFreezePage();
 
+  // Returns true if WakeUpBudgetPools were initialized.
+  bool HasWakeUpBudgetPools() const;
+
+  // Returns all WakeUpBudgetPools owned by this PageSchedulerImpl.
+  static constexpr int kNumWakeUpBudgetPools = 3;
+  std::array<WakeUpBudgetPool*, kNumWakeUpBudgetPools> AllWakeUpBudgetPools();
+
   TraceableVariableController tracing_controller_;
   HashSet<FrameSchedulerImpl*> frame_schedulers_;
   MainThreadSchedulerImpl* main_thread_scheduler_;
-  AgentGroupSchedulerImpl* agent_group_scheduler_;
+  AgentGroupSchedulerImpl& agent_group_scheduler_;
 
   PageVisibilityState page_visibility_;
   base::TimeTicks page_visibility_changed_time_;
   AudioState audio_state_;
   bool is_frozen_;
   bool reported_background_throttling_since_navigation_;
-  bool opted_out_from_all_throttling_;
   bool opted_out_from_aggressive_throttling_;
   bool nested_runloop_;
   bool is_main_frame_local_;
@@ -303,21 +319,32 @@ class PLATFORM_EXPORT PageSchedulerImpl : public PageScheduler {
   bool are_wake_ups_intensively_throttled_;
   bool keep_active_;
   bool had_recent_title_or_favicon_update_;
-  CPUTimeBudgetPool* cpu_time_budget_pool_;
-  // Throttles wake ups in throttleable TaskQueues of frames that have the same
-  // origin as the main frame.
+  bool focused_;
+  CPUTimeBudgetPool* cpu_time_budget_pool_ = nullptr;
+
+  // Wake up budget pools for each throttling scenario:
   //
-  // This pool allows aligned wake ups and unaligned wake ups if there hasn't
-  // been a recent wake up.
-  WakeUpBudgetPool* same_origin_wake_up_budget_pool_;
-  // Throttles wake ups in throttleable TaskQueues of frames that are
-  // cross-origin with the main frame.
+  //                                  Same-origin frame    Cross-origin frame
+  // Normal throttling only           1                    1
+  // Normal and intensive throttling  2                    3
   //
-  // This pool only allows aligned wake ups. Because wake ups do not depend on
-  // recent wake ups like in |same_origin_wake_up_budget_pool_|, tasks cannot
-  // easily learn about tasks running in other queues in the same pool. This is
-  // important because this pool can have queues from different origins.
-  WakeUpBudgetPool* cross_origin_wake_up_budget_pool_;
+  // 1: This pool allows 1-second aligned wake ups.
+  WakeUpBudgetPool* normal_wake_up_budget_pool_ = nullptr;
+  // 2: This pool allows 1-second aligned wake ups if the page is not
+  //    intensively throttled of if there hasn't been a wake up in the last
+  //    minute. Otherwise, it allows 1-minute aligned wake ups.
+  WakeUpBudgetPool* same_origin_intensive_wake_up_budget_pool_ = nullptr;
+  // 3: This pool allows 1-second aligned wake ups if the page is not
+  //    intensively throttled. Otherwise, it allows 1-minute aligned wake ups.
+  //
+  //    Unlike |same_origin_intensive_wake_up_budget_pool_|, this pool does not
+  //    allow a 1-second aligned wake up when there hasn't been a wake up in the
+  //    last minute. This is to prevent frames from different origins from
+  //    learning about each other. Concretely, this means that
+  //    MaybeInitializeWakeUpBudgetPools() does not invoke
+  //    AllowUnalignedWakeUpIfNoRecentWakeUp() on this pool.
+  WakeUpBudgetPool* cross_origin_intensive_wake_up_budget_pool_ = nullptr;
+
   PageScheduler::Delegate* delegate_;
   CancelableClosureHolder do_throttle_cpu_time_callback_;
   CancelableClosureHolder do_intensively_throttle_wake_ups_callback_;

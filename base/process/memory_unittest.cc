@@ -64,6 +64,11 @@ typedef BOOL (WINAPI* HeapQueryFn)  \
 // test suite setup and does not need to be done again, else mach_override
 // will fail.
 
+// Wrap free() in a function to thwart Clang's -Wfree-nonheap-object warning.
+static void callFree(void *ptr) {
+  free(ptr);
+}
+
 TEST(ProcessMemoryTest, MacTerminateOnHeapCorruption) {
 #if BUILDFLAG(USE_ALLOCATOR_SHIM)
   base::allocator::InitializeAllocatorShim();
@@ -74,11 +79,11 @@ TEST(ProcessMemoryTest, MacTerminateOnHeapCorruption) {
 #if ARCH_CPU_64_BITS
   // On 64 bit Macs, the malloc system automatically abort()s on heap corruption
   // but does not output anything.
-  ASSERT_DEATH(free(buf), "");
+  ASSERT_DEATH(callFree(buf), "");
 #elif defined(ADDRESS_SANITIZER)
   // AddressSanitizer replaces malloc() and prints a different error message on
   // heap corruption.
-  ASSERT_DEATH(free(buf), "attempting free on address which "
+  ASSERT_DEATH(callFree(buf), "attempting free on address which "
       "was not malloc\\(\\)-ed");
 #else
   ADD_FAILURE() << "This test is not supported in this build configuration.";
@@ -559,16 +564,11 @@ TEST_F(OutOfMemoryHandledTest, NewReleasesReservation) {
 
 // See the comment in |UncheckedMalloc()|, it behaves as malloc() in these
 // cases.
-#if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC) || defined(OS_ANDROID)
+#if defined(OS_ANDROID)
 
 // TODO(crbug.com/1112840): Fails on some Android bots.
-#if defined(OS_ANDROID)
 #define MAYBE_UncheckedMallocDies DISABLED_UncheckedMallocDies
 #define MAYBE_UncheckedCallocDies DISABLED_UncheckedCallocDies
-#else
-#define MAYBE_UncheckedMallocDies UncheckedMallocDies
-#define MAYBE_UncheckedCallocDies UncheckedCallocDies
-#endif  // defined(OS_ANDROID)
 
 TEST_F(OutOfMemoryDeathTest, MAYBE_UncheckedMallocDies) {
   ASSERT_OOM_DEATH({

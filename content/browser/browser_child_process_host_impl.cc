@@ -27,6 +27,7 @@
 #include "base/token.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/tracing/common/trace_startup_config.h"
 #include "components/tracing/common/tracing_switches.h"
 #include "content/browser/browser_main_loop.h"
@@ -41,7 +42,6 @@
 #include "content/public/browser/child_process_data.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/resource_coordinator_service.h"
-#include "content/public/browser/system_connector.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
@@ -50,15 +50,16 @@
 #include "content/public/common/sandboxed_process_launcher_delegate.h"
 #include "mojo/public/cpp/bindings/scoped_message_error_crash_key.h"
 #include "mojo/public/cpp/system/platform_handle.h"
-#include "net/websockets/websocket_basic_stream.h"
-#include "net/websockets/websocket_channel.h"
-#include "services/service_manager/embedder/switches.h"
 #include "services/tracing/public/cpp/trace_startup.h"
 
 #if defined(OS_MAC)
 #include "content/browser/child_process_task_port_provider_mac.h"
 #include "content/browser/sandbox_support_mac_impl.h"
 #include "content/common/sandbox_support_mac.mojom.h"
+#endif
+
+#if defined(OS_POSIX) && !defined(OS_ANDROID)
+#include "services/tracing/public/cpp/system_tracing_service.h"
 #endif
 
 #if defined(OS_WIN)
@@ -328,9 +329,7 @@ void BrowserChildProcessHostImpl::LaunchWithoutExtraCommandLineSwitches(
   const base::CommandLine& browser_command_line =
       *base::CommandLine::ForCurrentProcess();
   static const char* const kForwardSwitches[] = {
-      net::kWebSocketReadBufferSize,
-      net::kWebSocketReceiveQuotaThreshold,
-      service_manager::switches::kDisableInProcessStackTraces,
+      switches::kDisableInProcessStackTraces,
       switches::kDisableBestEffortTasks,
       switches::kDisableLogging,
       switches::kEnableLogging,
@@ -496,7 +495,7 @@ void BrowserChildProcessHostImpl::OnChildDisconnected() {
                                   PROCESS_TYPE_MAX);
         break;
       }
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
       case base::TERMINATION_STATUS_PROCESS_WAS_KILLED_BY_OOM:
 #endif
       case base::TERMINATION_STATUS_PROCESS_WAS_KILLED: {
@@ -523,7 +522,7 @@ void BrowserChildProcessHostImpl::OnChildDisconnected() {
     UMA_HISTOGRAM_ENUMERATION("ChildProcess.Disconnected2",
                               static_cast<ProcessType>(data_.process_type),
                               PROCESS_TYPE_MAX);
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     if (info.status == base::TERMINATION_STATUS_PROCESS_WAS_KILLED_BY_OOM) {
       UMA_HISTOGRAM_ENUMERATION("ChildProcess.Killed2.OOM",
                                 static_cast<ProcessType>(data_.process_type),
@@ -647,7 +646,7 @@ void BrowserChildProcessHostImpl::OnProcessLaunched() {
         base::BindOnce(&NotifyProcessLaunchedAndConnected, data_.Duplicate()));
   }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // In ChromeOS, there are still child processes of NaCl modules, and they
   // don't contribute to tracing actually. So do not register those clients
   // to the tracing service. See https://crbug.com/1101468.
@@ -661,6 +660,12 @@ void BrowserChildProcessHostImpl::OnProcessLaunched() {
   BackgroundTracingManagerImpl::ActivateForProcess(
       GetData().id,
       static_cast<ChildProcessHostImpl*>(GetHost())->child_process());
+
+#if defined(OS_POSIX) && !defined(OS_ANDROID)
+  system_tracing_service_ = std::make_unique<tracing::SystemTracingService>();
+  child_process()->EnableSystemTracingService(
+      system_tracing_service_->BindAndPassPendingRemote());
+#endif
 }
 
 void BrowserChildProcessHostImpl::RegisterCoordinatorClient(
@@ -685,10 +690,9 @@ void BrowserChildProcessHostImpl::RegisterCoordinatorClient(
                  memory_instrumentation::mojom::ProcessType process_type,
                  base::ProcessId process_id,
                  base::Optional<std::string> service_name) {
-                GetMemoryInstrumentationCoordinatorController()
-                    ->RegisterClientProcess(
-                        std::move(receiver), std::move(client_process),
-                        process_type, process_id, std::move(service_name));
+                GetMemoryInstrumentationRegistry()->RegisterClientProcess(
+                    std::move(receiver), std::move(client_process),
+                    process_type, process_id, std::move(service_name));
               },
               std::move(receiver), std::move(client_process),
               GetCoordinatorClientProcessType(

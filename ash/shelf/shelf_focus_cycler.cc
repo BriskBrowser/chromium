@@ -15,7 +15,6 @@
 #include "ash/system/status_area_widget.h"
 #include "ash/system/status_area_widget_delegate.h"
 #include "ash/system/tray/system_tray_notifier.h"
-#include "chromeos/constants/chromeos_switches.h"
 
 namespace ash {
 
@@ -45,7 +44,9 @@ void ShelfFocusCycler::FocusOut(bool reverse, SourceView source_view) {
       //   if we're going in reverse; if we're going forward, let the system
       //   tray focus observers focus the lock/login view.
       if (shelf_->shelf_widget()->login_shelf_view()->GetVisible() &&
-          !reverse) {
+          (!reverse ||
+           (!shelf_->shelf_widget()->login_shelf_view()->IsFocusable() &&
+            reverse))) {
         // Login/lock screen or OOBE.
         Shell::Get()->system_tray_notifier()->NotifyFocusOut(reverse);
       } else if (reverse) {

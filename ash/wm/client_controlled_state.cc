@@ -6,7 +6,6 @@
 
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/window_animation_types.h"
-#include "ash/public/cpp/window_state_type.h"
 #include "ash/root_window_controller.h"
 #include "ash/screen_util.h"
 #include "ash/shell.h"
@@ -19,6 +18,7 @@
 #include "ash/wm/window_state_delegate.h"
 #include "ash/wm/window_state_util.h"
 #include "ash/wm/wm_event.h"
+#include "chromeos/ui/base/window_state_type.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_delegate.h"
@@ -29,6 +29,9 @@
 namespace ash {
 
 namespace {
+
+using ::chromeos::WindowStateType;
+
 // |kMinimumOnScreenArea + 1| is used to avoid adjusting loop.
 constexpr int kClientControlledWindowMinimumOnScreenArea =
     kMinimumOnScreenArea + 1;
@@ -108,12 +111,12 @@ void ClientControlledState::HandleTransitionEvents(WindowState* window_state,
     case WM_EVENT_SNAP_LEFT:
     case WM_EVENT_SNAP_RIGHT: {
       if (window_state->CanSnap()) {
+        HandleWindowSnapping(window_state, event->type());
         // Get the desired window bounds for the snap state.
         gfx::Rect bounds = GetSnappedWindowBoundsInParent(
             window, event->type() == WM_EVENT_SNAP_LEFT
                         ? WindowStateType::kLeftSnapped
                         : WindowStateType::kRightSnapped);
-        window_state->set_bounds_changed_by_user(true);
 
         // We don't want Unminimize() to restore the pre-snapped state during
         // the transition.

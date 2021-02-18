@@ -6,9 +6,11 @@
 #define ASH_SHELF_SHELF_APP_BUTTON_H_
 
 #include "ash/ash_export.h"
+#include "ash/public/cpp/shelf_types.h"
 #include "ash/shelf/shelf_button.h"
 #include "ash/shelf/shelf_button_delegate.h"
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "base/timer/timer.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/gfx/shadow_value.h"
@@ -118,8 +120,7 @@ class ASH_EXPORT ShelfAppButton : public ShelfButton,
   // Return the bounds in the local coordinates enclosing the small ripple area.
   gfx::Rect CalculateSmallRippleArea() const;
 
-  // Gets the color of the |notification_indicator_| for test usage.
-  SkColor GetNotificationIndicatorColorForTest();
+  void SetNotificationBadgeColor(SkColor color);
 
  protected:
   // ui::EventHandler:
@@ -162,6 +163,9 @@ class ASH_EXPORT ShelfAppButton : public ShelfButton,
   // Calculates the icon bounds for an icon scaled by |icon_scale|.
   gfx::Rect GetIconViewBounds(float icon_scale);
 
+  // Calculates the notification indicator bounds when scaled by |scale|.
+  gfx::Rect GetNotificationIndicatorBounds(float scale);
+
   // Calculates the transform between the icon scaled by |icon_scale| and the
   // normal size icon.
   gfx::Transform GetScaleTransform(float icon_scale);
@@ -188,10 +192,6 @@ class ASH_EXPORT ShelfAppButton : public ShelfButton,
 
   gfx::ShadowValues icon_shadows_;
 
-  // If non-null the destuctor sets this to true. This is set while the menu is
-  // showing and used to detect if the menu was deleted while running.
-  bool* destroyed_flag_;
-
   // Whether the notification indicator is enabled.
   const bool is_notification_indicator_enabled_;
 
@@ -200,6 +200,9 @@ class ASH_EXPORT ShelfAppButton : public ShelfButton,
 
   // The scaling factor for displaying the app icon.
   float icon_scale_ = 1.0f;
+
+  // App status.
+  AppStatus app_status_ = AppStatus::kReady;
 
   // Indicates whether the ink drop animation starts.
   bool ink_drop_animation_started_ = false;
@@ -212,6 +215,9 @@ class ASH_EXPORT ShelfAppButton : public ShelfButton,
 
   std::unique_ptr<ShelfButtonDelegate::ScopedActiveInkDropCount>
       ink_drop_count_;
+
+  // Used to track whether the menu was deleted while running. Must be last.
+  base::WeakPtrFactory<ShelfAppButton> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ShelfAppButton);
 };

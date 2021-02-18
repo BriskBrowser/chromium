@@ -5,7 +5,6 @@
 #include "base/bind.h"
 #include "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
-#import "ios/chrome/browser/ui/util/multi_window_support.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
@@ -149,12 +148,7 @@ bool WaitForOmniboxContaining(std::string text) {
 
 // Navigates to a set of cross-domains, chrome URLs and error pages, and then
 // tests that they are properly restored.
-#if defined(CHROME_EARL_GREY_1)
-#define MAYBE_testRestoreHistory DISABLED_testRestoreHistory
-#else
-#define MAYBE_testRestoreHistory testRestoreHistory
-#endif
-- (void)MAYBE_testRestoreHistory {
+- (void)testRestoreHistory {
   [self setUpRestoreServers];
   [self loadTestPages];
   [self verifyRestoredTestPages:YES];
@@ -162,12 +156,7 @@ bool WaitForOmniboxContaining(std::string text) {
 
 // Navigates to a set of cross-domains, chrome URLs and error pages, and then
 // tests that they are properly restored in airplane mode.
-#if defined(CHROME_EARL_GREY_1)
-#define MAYBE_testRestoreNoNetwork DISABLED_testRestoreNoNetwork
-#else
-#define MAYBE_testRestoreNoNetwork testRestoreNoNetwork
-#endif
-- (void)MAYBE_testRestoreNoNetwork {
+- (void)testRestoreNoNetwork {
   [self setUpRestoreServers];
   [self loadTestPages];
   self.serverRespondsWithContent = false;
@@ -201,11 +190,6 @@ bool WaitForOmniboxContaining(std::string text) {
 // Tests that only the selected web state is loaded Restore-after-Crash.  This
 // is only possible in EG2.
 - (void)testRestoreOneWebstateOnlyAfterCrash {
-  if (IsSceneStartupSupported()) {
-    // TODO(crbug.com/1108433): Session restoration not available yet in MW.
-    EARL_GREY_TEST_DISABLED(@"Disabled in Multiwindow.");
-  }
-#if defined(CHROME_EARL_GREY_2)
   // Visit the background page.
   int visitCounter = 0;
   self.testServer->RegisterRequestHandler(
@@ -234,7 +218,6 @@ bool WaitForOmniboxContaining(std::string text) {
       assertWithMatcher:grey_notNil()];
   [ChromeEarlGrey waitForWebStateContainingText:"Echo"];
   GREYAssertEqual(1, visitCounter, @"The page should not reload");
-#endif
 }
 
 #pragma mark Utility methods
@@ -251,16 +234,10 @@ bool WaitForOmniboxContaining(std::string text) {
 }
 
 - (void)triggerRestore {
-// TODO(crbug.com/1067821):|AppLaunchManager| relaunching with
-// |ForceRelaunchByCleanShutdown| policy won't work in EG1 or on real device.
-#if defined(CHROME_EARL_GREY_1) || !TARGET_IPHONE_SIMULATOR
-  [ChromeEarlGrey triggerRestoreViaTabGridRemoveAllUndo];
-#elif defined(CHROME_EARL_GREY_2)
   [ChromeEarlGrey saveSessionImmediately];
   [[AppLaunchManager sharedManager] ensureAppLaunchedWithFeaturesEnabled:{}
       disabled:{}
       relaunchPolicy:ForceRelaunchByCleanShutdown];
-#endif  // defined(CHROME_EARL_GREY_2)
 }
 
 - (void)loadTestPages {

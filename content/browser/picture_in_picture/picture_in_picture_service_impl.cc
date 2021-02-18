@@ -6,9 +6,9 @@
 
 #include <utility>
 
-#include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/picture_in_picture/picture_in_picture_session.h"
 #include "content/browser/picture_in_picture/picture_in_picture_window_controller_impl.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/public/browser/web_contents_delegate.h"
 
 namespace content {
@@ -31,6 +31,7 @@ PictureInPictureServiceImpl* PictureInPictureServiceImpl::CreateForTesting(
 
 void PictureInPictureServiceImpl::StartSession(
     uint32_t player_id,
+    mojo::PendingRemote<media::mojom::MediaPlayer> player_remote,
     const base::Optional<viz::SurfaceId>& surface_id,
     const gfx::Size& natural_size,
     bool show_play_pause_button,
@@ -41,9 +42,10 @@ void PictureInPictureServiceImpl::StartSession(
 
   if (surface_id.has_value()) {
     auto result = GetController().StartSession(
-        this, MediaPlayerId(render_frame_host(), player_id), surface_id.value(),
-        natural_size, show_play_pause_button, std::move(observer),
-        &session_remote, &window_size);
+        this, MediaPlayerId(render_frame_host(), player_id),
+        std::move(player_remote), surface_id.value(), natural_size,
+        show_play_pause_button, std::move(observer), &session_remote,
+        &window_size);
 
     if (result == PictureInPictureResult::kSuccess) {
       // Frames are to be blocklisted from the back-forward cache because the

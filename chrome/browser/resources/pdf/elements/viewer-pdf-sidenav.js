@@ -9,10 +9,12 @@ import './viewer-document-outline.js';
 import './viewer-thumbnail-bar.js';
 import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
 import 'chrome://resources/cr_elements/hidden_style_css.m.js';
+import 'chrome://resources/cr_elements/shared_style_css.m.js';
 
 import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {Bookmark} from '../bookmark_type.js';
+import {record, UserAction} from '../metrics.js';
 
 export class ViewerPdfSidenavElement extends PolymerElement {
   static get is() {
@@ -25,11 +27,15 @@ export class ViewerPdfSidenavElement extends PolymerElement {
 
   static get properties() {
     return {
+      activePage: Number,
+
       /** @type {!Array<!Bookmark>} */
       bookmarks: {
         type: Array,
         value: () => [],
       },
+
+      clockwiseRotations: Number,
 
       docLength: Number,
 
@@ -43,11 +49,13 @@ export class ViewerPdfSidenavElement extends PolymerElement {
 
   /** @private */
   onThumbnailClick_() {
+    record(UserAction.SELECT_SIDENAV_THUMBNAILS);
     this.thumbnailView_ = true;
   }
 
   /** @private */
   onOutlineClick_() {
+    record(UserAction.SELECT_SIDENAV_OUTLINE);
     this.thumbnailView_ = false;
   }
 
@@ -65,6 +73,22 @@ export class ViewerPdfSidenavElement extends PolymerElement {
    */
   thumbnailButtonClass_() {
     return this.thumbnailView_ ? 'selected' : '';
+  }
+
+  /**
+   * @return {string}
+   * @private
+   */
+  getAriaSelectedThumbnails_() {
+    return this.thumbnailView_ ? 'true' : 'false';
+  }
+
+  /**
+   * @return {string}
+   * @private
+   */
+  getAriaSelectedOutline_() {
+    return this.thumbnailView_ ? 'false' : 'true';
   }
 }
 

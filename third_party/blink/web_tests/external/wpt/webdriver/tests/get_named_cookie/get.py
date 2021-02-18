@@ -6,7 +6,7 @@ from six import integer_types, text_type
 
 from tests.support.asserts import assert_error, assert_success
 from tests.support.helpers import clear_all_cookies
-from tests.support.inline import inline
+
 
 def get_named_cookie(session, name):
     return session.transport.send(
@@ -15,7 +15,12 @@ def get_named_cookie(session, name):
             name=name))
 
 
-def test_no_browsing_context(session, closed_window):
+def test_no_top_browsing_context(session, closed_window):
+    response = get_named_cookie(session, "foo")
+    assert_error(response, "no such window")
+
+
+def test_no_browsing_context(session, closed_frame):
     response = get_named_cookie(session, "foo")
     assert_error(response, "no such window")
 
@@ -74,7 +79,6 @@ def test_get_named_cookie(session, url):
     assert "sameSite" in cookie
     assert isinstance(cookie["sameSite"], text_type)
 
-
     assert cookie["name"] == "foo"
     assert cookie["value"] == "bar"
     # convert from seconds since epoch
@@ -82,7 +86,7 @@ def test_get_named_cookie(session, url):
         cookie["expiry"]).strftime(utc_string_format) == a_day_from_now
 
 
-def test_duplicated_cookie(session, url, server_config):
+def test_duplicated_cookie(session, url, server_config, inline):
     new_cookie = {
         "name": "hello",
         "value": "world",

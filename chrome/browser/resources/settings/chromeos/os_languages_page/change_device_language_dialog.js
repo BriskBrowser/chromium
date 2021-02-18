@@ -11,11 +11,25 @@ Polymer({
 
   behaviors: [
     CrScrollableBehavior,
+    I18nBehavior,
   ],
 
   properties: {
     /** @type {!LanguagesModel|undefined} */
     languages: Object,
+
+    /** @private {!Array<!chrome.languageSettingsPrivate.Language>} */
+    displayedLanguages_: {
+      type: Array,
+      computed: `getPossibleDeviceLanguages_(languages.supported,
+          languages.enabled.*, lowercaseQueryString_)`,
+    },
+
+    /** @private {boolean} */
+    displayedLanguagesEmpty_: {
+      type: Boolean,
+      computed: 'isZero_(displayedLanguages_.length)',
+    },
 
     /** @type {!LanguageHelper} */
     languageHelper: Object,
@@ -31,6 +45,20 @@ Polymer({
       type: Boolean,
       computed: 'shouldDisableActionButton_(selectedLanguage_)',
     },
+
+    /** @private */
+    lowercaseQueryString_: {
+      type: String,
+      value: '',
+    },
+  },
+
+  /**
+   * @param {!CustomEvent<string>} e
+   * @private
+   */
+  onSearchChanged_(e) {
+    this.lowercaseQueryString_ = e.detail.toLowerCase();
   },
 
   /**
@@ -39,14 +67,17 @@ Polymer({
    * @private
    */
   getPossibleDeviceLanguages_() {
-    // TODO(crbug/1113439): add search and filter based on search value.
     return this.languages.supported.filter(language => {
       if (!language.supportsUI || language.isProhibitedLanguage ||
           language.code === this.languages.prospectiveUILanguage) {
         return false;
       }
 
-      return true;
+      return !this.lowercaseQueryString_ ||
+          language.displayName.toLowerCase().includes(
+              this.lowercaseQueryString_) ||
+          language.nativeDisplayName.toLowerCase().includes(
+              this.lowercaseQueryString_);
     });
   },
 
@@ -59,6 +90,18 @@ Polymer({
   },
 
   /**
+   * @param {!chrome.languageSettingsPrivate.Language} item
+   * @param {boolean} selected
+   * @return {!string}
+   * @private
+   */
+  getAriaLabelForItem_(item, selected) {
+    const instruction = selected ? 'selectedDeviceLanguageInstruction' :
+                                   'notSelectedDeviceLanguageInstruction';
+    return this.i18n(instruction, this.getDisplayText_(item));
+  },
+
+  /**
    * @param {!chrome.languageSettingsPrivate.Language} language
    * @return {string} The text to be displayed.
    * @private
@@ -66,7 +109,7 @@ Polymer({
   getDisplayText_(language) {
     let displayText = language.displayName;
     // If the native name is different, add it.
-    if (language.displayName != language.nativeDisplayName) {
+    if (language.displayName !== language.nativeDisplayName) {
       displayText += ' - ' + language.nativeDisplayName;
     }
     return displayText;
@@ -83,12 +126,44 @@ Polymer({
   },
 
   /**
-   * Sets device language.
+   * Sets device language and restarts device.
    * @private
    */
   onActionButtonTap_() {
     assert(this.selectedLanguage_);
-    this.languageHelper.setProspectiveUILanguage(this.selectedLanguage_.code);
-    this.$.dialog.close();
+    const languageCode = this.selectedLanguage_.code;
+    this.languageHelper.setProspectiveUILanguage(languageCode);
+    // If the language isn't enabled yet, it should be added and moved to top.
+    // If it's already present, we don't do anything.
+    if (!this.languageHelper.isLanguageEnabled(languageCode)) {
+      this.languageHelper.enableLanguage(languageCode);
+      this.languageHelper.moveLanguageToFront(languageCode);
+    }
+    settings.recordSettingChange();
+    settings.LanguagesMetricsProxyImpl.getInstance().recordInteraction(
+        settings.LanguagesPageInteraction.RESTART);
+    settings.LifetimeBrowserProxyImpl.getInstance().signOutAndRestart();
+  },
+
+  /**
+   * @param {!KeyboardEvent} e
+   * @private
+   */
+  onKeydown_(e) {
+    // Close dialog if 'esc' is pressed and the search box is already empty.
+    if (e.key === 'Escape' && !this.$.search.getValue().trim()) {
+      this.$.dialog.close();
+    } else if (e.key !== 'PageDown' && e.key !== 'PageUp') {
+      this.$.search.scrollIntoViewIfNeeded();
+    }
+  },
+
+  /**
+   * @param {number} num
+   * @return {boolean}
+   * @private
+   */
+  isZero_(num) {
+    return num === 0;
   },
 });

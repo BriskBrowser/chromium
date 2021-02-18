@@ -19,7 +19,7 @@ const AUTOCLICK_FOCUS_RING_DISPLAY_TIME_MS = 250;
 /**
  * Class to manage Automatic Clicks' interaction with the accessibility tree.
  */
-class Autoclick {
+export class Autoclick {
   constructor() {
     /**
      * Whether to blink the focus rings. Disabled during tests due to
@@ -39,9 +39,11 @@ class Autoclick {
     this.scrollableBoundsListener_ = null;
 
     /**
-     * @private {?function(!chrome.automation.AutomationEvent)}
+     * @private {!EventHandler}
      */
-    this.hitTestListener_ = null;
+    this.hitTestHandler_ = new EventHandler(
+        [], chrome.automation.EventType.MOUSE_PRESSED,
+        this.onAutomationHitTestResult_.bind(this), {capture: true});
 
     this.init_();
   }
@@ -55,17 +57,12 @@ class Autoclick {
    */
   onAutoclickDisabled() {
     if (this.scrollableBoundsListener_) {
-      chrome.accessibilityPrivate.findScrollableBoundsForPoint.removeListener(
-          this.scrollableBoundsListener_);
+      chrome.accessibilityPrivate.onScrollableBoundsForPointRequested
+          .removeListener(this.scrollableBoundsListener_);
       this.scrollableBoundsListener_ = null;
     }
 
-    if (this.desktop_ && this.hitTestListener_) {
-      this.desktop_.removeEventListener(
-          chrome.automation.EventType.MOUSE_PRESSED, this.hitTestListener_,
-          true);
-      this.hitTestListener_ = null;
-    }
+    this.hitTestHandler_.stop();
   }
 
   /**
@@ -78,16 +75,14 @@ class Autoclick {
 
     chrome.automation.getDesktop((desktop) => {
       this.desktop_ = desktop;
-      this.hitTestListener_ = this.onAutomationHitTestResult_.bind(this);
 
       // We use a hit test at a point to determine what automation node is
       // at that point, in order to find the scrollable area.
-      this.desktop_.addEventListener(
-          chrome.automation.EventType.MOUSE_PRESSED, this.hitTestListener_,
-          true);
+      this.hitTestHandler_.setNodes(this.desktop_);
+      this.hitTestHandler_.start();
     });
 
-    chrome.accessibilityPrivate.findScrollableBoundsForPoint.addListener(
+    chrome.accessibilityPrivate.onScrollableBoundsForPointRequested.addListener(
         this.scrollableBoundsListener_);
   }
 
@@ -133,12 +128,12 @@ class Autoclick {
   onAutomationHitTestResult_(event) {
     // Walk up to the nearest scrollale area containing the point.
     let node = event.target;
-    while (node.parent && node.role != chrome.automation.RoleType.WINDOW &&
-           node.role != chrome.automation.RoleType.ROOT_WEB_AREA &&
-           node.role != chrome.automation.RoleType.DESKTOP &&
-           node.role != chrome.automation.RoleType.DIALOG &&
-           node.role != chrome.automation.RoleType.ALERT_DIALOG &&
-           node.role != chrome.automation.RoleType.TOOLBAR) {
+    while (node.parent && node.role !== chrome.automation.RoleType.WINDOW &&
+           node.role !== chrome.automation.RoleType.ROOT_WEB_AREA &&
+           node.role !== chrome.automation.RoleType.DESKTOP &&
+           node.role !== chrome.automation.RoleType.DIALOG &&
+           node.role !== chrome.automation.RoleType.ALERT_DIALOG &&
+           node.role !== chrome.automation.RoleType.TOOLBAR) {
       if (this.shouldHighlightAsScrollable_(node)) {
         break;
       }
@@ -166,7 +161,7 @@ class Autoclick {
         this.setFocusRings_([]);
       }, AUTOCLICK_FOCUS_RING_DISPLAY_TIME_MS * 5);
     }
-    chrome.accessibilityPrivate.onScrollableBoundsForPointFound(bounds);
+    chrome.accessibilityPrivate.handleScrollableBoundsForPointFound(bounds);
   }
 
   /**

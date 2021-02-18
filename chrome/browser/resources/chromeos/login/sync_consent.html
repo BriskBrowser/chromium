@@ -8,21 +8,30 @@
   <link rel="import" href="chrome://oobe/sync-consent-icons.html">
 </if>
 
-<dom-module id="sync-consent">
+<link rel="import" href="/components/common_styles.html">
+<link rel="import" href="/components/hd_iron_icon.html">
+<link rel="import" href="/components/oobe_adaptive_dialog.html">
+<link rel="import" href="/components/oobe_loading_dialog.html">
+<link rel="import" href="/components/oobe_i18n_behavior.html">
+<link rel="import" href="/components/oobe_dialog_host_behavior.html">
+
+<dom-module id="sync-consent-element">
   <template>
     <style include="oobe-dialog-host"></style>
     <link rel="stylesheet" href="sync_consent.css">
 
     <!-- Traditional dialog. This can be deleted when SplitSettingsSync is the
          default. -->
-    <oobe-dialog id="syncConsentOverviewDialog" role="dialog" has-buttons
-      aria-label$="[[i18nDynamic(locale, 'syncConsentScreenTitle')]]" hidden>
-      <hd-iron-icon slot="oobe-icon" icon1x="sync-consent-32:googleg" icon2x="sync-consent-64:googleg">
+    <oobe-adaptive-dialog id="syncConsentOverviewDialog" role="dialog"
+        aria-label$="[[i18nDynamic(locale, 'syncConsentScreenTitle')]]"
+        for-step="no-split">
+      <hd-iron-icon slot="icon" icon1x="sync-consent-32:googleg"
+                                icon2x="sync-consent-64:googleg">
       </hd-iron-icon>
       <h1 slot="title" consent-description>
         [[i18nDynamic(locale, 'syncConsentScreenTitle')]]
       </h1>
-      <div slot="footer" class="layout vertical">
+      <div slot="content" class="layout vertical">
         <div class="overview-list-item flex layout horizontal center">
           <hd-iron-icon class="overview-list-item-icon" src1x="chrome://oobe/logo_24px-1x.svg"
             src2x="chrome://oobe/logo_24px-2x.svg">
@@ -59,20 +68,25 @@
           [[i18nDynamic(locale, 'syncConsentReviewSyncOptionsText')]]
         </cr-checkbox>
       </div>
-      <div slot="bottom-buttons" class="layout horizontal end-justified">
-        <oobe-text-button id="settingsSaveAndContinueButton" on-tap="onSettingsSaveAndContinue_" class="focus-on-show"
-          inverse>
+      <div slot="bottom-buttons">
+        <oobe-text-button class="focus-on-show" inverse
+            id="settingsSaveAndContinueButton"
+            on-click="onSettingsSaveAndContinue_"
+            label-for-aria="[[i18nDynamic(locale,
+                                          'syncConsentAcceptAndContinue')]]">
           <div slot="text" consent-description consent-confirmation>
             [[i18nDynamic(locale, 'syncConsentAcceptAndContinue')]]
           </div>
         </oobe-text-button>
       </div>
-    </oobe-dialog>
+    </oobe-adaptive-dialog>
 
     <!-- Dialog used with the SplitSettingsSync feature. -->
-    <oobe-dialog id="splitSettingsSyncConsentDialog" role="dialog" has-buttons
-        aria-label$="[[i18nDynamic(locale, 'syncConsentScreenTitle')]]" hidden>
-      <hd-iron-icon slot="oobe-icon" icon1x="sync-consent-32:googleg" icon2x="sync-consent-64:googleg">
+    <oobe-adaptive-dialog id="splitSettingsSyncConsentDialog" role="dialog"
+        aria-label$="[[i18nDynamic(locale, 'syncConsentScreenTitle')]]"
+        for-step="split">
+      <hd-iron-icon slot="icon" icon1x="sync-consent-32:googleg"
+                                icon2x="sync-consent-64:googleg">
       </hd-iron-icon>
       <h1 slot="title" consent-description>
         [[i18nDynamic(locale, 'syncConsentScreenTitle')]]
@@ -80,11 +94,12 @@
       <div slot="subtitle" consent-description>
         [[i18nDynamic(locale, 'syncConsentScreenSubtitle')]]
       </div>
-      <div slot="footer" class="layout vertical flex">
+      <div slot="content" class="layout vertical flex">
 
         <!-- "Chrome OS settings sync" -->
         <div class="overview-list-item layout horizontal center">
-          <img class="overview-list-item-icon" src="images/settings_gear.svg" width="24" height="24">
+          <img class="overview-list-item-icon" src="images/settings_gear.svg"
+              width="24" height="24" aria-hidden="true">
           <div class="flex layout vertical center-justified">
             <div role="heading" aria-level="2" class="overview-list-item-title" id="osSyncName" consent-description>
               [[i18nDynamic(locale, 'syncConsentScreenOsSyncName')]]
@@ -97,7 +112,8 @@
 
         <!-- "Chrome browser sync" -->
         <div class="overview-list-item layout horizontal center">
-          <img class="overview-list-item-icon" src="images/browser_sync.svg" width="24" height="24">
+          <img class="overview-list-item-icon" src="images/browser_sync.svg"
+              width="24" height="24" aria-hidden="true">
           <div class="flex layout vertical center-justified">
             <div role="heading" aria-level="2" class="overview-list-item-title" consent-description
               id="browserSyncName">
@@ -130,20 +146,26 @@
           </div>
         </div>
       </div>
-      <div slot="bottom-buttons" class="layout horizontal end-justified">
-        <oobe-text-button id="declineButton" on-tap="onDeclineTap_">
+      <div slot="bottom-buttons">
+        <oobe-text-button id="declineButton" on-click="onDeclineTap_"
+            label-for-aria="[[i18nDynamic(locale,
+                                          'syncConsentScreenDecline')]]">
           <div slot="text" consent-description consent-confirmation>
             [[i18nDynamic(locale, 'syncConsentScreenDecline')]]
           </div>
         </oobe-text-button>
-        <oobe-text-button id="acceptButton" on-tap="onAcceptTap_"
-          class="focus-on-show" inverse>
+        <oobe-text-button id="acceptButton" on-click="onAcceptTap_"
+            class="focus-on-show" inverse
+            label-for-aria="[[i18nDynamic(locale,
+                                          'syncConsentScreenAccept')]]">
           <div slot="text" consent-description consent-confirmation>
             [[i18nDynamic(locale, 'syncConsentScreenAccept')]]
           </div>
         </oobe-text-button>
       </div>
-    </oobe-dialog>
-
+    </oobe-adaptive-dialog>
+    <oobe-loading-dialog id="sync-loading" role="dialog" for-step="loading"
+        text-key="gaiaLoading">
+    </oobe-loading-dialog>
   </template>
 </dom-module>

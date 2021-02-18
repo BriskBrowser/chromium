@@ -3,17 +3,9 @@
 // found in the LICENSE file.
 
 /**
- * @fileoverview Handles media automation events.  Note that to perform any of
- * the actions below such as ducking, and suspension of media sessions, the
- * --enable-audio-focus flag must be passed at the command line.
+ * @fileoverview Handles media automation events.
  */
 
-goog.provide('MediaAutomationHandler');
-
-goog.require('BaseAutomationHandler');
-goog.require('TtsCapturingEventListener');
-
-goog.scope(function() {
 const AutomationEvent = chrome.automation.AutomationEvent;
 const AutomationNode = chrome.automation.AutomationNode;
 const EventType = chrome.automation.EventType;
@@ -22,7 +14,7 @@ const RoleType = chrome.automation.RoleType;
 /**
  * @implements {TtsCapturingEventListener}
  */
-MediaAutomationHandler = class extends BaseAutomationHandler {
+export class MediaAutomationHandler extends BaseAutomationHandler {
   constructor() {
     super(null);
     /** @type {!Set<AutomationNode>} @private */
@@ -73,7 +65,7 @@ MediaAutomationHandler = class extends BaseAutomationHandler {
   onMediaStartedPlaying(evt) {
     this.mediaRoots_.add(evt.target);
     const audioStrategy = localStorage['audioStrategy'];
-    if (ChromeVox.tts.isSpeaking() && audioStrategy == 'audioDuck') {
+    if (ChromeVox.tts.isSpeaking() && audioStrategy === 'audioDuck') {
       this.update_({start: true});
     }
   }
@@ -98,24 +90,22 @@ MediaAutomationHandler = class extends BaseAutomationHandler {
     while (!item.done) {
       const root = item.value;
       if (options.start) {
-        if (audioStrategy == 'audioDuck') {
+        if (audioStrategy === 'audioDuck') {
           root.startDuckingMedia();
-        } else if (audioStrategy == 'audioSuspend') {
+        } else if (audioStrategy === 'audioSuspend') {
           root.suspendMedia();
         }
       } else if (options.end) {
-        if (audioStrategy == 'audioDuck') {
+        if (audioStrategy === 'audioDuck') {
           root.stopDuckingMedia();
-        } else if (audioStrategy == 'audioSuspend') {
+        } else if (audioStrategy === 'audioSuspend') {
           root.resumeMedia();
         }
       }
       item = it.next();
     }
   }
-};
+}
 
 /** @type {number} */
 MediaAutomationHandler.MIN_WAITTIME_MS = 1000;
-
-});  // goog.scope

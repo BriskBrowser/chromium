@@ -19,10 +19,9 @@ class VIEWS_EXPORT MdTextButton : public LabelButton {
  public:
   METADATA_HEADER(MdTextButton);
 
-  explicit MdTextButton(ButtonListener* listener = nullptr,
+  explicit MdTextButton(PressedCallback callback = PressedCallback(),
                         const base::string16& text = base::string16(),
                         int button_context = style::CONTEXT_BUTTON_MD);
-
   ~MdTextButton() override;
 
   // See |is_prominent_|.
@@ -39,7 +38,8 @@ class VIEWS_EXPORT MdTextButton : public LabelButton {
   float GetCornerRadius() const;
 
   // See |custom_padding_|.
-  void SetCustomPadding(const gfx::Insets& padding);
+  void SetCustomPadding(const base::Optional<gfx::Insets>& padding);
+  base::Optional<gfx::Insets> GetCustomPadding() const;
 
   // LabelButton:
   void OnThemeChanged() override;
@@ -78,6 +78,15 @@ class VIEWS_EXPORT MdTextButton : public LabelButton {
   DISALLOW_COPY_AND_ASSIGN(MdTextButton);
 };
 
+BEGIN_VIEW_BUILDER(VIEWS_EXPORT, MdTextButton, LabelButton)
+VIEW_BUILDER_PROPERTY(bool, Prominent)
+VIEW_BUILDER_PROPERTY(base::Optional<SkColor>, BgColorOverride)
+VIEW_BUILDER_PROPERTY(float, CornerRadius)
+VIEW_BUILDER_PROPERTY(base::Optional<gfx::Insets>, CustomPadding)
+END_VIEW_BUILDER
+
 }  // namespace views
+
+DEFINE_VIEW_BUILDER(VIEWS_EXPORT, MdTextButton)
 
 #endif  // UI_VIEWS_CONTROLS_BUTTON_MD_TEXT_BUTTON_H_

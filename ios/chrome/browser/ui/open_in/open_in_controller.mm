@@ -55,9 +55,6 @@ const NSTimeInterval kOverlayViewAnimationDuration = 0.3;
 // Time interval after which the |openInToolbar_| is automatically hidden.
 const NSTimeInterval kOpenInToolbarDisplayDuration = 2.0;
 
-// Text size used for the label indicating a download in progress.
-const CGFloat kLabelTextSize = 22.0;
-
 // Alpha value for the background view of |overlayedView_|.
 const CGFloat kOverlayedViewBackgroundAlpha = 0.6;
 
@@ -99,6 +96,13 @@ bool HasValidFileAtUrl(NSURL* _Nullable url) {
 // Property storing the Y content offset the scroll view the last time it was
 // updated. Used to know in which direction the scroll view is scrolling.
 @property(nonatomic, assign) CGFloat previousScrollViewOffset;
+
+// The base view controller from which to present UI.
+@property(nonatomic, assign) UIViewController* baseViewController;
+
+// Task runner on which file operations should happen.
+@property(nonatomic, assign) scoped_refptr<base::SequencedTaskRunner>
+    sequencedTaskRunner;
 
 // SimpleURLLoader completion callback, when |urlLoader_| completes a request.
 - (void)urlLoadDidComplete:(const base::FilePath&)file_path;
@@ -188,7 +192,7 @@ class OpenInControllerBridge
   GURL _documentURL;
 
   // Controller for opening documents in other applications.
-  UIDocumentInteractionController* _documentController;
+  UIActivityViewController* activityViewController;
 
   // Toolbar overlay to be displayed on tap.
   OpenInToolbar* _openInToolbar;
@@ -221,25 +225,22 @@ class OpenInControllerBridge
   // YES if the file download was canceled.
   BOOL _downloadCanceled;
 
-  // YES if the OpenIn menu is displayed.
-  BOOL _isOpenInMenuDisplayed;
-
   // YES if the toolbar is displayed.
   BOOL _isOpenInToolbarDisplayed;
-
-  // Task runner on which file operations should happen.
-  scoped_refptr<base::SequencedTaskRunner> _sequencedTaskRunner;
 }
 
 @synthesize baseView = _baseView;
 @synthesize browser = _browser;
 @synthesize previousScrollViewOffset = _previousScrollViewOffset;
 
-- (id)initWithURLLoaderFactory:
-          (scoped_refptr<network::SharedURLLoaderFactory>)urlLoaderFactory
-                      webState:(web::WebState*)webState {
+- (id)initWithBaseViewController:(UIViewController*)baseViewController
+                URLLoaderFactory:
+                    (scoped_refptr<network::SharedURLLoaderFactory>)
+                        urlLoaderFactory
+                        webState:(web::WebState*)webState {
   self = [super init];
   if (self) {
+    _baseViewController = baseViewController;
     _urlLoaderFactory = std::move(urlLoaderFactory);
     _webState = webState;
     _tapRecognizer = [[UITapGestureRecognizer alloc]
@@ -248,7 +249,6 @@ class OpenInControllerBridge
     [_tapRecognizer setDelegate:self];
     _sequencedTaskRunner = base::ThreadPool::CreateSequencedTaskRunner(
         {base::MayBlock(), base::TaskPriority::BEST_EFFORT});
-    _isOpenInMenuDisplayed = NO;
     _previousScrollViewOffset = 0;
   }
   return self;
@@ -278,8 +278,6 @@ class OpenInControllerBridge
     [[_webState->GetWebViewProxy() scrollViewProxy] removeObserver:self];
   self.previousScrollViewOffset = 0;
   [[self openInToolbar] removeFromSuperview];
-  [_documentController dismissMenuAnimated:NO];
-  [_documentController setDelegate:nil];
   _documentURL = GURL();
   _suggestedFilename = nil;
   _urlLoader.reset();
@@ -325,7 +323,6 @@ class OpenInControllerBridge
 
   OpenInToolbar* openInToolbar = [self openInToolbar];
   if (!_isOpenInToolbarDisplayed) {
-    [openInToolbar updateBottomMarginHeight];
     [UIView animateWithDuration:kOpenInToolbarAnimationDuration
                      animations:^{
                        [openInToolbar setAlpha:1.0];
@@ -350,7 +347,7 @@ class OpenInControllerBridge
   DCHECK([view isKindOfClass:[UIView class]]);
   DCHECK_CURRENTLY_ON(web::WebThread::UI);
 
-  base::RecordAction(base::UserMetricsAction("IOS.OpenIn"));
+  base::RecordAction(base::UserMetricsAction("IOS.OpenIn.Tapped"));
 
   if (!_webState)
     return;
@@ -433,8 +430,7 @@ class OpenInControllerBridge
 }
 
 - (void)showErrorWithMessage:(NSString*)message {
-  UIViewController* topViewController =
-      [[[UIApplication sharedApplication] keyWindow] rootViewController];
+  UIViewController* topViewController = [GetAnyKeyWindow() rootViewController];
 
   _alertCoordinator =
       [[AlertCoordinator alloc] initWithBaseViewController:topViewController
@@ -453,26 +449,43 @@ class OpenInControllerBridge
   if (!_webState)
     return;
 
-  _documentController =
-      [UIDocumentInteractionController interactionControllerWithURL:fileURL];
+  NSArray* customActions = @[ fileURL ];
+  NSArray* activities = nil;
 
-  // TODO(cgrigoruta): The UTI is hardcoded for now, change this when we add
-  // support for other file types as well.
-  [_documentController setUTI:@"com.adobe.pdf"];
-  [_documentController setDelegate:self];
-  BOOL success = [_documentController presentOpenInMenuFromRect:_anchorLocation
-                                                         inView:self.baseView
-                                                       animated:YES];
+  activityViewController =
+      [[UIActivityViewController alloc] initWithActivityItems:customActions
+                                        applicationActivities:activities];
+
+  // Set completion callback.
+  __weak OpenInController* weakSelf = self;
+  activityViewController.completionWithItemsHandler =
+      ^(NSString* activityType, BOOL completed, NSArray* returnedItems,
+        NSError* activityError) {
+        weakSelf.sequencedTaskRunner->PostTask(
+            FROM_HERE, base::BindOnce(^{
+              [weakSelf removeDocumentAtPath:[fileURL path]];
+            }));
+
+        if (IsIPadIdiom()) {
+          _openInTimer = [NSTimer
+              scheduledTimerWithTimeInterval:kOpenInToolbarDisplayDuration
+                                      target:self
+                                    selector:@selector(hideOpenInToolbar)
+                                    userInfo:nil
+                                     repeats:NO];
+        }
+      };
+
+  // UIActivityViewController is presented in a popover on iPad.
+  activityViewController.popoverPresentationController.sourceView =
+      self.baseView;
+  activityViewController.popoverPresentationController.sourceRect =
+      _anchorLocation;
+
   [self removeOverlayedView];
-  if (!success) {
-    if (IsIPadIdiom())
-      [self hideOpenInToolbar];
-    NSString* errorMessage =
-        l10n_util::GetNSStringWithFixup(IDS_IOS_OPEN_IN_NO_APPS_REGISTERED);
-    [self showErrorWithMessage:errorMessage];
-  } else {
-    _isOpenInMenuDisplayed = YES;
-  }
+  [self.baseViewController presentViewController:activityViewController
+                                        animated:YES
+                                      completion:nil];
 }
 
 - (void)showDownloadOverlayView {
@@ -487,8 +500,7 @@ class OpenInControllerBridge
                                            UIViewAutoresizingFlexibleHeight)];
   [_overlayedView addSubview:grayBackgroundView];
 
-  UIActivityIndicatorView* spinner = [[UIActivityIndicatorView alloc]
-      initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleWhiteLarge];
+  UIActivityIndicatorView* spinner = GetLargeUIActivityIndicatorView();
   [spinner setFrame:[_overlayedView frame]];
   [spinner setHidesWhenStopped:YES];
   [spinner setUserInteractionEnabled:NO];
@@ -499,7 +511,7 @@ class OpenInControllerBridge
 
   UILabel* label = [[UILabel alloc] init];
   [label setTextColor:[UIColor whiteColor]];
-  [label setFont:GetUIFont(FONT_HELVETICA, true, kLabelTextSize)];
+  [label setFont:[UIFont preferredFontForTextStyle:UIFontTextStyleHeadline]];
   [label setNumberOfLines:0];
   [label setShadowColor:[UIColor blackColor]];
   [label setShadowOffset:CGSizeMake(0.0, 1.0)];
@@ -636,48 +648,13 @@ class OpenInControllerBridge
   LogOpenInDownloadResult(download_result);
 }
 
-#pragma mark -
-#pragma mark UIDocumentInteractionControllerDelegate Methods
+#pragma mark - UIGestureRecognizerDelegate Methods
 
-- (void)documentInteractionController:(UIDocumentInteractionController*)contr
-           didEndSendingToApplication:(NSString*)application {
-  _sequencedTaskRunner->PostTask(FROM_HERE, base::BindOnce(^{
-                                   [self
-                                       removeDocumentAtPath:[[contr URL] path]];
-                                 }));
-  if (IsIPadIdiom()) {
-    // Call the |documentInteractionControllerDidDismissOpenInMenu:| method
-    // as this is not called on the iPad after the document has been opened
-    // in another application.
-    [self documentInteractionControllerDidDismissOpenInMenu:contr];
-  }
+- (BOOL)gestureRecognizer:(UIGestureRecognizer*)gestureRecognizer
+    shouldRecognizeSimultaneouslyWithGestureRecognizer:
+        (UIGestureRecognizer*)otherGestureRecognizer {
+  return YES;
 }
-
-- (void)documentInteractionControllerDidDismissOpenInMenu:
-    (UIDocumentInteractionController*)controller {
-  if (!IsIPadIdiom()) {
-    _isOpenInMenuDisplayed = NO;
-    // On the iPhone the |openInToolber_| is hidden already.
-    return;
-  }
-
-  // On iPad this method is called whenever the device changes orientation,
-  // even thought the OpenIn menu is not displayed. To distinguish the cases
-  // when this method is called after the OpenIn menu is dismissed, we
-  // check the BOOL |isOpenInMenuDisplayed|.
-  if (_isOpenInMenuDisplayed) {
-    _openInTimer =
-        [NSTimer scheduledTimerWithTimeInterval:kOpenInToolbarDisplayDuration
-                                         target:self
-                                       selector:@selector(hideOpenInToolbar)
-                                       userInfo:nil
-                                        repeats:NO];
-  }
-  _isOpenInMenuDisplayed = NO;
-}
-
-#pragma mark -
-#pragma mark UIGestureRecognizerDelegate Methods
 
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer*)gestureRecognizer {
   if ([gestureRecognizer.view isEqual:_overlayedView])

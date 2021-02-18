@@ -19,9 +19,9 @@ import static org.junit.Assert.assertTrue;
 import android.text.method.PasswordTransformationMethod;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Switch;
 import android.widget.TextView;
 
+import androidx.appcompat.widget.SwitchCompat;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.test.filters.MediumTest;
 
@@ -32,6 +32,8 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.keyboard_accessory.AccessoryAction;
 import org.chromium.chrome.browser.keyboard_accessory.AccessoryTabType;
@@ -44,8 +46,6 @@ import org.chromium.chrome.browser.keyboard_accessory.sheet_component.AccessoryS
 import org.chromium.chrome.browser.keyboard_accessory.sheet_tabs.AccessorySheetTabModel.AccessorySheetDataPiece;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.widget.ChipView;
 
@@ -198,8 +198,8 @@ public class PasswordAccessorySheetModernViewTest {
 
         View switchView = mView.get().findViewById(R.id.option_toggle_switch);
         assertThat(switchView, is(not(nullValue())));
-        assertThat(switchView, instanceOf(Switch.class));
-        assertFalse(((Switch) switchView).isChecked());
+        assertThat(switchView, instanceOf(SwitchCompat.class));
+        assertFalse(((SwitchCompat) switchView).isChecked());
     }
 
     @Test

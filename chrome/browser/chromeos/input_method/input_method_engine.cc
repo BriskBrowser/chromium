@@ -120,40 +120,20 @@ void InputMethodEngine::SetCastingEnabled(bool casting_enabled) {
   }
 }
 
-ui::InputMethodKeyboardController*
-InputMethodEngine::GetInputMethodKeyboardController() const {
+ui::VirtualKeyboardController* InputMethodEngine::GetVirtualKeyboardController()
+    const {
   // Callers expect a nullptr when the keyboard is disabled. See
   // https://crbug.com/850020.
   if (!keyboard::KeyboardUIController::HasInstance() ||
       !keyboard::KeyboardUIController::Get()->IsEnabled()) {
     return nullptr;
   }
-  return keyboard::KeyboardUIController::Get()
-      ->input_method_keyboard_controller();
+  return keyboard::KeyboardUIController::Get()->virtual_keyboard_controller();
 }
 
 void InputMethodEngine::OnSuggestionsChanged(
     const std::vector<std::string>& suggestions) {
   observer_->OnSuggestionsChanged(suggestions);
-}
-
-bool InputMethodEngine::ShowMultipleSuggestions(
-    int context_id,
-    const std::vector<base::string16>& suggestions,
-    std::string* error) {
-  if (!IsActive()) {
-    *error = kErrorNotActive;
-    return false;
-  }
-  if (context_id != context_id_ || context_id_ == -1) {
-    *error = kErrorWrongContext;
-    return false;
-  }
-  IMEAssistiveWindowHandlerInterface* aw_handler =
-      ui::IMEBridge::Get()->GetAssistiveWindowHandler();
-  if (aw_handler)
-    aw_handler->ShowMultipleSuggestions(suggestions);
-  return true;
 }
 
 bool InputMethodEngine::SetButtonHighlighted(
@@ -471,6 +451,17 @@ bool InputMethodEngine::SetCompositionRange(
   return input_context->SetCompositionRange(before, after, text_spans);
 }
 
+bool InputMethodEngine::SetComposingRange(
+    uint32_t start,
+    uint32_t end,
+    const std::vector<ui::ImeTextSpan>& text_spans) {
+  ui::IMEInputContextHandlerInterface* input_context =
+      ui::IMEBridge::Get()->GetInputContextHandler();
+  if (!input_context)
+    return false;
+  return input_context->SetComposingRange(start, end, text_spans);
+}
+
 gfx::Range InputMethodEngine::GetAutocorrectRange() {
   ui::IMEInputContextHandlerInterface* input_context =
       ui::IMEBridge::Get()->GetInputContextHandler();
@@ -487,15 +478,12 @@ gfx::Rect InputMethodEngine::GetAutocorrectCharacterBounds() {
   return input_context->GetAutocorrectCharacterBounds();
 }
 
-bool InputMethodEngine::SetAutocorrectRange(
-    const base::string16& autocorrect_text,
-    uint32_t start,
-    uint32_t end) {
+bool InputMethodEngine::SetAutocorrectRange(const gfx::Range& range) {
   ui::IMEInputContextHandlerInterface* input_context =
       ui::IMEBridge::Get()->GetInputContextHandler();
   if (!input_context)
     return false;
-  return input_context->SetAutocorrectRange(autocorrect_text, start, end);
+  return input_context->SetAutocorrectRange(range);
 }
 
 bool InputMethodEngine::SetSelectionRange(uint32_t start, uint32_t end) {
@@ -514,7 +502,9 @@ void InputMethodEngine::CommitTextToInputContext(int context_id,
     return;
 
   const bool had_composition_text = input_context->HasCompositionText();
-  input_context->CommitText(text);
+  input_context->CommitText(
+      text,
+      ui::TextInputClient::InsertTextCursorBehavior::kMoveCursorAfterText);
 
   if (had_composition_text) {
     // Records histograms for committed characters with composition text.
@@ -524,12 +514,9 @@ void InputMethodEngine::CommitTextToInputContext(int context_id,
   }
 }
 
-bool InputMethodEngine::SendKeyEvent(ui::KeyEvent* event,
-                                     const std::string& code,
+bool InputMethodEngine::SendKeyEvent(const ui::KeyEvent& event,
                                      std::string* error) {
-  DCHECK(event);
-  if (event->key_code() == ui::VKEY_UNKNOWN)
-    event->set_key_code(ui::DomKeycodeToKeyboardCode(code));
+  ui::KeyEvent event_copy = event;
 
   // Marks the simulated key event is from the Virtual Keyboard.
   ui::Event::Properties properties;
@@ -537,12 +524,12 @@ bool InputMethodEngine::SendKeyEvent(ui::KeyEvent* event,
       std::vector<uint8_t>(ui::kPropertyFromVKSize);
   properties[ui::kPropertyFromVK][ui::kPropertyFromVKIsMirroringIndex] =
       (uint8_t)is_mirroring_;
-  event->SetProperties(properties);
+  event_copy.SetProperties(properties);
 
   ui::IMEInputContextHandlerInterface* input_context =
       ui::IMEBridge::Get()->GetInputContextHandler();
   if (input_context) {
-    input_context->SendKeyEvent(event);
+    input_context->SendKeyEvent(&event_copy);
     return true;
   }
 

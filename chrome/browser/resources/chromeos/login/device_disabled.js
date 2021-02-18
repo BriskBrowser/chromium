@@ -7,7 +7,7 @@
  */
 
 Polymer({
-  is: 'device-disabled',
+  is: 'device-disabled-element',
 
   behaviors: [OobeI18nBehavior, OobeDialogHostBehavior, LoginScreenBehavior],
 
@@ -60,10 +60,17 @@ Polymer({
     return this.$.dialog;
   },
 
+  /**
+   * Event handler that is invoked just before the frame is shown.
+   * @param {Object} data Screen init payload
+   */
   onBeforeShow(data) {
-    this.serial_ = data.serial;
-    this.enrollmentDomain_ = data.domain;
-    this.message_ = data.message;
+    if ('serial' in data)
+      this.serial_ = data.serial;
+    if ('domain' in data)
+      this.enrollmentDomain_ = data.domain;
+    if ('message' in data)
+      this.message_ = data.message;
   },
 
   /**

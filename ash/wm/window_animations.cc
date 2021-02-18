@@ -9,8 +9,6 @@
 #include <utility>
 #include <vector>
 
-#include "ash/home_screen/home_launcher_gesture_handler.h"
-#include "ash/home_screen/home_screen_controller.h"
 #include "ash/public/cpp/metrics_util.h"
 #include "ash/public/cpp/window_animation_types.h"
 #include "ash/shelf/shelf.h"
@@ -122,7 +120,8 @@ class CrossFadeObserver : public aura::WindowObserver,
         [](const base::Optional<std::string>& histogram_name, int smoothness) {
           if (histogram_name) {
             DCHECK(!histogram_name->empty());
-            base::UmaHistogramPercentage(*histogram_name, smoothness);
+            base::UmaHistogramPercentageObsoleteDoNotUse(*histogram_name,
+                                                         smoothness);
           } else {
             UMA_HISTOGRAM_PERCENTAGE(kCrossFadeSmoothness, smoothness);
           }

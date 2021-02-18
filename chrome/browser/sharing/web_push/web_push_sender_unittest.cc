@@ -6,7 +6,7 @@
 
 #include "base/base64.h"
 #include "base/base64url.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/json/json_reader.h"
 #include "content/public/test/browser_task_environment.h"
 #include "crypto/ec_private_key.h"
@@ -141,7 +141,8 @@ TEST_F(WebPushSenderTest, SendMessageTest) {
       pendingRequest->request.request_body->elements();
   ASSERT_EQ(1UL, body_elements->size());
   const network::DataElement& body = body_elements->back();
-  EXPECT_EQ("payload", std::string(body.bytes(), body.length()));
+  ASSERT_EQ(network::DataElement::Tag::kBytes, body.type());
+  EXPECT_EQ("payload", body.As<network::DataElementBytes>().AsStringPiece());
 
   auto response_head = network::CreateURLResponseHead(net::HTTP_OK);
   response_head->headers->AddHeader("location",

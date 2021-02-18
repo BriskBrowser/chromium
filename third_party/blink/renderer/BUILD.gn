@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/chromeos/ui_mode.gni")
 import("config.gni")
 if (is_clang) {
   import("//build/config/clang/clang.gni")
@@ -47,9 +48,11 @@ config("inside_blink") {
       "-Wno-sign-conversion",
       "-Wno-implicit-float-conversion",
       "-Wno-implicit-int-conversion",
+      "-Wno-shorten-64-to-32",
     ]
 
-    if (!is_chromeos || default_toolchain != "//build/toolchain/cros:target") {
+    if (!is_chromeos_ash ||
+        default_toolchain != "//build/toolchain/cros:target") {
       cflags += [ "-Wno-enum-float-conversion" ]
     }
   }

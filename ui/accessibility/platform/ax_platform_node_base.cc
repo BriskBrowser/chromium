@@ -63,7 +63,8 @@ bool FindDescendantRoleWithMaxDepth(AXPlatformNodeBase* node,
 
 }  // namespace
 
-const base::char16 AXPlatformNodeBase::kEmbeddedCharacter = L'\xfffc';
+const base::char16 AXPlatformNodeBase::kEmbeddedCharacter =
+    STRING16_LITERAL('\xfffc');
 
 // Map from each AXPlatformNode's unique id to its instance.
 using UniqueIdMap = std::unordered_map<int32_t, AXPlatformNode*>;
@@ -119,7 +120,7 @@ const AXNodeData& AXPlatformNodeBase::GetData() const {
   return *empty_data;
 }
 
-gfx::NativeViewAccessible AXPlatformNodeBase::GetFocus() {
+gfx::NativeViewAccessible AXPlatformNodeBase::GetFocus() const {
   if (delegate_)
     return delegate_->GetFocus();
   return nullptr;
@@ -149,17 +150,18 @@ std::string AXPlatformNodeBase::GetName() const {
   return std::string();
 }
 
-base::string16 AXPlatformNodeBase::GetNameAsString16() const {
-  std::string name = GetName();
-  if (name.empty())
-    return base::string16();
-  return base::UTF8ToUTF16(name);
-}
-
 base::Optional<int> AXPlatformNodeBase::GetIndexInParent() {
   AXPlatformNodeBase* parent = FromNativeViewAccessible(GetParent());
   if (!parent)
     return base::nullopt;
+
+  // If this is the webview, it is not in the child in the list of its parent's
+  // child.
+  // TODO(jkim): Check if we could remove this after making WebView ignored.
+  if (delegate_ &&
+      delegate_->GetNativeViewAccessible() != GetNativeViewAccessible()) {
+    return base::nullopt;
+  }
 
   int child_count = parent->GetChildCount();
   if (child_count == 0) {
@@ -591,8 +593,8 @@ bool AXPlatformNodeBase::SetHypertextSelection(int start_offset,
   return delegate_->SetHypertextSelection(start_offset, end_offset);
 }
 
-bool AXPlatformNodeBase::IsDocument() const {
-  return ui::IsDocument(GetData().role);
+bool AXPlatformNodeBase::IsPlatformDocument() const {
+  return ui::IsPlatformDocument(GetData().role);
 }
 
 bool AXPlatformNodeBase::IsSelectionItemSupported() const {
@@ -674,18 +676,6 @@ base::string16 AXPlatformNodeBase::GetInnerText() const {
   if (!delegate_)
     return base::string16();
   return delegate_->GetInnerText();
-}
-
-base::string16 AXPlatformNodeBase::GetRangeValueText() const {
-  float fval;
-  base::string16 value =
-      GetString16Attribute(ax::mojom::StringAttribute::kValue);
-
-  if (value.empty() &&
-      GetFloatAttribute(ax::mojom::FloatAttribute::kValueForRange, &fval)) {
-    value = base::NumberToString16(fval);
-  }
-  return value;
 }
 
 base::string16
@@ -893,11 +883,7 @@ base::Optional<float> AXPlatformNodeBase::GetFontSizeInPoints() const {
   return base::nullopt;
 }
 
-bool AXPlatformNodeBase::HasCaret(
-    const AXTree::Selection* unignored_selection) {
-  if (IsInvisibleOrIgnored())
-    return false;
-
+bool AXPlatformNodeBase::HasCaret(const AXTree::Selection* selection) {
   if (IsPlainTextField() &&
       HasIntAttribute(ax::mojom::IntAttribute::kTextSelStart) &&
       HasIntAttribute(ax::mojom::IntAttribute::kTextSelEnd)) {
@@ -906,10 +892,10 @@ bool AXPlatformNodeBase::HasCaret(
 
   // The caret is always at the focus of the selection.
   int32_t focus_id;
-  if (unignored_selection)
-    focus_id = unignored_selection->focus_object_id;
+  if (selection)
+    focus_id = selection->focus_object_id;
   else
-    focus_id = delegate_->GetUnignoredSelection().focus_object_id;
+    focus_id = delegate_->GetTreeData().sel_focus_object_id;
 
   AXPlatformNodeBase* focus_object =
       static_cast<AXPlatformNodeBase*>(delegate_->GetFromNodeID(focus_id));
@@ -929,7 +915,17 @@ bool AXPlatformNodeBase::IsChildOfLeaf() const {
 }
 
 bool AXPlatformNodeBase::IsInvisibleOrIgnored() const {
-  return GetData().IsInvisibleOrIgnored();
+  if (!GetData().IsInvisibleOrIgnored())
+    return false;
+
+  if (GetData().HasState(ax::mojom::State::kFocusable))
+    return !IsFocused();
+
+  return !const_cast<AXPlatformNodeBase*>(this)->HasCaret();
+}
+
+bool AXPlatformNodeBase::IsFocused() const {
+  return delegate_ && FromNativeViewAccessible(delegate_->GetFocus()) == this;
 }
 
 bool AXPlatformNodeBase::IsScrollable() const {
@@ -961,25 +957,10 @@ bool AXPlatformNodeBase::IsVerticallyScrollable() const {
              GetIntAttribute(ax::mojom::IntAttribute::kScrollYMax);
 }
 
-base::string16 AXPlatformNodeBase::GetValue() const {
-  // Expose slider value.
-  if (GetData().IsRangeValueSupported())
-    return GetRangeValueText();
-
-  // On Windows, the value of a document should be its URL.
-  if (ui::IsDocument(GetData().role))
-    return base::UTF8ToUTF16(delegate_->GetTreeData().url);
-
-  base::string16 value =
-      GetString16Attribute(ax::mojom::StringAttribute::kValue);
-
-  // Some screen readers like Jaws and VoiceOver require a
-  // value to be set in text fields with rich content, even though the same
-  // information is available on the children.
-  if (value.empty() && IsRichTextField())
-    return GetInnerText();
-
-  return value;
+base::string16 AXPlatformNodeBase::GetValueForControl() const {
+  if (!delegate_)
+    return base::string16();
+  return delegate_->GetValueForControl();
 }
 
 void AXPlatformNodeBase::ComputeAttributes(PlatformAttributeList* attributes) {
@@ -1106,9 +1087,6 @@ void AXPlatformNodeBase::ComputeAttributes(PlatformAttributeList* attributes) {
       case ax::mojom::AriaCurrentState::kLocation:
         AddAttributeToList("current", "location", attributes);
         break;
-      case ax::mojom::AriaCurrentState::kUnclippedLocation:
-        AddAttributeToList("current", "unclippedLocation", attributes);
-        break;
       case ax::mojom::AriaCurrentState::kDate:
         AddAttributeToList("current", "date", attributes);
         break;
@@ -1206,10 +1184,10 @@ void AXPlatformNodeBase::ComputeAttributes(PlatformAttributeList* attributes) {
     }
   }
 
-  // Expose slider value.
+  // Expose the value of a progress bar, slider, scroll bar or <select> element.
   if (GetData().IsRangeValueSupported() ||
       GetData().role == ax::mojom::Role::kComboBoxMenuButton) {
-    std::string value = base::UTF16ToUTF8(GetRangeValueText());
+    std::string value = base::UTF16ToUTF8(GetValueForControl());
     if (!value.empty())
       AddAttributeToList("valuetext", value, attributes);
   }
@@ -1350,6 +1328,7 @@ AXHypertext::~AXHypertext() = default;
 AXHypertext::AXHypertext(const AXHypertext& other) = default;
 AXHypertext& AXHypertext::operator=(const AXHypertext& other) = default;
 
+// TODO(nektar): To be able to use AXNode in Views, move this logic to AXNode.
 void AXPlatformNodeBase::UpdateComputedHypertext() const {
   if (!delegate_)
     return;
@@ -1362,18 +1341,18 @@ void AXPlatformNodeBase::UpdateComputedHypertext() const {
   }
 
   // Construct the hypertext for this node, which contains the concatenation
-  // of all of the static text and widespace of this node's children and an
+  // of all of the static text and whitespace from this node's children, and an
   // embedded object character for all the other children. Build up a map from
   // the character index of each embedded object character to the id of the
   // child object it points to.
   base::string16 hypertext;
   for (AXPlatformNodeChildIterator child_iter = AXPlatformNodeChildrenBegin();
        child_iter != AXPlatformNodeChildrenEnd(); ++child_iter) {
-    // Similar to Firefox, we don't expose text-only objects in IA2 and ATK
+    // Similar to Firefox, we don't expose text nodes in IAccessible2 and ATK
     // hypertext with the embedded object character. We copy all of their text
     // instead.
     if (child_iter->IsText()) {
-      hypertext_.hypertext += child_iter->GetNameAsString16();
+      hypertext_.hypertext += base::UTF8ToUTF16(child_iter->GetName());
     } else {
       int32_t char_offset = static_cast<int32_t>(hypertext_.hypertext.size());
       int32_t child_unique_id = child_iter->GetUniqueId();
@@ -1874,6 +1853,7 @@ int AXPlatformNodeBase::FindTextBoundary(
     int offset,
     ax::mojom::MoveDirection direction,
     ax::mojom::TextAffinity affinity) const {
+  DCHECK_NE(boundary, ax::mojom::TextBoundary::kNone);
   if (boundary != ax::mojom::TextBoundary::kSentenceStart) {
     base::Optional<int> boundary_offset =
         GetDelegate()->FindTextBoundary(boundary, offset, direction, affinity);
@@ -2245,9 +2225,6 @@ std::string AXPlatformNodeBase::ComputeDetailsRoles() const {
 }
 
 int AXPlatformNodeBase::GetMaxSelectableItems() const {
-  if (!GetData().HasState(ax::mojom::State::kFocusable))
-    return 0;
-
   if (IsLeaf())
     return 0;
 

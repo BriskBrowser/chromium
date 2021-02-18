@@ -6,6 +6,9 @@
 #define CHROME_BROWSER_NEARBY_SHARING_ATTACHMENT_H_
 
 #include <stdint.h>
+#include <string>
+
+#include "chrome/browser/ui/webui/nearby_share/nearby_share_share_type.mojom.h"
 
 struct ShareTarget;
 
@@ -29,6 +32,8 @@ class Attachment {
   void set_size(int64_t size) { size_ = size; }
 
   virtual void MoveToShareTarget(ShareTarget& share_target) = 0;
+  virtual const std::string& GetDescription() const = 0;
+  virtual nearby_share::mojom::ShareType GetShareType() const = 0;
 
  private:
   int64_t id_;

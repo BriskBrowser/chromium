@@ -7,7 +7,7 @@
  */
 
 Polymer({
-  is: 'family-link-notice',
+  is: 'family-link-notice-element',
 
   behaviors: [OobeI18nBehavior, OobeDialogHostBehavior, LoginScreenBehavior],
 
@@ -49,6 +49,14 @@ Polymer({
     this.initializeLoginScreen('FamilyLinkNoticeScreen', {
       resetAllowed: true,
     });
+  },
+
+  /**
+   * Returns default event target element.
+   * @type {Object}
+   */
+  get defaultControl() {
+    return this.$.familyLinkDialog;
   },
 
   /*

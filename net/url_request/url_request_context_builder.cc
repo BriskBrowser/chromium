@@ -46,7 +46,7 @@
 #include "net/url_request/static_http_user_agent_settings.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_storage.h"
-#include "net/url_request/url_request_job_factory_impl.h"
+#include "net/url_request/url_request_job_factory.h"
 #include "net/url_request/url_request_throttler_manager.h"
 #include "url/url_constants.h"
 
@@ -190,8 +190,6 @@ void URLRequestContextBuilder::SetHttpNetworkSessionComponents(
   session_context->cert_verifier = request_context->cert_verifier();
   session_context->transport_security_state =
       request_context->transport_security_state();
-  session_context->cert_transparency_verifier =
-      request_context->cert_transparency_verifier();
   session_context->ct_policy_enforcer = request_context->ct_policy_enforcer();
   session_context->sct_auditing_delegate =
       request_context->sct_auditing_delegate();
@@ -250,11 +248,6 @@ void URLRequestContextBuilder::SetSpdyAndQuicEnabled(bool spdy_enabled,
                                                      bool quic_enabled) {
   http_network_session_params_.enable_http2 = spdy_enabled;
   http_network_session_params_.enable_quic = quic_enabled;
-}
-
-void URLRequestContextBuilder::set_ct_verifier(
-    std::unique_ptr<CTVerifier> ct_verifier) {
-  ct_verifier_ = std::move(ct_verifier);
 }
 
 void URLRequestContextBuilder::set_ct_policy_enforcer(
@@ -468,12 +461,6 @@ std::unique_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
         CertVerifier::CreateDefault(/*cert_net_fetcher=*/nullptr));
   }
 
-  if (ct_verifier_) {
-    storage->set_cert_transparency_verifier(std::move(ct_verifier_));
-  } else {
-    storage->set_cert_transparency_verifier(
-        std::make_unique<MultiLogCTVerifier>());
-  }
   if (ct_policy_enforcer_) {
     storage->set_ct_policy_enforcer(std::move(ct_policy_enforcer_));
   } else {
@@ -554,6 +541,10 @@ std::unique_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
 
   HttpNetworkSession::Context network_session_context;
   SetHttpNetworkSessionComponents(context.get(), &network_session_context);
+  // Unlike the other fields of HttpNetworkSession::Context,
+  // |client_socket_factory| is not mirrored in URLRequestContext.
+  network_session_context.client_socket_factory =
+      client_socket_factory_for_testing_;
 
   storage->set_http_network_session(std::make_unique<HttpNetworkSession>(
       http_network_session_params_, network_session_context));
@@ -606,8 +597,8 @@ std::unique_ptr<URLRequestContext> URLRequestContextBuilder::Build() {
   }
   storage->set_http_transaction_factory(std::move(http_transaction_factory));
 
-  std::unique_ptr<URLRequestJobFactoryImpl> job_factory =
-      std::make_unique<URLRequestJobFactoryImpl>();
+  std::unique_ptr<URLRequestJobFactory> job_factory =
+      std::make_unique<URLRequestJobFactory>();
   // Adds caller-provided protocol handlers first so that these handlers are
   // used over the ftp handler below.
   for (auto& scheme_handler : protocol_handlers_) {

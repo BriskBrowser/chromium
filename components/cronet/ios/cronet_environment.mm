@@ -38,7 +38,6 @@
 #include "net/dns/host_resolver.h"
 #include "net/dns/mapped_host_resolver.h"
 #include "net/http/http_server_properties.h"
-#include "net/http/http_stream_factory.h"
 #include "net/http/http_transaction_factory.h"
 #include "net/http/http_util.h"
 #include "net/log/file_net_log_observer.h"
@@ -52,7 +51,6 @@
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_builder.h"
 #include "net/url_request/url_request_context_storage.h"
-#include "net/url_request/url_request_job_factory_impl.h"
 #include "url/scheme_host_port.h"
 #include "url/url_util.h"
 
@@ -180,9 +178,8 @@ void CronetEnvironment::StartNetLogOnNetworkThread(const base::FilePath& path,
                 : net::NetLogCaptureMode::kDefault;
 
   file_net_log_observer_ =
-      net::FileNetLogObserver::CreateUnbounded(path, nullptr);
-  file_net_log_observer_->StartObserving(main_context_->net_log(),
-                                         capture_mode);
+      net::FileNetLogObserver::CreateUnbounded(path, capture_mode, nullptr);
+  file_net_log_observer_->StartObserving(main_context_->net_log());
   LOG(WARNING) << "Started NetLog";
 }
 
@@ -210,8 +207,7 @@ void CronetEnvironment::StopNetLogOnNetworkThread(
 }
 
 base::Value CronetEnvironment::GetNetLogInfo() const {
-  base::Value net_info =
-      net::GetNetInfo(main_context_.get(), net::NET_INFO_ALL_SOURCES);
+  base::Value net_info = net::GetNetInfo(main_context_.get());
   if (effective_experimental_options_) {
     net_info.SetKey("cronetExperimentalParams",
                     effective_experimental_options_->Clone());

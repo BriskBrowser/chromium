@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "base/logging.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/common/scoped_defer_task_posting.h"
 #include "base/task/sequence_manager/sequence_manager_impl.h"
@@ -422,12 +423,12 @@ void TaskQueueImpl::PushOntoDelayedIncomingQueue(Task pending_task) {
 
   // TODO(altimin): Add a copy method to Task to capture metadata here.
   auto task_runner = pending_task.task_runner;
+  const auto task_type = pending_task.task_type;
   PostImmediateTaskImpl(
       PostedTask(std::move(task_runner),
                  BindOnce(&TaskQueueImpl::ScheduleDelayedWorkTask,
                           Unretained(this), std::move(pending_task)),
-                 FROM_HERE, TimeDelta(), Nestable::kNonNestable,
-                 pending_task.task_type),
+                 FROM_HERE, TimeDelta(), Nestable::kNonNestable, task_type),
       CurrentThread::kNotMainThread);
 }
 
@@ -547,7 +548,18 @@ Optional<DelayedWakeUp> TaskQueueImpl::GetNextScheduledWakeUpImpl() {
   if (main_thread_only().delayed_incoming_queue.empty() || !IsQueueEnabled())
     return nullopt;
 
-  return main_thread_only().delayed_incoming_queue.top().delayed_wake_up();
+  // High resolution is needed if the queue contains high resolution tasks and
+  // has a priority index <= kNormalPriority (precise execution time is
+  // unnecessary for a low priority queue).
+  WakeUpResolution resolution =
+      has_pending_high_resolution_tasks() &&
+              GetQueuePriority() <= TaskQueue::QueuePriority::kNormalPriority
+          ? WakeUpResolution::kHigh
+          : WakeUpResolution::kLow;
+
+  const auto& top_task = main_thread_only().delayed_incoming_queue.top();
+  return DelayedWakeUp{top_task.delayed_run_time, top_task.sequence_num,
+                       resolution};
 }
 
 Optional<TimeTicks> TaskQueueImpl::GetNextScheduledWakeUp() {
@@ -620,6 +632,12 @@ void TaskQueueImpl::SetQueuePriority(TaskQueue::QueuePriority priority) {
     return;
   sequence_manager_->main_thread_only().selector.SetQueuePriority(this,
                                                                   priority);
+
+#if defined(OS_WIN)
+  // Updating queue priority can change whether high resolution timer is needed.
+  LazyNow lazy_now = main_thread_only().time_domain->CreateLazyNow();
+  UpdateDelayedWakeUp(&lazy_now);
+#endif
 
   static_assert(TaskQueue::QueuePriority::kLowPriority >
                     TaskQueue::QueuePriority::kNormalPriority,
@@ -1038,7 +1056,8 @@ void TaskQueueImpl::UpdateCrossThreadQueueStateLocked() {
 void TaskQueueImpl::ReclaimMemory(TimeTicks now) {
   if (main_thread_only().delayed_incoming_queue.empty())
     return;
-  main_thread_only().delayed_incoming_queue.SweepCancelledTasks();
+  main_thread_only().delayed_incoming_queue.SweepCancelledTasks(
+      sequence_manager_);
 
   // Also consider shrinking the work queue if it's wasting memory.
   main_thread_only().delayed_work_queue->MaybeShrinkQueue();
@@ -1118,11 +1137,8 @@ void TaskQueueImpl::UpdateDelayedWakeUpImpl(LazyNow* lazy_now,
         wake_up->time);
   }
 
-  WakeUpResolution resolution = has_pending_high_resolution_tasks()
-                                    ? WakeUpResolution::kHigh
-                                    : WakeUpResolution::kLow;
   main_thread_only().time_domain->SetNextWakeUpForQueue(this, wake_up,
-                                                        resolution, lazy_now);
+                                                        lazy_now);
 }
 
 void TaskQueueImpl::SetDelayedWakeUpForTesting(
@@ -1384,32 +1400,54 @@ void TaskQueueImpl::DelayedIncomingQueue::swap(DelayedIncomingQueue* rhs) {
   std::swap(queue_, rhs->queue_);
 }
 
-void TaskQueueImpl::DelayedIncomingQueue::SweepCancelledTasks() {
-  // Under the hood a std::priority_queue is a heap and usually it's built on
-  // top of a std::vector. We poke at that vector directly here to filter out
-  // canceled tasks in place.
-  bool task_deleted = false;
-  auto it = queue_.c.begin();
-  while (it != queue_.c.end()) {
-    if (it->task.IsCancelled()) {
-      if (it->is_high_res)
-        pending_high_res_tasks_--;
-      *it = std::move(queue_.c.back());
-      queue_.c.pop_back();
-      task_deleted = true;
-    } else {
-      it++;
-    }
-  }
+void TaskQueueImpl::DelayedIncomingQueue::SweepCancelledTasks(
+    SequenceManagerImpl* sequence_manager) {
+  pending_high_res_tasks_ -= queue_.SweepCancelledTasks(sequence_manager);
+}
 
-  // If we deleted something, re-enforce the heap property.
-  if (task_deleted)
-    std::make_heap(queue_.c.begin(), queue_.c.end(), queue_.comp);
+size_t TaskQueueImpl::DelayedIncomingQueue::PQueue::SweepCancelledTasks(
+    SequenceManagerImpl* sequence_manager) {
+  // Under the hood a std::priority_queue is a heap implemented top of a
+  // std::vector. We poke at that vector directly here to filter out canceled
+  // tasks in place.
+  size_t num_high_res_tasks_swept = 0u;
+  auto keep_task = [sequence_manager,
+                    &num_high_res_tasks_swept](const Task& task) {
+    // TODO(crbug.com/1155905): Remove after figuring out the cause of the
+    // crash.
+    sequence_manager->RecordCrashKeys(task);
+    if (!task.task.IsCancelled())
+      return true;
+    if (task.is_high_res)
+      num_high_res_tasks_swept++;
+    return false;
+  };
+
+  // Because task destructors could have a side-effect of posting new tasks, we
+  // move all the cancelled tasks into a temporary container before deleting
+  // them. This is to avoid |c| from changing while c.erase() is running.
+  auto delete_start = std::stable_partition(c.begin(), c.end(), keep_task);
+  std::vector<Task> tasks_to_delete;
+  std::move(delete_start, c.end(), std::back_inserter(tasks_to_delete));
+  c.erase(delete_start, c.end());
+
+  // stable_partition ensures order was not changed if there was nothing to
+  // delete.
+  if (!tasks_to_delete.empty()) {
+    ranges::make_heap(c, comp);
+    tasks_to_delete.clear();
+  }
+  return num_high_res_tasks_swept;
 }
 
 Value TaskQueueImpl::DelayedIncomingQueue::AsValue(TimeTicks now) const {
+  return queue_.AsValue(now);
+}
+
+Value TaskQueueImpl::DelayedIncomingQueue::PQueue::AsValue(
+    TimeTicks now) const {
   Value state(Value::Type::LIST);
-  for (const Task& task : queue_.c)
+  for (const Task& task : c)
     state.Append(TaskAsValue(task, now));
   return state;
 }

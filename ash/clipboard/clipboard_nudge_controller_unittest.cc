@@ -5,15 +5,15 @@
 #include "ash/clipboard/clipboard_nudge_controller.h"
 
 #include "ash/clipboard/clipboard_history.h"
-#include "ash/clipboard/clipboard_history_controller.h"
+#include "ash/clipboard/clipboard_history_controller_impl.h"
 #include "ash/clipboard/clipboard_nudge_constants.h"
+#include "ash/constants/ash_features.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/simple_test_clock.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "ui/base/clipboard/clipboard_data.h"
 #include "ui/base/clipboard/clipboard_non_backed.h"
 
@@ -31,8 +31,10 @@ class ClipboardNudgeControllerTest : public AshTestBase {
 
   // AshTestBase:
   void SetUp() override {
-    scoped_feature_list_.InitAndEnableFeature(
-        chromeos::features::kClipboardHistory);
+    scoped_feature_list_.InitWithFeatures(
+        {chromeos::features::kClipboardHistory,
+         chromeos::features::kClipboardHistoryContextMenuNudge},
+        {});
     AshTestBase::SetUp();
     nudge_controller_ =
         Shell::Get()->clipboard_history_controller()->nudge_controller();
@@ -75,10 +77,16 @@ TEST_F(ClipboardNudgeControllerTest, ShouldShowNudgeAfterCorrectSequence) {
   EXPECT_EQ(ClipboardState::kSecondCopy,
             nudge_controller_->GetClipboardStateForTesting());
 
-  // Checks that the second paste advances state as expected.
+  // Check that clipbaord nudge has not yet been created.
+  EXPECT_FALSE(nudge_controller_->GetClipboardNudgeForTesting());
+
+  // Checks that the second paste resets state as expected.
   nudge_controller_->OnClipboardDataRead();
-  EXPECT_EQ(ClipboardState::kShouldShowNudge,
+  EXPECT_EQ(ClipboardState::kInit,
             nudge_controller_->GetClipboardStateForTesting());
+
+  // Check that clipbaord nudge has been created.
+  EXPECT_TRUE(nudge_controller_->GetClipboardNudgeForTesting());
 }
 
 // Checks that the clipboard state does not advace if too much time passes
@@ -121,6 +129,9 @@ TEST_F(ClipboardNudgeControllerTest, NudgeDoesNotTimeOutWithSparsePastes) {
               nudge_controller_->GetClipboardStateForTesting());
   }
 
+  // Check that clipbaord nudge has not yet been created.
+  EXPECT_FALSE(nudge_controller_->GetClipboardNudgeForTesting());
+
   // Check that HandleClipboardChanged() will advance nudge_controller's
   // ClipboardState.
   nudge_controller_->OnClipboardHistoryItemAdded(
@@ -128,8 +139,11 @@ TEST_F(ClipboardNudgeControllerTest, NudgeDoesNotTimeOutWithSparsePastes) {
   EXPECT_EQ(ClipboardState::kSecondCopy,
             nudge_controller_->GetClipboardStateForTesting());
   nudge_controller_->OnClipboardDataRead();
-  EXPECT_EQ(ClipboardState::kShouldShowNudge,
+  EXPECT_EQ(ClipboardState::kInit,
             nudge_controller_->GetClipboardStateForTesting());
+
+  // Check that clipbaord nudge has been created.
+  EXPECT_TRUE(nudge_controller_->GetClipboardNudgeForTesting());
 }
 
 // Checks that consecutive copy events does not advance the clipboard state.
@@ -173,6 +187,23 @@ TEST_F(ClipboardNudgeControllerTest, AdminWriteDoesNotAdvanceState) {
       std::move(data));
   EXPECT_EQ(ClipboardState::kFirstPaste,
             nudge_controller_->GetClipboardStateForTesting());
+}
+
+// Verifies that the context menu new feature badge for the clipboard option
+// only shows |kContextMenuBadgeShowLimit| times.
+TEST_F(ClipboardNudgeControllerTest, ShowNewFeatureNudge) {
+  ASSERT_TRUE(nudge_controller_->ShouldShowNewFeatureBadge());
+
+  // Mark the badge shown |kContextMenuBadgeShowLimit| - 1 times.
+  // Should expect to keep showing the badge
+  for (int i = 0; i < kContextMenuBadgeShowLimit - 1; ++i) {
+    nudge_controller_->MarkNewFeatureBadgeShown();
+    EXPECT_TRUE(nudge_controller_->ShouldShowNewFeatureBadge());
+  }
+  // Marking the badge as shown |kContextMenuBadgeShowLimit| times should not
+  // expect to show the badge the next time.
+  nudge_controller_->MarkNewFeatureBadgeShown();
+  EXPECT_FALSE(nudge_controller_->ShouldShowNewFeatureBadge());
 }
 
 }  // namespace ash

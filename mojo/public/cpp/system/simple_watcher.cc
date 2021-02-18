@@ -9,10 +9,13 @@
 #include "base/memory/ptr_util.h"
 #include "base/sequenced_task_runner.h"
 #include "base/synchronization/lock.h"
+#include "base/task/common/task_annotator.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/heap_profiler.h"
 #include "base/trace_event/trace_event.h"
+#include "base/trace_event/typed_macros.h"
 #include "mojo/public/c/system/trap.h"
+#include "third_party/perfetto/protos/perfetto/trace/track_event/chrome_mojo_event_info.pbzero.h"
 
 namespace mojo {
 
@@ -30,9 +33,10 @@ class SimpleWatcher::Context : public base::RefCountedThreadSafe<Context> {
       MojoHandleSignals signals,
       MojoTriggerCondition condition,
       int watch_id,
-      MojoResult* result) {
+      MojoResult* result,
+      const char* handler_tag) {
     scoped_refptr<Context> context =
-        new Context(watcher, task_runner, watch_id);
+        new Context(watcher, task_runner, watch_id, handler_tag);
 
     // If MojoAddTrigger succeeds, it effectively assumes ownership of a
     // reference to |context|. In that case, this reference is balanced in
@@ -67,10 +71,12 @@ class SimpleWatcher::Context : public base::RefCountedThreadSafe<Context> {
 
   Context(base::WeakPtr<SimpleWatcher> weak_watcher,
           scoped_refptr<base::SequencedTaskRunner> task_runner,
-          int watch_id)
+          int watch_id,
+          const char* handler_tag)
       : weak_watcher_(weak_watcher),
         task_runner_(task_runner),
-        watch_id_(watch_id) {}
+        watch_id_(watch_id),
+        handler_tag_(handler_tag) {}
 
   ~Context() = default;
 
@@ -87,28 +93,34 @@ class SimpleWatcher::Context : public base::RefCountedThreadSafe<Context> {
       // the default task runner for the IO thread.
       weak_watcher_->OnHandleReady(watch_id_, result, state);
     } else {
-      task_runner_->PostTask(
-          FROM_HERE, base::BindOnce(&SimpleWatcher::OnHandleReady,
-                                    weak_watcher_, watch_id_, result, state));
+      {
+        // Annotate the posted task with |handler_tag_| as the IPC interface.
+        base::TaskAnnotator::ScopedSetIpcHash scoped_set_ipc_hash(handler_tag_);
+        task_runner_->PostTask(
+            FROM_HERE, base::BindOnce(&SimpleWatcher::OnHandleReady,
+                                      weak_watcher_, watch_id_, result, state));
+      }
     }
   }
 
   const base::WeakPtr<SimpleWatcher> weak_watcher_;
   const scoped_refptr<base::SequencedTaskRunner> task_runner_;
   const int watch_id_;
+  const char* handler_tag_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(Context);
 };
 
 SimpleWatcher::SimpleWatcher(const base::Location& from_here,
                              ArmingPolicy arming_policy,
-                             scoped_refptr<base::SequencedTaskRunner> runner)
+                             scoped_refptr<base::SequencedTaskRunner> runner,
+                             const char* handler_tag)
     : arming_policy_(arming_policy),
       task_runner_(std::move(runner)),
       is_default_task_runner_(base::ThreadTaskRunnerHandle::IsSet() &&
                               task_runner_ ==
                                   base::ThreadTaskRunnerHandle::Get()),
-      heap_profiler_tag_(from_here.file_name()) {
+      handler_tag_(handler_tag ? handler_tag : from_here.file_name()) {
   MojoResult rv = CreateTrap(&Context::CallNotify, &trap_handle_);
   DCHECK_EQ(MOJO_RESULT_OK, rv);
   DCHECK(task_runner_->RunsTasksInCurrentSequence());
@@ -139,7 +151,7 @@ MojoResult SimpleWatcher::Watch(Handle handle,
   MojoResult result = MOJO_RESULT_UNKNOWN;
   context_ = Context::Create(weak_factory_.GetWeakPtr(), task_runner_,
                              trap_handle_.get(), handle_, signals, condition,
-                             watch_id_, &result);
+                             watch_id_, &result, handler_tag_);
   if (!context_) {
     handle_.set_value(kInvalidHandleValue);
     callback_.Reset();
@@ -212,14 +224,22 @@ void SimpleWatcher::ArmOrNotify() {
   MojoResult ready_result;
   HandleSignalsState ready_state;
   MojoResult rv = Arm(&ready_result, &ready_state);
-  if (rv == MOJO_RESULT_OK)
+
+  // NOTE: If the watched handle has been closed, the above call will result in
+  // MOJO_RESULT_NOT_FOUND. A MOJO_RESULT_CANCELLED notification will already
+  // have been posted to this object as a result, so there's nothing else to do.
+  if (rv == MOJO_RESULT_OK || rv == MOJO_RESULT_NOT_FOUND)
     return;
 
   DCHECK_EQ(MOJO_RESULT_FAILED_PRECONDITION, rv);
-  task_runner_->PostTask(
-      FROM_HERE,
-      base::BindOnce(&SimpleWatcher::OnHandleReady, weak_factory_.GetWeakPtr(),
-                     watch_id_, ready_result, ready_state));
+  {
+    // Annotate the posted task with |handler_tag_| as the IPC interface.
+    base::TaskAnnotator::ScopedSetIpcHash scoped_set_ipc_hash(handler_tag_);
+    task_runner_->PostTask(FROM_HERE,
+                           base::BindOnce(&SimpleWatcher::OnHandleReady,
+                                          weak_factory_.GetWeakPtr(), watch_id_,
+                                          ready_result, ready_state));
+  }
 }
 
 void SimpleWatcher::OnHandleReady(int watch_id,
@@ -235,7 +255,7 @@ void SimpleWatcher::OnHandleReady(int watch_id,
   ReadyCallbackWithState callback = callback_;
   if (result == MOJO_RESULT_CANCELLED) {
     // Implicit cancellation due to someone closing the watched handle. We clear
-    // the SimppleWatcher's state before dispatching this.
+    // the SimpleWatcher's state before dispatching this.
     context_ = nullptr;
     handle_.set_value(kInvalidHandleValue);
     callback_.Reset();
@@ -243,11 +263,16 @@ void SimpleWatcher::OnHandleReady(int watch_id,
 
   // NOTE: It's legal for |callback| to delete |this|.
   if (!callback.is_null()) {
-    TRACE_HEAP_PROFILER_API_SCOPED_TASK_EXECUTION event(heap_profiler_tag_);
-    // Lot of janks caused are grouped to OnHandleReady tasks. This trace event helps identify the
-    // cause of janks. It is ok to pass |heap_profiler_tag_| here since it is a string literal.
-    // TODO(927206): Consider renaming |heap_profiler_tag_|.
-    TRACE_EVENT0("toplevel", heap_profiler_tag_);
+    TRACE_HEAP_PROFILER_API_SCOPED_TASK_EXECUTION event(handler_tag_);
+    // Lot of janks caused are grouped to OnHandleReady tasks. This trace event
+    // helps identify the cause of janks. It is ok to pass |handler_tag_|
+    // here since it is a string literal.
+    TRACE_EVENT("toplevel", "SimpleWatcher::OnHandleReady",
+                [this](perfetto::EventContext ctx) {
+                  ctx.event()
+                      ->set_chrome_mojo_event_info()
+                      ->set_watcher_notify_interface_tag(handler_tag_);
+                });
 
     base::WeakPtr<SimpleWatcher> weak_self = weak_factory_.GetWeakPtr();
     callback.Run(result, state);
@@ -263,5 +288,4 @@ void SimpleWatcher::OnHandleReady(int watch_id,
       ArmOrNotify();
   }
 }
-
 }  // namespace mojo

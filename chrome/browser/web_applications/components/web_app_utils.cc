@@ -5,13 +5,15 @@
 #include "chrome/browser/web_applications/components/web_app_utils.h"
 
 #include "base/files/file_path.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_constants.h"
+#include "components/site_engagement/content/site_engagement_service.h"
 
-#if defined(OS_CHROMEOS)
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "components/user_manager/user_manager.h"
-#endif  // OS_CHROMEOS
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace web_app {
 
@@ -21,20 +23,16 @@ constexpr base::FilePath::CharType kManifestResourcesDirectoryName[] =
 constexpr base::FilePath::CharType kTempDirectoryName[] =
     FILE_PATH_LITERAL("Temp");
 
-bool AreWebAppsEnabled(Profile* profile) {
-  if (!profile)
+bool AreWebAppsEnabled(const Profile* profile) {
+  if (!profile || profile->IsSystemProfile())
     return false;
 
-  Profile* original_profile = profile->GetOriginalProfile();
+  const Profile* original_profile = profile->GetOriginalProfile();
   DCHECK(!original_profile->IsOffTheRecord());
 
-  if (original_profile->IsSystemProfile())
-    return false;
-
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Web Apps should not be installed to the ChromeOS system profiles.
-  if (chromeos::ProfileHelper::IsSigninProfile(original_profile) ||
-      chromeos::ProfileHelper::IsLockScreenAppProfile(original_profile)) {
+  if (!chromeos::ProfileHelper::IsRegularProfile(original_profile)) {
     return false;
   }
   // Disable Web Apps if running any kiosk app.
@@ -43,14 +41,14 @@ bool AreWebAppsEnabled(Profile* profile) {
                        user_manager->IsLoggedInAsArcKioskApp())) {
     return false;
   }
-#endif  // OS_CHROMEOS
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   return true;
 }
 
 bool AreWebAppsUserInstallable(Profile* profile) {
   return AreWebAppsEnabled(profile) && !profile->IsGuestSession() &&
-         !profile->IsOffTheRecord();
+         !profile->IsEphemeralGuestProfile() && !profile->IsOffTheRecord();
 }
 
 content::BrowserContext* GetBrowserContextForWebApps(
@@ -66,8 +64,11 @@ content::BrowserContext* GetBrowserContextForWebAppMetrics(
   // Use original profile to create only one KeyedService instance.
   Profile* original_profile =
       Profile::FromBrowserContext(context)->GetOriginalProfile();
-  const bool is_web_app_metrics_enabled = AreWebAppsEnabled(original_profile) &&
-                                          !original_profile->IsGuestSession();
+  const bool is_web_app_metrics_enabled =
+      site_engagement::SiteEngagementService::IsEnabled() &&
+      AreWebAppsEnabled(original_profile) &&
+      !original_profile->IsGuestSession() &&
+      !original_profile->IsEphemeralGuestProfile();
   return is_web_app_metrics_enabled ? original_profile : nullptr;
 }
 
@@ -97,9 +98,8 @@ base::FilePath GetWebAppsTempDirectory(
 }
 
 std::string GetProfileCategoryForLogging(Profile* profile) {
-#ifdef OS_CHROMEOS
-  if (chromeos::ProfileHelper::IsSigninProfile(profile) ||
-      chromeos::ProfileHelper::IsLockScreenAppProfile(profile)) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  if (!chromeos::ProfileHelper::IsRegularProfile(profile)) {
     return "SigninOrLockScreen";
   } else if (user_manager::UserManager::Get()->IsLoggedInAsAnyKioskApp()) {
     return "Kiosk";
@@ -118,7 +118,7 @@ std::string GetProfileCategoryForLogging(Profile* profile) {
 }
 
 bool IsChromeOs() {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   return true;
 #else
   return false;

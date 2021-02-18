@@ -33,6 +33,7 @@ class FormTracker : public content::RenderFrameObserver {
       SELECT_CHANGED,
     };
 
+    // TODO(crbug.com/1126017): Find a better name for this method.
     // Invoked when form needs to be saved because of |source|, |element| is
     // valid if the callback caused by source other than
     // WILL_SEND_SUBMIT_EVENT, |form| is valid for the callback caused by
@@ -71,6 +72,11 @@ class FormTracker : public content::RenderFrameObserver {
   void AjaxSucceeded();
   void TextFieldDidChange(const blink::WebFormControlElement& element);
   void SelectControlDidChange(const blink::WebFormControlElement& element);
+
+  // Tells the tracker to track the autofilled `element`. Since autofilling a
+  // form or field won't trigger the regular *DidChange events, the tracker
+  // won't be notified of this `element` otherwise.
+  void TrackAutofilledElement(const blink::WebFormControlElement& element);
 
   void set_ignore_control_changes(bool ignore_control_changes) {
     ignore_control_changes_ = ignore_control_changes;

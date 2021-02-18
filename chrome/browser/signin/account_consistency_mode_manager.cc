@@ -11,6 +11,7 @@
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/account_consistency_mode_manager_factory.h"
 #include "chrome/browser/signin/chrome_signin_client_factory.h"
@@ -21,13 +22,17 @@
 #include "components/signin/public/base/signin_pref_names.h"
 #include "google_apis/google_api_keys.h"
 
-#if defined(OS_CHROMEOS)
-#include "chrome/browser/chromeos/account_manager/account_manager_util.h"
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/ash/account_manager/account_manager_util.h"
 #endif
 
 using signin::AccountConsistencyMethod;
 
 namespace {
+
+// By default, DICE is not enabled in builds lacking an API key. May be set to
+// true for tests.
+bool g_ignore_missing_oauth_client_for_testing = false;
 
 #if BUILDFLAG(ENABLE_DICE_SUPPORT)
 // Preference indicating that the Dice migraton has happened.
@@ -45,12 +50,28 @@ bool IsBrowserSigninAllowedByCommandLine() {
   // If the commandline flag is not provided, the default is true.
   return true;
 }
+
+// Returns true if Desktop Identity Consistency can be enabled for this build
+// (i.e. if OAuth client ID and client secret are configured).
+bool CanEnableDiceForBuild() {
+  if (g_ignore_missing_oauth_client_for_testing ||
+      google_apis::HasOAuthClientConfigured()) {
+    return true;
+  }
+
+  // Only log this once.
+  static bool logged_warning = []() {
+    LOG(WARNING) << "Desktop Identity Consistency cannot be enabled as no "
+                    "OAuth client ID and client secret have been configured.";
+    return true;
+  }();
+  ALLOW_UNUSED_LOCAL(logged_warning);
+
+  return false;
+}
 #endif
 
 }  // namespace
-
-bool AccountConsistencyModeManager::ignore_missing_oauth_client_for_testing_ =
-    false;
 
 // static
 AccountConsistencyModeManager* AccountConsistencyModeManager::GetForProfile(
@@ -69,8 +90,9 @@ AccountConsistencyModeManager::AccountConsistencyModeManager(Profile* profile)
   PrefService* prefs = profile->GetPrefs();
   // Propagate settings changes from the previous launch to the signin-allowed
   // pref.
-  bool signin_allowed = prefs->GetBoolean(prefs::kSigninAllowedOnNextStartup) &&
-                        IsBrowserSigninAllowedByCommandLine();
+  bool signin_allowed = CanEnableDiceForBuild() &&
+                        IsBrowserSigninAllowedByCommandLine() &&
+                        prefs->GetBoolean(prefs::kSigninAllowedOnNextStartup);
   prefs->SetBoolean(prefs::kSigninAllowed, signin_allowed);
 
   UMA_HISTOGRAM_BOOLEAN("Signin.SigninAllowed", signin_allowed);
@@ -135,14 +157,14 @@ bool AccountConsistencyModeManager::IsMirrorEnabledForProfile(
 
 // static
 void AccountConsistencyModeManager::SetIgnoreMissingOAuthClientForTesting() {
-  ignore_missing_oauth_client_for_testing_ = true;
+  g_ignore_missing_oauth_client_for_testing = true;
 }
 
 // static
 bool AccountConsistencyModeManager::ShouldBuildServiceForProfile(
     Profile* profile) {
   // IsGuestSession() returns true for the ProfileImpl associated with Guest
-  // profiles. This profile manually sets the kSigninAllowed prference, which
+  // profiles. This profile manually sets the kSigninAllowed preference, which
   // causes crashes if the AccountConsistencyModeManager is instantiated. See
   // https://crbug.com/940026
   return profile->IsRegularProfile() && !profile->IsGuestSession() &&
@@ -151,7 +173,7 @@ bool AccountConsistencyModeManager::ShouldBuildServiceForProfile(
 
 AccountConsistencyMethod
 AccountConsistencyModeManager::GetAccountConsistencyMethod() {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // TODO(https://crbug.com/860671): ChromeOS should use the cached value.
   // Changing the value dynamically is not supported.
   return ComputeAccountConsistencyMethod(profile_);
@@ -175,33 +197,13 @@ AccountConsistencyModeManager::ComputeAccountConsistencyMethod(
   return AccountConsistencyMethod::kMirror;
 #endif
 
-#if defined(OS_CHROMEOS)
-  return chromeos::IsAccountManagerAvailable(profile)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  return ash::IsAccountManagerAvailable(profile)
              ? AccountConsistencyMethod::kMirror
              : AccountConsistencyMethod::kDisabled;
 #endif
 
 #if BUILDFLAG(ENABLE_DICE_SUPPORT)
-  // Legacy supervised users cannot get Dice.
-  // TODO(droger): remove this once legacy supervised users are no longer
-  // supported.
-  if (profile->IsLegacySupervised())
-    return AccountConsistencyMethod::kDisabled;
-
-  bool can_enable_dice_for_build = ignore_missing_oauth_client_for_testing_ ||
-                                   google_apis::HasOAuthClientConfigured();
-  if (!can_enable_dice_for_build) {
-    // Only log this once.
-    static bool logged_warning = []() {
-      LOG(WARNING) << "Desktop Identity Consistency cannot be enabled as no "
-                      "OAuth client ID and client secret have been configured.";
-      return true;
-    }();
-    ALLOW_UNUSED_LOCAL(logged_warning);
-
-    return AccountConsistencyMethod::kDisabled;
-  }
-
   if (!profile->GetPrefs()->GetBoolean(prefs::kSigninAllowed)) {
     VLOG(1) << "Desktop Identity Consistency disabled as sign-in to Chrome"
                "is not allowed";

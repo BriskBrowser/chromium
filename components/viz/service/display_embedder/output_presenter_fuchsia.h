@@ -27,11 +27,14 @@ class VIZ_SERVICE_EXPORT OutputPresenterFuchsia : public OutputPresenter {
   static std::unique_ptr<OutputPresenterFuchsia> Create(
       ui::PlatformWindowSurface* window_surface,
       SkiaOutputSurfaceDependency* deps,
-      gpu::MemoryTracker* memory_tracker);
+      gpu::SharedImageFactory* shared_image_factory,
+      gpu::SharedImageRepresentationFactory* representation_factory);
 
-  OutputPresenterFuchsia(fuchsia::images::ImagePipe2Ptr image_pipe,
-                         SkiaOutputSurfaceDependency* deps,
-                         gpu::MemoryTracker* memory_tracker);
+  OutputPresenterFuchsia(
+      fuchsia::images::ImagePipe2Ptr image_pipe,
+      SkiaOutputSurfaceDependency* deps,
+      gpu::SharedImageFactory* shared_image_factory,
+      gpu::SharedImageRepresentationFactory* representation_factory);
   ~OutputPresenterFuchsia() override;
 
   // OutputPresenter implementation:
@@ -56,19 +59,33 @@ class VIZ_SERVICE_EXPORT OutputPresenterFuchsia : public OutputPresenter {
       const OverlayProcessorInterface::OutputSurfaceOverlayPlane& plane,
       Image* image,
       bool is_submitted) final;
-  std::vector<OverlayData> ScheduleOverlays(
-      SkiaOutputSurface::OverlayList overlays) final;
+  void ScheduleOverlays(SkiaOutputSurface::OverlayList overlays,
+                        std::vector<ScopedOverlayAccess*> accesses) final;
 
  private:
+  struct PendingOverlay {
+    PendingOverlay(OverlayCandidate candidate,
+                   std::vector<gfx::GpuFence> release_fences);
+    ~PendingOverlay();
+
+    PendingOverlay(PendingOverlay&&);
+    PendingOverlay& operator=(PendingOverlay&&);
+
+    OverlayCandidate candidate;
+    std::vector<gfx::GpuFence> release_fences;
+  };
+
   struct PendingFrame {
-    PendingFrame();
+    explicit PendingFrame(uint32_t ordinal);
     ~PendingFrame();
 
     PendingFrame(PendingFrame&&);
     PendingFrame& operator=(PendingFrame&&);
 
-    uint32_t buffer_collection_id;
-    uint32_t image_id;
+    uint32_t ordinal = 0;
+
+    uint32_t buffer_collection_id = 0;
+    uint32_t image_id = 0;
 
     std::vector<zx::event> acquire_fences;
     std::vector<zx::event> release_fences;
@@ -79,6 +96,15 @@ class VIZ_SERVICE_EXPORT OutputPresenterFuchsia : public OutputPresenter {
     // Indicates that this is the last frame for this buffer collection and that
     // the collection can be removed after the frame is presented.
     bool remove_buffer_collection = false;
+
+    // Vector of overlays that are associated with this frame.
+    std::vector<PendingOverlay> overlays;
+  };
+
+  struct PresentatonState {
+    int presented_frame_ordinal;
+    base::TimeTicks presentation_time;
+    base::TimeDelta interval;
   };
 
   void PresentNextFrame();
@@ -87,8 +113,9 @@ class VIZ_SERVICE_EXPORT OutputPresenterFuchsia : public OutputPresenter {
   fuchsia::sysmem::AllocatorPtr sysmem_allocator_;
   fuchsia::images::ImagePipe2Ptr image_pipe_;
   SkiaOutputSurfaceDependency* const dependency_;
-  gpu::SharedImageFactory shared_image_factory_;
-  gpu::SharedImageRepresentationFactory shared_image_representation_factory_;
+  gpu::SharedImageFactory* const shared_image_factory_;
+  gpu::SharedImageRepresentationFactory* const
+      shared_image_representation_factory_;
 
   gfx::Size frame_size_;
   gfx::BufferFormat buffer_format_ = gfx::BufferFormat::RGBA_8888;
@@ -107,7 +134,16 @@ class VIZ_SERVICE_EXPORT OutputPresenterFuchsia : public OutputPresenter {
 
   base::circular_deque<PendingFrame> pending_frames_;
 
-  bool present_is_pending_ = false;
+  // Ordinal that will be assigned to the next frame. Ordinals are used to
+  // calculate frame position relative to the current frame stored in
+  // |presentation_state_|. They will wrap around when reaching 2^32, but the
+  // math used to calculate relative position will still work as expected.
+  uint32_t next_frame_ordinal_ = 0;
+
+  // Presentation information received from ImagePipe after rendering a frame.
+  // Used to calculate target presentation time for the frames presented in the
+  // future.
+  base::Optional<PresentatonState> presentation_state_;
 };
 
 }  // namespace viz

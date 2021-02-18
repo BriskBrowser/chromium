@@ -106,6 +106,18 @@ Polymer({
       readOnly: true,
     },
 
+    /**
+     * True if redesign of account management flows is enabled.
+     * @private
+     */
+    isAccountManagementFlowsV2Enabled_: {
+      type: Boolean,
+      value() {
+        return loadTimeData.getBoolean('isAccountManagementFlowsV2Enabled');
+      },
+      readOnly: true,
+    },
+
     /** @private */
     showParentalControls_: {
       type: Boolean,
@@ -314,7 +326,7 @@ Polymer({
    * @protected
    */
   currentRouteChanged(route, oldRoute) {
-    if (settings.Router.getInstance().getCurrentRoute() ==
+    if (settings.Router.getInstance().getCurrentRoute() ===
         settings.routes.OS_SIGN_OUT) {
       // If the sync status has not been fetched yet, optimistically display
       // the sign-out dialog. There is another check when the sync status is
@@ -400,16 +412,34 @@ Polymer({
     const /** @type {!Array<settings.Account>} */ accounts =
         await settings.AccountManagerBrowserProxyImpl.getInstance()
             .getAccounts();
-    // The user might not have any GAIA accounts (e.g. guest mode, Kerberos,
-    // Active Directory). In these cases the profile row is hidden, so there's
-    // nothing to do.
-    if (accounts.length == 0) {
+    // The user might not have any GAIA accounts (e.g. guest mode or Active
+    // Directory). In these cases the profile row is hidden, so there's nothing
+    // to do.
+    if (accounts.length === 0) {
       return;
     }
     this.profileName_ = accounts[0].fullName;
     this.profileEmail_ = accounts[0].email;
     this.profileIconUrl_ = accounts[0].pic;
 
+    await this.setProfileLabel(accounts);
+  },
+
+  /**
+   * @param {!Array<settings.Account>} accounts
+   * @private
+   */
+  async setProfileLabel(accounts) {
+    if (this.isAccountManagementFlowsV2Enabled_) {
+      // Template: "$1 Google accounts" with correct plural of "account".
+      const labelTemplate = await cr.sendWithPromise(
+          'getPluralString', 'profileLabel', accounts.length);
+
+      // Final output: "X Google accounts"
+      this.profileLabel_ = loadTimeData.substituteString(
+          labelTemplate, accounts[0].email, accounts.length);
+      return;
+    }
     const moreAccounts = accounts.length - 1;
     // Template: "$1, +$2 more accounts" with correct plural of "account".
     // Localization handles the case of 0 more accounts.
@@ -447,7 +477,7 @@ Polymer({
     this.showSignoutDialog_ = false;
     cr.ui.focusWithoutInk(assert(this.$$('#disconnectButton')));
 
-    if (settings.Router.getInstance().getCurrentRoute() ==
+    if (settings.Router.getInstance().getCurrentRoute() ===
         settings.routes.OS_SIGN_OUT) {
       settings.Router.getInstance().navigateToPreviousRoute();
     }
@@ -491,16 +521,16 @@ Polymer({
     }
   },
 
-  /**
-   * @param {!Event} e
-   * @private
-   */
-  onKerberosAccountsTap_(e) {
+  /** @private */
+  onKerberosAccountsTap_() {
     settings.Router.getInstance().navigateTo(settings.routes.KERBEROS_ACCOUNTS);
   },
 
   /** @private */
   onManageOtherPeople_() {
+    assert(
+        !this.isAccountManagementFlowsV2Enabled_,
+        'onManageOtherPeople_ was called when kAccountManagementFlowsV2 is enabled');
     settings.Router.getInstance().navigateTo(settings.routes.ACCOUNTS);
   },
 
@@ -511,6 +541,26 @@ Polymer({
    */
   getIconImageSet_(iconUrl) {
     return cr.icon.getImage(iconUrl);
+  },
+
+  /**
+   * @return {string}
+   * @private
+   */
+  getProfileName_() {
+    if (this.isAccountManagerEnabled_ &&
+        this.isAccountManagementFlowsV2Enabled_) {
+      return loadTimeData.getString('osProfileName');
+    }
+    return this.profileName_;
+  },
+
+  /**
+   * @return {string}
+   * @private
+   */
+  getSyncSetupIcon_() {
+    return this.isAccountManagementFlowsV2Enabled_ ? 'cr:sync' : '';
   },
 
   /**

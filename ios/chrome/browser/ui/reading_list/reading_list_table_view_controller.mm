@@ -12,7 +12,7 @@
 #include "base/metrics/user_metrics_action.h"
 #include "base/stl_util.h"
 #include "components/strings/grit/components_strings.h"
-#include "ios/chrome/browser/drag_and_drop/drag_and_drop_flag.h"
+#import "ios/chrome/app/tests_hook.h"
 #import "ios/chrome/browser/drag_and_drop/drag_item_util.h"
 #import "ios/chrome/browser/drag_and_drop/table_view_url_drag_drop_handler.h"
 #import "ios/chrome/browser/main/browser.h"
@@ -30,6 +30,7 @@
 #import "ios/chrome/browser/ui/reading_list/reading_list_toolbar_button_commands.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_toolbar_button_manager.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_header_footer_item.h"
+#import "ios/chrome/browser/ui/table_view/table_view_utils.h"
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/ui/util/menu_util.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
@@ -76,6 +77,10 @@ ReadingListSelectionState GetSelectionStateForSelectedCounts(
 @property(nonatomic, readonly)
     TableViewModel<TableViewItem<ReadingListListItem>*>* tableViewModel;
 
+// Whether the UI is currently modifying the model.
+@property(nonatomic, assign) BOOL dataSourceBeingModifiedByUI;
+// Whether the data source has been modified while in editing mode.
+@property(nonatomic, assign) BOOL dataSourceModifiedWhileEditing;
 // The toolbar button manager.
 @property(nonatomic, strong) ReadingListToolbarButtonManager* toolbarManager;
 // The number of read and unread cells that are currently selected.
@@ -97,20 +102,13 @@ ReadingListSelectionState GetSelectionStateForSelectedCounts(
 @end
 
 @implementation ReadingListTableViewController
-@synthesize delegate = _delegate;
-@synthesize audience = _audience;
-@synthesize dataSource = _dataSource;
-@synthesize browser = _browser;
 @dynamic tableViewModel;
-@synthesize toolbarManager = _toolbarManager;
-@synthesize selectedUnreadItemCount = _selectedUnreadItemCount;
-@synthesize selectedReadItemCount = _selectedReadItemCount;
-@synthesize markConfirmationSheet = _markConfirmationSheet;
-@synthesize editingWithToolbarButtons = _editingWithToolbarButtons;
-@synthesize needsSectionCleanupAfterEditing = _needsSectionCleanupAfterEditing;
 
 - (instancetype)init {
-  self = [super initWithStyle:UITableViewStylePlain];
+  UITableViewStyle style = base::FeatureList::IsEnabled(kSettingsRefresh)
+                               ? ChromeTableViewStyle()
+                               : UITableViewStylePlain;
+  self = [super initWithStyle:style];
   if (self) {
     _toolbarManager = [[ReadingListToolbarButtonManager alloc] init];
     _toolbarManager.commandHandler = self;
@@ -225,13 +223,11 @@ ReadingListSelectionState GetSelectionStateForSelectedCounts(
     [self.tableView addGestureRecognizer:longPressRecognizer];
   }
 
-  if (DragAndDropIsEnabled()) {
     self.dragDropHandler = [[TableViewURLDragDropHandler alloc] init];
     self.dragDropHandler.origin = WindowActivityReadingListOrigin;
     self.dragDropHandler.dragDataSource = self;
     self.tableView.dragDelegate = self.dragDropHandler;
-    self.tableView.dragInteractionEnabled = YES;
-  }
+    self.tableView.dragInteractionEnabled = true;
 }
 
 - (void)viewWillTransitionToSize:(CGSize)size
@@ -353,6 +349,7 @@ ReadingListSelectionState GetSelectionStateForSelectedCounts(
 
 - (void)loadModel {
   [super loadModel];
+  self.dataSourceModifiedWhileEditing = NO;
 
   if (self.dataSource.hasElements) {
     [self loadItems];
@@ -372,7 +369,13 @@ ReadingListSelectionState GetSelectionStateForSelectedCounts(
 }
 
 - (void)dataSourceChanged {
-  [self reloadData];
+  // If the model is updated when the UI is already making a change, set a flag
+  // to reload the data at the end of the editing.
+  if (self.dataSourceBeingModifiedByUI) {
+    self.dataSourceModifiedWhileEditing = YES;
+  } else {
+    [self reloadData];
+  }
 }
 
 - (NSArray<id<ReadingListListItem>>*)readItems {
@@ -430,6 +433,12 @@ ReadingListSelectionState GetSelectionStateForSelectedCounts(
 
 - (void)markItemRead:(id<ReadingListListItem>)item {
   TableViewModel* model = self.tableViewModel;
+  if (![model hasSectionForSectionIdentifier:SectionIdentifierUnread]) {
+    // Prevent trying to access this section if it has been concurrently
+    // deleted (via another window or Sync).
+    return;
+  }
+
   TableViewItem* tableViewItem = base::mac::ObjCCastStrict<TableViewItem>(item);
   if ([model hasItem:tableViewItem
           inSectionWithIdentifier:SectionIdentifierUnread]) {
@@ -440,6 +449,12 @@ ReadingListSelectionState GetSelectionStateForSelectedCounts(
 
 - (void)markItemUnread:(id<ReadingListListItem>)item {
   TableViewModel* model = self.tableViewModel;
+  if (![model hasSectionForSectionIdentifier:SectionIdentifierRead]) {
+    // Prevent trying to access this section if it has been concurrently
+    // deleted (via another window or Sync).
+    return;
+  }
+
   TableViewItem* tableViewItem = base::mac::ObjCCastStrict<TableViewItem>(item);
   if ([model hasItem:tableViewItem
           inSectionWithIdentifier:SectionIdentifierRead]) {
@@ -572,6 +587,21 @@ ReadingListSelectionState GetSelectionStateForSelectedCounts(
                 }
                  style:UIAlertActionStyleDefault];
   [self.markConfirmationSheet start];
+}
+
+- (void)performBatchTableViewUpdates:(void (^)(void))updates
+                          completion:(void (^)(BOOL finished))completion {
+  DCHECK(!self.dataSourceBeingModifiedByUI);
+  self.dataSourceBeingModifiedByUI = YES;
+  void (^releaseDataSource)(BOOL) = ^(BOOL finished) {
+    // Set dataSourceBeingModifiedByUI before calling completion, as completion
+    // may trigger another change.
+    self.dataSourceBeingModifiedByUI = NO;
+    if (completion) {
+      completion(finished);
+    }
+  };
+  [super performBatchTableViewUpdates:updates completion:releaseDataSource];
 }
 
 #pragma mark - ReadingListToolbarButtonCommands Helpers
@@ -759,7 +789,6 @@ ReadingListSelectionState GetSelectionStateForSelectedCounts(
     [self batchEditDidFinish];
   };
   [self performBatchTableViewUpdates:updates completion:completion];
-  [self removeEmptySections];
 }
 
 // Moves the ListItem within self.tableViewModel at |modelIndex| and the
@@ -913,6 +942,9 @@ ReadingListSelectionState GetSelectionStateForSelectedCounts(
 
 // Cleanup function called in the completion block of editing operations.
 - (void)batchEditDidFinish {
+  // Reload the items if the datasource was modified during the edit.
+  if (self.dataSourceModifiedWhileEditing)
+    [self reloadData];
   // Remove any newly emptied sections.
   [self removeEmptySections];
 }
@@ -941,13 +973,13 @@ ReadingListSelectionState GetSelectionStateForSelectedCounts(
       }
     }
   };
-  [self performBatchTableViewUpdates:updates completion:nil];
-
-  if (!self.dataSource.hasElements)
-    [self tableIsEmpty];
-  else
-    [self updateToolbarItems];
-
+  void (^completion)(BOOL) = ^(BOOL) {
+    if (!self.dataSource.hasElements)
+      [self tableIsEmpty];
+    else
+      [self updateToolbarItems];
+  };
+  [self performBatchTableViewUpdates:updates completion:completion];
   return removedSectionCount;
 }
 
@@ -961,6 +993,12 @@ ReadingListSelectionState GetSelectionStateForSelectedCounts(
 
 // Called when the table is empty.
 - (void)tableIsEmpty {
+  // It is necessary to reloadData now, before modifying the view which will
+  // force a layout.
+  // If the window is not displayed (e.g. in an inactive scene) the number of
+  // elements may be outdated and the layout triggered by this function will
+  // generate access non-existing items.
+  [self.tableView reloadData];
   if (base::FeatureList::IsEnabled(kIllustratedEmptyStates)) {
     UIImage* emptyImage = [UIImage imageNamed:@"reading_list_empty"];
     NSString* title =

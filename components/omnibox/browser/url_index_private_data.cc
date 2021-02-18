@@ -15,6 +15,7 @@
 #include <utility>
 
 #include "base/containers/stack.h"
+#include "base/feature_list.h"
 #include "base/files/file_util.h"
 #include "base/i18n/break_iterator.h"
 #include "base/i18n/case_conversion.h"
@@ -32,6 +33,7 @@
 #include "components/omnibox/browser/in_memory_url_index.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/browser/tailored_word_break_iterator.h"
+#include "components/omnibox/common/omnibox_features.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/url_formatter/url_formatter.h"
 #include "third_party/protobuf/src/google/protobuf/repeated_field.h"
@@ -76,6 +78,12 @@ typedef in_memory_url_index::
 bool LengthGreater(const base::string16& string_a,
                    const base::string16& string_b) {
   return string_a.length() > string_b.length();
+}
+
+bool HasApi2Qualifier(ui::PageTransition transition) {
+  return (ui::PageTransitionGetQualifier(transition) &
+          ui::PAGE_TRANSITION_FROM_API_2) ==
+         ui::PageTransitionGetQualifier(ui::PAGE_TRANSITION_FROM_API_2);
 }
 
 }  // namespace
@@ -265,7 +273,7 @@ ScoredHistoryMatches URLIndexPrivateData::HistoryItemsForTerms(
 bool URLIndexPrivateData::UpdateURL(
     history::HistoryService* history_service,
     const history::URLRow& row,
-    const std::set<std::string>& scheme_whitelist,
+    const std::set<std::string>& scheme_allowlist,
     base::CancelableTaskTracker* tracker) {
   // The row may or may not already be in our index. If it is not already
   // indexed and it qualifies then it gets indexed. If it is already
@@ -278,12 +286,9 @@ bool URLIndexPrivateData::UpdateURL(
     // This new row should be indexed if it qualifies.
     history::URLRow new_row(row);
     new_row.set_id(row_id);
-    row_was_updated = RowQualifiesAsSignificant(new_row, base::Time()) &&
-                      IndexRow(nullptr,
-                               history_service,
-                               new_row,
-                               scheme_whitelist,
-                               tracker);
+    row_was_updated =
+        RowQualifiesAsSignificant(new_row, base::Time()) &&
+        IndexRow(nullptr, history_service, new_row, scheme_allowlist, tracker);
   } else if (RowQualifiesAsSignificant(row, base::Time())) {
     // This indexed row still qualifies and will be re-indexed.
     // The url won't have changed but the title, visit count, etc.
@@ -383,6 +388,7 @@ bool URLIndexPrivateData::DeleteURL(const GURL& url) {
 // static
 scoped_refptr<URLIndexPrivateData> URLIndexPrivateData::RestoreFromFile(
     const base::FilePath& file_path) {
+  base::TimeTicks beginning_time = base::TimeTicks::Now();
   if (!base::PathExists(file_path))
     return nullptr;
   std::string data;
@@ -409,6 +415,8 @@ scoped_refptr<URLIndexPrivateData> URLIndexPrivateData::RestoreFromFile(
   if (!restored_data->RestorePrivateData(index_cache))
     return nullptr;
 
+  UMA_HISTOGRAM_TIMES("History.InMemoryURLIndexRestoreCacheTime",
+                      base::TimeTicks::Now() - beginning_time);
   UMA_HISTOGRAM_COUNTS_1M("History.InMemoryURLHistoryItems",
                           restored_data->history_id_word_map_.size());
   if (restored_data->Empty())
@@ -419,7 +427,7 @@ scoped_refptr<URLIndexPrivateData> URLIndexPrivateData::RestoreFromFile(
 // static
 scoped_refptr<URLIndexPrivateData> URLIndexPrivateData::RebuildFromHistory(
     history::HistoryDatabase* history_db,
-    const std::set<std::string>& scheme_whitelist) {
+    const std::set<std::string>& scheme_allowlist) {
   if (!history_db)
     return nullptr;
 
@@ -436,17 +444,19 @@ scoped_refptr<URLIndexPrivateData> URLIndexPrivateData::RebuildFromHistory(
   // Limiting the number of URLs indexed degrades the quality of suggestions to
   // save memory. This limit is only applied for urls indexed at startup and
   // more urls can be indexed during the browsing session. The primary use case
-  // is for Android devices where the session is typically short.
+  // is for Android devices where the session is typically short, and low-memory
+  // machines in general (Desktop or Mobile).
   const int max_urls_indexed =
       OmniboxFieldTrial::MaxNumHQPUrlsIndexedAtStartup();
   int num_urls_indexed = 0;
   for (history::URLRow row; history_enum.GetNextURL(&row);) {
     DCHECK(RowQualifiesAsSignificant(row, base::Time()));
     // Do not use >= to account for case of -1 for unlimited urls.
-    if (num_urls_indexed++ == max_urls_indexed)
+    if (rebuilt_data->IndexRow(history_db, nullptr, row, scheme_allowlist,
+                               nullptr) &&
+        num_urls_indexed++ == max_urls_indexed) {
       break;
-    rebuilt_data->IndexRow(
-        history_db, nullptr, row, scheme_whitelist, nullptr);
+    }
   }
 
   UMA_HISTOGRAM_TIMES("History.InMemoryURLIndexingTime",
@@ -511,6 +521,34 @@ size_t URLIndexPrivateData::EstimateMemoryUsage() const {
   res += base::trace_event::EstimateMemoryUsage(word_starts_map_);
 
   return res;
+}
+
+bool URLIndexPrivateData::IsUrlRowIndexed(const history::URLRow& row) const {
+  return history_info_map_.count(row.id()) > 0;
+}
+
+// static
+bool URLIndexPrivateData::ShouldExcludeBecauseOfCctTransition(
+    ui::PageTransition transition) {
+  // Cct visits are tagged with PAGE_TRANSITION_FROM_API_2.
+  return HasApi2Qualifier(transition) &&
+         base::FeatureList::IsEnabled(omnibox::kHideVisitsFromCct);
+}
+
+// static
+bool URLIndexPrivateData::ShouldExcludeBecauseOfCctVisits(
+    const history::VisitVector& visits) {
+  if (visits.empty() ||
+      !base::FeatureList::IsEnabled(omnibox::kHideVisitsFromCct)) {
+    return false;
+  }
+
+  // Cct visits are tagged with PAGE_TRANSITION_FROM_API_2.
+  for (const auto& visit : visits) {
+    if (!HasApi2Qualifier(visit.transition))
+      return false;
+  }
+  return true;
 }
 
 // Note that when running Chrome normally this destructor isn't called during
@@ -784,15 +822,25 @@ bool URLIndexPrivateData::IndexRow(
     history::HistoryDatabase* history_db,
     history::HistoryService* history_service,
     const history::URLRow& row,
-    const std::set<std::string>& scheme_whitelist,
+    const std::set<std::string>& scheme_allowlist,
     base::CancelableTaskTracker* tracker) {
   const GURL& gurl(row.url());
 
-  // Index only URLs with a whitelisted scheme.
-  if (!URLSchemeIsWhitelisted(gurl, scheme_whitelist))
+  // Index only URLs with a allowlisted scheme.
+  if (!URLSchemeIsAllowlisted(gurl, scheme_allowlist))
     return false;
 
-  history::URLID row_id = row.id();
+  const history::URLID row_id = row.id();
+  history::VisitVector recent_visits;
+  // We'd like to check that we're on the history DB thread.
+  // However, unittest code actually calls this on the UI thread.
+  // So we don't do any thread checks.
+  const bool got_visits =
+      history_db && history_db->GetMostRecentVisitsForURL(
+                        row_id, kMaxVisitsToStoreInCache, &recent_visits);
+  if (got_visits && ShouldExcludeBecauseOfCctVisits(recent_visits))
+    return false;
+
   // Strip out username and password before saving and indexing.
   base::string16 url(url_formatter::FormatUrl(
       gurl, url_formatter::kFormatUrlOmitUsernamePassword,
@@ -817,18 +865,10 @@ bool URLIndexPrivateData::IndexRow(
 
   // Update the recent visits information or schedule the update
   // as appropriate.
-  if (history_db) {
-    // We'd like to check that we're on the history DB thread.
-    // However, unittest code actually calls this on the UI thread.
-    // So we don't do any thread checks.
-    history::VisitVector recent_visits;
-    if (history_db->GetMostRecentVisitsForURL(row_id,
-                                              kMaxVisitsToStoreInCache,
-                                              &recent_visits))
-      UpdateRecentVisits(row_id, recent_visits);
-  } else {
+  if (got_visits) {
+    UpdateRecentVisits(row_id, recent_visits);
+  } else if (history_service) {
     DCHECK(tracker);
-    DCHECK(history_service);
     ScheduleUpdateRecentVisits(history_service, row_id, tracker);
   }
 
@@ -933,6 +973,7 @@ void URLIndexPrivateData::ResetSearchTermCache() {
 }
 
 bool URLIndexPrivateData::SaveToFile(const base::FilePath& file_path) {
+  base::TimeTicks beginning_time = base::TimeTicks::Now();
   InMemoryURLIndexCacheItem index_cache;
   SavePrivateData(&index_cache);
   std::string data;
@@ -946,6 +987,8 @@ bool URLIndexPrivateData::SaveToFile(const base::FilePath& file_path) {
     LOG(WARNING) << "Failed to write " << file_path.value();
     return false;
   }
+  UMA_HISTOGRAM_TIMES("History.InMemoryURLIndexSaveCacheTime",
+                      base::TimeTicks::Now() - beginning_time);
   return true;
 }
 
@@ -1254,10 +1297,10 @@ bool URLIndexPrivateData::RestoreWordStartsMap(
 }
 
 // static
-bool URLIndexPrivateData::URLSchemeIsWhitelisted(
+bool URLIndexPrivateData::URLSchemeIsAllowlisted(
     const GURL& gurl,
-    const std::set<std::string>& whitelist) {
-  return whitelist.find(gurl.scheme()) != whitelist.end();
+    const std::set<std::string>& allowlist) {
+  return allowlist.find(gurl.scheme()) != allowlist.end();
 }
 
 bool URLIndexPrivateData::ShouldFilter(

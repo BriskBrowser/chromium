@@ -33,6 +33,7 @@
 #include "third_party/blink/renderer/core/paint/compositing/compositing_inputs_root.h"
 #include "third_party/blink/renderer/core/paint/compositing/compositing_reason_finder.h"
 #include "third_party/blink/renderer/core/paint/compositing/compositing_update_type.h"
+#include "third_party/blink/renderer/platform/heap/handle.h"
 
 namespace blink {
 
@@ -42,7 +43,6 @@ class LayoutEmbeddedContent;
 class LayoutView;
 class Page;
 class Scrollbar;
-class ScrollingCoordinator;
 
 enum CompositingStateTransitionType {
   kNoCompositingStateChange,
@@ -63,9 +63,8 @@ enum CompositingStateTransitionType {
 // With CompositeAfterPaint, PaintLayerCompositor will be eventually replaced by
 // PaintArtifactCompositor.
 
-class CORE_EXPORT PaintLayerCompositor {
-  USING_FAST_MALLOC(PaintLayerCompositor);
-
+class CORE_EXPORT PaintLayerCompositor final
+    : public GarbageCollected<PaintLayerCompositor> {
  public:
   explicit PaintLayerCompositor(LayoutView&);
   ~PaintLayerCompositor();
@@ -108,8 +107,6 @@ class CORE_EXPORT PaintLayerCompositor {
   // starts or stops being composited.
   static void PaintInvalidationOnCompositingChange(PaintLayer*);
 
-  void FullyInvalidatePaint();
-
   PaintLayer* RootLayer() const;
 
   // The LayoutView's main GraphicsLayer.
@@ -132,7 +129,6 @@ class CORE_EXPORT PaintLayerCompositor {
   // Whether the layer could ever be composited.
   bool CanBeComposited(const PaintLayer*) const;
 
-  bool RootLayerAttachmentDirty() const { return root_layer_attachment_dirty_; }
   void ClearRootLayerAttachmentDirty() { root_layer_attachment_dirty_ = false; }
 
   // FIXME: Move allocateOrClearCompositedLayerMapping to
@@ -152,6 +148,8 @@ class CORE_EXPORT PaintLayerCompositor {
     compositing_inputs_root_.Update(layer);
   }
 
+  void Trace(Visitor*) const;
+
  private:
 #if DCHECK_IS_ON()
   void AssertNoUnresolvedDirtyBits();
@@ -170,8 +168,6 @@ class CORE_EXPORT PaintLayerCompositor {
 
   Page* GetPage() const;
 
-  ScrollingCoordinator* GetScrollingCoordinator() const;
-
   // Checks the given graphics layer against the compositor's horizontal and
   // vertical scrollbar graphics layers, returning the associated Scrollbar
   // instance if any, else nullptr.
@@ -179,7 +175,7 @@ class CORE_EXPORT PaintLayerCompositor {
 
   bool IsMainFrame() const;
 
-  LayoutView* const layout_view_;
+  Member<LayoutView> layout_view_;
 
   bool compositing_ = false;
   bool root_layer_attachment_dirty_ = false;

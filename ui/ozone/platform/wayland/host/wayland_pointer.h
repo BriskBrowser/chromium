@@ -60,6 +60,16 @@ class WaylandPointer {
                    uint32_t time,
                    uint32_t axis,
                    wl_fixed_t value);
+  static void Frame(void* data, wl_pointer* obj);
+  static void AxisSource(void* data, wl_pointer* obj, uint32_t axis_source);
+  static void AxisStop(void* data,
+                       wl_pointer* obj,
+                       uint32_t time,
+                       uint32_t axis);
+  static void AxisDiscrete(void* data,
+                           wl_pointer* obj,
+                           uint32_t axis,
+                           int32_t discrete);
 
   wl::Object<wl_pointer> obj_;
   WaylandConnection* const connection_;
@@ -70,8 +80,6 @@ class WaylandPointer {
 
 class WaylandPointer::Delegate {
  public:
-  virtual void OnPointerCreated(WaylandPointer* pointer) = 0;
-  virtual void OnPointerDestroyed(WaylandPointer* pointer) = 0;
   virtual void OnPointerFocusChanged(WaylandWindow* window,
                                      const gfx::PointF& location) = 0;
   virtual void OnPointerButtonEvent(EventType evtype,
@@ -79,6 +87,10 @@ class WaylandPointer::Delegate {
                                     WaylandWindow* window = nullptr) = 0;
   virtual void OnPointerMotionEvent(const gfx::PointF& location) = 0;
   virtual void OnPointerAxisEvent(const gfx::Vector2d& offset) = 0;
+  virtual void OnPointerFrameEvent() = 0;
+  virtual void OnPointerAxisSourceEvent(uint32_t axis_source) = 0;
+  virtual void OnPointerAxisStopEvent(uint32_t axis) = 0;
+  virtual void OnResetPointerFlags() = 0;
 };
 
 }  // namespace ui

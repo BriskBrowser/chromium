@@ -177,31 +177,6 @@ bool VulkanInstance::Initialize(
     return false;
   }
 
-  gfx::ExtensionSet enabled_extensions(
-      std::begin(vulkan_info_.enabled_instance_extensions),
-      std::end(vulkan_info_.enabled_instance_extensions));
-
-#if DCHECK_IS_ON()
-  // TODO(crbug.com/843346): Make validation work in combination with
-  // VK_KHR_xlib_surface or switch to VK_KHR_xcb_surface.
-  bool require_xlib_surface_extension =
-      gfx::HasExtension(enabled_extensions, "VK_KHR_xlib_surface");
-
-  // VK_LAYER_KHRONOS_validation 1.1.106 is required to support
-  // VK_KHR_xlib_surface.
-  constexpr base::StringPiece standard_validation(
-      "VK_LAYER_KHRONOS_validation");
-  for (const VkLayerProperties& layer_property : vulkan_info_.instance_layers) {
-    if (standard_validation != layer_property.layerName)
-      continue;
-    if (!require_xlib_surface_extension ||
-        layer_property.specVersion >= VK_MAKE_VERSION(1, 1, 106)) {
-      enabled_layer_names.push_back(standard_validation.data());
-    }
-    break;
-  }
-#endif  // DCHECK_IS_ON()
-
   VkInstanceCreateInfo instance_create_info = {
       VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,           // sType
       nullptr,                                          // pNext
@@ -219,6 +194,10 @@ bool VulkanInstance::Initialize(
     DLOG(ERROR) << "vkCreateInstance() failed: " << result;
     return false;
   }
+
+  gfx::ExtensionSet enabled_extensions(
+      std::begin(vulkan_info_.enabled_instance_extensions),
+      std::end(vulkan_info_.enabled_instance_extensions));
 
   if (!vulkan_function_pointers->BindInstanceFunctionPointers(
           vk_instance_, vulkan_info_.used_api_version, enabled_extensions)) {
@@ -303,9 +282,20 @@ bool VulkanInstance::CollectInfo() {
     // The API version of the VkInstance might be different than the supported
     // API version of the VkPhysicalDevice, so we need to check the GPU's
     // API version instead of just testing to see if
-    // vkGetPhysicalDeviceFeatures2 is non-null.
+    // vkGetPhysicalDeviceProperties2 and vkGetPhysicalDeviceFeatures2 are
+    // non-null.
     static_assert(kVulkanRequiredApiVersion >= VK_API_VERSION_1_1, "");
     if (info.properties.apiVersion >= kVulkanRequiredApiVersion) {
+      info.driver_properties = VkPhysicalDeviceDriverProperties{
+          .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES,
+      };
+
+      VkPhysicalDeviceProperties2 properties2 = {
+          .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+          .pNext = &info.driver_properties,
+      };
+      vkGetPhysicalDeviceProperties2(device, &properties2);
+
       VkPhysicalDeviceSamplerYcbcrConversionFeatures ycbcr_conversion_features =
           {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES};
       VkPhysicalDeviceProtectedMemoryFeatures protected_memory_feature = {

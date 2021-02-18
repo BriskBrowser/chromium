@@ -48,9 +48,7 @@ TEST_F(CompositingReasonFinderTest, PromoteTrivial3D) {
       style='width: 100px; height: 100px; transform: translateZ(0)'></div>
   )HTML");
 
-  Element* target = GetDocument().getElementById("target");
-  PaintLayer* paint_layer =
-      ToLayoutBoxModelObject(target->GetLayoutObject())->Layer();
+  PaintLayer* paint_layer = GetPaintLayerByElementId("target");
   EXPECT_EQ(kPaintsIntoOwnBacking, paint_layer->GetCompositingState());
 }
 
@@ -60,9 +58,7 @@ TEST_F(CompositingReasonFinderTest, PromoteNonTrivial3D) {
       style='width: 100px; height: 100px; transform: translateZ(1px)'></div>
   )HTML");
 
-  Element* target = GetDocument().getElementById("target");
-  PaintLayer* paint_layer =
-      ToLayoutBoxModelObject(target->GetLayoutObject())->Layer();
+  PaintLayer* paint_layer = GetPaintLayerByElementId("target");
   EXPECT_EQ(kPaintsIntoOwnBacking, paint_layer->GetCompositingState());
 }
 
@@ -80,9 +76,7 @@ TEST_F(CompositingReasonFinderTest, DontPromoteTrivial3DWithLowEndDevice) {
       style='width: 100px; height: 100px; transform: translateZ(0)'></div>
   )HTML");
 
-  Element* target = GetDocument().getElementById("target");
-  PaintLayer* paint_layer =
-      ToLayoutBoxModelObject(target->GetLayoutObject())->Layer();
+  PaintLayer* paint_layer = GetPaintLayerByElementId("target");
   EXPECT_EQ(kNotComposited, paint_layer->GetCompositingState());
 }
 
@@ -100,20 +94,33 @@ TEST_F(CompositingReasonFinderTest, OnlyAnchoredStickyPositionPromoted) {
   )HTML");
 
   EXPECT_EQ(kPaintsIntoOwnBacking,
-            ToLayoutBoxModelObject(GetLayoutObjectByElementId("sticky-top"))
-                ->Layer()
-                ->GetCompositingState());
-  EXPECT_EQ(kNotComposited, ToLayoutBoxModelObject(
-                                GetLayoutObjectByElementId("sticky-no-anchor"))
-                                ->Layer()
-                                ->GetCompositingState());
+            GetPaintLayerByElementId("sticky-top")->GetCompositingState());
+  EXPECT_EQ(
+      kNotComposited,
+      GetPaintLayerByElementId("sticky-no-anchor")->GetCompositingState());
 }
 
 TEST_F(CompositingReasonFinderTest, OnlyScrollingStickyPositionPromoted) {
   SetBodyInnerHTML(R"HTML(
-    <style>.scroller {width: 400px; height: 400px; overflow: auto;
-    will-change: transform;}
-    .sticky { position: sticky; top: 0; width: 10px; height: 10px;}
+    <style>
+      .scroller {
+        width: 400px;
+        height: 400px;
+        overflow: auto;
+        will-change: transform;
+      }
+      .sticky {
+        position: sticky;
+        top: 0;
+        width: 10px;
+        height: 10px;
+      }
+      .overflow-hidden {
+        width: 400px;
+        height: 400px;
+        overflow: hidden;
+        will-change: transform;
+      }
     </style>
     <div class='scroller'>
       <div id='sticky-scrolling' class='sticky'></div>
@@ -122,24 +129,55 @@ TEST_F(CompositingReasonFinderTest, OnlyScrollingStickyPositionPromoted) {
     <div class='scroller'>
       <div id='sticky-no-scrolling' class='sticky'></div>
     </div>
+    <div class='overflow-hidden'>
+      <div id='overflow-hidden-scrolling' class='sticky'></div>
+      <div style='height: 2000px;'></div>
+    </div>
+    <div class='overflow-hidden'>
+      <div id='overflow-hidden-no-scrolling' class='sticky'></div>
+    </div>
   )HTML");
 
-  EXPECT_EQ(
-      kPaintsIntoOwnBacking,
-      ToLayoutBoxModelObject(GetLayoutObjectByElementId("sticky-scrolling"))
-          ->Layer()
-          ->GetCompositingState());
-  EXPECT_EQ(
-      kNotComposited,
-      ToLayoutBoxModelObject(GetLayoutObjectByElementId("sticky-no-scrolling"))
-          ->Layer()
-          ->GetCompositingState());
+  auto& sticky_scrolling =
+      *To<LayoutBoxModelObject>(GetLayoutObjectByElementId("sticky-scrolling"));
+  EXPECT_TRUE(
+      CompositingReasonFinder::RequiresCompositingForScrollDependentPosition(
+          *sticky_scrolling.Layer()));
+
+  auto& sticky_no_scrolling = *To<LayoutBoxModelObject>(
+      GetLayoutObjectByElementId("sticky-no-scrolling"));
+  EXPECT_FALSE(
+      CompositingReasonFinder::RequiresCompositingForScrollDependentPosition(
+          *sticky_no_scrolling.Layer()));
+
+  auto& overflow_hidden_scrolling = *To<LayoutBoxModelObject>(
+      GetLayoutObjectByElementId("overflow-hidden-scrolling"));
+  EXPECT_TRUE(
+      CompositingReasonFinder::RequiresCompositingForScrollDependentPosition(
+          *overflow_hidden_scrolling.Layer()));
+
+  auto& overflow_hidden_no_scrolling = *To<LayoutBoxModelObject>(
+      GetLayoutObjectByElementId("overflow-hidden-no-scrolling"));
+  EXPECT_FALSE(
+      CompositingReasonFinder::RequiresCompositingForScrollDependentPosition(
+          *overflow_hidden_no_scrolling.Layer()));
+
+  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
+    EXPECT_EQ(kPaintsIntoOwnBacking,
+              sticky_scrolling.Layer()->GetCompositingState());
+    EXPECT_EQ(kNotComposited,
+              sticky_no_scrolling.Layer()->GetCompositingState());
+    EXPECT_EQ(kPaintsIntoOwnBacking,
+              overflow_hidden_scrolling.Layer()->GetCompositingState());
+    EXPECT_EQ(kNotComposited,
+              overflow_hidden_no_scrolling.Layer()->GetCompositingState());
+  }
 }
 
 void CompositingReasonFinderTest::CheckCompositingReasonsForAnimation(
     bool supports_transform_animation) {
   auto* object = GetLayoutObjectByElementId("target");
-  scoped_refptr<ComputedStyle> style = ComputedStyle::Create();
+  ComputedStyle* style = ComputedStyle::Create();
 
   style->SetSubtreeWillChangeContents(false);
   style->SetHasCurrentTransformAnimation(false);
@@ -209,9 +247,6 @@ TEST_F(CompositingReasonFinderTest, DontPromoteEmptyIframe) {
 }
 
 TEST_F(CompositingReasonFinderTest, PromoteCrossOriginIframe) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitWithFeatureState(
-      blink::features::kCompositeCrossOriginIframes, true);
   SetBodyInnerHTML(R"HTML(
     <!DOCTYPE html>
     <iframe id=iframe></iframe>
@@ -233,9 +268,12 @@ TEST_F(CompositingReasonFinderTest, PromoteCrossOriginIframe) {
     <!DOCTYPE html>
     <iframe id=iframe sandbox></iframe>
   )HTML");
-  UpdateAllLifecyclePhasesForTest();
-
   iframe = To<HTMLFrameOwnerElement>(GetDocument().getElementById("iframe"));
+  To<LocalFrame>(iframe->ContentFrame())
+      ->GetDocument()
+      ->OverrideIsInitialEmptyDocument();
+  To<LocalFrame>(iframe->ContentFrame())->View()->BeginLifecycleUpdates();
+  UpdateAllLifecyclePhasesForTest();
   iframe_layout_view =
       To<LocalFrame>(iframe->ContentFrame())->ContentLayoutObject();
   iframe_layer = iframe_layout_view->Layer();
@@ -259,8 +297,7 @@ TEST_F(CompositingReasonFinderTest,
     </div>
   )HTML");
 
-  PaintLayer* target_layer =
-      ToLayoutBoxModelObject(GetLayoutObjectByElementId("target"))->Layer();
+  PaintLayer* target_layer = GetPaintLayerByElementId("target");
 
   EXPECT_EQ(CompositingReason::kBackfaceInvisibility3DAncestor,
             target_layer->PotentialCompositingReasonsFromNonStyle());
@@ -283,8 +320,7 @@ TEST_F(CompositingReasonFinderTest,
     </div>
   )HTML");
 
-  PaintLayer* target_layer =
-      ToLayoutBoxModelObject(GetLayoutObjectByElementId("target"))->Layer();
+  PaintLayer* target_layer = GetPaintLayerByElementId("target");
 
   EXPECT_EQ(CompositingReason::kBackfaceInvisibility3DAncestor,
             target_layer->PotentialCompositingReasonsFromNonStyle());
@@ -307,12 +343,8 @@ TEST_F(CompositingReasonFinderTest,
     </div>
   )HTML");
 
-  PaintLayer* intermediate_layer =
-      ToLayoutBoxModelObject(GetLayoutObjectByElementId("intermediate"))
-          ->Layer();
-
-  PaintLayer* target_layer =
-      ToLayoutBoxModelObject(GetLayoutObjectByElementId("target"))->Layer();
+  PaintLayer* intermediate_layer = GetPaintLayerByElementId("intermediate");
+  PaintLayer* target_layer = GetPaintLayerByElementId("target");
 
   EXPECT_EQ(CompositingReason::kBackfaceInvisibility3DAncestor,
             intermediate_layer->PotentialCompositingReasonsFromNonStyle());
@@ -337,8 +369,7 @@ TEST_F(CompositingReasonFinderTest,
     </div>
   )HTML");
 
-  PaintLayer* target_layer =
-      ToLayoutBoxModelObject(GetLayoutObjectByElementId("target"))->Layer();
+  PaintLayer* target_layer = GetPaintLayerByElementId("target");
 
   EXPECT_EQ(CompositingReason::kNone,
             target_layer->PotentialCompositingReasonsFromNonStyle());
@@ -358,12 +389,70 @@ TEST_F(CompositingReasonFinderTest, CompositeWithBackfaceVisibility) {
     </div>
   )HTML");
 
-  PaintLayer* target_layer =
-      ToLayoutBoxModelObject(GetLayoutObjectByElementId("target"))->Layer();
+  PaintLayer* target_layer = GetPaintLayerByElementId("target");
 
   EXPECT_EQ(CompositingReason::kNone,
             target_layer->PotentialCompositingReasonsFromNonStyle());
   EXPECT_EQ(kPaintsIntoOwnBacking, target_layer->GetCompositingState());
+}
+
+TEST_F(CompositingReasonFinderTest, CompositedSVGText) {
+  SetBodyInnerHTML(R"HTML(
+    <svg>
+      <text id="text" style="will-change: opacity">Text</text>
+    </svg>
+  )HTML");
+
+  auto* svg_text = GetLayoutObjectByElementId("text");
+  EXPECT_EQ(
+      CompositingReason::kWillChangeOpacity,
+      CompositingReasonFinder::DirectReasonsForPaintProperties(*svg_text));
+  auto* text = svg_text->SlowFirstChild();
+  ASSERT_TRUE(text->IsText());
+  EXPECT_EQ(CompositingReason::kNone,
+            CompositingReasonFinder::DirectReasonsForPaintProperties(*text));
+}
+
+TEST_F(CompositingReasonFinderTest, NotSupportedTransformAnimationsOnSVG) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      * { animation: transformKeyframes 1s infinite; }
+      @keyframes transformKeyframes {
+        0% { transform: rotate(-5deg); }
+        100% { transform: rotate(5deg); }
+      }
+    </style>
+    <svg>
+      <defs id="defs" />
+      <text id="text">text content
+        <tspan id="tspan">tspan content</tspan>
+      </text>
+    </svg>
+  )HTML");
+
+  auto* defs = GetLayoutObjectByElementId("defs");
+  EXPECT_EQ(CompositingReason::kNone,
+            CompositingReasonFinder::DirectReasonsForPaintProperties(*defs));
+
+  auto* text = GetLayoutObjectByElementId("text");
+  EXPECT_EQ(CompositingReason::kActiveTransformAnimation,
+            CompositingReasonFinder::DirectReasonsForPaintProperties(*text));
+
+  auto* text_content = text->SlowFirstChild();
+  ASSERT_TRUE(text_content->IsText());
+  EXPECT_EQ(
+      CompositingReason::kNone,
+      CompositingReasonFinder::DirectReasonsForPaintProperties(*text_content));
+
+  auto* tspan = GetLayoutObjectByElementId("tspan");
+  EXPECT_EQ(CompositingReason::kNone,
+            CompositingReasonFinder::DirectReasonsForPaintProperties(*tspan));
+
+  auto* tspan_content = tspan->SlowFirstChild();
+  ASSERT_TRUE(tspan_content->IsText());
+  EXPECT_EQ(
+      CompositingReason::kNone,
+      CompositingReasonFinder::DirectReasonsForPaintProperties(*tspan_content));
 }
 
 }  // namespace blink

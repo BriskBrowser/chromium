@@ -17,6 +17,7 @@ class StubWebView : public WebView {
   ~StubWebView() override;
 
   // Overridden from WebView:
+  bool IsServiceWorker() const override;
   std::string GetId() override;
   bool WasCrashed() override;
   Status ConnectIfNecessary() override;
@@ -129,6 +130,9 @@ class StubWebView : public WebView {
   std::unique_ptr<base::Value> GetCastSinks() override;
   std::unique_ptr<base::Value> GetCastIssueMessage() override;
   void SetFrame(const std::string& new_frame_id) override;
+  Status GetNodeIdByElement(const std::string& frame,
+                            const base::DictionaryValue& element,
+                            int* node_id) override;
 
  private:
   std::string id_;

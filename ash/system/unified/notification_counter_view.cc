@@ -8,13 +8,17 @@
 
 #include "ash/media/media_notification_constants.h"
 #include "ash/public/cpp/ash_features.h"
+#include "ash/public/cpp/vm_camera_mic_constants.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/system/message_center/ash_message_center_lock_screen_controller.h"
+#include "ash/system/message_center/message_center_utils.h"
 #include "ash/system/tray/tray_constants.h"
 #include "ash/system/tray/tray_utils.h"
+#include "ash/system/unified/notification_icons_controller.h"
+#include "ash/system/unified/unified_system_tray.h"
 #include "base/i18n/number_formatting.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/canvas.h"
@@ -88,11 +92,16 @@ class NumberIconImageSource : public gfx::CanvasImageSource {
 
 }  // namespace
 
-NotificationCounterView::NotificationCounterView(Shelf* shelf)
-    : TrayItemView(shelf) {
+NotificationCounterView::NotificationCounterView(
+    UnifiedSystemTray* tray,
+    NotificationIconsController* controller)
+    : TrayItemView(tray->shelf()), controller_(controller) {
+  system_tray_model_observation_.Observe(tray->model());
   CreateImageView();
   SetVisible(false);
   Shell::Get()->session_controller()->AddObserver(this);
+
+  OnSystemTrayButtonSizeChanged(tray->model()->GetSystemTrayButtonSize());
 }
 
 NotificationCounterView::~NotificationCounterView() {
@@ -100,29 +109,15 @@ NotificationCounterView::~NotificationCounterView() {
 }
 
 void NotificationCounterView::Update() {
-  SessionControllerImpl* session_controller =
-      Shell::Get()->session_controller();
-  size_t notification_count =
-      message_center::MessageCenter::Get()->NotificationCount();
+  size_t notification_count = message_center_utils::GetNotificationCount();
 
-  // If flag is set, do not include media notifications in count.
-  // TODO(crbug.com/1111881) This code can be removed when OS media controls are
-  // launched (expected by M90).
-  if (base::FeatureList::IsEnabled(features::kMediaNotificationsCounter)) {
-    const message_center::NotificationList::Notifications& visible =
-        message_center::MessageCenter::Get()->GetVisibleNotifications();
-    notification_count = std::count_if(
-        visible.begin(), visible.end(),
-        [](message_center::Notification* notification) {
-          return notification->notifier_id().id != kMediaSessionNotifierId;
-        });
-  }
-
-  if (notification_count == 0 ||
-      message_center::MessageCenter::Get()->IsQuietMode() ||
-      !session_controller->ShouldShowNotificationTray() ||
-      (session_controller->IsScreenLocked() &&
-       !AshMessageCenterLockScreenController::IsEnabled())) {
+  // If we are currently showing icons of some notifications in the tray, this
+  // counter should not be shown.
+  const bool tray_notification_icons_shown =
+      icons_view_visible_ && controller_ &&
+      controller_->TrayItemHasNotification();
+  if (notification_count == 0 || tray_notification_icons_shown ||
+      !controller_->ShouldShowNotificationItemsInTray()) {
     SetVisible(false);
     return;
   }
@@ -132,7 +127,7 @@ void NotificationCounterView::Update() {
         gfx::CanvasImageSource::MakeImageSkia<NumberIconImageSource>(icon_id));
     count_for_display_ = icon_id;
   }
-  image_view()->set_tooltip_text(l10n_util::GetPluralStringFUTF16(
+  image_view()->SetTooltipText(l10n_util::GetPluralStringFUTF16(
       IDS_ASH_STATUS_TRAY_NOTIFICATIONS_COUNT_TOOLTIP, notification_count));
   SetVisible(true);
 }
@@ -141,6 +136,10 @@ base::string16 NotificationCounterView::GetAccessibleNameString() const {
   return l10n_util::GetPluralStringFUTF16(
       IDS_ASH_STATUS_TRAY_NOTIFICATIONS_COUNT_TOOLTIP,
       message_center::MessageCenter::Get()->NotificationCount());
+}
+
+void NotificationCounterView::Reset() {
+  system_tray_model_observation_.Reset();
 }
 
 void NotificationCounterView::HandleLocaleChange() {
@@ -152,13 +151,64 @@ void NotificationCounterView::OnSessionStateChanged(
   Update();
 }
 
+void NotificationCounterView::OnSystemTrayButtonSizeChanged(
+    UnifiedSystemTrayModel::SystemTrayButtonSize system_tray_size) {
+  icons_view_visible_ =
+      system_tray_size != UnifiedSystemTrayModel::SystemTrayButtonSize::kSmall;
+  Update();
+}
+
 const char* NotificationCounterView::GetClassName() const {
   return "NotificationCounterView";
 }
 
+HiddenNotificationCountView::HiddenNotificationCountView(
+    Shelf* shelf,
+    NotificationIconsController* controller)
+    : TrayItemView(shelf), controller_(controller) {
+  CreateLabel();
+  SetupLabelForTray(label());
+  SetBorder(views::CreateEmptyBorder(kUnifiedTrayTextTopPadding, 0, 0,
+                                     kUnifiedTrayTextRightPadding));
+  label()->SetEnabledColor(AshColorProvider::Get()->GetContentLayerColor(
+      AshColorProvider::ContentLayerType::kIconColorPrimary));
+}
+
+HiddenNotificationCountView::~HiddenNotificationCountView() = default;
+
+void HiddenNotificationCountView::Update() {
+  if (!controller_->icons_view_visible() ||
+      !controller_->ShouldShowNotificationItemsInTray() ||
+      !controller_->TrayItemHasNotification()) {
+    SetVisible(false);
+    return;
+  }
+
+  int hidden_notification_num = message_center_utils::GetNotificationCount() -
+                                controller_->TrayNotificationIconsCount();
+  if (hidden_notification_num != 0) {
+    label()->SetText(l10n_util::GetStringFUTF16Int(
+        IDS_ASH_STATUS_TRAY_HIDDEN_NOTIFICATION_COUNT_LABEL,
+        hidden_notification_num));
+    label()->SetTooltipText(l10n_util::GetPluralStringFUTF16(
+        IDS_ASH_STATUS_TRAY_NOTIFICATIONS_HIDDEN_COUNT_TOOLTIP,
+        hidden_notification_num));
+  }
+
+  SetVisible(hidden_notification_num != 0);
+}
+
+void HiddenNotificationCountView::HandleLocaleChange() {
+  Update();
+}
+
+const char* HiddenNotificationCountView::GetClassName() const {
+  return "HiddenNotificationCountView";
+}
+
 QuietModeView::QuietModeView(Shelf* shelf) : TrayItemView(shelf) {
   CreateImageView();
-  image_view()->set_tooltip_text(
+  image_view()->SetTooltipText(
       l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_QUIET_MODE_TOOLTIP));
   SetVisible(false);
   Shell::Get()->session_controller()->AddObserver(this);
@@ -184,7 +234,7 @@ void QuietModeView::Update() {
 }
 
 void QuietModeView::HandleLocaleChange() {
-  image_view()->set_tooltip_text(
+  image_view()->SetTooltipText(
       l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_QUIET_MODE_TOOLTIP));
 }
 

@@ -54,8 +54,7 @@ class AXFragmentRootPlatformNodeWin : public AXPlatformNodeWin,
     *result = nullptr;
 
     // We currently only support the custom UIA property ID for unique id.
-    if (property_id ==
-            UiaRegistrarWin::GetInstance().GetUiaUniqueIdPropertyId() &&
+    if (property_id == UiaRegistrarWin::GetInstance().GetUniqueIdPropertyId() &&
         value.vt == VT_BSTR) {
       int32_t ax_unique_id;
       if (!base::StringToInt(value.bstrVal, &ax_unique_id))
@@ -164,6 +163,7 @@ class AXFragmentRootPlatformNodeWin : public AXPlatformNodeWin,
       double screen_physical_pixel_y,
       IRawElementProviderFragment** element_provider) override {
     WIN_ACCESSIBILITY_API_HISTOGRAM(UMA_API_ELEMENT_PROVIDER_FROM_POINT);
+    WIN_ACCESSIBILITY_API_PERF_HISTOGRAM(UMA_API_ELEMENT_PROVIDER_FROM_POINT);
     UIA_VALIDATE_CALL_1_ARG(element_provider);
 
     *element_provider = nullptr;
@@ -378,7 +378,7 @@ gfx::NativeViewAccessible AXFragmentRootWin::HitTestSync(int x, int y) const {
   return nullptr;
 }
 
-gfx::NativeViewAccessible AXFragmentRootWin::GetFocus() {
+gfx::NativeViewAccessible AXFragmentRootWin::GetFocus() const {
   AXPlatformNodeDelegate* child_delegate = GetChildNodeDelegate();
   if (child_delegate)
     return child_delegate->GetFocus();

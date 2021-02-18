@@ -7,20 +7,20 @@
 #include <string>
 #include <vector>
 
+#include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/public/cpp/test/shell_test_api.h"
 #include "base/bind.h"
 #include "base/run_loop.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
+#include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/login/screen_manager.h"
 #include "chrome/browser/chromeos/login/test/js_checker.h"
 #include "chrome/browser/chromeos/login/test/oobe_base_test.h"
 #include "chrome/browser/chromeos/login/test/oobe_screen_waiter.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/test/browser_test.h"
 
@@ -74,10 +74,10 @@ class GestureNavigationScreenTest
         GestureNavigationScreenView::kScreenId);
   }
 
-  // Checks that |dialog_page| is shown, while also checking that all other oobe
+  // Checks that `dialog_page` is shown, while also checking that all other oobe
   // dialogs on the gesture navigation screen are hidden.
   void CheckPageIsShown(std::string dialog_page) {
-    // |oobe_dialogs| is a list of all pages within the gesture navigation
+    // `oobe_dialogs` is a list of all pages within the gesture navigation
     // screen.
     const std::vector<std::string> oobe_dialogs = {
         "gestureIntro", "gestureHome", "gestureOverview", "gestureBack"};

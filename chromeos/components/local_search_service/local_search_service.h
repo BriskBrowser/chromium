@@ -1,37 +1,36 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROMEOS_COMPONENTS_LOCAL_SEARCH_SERVICE_LOCAL_SEARCH_SERVICE_H_
 #define CHROMEOS_COMPONENTS_LOCAL_SEARCH_SERVICE_LOCAL_SEARCH_SERVICE_H_
 
-#include <map>
-#include <memory>
-
-#include "base/macros.h"
-#include "chromeos/components/local_search_service/shared_structs.h"
-#include "components/keyed_service/core/keyed_service.h"
-
-class PrefService;
+#include "chromeos/components/local_search_service/index.h"
+#include "chromeos/components/local_search_service/public/mojom/index.mojom.h"
+#include "chromeos/components/local_search_service/public/mojom/local_search_service.mojom.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/remote_set.h"
 
 namespace chromeos {
-
 namespace local_search_service {
 
-class Index;
-
-// LocalSearchService creates and owns content-specific Indices. Clients can
-// call it |GetIndex| method to get an Index for a given index id.
-class LocalSearchService : public KeyedService {
+class LocalSearchService : public mojom::LocalSearchService {
  public:
-  LocalSearchService();
+  explicit LocalSearchService(
+      mojo::PendingReceiver<mojom::LocalSearchService> receiver);
   ~LocalSearchService() override;
-  LocalSearchService(const LocalSearchService&) = delete;
-  LocalSearchService& operator=(const LocalSearchService&) = delete;
 
-  Index* GetIndex(IndexId index_id, Backend backend, PrefService* local_state);
+  // mojom::LocalSearchService:
+  void BindIndex(
+      IndexId index_id,
+      Backend backend,
+      mojo::PendingReceiver<mojom::Index> index_receiver,
+      mojo::PendingRemote<mojom::SearchMetricsReporter> reporter_remote,
+      LocalSearchService::BindIndexCallback callback) override;
 
  private:
+  mojo::Receiver<mojom::LocalSearchService> receiver_;
   std::map<IndexId, std::unique_ptr<Index>> indices_;
 };
 

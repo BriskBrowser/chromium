@@ -20,6 +20,7 @@
 #import "ios/chrome/browser/ui/commands/load_query_commands.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_animator.h"
 #import "ios/chrome/browser/ui/infobars/infobar_feature.h"
+#import "ios/chrome/browser/ui/location_bar/location_bar_constants.h"
 #include "ios/chrome/browser/ui/location_bar/location_bar_steady_view.h"
 #import "ios/chrome/browser/ui/orchestrator/location_bar_offset_provider.h"
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
@@ -226,27 +227,6 @@ const NSString* kScribbleOmniboxElementId = @"omnibox";
   [self switchToEditing:NO];
 }
 
-- (void)viewWillAppear:(BOOL)animated {
-  [super viewWillAppear:animated];
-
-  [self updateCachedClipboardState];
-
-  [NSNotificationCenter.defaultCenter
-      addObserver:self
-         selector:@selector(pasteboardDidChange:)
-             name:UIPasteboardChangedNotification
-           object:nil];
-
-  // The pasteboard changed notification doesn't fire if the clipboard changes
-  // while the app is in the background, so update the state whenever the app
-  // becomes active.
-  [NSNotificationCenter.defaultCenter
-      addObserver:self
-         selector:@selector(applicationDidBecomeActive:)
-             name:UIApplicationDidBecomeActiveNotification
-           object:nil];
-}
-
 - (void)viewWillDisappear:(BOOL)animated {
   [super viewWillDisappear:animated];
 
@@ -276,23 +256,8 @@ const NSString* kScribbleOmniboxElementId = @"omnibox";
       progress <= kFullscreenProgressBadgeViewThreshold;
   [self.locationBarSteadyView
       setFullScreenCollapsedMode:badgeViewShouldCollapse];
-
-  CGAffineTransform transform =
+  self.locationBarSteadyView.transform =
       CGAffineTransformMakeScale(scaleValue, scaleValue);
-  self.locationBarSteadyView.locationContainerView.transform = transform;
-  self.locationBarSteadyView.trailingButton.transform = transform;
-
-  UIView* badgeView = self.locationBarSteadyView.badgeView;
-  badgeView.transform = transform;
-  // The translation value is added in order to move badgeView for |dx| created
-  // by the difference of the separate animation of the locationbar's views.
-  if (badgeViewShouldCollapse) {
-    CGFloat dx =
-        self.locationBarSteadyView.locationContainerView.frame.origin.x -
-        badgeView.frame.origin.x - badgeView.frame.size.width;
-    badgeView.transform =
-        CGAffineTransformTranslate(badgeView.transform, dx, 0);
-  }
 }
 
 - (void)updateForFullscreenEnabled:(BOOL)enabled {
@@ -522,6 +487,8 @@ const NSString* kScribbleOmniboxElementId = @"omnibox";
           forState:UIControlStateNormal];
       self.locationBarSteadyView.trailingButton.accessibilityLabel =
           l10n_util::GetNSString(IDS_IOS_TOOLS_MENU_SHARE);
+      self.locationBarSteadyView.trailingButton.accessibilityIdentifier =
+          kOmniboxShareButtonIdentifier;
       [self.locationBarSteadyView enableTrailingButton:self.shareButtonEnabled];
       break;
     };
@@ -541,6 +508,8 @@ const NSString* kScribbleOmniboxElementId = @"omnibox";
           forState:UIControlStateNormal];
       self.locationBarSteadyView.trailingButton.accessibilityLabel =
           l10n_util::GetNSString(IDS_IOS_TOOLS_MENU_VOICE_SEARCH);
+      self.locationBarSteadyView.trailingButton.accessibilityIdentifier =
+          kOmniboxVoiceSearchButtonIdentifier;
       [self.locationBarSteadyView enableTrailingButton:YES];
     }
   }
@@ -568,21 +537,17 @@ const NSString* kScribbleOmniboxElementId = @"omnibox";
   RecordAction(UserMetricsAction("MobileToolbarShareMenu"));
 }
 
-- (void)pasteboardDidChange:(NSNotification*)notification {
-  [self updateCachedClipboardState];
-}
-
-- (void)applicationDidBecomeActive:(NSNotification*)notification {
-  [self updateCachedClipboardState];
-}
-
-- (void)updateCachedClipboardState {
+// Updates the cached clipboard content type and calls |completion| when the
+// update process is finished.  If this is called while an update is already in
+// progress, it will return NO and the completion will never be called.
+// Otherwise, returns YES.
+- (BOOL)updateCachedClipboardStateWithCompletion:(void (^)(void))completion {
   // Sometimes, checking the clipboard state itself causes the clipboard to
   // emit a UIPasteboardChangedNotification, leading to an infinite loop. For
   // now, just prevent re-checking the clipboard state, but hopefully this will
   // be fixed in a future iOS version (see crbug.com/1049053 for crash details).
   if (self.isUpdatingCachedClipboardState) {
-    return;
+    return NO;
   }
   self.isUpdatingCachedClipboardState = YES;
   self.hasCopiedContent = NO;
@@ -609,7 +574,9 @@ const NSString* kScribbleOmniboxElementId = @"omnibox";
           weakSelf.copiedContentType = ClipboardContentType::Text;
         }
         weakSelf.isUpdatingCachedClipboardState = NO;
+        completion();
       }));
+  return YES;
 }
 
 #pragma mark - UIMenu
@@ -629,17 +596,20 @@ const NSString* kScribbleOmniboxElementId = @"omnibox";
         initWithTitle:l10n_util::GetNSString(IDS_IOS_SEARCH_COPIED_TEXT)
                action:@selector(searchCopiedText:)]);
 
-    if (@available(iOS 13, *)) {
-      [menu showMenuFromView:self.view rect:self.locationBarSteadyView.frame];
-    } else {
+    BOOL updateSuccessful = [self updateCachedClipboardStateWithCompletion:^() {
+#if !defined(__IPHONE_13_0) || __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_13_0
       [menu setTargetRect:self.locationBarSteadyView.frame inView:self.view];
       [menu setMenuVisible:YES animated:YES];
-    }
-    // When the menu is manually presented, it doesn't get focused by
-    // Voiceover. This notification forces voiceover to select the
-    // presented menu.
-    UIAccessibilityPostNotification(UIAccessibilityLayoutChangedNotification,
-                                    menu);
+#else
+      [menu showMenuFromView:self.view rect:self.locationBarSteadyView.frame];
+#endif
+      // When the menu is manually presented, it doesn't get focused by
+      // Voiceover. This notification forces voiceover to select the
+      // presented menu.
+      UIAccessibilityPostNotification(UIAccessibilityLayoutChangedNotification,
+                                      menu);
+    }];
+    DCHECK(updateSuccessful);
   }
 }
 
@@ -649,9 +619,10 @@ const NSString* kScribbleOmniboxElementId = @"omnibox";
     return YES;
   }
 
-  if (action == @selector(searchCopiedImage:) ||
-      action == @selector(visitCopiedLink:) ||
-      action == @selector(searchCopiedText:)) {
+  BOOL isClipboardAction = action == @selector(searchCopiedImage:) ||
+                           action == @selector(visitCopiedLink:) ||
+                           action == @selector(searchCopiedText:);
+  if (self.locationBarSteadyView.isFirstResponder && isClipboardAction) {
     if (!self.hasCopiedContent) {
       return NO;
     }
@@ -696,10 +667,10 @@ const NSString* kScribbleOmniboxElementId = @"omnibox";
   RecordAction(UserMetricsAction("Mobile.OmniboxContextMenu.VisitCopiedLink"));
   ClipboardRecentContent::GetInstance()->GetRecentURLFromClipboard(
       base::BindOnce(^(base::Optional<GURL> optionalURL) {
-        NSString* url;
-        if (optionalURL) {
-          url = base::SysUTF8ToNSString(optionalURL.value().spec());
+        if (!optionalURL) {
+          return;
         }
+        NSString* url = base::SysUTF8ToNSString(optionalURL.value().spec());
         dispatch_async(dispatch_get_main_queue(), ^{
           [self.dispatcher loadQuery:url immediately:YES];
           [self.dispatcher cancelOmniboxEdit];
@@ -714,10 +685,10 @@ const NSString* kScribbleOmniboxElementId = @"omnibox";
   RecordAction(UserMetricsAction("Mobile.OmniboxContextMenu.SearchCopiedText"));
   ClipboardRecentContent::GetInstance()->GetRecentTextFromClipboard(
       base::BindOnce(^(base::Optional<base::string16> optionalText) {
-        NSString* query;
-        if (optionalText) {
-          query = base::SysUTF16ToNSString(optionalText.value());
+        if (!optionalText) {
+          return;
         }
+        NSString* query = base::SysUTF16ToNSString(optionalText.value());
         dispatch_async(dispatch_get_main_queue(), ^{
           [self.dispatcher loadQuery:query immediately:YES];
           [self.dispatcher cancelOmniboxEdit];

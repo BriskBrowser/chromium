@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#include "ash/constants/ash_features.h"
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/i18n/number_formatting.h"
@@ -17,14 +18,12 @@
 #include "build/branding_buildflags.h"
 #include "chrome/browser/chromeos/login/configuration_keys.h"
 #include "chrome/browser/chromeos/login/error_screens_histogram_helper.h"
-#include "chrome/browser/chromeos/login/screen_manager.h"
 #include "chrome/browser/chromeos/login/screens/network_error.h"
 #include "chrome/browser/chromeos/login/wizard_context.h"
 #include "chrome/browser/chromeos/policy/enrollment_requisition_manager.h"
 #include "chrome/browser/ui/webui/chromeos/login/update_screen_handler.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/network/network_state.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/strings/grit/ui_strings.h"
@@ -103,11 +102,6 @@ std::string UpdateScreen::GetResultString(Result result) {
   }
 }
 
-// static
-UpdateScreen* UpdateScreen::Get(ScreenManager* manager) {
-  return static_cast<UpdateScreen*>(manager->GetScreen(UpdateView::kScreenId));
-}
-
 UpdateScreen::UpdateScreen(UpdateView* view,
                            ErrorScreen* error_screen,
                            const ScreenExitCallback& exit_callback)
@@ -120,15 +114,11 @@ UpdateScreen::UpdateScreen(UpdateView* view,
       version_updater_(std::make_unique<VersionUpdater>(this)),
       wait_before_reboot_time_(kWaitBeforeRebootTime),
       tick_clock_(base::DefaultTickClock::GetInstance()) {
-  if (chromeos::features::IsBetterUpdateEnabled())
-    PowerManagerClient::Get()->AddObserver(this);
   if (view_)
     view_->Bind(this);
 }
 
 UpdateScreen::~UpdateScreen() {
-  if (chromeos::features::IsBetterUpdateEnabled())
-    PowerManagerClient::Get()->RemoveObserver(this);
   if (view_)
     view_->Unbind();
 }
@@ -164,15 +154,25 @@ bool UpdateScreen::MaybeSkip(WizardContext* context) {
 }
 
 void UpdateScreen::ShowImpl() {
-  if (chromeos::features::IsBetterUpdateEnabled())
-    PowerManagerClient::Get()->RequestStatusUpdate();
+  // AccessibilityManager::Get() can be nullptr in unittests.
+  if (AccessibilityManager::Get()) {
+    AccessibilityManager* accessibility_manager = AccessibilityManager::Get();
+    accessibility_subscription_ = accessibility_manager->RegisterCallback(
+        base::BindRepeating(&UpdateScreen::OnAccessibilityStatusChanged,
+                            weak_factory_.GetWeakPtr()));
+  }
+  if (!power_manager_subscription_) {
+    power_manager_subscription_ = std::make_unique<
+        ScopedObserver<PowerManagerClient, PowerManagerClient::Observer>>(this);
+    power_manager_subscription_->Add(PowerManagerClient::Get());
+  }
+  PowerManagerClient::Get()->RequestStatusUpdate();
 #if !BUILDFLAG(GOOGLE_CHROME_BRANDING)
   if (view_) {
     view_->SetCancelUpdateShortcutEnabled(true);
   }
 #endif
   RefreshView(version_updater_->update_info());
-
   show_timer_.Start(FROM_HERE, kShowDelay,
                     base::BindOnce(&UpdateScreen::MakeSureScreenIsShown,
                                    weak_factory_.GetWeakPtr()));
@@ -181,6 +181,8 @@ void UpdateScreen::ShowImpl() {
 }
 
 void UpdateScreen::HideImpl() {
+  accessibility_subscription_ = {};
+  power_manager_subscription_.reset();
   show_timer_.Stop();
   if (view_)
     view_->Hide();
@@ -229,18 +231,14 @@ void UpdateScreen::OnWaitForRebootTimeElapsed() {
   MakeSureScreenIsShown();
   if (!view_)
     return;
-  if (chromeos::features::IsBetterUpdateEnabled()) {
-    view_->SetUIState(UpdateView::UIState::kManualReboot);
-  } else {
-    view_->SetUpdateCompleted(true);
-  }
+  view_->SetUIState(UpdateView::UIState::kManualReboot);
 }
 
 void UpdateScreen::PrepareForUpdateCheck() {
   error_message_timer_.Stop();
   error_screen_->HideCaptivePortal();
 
-  connect_request_subscription_.reset();
+  connect_request_subscription_ = {};
   if (version_updater_->update_info().state ==
       VersionUpdater::State::STATE_ERROR)
     HideErrorMessage();
@@ -376,14 +374,10 @@ void UpdateScreen::UpdateInfoChanged(
                            finalize_time_);
         RecordDownloadingTime(tick_clock_->NowTicks() -
                               start_update_downloading_);
-        if (chromeos::features::IsBetterUpdateEnabled()) {
-          ShowRebootInProgress();
-          wait_reboot_timer_.Start(FROM_HERE, wait_before_reboot_time_,
-                                   version_updater_.get(),
-                                   &VersionUpdater::RebootAfterUpdate);
-        } else {
-          version_updater_->RebootAfterUpdate();
-        }
+        ShowRebootInProgress();
+        wait_reboot_timer_.Start(FROM_HERE, wait_before_reboot_time_,
+                                 version_updater_.get(),
+                                 &VersionUpdater::RebootAfterUpdate);
       } else {
         hide_progress_on_exit_ = true;
         ExitUpdate(Result::UPDATE_NOT_REQUIRED);
@@ -404,8 +398,7 @@ void UpdateScreen::UpdateInfoChanged(
     default:
       NOTREACHED();
   }
-  if (chromeos::features::IsBetterUpdateEnabled())
-    UpdateBatteryWarningVisibility();
+  UpdateBatteryWarningVisibility();
   if (need_refresh_view)
     RefreshView(update_info);
 }
@@ -428,33 +421,31 @@ void UpdateScreen::PowerChanged(
 
 void UpdateScreen::ShowRebootInProgress() {
   MakeSureScreenIsShown();
-  if (view_) {
-    if (chromeos::features::IsBetterUpdateEnabled()) {
-      view_->SetUIState(UpdateView::UIState::kRestartInProgress);
-    } else {
-      view_->SetUpdateCompleted(true);
-    }
-  }
+  if (view_)
+    view_->SetUIState(UpdateView::UIState::kRestartInProgress);
 }
 
 void UpdateScreen::SetUpdateStatusMessage(int percent,
                                           base::TimeDelta time_left) {
   if (!view_)
     return;
-  view_->SetUpdateStatusMessagePercent(l10n_util::GetStringFUTF16(
-      IDS_UPDATE_STATUS_SUBTITLE_PERCENT, base::FormatPercent(percent)));
+  base::string16 time_left_message;
   if (time_left.InMinutes() == 0) {
-    view_->SetUpdateStatusMessageTimeLeft(l10n_util::GetStringFUTF16(
+    time_left_message = l10n_util::GetStringFUTF16(
         IDS_UPDATE_STATUS_SUBTITLE_TIME_LEFT,
         l10n_util::GetPluralStringFUTF16(IDS_TIME_LONG_SECS,
-                                         time_left.InSeconds())));
+                                         time_left.InSeconds()));
   } else {
-    view_->SetUpdateStatusMessageTimeLeft(l10n_util::GetStringFUTF16(
+    time_left_message = l10n_util::GetStringFUTF16(
         IDS_UPDATE_STATUS_SUBTITLE_TIME_LEFT,
         l10n_util::GetPluralStringFUTF16(IDS_TIME_LONG_MINS,
-                                         time_left.InMinutes())));
+                                         time_left.InMinutes()));
   }
-  view_->SetBetterUpdateProgress(percent);
+  view_->SetUpdateStatus(
+      percent,
+      l10n_util::GetStringFUTF16(IDS_UPDATE_STATUS_SUBTITLE_PERCENT,
+                                 base::FormatPercent(percent)),
+      time_left_message);
 }
 
 void UpdateScreen::UpdateBatteryWarningVisibility() {
@@ -473,12 +464,6 @@ void UpdateScreen::UpdateBatteryWarningVisibility() {
 
 void UpdateScreen::RefreshView(const VersionUpdater::UpdateInfo& update_info) {
   if (view_) {
-    view_->SetProgress(update_info.progress);
-    view_->SetProgressMessage(update_info.progress_message);
-    view_->SetEstimatedTimeLeft(update_info.estimated_time_left_in_secs);
-    view_->SetShowEstimatedTimeLeft(update_info.show_estimated_time_left);
-    view_->SetShowCurtain(update_info.progress_unavailable ||
-                          hide_progress_on_exit_);
     view_->SetRequiresPermissionForCellular(
         update_info.requires_permission_for_cellular);
   }
@@ -516,6 +501,11 @@ void UpdateScreen::MakeSureScreenIsShown() {
   is_shown_ = true;
   histogram_helper_->OnScreenShow();
 
+  // AccessibilityManager::Get() can be nullptr in unittests.
+  if (AccessibilityManager::Get()) {
+    view_->SetAutoTransition(
+        !AccessibilityManager::Get()->IsSpokenFeedbackEnabled());
+  }
   view_->Show();
 }
 
@@ -530,6 +520,20 @@ void UpdateScreen::OnConnectRequested() {
       VersionUpdater::State::STATE_ERROR) {
     LOG(WARNING) << "Hiding error message since AP was reselected";
     version_updater_->StartUpdateCheck();
+  }
+}
+
+void UpdateScreen::OnAccessibilityStatusChanged(
+    const AccessibilityStatusEventDetails& details) {
+  if (details.notification_type ==
+      AccessibilityNotificationType::kManagerShutdown) {
+    accessibility_subscription_ = {};
+    return;
+  }
+  // AccessibilityManager::Get() can be nullptr in unittests.
+  if (view_ && AccessibilityManager::Get()) {
+    view_->SetAutoTransition(
+        !AccessibilityManager::Get()->IsSpokenFeedbackEnabled());
   }
 }
 

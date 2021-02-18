@@ -22,6 +22,7 @@
 #include "device/fido/ctap_get_assertion_request.h"
 #include "device/fido/ctap_make_credential_request.h"
 #include "device/fido/fido_constants.h"
+#include "device/fido/fido_types.h"
 #include "device/fido/virtual_fido_device.h"
 
 namespace device {
@@ -52,7 +53,8 @@ class COMPONENT_EXPORT(DEVICE_FIDO) VirtualCtap2Device
     Config& operator=(const Config&);
     ~Config();
 
-    base::flat_set<Ctap2Version> ctap2_versions = {Ctap2Version::kCtap2_0};
+    base::flat_set<Ctap2Version> ctap2_versions = {
+        std::begin(kCtap2Versions2_0), std::end(kCtap2Versions2_0)};
     // u2f_support, if true, makes this device a dual-protocol (i.e. CTAP2 and
     // U2F) device.
     bool u2f_support = false;
@@ -69,6 +71,14 @@ class COMPONENT_EXPORT(DEVICE_FIDO) VirtualCtap2Device
     bool cred_protect_support = false;
     bool hmac_secret_support = false;
     bool large_blob_support = false;
+    // Support for setting a min PIN length and forcing pin change.
+    bool min_pin_length_support = false;
+    bool always_uv = false;
+    // The space available to store a large blob. In real authenticators this
+    // may change depending on the number of resident credentials. We treat this
+    // as a fixed size area for the large blob.
+    size_t available_large_blob_storage = 1024;
+
     IncludeCredential include_credential_in_assertion_response =
         IncludeCredential::ONLY_IF_NEEDED;
 
@@ -141,16 +151,6 @@ class COMPONENT_EXPORT(DEVICE_FIDO) VirtualCtap2Device
     // a makeCredential or getAssertion request carries any extension.
     bool reject_all_extensions = false;
 
-    // Support a non-standard CTAP extension that lets the platform supply an
-    // unhashed client data for the authenticator to assemble and hash instead
-    // of using the regular, already hashed value.
-    bool support_android_client_data_extension = false;
-
-    // Support a non-standard CTAP extension that lets the platform supply an
-    // unhashed client data for the authenticator to assemble and hash instead
-    // of using the regular, already hashed value.
-    bool send_unsolicited_android_client_data_extension = false;
-
     // support_invalid_for_testing_algorithm causes the
     // |CoseAlgorithmIdentifier::kInvalidForTesting| public-key algorithm to be
     // advertised and supported to aid testing of unknown public-key types.
@@ -174,11 +174,31 @@ class COMPONENT_EXPORT(DEVICE_FIDO) VirtualCtap2Device
     // authenticator's U2F interface not to be available over CTAP2 for
     // assertions.
     bool ignore_u2f_credentials = false;
+
+    // pin_protocol is the PIN protocol version that this authenticator supports
+    // and reports in the pinProtocols field of the authenticatorGetInfo
+    // response.
+    PINUVAuthProtocol pin_protocol = PINUVAuthProtocol::kV1;
+
+    // override_response_map allows overriding the response for a given command
+    // with a given code. The actual command won't be executed.
+    base::flat_map<CtapRequestCommand, CtapDeviceResponseCode>
+        override_response_map;
   };
 
   VirtualCtap2Device();
   VirtualCtap2Device(scoped_refptr<State> state, const Config& config);
   ~VirtualCtap2Device() override;
+
+  // Configures and sets a PIN on the authenticator.
+  void SetPin(std::string pin);
+
+  // Sets whether to force a PIN change before accepting pinUvAuthToken
+  // requests.
+  void SetForcePinChange(bool force_pin_change);
+
+  // Sets the minimum accepted PIN length.
+  void SetMinPinLength(uint32_t min_pin_length);
 
   // FidoDevice:
   void Cancel(CancelToken) override;
@@ -194,13 +214,14 @@ class COMPONENT_EXPORT(DEVICE_FIDO) VirtualCtap2Device
   // makeCredential and getAssertion from the CTAP2 spec.
   base::Optional<CtapDeviceResponseCode> CheckUserVerification(
       bool is_make_credential,
-      const AuthenticatorSupportedOptions& options,
+      const AuthenticatorGetInfoResponse& authenticator_info,
       const std::string& rp_id,
       const base::Optional<std::vector<uint8_t>>& pin_auth,
-      const base::Optional<uint8_t>& pin_protocol,
+      const base::Optional<PINUVAuthProtocol>& pin_protocol,
       base::span<const uint8_t> pin_token,
       base::span<const uint8_t> client_data_hash,
       UserVerificationRequirement user_verification,
+      bool user_presence_required,
       bool* out_user_verified);
   base::Optional<CtapDeviceResponseCode> OnMakeCredential(
       base::span<const uint8_t> request,
@@ -218,16 +239,22 @@ class COMPONENT_EXPORT(DEVICE_FIDO) VirtualCtap2Device
       std::vector<uint8_t>* response);
   CtapDeviceResponseCode OnBioEnrollment(base::span<const uint8_t> request,
                                          std::vector<uint8_t>* response);
+  CtapDeviceResponseCode OnLargeBlobs(base::span<const uint8_t> request,
+                                      std::vector<uint8_t>* response);
   CtapDeviceResponseCode OnAuthenticatorGetInfo(
       std::vector<uint8_t>* response) const;
 
   void InitPendingRPs();
   void GetNextRP(cbor::Value::MapValue* response_map);
   void InitPendingRegistrations(base::span<const uint8_t> rp_id_hash);
+  void RegenerateKeyAgreementKey();
 
   AttestedCredentialData ConstructAttestedCredentialData(
       base::span<const uint8_t> key_handle,
       std::unique_ptr<PublicKey> public_key);
+
+  size_t remaining_resident_credentials() const;
+  bool SupportsAtLeast(Ctap2Version ctap2_version) const;
 
   std::unique_ptr<VirtualU2fDevice> u2f_device_;
 

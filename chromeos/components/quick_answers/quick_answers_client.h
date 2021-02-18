@@ -23,6 +23,7 @@ namespace quick_answers {
 
 struct QuickAnswer;
 struct QuickAnswersRequest;
+struct IntentInfo;
 enum class IntentType;
 enum class ResultType;
 
@@ -81,7 +82,6 @@ class QuickAnswersClient : public ash::AssistantStateObserver,
   void OnAssistantSettingsEnabled(bool enabled) override;
   void OnAssistantContextEnabled(bool enabled) override;
   void OnLocaleChanged(const std::string& locale) override;
-  void OnAssistantQuickAnswersEnabled(bool enabled) override;
   void OnAssistantStateDestroyed() override;
 
   // ResultLoaderDelegate:
@@ -137,8 +137,7 @@ class QuickAnswersClient : public ash::AssistantStateObserver,
                            bool skip_fetch);
   void IntentGeneratorCallback(const QuickAnswersRequest& quick_answers_request,
                                bool skip_fetch,
-                               const std::string& intent_text,
-                               IntentType intent_type);
+                               const IntentInfo& intent_info);
   base::TimeDelta GetImpressionDuration() const;
 
   network::mojom::URLLoaderFactory* url_loader_factory_ = nullptr;
@@ -148,7 +147,6 @@ class QuickAnswersClient : public ash::AssistantStateObserver,
   std::unique_ptr<IntentGenerator> intent_generator_;
   bool assistant_enabled_ = false;
   bool assistant_context_enabled_ = false;
-  bool quick_answers_settings_enabled_ = false;
   bool locale_supported_ = false;
   chromeos::assistant::AssistantAllowedState assistant_allowed_state_ =
       chromeos::assistant::AssistantAllowedState::ALLOWED;

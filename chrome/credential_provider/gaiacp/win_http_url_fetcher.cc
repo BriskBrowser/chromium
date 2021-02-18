@@ -11,6 +11,7 @@
 #include <process.h>
 
 #include <set>
+#include <string>
 
 #include "base/base64.h"
 #include "base/containers/span.h"
@@ -18,16 +19,17 @@
 #include "base/json/json_writer.h"
 #include "base/stl_util.h"
 #include "base/strings/strcat.h"
-#include "base/strings/string16.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/credential_provider/gaiacp/logging.h"
-#include "chrome/credential_provider/gaiacp/mdm_utils.h"
 
 namespace {
 // Key name containing the HTTP error code within the dictionary returned by the
 // server in case of errors.
 constexpr char kHttpErrorCodeKeyNameInResponse[] = "code";
+
+// Error key name that is likely to be present in HTTP responses.
+const char kErrorKeyInRequestResult[] = "error";
 
 // The HTTP response codes for which the request is re-tried on failure.
 const std::set<int> kRetryableHttpErrorCodes = {
@@ -194,8 +196,11 @@ HttpServiceRequest* HttpServiceRequest::Create(
   }
 
   url_fetcher->SetRequestHeader("Content-Type", "application/json");
-  url_fetcher->SetRequestHeader("Authorization",
-                                ("Bearer " + access_token).c_str());
+  if (!access_token.empty()) {
+    url_fetcher->SetRequestHeader("Authorization",
+                                  ("Bearer " + access_token).c_str());
+  }
+
   for (auto& header : headers)
     url_fetcher->SetRequestHeader(header.first.c_str(), header.second.c_str());
 
@@ -231,6 +236,11 @@ std::unique_ptr<WinHttpUrlFetcher> WinHttpUrlFetcher::Create(const GURL& url) {
   return !GetCreatorFunctionStorage()->is_null()
              ? GetCreatorFunctionStorage()->Run(url)
              : std::unique_ptr<WinHttpUrlFetcher>(new WinHttpUrlFetcher(url));
+}
+
+// static
+void WinHttpUrlFetcher::SetCreatorForTesting(CreatorCallback creator) {
+  *GetCreatorFunctionStorage() = creator;
 }
 
 WinHttpUrlFetcher::WinHttpUrlFetcher(const GURL& url)
@@ -337,7 +347,7 @@ HRESULT WinHttpUrlFetcher::Fetch(std::vector<char>* response) {
   for (const auto& kv : request_headers_) {
     const wchar_t* key = A2CW(kv.first.c_str());
     const wchar_t* value = A2CW(kv.second.c_str());
-    base::string16 header = base::StringPrintf(L"%ls: %ls", key, value);
+    std::wstring header = base::StringPrintf(L"%ls: %ls", key, value);
     if (!::WinHttpAddRequestHeaders(
             request_.Get(), header.c_str(), header.length(),
             WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE)) {

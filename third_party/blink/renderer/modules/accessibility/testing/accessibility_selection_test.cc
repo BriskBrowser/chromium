@@ -8,6 +8,7 @@
 #include <iterator>
 
 #include "base/memory/scoped_refptr.h"
+#include "third_party/blink/public/platform/file_path_conversion.h"
 #include "third_party/blink/renderer/core/dom/character_data.h"
 #include "third_party/blink/renderer/core/dom/container_node.h"
 #include "third_party/blink/renderer/core/dom/node.h"
@@ -206,8 +207,7 @@ class AXSelectionDeserializer final {
   const Vector<AXSelection> Deserialize(const std::string& html_snippet,
                                         HTMLElement& element) {
     element.setInnerHTML(String::FromUTF8(html_snippet));
-    element.GetDocument().View()->UpdateAllLifecyclePhases(
-        DocumentUpdateReason::kTest);
+    element.GetDocument().View()->UpdateAllLifecyclePhasesForTest();
     AXObject* root = ax_object_cache_->GetOrCreate(&element);
     if (!root || root->IsDetached())
       return {};
@@ -280,8 +280,7 @@ class AXSelectionDeserializer final {
     // Remove the markers, otherwise they would be duplicated if the AXSelection
     // is re-serialized.
     node->setData(builder.ToString());
-    node->GetDocument().View()->UpdateAllLifecyclePhases(
-        DocumentUpdateReason::kTest);
+    node->GetDocument().View()->UpdateAllLifecyclePhasesForTest();
 
     //
     // Non-text selection.
@@ -346,7 +345,7 @@ AccessibilitySelectionTest::AccessibilitySelectionTest(
 
 void AccessibilitySelectionTest::SetUp() {
   AccessibilityTest::SetUp();
-  RuntimeEnabledFeatures::SetAccessibilityExposeHTMLElementEnabled(false);
+  RuntimeEnabledFeatures::SetAccessibilityExposeHTMLElementEnabled(true);
 }
 
 std::string AccessibilitySelectionTest::GetCurrentSelectionText() const {
@@ -442,6 +441,11 @@ void AccessibilitySelectionTest::RunSelectionTest(
   }
 
   EXPECT_EQ(ax_file_contents, actual_ax_file_contents);
+
+  // Uncomment these lines to write the output to the expectations file.
+  // TODO(dmazzoni): make this a command-line parameter.
+  // if (ax_file_contents != actual_ax_file_contents)
+  //  base::WriteFile(WebStringToFilePath(ax_file), actual_ax_file_contents);
 }
 
 ParameterizedAccessibilitySelectionTest::

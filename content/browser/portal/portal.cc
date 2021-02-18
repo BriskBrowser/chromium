@@ -12,11 +12,11 @@
 #include "content/browser/bad_message.h"
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/devtools/devtools_instrumentation.h"
-#include "content/browser/frame_host/navigation_request.h"
-#include "content/browser/frame_host/navigator.h"
-#include "content/browser/frame_host/render_frame_host_impl.h"
-#include "content/browser/frame_host/render_frame_host_manager.h"
-#include "content/browser/frame_host/render_frame_proxy_host.h"
+#include "content/browser/renderer_host/navigation_request.h"
+#include "content/browser/renderer_host/navigator.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
+#include "content/browser/renderer_host/render_frame_host_manager.h"
+#include "content/browser/renderer_host/render_frame_proxy_host.h"
 #include "content/browser/renderer_host/render_widget_host_input_event_router.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/render_widget_host_iterator.h"
@@ -127,19 +127,19 @@ RenderFrameProxyHost* Portal::CreateProxyAndAttachPortal() {
     return nullptr;
   }
 
-  mojo::PendingRemote<service_manager::mojom::InterfaceProvider>
-      interface_provider;
-  auto interface_provider_receiver(
-      interface_provider.InitWithNewPipeAndPassReceiver());
-
   // Create a FrameTreeNode in the outer WebContents to host the portal, in
   // response to the creation of a portal in the renderer process.
   FrameTreeNode* outer_node = outer_contents_impl->GetFrameTree()->AddFrame(
       owner_render_frame_host_, owner_render_frame_host_->GetProcess()->GetID(),
       owner_render_frame_host_->GetProcess()->GetNextRoutingID(),
-      std::move(interface_provider_receiver),
+      // The renderer frame doesn't exist yet and will be created later with the
+      // CreateRenderView message.
+      /*frame_remote=*/mojo::NullAssociatedRemote(),
       mojo::PendingRemote<blink::mojom::BrowserInterfaceBroker>()
           .InitWithNewPipeAndPassReceiver(),
+      // The PolicyContainerHost remote is sent to Blink in the CreateRenderView
+      // mojo message.
+      /*policy_container_bind_params=*/nullptr,
       blink::mojom::TreeScopeType::kDocument, "", "", true,
       base::UnguessableToken::Create(), base::UnguessableToken::Create(),
       blink::FramePolicy(), blink::mojom::FrameOwnerProperties(), false,
@@ -152,6 +152,7 @@ RenderFrameProxyHost* Portal::CreateProxyAndAttachPortal() {
     WebContents::CreateParams params(outer_contents_impl->GetBrowserContext());
     portal_contents_.SetOwned(base::WrapUnique(
         static_cast<WebContentsImpl*>(WebContents::Create(params).release())));
+    outer_contents_impl->InnerWebContentsCreated(portal_contents_.get());
     web_contents_created = true;
   }
 
@@ -230,7 +231,7 @@ void Portal::Navigate(const GURL& url,
 
   // TODO(lfg): Figure out download policies for portals.
   // https://github.com/WICG/portals/issues/150
-  NavigationDownloadPolicy download_policy;
+  blink::NavigationDownloadPolicy download_policy;
 
   // Navigations in portals do not affect the host's session history. Upon
   // activation, only the portal's last committed entry is merged with the
@@ -247,9 +248,8 @@ void Portal::Navigate(const GURL& url,
   // navigated by a frame other than the owning frame. Find a way to route the
   // correct initiator of the portal navigation to this call.
   portal_root->navigator().NavigateFromFrameProxy(
-      portal_frame, url,
-      GlobalFrameRoutingId(owner_render_frame_host_->GetProcess()->GetID(),
-                           owner_render_frame_host_->GetRoutingID()),
+      portal_frame, url, &owner_render_frame_host_->GetFrameToken(),
+      owner_render_frame_host_->GetProcess()->GetID(),
       owner_render_frame_host_->GetLastCommittedOrigin(),
       owner_render_frame_host_->GetSiteInstance(),
       mojo::ConvertTo<Referrer>(referrer), ui::PAGE_TRANSITION_LINK,
@@ -307,6 +307,7 @@ void TakeHistoryForActivation(WebContentsImpl* activated_contents,
 
 void Portal::Activate(blink::TransferableMessage data,
                       base::TimeTicks activation_time,
+                      uint64_t trace_id,
                       ActivateCallback callback) {
   if (GetPortalHostContents()->portal()) {
     mojo::ReportBadMessage("Portal::Activate called on nested portal");
@@ -335,29 +336,37 @@ void Portal::Activate(blink::TransferableMessage data,
   outer_contents->GetDelegate()->UpdateInspectedWebContentsIfNecessary(
       outer_contents, portal_contents_.get(),
       base::BindOnce(&Portal::ActivateImpl, weak_factory_.GetWeakPtr(),
-                     std::move(data), activation_time, std::move(callback)));
+                     std::move(data), activation_time, trace_id,
+                     std::move(callback)));
 }
 
-void Portal::PostMessageToGuest(
-    blink::TransferableMessage message,
-    const base::Optional<url::Origin>& target_origin) {
+namespace {
+const char* kCrossOriginPostMessageError =
+    "postMessage failed because portal is not same origin with its host";
+}
+
+void Portal::PostMessageToGuest(blink::TransferableMessage message) {
+  if (!IsSameOrigin()) {
+    owner_render_frame_host()->AddMessageToConsole(
+        blink::mojom::ConsoleMessageLevel::kError,
+        kCrossOriginPostMessageError);
+    return;
+  }
   portal_contents_->GetMainFrame()->ForwardMessageFromHost(
-      std::move(message), owner_render_frame_host_->GetLastCommittedOrigin(),
-      target_origin);
+      std::move(message), owner_render_frame_host_->GetLastCommittedOrigin());
 }
 
-void Portal::PostMessageToHost(
-    blink::TransferableMessage message,
-    const base::Optional<url::Origin>& target_origin) {
+void Portal::PostMessageToHost(blink::TransferableMessage message) {
   DCHECK(GetPortalContents());
-  if (target_origin) {
-    if (target_origin != owner_render_frame_host_->GetLastCommittedOrigin())
-      return;
+  if (!IsSameOrigin()) {
+    portal_contents_->GetMainFrame()->AddMessageToConsole(
+        blink::mojom::ConsoleMessageLevel::kError,
+        kCrossOriginPostMessageError);
+    return;
   }
   client().ForwardMessageFromGuest(
       std::move(message),
-      GetPortalContents()->GetMainFrame()->GetLastCommittedOrigin(),
-      target_origin);
+      GetPortalContents()->GetMainFrame()->GetLastCommittedOrigin());
 }
 
 void Portal::OnFrameTreeNodeDestroyed(FrameTreeNode* frame_tree_node) {
@@ -448,6 +457,11 @@ WebContentsImpl* Portal::GetPortalHostContents() {
       WebContents::FromRenderFrameHost(owner_render_frame_host_));
 }
 
+bool Portal::IsSameOrigin() const {
+  return owner_render_frame_host_->GetLastCommittedOrigin().IsSameOriginWith(
+      portal_contents_->GetMainFrame()->GetLastCommittedOrigin());
+}
+
 std::pair<bool, blink::mojom::PortalActivateResult> Portal::CanActivate() {
   WebContentsImpl* outer_contents = GetPortalHostContents();
 
@@ -513,6 +527,7 @@ std::pair<bool, blink::mojom::PortalActivateResult> Portal::CanActivate() {
 
 void Portal::ActivateImpl(blink::TransferableMessage data,
                           base::TimeTicks activation_time,
+                          uint64_t trace_id,
                           ActivateCallback callback) {
   WebContentsImpl* outer_contents = GetPortalHostContents();
   WebContentsDelegate* delegate = outer_contents->GetDelegate();
@@ -601,6 +616,9 @@ void Portal::ActivateImpl(blink::TransferableMessage data,
     outer_contents_main_frame_view->Destroy();
   }
 
+  // Remove page focus from the now orphaned predecessor.
+  outer_contents->GetMainFrame()->GetRenderWidgetHost()->Blur();
+
   // These pointers are cleared so that they don't dangle in the event this
   // object isn't immediately deleted. It isn't done sooner because
   // ActivatePortalWebContents misbehaves if the WebContents doesn't appear to
@@ -619,7 +637,8 @@ void Portal::ActivateImpl(blink::TransferableMessage data,
   predecessor->Bind(std::move(portal_receiver), std::move(pending_client));
   successor_main_frame->OnPortalActivated(
       std::move(predecessor), std::move(pending_portal),
-      std::move(client_receiver), std::move(data), std::move(callback));
+      std::move(client_receiver), std::move(data), trace_id,
+      std::move(callback));
 
   // Notifying of activation happens later than ActivatePortalWebContents so
   // that it is observed after predecessor_web_contents has been moved into a

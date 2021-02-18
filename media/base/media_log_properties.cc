@@ -28,6 +28,8 @@ std::string MediaLogPropertyKeyToString(MediaLogProperty property) {
     STRINGIFY(kIsRangeHeaderSupported);
     STRINGIFY(kIsVideoDecryptingDemuxerStream);
     STRINGIFY(kIsAudioDecryptingDemuxerStream);
+    STRINGIFY(kVideoEncoderName);
+    STRINGIFY(kIsPlatformVideoEncoder);
     STRINGIFY(kAudioDecoderName);
     STRINGIFY(kIsPlatformAudioDecoder);
     STRINGIFY(kAudioTracks);
@@ -35,6 +37,7 @@ std::string MediaLogPropertyKeyToString(MediaLogProperty property) {
     STRINGIFY(kVideoTracks);
     STRINGIFY(kFramerate);
     STRINGIFY(kVideoPlaybackRoughness);
+    STRINGIFY(kVideoPlaybackFreezing);
   }
 #undef STRINGIFY
 }

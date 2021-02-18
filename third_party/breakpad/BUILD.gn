@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/symlink.gni")
 import("//testing/libfuzzer/fuzzer_test.gni")
 import("//testing/test.gni")
@@ -40,7 +41,7 @@ config("client_config") {
   if (is_android) {
     include_dirs += [ "breakpad/src/common/android/include" ]
   }
-  if (is_chromeos) {
+  if (is_chromeos_ash) {
     defines = [ "__CHROMEOS__" ]
   }
 }
@@ -81,11 +82,10 @@ if (!is_win) {
   if (current_toolchain == host_toolchain) {
     # Contains the code shared by both {micro,mini}dump_stackwalk.
     static_library("stackwalk_common") {
-      # Always want these files included regardless of platform.
-      set_sources_assignment_filter([])
       sources = [
         "breakpad/src/common/path_helper.cc",
         "breakpad/src/common/path_helper.h",
+        "breakpad/src/common/scoped_ptr.h",
         "breakpad/src/processor/basic_code_module.h",
         "breakpad/src/processor/basic_code_modules.cc",
         "breakpad/src/processor/basic_code_modules.h",
@@ -187,8 +187,6 @@ if (!is_win) {
         "max_len=128000",
       ]
 
-      # Always want these files included regardless of platform.
-      set_sources_assignment_filter([])
       sources += [
         "breakpad/src/processor/exploitability_linux.cc",
         "breakpad/src/processor/exploitability_linux.h",
@@ -227,8 +225,6 @@ if (!is_win) {
       configs += [ "//build/config/compiler:no_chromium_code" ]
       configs += default_breakpad_configs
 
-      # Always want these files included regardless of platform.
-      set_sources_assignment_filter([])
       sources += [
         "breakpad/src/processor/exploitability_linux.cc",
         "breakpad/src/processor/exploitability_linux.h",
@@ -240,8 +236,8 @@ if (!is_win) {
     }
 
     executable("minidump_dump") {
-      set_sources_assignment_filter([])
       sources = [
+        "breakpad/src/common/scoped_ptr.h",
         "breakpad/src/processor/basic_code_module.h",
         "breakpad/src/processor/basic_code_modules.cc",
         "breakpad/src/processor/basic_code_modules.h",
@@ -304,9 +300,11 @@ if (is_mac) {
         "breakpad/src/common/mac/macho_utilities.cc",
         "breakpad/src/common/mac/macho_walker.cc",
         "breakpad/src/common/md5.cc",
+        "breakpad/src/common/memory_range.h",
         "breakpad/src/common/module.cc",
         "breakpad/src/common/path_helper.cc",
         "breakpad/src/common/path_helper.h",
+        "breakpad/src/common/scoped_ptr.h",
         "breakpad/src/common/stabs_reader.cc",
         "breakpad/src/common/stabs_to_module.cc",
         "breakpad/src/tools/mac/dump_syms/dump_syms_tool.cc",
@@ -389,6 +387,7 @@ if (is_mac) {
       "breakpad/src/common/convert_UTF.cc",
       "breakpad/src/common/mac/MachIPC.mm",
       "breakpad/src/common/mac/arch_utilities.cc",
+      "breakpad/src/common/mac/arch_utilities.h",
       "breakpad/src/common/mac/bootstrap_compat.cc",
       "breakpad/src/common/mac/file_id.cc",
       "breakpad/src/common/mac/launch_reporter.cc",
@@ -397,6 +396,7 @@ if (is_mac) {
       "breakpad/src/common/mac/macho_walker.cc",
       "breakpad/src/common/mac/string_utilities.cc",
       "breakpad/src/common/md5.cc",
+      "breakpad/src/common/scoped_ptr.h",
       "breakpad/src/common/simple_string_dictionary.cc",
       "breakpad/src/common/string_conversion.cc",
     ]
@@ -483,6 +483,7 @@ if (is_linux || is_chromeos || is_android) {
         "breakpad/src/common/linux/symbol_collector_client.h",
         "breakpad/src/common/linux/symbol_upload.cc",
         "breakpad/src/common/linux/symbol_upload.h",
+        "breakpad/src/common/scoped_ptr.h",
         "breakpad/src/tools/linux/symupload/sym_upload.cc",
       ]
 
@@ -529,10 +530,13 @@ if (is_linux || is_chromeos || is_android) {
         "breakpad/src/common/linux/linux_libc_support.h",
         "breakpad/src/common/linux/memory_mapped_file.cc",
         "breakpad/src/common/linux/memory_mapped_file.h",
+        "breakpad/src/common/memory_allocator.h",
+        "breakpad/src/common/memory_range.h",
         "breakpad/src/common/module.cc",
         "breakpad/src/common/module.h",
         "breakpad/src/common/path_helper.cc",
         "breakpad/src/common/path_helper.h",
+        "breakpad/src/common/scoped_ptr.h",
         "breakpad/src/common/stabs_reader.cc",
         "breakpad/src/common/stabs_reader.h",
         "breakpad/src/common/stabs_to_module.cc",
@@ -569,8 +573,6 @@ if (is_linux || is_chromeos || is_android) {
   }
 
   static_library("client") {
-    # Want all these sources for both Linux and Android.
-    set_sources_assignment_filter([])
     sources = [
       "breakpad/src/client/linux/crash_generation/crash_generation_client.cc",
       "breakpad/src/client/linux/crash_generation/crash_generation_client.h",
@@ -624,6 +626,8 @@ if (is_linux || is_chromeos || is_android) {
       "breakpad/src/common/linux/safe_readlink.cc",
       "breakpad/src/common/linux/safe_readlink.h",
       "breakpad/src/common/memory_allocator.h",
+      "breakpad/src/common/memory_range.h",
+      "breakpad/src/common/scoped_ptr.h",
       "breakpad/src/common/simple_string_dictionary.cc",
       "breakpad/src/common/simple_string_dictionary.h",
       "breakpad/src/common/string_conversion.cc",
@@ -634,7 +638,7 @@ if (is_linux || is_chromeos || is_android) {
     configs += [ "//build/config/compiler:no_chromium_code" ]
     public_configs = [ ":client_config" ]
 
-    if (current_cpu == "arm" && is_chromeos) {
+    if (current_cpu == "arm" && is_chromeos_ash) {
       # Avoid running out of registers in
       # linux_syscall_support.h:sys_clone()'s inline assembly.
       cflags = [ "-marm" ]
@@ -651,9 +655,9 @@ if (is_linux || is_chromeos || is_android) {
   }
 
   static_library("processor_support") {
-    set_sources_assignment_filter([])
     sources = [
       "breakpad/src/common/scoped_ptr.h",
+      "breakpad/src/processor/basic_code_module.h",
       "breakpad/src/processor/basic_code_modules.cc",
       "breakpad/src/processor/basic_code_modules.h",
       "breakpad/src/processor/convert_old_arm64_context.cc",
@@ -681,7 +685,6 @@ if (is_linux || is_chromeos || is_android) {
   }
 
   test("breakpad_unittests") {
-    set_sources_assignment_filter([])
     sources = [
       "breakpad/src/client/linux/handler/exception_handler_unittest.cc",
       "breakpad/src/client/linux/minidump_writer/cpu_set_unittest.cc",
@@ -752,7 +755,6 @@ if (is_linux || is_chromeos || is_android) {
   }
 
   executable("linux_dumper_unittest_helper") {
-    set_sources_assignment_filter([])
     testonly = true
     sources = [ "breakpad/src/client/linux/minidump_writer/linux_dumper_unittest_helper.cc" ]
     deps = [ ":processor_support" ]
@@ -765,7 +767,6 @@ if (is_linux || is_chromeos || is_android) {
   }
 
   executable("generate_test_dump") {
-    set_sources_assignment_filter([])
     testonly = true
     sources = [ "linux/generate-test-dump.cc" ]
 
@@ -784,11 +785,11 @@ if (is_linux || is_chromeos || is_android) {
   }
 
   executable("minidump-2-core") {
-    set_sources_assignment_filter([])
     sources = [
       "breakpad/src/common/path_helper.cc",
       "breakpad/src/common/path_helper.h",
       "breakpad/src/tools/linux/md2core/minidump-2-core.cc",
+      "breakpad/src/tools/linux/md2core/minidump_memory_range.h",
     ]
 
     include_dirs = [ "breakpad/src" ]
@@ -797,7 +798,6 @@ if (is_linux || is_chromeos || is_android) {
   }
 
   executable("core-2-minidump") {
-    set_sources_assignment_filter([])
     sources = [ "breakpad/src/tools/linux/core2md/core2md.cc" ]
 
     deps = [ ":client" ]
@@ -1009,7 +1009,6 @@ if (is_win) {
 
 if (is_ios) {
   static_library("client") {
-    set_sources_assignment_filter([])
     sources = [
       "breakpad/src/client/ios/Breakpad.h",
       "breakpad/src/client/ios/Breakpad.mm",
@@ -1058,7 +1057,6 @@ if (is_ios) {
       "breakpad/src/common/string_conversion.h",
       "breakpad/src/google_breakpad/common/minidump_format.h",
     ]
-    set_sources_assignment_filter(sources_assignment_filter)
 
     include_dirs = [
       "breakpad/src",
@@ -1120,6 +1118,7 @@ if (is_win) {
       "breakpad/src/client/windows/sender/crash_report_sender.h",
       "breakpad/src/common/windows/http_upload.cc",
       "breakpad/src/common/windows/http_upload.h",
+      "breakpad/src/common/windows/string_utils-inl.h",
     ]
     configs += [ ":sender_config" ]
     public_configs = [ ":sender_config" ]

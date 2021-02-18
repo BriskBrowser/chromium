@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/ui_thread_search_terms_data.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
@@ -23,8 +24,8 @@
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "net/base/url_util.h"
 
-#if defined(OS_CHROMEOS)
-#include "chromeos/constants/chromeos_features.h"
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/ash_features.h"
 #endif
 
 namespace sync_ui_util {
@@ -32,7 +33,7 @@ namespace sync_ui_util {
 namespace {
 
 StatusLabels GetStatusForUnrecoverableError(bool is_user_signout_allowed) {
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
   int status_label_string_id =
       is_user_signout_allowed
           ? IDS_SYNC_STATUS_UNRECOVERABLE_ERROR
@@ -189,12 +190,12 @@ void OpenTabForSyncKeyRetrievalWithURL(Browser* browser, const GURL& url) {
 bool HasUserOptedInToSync(const syncer::SyncUserSettings* settings) {
   if (settings->IsFirstSetupComplete())
     return true;
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (chromeos::features::IsSplitSettingsSyncEnabled() &&
       settings->IsOsSyncFeatureEnabled()) {
     return true;
   }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   return false;
 }
 
@@ -280,6 +281,13 @@ AvatarSyncErrorType GetAvatarSyncErrorType(Profile* profile) {
                : TRUSTED_VAULT_KEY_MISSING_FOR_PASSWORDS_ERROR;
   }
 
+  // Check for trusted vault recoverability state.
+  if (ShouldShowTrustedVaultDegradedRecoverabilityError(service)) {
+    return service->GetUserSettings()->IsEncryptEverythingEnabled()
+               ? TRUSTED_VAULT_RECOVERABILITY_DEGRADED_FOR_EVERYTHING_ERROR
+               : TRUSTED_VAULT_RECOVERABILITY_DEGRADED_FOR_PASSWORDS_ERROR;
+  }
+
   // There is no error.
   return NO_SYNC_ERROR;
 }
@@ -312,6 +320,13 @@ bool ShouldShowSyncKeysMissingError(const syncer::SyncService* service) {
   const syncer::SyncUserSettings* settings = service->GetUserSettings();
   return HasUserOptedInToSync(settings) &&
          settings->IsTrustedVaultKeyRequiredForPreferredDataTypes();
+}
+
+bool ShouldShowTrustedVaultDegradedRecoverabilityError(
+    const syncer::SyncService* service) {
+  const syncer::SyncUserSettings* settings = service->GetUserSettings();
+  return HasUserOptedInToSync(settings) &&
+         settings->IsTrustedVaultRecoverabilityDegraded();
 }
 
 void OpenTabForSyncKeyRetrieval(

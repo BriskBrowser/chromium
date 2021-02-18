@@ -2,6 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+assert(is_chromeos, "Nearby Share is CrOS only")
+
 source_set("logging") {
   sources = [
     "log_buffer.cc",
@@ -9,7 +11,10 @@ source_set("logging") {
     "logging.cc",
     "logging.h",
   ]
-  deps = [ "//base" ]
+  deps = [
+    "//base",
+    "//chrome/browser/nearby_sharing/common",
+  ]
 }
 
 source_set("unit_tests") {

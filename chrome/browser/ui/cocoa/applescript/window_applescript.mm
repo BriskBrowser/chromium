@@ -55,7 +55,7 @@
 
   Profile* profile;
   if ([mode isEqualToString:AppleScript::kIncognitoWindowMode]) {
-    profile = lastProfile->GetOffTheRecordProfile();
+    profile = lastProfile->GetPrimaryOTRProfile();
   }
   else if ([mode isEqualToString:AppleScript::kNormalWindowMode] || !mode) {
     profile = lastProfile;
@@ -77,7 +77,15 @@
   }
 
   if ((self = [super init])) {
-    _browser = new Browser(Browser::CreateParams(aProfile, false));
+    // Since AppleScript requests can arrive at any time, including during
+    // browser shutdown or profile deletion, we have to check whether it's okay
+    // to spawn a new browser for the specified profile or not.
+    if (Browser::GetCreationStatusForProfile(aProfile) !=
+        Browser::CreationStatus::kOk) {
+      [self release];
+      return nil;
+    }
+    _browser = Browser::Create(Browser::CreateParams(aProfile, false));
     chrome::NewTab(_browser);
     _browser->window()->Show();
     base::scoped_nsobject<NSNumber> numID(

@@ -28,6 +28,7 @@
 #include "base/feature_list.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/loader/referrer_utils.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/core/css/css_markup.h"
 #include "third_party/blink/renderer/core/css/style_sheet_contents.h"
@@ -126,7 +127,7 @@ FontResource& CSSFontFaceSrcValue::Fetch(ExecutionContext* context,
           context->GetTaskRunner(TaskType::kInternalLoading).get());
     }
   }
-  return *ToFontResource(fetched_->GetResource());
+  return *To<FontResource>(fetched_->GetResource());
 }
 
 void CSSFontFaceSrcValue::RestoreCachedResourceIfNeeded(
@@ -137,7 +138,7 @@ void CSSFontFaceSrcValue::RestoreCachedResourceIfNeeded(
 
   const KURL url = context->CompleteURL(absolute_resource_);
   context->Fetcher()->EmulateLoadStartedForInspector(
-      fetched_->GetResource(), url, mojom::RequestContextType::FONT,
+      fetched_->GetResource(), url, mojom::blink::RequestContextType::FONT,
       network::mojom::RequestDestination::kFont,
       fetch_initiator_type_names::kCSS);
 }

@@ -4,9 +4,9 @@
 
 #include <memory>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
+#include "base/optional.h"
 #include "base/test/task_environment.h"
-#include "chromeos/constants/chromeos_pref_names.h"
 #include "chromeos/dbus/shill/shill_clients.h"
 #include "chromeos/dbus/shill/shill_manager_client.h"
 #include "chromeos/network/network_configuration_handler.h"
@@ -71,8 +71,10 @@ class NetworkMetadataStoreTest : public ::testing::Test {
             nullptr /* network_device_handler */);
 
     network_connection_handler_.reset(new NetworkConnectionHandlerImpl());
-    network_connection_handler_->Init(helper_.network_state_handler(),
-                                      network_configuration_handler_, nullptr);
+    network_connection_handler_->Init(
+        helper_.network_state_handler(), network_configuration_handler_,
+        /*managed_network_configuration_handler=*/nullptr,
+        /*cellular_esim_connection_handler=*/nullptr);
 
     network_state_handler_ = helper_.network_state_handler();
     NetworkHandler::Initialize();
@@ -181,12 +183,23 @@ class NetworkMetadataStoreTest : public ::testing::Test {
 
 namespace {
 const char* kGuid = "wifi0";
+const char* kGuid1 = "wifi1";
 const char* kConfigWifi0Connectable =
     "{ \"GUID\": \"wifi0\", \"Type\": \"wifi\", \"State\": \"idle\", "
     "  \"Connectable\": true }";
+const char* kConfigWifi0HiddenUser =
+    "{ \"GUID\": \"wifi0\", \"Type\": \"wifi\", \"State\": \"idle\", "
+    "  \"Connectable\": true, \"Profile\": \"user_profile_path\", "
+    "\"WiFi.HiddenSSID\": true }";
+const char* kConfigWifi1HiddenUser =
+    "{ \"GUID\": \"wifi1\", \"Type\": \"wifi\", \"State\": \"idle\", "
+    "  \"Connectable\": true, \"Profile\": \"user_profile_path\", "
+    "\"WiFi.HiddenSSID\": true }";
 const char* kConfigWifi1Shared =
     "{ \"GUID\": \"wifi0\", \"Type\": \"wifi\", \"State\": \"idle\", "
     "  \"Connectable\": true, \"Profile\": \"/profile/default\" }";
+const char kHasFixedHiddenNetworks[] =
+    "metadata_store.has_fixed_hidden_networks";
 }  // namespace
 
 TEST_F(NetworkMetadataStoreTest, FirstConnect) {
@@ -331,7 +344,8 @@ TEST_F(NetworkMetadataStoreTest, ConfigurationRemoved) {
   ASSERT_TRUE(metadata_store()->GetIsConfiguredBySync(kGuid));
 
   network_configuration_handler()->RemoveConfiguration(
-      service_path, base::DoNothing(), base::DoNothing());
+      service_path, /*remove_confirmer=*/base::nullopt, base::DoNothing(),
+      base::DoNothing());
   base::RunLoop().RunUntilIdle();
 
   ASSERT_TRUE(metadata_store()->GetLastConnectedTimestamp(kGuid).is_zero());
@@ -393,6 +407,32 @@ TEST_F(NetworkMetadataStoreTest, OwnOobeNetworks_NotFirstLogin) {
   UserManager()->set_is_current_user_owner(true);
   metadata_store()->LoggedInStateChanged();
   ASSERT_FALSE(metadata_store()->GetIsCreatedByUser(kGuid));
+}
+
+TEST_F(NetworkMetadataStoreTest, FixSyncedHiddenNetworks) {
+  std::string service_path = ConfigureService(kConfigWifi0HiddenUser);
+  metadata_store()->OnConfigurationCreated(service_path, kGuid);
+  base::RunLoop().RunUntilIdle();
+  std::string service_path1 = ConfigureService(kConfigWifi1HiddenUser);
+  metadata_store()->OnConfigurationCreated(service_path1, kGuid1);
+  base::RunLoop().RunUntilIdle();
+
+  metadata_store()->SetIsConfiguredBySync(kGuid);
+  user_prefs()->SetBoolean(kHasFixedHiddenNetworks, false);
+
+  ASSERT_TRUE(metadata_store()->GetIsCreatedByUser(kGuid));
+  ASSERT_TRUE(metadata_store()->GetIsConfiguredBySync(kGuid));
+  ASSERT_TRUE(
+      network_state_handler()->GetNetworkStateFromGuid(kGuid)->hidden_ssid());
+  ASSERT_TRUE(
+      network_state_handler()->GetNetworkStateFromGuid(kGuid1)->hidden_ssid());
+
+  metadata_store()->NetworkListChanged();
+  base::RunLoop().RunUntilIdle();
+  ASSERT_FALSE(
+      network_state_handler()->GetNetworkStateFromGuid(kGuid)->hidden_ssid());
+  ASSERT_TRUE(
+      network_state_handler()->GetNetworkStateFromGuid(kGuid1)->hidden_ssid());
 }
 
 }  // namespace chromeos

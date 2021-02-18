@@ -7,6 +7,8 @@
 #include <memory>
 #include <vector>
 
+#include "ash/constants/ash_paths.h"
+#include "ash/constants/ash_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/containers/flat_map.h"
@@ -33,9 +35,6 @@
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
 #include "base/values.h"
-#include "chromeos/constants/chromeos_constants.h"
-#include "chromeos/constants/chromeos_paths.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/system/kiosk_oem_manifest_parser.h"
 #include "chromeos/system/name_value_pairs_parser.h"
 
@@ -317,7 +316,8 @@ void StatisticsProviderImpl::SignalStatisticsLoaded() {
     // and unblock pending WaitForStatisticsLoaded() calls.
     statistics_loaded_.Signal();
 
-    VLOG(1) << "Finished loading statistics.";
+    // TODO(crbug.com/1123153): Downgrade to VLOG(1) after the bug is fixed.
+    LOG(WARNING) << "Finished loading statistics.";
   }
 
   // Schedule callbacks that were in |statistics_loaded_callbacks_|.
@@ -616,7 +616,8 @@ void StatisticsProviderImpl::LoadMachineStatistics(bool load_oem_manifest) {
     region_ =
         command_line->GetSwitchValueASCII(chromeos::switches::kCrosRegion);
     machine_info_[kRegionKey] = region_;
-    VLOG(1) << "CrOS region set to '" << region_ << "'";
+    // TODO(crbug.com/1123153): Downgrade to VLOG(1) after the bug is fixed.
+    LOG(WARNING) << "CrOS region set to '" << region_ << "'";
   }
 
   if (regional_data_.get() && !region_.empty() && !GetRegionDictionary())
@@ -664,7 +665,8 @@ void StatisticsProviderImpl::LoadOemManifestFromFile(
   machine_flags_[kOemKeyboardDrivenOobeKey] = oem_manifest.keyboard_driven_oobe;
 
   oem_manifest_loaded_ = true;
-  VLOG(1) << "Loaded OEM Manifest statistics from " << file.value();
+  // TODO(crbug.com/1123153): Downgrade to VLOG(1) after the bug is fixed.
+  LOG(WARNING) << "Loaded OEM Manifest statistics from " << file.value();
 }
 
 StatisticsProviderImpl* StatisticsProviderImpl::GetInstance() {

@@ -26,6 +26,7 @@
 #include "ui/views/controls/button/image_button_factory.h"
 #include "ui/views/layout/flex_layout.h"
 #include "ui/views/layout/flex_layout_types.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/vector_icons.h"
 #include "ui/views/view_class_properties.h"
 
@@ -40,21 +41,21 @@ constexpr int EXTENSION_PINNING = 14;
 
 // static
 constexpr gfx::Size ExtensionsMenuItemView::kIconSize;
-constexpr char ExtensionsMenuItemView::kClassName[];
 
 ExtensionsMenuItemView::ExtensionsMenuItemView(
     Browser* browser,
     std::unique_ptr<ToolbarActionViewController> controller,
     bool allow_pinning)
-    : primary_action_button_(new ExtensionsMenuButton(browser,
+    : profile_(browser->profile()),
+      primary_action_button_(new ExtensionsMenuButton(browser,
                                                       this,
                                                       controller.get(),
                                                       allow_pinning)),
       controller_(std::move(controller)),
-      model_(ToolbarActionsModel::Get(browser->profile())) {
+      model_(ToolbarActionsModel::Get(profile_)) {
   // Set so the extension button receives enter/exit on children to retain hover
   // status when hovering child views.
-  set_notify_enter_exit_on_child(true);
+  SetNotifyEnterExitOnChild(true);
 
   context_menu_controller_ = std::make_unique<ExtensionContextMenuController>(
       nullptr, controller_.get());
@@ -71,56 +72,34 @@ ExtensionsMenuItemView::ExtensionsMenuItemView(
                                views::MaximumFlexSizeRule::kUnbounded));
 
   if (primary_action_button_->CanShowIconInToolbar()) {
-    auto pin_button = CreateBubbleMenuItem(EXTENSION_PINNING, this);
+    auto pin_button = CreateBubbleMenuItem(
+        EXTENSION_PINNING,
+        base::BindRepeating(&ExtensionsMenuItemView::PinButtonPressed,
+                            base::Unretained(this)));
     pin_button->SetBorder(views::CreateEmptyBorder(kSecondaryButtonInsets));
-    // Extension pinning is not available in Incognito as it leaves a trace of
-    // user activity.
-    pin_button->SetEnabled(!browser->profile()->IsOffTheRecord());
 
     pin_button_ = pin_button.get();
     AddChildView(std::move(pin_button));
   }
+  UpdatePinButton();
 
-  auto context_menu_button =
-      CreateBubbleMenuItem(EXTENSION_CONTEXT_MENU, nullptr);
+  auto context_menu_button = CreateBubbleMenuItem(
+      EXTENSION_CONTEXT_MENU, views::Button::PressedCallback());
   context_menu_button->SetBorder(
       views::CreateEmptyBorder(kSecondaryButtonInsets));
   context_menu_button->SetTooltipText(
       l10n_util::GetStringUTF16(IDS_EXTENSIONS_MENU_CONTEXT_MENU_TOOLTIP));
   context_menu_button->SetButtonController(
       std::make_unique<views::MenuButtonController>(
-          context_menu_button.get(), this,
+          context_menu_button.get(),
+          base::BindRepeating(&ExtensionsMenuItemView::ContextMenuPressed,
+                              base::Unretained(this)),
           std::make_unique<views::Button::DefaultButtonControllerDelegate>(
               context_menu_button.get())));
-
-  context_menu_button_ = context_menu_button.get();
-  AddChildView(std::move(context_menu_button));
+  context_menu_button_ = AddChildView(std::move(context_menu_button));
 }
 
 ExtensionsMenuItemView::~ExtensionsMenuItemView() = default;
-
-void ExtensionsMenuItemView::ButtonPressed(views::Button* sender,
-                                           const ui::Event& event) {
-  if (sender->GetID() == EXTENSION_PINNING) {
-    base::RecordAction(
-        base::UserMetricsAction("Extensions.Toolbar.PinButtonPressed"));
-    model_->SetActionVisibility(controller_->GetId(), !IsPinned());
-    return;
-  } else if (sender->GetID() == EXTENSION_CONTEXT_MENU) {
-    base::RecordAction(base::UserMetricsAction(
-        "Extensions.Toolbar.MoreActionsButtonPressedFromMenu"));
-    // TODO(crbug.com/998298): Cleanup the menu source type.
-    context_menu_controller_->ShowContextMenuForViewImpl(
-        sender, sender->GetMenuPosition(),
-        ui::MenuSourceType::MENU_SOURCE_MOUSE);
-    return;
-  }
-  NOTREACHED();
-}
-
-const char* ExtensionsMenuItemView::GetClassName() const {
-  return kClassName;
-}
 
 void ExtensionsMenuItemView::OnThemeChanged() {
   views::View::OnThemeChanged();
@@ -129,7 +108,7 @@ void ExtensionsMenuItemView::OnThemeChanged() {
           ui::NativeTheme::kColorId_MenuIconColor));
 
   if (pin_button_)
-    pin_button_->set_ink_drop_base_color(icon_color);
+    pin_button_->SetInkDropBaseColor(icon_color);
   views::SetImageFromVectorIconWithColor(context_menu_button_,
                                          kBrowserToolsIcon,
                                          kSecondaryIconSizeDp, icon_color);
@@ -139,9 +118,21 @@ void ExtensionsMenuItemView::OnThemeChanged() {
 void ExtensionsMenuItemView::UpdatePinButton() {
   if (!pin_button_)
     return;
-  pin_button_->SetTooltipText(l10n_util::GetStringUTF16(
-      IsPinned() ? IDS_EXTENSIONS_MENU_UNPIN_BUTTON_TOOLTIP
-                 : IDS_EXTENSIONS_MENU_PIN_BUTTON_TOOLTIP));
+
+  bool is_force_pinned =
+      model_ && model_->IsActionForcePinned(controller_->GetId());
+  int pin_button_string_id = 0;
+  if (is_force_pinned)
+    pin_button_string_id = IDS_EXTENSIONS_PINNED_BY_ADMIN;
+  else if (IsPinned())
+    pin_button_string_id = IDS_EXTENSIONS_UNPIN_FROM_TOOLBAR;
+  else
+    pin_button_string_id = IDS_EXTENSIONS_PIN_TO_TOOLBAR;
+  pin_button_->SetTooltipText(l10n_util::GetStringUTF16(pin_button_string_id));
+  // Extension pinning is not available in Incognito as it leaves a trace of
+  // user activity.
+  pin_button_->SetEnabled(!is_force_pinned && !profile_->IsOffTheRecord());
+
   SkColor unpinned_icon_color =
       GetAdjustedIconColor(GetNativeTheme()->GetSystemColor(
           ui::NativeTheme::kColorId_MenuIconColor));
@@ -160,9 +151,22 @@ bool ExtensionsMenuItemView::IsContextMenuRunning() const {
 
 bool ExtensionsMenuItemView::IsPinned() const {
   // |model_| can be null in unit tests.
-  if (!model_)
-    return false;
-  return model_->IsActionPinned(controller_->GetId());
+  return model_ && model_->IsActionPinned(controller_->GetId());
+}
+
+void ExtensionsMenuItemView::ContextMenuPressed() {
+  base::RecordAction(base::UserMetricsAction(
+      "Extensions.Toolbar.MoreActionsButtonPressedFromMenu"));
+  // TODO(crbug.com/998298): Cleanup the menu source type.
+  context_menu_controller_->ShowContextMenuForViewImpl(
+      context_menu_button_, context_menu_button_->GetMenuPosition(),
+      ui::MenuSourceType::MENU_SOURCE_MOUSE);
+}
+
+void ExtensionsMenuItemView::PinButtonPressed() {
+  base::RecordAction(
+      base::UserMetricsAction("Extensions.Toolbar.PinButtonPressed"));
+  model_->SetActionVisibility(controller_->GetId(), !IsPinned());
 }
 
 ExtensionsMenuButton*
@@ -178,3 +182,6 @@ SkColor ExtensionsMenuItemView::GetAdjustedIconColor(SkColor icon_color) const {
   }
   return icon_color;
 }
+
+BEGIN_METADATA(ExtensionsMenuItemView, views::View)
+END_METADATA

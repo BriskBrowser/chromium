@@ -5,7 +5,7 @@
 #include "media/gpu/chromeos/mailbox_video_frame_converter.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
@@ -237,8 +237,8 @@ void MailboxVideoFrameConverter::WrapMailboxAndVideoFrameAndOutput(
       GetRectSizeFromOrigin(frame->visible_rect()), frame->visible_rect(),
       frame->natural_size(), frame->timestamp());
   mailbox_frame->set_color_space(frame->ColorSpace());
-  mailbox_frame->set_metadata(*(frame->metadata()));
-  mailbox_frame->metadata()->read_lock_fences_enabled = true;
+  mailbox_frame->set_metadata(frame->metadata());
+  mailbox_frame->metadata().read_lock_fences_enabled = true;
 
   output_cb_.Run(mailbox_frame);
 }

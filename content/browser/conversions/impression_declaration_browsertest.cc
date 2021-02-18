@@ -57,11 +57,11 @@ class ImpressionObserver : public TestNavigationObserver {
     }
   }
 
-  const Impression& last_impression() { return *last_impression_; }
+  const blink::Impression& last_impression() { return *last_impression_; }
 
   // Waits for |expected_num_impressions_| navigations with impressions, and
   // returns the last impression.
-  const Impression& Wait() {
+  const blink::Impression& Wait() {
     if (num_impressions_ >= expected_num_impressions_)
       return *last_impression_;
     impression_loop_.Run();
@@ -78,7 +78,7 @@ class ImpressionObserver : public TestNavigationObserver {
  private:
   size_t num_impressions_ = 0u;
   const size_t expected_num_impressions_ = 0u;
-  base::Optional<Impression> last_impression_;
+  base::Optional<blink::Impression> last_impression_;
   bool waiting_for_null_impression_ = false;
   base::RunLoop impression_loop_;
 };
@@ -168,7 +168,7 @@ IN_PROC_BROWSER_TEST_F(ImpressionDeclarationBrowserTest,
   EXPECT_TRUE(ExecJs(shell(), "simulateClick(\'link\');"));
 
   // Wait for the impression to be seen by the observer.
-  Impression last_impression = impression_observer.Wait();
+  blink::Impression last_impression = impression_observer.Wait();
 
   // Verify the attributes of the impression are set as expected.
   EXPECT_EQ(1UL, last_impression.impression_data);
@@ -199,21 +199,14 @@ IN_PROC_BROWSER_TEST_F(ImpressionDeclarationBrowserTest,
   EXPECT_TRUE(ExecJs(shell(), "simulateClick(\'link\');"));
 
   // Wait for the impression to be seen by the observer.
-  Impression last_impression = impression_observer.Wait();
+  blink::Impression last_impression = impression_observer.Wait();
   EXPECT_EQ(1UL, impression_observer.last_impression().impression_data);
 }
 
-// Flaky on Mac: crbug.com/1099410
-#if defined(OS_MAC)
-#define MAYBE_ImpressionTagNavigatesExistingRemoteFrame_ImpressionReceived \
-  DISABLED_ImpressionTagNavigatesExistingRemoteFrame_ImpressionReceived
-#else
-#define MAYBE_ImpressionTagNavigatesExistingRemoteFrame_ImpressionReceived \
-  ImpressionTagNavigatesExistingRemoteFrame_ImpressionReceived
-#endif
+// Flaky: crbug.com/1077216
 IN_PROC_BROWSER_TEST_F(
     ImpressionDeclarationBrowserTest,
-    MAYBE_ImpressionTagNavigatesExistingRemoteFrame_ImpressionReceived) {
+    DISABLED_ImpressionTagNavigatesExistingRemoteFrame_ImpressionReceived) {
   EXPECT_TRUE(NavigateToURL(
       web_contents(),
       https_server()->GetURL("b.test", "/page_with_impression_creator.html")));
@@ -241,7 +234,7 @@ IN_PROC_BROWSER_TEST_F(
   EXPECT_TRUE(ExecJs(shell(), "simulateClick(\'link\');"));
 
   // Wait for the impression to be seen by the observer.
-  Impression last_impression = impression_observer.Wait();
+  blink::Impression last_impression = impression_observer.Wait();
   EXPECT_EQ(1UL, impression_observer.last_impression().impression_data);
 }
 
@@ -252,17 +245,17 @@ IN_PROC_BROWSER_TEST_F(ImpressionDeclarationBrowserTest,
       web_contents(),
       https_server()->GetURL("b.test", "/page_with_impression_creator.html")));
 
-  // The provided data overflows an unsigned 64 bit int, and should be handled
+  // The provided data underflows an unsigned 64 bit int, and should be handled
   // properly.
   EXPECT_TRUE(ExecJs(web_contents(), R"(
     createImpressionTag("link",
                         "page_with_conversion_redirect.html",
-                        "FFFFFFFFFFFFFFFFFFFFFF" /* impression data */,
+                        "-1" /* impression data */,
                         "https://a.com" /* conversion_destination */);)"));
   EXPECT_TRUE(ExecJs(shell(), "simulateClick(\'link\');"));
 
   // Wait for the impression to be seen by the observer.
-  Impression last_impression = impression_observer.Wait();
+  blink::Impression last_impression = impression_observer.Wait();
   EXPECT_EQ(0UL, impression_observer.last_impression().impression_data);
 }
 
@@ -285,7 +278,7 @@ IN_PROC_BROWSER_TEST_F(
   impression_observer.StartWatchingNewWebContents();
   EXPECT_TRUE(ExecJs(shell(), "simulateMiddleClick(\'link\');"));
 
-  Impression last_impression = impression_observer.Wait();
+  blink::Impression last_impression = impression_observer.Wait();
 
   // Verify the attributes of the impression are set as expected.
   EXPECT_EQ(1UL, last_impression.impression_data);
@@ -319,7 +312,7 @@ IN_PROC_BROWSER_TEST_F(
                             ui::DomCode::ENTER, ui::VKEY_RETURN, false, false,
                             false, false);
 
-  Impression last_impression = impression_observer.Wait();
+  blink::Impression last_impression = impression_observer.Wait();
 
   // Verify the attributes of the impression are set as expected.
   EXPECT_EQ(1UL, last_impression.impression_data);
@@ -470,20 +463,20 @@ IN_PROC_BROWSER_TEST_F(ImpressionDeclarationBrowserTest,
                         "https://dest.com" /* conversion_destination */,
                         100 /* left */, 100 /* top */);)"));
 
-  content::RenderProcessHost* render_process_host =
-      web_contents()->GetMainFrame()->GetProcess();
-  auto context_menu_filter = base::MakeRefCounted<content::ContextMenuFilter>();
-  render_process_host->AddFilter(context_menu_filter.get());
+  auto context_menu_interceptor =
+      std::make_unique<content::ContextMenuInterceptor>(
+          ContextMenuInterceptor::ShowBehavior::kPreventShow);
+  context_menu_interceptor->Init(web_contents()->GetMainFrame());
 
   content::SimulateMouseClickAt(web_contents(), 0,
                                 blink::WebMouseEvent::Button::kRight,
                                 gfx::Point(100, 100));
 
-  context_menu_filter->Wait();
-  content::UntrustworthyContextMenuParams params =
-      context_menu_filter->get_params();
+  context_menu_interceptor->Wait();
+  blink::UntrustworthyContextMenuParams params =
+      context_menu_interceptor->get_params();
   EXPECT_TRUE(params.impression);
-  EXPECT_EQ(16UL, params.impression->impression_data);
+  EXPECT_EQ(10UL, params.impression->impression_data);
   EXPECT_EQ(url::Origin::Create(GURL("https://dest.com")),
             params.impression->conversion_destination);
 }
@@ -565,6 +558,49 @@ IN_PROC_BROWSER_TEST_F(ImpressionDeclarationBrowserTest,
   ImpressionObserver second_impression_observer(web_contents());
   EXPECT_TRUE(ExecJs(shell(), "simulateClick(\'impression_tag\');"));
   EXPECT_EQ(1UL, second_impression_observer.Wait().impression_data);
+}
+
+IN_PROC_BROWSER_TEST_F(ImpressionDeclarationBrowserTest,
+                       WindowOpenImpression_ImpressionReceived) {
+  ImpressionObserver impression_observer(web_contents());
+  GURL page_url =
+      https_server()->GetURL("b.test", "/page_with_impression_creator.html");
+  EXPECT_TRUE(NavigateToURL(web_contents(), page_url));
+
+  // Navigate the page using window.open and set an impression.
+  EXPECT_TRUE(ExecJs(web_contents(), R"(
+    window.open("https://a.com", "_top", "",
+               {impressionData: "1", conversionDestination: "https://a.com",
+                reportingOrigin: "https://report.com", impressionExpiry: 1000});)"));
+
+  // Wait for the impression to be seen by the observer.
+  blink::Impression last_impression = impression_observer.Wait();
+
+  // Verify the attributes of the impression are set as expected.
+  EXPECT_EQ(1UL, last_impression.impression_data);
+  EXPECT_EQ(url::Origin::Create(GURL("https://a.com")),
+            last_impression.conversion_destination);
+  EXPECT_EQ(url::Origin::Create(GURL("https://report.com")),
+            last_impression.reporting_origin);
+  EXPECT_EQ(base::TimeDelta::FromMilliseconds(1000), *last_impression.expiry);
+}
+
+IN_PROC_BROWSER_TEST_F(ImpressionDeclarationBrowserTest,
+                       WindowOpenNoUserGesture_NoImpression) {
+  ImpressionObserver impression_observer(web_contents());
+  GURL page_url =
+      https_server()->GetURL("b.test", "/page_with_impression_creator.html");
+  EXPECT_TRUE(NavigateToURL(web_contents(), page_url));
+
+  // Navigate the page using window.open and set an impression, but do not give
+  // a user gesture.
+  EXPECT_TRUE(ExecJs(web_contents(), R"(
+    window.open("https://a.com", "_top", "",
+               {impressionData: "1", conversionDestination: "https://a.com",
+                reportingOrigin: "https://report.com", impressionExpiry: 1000});)",
+                     EXECUTE_SCRIPT_NO_USER_GESTURE));
+
+  EXPECT_TRUE(impression_observer.WaitForNavigationWithNoImpression());
 }
 
 }  // namespace content

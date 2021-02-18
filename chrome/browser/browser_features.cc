@@ -4,12 +4,19 @@
 
 #include "chrome/browser/browser_features.h"
 
+#include "build/chromeos_buildflags.h"
+
 namespace features {
 
 // Enables using the ClosedTabCache to instantly restore recently closed tabs
 // using the "Reopen Closed Tab" button.
 const base::Feature kClosedTabCache{"ClosedTabCache",
                                     base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Destroy profiles when their last browser window is closed, instead of when
+// the browser exits.
+const base::Feature kDestroyProfileOnBrowserClose{
+    "DestroyProfileOnBrowserClose", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Enables executing the browser commands sent by the NTP promos.
 const base::Feature kPromoBrowserCommands{"PromoBrowserCommands",
@@ -22,7 +29,7 @@ const base::Feature kPromoBrowserCommands{"PromoBrowserCommands",
 // chrome/browser/promo_browser_command/promo_browser_command.mojom
 const char kPromoBrowserCommandIdParam[] = "PromoBrowserCommandIdParam";
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // Enables being able to zoom a web page by double tapping in Chrome OS tablet
 // mode.
 const base::Feature kDoubleTapToZoomInTabletMode{
@@ -30,17 +37,27 @@ const base::Feature kDoubleTapToZoomInTabletMode{
 #endif
 
 #if !defined(OS_ANDROID)
-// Enables Nearby Sharing functionality. Android already has a native
-// implementation.
-const base::Feature kNearbySharing{"NearbySharing",
-                                   base::FEATURE_DISABLED_BY_DEFAULT};
+// Adds an item to the context menu that copies a link to the page with the
+// selected text highlighted.
+const base::Feature kCopyLinkToText{"CopyLinkToText",
+                                    base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Enables notification muting during screen share sessions.
+const base::Feature kMuteNotificationsDuringScreenShare{
+    "MuteNotificationsDuringScreenShare", base::FEATURE_ENABLED_BY_DEFAULT};
+
+// When enabled, keepalive requests can block browser shutdown for a short
+// period of time.
+const base::Feature kShutdownSupportForKeepalive{
+    "ShutdownSupportForKeepalive", base::FEATURE_DISABLED_BY_DEFAULT};
+
 #endif
 
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+#if !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
 // Enables taking snapshots of the user data directory after a major
 // milestone update and restoring them after a version rollback.
 const base::Feature kUserDataSnapshot{"UserDataSnapshot",
                                       base::FEATURE_ENABLED_BY_DEFAULT};
-#endif  // !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+#endif  // !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
 
 }  // namespace features

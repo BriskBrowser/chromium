@@ -9,11 +9,11 @@
 #include <memory>
 #include <utility>
 
+#include "base/containers/contains.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/task_environment.h"
@@ -476,9 +476,16 @@ TEST_F(SpellCheckTest, SpellCheckSuggestions_EN_US) {
   }
 }
 
+// TODO(crbug.com/1175933): Fix the uninitialized memory and re-enable the test.
+#if defined(MEMORY_SANITIZER)
+#define MAYBE_SpellCheckText DISABLED_SpellCheckText
+#else
+#define MAYBE_SpellCheckText SpellCheckText
+#endif
+
 // This test verifies our spellchecker can split a text into words and check
 // the spelling of each word in the text.
-TEST_F(SpellCheckTest, SpellCheckText) {
+TEST_F(SpellCheckTest, MAYBE_SpellCheckText) {
   static const struct {
     const char* language;
     const wchar_t* input;

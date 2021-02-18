@@ -29,7 +29,6 @@ extern const char kEnableLocalFileAccesses[];
 extern const char kOverrideMetricsUploadUrl[];
 
 // Network switches
-extern const char kNoWifi[];
 extern const char kRequireWlan[];
 
 // Switches to communicate app state information
@@ -84,6 +83,7 @@ extern const char kSystemGestureStartHeight[];
 extern const char kBottomSystemGestureStartHeight[];
 extern const char kBackGestureHorizontalThreshold[];
 extern const char kEnableTopDragGesture[];
+extern const char kEnableRoundedWindowCorners[];
 
 // Background color used when Chromium hasn't rendered anything yet.
 extern const char kCastAppBackgroundColor[];

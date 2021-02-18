@@ -11,6 +11,8 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.UiThreadTest;
+import org.chromium.base.test.util.Batch;
+import org.chromium.chrome.browser.app.tabmodel.AsyncTabParamsManagerSingleton;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.content_public.browser.LoadUrlParams;
 
@@ -18,12 +20,13 @@ import org.chromium.content_public.browser.LoadUrlParams;
  * Tests that the AsyncTabCreationParamsManager works as expected.
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
+@Batch(Batch.UNIT_TESTS)
 public class AsyncTabCreationParamsManagerTest {
     @Test
     @SmallTest
     @UiThreadTest
     public void testBasicAddingAndRemoval() {
-        AsyncTabParamsManager subject = AsyncTabParamsManager.getInstance();
+        AsyncTabParamsManager subject = AsyncTabParamsManagerSingleton.getInstance();
 
         AsyncTabCreationParams asyncParams =
                 new AsyncTabCreationParams(new LoadUrlParams("http://google.com"));

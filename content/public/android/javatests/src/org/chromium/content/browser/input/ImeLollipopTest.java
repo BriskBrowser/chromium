@@ -10,16 +10,19 @@ import android.view.inputmethod.InputConnection;
 import androidx.test.filters.MediumTest;
 
 import org.hamcrest.Matchers;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.test.util.Batch;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.FlakyTest;
 import org.chromium.content_public.browser.test.ContentJUnit4ClassRunner;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 import java.util.concurrent.Callable;
@@ -28,6 +31,7 @@ import java.util.concurrent.Callable;
  * Integration tests for text input for Android L (or above) features.
  */
 @RunWith(ContentJUnit4ClassRunner.class)
+@Batch(ImeTest.IME_BATCH)
 public class ImeLollipopTest {
     @Rule
     public ImeActivityTestRule mRule = new ImeActivityTestRule();
@@ -37,9 +41,15 @@ public class ImeLollipopTest {
         mRule.setUpForUrl(ImeActivityTestRule.INPUT_FORM_HTML);
     }
 
+    @After
+    public void tearDown() throws Exception {
+        mRule.getActivity().finish();
+    }
+
     @Test
     @MediumTest
     @Feature({"TextInput"})
+    @FlakyTest(message = "crbug.com/1153705")
     public void testUpdateCursorAnchorInfo() throws Throwable {
         requestCursorUpdates(InputConnection.CURSOR_UPDATE_MONITOR);
 

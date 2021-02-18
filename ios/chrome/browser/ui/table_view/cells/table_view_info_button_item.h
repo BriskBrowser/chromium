@@ -12,8 +12,8 @@
 // TableViewInfoButtonItem is a model class that uses TableViewInfoButtonCell.
 @interface TableViewInfoButtonItem : TableViewItem
 
-// The filename for the leading icon. If empty, no icon will be shown.
-@property(nonatomic, copy) NSString* iconImageName;
+// The UIImage for the leading image. If nil, no image will be shown.
+@property(nonatomic, strong) UIImage* image;
 
 // Tint color for the icon.
 @property(nonatomic, strong) UIColor* tintColor;
@@ -21,11 +21,17 @@
 // The main text string.
 @property(nonatomic, copy) NSString* text;
 
+// The color of the main text.
+@property(nonatomic, strong) UIColor* textColor;
+
 // The detail text string.
 @property(nonatomic, copy) NSString* detailText;
 
 // The status text string.
 @property(nonatomic, copy) NSString* statusText;
+
+// The accessibility hint text string.
+@property(nonatomic, copy) NSString* accessibilityHint;
 
 @end
 

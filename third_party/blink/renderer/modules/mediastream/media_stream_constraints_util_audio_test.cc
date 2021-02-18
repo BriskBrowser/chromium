@@ -10,9 +10,8 @@
 #include <string>
 #include <utility>
 
-#include "base/bind_helpers.h"
-#include "base/stl_util.h"
-#include "base/test/scoped_feature_list.h"
+#include "base/callback_helpers.h"
+#include "base/containers/contains.h"
 #include "build/build_config.h"
 #include "media/base/audio_parameters.h"
 #include "media/webrtc/webrtc_switches.h"
@@ -1926,10 +1925,12 @@ TEST_P(MediaStreamConstraintsUtilAudioTest, LatencyConstraint) {
                          default_device_max);
   CheckLocalMediaStreamAudioSourceLatency(
       default_device_, 0.003,
-      default_device_min * media::AudioParameters::kAudioCDSampleRate);
+      default_device_min *
+          static_cast<double>(media::AudioParameters::kAudioCDSampleRate));
   CheckLocalMediaStreamAudioSourceLatency(
       default_device_, 0.015,
-      default_device_min * media::AudioParameters::kAudioCDSampleRate);
+      default_device_min *
+          static_cast<double>(media::AudioParameters::kAudioCDSampleRate));
   CheckLocalMediaStreamAudioSourceLatency(default_device_, 0.022, 1000);
   CheckLocalMediaStreamAudioSourceLatency(default_device_, 0.04, 1000);
 

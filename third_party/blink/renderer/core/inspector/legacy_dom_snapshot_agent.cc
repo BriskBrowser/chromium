@@ -4,7 +4,6 @@
 
 #include "third_party/blink/renderer/core/inspector/legacy_dom_snapshot_agent.h"
 
-#include "third_party/blink/renderer/bindings/core/v8/script_event_listener.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/core/css/css_computed_style_declaration.h"
 #include "third_party/blink/renderer/core/dom/attribute.h"
@@ -126,7 +125,7 @@ Response LegacyDOMSnapshotAgent::GetSnapshot(
   // Look up the CSSPropertyIDs for each entry in |style_filter|.
   for (const String& entry : *style_filter) {
     CSSPropertyID property_id =
-        cssPropertyID(document->GetExecutionContext(), entry);
+        CssPropertyID(document->GetExecutionContext(), entry);
     if (property_id == CSSPropertyID::kInvalid)
       continue;
     css_property_filter_->emplace_back(entry, property_id);
@@ -145,7 +144,7 @@ Response LegacyDOMSnapshotAgent::GetSnapshot(
   *computed_styles = std::move(computed_styles_);
   computed_styles_map_.reset();
   css_property_filter_.reset();
-  paint_order_map_.reset();
+  paint_order_map_ = nullptr;
   return Response::Success();
 }
 
@@ -400,7 +399,7 @@ int LegacyDOMSnapshotAgent::VisitLayoutTreeNode(LayoutObject* layout_object,
   }
 
   if (layout_object->IsText()) {
-    LayoutText* layout_text = ToLayoutText(layout_object);
+    auto* layout_text = To<LayoutText>(layout_object);
     layout_tree_node->setLayoutText(layout_text->GetText());
     Vector<LayoutText::TextBoxInfo> text_boxes = layout_text->GetTextBoxInfo();
     if (!text_boxes.IsEmpty()) {

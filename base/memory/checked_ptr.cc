@@ -4,40 +4,40 @@
 
 #include "base/memory/checked_ptr.h"
 
-#include "base/allocator/partition_allocator/checked_ptr_support.h"
-#include "base/allocator/partition_allocator/partition_address_space.h"
-#include "base/allocator/partition_allocator/partition_alloc.h"
 #include "base/partition_alloc_buildflags.h"
-#include "build/build_config.h"
-#include "build/buildflag.h"
+
+// USE_BACKUP_REF_PTR implies USE_PARTITION_ALLOC, needed for code under
+// allocator/partition_allocator/ to be built.
+#if BUILDFLAG(USE_BACKUP_REF_PTR)
+
+#include "base/allocator/partition_allocator/partition_alloc.h"
+#include "base/allocator/partition_allocator/partition_alloc_features.h"
 
 namespace base {
+
 namespace internal {
 
-#if defined(ARCH_CPU_64_BITS) && !defined(OS_NACL) && \
-    BUILDFLAG(USE_PARTITION_ALLOC) && ENABLE_CHECKED_PTR2_OR_MTE_IMPL
-
-BASE_EXPORT bool CheckedPtr2OrMTEImplPartitionAllocSupport::EnabledForPtr(
-    void* ptr) {
-  // CheckedPtr2 and MTECheckedPtr algorithms work only when memory is allocated
-  // by PartitionAlloc, from normal buckets pool. CheckedPtr2 additionally
-  // requires that the pointer points to the beginning of the allocated slot.
-  //
-  // TODO(bartekn): Allow direct-map buckets for MTECheckedPtr, once
-  // PartitionAlloc supports it. (Currently not implemented for simplicity, but
-  // there are no technological obstacles preventing it; whereas in case of
-  // CheckedPtr2, PartitionAllocGetSlotOffset won't work with direct-map.)
-  return IsManagedByPartitionAllocNormalBuckets(ptr)
-  // Checking offset is not needed for ENABLE_TAG_FOR_SINGLE_TAG_CHECKED_PTR,
-  // but call it anyway for apples-to-apples comparison with
-  // ENABLE_TAG_FOR_CHECKED_PTR2.
-#if ENABLE_TAG_FOR_CHECKED_PTR2 || ENABLE_TAG_FOR_SINGLE_TAG_CHECKED_PTR
-         && PartitionAllocGetSlotOffset(ptr) == 0
-#endif
-      ;
+void BackupRefPtrImpl::AcquireInternal(void* ptr) {
+  DCHECK(features::IsPartitionAllocGigaCageEnabled());
+  void* slot_start = PartitionAllocGetSlotStart(ptr);
+  PartitionRefCountPointer(slot_start)->Acquire();
 }
 
-#endif
+void BackupRefPtrImpl::ReleaseInternal(void* ptr) {
+  DCHECK(features::IsPartitionAllocGigaCageEnabled());
+  void* slot_start = PartitionAllocGetSlotStart(ptr);
+  if (PartitionRefCountPointer(slot_start)->Release())
+    PartitionAllocFreeForRefCounting(slot_start);
+}
+
+bool BackupRefPtrImpl::IsPointeeAlive(void* ptr) {
+  DCHECK(features::IsPartitionAllocGigaCageEnabled());
+  void* slot_start = PartitionAllocGetSlotStart(ptr);
+  return PartitionRefCountPointer(slot_start)->IsAlive();
+}
 
 }  // namespace internal
+
 }  // namespace base
+
+#endif  // BUILDFLAG(USE_BACKUP_REF_PTR)

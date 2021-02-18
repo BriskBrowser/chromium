@@ -5,10 +5,11 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_PASSWORDS_PASSWORD_SAVE_UPDATE_WITH_ACCOUNT_STORE_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_PASSWORDS_PASSWORD_SAVE_UPDATE_WITH_ACCOUNT_STORE_VIEW_H_
 
+#include "base/optional.h"
+#include "base/scoped_observation.h"
+#include "base/token.h"
 #include "chrome/browser/ui/passwords/bubble_controllers/save_update_with_account_store_bubble_controller.h"
 #include "chrome/browser/ui/views/passwords/password_bubble_view_base.h"
-#include "ui/views/controls/button/button.h"
-#include "ui/views/controls/combobox/combobox_listener.h"
 #include "ui/views/layout/animating_layout_manager.h"
 #include "ui/views/view.h"
 
@@ -19,11 +20,7 @@ class EditableCombobox;
 class ToggleImageButton;
 }  // namespace views
 
-namespace feature_engagement {
-class Tracker;
-}
-
-class FeaturePromoBubbleView;
+class FeaturePromoControllerViews;
 
 // A view offering the user the ability to save or update credentials (depending
 // on |is_update_bubble|) either in the profile and/or account stores. Contains
@@ -32,14 +29,14 @@ class FeaturePromoBubbleView;
 // button.
 class PasswordSaveUpdateWithAccountStoreView
     : public PasswordBubbleViewBase,
-      public views::ButtonListener,
-      public views::ComboboxListener,
       public views::WidgetObserver,
       public views::AnimatingLayoutManager::Observer {
  public:
-  PasswordSaveUpdateWithAccountStoreView(content::WebContents* web_contents,
-                                         views::View* anchor_view,
-                                         DisplayReason reason);
+  PasswordSaveUpdateWithAccountStoreView(
+      content::WebContents* web_contents,
+      views::View* anchor_view,
+      DisplayReason reason,
+      FeaturePromoControllerViews* promo_controller);
 
   views::Combobox* DestinationDropdownForTesting() {
     return destination_dropdown_;
@@ -62,23 +59,10 @@ class PasswordSaveUpdateWithAccountStoreView
   PasswordBubbleControllerBase* GetController() override;
   const PasswordBubbleControllerBase* GetController() const override;
 
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
-
-  // views::ComboboxListener:
-  // Used for the destination combobox.
-  void OnPerformAction(views::Combobox* combobox) override;
-
-  // views::WidgetObserver:
-  void OnWidgetDestroying(views::Widget* widget) override;
-
   // PasswordBubbleViewBase:
-  gfx::Size CalculatePreferredSize() const override;
   views::View* GetInitiallyFocusedView() override;
   bool IsDialogButtonEnabled(ui::DialogButton button) const override;
   gfx::ImageSkia GetWindowIcon() override;
-  bool ShouldShowWindowIcon() const override;
-  bool ShouldShowCloseButton() const override;
 
   // View:
   void AddedToWidget() override;
@@ -91,22 +75,23 @@ class PasswordSaveUpdateWithAccountStoreView
   void TogglePasswordVisibility();
   void UpdateUsernameAndPasswordInModel();
   void UpdateBubbleUIElements();
+  void UpdateHeaderImage();
 
-  // Whether we should show the IPH informing the user about the destination
-  // picker and that they can now select where to store the passwords. It
-  // creates (if needed) and queries the |iph_tracker_|
-  bool ShouldShowRegularIPH();
+  void DestinationChanged();
 
   // Whether we should shown an IPH upon account reauth failure that informs the
   // user that the destination has been automatically switched to device.
   bool ShouldShowFailedReauthIPH();
 
-  // Opens an IPH bubble of |type|. Callers should make sure the
-  // pre-conditions are satisfied by calling the corresponding ShouldShow*IPH()
-  // methods before invoking this method.
-  void ShowIPH(IPHType type);
+  // Tries to show an IPH bubble of |type|. For kFailedReauth,
+  // ShouldShowFailedReauthIPH() should be checked first.
+  void MaybeShowIPH(IPHType type);
 
   void CloseIPHBubbleIfOpen();
+
+  // Announces to the screen readers a change in the bubble between Save and
+  // Update states.
+  void AnnounceSaveUpdateChange();
 
   // Used for both the username and password editable comboboxes.
   void OnContentChanged();
@@ -126,31 +111,30 @@ class PasswordSaveUpdateWithAccountStoreView
   views::EditableCombobox* password_dropdown_ = nullptr;
   bool are_passwords_revealed_;
 
-  feature_engagement::Tracker* iph_tracker_ = nullptr;
+  // Used to display IPH. May be null in tests.
+  FeaturePromoControllerViews* const promo_controller_;
 
-  // Promotional UI that appears next to the |destination_dropdown_|. Owned by
-  // its NativeWidget.
-  FeaturePromoBubbleView* account_storage_promo_ = nullptr;
+  // When showing kReauthFailure IPH, |promo_controller_| gives back an
+  // ID. This is used to close the bubble later.
+  base::Optional<base::Token> failed_reauth_promo_id_;
 
-  IPHType currenly_shown_iph_type_ = IPHType::kNone;
-
-  // Observes the |account_storage_promo_|'s Widget.  Used to tell whether the
-  // promo is open and get called back when it closes.
-  ScopedObserver<views::Widget, views::WidgetObserver>
-      observed_account_storage_promo_{this};
+  // Hidden view that will contain status text for immediate output by
+  // screen readers when the bubble changes state between Save and Update.
+  views::View* accessibility_alert_ = nullptr;
 
   // Used to add |username_dropdown_| as an observer to the
   // AnimatingLayoutManager. This is needed such that the |username_dropdown_|
   // keeps the dropdown menu closed while the layout is animating.
-  std::unique_ptr<ScopedObserver<views::AnimatingLayoutManager,
-                                 views::AnimatingLayoutManager::Observer>>
-      observed_animating_layout_for_username_dropdown_;
+  std::unique_ptr<
+      base::ScopedObservation<views::AnimatingLayoutManager,
+                              views::AnimatingLayoutManager::Observer>>
+      animating_layout_for_username_dropdown_observation_;
 
   // Used to observe the bubble animation when transitions between Save/Update
   // states. If appropriate, IPH bubble is is shown st end of the animation.
-  ScopedObserver<views::AnimatingLayoutManager,
-                 views::AnimatingLayoutManager::Observer>
-      observed_animating_layout_for_iph_{this};
+  base::ScopedObservation<views::AnimatingLayoutManager,
+                          views::AnimatingLayoutManager::Observer>
+      animating_layout_for_iph_observation_{this};
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_PASSWORDS_PASSWORD_SAVE_UPDATE_WITH_ACCOUNT_STORE_VIEW_H_

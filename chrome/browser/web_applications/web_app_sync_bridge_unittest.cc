@@ -8,14 +8,15 @@
 #include <vector>
 
 #include "base/barrier_closure.h"
+#include "base/containers/contains.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
+#include "chrome/browser/web_applications/components/os_integration_manager.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
 #include "chrome/browser/web_applications/components/web_app_provider_base.h"
-#include "chrome/browser/web_applications/os_integration_manager.h"
 #include "chrome/browser/web_applications/test/test_web_app_database_factory.h"
 #include "chrome/browser/web_applications/test/test_web_app_registry_controller.h"
 #include "chrome/browser/web_applications/test/web_app_install_observer.h"
@@ -49,8 +50,8 @@ bool IsSyncDataEqualIfApplied(const WebApp& expected_app,
   if (!entity_data.specifics.has_web_app())
     return false;
 
-  const GURL sync_launch_url(entity_data.specifics.web_app().launch_url());
-  if (expected_app.app_id() != GenerateAppIdFromURL(sync_launch_url))
+  const GURL sync_start_url(entity_data.specifics.web_app().start_url());
+  if (expected_app.app_id() != GenerateAppIdFromURL(sync_start_url))
     return false;
 
   // ApplySyncDataToApp enforces kSync source on |app_to_apply_sync_data|.
@@ -88,23 +89,23 @@ bool RegistryContainsSyncDataBatchChanges(
 }
 
 std::unique_ptr<WebApp> CreateWebApp(const std::string& url) {
-  const GURL launch_url(url);
-  const AppId app_id = GenerateAppIdFromURL(launch_url);
+  const GURL start_url(url);
+  const AppId app_id = GenerateAppIdFromURL(start_url);
 
   auto web_app = std::make_unique<WebApp>(app_id);
-  web_app->SetLaunchUrl(launch_url);
+  web_app->SetStartUrl(start_url);
   web_app->SetUserDisplayMode(DisplayMode::kStandalone);
   web_app->SetName("Name");
   return web_app;
 }
 
 std::unique_ptr<WebApp> CreateWebAppWithSyncOnlyFields(const std::string& url) {
-  const GURL launch_url(url);
-  const AppId app_id = GenerateAppIdFromURL(launch_url);
+  const GURL start_url(url);
+  const AppId app_id = GenerateAppIdFromURL(start_url);
 
   auto web_app = std::make_unique<WebApp>(app_id);
   web_app->AddSource(Source::kSync);
-  web_app->SetLaunchUrl(launch_url);
+  web_app->SetStartUrl(start_url);
   web_app->SetName("Name");
   web_app->SetUserDisplayMode(DisplayMode::kStandalone);
   return web_app;
@@ -202,10 +203,6 @@ class WebAppSyncBridgeTest : public WebAppTest {
  public:
   void SetUp() override {
     WebAppTest::SetUp();
-
-    WebAppProviderBase::GetProviderBase(profile())
-        ->os_integration_manager()
-        .SuppressOsHooksForTesting();
 
     test_registry_controller_ =
         std::make_unique<TestWebAppRegistryController>();

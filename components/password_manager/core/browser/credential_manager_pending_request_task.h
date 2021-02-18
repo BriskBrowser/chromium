@@ -19,13 +19,10 @@
 #include "url/gurl.h"
 #include "url/origin.h"
 
-namespace autofill {
-struct PasswordForm;
-}  // namespace autofill
-
 namespace password_manager {
 
 struct CredentialInfo;
+struct PasswordForm;
 class PasswordManagerClient;
 
 using SendCredentialCallback =
@@ -53,7 +50,7 @@ class CredentialManagerPendingRequestTaskDelegate {
   // Sends a credential to JavaScript.
   virtual void SendPasswordForm(SendCredentialCallback send_callback,
                                 CredentialMediationRequirement mediation,
-                                const autofill::PasswordForm* form) = 0;
+                                const PasswordForm* form) = 0;
 };
 
 // Retrieves credentials from the PasswordStore.
@@ -74,21 +71,20 @@ class CredentialManagerPendingRequestTask
 
   // PasswordStoreConsumer:
   void OnGetPasswordStoreResults(
-      std::vector<std::unique_ptr<autofill::PasswordForm>> results) override;
+      std::vector<std::unique_ptr<PasswordForm>> results) override;
   void OnGetPasswordStoreResultsFrom(
       PasswordStore* store,
-      std::vector<std::unique_ptr<autofill::PasswordForm>> results) override;
+      std::vector<std::unique_ptr<PasswordForm>> results) override;
 
  private:
   // HttpPasswordStoreMigrator::Consumer:
   void ProcessMigratedForms(
-      std::vector<std::unique_ptr<autofill::PasswordForm>> forms) override;
+      std::vector<std::unique_ptr<PasswordForm>> forms) override;
 
   void AggregatePasswordStoreResults(
-      std::vector<std::unique_ptr<autofill::PasswordForm>> results);
+      std::vector<std::unique_ptr<PasswordForm>> results);
 
-  void ProcessForms(
-      std::vector<std::unique_ptr<autofill::PasswordForm>> results);
+  void ProcessForms(std::vector<std::unique_ptr<PasswordForm>> results);
 
   CredentialManagerPendingRequestTaskDelegate* delegate_;  // Weak;
   SendCredentialCallback send_callback_;
@@ -100,7 +96,7 @@ class CredentialManagerPendingRequestTask
   // In case of querying both the profile and account stores, it contains the
   // partial results received from one store until the second store responds and
   // then all results are processed.
-  std::vector<std::unique_ptr<autofill::PasswordForm>> partial_results_;
+  std::vector<std::unique_ptr<PasswordForm>> partial_results_;
 
   base::flat_map<PasswordStore*, std::unique_ptr<HttpPasswordStoreMigrator>>
       http_migrators_;

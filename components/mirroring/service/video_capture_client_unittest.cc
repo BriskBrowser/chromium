@@ -61,7 +61,7 @@ class VideoCaptureClientTest : public ::testing::Test,
 
   MOCK_METHOD1(OnFrameReceived, void(const gfx::Size&));
   void OnFrameReady(scoped_refptr<media::VideoFrame> video_frame) {
-    *video_frame->feedback() = kFeedback;
+    client_->ProcessFeedback(kFeedback);
     OnFrameReceived(video_frame->coded_size());
   }
 
@@ -103,7 +103,9 @@ class VideoCaptureClientTest : public ::testing::Test,
     // Expects to return the buffer after the frame is consumed.
     EXPECT_CALL(*host_impl_, ReleaseBuffer(_, 0, kFeedback))
         .WillOnce(InvokeWithoutArgs(&run_loop, &base::RunLoop::Quit));
-    client_->OnBufferReady(buffer_id, GetVideoFrameInfo(frame_size));
+    client_->OnBufferReady(media::mojom::ReadyBuffer::New(
+                               buffer_id, GetVideoFrameInfo(frame_size)),
+                           {});
     run_loop.Run();
     task_environment_.RunUntilIdle();
   }

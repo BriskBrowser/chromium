@@ -14,6 +14,7 @@
 #include "base/observer_list.h"
 #include "base/optional.h"
 #include "build/build_config.h"
+#include "chrome/browser/ui/ash/screenshot_area.h"
 #include "ui/gfx/image/image.h"
 #include "ui/message_center/public/cpp/notification.h"
 #include "ui/snapshot/screenshot_grabber.h"
@@ -39,40 +40,12 @@ enum class ScreenshotFileResult {
   CREATE_FAILED
 };
 
-// Type of the screenshot mode.
-enum class ScreenshotType {
-  kAllRootWindows,
-  kPartialWindow,
-  kWindow,
-};
-
-// Structure representing the area of screenshot.
-// For kWindow screenshots |window| should be set.
-// For kPartialWindow screenshots |rect| and |window| should be set.
-struct ScreenshotArea {
-  static ScreenshotArea CreateForAllRootWindows();
-  static ScreenshotArea CreateForWindow(const aura::Window* window);
-  static ScreenshotArea CreateForPartialWindow(const aura::Window* window,
-                                               const gfx::Rect rect);
-
-  ScreenshotArea(const ScreenshotArea& area);
-
-  const ScreenshotType type;
-  const aura::Window* window = nullptr;
-  const base::Optional<const gfx::Rect> rect;
-
- private:
-  ScreenshotArea(ScreenshotType type,
-                 const aura::Window* window,
-                 base::Optional<const gfx::Rect> rect);
-};
-
 class ChromeScreenshotGrabber : public ash::ScreenshotDelegate {
  public:
   // Callback called with the |result| of trying to create a local writable
   // |path| for the possibly remote path.
-  using FileCallback = base::Callback<void(ScreenshotFileResult result,
-                                           const base::FilePath& path)>;
+  using FileCallback = base::OnceCallback<void(ScreenshotFileResult result,
+                                               const base::FilePath& path)>;
 
   ChromeScreenshotGrabber();
   ~ChromeScreenshotGrabber() override;
@@ -108,7 +81,7 @@ class ChromeScreenshotGrabber : public ash::ScreenshotDelegate {
 
   // Prepares a writable file for |path|.
   void PrepareFileAndRunOnBlockingPool(const base::FilePath& path,
-                                       const FileCallback& callback);
+                                       FileCallback callback);
 
   // Called once all file writing is completed, or on error.
   void OnScreenshotCompleted(ui::ScreenshotResult result,
@@ -149,11 +122,9 @@ class ChromeScreenshotGrabber : public ash::ScreenshotDelegate {
 
   Profile* GetProfile();
 
-  bool IsScreenshotAllowed(const ScreenshotArea& area) const;
-
-  // Checks whether screenshots are restricted due to current DLP policy.
-  // |window| might be nullptr for full- or partial-screenshots.
-  bool IsScreenshotRestricted(aura::Window* window) const;
+  // Returns whether taking a screenshot for |area| is allowed or not.
+  // If not, shows a corresponding notification as well.
+  bool CheckIfScreenshotAllowed(const ScreenshotArea& area);
 
   std::unique_ptr<ui::ScreenshotGrabber> screenshot_grabber_;
 

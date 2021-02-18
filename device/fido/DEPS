@@ -1,10 +1,13 @@
 include_rules = [
   "+components/apdu",
   "+components/cbor",
+  "+components/gcm_driver",
   "+crypto",
   "+dbus",
   "+net/base",
   "+net/cert",
+  "+net/cookies",
+  "+net/http",
   "+net/traffic_annotation",
   "+services/network",
   "+third_party/boringssl/src/include",

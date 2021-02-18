@@ -27,6 +27,7 @@
 #include "ui/message_center/public/cpp/notification.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/focus/focus_manager.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/root_view.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
@@ -233,9 +234,6 @@ class ArcNotificationContentView::SlideHelper {
   DISALLOW_COPY_AND_ASSIGN(SlideHelper);
 };
 
-// static, for ArcNotificationContentView::GetClassName().
-const char ArcNotificationContentView::kViewClassName[] =
-    "ArcNotificationContentView";
 
 ArcNotificationContentView::ArcNotificationContentView(
     ArcNotificationItem* item,
@@ -249,12 +247,12 @@ ArcNotificationContentView::ArcNotificationContentView(
       control_buttons_view_(message_view) {
   DCHECK(message_view);
 
-  // kNotificationWidth must be 360, since this value is separately defiend in
+  // kNotificationWidth must be 360, since this value is separately defined in
   // ArcNotificationWrapperView class in Android side.
   DCHECK_EQ(360, message_center::kNotificationWidth);
 
   SetFocusBehavior(FocusBehavior::ALWAYS);
-  set_notify_enter_exit_on_child(true);
+  SetNotifyEnterExitOnChild(true);
 
   item_->IncrementWindowRefCount();
   item_->AddObserver(this);
@@ -292,10 +290,6 @@ ArcNotificationContentView::~ArcNotificationContentView() {
     item_->DecrementWindowRefCount();
   }
   CHECK(!views::WidgetObserver::IsInObserverList());
-}
-
-const char* ArcNotificationContentView::GetClassName() const {
-  return kViewClassName;
 }
 
 void ArcNotificationContentView::Update(
@@ -348,7 +342,7 @@ void ArcNotificationContentView::UpdateControlButtonsVisibility() {
     return;
 
   // Add the guard to prevent an infinite loop. Changing visibility may generate
-  // an event and it may call thie method again.
+  // an event and it may call this method again.
   base::AutoReset<bool> reset(&updating_control_buttons_visibility_, true);
 
   if (target_visibility)
@@ -559,7 +553,8 @@ void ArcNotificationContentView::UpdateMask(bool force_update) {
 
   auto mask_painter =
       std::make_unique<message_center::NotificationBackgroundPainter>(
-          top_radius_, bottom_radius_);
+          top_radius_, bottom_radius_,
+          message_center::kNotificationBackgroundColor);
   // Set insets to round visible notification corners. https://crbug.com/866777
   mask_painter->set_insets(new_insets);
 
@@ -686,10 +681,11 @@ void ArcNotificationContentView::OnPaint(gfx::Canvas* canvas) {
         item_->GetSnapshot().height(), contents_bounds.x(), contents_bounds.y(),
         contents_bounds.width(), contents_bounds.height(), true /* filter */);
   } else {
-    // Draw a blank background otherwise. The height of the view and surface are
-    // not exactly synced and user may see the blank area out of the surface.
-    // This code prevetns an ugly blank area and show white color instead.
-    // This should be removed after b/35786193 is done.
+    // Draw a white background otherwise. The height of the view/ surface and
+    // animation buffer size are not exactly synced and user may see the blank
+    // area out of the surface.
+    // TODO: This can be removed once both ARC and Chrome notifications have
+    // smooth expansion animations.
     canvas->DrawColor(SK_ColorWHITE);
   }
 }
@@ -868,5 +864,8 @@ void ArcNotificationContentView::OnNotificationSurfaceRemoved(
 
   SetSurface(nullptr);
 }
+
+BEGIN_METADATA(ArcNotificationContentView, views::NativeViewHost)
+END_METADATA
 
 }  // namespace ash

@@ -9,8 +9,10 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/api/language_settings_private/language_settings_private_api.h"
 #include "chrome/browser/extensions/api/language_settings_private/language_settings_private_delegate.h"
 #include "chrome/browser/extensions/api/language_settings_private/language_settings_private_delegate_factory.h"
@@ -24,14 +26,18 @@
 #include "components/crx_file/id_util.h"
 #include "components/language/core/browser/pref_names.h"
 #include "components/spellcheck/common/spellcheck_features.h"
+#include "components/translate/core/browser/translate_download_manager.h"
 #include "extensions/browser/event_router_factory.h"
 #include "extensions/browser/extension_prefs.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ui/base/ime/chromeos/component_extension_ime_manager.h"
 #include "ui/base/ime/chromeos/extension_ime_util.h"
 #include "ui/base/ime/chromeos/fake_input_method_delegate.h"
 #include "ui/base/ime/chromeos/input_method_util.h"
+#include "ui/base/ime/chromeos/mock_component_extension_ime_manager_delegate.h"
 #include "ui/base/ime/chromeos/mock_input_method_manager.h"
+#include "ui/base/l10n/l10n_util.h"
 #endif
 
 namespace extensions {
@@ -184,6 +190,7 @@ TEST_F(LanguageSettingsPrivateApiTest, GetSpellcheckDictionaryStatusesTest) {
 }
 
 TEST_F(LanguageSettingsPrivateApiTest, GetLanguageListTest) {
+  translate::TranslateDownloadManager::GetInstance()->ResetForTesting();
   RunGetLanguageListTest();
 }
 
@@ -298,12 +305,13 @@ void LanguageSettingsPrivateApiTest::RunGetLanguageListTest() {
   EXPECT_EQ(languages_to_test.size(), languages_to_test_found_count);
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 namespace {
 
 namespace input_method = chromeos::input_method;
 using input_method::InputMethodDescriptor;
 using input_method::InputMethodManager;
+using input_method::MockComponentExtensionIMEManagerDelegate;
 
 std::string GetExtensionImeId() {
   std::string kExtensionImeId = chromeos::extension_ime_util::GetInputMethodID(
@@ -330,18 +338,18 @@ class TestInputMethodManager : public input_method::MockInputMethodManager {
    public:
     TestState() {
       // Set up three IMEs
-      std::vector<std::string> layouts({"us"});
-      std::vector<std::string> languages({"en-US"});
+      std::string layout("us");
+      std::vector<std::string> languages({"en-US", "en"});
       std::vector<std::string> arc_languages(
           {chromeos::extension_ime_util::kArcImeLanguage});
       InputMethodDescriptor extension_ime(
-          GetExtensionImeId(), "", "", layouts, languages,
+          GetExtensionImeId(), "ExtensionIme", "", layout, languages,
           false /* is_login_keyboard */, GURL(), GURL());
       InputMethodDescriptor component_extension_ime(
-          GetComponentExtensionImeId(), "", "", layouts, languages,
-          false /* is_login_keyboard */, GURL(), GURL());
+          GetComponentExtensionImeId(), "ComponentExtensionIme", "", layout,
+          languages, false /* is_login_keyboard */, GURL(), GURL());
       InputMethodDescriptor arc_ime(
-          GetArcImeId(), "", "", layouts, arc_languages,
+          GetArcImeId(), "ArcIme", "", layout, arc_languages,
           false /* is_login_keyboard */, GURL(), GURL());
       input_methods_ = {extension_ime, component_extension_ime, arc_ime};
     }
@@ -363,6 +371,9 @@ class TestInputMethodManager : public input_method::MockInputMethodManager {
 
   TestInputMethodManager() : state_(new TestState), util_(&delegate_) {
     util_.AppendInputMethods(state_->input_methods_);
+    component_ext_mgr_ =
+        std::make_unique<chromeos::ComponentExtensionIMEManager>(
+            std::make_unique<MockComponentExtensionIMEManagerDelegate>());
   }
 
   scoped_refptr<InputMethodManager::State> GetActiveIMEState() override {
@@ -373,15 +384,72 @@ class TestInputMethodManager : public input_method::MockInputMethodManager {
     return &util_;
   }
 
+  chromeos::ComponentExtensionIMEManager* GetComponentExtensionIMEManager()
+      override {
+    return component_ext_mgr_.get();
+  }
+
  private:
   scoped_refptr<TestState> state_;
   input_method::FakeInputMethodDelegate delegate_;
   input_method::InputMethodUtil util_;
+  std::unique_ptr<chromeos::ComponentExtensionIMEManager> component_ext_mgr_;
 
   DISALLOW_COPY_AND_ASSIGN(TestInputMethodManager);
 };
 
 }  // namespace
+
+TEST_F(LanguageSettingsPrivateApiTest, GetInputMethodListsTest) {
+  TestInputMethodManager::Initialize(new TestInputMethodManager);
+
+  // Initialize relevant prefs.
+  StringPrefMember enabled_imes;
+  enabled_imes.Init(prefs::kLanguageEnabledImes, profile()->GetPrefs());
+  StringPrefMember preload_engines;
+  preload_engines.Init(prefs::kLanguagePreloadEngines, profile()->GetPrefs());
+
+  enabled_imes.SetValue(
+      base::JoinString({GetExtensionImeId(), GetArcImeId()}, ","));
+  preload_engines.SetValue(GetComponentExtensionImeId());
+
+  auto function = base::MakeRefCounted<
+      LanguageSettingsPrivateGetInputMethodListsFunction>();
+  std::unique_ptr<base::Value> result =
+      api_test_utils::RunFunctionAndReturnSingleResult(function.get(), "[]",
+                                                       profile());
+
+  ASSERT_NE(nullptr, result) << function->GetError();
+  EXPECT_TRUE(result->is_dict());
+
+  base::Value* input_methods = result->FindListKey("thirdPartyExtensionImes");
+  ASSERT_NE(input_methods, nullptr);
+  EXPECT_EQ(3u, input_methods->GetList().size());
+
+  for (auto& input_method : input_methods->GetList()) {
+    base::Value* ime_tags_ptr = input_method.FindListKey("tags");
+    ASSERT_NE(nullptr, ime_tags_ptr);
+
+    // Check tags contain input method's display name
+    base::Value* ime_name_ptr = input_method.FindKey("displayName");
+    EXPECT_TRUE(base::Contains(ime_tags_ptr->GetList(), *ime_name_ptr));
+
+    // Check tags contain input method's language codes' display names
+    base::Value* ime_language_codes_ptr =
+        input_method.FindListKey("languageCodes");
+    ASSERT_NE(nullptr, ime_language_codes_ptr);
+    for (auto& language_code : ime_language_codes_ptr->GetList()) {
+      std::string language_display_name =
+          base::UTF16ToUTF8(l10n_util::GetDisplayNameForLocale(
+              language_code.GetString(), "en", true));
+      if (!language_display_name.empty())
+        EXPECT_TRUE(base::Contains(ime_tags_ptr->GetList(),
+                                   base::Value(language_display_name)));
+    }
+  }
+
+  TestInputMethodManager::Shutdown();
+}
 
 TEST_F(LanguageSettingsPrivateApiTest, AddInputMethodTest) {
   TestInputMethodManager::Initialize(new TestInputMethodManager);
@@ -487,7 +555,7 @@ TEST_F(LanguageSettingsPrivateApiTest, RemoveInputMethodTest) {
   TestInputMethodManager::Shutdown();
 }
 
-#endif  // OS_CHROMEOS
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if defined(OS_WIN)
 class LanguageSettingsPrivateApiTestDelayInit

@@ -7,6 +7,7 @@
 
 #include "base/optional.h"
 #include "media/capture/video_capture_types.h"
+#include "third_party/blink/public/mojom/mediastream/media_devices.mojom-blink.h"
 #include "third_party/blink/renderer/modules/mediastream/media_stream_constraints_util.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
@@ -25,15 +26,16 @@ MODULES_EXPORT WebString
 GetVideoKindForFormat(const media::VideoCaptureFormat& format);
 
 MODULES_EXPORT MediaStreamTrackPlatform::FacingMode ToPlatformFacingMode(
-    media::VideoFacingMode video_facing);
+    mojom::blink::FacingMode video_facing);
 
 // This is a temporary struct to bridge blink and content mojo types.
 struct MODULES_EXPORT VideoInputDeviceCapabilities {
-  VideoInputDeviceCapabilities(String device_id,
-                               String group_id,
-                               Vector<media::VideoCaptureFormat> formats,
-                               media::VideoFacingMode facing_mode,
-                               bool pan_tilt_zoom_supported);
+  VideoInputDeviceCapabilities(
+      String device_id,
+      String group_id,
+      const media::VideoCaptureControlSupport& control_support,
+      Vector<media::VideoCaptureFormat> formats,
+      mojom::blink::FacingMode facing_mode);
   VideoInputDeviceCapabilities();
   VideoInputDeviceCapabilities(VideoInputDeviceCapabilities&& other);
   VideoInputDeviceCapabilities& operator=(VideoInputDeviceCapabilities&& other);
@@ -41,9 +43,9 @@ struct MODULES_EXPORT VideoInputDeviceCapabilities {
 
   String device_id;
   String group_id;
+  media::VideoCaptureControlSupport control_support;
   Vector<media::VideoCaptureFormat> formats;
-  media::VideoFacingMode facing_mode;
-  bool pan_tilt_zoom_supported;
+  mojom::blink::FacingMode facing_mode;
 };
 
 struct MODULES_EXPORT VideoDeviceCaptureCapabilities {

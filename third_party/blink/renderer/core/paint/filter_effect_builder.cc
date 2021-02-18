@@ -27,8 +27,10 @@
 #include "third_party/blink/renderer/core/paint/filter_effect_builder.h"
 
 #include <algorithm>
+#include "third_party/blink/renderer/core/layout/svg/layout_svg_resource_container.h"
 #include "third_party/blink/renderer/core/style/filter_operations.h"
 #include "third_party/blink/renderer/core/svg/graphics/filters/svg_filter_builder.h"
+#include "third_party/blink/renderer/core/svg/svg_animated_length.h"
 #include "third_party/blink/renderer/core/svg/svg_filter_element.h"
 #include "third_party/blink/renderer/core/svg/svg_length_context.h"
 #include "third_party/blink/renderer/core/svg/svg_resource.h"
@@ -120,14 +122,14 @@ Vector<float> SepiaMatrix(double amount) {
 
 }  // namespace
 
-FilterEffectBuilder::FilterEffectBuilder(
-    const FloatRect& reference_box,
-    float zoom,
-    const PaintFlags* fill_flags,
-    const PaintFlags* stroke_flags,
-    SkBlurImageFilter::TileMode blur_tile_mode)
+FilterEffectBuilder::FilterEffectBuilder(const FloatRect& reference_box,
+                                         float zoom,
+                                         const PaintFlags* fill_flags,
+                                         const PaintFlags* stroke_flags,
+                                         SkTileMode blur_tile_mode)
     : reference_box_(reference_box),
       zoom_(zoom),
+      shorthand_scale_(1),
       fill_flags_(fill_flags),
       stroke_flags_(stroke_flags),
       blur_tile_mode_(blur_tile_mode) {}
@@ -260,6 +262,7 @@ FilterEffect* FilterEffectBuilder::BuildFilterEffect(
       case FilterOperation::BLUR: {
         float std_deviation = FloatValueForLength(
             To<BlurFilterOperation>(filter_operation)->StdDeviation(), 0);
+        std_deviation *= shorthand_scale_;
         effect = MakeGarbageCollected<FEGaussianBlur>(
             parent_filter, std_deviation, std_deviation);
         break;
@@ -267,8 +270,10 @@ FilterEffect* FilterEffectBuilder::BuildFilterEffect(
       case FilterOperation::DROP_SHADOW: {
         const ShadowData& shadow =
             To<DropShadowFilterOperation>(*filter_operation).Shadow();
+        FloatPoint offset = shadow.Location().ScaledBy(shorthand_scale_);
+        float radius = shadow.Blur() * shorthand_scale_;
         effect = MakeGarbageCollected<FEDropShadow>(
-            parent_filter, shadow.Blur(), shadow.Blur(), shadow.X(), shadow.Y(),
+            parent_filter, radius, radius, offset.X(), offset.Y(),
             shadow.GetColor().GetColor(), 1);
         break;
       }
@@ -312,7 +317,7 @@ CompositorFilterOperations FilterEffectBuilder::BuildFilterOperations(
             BuildReferenceFilter(reference_operation, nullptr);
         if (reference_filter && reference_filter->LastEffect()) {
           paint_filter_builder::PopulateSourceGraphicImageFilters(
-              reference_filter->GetSourceGraphic(), nullptr,
+              reference_filter->GetSourceGraphic(),
               current_interpolation_space);
 
           FilterEffect* filter_effect = reference_filter->LastEffect();
@@ -376,13 +381,16 @@ CompositorFilterOperations FilterEffectBuilder::BuildFilterOperations(
       case FilterOperation::BLUR: {
         float pixel_radius =
             To<BlurFilterOperation>(*op).StdDeviation().GetFloatValue();
+        pixel_radius *= shorthand_scale_;
         filters.AppendBlurFilter(pixel_radius, blur_tile_mode_);
         break;
       }
       case FilterOperation::DROP_SHADOW: {
         const ShadowData& shadow = To<DropShadowFilterOperation>(*op).Shadow();
-        filters.AppendDropShadowFilter(FlooredIntPoint(shadow.Location()),
-                                       shadow.Blur(),
+        IntPoint floored_offset =
+            FlooredIntPoint(shadow.Location().ScaledBy(shorthand_scale_));
+        float radius = shadow.Blur() * shorthand_scale_;
+        filters.AppendDropShadowFilter(floored_offset, radius,
                                        shadow.GetColor().GetColor());
         break;
       }
@@ -422,6 +430,8 @@ Filter* FilterEffectBuilder::BuildReferenceFilter(
       DynamicTo<SVGFilterElement>(resource ? resource->Target() : nullptr);
   if (!filter_element)
     return nullptr;
+  if (auto* resource_container = resource->ResourceContainerNoCycleCheck())
+    resource_container->ClearInvalidationMask();
   FloatRect filter_region =
       SVGLengthContext::ResolveRectangle<SVGFilterElement>(
           filter_element, filter_element->filterUnits()->CurrentEnumValue(),

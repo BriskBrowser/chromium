@@ -20,11 +20,11 @@ import java.util.Set;
  */
 public class FakeProfileSyncService extends ProfileSyncService {
     private boolean mEngineInitialized;
-    private int mNumberOfSyncedDevices;
     private boolean mPassphraseRequiredForPreferredDataTypes;
     private boolean mTrustedVaultKeyRequired;
     private boolean mTrustedVaultKeyRequiredForPreferredDataTypes;
     private boolean mEncryptEverythingEnabled;
+    private boolean mRequiresClientUpgrade;
     private Set<Integer> mChosenTypes = new HashSet<>();
     private boolean mCanSyncFeatureStart;
     @GoogleServiceAuthError.State
@@ -65,15 +65,6 @@ public class FakeProfileSyncService extends ProfileSyncService {
     @Override
     public boolean isUsingSecondaryPassphrase() {
         return true;
-    }
-
-    @Override
-    public int getNumberOfSyncedDevices() {
-        return mNumberOfSyncedDevices;
-    }
-
-    public void setNumberOfSyncedDevices(int numDevices) {
-        mNumberOfSyncedDevices = numDevices;
     }
 
     @Override
@@ -127,16 +118,24 @@ public class FakeProfileSyncService extends ProfileSyncService {
     }
 
     @Override
-    public void enableEncryptEverything() {
-        mEncryptEverythingEnabled = true;
-    }
-
-    @Override
     public boolean canSyncFeatureStart() {
         return mCanSyncFeatureStart;
     }
 
     public void setCanSyncFeatureStart(boolean canSyncFeatureStart) {
         mCanSyncFeatureStart = canSyncFeatureStart;
+    }
+
+    @Override
+    public boolean requiresClientUpgrade() {
+        return mRequiresClientUpgrade;
+    }
+
+    public void setRequiresClientUpgrade(boolean requiresClientUpgrade) {
+        mRequiresClientUpgrade = requiresClientUpgrade;
+    }
+
+    public void setEncryptEverythingEnabled(boolean encryptEverythingEnabled) {
+        mEncryptEverythingEnabled = encryptEverythingEnabled;
     }
 }

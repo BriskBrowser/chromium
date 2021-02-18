@@ -65,6 +65,9 @@ class FakeFileSystemInstance : public mojom::FileSystemInstance {
   static constexpr base::FilePath::CharType kFakeAndroidPath[] =
       FILE_PATH_LITERAL("/android/path");
 
+  // Expected size in OpenThumbnail calls.
+  static constexpr gfx::Size kDefaultThumbnailSize = gfx::Size(360, 360);
+
   struct File {
     enum class Seekable {
       NO,
@@ -86,12 +89,27 @@ class FakeFileSystemInstance : public mojom::FileSystemInstance {
     // Whether this file is seekable or not.
     Seekable seekable;
 
+    // Override of |content| length in bytes.
+    base::Optional<int64_t> size_override;
+
+    // The thumbnail of a file, which can be read by OpenThumbnail().
+    std::string thumbnail_content;
+
     File(const std::string& url,
          const std::string& content,
          const std::string& mime_type,
          Seekable seekable);
+    File(const std::string& url,
+         const std::string& content,
+         const std::string& mime_type,
+         Seekable seekable,
+         int64_t size_override);
     File(const File& that);
     ~File();
+
+    size_t size() const {
+      return size_override ? *size_override : content.size();
+    }
   };
 
   // Specification of a fake document available to documents provider based
@@ -130,6 +148,9 @@ class FakeFileSystemInstance : public mojom::FileSystemInstance {
     // new files within it.
     bool dir_supports_create;
 
+    // Flag indicating that a document supports openDocumentThumbnail() call.
+    bool supports_thumbnail;
+
     Document(const std::string& authority,
              const std::string& document_id,
              const std::string& parent_document_id,
@@ -146,7 +167,8 @@ class FakeFileSystemInstance : public mojom::FileSystemInstance {
              uint64_t last_modified,
              bool supports_delete,
              bool supports_rename,
-             bool dir_supports_create);
+             bool dir_supports_create,
+             bool supports_thumbnail);
     Document(const Document& that);
     ~Document();
   };
@@ -301,6 +323,9 @@ class FakeFileSystemInstance : public mojom::FileSystemInstance {
                       OpenFileToReadCallback callback) override;
   void OpenFileToWrite(const std::string& url,
                        OpenFileToWriteCallback callback) override;
+  void OpenThumbnail(const std::string& url,
+                     const gfx::Size& size_hint,
+                     OpenThumbnailCallback callback) override;
   void RemoveWatcher(int64_t watcher_id,
                      RemoveWatcherCallback callback) override;
   void RequestMediaScan(const std::vector<std::string>& paths) override;

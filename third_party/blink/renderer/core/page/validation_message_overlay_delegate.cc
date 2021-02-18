@@ -111,7 +111,7 @@ void ValidationMessageOverlayDelegate::PaintFrameOverlay(
     // The overlay frame is has a standalone paint property tree. Paint it in
     // its root space into a paint record, then draw the record into the proper
     // target space in the overlaid frame.
-    PaintRecordBuilder paint_record_builder(nullptr, &context);
+    PaintRecordBuilder paint_record_builder(context);
     FrameView().PaintOutsideOfLifecycle(paint_record_builder.Context(),
                                         kGlobalPaintNormalPhase);
     context.DrawRecord(paint_record_builder.EndRecording());
@@ -153,7 +153,8 @@ void ValidationMessageOverlayDelegate::CreatePage(const FrameOverlay& overlay) {
       main_page_->GetChromeClient(), anchor_->GetDocument().View());
   page_clients.chrome_client = chrome_client_;
   Settings& main_settings = main_page_->GetSettings();
-  page_ = Page::CreateNonOrdinary(page_clients);
+  page_ = Page::CreateNonOrdinary(
+      page_clients, main_page_->GetPageScheduler()->GetAgentGroupScheduler());
   page_->GetSettings().SetMinimumFontSize(main_settings.GetMinimumFontSize());
   page_->GetSettings().SetMinimumLogicalFontSize(
       main_settings.GetMinimumLogicalFontSize());
@@ -161,7 +162,8 @@ void ValidationMessageOverlayDelegate::CreatePage(const FrameOverlay& overlay) {
   auto* frame = MakeGarbageCollected<LocalFrame>(
       MakeGarbageCollected<EmptyLocalFrameClient>(), *page_, nullptr, nullptr,
       nullptr, FrameInsertType::kInsertInConstructor,
-      base::UnguessableToken::Create(), nullptr, nullptr);
+      base::UnguessableToken::Create(), nullptr, nullptr,
+      /* policy_container */ nullptr);
   frame->SetView(MakeGarbageCollected<LocalFrameView>(*frame, view_size));
   frame->Init(nullptr);
   frame->View()->SetCanHaveScrollbars(false);

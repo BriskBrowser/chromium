@@ -23,7 +23,6 @@
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/image/image.h"
 #include "ui/views/controls/combobox/combobox.h"
-#include "ui/views/controls/combobox/combobox_listener.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/grid_layout.h"
@@ -93,8 +92,7 @@ base::string16 ComboboxModelAdapter::GetItemAt(int index) const {
 }
 
 // The |PermissionCombobox| provides a combobox for selecting a permission type.
-class PermissionCombobox : public views::Combobox,
-                           public views::ComboboxListener {
+class PermissionCombobox : public views::Combobox {
  public:
   PermissionCombobox(ComboboxModelAdapter* model,
                      bool enabled,
@@ -109,8 +107,7 @@ class PermissionCombobox : public views::Combobox,
   gfx::Size CalculatePreferredSize() const override;
 
  private:
-  // views::ComboboxListener:
-  void OnPerformAction(Combobox* combobox) override;
+  void PermissionChanged();
 
   ComboboxModelAdapter* model_;
 
@@ -124,10 +121,11 @@ PermissionCombobox::PermissionCombobox(ComboboxModelAdapter* model,
                                        bool enabled,
                                        bool use_default)
     : views::Combobox(model), model_(model) {
-  set_listener(this);
+  SetCallback(base::BindRepeating(&PermissionCombobox::PermissionChanged,
+                                  base::Unretained(this)));
   SetEnabled(enabled);
   UpdateSelectedIndex(use_default);
-  set_size_to_largest_label(false);
+  SetSizeToLargestLabel(false);
 }
 
 PermissionCombobox::~PermissionCombobox() {}
@@ -146,8 +144,8 @@ gfx::Size PermissionCombobox::CalculatePreferredSize() const {
   return preferred_size;
 }
 
-void PermissionCombobox::OnPerformAction(Combobox* combobox) {
-  model_->OnPerformAction(combobox->GetSelectedIndex());
+void PermissionCombobox::PermissionChanged() {
+  model_->OnPerformAction(GetSelectedIndex());
 }
 
 }  // namespace internal
@@ -159,7 +157,7 @@ void PermissionCombobox::OnPerformAction(Combobox* combobox) {
 PermissionSelectorRow::PermissionSelectorRow(
     Profile* profile,
     const GURL& url,
-    const PageInfoUI::PermissionInfo& permission,
+    const PageInfo::PermissionInfo& permission,
     views::GridLayout* layout)
     : profile_(profile) {
   const int list_item_padding = ChromeLayoutProvider::Get()->GetDistanceMetric(
@@ -173,13 +171,13 @@ PermissionSelectorRow::PermissionSelectorRow(
   // Create the label that displays the permission type.
   auto label = std::make_unique<views::Label>(
       PageInfoUI::PermissionTypeToUIString(permission.type),
-      CONTEXT_BODY_TEXT_LARGE);
+      views::style::CONTEXT_DIALOG_BODY_TEXT);
   label_ = layout->AddView(std::move(label));
   // Create the menu model.
   menu_model_ = std::make_unique<PermissionMenuModel>(
       profile, url, permission,
-      base::Bind(&PermissionSelectorRow::PermissionChanged,
-                 base::Unretained(this)));
+      base::BindRepeating(&PermissionSelectorRow::PermissionChanged,
+                          base::Unretained(this)));
 
   // Create the permission combobox.
   InitializeComboboxView(layout, permission);
@@ -267,7 +265,7 @@ void PermissionSelectorRow::AddObserver(
 
 void PermissionSelectorRow::InitializeComboboxView(
     views::GridLayout* layout,
-    const PageInfoUI::PermissionInfo& permission) {
+    const PageInfo::PermissionInfo& permission) {
   bool button_enabled =
       permission.source == content_settings::SETTING_SOURCE_USER;
   combobox_model_adapter_.reset(
@@ -275,14 +273,14 @@ void PermissionSelectorRow::InitializeComboboxView(
   auto combobox = std::make_unique<internal::PermissionCombobox>(
       combobox_model_adapter_.get(), button_enabled, true);
   combobox->SetEnabled(button_enabled);
-  combobox->SetTooltipText(l10n_util::GetStringFUTF16(
+  combobox->SetTooltipTextAndAccessibleName(l10n_util::GetStringFUTF16(
       IDS_PAGE_INFO_SELECTOR_TOOLTIP,
       PageInfoUI::PermissionTypeToUIString(permission.type)));
   combobox_ = layout->AddView(std::move(combobox));
 }
 
 void PermissionSelectorRow::PermissionChanged(
-    const PageInfoUI::PermissionInfo& permission) {
+    const PageInfo::PermissionInfo& permission) {
   // Change the permission icon to reflect the selected setting.
   icon_->OnPermissionChanged(permission);
 

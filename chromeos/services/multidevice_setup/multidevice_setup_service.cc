@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "chromeos/components/multidevice/logging/logging.h"
 #include "chromeos/services/multidevice_setup/account_status_change_delegate_notifier_impl.h"
+#include "chromeos/services/multidevice_setup/android_sms_app_installing_status_observer.h"
 #include "chromeos/services/multidevice_setup/device_reenroller.h"
 #include "chromeos/services/multidevice_setup/grandfathered_easy_unlock_host_disabler.h"
 #include "chromeos/services/multidevice_setup/host_backend_delegate_impl.h"
@@ -18,6 +19,7 @@
 #include "chromeos/services/multidevice_setup/public/cpp/android_sms_app_helper_delegate.h"
 #include "chromeos/services/multidevice_setup/public/cpp/android_sms_pairing_state_tracker.h"
 #include "chromeos/services/multidevice_setup/public/cpp/prefs.h"
+#include "chromeos/services/multidevice_setup/wifi_sync_feature_manager_impl.h"
 
 namespace chromeos {
 
@@ -29,8 +31,10 @@ void MultiDeviceSetupService::RegisterProfilePrefs(
   HostDeviceTimestampManagerImpl::RegisterPrefs(registry);
   AccountStatusChangeDelegateNotifierImpl::RegisterPrefs(registry);
   HostBackendDelegateImpl::RegisterPrefs(registry);
+  WifiSyncFeatureManagerImpl::RegisterPrefs(registry);
   HostVerifierImpl::RegisterPrefs(registry);
   GrandfatheredEasyUnlockHostDisabler::RegisterPrefs(registry);
+  AndroidSmsAppInstallingStatusObserver::RegisterPrefs(registry);
   RegisterFeaturePrefs(registry);
 }
 
@@ -41,7 +45,8 @@ MultiDeviceSetupService::MultiDeviceSetupService(
     OobeCompletionTracker* oobe_completion_tracker,
     AndroidSmsAppHelperDelegate* android_sms_app_helper_delegate,
     AndroidSmsPairingStateTracker* android_sms_pairing_state_tracker,
-    const device_sync::GcmDeviceInfoProvider* gcm_device_info_provider)
+    const device_sync::GcmDeviceInfoProvider* gcm_device_info_provider,
+    bool is_secondary_user)
     : multidevice_setup_(MultiDeviceSetupInitializer::Factory::Create(
           pref_service,
           device_sync_client,
@@ -49,7 +54,8 @@ MultiDeviceSetupService::MultiDeviceSetupService(
           oobe_completion_tracker,
           android_sms_app_helper_delegate,
           android_sms_pairing_state_tracker,
-          gcm_device_info_provider)),
+          gcm_device_info_provider,
+          is_secondary_user)),
       privileged_host_device_setter_(
           PrivilegedHostDeviceSetterImpl::Factory::Create(
               multidevice_setup_.get())) {}

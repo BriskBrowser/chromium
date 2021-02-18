@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/macros.h"
+#include "base/memory/ref_counted.h"
 #include "base/optional.h"
 #include "components/viz/common/quads/aggregated_render_pass.h"
 #include "components/viz/common/resources/resource_format.h"
@@ -31,6 +32,9 @@ class MailboxManager;
 class SharedContextState;
 class SharedImageRepresentationFactory;
 class TextureBase;
+namespace gles2 {
+class TexturePassthrough;
+}
 }  // namespace gpu
 
 namespace viz {
@@ -45,6 +49,7 @@ class ImageContextImpl final : public ExternalUseClient::ImageContext {
   ImageContextImpl(const gpu::MailboxHolder& mailbox_holder,
                    const gfx::Size& size,
                    ResourceFormat resource_format,
+                   bool maybe_concurrent_reads,
                    const base::Optional<gpu::VulkanYCbCrInfo>& ycbcr_info,
                    sk_sp<SkColorSpace> color_space);
 
@@ -60,6 +65,9 @@ class ImageContextImpl final : public ExternalUseClient::ImageContext {
   ~ImageContextImpl() final;
 
   void OnContextLost() final;
+
+  // Returns true if there might be concurrent reads to the backing texture.
+  bool maybe_concurrent_reads() const { return maybe_concurrent_reads_; }
 
   AggregatedRenderPassId render_pass_id() const { return render_pass_id_; }
   GrMipMapped mipmap() const { return mipmap_; }
@@ -103,10 +111,14 @@ class ImageContextImpl final : public ExternalUseClient::ImageContext {
   const AggregatedRenderPassId render_pass_id_;
   const GrMipMapped mipmap_ = GrMipMapped::kNo;
 
+  const bool maybe_concurrent_reads_ = false;
+
   // Fallback in case we cannot produce a |representation_|.
   gpu::SharedContextState* fallback_context_state_ = nullptr;
   GrBackendTexture fallback_texture_;
 
+  // Only one of the follow should be non-null at the same time.
+  scoped_refptr<gpu::gles2::TexturePassthrough> texture_passthrough_;
   std::unique_ptr<gpu::SharedImageRepresentationSkia> representation_;
 
   // For scoped read accessing |representation|. It is only accessed on GPU

@@ -7,9 +7,11 @@
 #include <utility>
 
 #include "base/metrics/field_trial_params.h"
+#include "base/metrics/histogram_functions.h"
 #include "content/public/renderer/render_frame.h"
 #include "media/base/audio_bus.h"
 #include "media/base/audio_parameters.h"
+#include "media/base/audio_timestamp_helper.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/channel_mixer.h"
 #include "media/base/media_switches.h"
@@ -31,51 +33,26 @@ std::vector<std::string> GetBlockedURLs() {
 ChromeSpeechRecognitionClient::ChromeSpeechRecognitionClient(
     content::RenderFrame* render_frame,
     media::SpeechRecognitionClient::OnReadyCallback callback)
-    : on_ready_callback_(std::move(callback)), blocked_urls_(GetBlockedURLs()) {
-  mojo::PendingReceiver<media::mojom::SpeechRecognitionContext>
-      speech_recognition_context_receiver =
-          speech_recognition_context_.BindNewPipeAndPassReceiver();
-  speech_recognition_context_->BindRecognizer(
-      speech_recognition_recognizer_.BindNewPipeAndPassReceiver(),
-      speech_recognition_client_receiver_.BindNewPipeAndPassRemote(),
-      base::BindOnce(&ChromeSpeechRecognitionClient::OnRecognizerBound,
-                     base::Unretained(this)));
-
-  render_frame->GetBrowserInterfaceBroker()->GetInterface(
-      std::move(speech_recognition_context_receiver));
-  render_frame->GetBrowserInterfaceBroker()->GetInterface(
-      caption_host_.BindNewPipeAndPassReceiver());
-  is_website_blocked_ = IsUrlBlocked(
-      render_frame->GetWebFrame()->GetSecurityOrigin().ToString().Utf8());
+    : render_frame_(render_frame),
+      on_ready_callback_(std::move(callback)),
+      blocked_urls_(GetBlockedURLs()) {
+  initialize_callback_ = media::BindToCurrentLoop(base::BindRepeating(
+      &ChromeSpeechRecognitionClient::Initialize, weak_factory_.GetWeakPtr()));
 
   send_audio_callback_ = media::BindToCurrentLoop(base::BindRepeating(
       &ChromeSpeechRecognitionClient::SendAudioToSpeechRecognitionService,
       weak_factory_.GetWeakPtr()));
 
-  speech_recognition_context_.set_disconnect_handler(media::BindToCurrentLoop(
-      base::BindOnce(&ChromeSpeechRecognitionClient::OnRecognizerDisconnected,
-                     weak_factory_.GetWeakPtr())));
-  caption_host_.set_disconnect_handler(
-      base::BindOnce(&ChromeSpeechRecognitionClient::OnCaptionHostDisconnected,
-                     base::Unretained(this)));
-}
+  mojo::PendingReceiver<media::mojom::SpeechRecognitionClientBrowserInterface>
+      speech_recognition_client_browser_interface_receiver =
+          speech_recognition_client_browser_interface_
+              .BindNewPipeAndPassReceiver();
+  speech_recognition_client_browser_interface_
+      ->BindSpeechRecognitionAvailabilityObserver(
+          speech_recognition_availability_observer_.BindNewPipeAndPassRemote());
 
-void ChromeSpeechRecognitionClient::OnRecognizerBound(
-    bool is_multichannel_supported) {
-  is_multichannel_supported_ = is_multichannel_supported;
-  is_recognizer_bound_ = true;
-
-  if (on_ready_callback_)
-    std::move(on_ready_callback_).Run();
-}
-
-void ChromeSpeechRecognitionClient::OnRecognizerDisconnected() {
-  is_recognizer_bound_ = false;
-  caption_host_->OnError();
-}
-
-void ChromeSpeechRecognitionClient::OnCaptionHostDisconnected() {
-  is_browser_requesting_transcription_ = false;
+  render_frame_->GetBrowserInterfaceBroker()->GetInterface(
+      std::move(speech_recognition_client_browser_interface_receiver));
 }
 
 ChromeSpeechRecognitionClient::~ChromeSpeechRecognitionClient() = default;
@@ -96,7 +73,6 @@ void ChromeSpeechRecognitionClient::AddAudio(
 }
 
 bool ChromeSpeechRecognitionClient::IsSpeechRecognitionAvailable() {
-  // TODO(evliu): Check if SODA is available.
   return !is_website_blocked_ && is_browser_requesting_transcription_ &&
          is_recognizer_bound_;
 }
@@ -113,6 +89,15 @@ void ChromeSpeechRecognitionClient::SetOnReadyCallback(
     std::move(on_ready_callback_).Run();
 }
 
+void ChromeSpeechRecognitionClient::OnRecognizerBound(
+    bool is_multichannel_supported) {
+  is_multichannel_supported_ = is_multichannel_supported;
+  is_recognizer_bound_ = true;
+
+  if (on_ready_callback_)
+    std::move(on_ready_callback_).Run();
+}
+
 void ChromeSpeechRecognitionClient::OnSpeechRecognitionRecognitionEvent(
     media::mojom::SpeechRecognitionResultPtr result) {
   caption_host_->OnTranscription(
@@ -122,37 +107,59 @@ void ChromeSpeechRecognitionClient::OnSpeechRecognitionRecognitionEvent(
                      base::Unretained(this)));
 }
 
-void ChromeSpeechRecognitionClient::OnTranscriptionCallback(bool success) {
-  is_browser_requesting_transcription_ = success;
+void ChromeSpeechRecognitionClient::SpeechRecognitionAvailabilityChanged(
+    bool is_speech_recognition_available) {
+  if (is_speech_recognition_available) {
+    initialize_callback_.Run();
+  } else {
+    Reset();
+  }
 }
 
-void ChromeSpeechRecognitionClient::CopyBufferToTempAudioBus(
-    const media::AudioBuffer& buffer) {
-  if (!temp_audio_bus_ ||
-      buffer.channel_count() != temp_audio_bus_->channels() ||
-      buffer.frame_count() != temp_audio_bus_->frames()) {
-    temp_audio_bus_ =
-        media::AudioBus::Create(buffer.channel_count(), buffer.frame_count());
+void ChromeSpeechRecognitionClient::Initialize() {
+  if (speech_recognition_context_.is_bound())
+    return;
+
+  mojo::PendingReceiver<media::mojom::SpeechRecognitionContext>
+      speech_recognition_context_receiver =
+          speech_recognition_context_.BindNewPipeAndPassReceiver();
+  speech_recognition_context_->BindRecognizer(
+      speech_recognition_recognizer_.BindNewPipeAndPassReceiver(),
+      speech_recognition_client_receiver_.BindNewPipeAndPassRemote(),
+      media::BindToCurrentLoop(
+          base::BindOnce(&ChromeSpeechRecognitionClient::OnRecognizerBound,
+                         weak_factory_.GetWeakPtr())));
+
+  render_frame_->GetBrowserInterfaceBroker()->GetInterface(
+      std::move(speech_recognition_context_receiver));
+  render_frame_->GetBrowserInterfaceBroker()->GetInterface(
+      caption_host_.BindNewPipeAndPassReceiver());
+
+  if (base::FeatureList::IsEnabled(media::kUseSodaForLiveCaption)) {
+    is_website_blocked_ = false;
+  } else {
+    is_website_blocked_ = IsUrlBlocked(
+        render_frame_->GetWebFrame()->GetSecurityOrigin().ToString().Utf8());
+    base::UmaHistogramBoolean("Accessibility.LiveCaption.WebsiteBlocked",
+                              is_website_blocked_);
   }
 
-  buffer.ReadFrames(buffer.frame_count(),
-                    /* source_frame_offset */ 0, /* dest_frame_offset */ 0,
-                    temp_audio_bus_.get());
+  speech_recognition_context_.set_disconnect_handler(media::BindToCurrentLoop(
+      base::BindOnce(&ChromeSpeechRecognitionClient::OnRecognizerDisconnected,
+                     weak_factory_.GetWeakPtr())));
+
+  // Unretained is safe because |this| owns the mojo::Remote.
+  caption_host_.set_disconnect_handler(
+      base::BindOnce(&ChromeSpeechRecognitionClient::OnCaptionHostDisconnected,
+                     base::Unretained(this)));
 }
 
-void ChromeSpeechRecognitionClient::ResetChannelMixer(
-    int frame_count,
-    media::ChannelLayout channel_layout) {
-  if (!monaural_audio_bus_ || frame_count != monaural_audio_bus_->frames()) {
-    monaural_audio_bus_ =
-        media::AudioBus::Create(1 /* channels */, frame_count);
-  }
-
-  if (channel_layout != channel_layout_) {
-    channel_layout_ = channel_layout;
-    channel_mixer_ = std::make_unique<media::ChannelMixer>(
-        channel_layout, media::CHANNEL_LAYOUT_MONO);
-  }
+void ChromeSpeechRecognitionClient::Reset() {
+  is_recognizer_bound_ = false;
+  speech_recognition_context_.reset();
+  speech_recognition_recognizer_.reset();
+  speech_recognition_client_receiver_.reset();
+  caption_host_.reset();
 }
 
 void ChromeSpeechRecognitionClient::SendAudioToSpeechRecognitionService(
@@ -161,6 +168,10 @@ void ChromeSpeechRecognitionClient::SendAudioToSpeechRecognitionService(
   if (IsSpeechRecognitionAvailable()) {
     speech_recognition_recognizer_->SendAudioToSpeechRecognitionService(
         std::move(audio_data));
+  } else if (is_recognizer_bound_) {
+    speech_recognition_recognizer_->AudioReceivedAfterBubbleClosed(
+        media::AudioTimestampHelper::FramesToTime(audio_data->frame_count,
+                                                  audio_data->sample_rate));
   }
 }
 
@@ -242,6 +253,52 @@ ChromeSpeechRecognitionClient::ConvertToAudioDataS16(
   return signed_buffer;
 }
 
+void ChromeSpeechRecognitionClient::OnTranscriptionCallback(bool success) {
+  if (!success && is_browser_requesting_transcription_) {
+    speech_recognition_recognizer_->OnCaptionBubbleClosed();
+  }
+
+  is_browser_requesting_transcription_ = success;
+}
+
+void ChromeSpeechRecognitionClient::CopyBufferToTempAudioBus(
+    const media::AudioBuffer& buffer) {
+  if (!temp_audio_bus_ ||
+      buffer.channel_count() != temp_audio_bus_->channels() ||
+      buffer.frame_count() != temp_audio_bus_->frames()) {
+    temp_audio_bus_ =
+        media::AudioBus::Create(buffer.channel_count(), buffer.frame_count());
+  }
+
+  buffer.ReadFrames(buffer.frame_count(),
+                    /* source_frame_offset */ 0, /* dest_frame_offset */ 0,
+                    temp_audio_bus_.get());
+}
+
+void ChromeSpeechRecognitionClient::ResetChannelMixer(
+    int frame_count,
+    media::ChannelLayout channel_layout) {
+  if (!monaural_audio_bus_ || frame_count != monaural_audio_bus_->frames()) {
+    monaural_audio_bus_ =
+        media::AudioBus::Create(1 /* channels */, frame_count);
+  }
+
+  if (channel_layout != channel_layout_) {
+    channel_layout_ = channel_layout;
+    channel_mixer_ = std::make_unique<media::ChannelMixer>(
+        channel_layout, media::CHANNEL_LAYOUT_MONO);
+  }
+}
+
 bool ChromeSpeechRecognitionClient::IsUrlBlocked(const std::string& url) const {
   return blocked_urls_.find(url) != blocked_urls_.end();
+}
+
+void ChromeSpeechRecognitionClient::OnRecognizerDisconnected() {
+  is_recognizer_bound_ = false;
+  caption_host_->OnError();
+}
+
+void ChromeSpeechRecognitionClient::OnCaptionHostDisconnected() {
+  is_browser_requesting_transcription_ = false;
 }

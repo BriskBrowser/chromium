@@ -11,6 +11,7 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.text.TextUtils;
@@ -19,7 +20,6 @@ import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ApplicationState;
 import org.chromium.base.ApplicationStatus;
-import org.chromium.base.BuildInfo;
 import org.chromium.base.Callback;
 import org.chromium.base.ContentUriUtils;
 import org.chromium.base.ContextUtils;
@@ -121,13 +121,12 @@ public class ShareImageFileUtils {
      * Temporarily saves the given set of image bytes and provides that URI to a callback for
      * sharing.
      *
-     * @param context The context used to trigger the share action.
      * @param imageData The image data to be shared in |fileExtension| format.
      * @param fileExtension File extension which |imageData| encoded to.
      * @param callback A provided callback function which will act on the generated URI.
      */
-    public static void generateTemporaryUriFromData(final Context context, final byte[] imageData,
-            String fileExtension, Callback<Uri> callback) {
+    public static void generateTemporaryUriFromData(
+            final byte[] imageData, String fileExtension, Callback<Uri> callback) {
         if (imageData.length == 0) {
             Log.w(TAG, "Share failed -- Received image contains no data.");
             return;
@@ -153,13 +152,12 @@ public class ShareImageFileUtils {
     /**
      * Temporarily saves the bitmap and provides that URI to a callback for sharing.
      *
-     * @param context The Context to use for determining download location.
      * @param filename The filename without extension.
      * @param bitmap The Bitmap to download.
      * @param callback A provided callback function which will act on the generated URI.
      */
     public static void generateTemporaryUriFromBitmap(
-            final Context context, String fileName, Bitmap bitmap, Callback<Uri> callback) {
+            String fileName, Bitmap bitmap, Callback<Uri> callback) {
         OnImageSaveListener listener = new OnImageSaveListener() {
             @Override
             public void onImageSaved(Uri uri, String displayName) {
@@ -260,7 +258,7 @@ public class ShareImageFileUtils {
 
                 Uri uri = null;
                 if (!isTemporary) {
-                    if (BuildInfo.isAtLeastQ()) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         uri = addToMediaStore(destFile);
                     } else {
                         long downloadId = addCompletedDownload(destFile);
@@ -388,7 +386,7 @@ public class ShareImageFileUtils {
 
     @TargetApi(29)
     public static Uri addToMediaStore(File file) {
-        assert BuildInfo.isAtLeastQ();
+        assert Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
 
         final ContentValues contentValues = new ContentValues();
         contentValues.put(MediaStore.MediaColumns.DISPLAY_NAME, file.getName());

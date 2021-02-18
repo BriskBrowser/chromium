@@ -7,18 +7,18 @@
 
 #include "base/barrier_closure.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/check.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/time/time.h"
-#include "content/browser/frame_host/frame_tree_node.h"
+#include "content/browser/renderer_host/frame_tree_node.h"
 #include "content/browser/service_worker/embedded_worker_status.h"
 #include "content/browser/service_worker/embedded_worker_test_helper.h"
 #include "content/browser/service_worker/fake_embedded_worker_instance_client.h"
@@ -2011,21 +2011,8 @@ TEST_F(ServiceWorkerUpdateJobTest, ActivateCancelsOnShutdown) {
   runner->RunUntilIdle();
 }
 
-class ServiceWorkerUpdateJobTestWithCrossOriginIsolation
-    : public ServiceWorkerUpdateJobTest {
- public:
-  ServiceWorkerUpdateJobTestWithCrossOriginIsolation() {
-    feature_list_.InitAndEnableFeature(
-        ::network::features::kCrossOriginEmbedderPolicy);
-  }
-
- private:
-  base::test::ScopedFeatureList feature_list_;
-};
-
 // Update job should handle the COEP header appropriately.
-TEST_F(ServiceWorkerUpdateJobTestWithCrossOriginIsolation,
-       Update_CrossOriginEmbedderPolicyValue) {
+TEST_F(ServiceWorkerUpdateJobTest, Update_CrossOriginEmbedderPolicyValue) {
   const GURL kNewVersionOrigin("https://newversion/");
   const char kHeadersWithRequireCorp[] = R"(HTTP/1.1 200 OK
 Content-Type: application/javascript

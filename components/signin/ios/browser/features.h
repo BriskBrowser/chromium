@@ -12,8 +12,25 @@ namespace signin {
 // Features to trigger the startup sign-in promo at boot.
 extern const base::Feature kForceStartupSigninPromo;
 
+// This feature simplify sign-out UI in the account table view.
+extern const base::Feature kSimplifySignOutIOS;
+
 // Returns true if the startup sign-in promo should be displayed at boot.
 bool ForceStartupSigninPromo();
+
+// Feature controlling whether to restore GAIA cookies if they are deleted.
+extern const base::Feature kRestoreGaiaCookiesIfDeleted;
+
+// Feature controlling whether to restore GAIA cookies when the user explicitly
+// requests to sign in to a Google service.
+extern const base::Feature kRestoreGaiaCookiesOnUserAction;
+
+// Name of multi-value switch that controls the delay (in minutes) for polling
+// for the existence of Gaia cookies for google.com.
+extern const char kDelayThresholdMinutesToUpdateGaiaCookie[];
+
+// Feature controlling whether to use full username in sign-in notifications.
+extern const base::Feature kSigninNotificationInfobarUsernameInTitle;
 
 }  // namespace signin
 

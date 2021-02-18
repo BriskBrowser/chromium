@@ -28,6 +28,8 @@ enum class CHROMEOS_EXPORT PrinterClass {
   kSaved
 };
 
+CHROMEOS_EXPORT std::string ToString(PrinterClass pclass);
+
 // This function checks if the given URI is a valid printer URI. |uri| is
 // considered to be a valid printer URI if it has one of the scheme listed in
 // the table below and meets the criteria defined there.
@@ -197,6 +199,12 @@ class CHROMEOS_EXPORT Printer {
   // secure (kIpps or kHttps).
   bool HasSecureProtocol() const;
 
+  // Returns true if the host component of the printer's URI ends with
+  // ".local"
+  //
+  // This method is meaningless to call without a URI set.
+  bool IsZeroconf() const;
+
   // Returns true if the printer uri is set and false when the uri is empty.
   bool HasUri() const { return !uri_.GetScheme().empty(); }
 
@@ -236,13 +244,6 @@ class CHROMEOS_EXPORT Printer {
   // The full path for the printer. Suitable for configuration in CUPS.
   // Contains protocol, hostname, port, and queue.
   Uri uri_;
-
-  // When non-empty, the uri to use with cups instead of uri_.  This field
-  // is ephemeral, and not saved to sync service.  This allows us to do
-  // on the fly rewrites of uris to work around limitations in the OS such
-  // as CUPS not being able to directly resolve mDNS addresses, see crbug/626377
-  // for details.
-  std::string effective_uri_;
 
   // How to find the associated postscript printer description.
   PpdReference ppd_reference_;

@@ -6,20 +6,15 @@
 
 #include <utility>
 
-#include "base/bind_helpers.h"
-#include "base/feature_list.h"
+#include "base/callback_helpers.h"
 #include "base/no_destructor.h"
 #include "base/time/time.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
-#include "components/autofill/core/common/autofill_features.h"
-#include "components/invalidation/impl/profile_invalidation_provider.h"
 #include "components/keyed_service/ios/browser_state_dependency_manager.h"
-#include "components/password_manager/core/common/password_manager_features.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/base/sync_util.h"
 #include "components/sync/driver/profile_sync_service.h"
-#include "components/sync/driver/startup_controller.h"
 #include "components/sync/driver/sync_service.h"
 #include "ios/web/public/thread/web_thread.h"
 #include "ios/web_view/internal/app/application_context.h"
@@ -30,8 +25,8 @@
 #import "ios/web_view/internal/sync/web_view_device_info_sync_service_factory.h"
 #import "ios/web_view/internal/sync/web_view_gcm_profile_service_factory.h"
 #import "ios/web_view/internal/sync/web_view_model_type_store_service_factory.h"
-#import "ios/web_view/internal/sync/web_view_profile_invalidation_provider_factory.h"
 #import "ios/web_view/internal/sync/web_view_sync_client.h"
+#import "ios/web_view/internal/sync/web_view_sync_invalidations_service_factory.h"
 #include "ios/web_view/internal/web_view_browser_state.h"
 #include "ios/web_view/internal/webdata_services/web_view_web_data_service_wrapper_factory.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -71,8 +66,8 @@ WebViewProfileSyncServiceFactory::WebViewProfileSyncServiceFactory()
   DependsOn(WebViewAccountPasswordStoreFactory::GetInstance());
   DependsOn(WebViewPasswordStoreFactory::GetInstance());
   DependsOn(WebViewGCMProfileServiceFactory::GetInstance());
-  DependsOn(WebViewProfileInvalidationProviderFactory::GetInstance());
   DependsOn(WebViewModelTypeStoreServiceFactory::GetInstance());
+  DependsOn(WebViewSyncInvalidationsServiceFactory::GetInstance());
 }
 
 WebViewProfileSyncServiceFactory::~WebViewProfileSyncServiceFactory() {}
@@ -97,15 +92,6 @@ WebViewProfileSyncServiceFactory::BuildServiceInstanceFor(
   init_params.network_connection_tracker =
       ApplicationContext::GetInstance()->GetNetworkConnectionTracker();
   init_params.channel = version_info::Channel::STABLE;
-  init_params.invalidations_identity_provider =
-      WebViewProfileInvalidationProviderFactory::GetForBrowserState(
-          browser_state)
-          ->GetIdentityProvider();
-  init_params.autofill_enable_account_wallet_storage =
-      base::FeatureList::IsEnabled(
-          autofill::features::kAutofillEnableAccountWalletStorage);
-  init_params.enable_passwords_account_storage = base::FeatureList::IsEnabled(
-      password_manager::features::kEnablePasswordsAccountStorage);
 
   auto profile_sync_service =
       std::make_unique<syncer::ProfileSyncService>(std::move(init_params));

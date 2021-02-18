@@ -6,6 +6,9 @@
 
 #include <algorithm>
 
+#include "ash/constants/ash_switches.h"
+#include "base/command_line.h"
+
 namespace policy {
 
 namespace {
@@ -16,6 +19,13 @@ namespace {
 // successful upload or if the upload request is canceled.
 const int kMinRetryBackoffMs = 10 * 1000;            // 10 seconds
 const int kMaxRetryBackoffMs = 24 * 60 * 60 * 1000;  // 24 hours
+
+// If install-log-fast-upload-for-tests flag is enabled, do not increase retry
+// backoff.
+bool FastUploadForTestsEnabled() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      chromeos::switches::kInstallLogFastUploadForTests);
+}
 
 }  // namespace
 
@@ -29,8 +39,14 @@ InstallEventLogUploaderBase::InstallEventLogUploaderBase(
   client_->AddObserver(this);
 }
 
+InstallEventLogUploaderBase::InstallEventLogUploaderBase(Profile* profile)
+    : client_(nullptr),
+      profile_(profile),
+      retry_backoff_ms_(kMinRetryBackoffMs) {}
+
 InstallEventLogUploaderBase::~InstallEventLogUploaderBase() {
-  client_->RemoveObserver(this);
+  if (client_)
+    client_->RemoveObserver(this);
 }
 
 void InstallEventLogUploaderBase::RequestUpload() {
@@ -39,8 +55,12 @@ void InstallEventLogUploaderBase::RequestUpload() {
     return;
 
   upload_requested_ = true;
-  if (client_->is_registered())
+
+  // If the client is set - ensure that it is also registered.
+  // Otherwise start Serialization.
+  if ((client_ && client_->is_registered()) || !client_) {
     StartSerialization();
+  }
 }
 
 void InstallEventLogUploaderBase::CancelUpload() {
@@ -51,6 +71,7 @@ void InstallEventLogUploaderBase::CancelUpload() {
 
 void InstallEventLogUploaderBase::OnRegistrationStateChanged(
     CloudPolicyClient* client) {
+  DCHECK(client_);
   if (!upload_requested_)
     return;
 
@@ -69,7 +90,9 @@ void InstallEventLogUploaderBase::OnUploadDone(bool success) {
     OnUploadSuccess();
     return;
   }
-  PostTaskForStartSerialization(retry_backoff_ms_);
+  PostTaskForStartSerialization();
+  if (FastUploadForTestsEnabled())
+    return;
   retry_backoff_ms_ = std::min(retry_backoff_ms_ << 1, kMaxRetryBackoffMs);
 }
 

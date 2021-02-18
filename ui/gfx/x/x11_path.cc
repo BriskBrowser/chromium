@@ -8,20 +8,14 @@
 
 #include "third_party/skia/include/core/SkPath.h"
 #include "third_party/skia/include/core/SkRegion.h"
-#include "ui/gfx/x/x11.h"
 
-namespace gfx {
+namespace x11 {
 
-std::unique_ptr<std::vector<x11::Rectangle>> CreateRegionFromSkRegion(
+std::unique_ptr<std::vector<Rectangle>> CreateRegionFromSkRegion(
     const SkRegion& region) {
-  auto result = std::make_unique<std::vector<x11::Rectangle>>();
+  auto result = std::make_unique<std::vector<Rectangle>>();
 
   for (SkRegion::Iterator i(region); !i.done(); i.next()) {
-    XRectangle rect;
-    rect.x = i.rect().x();
-    rect.y = i.rect().y();
-    rect.width = i.rect().width();
-    rect.height = i.rect().height();
     result->push_back({
         .x = i.rect().x(),
         .y = i.rect().y(),
@@ -33,7 +27,7 @@ std::unique_ptr<std::vector<x11::Rectangle>> CreateRegionFromSkRegion(
   return result;
 }
 
-std::unique_ptr<std::vector<x11::Rectangle>> CreateRegionFromSkPath(
+std::unique_ptr<std::vector<Rectangle>> CreateRegionFromSkPath(
     const SkPath& path) {
   SkRegion clip{path.getBounds().roundOut()};
   SkRegion region;
@@ -41,4 +35,4 @@ std::unique_ptr<std::vector<x11::Rectangle>> CreateRegionFromSkPath(
   return CreateRegionFromSkRegion(region);
 }
 
-}  // namespace gfx
+}  // namespace x11

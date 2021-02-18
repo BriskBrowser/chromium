@@ -417,14 +417,12 @@ var GetStandardActions = natives.GetStandardActions;
  */
 var GetDefaultActionVerb = natives.GetDefaultActionVerb;
 
-
 /**
  * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @return {automation.HasPopup}
  */
 var GetHasPopup = natives.GetHasPopup;
-
 
 /**
  * @param {string} axTreeID The id of the accessibility tree.
@@ -439,8 +437,6 @@ var GetNextTextMatch = natives.GetNextTextMatch;
  * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @return {?Array<number>} A list of column header ids.
-
- * @return {?number} The id of the column header, if it exists.
  */
 var GetTableCellColumnHeaders = natives.GetTableCellColumnHeaders;
 
@@ -527,6 +523,20 @@ var GetWordEndOffsets = natives.GetWordEndOffsets;
 /**
  * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
+ * @return {!Array<number>}
+ */
+var GetSentenceStartOffsets = natives.GetSentenceStartOffsets;
+
+/**
+ * @param {string} axTreeID The id of the accessibility tree.
+ * @param {number} nodeID The id of a node.
+ * @return {!Array<number>}
+ */
+var GetSentenceEndOffsets = natives.GetSentenceEndOffsets;
+
+/**
+ * @param {string} axTreeID The id of the accessibility tree.
+ * @param {number} nodeID The id of a node.
  */
 var SetAccessibilityFocus = natives.SetAccessibilityFocus;
 
@@ -566,6 +576,13 @@ var CreateAutomationPosition = natives.CreateAutomationPosition;
  * @return {string} The sort direction.
  */
 var GetSortDirection = natives.GetSortDirection;
+
+/**
+ * @param {string} axTreeId The id of the accessibility tree.
+ * @param {number} nodeID The id of a node.
+ * @return {string} .
+ */
+var GetValue = natives.GetValue;
 
 var logging = requireNative('logging');
 var utils = require('utils');
@@ -671,6 +688,10 @@ AutomationNodeImpl.prototype = {
 
   get sortDirection() {
     return GetSortDirection(this.treeID, this.id);
+  },
+
+  get value() {
+    return GetValue(this.treeID, this.id);
   },
 
   get unclippedLocation() {
@@ -817,7 +838,7 @@ AutomationNodeImpl.prototype = {
   },
 
   get tableCellRowHeaders() {
-    var id = GetTableCellRowHeaders(this.treeID, this.id);
+    var ids = GetTableCellRowHeaders(this.treeID, this.id);
     if (ids && this.rootImpl) {
       var result = [];
       for (var i = 0; i < ids.length; i++)
@@ -857,6 +878,14 @@ AutomationNodeImpl.prototype = {
 
   get nonInlineTextWordEnds() {
     return GetWordEndOffsets(this.treeID, this.id);
+  },
+
+  get sentenceStarts() {
+    return GetSentenceStartOffsets(this.treeID, this.id);
+  },
+
+  get sentenceEnds() {
+    return GetSentenceEndOffsets(this.treeID, this.id);
   },
 
   get markers() {
@@ -1049,12 +1078,17 @@ AutomationNodeImpl.prototype = {
     this.removeEventListener(eventType, callback);
     if (!this.listeners[eventType])
       this.listeners[eventType] = [];
+
+    // Calling EventListenerAdded will also validate the args
+    // and throw an exception it's not a valid event type, so no invalid event
+    // type/listener gets enqueued.
+    EventListenerAdded(this.treeID, this.id, eventType);
+
     $Array.push(this.listeners[eventType], {
       __proto__: null,
       callback: callback,
       capture: !!capture,
     });
-    EventListenerAdded(this.treeID, this.id, eventType);
   },
 
   // TODO(dtseng/aboxhall): Check this impl against spec.
@@ -1079,19 +1113,16 @@ AutomationNodeImpl.prototype = {
              attributes: this.attributes };
   },
 
-  dispatchEvent: function(
-      eventType, generatedEventType, eventFrom, mouseX, mouseY, intents) {
+  dispatchEvent: function(eventType, eventFrom, mouseX, mouseY, intents) {
     var path = [];
     var parent = this.parent;
     while (parent) {
       $Array.push(path, parent);
       parent = parent.parent;
     }
-    var event = new AutomationEvent(eventType, this.wrapper, eventFrom);
-    event.generatedType = generatedEventType;
-    event.mouseX = mouseX;
-    event.mouseY = mouseY;
-    event.intents = intents;
+
+    var event = new AutomationEvent(eventType, this.wrapper, eventFrom, mouseX,
+                                    mouseY, intents);
 
     // Dispatch the event through the propagation path in three phases:
     // - capturing: starting from the root and going down to the target's parent
@@ -1295,32 +1326,33 @@ AutomationNodeImpl.prototype = {
 };
 
 var stringAttributes = [
-    'accessKey',
-    'ariaInvalidValue',
-    'autoComplete',
-    'className',
-    'containerLiveRelevant',
-    'containerLiveStatus',
-    'description',
-    'display',
-    'fontFamily',
-    'htmlTag',
-    'imageDataUrl',
-    'innerHtml',
-    'language',
-    'liveRelevant',
-    'liveStatus',
-    'placeholder',
-    'roleDescription',
-    'textInputType',
-    'tooltip',
-    'url',
-    'value'];
+  'accessKey',
+  'ariaInvalidValue',
+  'autoComplete',
+  'checkedStateDescription',
+  'className',
+  'containerLiveRelevant',
+  'containerLiveStatus',
+  'description',
+  'display',
+  'fontFamily',
+  'htmlTag',
+  'imageDataUrl',
+  'innerHtml',
+  'language',
+  'liveRelevant',
+  'liveStatus',
+  'placeholder',
+  'roleDescription',
+  'textInputType',
+  'tooltip',
+  'url'
+];
 
 var boolAttributes = [
   'busy', 'clickable', 'containerLiveAtomic', 'containerLiveBusy',
-  'editableRoot', 'liveAtomic', 'modal', 'scrollable', 'selected',
-  'supportsTextLocation'
+  'editableRoot', 'liveAtomic', 'modal', 'notUserSelectableStyle', 'scrollable',
+  'selected', 'supportsTextLocation'
 ];
 
 var intAttributes = [
@@ -1748,7 +1780,6 @@ AutomationRootNodeImpl.prototype = {
   },
 
   destroy: function() {
-    this.dispatchEvent('destroyed', 'none');
     for (var id in this.axNodeDataCache_)
       this.remove(id);
     this.detach();
@@ -1759,7 +1790,7 @@ AutomationRootNodeImpl.prototype = {
     if (targetNode) {
       var targetNodeImpl = privates(targetNode).impl;
       targetNodeImpl.dispatchEvent(
-          eventParams.eventType, eventParams.generatedEventType,
+          eventParams.eventType,
           eventParams.eventFrom, eventParams.mouseX, eventParams.mouseY,
           eventParams.intents);
 
@@ -1907,6 +1938,8 @@ utils.expose(AutomationNode, AutomationNodeImpl, {
         'sortDirection',
         'standardActions',
         'state',
+        'sentenceStarts',
+        'sentenceEnds',
         'tableCellAriaColumnIndex',
         'tableCellAriaRowIndex',
         'tableCellColumnHeaders',
@@ -1917,6 +1950,7 @@ utils.expose(AutomationNode, AutomationNodeImpl, {
         'tableRowCount',
         'unclippedLocation',
         'underline',
+        'value',
       ]),
 });
 

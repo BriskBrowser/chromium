@@ -8,11 +8,9 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/version_info/version_info.h"
-#include "content/public/browser/storage_partition.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/service_worker_test_helpers.h"
 #include "extensions/browser/service_worker/service_worker_test_utils.h"
-#include "extensions/common/scoped_worker_based_extensions_channel.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "extensions/test/result_catcher.h"
 #include "extensions/test/test_extension_dir.h"
@@ -95,8 +93,6 @@ class ServiceWorkerMessagingTest : public ExtensionApiTest {
   extensions::ScopedTestNativeMessagingHost test_host_;
 
  private:
-  ScopedWorkerBasedExtensionsChannel current_channel_;
-
   DISALLOW_COPY_AND_ASSIGN(ServiceWorkerMessagingTest);
 };
 
@@ -340,11 +336,8 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerMessagingTest,
   // stopping the service worker doesn't cause message port in
   // |message_port_extension| to crash.
   ExtensionTestMessageListener worker_running_listener("worker_running", false);
-  content::ServiceWorkerContext* service_worker_context =
-      content::BrowserContext::GetDefaultStoragePartition(browser()->profile())
-          ->GetServiceWorkerContext();
   service_worker_test_utils::TestRegistrationObserver registration_observer(
-      service_worker_context);
+      browser()->profile());
 
   TestExtensionDir worker_extension_dir;
   const Extension* service_worker_extension =

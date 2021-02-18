@@ -13,12 +13,10 @@ import android.provider.Browser;
 import androidx.browser.customtabs.CustomTabsIntent;
 
 import org.chromium.base.IntentUtils;
-import org.chromium.chrome.browser.IntentHandler;
-import org.chromium.chrome.browser.LaunchIntentDispatcher;
 import org.chromium.chrome.browser.password_check.CompromisedCredential;
+import org.chromium.chrome.browser.password_check.PasswordCheckComponentUi;
 import org.chromium.chrome.browser.password_check.PasswordCheckEditFragmentView;
-import org.chromium.chrome.browser.settings.SettingsLauncher;
-import org.chromium.chrome.browser.settings.SettingsLauncherImpl;
+import org.chromium.components.browser_ui.settings.SettingsLauncher;
 
 import java.util.Objects;
 
@@ -34,11 +32,21 @@ public class PasswordCheckChangePasswordHelper {
     private static final String PASSWORD_CHANGE_USERNAME_PARAMETER = "PASSWORD_CHANGE_USERNAME";
     private static final String INTENT_PARAMETER = "INTENT";
     private static final String INTENT = "PASSWORD_CHANGE";
+    private static final String START_IMMEDIATELY_PARAMETER = "START_IMMEDIATELY";
+    private static final String ORIGINAL_DEEPLINK_PARAMETER = "ORIGINAL_DEEPLINK";
 
     private final Context mContext;
+    private final SettingsLauncher mSettingsLauncher;
+    private final PasswordCheckComponentUi.CustomTabIntentHelper mCustomTabIntentHelper;
+    private final PasswordCheckComponentUi.TrustedIntentHelper mTrustedIntentHelper;
 
-    public PasswordCheckChangePasswordHelper(Context context) {
+    public PasswordCheckChangePasswordHelper(Context context, SettingsLauncher settingsLauncher,
+            PasswordCheckComponentUi.CustomTabIntentHelper customTabIntentHelper,
+            PasswordCheckComponentUi.TrustedIntentHelper trustedIntentHelper) {
         mContext = context;
+        mSettingsLauncher = settingsLauncher;
+        mCustomTabIntentHelper = customTabIntentHelper;
+        mTrustedIntentHelper = trustedIntentHelper;
     }
 
     /**
@@ -46,8 +54,9 @@ public class PasswordCheckChangePasswordHelper {
      * @param credential A {@link CompromisedCredential}.
      */
     public void launchAppOrCctWithChangePasswordUrl(CompromisedCredential credential) {
+        if (!canManuallyChangeCredential(credential)) return;
         // TODO(crbug.com/1092444): Always launch the URL if possible and let Android handle the
-        //  match to open it.
+        // match to open it.
         IntentUtils.safeStartActivity(mContext,
                 credential.getAssociatedApp().isEmpty()
                         ? buildIntent(credential.getPasswordChangeUrl())
@@ -66,11 +75,15 @@ public class PasswordCheckChangePasswordHelper {
     /**
      * Launches a CCT with the site the given credential was used on and invokes the script that
      * fixes the compromised credential automatically.
+     *
+     * The associated URL will always contain a valid URL, never an Android app sign-on realm
+     * as scripts will only exist for websites.
      * @param credential A {@link CompromisedCredential}.
      */
     public void launchCctWithScript(CompromisedCredential credential) {
-        Intent intent = buildIntent(credential.getOrigin().getOrigin().getSpec());
-        populateAutofillAssistantExtras(intent, credential.getUsername());
+        String origin = credential.getAssociatedUrl().getOrigin().getSpec();
+        Intent intent = buildIntent(origin);
+        populateAutofillAssistantExtras(intent, origin, credential.getUsername());
         IntentUtils.safeStartActivity(mContext, intent);
     }
 
@@ -79,11 +92,10 @@ public class PasswordCheckChangePasswordHelper {
      * @param credential A {@link CompromisedCredential} to change.
      */
     public void launchEditPage(CompromisedCredential credential) {
-        SettingsLauncher launcher = new SettingsLauncherImpl();
         Bundle fragmentArgs = new Bundle();
         fragmentArgs.putParcelable(
                 PasswordCheckEditFragmentView.EXTRA_COMPROMISED_CREDENTIAL, credential);
-        launcher.launchSettingsActivity(
+        mSettingsLauncher.launchSettingsActivity(
                 mContext, PasswordCheckEditFragmentView.class, fragmentArgs);
     }
 
@@ -102,11 +114,11 @@ public class PasswordCheckChangePasswordHelper {
         CustomTabsIntent customTabIntent =
                 new CustomTabsIntent.Builder().setShowTitle(true).build();
         customTabIntent.intent.setData(Uri.parse(initialUrl));
-        Intent intent = LaunchIntentDispatcher.createCustomTabActivityIntent(
+        Intent intent = mCustomTabIntentHelper.createCustomTabActivityIntent(
                 mContext, customTabIntent.intent);
         intent.setPackage(mContext.getPackageName());
         intent.putExtra(Browser.EXTRA_APPLICATION_ID, mContext.getPackageName());
-        IntentHandler.addTrustedIntentExtras(intent);
+        mTrustedIntentHelper.addTrustedIntentExtras(intent);
         return intent;
     }
 
@@ -114,12 +126,15 @@ public class PasswordCheckChangePasswordHelper {
      * Populates intent extras for an Autofill Assistant script.
      *
      * @param intent   An {@link Intent} to be populated.
+     * @param origin   An origin for a password change script. One of extras to put.
      * @param username A username for a password change script. One of extras to put.
      */
-    private void populateAutofillAssistantExtras(Intent intent, String username) {
+    private void populateAutofillAssistantExtras(Intent intent, String origin, String username) {
         intent.putExtra(AUTOFILL_ASSISTANT_ENABLED_KEY, true);
+        intent.putExtra(AUTOFILL_ASSISTANT_PACKAGE + ORIGINAL_DEEPLINK_PARAMETER, origin);
         intent.putExtra(AUTOFILL_ASSISTANT_PACKAGE + PASSWORD_CHANGE_USERNAME_PARAMETER, username);
         intent.putExtra(AUTOFILL_ASSISTANT_PACKAGE + INTENT_PARAMETER, INTENT);
+        intent.putExtra(AUTOFILL_ASSISTANT_PACKAGE + START_IMMEDIATELY_PARAMETER, true);
         // TODO(crbug.com/1086114): Also add the following parameters when server side changes is
         // ready: CALLER, SOURCE. That would be useful for metrics.
     }

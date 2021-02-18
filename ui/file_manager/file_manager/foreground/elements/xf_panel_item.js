@@ -2,11 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// #import {assert} from 'chrome://resources/js/assert.m.js';
+// #import {util} from '../../common/js/util.m.js';
+// #import {DisplayPanel} from './xf_display_panel.m.js';
+// #import './xf_button.m.js';
+// #import './xf_circular_progress.m.js';
+
 /**
  * A panel to display the status or progress of a file operation.
  * @extends HTMLElement
  */
-class PanelItem extends HTMLElement {
+/* #export */ class PanelItem extends HTMLElement {
   constructor() {
     super();
     const host = document.createElement('template');
@@ -66,7 +72,8 @@ class PanelItem extends HTMLElement {
                   border-radius: 4px;
                   display: flex;
                   flex-direction: row;
-                  max-width: 400px;
+                  height: 68px;
+                  width: 400px;
               }
 
               .xf-button {
@@ -75,9 +82,9 @@ class PanelItem extends HTMLElement {
               }
 
               .xf-panel-text {
+                  flex: 1;
                   font: 13px Roboto;
                   line-height: 20px;
-                  max-width: 216px;
                   overflow: hidden;
                   text-overflow: ellipsis;
                   white-space: nowrap;
@@ -85,10 +92,6 @@ class PanelItem extends HTMLElement {
 
               .xf-panel-label-text {
                   outline: none;
-              }
-
-              :host([panel-type='3']) .xf-panel-text {
-                  width: 216px;
               }
 
               :host([panel-type='3']) .xf-panel-label-text {
@@ -105,7 +108,6 @@ class PanelItem extends HTMLElement {
 
               .xf-panel-label-text {
                   color: var(--google-grey-900);
-                  max-width: 216px;
                   text-overflow: ellipsis;
                   overflow: hidden;
                   white-space: nowrap;
@@ -124,7 +126,6 @@ class PanelItem extends HTMLElement {
               }
 
               :host(:not([detailed-panel])) .xf-grow-padder {
-                  flex-grow: 16;
                   width: 24px;
               }
 
@@ -153,15 +154,6 @@ class PanelItem extends HTMLElement {
                   padding-bottom: var(--progress-padding-bottom);
               }
 
-              :host(:not([panel-type='0'])) .xf-panel-item {
-                  height: 68px;
-              }
-
-              :host([detailed-panel]) .xf-panel-item {
-                  height: 68px;
-                  width: 400px;
-              }
-
               :host([detailed-panel]:not([detailed-summary])) .xf-panel-text {
                   margin-inline-end: 24px;
                   margin-inline-start: 24px;
@@ -173,7 +165,6 @@ class PanelItem extends HTMLElement {
 
               :host([detailed-panel]:not([detailed-summary])) xf-button {
                   margin-inline-end: 12px;
-                  margin-inline-start: auto;
               }
 
               :host([detailed-panel]:not([detailed-summary])) #indicator {
@@ -200,12 +191,12 @@ class PanelItem extends HTMLElement {
 
               :host([detailed-summary][data-category='collapsed']) #indicator {
                   margin-inline-end: 20px;
-                  width: 28px;
+                  min-width: 28px;
               }
 
               :host([detailed-summary][data-category='expanded']) #indicator {
                   margin-inline-end: 18px;
-                  width: 32px;
+                  min-width: 32px;
               }
 
               :host([detailed-summary]) #primary-action {
@@ -233,8 +224,8 @@ class PanelItem extends HTMLElement {
             <div class='xf-panel-item'>
                 <xf-circular-progress id='indicator'>
                 </xf-circular-progress>
-                <div class='xf-panel-text' role='alert'>
-                    <span class='xf-panel-label-text' tabindex='0'>
+                <div class='xf-panel-text' role='alert' tabindex='0'>
+                    <span class='xf-panel-label-text'>
                     </span>
                     <br class='xf-linebreaker'/>
                 </div>
@@ -268,9 +259,7 @@ class PanelItem extends HTMLElement {
    * @private
    */
   setPanelType(type) {
-    if (util.isTransferDetailsEnabled()) {
-      this.setAttribute('detailed-panel', 'detailed-panel');
-    }
+    this.setAttribute('detailed-panel', 'detailed-panel');
 
     if (this.panelType_ === type) {
       return;
@@ -693,3 +682,5 @@ class PanelItem extends HTMLElement {
 }
 
 window.customElements.define('xf-panel-item', PanelItem);
+
+//# sourceURL=//ui/file_manager/file_manager/foreground/elements/xf_panel_item.js

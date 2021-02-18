@@ -9,7 +9,7 @@
 #include "build/build_config.h"
 #include "components/ukm/test_ukm_recorder.h"
 #include "content/browser/display_cutout/display_cutout_constants.h"
-#include "content/browser/frame_host/frame_tree_node.h"
+#include "content/browser/renderer_host/frame_tree_node.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents_delegate.h"
@@ -204,7 +204,8 @@ class DisplayCutoutBrowserTest : public ContentBrowserTest {
 
   void SimulateFullscreenStateChanged(RenderFrameHost* frame,
                                       bool is_fullscreen) {
-    web_contents_impl()->FullscreenStateChanged(frame, is_fullscreen);
+    web_contents_impl()->FullscreenStateChanged(
+        frame, is_fullscreen, blink::mojom::FullscreenOptions::New());
   }
 
   void SimulateFullscreenExit() {

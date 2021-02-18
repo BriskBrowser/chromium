@@ -33,13 +33,6 @@ crbug.com/701563 [ Linux ] external/wpt/svg/interfaces.html [ Timeout Pass ]
 
 # Times out on MSAN
 crbug.com/462190 [ Linux ] inspector-protocol/heap-profiler/heap-samples-in-snapshot.js [ Timeout ]
-crbug.com/462190 [ Linux ] inspector-protocol/heap-profiler/heap-snapshot-merged-nodes.js [ Timeout ]
-crbug.com/462190 [ Linux ] inspector-protocol/heap-profiler/heap-snapshot-with-active-dom-object.js [ Timeout ]
-crbug.com/462190 [ Linux ] inspector-protocol/heap-profiler/heap-snapshot-with-detached-dom-tree.js [ Timeout ]
-crbug.com/462190 [ Linux ] inspector-protocol/heap-profiler/heap-snapshot-with-detached-iframe.js [ Timeout ]
-crbug.com/462190 [ Linux ] inspector-protocol/heap-profiler/heap-snapshot-with-event-listener.js [ Timeout ]
-crbug.com/462190 [ Linux ] inspector-protocol/heap-profiler/heap-snapshot-with-multiple-retainers.js [ Timeout ]
-crbug.com/462190 [ Linux ] inspector-protocol/heap-profiler/heap-snapshot-with-no-detached-iframe.js [ Timeout ]
 
 crbug.com/751906 [ Linux ] http/tests/devtools/console/console-correct-suggestions.js [ Timeout Pass ]
 crbug.com/811820 [ Linux ] http/tests/devtools/tracing-session-id.js [ Timeout Pass ]
@@ -110,9 +103,6 @@ crbug.com/856601 [ Linux ] http/tests/devtools/elements/elements-save-to-temp-va
 # Sheriff 2018-12-13
 crbug.com/914900 [ Linux ] http/tests/devtools/network/preview-searchable.js [ Pass Timeout ]
 
-# Sheriff 2019-01-28
-crbug.com/925600 [ Linux ] external/wpt/webrtc-quic/RTCQuicStream.https.html [ Pass Timeout ]
-
 # Sheriff 2019-02-13
 crbug.com/931660 [ Linux ] fast/history/replacestate-nocrash.html [ Pass Timeout ]
 
@@ -157,3 +147,23 @@ crbug.com/1066647 [ Linux ] http/tests/devtools/sources/debugger-breakpoints/bre
 
 # Sheriff 2020-06-16
 crbug.com/1095518 [ Linux ] crbug.com/840659 external/wpt/webrtc/simulcast/h264.https.html [ Crash ]
+
+# Sheriff 2020-10-05
+crbug.com/1134580 [ Linux ] virtual/eye-dropper/http/tests/eye-dropper/color-picker-show-eye-dropper.html [ Pass Timeout ]
+
+# Sheriff 2020-11-25
+crbug.com/1152088 [ Linux ] fast/dom/cssTarget-crash.html [ Pass Timeout ]
+
+# Flaky timeouts on MSan.
+crbug.com/1174822 [ Linux ] http/tests/mojo/bindings-lite-sw.https.html [ Pass Timeout ]
+
+# Sheriff 2021-02-11
+crbug.com/1177358 [ Linux ] fast/forms/form-invalid-url.html [ Pass Crash ]
+crbug.com/1177358 [ Linux ] http/tests/devtools/console/console-viewport-indices.js [ Pass Timeout ]
+crbug.com/1177358 [ Linux ] http/tests/devtools/console/console-search-reveals-messages.js [ Pass Timeout ]
+crbug.com/1177358 [ Linux ] http/tests/devtools/console/console-viewport-stick-to-bottom.js [ Pass Timeout ]
+
+# Sheriff 2021-02-18
+crbug.com/1179829 [ Linux ] http/tests/devtools/a11y-axe-core/sources/scope-pane-a11y-test.js [ Pass Timeout ]
+crbug.com/1179829 [ Linux ] http/tests/devtools/console/console-log-linkify-stack-in-errors.js [ Pass Timeout ]
+crbug.com/1179829 [ Linux ] http/tests/devtools/sources/debugger-pause/pause-on-elements-panel.js [ Pass Timeout ]

@@ -7,6 +7,7 @@
 #include <cmath>
 #include <string>
 
+#include "base/allocator/partition_allocator/partition_alloc_features.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/cpu.h"
@@ -14,6 +15,7 @@
 #include "base/macros.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/sparse_histogram.h"
+#include "base/partition_alloc_buildflags.h"
 #include "base/rand_util.h"
 #include "base/system/sys_info.h"
 #include "base/task/task_traits.h"
@@ -21,6 +23,8 @@
 #include "base/threading/scoped_blocking_call.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
+#include "build/config/compiler/compiler_buildflags.h"
 #include "chrome/browser/about_flags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/buildflags.h"
@@ -41,14 +45,16 @@
 
 #if !defined(OS_ANDROID)
 #include "chrome/browser/metrics/first_web_contents_profiler.h"
-#include "chrome/browser/metrics/tab_stats_tracker.h"
+#include "chrome/browser/metrics/tab_stats/tab_stats_tracker.h"
 #endif  // !defined(OS_ANDROID)
 
 #if defined(OS_ANDROID) && defined(__arm__)
 #include <cpu-features.h>
 #endif  // defined(OS_ANDROID) && defined(__arm__)
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 #include <gnu/libc-version.h>
 
 #include "base/linux_util.h"
@@ -59,7 +65,7 @@
 #include "ui/base/ui_base_features.h"
 #include "ui/base/x/x11_util.h"
 #endif
-#endif  // defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#endif  // defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 
 #if defined(USE_OZONE) || defined(USE_X11)
 #include "ui/events/devices/device_data_manager.h"
@@ -72,6 +78,10 @@
 #include "base/win/windows_version.h"
 #include "chrome/browser/shell_integration_win.h"
 #endif  // defined(OS_WIN)
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "chromeos/crosapi/cpp/crosapi_constants.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
 namespace {
 
@@ -131,6 +141,38 @@ enum UMATouchEventFeatureDetectionState {
   UMA_TOUCH_EVENT_FEATURE_DETECTION_STATE_COUNT
 };
 
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+// These values are written to logs.  New enum values can be added, but existing
+// enums must never be renumbered or deleted and reused.
+enum class ChromeOSChannel {
+  kUnknown = 0,
+  kCanary = 1,
+  kDev = 2,
+  kBeta = 3,
+  kStable = 4,
+  kMaxValue = kStable,
+};
+
+// Records the underlying Chrome OS release channel, which may be different than
+// the Lacros browser's release channel.
+void RecordChromeOSChannel() {
+  ChromeOSChannel os_channel = ChromeOSChannel::kUnknown;
+  std::string release_track;
+  if (base::SysInfo::GetLsbReleaseValue(crosapi::kChromeOSReleaseTrack,
+                                        &release_track)) {
+    if (release_track == crosapi::kReleaseChannelStable)
+      os_channel = ChromeOSChannel::kStable;
+    else if (release_track == crosapi::kReleaseChannelBeta)
+      os_channel = ChromeOSChannel::kBeta;
+    else if (release_track == crosapi::kReleaseChannelDev)
+      os_channel = ChromeOSChannel::kDev;
+    else if (release_track == crosapi::kReleaseChannelCanary)
+      os_channel = ChromeOSChannel::kCanary;
+  }
+  base::UmaHistogramEnumeration("ChromeOS.Lacros.OSChannel", os_channel);
+}
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
+
 void RecordMicroArchitectureStats() {
 #if defined(ARCH_CPU_X86_FAMILY)
   base::CPU cpu;
@@ -151,12 +193,6 @@ bool IsApplockerRunning();
 void RecordStartupMetrics() {
 #if defined(OS_WIN)
   const base::win::OSInfo& os_info = *base::win::OSInfo::GetInstance();
-  base::UmaHistogramEnumeration("Windows.GetVersionExVersion",
-                                os_info.version(),
-                                base::win::Version::WIN_LAST);
-  base::UmaHistogramEnumeration("Windows.Kernel32Version",
-                                os_info.Kernel32Version(),
-                                base::win::Version::WIN_LAST);
   int patch = os_info.version_number().patch;
   int build = os_info.version_number().build;
   int patch_level = 0;
@@ -165,6 +201,14 @@ void RecordStartupMetrics() {
     patch_level = MAKELONG(patch, build);
   DCHECK(patch_level) << "Windows version too high!";
   base::UmaHistogramSparse("Windows.PatchLevel", patch_level);
+
+  int kernel32_patch = os_info.Kernel32VersionNumber().patch;
+  int kernel32_build = os_info.Kernel32VersionNumber().build;
+  int kernel32_patch_level = 0;
+  if (kernel32_patch < 65536 && kernel32_build < 65536)
+    kernel32_patch_level = MAKELONG(kernel32_patch, kernel32_build);
+  DCHECK(kernel32_patch_level) << "Windows kernel32.dll version too high!";
+  base::UmaHistogramSparse("Windows.PatchLevelKernel32", kernel32_patch_level);
 
   base::UmaHistogramBoolean("Windows.HasHighResolutionTimeTicks",
                             base::TimeTicks::IsHighResolution());
@@ -183,9 +227,15 @@ void RecordStartupMetrics() {
                                 shell_integration::NUM_DEFAULT_STATES);
 
   authenticator_utility::ReportUVPlatformAuthenticatorAvailability();
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  RecordChromeOSChannel();
+#endif
 }
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 void RecordLinuxDistroSpecific(const std::string& version_string,
                                size_t parts,
                                const char* histogram_name) {
@@ -261,10 +311,12 @@ void RecordLinuxDistro() {
 
   base::UmaHistogramSparse("Linux.Distro2", distro_result);
 }
-#endif  // defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#endif  // defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 
 void RecordLinuxGlibcVersion() {
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   base::Version version(gnu_get_libc_version());
 
   UMALinuxGlibcVersion glibc_version_result = UMA_LINUX_GLIBC_NOT_PARSEABLE;
@@ -470,6 +522,7 @@ void ChromeBrowserMainExtraPartsMetrics::PreBrowserStart() {
 
   // Records whether or not the Segment heap is in use.
 #if defined(OS_WIN)
+
   if (base::win::GetVersion() >= base::win::Version::WIN10_20H1) {
     ChromeMetricsServiceAccessor::RegisterSyntheticFieldTrial("WinSegmentHeap",
 #if BUILDFLAG(ENABLE_SEGMENT_HEAP)
@@ -492,7 +545,70 @@ void ChromeBrowserMainExtraPartsMetrics::PreBrowserStart() {
                                                             "Disabled"
 #endif
   );
+
 #endif  // defined(OS_WIN)
+
+  // Records whether or not PartitionAlloc is used as the default allocator.
+  ChromeMetricsServiceAccessor::RegisterSyntheticFieldTrial(
+      "PartitionAllocEverywhere",
+#if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+      "Enabled"
+#else
+      "Disabled"
+#endif
+  );
+
+  // Records whether or not PartitionAlloc-Everywhere is enabled, and whether
+  // PCScan is enabled on top of it. This is meant for a 3-way experiment with 2
+  // binaries:
+  // - binary A: deployed to 33% users, with PA-E and PCScan off.
+  // - binary B: deployed to 66% users, with PA-E on, half of which having
+  //             PCScan on
+  //
+  // NOTE, deliberately don't use PA_ALLOW_PCSCAN which depends on bitness.
+  // In the 32-bit case, PCScan is always disabled, but we'll deliberately
+  // misrepresent it as enabled here (and later ignored when analyzing results),
+  // in order to keep each population at 33%.
+  ChromeMetricsServiceAccessor::RegisterSyntheticFieldTrial(
+      "PartitionAllocEverywhereAndPCScan",
+#if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+      base::FeatureList::IsEnabled(
+          base::features::kPartitionAllocPCScanBrowserOnly)
+          ? "EnabledWithPCScan"
+          : "EnabledWithoutPCScan"
+#else
+      "Disabled"
+#endif  // BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+  );
+
+#if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+  // Records whether or not BackupRefPtr and/or PCScan is enabled. This is meant
+  // for a 3-way experiment with 2 binaries:
+  // - binary A: deployed to 66% users, with half of them having PCScan on and
+  //             half off (BackupRefPtr fully off)
+  // - binary B: deployed to 33% users, with BackupRefPtr on (PCSCan fully off)
+  //
+  // NOTE, deliberately don't use PA_ALLOW_PCSCAN which depends on bitness.
+  // In the 32-bit case, PCScan is always disabled, but we'll deliberately
+  // misrepresent it as enabled here (and later ignored when analyzing results),
+  // in order to keep each population at 33%.
+  ChromeMetricsServiceAccessor::RegisterSyntheticFieldTrial(
+      "BackupRefPtrAndPCScan",
+#if BUILDFLAG(USE_BACKUP_REF_PTR)
+      "BackupRefPtrEnabled"
+#else
+      base::FeatureList::IsEnabled(
+          base::features::kPartitionAllocPCScanBrowserOnly)
+          ? "PCScanEnabled"
+          : "Disabled"
+#endif
+  );
+#endif  // BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+
+  ChromeMetricsServiceAccessor::RegisterSyntheticFieldTrial(
+      "PartitionAllocGigaCageSynthetic",
+      base::features::IsPartitionAllocGigaCageEnabled() ? "Enabled"
+                                                        : "Disabled");
 }
 
 void ChromeBrowserMainExtraPartsMetrics::PostBrowserStart() {
@@ -509,7 +625,9 @@ void ChromeBrowserMainExtraPartsMetrics::PostBrowserStart() {
   constexpr base::TaskTraits kBestEffortTaskTraits = {
       base::MayBlock(), base::TaskPriority::BEST_EFFORT,
       base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN};
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   base::ThreadPool::PostTask(FROM_HERE, kBestEffortTaskTraits,
                              base::BindOnce(&RecordLinuxDistro));
 #endif
@@ -549,9 +667,14 @@ void ChromeBrowserMainExtraPartsMetrics::PostBrowserStart() {
   auto background_task_runner =
       base::ThreadPool::CreateSequencedTaskRunner(kBestEffortTaskTraits);
 
-  background_task_runner->PostDelayedTask(
-      FROM_HERE, base::BindOnce(&RecordIsPinnedToTaskbarHistogram),
-      base::TimeDelta::FromSeconds(45));
+  // The PinnedToTaskbar histogram is CPU intensive and can trigger a crashing
+  // bug in Windows or in shell extensions so just sample the data to reduce the
+  // cost.
+  if (base::RandGenerator(100) == 0) {
+    background_task_runner->PostDelayedTask(
+        FROM_HERE, base::BindOnce(&RecordIsPinnedToTaskbarHistogram),
+        base::TimeDelta::FromSeconds(45));
+  }
 #endif  // defined(OS_WIN)
 
   display_count_ = display::Screen::GetScreen()->GetNumDisplays();

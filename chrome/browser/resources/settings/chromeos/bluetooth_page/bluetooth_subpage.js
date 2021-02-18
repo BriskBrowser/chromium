@@ -202,12 +202,12 @@ Polymer({
     // button on a paired device), FocusRowBehavior prevents the Focus Row from
     // being focused. We clear lastFocused_ so that we can focus the row (such
     // as a paired/unpaired device).
-    if (settingId ==
+    if (settingId ===
             chromeos.settings.mojom.Setting.kBluetoothConnectToDevice ||
-        settingId ==
+        settingId ===
             chromeos.settings.mojom.Setting.kBluetoothDisconnectFromDevice ||
-        settingId == chromeos.settings.mojom.Setting.kBluetoothPairDevice ||
-        settingId == chromeos.settings.mojom.Setting.kBluetoothUnpairDevice) {
+        settingId === chromeos.settings.mojom.Setting.kBluetoothPairDevice ||
+        settingId === chromeos.settings.mojom.Setting.kBluetoothUnpairDevice) {
       this.lastFocused_ = null;
     }
     // Should continue with deep link attempt.
@@ -235,7 +235,7 @@ Polymer({
     this.startOrStopRefreshingDeviceList_();
 
     // Does not apply to this page.
-    if (route != settings.routes.BLUETOOTH_DEVICES) {
+    if (route !== settings.routes.BLUETOOTH_DEVICES) {
       return;
     }
 
@@ -315,7 +315,7 @@ Polymer({
     if (!this.adapterState || !this.adapterState.powered) {
       return;
     }
-    if (settings.Router.getInstance().getCurrentRoute() ==
+    if (settings.Router.getInstance().getCurrentRoute() ===
         settings.routes.BLUETOOTH_DEVICES) {
       this.startDiscovery_();
     } else {
@@ -332,7 +332,7 @@ Polymer({
     this.bluetooth.startDiscovery(function() {
       const lastError = chrome.runtime.lastError;
       if (lastError) {
-        if (lastError.message == 'Starting discovery failed') {
+        if (lastError.message === 'Starting discovery failed') {
           return;
         }  // May happen if also started elsewhere, ignore.
         console.error('startDiscovery Error: ' + lastError.message);
@@ -349,7 +349,7 @@ Polymer({
     this.bluetooth.stopDiscovery(function() {
       const lastError = chrome.runtime.lastError;
       if (lastError) {
-        if (lastError.message == 'Failed to stop discovery') {
+        if (lastError.message === 'Failed to stop discovery') {
           return;
         }  // May happen if also stopped elsewhere, ignore.
         console.error('stopDiscovery Error: ' + lastError.message);
@@ -367,11 +367,11 @@ Polymer({
   onDeviceEvent_(e) {
     const action = e.detail.action;
     const device = e.detail.device;
-    if (action == 'connect') {
+    if (action === 'connect') {
       this.connectDevice_(device);
-    } else if (action == 'disconnect') {
+    } else if (action === 'disconnect') {
       this.disconnectDevice_(device);
-    } else if (action == 'remove') {
+    } else if (action === 'remove') {
       this.forgetDevice_(device);
     } else {
       console.error('Unexected action: ' + action);
@@ -428,7 +428,7 @@ Polymer({
    * @private
    */
   showNoDevices_(bluetoothToggleState, deviceList) {
-    return bluetoothToggleState && deviceList.length == 0;
+    return bluetoothToggleState && deviceList.length === 0;
   },
 
   /**
@@ -460,7 +460,7 @@ Polymer({
       }
 
       // If |pairingDevice_| has changed, ignore the connect result.
-      if (this.pairingDevice_ && address != this.pairingDevice_.address) {
+      if (this.pairingDevice_ && address !== this.pairingDevice_.address) {
         return;
       }
 
@@ -471,7 +471,7 @@ Polymer({
               result)) {
         this.openDialog_();
       } else if (
-          result != chrome.bluetoothPrivate.ConnectResultType.IN_PROGRESS) {
+          result !== chrome.bluetoothPrivate.ConnectResultType.IN_PROGRESS) {
         this.$.deviceDialog.close();
       }
     });
@@ -531,6 +531,18 @@ Polymer({
   },
 
   /**
+   * Return the sorted devices based on the connected statuses, connected
+   * devices are first followed by non-connected devices.
+   *
+   * @param {!Array<!chrome.bluetooth.Device>} devices
+   * @return {!Array<!chrome.bluetooth.Device>}
+   * @private
+   */
+  sortDevices_(devices) {
+    return devices.sort((a, b) => a.connected ? -1 : (b.connected ? 1 : 0));
+  },
+
+  /**
    * Requests bluetooth device list from Chrome. Update deviceList_ once the
    * results are returned from chrome.
    * @private
@@ -541,7 +553,7 @@ Polymer({
       limit: MAX_NUMBER_DEVICE_SHOWN
     };
     this.bluetooth.getDevices(filter, devices => {
-      this.deviceList_ = devices;
+      this.deviceList_ = this.sortDevices_(devices);
 
       // Check if we have yet to focus a deep-linked element.
       if (!this.pendingSettingId_) {

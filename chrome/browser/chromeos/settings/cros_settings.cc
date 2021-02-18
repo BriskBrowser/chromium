@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include "ash/constants/ash_switches.h"
 #include "base/bind.h"
 #include "base/check_op.h"
 #include "base/command_line.h"
@@ -15,7 +16,6 @@
 #include "chrome/browser/chromeos/settings/device_settings_provider.h"
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
 #include "chrome/browser/chromeos/settings/supervised_user_cros_settings_provider.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/settings/cros_settings_names.h"
 #include "chromeos/settings/system_settings_provider.h"
 #include "google_apis/gaia/gaia_auth_util.h"
@@ -76,28 +76,14 @@ void CrosSettings::ShutdownForTesting() {
   g_using_cros_settings_for_testing = false;
 }
 
-bool CrosSettings::IsUserAllowlisted(const std::string& username,
-                                     bool* wildcard_match) const {
-  // Skip allowlist check for tests.
-  if (chromeos::switches::ShouldSkipOobePostLogin()) {
-    return true;
-  }
-
-  bool allow_new_user = false;
-  GetBoolean(kAccountsPrefAllowNewUser, &allow_new_user);
-  if (allow_new_user)
-    return true;
-  return FindEmailInList(kAccountsPrefUsers, username, wildcard_match);
-}
-
 CrosSettings::CrosSettings() = default;
 
 CrosSettings::CrosSettings(DeviceSettingsService* device_settings_service,
                            PrefService* local_state) {
   CrosSettingsProvider::NotifyObserversCallback notify_cb(
-      base::Bind(&CrosSettings::FireObservers,
-                 // This is safe since |this| is never deleted.
-                 base::Unretained(this)));
+      base::BindRepeating(&CrosSettings::FireObservers,
+                          // This is safe since |this| is never deleted.
+                          base::Unretained(this)));
 
   auto supervised_user_cros_provider =
       std::make_unique<SupervisedUserCrosSettingsProvider>(notify_cb);
@@ -194,6 +180,28 @@ bool CrosSettings::GetDictionary(
   return false;
 }
 
+bool CrosSettings::IsUserAllowlisted(
+    const std::string& username,
+    bool* wildcard_match,
+    const base::Optional<user_manager::UserType>& user_type) const {
+  // Skip allowlist check for tests.
+  if (chromeos::switches::ShouldSkipOobePostLogin()) {
+    return true;
+  }
+
+  bool allow_new_user = false;
+  GetBoolean(kAccountsPrefAllowNewUser, &allow_new_user);
+  if (allow_new_user)
+    return true;
+
+  if (FindEmailInList(kAccountsPrefUsers, username, wildcard_match))
+    return true;
+
+  bool family_link_allowed = false;
+  GetBoolean(kAccountsPrefFamilyLinkAccountsAllowed, &family_link_allowed);
+  return family_link_allowed && user_type == user_manager::USER_TYPE_CHILD;
+}
+
 bool CrosSettings::FindEmailInList(const std::string& path,
                                    const std::string& email,
                                    bool* wildcard_match) const {
@@ -264,8 +272,8 @@ bool CrosSettings::AddSettingsProvider(
   // Providers instantiated inside this class will have the same callback
   // passed to their constructor, but doing it here allows for providers
   // to be instantiated outside this class.
-  CrosSettingsProvider::NotifyObserversCallback notify_cb(
-      base::Bind(&CrosSettings::FireObservers, base::Unretained(this)));
+  CrosSettingsProvider::NotifyObserversCallback notify_cb(base::BindRepeating(
+      &CrosSettings::FireObservers, base::Unretained(this)));
   provider_ptr->SetNotifyObserversCallback(notify_cb);
   return true;
 }
@@ -286,18 +294,13 @@ std::unique_ptr<CrosSettingsProvider> CrosSettings::RemoveSettingsProvider(
   return nullptr;
 }
 
-std::unique_ptr<CrosSettings::ObserverSubscription>
-CrosSettings::AddSettingsObserver(const std::string& path,
-                                  base::RepeatingClosure callback) {
+base::CallbackListSubscription CrosSettings::AddSettingsObserver(
+    const std::string& path,
+    base::RepeatingClosure callback) {
   DCHECK(!path.empty());
   DCHECK(callback);
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  if (!GetProvider(path)) {
-    NOTREACHED() << "Trying to add an observer for an unregistered setting: "
-                 << path;
-    return std::unique_ptr<CrosSettings::ObserverSubscription>();
-  }
+  DCHECK(GetProvider(path));
 
   // Get the callback registry associated with the path.
   base::CallbackList<void(void)>* registry = nullptr;

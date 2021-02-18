@@ -7,7 +7,7 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/metrics_hashes.h"
-#include "components/language_usage_metrics/language_usage_metrics.h"
+#include "components/language/core/browser/language_usage_metrics.h"
 
 namespace translate {
 
@@ -22,14 +22,16 @@ const char kTranslateLanguageDetectionContentLength[] =
     "Translate.LanguageDetection.ContentLength";
 const char kTranslateLocalesOnDisabledByPrefs[] =
     "Translate.LocalesOnDisabledByPrefs";
-const char kTranslateUndisplayableLanguage[] =
-    "Translate.UndisplayableLanguage";
 const char kTranslateUnsupportedLanguageAtInitiation[] =
     "Translate.UnsupportedLanguageAtInitiation";
 const char kTranslateSourceLanguage[] = "Translate.SourceLanguage";
 const char kTranslateTargetLanguage[] = "Translate.TargetLanguage";
 const char kTranslateHrefHintStatus[] = "Translate.HrefHint.Status";
+const char kTranslateHrefHintPrefsFilterStatus[] =
+    "Translate.HrefHint.PrefsFilterStatus";
 const char kTranslateTargetLanguageOrigin[] = "Translate.TargetLanguage.Origin";
+const char kTranslateMenuTranslationUnavailableReasons[] =
+    "Translate.MenuTranslation.UnavailableReasons";
 
 }  // namespace
 
@@ -44,6 +46,12 @@ void ReportLanguageDetectionError() {
   UMA_HISTOGRAM_BOOLEAN(kTranslateReportLanguageDetectionError, true);
 }
 
+void ReportMenuTranslationUnavailableReason(
+    MenuTranslationUnavailableReason reason) {
+  UMA_HISTOGRAM_ENUMERATION(kTranslateMenuTranslationUnavailableReasons,
+                            reason);
+}
+
 void ReportLanguageDetectionContentLength(size_t length) {
   base::UmaHistogramCounts100000(kTranslateLanguageDetectionContentLength,
                                  length);
@@ -52,18 +60,11 @@ void ReportLanguageDetectionContentLength(size_t length) {
 void ReportLocalesOnDisabledByPrefs(base::StringPiece locale) {
   base::UmaHistogramSparse(
       kTranslateLocalesOnDisabledByPrefs,
-      language_usage_metrics::LanguageUsageMetrics::ToLanguageCode(locale));
-}
-
-void ReportUndisplayableLanguage(base::StringPiece language) {
-  int language_code =
-      language_usage_metrics::LanguageUsageMetrics::ToLanguageCode(language);
-  base::UmaHistogramSparse(kTranslateUndisplayableLanguage, language_code);
+      language::LanguageUsageMetrics::ToLanguageCode(locale));
 }
 
 void ReportUnsupportedLanguageAtInitiation(base::StringPiece language) {
-  int language_code =
-      language_usage_metrics::LanguageUsageMetrics::ToLanguageCode(language);
+  int language_code = language::LanguageUsageMetrics::ToLanguageCode(language);
   base::UmaHistogramSparse(kTranslateUnsupportedLanguageAtInitiation,
                            language_code);
 }
@@ -80,6 +81,11 @@ void ReportTranslateTargetLanguage(base::StringPiece language) {
 
 void ReportTranslateHrefHintStatus(HrefTranslateStatus status) {
   base::UmaHistogramEnumeration(kTranslateHrefHintStatus, status);
+}
+
+void ReportTranslateHrefHintPrefsFilterStatus(
+    HrefTranslatePrefsFilterStatus status) {
+  base::UmaHistogramEnumeration(kTranslateHrefHintPrefsFilterStatus, status);
 }
 
 void ReportTranslateTargetLanguageOrigin(TargetLanguageOrigin origin) {

@@ -10,8 +10,8 @@
 #include <tuple>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/containers/queue.h"
 #include "base/files/file_path.h"
 #include "base/json/json_reader.h"
@@ -30,6 +30,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/extensions/event_router_forwarder.h"
 #include "chrome/browser/renderer_host/chrome_navigation_ui_data.h"
@@ -60,7 +61,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_object.mojom-forward.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chromeos/login/login_state/scoped_test_public_session_login_state.h"
 #include "components/crx_file/id_util.h"
 #endif
@@ -113,47 +114,6 @@ bool HasIgnoredAction(const helpers::IgnoredActions& ignored_actions,
 }
 
 }  // namespace
-
-// A mock event router that responds to events with a pre-arranged queue of
-// Tasks.
-class TestIPCSender : public IPC::Sender {
- public:
-  using SentMessages = std::list<std::unique_ptr<IPC::Message>>;
-
-  // Adds a Task to the queue. We will fire these in order as events are
-  // dispatched.
-  void PushTask(const base::Closure& task) {
-    task_queue_.push(task);
-  }
-
-  size_t GetNumTasks() { return task_queue_.size(); }
-
-  SentMessages::const_iterator sent_begin() const {
-    return sent_messages_.begin();
-  }
-
-  SentMessages::const_iterator sent_end() const {
-    return sent_messages_.end();
-  }
-
- private:
-  // IPC::Sender
-  bool Send(IPC::Message* message) override {
-    EXPECT_EQ(static_cast<uint32_t>(ExtensionMsg_DispatchEvent::ID),
-              message->type());
-
-    EXPECT_FALSE(task_queue_.empty());
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                  task_queue_.front());
-    task_queue_.pop();
-
-    sent_messages_.push_back(base::WrapUnique(message));
-    return true;
-  }
-
-  base::queue<base::Closure> task_queue_;
-  SentMessages sent_messages_;
-};
 
 class ExtensionWebRequestTest : public testing::Test {
  public:
@@ -529,7 +489,7 @@ TEST(ExtensionWebRequestHelpersTest, TestCalculateOnAuthRequiredDelta) {
 
 TEST(ExtensionWebRequestHelpersTest, TestMergeCancelOfResponses) {
   EventResponseDeltas deltas;
-  bool canceled = false;
+  base::Optional<extensions::ExtensionId> canceled_by_extension;
 
   // Single event that does not cancel.
   {
@@ -537,8 +497,8 @@ TEST(ExtensionWebRequestHelpersTest, TestMergeCancelOfResponses) {
     d1.cancel = false;
     deltas.push_back(std::move(d1));
   }
-  MergeCancelOfResponses(deltas, &canceled);
-  EXPECT_FALSE(canceled);
+  MergeCancelOfResponses(deltas, &canceled_by_extension);
+  EXPECT_FALSE(canceled_by_extension);
 
   // Second event that cancels the request
   {
@@ -547,8 +507,9 @@ TEST(ExtensionWebRequestHelpersTest, TestMergeCancelOfResponses) {
     deltas.push_back(std::move(d2));
   }
   deltas.sort(&InDecreasingExtensionInstallationTimeOrder);
-  MergeCancelOfResponses(deltas, &canceled);
-  EXPECT_TRUE(canceled);
+  MergeCancelOfResponses(deltas, &canceled_by_extension);
+  EXPECT_TRUE(canceled_by_extension);
+  EXPECT_EQ("extid2", canceled_by_extension.value());
 }
 
 TEST(ExtensionWebRequestHelpersTest, TestMergeOnBeforeRequestResponses) {

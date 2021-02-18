@@ -9,6 +9,7 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/command_updater.h"
 #include "chrome/browser/command_updater_delegate.h"
 #include "chrome/browser/command_updater_impl.h"
@@ -50,19 +51,23 @@ class BrowserCommandController : public CommandUpdater,
   void ZoomStateChanged();
   void ContentRestrictionsChanged();
   void FullscreenStateChanged();
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Called when the browser goes in or out of the special locked fullscreen
   // mode. In this mode the user is basically locked into the current browser
   // window and tab hence we disable most keyboard shortcuts and we also
   // prevent changing the state of enabled shortcuts while in this mode (so the
   // other *Changed() functions will be a NO-OP in this state).
   void LockedFullscreenStateChanged();
+  // Called when a desk is created/removed. Used to determine send
+  // to desk command states.
+  void DesksStateChanged(int num_desks);
 #endif
   void PrintingStateChanged();
   void LoadingStateChanged(bool is_loading, bool force);
   void FindBarVisibilityChanged();
   void ExtensionStateChanged();
   void TabKeyboardFocusChangedTo(base::Optional<int> index);
+  void WebContentsFocusChanged();
 
   // Overriden from CommandUpdater:
   bool SupportsCommand(int id) const override;
@@ -155,10 +160,13 @@ class BrowserCommandController : public CommandUpdater,
   // app windows.
   void UpdateCommandsForHostedAppAvailability();
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Update commands whose state depends on whether the window is in locked
   // fullscreen mode or not.
   void UpdateCommandsForLockedFullscreenMode();
+
+  // Update commands whose state depends on how many desks exist.
+  void UpdateCommandsForDesks(int num_desks);
 #endif
 
   // Updates the printing command state.
@@ -193,6 +201,9 @@ class BrowserCommandController : public CommandUpdater,
   // populated, it is the index of the tab with focus; if it is not populated,
   // no tab has keyboard focus.
   void UpdateCommandsForTabKeyboardFocus(base::Optional<int> target_index);
+
+  // Updates commands that depend on whether web contents is focused or not.
+  void UpdateCommandsForWebContentsFocus();
 
   inline BrowserWindow* window();
   inline Profile* profile();

@@ -12,7 +12,6 @@ import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.StrictMode;
 import android.os.SystemClock;
 import android.text.TextUtils;
 
@@ -24,7 +23,6 @@ import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.task.PostTask;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.IntentHandler;
-import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
 import org.chromium.chrome.browser.customtabs.CloseButtonNavigator;
 import org.chromium.chrome.browser.customtabs.CustomTabObserver;
@@ -115,7 +113,7 @@ public class CustomTabActivityNavigationController implements StartStopWithNativ
             CustomTabActivityTabProvider tabProvider,
             BrowserServicesIntentDataProvider intentDataProvider, CustomTabsConnection connection,
             Lazy<CustomTabObserver> customTabObserver, CloseButtonNavigator closeButtonNavigator,
-            ChromeBrowserInitializer chromeBrowserInitializer, ChromeActivity<?> activity,
+            ChromeBrowserInitializer chromeBrowserInitializer, Activity activity,
             ActivityLifecycleDispatcher lifecycleDispatcher,
             Lazy<FullscreenManager> fullscreenManager) {
         mTabController = tabController;
@@ -181,7 +179,29 @@ public class CustomTabActivityNavigationController implements StartStopWithNativ
 
         params.setTransitionType(IntentHandler.getTransitionTypeFromIntent(
                 mIntentDataProvider.getIntent(), transition));
+
+        applyExperimentsToNewTab(tab, mIntentDataProvider);
+
         tab.loadUrl(params);
+    }
+
+    /**
+     * Configures various experiments in tab based on provider. This is intended to be called when a
+     * new tab is created.
+     */
+    public static void applyExperimentsToNewTab(
+            Tab tab, BrowserServicesIntentDataProvider provider) {
+        if (provider.shouldHideOmniboxSuggestionsForCctVisits()) {
+            tab.setAddApi2TransitionToFutureNavigations(true);
+        }
+
+        if (provider.shouldHideCctVisits()) {
+            tab.setHideFutureNavigations(true);
+        }
+
+        if (provider.shouldBlockNewNotificationRequests()) {
+            tab.setShouldBlockNewNotificationRequests(true);
+        }
     }
 
     /**
@@ -237,17 +257,13 @@ public class CustomTabActivityNavigationController implements StartStopWithNativ
         if (TextUtils.isEmpty(url)) url = mIntentDataProvider.getUrlToLoad();
         Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        intent.putExtra(IntentHandler.EXTRA_FROM_OPEN_IN_BROWSER, true);
 
         boolean willChromeHandleIntent =
                 mIntentDataProvider.isOpenedByChrome() || mIntentDataProvider.isIncognito();
 
-        StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskWrites();
-        try {
-            willChromeHandleIntent |=
-                    ExternalNavigationDelegateImpl.willChromeHandleIntent(intent, true);
-        } finally {
-            StrictMode.setThreadPolicy(oldPolicy);
-        }
+        willChromeHandleIntent |=
+                ExternalNavigationDelegateImpl.willChromeHandleIntent(intent, true);
 
         Bundle startActivityOptions = ActivityOptionsCompat.makeCustomAnimation(
                 mActivity, R.anim.abc_fade_in, R.anim.abc_fade_out).toBundle();
@@ -258,16 +274,10 @@ public class CustomTabActivityNavigationController implements StartStopWithNativ
             mTabController.detachAndStartReparenting(intent, startActivityOptions,
                     () -> finish(REPARENTING));
         } else {
-            // Temporarily allowing disk access while fixing. TODO: http://crbug.com/581860
-            StrictMode.allowThreadDiskWrites();
-            try {
-                if (mIntentDataProvider.isInfoPage()) {
-                    IntentHandler.startChromeLauncherActivityForTrustedIntent(intent);
-                } else {
-                    mActivity.startActivity(intent, startActivityOptions);
-                }
-            } finally {
-                StrictMode.setThreadPolicy(oldPolicy);
+            if (mIntentDataProvider.isInfoPage()) {
+                IntentHandler.startChromeLauncherActivityForTrustedIntent(intent);
+            } else {
+                mActivity.startActivity(intent, startActivityOptions);
             }
         }
         return true;

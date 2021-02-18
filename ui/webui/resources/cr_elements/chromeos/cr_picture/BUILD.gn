@@ -2,12 +2,14 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/chromeos/ui_mode.gni")
 import("//third_party/closure_compiler/compile_js.gni")
 import("//tools/polymer/polymer.gni")
 import("//ui/webui/resources/tools/js_modulizer.gni")
 import("../os_cr_elements.gni")
 
 js_type_check("closure_compile") {
+  uses_legacy_modules = true
   deps = [
     ":cr_camera",
     ":cr_picture_list",
@@ -63,19 +65,20 @@ js_type_check("closure_compile_module") {
 }
 
 js_library("png.m") {
-  # Need to turn off default sources filtering by GN, otherwise |sources| is
-  # filtered on non-CrOS, because it contains the term "chromeos". This
-  # js_library() target is needed in non-CrOS builds as well (see
-  # chrome/browser/resources/settings/people_page:people_page.m)
-  set_sources_assignment_filter([])
   sources = [
     "$root_gen_dir/ui/webui/resources/cr_elements/chromeos/cr_picture/png.m.js",
   ]
   extra_deps = [ ":modulize" ]
 }
 
+# TODO(crbug.com/1134204): This target should probably only be defined if
+# target_os is "chromos" as it does not include any source files on other
+# platforms.
 js_library("cr_picture_types.m") {
-  sources = [ "$root_gen_dir/ui/webui/resources/cr_elements/chromeos/cr_picture/cr_picture_types.m.js" ]
+  sources = []
+  if (is_chromeos_ash) {
+    sources += [ "$root_gen_dir/ui/webui/resources/cr_elements/chromeos/cr_picture/cr_picture_types.m.js" ]
+  }
   extra_deps = [ ":modulize" ]
 }
 
@@ -89,8 +92,14 @@ group("polymer3_elements") {
   ]
 }
 
+# TODO(crbug.com/1134204): This target should probably only be defined if
+# target_os is "chromos" as it does not include any source files on other
+# platforms.
 js_library("cr_picture_pane.m") {
-  sources = [ "$root_gen_dir/ui/webui/resources/cr_elements/chromeos/cr_picture/cr_picture_pane.m.js" ]
+  sources = []
+  if (is_chromeos_ash) {
+    sources += [ "$root_gen_dir/ui/webui/resources/cr_elements/chromeos/cr_picture/cr_picture_pane.m.js" ]
+  }
   deps = [
     ":cr_camera.m",
     ":cr_picture_types.m",
@@ -99,14 +108,26 @@ js_library("cr_picture_pane.m") {
   extra_deps = [ ":cr_picture_pane_module" ]
 }
 
+# TODO(crbug.com/1134204): This target should probably only be defined if
+# target_os is "chromos" as it does not include any source files on other
+# platforms.
 js_library("cr_camera.m") {
-  sources = [ "$root_gen_dir/ui/webui/resources/cr_elements/chromeos/cr_picture/cr_camera.m.js" ]
+  sources = []
+  if (is_chromeos_ash) {
+    sources += [ "$root_gen_dir/ui/webui/resources/cr_elements/chromeos/cr_picture/cr_camera.m.js" ]
+  }
   deps = [ ":png.m" ]
   extra_deps = [ ":cr_camera_module" ]
 }
 
+# TODO(crbug.com/1134204): This target should probably only be defined if
+# target_os is "chromos" as it does not include any source files on other
+# platforms.
 js_library("cr_picture_list.m") {
-  sources = [ "$root_gen_dir/ui/webui/resources/cr_elements/chromeos/cr_picture/cr_picture_list.m.js" ]
+  sources = []
+  if (is_chromeos_ash) {
+    sources += [ "$root_gen_dir/ui/webui/resources/cr_elements/chromeos/cr_picture/cr_picture_list.m.js" ]
+  }
   deps = [
     ":cr_picture_types.m",
     ":png.m",

@@ -5,16 +5,13 @@
 #include "content/browser/renderer_host/code_cache_host_impl.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
-#include "content/browser/cache_storage/cache_storage.h"
-#include "content/browser/cache_storage/cache_storage_cache.h"
-#include "content/browser/cache_storage/cache_storage_cache_handle.h"
-#include "content/browser/cache_storage/cache_storage_context_impl.h"
-#include "content/browser/cache_storage/cache_storage_manager.h"
+#include "components/services/storage/public/mojom/cache_storage_control.mojom.h"
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/code_cache/generated_code_cache.h"
 #include "content/browser/code_cache/generated_code_cache_context.h"
@@ -35,9 +32,6 @@ using blink::mojom::CacheStorageError;
 namespace content {
 
 namespace {
-
-void NoOpCacheStorageErrorCallback(CacheStorageCacheHandle cache_handle,
-                                   CacheStorageError error) {}
 
 // Code caches use two keys: the URL of requested resource |resource_url|
 // as the primary key and the origin lock of the renderer that requested this
@@ -61,10 +55,10 @@ base::Optional<GURL> GetSecondaryKeyForCodeCache(const GURL& resource_url,
       ChildProcessSecurityPolicyImpl::GetInstance()->GetProcessLock(
           render_process_id);
 
-  // Case 1: If process lock is empty, it means the render process is not locked
-  // to any origin. It is safe to just use the |resource_url| of the requested
-  // resource as the key. Return an empty GURL as the second key.
-  if (process_lock.is_empty())
+  // Case 1: If process is not locked to a site, it is safe to just use the
+  // |resource_url| of the requested resource as the key. Return an empty GURL
+  // as the second key.
+  if (!process_lock.is_locked_to_site())
     return GURL::EmptyGURL();
 
   // Case 2: Don't cache the code corresponding to opaque origins. The same
@@ -97,21 +91,23 @@ base::Optional<GURL> GetSecondaryKeyForCodeCache(const GURL& resource_url,
 
 CodeCacheHostImpl::CodeCacheHostImpl(
     int render_process_id,
-    scoped_refptr<CacheStorageContextImpl> cache_storage_context,
+    RenderProcessHostImpl* render_process_host_impl,
     scoped_refptr<GeneratedCodeCacheContext> generated_code_cache_context,
     mojo::PendingReceiver<blink::mojom::CodeCacheHost> receiver)
     : render_process_id_(render_process_id),
-      cache_storage_context_(std::move(cache_storage_context)),
+      render_process_host_impl_(render_process_host_impl),
       generated_code_cache_context_(std::move(generated_code_cache_context)),
-      receiver_(this, std::move(receiver)) {}
+      receiver_(this, std::move(receiver)) {
+  // render_process_host_impl may be null in tests.
+}
 
 CodeCacheHostImpl::~CodeCacheHostImpl() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 }
 
-void CodeCacheHostImpl::SetCacheStorageContextForTesting(
-    scoped_refptr<CacheStorageContextImpl> context) {
-  cache_storage_context_ = std::move(context);
+void CodeCacheHostImpl::SetCacheStorageControlForTesting(
+    storage::mojom::CacheStorageControl* cache_storage_control) {
+  cache_storage_control_for_testing_ = cache_storage_control;
 }
 
 void CodeCacheHostImpl::DidGenerateCacheableMetadata(
@@ -206,23 +202,48 @@ void CodeCacheHostImpl::DidGenerateCacheableMetadataInCacheStorage(
       "CodeCacheHostImpl::DidGenerateCacheableMetadataInCacheStorage",
       TRACE_ID_GLOBAL(trace_id), TRACE_EVENT_FLAG_FLOW_OUT, "url", url.spec());
 
-  scoped_refptr<CacheStorageManager> manager =
-      cache_storage_context_->CacheManager();
-  if (!manager)
-    return;
+  mojo::Remote<blink::mojom::CacheStorage> remote;
+  network::CrossOriginEmbedderPolicy cross_origin_embedder_policy;
 
-  scoped_refptr<net::IOBuffer> buf =
-      base::MakeRefCounted<net::IOBuffer>(data.size());
-  if (data.size())
-    memcpy(buf->data(), data.data(), data.size());
+  storage::mojom::CacheStorageControl* cache_storage_control =
+      cache_storage_control_for_testing_
+          ? cache_storage_control_for_testing_
+          : render_process_host_impl_->GetStoragePartition()
+                ->GetCacheStorageControl();
+  cache_storage_control->AddReceiver(
+      cross_origin_embedder_policy, mojo::NullRemote(), cache_storage_origin,
+      storage::mojom::CacheStorageOwner::kCacheAPI,
+      remote.BindNewPipeAndPassReceiver());
 
-  CacheStorageHandle cache_storage = manager->OpenCacheStorage(
-      cache_storage_origin, CacheStorageOwner::kCacheAPI);
-  cache_storage.value()->OpenCache(
-      cache_storage_cache_name, trace_id,
-      base::BindOnce(&CodeCacheHostImpl::OnCacheStorageOpenCallback,
-                     weak_ptr_factory_.GetWeakPtr(), url,
-                     expected_response_time, trace_id, buf, data.size()));
+  // Call the remote pointer directly so we can pass the remote to the callback
+  // itself to preserve its lifetime.
+  auto* raw_remote = remote.get();
+  raw_remote->Open(
+      base::UTF8ToUTF16(cache_storage_cache_name), trace_id,
+      base::BindOnce(
+          [](const GURL& url, base::Time expected_response_time,
+             mojo_base::BigBuffer data, int64_t trace_id,
+             mojo::Remote<blink::mojom::CacheStorage> preserve_remote_lifetime,
+             blink::mojom::OpenResultPtr result) {
+            if (result->is_status()) {
+              // Silently ignore errors.
+              return;
+            }
+
+            mojo::AssociatedRemote<blink::mojom::CacheStorageCache> remote;
+            remote.Bind(std::move(result->get_cache()));
+            remote->WriteSideData(
+                url, expected_response_time, std::move(data), trace_id,
+                base::BindOnce(
+                    [](mojo::Remote<blink::mojom::CacheStorage>
+                           preserve_remote_lifetime,
+                       CacheStorageError error) {
+                      // Silently ignore errors.
+                    },
+                    std::move(preserve_remote_lifetime)));
+          },
+          url, expected_response_time, std::move(data), trace_id,
+          std::move(remote)));
 }
 
 GeneratedCodeCache* CodeCacheHostImpl::GetCodeCache(
@@ -240,29 +261,7 @@ GeneratedCodeCache* CodeCacheHostImpl::GetCodeCache(
 void CodeCacheHostImpl::OnReceiveCachedCode(FetchCachedCodeCallback callback,
                                             const base::Time& response_time,
                                             mojo_base::BigBuffer data) {
-  // TODO(crbug.com/867848): Pass the data as a mojo data pipe instead
-  // of BigBuffer.
   std::move(callback).Run(response_time, std::move(data));
-}
-
-void CodeCacheHostImpl::OnCacheStorageOpenCallback(
-    const GURL& url,
-    base::Time expected_response_time,
-    int64_t trace_id,
-    scoped_refptr<net::IOBuffer> buf,
-    int buf_len,
-    CacheStorageCacheHandle cache_handle,
-    CacheStorageError error) {
-  TRACE_EVENT_WITH_FLOW1(
-      "CacheStorage", "CodeCacheHostImpl::OnCacheStorageOpenCallback",
-      TRACE_ID_GLOBAL(trace_id),
-      TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT, "url", url.spec());
-  if (error != CacheStorageError::kSuccess || !cache_handle.value())
-    return;
-  CacheStorageCache* cache = cache_handle.value();
-  cache->WriteSideData(
-      base::BindOnce(&NoOpCacheStorageErrorCallback, std::move(cache_handle)),
-      url, expected_response_time, trace_id, buf, buf_len);
 }
 
 }  // namespace content

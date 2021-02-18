@@ -37,7 +37,6 @@
 #include "cc/input/overscroll_behavior.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom-blink-forward.h"
 #include "third_party/blink/public/web/web_navigation_policy.h"
-#include "third_party/blink/public/web/web_widget_client.h"
 #include "third_party/blink/public/web/web_window_features.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
@@ -54,7 +53,6 @@ class PagePopup;
 class PagePopupClient;
 class WebAutofillClient;
 class WebViewImpl;
-struct WebRect;
 
 // Handles window-level notifications from core on behalf of a WebView.
 class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
@@ -80,7 +78,7 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
                             cc::PaintHoldingCommitTrigger) override;
   void StartDragging(LocalFrame*,
                      const WebDragData&,
-                     WebDragOperationsMask,
+                     DragOperationsMask,
                      const SkBitmap& drag_image,
                      const gfx::Point& drag_image_offset) override;
   bool AcceptsLoadDrops() const override;
@@ -89,9 +87,12 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
                              const AtomicString& name,
                              const WebWindowFeatures&,
                              network::mojom::blink::WebSandboxFlags,
-                             const FeaturePolicyFeatureState&,
-                             const SessionStorageNamespaceId&) override;
-  void Show(NavigationPolicy) override;
+                             const SessionStorageNamespaceId&,
+                             bool& consumed_user_gesture) override;
+  void Show(const base::UnguessableToken& opener_frame_token,
+            NavigationPolicy navigation_policy,
+            const IntRect& initial_rect,
+            bool user_gesture) override;
   void DidOverscroll(const gfx::Vector2dF& overscroll_delta,
                      const gfx::Vector2dF& accumulated_overscroll,
                      const gfx::PointF& position_in_viewport,
@@ -104,8 +105,10 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
                                 ScrollGranularity granularity,
                                 CompositorElementId scrollable_area_element_id,
                                 WebInputEvent::Type injected_type) override;
-  bool ShouldReportDetailedMessageForSource(LocalFrame&,
-                                            const String&) override;
+  bool ShouldReportDetailedMessageForSourceAndSeverity(
+      LocalFrame&,
+      mojom::blink::ConsoleMessageLevel log_level,
+      const String&) override;
   void AddMessageToConsole(LocalFrame*,
                            mojom::ConsoleMessageSource,
                            mojom::ConsoleMessageLevel,
@@ -134,8 +137,6 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
   IntRect ViewportToScreen(const IntRect&,
                            const LocalFrameView*) const override;
   float WindowToViewportScalar(LocalFrame*, const float) const override;
-  void WindowToViewportRect(LocalFrame& frame,
-                            WebFloatRect* viewport_rect) const override;
   ScreenInfo GetScreenInfo(LocalFrame&) const override;
   void OverrideVisibleRectForMainFrame(LocalFrame& frame,
                                        IntRect* paint_rect) const override;
@@ -143,7 +144,7 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
   void ContentsSizeChanged(LocalFrame*, const IntSize&) const override;
   bool DoubleTapToZoomEnabled() const override;
   void EnablePreferredSizeChangedMode() override;
-  void ZoomToFindInPageRect(const WebRect& rect_in_root_frame) override;
+  void ZoomToFindInPageRect(const gfx::Rect& rect_in_root_frame) override;
   void PageScaleFactorChanged() const override;
   float ClampPageScaleFactorToLimits(float scale) const override;
   void MainFrameScrollOffsetChanged(LocalFrame& main_frame) const override;
@@ -193,7 +194,9 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
                        FullscreenRequestType) override;
   void ExitFullscreen(LocalFrame&) override;
   void FullscreenElementChanged(Element* old_element,
-                                Element* new_element) override;
+                                Element* new_element,
+                                const FullscreenOptions*,
+                                FullscreenRequestType) override;
 
   void AnimateDoubleTapZoom(const gfx::Point& point,
                             const gfx::Rect& rect) override;
@@ -237,14 +240,6 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
       const String& dialog_message,
       Document::PageDismissalType) const override;
 
-  bool RequestPointerLock(LocalFrame*,
-                          WebWidgetClient::PointerLockCallback,
-                          bool) override;
-  bool RequestPointerLockChange(LocalFrame*,
-                                WebWidgetClient::PointerLockCallback,
-                                bool) override;
-  void RequestPointerUnlock(LocalFrame*) override;
-
   // AutofillClient pass throughs:
   void DidAssociateFormControlsAfterLoad(LocalFrame*) override;
   void HandleKeyboardEventOnTextField(HTMLInputElement&,
@@ -276,7 +271,8 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
                      const cc::PaintImage&,
                      base::OnceCallback<void(bool)>) override;
 
-  void NotifySwapTime(LocalFrame& frame, ReportTimeCallback callback) override;
+  void NotifyPresentationTime(LocalFrame& frame,
+                              ReportTimeCallback callback) override;
 
   void RequestBeginMainFrameNotExpected(LocalFrame& frame,
                                         bool request) override;
@@ -291,7 +287,11 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
   double UserZoomFactor() const override;
 
   void BatterySavingsChanged(LocalFrame& main_frame,
-                             WebBatterySavingsFlags savings) override;
+                             BatterySavingsFlags savings) override;
+
+  void FormElementReset(HTMLFormElement& element) override;
+
+  void PasswordFieldReset(HTMLInputElement& element) override;
 
  private:
   bool IsChromeClientImpl() const override { return true; }

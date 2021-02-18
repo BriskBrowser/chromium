@@ -7,7 +7,7 @@
 
 #include <base/optional.h>
 #include <base/supports_user_data.h>
-#include <content/public/common/web_preferences.h>
+#include <third_party/blink/public/mojom/webpreferences/web_preferences.mojom.h>
 
 namespace chromecast {
 
@@ -18,9 +18,10 @@ class CastWebPreferences : public base::SupportsUserData::Data {
   struct Preferences {
     Preferences();
 
-    base::Optional<content::AutoplayPolicy> autoplay_policy;
+    base::Optional<blink::mojom::AutoplayPolicy> autoplay_policy;
     base::Optional<bool> hide_scrollbars;
     base::Optional<bool> javascript_enabled;
+    base::Optional<bool> supports_multiple_windows;
   };
 
   // Unique key used to identify CastWebPreferences in WebContents' user data.
@@ -34,7 +35,7 @@ class CastWebPreferences : public base::SupportsUserData::Data {
   Preferences* preferences() { return &preferences_; }
 
   // Overrides |prefs| with any locally stored preferences.
-  void Update(content::WebPreferences* prefs);
+  void Update(blink::web_pref::WebPreferences* prefs);
 
  private:
   Preferences preferences_;

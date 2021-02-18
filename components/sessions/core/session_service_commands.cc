@@ -17,12 +17,7 @@
 #include "base/pickle.h"
 #include "base/token.h"
 #include "components/sessions/core/base_session_service_commands.h"
-#include "components/sessions/core/command_storage_manager_delegate.h"
-#include "components/sessions/core/session_command.h"
-#include "components/sessions/core/session_types.h"
 #include "components/tab_groups/tab_group_color.h"
-#include "components/tab_groups/tab_group_id.h"
-#include "components/tab_groups/tab_group_visual_data.h"
 
 namespace sessions {
 
@@ -65,11 +60,16 @@ static const SessionCommand::id_type kCommandLastActiveTime = 21;
 static const SessionCommand::id_type kCommandSetWindowWorkspace2 = 23;
 static const SessionCommand::id_type kCommandTabNavigationPathPruned = 24;
 static const SessionCommand::id_type kCommandSetTabGroup = 25;
-static const SessionCommand::id_type kCommandSetTabGroupMetadata = 26;
+// OBSOLETE Superseded by kCommandSetTabGroupMetadata2.
+// static const SessionCommand::id_type kCommandSetTabGroupMetadata = 26;
 static const SessionCommand::id_type kCommandSetTabGroupMetadata2 = 27;
 static const SessionCommand::id_type kCommandSetTabGuid = 28;
 static const SessionCommand::id_type kCommandSetTabUserAgentOverride2 = 29;
 static const SessionCommand::id_type kCommandSetTabData = 30;
+static const SessionCommand::id_type kCommandSetWindowUserTitle = 31;
+static const SessionCommand::id_type kCommandSetWindowVisibleOnAllWorkspaces =
+    32;
+// ID 255 is used by CommandStorageBackend.
 
 namespace {
 
@@ -144,6 +144,11 @@ struct PinnedStatePayload {
 struct LastActiveTimePayload {
   SessionID::id_type tab_id;
   int64_t last_active_time;
+};
+
+struct VisibleOnAllWorkspacesPayload {
+  SessionID::id_type window_id;
+  bool visible_on_all_workspaces;
 };
 
 // Persisted versions of ui::WindowShowState that are written to disk and can
@@ -634,7 +639,6 @@ bool CreateTabsAndWindows(
         break;
       }
 
-      case kCommandSetTabGroupMetadata:
       case kCommandSetTabGroupMetadata2: {
         std::unique_ptr<base::Pickle> pickle = command->PayloadAsPickle();
         base::PickleIterator iter(*pickle);
@@ -651,27 +655,16 @@ bool CreateTabsAndWindows(
         if (!iter.ReadString16(&title))
           return true;
 
-        if (command->id() == kCommandSetTabGroupMetadata) {
-          SkColor color;
-          if (!iter.ReadUInt32(&color))
-            return true;
+        uint32_t color_int;
+        if (!iter.ReadUInt32(&color_int))
+          return true;
 
-          // crrev.com/c/1968039 changes the color of a tab group from a SkColor
-          // to a TabGroupColorId. Here we ignore the old SkColor and assign the
-          // default TabGroupColorId because the fallback is acceptable while
-          // the tab groups feature isn't yet launched. Once it is,
-          // kCommandSetTabGroupMetadata will be deprecated in favor of
-          // kCommandSetTabGroupMetadata2, which properly restores
-          // TabGroupColorIds.
-          group->visual_data = tab_groups::TabGroupVisualData(
-              title, tab_groups::TabGroupColorId::kGrey);
-        } else {
-          uint32_t color_int;
-          if (!iter.ReadUInt32(&color_int))
-            return true;
-
-          group->visual_data = tab_groups::TabGroupVisualData(title, color_int);
-        }
+        // The |is_collapsed| boolean was added in M88 to save the collapsed
+        // state, so previous versions may not have this stored.
+        bool is_collapsed = false;
+        ignore_result(!iter.ReadBool(&is_collapsed));
+        group->visual_data =
+            tab_groups::TabGroupVisualData(title, color_int, is_collapsed);
         break;
       }
 
@@ -795,6 +788,17 @@ bool CreateTabsAndWindows(
         break;
       }
 
+      case kCommandSetWindowVisibleOnAllWorkspaces: {
+        VisibleOnAllWorkspacesPayload payload;
+        if (!command->GetPayload(&payload, sizeof(payload))) {
+          DVLOG(1) << "Failed reading command " << command->id();
+          return true;
+        }
+        GetWindow(SessionID::FromSerializedValue(payload.window_id), windows)
+            ->visible_on_all_workspaces = payload.visible_on_all_workspaces;
+        break;
+      }
+
       case kCommandSetTabGuid: {
         std::unique_ptr<base::Pickle> pickle(command->PayloadAsPickle());
         base::PickleIterator it(*pickle);
@@ -831,6 +835,15 @@ bool CreateTabsAndWindows(
 
         GetTab(SessionID::FromSerializedValue(tab_id), tabs)->data =
             std::move(data);
+        break;
+      }
+
+      case kCommandSetWindowUserTitle: {
+        SessionID window_id = SessionID::InvalidValue();
+        std::string title;
+        if (!RestoreSetWindowUserTitleCommand(*command, &window_id, &title))
+          return true;
+        GetWindow(window_id, windows)->user_title = title;
         break;
       }
 
@@ -953,6 +966,9 @@ std::unique_ptr<SessionCommand> CreateTabGroupMetadataUpdateCommand(
   WriteTokenToPickle(&pickle, group.token());
   pickle.WriteString16(visual_data->title());
   pickle.WriteUInt32(static_cast<int>(visual_data->color()));
+
+  // This boolean was added in M88 to save the collapsed state.
+  pickle.WriteBool(visual_data->is_collapsed());
   return std::make_unique<SessionCommand>(kCommandSetTabGroupMetadata2, pickle);
 }
 
@@ -1000,6 +1016,16 @@ std::unique_ptr<SessionCommand> CreateSetWindowWorkspaceCommand(
   return std::make_unique<SessionCommand>(kCommandSetWindowWorkspace2, pickle);
 }
 
+std::unique_ptr<SessionCommand> CreateSetWindowVisibleOnAllWorkspacesCommand(
+    const SessionID& window_id,
+    bool visible_on_all_workspaces) {
+  VisibleOnAllWorkspacesPayload payload = {0};
+  payload.window_id = window_id.id();
+  payload.visible_on_all_workspaces = visible_on_all_workspaces;
+  return CreateSessionCommandForPayload(kCommandSetWindowVisibleOnAllWorkspaces,
+                                        payload);
+}
+
 std::unique_ptr<SessionCommand> CreateTabNavigationPathPrunedCommand(
     const SessionID& tab_id,
     int index,
@@ -1038,6 +1064,13 @@ std::unique_ptr<SessionCommand> CreateSetWindowAppNameCommand(
     const std::string& app_name) {
   return CreateSetWindowAppNameCommand(kCommandSetWindowAppName, window_id,
                                        app_name);
+}
+
+std::unique_ptr<SessionCommand> CreateSetWindowUserTitleCommand(
+    const SessionID& window_id,
+    const std::string& user_title) {
+  return CreateSetWindowUserTitleCommand(kCommandSetWindowUserTitle, window_id,
+                                         user_title);
 }
 
 std::unique_ptr<SessionCommand> CreateSetTabGuidCommand(

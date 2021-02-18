@@ -11,6 +11,7 @@
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/inspector/inspector_trace_events.h"
+#include "third_party/blink/renderer/core/loader/address_space_feature.h"
 #include "third_party/blink/renderer/core/loader/alternate_signed_exchange_resource_info.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/core/loader/frame_loader.h"
@@ -72,7 +73,8 @@ void ResourceLoadObserverForFrame::WillSendRequest(
     const ResourceRequest& request,
     const ResourceResponse& redirect_response,
     ResourceType resource_type,
-    const FetchInitiatorInfo& initiator_info) {
+    const FetchInitiatorInfo& initiator_info,
+    RenderBlockingBehavior render_blocking_behavior) {
   LocalFrame* frame = document_->GetFrame();
   DCHECK(frame);
   if (redirect_response.IsNull()) {
@@ -83,7 +85,8 @@ void ResourceLoadObserverForFrame::WillSendRequest(
   probe::WillSendRequest(
       GetProbe(), identifier, document_loader_,
       fetcher_properties_->GetFetchClientSettingsObject().GlobalObjectUrl(),
-      request, redirect_response, initiator_info, resource_type);
+      request, redirect_response, initiator_info, resource_type,
+      render_blocking_behavior);
   if (auto* idleness_detector = frame->GetIdlenessDetector())
     idleness_detector->OnWillSendRequest(document_->Fetcher());
   if (auto* interactive_detector = InteractiveDetector::From(*document_))
@@ -127,14 +130,16 @@ void ResourceLoadObserverForFrame::DidReceiveResponse(
   }
 
   if (response_source == ResponseSource::kFromMemoryCache) {
-    ResourceRequest request(resource->GetResourceRequest());
+    ResourceRequest resource_request(resource->GetResourceRequest());
 
-    if (!request.Url().ProtocolIs(url::kDataScheme)) {
-      frame_client->DispatchDidLoadResourceFromMemoryCache(request, response);
+    if (!resource_request.Url().ProtocolIs(url::kDataScheme)) {
+      frame_client->DispatchDidLoadResourceFromMemoryCache(resource_request,
+                                                           response);
       frame->GetLocalFrameHostRemote().DidLoadResourceFromMemoryCache(
-          request.Url(), String::FromUTF8(request.HttpMethod().Utf8()),
+          resource_request.Url(),
+          String::FromUTF8(resource_request.HttpMethod().Utf8()),
           String::FromUTF8(response.MimeType().Utf8()),
-          request.GetRequestDestination());
+          resource_request.GetRequestDestination());
     }
 
     // Note: probe::WillSendRequest needs to precede before this probe method.
@@ -143,8 +148,7 @@ void ResourceLoadObserverForFrame::DidReceiveResponse(
       return;
   }
 
-  MixedContentChecker::CheckMixedPrivatePublic(frame,
-                                               response.RemoteIPAddress());
+  RecordAddressSpaceFeature(FetchType::kSubresource, frame, response);
 
   std::unique_ptr<AlternateSignedExchangeResourceInfo> alternate_resource_info;
 
@@ -155,12 +159,12 @@ void ResourceLoadObserverForFrame::DidReceiveResponse(
 
     if (RuntimeEnabledFeatures::SignedExchangeSubresourcePrefetchEnabled(
             document_->GetExecutionContext()) &&
-        resource->LastResourceResponse()) {
+        resource->RedirectChainSize() > 0) {
       // See if the outer response (which must be the last response in
       // the redirect chain) had provided alternate links for the prefetch.
       alternate_resource_info =
           AlternateSignedExchangeResourceInfo::CreateIfValid(
-              resource->LastResourceResponse()->HttpHeaderField(
+              resource->LastResourceResponse().HttpHeaderField(
                   http_names::kLink),
               response.HttpHeaderField(http_names::kLink));
     }

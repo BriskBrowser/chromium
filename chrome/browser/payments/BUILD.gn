@@ -2,7 +2,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-source_set("browsertests") {
+import("//build/config/chromeos/ui_mode.gni")
+
+source_set("browser_tests") {
   testonly = true
 
   sources = [
@@ -15,12 +17,14 @@ source_set("browsertests") {
     "iframe_csp_browsertest.cc",
     "ignore_payment_method_browsertest.cc",
     "journey_logger_browsertest.cc",
+    "load_and_remove_iframe_with_many_payment_requests_browsertest.cc",
     "payment_handler_capabilities_browsertest.cc",
     "payment_handler_change_shipping_address_option_browsertest.cc",
     "payment_handler_enable_delegations_browsertest.cc",
     "payment_handler_enforce_full_delegation_browsertest.cc",
     "payment_handler_exploit_browsertest.cc",
     "payment_handler_just_in_time_installation_browsertest.cc",
+    "payment_handler_ui_browsertest.cc",
     "payment_handler_uninstall_browsertest.cc",
     "payment_request_app_store_billing_browsertest.cc",
     "payment_request_can_make_payment_browsertest.cc",
@@ -35,6 +39,7 @@ source_set("browsertests") {
 
   deps = [
     "//base/test:test_support",
+    "//build:chromeos_buildflags",
     "//chrome/test:test_support",
     "//chrome/test/payments:test_support",
     "//components/payments/content",
@@ -67,6 +72,10 @@ source_set("browsertests") {
       "//components/payments/content/utility",
       "//components/permissions:permissions",
     ]
+  }
+
+  if (is_chromeos_ash) {
+    deps += [ "//ash/public/cpp/external_arc:external_arc" ]
   }
 }
 

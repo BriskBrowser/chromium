@@ -19,7 +19,6 @@
 #include "third_party/blink/renderer/platform/graphics/paint/geometry_mapper.h"
 #include "third_party/blink/renderer/platform/graphics/paint/scroll_paint_property_node.h"
 #include "third_party/blink/renderer/platform/graphics/paint/transform_paint_property_node.h"
-#include "third_party/skia/include/effects/SkColorFilterImageFilter.h"
 #include "third_party/skia/include/effects/SkLumaColorFilter.h"
 
 namespace blink {
@@ -589,11 +588,11 @@ void PropertyTreeManager::CreateCompositorScrollNode(
       scroll_node.MaxScrollOffsetAffectedByPageScale();
   compositor_node.main_thread_scrolling_reasons =
       scroll_node.GetMainThreadScrollingReasons();
-  compositor_node.overscroll_behavior = cc::OverscrollBehavior(
-      static_cast<cc::OverscrollBehavior::OverscrollBehaviorType>(
-          scroll_node.OverscrollBehaviorX()),
-      static_cast<cc::OverscrollBehavior::OverscrollBehaviorType>(
-          scroll_node.OverscrollBehaviorY()));
+  compositor_node.overscroll_behavior =
+      cc::OverscrollBehavior(static_cast<cc::OverscrollBehavior::Type>(
+                                 scroll_node.OverscrollBehaviorX()),
+                             static_cast<cc::OverscrollBehavior::Type>(
+                                 scroll_node.OverscrollBehaviorY()));
   compositor_node.snap_container_data = scroll_node.GetSnapContainerData();
 
   auto compositor_element_id = scroll_node.GetCompositorElementId();
@@ -639,7 +638,7 @@ void PropertyTreeManager::EmitClipMaskLayer() {
   DCHECK(mask_isolation);
   bool needs_layer =
       !pending_synthetic_mask_layers_.Contains(mask_isolation->id) &&
-      mask_isolation->rounded_corner_bounds.IsEmpty();
+      mask_isolation->mask_filter_info.IsEmpty();
 
   CompositorElementId mask_isolation_id, mask_effect_id;
   SynthesizedClip& clip = client_.CreateOrReuseSynthesizedClipLayer(
@@ -666,16 +665,16 @@ void PropertyTreeManager::EmitClipMaskLayer() {
 
   cc::PictureLayer* mask_layer = clip.Layer();
 
-  const auto& clip_space = current_.clip->LocalTransformSpace().Unalias();
   layer_list_builder_.Add(mask_layer);
   mask_layer->set_property_tree_sequence_number(
       root_layer_.property_tree_sequence_number());
-  mask_layer->SetTransformTreeIndex(EnsureCompositorTransformNode(clip_space));
+  mask_layer->SetTransformTreeIndex(
+      EnsureCompositorTransformNode(*current_.transform));
   // TODO(pdr): This could be a performance issue because it crawls up the
   // transform tree for each pending layer. If this is on profiles, we should
   // cache a lookup of transform node to scroll translation transform node.
-  int scroll_id =
-      EnsureCompositorScrollNode(clip_space.NearestScrollTranslationNode());
+  int scroll_id = EnsureCompositorScrollNode(
+      current_.transform->NearestScrollTranslationNode());
   mask_layer->SetScrollTreeIndex(scroll_id);
   mask_layer->SetClipTreeIndex(mask_effect.clip_id);
   mask_layer->SetEffectTreeIndex(mask_effect.id);
@@ -984,8 +983,8 @@ int PropertyTreeManager::SynthesizeCcEffectsForClipsIfNeeded(
       // is used. See PropertyTreeManager::EmitClipMaskLayer().
       if (SupportsShaderBasedRoundedCorner(*pending_clip.clip,
                                            pending_clip.type, next_effect)) {
-        synthetic_effect.rounded_corner_bounds =
-            gfx::RRectF(pending_clip.clip->PixelSnappedClipRect());
+        synthetic_effect.mask_filter_info = gfx::MaskFilterInfo(
+            gfx::RRectF(pending_clip.clip->PixelSnappedClipRect()));
         synthetic_effect.is_fast_rounded_corner = true;
 
         // Nested rounded corner clips need to force render surfaces for
@@ -1008,20 +1007,18 @@ int PropertyTreeManager::SynthesizeCcEffectsForClipsIfNeeded(
                 : cc::RenderSurfaceReason::kClipPath;
       }
       pending_synthetic_mask_layers_.insert(synthetic_effect.id);
-    } else {
-      DCHECK(pending_clip.type & CcEffectType::kSyntheticFor2dAxisAlignment);
+    }
+
+    if (pending_clip.type & CcEffectType::kSyntheticFor2dAxisAlignment) {
       synthetic_effect.stable_id =
           CompositorElementIdFromUniqueObjectId(NewUniqueObjectId())
               .GetStableId();
+      synthetic_effect.render_surface_reason =
+          cc::RenderSurfaceReason::kClipAxisAlignment;
       // The clip of the synthetic effect is the parent of the clip, so that
       // the clip itself will be applied in the render surface.
       DCHECK(pending_clip.clip->UnaliasedParent());
       clip_id = EnsureCompositorClipNode(*pending_clip.clip->UnaliasedParent());
-    }
-
-    if (pending_clip.type & CcEffectType::kSyntheticFor2dAxisAlignment) {
-      synthetic_effect.render_surface_reason =
-          cc::RenderSurfaceReason::kClipAxisAlignment;
     }
 
     const TransformPaintPropertyNode* transform = nullptr;

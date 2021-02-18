@@ -8,11 +8,12 @@
 #include "base/files/file_util.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_restrictions.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
+#include "chrome/browser/chromeos/plugin_vm/plugin_vm_installer_factory.h"
 #include "chrome/browser/chromeos/plugin_vm/plugin_vm_pref_names.h"
 #include "chrome/browser/chromeos/plugin_vm/plugin_vm_test_helper.h"
 #include "chrome/browser/chromeos/plugin_vm/plugin_vm_util.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/settings/scoped_testing_cros_settings.h"
 #include "chrome/browser/chromeos/settings/stub_cros_settings_provider.h"
@@ -24,9 +25,11 @@
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/debug_daemon/fake_debug_daemon_client.h"
 #include "chromeos/dbus/fake_concierge_client.h"
+#include "chromeos/dbus/fake_vm_plugin_dispatcher_client.h"
 #include "chromeos/tpm/stub_install_attributes.h"
 #include "components/account_id/account_id.h"
 #include "components/download/public/background_service/download_metadata.h"
+#include "components/download/public/background_service/features.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/user_manager/scoped_user_manager.h"
@@ -64,6 +67,9 @@ class PluginVmInstallerViewBrowserTest : public DialogBrowserTest {
     fake_concierge_client_ = static_cast<chromeos::FakeConciergeClient*>(
         chromeos::DBusThreadManager::Get()->GetConciergeClient());
     fake_concierge_client_->set_disk_image_progress_signal_connected(true);
+    fake_vm_plugin_dispatcher_client_ =
+        static_cast<chromeos::FakeVmPluginDispatcherClient*>(
+            chromeos::DBusThreadManager::Get()->GetVmPluginDispatcherClient());
 
     network_connection_tracker_ =
         network::TestNetworkConnectionTracker::CreateInstance();
@@ -94,6 +100,9 @@ class PluginVmInstallerViewBrowserTest : public DialogBrowserTest {
     // Set correct PluginVmImage preference value.
     SetPluginVmImagePref(embedded_test_server()->GetURL(kZipFile).spec(),
                          kZipFileHash);
+    auto* installer = plugin_vm::PluginVmInstallerFactory::GetForProfile(
+        browser()->profile());
+    installer->SetFreeDiskSpaceForTesting(installer->RequiredFreeDiskSpace());
   }
 
   void SetPluginVmImagePref(std::string url, std::string hash) {
@@ -142,6 +151,7 @@ class PluginVmInstallerViewBrowserTest : public DialogBrowserTest {
   std::unique_ptr<user_manager::ScopedUserManager> scoped_user_manager_;
   PluginVmInstallerView* view_;
   chromeos::FakeConciergeClient* fake_concierge_client_;
+  chromeos::FakeVmPluginDispatcherClient* fake_vm_plugin_dispatcher_client_;
 
  private:
   void EnterpriseEnrollDevice() {
@@ -184,7 +194,10 @@ class PluginVmInstallerViewBrowserTestWithFeatureEnabled
     : public PluginVmInstallerViewBrowserTest {
  public:
   PluginVmInstallerViewBrowserTestWithFeatureEnabled() {
-    feature_list_.InitAndEnableFeature(features::kPluginVm);
+    feature_list_.InitWithFeaturesAndParameters(
+        {{features::kPluginVm, {}},
+         {download::kDownloadServiceFeature, {{"start_up_delay_ms", "0"}}}},
+        {});
   }
 
  private:
@@ -290,4 +303,29 @@ IN_PROC_BROWSER_TEST_F(
               static_cast<std::underlying_type_t<
                   plugin_vm::PluginVmInstaller::FailureReason>>(
                   plugin_vm::PluginVmInstaller::FailureReason::NOT_ALLOWED))));
+}
+
+IN_PROC_BROWSER_TEST_F(PluginVmInstallerViewBrowserTestWithFeatureEnabled,
+                       SetupShouldLaunchIfImageAlreadyImported) {
+  AllowPluginVm();
+
+  // Setup concierge and the dispatcher for VM already imported.
+  vm_tools::concierge::ListVmDisksResponse list_vm_disks_response;
+  list_vm_disks_response.set_success(true);
+  list_vm_disks_response.add_images();
+  fake_concierge_client_->set_list_vm_disks_response(list_vm_disks_response);
+
+  vm_tools::plugin_dispatcher::ListVmResponse list_vms_response;
+  list_vms_response.add_vm_info()->set_state(
+      vm_tools::plugin_dispatcher::VmState::VM_STATE_STOPPED);
+  fake_vm_plugin_dispatcher_client_->set_list_vms_response(list_vms_response);
+
+  ShowUi("default");
+  EXPECT_NE(nullptr, view_);
+
+  view_->AcceptDialog();
+  WaitForSetupToFinish();
+
+  // Installer should be closed.
+  EXPECT_EQ(nullptr, PluginVmInstallerView::GetActiveViewForTesting());
 }

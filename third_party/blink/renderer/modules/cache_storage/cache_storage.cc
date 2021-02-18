@@ -76,7 +76,10 @@ bool IsCacheStorageAllowed(ScriptState* script_state) {
     settings_client = To<WorkerGlobalScope>(context)->ContentSettingsClient();
 
   // This triggers a sync IPC.
-  return settings_client ? settings_client->AllowCacheStorage() : true;
+  return settings_client
+             ? settings_client->AllowStorageAccessSync(
+                   WebContentSettingsClient::StorageType::kCacheStorage)
+             : true;
 }
 
 }  // namespace
@@ -116,8 +119,10 @@ ScriptPromise CacheStorage::open(ScriptState* script_state,
       cache_name, trace_id,
       WTF::Bind(
           [](ScriptPromiseResolver* resolver,
-             GlobalFetch::ScopedFetcher* fetcher, base::TimeTicks start_time,
-             int64_t trace_id, mojom::blink::OpenResultPtr result) {
+             GlobalFetch::ScopedFetcher* fetcher,
+             CacheStorageBlobClientList* blob_client_list,
+             base::TimeTicks start_time, int64_t trace_id,
+             mojom::blink::OpenResultPtr result) {
             UMA_HISTOGRAM_TIMES("ServiceWorkerCache.CacheStorage.Renderer.Open",
                                 base::TimeTicks::Now() - start_time);
             if (!resolver->GetExecutionContext() ||
@@ -137,13 +142,14 @@ ScriptPromise CacheStorage::open(ScriptState* script_state,
                   "success");
               // See https://bit.ly/2S0zRAS for task types.
               resolver->Resolve(MakeGarbageCollected<Cache>(
-                  fetcher, std::move(result->get_cache()),
+                  fetcher, blob_client_list, std::move(result->get_cache()),
                   resolver->GetExecutionContext()->GetTaskRunner(
                       blink::TaskType::kMiscPlatformAPI)));
             }
           },
           WrapPersistent(resolver), WrapPersistent(scoped_fetcher_.Get()),
-          base::TimeTicks::Now(), trace_id));
+          WrapPersistent(blob_client_list_.Get()), base::TimeTicks::Now(),
+          trace_id));
 
   return promise;
 }

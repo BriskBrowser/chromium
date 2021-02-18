@@ -2,18 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'chrome://resources/cr_elements/hidden_style_css.m.js';
 import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
 import 'chrome://resources/cr_elements/shared_vars_css.m.js';
+import 'chrome://resources/cr_elements/shared_style_css.m.js';
 import 'chrome://resources/cr_elements/cr_checkbox/cr_checkbox.m.js';
 import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
 import './icons.js';
 import './profile_card.js';
 import './profile_picker_shared_css.js';
+import './strings.js';
 
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {WebUIListenerBehavior} from 'chrome://resources/js/web_ui_listener_behavior.m.js';
 import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import './strings.js';
 
 import {ManageProfilesBrowserProxy, ManageProfilesBrowserProxyImpl, ProfileState} from './manage_profiles_browser_proxy.js';
 import {navigateTo, NavigationBehavior, Routes} from './navigation_behavior.js';
@@ -33,6 +35,21 @@ Polymer({
      */
     profilesList_: {
       type: Object,
+      value: () => [],
+    },
+
+    /** @private */
+    profilesListLoaded_: {
+      type: Boolean,
+      value: false,
+    },
+
+    /** @private */
+    hideAskOnStartup_: {
+      type: Boolean,
+      value: true,
+      computed: 'computeHideAskOnStartup_(profilesList_.length)',
+
     },
 
     /** @private */
@@ -42,10 +59,21 @@ Polymer({
         return loadTimeData.getBoolean('askOnStartup');
       }
     },
+
+    /** @private */
+    disableAskOnStartup_: {
+      type: Boolean,
+      value() {
+        return loadTimeData.getBoolean('disableAskOnStartup');
+      }
+    },
   },
 
   /** @private {?ManageProfilesBrowserProxy} */
   manageProfilesBrowserProxy_: null,
+
+  /** @type {ResizeObserver} used to observer size changes to this element */
+  resizeObserver_: null,
 
   /** @override */
   ready() {
@@ -63,11 +91,32 @@ Polymer({
 
   /** @override */
   attached() {
+    this.addResizeObserver_();
     this.addWebUIListener(
         'profiles-list-changed', this.handleProfilesListChanged_.bind(this));
     this.addWebUIListener(
         'profile-removed', this.handleProfileRemoved_.bind(this));
     this.manageProfilesBrowserProxy_.initializeMainView();
+  },
+
+  /** @override */
+  detached() {
+    this.resizeObserver_.disconnect();
+  },
+
+  /** @private */
+  addResizeObserver_() {
+    this.resizeObserver_ = new ResizeObserver(() => {
+      const profileContainer =
+          /** @type {!HTMLDivElement} */ (this.$$('.profiles-container'));
+      if (profileContainer.scrollHeight > profileContainer.clientHeight) {
+        this.$$('.footer').classList.add('division-line');
+      } else {
+        this.$$('.footer').classList.remove('division-line');
+      }
+    });
+    this.resizeObserver_.observe(
+        /** @type {!HTMLDivElement} */ (this.$$('.profiles-container')));
   },
 
   /** @private */
@@ -88,6 +137,7 @@ Polymer({
    * @private
    */
   handleProfilesListChanged_(profilesList) {
+    this.profilesListLoaded_ = true;
     this.profilesList_ = profilesList;
   },
 
@@ -96,6 +146,10 @@ Polymer({
    * @private
    */
   onAskOnStartupChangedByUser_() {
+    if (this.hideAskOnStartup_) {
+      return;
+    }
+
     this.manageProfilesBrowserProxy_.askOnStartupChanged(this.askOnStartup_);
   },
 
@@ -104,6 +158,7 @@ Polymer({
     if (!isProfileCreationAllowed()) {
       return;
     }
+    chrome.metricsPrivate.recordUserAction('ProfilePicker_AddClicked');
     navigateTo(Routes.NEW_PROFILE);
   },
 
@@ -124,5 +179,14 @@ Polymer({
         break;
       }
     }
+  },
+
+  /**
+   * @return boolean
+   * @private
+   */
+  computeHideAskOnStartup_() {
+    return this.disableAskOnStartup_ || !this.profilesList_ ||
+        this.profilesList_.length < 2;
   },
 });

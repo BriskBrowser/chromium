@@ -30,6 +30,14 @@ void SandboxedProcessLauncherDelegate::PostSpawnTarget(
 bool SandboxedProcessLauncherDelegate::ShouldLaunchElevated() {
   return false;
 }
+
+bool SandboxedProcessLauncherDelegate::ShouldUnsandboxedRunInJob() {
+  return false;
+}
+
+bool SandboxedProcessLauncherDelegate::CetCompatible() {
+  return true;
+}
 #endif  // defined(OS_WIN)
 
 #if BUILDFLAG(USE_ZYGOTE_HANDLE)
@@ -47,9 +55,17 @@ base::EnvironmentMap SandboxedProcessLauncherDelegate::GetEnvironment() {
 #endif  // defined(OS_POSIX)
 
 #if defined(OS_MAC)
+
 bool SandboxedProcessLauncherDelegate::DisclaimResponsibility() {
   return false;
 }
-#endif
+
+#if defined(ARCH_CPU_ARM64)
+bool SandboxedProcessLauncherDelegate::LaunchX86_64() {
+  return false;
+}
+#endif  // ARCH_CPU_ARM64
+
+#endif  // OS_MAC
 
 }  // namespace content

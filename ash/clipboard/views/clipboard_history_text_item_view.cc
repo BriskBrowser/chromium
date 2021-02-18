@@ -4,23 +4,16 @@
 
 #include "ash/clipboard/views/clipboard_history_text_item_view.h"
 
-#include "ash/clipboard/clipboard_history_controller.h"
+#include "ash/clipboard/clipboard_history_controller_impl.h"
 #include "ash/clipboard/clipboard_history_resource_manager.h"
+#include "ash/clipboard/clipboard_history_util.h"
+#include "ash/clipboard/views/clipboard_history_delete_button.h"
+#include "ash/clipboard/views/clipboard_history_label.h"
+#include "ash/clipboard/views/clipboard_history_view_constants.h"
 #include "ash/shell.h"
-#include "ui/views/controls/label.h"
-#include "ui/views/controls/menu/menu_config.h"
+#include "base/metrics/histogram_macros.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/view_class_properties.h"
-
-namespace {
-
-// The preferred height for the label.
-constexpr int kLabelPreferredHeight = 16;
-
-// The margins of the delete button.
-constexpr gfx::Insets kDeleteButtonMargins =
-    gfx::Insets(/*top=*/0, /*left=*/0, /*bottom=*/0, /*right=*/4);
-}  // namespace
 
 namespace ash {
 
@@ -30,18 +23,31 @@ namespace ash {
 class ClipboardHistoryTextItemView::TextContentsView
     : public ClipboardHistoryTextItemView::ContentsView {
  public:
-  explicit TextContentsView(ClipboardHistoryItemView* container)
-      : ContentsView(container) {}
+  explicit TextContentsView(ClipboardHistoryTextItemView* container)
+      : ContentsView(container) {
+    auto* layout = SetLayoutManager(std::make_unique<views::BoxLayout>(
+        views::BoxLayout::Orientation::kHorizontal));
+    layout->set_cross_axis_alignment(
+        views::BoxLayout::CrossAxisAlignment::kCenter);
+
+    auto* label =
+        AddChildView(std::make_unique<ClipboardHistoryLabel>(container->text_));
+    layout->SetFlexForView(label, /*flex_weight=*/1);
+
+    InstallDeleteButton();
+  }
   TextContentsView(const TextContentsView& rhs) = delete;
   TextContentsView& operator=(const TextContentsView& rhs) = delete;
   ~TextContentsView() override = default;
 
  private:
   // ContentsView:
-  DeleteButton* CreateDeleteButton() override {
-    auto delete_button = std::make_unique<DeleteButton>(container_);
-    delete_button->SetVisible(false);
-    delete_button->SetBorder(views::CreateEmptyBorder(kDeleteButtonMargins));
+  ClipboardHistoryDeleteButton* CreateDeleteButton() override {
+    auto delete_button =
+        std::make_unique<ClipboardHistoryDeleteButton>(container());
+    delete_button->SetProperty(
+        views::kMarginsKey,
+        ClipboardHistoryViews::kDefaultItemDeleteButtonMargins);
     return AddChildView(std::move(delete_button));
   }
 
@@ -54,40 +60,27 @@ class ClipboardHistoryTextItemView::TextContentsView
 // ClipboardHistoryTextItemView
 
 ClipboardHistoryTextItemView::ClipboardHistoryTextItemView(
-    const ClipboardHistoryItem& item,
+    const ClipboardHistoryItem* clipboard_history_item,
     views::MenuItemView* container)
-    : ClipboardHistoryItemView(container),
+    : ClipboardHistoryItemView(clipboard_history_item, container),
       text_(Shell::Get()
                 ->clipboard_history_controller()
                 ->resource_manager()
-                ->GetLabel(item)) {}
+                ->GetLabel(*clipboard_history_item)) {}
 
 ClipboardHistoryTextItemView::~ClipboardHistoryTextItemView() = default;
 
-const char* ClipboardHistoryTextItemView::GetClassName() const {
-  return "ClipboardHistoryTextItemView";
-}
-
 std::unique_ptr<ClipboardHistoryTextItemView::ContentsView>
 ClipboardHistoryTextItemView::CreateContentsView() {
-  auto contents_view = std::make_unique<TextContentsView>(this);
-  auto* layout =
-      contents_view->SetLayoutManager(std::make_unique<views::BoxLayout>(
-          views::BoxLayout::Orientation::kHorizontal));
-  layout->set_cross_axis_alignment(
-      views::BoxLayout::CrossAxisAlignment::kCenter);
+  return std::make_unique<TextContentsView>(this);
+}
 
-  auto* label =
-      contents_view->AddChildView(std::make_unique<views::Label>(text_));
-  label->SetPreferredSize(gfx::Size(INT_MAX, kLabelPreferredHeight));
-  label->SetFontList(views::MenuConfig::instance().font_list);
-  label->SetMultiLine(false);
-  label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  layout->SetFlexForView(label, /*flex_weights=*/1);
+base::string16 ClipboardHistoryTextItemView::GetAccessibleName() const {
+  return text_;
+}
 
-  contents_view->InstallDeleteButton();
-
-  return contents_view;
+const char* ClipboardHistoryTextItemView::GetClassName() const {
+  return "ClipboardHistoryTextItemView";
 }
 
 }  // namespace ash

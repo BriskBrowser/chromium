@@ -11,8 +11,8 @@
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/apps/app_service/browser_app_launcher.h"
-#include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
-#include "chrome/browser/chromeos/app_mode/kiosk_app_types.h"
+#include "chrome/browser/ash/app_mode/kiosk_app_manager.h"
+#include "chrome/browser/ash/app_mode/kiosk_app_types.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/extensions/component_loader.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -54,7 +54,7 @@ void DemoAppLauncher::StartDemoAppLaunch() {
   DVLOG(1) << "Launching demo app...";
   // user_id = DemoAppUserId, force_emphemeral = true, delegate = this.
   kiosk_profile_loader_.reset(new KioskProfileLoader(
-      user_manager::DemoAccountId(), KioskAppType::CHROME_APP, true, this));
+      user_manager::DemoAccountId(), KioskAppType::kChromeApp, true, this));
   kiosk_profile_loader_->Start();
 }
 

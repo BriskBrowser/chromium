@@ -14,6 +14,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/test/base/chrome_render_view_test.h"
 #include "components/autofill/content/renderer/form_autofill_util.h"
 #include "components/autofill/content/renderer/form_cache.h"
@@ -38,9 +39,6 @@
 #include "third_party/blink/public/web/win/web_font_rendering.h"
 #endif
 
-using autofill::features::kAutofillEnforceMinRequiredFieldsForHeuristics;
-using autofill::features::kAutofillEnforceMinRequiredFieldsForQuery;
-using autofill::features::kAutofillEnforceMinRequiredFieldsForUpload;
 using base::ASCIIToUTF16;
 using blink::WebAutofillState;
 using blink::WebDocument;
@@ -292,7 +290,7 @@ class FormAutofillTest : public ChromeRenderViewTest {
     // Autofill uses the system font to render suggestion previews. On Windows
     // an extra step is required to ensure that the system font is configured.
     blink::WebFontRendering::SetMenuFontMetrics(
-        base::ASCIIToUTF16("Arial").c_str(), 12);
+        blink::WebString::FromASCII("Arial"), 12);
   }
 #endif
 
@@ -400,8 +398,9 @@ class FormAutofillTest : public ChromeRenderViewTest {
     ExpectLabels(html, id_attributes, name_attributes, labels, names, values);
   }
 
-  typedef void (*FillFormFunction)(const FormData& form,
-                                   const WebFormControlElement& element);
+  typedef std::vector<WebFormControlElement> (*FillFormFunction)(
+      const FormData& form,
+      const WebFormControlElement& element);
 
   typedef WebString (*GetValueFunction)(WebFormControlElement element);
 
@@ -2154,7 +2153,7 @@ class FormAutofillTest : public ChromeRenderViewTest {
     EXPECT_EQ(0, firstname.SelectionEnd());
   }
 
-  void TestClearPreviewedFormWithElement(const char* html) {
+  void TestClearPreviewedElements(const char* html) {
     LoadHTML(html);
     WebLocalFrame* web_frame = GetMainFrame();
     ASSERT_NE(nullptr, web_frame);
@@ -2163,27 +2162,28 @@ class FormAutofillTest : public ChromeRenderViewTest {
     std::vector<FormData> forms = form_cache.ExtractNewForms(nullptr);
     ASSERT_EQ(1U, forms.size());
 
+    std::vector<WebFormControlElement> elements;
+    elements.push_back(GetInputElementById("firstname"));
+    elements.push_back(GetInputElementById("lastname"));
+    elements.push_back(GetInputElementById("email"));
+    elements.push_back(GetInputElementById("email2"));
+    elements.push_back(GetInputElementById("phone"));
+    WebInputElement& firstname = *blink::ToWebInputElement(&elements[0]);
+    WebInputElement& lastname = *blink::ToWebInputElement(&elements[1]);
+
     // Set the auto-filled attribute.
-    WebInputElement firstname = GetInputElementById("firstname");
-    firstname.SetAutofillState(WebAutofillState::kPreviewed);
-    WebInputElement lastname = GetInputElementById("lastname");
-    lastname.SetAutofillState(WebAutofillState::kPreviewed);
-    WebInputElement email = GetInputElementById("email");
-    email.SetAutofillState(WebAutofillState::kPreviewed);
-    WebInputElement email2 = GetInputElementById("email2");
-    email2.SetAutofillState(WebAutofillState::kPreviewed);
-    WebInputElement phone = GetInputElementById("phone");
-    phone.SetAutofillState(WebAutofillState::kPreviewed);
+    for (WebFormControlElement& e : elements) {
+      e.SetAutofillState(WebAutofillState::kPreviewed);
+    }
 
     // Set the suggested values on two of the elements.
     lastname.SetSuggestedValue(WebString::FromASCII("Earp"));
-    email.SetSuggestedValue(WebString::FromASCII("wyatt@earp.com"));
-    email2.SetSuggestedValue(WebString::FromASCII("wyatt@earp.com"));
-    phone.SetSuggestedValue(WebString::FromASCII("650-777-9999"));
+    elements[2].SetSuggestedValue(WebString::FromASCII("wyatt@earp.com"));
+    elements[3].SetSuggestedValue(WebString::FromASCII("wyatt@earp.com"));
+    elements[4].SetSuggestedValue(WebString::FromASCII("650-777-9999"));
 
     // Clear the previewed fields.
-    EXPECT_TRUE(
-        ClearPreviewedFormWithElement(lastname, WebAutofillState::kNotFilled));
+    ClearPreviewedElements(elements, lastname, WebAutofillState::kNotFilled);
 
     // Fields with empty suggestions suggestions are not modified.
     EXPECT_EQ(ASCIIToUTF16("Wyatt"), firstname.Value().Utf16());
@@ -2191,18 +2191,12 @@ class FormAutofillTest : public ChromeRenderViewTest {
     EXPECT_TRUE(firstname.IsAutofilled());
 
     // Verify the previewed fields are cleared.
-    EXPECT_TRUE(lastname.Value().IsEmpty());
-    EXPECT_TRUE(lastname.SuggestedValue().IsEmpty());
-    EXPECT_FALSE(lastname.IsAutofilled());
-    EXPECT_TRUE(email.Value().IsEmpty());
-    EXPECT_TRUE(email.SuggestedValue().IsEmpty());
-    EXPECT_FALSE(email.IsAutofilled());
-    EXPECT_TRUE(email2.Value().IsEmpty());
-    EXPECT_TRUE(email2.SuggestedValue().IsEmpty());
-    EXPECT_FALSE(email2.IsAutofilled());
-    EXPECT_TRUE(phone.Value().IsEmpty());
-    EXPECT_TRUE(phone.SuggestedValue().IsEmpty());
-    EXPECT_FALSE(phone.IsAutofilled());
+    for (size_t i = 1; i < elements.size(); ++i) {
+      SCOPED_TRACE(testing::Message() << "Element " << i);
+      EXPECT_TRUE(elements[i].Value().IsEmpty());
+      EXPECT_TRUE(elements[i].SuggestedValue().IsEmpty());
+      EXPECT_FALSE(elements[i].IsAutofilled());
+    }
 
     // Verify that the cursor position has been updated.
     EXPECT_EQ(0, lastname.SelectionStart());
@@ -2218,28 +2212,29 @@ class FormAutofillTest : public ChromeRenderViewTest {
     std::vector<FormData> forms = form_cache.ExtractNewForms(nullptr);
     ASSERT_EQ(1U, forms.size());
 
+    std::vector<WebFormControlElement> elements;
+    elements.push_back(GetInputElementById("firstname"));
+    elements.push_back(GetInputElementById("lastname"));
+    elements.push_back(GetInputElementById("email"));
+    elements.push_back(GetInputElementById("email2"));
+    elements.push_back(GetInputElementById("phone"));
+    WebInputElement& firstname = *blink::ToWebInputElement(&elements[0]);
+    WebInputElement& lastname = *blink::ToWebInputElement(&elements[1]);
+
     // Set the auto-filled attribute.
-    WebInputElement firstname = GetInputElementById("firstname");
-    firstname.SetAutofillState(WebAutofillState::kPreviewed);
-    WebInputElement lastname = GetInputElementById("lastname");
-    lastname.SetAutofillState(WebAutofillState::kPreviewed);
-    WebInputElement email = GetInputElementById("email");
-    email.SetAutofillState(WebAutofillState::kPreviewed);
-    WebInputElement email2 = GetInputElementById("email2");
-    email2.SetAutofillState(WebAutofillState::kPreviewed);
-    WebInputElement phone = GetInputElementById("phone");
-    phone.SetAutofillState(WebAutofillState::kPreviewed);
+    for (WebFormControlElement& e : elements) {
+      e.SetAutofillState(WebAutofillState::kPreviewed);
+    }
 
     // Set the suggested values on all of the elements.
     firstname.SetSuggestedValue(WebString::FromASCII("Wyatt"));
     lastname.SetSuggestedValue(WebString::FromASCII("Earp"));
-    email.SetSuggestedValue(WebString::FromASCII("wyatt@earp.com"));
-    email2.SetSuggestedValue(WebString::FromASCII("wyatt@earp.com"));
-    phone.SetSuggestedValue(WebString::FromASCII("650-777-9999"));
+    elements[2].SetSuggestedValue(WebString::FromASCII("wyatt@earp.com"));
+    elements[3].SetSuggestedValue(WebString::FromASCII("wyatt@earp.com"));
+    elements[4].SetSuggestedValue(WebString::FromASCII("650-777-9999"));
 
     // Clear the previewed fields.
-    EXPECT_TRUE(
-        ClearPreviewedFormWithElement(firstname, WebAutofillState::kNotFilled));
+    ClearPreviewedElements(elements, firstname, WebAutofillState::kNotFilled);
 
     // Fields with non-empty values are restored.
     EXPECT_EQ(ASCIIToUTF16("W"), firstname.Value().Utf16());
@@ -2249,18 +2244,12 @@ class FormAutofillTest : public ChromeRenderViewTest {
     EXPECT_EQ(1, firstname.SelectionEnd());
 
     // Verify the previewed fields are cleared.
-    EXPECT_TRUE(lastname.Value().IsEmpty());
-    EXPECT_TRUE(lastname.SuggestedValue().IsEmpty());
-    EXPECT_FALSE(lastname.IsAutofilled());
-    EXPECT_TRUE(email.Value().IsEmpty());
-    EXPECT_TRUE(email.SuggestedValue().IsEmpty());
-    EXPECT_FALSE(email.IsAutofilled());
-    EXPECT_TRUE(email2.Value().IsEmpty());
-    EXPECT_TRUE(email2.SuggestedValue().IsEmpty());
-    EXPECT_FALSE(email2.IsAutofilled());
-    EXPECT_TRUE(phone.Value().IsEmpty());
-    EXPECT_TRUE(phone.SuggestedValue().IsEmpty());
-    EXPECT_FALSE(phone.IsAutofilled());
+    for (size_t i = 1; i < elements.size(); ++i) {
+      SCOPED_TRACE(testing::Message() << "Element " << i);
+      EXPECT_TRUE(elements[i].Value().IsEmpty());
+      EXPECT_TRUE(elements[i].SuggestedValue().IsEmpty());
+      EXPECT_FALSE(elements[i].IsAutofilled());
+    }
   }
 
   void TestClearPreviewedFormWithAutofilledInitiatingNode(const char* html) {
@@ -2272,28 +2261,29 @@ class FormAutofillTest : public ChromeRenderViewTest {
     std::vector<FormData> forms = form_cache.ExtractNewForms(nullptr);
     ASSERT_EQ(1U, forms.size());
 
+    std::vector<WebFormControlElement> elements;
+    elements.push_back(GetInputElementById("firstname"));
+    elements.push_back(GetInputElementById("lastname"));
+    elements.push_back(GetInputElementById("email"));
+    elements.push_back(GetInputElementById("email2"));
+    elements.push_back(GetInputElementById("phone"));
+    WebInputElement& firstname = *blink::ToWebInputElement(&elements[0]);
+    WebInputElement& lastname = *blink::ToWebInputElement(&elements[1]);
+
     // Set the auto-filled attribute.
-    WebInputElement firstname = GetInputElementById("firstname");
-    firstname.SetAutofillState(WebAutofillState::kPreviewed);
-    WebInputElement lastname = GetInputElementById("lastname");
-    lastname.SetAutofillState(WebAutofillState::kPreviewed);
-    WebInputElement email = GetInputElementById("email");
-    email.SetAutofillState(WebAutofillState::kPreviewed);
-    WebInputElement email2 = GetInputElementById("email2");
-    email2.SetAutofillState(WebAutofillState::kPreviewed);
-    WebInputElement phone = GetInputElementById("phone");
-    phone.SetAutofillState(WebAutofillState::kPreviewed);
+    for (WebFormControlElement& e : elements) {
+      e.SetAutofillState(WebAutofillState::kPreviewed);
+    }
 
     // Set the suggested values on all of the elements.
     firstname.SetSuggestedValue(WebString::FromASCII("Wyatt"));
     lastname.SetSuggestedValue(WebString::FromASCII("Earp"));
-    email.SetSuggestedValue(WebString::FromASCII("wyatt@earp.com"));
-    email2.SetSuggestedValue(WebString::FromASCII("wyatt@earp.com"));
-    phone.SetSuggestedValue(WebString::FromASCII("650-777-9999"));
+    elements[2].SetSuggestedValue(WebString::FromASCII("wyatt@earp.com"));
+    elements[3].SetSuggestedValue(WebString::FromASCII("wyatt@earp.com"));
+    elements[4].SetSuggestedValue(WebString::FromASCII("650-777-9999"));
 
     // Clear the previewed fields.
-    EXPECT_TRUE(ClearPreviewedFormWithElement(firstname,
-                                              WebAutofillState::kAutofilled));
+    ClearPreviewedElements(elements, firstname, WebAutofillState::kAutofilled);
 
     // Fields with non-empty values are restored.
     EXPECT_EQ(ASCIIToUTF16("W"), firstname.Value().Utf16());
@@ -2303,18 +2293,12 @@ class FormAutofillTest : public ChromeRenderViewTest {
     EXPECT_EQ(1, firstname.SelectionEnd());
 
     // Verify the previewed fields are cleared.
-    EXPECT_TRUE(lastname.Value().IsEmpty());
-    EXPECT_TRUE(lastname.SuggestedValue().IsEmpty());
-    EXPECT_FALSE(lastname.IsAutofilled());
-    EXPECT_TRUE(email.Value().IsEmpty());
-    EXPECT_TRUE(email.SuggestedValue().IsEmpty());
-    EXPECT_FALSE(email.IsAutofilled());
-    EXPECT_TRUE(email2.Value().IsEmpty());
-    EXPECT_TRUE(email2.SuggestedValue().IsEmpty());
-    EXPECT_FALSE(email2.IsAutofilled());
-    EXPECT_TRUE(phone.Value().IsEmpty());
-    EXPECT_TRUE(phone.SuggestedValue().IsEmpty());
-    EXPECT_FALSE(phone.IsAutofilled());
+    for (size_t i = 1; i < elements.size(); ++i) {
+      SCOPED_TRACE(testing::Message() << "Element " << i);
+      EXPECT_TRUE(elements[i].Value().IsEmpty());
+      EXPECT_TRUE(elements[i].SuggestedValue().IsEmpty());
+      EXPECT_FALSE(elements[i].IsAutofilled());
+    }
   }
 
   void TestClearOnlyAutofilledFields(const char* html) {
@@ -3072,7 +3056,7 @@ TEST_F(FormAutofillTest, WebFormElementConsiderNonControlLabelableElements) {
 }
 
 // TODO(crbug.com/616730) Flaky.
-#if defined(OS_CHROMEOS) || defined(OS_MAC)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_MAC)
 #define MAYBE_WebFormElementToFormDataTooManyFields \
   DISABLED_WebFormElementToFormDataTooManyFields
 #else
@@ -3441,43 +3425,6 @@ TEST_F(FormAutofillTest, OnlyExtractNewForms) {
   EXPECT_FORM_FIELD_DATA_EQUALS(expected, fields2[2]);
 }
 
-// We should not extract a form if it has too few fillable fields.
-TEST_F(FormAutofillTest, ExtractFormsTooFewFields) {
-  LoadHTML("<FORM name='TestForm' action='http://cnn.com' method='post'>"
-           "  <INPUT type='text' id='firstname' value='John'/>"
-           "  <INPUT type='text' id='lastname' value='Smith'/>"
-           "  <INPUT type='submit' name='reply-send' value='Send'/>"
-           "</FORM>");
-
-  WebLocalFrame* web_frame = GetMainFrame();
-  ASSERT_NE(nullptr, web_frame);
-
-  // If all minimums are enforced, we ignore this form.
-  {
-    base::test::ScopedFeatureList feature_list;
-    feature_list.InitWithFeatures(
-        // Enabled.
-        {kAutofillEnforceMinRequiredFieldsForHeuristics,
-         kAutofillEnforceMinRequiredFieldsForQuery,
-         kAutofillEnforceMinRequiredFieldsForUpload},
-        // Disabled.
-        {});
-    ASSERT_TRUE(FormCache(web_frame).ExtractNewForms(nullptr).empty());
-  }
-
-  // If at least one of the minimums is not enforced, we parse the form.
-  {
-    base::test::ScopedFeatureList feature_list;
-    feature_list.InitWithFeatures(
-        // Enabled.
-        {kAutofillEnforceMinRequiredFieldsForHeuristics,
-         kAutofillEnforceMinRequiredFieldsForQuery},
-        // Disabled.
-        {kAutofillEnforceMinRequiredFieldsForUpload});
-    ASSERT_FALSE(FormCache(web_frame).ExtractNewForms(nullptr).empty());
-  }
-}
-
 // We should not report additional forms for empty forms.
 TEST_F(FormAutofillTest, ExtractFormsNoFields) {
   LoadHTML("<FORM name='TestForm' action='http://cnn.com' method='post'>"
@@ -3489,47 +3436,6 @@ TEST_F(FormAutofillTest, ExtractFormsNoFields) {
   FormCache form_cache(web_frame);
   std::vector<FormData> forms = form_cache.ExtractNewForms(nullptr);
   ASSERT_TRUE(forms.empty());
-}
-
-// We should not extract a form if it has too few fillable fields.
-// Make sure radio and checkbox fields don't count.
-TEST_F(FormAutofillTest, ExtractFormsTooFewFieldsSkipsCheckable) {
-  LoadHTML("<FORM name='TestForm' action='http://cnn.com' method='post'>"
-           "  <INPUT type='text' id='firstname' value='John'/>"
-           "  <INPUT type='text' id='lastname' value='Smith'/>"
-           "  <INPUT type='radio' id='a_radio' value='0'/>"
-           "  <INPUT type='checkbox' id='a_check' value='1'/>"
-           "  <INPUT type='submit' name='reply-send' value='Send'/>"
-           "</FORM>");
-
-  WebLocalFrame* web_frame = GetMainFrame();
-  ASSERT_NE(nullptr, web_frame);
-
-  // Without small form support, the form is not parsed.
-  {
-    base::test::ScopedFeatureList feature_list;
-    feature_list.InitWithFeatures(
-        // Enabled.
-        {kAutofillEnforceMinRequiredFieldsForHeuristics,
-         kAutofillEnforceMinRequiredFieldsForQuery,
-         kAutofillEnforceMinRequiredFieldsForUpload},
-        // Disabled.
-        {});
-    ASSERT_TRUE(FormCache(web_frame).ExtractNewForms(nullptr).empty());
-  }
-
-  // With small form support, the form is parsed.
-  {
-    base::test::ScopedFeatureList feature_list;
-    feature_list.InitWithFeatures(
-        // Enabled.
-        {},
-        // Disabled.
-        {kAutofillEnforceMinRequiredFieldsForHeuristics,
-         kAutofillEnforceMinRequiredFieldsForQuery,
-         kAutofillEnforceMinRequiredFieldsForUpload});
-    ASSERT_FALSE(FormCache(web_frame).ExtractNewForms(nullptr).empty());
-  }
 }
 
 TEST_F(FormAutofillTest, WebFormElementToFormDataAutocomplete) {
@@ -5181,8 +5087,8 @@ TEST_F(FormAutofillTest,
       true);
 }
 
-TEST_F(FormAutofillTest, ClearPreviewedFormWithElement) {
-  TestClearPreviewedFormWithElement(
+TEST_F(FormAutofillTest, ClearPreviewedElements) {
+  TestClearPreviewedElements(
       "<FORM name='TestForm' action='http://abc.com' method='post'>"
       "  <INPUT type='text' id='firstname' value='Wyatt'/>"
       "  <INPUT type='text' id='lastname'/>"
@@ -5194,7 +5100,7 @@ TEST_F(FormAutofillTest, ClearPreviewedFormWithElement) {
 }
 
 TEST_F(FormAutofillTest, ClearPreviewedFormWithElementForUnownedForm) {
-  TestClearPreviewedFormWithElement(
+  TestClearPreviewedElements(
       "<HEAD><TITLE>store checkout</TITLE></HEAD>"
       "<INPUT type='text' id='firstname' value='Wyatt'/>"
       "<INPUT type='text' id='lastname'/>"
@@ -5627,13 +5533,6 @@ TEST_F(FormAutofillTest, FormlessForms) {
 }
 
 TEST_F(FormAutofillTest, FormCache_ExtractNewForms) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitWithFeatures(
-      // Enabled.
-      {kAutofillEnforceMinRequiredFieldsForHeuristics,
-       kAutofillEnforceMinRequiredFieldsForQuery},
-      // Disabled.
-      {kAutofillEnforceMinRequiredFieldsForUpload});
   struct {
     const char* description;
     const char* html;

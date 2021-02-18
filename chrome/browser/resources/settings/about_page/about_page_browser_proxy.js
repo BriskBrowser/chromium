@@ -194,6 +194,9 @@ cr.define('settings', function() {
     // </if>
 
     // <if expr="chromeos">
+    /** Opens the diagnostics page. */
+    openDiagnostics() {}
+
     /** Opens the OS help page. */
     openOsHelpPage() {}
 
@@ -259,12 +262,6 @@ cr.define('settings', function() {
 
     // <if expr="chromeos">
     /**
-     * Checks if the device has release notes enabled.
-     * @return {!Promise<boolean>}
-     */
-    getEnabledReleaseNotes() {}
-
-    /**
      * Checks if the device is connected to the internet.
      * @return {!Promise<boolean>}
      */
@@ -314,6 +311,11 @@ cr.define('settings', function() {
 
     // <if expr="chromeos">
     /** @override */
+    openDiagnostics() {
+      chrome.send('openDiagnostics');
+    }
+
+    /** @override */
     openOsHelpPage() {
       chrome.send('openOsHelpPage');
     }
@@ -356,11 +358,6 @@ cr.define('settings', function() {
     /** @override */
     getEndOfLifeInfo() {
       return cr.sendWithPromise('getEndOfLifeInfo');
-    }
-
-    /** @override */
-    getEnabledReleaseNotes() {
-      return cr.sendWithPromise('getEnabledReleaseNotes');
     }
 
     /** @override */

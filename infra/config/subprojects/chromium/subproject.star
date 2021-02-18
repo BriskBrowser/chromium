@@ -7,11 +7,8 @@ load("//lib/branches.star", "branches")
 exec("./ci.star")
 exec("./try.star")
 exec("./gpu.try.star")
+exec("./angle.try.star")
 exec("./swangle.try.star")
-
-# Execute the M85 config
-branches.exec("./versioned/m85/buckets/ci.star")
-branches.exec("./versioned/m85/buckets/try.star")
 
 # TODO(gbeaty) external_console_view uses new fields/types that aren't present
 # in the version of the protobuf that lint-luci-milo uses, so update protos and
@@ -34,10 +31,5 @@ branches.exec("./versioned/m85/buckets/try.star")
 #     title = "Chromium M86 CQ Console",
 #     source = "chromium-m86:try",
 # )
-
-branches.exec("./consoles/android.packager.star")
-branches.exec("./consoles/luci.chromium.try.star")
-branches.exec("./consoles/metadata.exporter.star")
-branches.exec("./consoles/sheriff.ios.star")
 
 branches.exec("./fallback-cq.star")

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "components/ukm/ukm_test_helper.h"
 #include "weblayer/browser/android/metrics/metrics_test_helper.h"
 #include "weblayer/browser/android/metrics/weblayer_metrics_service_client.h"
@@ -17,7 +17,8 @@ namespace weblayer {
 class UkmBrowserTest : public WebLayerBrowserTest {
  public:
   void SetUp() override {
-    InstallTestGmsBridge(user_consent_);
+    InstallTestGmsBridge(user_consent_ ? ConsentType::kConsent
+                                       : ConsentType::kNoConsent);
 
     WebLayerBrowserTest::SetUp();
   }
@@ -58,9 +59,13 @@ IN_PROC_BROWSER_TEST_F(UkmBrowserTest, EnabledThenDisable) {
 
   GetProfile()->SetBooleanSetting(SettingType::UKM_ENABLED, true);
   EXPECT_TRUE(ukm_test_helper.IsRecordingEnabled());
+  uint64_t original_client_id = ukm_test_helper.GetClientId();
+  EXPECT_NE(0U, original_client_id);
 
   GetProfile()->SetBooleanSetting(SettingType::UKM_ENABLED, false);
   EXPECT_FALSE(ukm_test_helper.IsRecordingEnabled());
+  // Client ID should have been reset.
+  EXPECT_NE(original_client_id, ukm_test_helper.GetClientId());
 }
 
 // Make sure that UKM is disabled while an incognito profile is alive.

@@ -72,9 +72,6 @@ constexpr APIPermissionInfo::InitInfo permissions_to_register[] = {
      APIPermissionInfo::kFlagDoesNotRequireManagedSessionFullLoginWarning},
     {APIPermission::kCookie, "cookies"},
     {APIPermission::kCryptotokenPrivate, "cryptotokenPrivate"},
-    {APIPermission::kDataReductionProxy, "dataReductionProxy",
-     APIPermissionInfo::kFlagImpliesFullURLAccess |
-         APIPermissionInfo::kFlagCannotBeOptional},
     {APIPermission::kEnterpriseDeviceAttributes, "enterprise.deviceAttributes",
      APIPermissionInfo::kFlagDoesNotRequireManagedSessionFullLoginWarning},
     {APIPermission::kEnterpriseHardwarePlatform, "enterprise.hardwarePlatform",
@@ -105,8 +102,12 @@ constexpr APIPermissionInfo::InitInfo permissions_to_register[] = {
      APIPermissionInfo::kFlagRequiresManagementUIWarning},
     {APIPermission::kSearch, "search",
      APIPermissionInfo::kFlagDoesNotRequireManagedSessionFullLoginWarning},
+    {APIPermission::kScripting, "scripting",
+     APIPermissionInfo::kFlagRequiresManagementUIWarning},
     {APIPermission::kSessions, "sessions"},
     {APIPermission::kSignedInDevices, "signedInDevices"},
+    {APIPermission::kTabGroups, "tabGroups",
+     APIPermissionInfo::kFlagRequiresManagementUIWarning},
     {APIPermission::kTab, "tabs",
      APIPermissionInfo::kFlagRequiresManagementUIWarning},
     {APIPermission::kTopSites, "topSites",
@@ -152,8 +153,6 @@ constexpr APIPermissionInfo::InitInfo permissions_to_register[] = {
      APIPermissionInfo::kFlagCannotBeOptional},
     {APIPermission::kNetworkingCastPrivate, "networking.castPrivate"},
     {APIPermission::kSystemPrivate, "systemPrivate",
-     APIPermissionInfo::kFlagCannotBeOptional},
-    {APIPermission::kCloudPrintPrivate, "cloudPrintPrivate",
      APIPermissionInfo::kFlagCannotBeOptional},
     {APIPermission::kInputMethodPrivate, "inputMethodPrivate",
      APIPermissionInfo::kFlagCannotBeOptional},
@@ -223,7 +222,6 @@ constexpr APIPermissionInfo::InitInfo permissions_to_register[] = {
     // Platform-app permissions.
     {APIPermission::kFileSystemProvider, "fileSystemProvider",
      APIPermissionInfo::kFlagDoesNotRequireManagedSessionFullLoginWarning},
-    {APIPermission::kCastStreaming, "cast.streaming"},
     {APIPermission::kLauncherSearchProvider, "launcherSearchProvider"},
 
     // Settings override permissions.

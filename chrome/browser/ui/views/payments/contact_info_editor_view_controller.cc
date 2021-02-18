@@ -28,9 +28,9 @@
 namespace payments {
 
 ContactInfoEditorViewController::ContactInfoEditorViewController(
-    PaymentRequestSpec* spec,
-    PaymentRequestState* state,
-    PaymentRequestDialogView* dialog,
+    base::WeakPtr<PaymentRequestSpec> spec,
+    base::WeakPtr<PaymentRequestState> state,
+    base::WeakPtr<PaymentRequestDialogView> dialog,
     BackNavigationType back_navigation_type,
     base::OnceClosure on_edited,
     base::OnceCallback<void(const autofill::AutofillProfile&)> on_added,
@@ -54,6 +54,9 @@ bool ContactInfoEditorViewController::IsEditingExistingItem() {
 std::vector<EditorField>
 ContactInfoEditorViewController::GetFieldDefinitions() {
   std::vector<EditorField> fields;
+  if (!spec())
+    return fields;
+
   if (spec()->request_payer_name()) {
     fields.push_back(EditorField(
         autofill::NAME_FULL,
@@ -200,7 +203,8 @@ bool ContactInfoEditorViewController::ContactInfoValidationDelegate::
 bool ContactInfoEditorViewController::ContactInfoValidationDelegate::
     ValidateTextfield(views::Textfield* textfield,
                       base::string16* error_message) {
-  bool is_valid = true;
+  if (!controller_->spec())
+    return false;
 
   // Show errors from merchant's retry() call.
   autofill::AutofillProfile* invalid_contact_profile =
@@ -213,6 +217,7 @@ bool ContactInfoEditorViewController::ContactInfoValidationDelegate::
       return false;
   }
 
+  bool is_valid = true;
   if (textfield->GetText().empty()) {
     is_valid = false;
     if (error_message) {
@@ -263,14 +268,15 @@ bool ContactInfoEditorViewController::ContactInfoValidationDelegate::
 }
 
 bool ContactInfoEditorViewController::ContactInfoValidationDelegate::
-    IsValidCombobox(views::Combobox* combobox, base::string16* error_message) {
+    IsValidCombobox(ValidatingCombobox* combobox,
+                    base::string16* error_message) {
   // This UI doesn't contain any comboboxes.
   NOTREACHED();
   return true;
 }
 
 bool ContactInfoEditorViewController::ContactInfoValidationDelegate::
-    ComboboxValueChanged(views::Combobox* combobox) {
+    ComboboxValueChanged(ValidatingCombobox* combobox) {
   // This UI doesn't contain any comboboxes.
   NOTREACHED();
   return true;

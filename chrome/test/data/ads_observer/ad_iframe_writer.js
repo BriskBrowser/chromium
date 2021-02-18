@@ -32,3 +32,16 @@ function createAdIframeAtRect(x, y, width, height) {
   document.body.appendChild(frame);
   return frame;
 }
+
+function createStickyAdIframeAtBottomOfViewport(width, height) {
+  let frame = document.createElement('iframe');
+  frame.style.position = "fixed";
+  frame.style.bottom = "0px";
+  frame.scrolling = "no";
+  frame.width = width;
+  frame.height = height;
+  document.body.appendChild(frame);
+  return frame;
+}
+
+document.scriptExecuted = true;

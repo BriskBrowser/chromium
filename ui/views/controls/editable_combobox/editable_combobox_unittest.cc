@@ -154,7 +154,7 @@ void EditableComboboxTest::InitEditableCombobox(
   combobox_ =
       new EditableCombobox(std::make_unique<ui::SimpleComboboxModel>(items),
                            filter_on_edit, show_on_empty, type);
-  combobox_->set_callback(base::BindRepeating(
+  combobox_->SetCallback(base::BindRepeating(
       &EditableComboboxTest::OnContentChanged, base::Unretained(this)));
   combobox_->SetID(2);
   dummy_focusable_view_ = new View();
@@ -174,8 +174,7 @@ void EditableComboboxTest::InitWidget() {
   combobox_->SetBoundsRect(gfx::Rect(0, 0, 500, 40));
 
   widget_->Init(std::move(params));
-  View* container = new View();
-  widget_->SetContentsView(container);
+  View* container = widget_->SetContentsView(std::make_unique<View>());
   container->AddChildView(parent_of_combobox_);
   parent_of_combobox_->AddChildView(combobox_);
   container->AddChildView(dummy_focusable_view_);

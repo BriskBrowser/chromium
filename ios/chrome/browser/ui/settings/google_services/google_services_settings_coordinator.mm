@@ -28,7 +28,9 @@
 #import "ios/chrome/browser/ui/settings/google_services/google_services_settings_mediator.h"
 #import "ios/chrome/browser/ui/settings/google_services/google_services_settings_view_controller.h"
 #import "ios/chrome/browser/ui/settings/google_services/manage_sync_settings_coordinator.h"
+#import "ios/chrome/browser/ui/settings/google_services/sync_error_settings_command_handler.h"
 #import "ios/chrome/browser/ui/settings/sync/sync_encryption_passphrase_table_view_controller.h"
+#import "ios/chrome/browser/ui/table_view/table_view_utils.h"
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/public/provider/chrome/browser/chrome_browser_provider.h"
 
@@ -42,7 +44,9 @@ using signin_metrics::PromoAction;
 @interface GoogleServicesSettingsCoordinator () <
     GoogleServicesSettingsCommandHandler,
     GoogleServicesSettingsViewControllerPresentationDelegate,
-    ManageSyncSettingsCoordinatorDelegate>
+    ManageSyncSettingsCoordinatorDelegate,
+    SyncErrorSettingsCommandHandler,
+    SyncSettingsViewState>
 
 // Google services settings mode.
 @property(nonatomic, assign, readonly) GoogleServicesSettingsMode mode;
@@ -60,10 +64,9 @@ using signin_metrics::PromoAction;
     ManageSyncSettingsCoordinator* manageSyncSettingsCoordinator;
 // YES if stop has been called.
 @property(nonatomic, assign) BOOL stopDone;
-// YES if the last sign-in has been interrupted. In that case, the coordinator
-// is going to be stopped, and the sync setup flag should not be marked as done.
-// And the sync should not be marked as disabled. The sync should be kept
-// undecided.
+// YES if the last sign-in has been interrupted. In that case, the sync UI will
+// be dismissed and the sync setup flag should not be marked as done. The sync
+// should be kept undecided, not marked as disabled.
 @property(nonatomic, assign) BOOL signinInterrupted;
 
 @end
@@ -90,12 +93,9 @@ using signin_metrics::PromoAction;
 }
 
 - (void)start {
-  UITableViewStyle style = base::FeatureList::IsEnabled(kSettingsRefresh)
-                               ? UITableViewStylePlain
-                               : UITableViewStyleGrouped;
-
   GoogleServicesSettingsViewController* viewController =
-      [[GoogleServicesSettingsViewController alloc] initWithStyle:style];
+      [[GoogleServicesSettingsViewController alloc]
+          initWithStyle:ChromeTableViewStyle()];
   viewController.presentationDelegate = self;
   self.viewController = viewController;
   SyncSetupService* syncSetupService =
@@ -111,6 +111,7 @@ using signin_metrics::PromoAction;
   self.mediator.identityManager = IdentityManagerFactory::GetForBrowserState(
       self.browser->GetBrowserState());
   self.mediator.commandHandler = self;
+  self.mediator.syncErrorHandler = self;
   self.mediator.syncService = ProfileSyncServiceFactory::GetForBrowserState(
       self.browser->GetBrowserState());
   viewController.modelDelegate = self.mediator;
@@ -165,12 +166,18 @@ using signin_metrics::PromoAction;
       self.viewController);
 }
 
-- (BOOL)googleServicesSettingsViewIsShown {
+#pragma mark - SyncSettingsViewState
+
+- (BOOL)isSettingsViewShown {
   return [self.viewController
       isEqual:self.baseNavigationController.topViewController];
 }
 
-#pragma mark - GoogleServicesSettingsCommandHandler
+- (UINavigationItem*)navigationItem {
+  return self.viewController.navigationItem;
+}
+
+#pragma mark - SyncErrorSettingsCommandHandler
 
 - (void)restartAuthenticationFlow {
   ChromeIdentity* authenticatedIdentity =
@@ -221,6 +228,20 @@ using signin_metrics::PromoAction;
       self.browser->GetCommandDispatcher());
   [self.baseNavigationController pushViewController:controller animated:YES];
 }
+
+- (void)openTrustedVaultReauth {
+  id<ApplicationCommands> applicationCommands =
+      static_cast<id<ApplicationCommands>>(
+          self.browser->GetCommandDispatcher());
+  [applicationCommands
+      showTrustedVaultReauthenticationFromViewController:
+          self.googleServicesSettingsViewController
+                                        retrievalTrigger:
+                                            syncer::KeyRetrievalTriggerForUMA::
+                                                kSettings];
+}
+
+#pragma mark - GoogleServicesSettingsCommandHandler
 
 - (void)showSignIn {
   __weak __typeof(self) weakSelf = self;
@@ -275,28 +296,6 @@ using signin_metrics::PromoAction;
       ->PresentAccountDetailsController(
           self.authService->GetAuthenticatedIdentity(),
           self.googleServicesSettingsViewController, /*animated=*/YES);
-}
-
-- (void)openManageGoogleAccountWebPage {
-  GURL url = google_util::AppendGoogleLocaleParam(
-      GURL(kManageYourGoogleAccountURL),
-      GetApplicationContext()->GetApplicationLocale());
-  OpenNewTabCommand* command = [OpenNewTabCommand commandWithURLFromChrome:url];
-  id<ApplicationCommands> handler = HandlerForProtocol(
-      self.browser->GetCommandDispatcher(), ApplicationCommands);
-  [handler closeSettingsUIAndOpenURL:command];
-}
-
-- (void)openTrustedVaultReauth {
-  id<ApplicationCommands> applicationCommands =
-      static_cast<id<ApplicationCommands>>(
-          self.browser->GetCommandDispatcher());
-  [applicationCommands
-      showTrustedVaultReauthenticationFromViewController:
-          self.googleServicesSettingsViewController
-                                        retrievalTrigger:
-                                            syncer::KeyRetrievalTriggerForUMA::
-                                                kSettings];
 }
 
 #pragma mark - GoogleServicesSettingsViewControllerPresentationDelegate

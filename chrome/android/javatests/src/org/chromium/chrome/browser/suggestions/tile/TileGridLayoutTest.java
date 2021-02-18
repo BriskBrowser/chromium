@@ -35,6 +35,7 @@ import org.chromium.base.test.params.ParameterAnnotations;
 import org.chromium.base.test.params.ParameterizedRunner;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
@@ -60,12 +61,12 @@ import org.chromium.chrome.test.util.browser.suggestions.SuggestionsDependencies
 import org.chromium.chrome.test.util.browser.suggestions.mostvisited.FakeMostVisitedSites;
 import org.chromium.components.browser_ui.widget.displaystyle.UiConfig;
 import org.chromium.components.embedder_support.util.UrlConstants;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServerRule;
 import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.modelutil.ListObservable;
 import org.chromium.ui.test.util.NightModeTestUtils;
+import org.chromium.url.GURL;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -131,7 +132,7 @@ public class TileGridLayoutTest {
     @Feature({"NewTabPage", "RenderTest"})
     @ParameterAnnotations.UseMethodParameter(NightModeTestUtils.NightModeParams.class)
     // TODO(https://crbug.com/906151): Add new goldens and enable ExploreSites.
-    @DisableFeatures(ChromeFeatureList.EXPLORE_SITES)
+    @DisableFeatures({ChromeFeatureList.EXPLORE_SITES, ChromeFeatureList.QUERY_TILES})
     public void testTileGridAppearance(boolean nightModeEnabled) throws Exception {
         NewTabPage ntp = setUpFakeDataToShowOnNtp(FAKE_MOST_VISITED_URLS.length);
         mRenderTestRule.render(getTileGridLayout(ntp), "ntp_tile_grid_layout");
@@ -191,7 +192,7 @@ public class TileGridLayoutTest {
     public void testTileAppearanceModern(boolean nightModeEnabled)
             throws IOException, InterruptedException, TimeoutException {
         List<SiteSuggestion> suggestions = makeSuggestions(2);
-        List<String> offlineAvailableUrls = Collections.singletonList(suggestions.get(0).url);
+        List<GURL> offlineAvailableUrls = Collections.singletonList(suggestions.get(0).url);
         ViewGroup tiles = renderTiles(suggestions, offlineAvailableUrls);
 
         mLoadCompleteHelper.waitForCallback(0);
@@ -277,8 +278,8 @@ public class TileGridLayoutTest {
      * Starts and sets up an activity to render the provided site suggestions in the activity.
      * @return the layout in which the suggestions are rendered.
      */
-    private TileGridLayout renderTiles(List<SiteSuggestion> siteSuggestions,
-            List<String> offlineUrls) throws InterruptedException {
+    private TileGridLayout renderTiles(List<SiteSuggestion> siteSuggestions, List<GURL> offlineUrls)
+            throws InterruptedException {
         // Launching the activity, that should now use the right UI.
         mActivityTestRule.startMainActivityOnBlankPage();
         ChromeActivity activity = mActivityTestRule.getActivity();
@@ -295,7 +296,7 @@ public class TileGridLayoutTest {
             activity.setContentView(contentView);
 
             SiteSectionViewHolder viewHolder = SiteSection.createViewHolder(
-                    SiteSection.inflateSiteSection(contentView), uiConfig);
+                    SiteSection.inflateSiteSection(contentView), uiConfig, 2);
 
             uiConfig.updateDisplayStyle();
 
@@ -316,7 +317,7 @@ public class TileGridLayoutTest {
     }
 
     private SiteSection createSiteSection(
-            final SiteSectionViewHolder viewHolder, UiConfig uiConfig, List<String> offlineUrls) {
+            final SiteSectionViewHolder viewHolder, UiConfig uiConfig, List<GURL> offlineUrls) {
         ThreadUtils.assertOnUiThread();
 
         ChromeActivity activity = mActivityTestRule.getActivity();
@@ -324,14 +325,13 @@ public class TileGridLayoutTest {
         // TODO (https://crbug.com/1063807):  Add incognito mode tests.
         Profile profile = Profile.getLastUsedRegularProfile();
         SuggestionsUiDelegate uiDelegate =
-                new SuggestionsUiDelegateImpl(mSuggestionsDeps.getFactory().createEventReporter(),
-                        null, profile, null, activity.getSnackbarManager());
+                new SuggestionsUiDelegateImpl(null, profile, null, activity.getSnackbarManager());
 
         FakeOfflinePageBridge offlinePageBridge = new FakeOfflinePageBridge();
         List<OfflinePageItem> offlinePageItems = new ArrayList<>();
         for (int i = 0; i < offlineUrls.size(); i++) {
-            offlinePageItems.add(
-                    FakeOfflinePageBridge.createOfflinePageItem(offlineUrls.get(i), i + 1L));
+            offlinePageItems.add(FakeOfflinePageBridge.createOfflinePageItem(
+                    offlineUrls.get(i).getSpec(), i + 1L));
         }
         offlinePageBridge.setItems(offlinePageItems);
         offlinePageBridge.setIsOfflinePageModelLoaded(true);
@@ -345,7 +345,7 @@ public class TileGridLayoutTest {
         };
 
         SiteSection siteSection =
-                new SiteSection(uiDelegate, null, delegate, offlinePageBridge, uiConfig);
+                new SiteSection(uiDelegate, null, delegate, offlinePageBridge, uiConfig, 2);
 
         siteSection.addObserver(new ListObservable.ListObserver<PartialBindCallback>() {
             @Override

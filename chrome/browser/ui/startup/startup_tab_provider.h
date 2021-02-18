@@ -9,7 +9,6 @@
 
 #include "base/gtest_prod_util.h"
 #include "build/build_config.h"
-#include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/startup/startup_browser_creator.h"
 #include "chrome/browser/ui/startup/startup_tab.h"
@@ -78,6 +77,8 @@ class StartupTabProviderImpl : public StartupTabProvider {
   };
 
   StartupTabProviderImpl() = default;
+  StartupTabProviderImpl(const StartupTabProviderImpl&) = delete;
+  StartupTabProviderImpl& operator=(const StartupTabProviderImpl&) = delete;
 
   // The static helper methods below implement the policies relevant to the
   // respective Get*Tabs methods, but do not gather or interact with any
@@ -170,9 +171,6 @@ class StartupTabProviderImpl : public StartupTabProvider {
       bool has_incompatible_applications) const override;
   StartupTabs GetExtensionCheckupTabs(
       bool serve_extensions_page) const override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(StartupTabProviderImpl);
 };
 
 #endif  // CHROME_BROWSER_UI_STARTUP_STARTUP_TAB_PROVIDER_H_

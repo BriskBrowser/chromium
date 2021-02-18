@@ -95,6 +95,9 @@ class IdentifiableToken {
   // Representation type of the sample.
   using TokenType = int64_t;
 
+  // Required for use in certain data structures. Represents no bytes.
+  constexpr IdentifiableToken() : value_(kIdentifiabilityDigestOfNoBytes) {}
+
   // A byte buffer specified as a span.
   //
   // This is essentially the base case. If it were the base case, then
@@ -115,8 +118,9 @@ class IdentifiableToken {
 
   // Enums. Punt to the underlying type.
   template <typename T,
-            typename U = typename std::underlying_type<T>::type,
-            typename std::enable_if_t<std::is_enum<T>::value>* = nullptr>
+            // Set dummy type before U to avoid GCC compile errors
+            typename std::enable_if_t<std::is_enum<T>::value>* = nullptr,
+            typename U = typename std::underlying_type<T>::type>
   constexpr IdentifiableToken(T in)  // NOLINT(google-explicit-constructor)
       : IdentifiableToken(static_cast<U>(in)) {}
 

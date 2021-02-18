@@ -14,12 +14,12 @@
 
 #include "base/check.h"
 #include "base/compiler_specific.h"
+#include "base/containers/contains.h"
 #include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/metrics/crc32.h"
 #include "base/numerics/ranges.h"
 #include "base/rand_util.h"
-#include "base/stl_util.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece_forward.h"
@@ -77,7 +77,7 @@ int IdentifiabilityStudyState::generation() const {
   return generation_;
 }
 
-bool IdentifiabilityStudyState::ShouldSampleSurface(
+bool IdentifiabilityStudyState::ShouldRecordSurface(
     blink::IdentifiableSurface surface) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (LIKELY(!IsStudyActive()))
@@ -310,14 +310,14 @@ void IdentifiabilityStudyState::ReconcileLoadedPrefs() {
     WriteToPrefs();
 }
 
-bool IdentifiabilityStudyState::ShouldRecordSurface(
+bool IdentifiabilityStudyState::ShouldReportEncounteredSurface(
     uint64_t source_id,
     blink::IdentifiableSurface surface) {
   if (!blink::IdentifiabilityStudySettings::Get()->IsTypeAllowed(
           blink::IdentifiableSurface::Type::kMeasuredSurface)) {
     return false;
   }
-  return tracked_surfaces_.ShouldRecord(source_id, surface.ToUkmMetricHash());
+  return tracked_surfaces_.IsNewEncounter(source_id, surface.ToUkmMetricHash());
 }
 
 void IdentifiabilityStudyState::ResetRecordedSurfaces() {

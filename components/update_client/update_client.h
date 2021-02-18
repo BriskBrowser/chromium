@@ -170,12 +170,21 @@ class CrxInstaller : public base::RefCountedThreadSafe<CrxInstaller> {
  public:
   // Contains the result of the Install operation.
   struct Result {
+    Result() = default;
     explicit Result(int error, int extended_error = 0)
         : error(error), extended_error(extended_error) {}
     explicit Result(InstallError error, int extended_error = 0)
         : error(static_cast<int>(error)), extended_error(extended_error) {}
+
     int error = 0;  // 0 indicates that install has been successful.
     int extended_error = 0;
+
+    // Localized text displayed to the user, if applicable.
+    std::string installer_text;
+
+    // Shell command run at the end of the install, if applicable. This string
+    // must be escaped to be a command line.
+    std::string installer_cmd_line;
   };
 
   struct InstallParams {
@@ -276,7 +285,6 @@ struct CrxComponent {
 
   std::string fingerprint;  // Optional.
   std::string name;         // Optional.
-  std::vector<std::string> handled_mime_types;
 
   // Optional.
   // Valid values for the name part of an attribute match
@@ -331,6 +339,12 @@ using Callback = base::OnceCallback<void(Error error)>;
 // the browser process has gone single-threaded.
 class UpdateClient : public base::RefCountedThreadSafe<UpdateClient> {
  public:
+  // Returns `CrxComponent` instances corresponding to the component ids
+  // passed as an argument to the callback. The order of components in the input
+  // and output vectors must match. If the instance of the `CrxComponent` is not
+  // available for some reason, implementors of the callback must not skip
+  // skip the component, and instead, they must insert a `nullopt` value in
+  // the output vector.
   using CrxDataCallback =
       base::OnceCallback<std::vector<base::Optional<CrxComponent>>(
           const std::vector<std::string>& ids)>;

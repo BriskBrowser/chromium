@@ -27,6 +27,10 @@ class FakeAdapter : public mojom::Adapter {
   void GetInfo(GetInfoCallback callback) override;
   void AddObserver(mojo::PendingRemote<mojom::AdapterObserver> observer,
                    AddObserverCallback callback) override;
+  void RegisterAdvertisement(const device::BluetoothUUID& service_uuid,
+                             const std::vector<uint8_t>& service_data,
+                             bool use_scan_response,
+                             RegisterAdvertisementCallback callback) override;
   void SetDiscoverable(bool discoverable,
                        SetDiscoverableCallback callback) override;
   void SetName(const std::string& name, SetNameCallback callback) override;
@@ -35,10 +39,14 @@ class FakeAdapter : public mojom::Adapter {
       const std::string& address,
       const device::BluetoothUUID& service_uuid,
       ConnectToServiceInsecurelyCallback callback) override;
-  void CreateRfcommService(const std::string& service_name,
-                           const device::BluetoothUUID& service_uuid,
-                           CreateRfcommServiceCallback callback) override;
+  void CreateRfcommServiceInsecurely(
+      const std::string& service_name,
+      const device::BluetoothUUID& service_uuid,
+      CreateRfcommServiceInsecurelyCallback callback) override;
 
+  void SetAdvertisementDestroyedCallback(base::OnceClosure callback);
+  const std::vector<uint8_t>* GetRegisteredAdvertisementServiceData(
+      const device::BluetoothUUID& service_uuid);
   void SetShouldDiscoverySucceed(bool should_discovery_succeed);
   void SetDiscoverySessionDestroyedCallback(base::OnceClosure callback);
   bool IsDiscoverySessionActive();
@@ -53,6 +61,7 @@ class FakeAdapter : public mojom::Adapter {
       const device::BluetoothUUID& service_uuid);
 
   mojo::Receiver<mojom::Adapter> adapter_{this};
+  std::string address_ = "AdapterAddress";
   std::string name_ = "AdapterName";
   bool present_ = true;
   bool powered_ = true;
@@ -60,11 +69,18 @@ class FakeAdapter : public mojom::Adapter {
   bool discovering_ = false;
 
  private:
+  void OnAdvertisementDestroyed(const device::BluetoothUUID& service_uuid);
   void OnDiscoverySessionDestroyed();
 
-  mojom::DiscoverySession* discovery_session_ = nullptr;
+  bool should_advertisement_registration_succeed_ = true;
+  std::map<device::BluetoothUUID, std::vector<uint8_t>>
+      registered_advertisements_map_;
+  base::OnceClosure on_advertisement_destroyed_callback_;
+
   bool should_discovery_succeed_ = true;
+  mojom::DiscoverySession* discovery_session_ = nullptr;
   base::OnceClosure on_discovery_session_destroyed_callback_;
+
   std::set<std::pair<std::string, device::BluetoothUUID>>
       allowed_connections_for_address_and_uuid_pair_;
   std::set<std::pair<std::string, device::BluetoothUUID>>

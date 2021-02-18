@@ -8,6 +8,8 @@
 
 #include "base/feature_list.h"
 #include "build/buildflag.h"
+#include "chrome/browser/content_settings/one_time_geolocation_permission_provider.h"
+#include "chrome/browser/permissions/last_tab_standing_tracker_factory.h"
 #include "chrome/browser/profiles/off_the_record_profile_impl.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
@@ -44,6 +46,7 @@ HostContentSettingsMapFactory::HostContentSettingsMapFactory()
     : RefcountedBrowserContextKeyedServiceFactory(
         "HostContentSettingsMap",
         BrowserContextDependencyManager::GetInstance()) {
+  DependsOn(LastTabStandingTrackerFactory::GetInstance());
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
   DependsOn(SupervisedUserSettingsServiceFactory::GetInstance());
 #endif
@@ -88,7 +91,6 @@ scoped_refptr<RefcountedKeyedService>
       profile->GetPrefs(),
       profile->IsOffTheRecord() || profile->IsGuestSession(),
       /*store_last_modified=*/true,
-      /*migrate_requesting_and_top_level_origin_settings=*/true,
       profile->ShouldRestoreOldSessionCookies()));
 
   auto allowlist_provider = std::make_unique<WebUIAllowlistProvider>(
@@ -96,6 +98,16 @@ scoped_refptr<RefcountedKeyedService>
   settings_map->RegisterProvider(
       HostContentSettingsMap::WEBUI_ALLOWLIST_PROVIDER,
       std::move(allowlist_provider));
+
+  if (base::FeatureList::IsEnabled(
+          permissions::features::kOneTimeGeolocationPermission)) {
+    auto one_time_geolocation_provider =
+        std::make_unique<OneTimeGeolocationPermissionProvider>(context);
+
+    settings_map->RegisterProvider(
+        HostContentSettingsMap::ONE_TIME_GEOLOCATION_PROVIDER,
+        std::move(one_time_geolocation_provider));
+  }
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   // These must be registered before before the HostSettings are passed over to

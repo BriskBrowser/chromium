@@ -10,6 +10,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
+#include "chrome/browser/autofill/autofill_uitest_util.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -21,6 +22,7 @@
 #include "components/autofill/core/browser/personal_data_manager.h"
 #include "components/autofill/core/browser/personal_data_manager_observer.h"
 #include "components/autofill/core/common/autofill_features.h"
+#include "components/version_info/version_info.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
@@ -28,6 +30,8 @@
 #include "services/network/test/test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/third_party/mozilla/url_parse.h"
+
+using version_info::GetProductNameAndVersionForUserAgent;
 
 namespace autofill {
 namespace {
@@ -106,7 +110,6 @@ class WindowedNetworkObserver {
         (resource_request.method == "GET")
             ? GetLookupContent(resource_request.url.path())
             : network::GetUploadData(resource_request);
-    EXPECT_EQ(data, expected_upload_data_);
 
     if (data == expected_upload_data_)
       message_loop_runner_->Quit();
@@ -143,10 +146,10 @@ class AutofillServerTest : public InProcessBrowserTest {
     InProcessBrowserTest::SetUp();
   }
 
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    // Enable finch experiment for sending field metadata.
-    command_line->AppendSwitchASCII(::switches::kForceFieldTrials,
-                                    "AutofillFieldMetadata/Enabled/");
+  void SetUpOnMainThread() override {
+    // Wait for Personal Data Manager to be fully loaded as the events about
+    // being loaded may throw off the tests and cause flakiness.
+    WaitForPersonalDataManagerToBeLoaded(browser()->profile());
   }
 
  private:
@@ -181,14 +184,14 @@ IN_PROC_BROWSER_TEST_F(AutofillServerTest,
       "</script>";
 
   AutofillPageQueryRequest query;
-  query.set_client_version("6.1.1715.1442/en (GGLL)");
+  query.set_client_version(GetProductNameAndVersionForUserAgent());
   auto* query_form = query.add_forms();
   query_form->set_signature(15916856893790176210U);
 
-  test::FillQueryField(query_form->add_fields(), 2594484045U, "one", "text");
-  test::FillQueryField(query_form->add_fields(), 2750915947U, "two", "text");
-  test::FillQueryField(query_form->add_fields(), 3494787134U, "three", "text");
-  test::FillQueryField(query_form->add_fields(), 1236501728U, "four", "text");
+  query_form->add_fields()->set_signature(2594484045U);
+  query_form->add_fields()->set_signature(2750915947U);
+  query_form->add_fields()->set_signature(3494787134U);
+  query_form->add_fields()->set_signature(1236501728U);
 
   std::string expected_query_string;
   ASSERT_TRUE(query.SerializeToString(&expected_query_string));
@@ -205,33 +208,48 @@ IN_PROC_BROWSER_TEST_F(AutofillServerTest,
   AutofillUploadRequest request;
   AutofillUploadContents* upload = request.mutable_upload();
   upload->set_submission(true);
-  upload->set_client_version("6.1.1715.1442/en (GGLL)");
+  upload->set_client_version(GetProductNameAndVersionForUserAgent());
   upload->set_form_signature(15916856893790176210U);
   upload->set_autofill_used(false);
+
+  // The `data_present` fields is a bit mask of field types that are associated
+  // with non-empty profile values. Each bit in this mask corresponds to a
+  // specific type. For details on that mapping please consult
+  // |EncodeFieldTypes()| in components/autofill/core/browser/form_structure.cc.
+  // The resulting bit mask in this test is hard-coded to capture regressions in
+  // the calculation of the mask.
+
   // TODO(crbug.com/1103421): Clean legacy implementation once structured names
   // are fully launched.
-  // For structured names, there is additional data present.
+  // For structured names, there is additional data for new name types present.
   if (base::FeatureList::IsEnabled(
           features::kAutofillEnableSupportForMoreStructureInNames)) {
-    upload->set_data_present("1f7e000378000008000400000004");
+    // If the honorific prefix is enabled, data associated with this types is
+    // also present in the profile.
+    if (base::FeatureList::IsEnabled(
+            features::kAutofillEnableSupportForHonorificPrefixes)) {
+      upload->set_data_present("1f7e00037800000800040000000404");
+    } else {
+      upload->set_data_present("1f7e000378000008000400000004");
+    }
   } else {
     upload->set_data_present("1f7e0003780000080004");
   }
-  upload->set_action_signature(15724779818122431245U);
-  upload->set_form_name("test_form");
   upload->set_passwords_revealed(false);
   upload->set_submission_event(
       AutofillUploadContents_SubmissionIndicatorEvent_HTML_FORM_SUBMISSION);
   upload->set_has_form_tag(true);
 
-  test::FillUploadField(upload->add_field(), 2594484045U, "one", "text",
+  // Enabling raw form data uploading (e.g., field name) is too complicated in
+  // this test. So, don't expect it in the upload.
+  test::FillUploadField(upload->add_field(), 2594484045U, nullptr, nullptr,
                         nullptr, 2U);
-  test::FillUploadField(upload->add_field(), 2750915947U, "two", "text", "off",
-                        2U);
-  test::FillUploadField(upload->add_field(), 3494787134U, "three", "text",
+  test::FillUploadField(upload->add_field(), 2750915947U, nullptr, nullptr,
                         nullptr, 2U);
-  test::FillUploadField(upload->add_field(), 1236501728U, "four", "text", "off",
-                        2U);
+  test::FillUploadField(upload->add_field(), 3494787134U, nullptr, nullptr,
+                        nullptr, 2U);
+  test::FillUploadField(upload->add_field(), 1236501728U, nullptr, nullptr,
+                        nullptr, 2U);
 
   std::string expected_upload_string;
   ASSERT_TRUE(request.SerializeToString(&expected_upload_string));
@@ -258,14 +276,13 @@ IN_PROC_BROWSER_TEST_F(AutofillServerTest, AlwaysQueryForPasswordFields) {
       "</form>";
 
   AutofillPageQueryRequest query;
-  query.set_client_version("6.1.1715.1442/en (GGLL)");
+  query.set_client_version(GetProductNameAndVersionForUserAgent());
   auto* query_form = query.add_forms();
   query_form->set_signature(8900697631820480876U);
 
-  test::FillQueryField(query_form->add_fields(), 2594484045U, "one", "text");
-  test::FillQueryField(query_form->add_fields(), 2750915947U, "two", "text");
-  test::FillQueryField(query_form->add_fields(), 116843943U, "three",
-                       "password");
+  query_form->add_fields()->set_signature(2594484045U);
+  query_form->add_fields()->set_signature(2750915947U);
+  query_form->add_fields()->set_signature(116843943U);
 
   std::string expected_query_string;
   ASSERT_TRUE(query.SerializeToString(&expected_query_string));

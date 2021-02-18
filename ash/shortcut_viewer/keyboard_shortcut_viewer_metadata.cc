@@ -4,10 +4,13 @@
 
 #include "ash/shortcut_viewer/keyboard_shortcut_viewer_metadata.h"
 
+#include "ash/constants/ash_features.h"
+#include "ash/public/cpp/ash_features.h"
 #include "ash/shortcut_viewer/keyboard_shortcut_item.h"
 #include "ash/shortcut_viewer/strings/grit/shortcut_viewer_strings.h"
 #include "ash/shortcut_viewer/vector_icons/vector_icons.h"
 #include "base/check.h"
+#include "base/feature_list.h"
 #include "base/macros.h"
 #include "base/no_destructor.h"
 #include "base/notreached.h"
@@ -81,6 +84,9 @@ base::Optional<base::string16> GetSpecialStringForKeyboardCode(
       break;
     case ui::VKEY_MEDIA_LAUNCH_APP2:
       msg_id = IDS_KSV_KEY_FULLSCREEN;
+      break;
+    case ui::VKEY_SNAPSHOT:
+      msg_id = IDS_KSV_KEY_SNAPSHOT;
       break;
     case ui::VKEY_UNKNOWN:
       // TODO(wutao): make this reliable.
@@ -203,6 +209,8 @@ const gfx::VectorIcon* GetVectorIconForKeyboardCode(ui::KeyboardCode key_code) {
       return &kKsvArrowRightIcon;
     case ui::VKEY_PRIVACY_SCREEN_TOGGLE:
       return &kKsvPrivacyScreenToggleIcon;
+    case ui::VKEY_SNAPSHOT:
+      return &kKsvSnapshotIcon;
     default:
       return nullptr;
   }
@@ -213,35 +221,35 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kAccessibility},
        IDS_KSV_DESCRIPTION_TOGGLE_DOCKED_MAGNIFIER,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_D, ui::EF_COMMAND_DOWN | ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kAccessibility},
        IDS_KSV_DESCRIPTION_TOGGLE_FULLSCREEN_MAGNIFIER,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_M, ui::EF_COMMAND_DOWN | ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPopular},
        IDS_KSV_DESCRIPTION_LOCK_SCREEN,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_L, ui::EF_COMMAND_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_DISPLAY_ZOOM_OUT,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_OEM_MINUS, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_DISPLAY_ZOOM_IN,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_OEM_PLUS, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN}}},
 
@@ -286,42 +294,42 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kAccessibility},
        IDS_KSV_DESCRIPTION_FOCUS_SHELF,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_L, ui::EF_SHIFT_DOWN | ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_IDC_BOOKMARK_ALL_TABS,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_D, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_IDC_BOOKMARK_THIS_TAB,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_D, ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_IDC_CLOSE_TAB,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_W, ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_IDC_CLOSE_WINDOW,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_W, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_IDC_CONTENT_CONTEXT_SELECTALL,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -330,21 +338,21 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_IDC_DEV_TOOLS,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_I, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_IDC_DEV_TOOLS_CONSOLE,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_J, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_IDC_FIND,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_F, ui::EF_CONTROL_DOWN}}},
 
@@ -370,7 +378,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kPageAndBrowser, ShortcutCategory::kAccessibility},
        IDS_KSV_DESCRIPTION_IDC_FOCUS_BOOKMARKS,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_B, ui::EF_SHIFT_DOWN | ui::EF_ALT_DOWN}}},
 
@@ -396,63 +404,63 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kAccessibility},
        IDS_KSV_DESCRIPTION_IDC_FOCUS_TOOLBAR,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_T, ui::EF_SHIFT_DOWN | ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_KEYBOARD_BRIGHTNESS_DOWN,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_BRIGHTNESS_DOWN, ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_KEYBOARD_BRIGHTNESS_UP,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_BRIGHTNESS_UP, ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_LAUNCH_LAST_APP,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_9, ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPopular, ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_NEW_TAB,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_T, ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPopular, ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_NEW_WINDOW,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_N, ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_IDC_NEW_INCOGNITO_WINDOW,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_N, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_IDC_OPEN_FILE,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_O, ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_IDC_PRINT,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_P, ui::EF_CONTROL_DOWN}}},
 
@@ -469,77 +477,77 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_IDC_RELOAD_BYPASSING_CACHE,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_R, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_IDC_RESTORE_TAB,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_T, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_IDC_BACK,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_LEFT, ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_IDC_FORWARD,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_RIGHT, ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_IDC_SAVE_PAGE,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_S, ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_IDC_SELECT_LAST_TAB,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_9, ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPopular},
        IDS_KSV_DESCRIPTION_IDC_SELECT_NEXT_TAB,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_TAB, ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPopular},
        IDS_KSV_DESCRIPTION_IDC_SELECT_PREVIOUS_TAB,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_TAB, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_IDC_SHOW_BOOKMARK_BAR,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_B, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_IDC_SHOW_HISTORY,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_H, ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_IDC_CLOSE_FIND_OR_STOP,
-       IDS_KSV_SHORTCUT_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -548,161 +556,175 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_IDC_VIEW_SOURCE,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_U, ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_IDC_ZOOM_MINUS,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_OEM_MINUS, ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_IDC_ZOOM_NORMAL,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_0, ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_IDC_ZOOM_PLUS,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_OEM_PLUS, ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay, ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_SWITCH_TO_NEXT_IME,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_SPACE, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_OPEN_FILE_MANAGER,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_M, ui::EF_SHIFT_DOWN | ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay, ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_SWITCH_TO_LAST_USED_IME,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_SPACE, ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_ROTATE_SCREEN,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_BROWSER_REFRESH, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_SCALE_UI_RESET,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_0, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_SWITCH_TO_NEXT_USER,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_OEM_PERIOD, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_SWITCH_TO_PREVIOUS_USER,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_OEM_COMMA, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPopular},
        IDS_KSV_DESCRIPTION_TAKE_PARTIAL_SCREENSHOT,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_MEDIA_LAUNCH_APP1, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPopular},
        IDS_KSV_DESCRIPTION_TAKE_SCREENSHOT,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
+       // |accelerator_ids|
+       {{ui::VKEY_SNAPSHOT, ui::EF_NONE}}},
+
+      {// |categories|
+       {ShortcutCategory::kPopular},
+       IDS_KSV_DESCRIPTION_TAKE_FULLSCREEN_SCREENSHOT,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_MEDIA_LAUNCH_APP1, ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPopular, ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_TOGGLE_CAPS_LOCK,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_LWIN, ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kAccessibility},
        IDS_KSV_DESCRIPTION_TOGGLE_HIGH_CONTRAST,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_H, ui::EF_COMMAND_DOWN | ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kAccessibility},
        IDS_KSV_DESCRIPTION_CARET_BROWSING_TOGGLE,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_7, ui::EF_COMMAND_DOWN | ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_TOGGLE_MESSAGE_CENTER_BUBBLE,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_N, ui::EF_SHIFT_DOWN | ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPopular},
        IDS_KSV_DESCRIPTION_TOGGLE_OVERVIEW,
-       IDS_KSV_SHORTCUT_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_MEDIA_LAUNCH_APP1, ui::EF_NONE}}},
 
       {// |categories|
        {ShortcutCategory::kAccessibility},
        IDS_KSV_DESCRIPTION_TOGGLE_SPOKEN_FEEDBACK,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_Z, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_TOGGLE_SYSTEM_TRAY_BUBBLE,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_S, ui::EF_SHIFT_DOWN | ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_WINDOW_CYCLE_SNAP_LEFT,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_OEM_4, ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_WINDOW_CYCLE_SNAP_RIGHT,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_OEM_6, ui::EF_ALT_DOWN}}},
-
+      {// |categories|
+       {ShortcutCategory::kPopular, ShortcutCategory::kTextEditing},
+       IDS_KSV_DESCRIPTION_CLIPBOARD_HISTORY,
+       {},
+       // |accelerator_ids|
+       {},
+       // |shortcut_key_codes|
+       {ui::VKEY_COMMAND, ui::VKEY_UNKNOWN, ui::VKEY_V}},
       {// |categories|
        {ShortcutCategory::kPopular, ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_COPY,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -711,7 +733,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kPopular, ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_PASTE,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -729,7 +751,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kPopular},
        IDS_KSV_DESCRIPTION_KEYBOARD_SHORTCUT_HELPER,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_OEM_2, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN}}},
 
@@ -779,7 +801,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_PAGE_UP,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -788,7 +810,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_PAGE_DOWN,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -797,7 +819,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_SCROLL_DOWN_PAGE,
-       IDS_KSV_SHORTCUT_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -806,7 +828,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_GO_TO_TOP,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -816,7 +838,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_GO_TO_BOTTOM,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -842,7 +864,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_AUTO_COMPLETE,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -851,7 +873,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_OPEN_DOWNLOADS_PAGE,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_J, ui::EF_CONTROL_DOWN}}},
 
@@ -867,7 +889,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_DISPLAY_HIDDEN_FILES,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -904,7 +926,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_SELECT_NEXT_WORD,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -914,7 +936,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_SELECT_TEXT_TO_END_OF_LINE,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -924,7 +946,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_SELECT_TEXT_TO_BEGINNING,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -934,7 +956,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_SELECT_PREVIOUS_WORD,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -944,7 +966,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_MOVE_TO_END_OF_WORD,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -953,7 +975,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_MOVE_TO_START_OF_PREVIOUS_WORD,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -962,7 +984,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_GO_TO_END_OF_DOCUMENT,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -972,7 +994,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_GO_TO_END_OF_LINE,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -981,7 +1003,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_GO_TO_BEGINNING_OF_DOCUMENT,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -991,7 +1013,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_GO_TO_BEGINNING_OF_LINE,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -1000,7 +1022,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_PASTE_CONTENT_AS_TEXT,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -1010,7 +1032,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_CUT,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -1019,7 +1041,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_DELETE_PREVIOUS_WORD,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -1028,7 +1050,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_DELETE_NEXT_WORD,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -1037,7 +1059,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_UNDO,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -1046,7 +1068,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kTextEditing},
        IDS_KSV_DESCRIPTION_REDO,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -1098,7 +1120,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kAccessibility},
        IDS_KSV_DESCRIPTION_OPEN_RIGHT_CLICK_MENU_FOR_HIGHLIGHTED_ITEM,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {},
        // |shortcut_key_codes|
@@ -1108,154 +1130,154 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_TOGGLE_MIRROR_MODE,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_MEDIA_LAUNCH_APP2, ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_SWAP_PRIMARY_DISPLAY,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_MEDIA_LAUNCH_APP2, ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_BRIGHTNESS_DOWN,
-       IDS_KSV_SHORTCUT_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_BRIGHTNESS_DOWN, ui::EF_NONE}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_BRIGHTNESS_UP,
-       IDS_KSV_SHORTCUT_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_BRIGHTNESS_UP, ui::EF_NONE}}},
 
       {// |categories|
        {ShortcutCategory::kAccessibility},
        IDS_KSV_DESCRIPTION_MAGNIFY_SCREEN_ZOOM_OUT,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_BRIGHTNESS_DOWN, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kAccessibility},
        IDS_KSV_DESCRIPTION_MAGNIFY_SCREEN_ZOOM_IN,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_BRIGHTNESS_UP, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_VOLUME_MUTE,
-       IDS_KSV_SHORTCUT_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_VOLUME_MUTE, ui::EF_NONE}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_VOLUME_DOWN,
-       IDS_KSV_SHORTCUT_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_VOLUME_DOWN, ui::EF_NONE}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_VOLUME_UP,
-       IDS_KSV_SHORTCUT_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_VOLUME_UP, ui::EF_NONE}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_SHOW_TASK_MANAGER,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_ESCAPE, ui::EF_COMMAND_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_TOGGLE_FULLSCREEN,
-       IDS_KSV_SHORTCUT_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_MEDIA_LAUNCH_APP2, ui::EF_NONE}}},
 
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_WINDOW_MINIMIZE,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_OEM_MINUS, ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_FOCUS_NEXT_PANE,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_BROWSER_BACK, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_FOCUS_PREVIOUS_PANE,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_BROWSER_BACK, ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_MOVE_ACTIVE_WINDOW_BETWEEN_DISPLAYS,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_M, ui::EF_COMMAND_DOWN | ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_TOGGLE_APP_LIST,
-       IDS_KSV_SHORTCUT_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_LWIN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_TOGGLE_APP_LIST_FULLSCREEN,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_LWIN, ui::EF_SHIFT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_TAKE_WINDOW_SCREENSHOT,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_MEDIA_LAUNCH_APP1, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_SUSPEND,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_L, ui::EF_SHIFT_DOWN | ui::EF_COMMAND_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_OPEN_GET_HELP,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_OEM_2, ui::EF_CONTROL_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_OPEN_FEEDBACK_PAGE,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_I, ui::EF_ALT_DOWN | ui::EF_SHIFT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_ROTATE_WINDOW,
-       IDS_KSV_SHORTCUT_THREE_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_BROWSER_REFRESH,
          ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN | ui::EF_SHIFT_DOWN}}},
@@ -1263,123 +1285,123 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_SHOW_STYLUS_TOOLS,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_P, ui::EF_ALT_DOWN | ui::EF_SHIFT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_TOGGLE_MAXIMIZED,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_OEM_PLUS, ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_OPEN_CROSH,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_T, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_EXIT,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_Q, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_UNPIN,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_ESCAPE, ui::EF_SHIFT_DOWN | ui::EF_COMMAND_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_SHOW_IME_MENU_BUBBLE,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_K, ui::EF_SHIFT_DOWN | ui::EF_COMMAND_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_DESKS_NEW_DESK,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_OEM_PLUS, ui::EF_SHIFT_DOWN | ui::EF_COMMAND_DOWN}}},
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_DESKS_REMOVE_CURRENT_DESK,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_OEM_MINUS, ui::EF_SHIFT_DOWN | ui::EF_COMMAND_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_DESKS_ACTIVATE_LEFT_DESK,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_OEM_4, ui::EF_COMMAND_DOWN}}},
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_DESKS_ACTIVATE_RIGHT_DESK,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_OEM_6, ui::EF_COMMAND_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_DESKS_MOVE_ACTIVE_ITEM_LEFT_DESK,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_OEM_4, ui::EF_SHIFT_DOWN | ui::EF_COMMAND_DOWN}}},
       {// |categories|
        {ShortcutCategory::kTabAndWindow},
        IDS_KSV_DESCRIPTION_DESKS_MOVE_ACTIVE_ITEM_RIGHT_DESK,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_OEM_6, ui::EF_SHIFT_DOWN | ui::EF_COMMAND_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_SHOW_IDC_FOCUS_MENU_BAR,
-       IDS_KSV_SHORTCUT_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_F10}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_SHOW_IDC_HOME,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_HOME, ui::EF_ALT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_SHOW_IDC_CLEAR_BROWSING_DATA,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_BACK, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_SHOW_IDC_SHOW_BOOKMARK_MANAGER,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_O, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kPageAndBrowser},
        IDS_KSV_DESCRIPTION_IDC_DEV_TOOLS_INSPECT,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_C, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kAccessibility},
        IDS_KSV_DESCRIPTION_IDC_FOCUS_INACTIVE_POPUP_FOR_ACCESSIBILITY,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_A, ui::EF_ALT_DOWN | ui::EF_SHIFT_DOWN}}},
 
@@ -1395,7 +1417,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kPopular},
        IDS_KSV_DESCRIPTION_OPEN_GOOGLE_ASSISTANT,
-       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_A, ui::EF_COMMAND_DOWN}}},
 
@@ -1422,7 +1444,7 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},
        IDS_KSV_DESCRIPTION_PRIVACY_SCREEN_TOGGLE,
-       IDS_KSV_SHORTCUT_ONE_KEY,
+       {},
        // |accelerator_ids|
        {{ui::VKEY_PRIVACY_SCREEN_TOGGLE, ui::EF_NONE}}},
   });
@@ -1433,12 +1455,45 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
   // string.
   if (!is_initialized) {
     is_initialized = true;
+
+    // Include diagnostics shortcuts only when experiment flag is enabled.
+    if (base::FeatureList::IsEnabled(chromeos::features::kDiagnosticsApp)) {
+      const KeyboardShortcutItem diagnostics_shortcut = {
+          // |categories|
+          {ShortcutCategory::kSystemAndDisplay},
+          IDS_KSV_DESCRIPTION_OPEN_DIAGNOSTICS,
+          {},
+          // |accelerator_ids|
+          {{ui::VKEY_ESCAPE, ui::EF_CONTROL_DOWN | ui::EF_COMMAND_DOWN}}};
+      item_list->emplace_back(diagnostics_shortcut);
+    }
+
     for (auto& item : *item_list) {
+      // Capture mode is an improved screenshot and video recording tool, and
+      // the shortuct messages reflect the differences. If capture mode is
+      // disabled, we will swap the strings.
+      // TODO(sammiequon): Remove the strings suffixed with _OLD once capture
+      // mode can no longer be disabled.
+      if (!ash::features::IsCaptureModeEnabled()) {
+        static base::flat_map<int, int> new_to_old_message_id_map = {
+            {IDS_KSV_DESCRIPTION_TAKE_PARTIAL_SCREENSHOT,
+             IDS_KSV_DESCRIPTION_TAKE_PARTIAL_SCREENSHOT_OLD},
+            {IDS_KSV_DESCRIPTION_TAKE_SCREENSHOT,
+             IDS_KSV_DESCRIPTION_TAKE_SCREENSHOT_OLD},
+            {IDS_KSV_DESCRIPTION_TAKE_FULLSCREEN_SCREENSHOT,
+             IDS_KSV_DESCRIPTION_TAKE_SCREENSHOT_OLD},
+            {IDS_KSV_DESCRIPTION_TAKE_WINDOW_SCREENSHOT,
+             IDS_KSV_DESCRIPTION_TAKE_WINDOW_SCREENSHOT_OLD}};
+        const int id = item.description_message_id;
+        if (new_to_old_message_id_map.contains(id))
+          item.description_message_id = new_to_old_message_id_map[id];
+      }
+
       if (item.shortcut_key_codes.empty() && !item.accelerator_ids.empty()) {
         // Only use the first |accelerator_id| because the modifiers are the
         // same even if it is a grouped accelerators.
         const AcceleratorId& accelerator_id = item.accelerator_ids[0];
-        // Insert |shortcut_key_codes| by the order of CTLR, ALT, SHIFT, SEARCH,
+        // Insert |shortcut_key_codes| by the order of CTRL, ALT, SHIFT, SEARCH,
         // and then key, to be consistent with how we describe it in the
         // |shortcut_message_id| associated string template.
         for (auto modifier : {ui::EF_CONTROL_DOWN, ui::EF_ALT_DOWN,

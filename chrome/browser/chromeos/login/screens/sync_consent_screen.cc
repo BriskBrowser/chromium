@@ -6,10 +6,13 @@
 
 #include <string>
 
+#include "ash/constants/ash_features.h"
+#include "ash/constants/ash_pref_names.h"
 #include "base/bind.h"
 #include "base/check.h"
 #include "base/metrics/histogram_functions.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
+#include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/consent_auditor/consent_auditor_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
@@ -18,8 +21,6 @@
 #include "chrome/browser/unified_consent/unified_consent_service_factory.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/webui_url_constants.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/chromeos_pref_names.h"
 #include "components/consent_auditor/consent_auditor.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/public/identity_manager/consent_level.h"
@@ -52,13 +53,6 @@ void RecordUmaReviewFollowingSetup(bool value) {
 }
 
 }  // namespace
-
-// static
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-bool g_is_branded_build = true;
-#else
-bool g_is_branded_build = false;
-#endif
 
 // static
 std::string SyncConsentScreen::GetResultString(Result result) {
@@ -101,7 +95,8 @@ SyncConsentScreen::SyncConsentScreen(SyncConsentScreenView* view,
 }
 
 SyncConsentScreen::~SyncConsentScreen() {
-  view_->Bind(NULL);
+  if (view_)
+    view_->Bind(nullptr);
 }
 
 void SyncConsentScreen::Init() {
@@ -272,12 +267,6 @@ void SyncConsentScreen::MaybeEnableSyncForSkip() {
   }
 }
 
-// static
-std::unique_ptr<base::AutoReset<bool>>
-SyncConsentScreen::ForceBrandedBuildForTesting(bool value) {
-  return std::make_unique<base::AutoReset<bool>>(&g_is_branded_build, value);
-}
-
 void SyncConsentScreen::SetDelegateForTesting(
     SyncConsentScreen::SyncConsentScreenTestDelegate* delegate) {
   test_delegate_ = delegate;
@@ -301,7 +290,7 @@ SyncConsentScreen::SyncScreenBehavior SyncConsentScreen::GetSyncScreenBehavior()
   // Skip for non-branded (e.g. developer) builds. Check this after the account
   // type checks so we don't try to enable sync in browser_tests for those
   // account types.
-  if (!g_is_branded_build)
+  if (!WizardController::IsBrandedBuild())
     return SyncScreenBehavior::kSkipAndEnableNonBrandedBuild;
 
   const user_manager::UserManager* user_manager =

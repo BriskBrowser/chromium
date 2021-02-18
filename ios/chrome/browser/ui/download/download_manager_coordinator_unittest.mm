@@ -21,9 +21,12 @@
 #include "ios/chrome/browser/download/download_manager_metric_names.h"
 #import "ios/chrome/browser/download/download_manager_tab_helper.h"
 #import "ios/chrome/browser/download/external_app_util.h"
+#import "ios/chrome/browser/installation_notifier.h"
 #include "ios/chrome/browser/main/test_browser.h"
 #import "ios/chrome/browser/overlays/public/overlay_request_queue.h"
 #import "ios/chrome/browser/overlays/public/web_content_area/alert_overlay.h"
+#import "ios/chrome/browser/ui/commands/browser_coordinator_commands.h"
+#import "ios/chrome/browser/ui/commands/command_dispatcher.h"
 #import "ios/chrome/browser/ui/download/download_manager_view_controller.h"
 #import "ios/chrome/browser/web_state_list/fake_web_state_list_delegate.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
@@ -31,7 +34,7 @@
 #import "ios/chrome/test/fakes/fake_contained_presenter.h"
 #import "ios/chrome/test/scoped_key_window.h"
 #import "ios/web/public/test/fakes/fake_download_task.h"
-#import "ios/web/public/test/fakes/test_web_state.h"
+#import "ios/web/public/test/fakes/fake_web_state.h"
 #include "ios/web/public/test/web_task_environment.h"
 #include "net/base/net_errors.h"
 #include "net/url_request/url_fetcher_response_writer.h"
@@ -82,8 +85,8 @@ class DownloadManagerCoordinatorTest : public PlatformTest {
       : presenter_([[FakeContainedPresenter alloc] init]),
         base_view_controller_([[UIViewController alloc] init]),
         browser_(std::make_unique<TestBrowser>()),
-        document_interaction_controller_class_(
-            OCMClassMock([UIDocumentInteractionController class])),
+        activity_view_controller_class_(
+            OCMClassMock([UIActivityViewController class])),
         tab_helper_(&web_state_),
         coordinator_([[DownloadManagerCoordinator alloc]
             initWithBaseViewController:base_view_controller_
@@ -100,8 +103,9 @@ class DownloadManagerCoordinatorTest : public PlatformTest {
       [coordinator_ stop];
     }
 
-    [document_interaction_controller_class_ stopMocking];
+    [activity_view_controller_class_ stopMocking];
     [application_ stopMocking];
+    [[InstallationNotifier sharedInstance] stopPolling];
   }
 
   web::WebTaskEnvironment task_environment_;
@@ -109,8 +113,8 @@ class DownloadManagerCoordinatorTest : public PlatformTest {
   UIViewController* base_view_controller_;
   std::unique_ptr<Browser> browser_;
   ScopedKeyWindow scoped_key_window_;
-  web::TestWebState web_state_;
-  id document_interaction_controller_class_;
+  web::FakeWebState web_state_;
+  id activity_view_controller_class_;
   StubTabHelper tab_helper_;
   // Application can be lazily created by tests, but it has to be OCMock.
   // Destructor will call -stopMocking on this object to make sure that
@@ -440,13 +444,17 @@ TEST_F(DownloadManagerCoordinatorTest, OpenIn) {
       base_view_controller_.childViewControllers.firstObject;
   ASSERT_EQ([DownloadManagerViewController class], [view_controller class]);
 
+  id download_view_controller_mock = OCMPartialMock(view_controller);
+  id dispatcher_mock = OCMProtocolMock(@protocol(BrowserCoordinatorCommands));
+  [browser_->GetCommandDispatcher()
+      startDispatchingToTarget:dispatcher_mock
+                   forProtocol:@protocol(BrowserCoordinatorCommands)];
+
   // Start the download.
   base::FilePath path;
   ASSERT_TRUE(base::GetTempDir(&path));
   task->Start(std::make_unique<net::URLFetcherFileWriter>(
       base::ThreadTaskRunnerHandle::Get(), path));
-
-  id download_view_controller_mock = OCMPartialMock(view_controller);
 
   // Stub UIActivityViewController.
   OCMStub([download_view_controller_mock presentViewController:[OCMArg any]
@@ -548,7 +556,7 @@ TEST_F(DownloadManagerCoordinatorTest, QuitDuringInProgressDownload) {
   auto task = CreateTestTask();
   coordinator_.downloadTask = task.get();
   web::DownloadTask* task_ptr = task.get();
-  auto web_state = std::make_unique<web::TestWebState>();
+  auto web_state = std::make_unique<web::FakeWebState>();
   browser_->GetWebStateList()->InsertWebState(
       0, std::move(web_state), WebStateList::INSERT_NO_FLAGS, WebStateOpener());
   [coordinator_ start];

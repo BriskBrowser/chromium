@@ -10,7 +10,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
-#include "chrome/browser/media/router/media_router_metrics.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/media_router/cast_dialog_controller.h"
@@ -27,6 +26,7 @@
 #include "chrome/browser/ui/views/toolbar/browser_actions_container.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/media_router/browser/media_router_metrics.h"
 #include "components/media_router/common/media_sink.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -39,26 +39,10 @@
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view.h"
 
 namespace media_router {
-
-namespace {
-
-// This value is negative so that it doesn't overlap with a sink index.
-constexpr int kAlternativeSourceButtonId = -1;
-
-std::unique_ptr<views::Button> CreateSourcesButton(
-    views::ButtonListener* listener) {
-  auto sources_button = std::make_unique<views::MdTextButtonWithDownArrow>(
-      listener,
-      l10n_util::GetStringUTF16(IDS_MEDIA_ROUTER_ALTERNATIVE_SOURCES_BUTTON));
-  sources_button->SetID(kAlternativeSourceButtonId);
-  sources_button->SetEnabled(false);
-  return sources_button;
-}
-
-}  // namespace
 
 // static
 void CastDialogView::ShowDialogWithToolbarAction(
@@ -171,26 +155,6 @@ void CastDialogView::OnControllerInvalidated() {
   // cause the dialog to immediately open again.
 }
 
-void CastDialogView::ButtonPressed(views::Button* sender,
-                                   const ui::Event& event) {
-  if (sender->tag() == kAlternativeSourceButtonId) {
-    ShowSourcesMenu();
-  } else {
-    // SinkPressed() invokes a refresh of the sink list, which deletes the
-    // sink button. So we must call this after the button is done handling the
-    // press event.
-    content::GetUIThreadTaskRunner({})->PostTask(
-        FROM_HERE, base::BindOnce(&CastDialogView::SinkPressed,
-                                  weak_factory_.GetWeakPtr(), sender->tag()));
-  }
-}
-
-gfx::Size CastDialogView::CalculatePreferredSize() const {
-  const int width = ChromeLayoutProvider::Get()->GetDistanceMetric(
-      DISTANCE_BUBBLE_PREFERRED_WIDTH);
-  return gfx::Size(width, GetHeightForWidth(width));
-}
-
 void CastDialogView::OnPaint(gfx::Canvas* canvas) {
   views::BubbleDialogDelegateView::OnPaint(canvas);
   metrics_.OnPaint(base::Time::Now());
@@ -260,9 +224,18 @@ CastDialogView::CastDialogView(views::View* anchor_view,
       controller_(controller),
       profile_(profile),
       metrics_(start_time, activation_location, profile) {
+  DCHECK(profile);
   SetShowCloseButton(true);
   SetButtons(ui::DIALOG_BUTTON_NONE);
-  sources_button_ = SetExtraView(CreateSourcesButton(this));
+  set_fixed_width(views::LayoutProvider::Get()->GetDistanceMetric(
+      views::DISTANCE_BUBBLE_PREFERRED_WIDTH));
+  sources_button_ =
+      SetExtraView(std::make_unique<views::MdTextButtonWithDownArrow>(
+          base::BindRepeating(&CastDialogView::ShowSourcesMenu,
+                              base::Unretained(this)),
+          l10n_util::GetStringUTF16(
+              IDS_MEDIA_ROUTER_ALTERNATIVE_SOURCES_BUTTON)));
+  sources_button_->SetEnabled(false);
   ShowNoSinksView();
 }
 
@@ -348,11 +321,22 @@ void CastDialogView::PopulateScrollView(const std::vector<UIMediaSink>& sinks) {
   sink_list_view->SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kVertical));
   for (size_t i = 0; i < sinks.size(); i++) {
-    const UIMediaSink& sink = sinks.at(i);
-    CastDialogSinkButton* sink_button =
-        new CastDialogSinkButton(this, sink, /** button_tag */ i);
+    auto* sink_button =
+        sink_list_view->AddChildView(std::make_unique<CastDialogSinkButton>(
+            base::BindRepeating(&CastDialogView::SinkPressed,
+                                base::Unretained(this), i),
+            sinks.at(i)));
     sink_buttons_.push_back(sink_button);
-    sink_list_view->AddChildView(sink_button);
+
+    // This could potentially add a lot of warnings to the receiver list, but in
+    // practice a user is unlikely to have more than one or two meetings in the
+    // list at any given time, and repeating the warning is probably better than
+    // having the user ignore possibly the warning if it's only shown for a
+    // meeting they're not trying to cast to.
+    auto warning_view =
+        sink_button->MakeCastToMeetingDeprecationWarningView(profile_);
+    if (warning_view)
+      sink_list_view->AddChildView(std::move(warning_view));
   }
   scroll_view_->SetContents(std::move(sink_list_view));
 
@@ -479,7 +463,7 @@ void CastDialogView::OnFilePickerClosed(const ui::SelectedFileInfo* file_info) {
   set_close_on_deactivate(!keep_shown_for_testing_);
   if (file_info) {
 #if defined(OS_WIN)
-    local_file_name_ = file_info->display_name;
+    local_file_name_ = base::WideToUTF16(file_info->display_name);
 #else
     local_file_name_ = base::UTF8ToUTF16(file_info->display_name);
 #endif  // defined(OS_WIN)
@@ -489,5 +473,8 @@ void CastDialogView::OnFilePickerClosed(const ui::SelectedFileInfo* file_info) {
 
 // static
 CastDialogView* CastDialogView::instance_ = nullptr;
+
+BEGIN_METADATA(CastDialogView, views::BubbleDialogDelegateView)
+END_METADATA
 
 }  // namespace media_router

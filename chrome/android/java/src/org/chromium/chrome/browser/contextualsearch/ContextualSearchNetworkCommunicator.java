@@ -6,10 +6,12 @@ package org.chromium.chrome.browser.contextualsearch;
 
 import androidx.annotation.Nullable;
 
-import java.net.URL;
+import org.chromium.url.GURL;
 
 /**
  * An interface for network communication between the Contextual Search client and server.
+ * This is used to stub out the server during tests but in normal operation it just
+ * short circuits from the {@link ContextualSearchManager} to itself.
  */
 interface ContextualSearchNetworkCommunicator {
     /**
@@ -48,5 +50,6 @@ interface ContextualSearchNetworkCommunicator {
      * This is needed to stub out for testing, but has nothing to do with networking.
      * @return The URL of the base page (needed for testing purposes).
      */
-    @Nullable URL getBasePageUrl();
+    @Nullable
+    GURL getBasePageUrl();
 }

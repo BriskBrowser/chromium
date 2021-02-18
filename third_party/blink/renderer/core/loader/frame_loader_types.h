@@ -33,11 +33,6 @@ namespace blink {
 
 enum ShouldSendReferrer { kMaybeSendReferrer, kNeverSendReferrer };
 
-enum ReasonForCallingAllowPlugins {
-  kAboutToInstantiatePlugin,
-  kNotAboutToInstantiatePlugin
-};
-
 enum LoadStartType {
   kNavigationToDifferentDocument,
   kNavigationWithinSameDocument
@@ -46,11 +41,6 @@ enum LoadStartType {
 enum SameDocumentNavigationSource {
   kSameDocumentNavigationDefault,
   kSameDocumentNavigationHistoryApi,
-};
-
-enum HistoryScrollRestorationType {
-  kScrollRestorationAuto,
-  kScrollRestorationManual
 };
 
 enum class SavePreviousDocumentResources {

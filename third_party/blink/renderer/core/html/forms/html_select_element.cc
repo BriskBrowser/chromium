@@ -40,6 +40,7 @@
 #include "third_party/blink/renderer/core/dom/attribute.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
 #include "third_party/blink/renderer/core/dom/events/scoped_event_queue.h"
+#include "third_party/blink/renderer/core/dom/events/simulated_click_options.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/node_lists_node_data.h"
 #include "third_party/blink/renderer/core/dom/node_traversal.h"
@@ -391,10 +392,10 @@ void HTMLSelectElement::OptionElementChildrenChanged(
   }
 }
 
-void HTMLSelectElement::AccessKeyAction(bool send_mouse_events) {
+void HTMLSelectElement::AccessKeyAction(
+    SimulatedClickCreationScope creation_scope) {
   focus();
-  DispatchSimulatedClick(
-      nullptr, send_mouse_events ? kSendMouseUpDownEvents : kSendNoEvents);
+  DispatchSimulatedClick(nullptr, creation_scope);
 }
 
 Element* HTMLSelectElement::namedItem(const AtomicString& name) {
@@ -436,6 +437,8 @@ void HTMLSelectElement::SetOption(unsigned index,
   // Finally add the new element.
   EventQueueScope scope;
   add(element, before, exception_state);
+  if (exception_state.HadException())
+    return;
   if (diff >= 0 && option->Selected())
     OptionSelectionStateChanged(option, true);
 }
@@ -695,25 +698,27 @@ void HTMLSelectElement::ChildrenChanged(const ChildrenChange& change) {
       OptionInserted(*option, option->Selected());
     } else if (auto* optgroup =
                    DynamicTo<HTMLOptGroupElement>(change.sibling_changed)) {
-      for (auto& option : Traversal<HTMLOptionElement>::ChildrenOf(*optgroup))
-        OptionInserted(option, option.Selected());
+      for (auto& child_option :
+           Traversal<HTMLOptionElement>::ChildrenOf(*optgroup))
+        OptionInserted(child_option, child_option.Selected());
     }
   } else if (change.type == ChildrenChangeType::kElementRemoved) {
     if (auto* option = DynamicTo<HTMLOptionElement>(change.sibling_changed)) {
       OptionRemoved(*option);
     } else if (auto* optgroup =
                    DynamicTo<HTMLOptGroupElement>(change.sibling_changed)) {
-      for (auto& option : Traversal<HTMLOptionElement>::ChildrenOf(*optgroup))
-        OptionRemoved(option);
+      for (auto& child_option :
+           Traversal<HTMLOptionElement>::ChildrenOf(*optgroup))
+        OptionRemoved(child_option);
     }
   } else if (change.type == ChildrenChangeType::kAllChildrenRemoved) {
-    DCHECK(change.removed_nodes);
-    for (Node* node : *change.removed_nodes) {
+    for (Node* node : change.removed_nodes) {
       if (auto* option = DynamicTo<HTMLOptionElement>(node)) {
         OptionRemoved(*option);
       } else if (auto* optgroup = DynamicTo<HTMLOptGroupElement>(node)) {
-        for (auto& option : Traversal<HTMLOptionElement>::ChildrenOf(*optgroup))
-          OptionRemoved(option);
+        for (auto& child_option :
+             Traversal<HTMLOptionElement>::ChildrenOf(*optgroup))
+          OptionRemoved(child_option);
       }
     }
   }
@@ -922,10 +927,11 @@ void HTMLSelectElement::RestoreFormControlState(const FormControlState& state) {
     } else {
       wtf_size_t found_index = SearchOptionsForValue(state[0], 0, items_size);
       if (found_index != kNotFound) {
-        auto* option_element = To<HTMLOptionElement>(items[found_index].Get());
-        option_element->SetSelectedState(true);
-        option_element->SetDirty(true);
-        last_on_change_option_ = option_element;
+        auto* found_option_element =
+            To<HTMLOptionElement>(items[found_index].Get());
+        found_option_element->SetSelectedState(true);
+        found_option_element->SetDirty(true);
+        last_on_change_option_ = found_option_element;
       }
     }
   } else {
@@ -947,9 +953,10 @@ void HTMLSelectElement::RestoreFormControlState(const FormControlState& state) {
           found_index = SearchOptionsForValue(value, 0, start_index);
         if (found_index == kNotFound)
           continue;
-        auto* option_element = To<HTMLOptionElement>(items[found_index].Get());
-        option_element->SetSelectedState(true);
-        option_element->SetDirty(true);
+        auto* found_option_element =
+            To<HTMLOptionElement>(items[found_index].Get());
+        found_option_element->SetSelectedState(true);
+        found_option_element->SetDirty(true);
         start_index = found_index + 1;
       }
     }
@@ -1104,7 +1111,7 @@ void HTMLSelectElement::TypeAheadFind(const KeyboardEvent& event) {
 void HTMLSelectElement::SelectOptionByAccessKey(HTMLOptionElement* option) {
   // First bring into focus the list box.
   if (!IsFocused())
-    AccessKeyAction(false);
+    AccessKeyAction(SimulatedClickCreationScope::kFromUserAgent);
 
   if (!option || option->OwnerSelectElement() != this)
     return;

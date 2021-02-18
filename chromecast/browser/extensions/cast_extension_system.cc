@@ -26,8 +26,8 @@
 #include "extensions/browser/renderer_startup_helper.h"
 #include "extensions/browser/runtime_data.h"
 #include "extensions/browser/service_worker_manager.h"
-#include "extensions/browser/shared_user_script_manager.h"
 #include "extensions/browser/unloaded_extension_reason.h"
+#include "extensions/browser/user_script_manager.h"
 #include "extensions/browser/value_store/value_store_factory_impl.h"
 #include "extensions/common/api/app_runtime.h"
 #include "extensions/common/constants.h"
@@ -45,7 +45,7 @@ std::unique_ptr<base::DictionaryValue> LoadManifestFromString(
   std::unique_ptr<base::Value> root(deserializer.Deserialize(nullptr, error));
   if (!root.get()) {
     if (error->empty()) {
-      // If |error| is empty, than the file could not be read.
+      // If |error| is empty, then the file could not be read.
       // It would be cleaner to have the JSON reader give a specific error
       // in this case, but other code tests for a file error with
       // error->empty().  For now, be consistent.
@@ -186,8 +186,7 @@ void CastExtensionSystem::InitForRegularProfile(bool extensions_enabled) {
 
   RendererStartupHelperFactory::GetForBrowserContext(browser_context_);
 
-  shared_user_script_manager_ =
-      std::make_unique<SharedUserScriptManager>(browser_context_);
+  user_script_manager_ = std::make_unique<UserScriptManager>(browser_context_);
 
   extension_registrar_ =
       std::make_unique<ExtensionRegistrar>(browser_context_, this);
@@ -209,8 +208,8 @@ ServiceWorkerManager* CastExtensionSystem::service_worker_manager() {
   return service_worker_manager_.get();
 }
 
-SharedUserScriptManager* CastExtensionSystem::shared_user_script_manager() {
-  return shared_user_script_manager_.get();
+UserScriptManager* CastExtensionSystem::user_script_manager() {
+  return user_script_manager_.get();
 }
 
 StateStore* CastExtensionSystem::state_store() {

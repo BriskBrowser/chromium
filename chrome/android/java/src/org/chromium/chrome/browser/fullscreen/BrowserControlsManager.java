@@ -23,6 +23,7 @@ import org.chromium.base.ApplicationStatus.ActivityStateListener;
 import org.chromium.base.ObserverList;
 import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.base.task.PostTask;
+import org.chromium.cc.input.BrowserControlsState;
 import org.chromium.chrome.browser.ActivityTabProvider;
 import org.chromium.chrome.browser.ActivityTabProvider.ActivityTabTabObserver;
 import org.chromium.chrome.browser.app.ChromeActivity;
@@ -34,14 +35,13 @@ import org.chromium.chrome.browser.tab.SadTab;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabBrowserControlsConstraintsHelper;
 import org.chromium.chrome.browser.tab.TabBrowserControlsOffsetHelper;
-import org.chromium.chrome.browser.tabmodel.TabModelImpl;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorTabObserver;
+import org.chromium.chrome.browser.tabmodel.TabSwitchMetrics;
 import org.chromium.chrome.browser.toolbar.ControlContainer;
 import org.chromium.chrome.browser.vr.VrModuleProvider;
 import org.chromium.components.browser_ui.util.BrowserControlsVisibilityDelegate;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
-import org.chromium.content_public.common.BrowserControlsState;
 import org.chromium.ui.util.TokenHolder;
 import org.chromium.ui.vr.VrModeObserver;
 
@@ -177,7 +177,7 @@ public class BrowserControlsManager
      * @param modelSelector The tab model selector that will be monitored for tab changes.
      * @param resControlContainerHeight The dimension resource ID for the control container height.
      */
-    public void initialize(ControlContainer controlContainer,
+    public void initialize(@Nullable ControlContainer controlContainer,
             ActivityTabProvider activityTabProvider, final TabModelSelector modelSelector,
             int resControlContainerHeight) {
         mHtmlApiHandler.initialize(activityTabProvider, modelSelector);
@@ -504,7 +504,7 @@ public class BrowserControlsManager
      */
     private void setPositionsForTabToNonFullscreen() {
         Tab tab = getTab();
-        if (tab == null
+        if (tab == null || !tab.isInitialized()
                 || TabBrowserControlsConstraintsHelper.getConstraints(tab)
                         != BrowserControlsState.HIDDEN) {
             setPositionsForTab(0, 0, getTopControlsHeight(), getTopControlsMinHeight(),
@@ -598,7 +598,7 @@ public class BrowserControlsManager
             updateBrowserControlsOffsets(false, topControlsOffsetY, bottomControlsOffsetY,
                     contentOffsetY, topControlsMinHeightOffsetY, bottomControlsMinHeightOffsetY);
         }
-        TabModelImpl.setActualTabSwitchLatencyMetricRequired();
+        TabSwitchMetrics.setActualTabSwitchLatencyMetricRequired();
     }
 
     @Override

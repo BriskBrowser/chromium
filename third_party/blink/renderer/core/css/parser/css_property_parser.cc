@@ -20,7 +20,6 @@
 #include "third_party/blink/renderer/core/css/properties/css_property.h"
 #include "third_party/blink/renderer/core/css/properties/shorthand.h"
 #include "third_party/blink/renderer/core/style_property_shorthand.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/text/character_visitor.h"
 
 namespace blink {
@@ -47,7 +46,7 @@ const CSSValue* MaybeConsumeCSSWideKeyword(CSSParserTokenRange& range) {
     value = CSSInheritedValue::Create();
   if (id == CSSValueID::kUnset)
     value = cssvalue::CSSUnsetValue::Create();
-  if (RuntimeEnabledFeatures::CSSRevertEnabled() && id == CSSValueID::kRevert)
+  if (id == CSSValueID::kRevert)
     value = cssvalue::CSSRevertValue::Create();
 
   if (value)
@@ -76,7 +75,7 @@ bool CSSPropertyParser::ParseValue(
   int parsed_properties_size = parsed_properties.size();
 
   CSSPropertyParser parser(range, context, &parsed_properties);
-  CSSPropertyID resolved_property = resolveCSSPropertyID(unresolved_property);
+  CSSPropertyID resolved_property = ResolveCSSPropertyID(unresolved_property);
   bool parse_success;
   if (rule_type == StyleRule::kViewport) {
     parse_success =
@@ -121,7 +120,7 @@ bool CSSPropertyParser::ParseValueStart(CSSPropertyID unresolved_property,
     return true;
 
   CSSParserTokenRange original_range = range_;
-  CSSPropertyID property_id = resolveCSSPropertyID(unresolved_property);
+  CSSPropertyID property_id = ResolveCSSPropertyID(unresolved_property);
   const CSSProperty& property = CSSProperty::Get(property_id);
   // If a CSSPropertyID is only a known descriptor (@fontface, @property), not a
   // style property, it will not be a valid declaration.
@@ -132,7 +131,7 @@ bool CSSPropertyParser::ParseValueStart(CSSPropertyID unresolved_property,
   if (is_shorthand) {
     const auto local_context =
         CSSParserLocalContext()
-            .WithAliasParsing(isPropertyAlias(unresolved_property))
+            .WithAliasParsing(IsPropertyAlias(unresolved_property))
             .WithCurrentShorthand(property_id);
     // Variable references will fail to parse here and will fall out to the
     // variable ref parser below.
@@ -154,8 +153,9 @@ bool CSSPropertyParser::ParseValueStart(CSSPropertyID unresolved_property,
   if (CSSVariableParser::ContainsValidVariableReferences(original_range)) {
     bool is_animation_tainted = false;
     auto* variable = MakeGarbageCollected<CSSVariableReferenceValue>(
-        CSSVariableData::Create(original_range, is_animation_tainted, true,
-                                context_->BaseURL(), context_->Charset()),
+        CSSVariableData::Create({original_range, StringView()},
+                                is_animation_tainted, true, context_->BaseURL(),
+                                context_->Charset()),
         *context_);
 
     if (is_shorthand) {
@@ -191,10 +191,10 @@ static CSSPropertyID UnresolvedCSSPropertyID(
     return CSSPropertyID::kInvalid;
   if (length >= 2 && property_name[0] == '-' && property_name[1] == '-')
     return CSSPropertyID::kVariable;
-  if (length > maxCSSPropertyNameLength)
+  if (length > kMaxCSSPropertyNameLength)
     return CSSPropertyID::kInvalid;
 
-  char buffer[maxCSSPropertyNameLength + 1];  // 1 for null character
+  char buffer[kMaxCSSPropertyNameLength + 1];  // 1 for null character
 
   for (unsigned i = 0; i != length; ++i) {
     CharacterType c = property_name[i];
@@ -210,12 +210,12 @@ static CSSPropertyID UnresolvedCSSPropertyID(
     return CSSPropertyID::kInvalid;
   CSSPropertyID property_id = static_cast<CSSPropertyID>(hash_table_entry->id);
   const CSSProperty& property =
-      CSSProperty::Get(resolveCSSPropertyID(property_id));
+      CSSProperty::Get(ResolveCSSPropertyID(property_id));
   bool exposed = IsExposedInMode(execution_context, property, mode);
   return exposed ? property_id : CSSPropertyID::kInvalid;
 }
 
-CSSPropertyID unresolvedCSSPropertyID(const ExecutionContext* execution_context,
+CSSPropertyID UnresolvedCSSPropertyID(const ExecutionContext* execution_context,
                                       const String& string) {
   return WTF::VisitCharacters(string, [&](const auto* chars, unsigned length) {
     return UnresolvedCSSPropertyID(execution_context, chars, length,
@@ -268,7 +268,7 @@ bool CSSPropertyParser::ConsumeCSSWideKeyword(CSSPropertyID unresolved_property,
   if (!value)
     return false;
 
-  CSSPropertyID property = resolveCSSPropertyID(unresolved_property);
+  CSSPropertyID property = ResolveCSSPropertyID(unresolved_property);
   const StylePropertyShorthand& shorthand = shorthandForProperty(property);
   if (!shorthand.length()) {
     if (!CSSProperty::Get(property).IsProperty())

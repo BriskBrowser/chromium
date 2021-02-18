@@ -3,11 +3,11 @@
 // found in the LICENSE file.
 
 const AutomationNode = chrome.automation.AutomationNode;
-const SwitchAccessMenuAction =
+export const SwitchAccessMenuAction =
     chrome.accessibilityPrivate.SwitchAccessMenuAction;
 
 /** Constants used in Switch Access */
-const SAConstants = {
+export const SAConstants = {
 
   // ========================= Constants =========================
 
@@ -45,7 +45,7 @@ const SAConstants = {
     NO_ACTION_TAKEN: -1,
     REMAIN_OPEN: 0,
     CLOSE_MENU: 1,
-    RELOAD_MAIN_MENU: 2,
+    RELOAD_MENU: 2,
     OPEN_TEXT_NAVIGATION_MENU: 3,
   },
 
@@ -77,13 +77,11 @@ const SAConstants = {
   },
 
   /**
-   * IDs of menus that can appear in the menu panel.
-   * This must be kept in sync with the div ID of each menu
-   * in menu_panel.html.
-   * @enum {string}
+   * The different types of menus and sub-menus that can be shown.
+   * @enum {number}
    * @const
    */
-  MenuId: {MAIN: 'main_menu', TEXT_NAVIGATION: 'text_navigation_menu'},
+  MenuType: {MAIN_MENU: 0, TEXT_NAVIGATION: 1, POINT_SCAN_MENU: 2},
 
   /**
    * Preferences that are configurable in Switch Access.
@@ -94,9 +92,11 @@ const SAConstants = {
     AUTO_SCAN_TIME: 'settings.a11y.switch_access.auto_scan.speed_ms',
     AUTO_SCAN_KEYBOARD_TIME:
         'settings.a11y.switch_access.auto_scan.keyboard.speed_ms',
-    NEXT_SETTING: 'settings.a11y.switch_access.next.setting',
-    PREVIOUS_SETTING: 'settings.a11y.switch_access.previous.setting',
-    SELECT_SETTING: 'settings.a11y.switch_access.select.setting',
+    NEXT_DEVICE_KEY_CODES: 'settings.a11y.switch_access.next.device_key_codes',
+    PREVIOUS_DEVICE_KEY_CODES:
+        'settings.a11y.switch_access.previous.device_key_codes',
+    SELECT_DEVICE_KEY_CODES:
+        'settings.a11y.switch_access.select.device_key_codes',
   },
 
   // =========================== Sub-objects ===========================
@@ -132,24 +132,30 @@ const SAConstants = {
     ID: {
       // The ID for the ring showing the user's current focus.
       PRIMARY: 'primary',
-      // The ID for the ring showing the next focus.
-      NEXT: 'next',
-      // The ID for the area where text is being input.
-      TEXT: 'text'
+      // The ID for the ring showing a preview of the next focus, if the user
+      // selects the current element.
+      PREVIEW: 'preview'
     },
 
     /**
-     * The inner color of the focus rings.
+     * The inner color of the primary focus ring.
      * @type {string}
      * @const
      */
-    PRIMARY_COLOR: '#8AB4F8',
+    PRIMARY_COLOR: '#8AB4F8',  // Google Blue 300
+
+    /**
+     * The inner color of the preview focus ring
+     * @type {string}
+     * @const
+     */
+    PREVIEW_COLOR: '#8AB4F880',  // Google Blue 300, 50% opacity
 
     /**
      * The outer color of the focus rings.
      * @type {string}
      * @const
      */
-    SECONDARY_COLOR: '#000',
+    OUTER_COLOR: '#174EA6',  // Google Blue 900
   },
 };

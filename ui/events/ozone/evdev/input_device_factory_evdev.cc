@@ -94,7 +94,8 @@ std::unique_ptr<EventConverterEvdev> CreateConverter(
 #if defined(USE_EVDEV_GESTURES)
   // Touchpad or mouse: use gestures library.
   // EventReaderLibevdevCros -> GestureInterpreterLibevdevCros -> DispatchEvent
-  if (devinfo.HasTouchpad() || devinfo.HasMouse()) {
+  if (devinfo.HasTouchpad() || devinfo.HasMouse() ||
+      devinfo.HasPointingStick()) {
     std::unique_ptr<GestureInterpreterLibevdevCros> gesture_interp =
         std::make_unique<GestureInterpreterLibevdevCros>(
             params.id, params.cursor, params.gesture_property_provider,
@@ -166,8 +167,8 @@ std::unique_ptr<EventConverterEvdev> OpenInputDevice(
 
 bool IsUncategorizedDevice(const EventConverterEvdev& converter) {
   return !converter.HasTouchscreen() && !converter.HasKeyboard() &&
-         !converter.HasMouse() && !converter.HasTouchpad() &&
-         !converter.HasGamepad();
+         !converter.HasMouse() && !converter.HasPointingStick() &&
+         !converter.HasTouchpad() && !converter.HasGamepad();
 }
 
 }  // namespace
@@ -343,18 +344,15 @@ void InputDeviceFactoryEvdev::ApplyInputDeviceSettings() {
 
   SetIntPropertyForOneType(DT_MOUSE, "Pointer Sensitivity",
                            input_device_settings_.mouse_sensitivity);
-  SetIntPropertyForOneType(DT_MOUSE, "Mouse Scroll Sensitivity",
-                           input_device_settings_.mouse_scroll_sensitivity);
   SetBoolPropertyForOneType(DT_MOUSE, "Pointer Acceleration",
                             input_device_settings_.mouse_acceleration_enabled);
+  ApplyRelativePointingDeviceSettings(DT_MOUSE);
+  SetIntPropertyForOneType(DT_POINTING_STICK, "Pointer Sensitivity",
+                           input_device_settings_.pointing_stick_sensitivity);
   SetBoolPropertyForOneType(
-      DT_MOUSE, "Mouse Scroll Acceleration",
-      input_device_settings_.mouse_scroll_acceleration_enabled);
-  SetBoolPropertyForOneType(
-      DT_MOUSE, "Mouse Reverse Scrolling",
-      input_device_settings_.mouse_reverse_scroll_enabled);
-  SetBoolPropertyForOneType(DT_MOUSE, "Mouse High Resolution Scrolling", true);
-  SetBoolPropertyForOneType(DT_MOUSE, "Output Mouse Wheel Gestures", true);
+      DT_POINTING_STICK, "Pointer Acceleration",
+      input_device_settings_.pointing_stick_acceleration_enabled);
+  ApplyRelativePointingDeviceSettings(DT_POINTING_STICK);
 
   SetBoolPropertyForOneType(DT_TOUCHPAD, "Tap Paused",
                             input_device_settings_.tap_to_click_paused);
@@ -384,6 +382,20 @@ void InputDeviceFactoryEvdev::ApplyInputDeviceSettings() {
   }
 
   NotifyDevicesUpdated();
+}
+
+void InputDeviceFactoryEvdev::ApplyRelativePointingDeviceSettings(
+    EventDeviceType type) {
+  SetIntPropertyForOneType(type, "Mouse Scroll Sensitivity",
+                           input_device_settings_.mouse_scroll_sensitivity);
+  SetBoolPropertyForOneType(
+      type, "Mouse Scroll Acceleration",
+      input_device_settings_.mouse_scroll_acceleration_enabled);
+  SetBoolPropertyForOneType(
+      type, "Mouse Reverse Scrolling",
+      input_device_settings_.mouse_reverse_scroll_enabled);
+  SetBoolPropertyForOneType(type, "Mouse High Resolution Scrolling", true);
+  SetBoolPropertyForOneType(type, "Output Mouse Wheel Gestures", true);
 }
 
 void InputDeviceFactoryEvdev::ApplyCapsLockLed() {
@@ -440,7 +452,7 @@ void InputDeviceFactoryEvdev::UpdateDirtyFlags(
   if (converter->HasKeyboard())
     keyboard_list_dirty_ = true;
 
-  if (converter->HasMouse())
+  if (converter->HasMouse() || converter->HasPointingStick())
     mouse_list_dirty_ = true;
 
   if (converter->HasTouchpad())
@@ -506,13 +518,18 @@ void InputDeviceFactoryEvdev::NotifyKeyboardsUpdated() {
 
 void InputDeviceFactoryEvdev::NotifyMouseDevicesUpdated() {
   std::vector<InputDevice> mice;
+  bool has_mouse = false, has_pointing_stick = false;
   for (auto it = converters_.begin(); it != converters_.end(); ++it) {
     if (it->second->HasMouse()) {
       mice.push_back(it->second->input_device());
+      has_mouse = true;
+    } else if (it->second->HasPointingStick()) {
+      mice.push_back(it->second->input_device());
+      has_pointing_stick = true;
     }
   }
 
-  dispatcher_->DispatchMouseDevicesUpdated(mice);
+  dispatcher_->DispatchMouseDevicesUpdated(mice, has_mouse, has_pointing_stick);
 }
 
 void InputDeviceFactoryEvdev::NotifyTouchpadDevicesUpdated() {

@@ -7,6 +7,9 @@
 
 #include "base/macros.h"
 #include "base/time/time.h"
+#include "mojo/public/cpp/bindings/remote.h"
+
+#include "services/device/public/mojom/fingerprint.mojom.h"
 
 class PrefRegistrySimple;
 class Profile;
@@ -17,6 +20,7 @@ class FingerprintStorageTestApi;
 
 namespace quick_unlock {
 
+class FingerprintMetricsReporter;
 class QuickUnlockStorage;
 
 class FingerprintStorage {
@@ -48,12 +52,21 @@ class FingerprintStorage {
   int unlock_attempt_count() const { return unlock_attempt_count_; }
 
  private:
+  void OnGetRecords(const base::flat_map<std::string, std::string>&
+                        fingerprints_list_mapping);
+
   friend class chromeos::FingerprintStorageTestApi;
   friend class QuickUnlockStorage;
 
   Profile* const profile_;
   // Number of fingerprint unlock attempt.
   int unlock_attempt_count_ = 0;
+
+  mojo::Remote<device::mojom::Fingerprint> fp_service_;
+
+  std::unique_ptr<FingerprintMetricsReporter> metrics_reporter_;
+
+  base::WeakPtrFactory<FingerprintStorage> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(FingerprintStorage);
 };

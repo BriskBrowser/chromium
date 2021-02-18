@@ -9,16 +9,16 @@
 #include <vector>
 
 #include "ash/public/cpp/holding_space/holding_space_model.h"
-#include "ash/public/cpp/holding_space/holding_space_model_observer.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/strings/string16.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profile_manager_observer.h"
 #include "chrome/browser/ui/ash/holding_space/holding_space_client_impl.h"
+#include "chrome/browser/ui/ash/holding_space/holding_space_keyed_service_delegate.h"
+#include "chrome/browser/ui/ash/holding_space/holding_space_thumbnail_loader.h"
+#include "chromeos/dbus/power/power_manager_client.h"
 #include "components/account_id/account_id.h"
-#include "components/download/public/common/download_item.h"
 #include "components/keyed_service/core/keyed_service.h"
-#include "content/public/browser/download_manager.h"
 #include "url/gurl.h"
 
 class GURL;
@@ -27,42 +27,24 @@ namespace base {
 class FilePath;
 }  // namespace base
 
-namespace content {
-class BrowserContext;
-}  // namespace content
-
 namespace user_prefs {
 class PrefRegistrySyncable;
 }  // namespace user_prefs
 
-namespace gfx {
-class ImageSkia;
-}  // namespace gfx
-
 namespace storage {
 class FileSystemURL;
-}
+}  // namespace storage
 
 namespace ash {
-
-class HoldingSpaceItem;
-using HoldingSpaceItemPtr = std::unique_ptr<HoldingSpaceItem>;
 
 // Browser context keyed service that:
 // *   Manages the temporary holding space per-profile data model.
 // *   Serves as an entry point to add holding space items from Chrome.
 class HoldingSpaceKeyedService : public KeyedService,
-                                 public HoldingSpaceModelObserver,
                                  public ProfileManagerObserver,
-                                 public content::DownloadManager::Observer,
-                                 public download::DownloadItem::Observer {
+                                 public chromeos::PowerManagerClient::Observer {
  public:
-  // Preference path at which holding space items are persisted.
-  // NOTE: Any changes to persistence must be backwards compatible.
-  static constexpr char kPersistencePath[] = "ash.holding_space.items";
-
-  HoldingSpaceKeyedService(content::BrowserContext* context,
-                           const AccountId& account_id);
+  HoldingSpaceKeyedService(Profile* profile, const AccountId& account_id);
   HoldingSpaceKeyedService(const HoldingSpaceKeyedService& other) = delete;
   HoldingSpaceKeyedService& operator=(const HoldingSpaceKeyedService& other) =
       delete;
@@ -71,12 +53,15 @@ class HoldingSpaceKeyedService : public KeyedService,
   // Registers profile preferences for holding space.
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
 
-  // Adds a pinned file item identified by the provided file system URL.
-  void AddPinnedFile(const storage::FileSystemURL& file_system_url);
+  // Adds multiple pinned file items identified by the provided file system
+  // URLs.
+  void AddPinnedFiles(
+      const std::vector<storage::FileSystemURL>& file_system_urls);
 
-  // Removes a pinned file item identified by the provided file system URL.
-  // No-op if the file is not present in the holding space.
-  void RemovePinnedFile(const storage::FileSystemURL& file_system_url);
+  // Removes multiple pinned file items identified by the provided file system
+  // URLs. No-ops for files that are not present in the holding space.
+  void RemovePinnedFiles(
+      const std::vector<storage::FileSystemURL>& file_system_urls);
 
   // Returns whether the holding space contains a pinned file identified by a
   // file system URL.
@@ -89,11 +74,22 @@ class HoldingSpaceKeyedService : public KeyedService,
   // Adds a screenshot item backed by the provided absolute file path.
   // The path is expected to be under a mount point path recognized by the file
   // manager app (otherwise, the item will be dropped silently).
-  void AddScreenshot(const base::FilePath& screenshot_path,
-                     const gfx::ImageSkia& image);
+  void AddScreenshot(const base::FilePath& screenshot_path);
 
   // Adds a download item backed by the provided absolute file path.
   void AddDownload(const base::FilePath& download_path);
+
+  // Adds a nearby share item backed by the provided absolute file path.
+  void AddNearbyShare(const base::FilePath& nearby_share_path);
+
+  // Adds a screen recording item backed by the provided absolute file path.
+  void AddScreenRecording(const base::FilePath& screen_recording_path);
+
+  // Adds the specified `item` to the holding space model.
+  void AddItem(std::unique_ptr<HoldingSpaceItem> item);
+
+  // Adds multiple `items` to the holding space model.
+  void AddItems(std::vector<std::unique_ptr<HoldingSpaceItem>> items);
 
   const HoldingSpaceClient* client_for_testing() const {
     return &holding_space_client_;
@@ -103,58 +99,55 @@ class HoldingSpaceKeyedService : public KeyedService,
     return &holding_space_model_;
   }
 
-  void SetDownloadManagerForTesting(content::DownloadManager* manager);
+  HoldingSpaceThumbnailLoader* thumbnail_loader_for_testing() {
+    return &thumbnail_loader_;
+  }
 
  private:
   // KeyedService:
   void Shutdown() override;
 
-  // HoldingSpaceModelObserver:
-  void OnHoldingSpaceItemAdded(const HoldingSpaceItem* item) override;
-  void OnHoldingSpaceItemRemoved(const HoldingSpaceItem* item) override;
-
   // ProfileManagerObserver:
   void OnProfileAdded(Profile* profile) override;
 
-  // content::DownloadManager::Observer:
-  void ManagerGoingDown(content::DownloadManager* manager) override;
-  void OnDownloadCreated(content::DownloadManager* manager,
-                         download::DownloadItem* item) override;
+  // PowerManagerClient::Observer
+  void SuspendImminent(power_manager::SuspendImminent::Reason reason) override;
+  void SuspendDone(base::TimeDelta sleep_duration) override;
 
-  // download::DownloadItem::Observer:
-  void OnDownloadUpdated(download::DownloadItem* item) override;
+  // Invoked when the associated profile is ready.
+  void OnProfileReady();
 
-  // Removes all observers from:
-  // - `download_manager_`
-  // - `download_items_observer_`.
-  void RemoveDownloadManagerObservers();
+  // Creates and initializes holding space delegates. Called when the associated
+  // profile finishes initialization, or when device suspend ends (the delegates
+  // are shutdown during suspend).
+  void InitializeDelegates();
 
-  // Restores `holding_space_model_` from persistent storage.
-  void RestoreModelFromPersistence();
-  void RestoreModelByExistence(
-      std::vector<HoldingSpaceItemPtr> existing_items,
-      std::vector<HoldingSpaceItemPtr> non_existing_items);
-  void OnModelRestored();
+  // Shuts down and destroys existing holding space delegates. Called on
+  // profile shutdown, or when device suspend starts.
+  void ShutdownDelegates();
 
-  // Resolves file attributes from a file path;
-  GURL ResolveFileSystemUrl(const base::FilePath& file_path) const;
-  gfx::ImageSkia ResolveImage(const base::FilePath& file_path) const;
+  // Invoked when holding space persistence has been restored.
+  void OnPersistenceRestored();
 
-  content::BrowserContext* const browser_context_;
+  // Pin a drive file for offline access.
+  void MakeDriveItemAvailableOffline(
+      const storage::FileSystemURL& file_system_url);
+
+  Profile* const profile_;
   const AccountId account_id_;
 
   HoldingSpaceClientImpl holding_space_client_;
   HoldingSpaceModel holding_space_model_;
 
-  ScopedObserver<HoldingSpaceModel, HoldingSpaceModelObserver>
-      holding_space_model_observer_{this};
+  HoldingSpaceThumbnailLoader thumbnail_loader_;
 
-  ScopedObserver<ProfileManager, ProfileManagerObserver>
+  // The `HoldingSpaceKeyedService` owns a collection of `delegates_` which are
+  // each tasked with an independent area of responsibility on behalf of the
+  // service. They operate autonomously of one another.
+  std::vector<std::unique_ptr<HoldingSpaceKeyedServiceDelegate>> delegates_;
+
+  base::ScopedObservation<ProfileManager, ProfileManagerObserver>
       profile_manager_observer_{this};
-
-  content::DownloadManager* download_manager_ = nullptr;
-  ScopedObserver<download::DownloadItem, download::DownloadItem::Observer>
-      download_items_observer_{this};
 
   base::WeakPtrFactory<HoldingSpaceKeyedService> weak_factory_{this};
 };

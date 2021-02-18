@@ -5,8 +5,9 @@
 #ifndef CHROME_CREDENTIAL_PROVIDER_SETUP_SETUP_LIB_H_
 #define CHROME_CREDENTIAL_PROVIDER_SETUP_SETUP_LIB_H_
 
+#include <string>
+
 #include "base/files/file_path.h"
-#include "base/strings/string16.h"
 #include "base/win/windows_types.h"
 
 namespace base {
@@ -18,29 +19,10 @@ namespace credential_provider {
 
 struct FakesForTesting;
 
-// Define command line swtiches for setup.
-
-namespace switches {
-
-extern const char kParentHandle[];
-extern const char kInstallPath[];
-extern const char kUninstall[];
-extern const char kEnableStats[];
-extern const char kDisableStats[];
-
-}  // namespace switches
-
-// Installs GCPW Extension service. If there is an already GCPW extension, it is
-// stopped and deleted initially.
-DWORD InstallGCPWExtension(const base::FilePath& extension_exe_path);
-
-// Uninstalls GCPW Extension service by stopping and deleting the service.
-DWORD UninstallGCPWExtension();
-
 // Does a full install of GCP.  |installer_path| is the full path to the
 // installer exe and |product_version| is the version of GCP being installed.
 HRESULT DoInstall(const base::FilePath& installer_path,
-                  const base::string16& product_version,
+                  const std::wstring& product_version,
                   FakesForTesting* fakes);
 
 // Does a full uninstall of GCP.  |installer_path| is the full path to the
@@ -65,7 +47,8 @@ int EnableStatsCollection(const base::CommandLine& cmdline);
 HRESULT WriteUninstallRegistryValues(const base::FilePath& setup_exe);
 
 // Writes the registry entries Credential Provider uses at runtime.
-HRESULT WriteCredentialProviderRegistryValues();
+HRESULT WriteCredentialProviderRegistryValues(
+    const base::FilePath& install_path);
 
 }  // namespace credential_provider
 

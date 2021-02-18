@@ -30,6 +30,7 @@ class TestInputController : public ui::InputController {
 
   // these are all stubs that are not used yet in these tests
   bool HasMouse() override { return false; }
+  bool HasPointingStick() override { return false; }
   bool HasTouchpad() override { return false; }
   bool IsCapsLockEnabled() override { return false; }
   void SetCapsLockEnabled(bool enabled) override {}
@@ -56,6 +57,9 @@ class TestInputController : public ui::InputController {
   void SetMouseReverseScroll(bool enabled) override {}
   void SetMouseAcceleration(bool enabled) override {}
   void SetMouseScrollAcceleration(bool enabled) override {}
+  void SetPointingStickSensitivity(int value) override {}
+  void SetPointingStickPrimaryButtonRight(bool right) override {}
+  void SetPointingStickAcceleration(bool enabled) override {}
   void SetTouchpadAcceleration(bool enabled) override {}
   void SetTouchpadScrollAcceleration(bool enabled) override {}
   void SetTapToClickPaused(bool state) override {}

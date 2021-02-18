@@ -11,14 +11,14 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/check.h"
 #include "base/notreached.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/mock_callback.h"
 #include "base/test/task_environment.h"
 #include "remoting/base/fake_oauth_token_getter.h"
@@ -404,7 +404,7 @@ TEST_F(FtlMessagingClientTest,
           FROM_HERE, ProtobufHttpStatus::Code::OK, &run_loop));
 
   test_responder_.AddStreamResponseToMostRecentRequestUrl(
-      {&response_1, &response_2}, ProtobufHttpStatus::OK);
+      {&response_1, &response_2}, ProtobufHttpStatus::OK());
 
   run_loop.Run();
 }

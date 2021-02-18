@@ -12,12 +12,14 @@ NSString* const kPopupMenuToolsMenuTableViewId =
     @"kPopupMenuToolsMenuTableViewId";
 NSString* const kPopupMenuNavigationTableViewId =
     @"kPopupMenuNavigationTableViewId";
+NSString* const kPopupMenuTabGridMenuTableViewId =
+    @"kPopupMenuTabGridMenuTableViewId";
 
 NSString* const kToolsMenuDownloadsId = @"kToolsMenuDownloadsId";
 NSString* const kToolsMenuReload = @"kToolsMenuReload";
 NSString* const kToolsMenuStop = @"kToolsMenuStop";
 NSString* const kToolsMenuNewTabId = @"kToolsMenuNewTabId";
-NSString* const kToolsMenuNewWindow = @"kToolsMenuNewWindow";
+NSString* const kToolsMenuNewWindowId = @"kToolsMenuNewWindowId";
 NSString* const kToolsMenuNewIncognitoTabId = @"kToolsMenuNewIncognitoTabId";
 NSString* const kToolsMenuCloseAllTabsId = @"kToolsMenuCloseAllTabsId";
 NSString* const kToolsMenuCloseAllIncognitoTabsId =

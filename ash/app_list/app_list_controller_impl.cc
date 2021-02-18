@@ -22,7 +22,8 @@
 #include "ash/assistant/ui/assistant_view_delegate.h"
 #include "ash/assistant/util/assistant_util.h"
 #include "ash/assistant/util/deep_link_util.h"
-#include "ash/home_screen/home_launcher_gesture_handler.h"
+#include "ash/constants/ash_features.h"
+#include "ash/constants/ash_pref_names.h"
 #include "ash/home_screen/home_screen_controller.h"
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
 #include "ash/public/cpp/app_list/app_list_client.h"
@@ -50,21 +51,21 @@
 #include "ash/wm/splitview/split_view_controller.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_state.h"
-#include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/chromeos_pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
+#include "components/services/app_service/public/cpp/app_registry_cache_wrapper.h"
 #include "extensions/common/constants.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/screen.h"
+#include "ui/message_center/message_center.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/wm/core/coordinate_conversion.h"
 #include "ui/wm/public/activation_client.h"
@@ -92,39 +93,11 @@ TabletModeAnimationTransition CalculateAnimationTransitionForMetrics(
       return launcher_should_show
                  ? TabletModeAnimationTransition::kDragReleaseShow
                  : TabletModeAnimationTransition::kDragReleaseHide;
-    case HomeScreenDelegate::AnimationTrigger::kOverviewModeSlide:
-      return launcher_should_show
-                 ? TabletModeAnimationTransition::kExitOverviewMode
-                 : TabletModeAnimationTransition::kEnterOverviewMode;
     case HomeScreenDelegate::AnimationTrigger::kOverviewModeFade:
       return launcher_should_show
                  ? TabletModeAnimationTransition::kFadeOutOverview
                  : TabletModeAnimationTransition::kFadeInOverview;
   }
-}
-
-int GetAssistantPrivacyInfoShownCount() {
-  PrefService* prefs =
-      Shell::Get()->session_controller()->GetLastActiveUserPrefService();
-  return prefs->GetInteger(prefs::kAssistantPrivacyInfoShownInLauncher);
-}
-
-void SetAssistantPrivacyInfoShownCount(int count) {
-  PrefService* prefs =
-      Shell::Get()->session_controller()->GetLastActiveUserPrefService();
-  prefs->SetInteger(prefs::kAssistantPrivacyInfoShownInLauncher, count);
-}
-
-bool IsAssistantPrivacyInfoDismissed() {
-  PrefService* prefs =
-      Shell::Get()->session_controller()->GetLastActiveUserPrefService();
-  return prefs->GetBoolean(prefs::kAssistantPrivacyInfoDismissedInLauncher);
-}
-
-void SetAssistantPrivacyInfoDismissed() {
-  PrefService* prefs =
-      Shell::Get()->session_controller()->GetLastActiveUserPrefService();
-  prefs->SetBoolean(prefs::kAssistantPrivacyInfoDismissedInLauncher, true);
 }
 
 int GetSuggestedContentInfoShownCount() {
@@ -188,9 +161,11 @@ GetTransitionFromMetricsAnimationInfo(
 
 AppListControllerImpl::AppListControllerImpl()
     : model_(std::make_unique<AppListModel>()),
-      presenter_(std::make_unique<AppListPresenterDelegateImpl>(this)) {
+      color_provider_(AppListColorProviderImpl()),
+      presenter_(std::make_unique<AppListPresenterDelegateImpl>(this)),
+      is_notification_indicator_enabled_(
+          ::features::IsNotificationIndicatorEnabled()) {
   model_->AddObserver(this);
-
   SessionControllerImpl* session_controller =
       Shell::Get()->session_controller();
   session_controller->AddObserver(this);
@@ -211,6 +186,7 @@ AppListControllerImpl::AppListControllerImpl()
   shell->mru_window_tracker()->AddObserver(this);
   AssistantController::Get()->AddObserver(this);
   AssistantUiController::Get()->GetModel()->AddObserver(this);
+  message_center::MessageCenter::Get()->AddObserver(this);
 }
 
 AppListControllerImpl::~AppListControllerImpl() {
@@ -230,10 +206,6 @@ AppListControllerImpl::~AppListControllerImpl() {
 
 // static
 void AppListControllerImpl::RegisterProfilePrefs(PrefRegistrySimple* registry) {
-  registry->RegisterIntegerPref(prefs::kAssistantPrivacyInfoShownInLauncher, 0);
-  registry->RegisterBooleanPref(
-      prefs::kAssistantPrivacyInfoDismissedInLauncher, false,
-      user_prefs::PrefRegistrySyncable::SYNCABLE_OS_PREF);
   registry->RegisterIntegerPref(
       prefs::kSuggestedContentInfoShownInLauncher, 0,
       user_prefs::PrefRegistrySyncable::SYNCABLE_OS_PREF);
@@ -363,6 +335,13 @@ void AppListControllerImpl::SetItemIcon(const std::string& id,
     item->SetIcon(AppListConfigType::kShared, icon);
 }
 
+void AppListControllerImpl::SetItemNotificationBadgeColor(const std::string& id,
+                                                          const SkColor color) {
+  AppListItem* item = model_->FindItem(id);
+  if (item)
+    item->SetNotificationBadgeColor(color);
+}
+
 void AppListControllerImpl::SetModelData(
     int profile_id,
     std::vector<std::unique_ptr<AppListItemMetadata>> apps,
@@ -481,7 +460,8 @@ void AppListControllerImpl::GetAppInfoDialogBounds(
 }
 
 void AppListControllerImpl::ShowAppList() {
-  presenter_.Show(GetDisplayIdToShowAppListOn(), base::TimeTicks());
+  presenter_.Show(AppListViewState::kPeeking, GetDisplayIdToShowAppListOn(),
+                  base::TimeTicks());
 }
 
 aura::Window* AppListControllerImpl::GetWindow() {
@@ -499,10 +479,45 @@ bool AppListControllerImpl::IsVisible(
 
 void AppListControllerImpl::OnAppListItemAdded(AppListItem* item) {
   client_->OnItemAdded(profile_id_, item->CloneMetadata());
+
+  if (is_notification_indicator_enabled_ && cache_ &&
+      notification_badging_pref_enabled_.value_or(false)) {
+    // Update the notification badge indicator for the newly added app list
+    // item.
+    cache_->ForOneApp(item->id(), [item](const apps::AppUpdate& update) {
+      item->UpdateNotificationBadge(update.HasBadge() ==
+                                    apps::mojom::OptionalBool::kTrue);
+    });
+  }
 }
 
 void AppListControllerImpl::OnActiveUserPrefServiceChanged(
-    PrefService* /* pref_service */) {
+    PrefService* pref_service) {
+  if (is_notification_indicator_enabled_) {
+    pref_change_registrar_ = std::make_unique<PrefChangeRegistrar>();
+    pref_change_registrar_->Init(pref_service);
+
+    pref_change_registrar_->Add(
+        prefs::kAppNotificationBadgingEnabled,
+        base::BindRepeating(
+            &AppListControllerImpl::UpdateAppNotificationBadging,
+            base::Unretained(this)));
+
+    // Observe AppRegistryCache for the current active account to get
+    // notification updates.
+    AccountId account_id =
+        Shell::Get()->session_controller()->GetActiveAccountId();
+    cache_ =
+        apps::AppRegistryCacheWrapper::Get().GetAppRegistryCache(account_id);
+    Observe(cache_);
+
+    // Resetting the recorded pref forces the next call to
+    // UpdateAppNotificationBadging() to update notification badging for every
+    // app item.
+    notification_badging_pref_enabled_.reset();
+    UpdateAppNotificationBadging();
+  }
+
   if (!IsTabletMode()) {
     DismissAppList();
     return;
@@ -587,7 +602,7 @@ void AppListControllerImpl::Show(int64_t display_id,
   if (show_source.has_value())
     LogAppListShowSource(show_source.value());
 
-  presenter_.Show(display_id, event_time_stamp);
+  presenter_.Show(AppListViewState::kPeeking, display_id, event_time_stamp);
 
   // AppListControllerImpl::Show is called in ash at the first time of showing
   // app list view. So check whether the expand arrow view should be visible.
@@ -613,7 +628,7 @@ void AppListControllerImpl::EndDragFromShelf(AppListViewState app_list_state) {
 
 void AppListControllerImpl::ProcessMouseWheelEvent(
     const ui::MouseWheelEvent& event) {
-  presenter_.ProcessMouseWheelOffset(event.offset());
+  presenter_.ProcessMouseWheelOffset(event.location(), event.offset());
 }
 
 ShelfAction AppListControllerImpl::ToggleAppList(
@@ -911,9 +926,6 @@ void AppListControllerImpl::OnHomeLauncherAnimationComplete(
   // Animations can be reversed (e.g. in a drag). Let's ensure the target
   // visibility is correct first.
   OnVisibilityChanged(shown, display_id);
-
-  if (!home_launcher_animation_callback_.is_null())
-    home_launcher_animation_callback_.Run(shown);
 }
 
 void AppListControllerImpl::OnHomeLauncherPositionChanged(int percent_shown,
@@ -947,19 +959,6 @@ aura::Window* AppListControllerImpl::GetHomeScreenWindow() {
   return presenter_.GetWindow();
 }
 
-void AppListControllerImpl::UpdateYPositionAndOpacityForHomeLauncher(
-    int y_position_in_screen,
-    float opacity,
-    base::Optional<AnimationInfo> animation_info,
-    UpdateAnimationSettingsCallback callback) {
-  DCHECK(!animation_info.has_value() || !callback.is_null());
-
-  presenter_.UpdateYPositionAndOpacityForHomeLauncher(
-      y_position_in_screen, opacity,
-      GetTransitionFromMetricsAnimationInfo(std::move(animation_info)),
-      std::move(callback));
-}
-
 void AppListControllerImpl::UpdateScaleAndOpacityForHomeLauncher(
     float scale,
     float opacity,
@@ -971,16 +970,6 @@ void AppListControllerImpl::UpdateScaleAndOpacityForHomeLauncher(
       scale, opacity,
       GetTransitionFromMetricsAnimationInfo(std::move(animation_info)),
       std::move(callback));
-}
-
-base::Optional<base::TimeDelta>
-AppListControllerImpl::GetOptionalAnimationDuration() {
-  if (model_->state() == AppListState::kStateEmbeddedAssistant) {
-    // If Assistant is shown, we don't want any delay in animation transitions
-    // since the launcher is already shown.
-    return base::TimeDelta::Min();
-  }
-  return base::nullopt;
 }
 
 void AppListControllerImpl::Back() {
@@ -1012,24 +1001,7 @@ bool AppListControllerImpl::IsShowingEmbeddedAssistantUI() const {
 }
 
 void AppListControllerImpl::UpdateExpandArrowVisibility() {
-  bool should_show = false;
-
-  // Hide the expand arrow view when in tablet mode and an activatable window
-  // cannot be dragged from top of the screen. This will be the case if:
-  // *   there is no activatable window on the current active desk, or
-  // *   kDragFromShelfToHomeOrOverview feature is enabled, in which app window
-  //     drag from top of home screen is disabled.
-  if (IsTabletMode()) {
-    should_show = !features::IsDragFromShelfToHomeOrOverviewEnabled() &&
-                  !Shell::Get()
-                       ->mru_window_tracker()
-                       ->BuildWindowForCycleList(kActiveDesk)
-                       .empty();
-  } else {
-    should_show = true;
-  }
-
-  presenter_.SetExpandArrowViewVisibility(should_show);
+  presenter_.SetExpandArrowViewVisibility(!IsTabletMode());
 }
 
 AppListViewState AppListControllerImpl::CalculateStateAfterShelfDrag(
@@ -1141,40 +1113,12 @@ void AppListControllerImpl::OpenSearchResult(const std::string& result_id,
     }
   }
 
-  if (presenter_.IsVisibleDeprecated() && result->is_omnibox_search() &&
-      IsAssistantAllowedAndEnabled() &&
-      app_list_features::IsAssistantSearchEnabled()) {
-    // Record the assistant result. Other types of results are recorded in
-    // |client_| where there is richer data on SearchResultType.
-    DCHECK_EQ(AppListLaunchedFrom::kLaunchedFromSearchBox, launched_from)
-        << "Only log search results which are represented to the user as "
-           "search results (ie. search results in the search result page) not "
-           "chips.";
-    RecordSearchResultOpenTypeHistogram(launched_from, ASSISTANT_OMNIBOX_RESULT,
-                                        IsTabletMode());
-    if (!GetLastQueryLength()) {
-      RecordZeroStateSuggestionOpenTypeHistogram(ASSISTANT_OMNIBOX_RESULT);
-    }
-    AssistantUiController::Get()->ShowUi(
-        AssistantEntryPoint::kLauncherSearchResult);
-    AssistantController::Get()->OpenUrl(
-        assistant::util::CreateAssistantQueryDeepLink(
-            base::UTF16ToUTF8(result->title())));
-  } else {
-    if (client_)
-      client_->OpenSearchResult(result_id, event_flags, launched_from,
-                                launch_type, suggestion_index,
-                                launch_as_default);
+  if (client_) {
+    client_->OpenSearchResult(result_id, event_flags, launched_from,
+                              launch_type, suggestion_index, launch_as_default);
   }
 
   ResetHomeLauncherIfShown();
-}
-
-void AppListControllerImpl::LogResultLaunchHistogram(
-    SearchResultLaunchLocation launch_location,
-    int suggestion_index) {
-  RecordSearchLaunchIndexAndQueryLength(launch_location, GetLastQueryLength(),
-                                        suggestion_index);
 }
 
 void AppListControllerImpl::LogSearchAbandonHistogram() {
@@ -1183,10 +1127,9 @@ void AppListControllerImpl::LogSearchAbandonHistogram() {
 
 void AppListControllerImpl::InvokeSearchResultAction(
     const std::string& result_id,
-    int action_index,
-    int event_flags) {
+    int action_index) {
   if (client_)
-    client_->InvokeSearchResultAction(result_id, action_index, event_flags);
+    client_->InvokeSearchResultAction(result_id, action_index);
 }
 
 void AppListControllerImpl::GetSearchResultContextMenuModel(
@@ -1269,36 +1212,6 @@ void AppListControllerImpl::ShowWallpaperContextMenu(
   Shell::Get()->ShowContextMenu(onscreen_location, source_type);
 }
 
-bool AppListControllerImpl::ProcessHomeLauncherGesture(
-    ui::GestureEvent* event) {
-  if (features::IsDragFromShelfToHomeOrOverviewEnabled())
-    return false;
-
-  HomeLauncherGestureHandler* home_launcher_gesture_handler =
-      Shell::Get()->home_screen_controller()->home_launcher_gesture_handler();
-  const gfx::PointF event_location =
-      event->details().bounding_box_f().CenterPoint();
-  switch (event->type()) {
-    case ui::ET_SCROLL_FLING_START:
-    case ui::ET_GESTURE_SCROLL_BEGIN:
-      return home_launcher_gesture_handler->OnPressEvent(
-          HomeLauncherGestureHandler::Mode::kSlideDownToHide, event_location);
-    case ui::ET_GESTURE_SCROLL_UPDATE:
-      return home_launcher_gesture_handler->OnScrollEvent(
-          event_location, event->details().scroll_x(),
-          event->details().scroll_y());
-    case ui::ET_GESTURE_END:
-      return home_launcher_gesture_handler->OnReleaseEvent(
-          event_location,
-          /*velocity_y=*/base::nullopt);
-    default:
-      break;
-  }
-
-  NOTREACHED();
-  return false;
-}
-
 bool AppListControllerImpl::KeyboardTraversalEngaged() {
   return keyboard_traversal_engaged_;
 }
@@ -1312,11 +1225,7 @@ bool AppListControllerImpl::CanProcessEventsOnApplistViews() {
     return false;
   }
 
-  HomeScreenController* home_screen_controller =
-      Shell::Get()->home_screen_controller();
-  return home_screen_controller &&
-         home_screen_controller->home_launcher_gesture_handler()->mode() !=
-             HomeLauncherGestureHandler::Mode::kSlideUpToShow;
+  return true;
 }
 
 bool AppListControllerImpl::ShouldDismissImmediately() {
@@ -1332,12 +1241,6 @@ bool AppListControllerImpl::ShouldDismissImmediately() {
   const int current_y =
       presenter_.GetView()->GetWidget()->GetNativeWindow()->bounds().y();
   return current_y > ideal_shelf_y;
-}
-
-void AppListControllerImpl::GetNavigableContentsFactory(
-    mojo::PendingReceiver<content::mojom::NavigableContentsFactory> receiver) {
-  if (client_)
-    client_->GetNavigableContentsFactory(std::move(receiver));
 }
 
 int AppListControllerImpl::GetTargetYForAppListHide(aura::Window* root_window) {
@@ -1370,11 +1273,8 @@ void AppListControllerImpl::NotifySearchResultsForLogging(
   }
 }
 
-void AppListControllerImpl::MaybeIncreasePrivacyInfoShownCounts() {
-  if (ShouldShowAssistantPrivacyInfo()) {
-    const int count = GetAssistantPrivacyInfoShownCount();
-    SetAssistantPrivacyInfoShownCount(count + 1);
-  } else if (ShouldShowSuggestedContentInfo()) {
+void AppListControllerImpl::MaybeIncreaseSuggestedContentInfoShownCount() {
+  if (ShouldShowSuggestedContentInfo()) {
     const int count = GetSuggestedContentInfoShownCount();
     SetSuggestedContentInfoShownCount(count + 1);
   }
@@ -1392,33 +1292,7 @@ bool AppListControllerImpl::IsAssistantAllowedAndEnabled() const {
              chromeos::assistant::AssistantStatus::NOT_READY;
 }
 
-bool AppListControllerImpl::ShouldShowAssistantPrivacyInfo() const {
-  if (!IsAssistantAllowedAndEnabled())
-    return false;
-
-  if (!app_list_features::IsAssistantSearchEnabled())
-    return false;
-
-  const bool dismissed = IsAssistantPrivacyInfoDismissed();
-  if (dismissed)
-    return false;
-
-  const int count = GetAssistantPrivacyInfoShownCount();
-  constexpr int kThresholdToShow = 6;
-  return count >= 0 && count <= kThresholdToShow;
-}
-
-void AppListControllerImpl::MarkAssistantPrivacyInfoDismissed() {
-  // User dismissed the privacy info view. Will not show the view again.
-  SetAssistantPrivacyInfoDismissed();
-}
-
 bool AppListControllerImpl::ShouldShowSuggestedContentInfo() const {
-  if (!base::FeatureList::IsEnabled(
-          chromeos::features::kSuggestedContentToggle)) {
-    return false;
-  }
-
   if (!IsSuggestedContentEnabled()) {
     // Don't show if user has interacted with the setting already.
     SetSuggestedContentInfoDismissed();
@@ -1472,6 +1346,10 @@ int AppListControllerImpl::GetShelfSize() {
 
 bool AppListControllerImpl::IsInTabletMode() {
   return Shell::Get()->tablet_mode_controller()->InTabletMode();
+}
+
+AppListColorProviderImpl* AppListControllerImpl::GetColorProvider() {
+  return &color_provider_;
 }
 
 void AppListControllerImpl::RecordAppLaunched(
@@ -1557,6 +1435,9 @@ void AppListControllerImpl::OnVisibilityChanged(bool visible,
     GetAssistantViewDelegate()->OnHostViewVisibilityChanged(real_visibility);
     for (auto& observer : observers_)
       observer.OnAppListVisibilityChanged(real_visibility, display_id);
+
+    if (!home_launcher_animation_callback_.is_null())
+      home_launcher_animation_callback_.Run(real_visibility);
   }
 }
 
@@ -1622,24 +1503,6 @@ void AppListControllerImpl::OnVisibilityWillChange(bool visible,
 
 ////////////////////////////////////////////////////////////////////////////////
 // Private used only:
-
-void AppListControllerImpl::OnHomeLauncherDragStart() {
-  AppListView* app_list_view = presenter_.GetView();
-  DCHECK(app_list_view);
-  app_list_view->OnHomeLauncherDragStart();
-}
-
-void AppListControllerImpl::OnHomeLauncherDragInProgress() {
-  AppListView* app_list_view = presenter_.GetView();
-  DCHECK(app_list_view);
-  app_list_view->OnHomeLauncherDragInProgress();
-}
-
-void AppListControllerImpl::OnHomeLauncherDragEnd() {
-  AppListView* app_list_view = presenter_.GetView();
-  DCHECK(app_list_view);
-  app_list_view->OnHomeLauncherDragEnd();
-}
 
 syncer::StringOrdinal AppListControllerImpl::GetOemFolderPos() {
   // Place the OEM folder just after the web store, which should always be
@@ -1783,6 +1646,7 @@ void AppListControllerImpl::Shutdown() {
   is_shutdown_ = true;
 
   Shell* shell = Shell::Get();
+  message_center::MessageCenter::Get()->RemoveObserver(this);
   AssistantController::Get()->RemoveObserver(this);
   AssistantUiController::Get()->GetModel()->RemoveObserver(this);
   shell->mru_window_tracker()->RemoveObserver(this);
@@ -1810,6 +1674,23 @@ gfx::Rect AppListControllerImpl::GetInitialAppListItemScreenBoundsForWindow(
       app_id ? *app_id : std::string());
 }
 
+void AppListControllerImpl::OnAppUpdate(const apps::AppUpdate& update) {
+  if (update.HasBadgeChanged() &&
+      notification_badging_pref_enabled_.value_or(false) &&
+      !quiet_mode_enabled_.value_or(false)) {
+    UpdateItemNotificationBadge(update.AppId(), update.HasBadge());
+  }
+}
+
+void AppListControllerImpl::OnAppRegistryCacheWillBeDestroyed(
+    apps::AppRegistryCache* cache) {
+  Observe(nullptr);
+}
+
+void AppListControllerImpl::OnQuietModeChanged(bool in_quiet_mode) {
+  UpdateAppNotificationBadging();
+}
+
 void AppListControllerImpl::UpdateTrackedAppWindow() {
   aura::Window* top_window = GetTopVisibleWindow();
   if (tracked_app_window_ == top_window)
@@ -1825,6 +1706,47 @@ void AppListControllerImpl::UpdateTrackedAppWindow() {
 void AppListControllerImpl::RecordAppListState() {
   recorded_app_list_view_state_ = GetAppListViewState();
   recorded_app_list_visibility_ = last_visible_;
+}
+
+void AppListControllerImpl::UpdateItemNotificationBadge(
+    const std::string& app_id,
+    apps::mojom::OptionalBool has_badge) {
+  AppListItem* item = model_->FindItem(app_id);
+  if (item) {
+    item->UpdateNotificationBadge(has_badge ==
+                                  apps::mojom::OptionalBool::kTrue);
+  }
+}
+
+void AppListControllerImpl::UpdateAppNotificationBadging() {
+  bool new_badging_enabled = pref_change_registrar_
+                                 ? pref_change_registrar_->prefs()->GetBoolean(
+                                       prefs::kAppNotificationBadgingEnabled)
+                                 : false;
+  bool new_quiet_mode_enabled =
+      message_center::MessageCenter::Get()->IsQuietMode();
+
+  if (notification_badging_pref_enabled_.has_value() &&
+      notification_badging_pref_enabled_.value() == new_badging_enabled &&
+      quiet_mode_enabled_.has_value() &&
+      quiet_mode_enabled_.value() == new_quiet_mode_enabled) {
+    return;
+  }
+  notification_badging_pref_enabled_ = new_badging_enabled;
+  quiet_mode_enabled_ = new_quiet_mode_enabled;
+
+  if (cache_) {
+    cache_->ForEachApp([this](const apps::AppUpdate& update) {
+      // Set the app notification badge hidden when the pref is disabled.
+      apps::mojom::OptionalBool has_badge =
+          notification_badging_pref_enabled_.value() &&
+                  !quiet_mode_enabled_.value() &&
+                  (update.HasBadge() == apps::mojom::OptionalBool::kTrue)
+              ? apps::mojom::OptionalBool::kTrue
+              : apps::mojom::OptionalBool::kFalse;
+      UpdateItemNotificationBadge(update.AppId(), has_badge);
+    });
+  }
 }
 
 }  // namespace ash

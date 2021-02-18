@@ -5,6 +5,7 @@
 #include "ui/views/examples/examples_window.h"
 
 #include <algorithm>
+#include <iostream>
 #include <iterator>
 #include <memory>
 #include <string>
@@ -21,7 +22,6 @@
 #include "ui/base/ui_base_paths.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/combobox/combobox.h"
-#include "ui/views/controls/combobox/combobox_listener.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/examples/create_examples.h"
 #include "ui/views/layout/fill_layout.h"
@@ -33,10 +33,20 @@ namespace views {
 namespace examples {
 
 const char kExamplesWidgetName[] = "ExamplesWidget";
+static const char kEnableExamples[] = "enable-examples";
+
+bool CheckCommandLineUsage() {
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch("help")) {
+    // Print the program usage.
+    std::cout << "Usage: " << command_line->GetProgram() << " [--"
+              << kEnableExamples << "=<example1,[example2...]>]\n";
+    return true;
+  }
+  return false;
+}
 
 namespace {
-
-const char kEnableExamples[] = "enable-examples";
 
 ExampleVector GetExamplesToShow(ExampleVector examples) {
   using StringVector = std::vector<std::string>;
@@ -48,7 +58,9 @@ ExampleVector GetExamplesToShow(ExampleVector examples) {
 
   std::string enable_examples =
       command_line->GetSwitchValueASCII(kEnableExamples);
+
   if (!enable_examples.empty()) {
+    // Filter examples to show based on the command line switch.
     StringVector enabled =
         base::SplitString(enable_examples, ";,", base::TRIM_WHITESPACE,
                           base::SPLIT_WANT_NONEMPTY);
@@ -74,6 +86,16 @@ ExampleVector GetExamplesToShow(ExampleVector examples) {
                          example->example_title()) == valid_examples.end();
       });
     }
+  } else if (command_line->HasSwitch(kEnableExamples)) {
+    std::string titles;
+    for (auto& example : examples) {
+      titles += "\n\t";
+      titles += example->example_title();
+    }
+    titles += "\n";
+    std::cout << "By default, all examples will be shown.";
+    std::cout << "You may want to specify the example(s) you want to run:"
+              << titles;
   }
 
   for (auto& example : examples)
@@ -109,8 +131,7 @@ class ComboboxModelExampleList : public ui::ComboboxModel {
   DISALLOW_COPY_AND_ASSIGN(ComboboxModelExampleList);
 };
 
-class ExamplesWindowContents : public WidgetDelegateView,
-                               public ComboboxListener {
+class ExamplesWindowContents : public WidgetDelegateView {
  public:
   ExamplesWindowContents(base::OnceClosure on_close, ExampleVector examples)
       : on_close_(std::move(on_close)) {
@@ -122,7 +143,8 @@ class ExamplesWindowContents : public WidgetDelegateView,
     auto combobox = std::make_unique<Combobox>(std::move(combobox_model));
 
     instance_ = this;
-    combobox->set_listener(this);
+    combobox->SetCallback(base::BindRepeating(
+        &ExamplesWindowContents::ComboboxChanged, base::Unretained(this)));
 
     SetBackground(CreateThemedSolidBackground(
         this, ui::NativeTheme::kColorId_DialogBackground));
@@ -181,10 +203,8 @@ class ExamplesWindowContents : public WidgetDelegateView,
     return size;
   }
 
-  // ComboboxListener:
-  void OnPerformAction(Combobox* combobox) override {
-    DCHECK_EQ(combobox, combobox_);
-    int index = combobox->GetSelectedIndex();
+  void ComboboxChanged() {
+    int index = combobox_->GetSelectedIndex();
     DCHECK_LT(index, combobox_model_->GetItemCount());
     example_shown_->RemoveAllChildViews(false);
     example_shown_->AddChildView(combobox_model_->GetItemViewAt(index));

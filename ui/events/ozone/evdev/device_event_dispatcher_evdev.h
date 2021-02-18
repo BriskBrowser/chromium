@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "base/component_export.h"
+#include "base/optional.h"
 #include "base/time/time.h"
 #include "ui/events/devices/gamepad_device.h"
 #include "ui/events/devices/input_device.h"
@@ -48,17 +49,26 @@ struct COMPONENT_EXPORT(EVDEV) MouseMoveEventParams {
   MouseMoveEventParams(int device_id,
                        int flags,
                        const gfx::PointF& location,
+                       gfx::Vector2dF* ordinal_delta,
                        const PointerDetails& details,
                        base::TimeTicks timestamp);
   MouseMoveEventParams(const MouseMoveEventParams& other);
-  MouseMoveEventParams() {}
+  MouseMoveEventParams();
   ~MouseMoveEventParams();
 
   int device_id;
   int flags;
   gfx::PointF location;
+  base::Optional<gfx::Vector2dF> ordinal_delta;
   PointerDetails pointer_details;
   base::TimeTicks timestamp;
+};
+
+enum class COMPONENT_EXPORT(EVDEV) MouseButtonMapType : int {
+  kNone,
+  kMouse,
+  kPointingStick,
+  kMaxValue = kPointingStick,
 };
 
 struct COMPONENT_EXPORT(EVDEV) MouseButtonEventParams {
@@ -67,7 +77,7 @@ struct COMPONENT_EXPORT(EVDEV) MouseButtonEventParams {
                          const gfx::PointF& location,
                          unsigned int button,
                          bool down,
-                         bool allow_remap,
+                         MouseButtonMapType map_type,
                          const PointerDetails& details,
                          base::TimeTicks timestamp);
   MouseButtonEventParams(const MouseButtonEventParams& other);
@@ -79,7 +89,7 @@ struct COMPONENT_EXPORT(EVDEV) MouseButtonEventParams {
   gfx::PointF location;
   unsigned int button;
   bool down;
-  bool allow_remap;
+  MouseButtonMapType map_type;
   PointerDetails pointer_details;
   base::TimeTicks timestamp;
 };
@@ -189,7 +199,9 @@ class COMPONENT_EXPORT(EVDEV) DeviceEventDispatcherEvdev {
   virtual void DispatchTouchscreenDevicesUpdated(
       const std::vector<TouchscreenDevice>& devices) = 0;
   virtual void DispatchMouseDevicesUpdated(
-      const std::vector<InputDevice>& devices) = 0;
+      const std::vector<InputDevice>& devices,
+      bool has_mouse,
+      bool has_pointing_stick) = 0;
   virtual void DispatchTouchpadDevicesUpdated(
       const std::vector<InputDevice>& devices) = 0;
   virtual void DispatchDeviceListsComplete() = 0;

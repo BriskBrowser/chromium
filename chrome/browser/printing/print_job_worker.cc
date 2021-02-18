@@ -9,14 +9,16 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/location.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/printing/print_job.h"
@@ -153,7 +155,7 @@ void PrintJobWorker::SetPrintJob(PrintJob* print_job) {
 }
 
 void PrintJobWorker::GetSettings(bool ask_user_for_settings,
-                                 int document_page_count,
+                                 uint32_t document_page_count,
                                  bool has_selection,
                                  mojom::MarginType margin_type,
                                  bool is_scripted,
@@ -190,7 +192,7 @@ void PrintJobWorker::SetSettings(base::Value new_settings,
                                 std::move(callback)));
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 void PrintJobWorker::SetSettingsFromPOD(
     std::unique_ptr<printing::PrintSettings> new_settings,
     SettingsCallback callback) {
@@ -222,7 +224,7 @@ void PrintJobWorker::UpdatePrintSettings(base::Value new_settings,
     crash_key = std::make_unique<crash_keys::ScopedPrinterInfo>(
         print_backend->GetPrinterDriverInfo(printer_name));
 
-#if defined(OS_LINUX) && defined(USE_CUPS) && !defined(OS_CHROMEOS)
+#if (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) && defined(USE_CUPS)
     PrinterBasicInfo basic_info;
     if (print_backend->GetPrinterBasicInfo(printer_name, &basic_info)) {
       base::Value advanced_settings(base::Value::Type::DICTIONARY);
@@ -232,7 +234,8 @@ void PrintJobWorker::UpdatePrintSettings(base::Value new_settings,
       new_settings.SetKey(kSettingAdvancedSettings,
                           std::move(advanced_settings));
     }
-#endif  // defined(OS_LINUX) && defined(USE_CUPS) && !defined(OS_CHROMEOS)
+#endif  // (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) &&
+        // defined(USE_CUPS)
   }
 
   PrintingContext::Result result;
@@ -247,7 +250,7 @@ void PrintJobWorker::UpdatePrintSettings(base::Value new_settings,
   GetSettingsDone(std::move(callback), result);
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 void PrintJobWorker::UpdatePrintSettingsFromPOD(
     std::unique_ptr<printing::PrintSettings> new_settings,
     SettingsCallback callback) {
@@ -263,11 +266,16 @@ void PrintJobWorker::GetSettingsDone(SettingsCallback callback,
   std::move(callback).Run(printing_context_->TakeAndResetSettings(), result);
 }
 
-void PrintJobWorker::GetSettingsWithUI(int document_page_count,
+void PrintJobWorker::GetSettingsWithUI(uint32_t document_page_count,
                                        bool has_selection,
                                        bool is_scripted,
                                        SettingsCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  if (document_page_count > kMaxPageCount) {
+    GetSettingsDone(std::move(callback), PrintingContext::Result::FAILED);
+    return;
+  }
 
   content::WebContents* web_contents = GetWebContents();
 
@@ -297,7 +305,7 @@ void PrintJobWorker::GetSettingsWithUI(int document_page_count,
     web_contents->ExitFullscreen(true);
 
   printing_context_->AskUserForSettings(
-      document_page_count, has_selection, is_scripted,
+      base::checked_cast<int>(document_page_count), has_selection, is_scripted,
       base::BindOnce(&PrintJobWorker::GetSettingsDone,
                      weak_factory_.GetWeakPtr(), std::move(callback)));
 }
@@ -417,7 +425,7 @@ bool PrintJobWorker::OnNewPageHelperGdi() {
   }
 
   while (true) {
-    scoped_refptr<PrintedPage> page = document_->GetPage(page_number_.ToInt());
+    scoped_refptr<PrintedPage> page = document_->GetPage(page_number_.ToUint());
     if (!page) {
       PostWaitForPage();
       return false;

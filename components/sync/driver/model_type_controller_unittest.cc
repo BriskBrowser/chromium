@@ -7,8 +7,8 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/check_op.h"
 #include "base/notreached.h"
 #include "base/run_loop.h"
@@ -19,11 +19,12 @@
 #include "components/sync/driver/configure_context.h"
 #include "components/sync/engine/commit_queue.h"
 #include "components/sync/engine/data_type_activation_response.h"
-#include "components/sync/engine/fake_model_type_processor.h"
 #include "components/sync/engine/model_type_configurer.h"
 #include "components/sync/engine/model_type_processor_proxy.h"
 #include "components/sync/model/data_type_activation_request.h"
-#include "components/sync/model_impl/forwarding_model_type_controller_delegate.h"
+#include "components/sync/model/forwarding_model_type_controller_delegate.h"
+#include "components/sync/model/type_entities_count.h"
+#include "components/sync/test/engine/fake_model_type_processor.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -47,14 +48,24 @@ MATCHER(ErrorIsSet, "") {
 
 class MockDelegate : public ModelTypeControllerDelegate {
  public:
-  MOCK_METHOD2(OnSyncStarting,
-               void(const DataTypeActivationRequest& request,
-                    StartCallback callback));
-  MOCK_METHOD1(OnSyncStopping, void(SyncStopMetadataFate metadata_fate));
-  MOCK_METHOD1(GetAllNodesForDebugging, void(AllNodesCallback callback));
-  MOCK_METHOD1(GetStatusCountersForDebugging,
-               void(StatusCountersCallback callback));
-  MOCK_METHOD0(RecordMemoryUsageAndCountsHistograms, void());
+  MOCK_METHOD(void,
+              OnSyncStarting,
+              (const DataTypeActivationRequest& request,
+               StartCallback callback),
+              (override));
+  MOCK_METHOD(void,
+              OnSyncStopping,
+              (SyncStopMetadataFate metadata_fate),
+              (override));
+  MOCK_METHOD(void,
+              GetAllNodesForDebugging,
+              (AllNodesCallback callback),
+              (override));
+  MOCK_METHOD(void,
+              GetTypeEntitiesCountForDebugging,
+              (base::OnceCallback<void(const TypeEntitiesCount&)> callback),
+              (const override));
+  MOCK_METHOD(void, RecordMemoryUsageAndCountsHistograms, (), (override));
 };
 
 // A simple processor that trackes connected state.
@@ -89,16 +100,16 @@ class TestModelTypeConfigurer : public ModelTypeConfigurer {
     NOTREACHED() << "Not implemented.";
   }
 
-  void ActivateNonBlockingDataType(ModelType type,
-                                   std::unique_ptr<DataTypeActivationResponse>
-                                       activation_response) override {
+  void ActivateDataType(ModelType type,
+                        std::unique_ptr<DataTypeActivationResponse>
+                            activation_response) override {
     DCHECK_EQ(kTestModelType, type);
     DCHECK(!processor_);
     processor_ = std::move(activation_response->type_processor);
     processor_->ConnectSync(nullptr);
   }
 
-  void DeactivateNonBlockingDataType(ModelType type) override {
+  void DeactivateDataType(ModelType type) override {
     DCHECK_EQ(kTestModelType, type);
     DCHECK(processor_);
     processor_->DisconnectSync();
@@ -151,7 +162,7 @@ class ModelTypeControllerTest : public testing::Test {
     base::MockCallback<DataTypeController::ModelLoadCallback> load_models_done;
 
     ModelTypeControllerDelegate::StartCallback start_callback;
-    EXPECT_CALL(mock_delegate_, OnSyncStarting(_, _))
+    EXPECT_CALL(mock_delegate_, OnSyncStarting)
         .WillOnce([&](const DataTypeActivationRequest& request,
                       ModelTypeControllerDelegate::StartCallback callback) {
           start_callback = std::move(callback);
@@ -172,16 +183,16 @@ class ModelTypeControllerTest : public testing::Test {
             base::SequencedTaskRunnerHandle::Get());
 
     // Mimic completion for OnSyncStarting().
-    EXPECT_CALL(load_models_done, Run(_, _));
+    EXPECT_CALL(load_models_done, Run);
     std::move(start_callback).Run(std::move(activation_response));
     return true;
   }
 
-  void RegisterWithBackend(bool expect_downloaded) {
+  void ActivateDataType(bool expect_downloaded) {
     auto result = expect_downloaded
                       ? DataTypeController::TYPE_ALREADY_DOWNLOADED
                       : DataTypeController::TYPE_NOT_YET_DOWNLOADED;
-    EXPECT_EQ(result, controller_.RegisterWithBackend(&configurer_));
+    EXPECT_EQ(result, controller_.ActivateDataType(&configurer_));
     // ModelTypeProcessorProxy does posting of tasks.
     base::RunLoop().RunUntilIdle();
   }
@@ -220,7 +231,7 @@ TEST_F(ModelTypeControllerTest, LoadModelsOnBackendThread) {
   base::MockCallback<DataTypeController::ModelLoadCallback> load_models_done;
 
   ModelTypeControllerDelegate::StartCallback start_callback;
-  EXPECT_CALL(*delegate(), OnSyncStarting(_, _))
+  EXPECT_CALL(*delegate(), OnSyncStarting)
       .WillOnce([&](const DataTypeActivationRequest& request,
                     ModelTypeControllerDelegate::StartCallback callback) {
         start_callback = std::move(callback);
@@ -240,7 +251,7 @@ TEST_F(ModelTypeControllerTest, Activate) {
   base::HistogramTester histogram_tester;
   ASSERT_TRUE(LoadModels());
   EXPECT_EQ(DataTypeController::MODEL_LOADED, controller()->state());
-  RegisterWithBackend(/*expect_downloaded=*/false);
+  ActivateDataType(/*expect_downloaded=*/false);
   EXPECT_TRUE(processor()->is_connected());
   EXPECT_EQ(DataTypeController::RUNNING, controller()->state());
   histogram_tester.ExpectTotalCount(kStartFailuresHistogram, 0);
@@ -250,14 +261,14 @@ TEST_F(ModelTypeControllerTest, ActivateWithInitialSyncDone) {
   base::HistogramTester histogram_tester;
   ASSERT_TRUE(LoadModels(/*initial_sync_done=*/true));
   EXPECT_EQ(DataTypeController::MODEL_LOADED, controller()->state());
-  RegisterWithBackend(/*expect_downloaded=*/true);
+  ActivateDataType(/*expect_downloaded=*/true);
   EXPECT_TRUE(processor()->is_connected());
   histogram_tester.ExpectTotalCount(kStartFailuresHistogram, 0);
 }
 
 TEST_F(ModelTypeControllerTest, ActivateWithError) {
   ModelErrorHandler error_handler;
-  EXPECT_CALL(*delegate(), OnSyncStarting(_, _))
+  EXPECT_CALL(*delegate(), OnSyncStarting)
       .WillOnce([&](const DataTypeActivationRequest& request,
                     ModelTypeControllerDelegate::StartCallback callback) {
         error_handler = request.error_handler;
@@ -270,7 +281,7 @@ TEST_F(ModelTypeControllerTest, ActivateWithError) {
 
   base::HistogramTester histogram_tester;
   // Mimic completion for OnSyncStarting(), with an error.
-  EXPECT_CALL(*delegate(), OnSyncStopping(_)).Times(0);
+  EXPECT_CALL(*delegate(), OnSyncStopping).Times(0);
   EXPECT_CALL(load_models_done, Run(_, ErrorIsSet()));
   error_handler.Run(ModelError(FROM_HERE, "Test error"));
   // TODO(mastiz): We shouldn't need RunUntilIdle() here, but
@@ -284,7 +295,7 @@ TEST_F(ModelTypeControllerTest, ActivateWithError) {
 
 TEST_F(ModelTypeControllerTest, Stop) {
   ASSERT_TRUE(LoadModels());
-  RegisterWithBackend(/*expect_downloaded=*/false);
+  ActivateDataType(/*expect_downloaded=*/false);
   EXPECT_TRUE(processor()->is_connected());
   DeactivateDataTypeAndStop(STOP_SYNC);
   EXPECT_EQ(DataTypeController::NOT_RUNNING, controller()->state());
@@ -330,7 +341,7 @@ TEST_F(ModelTypeControllerTest, StopDuringFailedState) {
   EXPECT_CALL(*delegate(), OnSyncStopping(CLEAR_METADATA)).Times(0);
 
   ModelErrorHandler error_handler;
-  EXPECT_CALL(*delegate(), OnSyncStarting(_, _))
+  EXPECT_CALL(*delegate(), OnSyncStarting)
       .WillOnce([&](const DataTypeActivationRequest& request,
                     ModelTypeControllerDelegate::StartCallback callback) {
         error_handler = request.error_handler;
@@ -356,7 +367,7 @@ TEST_F(ModelTypeControllerTest, StopDuringFailedState) {
 // wait for completion of the delegate, before stopping it.
 TEST_F(ModelTypeControllerTest, StopWhileStarting) {
   ModelTypeControllerDelegate::StartCallback start_callback;
-  EXPECT_CALL(*delegate(), OnSyncStarting(_, _))
+  EXPECT_CALL(*delegate(), OnSyncStarting)
       .WillOnce([&](const DataTypeActivationRequest& request,
                     ModelTypeControllerDelegate::StartCallback callback) {
         start_callback = std::move(callback);
@@ -364,7 +375,7 @@ TEST_F(ModelTypeControllerTest, StopWhileStarting) {
 
   // A cancelled start never issues completion for the load.
   base::MockCallback<DataTypeController::ModelLoadCallback> load_models_done;
-  EXPECT_CALL(load_models_done, Run(_, _)).Times(0);
+  EXPECT_CALL(load_models_done, Run).Times(0);
 
   controller()->LoadModels(MakeConfigureContext(), load_models_done.Get());
   ASSERT_EQ(DataTypeController::MODEL_STARTING, controller()->state());
@@ -373,12 +384,12 @@ TEST_F(ModelTypeControllerTest, StopWhileStarting) {
   // Stop() should be deferred until OnSyncStarting() finishes.
   base::MockCallback<base::OnceClosure> stop_completion;
   EXPECT_CALL(stop_completion, Run()).Times(0);
-  EXPECT_CALL(*delegate(), OnSyncStopping(_)).Times(0);
+  EXPECT_CALL(*delegate(), OnSyncStopping).Times(0);
   controller()->Stop(DISABLE_SYNC, stop_completion.Get());
   EXPECT_EQ(DataTypeController::STOPPING, controller()->state());
 
   // Mimic completion for OnSyncStarting().
-  EXPECT_CALL(*delegate(), OnSyncStopping(_));
+  EXPECT_CALL(*delegate(), OnSyncStopping);
   EXPECT_CALL(stop_completion, Run());
   std::move(start_callback).Run(std::make_unique<DataTypeActivationResponse>());
   EXPECT_EQ(DataTypeController::NOT_RUNNING, controller()->state());
@@ -389,7 +400,7 @@ TEST_F(ModelTypeControllerTest, StopWhileStarting) {
 // loading produces an error, so the resulting state should be FAILED.
 TEST_F(ModelTypeControllerTest, StopWhileStartingWithError) {
   ModelErrorHandler error_handler;
-  EXPECT_CALL(*delegate(), OnSyncStarting(_, _))
+  EXPECT_CALL(*delegate(), OnSyncStarting)
       .WillOnce([&](const DataTypeActivationRequest& request,
                     ModelTypeControllerDelegate::StartCallback callback) {
         error_handler = request.error_handler;
@@ -402,13 +413,13 @@ TEST_F(ModelTypeControllerTest, StopWhileStartingWithError) {
   // Stop() should be deferred until OnSyncStarting() finishes.
   base::MockCallback<base::OnceClosure> stop_completion;
   EXPECT_CALL(stop_completion, Run()).Times(0);
-  EXPECT_CALL(*delegate(), OnSyncStopping(_)).Times(0);
+  EXPECT_CALL(*delegate(), OnSyncStopping).Times(0);
   controller()->Stop(DISABLE_SYNC, stop_completion.Get());
   EXPECT_EQ(DataTypeController::STOPPING, controller()->state());
 
   base::HistogramTester histogram_tester;
   // Mimic completion for OnSyncStarting(), with an error.
-  EXPECT_CALL(*delegate(), OnSyncStopping(_)).Times(0);
+  EXPECT_CALL(*delegate(), OnSyncStopping).Times(0);
   EXPECT_CALL(stop_completion, Run());
   error_handler.Run(ModelError(FROM_HERE, "Test error"));
   // TODO(mastiz): We shouldn't need RunUntilIdle() here, but
@@ -428,7 +439,7 @@ TEST_F(ModelTypeControllerTest, StopWhileStartingWithError) {
 TEST_F(ModelTypeControllerTest, StopWhileErrorInFlight) {
   ModelTypeControllerDelegate::StartCallback start_callback;
   ModelErrorHandler error_handler;
-  EXPECT_CALL(*delegate(), OnSyncStarting(_, _))
+  EXPECT_CALL(*delegate(), OnSyncStarting)
       .WillOnce([&](const DataTypeActivationRequest& request,
                     ModelTypeControllerDelegate::StartCallback callback) {
         start_callback = std::move(callback);
@@ -466,7 +477,7 @@ TEST_F(ModelTypeControllerTest, StopWhileErrorInFlight) {
 // is starting.
 TEST_F(ModelTypeControllerTest, ReportErrorWhileStarting) {
   ModelTypeControllerDelegate::StartCallback start_callback;
-  EXPECT_CALL(*delegate(), OnSyncStarting(_, _))
+  EXPECT_CALL(*delegate(), OnSyncStarting)
       .WillOnce([&](const DataTypeActivationRequest& request,
                     ModelTypeControllerDelegate::StartCallback callback) {
         start_callback = std::move(callback);
@@ -478,13 +489,13 @@ TEST_F(ModelTypeControllerTest, ReportErrorWhileStarting) {
 
   // The delegate should receive no OnSyncStopping() while starting despite
   // the subclass issuing ReportModelError().
-  EXPECT_CALL(*delegate(), OnSyncStopping(_)).Times(0);
+  EXPECT_CALL(*delegate(), OnSyncStopping).Times(0);
   controller()->ReportModelError(syncer::SyncError::DATATYPE_POLICY_ERROR,
                                  ModelError(FROM_HERE, "Test error"));
   EXPECT_EQ(DataTypeController::FAILED, controller()->state());
 
   // Mimic completion for OnSyncStarting().
-  EXPECT_CALL(*delegate(), OnSyncStopping(_));
+  EXPECT_CALL(*delegate(), OnSyncStopping);
   std::move(start_callback).Run(std::make_unique<DataTypeActivationResponse>());
   EXPECT_EQ(DataTypeController::FAILED, controller()->state());
 }
@@ -495,7 +506,7 @@ TEST_F(ModelTypeControllerTest, ReportErrorWhileStarting) {
 // starting.
 TEST_F(ModelTypeControllerTest, StopAndReportErrorWhileStarting) {
   ModelTypeControllerDelegate::StartCallback start_callback;
-  EXPECT_CALL(*delegate(), OnSyncStarting(_, _))
+  EXPECT_CALL(*delegate(), OnSyncStarting)
       .WillOnce([&](const DataTypeActivationRequest& request,
                     ModelTypeControllerDelegate::StartCallback callback) {
         start_callback = std::move(callback);
@@ -509,7 +520,7 @@ TEST_F(ModelTypeControllerTest, StopAndReportErrorWhileStarting) {
   // OnSyncStarting() finishes or ReportModelError() is called.
   base::MockCallback<base::OnceClosure> stop_completion;
   EXPECT_CALL(stop_completion, Run()).Times(0);
-  EXPECT_CALL(*delegate(), OnSyncStopping(_)).Times(0);
+  EXPECT_CALL(*delegate(), OnSyncStopping).Times(0);
   controller()->Stop(DISABLE_SYNC, stop_completion.Get());
   EXPECT_EQ(DataTypeController::STOPPING, controller()->state());
 
@@ -517,13 +528,13 @@ TEST_F(ModelTypeControllerTest, StopAndReportErrorWhileStarting) {
   // completion, but shouldn't lead to an immediate OnSyncStopping() until
   // loading completes.
   EXPECT_CALL(stop_completion, Run());
-  EXPECT_CALL(*delegate(), OnSyncStopping(_)).Times(0);
+  EXPECT_CALL(*delegate(), OnSyncStopping).Times(0);
   controller()->ReportModelError(syncer::SyncError::DATATYPE_POLICY_ERROR,
                                  ModelError(FROM_HERE, "Test error"));
   EXPECT_EQ(DataTypeController::FAILED, controller()->state());
 
   // Mimic completion for OnSyncStarting().
-  EXPECT_CALL(*delegate(), OnSyncStopping(_));
+  EXPECT_CALL(*delegate(), OnSyncStopping);
   std::move(start_callback).Run(std::make_unique<DataTypeActivationResponse>());
   EXPECT_EQ(DataTypeController::FAILED, controller()->state());
 }
@@ -549,8 +560,8 @@ TEST(ModelTypeControllerWithMultiDelegateTest, ToggleSyncMode) {
   ModelTypeControllerDelegate::StartCallback start_callback;
 
   // Start sync with SyncMode::kTransportOnly.
-  EXPECT_CALL(delegate_for_full_sync_mode, OnSyncStarting(_, _)).Times(0);
-  EXPECT_CALL(delegate_for_transport_mode, OnSyncStarting(_, _))
+  EXPECT_CALL(delegate_for_full_sync_mode, OnSyncStarting).Times(0);
+  EXPECT_CALL(delegate_for_transport_mode, OnSyncStarting)
       .WillOnce([&](const DataTypeActivationRequest& request,
                     ModelTypeControllerDelegate::StartCallback callback) {
         start_callback = std::move(callback);
@@ -566,14 +577,14 @@ TEST(ModelTypeControllerWithMultiDelegateTest, ToggleSyncMode) {
   ASSERT_EQ(DataTypeController::MODEL_LOADED, controller.state());
 
   // Stop sync.
-  EXPECT_CALL(delegate_for_full_sync_mode, OnSyncStopping(_)).Times(0);
-  EXPECT_CALL(delegate_for_transport_mode, OnSyncStopping(_));
+  EXPECT_CALL(delegate_for_full_sync_mode, OnSyncStopping).Times(0);
+  EXPECT_CALL(delegate_for_transport_mode, OnSyncStopping);
   controller.Stop(DISABLE_SYNC, base::DoNothing());
   ASSERT_EQ(DataTypeController::NOT_RUNNING, controller.state());
 
   // Start sync with SyncMode::kFull.
-  EXPECT_CALL(delegate_for_transport_mode, OnSyncStarting(_, _)).Times(0);
-  EXPECT_CALL(delegate_for_full_sync_mode, OnSyncStarting(_, _))
+  EXPECT_CALL(delegate_for_transport_mode, OnSyncStarting).Times(0);
+  EXPECT_CALL(delegate_for_full_sync_mode, OnSyncStarting)
       .WillOnce([&](const DataTypeActivationRequest& request,
                     ModelTypeControllerDelegate::StartCallback callback) {
         start_callback = std::move(callback);
@@ -589,8 +600,8 @@ TEST(ModelTypeControllerWithMultiDelegateTest, ToggleSyncMode) {
   ASSERT_EQ(DataTypeController::MODEL_LOADED, controller.state());
 
   // Stop sync.
-  EXPECT_CALL(delegate_for_transport_mode, OnSyncStopping(_)).Times(0);
-  EXPECT_CALL(delegate_for_full_sync_mode, OnSyncStopping(_));
+  EXPECT_CALL(delegate_for_transport_mode, OnSyncStopping).Times(0);
+  EXPECT_CALL(delegate_for_full_sync_mode, OnSyncStopping);
   controller.Stop(DISABLE_SYNC, base::DoNothing());
   ASSERT_EQ(DataTypeController::NOT_RUNNING, controller.state());
 }
@@ -600,7 +611,7 @@ TEST_F(ModelTypeControllerTest, ReportErrorAfterLoaded) {
   // Capture the callbacks.
   ModelErrorHandler error_handler;
   ModelTypeControllerDelegate::StartCallback start_callback;
-  EXPECT_CALL(*delegate(), OnSyncStarting(_, _))
+  EXPECT_CALL(*delegate(), OnSyncStarting)
       .WillOnce([&](const DataTypeActivationRequest& request,
                     ModelTypeControllerDelegate::StartCallback callback) {
         error_handler = request.error_handler;
@@ -632,7 +643,7 @@ TEST_F(ModelTypeControllerTest, ReportErrorAfterRegisteredWithBackend) {
   // Capture the callbacks.
   ModelErrorHandler error_handler;
   ModelTypeControllerDelegate::StartCallback start_callback;
-  EXPECT_CALL(*delegate(), OnSyncStarting(_, _))
+  EXPECT_CALL(*delegate(), OnSyncStarting)
       .WillOnce([&](const DataTypeActivationRequest& request,
                     ModelTypeControllerDelegate::StartCallback callback) {
         error_handler = request.error_handler;
@@ -653,7 +664,7 @@ TEST_F(ModelTypeControllerTest, ReportErrorAfterRegisteredWithBackend) {
   std::move(start_callback).Run(std::move(activation_response));
   ASSERT_EQ(DataTypeController::MODEL_LOADED, controller()->state());
 
-  RegisterWithBackend(/*expect_downloaded=*/false);
+  ActivateDataType(/*expect_downloaded=*/false);
   ASSERT_EQ(DataTypeController::RUNNING, controller()->state());
 
   // Now trigger the run-time error.

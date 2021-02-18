@@ -23,7 +23,7 @@
 #include "android_webview/browser/gfx/aw_picture.h"
 #include "android_webview/browser/gfx/browser_view_renderer.h"
 #include "android_webview/browser/gfx/child_frame.h"
-#include "android_webview/browser/gfx/gpu_service_web_view.h"
+#include "android_webview/browser/gfx/gpu_service_webview.h"
 #include "android_webview/browser/gfx/java_browser_view_renderer_helper.h"
 #include "android_webview/browser/gfx/render_thread_manager.h"
 #include "android_webview/browser/gfx/scoped_app_gl_state_restore.h"
@@ -35,9 +35,9 @@
 #include "android_webview/browser/permission/simple_permission_request.h"
 #include "android_webview/browser/state_serializer.h"
 #include "android_webview/browser_jni_headers/AwContents_jni.h"
-#include "android_webview/common/aw_hit_test_data.h"
 #include "android_webview/common/aw_switches.h"
 #include "android_webview/common/devtools_instrumentation.h"
+#include "android_webview/common/mojom/frame.mojom.h"
 #include "base/android/jni_android.h"
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
@@ -45,8 +45,8 @@
 #include "base/android/scoped_java_ref.h"
 #include "base/atomicops.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/i18n/rtl.h"
@@ -65,6 +65,7 @@
 #include "components/autofill/content/browser/content_autofill_driver_factory.h"
 #include "components/autofill/core/browser/autofill_manager.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
+#include "components/autofill/core/common/autofill_features.h"
 #include "components/navigation_interception/intercept_navigation_delegate.h"
 #include "components/safe_browsing/core/features.h"
 #include "components/security_interstitials/content/security_interstitial_tab_helper.h"
@@ -97,7 +98,6 @@
 #include "ui/gfx/image/image.h"
 struct AwDrawSWFunctionTable;
 
-using autofill::AutofillManager;
 using autofill::ContentAutofillDriverFactory;
 using base::android::AttachCurrentThread;
 using base::android::ConvertJavaStringToUTF16;
@@ -319,7 +319,12 @@ void AwContents::InitAutofillIfNecessary(bool autocomplete_enabled) {
   ContentAutofillDriverFactory::CreateForWebContentsAndDelegate(
       web_contents, AwAutofillClient::FromWebContents(web_contents),
       base::android::GetDefaultLocaleString(),
-      AutofillManager::DISABLE_AUTOFILL_DOWNLOAD_MANAGER,
+      base::FeatureList::IsEnabled(
+          autofill::features::kAndroidAutofillQueryServerFieldTypes) &&
+              (!autofill::AutofillProvider::
+                   is_download_manager_disabled_for_testing())
+          ? autofill::AutofillHandler::ENABLE_AUTOFILL_DOWNLOAD_MANAGER
+          : autofill::AutofillHandler::DISABLE_AUTOFILL_DOWNLOAD_MANAGER,
       autofill_provider_.get());
 }
 
@@ -433,6 +438,14 @@ static void JNI_AwContents_SetAwDrawSWFunctionTable(JNIEnv* env,
 
 static void JNI_AwContents_SetAwDrawGLFunctionTable(JNIEnv* env,
                                                     jlong function_table) {}
+
+static void JNI_AwContents_UpdateOpenWebScreenArea(JNIEnv* env,
+                                                   jint pixels,
+                                                   jint percentage) {
+  AwBrowserProcess::GetInstance()
+      ->visibility_metrics_logger()
+      ->UpdateOpenWebScreenArea(pixels, percentage);
+}
 
 // static
 jint JNI_AwContents_GetNativeInstanceCount(JNIEnv* env) {
@@ -744,7 +757,11 @@ void AwContents::ClearCache(JNIEnv* env,
                             const JavaParamRef<jobject>& obj,
                             jboolean include_disk_files) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  render_view_host_ext_->ClearCache();
+  AwRenderProcess* aw_render_process =
+      AwRenderProcess::GetInstanceForRenderProcessHost(
+          web_contents_->GetMainFrame()->GetProcess());
+
+  aw_render_process->ClearCache();
 
   if (include_disk_files) {
     content::BrowsingDataRemover* remover =
@@ -756,12 +773,6 @@ void AwContents::ClearCache(JNIEnv* env,
         content::BrowsingDataRemover::ORIGIN_TYPE_UNPROTECTED_WEB |
             content::BrowsingDataRemover::ORIGIN_TYPE_PROTECTED_WEB);
   }
-}
-
-void AwContents::KillRenderProcess(JNIEnv* env,
-                                   const JavaParamRef<jobject>& obj) {
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  render_view_host_ext_->KillRenderProcess();
 }
 
 FindHelper* AwContents::GetFindHelper() {
@@ -812,7 +823,14 @@ void AwContents::OnReceivedIcon(const GURL& icon_url, const SkBitmap& bitmap) {
     entry->GetFavicon().image = gfx::Image::CreateFrom1xBitmap(bitmap);
   }
 
-  Java_AwContents_onReceivedIcon(env, obj, gfx::ConvertToJavaBitmap(&bitmap));
+  ScopedJavaLocalRef<jobject> java_bitmap =
+      gfx::ConvertToJavaBitmap(bitmap, gfx::OomBehavior::kReturnNullOnOom);
+  if (!java_bitmap) {
+    LOG(WARNING) << "Skipping onReceivedIcon; Not enough memory to convert "
+                    "icon to Bitmap.";
+    return;
+  }
+  Java_AwContents_onReceivedIcon(env, obj, java_bitmap);
 }
 
 void AwContents::OnReceivedTouchIconUrl(const std::string& url,
@@ -886,7 +904,8 @@ void AwContents::UpdateLastHitTestData(JNIEnv* env,
   if (!render_view_host_ext_->HasNewHitTestData())
     return;
 
-  const AwHitTestData& data = render_view_host_ext_->GetLastHitTestData();
+  const android_webview::mojom::HitTestData& data =
+      render_view_host_ext_->GetLastHitTestData();
   render_view_host_ext_->MarkHitTestDataRead();
 
   // Make sure to null the Java object if data is empty/invalid.
@@ -907,8 +926,9 @@ void AwContents::UpdateLastHitTestData(JNIEnv* env,
   if (data.img_src.is_valid())
     img_src = ConvertUTF8ToJavaString(env, data.img_src.spec());
 
-  Java_AwContents_updateHitTestData(env, obj, data.type, extra_data_for_type,
-                                    href, anchor_text, img_src);
+  Java_AwContents_updateHitTestData(env, obj, static_cast<jint>(data.type),
+                                    extra_data_for_type, href, anchor_text,
+                                    img_src);
 }
 
 void AwContents::OnSizeChanged(JNIEnv* env,
@@ -1192,6 +1212,12 @@ void AwContents::SetDipScale(JNIEnv* env,
   SetDipScaleInternal(dip_scale);
 }
 
+jboolean AwContents::IsDisplayingOpenWebContent(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& obj) {
+  return GetVisibilityInfo().IsDisplayingOpenWebContent();
+}
+
 void AwContents::OnInputEvent(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   browser_view_renderer_.OnInputEvent();
 }
@@ -1414,7 +1440,11 @@ void AwContents::SetJsOnlineProperty(JNIEnv* env,
                                      const JavaParamRef<jobject>& obj,
                                      jboolean network_up) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  render_view_host_ext_->SetJsOnlineProperty(network_up);
+  AwRenderProcess* aw_render_process =
+      AwRenderProcess::GetInstanceForRenderProcessHost(
+          web_contents_->GetMainFrame()->GetProcess());
+
+  aw_render_process->SetJsOnlineProperty(network_up);
 }
 
 void AwContents::TrimMemory(JNIEnv* env,

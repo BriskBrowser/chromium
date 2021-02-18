@@ -43,7 +43,6 @@ class ChromeBrowserCloudManagementControllerDesktop
 
   // ChromeBrowserCloudManagementController::Delegate implementation.
   void SetDMTokenStorageDelegate() override;
-  bool IsEnabled() override;
   int GetUserDataDirKey() override;
   base::FilePath GetExternalPolicyPath() override;
   NetworkConnectionTrackerGetter CreateNetworkConnectionTrackerGetter()
@@ -65,6 +64,10 @@ class ChromeBrowserCloudManagementControllerDesktop
       override;
   std::unique_ptr<enterprise_reporting::ReportScheduler> CreateReportScheduler(
       CloudPolicyClient* client) override;
+
+  scoped_refptr<base::SingleThreadTaskRunner> GetBestEffortTaskRunner()
+      override;
+
   void SetGaiaURLLoaderFactory(scoped_refptr<network::SharedURLLoaderFactory>
                                    url_loader_factory) override;
 

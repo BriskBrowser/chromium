@@ -9,7 +9,6 @@
 #include "content/browser/appcache/appcache_request_handler.h"
 #include "content/browser/loader/navigation_loader_interceptor.h"
 #include "content/browser/service_worker/service_worker_main_resource_handle.h"
-#include "content/browser/service_worker/service_worker_main_resource_handle_core.h"
 #include "content/browser/service_worker/service_worker_main_resource_loader_interceptor.h"
 #include "content/browser/worker_host/worker_script_fetch_initiator.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -31,7 +30,8 @@ WorkerScriptLoader::WorkerScriptLoader(
     base::WeakPtr<AppCacheHost> appcache_host,
     const BrowserContextGetter& browser_context_getter,
     scoped_refptr<network::SharedURLLoaderFactory> default_loader_factory,
-    const net::MutableNetworkTrafficAnnotationTag& traffic_annotation)
+    const net::MutableNetworkTrafficAnnotationTag& traffic_annotation,
+    ukm::SourceId ukm_source_id)
     : routing_id_(routing_id),
       request_id_(request_id),
       options_(options),
@@ -40,7 +40,8 @@ WorkerScriptLoader::WorkerScriptLoader(
       service_worker_handle_(std::move(service_worker_handle)),
       browser_context_getter_(browser_context_getter),
       default_loader_factory_(std::move(default_loader_factory)),
-      traffic_annotation_(traffic_annotation) {
+      traffic_annotation_(traffic_annotation),
+      ukm_source_id_(ukm_source_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (!service_worker_handle_) {
@@ -116,6 +117,12 @@ void WorkerScriptLoader::MaybeStartLoader(
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(!completed_);
   DCHECK(interceptor);
+
+  if (!service_worker_handle_) {
+    // The DedicatedWorkerHost or SharedWorkerHost is already destroyed.
+    Abort();
+    return;
+  }
 
   // Create SubresourceLoaderParams for intercepting subresource requests and
   // populating the "controller" field in ServiceWorkerContainer. This can be
@@ -305,8 +312,9 @@ bool WorkerScriptLoader::MaybeCreateLoaderForResponse(
             resource_request_, response_head, response_body,
             response_url_loader, response_client_receiver, url_loader,
             &skip_other_interceptors, &will_return_unsafe_redirect)) {
-      // Both ServiceWorkerRequestHandler and AppCacheRequestHandler don't set
-      // skip_other_interceptors nor will_return_unsafe_redirect.
+      // Both ServiceWorkerMainResourceLoaderInterceptor and
+      // AppCacheRequestHandler don't set skip_other_interceptors nor
+      // will_return_unsafe_redirect.
       DCHECK(!skip_other_interceptors);
       DCHECK(!will_return_unsafe_redirect);
       subresource_loader_params_ =
@@ -327,7 +335,7 @@ void WorkerScriptLoader::CommitCompleted(
     // TODO(https://crbug.com/999049): Parse the COEP header and pass it to
     // the service worker handle.
     service_worker_handle_->OnBeginWorkerCommit(
-        network::CrossOriginEmbedderPolicy());
+        network::CrossOriginEmbedderPolicy(), ukm_source_id_);
   }
 
   client_->OnComplete(status);

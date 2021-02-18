@@ -32,9 +32,6 @@ void BrowserAccessibilityStateImpl::
   // not to add any code that isn't safe to run from a non-main thread!
   DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::UI));
 
-  JNIEnv* env = AttachCurrentThread();
-  Java_BrowserAccessibilityState_recordAccessibilityHistograms(env);
-
   // Screen reader metric.
   ui::AXMode mode =
       BrowserAccessibilityStateImpl::GetInstance()->GetAccessibilityMode();
@@ -46,6 +43,21 @@ void BrowserAccessibilityStateImpl::UpdateUniqueUserHistograms() {
   ui::AXMode mode = GetAccessibilityMode();
   UMA_HISTOGRAM_BOOLEAN("Accessibility.Android.ScreenReader.EveryReport",
                         mode.has_mode(ui::AXMode::kScreenReader));
+}
+
+void BrowserAccessibilityStateImpl::SetImageLabelsModeForProfile(
+    bool enabled,
+    BrowserContext* profile) {
+  std::vector<WebContentsImpl*> web_contents_vector =
+      WebContentsImpl::GetAllWebContents();
+  for (size_t i = 0; i < web_contents_vector.size(); ++i) {
+    if (web_contents_vector[i]->GetBrowserContext() != profile)
+      continue;
+
+    ui::AXMode ax_mode = web_contents_vector[i]->GetAccessibilityMode();
+    ax_mode.set_mode(ui::AXMode::kLabelImages, enabled);
+    web_contents_vector[i]->SetAccessibilityMode(ax_mode);
+  }
 }
 
 // static

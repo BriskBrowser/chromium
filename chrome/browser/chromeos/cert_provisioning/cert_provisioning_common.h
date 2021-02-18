@@ -14,6 +14,7 @@
 #include "base/values.h"
 #include "chrome/browser/chromeos/platform_keys/platform_keys.h"
 #include "chrome/browser/chromeos/platform_keys/platform_keys_service.h"
+#include "chromeos/dbus/attestation/interface.pb.h"
 #include "chromeos/dbus/constants/attestation_constants.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "net/cert/x509_certificate.h"
@@ -24,13 +25,14 @@ class Profile;
 namespace chromeos {
 
 namespace platform_keys {
+class KeyPermissionsManager;
 class PlatformKeysService;
 }  // namespace platform_keys
 
 namespace cert_provisioning {
 
 // Used for both DeleteVaKey and DeleteVaKeysByPrefix
-using DeleteVaKeyCallback = base::OnceCallback<void(base::Optional<bool>)>;
+using DeleteVaKeyCallback = base::OnceCallback<void(bool)>;
 
 const char kKeyNamePrefix[] = "cert-provis-";
 
@@ -63,6 +65,14 @@ enum class CertProvisioningWorkerState {
   kMaxValue = kCanceled,
 };
 
+// Types of the requests sent from the certificate provisioning client to the
+// device management server.
+enum class DeviceManagementServerRequestType {
+  kStartCsr = 0,
+  kFinishCsr = 1,
+  kDownloadCert = 2,
+};
+
 // Returns true if the |state| is one of final states, i. e. worker should
 // finish its task in one of them.
 bool IsFinalState(CertProvisioningWorkerState state);
@@ -73,6 +83,7 @@ using CertProfileId = std::string;
 // with definitions of RequiredClientCertificateForDevice and
 // RequiredClientCertificateForUser policies in policy_templates.json file.
 const char kCertProfileIdKey[] = "cert_profile_id";
+const char kCertProfileNameKey[] = "name";
 const char kCertProfileRenewalPeroidSec[] = "renewal_period_seconds";
 const char kCertProfilePolicyVersionKey[] = "policy_version";
 const char kCertProfileIsVaEnabledKey[] = "enable_remote_attestation_check";
@@ -80,14 +91,19 @@ const char kCertProfileIsVaEnabledKey[] = "enable_remote_attestation_check";
 struct CertProfile {
   static base::Optional<CertProfile> MakeFromValue(const base::Value& value);
 
-  CertProfile() = default;
+  CertProfile();
   // For tests.
   CertProfile(CertProfileId profile_id,
+              std::string name,
               std::string policy_version,
               bool is_va_enabled,
               base::TimeDelta renewal_period);
+  CertProfile(const CertProfile& other);
+  ~CertProfile();
 
   CertProfileId profile_id;
+  // Human-readable name (UTF-8).
+  std::string name;
   std::string policy_version;
   bool is_va_enabled = true;
   // Default renewal period 0 means that a certificate will be renewed only
@@ -97,7 +113,7 @@ struct CertProfile {
   // IMPORTANT:
   // Increment this when you add/change any member in CertProfile (and update
   // all functions that fail to compile because of it).
-  static constexpr int kVersion = 4;
+  static constexpr int kVersion = 5;
 
   bool operator==(const CertProfile& other) const;
   bool operator!=(const CertProfile& other) const;
@@ -146,6 +162,15 @@ scoped_refptr<net::X509Certificate> CreateSingleCertificateFromBytes(
 // being shut down.
 platform_keys::PlatformKeysService* GetPlatformKeysService(CertScope scope,
                                                            Profile* profile);
+
+// Returns the KeyPermissionsManager to be used.
+// If |scope| is CertScope::kDevice, |profile| is ignored and the
+// system token key permissions manager is returned.
+// If |scope| is CertScope::kUser, returns the user private slot key permissions
+// manager for |profile|.
+platform_keys::KeyPermissionsManager* GetKeyPermissionsManager(
+    CertScope scope,
+    Profile* profile);
 
 }  // namespace cert_provisioning
 }  // namespace chromeos

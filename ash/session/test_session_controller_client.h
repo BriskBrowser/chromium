@@ -56,6 +56,9 @@ class TestSessionControllerClient : public SessionControllerClient {
     use_lower_case_user_id_ = value;
   }
 
+  int attempt_restart_chrome_count() const {
+    return attempt_restart_chrome_count_;
+  }
   int request_sign_out_count() const { return request_sign_out_count_; }
 
   // Helpers to set SessionController state.
@@ -80,7 +83,6 @@ class TestSessionControllerClient : public SessionControllerClient {
   void AddUserSession(
       const std::string& display_email,
       user_manager::UserType user_type = user_manager::USER_TYPE_REGULAR,
-      bool enable_settings = true,
       bool provide_pref_service = true,
       bool is_new_profile = false,
       const std::string& given_name = std::string());
@@ -110,6 +112,7 @@ class TestSessionControllerClient : public SessionControllerClient {
   // ash::SessionControllerClient:
   void RequestLockScreen() override;
   void RequestSignOut() override;
+  void AttemptRestartChrome() override;
   void SwitchActiveUser(const AccountId& account_id) override;
   void CycleActiveUser(CycleUserDirection direction) override;
   void ShowMultiProfileLogin() override;
@@ -135,6 +138,7 @@ class TestSessionControllerClient : public SessionControllerClient {
 
   bool use_lower_case_user_id_ = true;
   int request_sign_out_count_ = 0;
+  int attempt_restart_chrome_count_ = 0;
 
   bool should_show_lock_screen_ = false;
 

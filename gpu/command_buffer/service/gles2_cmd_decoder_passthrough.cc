@@ -265,6 +265,27 @@ void UpdateBoundTexturePassthroughSize(gl::GLApi* api,
   texture->SetEstimatedSize(texture_memory_size);
 }
 
+void ReturnProgramInfoData(DecoderClient* client,
+                           const std::vector<uint8_t>& info,
+                           GLES2ReturnDataType type,
+                           uint32_t program) {
+  // Limit the data size in order not to block the IO threads too long.
+  // https://docs.google.com/document/d/1qEfU0lAkeZ8lU06qtxv7ENGxRxExxztXu1LhIDNGqtU/edit?disco=AAAACksORlU
+  constexpr static size_t kMaxDataSize = 8 * 1024 * 1024;
+  if (info.size() > kMaxDataSize)
+    return;
+
+  std::vector<uint8_t> return_data;
+  return_data.resize(sizeof(cmds::GLES2ReturnProgramInfo) + info.size());
+  auto* return_program_info =
+      reinterpret_cast<cmds::GLES2ReturnProgramInfo*>(return_data.data());
+  return_program_info->return_data_header.return_data_type = type;
+  return_program_info->program_client_id = program;
+  memcpy(return_program_info->deserialized_buffer, info.data(), info.size());
+  client->HandleReturnData(
+      base::span<uint8_t>(return_data.data(), return_data.size()));
+}
+
 }  // anonymous namespace
 
 GLES2DecoderPassthroughImpl::TexturePendingBinding::TexturePendingBinding(
@@ -957,6 +978,7 @@ gpu::ContextResult GLES2DecoderPassthroughImpl::Initialize(
       static constexpr const char* kOptionalFunctionalityExtensions[] = {
           "GL_ANGLE_depth_texture",
           "GL_ANGLE_framebuffer_multisample",
+          "GL_ANGLE_get_tex_level_parameter",
           "GL_ANGLE_instanced_arrays",
           "GL_ANGLE_memory_object_flags",
           "GL_ANGLE_pack_reverse_row_order",
@@ -1044,12 +1066,11 @@ gpu::ContextResult GLES2DecoderPassthroughImpl::Initialize(
                    "missing  GL_ANGLE_request_extension");
   FAIL_INIT_IF_NOT(feature_info_->feature_flags().khr_debug,
                    "missing GL_KHR_debug");
-  FAIL_INIT_IF_NOT(
-      !IsWebGL2ComputeContextType(attrib_helper.context_type) ||
-          feature_info_->feature_flags().khr_robust_buffer_access_behavior,
-      "missing GL_KHR_robust_buffer_access_behavior");
   FAIL_INIT_IF_NOT(!attrib_helper.enable_oop_rasterization,
                    "oop rasterization not supported");
+  FAIL_INIT_IF_NOT(!IsES31ForTestingContextType(attrib_helper.context_type) ||
+                       feature_info_->gl_version_info().IsAtLeastGLES(3, 1),
+                   "ES 3.1 context type requires an ES 3.1 ANGLE context");
 
 #undef FAIL_INIT_IF_NOT
 
@@ -2469,6 +2490,52 @@ error::Error GLES2DecoderPassthroughImpl::ProcessQueries(bool did_finish) {
           api()->glGetProgramivFn(query.program_service_id, GL_LINK_STATUS,
                                   &link_status);
           result = link_status;
+
+          // Send back all program information as early as possible to be cached
+          // at the client side.
+          GLuint program_client_id = 0u;
+          GetClientID(&resources_->program_id_map, query.program_service_id,
+                      &program_client_id);
+
+          // TODO(jie.a.chen@intel.com): Merge the all return data into 1 IPC
+          // message if it becomes a concern.
+          std::vector<uint8_t> program_info;
+          error::Error error =
+              DoGetProgramInfoCHROMIUM(program_client_id, &program_info);
+          if (error == error::kNoError) {
+            ReturnProgramInfoData(client(), program_info,
+                                  GLES2ReturnDataType::kES2ProgramInfo,
+                                  program_client_id);
+          }
+
+          if (feature_info_->IsWebGL2OrES3OrHigherContext()) {
+            std::vector<uint8_t> uniform_blocks;
+            error =
+                DoGetUniformBlocksCHROMIUM(program_client_id, &uniform_blocks);
+            if (error == error::kNoError) {
+              ReturnProgramInfoData(client(), uniform_blocks,
+                                    GLES2ReturnDataType::kES3UniformBlocks,
+                                    program_client_id);
+            }
+
+            std::vector<uint8_t> transform_feedback_varyings;
+            error = DoGetTransformFeedbackVaryingsCHROMIUM(
+                program_client_id, &transform_feedback_varyings);
+            if (error == error::kNoError) {
+              ReturnProgramInfoData(
+                  client(), transform_feedback_varyings,
+                  GLES2ReturnDataType::kES3TransformFeedbackVaryings,
+                  program_client_id);
+            }
+
+            std::vector<uint8_t> uniforms;
+            error = DoGetUniformsES3CHROMIUM(program_client_id, &uniforms);
+            if (error == error::kNoError) {
+              ReturnProgramInfoData(client(), uniforms,
+                                    GLES2ReturnDataType::kES3Uniforms,
+                                    program_client_id);
+            }
+          }
         }
         break;
 
@@ -2785,6 +2852,21 @@ void GLES2DecoderPassthroughImpl::UpdateTextureSizeFromClientID(
       texture != nullptr) {
     UpdateTextureSizeFromTexturePassthrough(texture.get(), client_id);
   }
+}
+
+void GLES2DecoderPassthroughImpl::UpdateCurrentlyBoundElementArrayBuffer() {
+  GLint service_element_array_buffer = 0;
+  api_->glGetIntegervFn(GL_ELEMENT_ARRAY_BUFFER_BINDING,
+                        &service_element_array_buffer);
+
+  GLuint client_element_array_buffer = 0;
+  if (service_element_array_buffer != 0) {
+    GetClientID(&resources_->buffer_id_map,
+                static_cast<GLuint>(service_element_array_buffer),
+                &client_element_array_buffer);
+  }
+
+  bound_buffers_[GL_ELEMENT_ARRAY_BUFFER] = client_element_array_buffer;
 }
 
 error::Error GLES2DecoderPassthroughImpl::HandleSetActiveURLCHROMIUM(

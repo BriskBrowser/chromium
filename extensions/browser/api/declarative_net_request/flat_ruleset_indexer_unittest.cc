@@ -351,18 +351,18 @@ void VerifyExtensionMetadata(
 
 const flat::ExtensionIndexedRuleset* AddRuleAndGetRuleset(
     const std::vector<IndexedRule>& rules_to_index,
-    FlatRulesetIndexer* indexer) {
+    flatbuffers::DetachedBuffer* buffer) {
+  FlatRulesetIndexer indexer;
   for (const auto& rule : rules_to_index)
-    indexer->AddUrlRule(rule);
-  indexer->Finish();
+    indexer.AddUrlRule(rule);
+  *buffer = indexer.FinishAndReleaseBuffer();
 
-  base::span<const uint8_t> data = indexer->GetData();
-  EXPECT_EQ(rules_to_index.size(), indexer->indexed_rules_count());
-  flatbuffers::Verifier verifier(data.data(), data.size());
+  EXPECT_EQ(rules_to_index.size(), indexer.indexed_rules_count());
+  flatbuffers::Verifier verifier(buffer->data(), buffer->size());
   if (!flat::VerifyExtensionIndexedRulesetBuffer(verifier))
     return nullptr;
 
-  return flat::GetExtensionIndexedRuleset(data.data());
+  return flat::GetExtensionIndexedRuleset(buffer->data());
 }
 
 // Helper which:
@@ -374,9 +374,9 @@ const flat::ExtensionIndexedRuleset* AddRuleAndGetRuleset(
 void AddRulesAndVerifyIndex(const std::vector<IndexedRule>& rules_to_index,
                             const std::vector<const IndexedRule*>
                                 expected_index_lists[flat::IndexType_count]) {
-  FlatRulesetIndexer indexer;
+  flatbuffers::DetachedBuffer buffer;
   const flat::ExtensionIndexedRuleset* ruleset =
-      AddRuleAndGetRuleset(rules_to_index, &indexer);
+      AddRuleAndGetRuleset(rules_to_index, &buffer);
   ASSERT_TRUE(ruleset);
 
   for (size_t i = 0; i < flat::IndexType_count; ++i) {
@@ -452,7 +452,7 @@ TEST_F(FlatRulesetIndexerTest, MultipleRules) {
 
   // Allow rules.
   rules_to_index.push_back(CreateIndexedRule(
-      17, kMinValidPriority, flat_rule::OptionFlag_IS_WHITELIST,
+      17, kMinValidPriority, flat_rule::OptionFlag_IS_ALLOWLIST,
       flat_rule::ElementType_PING | flat_rule::ElementType_SCRIPT,
       flat_rule::ActivationType_NONE, flat_rule::UrlPatternType_SUBSTRING,
       flat_rule::AnchorType_SUBDOMAIN, flat_rule::AnchorType_NONE,
@@ -460,7 +460,7 @@ TEST_F(FlatRulesetIndexerTest, MultipleRules) {
       dnr_api::RULE_ACTION_TYPE_ALLOW, nullptr, base::nullopt, {}, {}));
   rules_to_index.push_back(CreateIndexedRule(
       16, kMinValidPriority,
-      flat_rule::OptionFlag_IS_WHITELIST |
+      flat_rule::OptionFlag_IS_ALLOWLIST |
           flat_rule::OptionFlag_IS_CASE_INSENSITIVE,
       flat_rule::ElementType_IMAGE, flat_rule::ActivationType_NONE,
       flat_rule::UrlPatternType_SUBSTRING, flat_rule::AnchorType_NONE,
@@ -573,9 +573,9 @@ TEST_F(FlatRulesetIndexerTest, RegexRules) {
       dnr_api::RULE_ACTION_TYPE_MODIFYHEADERS, nullptr, base::nullopt,
       std::move(request_headers), {}));
 
-  FlatRulesetIndexer indexer;
+  flatbuffers::DetachedBuffer buffer;
   const flat::ExtensionIndexedRuleset* ruleset =
-      AddRuleAndGetRuleset(rules_to_index, &indexer);
+      AddRuleAndGetRuleset(rules_to_index, &buffer);
   ASSERT_TRUE(ruleset);
 
   // All the indices should be empty, since we only have regex rules.

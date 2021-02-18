@@ -12,8 +12,8 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback_forward.h"
+#include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
@@ -251,6 +251,8 @@ NetworkMetricsProvider::GetConnectionType() const {
       return SystemProfileProto::Network::CONNECTION_3G;
     case network::mojom::ConnectionType::CONNECTION_4G:
       return SystemProfileProto::Network::CONNECTION_4G;
+    case network::mojom::ConnectionType::CONNECTION_5G:
+      return SystemProfileProto::Network::CONNECTION_5G;
     case network::mojom::ConnectionType::CONNECTION_BLUETOOTH:
       return SystemProfileProto::Network::CONNECTION_BLUETOOTH;
   }

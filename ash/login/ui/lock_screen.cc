@@ -8,6 +8,7 @@
 #include <memory>
 #include <utility>
 
+#include "ash/constants/ash_switches.h"
 #include "ash/login/ui/lock_contents_view.h"
 #include "ash/login/ui/lock_debug_view.h"
 #include "ash/login/ui/login_data_dispatcher.h"
@@ -22,7 +23,6 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "ui/views/widget/widget.h"
@@ -55,7 +55,7 @@ void LockScreen::TestApi::AddOnShownCallback(base::OnceClosure on_shown) {
 }
 
 LockScreen::LockScreen(ScreenType type) : type_(type) {
-  tray_action_observer_.Add(Shell::Get()->tray_action());
+  tray_action_observation_.Observe(Shell::Get()->tray_action());
   saved_clipboard_ = ui::Clipboard::TakeForCurrentThread();
 }
 
@@ -65,6 +65,27 @@ LockScreen::~LockScreen() {
   ui::Clipboard::DestroyClipboardForCurrentThread();
   if (saved_clipboard_)
     ui::Clipboard::SetClipboardForCurrentThread(std::move(saved_clipboard_));
+}
+
+std::unique_ptr<views::View> LockScreen::MakeContentsView() {
+  auto initial_note_action_state =
+      Shell::Get()->tray_action()->GetLockScreenNoteState();
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          chromeos::switches::kShowLoginDevOverlay)) {
+    auto debug_view =
+        std::make_unique<LockDebugView>(initial_note_action_state, type_);
+    contents_view_ = debug_view->lock();
+    return debug_view;
+  }
+
+  auto detachable_base_model =
+      LoginDetachableBaseModel::Create(Shell::Get()->detachable_base_handler());
+  auto view = std::make_unique<LockContentsView>(
+      initial_note_action_state, type_,
+      Shell::Get()->login_screen_controller()->data_dispatcher(),
+      std::move(detachable_base_model));
+  contents_view_ = view.get();
+  return view;
 }
 
 // static
@@ -86,27 +107,10 @@ void LockScreen::Show(ScreenType type) {
     parent = Shell::GetContainer(Shell::GetPrimaryRootWindow(),
                                  kShellWindowId_LockScreenContainer);
   }
-  instance_->widget_ = CreateLockScreenWidget(parent);
+  instance_->widget_ =
+      CreateLockScreenWidget(parent, instance_->MakeContentsView());
   instance_->widget_->SetBounds(
       display::Screen::GetScreen()->GetPrimaryDisplay().bounds());
-
-  auto initial_note_action_state =
-      Shell::Get()->tray_action()->GetLockScreenNoteState();
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          chromeos::switches::kShowLoginDevOverlay)) {
-    auto debug_view =
-        std::make_unique<LockDebugView>(initial_note_action_state, type);
-    instance_->contents_view_ = debug_view->lock();
-    instance_->widget_->SetContentsView(std::move(debug_view));
-  } else {
-    auto detachable_base_model = LoginDetachableBaseModel::Create(
-        Shell::Get()->detachable_base_handler());
-    instance_->contents_view_ =
-        instance_->widget_->SetContentsView(std::make_unique<LockContentsView>(
-            initial_note_action_state, type,
-            Shell::Get()->login_screen_controller()->data_dispatcher(),
-            std::move(detachable_base_model)));
-  }
 
   // Postpone showing the screen after the animation of the first wallpaper
   // completes, to make the transition smooth. The callback will be dispatched

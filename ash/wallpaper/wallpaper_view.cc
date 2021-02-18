@@ -4,6 +4,7 @@
 
 #include "ash/wallpaper/wallpaper_view.h"
 
+#include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/window_animation_types.h"
 #include "ash/root_window_controller.h"
 #include "ash/session/session_controller_impl.h"
@@ -71,8 +72,7 @@ class WallpaperWidgetDelegate : public views::WidgetDelegateView {
 ////////////////////////////////////////////////////////////////////////////////
 // WallpaperView, public:
 
-WallpaperView::WallpaperView(const WallpaperProperty& property)
-    : property_(property) {
+WallpaperView::WallpaperView(float blur_sigma) : blur_sigma_(blur_sigma) {
   set_context_menu_controller(this);
 }
 
@@ -142,7 +142,7 @@ void WallpaperView::DrawWallpaper(const gfx::ImageSkia& wallpaper,
         gfx::ImageSkia::CreateFrom1xBitmap(small_canvas.GetBitmap()));
   }
 
-  if (property_ == wallpaper_constants::kClear) {
+  if (blur_sigma_ == wallpaper_constants::kClear) {
     canvas->DrawImageInt(wallpaper, src.x(), src.y(), src.width(), src.height(),
                          dst.x(), dst.y(), dst.width(), dst.height(),
                          /*filter=*/true, flags);
@@ -151,22 +151,12 @@ void WallpaperView::DrawWallpaper(const gfx::ImageSkia& wallpaper,
   bool will_not_fill = width() > dst.width() || height() > dst.height();
   // When not filling the view, we paint the small_image_ directly to the
   // canvas.
-  float blur =
-      will_not_fill ? property_.blur_sigma : property_.blur_sigma * quality;
+  float blur = will_not_fill ? blur_sigma_ : blur_sigma_ * quality;
 
   // Create the blur and brightness filter to apply to the downsampled image.
   cc::FilterOperations operations;
-  // In tablet mode, the wallpaper already has a color filter applied in
-  // |OnPaint| so we don't need to darken here.
-  // TODO(crbug.com/944152): Merge this with the color filter in
-  // WallpaperBaseView.
-  if (!Shell::Get()->tablet_mode_controller()->InTabletMode()) {
-    operations.Append(
-        cc::FilterOperation::CreateBrightnessFilter(property_.opacity));
-  }
-
-  operations.Append(cc::FilterOperation::CreateBlurFilter(
-      blur, SkBlurImageFilter::kClamp_TileMode));
+  operations.Append(
+      cc::FilterOperation::CreateBlurFilter(blur, SkTileMode::kClamp));
   sk_sp<cc::PaintFilter> filter = cc::RenderSurfaceFilters::BuildImageFilter(
       operations, gfx::SizeF(dst.size()), gfx::Vector2dF());
 
@@ -208,9 +198,11 @@ void WallpaperView::DrawWallpaper(const gfx::ImageSkia& wallpaper,
 
 std::unique_ptr<views::Widget> CreateWallpaperWidget(
     aura::Window* root_window,
-    int container_id,
-    const WallpaperProperty& property,
+    float blur_sigma,
+    bool locked,
     WallpaperView** out_wallpaper_view) {
+  int container_id = locked ? kShellWindowId_LockScreenWallpaperContainer
+                            : kShellWindowId_WallpaperContainer;
   auto* controller = Shell::Get()->wallpaper_controller();
 
   auto wallpaper_widget = std::make_unique<views::Widget>();
@@ -220,7 +212,7 @@ std::unique_ptr<views::Widget> CreateWallpaperWidget(
   params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   params.layer_type = ui::LAYER_NOT_DRAWN;
   params.parent = root_window->GetChildById(container_id);
-  WallpaperView* wallpaper_view = new WallpaperView(property);
+  WallpaperView* wallpaper_view = new WallpaperView(blur_sigma);
   params.delegate = new WallpaperWidgetDelegate(wallpaper_view);
 
   wallpaper_widget->Init(std::move(params));
@@ -238,11 +230,13 @@ std::unique_ptr<views::Widget> CreateWallpaperWidget(
   // 2. Wallpaper fades in from a non empty background.
   // 3. From an empty background, chrome transit to a logged in user session.
   // 4. From an empty background, guest user logged in.
-  if (controller->ShouldShowInitialAnimation() ||
-      RootWindowController::ForWindow(root_window)
-          ->wallpaper_widget_controller()
-          ->IsAnimating() ||
-      Shell::Get()->session_controller()->NumberOfLoggedInUsers()) {
+  // except for the lock state.
+  if (!locked &&
+      (controller->ShouldShowInitialAnimation() ||
+       RootWindowController::ForWindow(root_window)
+           ->wallpaper_widget_controller()
+           ->IsAnimating() ||
+       Shell::Get()->session_controller()->NumberOfLoggedInUsers())) {
     ::wm::SetWindowVisibilityAnimationTransition(wallpaper_window,
                                                  ::wm::ANIMATE_SHOW);
     base::TimeDelta animation_duration = controller->animation_duration();
@@ -255,9 +249,6 @@ std::unique_ptr<views::Widget> CreateWallpaperWidget(
     ::wm::SetWindowVisibilityAnimationTransition(wallpaper_window,
                                                  ::wm::ANIMATE_NONE);
   }
-
-  aura::Window* container = root_window->GetChildById(container_id);
-  wallpaper_widget->SetBounds(container->bounds());
 
   return wallpaper_widget;
 }

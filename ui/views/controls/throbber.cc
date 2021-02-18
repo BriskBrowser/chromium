@@ -16,6 +16,7 @@
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/native_theme/common_theme.h"
 #include "ui/native_theme/native_theme.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace views {
 
@@ -91,7 +92,7 @@ bool Throbber::IsRunning() const {
 
 BEGIN_METADATA(Throbber, View)
 ADD_PROPERTY_METADATA(bool, Checked)
-END_METADATA()
+END_METADATA
 
 // Smoothed throbber ---------------------------------------------------------
 
@@ -152,6 +153,6 @@ void SmoothedThrobber::StopDelayOver() {
 BEGIN_METADATA(SmoothedThrobber, Throbber)
 ADD_PROPERTY_METADATA(base::TimeDelta, StartDelay)
 ADD_PROPERTY_METADATA(base::TimeDelta, StopDelay)
-END_METADATA()
+END_METADATA
 
 }  // namespace views

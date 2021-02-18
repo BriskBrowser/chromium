@@ -3,9 +3,23 @@
 // found in the LICENSE file.
 
 /**
+ * @fileoverview
+ * @suppress {uselessCode} Temporary suppress because of the line exporting.
+ */
+
+// clang-format off
+// #import {VolumeManagerCommon} from '../../../base/js/volume_manager_types.m.js';
+// #import {util} from '../../common/js/util.m.js';
+// #import {metrics} from '../../common/js/metrics.m.js';
+// #import {assert} from 'chrome://resources/js/assert.m.js';
+// clang-format on
+
+/**
  * Namespace for test related things.
  */
-var test = test || {};
+window.test = window.test || {};
+// eslint-disable-next-line no-var
+var test = window.test;
 
 /**
  * Namespace for test utility functions.
@@ -83,8 +97,16 @@ test.util.registerRemoteTestUtils = () => {
           return true;
         }
 
+        // Exporting the dependency for the runtime_loaded_test_util.js script.
+        // TODO: Remove this once runtime_loaded_test_util is a JS module and
+        // can import its dependencies.
+        window.VolumeManagerCommon = VolumeManagerCommon;
+        window.util = util;
+        window.assert = assert;
+        window.metrics = metrics;
+
         // Asynchronously load the testing functions.
-        let script = document.createElement('script');
+        const script = document.createElement('script');
         document.body.appendChild(script);
 
         script.onload = () => {
@@ -110,3 +132,6 @@ test.util.registerRemoteTestUtils = () => {
         return true;
       });
 };
+
+// eslint-disable-next-line semi,no-extra-semi
+/* #export */ {test};

@@ -14,6 +14,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/optional.h"
 #include "base/rand_util.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/browser/autofill_download_manager.h"
 #include "components/autofill/core/browser/autofill_field.h"
@@ -34,11 +35,9 @@ using autofill::FieldSignature;
 using autofill::FormData;
 using autofill::FormFieldData;
 using autofill::FormStructure;
-using autofill::PasswordForm;
 using autofill::RandomizedEncoder;
 using autofill::ServerFieldType;
 using autofill::ServerFieldTypeSet;
-using autofill::ValueElementPair;
 using password_manager_util::FindFormByUsername;
 
 using Logger = autofill::SavePasswordProgressLogger;
@@ -370,7 +369,7 @@ bool VotesUploader::UploadPasswordVote(
   }
 
   // Annotate the form with the source language of the page.
-  form_structure.set_page_language(client_->GetPageLanguage());
+  form_structure.set_current_page_language(client_->GetPageLanguage());
 
   // Attach the Randomized Encoder.
   form_structure.set_randomized_encoder(
@@ -424,7 +423,7 @@ void VotesUploader::UploadFirstLoginVotes(
   form_structure.set_upload_required(UPLOAD_REQUIRED);
 
   // Annotate the form with the source language of the page.
-  form_structure.set_page_language(client_->GetPageLanguage());
+  form_structure.set_current_page_language(client_->GetPageLanguage());
 
   // Attach the Randomized Encoder.
   form_structure.set_randomized_encoder(
@@ -529,8 +528,6 @@ void VotesUploader::AddGeneratedVote(FormStructure* form_structure) {
   AutofillUploadContents::Field::PasswordGenerationType type =
       AutofillUploadContents::Field::NO_GENERATION;
   if (has_generated_password_) {
-    UMA_HISTOGRAM_BOOLEAN("PasswordGeneration.IsTriggeredManually",
-                          is_manual_generation_);
     if (is_manual_generation_) {
       type = is_possible_change_password_form_
                  ? AutofillUploadContents::Field::
@@ -656,8 +653,7 @@ void VotesUploader::GeneratePasswordAttributesVote(
   bool respond_randomly = base::RandGenerator(2);
   bool randomized_value_for_character_class =
       respond_randomly ? base::RandGenerator(2)
-                       : std::any_of(password_value.begin(),
-                                     password_value.end(), predicate);
+                       : base::ranges::any_of(password_value, predicate);
   form_structure->set_password_attributes_vote(std::make_pair(
       character_class_attribute, randomized_value_for_character_class));
 

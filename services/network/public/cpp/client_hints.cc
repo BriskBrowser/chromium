@@ -26,13 +26,13 @@ const char* const kClientHintsNameMapping[] = {"device-memory",
                                                "downlink",
                                                "ect",
                                                "lang",
-                                               "ua",
-                                               "ua-arch",
-                                               "ua-platform",
-                                               "ua-model",
-                                               "ua-mobile",
-                                               "ua-full-version",
-                                               "ua-platform-version"};
+                                               "sec-ch-ua",
+                                               "sec-ch-ua-arch",
+                                               "sec-ch-ua-platform",
+                                               "sec-ch-ua-model",
+                                               "sec-ch-ua-mobile",
+                                               "sec-ch-ua-full-version",
+                                               "sec-ch-ua-platform-version"};
 
 const size_t kClientHintsMappingsCount = base::size(kClientHintsNameMapping);
 
@@ -73,8 +73,8 @@ const DecodeMap& GetDecodeMap() {
 
 }  // namespace
 
-base::Optional<std::vector<network::mojom::WebClientHintsType>> ParseAcceptCH(
-    const std::string& header) {
+base::Optional<std::vector<network::mojom::WebClientHintsType>>
+ParseClientHintsHeader(const std::string& header) {
   // Accept-CH is an sh-list of tokens; see:
   // https://httpwg.org/http-extensions/client-hints.html#rfc.section.3.1
   base::Optional<net::structured_headers::List> maybe_list =

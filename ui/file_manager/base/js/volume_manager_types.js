@@ -3,6 +3,13 @@
 // found in the LICENSE file.
 
 /**
+ * @fileoverview
+ * @suppress {uselessCode} Temporary suppress because of the line exporting.
+ */
+
+// #import {assertNotReached} from 'chrome://resources/js/assert.m.js';
+
+/**
  * Namespace for common types.
  */
 const VolumeManagerCommon = {};
@@ -12,7 +19,7 @@ const VolumeManagerCommon = {};
  * @enum {string}
  * @const
  */
-const AllowedPaths = {
+/* #export */ const AllowedPaths = {
   NATIVE_PATH: 'nativePath',
   ANY_PATH: 'anyPath',
   ANY_PATH_OR_URL: 'anyPathOrUrl',
@@ -135,6 +142,9 @@ VolumeManagerCommon.RootType = {
 
   // Root directory of recently-modified video files.
   RECENT_VIDEOS: 'recent_videos',
+
+  // Trash.
+  TRASH: 'trash',
 };
 Object.freeze(VolumeManagerCommon.RootType);
 
@@ -175,6 +185,7 @@ VolumeManagerCommon.RootTypesForUMA = [
   VolumeManagerCommon.RootType.RECENT_AUDIO,                      // 24
   VolumeManagerCommon.RootType.RECENT_IMAGES,                     // 25
   VolumeManagerCommon.RootType.RECENT_VIDEOS,                     // 26
+  VolumeManagerCommon.RootType.TRASH,                             // 27
 ];
 console.assert(
     Object.keys(VolumeManagerCommon.RootType).length ===
@@ -229,6 +240,7 @@ VolumeManagerCommon.VolumeType = {
   ANDROID_FILES: 'android_files',
   MY_FILES: 'my_files',
   SMB: 'smb',
+  TRASH: 'trash',
 };
 
 /**
@@ -302,6 +314,8 @@ VolumeManagerCommon.getVolumeTypeFromRootType = rootType => {
       return VolumeManagerCommon.VolumeType.MY_FILES;
     case VolumeManagerCommon.RootType.SMB:
       return VolumeManagerCommon.VolumeType.SMB;
+    case VolumeManagerCommon.RootType.TRASH:
+      return VolumeManagerCommon.VolumeType.TRASH;
   }
 
   assertNotReached('Unknown root type: ' + rootType);
@@ -338,6 +352,8 @@ VolumeManagerCommon.getRootTypeFromVolumeType = volumeType => {
       return VolumeManagerCommon.RootType.REMOVABLE;
     case VolumeManagerCommon.VolumeType.SMB:
       return VolumeManagerCommon.RootType.SMB;
+    case VolumeManagerCommon.VolumeType.TRASH:
+      return VolumeManagerCommon.RootType.TRASH;
   }
 
   assertNotReached('Unknown volume type: ' + volumeType);
@@ -428,3 +444,6 @@ VolumeManagerCommon.createArchiveOpenedEvent = mountPoint => {
       VolumeManagerCommon.ARCHIVE_OPENED_EVENT_TYPE,
       {detail: {mountPoint: mountPoint}});
 };
+
+// eslint-disable-next-line semi,no-extra-semi
+/* #export */ {VolumeManagerCommon};

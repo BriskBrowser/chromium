@@ -8,8 +8,8 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
@@ -175,6 +175,7 @@ const char kFakeONC[] = R"(
           "Name": "My WiFi Network",
           "WiFi": {
             "HexSSID": "737369642D6E6F6E65",
+            "HiddenSSID": false,
             "Security": "None" }
         },
         { "GUID": "{guid-for-wifi-with-device-exp}",
@@ -186,6 +187,7 @@ const char kFakeONC[] = R"(
               "Identity": "${DEVICE_SERIAL_NUMBER}-${DEVICE_ASSET_ID}"
             },
             "HexSSID": "7465737431323334",
+            "HiddenSSID": false,
             "Security": "WPA-EAP",
             "SSID": "test1234",
           }
@@ -344,22 +346,24 @@ class NetworkConfigurationUpdaterTest : public testing::Test {
 
     EXPECT_CALL(provider_, IsInitializationComplete(_))
         .WillRepeatedly(Return(false));
+    EXPECT_CALL(provider_, IsFirstPolicyLoadComplete(_))
+        .WillRepeatedly(Return(false));
     provider_.Init();
     PolicyServiceImpl::Providers providers;
     providers.push_back(&provider_);
     policy_service_ = std::make_unique<PolicyServiceImpl>(std::move(providers));
 
-    std::unique_ptr<base::Value> fake_toplevel_onc =
+    base::Value fake_toplevel_onc =
         chromeos::onc::ReadDictionaryFromJson(kFakeONC);
 
     base::DictionaryValue* global_config = nullptr;
     fake_toplevel_onc
-        ->FindKey(onc::toplevel_config::kGlobalNetworkConfiguration)
+        .FindKey(onc::toplevel_config::kGlobalNetworkConfiguration)
         ->GetAsDictionary(&global_config);
     fake_global_network_config_.MergeDictionary(global_config);
 
     base::ListValue* certs = nullptr;
-    fake_toplevel_onc->FindKey(onc::toplevel_config::kCertificates)
+    fake_toplevel_onc.FindKey(onc::toplevel_config::kCertificates)
         ->GetAsList(&certs);
     fake_certificates_ =
         std::make_unique<chromeos::onc::OncParsedCertificates>(*certs);
@@ -369,10 +373,10 @@ class NetworkConfigurationUpdaterTest : public testing::Test {
   }
 
   base::Value* GetExpectedFakeNetworkConfigs(::onc::ONCSource source) {
-    std::unique_ptr<base::Value> fake_toplevel_onc =
+    base::Value fake_toplevel_onc =
         chromeos::onc::ReadDictionaryFromJson(kFakeONC);
     fake_network_configs_ =
-        fake_toplevel_onc->FindKey(onc::toplevel_config::kNetworkConfigurations)
+        fake_toplevel_onc.FindKey(onc::toplevel_config::kNetworkConfigurations)
             ->Clone();
     if (source == ::onc::ONC_SOURCE_DEVICE_POLICY) {
       std::string expected_identity =
@@ -397,6 +401,8 @@ class NetworkConfigurationUpdaterTest : public testing::Test {
   void MarkPolicyProviderInitialized() {
     Mock::VerifyAndClearExpectations(&provider_);
     EXPECT_CALL(provider_, IsInitializationComplete(_))
+        .WillRepeatedly(Return(true));
+    EXPECT_CALL(provider_, IsFirstPolicyLoadComplete(_))
         .WillRepeatedly(Return(true));
     provider_.SetAutoRefresh();
     provider_.RefreshPolicies();

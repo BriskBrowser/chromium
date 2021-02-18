@@ -22,7 +22,7 @@
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
-#include "third_party/blink/public/mojom/renderer_preferences.mojom.h"
+#include "third_party/blink/public/common/renderer_preferences/renderer_preferences.h"
 #include "url/gurl.h"
 
 namespace {
@@ -113,14 +113,14 @@ Browser* ReparentWebContentsIntoAppBrowser(content::WebContents* contents,
   if (registrar.IsInstalled(app_id)) {
     base::Optional<GURL> app_scope = registrar.GetAppScope(app_id);
     if (!app_scope)
-      app_scope = registrar.GetAppLaunchURL(app_id).GetWithoutFilename();
+      app_scope = registrar.GetAppStartUrl(app_id).GetWithoutFilename();
 
     PrunePreScopeNavigationHistory(*app_scope, contents);
   }
 
   if (registrar.IsInExperimentalTabbedWindowMode(app_id)) {
     for (Browser* browser : *BrowserList::GetInstance()) {
-      if (AppBrowserController::IsForWebAppBrowser(browser, app_id))
+      if (AppBrowserController::IsForWebApp(browser, app_id))
         return ::ReparentWebContentsIntoAppBrowser(contents, browser);
     }
   }

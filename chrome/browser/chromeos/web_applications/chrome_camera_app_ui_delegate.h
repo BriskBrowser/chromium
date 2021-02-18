@@ -10,6 +10,8 @@
 #include "content/public/browser/media_stream_request.h"
 #include "content/public/browser/web_ui.h"
 
+class GURL;
+
 namespace content {
 struct MediaStreamRequest;
 class RenderFrameHost;
@@ -70,8 +72,13 @@ class ChromeCameraAppUIDelegate : public CameraAppUIDelegate {
   void PopulateLoadTimeData(content::WebUIDataSource* source) override;
   bool IsMetricsAndCrashReportingEnabled() override;
   void OpenFileInGallery(const std::string& name) override;
+  void OpenFeedbackDialog(const std::string& placeholder) override;
+  std::string GetFilePathInArcByName(const std::string& name) override;
+  void OpenDevToolsWindow(content::WebContents* web_contents) override;
 
  private:
+  base::FilePath GetFilePathByName(const std::string& name);
+
   content::WebUI* web_ui_;  // Owns |this|.
 };
 

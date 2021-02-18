@@ -8,12 +8,13 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/containers/span.h"
 #include "base/feature_list.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/autofill/manual_filling_controller.h"
 #include "chrome/browser/autofill/manual_filling_utils.h"
@@ -24,6 +25,7 @@
 #include "chrome/browser/password_manager/android/password_manager_launcher_android.h"
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ssl/security_state_tab_helper.h"
 #include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
 #include "chrome/browser/vr/vr_tab_helper.h"
 #include "chrome/grit/generated_resources.h"
@@ -31,6 +33,7 @@
 #include "components/autofill/core/browser/ui/accessory_sheet_enums.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/core/common/autofill_util.h"
+#include "components/autofill/core/common/mojom/autofill_types.mojom-shared.h"
 #include "components/autofill/core/common/password_generation_util.h"
 #include "components/password_manager/content/browser/content_password_manager_driver.h"
 #include "components/password_manager/content/browser/content_password_manager_driver_factory.h"
@@ -53,8 +56,8 @@ using autofill::mojom::FocusedFieldType;
 using password_manager::CredentialCache;
 using password_manager::PasswordStore;
 using password_manager::UiCredential;
-using BlacklistedStatus =
-    password_manager::OriginCredentialStore::BlacklistedStatus;
+using BlocklistedStatus =
+    password_manager::OriginCredentialStore::BlocklistedStatus;
 using FillingSource = ManualFillingController::FillingSource;
 using IsPslMatch = autofill::UserInfo::IsPslMatch;
 
@@ -96,6 +99,17 @@ base::string16 GetTitle(bool has_suggestions, const url::Origin& origin) {
 }  // namespace
 
 PasswordAccessoryControllerImpl::~PasswordAccessoryControllerImpl() = default;
+
+void PasswordAccessoryControllerImpl::RegisterFillingSourceObserver(
+    FillingSourceObserver observer) {
+  NOTIMPLEMENTED();
+}
+
+base::Optional<autofill::AccessorySheetData>
+PasswordAccessoryControllerImpl::GetSheetData() const {
+  NOTIMPLEMENTED();
+  return base::nullopt;
+}
 
 void PasswordAccessoryControllerImpl::OnFillingTriggered(
     const autofill::UserInfo::Field& selection) {
@@ -239,6 +253,8 @@ void PasswordAccessoryControllerImpl::OnToggleChanged(
 void PasswordAccessoryControllerImpl::RefreshSuggestionsForField(
     FocusedFieldType focused_field_type,
     bool is_manual_generation_available) {
+  all_passwords_helper_.SetLastFocusedFieldType(focused_field_type);
+
   // Prevent crashing by not acting at all if frame became unfocused at any
   // point. The next time a focus event happens, this will be called again and
   // ensure we show correct data.
@@ -268,15 +284,27 @@ void PasswordAccessoryControllerImpl::RefreshSuggestionsForField(
     }
   }
 
-  if (base::FeatureList::IsEnabled(
-          password_manager::features::kFillingPasswordsFromAnyOrigin)) {
-    // TODO(crbug.com/1104132): Disable the feature in insecure websites and on
-    // cross-origin iframes (https://crbug.com/1117015).
-    base::string16 use_other_password_title = l10n_util::GetStringUTF16(
-        IDS_PASSWORD_MANAGER_ACCESSORY_USE_OTHER_PASSWORD);
-    footer_commands_to_add.push_back(
-        FooterCommand(use_other_password_title,
-                      autofill::AccessoryAction::USE_OTHER_PASSWORD));
+  all_passwords_helper_.ClearUpdateCallback();
+  if (!all_passwords_helper_.available_credentials().has_value()) {
+    // Don't add the button yet but wait for helper to determine whether there
+    // are credentials at all.
+    all_passwords_helper_.SetUpdateCallback(base::BindOnce(
+        &PasswordAccessoryControllerImpl::RefreshSuggestionsForField,
+        base::Unretained(this), focused_field_type,
+        is_manual_generation_available));
+  } else if (IsSecureSite() && origin.GetURL().SchemeIsCryptographic() &&
+             all_passwords_helper_.available_credentials().value() > 0 &&
+             base::FeatureList::IsEnabled(
+                 password_manager::features::kFillingPasswordsFromAnyOrigin)) {
+    base::string16 button_title =
+        is_password_field
+            ? l10n_util::GetStringUTF16(
+                  IDS_PASSWORD_MANAGER_ACCESSORY_USE_OTHER_PASSWORD)
+            : l10n_util::GetStringUTF16(
+                  IDS_PASSWORD_MANAGER_ACCESSORY_USE_OTHER_USERNAME);
+
+    footer_commands_to_add.push_back(FooterCommand(
+        button_title, autofill::AccessoryAction::USE_OTHER_PASSWORD));
   }
 
   if (is_password_field && is_manual_generation_available) {
@@ -297,17 +325,12 @@ void PasswordAccessoryControllerImpl::RefreshSuggestionsForField(
       autofill::AccessoryTabType::PASSWORDS, GetTitle(has_suggestions, origin),
       std::move(info_to_add), std::move(footer_commands_to_add));
 
-  if (base::FeatureList::IsEnabled(
-          password_manager::features::kRecoverFromNeverSaveAndroid) &&
-      base::FeatureList::IsEnabled(
-          autofill::features::kAutofillKeyboardAccessory) &&
-      is_password_field &&
-      password_client_->IsSavingAndFillingEnabled(origin.GetURL())) {
-    BlacklistedStatus blacklisted_status =
-        credential_cache_->GetCredentialStore(origin).GetBlacklistedStatus();
-    if (blacklisted_status == BlacklistedStatus::kWasBlacklisted ||
-        blacklisted_status == BlacklistedStatus::kIsBlacklisted) {
-      bool enabled = (blacklisted_status == BlacklistedStatus::kWasBlacklisted);
+  if (ShouldShowRecoveryToggle(origin)) {
+    BlocklistedStatus blocklisted_status =
+        credential_cache_->GetCredentialStore(origin).GetBlocklistedStatus();
+    if (blocklisted_status == BlocklistedStatus::kWasBlocklisted ||
+        blocklisted_status == BlocklistedStatus::kIsBlocklisted) {
+      bool enabled = (blocklisted_status == BlocklistedStatus::kWasBlocklisted);
       if (!enabled) {
         UMA_HISTOGRAM_BOOLEAN(
             "KeyboardAccessory.DisabledSavingAccessoryImpressions", true);
@@ -349,15 +372,15 @@ void PasswordAccessoryControllerImpl::ChangeCurrentOriginSavePasswordsStatus(
 
   const GURL origin_as_gurl = origin.GetURL();
   password_manager::PasswordStore::FormDigest form_digest(
-      autofill::PasswordForm::Scheme::kHtml,
+      password_manager::PasswordForm::Scheme::kHtml,
       password_manager::GetSignonRealm(origin_as_gurl), origin_as_gurl);
   password_manager::PasswordStore* store =
       password_client_->GetProfilePasswordStore();
   if (saving_enabled) {
-    store->Unblacklist(form_digest, base::NullCallback());
+    store->Unblocklist(form_digest, base::NullCallback());
   } else {
-    autofill::PasswordForm form =
-        password_manager_util::MakeNormalizedBlacklistedForm(
+    password_manager::PasswordForm form =
+        password_manager_util::MakeNormalizedBlocklistedForm(
             std::move(form_digest));
     form.date_created = base::Time::Now();
     store->AddLogin(form);
@@ -372,13 +395,24 @@ bool PasswordAccessoryControllerImpl::AppearsInSuggestions(
   if (origin.opaque())
     return false;  // Don't proceed for invalid origins.
 
-  const auto& credentials =
-      credential_cache_->GetCredentialStore(origin).GetCredentials();
-  return std::any_of(
-      credentials.begin(), credentials.end(), [&](const auto& credential) {
-        return suggestion ==
-               (is_password ? credential.password() : credential.username());
+  return base::ranges::any_of(
+      credential_cache_->GetCredentialStore(origin).GetCredentials(),
+      [&](const auto& cred) {
+        return suggestion == (is_password ? cred.password() : cred.username());
       });
+}
+
+bool PasswordAccessoryControllerImpl::ShouldShowRecoveryToggle(
+    const url::Origin& origin) const {
+  if (!base::FeatureList::IsEnabled(
+          password_manager::features::kRecoverFromNeverSaveAndroid)) {
+    return false;
+  }
+  if (!base::FeatureList::IsEnabled(
+          autofill::features::kAutofillKeyboardAccessory)) {
+    return false;
+  }
+  return password_client_->IsSavingAndFillingEnabled(origin.GetURL());
 }
 
 base::WeakPtr<ManualFillingController>
@@ -408,18 +442,32 @@ void PasswordAccessoryControllerImpl::ShowAllPasswords() {
   // |AllPasswordsSheetDismissed| we are sure that this controller is alive as
   // it owns |AllPasswordsBottomSheetController| from which the method is
   // called.
+  // TODO(crbug.com/1104132): Update the controller with the last focused field.
   all_passords_bottom_sheet_controller_ =
       std::make_unique<AllPasswordsBottomSheetController>(
           web_contents_, password_client_->GetProfilePasswordStore(),
           base::BindOnce(
               &PasswordAccessoryControllerImpl::AllPasswordsSheetDismissed,
-              base::Unretained(this)));
+              base::Unretained(this)),
+          all_passwords_helper_.last_focused_field_type());
 
   all_passords_bottom_sheet_controller_->Show();
 }
 
 void PasswordAccessoryControllerImpl::AllPasswordsSheetDismissed() {
   all_passords_bottom_sheet_controller_.reset();
+}
+
+bool PasswordAccessoryControllerImpl::IsSecureSite() {
+  if (security_level_for_testing_) {
+    return security_level_for_testing_ == security_state::SECURE;
+  }
+
+  SecurityStateTabHelper::CreateForWebContents(web_contents_);
+  SecurityStateTabHelper* helper =
+      SecurityStateTabHelper::FromWebContents(web_contents_);
+
+  return helper && helper->GetSecurityLevel() == security_state::SECURE;
 }
 
 WEB_CONTENTS_USER_DATA_KEY_IMPL(PasswordAccessoryControllerImpl)

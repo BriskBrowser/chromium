@@ -13,11 +13,13 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/metrics/user_action_tester.h"
 #include "base/test/scoped_feature_list.h"
-#include "base/values.h"
 #include "chrome/browser/chromeos/crostini/fake_crostini_features.h"
 #include "chrome/browser/chromeos/drive/drive_integration_service.h"
+#include "chrome/browser/chromeos/file_manager/devtools_listener.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/web_applications/components/web_app_id.h"
+#include "content/public/browser/devtools_agent_host_observer.h"
 
 class NotificationDisplayServiceTester;
 class SelectFileDialogExtensionTestFactory;
@@ -25,6 +27,10 @@ class SelectFileDialogExtensionTestFactory;
 namespace arc {
 class FakeFileSystemInstance;
 }  // namespace arc
+
+namespace content {
+class WebContents;
+}  // namespace content
 
 namespace file_manager {
 
@@ -40,7 +46,8 @@ class DocumentsProviderTestVolume;
 class MediaViewTestVolume;
 class SmbfsTestVolume;
 
-class FileManagerBrowserTestBase : public extensions::ExtensionApiTest {
+class FileManagerBrowserTestBase : public content::DevToolsAgentHostObserver,
+                                   public extensions::ExtensionApiTest {
  public:
   struct Options {
     Options();
@@ -69,11 +76,17 @@ class FileManagerBrowserTestBase : public extensions::ExtensionApiTest {
     // TODO(crbug.com/912236) Remove once transition to new ZIP system is done.
     bool zip_no_nacl = false;
 
+    // Whether test should enable drive dss pinning.
+    bool drive_dss_pin = false;
+
     // Whether Drive should act as if offline.
     bool offline = false;
 
-    // Whether test needs the files-ng feature.
-    bool files_ng = true;
+    // Whether test needs the files-swa feature.
+    bool files_swa = false;
+
+    // Whether test needs the media-swa apps.
+    bool media_swa = false;
 
     // Whether test needs a native SMB file system provider.
     bool native_smb = true;
@@ -91,12 +104,30 @@ class FileManagerBrowserTestBase : public extensions::ExtensionApiTest {
     bool observe_file_tasks = true;
 
     // Whether test should enable sharesheet.
-    bool enable_sharesheet = false;
+    bool enable_sharesheet = true;
+
+    // Whether test needs the single partition format feature.
+    bool single_partition_format = false;
+
+    // Whether test should enable holding space.
+    bool enable_holding_space = false;
+
+    // Whether test should run Files app UI as JS modules.
+    bool enable_js_modules = true;
   };
 
  protected:
   FileManagerBrowserTestBase();
   ~FileManagerBrowserTestBase() override;
+
+  // content::DevToolsAgentHostObserver:
+  bool ShouldForceDevToolsAgentHostCreation() override;
+  void DevToolsAgentHostCreated(content::DevToolsAgentHost* host) override;
+  void DevToolsAgentHostAttached(content::DevToolsAgentHost* host) override;
+  void DevToolsAgentHostNavigated(content::DevToolsAgentHost* host) override;
+  void DevToolsAgentHostDetached(content::DevToolsAgentHost* host) override;
+  void DevToolsAgentHostCrashed(content::DevToolsAgentHost* host,
+                                base::TerminationStatus status) override;
 
   // extensions::ExtensionApiTest:
   void SetUp() override;
@@ -154,6 +185,9 @@ class FileManagerBrowserTestBase : public extensions::ExtensionApiTest {
   // Called during tests to determine if SMB file shares is enabled.
   bool IsSmbEnabled() const;
 
+  web_app::AppId files_app_swa_id_;
+  content::WebContents* files_app_web_contents_ = nullptr;
+
   std::unique_ptr<base::test::ScopedFeatureList> feature_list_;
   crostini::FakeCrostiniFeatures crostini_features_;
 
@@ -178,16 +212,19 @@ class FileManagerBrowserTestBase : public extensions::ExtensionApiTest {
   std::unique_ptr<drive::DriveIntegrationServiceFactory::ScopedFactoryForTest>
       service_factory_for_test_;
 
-  std::unique_ptr<NotificationDisplayServiceTester> display_service_;
   std::unique_ptr<arc::FakeFileSystemInstance> arc_file_system_instance_;
 
+  std::unique_ptr<NotificationDisplayServiceTester> display_service_;
   std::unique_ptr<MockFileTasksObserver> file_tasks_observer_;
+  SelectFileDialogExtensionTestFactory* select_factory_;  // Not owned.
 
   base::HistogramTester histograms_;
   base::UserActionTester user_actions_;
 
-  // Not owned.
-  SelectFileDialogExtensionTestFactory* select_factory_;
+  base::FilePath devtools_code_coverage_dir_;
+  std::map<content::DevToolsAgentHost*, std::unique_ptr<DevToolsListener>>
+      devtools_agent_;
+  uint32_t process_id_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(FileManagerBrowserTestBase);
 };

@@ -166,7 +166,7 @@ bool UnloadController::ShouldCloseWindow() {
 
 bool UnloadController::TryToCloseWindow(
     bool skip_beforeunload,
-    const base::Callback<void(bool)>& on_close_confirmed) {
+    const base::RepeatingCallback<void(bool)>& on_close_confirmed) {
   // The devtools browser gets its beforeunload events as the results of
   // intercepting events from the inspected tab, so don't send them here as
   // well.
@@ -215,11 +215,8 @@ void UnloadController::CancelWindowClose() {
     DevToolsWindow::OnPageCloseCanceled(*it);
   }
   tabs_needing_unload_fired_.clear();
-  if (is_calling_before_unload_handlers()) {
-    base::Callback<void(bool)> on_close_confirmed = on_close_confirmed_;
-    on_close_confirmed_.Reset();
-    on_close_confirmed.Run(false);
-  }
+  if (is_calling_before_unload_handlers())
+    std::move(on_close_confirmed_).Run(false);
   is_attempting_to_close_browser_ = false;
 
   content::NotificationService::current()->Notify(
@@ -323,7 +320,7 @@ void UnloadController::ProcessPendingTabs(bool skip_beforeunload) {
         *(tabs_needing_before_unload_fired_.begin());
     // Null check render_view_host here as this gets called on a PostTask and
     // the tab's render_view_host may have been nulled out.
-    if (web_contents->GetRenderViewHost()) {
+    if (web_contents->GetMainFrame()->GetRenderViewHost()) {
       // If there's a devtools window attached to |web_contents|,
       // we would like devtools to call its own beforeunload handlers first,
       // and then call beforeunload handlers for |web_contents|.
@@ -334,7 +331,8 @@ void UnloadController::ProcessPendingTabs(bool skip_beforeunload) {
       ClearUnloadState(web_contents, true);
     }
   } else if (is_calling_before_unload_handlers()) {
-    base::Callback<void(bool)> on_close_confirmed = on_close_confirmed_;
+    base::RepeatingCallback<void(bool)> on_close_confirmed =
+        on_close_confirmed_;
     // Reset |on_close_confirmed_| in case the callback tests
     // |is_calling_before_unload_handlers()|, we want to return that calling
     // is complete.
@@ -354,7 +352,7 @@ void UnloadController::ProcessPendingTabs(bool skip_beforeunload) {
     content::WebContents* web_contents = *(tabs_needing_unload_fired_.begin());
     // Null check render_view_host here as this gets called on a PostTask and
     // the tab's render_view_host may have been nulled out.
-    if (web_contents->GetRenderViewHost()) {
+    if (web_contents->GetMainFrame()->GetRenderViewHost()) {
       web_contents->ClosePage();
     } else {
       ClearUnloadState(web_contents, true);

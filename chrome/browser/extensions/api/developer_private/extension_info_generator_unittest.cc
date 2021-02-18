@@ -9,7 +9,6 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/json/json_file_value_serializer.h"
@@ -19,6 +18,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/api/developer_private/inspectable_views_finder.h"
 #include "chrome/browser/extensions/chrome_test_extension_loader.h"
 #include "chrome/browser/extensions/error_console/error_console.h"
@@ -35,7 +35,6 @@
 #include "components/crx_file/id_util.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/api/extension_action/action_info.h"
-#include "extensions/common/api/extension_action/action_info_test_util.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_builder.h"
@@ -132,8 +131,8 @@ class ExtensionInfoGeneratorUnitTest : public ExtensionServiceTestWithInstall {
         new ExtensionInfoGenerator(browser_context()));
     generator->CreateExtensionInfo(
         extension_id,
-        base::Bind(&ExtensionInfoGeneratorUnitTest::OnInfoGenerated,
-                   base::Unretained(this), base::Unretained(&info)));
+        base::BindOnce(&ExtensionInfoGeneratorUnitTest::OnInfoGenerated,
+                       base::Unretained(this), base::Unretained(&info)));
     run_loop.Run();
     return info;
   }
@@ -152,8 +151,8 @@ class ExtensionInfoGeneratorUnitTest : public ExtensionServiceTestWithInstall {
     generator.CreateExtensionsInfo(
         true, /* include_disabled */
         true, /* include_terminated */
-        base::Bind(&ExtensionInfoGeneratorUnitTest::OnInfosGenerated,
-                   base::Unretained(this), base::Unretained(&result)));
+        base::BindOnce(&ExtensionInfoGeneratorUnitTest::OnInfosGenerated,
+                       base::Unretained(this), base::Unretained(&result)));
     run_loop.Run();
     return result;
   }
@@ -395,10 +394,10 @@ TEST_F(ExtensionInfoGeneratorUnitTest, GenerateExtensionsJSONData) {
     InspectableViewsFinder::ViewList views;
     views.push_back(InspectableViewsFinder::ConstructView(
         GURL("chrome-extension://behllobkkfkfnphdnhnkndlbkcpglgmj/bar.html"),
-        42, 88, true, false, VIEW_TYPE_TAB_CONTENTS));
+        42, 88, true, false, api::developer_private::VIEW_TYPE_TAB_CONTENTS));
     views.push_back(InspectableViewsFinder::ConstructView(
         GURL("chrome-extension://behllobkkfkfnphdnhnkndlbkcpglgmj/dog.html"), 0,
-        0, false, true, VIEW_TYPE_TAB_CONTENTS));
+        0, false, true, api::developer_private::VIEW_TYPE_TAB_CONTENTS));
 
     CompareExpectedAndActualOutput(
         extension_path, std::move(views),
@@ -406,7 +405,7 @@ TEST_F(ExtensionInfoGeneratorUnitTest, GenerateExtensionsJSONData) {
             "behllobkkfkfnphdnhnkndlbkcpglgmj.json"));
   }
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
   // Test Extension2
   extension_path = data_dir().AppendASCII("good")
                              .AppendASCII("Extensions")
@@ -418,10 +417,10 @@ TEST_F(ExtensionInfoGeneratorUnitTest, GenerateExtensionsJSONData) {
     InspectableViewsFinder::ViewList views;
     views.push_back(InspectableViewsFinder::ConstructView(
         GURL("chrome-extension://hpiknbiabeeppbpihjehijgoemciehgk/bar.html"),
-        42, 88, true, false, VIEW_TYPE_TAB_CONTENTS));
+        42, 88, true, false, api::developer_private::VIEW_TYPE_TAB_CONTENTS));
     views.push_back(InspectableViewsFinder::ConstructView(
         GURL("chrome-extension://hpiknbiabeeppbpihjehijgoemciehgk/bar.html"), 0,
-        0, false, true, VIEW_TYPE_TAB_CONTENTS));
+        0, false, true, api::developer_private::VIEW_TYPE_TAB_CONTENTS));
 
     CompareExpectedAndActualOutput(
         extension_path, std::move(views),
@@ -809,8 +808,6 @@ TEST_F(ExtensionInfoGeneratorUnitTest, Blocklisted) {
 
 // Test generating extension action commands properly.
 TEST_F(ExtensionInfoGeneratorUnitTest, ExtensionActionCommands) {
-  auto channel_override =
-      GetOverrideChannelForActionType(ActionInfo::TYPE_ACTION);
   struct {
     const char* name;
     const char* command_key;

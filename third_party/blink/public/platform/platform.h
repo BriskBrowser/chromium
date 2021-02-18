@@ -32,7 +32,9 @@
 #define THIRD_PARTY_BLINK_PUBLIC_PLATFORM_PLATFORM_H_
 
 #include <memory>
+#include <vector>
 
+#include "base/callback.h"
 #include "base/containers/span.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/metrics/user_metrics_action.h"
@@ -43,12 +45,14 @@
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "media/base/audio_capturer_source.h"
 #include "media/base/audio_renderer_sink.h"
+#include "media/base/media_log.h"
 #include "mojo/public/cpp/base/big_buffer.h"
 #include "mojo/public/cpp/bindings/generic_pending_receiver.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/mojom/url_loader_factory.mojom-shared.h"
 #include "third_party/blink/public/common/feature_policy/feature_policy.h"
+#include "third_party/blink/public/common/security/protocol_handler_security_level.h"
 #include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
 #include "third_party/blink/public/mojom/loader/code_cache.mojom-shared.h"
 #include "third_party/blink/public/platform/audio/web_audio_device_source_type.h"
@@ -68,6 +72,8 @@
 #include "third_party/webrtc/api/video/video_codec_type.h"
 #include "ui/base/resource/scale_factor.h"
 
+class SkCanvas;
+
 namespace base {
 class SingleThreadTaskRunner;
 }
@@ -77,12 +83,14 @@ class ColorSpace;
 }
 
 namespace gpu {
+class GpuChannelHost;
 class GpuMemoryBufferManager;
 }
 
 namespace media {
 struct AudioSinkParameters;
 struct AudioSourceParameters;
+class DecoderFactory;
 class MediaPermission;
 class GpuVideoAcceleratorFactories;
 }  // namespace media
@@ -106,6 +114,7 @@ class RasterContextProvider;
 namespace blink {
 
 class BrowserInterfaceBrokerProxy;
+class MediaInspectorContext;
 class ThreadSafeBrowserInterfaceBrokerProxy;
 class Thread;
 struct ThreadCreationParams;
@@ -117,6 +126,7 @@ class WebGraphicsContext3DProvider;
 class WebLocalFrame;
 class WebMediaCapabilitiesClient;
 class WebPublicSuffixList;
+class WebResourceRequestSenderDelegate;
 class WebSandboxSupport;
 class WebSecurityOrigin;
 class WebThemeEngine;
@@ -191,6 +201,7 @@ class BLINK_PLATFORM_EXPORT Platform {
   virtual double AudioHardwareSampleRate() { return 0; }
   virtual size_t AudioHardwareBufferSize() { return 0; }
   virtual unsigned AudioHardwareOutputChannels() { return 0; }
+  virtual base::TimeDelta GetHungRendererDelay() { return base::TimeDelta(); }
 
   // SavableResource ----------------------------------------------------
 
@@ -331,6 +342,17 @@ class BLINK_PLATFORM_EXPORT Platform {
                                    WebURLResponse* response,
                                    bool report_security_info,
                                    int request_id) {}
+
+  // Determines whether it is safe to redirect from |from_url| to |to_url|.
+  virtual bool IsRedirectSafe(const GURL& from_url, const GURL& to_url) {
+    return false;
+  }
+
+  // Returns the WebResourceRequestSenderDelegate of this renderer.
+  virtual WebResourceRequestSenderDelegate* GetResourceRequestSenderDelegate() {
+    return nullptr;
+  }
+
   // Public Suffix List --------------------------------------------------
 
   // May return null on some platforms.
@@ -372,12 +394,20 @@ class BLINK_PLATFORM_EXPORT Platform {
   // once CreateAndSetCompositorThread() is called.
   scoped_refptr<base::SingleThreadTaskRunner> CompositorThreadTaskRunner();
 
+  // Returns the task runner of the media thread.
+  // This method should only be called on the main thread, or it crashes.
+  virtual scoped_refptr<base::SingleThreadTaskRunner> MediaThreadTaskRunner() {
+    return nullptr;
+  }
+
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   // This is called after the compositor thread is created, so the embedder
   // can initiate an IPC to change its thread priority (on Linux we can't
   // increase the nice value, so we need to ask the browser process). This
   // function is only called from the main thread (where InitializeCompositor-
   // Thread() is called).
   virtual void SetDisplayThreadPriority(base::PlatformThreadId) {}
+#endif
 
   // Returns a blame context for attributing top-level work which does not
   // belong to a particular frame scope.
@@ -451,8 +481,6 @@ class BLINK_PLATFORM_EXPORT Platform {
   enum ContextType {
     kWebGL1ContextType,  // WebGL 1.0 context, use only for WebGL canvases
     kWebGL2ContextType,  // WebGL 2.0 context, use only for WebGL canvases
-    kWebGL2ComputeContextType,  // WebGL 2.0 Compute context, use only for WebGL
-                                // canvases
     kGLES2ContextType,   // GLES 2.0 context, default, good for using skia
     kGLES3ContextType,   // GLES 3.0 context
     kWebGPUContextType,  // WebGPU context
@@ -528,7 +556,22 @@ class BLINK_PLATFORM_EXPORT Platform {
 #if defined(OS_ANDROID)
   // Returns if synchronous compositing is enabled. Only used for Android
   // webview.
-  virtual bool IsSynchronousCompositingEnabled() { return false; }
+  virtual bool IsSynchronousCompositingEnabledForAndroidWebView() {
+    return false;
+  }
+
+  // Returns if zero copy synchronouse software draw is enabled. Only used
+  // when SynchronousCompositing is enabled and only when in single process
+  // mode.
+  virtual bool IsZeroCopySynchronousSwDrawEnabledForAndroidWebView() {
+    return false;
+  }
+
+  // Return the SkCanvas that is to be used if
+  // ZeroCopySynchronousSwDrawEnabled returns true.
+  virtual SkCanvas* SynchronousCompositorGetSkCanvasForAndroidWebView() {
+    return nullptr;
+  }
 #endif
 
   // Whether zoom for dsf is enabled. When true, inputs to blink would all be
@@ -546,14 +589,26 @@ class BLINK_PLATFORM_EXPORT Platform {
   // Whether the scroll animator that produces smooth scrolling is enabled.
   virtual bool IsScrollAnimatorEnabled() { return true; }
 
+  // Returns a context provider that will be bound on the main thread
+  // thread.
+  virtual scoped_refptr<viz::RasterContextProvider>
+  SharedMainThreadContextProvider();
+
+  // Returns a worker context provider that will be bound on the compositor
+  // thread.
+  virtual scoped_refptr<viz::RasterContextProvider>
+  SharedCompositorWorkerContextProvider();
+
+  // Synchronously establish a channel to the GPU plugin if not previously
+  // established or if it has been lost (for example if the GPU plugin crashed).
+  // If there is a pending asynchronous request, it will be completed by the
+  // time this routine returns.
+  virtual scoped_refptr<gpu::GpuChannelHost> EstablishGpuChannelSync();
+
   // Media stream ----------------------------------------------------
   virtual scoped_refptr<media::AudioCapturerSource> NewAudioCapturerSource(
       blink::WebLocalFrame* web_frame,
       const media::AudioSourceParameters& params) {
-    return nullptr;
-  }
-
-  virtual viz::RasterContextProvider* SharedMainThreadContextProvider() {
     return nullptr;
   }
 
@@ -646,6 +701,9 @@ class BLINK_PLATFORM_EXPORT Platform {
       const WebSecurityOrigin& script_origin) {
     return false;
   }
+  virtual ProtocolHandlerSecurityLevel GetProtocolHandlerSecurityLevel() {
+    return ProtocolHandlerSecurityLevel::kStrict;
+  }
   virtual bool IsExcludedHeaderForServiceWorkerFetchEvent(
       const WebString& header_name) {
     return false;
@@ -677,11 +735,30 @@ class BLINK_PLATFORM_EXPORT Platform {
     return nullptr;
   }
 
+  // Media Log -----------------------------------------------------------
+
+  // MediaLog is used by WebCodecs to report events and errors up to the
+  // chrome://media-internals page and the DevTools media tab.
+  // |owner_task_runner| must be bound to the main thead or the worker thread
+  // on which WebCodecs will using the MediaLog. It is safe to add logs to
+  // MediaLog from any thread, but it must be destroyed on |owner_task_runner|.
+  // MediaLog owners should destroy the MediaLog if the ExecutionContext is
+  // destroyed, since |inspector_context| may no longer be valid at that point.
+  // Note: |inspector_context| is only used on |owner_task_runner|, so
+  // destroying the MediaLog on |owner_task_runner| should avoid races.
+  virtual std::unique_ptr<media::MediaLog> GetMediaLog(
+      MediaInspectorContext* inspector_context,
+      scoped_refptr<base::SingleThreadTaskRunner> owner_task_runner) {
+    return nullptr;
+  }
+
   // GpuVideoAcceleratorFactories --------------------------------------
 
   virtual media::GpuVideoAcceleratorFactories* GetGpuFactories() {
     return nullptr;
   }
+
+  virtual media::DecoderFactory* GetMediaDecoderFactory() { return nullptr; }
 
   virtual void SetRenderingColorSpace(const gfx::ColorSpace& color_space) {}
 
@@ -695,6 +772,13 @@ class BLINK_PLATFORM_EXPORT Platform {
   // tools/v8_context_snapshot/v8_context_snapshot_generator is running (which
   // runs during Chromium's build step).
   virtual bool IsTakingV8ContextSnapshot() { return false; }
+
+  // Crash Reporting -----------------------------------------------------
+
+  // Set the active URL for crash reporting. The active URL is stored as crash
+  // keys and is usually set for the duration of processing an IPC message. To
+  // unset pass an empty WebURL and WebString.
+  virtual void SetActiveURL(const WebURL& url, const WebString& top_url) {}
 
  private:
   static void InitializeMainThreadCommon(Platform* platform,

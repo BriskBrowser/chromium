@@ -6,6 +6,9 @@
  * @fileoverview Polymer element for displaying AD domain joining and AD
  * Authenticate user screens.
  */
+
+(function() {
+
 // Possible error states of the screen. Must be in the same order as
 // ActiveDirectoryErrorState enum values.
 /** @enum {number} */ var ACTIVE_DIRECTORY_ERROR_STATE = {
@@ -15,6 +18,11 @@
   BAD_USERNAME: 3,
   BAD_AUTH_PASSWORD: 4,
   BAD_UNLOCK_PASSWORD: 5,
+};
+
+const adLoginStep = {
+  UNLOCK: 'unlock',
+  CREDS: 'creds',
 };
 
 var DEFAULT_ENCRYPTION_TYPES = 'strong';
@@ -30,9 +38,14 @@ var EncryptionSelectListType;
 var JoinConfigType;
 
 Polymer({
-  is: 'offline-ad-login',
+  is: 'offline-ad-login-element',
 
-  behaviors: [OobeI18nBehavior, OobeDialogHostBehavior],
+  behaviors: [OobeI18nBehavior, LoginScreenBehavior, MultiStepBehavior],
+
+  EXTERNAL_API: [
+    'reset',
+    'setErrorState',
+  ],
 
   properties: {
     /**
@@ -47,10 +60,6 @@ Polymer({
      * Whether the screen is for domain join.
      */
     isDomainJoin: {type: Boolean, value: false},
-    /**
-     * Whether the unlock option should be shown.
-     */
-    unlockPasswordStep: {type: Boolean, value: false, observer: 'focus'},
     /**
      * The kerberos realm (AD Domain), the machine is part of.
      */
@@ -133,6 +142,12 @@ Polymer({
     'calculateUserInputValue_(selectedConfigOption_)',
   ],
 
+  UI_STEPS: adLoginStep,
+
+  defaultUIStep() {
+    return adLoginStep.CREDS;
+  },
+
   /** @private Used for 'More options' dialog. */
   storedOrgUnit_: String,
 
@@ -171,11 +186,54 @@ Polymer({
    */
   errorStateLocked_: false,
 
+  /**
+   * True when we skip unlock step and show back button option.
+   * @private {boolean}
+   */
+  backToUnlockButtonVisible_: false,
+
+  /**
+   * True when join configurations are visible.
+   * @private {boolean}
+   */
+  joinConfigVisible_: false,
+
   /** @override */
   ready() {
-    if (!this.isDomainJoin)
-      return;
-    this.setupEncList();
+    if (this.isDomainJoin) {
+      this.setupEncList();
+    } else {
+      this.initializeLoginScreen('ActiveDirectoryLoginScreen', {
+        resetAllowed: true,
+      });
+    }
+  },
+
+  onBeforeShow(data) {
+    if (data) {
+      this.realm = data['realm'];
+      if ('emailDomain' in data)
+        this.userRealm = '@' + data['emailDomain'];
+    }
+    if (!this.adWelcomeMessageKey)
+      this.adWelcomeMessageKey = 'loginWelcomeMessage';
+    this.focus();
+  },
+
+  /**
+   * @param {string} username
+   * @param {ACTIVE_DIRECTORY_ERROR_STATE} errorState
+   */
+  setErrorState(username, errorState) {
+    this.userName = username;
+    this.errorState = errorState;
+    this.loading = false;
+  },
+
+  reset() {
+    this.$.userInput.value = '';
+    this.$.passwordInput.value = '';
+    this.errorState = ACTIVE_DIRECTORY_ERROR_STATE.NONE;
   },
 
   setupEncList() {
@@ -195,7 +253,7 @@ Polymer({
   },
 
   focus() {
-    if (this.unlockPasswordStep) {
+    if (this.uiStep === adLoginStep.UNLOCK) {
       this.$.unlockPasswordInput.focus();
     } else if (this.isDomainJoin && !this.$.machineNameInput.value) {
       this.$.machineNameInput.focus();
@@ -240,9 +298,9 @@ Polymer({
    * @param {Array<JoinConfigType>} options
    */
   setJoinConfigurationOptions(options) {
-    this.$.backToUnlockButton.hidden = true;
+    this.backToUnlockButtonVisible_ = false;
     if (!options || options.length < 1) {
-      this.$.joinConfig.hidden = true;
+      this.joinConfigVisible_ = false;
       return;
     }
     this.joinConfigOptions_ = options;
@@ -254,7 +312,7 @@ Polymer({
         this.$.joinConfigSelect, selectList,
         this.onJoinConfigSelected_.bind(this));
     this.onJoinConfigSelected_(this.$.joinConfigSelect.value);
-    this.$.joinConfig.hidden = false;
+    this.joinConfigVisible_ = true;
   },
 
   /** @private */
@@ -288,13 +346,17 @@ Polymer({
       msg['machine_name'] = this.$.machineNameInput.value;
       msg['encryption_types'] = this.$.encryptionList.value;
     }
-    this.fire('authCompleted', msg);
+    if (this.isDomainJoin) {
+      this.fire('authCompleted', msg);
+    } else {
+      this.loading = true;
+      chrome.send('completeAdAuthentication', [msg.username, msg.password]);
+    }
   },
 
   /** @private */
   onBackButton_() {
-    this.$.passwordInput.value = '';
-    this.fire('cancel');
+    this.userActed('cancel');
   },
 
   /** @private */
@@ -329,7 +391,7 @@ Polymer({
     }
     this.fire('dialogHidden');
     this.disabled = false;
-    this.focus();
+    this.$.moreOptionsBtn.focus();
   },
 
   /** @private */
@@ -342,15 +404,17 @@ Polymer({
 
   /** @private */
   onSkipClicked_() {
-    this.$.backToUnlockButton.hidden = false;
-    this.unlockPasswordStep = false;
+    this.backToUnlockButtonVisible_ = true;
+    this.setUIStep(adLoginStep.CREDS);
+    this.focus();
   },
 
   /** @private */
   onBackToUnlock_() {
     if (this.disabled)
       return;
-    this.unlockPasswordStep = true;
+    this.setUIStep(adLoginStep.UNLOCK);
+    this.focus();
   },
 
   /**
@@ -541,3 +605,4 @@ Polymer({
       this.$.credsStep.classList.remove('full-disabled');
   },
 });
+})();

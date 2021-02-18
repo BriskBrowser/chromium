@@ -58,7 +58,8 @@ public class TabContentManager {
     // These are used for UMA logging, so append only. Please update the
     // GridTabSwitcherThumbnailFetchingResult enum in enums.xml if these change.
     @IntDef({ThumbnailFetchingResult.GOT_JPEG, ThumbnailFetchingResult.GOT_ETC1,
-            ThumbnailFetchingResult.GOT_NOTHING})
+            ThumbnailFetchingResult.GOT_NOTHING,
+            ThumbnailFetchingResult.GOT_DIFFERENT_ASPECT_RATIO_JPEG})
     @Retention(RetentionPolicy.SOURCE)
     public @interface ThumbnailFetchingResult {
         int GOT_JPEG = 0;
@@ -72,7 +73,7 @@ public class TabContentManager {
     // Whether to allow to refetch tab thumbnail if the aspect ratio is not matching.
     public static final BooleanCachedFieldTrialParameter ALLOW_TO_REFETCH_TAB_THUMBNAIL_VARIATION =
             new BooleanCachedFieldTrialParameter(
-                    ChromeFeatureList.TAB_GRID_LAYOUT_ANDROID, "allow_to_refetch", false);
+                    ChromeFeatureList.TAB_GRID_LAYOUT_ANDROID, "allow_to_refetch", true);
 
     @VisibleForTesting
     public static final String UMA_THUMBNAIL_FETCHING_RESULT =

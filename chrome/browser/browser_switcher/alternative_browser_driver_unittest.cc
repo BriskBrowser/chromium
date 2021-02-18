@@ -119,12 +119,17 @@ TEST_F(AlternativeBrowserDriverTest, GetBrowserName) {
   SetBrowserPath("${ie}");
   actual = driver()->GetBrowserName();
   EXPECT_EQ("Internet Explorer", actual);
+
 #endif
 
 #if defined(OS_WIN) || defined(OS_MAC)
   SetBrowserPath("${safari}");
   actual = driver()->GetBrowserName();
   EXPECT_EQ("Safari", actual);
+
+  SetBrowserPath("${edge}");
+  actual = driver()->GetBrowserName();
+  EXPECT_EQ("Microsoft Edge", actual);
 #endif
 
   SetBrowserPath("${firefox}");
@@ -179,6 +184,10 @@ TEST_F(AlternativeBrowserDriverTest, GetBrowserType) {
   SetBrowserPath("${safari}");
   actual = driver()->GetBrowserType();
   EXPECT_EQ(BrowserType::kSafari, actual);
+
+  SetBrowserPath("${edge}");
+  actual = driver()->GetBrowserType();
+  EXPECT_EQ(BrowserType::kEdge, actual);
 #endif
 
   SetBrowserPath("${firefox}");

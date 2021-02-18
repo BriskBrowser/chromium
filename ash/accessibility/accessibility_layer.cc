@@ -29,13 +29,15 @@ AccessibilityLayer::~AccessibilityLayer() {
 }
 
 void AccessibilityLayer::Set(aura::Window* root_window,
-                             const gfx::Rect& bounds) {
+                             const gfx::Rect& bounds,
+                             bool stack_at_top) {
   DCHECK(root_window);
   layer_rect_ = bounds;
   gfx::Rect layer_bounds = bounds;
   int inset = -(GetInset());
   layer_bounds.Inset(inset, inset, inset, inset);
-  CreateOrUpdateLayer(root_window, "AccessibilityLayer", layer_bounds);
+  CreateOrUpdateLayer(root_window, "AccessibilityLayer", layer_bounds,
+                      stack_at_top);
 }
 
 void AccessibilityLayer::SetOpacity(float opacity) {
@@ -44,9 +46,15 @@ void AccessibilityLayer::SetOpacity(float opacity) {
   layer_->SetOpacity(std::max(0.f, opacity));
 }
 
+void AccessibilityLayer::SetSubpixelPositionOffset(
+    const gfx::Vector2dF& offset) {
+  layer_->SetSubpixelPositionOffset(offset);
+}
+
 void AccessibilityLayer::CreateOrUpdateLayer(aura::Window* root_window,
                                              const char* layer_name,
-                                             const gfx::Rect& bounds) {
+                                             const gfx::Rect& bounds,
+                                             bool stack_at_top) {
   if (!layer_ || root_window != root_window_) {
     root_window_ = root_window;
     ui::Layer* root_layer = root_window->layer();
@@ -62,7 +70,11 @@ void AccessibilityLayer::CreateOrUpdateLayer(aura::Window* root_window,
 
   // Keep moving it to the top in case new layers have been added
   // since we created this layer.
-  layer_->parent()->StackAtTop(layer_.get());
+  if (stack_at_top) {
+    layer_->parent()->StackAtTop(layer_.get());
+  } else {
+    layer_->parent()->StackAtBottom(layer_.get());
+  }
 
   layer_->SetBounds(bounds);
   gfx::Rect layer_bounds(0, 0, bounds.width(), bounds.height());

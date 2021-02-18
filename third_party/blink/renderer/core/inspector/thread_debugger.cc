@@ -6,6 +6,8 @@
 
 #include <memory>
 
+#include "base/rand_util.h"
+
 #include "third_party/blink/renderer/bindings/core/v8/script_source_code.h"
 #include "third_party/blink/renderer/bindings/core/v8/source_location.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
@@ -21,6 +23,10 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_node.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_node_list.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_script_runner.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_trusted_html.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_trusted_script.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_trusted_script_url.h"
+#include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/inspector/inspector_dom_debugger_agent.h"
@@ -166,6 +172,8 @@ std::unique_ptr<v8_inspector::StringBuffer> ThreadDebugger::valueSubtype(
   static const char kArray[] = "array";
   static const char kError[] = "error";
   static const char kBlob[] = "blob";
+  static const char kTrustedType[] = "trustedtype";
+
   if (V8Node::HasInstance(value, isolate_))
     return ToV8InspectorStringBuffer(kNode);
   if (V8NodeList::HasInstance(value, isolate_) ||
@@ -178,6 +186,67 @@ std::unique_ptr<v8_inspector::StringBuffer> ThreadDebugger::valueSubtype(
     return ToV8InspectorStringBuffer(kError);
   if (V8Blob::HasInstance(value, isolate_))
     return ToV8InspectorStringBuffer(kBlob);
+  if (V8TrustedHTML::HasInstance(value, isolate_) ||
+      V8TrustedScript::HasInstance(value, isolate_) ||
+      V8TrustedScriptURL::HasInstance(value, isolate_)) {
+    return ToV8InspectorStringBuffer(kTrustedType);
+  }
+  return nullptr;
+}
+
+std::unique_ptr<v8_inspector::StringBuffer>
+ThreadDebugger::descriptionForValueSubtype(v8::Local<v8::Context> context,
+                                           v8::Local<v8::Value> value) {
+  if (V8TrustedHTML::HasInstance(value, isolate_)) {
+    TrustedHTML* trusted_html =
+        V8TrustedHTML::ToImplWithTypeCheck(isolate_, value);
+    return ToV8InspectorStringBuffer(trusted_html->toString());
+  } else if (V8TrustedScript::HasInstance(value, isolate_)) {
+    TrustedScript* trusted_script =
+        V8TrustedScript::ToImplWithTypeCheck(isolate_, value);
+    return ToV8InspectorStringBuffer(trusted_script->toString());
+  } else if (V8TrustedScriptURL::HasInstance(value, isolate_)) {
+    TrustedScriptURL* trusted_script_url =
+        V8TrustedScriptURL::ToImplWithTypeCheck(isolate_, value);
+    return ToV8InspectorStringBuffer(trusted_script_url->toString());
+  } else if (V8Node::HasInstance(value, isolate_)) {
+    Node* node = V8Node::ToImplWithTypeCheck(isolate_, value);
+    StringBuilder description;
+    switch (node->getNodeType()) {
+      case Node::kElementNode: {
+        const auto* element = To<blink::Element>(node);
+        description.Append(element->TagQName().ToString());
+
+        const AtomicString& id = element->GetIdAttribute();
+        if (!id.IsEmpty()) {
+          description.Append('#');
+          description.Append(id);
+        }
+        if (element->HasClass()) {
+          auto element_class_names = element->ClassNames();
+          auto n_classes = element_class_names.size();
+          for (unsigned i = 0; i < n_classes; ++i) {
+            description.Append('.');
+            description.Append(element_class_names[i]);
+          }
+        }
+        break;
+      }
+      case Node::kDocumentTypeNode: {
+        description.Append("<!DOCTYPE ");
+        description.Append(node->nodeName());
+        description.Append('>');
+        break;
+      }
+      default: {
+        description.Append(node->nodeName());
+        break;
+      }
+    }
+    DCHECK(description.length());
+
+    return ToV8InspectorStringBuffer(description.ToString());
+  }
   return nullptr;
 }
 
@@ -396,14 +465,14 @@ void ThreadDebugger::UnmonitorEventsCallback(
 
 // static
 void ThreadDebugger::GetEventListenersCallback(
-    const v8::FunctionCallbackInfo<v8::Value>& info) {
-  if (info.Length() < 1)
+    const v8::FunctionCallbackInfo<v8::Value>& callback_info) {
+  if (callback_info.Length() < 1)
     return;
 
   ThreadDebugger* debugger = static_cast<ThreadDebugger*>(
-      v8::Local<v8::External>::Cast(info.Data())->Value());
+      v8::Local<v8::External>::Cast(callback_info.Data())->Value());
   DCHECK(debugger);
-  v8::Isolate* isolate = info.GetIsolate();
+  v8::Isolate* isolate = callback_info.GetIsolate();
   v8::Local<v8::Context> context = isolate->GetCurrentContext();
   int group_id = debugger->ContextGroupId(ToExecutionContext(context));
 
@@ -412,8 +481,8 @@ void ThreadDebugger::GetEventListenersCallback(
   // listener compilation.
   if (group_id)
     debugger->muteMetrics(group_id);
-  InspectorDOMDebuggerAgent::EventListenersInfoForTarget(isolate, info[0],
-                                                         &listener_info);
+  InspectorDOMDebuggerAgent::EventListenersInfoForTarget(
+      isolate, callback_info[0], &listener_info);
   if (group_id)
     debugger->unmuteMetrics(group_id);
 
@@ -449,7 +518,7 @@ void ThreadDebugger::GetEventListenersCallback(
     CreateDataPropertyInArray(context, listeners, output_index++,
                               listener_object);
   }
-  info.GetReturnValue().Set(result);
+  callback_info.GetReturnValue().Set(result);
 }
 
 void ThreadDebugger::consoleTime(const v8_inspector::StringView& title) {
@@ -502,6 +571,12 @@ void ThreadDebugger::cancelTimer(void* data) {
       return;
     }
   }
+}
+
+int64_t ThreadDebugger::generateUniqueId() {
+  int64_t result;
+  base::RandBytes(&result, sizeof result);
+  return result;
 }
 
 void ThreadDebugger::OnTimer(TimerBase* timer) {

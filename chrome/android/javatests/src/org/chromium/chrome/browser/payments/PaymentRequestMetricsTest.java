@@ -57,8 +57,8 @@ public class PaymentRequestMetricsTest implements MainActivityStartCallback {
         AutofillTestHelper mHelper = new AutofillTestHelper();
         // The user has a shipping address and a credit card associated with that address on disk.
         String mBillingAddressId = mHelper.setProfile(new AutofillProfile("", "https://example.com",
-                true, "Jon Doe", "Google", "340 Main St", "CA", "Los Angeles", "", "90291", "",
-                "US", "650-253-0000", "", "en-US"));
+                true, "" /* honorific prefix */, "Jon Doe", "Google", "340 Main St", "CA",
+                "Los Angeles", "", "90291", "", "US", "650-253-0000", "", "en-US"));
         mHelper.setCreditCard(new CreditCard("", "https://example.com", true, true, "Jon Doe",
                 "4111111111111111", "1111", "12", "2050", "visa", R.drawable.visa_card,
                 mBillingAddressId, "" /* serverId */));
@@ -346,8 +346,8 @@ public class PaymentRequestMetricsTest implements MainActivityStartCallback {
                         "PaymentRequest.TransactionAmount.Completed"));
 
         // Make sure the events were logged correctly.
-        int expectedSample =
-                Event.REQUEST_SHIPPING | Event.REQUEST_METHOD_GOOGLE | Event.COULD_NOT_SHOW;
+        int expectedSample = Event.REQUEST_SHIPPING | Event.REQUEST_METHOD_GOOGLE
+                | Event.COULD_NOT_SHOW | Event.NEEDS_COMPLETION_PAYMENT;
         Assert.assertEquals(1,
                 RecordHistogram.getHistogramValueCountForTesting(
                         "PaymentRequest.Events", expectedSample));
@@ -386,8 +386,8 @@ public class PaymentRequestMetricsTest implements MainActivityStartCallback {
                         "PaymentRequest.TransactionAmount.Completed"));
 
         // Make sure the events were logged correctly.
-        int expectedSample =
-                Event.REQUEST_SHIPPING | Event.REQUEST_METHOD_OTHER | Event.COULD_NOT_SHOW;
+        int expectedSample = Event.REQUEST_SHIPPING | Event.REQUEST_METHOD_OTHER
+                | Event.COULD_NOT_SHOW | Event.NEEDS_COMPLETION_PAYMENT;
         Assert.assertEquals(1,
                 RecordHistogram.getHistogramValueCountForTesting(
                         "PaymentRequest.Events", expectedSample));

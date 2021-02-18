@@ -29,6 +29,7 @@ class AutocompleteProviderClientImpl : public AutocompleteProviderClient {
   // AutocompleteProviderClient implementation.
   scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
   PrefService* GetPrefs() override;
+  PrefService* GetLocalState() override;
   const AutocompleteSchemeClassifier& GetSchemeClassifier() const override;
   AutocompleteClassifier* GetAutocompleteClassifier() override;
   history::HistoryService* GetHistoryService() override;
@@ -48,12 +49,15 @@ class AutocompleteProviderClientImpl : public AutocompleteProviderClient {
   std::unique_ptr<KeywordExtensionsDelegate> GetKeywordExtensionsDelegate(
       KeywordProvider* keyword_provider) override;
   query_tiles::TileService* GetQueryTileService() const override;
+  OmniboxTriggeredFeatureService* GetOmniboxTriggeredFeatureService()
+      const override;
   std::string GetAcceptLanguages() const override;
   std::string GetEmbedderRepresentationOfAboutScheme() const override;
   std::vector<base::string16> GetBuiltinURLs() override;
   std::vector<base::string16> GetBuiltinsToProvideAsUserTypes() override;
   component_updater::ComponentUpdateService* GetComponentUpdateService()
       override;
+  signin::IdentityManager* GetIdentityManager() const override;
   bool IsOffTheRecord() const override;
   bool SearchSuggestEnabled() const override;
   bool IsPersonalizedUrlDataCollectionActive() const override;
@@ -78,6 +82,8 @@ class AutocompleteProviderClientImpl : public AutocompleteProviderClient {
   AutocompleteSchemeClassifierImpl scheme_classifier_;
   std::unique_ptr<unified_consent::UrlKeyedDataCollectionConsentHelper>
       url_consent_helper_;
+  std::unique_ptr<OmniboxTriggeredFeatureService>
+      omnibox_triggered_feature_service_;
 
   DISALLOW_COPY_AND_ASSIGN(AutocompleteProviderClientImpl);
 };

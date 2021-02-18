@@ -10,6 +10,7 @@
 
 #include "ash/public/cpp/app_list/app_list_metrics.h"
 #include "ash/public/cpp/ash_public_export.h"
+#include "ash/public/cpp/shelf_types.h"
 #include "base/optional.h"
 #include "base/strings/string16.h"
 #include "components/sync/model/string_ordinal.h"
@@ -64,7 +65,10 @@ struct ASH_PUBLIC_EXPORT AppListItemMetadata {
   std::string name;        // Corresponding app/folder's name of the item.
   std::string short_name;  // Corresponding app's short name of the item. Empty
                            // if the app doesn't have one or it's a folder.
-  std::string folder_id;   // Id of folder where the item resides.
+
+  AppStatus app_status = AppStatus::kReady;  // App status.
+
+  std::string folder_id;           // Id of folder where the item resides.
   syncer::StringOrdinal position;  // Position of the item.
   bool is_folder = false;          // Whether this item is a folder.
   bool is_persistent = false;  // Whether this folder is allowed to contain only
@@ -150,6 +154,9 @@ enum class AppListSearchResultType {
   kDriveQuickAccessChip,   // Drive file results in suggestion chips.
   kAssistantChip,          // Assistant results in suggestion chips.
   kOsSettings,             // OS settings results.
+  kInternalPrivacyInfo,    // Result used internally by privacy notices.
+  kAssistantText,          // Assistant text results.
+  kHelpApp,                // Help App (aka Explore) results.
   // Add new values here.
 };
 
@@ -158,10 +165,10 @@ enum class AppListSearchResultType {
 enum SearchResultDisplayType {
   kNone = 0,
   kList = 1,  // Displays in search list
-  kTile = 2,  // Displays in search tiles and suggestion chips
+  kTile = 2,  // Displays in search tiles
   // kRecommendation = 3  // No longer used, split between kTile and kChip
   kCard = 4,  // Displays in answer cards
-  kChip = 5,  // Displays in suggestion chips only
+  kChip = 5,  // Displays in suggestion chips
   // Add new values here
   kLast,  // Don't use over IPC
 };
@@ -175,6 +182,14 @@ enum SearchResultDisplayIndex {
   kFifthIndex,
   kSixthIndex,
   kUndefined,
+};
+
+// The rich entity subtype of Omnibox results.
+enum SearchResultOmniboxType {
+  kDefault,
+  kAnswer,
+  kRichImage,
+  kOmniboxTypeMax,  // Do not use.
 };
 
 // Actions for OmniBox zero state suggestion.
@@ -272,7 +287,8 @@ struct ASH_PUBLIC_EXPORT SearchResultMetadata {
 
   // The subtype of this result. Derived search result classes can use this to
   // represent their own subtypes. Currently, OmniboxResult sets this to
-  // indicate this is a history result, previous query, etc. A value of -1
+  // indicate this is a history result, previous query, etc. If a result is an
+  // Answer, OmniboxResult will set this to be the answer type. A value of -1
   // indicates no subtype has been set.
   int result_subtype = -1;
 
@@ -284,6 +300,9 @@ struct ASH_PUBLIC_EXPORT SearchResultMetadata {
 
   // Which index in the UI container should the result be placed in.
   SearchResultDisplayIndex display_index = SearchResultDisplayIndex::kUndefined;
+
+  // The rich entity subtype of Omnibox results.
+  SearchResultOmniboxType omnibox_type = SearchResultOmniboxType::kDefault;
 
   // A score to settle conflicts between two apps with the same requested
   // |display_index|.

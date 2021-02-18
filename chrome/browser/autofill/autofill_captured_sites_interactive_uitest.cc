@@ -88,7 +88,7 @@ class AutofillCapturedSitesInteractiveTest
  public:
   // TestRecipeReplayChromeFeatureActionExecutor
   bool AutofillForm(const std::string& focus_element_css_selector,
-                    const std::vector<std::string> iframe_path,
+                    const std::vector<std::string>& iframe_path,
                     const int attempts,
                     content::RenderFrameHost* frame) override {
     content::WebContents* web_contents =
@@ -167,7 +167,7 @@ class AutofillCapturedSitesInteractiveTest
   }
 
   bool SetupAutofillProfile() override {
-    AddTestAutofillData(browser(), profile(), credit_card());
+    AddTestAutofillData(browser()->profile(), profile(), credit_card());
     return true;
   }
 
@@ -207,10 +207,7 @@ class AutofillCapturedSitesInteractiveTest
         std::make_unique<test::ServerCacheReplayer>(
             GetParam().capture_file_path,
             test::ServerCacheReplayer::kOptionFailOnInvalidJsonRecord |
-                test::ServerCacheReplayer::kOptionSplitRequestsByForm,
-            base::FeatureList::IsEnabled(features::kAutofillUseApi)
-                ? test::AutofillServerType::kApi
-                : test::AutofillServerType::kLegacy)));
+                test::ServerCacheReplayer::kOptionSplitRequestsByForm)));
   }
 
   void TearDownOnMainThread() override {
@@ -238,12 +235,10 @@ class AutofillCapturedSitesInteractiveTest
     // prediction. Test will check this attribute on all the relevant input
     // elements in a form to determine if the form is ready for interaction.
     feature_list_.InitWithFeatures(
-        /*enabled_features=*/{features::kAutofillShowTypePredictions,
-                              features::kAutofillUseApi},
+        /*enabled_features=*/{features::kAutofillShowTypePredictions},
         /*disabled_features=*/{features::kAutofillCacheQueryResponses});
     command_line->AppendSwitch(switches::kShowAutofillTypePredictions);
-    command_line->AppendSwitchASCII(::switches::kForceFieldTrials,
-                                    "AutofillFieldMetadata/Enabled/");
+    command_line->AppendSwitchASCII(::switches::kForceFieldTrials, "Foo/Bar");
 
     captured_sites_test_utils::TestRecipeReplayer::SetUpCommandLine(
         command_line);
@@ -307,6 +302,9 @@ class AutofillCapturedSitesInteractiveTest
 };
 
 IN_PROC_BROWSER_TEST_P(AutofillCapturedSitesInteractiveTest, Recipe) {
+  captured_sites_test_utils::PrintInstructions(
+      "autofill_captured_sites_interactive_uitest");
+
   // Prints the path of the test to be executed.
   VLOG(1) << GetParam().site_name;
 
@@ -314,7 +312,8 @@ IN_PROC_BROWSER_TEST_P(AutofillCapturedSitesInteractiveTest, Recipe) {
   ASSERT_TRUE(base::PathService::Get(base::DIR_SOURCE_ROOT, &src_dir));
 
   bool test_completed = recipe_replayer()->ReplayTest(
-      GetParam().capture_file_path, GetParam().recipe_file_path);
+      GetParam().capture_file_path, GetParam().recipe_file_path,
+      captured_sites_test_utils::GetCommandFilePath());
   if (!test_completed)
     ADD_FAILURE() << "Full execution was unable to complete.";
 

@@ -50,6 +50,11 @@ class UnittestProfileManager : public ProfileManagerWithoutInit {
 };
 
 class StartupBrowserPolicyUnitTest : public testing::Test {
+ public:
+  StartupBrowserPolicyUnitTest(const StartupBrowserPolicyUnitTest&) = delete;
+  StartupBrowserPolicyUnitTest& operator=(const StartupBrowserPolicyUnitTest&) =
+      delete;
+
  protected:
   StartupBrowserPolicyUnitTest() = default;
   ~StartupBrowserPolicyUnitTest() override = default;
@@ -77,11 +82,11 @@ class StartupBrowserPolicyUnitTest : public testing::Test {
 
   // Helper function to set profile ephemeral.
   void SetProfileEphemeral(Profile* profile, bool val) {
-    ProfileAttributesEntry* entry;
     ProfileAttributesStorage& storage =
         g_browser_process->profile_manager()->GetProfileAttributesStorage();
-    EXPECT_TRUE(
-        storage.GetProfileAttributesWithPath(profile->GetPath(), &entry));
+    ProfileAttributesEntry* entry =
+        storage.GetProfileAttributesWithPath(profile->GetPath());
+    ASSERT_NE(entry, nullptr);
     entry->SetIsEphemeral(val);
   }
 
@@ -109,9 +114,6 @@ class StartupBrowserPolicyUnitTest : public testing::Test {
     SetPolicy(*policy_map.get(), policy, args...);
     return policy_map;
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(StartupBrowserPolicyUnitTest);
 };
 
 TEST_F(StartupBrowserPolicyUnitTest, BookmarkBarEnabled) {

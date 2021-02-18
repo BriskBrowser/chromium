@@ -4,6 +4,7 @@
 
 import("//build/buildflag_header.gni")
 import("//build/config/chromecast_build.gni")
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/sanitizers/sanitizers.gni")
 import("//testing/test.gni")
 
@@ -21,12 +22,13 @@ component("policy") {
     "switches.h",
   ]
   defines = [ "SANDBOX_POLICY_IMPL" ]
-  public_deps = [ "//services/service_manager/embedder:embedder_switches" ]
   deps = [
     ":sanitizer_buildflags",
     "//base",
+    "//build:chromeos_buildflags",
     "//sandbox:common",
   ]
+  public_deps = []
   if (is_linux || is_chromeos) {
     sources += [
       "linux/bpf_audio_policy_linux.cc",
@@ -76,7 +78,7 @@ component("policy") {
       "//sandbox/linux:suid_sandbox_client",
     ]
   }
-  if (is_chromeos) {
+  if (is_chromeos_ash) {
     sources += [
       "linux/bpf_ime_policy_linux.cc",
       "linux/bpf_ime_policy_linux.h",
@@ -126,8 +128,9 @@ component("policy") {
       "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.intl",
       "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.logger",
       "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.mediacodec",
+      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.memorypressure",
       "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.net",
-      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.netstack",
+      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.net.interfaces",
       "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.sysmem",
       "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.ui.scenic",
     ]
@@ -159,7 +162,10 @@ source_set("tests") {
   ]
 
   if (is_win) {
-    sources += [ "win/sandbox_win_unittest.cc" ]
+    sources += [
+      "win/mf_cdm_sandbox_type_unittest.cc",
+      "win/sandbox_win_unittest.cc",
+    ]
     deps += [ "//sandbox/win:sandbox" ]
     data = [
       "//base/test/data/pe_image/pe_image_test_32.dll",

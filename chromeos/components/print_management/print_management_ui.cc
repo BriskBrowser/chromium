@@ -7,7 +7,6 @@
 #include "base/memory/ptr_util.h"
 #include "chromeos/components/print_management/mojom/printing_manager.mojom.h"
 #include "chromeos/components/print_management/url_constants.h"
-#include "chromeos/components/web_applications/manifest_request_filter.h"
 #include "chromeos/grit/chromeos_print_management_resources.h"
 #include "chromeos/grit/chromeos_print_management_resources_map.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
@@ -16,6 +15,7 @@
 #include "content/public/browser/web_ui_data_source.h"
 #include "services/network/public/mojom/content_security_policy.mojom.h"
 #include "ui/base/webui/web_ui_util.h"
+#include "ui/resources/grit/webui_generated_resources.h"
 #include "ui/resources/grit/webui_resources.h"
 
 namespace chromeos {
@@ -23,23 +23,17 @@ namespace printing {
 namespace printing_manager {
 namespace {
 
-constexpr char kGeneratedPath[] =
-    "@out_folder@/gen/chromeos/components/print_management/resources/";
-
 void SetUpWebUIDataSource(content::WebUIDataSource* source,
-                          base::span<const GritResourceMap> resources,
-                          const std::string& generated_path,
+                          base::span<const webui::ResourcePath> resources,
                           int default_resource) {
   for (const auto& resource : resources) {
-    std::string path = resource.name;
-    if (path.rfind(generated_path, 0) == 0) {
-      path = path.substr(generated_path.size());
-    }
-    source->AddResourcePath(path, resource.value);
+    source->AddResourcePath(resource.path, resource.id);
   }
   source->SetDefaultResource(default_resource);
-  source->AddResourcePath("test_loader.html", IDR_WEBUI_HTML_TEST_LOADER);
-  source->AddResourcePath("test_loader.js", IDR_WEBUI_JS_TEST_LOADER);
+  source->AddResourcePath("test_loader.html", IDR_WEBUI_HTML_TEST_LOADER_HTML);
+  source->AddResourcePath("test_loader.js", IDR_WEBUI_JS_TEST_LOADER_JS);
+  source->AddResourcePath("test_loader_util.js",
+                          IDR_WEBUI_JS_TEST_LOADER_UTIL_JS);
 }
 
 void AddPrintManagementStrings(content::WebUIDataSource* html_source) {
@@ -60,7 +54,12 @@ void AddPrintManagementStrings(content::WebUIDataSource* html_source) {
       {"cancelButtonLabel", IDS_PRINT_MANAGEMENT_CANCEL_BUTTON_LABEL},
       {"clearButtonLabel", IDS_PRINT_MANAGEMENT_CLEAR_BUTTON_LABEL},
       {"historyHeader", IDS_PRINT_MANAGEMENT_HISTORY_HEADER_LABEL},
-      {"historyToolTip", IDS_PRINT_MANAGEMENT_HISTORY_TOOL_TIP},
+      {"printJobHistoryExpirationPeriod",
+       IDS_PRINT_MANAGEMENT_HISTORY_TOOL_TIP_MULTIPLE_DAYS_EXPIRATION},
+      {"printJobHistoryIndefinitePeriod",
+       IDS_PRINT_MANAGEMENT_HISTORY_TOOL_TIP_INDEFINITE},
+      {"printJobHistorySingleDay",
+       IDS_PRINT_MANAGEMENT_HISTORY_TOOL_TIP_SINGLE_DAY_EXPIRATION},
       {"printedPageLabel", IDS_PRINT_MANAGEMENT_PRINTED_PAGES_ARIA_LABEL},
       {"printedPagesFraction",
        IDS_PRINT_MANAGEMENT_PRINTED_PAGES_PROGRESS_FRACTION},
@@ -101,9 +100,7 @@ void AddPrintManagementStrings(content::WebUIDataSource* html_source) {
        IDS_PRINT_MANAGEMENT_CANCELED_PRINT_JOB_ARIA_ANNOUNCEMENT},
       {"collapsedPrintingText", IDS_PRINT_MANAGEMENT_COLLAPSE_PRINTING_STATUS}};
 
-  for (const auto& str : kLocalizedStrings) {
-    html_source->AddLocalizedString(str.name, str.id);
-  }
+  html_source->AddLocalizedStrings(kLocalizedStrings);
   html_source->UseStringsJs();
 }
 }  // namespace
@@ -122,16 +119,13 @@ PrintManagementUI::PrintManagementUI(
 
   const auto resources = base::make_span(kChromeosPrintManagementResources,
                                          kChromeosPrintManagementResourcesSize);
-  SetUpWebUIDataSource(html_source.get(), resources, kGeneratedPath,
+  SetUpWebUIDataSource(html_source.get(), resources,
                        IDR_PRINT_MANAGEMENT_INDEX_HTML);
 
   html_source->AddResourcePath("printing_manager.mojom-lite.js",
                                IDR_PRINTING_MANAGER_MOJO_LITE_JS);
 
   AddPrintManagementStrings(html_source.get());
-  web_app::SetManifestRequestFilter(html_source.get(),
-                                    IDR_PRINT_MANAGEMENT_MANIFEST,
-                                    IDS_PRINT_MANAGEMENT_APP_NAME);
 
   content::WebUIDataSource::Add(web_ui->GetWebContents()->GetBrowserContext(),
                                 html_source.release());

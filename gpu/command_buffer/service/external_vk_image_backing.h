@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/memory/scoped_refptr.h"
-#include "base/util/type_safety/pass_key.h"
+#include "base/types/pass_key.h"
 #include "components/viz/common/gpu/vulkan_context_provider.h"
 #include "gpu/command_buffer/common/shared_image_usage.h"
 #include "gpu/command_buffer/service/external_semaphore.h"
@@ -34,7 +34,7 @@ struct VulkanImageUsageCache {
 class ExternalVkImageBacking final : public ClearTrackingSharedImageBacking {
  public:
   static std::unique_ptr<ExternalVkImageBacking> Create(
-      SharedContextState* context_state,
+      scoped_refptr<SharedContextState> context_state,
       VulkanCommandPool* command_pool,
       const Mailbox& mailbox,
       viz::ResourceFormat format,
@@ -48,7 +48,7 @@ class ExternalVkImageBacking final : public ClearTrackingSharedImageBacking {
       bool using_gmb = false);
 
   static std::unique_ptr<ExternalVkImageBacking> CreateFromGMB(
-      SharedContextState* context_state,
+      scoped_refptr<SharedContextState> context_state,
       VulkanCommandPool* command_pool,
       const Mailbox& mailbox,
       gfx::GpuMemoryBufferHandle handle,
@@ -60,7 +60,7 @@ class ExternalVkImageBacking final : public ClearTrackingSharedImageBacking {
       uint32_t usage,
       const VulkanImageUsageCache* image_usage_cache);
 
-  ExternalVkImageBacking(util::PassKey<ExternalVkImageBacking>,
+  ExternalVkImageBacking(base::PassKey<ExternalVkImageBacking>,
                          const Mailbox& mailbox,
                          viz::ResourceFormat format,
                          const gfx::Size& size,
@@ -68,14 +68,14 @@ class ExternalVkImageBacking final : public ClearTrackingSharedImageBacking {
                          GrSurfaceOrigin surface_origin,
                          SkAlphaType alpha_type,
                          uint32_t usage,
-                         SharedContextState* context_state,
+                         scoped_refptr<SharedContextState> context_state,
                          std::unique_ptr<VulkanImage> image,
                          VulkanCommandPool* command_pool,
                          bool use_separate_gl_texture);
 
   ~ExternalVkImageBacking() override;
 
-  SharedContextState* context_state() const { return context_state_; }
+  SharedContextState* context_state() const { return context_state_.get(); }
   const GrBackendTexture& backend_texture() const { return backend_texture_; }
   VulkanImage* image() const { return image_.get(); }
   const scoped_refptr<gles2::TexturePassthrough>& GetTexturePassthrough()
@@ -130,6 +130,7 @@ class ExternalVkImageBacking final : public ClearTrackingSharedImageBacking {
   // SharedImageBacking implementation.
   void Update(std::unique_ptr<gfx::GpuFence> in_fence) override;
   bool ProduceLegacyMailbox(MailboxManager* mailbox_manager) override;
+  scoped_refptr<gfx::NativePixmap> GetNativePixmap() override;
 
   // Add semaphores to a pending list for reusing or being released immediately.
   void AddSemaphoresToPendingListOrRelease(
@@ -160,6 +161,9 @@ class ExternalVkImageBacking final : public ClearTrackingSharedImageBacking {
       SharedImageManager* manager,
       MemoryTypeTracker* tracker,
       scoped_refptr<SharedContextState> context_state) override;
+  std::unique_ptr<SharedImageRepresentationOverlay> ProduceOverlay(
+      SharedImageManager* manager,
+      MemoryTypeTracker* tracker) override;
 
  private:
   // Install a shared memory GMB to the backing.
@@ -178,7 +182,7 @@ class ExternalVkImageBacking final : public ClearTrackingSharedImageBacking {
   void CopyPixelsFromGLTextureToVkImage();
   void CopyPixelsFromShmToGLTexture();
 
-  SharedContextState* const context_state_;
+  scoped_refptr<SharedContextState> context_state_;
   std::unique_ptr<VulkanImage> image_;
   GrBackendTexture backend_texture_;
   VulkanCommandPool* const command_pool_;

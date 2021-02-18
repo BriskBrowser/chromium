@@ -53,6 +53,11 @@ bool ConvertVideoFrame(const VideoFrame* src_frame, VideoFrame* dst_frame);
 scoped_refptr<VideoFrame> ConvertVideoFrame(const VideoFrame* src_frame,
                                             VideoPixelFormat dst_pixel_format);
 
+// Scale and copy the |src_frame| to a new video frame with the specified scale.
+// Supported input format is NV12.
+scoped_refptr<VideoFrame> ScaleVideoFrame(const VideoFrame* src_frame,
+                                          const gfx::Size& dst_resolution);
+
 // Copy |src_frame| into a new VideoFrame.
 // If |dst_storage_type| is STORAGE_DMABUFS, this function creates DMABUF-backed
 // VideoFrame with |dst_layout|. If |dst_storage_type| is STORAGE_OWNED_MEMORY,
@@ -69,6 +74,12 @@ scoped_refptr<VideoFrame> CloneVideoFrame(
     const VideoFrameLayout& dst_layout,
     VideoFrame::StorageType dst_storage_type = VideoFrame::STORAGE_OWNED_MEMORY,
     base::Optional<gfx::BufferUsage> dst_buffer_usage = base::nullopt);
+
+// Create Dmabuf-backed VideoFrame from |src_frame|. The created VideoFrame
+// doesn't depend on |src_frame|'s lifetime. |src_frame| should be a
+// GpuMemoryBuffer-backed VideoFrame.
+scoped_refptr<VideoFrame> CreateDmabufVideoFrame(
+    const VideoFrame* const src_frame);
 
 // Create GpuMemoryBuffer-based VideoFrame from |frame|. The created VideoFrame
 // doesn't depend on |frame|'s lifetime.

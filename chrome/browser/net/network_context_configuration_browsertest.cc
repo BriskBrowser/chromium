@@ -19,13 +19,13 @@
 #include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_content_browser_client.h"
 #include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/net/profile_network_context_service.h"
 #include "chrome/browser/net/profile_network_context_service_factory.h"
@@ -40,6 +40,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/content_settings/core/common/pref_names.h"
+#include "components/embedder_support/user_agent_utils.h"
 #include "components/language/core/browser/pref_names.h"
 #include "components/network_session_configurator/common/network_switches.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
@@ -54,7 +55,6 @@
 #include "content/public/browser/network_service_instance.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/storage_partition_config.h"
-#include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/network_service_util.h"
 #include "content/public/common/url_constants.h"
@@ -98,6 +98,7 @@
 #include "services/network/test/test_dns_util.h"
 #include "services/network/test/test_url_loader_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/features.h"
 #include "url/gurl.h"
 
 #if defined(OS_MAC)
@@ -167,11 +168,13 @@ class ConnectionTypeWaiter
 
   void Wait(network::mojom::ConnectionType expected_type) {
     auto current_type = network::mojom::ConnectionType::CONNECTION_UNKNOWN;
-    network::NetworkConnectionTracker::ConnectionTypeCallback callback =
-        base::BindOnce(&ConnectionTypeWaiter::OnConnectionChanged,
-                       base::Unretained(this));
-    while (!tracker_->GetConnectionType(&current_type, std::move(callback)) ||
-           current_type != expected_type) {
+    for (;;) {
+      network::NetworkConnectionTracker::ConnectionTypeCallback callback =
+          base::BindOnce(&ConnectionTypeWaiter::OnConnectionChanged,
+                         base::Unretained(this));
+      if (tracker_->GetConnectionType(&current_type, std::move(callback)) &&
+          current_type == expected_type)
+        break;
       run_loop_ = std::make_unique<base::RunLoop>(
           base::RunLoop::Type::kNestableTasksAllowed);
       run_loop_->Run();
@@ -238,8 +241,10 @@ class NetworkContextConfigurationBrowserTest
   ~NetworkContextConfigurationBrowserTest() override {}
 
   void SetUpInProcessBrowserTestFixture() override {
-    EXPECT_CALL(provider_, IsInitializationComplete(testing::_))
-        .WillRepeatedly(testing::Return(true));
+    ON_CALL(provider_, IsInitializationComplete(testing::_))
+        .WillByDefault(testing::Return(true));
+    ON_CALL(provider_, IsFirstPolicyLoadComplete(testing::_))
+        .WillByDefault(testing::Return(true));
     policy::BrowserPolicyConnector::SetPolicyProviderForTesting(&provider_);
   }
 
@@ -262,7 +267,7 @@ class NetworkContextConfigurationBrowserTest
       incognito_ = CreateIncognitoBrowser();
     SimulateNetworkServiceCrashIfNecessary();
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     // On ChromeOS the connection type comes from a fake Shill service, which
     // is configured with a fake ethernet connection asynchronously. Wait for
     // the connection type to be available to avoid getting notified of the
@@ -772,7 +777,7 @@ class NetworkContextConfigurationBrowserTest
   std::unique_ptr<net::test_server::ControllableHttpResponse>
       controllable_http_response_;
 
-  policy::MockConfigurationPolicyProvider provider_;
+  testing::NiceMock<policy::MockConfigurationPolicyProvider> provider_;
   // Used in tests that need a live request during browser shutdown.
   std::unique_ptr<network::SimpleURLLoader> live_during_shutdown_simple_loader_;
   std::unique_ptr<content::SimpleURLLoaderTestHelper>
@@ -1386,37 +1391,46 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest,
   ASSERT_TRUE(FetchHeaderEcho("accept-language", &accept_language));
   EXPECT_EQ(system ? kNoAcceptLanguage : "en-US,en;q=0.9", accept_language);
   ASSERT_TRUE(FetchHeaderEcho("user-agent", &user_agent));
-  EXPECT_EQ(::GetUserAgent(), user_agent);
+  EXPECT_EQ(embedder_support::GetUserAgent(), user_agent);
 
-  // Now change the profile a different language, and see if the headers
-  // get updated.
+  // Change AcceptLanguages preferences, and check that headers are updated.
+  // First, A single language.
   browser()->profile()->GetPrefs()->SetString(language::prefs::kAcceptLanguages,
-                                              "uk");
+                                              "zu");
   FlushNetworkInterface();
   std::string accept_language2, user_agent2;
   ASSERT_TRUE(FetchHeaderEcho("accept-language", &accept_language2));
-  if (GetProfile()->IsOffTheRecord()) {
-    EXPECT_EQ(system ? kNoAcceptLanguage : "en-US,en;q=0.9", accept_language2);
-  } else {
-    EXPECT_EQ(system ? kNoAcceptLanguage : "uk", accept_language2);
-  }
+  EXPECT_EQ(system ? kNoAcceptLanguage : "zu", accept_language2);
   ASSERT_TRUE(FetchHeaderEcho("user-agent", &user_agent2));
-  EXPECT_EQ(::GetUserAgent(), user_agent2);
+  EXPECT_EQ(embedder_support::GetUserAgent(), user_agent2);
 
-  // Try a more complicated one, with multiple languages.
+  // Second, a single language with locale.
   browser()->profile()->GetPrefs()->SetString(language::prefs::kAcceptLanguages,
-                                              "uk, en-US");
+                                              "zu-ZA");
   FlushNetworkInterface();
   std::string accept_language3, user_agent3;
   ASSERT_TRUE(FetchHeaderEcho("accept-language", &accept_language3));
-  if (GetProfile()->IsOffTheRecord()) {
-    EXPECT_EQ(system ? kNoAcceptLanguage : "en-US,en;q=0.9", accept_language3);
-  } else {
-    EXPECT_EQ(system ? kNoAcceptLanguage : "uk,en-US;q=0.9,en;q=0.8",
-              accept_language3);
-  }
+  EXPECT_EQ(system ? kNoAcceptLanguage : "zu-ZA,zu;q=0.9", accept_language3);
   ASSERT_TRUE(FetchHeaderEcho("user-agent", &user_agent3));
-  EXPECT_EQ(::GetUserAgent(), user_agent3);
+  EXPECT_EQ(embedder_support::GetUserAgent(), user_agent3);
+
+  // Third, a list with multiple languages. Incognito mode should return only
+  // the first.
+  browser()->profile()->GetPrefs()->SetString(language::prefs::kAcceptLanguages,
+                                              "ar,am,en-GB,ru,zu");
+  FlushNetworkInterface();
+  std::string accept_language4;
+  std::string user_agent4;
+  ASSERT_TRUE(FetchHeaderEcho("accept-language", &accept_language4));
+  if (GetProfile()->IsOffTheRecord()) {
+    EXPECT_EQ(system ? kNoAcceptLanguage : "ar", accept_language4);
+  } else {
+    EXPECT_EQ(system ? kNoAcceptLanguage
+                     : "ar,am;q=0.9,en-GB;q=0.8,en;q=0.7,ru;q=0.6,zu;q=0.5",
+              accept_language4);
+  }
+  ASSERT_TRUE(FetchHeaderEcho("user-agent", &user_agent4));
+  EXPECT_EQ(embedder_support::GetUserAgent(), user_agent4);
 }
 
 // First part of testing enable referrers. Check that referrers are enabled by
@@ -1871,7 +1885,7 @@ class NetworkContextConfigurationFtpPacBrowserTest
  public:
   NetworkContextConfigurationFtpPacBrowserTest()
       : ftp_server_(net::SpawnedTestServer::TYPE_FTP, GetChromeTestDataDir()) {
-    scoped_feature_list_.InitAndEnableFeature(features::kFtpProtocol);
+    scoped_feature_list_.InitAndEnableFeature(blink::features::kFtpProtocol);
     EXPECT_TRUE(ftp_server_.Start());
   }
   ~NetworkContextConfigurationFtpPacBrowserTest() override {}

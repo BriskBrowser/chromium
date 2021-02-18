@@ -264,7 +264,7 @@ ExtensionFunction::ResponseAction TtsSpeakFunction::Run() {
   utterance->SetSrcUrl(source_url());
   utterance->SetLang(lang);
   utterance->SetContinuousParameters(rate, pitch, volume);
-  utterance->SetCanEnqueue(can_enqueue);
+  utterance->SetShouldClearQueue(!can_enqueue);
   utterance->SetRequiredEventTypes(required_event_types);
   utterance->SetDesiredEventTypes(desired_event_types);
   utterance->SetEngineId(voice_extension_id);
@@ -292,8 +292,8 @@ ExtensionFunction::ResponseAction TtsResumeFunction::Run() {
 }
 
 ExtensionFunction::ResponseAction TtsIsSpeakingFunction::Run() {
-  return RespondNow(OneArgument(std::make_unique<base::Value>(
-      content::TtsController::GetInstance()->IsSpeaking())));
+  return RespondNow(OneArgument(
+      base::Value(content::TtsController::GetInstance()->IsSpeaking())));
 }
 
 ExtensionFunction::ResponseAction TtsGetVoicesFunction::Run() {
@@ -322,7 +322,8 @@ ExtensionFunction::ResponseAction TtsGetVoicesFunction::Run() {
     result_voices->Append(std::move(result_voice));
   }
 
-  return RespondNow(OneArgument(std::move(result_voices)));
+  return RespondNow(
+      OneArgument(base::Value::FromUniquePtrValue(std::move(result_voices))));
 }
 
 TtsAPI::TtsAPI(content::BrowserContext* context) {

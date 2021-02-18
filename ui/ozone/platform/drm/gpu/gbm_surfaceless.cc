@@ -15,11 +15,16 @@
 #include "base/trace_event/trace_event.h"
 #include "ui/gfx/gpu_fence.h"
 #include "ui/gfx/presentation_feedback.h"
+#include "ui/gl/gl_bindings.h"
 #include "ui/ozone/common/egl_util.h"
 #include "ui/ozone/platform/drm/gpu/drm_device.h"
 #include "ui/ozone/platform/drm/gpu/drm_framebuffer.h"
 #include "ui/ozone/platform/drm/gpu/drm_window_proxy.h"
 #include "ui/ozone/platform/drm/gpu/gbm_surface_factory.h"
+
+#if BUILDFLAG(USE_OPENGL_APITRACE)
+#include "ui/gl/gl_implementation.h"
+#endif
 
 namespace ui {
 
@@ -133,6 +138,10 @@ void GbmSurfaceless::SwapBuffersAsync(
     glFlush();
   }
 
+#if BUILDFLAG(USE_OPENGL_APITRACE)
+  gl::TerminateFrame();  // Notify end of frame at buffer swap request.
+#endif
+
   unsubmitted_frames_.back()->Flush();
 
   PendingFrame* frame = unsubmitted_frames_.back().get();
@@ -215,6 +224,10 @@ void GbmSurfaceless::SetForceGlFlushOnSwapBuffers() {
   requires_gl_flush_on_swap_buffers_ = true;
 }
 
+gfx::SurfaceOrigin GbmSurfaceless::GetOrigin() const {
+  return gfx::SurfaceOrigin::kTopLeft;
+}
+
 GbmSurfaceless::~GbmSurfaceless() {
   Destroy();  // The EGL surface must be destroyed before SurfaceOzone.
   surface_factory_->UnregisterSurface(window_->widget());
@@ -244,7 +257,7 @@ void GbmSurfaceless::SubmitFrame() {
     for (auto& overlay : unsubmitted_frames_.front()->overlays) {
       if (overlay.z_order() == 0 && overlay.gpu_fence()) {
         submitted_frame_gpu_fence_ = std::make_unique<gfx::GpuFence>(
-            gfx::CloneHandleForIPC(overlay.gpu_fence()->GetGpuFenceHandle()));
+            overlay.gpu_fence()->GetGpuFenceHandle().Clone());
         break;
       }
     }

@@ -32,6 +32,9 @@ using AXRangeInfoData = mojom::AccessibilityRangeInfoData;
 using AXStringListProperty = mojom::AccessibilityStringListProperty;
 using AXStringProperty = mojom::AccessibilityStringProperty;
 
+constexpr mojom::AccessibilityStringProperty
+    AccessibilityNodeInfoDataWrapper::text_properties_[];
+
 AccessibilityNodeInfoDataWrapper::AccessibilityNodeInfoDataWrapper(
     AXTreeSourceArc* tree_source,
     AXNodeInfoData* node)
@@ -70,7 +73,7 @@ bool AccessibilityNodeInfoDataWrapper::IsVirtualNode() const {
 }
 
 bool AccessibilityNodeInfoDataWrapper::IsIgnored() const {
-  if (!tree_source_->IsScreenReaderMode())
+  if (!tree_source_->UseFullFocusMode())
     return !IsImportantInAndroid();
 
   if (!IsImportantInAndroid() || !HasImportantProperty())
@@ -89,7 +92,7 @@ bool AccessibilityNodeInfoDataWrapper::IsImportantInAndroid() const {
   return IsVirtualNode() || GetProperty(AXBooleanProperty::IMPORTANCE);
 }
 
-bool AccessibilityNodeInfoDataWrapper::CanBeAccessibilityFocused() const {
+bool AccessibilityNodeInfoDataWrapper::IsFocusableInFullFocusMode() const {
   if (!IsAccessibilityFocusableContainer() && !HasAccessibilityFocusableText())
     return false;
 
@@ -102,15 +105,15 @@ bool AccessibilityNodeInfoDataWrapper::IsAccessibilityFocusableContainer()
     const {
   if (IsVirtualNode()) {
     return GetProperty(AXBooleanProperty::SCREEN_READER_FOCUSABLE) ||
-           GetProperty(AXBooleanProperty::FOCUSABLE);
+           IsFocusable();
   }
 
   if (!IsImportantInAndroid() || (IsScrollableContainer() && !HasText()))
     return false;
 
   return GetProperty(AXBooleanProperty::SCREEN_READER_FOCUSABLE) ||
-         GetProperty(AXBooleanProperty::CLICKABLE) ||
-         GetProperty(AXBooleanProperty::FOCUSABLE) || IsToplevelScrollItem();
+         IsFocusable() || IsClickable() || IsToplevelScrollItem();
+  // TODO(hirokisato): probably check long clickable as well.
 }
 
 void AccessibilityNodeInfoDataWrapper::PopulateAXRole(
@@ -119,11 +122,6 @@ void AccessibilityNodeInfoDataWrapper::PopulateAXRole(
   if (GetProperty(AXStringProperty::CLASS_NAME, &class_name)) {
     out_data->AddStringAttribute(ax::mojom::StringAttribute::kClassName,
                                  class_name);
-  }
-
-  if (role_) {
-    out_data->role = *role_;
-    return;
   }
 
   if (GetProperty(AXBooleanProperty::EDITABLE)) {
@@ -208,7 +206,7 @@ void AccessibilityNodeInfoDataWrapper::PopulateAXRole(
 
   std::string chrome_role;
   if (GetProperty(AXStringProperty::CHROME_ROLE, &chrome_role)) {
-    ax::mojom::Role role_value = ui::ParseRole(chrome_role.c_str());
+    auto role_value = ui::ParseAXEnum<ax::mojom::Role>(chrome_role.c_str());
     if (role_value != ax::mojom::Role::kNone) {
       // The webView and rootWebArea roles differ between Android and Chrome. In
       // particular, Android includes far fewer attributes which leads to
@@ -294,9 +292,9 @@ void AccessibilityNodeInfoDataWrapper::PopulateAXState(
 
 #undef MAP_STATE
 
-  const bool focusable = tree_source_->IsScreenReaderMode()
+  const bool focusable = tree_source_->UseFullFocusMode()
                              ? IsAccessibilityFocusableContainer()
-                             : GetProperty(AXBooleanProperty::FOCUSABLE);
+                             : IsFocusable();
   if (focusable)
     out_data->AddState(ax::mojom::State::kFocusable);
 
@@ -323,7 +321,7 @@ void AccessibilityNodeInfoDataWrapper::Serialize(
   bool is_node_tree_root = tree_source_->IsRootOfNodeTree(GetId());
   // String properties that doesn't belong to any of existing chrome
   // automation string properties are pushed into description.
-  // TODO (sahok): Refactor this to make clear the functionality(b/158633575).
+  // TODO(sahok): Refactor this to make clear the functionality(b/158633575).
   std::vector<std::string> descriptions;
 
   // String properties.
@@ -374,6 +372,10 @@ void AccessibilityNodeInfoDataWrapper::Serialize(
     if (node_ptr_->range_info) {
       out_data->AddStringAttribute(ax::mojom::StringAttribute::kValue,
                                    state_description);
+    } else if (GetProperty(AXBooleanProperty::CHECKABLE)) {
+      out_data->AddStringAttribute(
+          ax::mojom::StringAttribute::kCheckedStateDescription,
+          state_description);
     } else {
       descriptions.push_back(state_description);
     }
@@ -393,12 +395,12 @@ void AccessibilityNodeInfoDataWrapper::Serialize(
 
   // Boolean properties.
   PopulateAXState(out_data);
-  if (GetProperty(AXBooleanProperty::SCROLLABLE)) {
+  if (GetProperty(AXBooleanProperty::SCROLLABLE))
     out_data->AddBoolAttribute(ax::mojom::BoolAttribute::kScrollable, true);
-  }
-  if (GetProperty(AXBooleanProperty::CLICKABLE)) {
+
+  if (IsClickable())
     out_data->AddBoolAttribute(ax::mojom::BoolAttribute::kClickable, true);
-  }
+
   if (GetProperty(AXBooleanProperty::SELECTED)) {
     if (ui::SupportsSelected(out_data->role)) {
       out_data->AddBoolAttribute(ax::mojom::BoolAttribute::kSelected, true);
@@ -532,12 +534,10 @@ std::string AccessibilityNodeInfoDataWrapper::ComputeAXName(
   }
   if (!hint_text.empty())
     names.push_back(hint_text);
-  if (cached_name_ && !(*cached_name_).empty())
-    names.push_back(*cached_name_);
 
   // If a node is accessibility focusable, but has no name, the name should be
   // computed from its descendants.
-  if (names.empty() && tree_source_->IsScreenReaderMode() &&
+  if (names.empty() && tree_source_->UseFullFocusMode() &&
       IsAccessibilityFocusableContainer())
     ComputeNameFromContents(&names);
 
@@ -554,6 +554,10 @@ void AccessibilityNodeInfoDataWrapper::GetChildren(
     return;
   for (int32_t id : it->second)
     children->push_back(tree_source_->GetFromId(id));
+}
+
+int32_t AccessibilityNodeInfoDataWrapper::GetWindowId() const {
+  return node_ptr_->window_id;
 }
 
 bool AccessibilityNodeInfoDataWrapper::GetProperty(
@@ -634,10 +638,11 @@ bool AccessibilityNodeInfoDataWrapper::HasCoveringSpan(
 }
 
 bool AccessibilityNodeInfoDataWrapper::HasText() const {
-  // The same properties are checked as ComputeNameFromContentsInternal.
-  return HasNonEmptyStringProperty(node_ptr_,
-                                   AXStringProperty::CONTENT_DESCRIPTION) ||
-         HasNonEmptyStringProperty(node_ptr_, AXStringProperty::TEXT);
+  for (const auto it : text_properties_) {
+    if (HasNonEmptyStringProperty(node_ptr_, it))
+      return true;
+  }
+  return false;
 }
 
 bool AccessibilityNodeInfoDataWrapper::HasAccessibilityFocusableText() const {
@@ -674,18 +679,13 @@ void AccessibilityNodeInfoDataWrapper::ComputeNameFromContentsInternal(
   if (IsVirtualNode() || IsAccessibilityFocusableContainer())
     return;
 
-  // Take the name from either content description or text. It's not clear
-  // whether labeled by should be taken into account here.
   std::string name;
-  if (!GetProperty(AXStringProperty::CONTENT_DESCRIPTION, &name) ||
-      name.empty()) {
-    GetProperty(AXStringProperty::TEXT, &name);
-  }
-
-  // Stop when we get a name for this subtree.
-  if (!name.empty()) {
-    names->push_back(name);
-    return;
+  for (const auto it : text_properties_) {
+    if (GetProperty(it, &name) && !name.empty()) {
+      // Stop when we get a name for this subtree.
+      names->push_back(name);
+      return;
+    }
   }
 
   // Otherwise, continue looking for a name in this subtree.
@@ -695,6 +695,17 @@ void AccessibilityNodeInfoDataWrapper::ComputeNameFromContentsInternal(
     static_cast<AccessibilityNodeInfoDataWrapper*>(child)
         ->ComputeNameFromContentsInternal(names);
   }
+}
+
+bool AccessibilityNodeInfoDataWrapper::IsClickable() const {
+  return GetProperty(AXBooleanProperty::CLICKABLE) ||
+         HasStandardAction(AXActionType::CLICK);
+}
+
+bool AccessibilityNodeInfoDataWrapper::IsFocusable() const {
+  return GetProperty(AXBooleanProperty::FOCUSABLE) ||
+         HasStandardAction(AXActionType::FOCUS) ||
+         HasStandardAction(AXActionType::CLEAR_FOCUS);
 }
 
 bool AccessibilityNodeInfoDataWrapper::IsScrollableContainer() const {
@@ -734,23 +745,17 @@ bool AccessibilityNodeInfoDataWrapper::HasImportantPropertyInternal() const {
                                 AXStringProperty::CONTENT_DESCRIPTION) ||
       HasNonEmptyStringProperty(node_ptr_, AXStringProperty::TEXT) ||
       HasNonEmptyStringProperty(node_ptr_, AXStringProperty::PANE_TITLE) ||
-      HasNonEmptyStringProperty(node_ptr_, AXStringProperty::HINT_TEXT) ||
-      cached_name_.has_value()) {
+      HasNonEmptyStringProperty(node_ptr_, AXStringProperty::HINT_TEXT)) {
     return true;
   }
+
+  if (IsFocusable() || IsClickable())
+    return true;
 
   // These properties are sorted in the same order of mojom file.
   if (GetProperty(AXBooleanProperty::CHECKABLE) ||
-      GetProperty(AXBooleanProperty::FOCUSABLE) ||
       GetProperty(AXBooleanProperty::SELECTED) ||
-      GetProperty(AXBooleanProperty::CLICKABLE) ||
       GetProperty(AXBooleanProperty::EDITABLE)) {
-    return true;
-  }
-
-  if (HasStandardAction(AXActionType::FOCUS) ||
-      HasStandardAction(AXActionType::CLEAR_FOCUS) ||
-      HasStandardAction(AXActionType::CLICK)) {
     return true;
   }
 

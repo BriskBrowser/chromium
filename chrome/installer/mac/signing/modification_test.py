@@ -13,6 +13,7 @@ def plist_read(*args):
     bundle_id = test_config.TestConfig().base_bundle_id
     plists = {
         '/$W/App Product.app/Contents/Info.plist': {
+            'CFBundleDisplayName': 'Product',
             'CFBundleIdentifier': bundle_id,
             'CFBundleName': 'Product',
             'KSProductID': 'test.ksproduct',
@@ -39,6 +40,12 @@ def plist_read(*args):
     return plists[args[0]]
 
 
+def plist_read_with_architecture(*args):
+    plist = plist_read(*args)
+    plist.update({'KSChannelID': 'arm64', 'KSChannelID-full': 'arm64-full'})
+    return plist
+
+
 @mock.patch('signing.commands.plistlib',
             **{'readPlist.side_effect': plist_read})
 @mock.patch.multiple(
@@ -63,9 +70,9 @@ class TestModification(unittest.TestCase):
                 for tup in call:
                     for arg in tup:
                         # Don't anchor this substring in a particular directory
-                        # because it may appear in any of /$I, /$O, or /$W. Don't
-                        # anchor it with App Product.app either, because it may
-                        # be renamed (to App Product Canary.app).
+                        # because it may appear in any of /$I, /$O, or /$W.
+                        # Don't anchor it with App Product.app either, because
+                        # it may be renamed (to App Product Canary.app).
                         if 'Contents/Frameworks/Product Framework.framework' in arg:
                             return True
 
@@ -89,10 +96,49 @@ class TestModification(unittest.TestCase):
         self.assertEqual(1, plistlib.writePlist.call_count)
         plistlib.writePlist.assert_called_with(
             {
+                'CFBundleDisplayName': 'Product',
                 'CFBundleIdentifier': config.base_bundle_id,
                 'CFBundleName': 'Product',
                 'KSProductID': 'test.ksproduct',
                 'KSChannelID-full': '-full'
+            },
+            '/$W/App Product.app/Contents/Info.plist',
+        )
+
+        self.assertEqual(4, kwargs['copy_files'].call_count)
+        kwargs['copy_files'].assert_has_calls([
+            mock.call('/$I/Product Packaging/app-entitlements.plist',
+                      '/$W/app-entitlements.plist'),
+            mock.call('/$I/Product Packaging/helper-gpu-entitlements.plist',
+                      '/$W/helper-gpu-entitlements.plist'),
+            mock.call('/$I/Product Packaging/helper-plugin-entitlements.plist',
+                      '/$W/helper-plugin-entitlements.plist'),
+            mock.call(
+                '/$I/Product Packaging/helper-renderer-entitlements.plist',
+                '/$W/helper-renderer-entitlements.plist'),
+        ])
+        self.assertEqual(0, kwargs['move_file'].call_count)
+        self.assertEqual(0, kwargs['write_file'].call_count)
+
+        self.assertTrue(self._is_framework_unchanged(plistlib, kwargs))
+
+    def test_distribution_with_architecture(self, plistlib, **kwargs):
+        plistlib.readPlist.side_effect = plist_read_with_architecture
+
+        dist = model.Distribution()
+        config = dist.to_config(self.config)
+
+        modification.customize_distribution(self.paths, dist, config)
+
+        self.assertEqual(1, plistlib.writePlist.call_count)
+        plistlib.writePlist.assert_called_with(
+            {
+                'CFBundleDisplayName': 'Product',
+                'CFBundleIdentifier': config.base_bundle_id,
+                'CFBundleName': 'Product',
+                'KSProductID': 'test.ksproduct',
+                'KSChannelID': 'arm64',
+                'KSChannelID-full': 'arm64-full'
             },
             '/$W/App Product.app/Contents/Info.plist',
         )
@@ -123,6 +169,7 @@ class TestModification(unittest.TestCase):
         self.assertEqual(1, plistlib.writePlist.call_count)
         plistlib.writePlist.assert_called_with(
             {
+                'CFBundleDisplayName': 'Product',
                 'CFBundleIdentifier': config.base_bundle_id,
                 'CFBundleName': 'Product',
                 'KSProductID': 'test.ksproduct',
@@ -157,11 +204,51 @@ class TestModification(unittest.TestCase):
         self.assertEqual(1, plistlib.writePlist.call_count)
         plistlib.writePlist.assert_called_with(
             {
+                'CFBundleDisplayName': 'Product',
                 'CFBundleIdentifier': config.base_bundle_id,
                 'CFBundleName': 'Product',
                 'KSProductID': 'test.ksproduct',
                 'KSChannelID': 'dev',
                 'KSChannelID-full': 'dev-full'
+            },
+            '/$W/App Product.app/Contents/Info.plist',
+        )
+
+        self.assertEqual(4, kwargs['copy_files'].call_count)
+        kwargs['copy_files'].assert_has_calls([
+            mock.call('/$I/Product Packaging/app-entitlements.plist',
+                      '/$W/app-entitlements.plist'),
+            mock.call('/$I/Product Packaging/helper-gpu-entitlements.plist',
+                      '/$W/helper-gpu-entitlements.plist'),
+            mock.call('/$I/Product Packaging/helper-plugin-entitlements.plist',
+                      '/$W/helper-plugin-entitlements.plist'),
+            mock.call(
+                '/$I/Product Packaging/helper-renderer-entitlements.plist',
+                '/$W/helper-renderer-entitlements.plist'),
+        ])
+        self.assertEqual(0, kwargs['move_file'].call_count)
+        self.assertEqual(0, kwargs['write_file'].call_count)
+
+        self.assertTrue(self._is_framework_unchanged(plistlib, kwargs))
+
+    def test_distribution_with_architecture_and_channel(self, plistlib,
+                                                        **kwargs):
+        plistlib.readPlist.side_effect = plist_read_with_architecture
+
+        dist = model.Distribution(channel='dev')
+        config = dist.to_config(self.config)
+
+        modification.customize_distribution(self.paths, dist, config)
+
+        self.assertEqual(1, plistlib.writePlist.call_count)
+        plistlib.writePlist.assert_called_with(
+            {
+                'CFBundleDisplayName': 'Product',
+                'CFBundleIdentifier': config.base_bundle_id,
+                'CFBundleName': 'Product',
+                'KSProductID': 'test.ksproduct',
+                'KSChannelID': 'arm64-dev',
+                'KSChannelID-full': 'arm64-dev-full'
             },
             '/$W/App Product.app/Contents/Info.plist',
         )
@@ -192,6 +279,7 @@ class TestModification(unittest.TestCase):
         self.assertEqual(1, plistlib.writePlist.call_count)
         plistlib.writePlist.assert_called_with(
             {
+                'CFBundleDisplayName': 'Product',
                 'CFBundleIdentifier': config.base_bundle_id,
                 'CFBundleName': 'Product',
                 'KSProductID': 'test.ksproduct',
@@ -227,6 +315,7 @@ class TestModification(unittest.TestCase):
         self.assertEqual(1, plistlib.writePlist.call_count)
         plistlib.writePlist.assert_called_with(
             {
+                'CFBundleDisplayName': 'Product',
                 'CFBundleIdentifier': config.base_bundle_id,
                 'CFBundleName': 'Product',
                 'KSProductID': 'test.ksproduct',
@@ -261,6 +350,7 @@ class TestModification(unittest.TestCase):
         self.assertEqual(1, plistlib.writePlist.call_count)
         plistlib.writePlist.assert_called_with(
             {
+                'CFBundleDisplayName': 'Product',
                 'CFBundleIdentifier': config.base_bundle_id,
                 'CFBundleName': 'Product',
                 'KSProductID': 'test.ksproduct',
@@ -344,6 +434,7 @@ class TestModification(unittest.TestCase):
             ),
             mock.call(
                 {
+                    'CFBundleDisplayName': 'Product Canary',
                     'CFBundleIdentifier': config.base_bundle_id,
                     'CFBundleExecutable': config.app_product,
                     'CFBundleName': 'Product Canary',

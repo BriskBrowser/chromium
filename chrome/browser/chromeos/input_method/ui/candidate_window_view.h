@@ -11,7 +11,8 @@
 #include "ui/base/ime/candidate_window.h"
 #include "ui/chromeos/ui_chromeos_export.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
-#include "ui/views/controls/button/button.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/view_factory.h"
 
 namespace ui {
 namespace ime {
@@ -21,9 +22,9 @@ class InformationTextArea;
 
 // CandidateWindowView is the main container of the candidate window UI.
 class UI_CHROMEOS_EXPORT CandidateWindowView
-    : public views::BubbleDialogDelegateView,
-      public views::ButtonListener {
+    : public views::BubbleDialogDelegateView {
  public:
+  METADATA_HEADER(CandidateWindowView);
   // The object can be monitored by the observer.
   class Observer {
    public:
@@ -33,6 +34,8 @@ class UI_CHROMEOS_EXPORT CandidateWindowView
   };
 
   explicit CandidateWindowView(gfx::NativeView parent);
+  CandidateWindowView(const CandidateWindowView&) = delete;
+  CandidateWindowView& operator=(const CandidateWindowView&) = delete;
   ~CandidateWindowView() override;
   views::Widget* InitWidget();
 
@@ -75,18 +78,14 @@ class UI_CHROMEOS_EXPORT CandidateWindowView
  private:
   friend class CandidateWindowViewTest;
 
-  // views::BubbleDialogDelegateView:
-  const char* GetClassName() const override;
-
-  // Overridden from views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
-
   void SelectCandidateAt(int index_in_page);
   void UpdateVisibility();
 
   // Initializes the candidate views if needed.
   void MaybeInitializeCandidateViews(
       const ui::CandidateWindow& candidate_window);
+
+  void CandidateViewPressed(int index);
 
   // The candidate window data model.
   ui::CandidateWindow candidate_window_;
@@ -104,7 +103,7 @@ class UI_CHROMEOS_EXPORT CandidateWindowView
   views::View* candidate_area_;
 
   // The candidate views are used for rendering candidates.
-  std::vector<std::unique_ptr<CandidateView>> candidate_views_;
+  std::vector<CandidateView*> candidate_views_;
 
   // Current columns size in |candidate_area_|.
   gfx::Size previous_shortcut_column_size_;
@@ -128,11 +127,16 @@ class UI_CHROMEOS_EXPORT CandidateWindowView
   // True if the candidate window was open.  This is used to determine when to
   // send OnCandidateWindowOpened and OnCandidateWindowClosed events.
   bool was_candidate_window_open_;
-
-  DISALLOW_COPY_AND_ASSIGN(CandidateWindowView);
 };
+
+BEGIN_VIEW_BUILDER(UI_CHROMEOS_EXPORT,
+                   CandidateWindowView,
+                   views::BubbleDialogDelegateView)
+END_VIEW_BUILDER
 
 }  // namespace ime
 }  // namespace ui
+
+DEFINE_VIEW_BUILDER(UI_CHROMEOS_EXPORT, ui::ime::CandidateWindowView)
 
 #endif  // CHROME_BROWSER_CHROMEOS_INPUT_METHOD_UI_CANDIDATE_WINDOW_VIEW_H_

@@ -13,6 +13,7 @@
 #include "ui/gfx/image/image_skia_operations.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/skbitmap_operations.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/vector_icons.h"
 
 namespace {
@@ -26,13 +27,12 @@ constexpr SkColor kResizeHandleIconColor = SK_ColorWHITE;
 
 namespace views {
 
-ResizeHandleButton::ResizeHandleButton(ButtonListener* listener)
-    : ImageButton(listener) {
+ResizeHandleButton::ResizeHandleButton(PressedCallback callback)
+    : ImageButton(std::move(callback)) {
   SetSize(gfx::Size(kResizeHandleButtonSize, kResizeHandleButtonSize));
   SetImageForQuadrant(OverlayWindowViews::WindowQuadrant::kBottomRight);
 
   // Accessibility.
-  SetFocusForPlatform();
   const base::string16 resize_button_label(
       l10n_util::GetStringUTF16(IDS_PICTURE_IN_PICTURE_RESIZE_HANDLE_TEXT));
   SetAccessibleName(resize_button_label);
@@ -124,5 +124,8 @@ void ResizeHandleButton::SetImageForQuadrant(
 
   SetImage(views::Button::STATE_NORMAL, icon);
 }
+
+BEGIN_METADATA(ResizeHandleButton, views::ImageButton)
+END_METADATA
 
 }  // namespace views

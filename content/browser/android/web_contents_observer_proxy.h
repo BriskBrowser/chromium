@@ -14,7 +14,6 @@
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/reload_type.h"
 #include "content/public/browser/web_contents_observer.h"
-#include "content/public/common/frame_navigate_params.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -33,6 +32,7 @@ class WebContentsObserverProxy : public WebContentsObserver {
 
  private:
   void RenderFrameCreated(RenderFrameHost* render_frame_host) override;
+  void RenderFrameDeleted(RenderFrameHost* render_frame_host) override;
   void RenderViewReady() override;
   void RenderProcessGone(base::TerminationStatus termination_status) override;
   void DidStartLoading() override;
@@ -62,7 +62,7 @@ class WebContentsObserverProxy : public WebContentsObserver {
   void WebContentsDestroyed() override;
   void DidChangeThemeColor() override;
   void MediaEffectivelyFullscreenChanged(bool is_fullscreen) override;
-  void SetToBaseURLForDataURLIfNeeded(std::string* url);
+  bool SetToBaseURLForDataURLIfNeeded(GURL* url);
   void ViewportFitChanged(blink::mojom::ViewportFit value) override;
   void OnWebContentsFocused(RenderWidgetHost*) override;
   void OnWebContentsLostFocus(RenderWidgetHost*) override;

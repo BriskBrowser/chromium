@@ -11,6 +11,7 @@
 
 #include "base/files/file_path.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 
 namespace chrome {
 
@@ -39,6 +40,7 @@ extern const base::FilePath::CharType kStatusTrayWindowClass[];
 
 extern const char kInitialProfile[];
 extern const char kMultiProfileDirPrefix[];
+extern const char kEphemeralGuestProfileDirPrefix[];
 extern const base::FilePath::CharType kGuestProfileDir[];
 extern const base::FilePath::CharType kSystemProfileDir[];
 
@@ -65,6 +67,7 @@ extern const base::FilePath::CharType kOfflinePageRequestQueueDirname[];
 extern const base::FilePath::CharType kPreferencesFilename[];
 extern const base::FilePath::CharType kPreviewsOptOutDBFilename[];
 extern const base::FilePath::CharType kQueryTileStorageDirname[];
+extern const base::FilePath::CharType kVideoTutorialsStorageDirname[];
 extern const base::FilePath::CharType kReadmeFilename[];
 extern const base::FilePath::CharType kSecurePreferencesFilename[];
 extern const base::FilePath::CharType kServiceStateFileName[];
@@ -81,9 +84,6 @@ extern const base::FilePath::CharType kReportingAndNelStoreFilename[];
 extern const base::FilePath::CharType kJumpListIconDirname[];
 #endif
 
-// File name of the Pepper Flash plugin on different platforms.
-extern const base::FilePath::CharType kPepperFlashPluginFilename[];
-
 // directory names
 #if defined(OS_WIN)
 extern const wchar_t kUserDataDirname[];
@@ -96,7 +96,7 @@ extern const wchar_t kUserDataDirname[];
 // installed.
 extern const float kMaxShareOfExtensionProcesses;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // Chrome OS profile directories have custom prefix.
 // Profile path format: [user_data_dir]/u-[$hash]
 // Ex.: /home/chronos/u-0123456789
@@ -108,14 +108,15 @@ extern const char kLegacyProfileDir[];
 // This must be kept in sync with TestingProfile::kTestUserProfileDir.
 extern const char kTestUserProfileDir[];
 
+// An anonymous profile that is used for lock screen apps.
 extern const char kLockScreenAppProfile[];
+
+// An incognito profile that is used for user authentication on lock screen.
+extern const char kLockScreenProfile[];
 #endif
 
 // Used to identify the application to the system AV function in Windows.
 extern const char kApplicationClientIDStringForAVScanning[];
-
-// The largest reasonable length we'd assume for a meta tag attribute.
-extern const size_t kMaxMetaTagAttributeLength;
 
 }  // namespace chrome
 

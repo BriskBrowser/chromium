@@ -11,6 +11,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <utility>
 
 #if defined(OS_WIN)
 #include <vector>
@@ -25,6 +26,7 @@
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/ime/text_edit_commands.h"
 #include "ui/base/ime/text_input_client.h"
@@ -42,6 +44,7 @@
 #include "ui/views/controls/focus_ring.h"
 #include "ui/views/controls/textfield/textfield_model.h"
 #include "ui/views/drag_controller.h"
+#include "ui/views/metadata/view_factory.h"
 #include "ui/views/selection_controller.h"
 #include "ui/views/selection_controller_delegate.h"
 #include "ui/views/view.h"
@@ -83,6 +86,29 @@ class VIEWS_EXPORT Textfield : public View,
     kLastCommandId = kSelectAll,
   };
 
+#if defined(OS_APPLE)
+  static constexpr gfx::SelectionBehavior kLineSelectionBehavior =
+      gfx::SELECTION_EXTEND;
+  static constexpr gfx::SelectionBehavior kWordSelectionBehavior =
+      gfx::SELECTION_CARET;
+  static constexpr gfx::SelectionBehavior kMoveParagraphSelectionBehavior =
+      gfx::SELECTION_CARET;
+  static constexpr gfx::SelectionBehavior kPageSelectionBehavior =
+      gfx::SELECTION_EXTEND;
+#else
+  static constexpr gfx::SelectionBehavior kLineSelectionBehavior =
+      gfx::SELECTION_RETAIN;
+  static constexpr gfx::SelectionBehavior kWordSelectionBehavior =
+      gfx::SELECTION_RETAIN;
+  static constexpr gfx::SelectionBehavior kMoveParagraphSelectionBehavior =
+      gfx::SELECTION_RETAIN;
+  static constexpr gfx::SelectionBehavior kPageSelectionBehavior =
+      gfx::SELECTION_RETAIN;
+#endif
+
+  // Pair of |text_changed|, |cursor_changed|.
+  using EditCommandResult = std::pair<bool, bool>;
+
   // Returns the text cursor blink time, or 0 for no blinking.
   static base::TimeDelta GetCaretBlinkInterval();
 
@@ -90,12 +116,17 @@ class VIEWS_EXPORT Textfield : public View,
   static const gfx::FontList& GetDefaultFontList();
 
   Textfield();
+  Textfield(const Textfield&) = delete;
+  Textfield& operator=(const Textfield&) = delete;
   ~Textfield() override;
 
   // Set the controller for this textfield.
   void set_controller(TextfieldController* controller) {
     controller_ = controller;
   }
+
+  // TODD (kylixrd): Remove set_controller and refactor codebase.
+  void SetController(TextfieldController* controller);
 
   // Gets/Sets whether or not the Textfield is read-only.
   bool GetReadOnly() const;
@@ -306,7 +337,8 @@ class VIEWS_EXPORT Textfield : public View,
   bool CanDrop(const ui::OSExchangeData& data) override;
   int OnDragUpdated(const ui::DropTargetEvent& event) override;
   void OnDragExited() override;
-  int OnPerformDrop(const ui::DropTargetEvent& event) override;
+  ui::mojom::DragOperation OnPerformDrop(
+      const ui::DropTargetEvent& event) override;
   void OnDragDone() override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   bool HandleAccessibleAction(const ui::AXActionData& action_data) override;
@@ -371,7 +403,8 @@ class VIEWS_EXPORT Textfield : public View,
   void SetCompositionText(const ui::CompositionText& composition) override;
   uint32_t ConfirmCompositionText(bool keep_selection) override;
   void ClearCompositionText() override;
-  void InsertText(const base::string16& text) override;
+  void InsertText(const base::string16& text,
+                  InsertTextCursorBehavior cursor_behavior) override;
   void InsertChar(const ui::KeyEvent& event) override;
   ui::TextInputType GetTextInputType() const override;
   ui::TextInputMode GetTextInputMode() const override;
@@ -403,18 +436,16 @@ class VIEWS_EXPORT Textfield : public View,
   // Set whether the text should be used to improve typing suggestions.
   void SetShouldDoLearning(bool value) { should_do_learning_ = value; }
 
-#if defined(OS_WIN) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || BUILDFLAG(IS_CHROMEOS_ASH)
   bool SetCompositionFromExistingText(
       const gfx::Range& range,
       const std::vector<ui::ImeTextSpan>& ui_ime_text_spans) override;
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   gfx::Range GetAutocorrectRange() const override;
   gfx::Rect GetAutocorrectCharacterBounds() const override;
-  bool SetAutocorrectRange(const base::string16& autocorrect_text,
-                           const gfx::Range& range) override;
-  void ClearAutocorrectRange() override;
+  bool SetAutocorrectRange(const gfx::Range& range) override;
 #endif
 
 #if defined(OS_WIN)
@@ -427,10 +458,12 @@ class VIEWS_EXPORT Textfield : public View,
       bool is_composition_committed) override;
 #endif
 
-  views::PropertyChangedSubscription AddTextChangedCallback(
+  base::CallbackListSubscription AddTextChangedCallback(
       views::PropertyChangedCallback callback) WARN_UNUSED_RESULT;
 
  protected:
+  TextfieldModel* textfield_model() { return model_.get(); }
+
   // Inserts or appends a character in response to an IME operation.
   virtual void DoInsertChar(base::char16 ch);
 
@@ -467,6 +500,20 @@ class VIEWS_EXPORT Textfield : public View,
   // Like RequestFocus, but explicitly states that the focus is triggered by a
   // gesture event.
   void RequestFocusForGesture(const ui::GestureEventDetails& details);
+
+  virtual Textfield::EditCommandResult DoExecuteTextEditCommand(
+      ui::TextEditCommand command);
+
+  // Handles key press event ahead of OnKeyPressed(). This is used for Textarea
+  // to handle the return key. Use TextfieldController::HandleKeyEvent to
+  // intercept the key event in other cases.
+  virtual bool PreHandleKeyPressed(const ui::KeyEvent& event);
+
+  // Get the default command for a given key |event|.
+  virtual ui::TextEditCommand GetCommandForKeyEvent(const ui::KeyEvent& event);
+
+  // Update the cursor position in the text field.
+  void UpdateCursorViewPosition();
 
  private:
   friend class TextfieldTestApi;
@@ -521,9 +568,6 @@ class VIEWS_EXPORT Textfield : public View,
   // A callback function to periodically update the cursor node_data.
   void UpdateCursorVisibility();
 
-  // Update the cursor position in the text field.
-  void UpdateCursorViewPosition();
-
   // Gets the style::TextStyle that should be used.
   int GetTextStyle() const;
 
@@ -570,6 +614,10 @@ class VIEWS_EXPORT Textfield : public View,
   // Returns true if an insertion cursor should be visible (a vertical bar,
   // placed at the point new text will be inserted).
   bool ShouldShowCursor() const;
+
+  // Converts a textfield width in "average characters" to the required number
+  // of DIPs, accounting for insets and cursor.
+  int CharsToDips(int width_in_chars) const;
 
   // Returns true if an insertion cursor should be visible and blinking.
   bool ShouldBlinkCursor() const;
@@ -692,6 +740,9 @@ class VIEWS_EXPORT Textfield : public View,
   // True if this textfield should use a focus ring to indicate focus.
   bool use_focus_ring_ = true;
 
+  // Whether the user should be notified if the clipboard is restricted.
+  bool show_rejection_ui_if_any_ = false;
+
   // Whether the text should be used to improve typing suggestions.
   base::Optional<bool> should_do_learning_;
 
@@ -722,17 +773,37 @@ class VIEWS_EXPORT Textfield : public View,
   gfx::Insets extra_insets_ = gfx::Insets();
 
   // Holds the subscription object for the enabled changed callback.
-  PropertyChangedSubscription enabled_changed_subscription_ =
+  base::CallbackListSubscription enabled_changed_subscription_ =
       AddEnabledChangedCallback(
           base::BindRepeating(&Textfield::OnEnabledChanged,
                               base::Unretained(this)));
 
   // Used to bind callback functions to this object.
   base::WeakPtrFactory<Textfield> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(Textfield);
 };
 
+BEGIN_VIEW_BUILDER(VIEWS_EXPORT, Textfield, View)
+VIEW_BUILDER_PROPERTY(base::string16, AccessibleName)
+VIEW_BUILDER_PROPERTY(SkColor, BackgroundColor)
+VIEW_BUILDER_PROPERTY(TextfieldController*, Controller)
+VIEW_BUILDER_PROPERTY(bool, CursorEnabled)
+VIEW_BUILDER_PROPERTY(int, DefaultWidthInChars)
+VIEW_BUILDER_PROPERTY(gfx::HorizontalAlignment, HorizontalAlignment)
+VIEW_BUILDER_PROPERTY(bool, Invalid)
+VIEW_BUILDER_PROPERTY(int, MinimumWidthInChars)
+VIEW_BUILDER_PROPERTY(base::string16, PlaceholderText)
+VIEW_BUILDER_PROPERTY(bool, ReadOnly)
+VIEW_BUILDER_PROPERTY(gfx::Range, SelectedRange)
+VIEW_BUILDER_PROPERTY(SkColor, SelectionBackgroundColor)
+VIEW_BUILDER_PROPERTY(SkColor, SelectionTextColor)
+VIEW_BUILDER_PROPERTY(base::string16, Text)
+VIEW_BUILDER_PROPERTY(SkColor, TextColor)
+VIEW_BUILDER_PROPERTY(int, TextInputFlags)
+VIEW_BUILDER_PROPERTY(ui::TextInputType, TextInputType)
+END_VIEW_BUILDER
+
 }  // namespace views
+
+DEFINE_VIEW_BUILDER(VIEWS_EXPORT, Textfield)
 
 #endif  // UI_VIEWS_CONTROLS_TEXTFIELD_TEXTFIELD_H_

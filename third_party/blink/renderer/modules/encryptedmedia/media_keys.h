@@ -70,9 +70,11 @@ class MediaKeys : public ScriptWrappable,
 
   ScriptPromise setServerCertificate(ScriptState*,
                                      const DOMArrayPiece& server_certificate,
-                                     ExceptionState& exception_state);
+                                     ExceptionState&);
 
-  ScriptPromise getStatusForPolicy(ScriptState*, const MediaKeysPolicy*);
+  ScriptPromise getStatusForPolicy(ScriptState*,
+                                   const MediaKeysPolicy*,
+                                   ExceptionState&);
 
   // Indicates that the provided HTMLMediaElement wants to use this object.
   // Returns true if no other HTMLMediaElement currently references this
@@ -131,7 +133,7 @@ class MediaKeys : public ScriptWrappable,
   bool reserved_for_media_element_;
 
   HeapDeque<Member<PendingAction>> pending_actions_;
-  TaskRunnerTimer<MediaKeys> timer_;
+  HeapTaskRunnerTimer<MediaKeys> timer_;
 };
 
 }  // namespace blink

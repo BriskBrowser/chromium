@@ -112,10 +112,10 @@
         if (pathAndBase.startsWith('/fullscreen/')) {
             // Fullscreen tests all use the same automation script.
             src = automationPath + '/fullscreen/auto-click.js';
-        } else if (pathAndBase.startsWith('/native-file-system/native_')) {
-            // native_ Native File System tests all use the same automation script.
-            src = automationPath + '/native-file-system/auto-pick-folder.js';
-        } else if (pathAndBase.startsWith('/native-file-system/')) {
+        } else if (pathAndBase.startsWith('/file-system-access/local_')) {
+            // local_ File System Access tests all use the same automation script.
+            src = automationPath + '/file-system-access/auto-pick-folder.js';
+        } else if (pathAndBase.startsWith('/file-system-access/')) {
             // Per-test automation scripts.
             src = automationPath + pathAndBase + '-automation.sub.js';
         } else if (
@@ -128,7 +128,8 @@
             pathAndBase.startsWith('/css/cssom-view/') ||
             pathAndBase.startsWith('/css/css-scroll-snap/') ||
             pathAndBase.startsWith('/dom/events/') ||
-            pathAndBase.startsWith('/feature-policy/experimental-features/')) {
+            pathAndBase.startsWith('/feature-policy/experimental-features/') ||
+            pathAndBase.startsWith('/permissions-policy/experimental-features/')) {
             // Per-test automation scripts.
             src = automationPath + pathAndBase + '-automation.js';
         } else {

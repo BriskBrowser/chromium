@@ -158,6 +158,8 @@ Polymer({
       value: () => new Set([
         chromeos.settings.mojom.Setting.kLockScreen,
         chromeos.settings.mojom.Setting.kChangeAuthPin,
+        chromeos.settings.mojom.Setting.kLockScreenV2,
+        chromeos.settings.mojom.Setting.kChangeAuthPinV2,
       ]),
     },
   },
@@ -182,7 +184,7 @@ Polymer({
    * @protected
    */
   currentRouteChanged(newRoute, oldRoute) {
-    if (newRoute == settings.routes.LOCK_SCREEN) {
+    if (newRoute === settings.routes.LOCK_SCREEN) {
       this.updateUnlockType(/*activeModesChanged=*/ false);
       this.updateNumFingerprints_();
       this.attemptDeepLink();
@@ -239,11 +241,11 @@ Polymer({
    * @private
    */
   selectedUnlockTypeChanged_(selected) {
-    if (selected == LockScreenUnlockType.VALUE_PENDING) {
+    if (selected === LockScreenUnlockType.VALUE_PENDING) {
       return;
     }
 
-    if (selected != LockScreenUnlockType.PIN_PASSWORD && this.setModes) {
+    if (selected !== LockScreenUnlockType.PIN_PASSWORD && this.setModes) {
       // If the user selects PASSWORD only (which sends an asynchronous
       // setModes.call() to clear the quick unlock capability), indicate to the
       // user immediately that the quick unlock capability is cleared by setting

@@ -10,7 +10,6 @@ include_rules = [
   "+device/vr/public/cpp",
   "+device/vr/public/mojom",
   "+services/audio/public",
-  "+services/content/public",
   "+services/data_decoder/public",
   "+services/device/public",
   "+services/media_session/public",
@@ -27,6 +26,9 @@ specific_include_rules = {
     "+content/browser",
     "+content/common/content_constants_internal.h",
     "-content/browser/loader",
+  ],
+  ".*\.mm": [
+    "+content/browser",
   ],
 
   "desktop_capture\.h": [

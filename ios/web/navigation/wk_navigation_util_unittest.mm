@@ -197,8 +197,6 @@ TEST_F(WKNavigationUtilTest, CreateRestoreSessionUrlForLargeSession) {
   // Extract session JSON from restoration URL.
   base::JSONReader::ValueWithError value_with_error =
       ExtractSessionDict(restore_session_url);
-  ASSERT_EQ(base::ValueDeserializer::kErrorCodeNoError,
-            value_with_error.error_code);
   ASSERT_TRUE(value_with_error.value.has_value());
 
   // Verify that all titles and URLs are present.
@@ -233,8 +231,6 @@ TEST_F(WKNavigationUtilTest, CreateRestoreSessionUrlForExtraLargeForwardList) {
   // Extract session JSON from restoration URL.
   base::JSONReader::ValueWithError value_with_error =
       ExtractSessionDict(restore_session_url);
-  ASSERT_EQ(base::ValueDeserializer::kErrorCodeNoError,
-            value_with_error.error_code);
   ASSERT_TRUE(value_with_error.value.has_value());
 
   // Verify that first kMaxSessionSize titles and URLs are present.
@@ -279,8 +275,6 @@ TEST_F(WKNavigationUtilTest, CreateRestoreSessionUrlForExtraLargeBackList) {
   // Extract session JSON from restoration URL.
   base::JSONReader::ValueWithError value_with_error =
       ExtractSessionDict(restore_session_url);
-  ASSERT_EQ(base::ValueDeserializer::kErrorCodeNoError,
-            value_with_error.error_code);
   ASSERT_TRUE(value_with_error.value.has_value());
 
   // Verify that last kMaxSessionSize titles and URLs are present.
@@ -326,8 +320,6 @@ TEST_F(WKNavigationUtilTest,
   // Extract session JSON from restoration URL.
   base::JSONReader::ValueWithError value_with_error =
       ExtractSessionDict(restore_session_url);
-  ASSERT_EQ(base::ValueDeserializer::kErrorCodeNoError,
-            value_with_error.error_code);
   ASSERT_TRUE(value_with_error.value.has_value());
 
   // Verify that last kMaxSessionSize titles and URLs are present.
@@ -446,8 +438,14 @@ TEST_F(WKNavigationUtilTest, URLNeedsUserAgentType) {
   EXPECT_FALSE(URLNeedsUserAgentType(
       non_user_agent_urls.ReplaceComponents(scheme_replacements)));
 
-  // Not a placeholder or normal URL.
-  EXPECT_TRUE(URLNeedsUserAgentType(GURL("about:blank?for=")));
+  if (base::FeatureList::IsEnabled(features::kUseJSForErrorPage)) {
+    // about:blank pages.
+    EXPECT_FALSE(URLNeedsUserAgentType(GURL("about:blank")));
+  } else {
+    // Not a placeholder.
+    EXPECT_TRUE(URLNeedsUserAgentType(GURL("about:blank?for=")));
+  }
+  // Normal URL.
   EXPECT_TRUE(URLNeedsUserAgentType(GURL("http://www.0.com")));
 
   // file:// URL.

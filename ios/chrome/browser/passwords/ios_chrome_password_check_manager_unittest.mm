@@ -15,14 +15,12 @@
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
-#include "base/test/scoped_feature_list.h"
+#include "base/test/bind.h"
 #include "components/password_manager/core/browser/bulk_leak_check_service.h"
 #include "components/password_manager/core/browser/mock_bulk_leak_check_service.h"
 #include "components/password_manager/core/browser/mock_password_store.h"
 #include "components/password_manager/core/browser/password_manager_test_utils.h"
 #include "components/password_manager/core/browser/test_password_store.h"
-#include "components/password_manager/core/common/password_manager_features.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/testing_pref_service.h"
@@ -44,17 +42,18 @@ namespace {
 constexpr char kExampleCom[] = "https://example.com";
 
 constexpr char kUsername1[] = "alice";
+constexpr char kUsername2[] = "bob";
 
 constexpr char kPassword1[] = "s3cre3t";
 constexpr char kPassword2[] = "bett3r_S3cre3t";
 
-using autofill::PasswordForm;
+using password_manager::PasswordForm;
 using password_manager::BulkLeakCheckServiceInterface;
 using password_manager::CredentialWithPassword;
 using password_manager::MockBulkLeakCheckService;
 using password_manager::CompromisedCredentials;
-using password_manager::CompromiseType;
-using password_manager::CompromiseTypeFlags;
+using password_manager::InsecureType;
+using password_manager::InsecureCredentialTypeFlags;
 using password_manager::IsLeaked;
 using password_manager::LeakCheckCredential;
 using password_manager::TestPasswordStore;
@@ -63,15 +62,16 @@ using ::testing::ElementsAre;
 using ::testing::Field;
 using ::testing::IsEmpty;
 using ::testing::StrictMock;
+using ::testing::Pair;
 
-using CompromisedCredentialsView =
-    password_manager::CompromisedCredentialsManager::CredentialsView;
+using InsecureCredentialsView =
+    password_manager::InsecureCredentialsManager::CredentialsView;
 
 struct MockPasswordCheckManagerObserver
     : IOSChromePasswordCheckManager::Observer {
   MOCK_METHOD(void,
               CompromisedCredentialsChanged,
-              (CompromisedCredentialsView),
+              (InsecureCredentialsView),
               (override));
   MOCK_METHOD(void,
               PasswordCheckStatusChanged,
@@ -105,13 +105,11 @@ CompromisedCredentials MakeCompromised(
     base::StringPiece signon_realm,
     base::StringPiece username,
     base::TimeDelta time_since_creation = base::TimeDelta(),
-    CompromiseType compromise_type = CompromiseType::kLeaked) {
-  return {
-      std::string(signon_realm),
-      base::ASCIIToUTF16(username),
-      base::Time::Now() - time_since_creation,
-      compromise_type,
-  };
+    InsecureType compromise_type = InsecureType::kLeaked) {
+  return CompromisedCredentials(
+      std::string(signon_realm), base::ASCIIToUTF16(username),
+      base::Time::Now() - time_since_creation, compromise_type,
+      password_manager::IsMuted(false));
 }
 
 PasswordForm MakeSavedPassword(
@@ -132,14 +130,27 @@ auto ExpectCompromisedCredential(const std::string& signon_realm,
                                  const base::StringPiece& username,
                                  const base::StringPiece& password,
                                  base::TimeDelta elapsed_time_since_compromise,
-                                 CompromiseTypeFlags compromise_type) {
+                                 InsecureCredentialTypeFlags insecure_type) {
   return AllOf(
       Field(&CredentialWithPassword::signon_realm, signon_realm),
       Field(&CredentialWithPassword::username, base::ASCIIToUTF16(username)),
       Field(&CredentialWithPassword::password, base::ASCIIToUTF16(password)),
       Field(&CredentialWithPassword::create_time,
             (base::Time::Now() - elapsed_time_since_compromise)),
-      Field(&CredentialWithPassword::compromise_type, compromise_type));
+      Field(&CredentialWithPassword::insecure_type, insecure_type));
+}
+
+// Returns vector of pairs with username, password only.
+std::vector<std::pair<std::string, std::string>> GetUsernamesAndPasswords(
+    const std::vector<password_manager::PasswordForm>& forms) {
+  std::vector<std::pair<std::string, std::string>> result;
+  result.reserve(forms.size());
+  for (const auto& form : forms) {
+    result.emplace_back(base::UTF16ToUTF8(form.username_value),
+                        base::UTF16ToUTF8(form.password_value));
+  }
+
+  return result;
 }
 
 class IOSChromePasswordCheckManagerTest : public PlatformTest {
@@ -151,8 +162,6 @@ class IOSChromePasswordCheckManagerTest : public PlatformTest {
         store_(CreateAndUseTestPasswordStore(browser_state_.get())) {
     manager_ = IOSChromePasswordCheckManagerFactory::GetForBrowserState(
         browser_state_.get());
-    scoped_feature_list_.InitAndEnableFeature(
-        password_manager::features::kPasswordCheck);
   }
 
   void RunUntilIdle() { task_env_.RunUntilIdle(); }
@@ -165,7 +174,6 @@ class IOSChromePasswordCheckManagerTest : public PlatformTest {
   IOSChromePasswordCheckManager& manager() { return *manager_; }
 
  private:
-  base::test::ScopedFeatureList scoped_feature_list_;
   web::WebTaskEnvironment task_env_{
       web::WebTaskEnvironment::Options::DEFAULT,
       base::test::TaskEnvironment::TimeSource::MOCK_TIME};
@@ -181,15 +189,15 @@ class IOSChromePasswordCheckManagerTest : public PlatformTest {
 TEST_F(IOSChromePasswordCheckManagerTest, GetCompromisedCredentials) {
   store().AddLogin(MakeSavedPassword(kExampleCom, kUsername1));
 
-  store().AddCompromisedCredentials(
-      MakeCompromised(kExampleCom, kUsername1, base::TimeDelta::FromMinutes(1),
-                      CompromiseType::kLeaked));
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername1,
+                                                base::TimeDelta::FromMinutes(1),
+                                                InsecureType::kLeaked));
   RunUntilIdle();
   EXPECT_THAT(
       manager().GetCompromisedCredentials(),
       ElementsAre(ExpectCompromisedCredential(
           kExampleCom, kUsername1, kPassword1, base::TimeDelta::FromMinutes(1),
-          CompromiseTypeFlags::kCredentialLeaked)));
+          InsecureCredentialTypeFlags::kCredentialLeaked)));
 }
 
 // Test that we don't create an entry in the password store if IsLeaked is
@@ -223,7 +231,7 @@ TEST_F(IOSChromePasswordCheckManagerTest, OnLeakFoundCreatesCredential) {
       manager().GetCompromisedCredentials(),
       ElementsAre(ExpectCompromisedCredential(
           kExampleCom, kUsername1, kPassword1, base::TimeDelta::FromMinutes(0),
-          CompromiseTypeFlags::kCredentialLeaked)));
+          InsecureCredentialTypeFlags::kCredentialLeaked)));
 }
 
 // Verifies that the case where the user has no saved passwords is reported
@@ -247,17 +255,6 @@ TEST_F(IOSChromePasswordCheckManagerTest, GetPasswordCheckStatusIdle) {
 TEST_F(IOSChromePasswordCheckManagerTest,
        LastTimePasswordCheckCompletedNotSet) {
   EXPECT_EQ(base::Time(), manager().GetLastPasswordCheckTime());
-}
-
-// Checks that a non-default kLastTimePasswordCheckCompleted pref value is
-// treated as a completed run.
-TEST_F(IOSChromePasswordCheckManagerTest, LastTimePasswordCheckCompletedIsSet) {
-  base::Time expected = base::Time::Now() - base::TimeDelta::FromMinutes(5);
-  browser_state()->GetPrefs()->SetDouble(
-      password_manager::prefs::kLastTimePasswordCheckCompleted,
-      expected.ToDoubleT());
-
-  EXPECT_THAT(expected, manager().GetLastPasswordCheckTime());
 }
 
 // Checks that a transition into the idle state after starting a check results
@@ -286,17 +283,17 @@ TEST_F(IOSChromePasswordCheckManagerTest,
       observer,
       CompromisedCredentialsChanged(ElementsAre(ExpectCompromisedCredential(
           kExampleCom, kUsername1, kPassword1, base::TimeDelta::FromMinutes(1),
-          CompromiseTypeFlags::kCredentialLeaked))));
-  store().AddCompromisedCredentials(MakeCompromised(
+          InsecureCredentialTypeFlags::kCredentialLeaked))));
+  store().AddInsecureCredential(MakeCompromised(
       kExampleCom, kUsername1, base::TimeDelta::FromMinutes(1)));
   RunUntilIdle();
 
   // After an observer is removed it should no longer receive notifications.
   manager().RemoveObserver(&observer);
   EXPECT_CALL(observer, CompromisedCredentialsChanged).Times(0);
-  store().AddCompromisedCredentials(
-      MakeCompromised(kExampleCom, kUsername1, base::TimeDelta::FromMinutes(1),
-                      CompromiseType::kPhished));
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername1,
+                                                base::TimeDelta::FromMinutes(1),
+                                                InsecureType::kPhished));
   RunUntilIdle();
 }
 
@@ -329,15 +326,15 @@ TEST_F(IOSChromePasswordCheckManagerTest, DeletePassword) {
   store().AddLogin(form);
   RunUntilIdle();
 
-  store().AddCompromisedCredentials(
-      MakeCompromised(kExampleCom, kUsername1, base::TimeDelta::FromMinutes(1),
-                      CompromiseType::kLeaked));
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername1,
+                                                base::TimeDelta::FromMinutes(1),
+                                                InsecureType::kLeaked));
   RunUntilIdle();
   EXPECT_THAT(
       manager().GetCompromisedCredentials(),
       ElementsAre(ExpectCompromisedCredential(
           kExampleCom, kUsername1, kPassword1, base::TimeDelta::FromMinutes(1),
-          CompromiseTypeFlags::kCredentialLeaked)));
+          InsecureCredentialTypeFlags::kCredentialLeaked)));
 
   manager().DeleteCompromisedPasswordForm(form);
   RunUntilIdle();
@@ -363,15 +360,47 @@ TEST_F(IOSChromePasswordCheckManagerTest, DeleteDuplicatedPasswords) {
 
 // Tests password value is updated properly.
 TEST_F(IOSChromePasswordCheckManagerTest, EditPassword) {
-  store().AddLogin(MakeSavedPassword(kExampleCom, kUsername1));
+  store().AddLogin(MakeSavedPassword(kExampleCom, kUsername1, kPassword1));
   RunUntilIdle();
 
-  manager().EditPasswordForm(store().stored_passwords().at(kExampleCom).at(0),
-                             kPassword2);
+  EXPECT_TRUE(manager().EditPasswordForm(
+      store().stored_passwords().at(kExampleCom).at(0), kUsername1,
+      kPassword2));
   RunUntilIdle();
 
-  EXPECT_EQ(base::UTF8ToUTF16(kPassword2),
-            store().stored_passwords().at(kExampleCom).at(0).password_value);
+  EXPECT_THAT(
+      GetUsernamesAndPasswords(store().stored_passwords().at(kExampleCom)),
+      ElementsAre(Pair(kUsername1, kPassword2)));
+}
+
+// Tests username value is updated properly.
+TEST_F(IOSChromePasswordCheckManagerTest, EditUsername) {
+  store().AddLogin(MakeSavedPassword(kExampleCom, kUsername1, kPassword1));
+  RunUntilIdle();
+
+  EXPECT_TRUE(manager().EditPasswordForm(
+      store().stored_passwords().at(kExampleCom).at(0), kUsername2,
+      kPassword1));
+  RunUntilIdle();
+
+  EXPECT_THAT(
+      GetUsernamesAndPasswords(store().stored_passwords().at(kExampleCom)),
+      ElementsAre(Pair(kUsername2, kPassword1)));
+}
+
+// Tests username and password values are updated properly.
+TEST_F(IOSChromePasswordCheckManagerTest, EditUsernameAndPassword) {
+  store().AddLogin(MakeSavedPassword(kExampleCom, kUsername1, kPassword1));
+  RunUntilIdle();
+
+  EXPECT_TRUE(manager().EditPasswordForm(
+      store().stored_passwords().at(kExampleCom).at(0), kUsername2,
+      kPassword2));
+  RunUntilIdle();
+
+  EXPECT_THAT(
+      GetUsernamesAndPasswords(store().stored_passwords().at(kExampleCom)),
+      ElementsAre(Pair(kUsername2, kPassword2)));
 }
 
 // Tests compromised password value is updated properly.
@@ -380,9 +409,9 @@ TEST_F(IOSChromePasswordCheckManagerTest, EditCompromisedPassword) {
   store().AddLogin(form);
   RunUntilIdle();
 
-  store().AddCompromisedCredentials(
-      MakeCompromised(kExampleCom, kUsername1, base::TimeDelta::FromMinutes(1),
-                      CompromiseType::kLeaked));
+  store().AddInsecureCredential(MakeCompromised(kExampleCom, kUsername1,
+                                                base::TimeDelta::FromMinutes(1),
+                                                InsecureType::kLeaked));
   RunUntilIdle();
 
   manager().EditCompromisedPasswordForm(form, kPassword2);

@@ -8,30 +8,30 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/check.h"
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "components/download/public/common/download_url_parameters.h"
 #include "content/browser/child_process_security_policy_impl.h"
-#include "content/browser/frame_host/navigation_entry_impl.h"
-#include "content/browser/frame_host/navigator.h"
-#include "content/browser/frame_host/render_frame_host_impl.h"
-#include "content/browser/frame_host/render_frame_proxy_host.h"
 #include "content/browser/media/audio_stream_monitor.h"
 #include "content/browser/media/media_web_contents_observer.h"
+#include "content/browser/renderer_host/navigation_entry_impl.h"
+#include "content/browser/renderer_host/navigator.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
+#include "content/browser/renderer_host/render_frame_proxy_host.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/browser/site_instance_impl.h"
 #include "content/browser/webui/content_web_ui_controller_factory.h"
 #include "content/browser/webui/web_ui_controller_factory_registry.h"
 #include "content/common/content_navigation_policy.h"
+#include "content/common/frame.mojom.h"
 #include "content/common/frame_messages.h"
-#include "content/common/page_messages.h"
-#include "content/common/view_messages.h"
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/context_menu_params.h"
@@ -65,13 +65,16 @@
 #include "net/test/cert_test_util.h"
 #include "net/test/test_data_directory.h"
 #include "services/network/public/cpp/web_sandbox_flags.h"
+#include "skia/ext/skia_utils_base.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/input/synthetic_web_input_event_builders.h"
+#include "third_party/blink/public/common/security/protocol_handler_security_level.h"
 #include "third_party/blink/public/mojom/favicon/favicon_url.mojom.h"
 #include "third_party/blink/public/mojom/frame/fullscreen.mojom.h"
 #include "third_party/blink/public/mojom/page/page_visibility_state.mojom.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/gfx/skia_util.h"
 #include "url/url_constants.h"
 
 namespace content {
@@ -110,9 +113,9 @@ class WebContentsImplTest : public RenderViewHostImplTestHarness {
     WebUIControllerFactory::RegisterFactory(
         ContentWebUIControllerFactory::GetInstance());
 
-    if (AreDefaultSiteInstancesEnabled()) {
-      // Isolate |isolated_cross_site_url()| so we can't get a default
-      // SiteInstance for it.
+    if (IsIsolatedOriginRequiredToGuaranteeDedicatedProcess()) {
+      // Isolate |isolated_cross_site_url()| so it cannot share a process
+      // with another site.
       ChildProcessSecurityPolicyImpl::GetInstance()->AddIsolatedOrigins(
           {url::Origin::Create(isolated_cross_site_url())},
           ChildProcessSecurityPolicy::IsolatedOriginSource::TEST,
@@ -260,11 +263,19 @@ TEST_F(WebContentsImplTest, UpdateTitle) {
   cont.LoadURL(GURL(url::kAboutBlankURL), Referrer(), ui::PAGE_TRANSITION_TYPED,
                std::string());
 
-  FrameHostMsg_DidCommitProvisionalLoad_Params params;
-  InitNavigateParams(&params, 0, true, GURL(url::kAboutBlankURL),
-                     ui::PAGE_TRANSITION_TYPED);
+  auto params = mojom::DidCommitProvisionalLoadParams::New();
+  params->url = GURL(url::kAboutBlankURL);
+  params->origin = url::Origin::Create(params->url);
+  params->referrer = blink::mojom::Referrer::New();
+  params->transition = ui::PAGE_TRANSITION_TYPED;
+  params->redirects = std::vector<GURL>();
+  params->should_update_history = false;
+  params->did_create_new_entry = true;
+  params->gesture = NavigationGestureUser;
+  params->method = "GET";
+  params->page_state = blink::PageState::CreateFromURL(params->url);
 
-  main_test_rfh()->SendNavigateWithParams(&params,
+  main_test_rfh()->SendNavigateWithParams(std::move(params),
                                           false /* was_within_same_document */);
 
   contents()->UpdateTitle(main_test_rfh(),
@@ -556,16 +567,27 @@ TEST_F(WebContentsImplTest, CrossSiteBoundariesAfterCrash) {
   navigation_to_url2->ReadyToCommit();
 
   TestRenderFrameHost* new_rfh = main_test_rfh();
-  EXPECT_FALSE(contents()->CrossProcessNavigationPending());
-  EXPECT_EQ(nullptr, contents()->GetPendingMainFrame());
-  EXPECT_NE(orig_rfh, new_rfh);
-  EXPECT_EQ(orig_rvh_delete_count, 1);
+  if (ShouldSkipEarlyCommitPendingForCrashedFrame()) {
+    EXPECT_TRUE(contents()->CrossProcessNavigationPending());
+    EXPECT_NE(nullptr, contents()->GetPendingMainFrame());
+    EXPECT_EQ(orig_rfh, new_rfh);
+    EXPECT_EQ(orig_rvh_delete_count, 0);
+  } else {
+    EXPECT_FALSE(contents()->CrossProcessNavigationPending());
+    EXPECT_EQ(nullptr, contents()->GetPendingMainFrame());
+    EXPECT_NE(orig_rfh, new_rfh);
+    EXPECT_EQ(orig_rvh_delete_count, 1);
+  }
 
   navigation_to_url2->Commit();
   SiteInstance* instance2 = contents()->GetSiteInstance();
 
   EXPECT_FALSE(contents()->CrossProcessNavigationPending());
-  EXPECT_EQ(new_rfh, main_rfh());
+  if (ShouldSkipEarlyCommitPendingForCrashedFrame()) {
+    EXPECT_NE(new_rfh, main_rfh());
+  } else {
+    EXPECT_EQ(new_rfh, main_rfh());
+  }
   EXPECT_NE(instance1, instance2);
   EXPECT_EQ(nullptr, contents()->GetPendingMainFrame());
 
@@ -743,16 +765,14 @@ TEST_F(WebContentsImplTest, NavigateFromRestoredSitelessUrl) {
           false, std::string(), browser_context(),
           nullptr /* blob_url_loader_factory */);
   entries.push_back(std::move(new_entry));
-  controller().Restore(0, RestoreType::LAST_SESSION_EXITED_CLEANLY, &entries);
+  controller().Restore(0, RestoreType::kRestored, &entries);
   ASSERT_EQ(0u, entries.size());
   ASSERT_EQ(1, controller().GetEntryCount());
 
   EXPECT_TRUE(controller().NeedsReload());
   controller().LoadIfNecessary();
-  NavigationEntry* entry = controller().GetPendingEntry();
-  orig_rfh->PrepareForCommit();
-  contents()->TestDidNavigate(orig_rfh, entry->GetUniqueID(), false,
-                              native_url, ui::PAGE_TRANSITION_RELOAD);
+  orig_rfh->SendNavigateWithTransition(0, false, native_url,
+                                       ui::PAGE_TRANSITION_RELOAD);
   EXPECT_EQ(orig_instance, contents()->GetSiteInstance());
   EXPECT_EQ(GURL(), contents()->GetSiteInstance()->GetSiteURL());
   EXPECT_FALSE(orig_instance->HasSite());
@@ -786,16 +806,15 @@ TEST_F(WebContentsImplTest, NavigateFromRestoredRegularUrl) {
           false, std::string(), browser_context(),
           nullptr /* blob_url_loader_factory */);
   entries.push_back(std::move(new_entry));
-  controller().Restore(0, RestoreType::LAST_SESSION_EXITED_CLEANLY, &entries);
+  controller().Restore(0, RestoreType::kRestored, &entries);
   ASSERT_EQ(0u, entries.size());
 
   ASSERT_EQ(1, controller().GetEntryCount());
   EXPECT_TRUE(controller().NeedsReload());
   controller().LoadIfNecessary();
-  NavigationEntry* entry = controller().GetPendingEntry();
   orig_rfh->PrepareForCommit();
-  contents()->TestDidNavigate(orig_rfh, entry->GetUniqueID(), false,
-                              regular_url, ui::PAGE_TRANSITION_RELOAD);
+  orig_rfh->SendNavigateWithTransition(0, false, regular_url,
+                                       ui::PAGE_TRANSITION_RELOAD);
   EXPECT_EQ(orig_instance, contents()->GetSiteInstance());
   EXPECT_TRUE(orig_instance->HasSite());
   EXPECT_EQ(AreDefaultSiteInstancesEnabled(),
@@ -854,7 +873,7 @@ TEST_F(WebContentsImplTest, FindOpenerRVHWhenPending) {
   RenderFrameProxyHost* proxy =
       contents()->GetRenderManager()->GetRenderFrameProxyHost(instance);
   EXPECT_TRUE(proxy);
-  EXPECT_EQ(proxy->GetFrameToken(), opener_frame_token);
+  EXPECT_EQ(*opener_frame_token, proxy->GetFrameToken());
 
   // Ensure that committing the navigation removes the proxy.
   navigation->Commit();
@@ -1137,6 +1156,13 @@ TEST_F(WebContentsImplTest, CrossSiteNavigationBackPreempted) {
 // Tests that if we go back twice (same-site then cross-site), and the cross-
 // site RFH commits first, we ignore the now-swapped-out RFH's commit.
 TEST_F(WebContentsImplTest, CrossSiteNavigationBackOldNavigationIgnored) {
+  // This test assumes no interaction with the back-forward cache. Indeed, it
+  // isn't possible to perform the second back navigation in between the
+  // ReadyToCommit and Commit of the first back-forward cache one. Both steps
+  // are combined with it, nothing can happen in between.
+  contents()->GetController().GetBackForwardCache().DisableForTesting(
+      BackForwardCache::TEST_ASSUMES_NO_CACHING);
+
   // Start with a web ui page, which gets a new RFH with WebUI bindings.
   GURL url1(std::string(kChromeUIScheme) + "://" +
             std::string(kChromeUIGpuHost));
@@ -1224,15 +1250,17 @@ TEST_F(WebContentsImplTest, CrossSiteNavigationBackOldNavigationIgnored) {
   EXPECT_EQ(entry1, controller().GetLastCommittedEntry());
 
   // When the second back commits, it should be ignored.
-  contents()->TestDidNavigate(google_rfh, entry2->GetUniqueID(), false, url2,
-                              ui::PAGE_TRANSITION_TYPED);
+  google_rfh->SendNavigateWithTransition(0, false, url2,
+                                         ui::PAGE_TRANSITION_TYPED);
   EXPECT_EQ(entry1, controller().GetLastCommittedEntry());
 
   // The newly created process for url1 should be locked to chrome://gpu.
   RenderProcessHost* new_process = contents()->GetMainFrame()->GetProcess();
   auto* policy = content::ChildProcessSecurityPolicy::GetInstance();
-  EXPECT_TRUE(policy->CanAccessDataForOrigin(new_process->GetID(), url1));
-  EXPECT_FALSE(policy->CanAccessDataForOrigin(new_process->GetID(), url2));
+  EXPECT_TRUE(policy->CanAccessDataForOrigin(new_process->GetID(),
+                                             url::Origin::Create(url1)));
+  EXPECT_FALSE(policy->CanAccessDataForOrigin(new_process->GetID(),
+                                              url::Origin::Create(url2)));
 }
 
 // Test that during a slow cross-site navigation, a sub-frame navigation in the
@@ -1664,9 +1692,6 @@ TEST_F(WebContentsImplTest, CapturerOverridesPreferredSize) {
 }
 
 TEST_F(WebContentsImplTest, UpdateWebContentsVisibility) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(features::kWebContentsOcclusion);
-
   TestRenderWidgetHostView* view = static_cast<TestRenderWidgetHostView*>(
       main_test_rfh()->GetRenderViewHost()->GetWidget()->GetView());
   TestWebContentsObserver observer(contents());
@@ -1773,8 +1798,6 @@ TEST_F(WebContentsImplTest, HideWithCapturer) {
 }
 
 TEST_F(WebContentsImplTest, OccludeWithCapturer) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(features::kWebContentsOcclusion);
   HideOrOccludeWithCapturerTest(contents(), Visibility::OCCLUDED);
 }
 
@@ -2240,7 +2263,7 @@ TEST_F(WebContentsImplTestWithSiteIsolation, IsLoadingToDifferentDocument) {
                                        ui::PAGE_TRANSITION_AUTO_SUBFRAME);
   EXPECT_TRUE(contents()->IsLoading());
   EXPECT_FALSE(contents()->IsLoadingToDifferentDocument());
-  subframe->DidStopLoading();
+  static_cast<mojom::FrameHost*>(subframe)->DidStopLoading();
   EXPECT_FALSE(contents()->IsLoading());
 }
 
@@ -2279,7 +2302,7 @@ TEST_F(WebContentsImplTest, DISABLED_NoEarlyStop) {
   // navigation in the current RenderFrameHost. There should still be a pending
   // RenderFrameHost and the WebContents should still be loading.
   same_process_navigation->Commit();
-  current_rfh->DidStopLoading();
+  static_cast<mojom::FrameHost*>(current_rfh)->DidStopLoading();
   EXPECT_EQ(contents()->GetPendingMainFrame(), pending_rfh);
   EXPECT_TRUE(contents()->IsLoading());
 
@@ -2299,7 +2322,7 @@ TEST_F(WebContentsImplTest, DISABLED_NoEarlyStop) {
 
   // Simulate the new current RenderFrameHost DidStopLoading. The WebContents
   // should now have stopped loading.
-  new_current_rfh->DidStopLoading();
+  static_cast<mojom::FrameHost*>(new_current_rfh)->DidStopLoading();
   EXPECT_EQ(main_test_rfh(), new_current_rfh);
   EXPECT_FALSE(contents()->IsLoading());
 }
@@ -2508,10 +2531,22 @@ namespace {
 
 class MockWebContentsDelegate : public WebContentsDelegate {
  public:
+  explicit MockWebContentsDelegate(
+      blink::ProtocolHandlerSecurityLevel security_level =
+          blink::ProtocolHandlerSecurityLevel::kStrict)
+      : security_level_(security_level) {}
   MOCK_METHOD2(HandleContextMenu,
                bool(RenderFrameHost*, const ContextMenuParams&));
   MOCK_METHOD4(RegisterProtocolHandler,
                void(RenderFrameHost*, const std::string&, const GURL&, bool));
+
+  blink::ProtocolHandlerSecurityLevel GetProtocolHandlerSecurityLevel(
+      RenderFrameHost*) override {
+    return security_level_;
+  }
+
+ private:
+  blink::ProtocolHandlerSecurityLevel security_level_;
 };
 
 }  // namespace
@@ -2525,7 +2560,7 @@ TEST_F(WebContentsImplTest, HandleContextMenuDelegate) {
       .WillOnce(::testing::Return(true));
 
   ContextMenuParams params;
-  contents()->ShowContextMenu(rfh, params);
+  contents()->ShowContextMenu(rfh, mojo::NullAssociatedRemote(), params);
 
   contents()->SetDelegate(nullptr);
 }
@@ -2551,13 +2586,34 @@ TEST_F(WebContentsImplTest, RegisterProtocolHandlerDifferentOrigin) {
 
   {
     contents()->RegisterProtocolHandler(main_test_rfh(), "mailto", handler_url1,
-                                        base::string16(),
                                         /*user_gesture=*/true);
   }
 
   {
     contents()->RegisterProtocolHandler(main_test_rfh(), "mailto", handler_url2,
-                                        base::string16(),
+                                        /*user_gesture=*/true);
+  }
+
+  // Check behavior for RegisterProtocolHandler::kUntrustedOrigins.
+  MockWebContentsDelegate unrestrictive_delegate(
+      blink::ProtocolHandlerSecurityLevel::kUntrustedOrigins);
+  contents()->SetDelegate(&unrestrictive_delegate);
+  EXPECT_CALL(
+      unrestrictive_delegate,
+      RegisterProtocolHandler(main_test_rfh(), "mailto", handler_url1, true))
+      .Times(1);
+  EXPECT_CALL(
+      unrestrictive_delegate,
+      RegisterProtocolHandler(main_test_rfh(), "mailto", handler_url2, true))
+      .Times(1);
+
+  {
+    contents()->RegisterProtocolHandler(main_test_rfh(), "mailto", handler_url1,
+                                        /*user_gesture=*/true);
+  }
+
+  {
+    contents()->RegisterProtocolHandler(main_test_rfh(), "mailto", handler_url2,
                                         /*user_gesture=*/true);
   }
 
@@ -2580,7 +2636,6 @@ TEST_F(WebContentsImplTest, RegisterProtocolHandlerDataURL) {
 
   {
     contents()->RegisterProtocolHandler(main_test_rfh(), "mailto", data_handler,
-                                        base::string16(),
                                         /*user_gesture=*/true);
   }
 

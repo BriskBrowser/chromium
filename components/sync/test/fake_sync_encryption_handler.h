@@ -12,8 +12,8 @@
 #include "base/compiler_specific.h"
 #include "base/observer_list.h"
 #include "base/time/time.h"
+#include "components/sync/engine/nigori/keystore_keys_handler.h"
 #include "components/sync/engine/sync_encryption_handler.h"
-#include "components/sync/nigori/keystore_keys_handler.h"
 
 namespace syncer {
 
@@ -37,8 +37,6 @@ class FakeSyncEncryptionHandler : public KeystoreKeysHandler,
   void SetDecryptionPassphrase(const std::string& passphrase) override;
   void AddTrustedVaultDecryptionKeys(
       const std::vector<std::vector<uint8_t>>& keys) override;
-  void EnableEncryptEverything() override;
-  bool IsEncryptEverythingEnabled() const override;
   base::Time GetKeystoreMigrationTime() const override;
   KeystoreKeysHandler* GetKeystoreKeysHandler() override;
 
@@ -48,7 +46,6 @@ class FakeSyncEncryptionHandler : public KeystoreKeysHandler,
 
  private:
   base::ObserverList<SyncEncryptionHandler::Observer>::Unchecked observers_;
-  bool encrypt_everything_;
   std::vector<uint8_t> keystore_key_;
 };
 

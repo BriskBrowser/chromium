@@ -8,7 +8,7 @@
 #include "base/files/file_util.h"
 #include "base/optional.h"
 #include "base/path_service.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "components/cbor/writer.h"
 #include "components/web_package/test_support/web_bundle_builder.h"
@@ -45,8 +45,10 @@ class TestDataSource : public mojom::BundleDataSource {
       : data_(reinterpret_cast<const char*>(data.data()), data.size()) {}
 
   void Read(uint64_t offset, uint64_t length, ReadCallback callback) override {
-    if (offset >= data_.size())
+    if (offset >= data_.size()) {
       std::move(callback).Run(base::nullopt);
+      return;
+    }
     const uint8_t* start =
         reinterpret_cast<const uint8_t*>(data_.data()) + offset;
     uint64_t available_length = std::min(length, data_.size() - offset);

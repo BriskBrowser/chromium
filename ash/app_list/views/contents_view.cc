@@ -17,7 +17,6 @@
 #include "ash/app_list/views/expand_arrow_view.h"
 #include "ash/app_list/views/privacy_container_view.h"
 #include "ash/app_list/views/search_box_view.h"
-#include "ash/app_list/views/search_result_answer_card_view.h"
 #include "ash/app_list/views/search_result_list_view.h"
 #include "ash/app_list/views/search_result_page_view.h"
 #include "ash/app_list/views/search_result_tile_item_list_view.h"
@@ -28,11 +27,13 @@
 #include "base/check_op.h"
 #include "base/notreached.h"
 #include "base/numerics/ranges.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "ui/events/event.h"
+#include "ui/strings/grit/ui_strings.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/view_constants_aura.h"
 #include "ui/views/view_model.h"
@@ -71,27 +72,6 @@ float GetOpacityForProgress(float progress,
       1.0f);
 }
 
-// Notifies assistive technology that all schedules animations have completed on
-// this view and that a location change event has occurred. This should be used
-// for notifying a11y to update view locations after transformation animations.
-// This object will delete itself after running OnImplicitAnimationsCompleted.
-class AccessibilityAnimationObserver : public ui::ImplicitAnimationObserver {
- public:
-  explicit AccessibilityAnimationObserver(views::View* view) : view_(view) {}
-  ~AccessibilityAnimationObserver() override = default;
-
-  // ui::ImplicitAnimationObserver:
-  void OnImplicitAnimationsCompleted() override {
-    view_->NotifyAccessibilityEvent(ax::mojom::Event::kLocationChanged, true);
-    delete this;
-  }
-
- private:
-  views::View* const view_;
-
-  DISALLOW_COPY_AND_ASSIGN(AccessibilityAnimationObserver);
-};
-
 }  // namespace
 
 ContentsView::ContentsView(AppListView* app_list_view)
@@ -124,12 +104,6 @@ void ContentsView::Init(AppListModel* model) {
   privacy_container_view_ =
       search_results_page_view->AddSearchResultContainerView(
           std::make_unique<PrivacyContainerView>(view_delegate));
-
-  if (app_list_features::IsAnswerCardEnabled()) {
-    search_result_answer_card_view_ =
-        search_results_page_view->AddSearchResultContainerView(
-            std::make_unique<SearchResultAnswerCardView>(view_delegate));
-  }
 
   expand_arrow_view_ =
       AddChildView(std::make_unique<ExpandArrowView>(this, app_list_view_));
@@ -194,7 +168,7 @@ void ContentsView::ResetForShow() {
   SetActiveState(AppListState::kStateApps, /*animate=*/false);
   // In side shelf, the opacity of the contents is not animated so set it to the
   // final state. In tablet mode, opacity of the elements is controlled by the
-  // HomeLauncherGestureHandler which expects these elements to be opaque.
+  // HomeScreenController which expects these elements to be opaque.
   // Otherwise the contents animate from 0 to 1 so set the initial opacity to 0.
   if (app_list_view_->is_side_shelf() || app_list_view_->is_tablet_mode()) {
     AnimateToViewState(AppListViewState::kFullscreenAllApps, base::TimeDelta());
@@ -337,6 +311,7 @@ void ContentsView::ActivePageChanged() {
 
   GetAppListMainView()->model()->SetState(state);
   UpdateSearchBoxVisibility(state);
+  app_list_view_->UpdateWindowTitle();
 }
 
 void ContentsView::ShowSearchResults(bool show) {
@@ -355,7 +330,7 @@ bool ContentsView::IsShowingSearchResults() const {
 }
 
 void ContentsView::ShowEmbeddedAssistantUI(bool show) {
-  expand_arrow_view_->SetVisible(!show);
+  SetExpandArrowViewVisibility(!show);
 
   const int assistant_page =
       GetPageIndexForState(AppListState::kStateEmbeddedAssistant);
@@ -689,10 +664,6 @@ void ContentsView::TransitionChanged() {
   UpdateSearchBoxAnimation(progress, current_state, target_state);
 }
 
-views::View* ContentsView::GetSelectedView() const {
-  return app_list_pages_[GetActivePageIndex()]->GetSelectedView();
-}
-
 void ContentsView::UpdateYPositionAndOpacity() {
   const int current_page = pagination_model_.has_transition()
                                ? pagination_model_.transition().target_page
@@ -783,20 +754,20 @@ void ContentsView::AnimateToViewState(AppListViewState target_view_state,
   const bool closing = target_view_state == AppListViewState::kClosed;
   animate_opacity(duration, GetSearchBoxView(), !closing /*target_visibility*/);
 
-  // Fade in or out the expand arrow.
-  const bool target_arrow_visibility =
-      target_page == AppListState::kStateApps && !closing &&
-      !app_list_view_->is_side_shelf();
-  animate_opacity(duration, expand_arrow_view_, target_arrow_visibility);
+  // Fade in or out the expand arrow. Embedded Assistant hides the expand arrow
+  // and should not set its opacity to 0.
+  const bool expand_arrow_target_opacity =
+      (target_page == AppListState::kStateEmbeddedAssistant ||
+       target_page == AppListState::kStateApps) &&
+      !closing && !app_list_view_->is_side_shelf();
+  animate_opacity(duration, expand_arrow_view_, expand_arrow_target_opacity);
 
   // Animates layer's vertical position (using transform animation).
   // |layer| - The layer to transform.
-  // |view| - Optional, the view to which the layer belongs (if the layer is a
-  // view layer).
   // |y_offset| - The initial vertical offset - the layer's vertical offset will
   //              be animated to 0.
   auto animate_transform = [](base::TimeDelta duration, float y_offset,
-                              ui::Layer* layer, views::View* view) {
+                              ui::Layer* layer) {
     gfx::Transform transform;
     transform.Translate(0, y_offset);
     layer->SetTransform(transform);
@@ -807,10 +778,6 @@ void ContentsView::AnimateToViewState(AppListViewState target_view_state,
     settings->SetTransitionDuration(duration);
     settings->SetPreemptionStrategy(
         ui::LayerAnimator::IMMEDIATELY_SET_NEW_TARGET);
-    // Observer will delete itself after animation completes.
-    if (view)
-      settings->AddObserver(new AccessibilityAnimationObserver(view));
-
     layer->SetTransform(gfx::Transform());
   };
 
@@ -860,7 +827,7 @@ void ContentsView::AnimateToViewState(AppListViewState target_view_state,
   // For search box, animate the search_box view layer instead of the widget
   // layer to avoid conflict with pagination model transitions (which update the
   // search box widget layer transform as the transition progresses).
-  animate_transform(duration, y_offset, search_box->layer(), search_box);
+  animate_transform(duration, y_offset, search_box->layer());
 
   // Update app list page bounds to their target values. This assumes that
   // potential in-progress pagination transition does not directly animate page
@@ -877,14 +844,14 @@ void ContentsView::AnimateToViewState(AppListViewState target_view_state,
   }
 
   // Assistant page and search results page may host native views (e.g. for
-  // search result answer cards, or card assistant results). These windows are
-  // descendants of the app list view window layer rather than the page layers,
-  // so they have to be animated separately from their associated page.
+  // card assistant results). These windows are descendants of the app list
+  // view window layer rather than the page layers, so they have to be
+  // animated separately from their associated page.
   for (auto* child_window : GetWidget()->GetNativeWindow()->children()) {
     View* host_view = child_window->GetProperty(views::kHostViewKey);
     if (!host_view)
       continue;
-    animate_transform(duration, y_offset, child_window->layer(), nullptr);
+    animate_transform(duration, y_offset, child_window->layer());
   }
 
   last_target_view_state_ = target_view_state;
@@ -896,7 +863,7 @@ void ContentsView::AnimateToViewState(AppListViewState target_view_state,
   animate_transform(
       duration,
       expand_arrow_view()->CalculateOffsetFromCurrentAppListProgress(progress),
-      expand_arrow_view()->layer(), expand_arrow_view());
+      expand_arrow_view()->layer());
 }
 
 void ContentsView::SetExpandArrowViewVisibility(bool show) {

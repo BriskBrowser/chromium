@@ -38,7 +38,6 @@ import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.PackageManagerUtils;
 import org.chromium.components.browser_ui.share.ShareParams.TargetChosenCallback;
-import org.chromium.ui.UiUtils;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.base.WindowAndroid.IntentCallback;
 
@@ -199,6 +198,19 @@ public class ShareHelper {
 
         @Override
         public void onIntentCompleted(WindowAndroid window, int resultCode, Intent data) {
+            // NOTE: The validity of the returned |resultCode| is somewhat unexpected. For
+            // background, a sharing flow starts with a "Chooser" activity that enables the user
+            // to select the app to share to, and then when the user selects that application,
+            // the "Chooser" activity dispatches our "Share" intent to that chosen application.
+            //
+            // The |resultCode| is only valid if the user does not select an application to share
+            // with (e.g. only valid if the "Chooser" activity is the only activity shown). Once
+            // the user selects an app in the "Chooser", the |resultCode| received here will always
+            // be RESULT_CANCELED (because the "Share" intent specifies NEW_TASK which always
+            // returns CANCELED).
+            //
+            // Thus, this |resultCode| is only valid if we do not receive the EXTRA_CHOSEN_COMPONENT
+            // intent indicating the user selected an application in the "Chooser".
             if (resultCode == Activity.RESULT_CANCELED) {
                 cancel();
             }
@@ -229,8 +241,8 @@ public class ShareHelper {
 
         final ShareDialogAdapter adapter =
                 new ShareDialogAdapter(context, manager, resolveInfoList);
-        AlertDialog.Builder builder = new UiUtils.CompatibleAlertDialogBuilder(
-                context, R.style.Theme_Chromium_AlertDialog);
+        AlertDialog.Builder builder =
+                new AlertDialog.Builder(context, R.style.Theme_Chromium_AlertDialog);
         builder.setTitle(context.getString(R.string.share_link_chooser_title));
         builder.setAdapter(adapter, null);
 
@@ -289,10 +301,10 @@ public class ShareHelper {
      */
     public static void shareWithUi(ShareParams params) {
         if (TargetChosenReceiver.isSupported()) {
-            // On L+ open system share sheet.
+            // On LMR1+ open system share sheet.
             shareWithSystemSheet(params);
         } else {
-            // On K and below open custom share dialog.
+            // On L and below open custom share dialog.
             showCompatShareDialog(params);
         }
     }
@@ -305,7 +317,6 @@ public class ShareHelper {
     public static void shareDirectly(
             @NonNull ShareParams params, @NonNull ComponentName component) {
         Intent intent = getShareLinkIntent(params);
-        intent.addFlags(Intent.FLAG_ACTIVITY_FORWARD_RESULT | Intent.FLAG_ACTIVITY_PREVIOUS_IS_TOP);
         intent.setComponent(component);
         fireIntent(params.getWindow(), intent, null);
     }
@@ -317,8 +328,8 @@ public class ShareHelper {
         final String action =
                 isMultipleFileShare ? Intent.ACTION_SEND_MULTIPLE : Intent.ACTION_SEND;
         Intent intent = new Intent(action);
-        intent.addFlags(ApiCompatibilityUtils.getActivityNewDocumentFlag()
-                | Intent.FLAG_ACTIVITY_FORWARD_RESULT | Intent.FLAG_ACTIVITY_PREVIOUS_IS_TOP);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT | Intent.FLAG_ACTIVITY_FORWARD_RESULT
+                | Intent.FLAG_ACTIVITY_PREVIOUS_IS_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
         intent.putExtra(EXTRA_TASK_ID, params.getWindow().getActivity().get().getTaskId());
 
         Uri screenshotUri = params.getScreenshotUri();
@@ -339,10 +350,10 @@ public class ShareHelper {
             intent.addCategory(Intent.CATEGORY_DEFAULT);
             intent.setType("multipart/related");
         } else {
-            if (!TextUtils.equals(params.getText(), params.getTitle())) {
+            if (!TextUtils.equals(params.getTextAndUrl(), params.getTitle())) {
                 intent.putExtra(Intent.EXTRA_SUBJECT, params.getTitle());
             }
-            intent.putExtra(Intent.EXTRA_TEXT, params.getText());
+            intent.putExtra(Intent.EXTRA_TEXT, params.getTextAndUrl());
 
             if (isFileShare) {
                 intent.setType(params.getFileContentType());
@@ -366,7 +377,7 @@ public class ShareHelper {
      */
     public static Intent getShareLinkAppCompatibilityIntent() {
         Intent intent = new Intent(Intent.ACTION_SEND);
-        intent.addFlags(ApiCompatibilityUtils.getActivityNewDocumentFlag());
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT);
         intent.putExtra(Intent.EXTRA_SUBJECT, "");
         intent.putExtra(Intent.EXTRA_TEXT, "");
         intent.setType("text/plain");

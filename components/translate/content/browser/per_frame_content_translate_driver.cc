@@ -37,10 +37,10 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/referrer.h"
-#include "content/public/common/web_preferences.h"
 #include "net/http/http_status_code.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/blink/public/common/web_preferences/web_preferences.h"
 #include "ui/accessibility/ax_node.h"
 #include "ui/accessibility/ax_tree.h"
 #include "url/gurl.h"
@@ -130,7 +130,9 @@ void PerFrameContentTranslateDriver::PendingRequestStats::Report() {
 PerFrameContentTranslateDriver::PerFrameContentTranslateDriver(
     content::NavigationController* nav_controller,
     language::UrlLanguageHistogram* url_language_histogram)
-    : ContentTranslateDriver(nav_controller, url_language_histogram) {}
+    : ContentTranslateDriver(nav_controller,
+                             url_language_histogram,
+                             /*translate_model_service=*/nullptr) {}
 
 PerFrameContentTranslateDriver::~PerFrameContentTranslateDriver() = default;
 
@@ -168,7 +170,8 @@ void PerFrameContentTranslateDriver::TranslateFrame(
   mojo::AssociatedRemote<mojom::TranslateAgent> frame_agent;
   render_frame_host->GetRemoteAssociatedInterfaces()->GetInterface(
       &frame_agent);
-  frame_agent->TranslateFrame(
+  mojom::TranslateAgent* frame_agent_ptr = frame_agent.get();
+  frame_agent_ptr->TranslateFrame(
       translate_script, source_lang, target_lang,
       base::BindOnce(&PerFrameContentTranslateDriver::OnFrameTranslated,
                      weak_pointer_factory_.GetWeakPtr(), translate_seq_no,
@@ -201,29 +204,23 @@ void PerFrameContentTranslateDriver::RevertFrame(
     frame_agent->RevertTranslation();
 }
 
-// content::WebContentsObserver methods
-void PerFrameContentTranslateDriver::NavigationEntryCommitted(
-    const content::LoadCommittedDetails& load_details) {
+void PerFrameContentTranslateDriver::InitiateTranslationIfReload(
+    content::NavigationHandle* navigation_handle) {
   // Check whether this is a reload: When doing a page reload, the
   // TranslateLanguageDetermined IPC is not sent so the translation needs to be
   // explicitly initiated.
 
-  content::NavigationEntry* entry =
-      web_contents()->GetController().GetLastCommittedEntry();
-  if (!entry) {
-    NOTREACHED();
-    return;
-  }
-
   // If the navigation happened while offline don't show the translate
   // bar since there will be nothing to translate.
-  if (load_details.http_status_code == 0 ||
-      load_details.http_status_code == net::HTTP_INTERNAL_SERVER_ERROR) {
+  int response_code =
+      navigation_handle->GetResponseHeaders()
+          ? navigation_handle->GetResponseHeaders()->response_code()
+          : 0;
+  if (response_code == 0 || response_code == net::HTTP_INTERNAL_SERVER_ERROR)
     return;
-  }
 
-  if (!load_details.is_main_frame &&
-      translate_manager()->GetLanguageState().translation_declined()) {
+  if (!navigation_handle->IsInMainFrame() &&
+      translate_manager()->GetLanguageState()->translation_declined()) {
     // Some sites (such as Google map) may trigger sub-frame navigations
     // when the user interacts with the page.  We don't want to show a new
     // infobar if the user already dismissed one in that case.
@@ -231,13 +228,11 @@ void PerFrameContentTranslateDriver::NavigationEntryCommitted(
   }
 
   // If not a reload, return.
-  if (!ui::PageTransitionCoreTypeIs(entry->GetTransitionType(),
-                                    ui::PAGE_TRANSITION_RELOAD) &&
-      load_details.type != content::NAVIGATION_TYPE_SAME_PAGE) {
+  if (navigation_handle->GetReloadType() == content::ReloadType::NONE)
     return;
-  }
 
-  if (entry->GetTransitionType() & ui::PAGE_TRANSITION_FORWARD_BACK) {
+  if (navigation_handle->GetPageTransition() &
+      ui::PAGE_TRANSITION_FORWARD_BACK) {
     // Workaround for http://crbug.com/653051: back navigation sometimes have
     // the reload core type. Once http://crbug.com/669008 got resolved, we
     // could revisit here for a thorough solution.
@@ -249,8 +244,11 @@ void PerFrameContentTranslateDriver::NavigationEntryCommitted(
     return;
   }
 
-  if (!translate_manager()->GetLanguageState().page_needs_translation())
+  if (!translate_manager()
+           ->GetLanguageState()
+           ->page_level_translation_critiera_met()) {
     return;
+  }
 
   // Note that we delay it as the ordering of the processing of this callback
   // by WebContentsObservers is undefined and might result in the current
@@ -261,13 +259,16 @@ void PerFrameContentTranslateDriver::NavigationEntryCommitted(
       base::BindOnce(
           &PerFrameContentTranslateDriver::InitiateTranslation,
           weak_pointer_factory_.GetWeakPtr(),
-          translate_manager()->GetLanguageState().original_language(), 0));
+          translate_manager()->GetLanguageState()->original_language(), 0));
 }
 
+// content::WebContentsObserver methods
 void PerFrameContentTranslateDriver::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
   if (!navigation_handle->HasCommitted())
     return;
+
+  InitiateTranslationIfReload(navigation_handle);
 
   if (navigation_handle->IsInMainFrame())
     finish_navigation_time_ = base::TimeTicks::Now();
@@ -287,7 +288,7 @@ void PerFrameContentTranslateDriver::DidFinishNavigation(
                                       google_util::ALLOW_NON_STANDARD_PORTS) ||
        IsAutoHrefTranslateAllOriginsEnabled());
 
-  translate_manager()->GetLanguageState().DidNavigate(
+  translate_manager()->GetLanguageState()->DidNavigate(
       navigation_handle->IsSameDocument(), navigation_handle->IsInMainFrame(),
       reload, navigation_handle->GetHrefTranslate(), navigation_from_google);
 }
@@ -329,37 +330,41 @@ void PerFrameContentTranslateDriver::StartLanguageDetection() {
           base::BindOnce(&PerFrameContentTranslateDriver::OnPageContents,
                          weak_pointer_factory_.GetWeakPtr(),
                          capture_begin_time)),
-      ui::AXMode::kWebContents);
+      ui::AXMode::kWebContents,
+      /* exclude_offscreen= */ false,
+      /* max_nodes= */ 5000,
+      /* timeout= */ {});
 
   // Kick off language detection by first requesting web language details.
   details_ = LanguageDetectionDetails();
   mojo::AssociatedRemote<mojom::TranslateAgent> frame_agent;
   web_contents()->GetMainFrame()->GetRemoteAssociatedInterfaces()->GetInterface(
       &frame_agent);
-  frame_agent->GetWebLanguageDetectionDetails(base::BindOnce(
+  mojom::TranslateAgent* frame_agent_ptr = frame_agent.get();
+  frame_agent_ptr->GetWebLanguageDetectionDetails(base::BindOnce(
       &PerFrameContentTranslateDriver::OnWebLanguageDetectionDetails,
       weak_pointer_factory_.GetWeakPtr(), std::move(frame_agent)));
 }
 
 void PerFrameContentTranslateDriver::OnPageLanguageDetermined(
     const LanguageDetectionDetails& details,
-    bool page_needs_translation) {
+    bool page_level_translation_critiera_met) {
   language_determined_time_ = base::TimeTicks::Now();
   ReportLanguageDeterminedDuration(finish_navigation_time_,
                                    language_determined_time_);
 
   // If we have a language histogram (i.e. we're not in incognito), update it
   // with the detected language of every page visited.
-  if (language_histogram() && details.is_cld_reliable)
-    language_histogram()->OnPageVisited(details.cld_language);
+  if (language_histogram() && details.is_model_reliable)
+    language_histogram()->OnPageVisited(details.model_detected_language);
 
   if (translate_manager() && web_contents()) {
-    translate_manager()->GetLanguageState().LanguageDetermined(
-        details.adopted_language, page_needs_translation);
+    translate_manager()->GetLanguageState()->LanguageDetermined(
+        details.adopted_language, page_level_translation_critiera_met);
     translate_manager()->InitiateTranslation(details.adopted_language);
   }
 
-  for (auto& observer : observer_list())
+  for (auto& observer : language_detection_observers())
     observer.OnLanguageDetermined(details);
 }
 
@@ -402,8 +407,8 @@ void PerFrameContentTranslateDriver::OnPageContentsLanguage(
     const std::string& contents_language,
     bool is_contents_language_reliable) {
   awaiting_contents_ = false;
-  details_.cld_language = contents_language;
-  details_.is_cld_reliable = is_contents_language_reliable;
+  details_.model_detected_language = contents_language;
+  details_.is_model_reliable = is_contents_language_reliable;
 
   if (!details_.url.is_empty())
     ComputeActualPageLanguage();
@@ -414,7 +419,7 @@ void PerFrameContentTranslateDriver::ComputeActualPageLanguage() {
   // utility process.
   std::string language = DeterminePageLanguage(
       details_.content_language, details_.html_root_language,
-      details_.cld_language, details_.is_cld_reliable);
+      details_.model_detected_language, details_.is_model_reliable);
 
   if (!language.empty()) {
     details_.time = base::Time::Now();

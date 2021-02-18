@@ -13,7 +13,6 @@
 #include "base/strings/string_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
-#include "chrome/common/chrome_features.h"
 #include "chromeos/services/cros_healthd/public/cpp/service_connection.h"
 #include "chromeos/services/cros_healthd/public/mojom/cros_healthd.mojom.h"
 #include "chromeos/services/cros_healthd/public/mojom/cros_healthd_probe.mojom.h"
@@ -43,12 +42,6 @@ void CrosHealthdMetricsProvider::AsyncInit(base::OnceClosure done_callback) {
   DCHECK(init_callback_.is_null());
   init_callback_ = std::move(done_callback);
   initialized_ = false;
-
-  if (!base::FeatureList::IsEnabled(::features::kUmaStorageDimensions)) {
-    DVLOG(1) << "cros_healthd metrics provider is not enabled";
-    std::move(init_callback_).Run();
-    return;
-  }
 
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
@@ -160,7 +153,7 @@ void CrosHealthdMetricsProvider::OnProbeDone(
     }
 
     dev.set_model(storage->name);
-    dev.set_size_mb(storage->size / 1000);
+    dev.set_size_mb(storage->size / 1e6);
 
     devices_.push_back(dev);
   }

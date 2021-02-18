@@ -5,32 +5,26 @@
 #include "chrome/browser/chromeos/arc/accessibility/arc_accessibility_util.h"
 #include "chrome/browser/chromeos/arc/accessibility/accessibility_info_data_wrapper.h"
 
+#include "ash/public/cpp/app_types.h"
 #include "base/optional.h"
 #include "components/arc/mojom/accessibility_helper.mojom.h"
 #include "ui/accessibility/ax_enums.mojom.h"
+#include "ui/aura/window.h"
 
 namespace arc {
 
-using AXActionType = mojom::AccessibilityActionType;
 using AXBooleanProperty = mojom::AccessibilityBooleanProperty;
-using AXIntListProperty = mojom::AccessibilityIntListProperty;
+using AXEventIntProperty = mojom::AccessibilityEventIntProperty;
 using AXNodeInfoData = mojom::AccessibilityNodeInfoData;
-using AXStringProperty = mojom::AccessibilityStringProperty;
 
 base::Optional<ax::mojom::Event> FromContentChangeTypesToAXEvent(
-    const std::vector<int32_t>& arc_content_change_types,
-    const AccessibilityInfoDataWrapper& source_node) {
-  if (!base::Contains(
+    const std::vector<int32_t>& arc_content_change_types) {
+  if (base::Contains(
           arc_content_change_types,
           static_cast<int32_t>(mojom::ContentChangeType::STATE_DESCRIPTION))) {
-    return base::nullopt;
-  }
-  const AXNodeInfoData* node_ptr = source_node.GetNode();
-  if (node_ptr && node_ptr->range_info) {
-    return ax::mojom::Event::kValueChanged;
-  } else {
     return ax::mojom::Event::kAriaAttributeChanged;
   }
+  return base::nullopt;
 }
 
 ax::mojom::Event ToAXEvent(
@@ -46,14 +40,13 @@ ax::mojom::Event ToAXEvent(
     case mojom::AccessibilityEventType::VIEW_LONG_CLICKED:
       return ax::mojom::Event::kClicked;
     case mojom::AccessibilityEventType::VIEW_TEXT_CHANGED:
-      return ax::mojom::Event::kTextChanged;
+      return ax::mojom::Event::kAriaAttributeChanged;
     case mojom::AccessibilityEventType::VIEW_TEXT_SELECTION_CHANGED:
       return ax::mojom::Event::kTextSelectionChanged;
     case mojom::AccessibilityEventType::WINDOW_STATE_CHANGED: {
       if (source_node && arc_content_change_types.has_value()) {
         const base::Optional<ax::mojom::Event> event_or_null =
-            FromContentChangeTypesToAXEvent(arc_content_change_types.value(),
-                                            *source_node);
+            FromContentChangeTypesToAXEvent(arc_content_change_types.value());
         if (event_or_null.has_value()) {
           return event_or_null.value();
         }
@@ -68,8 +61,7 @@ ax::mojom::Event ToAXEvent(
     case mojom::AccessibilityEventType::WINDOW_CONTENT_CHANGED:
       if (source_node && arc_content_change_types.has_value()) {
         const base::Optional<ax::mojom::Event> event_or_null =
-            FromContentChangeTypesToAXEvent(arc_content_change_types.value(),
-                                            *source_node);
+            FromContentChangeTypesToAXEvent(arc_content_change_types.value());
         if (event_or_null.has_value()) {
           return event_or_null.value();
         }
@@ -92,7 +84,7 @@ ax::mojom::Event ToAXEvent(
       // See the comment on AXTreeSourceArc::NotifyAccessibilityEvent.
       if (source_node && source_node->IsNode() &&
           source_node->GetNode()->range_info) {
-        return ax::mojom::Event::kValueChanged;
+        return ax::mojom::Event::kAriaAttributeChanged;
       } else {
         return ax::mojom::Event::kFocus;
       }
@@ -121,6 +113,8 @@ base::Optional<mojom::AccessibilityActionType> ConvertToAndroidAction(
     case ax::mojom::Action::kDoDefault:
       return arc::mojom::AccessibilityActionType::CLICK;
     case ax::mojom::Action::kFocus:
+      // Fallthrough
+    case ax::mojom::Action::kSetSequentialFocusNavigationStartingPoint:
       return arc::mojom::AccessibilityActionType::ACCESSIBILITY_FOCUS;
     case ax::mojom::Action::kScrollToMakeVisible:
       return arc::mojom::AccessibilityActionType::SHOW_ON_SCREEN;
@@ -157,6 +151,56 @@ base::Optional<mojom::AccessibilityActionType> ConvertToAndroidAction(
   }
 }
 
+AccessibilityInfoDataWrapper* GetSelectedNodeInfoFromAdapterViewEvent(
+    const mojom::AccessibilityEventData& event_data,
+    AccessibilityInfoDataWrapper* source_node) {
+  if (!source_node || !source_node->IsNode())
+    return nullptr;
+
+  AXNodeInfoData* node_info = source_node->GetNode();
+  if (!node_info)
+    return nullptr;
+
+  AccessibilityInfoDataWrapper* selected_node = source_node;
+  if (!node_info->collection_item_info) {
+    // The event source is not an item of AdapterView. If the event source is
+    // AdapterView, select the child. Otherwise, this is an unrelated event.
+    int item_count, from_index, current_item_index;
+    if (!GetProperty(event_data.int_properties, AXEventIntProperty::ITEM_COUNT,
+                     &item_count) ||
+        !GetProperty(event_data.int_properties, AXEventIntProperty::FROM_INDEX,
+                     &from_index) ||
+        !GetProperty(event_data.int_properties,
+                     AXEventIntProperty::CURRENT_ITEM_INDEX,
+                     &current_item_index)) {
+      return nullptr;
+    }
+
+    int index = current_item_index - from_index;
+    if (index < 0)
+      return nullptr;
+
+    std::vector<AccessibilityInfoDataWrapper*> children;
+    source_node->GetChildren(&children);
+    if (index >= static_cast<int>(children.size()))
+      return nullptr;
+
+    selected_node = children[index];
+  }
+
+  // Sometimes a collection item is wrapped by a non-focusable node.
+  // Find a node with focusable property.
+  while (selected_node && !GetBooleanProperty(selected_node->GetNode(),
+                                              AXBooleanProperty::FOCUSABLE)) {
+    std::vector<AccessibilityInfoDataWrapper*> children;
+    selected_node->GetChildren(&children);
+    if (children.size() != 1)
+      break;
+    selected_node = children[0];
+  }
+  return selected_node;
+}
+
 std::string ToLiveStatusString(mojom::AccessibilityLiveRegionType type) {
   switch (type) {
     case mojom::AccessibilityLiveRegionType::NONE:
@@ -169,6 +213,15 @@ std::string ToLiveStatusString(mojom::AccessibilityLiveRegionType type) {
       NOTREACHED();
   }
   return std::string();  // Placeholder.
+}
+
+aura::Window* FindArcWindow(aura::Window* window) {
+  while (window) {
+    if (ash::IsArcWindow(window))
+      return window;
+    window = window->parent();
+  }
+  return nullptr;
 }
 
 }  // namespace arc

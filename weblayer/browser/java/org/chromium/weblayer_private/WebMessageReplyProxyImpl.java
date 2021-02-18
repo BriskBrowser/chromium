@@ -44,22 +44,21 @@ public final class WebMessageReplyProxyImpl extends IWebMessageReplyProxy.Stub {
     }
 
     @CalledByNative
-    private void onNativeDestroyed() {
-        mNativeWebMessageReplyProxyImpl = 0;
-        try {
-            mClient.onReplyProxyDestroyed(mId);
-        } catch (RemoteException e) {
-            throw new APICallException(e);
+    private void onActiveStateChanged() throws RemoteException {
+        if (WebLayerFactoryImpl.getClientMajorVersion() >= 90) {
+            mClient.onReplyProxyActiveStateChanged(mId);
         }
     }
 
     @CalledByNative
-    private void onPostMessage(String message) {
-        try {
-            mClient.onPostMessage(mId, message);
-        } catch (RemoteException e) {
-            throw new APICallException(e);
-        }
+    private void onNativeDestroyed() throws RemoteException {
+        mNativeWebMessageReplyProxyImpl = 0;
+        mClient.onReplyProxyDestroyed(mId);
+    }
+
+    @CalledByNative
+    private void onPostMessage(String message) throws RemoteException {
+        mClient.onPostMessage(mId, message);
     }
 
     @Override
@@ -69,8 +68,16 @@ public final class WebMessageReplyProxyImpl extends IWebMessageReplyProxy.Stub {
         }
     }
 
+    @Override
+    public boolean isActive() {
+        // Client code checks for closed before calling this.
+        assert mNativeWebMessageReplyProxyImpl != 0;
+        return WebMessageReplyProxyImplJni.get().isActive(mNativeWebMessageReplyProxyImpl);
+    }
+
     @NativeMethods
     interface Natives {
         void postMessage(long nativeWebMessageReplyProxyImpl, String message);
+        boolean isActive(long nativeWebMessageReplyProxyImpl);
     }
 }

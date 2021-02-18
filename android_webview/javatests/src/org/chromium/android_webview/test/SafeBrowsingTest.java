@@ -12,6 +12,7 @@ import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.support.test.InstrumentationRegistry;
 import android.view.ViewGroup;
 
@@ -33,29 +34,29 @@ import org.chromium.android_webview.AwContents.NativeDrawFunctorFactory;
 import org.chromium.android_webview.AwContentsClient;
 import org.chromium.android_webview.AwContentsStatics;
 import org.chromium.android_webview.AwSettings;
-import org.chromium.android_webview.ErrorCodeConversionHelper;
 import org.chromium.android_webview.SafeBrowsingAction;
+import org.chromium.android_webview.WebviewErrorCode;
 import org.chromium.android_webview.common.AwSwitches;
 import org.chromium.android_webview.safe_browsing.AwSafeBrowsingConfigHelper;
 import org.chromium.android_webview.safe_browsing.AwSafeBrowsingConversionHelper;
 import org.chromium.android_webview.safe_browsing.AwSafeBrowsingResponse;
 import org.chromium.android_webview.test.TestAwContentsClient.OnReceivedError2Helper;
 import org.chromium.android_webview.test.util.GraphicsTestUtils;
-import org.chromium.base.BuildInfo;
 import org.chromium.base.Callback;
+import org.chromium.base.ContextUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.CriteriaNotSatisfiedException;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.InMemorySharedPreferences;
 import org.chromium.components.safe_browsing.SafeBrowsingApiBridge;
 import org.chromium.components.safe_browsing.SafeBrowsingApiHandler;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
-import org.chromium.content_public.browser.test.util.CriteriaNotSatisfiedException;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.common.ContentUrlConstants;
 import org.chromium.net.test.EmbeddedTestServer;
@@ -508,7 +509,9 @@ public class SafeBrowsingTest {
         Assert.assertEquals(responseUrl, mContentsClient.getLastRequest().url);
         // The expectedCode intentionally depends on targetSdk (and is disconnected from SDK_INT).
         // This is for backwards compatibility with apps with a lower targetSdk.
-        int expectedCode = BuildInfo.targetsAtLeastQ()
+        int expectedCode =
+                ContextUtils.getApplicationContext().getApplicationInfo().targetSdkVersion
+                        >= Build.VERSION_CODES.Q
                 ? AwSafeBrowsingConversionHelper.SAFE_BROWSING_THREAT_BILLING
                 : AwSafeBrowsingConversionHelper.SAFE_BROWSING_THREAT_UNKNOWN;
         Assert.assertEquals(expectedCode, mContentsClient.getLastThreatType());
@@ -565,7 +568,7 @@ public class SafeBrowsingTest {
                 mAwContents, mContentsClient.getOnPageFinishedHelper(), WEB_UI_MALWARE_URL);
         errorHelper.waitForCallback(errorCount);
         Assert.assertEquals(
-                ErrorCodeConversionHelper.ERROR_UNSAFE_RESOURCE, errorHelper.getError().errorCode);
+                WebviewErrorCode.ERROR_UNSAFE_RESOURCE, errorHelper.getError().errorCode);
         Assert.assertEquals("Network error is for the malicious page", WEB_UI_MALWARE_URL,
                 errorHelper.getRequest().url);
 
@@ -672,7 +675,7 @@ public class SafeBrowsingTest {
         clickBackToSafety();
         errorHelper.waitForCallback(errorCount);
         Assert.assertEquals(
-                ErrorCodeConversionHelper.ERROR_UNSAFE_RESOURCE, errorHelper.getError().errorCode);
+                WebviewErrorCode.ERROR_UNSAFE_RESOURCE, errorHelper.getError().errorCode);
         final String responseUrl = mTestServer.getURL(MALWARE_HTML_PATH);
         Assert.assertEquals("Network error is for the malicious page", responseUrl,
                 errorHelper.getRequest().url);
@@ -768,7 +771,7 @@ public class SafeBrowsingTest {
         mActivityTestRule.loadUrlAsync(mAwContents, responseUrl);
         errorHelper.waitForCallback(errorCount);
         Assert.assertEquals(
-                ErrorCodeConversionHelper.ERROR_UNSAFE_RESOURCE, errorHelper.getError().errorCode);
+                WebviewErrorCode.ERROR_UNSAFE_RESOURCE, errorHelper.getError().errorCode);
         Assert.assertEquals("Network error is for the malicious page", responseUrl,
                 errorHelper.getRequest().url);
     }
@@ -882,7 +885,7 @@ public class SafeBrowsingTest {
         mActivityTestRule.loadUrlAsync(mAwContents, responseUrl);
         errorHelper.waitForCallback(errorCount);
         Assert.assertEquals(
-                ErrorCodeConversionHelper.ERROR_UNSAFE_RESOURCE, errorHelper.getError().errorCode);
+                WebviewErrorCode.ERROR_UNSAFE_RESOURCE, errorHelper.getError().errorCode);
         Assert.assertEquals("Network error is for the malicious page", responseUrl,
                 errorHelper.getRequest().url);
 

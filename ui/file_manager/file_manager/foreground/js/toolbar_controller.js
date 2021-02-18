@@ -2,12 +2,27 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import {FileListSelectionModel} from './ui/file_list_selection_model.m.js';
+// #import {A11yAnnounce} from './ui/a11y_announce.m.js';
+// #import {VolumeManager} from '../../../externs/volume_manager.m.js';
+// #import {DirectoryModel} from './directory_model.m.js';
+// #import {LocationLine} from './ui/location_line.m.js';
+// #import {ListContainer} from './ui/list_container.m.js';
+// #import {VolumeManagerCommon} from '../../../base/js/volume_manager_types.m.js';
+// #import {util, str, strf} from '../../common/js/util.m.js';
+// #import {FileSelectionHandler} from './file_selection.m.js';
+// #import {Command} from 'chrome://resources/js/cr/ui/command.m.js';
+// #import {assert, assertInstanceof} from 'chrome://resources/js/assert.m.js';
+// #import {queryRequiredElement} from 'chrome://resources/js/util.m.js';
+// clang-format on
+
 /**
  * This class controls wires toolbar UI and selection model. When selection
  * status is changed, this class changes the view of toolbar. If cancel
  * selection button is pressed, this class clears the selection.
  */
-class ToolbarController {
+/* #export */ class ToolbarController {
   /**
    * @param {!HTMLElement} toolbar Toolbar element which contains controls.
    * @param {!HTMLElement} navigationList Navigation list on the left pane. The
@@ -60,8 +75,28 @@ class ToolbarController {
      * @private {!HTMLElement}
      * @const
      */
+    this.restoreFromTrashButton_ =
+        queryRequiredElement('#restore-from-trash-button', this.toolbar_);
+
+    /**
+     * @private {!HTMLElement}
+     * @const
+     */
     this.readOnlyIndicator_ =
         queryRequiredElement('#read-only-indicator', this.toolbar_);
+
+    /**
+     * @private {!HTMLElement}
+     * @const
+     */
+    this.pinnedToggleWrapper_ =
+        queryRequiredElement('#pinned-toggle-wrapper', this.toolbar_);
+
+    /**
+     * @private {!HTMLElement}
+     * @const
+     */
+    this.pinnedToggle_ = queryRequiredElement('#pinned-toggle', this.toolbar_);
 
     /**
      * @private {!cr.ui.Command}
@@ -70,6 +105,15 @@ class ToolbarController {
     this.deleteCommand_ = assertInstanceof(
         queryRequiredElement(
             '#delete', assert(this.toolbar_.ownerDocument.body)),
+        cr.ui.Command);
+
+    /**
+     * @private {!cr.ui.Command}
+     * @const
+     */
+    this.restoreFromTrashCommand_ = assertInstanceof(
+        queryRequiredElement(
+            '#restore-from-trash', assert(this.toolbar_.ownerDocument.body)),
         cr.ui.Command);
 
     /**
@@ -97,6 +141,15 @@ class ToolbarController {
     this.invokeSharesheetCommand_ = assertInstanceof(
         queryRequiredElement(
             '#invoke-sharesheet', assert(this.toolbar_.ownerDocument.body)),
+        cr.ui.Command);
+
+    /**
+     * @private {!cr.ui.Command}
+     * @const
+     */
+    this.togglePinnedCommand_ = assertInstanceof(
+        queryRequiredElement(
+            '#toggle-pinned', assert(this.toolbar_.ownerDocument.body)),
         cr.ui.Command);
 
     /**
@@ -160,6 +213,23 @@ class ToolbarController {
 
     this.deleteButton_.addEventListener(
         'click', this.onDeleteButtonClicked_.bind(this));
+
+    this.restoreFromTrashButton_.addEventListener(
+        'click', this.onRestoreFromTrashButtonClicked_.bind(this));
+
+    if (util.isFilesNg()) {
+      this.togglePinnedCommand_.addEventListener(
+          'checkedChange', this.updatePinnedToggle_.bind(this));
+
+      this.togglePinnedCommand_.addEventListener(
+          'disabledChange', this.updatePinnedToggle_.bind(this));
+
+      this.togglePinnedCommand_.addEventListener(
+          'hiddenChange', this.updatePinnedToggle_.bind(this));
+
+      this.pinnedToggle_.addEventListener(
+          'change', this.onPinnedToggleChanged_.bind(this));
+    }
 
     // The old layout needed the cancel selection button to resize every
     // time the splitter was moved. Not needed for files-ng.
@@ -244,10 +314,21 @@ class ToolbarController {
 
     // Update visibility of the delete button.
     this.deleteButton_.hidden =
-        (selection.totalCount === 0 || this.directoryModel_.isReadOnly() ||
+        (selection.totalCount === 0 ||
+         !this.directoryModel_.canDeleteEntries() ||
          selection.hasReadOnlyEntry() ||
          selection.entries.some(
              entry => util.isNonModifiable(this.volumeManager_, entry)));
+
+    // Update visibility of the restore-from-trash button.
+    this.restoreFromTrashButton_.hidden = (selection.totalCount == 0) ||
+        this.directoryModel_.getCurrentRootType() !==
+            VolumeManagerCommon.RootType.TRASH;
+
+    if (util.isFilesNg()) {
+      this.togglePinnedCommand_.canExecuteChange(
+          this.listContainer_.currentList);
+    }
 
     // Set .selecting class to containing element to change the view
     // accordingly.
@@ -263,9 +344,6 @@ class ToolbarController {
           /** @type {!FileListSelectionModel} */
           (this.directoryModel_.getFileListSelection()).getCheckSelectMode()) {
         bodyClassList.toggle('check-select');
-        // Some custom styles depend on |check-select| class. We need to
-        // re-evaluate the custom styles when the class value is changed.
-        Polymer.updateStyles();
       }
     }
   }
@@ -286,6 +364,17 @@ class ToolbarController {
   onDeleteButtonClicked_() {
     this.deleteCommand_.canExecuteChange(this.listContainer_.currentList);
     this.deleteCommand_.execute(this.listContainer_.currentList);
+  }
+
+  /**
+   * Handles click event for restore from trash button to execute the restore
+   * command.
+   * @private
+   */
+  onRestoreFromTrashButtonClicked_() {
+    this.restoreFromTrashCommand_.canExecuteChange(
+        this.listContainer_.currentList);
+    this.restoreFromTrashCommand_.execute(this.listContainer_.currentList);
   }
 
   /**
@@ -316,5 +405,21 @@ class ToolbarController {
   updateSharesheetCommand_() {
     this.invokeSharesheetCommand_.canExecuteChange(
         this.listContainer_.currentList);
+  }
+
+  /** @private */
+  updatePinnedToggle_() {
+    this.pinnedToggleWrapper_.hidden = this.togglePinnedCommand_.hidden;
+    this.pinnedToggle_.checked = this.togglePinnedCommand_.checked;
+    this.pinnedToggle_.disabled = this.togglePinnedCommand_.disabled;
+  }
+
+  /** @private */
+  onPinnedToggleChanged_() {
+    this.togglePinnedCommand_.execute(this.listContainer_.currentList);
+
+    // Optimistally update the command's properties so we get notified if they
+    // change back.
+    this.togglePinnedCommand_.checked = this.pinnedToggle_.checked;
   }
 }

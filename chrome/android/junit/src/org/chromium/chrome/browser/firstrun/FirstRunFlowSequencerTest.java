@@ -26,8 +26,6 @@ import org.robolectric.shadows.multidex.ShadowMultiDex;
 
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
-import org.chromium.chrome.browser.toolbar.bottom.BottomToolbarConfiguration;
 import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.signin.ChildAccountStatus;
 
@@ -40,7 +38,6 @@ import java.util.List;
  */
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE, shadows = {ShadowMultiDex.class})
-@Features.EnableFeatures(ChromeFeatureList.CHROME_DUET)
 public class FirstRunFlowSequencerTest {
     @Rule
     public TestRule mFeaturesProcessorRule = new Features.JUnitProcessor();
@@ -55,7 +52,6 @@ public class FirstRunFlowSequencerTest {
     public static class TestFirstRunFlowSequencer extends FirstRunFlowSequencer {
         public Bundle returnedBundle;
         public boolean calledOnFlowIsKnown;
-        public boolean calledSetDefaultMetricsAndCrashReporting;
         public boolean calledSetFirstRunFlowSignInComplete;
 
         public boolean isFirstRunFlowComplete;
@@ -74,7 +70,7 @@ public class FirstRunFlowSequencerTest {
         @Override
         public void onFlowIsKnown(Bundle freProperties) {
             calledOnFlowIsKnown = true;
-            if (freProperties != null) onNativeInitialized(freProperties);
+            if (freProperties != null) onNativeAndPoliciesInitialized(freProperties);
             returnedBundle = freProperties;
         }
 
@@ -119,11 +115,6 @@ public class FirstRunFlowSequencerTest {
         }
 
         @Override
-        public void setDefaultMetricsAndCrashReporting() {
-            calledSetDefaultMetricsAndCrashReporting = true;
-        }
-
-        @Override
         protected void setFirstRunFlowSignInComplete() {
             calledSetFirstRunFlowSignInComplete = true;
         }
@@ -158,7 +149,6 @@ public class FirstRunFlowSequencerTest {
         mSequencer.processFreEnvironmentPreNative();
         assertTrue(mSequencer.calledOnFlowIsKnown);
         assertNull(mSequencer.returnedBundle);
-        assertFalse(mSequencer.calledSetDefaultMetricsAndCrashReporting);
     }
 
     @Test
@@ -174,7 +164,6 @@ public class FirstRunFlowSequencerTest {
 
         mSequencer.processFreEnvironmentPreNative();
         assertTrue(mSequencer.calledOnFlowIsKnown);
-        assertTrue(mSequencer.calledSetDefaultMetricsAndCrashReporting);
         assertFalse(mSequencer.calledSetFirstRunFlowSignInComplete);
 
         Bundle bundle = mSequencer.returnedBundle;
@@ -200,7 +189,6 @@ public class FirstRunFlowSequencerTest {
 
         mSequencer.processFreEnvironmentPreNative();
         assertTrue(mSequencer.calledOnFlowIsKnown);
-        assertTrue(mSequencer.calledSetDefaultMetricsAndCrashReporting);
         assertTrue(mSequencer.calledSetFirstRunFlowSignInComplete);
 
         Bundle bundle = mSequencer.returnedBundle;
@@ -209,9 +197,7 @@ public class FirstRunFlowSequencerTest {
         assertFalse(bundle.getBoolean(FirstRunActivityBase.SHOW_SEARCH_ENGINE_PAGE));
         assertEquals(ChildAccountStatus.REGULAR_CHILD,
                 bundle.getInt(SigninFirstRunFragment.CHILD_ACCOUNT_STATUS));
-        assertEquals(
-                DEFAULT_ACCOUNT, bundle.getString(SigninFirstRunFragment.FORCE_SIGNIN_ACCOUNT_TO));
-        assertEquals(5, bundle.size());
+        assertEquals(4, bundle.size());
     }
 
     @Test
@@ -228,7 +214,6 @@ public class FirstRunFlowSequencerTest {
 
         mSequencer.processFreEnvironmentPreNative();
         assertTrue(mSequencer.calledOnFlowIsKnown);
-        assertTrue(mSequencer.calledSetDefaultMetricsAndCrashReporting);
         assertFalse(mSequencer.calledSetFirstRunFlowSignInComplete);
 
         Bundle bundle = mSequencer.returnedBundle;
@@ -254,7 +239,6 @@ public class FirstRunFlowSequencerTest {
 
         mSequencer.processFreEnvironmentPreNative();
         assertTrue(mSequencer.calledOnFlowIsKnown);
-        assertTrue(mSequencer.calledSetDefaultMetricsAndCrashReporting);
         assertFalse(mSequencer.calledSetFirstRunFlowSignInComplete);
 
         Bundle bundle = mSequencer.returnedBundle;
@@ -264,21 +248,5 @@ public class FirstRunFlowSequencerTest {
         assertEquals(ChildAccountStatus.NOT_CHILD,
                 bundle.getInt(SigninFirstRunFragment.CHILD_ACCOUNT_STATUS));
         assertEquals(4, bundle.size());
-    }
-
-    @Test
-    @Feature({"FirstRun"})
-    public void testBottomToolbarEnabledAfterFirstRun() {
-        mSequencer.isFirstRunFlowComplete = false;
-        mSequencer.isSignedIn = false;
-        mSequencer.isSyncAllowed = true;
-        mSequencer.googleAccounts = Collections.emptyList();
-        mSequencer.shouldSkipFirstUseHints = false;
-        mSequencer.shouldShowDataReductionPage = false;
-        mSequencer.initializeSharedState(ChildAccountStatus.NOT_CHILD);
-
-        mSequencer.processFreEnvironmentPreNative();
-
-        assertTrue(BottomToolbarConfiguration.isBottomToolbarEnabled());
     }
 }

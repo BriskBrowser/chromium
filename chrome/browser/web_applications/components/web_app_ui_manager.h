@@ -29,8 +29,6 @@ class WebAppUiManager {
  public:
   static std::unique_ptr<WebAppUiManager> Create(Profile* profile);
 
-  static bool ShouldHideAppFromUser(const AppId& app_id);
-
   virtual ~WebAppUiManager() = default;
 
   virtual void SetSubsystems(
@@ -49,8 +47,9 @@ class WebAppUiManager {
   // Uninstalls the the apps in |from_apps| and migrates an |to_app|'s OS
   // attributes (e.g pin position, app list folder/position, shortcuts) to the
   // first |from_app| found.
-  virtual void UninstallAndReplace(const std::vector<AppId>& from_apps,
-                                   const AppId& to_app) = 0;
+  // Returns whether any |from_apps| were uninstalled.
+  virtual bool UninstallAndReplaceIfExists(const std::vector<AppId>& from_apps,
+                                           const AppId& to_app) = 0;
 
   virtual bool CanAddAppToQuickLaunchBar() const = 0;
   virtual void AddAppToQuickLaunchBar(const AppId& app_id) = 0;

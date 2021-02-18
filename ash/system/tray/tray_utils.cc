@@ -11,7 +11,6 @@
 #include "ash/style/ash_color_provider.h"
 #include "ash/system/tray/tray_constants.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "ui/gfx/font_list.h"
 #include "ui/views/controls/label.h"
 
@@ -21,16 +20,16 @@ void SetupLabelForTray(views::Label* label) {
   // The text is drawn on an transparent bg, so we must disable subpixel
   // rendering.
   label->SetSubpixelRenderingEnabled(false);
+  label->SetAutoColorReadabilityEnabled(false);
   label->SetFontList(gfx::FontList().Derive(
       kTrayTextFontSizeIncrease, gfx::Font::NORMAL, gfx::Font::Weight::MEDIUM));
 }
 
 SkColor TrayIconColor(session_manager::SessionState session_state) {
-  const bool light_icon = session_state == session_manager::SessionState::OOBE;
+  if (session_state == session_manager::SessionState::OOBE)
+    return kIconColorInOobe;
   return AshColorProvider::Get()->GetContentLayerColor(
-      AshColorProvider::ContentLayerType::kIconColorPrimary,
-      light_icon ? AshColorProvider::AshColorMode::kLight
-                 : AshColorProvider::AshColorMode::kDark);
+      AshColorProvider::ContentLayerType::kIconColorPrimary);
 }
 
 gfx::Insets GetTrayBubbleInsets() {
@@ -54,9 +53,6 @@ gfx::Insets GetTrayBubbleInsets() {
       shelf->alignment() == ShelfAlignment::kBottomLocked;
 
   if (!is_bottom_alignment)
-    return insets;
-
-  if (!chromeos::switches::ShouldShowShelfHotseat())
     return insets;
 
   int height_compensation = kTrayBubbleInsetHotseatCompensation;

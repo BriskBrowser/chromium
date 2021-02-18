@@ -40,10 +40,11 @@ android_library("java") {
     "//components/browser_ui/util/android:java",
     "//components/browser_ui/widget/android:java",
     "//components/payments/mojom:mojom_java",
-    "//third_party/android_deps:androidx_annotation_annotation_java",
-    "//third_party/android_deps:androidx_appcompat_appcompat_java",
-    "//third_party/android_deps:androidx_core_core_java",
-    "//third_party/android_deps:androidx_recyclerview_recyclerview_java",
+    "//content/public/android:content_java",
+    "//third_party/androidx:androidx_annotation_annotation_java",
+    "//third_party/androidx:androidx_appcompat_appcompat_java",
+    "//third_party/androidx:androidx_core_core_java",
+    "//third_party/androidx:androidx_recyclerview_recyclerview_java",
     "//third_party/blink/public/mojom:android_mojo_bindings_java",
     "//ui/android:ui_java",
   ]
@@ -57,7 +58,6 @@ generate_jni("contacts_picker_jni_headers") {
 }
 
 android_resources("java_resources") {
-  create_srcjar = false
   sources = [
     "java/res/drawable/address.xml",
     "java/res/drawable/email.xml",
@@ -70,6 +70,8 @@ android_resources("java_resources") {
     "java/res/layout/contacts_picker_dialog.xml",
     "java/res/layout/contacts_picker_toolbar.xml",
     "java/res/layout/top_view.xml",
+    "java/res/values/dimens.xml",
+    "java/res/values/styles.xml",
   ]
   deps = [
     "//components/browser_ui/strings/android:browser_ui_strings_grd",
@@ -95,15 +97,16 @@ android_library("javatests") {
     "//components/browser_ui/widget/android:java",
     "//components/browser_ui/widget/android:test_support_java",
     "//components/payments/mojom:mojom_java",
+    "//content/public/android:content_java",
     "//content/public/test/android:content_java_test_support",
-    "//third_party/android_deps:androidx_annotation_annotation_java",
-    "//third_party/android_deps:androidx_appcompat_appcompat_java",
-    "//third_party/android_deps:androidx_appcompat_appcompat_resources_java",
-    "//third_party/android_deps:androidx_core_core_java",
-    "//third_party/android_deps:androidx_recyclerview_recyclerview_java",
-    "//third_party/android_deps:androidx_test_runner_java",
     "//third_party/android_support_test_runner:rules_java",
     "//third_party/android_support_test_runner:runner_java",
+    "//third_party/androidx:androidx_annotation_annotation_java",
+    "//third_party/androidx:androidx_appcompat_appcompat_java",
+    "//third_party/androidx:androidx_appcompat_appcompat_resources_java",
+    "//third_party/androidx:androidx_core_core_java",
+    "//third_party/androidx:androidx_recyclerview_recyclerview_java",
+    "//third_party/androidx:androidx_test_runner_java",
     "//third_party/blink/public/mojom:android_mojo_bindings_java",
     "//third_party/junit",
     "//ui/android:ui_java",

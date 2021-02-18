@@ -9,7 +9,6 @@
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_break_token.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_node.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_physical_line_box_fragment.h"
-#include "third_party/blink/renderer/core/layout/ng/inline/ng_physical_text_fragment.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_container_fragment_builder.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_layout_result.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_container_fragment.h"
@@ -29,7 +28,7 @@ class CORE_EXPORT NGLineBoxFragmentBuilder final
 
  public:
   NGLineBoxFragmentBuilder(NGInlineNode node,
-                           scoped_refptr<const ComputedStyle> style,
+                           const ComputedStyle* style,
                            const NGConstraintSpace* space,
                            WritingDirectionMode writing_direction)
       : NGContainerFragmentBuilder(
@@ -68,20 +67,12 @@ class CORE_EXPORT NGLineBoxFragmentBuilder final
   }
 
   // Set the break token for the fragment to build.
-  // A finished break token will be attached if not set.
-  void SetBreakToken(scoped_refptr<NGInlineBreakToken> break_token) {
-    break_token_ = std::move(break_token);
-  }
-
-  void AddChild(scoped_refptr<const NGPhysicalTextFragment> child,
-                const LogicalOffset& offset) {
-    AddChildInternal(child, offset);
+  // Is nullptr if we didn't break.
+  void SetBreakToken(const NGInlineBreakToken* break_token) {
+    break_token_ = break_token;
   }
 
   void AddChild(const NGPhysicalContainerFragment&, const LogicalOffset&);
-
-  // Add all items in ChildList. Skips null Child if any.
-  void AddChildren(NGLogicalLineItems&);
 
   // Propagate data in |ChildList| without adding them to this builder. When
   // adding children as fragment items, they appear in the container, but there
@@ -89,7 +80,7 @@ class CORE_EXPORT NGLineBoxFragmentBuilder final
   void PropagateChildrenData(NGLogicalLineItems&);
 
   // Creates the fragment. Can only be called once.
-  scoped_refptr<const NGLayoutResult> ToLineBoxFragment();
+  const NGLayoutResult* ToLineBoxFragment();
 
  private:
   FontHeight metrics_ = FontHeight::Empty();

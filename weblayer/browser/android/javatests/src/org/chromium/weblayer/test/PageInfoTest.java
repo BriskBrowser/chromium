@@ -19,8 +19,8 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.StrictModeContext;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
-import org.chromium.content_public.browser.test.util.CriteriaNotSatisfiedException;
+import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.CriteriaNotSatisfiedException;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.weblayer.TestWebLayer;
 import org.chromium.weblayer.shell.InstrumentationActivity;
@@ -36,7 +36,6 @@ public class PageInfoTest {
 
     @Test
     @SmallTest
-    @MinWebLayerVersion(84)
     public void testPageInfoLaunches() {
         Bundle extras = new Bundle();
         extras.putBoolean(InstrumentationActivity.EXTRA_URLBAR_TEXT_CLICKABLE, false);
@@ -44,7 +43,9 @@ public class PageInfoTest {
                 mActivityTestRule.getTestDataURL("simple_page.html"), extras);
 
         Context remoteContext = TestWebLayer.getRemoteContext(activity.getApplicationContext());
-        int buttonId = ResourceUtil.getIdentifier(remoteContext, "id/security_button");
+        String packageName =
+                TestWebLayer.getWebLayerContext(activity.getApplicationContext()).getPackageName();
+        int buttonId = ResourceUtil.getIdentifier(remoteContext, "id/security_button", packageName);
 
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             StrictModeContext ignored = StrictModeContext.allowDiskReads();
@@ -62,7 +63,6 @@ public class PageInfoTest {
 
     @Test
     @SmallTest
-    @MinWebLayerVersion(86)
     public void testSingleTappableContainer() {
         Bundle extras = new Bundle();
         extras.putBoolean(InstrumentationActivity.EXTRA_URLBAR_TEXT_CLICKABLE, true);

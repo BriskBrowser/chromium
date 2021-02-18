@@ -7,7 +7,7 @@
 #include <string>
 #include <utility>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/path_service.h"
@@ -164,7 +164,13 @@ IN_PROC_BROWSER_TEST_F(ScrollbarTest, LongPromptScrollbar) {
 
 // Tests that a scrollbar isn't shown for this regression case.
 // See crbug.com/385570 for details.
-IN_PROC_BROWSER_TEST_F(ScrollbarTest, DISABLED_ScrollbarRegression) {
+// TODO(http://crbug.com/988934): Flaky on some Mac release bots.
+#if defined(OS_MAC) && defined(NDEBUG)
+#define MAYBE_ScrollbarRegression DISABLED_ScrollbarRegression
+#else
+#define MAYBE_ScrollbarRegression ScrollbarRegression
+#endif
+IN_PROC_BROWSER_TEST_F(ScrollbarTest, MAYBE_ScrollbarRegression) {
   base::string16 permission_string(base::ASCIIToUTF16(
       "Read and modify your data on *.facebook.com"));
   PermissionMessages permissions;
@@ -205,9 +211,12 @@ class ExtensionInstallDialogViewTest
 
 IN_PROC_BROWSER_TEST_F(ExtensionInstallDialogViewTest, NotifyDelegate) {
   {
-    // User presses install.
+    // User presses install. Note that we have to wait for the 0ms delay for
+    // the install button to become enabled, hence the RunLoop later.
+    ExtensionInstallDialogView::SetInstallButtonDelayForTesting(0);
     ExtensionInstallPromptTestHelper helper;
     ExtensionInstallDialogView* delegate_view = CreateAndShowPrompt(&helper);
+    base::RunLoop().RunUntilIdle();
     delegate_view->AcceptDialog();
     EXPECT_EQ(ExtensionInstallPrompt::Result::ACCEPTED, helper.result());
   }
@@ -223,6 +232,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionInstallDialogViewTest, NotifyDelegate) {
     // cancel.
     ExtensionInstallPromptTestHelper helper;
     ExtensionInstallDialogView* delegate_view = CreateAndShowPrompt(&helper);
+    // Note that the close button isn't present, but the dialog can still be
+    // closed this way via Esc.
+    EXPECT_FALSE(delegate_view->ShouldShowCloseButton());
     CloseAndWait(delegate_view->GetWidget());
     // TODO(devlin): Should this be ABORTED?
     EXPECT_EQ(ExtensionInstallPrompt::Result::USER_CANCELED, helper.result());
@@ -388,15 +400,27 @@ IN_PROC_BROWSER_TEST_F(ExtensionInstallDialogViewInteractiveBrowserTest,
   ShowAndVerifyUi();
 }
 
+// crbug.com/1166152
+#if defined(OS_WIN)
+#define MAYBE_InvokeUi_ManyPermissions DISABLED_InvokeUi_ManyPermissions
+#else
+#define MAYBE_InvokeUi_ManyPermissions InvokeUi_ManyPermissions
+#endif
 IN_PROC_BROWSER_TEST_F(ExtensionInstallDialogViewInteractiveBrowserTest,
-                       InvokeUi_ManyPermissions) {
+                       MAYBE_InvokeUi_ManyPermissions) {
   for (int i = 0; i < 20; i++)
     AddPermission("Example permission");
   ShowAndVerifyUi();
 }
 
+// TODO(https://crbug.com/1126736): Flaky on Win10.
+#if defined(OS_WIN)
+#define MAYBE_InvokeUi_DetailedPermission DISABLED_InvokeUi_DetailedPermission
+#else
+#define MAYBE_InvokeUi_DetailedPermission InvokeUi_DetailedPermission
+#endif
 IN_PROC_BROWSER_TEST_F(ExtensionInstallDialogViewInteractiveBrowserTest,
-                       InvokeUi_DetailedPermission) {
+                       MAYBE_InvokeUi_DetailedPermission) {
   AddPermissionWithDetails(
       "Example header permission",
       {base::ASCIIToUTF16("Detailed permission 1"),
@@ -427,8 +451,15 @@ IN_PROC_BROWSER_TEST_F(ExtensionInstallDialogViewInteractiveBrowserTest,
   ShowAndVerifyUi();
 }
 
+// TODO(https://crbug.com/1126741): Flaky on Win10.
+#if defined(OS_WIN)
+#define MAYBE_InvokeUi_WithWithholdingOption \
+  DISABLED_InvokeUi_WithWithholdingOption
+#else
+#define MAYBE_InvokeUi_WithWithholdingOption InvokeUi_WithWithholdingOption
+#endif
 IN_PROC_BROWSER_TEST_F(ExtensionInstallDialogViewInteractiveBrowserTest,
-                       InvokeUi_WithWithholdingOption) {
+                       MAYBE_InvokeUi_WithWithholdingOption) {
   // The permissions withholding UI requires a proper permission set to be used,
   // as it checks for host permissions to determine if it should be shown.
   auto permissions = std::make_unique<PermissionSet>(

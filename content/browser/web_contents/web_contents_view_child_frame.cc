@@ -5,17 +5,17 @@
 #include "content/browser/web_contents/web_contents_view_child_frame.h"
 
 #include "build/build_config.h"
-#include "content/browser/frame_host/render_frame_proxy_host.h"
 #include "content/browser/renderer_host/display_util.h"
+#include "content/browser/renderer_host/render_frame_proxy_host.h"
 #include "content/browser/renderer_host/render_widget_host_view_child_frame.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/web_contents_view_delegate.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 
-using blink::WebDragOperation;
-using blink::WebDragOperationsMask;
+using blink::DragOperationsMask;
 
 namespace content {
 
@@ -134,7 +134,8 @@ DropData* WebContentsViewChildFrame::GetDropData() const {
   return nullptr;
 }
 
-void WebContentsViewChildFrame::UpdateDragCursor(WebDragOperation operation) {
+void WebContentsViewChildFrame::UpdateDragCursor(
+    ui::mojom::DragOperation operation) {
   if (auto* view = GetOuterDelegateView())
     view->UpdateDragCursor(operation);
 }
@@ -166,10 +167,10 @@ void WebContentsViewChildFrame::ShowContextMenu(
 
 void WebContentsViewChildFrame::StartDragging(
     const DropData& drop_data,
-    WebDragOperationsMask ops,
+    DragOperationsMask ops,
     const gfx::ImageSkia& image,
     const gfx::Vector2d& image_offset,
-    const DragEventSourceInfo& event_info,
+    const blink::mojom::DragEventSourceInfo& event_info,
     RenderWidgetHostImpl* source_rwh) {
   if (auto* view = GetOuterDelegateView()) {
     view->StartDragging(

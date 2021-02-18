@@ -11,6 +11,7 @@
 #include "base/macros.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -39,7 +40,7 @@ using content::Referrer;
 using content::WebContents;
 
 // TODO(jam): http://crbug.com/350550
-#if !(defined(OS_CHROMEOS) && defined(ADDRESS_SANITIZER))
+#if !(BUILDFLAG(IS_CHROMEOS_ASH) && defined(ADDRESS_SANITIZER))
 
 namespace {
 
@@ -96,13 +97,7 @@ class CrashRecoveryBrowserTest : public InProcessBrowserTest {
 };
 
 // Test that reload works after a crash.
-// Flaky timeouts on Win7 Tests (dbg)(1); see https://crbug.com/985255.
-#if defined(OS_WIN) && !defined(NDEBUG)
-#define MAYBE_Reload DISABLED_Reload
-#else
-#define MAYBE_Reload Reload
-#endif
-IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, MAYBE_Reload) {
+IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, Reload) {
   // The title of the active tab should change each time this URL is loaded.
   GURL url(
       "data:text/html,<script>document.title=new Date().valueOf()</script>");
@@ -127,14 +122,7 @@ IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, MAYBE_Reload) {
 }
 
 // Test that reload after a crash forces a cache revalidation.
-//
-// Flaky timeouts on Win7 Tests (dbg)(1); see https://crbug.com/985255.
-#if defined(OS_WIN) && !defined(NDEBUG)
-#define MAYBE_ReloadCacheRevalidate DISABLED_ReloadCacheRevalidate
-#else
-#define MAYBE_ReloadCacheRevalidate ReloadCacheRevalidate
-#endif
-IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, MAYBE_ReloadCacheRevalidate) {
+IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, ReloadCacheRevalidate) {
   const char kTestPath[] = "/test";
 
   // Use the test server so as not to bypass cache behavior. The title of the
@@ -163,13 +151,7 @@ IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, MAYBE_ReloadCacheRevalidate) {
 // There was an earlier bug (1270510) in process-per-site in which the max page
 // ID of the RenderProcessHost was stale, so the NavigationEntry in the new tab
 // was not committed.  This prevents regression of that bug.
-// Flaky timeouts on Win7 Tests (dbg)(1); see https://crbug.com/985255.
-#if defined(OS_WIN) && !defined(NDEBUG)
-#define MAYBE_LoadInNewTab DISABLED_LoadInNewTab
-#else
-#define MAYBE_LoadInNewTab LoadInNewTab
-#endif
-IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, MAYBE_LoadInNewTab) {
+IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, LoadInNewTab) {
   const base::FilePath::CharType kTitle2File[] =
       FILE_PATH_LITERAL("title2.html");
 
@@ -196,14 +178,7 @@ IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, MAYBE_LoadInNewTab) {
 
 // Tests that reloads of navigation errors behave correctly after a crash.
 // Regression test for http://crbug.com/348918
-//
-// Flaky timeouts on Win7 Tests (dbg)(1); see https://crbug.com/985255.
-#if defined(OS_WIN) && !defined(NDEBUG)
-#define MAYBE_DoubleReloadWithError DISABLED_DoubleReloadWithError
-#else
-#define MAYBE_DoubleReloadWithError DoubleReloadWithError
-#endif
-IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, MAYBE_DoubleReloadWithError) {
+IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, DoubleReloadWithError) {
   GURL url(content::GetWebUIURL("bogus"));
   ui_test_utils::NavigateToURL(browser(), url);
   ASSERT_EQ(url, GetActiveWebContents()->GetVisibleURL());
@@ -221,14 +196,7 @@ IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, MAYBE_DoubleReloadWithError) {
 
 // Tests that a beforeunload handler doesn't run if user navigates to
 // chrome::crash.
-//
-// Flaky timeouts on Win7 Tests (dbg)(1); see https://crbug.com/985255.
-#if defined(OS_WIN) && !defined(NDEBUG)
-#define MAYBE_BeforeUnloadNotRun DISABLED_BeforeUnloadNotRun
-#else
-#define MAYBE_BeforeUnloadNotRun BeforeUnloadNotRun
-#endif
-IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, MAYBE_BeforeUnloadNotRun) {
+IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, BeforeUnloadNotRun) {
   const char* kBeforeUnloadHTML =
     "<html><body>"
     "<script>window.onbeforeunload=function(e){return 'foo'}</script>"

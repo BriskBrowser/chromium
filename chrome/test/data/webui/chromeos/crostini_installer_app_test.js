@@ -21,7 +21,7 @@ class FakePageHandler extends TestBrowserProxy {
 
   /** @override */
   install(diskSize, username) {
-    this.methodCalled('install', [diskSize, username]);
+    this.methodCalled('install', [Number(diskSize), username]);
   }
 
   /** @override */
@@ -149,7 +149,8 @@ suite('<crostini-installer-app>', () => {
     expectEquals(fakeBrowserProxy.handler.getCallCount('install'), 1);
     expectTrue(getInstallButton().hidden);
 
-    fakeBrowserProxy.page.onProgressUpdate(InstallerState.kStartConcierge, 0.5);
+    fakeBrowserProxy.page.onProgressUpdate(
+        InstallerState.kCreateDiskImage, 0.5);
     await flushTasks();
     expectTrue(
         !!app.$$('#installing-message > div').textContent.trim(),
@@ -235,7 +236,7 @@ suite('<crostini-installer-app>', () => {
       await clickInstall();
       await fakeBrowserProxy.handler.whenCalled('install').then(
           ([diskSize, username]) => {
-            assertEquals(diskSize, diskTicks[defaultIndex].value);
+            assertEquals(Number(diskSize), diskTicks[defaultIndex].value);
           });
       expectEquals(fakeBrowserProxy.handler.getCallCount('install'), 1);
     });
@@ -260,7 +261,7 @@ suite('<crostini-installer-app>', () => {
     await clickInstall();
     await fakeBrowserProxy.handler.whenCalled('install').then(
         ([diskSize, username]) => {
-          assertEquals(diskSize, diskTicks[1].value);
+          assertEquals(Number(diskSize), diskTicks[1].value);
         });
     expectEquals(fakeBrowserProxy.handler.getCallCount('install'), 1);
   });

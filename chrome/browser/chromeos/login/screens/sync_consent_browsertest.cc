@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "ash/constants/ash_features.h"
+#include "ash/constants/ash_pref_names.h"
+#include "ash/constants/ash_switches.h"
 #include "base/auto_reset.h"
 #include "base/bind.h"
 #include "base/macros.h"
@@ -31,12 +34,10 @@
 #include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/marketing_opt_in_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
+#include "chrome/browser/ui/webui/chromeos/login/welcome_screen_handler.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/testing_profile_manager.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/chromeos_pref_names.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/public/identity_manager/consent_level.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
@@ -56,6 +57,17 @@ using testing::UnorderedElementsAreArray;
 
 namespace chromeos {
 namespace {
+
+constexpr char kSyncConsent[] = "sync-consent";
+
+const test::UIPath kOverviewDialog = {kSyncConsent,
+                                      "syncConsentOverviewDialog"};
+const test::UIPath kSplitSettingsDialog = {kSyncConsent,
+                                           "splitSettingsSyncConsentDialog"};
+const test::UIPath kSettingsSaveAndContinueButton = {
+    kSyncConsent, "settingsSaveAndContinueButton"};
+const test::UIPath kAcceptButton = {kSyncConsent, "acceptButton"};
+const test::UIPath kDeclineButton = {kSyncConsent, "declineButton"};
 
 syncer::SyncUserSettings* GetSyncUserSettings() {
   Profile* profile = ProfileManager::GetPrimaryUserProfile();
@@ -117,11 +129,7 @@ class SyncConsentTest : public OobeBaseTest {
  public:
   SyncConsentTest()
       : force_branded_build_(
-            SyncConsentScreen::ForceBrandedBuildForTesting(true)) {
-    // To reuse existing wizard controller in the flow.
-    feature_list_.InitAndEnableFeature(
-        chromeos::features::kOobeScreensPriority);
-  }
+            WizardController::ForceBrandedBuildForTesting(true)) {}
   ~SyncConsentTest() override = default;
 
   void SetUpOnMainThread() override {
@@ -170,8 +178,8 @@ class SyncConsentTest : public OobeBaseTest {
   }
 
   void SwitchLanguage(const std::string& language) {
-    WelcomeScreen* welcome_screen = WelcomeScreen::Get(
-        WizardController::default_controller()->screen_manager());
+    WelcomeScreen* welcome_screen =
+        WizardController::default_controller()->GetScreen<WelcomeScreen>();
     test::LanguageReloadObserver observer(welcome_screen);
     test::OobeJS().SelectElementInPath(language,
                                        {"connect", "languageSelect", "select"});
@@ -240,12 +248,11 @@ class SyncConsentTest : public OobeBaseTest {
   LoginManagerMixin login_manager_mixin_{&mixin_host_};
 
   std::unique_ptr<base::AutoReset<bool>> force_branded_build_;
-  base::test::ScopedFeatureList feature_list_;
   DISALLOW_COPY_AND_ASSIGN(SyncConsentTest);
 };
 
 IN_PROC_BROWSER_TEST_F(SyncConsentTest, SkippedNotBrandedBuild) {
-  auto autoreset = SyncConsentScreen::ForceBrandedBuildForTesting(false);
+  auto autoreset = WizardController::ForceBrandedBuildForTesting(false);
   LoginToSyncConsentScreen();
 
   WaitForScreenExit();
@@ -257,7 +264,7 @@ IN_PROC_BROWSER_TEST_F(SyncConsentTest, SkippedNotBrandedBuild) {
 
 IN_PROC_BROWSER_TEST_F(SyncConsentTest, SkippedSyncDisabledByPolicy) {
   // Set up screen and policy.
-  auto autoreset = SyncConsentScreen::ForceBrandedBuildForTesting(true);
+  auto autoreset = WizardController::ForceBrandedBuildForTesting(true);
   SyncConsentScreen* screen = GetSyncConsentScreen();
   screen->SetProfileSyncDisabledByPolicyForTesting(true);
 
@@ -291,11 +298,9 @@ IN_PROC_BROWSER_TEST_F(SyncConsentRecorderTest, SyncConsentRecorder) {
   ConsentRecordedWaiter consent_recorded_waiter;
   screen->SetDelegateForTesting(&consent_recorded_waiter);
 
-  test::OobeJS().CreateVisibilityWaiter(true, {"sync-consent-impl"})->Wait();
-  test::OobeJS().ExpectVisiblePath(
-      {"sync-consent-impl", "syncConsentOverviewDialog"});
-  test::OobeJS().TapOnPath(
-      {"sync-consent-impl", "settingsSaveAndContinueButton"});
+  test::OobeJS().CreateVisibilityWaiter(true, {kSyncConsent})->Wait();
+  test::OobeJS().ExpectVisiblePath(kOverviewDialog);
+  test::OobeJS().TapOnPath(kSettingsSaveAndContinueButton);
   consent_recorded_waiter.Wait();
   screen->SetDelegateForTesting(nullptr);  // cleanup
 
@@ -342,9 +347,8 @@ IN_PROC_BROWSER_TEST_P(SyncConsentTestWithParams, SyncConsentTestWithLocale) {
   ConsentRecordedWaiter consent_recorded_waiter;
   screen->SetDelegateForTesting(&consent_recorded_waiter);
 
-  test::OobeJS().CreateVisibilityWaiter(true, {"sync-consent-impl"})->Wait();
-  test::OobeJS().TapOnPath(
-      {"sync-consent-impl", "settingsSaveAndContinueButton"});
+  test::OobeJS().CreateVisibilityWaiter(true, {kSyncConsent})->Wait();
+  test::OobeJS().TapOnPath(kSettingsSaveAndContinueButton);
   consent_recorded_waiter.Wait();
   screen->SetDelegateForTesting(nullptr);
 
@@ -427,14 +431,13 @@ IN_PROC_BROWSER_TEST_F(SyncConsentSplitSettingsSyncTest, MAYBE_DefaultFlow) {
   screen->SetProfileSyncDisabledByPolicyForTesting(false);
   screen->SetProfileSyncEngineInitializedForTesting(true);
   screen->OnStateChanged(nullptr);
-  test::OobeJS().CreateVisibilityWaiter(true, {"sync-consent-impl"})->Wait();
+  test::OobeJS().CreateVisibilityWaiter(true, {kSyncConsent})->Wait();
 
   // Dialog is visible.
-  test::OobeJS().ExpectVisiblePath(
-      {"sync-consent-impl", "splitSettingsSyncConsentDialog"});
+  test::OobeJS().ExpectVisiblePath(kSplitSettingsDialog);
 
   // Click the accept button and wait for the JS to C++ callback.
-  test::OobeJS().ClickOnPath({"sync-consent-impl", "acceptButton"});
+  test::OobeJS().ClickOnPath(kAcceptButton);
   consent_recorded_waiter.Wait();
   screen->SetDelegateForTesting(nullptr);
 
@@ -507,10 +510,10 @@ IN_PROC_BROWSER_TEST_F(SyncConsentSplitSettingsSyncTest, MAYBE_DisableSync) {
   screen->SetProfileSyncDisabledByPolicyForTesting(false);
   screen->SetProfileSyncEngineInitializedForTesting(true);
   screen->OnStateChanged(nullptr);
-  test::OobeJS().CreateVisibilityWaiter(true, {"sync-consent-impl"})->Wait();
+  test::OobeJS().CreateVisibilityWaiter(true, {kSyncConsent})->Wait();
 
   // Click the decline button and wait for the JS to C++ callback.
-  test::OobeJS().ClickOnPath({"sync-consent-impl", "declineButton"});
+  test::OobeJS().ClickOnPath(kDeclineButton);
   consent_recorded_waiter.Wait();
   screen->SetDelegateForTesting(nullptr);
 
@@ -547,8 +550,8 @@ IN_PROC_BROWSER_TEST_F(SyncConsentSplitSettingsSyncTest, LanguageSwitch) {
   ConsentRecordedWaiter consent_recorded_waiter;
   screen->SetDelegateForTesting(&consent_recorded_waiter);
 
-  test::OobeJS().CreateVisibilityWaiter(true, {"sync-consent-impl"})->Wait();
-  test::OobeJS().TapOnPath({"sync-consent-impl", "acceptButton"});
+  test::OobeJS().CreateVisibilityWaiter(true, {kSyncConsent})->Wait();
+  test::OobeJS().TapOnPath(kAcceptButton);
   consent_recorded_waiter.Wait();
   screen->SetDelegateForTesting(nullptr);
 
@@ -567,8 +570,8 @@ IN_PROC_BROWSER_TEST_F(SyncConsentSplitSettingsSyncTest, LanguageVariant) {
   ConsentRecordedWaiter consent_recorded_waiter;
   screen->SetDelegateForTesting(&consent_recorded_waiter);
 
-  test::OobeJS().CreateVisibilityWaiter(true, {"sync-consent-impl"})->Wait();
-  test::OobeJS().TapOnPath({"sync-consent-impl", "acceptButton"});
+  test::OobeJS().CreateVisibilityWaiter(true, {kSyncConsent})->Wait();
+  test::OobeJS().TapOnPath(kAcceptButton);
   consent_recorded_waiter.Wait();
   screen->SetDelegateForTesting(nullptr);
 
@@ -581,7 +584,7 @@ IN_PROC_BROWSER_TEST_F(SyncConsentSplitSettingsSyncTest, LanguageVariant) {
 
 IN_PROC_BROWSER_TEST_F(SyncConsentSplitSettingsSyncTest,
                        SkippedNotBrandedBuild) {
-  auto autoreset = SyncConsentScreen::ForceBrandedBuildForTesting(false);
+  auto autoreset = WizardController::ForceBrandedBuildForTesting(false);
   LoginToSyncConsentScreen();
   WaitForScreenExit();
   EXPECT_EQ(screen_result_.value(), SyncConsentScreen::Result::NOT_APPLICABLE);
@@ -656,7 +659,6 @@ IN_PROC_BROWSER_TEST_F(SyncConsentActiveDirectoryTest, LoginDoesNotStartSync) {
   ad_login_.TestLoginVisible();
   ad_login_.SubmitActiveDirectoryCredentials(
       "test-user@locally-managed.localhost", "password");
-  test::WaitForLastScreenAndTapGetStarted();
   test::WaitForPrimaryUserSessionStart();
 
   // OS sync is off.

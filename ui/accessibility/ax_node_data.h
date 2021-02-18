@@ -23,6 +23,13 @@
 
 namespace ui {
 
+// Defines the type used for AXNode IDs.
+using AXNodeID = int32_t;
+
+// If a node is not yet or no longer valid, its ID should have a value of
+// kInvalidAXID.
+static constexpr AXNodeID kInvalidAXNodeID = 0;
+
 // Return true if |attr| should be interpreted as the id of another node
 // in the same tree.
 AX_BASE_EXPORT bool IsNodeIdIntAttribute(ax::mojom::IntAttribute attr);
@@ -220,6 +227,9 @@ struct AX_BASE_EXPORT AXNodeData {
   // Helper to determine if the data has the ignored state or ignored role.
   bool IsIgnored() const;
 
+  // Helper to determine if the data has the invisible state.
+  bool IsInvisible() const;
+
   // Helper to determine if the data has the ignored state, the invisible state
   // or the ignored role.
   bool IsInvisibleOrIgnored() const;
@@ -258,7 +268,7 @@ struct AX_BASE_EXPORT AXNodeData {
   bool IsReadOnlyOrDisabled() const;
 
   // Helper to determine if the data belongs to a node that supports
-  // range-based value.
+  // range-based values.
   bool IsRangeValueSupported() const;
 
   // Helper to determine if the data belongs to a node that supports

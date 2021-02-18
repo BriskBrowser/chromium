@@ -5,6 +5,7 @@
 #include "base/command_line.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/video_capture_service.h"
 #include "content/public/common/content_features.h"
@@ -27,15 +28,6 @@
 #include "services/video_capture/public/mojom/virtual_device.mojom.h"
 
 namespace content {
-
-// The mediadevices.ondevicechange event is currently not supported on Android.
-#if defined(OS_ANDROID)
-#define MAYBE_AddingAndRemovingVirtualDeviceTriggersMediaElementOnDeviceChange \
-  DISABLED_AddingAndRemovingVirtualDeviceTriggersMediaElementOnDeviceChange
-#else
-#define MAYBE_AddingAndRemovingVirtualDeviceTriggersMediaElementOnDeviceChange \
-  AddingAndRemovingVirtualDeviceTriggersMediaElementOnDeviceChange
-#endif
 
 namespace {
 
@@ -273,6 +265,16 @@ IN_PROC_BROWSER_TEST_P(WebRtcVideoCaptureServiceEnumerationBrowserTest,
   // Tear down
   DisconnectFromService();
 }
+
+// The mediadevices.ondevicechange event is currently not supported on Android.
+// Flaky on ChromeOS.  https://crbug.com/1126373
+#if defined(OS_ANDROID) || BUILDFLAG(IS_CHROMEOS_ASH)
+#define MAYBE_AddingAndRemovingVirtualDeviceTriggersMediaElementOnDeviceChange \
+  DISABLED_AddingAndRemovingVirtualDeviceTriggersMediaElementOnDeviceChange
+#else
+#define MAYBE_AddingAndRemovingVirtualDeviceTriggersMediaElementOnDeviceChange \
+  AddingAndRemovingVirtualDeviceTriggersMediaElementOnDeviceChange
+#endif
 
 IN_PROC_BROWSER_TEST_P(
     WebRtcVideoCaptureServiceEnumerationBrowserTest,

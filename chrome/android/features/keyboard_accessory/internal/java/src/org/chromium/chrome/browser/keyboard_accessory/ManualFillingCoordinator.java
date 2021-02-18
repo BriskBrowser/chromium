@@ -9,6 +9,7 @@ import android.view.ViewStub;
 
 import androidx.annotation.VisibleForTesting;
 
+import org.chromium.base.ObserverList;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryCoordinator;
 import org.chromium.chrome.browser.keyboard_accessory.data.KeyboardAccessoryData;
@@ -29,7 +30,10 @@ import org.chromium.ui.base.WindowAndroid;
  * fields.
  */
 class ManualFillingCoordinator implements ManualFillingComponent {
+    private final ManualFillingComponentSupplier mComponentSupplier =
+            new ManualFillingComponentSupplier();
     private final ManualFillingMediator mMediator = new ManualFillingMediator();
+    private ObserverList<Observer> mObserverList = new ObserverList<>();
 
     public ManualFillingCoordinator() {}
 
@@ -45,6 +49,8 @@ class ManualFillingCoordinator implements ManualFillingComponent {
         sheetStub.setLayoutResource(R.layout.keyboard_accessory_sheet);
         initialize(windowAndroid, new KeyboardAccessoryCoordinator(mMediator, barStub),
                 new AccessorySheetCoordinator(sheetStub), sheetController);
+        mComponentSupplier.set(this);
+        mComponentSupplier.attach(windowAndroid.getUnownedUserDataHost());
     }
 
     @VisibleForTesting
@@ -55,6 +61,8 @@ class ManualFillingCoordinator implements ManualFillingComponent {
 
     @Override
     public void destroy() {
+        mComponentSupplier.destroy();
+        for (Observer observer : mObserverList) observer.onDestroy();
         mMediator.destroy();
     }
 
@@ -124,6 +132,16 @@ class ManualFillingCoordinator implements ManualFillingComponent {
     @Override
     public boolean isFillingViewShown(View view) {
         return mMediator.isFillingViewShown(view);
+    }
+
+    @Override
+    public boolean addObserver(Observer observer) {
+        return mObserverList.addObserver(observer);
+    }
+
+    @Override
+    public boolean removeObserver(Observer observer) {
+        return mObserverList.addObserver(observer);
     }
 
     @VisibleForTesting

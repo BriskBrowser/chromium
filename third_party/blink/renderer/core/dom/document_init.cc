@@ -29,6 +29,7 @@
 
 #include "third_party/blink/renderer/core/dom/document_init.h"
 
+#include "services/metrics/public/cpp/ukm_source_id.h"
 #include "third_party/blink/public/mojom/security_context/insecure_request_policy.mojom-blink.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_implementation.h"
@@ -37,7 +38,6 @@
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
-#include "third_party/blink/renderer/core/html/custom/v0_custom_element_registration_context.h"
 #include "third_party/blink/renderer/core/html/html_document.h"
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
 #include "third_party/blink/renderer/core/html/html_view_source_document.h"
@@ -110,6 +110,11 @@ DocumentInit& DocumentInit::ForInitialEmptyDocument(bool empty) {
   return *this;
 }
 
+DocumentInit& DocumentInit::ForPrerendering(bool is_prerendering) {
+  is_prerendering_ = is_prerendering;
+  return *this;
+}
+
 // static
 DocumentInit::Type DocumentInit::ComputeDocumentType(
     LocalFrame* frame,
@@ -136,8 +141,7 @@ DocumentInit::Type DocumentInit::ComputeDocumentType(
   if (HTMLMediaElement::GetSupportsType(ContentType(mime_type)))
     return Type::kMedia;
 
-  if (frame && frame->GetPage() &&
-      frame->Loader().AllowPlugins(kNotAboutToInstantiatePlugin)) {
+  if (frame && frame->GetPage() && frame->Loader().AllowPlugins()) {
     PluginData* plugin_data = GetPluginData(frame, url);
 
     // Everything else except text/plain can be overridden by plugins.
@@ -213,7 +217,30 @@ DocumentInit& DocumentInit::WithURL(const KURL& url) {
 }
 
 const KURL& DocumentInit::GetCookieUrl() const {
-  return owner_document_ ? owner_document_->CookieURL() : url_;
+  const KURL& cookie_url =
+      owner_document_ ? owner_document_->CookieURL() : url_;
+
+  // An "about:blank" should inherit the `cookie_url` from the initiator of the
+  // navigation, but sometimes "about:blank" may commit without an
+  // `owner_document` (e.g. if the original initiator has been navigated away).
+  // In such scenario, it is important to use a safe `cookie_url` (e.g.
+  // kCookieAverseUrl) to avoid triggering mojo::ReportBadMessage and renderer
+  // kills via RestrictedCookieManager::ValidateAccessToCookiesAt.
+  //
+  // TODO(https://crbug.com/1176291): Correctly inherit the `cookie_url` from
+  // the initiator.
+  if (cookie_url.IsAboutBlankURL()) {
+    // Signify a cookie-averse document [1] with an null URL.  See how
+    // CookiesJar::GetCookies and other methods check `cookie_url` against
+    // KURL::IsEmpty.
+    //
+    // [1] https://html.spec.whatwg.org/#cookie-averse-document-object
+    const KURL& kCookieAverseUrl = NullURL();
+
+    return kCookieAverseUrl;
+  }
+
+  return cookie_url;
 }
 
 DocumentInit& DocumentInit::WithSrcdocDocument(bool is_srcdoc_document) {
@@ -222,35 +249,14 @@ DocumentInit& DocumentInit::WithSrcdocDocument(bool is_srcdoc_document) {
 }
 
 
-DocumentInit& DocumentInit::WithRegistrationContext(
-    V0CustomElementRegistrationContext* registration_context) {
-  DCHECK(!create_new_registration_context_);
-  DCHECK(!registration_context_);
-  registration_context_ = registration_context;
-  return *this;
-}
-
-DocumentInit& DocumentInit::WithNewRegistrationContext() {
-  DCHECK(!create_new_registration_context_);
-  DCHECK(!registration_context_);
-  create_new_registration_context_ = true;
-  return *this;
-}
-
-V0CustomElementRegistrationContext* DocumentInit::RegistrationContext(
-    Document* document) const {
-  if (!IsA<HTMLDocument>(document) && !document->IsXHTMLDocument())
-    return nullptr;
-
-  if (create_new_registration_context_)
-    return MakeGarbageCollected<V0CustomElementRegistrationContext>();
-
-  return registration_context_;
-}
-
 DocumentInit& DocumentInit::WithWebBundleClaimedUrl(
     const KURL& web_bundle_claimed_url) {
   web_bundle_claimed_url_ = web_bundle_claimed_url;
+  return *this;
+}
+
+DocumentInit& DocumentInit::WithUkmSourceId(ukm::SourceId ukm_source_id) {
+  ukm_source_id_ = ukm_source_id;
   return *this;
 }
 

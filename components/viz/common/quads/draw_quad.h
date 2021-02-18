@@ -38,7 +38,7 @@ class VIZ_COMMON_EXPORT DrawQuad {
     kDebugBorder,
     kPictureContent,
     // This is the compositor, pre-aggregation, draw quad.
-    kRenderPass,
+    kCompositorRenderPass,
     // This is the viz, post-aggregation, draw quad.
     kAggregatedRenderPass,
     kSolidColor,
@@ -79,7 +79,7 @@ class VIZ_COMMON_EXPORT DrawQuad {
   bool ShouldDrawWithBlending() const {
     return needs_blending || shared_quad_state->opacity < 1.0f ||
            shared_quad_state->blend_mode != SkBlendMode::kSrcOver ||
-           !shared_quad_state->rounded_corner_bounds.IsEmpty();
+           !shared_quad_state->mask_filter_info.IsEmpty();
   }
 
   // Is the left edge of this tile aligned with the originating layer's

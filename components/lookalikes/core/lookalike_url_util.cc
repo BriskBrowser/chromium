@@ -15,6 +15,7 @@
 #include "base/memory/singleton.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -22,10 +23,12 @@
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/time/default_clock.h"
+#include "base/trace_event/trace_event.h"
 #include "base/values.h"
 #include "components/lookalikes/core/features.h"
 #include "components/security_interstitials/core/pref_names.h"
 #include "components/security_state/core/features.h"
+#include "components/url_formatter/spoof_checks/common_words/common_words_util.h"
 #include "components/url_formatter/spoof_checks/top_domains/top500_domains.h"
 #include "components/url_formatter/spoof_checks/top_domains/top_domain_util.h"
 #include "components/url_formatter/url_formatter.h"
@@ -34,7 +37,7 @@
 
 namespace lookalikes {
 
-const char kHistogramName[] = "NavigationSuggestion.Event";
+const char kHistogramName[] = "NavigationSuggestion.Event2";
 
 void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterListPref(prefs::kLookalikeWarningAllowlistDomains);
@@ -55,16 +58,25 @@ const size_t kMinE2LDLengthForTargetEmbedding = 4;
 
 // This list will be added to the static list of common words so common words
 // could be added to the list using a flag if needed.
-const base::FeatureParam<std::string> kAdditionalCommonWords{
+const base::FeatureParam<std::string> kRemoveAdditionalCommonWords{
     &lookalikes::features::kDetectTargetEmbeddingLookalikes,
     "additional_common_words", ""};
 
 // We might not protect a domain whose e2LD is a common word in target embedding
-// based on the TLD that is paired with it.
-const char* kCommonWords[] = {"shop",  "jobs",     "live",   "info",  "study",
-                              "asahi", "weather",  "health", "forum", "radio",
-                              "ideal", "research", "france", "free",  "mobile",
-                              "sky",   "ask"};
+// based on the TLD that is paired with it. This list supplements words from
+// url_formatter::common_words::IsCommonWord().
+const char* kLocalAdditionalCommonWords[] = {"asahi", "hoteles", "jharkhand",
+                                             "nifty"};
+
+// These domains are plausible lookalike targets, but they also use common words
+// in their names. Selectively prevent flagging embeddings where the embedder
+// ends in "-DOMAIN.TLD", since these tend to have higher false positive rates.
+const char* kDomainsPermittedInEndEmbeddings[] = {"office.com", "medium.com",
+                                                  "orange.fr"};
+
+// What separators can be used to separate tokens in target embedding spoofs?
+// e.g. www-google.com.example.com uses "-" (www-google) and "." (google.com).
+const char kTargetEmbeddingSeparators[] = "-.";
 
 bool SkeletonsMatch(const url_formatter::Skeletons& skeletons1,
                     const url_formatter::Skeletons& skeletons2) {
@@ -178,11 +190,12 @@ void RecordEvent(NavigationSuggestionEvent event) {
 // Returns the parts of the domain that are separated by "." or "-", not
 // including the eTLD.
 //
-// |host_without_etld| must outlive the return value since the vector contains
+// |hostname| must outlive the return value since the vector contains
 // StringPieces.
-std::vector<base::StringPiece> SplitDomainWithouteTLDIntoTokens(
-    const std::string& host_without_etld) {
-  return base::SplitStringPiece(host_without_etld, "-.", base::TRIM_WHITESPACE,
+std::vector<base::StringPiece> SplitDomainIntoTokens(
+    const std::string& hostname) {
+  return base::SplitStringPiece(hostname, kTargetEmbeddingSeparators,
+                                base::TRIM_WHITESPACE,
                                 base::SPLIT_WANT_NONEMPTY);
 }
 
@@ -227,6 +240,13 @@ std::string GetMatchingTopDomainWithoutSeparators(
   return std::string();
 }
 
+// Returns whether the visited domain is either for a bare eTLD+1 (e.g.
+// 'google.com') or a trivial subdomain (e.g. 'www.google.com').
+bool IsETLDPlusOneOrTrivialSubdomain(const DomainInfo& host) {
+  return (host.domain_and_registry == host.hostname ||
+          "www." + host.domain_and_registry == host.hostname);
+}
+
 // Returns if |etld_plus_one| shares the skeleton of an eTLD+1 with an engaged
 // site or a top 500 domain. |embedded_target| is set to matching eTLD+1.
 bool DoesETLDPlus1MatchTopDomainOrEngagedSite(
@@ -235,7 +255,11 @@ bool DoesETLDPlus1MatchTopDomainOrEngagedSite(
     std::string* embedded_target) {
   for (const auto& skeleton : domain.skeletons) {
     for (const auto& engaged_site : engaged_sites) {
-      if (base::Contains(engaged_site.skeletons, skeleton)) {
+      // Skeleton matching only calculates skeletons of the eTLD+1, so only
+      // consider engaged sites that are bare eTLD+1s (or a trivial subdomain)
+      // and are a skeleton match.
+      if (IsETLDPlusOneOrTrivialSubdomain(engaged_site) &&
+          base::Contains(engaged_site.skeletons, skeleton)) {
         *embedded_target = engaged_site.domain_and_registry;
         return true;
       }
@@ -253,31 +277,116 @@ bool DoesETLDPlus1MatchTopDomainOrEngagedSite(
   return false;
 }
 
-// Returns whether the provided token includes a common word, which is a common
-// indication of a likely false positive.
+// Returns whether the e2LD of the provided domain is a common word (e.g.
+// weather.com, ask.com). Target embeddings of these domains are often false
+// positives (e.g. "super-best-fancy-hotels.com" isn't spoofing "hotels.com").
 bool UsesCommonWord(const DomainInfo& domain) {
+  // kDomainsPermittedInEndEmbeddings are based on domains with common words,
+  // but they should not be excluded here (and instead are checked later).
+  for (auto* permitted_ending : kDomainsPermittedInEndEmbeddings) {
+    if (domain.domain_and_registry == permitted_ending) {
+      return false;
+    }
+  }
+
+  // Search for words in the big common word list.
+  if (url_formatter::common_words::IsCommonWord(
+          domain.domain_without_registry)) {
+    return true;
+  }
+
+  // Also check the local lists.
+  for (auto* common_word : kLocalAdditionalCommonWords) {
+    if (domain.domain_without_registry == common_word) {
+      return true;
+    }
+  }
   std::vector<std::string> additional_common_words =
-      base::SplitString(kAdditionalCommonWords.Get(), ",",
+      base::SplitString(kRemoveAdditionalCommonWords.Get(), ",",
                         base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
   if (base::Contains(additional_common_words, domain.domain_without_registry)) {
     return true;
   }
-  for (auto* common_word : kCommonWords) {
-    if (domain.domain_without_registry == common_word) {
+
+  return false;
+}
+
+// Returns whether |domain_labels| is in the same domain as embedding_domain.
+// e.g. IsEmbeddingItself(["foo", "example", "com"], "example.com") -> true
+//  since foo.example.com is in the same domain as example.com.
+bool IsEmbeddingItself(const base::span<const base::StringPiece>& domain_labels,
+                       const std::string& embedding_domain) {
+  DCHECK(domain_labels.size() >= 2);
+  std::string potential_hostname =
+      domain_labels[domain_labels.size() - 1].as_string();
+  // Attach each token from the end to the embedded target to check if that
+  // subdomain is the embedding domain. (e.g. using the earlier example, check
+  // each ["com", "example.com", "foo.example.com"] against "example.com".
+  for (int i = domain_labels.size() - 2; i >= 0; i--) {
+    potential_hostname =
+        domain_labels[i].as_string() + "." + potential_hostname;
+    if (embedding_domain == potential_hostname) {
       return true;
     }
   }
   return false;
 }
 
-// A domain is allowed to be embedded if its e2LD is a common word or any
-// valid partial subdomain is allowlisted.
+// Returns whether |embedded_target| and |embedding_domain| share the same e2LD,
+// (as in, e.g., google.com and google.org, or airbnb.com.br and airbnb.com).
+// Assumes |embedding_domain| is an eTLD+1.
+bool IsCrossTLDMatch(const DomainInfo& embedded_target,
+                     const std::string& embedding_domain) {
+  return (
+      embedded_target.domain_without_registry ==
+      url_formatter::top_domains::HostnameWithoutRegistry(embedding_domain));
+}
+
+// Returns whether |embedded_target| is one of kDomainsPermittedInEndEmbeddings
+// and that |embedding_domain| ends with that domain, e.g. "evil-office.com" is
+// permitted, as "office.com" is in kDomainsPermittedInEndEmbeddings.  Only
+// impacts Target Embedding matches.
+bool EndsWithPermittedDomains(const DomainInfo& embedded_target,
+                              const std::string& embedding_domain) {
+  for (auto* permitted_ending : kDomainsPermittedInEndEmbeddings) {
+    if (embedded_target.domain_and_registry == permitted_ending &&
+        base::EndsWith(embedding_domain,
+                       base::StrCat({"-", permitted_ending}))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// A domain is allowed to be embedded if is embedding itself, if its e2LD is a
+// common word, any valid partial subdomain is allowlisted, or if it's a
+// cross-TLD match (e.g. google.com vs google.com.mx).
 bool IsAllowedToBeEmbedded(
     const DomainInfo& embedded_target,
     const base::span<const base::StringPiece>& subdomain_span,
-    const LookalikeTargetAllowlistChecker& in_target_allowlist) {
+    const LookalikeTargetAllowlistChecker& in_target_allowlist,
+    const std::string& embedding_domain) {
   return UsesCommonWord(embedded_target) ||
-         ASubdomainIsAllowlisted(subdomain_span, in_target_allowlist);
+         ASubdomainIsAllowlisted(subdomain_span, in_target_allowlist) ||
+         IsEmbeddingItself(subdomain_span, embedding_domain) ||
+         IsCrossTLDMatch(embedded_target, embedding_domain) ||
+         EndsWithPermittedDomains(embedded_target, embedding_domain);
+}
+
+// Returns the first character of the first string that is different from the
+// second string. Strings should be at least 1 edit distance apart.
+char GetFirstDifferentChar(const std::string& str1, const std::string& str2) {
+  std::string::const_iterator i1 = str1.begin();
+  std::string::const_iterator i2 = str2.begin();
+  while (i1 != str1.end() && i2 != str2.end()) {
+    if (*i1 != *i2) {
+      return *i1;
+    }
+    i1++;
+    i2++;
+  }
+  NOTREACHED();
+  return 0;
 }
 
 }  // namespace
@@ -298,6 +407,7 @@ DomainInfo::~DomainInfo() = default;
 DomainInfo::DomainInfo(const DomainInfo&) = default;
 
 DomainInfo GetDomainInfo(const std::string& hostname) {
+  TRACE_EVENT0("navigation", "GetDomainInfo");
   if (net::HostStringIsLocalhost(hostname) ||
       net::IsHostnameNonUnique(hostname)) {
     return DomainInfo(std::string(), std::string(), std::string(),
@@ -430,6 +540,17 @@ bool IsLikelyEditDistanceFalsePositive(const DomainInfo& navigated_domain,
     }
   }
 
+  // Ignore domains that only differ by an insertion of a "-".
+  if (nav_dom_len != matched_dom_len) {
+    if (nav_dom_len < matched_dom_len &&
+        GetFirstDifferentChar(matched_dom, nav_dom) == '-') {
+      return true;
+    } else if (nav_dom_len > matched_dom_len &&
+               GetFirstDifferentChar(nav_dom, matched_dom) == '-') {
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -447,14 +568,18 @@ bool IsTopDomain(const DomainInfo& domain_info) {
   return false;
 }
 
-bool ShouldBlockLookalikeUrlNavigation(LookalikeUrlMatchType match_type,
-                                       const DomainInfo& navigated_domain) {
+bool ShouldBlockLookalikeUrlNavigation(LookalikeUrlMatchType match_type) {
   if (match_type == LookalikeUrlMatchType::kSiteEngagement) {
     return true;
   }
   if (match_type == LookalikeUrlMatchType::kTargetEmbedding &&
       base::FeatureList::IsEnabled(
           lookalikes::features::kDetectTargetEmbeddingLookalikes)) {
+    return true;
+  }
+  if (match_type == LookalikeUrlMatchType::kFailedSpoofChecks &&
+      base::FeatureList::IsEnabled(
+          lookalikes::features::kLookalikeInterstitialForPunycode)) {
     return true;
   }
   return match_type == LookalikeUrlMatchType::kSkeletonMatchTop500;
@@ -574,10 +699,9 @@ TargetEmbeddingType GetTargetEmbeddingType(
     const std::vector<DomainInfo>& engaged_sites,
     const LookalikeTargetAllowlistChecker& in_target_allowlist,
     std::string* safe_hostname) {
-  const std::string host_without_etld =
-      url_formatter::top_domains::HostnameWithoutRegistry(hostname);
-  const std::vector<base::StringPiece> hostname_tokens_without_etld =
-      SplitDomainWithouteTLDIntoTokens(host_without_etld);
+  const std::string embedding_domain = GetETLDPlusOne(hostname);
+  const std::vector<base::StringPiece> hostname_tokens =
+      SplitDomainIntoTokens(hostname);
 
   // There are O(n^2) potential target embeddings in a domain name. We want to
   // be comprehensive, but optimize so that usually we needn't check all of
@@ -585,21 +709,38 @@ TargetEmbeddingType GetTargetEmbeddingType(
   // the front, checking for a valid eTLD. If we find one, then we consider the
   // possible embedded domains that end in that eTLD (i.e. all possible start
   // points from the beginning of the string onward).
-  for (int end = hostname_tokens_without_etld.size(); end > 0; --end) {
-    base::span<const base::StringPiece> etld_check_span(
-        hostname_tokens_without_etld.data(), end);
+  for (int end = hostname_tokens.size(); end > 0; --end) {
+    base::span<const base::StringPiece> etld_check_span(hostname_tokens.data(),
+                                                        end);
     std::string etld_check_host = base::JoinString(etld_check_span, ".");
     auto etld_check_dominfo = GetDomainInfo(etld_check_host);
 
     // Check if the final token is a no-separator target (e.g. "googlecom").
     // This check happens first so that we can exclude invalid eTLD+1s next.
-    std::string embedded_target = GetMatchingTopDomainWithoutSeparators(
-        hostname_tokens_without_etld[end - 1]);
-    if (!embedded_target.empty() &&
-        !IsAllowedToBeEmbedded(etld_check_dominfo, etld_check_span,
-                               in_target_allowlist)) {
-      *safe_hostname = embedded_target;
-      return TargetEmbeddingType::kInterstitial;
+    std::string embedded_target =
+        GetMatchingTopDomainWithoutSeparators(hostname_tokens[end - 1]);
+    if (!embedded_target.empty()) {
+      // Extract the full possibly-spoofed domain. To get this, we take the
+      // hostname up until this point, strip off the no-separator bit (e.g.
+      // googlecom) and then re-add the the separated version (e.g. google.com).
+      auto spoofed_domain =
+          etld_check_host.substr(
+              0, etld_check_host.length() - hostname_tokens[end - 1].length()) +
+          embedded_target;
+      const auto no_separator_tokens = base::SplitStringPiece(
+          spoofed_domain, kTargetEmbeddingSeparators, base::TRIM_WHITESPACE,
+          base::SPLIT_WANT_NONEMPTY);
+      auto no_separator_dominfo = GetDomainInfo(embedded_target);
+
+      // Only flag on domains that are long enough, don't use common words, and
+      // aren't target-allowlisted.
+      if (no_separator_dominfo.domain_without_registry.length() >
+              kMinE2LDLengthForTargetEmbedding &&
+          !IsAllowedToBeEmbedded(no_separator_dominfo, no_separator_tokens,
+                                 in_target_allowlist, embedding_domain)) {
+        *safe_hostname = embedded_target;
+        return TargetEmbeddingType::kInterstitial;
+      }
     }
 
     // Exclude otherwise-invalid eTLDs.
@@ -618,14 +759,14 @@ TargetEmbeddingType GetTargetEmbeddingType(
     // subdomains ending at |end|.
     for (int start = 0; start < end - 1; ++start) {
       const base::span<const base::StringPiece> span(
-          (hostname_tokens_without_etld.data() + start), end - start);
+          hostname_tokens.data() + start, end - start);
       auto embedded_hostname = base::JoinString(span, ".");
       auto embedded_dominfo = GetDomainInfo(embedded_hostname);
 
       for (auto& engaged_site : engaged_sites) {
         if (engaged_site.hostname == embedded_dominfo.hostname &&
-            !IsAllowedToBeEmbedded(embedded_dominfo, span,
-                                   in_target_allowlist)) {
+            !IsAllowedToBeEmbedded(embedded_dominfo, span, in_target_allowlist,
+                                   embedding_domain)) {
           *safe_hostname = engaged_site.hostname;
           return TargetEmbeddingType::kInterstitial;
         }
@@ -637,7 +778,7 @@ TargetEmbeddingType GetTargetEmbeddingType(
     if (DoesETLDPlus1MatchTopDomainOrEngagedSite(
             etld_check_dominfo, engaged_sites, safe_hostname) &&
         !IsAllowedToBeEmbedded(etld_check_dominfo, etld_check_span,
-                               in_target_allowlist)) {
+                               in_target_allowlist, embedding_domain)) {
       return TargetEmbeddingType::kInterstitial;
     }
   }
@@ -671,13 +812,11 @@ bool IsEmojiRelatedCodepoint(UChar32 codepoint) {
 // check this for non-ASCII scripts as well (e.g. Cyrillic + emoji), but such
 // usage isn't common.
 bool IsASCIIAndEmojiOnly(const base::StringPiece16& text) {
-  base::i18n::UTF16CharIterator iter(text.data(), text.length());
-  while (!iter.end()) {
+  for (base::i18n::UTF16CharIterator iter(text); !iter.end(); iter.Advance()) {
     const UChar32 codepoint = iter.get();
     if (!IsASCII(codepoint) && !IsEmojiRelatedCodepoint(codepoint)) {
       return false;
     }
-    iter.Advance();
   }
   return true;
 }

@@ -6,9 +6,9 @@
 
 #include <memory>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
+#include "base/containers/contains.h"
 #include "base/optional.h"
-#include "base/stl_util.h"
 #include "base/time/time.h"
 #include "content/public/browser/browser_context.h"
 #include "net/cookies/cookie_options.h"

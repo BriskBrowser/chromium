@@ -6,6 +6,7 @@
 
 #include "base/feature_list.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "device/fido/features.h"
 
 #if defined(OS_MAC)
@@ -15,6 +16,10 @@
 #if defined(OS_WIN)
 #include "device/fido/win/authenticator.h"
 #include "device/fido/win/webauthn_api.h"
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "device/fido/cros/authenticator.h"
 #endif
 
 namespace content {
@@ -34,10 +39,12 @@ bool IsUVPlatformAuthenticatorAvailable(
              IsUserVerifyingPlatformAuthenticatorAvailable(win_webauthn_api);
 }
 
-#elif defined(OS_CHROMEOS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH)
 bool IsUVPlatformAuthenticatorAvailable() {
   return base::FeatureList::IsEnabled(
-      device::kWebAuthCrosPlatformAuthenticator);
+             device::kWebAuthCrosPlatformAuthenticator) &&
+         device::ChromeOSAuthenticator::
+             IsUVPlatformAuthenticatorAvailableBlocking();
 }
 
 #else

@@ -13,7 +13,7 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
-#include "chrome/common/web_application_info.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
@@ -112,7 +112,8 @@ void WebAppNavigationBrowserTest::ClickLinkWithModifiersAndWaitForURL(
     const GURL& target_url,
     WebAppNavigationBrowserTest::LinkTarget target,
     const std::string& rel,
-    int modifiers) {
+    int modifiers,
+    blink::WebMouseEvent::Button button) {
   auto observer = GetTestNavigationObserver(target_url);
   std::string script = base::StringPrintf(
       "(() => {"
@@ -134,8 +135,7 @@ void WebAppNavigationBrowserTest::ClickLinkWithModifiersAndWaitForURL(
       rel.c_str());
   ASSERT_TRUE(content::ExecuteScript(web_contents, script));
 
-  content::SimulateMouseClick(web_contents, modifiers,
-                              blink::WebMouseEvent::Button::kLeft);
+  content::SimulateMouseClick(web_contents, modifiers, button);
 
   observer->Wait();
 }
@@ -225,7 +225,7 @@ AppId WebAppNavigationBrowserTest::InstallTestWebApp(
   }
 
   auto web_app_info = std::make_unique<WebApplicationInfo>();
-  web_app_info->app_url = https_server_.GetURL(app_host, GetAppUrlPath());
+  web_app_info->start_url = https_server_.GetURL(app_host, GetAppUrlPath());
   web_app_info->scope = https_server_.GetURL(app_host, app_scope);
   web_app_info->title = base::UTF8ToUTF16(GetAppName());
   web_app_info->description = base::UTF8ToUTF16("Test description");

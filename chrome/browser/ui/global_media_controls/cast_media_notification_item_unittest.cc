@@ -57,12 +57,16 @@ class MockBitmapFetcher : public BitmapFetcher {
 class MockMediaNotificationController
     : public media_message_center::MediaNotificationController {
  public:
-  MOCK_METHOD1(ShowNotification, void(const std::string&));
-  MOCK_METHOD1(HideNotification, void(const std::string&));
-  MOCK_METHOD1(RemoveItem, void(const std::string&));
-  MOCK_CONST_METHOD0(GetTaskRunner, scoped_refptr<base::SequencedTaskRunner>());
-  MOCK_METHOD2(LogMediaSessionActionButtonPressed,
-               void(const std::string&, MediaSessionAction));
+  MOCK_METHOD(void, ShowNotification, (const std::string&));
+  MOCK_METHOD(void, HideNotification, (const std::string&));
+  MOCK_METHOD(void, RemoveItem, (const std::string&));
+  MOCK_METHOD(scoped_refptr<base::SequencedTaskRunner>,
+              GetTaskRunner,
+              (),
+              (const));
+  MOCK_METHOD(void,
+              LogMediaSessionActionButtonPressed,
+              (const std::string&, MediaSessionAction));
 };
 
 class MockMediaNotificationView
@@ -79,6 +83,7 @@ class MockMediaNotificationView
   MOCK_METHOD1(UpdateWithMediaArtwork, void(const gfx::ImageSkia&));
   MOCK_METHOD1(UpdateWithFavicon, void(const gfx::ImageSkia&));
   MOCK_METHOD1(UpdateWithVectorIcon, void(const gfx::VectorIcon& vector_icon));
+  MOCK_METHOD1(UpdateDeviceSelectorAvailability, void(bool availability));
 };
 
 class MockSessionController : public CastMediaSessionController {
@@ -96,7 +101,6 @@ class MockSessionController : public CastMediaSessionController {
 class CastMediaNotificationItemTest : public testing::Test {
  public:
   void SetUp() override {
-    EXPECT_CALL(notification_controller_, ShowNotification(kRouteId));
     auto session_controller = std::make_unique<MockSessionController>(
         mojo::Remote<media_router::mojom::MediaController>());
     session_controller_ = session_controller.get();

@@ -48,6 +48,7 @@ class ContextProvider;
 namespace cc {
 
 class DebugRectHistory;
+class DocumentTransitionRequest;
 class DroppedFrameCounter;
 class HeadsUpDisplayLayerImpl;
 class ImageDecodeCache;
@@ -138,6 +139,8 @@ class CC_EXPORT LayerTreeImpl {
   bool IsSyncTree() const;
   LayerImpl* FindActiveTreeLayerById(int id);
   LayerImpl* FindPendingTreeLayerById(int id);
+  // TODO(bokan): PinchGestureActive is a layering violation, it's not related
+  // to what LayerTreeImpl does.
   bool PinchGestureActive() const;
   const viz::BeginFrameArgs& CurrentBeginFrameArgs() const;
   base::TimeDelta CurrentBeginFrameInterval() const;
@@ -372,12 +375,10 @@ class CC_EXPORT LayerTreeImpl {
     return painted_device_scale_factor_;
   }
 
-  void SetLocalSurfaceIdAllocationFromParent(
-      const viz::LocalSurfaceIdAllocation&
-          local_surface_id_allocation_from_parent);
-  const viz::LocalSurfaceIdAllocation& local_surface_id_allocation_from_parent()
-      const {
-    return local_surface_id_allocation_from_parent_;
+  void SetLocalSurfaceIdFromParent(
+      const viz::LocalSurfaceId& local_surface_id_from_parent);
+  const viz::LocalSurfaceId& local_surface_id_from_parent() const {
+    return local_surface_id_from_parent_;
   }
 
   void RequestNewLocalSurfaceId();
@@ -658,9 +659,8 @@ class CC_EXPORT LayerTreeImpl {
       std::unique_ptr<PendingPageScaleAnimation> pending_animation);
   std::unique_ptr<PendingPageScaleAnimation> TakePendingPageScaleAnimation();
 
-  void AppendEventsMetricsFromMainThread(
-      std::vector<EventMetrics> events_metrics);
-  std::vector<EventMetrics> TakeEventsMetrics();
+  void AppendEventsMetricsFromMainThread(EventMetrics::List events_metrics);
+  EventMetrics::List TakeEventsMetrics();
 
   // Requests that we force send RenderFrameMetadata with the next frame.
   void RequestForceSendMetadata() { force_send_metadata_request_ = true; }
@@ -726,6 +726,10 @@ class CC_EXPORT LayerTreeImpl {
     return host_impl_->DrawTransform();
   }
 
+  bool IsInSynchronousComposite() const {
+    return host_impl_->IsInSynchronousComposite();
+  }
+
   // These functions are used for plumbing DelegatedInkMetadata from blink
   // through the compositor and into viz via a compositor frame. They should
   // only be called after the JS API |updateInkTrailStartPoint| has been
@@ -741,6 +745,21 @@ class CC_EXPORT LayerTreeImpl {
   size_t events_metrics_from_main_thread_count_for_testing() const {
     return events_metrics_from_main_thread_.size();
   }
+
+  bool device_viewport_rect_changed() const {
+    return device_viewport_rect_changed_;
+  }
+
+  // Add a document transition request from the embedder.
+  void AddDocumentTransitionRequest(
+      std::unique_ptr<DocumentTransitionRequest> request);
+
+  // Returns all of the document transition requests stored so far, and empties
+  // the internal list.
+  std::vector<std::unique_ptr<DocumentTransitionRequest>>
+  TakeDocumentTransitionRequests();
+
+  bool HasDocumentTransitionRequests() const;
 
  protected:
   float ClampPageScaleFactorToLimits(float page_scale_factor) const;
@@ -789,10 +808,11 @@ class CC_EXPORT LayerTreeImpl {
   float painted_device_scale_factor_;
   gfx::DisplayColorSpaces display_color_spaces_;
 
-  viz::LocalSurfaceIdAllocation local_surface_id_allocation_from_parent_;
+  viz::LocalSurfaceId local_surface_id_from_parent_;
   bool new_local_surface_id_request_ = false;
   // Contains the physical rect of the device viewport, to be used in
   // determining what needs to be drawn.
+  bool device_viewport_rect_changed_ = false;
   gfx::Rect device_viewport_rect_;
 
   scoped_refptr<SyncedElasticOverscroll> elastic_overscroll_;
@@ -892,9 +912,13 @@ class CC_EXPORT LayerTreeImpl {
   std::vector<LayerTreeHost::PresentationTimeCallback> presentation_callbacks_;
 
   // Event metrics that are reported back from the main thread.
-  std::vector<EventMetrics> events_metrics_from_main_thread_;
+  EventMetrics::List events_metrics_from_main_thread_;
 
   std::unique_ptr<viz::DelegatedInkMetadata> delegated_ink_metadata_;
+
+  // Document transition requests to be transferred to Viz.
+  std::vector<std::unique_ptr<DocumentTransitionRequest>>
+      document_transition_requests_;
 };
 
 }  // namespace cc

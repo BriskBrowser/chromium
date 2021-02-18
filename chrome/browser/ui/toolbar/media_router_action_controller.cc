@@ -5,12 +5,13 @@
 #include "chrome/browser/ui/toolbar/media_router_action_controller.h"
 
 #include "base/bind.h"
-#include "chrome/browser/media/router/media_router.h"
-#include "chrome/browser/media/router/media_router_factory.h"
 #include "chrome/browser/media/router/media_router_feature.h"
-#include "chrome/browser/media/router/media_router_metrics.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/pref_names.h"
+#include "components/media_router/browser/media_router.h"
+#include "components/media_router/browser/media_router_factory.h"
+#include "components/media_router/browser/media_router_metrics.h"
+#include "components/media_router/common/pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -147,14 +148,14 @@ MediaRouterActionController::MediaRouterActionController(
   pref_change_registrar_.Init(profile->GetPrefs());
   pref_change_registrar_.Add(
       prefs::kShowCastIconInToolbar,
-      base::Bind(&MediaRouterActionController::MaybeAddOrRemoveAction,
-                 base::Unretained(this)));
+      base::BindRepeating(&MediaRouterActionController::MaybeAddOrRemoveAction,
+                          base::Unretained(this)));
   if (profile_->IsRegularProfile()) {
     media_router::MediaRouterMetrics::RecordIconStateAtInit(
         MediaRouterActionController::GetAlwaysShowActionPref(profile_));
     media_router::MediaRouterMetrics::RecordCloudPrefAtInit(
         profile_->GetPrefs()->GetBoolean(
-            prefs::kMediaRouterEnableCloudServices));
+            media_router::prefs::kMediaRouterEnableCloudServices));
   }
 }
 

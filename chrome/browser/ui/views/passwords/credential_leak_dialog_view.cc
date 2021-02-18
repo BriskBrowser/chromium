@@ -19,6 +19,7 @@
 #include "ui/views/bubble/tooltip_icon.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/fill_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace {
 
@@ -28,6 +29,20 @@ void UpdateImageView(NonAccessibleImageView* image_view,
   image_view->SetImage(
       *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
           dark_mode_enabled ? IDR_PASSWORD_CHECK_DARK : IDR_PASSWORD_CHECK));
+  gfx::Size preferred_size = image_view->GetPreferredSize();
+  if (!preferred_size.IsEmpty()) {
+    float max_width =
+        static_cast<float>(ChromeLayoutProvider::Get()->GetDistanceMetric(
+            views::DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH));
+    // Reduce width by a pixel on each side. This enforces that the banner image
+    // is rescaled during the ImageView::OnPaint step. Without the rescaling,
+    // the image will display compression artifacts due to the size mismatch.
+    // TODO(crbug.com/1171763): Remove once the scaling works automatically.
+    max_width -= 2;
+    const float scale = max_width / preferred_size.width();
+    preferred_size = gfx::ScaleToRoundedSize(preferred_size, scale);
+    image_view->SetImageSize(preferred_size);
+  }
 }
 
 // Creates the illustration which is rendered on top of the dialog.
@@ -44,7 +59,7 @@ std::unique_ptr<views::TooltipIcon> CreateInfoIcon() {
       password_manager::GetLeakDetectionTooltip());
   explanation_tooltip->set_bubble_width(
       ChromeLayoutProvider::Get()->GetDistanceMetric(
-          DISTANCE_BUBBLE_PREFERRED_WIDTH));
+          views::DISTANCE_BUBBLE_PREFERRED_WIDTH));
   explanation_tooltip->set_anchor_point_arrow(
       views::BubbleBorder::Arrow::TOP_RIGHT);
   return explanation_tooltip;
@@ -65,7 +80,12 @@ CredentialLeakDialogView::CredentialLeakDialogView(
   SetButtonLabel(ui::DIALOG_BUTTON_OK, controller_->GetAcceptButtonLabel());
   SetButtonLabel(ui::DIALOG_BUTTON_CANCEL, controller_->GetCancelButtonLabel());
 
-  using ControllerClosureFn = void (CredentialLeakDialogController::*)(void);
+  SetModalType(ui::MODAL_TYPE_CHILD);
+  SetShowCloseButton(false);
+  set_fixed_width(views::LayoutProvider::Get()->GetDistanceMetric(
+      views::DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH));
+
+  using ControllerClosureFn = void (CredentialLeakDialogController::*)();
   auto close_callback = [](CredentialLeakDialogController** controller,
                            ControllerClosureFn fn) {
     // Null out the controller pointer stored in the parent object, to avoid any
@@ -106,21 +126,6 @@ void CredentialLeakDialogView::ControllerGone() {
     GetWidget()->Close();
 }
 
-ui::ModalType CredentialLeakDialogView::GetModalType() const {
-  return ui::MODAL_TYPE_CHILD;
-}
-
-gfx::Size CredentialLeakDialogView::CalculatePreferredSize() const {
-  const int width = ChromeLayoutProvider::Get()->GetDistanceMetric(
-                        DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH) -
-                    margins().width();
-  return gfx::Size(width, GetHeightForWidth(width));
-}
-
-bool CredentialLeakDialogView::ShouldShowCloseButton() const {
-  return false;
-}
-
 void CredentialLeakDialogView::OnThemeChanged() {
   views::DialogDelegateView::OnThemeChanged();
   GetBubbleFrameView()->SetHeaderView(
@@ -147,6 +152,9 @@ void CredentialLeakDialogView::InitWindow() {
   AddChildView(std::move(description_label));
   SetExtraView(CreateInfoIcon());
 }
+
+BEGIN_METADATA(CredentialLeakDialogView, views::DialogDelegateView)
+END_METADATA
 
 CredentialLeakPrompt* CreateCredentialLeakPromptView(
     CredentialLeakDialogController* controller,

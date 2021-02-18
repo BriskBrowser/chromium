@@ -5,7 +5,6 @@
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_logical_line_item.h"
 
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_item_result.h"
-#include "third_party/blink/renderer/core/layout/ng/inline/ng_text_fragment_builder.h"
 
 namespace blink {
 
@@ -26,8 +25,8 @@ LayoutObject* NGLogicalLineItem::GetMutableLayoutObject() const {
 }
 
 const Node* NGLogicalLineItem::GetNode() const {
-  if (const LayoutObject* layout_object = GetLayoutObject())
-    return layout_object->GetNode();
+  if (const LayoutObject* object = GetLayoutObject())
+    return object->GetNode();
   return nullptr;
 }
 
@@ -39,31 +38,27 @@ const ComputedStyle* NGLogicalLineItem::Style() const {
   return nullptr;
 }
 
-void NGLogicalLineItems::CreateTextFragments(WritingMode writing_mode,
-                                             const String& text_content) {
-  NGTextFragmentBuilder text_builder(writing_mode);
-  for (auto& child : *this) {
-    if (const NGInlineItem* inline_item = child.inline_item) {
-      if (UNLIKELY(child.text_content)) {
-        // Create a generated text fragmment.
-        text_builder.SetText(inline_item->GetLayoutObject(), child.text_content,
-                             inline_item->Style(), inline_item->StyleVariant(),
-                             std::move(child.shape_result), child.MarginSize());
-      } else {
-        // Create a regular text fragmment.
-        DCHECK((inline_item->Type() == NGInlineItem::kText &&
-                (inline_item->TextType() == NGTextType::kNormal ||
-                 inline_item->TextType() == NGTextType::kSymbolMarker)) ||
-               inline_item->Type() == NGInlineItem::kControl);
-        text_builder.SetItem(text_content, *inline_item,
-                             std::move(child.shape_result), child.text_offset,
-                             child.MarginSize());
-      }
-      text_builder.SetIsHiddenForPaint(child.is_hidden_for_paint);
-      DCHECK(!child.fragment);
-      child.fragment = text_builder.ToTextFragment();
-    }
-  }
+std::ostream& operator<<(std::ostream& stream, const NGLogicalLineItem& item) {
+  stream << "NGLogicalLineItem(";
+  if (item.IsPlaceholder())
+    stream << " placeholder";
+  stream << " inline_size=" << item.inline_size;
+  if (item.inline_item)
+    stream << " " << item.inline_item->ToString().Utf8().c_str();
+  if (item.PhysicalFragment())
+    stream << " Fragment=" << *item.PhysicalFragment();
+  if (item.GetLayoutObject())
+    stream << " LayoutObject=" << *item.GetLayoutObject();
+  stream << ")";
+  // Feel free to add more information.
+  return stream;
+}
+
+void NGLogicalLineItem::Trace(Visitor* visitor) const {
+  visitor->Trace(layout_result);
+  visitor->Trace(layout_object);
+  visitor->Trace(out_of_flow_positioned_box);
+  visitor->Trace(unpositioned_float);
 }
 
 NGLogicalLineItem* NGLogicalLineItems::FirstInFlowChild() {
@@ -116,6 +111,10 @@ void NGLogicalLineItems::MoveInBlockDirection(LayoutUnit delta,
                                               unsigned end) {
   for (unsigned index = start; index < end; index++)
     children_[index].rect.offset.block_offset += delta;
+}
+
+void NGLogicalLineItems::Trace(Visitor* visitor) const {
+  visitor->Trace(children_);
 }
 
 }  // namespace blink

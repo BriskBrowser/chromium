@@ -6,12 +6,14 @@
 #define CHROME_BROWSER_PASSWORD_MANAGER_ANDROID_ALL_PASSWORDS_BOTTOM_SHEET_CONTROLLER_H_
 
 #include "base/callback.h"
-#include "base/util/type_safety/pass_key.h"
+#include "base/types/pass_key.h"
+#include "components/autofill/core/common/mojom/autofill_types.mojom-forward.h"
 #include "components/password_manager/core/browser/password_store_consumer.h"
 #include "ui/gfx/native_widget_types.h"
+#include "url/gurl.h"
 
 namespace password_manager {
-class UiCredential;
+class PasswordManagerClient;
 class PasswordManagerDriver;
 }  // namespace password_manager
 
@@ -27,15 +29,19 @@ class AllPasswordsBottomSheetController
  public:
   // No-op constructor for tests.
   AllPasswordsBottomSheetController(
-      util::PassKey<class AllPasswordsBottomSheetControllerTest>,
+      base::PassKey<class AllPasswordsBottomSheetControllerTest>,
       std::unique_ptr<AllPasswordsBottomSheetView> view,
       base::WeakPtr<password_manager::PasswordManagerDriver> driver,
       password_manager::PasswordStore* store,
-      base::OnceCallback<void()> dismissal_callback);
+      base::OnceCallback<void()> dismissal_callback,
+      autofill::mojom::FocusedFieldType focused_field_type,
+      password_manager::PasswordManagerClient* client);
+
   AllPasswordsBottomSheetController(
       content::WebContents* web_contents,
       password_manager::PasswordStore* store,
-      base::OnceCallback<void()> dismissal_callback);
+      base::OnceCallback<void()> dismissal_callback,
+      autofill::mojom::FocusedFieldType focused_field_type);
   ~AllPasswordsBottomSheetController() override;
   AllPasswordsBottomSheetController(const AllPasswordsBottomSheetController&) =
       delete;
@@ -44,13 +50,15 @@ class AllPasswordsBottomSheetController
 
   // PasswordStoreConsumer:
   void OnGetPasswordStoreResults(
-      std::vector<std::unique_ptr<autofill::PasswordForm>> results) override;
+      std::vector<std::unique_ptr<password_manager::PasswordForm>> results)
+      override;
 
   // Instructs AllPasswordsBottomSheetView to show the credentials to the user.
   void Show();
 
   // Informs the controller that the user has made a selection.
-  void OnCredentialSelected(const password_manager::UiCredential& credential);
+  void OnCredentialSelected(const base::string16 username,
+                            const base::string16 password);
 
   // The web page view containing the focused field.
   gfx::NativeView GetNativeView();
@@ -58,6 +66,9 @@ class AllPasswordsBottomSheetController
   // Called from the view when the user dismisses the BottomSheet
   // consumes |dismissal_callback|.
   void OnDismiss();
+
+  // Returns the last committed URL of the frame from |driver_|.
+  const GURL& GetFrameUrl();
 
  private:
   // The controller takes |view_| ownership.
@@ -77,6 +88,14 @@ class AllPasswordsBottomSheetController
   // Either |driver_| is created and owned by this controller or received in
   // constructor specified for tests.
   base::WeakPtr<password_manager::PasswordManagerDriver> driver_;
+
+  // The type of field on which the user is focused, e.g. PASSWORD.
+  autofill::mojom::FocusedFieldType focused_field_type_;
+
+  // The PasswordManagerClient associated with the current |web_contents_|.
+  // Used to tell `PasswordReuseDetectionManager` that a password has been
+  // reused.
+  password_manager::PasswordManagerClient* client_ = nullptr;
 };
 
 #endif  // CHROME_BROWSER_PASSWORD_MANAGER_ANDROID_ALL_PASSWORDS_BOTTOM_SHEET_CONTROLLER_H_

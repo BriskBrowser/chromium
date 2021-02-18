@@ -5,6 +5,7 @@
 #include "ui/views/controls/button/label_button.h"
 
 #include <algorithm>
+#include <string>
 #include <utility>
 
 #include "base/command_line.h"
@@ -72,8 +73,9 @@ class TestLabelButton : public LabelButton {
  public:
   explicit TestLabelButton(const base::string16& text = base::string16(),
                            int button_context = style::CONTEXT_BUTTON)
-      : LabelButton(nullptr, text, button_context) {}
+      : LabelButton(Button::PressedCallback(), text, button_context) {}
 
+  using LabelButton::GetVisualState;
   using LabelButton::image;
   using LabelButton::label;
   using LabelButton::OnThemeChanged;
@@ -141,6 +143,10 @@ class LabelButtonTest : public test::WidgetTest {
   DISALLOW_COPY_AND_ASSIGN(LabelButtonTest);
 };
 
+TEST_F(LabelButtonTest, FocusBehavior) {
+  EXPECT_EQ(PlatformStyle::kDefaultFocusBehavior, button_->GetFocusBehavior());
+}
+
 TEST_F(LabelButtonTest, Init) {
   const base::string16 text(ASCIIToUTF16("abc"));
   TestLabelButton button(text);
@@ -188,7 +194,9 @@ TEST_F(LabelButtonTest, Label) {
   // Clamp the size to a maximum value.
   button_->SetText(long_text);
   button_->SetMaxSize(gfx::Size(short_text_width, 1));
-  EXPECT_EQ(button_->GetPreferredSize(), gfx::Size(short_text_width, 1));
+  const gfx::Size preferred_size = button_->GetPreferredSize();
+  EXPECT_LE(preferred_size.width(), short_text_width);
+  EXPECT_EQ(1, preferred_size.height());
 
   // Clamp the size to a minimum value.
   button_->SetText(short_text);
@@ -196,6 +204,48 @@ TEST_F(LabelButtonTest, Label) {
   button_->SetMinSize(gfx::Size(long_text_width, font_list.GetHeight() * 2));
   EXPECT_EQ(button_->GetPreferredSize(),
             gfx::Size(long_text_width, font_list.GetHeight() * 2));
+}
+
+// Tests LabelButton's usage of SetMaximumWidthSingleLine.
+TEST_F(LabelButtonTest, LabelPreferredSizeWithMaxWidth) {
+  const std::string text_cases[] = {
+      {"The"},
+      {"The quick"},
+      {"The quick brown"},
+      {"The quick brown fox"},
+      {"The quick brown fox jumps"},
+      {"The quick brown fox jumps over"},
+      {"The quick brown fox jumps over the"},
+      {"The quick brown fox jumps over the lazy"},
+      {"The quick brown fox jumps over the lazy dog"},
+  };
+
+  const int width_cases[] = {
+      10, 30, 50, 70, 90, 110, 130, 170, 200, 500,
+  };
+
+  for (bool set_image = false; button_->GetImage(Button::STATE_NORMAL).isNull();
+       set_image = true) {
+    if (set_image)
+      button_->SetImage(Button::STATE_NORMAL, CreateTestImage(16, 16));
+
+    bool preferred_size_is_sometimes_narrower_than_max = false;
+
+    for (size_t i = 0; i < base::size(text_cases); ++i) {
+      for (size_t j = 0; j < base::size(width_cases); ++j) {
+        button_->SetText(ASCIIToUTF16(text_cases[i]));
+        button_->SetMaxSize(gfx::Size(width_cases[j], 30));
+
+        const gfx::Size preferred_size = button_->GetPreferredSize();
+        EXPECT_LE(preferred_size.width(), width_cases[j]);
+
+        if (preferred_size.width() < width_cases[j])
+          preferred_size_is_sometimes_narrower_than_max = true;
+      }
+    }
+
+    EXPECT_TRUE(preferred_size_is_sometimes_narrower_than_max);
+  }
 }
 
 TEST_F(LabelButtonTest, LabelShrinkDown) {
@@ -739,13 +789,12 @@ class InkDropLabelButtonTest : public ViewsTestBase {
     widget_->Init(std::move(params));
     widget_->Show();
 
-    button_ = new LabelButton(nullptr, base::string16());
+    button_ = widget_->SetContentsView(std::make_unique<LabelButton>(
+        Button::PressedCallback(), base::string16()));
 
     test_ink_drop_ = new test::TestInkDrop();
     test::InkDropHostViewTestApi(button_).SetInkDrop(
         base::WrapUnique(test_ink_drop_));
-
-    widget_->SetContentsView(button_);
   }
 
   void TearDown() override {
@@ -789,6 +838,92 @@ TEST_F(InkDropLabelButtonTest, TargetEventHandler) {
   View* target_view = widget_->GetRootView()->GetEventHandlerForPoint(
       button_->bounds().CenterPoint());
   EXPECT_EQ(button_, target_view);
+}
+
+class LabelButtonVisualStateTest : public test::WidgetTest {
+ public:
+  LabelButtonVisualStateTest() = default;
+  LabelButtonVisualStateTest(const LabelButtonVisualStateTest&) = delete;
+  LabelButtonVisualStateTest& operator=(const LabelButtonVisualStateTest&) =
+      delete;
+
+  // testing::Test:
+  void SetUp() override {
+    WidgetTest::SetUp();
+    test_widget_ = CreateTopLevelPlatformWidget();
+    dummy_widget_ = CreateTopLevelPlatformWidget();
+
+    button_ = MakeButtonAsContent(test_widget_);
+
+    style_of_inactive_widget_ =
+        PlatformStyle::kInactiveWidgetControlsAppearDisabled
+            ? Button::STATE_DISABLED
+            : Button::STATE_NORMAL;
+  }
+
+  void TearDown() override {
+    test_widget_->CloseNow();
+    dummy_widget_->CloseNow();
+    WidgetTest::TearDown();
+  }
+
+ protected:
+  std::unique_ptr<Widget> CreateActivatableChildWidget(Widget* parent) {
+    auto child = std::make_unique<Widget>();
+    Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_POPUP);
+    params.parent = parent->GetNativeView();
+    params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+    params.activatable = Widget::InitParams::ACTIVATABLE_YES;
+    child->Init(std::move(params));
+    child->SetContentsView(std::make_unique<View>());
+    return child;
+  }
+
+  TestLabelButton* MakeButtonAsContent(Widget* widget) {
+    return widget->GetContentsView()->AddChildView(
+        std::make_unique<TestLabelButton>());
+  }
+
+  TestLabelButton* button_ = nullptr;
+  Widget* test_widget_ = nullptr;
+  Widget* dummy_widget_ = nullptr;
+  Button::ButtonState style_of_inactive_widget_;
+};
+
+TEST_F(LabelButtonVisualStateTest, IndependentWidget) {
+  test_widget_->ShowInactive();
+  EXPECT_EQ(button_->GetVisualState(), style_of_inactive_widget_);
+
+  test_widget_->Activate();
+  EXPECT_EQ(button_->GetVisualState(), Button::STATE_NORMAL);
+
+  auto paint_as_active_lock = test_widget_->LockPaintAsActive();
+  dummy_widget_->Show();
+  EXPECT_EQ(button_->GetVisualState(), Button::STATE_NORMAL);
+}
+
+TEST_F(LabelButtonVisualStateTest, ChildWidget) {
+  std::unique_ptr<Widget> child_widget =
+      CreateActivatableChildWidget(test_widget_);
+  TestLabelButton* child_button = MakeButtonAsContent(child_widget.get());
+
+  test_widget_->Show();
+  EXPECT_EQ(button_->GetVisualState(), Button::STATE_NORMAL);
+  EXPECT_EQ(child_button->GetVisualState(), Button::STATE_NORMAL);
+
+  dummy_widget_->Show();
+  EXPECT_EQ(button_->GetVisualState(), style_of_inactive_widget_);
+  EXPECT_EQ(child_button->GetVisualState(), style_of_inactive_widget_);
+
+  child_widget->Show();
+#if defined(OS_MAC)
+  // Child widget is in a key window and it will lock its parent.
+  // See crrev.com/c/2048144.
+  EXPECT_EQ(button_->GetVisualState(), Button::STATE_NORMAL);
+#else
+  EXPECT_EQ(button_->GetVisualState(), style_of_inactive_widget_);
+#endif
+  EXPECT_EQ(child_button->GetVisualState(), Button::STATE_NORMAL);
 }
 
 }  // namespace views

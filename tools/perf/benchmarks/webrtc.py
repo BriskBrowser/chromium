@@ -2,20 +2,18 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-from core import perf_benchmark
-
 import page_sets
 from telemetry import benchmark
 from telemetry.timeline import chrome_trace_category_filter
 from telemetry.web_perf import timeline_based_measurement
+from benchmarks import press
 
 
 @benchmark.Info(emails=['qiangchen@chromium.org', # For smoothness metrics
-                        'mbonadei@chromium.org',
-                        'phoglund@chromium.org'],
+                        'mbonadei@chromium.org'],
                 component='Blink>WebRTC',
                 documentation_url='http://bit.ly/webrtc-benchmark')
-class WebrtcPerfBenchmark(perf_benchmark.PerfBenchmark):
+class WebrtcPerfBenchmark(press._PressBenchmark):  # pylint: disable=protected-access
   """Base class for WebRTC metrics for real-time communications tests."""
   page_set = page_sets.WebrtcPageSet
 

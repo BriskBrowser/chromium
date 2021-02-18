@@ -30,6 +30,10 @@ class FakeAudioConsumer
       public fuchsia::media::testing::StreamSink_TestBase,
       public fuchsia::media::audio::testing::VolumeControl_TestBase {
  public:
+  // Lead time range returned from WatchStatus().
+  static const base::TimeDelta kMinLeadTime;
+  static const base::TimeDelta kMaxLeadTime;
+
   FakeAudioConsumer(
       uint64_t session_id,
       fidl::InterfaceRequest<fuchsia::media::AudioConsumer> request);
@@ -152,8 +156,7 @@ class FakeAudioConsumerService
   // Not-implemented handler for SessionAudioConsumerFactory_TestBase.
   void NotImplemented_(const std::string& name) final;
 
-  base::fuchsia::ScopedServiceBinding<
-      fuchsia::media::SessionAudioConsumerFactory>
+  base::ScopedServiceBinding<fuchsia::media::SessionAudioConsumerFactory>
       binding_;
 
   std::vector<std::unique_ptr<FakeAudioConsumer>> audio_consumers_;

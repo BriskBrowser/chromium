@@ -6,6 +6,10 @@
 
 namespace ash {
 
+void ShellDelegate::DesksStateChanged(int num_desks) const {
+  return;
+}
+
 bool ShellDelegate::AllowDefaultTouchActions(gfx::NativeWindow window) {
   return true;
 }
@@ -24,9 +28,16 @@ aura::Window* ShellDelegate::CreateBrowserForTabDrop(
   return nullptr;
 }
 
-media_session::mojom::MediaSessionService*
-ShellDelegate::GetMediaSessionService() {
+media_session::MediaSessionService* ShellDelegate::GetMediaSessionService() {
   return nullptr;
+}
+
+bool ShellDelegate::IsUiDevToolsStarted() const {
+  return false;
+}
+
+int ShellDelegate::GetUiDevToolsPort() const {
+  return -1;
 }
 
 }  // namespace ash

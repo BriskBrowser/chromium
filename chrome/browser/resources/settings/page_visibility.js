@@ -16,7 +16,6 @@ import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
  *   languages: (boolean|undefined),
  *   onStartup: (boolean|undefined),
  *   people: (boolean|undefined),
- *   printing: (boolean|undefined),
  *   privacy: (boolean|undefined|PrivacyPageVisibility),
  *   reset: (boolean|undefined),
  * }}
@@ -62,7 +61,6 @@ if (loadTimeData.getBoolean('isGuest')) {
     defaultBrowser: false,
     advancedSettings: false,
     extensions: false,
-    printing: false,
     languages: false,
   };
   // </if>
@@ -87,7 +85,6 @@ if (loadTimeData.getBoolean('isGuest')) {
     downloads: true,
     a11y: true,
     extensions: false,
-    printing: true,
     languages: true,
   };
   // </if>
@@ -115,7 +112,6 @@ if (loadTimeData.getBoolean('isGuest')) {
     downloads: true,
     a11y: true,
     extensions: true,
-    printing: true,
     languages: true,
   };
   // </if>

@@ -4,21 +4,28 @@
 
 #include "chrome/browser/autofill/manual_filling_controller_impl.h"
 
+#include <numeric>
 #include <utility>
 
 #include "base/callback.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/trace_event/memory_allocator_dump.h"
+#include "base/trace_event/memory_dump_manager.h"
+#include "base/trace_event/memory_usage_estimator.h"
+#include "base/trace_event/process_memory_dump.h"
 #include "chrome/browser/autofill/address_accessory_controller.h"
 #include "chrome/browser/autofill/credit_card_accessory_controller.h"
 #include "chrome/browser/password_manager/android/password_accessory_controller.h"
 #include "chrome/browser/password_manager/android/password_accessory_metrics_util.h"
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "chrome/browser/profiles/profile.h"
+#include "components/autofill/core/browser/ui/accessory_sheet_data.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/core/common/autofill_util.h"
 #include "components/keyed_service/core/service_access_type.h"
 #include "components/password_manager/core/browser/credential_cache.h"
+#include "components/password_manager/core/common/password_manager_features.h"
 #include "content/public/browser/web_contents.h"
 
 using autofill::AccessoryAction;
@@ -52,7 +59,10 @@ FillingSource GetSourceForTab(const AccessorySheetData& accessory_sheet) {
 
 }  // namespace
 
-ManualFillingControllerImpl::~ManualFillingControllerImpl() = default;
+ManualFillingControllerImpl::~ManualFillingControllerImpl() {
+  base::trace_event::MemoryDumpManager::GetInstance()->UnregisterDumpProvider(
+      this);
+}
 
 // static
 base::WeakPtr<ManualFillingController> ManualFillingController::GetOrCreate(
@@ -108,12 +118,16 @@ void ManualFillingControllerImpl::OnAutomaticGenerationStatusChanged(
 void ManualFillingControllerImpl::RefreshSuggestions(
     const AccessorySheetData& accessory_sheet_data) {
   view_->OnItemsAvailable(accessory_sheet_data);
+  available_sheets_.insert_or_assign(GetSourceForTab(accessory_sheet_data),
+                                     accessory_sheet_data);
   UpdateSourceAvailability(GetSourceForTab(accessory_sheet_data),
                            !accessory_sheet_data.user_info_list().empty());
 }
 
 void ManualFillingControllerImpl::NotifyFocusedInputChanged(
     autofill::mojom::FocusedFieldType focused_field_type) {
+  TRACE_EVENT0("passwords",
+               "ManualFillingControllerImpl::NotifyFocusedInputChanged");
   focused_field_type_ = focused_field_type;
 
   // Ensure warnings and filling state is updated according to focused field.
@@ -217,6 +231,9 @@ ManualFillingControllerImpl::ManualFillingControllerImpl(
         CreditCardAccessoryController::GetOrCreate(web_contents)->AsWeakPtr();
     DCHECK(cc_controller_);
   }
+
+  base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
+      this, "ManualFillingCache", base::ThreadTaskRunnerHandle::Get());
 }
 
 ManualFillingControllerImpl::ManualFillingControllerImpl(
@@ -229,7 +246,22 @@ ManualFillingControllerImpl::ManualFillingControllerImpl(
       pwd_controller_for_testing_(std::move(pwd_controller)),
       address_controller_(std::move(address_controller)),
       cc_controller_(std::move(cc_controller)),
-      view_(std::move(view)) {}
+      view_(std::move(view)) {
+  base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
+      this, "ManualFillingCache", base::ThreadTaskRunnerHandle::Get());
+}
+
+bool ManualFillingControllerImpl::OnMemoryDump(
+    const base::trace_event::MemoryDumpArgs& args,
+    base::trace_event::ProcessMemoryDump* process_memory_dump) {
+  auto* dump = process_memory_dump->CreateAllocatorDump(
+      base::StringPrintf("passwords/manual_filling_controller/0x%" PRIXPTR,
+                         reinterpret_cast<uintptr_t>(this)));
+  dump->AddScalar(base::trace_event::MemoryAllocatorDump::kNameSize,
+                  base::trace_event::MemoryAllocatorDump::kUnitsBytes,
+                  base::trace_event::EstimateMemoryUsage(available_sheets_));
+  return true;
+}
 
 bool ManualFillingControllerImpl::ShouldShowAccessory() const {
   // If we only provide password fallbacks (== accessory V1), show them for
@@ -240,7 +272,9 @@ bool ManualFillingControllerImpl::ShouldShowAccessory() const {
           autofill::features::kAutofillManualFallbackAndroid)) {
     return focused_field_type_ == FocusedFieldType::kFillablePasswordField ||
            (focused_field_type_ == FocusedFieldType::kFillableUsernameField &&
-            available_sources_.contains(FillingSource::PASSWORD_FALLBACKS));
+            (base::FeatureList::IsEnabled(
+                 password_manager::features::kFillingPasswordsFromAnyOrigin) ||
+             available_sources_.contains(FillingSource::PASSWORD_FALLBACKS)));
   }
   switch (focused_field_type_) {
     // Always show on password fields to provide management and generation.
@@ -250,7 +284,9 @@ bool ManualFillingControllerImpl::ShouldShowAccessory() const {
     // If there are suggestions, show on usual form fields.
     case FocusedFieldType::kFillableUsernameField:
     case FocusedFieldType::kFillableNonSearchField:
-      return !available_sources_.empty();
+      return !available_sources_.empty() ||
+             base::FeatureList::IsEnabled(
+                 password_manager::features::kFillingPasswordsFromAnyOrigin);
 
     // Even if there are suggestions, don't show on search fields and textareas.
     case FocusedFieldType::kFillableSearchField:
@@ -267,7 +303,13 @@ bool ManualFillingControllerImpl::ShouldShowAccessory() const {
 }
 
 void ManualFillingControllerImpl::UpdateVisibility() {
+  TRACE_EVENT0("passwords", "ManualFillingControllerImpl::UpdateVisibility");
   if (ShouldShowAccessory()) {
+    for (const FillingSource& source : available_sources_) {
+      if (!available_sheets_.contains(source))
+        continue;
+      view_->OnItemsAvailable(available_sheets_.find(source)->second);
+    }
     view_->ShowWhenKeyboardIsVisible();
   } else {
     view_->Hide();

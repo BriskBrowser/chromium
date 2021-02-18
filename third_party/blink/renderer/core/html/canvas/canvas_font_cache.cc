@@ -72,10 +72,8 @@ bool CanvasFontCache::GetFontUsingDefaultStyle(HTMLCanvasElement& element,
   if (!parsed_style)
     return false;
 
-  scoped_refptr<ComputedStyle> font_style =
-      ComputedStyle::Clone(*default_font_style_.get());
-  document_->GetStyleEngine().ComputeFont(element, font_style.get(),
-                                          *parsed_style);
+  ComputedStyle* font_style = ComputedStyle::Clone(*default_font_style_);
+  document_->GetStyleEngine().ComputeFont(element, font_style, *parsed_style);
   fonts_resolved_using_default_style_.insert(font_string,
                                              font_style->GetFont());
   resolved_font = fonts_resolved_using_default_style_.find(font_string)->value;
@@ -92,18 +90,8 @@ MutableCSSPropertyValueSet* CanvasFontCache::ParseFont(
     parsed_style = i->value;
   } else {
     parsed_style =
-        MakeGarbageCollected<MutableCSSPropertyValueSet>(kHTMLStandardMode);
-    CSSParser::ParseValue(
-        parsed_style, CSSPropertyID::kFont, font_string, true,
-        document_->GetExecutionContext()->GetSecureContextMode());
-    if (parsed_style->IsEmpty())
-      return nullptr;
-    // According to
-    // http://lists.w3.org/Archives/Public/public-html/2009Jul/0947.html,
-    // the "inherit", "initial" and "unset" values must be ignored.
-    const CSSValue* font_value =
-        parsed_style->GetPropertyCSSValue(CSSPropertyID::kFontSize);
-    if (font_value && font_value->IsCSSWideKeyword())
+        CSSParser::ParseFont(font_string, document_->GetExecutionContext());
+    if (!parsed_style)
       return nullptr;
     fetched_fonts_.insert(font_string, parsed_style);
     font_lru_list_.PrependOrMoveToFirst(font_string);
@@ -157,6 +145,7 @@ void CanvasFontCache::PruneAll() {
 void CanvasFontCache::Trace(Visitor* visitor) const {
   visitor->Trace(fetched_fonts_);
   visitor->Trace(document_);
+  visitor->Trace(default_font_style_);
 }
 
 void CanvasFontCache::Dispose() {

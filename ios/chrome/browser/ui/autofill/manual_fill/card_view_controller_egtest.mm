@@ -7,7 +7,6 @@
 #import "base/test/ios/wait_util.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #import "ios/chrome/browser/ui/autofill/autofill_app_interface.h"
-#import "ios/chrome/browser/ui/settings/autofill/features.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_actions.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
@@ -97,7 +96,7 @@ BOOL WaitForKeyboardToAppear() {
   GREYCondition* waitForKeyboard = [GREYCondition
       conditionWithName:@"Wait for keyboard"
                   block:^BOOL {
-                    return [ChromeEarlGrey isKeyboardShownWithError:nil];
+                    return [EarlGrey isKeyboardShownWithError:nil];
                   }];
   return [waitForKeyboard waitWithTimeout:kWaitForActionTimeout];
 }
@@ -110,12 +109,6 @@ BOOL WaitForKeyboardToAppear() {
 
 @implementation CreditCardViewControllerTestCase
 
-- (AppLaunchConfiguration)appConfigurationForTestCase {
-  AppLaunchConfiguration config;
-  config.features_enabled.push_back(kCreditCardScanner);
-  return config;
-}
-
 - (void)setUp {
   [super setUp];
   GREYAssertTrue(self.testServer->Start(), @"Test server failed to start.");
@@ -127,8 +120,7 @@ BOOL WaitForKeyboardToAppear() {
 
 - (void)tearDown {
   [AutofillAppInterface clearCreditCardStore];
-  [ChromeEarlGrey rotateDeviceToOrientation:UIDeviceOrientationPortrait
-                                      error:nil];
+  [EarlGrey rotateDeviceToOrientation:UIDeviceOrientationPortrait error:nil];
   [super tearDown];
 }
 
@@ -290,6 +282,16 @@ BOOL WaitForKeyboardToAppear() {
 
 // Tests that the "Add Credit Cards..." action works on OTR.
 - (void)testOTRAddCreditCardsActionOpensAddCreditCardSettings {
+#if TARGET_IPHONE_SIMULATOR
+  // TODO(crbug.com/1163116): Fails for ios14-beta/sdk-simulator.
+  EARL_GREY_TEST_DISABLED(@"Test disabled on simulator.");
+#endif
+  // TODO(crbug.com/1162354): Re-enable this test for iPad after fixing this
+  // issue.
+  if ([ChromeEarlGrey isIPadIdiom]) {
+    EARL_GREY_TEST_DISABLED(@"Test disabled on iPad.");
+  }
+
   [AutofillAppInterface saveLocalCreditCard];
 
   // Open a tab in incognito.
@@ -515,8 +517,8 @@ BOOL WaitForKeyboardToAppear() {
       selectElementWithMatcher:ManualFallbackCreditCardTableViewMatcher()]
       assertWithMatcher:grey_sufficientlyVisible()];
 
-  [ChromeEarlGrey rotateDeviceToOrientation:UIDeviceOrientationLandscapeLeft
-                                      error:nil];
+  [EarlGrey rotateDeviceToOrientation:UIDeviceOrientationLandscapeLeft
+                                error:nil];
 
   // Verify the credit card controller table view is still visible.
   [[EarlGrey

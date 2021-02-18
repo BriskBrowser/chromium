@@ -4,7 +4,22 @@
 
 import {assert, assertNotReached} from 'chrome://resources/js/assert.m.js';
 
-import {isForceSigninEnabled, isSignInProfileCreationSupported} from './policy_helper.js';
+import {isBrowserSigninAllowed, isForceSigninEnabled, isSignInProfileCreationSupported} from './policy_helper.js';
+
+/**
+ * ProfilePickerPages enum.
+ * These values are persisted to logs and should not be renumbered or
+ * re-used.
+ * See tools/metrics/histograms/enums.xml.
+ * @enum {number}
+ */
+const Pages = {
+  MAIN_VIEW: 0,
+  PROFILE_TYPE_CHOICE: 1,
+  LOCAL_PROFILE_CUSTOMIZATION: 2,
+  LOAD_SIGNIN: 3,
+  LOAD_FORCE_SIGNIN: 4,
+};
 
 /**
  * Valid route pathnames.
@@ -21,10 +36,9 @@ export const Routes = {
  */
 export const ProfileCreationSteps = {
   PROFILE_TYPE_CHOICE: 'profileTypeChoice',
-  // Not supported yet
   LOCAL_PROFILE_CUSTOMIZATION: 'localProfileCustomization',
-  // Not supported yet
   LOAD_SIGNIN: 'loadSignIn',
+  LOAD_FORCE_SIGNIN: 'loadForceSignIn',
 };
 
 /**
@@ -35,14 +49,12 @@ function computeStep(route) {
     case Routes.MAIN:
       return 'mainView';
     case Routes.NEW_PROFILE:
-      // TODO(msalama): Adjust once sign in profile creation is supported.
-      // Check DisallowSignIn policy.
-      if (!isSignInProfileCreationSupported()) {
-        assert(!isForceSigninEnabled());
-        return ProfileCreationSteps.LOCAL_PROFILE_CUSTOMIZATION;
-      }
       if (isForceSigninEnabled()) {
-        return ProfileCreationSteps.LOAD_SIGNIN;
+        return ProfileCreationSteps.LOAD_FORCE_SIGNIN;
+      }
+      // TODO(msalama): Adjust once sign in profile creation is supported.
+      if (!isSignInProfileCreationSupported() || !isBrowserSigninAllowed()) {
+        return ProfileCreationSteps.LOCAL_PROFILE_CUSTOMIZATION;
       }
       return ProfileCreationSteps.PROFILE_TYPE_CHOICE;
     default:
@@ -68,8 +80,36 @@ if (!history.state || !history.state.route || !history.state.step) {
           {route: Routes.MAIN, step: computeStep(Routes.MAIN), isFirst: true},
           '', '/');
   }
+  recordPageVisited(history.state.step);
 }
 
+/**
+ * @param {string} step
+ */
+export function recordPageVisited(step) {
+  let page = /** @type {!Pages} */ (Pages.MAIN_VIEW);
+  switch (step) {
+    case 'mainView':
+      page = Pages.MAIN_VIEW;
+      break;
+    case ProfileCreationSteps.PROFILE_TYPE_CHOICE:
+      page = Pages.PROFILE_TYPE_CHOICE;
+      break;
+    case ProfileCreationSteps.LOCAL_PROFILE_CUSTOMIZATION:
+      page = Pages.LOCAL_PROFILE_CUSTOMIZATION;
+      break;
+    case ProfileCreationSteps.LOAD_SIGNIN:
+      page = Pages.LOAD_SIGNIN;
+      break;
+    case ProfileCreationSteps.LOAD_FORCE_SIGNIN:
+      page = Pages.LOAD_FORCE_SIGNIN;
+      break;
+    default:
+      assertNotReached();
+  }
+  chrome.metricsPrivate.recordEnumerationValue(
+      'ProfilePicker.UiVisited', page, Object.keys(Pages).length);
+}
 
 /** @type {!Set<!PolymerElement>} */
 const routeObservers = new Set();
@@ -78,6 +118,7 @@ const routeObservers = new Set();
 function notifyObservers() {
   const route = /** @type {!Routes} */ (history.state.route);
   const step = history.state.step;
+  recordPageVisited(step);
   routeObservers.forEach(observer => {
     (/** @type {{onRouteChange: Function}} */ (observer))
         .onRouteChange(route, step);

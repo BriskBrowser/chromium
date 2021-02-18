@@ -15,6 +15,7 @@
 #include "content/renderer/render_thread_impl.h"
 #include "content/renderer/service_worker/service_worker_provider_context.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
+#include "third_party/blink/public/platform/web_back_forward_cache_loader_helper.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 
 namespace content {
@@ -106,7 +107,12 @@ std::unique_ptr<blink::WebURLLoader>
 ServiceWorkerNetworkProviderForFrame::CreateURLLoader(
     const blink::WebURLRequest& request,
     std::unique_ptr<blink::scheduler::WebResourceLoadingTaskRunnerHandle>
-        task_runner_handle) {
+        freezable_task_runner_handle,
+    std::unique_ptr<blink::scheduler::WebResourceLoadingTaskRunnerHandle>
+        unfreezable_task_runner_handle,
+    blink::CrossVariantMojoRemote<blink::mojom::KeepAliveHandleInterfaceBase>
+        keep_alive_handle,
+    blink::WebBackForwardCacheLoaderHelper back_forward_cache_loader_helper) {
   // RenderThreadImpl is nullptr in some tests.
   if (!RenderThreadImpl::current())
     return nullptr;
@@ -116,7 +122,7 @@ ServiceWorkerNetworkProviderForFrame::CreateURLLoader(
   if (!context() || !context()->GetSubresourceLoaderFactory())
     return nullptr;
 
-  // If the URL is not http(s) or otherwise whitelisted, do not intercept the
+  // If the URL is not http(s) or otherwise allowed, do not intercept the
   // request. Schemes like 'blob' and 'file' are not eligible to be intercepted
   // by service workers.
   // TODO(falken): Let ServiceWorkerSubresourceLoaderFactory handle the request
@@ -138,22 +144,15 @@ ServiceWorkerNetworkProviderForFrame::CreateURLLoader(
             kServiceWorkerInterceptedRequestFromOriginDirtyStyleSheet);
   }
 
-  mojo::PendingRemote<mojom::KeepAliveHandle> keep_alive_handle;
-  if (request.GetKeepalive()) {
-    // This cast is safe because NewDocumentObserver is always created with a
-    // RenderFrameImpl.
-    auto* render_frame_impl =
-        static_cast<RenderFrameImpl*>(observer_->render_frame());
-    render_frame_impl->GetFrameHost()->IssueKeepAliveHandle(
-        keep_alive_handle.InitWithNewPipeAndPassReceiver());
-  }
-
   // Create our own SubresourceLoader to route the request to the controller
   // ServiceWorker.
   return std::make_unique<WebURLLoaderImpl>(
-      RenderThreadImpl::current()->resource_dispatcher(),
-      std::move(task_runner_handle), context()->GetSubresourceLoaderFactory(),
-      std::move(keep_alive_handle));
+      RenderThreadImpl::current()->cors_exempt_header_list(),
+      /*terminate_sync_load_event=*/nullptr,
+      std::move(freezable_task_runner_handle),
+      std::move(unfreezable_task_runner_handle),
+      context()->GetSubresourceLoaderFactory(), std::move(keep_alive_handle),
+      back_forward_cache_loader_helper);
 }
 
 blink::mojom::ControllerServiceWorkerMode

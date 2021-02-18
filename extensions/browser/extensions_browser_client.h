@@ -11,6 +11,7 @@
 
 #include "base/memory/ref_counted.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "content/public/browser/bluetooth_chooser.h"
 #include "content/public/browser/storage_partition_config.h"
 #include "extensions/browser/extension_event_histogram_value.h"
@@ -21,12 +22,11 @@
 #include "mojo/public/cpp/bindings/binder_map.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
+#include "services/network/public/mojom/fetch_api.mojom.h"
 #include "services/network/public/mojom/url_loader.mojom-forward.h"
-#include "third_party/blink/public/mojom/loader/resource_load_info.mojom-shared.h"
 #include "ui/base/page_transition_types.h"
 
 class ExtensionFunctionRegistry;
-class GURL;
 class PrefService;
 
 namespace base {
@@ -42,6 +42,7 @@ class WebContents;
 }  // namespace content
 
 namespace network {
+struct ResourceRequest;
 namespace mojom {
 class NetworkContext;
 }
@@ -49,6 +50,10 @@ class NetworkContext;
 
 namespace update_client {
 class UpdateClient;
+}
+
+namespace url {
+class Origin;
 }
 
 namespace extensions {
@@ -78,6 +83,8 @@ class UserScriptListener;
 class ExtensionsBrowserClient {
  public:
   ExtensionsBrowserClient();
+  ExtensionsBrowserClient(const ExtensionsBrowserClient&) = delete;
+  ExtensionsBrowserClient& operator=(const ExtensionsBrowserClient&) = delete;
   virtual ~ExtensionsBrowserClient();
 
   // Returns the single instance of |this|.
@@ -126,7 +133,7 @@ class ExtensionsBrowserClient {
   virtual content::BrowserContext* GetOriginalContext(
       content::BrowserContext* context) = 0;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Returns a user id hash from |context| or an empty string if no hash could
   // be extracted.
   virtual std::string GetUserIdHashFromContext(
@@ -169,8 +176,8 @@ class ExtensionsBrowserClient {
   // in renderer B. For example, Chrome overrides this to provide support for
   // webview and dev tools. May be called on either the UI or IO thread.
   virtual bool AllowCrossRendererResourceLoad(
-      const GURL& url,
-      blink::mojom::ResourceType resource_type,
+      const network::ResourceRequest& request,
+      network::mojom::RequestDestination destination,
       ui::PageTransition page_transition,
       int child_id,
       bool is_incognito,
@@ -363,10 +370,11 @@ class ExtensionsBrowserClient {
   // Protection policy.
   virtual bool IsScreenshotRestricted(content::WebContents* web_contents) const;
 
+  // Returns true if the given |tab_id| exists.
+  virtual bool IsValidTabId(content::BrowserContext* context, int tab_id) const;
+
  private:
   std::vector<std::unique_ptr<ExtensionsBrowserAPIProvider>> providers_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExtensionsBrowserClient);
 };
 
 }  // namespace extensions

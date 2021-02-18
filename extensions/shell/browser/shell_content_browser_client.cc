@@ -43,6 +43,7 @@
 #include "extensions/shell/browser/shell_navigation_ui_data.h"
 #include "extensions/shell/browser/shell_speech_recognition_manager_delegate.h"
 #include "extensions/shell/common/version.h"  // Generated file.
+#include "services/metrics/public/cpp/ukm_source_id.h"
 #include "url/gurl.h"
 
 #if BUILDFLAG(ENABLE_NACL)
@@ -237,8 +238,10 @@ ShellContentBrowserClient::GetNavigationUIData(
 
 void ShellContentBrowserClient::RegisterNonNetworkNavigationURLLoaderFactories(
     int frame_tree_node_id,
-    base::UkmSourceId ukm_source_id,
+    ukm::SourceIdObj ukm_source_id,
     NonNetworkURLLoaderFactoryMap* factories) {
+  DCHECK(factories);
+
   content::WebContents* web_contents =
       content::WebContents::FromFrameTreeNodeId(frame_tree_node_id);
   factories->emplace(
@@ -254,6 +257,7 @@ void ShellContentBrowserClient::
         NonNetworkURLLoaderFactoryMap* factories) {
   DCHECK(browser_context);
   DCHECK(factories);
+
   factories->emplace(
       extensions::kExtensionScheme,
       extensions::CreateExtensionWorkerMainResourceURLLoaderFactory(
@@ -266,6 +270,7 @@ void ShellContentBrowserClient::
         NonNetworkURLLoaderFactoryMap* factories) {
   DCHECK(browser_context);
   DCHECK(factories);
+
   factories->emplace(
       extensions::kExtensionScheme,
       extensions::CreateExtensionServiceWorkerScriptURLLoaderFactory(
@@ -276,10 +281,11 @@ void ShellContentBrowserClient::RegisterNonNetworkSubresourceURLLoaderFactories(
     int render_process_id,
     int render_frame_id,
     NonNetworkURLLoaderFactoryMap* factories) {
-  auto factory = extensions::CreateExtensionURLLoaderFactory(render_process_id,
-                                                             render_frame_id);
-  if (factory)
-    factories->emplace(extensions::kExtensionScheme, std::move(factory));
+  DCHECK(factories);
+
+  factories->emplace(extensions::kExtensionScheme,
+                     extensions::CreateExtensionURLLoaderFactory(
+                         render_process_id, render_frame_id));
 }
 
 bool ShellContentBrowserClient::WillCreateURLLoaderFactory(
@@ -289,6 +295,7 @@ bool ShellContentBrowserClient::WillCreateURLLoaderFactory(
     URLLoaderFactoryType type,
     const url::Origin& request_initiator,
     base::Optional<int64_t> navigation_id,
+    ukm::SourceIdObj ukm_source_id,
     mojo::PendingReceiver<network::mojom::URLLoaderFactory>* factory_receiver,
     mojo::PendingRemote<network::mojom::TrustedURLLoaderHeaderClient>*
         header_client,
@@ -300,7 +307,7 @@ bool ShellContentBrowserClient::WillCreateURLLoaderFactory(
           browser_context);
   bool use_proxy = web_request_api->MaybeProxyURLLoaderFactory(
       browser_context, frame, render_process_id, type, std::move(navigation_id),
-      factory_receiver, header_client);
+      ukm_source_id, factory_receiver, header_client);
   if (bypass_redirect_checks)
     *bypass_redirect_checks = use_proxy;
   return use_proxy;

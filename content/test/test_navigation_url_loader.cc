@@ -13,34 +13,34 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/ssl_status.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/navigation_policy.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "net/url_request/redirect_info.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
+#include "third_party/blink/public/common/navigation/navigation_policy.h"
 
 namespace content {
 
 TestNavigationURLLoader::TestNavigationURLLoader(
     std::unique_ptr<NavigationRequestInfo> request_info,
     NavigationURLLoaderDelegate* delegate,
-    bool is_served_from_back_forward_cache)
+    NavigationURLLoader::LoaderType loader_type)
     : request_info_(std::move(request_info)),
       delegate_(delegate),
       redirect_count_(0),
-      is_served_from_back_forward_cache_(is_served_from_back_forward_cache) {}
+      loader_type_(loader_type) {}
 
 void TestNavigationURLLoader::FollowRedirect(
     const std::vector<std::string>& removed_headers,
     const net::HttpRequestHeaders& modified_headers,
     const net::HttpRequestHeaders& modified_cors_exempt_headers,
     blink::PreviewsState new_previews_state) {
-  DCHECK(!is_served_from_back_forward_cache_);
+  DCHECK_EQ(loader_type_, NavigationURLLoader::LoaderType::kRegular);
   redirect_count_++;
 }
 
 void TestNavigationURLLoader::SimulateServerRedirect(const GURL& redirect_url) {
-  DCHECK(!is_served_from_back_forward_cache_);
+  DCHECK_EQ(loader_type_, NavigationURLLoader::LoaderType::kRegular);
   net::RedirectInfo redirect_info;
   redirect_info.status_code = 302;
   redirect_info.new_method = "GET";
@@ -52,22 +52,24 @@ void TestNavigationURLLoader::SimulateServerRedirect(const GURL& redirect_url) {
 }
 
 void TestNavigationURLLoader::SimulateError(int error_code) {
-  DCHECK(!is_served_from_back_forward_cache_);
+  DCHECK_EQ(loader_type_, NavigationURLLoader::LoaderType::kRegular);
   SimulateErrorWithStatus(network::URLLoaderCompletionStatus(error_code));
 }
 
 void TestNavigationURLLoader::SimulateErrorWithStatus(
     const network::URLLoaderCompletionStatus& status) {
-  DCHECK(!is_served_from_back_forward_cache_);
+  DCHECK_EQ(loader_type_, NavigationURLLoader::LoaderType::kRegular);
   delegate_->OnRequestFailed(status);
 }
 
 void TestNavigationURLLoader::CallOnRequestRedirected(
     const net::RedirectInfo& redirect_info,
     network::mojom::URLResponseHeadPtr response_head) {
-  DCHECK(!is_served_from_back_forward_cache_);
+  DCHECK_EQ(loader_type_, NavigationURLLoader::LoaderType::kRegular);
   response_head->parsed_headers = network::mojom::ParsedHeaders::New();
-  delegate_->OnRequestRedirected(redirect_info, std::move(response_head));
+  delegate_->OnRequestRedirected(
+      redirect_info, request_info_->isolation_info.network_isolation_key(),
+      std::move(response_head));
 }
 
 void TestNavigationURLLoader::CallOnResponseStarted(
@@ -85,11 +87,12 @@ void TestNavigationURLLoader::CallOnResponseStarted(
           std::move(url_loader_remote),
           url_loader_client_remote.InitWithNewPipeAndPassReceiver());
 
-  delegate_->OnResponseStarted(std::move(url_loader_client_endpoints),
-                               std::move(response_head),
-                               mojo::ScopedDataPipeConsumerHandle(),
-                               GlobalRequestID::MakeBrowserInitiated(), false,
-                               NavigationDownloadPolicy(), base::nullopt);
+  delegate_->OnResponseStarted(
+      std::move(url_loader_client_endpoints), std::move(response_head),
+      mojo::ScopedDataPipeConsumerHandle(),
+      GlobalRequestID::MakeBrowserInitiated(), false,
+      blink::NavigationDownloadPolicy(),
+      request_info_->isolation_info.network_isolation_key(), base::nullopt);
 }
 
 TestNavigationURLLoader::~TestNavigationURLLoader() {}

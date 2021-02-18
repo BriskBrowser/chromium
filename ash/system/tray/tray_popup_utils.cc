@@ -14,13 +14,11 @@
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "ash/style/ash_color_provider.h"
-#include "ash/style/default_color_constants.h"
 #include "ash/system/tray/hover_highlight_view.h"
 #include "ash/system/tray/size_range_layout.h"
 #include "ash/system/tray/tray_constants.h"
-#include "ash/system/tray/tray_popup_item_style.h"
 #include "ash/system/tray/unfocusable_label.h"
-#include "ash/system/unified/unified_system_tray_view.h"
+#include "chromeos/ui/vector_icons/vector_icons.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/geometry/insets.h"
@@ -29,7 +27,6 @@
 #include "ui/views/animation/ink_drop_highlight.h"
 #include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/animation/square_ink_drop_ripple.h"
-#include "ui/views/border.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/md_text_button.h"
 #include "ui/views/controls/button/toggle_button.h"
@@ -220,19 +217,9 @@ views::ImageView* TrayPopupUtils::CreateMainImageView() {
 }
 
 views::ToggleButton* TrayPopupUtils::CreateToggleButton(
-    views::ButtonListener* listener,
+    views::Button::PressedCallback callback,
     int accessible_name_id) {
-  constexpr SkColor kTrackAlpha = 0x66;
-  auto GetColor = [](bool is_on, SkAlpha alpha = SK_AlphaOPAQUE) {
-    AshColorProvider::ContentLayerType type =
-        is_on ? AshColorProvider::ContentLayerType::kIconColorProminent
-              : AshColorProvider::ContentLayerType::kTextColorPrimary;
-
-    return SkColorSetA(AshColorProvider::Get()->GetContentLayerColor(
-                           type, AshColorProvider::AshColorMode::kDark),
-                       alpha);
-  };
-  views::ToggleButton* toggle = new views::ToggleButton(listener);
+  views::ToggleButton* toggle = new views::ToggleButton(std::move(callback));
   const gfx::Size toggle_size(toggle->GetPreferredSize());
   const int vertical_padding = (kMenuButtonSize - toggle_size.height()) / 2;
   const int horizontal_padding =
@@ -240,24 +227,21 @@ views::ToggleButton* TrayPopupUtils::CreateToggleButton(
   toggle->SetBorder(views::CreateEmptyBorder(
       gfx::Insets(vertical_padding, horizontal_padding)));
   toggle->SetAccessibleName(l10n_util::GetStringUTF16(accessible_name_id));
-  toggle->SetThumbOnColor(GetColor(true));
-  toggle->SetThumbOffColor(GetColor(false));
-  toggle->SetTrackOnColor(GetColor(true, kTrackAlpha));
-  toggle->SetTrackOffColor(GetColor(false, kTrackAlpha));
+  UpdateToggleButtonColors(toggle);
   return toggle;
 }
 
 std::unique_ptr<views::Painter> TrayPopupUtils::CreateFocusPainter() {
   return views::Painter::CreateSolidFocusPainter(
-      UnifiedSystemTrayView::GetFocusRingColor(), kFocusBorderThickness,
-      gfx::InsetsF());
+      AshColorProvider::Get()->GetControlsLayerColor(
+          AshColorProvider::ControlsLayerType::kFocusRingColor),
+      kFocusBorderThickness, gfx::InsetsF());
 }
 
 void TrayPopupUtils::ConfigureTrayPopupButton(views::Button* button) {
   button->SetInstallFocusRingOnFocus(true);
-  button->SetFocusForPlatform();
   button->SetInkDropMode(views::InkDropHostView::InkDropMode::ON);
-  button->set_has_ink_drop_action_on_click(true);
+  button->SetHasInkDropActionOnClick(true);
 }
 
 void TrayPopupUtils::ConfigureAsStickyHeader(views::View* view) {
@@ -274,9 +258,10 @@ void TrayPopupUtils::ConfigureContainer(TriView::Container container,
 }
 
 views::LabelButton* TrayPopupUtils::CreateTrayPopupButton(
-    views::ButtonListener* listener,
+    views::Button::PressedCallback callback,
     const base::string16& text) {
-  auto button = std::make_unique<views::MdTextButton>(listener, text);
+  auto button =
+      std::make_unique<views::MdTextButton>(std::move(callback), text);
   button->SetProminent(true);
   return button.release();
 }
@@ -285,8 +270,7 @@ views::Separator* TrayPopupUtils::CreateVerticalSeparator() {
   views::Separator* separator = new views::Separator();
   separator->SetPreferredHeight(24);
   separator->SetColor(AshColorProvider::Get()->GetContentLayerColor(
-      AshColorProvider::ContentLayerType::kSeparatorColor,
-      AshColorProvider::AshColorMode::kDark));
+      AshColorProvider::ContentLayerType::kSeparatorColor));
   return separator;
 }
 
@@ -303,21 +287,18 @@ std::unique_ptr<views::InkDrop> TrayPopupUtils::CreateInkDrop(
 std::unique_ptr<views::InkDropRipple> TrayPopupUtils::CreateInkDropRipple(
     TrayPopupInkDropStyle ink_drop_style,
     const views::View* host,
-    const gfx::Point& center_point,
-    SkColor background_color) {
+    const gfx::Point& center_point) {
   const AshColorProvider::RippleAttributes ripple_attributes =
-      AshColorProvider::Get()->GetRippleAttributes(background_color);
+      AshColorProvider::Get()->GetRippleAttributes();
   return std::make_unique<views::FloodFillInkDropRipple>(
       host->size(), GetInkDropInsets(ink_drop_style), center_point,
       ripple_attributes.base_color, ripple_attributes.inkdrop_opacity);
 }
 
 std::unique_ptr<views::InkDropHighlight> TrayPopupUtils::CreateInkDropHighlight(
-    TrayPopupInkDropStyle ink_drop_style,
-    const views::View* host,
-    SkColor background_color) {
+    const views::View* host) {
   const AshColorProvider::RippleAttributes ripple_attributes =
-      AshColorProvider::Get()->GetRippleAttributes(background_color);
+      AshColorProvider::Get()->GetRippleAttributes();
   auto highlight = std::make_unique<views::InkDropHighlight>(
       gfx::SizeF(host->size()), ripple_attributes.base_color);
   highlight->set_visible_opacity(ripple_attributes.highlight_opacity);
@@ -334,8 +315,7 @@ void TrayPopupUtils::InstallHighlightPathGenerator(
 views::Separator* TrayPopupUtils::CreateListItemSeparator(bool left_inset) {
   views::Separator* separator = new views::Separator();
   separator->SetColor(AshColorProvider::Get()->GetContentLayerColor(
-      AshColorProvider::ContentLayerType::kSeparatorColor,
-      AshColorProvider::AshColorMode::kLight));
+      AshColorProvider::ContentLayerType::kSeparatorColor));
   separator->SetBorder(views::CreateEmptyBorder(
       kMenuSeparatorVerticalPadding - views::Separator::kThickness,
       left_inset ? kMenuExtraMarginFromLeftEdge + kMenuButtonSize +
@@ -353,11 +333,13 @@ void TrayPopupUtils::InitializeAsCheckableRow(HoverHighlightView* container,
                                               bool checked,
                                               bool enterprise_managed) {
   const int dip_size = GetDefaultSizeOfVectorIcon(kCheckCircleIcon);
-  gfx::ImageSkia check_mark =
-      CreateVectorIcon(kHollowCheckCircleIcon, dip_size, gfx::kGoogleGreen300);
+  gfx::ImageSkia check_mark = CreateVectorIcon(
+      kHollowCheckCircleIcon, dip_size,
+      AshColorProvider::Get()->GetContentLayerColor(
+          AshColorProvider::ContentLayerType::kIconColorProminent));
   if (enterprise_managed) {
     gfx::ImageSkia enterprise_managed_icon = CreateVectorIcon(
-        kLoginScreenEnterpriseIcon, dip_size, gfx::kGoogleGrey100);
+        chromeos::kEnterpriseIcon, dip_size, gfx::kGoogleGrey100);
     container->AddRightIcon(enterprise_managed_icon,
                             enterprise_managed_icon.width());
   }
@@ -373,14 +355,46 @@ void TrayPopupUtils::UpdateCheckMarkVisibility(HoverHighlightView* container,
               : HoverHighlightView::AccessibilityState::UNCHECKED_CHECKBOX);
 }
 
-void TrayPopupUtils::SetupTraySubLabel(views::Label* label) {
-  label->SetBorder(views::CreateEmptyBorder(kTraySubLabelPadding));
-  label->SetMultiLine(true);
-  label->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT);
+void TrayPopupUtils::UpdateToggleButtonColors(views::ToggleButton* toggle) {
+  auto* ash_color_provider = AshColorProvider::Get();
+  toggle->SetThumbOnColor(ash_color_provider->GetContentLayerColor(
+      AshColorProvider::ContentLayerType::kSwitchKnobColorActive));
+  toggle->SetThumbOffColor(ash_color_provider->GetContentLayerColor(
+      AshColorProvider::ContentLayerType::kSwitchKnobColorInactive));
+  toggle->SetTrackOnColor(ash_color_provider->GetContentLayerColor(
+      AshColorProvider::ContentLayerType::kSwitchTrackColorActive));
+  toggle->SetTrackOffColor(ash_color_provider->GetContentLayerColor(
+      AshColorProvider::ContentLayerType::kSwitchTrackColorInactive));
+}
 
-  TrayPopupItemStyle sub_style(TrayPopupItemStyle::FontStyle::CAPTION);
-  sub_style.set_color_style(TrayPopupItemStyle::ColorStyle::INACTIVE);
-  sub_style.SetupLabel(label);
+void TrayPopupUtils::SetLabelFontList(views::Label* label, FontStyle style) {
+  label->SetAutoColorReadabilityEnabled(false);
+  const gfx::FontList google_sans_font_list({"Google Sans"}, gfx::Font::NORMAL,
+                                            16, gfx::Font::Weight::MEDIUM);
+  const gfx::FontList roboto_font_list({"Roboto"}, gfx::Font::NORMAL, 16,
+                                       gfx::Font::Weight::MEDIUM);
+
+  switch (style) {
+    case FontStyle::kTitle:
+      label->SetFontList(google_sans_font_list);
+      break;
+    case FontStyle::kPodMenuHeader:
+      label->SetFontList(roboto_font_list);
+      break;
+    case FontStyle::kSubHeader:
+      label->SetFontList(roboto_font_list.Derive(-1, gfx::Font::NORMAL,
+                                                 gfx::Font::Weight::MEDIUM));
+      break;
+    case FontStyle::kSmallTitle:
+      label->SetFontList(roboto_font_list.Derive(-3, gfx::Font::NORMAL,
+                                                 gfx::Font::Weight::MEDIUM));
+      break;
+    case FontStyle::kDetailedViewLabel:
+    case FontStyle::kSystemInfo:
+      label->SetFontList(roboto_font_list.Derive(-4, gfx::Font::NORMAL,
+                                                 gfx::Font::Weight::NORMAL));
+      break;
+  }
 }
 
 }  // namespace ash

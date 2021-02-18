@@ -49,19 +49,31 @@ namespace blink {
 struct SameSizeAsInlineTextBox : public InlineBox {
   unsigned variables[1];
   uint16_t variables2[2];
-  void* pointers[2];
+  Member<void*> members[2];
 };
 
 ASSERT_SIZE(InlineTextBox, SameSizeAsInlineTextBox);
 
-typedef WTF::HashMap<const InlineTextBox*, LayoutRect> InlineTextBoxOverflowMap;
-static InlineTextBoxOverflowMap* g_text_boxes_with_overflow;
+typedef HeapHashMap<Member<const InlineTextBox>, LayoutRect>
+    InlineTextBoxOverflowMap;
+InlineTextBoxOverflowMap& GetTextBoxesWithOverflow() {
+  DEFINE_STATIC_LOCAL(Persistent<InlineTextBoxOverflowMap>,
+                      text_boxes_with_overflow,
+                      (MakeGarbageCollected<InlineTextBoxOverflowMap>()));
+  return *text_boxes_with_overflow;
+}
+
+void InlineTextBox::Trace(Visitor* visitor) const {
+  visitor->Trace(prev_text_box_);
+  visitor->Trace(next_text_box_);
+  InlineBox::Trace(visitor);
+}
 
 void InlineTextBox::Destroy() {
   LegacyAbstractInlineTextBox::WillDestroy(this);
 
-  if (!KnownToHaveNoOverflow() && g_text_boxes_with_overflow)
-    g_text_boxes_with_overflow->erase(this);
+  if (!KnownToHaveNoOverflow())
+    GetTextBoxesWithOverflow().erase(this);
   InlineBox::Destroy();
 }
 
@@ -77,11 +89,11 @@ void InlineTextBox::MarkDirty() {
 }
 
 LayoutRect InlineTextBox::LogicalOverflowRect() const {
-  if (KnownToHaveNoOverflow() || !g_text_boxes_with_overflow)
+  if (KnownToHaveNoOverflow())
     return LogicalFrameRect();
 
-  const auto& it = g_text_boxes_with_overflow->find(this);
-  if (it != g_text_boxes_with_overflow->end())
+  const auto& it = GetTextBoxesWithOverflow().find(this);
+  if (it != GetTextBoxesWithOverflow().end())
     return it->value;
 
   return LogicalFrameRect();
@@ -90,9 +102,7 @@ LayoutRect InlineTextBox::LogicalOverflowRect() const {
 void InlineTextBox::SetLogicalOverflowRect(const LayoutRect& rect) {
   DCHECK(!KnownToHaveNoOverflow());
   DCHECK(rect != LogicalFrameRect());
-  if (!g_text_boxes_with_overflow)
-    g_text_boxes_with_overflow = new InlineTextBoxOverflowMap;
-  g_text_boxes_with_overflow->Set(this, rect);
+  GetTextBoxesWithOverflow().Set(this, rect);
 }
 
 PhysicalRect InlineTextBox::PhysicalOverflowRect() const {
@@ -106,9 +116,9 @@ PhysicalRect InlineTextBox::PhysicalOverflowRect() const {
 void InlineTextBox::Move(const LayoutSize& delta) {
   InlineBox::Move(delta);
 
-  if (!KnownToHaveNoOverflow() && g_text_boxes_with_overflow) {
-    const auto& it = g_text_boxes_with_overflow->find(this);
-    if (it != g_text_boxes_with_overflow->end())
+  if (!KnownToHaveNoOverflow()) {
+    const auto& it = GetTextBoxesWithOverflow().find(this);
+    if (it != GetTextBoxesWithOverflow().end())
       it->value.Move(IsHorizontal() ? delta : delta.TransposedSize());
   }
 }
@@ -508,14 +518,14 @@ void InlineTextBox::SelectionStartEnd(int& s_pos, int& e_pos) const {
   e_pos = std::min(static_cast<int>(status.end) - start_, (int)len_);
 }
 
-void InlineTextBox::PaintDocumentMarker(GraphicsContext& pt,
+void InlineTextBox::PaintDocumentMarker(const PaintInfo& paint_info,
                                         const PhysicalOffset& box_origin,
                                         const DocumentMarker& marker,
                                         const ComputedStyle& style,
                                         const Font& font,
                                         bool grammar) const {
-  InlineTextBoxPainter(*this).PaintDocumentMarker(pt, box_origin, marker, style,
-                                                  font, grammar);
+  InlineTextBoxPainter(*this).PaintDocumentMarker(paint_info, box_origin,
+                                                  marker, style, font, grammar);
 }
 
 void InlineTextBox::PaintTextMarkerForeground(const PaintInfo& paint_info,
@@ -735,8 +745,8 @@ void InlineTextBox::ManuallySetStartLenAndLogicalWidth(
 
   SetLogicalWidth(logical_width);
 
-  if (!KnownToHaveNoOverflow() && g_text_boxes_with_overflow)
-    g_text_boxes_with_overflow->erase(this);
+  if (!KnownToHaveNoOverflow())
+    GetTextBoxesWithOverflow().erase(this);
 }
 
 }  // namespace blink

@@ -10,8 +10,8 @@
 
 #include "base/bind.h"
 #include "base/no_destructor.h"
-#include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/permissions/permission_controller_impl.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/device_service.h"
 #include "content/public/browser/permission_type.h"
@@ -121,6 +121,7 @@ SensorTypeToFeaturePolicyFeatures(SensorType type) {
       return {blink::mojom::FeaturePolicyFeature::kAmbientLightSensor};
     case SensorType::ACCELEROMETER:
     case SensorType::LINEAR_ACCELERATION:
+    case SensorType::GRAVITY:
       return {blink::mojom::FeaturePolicyFeature::kAccelerometer};
     case SensorType::GYROSCOPE:
       return {blink::mojom::FeaturePolicyFeature::kGyroscope};

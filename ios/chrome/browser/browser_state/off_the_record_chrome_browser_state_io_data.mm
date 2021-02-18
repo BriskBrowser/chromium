@@ -9,7 +9,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/check_op.h"
 #include "base/command_line.h"
 #include "base/stl_util.h"
@@ -32,7 +32,7 @@
 #include "net/http/http_cache.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_server_properties.h"
-#include "net/url_request/url_request_job_factory_impl.h"
+#include "net/url_request/url_request_job_factory.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -165,9 +165,6 @@ void OffTheRecordChromeBrowserStateIOData::InitializeInternal(
       io_thread_globals->http_auth_handler_factory.get());
   main_context->set_proxy_resolution_service(proxy_resolution_service());
 
-  main_context->set_cert_transparency_verifier(
-      io_thread_globals->cert_transparency_verifier.get());
-
   // For incognito, we use the default non-persistent HttpServerProperties.
   set_http_server_properties(std::make_unique<net::HttpServerProperties>());
   main_context->set_http_server_properties(http_server_properties());
@@ -186,7 +183,7 @@ void OffTheRecordChromeBrowserStateIOData::InitializeInternal(
 
   main_context->set_http_transaction_factory(main_http_factory_.get());
 
-  main_job_factory_ = std::make_unique<net::URLRequestJobFactoryImpl>();
+  main_job_factory_ = std::make_unique<net::URLRequestJobFactory>();
 
   InstallProtocolHandlers(main_job_factory_.get(), protocol_handlers);
   main_context->set_job_factory(main_job_factory_.get());

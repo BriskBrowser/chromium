@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/bind.h"
+#include "base/path_service.h"
 #include "base/strings/pattern.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -10,15 +11,12 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/test/simple_test_clock.h"
 #include "build/build_config.h"
-#include "chrome/browser/engagement/site_engagement_score.h"
-#include "chrome/browser/engagement/site_engagement_service.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/history/history_test_utils.h"
 #include "chrome/browser/lookalikes/lookalike_url_blocking_page.h"
 #include "chrome/browser/lookalikes/lookalike_url_navigation_throttle.h"
 #include "chrome/browser/lookalikes/lookalike_url_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/reputation/safety_tip_test_utils.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/common/chrome_features.h"
@@ -27,18 +25,32 @@
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/lookalikes/core/features.h"
 #include "components/lookalikes/core/lookalike_url_util.h"
+#include "components/network_session_configurator/common/network_switches.h"
+#include "components/reputation/core/safety_tip_test_utils.h"
+#include "components/reputation/core/safety_tips_config.h"
 #include "components/security_interstitials/content/security_interstitial_page.h"
 #include "components/security_interstitials/content/security_interstitial_tab_helper.h"
 #include "components/security_interstitials/core/metrics_helper.h"
+#include "components/site_engagement/content/site_engagement_score.h"
+#include "components/site_engagement/content/site_engagement_service.h"
 #include "components/ukm/test_ukm_recorder.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/content_features.h"
+#include "content/public/common/content_paths.h"
 #include "content/public/test/browser_test.h"
+#include "content/public/test/content_mock_cert_verifier.h"
+#include "content/public/test/signed_exchange_browser_test_helper.h"
 #include "content/public/test/test_navigation_observer.h"
+#include "content/public/test/url_loader_interceptor.h"
+#include "net/cert/mock_cert_verifier.h"
 #include "net/dns/mock_host_resolver.h"
+#include "net/test/cert_test_util.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_source.h"
+#include "services/network/public/cpp/network_switches.h"
+#include "services/network/public/cpp/simple_url_loader.h"
 #include "ui/base/window_open_disposition.h"
 
 namespace {
@@ -90,7 +102,7 @@ security_interstitials::SecurityInterstitialPage::TypeID GetInterstitialType(
 
 // Sets the absolute Site Engagement |score| for the testing origin.
 void SetEngagementScore(Browser* browser, const GURL& url, double score) {
-  SiteEngagementService::Get(browser->profile())
+  site_engagement::SiteEngagementService::Get(browser->profile())
       ->ResetBaseScoreForURL(url, score);
 }
 
@@ -183,7 +195,7 @@ void TestInterstitialNotShown(Browser* browser, const GURL& navigated_url) {
 
 class LookalikeUrlNavigationThrottleBrowserTest
     : public InProcessBrowserTest,
-      public testing::WithParamInterface<std::tuple<bool, bool>> {
+      public testing::WithParamInterface<std::tuple<bool, bool, bool>> {
  protected:
   void SetUp() override {
     std::vector<base::test::ScopedFeatureList::FeatureAndParams>
@@ -194,6 +206,7 @@ class LookalikeUrlNavigationThrottleBrowserTest
       base::FieldTrialParams params;
       enabled_features.emplace_back(
           lookalikes::features::kDetectTargetEmbeddingLookalikes, params);
+      enabled_features.emplace_back(features::kSignedHTTPExchange, params);
     } else {
       disabled_features.push_back(
           lookalikes::features::kDetectTargetEmbeddingLookalikes);
@@ -207,13 +220,24 @@ class LookalikeUrlNavigationThrottleBrowserTest
       disabled_features.push_back(
           lookalikes::features::kLookalikeInterstitialForPunycode);
     }
+
+    if (digital_asset_links_enabled()) {
+      enabled_features.emplace_back(
+          lookalikes::features::kLookalikeDigitalAssetLinks,
+          base::FieldTrialParams());
+    } else {
+      disabled_features.push_back(
+          lookalikes::features::kLookalikeDigitalAssetLinks);
+    }
     feature_list_.InitWithFeaturesAndParameters(enabled_features,
                                                 disabled_features);
+    reputation::InitializeSafetyTipConfig();
     InProcessBrowserTest::SetUp();
   }
 
   bool target_embedding_enabled() const { return std::get<0>(GetParam()); }
   bool punycode_interstitial_enabled() const { return std::get<1>(GetParam()); }
+  bool digital_asset_links_enabled() const { return std::get<2>(GetParam()); }
 
   void SetUpOnMainThread() override {
     host_resolver()->AddRule("*", "127.0.0.1");
@@ -276,7 +300,8 @@ class LookalikeUrlNavigationThrottleBrowserTest
       Browser* browser,
       const GURL& navigated_url,
       const GURL& expected_suggested_url,
-      NavigationSuggestionEvent expected_event) {
+      NavigationSuggestionEvent expected_event,
+      bool expect_signed_exchange = false) {
     base::HistogramTester histograms;
 
     history::HistoryService* const history_service =
@@ -285,6 +310,14 @@ class LookalikeUrlNavigationThrottleBrowserTest
     ui_test_utils::WaitForHistoryToLoad(history_service);
 
     LoadAndCheckInterstitialAt(browser, navigated_url);
+
+    if (expect_signed_exchange) {
+      LookalikeUrlBlockingPage* interstitial =
+          static_cast<LookalikeUrlBlockingPage*>(GetCurrentInterstitial(
+              browser->tab_strip_model()->GetActiveWebContents()));
+      EXPECT_TRUE(interstitial->is_signed_exchange_for_testing());
+    }
+
     SendInterstitialCommandSync(browser,
                                 SecurityInterstitialCommand::CMD_DONT_PROCEED);
     EXPECT_EQ(expected_suggested_url,
@@ -398,9 +431,12 @@ class LookalikeUrlNavigationThrottleBrowserTest
   base::SimpleTestClock test_clock_;
 };
 
-INSTANTIATE_TEST_SUITE_P(All,
-                         LookalikeUrlNavigationThrottleBrowserTest,
-                         testing::Combine(testing::Bool(), testing::Bool()));
+INSTANTIATE_TEST_SUITE_P(
+    All,
+    LookalikeUrlNavigationThrottleBrowserTest,
+    testing::Combine(testing::Bool() /* target_embedding_enabled */,
+                     testing::Bool() /* punycode_interstitial_enabled */,
+                     testing::Bool() /* digital_asset_links_enabled */));
 
 // Navigating to a non-IDN shouldn't show an interstitial or record metrics.
 IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleBrowserTest,
@@ -447,6 +483,20 @@ IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleBrowserTest,
            LookalikeUrlMatchType::kSkeletonMatchTop500);
 }
 
+// Navigate to a domain that would trigger the warning, but doesn't because it
+// fails-safe when the allowlist isn't available.
+IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleBrowserTest,
+                       NoMatchOnAllowlistMissing) {
+  const GURL kNavigatedUrl = GetURL("googlé.com");
+
+  // Clear out any existing proto.
+  reputation::SetSafetyTipsRemoteConfigProto(nullptr);
+
+  SetEngagementScore(browser(), kNavigatedUrl, kLowEngagement);
+  TestInterstitialNotShown(browser(), kNavigatedUrl);
+  CheckNoUkm();
+}
+
 // Embedding a top domain should show an interstitial when enabled. If disabled
 // this would trigger safety tips when target embedding feature parameter is
 // enabled for safety tips.
@@ -478,12 +528,66 @@ IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleBrowserTest,
            LookalikeUrlMatchType::kTargetEmbedding);
 }
 
-// Target embedding should not trigger on allowlisted domains.
+// Same as TargetEmbedding_TopDomain_Match, but has a redirect where the first
+// and last URLs are both target embedding matches. Should only record
+// metrics for the first URL. Regression test for crbug.com/1136296.
 IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleBrowserTest,
-                       TargetEmbedding_Allowlist) {
+                       TargetEmbedding_TopDomain_Redirect_Match) {
+  const GURL kNavigatedUrl = GetLongRedirect("google.com-test.com", "site.com",
+                                             "youtube.com-test.com");
+  // UKM will record the final URL of the redirect:
+  const GURL kLastUrl = GetURL("youtube.com-test.com");
+  const GURL kExpectedSuggestedUrl = GetURLWithoutPath("google.com");
+  SetEngagementScore(browser(), kNavigatedUrl, kLowEngagement);
+
+  // |TestMetricsRecordedAndInterstitialShown| assumes everything should be
+  // recorded if target embedding is not disabled. But only for target embedding
+  // checks, if TargetEmbedding is not explicitly enabled, it should be treated
+  // just like it is disabled. So we make sure an interstitial is not shown if
+  // target embedding is not enabled. And defer to
+  // |TestMetricsRecordedAndInterstitialShown| otherwise.
+  if (!target_embedding_enabled()) {
+    base::HistogramTester histograms;
+    TestInterstitialNotShown(browser(), kNavigatedUrl);
+    histograms.ExpectTotalCount(lookalikes::kHistogramName, 1);
+    histograms.ExpectBucketCount(
+        lookalikes::kHistogramName,
+        NavigationSuggestionEvent::kMatchTargetEmbedding, 1);
+  } else {
+    TestMetricsRecordedAndInterstitialShown(
+        browser(), kNavigatedUrl, kExpectedSuggestedUrl,
+        NavigationSuggestionEvent::kMatchTargetEmbedding);
+  }
+  CheckUkm({kLastUrl}, "MatchType", LookalikeUrlMatchType::kTargetEmbedding);
+}
+
+// Target embedding should not trigger on allowlisted embedder domains.
+IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleBrowserTest,
+                       TargetEmbedding_EmbedderAllowlist) {
+  const GURL kNavigatedUrl = GetURL("google.com.allowlisted.com");
+  SetEngagementScore(browser(), kNavigatedUrl, kLowEngagement);
+  reputation::SetSafetyTipAllowlistPatterns({"allowlisted.com/"}, {});
+  TestInterstitialNotShown(browser(), kNavigatedUrl);
+  CheckNoUkm();
+}
+
+// Target embedding should not trigger on allowlisted target domains.
+IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleBrowserTest,
+                       TargetEmbedding_TargetAllowlist) {
   const GURL kNavigatedUrl = GetURL("foo.scholar.google.com.com");
   SetEngagementScore(browser(), kNavigatedUrl, kLowEngagement);
-  SetSafetyTipAllowlistPatterns({}, {"scholar\\.google\\.com"});
+  reputation::SetSafetyTipAllowlistPatterns({}, {"scholar\\.google\\.com"});
+  TestInterstitialNotShown(browser(), kNavigatedUrl);
+  CheckNoUkm();
+}
+
+// Navigate to a domain target embedding a domain with no separators, but that
+// matches the target allowlist.  Regression test for crbug.com/1127450.
+IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleBrowserTest,
+                       TargetEmbedding_TargetAllowlistWithNoSeparators) {
+  const GURL kNavigatedUrl = GetURL("googlecom.example.com");
+  SetEngagementScore(browser(), kNavigatedUrl, kLowEngagement);
+  reputation::SetSafetyTipAllowlistPatterns({}, {"google\\.com"});
   TestInterstitialNotShown(browser(), kNavigatedUrl);
   CheckNoUkm();
 }
@@ -539,14 +643,13 @@ IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleBrowserTest,
 
   if (!punycode_interstitial_enabled()) {
     TestInterstitialNotShown(browser(), kNavigatedUrl);
-    CheckNoUkm();
   } else {
     TestPunycodeInterstitialShown(
         browser(), kNavigatedUrl,
         NavigationSuggestionEvent::kFailedSpoofChecks);
-    CheckUkm({kNavigatedUrl}, "MatchType",
-             LookalikeUrlMatchType::kFailedSpoofChecks);
   }
+  CheckUkm({kNavigatedUrl}, "MatchType",
+           LookalikeUrlMatchType::kFailedSpoofChecks);
 }
 
 // The navigated domain will fall back to punycode because it fails spoof checks
@@ -664,7 +767,7 @@ IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleBrowserTest,
 IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleBrowserTest,
                        EditDistance_TopDomain_Target_Allowlist) {
   base::HistogramTester histograms;
-  SetSafetyTipAllowlistPatterns({}, {"google\\.com"});
+  reputation::SetSafetyTipAllowlistPatterns({}, {"google\\.com"});
 
   // The skeleton of this domain, gooogle.corn, is one 1 edit away from
   // google.corn, the skeleton of google.com.
@@ -685,7 +788,7 @@ IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleBrowserTest,
                        EditDistance_EngagedDomain_Target_Allowlist) {
   base::HistogramTester histograms;
   SetEngagementScore(browser(), GURL("https://test-site.com"), kHighEngagement);
-  SetSafetyTipAllowlistPatterns({}, {"test-site\\.com"});
+  reputation::SetSafetyTipAllowlistPatterns({}, {"test-site\\.com"});
 
   // The skeleton of this domain is one 1 edit away from the skeleton of
   // test-site.com.
@@ -850,26 +953,24 @@ IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleBrowserTest,
 
 // The site redirects to the matched site, but the redirect chain has more than
 // two redirects.
-// TODO(meacer): Consider allowing this case.
 IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleBrowserTest,
-                       Idn_SiteEngagement_UnsafeRedirect) {
-  const GURL kExpectedSuggestedUrl = GetURLWithoutPath("site1.com");
+                       Idn_SiteEngagement_MidRedirectSpoofsIgnored) {
+  const GURL kFinalUrl = GetURLWithoutPath("site1.com");
   const GURL kMidUrl = embedded_test_server()->GetURL(
-      "sité1.com", "/server-redirect?" + kExpectedSuggestedUrl.spec());
+      "sité1.com", "/server-redirect?" + kFinalUrl.spec());
   const GURL kNavigatedUrl = embedded_test_server()->GetURL(
       "other-site.test", "/server-redirect?" + kMidUrl.spec());
 
   SetEngagementScore(browser(), kNavigatedUrl, kLowEngagement);
-  SetEngagementScore(browser(), kExpectedSuggestedUrl, kHighEngagement);
-  TestMetricsRecordedAndInterstitialShown(
-      browser(), kNavigatedUrl, kExpectedSuggestedUrl,
-      NavigationSuggestionEvent::kMatchSiteEngagement);
+  SetEngagementScore(browser(), kFinalUrl, kHighEngagement);
+  TestInterstitialNotShown(browser(), kNavigatedUrl);
+  CheckNoUkm();
 }
 
 // The site is allowed by the component updater.
 IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleBrowserTest,
                        AllowedByComponentUpdater) {
-  SetSafetyTipAllowlistPatterns(
+  reputation::SetSafetyTipAllowlistPatterns(
       {"xn--googl-fsa.com/",  // googlé.com in punycode
        "site.test/", "another-site.test/"},
       {});
@@ -1086,19 +1187,66 @@ IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleBrowserTest,
   NavigateToURLSync(browser(), GetURL("example.com"));
 
   {
-    // ...or when it's later in the chain
+    // ...but not when it's in the middle of the chain
     const GURL kNavigatedUrl =
         GetLongRedirect("example.net", "googlé.com", "example.com");
     SetEngagementScore(browser(), kNavigatedUrl, kLowEngagement);
-    LoadAndCheckInterstitialAt(browser(), kNavigatedUrl);
+    TestInterstitialNotShown(browser(), kNavigatedUrl);
   }
 
   NavigateToURLSync(browser(), GetURL("example.com"));
 
   {
-    // ...or when it's last in the chain
+    // ...but definitely when it's last in the chain.
     const GURL kNavigatedUrl =
         GetLongRedirect("example.net", "example.com", "googlé.com");
+    SetEngagementScore(browser(), kNavigatedUrl, kLowEngagement);
+    LoadAndCheckInterstitialAt(browser(), kNavigatedUrl);
+  }
+}
+
+// Verify that a warning, when ignored, applies to the entire eTLD+1, not just
+// the navigated origin.
+IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleBrowserTest,
+                       AllowlistAppliesToETLDPlusOne) {
+  {
+    const GURL kNavigatedUrl = GetURL("sub1.googlé.com");
+    SetEngagementScore(browser(), kNavigatedUrl, kLowEngagement);
+    LoadAndCheckInterstitialAt(browser(), kNavigatedUrl);
+    SendInterstitialCommandSync(browser(),
+                                SecurityInterstitialCommand::CMD_PROCEED);
+  }
+
+  // TestInterstitialNotShown assumes there's not an interstitial already
+  // showing (since otherwise it can't be sure that the navigation caused it).
+  NavigateToURLSync(browser(), GetURL("example.com"));
+
+  {
+    const GURL kNavigatedUrl = GetURL("sub2.googlé.com");
+    SetEngagementScore(browser(), kNavigatedUrl, kLowEngagement);
+    TestInterstitialNotShown(browser(), kNavigatedUrl);
+  }
+
+  // We respect private registries for this manual allowlisting so that
+  // different (independent) subdomains each show their own warning.
+  if (!target_embedding_enabled()) {
+    // Since subdomains are only used for target embedding, if that's not
+    // enabled, we can bail out now.
+    return;
+  }
+  NavigateToURLSync(browser(), GetURL("example.com"));
+  {
+    // Note: This uses blogspot.cv because blogspot.com is a top domain, and top
+    // domains don't show warnings.
+    const GURL kNavigatedUrl = GetURL("google-com.blogspot.cv");
+    SetEngagementScore(browser(), kNavigatedUrl, kLowEngagement);
+    LoadAndCheckInterstitialAt(browser(), kNavigatedUrl);
+    SendInterstitialCommandSync(browser(),
+                                SecurityInterstitialCommand::CMD_PROCEED);
+  }
+  NavigateToURLSync(browser(), GetURL("example.com"));
+  {
+    const GURL kNavigatedUrl = GetURL("google-com-unrelated.blogspot.cv");
     SetEngagementScore(browser(), kNavigatedUrl, kLowEngagement);
     LoadAndCheckInterstitialAt(browser(), kNavigatedUrl);
   }
@@ -1221,4 +1369,442 @@ IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleBrowserTest,
   // interstitial.
   TestInterstitialNotShown(browser(),
                            embedded_test_server()->GetURL("example.net", "/"));
+}
+
+scoped_refptr<net::X509Certificate> LoadCertificate() {
+  constexpr char kCertFileName[] = "prime256v1-sha256-google-com.public.pem";
+
+  base::ScopedAllowBlockingForTesting allow_io;
+  base::FilePath dir_path;
+  base::PathService::Get(content::DIR_TEST_DATA, &dir_path);
+  dir_path = dir_path.Append(FILE_PATH_LITERAL("sxg"));
+
+  return net::CreateCertificateChainFromFile(
+      dir_path, kCertFileName, net::X509Certificate::FORMAT_PEM_CERT_SEQUENCE);
+}
+
+// Tests for Signed Exchanges.
+class LookalikeUrlNavigationThrottleSignedExchangeBrowserTest
+    : public LookalikeUrlNavigationThrottleBrowserTest {
+ public:
+  LookalikeUrlNavigationThrottleSignedExchangeBrowserTest() {
+    net::EmbeddedTestServer::RegisterTestCerts();
+  }
+
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    // HTTPS server only serves a valid cert for localhost, so this is needed
+    // to load pages from other hosts without an error.
+    command_line->AppendSwitch(switches::kIgnoreCertificateErrors);
+    mock_cert_verifier_.SetUpCommandLine(command_line);
+  }
+
+  void SetUpInProcessBrowserTestFixture() override {
+    mock_cert_verifier_.SetUpInProcessBrowserTestFixture();
+  }
+
+  void TearDownInProcessBrowserTestFixture() override {
+    mock_cert_verifier_.TearDownInProcessBrowserTestFixture();
+  }
+
+  void SetUp() override {
+    sxg_test_helper_.SetUp();
+    LookalikeUrlNavigationThrottleBrowserTest::SetUp();
+  }
+
+  void SetUpOnMainThread() override {
+    https_server_.AddDefaultHandlers(
+        base::FilePath(FILE_PATH_LITERAL("content/test/data")));
+    https_server_.ServeFilesFromSourceDirectory("content/test/data");
+    https_server_.RegisterRequestMonitor(base::BindRepeating(
+        &LookalikeUrlNavigationThrottleSignedExchangeBrowserTest::
+            MonitorRequest,
+        base::Unretained(this)));
+    ASSERT_TRUE(https_server_.Start());
+
+    LookalikeUrlNavigationThrottleBrowserTest::SetUpOnMainThread();
+  }
+
+  void TearDownOnMainThread() override {
+    sxg_test_helper_.TearDownOnMainThread();
+  }
+
+  bool HadSignedExchangeInAcceptHeader(const GURL& url) const {
+    const auto it = url_accept_header_map_.find(url);
+    if (it == url_accept_header_map_.end())
+      return false;
+    return it->second.find("application/signed-exchange") != std::string::npos;
+  }
+
+  void InstallMockCert() {
+    sxg_test_helper_.InstallMockCert(mock_cert_verifier_.mock_cert_verifier());
+
+    // Make the MockCertVerifier treat the certificate
+    // "prime256v1-sha256-google-com.public.pem" as valid for
+    // "google-com.example.org".
+    scoped_refptr<net::X509Certificate> original_cert = LoadCertificate();
+    net::CertVerifyResult dummy_result;
+    dummy_result.verified_cert = original_cert;
+    dummy_result.cert_status = net::OK;
+    dummy_result.ocsp_result.response_status = net::OCSPVerifyResult::PROVIDED;
+    dummy_result.ocsp_result.revocation_status =
+        net::OCSPRevocationStatus::GOOD;
+    mock_cert_verifier_.mock_cert_verifier()->AddResultForCertAndHost(
+        original_cert, "google-com.example.org", dummy_result, net::OK);
+  }
+
+  void InstallMockCertChainInterceptor() {
+    sxg_test_helper_.InstallMockCertChainInterceptor();
+    sxg_test_helper_.InstallUrlInterceptor(
+        GURL("https://google-com.example.org/cert.msg"),
+        "content/test/data/sxg/google-com.example.org.public.pem.cbor");
+  }
+
+ protected:
+  net::EmbeddedTestServer https_server_{net::EmbeddedTestServer::TYPE_HTTPS};
+  content::SignedExchangeBrowserTestHelper sxg_test_helper_;
+  content::ContentMockCertVerifier mock_cert_verifier_;
+
+ private:
+  void MonitorRequest(const net::test_server::HttpRequest& request) {
+    const auto it = request.headers.find("Accept");
+    if (it == request.headers.end())
+      return;
+    url_accept_header_map_[request.base_url.Resolve(request.relative_url)] =
+        it->second;
+  }
+
+  std::map<GURL, std::string> url_accept_header_map_;
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    All,
+    LookalikeUrlNavigationThrottleSignedExchangeBrowserTest,
+    testing::Combine(testing::Bool() /* target_embedding_enabled */,
+                     testing::Bool() /* punycode_interstitial_enabled */,
+                     testing::Bool() /* digital_asset_links_enabled */));
+
+// Navigates to a 127.0.0.1 URL that serves a signed exchange for
+// google-com.example.org. This navigation should be blocked by the target
+// embedding interstitial. We only test target embedding here because we can
+// test it with a subdomain of example.org (which is the domain used by SGX test
+// code). Testing an ETLD+1 such as googlé.com would require generating a custom
+// cert.
+IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleSignedExchangeBrowserTest,
+                       InnerUrlIsLookalike_ShouldBlock) {
+  if (!target_embedding_enabled()) {
+    return;
+  }
+  InstallMockCert();
+  InstallMockCertChainInterceptor();
+
+  sxg_test_helper_.InstallUrlInterceptor(
+      GURL("https://google-com.example.org/test/"),
+      "content/test/data/sxg/fallback.html");
+  const GURL kNavigatedUrl =
+      https_server_.GetURL("/sxg/google-com.example.org_test.sxg");
+  const GURL kExpectedSuggestedUrl("https://google.com");
+
+  TestMetricsRecordedAndInterstitialShown(
+      browser(), kNavigatedUrl, kExpectedSuggestedUrl,
+      NavigationSuggestionEvent::kMatchTargetEmbedding,
+      true /* expect_signed_exchange */);
+
+  // Check that the SXG file was handled as a Signed Exchange.
+  ASSERT_TRUE(HadSignedExchangeInAcceptHeader(kNavigatedUrl));
+}
+
+// Navigates to a lookalike URL (google-com.test.com) that serves a signed
+// exchange for test.example.org. This should not be blocked.
+IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleSignedExchangeBrowserTest,
+                       OuterUrlIsLookalike_ShouldNotBlock) {
+  if (!target_embedding_enabled()) {
+    return;
+  }
+
+  InstallMockCert();
+  InstallMockCertChainInterceptor();
+
+  const GURL kSgxTargetUrl("https://test.example.org/test/");
+  sxg_test_helper_.InstallUrlInterceptor(kSgxTargetUrl,
+                                         "content/test/data/sxg/fallback.html");
+  const GURL kNavigatedUrl = https_server_.GetURL(
+      "google-com.test.com", "/sxg/test.example.org_test.sxg");
+
+  TestInterstitialNotShown(browser(), kNavigatedUrl);
+
+  // Check that the SXG file was handled as a Signed Exchange.
+  // MonitorRequest() sees kNavigatedUrl with an IP address instead of
+  // domain name, so check it instead.
+  const GURL kResolvedNavigatedUrl =
+      https_server_.GetURL("/sxg/test.example.org_test.sxg");
+  ASSERT_TRUE(HadSignedExchangeInAcceptHeader(kResolvedNavigatedUrl));
+}
+
+// Navigates to a lookalike URL (google-com.test.com) that serves a signed
+// exchange for test.example.org. This should not be blocked.
+IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleSignedExchangeBrowserTest,
+                       OuterUrlIsLookalikeButNotSignedExchange_ShouldNotBlock) {
+  if (!target_embedding_enabled()) {
+    return;
+  }
+
+  InstallMockCert();
+  InstallMockCertChainInterceptor();
+
+  const GURL kSgxTargetUrl("https://test.example.org/test/");
+  sxg_test_helper_.InstallUrlInterceptor(kSgxTargetUrl,
+                                         "content/test/data/sxg/fallback.html");
+  const GURL kSgxCacheUrl = https_server_.GetURL(
+      "google-com.test.com", "/sxg/test.example.org_test.sxg");
+  const GURL kNavigatedUrl = embedded_test_server()->GetURL(
+      "apple-com.site.com", "/server-redirect?" + kSgxCacheUrl.spec());
+
+  TestInterstitialNotShown(browser(), kNavigatedUrl);
+
+  // Check that the SXG file was handled as a Signed Exchange.
+  // MonitorRequest() sees kNavigatedUrl with an IP address instead of
+  // domain name, so check it instead.
+  const GURL kResolvedNavigatedUrl =
+      https_server_.GetURL("/sxg/test.example.org_test.sxg");
+  ASSERT_TRUE(HadSignedExchangeInAcceptHeader(kResolvedNavigatedUrl));
+}
+
+// Navigates to a lookalike URL (google-com.test.com) that serves a signed
+// exchange for google-com.example.org.
+// Both the outer URL (i.e. cache) and the inner URL are lookalikes so this
+// should be blocked.
+IN_PROC_BROWSER_TEST_P(LookalikeUrlNavigationThrottleSignedExchangeBrowserTest,
+                       InnerAndOuterUrlsAreLookalikes_ShouldBlock) {
+  if (!target_embedding_enabled()) {
+    return;
+  }
+  InstallMockCert();
+  InstallMockCertChainInterceptor();
+
+  sxg_test_helper_.InstallUrlInterceptor(
+      GURL("https://google-com.example.org/test/"),
+      "content/test/data/sxg/fallback.html");
+  const GURL kNavigatedUrl = https_server_.GetURL(
+      "google-com.test.com", "/sxg/google-com.example.org_test.sxg");
+  const GURL kExpectedSuggestedUrl("https://google.com");
+
+  TestMetricsRecordedAndInterstitialShown(
+      browser(), kNavigatedUrl, kExpectedSuggestedUrl,
+      NavigationSuggestionEvent::kMatchTargetEmbedding,
+      true /* expect_signed_exchange */);
+
+  // Check that the SXG file was handled as a Signed Exchange.
+  // MonitorRequest() sees kNavigatedUrl with an IP address instead of
+  // domain name, so check it instead.
+  const GURL kResolvedNavigatedUrl =
+      https_server_.GetURL("/sxg/google-com.example.org_test.sxg");
+  ASSERT_TRUE(HadSignedExchangeInAcceptHeader(kResolvedNavigatedUrl));
+}
+
+// TODO(meacer): Add a test for a failed SGX response. It should be treated
+// as a normal redirect. In fact, InnerAndOuterUrlsLookalikes_ShouldBlock
+// is actually testing this right now, fix it.
+
+// Tests for Digital Asset Links.
+class LookalikeUrlNavigationThrottleDigitalAssetLinksBrowserTest
+    : public LookalikeUrlNavigationThrottleBrowserTest {
+ public:
+  struct TestSite {
+    std::string hostname;
+    std::string manifest;
+    bool slow_load = false;
+  };
+
+  // Sets up the site |lookalike_hostname| to serve a manifest with contents
+  // |lookalike_manifest|, and the site |target_hostname| to serve a manifest
+  // with contents |target_manifest| and navigates to |lookalike_hostname|.
+  // Expects an interstitial with the suggested hostname
+  // |expected_suggested_hostname|.
+  void TestExpectInterstitial(const char* lookalike_hostname,
+                              const std::string& lookalike_manifest,
+                              const char* target_hostname,
+                              const std::string& target_manifest,
+                              const char* expected_suggested_hostname,
+                              bool slow_load = false) {
+    const GURL kNavigatedUrl = MakeURL(lookalike_hostname);
+    const std::vector<TestSite> sites{
+        {lookalike_hostname, lookalike_manifest, slow_load},
+        {target_hostname, target_manifest, slow_load},
+    };
+    SetUpManifests(sites);
+
+    TestMetricsRecordedAndInterstitialShown(
+        browser(), kNavigatedUrl, MakeURL(expected_suggested_hostname),
+        NavigationSuggestionEvent::kMatchSkeletonTop500);
+    CheckUkm({kNavigatedUrl}, "MatchType",
+             LookalikeUrlMatchType::kSkeletonMatchTop500);
+  }
+
+  // Sets up the site |lookalike_hostname| to serve a manifest with contents
+  // |lookalike_manifest|, and the site |target_hostname| to serve a manifest
+  // with contents |target_manifest| and navigates to |lookalike_hostname|.
+  // Expects no interstitial.
+  void TestNoInterstitial(const char* lookalike_hostname,
+                          const std::string& lookalike_manifest,
+                          const char* target_hostname,
+                          const std::string& target_manifest) {
+    const std::vector<TestSite> sites{
+        {lookalike_hostname, lookalike_manifest},
+        {target_hostname, target_manifest},
+    };
+    SetUpManifests(sites);
+
+    TestInterstitialNotShown(browser(), MakeURL(lookalike_hostname));
+    CheckNoUkm();
+  }
+
+  void SetUpManifests(const std::vector<TestSite>& sites) {
+    url_loader_interceptor_ =
+        std::make_unique<content::URLLoaderInterceptor>(base::BindRepeating(
+            &LookalikeUrlNavigationThrottleDigitalAssetLinksBrowserTest::
+                OnIntercept,
+            base::Unretained(this), sites));
+  }
+
+  void TearDownOnMainThread() override { url_loader_interceptor_.reset(); }
+
+  bool OnIntercept(const std::vector<TestSite>& sites,
+                   content::URLLoaderInterceptor::RequestParams* params) {
+    for (const TestSite& site : sites) {
+      if (params->url_request.url == MakeManifestURL(site.hostname)) {
+        if (site.slow_load) {
+          test_clock()->Advance(base::TimeDelta::FromMinutes(15));
+        }
+        if (!site.manifest.empty()) {
+          // Serve manifest contents:
+          std::string headers =
+              "HTTP/1.1 200 OK\nContent-Type: application/json; "
+              "charset=utf-8\n";
+          content::URLLoaderInterceptor::WriteResponse(headers, site.manifest,
+                                                       params->client.get());
+        } else {
+          // Serve error:
+          params->client->OnComplete(
+              network::URLLoaderCompletionStatus(net::ERR_CONNECTION_RESET));
+        }
+        return true;
+      }
+      if (params->url_request.url == MakeURL(site.hostname)) {
+        content::URLLoaderInterceptor::WriteResponse(
+            "HTTP/1.1 200 OK\nContent-Type: text/html; charset=utf-8\n",
+            "<html>Test page</html>", params->client.get());
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static GURL MakeManifestURL(const std::string& hostname) {
+    return GURL("https://" + hostname + "/.well-known/assetlinks.json");
+  }
+
+  static GURL MakeURL(const std::string& hostname) {
+    return GURL("https://" + hostname);
+  }
+
+  static std::string MakeManifestWithTarget(const char* target_domain,
+                                            bool invalid = false) {
+    const char* const format = R"([{
+        "relation": ["%s"],
+        "target": {
+          "namespace": "web",
+          "site": "https://%s"
+        }
+      }]
+      )";
+    // Go through MakeURL to convert target_domain to punycode.
+    return base::StringPrintf(format,
+                              (invalid ? "junkvalue" : "lookalikes/allowlist"),
+                              MakeURL(target_domain).host().c_str());
+  }
+
+ private:
+  std::unique_ptr<content::URLLoaderInterceptor> url_loader_interceptor_;
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    All,
+    LookalikeUrlNavigationThrottleDigitalAssetLinksBrowserTest,
+    testing::Combine(testing::Bool() /* target_embedding_enabled */,
+                     testing::Bool() /* punycode_interstitial_enabled */,
+                     testing::Values(true) /* digital_asset_links_enabled */));
+
+// Neither site serves a manifest.
+IN_PROC_BROWSER_TEST_P(
+    LookalikeUrlNavigationThrottleDigitalAssetLinksBrowserTest,
+    NoAssetLinks_ShowInterstitial) {
+  TestExpectInterstitial("googlé.com", std::string(), "google.com",
+                         std::string(),
+                         /*expected_suggested_hostname=*/"google.com");
+}
+
+// Both lookalike and target sites serve valid asset link manifests pointing to
+// each other.
+IN_PROC_BROWSER_TEST_P(
+    LookalikeUrlNavigationThrottleDigitalAssetLinksBrowserTest,
+    ValidAssetLinks_IgnoreInterstitial) {
+  TestNoInterstitial("googlé.com", MakeManifestWithTarget("google.com"),
+                     "google.com", MakeManifestWithTarget("googlé.com"));
+}
+
+// Similar to ValidAssetLinks_IgnoreInterstitial, but the manifest fetches
+// timeout.
+IN_PROC_BROWSER_TEST_P(
+    LookalikeUrlNavigationThrottleDigitalAssetLinksBrowserTest,
+    ValidAssetLinks_Timeout_ShowInterstitial) {
+  TestExpectInterstitial("googlé.com", MakeManifestWithTarget("google.com"),
+                         "google.com", MakeManifestWithTarget("googlé.com"),
+                         /*expected_suggested_url=*/"google.com",
+                         /*slow_load=*/true);
+}
+
+// Both lookalike and target sites serve asset links. Lookalike site's manifest
+// has an entry for the target, but the target site's manifest doesn't have one
+// for the lookalike.
+IN_PROC_BROWSER_TEST_P(
+    LookalikeUrlNavigationThrottleDigitalAssetLinksBrowserTest,
+    ValidAssetLinks_TargetManifestNotMatching_IgnoreInterstitial) {
+  TestExpectInterstitial("góógle.com", MakeManifestWithTarget("google.com"),
+                         "google.com", MakeManifestWithTarget("site.test"),
+                         /*expected_suggested_hostname=*/"google.com");
+}
+
+// Both lookalike and target sites serve asset links. Lookalike site's manifest
+// has an entry for the target, but the target site's manifest doesn't have
+// valid content.
+IN_PROC_BROWSER_TEST_P(
+    LookalikeUrlNavigationThrottleDigitalAssetLinksBrowserTest,
+    ValidAssetLinks_TargetManifestInvalid_IgnoreInterstitial) {
+  TestExpectInterstitial("góógle.com", MakeManifestWithTarget("google.com"),
+                         "google.com",
+                         MakeManifestWithTarget("góógle.com", /*invalid=*/true),
+                         /*expected_suggested_hostname=*/"google.com");
+}
+
+// Both lookalike and target sites are subdomains and serve valid asset links.
+// However, lookalike heuristics match to eTLD+1s, so the lookalike's manifest
+// will fail to validate because it points to the full URL instead.
+// TODO(meacer): Support this use case.
+IN_PROC_BROWSER_TEST_P(
+    LookalikeUrlNavigationThrottleDigitalAssetLinksBrowserTest,
+    ValidSubdomainAssetLinks_NoMatch_ShowInterstitial) {
+  TestExpectInterstitial(
+      "docs.góógle.com", MakeManifestWithTarget("docs.google.com"),
+      "docs.google.com", MakeManifestWithTarget("docs.góógle.com"),
+      /*expected_suggested_hostname=*/"google.com");
+}
+
+// Both lookalike and target sites are subdomains and serve valid asset links.
+// This time, the lookalike's manifest points to the eTLD+1 of the matching
+// domain so the validation is successful.
+IN_PROC_BROWSER_TEST_P(
+    LookalikeUrlNavigationThrottleDigitalAssetLinksBrowserTest,
+    ValidSubdomainAssetLinks_IgnoreInterstitial) {
+  TestNoInterstitial("docs.góógle.com", MakeManifestWithTarget("google.com"),
+                     "google.com", MakeManifestWithTarget("docs.góógle.com"));
 }

@@ -32,6 +32,7 @@
 #include "ash/wm/wm_event.h"
 #include "ash/wm/workspace/phantom_window_controller.h"
 #include "base/metrics/user_metrics.h"
+#include "chromeos/ui/base/window_properties.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/window_types.h"
 #include "ui/aura/window.h"
@@ -47,6 +48,9 @@
 namespace ash {
 
 namespace {
+
+using ::chromeos::kFrameRestoreLookKey;
+using ::chromeos::WindowStateType;
 
 constexpr double kMinHorizVelocityForWindowSwipe = 1100;
 constexpr double kMinVertVelocityForWindowMinimize = 1000;
@@ -107,6 +111,17 @@ constexpr char kDragMaximizeSmoothness[] =
 // dragging to snap maximize.
 constexpr base::TimeDelta kCrossFadeDuration =
     base::TimeDelta::FromMilliseconds(120);
+
+// The amount of pixels that needs to be moved during a top screen drag to reset
+// dwell time.
+constexpr int kSnapDragDwellTimeResetThreshold = 8;
+
+// Dwell time before snap to maximize. The countdown starts when window dragged
+// into snap region.
+constexpr base::TimeDelta kDwellTime = base::TimeDelta::FromMilliseconds(800);
+// The min amount of vertical movement needed for to trigger a snap to
+// maximize.
+constexpr int kSnapTriggerVerticalMoveThreshold = 64;
 
 // Current instance for use by the WorkspaceWindowResizerTest.
 WorkspaceWindowResizer* instance = nullptr;
@@ -326,7 +341,9 @@ int GetDraggingThreshold(const DragDetails& details) {
 
   // Snapped and maximized windows need to be dragged a certain amount before
   // bounds start changing.
-  return IsNormalWindowStateType(state) ? 0 : kResizeRestoreDragThresholdDp;
+  return chromeos::IsNormalWindowStateType(state)
+             ? 0
+             : kResizeRestoreDragThresholdDp;
 }
 
 void ResetFrameRestoreLookKey(WindowState* window_state) {
@@ -546,7 +563,6 @@ void WorkspaceWindowResizer::Drag(const gfx::PointF& location_in_parent,
       return;
     }
   }
-
   last_mouse_location_ = location_in_parent;
 
   int sticky_size;
@@ -596,14 +612,42 @@ void WorkspaceWindowResizer::Drag(const gfx::PointF& location_in_parent,
 
   gfx::PointF location_in_screen = location_in_parent;
   ::wm::ConvertPointToScreen(GetTarget()->parent(), &location_in_screen);
+  SnapType snap_type = ::ash::GetSnapType(GetDisplay(), location_in_screen);
   if (!can_snap_to_maximize_) {
-    // Check if |location_in_screen| is outside the snap region. If it is,
-    // update |can_snap_to_maximize_| and skip this check on subsequent drags.
+    gfx::PointF initial_location_in_screen =
+        details().initial_location_in_parent;
+    ::wm::ConvertPointToScreen(GetTarget()->parent(),
+                               &initial_location_in_screen);
+    // When repositioning windows across the top of the screen, only trigger a
+    // snap when there is significant vertical movement.
     can_snap_to_maximize_ =
-        ::ash::GetSnapType(GetDisplay(), location_in_screen) !=
-        SnapType::kMaximize;
+        std::abs(initial_location_in_screen.y() - location_in_screen.y()) >
+        kSnapTriggerVerticalMoveThreshold;
   }
-  UpdateSnapPhantomWindow(location_in_screen, bounds);
+
+  // Start dwell countdown if move window to the top of screen.
+  if (snap_type == SnapType::kMaximize) {
+    if (!dwell_countdown_timer_.IsRunning() ||
+        (location_in_screen - dwell_location_in_screen_).Length() >
+            kSnapDragDwellTimeResetThreshold) {
+      // Do not show snap window if not pass dwell time.
+      // Restart timer if user moves the window significantly.
+      dwell_countdown_timer_.Start(
+          FROM_HERE, kDwellTime,
+          base::BindOnce(&WorkspaceWindowResizer::UpdateSnapPhantomWindow,
+                         weak_ptr_factory_.GetWeakPtr(), location_in_screen,
+                         bounds));
+      dwell_location_in_screen_ = location_in_screen;
+      snap_type_ = SnapType::kNone;
+      snap_phantom_window_controller_.reset();
+    }
+  } else {
+    UpdateSnapPhantomWindow(location_in_screen, bounds);
+    if (dwell_countdown_timer_.IsRunning()) {
+      dwell_countdown_timer_.Stop();
+    }
+    dwell_location_in_screen_ = gfx::PointF();
+  }
 
   if (tab_dragging_recorder_) {
     // The recorder only works with a single ui::Compositor. ui::Compositor is

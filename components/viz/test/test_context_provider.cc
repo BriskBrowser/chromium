@@ -12,7 +12,6 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
 #include "base/check.h"
 #include "base/notreached.h"
@@ -222,7 +221,8 @@ void TestSharedImageInterface::RegisterSysmemBufferCollection(
     gfx::SysmemBufferCollectionId id,
     zx::channel token,
     gfx::BufferFormat format,
-    gfx::BufferUsage usage) {
+    gfx::BufferUsage usage,
+    bool register_with_image_pipe) {
   NOTREACHED();
 }
 
@@ -485,7 +485,6 @@ TestGLES2Interface* TestContextProvider::TestContextGL() {
   CheckValidThreadOrLockAcquired();
   return context_gl_.get();
 }
-
 
 void TestContextProvider::AddObserver(ContextLostObserver* obs) {
   observers_.AddObserver(obs);

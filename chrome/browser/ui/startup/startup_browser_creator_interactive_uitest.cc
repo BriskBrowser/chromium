@@ -10,6 +10,7 @@
 #include "base/run_loop.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_browser_main.h"
 #include "chrome/browser/chrome_browser_main_extra_parts.h"
@@ -36,7 +37,7 @@ using StartupBrowserCreatorTest = InProcessBrowserTest;
 // Chrome OS doesn't support multiprofile.
 // And BrowserWindow::IsActive() always returns false in tests on MAC.
 // And this test is useless without that functionality.
-#if !defined(OS_CHROMEOS) && !defined(OS_MAC)
+#if !BUILDFLAG(IS_CHROMEOS_ASH) && !defined(OS_MAC)
 IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, LastUsedProfileActivated) {
   base::ScopedAllowBlockingForTesting allow_blocking;
   ProfileManager* profile_manager = g_browser_process->profile_manager();
@@ -84,7 +85,7 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, LastUsedProfileActivated) {
   while (!browser_creator.ActivatedProfile())
     base::RunLoop().RunUntilIdle();
 
-  Browser* new_browser = NULL;
+  Browser* new_browser = nullptr;
 
   // The last used profile (the profile_2 in this case) must be active.
   ASSERT_EQ(1u, chrome::GetBrowserCount(profile_2));
@@ -115,6 +116,10 @@ class StartupPagePrefSetterMainExtraParts : public ChromeBrowserMainExtraParts {
  public:
   explicit StartupPagePrefSetterMainExtraParts(const std::vector<GURL>& urls)
       : urls_(urls) {}
+  StartupPagePrefSetterMainExtraParts(
+      const StartupPagePrefSetterMainExtraParts&) = delete;
+  StartupPagePrefSetterMainExtraParts& operator=(
+      const StartupPagePrefSetterMainExtraParts&) = delete;
 
   // ChromeBrowserMainExtraParts:
   void PreBrowserStart() override {
@@ -128,7 +133,6 @@ class StartupPagePrefSetterMainExtraParts : public ChromeBrowserMainExtraParts {
 
  private:
   std::vector<GURL> urls_;
-  DISALLOW_COPY_AND_ASSIGN(StartupPagePrefSetterMainExtraParts);
 };
 
 class StartupPageTest : public InProcessBrowserTest {
@@ -137,6 +141,8 @@ class StartupPageTest : public InProcessBrowserTest {
     // Don't open about:blank since we want to test startup urls.
     set_open_about_blank_on_browser_launch(false);
   }
+  StartupPageTest(const StartupPageTest&) = delete;
+  StartupPageTest& operator=(const StartupPageTest&) = delete;
   ~StartupPageTest() override = default;
 
   // InProcessBrowserTest:
@@ -151,9 +157,6 @@ class StartupPageTest : public InProcessBrowserTest {
     chrome_browser_main_parts->AddParts(
         std::make_unique<StartupPagePrefSetterMainExtraParts>(urls));
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(StartupPageTest);
 };
 
 IN_PROC_BROWSER_TEST_F(StartupPageTest, StartupPageFocus) {

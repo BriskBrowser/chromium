@@ -18,6 +18,7 @@ namespace feed {
 // See components/feed/core/v2/public/types.h.
 using ::feed::ChromeInfo;
 using ::feed::EphemeralChangeId;
+using ::feed::Experiments;
 
 // Uniquely identifies a revision of a |feedstore::Content|. If Content changes,
 // it is assigned a new revision number.
@@ -39,7 +40,9 @@ struct RequestMetadata {
   ChromeInfo chrome_info;
   std::string language_tag;
   std::string client_instance_id;
+  std::string session_id;
   DisplayMetrics display_metrics;
+  bool notice_card_acknowledged = false;
 };
 
 // Data internal to MetricsReporter which is persisted to Prefs.

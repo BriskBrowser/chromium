@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/debug/alias.h"
 #include "content/renderer/accessibility/render_accessibility_impl.h"
 #include "content/renderer/render_frame_impl.h"
 
@@ -65,6 +66,7 @@ void RenderAccessibilityManager::SetMode(uint32_t ax_mode) {
 }
 
 void RenderAccessibilityManager::FatalError() {
+  NO_CODE_FOLDING();
   CHECK(false) << "Invalid accessibility tree.";
 }
 

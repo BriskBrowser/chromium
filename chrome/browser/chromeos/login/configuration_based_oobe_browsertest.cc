@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "ash/constants/ash_switches.h"
 #include "base/system/sys_info.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
@@ -27,7 +28,9 @@
 #include "chrome/browser/ui/webui/chromeos/login/network_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/update_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/welcome_screen_handler.h"
-#include "chromeos/constants/chromeos_switches.h"
+#include "chromeos/attestation/attestation_flow_utils.h"
+#include "chromeos/dbus/attestation/fake_attestation_client.h"
+#include "chromeos/dbus/constants/dbus_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/fake_update_engine_client.h"
 #include "chromeos/dbus/shill/shill_manager_client.h"
@@ -102,8 +105,8 @@ class OobeConfigurationTest : public OobeBaseTest {
     OobeBaseTest::SetUpCommandLine(command_line);
   }
 
-  // Stores a name of the configuration data file to |file|.
-  // Returns true iff |file| exists.
+  // Stores a name of the configuration data file to `file`.
+  // Returns true iff `file` exists.
   bool GetTestFileName(const std::string& suffix, base::FilePath* file) {
     const ::testing::TestInfo* const test_info =
         ::testing::UnitTest::GetInstance()->current_test_info();
@@ -125,7 +128,8 @@ class OobeConfigurationTest : public OobeBaseTest {
     LoadConfiguration();
 
     // Make sure that OOBE is run as an "official" build.
-    branded_build_override_ = WizardController::ForceBrandedBuildForTesting();
+    branded_build_override_ =
+        WizardController::ForceBrandedBuildForTesting(true);
 
     // Clear portal list (as it is by default in OOBE).
     NetworkHandler::Get()->network_state_handler()->SetCheckPortalList("");
@@ -258,9 +262,7 @@ IN_PROC_BROWSER_TEST_F(OobeConfigurationTest, TestDemoModeAcceptArcTos) {
   test::OobeJS().Evaluate(
       "login.ArcTermsOfServiceScreen.setTosForTesting('Test "
       "Play Store Terms of Service');");
-  test::OobeJS().Evaluate(
-      "$('demo-preferences-content').$$('oobe-dialog')."
-      "querySelector('oobe-text-button').click();");
+  test::OobeJS().ClickOnPath({"demo-preferences", "nextButton"});
 
   OobeScreenWaiter(DemoSetupScreenView::kScreenId).Wait();
 }
@@ -313,6 +315,14 @@ IN_PROC_BROWSER_TEST_F(OobeConfigurationEnrollmentTest, TestSkipUpdate) {
 }
 
 IN_PROC_BROWSER_TEST_F(OobeConfigurationEnrollmentTest, TestEnrollUsingToken) {
+  chromeos::AttestationClient::Get()
+      ->GetTestInterface()
+      ->AllowlistSignSimpleChallengeKey(
+          /*username=*/"",
+          chromeos::attestation::GetKeyNameForProfile(
+              chromeos::attestation::PROFILE_ENTERPRISE_ENROLLMENT_CERTIFICATE,
+              ""));
+
   policy_server_.SetUpdateDeviceAttributesPermission(false);
   policy_server_.SetFakeAttestationFlow();
 

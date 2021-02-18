@@ -10,7 +10,7 @@
 #include "base/bind.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
 #include "components/feed/core/v2/public/types.h"
@@ -149,6 +149,40 @@ TEST_F(ImageFetcherTest, SendParallelRequestsValidResponses) {
   ASSERT_TRUE(receiver2.GetResult());
   EXPECT_THAT(receiver2.GetResult()->response_bytes,
               HasSubstr("example2_response"));
+}
+
+TEST_F(ImageFetcherTest, CancelRunsCallback) {
+  CallbackReceiver<NetworkResponse> receiver;
+  ImageFetchId id =
+      image_fetcher()->Fetch(GURL("https://example.com"), receiver.Bind());
+
+  image_fetcher()->Cancel(id);
+  ASSERT_TRUE(receiver.GetResult());
+  EXPECT_EQ(std::string(), receiver.GetResult()->response_bytes);
+  EXPECT_EQ(net::Error::ERR_ABORTED, receiver.GetResult()->status_code);
+}
+
+TEST_F(ImageFetcherTest, CancelThenRespond) {
+  CallbackReceiver<NetworkResponse> receiver;
+  ImageFetchId id =
+      image_fetcher()->Fetch(GURL("https://example.com"), receiver.Bind());
+
+  image_fetcher()->Cancel(id);
+  Respond("example1_response", net::HTTP_OK);
+  ASSERT_TRUE(receiver.GetResult());
+  EXPECT_EQ(std::string(), receiver.GetResult()->response_bytes);
+  EXPECT_EQ(net::Error::ERR_ABORTED, receiver.GetResult()->status_code);
+}
+
+TEST_F(ImageFetcherTest, CallbackCallsCancel) {
+  // Ensure nothing terrible happens if cancel is called from the callback.
+  ImageFetchId id;
+  id = image_fetcher()->Fetch(
+      GURL("https://example.com"),
+      base::BindLambdaForTesting(
+          [&](NetworkResponse response) { image_fetcher()->Cancel(id); }));
+
+  image_fetcher()->Cancel(id);
 }
 
 }  // namespace

@@ -7,6 +7,7 @@ import("//tools/polymer/polymer.gni")
 import("../settings.gni")
 
 js_type_check("closure_compile") {
+  uses_legacy_modules = true
   deps = [
     ":settings_animated_pages",
     ":settings_section",
@@ -34,9 +35,9 @@ js_library("settings_subpage") {
     "..:router",
     "..:setting_id_param_util",
     "//third_party/polymer/v1_0/components-chromium/iron-resizable-behavior:iron-resizable-behavior-extracted",
+    "//ui/webui/resources/cr_elements:find_shortcut_behavior",
     "//ui/webui/resources/cr_elements/cr_search_field:cr_search_field",
     "//ui/webui/resources/js:assert",
-    "//ui/webui/resources/js:find_shortcut_behavior",
     "//ui/webui/resources/js:i18n_behavior",
     "//ui/webui/resources/js:load_time_data",
     "//ui/webui/resources/js:util",
@@ -94,9 +95,9 @@ js_library("settings_subpage.m") {
     "..:setting_id_param_util.m",
     "//third_party/polymer/v3_0/components-chromium/iron-resizable-behavior:iron-resizable-behavior",
     "//third_party/polymer/v3_0/components-chromium/polymer:polymer_bundled",
+    "//ui/webui/resources/cr_elements:find_shortcut_behavior.m",
     "//ui/webui/resources/cr_elements/cr_search_field:cr_search_field.m",
     "//ui/webui/resources/js:assert.m",
-    "//ui/webui/resources/js:find_shortcut_behavior.m",
     "//ui/webui/resources/js:i18n_behavior.m",
     "//ui/webui/resources/js:load_time_data.m",
     "//ui/webui/resources/js:util.m",
@@ -104,8 +105,6 @@ js_library("settings_subpage.m") {
   ]
   extra_deps = [ ":settings_subpage_module" ]
 }
-
-import("//tools/polymer/polymer.gni")
 
 group("polymer3_elements") {
   public_deps = [

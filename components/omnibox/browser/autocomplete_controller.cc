@@ -38,12 +38,14 @@
 #include "components/omnibox/browser/history_url_provider.h"
 #include "components/omnibox/browser/keyword_provider.h"
 #include "components/omnibox/browser/local_history_zero_suggest_provider.h"
+#include "components/omnibox/browser/most_visited_sites_provider.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/browser/omnibox_pedal_provider.h"
 #include "components/omnibox/browser/on_device_head_provider.h"
 #include "components/omnibox/browser/query_tile_provider.h"
 #include "components/omnibox/browser/search_provider.h"
 #include "components/omnibox/browser/shortcuts_provider.h"
+#include "components/omnibox/browser/voice_suggest_provider.h"
 #include "components/omnibox/browser/zero_suggest_provider.h"
 #include "components/omnibox/browser/zero_suggest_verbatim_match_provider.h"
 #include "components/omnibox/common/omnibox_features.h"
@@ -229,6 +231,32 @@ bool AutocompleteMatchHasCustomDescription(const AutocompleteMatch& match) {
          match.type == AutocompleteMatchType::SEARCH_SUGGEST_PROFILE;
 }
 
+// Returns if rich autocompletion had (or would have had for counterfactual
+// variations) an impact; i.e. whether the top scoring rich autocompleted
+// suggestion outscores the top scoring default suggestion.
+bool TopMatchWouldHaveBeenRichAutocompletion(const AutocompleteResult& result) {
+  // Trigger rich autocompletion logging if the highest scoring match has
+  // |rich_autocompletion_triggered| set to true indicating it is, or could have
+  // been, rich autocompleted. It's not sufficient to check the default match
+  // since counterfactual variations will not allow rich autocompleted matches
+  // to be the default match.
+  if (result.empty())
+    return false;
+
+  auto get_sort_key = [](const AutocompleteMatch& match) {
+    return std::make_tuple(match.allowed_to_be_default_match ||
+                               match.rich_autocompletion_triggered,
+                           match.relevance);
+  };
+
+  auto top_match = std::max_element(
+      result.begin(), result.end(),
+      [&](const AutocompleteMatch& match1, const AutocompleteMatch& match2) {
+        return get_sort_key(match1) < get_sort_key(match2);
+      });
+  return top_match->rich_autocompletion_triggered;
+}
+
 }  // namespace
 
 AutocompleteController::AutocompleteController(
@@ -290,22 +318,22 @@ AutocompleteController::AutocompleteController(
         ZeroSuggestProvider::Create(provider_client_.get(), this);
     if (zero_suggest_provider_)
       providers_.push_back(zero_suggest_provider_);
-#if defined(OS_ANDROID)
+  }
+  if (provider_types & AutocompleteProvider::TYPE_ZERO_SUGGEST_LOCAL_HISTORY) {
+    providers_.push_back(
+        LocalHistoryZeroSuggestProvider::Create(provider_client_.get(), this));
+  }
+  if (provider_types & AutocompleteProvider::TYPE_MOST_VISITED_SITES) {
+    providers_.push_back(
+        new MostVisitedSitesProvider(provider_client_.get(), this));
     // Note: the need for the always-present verbatim match originates from the
     // OmniboxSearchReadyIncognito feature.
     // The feature aims at showing SRO in an Incognito mode, where the
     // ZeroSuggestProvider intentionally never gets invoked.
     // The gating flag here should be removed when the SRO Incognito is
     // launched.
-    if (base::FeatureList::IsEnabled(omnibox::kOmniboxSearchReadyIncognito)) {
-      providers_.push_back(
-          new ZeroSuggestVerbatimMatchProvider(provider_client_.get()));
-    }
-#endif
-  }
-  if (provider_types & AutocompleteProvider::TYPE_ZERO_SUGGEST_LOCAL_HISTORY) {
     providers_.push_back(
-        LocalHistoryZeroSuggestProvider::Create(provider_client_.get(), this));
+        new ZeroSuggestVerbatimMatchProvider(provider_client_.get()));
   }
   if (provider_types & AutocompleteProvider::TYPE_DOCUMENT) {
     document_provider_ = DocumentProvider::Create(provider_client_.get(), this);
@@ -316,7 +344,6 @@ AutocompleteController::AutocompleteController(
         OnDeviceHeadProvider::Create(provider_client_.get(), this);
     if (on_device_head_provider_) {
       providers_.push_back(on_device_head_provider_);
-      on_device_head_provider_->AddModelUpdateCallback();
     }
   }
   if (provider_types & AutocompleteProvider::TYPE_CLIPBOARD) {
@@ -344,6 +371,12 @@ AutocompleteController::AutocompleteController(
 
   if (provider_types & AutocompleteProvider::TYPE_QUERY_TILE)
     providers_.push_back(new QueryTileProvider(provider_client_.get(), this));
+
+  if (provider_types & AutocompleteProvider::TYPE_VOICE_SUGGEST) {
+    voice_suggest_provider_ =
+        new VoiceSuggestProvider(provider_client_.get(), this);
+    providers_.push_back(voice_suggest_provider_);
+  }
 
   base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
       this, "AutocompleteController", base::ThreadTaskRunnerHandle::Get());
@@ -406,7 +439,6 @@ void AutocompleteController::Start(const AutocompleteInput& input) {
   in_start_ = true;
   base::TimeTicks start_time = base::TimeTicks::Now();
   for (auto i(providers_.begin()); i != providers_.end(); ++i) {
-    // TODO(mpearson): Remove timing code once bug 178705 is resolved.
     base::TimeTicks provider_start_time = base::TimeTicks::Now();
     (*i)->Start(input_, minimal_changes);
     if (!input.want_asynchronous_matches())
@@ -544,12 +576,12 @@ void AutocompleteController::OnProviderUpdate(bool updated_matches) {
     UpdateResult(false, false);
 }
 
-void AutocompleteController::AddProvidersInfo(
-    ProvidersInfo* provider_info) const {
-  provider_info->clear();
-  for (auto i(providers_.begin()); i != providers_.end(); ++i) {
+void AutocompleteController::AddProviderAndTriggeringLogs(
+    OmniboxLog* logs) const {
+  logs->providers_info.clear();
+  for (const auto& provider : providers_) {
     // Add per-provider info, if any.
-    (*i)->AddProviderInfo(provider_info);
+    provider->AddProviderInfo(&logs->providers_info);
 
     // This is also a good place to put code to add info that you want to
     // add for every provider.
@@ -559,16 +591,20 @@ void AutocompleteController::AddProvidersInfo(
     // OmniboxPedalProvider is not a "true" AutocompleteProvider and isn't
     // included in the list of providers, though needs to report information for
     // its field trial.  Manually call AddProviderInfo for pedals.
-    provider_client_->GetPedalProvider()->AddProviderInfo(provider_info);
+    provider_client_->GetPedalProvider()->AddProviderInfo(
+        &logs->providers_info);
   }
+
+  // Add any features that have been triggered.
+  provider_client_->GetOmniboxTriggeredFeatureService()->RecordToLogs(
+      &logs->feature_triggered_in_session);
 }
 
 void AutocompleteController::ResetSession() {
   search_service_worker_signal_sent_ = false;
 
-  for (Providers::const_iterator i(providers_.begin()); i != providers_.end();
-       ++i) {
-    (*i)->ResetSession();
+  for (const auto& provider : providers_) {
+    provider->ResetSession();
   }
 
   if (OmniboxFieldTrial::IsPedalSuggestionsEnabled()) {
@@ -576,6 +612,8 @@ void AutocompleteController::ResetSession() {
     // a "true" AutocompleteProvider.  Manually call ResetSession() for pedals.
     provider_client_->GetPedalProvider()->ResetSession();
   }
+
+  provider_client_->GetOmniboxTriggeredFeatureService()->ResetSession();
 }
 
 void AutocompleteController::UpdateMatchDestinationURLWithQueryFormulationTime(
@@ -681,18 +719,18 @@ void AutocompleteController::UpdateResult(
   if (OmniboxFieldTrial::IsTabSwitchSuggestionsEnabled())
     result_.ConvertOpenTabMatches(provider_client_.get(), &input_);
 
-  if (OmniboxFieldTrial::IsPedalSuggestionsEnabled()) {
-    result_.ConvertInSuggestionPedalMatches(provider_client_.get());
-  }
+  UpdateHeaderInfoFromZeroSuggestProvider(&result_);
 
   // Sort the matches and trim to a small number of "best" matches.
   const AutocompleteMatch* preserve_default_match = nullptr;
-  if (!in_start_ && last_default_match &&
-      base::FeatureList::IsEnabled(
-          omnibox::kOmniboxPreserveDefaultMatchAgainstAsyncUpdate)) {
+  if (!in_start_ && last_default_match) {
     preserve_default_match = &last_default_match.value();
   }
   result_.SortAndCull(input_, template_url_service_, preserve_default_match);
+
+  if (OmniboxFieldTrial::IsPedalSuggestionsEnabled()) {
+    result_.AttachPedalsToMatches(input_, *provider_client_);
+  }
 
   // Need to validate before invoking CopyOldMatches as the old matches are not
   // valid against the current input.
@@ -713,7 +751,6 @@ void AutocompleteController::UpdateResult(
                                                      result_);
   }
 
-  UpdateHeaders(&result_);
   UpdateKeywordDescriptions(&result_);
   UpdateAssociatedKeywords(&result_);
   UpdateAssistedQueryStats(&result_);
@@ -745,6 +782,11 @@ void AutocompleteController::UpdateResult(
         (result_.default_match()->keyword != last_default_match->keyword)));
   if (notify_default_match)
     last_time_default_match_changed_ = base::TimeTicks::Now();
+
+  if (TopMatchWouldHaveBeenRichAutocompletion(result_)) {
+    provider_client_->GetOmniboxTriggeredFeatureService()->TriggerFeature(
+        OmniboxTriggeredFeatureService::Feature::kRichAutocompletion);
+  }
 
   NotifyChanged(force_notify_default_match_changed || notify_default_match);
 }
@@ -802,50 +844,22 @@ void AutocompleteController::UpdateAssociatedKeywords(
   }
 }
 
-void AutocompleteController::UpdateHeaders(AutocompleteResult* result) {
-  DCHECK(result);
-
+void AutocompleteController::UpdateHeaderInfoFromZeroSuggestProvider(
+    AutocompleteResult* result) {
   // Currently, we only populate the AutocompleteResult's header labels from
   // ZeroSuggestProvider. Even if another provider has header metadata, we
   // currently ignore it. This means that as-you-type suggestions will NEVER
   // show headers in the UI. For now, this is hacky, but intended.
   //
   // TODO(tommycli): Stop special casing ZeroSuggestProvider here.
-  if (zero_suggest_provider_) {
-    result->set_headers_map(zero_suggest_provider_->headers_map());
-    result->set_hidden_group_ids(zero_suggest_provider_->hidden_group_ids());
-  }
+  if (!zero_suggest_provider_)
+    return;
 
-  for (AutocompleteMatch& match : *result) {
-    if (match.suggestion_group_id.has_value()) {
-      // Record header data into the additional_info field for chrome://omnibox.
-      // Note, to improve debugging, we record the original group ID sent by
-      // the server before stripping empty headers.
-      int group_id = match.suggestion_group_id.value();
-      match.RecordAdditionalInfo("suggestion_group_id", group_id);
-
-      const base::string16 header = result->GetHeaderForGroupId(group_id);
-      if (!header.empty()) {
-        match.RecordAdditionalInfo("header string", base::UTF16ToUTF8(header));
-      } else {
-        // Strip all match group IDs that don't have a header string. Otherwise,
-        // these matches will be shown at the bottom with an empty header row.
-        // They should be treated as an ordinary match with no group ID.
-        match.suggestion_group_id.reset();
-      }
-    }
-  }
-
-  // Move all grouped matches to the bottom while maintaining the current order.
-  //
-  // TODO(tommycli): Currently, this pushes all suggestions with group IDs to
-  // the bottom, but doesn't group them together. That could lead to some
-  // awkward interleaving of groups.
-  std::stable_sort(result->begin(), result->end(),
-                   [](const auto& a, const auto& b) {
-                     return !a.suggestion_group_id.has_value() &&
-                            b.suggestion_group_id.has_value();
-                   });
+  // Merge the new header info with the existing one rather than replacing it.
+  // We might end up using the existing matches fully or partially if there are
+  // not enough new ones. Thus, we should also keep the existing header info.
+  result->MergeHeadersMap(zero_suggest_provider_->headers_map());
+  result->MergeHiddenGroupIds(zero_suggest_provider_->hidden_group_ids());
 }
 
 void AutocompleteController::UpdateKeywordDescriptions(
@@ -1032,4 +1046,9 @@ bool AutocompleteController::OnMemoryDump(
   dump->AddScalar(base::trace_event::MemoryAllocatorDump::kNameSize,
                   base::trace_event::MemoryAllocatorDump::kUnitsBytes, res);
   return true;
+}
+
+void AutocompleteController::SetStartStopTimerDurationForTesting(
+    base::TimeDelta duration) {
+  stop_timer_duration_ = duration;
 }

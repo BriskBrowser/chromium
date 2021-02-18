@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/rand_util.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/default_clock.h"
@@ -50,6 +51,30 @@ MediaSinkInternal CreateCastSinkFromDialSink(
   extra_data.capabilities = cast_channel::CastDeviceCapability::NONE;
 
   return MediaSinkInternal(sink, extra_data);
+}
+
+std::string EnumToString(MediaRouterChannelError error) {
+  switch (error) {
+    case MediaRouterChannelError::UNKNOWN:
+      return "UNKNOWN";
+    case MediaRouterChannelError::AUTHENTICATION:
+      return "AUTHENTICATION";
+    case MediaRouterChannelError::CONNECT:
+      return "CONNECT";
+    case MediaRouterChannelError::GENERAL_CERTIFICATE:
+      return "GENERAL_CERTIFICATE";
+    case MediaRouterChannelError::CERTIFICATE_TIMING:
+      return "CERTIFICATE_TIMING";
+    case MediaRouterChannelError::NETWORK:
+      return "NETWORK";
+    case MediaRouterChannelError::CONNECT_TIMEOUT:
+      return "CONNECT_TIMEOUT";
+    case MediaRouterChannelError::PING_TIMEOUT:
+      return "PING_TIMEOUT";
+    case MediaRouterChannelError::TOTAL_COUNT:
+      NOTREACHED();
+      return "";
+  }
 }
 
 MediaRouterChannelError RecordError(cast_channel::ChannelError channel_error,
@@ -306,12 +331,6 @@ void CastMediaSinkServiceImpl::OnError(const cast_channel::CastSocket& socket,
   cast_channel::LastError last_error =
       cast_socket_service_->GetLogger()->GetLastError(socket.id());
   MediaRouterChannelError error_code = RecordError(error_state, last_error);
-  if (logger_.is_bound()) {
-    logger_->LogError(mojom::LogCategory::kDiscovery, kLoggerComponent,
-                      base::StringPrintf("Cast Channel Error Code: %d",
-                                         static_cast<int>(error_code)),
-                      "", "", "");
-  }
 
   net::IPEndPoint ip_endpoint = socket.ip_endpoint();
   // Need a PostTask() here because RemoveSocket() will release the memory of
@@ -331,6 +350,13 @@ void CastMediaSinkServiceImpl::OnError(const cast_channel::CastSocket& socket,
       std::find_if(sinks.begin(), sinks.end(), [&socket_id](const auto& entry) {
         return entry.second.cast_data().cast_channel_id == socket_id;
       });
+  if (logger_.is_bound()) {
+    auto sink_id = sink_it == sinks.end() ? "" : sink_it->first;
+    logger_->LogError(mojom::LogCategory::kDiscovery, kLoggerComponent,
+                      base::StrCat({"Media Router Channel Error: ",
+                                    EnumToString(error_code)}),
+                      sink_id, "", "");
+  }
   if (sink_it == sinks.end()) {
     return;
   }
@@ -377,10 +403,19 @@ void CastMediaSinkServiceImpl::OnNetworksChanged(
     sink_cache_[last_network_id] = std::move(current_sinks);
   }
 
+  if (logger_.is_bound()) {
+    logger_->LogError(mojom::LogCategory::kDiscovery, kLoggerComponent,
+                      base::StringPrintf(
+                          "Network ID chagned from \"%s\" to \"%s\".",
+                          last_network_id.c_str(), current_network_id_.c_str()),
+                      "", "", "");
+  }
+
   // TODO(imcheng): Maybe this should clear |sinks_| and call |StartTimer()|
   // so it is more responsive?
-  if (IsNetworkIdUnknownOrDisconnected(network_id))
+  if (IsNetworkIdUnknownOrDisconnected(network_id)) {
     return;
+  }
 
   auto cache_entry = sink_cache_.find(network_id);
   // Check if we have any cached sinks for this network ID.
@@ -610,8 +645,9 @@ void CastMediaSinkServiceImpl::OnChannelOpenFailed(
 
   if (logger_.is_bound()) {
     logger_->LogError(mojom::LogCategory::kDiscovery, kLoggerComponent,
-                      "Cannot Open Channel for sink: " + sink.sink().id(), "",
-                      "", "");
+                      base::StrCat({"Failed to open the channel. IP endpoint: ",
+                                    ip_endpoint.ToString()}),
+                      sink.sink().id(), "", "");
   }
   RemoveSink(sink);
 }

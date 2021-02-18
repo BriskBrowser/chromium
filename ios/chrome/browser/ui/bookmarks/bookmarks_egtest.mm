@@ -17,7 +17,7 @@
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
-#import "ios/chrome/test/earl_grey/chrome_test_case.h"
+#import "ios/chrome/test/earl_grey/web_http_server_chrome_test_case.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
 #include "net/base/net_errors.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -39,7 +39,7 @@ using chrome_test_util::StarButton;
 using chrome_test_util::TappableBookmarkNodeWithLabel;
 
 // Bookmark integration tests for Chrome.
-@interface BookmarksTestCase : ChromeTestCase
+@interface BookmarksTestCase : WebHttpServerChromeTestCase
 @end
 
 @implementation BookmarksTestCase
@@ -80,34 +80,16 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
   // Verify the bookmark is set.
   [BookmarkEarlGrey verifyBookmarksWithTitle:bookmarkTitle expectedCount:1];
 
-  // Verify the star is lit.
-  if (![ChromeEarlGrey isCompactWidth] &&
-      ![ChromeEarlGrey isChangeTabSwitcherPositionEnabled]) {
-    [[EarlGrey
-        selectElementWithMatcher:grey_accessibilityLabel(
-                                     l10n_util::GetNSString(IDS_TOOLTIP_STAR))]
-        assertWithMatcher:grey_notNil()];
-  }
-
   // Open the BookmarkEditor.
 
-  if ([ChromeEarlGrey isCompactWidth] ||
-      [ChromeEarlGrey isChangeTabSwitcherPositionEnabled]) {
-    [ChromeEarlGreyUI openToolsMenu];
-    [[[EarlGrey
-        selectElementWithMatcher:grey_allOf(grey_accessibilityID(
-                                                kToolsMenuEditBookmark),
-                                            grey_sufficientlyVisible(), nil)]
-           usingSearchAction:grey_scrollInDirection(kGREYDirectionDown, 200)
-        onElementWithMatcher:grey_accessibilityID(
-                                 kPopupMenuToolsMenuTableViewId)]
-        performAction:grey_tap()];
-  } else {
-    [[EarlGrey
-        selectElementWithMatcher:grey_accessibilityLabel(
-                                     l10n_util::GetNSString(IDS_TOOLTIP_STAR))]
-        performAction:grey_tap()];
-  }
+  [ChromeEarlGreyUI openToolsMenu];
+  [[[EarlGrey
+      selectElementWithMatcher:grey_allOf(
+                                   grey_accessibilityID(kToolsMenuEditBookmark),
+                                   grey_sufficientlyVisible(), nil)]
+         usingSearchAction:grey_scrollInDirection(kGREYDirectionDown, 200)
+      onElementWithMatcher:grey_accessibilityID(kPopupMenuToolsMenuTableViewId)]
+      performAction:grey_tap()];
 
   // Delete the Bookmark.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
@@ -119,25 +101,17 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   // Verify the the page is no longer bookmarked.
 
-  if ([ChromeEarlGrey isCompactWidth] ||
-      [ChromeEarlGrey isChangeTabSwitcherPositionEnabled]) {
-    [ChromeEarlGreyUI openToolsMenu];
-    [[[EarlGrey
-        selectElementWithMatcher:grey_allOf(grey_accessibilityID(
-                                                kToolsMenuAddToBookmarks),
-                                            grey_sufficientlyVisible(), nil)]
-           usingSearchAction:grey_scrollInDirection(kGREYDirectionDown, 200)
-        onElementWithMatcher:grey_accessibilityID(
-                                 kPopupMenuToolsMenuTableViewId)]
-        assertWithMatcher:grey_notNil()];
-    // After veryfing, close the ToolsMenu by tapping on its button.
-    [ChromeEarlGreyUI openToolsMenu];
-  } else {
-    [[EarlGrey
-        selectElementWithMatcher:grey_accessibilityLabel(
-                                     l10n_util::GetNSString(IDS_TOOLTIP_STAR))]
-        assertWithMatcher:grey_notNil()];
-  }
+  [ChromeEarlGreyUI openToolsMenu];
+  [[[EarlGrey
+      selectElementWithMatcher:grey_allOf(grey_accessibilityID(
+                                              kToolsMenuAddToBookmarks),
+                                          grey_sufficientlyVisible(), nil)]
+         usingSearchAction:grey_scrollInDirection(kGREYDirectionDown, 200)
+      onElementWithMatcher:grey_accessibilityID(kPopupMenuToolsMenuTableViewId)]
+      assertWithMatcher:grey_notNil()];
+  // After veryfing, close the ToolsMenu by tapping on its button.
+  [ChromeEarlGreyUI openToolsMenu];
+
   // Close the opened tab.
   [ChromeEarlGrey closeCurrentTab];
 }
@@ -168,8 +142,8 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
   [[EarlGrey
       selectElementWithMatcher:TappableBookmarkNodeWithLabel(@"First URL")]
       performAction:grey_longPress()];
-  [[EarlGrey selectElementWithMatcher:ButtonWithAccessibilityLabelId(
-                                          IDS_IOS_BOOKMARK_CONTEXT_MENU_EDIT)]
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::
+                                          BookmarksContextMenuEditButton()]
       performAction:grey_tap()];
 
   // Tap the Folder button.
@@ -228,21 +202,15 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
       selectElementWithMatcher:TappableBookmarkNodeWithLabel(@"Second URL")]
       performAction:grey_tap()];
 
-  // Edit the bookmark.
-  if (![ChromeEarlGrey isCompactWidth] &&
-      ![ChromeEarlGrey isChangeTabSwitcherPositionEnabled]) {
-    [[EarlGrey selectElementWithMatcher:StarButton()] performAction:grey_tap()];
-  } else {
-    [ChromeEarlGreyUI openToolsMenu];
-    [[[EarlGrey
-        selectElementWithMatcher:grey_allOf(grey_accessibilityID(
-                                                kToolsMenuEditBookmark),
-                                            grey_sufficientlyVisible(), nil)]
-           usingSearchAction:grey_scrollInDirection(kGREYDirectionDown, 200)
-        onElementWithMatcher:grey_accessibilityID(
-                                 kPopupMenuToolsMenuTableViewId)]
-        performAction:grey_tap()];
-  }
+  [ChromeEarlGreyUI openToolsMenu];
+  [[[EarlGrey
+      selectElementWithMatcher:grey_allOf(
+                                   grey_accessibilityID(kToolsMenuEditBookmark),
+                                   grey_sufficientlyVisible(), nil)]
+         usingSearchAction:grey_scrollInDirection(kGREYDirectionDown, 200)
+      onElementWithMatcher:grey_accessibilityID(kPopupMenuToolsMenuTableViewId)]
+      performAction:grey_tap()];
+
   GREYAssertTrue([ChromeEarlGrey registeredKeyCommandCount] == 0,
                  @"No keyboard commands are registered.");
 }
@@ -759,7 +727,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
   // Reopen bookmarks.
   [BookmarkEarlGreyUI openBookmarks];
 
-  if (base::FeatureList::IsEnabled(kIllustratedEmptyStates)) {
+  if ([ChromeEarlGrey isIllustratedEmptyStatesEnabled]) {
     // Ensure the root node is opened, by verifying that there isn't a Back
     // button in the navigation bar.
     [[EarlGrey selectElementWithMatcher:chrome_test_util::
@@ -866,7 +834,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 - (void)testRootEmptyState {
   [BookmarkEarlGreyUI openBookmarks];
 
-  if (base::FeatureList::IsEnabled(kIllustratedEmptyStates)) {
+  if ([ChromeEarlGrey isIllustratedEmptyStatesEnabled]) {
     // When the user has no bookmarks, the root view should be an empty state.
     [BookmarkEarlGreyUI verifyEmptyState];
   } else {
@@ -894,7 +862,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
                                           BookmarksNavigationBarBackButton()]
       performAction:grey_tap()];
 
-  if (base::FeatureList::IsEnabled(kIllustratedEmptyStates)) {
+  if ([ChromeEarlGrey isIllustratedEmptyStatesEnabled]) {
     // When the user has no bookmarks, the root view should be an empty state.
     [BookmarkEarlGreyUI verifyEmptyState];
   } else {

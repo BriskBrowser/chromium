@@ -10,7 +10,7 @@
 #include "base/location.h"
 #include "base/run_loop.h"
 #include "base/task/post_task.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/threading/sequence_bound.h"
 #include "components/performance_manager/graph/page_node_impl.h"
 #include "components/performance_manager/persistence/site_data/site_data_cache.h"
@@ -157,7 +157,7 @@ class SiteDataRecorderTest : public PerformanceManagerTestHarness {
       auto* page_node_impl = PageNodeImpl::FromNode(page_node.get());
       page_node_impl->SetIsAudible(false);
       page_node_impl->SetIsVisible(false);
-      page_node_impl->SetIsLoading(true);
+      page_node_impl->SetLoadingState(PageNode::LoadingState::kLoading);
     }));
   }
 
@@ -242,7 +242,7 @@ TEST_F(SiteDataRecorderTest, FeatureEventsGetForwardedWhenInBackground) {
 
     node_impl = PageNodeImpl::FromNode(page_node.get());
     EXPECT_CALL(*mock_writer, NotifySiteLoaded(TabVisibility::kBackground));
-    node_impl->SetIsLoading(false);
+    node_impl->SetLoadingState(PageNode::LoadingState::kLoadedIdle);
     ::testing::Mock::VerifyAndClear(mock_writer);
 
     EXPECT_CALL(*mock_writer, NotifySiteForegrounded(true));
@@ -316,7 +316,7 @@ TEST_F(SiteDataRecorderTest, FeatureEventsGetForwardedWhenInBackground) {
     EXPECT_CALL(*mock_writer, NotifySiteUnloaded(TabVisibility::kBackground));
   }));
 
-  NavigatePageNodeOnUIThread(web_contents(), GURL("about://blank"));
+  NavigatePageNodeOnUIThread(web_contents(), GURL("about:blank"));
 }
 
 TEST_F(SiteDataRecorderTest, FeatureEventsIgnoredWhenLoadingInBackground) {
@@ -373,11 +373,11 @@ TEST_F(SiteDataRecorderTest, LoadEvent) {
     // Test that the load/unload events get forwarded to the writer.
 
     EXPECT_CALL(*mock_writer, NotifySiteLoaded(TabVisibility::kBackground));
-    node_impl->SetIsLoading(false);
+    node_impl->SetLoadingState(PageNode::LoadingState::kLoadedIdle);
     ::testing::Mock::VerifyAndClear(mock_writer);
 
     EXPECT_CALL(*mock_writer, NotifySiteUnloaded(TabVisibility::kBackground));
-    node_impl->SetIsLoading(true);
+    node_impl->SetLoadingState(PageNode::LoadingState::kLoading);
     ::testing::Mock::VerifyAndClear(mock_writer);
   }));
 }

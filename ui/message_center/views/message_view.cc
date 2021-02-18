@@ -6,6 +6,7 @@
 
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -44,9 +45,17 @@ base::string16 CreateAccessibleName(const Notification& notification) {
     return notification.accessible_name();
 
   // Fall back to a text constructed from the notification.
-  std::vector<base::string16> accessible_lines = {
-      notification.title(), notification.message(),
-      notification.context_message()};
+  // Add non-empty elements.
+
+  std::vector<base::string16> accessible_lines;
+  if (!notification.title().empty())
+    accessible_lines.push_back(notification.title());
+
+  if (!notification.message().empty())
+    accessible_lines.push_back(notification.message());
+
+  if (!notification.context_message().empty())
+    accessible_lines.push_back(notification.context_message());
   std::vector<NotificationItem> items = notification.items();
   for (size_t i = 0; i < items.size() && i < kNotificationMaximumItems; ++i) {
     accessible_lines.push_back(items[i].title + base::ASCIIToUTF16(" ") +
@@ -123,7 +132,11 @@ void MessageView::SetIsNested() {
   slide_out_controller_.set_slide_mode(CalculateSlideMode());
   slide_out_controller_.set_update_opacity(false);
 
-  SetNestedBorderIfNecessary();
+  SkColor border_color = GetNativeTheme()->GetSystemColor(
+      ui::NativeTheme::kColorId_UnfocusedBorderColor);
+  SetBorder(views::CreateRoundedRectBorder(
+      kNotificationBorderThickness, kNotificationCornerRadius, border_color));
+
   if (GetControlButtonsView())
     GetControlButtonsView()->ShowCloseButton(GetMode() != Mode::PINNED);
 }
@@ -165,9 +178,7 @@ void MessageView::SetManuallyExpandedOrCollapsed(bool value) {
 
 void MessageView::UpdateCornerRadius(int top_radius, int bottom_radius) {
   SetCornerRadius(top_radius, bottom_radius);
-  SetBackground(views::CreateBackgroundFromPainter(
-      std::make_unique<NotificationBackgroundPainter>(top_radius,
-                                                      bottom_radius)));
+  UpdateBackgroundPainter();
   SchedulePaint();
 }
 
@@ -203,6 +214,10 @@ void MessageView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   node_data->AddStringAttribute(
       ax::mojom::StringAttribute::kRoleDescription,
       l10n_util::GetStringUTF8(IDS_MESSAGE_NOTIFICATION_ACCESSIBLE_NAME));
+
+  if (accessible_name_.empty())
+    node_data->SetNameFrom(ax::mojom::NameFrom::kAttributeExplicitlyEmpty);
+
   node_data->SetName(accessible_name_);
 }
 
@@ -239,7 +254,7 @@ bool MessageView::OnKeyPressed(const ui::KeyEvent& event) {
 }
 
 bool MessageView::OnKeyReleased(const ui::KeyEvent& event) {
-  // Space key handling is triggerred at key-release timing. See
+  // Space key handling is triggered at key-release timing. See
   // ui/views/controls/buttons/button.cc for why.
   if (event.flags() != ui::EF_NONE || event.key_code() != ui::VKEY_SPACE)
     return false;
@@ -315,7 +330,7 @@ void MessageView::AddedToWidget() {
 
 void MessageView::OnThemeChanged() {
   InkDropHostView::OnThemeChanged();
-  SetNestedBorderIfNecessary();
+  UpdateBackgroundPainter();
 }
 
 ui::Layer* MessageView::GetSlideOutLayer() {
@@ -348,10 +363,16 @@ void MessageView::OnSlideOut() {
   for (auto& observer : observers_)
     observer.OnPreSlideOut(notification_id_);
 
-  MessageCenter::Get()->RemoveNotification(notification_id_,
-                                           true /* by_user */);
+  // Copy the |notification_id| here as calling OnSlideOut() might destroy
+  // |this| but we still want to call RemoveNotification(). Note that the
+  // iteration over |observers_| is still safe and will simply stop.
+  std::string notification_id_copy = notification_id_;
+
   for (auto& observer : observers_)
     observer.OnSlideOut(notification_id_);
+
+  MessageCenter::Get()->RemoveNotification(notification_id_copy,
+                                           true /* by_user */);
 }
 
 void MessageView::OnWillChangeFocus(views::View* before, views::View* now) {}
@@ -437,7 +458,7 @@ void MessageView::OnSnoozeButtonPressed(const ui::Event& event) {
 }
 
 bool MessageView::ShouldShowControlButtons() const {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Users on ChromeOS are used to the Settings and Close buttons not being
   // visible at all times, but users on other platforms expect them to be
   // visible.
@@ -451,13 +472,12 @@ bool MessageView::ShouldShowControlButtons() const {
 #endif
 }
 
-void MessageView::SetNestedBorderIfNecessary() {
-  if (is_nested_) {
-    SkColor border_color = GetNativeTheme()->GetSystemColor(
-        ui::NativeTheme::kColorId_UnfocusedBorderColor);
-    SetBorder(views::CreateRoundedRectBorder(
-        kNotificationBorderThickness, kNotificationCornerRadius, border_color));
-  }
+void MessageView::UpdateBackgroundPainter() {
+  SkColor background_color = GetNativeTheme()->GetSystemColor(
+      ui::NativeTheme::kColorId_NotificationDefaultBackground);
+  SetBackground(views::CreateBackgroundFromPainter(
+      std::make_unique<NotificationBackgroundPainter>(
+          top_radius_, bottom_radius_, background_color)));
 }
 
 void MessageView::UpdateControlButtonsVisibility() {

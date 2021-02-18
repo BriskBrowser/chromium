@@ -16,7 +16,7 @@
 #include "services/network/public/mojom/url_response_head.mojom.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/blink/public/common/loader/resource_type_util.h"
-#include "third_party/blink/public/platform/web_rect.h"
+#include "third_party/blink/public/common/mobile_metrics/mobile_friendliness.h"
 #include "third_party/blink/public/web/web_document.h"
 #include "third_party/blink/public/web/web_document_loader.h"
 #include "third_party/blink/public/web/web_local_frame.h"
@@ -49,34 +49,30 @@ class MojoPageTimingSender : public PageTimingSender {
 
   ~MojoPageTimingSender() override = default;
 
-  void SendTiming(const mojom::PageLoadTimingPtr& timing,
-                  const mojom::FrameMetadataPtr& metadata,
-                  mojom::PageLoadFeaturesPtr new_features,
-                  std::vector<mojom::ResourceDataUpdatePtr> resources,
-                  const mojom::FrameRenderDataUpdate& render_data,
-                  const mojom::CpuTimingPtr& cpu_timing,
-                  mojom::DeferredResourceCountsPtr new_deferred_resource_data,
-                  mojom::InputTimingPtr input_timing_delta) override {
+  void SendTiming(
+      const mojom::PageLoadTimingPtr& timing,
+      const mojom::FrameMetadataPtr& metadata,
+      mojom::PageLoadFeaturesPtr new_features,
+      std::vector<mojom::ResourceDataUpdatePtr> resources,
+      const mojom::FrameRenderDataUpdate& render_data,
+      const mojom::CpuTimingPtr& cpu_timing,
+      mojom::DeferredResourceCountsPtr new_deferred_resource_data,
+      mojom::InputTimingPtr input_timing_delta,
+      const blink::MobileFriendliness& mobile_friendliness) override {
     DCHECK(page_load_metrics_);
     page_load_metrics_->UpdateTiming(
         limited_sending_mode_ ? CreatePageLoadTiming() : timing->Clone(),
         metadata->Clone(), std::move(new_features), std::move(resources),
         render_data.Clone(), cpu_timing->Clone(),
-        std::move(new_deferred_resource_data), std::move(input_timing_delta));
+        std::move(new_deferred_resource_data), std::move(input_timing_delta),
+        std::move(mobile_friendliness));
   }
 
-  void SubmitThroughputData(ukm::SourceId source_id,
-                            int aggregated_percent,
-                            int impl_percent,
-                            base::Optional<int> main_percent) {
+  void SetUpSmoothnessReporting(
+      base::ReadOnlySharedMemoryRegion shared_memory) override {
     DCHECK(page_load_metrics_);
-    mojom::PercentOptionalPtr main_ptr =
-        main_percent.has_value()
-            ? mojom::PercentOptional::New(main_percent.value())
-            : nullptr;
-    mojom::ThroughputUkmDataPtr throughput_data = mojom::ThroughputUkmData::New(
-        source_id, aggregated_percent, impl_percent, std::move(main_ptr));
-    page_load_metrics_->SubmitThroughputData(std::move(throughput_data));
+    page_load_metrics_->SetUpSharedMemoryForSmoothness(
+        std::move(shared_memory));
   }
 
  private:
@@ -96,8 +92,7 @@ class MojoPageTimingSender : public PageTimingSender {
 
 MetricsRenderFrameObserver::MetricsRenderFrameObserver(
     content::RenderFrame* render_frame)
-    : content::RenderFrameObserver(render_frame),
-      scoped_ad_resource_observer_(this) {}
+    : content::RenderFrameObserver(render_frame) {}
 
 MetricsRenderFrameObserver::~MetricsRenderFrameObserver() {
   if (page_timing_metrics_sender_)
@@ -254,6 +249,30 @@ void MetricsRenderFrameObserver::WillDetach() {
   }
 }
 
+void MetricsRenderFrameObserver::DidStartNavigation(
+    const GURL& url,
+    base::Optional<blink::WebNavigationType> navigation_type) {
+  // Send current metrics, as we might create a new RenderFrame later due to
+  // this navigation (that might end up in a different process entirely, and
+  // won't notify us until the current RenderFrameHost in the browser changed).
+  // If that happens, it will be too late to send the metrics from WillDetach
+  // or the destructor, because the browser ignores metrics update from
+  // non-current RenderFrameHosts. See crbug.com/1150242 for more details.
+  // TODO(crbug.com/1150242): Remove this when we have the full fix for the bug.
+  if (page_timing_metrics_sender_)
+    page_timing_metrics_sender_->SendLatest();
+}
+
+void MetricsRenderFrameObserver::DidSetPageLifecycleState() {
+  // Send current metrics, as this RenderFrame might be replaced by a new
+  // RenderFrame or its process might be killed, and this might be the last
+  // point we can send the metrics to the browser. See crbug.com/1150242 for
+  // more details.
+  // TODO(crbug.com/1150242): Remove this when we have the full fix for the bug.
+  if (page_timing_metrics_sender_)
+    page_timing_metrics_sender_->SendLatest();
+}
+
 void MetricsRenderFrameObserver::ReadyToCommitNavigation(
     blink::WebDocumentLoader* document_loader) {
   // Create a new data use tracker for the new document load.
@@ -283,14 +302,6 @@ void MetricsRenderFrameObserver::DidCreateDocumentElement() {
   if (render_frame()->IsMainFrame())
     return;
 
-  // Every frame creates an initial about:blank document element prior to
-  // receiving a navigation to about:blank. Ignore this initial document
-  // element.
-  if (!first_document_observed_) {
-    first_document_observed_ = true;
-    return;
-  }
-
   // A new document element was created in a frame that did not commit a
   // provisional load. This can be due to a doc.write in the frame that aborted
   // a navigation. Create a page timing sender to track this load. This sender
@@ -311,6 +322,10 @@ void MetricsRenderFrameObserver::DidCreateDocumentElement() {
       CreatePageTimingSender(true /* limited_sending_mode */), CreateTimer(),
       std::move(timing.relative_timing), timing.monotonic_timing,
       std::make_unique<PageResourceDataUse>());
+  if (ukm_smoothness_data_.IsValid()) {
+    page_timing_metrics_sender_->SetUpSmoothnessReporting(
+        std::move(ukm_smoothness_data_));
+  }
 }
 
 void MetricsRenderFrameObserver::DidCommitProvisionalLoad(
@@ -335,17 +350,23 @@ void MetricsRenderFrameObserver::DidCommitProvisionalLoad(
       CreatePageTimingSender(false /* limited_sending_mode*/), CreateTimer(),
       std::move(timing.relative_timing), timing.monotonic_timing,
       std::move(provisional_frame_resource_data_use_));
+  if (ukm_smoothness_data_.IsValid()) {
+    page_timing_metrics_sender_->SetUpSmoothnessReporting(
+        std::move(ukm_smoothness_data_));
+  }
 }
 
 void MetricsRenderFrameObserver::SetAdResourceTracker(
     subresource_filter::AdResourceTracker* ad_resource_tracker) {
   // Remove all sources and set a new source for the observer.
-  scoped_ad_resource_observer_.RemoveAll();
-  scoped_ad_resource_observer_.Add(ad_resource_tracker);
+  scoped_ad_resource_observation_.Reset();
+  scoped_ad_resource_observation_.Observe(ad_resource_tracker);
 }
 
 void MetricsRenderFrameObserver::OnAdResourceTrackerGoingAway() {
-  scoped_ad_resource_observer_.RemoveAll();
+  DCHECK(scoped_ad_resource_observation_.IsObserving());
+
+  scoped_ad_resource_observation_.Reset();
 }
 
 void MetricsRenderFrameObserver::OnAdResourceObserved(int request_id) {
@@ -353,22 +374,27 @@ void MetricsRenderFrameObserver::OnAdResourceObserved(int request_id) {
 }
 
 void MetricsRenderFrameObserver::OnMainFrameIntersectionChanged(
-    const blink::WebRect& main_frame_intersection) {
+    const gfx::Rect& main_frame_intersection) {
   if (page_timing_metrics_sender_)
     page_timing_metrics_sender_->OnMainFrameIntersectionChanged(
         main_frame_intersection);
 }
 
-void MetricsRenderFrameObserver::OnThroughputDataAvailable(
-    ukm::SourceId source_id,
-    int aggregated_percent,
-    int impl_percent,
-    base::Optional<int> main_percent) {
-  std::unique_ptr<MojoPageTimingSender> sender =
-      std::make_unique<MojoPageTimingSender>(render_frame(),
-                                             false /* limited_sending_mode */);
-  sender->SubmitThroughputData(source_id, aggregated_percent, impl_percent,
-                               main_percent);
+void MetricsRenderFrameObserver::OnMobileFriendlinessChanged(
+    const blink::MobileFriendliness& mf) {
+  if (page_timing_metrics_sender_)
+    page_timing_metrics_sender_->DidObserveMobileFriendlinessChanged(mf);
+}
+
+bool MetricsRenderFrameObserver::SetUpSmoothnessReporting(
+    base::ReadOnlySharedMemoryRegion& shared_memory) {
+  if (page_timing_metrics_sender_) {
+    page_timing_metrics_sender_->SetUpSmoothnessReporting(
+        std::move(shared_memory));
+  } else {
+    ukm_smoothness_data_ = std::move(shared_memory);
+  }
+  return true;
 }
 
 void MetricsRenderFrameObserver::MaybeSetCompletedBeforeFCP(int request_id) {
@@ -517,6 +543,13 @@ MetricsRenderFrameObserver::Timing MetricsRenderFrameObserver::GetTiming()
         back_forward_cache_timing
             ->first_paint_after_back_forward_cache_restore =
             ClampDelta(first_paint, navigation_start);
+      }
+      for (double raf : restore_timing.request_animation_frames) {
+        if (!raf)
+          break;
+        back_forward_cache_timing
+            ->request_animation_frames_after_back_forward_cache_restore
+            .push_back(ClampDelta(raf, navigation_start));
       }
       if (first_input_delay.has_value()) {
         back_forward_cache_timing

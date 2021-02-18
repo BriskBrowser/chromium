@@ -33,6 +33,13 @@ class OwnerKeyUtil;
 
 namespace chromeos {
 
+enum class FeatureFlagsMigrationStatus {
+  kNoFeatureFlags,
+  kAlreadyMigrated,
+  kMigrationPerformed,
+  kMaxValue = kMigrationPerformed,
+};
+
 // The class is a profile-keyed service which holds public/private keypair
 // corresponds to a profile. The keypair is reloaded automatically when profile
 // is created and TPM token is ready. Note that the private part of a key can be
@@ -45,8 +52,6 @@ class OwnerSettingsServiceChromeOS : public ownership::OwnerSettingsService,
                                      public SessionManagerClient::Observer,
                                      public DeviceSettingsService::Observer {
  public:
-  typedef base::Callback<void(bool success)> OnManagementSettingsSetCallback;
-
   struct ManagementSettings {
     ManagementSettings();
     ~ManagementSettings();
@@ -129,9 +134,10 @@ class OwnerSettingsServiceChromeOS : public ownership::OwnerSettingsService,
   // Reloads private key from profile's NSS slots, responds via |callback|. On
   // success, |private_key| is non-null, but if the private key doesn't exist,
   // |private_key->key()| may be null.
-  void ReloadKeypairImpl(const base::Callback<
-      void(const scoped_refptr<ownership::PublicKey>& public_key,
-           const scoped_refptr<ownership::PrivateKey>& private_key)>& callback)
+  void ReloadKeypairImpl(
+      base::OnceCallback<void(
+          const scoped_refptr<ownership::PublicKey>& public_key,
+          const scoped_refptr<ownership::PrivateKey>& private_key)> callback)
       override;
 
   // Possibly notifies DeviceSettingsService that owner's keypair is loaded.
@@ -153,6 +159,11 @@ class OwnerSettingsServiceChromeOS : public ownership::OwnerSettingsService,
   // Report status to observers and tries to continue storing pending chages to
   // device settings.
   void ReportStatusAndContinueStoring(bool success);
+
+  // Migrates feature flags from being stored as raw switches to being stored as
+  // feature flag names.
+  void MigrateFeatureFlags(
+      enterprise_management::ChromeDeviceSettingsProto* settings);
 
   DeviceSettingsService* device_settings_service_;
 
@@ -188,5 +199,10 @@ class OwnerSettingsServiceChromeOS : public ownership::OwnerSettingsService,
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove when moved to chrome/browser/ash/.
+namespace ash {
+using ::chromeos::OwnerSettingsServiceChromeOS;
+}
 
 #endif  // CHROME_BROWSER_CHROMEOS_OWNERSHIP_OWNER_SETTINGS_SERVICE_CHROMEOS_H_

@@ -8,9 +8,19 @@ GEN_INCLUDE(['switch_access_e2e_test_base.js']);
 SwitchAccessTextNavigationManagerTest = class extends SwitchAccessE2ETest {
   /** @override */
   setUp() {
-    TextNavigationManager.initialize();
-    this.textNavigationManager = TextNavigationManager.instance;
-    this.navigationManager = NavigationManager.instance;
+    var runTest = this.deferRunTest(WhenTestDone.EXPECT);
+    (async () => {
+      let module = await import('/switch_access/text_navigation_manager.js');
+      window.TextNavigationManager = module.TextNavigationManager;
+
+      module = await import('/switch_access/navigator.js');
+      window.Navigator = module.Navigator;
+
+      this.textNavigationManager = TextNavigationManager.instance;
+      this.navigationManager = Navigator.instance;
+
+      runTest();
+    })();
   }
 };
 
@@ -45,7 +55,7 @@ function runTextNavigationTest(testHelper, textParams) {
   const website = generateWebsiteWithTextArea(
       textId, textContent, initialTextIndex, textCols, textWrap);
 
-  testHelper.runWithLoadedTree(website, function(desktop) {
+  testHelper.runWithLoadedTree(website, function(root) {
     const inputNode = this.findNodeById(textId);
     assertNotEquals(inputNode, null);
 
@@ -104,7 +114,7 @@ function runTextSelectionTest(testHelper, textParams) {
     navigationTargetIndex = targetTextStartIndex;
   }
 
-  testHelper.runWithLoadedTree(website, function(desktop) {
+  testHelper.runWithLoadedTree(website, function(root) {
     const inputNode = this.findNodeById(textId);
     assertNotEquals(inputNode, null);
     checkNodeIsFocused(inputNode);
@@ -180,8 +190,8 @@ function setUpCursorChangeListener(
     targetTextEndIndex, callback) {
   // Ensures that the text index has changed before checking the new index.
   const checkActionFinished = function(tab) {
-    if (inputNode.textSelStart != initialTextIndex ||
-        inputNode.textSelEnd != initialTextIndex) {
+    if (inputNode.textSelStart !== initialTextIndex ||
+        inputNode.textSelEnd !== initialTextIndex) {
       checkTextIndex();
       if (callback) {
         callback();
@@ -229,8 +239,10 @@ TEST_F('SwitchAccessTextNavigationManagerTest', 'JumpToEnd', function() {
   });
 });
 
+// TODO(crbug.com/1177096) Renable test
 TEST_F(
-    'SwitchAccessTextNavigationManagerTest', 'MoveBackwardOneChar', function() {
+    'SwitchAccessTextNavigationManagerTest', 'DISABLED_MoveBackwardOneChar',
+    function() {
       runTextNavigationTest(this, {
         content: 'parrots!',
         initialIndex: 7,
@@ -314,7 +326,7 @@ TEST_F(
       const website =
           generateWebsiteWithTextArea('test', 'test123', 3, 20, 'hard');
 
-      this.runWithLoadedTree(website, function(desktop) {
+      this.runWithLoadedTree(website, function(root) {
         const inputNode = this.findNodeById('test');
         assertNotEquals(inputNode, null);
         checkNodeIsFocused(inputNode);
@@ -335,7 +347,7 @@ TEST_F(
       const website =
           generateWebsiteWithTextArea('test', 'test 123', 6, 20, 'hard');
 
-      this.runWithLoadedTree(website, function(desktop) {
+      this.runWithLoadedTree(website, function(root) {
         const inputNode = this.findNodeById('test');
         assertNotEquals(inputNode, null);
         checkNodeIsFocused(inputNode);

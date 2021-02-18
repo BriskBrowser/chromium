@@ -13,7 +13,6 @@
 namespace blink {
 
 struct NGLink;
-class NGPhysicalContainerFragment;
 
 // This is more a copy-and-append algorithm than a layout algorithm.
 // This algorithm will only run when we are trying to add OOF-positioned
@@ -29,21 +28,23 @@ class CORE_EXPORT NGSimplifiedOOFLayoutAlgorithm
                                  const NGPhysicalBoxFragment&,
                                  bool is_new_fragment);
 
-  scoped_refptr<const NGLayoutResult> Layout() override;
+  const NGLayoutResult* Layout() override;
   MinMaxSizesResult ComputeMinMaxSizes(const MinMaxSizesInput&) const override {
     NOTREACHED();
-    return {MinMaxSizes(), /* depends_on_percentage_block_size */ true};
+    return MinMaxSizesResult();
   }
 
-  void AppendOutOfFlowResult(scoped_refptr<const NGLayoutResult> child,
-                             LogicalOffset offset);
+  void AppendOutOfFlowResult(const NGLayoutResult* child);
 
  private:
-  void AddChildFragment(const NGLink& old_fragment,
-                        const NGPhysicalContainerFragment& new_fragment);
+  void AddChildFragment(const NGLink& old_fragment);
 
   const WritingDirectionMode writing_direction_;
   PhysicalSize previous_physical_container_size_;
+
+  HeapVector<Member<const NGLayoutResult>> remaining_oof_results_;
+  base::span<const NGLink> children_;
+  base::span<const NGLink>::iterator iterator_;
 };
 
 }  // namespace blink

@@ -8,6 +8,7 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/no_destructor.h"
 #include "base/values.h"
+#include "build/chromeos_buildflags.h"
 #include "components/services/storage/indexed_db/scopes/leveldb_scopes.h"
 #include "components/services/storage/indexed_db/scopes/varint_coding.h"
 #include "components/services/storage/indexed_db/transactional_leveldb/transactional_leveldb_database.h"
@@ -80,7 +81,7 @@ bool IsPathTooLong(storage::FilesystemProxy* filesystem,
   if (!limit.has_value()) {
     DLOG(WARNING) << "GetMaximumPathComponentLength returned -1";
 // In limited testing, ChromeOS returns 143, other OSes 255.
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     limit = 143;
 #else
     limit = 255;
@@ -118,7 +119,7 @@ std::string ReadCorruptionInfo(storage::FilesystemProxy* filesystem_proxy,
   if (!file_info.has_value())
     return message;
   if (!file_info->size || file_info->size > kMaxJsonLength) {
-    filesystem_proxy->RemoveFile(info_path);
+    filesystem_proxy->DeleteFile(info_path);
     return message;
   }
 
@@ -141,7 +142,7 @@ std::string ReadCorruptionInfo(storage::FilesystemProxy* filesystem_proxy,
     }
   }
 
-  filesystem_proxy->RemoveFile(info_path);
+  filesystem_proxy->DeleteFile(info_path);
 
   return message;
 }
@@ -303,7 +304,7 @@ Status SetMaxObjectStoreId(TransactionalLevelDBTransaction* transaction,
 
   DCHECK_GE(max_object_store_id, 0);
   if (!s.ok()) {
-    INTERNAL_READ_ERROR_UNTESTED(SET_MAX_OBJECT_STORE_ID);
+    INTERNAL_READ_ERROR(SET_MAX_OBJECT_STORE_ID);
     return s;
   }
 
@@ -327,7 +328,7 @@ Status GetNewVersionNumber(TransactionalLevelDBTransaction* transaction,
   bool found = false;
   Status s = GetInt(transaction, last_version_key, &last_version, &found);
   if (!s.ok()) {
-    INTERNAL_READ_ERROR_UNTESTED(GET_NEW_VERSION_NUMBER);
+    INTERNAL_READ_ERROR(GET_NEW_VERSION_NUMBER);
     return s;
   }
   if (!found)
@@ -338,7 +339,7 @@ Status GetNewVersionNumber(TransactionalLevelDBTransaction* transaction,
   int64_t version = last_version + 1;
   s = PutInt(transaction, last_version_key, version);
   if (!s.ok()) {
-    INTERNAL_READ_ERROR_UNTESTED(GET_NEW_VERSION_NUMBER);
+    INTERNAL_READ_ERROR(GET_NEW_VERSION_NUMBER);
     return s;
   }
 
@@ -359,14 +360,14 @@ Status SetMaxIndexId(TransactionalLevelDBTransaction* transaction,
   bool found = false;
   Status s = GetInt(transaction, max_index_id_key, &max_index_id, &found);
   if (!s.ok()) {
-    INTERNAL_READ_ERROR_UNTESTED(SET_MAX_INDEX_ID);
+    INTERNAL_READ_ERROR(SET_MAX_INDEX_ID);
     return s;
   }
   if (!found)
     max_index_id = kMinimumIndexId;
 
   if (index_id <= max_index_id) {
-    INTERNAL_CONSISTENCY_ERROR_UNTESTED(SET_MAX_INDEX_ID);
+    INTERNAL_CONSISTENCY_ERROR(SET_MAX_INDEX_ID);
     return InternalInconsistencyStatus();
   }
 
@@ -385,7 +386,7 @@ Status VersionExists(TransactionalLevelDBTransaction* transaction,
 
   Status s = transaction->Get(key, &data, exists);
   if (!s.ok()) {
-    INTERNAL_READ_ERROR_UNTESTED(VERSION_EXISTS);
+    INTERNAL_READ_ERROR(VERSION_EXISTS);
     return s;
   }
   if (!*exists)
@@ -415,7 +416,7 @@ Status GetNewDatabaseId(Transaction* transaction, int64_t* new_id) {
   Status s = indexed_db::GetInt(transaction, MaxDatabaseIdKey::Encode(),
                                 &max_database_id, &found);
   if (!s.ok()) {
-    INTERNAL_READ_ERROR_UNTESTED(GET_NEW_DATABASE_ID);
+    INTERNAL_READ_ERROR(GET_NEW_DATABASE_ID);
     return s;
   }
   if (!found)
@@ -426,7 +427,7 @@ Status GetNewDatabaseId(Transaction* transaction, int64_t* new_id) {
   int64_t database_id = max_database_id + 1;
   s = indexed_db::PutInt(transaction, MaxDatabaseIdKey::Encode(), database_id);
   if (!s.ok()) {
-    INTERNAL_READ_ERROR_UNTESTED(GET_NEW_DATABASE_ID);
+    INTERNAL_READ_ERROR(GET_NEW_DATABASE_ID);
     return s;
   }
   *new_id = database_id;
@@ -478,7 +479,7 @@ bool FindGreatestKeyLessThanOrEqual(
   std::unique_ptr<TransactionalLevelDBIterator> it =
       transaction->CreateIterator(*s);
   if (!s->ok()) {
-    INTERNAL_WRITE_ERROR_UNTESTED(CREATE_ITERATOR);
+    INTERNAL_WRITE_ERROR(CREATE_ITERATOR);
     return false;
   }
 
@@ -522,14 +523,14 @@ bool GetBlobNumberGeneratorCurrentNumber(
   bool found = false;
   bool ok = leveldb_transaction->Get(key_gen_key, &data, &found).ok();
   if (!ok) {
-    INTERNAL_READ_ERROR_UNTESTED(GET_BLOB_KEY_GENERATOR_CURRENT_NUMBER);
+    INTERNAL_READ_ERROR(GET_BLOB_KEY_GENERATOR_CURRENT_NUMBER);
     return false;
   }
   if (found) {
     StringPiece slice(data);
     if (!DecodeVarInt(&slice, &cur_number) || !slice.empty() ||
         !DatabaseMetaDataKey::IsValidBlobNumber(cur_number)) {
-      INTERNAL_READ_ERROR_UNTESTED(GET_BLOB_KEY_GENERATOR_CURRENT_NUMBER);
+      INTERNAL_READ_ERROR(GET_BLOB_KEY_GENERATOR_CURRENT_NUMBER);
       return false;
     }
   }

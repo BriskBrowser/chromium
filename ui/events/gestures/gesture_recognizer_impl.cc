@@ -11,8 +11,8 @@
 
 #include "base/check.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/memory/ptr_util.h"
-#include "base/stl_util.h"
 #include "base/time/time.h"
 #include "ui/events/event.h"
 #include "ui/events/event_constants.h"
@@ -306,7 +306,7 @@ void GestureRecognizerImpl::DispatchGestureEvent(
 GestureRecognizer::Gestures GestureRecognizerImpl::AckTouchEvent(
     uint32_t unique_event_id,
     ui::EventResult result,
-    bool is_source_touch_event_set_non_blocking,
+    bool is_source_touch_event_set_blocking,
     GestureConsumer* consumer) {
   GestureProviderAura* gesture_provider = nullptr;
 
@@ -321,7 +321,7 @@ GestureRecognizer::Gestures GestureRecognizerImpl::AckTouchEvent(
     gesture_provider = GetGestureProviderForConsumer(consumer);
   }
   gesture_provider->OnTouchEventAck(unique_event_id, result != ER_UNHANDLED,
-                                    is_source_touch_event_set_non_blocking);
+                                    is_source_touch_event_set_blocking);
   return gesture_provider->GetAndResetPendingGestures();
 }
 

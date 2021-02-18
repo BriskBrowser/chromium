@@ -10,8 +10,8 @@ Polymer({
   is: 'settings-ambient-mode-page',
 
   behaviors: [
-    I18nBehavior, PrefsBehavior, settings.RouteObserverBehavior,
-    WebUIListenerBehavior
+    DeepLinkingBehavior, I18nBehavior, PrefsBehavior,
+    settings.RouteObserverBehavior, WebUIListenerBehavior
   ],
 
   properties: {
@@ -51,16 +51,43 @@ Polymer({
       value: AmbientModeTopicSource.UNKNOWN,
     },
 
+    /** @private */
+    hasGooglePhotosAlbums_: Boolean,
+
     /** @private {!AmbientModeTemperatureUnit} */
     selectedTemperatureUnit_: {
       type: AmbientModeTemperatureUnit,
       value: AmbientModeTemperatureUnit.UNKNOWN,
       observer: 'onSelectedTemperatureUnitChanged_'
     },
+
+    /**
+     * Used by DeepLinkingBehavior to focus this page's deep links.
+     * @type {!Set<!chromeos.settings.mojom.Setting>}
+     */
+    supportedSettingIds: {
+      type: Object,
+      value: () => new Set([
+        chromeos.settings.mojom.Setting.kAmbientModeOnOff,
+        chromeos.settings.mojom.Setting.kAmbientModeSource,
+      ]),
+    },
+
+    /** @private */
+    showSettings_: {
+      type: Boolean,
+      computed: 'computeShowSettings_(' +
+          'selectedTopicSource_, selectedTemperatureUnit_)',
+    },
+
+    /** @private */
+    disableSettings_: {
+      type: Boolean,
+      computed: 'computeDisableSettings_(prefs.settings.ambient_mode.*)',
+    }
   },
 
   listeners: {
-    'selected-topic-source-changed': 'onSelectedTopicSourceChanged_',
     'show-albums': 'onShowAlbums_',
   },
 
@@ -76,8 +103,9 @@ Polymer({
   ready() {
     this.addWebUIListener(
         'topic-source-changed',
-        (/** @type {!AmbientModeTopicSource} */ topicSource) => {
-          this.selectedTopicSource_ = topicSource;
+        (/** @type {!TopicSourceItem} */ topicSourceItem) => {
+          this.selectedTopicSource_ = topicSourceItem.topicSource;
+          this.hasGooglePhotosAlbums_ = topicSourceItem.hasGooglePhotosAlbums;
         },
     );
     this.addWebUIListener(
@@ -86,6 +114,33 @@ Polymer({
           this.selectedTemperatureUnit_ = temperatureUnit;
         },
     );
+  },
+
+  /**
+   * Overridden from DeepLinkingBehavior.
+   * @param {!chromeos.settings.mojom.Setting} settingId
+   */
+  beforeDeepLinkAttempt(settingId) {
+    if (settingId !== chromeos.settings.mojom.Setting.kAmbientModeSource) {
+      // Continue with deep link attempt.
+      return true;
+    }
+
+    // Wait for element to load.
+    Polymer.RenderStatus.afterNextRender(this, () => {
+      Polymer.dom.flush();
+
+      const topicList = this.$$('topic-source-list');
+      const listItem = topicList && topicList.$$('topic-source-item');
+      if (listItem) {
+        this.showDeepLinkElement(listItem);
+        return;
+      }
+
+      console.warn(`Element with deep link id ${settingId} not focusable.`);
+    });
+    // Stop deep link attempt since we completed it manually.
+    return false;
   },
 
   /**
@@ -99,6 +154,7 @@ Polymer({
     }
 
     this.browserProxy_.requestSettings();
+    this.attemptDeepLink();
   },
 
   /**
@@ -142,15 +198,6 @@ Polymer({
   },
 
   /**
-   * @param {!CustomEvent<{item: !AmbientModeTopicSource}>} event
-   * @private
-   */
-  onSelectedTopicSourceChanged_(event) {
-    this.browserProxy_.setSelectedTopicSource(
-        /** @type {!AmbientModeTopicSource} */ (event.detail));
-  },
-
-  /**
    * Open ambientMode/photos subpage.
    * @param {!CustomEvent<{item: !AmbientModeTopicSource}>} event
    * @private
@@ -160,5 +207,24 @@ Polymer({
     params.append('topicSource', JSON.stringify(event.detail));
     settings.Router.getInstance().navigateTo(
         settings.routes.AMBIENT_MODE_PHOTOS, params);
+  },
+
+  /**
+   * Whether to show settings.
+   * @return {boolean}
+   * @private
+   */
+  computeShowSettings_() {
+    return this.isValidTopicSource_(this.selectedTopicSource_) &&
+        this.isValidTemperatureUnit_(this.selectedTemperatureUnit_);
+  },
+
+  /**
+   * Whether to disable settings.
+   * @return {boolean}
+   * @private
+   */
+  computeDisableSettings_() {
+    return !this.getPref('settings.ambient_mode.enabled').value;
   }
 });

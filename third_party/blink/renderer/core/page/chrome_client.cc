@@ -52,8 +52,10 @@ void ChromeClient::InstallSupplements(LocalFrame& frame) {
   CoreInitializer::GetInstance().InstallSupplements(frame);
 }
 
-void ChromeClient::SetWindowRectWithAdjustment(const IntRect& pending_rect,
-                                               LocalFrame& frame) {
+IntRect ChromeClient::CalculateWindowRectWithAdjustment(
+    const IntRect& pending_rect,
+    LocalFrame& frame,
+    LocalFrame& requesting_frame) {
   IntRect screen(GetScreenInfo(frame).available_rect);
   IntRect window = pending_rect;
 
@@ -67,8 +69,10 @@ void ChromeClient::SetWindowRectWithAdjustment(const IntRect& pending_rect,
     // on another screen, and so it should not be limited by the current screen.
     // This relies on the embedder clamping bounds to the target screen for now.
     // TODO(http://crbug.com/897300): Implement multi-screen clamping in Blink.
-    if (!RuntimeEnabledFeatures::WindowPlacementEnabled(frame.DomWindow()))
+    if (!RuntimeEnabledFeatures::WindowPlacementEnabled(
+            requesting_frame.DomWindow())) {
       width = std::min(width, screen.Width());
+    }
     window.SetWidth(width);
     size_for_constraining_move.SetWidth(window.Width());
   }
@@ -78,8 +82,10 @@ void ChromeClient::SetWindowRectWithAdjustment(const IntRect& pending_rect,
     // on another screen, and so it should not be limited by the current screen.
     // This relies on the embedder clamping bounds to the target screen for now.
     // TODO(http://crbug.com/897300): Implement multi-screen clamping in Blink.
-    if (!RuntimeEnabledFeatures::WindowPlacementEnabled(frame.DomWindow()))
+    if (!RuntimeEnabledFeatures::WindowPlacementEnabled(
+            requesting_frame.DomWindow())) {
       height = std::min(height, screen.Height());
+    }
     window.SetHeight(height);
     size_for_constraining_move.SetHeight(window.Height());
   }
@@ -88,7 +94,8 @@ void ChromeClient::SetWindowRectWithAdjustment(const IntRect& pending_rect,
   // on another screen, and so it should not be limited by the current screen.
   // This relies on the embedder clamping bounds to the target screen for now.
   // TODO(http://crbug.com/897300): Implement multi-screen clamping in Blink.
-  if (!RuntimeEnabledFeatures::WindowPlacementEnabled(frame.DomWindow())) {
+  if (!RuntimeEnabledFeatures::WindowPlacementEnabled(
+          requesting_frame.DomWindow())) {
     // Constrain the window position within the valid screen area.
     window.SetX(
         std::max(screen.X(),
@@ -106,7 +113,13 @@ void ChromeClient::SetWindowRectWithAdjustment(const IntRect& pending_rect,
                       WebFeature::kDOMWindowSetWindowRectCrossScreen);
   }
 
-  SetWindowRect(window, frame);
+  return window;
+}
+
+void ChromeClient::SetWindowRectWithAdjustment(const IntRect& pending_rect,
+                                               LocalFrame& frame) {
+  IntRect rect = CalculateWindowRectWithAdjustment(pending_rect, frame, frame);
+  SetWindowRect(rect, frame);
 }
 
 bool ChromeClient::CanOpenUIElementIfDuringPageDismissal(
@@ -134,16 +147,16 @@ Page* ChromeClient::CreateWindow(
     const AtomicString& frame_name,
     const WebWindowFeatures& features,
     network::mojom::blink::WebSandboxFlags sandbox_flags,
-    const FeaturePolicyFeatureState& opener_feature_state,
-    const SessionStorageNamespaceId& session_storage_namespace_id) {
+    const SessionStorageNamespaceId& session_storage_namespace_id,
+    bool& consumed_user_gesture) {
   if (!CanOpenUIElementIfDuringPageDismissal(
           frame->Tree().Top(), UIElementType::kPopup, g_empty_string)) {
     return nullptr;
   }
 
   return CreateWindowDelegate(frame, r, frame_name, features, sandbox_flags,
-                              opener_feature_state,
-                              session_storage_namespace_id);
+                              session_storage_namespace_id,
+                              consumed_user_gesture);
 }
 
 template <typename Delegate>
@@ -297,6 +310,12 @@ bool ChromeClient::Print(LocalFrame* frame) {
         "'allow-modals' keyword is not set."));
     return false;
   }
+
+  // Suspend pages in case the client method runs a new event loop that would
+  // otherwise cause the load to continue while we're in the middle of
+  // executing JavaScript.
+  // TODO(crbug.com/956832): Remove this when it is safe to do so.
+  ScopedPagePauser pauser;
 
   PrintDelegate(frame);
   return true;

@@ -9,8 +9,11 @@
 #include <stdint.h>
 
 #include "base/android/android_hardware_buffer_compat.h"
+#include "base/android/android_image_reader_compat.h"
+#include "base/android/build_info.h"
 #include "base/android/jni_android.h"
 #include "base/android/scoped_hardware_buffer_fence_sync.h"
+#include "base/debug/dump_without_crashing.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_functions.h"
@@ -19,9 +22,9 @@
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "gpu/command_buffer/service/abstract_texture.h"
+#include "gpu/config/gpu_finch_features.h"
 #include "gpu/ipc/common/android/android_image_reader_utils.h"
-#include "media/base/android/media_codec_util.h"
-#include "ui/gl/android/android_surface_control_compat.h"
+#include "ui/gfx/android/android_surface_control_compat.h"
 #include "ui/gl/gl_fence_android_native_fence_sync.h"
 #include "ui/gl/gl_utils.h"
 #include "ui/gl/scoped_binders.h"
@@ -62,10 +65,10 @@ bool IsSurfaceControl(TextureOwner::Mode mode) {
 uint32_t NumRequiredMaxImages(TextureOwner::Mode mode) {
   if (IsSurfaceControl(mode) ||
       mode == TextureOwner::Mode::kAImageReaderInsecureMultithreaded) {
-    DCHECK(!media::MediaCodecUtil::LimitAImageReaderMaxSizeToOne());
+    DCHECK(!features::LimitAImageReaderMaxSizeToOne());
     return 3;
   }
-  return media::MediaCodecUtil::LimitAImageReaderMaxSizeToOne() ? 1 : 2;
+  return features::LimitAImageReaderMaxSizeToOne() ? 1 : 2;
 }
 
 }  // namespace
@@ -151,12 +154,16 @@ ImageReaderGLOwner::ImageReaderGLOwner(
   media_status_t return_code = loader_.AImageReader_newWithUsage(
       width, height, format, usage, max_images_, &reader);
   if (return_code != AMEDIA_OK) {
-    LOG(ERROR) << " Image reader creation failed.";
-    if (return_code == AMEDIA_ERROR_INVALID_PARAMETER)
+    LOG(ERROR) << " Image reader creation failed on device model : "
+               << base::android::BuildInfo::GetInstance()->model()
+               << ". maxImages used is : " << max_images_;
+    base::debug::DumpWithoutCrashing();
+    if (return_code == AMEDIA_ERROR_INVALID_PARAMETER) {
       LOG(ERROR) << "Either reader is null, or one or more of width, height, "
                     "format, maxImages arguments is not supported";
-    else
+    } else {
       LOG(ERROR) << "unknown error";
+    }
     return;
   }
   DCHECK(reader);
@@ -239,11 +246,12 @@ gl::ScopedJavaSurface ImageReaderGLOwner::CreateJavaSurface() const {
 
   // Get the java surface object from the Android native window.
   JNIEnv* env = base::android::AttachCurrentThread();
-  jobject j_surface = loader_.ANativeWindow_toSurface(env, window);
+  auto j_surface = base::android::ScopedJavaLocalRef<jobject>::Adopt(
+      env, loader_.ANativeWindow_toSurface(env, window));
   DCHECK(j_surface);
 
-  // Get the scoped java surface that is owned externally.
-  return gl::ScopedJavaSurface::AcquireExternalSurface(j_surface);
+  // Get the scoped java surface that will call release() on destruction.
+  return gl::ScopedJavaSurface(j_surface);
 }
 
 void ImageReaderGLOwner::UpdateTexImage() {
@@ -399,6 +407,9 @@ void ImageReaderGLOwner::ReleaseRefOnImage(AImage* image,
   }
 
   image_refs_.erase(it);
+  DCHECK_GT(max_images_, static_cast<int32_t>(image_refs_.size()));
+  if (buffer_available_cb_)
+    std::move(buffer_available_cb_).Run();
 }
 
 void ImageReaderGLOwner::ReleaseBackBuffers() {
@@ -424,6 +435,20 @@ void ImageReaderGLOwner::OnFrameAvailable(void* context, AImageReader* reader) {
 
   // It is safe to run this callback on any thread.
   image_reader_ptr->frame_available_cb_.Run();
+}
+
+void ImageReaderGLOwner::RunWhenBufferIsAvailable(base::OnceClosure callback) {
+  // Note that we handle only one simultaneous request, this is not issue
+  // because FrameInfoHelper maintain request queue and has only single
+  // outstanding request on GPU thread.
+  DCHECK(!buffer_available_cb_);
+  // If `max_images` == 1 we will drop it before acquiring new buffer. Note that
+  // this must never happen with SurfaceControl and the ImageReaderGLOwner is
+  // the sole owner of the images.
+  if (max_images_ == 1 || static_cast<int>(image_refs_.size()) < max_images_)
+    std::move(callback).Run();
+  else
+    buffer_available_cb_ = std::move(callback);
 }
 
 bool ImageReaderGLOwner::GetCodedSizeAndVisibleRect(

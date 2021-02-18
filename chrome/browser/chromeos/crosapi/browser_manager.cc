@@ -7,15 +7,19 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "ash/constants/ash_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/environment.h"
 #include "base/files/file_path.h"
+#include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 #include "base/posix/eintr_wrapper.h"
@@ -23,22 +27,27 @@
 #include "base/process/process_handle.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
+#include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
-#include "chrome/browser/chromeos/crosapi/ash_chrome_service_impl.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/crosapi/browser_loader.h"
+#include "chrome/browser/chromeos/crosapi/browser_service_host_ash.h"
 #include "chrome/browser/chromeos/crosapi/browser_util.h"
+#include "chrome/browser/chromeos/crosapi/crosapi_ash.h"
+#include "chrome/browser/chromeos/crosapi/crosapi_manager.h"
+#include "chrome/browser/chromeos/crosapi/environment_provider.h"
+#include "chrome/browser/chromeos/crosapi/test_mojo_connection_manager.h"
 #include "chrome/browser/component_updater/cros_component_manager.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/chromeos_switches.h"
+#include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
+#include "chromeos/startup/startup_switches.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/core/session_manager.h"
 #include "google_apis/google_api_keys.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/platform/platform_channel.h"
-#include "mojo/public/cpp/system/invitation.h"
 
 // TODO(crbug.com/1101667): Currently, this source has log spamming
 // by LOG(WARNING) for non critical errors to make it easy
@@ -51,6 +60,16 @@ namespace {
 
 // Pointer to the global instance of BrowserManager.
 BrowserManager* g_instance = nullptr;
+
+// The min version of BrowserService mojo interface that supports
+// GetFeedbackData API.
+constexpr uint32_t kGetFeedbackDataMinVersion = 6;
+// The min version of BrowserService mojo interface that supports
+// GetHistograms API.
+constexpr uint32_t kGetHistogramsMinVersion = 7;
+// The min version of BrowserService mojo interface that supports
+// GetActiveTabUrl API.
+constexpr uint32_t kGetActiveTabUrlMinVersion = 8;
 
 base::FilePath LacrosLogPath() {
   return browser_util::GetUserDataDir().Append("lacros.log");
@@ -66,10 +85,21 @@ base::ScopedFD CreateLogFile() {
       PLOG(ERROR) << "Failed to unlink the log file " << log_path;
       return base::ScopedFD();
     }
+
+    // If log file does not exist, most likely the user directory does not exist
+    // either. So create it here.
+    base::File::Error error;
+    if (!base::CreateDirectoryAndGetError(browser_util::GetUserDataDir(),
+                                          &error)) {
+      LOG(ERROR) << "Failed to make directory "
+                 << browser_util::GetUserDataDir()
+                 << base::File::ErrorToString(error);
+      return base::ScopedFD();
+    }
   }
 
   int fd =
-      HANDLE_EINTR(open(log_path.c_str(), O_WRONLY | O_CREAT | O_EXCL, 644));
+      HANDLE_EINTR(open(log_path.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0644));
 
   if (fd < 0) {
     PLOG(ERROR) << "Failed to get file descriptor for " << log_path;
@@ -126,20 +156,47 @@ BrowserManager* BrowserManager::Get() {
 
 BrowserManager::BrowserManager(
     scoped_refptr<component_updater::CrOSComponentManager> manager)
-    : component_manager_(manager) {
+    : component_manager_(manager),
+      environment_provider_(std::make_unique<EnvironmentProvider>()) {
   DCHECK(!g_instance);
   g_instance = this;
 
   // Wait to query the flag until the user has entered the session. Enterprise
   // devices restart Chrome during login to apply flags. We don't want to run
   // the flag-off cleanup logic until we know we have the final flag state.
-  session_manager::SessionManager::Get()->AddObserver(this);
+  if (session_manager::SessionManager::Get())
+    session_manager::SessionManager::Get()->AddObserver(this);
+
+  // CrosapiManager may not be initialized on unit testing.
+  if (CrosapiManager::IsInitialized()) {
+    CrosapiManager::Get()
+        ->crosapi_ash()
+        ->browser_service_host_ash()
+        ->AddObserver(this);
+  }
+
+  std::string socket_path =
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          chromeos::switches::kLacrosMojoSocketForTesting);
+  if (!socket_path.empty()) {
+    test_mojo_connection_manager_ =
+        std::make_unique<crosapi::TestMojoConnectionManager>(
+            base::FilePath(socket_path));
+  }
 }
 
 BrowserManager::~BrowserManager() {
+  if (CrosapiManager::IsInitialized()) {
+    CrosapiManager::Get()
+        ->crosapi_ash()
+        ->browser_service_host_ash()
+        ->RemoveObserver(this);
+  }
+
   // Unregister, just in case the manager is destroyed before
   // OnUserSessionStarted() is called.
-  session_manager::SessionManager::Get()->RemoveObserver(this);
+  if (session_manager::SessionManager::Get())
+    session_manager::SessionManager::Get()->RemoveObserver(this);
 
   // Try to kill the lacros-chrome binary.
   if (lacros_process_.IsValid())
@@ -154,12 +211,18 @@ bool BrowserManager::IsReady() const {
          state_ != State::UNAVAILABLE;
 }
 
+bool BrowserManager::IsRunning() const {
+  return state_ == State::RUNNING;
+}
+
 void BrowserManager::SetLoadCompleteCallback(LoadCompleteCallback callback) {
+  // We only support one client waiting.
+  DCHECK(!load_complete_callback_);
   load_complete_callback_ = std::move(callback);
 }
 
 void BrowserManager::NewWindow() {
-  if (!browser_util::IsLacrosAllowed())
+  if (!browser_util::IsLacrosEnabled())
     return;
 
   if (!IsReady()) {
@@ -173,7 +236,7 @@ void BrowserManager::NewWindow() {
     return;
   }
 
-  if (state_ == State::CREATING_LOG_FILE) {
+  if (state_ == State::CREATING_LOG_FILE || state_ == State::STARTING) {
     LOG(WARNING) << "lacros-chrome is in the process of launching";
     return;
   }
@@ -184,18 +247,77 @@ void BrowserManager::NewWindow() {
     return;
   }
 
-  DCHECK(lacros_chrome_service_.is_connected());
-  lacros_chrome_service_->NewWindow(base::DoNothing());
+  if (!browser_service_.has_value()) {
+    LOG(ERROR) << "BrowserService was disconnected";
+    return;
+  }
+
+  browser_service_->service->NewWindow(base::DoNothing());
 }
+
+bool BrowserManager::GetFeedbackDataSupported() const {
+  return browser_service_.has_value() &&
+         browser_service_->interface_version >= kGetFeedbackDataMinVersion;
+}
+
+void BrowserManager::GetFeedbackData(GetFeedbackDataCallback callback) {
+  DCHECK(GetFeedbackDataSupported());
+  browser_service_->service->GetFeedbackData(std::move(callback));
+}
+
+bool BrowserManager::GetHistogramsSupported() const {
+  return browser_service_.has_value() &&
+         browser_service_->interface_version >= kGetHistogramsMinVersion;
+}
+
+void BrowserManager::GetHistograms(GetHistogramsCallback callback) {
+  DCHECK(GetHistogramsSupported());
+  browser_service_->service->GetHistograms(std::move(callback));
+}
+
+bool BrowserManager::GetActiveTabUrlSupported() const {
+  return browser_service_.has_value() &&
+         browser_service_->interface_version >= kGetActiveTabUrlMinVersion;
+}
+
+void BrowserManager::GetActiveTabUrl(GetActiveTabUrlCallback callback) {
+  DCHECK(GetActiveTabUrlSupported());
+  browser_service_->service->GetActiveTabUrl(std::move(callback));
+}
+
+void BrowserManager::AddObserver(BrowserManagerObserver* observer) {
+  observers_.AddObserver(observer);
+}
+
+void BrowserManager::RemoveObserver(BrowserManagerObserver* observer) {
+  observers_.RemoveObserver(observer);
+}
+
+BrowserManager::BrowserServiceInfo::BrowserServiceInfo(
+    mojo::RemoteSetElementId mojo_id,
+    mojom::BrowserService* service,
+    uint32_t interface_version)
+    : mojo_id(mojo_id),
+      service(service),
+      interface_version(interface_version) {}
+
+BrowserManager::BrowserServiceInfo::BrowserServiceInfo(
+    const BrowserServiceInfo&) = default;
+BrowserManager::BrowserServiceInfo&
+BrowserManager::BrowserServiceInfo::operator=(const BrowserServiceInfo&) =
+    default;
+BrowserManager::BrowserServiceInfo::~BrowserServiceInfo() = default;
 
 void BrowserManager::Start() {
   DCHECK_EQ(state_, State::STOPPED);
   DCHECK(!lacros_path_.empty());
+  // Ensure we're not trying to open a window before the shelf is initialized.
+  DCHECK(ChromeLauncherController::instance());
 
   state_ = State::CREATING_LOG_FILE;
 
   base::ThreadPool::PostTaskAndReplyWithResult(
-      FROM_HERE, base::BindOnce(&CreateLogFile),
+      FROM_HERE, {base::MayBlock()}, base::BindOnce(&CreateLogFile),
       base::BindOnce(&BrowserManager::StartWithLogFile,
                      weak_factory_.GetWeakPtr()));
 }
@@ -221,6 +343,24 @@ void BrowserManager::StartWithLogFile(base::ScopedFD logfd) {
   options.environment["GOOGLE_DEFAULT_CLIENT_SECRET"] =
       google_apis::GetOAuth2ClientSecret(google_apis::CLIENT_MAIN);
 
+  // This sets the channel for Lacros.
+  options.environment["CHROME_VERSION_EXTRA"] = "dev";
+
+  std::string additional_env =
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          chromeos::switches::kLacrosChromeAdditionalEnv);
+  base::StringPairs env_pairs;
+  if (base::SplitStringIntoKeyValuePairsUsingSubstr(additional_env, '=', "####",
+                                                    &env_pairs)) {
+    for (const auto& env_pair : env_pairs) {
+      if (!env_pair.first.empty()) {
+        LOG(WARNING) << "Applying lacros env " << env_pair.first << "="
+                     << env_pair.second;
+        options.environment[env_pair.first] = env_pair.second;
+      }
+    }
+  }
+
   options.kill_on_parent_death = true;
 
   // Paths are UTF-8 safe on Chrome OS.
@@ -228,13 +368,21 @@ void BrowserManager::StartWithLogFile(base::ScopedFD logfd) {
   std::string crash_dir =
       browser_util::GetUserDataDir().Append("crash_dumps").AsUTF8Unsafe();
 
+  // Pass the locale via command line instead of via LacrosInitParams because
+  // the Lacros browser process needs it early in startup, before zygote fork.
+  std::string locale = g_browser_process->GetApplicationLocale();
+
+  // Static configuration should be enabled from Lacros rather than Ash. This
+  // vector should only be used for dynamic configuration.
+  // TODO(https://crbug.com/1145713): Remove existing static configuration.
   std::vector<std::string> argv = {chrome_path,
                                    "--ozone-platform=wayland",
                                    "--user-data-dir=" + user_data_dir,
                                    "--enable-gpu-rasterization",
                                    "--enable-oop-rasterization",
-                                   "--lang=en-US",
+                                   "--lang=" + locale,
                                    "--enable-crashpad",
+                                   "--enable-webgl-image-chromium",
                                    "--breakpad-dump-location=" + crash_dir};
 
   // CrAS is the default audio server in Chrome OS.
@@ -263,30 +411,35 @@ void BrowserManager::StartWithLogFile(base::ScopedFD logfd) {
     options.fds_to_remap.push_back(std::make_pair(logfd.get(), STDERR_FILENO));
   }
 
+  base::ScopedFD startup_fd =
+      browser_util::CreateStartupData(environment_provider_.get());
+  if (startup_fd.is_valid()) {
+    // Hardcoded to use FD 3 to make the ash-chrome's behavior more predictable.
+    // Lacros-chrome should not depend on the hardcoded value though. Instead
+    // it should take a look at the value passed via the command line flag.
+    constexpr int kStartupDataFD = 3;
+    argv.push_back(base::StringPrintf(
+        "--%s=%d", chromeos::switches::kCrosStartupDataFD, kStartupDataFD));
+    options.fds_to_remap.emplace_back(startup_fd.get(), kStartupDataFD);
+  }
+
   // Set up Mojo channel.
   base::CommandLine command_line(argv);
   LOG(WARNING) << "Launching lacros with command: "
                << command_line.GetCommandLineString();
+
+  // Prepare to invite lacros-chrome to the Mojo universe of Crosapi.
   mojo::PlatformChannel channel;
   channel.PrepareToPassRemoteEndpoint(&options, &command_line);
-
-  // Queue messages to establish the mojo connection,
-  // so that the passed IPC is available already when lacros-chrome accepts
-  // the invitation.
-  // TODO(crbug.com/1115092): Pass the initialization parameter over
-  // mojo connection.
-  mojo::OutgoingInvitation invitation;
-  lacros_chrome_service_.Bind(
-      mojo::PendingRemote<crosapi::mojom::LacrosChromeService>(
-          invitation.AttachMessagePipe(0), /*version=*/0));
-  lacros_chrome_service_.set_disconnect_handler(base::BindOnce(
-      &BrowserManager::OnMojoDisconnected, weak_factory_.GetWeakPtr()));
-  lacros_chrome_service_->RequestAshChromeServiceReceiver(
-      base::BindOnce(&BrowserManager::OnAshChromeServiceReceiverReceived,
+  DCHECK(!crosapi_id_.has_value());
+  crosapi_id_ = CrosapiManager::Get()->SendInvitation(
+      environment_provider_.get(), channel.TakeLocalEndpoint(),
+      base::BindOnce(&BrowserManager::OnMojoDisconnected,
                      weak_factory_.GetWeakPtr()));
 
   // Create the lacros-chrome subprocess.
   base::RecordAction(base::UserMetricsAction("Lacros.Launch"));
+  lacros_launch_time_ = base::TimeTicks::Now();
   // If lacros_process_ already exists, because it does not call waitpid(2),
   // the process will never be collected.
   lacros_process_ = base::LaunchProcess(command_line, options);
@@ -297,25 +450,41 @@ void BrowserManager::StartWithLogFile(base::ScopedFD logfd) {
   }
   state_ = State::STARTING;
   LOG(WARNING) << "Launched lacros-chrome with pid " << lacros_process_.Pid();
-
-  // Invite the lacros-chrome to the mojo universe.
   channel.RemoteProcessLaunchAttempted();
-  mojo::OutgoingInvitation::Send(std::move(invitation),
-                                 lacros_process_.Handle(),
-                                 channel.TakeLocalEndpoint());
 }
 
-void BrowserManager::OnAshChromeServiceReceiverReceived(
-    mojo::PendingReceiver<crosapi::mojom::AshChromeService> pending_receiver) {
+void BrowserManager::OnBrowserServiceConnected(
+    CrosapiId id,
+    mojo::RemoteSetElementId mojo_id,
+    mojom::BrowserService* browser_service,
+    uint32_t browser_service_version) {
+  if (id != crosapi_id_) {
+    // This BrowserService is unrelated to this instance. Skipping.
+    return;
+  }
+
   DCHECK_EQ(state_, State::STARTING);
-  ash_chrome_service_ =
-      std::make_unique<AshChromeServiceImpl>(std::move(pending_receiver));
   state_ = State::RUNNING;
+
+  DCHECK(!browser_service_.has_value());
+  browser_service_ =
+      BrowserServiceInfo{mojo_id, browser_service, browser_service_version};
+  base::UmaHistogramMediumTimes("ChromeOS.Lacros.StartTime",
+                                base::TimeTicks::Now() - lacros_launch_time_);
   // Set the launch-on-login pref every time lacros-chrome successfully starts,
   // instead of once during ash-chrome shutdown, so we have the right value
   // even if ash-chrome crashes.
   SetLaunchOnLoginPref(true);
   LOG(WARNING) << "Connection to lacros-chrome is established.";
+}
+
+void BrowserManager::OnBrowserServiceDisconnected(
+    CrosapiId id,
+    mojo::RemoteSetElementId mojo_id) {
+  // No need to check CrosapiId here, because |mojo_id| is unique within
+  // a process.
+  if (browser_service_.has_value() && browser_service_->mojo_id == mojo_id)
+    browser_service_.reset();
 }
 
 void BrowserManager::OnMojoDisconnected() {
@@ -324,13 +493,15 @@ void BrowserManager::OnMojoDisconnected() {
       << "Mojo to lacros-chrome is disconnected. Terminating lacros-chrome";
   state_ = State::TERMINATING;
 
-  lacros_chrome_service_.reset();
-  ash_chrome_service_ = nullptr;
+  browser_service_.reset();
+  crosapi_id_.reset();
   base::ThreadPool::PostTaskAndReply(
       FROM_HERE, {base::WithBaseSyncPrimitives()},
       base::BindOnce(&TerminateLacrosChrome, std::move(lacros_process_)),
       base::BindOnce(&BrowserManager::OnLacrosChromeTerminated,
                      weak_factory_.GetWeakPtr()));
+
+  NotifyMojoDisconnected();
 }
 
 void BrowserManager::OnLacrosChromeTerminated() {
@@ -342,15 +513,20 @@ void BrowserManager::OnLacrosChromeTerminated() {
   SetLaunchOnLoginPref(false);
 }
 
-void BrowserManager::OnUserSessionStarted(bool is_primary_user) {
+void BrowserManager::OnSessionStateChanged() {
   DCHECK_EQ(state_, State::NOT_INITIALIZED);
 
-  // Ensure this isn't called multiple times.
-  session_manager::SessionManager::Get()->RemoveObserver(this);
-
-  // Must be checked after user session start because it depends on user type.
-  if (!browser_util::IsLacrosAllowed())
+  // Wait for session to become active.
+  auto* session_manager = session_manager::SessionManager::Get();
+  if (session_manager->session_state() !=
+      session_manager::SessionState::ACTIVE) {
+    LOG(WARNING)
+        << "Session not yet active. Lacros-chrome will not be launched yet";
     return;
+  }
+
+  // Ensure this isn't run multiple times.
+  session_manager::SessionManager::Get()->RemoveObserver(this);
 
   // May be null in tests.
   if (!component_manager_)
@@ -358,7 +534,9 @@ void BrowserManager::OnUserSessionStarted(bool is_primary_user) {
 
   DCHECK(!browser_loader_);
   browser_loader_ = std::make_unique<BrowserLoader>(component_manager_);
-  if (chromeos::features::IsLacrosSupportEnabled()) {
+
+  // Must be checked after user session start because it depends on user type.
+  if (browser_util::IsLacrosEnabled()) {
     state_ = State::LOADING;
     browser_loader_->Load(base::BindOnce(&BrowserManager::OnLoadComplete,
                                          weak_factory_.GetWeakPtr()));
@@ -381,6 +559,15 @@ void BrowserManager::OnLoadComplete(const base::FilePath& path) {
   if (state_ == State::STOPPED && GetLaunchOnLoginPref()) {
     Start();
   }
+}
+
+void BrowserManager::NotifyMojoDisconnected() {
+  for (auto& observer : observers_)
+    observer.OnMojoDisconnected();
+}
+
+void BrowserManager::SetDeviceAccountPolicy(const std::string& policy_blob) {
+  environment_provider_->SetDeviceAccountPolicy(policy_blob);
 }
 
 }  // namespace crosapi

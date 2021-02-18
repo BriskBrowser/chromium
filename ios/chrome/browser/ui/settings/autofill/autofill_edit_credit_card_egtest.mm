@@ -3,10 +3,8 @@
 // found in the LICENSE file.
 
 #include "base/ios/ios_util.h"
-#import "components/autofill/core/common/autofill_payments_features.h"
 #include "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/ui/autofill/autofill_app_interface.h"
-#import "ios/chrome/browser/ui/settings/autofill/features.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
@@ -24,6 +22,7 @@
 using chrome_test_util::ButtonWithAccessibilityLabel;
 using chrome_test_util::ButtonWithAccessibilityLabelId;
 using chrome_test_util::NavigationBarDoneButton;
+using chrome_test_util::PaymentMethodsButton;
 using chrome_test_util::TextFieldForCellWithLabelId;
 
 // Tests for Settings Autofill edit credit cards screen.
@@ -31,12 +30,6 @@ using chrome_test_util::TextFieldForCellWithLabelId;
 @end
 
 namespace {
-
-// Matcher for 'Payment Methods' in the settings menu.
-id<GREYMatcher> SettingsPaymentMethodsButton() {
-  return ButtonWithAccessibilityLabel(
-      l10n_util::GetNSString(IDS_AUTOFILL_PAYMENT_METHODS));
-}
 
 // Matcher for the 'Nickname' text field in the add credit card view.
 id<GREYMatcher> NicknameTextField() {
@@ -51,14 +44,18 @@ id<GREYMatcher> NavigationBarEditButton() {
       grey_ancestor(grey_kindOfClass([UINavigationBar class])), nil);
 }
 
+// Returns an action to scroll down (swipe up).
+id<GREYAction> ScrollDown() {
+  return grey_scrollInDirection(kGREYDirectionDown, 150);
+}
+
 }  // namespace
 
 @implementation AutofillEditCreditCardTestCase
 
 - (AppLaunchConfiguration)appConfigurationForTestCase {
   AppLaunchConfiguration config;
-  config.features_enabled.push_back(
-      autofill::features::kAutofillEnableCardNicknameManagement);
+  // Add feature configs here.
   return config;
 }
 
@@ -69,8 +66,8 @@ id<GREYMatcher> NavigationBarEditButton() {
   NSString* lastDigits = [AutofillAppInterface saveLocalCreditCard];
 
   [ChromeEarlGreyUI openSettingsMenu];
-  [[EarlGrey selectElementWithMatcher:SettingsPaymentMethodsButton()]
-      performAction:grey_tap()];
+  [ChromeEarlGreyUI tapSettingsMenuButton:PaymentMethodsButton()];
+
   [[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(lastDigits)]
       performAction:grey_tap()];
   [[EarlGrey selectElementWithMatcher:NavigationBarEditButton()]
@@ -86,8 +83,7 @@ id<GREYMatcher> NavigationBarEditButton() {
 
 // Tests that editing the credit card nickname is possible.
 - (void)testValidNickname {
-  [[EarlGrey selectElementWithMatcher:NicknameTextField()]
-      performAction:grey_replaceText(@"Nickname")];
+  [self typeNickname:@"Nickname"];
 
   [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
       assertWithMatcher:grey_allOf(grey_sufficientlyVisible(), grey_enabled(),
@@ -98,10 +94,8 @@ id<GREYMatcher> NavigationBarEditButton() {
 }
 
 // Tests that invalid nicknames are not allowed when editing a card.
-// TODO(crbug.com/1108809): Re-enable the test.
-- (void)DISABLED_testInvalidNickname {
-  [[EarlGrey selectElementWithMatcher:NicknameTextField()]
-      performAction:grey_typeText(@"1233")];
+- (void)testInvalidNickname {
+  [self typeNickname:@"1233"];
 
   [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
       assertWithMatcher:grey_allOf(grey_sufficientlyVisible(),
@@ -109,10 +103,8 @@ id<GREYMatcher> NavigationBarEditButton() {
 }
 
 // Tests that clearing a nickname is allowed.
-// Disabled due to: crbug.com/1106766
-- (void)DISABLED_testEmptyNickname {
-  [[EarlGrey selectElementWithMatcher:NicknameTextField()]
-      performAction:grey_typeText(@"To be removed")];
+- (void)testEmptyNickname {
+  [self typeNickname:@"To be removed"];
 
   [[EarlGrey selectElementWithMatcher:NicknameTextField()]
       performAction:grey_clearText()];
@@ -120,6 +112,16 @@ id<GREYMatcher> NavigationBarEditButton() {
   [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
       assertWithMatcher:grey_allOf(grey_sufficientlyVisible(), grey_enabled(),
                                    nil)];
+}
+
+#pragma mark - Helper methods
+
+// Scrolls to nickname text field and types the string.
+- (void)typeNickname:(NSString*)nickname {
+  [[[EarlGrey selectElementWithMatcher:NicknameTextField()]
+         usingSearchAction:ScrollDown()
+      onElementWithMatcher:chrome_test_util::AutofillCreditCardEditTableView()]
+      performAction:grey_replaceText(nickname)];
 }
 
 @end

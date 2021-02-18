@@ -64,6 +64,12 @@ ClipboardFormatType ClipboardFormatType::GetType(
 }
 
 // static
+const ClipboardFormatType& ClipboardFormatType::GetFilenamesType() {
+  static base::NoDestructor<ClipboardFormatType> type(NSFilenamesPboardType);
+  return *type;
+}
+
+// static
 const ClipboardFormatType& ClipboardFormatType::GetUrlType() {
   static base::NoDestructor<ClipboardFormatType> type(NSURLPboardType);
   return *type;
@@ -72,12 +78,6 @@ const ClipboardFormatType& ClipboardFormatType::GetUrlType() {
 // static
 const ClipboardFormatType& ClipboardFormatType::GetPlainTextType() {
   static base::NoDestructor<ClipboardFormatType> type(NSPasteboardTypeString);
-  return *type;
-}
-
-// static
-const ClipboardFormatType& ClipboardFormatType::GetFilenameType() {
-  static base::NoDestructor<ClipboardFormatType> type(NSFilenamesPboardType);
   return *type;
 }
 
@@ -113,13 +113,6 @@ const ClipboardFormatType& ClipboardFormatType::GetWebKitSmartPasteType() {
 // static
 const ClipboardFormatType& ClipboardFormatType::GetWebCustomDataType() {
   static base::NoDestructor<ClipboardFormatType> type(kWebCustomDataPboardType);
-  return *type;
-}
-
-// static
-const ClipboardFormatType& ClipboardFormatType::GetPepperCustomDataType() {
-  static base::NoDestructor<ClipboardFormatType> type(
-      kPepperCustomDataPboardType);
   return *type;
 }
 

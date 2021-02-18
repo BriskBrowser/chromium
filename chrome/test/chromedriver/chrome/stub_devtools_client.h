@@ -60,6 +60,8 @@ class StubDevToolsClient : public DevToolsClient {
   Status HandleReceivedEvents() override;
   void SetDetached() override;
   void SetOwner(WebViewImpl* owner) override;
+  WebViewImpl* GetOwner() const override;
+  DevToolsClient* GetRootClient() override;
 
  protected:
   const std::string id_;

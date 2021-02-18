@@ -14,7 +14,7 @@
 #include "base/optional.h"
 #include "base/rand_util.h"
 #include "base/time/default_tick_clock.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "components/session_manager/core/session_manager.h"
 #include "content/public/browser/storage_partition.h"
@@ -108,7 +108,7 @@ void DnsLatencyRoutine::AnalyzeResultsAndExecuteCallback() {
   double average_latency = AverageLatency(latencies_);
   if (!successfully_resolved_all_addresses_ || average_latency == 0.0) {
     set_verdict(mojom::RoutineVerdict::kProblem);
-    problems_.emplace_back(mojom::DnsLatencyProblem::kFailedToResolveAllHosts);
+    problems_.emplace_back(mojom::DnsLatencyProblem::kHostResolutionFailure);
   } else if (average_latency > kBadLatencyMs.InMillisecondsF() &&
              average_latency <= kVeryBadLatencyMs.InMillisecondsF()) {
     set_verdict(mojom::RoutineVerdict::kProblem);

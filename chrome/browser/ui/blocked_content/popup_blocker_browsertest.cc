@@ -4,7 +4,7 @@
 
 #include <stdint.h>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
@@ -12,6 +12,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/history/history_test_utils.h"
 #include "chrome/browser/policy/profile_policy_connector_builder.h"
@@ -28,7 +29,6 @@
 #include "chrome/browser/ui/login/login_handler_test_utils.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/view_ids.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
@@ -38,6 +38,7 @@
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/blocked_content/list_item_position.h"
 #include "components/blocked_content/popup_blocker_tab_helper.h"
+#include "components/content_settings/browser/page_specific_content_settings.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/embedder_support/switches.h"
 #include "components/javascript_dialogs/app_modal_dialog_controller.h"
@@ -54,9 +55,6 @@
 #include "components/policy/policy_constants.h"
 #include "content/public/browser/native_web_keyboard_event.h"
 #include "content/public/browser/navigation_controller.h"
-#include "content/public/browser/notification_registrar.h"
-#include "content/public/browser/notification_service.h"
-#include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
@@ -83,33 +81,6 @@ using testing::_;
 using testing::Return;
 
 namespace {
-
-// Counts the number of RenderViewHosts created.
-class CountRenderViewHosts : public content::NotificationObserver {
- public:
-  CountRenderViewHosts() : count_(0) {
-    registrar_.Add(this,
-                   content::NOTIFICATION_WEB_CONTENTS_RENDER_VIEW_HOST_CREATED,
-                   content::NotificationService::AllSources());
-  }
-  ~CountRenderViewHosts() override {}
-
-  int GetRenderViewHostCreatedCount() const { return count_; }
-
- private:
-  // content::NotificationObserver:
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override {
-    count_++;
-  }
-
-  content::NotificationRegistrar registrar_;
-
-  int count_;
-
-  DISALLOW_COPY_AND_ASSIGN(CountRenderViewHosts);
-};
 
 class CloseObserver : public content::WebContentsObserver {
  public:
@@ -204,20 +175,15 @@ class PopupBlockerBrowserTest : public InProcessBrowserTest {
       const base::string16& expected_title = base::ASCIIToUTF16("PASS")) {
     GURL url(embedded_test_server()->GetURL(test_name));
 
-    CountRenderViewHosts counter;
-
     ui_test_utils::NavigateToURL(browser, url);
 
     // Since the popup blocker blocked the window.open, there should be only one
-    // tab.
+    // tab and window in the profile.
     EXPECT_EQ(1u, chrome::GetBrowserCount(browser->profile()));
     EXPECT_EQ(1, browser->tab_strip_model()->count());
     WebContents* web_contents =
         browser->tab_strip_model()->GetActiveWebContents();
     EXPECT_EQ(url, web_contents->GetURL());
-
-    // And no new RVH created.
-    EXPECT_EQ(0, counter.GetRenderViewHostCreatedCount());
 
     ui_test_utils::TabAddedWaiter tab_add(browser);
 
@@ -270,7 +236,8 @@ IN_PROC_BROWSER_TEST_F(PopupBlockerBrowserTest, BlockWebContentsCreation) {
 }
 
 // TODO(crbug.com/1115886): Flaky on Mac ASAN and Chrome OS.
-#if (defined(OS_MAC) && defined(ADDRESS_SANITIZER)) || defined(OS_CHROMEOS)
+#if (defined(OS_MAC) && defined(ADDRESS_SANITIZER)) || \
+    BUILDFLAG(IS_CHROMEOS_ASH)
 #define MAYBE_BlockWebContentsCreationIncognito \
   DISABLED_BlockWebContentsCreationIncognito
 #else
@@ -387,7 +354,7 @@ IN_PROC_BROWSER_TEST_F(PopupBlockerBrowserTest, PopupMetrics) {
   // Allowlist the site and navigate again.
   HostContentSettingsMapFactory::GetForProfile(browser()->profile())
       ->SetContentSettingDefaultScope(url, GURL(), ContentSettingsType::POPUPS,
-                                      std::string(), CONTENT_SETTING_ALLOW);
+                                      CONTENT_SETTING_ALLOW);
   ui_test_utils::NavigateToURL(browser(), url);
   tester.ExpectBucketCount(
       kPopupActions,
@@ -411,7 +378,7 @@ IN_PROC_BROWSER_TEST_F(PopupBlockerBrowserTest,
       "/popup_blocker/popup-blocked-to-post-blank.html"));
   HostContentSettingsMapFactory::GetForProfile(browser()->profile())
       ->SetContentSettingDefaultScope(url, GURL(), ContentSettingsType::POPUPS,
-                                      std::string(), CONTENT_SETTING_ALLOW);
+                                      CONTENT_SETTING_ALLOW);
 
   NavigateAndCheckPopupShown(url, kExpectForegroundTab);
 }
@@ -422,7 +389,7 @@ IN_PROC_BROWSER_TEST_F(PopupBlockerBrowserTest,
   GURL url(embedded_test_server()->GetURL("/popup_blocker/popup-frames.html"));
   HostContentSettingsMapFactory::GetForProfile(browser()->profile())
       ->SetContentSettingDefaultScope(url, GURL(), ContentSettingsType::POPUPS,
-                                      std::string(), CONTENT_SETTING_ALLOW);
+                                      CONTENT_SETTING_ALLOW);
 
   // Popup from the iframe should be allowed since the top-level URL is
   // allowlisted.
@@ -439,7 +406,7 @@ IN_PROC_BROWSER_TEST_F(PopupBlockerBrowserTest,
   HostContentSettingsMapFactory::GetForProfile(browser()->profile())
       ->SetContentSettingDefaultScope(frame_url, GURL(),
                                       ContentSettingsType::POPUPS,
-                                      std::string(), CONTENT_SETTING_ALLOW);
+                                      CONTENT_SETTING_ALLOW);
 
   // Popup should be blocked.
   ui_test_utils::NavigateToURL(browser(), url);
@@ -453,64 +420,23 @@ IN_PROC_BROWSER_TEST_F(PopupBlockerBrowserTest, NoPopupsLaunchWhenTabIsClosed) {
       embedded_test_server()->GetURL("/popup_blocker/popup-on-unload.html"));
   ui_test_utils::NavigateToURL(browser(), url);
 
-  GURL url2(embedded_test_server()->GetURL("/popup_blocker/"));
+  GURL url2(
+      embedded_test_server()->GetURL("/popup_blocker/popup-success.html"));
   ui_test_utils::NavigateToURL(browser(), url2);
 
   // Expect no popup.
   ASSERT_EQ(1u, chrome::GetBrowserCount(browser()->profile()));
 }
 
-// This only exists for the AllowPopupsWhenTabIsClosedWithSpecialPolicy test.
-// Remove this in Chrome 88. https://crbug.com/937569
-class PopupBlockerSpecialPolicyBrowserTest : public PopupBlockerBrowserTest {
- public:
-  PopupBlockerSpecialPolicyBrowserTest() {}
-  ~PopupBlockerSpecialPolicyBrowserTest() override {}
-
- protected:
-  void SetUpInProcessBrowserTestFixture() override {
-    EXPECT_CALL(policy_provider_, IsInitializationComplete(_))
-        .WillRepeatedly(Return(true));
-
-    policy::PolicyMap policy_map;
-
-    policy_map.Set(policy::key::kAllowPopupsDuringPageUnload,
-                   policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_USER,
-                   policy::POLICY_SOURCE_CLOUD, base::Value(true), nullptr);
-    policy_provider_.UpdateChromePolicy(policy_map);
-
-#if defined(OS_CHROMEOS)
-    policy::BrowserPolicyConnector::SetPolicyProviderForTesting(
-        &policy_provider_);
-#else
-    policy::PushProfilePolicyConnectorProviderForTesting(&policy_provider_);
-#endif
-  }
-
- private:
-  policy::MockConfigurationPolicyProvider policy_provider_;
-
-  DISALLOW_COPY_AND_ASSIGN(PopupBlockerSpecialPolicyBrowserTest);
-};
-
-// Remove this in Chrome 88. https://crbug.com/937569
-IN_PROC_BROWSER_TEST_F(PopupBlockerSpecialPolicyBrowserTest,
-                       AllowPopupsWhenTabIsClosedWithSpecialPolicy) {
+IN_PROC_BROWSER_TEST_F(PopupBlockerBrowserTest,
+                       PopupsAllowedWhenPopupBlockingIsDisabled) {
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       embedder_support::kDisablePopupBlocking);
-  GURL url(
-      embedded_test_server()->GetURL("/popup_blocker/popup-on-unload.html"));
-  ui_test_utils::NavigateToURL(browser(), url);
-  // Make sure the same-site navigation below will not create a new
-  // RenderFrameHost, otherwise the unload handler of the old RenderFrameHost
-  // will run after the new RenderFrameHost gets rendered.
-  // TODO(crbug.com/1110744): Support running unload handlers before the new
-  // RenderFrameHost renders on same-site cross-RenderFrameHost navigations.
-  DisableProactiveBrowsingInstanceSwapFor(
-      browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame());
 
-  NavigateAndCheckPopupShown(embedded_test_server()->GetURL("/popup_blocker/"),
-                             kExpectPopup);
+  GURL url(
+      embedded_test_server()->GetURL("/popup_blocker/popup-window-open.html"));
+
+  NavigateAndCheckPopupShown(url, kExpectPopup);
 }
 
 // Verify that when you unblock popup, the popup shows in history and omnibox.
@@ -568,11 +494,8 @@ IN_PROC_BROWSER_TEST_F(PopupBlockerBrowserTest, MAYBE_WindowFeatures) {
   // Check that the new popup has (roughly) the requested size.
   gfx::Size window_size = popup->GetContainerBounds().size();
   EXPECT_TRUE(349 <= window_size.width() && window_size.width() <= 351);
-#if !defined(OS_MAC)
-  // Window height computation is off in MacViews: https://crbug.com/846329
   EXPECT_GE(window_size.height(), 249);
   EXPECT_LE(window_size.height(), 253);
-#endif
 }
 
 IN_PROC_BROWSER_TEST_F(PopupBlockerBrowserTest, CorrectReferrer) {
@@ -693,7 +616,7 @@ IN_PROC_BROWSER_TEST_F(PopupBlockerBrowserTest, ModalPopUnder) {
       embedded_test_server()->GetURL("/popup_blocker/popup-window-open.html"));
   HostContentSettingsMapFactory::GetForProfile(browser()->profile())
       ->SetContentSettingDefaultScope(url, GURL(), ContentSettingsType::POPUPS,
-                                      std::string(), CONTENT_SETTING_ALLOW);
+                                      CONTENT_SETTING_ALLOW);
 
   NavigateAndCheckPopupShown(url, kExpectPopup);
 
@@ -742,7 +665,7 @@ IN_PROC_BROWSER_TEST_F(PopupBlockerBrowserTest, PrintPreviewPopUnder) {
       embedded_test_server()->GetURL("/popup_blocker/popup-window-open.html"));
   HostContentSettingsMapFactory::GetForProfile(browser()->profile())
       ->SetContentSettingDefaultScope(url, GURL(), ContentSettingsType::POPUPS,
-                                      std::string(), CONTENT_SETTING_ALLOW);
+                                      CONTENT_SETTING_ALLOW);
 
   NavigateAndCheckPopupShown(url, kExpectPopup);
 
@@ -874,6 +797,43 @@ IN_PROC_BROWSER_TEST_F(PopupBlockerBrowserTest, PopupsDisableBackForwardCache) {
 
   EXPECT_TRUE(tester.IsDisabledForFrameWithReason(process_id, frame_routing_id,
                                                   "PopupBlockerTabHelper"));
+}
+
+// Make sure the poput is attributed to the right WebContents when it is
+// triggered from a different WebContents. Regression test for
+// https://crbug.com/1128495
+IN_PROC_BROWSER_TEST_F(PopupBlockerBrowserTest,
+                       PopupTriggeredFromDifferentWebContents) {
+  content::BackForwardCacheDisabledTester tester;
+  const GURL url(
+      embedded_test_server()->GetURL("/popup_blocker/popup-in-href.html"));
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  ASSERT_EQ(browser()->tab_strip_model()->count(), 1);
+
+  content::WebContents* tab_1 =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  ui_test_utils::TabAddedWaiter tab_Added_waiter(browser());
+  SimulateMouseClickOrTapElementWithId(tab_1, "link");
+
+  tab_Added_waiter.Wait();
+  content::WebContents* tab_2 =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_NE(tab_1, tab_2);
+
+  // We need to make sure the js in the new tab that comes from the href runs
+  // before we perform the checks further down. Since we have no control over
+  // that script we just run some more (that we do control) and wait for it to
+  // finish.
+  EXPECT_TRUE(content::ExecuteScriptWithoutUserGesture(tab_2, ""));
+
+  EXPECT_FALSE(content_settings::PageSpecificContentSettings::GetForFrame(
+                   tab_1->GetMainFrame())
+                   ->IsContentBlocked(ContentSettingsType::POPUPS));
+  EXPECT_TRUE(content_settings::PageSpecificContentSettings::GetForFrame(
+                  tab_2->GetMainFrame())
+                  ->IsContentBlocked(ContentSettingsType::POPUPS));
 }
 
 }  // namespace

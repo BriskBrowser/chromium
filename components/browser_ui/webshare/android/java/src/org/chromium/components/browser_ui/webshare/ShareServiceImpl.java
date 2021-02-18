@@ -8,6 +8,7 @@ import android.app.Activity;
 import android.content.ComponentName;
 import android.net.Uri;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import org.chromium.base.CollectionUtil;
@@ -63,6 +64,10 @@ public class ShareServiceImpl implements ShareService {
     // These protect us if the renderer is compromised.
     private static final int MAX_SHARED_FILE_COUNT = 10;
     private static final int MAX_SHARED_FILE_BYTES = 50 * 1024 * 1024;
+
+    // PERMITTED_EXTENSIONS and PERMITTED_MIME_TYPES should be kept in sync with
+    // - //third_party/blink/renderer/modules/webshare/FILE_TYPES.md
+    // - //chrome/browser/webshare/share_service_impl.cc
 
     // clang-format off
     private static final Set<String> PERMITTED_EXTENSIONS =
@@ -155,7 +160,7 @@ public class ShareServiceImpl implements ShareService {
         public void share(ShareParams params);
     }
 
-    public ShareServiceImpl(@Nullable WebContents webContents, WebShareDelegate delegate) {
+    public ShareServiceImpl(@NonNull WebContents webContents, WebShareDelegate delegate) {
         mWindow = webContents.getTopLevelNativeWindow();
         mDelegate = delegate;
     }

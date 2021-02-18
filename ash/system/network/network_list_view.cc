@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/ash_view_ids.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/session/session_controller_impl.h"
@@ -23,7 +24,6 @@
 #include "ash/system/power/power_status.h"
 #include "ash/system/tray/hover_highlight_view.h"
 #include "ash/system/tray/tray_info_label.h"
-#include "ash/system/tray/tray_popup_item_style.h"
 #include "ash/system/tray/tray_popup_utils.h"
 #include "ash/system/tray/tri_view.h"
 #include "base/i18n/number_formatting.h"
@@ -60,7 +60,7 @@ namespace ash {
 namespace tray {
 namespace {
 
-const int kMobileNetworkBatteryIconSize = 14;
+const int kMobileNetworkBatteryIconSize = 18;
 const int kPowerStatusPaddingRight = 10;
 
 bool IsSecondaryUser() {
@@ -72,13 +72,18 @@ bool IsSecondaryUser() {
 
 SkColor GetIconColor() {
   return AshColorProvider::Get()->GetContentLayerColor(
-      AshColorProvider::ContentLayerType::kIconColorPrimary,
-      AshColorProvider::AshColorMode::kDark);
+      AshColorProvider::ContentLayerType::kIconColorPrimary);
 }
 
 bool IsManagedByPolicy(const NetworkInfo& info) {
   return info.source == OncSource::kDevicePolicy ||
          info.source == OncSource::kUserPolicy;
+}
+
+bool ShouldShowActivateCellularNetwork(const NetworkInfo& info) {
+  return NetworkTypeMatchesType(info.type, NetworkType::kCellular) &&
+         info.activation_state == ActivationStateType::kNotActivated &&
+         chromeos::features::IsCellularActivationUiEnabled();
 }
 
 }  // namespace
@@ -144,6 +149,7 @@ void NetworkListView::OnGetNetworkStateList(
       case NetworkType::kCellular:
         activation_state =
             network->type_state->get_cellular()->activation_state;
+        info->activation_state = activation_state;
         // If cellular is not enabled, skip cellular networks with no service.
         if (model()->GetDeviceState(NetworkType::kCellular) !=
                 DeviceStateType::kEnabled &&
@@ -185,11 +191,6 @@ void NetworkListView::OnGetNetworkStateList(
 
     info->signal_strength =
         chromeos::network_config::GetWirelessSignalStrength(network.get());
-
-    if (network->captive_portal_provider) {
-      info->captive_portal_provider_name =
-          network->captive_portal_provider->name;
-    }
 
     info->type = network->type;
     info->source = network->source;
@@ -379,10 +380,15 @@ void NetworkListView::UpdateViewForNetwork(HoverHighlightView* view,
     network_image = info.image;
   }
   view->AddIconAndLabel(network_image, info.label);
-  if (StateIsConnected(info.connection_state))
+  if (ShouldShowActivateCellularNetwork(info)) {
+    SetupUnactivatedCellularNetworkListItem(
+        view, l10n_util::GetStringUTF16(
+                  IDS_ASH_STATUS_TRAY_NETWORK_STATUS_CLICK_TO_ACTIVATE));
+  } else if (StateIsConnected(info.connection_state)) {
     SetupConnectedScrollListItem(view);
-  else if (info.connection_state == ConnectionStateType::kConnecting)
+  } else if (info.connection_state == ConnectionStateType::kConnecting) {
     SetupConnectingScrollListItem(view);
+  }
   view->SetTooltipText(info.tooltip);
 
   // Add an additional icon to the right of the label for networks
@@ -394,8 +400,6 @@ void NetworkListView::UpdateViewForNetwork(HoverHighlightView* view,
                                  kPowerStatusPaddingRight)));
   } else {
     icon = CreatePolicyView(info);
-    if (!icon)
-      icon = CreateControlledByExtensionView(info);
     if (icon)
       view->AddRightView(icon);
   }
@@ -405,6 +409,17 @@ void NetworkListView::UpdateViewForNetwork(HoverHighlightView* view,
       GenerateAccessibilityDescription(info));
 
   needs_relayout_ = true;
+}
+
+void NetworkListView::SetupUnactivatedCellularNetworkListItem(
+    HoverHighlightView* view,
+    const base::string16& sub_text) {
+  DCHECK(view->is_populated());
+
+  view->SetSubText(sub_text);
+  view->sub_text_label()->SetEnabledColor(
+      AshColorProvider::Get()->GetContentLayerColor(
+          AshColorProvider::ContentLayerType::kTextColorWarning));
 }
 
 base::string16 NetworkListView::GenerateAccessibilityLabel(
@@ -470,6 +485,11 @@ base::string16 NetworkListView::GenerateAccessibilityDescription(
           base::FormatPercent(info.signal_strength));
     }
     case NetworkType::kCellular:
+      if (info.activation_state == ActivationStateType::kNotActivated &&
+          chromeos::features::IsCellularActivationUiEnabled()) {
+        return l10n_util::GetStringUTF16(
+            IDS_ASH_STATUS_TRAY_NETWORK_STATUS_CLICK_TO_ACTIVATE);
+      }
       if (!connection_status.empty()) {
         if (IsManagedByPolicy(info)) {
           return l10n_util::GetStringFUTF16(
@@ -516,7 +536,7 @@ views::View* NetworkListView::CreatePowerStatusView(const NetworkInfo& info) {
   views::ImageView* icon = new views::ImageView;
   const SkColor icon_color = GetIconColor();
   icon->SetPreferredSize(gfx::Size(kMenuIconSize, kMenuIconSize));
-  icon->EnableCanvasFlippingForRTLUI(true);
+  icon->SetFlipCanvasOnPaintForRTLUI(true);
   PowerStatus::BatteryImageInfo icon_info;
   icon_info.charge_percent = info.battery_percentage;
   icon->SetImage(PowerStatus::GetBatteryImage(
@@ -524,7 +544,7 @@ views::View* NetworkListView::CreatePowerStatusView(const NetworkInfo& info) {
       AshColorProvider::GetSecondToneColor(icon_color), icon_color));
 
   // Show the numeric battery percentage on hover.
-  icon->set_tooltip_text(base::FormatPercent(info.battery_percentage));
+  icon->SetTooltipText(base::FormatPercent(info.battery_percentage));
 
   return icon;
 }
@@ -538,21 +558,6 @@ views::View* NetworkListView::CreatePolicyView(const NetworkInfo& info) {
   views::ImageView* controlled_icon = TrayPopupUtils::CreateMainImageView();
   controlled_icon->SetImage(
       gfx::CreateVectorIcon(kSystemMenuBusinessIcon, GetIconColor()));
-  return controlled_icon;
-}
-
-views::View* NetworkListView::CreateControlledByExtensionView(
-    const NetworkInfo& info) {
-  if (info.captive_portal_provider_name.empty())
-    return nullptr;
-
-  views::ImageView* controlled_icon = TrayPopupUtils::CreateMainImageView();
-  controlled_icon->SetImage(
-      gfx::CreateVectorIcon(kCaptivePortalIcon, GetIconColor()));
-  controlled_icon->set_tooltip_text(l10n_util::GetStringFUTF16(
-      IDS_ASH_STATUS_TRAY_EXTENSION_CONTROLLED_WIFI,
-      base::UTF8ToUTF16(info.captive_portal_provider_name)));
-  controlled_icon->SetID(VIEW_ID_EXTENSION_CONTROLLED_WIFI);
   return controlled_icon;
 }
 
@@ -614,7 +619,7 @@ void NetworkListView::UpdateInfoLabel(int message_id,
     return;
   }
   if (!info_label)
-    info_label = new TrayInfoLabel(nullptr /* delegate */, message_id);
+    info_label = new TrayInfoLabel(message_id);
   else
     info_label->Update(message_id);
 
@@ -679,8 +684,11 @@ TriView* NetworkListView::CreateConnectionWarning() {
   label->SetText(
       l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_NETWORK_MONITORED_WARNING));
   label->SetBackground(views::CreateSolidBackground(SK_ColorTRANSPARENT));
-  TrayPopupItemStyle style(TrayPopupItemStyle::FontStyle::DETAILED_VIEW_LABEL);
-  style.SetupLabel(label);
+  label->SetEnabledColor(AshColorProvider::Get()->GetContentLayerColor(
+      AshColorProvider::ContentLayerType::kTextColorPrimary));
+  TrayPopupUtils::SetLabelFontList(
+      label, TrayPopupUtils::FontStyle::kDetailedViewLabel);
+
   connection_warning->AddView(TriView::Container::CENTER, label);
   connection_warning->SetContainerBorder(
       TriView::Container::CENTER, views::CreateEmptyBorder(gfx::Insets(

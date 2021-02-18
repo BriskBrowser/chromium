@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import("//build/config/buildflags_paint_preview.gni")
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/features.gni")
 import("//chrome/common/features.gni")
 import("//components/nacl/features.gni")
@@ -11,6 +12,7 @@ import("//components/spellcheck/spellcheck_build_features.gni")
 import("//extensions/buildflags/buildflags.gni")
 import("//media/media_options.gni")
 import("//ppapi/buildflags/buildflags.gni")
+import("//testing/libfuzzer/fuzzer_test.gni")
 import("//third_party/widevine/cdm/widevine.gni")
 import("//tools/grit/grit_rule.gni")
 
@@ -36,7 +38,7 @@ grit("resources") {
     "//url/mojom:url_mojom_gurl_js",
     "//url/mojom:url_mojom_origin_js",
   ]
-  if (is_chromeos) {
+  if (is_chromeos_ash) {
     deps += [
       "//chromeos/components/remote_apps/mojom:mojom_js",
       "//chromeos/services/ime/public/mojom:mojom_js",
@@ -95,10 +97,18 @@ static_library("renderer") {
     "plugins/plugin_uma.h",
     "previews/resource_loading_hints_agent.cc",
     "previews/resource_loading_hints_agent.h",
-    "sandbox_status_extension_android.cc",
-    "sandbox_status_extension_android.h",
-    "subresource_redirect/subresource_redirect_hints_agent.cc",
-    "subresource_redirect/subresource_redirect_hints_agent.h",
+    "subresource_redirect/login_robots_decider_agent.cc",
+    "subresource_redirect/login_robots_decider_agent.h",
+    "subresource_redirect/public_image_hints_decider_agent.cc",
+    "subresource_redirect/public_image_hints_decider_agent.h",
+    "subresource_redirect/public_resource_decider.h",
+    "subresource_redirect/public_resource_decider_agent.cc",
+    "subresource_redirect/public_resource_decider_agent.h",
+    "subresource_redirect/redirect_result.h",
+    "subresource_redirect/robots_rules_parser.cc",
+    "subresource_redirect/robots_rules_parser.h",
+    "subresource_redirect/robots_rules_parser_cache.cc",
+    "subresource_redirect/robots_rules_parser_cache.h",
     "subresource_redirect/subresource_redirect_params.cc",
     "subresource_redirect/subresource_redirect_params.h",
     "subresource_redirect/subresource_redirect_url_loader_throttle.cc",
@@ -111,8 +121,6 @@ static_library("renderer") {
     "url_loader_throttle_provider_impl.h",
     "v8_unwinder.cc",
     "v8_unwinder.h",
-    "web_apps.cc",
-    "web_apps.h",
     "websocket_handshake_throttle_provider_impl.cc",
     "websocket_handshake_throttle_provider_impl.h",
     "worker_content_settings_client.cc",
@@ -134,44 +142,63 @@ static_library("renderer") {
   public_deps = [ "//components/contextual_search:buildflags" ]
 
   deps = [
+    "//base/allocator:buildflags",
+    "//build:chromeos_buildflags",
     "//chrome:resources",
     "//chrome:strings",
     "//chrome/common",
     "//chrome/common:mojo_bindings",
     "//chrome/common/net",
+    "//chrome/common/performance_manager/mojom",
     "//chrome/common/search:mojo_bindings",
     "//components/autofill/content/renderer",
+    "//components/base32",
     "//components/cdm/renderer",
+    "//components/content_capture/common",
     "//components/content_capture/renderer",
+    "//components/content_settings/common:mojom",
     "//components/content_settings/renderer",
     "//components/contextual_search/content:renderer",
     "//components/data_reduction_proxy/core/common",
     "//components/dom_distiller/content/renderer",
     "//components/network_hints/renderer",
+    "//components/no_state_prefetch/common",
+    "//components/no_state_prefetch/renderer",
     "//components/omnibox/common",
+    "//components/optimization_guide/content/renderer",
     "//components/page_image_annotation/content/renderer",
     "//components/page_load_metrics/renderer",
     "//components/paint_preview/buildflags",
     "//components/plugins/renderer",
-    "//components/prerender/renderer",
     "//components/resources:components_resources",
+    "//components/resources:components_scaled_resources",
     "//components/safe_browsing:buildflags",
+    "//components/safe_browsing/content/common:interfaces",
+    "//components/safe_browsing/content/renderer",
     "//components/safe_browsing/content/renderer:throttles",
+    "//components/safe_browsing/core:features",
     "//components/safe_browsing/core/common:interfaces",
     "//components/security_interstitials/content/renderer:security_interstitial_page_controller",
     "//components/security_interstitials/core:",
     "//components/security_interstitials/core/common/mojom:",
     "//components/spellcheck:buildflags",
     "//components/subresource_filter/content/renderer",
+    "//components/subresource_filter/core/common",
+    "//components/subresource_redirect/common",
+    "//components/subresource_redirect/proto",
+    "//components/sync/driver",
     "//components/translate/content/renderer",
     "//components/translate/core/common",
     "//components/translate/core/language_detection",
     "//components/visitedlink/renderer",
     "//components/web_cache/renderer",
+    "//components/webapps/renderer",
     "//content/app/resources",
+    "//content/public/child",
     "//content/public/common",
     "//content/public/renderer",
     "//extensions/buildflags",
+    "//gin",
     "//media",
     "//media:media_buildflags",
     "//media/capture",
@@ -180,6 +207,7 @@ static_library("renderer") {
     "//ppapi/buildflags",
     "//printing/buildflags",
     "//services/metrics/public/cpp:metrics_cpp",
+    "//services/metrics/public/cpp:ukm_builders",
     "//services/metrics/public/mojom",
     "//services/service_manager/public/cpp",
     "//skia",
@@ -209,16 +237,10 @@ static_library("renderer") {
     sources += [
       "pepper/chrome_renderer_pepper_host_factory.cc",
       "pepper/chrome_renderer_pepper_host_factory.h",
-      "pepper/pepper_flash_drm_renderer_host.cc",
-      "pepper/pepper_flash_drm_renderer_host.h",
       "pepper/pepper_flash_font_file_host.cc",
       "pepper/pepper_flash_font_file_host.h",
       "pepper/pepper_flash_fullscreen_host.cc",
       "pepper/pepper_flash_fullscreen_host.h",
-      "pepper/pepper_flash_menu_host.cc",
-      "pepper/pepper_flash_menu_host.h",
-      "pepper/pepper_flash_renderer_host.cc",
-      "pepper/pepper_flash_renderer_host.h",
       "pepper/pepper_helper.cc",
       "pepper/pepper_helper.h",
       "pepper/pepper_shared_memory_message_filter.cc",
@@ -227,10 +249,6 @@ static_library("renderer") {
       "pepper/pepper_uma_host.h",
       "plugins/chrome_plugin_placeholder.cc",
       "plugins/chrome_plugin_placeholder.h",
-      "plugins/plugin_preroller.cc",
-      "plugins/plugin_preroller.h",
-      "plugins/power_saver_info.cc",
-      "plugins/power_saver_info.h",
     ]
     deps += [
       "//components/pdf/renderer",
@@ -247,37 +265,17 @@ static_library("renderer") {
     }
   }
 
+  if (is_chromeos_ash) {
+    deps += [ "//ash/constants" ]
+  }
+
   if (enable_widevine_cdm_component) {
     deps += [ "//third_party/widevine/cdm:headers" ]
   }
 
   if (safe_browsing_mode != 0) {
-    sources += [
-      "safe_browsing/features.cc",
-      "safe_browsing/features.h",
-      "safe_browsing/murmurhash3_util.cc",
-      "safe_browsing/murmurhash3_util.h",
-      "safe_browsing/phishing_classifier.cc",
-      "safe_browsing/phishing_classifier.h",
-      "safe_browsing/phishing_classifier_delegate.cc",
-      "safe_browsing/phishing_classifier_delegate.h",
-      "safe_browsing/phishing_dom_feature_extractor.cc",
-      "safe_browsing/phishing_dom_feature_extractor.h",
-      "safe_browsing/phishing_term_feature_extractor.cc",
-      "safe_browsing/phishing_term_feature_extractor.h",
-      "safe_browsing/phishing_url_feature_extractor.cc",
-      "safe_browsing/phishing_url_feature_extractor.h",
-      "safe_browsing/scorer.cc",
-      "safe_browsing/scorer.h",
-    ]
-    deps += [
-      "//chrome/common/safe_browsing:proto",
-      "//components/safe_browsing/content/renderer",
-      "//components/safe_browsing/core:client_model_proto",
-      "//components/safe_browsing/core:csd_proto",
-      "//components/safe_browsing/core/common",
-      "//third_party/smhasher:murmurhash3",
-    ]
+    deps +=
+        [ "//components/safe_browsing/content/renderer/phishing_classifier" ]
   }
 
   if (enable_extensions) {
@@ -356,14 +354,19 @@ static_library("renderer") {
     deps += [ "//third_party/wtl" ]
   }
 
-  if (is_chromeos) {
+  if (is_chromeos_ash || is_chromeos_lacros) {
+    sources += [
+      "extensions/platform_keys_natives.cc",
+      "extensions/platform_keys_natives.h",
+    ]
+  }
+
+  if (is_chromeos_ash) {
     sources += [
       "extensions/file_browser_handler_custom_bindings.cc",
       "extensions/file_browser_handler_custom_bindings.h",
       "extensions/file_manager_private_custom_bindings.cc",
       "extensions/file_manager_private_custom_bindings.h",
-      "extensions/platform_keys_natives.cc",
-      "extensions/platform_keys_natives.h",
     ]
     if (use_cups) {
       configs += [ "//printing:cups" ]
@@ -376,17 +379,23 @@ static_library("renderer") {
 
   if (!is_android) {
     sources += [
+      "cart/commerce_hint_agent.cc",
+      "cart/commerce_hint_agent.h",
       "media/chrome_speech_recognition_client.cc",
       "media/chrome_speech_recognition_client.h",
-      "searchbox/search_bouncer.cc",
-      "searchbox/search_bouncer.h",
       "searchbox/searchbox.cc",
       "searchbox/searchbox.h",
       "searchbox/searchbox_extension.cc",
       "searchbox/searchbox_extension.h",
     ]
 
-    deps += [ "//chrome/common/search:generate_chrome_colors_info" ]
+    deps += [
+      "//chrome/common/cart:mojo_bindings",
+      "//chrome/common/search:generate_chrome_colors_info",
+      "//chrome/common/search:generate_colors_info",
+      "//components/crx_file",
+      "//components/search:search",
+    ]
   }
 
   if (is_android) {
@@ -395,10 +404,16 @@ static_library("renderer") {
       "net/available_offline_content_helper.h",
       "net/page_auto_fetcher_helper_android.cc",
       "net/page_auto_fetcher_helper_android.h",
+      "sandbox_status_extension_android.cc",
+      "sandbox_status_extension_android.h",
+    ]
+    deps += [
+      "//components/continuous_search/renderer",
+      "//components/embedder_support/android/common:url_constants",
     ]
   }
 
-  if (is_chromeos) {
+  if (is_chromeos_ash) {
     sources += [
       "chromeos_delayed_callback_group.cc",
       "chromeos_delayed_callback_group.h",
@@ -407,7 +422,7 @@ static_library("renderer") {
     ]
   }
 
-  if (is_chromeos) {
+  if (is_chromeos_ash) {
     sources += [
       "performance_manager/mechanisms/tcmalloc_tunables_impl.cc",
       "performance_manager/mechanisms/tcmalloc_tunables_impl.h",
@@ -417,23 +432,20 @@ static_library("renderer") {
   }
 }
 
-static_library("test_support") {
-  testonly = true
-  visibility = [ "//chrome/test:test_support" ]
-
+fuzzer_test("robots_rules_parser_fuzzer") {
   sources = [
-    "chrome_mock_render_thread.cc",
-    "chrome_mock_render_thread.h",
-    "safe_browsing/test_utils.cc",
-    "safe_browsing/test_utils.h",
+    "subresource_redirect/robots_rules_parser.cc",
+    "subresource_redirect/robots_rules_parser.h",
+    "subresource_redirect/robots_rules_parser_fuzzer.cc",
+    "subresource_redirect/subresource_redirect_params.cc",
+    "subresource_redirect/subresource_redirect_params.h",
   ]
-
   deps = [
-    ":renderer",
-    "//chrome/common/search:mojo_bindings",
-    "//content/test:test_support",
-    "//extensions/buildflags",
-    "//testing/gmock",
-    "//testing/gtest",
+    "//base",
+    "//base/test:test_support",
+    "//chrome/common:constants",
+    "//components/subresource_redirect/proto",
+    "//third_party/blink/public/common",
+    "//third_party/icu/fuzzers:fuzzer_support",
   ]
 }

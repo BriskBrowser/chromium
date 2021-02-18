@@ -5,6 +5,8 @@
 module blink.mojom;
 import "mojo/public/mojom/base/time.mojom";
 import "third_party/blink/public/mojom/page/page_visibility_state.mojom";
+import "third_party/blink/public/mojom/webpreferences/web_preferences.mojom";
+import "third_party/blink/public/mojom/renderer_preferences.mojom";
 
 enum PagehideDispatch {
   // We haven't dispatched pagehide and should do so when appropriate.
@@ -25,6 +27,26 @@ struct PageLifecycleState {
   PageVisibilityState visibility;
   bool is_in_back_forward_cache;
   PagehideDispatch pagehide_dispatch;
+  // Tells the renderer whether it is allowed to evict the page from the
+  // back-forward cache. This is set to false shortly before the page is
+  // taken out of the cache to make sure that evict requests from the renderer
+  // do not race with the restoration flow on the browser. For example, if set
+  // to true the renderer must not evict the page if javascript is executed.
+  bool eviction_enabled;
+};
+
+// Additional parameters to send with SetPageLifecycleState calls when we're
+// restoring a page from the back-forward cache.
+struct PageRestoreParams {
+  // Timestamp of the start of the navigation restoring this entry from the
+  // back-forward cache.
+  mojo_base.mojom.TimeTicks navigation_start;
+
+  // The offset in the session history list for the page to be restored.
+  int32 pending_history_list_offset;
+
+  // Total size of the session history list.
+  int32 current_history_list_length;
 };
 
 // Used for broadcast messages from browser to renderer for messages that need
@@ -34,7 +56,7 @@ interface PageBroadcast {
   // Notifies the renderer about a change in the lifecycle state of the page.
   SetPageLifecycleState(
       PageLifecycleState state,
-      mojo_base.mojom.TimeTicks? navigation_start) => ();
+      PageRestoreParams? page_restore_params) => ();
 
   // Notifies the renderer when audio is started or stopped.
   AudioStateChanged(bool is_audio_playing);
@@ -42,4 +64,13 @@ interface PageBroadcast {
   // Notifies renderers when a portal web contents is activated or if a
   // web contents is adopted as a portal.
   SetInsidePortal(bool is_inside_portal);
+
+  // Notifies the renderer when updating a set of blink preferences.
+  UpdateWebPreferences(blink.mojom.WebPreferences preferences);
+
+  // Updates renderer preferences.
+  UpdateRendererPreferences(blink.mojom.RendererPreferences preferences);
+
+  // Set history offset and length.
+  SetHistoryOffsetAndLength(int32 offset, int32 length);
 };

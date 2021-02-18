@@ -28,6 +28,7 @@
 #include "components/history/core/browser/history_backend_client.h"
 #include "components/history/core/browser/history_constants.h"
 #include "components/history/core/browser/history_database_params.h"
+#include "components/history/core/browser/in_memory_history_backend.h"
 #include "components/history/core/browser/keyword_search_term.h"
 #include "components/history/core/test/test_history_database.h"
 #include "content/public/browser/browser_thread.h"
@@ -135,8 +136,8 @@ class AndroidProviderBackendNotifier : public HistoryBackendNotifier {
                         const history::RedirectList& redirects,
                         base::Time visit_time) override {}
   void NotifyURLsModified(const history::URLRows& rows,
-                          bool is_from_expiration) override {
-    EXPECT_FALSE(is_from_expiration);
+                          history::UrlsModifiedReason reason) override {
+    EXPECT_NE(history::UrlsModifiedReason::kExpired, reason);
     modified_details_.reset(new history::URLRows(rows));
   }
   void NotifyURLsDeleted(DeletionInfo deletion_info) override {

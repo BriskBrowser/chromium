@@ -39,6 +39,7 @@
 #include "third_party/blink/public/platform/web_url.h"
 #include "third_party/blink/public/platform/web_url_loader_mock_factory.h"
 #include "third_party/blink/public/platform/web_url_response.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/loader/empty_clients.h"
 #include "third_party/blink/renderer/core/loader/resource/mock_image_resource_observer.h"
@@ -66,6 +67,7 @@
 #include "third_party/blink/renderer/platform/network/http_names.h"
 #include "third_party/blink/renderer/platform/scheduler/test/fake_frame_scheduler.h"
 #include "third_party/blink/renderer/platform/scheduler/test/fake_task_runner.h"
+#include "third_party/blink/renderer/platform/testing/mock_context_lifecycle_notifier.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/scoped_mocked_url.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support_with_mock_scheduler.h"
@@ -116,7 +118,14 @@ constexpr size_t kJpegImageSubrangeWithDimensionsLength =
 constexpr size_t kJpegImageSubrangeWithoutDimensionsLength = 3;
 
 class ImageResourceTest : public testing::Test,
-                          private ScopedMockOverlayScrollbars {};
+                          private ScopedMockOverlayScrollbars {
+  void TearDown() override {
+    // Trigger a GC so MockFinishObserver gets destroyed and EXPECT_CALL gets
+    // checked before the test ends.
+    ThreadState::Current()->CollectAllGarbageForTesting(
+        BlinkGC::kNoHeapPointersOnStack);
+  }
+};
 
 // Ensure that the image decoder can determine the dimensions of kJpegImage from
 // just the first kJpegImageSubrangeWithDimensionsLength bytes. If this test
@@ -213,7 +222,10 @@ ResourceFetcher* CreateFetcher() {
   return MakeGarbageCollected<ResourceFetcher>(ResourceFetcherInit(
       properties->MakeDetachable(), MakeGarbageCollected<MockFetchContext>(),
       base::MakeRefCounted<scheduler::FakeTaskRunner>(),
-      MakeGarbageCollected<TestLoaderFactory>()));
+      base::MakeRefCounted<scheduler::FakeTaskRunner>(),
+      MakeGarbageCollected<TestLoaderFactory>(),
+      MakeGarbageCollected<MockContextLifecycleNotifier>(),
+      nullptr /* back_forward_cache_loader_helper */));
 }
 
 TEST_F(ImageResourceTest, MultipartImage) {
@@ -395,6 +407,8 @@ TEST_F(ImageResourceTest, CancelWithImageAndFinishObserver) {
   ScopedMockedURLLoad scoped_mocked_url_load(test_url, GetTestFilePath());
 
   ResourceFetcher* fetcher = CreateFetcher();
+  scheduler::FakeTaskRunner* task_runner =
+      static_cast<scheduler::FakeTaskRunner*>(fetcher->GetTaskRunner().get());
 
   // Emulate starting a real load.
   ImageResource* image_resource = ImageResource::CreateForTest(test_url);
@@ -424,7 +438,7 @@ TEST_F(ImageResourceTest, CancelWithImageAndFinishObserver) {
 
   // ResourceFinishObserver is notified asynchronously.
   EXPECT_CALL(*finish_observer, NotifyFinished());
-  blink::test::RunPendingTasks();
+  task_runner->RunUntilIdle();
 }
 
 TEST_F(ImageResourceTest, DecodedDataRemainsWhileHasClients) {
@@ -916,17 +930,22 @@ TEST_F(ImageResourceTest, PeriodicFlushTest) {
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner =
       page_holder->GetFrame().GetTaskRunner(TaskType::kInternalTest);
+  scoped_refptr<base::SingleThreadTaskRunner> unfreezable_task_runner =
+      page_holder->GetFrame().GetTaskRunner(TaskType::kInternalTest);
   auto* context = MakeGarbageCollected<MockFetchContext>();
   auto& properties =
       MakeGarbageCollected<TestResourceFetcherProperties>()->MakeDetachable();
-  auto* fetcher = MakeGarbageCollected<ResourceFetcher>(
-      ResourceFetcherInit(properties, context, task_runner,
-                          MakeGarbageCollected<TestLoaderFactory>()));
+  auto* fetcher = MakeGarbageCollected<ResourceFetcher>(ResourceFetcherInit(
+      properties, context, task_runner, unfreezable_task_runner,
+      MakeGarbageCollected<TestLoaderFactory>(),
+      page_holder->GetFrame().DomWindow(),
+      nullptr /* back_forward_cache_loader_helper */));
   auto frame_scheduler = std::make_unique<scheduler::FakeFrameScheduler>();
   auto* scheduler = MakeGarbageCollected<ResourceLoadScheduler>(
       ResourceLoadScheduler::ThrottlingPolicy::kNormal,
       ResourceLoadScheduler::ThrottleOptionOverride::kNone, properties,
-      frame_scheduler.get(), *MakeGarbageCollected<DetachableConsoleLogger>());
+      frame_scheduler.get(), *MakeGarbageCollected<DetachableConsoleLogger>(),
+      /*loading_behavior_observer=*/nullptr);
   ImageResource* image_resource = ImageResource::CreateForTest(test_url);
 
   // Ensure that |image_resource| has a loader.

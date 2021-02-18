@@ -34,8 +34,8 @@ import org.robolectric.shadows.multidex.ShadowMultiDex;
 import org.chromium.base.Callback;
 import org.chromium.base.metrics.test.ShadowRecordHistogram;
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.chrome.browser.DeviceConditions;
-import org.chromium.chrome.browser.ShadowDeviceConditions;
+import org.chromium.chrome.browser.device.DeviceConditions;
+import org.chromium.chrome.browser.device.ShadowDeviceConditions;
 import org.chromium.chrome.browser.init.BrowserParts;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
 import org.chromium.chrome.browser.profiles.Profile;
@@ -95,6 +95,11 @@ public class ExploreSitesBackgroundTaskUnitTest {
         @Override
         public void cancel(Context context, int taskId) {
             mTaskInfos.remove(taskId);
+        }
+
+        @Override
+        public boolean isScheduled(Context context, int taskId) {
+            return (mTaskInfos.get(taskId) != null);
         }
 
         @Override

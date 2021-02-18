@@ -43,7 +43,6 @@ const std::vector<SearchConcept>& GetResetSearchConcepts() {
 bool IsPowerwashAllowed() {
   return !webui::IsEnterpriseManaged() &&
          !user_manager::UserManager::Get()->IsLoggedInAsGuest() &&
-         !user_manager::UserManager::Get()->IsLoggedInAsSupervisedUser() &&
          !user_manager::UserManager::Get()->IsLoggedInAsChildUser();
 }
 
@@ -61,7 +60,7 @@ ResetSection::~ResetSection() = default;
 
 void ResetSection::AddLoadTimeData(content::WebUIDataSource* html_source) {
   static constexpr webui::LocalizedString kLocalizedStrings[] = {
-      {"resetPageTitle", IDS_SETTINGS_RESET},
+      {"resetPageTitle", IDS_SETTINGS_RESET_TITLE},
       {"powerwashTitle", IDS_SETTINGS_FACTORY_RESET},
       {"powerwashDialogTitle", IDS_SETTINGS_FACTORY_RESET_HEADING},
       {"powerwashDialogButton", IDS_SETTINGS_RESTART},
@@ -71,7 +70,7 @@ void ResetSection::AddLoadTimeData(content::WebUIDataSource* html_source) {
       {"powerwashButtonRoleDescription",
        IDS_SETTINGS_FACTORY_RESET_BUTTON_ROLE},
   };
-  AddLocalizedStringsBulk(html_source, kLocalizedStrings);
+  html_source->AddLocalizedStrings(kLocalizedStrings);
 
   html_source->AddBoolean("allowPowerwash", IsPowerwashAllowed());
 
@@ -105,6 +104,11 @@ mojom::SearchResultIcon ResetSection::GetSectionIcon() const {
 
 std::string ResetSection::GetSectionPath() const {
   return mojom::kResetSectionPath;
+}
+
+bool ResetSection::LogMetric(mojom::Setting setting, base::Value& value) const {
+  // Unimplemented.
+  return false;
 }
 
 void ResetSection::RegisterHierarchy(HierarchyGenerator* generator) const {

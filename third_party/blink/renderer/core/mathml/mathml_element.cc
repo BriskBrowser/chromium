@@ -4,12 +4,15 @@
 
 #include "third_party/blink/renderer/core/mathml/mathml_element.h"
 
-#include "third_party/blink/renderer/bindings/core/v8/script_event_listener.h"
+#include "third_party/blink/renderer/bindings/core/v8/js_event_handler_for_content_attribute.h"
 #include "third_party/blink/renderer/core/css/css_property_name.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser.h"
 #include "third_party/blink/renderer/core/css_value_keywords.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
+#include "third_party/blink/renderer/platform/wtf/text/character_visitor.h"
+#include "third_party/blink/renderer/platform/wtf/text/string_to_number.h"
 
 namespace blink {
 
@@ -39,11 +42,35 @@ bool MathMLElement::IsPresentationAttribute(const QualifiedName& name) const {
       name == mathml_names::kMathcolorAttr ||
       name == mathml_names::kMathbackgroundAttr ||
       name == mathml_names::kMathvariantAttr ||
+      name == mathml_names::kScriptlevelAttr ||
       name == mathml_names::kDisplayAttr ||
       name == mathml_names::kDisplaystyleAttr)
     return true;
   return Element::IsPresentationAttribute(name);
 }
+
+namespace {
+
+bool ParseScriptLevel(const AtomicString& attributeValue,
+                      unsigned& scriptLevel,
+                      bool& add) {
+  String value = attributeValue;
+  if (value.StartsWith("+") || value.StartsWith("-")) {
+    add = true;
+    value = value.Right(1);
+  }
+
+  return WTF::VisitCharacters(
+      value, [&](const auto* position, unsigned length) {
+        WTF::NumberParsingResult result;
+        WTF::NumberParsingOptions options(
+            WTF::NumberParsingOptions::kAcceptMinusZeroForUnsigned);
+        scriptLevel = CharactersToUInt(position, length, options, &result);
+        return result == WTF::NumberParsingResult::kSuccess;
+      });
+}
+
+}  // namespace
 
 void MathMLElement::CollectStyleForPresentationAttribute(
     const QualifiedName& name,
@@ -65,26 +92,39 @@ void MathMLElement::CollectStyleForPresentationAttribute(
   } else if (name == mathml_names::kMathcolorAttr) {
     AddPropertyToPresentationAttributeStyle(style, CSSPropertyID::kColor,
                                             value);
+  } else if (name == mathml_names::kScriptlevelAttr) {
+    unsigned scriptLevel = 0;
+    bool add = false;
+    if (ParseScriptLevel(value, scriptLevel, add)) {
+      if (add) {
+        AddPropertyToPresentationAttributeStyle(
+            style, CSSPropertyID::kMathDepth, "add(" + value + ")");
+      } else {
+        AddPropertyToPresentationAttributeStyle(
+            style, CSSPropertyID::kMathDepth, scriptLevel,
+            CSSPrimitiveValue::UnitType::kNumber);
+      }
+    }
   } else if (name == mathml_names::kDisplayAttr &&
              HasTagName(mathml_names::kMathTag)) {
     if (EqualIgnoringASCIICase(value, "inline")) {
       AddPropertyToPresentationAttributeStyle(style, CSSPropertyID::kDisplay,
-                                              CSSValueID::kInlineMath);
-      AddPropertyToPresentationAttributeStyle(style, CSSPropertyID::kMathStyle,
-                                              CSSValueID::kInline);
-    } else if (EqualIgnoringASCIICase(value, "block")) {
-      AddPropertyToPresentationAttributeStyle(style, CSSPropertyID::kDisplay,
                                               CSSValueID::kMath);
       AddPropertyToPresentationAttributeStyle(style, CSSPropertyID::kMathStyle,
-                                              CSSValueID::kDisplay);
+                                              CSSValueID::kCompact);
+    } else if (EqualIgnoringASCIICase(value, "block")) {
+      AddPropertyToPresentationAttributeStyle(style, CSSPropertyID::kDisplay,
+                                              "block math");
+      AddPropertyToPresentationAttributeStyle(style, CSSPropertyID::kMathStyle,
+                                              CSSValueID::kNormal);
     }
   } else if (name == mathml_names::kDisplaystyleAttr) {
     if (EqualIgnoringASCIICase(value, "false")) {
       AddPropertyToPresentationAttributeStyle(style, CSSPropertyID::kMathStyle,
-                                              CSSValueID::kInline);
+                                              CSSValueID::kCompact);
     } else if (EqualIgnoringASCIICase(value, "true")) {
       AddPropertyToPresentationAttributeStyle(style, CSSPropertyID::kMathStyle,
-                                              CSSValueID::kDisplay);
+                                              CSSValueID::kNormal);
     }
   } else if (name == mathml_names::kMathvariantAttr) {
     // TODO(crbug.com/1076420): this needs to handle all mathvariant values.
@@ -102,12 +142,22 @@ void MathMLElement::ParseAttribute(const AttributeModificationParams& param) {
       HTMLElement::EventNameForAttributeName(param.name);
   if (!event_name.IsNull()) {
     SetAttributeEventListener(
-        event_name,
-        CreateAttributeEventListener(this, param.name, param.new_value));
+        event_name, JSEventHandlerForContentAttribute::Create(
+                        GetExecutionContext(), param.name, param.new_value));
     return;
   }
 
   Element::ParseAttribute(param);
+}
+
+base::Optional<bool> MathMLElement::BooleanAttribute(
+    const QualifiedName& name) const {
+  const AtomicString& value = FastGetAttribute(name);
+  if (EqualIgnoringASCIICase(value, "true"))
+    return true;
+  if (EqualIgnoringASCIICase(value, "false"))
+    return false;
+  return base::nullopt;
 }
 
 base::Optional<Length> MathMLElement::AddMathLengthToComputedStyle(
@@ -125,6 +175,13 @@ base::Optional<Length> MathMLElement::AddMathLengthToComputedStyle(
        (!value.EndsWith('%') || allow_percentages == AllowPercentages::kNo)))
     return base::nullopt;
   return parsed_value->ConvertToLength(conversion_data);
+}
+
+bool MathMLElement::IsTokenElement() const {
+  return HasTagName(mathml_names::kMiTag) || HasTagName(mathml_names::kMoTag) ||
+         HasTagName(mathml_names::kMnTag) ||
+         HasTagName(mathml_names::kMtextTag) ||
+         HasTagName(mathml_names::kMsTag);
 }
 
 }  // namespace blink

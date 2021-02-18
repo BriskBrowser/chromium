@@ -10,27 +10,33 @@
 namespace {
 // Matches the blink check for mixed content.
 bool IsInsecureFormAction(const GURL& action_url) {
-  if (action_url.SchemeIs(url::kBlobScheme) ||
-      action_url.SchemeIs(url::kFileSystemScheme))
+  // blob: and filesystem: URLs never hit the network, and access is restricted
+  // to same-origin contexts, so they are not blocked. Some forms use
+  // javascript URLs to handle submissions in JS, those don't count as mixed
+  // content either.
+  if (action_url.SchemeIs(url::kJavaScriptScheme) ||
+      action_url.SchemeIs(url::kBlobScheme) ||
+      action_url.SchemeIs(url::kFileSystemScheme)) {
     return false;
-  return !network::IsOriginPotentiallyTrustworthy(
-      url::Origin::Create(action_url));
+  }
+  return !network::IsUrlPotentiallyTrustworthy(action_url);
 }
 }  // namespace
 
 namespace autofill {
 
-bool IsFormOrClientNonSecure(AutofillClient* client, const FormData& form) {
+bool IsFormOrClientNonSecure(const AutofillClient* client,
+                             const FormData& form) {
   return !client->IsContextSecure() ||
          (form.action.is_valid() && form.action.SchemeIs("http"));
 }
 
-bool IsFormMixedContent(AutofillClient* client, const FormData& form) {
+bool IsFormMixedContent(const AutofillClient* client, const FormData& form) {
   return client->IsContextSecure() &&
          (form.action.is_valid() && IsInsecureFormAction(form.action));
 }
 
-bool ShouldAllowCreditCardFallbacks(AutofillClient* client,
+bool ShouldAllowCreditCardFallbacks(const AutofillClient* client,
                                     const FormData& form) {
   // Skip the form check if there wasn't a form yet:
   if (form.unique_renderer_id.is_null())

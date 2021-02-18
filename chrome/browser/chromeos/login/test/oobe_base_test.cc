@@ -4,6 +4,8 @@
 
 #include "chrome/browser/chromeos/login/test/oobe_base_test.h"
 
+#include "ash/constants/ash_features.h"
+#include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -11,6 +13,8 @@
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "chrome/browser/browser_process.h"
+#include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
 #include "chrome/browser/chromeos/login/session/user_session_manager_test_api.h"
@@ -19,15 +23,15 @@
 #include "chrome/browser/chromeos/login/test/test_condition_waiter.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host_webui.h"
 #include "chrome/browser/chromeos/login/ui/webui_login_view.h"
+#include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/supervised_user/supervised_user_features.h"
 #include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
 #include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/user_creation_screen_handler.h"
 #include "chrome/browser/ui/webui/signin/signin_utils.h"
 #include "chrome/common/chrome_switches.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/fake_update_engine_client.h"
 #include "chromeos/dbus/shill/fake_shill_manager_client.h"
@@ -36,6 +40,7 @@
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "google_apis/gaia/gaia_switches.h"
@@ -84,6 +89,14 @@ class GaiaPageEventWaiter : public test::TestConditionWaiter {
 }  // namespace
 
 OobeBaseTest::OobeBaseTest() {
+  // Skip the EDU Coexistence Screen, because many OOBE tests don't expect
+  // the EDU coexistence screen after signin and fail if it isn't disabled.
+  // TODO(https://crbug.com/1175215): Make those tests work with this feature
+  // enabled.
+  scoped_feature_list_.InitWithFeatures(
+      {} /** enabled */,
+      {supervised_users::kEduCoexistenceFlowV2} /** disabled */);
+
   set_exit_when_last_browser_closes(false);
 }
 
@@ -99,9 +112,17 @@ void OobeBaseTest::SetUp() {
 void OobeBaseTest::SetUpCommandLine(base::CommandLine* command_line) {
   command_line->AppendSwitch(chromeos::switches::kLoginManager);
   command_line->AppendSwitch(chromeos::switches::kForceLoginManagerInTests);
+  command_line->AppendSwitch(
+      chromeos::switches::kDisableOOBEChromeVoxHintTimerForTesting);
   if (!needs_background_networking_)
     command_line->AppendSwitch(::switches::kDisableBackgroundNetworking);
   command_line->AppendSwitchASCII(chromeos::switches::kLoginProfile, "user");
+
+  // Blink features are controlled via a command line switch. Disable HTML
+  // imports which are deprecated. OOBE uses a polyfill for imports that will
+  // be replaced once the migration to JS modules is complete.
+  command_line->AppendSwitchASCII(::switches::kDisableBlinkFeatures,
+                                  "HTMLImports");
 
   MixinBasedInProcessBrowserTest::SetUpCommandLine(command_line);
 }
@@ -215,15 +236,17 @@ test::JSChecker OobeBaseTest::SigninFrameJS() {
       LoginDisplayHost::default_host()->GetOobeWebContents(),
       gaia_frame_parent_);
   test::JSChecker result = test::JSChecker(frame);
-  // Fake GAIA / fake SAML pages do not use polymer-based UI.
-  result.set_polymer_ui(false);
   return result;
 }
 
 // static
 OobeScreenId OobeBaseTest::GetFirstSigninScreen() {
-  return features::IsChildSpecificSigninEnabled() ? UserCreationView::kScreenId
-                                                  : GaiaView::kScreenId;
+  bool childSpecificSigninEnabled = features::IsChildSpecificSigninEnabled() &&
+                                    !g_browser_process->platform_part()
+                                         ->browser_policy_connector_chromeos()
+                                         ->IsEnterpriseManaged();
+  return childSpecificSigninEnabled ? UserCreationView::kScreenId
+                                    : GaiaView::kScreenId;
 }
 
 void OobeBaseTest::MaybeWaitForLoginScreenLoad() {

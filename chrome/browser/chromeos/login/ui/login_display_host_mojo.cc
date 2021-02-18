@@ -15,6 +15,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/certificate_provider/certificate_provider_service.h"
 #include "chrome/browser/chromeos/certificate_provider/certificate_provider_service_factory.h"
 #include "chrome/browser/chromeos/certificate_provider/pin_dialog_manager.h"
@@ -23,33 +24,33 @@
 #include "chrome/browser/chromeos/login/reauth_stats.h"
 #include "chrome/browser/chromeos/login/screens/chrome_user_selection_screen.h"
 #include "chrome/browser/chromeos/login/screens/gaia_screen.h"
+#include "chrome/browser/chromeos/login/security_token_session_controller.h"
 #include "chrome/browser/chromeos/login/ui/login_display.h"
 #include "chrome/browser/chromeos/login/ui/login_display_mojo.h"
 #include "chrome/browser/chromeos/login/user_board_view_mojo.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/ash/login_screen_client.h"
 #include "chrome/browser/ui/ash/system_tray_client.h"
 #include "chrome/browser/ui/ash/wallpaper_controller_client.h"
 #include "chrome/browser/ui/webui/chromeos/login/gaia_password_changed_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
+#include "chrome/browser/ui/webui/chromeos/login/signin_fatal_error_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/user_creation_screen_handler.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/login/auth/user_context.h"
 #include "components/startup_metric_utils/browser/startup_metric_utils.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_names.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "ui/aura/window.h"
+#include "ui/views/view.h"
 
 namespace chromeos {
 
 namespace {
-
-constexpr char kLoginDisplay[] = "login";
 
 CertificateProviderService* GetLoginScreenCertProviderService() {
   DCHECK(ProfileHelper::IsSigninProfileInitialized());
@@ -70,7 +71,7 @@ LoginDisplayHostMojo::LoginDisplayHostMojo(DisplayedScreen displayed_screen)
     : login_display_(std::make_unique<LoginDisplayMojo>(this)),
       user_board_view_mojo_(std::make_unique<UserBoardViewMojo>()),
       user_selection_screen_(
-          std::make_unique<ChromeUserSelectionScreen>(kLoginDisplay)),
+          std::make_unique<ChromeUserSelectionScreen>(displayed_screen)),
       system_info_updater_(std::make_unique<MojoSystemInfoDispatcher>()),
       displayed_screen_(displayed_screen) {
   user_selection_screen_->SetView(user_board_view_mojo_.get());
@@ -118,35 +119,27 @@ void LoginDisplayHostMojo::SetUserCount(int user_count) {
 
   // Hide Gaia dialog in case empty list of users switched to a non-empty one.
   // And if the dialog shows login screen.
-  const OobeScreenId start_screen = features::IsChildSpecificSigninEnabled()
-                                        ? UserCreationView::kScreenId
-                                        : GaiaView::kScreenId;
   if (was_zero_users && user_count_ != 0 && dialog_ && dialog_->IsVisible() &&
       (!wizard_controller_->is_initialized() ||
        (wizard_controller_->current_screen() &&
-        wizard_controller_->current_screen()->screen_id() == start_screen))) {
+        WizardController::IsSigninScreen(
+            wizard_controller_->current_screen()->screen_id())))) {
     HideOobeDialog();
   }
 }
 
 void LoginDisplayHostMojo::ShowPasswordChangedDialog(
-    bool show_password_error,
-    const AccountId& account_id) {
+    const AccountId& account_id,
+    bool show_password_error) {
   DCHECK(GetOobeUI());
   wizard_controller_->ShowGaiaPasswordChangedScreen(account_id,
                                                     show_password_error);
   ShowDialog();
 }
 
-void LoginDisplayHostMojo::ShowWhitelistCheckFailedError() {
+void LoginDisplayHostMojo::ShowAllowlistCheckFailedError() {
   DCHECK(GetOobeUI());
   GetOobeUI()->signin_screen_handler()->ShowAllowlistCheckFailedError();
-  ShowDialog();
-}
-
-void LoginDisplayHostMojo::ShowSigninUI(const std::string& email) {
-  DCHECK(GetOobeUI());
-  GetOobeUI()->signin_screen_handler()->ShowSigninUI(email);
   ShowDialog();
 }
 
@@ -209,15 +202,10 @@ void LoginDisplayHostMojo::StartWizard(OobeScreenId first_screen) {
   // screens to show.
   ObserveOobeUI();
 
-  if (features::IsOobeScreensPriorityEnabled()) {
-    if (wizard_controller_->is_initialized())
-      wizard_controller_->AdvanceToScreen(first_screen);
-    else
-      wizard_controller_->Init(first_screen);
-  } else {
-    wizard_controller_ = std::make_unique<WizardController>();
+  if (wizard_controller_->is_initialized())
+    wizard_controller_->AdvanceToScreen(first_screen);
+  else
     wizard_controller_->Init(first_screen);
-  }
 }
 
 WizardController* LoginDisplayHostMojo::GetWizardController() {
@@ -260,15 +248,12 @@ void LoginDisplayHostMojo::OnStartSignInScreen() {
     // If we already have a signin screen instance, just reset the state of the
     // oobe dialog.
 
-    OobeScreenId signin_screen_id = features::IsChildSpecificSigninEnabled()
-                                        ? UserCreationView::kScreenId
-                                        : GaiaView::kScreenId;
-
     // Try to switch to user creation screen.
-    StartWizard(signin_screen_id);
+    StartWizard(UserCreationView::kScreenId);
 
     if (wizard_controller_->current_screen() &&
-        wizard_controller_->current_screen()->screen_id() != signin_screen_id) {
+        !WizardController::IsSigninScreen(
+            wizard_controller_->current_screen()->screen_id())) {
       // Switching might fail due to the screen priorities. Do no hide the
       // dialog in that case.
       return;
@@ -295,6 +280,8 @@ void LoginDisplayHostMojo::OnStartSignInScreen() {
   UpdateAddUserButtonStatus();
 
   OnStartSignInScreenCommon();
+
+  login::SecurityTokenSessionController::MaybeDisplayLoginScreenNotification();
 }
 
 void LoginDisplayHostMojo::OnPreferencesChanged() {
@@ -340,8 +327,7 @@ void LoginDisplayHostMojo::HideOobeDialog() {
   const bool no_users =
       !login_display_->IsSigninInProgress() && user_count_ == 0;
   if (no_users || GetOobeUI()->current_screen() == GaiaView::kScreenId) {
-    GaiaScreen* gaia_screen =
-        GaiaScreen::Get(GetWizardController()->screen_manager());
+    GaiaScreen* gaia_screen = GetWizardController()->GetScreen<GaiaScreen>();
     gaia_screen->LoadOnline(EmptyAccountId());
     if (no_users)
       return;
@@ -350,6 +336,11 @@ void LoginDisplayHostMojo::HideOobeDialog() {
   user_selection_screen_->OnBeforeShow();
   LoadWallpaper(focused_pod_account_id_);
   HideDialog();
+}
+
+void LoginDisplayHostMojo::SetShelfButtonsEnabled(bool enabled) {
+  // Do nothing as we do not need to disable the shelf buttons on lock/login
+  // screen.
 }
 
 void LoginDisplayHostMojo::UpdateOobeDialogState(ash::OobeDialogState state) {
@@ -367,8 +358,39 @@ void LoginDisplayHostMojo::RequestSystemInfoUpdate() {
   system_info_updater_->StartRequest();
 }
 
+bool LoginDisplayHostMojo::HasUserPods() {
+  return user_count_ > 0;
+}
+
+void LoginDisplayHostMojo::VerifyOwnerForKiosk(base::OnceClosure on_success) {
+  // This UI is specific fo the consumer kiosk. We hide all the pods except for
+  // the owner. User can't go back to the normal user screen from this. App
+  // launch cancellation results in the Chrome restart (see
+  // KioskLaunchController::OnCancelAppLaunch).
+  CHECK(GetKioskLaunchController());
+  DCHECK(!owner_verified_callback_);
+  owner_verified_callback_ = std::move(on_success);
+  owner_account_id_ = user_manager::UserManager::Get()->GetOwnerAccountId();
+  CHECK(owner_account_id_.is_valid());
+  login_display_->ShowOwnerPod(owner_account_id_);
+  HideOobeDialog();
+}
+
+void LoginDisplayHostMojo::AddObserver(LoginDisplayHost::Observer* observer) {
+  observers_.AddObserver(observer);
+}
+
+void LoginDisplayHostMojo::RemoveObserver(
+    LoginDisplayHost::Observer* observer) {
+  observers_.RemoveObserver(observer);
+}
+
 void LoginDisplayHostMojo::OnCancelPasswordChangedFlow() {
   HideOobeDialog();
+}
+
+void LoginDisplayHostMojo::ShowEnableConsumerKioskScreen() {
+  NOTREACHED();
 }
 
 void LoginDisplayHostMojo::HandleAuthenticateUserWithPasswordOrPin(
@@ -391,6 +413,10 @@ void LoginDisplayHostMojo::HandleAuthenticateUserWithPasswordOrPin(
   user_context.SetKey(
       Key(chromeos::Key::KEY_TYPE_PASSWORD_PLAIN, "" /*salt*/, password));
   user_context.SetPasswordKey(Key(password));
+  user_context.SetLoginInputMethodUsed(input_method::InputMethodManager::Get()
+                                           ->GetActiveIMEState()
+                                           ->GetCurrentInputMethod()
+                                           .id());
 
   if (account_id.GetAccountType() == AccountType::ACTIVE_DIRECTORY) {
     if (user_context.GetUserType() !=
@@ -399,6 +425,11 @@ void LoginDisplayHostMojo::HandleAuthenticateUserWithPasswordOrPin(
                  << user_context.GetUserType();
     }
     user_context.SetIsUsingOAuth(false);
+  }
+
+  if (owner_verified_callback_) {
+    CheckOwnerCredentials(user_context);
+    return;
   }
 
   existing_user_controller_->Login(user_context, chromeos::SigninSpecifics());
@@ -512,6 +543,18 @@ void LoginDisplayHostMojo::OnDestroyingOobeUI() {
   StopObservingOobeUI();
 }
 
+// views::ViewObserver:
+void LoginDisplayHostMojo::OnViewBoundsChanged(views::View* observed_view) {
+  DCHECK(scoped_observer_.IsObserving(observed_view));
+  for (auto& observer : observers_)
+    observer.WebDialogViewBoundsChanged(observed_view->GetBoundsInScreen());
+}
+
+void LoginDisplayHostMojo::OnViewIsDeleting(views::View* observed_view) {
+  DCHECK(scoped_observer_.IsObserving(observed_view));
+  scoped_observer_.Remove(observed_view);
+}
+
 bool LoginDisplayHostMojo::IsOobeUIDialogVisible() const {
   return dialog_ && dialog_->IsVisible();
 }
@@ -523,6 +566,9 @@ void LoginDisplayHostMojo::LoadOobeDialog() {
   dialog_ = new OobeUIDialogDelegate(weak_factory_.GetWeakPtr());
   dialog_->GetOobeUI()->signin_screen_handler()->SetDelegate(
       login_display_.get());
+
+  views::View* web_dialog_view = dialog_->GetWebDialogView();
+  scoped_observer_.Add(web_dialog_view);
 }
 
 void LoginDisplayHostMojo::OnChallengeResponseKeysPrepared(
@@ -597,6 +643,27 @@ void LoginDisplayHostMojo::CreateExistingUserController() {
 
   // We need auth attempt results to notify views-based login screen.
   existing_user_controller_->AddLoginStatusConsumer(this);
+}
+
+void LoginDisplayHostMojo::CheckOwnerCredentials(
+    const UserContext& user_context) {
+  CHECK_EQ(owner_account_id_, user_context.GetAccountId());
+  if (!extended_authenticator_)
+    extended_authenticator_ = ExtendedAuthenticator::Create(this);
+
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
+      base::BindOnce(&ExtendedAuthenticator::AuthenticateToCheck,
+                     extended_authenticator_.get(), user_context,
+                     base::BindOnce(&LoginDisplayHostMojo::OnOwnerSigninSuccess,
+                                    base::Unretained(this))));
+}
+
+void LoginDisplayHostMojo::OnOwnerSigninSuccess() {
+  DCHECK(owner_verified_callback_);
+  std::move(owner_verified_callback_).Run();
+  extended_authenticator_.reset();
+  ShowFullScreen();
 }
 
 }  // namespace chromeos

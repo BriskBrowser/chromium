@@ -25,6 +25,7 @@
 #include "chrome/browser/chromeos/file_manager/path_util.h"
 #include "chrome/browser/chromeos/guest_os/guest_os_registry_service.h"
 #include "chrome/browser/chromeos/guest_os/guest_os_registry_service_factory.h"
+#include "chrome/browser/chromeos/plugin_vm/plugin_vm_features.h"
 #include "chrome/browser/chromeos/plugin_vm/plugin_vm_files.h"
 #include "chrome/browser/chromeos/plugin_vm/plugin_vm_util.h"
 #include "chrome/common/webui_url_constants.h"
@@ -50,7 +51,6 @@ namespace {
 // upon whether it "thinks" it is binary or text content.
 constexpr char kUnknownBinaryMimeType[] = "application/octet-stream";
 constexpr char kUnknownTextMimeType[] = "text/plain";
-constexpr char kPluginVmAppNameSuffix[] = " (Windows)";
 
 bool HasSupportedMimeType(
     const std::set<std::string>& supported_mime_types,
@@ -128,14 +128,14 @@ bool AppSupportsExtensionOfAllEntries(
 
 auto ConvertLaunchPluginVmAppResultToTaskResult(
     plugin_vm::LaunchPluginVmAppResult result) {
+  // TODO(benwells): return the correct code here, depending on how the app will
+  // be opened in multiprofile.
   namespace fmp = extensions::api::file_manager_private;
   switch (result) {
     case plugin_vm::LaunchPluginVmAppResult::SUCCESS:
       return fmp::TASK_RESULT_MESSAGE_SENT;
     case plugin_vm::LaunchPluginVmAppResult::FAILED_DIRECTORY_NOT_SHARED:
-      return fmp::TASK_RESULT_FAILED_PLUGIN_VM_TASK_DIRECTORY_NOT_SHARED;
-    case plugin_vm::LaunchPluginVmAppResult::FAILED_FILE_ON_EXTERNAL_DRIVE:
-      return fmp::TASK_RESULT_FAILED_PLUGIN_VM_TASK_EXTERNAL_DRIVE;
+      return fmp::TASK_RESULT_FAILED_PLUGIN_VM_DIRECTORY_NOT_SHARED;
     case plugin_vm::LaunchPluginVmAppResult::FAILED:
       return fmp::TASK_RESULT_FAILED;
   }
@@ -145,8 +145,6 @@ auto ConvertLaunchPluginVmAppResultToTaskResult(
 
 void FindGuestOsApps(
     Profile* profile,
-    bool crostini_enabled,
-    bool plugin_vm_enabled,
     const std::vector<extensions::EntryInfo>& entries,
     const std::vector<GURL>& file_urls,
     std::vector<std::string>* app_ids,
@@ -160,7 +158,7 @@ void FindGuestOsApps(
   for (const GURL& file_url : file_urls) {
     if (!file_manager::util::ConvertFileSystemURLToPathInsideVM(
             profile, file_system_context->CrackURL(file_url), dummy_vm_mount,
-            &not_used)) {
+            /*map_crostini_home=*/false, &not_used)) {
       return;
     }
   }
@@ -169,7 +167,7 @@ void FindGuestOsApps(
       guest_os::GuestOsRegistryServiceFactory::GetForProfile(profile);
   crostini::CrostiniMimeTypesService* mime_types_service =
       crostini::CrostiniMimeTypesServiceFactory::GetForProfile(profile);
-  for (const auto& pair : registry_service->GetAllRegisteredApps()) {
+  for (const auto& pair : registry_service->GetEnabledApps()) {
     const std::string& app_id = pair.first;
     const auto& registration = pair.second;
 
@@ -177,21 +175,17 @@ void FindGuestOsApps(
     switch (vm_type) {
       case guest_os::GuestOsRegistryService::VmType::
           ApplicationList_VmType_TERMINA:
-        if (!crostini_enabled ||
-            !AppSupportsMimeTypeOfAllEntries(*mime_types_service, entries,
+        if (!AppSupportsMimeTypeOfAllEntries(*mime_types_service, entries,
                                              registration)) {
           continue;
         }
-        app_names->push_back(registration.Name());
         break;
 
       case guest_os::GuestOsRegistryService::VmType::
           ApplicationList_VmType_PLUGIN_VM:
-        if (!plugin_vm_enabled ||
-            !AppSupportsExtensionOfAllEntries(entries, registration)) {
+        if (!AppSupportsExtensionOfAllEntries(entries, registration)) {
           continue;
         }
-        app_names->push_back(registration.Name() + kPluginVmAppNameSuffix);
         break;
 
       default:
@@ -200,6 +194,7 @@ void FindGuestOsApps(
     }
 
     app_ids->push_back(app_id);
+    app_names->push_back(registration.Name());
     vm_types->push_back(registration.VmType());
   }
 }
@@ -210,7 +205,8 @@ void FindGuestOsTasks(Profile* profile,
                       std::vector<FullTaskDescriptor>* result_list,
                       base::OnceClosure completion_closure) {
   bool crostini_enabled = crostini::CrostiniFeatures::Get()->IsEnabled(profile);
-  bool plugin_vm_enabled = plugin_vm::IsPluginVmEnabled(profile);
+  bool plugin_vm_enabled =
+      plugin_vm::PluginVmFeatures::Get()->IsEnabled(profile);
 
   if (!crostini_enabled && !plugin_vm_enabled) {
     std::move(completion_closure).Run();
@@ -220,9 +216,8 @@ void FindGuestOsTasks(Profile* profile,
   std::vector<std::string> result_app_ids;
   std::vector<std::string> result_app_names;
   std::vector<guest_os::GuestOsRegistryService::VmType> result_vm_types;
-  FindGuestOsApps(profile, crostini_enabled, plugin_vm_enabled, entries,
-                  file_urls, &result_app_ids, &result_app_names,
-                  &result_vm_types);
+  FindGuestOsApps(profile, entries, file_urls, &result_app_ids,
+                  &result_app_names, &result_vm_types);
 
   if (result_app_ids.empty()) {
     std::move(completion_closure).Run();
@@ -278,13 +273,18 @@ void ExecuteGuestOsTask(
     return;
   }
 
+  using LaunchArg = absl::variant<storage::FileSystemURL, std::string>;
+  std::vector<LaunchArg> args;
+  args.reserve(file_system_urls.size());
+  for (const auto& url : file_system_urls) {
+    args.emplace_back(url);
+  }
   guest_os::GuestOsRegistryService::VmType vm_type = registration->VmType();
   switch (vm_type) {
     case guest_os::GuestOsRegistryService::VmType::
         ApplicationList_VmType_TERMINA:
-      DCHECK(crostini::CrostiniFeatures::Get()->IsUIAllowed(profile));
       crostini::LaunchCrostiniApp(
-          profile, task.app_id, display::kInvalidDisplayId, file_system_urls,
+          profile, task.app_id, display::kInvalidDisplayId, args,
           base::BindOnce(
               [](FileTaskFinishedCallback done, bool success,
                  const std::string& failure_reason) {
@@ -292,6 +292,8 @@ void ExecuteGuestOsTask(
                   LOG(ERROR) << "Crostini task error: " << failure_reason;
                 }
                 std::move(done).Run(
+                    // TODO(benwells): return the correct code here, depending
+                    // on how the app will be opened in multiprofile.
                     success ? extensions::api::file_manager_private::
                                   TASK_RESULT_MESSAGE_SENT
                             : extensions::api::file_manager_private::
@@ -302,9 +304,9 @@ void ExecuteGuestOsTask(
       return;
     case guest_os::GuestOsRegistryService::VmType::
         ApplicationList_VmType_PLUGIN_VM:
-      DCHECK(plugin_vm::IsPluginVmEnabled(profile));
+      DCHECK(plugin_vm::PluginVmFeatures::Get()->IsEnabled(profile));
       plugin_vm::LaunchPluginVmApp(
-          profile, task.app_id, file_system_urls,
+          profile, task.app_id, args,
           base::BindOnce(
               [](FileTaskFinishedCallback done,
                  plugin_vm::LaunchPluginVmAppResult result,

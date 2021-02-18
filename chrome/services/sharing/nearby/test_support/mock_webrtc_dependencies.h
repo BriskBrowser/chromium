@@ -5,8 +5,8 @@
 #ifndef CHROME_SERVICES_SHARING_NEARBY_TEST_SUPPORT_MOCK_WEBRTC_DEPENDENCIES_H_
 #define CHROME_SERVICES_SHARING_NEARBY_TEST_SUPPORT_MOCK_WEBRTC_DEPENDENCIES_H_
 
-#include "chrome/services/sharing/public/mojom/webrtc.mojom.h"
-#include "chrome/services/sharing/public/mojom/webrtc_signaling_messenger.mojom.h"
+#include "chromeos/services/nearby/public/mojom/webrtc.mojom.h"
+#include "chromeos/services/nearby/public/mojom/webrtc_signaling_messenger.mojom.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "services/network/public/mojom/mdns_responder.mojom.h"
 #include "services/network/public/mojom/p2p.mojom.h"
@@ -71,6 +71,7 @@ class MockWebRtcDependencies : public network::mojom::P2PSocketManager,
               SendMessage,
               (const std::string& self_id,
                const std::string& peer_id,
+               sharing::mojom::LocationHintPtr location_hint,
                const std::string& message,
                SendMessageCallback callback),
               (override));
@@ -78,6 +79,7 @@ class MockWebRtcDependencies : public network::mojom::P2PSocketManager,
   MOCK_METHOD(void,
               StartReceivingMessages,
               (const std::string& self_id,
+               sharing::mojom::LocationHintPtr location_hint,
                mojo::PendingRemote<sharing::mojom::IncomingMessagesListener>
                    incoming_messages_listener,
                StartReceivingMessagesCallback callback),

@@ -37,6 +37,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.isIn;
 import static org.hamcrest.Matchers.iterableWithSize;
 
+import static org.chromium.base.test.util.CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL;
 import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.hasTypefaceSpan;
 import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.isImportantForAccessibility;
 import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.startAutofillAssistant;
@@ -45,7 +46,6 @@ import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUi
 import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.waitUntilViewMatchesCondition;
 import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.withMinimumSize;
 import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.withTextGravity;
-import static org.chromium.content_public.browser.test.util.CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL;
 
 import android.graphics.Typeface;
 import android.support.test.InstrumentationRegistry;
@@ -94,7 +94,6 @@ import org.chromium.chrome.browser.autofill_assistant.proto.ElementAreaProto.Rec
 import org.chromium.chrome.browser.autofill_assistant.proto.ElementConditionProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.EndActionProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.EventProto;
-import org.chromium.chrome.browser.autofill_assistant.proto.FocusElementProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.ForEachProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.GenericUserInterfaceProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.ImageViewProto;
@@ -119,6 +118,7 @@ import org.chromium.chrome.browser.autofill_assistant.proto.SetViewEnabledProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.SetViewVisibilityProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.ShapeDrawableProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.ShowCalendarPopupProto;
+import org.chromium.chrome.browser.autofill_assistant.proto.ShowCastProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.ShowGenericUiPopupProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.ShowGenericUiProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.ShowGenericUiProto.PeriodicElementChecks;
@@ -145,7 +145,6 @@ import org.chromium.chrome.browser.autofill_assistant.proto.ViewContainerProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.ViewLayoutParamsProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.ViewProto;
 import org.chromium.chrome.browser.customtabs.CustomTabActivityTestRule;
-import org.chromium.chrome.browser.customtabs.CustomTabsTestUtils;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 
@@ -171,9 +170,10 @@ public class AutofillAssistantGenericUiTest {
     @Before
     public void setUp() throws Exception {
         AutofillAssistantPreferencesUtil.setInitialPreferences(true);
-        mTestRule.startCustomTabActivityWithIntent(CustomTabsTestUtils.createMinimalCustomTabIntent(
-                InstrumentationRegistry.getTargetContext(),
-                mTestRule.getTestServer().getURL(TEST_PAGE)));
+        mTestRule.startCustomTabActivityWithIntent(
+                AutofillAssistantUiTestUtil.createMinimalCustomTabIntentForAutobot(
+                        mTestRule.getTestServer().getURL(TEST_PAGE),
+                        /* startImmediately = */ true));
         mTestRule.getActivity()
                 .getRootUiCoordinatorForTesting()
                 .getScrimCoordinator()
@@ -449,7 +449,7 @@ public class AutofillAssistantGenericUiTest {
         List<InteractionProto> interactionsPrepended = new ArrayList<>();
         interactionsPrepended.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnViewClicked(
+                        .addTriggerEvent(EventProto.newBuilder().setOnViewClicked(
                                 OnViewClickedEventProto.newBuilder().setViewIdentifier(
                                         "clickableView1")))
                         .addCallbacks(CallbackProto.newBuilder().setSetValue(
@@ -463,7 +463,7 @@ public class AutofillAssistantGenericUiTest {
         List<InteractionProto> interactionsAppended = new ArrayList<>();
         interactionsAppended.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnViewClicked(
+                        .addTriggerEvent(EventProto.newBuilder().setOnViewClicked(
                                 OnViewClickedEventProto.newBuilder().setViewIdentifier(
                                         "clickableView2")))
                         .addCallbacks(CallbackProto.newBuilder().setSetValue(
@@ -588,7 +588,7 @@ public class AutofillAssistantGenericUiTest {
         List<InteractionProto> interactions = new ArrayList<>();
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnViewClicked(
+                        .addTriggerEvent(EventProto.newBuilder().setOnViewClicked(
                                 OnViewClickedEventProto.newBuilder().setViewIdentifier(
                                         "clickableView")))
                         .addCallbacks(CallbackProto.newBuilder().setSetValue(
@@ -609,7 +609,7 @@ public class AutofillAssistantGenericUiTest {
         // Whenever output_1 changes, copy the value to output_2.
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "output_1")))
                         .addCallbacks(CallbackProto.newBuilder().setSetValue(
@@ -624,7 +624,7 @@ public class AutofillAssistantGenericUiTest {
         // is created, because events should only be fired for actual value changes.
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "output_2")))
                         .addCallbacks(CallbackProto.newBuilder().setSetValue(
@@ -745,7 +745,7 @@ public class AutofillAssistantGenericUiTest {
 
         List<InteractionProto> interactions = new ArrayList<>();
         interactions.add((InteractionProto) InteractionProto.newBuilder()
-                                 .setTriggerEvent(EventProto.newBuilder().setOnViewClicked(
+                                 .addTriggerEvent(EventProto.newBuilder().setOnViewClicked(
                                          OnViewClickedEventProto.newBuilder().setViewIdentifier(
                                                  "clickableView")))
                                  .addCallbacks(CallbackProto.newBuilder().setShowInfoPopup(
@@ -795,7 +795,7 @@ public class AutofillAssistantGenericUiTest {
         List<InteractionProto> interactions = new ArrayList<>();
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "chips")))
                         .addCallbacks(CallbackProto.newBuilder().setSetUserActions(
@@ -804,7 +804,7 @@ public class AutofillAssistantGenericUiTest {
                                                 "chips"))))
                         .build());
         interactions.add((InteractionProto) InteractionProto.newBuilder()
-                                 .setTriggerEvent(EventProto.newBuilder().setOnUserActionCalled(
+                                 .addTriggerEvent(EventProto.newBuilder().setOnUserActionCalled(
                                          OnUserActionCalled.newBuilder().setUserActionIdentifier(
                                                  "done_chip")))
                                  .addCallbacks(CallbackProto.newBuilder().setEndAction(
@@ -813,7 +813,7 @@ public class AutofillAssistantGenericUiTest {
                                  .build());
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnViewClicked(
+                        .addTriggerEvent(EventProto.newBuilder().setOnViewClicked(
                                 OnViewClickedEventProto.newBuilder().setViewIdentifier(
                                         "clickableView")))
                         .addCallbacks(CallbackProto.newBuilder().setShowListPopup(
@@ -939,7 +939,7 @@ public class AutofillAssistantGenericUiTest {
         List<InteractionProto> interactions = new ArrayList<>();
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnViewClicked(
+                        .addTriggerEvent(EventProto.newBuilder().setOnViewClicked(
                                 OnViewClickedEventProto.newBuilder().setViewIdentifier(
                                         "clickableView1")))
                         .addCallbacks(CallbackProto.newBuilder().setSetValue(
@@ -952,7 +952,7 @@ public class AutofillAssistantGenericUiTest {
                         .build());
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnViewClicked(
+                        .addTriggerEvent(EventProto.newBuilder().setOnViewClicked(
                                 OnViewClickedEventProto.newBuilder().setViewIdentifier(
                                         "clickableView2")))
                         .addCallbacks(CallbackProto.newBuilder().setSetValue(
@@ -965,23 +965,10 @@ public class AutofillAssistantGenericUiTest {
                         .build());
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "output1")))
-                        .addCallbacks(CallbackProto.newBuilder().setComputeValue(
-                                ComputeValueProto.newBuilder()
-                                        .setBooleanAnd(BooleanAndProto.newBuilder().addAllValues(
-                                                Arrays.asList(ValueReferenceProto.newBuilder()
-                                                                      .setModelIdentifier("output1")
-                                                                      .build(),
-                                                        ValueReferenceProto.newBuilder()
-                                                                .setModelIdentifier("output2")
-                                                                .build())))
-                                        .setResultModelIdentifier("combined")))
-                        .build());
-        interactions.add(
-                (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "output2")))
                         .addCallbacks(CallbackProto.newBuilder().setComputeValue(
@@ -1062,7 +1049,7 @@ public class AutofillAssistantGenericUiTest {
         List<InteractionProto> interactions = new ArrayList<>();
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "chips")))
                         .addCallbacks(CallbackProto.newBuilder().setSetUserActions(
@@ -1071,7 +1058,7 @@ public class AutofillAssistantGenericUiTest {
                                                 "chips"))))
                         .build());
         interactions.add((InteractionProto) InteractionProto.newBuilder()
-                                 .setTriggerEvent(EventProto.newBuilder().setOnUserActionCalled(
+                                 .addTriggerEvent(EventProto.newBuilder().setOnUserActionCalled(
                                          OnUserActionCalled.newBuilder().setUserActionIdentifier(
                                                  "done_chip")))
                                  .addCallbacks(CallbackProto.newBuilder().setEndAction(
@@ -1173,7 +1160,7 @@ public class AutofillAssistantGenericUiTest {
         List<InteractionProto> interactions = new ArrayList<>();
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "chips")))
                         .addCallbacks(CallbackProto.newBuilder().setSetUserActions(
@@ -1182,7 +1169,7 @@ public class AutofillAssistantGenericUiTest {
                                                 "chips"))))
                         .build());
         interactions.add((InteractionProto) InteractionProto.newBuilder()
-                                 .setTriggerEvent(EventProto.newBuilder().setOnUserActionCalled(
+                                 .addTriggerEvent(EventProto.newBuilder().setOnUserActionCalled(
                                          OnUserActionCalled.newBuilder().setUserActionIdentifier(
                                                  "done_chip")))
                                  .addCallbacks(CallbackProto.newBuilder().setEndAction(
@@ -1191,7 +1178,7 @@ public class AutofillAssistantGenericUiTest {
                                  .build());
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnViewClicked(
+                        .addTriggerEvent(EventProto.newBuilder().setOnViewClicked(
                                 OnViewClickedEventProto.newBuilder().setViewIdentifier(
                                         "text_view")))
                         .addCallbacks(CallbackProto.newBuilder().setShowCalendarPopup(
@@ -1214,7 +1201,7 @@ public class AutofillAssistantGenericUiTest {
                         .build());
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "date")))
                         .addCallbacks(CallbackProto.newBuilder().setComputeValue(
@@ -1376,7 +1363,7 @@ public class AutofillAssistantGenericUiTest {
         List<InteractionProto> interactions = new ArrayList<>();
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "chips")))
                         .addCallbacks(CallbackProto.newBuilder().setSetUserActions(
@@ -1386,7 +1373,7 @@ public class AutofillAssistantGenericUiTest {
                         .build());
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "enabled")))
                         .addCallbacks(CallbackProto.newBuilder().setToggleUserAction(
@@ -1399,7 +1386,7 @@ public class AutofillAssistantGenericUiTest {
                         .build());
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnViewClicked(
+                        .addTriggerEvent(EventProto.newBuilder().setOnViewClicked(
                                 OnViewClickedEventProto.newBuilder().setViewIdentifier(
                                         "text_view")))
                         .addCallbacks(CallbackProto.newBuilder().setComputeValue(
@@ -1476,7 +1463,7 @@ public class AutofillAssistantGenericUiTest {
                                                 .build();
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnViewClicked(
+                        .addTriggerEvent(EventProto.newBuilder().setOnViewClicked(
                                 OnViewClickedEventProto.newBuilder().setViewIdentifier(
                                         "text_view")))
                         .addCallbacks(CallbackProto.newBuilder().setComputeValue(
@@ -1501,7 +1488,7 @@ public class AutofillAssistantGenericUiTest {
                                              .build();
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "counter")))
                         .addCallbacks(CallbackProto.newBuilder().setComputeValue(
@@ -1567,7 +1554,7 @@ public class AutofillAssistantGenericUiTest {
         List<InteractionProto> interactions = new ArrayList<>();
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnViewClicked(
+                        .addTriggerEvent(EventProto.newBuilder().setOnViewClicked(
                                 OnViewClickedEventProto.newBuilder().setViewIdentifier(
                                         "toggle_view")))
                         .addCallbacks(CallbackProto.newBuilder().setComputeValue(
@@ -1579,7 +1566,7 @@ public class AutofillAssistantGenericUiTest {
                         .build());
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "visible")))
                         .addCallbacks(CallbackProto.newBuilder().setSetViewVisibility(
@@ -1676,7 +1663,7 @@ public class AutofillAssistantGenericUiTest {
         List<InteractionProto> interactions = new ArrayList<>();
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "chips")))
                         .addCallbacks(CallbackProto.newBuilder().setSetUserActions(
@@ -1685,7 +1672,7 @@ public class AutofillAssistantGenericUiTest {
                                                 "chips"))))
                         .build());
         interactions.add((InteractionProto) InteractionProto.newBuilder()
-                                 .setTriggerEvent(EventProto.newBuilder().setOnUserActionCalled(
+                                 .addTriggerEvent(EventProto.newBuilder().setOnUserActionCalled(
                                          OnUserActionCalled.newBuilder().setUserActionIdentifier(
                                                  "done_chip")))
                                  .addCallbacks(CallbackProto.newBuilder().setEndAction(
@@ -1765,7 +1752,7 @@ public class AutofillAssistantGenericUiTest {
         List<InteractionProto> interactions = new ArrayList<>();
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnTextLinkClicked(
+                        .addTriggerEvent(EventProto.newBuilder().setOnTextLinkClicked(
                                 OnTextLinkClickedProto.newBuilder().setTextLink(1)))
                         .addCallbacks(CallbackProto.newBuilder().setSetValue(
                                 SetModelValueProto.newBuilder()
@@ -2001,6 +1988,12 @@ public class AutofillAssistantGenericUiTest {
         modelValues.add((ModelProto.ModelValue) ModelProto.ModelValue.newBuilder()
                                 .setIdentifier("option_e_toggled")
                                 .setValue(ValueProto.newBuilder().setBooleans(
+                                        BooleanList.newBuilder().addValues(true)))
+                                .build());
+        // Check box is initially unselected
+        modelValues.add((ModelProto.ModelValue) ModelProto.ModelValue.newBuilder()
+                                .setIdentifier("option_f_toggled")
+                                .setValue(ValueProto.newBuilder().setBooleans(
                                         BooleanList.newBuilder().addValues(false)))
                                 .build());
 
@@ -2008,7 +2001,7 @@ public class AutofillAssistantGenericUiTest {
         List<InteractionProto> interactions = new ArrayList<>();
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "chips")))
                         .addCallbacks(CallbackProto.newBuilder().setSetUserActions(
@@ -2017,7 +2010,7 @@ public class AutofillAssistantGenericUiTest {
                                                 "chips"))))
                         .build());
         interactions.add((InteractionProto) InteractionProto.newBuilder()
-                                 .setTriggerEvent(EventProto.newBuilder().setOnUserActionCalled(
+                                 .addTriggerEvent(EventProto.newBuilder().setOnUserActionCalled(
                                          OnUserActionCalled.newBuilder().setUserActionIdentifier(
                                                  "done_chip")))
                                  .addCallbacks(CallbackProto.newBuilder().setEndAction(
@@ -2051,7 +2044,9 @@ public class AutofillAssistantGenericUiTest {
                                                         "group_b", "option_d_view",
                                                         "option_d_toggled"),
                                                 createCheckBoxView("Optional option E",
-                                                        "option_e_view", "option_e_toggled")))))
+                                                        "option_e_view", "option_e_toggled"),
+                                                createCheckBoxView("Optional option F",
+                                                        "option_f_view", "option_f_toggled")))))
                         .setInteractions(
                                 InteractionsProto.newBuilder().addAllInteractions(interactions))
                         .setModel(ModelProto.newBuilder().addAllValues(modelValues))
@@ -2064,7 +2059,7 @@ public class AutofillAssistantGenericUiTest {
                                                    .addAllOutputModelIdentifiers(Arrays.asList(
                                                            "option_a_toggled", "option_b_toggled",
                                                            "option_c_toggled", "option_d_toggled",
-                                                           "option_e_toggled")))
+                                                           "option_e_toggled", "option_f_toggled")))
                          .build());
         AutofillAssistantTestScript script = new AutofillAssistantTestScript(
                 (SupportedScriptProto) SupportedScriptProto.newBuilder()
@@ -2094,6 +2089,9 @@ public class AutofillAssistantGenericUiTest {
                 .check(matches(isChecked()));
         onView(allOf(withClassName(is(CheckBox.class.getName())),
                        hasSibling(withText("Optional option E"))))
+                .check(matches(isChecked()));
+        onView(allOf(withClassName(is(CheckBox.class.getName())),
+                       hasSibling(withText("Optional option F"))))
                 .check(matches(isNotChecked()));
 
         onView(withText("Option A")).perform(click());
@@ -2106,7 +2104,8 @@ public class AutofillAssistantGenericUiTest {
 
         // Selecting an already checked check box inverts its value.
         onView(withText("Optional option E")).perform(click());
-        onView(withText("Optional option E")).perform(click());
+
+        onView(withText("Optional option F")).perform(click());
 
         int numNextActionsCalled = testService.getNextActionsCounter();
         onView(withText("Done")).perform(click());
@@ -2118,7 +2117,7 @@ public class AutofillAssistantGenericUiTest {
                 processedActions.get(0).getStatus(), is(ProcessedActionStatusProto.ACTION_APPLIED));
         ShowGenericUiProto.Result result = processedActions.get(0).getShowGenericUiResult();
         List<ModelProto.ModelValue> resultModelValues = result.getModel().getValuesList();
-        assertThat(resultModelValues, iterableWithSize(5));
+        assertThat(resultModelValues, iterableWithSize(6));
         assertThat(resultModelValues,
                 containsInAnyOrder((ModelProto.ModelValue) ModelProto.ModelValue.newBuilder()
                                            .setIdentifier("option_a_toggled")
@@ -2144,6 +2143,11 @@ public class AutofillAssistantGenericUiTest {
                                 .setIdentifier("option_e_toggled")
                                 .setValue(ValueProto.newBuilder().setBooleans(
                                         BooleanList.newBuilder().addValues(false)))
+                                .build(),
+                        (ModelProto.ModelValue) ModelProto.ModelValue.newBuilder()
+                                .setIdentifier("option_f_toggled")
+                                .setValue(ValueProto.newBuilder().setBooleans(
+                                        BooleanList.newBuilder().addValues(true)))
                                 .build()));
     }
 
@@ -2156,7 +2160,7 @@ public class AutofillAssistantGenericUiTest {
         List<InteractionProto> interactions = new ArrayList<>();
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnViewClicked(
+                        .addTriggerEvent(EventProto.newBuilder().setOnViewClicked(
                                 OnViewClickedEventProto.newBuilder().setViewIdentifier(
                                         "toggle_view")))
                         .addCallbacks(CallbackProto.newBuilder().setComputeValue(
@@ -2168,7 +2172,7 @@ public class AutofillAssistantGenericUiTest {
                         .build());
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "enabled")))
                         .addCallbacks(CallbackProto.newBuilder().setSetViewEnabled(
@@ -2248,7 +2252,7 @@ public class AutofillAssistantGenericUiTest {
         List<InteractionProto> interactionsA = new ArrayList<>();
         interactionsA.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "chips")))
                         .addCallbacks(CallbackProto.newBuilder().setSetUserActions(
@@ -2257,7 +2261,7 @@ public class AutofillAssistantGenericUiTest {
                                                 "chips"))))
                         .build());
         interactionsA.add((InteractionProto) InteractionProto.newBuilder()
-                                  .setTriggerEvent(EventProto.newBuilder().setOnUserActionCalled(
+                                  .addTriggerEvent(EventProto.newBuilder().setOnUserActionCalled(
                                           OnUserActionCalled.newBuilder().setUserActionIdentifier(
                                                   "shared_identifier")))
                                   .addCallbacks(CallbackProto.newBuilder().setEndAction(
@@ -2291,7 +2295,7 @@ public class AutofillAssistantGenericUiTest {
         List<InteractionProto> interactionsB = new ArrayList<>();
         interactionsB.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "chips")))
                         .addCallbacks(CallbackProto.newBuilder().setSetUserActions(
@@ -2300,7 +2304,7 @@ public class AutofillAssistantGenericUiTest {
                                                 "chips"))))
                         .build());
         interactionsB.add((InteractionProto) InteractionProto.newBuilder()
-                                  .setTriggerEvent(EventProto.newBuilder().setOnUserActionCalled(
+                                  .addTriggerEvent(EventProto.newBuilder().setOnUserActionCalled(
                                           OnUserActionCalled.newBuilder().setUserActionIdentifier(
                                                   "shared_identifier")))
                                   .addCallbacks(CallbackProto.newBuilder().setShowInfoPopup(
@@ -2385,7 +2389,7 @@ public class AutofillAssistantGenericUiTest {
         List<InteractionProto> interactions_nested = new ArrayList<>();
         interactions_nested.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnViewClicked(
+                        .addTriggerEvent(EventProto.newBuilder().setOnViewClicked(
                                 OnViewClickedEventProto.newBuilder().setViewIdentifier(
                                         "nested_text_view")))
                         .addCallbacks(incrementCounterCallback)
@@ -2400,7 +2404,7 @@ public class AutofillAssistantGenericUiTest {
         // Clicking |root_text_view| will increment |counter| by 1 and open a nested popup.
         List<InteractionProto> interactions = new ArrayList<>();
         interactions.add((InteractionProto) InteractionProto.newBuilder()
-                                 .setTriggerEvent(EventProto.newBuilder().setOnViewClicked(
+                                 .addTriggerEvent(EventProto.newBuilder().setOnViewClicked(
                                          OnViewClickedEventProto.newBuilder().setViewIdentifier(
                                                  "root_text_view")))
                                  .addCallbacks(incrementCounterCallback)
@@ -2411,7 +2415,7 @@ public class AutofillAssistantGenericUiTest {
                                  .build());
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "chips")))
                         .addCallbacks(CallbackProto.newBuilder().setSetUserActions(
@@ -2420,7 +2424,7 @@ public class AutofillAssistantGenericUiTest {
                                                 "chips"))))
                         .build());
         interactions.add((InteractionProto) InteractionProto.newBuilder()
-                                 .setTriggerEvent(EventProto.newBuilder().setOnUserActionCalled(
+                                 .addTriggerEvent(EventProto.newBuilder().setOnUserActionCalled(
                                          OnUserActionCalled.newBuilder().setUserActionIdentifier(
                                                  "done_chip")))
                                  .addCallbacks(CallbackProto.newBuilder().setEndAction(
@@ -2588,7 +2592,7 @@ public class AutofillAssistantGenericUiTest {
         List<InteractionProto> interactions = new ArrayList<>();
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnViewClicked(
+                        .addTriggerEvent(EventProto.newBuilder().setOnViewClicked(
                                 OnViewClickedEventProto.newBuilder().setViewIdentifier(
                                         "text_view_create_nested_on_click")))
                         .addCallbacks(CallbackProto.newBuilder().setCreateNestedUi(
@@ -2605,7 +2609,7 @@ public class AutofillAssistantGenericUiTest {
                                                                 "Hello World"))))))
                         .build());
         interactions.add((InteractionProto) InteractionProto.newBuilder()
-                                 .setTriggerEvent(EventProto.newBuilder().setOnViewClicked(
+                                 .addTriggerEvent(EventProto.newBuilder().setOnViewClicked(
                                          OnViewClickedEventProto.newBuilder().setViewIdentifier(
                                                  "text_view_delete_nested_on_click")))
                                  .addCallbacks(CallbackProto.newBuilder().setClearViewContainer(
@@ -2678,13 +2682,14 @@ public class AutofillAssistantGenericUiTest {
      */
     @Test
     @MediumTest
+    @DisabledTest(message = "1172614")
     public void testElementCondition() throws Exception {
         List<InteractionProto> interactions = new ArrayList<>();
 
         // When touch_area_one_present becomes false, end the action
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "touch_area_one_present")))
                         .addCallbacks(CallbackProto.newBuilder().setComputeValue(
@@ -2696,7 +2701,7 @@ public class AutofillAssistantGenericUiTest {
                         .build());
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "end_action")))
                         .addCallbacks(CallbackProto.newBuilder()
@@ -2723,15 +2728,14 @@ public class AutofillAssistantGenericUiTest {
                         .build();
 
         ArrayList<ActionProto> list = new ArrayList<>();
-        list.add(
-                (ActionProto) ActionProto.newBuilder()
-                        .setFocusElement(FocusElementProto.newBuilder()
-                                                 .setElement(touch_area_one)
-                                                 .setTouchableElementArea(
-                                                         ElementAreaProto.newBuilder().addTouchable(
-                                                                 Rectangle.newBuilder().addElements(
-                                                                         touch_area_one))))
-                        .build());
+        list.add((ActionProto) ActionProto.newBuilder()
+                         .setShowCast(ShowCastProto.newBuilder()
+                                              .setElementToPresent(touch_area_one)
+                                              .setTouchableElementArea(
+                                                      ElementAreaProto.newBuilder().addTouchable(
+                                                              Rectangle.newBuilder().addElements(
+                                                                      touch_area_one))))
+                         .build());
 
         ElementCheck touch_area_one_present =
                 (ElementCheck) ElementCheck.newBuilder()
@@ -2784,7 +2788,7 @@ public class AutofillAssistantGenericUiTest {
         List<InteractionProto> interactions = new ArrayList<>();
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnViewClicked(
+                        .addTriggerEvent(EventProto.newBuilder().setOnViewClicked(
                                 OnViewClickedEventProto.newBuilder().setViewIdentifier(
                                         "clickable_view")))
                         .addCallbacks(CallbackProto.newBuilder().setForEach(
@@ -2915,7 +2919,7 @@ public class AutofillAssistantGenericUiTest {
 
         List<InteractionProto> interactions = new ArrayList<>();
         interactions.add((InteractionProto) InteractionProto.newBuilder()
-                                 .setTriggerEvent(EventProto.newBuilder().setOnViewClicked(
+                                 .addTriggerEvent(EventProto.newBuilder().setOnViewClicked(
                                          OnViewClickedEventProto.newBuilder().setViewIdentifier(
                                                  "clickable_view")))
                                  .addCallbacks(CallbackProto.newBuilder().setForEach(
@@ -3017,7 +3021,7 @@ public class AutofillAssistantGenericUiTest {
         List<InteractionProto> singleCardInteractions = new ArrayList<>();
         singleCardInteractions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "credit_card_selected_${i}")))
                         .addCallbacks(
@@ -3068,7 +3072,7 @@ public class AutofillAssistantGenericUiTest {
         List<InteractionProto> interactions = new ArrayList<>();
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "credit_cards")))
                         .addCallbacks(CallbackProto.newBuilder().setClearViewContainer(
@@ -3119,7 +3123,7 @@ public class AutofillAssistantGenericUiTest {
         // - enable/disable confirm button
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "selected_credit_card")))
                         .addCallbacks(CallbackProto.newBuilder().setComputeValue(
@@ -3139,7 +3143,7 @@ public class AutofillAssistantGenericUiTest {
                         .build());
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "confirm_button_disabled")))
                         .addCallbacks(CallbackProto.newBuilder().setComputeValue(
@@ -3151,7 +3155,7 @@ public class AutofillAssistantGenericUiTest {
                         .build());
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "confirm_button_enabled")))
                         .addCallbacks(CallbackProto.newBuilder().setToggleUserAction(
@@ -3165,7 +3169,7 @@ public class AutofillAssistantGenericUiTest {
         // A confirm chip interaction that ends the action.
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
-                        .setTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
                                 OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
                                         "chips")))
                         .addCallbacks(CallbackProto.newBuilder().setSetUserActions(
@@ -3174,7 +3178,7 @@ public class AutofillAssistantGenericUiTest {
                                                 "chips"))))
                         .build());
         interactions.add((InteractionProto) InteractionProto.newBuilder()
-                                 .setTriggerEvent(EventProto.newBuilder().setOnUserActionCalled(
+                                 .addTriggerEvent(EventProto.newBuilder().setOnUserActionCalled(
                                          OnUserActionCalled.newBuilder().setUserActionIdentifier(
                                                  "done_chip")))
                                  .addCallbacks(CallbackProto.newBuilder().setEndAction(

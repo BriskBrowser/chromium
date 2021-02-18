@@ -32,7 +32,8 @@ void RemoteObjectGatewayImpl::InjectNamed(const WTF::String& object_name,
   if (context.IsEmpty())
     return;
 
-  RemoteObject* object = new RemoteObject(isolate, this, object_id);
+  remote_objects_.erase(object_id);
+  RemoteObject* object = GetRemoteObject(isolate, object_id);
 
   v8::Context::Scope context_scope(context);
   v8::Local<v8::Object> global = context->Global();
@@ -45,6 +46,7 @@ void RemoteObjectGatewayImpl::InjectNamed(const WTF::String& object_name,
 
   global->Set(context, V8AtomicString(isolate, object_name), controller.ToV8())
       .Check();
+  object_host_->AcquireObject(object_id);
 }
 
 // static
@@ -58,13 +60,13 @@ void RemoteObjectGatewayImpl::BindMojoReceiver(
   DCHECK(!RemoteObjectGatewayImpl::From(*frame));
 
   auto* self = MakeGarbageCollected<RemoteObjectGatewayImpl>(
-      util::PassKey<RemoteObjectGatewayImpl>(), *frame, std::move(receiver),
+      base::PassKey<RemoteObjectGatewayImpl>(), *frame, std::move(receiver),
       std::move(host));
   Supplement<LocalFrame>::ProvideTo(*frame, self);
 }
 
 RemoteObjectGatewayImpl::RemoteObjectGatewayImpl(
-    util::PassKey<RemoteObjectGatewayImpl>,
+    base::PassKey<RemoteObjectGatewayImpl>,
     LocalFrame& frame,
     mojo::PendingReceiver<mojom::blink::RemoteObjectGateway>
         object_gateway_receiver,
@@ -111,13 +113,25 @@ void RemoteObjectGatewayImpl::BindRemoteObjectReceiver(
 }
 
 void RemoteObjectGatewayImpl::ReleaseObject(int32_t object_id) {
+  auto iter = remote_objects_.find(object_id);
+  DCHECK(iter != remote_objects_.end());
+  remote_objects_.erase(iter);
   object_host_->ReleaseObject(object_id);
-  for (const auto& pair : named_objects_) {
-    if (pair.value == object_id) {
-      named_objects_.erase(pair.key);
-      break;
-    }
+}
+
+RemoteObject* RemoteObjectGatewayImpl::GetRemoteObject(v8::Isolate* isolate,
+                                                       int32_t object_id) {
+  auto iter = remote_objects_.find(object_id);
+  if (iter != remote_objects_.end()) {
+    // Decrease a reference count in the browser side when we reuse RemoteObject
+    // getting from the map.
+    object_host_->ReleaseObject(object_id);
+    return iter->value;
   }
+
+  auto* remote_object = new RemoteObject(isolate, this, object_id);
+  remote_objects_.insert(object_id, remote_object);
+  return remote_object;
 }
 
 // static
@@ -136,6 +150,8 @@ RemoteObjectGatewayFactoryImpl::RemoteObjectGatewayFactoryImpl(
 void RemoteObjectGatewayFactoryImpl::CreateRemoteObjectGateway(
     mojo::PendingRemote<mojom::blink::RemoteObjectHost> host,
     mojo::PendingReceiver<mojom::blink::RemoteObjectGateway> receiver) {
+  if (!frame_)
+    return;
   RemoteObjectGatewayImpl::BindMojoReceiver(frame_, std::move(host),
                                             std::move(receiver));
 }

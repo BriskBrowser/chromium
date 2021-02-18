@@ -10,7 +10,6 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.chrome.browser.feed.shared.stream.Stream;
-import org.chromium.chrome.browser.ntp.NewTabPage;
 import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
@@ -18,10 +17,12 @@ import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabHidingType;
 import org.chromium.chrome.browser.tab.TabObserver;
 import org.chromium.chrome.browser.tab.TabSelectionType;
+import org.chromium.components.embedder_support.util.UrlUtilities;
 import org.chromium.components.prefs.PrefService;
 import org.chromium.components.user_prefs.UserPrefs;
 import org.chromium.content_public.browser.NavigationController;
 import org.chromium.content_public.browser.NavigationEntry;
+import org.chromium.url.GURL;
 
 /**
  * Manages the lifecycle of a {@link Stream} associated with a Tab in an Activity.
@@ -76,7 +77,7 @@ public class NtpStreamLifecycleManager extends StreamLifecycleManager {
             }
 
             @Override
-            public void onPageLoadStarted(Tab tab, String url) {
+            public void onPageLoadStarted(Tab tab, GURL url) {
                 saveInstanceState();
             }
         };
@@ -125,7 +126,7 @@ public class NtpStreamLifecycleManager extends StreamLifecycleManager {
         // NTP itself, at which point the last committed entry is not for the NTP yet. This method
         // will then be called a second time when the user navigates away, at which point the last
         // committed entry is for the NTP. The extra data must only be set in the latter case.
-        if (!NewTabPage.isNTPUrl(entry.getUrl())) return;
+        if (!UrlUtilities.isNTPUrl(entry.getUrl())) return;
 
         controller.setEntryExtraData(
                 index, STREAM_SAVED_INSTANCE_STATE_KEY, mStream.getSavedInstanceStateString());

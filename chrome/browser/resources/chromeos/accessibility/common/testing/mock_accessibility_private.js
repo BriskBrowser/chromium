@@ -18,25 +18,26 @@ var MockAccessibilityPrivate = {
 
   /** @private {!Array<!chrome.accessibilityPrivate.ScreenRect>} */
   focusRingRects_: [],
-  onScrollableBoundsForPointFoundCallback_: null,
+  handleScrollableBoundsForPointFoundCallback_: null,
+  moveMagnifierToRectCallback_: null,
 
   // Methods from AccessibilityPrivate API. //
 
-  findScrollableBoundsForPoint: {
+  onScrollableBoundsForPointRequested: {
     /**
-     * Adds a listener to findScrollableBoundsForPoint.
+     * Adds a listener to onScrollableBoundsForPointRequested.
      * @param {function<number, number>} listener
      */
     addListener: (listener) => {
-      boundsListener_ = listener;
+      MockAccessibilityPrivate.boundsListener_ = listener;
     },
 
     /**
      * Removes the listener.
      */
     removeListener: (listener) => {
-      if (boundsListener_ == listener) {
-        boundsListener_ = null;
+      if (MockAccessibilityPrivate.boundsListener_ === listener) {
+        MockAccessibilityPrivate.boundsListener_ = null;
       }
     }
   },
@@ -45,9 +46,20 @@ var MockAccessibilityPrivate = {
    * Called when AccessibilityCommon finds scrollable bounds at a point.
    * @param {!chrome.accessibilityPrivate.ScreenRect} bounds
    */
-  onScrollableBoundsForPointFound: (bounds) => {
-    scrollableBounds_ = bounds;
-    onScrollableBoundsForPointFoundCallback_();
+  handleScrollableBoundsForPointFound: (bounds) => {
+    MockAccessibilityPrivate.scrollableBounds_ = bounds;
+    MockAccessibilityPrivate.handleScrollableBoundsForPointFoundCallback_();
+  },
+
+  /**
+   * Called when AccessibilityCommon wants to move the magnifier viewport to
+   * include a specific rect.
+   * @param {!chrome.accessibilityPrivate.ScreenRect} rect
+   */
+  moveMagnifierToRect: (rect) => {
+    if (MockAccessibilityPrivate.moveMagnifierToRectCallback_) {
+      MockAccessibilityPrivate.moveMagnifierToRectCallback_(rect);
+    }
   },
 
   /**
@@ -57,7 +69,7 @@ var MockAccessibilityPrivate = {
    * @param {!Array<!FocusRingInfo>} focusRingInfos
    */
   setFocusRings: (focusRingInfos) => {
-    focusRingRects_ = focusRingInfos[0].rects;
+    MockAccessibilityPrivate.focusRingRects_ = focusRingInfos[0].rects;
   },
 
   // Methods for testing. //
@@ -67,18 +79,29 @@ var MockAccessibilityPrivate = {
    * to find the scrollable bounds at a point. In Automatic Clicks, this would
    * actually be initiated by ash/autoclick/autoclick_controller calling the
    * AccessibilityPrivate API call.
-   * When the bounds are found, onScrollableBoundsForPointFoundCallback will
+   * When the bounds are found, handleScrollableBoundsForPointFoundCallback will
    * be called to inform the test that work is complete.
    * @param {number} x
    * @param {number} y
-   * @param {!function<>} onScrollableBoundsForPointFoundCallback
+   * @param {!function<>} handleScrollableBoundsForPointFoundCallback
    */
-  callFindScrollableBoundsForPoint:
-      (x, y, onScrollableBoundsForPointFoundCallback) => {
-        onScrollableBoundsForPointFoundCallback_ =
-            onScrollableBoundsForPointFoundCallback;
-        boundsListener_(x, y);
+  callOnScrollableBoundsForPointRequested:
+      (x, y, handleScrollableBoundsForPointFoundCallback) => {
+        MockAccessibilityPrivate.handleScrollableBoundsForPointFoundCallback_ =
+            handleScrollableBoundsForPointFoundCallback;
+        MockAccessibilityPrivate.boundsListener_(x, y);
       },
+
+  /**
+   * Called to register a stubbed callback for moveMagnifierToRect.
+   * When magnifier identifies a desired rect to move the viewport to,
+   * moveMagnifierToRectCallback will be called with that desired rect.
+   * @param {!function<>} moveMagnifierToRectCallback
+   */
+  registerMoveMagnifierToRectCallback: (moveMagnifierToRectCallback) => {
+    MockAccessibilityPrivate.moveMagnifierToRectCallback_ =
+        moveMagnifierToRectCallback;
+  },
 
   /**
    * Gets the scrollable bounds which were found by the AccessibilityCommon
@@ -86,7 +109,7 @@ var MockAccessibilityPrivate = {
    * @return {Array<!chrome.AccessibilityPrivate.ScreenRect>}
    */
   getScrollableBounds: () => {
-    return scrollableBounds_;
+    return MockAccessibilityPrivate.scrollableBounds_;
   },
 
   /**
@@ -95,6 +118,6 @@ var MockAccessibilityPrivate = {
    * @return {Array<!chrome.AccessibilityPrivate.ScreenRect>}
    */
   getFocusRings: () => {
-    return focusRingRects_;
+    return MockAccessibilityPrivate.focusRingRects_;
   },
 };

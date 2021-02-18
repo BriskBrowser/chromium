@@ -9,8 +9,10 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
+#include "base/memory/read_only_shared_memory_region.h"
 #include "base/optional.h"
 #include "base/strings/string16.h"
+#include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_sender.h"
@@ -38,11 +40,15 @@ class WebElement;
 class WebFormElement;
 class WebString;
 class WebWorkerFetchContext;
-}
+}  // namespace blink
 
 namespace network {
 struct URLLoaderCompletionStatus;
 }  // namespace network
+
+namespace gfx {
+class Rect;
+}  // namespace gfx
 
 namespace content {
 
@@ -102,7 +108,13 @@ class CONTENT_EXPORT RenderFrameObserver : public IPC::Listener,
   virtual void ReadyToCommitNavigation(
       blink::WebDocumentLoader* document_loader) {}
 
-  // These match the Blink API notifications
+  // Called when a RenderFrame's page lifecycle state gets updated.
+  virtual void DidSetPageLifecycleState() {}
+
+  // These match the Blink API notifications. These will not be called for the
+  // initial empty document, since that already exists before an observer for a
+  // frame has a chance to be created (before notification about the RenderFrame
+  // being created occurs).
   virtual void DidCreateNewDocument() {}
   virtual void DidCreateDocumentElement() {}
   // TODO(dgozman): replace next two methods with DidFinishNavigation.
@@ -209,6 +221,11 @@ class CONTENT_EXPORT RenderFrameObserver : public IPC::Listener,
   virtual void DidObserveLazyLoadBehavior(
       blink::WebLocalFrameClient::LazyLoadBehavior lazy_load_behavior) {}
 
+#if !defined(OS_ANDROID)
+  // Reports that a resource will be requested.
+  virtual void WillSendRequest(const blink::WebURLRequest& request) {}
+#endif
+
   // Notification when the renderer a response started, completed or canceled.
   // Complete or Cancel is guaranteed to be called for a response that started.
   // |request_id| uniquely identifies the request within this render frame.
@@ -257,8 +274,22 @@ class CONTENT_EXPORT RenderFrameObserver : public IPC::Listener,
   virtual void WillCreateWorkerFetchContext(blink::WebWorkerFetchContext*) {}
 
   // Called when a frame's intersection with the main frame changes.
-  virtual void OnMainFrameIntersectionChanged(
-      const blink::WebRect& intersect_rect) {}
+  virtual void OnMainFrameIntersectionChanged(const gfx::Rect& intersect_rect) {
+  }
+
+  // Overlay-popup-ad violates The Better Ads Standards
+  // (https://www.betterads.org/standards/). This method will be called when an
+  // overlay-popup-ad is detected, to let the embedder
+  // (i.e. subresource_filter::ContentSubresourceFilterThrottleManager) know the
+  // violation so as to apply further interventions.
+  virtual void OnOverlayPopupAdDetected() {}
+
+  // Large-sticky-ad violates The Better Ads Standards
+  // (https://www.betterads.org/standards/). This method will be called when a
+  // large-sticky-ad is detected, to let the embedder
+  // (i.e. subresource_filter::ContentSubresourceFilterThrottleManager) know the
+  // violation so as to apply further interventions.
+  virtual void OnLargeStickyAdDetected() {}
 
   // Called to give the embedder an opportunity to bind an interface request
   // for a frame. If the request can be bound, |interface_pipe| will be taken.
@@ -274,11 +305,14 @@ class CONTENT_EXPORT RenderFrameObserver : public IPC::Listener,
       const std::string& interface_name,
       mojo::ScopedInterfaceEndpointHandle* handle);
 
-  // Submit throughput data to the browser process. Only called for local roots.
-  virtual void OnThroughputDataAvailable(ukm::SourceId source_id,
-                                         int aggregated_percent,
-                                         int impl_percent,
-                                         base::Optional<int> main_percent) {}
+  // Called when a page's mobile friendliness changed.
+  virtual void OnMobileFriendlinessChanged(const blink::MobileFriendliness&) {}
+
+  // The smoothness metrics is shared over shared-memory. The interested
+  // observer should invalidate |shared_memory| (by std::move()'ing it), and
+  // return true. All other observers should return false (default).
+  virtual bool SetUpSmoothnessReporting(
+      base::ReadOnlySharedMemoryRegion& shared_memory);
 
   // IPC::Listener implementation.
   bool OnMessageReceived(const IPC::Message& message) override;

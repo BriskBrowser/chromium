@@ -25,6 +25,7 @@
 #include "base/macros.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/element.h"
+#include "third_party/blink/renderer/core/dom/events/simulated_click_options.h"
 #include "third_party/blink/renderer/core/svg/properties/svg_property_info.h"
 #include "third_party/blink/renderer/core/svg/svg_parsing_error.h"
 #include "third_party/blink/renderer/core/svg_names.h"
@@ -93,18 +94,23 @@ class CORE_EXPORT SVGElement : public Element {
   void SetWebAnimationsPending();
   void ApplyActiveWebAnimations();
 
+  void BaseValueChanged(const SVGAnimatedPropertyBase&);
   void EnsureAttributeAnimValUpdated();
 
   void SetWebAnimatedAttribute(const QualifiedName& attribute,
                                SVGPropertyBase*);
   void ClearWebAnimatedAttributes();
 
-  ElementSMILAnimations* GetSMILAnimations();
+  ElementSMILAnimations* GetSMILAnimations() const;
   ElementSMILAnimations& EnsureSMILAnimations();
   const ComputedStyle* BaseComputedStyleForSMIL();
 
   void SetAnimatedAttribute(const QualifiedName&, SVGPropertyBase*);
   void ClearAnimatedAttribute(const QualifiedName&);
+  void SetAnimatedMotionTransform(const AffineTransform&);
+  void ClearAnimatedMotionTransform();
+
+  bool HasNonCSSPropertyAnimations() const;
 
   SVGSVGElement* ownerSVGElement() const;
   SVGElement* viewportElement() const;
@@ -119,8 +125,18 @@ class CORE_EXPORT SVGElement : public Element {
   // For SVGTests
   virtual bool IsValid() const { return true; }
 
-  virtual void SvgAttributeChanged(const QualifiedName&);
-  void SvgAttributeBaseValChanged(const QualifiedName&);
+  struct SvgAttributeChangedParams {
+    STACK_ALLOCATED();
+
+   public:
+    SvgAttributeChangedParams(const QualifiedName& qname,
+                              AttributeModificationReason reason)
+        : name(qname), reason(reason) {}
+
+    const QualifiedName& name;
+    const AttributeModificationReason reason;
+  };
+  virtual void SvgAttributeChanged(const SvgAttributeChangedParams&);
 
   SVGAnimatedPropertyBase* PropertyFromAttribute(
       const QualifiedName& attribute_name) const;
@@ -132,9 +148,6 @@ class CORE_EXPORT SVGElement : public Element {
 
   virtual AffineTransform* AnimateMotionTransform() { return nullptr; }
 
-  void InvalidateSVGAttributes() {
-    EnsureUniqueElementData().SetSvgAttributesAreDirty(true);
-  }
   void InvalidateSVGPresentationAttributeStyle() {
     EnsureUniqueElementData().SetPresentationAttributeStyleIsDirty(true);
   }
@@ -151,7 +164,7 @@ class CORE_EXPORT SVGElement : public Element {
   void CollectStyleForAnimatedPresentationAttributes(
       MutableCSSPropertyValueSet*);
 
-  scoped_refptr<ComputedStyle> CustomStyleForLayoutObject() final;
+  ComputedStyle* CustomStyleForLayoutObject(const StyleRecalcContext&) final;
   bool LayoutObjectIsNeeded(const ComputedStyle&) const override;
 
 #if DCHECK_IS_ON()
@@ -261,11 +274,11 @@ class CORE_EXPORT SVGElement : public Element {
   bool HasFocusEventListeners() const;
 
   void AddedEventListener(const AtomicString& event_type,
-                          RegisteredEventListener&) final;
+                          RegisteredEventListener&) override;
   void RemovedEventListener(const AtomicString& event_type,
                             const RegisteredEventListener&) final;
 
-  void AccessKeyAction(bool send_mouse_events) override;
+  void AccessKeyAction(SimulatedClickCreationScope creation_scope) override;
 
  private:
   bool IsSVGElement() const =

@@ -14,9 +14,7 @@
 #include "fuchsia/runners/cast/cast_component.h"
 
 namespace base {
-namespace fuchsia {
 class StartupContext;
-}
 }  // namespace base
 
 // Manages asynchronous retrieval of parameters required to launch the specified
@@ -39,19 +37,17 @@ class PendingCastComponent {
     virtual void CancelPendingComponent(PendingCastComponent* component) = 0;
   };
 
-  PendingCastComponent(
-      Delegate* delegate,
-      std::unique_ptr<base::fuchsia::StartupContext> startup_context,
-      fidl::InterfaceRequest<fuchsia::sys::ComponentController>
-          controller_request,
-      base::StringPiece app_id);
+  PendingCastComponent(Delegate* delegate,
+                       std::unique_ptr<base::StartupContext> startup_context,
+                       fidl::InterfaceRequest<fuchsia::sys::ComponentController>
+                           controller_request,
+                       base::StringPiece app_id);
   ~PendingCastComponent();
 
   PendingCastComponent(const PendingCastComponent&) = delete;
   PendingCastComponent& operator=(const PendingCastComponent&) = delete;
 
-  // Returns the list of headers which will be exempted from CORS checks.
-  std::vector<std::vector<uint8_t>> TakeCorsExemptHeaders();
+  const base::StringPiece app_id() const { return app_id_; }
 
  private:
   void RequestCorsExemptHeaders();
@@ -60,7 +56,6 @@ class PendingCastComponent {
   void OnApplicationConfigReceived(
       chromium::cast::ApplicationConfig app_config);
   void OnApiBindingsInitialized();
-  void OnCorsHeadersReceived(std::vector<std::vector<uint8_t>> header_names);
 
   // Passes |params_| to |delegate_| if they are complete, to use to launch the
   // component. |this| will be deleted before the call returns in that case.
@@ -70,17 +65,15 @@ class PendingCastComponent {
   // Reference to the Delegate which manages |this|.
   Delegate* const delegate_;
 
+  // Id of the Cast application that this instance describes.
+  const std::string app_id_;
+
   // Parameters required to construct the CastComponent.
   CastComponent::Params params_;
-
-  // The list of HTTP headers to exempt from CORS checked. The value is used
-  // when a Context is created to host this Component.
-  base::Optional<std::vector<std::vector<uint8_t>>> cors_exempt_headers_;
 
   // Used to receive the media session Id and ApplicationConfig.
   chromium::cast::ApplicationContextPtr application_context_;
   chromium::cast::ApplicationConfigManagerPtr application_config_manager_;
-  chromium::cast::CorsExemptHeaderProviderPtr cors_exempt_headers_provider_;
 };
 
 #endif  // FUCHSIA_RUNNERS_CAST_PENDING_CAST_COMPONENT_H_

@@ -5,14 +5,21 @@
 #include <string>
 #include <vector>
 
+#include "ash/constants/ash_features.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/metrics/user_action_tester.h"
+#include "base/test/scoped_feature_list.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/apps/app_service/app_launch_params.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
+#include "chrome/browser/apps/app_service/launch_utils.h"
+#include "chrome/browser/chromeos/release_notes/release_notes_notification.h"
+#include "chrome/browser/chromeos/release_notes/release_notes_storage.h"
 #include "chrome/browser/chromeos/web_applications/system_web_app_integration_test.h"
+#include "chrome/browser/notifications/notification_display_service_tester.h"
 #include "chrome/browser/ui/ash/system_tray_client.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -21,16 +28,19 @@
 #include "chrome/browser/web_applications/system_web_app_manager.h"
 #include "chrome/browser/web_applications/system_web_app_manager_browsertest.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/pref_names.h"
+#include "chrome/common/url_constants.h"
+#include "chrome/test/base/interactive_test_utils.h"
+#include "chrome/test/base/ui_test_utils.h"
 #include "chromeos/components/help_app_ui/url_constants.h"
 #include "chromeos/components/web_applications/test/sandboxed_web_ui_test_base.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "components/user_manager/user_names.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/display/screen.h"
 #include "ui/display/types/display_constants.h"
+#include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 
@@ -38,12 +48,33 @@ class HelpAppIntegrationTest : public SystemWebAppIntegrationTest {
  public:
   HelpAppIntegrationTest() {
     scoped_feature_list_.InitWithFeatures(
-        {chromeos::features::kHelpAppReleaseNotes}, {});
+        {chromeos::features::kReleaseNotesNotificationAllChannels}, {});
   }
 
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
 };
+
+using HelpAppAllProfilesIntegrationTest = HelpAppIntegrationTest;
+
+content::WebContents* GetActiveWebContents() {
+  return chrome::FindLastActive()->tab_strip_model()->GetActiveWebContents();
+}
+
+// Waits for and expects that the correct url is opened.
+void WaitForAppToOpen(const GURL& expected_url) {
+  // Start with a number of browsers (may include an incognito browser).
+  size_t num_browsers = chrome::GetTotalBrowserCount();
+  content::TestNavigationObserver navigation_observer(expected_url);
+  navigation_observer.StartWatchingNewWebContents();
+  // If no navigation happens, then this test will time out due to the wait.
+  navigation_observer.Wait();
+
+  // There should be another browser window for the newly opened app.
+  EXPECT_EQ(num_browsers + 1, chrome::GetTotalBrowserCount());
+  // Help app should have opened at the expected page.
+  EXPECT_EQ(expected_url, GetActiveWebContents()->GetVisibleURL());
+}
 
 // Test that the Help App installs and launches correctly. Runs some spot
 // checks on the manifest.
@@ -87,9 +118,8 @@ IN_PROC_BROWSER_TEST_P(HelpAppIntegrationTest, HelpAppV2AppServiceMetrics) {
   WaitForTestSystemAppInstall();
   base::HistogramTester histogram_tester;
 
-  // The metric is recorded in LaunchSystemWebApp (crbug/1112660), but using
-  // AppServiceProxy gives more coverage of the launch path and ensures the
-  // metric is not recorded twice.
+  // Using AppServiceProxy gives more coverage of the launch path and ensures
+  // the metric is not recorded twice.
   auto* proxy = apps::AppServiceProxyFactory::GetForProfile(profile());
   content::TestNavigationObserver navigation_observer(
       GURL("chrome://help-app/"));
@@ -98,7 +128,7 @@ IN_PROC_BROWSER_TEST_P(HelpAppIntegrationTest, HelpAppV2AppServiceMetrics) {
   proxy->Launch(
       *GetManager().GetAppIdForSystemApp(web_app::SystemAppType::HELP),
       ui::EventFlags::EF_NONE, apps::mojom::LaunchSource::kFromKeyboard,
-      display::kDefaultDisplayId);
+      apps::MakeWindowInfo(display::kDefaultDisplayId));
 
   navigation_observer.Wait();
   // The HELP app is 18, see DefaultAppName in
@@ -124,17 +154,24 @@ IN_PROC_BROWSER_TEST_P(HelpAppIntegrationTest, HelpAppV2InAppMetrics) {
   EXPECT_EQ(1, user_action_tester.GetActionCount("Discover.Help.TabClicked"));
 }
 
-// Test that the Help App shortcut doesn't crash an incognito browser.
-IN_PROC_BROWSER_TEST_P(HelpAppIntegrationTest, HelpAppV2Incognito) {
+IN_PROC_BROWSER_TEST_P(HelpAppAllProfilesIntegrationTest, HelpAppV2ShowHelp) {
   WaitForTestSystemAppInstall();
-  Browser* incognito_browser = CreateIncognitoBrowser();
-  EXPECT_NO_FATAL_FAILURE(
-      chrome::ShowHelp(incognito_browser, chrome::HELP_SOURCE_KEYBOARD));
+
+  chrome::ShowHelp(browser(), chrome::HELP_SOURCE_KEYBOARD);
+
+#if BUILDFLAG(IS_CHROMEOS_ASH) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
+  EXPECT_NO_FATAL_FAILURE(WaitForAppToOpen(GURL("chrome://help-app/")));
+#else
+  EXPECT_EQ(1u, chrome::GetTotalBrowserCount());
+  EXPECT_EQ(GURL(chrome::kChromeHelpViaKeyboardURL),
+            GetActiveWebContents()->GetVisibleURL());
+#endif
 }
 
 // Test that launching the Help App's release notes opens the app on the Release
 // Notes page.
-IN_PROC_BROWSER_TEST_P(HelpAppIntegrationTest, HelpAppV2LaunchReleaseNotes) {
+IN_PROC_BROWSER_TEST_P(HelpAppAllProfilesIntegrationTest,
+                       HelpAppV2LaunchReleaseNotes) {
   WaitForTestSystemAppInstall();
 
   // There should be 1 browser window initially.
@@ -146,7 +183,7 @@ IN_PROC_BROWSER_TEST_P(HelpAppIntegrationTest, HelpAppV2LaunchReleaseNotes) {
 
   chrome::LaunchReleaseNotes(profile(),
                              apps::mojom::LaunchSource::kFromOtherApp);
-#if defined(OS_CHROMEOS) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
+#if BUILDFLAG(IS_CHROMEOS_ASH) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
   // If no navigation happens, then this test will time out due to the wait.
   navigation_observer.Wait();
 
@@ -155,13 +192,10 @@ IN_PROC_BROWSER_TEST_P(HelpAppIntegrationTest, HelpAppV2LaunchReleaseNotes) {
   EXPECT_EQ(2u, chrome::GetTotalBrowserCount());
 
   // The opened window should be showing the url with attached WebUI.
-  content::WebContents* web_contents =
-      chrome::FindLastActive()->tab_strip_model()->GetActiveWebContents();
-
   // The inner frame should be the pathname for the release notes pathname.
   EXPECT_EQ("chrome-untrusted://help-app/updates",
             SandboxedWebUiAppTestBase::EvalJsInAppFrame(
-                web_contents, "window.location.href"));
+                GetActiveWebContents(), "window.location.href"));
 #else
   // Nothing should happen on non-branded builds.
   EXPECT_EQ(1u, chrome::GetTotalBrowserCount());
@@ -175,7 +209,7 @@ IN_PROC_BROWSER_TEST_P(HelpAppIntegrationTest, HelpAppV2ReleaseNotesMetrics) {
   base::UserActionTester user_action_tester;
   chrome::LaunchReleaseNotes(profile(),
                              apps::mojom::LaunchSource::kFromOtherApp);
-#if defined(OS_CHROMEOS) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
+#if BUILDFLAG(IS_CHROMEOS_ASH) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
   EXPECT_EQ(1,
             user_action_tester.GetActionCount("ReleaseNotes.ShowReleaseNotes"));
 #else
@@ -184,14 +218,45 @@ IN_PROC_BROWSER_TEST_P(HelpAppIntegrationTest, HelpAppV2ReleaseNotesMetrics) {
 #endif
 }
 
-// Test that launching the Help App's release notes doesn't crash an incognito
-// browser.
-IN_PROC_BROWSER_TEST_P(HelpAppIntegrationTest, HelpAppV2ReleaseNotesIncognito) {
+// Test that clicking the release notes notification opens Help App.
+IN_PROC_BROWSER_TEST_P(HelpAppIntegrationTest,
+                       HelpAppV2LaunchReleaseNotesFromNotification) {
   WaitForTestSystemAppInstall();
+  base::UserActionTester user_action_tester;
+  auto display_service =
+      std::make_unique<NotificationDisplayServiceTester>(/*profile=*/nullptr);
+  auto release_notes_notification =
+      std::make_unique<chromeos::ReleaseNotesNotification>(profile());
+  auto release_notes_storage =
+      std::make_unique<chromeos::ReleaseNotesStorage>(profile());
 
-  Browser* incognito_browser = CreateIncognitoBrowser();
-  EXPECT_NO_FATAL_FAILURE(chrome::LaunchReleaseNotes(
-      incognito_browser->profile(), apps::mojom::LaunchSource::kFromOtherApp));
+  // Force the release notes notification to show up.
+  profile()->GetPrefs()->SetInteger(prefs::kReleaseNotesLastShownMilestone, 20);
+  release_notes_notification->MaybeShowReleaseNotes();
+  // Assert that the notification really is there.
+  auto notifications = display_service->GetDisplayedNotificationsForType(
+      NotificationHandler::Type::TRANSIENT);
+  ASSERT_EQ(1u, notifications.size());
+  ASSERT_EQ("show_release_notes_notification", notifications[0].id());
+  // Then click.
+  display_service->SimulateClick(NotificationHandler::Type::TRANSIENT,
+                                 "show_release_notes_notification",
+                                 base::nullopt, base::nullopt);
+
+  EXPECT_EQ(
+      1, user_action_tester.GetActionCount("ReleaseNotes.NotificationShown"));
+  EXPECT_EQ(1, user_action_tester.GetActionCount(
+                   "ReleaseNotes.LaunchedNotification"));
+#if BUILDFLAG(IS_CHROMEOS_ASH) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
+  EXPECT_NO_FATAL_FAILURE(WaitForAppToOpen(GURL("chrome://help-app/updates")));
+  EXPECT_EQ(1,
+            user_action_tester.GetActionCount("ReleaseNotes.ShowReleaseNotes"));
+#else
+  // We just have the original browser. No new app opens.
+  EXPECT_EQ(1u, chrome::GetTotalBrowserCount());
+  EXPECT_EQ(0,
+            user_action_tester.GetActionCount("ReleaseNotes.ShowReleaseNotes"));
+#endif
 }
 
 // Test that the Help App does a navigation on launch even when it was already
@@ -226,12 +291,35 @@ IN_PROC_BROWSER_TEST_P(HelpAppIntegrationTest, HelpAppV2DirectNavigation) {
   auto params = LaunchParamsForApp(web_app::SystemAppType::HELP);
   params.override_url = GURL("chrome://help-app/help/");
 
-  content::WebContents* web_contents = LaunchApp(params);
+  content::WebContents* web_contents = LaunchApp(std::move(params));
 
   // The inner frame should have the same pathname as the launch URL.
   EXPECT_EQ("chrome-untrusted://help-app/help/",
             SandboxedWebUiAppTestBase::EvalJsInAppFrame(
                 web_contents, "window.location.href"));
+}
+
+// Test that the Help App can open the feedback dialog.
+IN_PROC_BROWSER_TEST_P(HelpAppIntegrationTest, HelpAppV2OpenFeedbackDialog) {
+  WaitForTestSystemAppInstall();
+  content::WebContents* web_contents = LaunchApp(web_app::SystemAppType::HELP);
+
+  // Script that tells the Help App to open the feedback dialog.
+  constexpr char kScript[] = R"(
+    (async () => {
+      const app = document.querySelector('showoff-app');
+      const res = await app.getDelegate().openFeedbackDialog();
+      window.domAutomationController.send(res === null);
+    })();
+  )";
+  bool error_is_null;
+  // Use ExecuteScript instead of EvalJsInAppFrame because the script needs to
+  // run in the same world as the page's code.
+  EXPECT_TRUE(content::ExecuteScriptAndExtractBool(
+      SandboxedWebUiAppTestBase::GetAppFrame(web_contents), kScript,
+      &error_is_null));
+  // A null string result means no error in opening feedback.
+  EXPECT_TRUE(error_is_null);
 }
 
 // Test that the Help App opens the OS Settings family link page.
@@ -249,80 +337,89 @@ IN_PROC_BROWSER_TEST_P(HelpAppIntegrationTest, HelpAppV2ShowParentalControls) {
 
   // Script that tells the Help App to show parental controls.
   constexpr char kScript[] = R"(
-    window.parent.postMessage('show-parental-controls', '*');
+    (async () => {
+      const app = document.querySelector('showoff-app');
+      await app.getDelegate().showParentalControls();
+    })();
   )";
-  // Trigger the postMessage, then wait for settings to open.
-  EXPECT_EQ(nullptr,
-            SandboxedWebUiAppTestBase::EvalJsInAppFrame(web_contents, kScript));
+  // Trigger the script, then wait for settings to open. Use ExecuteScript
+  // instead of EvalJsInAppFrame because the script needs to run in the same
+  // world as the page's code.
+  EXPECT_TRUE(content::ExecuteScript(
+      SandboxedWebUiAppTestBase::GetAppFrame(web_contents), kScript));
   navigation_observer.Wait();
 
   // Settings should be active in a new window.
   EXPECT_EQ(3u, chrome::GetTotalBrowserCount());
-  EXPECT_EQ(expected_url, chrome::FindLastActive()
-                              ->tab_strip_model()
-                              ->GetActiveWebContents()
-                              ->GetVisibleURL());
+  EXPECT_EQ(expected_url, GetActiveWebContents()->GetVisibleURL());
 }
 
 // Test that the Help App opens when Gesture help requested.
-IN_PROC_BROWSER_TEST_P(HelpAppIntegrationTest, HelpAppOpenGestures) {
+IN_PROC_BROWSER_TEST_P(HelpAppAllProfilesIntegrationTest, HelpAppOpenGestures) {
   WaitForTestSystemAppInstall();
   base::HistogramTester histogram_tester;
-  const GURL expected_url("chrome://help-app/help/sub/3399710/id/9739838");
-  content::TestNavigationObserver navigation_observer(expected_url);
-  navigation_observer.StartWatchingNewWebContents();
 
   SystemTrayClient::Get()->ShowGestureEducationHelp();
-  navigation_observer.Wait();
 
-  // There should be two browser windows, one regular and one for the help app.
-  EXPECT_EQ(2u, chrome::GetTotalBrowserCount());
-  // Help app should have opened at the gesture article.
-  EXPECT_EQ(expected_url, chrome::FindLastActive()
-                              ->tab_strip_model()
-                              ->GetActiveWebContents()
-                              ->GetVisibleURL());
+  EXPECT_NO_FATAL_FAILURE(
+      WaitForAppToOpen(GURL("chrome://help-app/help/sub/3399710/id/9739838")));
   // The HELP app is 18, see DefaultAppName in
   // src/chrome/browser/apps/app_service/app_service_metrics.cc
   histogram_tester.ExpectUniqueSample("Apps.DefaultAppLaunch.FromOtherApp", 18,
                                       1);
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    All,
-    HelpAppIntegrationTest,
-    ::testing::Combine(
-        ::testing::Values(web_app::ProviderType::kBookmarkApps,
-                          web_app::ProviderType::kWebApps),
-        ::testing::Values(web_app::InstallationType::kManifestInstall)),
-    web_app::ProviderAndInstallationTypeToString);
-
-class HelpAppGuestSessionIntegrationTest : public HelpAppIntegrationTest {
- protected:
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitch(chromeos::switches::kGuestSession);
-    command_line->AppendSwitch(::switches::kIncognito);
-    command_line->AppendSwitchASCII(chromeos::switches::kLoginProfile, "hash");
-    command_line->AppendSwitchASCII(
-        chromeos::switches::kLoginUser,
-        user_manager::GuestAccountId().GetUserEmail());
-  }
-};
-
-// Test that the Help App shortcut doesn't crash in guest mode.
-IN_PROC_BROWSER_TEST_P(HelpAppGuestSessionIntegrationTest, HelpAppShowHelp) {
+// Test that the Help App opens from keyboard shortcut.
+IN_PROC_BROWSER_TEST_P(HelpAppIntegrationTest, HelpAppOpenKeyboardShortcut) {
   WaitForTestSystemAppInstall();
-  // TODO(carpenterr): Verify the right windows are launched in the chrome
-  // branded and non-chrome branded codepaths.
-  EXPECT_NO_FATAL_FAILURE(
-      chrome::ShowHelp(browser(), chrome::HELP_SOURCE_KEYBOARD));
+  base::HistogramTester histogram_tester;
+
+  // The /? key is OEM_2 on a US standard keyboard.
+  ASSERT_TRUE(ui_test_utils::SendKeyPressSync(
+      browser(), ui::VKEY_OEM_2, /*control=*/true,
+      /*shift=*/false, /*alt=*/false, /*command=*/false));
+
+#if BUILDFLAG(IS_CHROMEOS_ASH) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
+  // Default browser tab and Help app are open.
+  EXPECT_EQ(2u, chrome::GetTotalBrowserCount());
+  EXPECT_EQ("chrome://help-app/", GetActiveWebContents()->GetVisibleURL());
+  // The HELP app is 18, see DefaultAppName in
+  // src/chrome/browser/apps/app_service/app_service_metrics.cc
+  histogram_tester.ExpectUniqueSample("Apps.DefaultAppLaunch.FromKeyboard", 18,
+                                      1);
+#else
+  // We just have the one browser. Navigates chrome.
+  EXPECT_EQ(1u, chrome::GetTotalBrowserCount());
+  EXPECT_EQ(GURL(chrome::kChromeHelpViaKeyboardURL),
+            GetActiveWebContents()->GetVisibleURL());
+  // The HELP app is 18, see DefaultAppName in
+  // src/chrome/browser/apps/app_service/app_service_metrics.cc
+  histogram_tester.ExpectUniqueSample("Apps.DefaultAppLaunch.FromKeyboard", 18,
+                                      0);
+#endif
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    All,
-    HelpAppGuestSessionIntegrationTest,
-    ::testing::Combine(
-        ::testing::Values(web_app::ProviderType::kBookmarkApps,
-                          web_app::ProviderType::kWebApps),
-        ::testing::Values(web_app::InstallationType::kManifestInstall)),
-    web_app::ProviderAndInstallationTypeToString);
+// Test that the Help App opens in a new window if try to navigate there in a
+// browser.
+IN_PROC_BROWSER_TEST_P(HelpAppIntegrationTest,
+                       HelpAppCapturesBrowserNavigation) {
+  WaitForTestSystemAppInstall();
+  content::TestNavigationObserver navigation_observer(
+      GURL("chrome://help-app"));
+  navigation_observer.StartWatchingNewWebContents();
+  ASSERT_EQ(1u, chrome::GetTotalBrowserCount());
+
+  // Try to navigate to the help app in the browser.
+  ui_test_utils::SendToOmniboxAndSubmit(browser(), "chrome://help-app");
+  navigation_observer.Wait();
+
+  // We now have two browsers, one for the chrome window, one for the Help app.
+  EXPECT_EQ(2u, chrome::GetTotalBrowserCount());
+  EXPECT_EQ(GURL("chrome://help-app"), GetActiveWebContents()->GetVisibleURL());
+}
+
+INSTANTIATE_SYSTEM_WEB_APP_MANAGER_TEST_SUITE_REGULAR_PROFILE_P(
+    HelpAppIntegrationTest);
+
+INSTANTIATE_SYSTEM_WEB_APP_MANAGER_TEST_SUITE_ALL_PROFILE_TYPES_P(
+    HelpAppAllProfilesIntegrationTest);

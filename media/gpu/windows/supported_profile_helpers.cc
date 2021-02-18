@@ -163,7 +163,8 @@ media::SupportedResolutionRange GetResolutionsForGUID(
     ID3D11VideoDevice* video_device,
     const GUID& decoder_guid,
     const std::vector<gfx::Size>& resolutions_to_test,
-    DXGI_FORMAT format = DXGI_FORMAT_NV12) {
+    DXGI_FORMAT format = DXGI_FORMAT_NV12,
+    const gfx::Size& min_resolution = kMinResolution) {
   media::SupportedResolutionRange result;
 
   // Verify input is in ascending order by height.
@@ -191,7 +192,7 @@ media::SupportedResolutionRange GetResolutionsForGUID(
   }
 
   if (!result.max_landscape_resolution.IsEmpty())
-    result.min_resolution = kMinResolution;
+    result.min_resolution = min_resolution;
 
   return result;
 }
@@ -202,7 +203,8 @@ namespace media {
 
 SupportedResolutionRangeMap GetSupportedD3D11VideoDecoderResolutions(
     ComD3D11Device device,
-    const gpu::GpuDriverBugWorkarounds& workarounds) {
+    const gpu::GpuDriverBugWorkarounds& workarounds,
+    bool provide_av1_resolutions) {
   TRACE_EVENT0("gpu,startup", "GetSupportedD3D11VideoDecoderResolutions");
   SupportedResolutionRangeMap supported_resolutions;
 
@@ -244,7 +246,7 @@ SupportedResolutionRangeMap GetSupportedD3D11VideoDecoderResolutions(
 
   const bool should_test_for_av1_support =
       base::FeatureList::IsEnabled(kMediaFoundationAV1Decoding) &&
-      !workarounds.disable_accelerated_av1_decode;
+      !workarounds.disable_accelerated_av1_decode && provide_av1_resolutions;
 
   // Enumerate supported video profiles and look for the known profile for each
   // codec. We first look through the the decoder profiles so we don't run N
@@ -299,10 +301,15 @@ SupportedResolutionRangeMap GetSupportedD3D11VideoDecoderResolutions(
     if (!workarounds.disable_accelerated_vp8_decode &&
         profile_id == D3D11_DECODER_PROFILE_VP8_VLD &&
         base::FeatureList::IsEnabled(kMediaFoundationVP8Decoding)) {
-      supported_resolutions[VP8PROFILE_ANY] =
-          GetResolutionsForGUID(video_device.Get(), profile_id,
-                                {gfx::Size(4096, 2160), gfx::Size(4096, 2304),
-                                 gfx::Size(4096, 4096)});
+      // VP8 decoding is cheap on modern devices compared to other codecs, so
+      // much so that hardware decoding performance is actually worse at low
+      // resolutions than software decoding. See https://crbug.com/1136495.
+      constexpr gfx::Size kMinVp8Resolution = gfx::Size(640, 480);
+
+      supported_resolutions[VP8PROFILE_ANY] = GetResolutionsForGUID(
+          video_device.Get(), profile_id,
+          {gfx::Size(4096, 2160), gfx::Size(4096, 2304), gfx::Size(4096, 4096)},
+          DXGI_FORMAT_NV12, kMinVp8Resolution);
       continue;
     }
 

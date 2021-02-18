@@ -13,6 +13,7 @@
 
 #include "base/macros.h"
 #include "chromeos/components/drivefs/drivefs_host_observer.h"
+#include "chromeos/components/drivefs/mojom/drivefs.mojom.h"
 #include "extensions/browser/extension_event_histogram_value.h"
 #include "url/gurl.h"
 
@@ -38,7 +39,24 @@ class DriveFsEventRouter : public drivefs::DriveFsHostObserver {
   DriveFsEventRouter();
   virtual ~DriveFsEventRouter();
 
+  // Triggers an event in the UI to display a confirmation dialog.
+  void DisplayConfirmDialog(
+      const drivefs::mojom::DialogReason& reason,
+      base::OnceCallback<void(drivefs::mojom::DialogResult)> callback);
+
+  // Called from the UI to notify the caller of DisplayConfirmDialog() of the
+  // dialog's result.
+  void OnDialogResult(drivefs::mojom::DialogResult result);
+
  private:
+  struct SyncingStatusState {
+    SyncingStatusState();
+    ~SyncingStatusState();
+
+    std::map<int64_t, int64_t> group_id_to_bytes_to_transfer;
+    int64_t completed_bytes = 0;
+  };
+
   // DriveFsHostObserver:
   void OnUnmounted() override;
   void OnSyncingStatusUpdate(
@@ -65,6 +83,13 @@ class DriveFsEventRouter : public drivefs::DriveFsHostObserver {
       const std::string& extension_id,
       const extensions::api::file_manager_private::FileTransferStatus& status);
 
+  void DispatchOnPinTransfersUpdatedEvent(
+      const extensions::api::file_manager_private::FileTransferStatus& status);
+
+  void DispatchOnPinTransfersUpdatedEventToExtension(
+      const std::string& extension_id,
+      const extensions::api::file_manager_private::FileTransferStatus& status);
+
   void DispatchOnDirectoryChangedEventToExtension(
       const std::string& extension_id,
       const base::FilePath& directory,
@@ -77,8 +102,14 @@ class DriveFsEventRouter : public drivefs::DriveFsHostObserver {
       const std::string& event_name,
       std::unique_ptr<base::ListValue> event_args) = 0;
 
-  std::map<int64_t, int64_t> group_id_to_bytes_to_transfer_;
-  int64_t completed_bytes_ = 0;
+  static extensions::api::file_manager_private::FileTransferStatus
+  CreateFileTransferStatus(
+      const std::vector<drivefs::mojom::ItemEvent*>& item_events,
+      SyncingStatusState* state);
+
+  SyncingStatusState sync_status_state_;
+  SyncingStatusState pin_status_state_;
+  base::OnceCallback<void(drivefs::mojom::DialogResult)> dialog_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(DriveFsEventRouter);
 };

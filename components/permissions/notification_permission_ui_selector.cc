@@ -3,8 +3,26 @@
 // found in the LICENSE file.
 
 #include "components/permissions/notification_permission_ui_selector.h"
+#include "base/optional.h"
 
 namespace permissions {
+
+// static
+bool NotificationPermissionUiSelector::ShouldSuppressAnimation(
+    base::Optional<QuietUiReason> reason) {
+  if (!reason)
+    return true;
+
+  switch (*reason) {
+    case QuietUiReason::kEnabledInPrefs:
+    case QuietUiReason::kPredictedVeryUnlikelyGrant:
+      return false;
+    case QuietUiReason::kTriggeredByCrowdDeny:
+    case QuietUiReason::kTriggeredDueToAbusiveRequests:
+    case QuietUiReason::kTriggeredDueToAbusiveContent:
+      return true;
+  }
+}
 
 NotificationPermissionUiSelector::Decision::Decision(
     base::Optional<QuietUiReason> quiet_ui_reason,
@@ -21,6 +39,11 @@ NotificationPermissionUiSelector::Decision::operator=(const Decision&) =
 NotificationPermissionUiSelector::Decision
 NotificationPermissionUiSelector::Decision::UseNormalUiAndShowNoWarning() {
   return Decision(UseNormalUi(), ShowNoWarning());
+}
+
+base::Optional<PermissionUmaUtil::PredictionGrantLikelihood>
+NotificationPermissionUiSelector::PredictedGrantLikelihoodForUKM() {
+  return base::nullopt;
 }
 
 }  // namespace permissions

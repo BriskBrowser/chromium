@@ -12,17 +12,18 @@
 #include "base/notreached.h"
 #include "base/strings/sys_string_conversions.h"
 #include "components/open_from_clipboard/clipboard_recent_content.h"
+#include "ios/chrome/browser/chrome_url_constants.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
 #import "ios/chrome/browser/ui/commands/find_in_page_commands.h"
 #import "ios/chrome/browser/ui/commands/load_query_commands.h"
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
 #import "ios/chrome/browser/ui/commands/text_zoom_commands.h"
-#import "ios/chrome/browser/ui/page_info/features.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_action_handler_commands.h"
 #import "ios/chrome/browser/ui/popup_menu/public/cells/popup_menu_item.h"
 #import "ios/chrome/browser/ui/popup_menu/public/popup_menu_table_view_controller.h"
 #import "ios/chrome/browser/ui/ui_feature_flags.h"
+#import "ios/chrome/browser/web/web_navigation_browser_agent.h"
 #import "ios/chrome/browser/window_activities/window_activity_helpers.h"
 #include "url/gurl.h"
 
@@ -32,12 +33,6 @@
 
 using base::RecordAction;
 using base::UserMetricsAction;
-
-namespace {
-
-const char kManagementPageURL[] = "chrome://management";
-
-}  // namespace
 
 @implementation PopupMenuActionHandler
 
@@ -53,11 +48,11 @@ const char kManagementPageURL[] = "chrome://management";
   switch (identifier) {
     case PopupMenuActionReload:
       RecordAction(UserMetricsAction("MobileMenuReload"));
-      [self.dispatcher reload];
+      self.navigationAgent->Reload();
       break;
     case PopupMenuActionStop:
       RecordAction(UserMetricsAction("MobileMenuStop"));
-      [self.dispatcher stopLoading];
+      self.navigationAgent->StopLoading();
       break;
     case PopupMenuActionOpenNewTab:
       RecordAction(UserMetricsAction("MobileMenuNewTab"));
@@ -77,7 +72,7 @@ const char kManagementPageURL[] = "chrome://management";
       break;
     case PopupMenuActionPageBookmark:
       RecordAction(UserMetricsAction("MobileMenuAddToBookmarks"));
-      [self.dispatcher bookmarkPage];
+      [self.dispatcher bookmarkCurrentPage];
       break;
     case PopupMenuActionTranslate:
       base::RecordAction(UserMetricsAction("MobileMenuTranslate"));
@@ -97,18 +92,13 @@ const char kManagementPageURL[] = "chrome://management";
       break;
     case PopupMenuActionSiteInformation:
       RecordAction(UserMetricsAction("MobileMenuSiteInformation"));
-      if (base::FeatureList::IsEnabled(kPageInfoRefactoring)) {
-        [self.dispatcher showPageInfo];
-      } else {
-        [self.dispatcher
-            legacyShowPageInfoForOriginPoint:self.baseViewController.view
-                                                 .center];
-      }
+      [self.dispatcher showPageInfo];
       break;
     case PopupMenuActionReportIssue:
       RecordAction(UserMetricsAction("MobileMenuReportAnIssue"));
       [self.dispatcher
-          showReportAnIssueFromViewController:self.baseViewController];
+          showReportAnIssueFromViewController:self.baseViewController
+                                       sender:UserFeedbackSender::ToolsMenu];
       // Dismisses the popup menu without animation to allow the snapshot to be
       // taken without the menu presented.
       [self.dispatcher dismissPopupMenuAnimated:NO];
@@ -132,7 +122,9 @@ const char kManagementPageURL[] = "chrome://management";
       break;
 #endif  // !defined(NDEBUG)
     case PopupMenuActionOpenNewWindow:
-      [self.dispatcher openNewWindowWithActivity:nil];
+      [self.dispatcher openNewWindowWithActivity:ActivityToLoadURL(
+                                                     WindowActivityToolsOrigin,
+                                                     GURL(kChromeUINewTabURL))];
       break;
     case PopupMenuActionBookmarks:
       RecordAction(UserMetricsAction("MobileMenuAllBookmarks"));
@@ -227,7 +219,7 @@ const char kManagementPageURL[] = "chrome://management";
     case PopupMenuActionEnterpriseInfoMessage:
       [self.dispatcher
           openURLInNewTab:[OpenNewTabCommand commandWithURLFromChrome:
-                                                 GURL(kManagementPageURL)]];
+                                                 GURL(kChromeUIManagementURL)]];
       break;
     default:
       NOTREACHED() << "Unexpected identifier";

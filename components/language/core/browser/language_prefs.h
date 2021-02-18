@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_LANGUAGE_CORE_BROWSER_LANGUAGE_PREFS_H_
 #define COMPONENTS_LANGUAGE_CORE_BROWSER_LANGUAGE_PREFS_H_
 
+#include <string>
+
 #include "base/macros.h"
 #include "base/strings/string_piece.h"
 
@@ -42,6 +44,12 @@ class LanguagePrefs {
   static base::Value GetDefaultFluentLanguages();
   // If the list of fluent languages is empty, reset it to defaults.
   void ResetEmptyFluentLanguagesToDefault();
+  // Gets the language list of the language settings. Language settings list
+  // have the Chrome internal format.
+  void GetAcceptLanguagesList(std::vector<std::string>* languages) const;
+  // Updates the language list of the language settings. Languages are expected
+  // to be in the Chrome internal format.
+  void SetAcceptLanguagesList(const std::vector<std::string>& languages);
 
  private:
   base::Value* GetFluentLanguages();
@@ -56,6 +64,9 @@ class LanguagePrefs {
 };
 
 void ResetLanguagePrefs(PrefService* prefs);
+
+// Given a comma separated list of locales, return the first.
+std::string GetFirstLanguage(base::StringPiece language_list);
 
 }  // namespace language
 

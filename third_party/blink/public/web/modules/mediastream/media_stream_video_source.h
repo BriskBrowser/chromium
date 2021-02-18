@@ -102,7 +102,8 @@ class BLINK_MODULES_EXPORT MediaStreamVideoSource
   // verified by checking that the IsRunning() method returns true.
   // Any attempt to invoke StopForRestart() before the source has started
   // results in no action and |callback| invoked with INVALID_STATE.
-  void StopForRestart(RestartCallback callback);
+  // If |send_black_frame| is set, an additional black frame will be sent.
+  void StopForRestart(RestartCallback callback, bool send_black_frame = false);
 
   // Tries to restart a source that was previously temporarily stopped using the
   // supplied |new_format|. This method can be invoked only after a successful
@@ -169,14 +170,19 @@ class BLINK_MODULES_EXPORT MediaStreamVideoSource
 
   bool IsRunning() const { return state_ == STARTED; }
 
+  bool IsStoppedForRestart() const { return state_ == STOPPED_FOR_RESTART; }
+
+  // Provides a callback for consumers to trigger when they have some
+  // feedback to report.
+  // The returned callback can be called on any thread.
+  virtual VideoCaptureFeedbackCB GetFeedbackCallback() const;
+
   size_t NumTracks() const {
     DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
     return tracks_.size();
   }
 
-  base::WeakPtr<MediaStreamVideoSource> GetWeakPtr() {
-    return weak_factory_.GetWeakPtr();
-  }
+  virtual base::WeakPtr<MediaStreamVideoSource> GetWeakPtr() const = 0;
 
  protected:
   // MediaStreamSource implementation.
@@ -301,6 +307,7 @@ class BLINK_MODULES_EXPORT MediaStreamVideoSource
   void DidStopSource(RestartResult result);
   void NotifyCapturingLinkSecured(size_t num_encoded_sinks);
   size_t CountEncodedSinks() const;
+  scoped_refptr<VideoTrackAdapter> GetTrackAdapter();
 
   State state_;
 
@@ -355,9 +362,6 @@ class BLINK_MODULES_EXPORT MediaStreamVideoSource
   // died before this callback is resolved, we still need to trigger the
   // callback to notify the caller that the request is canceled.
   base::OnceClosure remove_last_track_callback_;
-
-  // NOTE: Weak pointers must be invalidated before all other member variables.
-  base::WeakPtrFactory<MediaStreamVideoSource> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(MediaStreamVideoSource);
 };

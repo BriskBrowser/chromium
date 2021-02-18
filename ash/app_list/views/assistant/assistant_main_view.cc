@@ -17,7 +17,7 @@
 #include "ash/assistant/util/assistant_util.h"
 #include "ash/public/cpp/app_list/app_list_features.h"
 #include "ash/public/cpp/assistant/controller/assistant_ui_controller.h"
-#include "ui/chromeos/search_box/search_box_constants.h"
+#include "ash/search_box/search_box_constants.h"
 #include "ui/views/layout/box_layout.h"
 
 namespace ash {
@@ -37,7 +37,7 @@ AssistantMainView::AssistantMainView(AssistantViewDelegate* delegate)
   SetID(AssistantViewID::kMainView);
   InitLayout();
 
-  assistant_controller_observer_.Add(AssistantController::Get());
+  assistant_controller_observation_.Observe(AssistantController::Get());
   AssistantUiController::Get()->GetModel()->AddObserver(this);
 }
 
@@ -79,7 +79,9 @@ void AssistantMainView::RequestFocus() {
 
 void AssistantMainView::OnAssistantControllerDestroying() {
   AssistantUiController::Get()->GetModel()->RemoveObserver(this);
-  assistant_controller_observer_.Remove(AssistantController::Get());
+  DCHECK(assistant_controller_observation_.IsObservingSource(
+      AssistantController::Get()));
+  assistant_controller_observation_.Reset();
 }
 
 void AssistantMainView::OnUiVisibilityChanged(
@@ -107,7 +109,7 @@ void AssistantMainView::OnUiVisibilityChanged(
 }
 
 void AssistantMainView::InitLayout() {
-  constexpr int radius = search_box::kSearchBoxBorderCornerRadiusSearchResult;
+  constexpr int radius = kSearchBoxBorderCornerRadiusSearchResult;
 
   SetPaintToLayer();
   layer()->SetFillsBoundsOpaquely(false);

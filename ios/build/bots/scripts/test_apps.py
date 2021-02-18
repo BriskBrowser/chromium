@@ -12,6 +12,9 @@ import shard_util
 import test_runner
 
 
+OUTPUT_DISABLED_TESTS_TEST_ARG = '--write-compiled-tests-json-to-writable-path'
+
+
 #TODO(crbug.com/1046911): Remove usage of KIF filters.
 def get_kif_test_filter(tests, invert=False):
   """Returns the KIF test filter to filter the given test cases.
@@ -81,7 +84,8 @@ class GTestsApp(object):
                test_args=None,
                env_vars=None,
                release=False,
-               host_app_path=None):
+               host_app_path=None,
+               inserted_libs=None):
     """Initialize Egtests.
 
     Args:
@@ -96,6 +100,7 @@ class GTestsApp(object):
         launching.
       env_vars: List of environment variables to pass to the test itself.
       release: (bool) Whether the app is release build.
+      inserted_libs: List of libraries to insert when running the test.
 
     Raises:
       AppNotFoundError: If the given app does not exist
@@ -111,9 +116,11 @@ class GTestsApp(object):
       self.env_vars[env_var[0]] = None if len(env_var) == 1 else env_var[1]
     self.included_tests = included_tests or []
     self.excluded_tests = excluded_tests or []
+    self.disabled_tests = []
     self.module_name = os.path.splitext(os.path.basename(test_app))[0]
     self.release = release
     self.host_app_path = host_app_path
+    self.inserted_libs = inserted_libs or []
 
   def fill_xctest_run(self, out_dir):
     """Fills xctestrun file by egtests.
@@ -170,6 +177,10 @@ class GTestsApp(object):
                 'Developer/Library/Frameworks' % dyld_path,
         }
     }
+
+    if self.inserted_libs:
+      module_data['TestingEnvironmentVariables'][
+          'DYLD_INSERT_LIBRARIES'] = ':'.join(self.inserted_libs)
 
     xctestrun_data = {module: module_data}
     kif_filter = []
@@ -238,16 +249,27 @@ class GTestsApp(object):
     # but they are not test-methods.
     # TODO(crbug.com/982435): Rename not test methods with test-suffix.
     none_tests = ['ChromeTestCase/testServer', 'FindInPageTestCase/testURL']
+    # TODO(crbug.com/1123681): Move all_tests to class var. Set all_tests,
+    # disabled_tests values in initialization to avoid multiple calls to otool.
     all_tests = []
+    # Only store the tests when there is the test arg.
+    store_disabled_tests = OUTPUT_DISABLED_TESTS_TEST_ARG in self.test_args
+    self.disabled_tests = []
     for test_class, test_method in shard_util.fetch_test_names(
-        self.test_app_path, self.host_app_path, self.release):
+        self.test_app_path,
+        self.host_app_path,
+        self.release,
+        enabled_tests_only=False):
       test_name = '%s/%s' % (test_class, test_method)
       if (test_name not in none_tests and
           # inlcuded_tests contains the tests to execute, which may be a subset
           # of all tests b/c of the iOS test sharding logic in run.py. Filter by
           # self.included_tests if specified
           (test_class in self.included_tests if self.included_tests else True)):
-        all_tests.append(test_name)
+        if test_method.startswith('test'):
+          all_tests.append(test_name)
+        elif store_disabled_tests:
+          self.disabled_tests.append(test_name)
     return all_tests
 
 
@@ -269,7 +291,8 @@ class EgtestsApp(GTestsApp):
                test_args=None,
                env_vars=None,
                release=False,
-               host_app_path=None):
+               host_app_path=None,
+               inserted_libs=None):
     """Initialize Egtests.
 
     Args:
@@ -284,13 +307,17 @@ class EgtestsApp(GTestsApp):
         launching.
       env_vars: List of environment variables to pass to the test itself.
       host_app_path: (str) full path to host app.
+      inserted_libs: List of libraries to insert when running the test.
 
     Raises:
       AppNotFoundError: If the given app does not exist
     """
+    inserted_libs = list(inserted_libs or [])
+    inserted_libs.append('__PLATFORMS__/iPhoneSimulator.platform/Developer/'
+                         'usr/lib/libXCTestBundleInject.dylib')
     super(EgtestsApp,
           self).__init__(egtests_app, included_tests, excluded_tests, test_args,
-                         env_vars, release, host_app_path)
+                         env_vars, release, host_app_path, inserted_libs)
 
   def _xctest_path(self):
     """Gets xctest-file from egtests/PlugIns folder.
@@ -322,10 +349,6 @@ class EgtestsApp(GTestsApp):
     """
     xctestrun_data = super(EgtestsApp, self).fill_xctestrun_node()
     module_data = xctestrun_data[self.module_name + '_module']
-
-    module_data['TestingEnvironmentVariables']['DYLD_INSERT_LIBRARIES'] = (
-        '__PLATFORMS__/iPhoneSimulator.platform/Developer/'
-        'usr/lib/libXCTestBundleInject.dylib')
     module_data['TestBundlePath'] = '__TESTHOST__/%s' % self._xctest_path()
     module_data['TestingEnvironmentVariables'][
         'XCInjectBundleInto'] = '__TESTHOST__/%s' % self.module_name
@@ -457,6 +480,8 @@ class DeviceXCTestUnitTestsApp(GTestsApp):
       ]
       self.test_args.append('--gtest_filter=%s' % gtest_filter)
 
+    self.test_args.append('--gmock_verbose=error')
+
     xctestrun_data['TestTargetName'].update(
         {'CommandLineArguments': self.test_args})
 
@@ -571,6 +596,8 @@ class SimulatorXCTestUnitTestsApp(GTestsApp):
           el for el in self.test_args if not el.startswith('--gtest_filter=')
       ]
       self.test_args.append('--gtest_filter=%s' % gtest_filter)
+
+    self.test_args.append('--gmock_verbose=error')
 
     xctestrun_data['TestTargetName'].update(
         {'CommandLineArguments': self.test_args})

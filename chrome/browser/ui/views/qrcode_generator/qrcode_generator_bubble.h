@@ -7,14 +7,13 @@
 
 #include <memory>
 
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ui/qrcode_generator/qrcode_generator_bubble_view.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_bubble_delegate_view.h"
 #include "chrome/services/qrcode_generator/public/cpp/qrcode_generator_service.h"
-#include "ui/views/controls/button/button.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/textfield/textfield_controller.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -39,13 +38,16 @@ class QRCodeGeneratorBubbleController;
 // Dialog that displays a QR code used to share a page or image.
 class QRCodeGeneratorBubble : public QRCodeGeneratorBubbleView,
                               public LocationBarBubbleDelegateView,
-                              public views::TextfieldController,
-                              public views::ButtonListener {
+                              public views::TextfieldController {
  public:
+  METADATA_HEADER(QRCodeGeneratorBubble);
   QRCodeGeneratorBubble(views::View* anchor_view,
                         content::WebContents* web_contents,
                         QRCodeGeneratorBubbleController* controller,
                         const GURL& url);
+  QRCodeGeneratorBubble(const QRCodeGeneratorBubble&) = delete;
+  QRCodeGeneratorBubble& operator=(const QRCodeGeneratorBubble&) = delete;
+
   void Show();
 
   // QRCodeGeneratorBubbleView:
@@ -77,7 +79,6 @@ class QRCodeGeneratorBubble : public QRCodeGeneratorBubbleView,
   View* GetInitiallyFocusedView() override;
   bool ShouldShowCloseButton() const override;
   void WindowClosing() override;
-  const char* GetClassName() const override;
 
   // views::BubbleDialogDelegateView:
   void Init() override;
@@ -90,8 +91,7 @@ class QRCodeGeneratorBubble : public QRCodeGeneratorBubbleView,
   bool HandleMouseEvent(views::Textfield* sender,
                         const ui::MouseEvent& mouse_event) override;
 
-  // ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
+  void DownloadButtonPressed();
 
   // Callback for the request to the OOP service to generate a new image.
   void OnCodeGeneratorResponse(const mojom::GenerateQRCodeResponsePtr response);
@@ -113,8 +113,6 @@ class QRCodeGeneratorBubble : public QRCodeGeneratorBubbleView,
 
   QRCodeGeneratorBubbleController* controller_;  // weak.
   content::WebContents* web_contents_;           // weak.
-
-  DISALLOW_COPY_AND_ASSIGN(QRCodeGeneratorBubble);
 };
 
 }  // namespace qrcode_generator

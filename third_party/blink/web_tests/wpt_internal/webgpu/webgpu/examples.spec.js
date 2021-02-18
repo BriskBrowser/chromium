@@ -5,6 +5,7 @@ Examples of writing CTS tests with various features.
 
 Start here when looking for examples of basic framework usage.
 `;
+import { params, pbool, poptions } from '../common/framework/params_builder.js';
 import { makeTestGroup } from '../common/framework/test_group.js';
 
 import { GPUTest } from './gpu_test.js';
@@ -24,6 +25,17 @@ export const g = makeTestGroup(GPUTest);
 // Note: spaces in test names are replaced with underscores: webgpu:examples:test_name=
 
 g.test('test_name').fn(t => {});
+
+g.test('not_implemented_yet,without_plan').unimplemented();
+g.test('not_implemented_yet,with_plan')
+  .desc(
+    `
+Plan for this test. What it tests. Summary of how it tests that functionality.
+- Description of cases, by describing parameters {a, b, c}
+- x= more parameters {x, y, z}
+`
+  )
+  .unimplemented();
 
 g.test('basic').fn(t => {
   t.expect(true);
@@ -80,6 +92,19 @@ g.test('basic,params')
   });
 // (note the blank comment above to enforce newlines on autoformat)
 
+// Runs the following cases:
+// { x: 2, y: 2 }
+// { x: 2, z: 3 }
+// { x: 3, y: 2 }
+// { x: 3, z: 3 }
+g.test('basic,params_builder')
+  .params(
+    params()
+      .combine(poptions('x', [2, 3]))
+      .combine([{ y: 2 }, { z: 3 }])
+  )
+  .fn(() => {});
+
 g.test('gpu,async').fn(async t => {
   const fence = t.queue.createFence();
   t.queue.signal(fence, 2);
@@ -102,3 +127,51 @@ g.test('gpu,buffers').fn(async t => {
   // Like shouldReject, it must be awaited.
   t.expectContents(src, data);
 });
+
+// One of the following two tests should be skipped on most platforms.
+
+g.test('gpu,with_texture_compression,bc')
+  .desc(
+    `Example of a test using a device descriptor.
+Tests that a BC format passes validation iff the feature is enabled.`
+  )
+  .params(pbool('textureCompressionBC'))
+  .fn(async t => {
+    const { textureCompressionBC } = t.params;
+
+    if (textureCompressionBC) {
+      await t.selectDeviceOrSkipTestCase({ extensions: ['texture-compression-bc'] });
+    }
+
+    const shouldError = !textureCompressionBC;
+    t.expectGPUError(
+      'validation',
+      () => {
+        t.device.createTexture({
+          format: 'bc1-rgba-unorm',
+          size: [4, 4, 1],
+          usage: GPUTextureUsage.SAMPLED,
+        });
+      },
+      shouldError
+    );
+  });
+
+g.test('gpu,with_texture_compression,etc')
+  .desc(
+    `Example of a test using a device descriptor.
+
+TODO: Test that an ETC format passes validation iff the feature is enabled.`
+  )
+  .params(pbool('textureCompressionETC'))
+  .fn(async t => {
+    const { textureCompressionETC } = t.params;
+
+    if (textureCompressionETC) {
+      await t.selectDeviceOrSkipTestCase({
+        extensions: ['texture-compression-etc'],
+      });
+    }
+
+    // TODO: Should actually test createTexture with an ETC format here.
+  });

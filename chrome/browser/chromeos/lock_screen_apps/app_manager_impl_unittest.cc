@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/json/json_file_value_serializer.h"
@@ -382,15 +382,15 @@ class LockScreenAppManagerImplTest
     if (create_lock_screen_profile)
       CreateLockScreenProfile();
     app_manager()->Start(
-        base::Bind(&LockScreenAppManagerImplTest::OnNoteTakingChanged,
-                   base::Unretained(this)));
+        base::BindRepeating(&LockScreenAppManagerImplTest::OnNoteTakingChanged,
+                            base::Unretained(this)));
   }
 
   void RestartLockScreenAppManager() {
     app_manager()->Stop();
     app_manager()->Start(
-        base::Bind(&LockScreenAppManagerImplTest::OnNoteTakingChanged,
-                   base::Unretained(this)));
+        base::BindRepeating(&LockScreenAppManagerImplTest::OnNoteTakingChanged,
+                            base::Unretained(this)));
   }
 
   void CreateLockScreenProfile() {

@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "gpu/ipc/service/gpu_watchdog_thread.h"
 #include "base/test/task_environment.h"
-#include "gpu/ipc/service/gpu_watchdog_thread_v2.h"
 
 #include "base/power_monitor/power_monitor.h"
 #include "base/power_monitor/power_monitor_source.h"
@@ -19,8 +19,6 @@ namespace gpu {
 namespace {
 constexpr auto kGpuWatchdogTimeoutForTesting =
     base::TimeDelta::FromMilliseconds(1000);
-
-constexpr int kMaxExtraCyclesBeforeKillForTesting = 1;
 
 // This task will run for duration_ms milliseconds.
 void SimpleTask(base::TimeDelta duration) {
@@ -70,12 +68,11 @@ void GpuWatchdogTest::SetUp() {
   ASSERT_TRUE(base::CurrentThread::IsSet());
 
   // Set watchdog timeout to 1000 milliseconds
-  watchdog_thread_ = gpu::GpuWatchdogThreadImplV2::Create(
+  watchdog_thread_ = gpu::GpuWatchdogThread::Create(
       /*start_backgrounded*/ false,
       /*timeout*/ kGpuWatchdogTimeoutForTesting,
       /*init_factor*/ kInitFactor,
       /*restart_factor*/ kRestartFactor,
-      /*max_extra_cycles_before_kill*/ kMaxExtraCyclesBeforeKillForTesting,
       /*test_mode*/ true);
 }
 
@@ -147,12 +144,9 @@ TEST_F(GpuWatchdogTest, GpuInitializationHang) {
   SimpleTask(
       kGpuWatchdogTimeoutForTesting * kInitFactor +
       kGpuWatchdogTimeoutForTesting * kMaxCountOfMoreGpuThreadTimeAllowed +
-      kGpuWatchdogTimeoutForTesting * kMaxExtraCyclesBeforeKillForTesting +
       base::TimeDelta::FromMilliseconds(3000));
 #else
   SimpleTask(kGpuWatchdogTimeoutForTesting * kInitFactor +
-             kGpuWatchdogTimeoutForTesting *
-                 kMaxExtraCyclesBeforeKillForTesting +
              base::TimeDelta::FromMilliseconds(3000));
 #endif
 
@@ -207,15 +201,11 @@ TEST_F(GpuWatchdogTest, GpuRunningATaskHang) {
       base::BindOnce(&SimpleTask, kGpuWatchdogTimeoutForTesting * 2 +
                                       kGpuWatchdogTimeoutForTesting *
                                           kMaxCountOfMoreGpuThreadTimeAllowed +
-                                      kGpuWatchdogTimeoutForTesting *
-                                          kMaxExtraCyclesBeforeKillForTesting +
                                       base::TimeDelta::FromMilliseconds(4000)));
 #else
   task_environment_.GetMainThreadTaskRunner()->PostTask(
       FROM_HERE,
       base::BindOnce(&SimpleTask, kGpuWatchdogTimeoutForTesting * 2 +
-                                      kGpuWatchdogTimeoutForTesting *
-                                          kMaxExtraCyclesBeforeKillForTesting +
                                       base::TimeDelta::FromMilliseconds(4000)));
 #endif
 
@@ -268,8 +258,6 @@ TEST_F(GpuWatchdogTest, GpuSwitchingToForegroundHang) {
                      /*duration*/ kGpuWatchdogTimeoutForTesting * 2 +
                          kGpuWatchdogTimeoutForTesting *
                              kMaxCountOfMoreGpuThreadTimeAllowed +
-                         kGpuWatchdogTimeoutForTesting *
-                             kMaxExtraCyclesBeforeKillForTesting +
                          base::TimeDelta::FromMilliseconds(4200),
                      /*time_to_switch_to_foreground*/
                      base::TimeDelta::FromMilliseconds(200)));
@@ -279,8 +267,6 @@ TEST_F(GpuWatchdogTest, GpuSwitchingToForegroundHang) {
       base::BindOnce(&GpuWatchdogTest::LongTaskFromBackgroundToForeground,
                      base::Unretained(this),
                      /*duration*/ kGpuWatchdogTimeoutForTesting * 2 +
-                         kGpuWatchdogTimeoutForTesting *
-                             kMaxExtraCyclesBeforeKillForTesting +
                          base::TimeDelta::FromMilliseconds(4200),
                      /*time_to_switch_to_foreground*/
                      base::TimeDelta::FromMilliseconds(200)));
@@ -316,12 +302,9 @@ TEST_F(GpuWatchdogTest, GpuInitializationPause) {
   SimpleTask(
       kGpuWatchdogTimeoutForTesting * kInitFactor +
       kGpuWatchdogTimeoutForTesting * kMaxCountOfMoreGpuThreadTimeAllowed +
-      kGpuWatchdogTimeoutForTesting * kMaxExtraCyclesBeforeKillForTesting +
       base::TimeDelta::FromMilliseconds(4000));
 #else
   SimpleTask(kGpuWatchdogTimeoutForTesting * kInitFactor +
-             kGpuWatchdogTimeoutForTesting *
-                 kMaxExtraCyclesBeforeKillForTesting +
              base::TimeDelta::FromMilliseconds(4000));
 #endif
 
@@ -365,8 +348,6 @@ TEST_F(GpuWatchdogPowerTest, GpuOnResumeHang) {
           /*duration*/ kGpuWatchdogTimeoutForTesting * kRestartFactor +
               kGpuWatchdogTimeoutForTesting *
                   kMaxCountOfMoreGpuThreadTimeAllowed +
-              kGpuWatchdogTimeoutForTesting *
-                  kMaxExtraCyclesBeforeKillForTesting +
               base::TimeDelta::FromMilliseconds(4200),
           /*time_to_power_resume*/
           base::TimeDelta::FromMilliseconds(200)));
@@ -376,8 +357,6 @@ TEST_F(GpuWatchdogPowerTest, GpuOnResumeHang) {
       base::BindOnce(
           &GpuWatchdogPowerTest::LongTaskOnResume, base::Unretained(this),
           /*duration*/ kGpuWatchdogTimeoutForTesting * kRestartFactor +
-              kGpuWatchdogTimeoutForTesting *
-                  kMaxExtraCyclesBeforeKillForTesting +
               base::TimeDelta::FromMilliseconds(4200),
           /*time_to_power_resume*/
           base::TimeDelta::FromMilliseconds(200)));

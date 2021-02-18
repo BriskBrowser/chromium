@@ -134,10 +134,10 @@ void CryptAuthDeviceActivityGetterImpl::OnAttemptStarted() {
   cryptauth_client_ = client_factory_->CreateInstance();
   cryptauth_client_->GetDevicesActivityStatus(
       request,
-      base::Bind(
+      base::BindOnce(
           &CryptAuthDeviceActivityGetterImpl::OnGetDevicesActivityStatusSuccess,
           base::Unretained(this)),
-      base::Bind(
+      base::BindOnce(
           &CryptAuthDeviceActivityGetterImpl::OnGetDevicesActivityStatusFailure,
           base::Unretained(this)));
 }
@@ -159,7 +159,11 @@ void CryptAuthDeviceActivityGetterImpl::OnGetDevicesActivityStatusSuccess(
     device_activity_statuses.emplace_back(mojom::DeviceActivityStatus::New(
         device_activity_status.device_id(),
         base::Time::FromTimeT(device_activity_status.last_activity_time_sec()),
-        std::move(device_activity_status.connectivity_status())));
+        std::move(device_activity_status.connectivity_status()),
+        base::Time::FromTimeT(
+            device_activity_status.last_update_time().seconds()) +
+            base::TimeDelta::FromNanoseconds(
+                device_activity_status.last_update_time().nanos())));
   }
 
   cryptauth_client_.reset();

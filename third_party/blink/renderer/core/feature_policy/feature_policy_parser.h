@@ -56,11 +56,13 @@ class CORE_EXPORT FeaturePolicyParser {
   // ExecutionContext is used to determine if any origin trials affect the
   // parsing. Example of a feature policy string:
   //     "vibrate a.com b.com; fullscreen 'none'; payment 'self', payment *".
-  static ParsedFeaturePolicy ParseHeader(const String& feature_policy_header,
-                                         const String& permission_policy_header,
-                                         scoped_refptr<const SecurityOrigin>,
-                                         PolicyParserMessageBuffer& logger,
-                                         ExecutionContext* = nullptr);
+  static ParsedFeaturePolicy ParseHeader(
+      const String& feature_policy_header,
+      const String& permission_policy_header,
+      scoped_refptr<const SecurityOrigin>,
+      PolicyParserMessageBuffer& feature_policy_logger,
+      PolicyParserMessageBuffer& permissions_policy_logger,
+      ExecutionContext* = nullptr);
 
   // Converts a container policy string into a vector of allowlists, given self
   // and src origins provided, one for each feature specified. Unrecognized
@@ -117,6 +119,10 @@ CORE_EXPORT bool AllowFeatureEverywhereIfNotPresent(
 // a declaration which disallows the feature in all origins.
 CORE_EXPORT void DisallowFeature(mojom::blink::FeaturePolicyFeature,
                                  ParsedFeaturePolicy&);
+
+// Returns true iff the feature should not be exposed to script.
+CORE_EXPORT bool IsFeatureForMeasurementOnly(
+    mojom::blink::FeaturePolicyFeature);
 
 // Replaces any existing declarations in the policy for the given feature with
 // a declaration which allows the feature in all origins.

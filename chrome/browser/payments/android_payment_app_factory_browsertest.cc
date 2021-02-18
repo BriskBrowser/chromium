@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "build/chromeos_buildflags.h"
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/public/cpp/external_arc/overlay/arc_overlay_manager.h"
+#endif
 #include "base/test/scoped_feature_list.h"
 #include "chrome/test/payments/payment_request_platform_browsertest_base.h"
 #include "components/payments/core/features.h"
@@ -45,6 +50,10 @@ IN_PROC_BROWSER_TEST_F(AndroidPaymentAppFactoryTest,
 // goods purchase.
 IN_PROC_BROWSER_TEST_F(AndroidPaymentAppFactoryTest,
                        IgnoreOtherPaymentAppsInTwaWhenHaveAppStoreBilling) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  ash::ArcOverlayManager overlay_manager_;
+#endif
+
   std::string method_name = https_server()->GetURL("a.com", "/").spec();
   method_name = method_name.substr(0, method_name.length() - 1);
   ASSERT_NE('/', method_name[method_name.length() - 1]);
@@ -64,11 +73,11 @@ IN_PROC_BROWSER_TEST_F(AndroidPaymentAppFactoryTest,
   test_controller()->SetTwaPaymentApp("https://play.google.com/billing",
                                       "{\"status\": \"" + response + "\"}");
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   std::string expected_response = response;
 #else
   std::string expected_response = "success";
-#endif  // OS_CHROMEOS
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   NavigateTo("b.com", "/payment_handler_status.html");
   ASSERT_EQ(expected_response,

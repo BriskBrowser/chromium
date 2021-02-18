@@ -67,7 +67,14 @@ void PersistedData::SetFingerprint(const std::string& id,
 base::FilePath PersistedData::GetExistenceCheckerPath(
     const std::string& id) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return base::FilePath().AppendASCII(GetString(id, kECP));
+#if defined(OS_WIN)
+  base::FilePath::StringType ecp;
+  const std::string str = GetString(id, kECP);
+  return base::UTF8ToWide(str.c_str(), str.size(), &ecp) ? base::FilePath(ecp)
+                                                         : base::FilePath();
+#else
+  return base::FilePath(GetString(id, kECP));
+#endif  // OS_WIN
 }
 
 void PersistedData::SetExistenceCheckerPath(const std::string& id,
@@ -101,6 +108,17 @@ void PersistedData::RegisterApp(const RegistrationRequest& rq) {
   SetExistenceCheckerPath(rq.app_id, rq.existence_checker_path);
   SetBrandCode(rq.app_id, rq.brand_code);
   SetTag(rq.app_id, rq.tag);
+}
+
+bool PersistedData::RemoveApp(const std::string& id) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (!pref_service_)
+    return false;
+
+  DictionaryPrefUpdate update(pref_service_, kPersistedDataPreference);
+  base::Value* apps = update->FindDictKey("apps");
+
+  return apps ? apps->RemoveKey(id) : false;
 }
 
 std::vector<std::string> PersistedData::GetAppIds() const {

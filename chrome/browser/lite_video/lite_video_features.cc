@@ -99,5 +99,51 @@ int MaxOptimizationGuideHintCacheSize() {
              : 1;
 }
 
+base::flat_set<std::string> GetLiteVideoPermanentBlocklist() {
+  if (!IsLiteVideoEnabled())
+    return {};
+
+  const std::string permanent_host_blocklist_json =
+      base::GetFieldTrialParamValueByFeature(::features::kLiteVideo,
+                                             "permanent_host_blocklist");
+  if (permanent_host_blocklist_json.empty())
+    return {};
+
+  base::Optional<base::Value> permanent_host_blocklist_parsed =
+      base::JSONReader::Read(permanent_host_blocklist_json);
+
+  if (!permanent_host_blocklist_parsed ||
+      !permanent_host_blocklist_parsed->is_list())
+    return {};
+
+  base::flat_set<std::string> permanent_host_blocklist;
+  permanent_host_blocklist.reserve(
+      permanent_host_blocklist_parsed->GetList().size());
+  for (const auto& host : permanent_host_blocklist_parsed->GetList()) {
+    if (!host.is_string())
+      continue;
+    permanent_host_blocklist.insert(host.GetString());
+  }
+  return permanent_host_blocklist;
+}
+
+bool IsLiteVideoNotAllowedForPageTransition(
+    ui::PageTransition page_transition) {
+  if (!(page_transition & ui::PAGE_TRANSITION_FORWARD_BACK))
+    return false;
+  return !base::GetFieldTrialParamByFeatureAsBool(
+      ::features::kLiteVideo, "allow_on_forward_back", false);
+}
+
+int GetMaxRebuffersPerFrame() {
+  return GetFieldTrialParamByFeatureAsInt(::features::kLiteVideo,
+                                          "max_rebuffers_per_frame", 1);
+}
+
+bool DisableLiteVideoOnMediaPlayerSeek() {
+  return GetFieldTrialParamByFeatureAsBool(
+      ::features::kLiteVideo, "disable_on_media_player_seek", false);
+}
+
 }  // namespace features
 }  // namespace lite_video

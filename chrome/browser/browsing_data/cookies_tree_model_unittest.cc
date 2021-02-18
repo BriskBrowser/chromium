@@ -11,7 +11,7 @@
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
-#include "chrome/browser/browsing_data/mock_browsing_data_flash_lso_helper.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browsing_data/mock_browsing_data_media_license_helper.h"
 #include "chrome/browser/browsing_data/mock_browsing_data_quota_helper.h"
 #include "chrome/browser/content_settings/cookie_settings_factory.h"
@@ -84,8 +84,6 @@ class CookiesTreeModelTest : public testing::Test {
         new browsing_data::MockSharedWorkerHelper(profile_.get());
     mock_browsing_data_cache_storage_helper_ =
         new browsing_data::MockCacheStorageHelper(profile_.get());
-    mock_browsing_data_flash_lso_helper_ =
-        new MockBrowsingDataFlashLSOHelper(profile_.get());
     mock_browsing_data_media_license_helper_ =
         new MockBrowsingDataMediaLicenseHelper(profile_.get());
 
@@ -112,7 +110,6 @@ class CookiesTreeModelTest : public testing::Test {
     mock_browsing_data_session_storage_helper_ = nullptr;
     mock_browsing_data_local_storage_helper_ = nullptr;
     mock_browsing_data_database_helper_ = nullptr;
-    mock_browsing_data_flash_lso_helper_ = nullptr;
     mock_browsing_data_media_license_helper_ = nullptr;
     base::RunLoop().RunUntilIdle();
   }
@@ -128,7 +125,6 @@ class CookiesTreeModelTest : public testing::Test {
         mock_browsing_data_service_worker_helper_,
         mock_browsing_data_shared_worker_helper_,
         mock_browsing_data_cache_storage_helper_,
-        mock_browsing_data_flash_lso_helper_,
         mock_browsing_data_media_license_helper_);
 
     auto cookies_model = std::make_unique<CookiesTreeModel>(
@@ -158,8 +154,6 @@ class CookiesTreeModelTest : public testing::Test {
     mock_browsing_data_shared_worker_helper_->Notify();
     mock_browsing_data_cache_storage_helper_->AddCacheStorageSamples();
     mock_browsing_data_cache_storage_helper_->Notify();
-    mock_browsing_data_flash_lso_helper_->AddFlashLSODomain("xyz.com");
-    mock_browsing_data_flash_lso_helper_->Notify();
     mock_browsing_data_media_license_helper_->AddMediaLicenseSamples();
     mock_browsing_data_media_license_helper_->Notify();
 
@@ -168,7 +162,7 @@ class CookiesTreeModelTest : public testing::Test {
           "Initial State 3 cookies, 2 databases, 2 local storages, "
           "2 session storages, 2 indexed DBs, 3 filesystems, "
           "2 quotas, 2 service workers, 2 shared workers,"
-          "2 cache storages, 1 Flash LSO, 2 media licenses");
+          "2 cache storages, 2 media licenses");
       // 71 because there's the root, then
       // cshost1 -> cache storage -> https://cshost1:1/
       // cshost2 -> cache storage -> https://cshost2:2/
@@ -193,9 +187,8 @@ class CookiesTreeModelTest : public testing::Test {
       // swhost1 -> service worker -> https://swhost1:1
       // swhost2 -> service worker -> https://swhost1:2
       // sharedworkerhost1 -> shared worker -> https://sharedworkerhost1:1,
-      // sharedworkerhost2 -> shared worker -> https://sharedworkerhost2:2,
-      // xyz.com -> flash_lsos
-      EXPECT_EQ(71, cookies_model->GetRoot()->GetTotalNodeCount());
+      // sharedworkerhost2 -> shared worker -> https://sharedworkerhost2:2
+      EXPECT_EQ(69, cookies_model->GetRoot()->GetTotalNodeCount());
       EXPECT_EQ("A,B,C", GetDisplayedCookies(cookies_model.get()));
       EXPECT_EQ("http://gdbhost1:1/,http://gdbhost2:2/",
                 GetDisplayedDatabases(cookies_model.get()));
@@ -217,7 +210,6 @@ class CookiesTreeModelTest : public testing::Test {
           GetDisplayedSharedWorkers(cookies_model.get()));
       EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
                 GetDisplayedCacheStorages(cookies_model.get()));
-      EXPECT_EQ("xyz.com", GetDisplayedFlashLSOs(cookies_model.get()));
       EXPECT_EQ("https://media1/,https://media2/",
                 GetDisplayedMediaLicenses(cookies_model.get()));
     }
@@ -292,8 +284,6 @@ class CookiesTreeModelTest : public testing::Test {
         return node->GetDetailedInfo().quota_info->host + ",";
       case CookieTreeNode::DetailedInfo::TYPE_SHARED_WORKER:
         return node->GetDetailedInfo().shared_worker_info->worker.spec() + ",";
-      case CookieTreeNode::DetailedInfo::TYPE_FLASH_LSO:
-        return node->GetDetailedInfo().flash_lso_domain + ",";
       case CookieTreeNode::DetailedInfo::TYPE_MEDIA_LICENSE:
         return node->GetDetailedInfo().media_license_info->origin.spec() + ",";
       default:
@@ -369,11 +359,6 @@ class CookiesTreeModelTest : public testing::Test {
                              CookieTreeNode::DetailedInfo::TYPE_CACHE_STORAGE);
   }
 
-  std::string GetDisplayedFlashLSOs(CookiesTreeModel* cookies_model) {
-    return GetDisplayedNodes(
-        cookies_model, CookieTreeNode::DetailedInfo::TYPE_FLASH_LSO);
-  }
-
   std::string GetDisplayedMediaLicenses(CookiesTreeModel* cookies_model) {
     return GetDisplayedNodes(cookies_model,
                              CookieTreeNode::DetailedInfo::TYPE_MEDIA_LICENSE);
@@ -420,8 +405,6 @@ class CookiesTreeModelTest : public testing::Test {
       mock_browsing_data_shared_worker_helper_;
   scoped_refptr<browsing_data::MockCacheStorageHelper>
       mock_browsing_data_cache_storage_helper_;
-  scoped_refptr<MockBrowsingDataFlashLSOHelper>
-      mock_browsing_data_flash_lso_helper_;
   scoped_refptr<MockBrowsingDataMediaLicenseHelper>
       mock_browsing_data_media_license_helper_;
 
@@ -459,8 +442,6 @@ TEST_F(CookiesTreeModelTest, RemoveAll) {
         "https://sharedworkerhost1:1/app/worker.js,"
         "https://sharedworkerhost2:2/worker.js",
         GetDisplayedSharedWorkers(cookies_model.get()));
-    EXPECT_EQ("xyz.com",
-              GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("https://media1/,https://media2/",
               GetDisplayedMediaLicenses(cookies_model.get()));
   }
@@ -496,7 +477,6 @@ TEST_F(CookiesTreeModelTest, RemoveAll) {
     EXPECT_TRUE(mock_browsing_data_service_worker_helper_->AllDeleted());
     EXPECT_TRUE(mock_browsing_data_shared_worker_helper_->AllDeleted());
     EXPECT_TRUE(mock_browsing_data_cache_storage_helper_->AllDeleted());
-    EXPECT_TRUE(mock_browsing_data_flash_lso_helper_->AllDeleted());
     EXPECT_TRUE(mock_browsing_data_media_license_helper_->AllDeleted());
   }
 }
@@ -529,41 +509,9 @@ TEST_F(CookiesTreeModelTest, Remove) {
   // 19. `sharedworkerhost2`
   // 20. `swhost1`
   // 21. `swhost2`
-  // 22. `xyz.com`
   //
   // Here, we'll remove them one by one, starting from the end, and
   // check that the state makes sense. Initially there are 71 total nodes.
-
-  // xyz.com -> flash_lsos (2 nodes)
-  DeleteStoredObjects(cookies_model->GetRoot()->children()[22].get());
-  {
-    SCOPED_TRACE("`xyz.com` removed.");
-    EXPECT_STREQ("A,B,C", GetDisplayedCookies(cookies_model.get()).c_str());
-    EXPECT_EQ("http://gdbhost1:1/,http://gdbhost2:2/",
-              GetDisplayedDatabases(cookies_model.get()));
-    EXPECT_EQ("http://host1:1/,http://host2:2/",
-              GetDisplayedLocalStorages(cookies_model.get()));
-    EXPECT_EQ("http://host1:1/,http://host2:2/",
-              GetDisplayedSessionStorages(cookies_model.get()));
-    EXPECT_EQ("http://fshost1:1/,http://fshost2:2/,http://fshost3:3/",
-              GetDisplayedFileSystems(cookies_model.get()));
-    EXPECT_EQ("http://idbhost1:1/,http://idbhost2:2/",
-              GetDisplayedIndexedDBs(cookies_model.get()));
-    EXPECT_EQ("quotahost1,quotahost2",
-              GetDisplayedQuotas(cookies_model.get()));
-    EXPECT_EQ("https://swhost1:1/,https://swhost2:2/",
-              GetDisplayedServiceWorkers(cookies_model.get()));
-    EXPECT_EQ(
-        "https://sharedworkerhost1:1/app/worker.js,"
-        "https://sharedworkerhost2:2/worker.js",
-        GetDisplayedSharedWorkers(cookies_model.get()));
-    EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
-              GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
-    EXPECT_EQ("https://media1/,https://media2/",
-              GetDisplayedMediaLicenses(cookies_model.get()));
-    EXPECT_EQ(69, cookies_model->GetRoot()->GetTotalNodeCount());
-  }
 
   // swhost2 -> service worker -> https://swhost1:2 (3 objects)
   DeleteStoredObjects(cookies_model->GetRoot()->children()[21].get());
@@ -589,7 +537,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
         GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("https://media1/,https://media2/",
               GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(66, cookies_model->GetRoot()->GetTotalNodeCount());
@@ -618,7 +565,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
         GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("https://media1/,https://media2/",
               GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(63, cookies_model->GetRoot()->GetTotalNodeCount());
@@ -646,7 +592,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
               GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("https://media1/,https://media2/",
               GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(60, cookies_model->GetRoot()->GetTotalNodeCount());
@@ -672,7 +617,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("https://media1/,https://media2/",
               GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(57, cookies_model->GetRoot()->GetTotalNodeCount());
@@ -699,7 +643,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("https://media1/,https://media2/",
               GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(55, cookies_model->GetRoot()->GetTotalNodeCount());
@@ -724,7 +667,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("https://media1/,https://media2/",
               GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(53, cookies_model->GetRoot()->GetTotalNodeCount());
@@ -749,7 +691,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("https://media1/",
               GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(50, cookies_model->GetRoot()->GetTotalNodeCount());
@@ -774,7 +715,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(47, cookies_model->GetRoot()->GetTotalNodeCount());
   }
@@ -798,7 +738,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(44, cookies_model->GetRoot()->GetTotalNodeCount());
   }
@@ -821,7 +760,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(41, cookies_model->GetRoot()->GetTotalNodeCount());
   }
@@ -845,7 +783,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(36, cookies_model->GetRoot()->GetTotalNodeCount());
   }
@@ -867,7 +804,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(31, cookies_model->GetRoot()->GetTotalNodeCount());
   }
@@ -887,7 +823,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(28, cookies_model->GetRoot()->GetTotalNodeCount());
   }
@@ -906,7 +841,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(25, cookies_model->GetRoot()->GetTotalNodeCount());
   }
@@ -926,7 +860,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(22, cookies_model->GetRoot()->GetTotalNodeCount());
   }
@@ -946,7 +879,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(19, cookies_model->GetRoot()->GetTotalNodeCount());
   }
@@ -965,7 +897,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(16, cookies_model->GetRoot()->GetTotalNodeCount());
   }
@@ -984,7 +915,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(13, cookies_model->GetRoot()->GetTotalNodeCount());
   }
@@ -1003,7 +933,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(10, cookies_model->GetRoot()->GetTotalNodeCount());
   }
@@ -1022,7 +951,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(7, cookies_model->GetRoot()->GetTotalNodeCount());
   }
@@ -1041,7 +969,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(4, cookies_model->GetRoot()->GetTotalNodeCount());
   }
@@ -1059,7 +986,6 @@ TEST_F(CookiesTreeModelTest, Remove) {
     EXPECT_EQ("", GetDisplayedServiceWorkers(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedMediaLicenses(cookies_model.get()));
     EXPECT_EQ(1, cookies_model->GetRoot()->GetTotalNodeCount());
   }
@@ -1076,7 +1002,7 @@ TEST_F(CookiesTreeModelTest, RemoveCookiesNode) {
     EXPECT_STREQ("B,C", GetDisplayedCookies(cookies_model.get()).c_str());
     // 69 because in this case, the origin remains, although the COOKIES
     // node beneath it has been deleted.
-    EXPECT_EQ(69, cookies_model->GetRoot()->GetTotalNodeCount());
+    EXPECT_EQ(67, cookies_model->GetRoot()->GetTotalNodeCount());
     EXPECT_EQ("http://gdbhost1:1/,http://gdbhost2:2/",
               GetDisplayedDatabases(cookies_model.get()));
     EXPECT_EQ("http://host1:1/,http://host2:2/",
@@ -1096,7 +1022,6 @@ TEST_F(CookiesTreeModelTest, RemoveCookiesNode) {
         GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("xyz.com", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("https://media1/,https://media2/",
               GetDisplayedMediaLicenses(cookies_model.get()));
   }
@@ -1124,10 +1049,9 @@ TEST_F(CookiesTreeModelTest, RemoveCookiesNode) {
         GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("xyz.com", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("https://media1/,https://media2/",
               GetDisplayedMediaLicenses(cookies_model.get()));
-    EXPECT_EQ(67, cookies_model->GetRoot()->GetTotalNodeCount());
+    EXPECT_EQ(65, cookies_model->GetRoot()->GetTotalNodeCount());
   }
 
   DeleteStoredObjects(
@@ -1153,10 +1077,9 @@ TEST_F(CookiesTreeModelTest, RemoveCookiesNode) {
         GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("xyz.com", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("https://media1/,https://media2/",
               GetDisplayedMediaLicenses(cookies_model.get()));
-    EXPECT_EQ(65, cookies_model->GetRoot()->GetTotalNodeCount());
+    EXPECT_EQ(63, cookies_model->GetRoot()->GetTotalNodeCount());
   }
 }
 
@@ -1188,12 +1111,11 @@ TEST_F(CookiesTreeModelTest, RemoveCookieNode) {
         GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("xyz.com", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("https://media1/,https://media2/",
               GetDisplayedMediaLicenses(cookies_model.get()));
-    // 69 because in this case, the origin remains, although the COOKIES
+    // 67 because in this case, the origin remains, although the COOKIES
     // node beneath it has been deleted.
-    EXPECT_EQ(69, cookies_model->GetRoot()->GetTotalNodeCount());
+    EXPECT_EQ(67, cookies_model->GetRoot()->GetTotalNodeCount());
   }
 
   DeleteStoredObjects(
@@ -1219,10 +1141,9 @@ TEST_F(CookiesTreeModelTest, RemoveCookieNode) {
         GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("xyz.com", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("https://media1/,https://media2/",
               GetDisplayedMediaLicenses(cookies_model.get()));
-    EXPECT_EQ(67, cookies_model->GetRoot()->GetTotalNodeCount());
+    EXPECT_EQ(65, cookies_model->GetRoot()->GetTotalNodeCount());
   }
 
   DeleteStoredObjects(
@@ -1248,10 +1169,9 @@ TEST_F(CookiesTreeModelTest, RemoveCookieNode) {
         GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("https://cshost1:1/,https://cshost2:2/",
               GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("xyz.com", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("https://media1/,https://media2/",
               GetDisplayedMediaLicenses(cookies_model.get()));
-    EXPECT_EQ(65, cookies_model->GetRoot()->GetTotalNodeCount());
+    EXPECT_EQ(63, cookies_model->GetRoot()->GetTotalNodeCount());
   }
 }
 
@@ -1266,7 +1186,6 @@ TEST_F(CookiesTreeModelTest, RemoveSingleCookieNode) {
       mock_browsing_data_service_worker_helper_,
       mock_browsing_data_shared_worker_helper_,
       mock_browsing_data_cache_storage_helper_,
-      mock_browsing_data_flash_lso_helper_,
       mock_browsing_data_media_license_helper_);
   CookiesTreeModel cookies_model(std::move(container),
                                  special_storage_policy());
@@ -1387,7 +1306,6 @@ TEST_F(CookiesTreeModelTest, RemoveSingleCookieNodeOf3) {
       mock_browsing_data_service_worker_helper_,
       mock_browsing_data_shared_worker_helper_,
       mock_browsing_data_cache_storage_helper_,
-      mock_browsing_data_flash_lso_helper_,
       mock_browsing_data_media_license_helper_);
   CookiesTreeModel cookies_model(std::move(container),
                                  special_storage_policy());
@@ -1514,7 +1432,6 @@ TEST_F(CookiesTreeModelTest, RemoveSecondOrigin) {
       mock_browsing_data_service_worker_helper_,
       mock_browsing_data_shared_worker_helper_,
       mock_browsing_data_cache_storage_helper_,
-      mock_browsing_data_flash_lso_helper_,
       mock_browsing_data_media_license_helper_);
   CookiesTreeModel cookies_model(std::move(container),
                                  special_storage_policy());
@@ -1558,7 +1475,6 @@ TEST_F(CookiesTreeModelTest, OriginOrdering) {
       mock_browsing_data_service_worker_helper_,
       mock_browsing_data_shared_worker_helper_,
       mock_browsing_data_cache_storage_helper_,
-      mock_browsing_data_flash_lso_helper_,
       mock_browsing_data_media_license_helper_);
   CookiesTreeModel cookies_model(std::move(container),
                                  special_storage_policy());
@@ -1607,7 +1523,6 @@ TEST_F(CookiesTreeModelTest, ContentSettings) {
       mock_browsing_data_service_worker_helper_,
       mock_browsing_data_shared_worker_helper_,
       mock_browsing_data_cache_storage_helper_,
-      mock_browsing_data_flash_lso_helper_,
       mock_browsing_data_media_license_helper_);
   CookiesTreeModel cookies_model(std::move(container),
                                  special_storage_policy());
@@ -1734,7 +1649,6 @@ TEST_F(CookiesTreeModelTest, CookiesFilter) {
       mock_browsing_data_service_worker_helper_,
       mock_browsing_data_shared_worker_helper_,
       mock_browsing_data_cache_storage_helper_,
-      mock_browsing_data_flash_lso_helper_,
       mock_browsing_data_media_license_helper_);
   CookiesTreeModel cookies_model(std::move(container),
                                  special_storage_policy());
@@ -1776,7 +1690,6 @@ TEST_F(CookiesTreeModelTest, CanonicalizeCookieSource) {
       mock_browsing_data_service_worker_helper_,
       mock_browsing_data_shared_worker_helper_,
       mock_browsing_data_cache_storage_helper_,
-      mock_browsing_data_flash_lso_helper_,
       mock_browsing_data_media_license_helper_);
   CookiesTreeModel cookies_model(std::move(container),
                                  special_storage_policy());
@@ -1864,7 +1777,6 @@ TEST_F(CookiesTreeModelTest, CookiesFilterWithoutSource) {
       mock_browsing_data_service_worker_helper_,
       mock_browsing_data_shared_worker_helper_,
       mock_browsing_data_cache_storage_helper_,
-      mock_browsing_data_flash_lso_helper_,
       mock_browsing_data_media_license_helper_);
   CookiesTreeModel cookies_model(std::move(container),
                                  special_storage_policy());
@@ -1873,61 +1785,6 @@ TEST_F(CookiesTreeModelTest, CookiesFilterWithoutSource) {
       AddCookieSamples(GURL(), "A=1");
   mock_browsing_data_cookie_helper_->Notify();
   EXPECT_EQ("A", GetDisplayedCookies(&cookies_model));
-}
-
-TEST_F(CookiesTreeModelTest, FlashFilter) {
-  std::unique_ptr<CookiesTreeModel> cookies_model(
-      CreateCookiesTreeModelWithInitialSample());
-
-  cookies_model->UpdateSearchResults(base::string16(base::ASCIIToUTF16("xyz")));
-  {
-    SCOPED_TRACE("Search for 'xyz'");
-    EXPECT_EQ("", GetDisplayedCookies(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedDatabases(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedLocalStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedSessionStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFileSystems(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedIndexedDBs(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedServiceWorkers(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("xyz.com", GetDisplayedFlashLSOs(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedMediaLicenses(cookies_model.get()));
-  }
-
-  // Search for any domain containing 'y'.
-  cookies_model->UpdateSearchResults(base::string16(base::ASCIIToUTF16("y")));
-  {
-    SCOPED_TRACE("Search for 'y'");
-    EXPECT_EQ("", GetDisplayedCookies(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedDatabases(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedLocalStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedSessionStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFileSystems(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedIndexedDBs(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedServiceWorkers(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("xyz.com", GetDisplayedFlashLSOs(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedMediaLicenses(cookies_model.get()));
-  }
-
-  // Search for any domain containing 'abc' (which doesn't match anything).
-  cookies_model->UpdateSearchResults(base::string16(base::ASCIIToUTF16("abc")));
-  {
-    SCOPED_TRACE("Search for 'abc'");
-    EXPECT_EQ("", GetDisplayedCookies(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedDatabases(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedLocalStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedSessionStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFileSystems(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedIndexedDBs(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedServiceWorkers(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedMediaLicenses(cookies_model.get()));
-  }
 }
 
 TEST_F(CookiesTreeModelTest, MediaLicensesFilter) {
@@ -1947,7 +1804,6 @@ TEST_F(CookiesTreeModelTest, MediaLicensesFilter) {
     EXPECT_EQ("", GetDisplayedServiceWorkers(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("https://media1/",
               GetDisplayedMediaLicenses(cookies_model.get()));
   }
@@ -1965,7 +1821,6 @@ TEST_F(CookiesTreeModelTest, MediaLicensesFilter) {
     EXPECT_EQ("", GetDisplayedServiceWorkers(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedCacheStorages(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("https://media1/,https://media2/",
               GetDisplayedMediaLicenses(cookies_model.get()));
   }
@@ -1994,7 +1849,6 @@ TEST_F(CookiesTreeModelTest, MediaLicensesFilter) {
         "https://sharedworkerhost1:1/app/worker.js,"
         "https://sharedworkerhost2:2/worker.js",
         GetDisplayedSharedWorkers(cookies_model.get()));
-    EXPECT_EQ("xyz.com", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("https://media1/,https://media2/",
               GetDisplayedMediaLicenses(cookies_model.get()));
   }
@@ -2020,7 +1874,6 @@ TEST_F(CookiesTreeModelTest, MediaLicensesFilter) {
               GetDisplayedServiceWorkers(cookies_model.get()));
     EXPECT_EQ("https://sharedworkerhost1:1/app/worker.js",
               GetDisplayedSharedWorkers(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("https://media1/",
               GetDisplayedMediaLicenses(cookies_model.get()));
   }
@@ -2040,7 +1893,6 @@ TEST_F(CookiesTreeModelTest, MediaLicensesFilter) {
     EXPECT_EQ("", GetDisplayedCacheStorages(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedServiceWorkers(cookies_model.get()));
     EXPECT_EQ("", GetDisplayedSharedWorkers(cookies_model.get()));
-    EXPECT_EQ("", GetDisplayedFlashLSOs(cookies_model.get()));
     EXPECT_EQ("https://media1/,https://media2/",
               GetDisplayedMediaLicenses(cookies_model.get()));
   }
@@ -2052,7 +1904,7 @@ TEST_F(CookiesTreeModelTest, CookieDeletionFilterNormalUser) {
   EXPECT_FALSE(callback);
 }
 
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
+#if defined(OS_ANDROID) || BUILDFLAG(IS_CHROMEOS_ASH)
 TEST_F(CookiesTreeModelTest, CookieDeletionFilterChildUser) {
   profile_->SetSupervisedUserId(supervised_users::kChildAccountSUID);
   auto callback =

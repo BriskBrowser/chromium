@@ -24,6 +24,8 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/layout/grid_layout.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/window/dialog_delegate.h"
 
 namespace {
@@ -45,6 +47,7 @@ namespace {
 // TODO(crbug.com/1011082): Solve this in the general case.
 class GestureScrollableTextfield : public views::Textfield {
  public:
+  METADATA_HEADER(GestureScrollableTextfield);
   explicit GestureScrollableTextfield(views::ScrollView* scroll_parent)
       : scroll_parent_(scroll_parent),
         on_enabled_subscription_(AddEnabledChangedCallback(
@@ -58,13 +61,14 @@ class GestureScrollableTextfield : public views::Textfield {
     Textfield::OnGestureEvent(event);
   }
 
-  void OnEnabledChanged() {
-    set_can_process_events_within_subtree(GetEnabled());
-  }
+  void OnEnabledChanged() { SetCanProcessEventsWithinSubtree(GetEnabled()); }
 
   views::ScrollView* const scroll_parent_;
-  views::PropertyChangedSubscription on_enabled_subscription_;
+  base::CallbackListSubscription on_enabled_subscription_;
 };
+
+BEGIN_METADATA(GestureScrollableTextfield, views::Textfield)
+END_METADATA
 
 }  // anonymous namespace
 
@@ -191,3 +195,6 @@ views::Textfield* CookieInfoView::AddTextfieldRow(int layout_id,
 
   return textfield_ptr;
 }
+
+BEGIN_METADATA(CookieInfoView, views::ScrollView)
+END_METADATA

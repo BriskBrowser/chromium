@@ -27,6 +27,7 @@
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/layout/grid_layout.h"
 #include "ui/views/layout/layout_provider.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/client_view.h"
 #include "ui/views/window/dialog_delegate.h"
@@ -91,7 +92,7 @@ MessageBoxView::MessageBoxView(const base::string16& message,
                        const base::string16& text, bool multi_line,
                        gfx::HorizontalAlignment alignment) {
     auto message_label =
-        std::make_unique<Label>(text, style::CONTEXT_MESSAGE_BOX_BODY_TEXT);
+        std::make_unique<Label>(text, style::CONTEXT_DIALOG_BODY_TEXT);
     message_label->SetMultiLine(!text.empty());
     message_label->SetAllowCharacterBreak(true);
     message_label->SetHorizontalAlignment(alignment);
@@ -134,12 +135,21 @@ MessageBoxView::MessageBoxView(const base::string16& message,
 
 MessageBoxView::~MessageBoxView() = default;
 
+views::Textfield* MessageBoxView::GetVisiblePromptField() {
+  return prompt_field_ && prompt_field_->GetVisible() ? prompt_field_ : nullptr;
+}
+
 base::string16 MessageBoxView::GetInputText() {
-  return prompt_field_ ? prompt_field_->GetText() : base::string16();
+  return prompt_field_ && prompt_field_->GetVisible() ? prompt_field_->GetText()
+                                                      : base::string16();
+}
+
+bool MessageBoxView::HasVisibleCheckBox() const {
+  return checkbox_ && checkbox_->GetVisible();
 }
 
 bool MessageBoxView::IsCheckBoxSelected() {
-  return checkbox_ && checkbox_->GetChecked();
+  return checkbox_ && checkbox_->GetVisible() && checkbox_->GetChecked();
 }
 
 void MessageBoxView::SetCheckBoxLabel(const base::string16& label) {
@@ -165,7 +175,7 @@ void MessageBoxView::SetLink(const base::string16& text,
   DCHECK(!callback.is_null());
   DCHECK(link_);
 
-  link_->set_callback(std::move(callback));
+  link_->SetCallback(std::move(callback));
   if (link_->GetVisible() && link_->GetText() == text)
     return;
   link_->SetText(text);
@@ -208,7 +218,7 @@ void MessageBoxView::SetPromptField(const base::string16& default_prompt) {
 void MessageBoxView::ViewHierarchyChanged(
     const ViewHierarchyChangedDetails& details) {
   if (details.child == this && details.is_add) {
-    if (prompt_field_)
+    if (prompt_field_ && prompt_field_->GetVisible())
       prompt_field_->SelectAll(true);
 
     NotifyAccessibilityEvent(ax::mojom::Event::kAlert, true);
@@ -309,6 +319,6 @@ gfx::Insets MessageBoxView::GetHorizontalInsets(
 }
 
 BEGIN_METADATA(MessageBoxView, View)
-END_METADATA()
+END_METADATA
 
 }  // namespace views

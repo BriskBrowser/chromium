@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/views/controls/button/button.h"
 #include "ui/views/views_export.h"
 
 namespace gfx {
@@ -16,25 +17,24 @@ struct VectorIcon;
 
 namespace views {
 
-class ButtonListener;
 class ImageButton;
 class ToggleImageButton;
 
 // Creates an ImageButton with an ink drop and a centered image built from a
 // vector icon that tracks color changes in NativeTheme.
 VIEWS_EXPORT std::unique_ptr<ImageButton>
-CreateVectorImageButtonWithNativeTheme(ButtonListener* listener,
+CreateVectorImageButtonWithNativeTheme(Button::PressedCallback callback,
                                        const gfx::VectorIcon& icon);
 
 // Creates an ImageButton with an ink drop and a centered image in preparation
 // for applying a vector icon with SetImageFromVectorIcon below.
 VIEWS_EXPORT std::unique_ptr<ImageButton> CreateVectorImageButton(
-    ButtonListener* listener);
+    Button::PressedCallback callback);
 
 // Creates a ToggleImageButton with an ink drop and a centered image in
 // preparation for applying a vector icon from SetImageFromVectorIcon below.
 VIEWS_EXPORT std::unique_ptr<ToggleImageButton> CreateVectorToggleImageButton(
-    ButtonListener* listener);
+    Button::PressedCallback callback);
 
 // Configures an existing ImageButton with an ink drop and a centered image in
 // preparation for applying a vector icon with SetImageFromVectorIcon below.

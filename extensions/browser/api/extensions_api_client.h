@@ -11,9 +11,10 @@
 #include <vector>
 
 #include "base/memory/ref_counted.h"
+#include "build/chromeos_buildflags.h"
 #include "extensions/browser/api/clipboard/clipboard_api.h"
 #include "extensions/browser/api/declarative_content/content_rules_registry.h"
-#include "extensions/browser/api/storage/settings_namespace.h"
+#include "extensions/browser/value_store/settings_namespace.h"
 #include "extensions/common/api/clipboard.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_id.h"
@@ -161,6 +162,11 @@ class ExtensionsAPIClient {
   virtual std::unique_ptr<DevicePermissionsPrompt>
   CreateDevicePermissionsPrompt(content::WebContents* web_contents) const;
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // Returns true if device policy allows detaching a given USB device.
+  virtual bool ShouldAllowDetachingUsb(int vid, int pid) const;
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
   // Returns a delegate for some of VirtualKeyboardAPI's behavior.
   virtual std::unique_ptr<VirtualKeyboardDelegate>
   CreateVirtualKeyboardDelegate(content::BrowserContext* browser_context) const;
@@ -194,7 +200,7 @@ class ExtensionsAPIClient {
   // Returns a delegate for the chrome.feedbackPrivate API.
   virtual FeedbackPrivateDelegate* GetFeedbackPrivateDelegate();
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // If supported by the embedder, returns a delegate for querying non-native
   // file systems.
   virtual NonNativeFileSystemDelegate* GetNonNativeFileSystemDelegate();

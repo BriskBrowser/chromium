@@ -4,6 +4,7 @@
 
 #include "chrome/browser/chromeos/login/screens/reset_screen.h"
 
+#include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/login_screen.h"
 #include "ash/public/cpp/scoped_guest_button_blocker.h"
 #include "base/bind.h"
@@ -12,6 +13,7 @@
 #include "base/task/post_task.h"
 #include "base/values.h"
 #include "build/branding_buildflags.h"
+#include "chrome/browser/ash/reset/metrics.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/browser_process_platform_part_chromeos.h"
@@ -20,20 +22,23 @@
 #include "chrome/browser/chromeos/login/screens/network_error.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/reset/metrics.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/tpm_firmware_update.h"
 #include "chrome/browser/ui/webui/chromeos/login/reset_screen_handler.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/power/power_manager_client.h"
 #include "chromeos/dbus/session_manager/session_manager_client.h"
 #include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
 namespace chromeos {
 namespace {
+
+// TODO(https://crbug.com/1164001): remove after //chrome/browser/chromeos
+// source migration is finished.
+namespace reset = ::ash::reset;
 
 constexpr const char kUserActionCancelReset[] = "cancel-reset";
 constexpr const char kUserActionResetRestartPressed[] = "restart-pressed";
@@ -87,7 +92,7 @@ void StartTPMFirmwareUpdate(
 }
 
 // Checks if powerwash is allowed based on update modes and passes the result
-// to |callback|.
+// to `callback`.
 void OnUpdateModesAvailable(
     base::OnceCallback<void(bool, base::Optional<tpm_firmware_update::Mode>)>
         callback,
@@ -170,7 +175,6 @@ ResetScreen::ResetScreen(ResetView* view,
     view_->SetIsTpmFirmwareUpdateEditable(true);
     view_->SetTpmFirmwareUpdateMode(tpm_firmware_update::Mode::kPowerwash);
     view_->SetShouldShowConfirmationDialog(false);
-    view_->SetIsForcedPowerwash(true);
   }
 }
 
@@ -183,25 +187,14 @@ ResetScreen::~ResetScreen() {
 // static
 void ResetScreen::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterBooleanPref(prefs::kFactoryResetRequested, false);
-  registry->RegisterBooleanPref(prefs::kForceFactoryReset, false);
   registry->RegisterIntegerPref(
       prefs::kFactoryResetTPMFirmwareUpdateMode,
       static_cast<int>(tpm_firmware_update::Mode::kNone));
 }
 
-// static
-void ResetScreen::SetPrefsForForcedPowerwash(PrefService* pref_service) {
-  pref_service->SetBoolean(prefs::kFactoryResetRequested, true);
-  pref_service->SetBoolean(prefs::kForceFactoryReset, true);
-  pref_service->CommitPendingWrite();
-}
-
 void ResetScreen::ShowImpl() {
   if (view_)
     view_->Show();
-
-  PrefService* prefs = g_browser_process->local_state();
-  view_->SetIsForcedPowerwash(prefs->GetBoolean(prefs::kForceFactoryReset));
 
   // Guest sign-in button should be disabled as sign-in is not possible while
   // reset screen is shown.
@@ -211,7 +204,7 @@ void ResetScreen::ShowImpl() {
   }
 
   reset::DialogViewType dialog_type =
-      reset::DIALOG_VIEW_TYPE_SIZE;  // used by UMA metrics.
+      reset::DialogViewType::kCount;  // used by UMA metrics.
 
   bool restart_required = user_manager::UserManager::Get()->IsUserLoggedIn() ||
                           !base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -219,7 +212,7 @@ void ResetScreen::ShowImpl() {
   if (restart_required) {
     if (view_)
       view_->SetScreenState(ResetView::State::kRestartRequired);
-    dialog_type = reset::DIALOG_SHORTCUT_RESTART_REQUIRED;
+    dialog_type = reset::DialogViewType::kShortcutRestartRequired;
   } else {
     if (view_)
       view_->SetScreenState(ResetView::State::kPowerwashProposal);
@@ -230,7 +223,7 @@ void ResetScreen::ShowImpl() {
           switches::kDisableRollbackOption)) {
     if (view_)
       view_->SetIsRollbackAvailable(false);
-    dialog_type = reset::DIALOG_SHORTCUT_OFFERING_ROLLBACK_UNAVAILABLE;
+    dialog_type = reset::DialogViewType::kShortcutOfferingRollbackUnavailable;
   } else {
     chromeos::DBusThreadManager::Get()
         ->GetUpdateEngineClient()
@@ -238,12 +231,13 @@ void ResetScreen::ShowImpl() {
                                           weak_ptr_factory_.GetWeakPtr()));
   }
 
-  if (dialog_type < reset::DIALOG_VIEW_TYPE_SIZE) {
+  if (dialog_type < reset::DialogViewType::kCount) {
     UMA_HISTOGRAM_ENUMERATION("Reset.ChromeOS.PowerwashDialogShown",
-                              dialog_type, reset::DIALOG_VIEW_TYPE_SIZE);
+                              dialog_type, reset::DialogViewType::kCount);
   }
 
   // Set availability of TPM firmware update.
+  PrefService* prefs = g_browser_process->local_state();
   bool tpm_firmware_update_requested =
       prefs->HasPrefPath(prefs::kFactoryResetTPMFirmwareUpdateMode);
   if (tpm_firmware_update_requested) {
@@ -274,8 +268,7 @@ void ResetScreen::ShowImpl() {
 
   // Clear prefs so the reset screen isn't triggered again the next time the
   // device is about to show the login screen.
-  if (!prefs->GetBoolean(prefs::kForceFactoryReset))
-    prefs->ClearPref(prefs::kFactoryResetRequested);
+  prefs->ClearPref(prefs::kFactoryResetRequested);
   prefs->ClearPref(prefs::kFactoryResetTPMFirmwareUpdateMode);
   prefs->CommitPendingWrite();
 }
@@ -314,7 +307,8 @@ void ResetScreen::OnUserAction(const std::string& action_id) {
 }
 
 void ResetScreen::OnCancel() {
-  if (view_ && view_->GetScreenState() == ResetView::State::kRevertPromise) {
+  if (is_hidden() ||
+      (view_ && view_->GetScreenState() == ResetView::State::kRevertPromise)) {
     return;
   }
   // Hide Rollback view for the next show.
@@ -392,8 +386,8 @@ void ResetScreen::OnToggleRollback() {
   if (view_->GetIsRollbackAvailable() && !view_->GetIsRollbackRequested()) {
     UMA_HISTOGRAM_ENUMERATION(
         "Reset.ChromeOS.PowerwashDialogShown",
-        reset::DIALOG_SHORTCUT_OFFERING_ROLLBACK_AVAILABLE,
-        reset::DIALOG_VIEW_TYPE_SIZE);
+        reset::DialogViewType::kShortcutOfferingRollbackAvailable,
+        reset::DialogViewType::kCount);
     view_->SetIsRollbackRequested(true);
   }
 }
@@ -401,10 +395,10 @@ void ResetScreen::OnToggleRollback() {
 void ResetScreen::OnShowConfirm() {
   reset::DialogViewType dialog_type =
       view_->GetIsRollbackRequested()
-          ? reset::DIALOG_SHORTCUT_CONFIRMING_POWERWASH_AND_ROLLBACK
-          : reset::DIALOG_SHORTCUT_CONFIRMING_POWERWASH_ONLY;
+          ? reset::DialogViewType::kShortcutConfirmingPowerwashAndRollback
+          : reset::DialogViewType::kShortcutConfirmingPowerwashOnly;
   UMA_HISTOGRAM_ENUMERATION("Reset.ChromeOS.PowerwashDialogShown", dialog_type,
-                            reset::DIALOG_VIEW_TYPE_SIZE);
+                            reset::DialogViewType::kCount);
 
   view_->SetShouldShowConfirmationDialog(true);
 }
@@ -433,6 +427,8 @@ void ResetScreen::UpdateStatusChanged(
     view_->SetScreenState(ResetView::State::kError);
     // Show error screen.
     error_screen_->SetUIState(NetworkError::UI_STATE_ROLLBACK_ERROR);
+    error_screen_->SetHideCallback(
+        base::BindOnce(&ResetScreen::OnCancel, weak_ptr_factory_.GetWeakPtr()));
     error_screen_->Show(nullptr);
   } else if (status.current_operation() ==
              update_engine::Operation::UPDATED_NEED_REBOOT) {
@@ -450,10 +446,11 @@ void ResetScreen::OnRollbackCheck(bool can_rollback) {
   const bool rollback_available =
       !connector->IsEnterpriseManaged() && can_rollback;
   reset::DialogViewType dialog_type =
-      rollback_available ? reset::DIALOG_SHORTCUT_OFFERING_ROLLBACK_AVAILABLE
-                         : reset::DIALOG_SHORTCUT_OFFERING_ROLLBACK_UNAVAILABLE;
+      rollback_available
+          ? reset::DialogViewType::kShortcutOfferingRollbackAvailable
+          : reset::DialogViewType::kShortcutOfferingRollbackUnavailable;
   UMA_HISTOGRAM_ENUMERATION("Reset.ChromeOS.PowerwashDialogShown", dialog_type,
-                            reset::DIALOG_VIEW_TYPE_SIZE);
+                            reset::DialogViewType::kCount);
 
   view_->SetIsRollbackAvailable(rollback_available);
 }

@@ -13,6 +13,7 @@
 #include "ui/views/controls/table/table_view.h"
 #include "ui/views/controls/table/table_view_observer.h"
 #include "ui/views/layout/fill_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view.h"
 
 namespace {
@@ -91,7 +92,6 @@ class TabListViewObserver : public views::TableViewObserver {
   explicit TabListViewObserver(DesktopMediaListController* controller);
 
   void OnSelectionChanged() override;
-  void OnDoubleClick() override;
   void OnKeyDown(ui::KeyboardCode virtual_keycode) override;
 
  private:
@@ -106,10 +106,6 @@ TabListViewObserver::TabListViewObserver(DesktopMediaListController* controller)
 
 void TabListViewObserver::OnSelectionChanged() {
   controller_->OnSourceSelectionChanged();
-}
-
-void TabListViewObserver::OnDoubleClick() {
-  controller_->AcceptSource();
 }
 
 void TabListViewObserver::OnKeyDown(ui::KeyboardCode virtual_keycode) {
@@ -152,10 +148,6 @@ DesktopMediaTabList::~DesktopMediaTabList() {
   child_->SetModel(nullptr);
 }
 
-const char* DesktopMediaTabList::GetClassName() const {
-  return "DesktopMediaTabList";
-}
-
 gfx::Size DesktopMediaTabList::CalculatePreferredSize() const {
   // The picker should have a fixed height of 10 rows.
   return gfx::Size(0, child_->GetRowHeight() * 10);
@@ -181,3 +173,6 @@ DesktopMediaListController::SourceListListener*
 DesktopMediaTabList::GetSourceListListener() {
   return model_.get();
 }
+
+BEGIN_METADATA(DesktopMediaTabList, DesktopMediaListController::ListView)
+END_METADATA

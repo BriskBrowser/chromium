@@ -84,6 +84,7 @@ MockVideoDecoder::MockVideoDecoder(bool is_platform_decoder,
       supports_decryption_(supports_decryption),
       decoder_name_(std::move(decoder_name)) {
   ON_CALL(*this, CanReadWithoutStalling()).WillByDefault(Return(true));
+  ON_CALL(*this, IsOptimizedForRTC()).WillByDefault(Return(false));
 }
 
 MockVideoDecoder::~MockVideoDecoder() = default;
@@ -98,6 +99,15 @@ bool MockVideoDecoder::SupportsDecryption() const {
 
 std::string MockVideoDecoder::GetDisplayName() const {
   return decoder_name_;
+}
+
+VideoDecoderType MockVideoDecoder::GetDecoderType() const {
+  return VideoDecoderType::kUnknown;
+}
+
+MockVideoEncoder::MockVideoEncoder() = default;
+MockVideoEncoder::~MockVideoEncoder() {
+  Dtor();
 }
 
 MockAudioDecoder::MockAudioDecoder() : MockAudioDecoder("MockAudioDecoder") {}
@@ -124,6 +134,10 @@ bool MockAudioDecoder::SupportsDecryption() const {
 
 std::string MockAudioDecoder::GetDisplayName() const {
   return decoder_name_;
+}
+
+AudioDecoderType MockAudioDecoder::GetDecoderType() const {
+  return AudioDecoderType::kUnknown;
 }
 
 MockRendererClient::MockRendererClient() = default;

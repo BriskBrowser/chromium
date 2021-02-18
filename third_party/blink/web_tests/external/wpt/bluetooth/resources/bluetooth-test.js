@@ -29,24 +29,13 @@ function loadScript(path) {
  * @returns {Promise<void>} Resolves when Chromium specific setup is complete.
  */
 async function performChromiumSetup() {
-  const chromiumResources = [
-    '/gen/content/test/data/mojo_web_test_helper_test.mojom.js',
-    '/gen/device/bluetooth/public/mojom/uuid.mojom.js',
-    '/gen/url/mojom/origin.mojom.js',
-    '/gen/device/bluetooth/public/mojom/test/fake_bluetooth.mojom.js',
-    '/gen/content/shell/common/web_test/fake_bluetooth_chooser.mojom.js',
-  ];
   // Determine path prefixes.
   let resPrefix = '/resources';
-  let extra = ['/resources/chromium/web-bluetooth-test.js'];
+  const chromiumResources = ['/resources/chromium/web-bluetooth-test.js'];
   const pathname = window.location.pathname;
-  if (pathname.includes('/web_tests/')) {
-    let root = pathname.match(/.*(?:web_tests)/);
-    resPrefix = `${root}/external/wpt/resources`;
-    extra = [
-      `${root}/external/wpt/resources/chromium/web-bluetooth-test.js`,
-      `${root}/resources/bluetooth/bluetooth-fake-adapter.js`,
-    ];
+  if (pathname.includes('/wpt_internal/')) {
+    chromiumResources.push(
+        '/wpt_internal/bluetooth/resources/bluetooth-fake-adapter.js');
   }
 
   await loadScript(`${resPrefix}/test-only-api.js`);
@@ -54,10 +43,11 @@ async function performChromiumSetup() {
     return;
   }
 
-  await loadMojoResources(chromiumResources);
-  for (const path of extra) {
+  for (const path of chromiumResources) {
     await loadScript(path);
   }
+
+  await initializeChromiumResources();
 
   // Call setBluetoothFakeAdapter() to clean up any fake adapters left over by
   // legacy tests. Legacy tests that use setBluetoothFakeAdapter() sometimes
@@ -361,5 +351,19 @@ function assert_no_events(object, event_name) {
 function assert_properties_equal(properties, expected_properties) {
   for (let key in expected_properties) {
     assert_equals(properties[key], expected_properties[key]);
+  }
+}
+
+/**
+ * Asserts that |data_map| contains |expected_key|, and that the uint8 values
+ * for |expected_key| matches |expected_value|.
+ */
+function assert_data_maps_equal(data_map, expected_key, expected_value) {
+  assert_true(data_map.has(expected_key));
+
+  const value = new Uint8Array(data_map.get(expected_key).buffer);
+  assert_equals(value.length, expected_value.length);
+  for (let i = 0; i < value.length; ++i) {
+    assert_equals(value[i], expected_value[i]);
   }
 }

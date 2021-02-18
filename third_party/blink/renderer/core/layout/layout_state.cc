@@ -49,7 +49,7 @@ LayoutState::LayoutState(LayoutBox& layout_object,
       next_(layout_object.View()->GetLayoutState()),
       layout_object_(&layout_object) {
   if (layout_object.IsLayoutFlowThread())
-    flow_thread_ = ToLayoutFlowThread(&layout_object);
+    flow_thread_ = To<LayoutFlowThread>(&layout_object);
   else
     flow_thread_ = next_->FlowThread();
   pagination_state_changed_ = next_->pagination_state_changed_;
@@ -72,7 +72,8 @@ LayoutState::LayoutState(LayoutBox& layout_object,
   // Disable pagination for objects we don't support. For now this includes
   // overflow:scroll/auto, inline blocks and writing mode roots. Additionally,
   // pagination inside SVG is not allowed.
-  if (layout_object.GetPaginationBreakability() == LayoutBox::kForbidBreaks ||
+  if (layout_object.GetLegacyPaginationBreakability() ==
+          LayoutBox::kForbidBreaks ||
       layout_object_->IsSVGChild()) {
     flow_thread_ = nullptr;
     is_paginated_ = false;
@@ -92,7 +93,7 @@ LayoutState::LayoutState(LayoutBox& layout_object,
   if (LayoutObject* container = layout_object.Container()) {
     if (container->StyleRef().HasInFlowPosition() &&
         container->IsLayoutInline()) {
-      pagination_offset_ += ToLayoutInline(container)
+      pagination_offset_ += To<LayoutInline>(container)
                                 ->OffsetForInFlowPositionedInline(layout_object)
                                 .ToLayoutSize();
     }

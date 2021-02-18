@@ -4,9 +4,13 @@
 
 #include "components/performance_manager/test_support/performance_manager_browsertest_harness.h"
 
-#include "base/bind_helpers.h"
+#include <memory>
+
 #include "base/run_loop.h"
-#include "components/performance_manager/embedder/performance_manager_registry.h"
+#include "base/synchronization/condition_variable.h"
+#include "base/synchronization/lock.h"
+#include "components/performance_manager/embedder/performance_manager_lifetime.h"
+#include "components/performance_manager/performance_manager_impl.h"
 #include "content/public/common/content_switches.h"
 #include "content/shell/browser/shell.h"
 #include "content/shell/browser/shell_content_browser_client.h"
@@ -18,12 +22,39 @@
 
 namespace performance_manager {
 
-PerformanceManagerBrowserTestHarness::PerformanceManagerBrowserTestHarness() {
-  helper_ = std::make_unique<PerformanceManagerTestHarnessHelper>();
-}
+PerformanceManagerBrowserTestHarness::PerformanceManagerBrowserTestHarness() =
+    default;
 
 PerformanceManagerBrowserTestHarness::~PerformanceManagerBrowserTestHarness() =
     default;
+
+void PerformanceManagerBrowserTestHarness::SetUp() {
+  // We use a ConditionVariable instead of RunLoop because the task environment
+  // isn't initialized until *after* calling Super::SetUp, but we need to setup
+  // the callback before that point.
+  base::Lock lock;
+  base::ConditionVariable cv(&lock);
+  bool graph_initialization_complete = false;
+  PerformanceManagerLifetime::SetDecoratorsOverrideForTesting(
+      Decorators::kNone);
+  PerformanceManagerLifetime::SetAdditionalGraphCreatedCallbackForTesting(
+      base::BindLambdaForTesting([&](Graph* graph) {
+        OnGraphCreatedImpl(graph);
+        base::AutoLock auto_lock(lock);
+        graph_initialization_complete = true;
+        cv.Signal();
+      }));
+
+  // The PM gets initialized in the following, so this must occur after setting
+  // up the callback.
+  Super::SetUp();
+
+  // Wait until the PM is initialized and callbacks have been invoked on the
+  // PM sequence.
+  base::AutoLock auto_lock(lock);
+  while (!graph_initialization_complete)
+    cv.Wait();
+}
 
 void PerformanceManagerBrowserTestHarness::PreRunTestOnMainThread() {
   Super::PreRunTestOnMainThread();
@@ -35,11 +66,6 @@ void PerformanceManagerBrowserTestHarness::PreRunTestOnMainThread() {
   ASSERT_TRUE(embedded_test_server()->Start());
 }
 
-void PerformanceManagerBrowserTestHarness::PostRunTestOnMainThread() {
-  helper_->TearDown();
-  Super::PostRunTestOnMainThread();
-}
-
 void PerformanceManagerBrowserTestHarness::SetUpCommandLine(
     base::CommandLine* command_line) {
   // Ensure the PM logic is enabled in renderers.
@@ -47,42 +73,7 @@ void PerformanceManagerBrowserTestHarness::SetUpCommandLine(
                                   "PerformanceManagerInstrumentation");
 }
 
-// We're a full embedder of the PM, so we have to wire up all of the embedder
-// hooks. Note that this runs *before* PreRunTestOnMainThread.
-void PerformanceManagerBrowserTestHarness::CreatedBrowserMainParts(
-    content::BrowserMainParts* browser_main_parts) {
-  helper_->SetUp();
-
-  content::ShellContentBrowserClient::Get()
-      ->set_web_contents_view_delegate_callback(
-          base::BindRepeating([](content::WebContents* contents)
-                                  -> content::WebContentsViewDelegate* {
-            PerformanceManagerRegistry::GetInstance()
-                ->MaybeCreatePageNodeForWebContents(contents);
-            return content::CreateShellWebContentsViewDelegate(contents);
-          }));
-
-  // Expose interfaces to RenderProcess.
-  content::ShellContentBrowserClient::Get()
-      ->set_expose_interfaces_to_renderer_callback(base::BindRepeating(
-          [](service_manager::BinderRegistry* registry,
-             blink::AssociatedInterfaceRegistry* associated_registry_unused,
-             content::RenderProcessHost* render_process_host) {
-            PerformanceManagerRegistry::GetInstance()
-                ->CreateProcessNodeAndExposeInterfacesToRendererProcess(
-                    registry, render_process_host);
-          }));
-
-  // Expose interfaces to RenderFrame.
-  content::ShellContentBrowserClient::Get()
-      ->set_register_browser_interface_binders_for_frame_callback(
-          base::BindRepeating(
-              [](content::RenderFrameHost* render_frame_host,
-                 mojo::BinderMapWithContext<content::RenderFrameHost*>* map) {
-                PerformanceManagerRegistry::GetInstance()
-                    ->ExposeInterfacesToRenderFrame(map);
-              }));
-}
+void PerformanceManagerBrowserTestHarness::OnGraphCreated(Graph* graph) {}
 
 content::Shell* PerformanceManagerBrowserTestHarness::CreateShell() {
   content::Shell* shell = CreateBrowser();
@@ -127,6 +118,11 @@ void PerformanceManagerBrowserTestHarness::WaitForLoad(
     content::WebContents* contents) {
   WaitForLoadObserver observer(contents);
   observer.Wait();
+}
+
+void PerformanceManagerBrowserTestHarness::OnGraphCreatedImpl(Graph* graph) {
+  graph_features_helper_.ConfigureGraph(graph);
+  OnGraphCreated(graph);
 }
 
 }  // namespace performance_manager

@@ -5,11 +5,9 @@
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
 
 #include "ash/public/cpp/app_types.h"
-#include "ash/public/cpp/multi_user_window_manager.h"
 #include "ash/public/cpp/resources/grit/ash_public_unscaled_resources.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/ash/multi_user/multi_user_window_manager_helper.h"
 #include "chrome/browser/ui/ash/window_properties.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_navigator.h"
@@ -23,7 +21,6 @@
 #include "chrome/browser/web_applications/components/web_app_utils.h"
 #include "chrome/browser/web_applications/system_web_app_manager.h"
 #include "chrome/common/webui_url_constants.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/aura/client/aura_constants.h"
 #include "url/gurl.h"
@@ -32,28 +29,35 @@ namespace chrome {
 
 namespace {
 
-// This method handles the case of resurfacing the user's OS Settings
-// standalone window that may be at the time located on another user's desktop.
-void ShowSettingsOnCurrentDesktop(Browser* browser) {
-  auto* window_manager = MultiUserWindowManagerHelper::GetWindowManager();
-  if (window_manager && browser) {
-    window_manager->ShowWindowForUser(browser->window()->GetNativeWindow(),
-                                      window_manager->CurrentAccountId());
-    browser->window()->Show();
-  }
-}
-
-bool AreSystemWebAppsEnabled(Profile* profile) {
-  return web_app::SystemWebAppManager::IsEnabled() &&
-         web_app::AreWebAppsEnabled(profile) &&
-         !chrome::IsRunningInForcedAppMode();
-}
+bool g_force_deprecated_settings_window_for_testing = false;
+SettingsWindowManager* g_settings_window_manager_for_testing = nullptr;
 
 }  // namespace
 
 // static
 SettingsWindowManager* SettingsWindowManager::GetInstance() {
-  return base::Singleton<SettingsWindowManager>::get();
+  return g_settings_window_manager_for_testing
+             ? g_settings_window_manager_for_testing
+             : base::Singleton<SettingsWindowManager>::get();
+}
+
+// static
+void SettingsWindowManager::SetInstanceForTesting(
+    SettingsWindowManager* manager) {
+  g_settings_window_manager_for_testing = manager;
+}
+
+// static
+void SettingsWindowManager::ForceDeprecatedSettingsWindowForTesting() {
+  g_force_deprecated_settings_window_for_testing = true;
+}
+
+// static
+bool SettingsWindowManager::UseDeprecatedSettingsWindow(
+    const Profile* profile) {
+  return !web_app::AreWebAppsEnabled(profile) ||
+         chrome::IsRunningInForcedAppMode() ||
+         g_force_deprecated_settings_window_for_testing;
 }
 
 void SettingsWindowManager::AddObserver(
@@ -73,21 +77,12 @@ void SettingsWindowManager::ShowChromePageForProfile(Profile* profile,
   if (!profile->IsGuestSession() && profile->IsOffTheRecord())
     profile = profile->GetOriginalProfile();
 
-  // TODO(calamity): Auto-launch the settings app on install if not found, and
-  // figure out how to invoke OnNewSettingsWindow() in that case.
-  if (AreSystemWebAppsEnabled(profile)) {
-    bool did_create;
-    Browser* browser = web_app::LaunchSystemWebApp(
-        profile, web_app::SystemAppType::SETTINGS, gurl,
-        /*params=*/base::nullopt, &did_create);
-    ShowSettingsOnCurrentDesktop(browser);
-    // Only notify if we created a new browser.
-    if (!did_create || !browser)
-      return;
-
-    for (SettingsWindowManagerObserver& observer : observers_)
-      observer.OnNewSettingsWindow(browser);
-
+  // TODO(crbug.com/1067073): Remove legacy Settings Window.
+  if (!UseDeprecatedSettingsWindow(profile)) {
+    web_app::LaunchSystemWebAppAsync(profile, web_app::SystemAppType::SETTINGS,
+                                     {.url = gurl});
+    // SWA OS Settings don't use SettingsWindowManager to manage windows, don't
+    // notify SettingsWindowObservers.
     return;
   }
 
@@ -143,7 +138,7 @@ void SettingsWindowManager::ShowOSSettings(Profile* profile,
 }
 
 Browser* SettingsWindowManager::FindBrowserForProfile(Profile* profile) {
-  if (AreSystemWebAppsEnabled(profile)) {
+  if (!UseDeprecatedSettingsWindow(profile)) {
     return web_app::FindSystemWebAppBrowser(profile,
                                             web_app::SystemAppType::SETTINGS);
   }
@@ -159,7 +154,7 @@ bool SettingsWindowManager::IsSettingsBrowser(Browser* browser) const {
   DCHECK(browser);
 
   Profile* profile = browser->profile();
-  if (AreSystemWebAppsEnabled(profile)) {
+  if (!UseDeprecatedSettingsWindow(profile)) {
     if (!browser->app_controller() || !browser->app_controller()->HasAppId())
       return false;
 

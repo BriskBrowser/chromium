@@ -5,7 +5,7 @@
 #include "components/policy/core/common/cloud/mock_device_management_service.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/strings/string_util.h"
 #include "base/task/post_task.h"
@@ -65,6 +65,10 @@ ACTION_P(CreateCaptureQuertyParamsAction, params) {
   *params = arg0->GetConfiguration()->GetQueryParams();
 }
 
+ACTION_P(CreateCaptureAuthDataAction, auth_data) {
+  *auth_data = arg0->GetConfiguration()->GetAuth().Clone();
+}
+
 ACTION_P(CreateCaptureRequestAction, request) {
   std::string payload = arg0->GetConfiguration()->GetPayload();
   CHECK(request->ParseFromString(payload));
@@ -97,12 +101,19 @@ std::string MockDeviceManagementServiceConfiguration::GetPlatformParameter() {
   return kPlatform;
 }
 
-std::string MockDeviceManagementServiceConfiguration::GetReportingServerUrl() {
+std::string
+MockDeviceManagementServiceConfiguration::GetRealtimeReportingServerUrl() {
   return server_url_;
 }
 
 std::string
-MockDeviceManagementServiceConfiguration::GetReportingConnectorServerUrl() {
+MockDeviceManagementServiceConfiguration::GetEncryptedReportingServerUrl() {
+  return server_url_;
+}
+
+std::string
+MockDeviceManagementServiceConfiguration::GetReportingConnectorServerUrl(
+    content::BrowserContext* context) {
   return server_url_;
 }
 
@@ -161,6 +172,11 @@ testing::Action<MockDeviceManagementService::StartJobFunction>
 MockDeviceManagementService::CaptureQueryParams(
     DeviceManagementService::JobConfiguration::ParameterMap* params) {
   return CreateCaptureQuertyParamsAction(params);
+}
+
+testing::Action<MockDeviceManagementService::StartJobFunction>
+MockDeviceManagementService::CaptureAuthData(DMAuth* auth_data) {
+  return CreateCaptureAuthDataAction(auth_data);
 }
 
 testing::Action<MockDeviceManagementService::StartJobFunction>
@@ -235,7 +251,7 @@ FakeJobConfiguration::FakeJobConfiguration(
     JobType type,
     const std::string& client_id,
     bool critical,
-    std::unique_ptr<DMAuth> auth_data,
+    DMAuth auth_data,
     base::Optional<std::string> oauth_token,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     FakeCallback callback,

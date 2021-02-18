@@ -14,6 +14,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "base/metrics/histogram_functions.h"
 #include "base/observer_list.h"
 #include "ui/accessibility/ax_enums.mojom-forward.h"
 #include "ui/accessibility/ax_export.h"
@@ -28,6 +29,34 @@ class AXTableInfo;
 class AXTreeObserver;
 struct AXTreeUpdateState;
 class AXLanguageDetectionManager;
+
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class AXTreeUnserializeError {
+  // Tree has no root.
+  kNoRoot = 0,
+  // Node will not be in the tree and is not the new root.
+  kNotInTree = 1,
+  // Node is already pending for creation, cannot be the new root
+  kCreationPending = 2,
+  // Node has duplicate child.
+  kDuplicateChild = 3,
+  // Node is already pending for creation, cannot be a new child.
+  kCreationPendingForChild = 4,
+  // Node is not marked for destruction, would be reparented.
+  kReparent = 5,
+  // Nodes are left pending by the update.
+  kPendingNodes = 6,
+  // Changes left pending by the update;
+  kPendingChanges = 7,
+  // This must always be the last enum. It's okay for its value to
+  // increase, but none of the other enum values may change.
+  kMaxValue = kPendingChanges
+};
+
+#define ACCESSIBILITY_TREE_UNSERIALIZE_ERROR_HISTOGRAM(enum_value) \
+  base::UmaHistogramEnumeration(                                   \
+      "Accessibility.Reliability.Tree.UnserializeError", enum_value)
 
 // AXTree is a live, managed tree of AXNode objects that can receive
 // updates from another AXTreeSource via AXTreeUpdates, and it can be
@@ -58,7 +87,7 @@ class AX_EXPORT AXTree : public AXNode::OwnerTree {
 
   AXNode* root() const { return root_; }
 
-  const AXTreeData& data() const { return data_; }
+  const AXTreeData& data() const override;
 
   // Destroys the tree and notifies all observers.
   void Destroy();
@@ -175,8 +204,19 @@ class AX_EXPORT AXTree : public AXNode::OwnerTree {
     return event_intents_;
   }
 
+  // Notify the delegate that the tree manager for |previous_tree_id| will be
+  // removed from the AXTreeManagerMap. Because we sometimes remove the tree
+  // manager after the tree's id has been modified, we need to pass the (old)
+  // tree id associated with the manager we are removing even though it is the
+  // same tree.
+  void NotifyTreeManagerWillBeRemoved(AXTreeID previous_tree_id);
+
  private:
   friend class AXTableInfoTest;
+
+  // Accumulate errors as there can be more than one before Chrome is crashed
+  // via AccessibilityFatalError();
+  void RecordError(std::string new_error);
 
   // AXNode::OwnerTree override.
   //
@@ -191,7 +231,7 @@ class AX_EXPORT AXTree : public AXNode::OwnerTree {
   AXTableInfo* GetTableInfo(const AXNode* table_node) const override;
 
   AXNode* CreateNode(AXNode* parent,
-                     AXNode::AXID id,
+                     AXNodeID id,
                      size_t index_in_parent,
                      AXTreeUpdateState* update_state);
 
@@ -233,7 +273,7 @@ class AX_EXPORT AXTree : public AXNode::OwnerTree {
   // We are passing the node id instead of ax node is because by the time this
   // function is called, the ax node in the tree will already have been
   // destroyed.
-  void NotifyNodeHasBeenDeleted(AXNode::AXID node_id);
+  void NotifyNodeHasBeenDeleted(AXNodeID node_id);
 
   // Notify the delegate that |node| has been created or reparented.
   void NotifyNodeHasBeenReparentedOrCreated(
@@ -259,12 +299,12 @@ class AX_EXPORT AXTree : public AXNode::OwnerTree {
 
   // Modifies |update_state| so that it knows what subtree and nodes are
   // going to be destroyed for the subtree rooted at |node|.
-  void MarkSubtreeForDestruction(AXNode::AXID node_id,
+  void MarkSubtreeForDestruction(AXNodeID node_id,
                                  AXTreeUpdateState* update_state);
 
   // Modifies |update_state| so that it knows what nodes are
   // going to be destroyed for the subtree rooted at |node|.
-  void MarkNodesForDestructionRecursive(AXNode::AXID node_id,
+  void MarkNodesForDestructionRecursive(AXNodeID node_id,
                                         AXTreeUpdateState* update_state);
 
   // Validates that destroying the subtree rooted at |node| has required

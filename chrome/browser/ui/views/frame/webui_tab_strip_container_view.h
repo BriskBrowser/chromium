@@ -9,15 +9,16 @@
 #include <set>
 
 #include "base/optional.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_multi_source_observation.h"
 #include "base/time/time.h"
-#include "chrome/browser/ui/views/toolbar/toolbar_button.h"
+#include "build/build_config.h"
 #include "chrome/browser/ui/webui/tab_strip/tab_strip_ui.h"
 #include "chrome/browser/ui/webui/tab_strip/tab_strip_ui_embedder.h"
 #include "chrome/browser/ui/webui/tab_strip/tab_strip_ui_metrics.h"
 #include "chrome/common/buildflags.h"
 #include "components/tab_groups/tab_group_id.h"
 #include "ui/events/event_handler.h"
+#include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/views/accessible_pane_view.h"
 #include "ui/views/view.h"
@@ -46,12 +47,11 @@ class ImmersiveRevealedLock;
 class WebUITabStripContainerView : public TabStripUIEmbedder,
                                    public gfx::AnimationDelegate,
                                    public views::AccessiblePaneView,
-                                   public views::ButtonListener,
                                    public views::ViewObserver {
  public:
   WebUITabStripContainerView(BrowserView* browser_view,
                              views::View* tab_contents_container,
-                             views::View* drag_handle,
+                             views::View* top_container,
                              views::View* omnibox);
   ~WebUITabStripContainerView() override;
 
@@ -71,13 +71,14 @@ class WebUITabStripContainerView : public TabStripUIEmbedder,
   // Control button. Must only be called once.
   std::unique_ptr<views::View> CreateTabCounter();
 
+  views::View* tab_counter() const { return tab_counter_; }
+
   // Clicking the tab counter button opens and closes the container with
   // an animation, so it is unsuitable for an interactive test. This
   // should be called instead. View::SetVisible() isn't sufficient since
   // the container's preferred size will change.
   void SetVisibleForTesting(bool visible);
   views::WebView* web_view_for_testing() const { return web_view_; }
-  views::View* tab_counter_for_testing() const { return tab_counter_; }
 
   // Finish the open or close animation if it's active.
   void FinishAnimationForTesting();
@@ -85,7 +86,6 @@ class WebUITabStripContainerView : public TabStripUIEmbedder,
  private:
   class AutoCloser;
   class DragToOpenHandler;
-  class IPHController;
 
   // Called as we are dragged open.
   bool CanStartDragToOpen(WebUITabStripDragDirection direction) const;
@@ -96,6 +96,8 @@ class WebUITabStripContainerView : public TabStripUIEmbedder,
   // just this direction to animate open or closed.
   void EndDragToOpen(base::Optional<WebUITabStripDragDirection>
                          fling_direction = base::nullopt);
+
+  void TabCounterPressed(const ui::Event& event);
 
   void SetContainerTargetVisibility(bool target_visible,
                                     WebUITabStripOpenCloseReason reason);
@@ -125,9 +127,6 @@ class WebUITabStripContainerView : public TabStripUIEmbedder,
   void AnimationEnded(const gfx::Animation* animation) override;
   void AnimationProgressed(const gfx::Animation* animation) override;
 
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
-
   // views::ViewObserver:
   void OnViewBoundsChanged(View* observed_view) override;
   void OnViewIsDeleting(View* observed_view) override;
@@ -135,10 +134,22 @@ class WebUITabStripContainerView : public TabStripUIEmbedder,
   // views::AccessiblePaneView
   bool SetPaneFocusAndFocusDefault() override;
 
-  Browser* const browser_;
+  BrowserView* const browser_view_;
   views::WebView* const web_view_;
+  views::View* const top_container_;
   views::View* tab_contents_container_;
   views::View* tab_counter_ = nullptr;
+
+#if defined(OS_WIN)
+  // If the user interacts with Windows in a way that changes the width of the
+  // window, close the top container. This is similar to the auto-close when the
+  // user touches outside the tabstrip.
+  //
+  // TODO(dfried, davidbienvenu): we can remove this as soon as we move to the
+  // more modern Windows drag-drop system, avoiding some of the weirdness around
+  // starting drag-drop.
+  int old_top_container_width_ = 0;
+#endif  // defined(OS_WIN)
 
   base::Optional<float> current_drag_height_;
 
@@ -153,12 +164,12 @@ class WebUITabStripContainerView : public TabStripUIEmbedder,
 
   std::unique_ptr<AutoCloser> auto_closer_;
   std::unique_ptr<DragToOpenHandler> drag_to_open_handler_;
-  std::unique_ptr<IPHController> iph_controller_;
 
   std::unique_ptr<views::MenuRunner> context_menu_runner_;
   std::unique_ptr<ui::MenuModel> context_menu_model_;
 
-  ScopedObserver<views::View, views::ViewObserver> view_observer_{this};
+  base::ScopedMultiSourceObservation<views::View, views::ViewObserver>
+      view_observations_{this};
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_FRAME_WEBUI_TAB_STRIP_CONTAINER_VIEW_H_

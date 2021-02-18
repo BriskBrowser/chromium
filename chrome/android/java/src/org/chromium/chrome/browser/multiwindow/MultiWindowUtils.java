@@ -28,7 +28,7 @@ import org.chromium.base.IntentUtils;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.ChromeTabbedActivity2;
 import org.chromium.chrome.browser.IntentHandler;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.util.AndroidTaskUtils;
 import org.chromium.ui.display.DisplayAndroidManager;
 
 import java.lang.ref.WeakReference;
@@ -77,7 +77,6 @@ public class MultiWindowUtils implements ActivityStateListener {
      * @return Whether the system currently supports multiple displays, requiring Android Q+.
      */
     public boolean isInMultiDisplayMode(Activity activity) {
-        if (!ChromeFeatureList.isEnabled(ChromeFeatureList.ANDROID_MULTIPLE_DISPLAY)) return false;
         // TODO(crbug.com/824954): Consider supporting more displays.
         return ApiCompatibilityUtils.getTargetableDisplayIds(activity).size() == 2;
     }
@@ -174,9 +173,6 @@ public class MultiWindowUtils implements ActivityStateListener {
      * @return The targetable secondary display. {@code Display.INVALID_DISPLAY} if not found.
      */
     public static int getDisplayIdForTargetableSecondaryDisplay(Activity activity) {
-        if (!ChromeFeatureList.isEnabled(ChromeFeatureList.ANDROID_MULTIPLE_DISPLAY)) {
-            return Display.INVALID_DISPLAY;
-        }
         List<Integer> displays = ApiCompatibilityUtils.getTargetableDisplayIds(activity);
         Display defaultDisplay = DisplayAndroidManager.getDefaultDisplayForContext(activity);
         if (displays.size() != 0) {
@@ -204,10 +200,11 @@ public class MultiWindowUtils implements ActivityStateListener {
     public static String getActivityNameFromTask(AppTask task) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return "";
 
-        if (task.getTaskInfo() == null || task.getTaskInfo().baseActivity == null) return "";
+        ActivityManager.RecentTaskInfo taskInfo = AndroidTaskUtils.getTaskInfoFromTask(task);
+        if (taskInfo == null || taskInfo.baseActivity == null) return "";
 
-        String baseActivity = task.getTaskInfo().baseActivity.getClassName();
-        // Contrary to the documentation task.getTaskInfo().baseActivity for the .LauncherMain
+        String baseActivity = taskInfo.baseActivity.getClassName();
+        // Contrary to the documentation taskInfo.baseActivity for the .LauncherMain
         // activity alias is the alias itself, and not the implementation. Filed b/66729258;
         // for now translate the alias manually.
         if (TextUtils.equals(baseActivity, ChromeTabbedActivity.MAIN_LAUNCHER_ACTIVITY_NAME)) {

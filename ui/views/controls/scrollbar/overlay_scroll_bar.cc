@@ -16,6 +16,7 @@
 #include "ui/views/background.h"
 #include "ui/views/border.h"
 #include "ui/views/layout/fill_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace views {
 namespace {
@@ -42,7 +43,7 @@ OverlayScrollBar::Thumb::Thumb(OverlayScrollBar* scroll_bar)
 OverlayScrollBar::Thumb::~Thumb() = default;
 
 void OverlayScrollBar::Thumb::Init() {
-  EnableCanvasFlippingForRTLUI(true);
+  SetFlipCanvasOnPaintForRTLUI(true);
   SetPaintToLayer();
   layer()->SetFillsBoundsOpaquely(false);
   // Animate all changes to the layer except the first one.
@@ -127,7 +128,7 @@ void OverlayScrollBar::Thumb::OnStateChanged() {
 }
 
 OverlayScrollBar::OverlayScrollBar(bool horizontal) : ScrollBar(horizontal) {
-  set_notify_enter_exit_on_child(true);
+  SetNotifyEnterExitOnChild(true);
   SetPaintToLayer();
   layer()->SetMasksToBounds(true);
   layer()->SetFillsBoundsOpaquely(false);
@@ -188,6 +189,6 @@ void OverlayScrollBar::StartHideCountdown() {
 }
 
 BEGIN_METADATA(OverlayScrollBar, ScrollBar)
-END_METADATA()
+END_METADATA
 
 }  // namespace views

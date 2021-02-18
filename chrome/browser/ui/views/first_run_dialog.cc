@@ -26,6 +26,7 @@
 #include "ui/views/controls/button/checkbox.h"
 #include "ui/views/controls/link.h"
 #include "ui/views/layout/grid_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/dialog_delegate.h"
 
@@ -71,9 +72,9 @@ FirstRunDialog::FirstRunDialog(Profile* profile) {
   SetButtons(ui::DIALOG_BUTTON_OK);
   SetExtraView(
       std::make_unique<views::Link>(l10n_util::GetStringUTF16(IDS_LEARN_MORE)))
-      ->set_callback(base::BindRepeating(&platform_util::OpenExternal,
-                                         base::Unretained(profile),
-                                         GURL(chrome::kLearnMoreReportingURL)));
+      ->SetCallback(base::BindRepeating(&platform_util::OpenExternal,
+                                        base::Unretained(profile),
+                                        GURL(chrome::kLearnMoreReportingURL)));
 
   set_margins(ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(
       views::TEXT, views::TEXT));
@@ -116,7 +117,7 @@ bool FirstRunDialog::Accept() {
 
   ChangeMetricsReportingStateWithReply(
       report_crashes_->GetChecked(),
-      base::BindRepeating(&InitCrashReporterIfEnabled));
+      base::BindOnce(&InitCrashReporterIfEnabled));
 
   if (make_default_->GetChecked())
     shell_integration::SetAsDefaultBrowser();
@@ -129,3 +130,6 @@ void FirstRunDialog::WindowClosing() {
   first_run::SetShouldShowWelcomePage();
   Done();
 }
+
+BEGIN_METADATA(FirstRunDialog, views::DialogDelegateView)
+END_METADATA

@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// #import {OsSettingsRoutes} from './os_settings_routes.m.js'
-
 Polymer({
   is: 'settings-multidevice-smartlock-subpage',
 
   behaviors: [
+    DeepLinkingBehavior,
     MultiDeviceFeatureBehavior,
+    settings.RouteObserverBehavior,
     WebUIListenerBehavior,
   ],
 
@@ -60,6 +60,18 @@ Polymer({
     authToken_: {
       type: Object,
     },
+
+    /**
+     * Used by DeepLinkingBehavior to focus this page's deep links.
+     * @type {!Set<!chromeos.settings.mojom.Setting>}
+     */
+    supportedSettingIds: {
+      type: Object,
+      value: () => new Set([
+        chromeos.settings.mojom.Setting.kSmartLockOnOff,
+        chromeos.settings.mojom.Setting.kSmartLockUnlockOrSignIn,
+      ]),
+    },
   },
 
   /** @private {?settings.MultiDeviceBrowserProxy} */
@@ -87,13 +99,26 @@ Polymer({
   },
 
   /**
+   * @param {!settings.Route} route
+   * @param {!settings.Route} oldRoute
+   */
+  currentRouteChanged(route, oldRoute) {
+    // Does not apply to this page.
+    if (route !== settings.routes.SMART_LOCK) {
+      return;
+    }
+
+    this.attemptDeepLink();
+  },
+
+  /**
    * Returns true if Smart Lock is an enabled feature.
    * @return {boolean}
    * @private
    */
   computeIsSmartLockEnabled_() {
     return !!this.pageContentData &&
-        this.getFeatureState(settings.MultiDeviceFeature.SMART_LOCK) ==
+        this.getFeatureState(settings.MultiDeviceFeature.SMART_LOCK) ===
         settings.MultiDeviceFeatureState.ENABLED_BY_USER;
   },
 
@@ -128,7 +153,8 @@ Polymer({
    */
   onSmartLockSignInEnabledChanged_() {
     const radioGroup = this.$$('cr-radio-group');
-    const enabled = radioGroup.selected == settings.SmartLockSignInEnabledState.ENABLED;
+    const enabled =
+        radioGroup.selected === settings.SmartLockSignInEnabledState.ENABLED;
 
     if (!enabled) {
       // No authentication check is required to disable.

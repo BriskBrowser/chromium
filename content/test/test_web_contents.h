@@ -33,13 +33,8 @@ namespace gfx {
 class Size;
 }
 
-namespace net {
-class HttpResponseHeaders;
-}
-
 namespace content {
 
-class NavigationHandle;
 struct Referrer;
 class RenderViewHost;
 class TestRenderViewHost;
@@ -77,29 +72,10 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
       const GURL& url,
       ui::PageTransition transition = ui::PAGE_TRANSITION_LINK) override;
 
-  void NavigateAndFail(
-      const GURL& url,
-      int error_code,
-      scoped_refptr<net::HttpResponseHeaders> response_headers) override;
+  void NavigateAndFail(const GURL& url, int error_code) override;
   void TestSetIsLoading(bool value) override;
-  void TestDidNavigate(RenderFrameHost* render_frame_host,
-                       int nav_entry_id,
-                       bool did_create_new_entry,
-                       const GURL& url,
-                       ui::PageTransition transition) override;
-  void TestDidNavigateWithSequenceNumber(RenderFrameHost* render_frame_host,
-                                         int nav_entry_id,
-                                         bool did_create_new_entry,
-                                         const GURL& url,
-                                         const Referrer& referrer,
-                                         ui::PageTransition transition,
-                                         bool was_within_same_document,
-                                         int item_sequence_number,
-                                         int document_sequence_number);
-  void SetHttpResponseHeaders(
-      NavigationHandle* navigation_handle,
-      scoped_refptr<net::HttpResponseHeaders> response_headers) override;
   void SetOpener(WebContents* opener) override;
+  void SetIsCrashed(base::TerminationStatus status, int error_code) override;
   const std::string& GetSaveFrameHeaders() override;
   const base::string16& GetSuggestedFileName() override;
   bool HasPendingDownloadImage(const GURL& url) override;
@@ -124,7 +100,7 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
   bool CreateRenderViewForRenderManager(
       RenderViewHost* render_view_host,
       const base::Optional<base::UnguessableToken>& opener_frame_token,
-      int proxy_routing_id) override;
+      RenderFrameProxyHost* proxy_host) override;
 
   // Returns a clone of this TestWebContents. The returned object is also a
   // TestWebContents. The caller owns the returned object.
@@ -139,17 +115,6 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
   // Allows us to simulate that a contents was created via CreateNewWindow.
   void AddPendingContents(std::unique_ptr<WebContentsImpl> contents,
                           const GURL& target_url);
-
-  // Establish expected arguments for |SetHistoryOffsetAndLength()|. When
-  // |SetHistoryOffsetAndLength()| is called, the arguments are compared
-  // with the expected arguments specified here.
-  void ExpectSetHistoryOffsetAndLength(int history_offset,
-                                       int history_length);
-
-  // Compares the arguments passed in with the expected arguments passed in
-  // to |ExpectSetHistoryOffsetAndLength()|.
-  void SetHistoryOffsetAndLength(int history_offset,
-                                 int history_length) override;
 
   bool GetPauseSubresourceLoadingCalled() override;
 
@@ -174,6 +139,8 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
     web_preferences_changed_counter_ = counter;
   }
 
+  bool IsPageFrozen() override;
+
  protected:
   // The deprecated WebContentsTester still needs to subclass this.
   explicit TestWebContents(BrowserContext* browser_context);
@@ -186,15 +153,11 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
       bool is_new_browsing_instance,
       bool has_user_gesture,
       SessionStorageNamespace* session_storage_namespace) override;
-  void CreateNewWidget(AgentSchedulingGroupHost& agent_scheduling_group,
-                       int32_t route_id,
-                       mojo::PendingAssociatedReceiver<blink::mojom::WidgetHost>
-                           blink_widget_host,
-                       mojo::PendingAssociatedRemote<blink::mojom::Widget>
-                           blink_widget) override;
-  void CreateNewFullscreenWidget(
+  RenderWidgetHostImpl* CreateNewPopupWidget(
       AgentSchedulingGroupHost& agent_scheduling_group,
       int32_t route_id,
+      mojo::PendingAssociatedReceiver<blink::mojom::PopupWidgetHost>
+          blink_popup_widget_host,
       mojo::PendingAssociatedReceiver<blink::mojom::WidgetHost>
           blink_widget_host,
       mojo::PendingAssociatedRemote<blink::mojom::Widget> blink_widget)
@@ -207,21 +170,17 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
   void ShowCreatedWidget(int process_id,
                          int route_id,
                          const gfx::Rect& initial_rect) override;
-  void ShowCreatedFullscreenWidget(int process_id, int route_id) override;
   void SaveFrameWithHeaders(const GURL& url,
                             const Referrer& referrer,
                             const std::string& headers,
                             const base::string16& suggested_filename) override;
   void ReattachToOuterWebContentsFrame() override {}
+  void SetPageFrozen(bool frozen) override;
 
   RenderViewHostDelegateView* delegate_view_override_;
 
   // See set_web_preferences_changed_counter() above. May be nullptr.
   int* web_preferences_changed_counter_;
-  // Expectations for arguments of |SetHistoryOffsetAndLength()|.
-  bool expect_set_history_offset_and_length_;
-  int expect_set_history_offset_and_length_history_offset_;
-  int expect_set_history_offset_and_length_history_length_;
   std::string save_frame_headers_;
   base::string16 suggested_filename_;
   // Map keyed by image URL. Values are <id, callback> pairs.
@@ -231,6 +190,7 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
   base::Optional<base::string16> title_;
   bool pause_subresource_loading_called_;
   base::UnguessableToken audio_group_id_;
+  bool is_page_frozen_;
 };
 
 }  // namespace content

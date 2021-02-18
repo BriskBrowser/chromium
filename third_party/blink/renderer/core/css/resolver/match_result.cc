@@ -73,8 +73,10 @@ void MatchResult::FinishAddingUserRules() {
   current_origin_ = CascadeOrigin::kAuthor;
 }
 
-void MatchResult::FinishAddingAuthorRulesForTreeScope() {
+void MatchResult::FinishAddingAuthorRulesForTreeScope(
+    const TreeScope& tree_scope) {
   DCHECK_EQ(current_origin_, CascadeOrigin::kAuthor);
+  tree_scopes_.push_back(&tree_scope);
   current_tree_order_ = base::ClampAdd(current_tree_order_, 1);
 }
 
@@ -90,8 +92,10 @@ MatchedExpansionsRange MatchResult::Expansions(const Document& document,
 void MatchResult::Reset() {
   matched_properties_.clear();
   is_cacheable_ = true;
+  depends_on_container_queries_ = false;
   current_origin_ = CascadeOrigin::kUserAgent;
   current_tree_order_ = 0;
+  tree_scopes_.clear();
 }
 
 }  // namespace blink

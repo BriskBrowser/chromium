@@ -423,7 +423,7 @@ TYPED_TEST_P(CookieStoreTest, FilterTest) {
   std::unique_ptr<CanonicalCookie> cc(CanonicalCookie::CreateSanitizedCookie(
       this->www_foo_foo_.url(), "A", "B", std::string(), "/foo", one_hour_ago,
       one_hour_from_now, base::Time(), false, false,
-      CookieSameSite::STRICT_MODE, COOKIE_PRIORITY_DEFAULT));
+      CookieSameSite::STRICT_MODE, COOKIE_PRIORITY_DEFAULT, false));
   ASSERT_TRUE(cc);
   EXPECT_TRUE(this->SetCanonicalCookie(
       cs, std::move(cc), this->www_foo_foo_.url(), true /*modify_httponly*/));
@@ -433,24 +433,27 @@ TYPED_TEST_P(CookieStoreTest, FilterTest) {
   cc = CanonicalCookie::CreateSanitizedCookie(
       this->www_foo_bar_.url(), "C", "D", this->www_foo_bar_.domain(), "/bar",
       two_hours_ago, base::Time(), one_hour_ago, false, true,
-      CookieSameSite::STRICT_MODE, COOKIE_PRIORITY_DEFAULT);
+      CookieSameSite::STRICT_MODE, COOKIE_PRIORITY_DEFAULT, false);
   ASSERT_TRUE(cc);
   EXPECT_TRUE(this->SetCanonicalCookie(
       cs, std::move(cc), this->www_foo_bar_.url(), true /*modify_httponly*/));
 
-  // Because of strict secure cookies, it should not be possible to create
-  // a secure cookie with an HTTP URL.
-
+  // We permit creating a a secure cookie with an HTTP URL (since the
+  // CookieAccessDelegate may permit some sites to be used as such for
+  // development environment purposes), but it can't actually be set in this
+  // test since no such delegate is configured here.
   cc = CanonicalCookie::CreateSanitizedCookie(
       this->http_www_foo_.url(), "E", "F", std::string(), std::string(),
       base::Time(), base::Time(), base::Time(), true, false,
-      CookieSameSite::NO_RESTRICTION, COOKIE_PRIORITY_DEFAULT);
-  ASSERT_FALSE(cc);
+      CookieSameSite::NO_RESTRICTION, COOKIE_PRIORITY_DEFAULT, false);
+  ASSERT_TRUE(cc);
+  EXPECT_FALSE(this->SetCanonicalCookie(
+      cs, std::move(cc), this->http_www_foo_.url(), true /*modify_httponly*/));
 
   cc = CanonicalCookie::CreateSanitizedCookie(
       this->https_www_foo_.url(), "E", "F", std::string(), std::string(),
       base::Time(), base::Time(), base::Time(), true, false,
-      CookieSameSite::NO_RESTRICTION, COOKIE_PRIORITY_DEFAULT);
+      CookieSameSite::NO_RESTRICTION, COOKIE_PRIORITY_DEFAULT, false);
   ASSERT_TRUE(cc);
   EXPECT_TRUE(this->SetCanonicalCookie(
       cs, std::move(cc), this->https_www_foo_.url(), true /*modify_httponly*/));
@@ -547,27 +550,27 @@ TYPED_TEST_P(CookieStoreTest, SetCanonicalCookieTest) {
 
   EXPECT_TRUE(this->SetCanonicalCookie(
       cs,
-      std::make_unique<CanonicalCookie>(
+      CanonicalCookie::CreateUnsafeCookieForTesting(
           "A", "B", foo_foo_host, "/foo", one_hour_ago, one_hour_from_now,
           base::Time(), false /* secure */, false /* httponly */,
-          CookieSameSite::LAX_MODE, COOKIE_PRIORITY_DEFAULT),
+          CookieSameSite::LAX_MODE, COOKIE_PRIORITY_DEFAULT, false),
       this->www_foo_foo_.url(), true));
   EXPECT_TRUE(this->SetCanonicalCookie(
       cs,
-      std::make_unique<CanonicalCookie>(
+      CanonicalCookie::CreateUnsafeCookieForTesting(
           "C", "D", "." + foo_bar_domain, "/bar", two_hours_ago, base::Time(),
           one_hour_ago, false, true, CookieSameSite::LAX_MODE,
-          COOKIE_PRIORITY_DEFAULT),
+          COOKIE_PRIORITY_DEFAULT, false),
       this->www_foo_bar_.url(), true));
 
   // A secure source is required for setting secure cookies.
   EXPECT_TRUE(
       this->SetCanonicalCookieReturnAccessResult(
               cs,
-              std::make_unique<CanonicalCookie>(
+              CanonicalCookie::CreateUnsafeCookieForTesting(
                   "E", "F", http_foo_host, "/", base::Time(), base::Time(),
                   base::Time(), true, false, CookieSameSite::NO_RESTRICTION,
-                  COOKIE_PRIORITY_DEFAULT),
+                  COOKIE_PRIORITY_DEFAULT, false),
               this->http_www_foo_.url(), true)
           .status.HasExclusionReason(
               CookieInclusionStatus::EXCLUDE_SECURE_ONLY));
@@ -589,33 +592,34 @@ TYPED_TEST_P(CookieStoreTest, SetCanonicalCookieTest) {
   // a secure cookie then overwriting it from a non-secure source should fail.
   EXPECT_TRUE(this->SetCanonicalCookie(
       cs,
-      std::make_unique<CanonicalCookie>(
+      CanonicalCookie::CreateUnsafeCookieForTesting(
           "E", "F", https_foo_host, "/", base::Time(), base::Time(),
           base::Time(), true /* secure */, false /* httponly */,
-          CookieSameSite::NO_RESTRICTION, COOKIE_PRIORITY_DEFAULT),
+          CookieSameSite::NO_RESTRICTION, COOKIE_PRIORITY_DEFAULT,
+          false /* same_party */),
       this->https_www_foo_.url(), true /* modify_http_only */));
 
-  EXPECT_TRUE(
-      this->SetCanonicalCookieReturnAccessResult(
-              cs,
-              std::make_unique<CanonicalCookie>(
-                  "E", "F", http_foo_host, "/", base::Time(), base::Time(),
-                  base::Time(), true /* secure */, false /* httponly */,
-                  CookieSameSite::NO_RESTRICTION, COOKIE_PRIORITY_DEFAULT),
-              this->http_www_foo_.url(), true /* modify_http_only */)
-          .status.HasExclusionReason(
-              CookieInclusionStatus::EXCLUDE_SECURE_ONLY));
+  EXPECT_TRUE(this->SetCanonicalCookieReturnAccessResult(
+                      cs,
+                      CanonicalCookie::CreateUnsafeCookieForTesting(
+                          "E", "F", http_foo_host, "/", base::Time(),
+                          base::Time(), base::Time(), true /* secure */,
+                          false /* httponly */, CookieSameSite::NO_RESTRICTION,
+                          COOKIE_PRIORITY_DEFAULT, false /* same_party */),
+                      this->http_www_foo_.url(), true /* modify_http_only */)
+                  .status.HasExclusionReason(
+                      CookieInclusionStatus::EXCLUDE_SECURE_ONLY));
 
   if (TypeParam::supports_http_only) {
     // Permission to modify http only cookies is required to set an
     // httponly cookie.
     EXPECT_TRUE(this->SetCanonicalCookieReturnAccessResult(
                         cs,
-                        std::make_unique<CanonicalCookie>(
+                        CanonicalCookie::CreateUnsafeCookieForTesting(
                             "G", "H", http_foo_host, "/unique", base::Time(),
                             base::Time(), base::Time(), false /* secure */,
                             true /* httponly */, CookieSameSite::LAX_MODE,
-                            COOKIE_PRIORITY_DEFAULT),
+                            COOKIE_PRIORITY_DEFAULT, false /* same_party */),
                         this->http_www_foo_.url(), false /* modify_http_only */)
                     .status.HasExclusionReason(
                         CookieInclusionStatus::EXCLUDE_HTTP_ONLY));
@@ -638,19 +642,20 @@ TYPED_TEST_P(CookieStoreTest, SetCanonicalCookieTest) {
     // an httponly cookie.
     EXPECT_TRUE(this->SetCanonicalCookie(
         cs,
-        std::make_unique<CanonicalCookie>(
+        CanonicalCookie::CreateUnsafeCookieForTesting(
             "G", "H", http_foo_host, "/unique", base::Time(), base::Time(),
             base::Time(), false /* secure */, true /* httponly */,
-            CookieSameSite::LAX_MODE, COOKIE_PRIORITY_DEFAULT),
+            CookieSameSite::LAX_MODE, COOKIE_PRIORITY_DEFAULT,
+            false /* same_party */),
         this->http_www_foo_.url(), true /* modify_http_only */));
 
     EXPECT_TRUE(this->SetCanonicalCookieReturnAccessResult(
                         cs,
-                        std::make_unique<CanonicalCookie>(
+                        CanonicalCookie::CreateUnsafeCookieForTesting(
                             "G", "H", http_foo_host, "/unique", base::Time(),
                             base::Time(), base::Time(), false /* secure */,
                             true /* httponly */, CookieSameSite::LAX_MODE,
-                            COOKIE_PRIORITY_DEFAULT),
+                            COOKIE_PRIORITY_DEFAULT, false /* same_party */),
                         this->http_www_foo_.url(), false /* modify_http_only */)
                     .status.HasExclusionReason(
                         CookieInclusionStatus::EXCLUDE_HTTP_ONLY));
@@ -658,10 +663,11 @@ TYPED_TEST_P(CookieStoreTest, SetCanonicalCookieTest) {
     // Leave store in same state as if the above tests had been run.
     EXPECT_TRUE(this->SetCanonicalCookie(
         cs,
-        std::make_unique<CanonicalCookie>(
+        CanonicalCookie::CreateUnsafeCookieForTesting(
             "G", "H", http_foo_host, "/unique", base::Time(), base::Time(),
             base::Time(), false /* secure */, true /* httponly */,
-            CookieSameSite::LAX_MODE, COOKIE_PRIORITY_DEFAULT),
+            CookieSameSite::LAX_MODE, COOKIE_PRIORITY_DEFAULT,
+            false /* same_party */),
         this->http_www_foo_.url(), true /* modify_http_only */));
   }
 
@@ -736,32 +742,53 @@ TYPED_TEST_P(CookieStoreTest, SecureEnforcement) {
   // but the other combinations work.
   EXPECT_FALSE(this->SetCanonicalCookie(
       cs,
-      std::make_unique<CanonicalCookie>(
+      CanonicalCookie::CreateUnsafeCookieForTesting(
           "A", "B", http_domain, "/", base::Time::Now(), base::Time(),
           base::Time(), true, false, CookieSameSite::STRICT_MODE,
-          COOKIE_PRIORITY_DEFAULT),
+          COOKIE_PRIORITY_DEFAULT, false /* same_party */),
       http_url, true /*modify_httponly*/));
   EXPECT_TRUE(this->SetCanonicalCookie(
       cs,
-      std::make_unique<CanonicalCookie>(
+      CanonicalCookie::CreateUnsafeCookieForTesting(
           "A", "B", http_domain, "/", base::Time::Now(), base::Time(),
           base::Time(), true, false, CookieSameSite::STRICT_MODE,
-          COOKIE_PRIORITY_DEFAULT),
+          COOKIE_PRIORITY_DEFAULT, false /* same_party */),
       https_url, true /*modify_httponly*/));
   EXPECT_TRUE(this->SetCanonicalCookie(
       cs,
-      std::make_unique<CanonicalCookie>(
+      CanonicalCookie::CreateUnsafeCookieForTesting(
           "A", "B", http_domain, "/", base::Time::Now(), base::Time(),
           base::Time(), false, false, CookieSameSite::STRICT_MODE,
-          COOKIE_PRIORITY_DEFAULT),
+          COOKIE_PRIORITY_DEFAULT, false /* same_party */),
       https_url, true /*modify_httponly*/));
   EXPECT_TRUE(this->SetCanonicalCookie(
       cs,
-      std::make_unique<CanonicalCookie>(
+      CanonicalCookie::CreateUnsafeCookieForTesting(
           "A", "B", http_domain, "/", base::Time::Now(), base::Time(),
           base::Time(), false, false, CookieSameSite::STRICT_MODE,
-          COOKIE_PRIORITY_DEFAULT),
+          COOKIE_PRIORITY_DEFAULT, false /* same_party */),
       http_url, true /*modify_httponly*/));
+}
+
+// Check that Secure cookies can be set from a localhost URL, regardless of
+// scheme.
+TYPED_TEST_P(CookieStoreTest, SecureCookieLocalhost) {
+  CookieStore* cs = this->GetCookieStore();
+  EXPECT_TRUE(this->CreateAndSetCookie(cs, GURL("https://localhost/path"),
+                                       "A=B;Secure",
+                                       CookieOptions::MakeAllInclusive()));
+  EXPECT_TRUE(this->CreateAndSetCookie(cs, GURL("https://127.0.0.1/path"),
+                                       "A=B;Secure",
+                                       CookieOptions::MakeAllInclusive()));
+  EXPECT_TRUE(this->CreateAndSetCookie(cs, GURL("http://localhost/path"),
+                                       "A=B;Secure",
+                                       CookieOptions::MakeAllInclusive()));
+  EXPECT_TRUE(this->CreateAndSetCookie(cs, GURL("http://127.0.0.1/path"),
+                                       "A=B;Secure",
+                                       CookieOptions::MakeAllInclusive()));
+  EXPECT_TRUE(this->CreateAndSetCookie(cs, GURL("http://[::1]/path"),
+                                       "A=B;Secure",
+                                       CookieOptions::MakeAllInclusive()));
 }
 
 // The iOS networking stack uses the iOS cookie parser, which we do not
@@ -1802,6 +1829,7 @@ REGISTER_TYPED_TEST_SUITE_P(CookieStoreTest,
                             FilterTest,
                             SetCanonicalCookieTest,
                             SecureEnforcement,
+                            SecureCookieLocalhost,
                             EmptyKeyTest,
                             DomainTest,
                             DomainWithTrailingDotTest,

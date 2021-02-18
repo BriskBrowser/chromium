@@ -28,7 +28,6 @@
 #include "content/public/browser/gpu_data_manager.h"
 #include "gpu/command_buffer/common/activity_flags.h"
 #include "gpu/command_buffer/common/constants.h"
-#include "gpu/config/gpu_extra_info.h"
 #include "gpu/config/gpu_feature_info.h"
 #include "gpu/config/gpu_info.h"
 #include "gpu/config/gpu_mode.h"
@@ -40,6 +39,7 @@
 #include "services/viz/privileged/mojom/gl/gpu_host.mojom.h"
 #include "services/viz/privileged/mojom/gl/gpu_service.mojom.h"
 #include "services/viz/privileged/mojom/viz_main.mojom.h"
+#include "ui/gfx/gpu_extra_info.h"
 #include "url/gurl.h"
 
 #if defined(OS_WIN)
@@ -159,10 +159,11 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
       const base::Optional<gpu::GPUInfo>& gpu_info_for_hardware_gpu,
       const base::Optional<gpu::GpuFeatureInfo>&
           gpu_feature_info_for_hardware_gpu,
-      const gpu::GpuExtraInfo& gpu_extra_info) override;
+      const gfx::GpuExtraInfo& gpu_extra_info) override;
   void DidFailInitialize() override;
   void DidCreateContextSuccessfully() override;
   void MaybeShutdownGpuProcess() override;
+  void DidUpdateGPUInfo(const gpu::GPUInfo& gpu_info) override;
 #if defined(OS_WIN)
   void DidUpdateOverlayInfo(const gpu::OverlayInfo& overlay_info) override;
   void DidUpdateHDRStatus(bool hdr_enabled) override;
@@ -181,9 +182,6 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
   void BindInterface(const std::string& interface_name,
                      mojo::ScopedMessagePipeHandle interface_pipe) override;
   void BindHostReceiver(mojo::GenericPendingReceiver generic_receiver) override;
-  void RunService(
-      const std::string& service_name,
-      mojo::PendingReceiver<service_manager::mojom::Service> receiver) override;
 #if defined(USE_OZONE)
   void TerminateGpuProcess(const std::string& message) override;
 #endif

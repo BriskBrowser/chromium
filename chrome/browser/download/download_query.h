@@ -35,7 +35,7 @@ class Value;
 // bool FilterOutOddDownloads(const DownloadItem& item) {
 //   return 0 == (item.GetId() % 2);
 // }
-// CHECK(query.AddFilter(base::Bind(&FilterOutOddDownloads)));
+// CHECK(query.AddFilter(base::BindRepeating(&FilterOutOddDownloads)));
 // query.AddSorter(SORT_BYTES_RECEIVED, ASCENDING);
 // query.AddSorter(SORT_URL, DESCENDING);
 // query.Limit(20);
@@ -47,8 +47,9 @@ class DownloadQuery {
 
   // FilterCallback is a Callback that takes a DownloadItem and returns true if
   // the item matches the filter and false otherwise.
-  // query.AddFilter(base::Bind(&YourFilterFunction));
-  typedef base::Callback<bool(const download::DownloadItem&)> FilterCallback;
+  // query.AddFilter(base::BindRepeating(&YourFilterFunction));
+  typedef base::RepeatingCallback<bool(const download::DownloadItem&)>
+      FilterCallback;
 
   // All times are ISO 8601 strings.
   enum FilterType {
@@ -150,7 +151,7 @@ class DownloadQuery {
 
   bool FilterRegex(
       const std::string& regex_str,
-      const base::Callback<std::string(const download::DownloadItem&)>&
+      const base::RepeatingCallback<std::string(const download::DownloadItem&)>&
           accessor);
   bool Matches(const download::DownloadItem& item) const;
   void FinishSearch(DownloadVector* results) const;

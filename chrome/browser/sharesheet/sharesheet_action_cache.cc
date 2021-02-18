@@ -4,21 +4,40 @@
 
 #include "chrome/browser/sharesheet/sharesheet_action_cache.h"
 
-#include "chrome/browser/browser_features.h"
+#include "build/chromeos_buildflags.h"
+#include "chrome/browser/about_flags.h"
+#include "chrome/browser/sharesheet/example_action.h"
 #include "chrome/browser/sharesheet/share_action.h"
 #include "chrome/browser/sharesheet/sharesheet_types.h"
+#include "chrome/common/chrome_features.h"
+#include "ui/gfx/vector_icon_types.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/nearby_sharing/common/nearby_share_features.h"
 #include "chrome/browser/nearby_sharing/sharesheet/nearby_share_action.h"
+#include "chrome/browser/sharesheet/drive_share_action.h"
 #endif
 
 namespace sharesheet {
 
 SharesheetActionCache::SharesheetActionCache() {
   // ShareActions will be initialised here by calling AddShareAction.
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (base::FeatureList::IsEnabled(features::kNearbySharing)) {
     AddShareAction(std::make_unique<NearbyShareAction>());
+  }
+  AddShareAction(std::make_unique<DriveShareAction>());
+  // Add 9 example actions to show expanded view
+  if (base::FeatureList::IsEnabled(features::kSharesheetContentPreviews)) {
+    AddShareAction(std::make_unique<ExampleAction>());
+    AddShareAction(std::make_unique<ExampleAction>());
+    AddShareAction(std::make_unique<ExampleAction>());
+    AddShareAction(std::make_unique<ExampleAction>());
+    AddShareAction(std::make_unique<ExampleAction>());
+    AddShareAction(std::make_unique<ExampleAction>());
+    AddShareAction(std::make_unique<ExampleAction>());
+    AddShareAction(std::make_unique<ExampleAction>());
+    AddShareAction(std::make_unique<ExampleAction>());
   }
 #endif
 }
@@ -43,9 +62,28 @@ ShareAction* SharesheetActionCache::GetActionFromName(
   return nullptr;
 }
 
+const gfx::VectorIcon* SharesheetActionCache::GetVectorIconFromName(
+    const base::string16& display_name) {
+  ShareAction* share_action = GetActionFromName(display_name);
+  if (share_action == nullptr) {
+    return nullptr;
+  }
+  return &share_action->GetActionIcon();
+}
+
+bool SharesheetActionCache::HasVisibleActions(
+    const apps::mojom::IntentPtr& intent,
+    bool contains_google_document) {
+  for (auto& action : share_actions_) {
+    if (action->ShouldShowAction(intent, contains_google_document)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void SharesheetActionCache::AddShareAction(
     std::unique_ptr<ShareAction> action) {
-  DCHECK_EQ(action->GetActionIcon().size(), gfx::Size(kIconSize, kIconSize));
   share_actions_.push_back(std::move(action));
 }
 

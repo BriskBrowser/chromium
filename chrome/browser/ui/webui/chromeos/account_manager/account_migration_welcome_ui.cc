@@ -11,16 +11,20 @@
 #include "base/callback.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/branding_buildflags.h"
+#include "chrome/browser/account_manager_facade_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/signin/inline_login_dialog_chromeos.h"
+#include "chrome/browser/ui/webui/webui_util.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/browser_resources.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/account_manager_core/account_manager_facade.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "net/base/url_util.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/resources/grit/webui_generated_resources.h"
 #include "ui/resources/grit/webui_resources.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/web_dialogs/web_dialog_delegate.h"
@@ -55,9 +59,12 @@ class MigrationMessageHandler : public content::WebUIMessageHandler {
     CHECK(!args->GetList().empty());
     const std::string& account_email = args->GetList()[0].GetString();
 
-    InlineLoginDialogChromeOS::Show(account_email,
-                                    InlineLoginDialogChromeOS::Source::
-                                        kAccountManagerMigrationWelcomeScreen);
+    Profile* profile = Profile::FromWebUI(web_ui());
+    ::GetAccountManagerFacade(profile->GetPath().value())
+        ->ShowReauthAccountDialog(
+            account_manager::AccountManagerFacade::AccountAdditionSource::
+                kAccountManagerMigrationWelcomeScreen,
+            account_email);
     HandleCloseDialog(args);
   }
 
@@ -78,13 +85,7 @@ AccountMigrationWelcomeUI::AccountMigrationWelcomeUI(content::WebUI* web_ui)
     : ui::WebDialogUI(web_ui) {
   content::WebUIDataSource* html_source = content::WebUIDataSource::Create(
       chrome::kChromeUIAccountMigrationWelcomeHost);
-  html_source->OverrideContentSecurityPolicy(
-      network::mojom::CSPDirectiveName::ScriptSrc,
-      "script-src chrome://resources chrome://test 'self';");
-  html_source->DisableTrustedTypesCSP();
-
-  html_source->UseStringsJs();
-  html_source->EnableReplaceI18nInJS();
+  webui::SetJSModuleDefaults(html_source);
 
   // Add localized strings.
   html_source->AddLocalizedString("welcomePageTitle",
@@ -114,8 +115,6 @@ AccountMigrationWelcomeUI::AccountMigrationWelcomeUI(content::WebUI* web_ui)
   html_source->AddResourcePath("googleg.svg",
                                IDR_ACCOUNT_MANAGER_WELCOME_GOOGLE_LOGO_SVG);
 #endif
-  html_source->AddResourcePath("test_loader.js", IDR_WEBUI_JS_TEST_LOADER);
-  html_source->AddResourcePath("test_loader.html", IDR_WEBUI_HTML_TEST_LOADER);
   html_source->SetDefaultResource(IDR_ACCOUNT_MIGRATION_WELCOME_HTML);
 
   web_ui->AddMessageHandler(std::make_unique<MigrationMessageHandler>(

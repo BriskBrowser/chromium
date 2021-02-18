@@ -9,8 +9,8 @@
 #include <unordered_set>
 #include <utility>
 
-#include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
 #include "base/optional.h"
 #include "base/sequence_checker.h"
@@ -20,6 +20,7 @@
 #include "base/threading/thread_checker.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "net/base/network_change_notifier_factory.h"
 #include "net/base/network_interfaces.h"
 #include "net/base/url_util.h"
@@ -31,11 +32,13 @@
 
 #if defined(OS_WIN)
 #include "net/base/network_change_notifier_win.h"
-#elif defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#elif defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 #include "net/base/network_change_notifier_linux.h"
 #elif defined(OS_APPLE)
 #include "net/base/network_change_notifier_mac.h"
-#elif defined(OS_CHROMEOS) || defined(OS_ANDROID)
+#elif BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_ANDROID)
 #include "net/base/network_change_notifier_posix.h"
 #elif defined(OS_FUCHSIA)
 #include "net/base/network_change_notifier_fuchsia.h"
@@ -113,6 +116,9 @@ class NetworkChangeNotifier::NetworkChangeCalculator
     AddIPAddressObserver(this);
   }
 
+  NetworkChangeCalculator(const NetworkChangeCalculator&) = delete;
+  NetworkChangeCalculator& operator=(const NetworkChangeCalculator&) = delete;
+
   ~NetworkChangeCalculator() override {
     DCHECK(thread_checker_.CalledOnValidThread());
     RemoveConnectionTypeObserver(this);
@@ -149,6 +155,10 @@ class NetworkChangeNotifier::NetworkChangeCalculator
         (pending_connection_type_ == CONNECTION_NONE)) {
       return;
     }
+
+    UMA_HISTOGRAM_ENUMERATION("Net.NetworkChangeNotifier.NewConnectionType",
+                              pending_connection_type_, CONNECTION_LAST + 1);
+
     have_announced_ = true;
     last_announced_connection_type_ = pending_connection_type_;
     // Immediately before sending out an online signal, send out an offline
@@ -171,8 +181,6 @@ class NetworkChangeNotifier::NetworkChangeCalculator
   base::OneShotTimer timer_;
 
   base::ThreadChecker thread_checker_;
-
-  DISALLOW_COPY_AND_ASSIGN(NetworkChangeCalculator);
 };
 
 class NetworkChangeNotifier::SystemDnsConfigObserver
@@ -233,21 +241,29 @@ std::unique_ptr<NetworkChangeNotifier> NetworkChangeNotifier::CreateIfNeeded(
   // service in a separate process.
   return std::make_unique<NetworkChangeNotifierPosix>(initial_type,
                                                       initial_subtype);
-#elif defined(OS_CHROMEOS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH)
   return std::make_unique<NetworkChangeNotifierPosix>(initial_type,
                                                       initial_subtype);
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   return std::make_unique<NetworkChangeNotifierLinux>(
       std::unordered_set<std::string>());
 #elif defined(OS_APPLE)
   return std::make_unique<NetworkChangeNotifierMac>();
 #elif defined(OS_FUCHSIA)
   return std::make_unique<NetworkChangeNotifierFuchsia>(
-      fuchsia::hardware::ethernet::Features());
+      /*require_wlan=*/false);
 #else
   NOTIMPLEMENTED();
   return NULL;
 #endif
+}
+
+// static
+NetworkChangeNotifier::ConnectionCost
+NetworkChangeNotifier::GetConnectionCost() {
+  return g_network_change_notifier
+             ? g_network_change_notifier->GetCurrentConnectionCost()
+             : CONNECTION_COST_UNKNOWN;
 }
 
 // static
@@ -405,14 +421,9 @@ NetworkChangeNotifier::GetSystemDnsConfigNotifier() {
 const char* NetworkChangeNotifier::ConnectionTypeToString(
     ConnectionType type) {
   static const char* const kConnectionTypeNames[] = {
-    "CONNECTION_UNKNOWN",
-    "CONNECTION_ETHERNET",
-    "CONNECTION_WIFI",
-    "CONNECTION_2G",
-    "CONNECTION_3G",
-    "CONNECTION_4G",
-    "CONNECTION_NONE",
-    "CONNECTION_BLUETOOTH"
+      "CONNECTION_UNKNOWN", "CONNECTION_ETHERNET",  "CONNECTION_WIFI",
+      "CONNECTION_2G",      "CONNECTION_3G",        "CONNECTION_4G",
+      "CONNECTION_NONE",    "CONNECTION_BLUETOOTH", "CONNECTION_5G",
   };
   static_assert(base::size(kConnectionTypeNames) ==
                     NetworkChangeNotifier::CONNECTION_LAST + 1,
@@ -445,6 +456,7 @@ bool NetworkChangeNotifier::IsConnectionCellular(ConnectionType type) {
     case CONNECTION_2G:
     case CONNECTION_3G:
     case CONNECTION_4G:
+    case CONNECTION_5G:
       is_cellular =  true;
       break;
     case CONNECTION_UNKNOWN:
@@ -537,6 +549,11 @@ NetworkChangeNotifier::MaxBandwidthObserver::~MaxBandwidthObserver() = default;
 NetworkChangeNotifier::NetworkObserver::NetworkObserver() = default;
 NetworkChangeNotifier::NetworkObserver::~NetworkObserver() = default;
 
+NetworkChangeNotifier::ConnectionCostObserver::ConnectionCostObserver() =
+    default;
+NetworkChangeNotifier::ConnectionCostObserver::~ConnectionCostObserver() =
+    default;
+
 void NetworkChangeNotifier::AddIPAddressObserver(IPAddressObserver* observer) {
   if (g_network_change_notifier &&
       g_network_change_notifier->can_add_observers_) {
@@ -595,6 +612,17 @@ void NetworkChangeNotifier::AddNetworkObserver(NetworkObserver* observer) {
   }
 }
 
+void NetworkChangeNotifier::AddConnectionCostObserver(
+    ConnectionCostObserver* observer) {
+  if (g_network_change_notifier &&
+      g_network_change_notifier->can_add_observers_) {
+    observer->observer_list_ =
+        g_network_change_notifier->connection_cost_observer_list_;
+    observer->observer_list_->AddObserver(observer);
+    g_network_change_notifier->ConnectionCostObserverAdded();
+  }
+}
+
 void NetworkChangeNotifier::RemoveIPAddressObserver(
     IPAddressObserver* observer) {
   if (observer->observer_list_) {
@@ -635,6 +663,14 @@ void NetworkChangeNotifier::RemoveMaxBandwidthObserver(
 }
 
 void NetworkChangeNotifier::RemoveNetworkObserver(NetworkObserver* observer) {
+  if (observer->observer_list_) {
+    observer->observer_list_->RemoveObserver(observer);
+    observer->observer_list_.reset();
+  }
+}
+
+void NetworkChangeNotifier::RemoveConnectionCostObserver(
+    ConnectionCostObserver* observer) {
   if (observer->observer_list_) {
     observer->observer_list_->RemoveObserver(observer);
     observer->observer_list_.reset();
@@ -682,6 +718,13 @@ void NetworkChangeNotifier::NotifyObserversOfMaxBandwidthChangeForTests(
 }
 
 // static
+void NetworkChangeNotifier::NotifyObserversOfConnectionCostChangeForTests(
+    ConnectionCost cost) {
+  if (g_network_change_notifier)
+    g_network_change_notifier->NotifyObserversOfConnectionCostChangeImpl(cost);
+}
+
+// static
 void NetworkChangeNotifier::SetTestNotificationsOnly(bool test_only) {
   DCHECK(!g_network_change_notifier);
   NetworkChangeNotifier::test_notifications_only_ = test_only;
@@ -709,6 +752,9 @@ NetworkChangeNotifier::NetworkChangeNotifier(
               base::ObserverListPolicy::EXISTING_ONLY)),
       network_observer_list_(new base::ObserverListThreadSafe<NetworkObserver>(
           base::ObserverListPolicy::EXISTING_ONLY)),
+      connection_cost_observer_list_(
+          new base::ObserverListThreadSafe<ConnectionCostObserver>(
+              base::ObserverListPolicy::EXISTING_ONLY)),
       system_dns_config_notifier_(system_dns_config_notifier),
       system_dns_config_observer_(std::make_unique<SystemDnsConfigObserver>()),
       network_change_calculator_(new NetworkChangeCalculator(params)),
@@ -733,6 +779,16 @@ NetworkChangeNotifier::GetAddressTrackerInternal() const {
   return NULL;
 }
 #endif
+
+NetworkChangeNotifier::ConnectionCost
+NetworkChangeNotifier::GetCurrentConnectionCost() {
+  // This is the default non-platform specific implementation and assumes that
+  // cellular connectivity is metered and non-cellular is not. The function can
+  // be specialized on each platform specific notifier implementation.
+  return IsConnectionCellular(GetCurrentConnectionType())
+             ? CONNECTION_COST_METERED
+             : CONNECTION_COST_UNMETERED;
+}
 
 NetworkChangeNotifier::ConnectionSubtype
 NetworkChangeNotifier::GetCurrentConnectionSubtype() const {
@@ -834,6 +890,15 @@ void NetworkChangeNotifier::NotifyObserversOfSpecificNetworkChange(
   }
 }
 
+// static
+void NetworkChangeNotifier::NotifyObserversOfConnectionCostChange() {
+  if (g_network_change_notifier &&
+      !NetworkChangeNotifier::test_notifications_only_) {
+    g_network_change_notifier->NotifyObserversOfConnectionCostChangeImpl(
+        GetConnectionCost());
+  }
+}
+
 void NetworkChangeNotifier::StopSystemDnsConfigNotifier() {
   if (!system_dns_config_notifier_)
     return;
@@ -894,6 +959,12 @@ void NetworkChangeNotifier::NotifyObserversOfSpecificNetworkChangeImpl(
           FROM_HERE, &NetworkObserver::OnNetworkMadeDefault, network);
       break;
   }
+}
+
+void NetworkChangeNotifier::NotifyObserversOfConnectionCostChangeImpl(
+    ConnectionCost cost) {
+  connection_cost_observer_list_->Notify(
+      FROM_HERE, &ConnectionCostObserver::OnConnectionCostChanged, cost);
 }
 
 NetworkChangeNotifier::DisableForTest::DisableForTest()

@@ -14,8 +14,7 @@ cr.define('settings', function() {
    * @constructor
    * @implements {UsersPrivate}
    */
-  function FakeUsersPrivate() {
-  }
+  /* #export */ function FakeUsersPrivate() {}
 
   FakeUsersPrivate.prototype = {
     users: [],
@@ -24,10 +23,19 @@ cr.define('settings', function() {
       this.users.push(user);
     },
 
+    getUsers: function(callback) {
+      return callback(this.users);
+    },
+
+    removeUser: function(email, callback) {
+      this.users = this.users.filter(user => user.email !== email);
+    },
+
     isUserInList: function(user, callback) {
       callback(this.users.includes(user));
     },
   };
 
+  // #cr_define_end
   return {FakeUsersPrivate: FakeUsersPrivate};
 });

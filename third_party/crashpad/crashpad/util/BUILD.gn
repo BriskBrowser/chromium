@@ -17,9 +17,6 @@ import("net/tls.gni")
 
 if (crashpad_is_in_chromium) {
   import("//build/config/sanitizers/sanitizers.gni")
-
-  # Prevent Chromium source assignment filters from being inherited.
-  set_sources_assignment_filter([])
 }
 
 if (crashpad_is_mac || crashpad_is_ios) {
@@ -37,6 +34,12 @@ if (crashpad_is_mac || crashpad_is_ios) {
       "mach/mig_fix.py",
       "mach/mig_gen.py",
     ]
+
+    if (crashpad_is_in_fuchsia) {
+      # TODO(https://fxbug.dev/68780): Remove suppression when fixed.
+      hermetic_deps = false
+      all_outputs_fresh = false
+    }
 
     if (crashpad_is_mac) {
       sources = [
@@ -79,6 +82,9 @@ if (crashpad_is_mac || crashpad_is_ios) {
           "--migcom-path",
           migcom_path,
         ]
+      }
+      if (crashpad_is_mac) {
+        deps = [ "//build/config/mac:sdk_inputs" ]
       }
     }
     if (sysroot != "") {
@@ -131,6 +137,15 @@ if (crashpad_is_mac || crashpad_is_ios) {
         "--arch",
         "arm64",
       ]
+    } else if (crashpad_is_mac && current_cpu == "mac_universal") {
+      args += [
+        "--arch",
+        "x86_64",
+        "--arch",
+        "arm64",
+      ]
+    } else {
+      assert(false, "Unsupported architecture")
     }
   }
 
@@ -146,7 +161,7 @@ if (crashpad_is_mac || crashpad_is_ios) {
   }
 }
 
-static_library("util") {
+crashpad_static_library("util") {
   sources = [
     "file/delimited_file_reader.cc",
     "file/delimited_file_reader.h",
@@ -339,6 +354,8 @@ static_library("util") {
       "mac/mac_util.h",
       "mac/service_management.cc",
       "mac/service_management.h",
+      "mac/sysctl.cc",
+      "mac/sysctl.h",
       "mach/bootstrap.cc",
       "mach/bootstrap.h",
       "mach/child_port_handshake.cc",
@@ -370,7 +387,7 @@ static_library("util") {
     ]
   }
 
-  deps = []
+  deps = [ "//build:chromeos_buildflags" ]
 
   if (crashpad_is_linux || crashpad_is_fuchsia || crashpad_is_android) {
     sources += [ "net/http_transport_socket.cc" ]
@@ -564,6 +581,7 @@ static_library("util") {
   }
 
   public_deps = [
+    ":no_cfi_icall",
     "../compat",
     "../third_party/zlib",
   ]
@@ -610,8 +628,6 @@ static_library("util") {
   if (crashpad_is_android || crashpad_is_linux) {
     deps += [ "../third_party/lss" ]
   }
-
-  configs += [ "..:disable_ubsan" ]
 }
 
 if (!crashpad_is_android && !crashpad_is_ios) {
@@ -628,10 +644,9 @@ if (!crashpad_is_android && !crashpad_is_ios) {
     ]
 
     if (crashpad_is_standalone) {
-      remove_configs = [ "//third_party/mini_chromium/mini_chromium/build:Wexit_time_destructors" ]
+      remove_configs = [ "//third_party/mini_chromium/mini_chromium/build/config:Wexit_time_destructors" ]
     } else if (crashpad_is_external) {
-      remove_configs =
-          [ "//../../mini_chromium/mini_chromium/build:Wexit_time_destructors" ]
+      remove_configs = [ "//../../mini_chromium/mini_chromium/build/config:Wexit_time_destructors" ]
     }
 
     if (crashpad_is_win) {
@@ -653,6 +668,14 @@ if (!crashpad_is_android && !crashpad_is_ios) {
   }
 }
 
+# This exists as a separate target from util so that compat may depend on it
+# without cycles.
+source_set("no_cfi_icall") {
+  sources = [ "misc/no_cfi_icall.h" ]
+  public_configs = [ "..:crashpad_config" ]
+  public_deps = [ "../third_party/mini_chromium:build" ]
+}
+
 source_set("util_test") {
   testonly = true
 
@@ -670,6 +693,7 @@ source_set("util_test") {
     "misc/from_pointer_cast_test.cc",
     "misc/initialization_state_dcheck_test.cc",
     "misc/initialization_state_test.cc",
+    "misc/no_cfi_icall_test.cc",
     "misc/paths_test.cc",
     "misc/random_string_test.cc",
     "misc/range_set_test.cc",
@@ -742,6 +766,7 @@ source_set("util_test") {
       "mac/launchd_test.mm",
       "mac/mac_util_test.mm",
       "mac/service_management_test.mm",
+      "mac/sysctl_test.cc",
       "mach/bootstrap_test.cc",
       "mach/child_port_handshake_test.cc",
       "mach/child_port_server_test.cc",
@@ -842,6 +867,12 @@ source_set("util_test") {
 
   if (crashpad_is_android || crashpad_is_linux) {
     deps += [ "../third_party/lss" ]
+  }
+
+  if (crashpad_is_in_chromium && (crashpad_is_linux || crashpad_is_android)) {
+    # TODO(crbug.com/1163794): Disabling MemoryMap tests if PartitionAlloc is
+    # used for malloc.
+    deps += [ "//base/allocator:buildflags" ]
   }
 
   if (crashpad_is_win) {

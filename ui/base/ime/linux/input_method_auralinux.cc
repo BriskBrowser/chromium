@@ -134,6 +134,13 @@ ui::EventDispatchDetails InputMethodAuraLinux::ProcessKeyEventDone(
         ui::KeyEvent ch_event(*event);
         ch_event.set_character(ch);
         client->InsertChar(ch_event);
+        // If the client changes we assume that the original target has been
+        // destroyed.
+        if (client != GetTextInputClient()) {
+          details.target_destroyed = true;
+          event->StopPropagation();
+          return details;
+        }
       }
     } else {
       // If |filtered| is false, that means the IME wants to commit some text
@@ -142,7 +149,16 @@ ui::EventDispatchDetails InputMethodAuraLinux::ProcessKeyEventDone(
       // the default behavior (e.g. trigger search, etc.)
       // In such case, don't do InsertChar because a key should only trigger the
       // keydown event once.
-      client->InsertText(result_text_);
+      client->InsertText(
+          result_text_,
+          ui::TextInputClient::InsertTextCursorBehavior::kMoveCursorAfterText);
+      // If the client changes we assume that the original target has been
+      // destroyed.
+      if (client != GetTextInputClient()) {
+        details.target_destroyed = true;
+        event->StopPropagation();
+        return details;
+      }
     }
     should_stop_propagation = true;
   }
@@ -295,7 +311,9 @@ void InputMethodAuraLinux::OnCommit(const base::string16& text) {
     if (details.dispatcher_destroyed)
       return;
     if (!event.stopped_propagation() && !details.target_destroyed)
-      GetTextInputClient()->InsertText(text);
+      GetTextInputClient()->InsertText(
+          text,
+          ui::TextInputClient::InsertTextCursorBehavior::kMoveCursorAfterText);
     composition_ = CompositionText();
   }
 }

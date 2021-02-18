@@ -5,13 +5,14 @@
 #include <map>
 
 #include "base/feature_list.h"
+#import "base/ios/ios_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "components/strings/grit/components_strings.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
-#import "ios/chrome/test/earl_grey/chrome_test_case.h"
+#import "ios/chrome/test/earl_grey/web_http_server_chrome_test_case.h"
 #import "ios/chrome/test/scoped_eg_synchronization_disabler.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
 #include "ios/web/public/test/http_server/html_response_provider.h"
@@ -25,10 +26,16 @@
 
 // This test suite only tests javascript in the omnibox. Nothing to do with BVC
 // really, the name is a bit misleading.
-@interface BrowserViewControllerTestCase : ChromeTestCase
+@interface BrowserViewControllerTestCase : WebHttpServerChromeTestCase
 @end
 
 @implementation BrowserViewControllerTestCase
+
+- (void)tearDown {
+  // No-op if only one window presents.
+  [ChromeEarlGrey closeAllExtraWindows];
+  [super tearDown];
+}
 
 // Tests that the NTP is interactable even when multiple NTP are opened during
 // the animation of the first NTP opening. See crbug.com/1032544.
@@ -56,9 +63,9 @@
       selectElementWithMatcher:chrome_test_util::ButtonWithAccessibilityLabelId(
                                    IDS_IOS_CONTENT_SUGGESTIONS_BOOKMARKS)]
       performAction:grey_tap()];
-  [[EarlGrey
-      selectElementWithMatcher:chrome_test_util::HeaderWithAccessibilityLabelId(
-                                   IDS_IOS_CONTENT_SUGGESTIONS_BOOKMARKS)]
+  [[EarlGrey selectElementWithMatcher:
+                 chrome_test_util::NavigationBarTitleWithAccessibilityLabelId(
+                     IDS_IOS_CONTENT_SUGGESTIONS_BOOKMARKS)]
       assertWithMatcher:grey_sufficientlyVisible()];
   [[EarlGrey
       selectElementWithMatcher:chrome_test_util::NavigationBarDoneButton()]
@@ -70,9 +77,9 @@
       selectElementWithMatcher:chrome_test_util::ButtonWithAccessibilityLabelId(
                                    IDS_IOS_CONTENT_SUGGESTIONS_BOOKMARKS)]
       performAction:grey_tap()];
-  [[EarlGrey
-      selectElementWithMatcher:chrome_test_util::HeaderWithAccessibilityLabelId(
-                                   IDS_IOS_CONTENT_SUGGESTIONS_BOOKMARKS)]
+  [[EarlGrey selectElementWithMatcher:
+                 chrome_test_util::NavigationBarTitleWithAccessibilityLabelId(
+                     IDS_IOS_CONTENT_SUGGESTIONS_BOOKMARKS)]
       assertWithMatcher:grey_sufficientlyVisible()];
   [[EarlGrey
       selectElementWithMatcher:chrome_test_util::NavigationBarDoneButton()]
@@ -195,6 +202,54 @@
                                           "https://anything")]
       assertWithMatcher:grey_notNil()];
   [ChromeEarlGrey waitForMainTabCount:1];
+}
+
+#pragma mark - Multiwindow
+
+- (void)testMultiWindowURLLoading {
+  if (![ChromeEarlGrey areMultipleWindowsSupported])
+    EARL_GREY_TEST_DISABLED(@"Multiple windows can't be opened.");
+
+  // Preps the http server with two URLs serving content.
+  std::map<GURL, std::string> responses;
+  const GURL firstURL = web::test::HttpServer::MakeUrl("http://first");
+  const GURL secondURL = web::test::HttpServer::MakeUrl("http://second");
+  responses[firstURL] = "First window";
+  responses[secondURL] = "Second window";
+  web::test::SetUpSimpleHttpServer(responses);
+
+  // Loads url in first window.
+  [ChromeEarlGrey loadURL:firstURL inWindowWithNumber:0];
+
+  // Opens second window and loads url.
+  [ChromeEarlGrey openNewWindow];
+  [ChromeEarlGrey waitForForegroundWindowCount:2];
+  [ChromeEarlGrey loadURL:secondURL inWindowWithNumber:1];
+
+  // Checks loads worked.
+  [ChromeEarlGrey waitForWebStateContainingText:responses[firstURL]
+                             inWindowWithNumber:0];
+  [ChromeEarlGrey waitForWebStateContainingText:responses[secondURL]
+                             inWindowWithNumber:1];
+
+  // Closes first window and renumbers second window as first
+  [ChromeEarlGrey closeWindowWithNumber:0];
+  [ChromeEarlGrey waitForForegroundWindowCount:1];
+  [ChromeEarlGrey changeWindowWithNumber:1 toNewNumber:0];
+  [ChromeEarlGrey waitForWebStateContainingText:responses[secondURL]
+                             inWindowWithNumber:0];
+
+  // Opens a 'new' second window.
+  [ChromeEarlGrey openNewWindow];
+  [ChromeEarlGrey waitForForegroundWindowCount:2];
+
+  // Loads urls in both windows, and verifies.
+  [ChromeEarlGrey loadURL:firstURL inWindowWithNumber:0];
+  [ChromeEarlGrey loadURL:secondURL inWindowWithNumber:1];
+  [ChromeEarlGrey waitForWebStateContainingText:responses[firstURL]
+                             inWindowWithNumber:0];
+  [ChromeEarlGrey waitForWebStateContainingText:responses[secondURL]
+                             inWindowWithNumber:1];
 }
 
 @end

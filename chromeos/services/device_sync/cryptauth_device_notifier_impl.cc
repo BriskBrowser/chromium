@@ -179,10 +179,12 @@ void CryptAuthDeviceNotifierImpl::ProcessRequestQueue() {
   cryptauth_client_ = client_factory_->CreateInstance();
   cryptauth_client_->BatchNotifyGroupDevices(
       request,
-      base::Bind(&CryptAuthDeviceNotifierImpl::OnBatchNotifyGroupDevicesSuccess,
-                 base::Unretained(this)),
-      base::Bind(&CryptAuthDeviceNotifierImpl::OnBatchNotifyGroupDevicesFailure,
-                 base::Unretained(this)));
+      base::BindOnce(
+          &CryptAuthDeviceNotifierImpl::OnBatchNotifyGroupDevicesSuccess,
+          base::Unretained(this)),
+      base::BindOnce(
+          &CryptAuthDeviceNotifierImpl::OnBatchNotifyGroupDevicesFailure,
+          base::Unretained(this)));
 }
 
 void CryptAuthDeviceNotifierImpl::OnBatchNotifyGroupDevicesSuccess(
@@ -211,8 +213,10 @@ void CryptAuthDeviceNotifierImpl::OnBatchNotifyGroupDevicesFailure(
 
 void CryptAuthDeviceNotifierImpl::FinishAttempt(
     base::Optional<NetworkRequestError> error) {
-  DCHECK(!pending_requests_.empty());
+  cryptauth_client_.reset();
+  SetState(State::kIdle);
 
+  DCHECK(!pending_requests_.empty());
   Request current_request = std::move(pending_requests_.front());
   pending_requests_.pop();
 
@@ -223,7 +227,6 @@ void CryptAuthDeviceNotifierImpl::FinishAttempt(
     std::move(current_request.success_callback).Run();
   }
 
-  SetState(State::kIdle);
   ProcessRequestQueue();
 }
 

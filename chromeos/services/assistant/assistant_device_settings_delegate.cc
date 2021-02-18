@@ -9,17 +9,13 @@
 #include <utility>
 
 #include "ash/public/cpp/assistant/controller/assistant_notification_controller.h"
-#include "base/command_line.h"
 #include "base/logging.h"
 #include "base/memory/weak_ptr.h"
 #include "chromeos/assistant/internal/internal_util.h"
 #include "chromeos/assistant/internal/proto/google3/assistant/api/client_op/device_args.pb.h"
-#include "chromeos/services/assistant/cros_platform_api.h"
 #include "chromeos/services/assistant/public/cpp/assistant_service.h"
 #include "chromeos/services/assistant/public/cpp/device_actions.h"
 #include "chromeos/services/assistant/service_context.h"
-#include "libassistant/shared/public/platform_audio_output.h"
-#include "ui/accessibility/accessibility_switches.h"
 
 namespace client_op = ::assistant::api::client_op;
 
@@ -275,11 +271,7 @@ AssistantDeviceSettingsDelegate::AssistantDeviceSettingsDelegate(
   AddSetting(std::make_unique<NightLightSetting>(context));
   AddSetting(std::make_unique<DoNotDisturbSetting>(context));
   AddSetting(std::make_unique<BrightnessSetting>(context));
-
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          ::switches::kEnableExperimentalAccessibilitySwitchAccess)) {
-    AddSetting(std::make_unique<SwitchAccessSetting>(context));
-  }
+  AddSetting(std::make_unique<SwitchAccessSetting>(context));
 }
 
 AssistantDeviceSettingsDelegate::~AssistantDeviceSettingsDelegate() = default;

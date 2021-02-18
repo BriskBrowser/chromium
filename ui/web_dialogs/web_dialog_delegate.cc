@@ -20,10 +20,6 @@ void WebDialogDelegate::GetMinimumDialogSize(gfx::Size* size) const {
   GetDialogSize(size);
 }
 
-bool WebDialogDelegate::CanResizeDialog() const {
-  return true;
-}
-
 bool WebDialogDelegate::CanMaximizeDialog() const {
   return false;
 }
@@ -83,6 +79,10 @@ bool WebDialogDelegate::CheckMediaAccessPermission(
     const GURL& security_origin,
     blink::mojom::MediaStreamType type) {
   return false;
+}
+
+WebDialogDelegate::FrameKind WebDialogDelegate::GetWebDialogFrameKind() const {
+  return WebDialogDelegate::FrameKind::kNonClient;
 }
 
 }  // namespace ui

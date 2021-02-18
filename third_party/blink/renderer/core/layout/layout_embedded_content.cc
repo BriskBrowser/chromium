@@ -44,21 +44,13 @@
 namespace blink {
 
 LayoutEmbeddedContent::LayoutEmbeddedContent(HTMLFrameOwnerElement* element)
-    : LayoutReplaced(element),
-      // Reference counting is used to prevent the part from being destroyed
-      // while inside the EmbeddedContentView code, which might not be able to
-      // handle that.
-      ref_count_(1) {
+    : LayoutReplaced(element) {
   DCHECK(element);
   SetInline(false);
 }
 
-void LayoutEmbeddedContent::Release() {
-  if (--ref_count_ <= 0)
-    delete this;
-}
-
 void LayoutEmbeddedContent::WillBeDestroyed() {
+  NOT_DESTROYED();
   if (AXObjectCache* cache = GetDocument().ExistingAXObjectCache()) {
     cache->ChildrenChanged(Parent());
     cache->Remove(this);
@@ -68,32 +60,17 @@ void LayoutEmbeddedContent::WillBeDestroyed() {
     frame_owner->SetEmbeddedContentView(nullptr);
 
   LayoutReplaced::WillBeDestroyed();
-}
 
-void LayoutEmbeddedContent::DeleteThis() {
-  // We call clearNode here because LayoutEmbeddedContent is ref counted. This
-  // call to destroy may not actually destroy the layout object. We can keep it
-  // around because of references from the LocalFrameView class. (The actual
-  // destruction of the class happens in PostDestroy() which is called from
-  // Release()).
-  //
-  // But, we've told the system we've destroyed the layoutObject, which happens
-  // when the DOM node is destroyed. So there is a good chance the DOM node this
-  // object points too is invalid, so we have to clear the node so we make sure
-  // we don't access it in the future.
   ClearNode();
-  Release();
-}
-
-LayoutEmbeddedContent::~LayoutEmbeddedContent() {
-  DCHECK_LE(ref_count_, 0);
 }
 
 FrameView* LayoutEmbeddedContent::ChildFrameView() const {
+  NOT_DESTROYED();
   return DynamicTo<FrameView>(GetEmbeddedContentView());
 }
 
 LayoutView* LayoutEmbeddedContent::ChildLayoutView() const {
+  NOT_DESTROYED();
   if (HTMLFrameOwnerElement* owner_element = GetFrameOwnerElement()) {
     if (Document* content_document = owner_element->contentDocument())
       return content_document->GetLayoutView();
@@ -102,6 +79,7 @@ LayoutView* LayoutEmbeddedContent::ChildLayoutView() const {
 }
 
 WebPluginContainerImpl* LayoutEmbeddedContent::Plugin() const {
+  NOT_DESTROYED();
   EmbeddedContentView* embedded_content_view = GetEmbeddedContentView();
   if (embedded_content_view && embedded_content_view->IsPluginView())
     return To<WebPluginContainerImpl>(embedded_content_view);
@@ -109,12 +87,14 @@ WebPluginContainerImpl* LayoutEmbeddedContent::Plugin() const {
 }
 
 EmbeddedContentView* LayoutEmbeddedContent::GetEmbeddedContentView() const {
+  NOT_DESTROYED();
   if (auto* frame_owner = GetFrameOwnerElement())
     return frame_owner->OwnedEmbeddedContentView();
   return nullptr;
 }
 
 PaintLayerType LayoutEmbeddedContent::LayerTypeRequired() const {
+  NOT_DESTROYED();
   if (AdditionalCompositingReasons())
     return kNormalPaintLayer;
 
@@ -134,10 +114,15 @@ PaintLayerType LayoutEmbeddedContent::LayerTypeRequired() const {
   return kForcedPaintLayer;
 }
 
-bool LayoutEmbeddedContent::ContentDocumentIsCompositing() const {
+bool LayoutEmbeddedContent::ContentDocumentContainsGraphicsLayer() const {
+  NOT_DESTROYED();
+  // This method must use the same logic as GraphicsLayerTreeBuilder: if
+  // an iframe is throttled, we look for the existence of a root graphics layer,
+  // even if the compositing state information is stale.
   if (PaintLayerCompositor* inner_compositor =
           PaintLayerCompositor::FrameContentsCompositor(*this)) {
-    return inner_compositor->StaleInCompositingMode();
+    DisableCompositingQueryAsserts compositing_disabler;
+    return inner_compositor->RootGraphicsLayer();
   }
   return false;
 }
@@ -147,6 +132,7 @@ bool LayoutEmbeddedContent::NodeAtPointOverEmbeddedContentView(
     const HitTestLocation& hit_test_location,
     const PhysicalOffset& accumulated_offset,
     HitTestAction action) {
+  NOT_DESTROYED();
   bool had_result = result.InnerNode();
   bool inside = LayoutReplaced::NodeAtPoint(result, hit_test_location,
                                             accumulated_offset, action);
@@ -166,6 +152,7 @@ bool LayoutEmbeddedContent::NodeAtPoint(
     const HitTestLocation& hit_test_location,
     const PhysicalOffset& accumulated_offset,
     HitTestAction action) {
+  NOT_DESTROYED();
   auto* local_frame_view = DynamicTo<LocalFrameView>(ChildFrameView());
   bool skip_contents = (result.GetHitTestRequest().GetStopNode() == this ||
                         !result.GetHitTestRequest().AllowsChildFrameContent());
@@ -248,6 +235,7 @@ bool LayoutEmbeddedContent::NodeAtPoint(
 }
 
 CompositingReasons LayoutEmbeddedContent::AdditionalCompositingReasons() const {
+  NOT_DESTROYED();
   WebPluginContainerImpl* plugin_view = Plugin();
   if (plugin_view && plugin_view->CcLayer())
     return CompositingReason::kPlugin;
@@ -262,6 +250,7 @@ CompositingReasons LayoutEmbeddedContent::AdditionalCompositingReasons() const {
 
 void LayoutEmbeddedContent::StyleDidChange(StyleDifference diff,
                                            const ComputedStyle* old_style) {
+  NOT_DESTROYED();
   LayoutReplaced::StyleDidChange(diff, old_style);
 
   if (EmbeddedContentView* embedded_content_view = GetEmbeddedContentView()) {
@@ -289,6 +278,7 @@ void LayoutEmbeddedContent::StyleDidChange(StyleDifference diff,
 }
 
 void LayoutEmbeddedContent::UpdateLayout() {
+  NOT_DESTROYED();
   DCHECK(NeedsLayout());
   LayoutAnalyzer::Scope analyzer(*this);
   UpdateAfterLayout();
@@ -298,13 +288,15 @@ void LayoutEmbeddedContent::UpdateLayout() {
 void LayoutEmbeddedContent::PaintReplaced(
     const PaintInfo& paint_info,
     const PhysicalOffset& paint_offset) const {
-  if (PaintBlockedByDisplayLock(DisplayLockLifecycleTarget::kChildren))
+  NOT_DESTROYED();
+  if (ChildPaintBlockedByDisplayLock())
     return;
   EmbeddedContentPainter(*this).PaintReplaced(paint_info, paint_offset);
 }
 
 void LayoutEmbeddedContent::InvalidatePaint(
     const PaintInvalidatorContext& context) const {
+  NOT_DESTROYED();
   LayoutReplaced::InvalidatePaint(context);
   if (auto* plugin = Plugin())
     plugin->InvalidatePaint();
@@ -312,6 +304,7 @@ void LayoutEmbeddedContent::InvalidatePaint(
 
 CursorDirective LayoutEmbeddedContent::GetCursor(const PhysicalOffset& point,
                                                  ui::Cursor& cursor) const {
+  NOT_DESTROYED();
   if (Plugin()) {
     // A plugin is responsible for setting the cursor when the pointer is over
     // it.
@@ -321,6 +314,7 @@ CursorDirective LayoutEmbeddedContent::GetCursor(const PhysicalOffset& point,
 }
 
 PhysicalRect LayoutEmbeddedContent::ReplacedContentRect() const {
+  NOT_DESTROYED();
   PhysicalRect content_rect = PhysicalContentBoxRect();
   // IFrames set as the root scroller should get their size from their parent.
   if (ChildFrameView() && View() && IsEffectiveRootScroller()) {
@@ -336,6 +330,7 @@ PhysicalRect LayoutEmbeddedContent::ReplacedContentRect() const {
 }
 
 void LayoutEmbeddedContent::UpdateOnEmbeddedContentViewChange() {
+  NOT_DESTROYED();
   if (!Style())
     return;
 
@@ -365,6 +360,7 @@ void LayoutEmbeddedContent::UpdateOnEmbeddedContentViewChange() {
 
 void LayoutEmbeddedContent::UpdateGeometry(
     EmbeddedContentView& embedded_content_view) {
+  NOT_DESTROYED();
   // TODO(wangxianzhu): We reset subpixel accumulation at some boundaries, so
   // the following code is incorrect when some ancestors are such boundaries.
   // What about multicol? Need a LayoutBox function to query sub-pixel
@@ -402,7 +398,7 @@ void LayoutEmbeddedContent::UpdateGeometry(
   // TODO(szager): Refactor this functionality into EmbeddedContentView, rather
   // than reimplementing in each concrete subclass.
   LayoutView* layout_view = View();
-  if (layout_view && layout_view->HasNonVisibleOverflow()) {
+  if (layout_view && layout_view->IsScrollContainer()) {
     // Floored because the PixelSnappedScrollOffset returns a ScrollOffset
     // which is a float-type but frame_rect in a content view is an IntRect. We
     // may want to reevaluate the use of pixel snapping that since scroll
@@ -415,6 +411,7 @@ void LayoutEmbeddedContent::UpdateGeometry(
 }
 
 bool LayoutEmbeddedContent::IsThrottledFrameView() const {
+  NOT_DESTROYED();
   if (auto* local_frame_view = DynamicTo<LocalFrameView>(ChildFrameView()))
     return local_frame_view->ShouldThrottleRendering();
   return false;

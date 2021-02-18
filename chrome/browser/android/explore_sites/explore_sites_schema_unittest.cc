@@ -87,7 +87,7 @@ DatabaseTables ReadTables(sql::Database* db) {
   DatabaseTables database_tables;
   std::stringstream ss;
   sql::Statement table_names(db->GetUniqueStatement(
-      "SELECT name FROM sqlite_master WHERE type='table'"));
+      "SELECT name FROM sqlite_schema WHERE type='table'"));
   while (table_names.Step()) {
     const std::string table_name = table_names.ColumnString(0);
     if (table_name == "meta" || base::StartsWith(table_name, "sqlite_"))
@@ -102,7 +102,7 @@ std::string TableSql(sql::Database* db, const std::string& table_name) {
   DatabaseTables database_tables;
   std::stringstream ss;
   sql::Statement table_sql(db->GetUniqueStatement(
-      "SELECT sql FROM sqlite_master WHERE type='table' AND name=?"));
+      "SELECT sql FROM sqlite_schema WHERE type='table' AND name=?"));
   table_sql.BindString(0, table_name);
   if (!table_sql.Step())
     return std::string();
@@ -112,6 +112,7 @@ std::string TableSql(sql::Database* db, const std::string& table_name) {
   base::ReplaceSubstringsAfterOffset(&sql, 0, ", ", ",");
   base::ReplaceSubstringsAfterOffset(&sql, 0, ",", ",\n");
   base::ReplaceSubstringsAfterOffset(&sql, 0, " (", "(");
+  base::ReplaceSubstringsAfterOffset(&sql, 0, "\"", "");
   return sql;
 }
 
@@ -173,7 +174,7 @@ class ExploreSitesSchemaTest : public testing::Test {
   void CheckTablesExistence() {
     EXPECT_TRUE(db_->DoesTableExist("sites"));
     EXPECT_TRUE(db_->DoesTableExist("categories"));
-    EXPECT_TRUE(db_->DoesTableExist("site_blacklist"));
+    EXPECT_TRUE(db_->DoesTableExist("site_blocklist"));
     EXPECT_TRUE(db_->DoesTableExist("activity"));
   }
 
@@ -217,7 +218,7 @@ TEST_F(ExploreSitesSchemaTest, TestMissingTablesAreRecreated) {
   EXPECT_TRUE(ExploreSitesSchema::CreateOrUpgradeIfNeeded(db_.get()));
   CheckTablesExistence();
 
-  EXPECT_TRUE(db_->Execute("DROP TABLE site_blacklist"));
+  EXPECT_TRUE(db_->Execute("DROP TABLE site_blocklist"));
   EXPECT_TRUE(ExploreSitesSchema::CreateOrUpgradeIfNeeded(db_.get()));
   CheckTablesExistence();
 

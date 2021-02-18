@@ -22,8 +22,16 @@ class FakeArCore : public ArCore {
   ~FakeArCore() override;
 
   // ArCore implementation.
-  bool Initialize(
-      base::android::ScopedJavaLocalRef<jobject> application_context) override;
+  base::Optional<ArCore::InitializeResult> Initialize(
+      base::android::ScopedJavaLocalRef<jobject> application_context,
+      const std::unordered_set<device::mojom::XRSessionFeature>&
+          required_features,
+      const std::unordered_set<device::mojom::XRSessionFeature>&
+          optional_features,
+      const std::vector<device::mojom::XRTrackedImagePtr>& tracked_images,
+      base::Optional<ArCore::DepthSensingConfiguration> depth_sensing_config)
+      override;
+  MinMaxRange GetTargetFramerateRange() override;
   void SetCameraTexture(uint32_t texture) override;
   void SetDisplayGeometry(const gfx::Size& frame_size,
                           display::Display::Rotation display_rotation) override;
@@ -58,6 +66,7 @@ class FakeArCore : public ArCore {
   mojom::XRPlaneDetectionDataPtr GetDetectedPlanesData() override;
   mojom::XRAnchorsDataPtr GetAnchorsData() override;
   mojom::XRLightEstimationDataPtr GetLightEstimationData() override;
+  mojom::XRDepthDataPtr GetDepthData() override;
 
   void CreateAnchor(
       const mojom::XRNativeOriginInformation& native_origin_information,
@@ -75,6 +84,8 @@ class FakeArCore : public ArCore {
       const base::TimeTicks& frame_time) override;
 
   void DetachAnchor(uint64_t anchor_id) override;
+
+  mojom::XRTrackedImagesDataPtr GetTrackedImages() override;
 
   void SetCameraAspect(float aspect) { camera_aspect_ = aspect; }
 

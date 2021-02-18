@@ -5,22 +5,25 @@
 #include "ui/gtk/x/gtk_event_loop_x11.h"
 
 #include <gdk/gdk.h>
-#include <gdk/gdkx.h>
 #include <gtk/gtk.h>
 #include <xcb/xcb.h>
 #include <xcb/xproto.h>
 
 #include "base/memory/singleton.h"
-#include "ui/events/platform/x11/x11_event_source.h"
+#include "ui/base/x/x11_util.h"
 #include "ui/gfx/x/event.h"
-#include "ui/gfx/x/x11.h"
+
+extern "C" {
+unsigned long gdk_x11_window_get_xid(GdkWindow* window);
+}
 
 namespace ui {
 
 namespace {
 
-int BuildXkbStateFromGdkEvent(unsigned int state, unsigned char group) {
-  return state | ((group & 0x3) << 13);
+x11::KeyButMask BuildXkbStateFromGdkEvent(unsigned int state,
+                                          unsigned char group) {
+  return static_cast<x11::KeyButMask>(state | ((group & 0x3) << 13));
 }
 
 }  // namespace
@@ -70,40 +73,24 @@ void GtkEventLoopX11::ProcessGdkEventKey(const GdkEventKey& gdk_event_key) {
   // case.  ibus-gtk is used through gtk-immodule to support IMEs.
 
   auto* conn = x11::Connection::Get();
-  XDisplay* display = conn->display();
 
-  xcb_generic_event_t generic_event;
-  memset(&generic_event, 0, sizeof(generic_event));
-  auto* key_event = reinterpret_cast<xcb_key_press_event_t*>(&generic_event);
-  key_event->response_type = gdk_event_key.type == GDK_KEY_PRESS
-                                 ? x11::KeyEvent::Press
-                                 : x11::KeyEvent::Release;
-  if (gdk_event_key.send_event)
-    key_event->response_type |= x11::kSendEventMask;
-  key_event->event = GDK_WINDOW_XID(gdk_event_key.window);
-  key_event->root = DefaultRootWindow(display);
-  key_event->time = gdk_event_key.time;
-  key_event->detail = gdk_event_key.hardware_keycode;
-  key_event->same_screen = true;
-
-  x11::Event event(&generic_event, conn, false);
-
-  // The key state is 16 bits on the wire, but ibus-gtk adds additional flags
-  // that may be outside this range, so set the state after conversion from
-  // the wire format.
-  // TODO(https://crbug.com/1066670): Add a test to ensure this subtle logic
-  // doesn't regress after all X11 event code is refactored from using Xlib to
-  // XProto.
-  int state =
-      BuildXkbStateFromGdkEvent(gdk_event_key.state, gdk_event_key.group);
-  event.As<x11::KeyEvent>()->state = static_cast<x11::KeyButMask>(state);
+  x11::KeyEvent key{
+      .opcode = gdk_event_key.type == GDK_KEY_PRESS ? x11::KeyEvent::Press
+                                                    : x11::KeyEvent::Release,
+      .send_event = gdk_event_key.send_event,
+      .detail = static_cast<x11::KeyCode>(gdk_event_key.hardware_keycode),
+      .time = static_cast<x11::Time>(gdk_event_key.time),
+      .root = ui::GetX11RootWindow(),
+      .event = static_cast<x11::Window>(
+          gdk_x11_window_get_xid(gdk_event_key.window)),
+      .state =
+          BuildXkbStateFromGdkEvent(gdk_event_key.state, gdk_event_key.group),
+      .same_screen = true,
+  };
 
   // We want to process the gtk event; mapped to an X11 event immediately
   // otherwise if we put it back on the queue we may get items out of order.
-  if (ui::X11EventSource* x11_source = ui::X11EventSource::GetInstance())
-    x11_source->DispatchXEvent(&event);
-  else
-    conn->events().push_front(std::move(event));
+  conn->DispatchEvent(x11::Event{key});
 }
 
 }  // namespace ui

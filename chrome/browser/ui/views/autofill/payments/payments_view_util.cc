@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/views/autofill/payments/payments_view_util.h"
 
+#include "base/bind.h"
+#include "base/ranges/algorithm.h"
 #include "build/branding_buildflags.h"
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
@@ -25,6 +27,7 @@
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/grid_layout.h"
 #include "ui/views/layout/layout_provider.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/style/typography.h"
 
 namespace autofill {
@@ -120,6 +123,9 @@ gfx::Size TitleWithIconAndSeparatorView::GetMinimumSize() const {
   return gfx::Size(0, 0);
 }
 
+BEGIN_METADATA(TitleWithIconAndSeparatorView, views::View)
+END_METADATA
+
 std::unique_ptr<views::Textfield> CreateCvcTextfield() {
   auto textfield = std::make_unique<views::Textfield>();
   textfield->SetPlaceholderText(
@@ -130,50 +136,27 @@ std::unique_ptr<views::Textfield> CreateCvcTextfield() {
 }
 
 LegalMessageView::LegalMessageView(const LegalMessageLines& legal_message_lines,
-                                   views::StyledLabelListener* listener)
-    : legal_message_lines_(legal_message_lines) {
+                                   LinkClickedCallback callback) {
   SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kVertical));
   for (const LegalMessageLine& line : legal_message_lines) {
-    AddChildView(CreateLegalMessageLineLabel(line, listener).release());
-  }
-}
-
-LegalMessageView::~LegalMessageView() {}
-
-std::unique_ptr<views::StyledLabel>
-LegalMessageView::CreateLegalMessageLineLabel(
-    const LegalMessageLine& line,
-    views::StyledLabelListener* listener) {
-  auto label = std::make_unique<views::StyledLabel>(listener);
-  label->SetText(line.text());
-  label->SetTextContext(CONTEXT_BODY_TEXT_LARGE);
-  label->SetDefaultTextStyle(views::style::STYLE_SECONDARY);
-  for (const LegalMessageLine::Link& link : line.links()) {
-    label->AddStyleRange(link.range,
-                         views::StyledLabel::RangeStyleInfo::CreateForLink());
-  }
-  return label;
-}
-
-const GURL LegalMessageView::GetUrlForLink(views::StyledLabel* label,
-                                           const gfx::Range& range) {
-  // Index of |label| within its parent's view hierarchy is the same as the
-  // legal message line index. DCHECK this assumption to guard against future
-  // layout changes.
-  DCHECK_EQ(label->parent()->children().size(), legal_message_lines_.size());
-
-  const std::vector<LegalMessageLine::Link>& links =
-      legal_message_lines_[label->parent()->GetIndexOf(label)].links();
-  for (const LegalMessageLine::Link& link : links) {
-    if (link.range == range) {
-      return link.url;
+    views::StyledLabel* label =
+        AddChildView(std::make_unique<views::StyledLabel>());
+    label->SetText(line.text());
+    label->SetTextContext(views::style::CONTEXT_DIALOG_BODY_TEXT);
+    label->SetDefaultTextStyle(views::style::STYLE_SECONDARY);
+    for (const LegalMessageLine::Link& link : line.links()) {
+      label->AddStyleRange(link.range,
+                           views::StyledLabel::RangeStyleInfo::CreateForLink(
+                               base::BindRepeating(callback, link.url)));
     }
   }
-  // |range| was not found.
-  NOTREACHED();
-  return GURL();
 }
+
+LegalMessageView::~LegalMessageView() = default;
+
+BEGIN_METADATA(LegalMessageView, views::View)
+END_METADATA
 
 PaymentsBubbleClosedReason GetPaymentsBubbleClosedReasonFromWidgetClosedReason(
     views::Widget::ClosedReason reason) {

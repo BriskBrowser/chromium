@@ -9,11 +9,11 @@
 #include "base/callback.h"
 #include "base/check.h"
 #include "base/notreached.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
-#include "chrome/common/web_application_info.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "components/crx_file/id_util.h"
 
 namespace web_app {
@@ -75,17 +75,6 @@ void TestInstallFinalizer::UninstallExternalWebAppByUrl(
                      }));
 }
 
-bool TestInstallFinalizer::CanUserUninstallFromSync(const AppId& app_id) const {
-  NOTIMPLEMENTED();
-  return false;
-}
-
-void TestInstallFinalizer::UninstallWebAppFromSyncByUser(
-    const AppId& app_url,
-    UninstallWebAppCallback callback) {
-  NOTIMPLEMENTED();
-}
-
 bool TestInstallFinalizer::CanUserUninstallExternalApp(
     const AppId& app_id) const {
   NOTIMPLEMENTED();
@@ -136,7 +125,7 @@ void TestInstallFinalizer::SimulateExternalAppUninstalledByUser(
 void TestInstallFinalizer::Finalize(const WebApplicationInfo& web_app_info,
                                     InstallResultCode code,
                                     InstallFinalizedCallback callback) {
-  AppId app_id = GetAppIdForUrl(web_app_info.app_url);
+  AppId app_id = GetAppIdForUrl(web_app_info.start_url);
   if (next_app_id_.has_value()) {
     app_id = next_app_id_.value();
     next_app_id_.reset();

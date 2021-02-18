@@ -19,7 +19,7 @@ const char kFakeUrl[] = "https://www.example.com";
 
 using ::testing::_;
 using ::testing::Eq;
-using ::testing::UnorderedElementsAreArray;
+using ::testing::IsSupersetOf;
 
 TEST(FieldFormatterTest, FormatString) {
   std::map<std::string, std::string> mappings = {
@@ -72,7 +72,7 @@ TEST(FieldFormatterTest, AutofillProfile) {
             "XY");
   EXPECT_EQ(FormatString("${-6}", CreateAutofillMappings(unknown_state_profile,
                                                          "en-US")),
-            base::nullopt);
+            "XY");
 
   // UNKNOWN_TYPE
   EXPECT_EQ(FormatString("${1}", CreateAutofillMappings(profile, "en-US")),
@@ -108,6 +108,11 @@ TEST(FieldFormatterTest, CreditCard) {
   EXPECT_EQ(*FormatString("${-2} ${-5}",
                           CreateAutofillMappings(credit_card, "en-US")),
             "visa Visa");
+
+  // CREDIT_CARD_NON_PADDED_EXP_MONTH
+  EXPECT_EQ(
+      *FormatString("${-7}", CreateAutofillMappings(credit_card, "en-US")),
+      "1");
 }
 
 TEST(FieldFormatterTest, SpecialCases) {
@@ -156,6 +161,7 @@ TEST(FieldFormatterTest, DifferentLocales) {
 
 TEST(FieldFormatterTest, AddsAllProfileFields) {
   std::map<std::string, std::string> expected_values = {
+      {"-6", "Canton Zurich"},
       {"3", "Alpha"},
       {"4", "Beta"},
       {"5", "Gamma"},
@@ -183,11 +189,12 @@ TEST(FieldFormatterTest, AddsAllProfileFields) {
       "Canton Zurich", "8002", "CH", "+41791234567");
 
   EXPECT_THAT(CreateAutofillMappings(profile, "en-US"),
-              UnorderedElementsAreArray(expected_values));
+              IsSupersetOf(expected_values));
 }
 
 TEST(FieldFormatterTest, AddsAllCreditCardFields) {
   std::map<std::string, std::string> expected_values = {
+      {"-7", "8"},
       {"-5", "Visa"},
       {"-4", "1111"},
       {"-2", "visa"},
@@ -207,7 +214,7 @@ TEST(FieldFormatterTest, AddsAllCreditCardFields) {
                                     "4111111111111111", "8", "2050", "");
 
   EXPECT_THAT(CreateAutofillMappings(credit_card, "en-US"),
-              UnorderedElementsAreArray(expected_values));
+              IsSupersetOf(expected_values));
 }
 
 }  // namespace

@@ -23,10 +23,8 @@
 #include "ui/gfx/canvas.h"
 #include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/background.h"
-#include "ui/views/border.h"
 #include "ui/views/controls/button/label_button_border.h"
 #include "ui/views/controls/highlight_path_generator.h"
-#include "ui/views/style/platform_style.h"
 
 namespace ash {
 
@@ -36,20 +34,18 @@ constexpr int kCornerRadius = 16;
 
 }  // namespace
 
-NewDeskButton::NewDeskButton(views::ButtonListener* listener)
-    : LabelButton(listener,
+NewDeskButton::NewDeskButton()
+    : LabelButton(base::BindRepeating(&NewDeskButton::OnButtonPressed,
+                                      base::Unretained(this)),
                   l10n_util::GetStringUTF16(IDS_ASH_DESKS_NEW_DESK_BUTTON)) {
   SetPaintToLayer();
   layer()->SetFillsBoundsOpaquely(false);
   SetHorizontalAlignment(gfx::ALIGN_CENTER);
 
-  AshColorProvider::Get()->DecoratePillButton(
-      this, AshColorProvider::ButtonType::kPillButtonWithIcon,
-      AshColorProvider::AshColorMode::kDark, kDesksNewDeskButtonIcon);
-
   SetInkDropMode(InkDropMode::ON);
-  set_has_ink_drop_action_on_click(true);
+  SetHasInkDropActionOnClick(true);
   SetFocusPainter(nullptr);
+  SetFocusBehavior(views::View::FocusBehavior::ACCESSIBLE_ONLY);
 
   auto border = std::make_unique<WmHighlightItemBorder>(kCornerRadius);
   border_ptr_ = border.get();
@@ -57,7 +53,6 @@ NewDeskButton::NewDeskButton(views::ButtonListener* listener)
   views::InstallRoundRectHighlightPathGenerator(this, GetInsets(),
                                                 kCornerRadius);
 
-  UpdateButtonState();
   UpdateBorderState();
 }
 
@@ -74,14 +69,13 @@ void NewDeskButton::UpdateButtonState() {
   SetEnabled(enabled);
 
   background_color_ = AshColorProvider::Get()->GetControlsLayerColor(
-      AshColorProvider::ControlsLayerType::kControlBackgroundColorInactive,
-      AshColorProvider::AshColorMode::kDark);
+      AshColorProvider::ControlsLayerType::kControlBackgroundColorInactive);
   if (!enabled)
     background_color_ = AshColorProvider::GetDisabledColor(background_color_);
 
-  set_ink_drop_visible_opacity(AshColorProvider::Get()
-                                   ->GetRippleAttributes(background_color_)
-                                   .inkdrop_opacity);
+  SetInkDropVisibleOpacity(AshColorProvider::Get()
+                               ->GetRippleAttributes(background_color_)
+                               .inkdrop_opacity);
   SchedulePaint();
 }
 
@@ -144,7 +138,7 @@ void NewDeskButton::OnPaintBackground(gfx::Canvas* canvas) {
 std::unique_ptr<views::InkDrop> NewDeskButton::CreateInkDrop() {
   auto ink_drop = CreateDefaultFloodFillInkDropImpl();
   ink_drop->SetShowHighlightOnHover(false);
-  ink_drop->SetShowHighlightOnFocus(!views::PlatformStyle::kPreferFocusRings);
+  ink_drop->SetShowHighlightOnFocus(false);
   return std::move(ink_drop);
 }
 
@@ -164,11 +158,10 @@ SkColor NewDeskButton::GetInkDropBaseColor() const {
       .base_color;
 }
 
-std::unique_ptr<views::LabelButtonBorder> NewDeskButton::CreateDefaultBorder()
-    const {
-  std::unique_ptr<views::LabelButtonBorder> border =
-      std::make_unique<views::LabelButtonBorder>();
-  return border;
+void NewDeskButton::OnThemeChanged() {
+  LabelButton::OnThemeChanged();
+  AshColorProvider::Get()->DecoratePillButton(this, &kDesksNewDeskButtonIcon);
+  UpdateButtonState();
 }
 
 views::View* NewDeskButton::GetView() {
@@ -183,6 +176,8 @@ void NewDeskButton::MaybeActivateHighlightedView() {
 }
 
 void NewDeskButton::MaybeCloseHighlightedView() {}
+
+void NewDeskButton::MaybeSwapHighlightedView(bool right) {}
 
 void NewDeskButton::OnViewHighlighted() {
   UpdateBorderState();

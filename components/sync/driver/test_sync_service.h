@@ -38,10 +38,7 @@ class TestSyncService : public SyncService {
   void SetFirstSetupComplete(bool first_setup_complete);
   void SetPreferredDataTypes(const ModelTypeSet& types);
   void SetActiveDataTypes(const ModelTypeSet& types);
-  void SetBackedOffDataTypes(const ModelTypeSet& types);
   void SetLastCycleSnapshot(const SyncCycleSnapshot& snapshot);
-  void SetUserDemographics(
-      const UserDemographicsResult& user_demographics_result);
   // Convenience versions of the above, for when the caller doesn't care about
   // the particular values in the snapshot, just whether there is one.
   void SetEmptyLastCycleSnapshot();
@@ -51,6 +48,7 @@ class TestSyncService : public SyncService {
   void SetPassphraseRequiredForPreferredDataTypes(bool required);
   void SetTrustedVaultKeyRequired(bool required);
   void SetTrustedVaultKeyRequiredForPreferredDataTypes(bool required);
+  void SetTrustedVaultRecoverabilityDegraded(bool degraded);
   void SetIsUsingSecondaryPassphrase(bool enabled);
 
   void FireStateChanged();
@@ -72,12 +70,11 @@ class TestSyncService : public SyncService {
       override;
   bool IsSetupInProgress() const override;
 
-  ModelTypeSet GetRegisteredDataTypes() const override;
   ModelTypeSet GetPreferredDataTypes() const override;
   ModelTypeSet GetActiveDataTypes() const override;
-  ModelTypeSet GetBackedOffDataTypes() const override;
 
   void StopAndClear() override;
+  void SetSyncAllowedByPlatform(bool allowed) override;
   void OnDataTypeRequestsSyncStartup(ModelType type) override;
   void TriggerRefresh(const ModelTypeSet& types) override;
   void DataTypePreconditionChanged(syncer::ModelType type) override;
@@ -91,13 +88,14 @@ class TestSyncService : public SyncService {
   base::Time GetLastSyncedTimeForDebugging() const override;
   SyncCycleSnapshot GetLastCycleSnapshotForDebugging() const override;
   std::unique_ptr<base::Value> GetTypeStatusMapForDebugging() override;
+  void GetEntityCountsForDebugging(
+      base::OnceCallback<void(const std::vector<TypeEntitiesCount>&)> callback)
+      const override;
   const GURL& GetSyncServiceUrlForDebugging() const override;
   std::string GetUnrecoverableErrorMessageForDebugging() const override;
   base::Location GetUnrecoverableErrorLocationForDebugging() const override;
   void AddProtocolEventObserver(ProtocolEventObserver* observer) override;
   void RemoveProtocolEventObserver(ProtocolEventObserver* observer) override;
-  void AddTypeDebugInfoObserver(TypeDebugInfoObserver* observer) override;
-  void RemoveTypeDebugInfoObserver(TypeDebugInfoObserver* observer) override;
   base::WeakPtr<JsController> GetJsController() override;
   void GetAllNodesForDebugging(
       base::OnceCallback<void(std::unique_ptr<base::ListValue>)> callback)
@@ -107,8 +105,10 @@ class TestSyncService : public SyncService {
       const std::string& gaia_id,
       const std::vector<std::vector<uint8_t>>& keys,
       int last_key_version) override;
-  UserDemographicsResult GetUserNoisedBirthYearAndGender(
-      base::Time now) override;
+  void AddTrustedVaultRecoveryMethodFromWeb(
+      const std::string& gaia_id,
+      const std::vector<uint8_t>& public_key,
+      base::OnceClosure callback) override;
 
   // KeyedService implementation.
   void Shutdown() override;
@@ -126,7 +126,6 @@ class TestSyncService : public SyncService {
 
   ModelTypeSet preferred_data_types_;
   ModelTypeSet active_data_types_;
-  ModelTypeSet backed_off_data_types_;
 
   bool detailed_sync_status_engine_available_ = false;
   SyncStatus detailed_sync_status_;
@@ -136,8 +135,6 @@ class TestSyncService : public SyncService {
   base::ObserverList<syncer::SyncServiceObserver>::Unchecked observers_;
 
   GURL sync_service_url_;
-
-  UserDemographicsResult user_demographics_result_;
 
   DISALLOW_COPY_AND_ASSIGN(TestSyncService);
 };

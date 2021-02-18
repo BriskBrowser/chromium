@@ -13,7 +13,7 @@
 #include "base/bind.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -450,7 +450,7 @@ TEST_F(GCMConnectionHandlerImplTest, ReInit) {
 
 // Verify that messages can be received after initialization.
 // Flaky on Linux (crbug.com/906093)
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
 #define MAYBE_RecvMsg DISABLED_RecvMsg
 #else
 #define MAYBE_RecvMsg RecvMsg

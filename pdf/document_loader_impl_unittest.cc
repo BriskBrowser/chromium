@@ -188,11 +188,6 @@ class TestURLLoader : public URLLoaderWrapper {
     data_->SetReadCallback(std::move(callback), buffer, buffer_size);
   }
 
-  bool GetDownloadProgress(int64_t& bytes_received,
-                           int64_t& total_bytes_to_be_received) const override {
-    return false;
-  }
-
  private:
   LoaderData* data_;
 };
@@ -280,7 +275,7 @@ TEST_F(DocumentLoaderImplTest, PartialLoadingFeatureDefault) {
   scoped_feature_list_.Reset();
   scoped_feature_list_.Init();
 
-  // Test that partial loading is enabled when feature is defaulted.
+  // Test that partial loading is disabled when feature is defaulted.
   TestClient client;
   client.SetCanUsePartialLoading();
   DocumentLoaderImpl loader(&client);
@@ -289,7 +284,7 @@ TEST_F(DocumentLoaderImplTest, PartialLoadingFeatureDefault) {
   EXPECT_FALSE(loader.is_partial_loader_active());
   // Always send initial data from FullPageLoader.
   client.full_page_loader_data()->CallReadCallback(kDefaultRequestSize);
-  EXPECT_TRUE(loader.is_partial_loader_active());
+  EXPECT_FALSE(loader.is_partial_loader_active());
 }
 
 TEST_F(DocumentLoaderImplTest, PartialLoadingFeatureDisabled) {

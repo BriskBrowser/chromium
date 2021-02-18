@@ -16,6 +16,8 @@ source_set("infobar_banner") {
     "save_password_infobar_banner_overlay.mm",
     "translate_infobar_banner_overlay_request_config.h",
     "translate_infobar_banner_overlay_request_config.mm",
+    "update_password_infobar_banner_overlay.h",
+    "update_password_infobar_banner_overlay.mm",
   ]
 
   configs += [ "//build/config/compiler:enable_arc" ]
@@ -32,6 +34,7 @@ source_set("infobar_banner") {
     "//ios/chrome/browser/overlays/public/common",
     "//ios/chrome/browser/overlays/public/common/infobars",
     "//ios/chrome/browser/passwords:infobar_delegates",
+    "//ios/chrome/browser/ui/authentication",
     "//ios/chrome/browser/ui/infobars:infobars_ui",
     "//ui/base",
   ]

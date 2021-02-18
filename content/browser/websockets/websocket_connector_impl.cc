@@ -4,7 +4,7 @@
 
 #include "content/browser/websockets/websocket_connector_impl.h"
 
-#include "content/browser/frame_host/render_frame_host_impl.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/storage_partition.h"
@@ -85,9 +85,12 @@ void WebSocketConnectorImpl::Connect(
   }
   process->GetStoragePartition()->GetNetworkContext()->CreateWebSocket(
       url, requested_protocols, site_for_cookies, isolation_info_,
-      std::move(headers), process_id_, frame_id_, origin_, options,
+      std::move(headers), process_id_, origin_, options,
       net::MutableNetworkTrafficAnnotationTag(kTrafficAnnotation),
-      std::move(handshake_client), mojo::NullRemote(), mojo::NullRemote());
+      std::move(handshake_client),
+      process->GetStoragePartition()->CreateAuthAndCertObserverForFrame(
+          process_id_, frame_id_),
+      mojo::NullRemote(), mojo::NullRemote());
 }
 
 void WebSocketConnectorImpl::ConnectCalledByContentBrowserClient(
@@ -102,7 +105,8 @@ void WebSocketConnectorImpl::ConnectCalledByContentBrowserClient(
     std::vector<network::mojom::HttpHeaderPtr> additional_headers,
     mojo::PendingRemote<network::mojom::WebSocketHandshakeClient>
         handshake_client,
-    mojo::PendingRemote<network::mojom::AuthenticationHandler> auth_handler,
+    mojo::PendingRemote<network::mojom::WebSocketAuthenticationHandler>
+        auth_handler,
     mojo::PendingRemote<network::mojom::TrustedHeaderClient>
         trusted_header_client) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
@@ -112,10 +116,12 @@ void WebSocketConnectorImpl::ConnectCalledByContentBrowserClient(
   }
   process->GetStoragePartition()->GetNetworkContext()->CreateWebSocket(
       url, requested_protocols, site_for_cookies, isolation_info,
-      std::move(additional_headers), process_id, frame_id, origin, options,
+      std::move(additional_headers), process_id, origin, options,
       net::MutableNetworkTrafficAnnotationTag(kTrafficAnnotation),
-      std::move(handshake_client), std::move(auth_handler),
-      std::move(trusted_header_client));
+      std::move(handshake_client),
+      process->GetStoragePartition()->CreateAuthAndCertObserverForFrame(
+          process_id, frame_id),
+      std::move(auth_handler), std::move(trusted_header_client));
 }
 
 }  // namespace content

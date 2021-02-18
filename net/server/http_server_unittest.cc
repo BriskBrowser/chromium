@@ -13,7 +13,6 @@
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
 #include "base/check_op.h"
 #include "base/compiler_specific.h"
@@ -64,7 +63,8 @@ class TestHttpClient {
   int ConnectAndWait(const IPEndPoint& address) {
     AddressList addresses(address);
     NetLogSource source;
-    socket_.reset(new TCPClientSocket(addresses, nullptr, nullptr, source));
+    socket_.reset(
+        new TCPClientSocket(addresses, nullptr, nullptr, nullptr, source));
 
     TestCompletionCallback callback;
     int rv = socket_->Connect(callback.callback());

@@ -31,6 +31,8 @@
 #include "ui/views/controls/separator.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/grid_layout.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view.h"
 
 namespace {
@@ -40,13 +42,13 @@ const int kScrollAreaHeight = 192;
 // This container has the right Layout() impl to use within a ScrollView.
 class ScrollableView : public views::View {
  public:
-  ScrollableView() {}
-  ~ScrollableView() override {}
+  METADATA_HEADER(ScrollableView);
+  ScrollableView() = default;
+  ScrollableView(const ScrollableView&) = delete;
+  ScrollableView& operator=(const ScrollableView&) = delete;
+  ~ScrollableView() override = default;
 
   void Layout() override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ScrollableView);
 };
 
 void ScrollableView::Layout() {
@@ -62,12 +64,8 @@ void ScrollableView::Layout() {
   views::View::Layout();
 }
 
-std::unique_ptr<views::LabelButton> CreateAuxiliaryButton(
-    views::ButtonListener* listener,
-    const base::string16& label) {
-  return label.empty() ? nullptr
-                       : std::make_unique<views::MdTextButton>(listener, label);
-}
+BEGIN_METADATA(ScrollableView, views::View)
+END_METADATA
 
 }  // namespace
 
@@ -82,11 +80,20 @@ MediaGalleriesDialogViews::MediaGalleriesDialogViews(
   SetAcceptCallback(base::BindOnce(
       [](MediaGalleriesDialogViews* dialog) { dialog->accepted_ = true; },
       base::Unretained(this)));
+  SetModalType(ui::MODAL_TYPE_CHILD);
   SetShowCloseButton(false);
   SetTitle(controller_->GetHeader());
 
-  auxiliary_button_ = SetExtraView(
-      CreateAuxiliaryButton(this, controller_->GetAuxiliaryButtonText()));
+  base::string16 label = controller_->GetAuxiliaryButtonText();
+  if (!label.empty()) {
+    auxiliary_button_ = SetExtraView(std::make_unique<views::MdTextButton>(
+        base::BindRepeating(
+            &MediaGalleriesDialogViews::ButtonPressed, base::Unretained(this),
+            base::BindRepeating(
+                &MediaGalleriesDialogController::DidClickAuxiliaryButton,
+                base::Unretained(controller_))),
+        label));
+  }
 
   InitChildViews();
   if (ControllerHasWebContents()) {
@@ -221,12 +228,19 @@ bool MediaGalleriesDialogViews::AddOrUpdateGallery(
     return false;
   }
 
-  MediaGalleryCheckboxView* gallery_view = new MediaGalleryCheckboxView(
-      gallery.pref_info, trailing_vertical_space, this, this);
+  auto* gallery_view =
+      container->AddChildView(std::make_unique<MediaGalleryCheckboxView>(
+          gallery.pref_info, trailing_vertical_space, this));
+  gallery_view->checkbox()->SetCallback(base::BindRepeating(
+      &MediaGalleriesDialogViews::ButtonPressed, base::Unretained(this),
+      base::BindRepeating(
+          [](MediaGalleriesDialogController* controller,
+             MediaGalleryPrefId pref_id, views::Checkbox* checkbox) {
+            controller->DidToggleEntry(pref_id, checkbox->GetChecked());
+          },
+          controller_, gallery.pref_info.pref_id, gallery_view->checkbox())));
   gallery_view->checkbox()->SetChecked(gallery.selected);
-  container->AddChildView(gallery_view);
   checkbox_map_[gallery.pref_info.pref_id] = gallery_view;
-
   return true;
 }
 
@@ -249,32 +263,6 @@ views::View* MediaGalleriesDialogViews::GetContentsView() {
 bool MediaGalleriesDialogViews::IsDialogButtonEnabled(
     ui::DialogButton button) const {
   return button != ui::DIALOG_BUTTON_OK || confirm_available_;
-}
-
-ui::ModalType MediaGalleriesDialogViews::GetModalType() const {
-  return ui::MODAL_TYPE_CHILD;
-}
-
-void MediaGalleriesDialogViews::ButtonPressed(views::Button* sender,
-                                              const ui::Event& /* event */) {
-  confirm_available_ = true;
-
-  if (ControllerHasWebContents())
-    DialogModelChanged();
-
-  if (sender == auxiliary_button_) {
-    controller_->DidClickAuxiliaryButton();
-    return;
-  }
-
-  for (CheckboxMap::const_iterator iter = checkbox_map_.begin();
-       iter != checkbox_map_.end(); ++iter) {
-    if (sender == iter->second->checkbox()) {
-      controller_->DidToggleEntry(iter->first,
-                                  iter->second->checkbox()->GetChecked());
-      return;
-    }
-  }
 }
 
 void MediaGalleriesDialogViews::ShowContextMenuForViewImpl(
@@ -307,6 +295,15 @@ void MediaGalleriesDialogViews::ShowContextMenu(const gfx::Point& point,
 
 bool MediaGalleriesDialogViews::ControllerHasWebContents() const {
   return controller_->WebContents() != nullptr;
+}
+
+void MediaGalleriesDialogViews::ButtonPressed(base::RepeatingClosure closure) {
+  confirm_available_ = true;
+
+  if (ControllerHasWebContents())
+    DialogModelChanged();
+
+  closure.Run();
 }
 
 void MediaGalleriesDialogViews::OnMenuClosed() {

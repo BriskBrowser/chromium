@@ -23,7 +23,7 @@ GeoNotifier::GeoNotifier(Geolocation* geolocation,
       error_callback_(error_callback),
       options_(options),
       timer_(MakeGarbageCollected<Timer>(
-          geolocation->GetWindow()->GetTaskRunner(TaskType::kMiscPlatformAPI),
+          geolocation->DomWindow()->GetTaskRunner(TaskType::kMiscPlatformAPI),
           this,
           &GeoNotifier::TimerFired)),
       use_cached_position_(false) {
@@ -87,6 +87,7 @@ bool GeoNotifier::IsTimerActive() const {
 }
 
 void GeoNotifier::Timer::Trace(Visitor* visitor) const {
+  visitor->Trace(timer_);
   visitor->Trace(notifier_);
 }
 

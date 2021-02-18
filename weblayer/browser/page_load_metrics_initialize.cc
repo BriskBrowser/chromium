@@ -10,7 +10,15 @@
 #include "components/page_load_metrics/browser/page_load_metrics_observer.h"
 #include "components/page_load_metrics/browser/page_load_tracker.h"
 #include "weblayer/browser/no_state_prefetch/prerender_utils.h"
-#include "weblayer/browser/ukm_page_load_metrics_observer.h"
+#include "weblayer/browser/page_load_metrics_observer_impl.h"
+
+namespace content {
+class BrowserContext;
+}  // namespace content
+
+namespace page_load_metrics {
+class PageLoadMetricsMemoryTracker;
+}  // namespace page_load_metrics
 
 namespace weblayer {
 
@@ -31,24 +39,26 @@ class PageLoadMetricsEmbedder
   // page_load_metrics::PageLoadMetricsEmbedderBase:
   bool IsNewTabPageUrl(const GURL& url) override { return false; }
   bool IsPrerender(content::WebContents* web_contents) override {
-    return PrerenderContentsFromWebContents(web_contents);
+    return NoStatePrefetchContentsFromWebContents(web_contents);
   }
   bool IsExtensionUrl(const GURL& url) override { return false; }
+  page_load_metrics::PageLoadMetricsMemoryTracker*
+  GetMemoryTrackerForBrowserContext(
+      content::BrowserContext* browser_context) override {
+    return nullptr;
+  }
 
  protected:
   // page_load_metrics::PageLoadMetricsEmbedderBase:
   void RegisterEmbedderObservers(
       page_load_metrics::PageLoadTracker* tracker) override {
-    std::unique_ptr<page_load_metrics::PageLoadMetricsObserver> ukm_observer =
-        UkmPageLoadMetricsObserver::CreateIfNeeded();
-    if (ukm_observer)
-      tracker->AddObserver(std::move(ukm_observer));
+    tracker->AddObserver(std::make_unique<PageLoadMetricsObserverImpl>());
 
     if (g_callback_for_testing)
       (*g_callback_for_testing).Run(tracker);
   }
   bool IsPrerendering() const override {
-    return PrerenderContentsFromWebContents(web_contents());
+    return NoStatePrefetchContentsFromWebContents(web_contents());
   }
 };
 

@@ -10,6 +10,7 @@
 
 #include "base/hash/hash.h"
 #include "base/single_thread_task_runner.h"
+#include "base/synchronization/waitable_event.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -17,7 +18,6 @@
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/video_frame.h"
 #include "media/base/video_util.h"
-#include "media/filters/video_renderer_algorithm.h"
 #include "media/renderers/paint_canvas_video_renderer.h"
 #include "services/viz/public/cpp/gpu/context_provider_command_buffer.h"
 #include "skia/ext/platform_canvas.h"
@@ -56,12 +56,7 @@ scoped_refptr<media::VideoFrame> CopyFrame(
            frame->format() == media::PIXEL_FORMAT_XRGB ||
            frame->format() == media::PIXEL_FORMAT_I420 ||
            frame->format() == media::PIXEL_FORMAT_NV12);
-    new_frame = media::VideoFrame::CreateFrame(
-        media::PIXEL_FORMAT_I420, frame->coded_size(), frame->visible_rect(),
-        frame->natural_size(), frame->timestamp());
-
-    auto* const provider =
-        Platform::Current()->SharedMainThreadContextProvider();
+    auto provider = Platform::Current()->SharedMainThreadContextProvider();
     if (!provider) {
       // Return a black frame (yuv = {0, 0x80, 0x80}).
       return media::VideoFrame::CreateColorFrame(
@@ -74,52 +69,55 @@ scoped_refptr<media::VideoFrame> CopyFrame(
     cc::SkiaPaintCanvas paint_canvas(bitmap);
 
     DCHECK(provider->RasterInterface());
-    video_renderer->Copy(frame.get(), &paint_canvas, provider);
+    video_renderer->Copy(frame.get(), &paint_canvas, provider.get());
 
-    SkPixmap pixmap;
-    const bool result = bitmap.peekPixels(&pixmap);
-    DCHECK(result) << "Error trying to access SkBitmap's pixels";
-
-#if SK_PMCOLOR_BYTE_ORDER(R, G, B, A)
-    const uint32_t source_pixel_format = libyuv::FOURCC_ABGR;
-#else
-    const uint32_t source_pixel_format = libyuv::FOURCC_ARGB;
-#endif
-    libyuv::ConvertToI420(static_cast<const uint8_t*>(pixmap.addr(0, 0)),
-                          pixmap.computeByteSize(),
-                          new_frame->visible_data(media::VideoFrame::kYPlane),
-                          new_frame->stride(media::VideoFrame::kYPlane),
-                          new_frame->visible_data(media::VideoFrame::kUPlane),
-                          new_frame->stride(media::VideoFrame::kUPlane),
-                          new_frame->visible_data(media::VideoFrame::kVPlane),
-                          new_frame->stride(media::VideoFrame::kVPlane),
-                          0 /* crop_x */, 0 /* crop_y */, pixmap.width(),
-                          pixmap.height(), new_frame->visible_rect().width(),
-                          new_frame->visible_rect().height(), libyuv::kRotate0,
-                          source_pixel_format);
+    bitmap.setImmutable();
+    new_frame =
+        media::CreateFromSkImage(bitmap.asImage(), frame->visible_rect(),
+                                 frame->natural_size(), frame->timestamp());
+    if (!new_frame) {
+      return media::VideoFrame::CreateColorFrame(
+          frame->visible_rect().size(), 0u, 0x80, 0x80, frame->timestamp());
+    }
   } else {
     DCHECK(frame->IsMappable());
     DCHECK(frame->format() == media::PIXEL_FORMAT_I420A ||
-           frame->format() == media::PIXEL_FORMAT_I420);
+           frame->format() == media::PIXEL_FORMAT_I420 ||
+           frame->format() == media::PIXEL_FORMAT_NV12);
     const gfx::Size& coded_size = frame->coded_size();
     new_frame = media::VideoFrame::CreateFrame(
-        media::IsOpaque(frame->format()) ? media::PIXEL_FORMAT_I420
-                                         : media::PIXEL_FORMAT_I420A,
-        coded_size, frame->visible_rect(), frame->natural_size(),
-        frame->timestamp());
-    libyuv::I420Copy(frame->data(media::VideoFrame::kYPlane),
-                     frame->stride(media::VideoFrame::kYPlane),
-                     frame->data(media::VideoFrame::kUPlane),
-                     frame->stride(media::VideoFrame::kUPlane),
-                     frame->data(media::VideoFrame::kVPlane),
-                     frame->stride(media::VideoFrame::kVPlane),
-                     new_frame->data(media::VideoFrame::kYPlane),
-                     new_frame->stride(media::VideoFrame::kYPlane),
-                     new_frame->data(media::VideoFrame::kUPlane),
-                     new_frame->stride(media::VideoFrame::kUPlane),
-                     new_frame->data(media::VideoFrame::kVPlane),
-                     new_frame->stride(media::VideoFrame::kVPlane),
-                     coded_size.width(), coded_size.height());
+        frame->format(), coded_size, frame->visible_rect(),
+        frame->natural_size(), frame->timestamp());
+    if (!new_frame) {
+      return media::VideoFrame::CreateColorFrame(
+          frame->visible_rect().size(), 0u, 0x80, 0x80, frame->timestamp());
+    }
+
+    if (frame->format() == media::PIXEL_FORMAT_NV12) {
+      libyuv::NV12Copy(frame->data(media::VideoFrame::kYPlane),
+                       frame->stride(media::VideoFrame::kYPlane),
+                       frame->data(media::VideoFrame::kUVPlane),
+                       frame->stride(media::VideoFrame::kUVPlane),
+                       new_frame->data(media::VideoFrame::kYPlane),
+                       new_frame->stride(media::VideoFrame::kYPlane),
+                       new_frame->data(media::VideoFrame::kUVPlane),
+                       new_frame->stride(media::VideoFrame::kUVPlane),
+                       coded_size.width(), coded_size.height());
+    } else {
+      libyuv::I420Copy(frame->data(media::VideoFrame::kYPlane),
+                       frame->stride(media::VideoFrame::kYPlane),
+                       frame->data(media::VideoFrame::kUPlane),
+                       frame->stride(media::VideoFrame::kUPlane),
+                       frame->data(media::VideoFrame::kVPlane),
+                       frame->stride(media::VideoFrame::kVPlane),
+                       new_frame->data(media::VideoFrame::kYPlane),
+                       new_frame->stride(media::VideoFrame::kYPlane),
+                       new_frame->data(media::VideoFrame::kUPlane),
+                       new_frame->stride(media::VideoFrame::kUPlane),
+                       new_frame->data(media::VideoFrame::kVPlane),
+                       new_frame->stride(media::VideoFrame::kVPlane),
+                       coded_size.width(), coded_size.height());
+    }
     if (frame->format() == media::PIXEL_FORMAT_I420A) {
       libyuv::CopyPlane(frame->data(media::VideoFrame::kAPlane),
                         frame->stride(media::VideoFrame::kAPlane),
@@ -130,7 +128,7 @@ scoped_refptr<media::VideoFrame> CopyFrame(
   }
 
   // Transfer metadata keys.
-  new_frame->metadata()->MergeMetadataFrom(frame->metadata());
+  new_frame->metadata().MergeMetadataFrom(frame->metadata());
   return new_frame;
 }
 
@@ -188,11 +186,11 @@ WebMediaPlayerMSCompositor::WebMediaPlayerMSCompositor(
 
   if (remote_video && Platform::Current()->RTCSmoothnessAlgorithmEnabled()) {
     base::AutoLock auto_lock(current_frame_lock_);
-    rendering_frame_buffer_.reset(new media::VideoRendererAlgorithm(
+    rendering_frame_buffer_ = std::make_unique<VideoRendererAlgorithmWrapper>(
         ConvertToBaseRepeatingCallback(CrossThreadBindRepeating(
             &WebMediaPlayerMSCompositor::MapTimestampsToRenderTimeTicks,
             CrossThreadUnretained(this))),
-        &media_log_));
+        &media_log_);
   }
 
   // Just for logging purpose.
@@ -235,16 +233,19 @@ void WebMediaPlayerMSCompositor::InitializeSubmitter() {
   submitter_->Initialize(this, /* is_media_stream = */ true);
 }
 
-void WebMediaPlayerMSCompositor::SetIsSurfaceVisible(bool state) {
+void WebMediaPlayerMSCompositor::SetIsSurfaceVisible(
+    bool state,
+    base::WaitableEvent* done_event) {
   DCHECK(video_frame_compositor_task_runner_->BelongsToCurrentThread());
   submitter_->SetIsSurfaceVisible(state);
+  if (done_event)
+    done_event->Signal();
 }
 
 // TODO(https://crbug/879424): Rename, since it really doesn't enable
 // submission. Do this along with the VideoFrameSubmitter refactor.
 void WebMediaPlayerMSCompositor::EnableSubmission(
     const viz::SurfaceId& id,
-    base::TimeTicks local_surface_id_allocation_time,
     media::VideoTransformation transformation,
     bool force_submit) {
   DCHECK(video_frame_compositor_task_runner_->BelongsToCurrentThread());
@@ -257,7 +258,7 @@ void WebMediaPlayerMSCompositor::EnableSubmission(
 
   submitter_->SetRotation(transformation.rotation);
   submitter_->SetForceSubmit(force_submit);
-  submitter_->EnableSubmission(id, local_surface_id_allocation_time);
+  submitter_->EnableSubmission(id);
   video_frame_provider_client_ = submitter_.get();
 
   if (!stopped_)
@@ -344,16 +345,22 @@ void WebMediaPlayerMSCompositor::EnqueueFrame(
   }
 
   // This is a signal frame saying that the stream is stopped.
-  if (frame->metadata()->end_of_stream) {
+  if (frame->metadata().end_of_stream) {
     rendering_frame_buffer_.reset();
     RenderWithoutAlgorithm(std::move(frame), is_copy);
     return;
   }
 
-  // If we detect a bad frame without |render_time|, we switch off algorithm,
-  // because without |render_time|, algorithm cannot work.
-  // In general, this should not happen.
-  if (!frame->metadata()->reference_time.has_value()) {
+  // If we detect a bad frame without |reference_time|, we switch off algorithm,
+  // because without |reference_time|, algorithm cannot work.
+  // |reference_time| is not set for low-latency video streams and are therefore
+  // rendered without algorithm, unless |maximum_composition_delay_in_frames| is
+  // set in which case a dedicated low-latency algorithm is switched on. Please
+  // note that this is an experimental feature that is only active if certain
+  // experimental parameters are specified in WebRTC. See crbug.com/1138888 for
+  // more information.
+  if (!frame->metadata().reference_time.has_value() &&
+      !frame->metadata().maximum_composition_delay_in_frames) {
     DLOG(WARNING)
         << "Incoming VideoFrames have no reference_time, switching off super "
            "sophisticated rendering algorithm";
@@ -361,7 +368,9 @@ void WebMediaPlayerMSCompositor::EnqueueFrame(
     RenderWithoutAlgorithm(std::move(frame), is_copy);
     return;
   }
-  base::TimeTicks render_time = *frame->metadata()->reference_time;
+  base::TimeTicks render_time = frame->metadata().reference_time
+                                    ? *frame->metadata().reference_time
+                                    : base::TimeTicks();
 
   // The code below handles the case where UpdateCurrentFrame() callbacks stop.
   // These callbacks can stop when the tab is hidden or the page area containing
@@ -409,13 +418,13 @@ bool WebMediaPlayerMSCompositor::UpdateCurrentFrame(
 #endif  // DCHECK_IS_ON()
     if (tracing_or_dcheck_enabled) {
       base::TimeTicks render_time =
-          current_frame_->metadata()->reference_time.value_or(
-              base::TimeTicks());
-      if (!current_frame_->metadata()->reference_time.has_value()) {
-        DCHECK(!rendering_frame_buffer_)
-            << "VideoFrames need REFERENCE_TIME to use "
-               "sophisticated video rendering algorithm.";
-      }
+          current_frame_->metadata().reference_time.value_or(base::TimeTicks());
+      DCHECK(current_frame_->metadata().reference_time.has_value() ||
+             !rendering_frame_buffer_ ||
+             (rendering_frame_buffer_ &&
+              !rendering_frame_buffer_->NeedsReferenceTime()))
+          << "VideoFrames need REFERENCE_TIME to use "
+             "sophisticated video rendering algorithm.";
       TRACE_EVENT_END2("media", "UpdateCurrentFrame", "Ideal Render Instant",
                        render_time.ToInternalValue(), "Serial", serial_);
     }
@@ -599,8 +608,9 @@ void WebMediaPlayerMSCompositor::SetCurrentFrame(
   bool is_first_frame = true;
   bool has_frame_size_changed = false;
 
-  base::Optional<media::VideoRotation> new_rotation =
-      frame->metadata()->rotation.value_or(media::VIDEO_ROTATION_0);
+  base::Optional<media::VideoRotation> new_rotation = media::VIDEO_ROTATION_0;
+  if (frame->metadata().transformation)
+    new_rotation = frame->metadata().transformation->rotation;
 
   base::Optional<bool> new_opacity;
   new_opacity = media::IsOpaque(frame->format());
@@ -609,17 +619,19 @@ void WebMediaPlayerMSCompositor::SetCurrentFrame(
     // We have a current frame, so determine what has changed.
     is_first_frame = false;
 
-    media::VideoRotation current_video_rotation =
-        current_frame_->metadata()->rotation.value_or(media::VIDEO_ROTATION_0);
+    auto current_video_rotation = media::VIDEO_ROTATION_0;
+    if (current_frame_->metadata().transformation) {
+      current_video_rotation =
+          current_frame_->metadata().transformation->rotation;
+    }
 
     has_frame_size_changed =
         RotationAdjustedSize(*new_rotation, frame->natural_size()) !=
         RotationAdjustedSize(current_video_rotation,
                              current_frame_->natural_size());
 
-    if (current_video_rotation == *new_rotation) {
+    if (current_video_rotation == *new_rotation)
       new_rotation.reset();
-    }
 
     if (*new_opacity == media::IsOpaque(current_frame_->format()))
       new_opacity.reset();
@@ -761,11 +773,11 @@ void WebMediaPlayerMSCompositor::SetAlgorithmEnabledForTesting(
   }
 
   if (!rendering_frame_buffer_) {
-    rendering_frame_buffer_.reset(new media::VideoRendererAlgorithm(
+    rendering_frame_buffer_ = std::make_unique<VideoRendererAlgorithmWrapper>(
         WTF::BindRepeating(
             &WebMediaPlayerMSCompositor::MapTimestampsToRenderTimeTicks,
             WTF::Unretained(this)),
-        &media_log_));
+        &media_log_);
   }
 }
 

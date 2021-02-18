@@ -9,7 +9,7 @@
 #include <initguid.h>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/optional.h"
 #include "base/run_loop.h"
@@ -207,6 +207,12 @@ class D3D11VideoDecoderTest : public ::testing::Test {
     const bool low_delay = false;
     CdmContext* cdm_context = nullptr;
 
+    // We never support win8/7, so always expect failure on init if using win8.
+    if (base::win::GetVersion() <= base::win::Version::WIN8 &&
+        expectation == StatusCode::kOk) {
+      expectation = StatusCode::kDecoderInitializeNeverCompleted;
+    }
+
     if (expectation == StatusCode::kOk) {
       EXPECT_CALL(*this, MockInitCB(_)).Times(0);
       EXPECT_CALL(*impl_, MockInitialize());
@@ -261,13 +267,7 @@ TEST_F(D3D11VideoDecoderTest, SupportsVP9Profile0WithDecoderEnabled) {
 
   EnableDecoder(D3D11_DECODER_PROFILE_VP9_VLD_PROFILE0);
   CreateDecoder();
-  // We don't support vp9 on windows 7 and below.
-  if (base::win::GetVersion() <= base::win::Version::WIN7) {
-    InitializeDecoder(configuration,
-                      StatusCode::kDecoderInitializeNeverCompleted);
-  } else {
-    InitializeDecoder(configuration);
-  }
+  InitializeDecoder(configuration);
 }
 
 TEST_F(D3D11VideoDecoderTest, DoesNotSupportVP9WithLegacyGPU) {
@@ -348,22 +348,6 @@ TEST_F(D3D11VideoDecoderTest, DoesNotSupportEncryptionWithoutFlag) {
   DisableFeature(kHardwareSecureDecryption);
   InitializeDecoder(encrypted_config,
                     StatusCode::kDecoderInitializeNeverCompleted);
-}
-
-TEST_F(D3D11VideoDecoderTest, DoesNotSupportZeroCopyPreference) {
-  gpu_preferences_.enable_zero_copy_dxgi_video = false;
-  CreateDecoder();
-  InitializeDecoder(
-      TestVideoConfig::NormalCodecProfile(kCodecH264, H264PROFILE_MAIN),
-      StatusCode::kDecoderInitializeNeverCompleted);
-}
-
-TEST_F(D3D11VideoDecoderTest, DoesNotSupportZeroCopyWorkaround) {
-  gpu_workarounds_.disable_dxgi_zero_copy_video = true;
-  CreateDecoder();
-  InitializeDecoder(
-      TestVideoConfig::NormalCodecProfile(kCodecH264, H264PROFILE_MAIN),
-      StatusCode::kDecoderInitializeNeverCompleted);
 }
 
 TEST_F(D3D11VideoDecoderTest, IgnoreWorkaroundsIgnoresWorkaround) {

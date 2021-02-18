@@ -6,6 +6,7 @@
 
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/test/test_browser_dialog.h"
@@ -26,7 +27,7 @@
 #include "ui/views/controls/styled_label.h"
 #include "url/gurl.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/web_applications/system_web_app_manager.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #endif
@@ -166,7 +167,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestNoShippingTest, InvalidSSL) {
   card.set_billing_address_id(billing_address.guid());
   AddCreditCard(card);  // Visa.
 
-  ResetEventWaiter(DialogEvent::NOT_SUPPORTED_ERROR);
+  ResetEventWaiter(DialogEvent::DIALOG_CLOSED);
 
   EXPECT_TRUE(content::ExecuteScript(
       GetActiveWebContents(),
@@ -346,7 +347,7 @@ class PaymentRequestSettingsLinkTest : public PaymentRequestBrowserTestBase {
 
 // Tests that clicking the settings link brings the user to settings.
 IN_PROC_BROWSER_TEST_F(PaymentRequestSettingsLinkTest, ClickSettingsLink) {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Install the Settings App.
   web_app::WebAppProvider::Get(browser()->profile())
       ->system_web_app_manager()
@@ -367,9 +368,8 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestSettingsLinkTest, ClickSettingsLink) {
       static_cast<views::StyledLabel*>(dialog_view()->GetViewByID(
           static_cast<int>(DialogViewID::DATA_SOURCE_LABEL)));
   EXPECT_TRUE(styled_label);
-  // The Link is the only child of the StyledLabel.
   content::WebContentsAddedObserver web_contents_added_observer;
-  styled_label->LinkClicked(nullptr, ui::EF_NONE);
+  styled_label->ClickLinkForTesting();
   content::WebContents* new_tab_contents =
       web_contents_added_observer.GetWebContents();
 

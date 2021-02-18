@@ -60,7 +60,6 @@ class FloatQuad;
 class HTMLFrameOwnerElement;
 class HTMLPortalElement;
 class HTMLSlotElement;
-class V0InsertionPoint;
 class InspectedFrames;
 class InspectorHistory;
 class Node;
@@ -75,7 +74,6 @@ class CORE_EXPORT InspectorDOMAgent final
   struct CORE_EXPORT DOMListener : public GarbageCollectedMixin {
     virtual ~DOMListener() = default;
     virtual void DidAddDocument(Document*) = 0;
-    virtual void DidRemoveDocument(Document*) = 0;
     virtual void WillRemoveDOMNode(Node*) = 0;
     virtual void DidModifyDOMAttr(Element*) = 0;
   };
@@ -273,7 +271,6 @@ class CORE_EXPORT InspectorDOMAgent final
   void DidInvalidateStyleAttr(Node*);
   void DidPushShadowRoot(Element* host, ShadowRoot*);
   void WillPopShadowRoot(Element* host, ShadowRoot*);
-  void DidPerformElementShadowDistribution(Element*);
   void DidPerformSlotDistribution(HTMLSlotElement*);
   void FrameDocumentUpdated(LocalFrame*);
   void FrameOwnerContentUpdated(LocalFrame*, HTMLFrameOwnerElement*);
@@ -325,7 +322,6 @@ class CORE_EXPORT InspectorDOMAgent final
   void EnableAndReset();
 
   void NotifyDidAddDocument(Document*);
-  void NotifyDidRemoveDocument(Document*);
   void NotifyWillRemoveDOMNode(Node*);
   void NotifyDidModifyDOMAttr(Element*);
 
@@ -365,8 +361,6 @@ class CORE_EXPORT InspectorDOMAgent final
       protocol::Array<protocol::DOM::Node>* flatten_result);
   std::unique_ptr<protocol::Array<protocol::DOM::Node>>
   BuildArrayForPseudoElements(Element*, NodeToIdMap* nodes_map);
-  std::unique_ptr<protocol::Array<protocol::DOM::BackendNode>>
-  BuildArrayForDistributedNodes(V0InsertionPoint*);
   std::unique_ptr<protocol::Array<protocol::DOM::BackendNode>>
   BuildDistributedNodesForSlot(HTMLSlotElement*);
 

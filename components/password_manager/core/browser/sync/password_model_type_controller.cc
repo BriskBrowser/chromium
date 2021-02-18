@@ -14,8 +14,8 @@
 #include "components/prefs/pref_service.h"
 #include "components/signin/public/identity_manager/accounts_in_cookie_jar_info.h"
 #include "components/sync/base/model_type.h"
-#include "components/sync/driver/sync_client.h"
 #include "components/sync/driver/sync_service.h"
+#include "components/sync/driver/sync_user_settings.h"
 #include "components/sync/model/model_type_controller_delegate.h"
 
 namespace password_manager {
@@ -140,6 +140,16 @@ PasswordModelTypeController::GetPreconditionState() const {
              : PreconditionState::kMustStopAndClearData;
 }
 
+bool PasswordModelTypeController::ShouldRunInTransportOnlyMode() const {
+  if (!base::FeatureList::IsEnabled(features::kEnablePasswordsAccountStorage)) {
+    return false;
+  }
+  if (sync_service_->GetUserSettings()->IsUsingSecondaryPassphrase()) {
+    return false;
+  }
+  return true;
+}
+
 void PasswordModelTypeController::OnStateChanged(syncer::SyncService* sync) {
   DCHECK(CalledOnValidThread());
   sync_service_->DataTypePreconditionChanged(syncer::PASSWORDS);
@@ -173,15 +183,18 @@ void PasswordModelTypeController::OnAccountsCookieDeletedByUserAction() {
   features_util::ClearAccountStorageSettingsForAllUsers(pref_service_);
 }
 
-void PasswordModelTypeController::OnPrimaryAccountCleared(
-    const CoreAccountInfo& previous_primary_account_info) {
-  // Note: OnPrimaryAccountCleared() basically means that the consent for
-  // Sync-the-feature was revoked. In this case, also clear any possible
-  // matching opt-in for the account-scoped storage, since it'd probably be
-  // surprising to the user if their account passwords still remained after
-  // disabling Sync.
-  features_util::OptOutOfAccountStorageAndClearSettingsForAccount(
-      pref_service_, previous_primary_account_info.gaia);
+void PasswordModelTypeController::OnPrimaryAccountChanged(
+    const signin::PrimaryAccountChangeEvent& event) {
+  if (event.GetEventTypeFor(signin::ConsentLevel::kSync) ==
+      signin::PrimaryAccountChangeEvent::Type::kCleared) {
+    // Note: kCleared event for ConsentLevel::kSync basically means that the
+    // consent for Sync-the-feature was revoked. In this case, also clear any
+    // possible matching opt-in for the account-scoped storage, since it'd
+    // probably be surprising to the user if their account passwords still
+    // remained after disabling Sync.
+    features_util::OptOutOfAccountStorageAndClearSettingsForAccount(
+        pref_service_, event.GetPreviousState().primary_account.gaia);
+  }
 }
 
 void PasswordModelTypeController::OnOptInStateMaybeChanged() {

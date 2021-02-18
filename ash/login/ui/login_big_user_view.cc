@@ -6,6 +6,7 @@
 
 #include "ash/public/cpp/login_constants.h"
 #include "ash/shell.h"
+#include "ash/style/default_color_constants.h"
 #include "ash/wallpaper/wallpaper_controller_impl.h"
 #include "components/account_id/account_id.h"
 #include "ui/views/background.h"
@@ -46,7 +47,7 @@ LoginBigUserView::LoginBigUserView(
   // Creates either |auth_user_| or |public_account_|.
   CreateChildView(user);
 
-  observer_.Add(Shell::Get()->wallpaper_controller());
+  observation_.Observe(Shell::Get()->wallpaper_controller());
   // Adding the observer will not run OnWallpaperBlurChanged; run it now to set
   // the initial state.
   OnWallpaperBlurChanged();
@@ -118,8 +119,8 @@ void LoginBigUserView::OnWallpaperBlurChanged() {
     layer()->SetFillsBoundsOpaquely(false);
     SetBackground(views::CreateBackgroundFromPainter(
         views::Painter::CreateSolidRoundRectPainter(
-            SkColorSetA(login_constants::kDefaultBaseColor,
-                        login_constants::kNonBlurredWallpaperBackgroundAlpha),
+            AshColorProvider::Get()->GetShieldLayerColor(
+                AshColorProvider::ShieldLayerType::kShield80),
             login_constants::kNonBlurredWallpaperBackgroundRadiusDp)));
   }
 }

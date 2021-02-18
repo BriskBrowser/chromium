@@ -30,6 +30,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/metrics/histogram_functions.h"
 #include "third_party/blink/public/common/loader/worker_main_script_load_parameters.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/task_type.h"
@@ -44,6 +45,7 @@
 #include "third_party/blink/renderer/core/inspector/worker_thread_debugger.h"
 #include "third_party/blink/renderer/core/loader/worker_resource_timing_notifier_impl.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
+#include "third_party/blink/renderer/core/workers/cross_thread_global_scope_creation_params_copier.h"
 #include "third_party/blink/renderer/core/workers/global_scope_creation_params.h"
 #include "third_party/blink/renderer/core/workers/worker_backing_thread.h"
 #include "third_party/blink/renderer/core/workers/worker_clients.h"
@@ -51,7 +53,6 @@
 #include "third_party/blink/renderer/core/workers/worker_reporting_proxy.h"
 #include "third_party/blink/renderer/platform/bindings/microtask.h"
 #include "third_party/blink/renderer/platform/heap/thread_state.h"
-#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_client_settings_object_snapshot.h"
 #include "third_party/blink/renderer/platform/loader/fetch/worker_resource_timing_notifier.h"
@@ -160,10 +161,7 @@ WorkerThread::~WorkerThread() {
 
   DCHECK(child_threads_.IsEmpty());
   DCHECK_NE(ExitCode::kNotTerminated, exit_code_);
-  DEFINE_THREAD_SAFE_STATIC_LOCAL(
-      EnumerationHistogram, exit_code_histogram,
-      ("WorkerThread.ExitCode", static_cast<int>(ExitCode::kLastEnum)));
-  exit_code_histogram.Count(static_cast<int>(exit_code_));
+  base::UmaHistogramEnumeration("WorkerThread.ExitCode", exit_code_);
 }
 
 void WorkerThread::Start(
@@ -403,10 +401,6 @@ HashSet<WorkerThread*>& WorkerThread::WorkerThreads() {
   return threads;
 }
 
-PlatformThreadId WorkerThread::GetPlatformThreadId() {
-  return GetWorkerBackingThread().BackingThread().ThreadId();
-}
-
 bool WorkerThread::IsForciblyTerminated() {
   MutexLocker lock(mutex_);
   switch (exit_code_) {
@@ -416,9 +410,6 @@ bool WorkerThread::IsForciblyTerminated() {
     case ExitCode::kSyncForciblyTerminated:
     case ExitCode::kAsyncForciblyTerminated:
       return true;
-    case ExitCode::kLastEnum:
-      NOTREACHED() << static_cast<int>(exit_code_);
-      return false;
   }
   NOTREACHED() << static_cast<int>(exit_code_);
   return false;
@@ -559,34 +550,38 @@ void WorkerThread::InitializeSchedulerOnWorkerThread(
   // worker thread. See also comments on GetTaskRunner().
   // We only capture task types that are actually used. When you want to use a
   // new task type, add it here.
-  Vector<TaskType> available_task_types = {TaskType::kBackgroundFetch,
-                                           TaskType::kCanvasBlobSerialization,
-                                           TaskType::kDatabaseAccess,
-                                           TaskType::kDOMManipulation,
-                                           TaskType::kFileReading,
-                                           TaskType::kFontLoading,
-                                           TaskType::kInternalDefault,
-                                           TaskType::kInternalInspector,
-                                           TaskType::kInternalLoading,
-                                           TaskType::kInternalMedia,
-                                           TaskType::kInternalMediaRealTime,
-                                           TaskType::kInternalTest,
-                                           TaskType::kInternalWebCrypto,
-                                           TaskType::kJavascriptTimerDelayed,
-                                           TaskType::kJavascriptTimerImmediate,
-                                           TaskType::kMediaElementEvent,
-                                           TaskType::kMicrotask,
-                                           TaskType::kMiscPlatformAPI,
-                                           TaskType::kNetworking,
-                                           TaskType::kPerformanceTimeline,
-                                           TaskType::kPermission,
-                                           TaskType::kPostedMessage,
-                                           TaskType::kRemoteEvent,
-                                           TaskType::kUserInteraction,
-                                           TaskType::kWebGL,
-                                           TaskType::kWebLocks,
-                                           TaskType::kWebSocket,
-                                           TaskType::kWorkerAnimation};
+  Vector<TaskType> available_task_types = {
+      TaskType::kBackgroundFetch,
+      TaskType::kCanvasBlobSerialization,
+      TaskType::kDatabaseAccess,
+      TaskType::kDOMManipulation,
+      TaskType::kFileReading,
+      TaskType::kFontLoading,
+      TaskType::kInternalDefault,
+      TaskType::kInternalInspector,
+      TaskType::kInternalLoading,
+      TaskType::kInternalMedia,
+      TaskType::kInternalMediaRealTime,
+      TaskType::kInternalTest,
+      TaskType::kInternalWebCrypto,
+      TaskType::kJavascriptTimerImmediate,
+      TaskType::kJavascriptTimerDelayedLowNesting,
+      TaskType::kJavascriptTimerDelayedHighNesting,
+      TaskType::kMediaElementEvent,
+      TaskType::kMicrotask,
+      TaskType::kMiscPlatformAPI,
+      TaskType::kNetworking,
+      TaskType::kNetworkingUnfreezable,
+      TaskType::kPerformanceTimeline,
+      TaskType::kPermission,
+      TaskType::kPostedMessage,
+      TaskType::kRemoteEvent,
+      TaskType::kUserInteraction,
+      TaskType::kWakeLock,
+      TaskType::kWebGL,
+      TaskType::kWebLocks,
+      TaskType::kWebSocket,
+      TaskType::kWorkerAnimation};
   for (auto type : available_task_types) {
     auto task_runner = worker_scheduler_->GetTaskRunner(type);
     auto result = worker_task_runners_.insert(type, std::move(task_runner));
@@ -748,14 +743,17 @@ void WorkerThread::PrepareForShutdownOnWorkerThread() {
   GetWorkerReportingProxy().WillDestroyWorkerGlobalScope();
 
   probe::AllAsyncTasksCanceled(GlobalScope());
+
+  // This will eventually call the |child_threads_|'s Terminate() through
+  // ContextLifecycleObserver::ContextDestroyed(), because the nested workers
+  // are observer of the |GlobalScope()| (see the DedicatedWorker class) and
+  // they initiate thread termination on destruction of the parent context.
   GlobalScope()->NotifyContextDestroyed();
+
   worker_scheduler_->Dispose();
 
   // No V8 microtasks should get executed after shutdown is requested.
   GetWorkerBackingThread().BackingThread().RemoveTaskObserver(this);
-
-  for (WorkerThread* child : child_threads_)
-    child->Terminate();
 }
 
 void WorkerThread::PerformShutdownOnWorkerThread() {
@@ -865,7 +863,8 @@ void WorkerThread::PauseOrFreezeOnWorkerThread(
          state == mojom::FrameLifecycleState::kPaused);
   pause_or_freeze_count_++;
   GlobalScope()->SetLifecycleState(state);
-  GlobalScope()->SetDefersLoadingForResourceFetchers(true);
+  GlobalScope()->SetDefersLoadingForResourceFetchers(
+      WebURLLoader::DeferType::kDeferred);
 
   // If already paused return early.
   if (pause_or_freeze_count_ > 1)
@@ -884,7 +883,8 @@ void WorkerThread::PauseOrFreezeOnWorkerThread(
         &nested_runner_, nested_runner.get());
     nested_runner->Run();
   }
-  GlobalScope()->SetDefersLoadingForResourceFetchers(false);
+  GlobalScope()->SetDefersLoadingForResourceFetchers(
+      WebURLLoader::DeferType::kNotDeferred);
   GlobalScope()->SetLifecycleState(mojom::FrameLifecycleState::kRunning);
 }
 

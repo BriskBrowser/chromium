@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -24,6 +24,7 @@
 #include "base/test/test_file_util.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/download/chrome_download_manager_delegate.h"
 #include "chrome/browser/download/download_core_service.h"
@@ -137,7 +138,7 @@ class DownloadPersistedObserver : public DownloadHistory::Observer {
   void OnDownloadStored(DownloadItem* item,
                         const history::DownloadRow& info) override {
     persisted_ = persisted_ || filter_.Run(item, info);
-    if (persisted_ && !quit_waiting_callback_.is_null())
+    if (persisted_ && quit_waiting_callback_)
       std::move(quit_waiting_callback_).Run();
   }
 
@@ -173,7 +174,7 @@ class DownloadRemovedObserver : public DownloadPersistedObserver {
 
   void OnDownloadsRemoved(const DownloadHistory::IdSet& ids) override {
     removed_ = ids.find(download_id_) != ids.end();
-    if (removed_ && !quit_waiting_callback_.is_null())
+    if (removed_ && quit_waiting_callback_)
       std::move(quit_waiting_callback_).Run();
   }
 
@@ -251,7 +252,6 @@ class DownloadItemCreatedObserver : public DownloadManager::Observer {
       base::RunLoop run_loop;
       quit_waiting_callback_ = run_loop.QuitClosure();
       run_loop.Run();
-      quit_waiting_callback_ = base::Closure();
     }
 
     *items_seen = items_seen_;
@@ -265,18 +265,18 @@ class DownloadItemCreatedObserver : public DownloadManager::Observer {
     DCHECK_EQ(manager, manager_);
     items_seen_.push_back(item);
 
-    if (!quit_waiting_callback_.is_null())
-      quit_waiting_callback_.Run();
+    if (quit_waiting_callback_)
+      std::move(quit_waiting_callback_).Run();
   }
 
   void ManagerGoingDown(DownloadManager* manager) override {
     manager_->RemoveObserver(this);
     manager_ = nullptr;
-    if (!quit_waiting_callback_.is_null())
-      quit_waiting_callback_.Run();
+    if (quit_waiting_callback_)
+      std::move(quit_waiting_callback_).Run();
   }
 
-  base::Closure quit_waiting_callback_;
+  base::OnceClosure quit_waiting_callback_;
   DownloadManager* manager_;
   std::vector<DownloadItem*> items_seen_;
 
@@ -534,8 +534,8 @@ class DelayingDownloadManagerDelegate : public ChromeDownloadManagerDelegate {
   DISALLOW_COPY_AND_ASSIGN(DelayingDownloadManagerDelegate);
 };
 
-// Disabled on ChromeOS due to flakiness. crbug.com/580766
-#if defined(OS_CHROMEOS)
+// Disabled on multiple platforms due to flakiness. crbug.com/580766
+#if defined(OS_CHROMEOS) || defined(OS_WIN) || defined(OS_LINUX)
 #define MAYBE_SaveHTMLOnlyTabDestroy DISABLED_SaveHTMLOnlyTabDestroy
 #else
 #define MAYBE_SaveHTMLOnlyTabDestroy SaveHTMLOnlyTabDestroy
@@ -793,7 +793,7 @@ IN_PROC_BROWSER_TEST_F(SavePageBrowserTest, MAYBE_SavePageAsMHTML) {
   }
 
 // On ChromeOS, the default should be MHTML.
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   ASSERT_EQ("mhtml",
             select_file_dialog_factory->GetLastDialog()->default_extension());
 #else
@@ -802,15 +802,13 @@ IN_PROC_BROWSER_TEST_F(SavePageBrowserTest, MAYBE_SavePageAsMHTML) {
 #endif
 
   // Save the file as MHTML. Run until save completes.
+  base::RunLoop run_loop;
+  content::SavePackageFinishedObserver observer(
+      content::BrowserContext::GetDownloadManager(browser()->profile()),
+      run_loop.QuitClosure());
   ASSERT_TRUE(select_file_dialog_factory->GetLastDialog()->CallFileSelected(
       full_file_name, "mhtml"));
-  {
-    base::RunLoop run_loop;
-    content::SavePackageFinishedObserver observer(
-        content::BrowserContext::GetDownloadManager(browser()->profile()),
-        run_loop.QuitClosure());
-    run_loop.Run();
-  }
+  run_loop.Run();
 
   ASSERT_TRUE(VerifySavePackageExpectations(browser(), url));
   persisted.WaitForPersisted();
@@ -1131,7 +1129,8 @@ class SavePageOriginalVsSavedComparisonTest
     DLOG(INFO) << "Verifying test expectations for original page... : "
                << GetCurrentTab(browser())->GetLastCommittedURL();
     AssertExpectationsAboutCurrentTab(
-        expected_number_of_frames_in_original_page, expected_substrings);
+        expected_number_of_frames_in_original_page, expected_substrings,
+        save_page_type);
 
     // Save the page.
     base::FilePath full_file_name, dir;
@@ -1159,7 +1158,7 @@ class SavePageOriginalVsSavedComparisonTest
         expected_number_of_frames_in_mhtml_page :
         expected_number_of_frames_in_original_page;
     AssertExpectationsAboutCurrentTab(expected_number_of_frames_in_saved_page,
-                                      expected_substrings);
+                                      expected_substrings, save_page_type);
 
     if (GetParam() == content::SAVE_PAGE_TYPE_AS_MHTML) {
       std::set<url::Origin> origins;
@@ -1175,8 +1174,9 @@ class SavePageOriginalVsSavedComparisonTest
     ui_test_utils::NavigateToURL(browser(), GURL("data:text/html,foo"));
     chrome::GoBack(browser(), WindowOpenDisposition::CURRENT_TAB);
     EXPECT_TRUE(content::WaitForLoadStop(GetCurrentTab(browser())));
+    DLOG(INFO) << "Verifying test expectations after history navigation...";
     AssertExpectationsAboutCurrentTab(expected_number_of_frames_in_saved_page,
-                                      expected_substrings);
+                                      expected_substrings, save_page_type);
   }
 
   // Helper method to deduplicate some code across 2 tests.
@@ -1219,10 +1219,10 @@ class SavePageOriginalVsSavedComparisonTest
  private:
   void AssertExpectationsAboutCurrentTab(
       int expected_number_of_frames,
-      const std::vector<std::string>& expected_substrings) {
-    int actual_number_of_frames = 0;
-    GetCurrentTab(browser())->ForEachFrame(base::BindRepeating(
-        &IncrementInteger, base::Unretained(&actual_number_of_frames)));
+      const std::vector<std::string>& expected_substrings,
+      content::SavePageType save_page_type) {
+    int actual_number_of_frames =
+        GetCurrentTab(browser())->GetAllFrames().size();
     EXPECT_EQ(expected_number_of_frames, actual_number_of_frames);
 
     for (const auto& expected_substring : expected_substrings) {
@@ -1235,6 +1235,22 @@ class SavePageOriginalVsSavedComparisonTest
       EXPECT_EQ(1, actual_number_of_matches)
           << "Verifying that \"" << expected_substring << "\" appears "
           << "exactly once in the text of web contents";
+
+      // TODO(lukasza): https://crbug.com/1070597 and https://crbug.com/1070886:
+      // Remove the extra test assertions below (and maybe also the
+      // |save_page_type| parameter) after we get a better understanding of the
+      // root cause of test flakiness.
+      if (expected_substring == "a.htm: 1b8aae2b-e164-462f-bd5b-98aa366205f2" &&
+          save_page_type == content::SAVE_PAGE_TYPE_AS_COMPLETE_HTML) {
+        DLOG(INFO) << "Verifying that a.htm frame has fully loaded...";
+        std::vector<std::string> frame_names;
+        for (content::RenderFrameHost* frame :
+             GetCurrentTab(browser())->GetAllFrames()) {
+          frame_names.push_back(frame->GetFrameName());
+        }
+
+        EXPECT_THAT(frame_names, testing::Contains("Frame name of a.htm"));
+      }
     }
 
     std::string forbidden_substrings[] = {
@@ -1254,10 +1270,6 @@ class SavePageOriginalVsSavedComparisonTest
           << "Verifying that \"" << forbidden_substring << "\" doesn't "
           << "appear in the text of web contents";
     }
-  }
-
-  static void IncrementInteger(int* i, content::RenderFrameHost* /* unused */) {
-    (*i)++;
   }
 
   static void CheckFrameForMHTML(std::set<url::Origin>* origins,
@@ -1296,8 +1308,9 @@ IN_PROC_BROWSER_TEST_P(SavePageOriginalVsSavedComparisonTest, CrossSite) {
 
 // Test compares original-vs-saved for a page with <object> elements.
 // (see crbug.com/553478).
+// crbug.com/1070886: disabled because of flakiness.
 IN_PROC_BROWSER_TEST_P(SavePageOriginalVsSavedComparisonTest,
-                       ObjectElementsViaHttp) {
+                       DISABLED_ObjectElementsViaHttp) {
   GURL url(
       embedded_test_server()->GetURL("a.com", "/save_page/frames-objects.htm"));
 
@@ -1468,9 +1481,11 @@ IN_PROC_BROWSER_TEST_P(SavePageOriginalVsSavedComparisonTest,
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    SaveType,
+    SaveAsCompleteHtml,
     SavePageOriginalVsSavedComparisonTest,
-    ::testing::Values(content::SAVE_PAGE_TYPE_AS_COMPLETE_HTML,
-                      content::SAVE_PAGE_TYPE_AS_MHTML));
+    ::testing::Values(content::SAVE_PAGE_TYPE_AS_COMPLETE_HTML));
+INSTANTIATE_TEST_SUITE_P(SaveAsMhtml,
+                         SavePageOriginalVsSavedComparisonTest,
+                         ::testing::Values(content::SAVE_PAGE_TYPE_AS_MHTML));
 
 }  // namespace

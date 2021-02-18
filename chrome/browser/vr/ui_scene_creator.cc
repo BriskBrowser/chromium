@@ -11,15 +11,14 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/i18n/case_conversion.h"
 #include "base/logging.h"
 #include "base/numerics/math_constants.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "cc/animation/animation_curve.h"
-#include "cc/animation/animation_target.h"
 #include "cc/animation/keyframe_effect.h"
 #include "cc/animation/keyframed_animation_curve.h"
 #include "chrome/app/vector_icons/vector_icons.h"
@@ -79,7 +78,6 @@
 #include "components/url_formatter/elide_url.h"
 #include "components/vector_icons/vector_icons.h"
 #include "device/base/features.h"
-#include "device/vr/buildflags/buildflags.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/transform_util.h"
@@ -982,21 +980,21 @@ void BindIndicatorTranscienceForWin(
   std::unique_ptr<cc::KeyframedTransformAnimationCurve> curve(
       cc::KeyframedTransformAnimationCurve::Create());
 
-  cc::TransformOperations value_1;
+  gfx::TransformOperations value_1;
   value_1.AppendTranslate(0, kWebVrPermissionOffsetStart, 0);
   curve->AddKeyframe(cc::TransformKeyframe::Create(
       base::TimeDelta(), value_1,
       cc::CubicBezierTimingFunction::CreatePreset(
           cc::CubicBezierTimingFunction::EaseType::EASE)));
 
-  cc::TransformOperations value_2;
+  gfx::TransformOperations value_2;
   value_2.AppendTranslate(0, kWebVrPermissionOffsetOvershoot, 0);
   curve->AddKeyframe(cc::TransformKeyframe::Create(
       base::TimeDelta::FromMilliseconds(kWebVrPermissionOffsetMs), value_2,
       cc::CubicBezierTimingFunction::CreatePreset(
           cc::CubicBezierTimingFunction::EaseType::EASE)));
 
-  cc::TransformOperations value_3;
+  gfx::TransformOperations value_3;
   value_3.AppendTranslate(0, kWebVrPermissionOffsetFinal, 0);
   curve->AddKeyframe(cc::TransformKeyframe::Create(
       base::TimeDelta::FromMilliseconds(kWebVrPermissionAnimationDurationMs),
@@ -1004,9 +1002,12 @@ void BindIndicatorTranscienceForWin(
       cc::CubicBezierTimingFunction::CreatePreset(
           cc::CubicBezierTimingFunction::EaseType::EASE)));
 
+  curve->set_target(e);
+
   e->AddKeyframeModel(cc::KeyframeModel::Create(
       std::move(curve), Animation::GetNextKeyframeModelId(),
-      Animation::GetNextGroupId(), TRANSFORM));
+      Animation::GetNextGroupId(),
+      cc::KeyframeModel::TargetPropertyId(TRANSFORM)));
 }
 
 #else
@@ -1067,21 +1068,21 @@ void BindIndicatorTranscience(
   std::unique_ptr<cc::KeyframedTransformAnimationCurve> curve(
       cc::KeyframedTransformAnimationCurve::Create());
 
-  cc::TransformOperations value_1;
+  gfx::TransformOperations value_1;
   value_1.AppendTranslate(0, kWebVrPermissionOffsetStart, 0);
   curve->AddKeyframe(cc::TransformKeyframe::Create(
       base::TimeDelta(), value_1,
       cc::CubicBezierTimingFunction::CreatePreset(
           cc::CubicBezierTimingFunction::EaseType::EASE)));
 
-  cc::TransformOperations value_2;
+  gfx::TransformOperations value_2;
   value_2.AppendTranslate(0, kWebVrPermissionOffsetOvershoot, 0);
   curve->AddKeyframe(cc::TransformKeyframe::Create(
       base::TimeDelta::FromMilliseconds(kWebVrPermissionOffsetMs), value_2,
       cc::CubicBezierTimingFunction::CreatePreset(
           cc::CubicBezierTimingFunction::EaseType::EASE)));
 
-  cc::TransformOperations value_3;
+  gfx::TransformOperations value_3;
   value_3.AppendTranslate(0, kWebVrPermissionOffsetFinal, 0);
   curve->AddKeyframe(cc::TransformKeyframe::Create(
       base::TimeDelta::FromMilliseconds(kWebVrPermissionAnimationDurationMs),
@@ -1089,19 +1090,24 @@ void BindIndicatorTranscience(
       cc::CubicBezierTimingFunction::CreatePreset(
           cc::CubicBezierTimingFunction::EaseType::EASE)));
 
+  curve->set_target(e);
+
   e->AddKeyframeModel(cc::KeyframeModel::Create(
       std::move(curve), Animation::GetNextKeyframeModelId(),
-      Animation::GetNextGroupId(), TRANSFORM));
+      Animation::GetNextGroupId(),
+      cc::KeyframeModel::TargetPropertyId(TRANSFORM)));
 }
 
 #endif
 
 int GetIndicatorsTimeout() {
-#if BUILDFLAG(ENABLE_WINDOWS_MR)
-  if (base::FeatureList::IsEnabled(device::features::kWindowsMixedReality))
-    return kWmrInitialIndicatorsTimeoutSeconds;
-#endif
+  // Some runtimes on Windows have quite lengthy animations that may cause
+  // indicators to not be visible at our normal timeout length.
+#if defined(OS_WIN)
+  return kWindowsInitialIndicatorsTimeoutSeconds;
+#else
   return kToastTimeoutSeconds;
+#endif
 }
 
 NOINLINE void CrashIntentionally() {

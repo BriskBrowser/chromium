@@ -6,6 +6,7 @@
 
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/common/chrome_version.h"
 
 #define FPL FILE_PATH_LITERAL
@@ -130,6 +131,7 @@ const base::FilePath::CharType kStatusTrayWindowClass[] =
 
 const char kInitialProfile[] = "Default";
 const char kMultiProfileDirPrefix[] = "Profile ";
+const char kEphemeralGuestProfileDirPrefix[] = "Guest ";
 const base::FilePath::CharType kGuestProfileDir[] = FPL("Guest Profile");
 const base::FilePath::CharType kSystemProfileDir[] = FPL("System Profile");
 
@@ -170,6 +172,8 @@ const base::FilePath::CharType kPreferencesFilename[] = FPL("Preferences");
 const base::FilePath::CharType kPreviewsOptOutDBFilename[] =
     FPL("previews_opt_out.db");
 const base::FilePath::CharType kQueryTileStorageDirname[] = FPL("Query Tiles");
+const base::FilePath::CharType kVideoTutorialsStorageDirname[] =
+    FPL("Video Tutorials");
 const base::FilePath::CharType kReadmeFilename[] = FPL("README");
 const base::FilePath::CharType kSecurePreferencesFilename[] =
     FPL("Secure Preferences");
@@ -192,16 +196,6 @@ const base::FilePath::CharType kReportingAndNelStoreFilename[] =
 const base::FilePath::CharType kJumpListIconDirname[] = FPL("JumpListIcons");
 #endif
 
-// File name of the Pepper Flash plugin on different platforms.
-const base::FilePath::CharType kPepperFlashPluginFilename[] =
-#if defined(OS_MAC)
-    FPL("PepperFlashPlayer.plugin");
-#elif defined(OS_WIN)
-    FPL("pepflashplayer.dll");
-#else  // OS_LINUX, etc.
-    FPL("libpepflashplayer.so");
-#endif
-
 // directory names
 #if defined(OS_WIN)
 const wchar_t kUserDataDirname[] = L"User Data";
@@ -209,11 +203,12 @@ const wchar_t kUserDataDirname[] = L"User Data";
 
 const float kMaxShareOfExtensionProcesses = 0.30f;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 const char kProfileDirPrefix[] = "u-";
 const char kLegacyProfileDir[] = "user";
 const char kTestUserProfileDir[] = "test-user";
 const char kLockScreenAppProfile[] = "LockScreenAppsProfile";
+const char kLockScreenProfile[] = "LockScreenProfile";
 #endif
 
 // This GUID is associated with any 'don't ask me again' settings that the
@@ -221,8 +216,6 @@ const char kLockScreenAppProfile[] = "LockScreenAppsProfile";
 // {2676A9A2-D919-4FEE-9187-152100393AB2}
 const char kApplicationClientIDStringForAVScanning[] =
     "2676A9A2-D919-4FEE-9187-152100393AB2";
-
-const size_t kMaxMetaTagAttributeLength = 2000;
 
 }  // namespace chrome
 

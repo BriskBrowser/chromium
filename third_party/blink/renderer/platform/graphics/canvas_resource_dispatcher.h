@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "base/memory/read_only_shared_memory_region.h"
+#include "components/power_scheduler/power_mode_voter.h"
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
 #include "components/viz/common/resources/resource_id.h"
 #include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
@@ -42,6 +43,8 @@ class PLATFORM_EXPORT CanvasResourceDispatcher
   };
 
   CanvasResourceDispatcher(CanvasResourceDispatcherClient*,
+                           scoped_refptr<base::SingleThreadTaskRunner>
+                               agent_group_scheduler_compositor_task_runner,
                            uint32_t client_id,
                            uint32_t sink_id,
                            int placeholder_canvas_id,
@@ -141,6 +144,11 @@ class PLATFORM_EXPORT CanvasResourceDispatcher
   viz::BeginFrameAck current_begin_frame_ack_;
 
   CanvasResourceDispatcherClient* client_;
+
+  scoped_refptr<base::SingleThreadTaskRunner>
+      agent_group_scheduler_compositor_task_runner_;
+
+  std::unique_ptr<power_scheduler::PowerModeVoter> animation_power_mode_voter_;
 
   base::WeakPtrFactory<CanvasResourceDispatcher> weak_ptr_factory_{this};
 };

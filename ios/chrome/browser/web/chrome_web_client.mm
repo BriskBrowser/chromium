@@ -14,6 +14,7 @@
 #include "base/strings/sys_string_conversions.h"
 #include "components/dom_distiller/core/url_constants.h"
 #include "components/google/core/common/google_util.h"
+#include "components/password_manager/core/common/password_manager_features.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/version_info/version_info.h"
 #include "ios/chrome/browser/application_context.h"
@@ -22,14 +23,15 @@
 #include "ios/chrome/browser/chrome_switches.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
 #include "ios/chrome/browser/ios_chrome_main_parts.h"
-#include "ios/chrome/browser/passwords/password_manager_features.h"
 #import "ios/chrome/browser/reading_list/offline_page_tab_helper.h"
+#import "ios/chrome/browser/safe_browsing/password_protection_java_script_feature.h"
 #import "ios/chrome/browser/safe_browsing/safe_browsing_blocking_page.h"
 #import "ios/chrome/browser/safe_browsing/safe_browsing_error.h"
 #import "ios/chrome/browser/safe_browsing/safe_browsing_unsafe_resource_container.h"
 #include "ios/chrome/browser/ssl/ios_ssl_error_handler.h"
 #import "ios/chrome/browser/ui/elements/windowed_container_view.h"
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
+#include "ios/chrome/browser/web/error_page_controller_bridge.h"
 #import "ios/chrome/browser/web/error_page_util.h"
 #include "ios/chrome/browser/web/features.h"
 #import "ios/components/security_interstitials/ios_blocking_page_tab_helper.h"
@@ -280,6 +282,17 @@ void ChromeWebClient::PostBrowserURLRewriterCreation(
     provider->AddProviderRewriters(rewriter);
 }
 
+std::vector<web::JavaScriptFeature*> ChromeWebClient::GetJavaScriptFeatures(
+    web::BrowserState* browser_state) const {
+  std::vector<web::JavaScriptFeature*> features;
+  if (base::FeatureList::IsEnabled(
+          password_manager::features::kPasswordReuseDetectionEnabled) &&
+      base::ios::IsRunningOnIOS14OrLater()) {
+    features.push_back(PasswordProtectionJavaScriptFeature::GetInstance());
+  }
+  return features;
+}
+
 NSString* ChromeWebClient::GetDocumentStartScriptForAllFrames(
     web::BrowserState* browser_state) const {
   return GetPageScript(@"chrome_bundle_all_frames");
@@ -289,10 +302,6 @@ NSString* ChromeWebClient::GetDocumentStartScriptForMainFrame(
     web::BrowserState* browser_state) const {
   NSMutableArray* scripts = [NSMutableArray array];
   [scripts addObject:GetPageScript(@"chrome_bundle_main_frame")];
-
-  if (base::FeatureList::IsEnabled(features::kCredentialManager)) {
-    [scripts addObject:GetPageScript(@"credential_manager")];
-  }
 
   return [scripts componentsJoinedByString:@";"];
 }
@@ -304,21 +313,23 @@ void ChromeWebClient::AllowCertificateError(
     const GURL& request_url,
     bool overridable,
     int64_t navigation_id,
-    const base::Callback<void(bool)>& callback) {
+    base::OnceCallback<void(bool)> callback) {
   base::OnceCallback<void(NSString*)> null_callback;
   // TODO(crbug.com/760873): IOSSSLErrorHandler will present an interstitial
   // for the user to decide if it is safe to proceed.
   // Handle the case of web_state not presenting UI to users like prerender tabs
   // or web_state used to fetch offline content in Reading List.
-  IOSSSLErrorHandler::HandleSSLError(web_state, cert_error, info, request_url,
-                                     overridable, navigation_id, callback,
-                                     std::move(null_callback));
+  IOSSSLErrorHandler::HandleSSLError(
+      web_state, cert_error, info, request_url, overridable, navigation_id,
+      std::move(callback), std::move(null_callback));
 }
 
 bool ChromeWebClient::IsLegacyTLSAllowedForHost(web::WebState* web_state,
                                                 const std::string& hostname) {
-  return LegacyTLSTabAllowList::FromWebState(web_state)->IsDomainAllowed(
-      hostname);
+  auto* allowlist = LegacyTLSTabAllowList::FromWebState(web_state);
+  if (!allowlist)
+    return false;
+  return allowlist->IsDomainAllowed(hostname);
 }
 
 void ChromeWebClient::PrepareErrorPage(
@@ -335,7 +346,7 @@ void ChromeWebClient::PrepareErrorPage(
   // WebState that are not attached to a tab may not have an
   // OfflinePageTabHelper.
   if (offline_page_tab_helper &&
-      offline_page_tab_helper->HasDistilledVersionForOnlineUrl(url)) {
+      (offline_page_tab_helper->CanHandleErrorLoadingURL(url))) {
     // An offline version of the page will be displayed to replace this error
     // page. Loading an error page here can cause a race between the
     // navigation to load the error page and the navigation to display the
@@ -381,6 +392,13 @@ void ChromeWebClient::PrepareErrorPage(
   } else {
     std::move(error_html_callback)
         .Run(GetErrorPage(url, error, is_post, is_off_the_record));
+    ErrorPageControllerBridge* error_page_controller =
+        ErrorPageControllerBridge::FromWebState(web_state);
+    if (error_page_controller) {
+      // ErrorPageControllerBridge may not be created for web_state not attached
+      // to a tab.
+      error_page_controller->StartHandlingJavascriptCommands();
+    }
   }
 }
 
@@ -389,6 +407,14 @@ UIView* ChromeWebClient::GetWindowedContainer() {
     windowed_container_ = [[WindowedContainerView alloc] init];
   }
   return windowed_container_;
+}
+
+bool ChromeWebClient::EnableLongPressAndForceTouchHandling() const {
+  return !web::features::UseWebViewNativeContextMenuWeb();
+}
+
+bool ChromeWebClient::EnableLongPressUIContextMenu() const {
+  return web::features::UseWebViewNativeContextMenuSystem();
 }
 
 bool ChromeWebClient::ForceMobileVersionByDefault(const GURL& url) {

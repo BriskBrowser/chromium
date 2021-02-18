@@ -161,6 +161,9 @@ chrome.fileManagerPrivate.DeviceEventType = {
   RENAME_START: 'rename_start',
   RENAME_SUCCESS: 'rename_success',
   RENAME_FAIL: 'rename_fail',
+  PARTITION_START: 'partition_start',
+  PARTITION_SUCCESS: 'partition_success',
+  PARTITION_FAIL: 'partition_fail',
 };
 
 /** @enum {string} */
@@ -173,14 +176,26 @@ chrome.fileManagerPrivate.DriveSyncErrorType = {
 };
 
 /** @enum {string} */
+chrome.fileManagerPrivate.DriveConfirmDialogType = {
+  ENABLE_DOCS_OFFLINE: 'enable_docs_offline',
+};
+
+/** @enum {string} */
+chrome.fileManagerPrivate.DriveDialogResult = {
+  NOT_DISPLAYED: 'not_displayed',
+  ACCEPT: 'accept',
+  REJECT: 'reject',
+  DISMISS: 'dismiss',
+};
+
+/** @enum {string} */
 chrome.fileManagerPrivate.TaskResult = {
   OPENED: 'opened',
   MESSAGE_SENT: 'message_sent',
   FAILED: 'failed',
   EMPTY: 'empty',
-  FAILED_PLUGIN_VM_TASK_DIRECTORY_NOT_SHARED:
-      'failed_plugin_vm_task_directory_not_shared',
-  FAILED_PLUGIN_VM_TASK_EXTERNAL_DRIVE: 'failed_plugin_vm_task_external_drive',
+  FAILED_PLUGIN_VM_DIRECTORY_NOT_SHARED:
+      'failed_plugin_vm_directory_not_shared',
 };
 
 /** @enum {string} */
@@ -265,6 +280,8 @@ chrome.fileManagerPrivate.CrostiniEventType = {
   DISABLE: 'disable',
   SHARE: 'share',
   UNSHARE: 'unshare',
+  DROP_FAILED_PLUGIN_VM_DIRECTORY_NOT_SHARED:
+      'drop_failed_plugin_vm_directory_not_shared',
 };
 
 /**
@@ -362,7 +379,8 @@ chrome.fileManagerPrivate.IconSet;
  *   mountContext: (!chrome.fileManagerPrivate.MountContext|undefined),
  *   diskFileSystemType: (string|undefined),
  *   iconSet: !chrome.fileManagerPrivate.IconSet,
- *   driveLabel: (string|undefined)
+ *   driveLabel: (string|undefined),
+ *   remoteMountPath: (string|undefined)
  * }}
  */
 chrome.fileManagerPrivate.VolumeMetadata;
@@ -383,7 +401,7 @@ chrome.fileManagerPrivate.MountCompletedEvent;
  *   transferState: !chrome.fileManagerPrivate.TransferState,
  *   processed: number,
  *   total: number,
- *   num_total_jobs: number,
+ *   numTotalJobs: number,
  *   hideWhenZeroJobs: boolean
  * }}
  */
@@ -396,6 +414,14 @@ chrome.fileManagerPrivate.FileTransferStatus;
  * }}
  */
 chrome.fileManagerPrivate.DriveSyncErrorEvent;
+
+/**
+ * @typedef {{
+ *   type: !chrome.fileManagerPrivate.DriveConfirmDialogType,
+ *   fileUrl: string
+ * }}
+ */
+chrome.fileManagerPrivate.DriveConfirmDialogEvent;
 
 /**
  * @typedef {{
@@ -477,7 +503,8 @@ chrome.fileManagerPrivate.DriveMetadataSearchResult;
  * @typedef {{
  *   type: !chrome.fileManagerPrivate.DriveConnectionStateType,
  *   reason: (!chrome.fileManagerPrivate.DriveOfflineReason|undefined),
- *   hasCellularNetworkAccess: boolean
+ *   hasCellularNetworkAccess: boolean,
+ *   canPinHostedFiles: boolean
  * }}
  */
 chrome.fileManagerPrivate.DriveConnectionState;
@@ -789,7 +816,7 @@ chrome.fileManagerPrivate.startCopy = function(entry, parentEntry, newName,
  * Copies an image to the system clipboard. |entry| Entry of the image to copy
  * to the system clipboard.
  * @param {!Entry} entry
- * @param {function()} callback
+ * @param {function((boolean|undefined))} callback
  */
 chrome.fileManagerPrivate.copyImageToClipboard = function(entry, callback) {};
 
@@ -819,6 +846,16 @@ chrome.fileManagerPrivate.getSizeStats = function(volumeId, callback) {};
  */
 chrome.fileManagerPrivate.formatVolume = function(volumeId, filesystem,
     volumeLabel) {};
+
+/**
+ * Deletes partitions of removable device, creates a single partition
+ * and format it.
+ * @param {string} devicePath
+ * @param {chrome.fileManagerPrivate.FormatFileSystemType} filesystem
+ * @param {string} volumeLabel
+ */
+chrome.fileManagerPrivate.singlePartitionFormat = function(devicePath,
+  filesystem, volumeLabel) {};
 
 /**
  * Renames a mounted volume. |volumeId| ID of the volume to be renamed to
@@ -1101,13 +1138,38 @@ chrome.fileManagerPrivate.detectCharacterEncoding = function(bytes, callback) {
  * For a file in DriveFS, retrieves its thumbnail. If |cropToSquare| is true,
  * returns a thumbnail appropriate for file list or grid views; otherwise,
  * returns a thumbnail appropriate for quickview.
- * @param {Object} entry
+ * @param {!FileEntry} entry
  * @param {boolean} cropToSquare
- * @param {function(string): void} callback |thumbnailDataUrl| A data URL for the
- *     thumbnail as a PNG; |thumbnailDataUrl| is empty if no thumbnail was
+ * @param {function(string): void} callback |thumbnailDataUrl| A data URL for
+ *     the thumbnail as a PNG; |thumbnailDataUrl| is empty if no thumbnail was
  *     available.
  */
-chrome.fileManagerPrivate.getThumbnail = function(entry, cropToSquare, callback) {};
+chrome.fileManagerPrivate.getDriveThumbnail = function(entry, cropToSquare, callback) {};
+
+/**
+ * For a local PDF file, retrieves its thumbnail with a given |width| and
+ * |height|.
+ * @param {!FileEntry} entry
+ * @param {number} width
+ * @param {number} height
+ * @param {function(string): void} callback |thumbnailDataUrl| A data URL for
+ *     the thumbnail as a PNG; |thumbnailDataUrl| is empty if no thumbnail was
+ *     available.
+ */
+chrome.fileManagerPrivate.getPdfThumbnail = function(entry, width, height, callback) {};
+
+/**
+  Retrieves a thumbnail of an ARC DocumentsProvider file, close in size to
+  |widthHint| and |heightHint|, but not necessarily exactly this size.
+ * @param {!FileEntry} entry
+ * @param {number} widthHint
+ * @param {number} heightHint
+ * @param {function(string): void} callback |thumbnailDataUrl| A data URL for the
+ *     thumbnail; |thumbnailDataUrl| is empty if no thumbnail was available.
+ *     Note: The thumbnail data may originate from third-party application code,
+ *     and is untrustworthy (Security).
+ */
+chrome.fileManagerPrivate.getArcDocumentsProviderThumbnail = function(entry, widthHint, heightHint, callback) {};
 
 /**
  * @param {!Array<string>} extensions
@@ -1157,11 +1219,26 @@ chrome.fileManagerPrivate.toggleAddedToHoldingSpace = function(entries, added, c
  */
 chrome.fileManagerPrivate.getHoldingSpaceState = function(callback) {};
 
+/**
+ * Returns true via `callback` if tablet mode is enabled, false otherwise.
+ * @param {function(boolean): void} callback
+ */
+chrome.fileManagerPrivate.isTabletModeEnabled = function(callback) {};
+
+/**
+ * Notifies Drive about the result of the last dialog shown.
+ * @param {chrome.fileManagerPrivate.DriveDialogResult} result
+ */
+chrome.fileManagerPrivate.notifyDriveDialogResult = function(result) {};
+
 /** @type {!ChromeEvent} */
 chrome.fileManagerPrivate.onMountCompleted;
 
 /** @type {!ChromeEvent} */
 chrome.fileManagerPrivate.onFileTransfersUpdated;
+
+/** @type {!ChromeEvent} */
+chrome.fileManagerPrivate.onPinTransfersUpdated;
 
 /** @type {!ChromeEvent} */
 chrome.fileManagerPrivate.onCopyProgress;
@@ -1182,7 +1259,13 @@ chrome.fileManagerPrivate.onDeviceChanged;
 chrome.fileManagerPrivate.onDriveSyncError;
 
 /** @type {!ChromeEvent} */
+chrome.fileManagerPrivate.onDriveConfirmDialog;
+
+/** @type {!ChromeEvent} */
 chrome.fileManagerPrivate.onAppsUpdated;
 
 /** @type {!ChromeEvent} */
 chrome.fileManagerPrivate.onCrostiniChanged;
+
+/** @type {!ChromeEvent} */
+chrome.fileManagerPrivate.onTabletModeChanged;

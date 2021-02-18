@@ -12,18 +12,22 @@
 #include "base/macros.h"
 #include "base/optional.h"
 #include "base/run_loop.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_command_line.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/common/content_features.h"
 #include "content/public/test/test_renderer_host.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/aura/client/aura_constants.h"
+#include "ui/aura/client/drag_drop_client.h"
 #include "ui/aura/test/test_windows.h"
 #include "ui/aura/test/window_test_api.h"
 #include "ui/aura/window.h"
+#include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/dragdrop/drop_target_event.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
@@ -35,17 +39,15 @@
 #include "ui/base/dragdrop/os_exchange_data_provider_win.h"
 #endif
 
-#if defined(USE_X11)
-#include "ui/base/ui_base_features.h"
-#endif
-
 namespace content {
 
 namespace {
 constexpr gfx::Rect kBounds = gfx::Rect(0, 0, 20, 20);
 constexpr gfx::PointF kClientPt = {5, 10};
 
-#if !defined(USE_OZONE) || defined(OS_WIN) || defined(USE_X11)
+// TODO(crbug.com/1052397): Revisit once build flag switch of lacros-chrome is
+// complete.
+#if (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) || defined(OS_WIN)
 constexpr gfx::PointF kScreenPt = {17, 3};
 #endif
 
@@ -66,6 +68,32 @@ class RunCallbackOnActivation : public WebContentsDelegate {
   base::OnceClosure closure_;
 
   DISALLOW_COPY_AND_ASSIGN(RunCallbackOnActivation);
+};
+
+class TestDragDropClient : public aura::client::DragDropClient {
+ public:
+  // aura::client::DragDropClient:
+  int StartDragAndDrop(std::unique_ptr<ui::OSExchangeData> data,
+                       aura::Window* root_window,
+                       aura::Window* source_window,
+                       const gfx::Point& screen_location,
+                       int operation,
+                       ui::mojom::DragEventSource source) override {
+    drag_in_progress_ = true;
+    drag_drop_data_ = std::move(data);
+    return 1;
+  }
+  void DragCancel() override { drag_in_progress_ = false; }
+  bool IsDragDropInProgress() override { return drag_in_progress_; }
+  void AddObserver(aura::client::DragDropClientObserver* observer) override {}
+  void RemoveObserver(aura::client::DragDropClientObserver* observer) override {
+  }
+
+  ui::OSExchangeData* GetDragDropData() { return drag_drop_data_.get(); }
+
+ private:
+  bool drag_in_progress_ = false;
+  std::unique_ptr<ui::OSExchangeData> drag_drop_data_ = nullptr;
 };
 
 }  // namespace
@@ -194,9 +222,6 @@ TEST_F(WebContentsViewAuraTest, WebContentsDestroyedDuringClick) {
 }
 
 TEST_F(WebContentsViewAuraTest, OccludeView) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(features::kWebContentsOcclusion);
-
   EXPECT_EQ(web_contents()->GetVisibility(), Visibility::VISIBLE);
   occluding_window_->Show();
   EXPECT_EQ(web_contents()->GetVisibility(), Visibility::OCCLUDED);
@@ -204,20 +229,9 @@ TEST_F(WebContentsViewAuraTest, OccludeView) {
   EXPECT_EQ(web_contents()->GetVisibility(), Visibility::VISIBLE);
 }
 
-#if !defined(USE_OZONE) && !defined(OS_CHROMEOS)
-// TODO(crbug.com/1070483): Enable this test on Ozone.
-//
-// The expectations for the X11 implementation differ from other ones because
-// the GetString() method of the X11 data provider returns an empty string
-// if file data is also present, which is not the same for other
-// implementations.  (See the code under USE_X11 in the body of the test.)
-//
-// Ozone spawns the platform at run time, which would require this test to query
-// Ozone about the current platform, which would pull the Ozone platform as the
-// dependency here.
-//
-// Another solution could be fixing the X11 platform implementation so it
-// would behave the same way as other Ozone platforms do.
+// TODO(crbug.com/1052397): Revisit once build flag switch of lacros-chrome is
+// complete.
+#if (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) || defined(OS_WIN)
 TEST_F(WebContentsViewAuraTest, DragDropFiles) {
   WebContentsViewAura* view = GetView();
   auto data = std::make_unique<ui::OSExchangeData>();
@@ -253,17 +267,16 @@ TEST_F(WebContentsViewAuraTest, DragDropFiles) {
   view->OnDragEntered(event);
   ASSERT_NE(nullptr, view->current_drop_data_);
 
-#if defined(USE_X11)
-  // By design, OSExchangeDataProviderX11::GetString returns an empty string
-  // if file data is also present.
-  if (!features::IsUsingOzonePlatform()) {
-    EXPECT_TRUE(!view->current_drop_data_->text ||
-                view->current_drop_data_->text->empty());
-  } else
+// TODO(crbug.com/1052397): Revisit once build flag switch of lacros-chrome is
+// complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+  // By design, Linux implementations return an empty string if file data
+  // is also present.
+  EXPECT_TRUE(!view->current_drop_data_->text ||
+              view->current_drop_data_->text->empty());
+#else
+  EXPECT_EQ(string_data, view->current_drop_data_->text);
 #endif
-  {
-    EXPECT_EQ(string_data, view->current_drop_data_->text);
-  }
 
   std::vector<ui::FileInfo> retrieved_file_infos =
       view->current_drop_data_->filenames;
@@ -287,17 +300,16 @@ TEST_F(WebContentsViewAuraTest, DragDropFiles) {
 
   CheckDropData(view);
 
-#if defined(USE_X11)
-  // By design, OSExchangeDataProviderX11::GetString returns an empty string
-  // if file data is also present.
-  if (!features::IsUsingOzonePlatform()) {
-    EXPECT_TRUE(!drop_complete_data_->drop_data.text ||
-                drop_complete_data_->drop_data.text->empty());
-  } else
+// TODO(crbug.com/1052397): Revisit once build flag switch of lacros-chrome is
+// complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+  // By design, Linux implementations returns an empty string if file data
+  // is also present.
+  EXPECT_TRUE(!drop_complete_data_->drop_data.text ||
+              drop_complete_data_->drop_data.text->empty());
+#else
+  EXPECT_EQ(string_data, drop_complete_data_->drop_data.text);
 #endif
-  {
-    EXPECT_EQ(string_data, drop_complete_data_->drop_data.text);
-  }
 
   retrieved_file_infos = drop_complete_data_->drop_data.filenames;
   ASSERT_EQ(test_file_infos.size(), retrieved_file_infos.size());
@@ -308,15 +320,7 @@ TEST_F(WebContentsViewAuraTest, DragDropFiles) {
   }
 }
 
-#endif  // !defined(USE_OZONE) && !defined(OS_CHROMEOS)
-
-#if defined(OS_WIN) || defined(USE_X11)
 TEST_F(WebContentsViewAuraTest, DragDropFilesOriginateFromRenderer) {
-#if defined(USE_X11)
-  // TODO(https://crbug.com/1109695): enable for Ozone/Linux.
-  if (features::IsUsingOzonePlatform())
-    return;
-#endif
   WebContentsViewAura* view = GetView();
   auto data = std::make_unique<ui::OSExchangeData>();
 
@@ -355,9 +359,11 @@ TEST_F(WebContentsViewAuraTest, DragDropFilesOriginateFromRenderer) {
   view->OnDragEntered(event);
   ASSERT_NE(nullptr, view->current_drop_data_);
 
-#if defined(USE_X11)
-  // By design, OSExchangeDataProviderX11::GetString returns an empty string
-  // if file data is also present.
+// TODO(crbug.com/1052397): Revisit once build flag switch of lacros-chrome is
+// complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+  // By design, Linux implementations return an empty string if file data
+  // is also present.
   EXPECT_TRUE(!view->current_drop_data_->text ||
               view->current_drop_data_->text->empty());
 #else
@@ -379,9 +385,11 @@ TEST_F(WebContentsViewAuraTest, DragDropFilesOriginateFromRenderer) {
 
   CheckDropData(view);
 
-#if defined(USE_X11)
-  // By design, OSExchangeDataProviderX11::GetString returns an empty string
-  // if file data is also present.
+// TODO(crbug.com/1052397): Revisit once build flag switch of lacros-chrome is
+// complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+  // By design, Linux implementations returns an empty string if file data is
+  // also present.
   EXPECT_TRUE(!drop_complete_data_->drop_data.text ||
               drop_complete_data_->drop_data.text->empty());
 #else
@@ -541,7 +549,7 @@ TEST_F(WebContentsViewAuraTest, DragDropUrlData) {
   std::vector<ui::FileInfo> file_infos;
   EXPECT_TRUE(data->GetVirtualFilenames(&file_infos));
   ASSERT_EQ(1ULL, file_infos.size());
-  EXPECT_EQ(base::FilePath(url_title + base::ASCIIToUTF16(".url")),
+  EXPECT_EQ(base::FilePath(base::UTF16ToWide(url_title) + L".url"),
             file_infos[0].display_name);
 
   ui::DropTargetEvent event(*data.get(), kClientPt, kScreenPt,
@@ -579,5 +587,38 @@ TEST_F(WebContentsViewAuraTest, DragDropUrlData) {
   ASSERT_TRUE(drop_complete_data_->drop_data.filenames.empty());
 }
 #endif
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+
+TEST_F(WebContentsViewAuraTest, StartDragging) {
+  const char kGmailUrl[] = "http://mail.google.com/";
+  NavigateAndCommit(GURL(kGmailUrl));
+  FocusWebContentsOnMainFrame();
+
+  TestDragDropClient drag_drop_client;
+  aura::client::SetDragDropClient(root_window(), &drag_drop_client);
+
+  WebContentsViewAura* view = GetView();
+  // This condition is needed to avoid calling WebContentsViewAura::EndDrag
+  // which will result NOTREACHED being called in
+  // `RenderWidgetHostViewBase::TransformPointToCoordSpaceForView`.
+  view->drag_in_progress_ = true;
+
+  DropData drop_data;
+  drop_data.text.emplace(base::UTF8ToUTF16("Hello World!"));
+  view->StartDragging(drop_data, blink::DragOperationsMask::kDragOperationNone,
+                      gfx::ImageSkia(), gfx::Vector2d(),
+                      blink::mojom::DragEventSourceInfo(),
+                      RenderWidgetHostImpl::From(rvh()->GetWidget()));
+
+  ui::OSExchangeData* exchange_data = drag_drop_client.GetDragDropData();
+  EXPECT_TRUE(exchange_data);
+  EXPECT_TRUE(exchange_data->GetSource());
+  EXPECT_TRUE(exchange_data->GetSource()->IsUrlType());
+  EXPECT_TRUE(exchange_data->GetSource()->origin()->IsSameOriginWith(
+      url::Origin::Create(GURL(kGmailUrl))));
+}
+
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 }  // namespace content

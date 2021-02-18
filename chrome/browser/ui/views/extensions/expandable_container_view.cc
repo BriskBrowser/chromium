@@ -15,6 +15,7 @@
 #include "ui/views/controls/link.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/grid_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 // ExpandableContainerView::DetailsView ----------------------------------------
 ExpandableContainerView::DetailsView::~DetailsView() = default;
@@ -32,17 +33,29 @@ ExpandableContainerView::DetailsView::DetailsView(
 
   for (const auto& detail : details) {
     auto detail_label = std::make_unique<views::Label>(
-        detail, CONTEXT_BODY_TEXT_LARGE, views::style::STYLE_SECONDARY);
+        detail, views::style::CONTEXT_DIALOG_BODY_TEXT,
+        views::style::STYLE_SECONDARY);
     detail_label->SetMultiLine(true);
     detail_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
     AddChildView(std::move(detail_label));
   }
 }
 
-void ExpandableContainerView::DetailsView::ToggleExpanded() {
-  expanded_ = !expanded_;
+void ExpandableContainerView::DetailsView::SetExpanded(bool expanded) {
+  if (expanded == expanded_)
+    return;
+  expanded_ = expanded;
   SetVisible(expanded_);
+  OnPropertyChanged(&expanded_, views::kPropertyEffectsPaint);
 }
+
+bool ExpandableContainerView::DetailsView::GetExpanded() const {
+  return expanded_;
+}
+
+BEGIN_METADATA(ExpandableContainerView, DetailsView, views::View)
+ADD_PROPERTY_METADATA(bool, Expanded)
+END_METADATA
 
 // ExpandableContainerView -----------------------------------------------------
 
@@ -57,7 +70,7 @@ ExpandableContainerView::ExpandableContainerView(
   details_view_->SetVisible(false);
   auto details_link = std::make_unique<views::Link>(
       l10n_util::GetStringUTF16(IDS_EXTENSIONS_SHOW_DETAILS));
-  details_link->set_callback(base::BindRepeating(
+  details_link->SetCallback(base::BindRepeating(
       &ExpandableContainerView::ToggleDetailLevel, base::Unretained(this)));
   details_link->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   details_link_ = AddChildView(std::move(details_link));
@@ -70,8 +83,11 @@ void ExpandableContainerView::ChildPreferredSizeChanged(views::View* child) {
 }
 
 void ExpandableContainerView::ToggleDetailLevel() {
-  details_view_->ToggleExpanded();
+  const bool expanded = details_view_->GetExpanded();
+  details_view_->SetExpanded(!expanded);
   details_link_->SetText(l10n_util::GetStringUTF16(
-      details_view_->expanded() ? IDS_EXTENSIONS_HIDE_DETAILS
-                                : IDS_EXTENSIONS_SHOW_DETAILS));
+      expanded ? IDS_EXTENSIONS_SHOW_DETAILS : IDS_EXTENSIONS_HIDE_DETAILS));
 }
+
+BEGIN_METADATA(ExpandableContainerView, views::View)
+END_METADATA

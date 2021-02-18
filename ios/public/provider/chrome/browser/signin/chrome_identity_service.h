@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "base/callback.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
 
@@ -78,7 +79,10 @@ class ChromeIdentityService {
     virtual ~Observer() {}
 
     // Handles identity list changed events.
-    virtual void OnIdentityListChanged() {}
+    // |keychainReload| is true if the identity list is updated by reloading the
+    // keychain. This means that a first party Google app had added or removed
+    // identities.
+    virtual void OnIdentityListChanged(bool keychainReload) {}
 
     // Handles access token refresh failed events.
     // |identity| is the the identity for which the access token refresh failed.
@@ -155,16 +159,9 @@ class ChromeIdentityService {
   // identitites.
   virtual bool IsValidIdentity(ChromeIdentity* identity);
 
-  // Returns the chrome identity having the email equal to |email| or |nil| if
-  // no matching identity is found.
-  virtual ChromeIdentity* GetIdentityWithEmail(const std::string& email);
-
   // Returns the chrome identity having the gaia ID equal to |gaia_id| or |nil|
   // if no matching identity is found.
   virtual ChromeIdentity* GetIdentityWithGaiaID(const std::string& gaia_id);
-
-  // Returns the canonicalized emails for all identities.
-  virtual std::vector<std::string> GetCanonicalizeEmailsForAllIdentities();
 
   // Returns true if there is at least one identity.
   virtual bool HasIdentities();
@@ -245,7 +242,10 @@ class ChromeIdentityService {
 
  protected:
   // Fires |OnIdentityListChanged| on all observers.
-  void FireIdentityListChanged();
+  // |keychainReload| is true if the identity list is updated by reloading the
+  // keychain. This means that a first party Google app had added or removed
+  // identities.
+  void FireIdentityListChanged(bool keychainReload);
 
   // Fires |OnAccessTokenRefreshFailed| on all observers, with the corresponding
   // identity and user info.

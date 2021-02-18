@@ -65,6 +65,7 @@ class WidgetDelegate;
 
 namespace ash {
 
+class AmbientAshTestHelper;
 class AppListTestHelper;
 class AshTestHelper;
 class Shelf;
@@ -155,17 +156,6 @@ class AshTestBase : public testing::Test {
   // StackingController instead of taking a parent.
   aura::Window* CreateTestWindowInShellWithId(int id);
   aura::Window* CreateTestWindowInShellWithBounds(const gfx::Rect& bounds);
-  aura::Window* CreateTestWindowInShell(SkColor color,
-                                        int id,
-                                        const gfx::Rect& bounds);
-
-  // Creates a visible window parented to |parent| with the specified bounds and
-  // id.
-  std::unique_ptr<aura::Window> CreateChildWindow(
-      aura::Window* parent,
-      const gfx::Rect& bounds = gfx::Rect(),
-      int shell_window_id = kShellWindowId_Invalid);
-
   aura::Window* CreateTestWindowInShellWithDelegate(
       aura::WindowDelegate* delegate,
       int id,
@@ -234,6 +224,8 @@ class AshTestBase : public testing::Test {
   TestSystemTrayClient* GetSystemTrayClient();
 
   AppListTestHelper* GetAppListTestHelper();
+
+  AmbientAshTestHelper* GetAmbientAshTestHelper();
 
   // Emulates an ash session that have |session_count| user sessions running.
   // Note that existing user sessions will be cleared.

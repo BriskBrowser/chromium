@@ -18,14 +18,15 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/android/chrome_jni_headers/WebApkUpdateManager_jni.h"
-#include "chrome/browser/android/color_helpers.h"
-#include "chrome/browser/android/shortcut_info.h"
 #include "chrome/browser/android/webapk/webapk_install_service.h"
 #include "chrome/browser/android/webapk/webapk_installer.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "components/webapps/browser/android/shortcut_info.h"
 #include "content/public/browser/browser_thread.h"
+#include "third_party/blink/public/mojom/manifest/manifest.mojom.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/android/color_helpers.h"
 #include "ui/gfx/android/java_bitmap.h"
 #include "url/gurl.h"
 
@@ -85,7 +86,8 @@ static void JNI_WebApkUpdateManager_StoreWebApkUpdateRequestToFile(
   std::string update_request_path =
       ConvertJavaStringToUTF8(env, java_update_request_path);
 
-  ShortcutInfo info(GURL(ConvertJavaStringToUTF8(env, java_start_url)));
+  webapps::ShortcutInfo info(
+      GURL(ConvertJavaStringToUTF8(env, java_start_url)));
   info.scope = GURL(ConvertJavaStringToUTF8(env, java_scope));
   info.name = ConvertJavaStringToUTF16(env, java_name);
   info.short_name = ConvertJavaStringToUTF16(env, java_short_name);
@@ -93,8 +95,8 @@ static void JNI_WebApkUpdateManager_StoreWebApkUpdateRequestToFile(
   info.display = static_cast<blink::mojom::DisplayMode>(java_display_mode);
   info.orientation =
       static_cast<device::mojom::ScreenOrientationLockType>(java_orientation);
-  info.theme_color = JavaColorToOptionalSkColor(java_theme_color);
-  info.background_color = JavaColorToOptionalSkColor(java_background_color);
+  info.theme_color = ui::JavaColorToOptionalSkColor(java_theme_color);
+  info.background_color = ui::JavaColorToOptionalSkColor(java_background_color);
   info.best_primary_icon_url =
       GURL(ConvertJavaStringToUTF8(env, java_primary_icon_url));
   info.splash_image_url =
@@ -104,7 +106,7 @@ static void JNI_WebApkUpdateManager_StoreWebApkUpdateRequestToFile(
   GURL share_target_action =
       GURL(ConvertJavaStringToUTF8(env, java_share_target_action));
   if (!share_target_action.is_empty()) {
-    info.share_target = ShareTarget();
+    info.share_target = webapps::ShareTarget();
     info.share_target->action = share_target_action;
     info.share_target->params.title =
         ConvertJavaStringToUTF16(java_share_target_param_title);
@@ -112,13 +114,13 @@ static void JNI_WebApkUpdateManager_StoreWebApkUpdateRequestToFile(
         ConvertJavaStringToUTF16(java_share_target_param_text);
     info.share_target->method =
         java_share_target_param_is_method_post == JNI_TRUE
-            ? blink::Manifest::ShareTarget::Method::kPost
-            : blink::Manifest::ShareTarget::Method::kGet;
+            ? blink::mojom::ManifestShareTarget_Method::kPost
+            : blink::mojom::ManifestShareTarget_Method::kGet;
 
     info.share_target->enctype =
         java_share_target_param_is_enctype_multipart == JNI_TRUE
-            ? blink::Manifest::ShareTarget::Enctype::kMultipartFormData
-            : blink::Manifest::ShareTarget::Enctype::kFormUrlEncoded;
+            ? blink::mojom::ManifestShareTarget_Enctype::kMultipartFormData
+            : blink::mojom::ManifestShareTarget_Enctype::kFormUrlEncoded;
 
     std::vector<base::string16> fileNames;
     base::android::AppendJavaStringArrayToStringVector(
@@ -131,7 +133,7 @@ static void JNI_WebApkUpdateManager_StoreWebApkUpdateRequestToFile(
     // The length of fileNames and accepts should always be the same, but here
     // we just want to be safe.
     for (size_t i = 0; i < std::min(fileNames.size(), accepts.size()); ++i) {
-      ShareTargetParamsFile file;
+      webapps::ShareTargetParamsFile file;
       file.name = fileNames[i];
       file.accept.swap(accepts[i]);
       info.share_target->params.files.push_back(file);
@@ -175,13 +177,13 @@ static void JNI_WebApkUpdateManager_StoreWebApkUpdateRequestToFile(
     DCHECK_EQ(shortcut_data.size(), 6u);
     blink::Manifest::ShortcutItem shortcut_item;
     shortcut_item.name = shortcut_data[0];
-    shortcut_item.short_name = base::NullableString16(shortcut_data[1]);
+    shortcut_item.short_name = shortcut_data[1];
     shortcut_item.url = GURL(base::UTF16ToUTF8(shortcut_data[2]));
 
     blink::Manifest::ImageResource icon;
     GURL icon_src(base::UTF16ToUTF8(shortcut_data[3]));
     icon.src = icon_src;
-    icon.purpose.push_back(blink::Manifest::ImageResource::Purpose::ANY);
+    icon.purpose.push_back(blink::mojom::ManifestImageResource_Purpose::ANY);
     shortcut_item.icons.push_back(std::move(icon));
 
     if (icon_src.is_valid()) {

@@ -62,6 +62,7 @@ class TestLayoutDelegate : public OpaqueBrowserFrameViewLayoutDelegate {
   bool IsRegularOrGuestSession() const override { return true; }
   bool IsMaximized() const override { return maximized_; }
   bool IsMinimized() const override { return false; }
+  bool IsFullscreen() const override { return false; }
   bool IsTabStripVisible() const override { return window_title_.empty(); }
   int GetTabStripHeight() const override {
     return IsTabStripVisible() ? GetLayoutConstant(TAB_HEIGHT) : 0;
@@ -150,10 +151,10 @@ class OpaqueBrowserFrameViewLayoutTest
   }
 
   void AddWindowTitleIcons() {
-    tab_icon_view_ = new TabIconView(nullptr, nullptr);
-    tab_icon_view_->set_is_light(true);
-    tab_icon_view_->SetID(VIEW_ID_WINDOW_ICON);
-    root_view_->AddChildView(tab_icon_view_);
+    root_view_->AddChildView(views::Builder<TabIconView>()
+                                 .CopyAddressTo(&tab_icon_view_)
+                                 .SetID(VIEW_ID_WINDOW_ICON)
+                                 .Build());
 
     window_title_ = new views::Label(delegate_->GetWindowTitle());
     window_title_->SetVisible(delegate_->ShouldShowWindowTitle());

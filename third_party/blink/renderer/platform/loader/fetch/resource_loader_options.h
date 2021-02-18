@@ -32,7 +32,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_LOADER_FETCH_RESOURCE_LOADER_OPTIONS_H_
 
 #include "base/memory/scoped_refptr.h"
-#include "base/util/type_safety/strong_alias.h"
+#include "base/types/strong_alias.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/network/public/mojom/content_security_policy.mojom-blink-forward.h"
 #include "services/network/public/mojom/url_loader_factory.mojom-blink-forward.h"
@@ -57,13 +57,6 @@ enum SynchronousPolicy : uint8_t {
   kRequestAsynchronously
 };
 
-// Used by the ThreadableLoader to turn off part of the CORS handling
-// logic in the ResourceFetcher to use its own CORS handling logic.
-enum CorsHandlingByResourceFetcher {
-  kDisableCorsHandlingByResourceFetcher,
-  kEnableCorsHandlingByResourceFetcher,
-};
-
 // Was the request generated from a "parser-inserted" element?
 // https://html.spec.whatwg.org/C/#parser-inserted
 enum ParserDisposition : uint8_t { kParserInserted, kNotParserInserted };
@@ -77,7 +70,7 @@ enum CacheAwareLoadingEnabled : uint8_t {
 // When true, a response is blocked unless it has
 // cross-origin-embedder-policy: require-corp.
 using RejectCoepUnsafeNone =
-    util::StrongAlias<class RejectCoepUnsafeNoneTag, bool>;
+    base::StrongAlias<class RejectCoepUnsafeNoneTag, bool>;
 
 // This class is thread-bound. Do not copy/pass an instance across threads.
 struct PLATFORM_EXPORT ResourceLoaderOptions {
@@ -101,14 +94,6 @@ struct PLATFORM_EXPORT ResourceLoaderOptions {
   RequestInitiatorContext request_initiator_context;
   SynchronousPolicy synchronous_policy;
 
-  // When set to kDisableCorsHandlingByResourceFetcher, the ResourceFetcher
-  // suppresses part of its CORS handling logic.
-  // Used by ThreadableLoader which does CORS handling by itself.
-  CorsHandlingByResourceFetcher cors_handling_by_resource_fetcher;
-
-  // Corresponds to the CORS flag in the Fetch spec.
-  bool cors_flag;
-
   // TODO(crbug.com/1064920): Remove this once PlzDedicatedWorker ships.
   RejectCoepUnsafeNone reject_coep_unsafe_none = RejectCoepUnsafeNone(false);
 
@@ -127,6 +112,10 @@ struct PLATFORM_EXPORT ResourceLoaderOptions {
   scoped_refptr<base::RefCountedData<
       mojo::PendingRemote<network::mojom::blink::URLLoaderFactory>>>
       url_loader_factory;
+
+  // Used by DevTools to emulate unsupported image types. See crbug.com/1130556.
+  scoped_refptr<base::RefCountedData<HashSet<String>>>
+      unsupported_image_mime_types;
 };
 
 }  // namespace blink

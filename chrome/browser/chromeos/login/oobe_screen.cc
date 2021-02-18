@@ -42,11 +42,9 @@ OobeScreenId StaticOobeScreenId::AsId() const {
 // TODO(crbug.com/958905): Reduce this list to only special or helper screens
 
 // static
-constexpr StaticOobeScreenId OobeScreen::SCREEN_ACCOUNT_PICKER;
 constexpr StaticOobeScreenId
     OobeScreen::SCREEN_CREATE_SUPERVISED_USER_FLOW_DEPRECATED;
 constexpr StaticOobeScreenId OobeScreen::SCREEN_CONFIRM_PASSWORD;
-constexpr StaticOobeScreenId OobeScreen::SCREEN_FATAL_ERROR;
 constexpr StaticOobeScreenId OobeScreen::SCREEN_UNKNOWN;
 
 }  // namespace chromeos

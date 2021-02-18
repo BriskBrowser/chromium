@@ -16,20 +16,25 @@
 
 namespace android_webview {
 
+class AwVulkanContextProvider;
+
 class HardwareRendererViz : public HardwareRenderer {
  public:
   HardwareRendererViz(RenderThreadManager* state,
-                      RootFrameSinkGetter root_frame_sink_getter);
+                      RootFrameSinkGetter root_frame_sink_getter,
+                      AwVulkanContextProvider* context_provider);
   ~HardwareRendererViz() override;
 
   // HardwareRenderer overrides.
-  void DrawAndSwap(HardwareRendererDrawParams* params) override;
+  void DrawAndSwap(const HardwareRendererDrawParams& params,
+                   const OverlaysParams& overlays_params) override;
+  void RemoveOverlays(
+      OverlaysParams::MergeTransactionFn merge_transaction) override;
 
  private:
   class OnViz;
 
   void InitializeOnViz(RootFrameSinkGetter root_frame_sink_getter);
-  void DestroyOnViz();
   bool IsUsingVulkan() const;
 
   // Information about last delegated frame.
@@ -38,7 +43,7 @@ class HardwareRendererViz : public HardwareRenderer {
   viz::SurfaceId surface_id_;
 
   // Used to create viz::OutputSurface and gl::GLSurface
-  OutputSurfaceProviderWebview output_surface_provider_;
+  OutputSurfaceProviderWebView output_surface_provider_;
 
   // These are accessed on the viz thread.
   std::unique_ptr<OnViz> on_viz_;

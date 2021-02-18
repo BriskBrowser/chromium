@@ -4,13 +4,12 @@
 
 package org.chromium.chrome.test;
 
-import android.accounts.Account;
-
 import org.junit.rules.TestRule;
 import org.junit.runner.Description;
 import org.junit.runners.model.Statement;
 
 import org.chromium.chrome.test.util.browser.signin.AccountManagerTestRule;
+import org.chromium.components.signin.base.CoreAccountInfo;
 import org.chromium.content_public.browser.test.NativeLibraryTestUtils;
 
 /**
@@ -26,9 +25,8 @@ public class ChromeBrowserTestRule implements TestRule {
             @Override
             public void evaluate() throws Throwable {
                 /**
-                 * Loads the native library on the activity UI thread (must not be called from the
-                 * UI thread).  After loading the library, this will initialize the browser process
-                 * if necessary.
+                 * Loads the native library on the activity UI thread.  After loading the library,
+                 * this will initialize the browser process if necessary.
                  */
                 NativeLibraryTestUtils.loadNativeLibraryAndInitBrowserProcess();
                 base.evaluate();
@@ -40,14 +38,14 @@ public class ChromeBrowserTestRule implements TestRule {
     /**
      * Adds an account of the given accountName to the fake AccountManagerFacade.
      */
-    public Account addAccount(String accountName) {
+    public CoreAccountInfo addAccount(String accountName) {
         return mAccountManagerTestRule.addAccount(accountName);
     }
 
     /**
      * Add and sign in an account with the default name.
      */
-    public Account addAndSignInTestAccount() {
-        return mAccountManagerTestRule.addAndSignInTestAccount();
+    public CoreAccountInfo addTestAccountThenSigninAndEnableSync() {
+        return mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync();
     }
 }

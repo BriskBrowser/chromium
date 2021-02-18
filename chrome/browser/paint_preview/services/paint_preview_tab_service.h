@@ -38,8 +38,7 @@ namespace paint_preview {
 // browser is restarted.
 class PaintPreviewTabService : public PaintPreviewBaseService {
  public:
-  PaintPreviewTabService(const base::FilePath& profile_dir,
-                         base::StringPiece ascii_feature_name,
+  PaintPreviewTabService(std::unique_ptr<PaintPreviewFileMixin> file_mixin,
                          std::unique_ptr<PaintPreviewPolicy> policy,
                          bool is_off_the_record);
   ~PaintPreviewTabService() override;
@@ -105,6 +104,7 @@ class PaintPreviewTabService : public PaintPreviewBaseService {
   void CaptureTabInternal(int tab_id,
                           const DirectoryKey& key,
                           int frame_tree_node_id,
+                          content::GlobalFrameRoutingId frame_routing_id,
                           FinishedCallback callback,
                           const base::Optional<base::FilePath>& file_path);
 

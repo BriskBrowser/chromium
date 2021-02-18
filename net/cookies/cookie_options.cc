@@ -51,12 +51,22 @@ CookieOptions::CookieOptions()
       update_access_time_(true),
       return_excluded_cookies_(false) {}
 
+CookieOptions::CookieOptions(const CookieOptions& other) = default;
+CookieOptions::CookieOptions(CookieOptions&& other) = default;
+CookieOptions::~CookieOptions() = default;
+
+CookieOptions& CookieOptions::operator=(const CookieOptions&) = default;
+CookieOptions& CookieOptions::operator=(CookieOptions&&) = default;
+
 // static
 CookieOptions CookieOptions::MakeAllInclusive() {
   CookieOptions options;
   options.set_include_httponly();
   options.set_same_site_cookie_context(SameSiteCookieContext::MakeInclusive());
   options.set_do_not_update_access_time();
+  options.set_same_party_cookie_context_type(
+      SamePartyCookieContextType::kSameParty);
+  options.set_is_in_nontrivial_first_party_set(true);
   return options;
 }
 

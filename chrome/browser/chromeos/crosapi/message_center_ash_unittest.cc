@@ -4,41 +4,45 @@
 
 #include "chrome/browser/chromeos/crosapi/message_center_ash.h"
 
+#include <memory>
+#include <string>
+
 #include "base/optional.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/task_environment.h"
 #include "base/time/time.h"
-#include "cc/test/pixel_comparator.h"
-#include "chromeos/crosapi/cpp/bitmap_util.h"
+#include "chromeos/crosapi/mojom/message_center.mojom-test-utils.h"
 #include "chromeos/crosapi/mojom/message_center.mojom.h"
 #include "chromeos/crosapi/mojom/notification.mojom.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/gfx/image/image.h"
+#include "ui/gfx/image/image_skia.h"
+#include "ui/gfx/image/image_unittest_util.h"
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/public/cpp/notification.h"
 #include "ui/message_center/public/cpp/notification_delegate.h"
+#include "ui/message_center/public/cpp/notifier_id.h"
 #include "url/gurl.h"
 
 using base::ASCIIToUTF16;
+using gfx::test::AreBitmapsEqual;
+using gfx::test::AreImagesEqual;
 
 namespace crosapi {
 namespace {
 
-// Returns a bitmap filled with red.
-SkBitmap CreateRedBitmap(int width, int height) {
-  SkBitmap bitmap;
-  bitmap.allocN32Pixels(width, height);
-  bitmap.eraseColor(SK_ColorRED);
-  return bitmap;
-}
-
-bool BitmapEquals(const SkBitmap& a, const SkBitmap& b) {
-  if (a.width() != b.width() || a.height() != b.height())
-    return false;
-  cc::ExactPixelComparator comparator(/*discard_alpha=*/false);
-  return comparator.Compare(a, b);
+// Creates an ash message center notification.
+std::unique_ptr<message_center::Notification> CreateNotificationWithId(
+    const std::string& id) {
+  return std::make_unique<message_center::Notification>(
+      message_center::NOTIFICATION_TYPE_SIMPLE, id, ASCIIToUTF16("title"),
+      ASCIIToUTF16("message"), /*icon=*/gfx::Image(),
+      /*display_source=*/base::string16(), GURL(), message_center::NotifierId(),
+      message_center::RichNotificationData(), /*delegate=*/nullptr);
 }
 
 class MojoDelegate : public mojom::NotificationDelegate {
@@ -80,7 +84,8 @@ class MessageCenterAshTest : public testing::Test {
   // testing::Test:
   void SetUp() override {
     message_center::MessageCenter::Initialize();
-    message_center_ash_ = std::make_unique<MessageCenterAsh>(
+    message_center_ash_ = std::make_unique<MessageCenterAsh>();
+    message_center_ash_->BindReceiver(
         message_center_remote_.BindNewPipeAndPassReceiver());
   }
 
@@ -113,10 +118,10 @@ TEST_F(MessageCenterAshTest, SerializationSimple) {
   mojo_notification->fullscreen_visibility =
       mojom::FullscreenVisibility::kOverUser;
 
-  SkBitmap test_badge = CreateRedBitmap(1, 2);
-  mojo_notification->badge = BitmapFromSkBitmap(test_badge);
-  SkBitmap test_icon = CreateRedBitmap(3, 4);
-  mojo_notification->icon = BitmapFromSkBitmap(test_icon);
+  SkBitmap test_badge = gfx::test::CreateBitmap(1, 2);
+  mojo_notification->badge = gfx::ImageSkia::CreateFrom1xBitmap(test_badge);
+  SkBitmap test_icon = gfx::test::CreateBitmap(3, 4);
+  mojo_notification->icon = gfx::ImageSkia::CreateFrom1xBitmap(test_icon);
 
   auto button1 = mojom::ButtonInfo::New();
   button1->title = ASCIIToUTF16("button1");
@@ -152,8 +157,8 @@ TEST_F(MessageCenterAshTest, SerializationSimple) {
             ui_notification->fullscreen_visibility());
 
   EXPECT_TRUE(
-      BitmapEquals(test_badge, ui_notification->small_image().AsBitmap()));
-  EXPECT_TRUE(BitmapEquals(test_icon, ui_notification->icon().AsBitmap()));
+      AreBitmapsEqual(test_badge, ui_notification->small_image().AsBitmap()));
+  EXPECT_TRUE(AreBitmapsEqual(test_icon, ui_notification->icon().AsBitmap()));
 
   ASSERT_EQ(2u, ui_notification->buttons().size());
   EXPECT_EQ(ASCIIToUTF16("button1"), ui_notification->buttons()[0].title);
@@ -166,8 +171,8 @@ TEST_F(MessageCenterAshTest, SerializationImage) {
   mojo_notification->type = mojom::NotificationType::kImage;
   mojo_notification->id = "test_id";
 
-  SkBitmap test_image = CreateRedBitmap(5, 6);
-  mojo_notification->image = BitmapFromSkBitmap(test_image);
+  SkBitmap test_image = gfx::test::CreateBitmap(5, 6);
+  mojo_notification->image = gfx::ImageSkia::CreateFrom1xBitmap(test_image);
 
   // Display the notification.
   MojoDelegate mojo_delegate;
@@ -181,7 +186,35 @@ TEST_F(MessageCenterAshTest, SerializationImage) {
   message_center::Notification* ui_notification =
       message_center->FindVisibleNotificationById("test_id");
   ASSERT_TRUE(ui_notification);
-  EXPECT_TRUE(BitmapEquals(test_image, ui_notification->image().AsBitmap()));
+  EXPECT_TRUE(AreBitmapsEqual(test_image, ui_notification->image().AsBitmap()));
+}
+
+TEST_F(MessageCenterAshTest, HighDpiImage) {
+  // Create a notification with an image.
+  auto mojo_notification = mojom::Notification::New();
+  mojo_notification->type = mojom::NotificationType::kImage;
+  mojo_notification->id = "test_id";
+
+  // Create a high DPI image.
+  SkBitmap bitmap = gfx::test::CreateBitmap(2, 4);
+  gfx::ImageSkia high_dpi_image_skia =
+      gfx::ImageSkia::CreateFromBitmap(bitmap, 2.0f);
+  mojo_notification->image = high_dpi_image_skia;
+
+  // Display the notification.
+  MojoDelegate mojo_delegate;
+  message_center_remote_->DisplayNotification(
+      std::move(mojo_notification),
+      mojo_delegate.receiver_.BindNewPipeAndPassRemote());
+  message_center_remote_.FlushForTesting();
+
+  // Notification exists and has the high DPI image.
+  auto* message_center = message_center::MessageCenter::Get();
+  message_center::Notification* ui_notification =
+      message_center->FindVisibleNotificationById("test_id");
+  ASSERT_TRUE(ui_notification);
+  EXPECT_TRUE(AreImagesEqual(gfx::Image(high_dpi_image_skia),
+                             ui_notification->image()));
 }
 
 TEST_F(MessageCenterAshTest, SerializationList) {
@@ -309,6 +342,21 @@ TEST_F(MessageCenterAshTest, UserActions) {
   message_center_remote_.FlushForTesting();
   EXPECT_FALSE(message_center->FindVisibleNotificationById("test_id"));
   EXPECT_EQ(1, mojo_delegate.closed_count_);
+}
+
+TEST_F(MessageCenterAshTest, GetDisplayedNotifications) {
+  // Create an ash-side notification.
+  auto* message_center = message_center::MessageCenter::Get();
+  message_center->AddNotification(CreateNotificationWithId("id0"));
+  message_center->AddNotification(CreateNotificationWithId("id1"));
+
+  // Get the list of notifications.
+  mojom::MessageCenterAsyncWaiter waiter(message_center_remote_.get());
+  std::vector<std::string> ids;
+  waiter.GetDisplayedNotifications(&ids);
+
+  // The notifications ids are returned. No particular order is specified.
+  EXPECT_THAT(ids, testing::UnorderedElementsAre("id0", "id1"));
 }
 
 }  // namespace

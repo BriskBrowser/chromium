@@ -23,7 +23,6 @@
 #import "ios/chrome/browser/ui/infobars/presentation/infobar_banner_transition_driver.h"
 #import "ios/chrome/browser/ui/infobars/presentation/infobar_modal_positioner.h"
 #import "ios/chrome/browser/ui/infobars/presentation/infobar_modal_transition_driver.h"
-#import "ios/chrome/browser/ui/toolbar/public/features.h"
 #import "ios/chrome/browser/ui/util/named_guide.h"
 #import "ios/chrome/browser/ui/util/ui_util.h"
 
@@ -109,16 +108,9 @@
   }
 
   // Make sure to display the Toolbar/s before presenting the Banner.
-  if (fullscreen::features::ShouldScopeFullscreenControllerToBrowser()) {
     _animatedFullscreenDisabler =
         std::make_unique<AnimatedScopedFullscreenDisabler>(
             FullscreenController::FromBrowser(self.browser));
-  } else {
-    _animatedFullscreenDisabler =
-        std::make_unique<AnimatedScopedFullscreenDisabler>(
-            FullscreenController::FromBrowserState(
-                self.browser->GetBrowserState()));
-  }
   _animatedFullscreenDisabler->StartAnimation();
 
   [self.bannerViewController
@@ -297,7 +289,7 @@
   UIView* omniboxView = omniboxGuide.owningView;
   CGRect omniboxFrame = [omniboxView convertRect:omniboxGuide.layoutFrame
                                           toView:omniboxView.window];
-  return CGRectGetMaxY(omniboxFrame) - kInfobarBannerOverlapWithOmnibox;
+  return CGRectGetMaxY(omniboxFrame);
 }
 
 - (UIView*)bannerView {

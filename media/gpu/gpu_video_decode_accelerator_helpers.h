@@ -7,8 +7,8 @@
 
 #include "base/callback.h"
 #include "base/memory/weak_ptr.h"
+#include "media/base/supported_video_decoder_config.h"
 #include "media/gpu/media_gpu_export.h"
-#include "media/video/supported_video_decoder_config.h"
 #include "media/video/video_decode_accelerator.h"
 
 namespace gl {
@@ -109,6 +109,12 @@ struct MEDIA_GPU_EXPORT GpuVideoDecodeGLClient {
 
   // Callback to return a DecoderContext*.
   CreateAbstractTextureCallback create_abstract_texture;
+
+  // Whether or not the command buffer is passthrough.
+  bool is_passthrough = false;
+
+  // Whether or not ARB_texture_rectangle is present.
+  bool supports_arb_texture_rectangle = false;
 };
 
 // Convert vector of VDA::SupportedProfile to vector of

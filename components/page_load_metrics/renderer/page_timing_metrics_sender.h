@@ -59,6 +59,7 @@ class PageTimingMetricsSender {
                           uint32_t ng_call_count);
   void DidObserveLazyLoadBehavior(
       blink::WebLocalFrameClient::LazyLoadBehavior lazy_load_behavior);
+  void DidObserveMobileFriendlinessChanged(const blink::MobileFriendliness&);
 
   void DidStartResponse(const GURL& response_url,
                         int resource_id,
@@ -72,7 +73,7 @@ class PageTimingMetricsSender {
                                       int request_id,
                                       int64_t encoded_body_length,
                                       const std::string& mime_type);
-  void OnMainFrameIntersectionChanged(const blink::WebRect& intersect_rect);
+  void OnMainFrameIntersectionChanged(const gfx::Rect& intersect_rect);
 
   void DidObserveInputDelay(base::TimeDelta input_delay);
   // Updates the timing information. Buffers |timing| to be sent over mojo
@@ -91,12 +92,13 @@ class PageTimingMetricsSender {
                               bool is_ad_resource,
                               bool is_main_frame_resource,
                               bool completed_before_fcp);
+  void SetUpSmoothnessReporting(base::ReadOnlySharedMemoryRegion shared_memory);
 
  protected:
   base::OneShotTimer* timer() const { return timer_.get(); }
 
  private:
-  void EnsureSendTimer();
+  void EnsureSendTimer(bool urgent = false);
   void SendNow();
   void ClearNewFeatures();
 
@@ -105,6 +107,7 @@ class PageTimingMetricsSender {
   mojom::PageLoadTimingPtr last_timing_;
   mojom::CpuTimingPtr last_cpu_timing_;
   mojom::InputTimingPtr input_timing_delta_;
+  blink::MobileFriendliness mobile_friendliness_;
 
   // The the sender keep track of metadata as it comes in, because the sender is
   // scoped to a single committed load.

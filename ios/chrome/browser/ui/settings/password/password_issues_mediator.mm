@@ -4,7 +4,7 @@
 
 #import "ios/chrome/browser/ui/settings/password/password_issues_mediator.h"
 
-#include "components/password_manager/core/browser/ui/compromised_credentials_manager.h"
+#include "components/password_manager/core/browser/ui/insecure_credentials_manager.h"
 #include "ios/chrome/browser/passwords/password_check_observer_bridge.h"
 #import "ios/chrome/browser/ui/settings/password/password_issue_with_form.h"
 #import "ios/chrome/browser/ui/settings/password/password_issues_consumer.h"
@@ -49,7 +49,7 @@
   [self fetchPasswordIssues];
 }
 
-- (void)deletePassword:(const autofill::PasswordForm&)password {
+- (void)deletePassword:(const password_manager::PasswordForm&)password {
   for (const auto& credential : _compromisedCredentials) {
     if (std::tie(credential.signon_realm, credential.username,
                  credential.password) == std::tie(password.signon_realm,
@@ -71,8 +71,7 @@
 }
 
 - (void)compromisedCredentialsDidChange:
-    (password_manager::CompromisedCredentialsManager::CredentialsView)
-        credentials {
+    (password_manager::InsecureCredentialsManager::CredentialsView)credentials {
   [self fetchPasswordIssues];
 }
 
@@ -83,7 +82,7 @@
   _compromisedCredentials = _manager->GetCompromisedCredentials();
   NSMutableArray* passwords = [[NSMutableArray alloc] init];
   for (auto credential : _compromisedCredentials) {
-    const autofill::PasswordForm form =
+    const password_manager::PasswordForm form =
         _manager->GetSavedPasswordsFor(credential)[0];
     [passwords
         addObject:[[PasswordIssueWithForm alloc] initWithPasswordForm:form]];

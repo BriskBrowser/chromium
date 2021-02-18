@@ -78,6 +78,7 @@ class ASH_EXPORT DockedMagnifierControllerImpl
 
   // DockedMagnifierController:
   void CenterOnPoint(const gfx::Point& point_in_screen) override;
+  void MoveMagnifierToRect(const gfx::Rect& rect_in_screen) override;
   int GetMagnifierHeightForTesting() const override;
 
   // ash::SessionObserver:
@@ -112,8 +113,8 @@ class ASH_EXPORT DockedMagnifierControllerImpl
   // exclusive (i.e. only one can be on at the same time).
   // Note: We can't use the ash::MagnificationController since it's not hooked
   // to the associated user-prefs except when Chrome is running (via
-  // chromeos::MagnificationManager), so we can't assert this behavior in
-  // ash_unittests. Keep them public for now.
+  // MagnificationManager), so we can't assert this behavior in ash_unittests.
+  // Keep them public for now.
   // TODO(afakhry): Refactor the Fullscreen Magnifier and remove these
   // functions. https://crbug.com/817157.
   bool GetFullscreenMagnifierEnabled() const;
@@ -129,6 +130,8 @@ class ASH_EXPORT DockedMagnifierControllerImpl
   const ui::Layer* GetViewportMagnifierLayerForTesting() const;
 
   float GetMinimumPointOfInterestHeightForTesting() const;
+
+  gfx::Point GetLastCaretScreenPointForTesting() const;
 
  private:
   // Switches the current source root window to |new_root_window| if it's
@@ -165,6 +168,10 @@ class ASH_EXPORT DockedMagnifierControllerImpl
   // Prevents the mouse cursor from being able to enter inside the magnifier
   // viewport.
   void ConfineMouseCursorOutsideViewport();
+
+  // Invoked when |move_magnifier_timer_| fires to move the magnifier window to
+  // follow the caret.
+  void OnMoveMagnifierTimer();
 
   // The current root window of the source display from which we are reflecting
   // and magnifying into the viewport. It is set to |nullptr| when the magnifier
@@ -203,6 +210,16 @@ class ASH_EXPORT DockedMagnifierControllerImpl
   ui::InputMethod* input_method_ = nullptr;
 
   std::unique_ptr<PrefChangeRegistrar> pref_change_registrar_;
+
+  // Most recent caret position.
+  gfx::Point last_caret_screen_point_;
+
+  // Timer for moving magnifier window when it fires.
+  base::OneShotTimer move_magnifier_timer_;
+
+  // Last move magnifier to rect time - used for ignoring caret updates for a
+  // few milliseconds after the last move magnifier to rect call.
+  base::TimeTicks last_move_magnifier_to_rect_;
 
   DISALLOW_COPY_AND_ASSIGN(DockedMagnifierControllerImpl);
 };

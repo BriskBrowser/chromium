@@ -26,6 +26,8 @@
 #include "base/android/scoped_java_ref.h"
 #include "base/memory/singleton.h"
 #include "chrome/browser/download/android/download_controller_base.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_key.h"
 
 class DownloadController : public DownloadControllerBase {
  public:
@@ -71,8 +73,7 @@ class DownloadController : public DownloadControllerBase {
   void OnDownloadStarted(download::DownloadItem* download_item) override;
   void StartContextMenuDownload(const content::ContextMenuParams& params,
                                 content::WebContents* web_contents,
-                                bool is_link,
-                                const std::string& extra_headers) override;
+                                bool is_link) override;
 
   // DownloadItem::Observer interface.
   void OnDownloadUpdated(download::DownloadItem* item) override;
@@ -91,6 +92,9 @@ class DownloadController : public DownloadControllerBase {
   // Check if an interrupted download item can be auto resumed.
   bool IsInterruptedDownloadAutoResumable(
       download::DownloadItem* download_item);
+
+  // Get profile key from download item.
+  ProfileKey* GetProfileKey(download::DownloadItem* download_item);
 
   std::string default_file_name_;
 

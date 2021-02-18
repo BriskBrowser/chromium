@@ -13,27 +13,27 @@ namespace {
 using SearchApiTest = ExtensionApiTest;
 
 // Test various scenarios, such as the use of input different parameters.
-// Flaky. See crbug.com/1119846.
-IN_PROC_BROWSER_TEST_F(SearchApiTest, DISABLED_Normal) {
+IN_PROC_BROWSER_TEST_F(SearchApiTest, Normal) {
   ASSERT_TRUE(RunExtensionTest("search/query/normal")) << message_;
 }
 
 // Test incognito browser in extension default spanning mode.
-// Flaky. See crbug.com/1119846.
-IN_PROC_BROWSER_TEST_F(SearchApiTest, DISABLED_Incognito) {
+IN_PROC_BROWSER_TEST_F(SearchApiTest, Incognito) {
   ResultCatcher catcher;
   CreateIncognitoBrowser(browser()->profile());
-  ASSERT_TRUE(RunExtensionTestIncognito("search/query/incognito")) << message_;
+  ASSERT_TRUE(RunExtensionTest({.name = "search/query/incognito"},
+                               {.allow_in_incognito = true}))
+      << message_;
 }
 
 // Test incognito browser in extension split mode.
-// Flaky. See crbug.com/1119846.
-IN_PROC_BROWSER_TEST_F(SearchApiTest, DISABLED_IncognitoSplit) {
+IN_PROC_BROWSER_TEST_F(SearchApiTest, IncognitoSplit) {
   ResultCatcher catcher;
   catcher.RestrictToBrowserContext(
       browser()->profile()->GetPrimaryOTRProfile());
   CreateIncognitoBrowser(browser()->profile());
-  ASSERT_TRUE(RunExtensionTestIncognito("search/query/incognito_split"))
+  ASSERT_TRUE(RunExtensionTest({.name = "search/query/incognito_split"},
+                               {.allow_in_incognito = true}))
       << message_;
 }
 

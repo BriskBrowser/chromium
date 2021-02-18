@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_WEB_PACKAGE_WEB_BUNDLE_UTILS_H_
 #define COMPONENTS_WEB_PACKAGE_WEB_BUNDLE_UTILS_H_
 
+#include <string>
+
 #include "components/web_package/mojom/web_bundle_parser.mojom-forward.h"
 #include "services/network/public/mojom/url_response_head.mojom-forward.h"
 
@@ -12,6 +14,15 @@ namespace web_package {
 
 network::mojom::URLResponseHeadPtr CreateResourceResponse(
     const web_package::mojom::BundleResponsePtr& response);
+
+std::string CreateHeaderString(
+    const web_package::mojom::BundleResponsePtr& response);
+
+network::mojom::URLResponseHeadPtr CreateResourceResponseFromHeaderString(
+    const std::string& header_string);
+
+// Returns true if |response| has "X-Content-Type-Options: nosniff" header.
+bool HasNoSniffHeader(const network::mojom::URLResponseHead& response);
 
 }  // namespace web_package
 

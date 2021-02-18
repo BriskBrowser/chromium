@@ -5,6 +5,7 @@
 #include "chrome/browser/performance_hints/performance_hints_features.h"
 
 #include "base/metrics/field_trial_params.h"
+#include "components/optimization_guide/core/optimization_guide_features.h"
 
 namespace performance_hints {
 namespace features {
@@ -22,12 +23,11 @@ constexpr base::FeatureParam<std::string> kRewriteConfig{
 
 constexpr base::FeatureParam<bool> kUseFastHostHints{
     &kPerformanceHintsObserver, "use_fast_host_hints", true};
+constexpr base::FeatureParam<bool> kUseLinkPerformanceHints{
+    &kPerformanceHintsObserver, "use_link_performance_hints", false};
 
 const base::Feature kContextMenuPerformanceInfo{
     "ContextMenuPerformanceInfo", base::FEATURE_DISABLED_BY_DEFAULT};
-const base::Feature kContextMenuPerformanceInfoAndRemoteHintFetching{
-    "ContextMenuPerformanceInfoAndRemoteHintFetching",
-    base::FEATURE_DISABLED_BY_DEFAULT};
 const base::Feature kPageInfoPerformanceHints{
     "PageInfoPerformanceHints", base::FEATURE_DISABLED_BY_DEFAULT};
 
@@ -53,15 +53,14 @@ bool AreFastHostHintsEnabled() {
   return kUseFastHostHints.Get();
 }
 
-bool IsContextMenuPerformanceInfoEnabled() {
-  return base::FeatureList::IsEnabled(kContextMenuPerformanceInfo) ||
-         base::FeatureList::IsEnabled(
-             kContextMenuPerformanceInfoAndRemoteHintFetching);
+bool AreLinkPerformanceHintsEnabled() {
+  return kUseLinkPerformanceHints.Get();
 }
 
-bool IsRemoteFetchingExplicitlyAllowedForPerformanceInfo() {
-  return base::FeatureList::IsEnabled(
-      kContextMenuPerformanceInfoAndRemoteHintFetching);
+bool IsContextMenuPerformanceInfoEnabled() {
+  return base::FeatureList::IsEnabled(kContextMenuPerformanceInfo) ||
+         optimization_guide::features::
+             IsRemoteFetchingExplicitlyAllowedForPerformanceInfo();
 }
 
 }  // namespace features

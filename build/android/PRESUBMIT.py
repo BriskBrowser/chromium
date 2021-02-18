@@ -28,9 +28,10 @@ def CommonChecks(input_api, output_api):
           input_api,
           output_api,
           pylintrc='pylintrc',
-          block_list=[
+          files_to_skip=[
               r'.*_pb2\.py',
               r'.*list_java_targets\.py',  # crbug.com/1100664
+              r'.*fast_local_dev_server\.py',  # crbug.com/1100664
           ] + build_pys,
           extra_paths_list=[
               J(),
@@ -50,8 +51,8 @@ def CommonChecks(input_api, output_api):
       input_api.canned_checks.GetPylint(
           input_api,
           output_api,
-          allow_list=build_pys,
-          block_list=[
+          files_to_check=build_pys,
+          files_to_skip=[
               r'.*_pb2\.py',
               r'.*_pb2\.py',
           ],
@@ -85,6 +86,8 @@ def CommonChecks(input_api, output_api):
               J('pylib', 'local', 'device',
                 'local_device_instrumentation_test_run_test.py'),
               J('pylib', 'local', 'device', 'local_device_test_run_test.py'),
+              J('pylib', 'local', 'machine',
+                'local_machine_junit_test_run_test.py'),
               J('pylib', 'output', 'local_output_manager_test.py'),
               J('pylib', 'output', 'noop_output_manager_test.py'),
               J('pylib', 'output', 'remote_output_manager_test.py'),

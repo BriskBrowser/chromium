@@ -13,7 +13,7 @@
 #include "components/password_manager/core/browser/password_feature_manager.h"
 #include "components/password_manager/core/browser/password_form_manager_for_ui.h"
 #include "components/password_manager/core/browser/password_manager.h"
-#import "components/password_manager/core/browser/password_manager_client.h"
+#include "components/password_manager/core/browser/password_manager_client.h"
 #include "components/password_manager/core/browser/password_manager_client_helper.h"
 #include "components/password_manager/core/browser/password_manager_driver.h"
 #include "components/password_manager/core/browser/password_manager_metrics_recorder.h"
@@ -59,9 +59,6 @@ class WebViewPasswordManagerClient
   void PromptUserToMovePasswordToAccount(
       std::unique_ptr<password_manager::PasswordFormManagerForUI> form_to_move)
       override;
-  bool ShowOnboarding(
-      std::unique_ptr<password_manager::PasswordFormManagerForUI> form_to_save)
-      override;
   void ShowManualFallbackForSaving(
       std::unique_ptr<password_manager::PasswordFormManagerForUI> form_to_save,
       bool has_generated_password,
@@ -71,9 +68,10 @@ class WebViewPasswordManagerClient
       password_manager::PasswordManagerDriver* driver,
       autofill::mojom::FocusedFieldType focused_field_type) override;
   bool PromptUserToChooseCredentials(
-      std::vector<std::unique_ptr<autofill::PasswordForm>> local_forms,
+      std::vector<std::unique_ptr<password_manager::PasswordForm>> local_forms,
       const url::Origin& origin,
       CredentialsCallback callback) override;
+  bool RequiresReauthToFill() override;
   void AutomaticPasswordSave(
       std::unique_ptr<password_manager::PasswordFormManagerForUI>
           saved_form_manager) override;
@@ -86,10 +84,10 @@ class WebViewPasswordManagerClient
   password_manager::PasswordStore* GetProfilePasswordStore() const override;
   password_manager::PasswordStore* GetAccountPasswordStore() const override;
   void NotifyUserAutoSignin(
-      std::vector<std::unique_ptr<autofill::PasswordForm>> local_forms,
+      std::vector<std::unique_ptr<password_manager::PasswordForm>> local_forms,
       const url::Origin& origin) override;
   void NotifyUserCouldBeAutoSignedIn(
-      std::unique_ptr<autofill::PasswordForm> form) override;
+      std::unique_ptr<password_manager::PasswordForm> form) override;
   void NotifySuccessfulLoginWithExistingPassword(
       std::unique_ptr<password_manager::PasswordFormManagerForUI>
           submitted_manager) override;
@@ -117,9 +115,22 @@ class WebViewPasswordManagerClient
   bool IsIsolationForPasswordSitesEnabled() const override;
   bool IsNewTabPage() const override;
   password_manager::FieldInfoManager* GetFieldInfoManager() const override;
+  bool IsAutofillAssistantUIVisible() const override;
 
   void set_bridge(id<PasswordManagerClientBridge> bridge) { bridge_ = bridge; }
   const syncer::SyncService* GetSyncService();
+
+  safe_browsing::PasswordProtectionService* GetPasswordProtectionService()
+      const override;
+
+  void CheckProtectedPasswordEntry(
+      password_manager::metrics_util::PasswordType reused_password_type,
+      const std::string& username,
+      const std::vector<password_manager::MatchingReusedCredential>&
+          matching_reused_credentials,
+      bool password_field_exists) override;
+
+  void LogPasswordReuseDetectedEvent() override;
 
  private:
   __weak id<PasswordManagerClientBridge> bridge_;

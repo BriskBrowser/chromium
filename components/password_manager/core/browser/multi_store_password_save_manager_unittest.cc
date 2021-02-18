@@ -19,7 +19,6 @@
 
 using autofill::FormData;
 using autofill::FormFieldData;
-using autofill::PasswordForm;
 using base::ASCIIToUTF16;
 using testing::_;
 using testing::NiceMock;
@@ -49,8 +48,8 @@ class MockFormSaver : public StubFormSaver {
   ~MockFormSaver() override = default;
 
   // FormSaver:
-  MOCK_METHOD1(PermanentlyBlacklist, PasswordForm(PasswordStore::FormDigest));
-  MOCK_METHOD1(Unblacklist, void(const PasswordStore::FormDigest&));
+  MOCK_METHOD1(Blocklist, PasswordForm(PasswordStore::FormDigest));
+  MOCK_METHOD1(Unblocklist, void(const PasswordStore::FormDigest&));
   MOCK_METHOD3(Save,
                void(PasswordForm pending,
                     const std::vector<const PasswordForm*>& matches,
@@ -166,13 +165,13 @@ class MultiStorePasswordSaveManagerTest : public testing::Test {
   }
 
   void SetNonFederatedAndNotifyFetchCompleted(
-      const std::vector<const autofill::PasswordForm*>& non_federated) {
+      const std::vector<const PasswordForm*>& non_federated) {
     fetcher_->SetNonFederated(non_federated);
     fetcher_->NotifyFetchCompleted();
   }
 
   void SetFederatedAndNotifyFetchCompleted(
-      const std::vector<const autofill::PasswordForm*>& federated) {
+      const std::vector<const PasswordForm*>& federated) {
     fetcher_->set_federated(federated);
     fetcher_->NotifyFetchCompleted();
   }
@@ -183,16 +182,16 @@ class MultiStorePasswordSaveManagerTest : public testing::Test {
         .WillByDefault(Return(is_enabled));
   }
 
-  void SetDefaultPasswordStore(const autofill::PasswordForm::Store& store) {
+  void SetDefaultPasswordStore(const PasswordForm::Store& store) {
     ON_CALL(*client()->GetPasswordFeatureManager(), GetDefaultPasswordStore())
         .WillByDefault(Return(store));
   }
 
   PasswordForm CreateSavedFederated() {
-    autofill::PasswordForm federated;
+    PasswordForm federated;
     federated.url = GURL("https://example.in/login");
     federated.signon_realm = "federation://example.in/google.com";
-    federated.type = autofill::PasswordForm::Type::kApi;
+    federated.type = PasswordForm::Type::kApi;
     federated.federation_origin =
         url::Origin::Create(GURL("https://google.com/"));
     federated.username_value = ASCIIToUTF16("federated_username");
@@ -714,50 +713,47 @@ TEST_F(MultiStorePasswordSaveManagerTest, UpdateVsPSLMatch) {
   password_save_manager()->Save(&observed_form_, parsed_submitted_form_);
 }
 
-TEST_F(MultiStorePasswordSaveManagerTest, UnblacklistInBothStores) {
+TEST_F(MultiStorePasswordSaveManagerTest, UnblocklistInBothStores) {
   SetAccountStoreEnabled(/*is_enabled=*/true);
   const PasswordStore::FormDigest form_digest(saved_match_);
 
-  EXPECT_CALL(*mock_profile_form_saver(), Unblacklist(form_digest));
-  EXPECT_CALL(*mock_account_form_saver(), Unblacklist(form_digest));
+  EXPECT_CALL(*mock_profile_form_saver(), Unblocklist(form_digest));
+  EXPECT_CALL(*mock_account_form_saver(), Unblocklist(form_digest));
 
-  password_save_manager()->Unblacklist(form_digest);
+  password_save_manager()->Unblocklist(form_digest);
 }
 
 TEST_F(MultiStorePasswordSaveManagerTest,
-       BlacklistInAccountStoreWhenAccountStoreEnabled) {
+       BlocklistInAccountStoreWhenAccountStoreEnabled) {
   SetAccountStoreEnabled(/*is_enabled=*/true);
   const PasswordStore::FormDigest form_digest(saved_match_);
   SetDefaultPasswordStore(PasswordForm::Store::kAccountStore);
 
-  EXPECT_CALL(*mock_profile_form_saver(), PermanentlyBlacklist(form_digest))
-      .Times(0);
-  EXPECT_CALL(*mock_account_form_saver(), PermanentlyBlacklist(form_digest));
-  password_save_manager()->PermanentlyBlacklist(form_digest);
+  EXPECT_CALL(*mock_profile_form_saver(), Blocklist(form_digest)).Times(0);
+  EXPECT_CALL(*mock_account_form_saver(), Blocklist(form_digest));
+  password_save_manager()->Blocklist(form_digest);
 }
 
 TEST_F(MultiStorePasswordSaveManagerTest,
-       BlacklistInProfileStoreAlthoughAccountStoreEnabled) {
+       BlocklistInProfileStoreAlthoughAccountStoreEnabled) {
   SetAccountStoreEnabled(/*is_enabled=*/true);
   const PasswordStore::FormDigest form_digest(saved_match_);
   SetDefaultPasswordStore(PasswordForm::Store::kProfileStore);
 
-  EXPECT_CALL(*mock_profile_form_saver(), PermanentlyBlacklist(form_digest));
-  EXPECT_CALL(*mock_account_form_saver(), PermanentlyBlacklist(form_digest))
-      .Times(0);
-  password_save_manager()->PermanentlyBlacklist(form_digest);
+  EXPECT_CALL(*mock_profile_form_saver(), Blocklist(form_digest));
+  EXPECT_CALL(*mock_account_form_saver(), Blocklist(form_digest)).Times(0);
+  password_save_manager()->Blocklist(form_digest);
 }
 
 TEST_F(MultiStorePasswordSaveManagerTest,
-       BlacklistInProfileStoreWhenAccountStoreDisabled) {
+       BlocklistInProfileStoreWhenAccountStoreDisabled) {
   SetAccountStoreEnabled(/*is_enabled=*/false);
   const PasswordStore::FormDigest form_digest(saved_match_);
   SetDefaultPasswordStore(PasswordForm::Store::kAccountStore);
 
-  EXPECT_CALL(*mock_profile_form_saver(), PermanentlyBlacklist(form_digest));
-  EXPECT_CALL(*mock_account_form_saver(), PermanentlyBlacklist(form_digest))
-      .Times(0);
-  password_save_manager()->PermanentlyBlacklist(form_digest);
+  EXPECT_CALL(*mock_profile_form_saver(), Blocklist(form_digest));
+  EXPECT_CALL(*mock_account_form_saver(), Blocklist(form_digest)).Times(0);
+  password_save_manager()->Blocklist(form_digest);
 }
 
 TEST_F(MultiStorePasswordSaveManagerTest,
@@ -901,6 +897,30 @@ TEST_F(MultiStorePasswordSaveManagerTest,
 
   EXPECT_CALL(*mock_profile_form_saver(), Remove(saved_match_in_profile_store));
   EXPECT_CALL(*mock_account_form_saver(), Save).Times(0);
+
+  password_save_manager()->MoveCredentialsToAccountStore(kTrigger);
+}
+
+TEST_F(
+    MultiStorePasswordSaveManagerTest,
+    MoveCredentialsFromProfileToAccountStoreWhenExistsInBothStoresWithDifferentPassword) {
+  PasswordForm saved_match_in_profile_store(saved_match_);
+  saved_match_in_profile_store.in_store = PasswordForm::Store::kProfileStore;
+  saved_match_in_profile_store.password_value = ASCIIToUTF16("password1");
+  PasswordForm saved_match_in_account_store(saved_match_);
+  saved_match_in_account_store.in_store = PasswordForm::Store::kAccountStore;
+  saved_match_in_account_store.password_value = ASCIIToUTF16("password2");
+  SetNonFederatedAndNotifyFetchCompleted(
+      {&saved_match_in_profile_store, &saved_match_in_account_store});
+
+  password_save_manager()->CreatePendingCredentials(
+      saved_match_in_profile_store, &observed_form_, submitted_form_,
+      /*is_http_auth=*/false,
+      /*is_credential_api_save=*/false);
+
+  EXPECT_CALL(*mock_profile_form_saver(), Remove(saved_match_in_profile_store));
+  EXPECT_CALL(*mock_account_form_saver(),
+              Save(saved_match_in_profile_store, _, _));
 
   password_save_manager()->MoveCredentialsToAccountStore(kTrigger);
 }

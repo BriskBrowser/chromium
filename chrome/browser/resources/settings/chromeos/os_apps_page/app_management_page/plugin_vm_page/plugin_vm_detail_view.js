@@ -6,7 +6,7 @@ Polymer({
   is: 'app-management-plugin-vm-detail-view',
 
   behaviors: [
-    app_management.StoreClient,
+    app_management.AppManagementStoreClient,
     WebUIListenerBehavior,
   ],
 
@@ -39,29 +39,16 @@ Polymer({
     },
 
     /** @private {boolean} */
-    showPluginVmPermissionDialog_: {
+    showDialog_: {
       type: Boolean,
       value: false,
     },
 
-    /**
-     * The current permssion type that is being changed
-     * and its proposed value.
-     * @private {?PermissionSetting}
-     */
-    pendingPermissionChange_: {
-      type: Object,
-      value: null,
-    },
+    /** @private {string} */
+    dialogText_: String,
 
-    /**
-     * If the last permission change should be reset.
-     * {boolean}
-     */
-    resetPermissionChange: {
-      type: Boolean,
-      value: false,
-    },
+    /** @private {Element} */
+    pendingPermissionItem_: Object,
   },
 
   attached() {
@@ -74,65 +61,54 @@ Polymer({
   /** @private */
   onSharedPathsClick_() {
     settings.Router.getInstance().navigateTo(
-        settings.routes.APP_MANAGEMENT_PLUGIN_VM_SHARED_PATHS);
+        settings.routes.APP_MANAGEMENT_PLUGIN_VM_SHARED_PATHS,
+        new URLSearchParams({'id': this.app_.id}));
+  },
+
+  /** @private */
+  onSharedUsbDevicesClick_() {
+    settings.Router.getInstance().navigateTo(
+        settings.routes.APP_MANAGEMENT_PLUGIN_VM_SHARED_USB_DEVICES,
+        new URLSearchParams({'id': this.app_.id}));
   },
 
   /**
    * @param {!Event} e
    * @private
    */
-  onPermissionChanged_: function(e) {
-    const permissionTypeString =
-        /** @type {{permissionType:string}} */ (e.target).permissionType;
-    let permissionType;
-    switch (permissionTypeString) {
+  onPermissionChanged_: async function(e) {
+    this.pendingPermissionItem_ = /** @type {Element} */ (e.target);
+    switch (e.target.permissionType) {
       case 'CAMERA':
-        permissionType = PermissionType.CAMERA;
+        this.dialogText_ =
+            loadTimeData.getString('pluginVmPermissionDialogCameraLabel');
         break;
       case 'MICROPHONE':
-        permissionType = PermissionType.MICROPHONE;
+        this.dialogText_ =
+            loadTimeData.getString('pluginVmPermissionDialogMicrophoneLabel');
         break;
       default:
         assertNotReached();
     }
-    const permissionSetting = /** @type {!PermissionSetting} */ ({
-      permissionType: permissionType,
-      proposedValue: !app_management.util.getPermissionValueBool(
-          this.app_, permissionTypeString)
-    });
-    settings.PluginVmBrowserProxyImpl.getInstance()
-        .wouldPermissionChangeRequireRelaunch(permissionSetting)
-        .then(requiresRestart => {
-          if (requiresRestart) {
-            this.pendingPermissionChange_ = permissionSetting;
-            this.showPluginVmPermissionDialog_ = true;
-          } else {
-            settings.PluginVmBrowserProxyImpl.getInstance()
-                .setPluginVmPermission(permissionSetting);
-          }
-        });
+
+    const requiresRelaunch =
+        await settings.PluginVmBrowserProxyImpl.getInstance()
+            .isRelaunchNeededForNewPermissions();
+    if (requiresRelaunch) {
+      this.showDialog_ = true;
+    } else {
+      this.pendingPermissionItem_.syncPermission();
+    }
   },
 
-  /** @private */
-  onPluginVmPermissionDialogClose_: function() {
-    if (this.resetPermissionChange) {
-      switch (this.pendingPermissionChange_.permissionType) {
-        case PermissionType.CAMERA:
-          /* @type {!AppManagementPermissionItem} */ (
-              this.$$('#camera-permission'))
-              .resetToggle();
-          break;
-        case PermissionType.MICROPHONE:
-          /* @type @{!AppManagementPermissionItem} */ (
-              this.$$('#microphone-permission'))
-              .resetToggle();
-          break;
-        default:
-          assertNotReached();
-      }
-    }
-    this.resetPermissionChange = false;
-    this.showPluginVmPermissionDialog_ = false;
-    this.pendingPermissionChange_ = null;
+  onRelaunchTap_: function() {
+    this.pendingPermissionItem_.syncPermission();
+    settings.PluginVmBrowserProxyImpl.getInstance().relaunchPluginVm();
+    this.showDialog_ = false;
+  },
+
+  onCancel_: function() {
+    this.pendingPermissionItem_.resetToggle();
+    this.showDialog_ = false;
   },
 });

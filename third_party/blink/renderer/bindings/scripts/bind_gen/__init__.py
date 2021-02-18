@@ -33,10 +33,14 @@ def _setup_sys_path():
 
 _setup_sys_path()
 
+from .callback_function import generate_callback_functions
+from .callback_interface import generate_callback_interfaces
 from .dictionary import generate_dictionaries
 from .enumeration import generate_enumerations
 from .interface import generate_interfaces
+from .namespace import generate_namespaces
 from .task_queue import TaskQueue
+from .union import generate_unions
 
 
 def init(web_idl_database_path, root_src_dir, root_gen_dir, component_reldirs):

@@ -14,7 +14,7 @@
 #include "base/i18n/char_iterator.h"
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -25,6 +25,7 @@
 #include "ui/base/ime/chromeos/mock_input_method_manager.h"
 #include "ui/base/ime/composition_text.h"
 #include "ui/base/ime/dummy_text_input_client.h"
+#include "ui/base/ime/fake_text_input_client.h"
 #include "ui/base/ime/input_method_delegate.h"
 #include "ui/base/ime/text_input_client.h"
 #include "ui/events/event.h"
@@ -43,12 +44,12 @@ namespace {
 const base::string16 kSampleText = base::UTF8ToUTF16(
     "\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86\xE3\x81\x88\xE3\x81\x8A");
 
-typedef IMEEngineHandlerInterface::KeyEventDoneCallback KeyEventCallback;
+using KeyEventCallback = IMEEngineHandlerInterface::KeyEventDoneCallback;
 
 uint32_t GetOffsetInUTF16(const base::string16& utf16_string,
                           uint32_t utf8_offset) {
   DCHECK_LT(utf8_offset, utf16_string.size());
-  base::i18n::UTF16CharIterator char_iterator(&utf16_string);
+  base::i18n::UTF16CharIterator char_iterator(utf16_string);
   for (size_t i = 0; i < utf8_offset; ++i)
     char_iterator.Advance();
   return char_iterator.array_pos();
@@ -88,8 +89,10 @@ class TestableInputMethodChromeOS : public InputMethodChromeOS {
     }
     return details;
   }
-  void CommitText(const std::string& text) override {
-    InputMethodChromeOS::CommitText(text);
+  void CommitText(
+      const std::string& text,
+      TextInputClient::InsertTextCursorBehavior cursor_behavior) override {
+    InputMethodChromeOS::CommitText(text, cursor_behavior);
     text_committed_ = text;
   }
 
@@ -282,7 +285,9 @@ class InputMethodChromeOSTest : public internal::InputMethodDelegate,
   void ClearCompositionText() override {
     composition_text_ = CompositionText();
   }
-  void InsertText(const base::string16& text) override {
+  void InsertText(
+      const base::string16& text,
+      TextInputClient::InsertTextCursorBehavior cursor_behavior) override {
     inserted_text_ = text;
   }
   void InsertChar(const KeyEvent& event) override {
@@ -318,6 +323,16 @@ class InputMethodChromeOSTest : public internal::InputMethodDelegate,
     composition_text_ = CompositionText();
     GetTextFromRange(range, &composition_text_.text);
     return true;
+  }
+  bool SetAutocorrectRange(const gfx::Range& range) override {
+    // TODO(crbug.com/1148157): This is a workaround to ensure that the range is
+    // valid in the text. Change this class to a proper fake so that the text
+    // contents can be queried accurately.
+    if (!inserted_text_.empty() || inserted_char_ != 0) {
+      DummyTextInputClient::SetAutocorrectRange(range);
+      return true;
+    }
+    return false;
   }
 
   bool HasNativeEvent() const {
@@ -381,13 +396,26 @@ class InputMethodChromeOSTest : public internal::InputMethodDelegate,
 // Tests public APIs in ui::InputMethod first.
 
 TEST_F(InputMethodChromeOSTest, GetInputTextType) {
-  EXPECT_EQ(TEXT_INPUT_TYPE_NONE, ime_->GetTextInputType());
-  input_type_ = TEXT_INPUT_TYPE_PASSWORD;
-  ime_->OnTextInputTypeChanged(this);
-  EXPECT_EQ(TEXT_INPUT_TYPE_PASSWORD, ime_->GetTextInputType());
-  input_type_ = TEXT_INPUT_TYPE_TEXT;
-  ime_->OnTextInputTypeChanged(this);
-  EXPECT_EQ(TEXT_INPUT_TYPE_TEXT, ime_->GetTextInputType());
+  InputMethodChromeOS ime(this);
+  FakeTextInputClient fake_text_input_client(TEXT_INPUT_TYPE_TEXT);
+  ime.SetFocusedTextInputClient(&fake_text_input_client);
+
+  EXPECT_EQ(ime.GetTextInputType(), TEXT_INPUT_TYPE_TEXT);
+
+  ime.SetFocusedTextInputClient(nullptr);
+}
+
+TEST_F(InputMethodChromeOSTest, OnTextInputTypeChangedChangesInputType) {
+  InputMethodChromeOS ime(this);
+  FakeTextInputClient fake_text_input_client(TEXT_INPUT_TYPE_TEXT);
+  ime.SetFocusedTextInputClient(&fake_text_input_client);
+  fake_text_input_client.set_text_input_type(TEXT_INPUT_TYPE_PASSWORD);
+
+  ime.OnTextInputTypeChanged(&fake_text_input_client);
+
+  EXPECT_EQ(ime.GetTextInputType(), TEXT_INPUT_TYPE_PASSWORD);
+
+  ime.SetFocusedTextInputClient(nullptr);
 }
 
 TEST_F(InputMethodChromeOSTest, CanComposeInline) {
@@ -421,7 +449,9 @@ TEST_F(InputMethodChromeOSTest,
        OnWillChangeFocusedClientClearAutocorrectRange) {
   input_type_ = TEXT_INPUT_TYPE_TEXT;
   ime_->SetFocusedTextInputClient(this);
-  ime_->SetAutocorrectRange(base::UTF8ToUTF16("text"), 0, 5);
+  ime_->CommitText(
+      "hello", TextInputClient::InsertTextCursorBehavior::kMoveCursorAfterText);
+  ime_->SetAutocorrectRange(gfx::Range(0, 5));
   EXPECT_EQ(gfx::Range(0, 5), this->GetAutocorrectRange());
 
   ime_->SetFocusedTextInputClient(nullptr);
@@ -568,9 +598,8 @@ TEST_F(InputMethodChromeOSTest, ExtractCompositionTextTest_NoAttribute) {
   CompositionText chromeos_composition_text;
   chromeos_composition_text.text = kSampleAsciiText;
 
-  CompositionText composition_text;
-  ime_->ExtractCompositionText(
-      chromeos_composition_text, kCursorPos, &composition_text);
+  CompositionText composition_text =
+      ime_->ExtractCompositionText(chromeos_composition_text, kCursorPos);
   EXPECT_EQ(kSampleAsciiText, composition_text.text);
   // If there is no selection, |selection| represents cursor position.
   EXPECT_EQ(kCursorPos, composition_text.selection.start());
@@ -597,9 +626,8 @@ TEST_F(InputMethodChromeOSTest, ExtractCompositionTextTest_SingleUnderline) {
                         SK_ColorTRANSPARENT);
   composition_text.ime_text_spans.push_back(underline);
 
-  CompositionText composition_text2;
-  ime_->ExtractCompositionText(composition_text, kCursorPos,
-                               &composition_text2);
+  CompositionText composition_text2 =
+      ime_->ExtractCompositionText(composition_text, kCursorPos);
   EXPECT_EQ(kSampleText, composition_text2.text);
   // If there is no selection, |selection| represents cursor position.
   EXPECT_EQ(kCursorPos, composition_text2.selection.start());
@@ -630,9 +658,8 @@ TEST_F(InputMethodChromeOSTest, ExtractCompositionTextTest_DoubleUnderline) {
                         SK_ColorTRANSPARENT);
   composition_text.ime_text_spans.push_back(underline);
 
-  CompositionText composition_text2;
-  ime_->ExtractCompositionText(composition_text, kCursorPos,
-                               &composition_text2);
+  CompositionText composition_text2 =
+      ime_->ExtractCompositionText(composition_text, kCursorPos);
   EXPECT_EQ(kSampleText, composition_text2.text);
   // If there is no selection, |selection| represents cursor position.
   EXPECT_EQ(kCursorPos, composition_text2.selection.start());
@@ -664,9 +691,8 @@ TEST_F(InputMethodChromeOSTest, ExtractCompositionTextTest_ErrorUnderline) {
   underline.underline_color = SK_ColorRED;
   composition_text.ime_text_spans.push_back(underline);
 
-  CompositionText composition_text2;
-  ime_->ExtractCompositionText(composition_text, kCursorPos,
-                               &composition_text2);
+  CompositionText composition_text2 =
+      ime_->ExtractCompositionText(composition_text, kCursorPos);
   EXPECT_EQ(kSampleText, composition_text2.text);
   EXPECT_EQ(kCursorPos, composition_text2.selection.start());
   EXPECT_EQ(kCursorPos, composition_text2.selection.end());
@@ -690,9 +716,8 @@ TEST_F(InputMethodChromeOSTest, ExtractCompositionTextTest_Selection) {
   composition_text.selection.set_start(1UL);
   composition_text.selection.set_end(4UL);
 
-  CompositionText composition_text2;
-  ime_->ExtractCompositionText(composition_text, kCursorPos,
-                               &composition_text2);
+  CompositionText composition_text2 =
+      ime_->ExtractCompositionText(composition_text, kCursorPos);
   EXPECT_EQ(kSampleText, composition_text2.text);
   EXPECT_EQ(kCursorPos, composition_text2.selection.start());
   EXPECT_EQ(kCursorPos, composition_text2.selection.end());
@@ -719,9 +744,8 @@ TEST_F(InputMethodChromeOSTest,
   composition_text.selection.set_start(kCursorPos);
   composition_text.selection.set_end(4UL);
 
-  CompositionText composition_text2;
-  ime_->ExtractCompositionText(composition_text, kCursorPos,
-                               &composition_text2);
+  CompositionText composition_text2 =
+      ime_->ExtractCompositionText(composition_text, kCursorPos);
   EXPECT_EQ(kSampleText, composition_text2.text);
   // If the cursor position is same as selection bounds, selection start
   // position become opposit side of selection from cursor.
@@ -752,9 +776,8 @@ TEST_F(InputMethodChromeOSTest,
   composition_text.selection.set_start(1UL);
   composition_text.selection.set_end(kCursorPos);
 
-  CompositionText composition_text2;
-  ime_->ExtractCompositionText(composition_text, kCursorPos,
-                               &composition_text2);
+  CompositionText composition_text2 =
+      ime_->ExtractCompositionText(composition_text, kCursorPos);
   EXPECT_EQ(kSampleText, composition_text2.text);
   // If the cursor position is same as selection bounds, selection start
   // position become opposit side of selection from cursor.
@@ -928,6 +951,24 @@ TEST_F(InputMethodChromeOSTest, SetCompositionRange_InvalidRange) {
   EXPECT_EQ(0U, composition_text_.text.length());
 }
 
+TEST_F(InputMethodChromeOSTest,
+       SetCompositionRangeWithSelectedTextAccountsForSelection) {
+  FakeTextInputClient fake_text_input_client(TEXT_INPUT_TYPE_TEXT);
+  fake_text_input_client.SetTextAndSelection(base::ASCIIToUTF16("01234"),
+                                             gfx::Range(1, 4));
+  InputMethodChromeOS ime(this);
+  ime.SetFocusedTextInputClient(&fake_text_input_client);
+
+  // before/after are relative to the selection start/end, respectively.
+  EXPECT_TRUE(ime.SetCompositionRange(/*before=*/1, /*after=*/1, {}));
+
+  EXPECT_EQ(fake_text_input_client.composition_range(), gfx::Range(0, 5));
+  EXPECT_THAT(fake_text_input_client.ime_text_spans(),
+              testing::ElementsAre(
+                  ui::ImeTextSpan(ui::ImeTextSpan::Type::kComposition,
+                                  /*start_offset=*/0, /*end_offset=*/5)));
+}
+
 TEST_F(InputMethodChromeOSTest, ConfirmCompositionText_NoComposition) {
   // Focus on a text field.
   input_type_ = TEXT_INPUT_TYPE_TEXT;
@@ -998,7 +1039,9 @@ TEST_F(InputMethodChromeOSKeyEventTest, KeyEventDelayResponseTest) {
   EXPECT_EQ(kFlags, key_event->flags());
   EXPECT_EQ(0, ime_->process_key_event_post_ime_call_count());
 
-  static_cast<IMEInputContextHandlerInterface*>(ime_.get())->CommitText("A");
+  static_cast<IMEInputContextHandlerInterface*>(ime_.get())
+      ->CommitText(
+          "A", TextInputClient::InsertTextCursorBehavior::kMoveCursorAfterText);
 
   EXPECT_EQ(0, inserted_char_);
 
@@ -1153,6 +1196,84 @@ TEST_F(InputMethodChromeOSKeyEventTest, JP106KeyTest) {
   ime_->DispatchKeyEvent(&eventDbeDbc);
   EXPECT_TRUE(input_method_manager_->state()->is_jp_kbd());
   EXPECT_FALSE(input_method_manager_->state()->is_jp_ime());
+}
+
+TEST_F(InputMethodChromeOSKeyEventTest, SetAutocorrectRangeRunsAfterKeyEvent) {
+  input_type_ = TEXT_INPUT_TYPE_TEXT;
+  ime_->OnTextInputTypeChanged(this);
+  ime_->CommitText(
+      "a", TextInputClient::InsertTextCursorBehavior::kMoveCursorAfterText);
+
+  ui::KeyEvent event(ui::ET_KEY_PRESSED, ui::VKEY_A, ui::EF_NONE);
+  ime_->DispatchKeyEvent(&event);
+  ime_->SetAutocorrectRange(gfx::Range(0, 1));
+  std::move(mock_ime_engine_handler_->last_passed_callback())
+      .Run(/*handled=*/true);
+
+  EXPECT_EQ(gfx::Range(0, 1), GetAutocorrectRange());
+}
+
+TEST_F(InputMethodChromeOSKeyEventTest,
+       SetAutocorrectRangeRunsAfterCommitText) {
+  input_type_ = TEXT_INPUT_TYPE_TEXT;
+  ime_->OnTextInputTypeChanged(this);
+  ui::KeyEvent event(ui::ET_KEY_PRESSED, ui::VKEY_A, ui::EF_NONE);
+  ime_->DispatchKeyEvent(&event);
+
+  ime_->CommitText(
+      "a", TextInputClient::InsertTextCursorBehavior::kMoveCursorAfterText);
+  ime_->SetAutocorrectRange(gfx::Range(0, 1));
+  std::move(mock_ime_engine_handler_->last_passed_callback())
+      .Run(/*handled=*/true);
+
+  EXPECT_EQ(L'a', inserted_char_);
+  EXPECT_EQ(gfx::Range(0, 1), GetAutocorrectRange());
+}
+
+TEST_F(InputMethodChromeOSKeyEventTest,
+       MultipleCommitTextsWhileHandlingKeyEventCoalescesIntoOne) {
+  FakeTextInputClient fake_text_input_client(TEXT_INPUT_TYPE_TEXT);
+  InputMethodChromeOS ime(this);
+  ime.SetFocusedTextInputClient(&fake_text_input_client);
+
+  ui::KeyEvent event(ui::ET_KEY_PRESSED, ui::VKEY_A, ui::EF_NONE);
+  ime.DispatchKeyEvent(&event);
+  ime.CommitText(
+      "a", TextInputClient::InsertTextCursorBehavior::kMoveCursorAfterText);
+  ime.CommitText(
+      "b", TextInputClient::InsertTextCursorBehavior::kMoveCursorAfterText);
+  ime.CommitText(
+      "cde", TextInputClient::InsertTextCursorBehavior::kMoveCursorAfterText);
+  std::move(mock_ime_engine_handler_->last_passed_callback())
+      .Run(/*handled=*/true);
+
+  EXPECT_EQ(fake_text_input_client.text(), base::ASCIIToUTF16("abcde"));
+  EXPECT_EQ(fake_text_input_client.selection(), gfx::Range(5, 5));
+}
+
+TEST_F(InputMethodChromeOSKeyEventTest,
+       MultipleCommitTextsWhileHandlingKeyEventCoalescesByCaretBehavior) {
+  FakeTextInputClient fake_text_input_client(TEXT_INPUT_TYPE_TEXT);
+  InputMethodChromeOS ime(this);
+  ime.SetFocusedTextInputClient(&fake_text_input_client);
+
+  ui::KeyEvent event(ui::ET_KEY_PRESSED, ui::VKEY_A, ui::EF_NONE);
+  ime.DispatchKeyEvent(&event);
+  ime.CommitText(
+      "a", TextInputClient::InsertTextCursorBehavior::kMoveCursorBeforeText);
+  ime.CommitText(
+      "b", TextInputClient::InsertTextCursorBehavior::kMoveCursorAfterText);
+  ime.CommitText(
+      "c", TextInputClient::InsertTextCursorBehavior::kMoveCursorAfterText);
+  ime.CommitText(
+      "d", TextInputClient::InsertTextCursorBehavior::kMoveCursorBeforeText);
+  ime.CommitText(
+      "e", TextInputClient::InsertTextCursorBehavior::kMoveCursorAfterText);
+  std::move(mock_ime_engine_handler_->last_passed_callback())
+      .Run(/*handled=*/true);
+
+  EXPECT_EQ(fake_text_input_client.text(), base::ASCIIToUTF16("bceda"));
+  EXPECT_EQ(fake_text_input_client.selection(), gfx::Range(3, 3));
 }
 
 }  // namespace ui

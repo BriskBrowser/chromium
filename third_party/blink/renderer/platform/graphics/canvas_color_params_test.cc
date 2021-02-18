@@ -8,12 +8,13 @@
 #include "third_party/blink/renderer/platform/graphics/color_correction_test_utils.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "ui/gfx/color_space.h"
+#include "ui/gl/buffer_format_utils.h"
 
 namespace blink {
 
 // When drawing a color managed canvas, the target SkColorSpace is obtained by
-// calling CanvasColorParams::GetSkColorSpaceForSkSurfaces(). When drawing media
-// to the canvas, the target gfx::ColorSpace is returned by CanvasColorParams::
+// calling CanvasColorParams::GetSkColorSpace(). When drawing media to the
+// canvas, the target gfx::ColorSpace is returned by CanvasColorParams::
 // GetStorageGfxColorSpace(). This test verifies that the two different color
 // spaces are approximately the same for different CanvasColorParam objects.
 TEST(CanvasColorParamsTest, MatchSkColorSpaceWithGfxColorSpace) {

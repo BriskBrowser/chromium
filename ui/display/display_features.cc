@@ -4,13 +4,23 @@
 
 #include "ui/display/display_features.h"
 
+#include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
+
 namespace display {
 namespace features {
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // Enables using HDR transfer function if the monitor says it supports it.
-const base::Feature kUseHDRTransferFunction{"UseHDRTransferFunction",
-                                            base::FEATURE_ENABLED_BY_DEFAULT};
+const base::Feature kUseHDRTransferFunction {
+  "UseHDRTransferFunction",
+  // TODO(b/168843009): Temporarily disable on ARM while investigating.
+#if defined(ARCH_CPU_ARM_FAMILY)
+      base::FEATURE_DISABLED_BY_DEFAULT
+#else
+      base::FEATURE_ENABLED_BY_DEFAULT
+#endif
+};
 #endif
 
 // This features allows listing all display modes of external displays in the
@@ -21,6 +31,16 @@ const base::Feature kListAllDisplayModes = {"ListAllDisplayModes",
 
 bool IsListAllDisplayModesEnabled() {
   return base::FeatureList::IsEnabled(kListAllDisplayModes);
+}
+
+// TODO(crbug.com/1161556): Add a flag to control hardware mirroring as the
+// first step towards permanently disabling hardware mirroring. This will be
+// removed once no critical regression is seen by removing HW mirroring.
+const base::Feature kEnableHardwareMirrorMode{
+    "EnableHardwareMirrorMode", base::FEATURE_DISABLED_BY_DEFAULT};
+
+bool IsHardwareMirrorModeEnabled() {
+  return base::FeatureList::IsEnabled(kEnableHardwareMirrorMode);
 }
 
 }  // namespace features

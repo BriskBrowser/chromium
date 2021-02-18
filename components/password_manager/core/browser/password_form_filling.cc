@@ -11,11 +11,11 @@
 #include "base/metrics/user_metrics.h"
 #include "build/build_config.h"
 #include "components/autofill/core/common/autofill_util.h"
-#include "components/autofill/core/common/password_form.h"
 #include "components/autofill/core/common/password_form_fill_data.h"
 #include "components/password_manager/core/browser/android_affiliation/affiliation_utils.h"
 #include "components/password_manager/core/browser/browser_save_password_progress_logger.h"
 #include "components/password_manager/core/browser/password_feature_manager.h"
+#include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/password_form_metrics_recorder.h"
 #include "components/password_manager/core/browser/password_manager_client.h"
 #include "components/password_manager/core/browser/password_manager_driver.h"
@@ -23,13 +23,19 @@
 #include "components/password_manager/core/common/password_manager_features.h"
 
 using autofill::PasswordAndMetadata;
-using autofill::PasswordForm;
 using autofill::PasswordFormFillData;
 using Logger = autofill::SavePasswordProgressLogger;
 
 namespace password_manager {
 
 namespace {
+
+// Controls whether we should suppress the account storage promos for websites
+// that are blocked by the user.
+const base::Feature kSuppressAccountStoragePromosForBlockedWebsite{
+    "SuppressAccountStoragePromosForBlockedWebsite",
+    base::FEATURE_DISABLED_BY_DEFAULT};
+
 bool PreferredRealmIsFromAndroid(const PasswordFormFillData& fill_data) {
   return FacetURI::FromPotentiallyInvalidSpec(fill_data.preferred_realm)
       .IsValidAndroidFacetURI();
@@ -127,6 +133,7 @@ LikelyFormFilling SendFillInformationToRenderer(
     const std::vector<const PasswordForm*>& best_matches,
     const std::vector<const PasswordForm*>& federated_matches,
     const PasswordForm* preferred_match,
+    bool blocked_by_user,
     PasswordFormMetricsRecorder* metrics_recorder) {
   DCHECK(driver);
   DCHECK_EQ(PasswordForm::Scheme::kHtml, observed_form.scheme);
@@ -142,10 +149,15 @@ LikelyFormFilling SendFillInformationToRenderer(
   }
 
   if (best_matches.empty()) {
+    bool should_suppres_popup =
+        blocked_by_user && base::FeatureList::IsEnabled(
+                               kSuppressAccountStoragePromosForBlockedWebsite);
     bool should_show_popup_without_passwords =
-        client->GetPasswordFeatureManager()->ShouldShowAccountStorageOptIn() ||
-        client->GetPasswordFeatureManager()->ShouldShowAccountStorageReSignin(
-            client->GetLastCommittedURL());
+        !should_suppres_popup &&
+        (client->GetPasswordFeatureManager()->ShouldShowAccountStorageOptIn() ||
+         client->GetPasswordFeatureManager()->ShouldShowAccountStorageReSignin(
+             client->GetLastCommittedURL()));
+
     driver->InformNoSavedCredentials(should_show_popup_without_passwords);
     metrics_recorder->RecordFillEvent(
         PasswordFormMetricsRecorder::kManagerFillEventNoCredential);

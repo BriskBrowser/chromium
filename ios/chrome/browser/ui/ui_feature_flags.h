@@ -20,9 +20,6 @@ extern const base::Feature kSettingsRefresh;
 // Feature flag for embedders to block restore urls.
 extern const base::Feature kEmbedderBlockRestoreUrl;
 
-// Feature flag disabling progress bar animation.
-extern const base::Feature kDisableProgressBarAnimation;
-
 // Feature flag to use the unstacked tabstrip when voiceover is enabled.
 extern const base::Feature kVoiceOverUnstackedTabstrip;
 
@@ -33,20 +30,6 @@ extern const base::Feature kForceUnstackedTabstrip;
 // always disabled by default, because it is used to verify that enabling
 // features in tests works.
 extern const base::Feature kTestFeature;
-
-// Verify if the crash in https://crbug.com/816427 is fixed on iOS 12.
-extern const base::Feature kFirstResponderSendAction;
-
-// Feature flag that enables the native UI Context Menus (not for Web content).
-extern const base::Feature kEnableNativeContextMenus;
-
-#if defined(__IPHONE_13_4)
-// Feature flag to enable Pointer support on tablets
-extern const base::Feature kPointerSupport;
-#endif  // defined(__IPHONE_13_4)
-
-// Feature flag to enable MyGoogle account management UI in iOS Settings.
-extern const base::Feature kEnableMyGoogle;
 
 // Feature flag to enable showing a different UI when the setting is managed by
 // an enterprise policy.
@@ -65,7 +48,31 @@ extern const base::Feature kSharedHighlightingIOS;
 // Feature flag that enables taking fullpage screenshots of a webpage.
 extern const base::Feature kEnableFullPageScreenshot;
 
-// Feature flag that enables reauth for filling passwords;
-extern const base::Feature kEnableAutofillPasswordReauthIOS;
+// Feature flag that enables the button in the settings to send the users in the
+// Settings.app to update the default browser.
+extern const base::Feature kDefaultBrowserSettings;
+
+// TODO(crbug.com/1128242): Remove this flag after the refactoring work is
+// finished. Flag to modernize the tabstrip without disturbing the existing one.
+extern const base::Feature kModernTabStrip;
+
+// Adds a setting to enable biometric authentication for incognito tabs.
+extern const base::Feature kIncognitoAuthentication;
+
+// Feature flag that experiments with new location permissions user experiences.
+extern const base::Feature kLocationPermissionsPrompt;
+
+// Feature flag that experiments with the default browser fullscreen promo UI.
+extern const base::Feature kDefaultBrowserFullscreenPromoExperiment;
+
+// Feature flag that experiments with the default browser fullscreen promo UI.
+extern const base::Feature kDefaultBrowserFullscreenPromoCTAExperiment;
+
+// Feature flag that swaps the omnibox textfield implementation.
+extern const base::Feature kIOSNewOmniboxImplementation;
+
+// Feature flag that enables persisting the Crash Restore Infobar across
+// navigations.
+extern const base::Feature kIOSPersistCrashRestore;
 
 #endif  // IOS_CHROME_BROWSER_UI_UI_FEATURE_FLAGS_H_

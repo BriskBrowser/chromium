@@ -22,11 +22,11 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
-#include "content/browser/frame_host/render_frame_host_delegate.h"
-#include "content/browser/frame_host/render_frame_host_impl.h"
+#include "content/browser/font_access/font_enumeration_cache.h"
+#include "content/browser/renderer_host/render_frame_host_delegate.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/common/content_navigation_policy.h"
 #include "content/public/browser/browser_child_process_host_iterator.h"
-#include "content/public/browser/browser_plugin_guest_delegate.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
@@ -118,7 +118,7 @@ blink::mojom::FetchAPIRequestPtr CreateFetchAPIRequest(
   auto request = blink::mojom::FetchAPIRequest::New();
   request->url = url;
   request->method = method;
-  request->headers = {headers.begin(), headers.end()};
+  request->headers = headers;
   request->referrer = std::move(referrer);
   request->is_reload = is_reload;
   return request;
@@ -206,6 +206,18 @@ bool AreDefaultSiteInstancesEnabled() {
              features::kProcessSharingWithDefaultSiteInstances);
 }
 
+bool AreStrictSiteInstancesEnabled() {
+  return AreAllSitesIsolatedForTesting() ||
+         base::FeatureList::IsEnabled(
+             features::kProcessSharingWithStrictSiteInstances);
+}
+
+bool IsIsolatedOriginRequiredToGuaranteeDedicatedProcess() {
+  return AreDefaultSiteInstancesEnabled() ||
+         base::FeatureList::IsEnabled(
+             features::kProcessSharingWithStrictSiteInstances);
+}
+
 void IsolateAllSitesForTesting(base::CommandLine* command_line) {
   command_line->AppendSwitch(switches::kSitePerProcess);
 }
@@ -291,6 +303,10 @@ void AwaitDocumentOnLoadCompleted(WebContents* web_contents) {
   };
 
   Awaiter(web_contents).Await();
+}
+
+void ResetFontEnumerationCache() {
+  FontEnumerationCache::GetInstance()->ResetStateForTesting();
 }
 
 MessageLoopRunner::MessageLoopRunner(QuitMode quit_mode)
@@ -532,8 +548,9 @@ bool EffectiveURLContentBrowserClient::DoesSiteRequireDedicatedProcess(
     return false;
 
   for (const auto& pair : urls_to_modify_) {
-    if (SiteInstance::GetSiteForURL(browser_context, pair.first) ==
-        effective_site_url)
+    auto site_info = SiteInfo::CreateForTesting(
+        IsolationContext(browser_context), pair.first);
+    if (site_info.site_url() == effective_site_url)
       return true;
   }
   return false;

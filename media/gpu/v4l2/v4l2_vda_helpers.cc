@@ -6,7 +6,7 @@
 
 #include "base/bind.h"
 #include "media/base/color_plane_layout.h"
-#include "media/base/video_decoder_config.h"
+#include "media/base/video_codecs.h"
 #include "media/gpu/chromeos/fourcc.h"
 #include "media/gpu/macros.h"
 #include "media/gpu/v4l2/v4l2_device.h"
@@ -20,7 +20,8 @@ base::Optional<Fourcc> FindImageProcessorInputFormat(V4L2Device* vda_device) {
   std::vector<uint32_t> processor_input_formats =
       V4L2ImageProcessorBackend::GetSupportedInputFormats();
 
-  struct v4l2_fmtdesc fmtdesc = {};
+  struct v4l2_fmtdesc fmtdesc;
+  memset(&fmtdesc, 0, sizeof(fmtdesc));
   fmtdesc.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
   while (vda_device->Ioctl(VIDIOC_ENUM_FMT, &fmtdesc) == 0) {
     if (std::find(processor_input_formats.begin(),
@@ -230,6 +231,8 @@ bool H264InputBufferFragmentSplitter::AdvanceFrameFragment(const uint8_t* data,
       case H264NALU::kAUD:
       case H264NALU::kEOSeq:
       case H264NALU::kEOStream:
+      case H264NALU::kFiller:
+      case H264NALU::kSPSExt:
       case H264NALU::kReserved14:
       case H264NALU::kReserved15:
       case H264NALU::kReserved16:

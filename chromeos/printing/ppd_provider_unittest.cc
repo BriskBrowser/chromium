@@ -10,18 +10,18 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_message_loop.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/version.h"
-#include "chromeos/constants/chromeos_paths.h"
 #include "chromeos/printing/ppd_cache.h"
 #include "chromeos/printing/printer_configuration.h"
 #include "net/base/net_errors.h"
@@ -94,8 +94,15 @@ class PpdProviderTest : public ::testing::Test {
     } else {
       ppd_cache_ = PpdCache::Create(ppd_cache_temp_dir_.GetPath());
     }
-    return PpdProvider::Create(locale, &loader_factory_, ppd_cache_,
-                               base::Version("40.8.6753.09"), provider_options);
+    return PpdProvider::Create(
+        locale, base::BindLambdaForTesting([this]() {
+          // Casting here is necessary b/c RepeatingCallback needs help
+          // coercing types.
+          // Casting is safe since its a guaranteed upcast.
+          return dynamic_cast<network::mojom::URLLoaderFactory*>(
+              &loader_factory_);
+        }),
+        ppd_cache_, base::Version("40.8.6753.09"), provider_options);
   }
 
   // Fill loader_factory_ with preset contents for test URLs

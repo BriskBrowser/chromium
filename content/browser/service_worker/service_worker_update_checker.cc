@@ -13,7 +13,6 @@
 #include "content/browser/service_worker/service_worker_consts.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
-#include "content/browser/service_worker/service_worker_storage.h"
 #include "content/browser/service_worker/service_worker_version.h"
 #include "content/browser/storage_partition_impl.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -25,60 +24,9 @@
 #include "net/http/http_request_headers.h"
 #include "services/network/public/cpp/constants.h"
 #include "services/network/public/cpp/features.h"
+#include "third_party/blink/public/common/renderer_preferences/renderer_preferences.h"
 
 namespace content {
-
-namespace {
-
-void SetUpOnUI(
-    base::WeakPtr<ServiceWorkerProcessManager> process_manager,
-    void* trace_id,
-    base::OnceCallback<void(
-        net::HttpRequestHeaders,
-        ServiceWorkerUpdatedScriptLoader::BrowserContextGetter)> callback) {
-  TRACE_EVENT_WITH_FLOW0(
-      "ServiceWorker", "ServiceWorkerUpdateChecker::anonymous::SetUpOnUI",
-      trace_id, TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT);
-
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  if (!process_manager || process_manager->IsShutdown()) {
-    // If it's being shut down, ServiceWorkerUpdateChecker is going to be
-    // destroyed after this task. We do nothing here.
-    return;
-  }
-
-  net::HttpRequestHeaders headers;
-
-  // Set the accept header to '*/*'.
-  // https://fetch.spec.whatwg.org/#concept-fetch
-  headers.SetHeader(net::HttpRequestHeaders::kAccept,
-                    network::kDefaultAcceptHeaderValue);
-
-  BrowserContext* browser_context = process_manager->browser_context();
-  blink::mojom::RendererPreferences renderer_preferences;
-  GetContentClient()->browser()->UpdateRendererPreferencesForWorker(
-      browser_context, &renderer_preferences);
-  UpdateAdditionalHeadersForBrowserInitiatedRequest(
-      &headers, browser_context, /*should_update_existing_headers=*/false,
-      renderer_preferences);
-
-  ServiceWorkerUpdatedScriptLoader::BrowserContextGetter
-      browser_context_getter = base::BindRepeating(
-          [](base::WeakPtr<ServiceWorkerProcessManager> process_manager)
-              -> BrowserContext* {
-            DCHECK_CURRENTLY_ON(BrowserThread::UI);
-            if (process_manager)
-              return process_manager->browser_context();
-            return nullptr;
-          },
-          process_manager);
-
-  RunOrPostTaskOnThread(FROM_HERE, ServiceWorkerContext::GetCoreThreadId(),
-                        base::BindOnce(std::move(callback), std::move(headers),
-                                       browser_context_getter));
-}
-
-}  // namespace
 
 ServiceWorkerUpdateChecker::ServiceWorkerUpdateChecker(
     std::vector<storage::mojom::ServiceWorkerResourceRecordPtr>
@@ -117,20 +65,26 @@ void ServiceWorkerUpdateChecker::Start(UpdateStatusCallback callback) {
   DCHECK(!scripts_to_compare_.empty());
   callback_ = std::move(callback);
 
-  RunOrPostTaskOnThread(
-      FROM_HERE, BrowserThread::UI,
-      base::BindOnce(&SetUpOnUI, context_->process_manager()->AsWeakPtr(),
-                     base::Unretained(this),
-                     base::BindOnce(&ServiceWorkerUpdateChecker::DidSetUpOnUI,
-                                    weak_factory_.GetWeakPtr())));
-}
+  if (context_->process_manager()->IsShutdown()) {
+    // If it's being shut down, ServiceWorkerUpdateChecker is going to be
+    // destroyed after this task. We do nothing here.
+    return;
+  }
 
-void ServiceWorkerUpdateChecker::DidSetUpOnUI(
-    net::HttpRequestHeaders header,
-    ServiceWorkerUpdatedScriptLoader::BrowserContextGetter
-        browser_context_getter) {
-  default_headers_ = std::move(header);
-  browser_context_getter_ = std::move(browser_context_getter);
+  // Set the accept header to '*/*'.
+  // https://fetch.spec.whatwg.org/#concept-fetch
+  default_headers_.SetHeader(net::HttpRequestHeaders::kAccept,
+                             network::kDefaultAcceptHeaderValue);
+
+  BrowserContext* browser_context =
+      context_->process_manager()->browser_context();
+  blink::RendererPreferences renderer_preferences;
+  GetContentClient()->browser()->UpdateRendererPreferencesForWorker(
+      browser_context, &renderer_preferences);
+  UpdateAdditionalHeadersForBrowserInitiatedRequest(
+      &default_headers_, browser_context,
+      /*should_update_existing_headers=*/false, renderer_preferences);
+
   CheckOneScript(main_script_url_, main_script_resource_id_);
 }
 
@@ -284,9 +238,10 @@ void ServiceWorkerUpdateChecker::OnResourceIdAssignedForOneScriptCheck(
   running_checker_ = std::make_unique<ServiceWorkerSingleScriptUpdateChecker>(
       url, is_main_script, main_script_url_, version_to_update_->scope(),
       force_bypass_cache_, update_via_cache_, fetch_client_settings_object_,
-      time_since_last_check_, default_headers_, browser_context_getter_,
-      loader_factory_, std::move(compare_reader), std::move(copy_reader),
-      std::move(writer), new_resource_id,
+      time_since_last_check_, default_headers_,
+      context_->process_manager()->browser_context(), loader_factory_,
+      std::move(compare_reader), std::move(copy_reader), std::move(writer),
+      new_resource_id,
       base::BindOnce(&ServiceWorkerUpdateChecker::OnOneUpdateCheckFinished,
                      weak_factory_.GetWeakPtr(), resource_id));
 }

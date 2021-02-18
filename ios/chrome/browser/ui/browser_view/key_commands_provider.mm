@@ -11,6 +11,7 @@
 #import "ios/chrome/browser/ui/util/named_guide.h"
 #include "ios/chrome/browser/ui/util/rtl_geometry.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
+#import "ios/chrome/browser/web/web_navigation_browser_agent.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 
@@ -26,6 +27,7 @@
                                        BrowserCommands,
                                        FindInPageCommands,
                                        OmniboxCommands>)dispatcher
+                   navigationAgent:(WebNavigationBrowserAgent*)navigationAgent
                     omniboxHandler:(id<OmniboxCommands>)omniboxHandler
                        editingText:(BOOL)editingText {
   __weak id<KeyCommandsPlumbing> weakConsumer = consumer;
@@ -48,21 +50,40 @@
   void (^browseRight)();
   if (useRTLLayout) {
     browseLeft = ^{
-      if ([weakConsumer canGoForward])
-        [weakDispatcher goForward];
+      if (navigationAgent->CanGoForward())
+        navigationAgent->GoForward();
     };
     browseRight = ^{
-      if ([weakConsumer canGoBack])
-        [weakDispatcher goBack];
+      if (navigationAgent->CanGoBack())
+        navigationAgent->GoBack();
     };
   } else {
     browseLeft = ^{
-      if ([weakConsumer canGoBack])
-        [weakDispatcher goBack];
+      if (navigationAgent->CanGoBack())
+        navigationAgent->GoBack();
     };
     browseRight = ^{
-      if ([weakConsumer canGoForward])
-        [weakDispatcher goForward];
+      if (navigationAgent->CanGoForward())
+        navigationAgent->GoForward();
+    };
+  }
+
+  // Blocks for next/previous tab.
+  void (^focusTabLeft)();
+  void (^focusTabRight)();
+  if (useRTLLayout) {
+    focusTabLeft = ^{
+      [weakConsumer focusNextTab];
+    };
+    focusTabRight = ^{
+      [weakConsumer focusPreviousTab];
+    };
+  } else {
+    focusTabLeft = ^{
+      [weakConsumer focusPreviousTab];
+    };
+    focusTabRight = ^{
+      [weakConsumer focusNextTab];
     };
   }
 
@@ -169,20 +190,58 @@
                                         [weakDispatcher closeCurrentTab];
                                       }
                                     }],
+    ]];
+
+    // Deal with the multiple next/previous tab commands we have, only one pair
+    // of which appears in the HUD. Take RTL into account for the direction.
+    const int tabLeftDescriptionID = useRTLLayout
+                                          ? IDS_IOS_KEYBOARD_NEXT_TAB
+                                          : IDS_IOS_KEYBOARD_PREVIOUS_TAB;
+    const int tabRightDescriptionID = useRTLLayout
+                                           ? IDS_IOS_KEYBOARD_PREVIOUS_TAB
+                                           : IDS_IOS_KEYBOARD_NEXT_TAB;
+    NSString* tabLeftTitle = l10n_util::GetNSStringWithFixup(
+        tabLeftDescriptionID);
+    NSString* tabRightTitle = l10n_util::GetNSStringWithFixup(
+        tabRightDescriptionID);
+    [keyCommands addObjectsFromArray:@[
+      [UIKeyCommand
+           cr_keyCommandWithInput:UIKeyInputLeftArrow
+                    modifierFlags:UIKeyModifierCommand | UIKeyModifierAlternate
+                            title:tabLeftTitle
+                           action:focusTabLeft],
+       [UIKeyCommand
+           cr_keyCommandWithInput:UIKeyInputRightArrow
+                    modifierFlags:UIKeyModifierCommand | UIKeyModifierAlternate
+                            title:tabRightTitle
+                           action:focusTabRight],
+       [UIKeyCommand
+           cr_keyCommandWithInput:@"{"
+                    modifierFlags:UIKeyModifierCommand
+                            title:nil
+                           action:focusTabLeft],
+       [UIKeyCommand
+           cr_keyCommandWithInput:@"}"
+                    modifierFlags:UIKeyModifierCommand
+                            title:nil
+                           action:focusTabRight],
+    ]];
+
+    [keyCommands addObjectsFromArray:@[
       [UIKeyCommand
           cr_keyCommandWithInput:@"d"
                    modifierFlags:UIKeyModifierCommand
                            title:l10n_util::GetNSStringWithFixup(
                                      IDS_IOS_KEYBOARD_BOOKMARK_THIS_PAGE)
                           action:^{
-                            [weakDispatcher bookmarkPage];
+                            [weakDispatcher bookmarkCurrentPage];
                           }],
       [UIKeyCommand cr_keyCommandWithInput:@"r"
                              modifierFlags:UIKeyModifierCommand
                                      title:l10n_util::GetNSStringWithFixup(
                                                IDS_IOS_ACCNAME_RELOAD)
                                     action:^{
-                                      [weakDispatcher reload];
+                                      navigationAgent->Reload();
                                     }],
     ]];
 
@@ -270,7 +329,7 @@
                              modifierFlags:UIKeyModifierCommand
                                      title:nil
                                     action:^{
-                                      [weakDispatcher stopLoading];
+                                      navigationAgent->StopLoading();
                                     }],
       [UIKeyCommand cr_keyCommandWithInput:@"?"
                              modifierFlags:UIKeyModifierCommand
@@ -339,20 +398,6 @@
                                     action:^{
                                       focusTab([weakConsumer tabsCount] - 1);
                                     }],
-      [UIKeyCommand
-          cr_keyCommandWithInput:UIKeyInputLeftArrow
-                   modifierFlags:UIKeyModifierCommand | UIKeyModifierAlternate
-                           title:nil
-                          action:^{
-                            [weakConsumer focusPreviousTab];
-                          }],
-      [UIKeyCommand
-          cr_keyCommandWithInput:UIKeyInputRightArrow
-                   modifierFlags:UIKeyModifierCommand | UIKeyModifierAlternate
-                           title:nil
-                          action:^{
-                            [weakConsumer focusNextTab];
-                          }],
       [UIKeyCommand
           cr_keyCommandWithInput:@"\t"
                    modifierFlags:UIKeyModifierControl | UIKeyModifierShift

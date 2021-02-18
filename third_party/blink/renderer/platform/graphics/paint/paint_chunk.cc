@@ -14,12 +14,13 @@ struct SameSizeAsPaintChunk {
   wtf_size_t begin_index;
   wtf_size_t end_index;
   Color background_color;
-  uint64_t background_color_area;
+  float background_color_area;
   PaintChunk::Id id;
   PropertyTreeState properties;
   IntRect bounds;
   IntRect drawable_bounds;
   void* hit_test_data;
+  void* layer_selection;
   bool b[2];
 };
 
@@ -45,6 +46,7 @@ size_t PaintChunk::MemoryUsageInBytes() const {
     total_size += sizeof(*hit_test_data);
     total_size +=
         hit_test_data->touch_action_rects.capacity() * sizeof(TouchActionRect);
+    total_size += hit_test_data->wheel_event_rects.capacity() * sizeof(IntRect);
   }
   return total_size;
 }

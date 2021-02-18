@@ -46,7 +46,9 @@ class ForceInstalledMetrics : public ForceInstalledTracker::Observer {
     // Session with Regular new user, which has a user name and password.
     USER_TYPE_REGULAR_NEW = 2,
     USER_TYPE_PUBLIC_ACCOUNT = 3,
-    USER_TYPE_SUPERVISED = 4,
+    // TODO(crbug/1155729): Legacy supervised users are deprecated. Use
+    // USER_TYPE_CHILD instead. Remove this enum.
+    USER_TYPE_SUPERVISED_DEPRECATED = 4,
     USER_TYPE_KIOSK_APP = 5,
     USER_TYPE_CHILD = 6,
     USER_TYPE_ARC_KIOSK_APP = 7,
@@ -62,6 +64,10 @@ class ForceInstalledMetrics : public ForceInstalledTracker::Observer {
   // force-installed extensions, and is responsible for cleanup of
   // observers.
   void OnForceInstalledExtensionsLoaded() override;
+
+  // Calls ReportMetricsOnExtensionsReady method if there is a non-empty list of
+  // force-installed extensions.
+  void OnForceInstalledExtensionsReady() override;
 
   // Reports cache status for the force installed extensions.
   void OnExtensionDownloadCacheStatusRetrieved(
@@ -82,6 +88,10 @@ class ForceInstalledMetrics : public ForceInstalledTracker::Observer {
   // why they were not installed.
   void ReportMetrics();
 
+  // Reports metrics for sessions when all force installed extensions are ready
+  // for use.
+  void ReportMetricsOnExtensionsReady();
+
   ExtensionRegistry* const registry_;
   Profile* const profile_;
   ForceInstalledTracker* const tracker_;
@@ -89,8 +99,12 @@ class ForceInstalledMetrics : public ForceInstalledTracker::Observer {
   // Moment when the class was initialized.
   base::Time start_time_;
 
-  // Tracks whether stats were already reported for the session.
-  bool reported_ = false;
+  // Tracks whether extensions load stats were already for the session.
+  bool load_reported_ = false;
+
+  // Tracks whether extensions ready stats were already reported for the
+  // session.
+  bool ready_reported_ = false;
 
   ScopedObserver<ForceInstalledTracker, ForceInstalledTracker::Observer>
       tracker_observer_{this};

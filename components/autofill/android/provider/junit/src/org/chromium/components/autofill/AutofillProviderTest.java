@@ -83,11 +83,11 @@ public class AutofillProviderTest {
     public void testTransformFormFieldToContainViewCoordinates() {
         ArrayList<FormFieldData> fields = new ArrayList<FormFieldData>(1);
         fields.add(FormFieldData.createFormFieldData(null, null, null, null, false, null, null,
-                null, null, null, false, false, 0, null, 10 /* left */, 20 /* top */,
-                300 /* right */, 60 /*bottom*/, null, null, true));
+                null, null, null, false, false, 0, null, null, null, null, 10 /* left */,
+                20 /* top */, 300 /* right */, 60 /*bottom*/, null, null, true));
         fields.add(FormFieldData.createFormFieldData(null, null, null, null, false, null, null,
-                null, null, null, false, false, 0, null, 20 /* left */, 100 /* top */,
-                400 /* right */, 200 /*bottom*/, null, null, true));
+                null, null, null, false, false, 0, null, null, null, null, 20 /* left */,
+                100 /* top */, 400 /* right */, 200 /*bottom*/, null, null, true));
         FormData formData = new FormData(null, null, fields);
         mAutofillProvider.transformFormFieldToContainViewCoordinates(formData);
         RectF result = formData.mFields.get(0).getBoundsInContainerViewCoordinates();
@@ -106,10 +106,11 @@ public class AutofillProviderTest {
     @Test
     public void testTransformToWindowBounds() {
         RectF source = new RectF(10, 20, 300, 400);
-        Rect result = mAutofillProvider.transformToWindowBounds(source);
+        final int offsetY = 10;
+        Rect result = mAutofillProvider.transformToWindowBoundsWithOffsetY(source, offsetY);
         assertEquals(10 * EXPECTED_DIP_SCALE + LOCATION_X, result.left, 0);
-        assertEquals(20 * EXPECTED_DIP_SCALE + LOCATION_Y, result.top, 0);
+        assertEquals(20 * EXPECTED_DIP_SCALE + LOCATION_Y + offsetY, result.top, 0);
         assertEquals(300 * EXPECTED_DIP_SCALE + LOCATION_X, result.right, 0);
-        assertEquals(400 * EXPECTED_DIP_SCALE + LOCATION_Y, result.bottom, 0);
+        assertEquals(400 * EXPECTED_DIP_SCALE + LOCATION_Y + offsetY, result.bottom, 0);
     }
 }

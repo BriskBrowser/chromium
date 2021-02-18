@@ -6,7 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_FRAME_FRAME_VIEW_H_
 
 #include "third_party/blink/public/mojom/frame/lifecycle.mojom-blink-forward.h"
-#include "third_party/blink/public/platform/viewport_intersection_state.h"
+#include "third_party/blink/public/mojom/frame/viewport_intersection_state.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/frame/embedded_content_view.h"
 #include "third_party/blink/renderer/core/layout/geometry/physical_rect.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
@@ -50,8 +50,15 @@ class CORE_EXPORT FrameView : public EmbeddedContentView {
   // lifecycle updates in the child frame will skip rendering work.
   bool IsHiddenForThrottling() const { return hidden_for_throttling_; }
   bool IsSubtreeThrottled() const { return subtree_throttled_; }
+  // This indicates whether this is an iframe whose contents are display-locked
+  // due to an active DisplayLock in the parent frame. Note that this value must
+  // be stable between main frames, and only gets updated based on the current
+  // state of display locking in the parent frame when
+  // UpdateViewportIntersection is run during post-lifecycle steps.
+  bool IsDisplayLocked() const { return display_locked_; }
   virtual void UpdateRenderThrottlingStatus(bool hidden_for_throttling,
                                             bool subtree_throttled,
+                                            bool display_locked,
                                             bool recurse = false);
 
   bool RectInParentIsStable(const base::TimeTicks& timestamp) const;
@@ -59,7 +66,7 @@ class CORE_EXPORT FrameView : public EmbeddedContentView {
  protected:
   virtual bool NeedsViewportOffset() const { return false; }
   virtual void SetViewportIntersection(
-      const ViewportIntersectionState& intersection_state) = 0;
+      const mojom::blink::ViewportIntersectionState& intersection_state) = 0;
   virtual void VisibilityForThrottlingChanged() = 0;
   virtual bool LifecycleUpdatesThrottled() const { return false; }
   void UpdateViewportIntersection(unsigned, bool);
@@ -75,8 +82,9 @@ class CORE_EXPORT FrameView : public EmbeddedContentView {
   PhysicalRect rect_in_parent_;
   base::TimeTicks rect_in_parent_stable_since_;
   blink::mojom::FrameVisibility frame_visibility_;
-  bool hidden_for_throttling_;
-  bool subtree_throttled_;
+  bool hidden_for_throttling_ = false;
+  bool subtree_throttled_ = false;
+  bool display_locked_ = false;
 };
 
 template <>

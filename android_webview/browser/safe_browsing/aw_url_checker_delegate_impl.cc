@@ -71,7 +71,7 @@ AwUrlCheckerDelegateImpl::AwUrlCheckerDelegateImpl(
 
 AwUrlCheckerDelegateImpl::~AwUrlCheckerDelegateImpl() = default;
 
-void AwUrlCheckerDelegateImpl::MaybeDestroyPrerenderContents(
+void AwUrlCheckerDelegateImpl::MaybeDestroyNoStatePrefetchContents(
     content::WebContents::OnceGetter web_contents_getter) {}
 
 void AwUrlCheckerDelegateImpl::StartDisplayingBlockingPageHelper(
@@ -96,7 +96,7 @@ void AwUrlCheckerDelegateImpl::
   NOTREACHED() << "Delayed warnings not implemented for WebView";
 }
 
-bool AwUrlCheckerDelegateImpl::IsUrlWhitelisted(const GURL& url) {
+bool AwUrlCheckerDelegateImpl::IsUrlAllowlisted(const GURL& url) {
   return allowlist_manager_->IsUrlAllowed(url);
 }
 
@@ -171,7 +171,7 @@ void AwUrlCheckerDelegateImpl::StartApplicationResponse(
   security_interstitials::SecurityInterstitialTabHelper*
       security_interstitial_tab_helper = security_interstitials::
           SecurityInterstitialTabHelper::FromWebContents(web_contents);
-  if (ui_manager->IsWhitelisted(resource) && security_interstitial_tab_helper &&
+  if (ui_manager->IsAllowlisted(resource) && security_interstitial_tab_helper &&
       security_interstitial_tab_helper->IsDisplayingInterstitial()) {
     // In this case we are about to leave an interstitial due to the user
     // clicking proceed on it, we shouldn't call OnSafeBrowsingHit again.

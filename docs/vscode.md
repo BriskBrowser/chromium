@@ -25,6 +25,7 @@ Here's what works well:
     well, even though startup times can be fairly high (~40 seconds with
     gdb on Linux, much lower on Windows). You can step through code, inspect
     variables, view call stacks for multiple threads etc.
+    *   For more information on debugging Python code, see [here](vscode_python.md).
 *   Opening files and searching solution-wide works well now after having
     problems in earlier versions.
 *   Building works well. Build tools are easy to integrate. Warnings and errors
@@ -71,24 +72,6 @@ integration to work:
 ```json
 {
   "git.path": "C:\\src\\depot_tools\\git.bat"
-}
-```
-
-#### Rendering of underscore on Linux
-
-As mentioned in [#35901](https://github.com/Microsoft/vscode/issues/35901), VS
-Code will not show underscore (`_`) properly on Linux by default. You can work
-around this issue by forcing another font such as the default `monospace` or
-changing the font size in your settings:
-
-```json
-{
-  // If you want to use the default "monospace" font:
-  //"terminal.integrated.fontFamily": "monospace"
-  // If you would rather just increase the size of the font:
-  //"terminal.integrated.fontSize": 15
-  // If you would rather decrease the size of the font:
-  //"terminal.integrated.fontSize": 13
 }
 ```
 
@@ -259,12 +242,12 @@ in the Explorer tab) is chromium/src. If this is not the case, replace any
 references to ${workspaceFolder} with the path to chromium/src.
 
 ### Tasks
-Next, we'll tell VS Code how to compile our code and how to read warnings and
-errors from the build output. Open the file
-[//tools/vscode/tasks.json5](/tools/vscode/tasks.json5). This will provide 5
-tasks to do basic things. You might have to adjust the commands to your
-situation and needs. To use these settings wholesale, enter the following
-command into your terminal:
+Next, we'll tell VS Code how to compile our code, run tests, and to read
+warnings and errors from the build output. Open the file
+[//tools/vscode/tasks.json5](/tools/vscode/tasks.json5). This will provide tasks
+to do basic things. You might have to adjust the commands to your situation and
+needs. To use these settings wholesale, enter the following command into your
+terminal:
 ```
 $ cp tools/vscode/tasks.json5 .vscode/tasks.json
 ```

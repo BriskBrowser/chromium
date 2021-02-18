@@ -35,7 +35,6 @@
 #include "headless/lib/renderer/headless_content_renderer_client.h"
 #include "headless/lib/utility/headless_content_utility_client.h"
 #include "sandbox/policy/switches.h"
-#include "services/service_manager/embedder/switches.h"
 #include "third_party/blink/public/common/switches.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -44,7 +43,7 @@
 #include "ui/gl/gl_switches.h"
 #include "ui/ozone/public/ozone_switches.h"
 
-#ifdef HEADLESS_USE_EMBEDDED_RESOURCES
+#if defined(HEADLESS_USE_EMBEDDED_RESOURCES)
 #include "headless/embedded_resource_pak.h"
 #endif
 
@@ -275,7 +274,7 @@ void HeadlessContentMainDelegate::InitLogging(
         command_line.GetSwitchValueASCII(::switches::kLoggingLevel);
     int level = 0;
     if (base::StringToInt(log_level, &level) && level >= 0 &&
-        level < logging::LOG_NUM_SEVERITIES) {
+        level < logging::LOGGING_NUM_SEVERITIES) {
       logging::SetMinLogLevel(level);
     } else {
       DLOG(WARNING) << "Bad log level: " << log_level;
@@ -310,6 +309,10 @@ void HeadlessContentMainDelegate::InitLogging(
     log_path = base::FilePath::FromUTF8Unsafe(filename);
   }
 
+  // On Windows, having non canonical forward slashes in log file name causes
+  // problems with sandbox filters, see https://crbug.com/859676
+  log_path = log_path.NormalizePathSeparators();
+
   settings.logging_dest = log_mode;
   settings.log_file_path = log_path.value().c_str();
   settings.lock_log = logging::DONT_LOCK_LOG_FILE;
@@ -318,7 +321,6 @@ void HeadlessContentMainDelegate::InitLogging(
   bool success = logging::InitLogging(settings);
   DCHECK(success);
 }
-
 
 void HeadlessContentMainDelegate::InitCrashReporter(
     const base::CommandLine& command_line) {
@@ -342,7 +344,7 @@ void HeadlessContentMainDelegate::InitCrashReporter(
     DCHECK(!breakpad::IsCrashReporterEnabled());
     return;
   }
-  if (process_type != service_manager::switches::kZygoteProcess)
+  if (process_type != switches::kZygoteProcess)
     breakpad::InitCrashReporter(process_type);
 #elif defined(OS_MAC)
   crash_reporter::InitializeCrashpad(process_type.empty(), process_type);
@@ -367,9 +369,12 @@ void HeadlessContentMainDelegate::PreSandboxStartup() {
 #else
   if (command_line.HasSwitch(::switches::kEnableLogging))
     InitLogging(command_line);
+
+  // Initializing the crash reporter fails in multiple ways on Windows. See
+  // https://crbug.com/1147063
+  InitCrashReporter(command_line);
 #endif  // defined(OS_WIN)
 
-  InitCrashReporter(command_line);
   InitializeResourceBundle(command_line);
 
   // Even though InitializeResourceBundle() has indirectly done the locale
@@ -492,10 +497,10 @@ void HeadlessContentMainDelegate::PostEarlyInitialization(
         ::switches::kRunAllCompositorStagesBeforeDraw,
         ::switches::kDisableNewContentRenderingTimeout,
         cc::switches::kDisableThreadedAnimation,
-        ::switches::kDisableThreadedScrolling,
         // Animtion-only BeginFrames are only supported when updates from the
         // impl-thread are disabled, see go/headless-rendering.
         cc::switches::kDisableCheckerImaging,
+        blink::switches::kDisableThreadedScrolling,
         // Ensure that image animations don't resync their animation timestamps
         // when looping back around.
         blink::switches::kDisableImageAnimationResync,

@@ -4,7 +4,7 @@
 
 #include "components/download/public/common/download_item_impl_delegate.h"
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/check_op.h"
 #include "build/build_config.h"
 #include "components/download/public/common/auto_resumption_handler.h"
@@ -109,6 +109,12 @@ void DownloadItemImplDelegate::BindWakeLockProvider(
 QuarantineConnectionCallback
 DownloadItemImplDelegate::GetQuarantineConnectionCallback() {
   return base::NullCallback();
+}
+
+std::unique_ptr<DownloadItemRenameHandler>
+DownloadItemImplDelegate::GetRenameHandlerForDownload(
+    DownloadItemImpl* download_item) {
+  return nullptr;
 }
 
 }  // namespace download

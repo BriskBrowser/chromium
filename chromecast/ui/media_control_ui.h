@@ -14,11 +14,9 @@
 #include "chromecast/ui/mojom/media_control_ui.mojom.h"
 #include "chromecast/ui/vector_icons.h"
 #include "mojo/public/cpp/bindings/remote.h"
-#include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/progress_bar.h"
-#include "ui/views/layout/layout_provider.h"
 #include "ui/views/widget/widget.h"
 
 namespace chromecast {
@@ -28,8 +26,7 @@ class CastWindowManager;
 // Provides a simple touch-based media UI for Aura platforms. This is used to
 // enable simple touch support for media apps which are not yet touch-enabled.
 // This class uses ui::views primitives to draw the UI.
-class MediaControlUi : public mojom::MediaControlUi,
-                       public views::ButtonListener {
+class MediaControlUi : public mojom::MediaControlUi {
  public:
   explicit MediaControlUi(CastWindowManager* window_manager);
   ~MediaControlUi() override;
@@ -46,8 +43,10 @@ class MediaControlUi : public mojom::MediaControlUi,
   void MaybeShowWidget();
   void ShowMediaControls(bool visible);
   bool visible() const;
+  void ButtonPressed(mojom::MediaCommand command);
   void OnTapped();
   std::unique_ptr<views::ImageButton> CreateImageButton(
+      mojom::MediaCommand command,
       const gfx::VectorIcon& icon,
       int height);
 
@@ -59,9 +58,6 @@ class MediaControlUi : public mojom::MediaControlUi,
 
   // Update the media time progress bar.
   void UpdateMediaTime();
-
-  // views::ButtonListener implementation:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
   CastWindowManager* const window_manager_;
   mojo::Remote<mojom::MediaControlClient> client_;
@@ -97,8 +93,6 @@ class MediaControlUi : public mojom::MediaControlUi,
   base::TimeTicks last_media_timestamp_;
 
   base::RepeatingTimer media_time_update_timer_;
-
-  views::LayoutProvider layout_provider_;
 
   SEQUENCE_CHECKER(sequence_checker_);
   base::WeakPtrFactory<MediaControlUi> weak_factory_;

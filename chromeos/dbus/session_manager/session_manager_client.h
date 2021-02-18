@@ -41,6 +41,9 @@ namespace chromeos {
 // SessionManagerClient is used to communicate with the session manager.
 class COMPONENT_EXPORT(SESSION_MANAGER) SessionManagerClient {
  public:
+  static constexpr base::ObserverListPolicy kObserverListPolicy =
+      base::ObserverListPolicy::EXISTING_ONLY;
+
   // The result type received from session manager on request to retrieve the
   // policy. Used to define the buckets for an enumerated UMA histogram.
   // Hence,
@@ -295,13 +298,6 @@ class COMPONENT_EXPORT(SESSION_MANAGER) SessionManagerClient {
       const cryptohome::AccountIdentifier& cryptohome_id,
       std::string* policy_out) = 0;
 
-  // Fetches the user policy blob for a hidden user home mount. |callback| is
-  // invoked upon completition.
-  // DEPRECATED, use RetrievePolicy() instead.
-  virtual void RetrievePolicyForUserWithoutSession(
-      const cryptohome::AccountIdentifier& cryptohome_id,
-      RetrievePolicyCallback callback) = 0;
-
   // Fetches the policy blob associated with the specified device-local account
   // from session manager.  |callback| is invoked up on completion.
   // DEPRECATED, use RetrievePolicy() instead.
@@ -375,6 +371,12 @@ class COMPONENT_EXPORT(SESSION_MANAGER) SessionManagerClient {
   virtual void SetFlagsForUser(
       const cryptohome::AccountIdentifier& cryptohome_id,
       const std::vector<std::string>& flags) = 0;
+
+  // Sets feature flags to pass next time Chrome gets restarted by the session
+  // manager.
+  virtual void SetFeatureFlagsForUser(
+      const cryptohome::AccountIdentifier& cryptohome_id,
+      const std::vector<std::string>& feature_flags) = 0;
 
   using StateKeysCallback =
       base::OnceCallback<void(const std::vector<std::string>& state_keys)>;

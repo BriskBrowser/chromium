@@ -14,7 +14,7 @@
 #include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/threading/thread_checker.h"
+#include "base/sequence_checker.h"
 #include "media/base/callback_holder.h"
 #include "media/base/decoder_buffer.h"
 #include "media/base/pipeline_status.h"
@@ -49,6 +49,7 @@ class FakeVideoDecoder : public VideoDecoder {
   bool SupportsDecryption() const override;
   bool IsPlatformDecoder() const override;
   std::string GetDisplayName() const override;
+  VideoDecoderType GetDecoderType() const override;
 
   // VideoDecoder implementation
   void Initialize(const VideoDecoderConfig& config,
@@ -95,7 +96,7 @@ class FakeVideoDecoder : public VideoDecoder {
   virtual scoped_refptr<VideoFrame> MakeVideoFrame(const DecoderBuffer& buffer);
 
   // Callback for updating |total_bytes_decoded_|.
-  void OnFrameDecoded(int buffer_size, DecodeCB decode_cb, DecodeStatus status);
+  void OnFrameDecoded(int buffer_size, DecodeCB decode_cb, Status status);
 
   // Runs |decode_cb| or puts it to |held_decode_callbacks_| depending on
   // current value of |hold_decode_|.
@@ -106,7 +107,7 @@ class FakeVideoDecoder : public VideoDecoder {
 
   void DoReset();
 
-  base::ThreadChecker thread_checker_;
+  SEQUENCE_CHECKER(sequence_checker_);
 
   const std::string decoder_name_;
   const size_t decoding_delay_;

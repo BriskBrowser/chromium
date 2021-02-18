@@ -6,8 +6,12 @@
 
 #include "base/bind.h"
 #include "base/feature_list.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_piece.h"
-#include "chrome/browser/installable/installable_manager.h"
+#include "base/strings/utf_string_conversions.h"
+#include "build/chromeos_buildflags.h"
+// TODO(b/174811949): Hide behind ChromeOS build flag.
+#include "chrome/browser/chromeos/web_applications/chrome_camera_app_ui_constants.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ssl/security_state_tab_helper.h"
 #include "chrome/browser/themes/browser_theme_pack.h"
@@ -30,6 +34,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/security_state/core/security_state.h"
 #include "components/url_formatter/url_formatter.h"
+#include "components/webapps/browser/installable/installable_manager.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
@@ -51,9 +56,9 @@
 #include "url/gurl.h"
 #include "url/origin.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/apps/icon_standardizer.h"
 #include "chrome/browser/chromeos/crostini/crostini_terminal.h"
-#include "chrome/browser/ui/app_list/icon_standardizer.h"
 #endif
 
 namespace {
@@ -101,7 +106,10 @@ constexpr gfx::Rect TERMINAL_DEFAULT_BOUNDS(gfx::Point(64, 64),
 constexpr gfx::Size TERMINAL_SETTINGS_DEFAULT_SIZE(768, 512);
 constexpr gfx::Size HELP_DEFAULT_SIZE(960, 600);
 // The height of camera app window includes the top bar height which is 32.
-constexpr gfx::Size CAMERA_WINDOW_DEFAULT_SIZE(864, 486 + 32);
+constexpr gfx::Size CAMERA_WINDOW_DEFAULT_SIZE(kChromeCameraAppDefaultWidth,
+                                               kChromeCameraAppDefaultHeight +
+                                                   32);
+constexpr gfx::Size ECHE_DEFAULT_SIZE(480, 640);
 }  // namespace
 
 // static
@@ -138,14 +146,14 @@ AppBrowserController::MaybeCreateWebAppController(Browser* browser) {
 }
 
 // static
-bool AppBrowserController::IsForWebAppBrowser(const Browser* browser) {
+bool AppBrowserController::IsWebApp(const Browser* browser) {
   return browser && browser->app_controller();
 }
 
 // static
-bool AppBrowserController::IsForWebAppBrowser(const Browser* browser,
-                                              const AppId& app_id) {
-  return IsForWebAppBrowser(browser) && browser->app_controller()->HasAppId() &&
+bool AppBrowserController::IsForWebApp(const Browser* browser,
+                                       const AppId& app_id) {
+  return IsWebApp(browser) && browser->app_controller()->HasAppId() &&
          browser->app_controller()->GetAppId() == app_id;
 }
 
@@ -205,13 +213,13 @@ bool AppBrowserController::ShouldShowCustomTabBar() const {
   if (!web_contents)
     return false;
 
-  GURL launch_url = GetAppLaunchURL();
-  base::StringPiece launch_scheme = launch_url.scheme_piece();
+  GURL start_url = GetAppStartUrl();
+  base::StringPiece start_url_scheme = start_url.scheme_piece();
 
-  bool is_internal_launch_scheme =
-      launch_scheme == extensions::kExtensionScheme ||
-      launch_scheme == content::kChromeUIScheme ||
-      launch_scheme == content::kChromeUIUntrustedScheme;
+  bool is_internal_start_url_scheme =
+      start_url_scheme == extensions::kExtensionScheme ||
+      start_url_scheme == content::kChromeUIScheme ||
+      start_url_scheme == content::kChromeUIUntrustedScheme;
 
   // The current page must be secure for us to hide the toolbar. However,
   // chrome:// launch URL apps can hide the toolbar,
@@ -220,7 +228,7 @@ bool AppBrowserController::ShouldShowCustomTabBar() const {
   // Note that the launch scheme may be insecure, but as long as the current
   // page's scheme is secure, we can hide the toolbar.
   base::StringPiece secure_page_scheme =
-      is_internal_launch_scheme ? launch_scheme : url::kHttpsScheme;
+      is_internal_start_url_scheme ? start_url_scheme : url::kHttpsScheme;
 
   auto should_show_toolbar_for_url = [&](const GURL& url) -> bool {
     // If the url is unset, it doesn't give a signal as to whether the toolbar
@@ -231,14 +239,15 @@ bool AppBrowserController::ShouldShowCustomTabBar() const {
 
     // Page URLs that are not within scope
     // (https://www.w3.org/TR/appmanifest/#dfn-within-scope) of the app
-    // corresponding to |launch_url| show the toolbar.
+    // corresponding to |start_url| show the toolbar.
     bool out_of_scope = !IsUrlInAppScope(url);
 
     if (url.scheme_piece() != secure_page_scheme) {
       // Some origins are (such as localhost) are considered secure even when
       // served over non-secure schemes. However, in order to hide the toolbar,
       // the 'considered secure' origin must also be in the app's scope.
-      return out_of_scope || !InstallableManager::IsOriginConsideredSecure(url);
+      return out_of_scope ||
+             !webapps::InstallableManager::IsOriginConsideredSecure(url);
     }
 
     if (is_for_system_web_app()) {
@@ -263,8 +272,8 @@ bool AppBrowserController::ShouldShowCustomTabBar() const {
 
   // Insecure external web sites show the toolbar.
   // Note: IsContentSecure is false until a navigation is committed.
-  if (!last_committed_url.is_empty() && !is_internal_launch_scheme &&
-      !InstallableManager::IsContentSecure(web_contents)) {
+  if (!last_committed_url.is_empty() && !is_internal_start_url_scheme &&
+      !webapps::InstallableManager::IsContentSecure(web_contents)) {
     return true;
   }
 
@@ -282,7 +291,9 @@ bool AppBrowserController::HasTitlebarMenuButton() const {
 
 bool AppBrowserController::HasTitlebarAppOriginText() const {
   // Do not show origin text for System Apps.
-  return !is_for_system_web_app();
+  bool hide = is_for_system_web_app() ||
+              base::FeatureList::IsEnabled(features::kHideWebAppOriginText);
+  return !hide;
 }
 
 bool AppBrowserController::HasTitlebarContentSettings() const {
@@ -301,8 +312,7 @@ std::vector<PageActionIconType> AppBrowserController::GetTitleBarPageActions()
   types_enabled.push_back(PageActionIconType::kManagePasswords);
   types_enabled.push_back(PageActionIconType::kTranslate);
   types_enabled.push_back(PageActionIconType::kZoom);
-  if (base::FeatureList::IsEnabled(blink::features::kNativeFileSystemAPI))
-    types_enabled.push_back(PageActionIconType::kNativeFileSystemAccess);
+  types_enabled.push_back(PageActionIconType::kFileSystemAccess);
   types_enabled.push_back(PageActionIconType::kCookieControls);
   types_enabled.push_back(PageActionIconType::kLocalCardMigration);
   types_enabled.push_back(PageActionIconType::kSaveCard);
@@ -321,6 +331,18 @@ AppBrowserController::GetTabMenuModelFactory() const {
     return std::make_unique<TerminalTabMenuModelFactory>();
   }
   return nullptr;
+}
+
+bool AppBrowserController::IsWindowControlsOverlayEnabled() const {
+  return false;
+}
+
+base::string16 AppBrowserController::GetLaunchFlashText() const {
+  if (base::FeatureList::IsEnabled(
+          features::kDesktopPWAsFlashAppNameInsteadOfOrigin)) {
+    return GetAppShortName();
+  }
+  return GetFormattedUrlOrigin();
 }
 
 bool AppBrowserController::IsHostedApp() const {
@@ -368,13 +390,18 @@ gfx::Rect AppBrowserController::GetDefaultBounds() const {
         display::Screen::GetScreen()->GetDisplayForNewWindows().work_area();
     bounds.ClampToCenteredSize(CAMERA_WINDOW_DEFAULT_SIZE);
     return bounds;
+  } else if (system_app_type_ == SystemAppType::ECHE) {
+    gfx::Rect bounds =
+        display::Screen::GetScreen()->GetDisplayForNewWindows().work_area();
+    bounds.ClampToCenteredSize(ECHE_DEFAULT_SIZE);
+    return bounds;
   }
   return gfx::Rect();
 }
 
 bool AppBrowserController::ShouldShowTabContextMenuShortcut(
     int command_id) const {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // TODO(crbug.com/1061822): Generalize ShouldShowTabContextMenuShortcut as
   // a SystemWebApp capability.
   if (system_app_type_ == SystemAppType::TERMINAL &&
@@ -399,27 +426,15 @@ void AppBrowserController::DidStartNavigation(
 void AppBrowserController::DOMContentLoaded(
     content::RenderFrameHost* render_frame_host) {
   // We hold off changing theme color for a new tab until the page is loaded.
-  DidChangeThemeColor();
+  UpdateThemePack();
 }
 
 void AppBrowserController::DidChangeThemeColor() {
-  base::Optional<SkColor> theme_color = GetThemeColor();
-  if (theme_color == last_theme_color_)
-    return;
-  last_theme_color_ = theme_color;
   UpdateThemePack();
-  browser_->window()->UserChangedTheme(BrowserThemeChangeType::kWebAppTheme);
 }
 
 void AppBrowserController::OnBackgroundColorChanged() {
-  if (!has_tab_strip_)
-    return;
-  base::Optional<SkColor> background_color = GetBackgroundColor();
-  if (background_color == last_background_color_)
-    return;
-  last_background_color_ = background_color;
   UpdateThemePack();
-  browser_->window()->UserChangedTheme(BrowserThemeChangeType::kWebAppTheme);
 }
 
 base::Optional<SkColor> AppBrowserController::GetThemeColor() const {
@@ -456,7 +471,22 @@ base::string16 AppBrowserController::GetTitle() const {
 
   content::NavigationEntry* entry =
       web_contents->GetController().GetVisibleEntry();
-  return entry ? entry->GetTitle() : base::string16();
+  base::string16 raw_title = entry ? entry->GetTitle() : base::string16();
+
+  if (!base::FeatureList::IsEnabled(features::kPrefixWebAppWindowsWithAppName))
+    return raw_title;
+
+  base::string16 app_name =
+      base::ASCIIToUTF16(WebAppProvider::Get(browser()->profile())
+                             ->registrar()
+                             .GetAppShortName(GetAppId()));
+  if (base::StartsWith(raw_title, app_name)) {
+    return raw_title;
+  } else if (raw_title.empty()) {
+    return app_name;
+  } else {
+    return base::StrCat({app_name, base::ASCIIToUTF16(" - "), raw_title});
+  }
 }
 
 void AppBrowserController::OnTabStripModelChanged(
@@ -470,7 +500,7 @@ void AppBrowserController::OnTabStripModelChanged(
     // until page loads. See |DOMContentLoaded|.
     if (change.type() != TabStripModelChange::kInserted ||
         tab_strip_model->count() == 1) {
-      DidChangeThemeColor();
+      UpdateThemePack();
     }
   }
   if (change.type() == TabStripModelChange::kInserted) {
@@ -517,9 +547,9 @@ void AppBrowserController::OnTabRemoved(content::WebContents* contents) {}
 gfx::ImageSkia AppBrowserController::GetFallbackAppIcon() const {
   gfx::ImageSkia page_icon = browser()->GetCurrentPageIcon().AsImageSkia();
   if (!page_icon.isNull()) {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     if (base::FeatureList::IsEnabled(features::kAppServiceAdaptiveIcon))
-      return app_list::CreateStandardIconImage(page_icon);
+      return apps::CreateStandardIconImage(page_icon);
 #endif
     return page_icon;
   }
@@ -543,38 +573,37 @@ void AppBrowserController::UpdateThemePack() {
   base::Optional<SkColor> theme_color = GetThemeColor();
 
   AutogeneratedThemeColors colors;
-  // TODO(crbug.com/1114542): Make terminal use page background color to set
-  // active tab color and remove this branch.
-  if (system_app_type_ == SystemAppType::TERMINAL) {
-    if (!theme_color) {
-      theme_pack_ = nullptr;
-      return;
-    }
-
-    // For terminal app, active tab gets theme color.
-    colors.frame_color = GetAltColor(*theme_color);
-    colors.active_tab_color = *theme_color;
-    colors.ntp_color = *theme_color;
-  } else {
-    // TODO(crbug.com/1053823): Add tests for theme properties being set in this
-    // branch.
-    base::Optional<SkColor> background_color = GetBackgroundColor();
-    if (!theme_color && !background_color) {
-      theme_pack_ = nullptr;
-      return;
-    }
-
-    if (!theme_color)
-      theme_color = GetAltColor(*background_color);
-    else if (!background_color)
-      background_color = GetAltColor(*theme_color);
-
-    // For regular web apps, frame gets theme color and active tab gets
-    // background color.
-    colors.frame_color = *theme_color;
-    colors.active_tab_color = *background_color;
-    colors.ntp_color = *background_color;
+  // TODO(crbug.com/1053823): Add tests for theme properties being set in this
+  // branch.
+  base::Optional<SkColor> background_color = GetBackgroundColor();
+  if (theme_color == last_theme_color_ &&
+      background_color == last_background_color_) {
+    return;
   }
+  last_theme_color_ = theme_color;
+  last_background_color_ = background_color;
+
+  bool no_custom_colors = !theme_color && !background_color;
+  bool non_tabbed_no_frame_color = !has_tab_strip_ && !theme_color;
+  if (no_custom_colors || non_tabbed_no_frame_color) {
+    theme_pack_ = nullptr;
+    if (browser_->window()) {
+      browser_->window()->UserChangedTheme(
+          BrowserThemeChangeType::kWebAppTheme);
+    }
+    return;
+  }
+
+  if (!theme_color)
+    theme_color = GetAltColor(*background_color);
+  else if (!background_color)
+    background_color = GetAltColor(*theme_color);
+
+  // For regular web apps, frame gets theme color and active tab gets
+  // background color.
+  colors.frame_color = *theme_color;
+  colors.active_tab_color = *background_color;
+  colors.ntp_color = *background_color;
 
   colors.frame_text_color =
       color_utils::GetColorWithMaxContrast(colors.frame_color);
@@ -584,6 +613,8 @@ void AppBrowserController::UpdateThemePack() {
   theme_pack_ = base::MakeRefCounted<BrowserThemePack>(
       CustomThemeSupplier::AUTOGENERATED);
   BrowserThemePack::BuildFromColors(colors, theme_pack_.get());
+  if (browser_->window())
+    browser_->window()->UserChangedTheme(BrowserThemeChangeType::kWebAppTheme);
 }
 
 }  // namespace web_app

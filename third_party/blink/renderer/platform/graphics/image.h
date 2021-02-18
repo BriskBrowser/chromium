@@ -30,11 +30,11 @@
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
+#include "third_party/blink/public/mojom/webpreferences/web_preferences.mojom-blink.h"
 #include "third_party/blink/renderer/platform/geometry/float_point.h"
 #include "third_party/blink/renderer/platform/geometry/float_size.h"
 #include "third_party/blink/renderer/platform/geometry/int_rect.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_types.h"
-#include "third_party/blink/renderer/platform/graphics/image_animation_policy.h"
 #include "third_party/blink/renderer/platform/graphics/image_observer.h"
 #include "third_party/blink/renderer/platform/graphics/image_orientation.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_image.h"
@@ -61,6 +61,7 @@ class GraphicsContext;
 class Image;
 class WebGraphicsContext3DProvider;
 class WebGraphicsContext3DProviderWrapper;
+class DarkModeImageCache;
 
 class PLATFORM_EXPORT Image : public ThreadSafeRefCounted<Image> {
   friend class GeneratedImage;
@@ -106,8 +107,9 @@ class PLATFORM_EXPORT Image : public ThreadSafeRefCounted<Image> {
   virtual bool HasIntrinsicSize() const { return true; }
 
   virtual IntSize Size() const = 0;
+  virtual IntSize DensityCorrectedSize() const { return Size(); }
   IntSize Size(RespectImageOrientationEnum) const;
-  virtual IntSize SizeRespectingOrientation() const { return Size(); }
+  virtual IntSize PreferredDisplaySize() const { return Size(); }
   virtual FloatSize SizeAsFloat(
       RespectImageOrientationEnum respect_orientation) const {
     return FloatSize(Size(respect_orientation));
@@ -154,9 +156,9 @@ class PLATFORM_EXPORT Image : public ThreadSafeRefCounted<Image> {
   virtual bool MaybeAnimated() { return false; }
 
   // Set animationPolicy
-  virtual void SetAnimationPolicy(ImageAnimationPolicy) {}
-  virtual ImageAnimationPolicy AnimationPolicy() {
-    return kImageAnimationPolicyAllowed;
+  virtual void SetAnimationPolicy(mojom::blink::ImageAnimationPolicy) {}
+  virtual mojom::blink::ImageAnimationPolicy AnimationPolicy() {
+    return mojom::blink::ImageAnimationPolicy::kImageAnimationPolicyAllowed;
   }
 
   // Advances an animated image. For BitmapImage (e.g., animated gifs) this
@@ -210,8 +212,10 @@ class PLATFORM_EXPORT Image : public ThreadSafeRefCounted<Image> {
   // Most image types have the default orientation. Only bitmap derived image
   // types need to override this method.
   virtual ImageOrientation CurrentFrameOrientation() const {
-    return kDefaultImageOrientation;
+    return ImageOrientationEnum::kDefault;
   }
+
+  virtual IntSize CurrentFrameDensityCorrectedSize() const { return IntSize(); }
 
   // Correct the src rect (rotate and maybe translate it) to account for a
   // non-default image orientation. The image must have non-default orientation
@@ -230,6 +234,7 @@ class PLATFORM_EXPORT Image : public ThreadSafeRefCounted<Image> {
                     const cc::PaintFlags&,
                     const FloatRect& dst_rect,
                     const FloatRect& src_rect,
+                    const SkSamplingOptions&,
                     RespectImageOrientationEnum,
                     ImageClampingMode,
                     ImageDecodingMode) = 0;
@@ -251,6 +256,8 @@ class PLATFORM_EXPORT Image : public ThreadSafeRefCounted<Image> {
 
   // Returns an SkBitmap that is a copy of the image's current frame.
   SkBitmap AsSkBitmapForCurrentFrame(RespectImageOrientationEnum);
+
+  DarkModeImageCache* GetDarkModeImageCache();
 
  protected:
   Image(ImageObserver* = nullptr, bool is_multipart = false);
@@ -284,6 +291,7 @@ class PLATFORM_EXPORT Image : public ThreadSafeRefCounted<Image> {
   WeakPersistent<ImageObserver> image_observer_;
   PaintImage::Id stable_image_id_;
   const bool is_multipart_;
+  std::unique_ptr<DarkModeImageCache> dark_mode_image_cache_;
   DISALLOW_COPY_AND_ASSIGN(Image);
 };
 

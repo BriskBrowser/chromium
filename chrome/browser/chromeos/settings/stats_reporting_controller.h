@@ -7,9 +7,11 @@
 
 #include "base/callback_list.h"
 #include "base/memory/weak_ptr.h"
+#include "base/scoped_observation.h"
 #include "base/sequence_checker.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
+#include "components/ownership/owner_settings_service.h"
 
 class PrefRegistrySimple;
 class PrefService;
@@ -39,7 +41,8 @@ namespace chromeos {
 // IsEnabled will return the pending value until ownership is taken and the
 // pending value is written - from then on it will return the signed, stored
 // value from CrosSettings.
-class StatsReportingController {
+class StatsReportingController
+    : public ownership::OwnerSettingsService::Observer {
  public:
   // Manage singleton instance.
   static void Initialize(PrefService* local_state);
@@ -61,19 +64,29 @@ class StatsReportingController {
   bool IsEnabled();
 
   // Add an observer |callback| for changes to the setting.
-  using ObserverSubscription = base::CallbackList<void(void)>::Subscription;
-  std::unique_ptr<ObserverSubscription> AddObserver(
+  base::CallbackListSubscription AddObserver(
       const base::RepeatingClosure& callback) WARN_UNUSED_RESULT;
 
   // Called once ownership is taken, |service| is the service of the user taking
   // ownership.
   void OnOwnershipTaken(ownership::OwnerSettingsService* service);
 
+  // ownership::OwnerSettingsService::Observer implementation:
+  void OnSignedPolicyStored(bool success) override;
+
+  // Sets the callback which is called once when the |enabled| value is
+  // propagated to the device settings. Support only one callback at a time.
+  // CHECKs if the second callback is being set.
+  // It's different from the |AddObserver| API. Observers are called
+  // immediately after |SetEnabled| is called with the different |enabled|
+  // setting.
+  void SetOnDeviceSettingsStoredCallBack(base::OnceClosure callback);
+
  private:
   friend class StatsReportingControllerTest;
 
   explicit StatsReportingController(PrefService* local_state);
-  ~StatsReportingController();
+  ~StatsReportingController() override;
 
   // Delegates immediately to SetWithService if |service| is ready, otherwise
   // runs SetWithService asynchronously once |service| is ready.
@@ -124,7 +137,20 @@ class StatsReportingController {
   PrefService* local_state_;
   bool value_notified_to_observers_;
   base::CallbackList<void(void)> callback_list_;
-  std::unique_ptr<CrosSettings::ObserverSubscription> setting_subscription_;
+  base::CallbackListSubscription setting_subscription_;
+
+  // Indicates if the setting value is in the process of being set with the
+  // service. There is a small period of time needed between start saving the
+  // value and before the value is stored correctly in the service. We should
+  // not use the setting value from the service if it is still in the process
+  // of being saved.
+  bool is_value_being_set_with_service_ = false;
+
+  base::ScopedObservation<ownership::OwnerSettingsService,
+                          ownership::OwnerSettingsService::Observer>
+      owner_settings_service_observation_{this};
+
+  base::OnceClosure on_device_settings_stored_callback_;
 
   base::WeakPtrFactory<StatsReportingController> weak_factory_{this};
 
@@ -132,5 +158,10 @@ class StatsReportingController {
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove when moved to ash.
+namespace ash {
+using ::chromeos::StatsReportingController;
+}
 
 #endif  // CHROME_BROWSER_CHROMEOS_SETTINGS_STATS_REPORTING_CONTROLLER_H_

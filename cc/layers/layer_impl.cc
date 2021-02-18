@@ -34,14 +34,15 @@
 #include "cc/trees/transform_node.h"
 #include "components/viz/client/client_resource_provider.h"
 #include "components/viz/common/frame_sinks/copy_output_request.h"
+#include "components/viz/common/quads/compositor_render_pass.h"
 #include "components/viz/common/quads/debug_border_draw_quad.h"
-#include "components/viz/common/quads/render_pass.h"
 #include "components/viz/common/traced_value.h"
 #include "ui/gfx/geometry/point_conversions.h"
 #include "ui/gfx/geometry/quad_f.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/geometry/vector2d_conversions.h"
+#include "ui/gfx/transform_util.h"
 
 namespace cc {
 LayerImpl::LayerImpl(LayerTreeImpl* tree_impl,
@@ -142,9 +143,9 @@ void LayerImpl::PopulateSharedQuadState(viz::SharedQuadState* state,
   EffectNode* effect_node = GetEffectTree().Node(effect_tree_index_);
   state->SetAll(draw_properties_.target_space_transform, gfx::Rect(bounds()),
                 draw_properties_.visible_layer_rect,
-                draw_properties_.rounded_corner_bounds,
-                draw_properties_.clip_rect, draw_properties_.is_clipped,
-                contents_opaque, draw_properties_.opacity,
+                draw_properties_.mask_filter_info, draw_properties_.clip_rect,
+                draw_properties_.is_clipped, contents_opaque,
+                draw_properties_.opacity,
                 effect_node->HasRenderSurface() ? SkBlendMode::kSrcOver
                                                 : effect_node->blend_mode,
                 GetSortingContextId());
@@ -178,9 +179,9 @@ void LayerImpl::PopulateScaledSharedQuadStateWithContentRects(
 
   EffectNode* effect_node = GetEffectTree().Node(effect_tree_index_);
   state->SetAll(scaled_draw_transform, content_rect, visible_content_rect,
-                draw_properties().rounded_corner_bounds,
-                draw_properties().clip_rect, draw_properties().is_clipped,
-                contents_opaque, draw_properties().opacity,
+                draw_properties().mask_filter_info, draw_properties().clip_rect,
+                draw_properties().is_clipped, contents_opaque,
+                draw_properties().opacity,
                 effect_node->HasRenderSurface() ? SkBlendMode::kSrcOver
                                                 : effect_node->blend_mode,
                 GetSortingContextId());
@@ -232,7 +233,7 @@ void LayerImpl::GetDebugBorderProperties(SkColor* color, float* width) const {
 }
 
 void LayerImpl::AppendDebugBorderQuad(
-    viz::RenderPass* render_pass,
+    viz::CompositorRenderPass* render_pass,
     const gfx::Rect& quad_rect,
     const viz::SharedQuadState* shared_quad_state,
     AppendQuadsData* append_quads_data) const {
@@ -244,7 +245,7 @@ void LayerImpl::AppendDebugBorderQuad(
 }
 
 void LayerImpl::AppendDebugBorderQuad(
-    viz::RenderPass* render_pass,
+    viz::CompositorRenderPass* render_pass,
     const gfx::Rect& quad_rect,
     const viz::SharedQuadState* shared_quad_state,
     AppendQuadsData* append_quads_data,
@@ -555,20 +556,6 @@ void LayerImpl::SetSafeOpaqueBackgroundColor(SkColor background_color) {
   safe_opaque_background_color_ = background_color;
 }
 
-SkColor LayerImpl::SafeOpaqueBackgroundColor() const {
-  if (contents_opaque()) {
-    // TODO(936906): We should uncomment this DCHECK, since the
-    // |safe_opaque_background_color_| could be transparent if it is never set
-    // (the default is 0). But to do that, one test needs to be fixed.
-    // DCHECK_EQ(SkColorGetA(safe_opaque_background_color_), SK_AlphaOPAQUE);
-    return safe_opaque_background_color_;
-  }
-  SkColor color = background_color();
-  if (SkColorGetA(color) == 255)
-    color = SK_ColorTRANSPARENT;
-  return color;
-}
-
 void LayerImpl::SetContentsOpaque(bool opaque) {
   contents_opaque_ = opaque;
   contents_opaque_for_text_ = opaque;
@@ -812,7 +799,7 @@ float LayerImpl::GetIdealContentsScale() const {
 
   const auto& transform = ScreenSpaceTransform();
   if (transform.HasPerspective()) {
-    float scale = MathUtil::ComputeApproximateMaxScale(transform);
+    float scale = gfx::ComputeApproximateMaxScale(transform);
 
     const int kMaxTilesToCoverLayerDimension = 5;
     // Cap the scale in a way that it should be covered by at most
@@ -842,7 +829,7 @@ float LayerImpl::GetIdealContentsScale() const {
   }
 
   gfx::Vector2dF transform_scales =
-      MathUtil::ComputeTransform2dScaleComponents(transform, default_scale);
+      gfx::ComputeTransform2dScaleComponents(transform, default_scale);
 
   return GetPreferredRasterScale(transform_scales);
 }

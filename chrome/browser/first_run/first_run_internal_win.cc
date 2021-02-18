@@ -71,8 +71,9 @@ bool LaunchSetupForEula(const base::FilePath::StringType& value,
 // first run in the "other" environment (desktop or metro).
 bool IsEULANotAccepted(installer::InitialPreferences* install_prefs) {
   bool value = false;
-  if (install_prefs->GetBool(installer::master_preferences::kRequireEula,
-          &value) && value) {
+  if (install_prefs->GetBool(installer::initial_preferences::kRequireEula,
+                             &value) &&
+      value) {
     base::FilePath eula_sentinel;
     // Be conservative and show the EULA if the path to the sentinel can't be
     // determined.
@@ -120,11 +121,6 @@ void DoPostImportPlatformSpecificTasks(Profile* /* profile */) {
   }
 }
 
-bool IsFirstRunSentinelPresent() {
-  base::FilePath sentinel;
-  return !GetFirstRunSentinelFilePath(&sentinel) || base::PathExists(sentinel);
-}
-
 bool ShowPostInstallEULAIfNeeded(installer::InitialPreferences* install_prefs) {
   if (IsEULANotAccepted(install_prefs)) {
     // Show the post-installation EULA. This is done by setup.exe and the
@@ -161,7 +157,7 @@ base::FilePath InitialPrefsPath() {
   base::FilePath initial_prefs;
   if (!base::PathService::Get(base::DIR_EXE, &initial_prefs))
     return base::FilePath();
-  return initial_prefs.AppendASCII(installer::kDefaultMasterPrefs);
+  return initial_prefs.AppendASCII(installer::kLegacyInitialPrefs);
 }
 
 }  // namespace internal

@@ -2,6 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import {background} from './background.m.js';
+// #import {test} from './test_util_base.m.js';
+// #import {launcher} from './launcher.m.js';
+// #import {util} from '../../common/js/util.m.js';
+// #import {ProgressCenterItem} from '../../common/js/progress_center_common.m.js';
+// clang-format on
+
 /**
  * Opens the main Files app's window and waits until it is ready.
  *
@@ -281,7 +289,7 @@ test.util.sync.getTreeItems = contentWindow => {
  * @return {!string} The URL of the last URL visited.
  */
 test.util.sync.getLastVisitedURL = contentWindow => {
-  return contentWindow.util.getLastVisitedURL();
+  return contentWindow.fileManager.getLastVisitedURL();
 };
 
 /**
@@ -449,26 +457,6 @@ test.util.sync.replyExecutedTask = (contentWindow, taskId, responseArgs) => {
 };
 
 /**
- * Runs the 'Move to profileId' menu.
- *
- * @param {Window} contentWindow Window to be tested.
- * @param {string} profileId Destination profile's ID.
- * @return {boolean} True if the menu is found and run.
- */
-test.util.sync.runVisitDesktopMenu = (contentWindow, profileId) => {
-  const list = contentWindow.document.querySelectorAll('.visit-desktop');
-  for (let i = 0; i < list.length; ++i) {
-    if (list[i].label.indexOf(profileId) != -1) {
-      const activateEvent = contentWindow.document.createEvent('Event');
-      activateEvent.initEvent('activate', false, false);
-      list[i].dispatchEvent(activateEvent);
-      return true;
-    }
-  }
-  return false;
-};
-
-/**
  * Calls the unload handler for the window.
  * @param {Window} contentWindow Window to be tested.
  */
@@ -485,6 +473,10 @@ test.util.sync.unload = contentWindow => {
 test.util.sync.getBreadcrumbPath = contentWindow => {
   const breadcrumb =
       contentWindow.document.querySelector('#location-breadcrumbs');
+  if (!breadcrumb) {
+    return '';
+  }
+
   let path = '';
 
   if (util.isFilesNg()) {
@@ -891,6 +883,33 @@ test.util.sync.staticFakeCounter = (contentWindow, fakedApi) => {
       test.util.foregroundReplacedObjects_[contentWindow.appID][fakedApi];
   return fake.callCounter_;
 };
+
+/**
+ * Send progress item to Foreground page to display.
+ * @param {string} id Progress item id.
+ * @param {ProgressItemType} type Type of progress item.
+ * @param {ProgressItemState} state State of the progress item.
+ * @param {string} message Message of the progress item.
+ * @param {number} remainingTime The remaining time of the progress in second.
+ * @param {number} progressMax Max value of the progress.
+ * @param {number} progressValue Current value of the progress.
+ * @param {number} count Number of items being processed.
+ */
+test.util.sync.sendProgressItem =
+    (id, type, state, message, remainingTime, progressMax = 1,
+     progressValue = 0, count = 1) => {
+      const item = new ProgressCenterItem();
+      item.id = id;
+      item.type = type;
+      item.state = state;
+      item.message = message;
+      item.remainingTime = remainingTime;
+      item.progressMax = progressMax;
+      item.progressValue = progressValue;
+      item.itemCount = count;
+
+      background.progressCenter.updateItem(item);
+    };
 
 // Register the test utils.
 test.util.registerRemoteTestUtils();

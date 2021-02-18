@@ -11,11 +11,11 @@
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
+#include "base/containers/contains.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -281,6 +281,13 @@ bool Window::IsVisible() const {
   // after, even though the client may decide to animate the hide effect (and
   // so the layer will be visible for some time after Hide() is called).
   return visible_ ? layer()->IsDrawn() : false;
+}
+
+ScopedWindowCaptureRequest Window::MakeWindowCapturable() {
+  DCHECK(!IsRootWindow()) << "Root windows can already be captured using their "
+                             "FrameSinkId; no need to call this.";
+
+  return ScopedWindowCaptureRequest(this);
 }
 
 gfx::Rect Window::GetBoundsInRootWindow() const {
@@ -626,7 +633,7 @@ Window* Window::GetEventHandlerForPoint(const gfx::Point& local_point) {
 
     // The client may not allow events to be processed by certain subtrees.
     client::EventClient* client = client::GetEventClient(GetRootWindow());
-    if (client && !client->CanProcessEventsWithinSubtree(child))
+    if (client && !client->GetCanProcessEventsWithinSubtree(child))
       continue;
 
     if (delegate_ && !delegate_->ShouldDescendIntoChildForEventHandling(
@@ -693,7 +700,7 @@ bool Window::CanFocus() const {
   // The client may forbid certain windows from receiving focus at a given point
   // in time.
   client::EventClient* client = client::GetEventClient(GetRootWindow());
-  if (client && !client->CanProcessEventsWithinSubtree(this))
+  if (client && !client->GetCanProcessEventsWithinSubtree(this))
     return false;
 
   return parent_->CanFocus();
@@ -759,10 +766,8 @@ void Window::OnDeviceScaleFactorChanged(float old_device_scale_factor,
       IsEmbeddingExternalContent()) {
     last_device_scale_factor_ = new_device_scale_factor;
     parent_local_surface_id_allocator_->GenerateId();
-    if (frame_sink_) {
-      frame_sink_->SetLocalSurfaceId(
-          GetCurrentLocalSurfaceIdAllocation().local_surface_id());
-    }
+    if (frame_sink_)
+      frame_sink_->SetLocalSurfaceId(GetCurrentLocalSurfaceId());
   }
 
   ScopedCursorHider hider(this);
@@ -1185,7 +1190,7 @@ std::unique_ptr<cc::LayerTreeFrameSink> Window::CreateLayerTreeFrameSink() {
           &params);
   frame_sink_ = frame_sink->GetWeakPtr();
   AllocateLocalSurfaceId();
-  DCHECK(GetLocalSurfaceIdAllocation().local_surface_id().is_valid());
+  DCHECK(GetLocalSurfaceId().is_valid());
 #if DCHECK_IS_ON()
   created_layer_tree_frame_sink_ = true;
 #endif
@@ -1193,8 +1198,7 @@ std::unique_ptr<cc::LayerTreeFrameSink> Window::CreateLayerTreeFrameSink() {
 }
 
 viz::SurfaceId Window::GetSurfaceId() {
-  return viz::SurfaceId(GetFrameSinkId(),
-                        GetLocalSurfaceIdAllocation().local_surface_id());
+  return viz::SurfaceId(GetFrameSinkId(), GetLocalSurfaceId());
 }
 
 void Window::AllocateLocalSurfaceId() {
@@ -1212,10 +1216,10 @@ viz::ScopedSurfaceIdAllocator Window::GetSurfaceIdAllocator(
                                        std::move(allocation_task));
 }
 
-const viz::LocalSurfaceIdAllocation& Window::GetLocalSurfaceIdAllocation() {
+const viz::LocalSurfaceId& Window::GetLocalSurfaceId() {
   if (!parent_local_surface_id_allocator_)
     AllocateLocalSurfaceId();
-  return GetCurrentLocalSurfaceIdAllocation();
+  return GetCurrentLocalSurfaceId();
 }
 
 void Window::InvalidateLocalSurfaceId() {
@@ -1225,11 +1229,11 @@ void Window::InvalidateLocalSurfaceId() {
 }
 
 void Window::UpdateLocalSurfaceIdFromEmbeddedClient(
-    const base::Optional<viz::LocalSurfaceIdAllocation>&
-        embedded_client_local_surface_id_allocation) {
-  if (embedded_client_local_surface_id_allocation) {
+    const base::Optional<viz::LocalSurfaceId>&
+        embedded_client_local_surface_id) {
+  if (embedded_client_local_surface_id) {
     parent_local_surface_id_allocator_->UpdateFromChild(
-        *embedded_client_local_surface_id_allocation);
+        *embedded_client_local_surface_id);
     UpdateLocalSurfaceId();
   } else {
     AllocateLocalSurfaceId();
@@ -1312,8 +1316,7 @@ void Window::OnLayerBoundsChanged(const gfx::Rect& old_bounds,
       IsEmbeddingExternalContent()) {
     parent_local_surface_id_allocator_->GenerateId();
     if (frame_sink_) {
-      frame_sink_->SetLocalSurfaceId(
-          GetCurrentLocalSurfaceIdAllocation().local_surface_id());
+      frame_sink_->SetLocalSurfaceId(GetCurrentLocalSurfaceId());
     }
   }
 
@@ -1362,7 +1365,7 @@ bool Window::CanAcceptEvent(const ui::Event& event) {
   // The client may forbid certain windows from receiving events at a given
   // point in time.
   client::EventClient* client = client::GetEventClient(GetRootWindow());
-  if (client && !client->CanProcessEventsWithinSubtree(this))
+  if (client && !client->GetCanProcessEventsWithinSubtree(this))
     return false;
 
   // We need to make sure that a touch cancel event and any gesture events it
@@ -1417,6 +1420,18 @@ gfx::PointF Window::GetScreenLocationF(const ui::LocatedEvent& event) const {
   return screen_location;
 }
 
+std::unique_ptr<ui::Layer> Window::ReleaseLayer() {
+  if (number_of_capture_requests_) {
+    // Before we release our own layer, if this window was marked for capture,
+    // we need to reset the SubtreeCaptureId on that layer as it will no longer
+    // be associated with us.
+    DCHECK(subtree_capture_id_.is_valid());
+    if (layer())
+      layer()->SetSubtreeCaptureId(viz::SubtreeCaptureId());
+  }
+  return LayerOwner::ReleaseLayer();
+}
+
 std::unique_ptr<ui::Layer> Window::RecreateLayer() {
   WindowOcclusionTracker::ScopedPause pause_occlusion_tracking;
 
@@ -1433,6 +1448,12 @@ std::unique_ptr<ui::Layer> Window::RecreateLayer() {
   // by a frame sent to the frame sink.
   if (GetFrameSinkId().is_valid() && old_layer)
     AllocateLocalSurfaceId();
+
+  // The old layer subtree must no longer be capturable.
+  // Note that we don't need to worry about the newly recreated layer since
+  // Window::SetLayer() will have taken care of it already.
+  if (number_of_capture_requests_ && old_layer)
+    old_layer->SetSubtreeCaptureId(viz::SubtreeCaptureId());
 
   // Observers are guaranteed to be notified when an opacity or transform
   // animation ends.
@@ -1453,6 +1474,17 @@ std::unique_ptr<ui::Layer> Window::RecreateLayer() {
     observer.OnWindowLayerRecreated(this);
 
   return old_layer;
+}
+
+void Window::SetLayer(std::unique_ptr<ui::Layer> alayer) {
+  LayerOwner::SetLayer(std::move(alayer));
+  if (number_of_capture_requests_) {
+    // If this window was marked for capture before, then the new layer that we
+    // own now should be given the current SubtreeCaptureId that we have.
+    DCHECK(subtree_capture_id_.is_valid());
+    if (layer())
+      layer()->SetSubtreeCaptureId(subtree_capture_id_);
+  }
 }
 
 void Window::OnFirstSurfaceActivation(const viz::SurfaceInfo& surface_info) {
@@ -1500,19 +1532,44 @@ void Window::UnregisterFrameSinkId() {
 void Window::UpdateLocalSurfaceId() {
   last_device_scale_factor_ = ui::GetScaleFactorForNativeView(this);
   if (frame_sink_) {
-    frame_sink_->SetLocalSurfaceId(
-        GetCurrentLocalSurfaceIdAllocation().local_surface_id());
+    frame_sink_->SetLocalSurfaceId(GetCurrentLocalSurfaceId());
   }
 }
 
-const viz::LocalSurfaceIdAllocation&
-Window::GetCurrentLocalSurfaceIdAllocation() const {
-  return parent_local_surface_id_allocator_
-      ->GetCurrentLocalSurfaceIdAllocation();
+const viz::LocalSurfaceId& Window::GetCurrentLocalSurfaceId() const {
+  return parent_local_surface_id_allocator_->GetCurrentLocalSurfaceId();
 }
 
 bool Window::IsEmbeddingExternalContent() const {
   return parent_local_surface_id_allocator_.get() != nullptr;
+}
+
+void Window::OnScopedWindowCaptureRequestAdded() {
+  if (++number_of_capture_requests_ == 1) {
+    DCHECK(!subtree_capture_id_.is_valid());
+    DCHECK(!layer() || !layer()->GetSubtreeCaptureId().is_valid());
+
+    subtree_capture_id_ =
+        Env::GetInstance()->context_factory()->AllocateSubtreeCaptureId();
+    if (layer())
+      layer()->SetSubtreeCaptureId(subtree_capture_id_);
+  }
+
+  DCHECK(subtree_capture_id_.is_valid());
+}
+
+void Window::OnScopedWindowCaptureRequestRemoved() {
+  DCHECK(subtree_capture_id_.is_valid());
+  DCHECK(number_of_capture_requests_);
+
+  --number_of_capture_requests_;
+  DCHECK_GE(number_of_capture_requests_, 0);
+
+  if (number_of_capture_requests_ == 0) {
+    subtree_capture_id_ = viz::SubtreeCaptureId();
+    if (layer())
+      layer()->SetSubtreeCaptureId(subtree_capture_id_);
+  }
 }
 
 }  // namespace aura

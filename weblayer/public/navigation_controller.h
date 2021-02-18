@@ -19,6 +19,7 @@ class NavigationController {
   // |NavigationController::LoadURLParams|.
   struct NavigateParams {
     bool should_replace_current_entry = false;
+    bool enable_auto_play = false;
   };
 
   virtual ~NavigationController() = default;

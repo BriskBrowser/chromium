@@ -4,11 +4,11 @@
 
 #include "components/viz/common/quads/quad_list.h"
 
+#include "components/viz/common/quads/compositor_render_pass_draw_quad.h"
 #include "components/viz/common/quads/debug_border_draw_quad.h"
 #include "components/viz/common/quads/draw_quad.h"
 #include "components/viz/common/quads/largest_draw_quad.h"
 #include "components/viz/common/quads/picture_draw_quad.h"
-#include "components/viz/common/quads/render_pass_draw_quad.h"
 #include "components/viz/common/quads/shared_quad_state.h"
 #include "components/viz/common/quads/solid_color_draw_quad.h"
 #include "components/viz/common/quads/stream_video_draw_quad.h"
@@ -33,19 +33,6 @@ QuadList::QuadList(size_t default_size_to_reserve)
     : ListContainer<DrawQuad>(LargestDrawQuadAlignment(),
                               LargestDrawQuadSize(),
                               default_size_to_reserve) {}
-
-void QuadList::ReplaceExistingQuadWithOpaqueTransparentSolidColor(Iterator at) {
-  // In order to fill the backbuffer with transparent black, the replacement
-  // solid color quad needs to set |needs_blending| to false, and
-  // ShouldDrawWithBlending() returns false so it is drawn without blending.
-  const gfx::Rect rect = at->rect;
-  bool needs_blending = false;
-  const SharedQuadState* shared_quad_state = at->shared_quad_state;
-
-  auto* replacement = QuadList::ReplaceExistingElement<SolidColorDrawQuad>(at);
-  replacement->SetAll(shared_quad_state, rect, rect /* visible_rect */,
-                      needs_blending, SK_ColorTRANSPARENT, true);
-}
 
 QuadList::Iterator QuadList::InsertCopyBeforeDrawQuad(Iterator at,
                                                       size_t count) {
@@ -98,7 +85,7 @@ QuadList::Iterator QuadList::InsertCopyBeforeDrawQuad(Iterator at,
     }
     // RenderPass quads should not be copied.
     case DrawQuad::Material::kAggregatedRenderPass:
-    case DrawQuad::Material::kRenderPass:
+    case DrawQuad::Material::kCompositorRenderPass:
     case DrawQuad::Material::kInvalid:
       NOTREACHED();  // Invalid DrawQuad material.
       return at;

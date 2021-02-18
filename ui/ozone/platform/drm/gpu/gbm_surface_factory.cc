@@ -12,6 +12,7 @@
 
 #include "base/files/file_path.h"
 #include "base/strings/stringprintf.h"
+#include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "third_party/khronos/EGL/egl.h"
 #include "ui/gfx/buffer_format_util.h"
@@ -20,10 +21,12 @@
 #include "ui/gfx/linux/gbm_defines.h"
 #include "ui/gfx/linux/scoped_gbm_device.h"
 #include "ui/gfx/native_pixmap.h"
+#include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_surface_egl.h"
 #include "ui/ozone/common/egl_util.h"
 #include "ui/ozone/common/gl_ozone_egl.h"
 #include "ui/ozone/platform/drm/common/drm_util.h"
+#include "ui/ozone/platform/drm/common/scoped_drm_types.h"
 #include "ui/ozone/platform/drm/gpu/drm_gpu_util.h"
 #include "ui/ozone/platform/drm/gpu/drm_thread_proxy.h"
 #include "ui/ozone/platform/drm/gpu/drm_window_proxy.h"
@@ -185,16 +188,16 @@ std::vector<gfx::BufferFormat> EnumerateSupportedBufferFormatsForTexturing() {
     if (!dev_path_file.IsValid())
       break;
 
+    // Skip the virtual graphics memory manager device.
+    ScopedDrmVersionPtr version(drmGetVersion(dev_path_file.GetPlatformFile()));
+    if (!version || base::LowerCaseEqualsASCII(version->name, "vgem")) {
+      continue;
+    }
+
     ScopedGbmDevice device(gbm_create_device(dev_path_file.GetPlatformFile()));
     if (!device) {
       LOG(ERROR) << "Couldn't create Gbm Device at " << dev_path.MaybeAsASCII();
       return supported_buffer_formats;
-    }
-
-    // Skip the virtual graphics memory manager device.
-    if (base::LowerCaseEqualsASCII(gbm_device_get_backend_name(device.get()),
-                                   "vgem")) {
-      continue;
     }
 
     for (int i = 0; i <= static_cast<int>(gfx::BufferFormat::LAST); ++i) {
@@ -274,8 +277,11 @@ GLOzone* GbmSurfaceFactory::GetGLOzone(gl::GLImplementation implementation) {
 
 #if BUILDFLAG(ENABLE_VULKAN)
 std::unique_ptr<gpu::VulkanImplementation>
-GbmSurfaceFactory::CreateVulkanImplementation(bool allow_protected_memory,
+GbmSurfaceFactory::CreateVulkanImplementation(bool use_swiftshader,
+                                              bool allow_protected_memory,
                                               bool enforce_protected_memory) {
+  DCHECK(!use_swiftshader)
+      << "Vulkan Swiftshader is not supported on this platform.";
   return std::make_unique<ui::VulkanImplementationGbm>();
 }
 

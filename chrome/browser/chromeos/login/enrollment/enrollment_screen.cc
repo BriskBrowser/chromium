@@ -5,8 +5,8 @@
 #include "chrome/browser/chromeos/login/enrollment/enrollment_screen.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/timer/elapsed_timer.h"
@@ -22,7 +22,6 @@
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/policy/tpm_auto_update_mode_policy_handler.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/policy/enrollment_status.h"
@@ -75,11 +74,12 @@ bool ShouldAttemptRestart() {
   return false;
 }
 
-// Returns the enterprise display domain after enrollment, or an empty string.
-std::string GetEnterpriseDisplayDomain() {
+// Returns the manager of the domain (either the domain name or the email of the
+// admin of the domain) after enrollment, or an empty string.
+std::string GetEnterpriseDomainManager() {
   policy::BrowserPolicyConnectorChromeOS* connector =
       g_browser_process->platform_part()->browser_policy_connector_chromeos();
-  return connector->GetEnterpriseDisplayDomain();
+  return connector->GetEnterpriseDomainManager();
 }
 
 }  // namespace
@@ -186,22 +186,26 @@ void EnrollmentScreen::CreateEnrollmentHelper() {
   }
 }
 
-void EnrollmentScreen::ClearAuth(const base::Closure& callback) {
+void EnrollmentScreen::ClearAuth(base::OnceClosure callback) {
   if (!enrollment_helper_) {
-    callback.Run();
+    std::move(callback).Run();
     return;
   }
   enrollment_helper_->ClearAuth(base::BindOnce(&EnrollmentScreen::OnAuthCleared,
                                                weak_ptr_factory_.GetWeakPtr(),
-                                               callback));
+                                               std::move(callback)));
 }
 
-void EnrollmentScreen::OnAuthCleared(const base::Closure& callback) {
+void EnrollmentScreen::OnAuthCleared(base::OnceClosure callback) {
   enrollment_helper_ = nullptr;
-  callback.Run();
+  std::move(callback).Run();
 }
 
 bool EnrollmentScreen::MaybeSkip(WizardContext* context) {
+  VLOG(1) << "EnrollmentScreen::MaybeSkip("
+          << "config_.is_forced = " << config_.is_forced()
+          << "skip_to_login_for_tests = " << context->skip_to_login_for_tests
+          << ").";
   if (context->skip_to_login_for_tests && !config_.is_forced()) {
     exit_callback_.Run(Result::SKIPPED_FOR_TESTS);
     return true;
@@ -231,8 +235,8 @@ void EnrollmentScreen::ShowImpl() {
 }
 
 void EnrollmentScreen::ShowInteractiveScreen() {
-  ClearAuth(base::Bind(&EnrollmentScreen::ShowSigninScreen,
-                       weak_ptr_factory_.GetWeakPtr()));
+  ClearAuth(base::BindOnce(&EnrollmentScreen::ShowSigninScreen,
+                           weak_ptr_factory_.GetWeakPtr()));
 }
 
 void EnrollmentScreen::HideImpl() {
@@ -284,8 +288,8 @@ void EnrollmentScreen::OnRetry() {
 
 void EnrollmentScreen::AutomaticRetry() {
   retry_backoff_->InformOfRequest(false);
-  retry_task_.Reset(base::Bind(&EnrollmentScreen::ProcessRetry,
-                               weak_ptr_factory_.GetWeakPtr()));
+  retry_task_.Reset(base::BindOnce(&EnrollmentScreen::ProcessRetry,
+                                   weak_ptr_factory_.GetWeakPtr()));
 
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE, retry_task_.callback(), retry_backoff_->GetTimeUntilRelease());
@@ -322,7 +326,7 @@ void EnrollmentScreen::OnCancel() {
     authpolicy_login_helper_->CancelRequestsAndRestart();
 
   // The callback passed to ClearAuth is called either immediately or gets
-  // wrapped in a callback bound to a weak pointer from |weak_factory_| - in
+  // wrapped in a callback bound to a weak pointer from `weak_factory_` - in
   // either case, passing exit_callback_ directly should be safe.
   ClearAuth(base::BindRepeating(
       exit_callback_, config_.is_forced() ? Result::BACK : Result::COMPLETED));
@@ -331,7 +335,7 @@ void EnrollmentScreen::OnCancel() {
 void EnrollmentScreen::OnConfirmationClosed() {
   VLOG(1) << "Confirmation closed.";
   // The callback passed to ClearAuth is called either immediately or gets
-  // wrapped in a callback bound to a weak pointer from |weak_factory_| - in
+  // wrapped in a callback bound to a weak pointer from `weak_factory_` - in
   // either case, passing exit_callback_ directly should be safe.
   ClearAuth(base::BindRepeating(exit_callback_, Result::COMPLETED));
 
@@ -378,8 +382,8 @@ void EnrollmentScreen::OnDeviceEnrolled() {
   VLOG(1) << "Device enrolled.";
   enrollment_succeeded_ = true;
   // Some info to be shown on the success screen.
-  view_->SetEnterpriseDomainAndDeviceType(GetEnterpriseDisplayDomain(),
-                                          ui::GetChromeOSDeviceName());
+  view_->SetEnterpriseDomainInfo(GetEnterpriseDomainManager(),
+                                 ui::GetChromeOSDeviceName());
 
   enrollment_helper_->GetDeviceAttributeUpdatePermission();
 
@@ -425,8 +429,8 @@ void EnrollmentScreen::OnDeviceAttributeUpdatePermission(bool granted) {
 
 void EnrollmentScreen::OnRestoreAfterRollbackCompleted() {
   // Pass the enterprise domain and the device type to be shown.
-  view_->SetEnterpriseDomainAndDeviceType(GetEnterpriseDisplayDomain(),
-                                          ui::GetChromeOSDeviceName());
+  view_->SetEnterpriseDomainInfo(GetEnterpriseDomainManager(),
+                                 ui::GetChromeOSDeviceName());
   // Show the success screen
   StartupUtils::MarkDeviceRegistered(
       base::BindOnce(&EnrollmentScreen::ShowEnrollmentStatusOnSuccess,
@@ -536,6 +540,12 @@ void EnrollmentScreen::JoinDomain(const std::string& dm_token,
   view_->ShowActiveDirectoryScreen(
       domain_join_config, std::string() /* machine_name */,
       std::string() /* username */, authpolicy::ERROR_NONE);
+}
+
+void EnrollmentScreen::OnBrowserRestart() {
+  // When the browser is restarted, renderers are shutdown and the `view_`
+  // wants to know in order to stop trying to use the soon-invalid renderers.
+  view_->Shutdown();
 }
 
 void EnrollmentScreen::OnActiveDirectoryJoined(

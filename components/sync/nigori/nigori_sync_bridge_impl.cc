@@ -16,10 +16,10 @@
 #include "components/sync/base/passphrase_enums.h"
 #include "components/sync/base/sync_base_switches.h"
 #include "components/sync/base/time.h"
+#include "components/sync/engine/entity_data.h"
+#include "components/sync/engine/nigori/nigori.h"
 #include "components/sync/engine/sync_engine_switches.h"
-#include "components/sync/model/entity_data.h"
 #include "components/sync/nigori/keystore_keys_cryptographer.h"
-#include "components/sync/nigori/nigori.h"
 #include "components/sync/nigori/nigori_storage.h"
 #include "components/sync/nigori/pending_local_nigori_commit.h"
 #include "components/sync/protocol/encryption.pb.h"
@@ -241,9 +241,8 @@ bool UpdateEncryptedTypes(const NigoriSpecifics& specifics,
   return true;
 }
 
-// Packs explicit passphrase key in order to persist it. Should be aligned with
-// Directory implementation (Cryptographer::GetBootstrapToken()) unless it is
-// removed. Returns empty string in case of errors.
+// Packs explicit passphrase key in order to persist it. Returns empty string in
+// case of errors.
 std::string PackExplicitPassphraseKey(const Encryptor& encryptor,
                                       const CryptographerImpl& cryptographer) {
   DCHECK(cryptographer.CanEncrypt());
@@ -271,8 +270,6 @@ std::string PackExplicitPassphraseKey(const Encryptor& encryptor,
 // Unpacks explicit passphrase keys. Returns a populated sync_pb::NigoriKey if
 // successful, or an empty instance (i.e. default value) if |packed_key| is
 // empty or decoding/decryption errors occur.
-// Should be aligned with Directory implementation (
-// Cryptographer::UnpackBootstrapToken()) unless it is removed.
 sync_pb::NigoriKey UnpackExplicitPassphraseKey(const Encryptor& encryptor,
                                                const std::string& packed_key) {
   if (packed_key.empty()) {
@@ -296,9 +293,7 @@ sync_pb::NigoriKey UnpackExplicitPassphraseKey(const Encryptor& encryptor,
   return key;
 }
 
-// Returns Base64 encoded keystore keys or empty vector if errors occur. Should
-// be aligned with Directory implementation (UnpackKeystoreBootstrapToken())
-// unless it is removed.
+// Returns Base64 encoded keystore keys or empty vector if errors occur.
 std::vector<std::string> UnpackKeystoreKeys(
     const std::string& packed_keystore_keys,
     const Encryptor& encryptor) {
@@ -362,12 +357,10 @@ class NigoriSyncBridgeImpl::BroadcastingObserver
 
   // SyncEncryptionHandler::Observer implementation.
   void OnPassphraseRequired(
-      PassphraseRequiredReason reason,
       const KeyDerivationParams& key_derivation_params,
       const sync_pb::EncryptedData& pending_keys) override {
     for (auto& observer : observers_) {
-      observer.OnPassphraseRequired(reason, key_derivation_params,
-                                    pending_keys);
+      observer.OnPassphraseRequired(key_derivation_params, pending_keys);
     }
   }
 
@@ -401,12 +394,6 @@ class NigoriSyncBridgeImpl::BroadcastingObserver
                                bool encrypt_everything) override {
     for (auto& observer : observers_) {
       observer.OnEncryptedTypesChanged(encrypted_types, encrypt_everything);
-    }
-  }
-
-  void OnEncryptionComplete() override {
-    for (auto& observer : observers_) {
-      observer.OnEncryptionComplete();
     }
   }
 
@@ -662,24 +649,6 @@ void NigoriSyncBridgeImpl::AddTrustedVaultDecryptionKeys(
   MaybeNotifyBootstrapTokenUpdated();
 }
 
-void NigoriSyncBridgeImpl::EnableEncryptEverything() {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  // This method is relevant only for Directory implementation. USS
-  // implementation catches that as part of SetEncryptionPassphrase(), which
-  // is always called together with this method.
-  // TODO(crbug.com/1033040): remove this method and clean up calling sides.
-}
-
-bool NigoriSyncBridgeImpl::IsEncryptEverythingEnabled() const {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  // This method is relevant only for Directory implementation and used only
-  // for testing.
-  // TODO(crbug.com/1033040): remove this method or at least append ForTesting
-  // suffix.
-  NOTREACHED();
-  return false;
-}
-
 base::Time NigoriSyncBridgeImpl::GetKeystoreMigrationTime() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return state_.keystore_migration_time;
@@ -759,7 +728,9 @@ base::Optional<ModelError> NigoriSyncBridgeImpl::MergeSyncData(
   }
   DCHECK(data->specifics.has_nigori());
 
-  if (!data->specifics.nigori().encryption_keybag().blob().empty()) {
+  const NigoriSpecifics& specifics = data->specifics.nigori();
+  if (specifics.passphrase_type() != NigoriSpecifics::IMPLICIT_PASSPHRASE ||
+      !specifics.encryption_keybag().blob().empty()) {
     // We received regular Nigori.
     return UpdateLocalState(data->specifics.nigori());
   }
@@ -1147,8 +1118,7 @@ void NigoriSyncBridgeImpl::MaybeNotifyOfPendingKeys() const {
     case NigoriSpecifics::CUSTOM_PASSPHRASE:
     case NigoriSpecifics::FROZEN_IMPLICIT_PASSPHRASE:
       broadcasting_observer_->OnPassphraseRequired(
-          REASON_DECRYPTION, GetKeyDerivationParamsForPendingKeys(),
-          *state_.pending_keys);
+          GetKeyDerivationParamsForPendingKeys(), *state_.pending_keys);
       break;
     case NigoriSpecifics::TRUSTED_VAULT_PASSPHRASE:
       broadcasting_observer_->OnTrustedVaultKeyRequired();

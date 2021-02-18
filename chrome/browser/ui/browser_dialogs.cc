@@ -4,7 +4,7 @@
 
 #include "chrome/browser/ui/browser_dialogs.h"
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/metrics/histogram_macros.h"
 
 namespace chrome {
@@ -15,15 +15,13 @@ void RecordDialogCreation(DialogIdentifier identifier) {
 }
 
 #if !defined(TOOLKIT_VIEWS)
-base::OnceClosure ShowDeviceChooserDialog(
-    content::RenderFrameHost* owner,
-    std::unique_ptr<ChooserController> controller) {
+void ShowWindowNamePrompt(Browser* browser) {
   NOTIMPLEMENTED();
-  return base::DoNothing();
 }
-bool IsDeviceChooserShowingForTesting() {
+
+void ShowWindowNamePromptForTesting(Browser* browser,
+                                    gfx::NativeWindow context) {
   NOTIMPLEMENTED();
-  return false;
 }
 #endif
 

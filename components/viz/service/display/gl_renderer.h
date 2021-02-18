@@ -19,12 +19,13 @@
 #include "build/build_config.h"
 #include "components/viz/common/gpu/context_cache_controller.h"
 #include "components/viz/common/quads/aggregated_render_pass_draw_quad.h"
+#include "components/viz/common/quads/compositor_render_pass_draw_quad.h"
 #include "components/viz/common/quads/debug_border_draw_quad.h"
-#include "components/viz/common/quads/render_pass_draw_quad.h"
 #include "components/viz/common/quads/solid_color_draw_quad.h"
 #include "components/viz/common/quads/tile_draw_quad.h"
 #include "components/viz/common/quads/yuv_video_draw_quad.h"
 #include "components/viz/service/display/direct_renderer.h"
+#include "components/viz/service/display/display_resource_provider_gl.h"
 #include "components/viz/service/display/gl_renderer_copier.h"
 #include "components/viz/service/display/gl_renderer_draw_cache.h"
 #include "components/viz/service/display/program_binding.h"
@@ -75,7 +76,7 @@ class VIZ_SERVICE_EXPORT GLRenderer : public DirectRenderer {
   GLRenderer(const RendererSettings* settings,
              const DebugRendererSettings* debug_settings,
              OutputSurface* output_surface,
-             DisplayResourceProvider* resource_provider,
+             DisplayResourceProviderGL* resource_provider,
              OverlayProcessorInterface* overlay_processor,
              scoped_refptr<base::SingleThreadTaskRunner> current_task_runner);
   ~GLRenderer() override;
@@ -158,7 +159,7 @@ class VIZ_SERVICE_EXPORT GLRenderer : public DirectRenderer {
   friend class GLRendererTest;
 
   using OverlayResourceLock =
-      std::unique_ptr<DisplayResourceProvider::ScopedOverlayLockGL>;
+      std::unique_ptr<DisplayResourceProviderGL::ScopedOverlayLockGL>;
   using OverlayResourceLockList = std::vector<OverlayResourceLock>;
 
   // If a RenderPass is used as an overlay, we render the RenderPass with any
@@ -334,14 +335,14 @@ class VIZ_SERVICE_EXPORT GLRenderer : public DirectRenderer {
 
   // Schedules the |ca_layer_overlay|, which is guaranteed to have a non-null
   // |rpdq| parameter. Returns ownership of a GL texture that contains the
-  // output of the RenderPassDrawQuad.
+  // output of the CompositorRenderPassDrawQuad.
   std::unique_ptr<OverlayTexture> ScheduleRenderPassDrawQuad(
       const CALayerOverlay* ca_layer_overlay);
 
   // Copies the contents of the render pass draw quad, including filter effects,
   // to a GL texture, returned in |overlay_texture|. The resulting texture may
-  // be larger than the RenderPassDrawQuad's output, in order to reuse existing
-  // textures. The new size and position is placed in |new_bounds|.
+  // be larger than the CompositorRenderPassDrawQuad's output, in order to reuse
+  // existing textures. The new size and position is placed in |new_bounds|.
   void CopyRenderPassDrawQuadToOverlayResource(
       const CALayerOverlay* ca_layer_overlay,
       std::unique_ptr<OverlayTexture>* overlay_texture,
@@ -371,6 +372,14 @@ class VIZ_SERVICE_EXPORT GLRenderer : public DirectRenderer {
   ResourceFormat CurrentRenderPassResourceFormat() const;
 
   bool HasOutputColorMatrix() const;
+
+  // Returns true if the given solid color draw quad can be safely drawn using
+  // the glClear function call.
+  bool CanUseFastSolidColorDraw(const SolidColorDrawQuad* quad) const;
+
+  DisplayResourceProviderGL* resource_provider() {
+    return static_cast<DisplayResourceProviderGL*>(resource_provider_);
+  }
 
   // A map from RenderPass id to the texture used to draw the RenderPass from.
   base::flat_map<AggregatedRenderPassId, ScopedRenderPassTexture>
@@ -454,16 +463,19 @@ class VIZ_SERVICE_EXPORT GLRenderer : public DirectRenderer {
   bool use_timer_query_ = false;
   bool use_occlusion_query_ = false;
   bool use_swap_with_bounds_ = false;
+  bool use_fast_path_solid_color_quad_ = false;
 
   // If true, tints all the composited content to red.
   bool tint_gl_composited_content_ = true;
 
+#if defined(OS_APPLE)
   // The method FlippedFramebuffer determines whether the framebuffer associated
   // with a DrawingFrame is flipped. It makes the assumption that the
   // DrawingFrame is being used as part of a render pass. If a DrawingFrame is
   // not being used as part of a render pass, setting it here forces
   // FlippedFramebuffer to return |true|.
   bool force_drawing_frame_framebuffer_unflipped_ = false;
+#endif
 
   BoundGeometry bound_geometry_;
 
@@ -476,6 +488,9 @@ class VIZ_SERVICE_EXPORT GLRenderer : public DirectRenderer {
   // A circular queue of to keep track of timer queries and their associated
   // quad type as string.
   base::queue<std::pair<unsigned, std::string>> timer_queries_;
+
+  // Keeps track of areas that have been drawn to in the current render pass.
+  std::vector<gfx::Rect> drawn_rects_;
 
   // This may be null if the compositor is run on a thread without a
   // MessageLoop.

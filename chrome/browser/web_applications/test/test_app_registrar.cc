@@ -8,8 +8,8 @@
 
 #include "base/callback.h"
 #include "base/check.h"
+#include "base/containers/contains.h"
 #include "base/notreached.h"
-#include "base/stl_util.h"
 #include "url/gurl.h"
 
 namespace web_app {
@@ -104,12 +104,27 @@ base::Optional<SkColor> TestAppRegistrar::GetAppBackgroundColor(
   return base::nullopt;
 }
 
-const GURL& TestAppRegistrar::GetAppLaunchURL(const AppId& app_id) const {
+const GURL& TestAppRegistrar::GetAppStartUrl(const AppId& app_id) const {
   auto iterator = installed_apps_.find(app_id);
   if (iterator == installed_apps_.end())
     return GURL::EmptyGURL();
 
   return iterator->second.launch_url;
+}
+
+const std::string* TestAppRegistrar::GetAppLaunchQueryParams(
+    const AppId& app_id) const {
+  return nullptr;
+}
+
+const apps::ShareTarget* TestAppRegistrar::GetAppShareTarget(
+    const AppId& app_id) const {
+  return nullptr;
+}
+
+blink::mojom::CaptureLinks TestAppRegistrar::GetAppCaptureLinks(
+    const web_app::AppId& app_id) const {
+  return blink::mojom::CaptureLinks::kUndefined;
 }
 
 base::Optional<GURL> TestAppRegistrar::GetAppScopeInternal(
@@ -153,7 +168,7 @@ std::vector<WebApplicationIconInfo> TestAppRegistrar::GetAppIconInfos(
   return {};
 }
 
-std::vector<SquareSizePx> TestAppRegistrar::GetAppDownloadedIconSizesAny(
+SortedSizesPx TestAppRegistrar::GetAppDownloadedIconSizesAny(
     const AppId& app_id) const {
   NOTIMPLEMENTED();
   return {};
@@ -175,7 +190,7 @@ TestAppRegistrar::GetAppDownloadedShortcutsMenuIconsSizes(
 RunOnOsLoginMode TestAppRegistrar::GetAppRunOnOsLoginMode(
     const AppId& app_id) const {
   NOTIMPLEMENTED();
-  return RunOnOsLoginMode::kUndefined;
+  return RunOnOsLoginMode::kNotRun;
 }
 
 std::vector<AppId> TestAppRegistrar::GetAppIds() const {

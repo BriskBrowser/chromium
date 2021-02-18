@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/strings/string_piece.h"
@@ -226,8 +226,7 @@ class FidoBleConnectionTest : public ::testing::Test {
     EXPECT_CALL(*fido_device_, GetAddress)
         .WillRepeatedly(::testing::Return(new_address));
     for (auto& observer : adapter_->GetObservers())
-      observer.DeviceAddressChanged(adapter_.get(), fido_device_,
-                                    std::move(old_address));
+      observer.DeviceAddressChanged(adapter_.get(), fido_device_, old_address);
   }
 
   void SetNextReadControlPointLengthReponse(bool success,

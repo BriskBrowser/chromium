@@ -7,14 +7,12 @@
 
 #include <string>
 
-#include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "media/base/decode_status.h"
 #include "media/base/decoder.h"
 #include "media/base/media_export.h"
 #include "media/base/pipeline_status.h"
-#include "media/base/status.h"
 #include "media/base/waiting.h"
 #include "ui/gfx/geometry/size.h"
 
@@ -27,8 +25,8 @@ class VideoFrame;
 
 class MEDIA_EXPORT VideoDecoder : public Decoder {
  public:
-  // Callback for VideoDecoder initialization.
-  using InitCB = base::OnceCallback<void(Status status)>;
+  // Callback for Decoder initialization.
+  using InitCB = base::OnceCallback<void(Status)>;
 
   // Callback for VideoDecoder to return a decoded frame whenever it becomes
   // available. Only non-EOS frames should be returned via this callback.
@@ -36,8 +34,11 @@ class MEDIA_EXPORT VideoDecoder : public Decoder {
 
   // Callback type for Decode(). Called after the decoder has completed decoding
   // corresponding DecoderBuffer, indicating that it's ready to accept another
-  // buffer to decode.
-  using DecodeCB = base::OnceCallback<void(DecodeStatus)>;
+  // buffer to decode.  |kOk| implies success, |kAborted| implies that the
+  // decode was aborted, which does not necessarily indicate an error.  For
+  // example, a Reset() can trigger this.  Any other status code indicates that
+  // the decoder encountered an error, and must be reset.
+  using DecodeCB = base::OnceCallback<void(Status)>;
 
   VideoDecoder();
   ~VideoDecoder() override;
@@ -114,12 +115,22 @@ class MEDIA_EXPORT VideoDecoder : public Decoder {
   // Returns maximum number of parallel decode requests.
   virtual int GetMaxDecodeRequests() const;
 
+  // Returns true if and only if this decoder is optimized for decoding RTC
+  // streams.  The default is false.
+  virtual bool IsOptimizedForRTC() const;
+
   // Returns the recommended number of threads for software video decoding. If
   // the --video-threads command line option is specified and is valid, that
   // value is returned. Otherwise |desired_threads| is clamped to the number of
   // logical processors and then further clamped to
   // [|limits::kMinVideoDecodeThreads|, |limits::kMaxVideoDecodeThreads|].
   static int GetRecommendedThreadCount(int desired_threads);
+
+  // Returns the type of the decoder for statistics recording purposes.
+  // For meta-decoders (those which wrap other decoders, ie, MojoVideoDecoder)
+  // this should return the underlying type, if it is known, otherwise return
+  // its own type.
+  virtual VideoDecoderType GetDecoderType() const = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(VideoDecoder);

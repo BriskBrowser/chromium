@@ -14,8 +14,7 @@
 #include "ios/chrome/browser/browsing_data/browsing_data_remover_factory.h"
 #include "ios/chrome/browser/content_settings/cookie_settings_factory.h"
 #include "ios/chrome/browser/crash_report/breadcrumbs/breadcrumb_manager_keyed_service_factory.h"
-#include "ios/chrome/browser/crash_report/breadcrumbs/breadcrumb_persistent_storage_keyed_service_factory.h"
-#include "ios/chrome/browser/credential_provider/credential_provider_service_factory.h"
+#include "ios/chrome/browser/credential_provider/credential_provider_buildflags.h"
 #import "ios/chrome/browser/device_sharing/device_sharing_manager_factory.h"
 #include "ios/chrome/browser/discover_feed/discover_feed_service_factory.h"
 #include "ios/chrome/browser/dom_distiller/dom_distiller_service_factory.h"
@@ -27,6 +26,7 @@
 #include "ios/chrome/browser/feature_engagement/tracker_factory.h"
 #include "ios/chrome/browser/gcm/ios_chrome_gcm_profile_service_factory.h"
 #include "ios/chrome/browser/google/google_logo_service_factory.h"
+#include "ios/chrome/browser/history/domain_diversity_reporter_factory.h"
 #include "ios/chrome/browser/history/history_service_factory.h"
 #include "ios/chrome/browser/history/top_sites_factory.h"
 #include "ios/chrome/browser/history/web_history_service_factory.h"
@@ -40,8 +40,10 @@
 #import "ios/chrome/browser/policy/policy_features.h"
 #include "ios/chrome/browser/policy_url_blocking/policy_url_blocking_service.h"
 #include "ios/chrome/browser/reading_list/reading_list_model_factory.h"
+#import "ios/chrome/browser/safe_browsing/chrome_password_protection_service_factory.h"
 #import "ios/chrome/browser/safe_browsing/real_time_url_lookup_service_factory.h"
 #import "ios/chrome/browser/safe_browsing/verdict_cache_manager_factory.h"
+#include "ios/chrome/browser/screen_time/screen_time_buildflags.h"
 #include "ios/chrome/browser/search_engines/template_url_service_factory.h"
 #include "ios/chrome/browser/signin/about_signin_internals_factory.h"
 #include "ios/chrome/browser/signin/account_consistency_service_factory.h"
@@ -63,6 +65,15 @@
 #include "ios/chrome/browser/undo/bookmark_undo_service_factory.h"
 #include "ios/chrome/browser/unified_consent/unified_consent_service_factory.h"
 #include "ios/chrome/browser/webdata_services/web_data_service_factory.h"
+
+#if BUILDFLAG(IOS_CREDENTIAL_PROVIDER_ENABLED)
+#include "ios/chrome/browser/credential_provider/credential_provider_service_factory.h"
+#endif
+
+#if BUILDFLAG(IOS_SCREEN_TIME_ENABLED)
+#import "ios/chrome/browser/screen_time/features.h"
+#import "ios/chrome/browser/screen_time/screen_time_history_deleter_factory.h"
+#endif
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -101,13 +112,13 @@ void EnsureBrowserStateKeyedServiceFactoriesBuilt() {
   suggestions::SuggestionsServiceFactory::GetInstance();
   AuthenticationServiceFactory::GetInstance();
   BreadcrumbManagerKeyedServiceFactory::GetInstance();
-  BreadcrumbPersistentStorageKeyedServiceFactory::GetInstance();
   BrowserDownloadServiceFactory::GetInstance();
   BrowsingDataRemoverFactory::GetInstance();
+  ChromePasswordProtectionServiceFactory::GetInstance();
   ConsentAuditorFactory::GetInstance();
-  CredentialProviderServiceFactory::GetInstance();
   DeviceSharingManagerFactory::GetInstance();
   DiscoverFeedServiceFactory::GetInstance();
+  DomainDiversityReporterFactory::GetInstance();
   GoogleLogoServiceFactory::GetInstance();
   IdentityManagerFactory::GetInstance();
   IOSChromeContentSuggestionsServiceFactory::GetInstance();
@@ -138,4 +149,16 @@ void EnsureBrowserStateKeyedServiceFactoriesBuilt() {
   if (IsURLBlocklistEnabled()) {
     PolicyBlocklistServiceFactory::GetInstance();
   }
+
+#if BUILDFLAG(IOS_CREDENTIAL_PROVIDER_ENABLED)
+  CredentialProviderServiceFactory::GetInstance();
+#endif
+
+#if BUILDFLAG(IOS_SCREEN_TIME_ENABLED)
+  if (IsScreenTimeIntegrationEnabled()) {
+    if (@available(iOS 14, *)) {
+      ScreenTimeHistoryDeleterFactory::GetInstance();
+    }
+  }
+#endif
 }

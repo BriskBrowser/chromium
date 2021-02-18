@@ -4,6 +4,7 @@
 
 #include "components/autofill/core/browser/autofill_client.h"
 
+#include "base/stl_util.h"
 #include "components/autofill/core/browser/ui/suggestion.h"
 #include "components/version_info/channel.h"
 
@@ -35,12 +36,18 @@ version_info::Channel AutofillClient::GetChannel() const {
   return version_info::Channel::UNKNOWN;
 }
 
-std::string AutofillClient::GetPageLanguage() const {
-  return std::string();
+AutofillOfferManager* AutofillClient::GetAutofillOfferManager() {
+  return nullptr;
 }
 
 std::string AutofillClient::GetVariationConfigCountryCode() const {
   return std::string();
+}
+
+profile_metrics::BrowserProfileType AutofillClient::GetProfileType() const {
+  // This is an abstract interface and thus never instantiated directly,
+  // therefore it is safe to always return |kRegular| here.
+  return profile_metrics::BrowserProfileType::kRegular;
 }
 
 #if !defined(OS_IOS)
@@ -50,6 +57,12 @@ AutofillClient::CreateCreditCardInternalAuthenticator(
   return nullptr;
 }
 #endif
+
+void AutofillClient::ShowOfferNotificationIfApplicable(
+    const std::vector<GURL>& domains_to_display_bubble) {
+  // This is overridden by platform subclasses. Currently only
+  // ChromeAutofillClient (Chrome Desktop and Clank) implement this.
+}
 
 LogManager* AutofillClient::GetLogManager() const {
   return nullptr;

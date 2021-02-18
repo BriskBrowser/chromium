@@ -19,6 +19,7 @@
 #include "ui/views/controls/button/checkbox.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 
 // static
@@ -47,7 +48,7 @@ CaretBrowsingDialogDelegate::CaretBrowsingDialogDelegate(
       l10n_util::GetStringUTF16(IDS_ENABLE_CARET_BROWSING_INFO);
 
   auto* message_label = AddChildView(std::make_unique<views::Label>(
-      message_text, views::style::CONTEXT_MESSAGE_BOX_BODY_TEXT));
+      message_text, views::style::CONTEXT_DIALOG_BODY_TEXT));
   message_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   message_label->SetMultiLine(true);
 
@@ -81,17 +82,13 @@ CaretBrowsingDialogDelegate::CaretBrowsingDialogDelegate(
         base::UserMetricsAction("Accessibility.CaretBrowsing.CancelDialog"));
   };
   SetCancelCallback(base::BindOnce(on_cancel));
+
+  SetModalType(ui::MODAL_TYPE_WINDOW);
+  set_fixed_width(views::LayoutProvider::Get()->GetDistanceMetric(
+      views::DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH));
 }
 
-CaretBrowsingDialogDelegate::~CaretBrowsingDialogDelegate() {}
+CaretBrowsingDialogDelegate::~CaretBrowsingDialogDelegate() = default;
 
-ui::ModalType CaretBrowsingDialogDelegate::GetModalType() const {
-  return ui::MODAL_TYPE_WINDOW;
-}
-
-gfx::Size CaretBrowsingDialogDelegate::CalculatePreferredSize() const {
-  const int width = ChromeLayoutProvider::Get()->GetDistanceMetric(
-                        DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH) -
-                    margins().width();
-  return gfx::Size(width, GetHeightForWidth(width));
-}
+BEGIN_METADATA(CaretBrowsingDialogDelegate, views::DialogDelegateView)
+END_METADATA

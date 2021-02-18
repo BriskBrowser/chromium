@@ -30,7 +30,7 @@ BASE_EXPORT std::tuple<int, int, int, int> ComputeX86FamilyAndModel(
 // Query information about the processor.
 class BASE_EXPORT CPU final {
  public:
-  CPU();
+  explicit CPU();
 
   enum IntelMicroArchitecture {
     PENTIUM,
@@ -70,6 +70,17 @@ class BASE_EXPORT CPU final {
   }
   bool is_running_in_vm() const { return is_running_in_vm_; }
 
+  // The cpuinfo values for ARM cores are from the MIDR_EL1 register, a
+  // bitfield whose format is described in the core-specific manuals. E.g.,
+  // ARM Cortex-A57:
+  // https://developer.arm.com/documentation/ddi0488/h/system-control/aarch64-register-descriptions/main-id-register--el1.
+  uint8_t implementer() const { return implementer_; }
+  uint32_t part_number() const { return part_number_; }
+
+  // Armv8.5-A extensions for control flow and memory safety.
+  bool has_mte() const { return has_mte_; }
+  bool has_bti() const { return has_bti_; }
+
   IntelMicroArchitecture GetIntelMicroArchitecture() const;
   const std::string& cpu_brand() const { return cpu_brand_; }
 
@@ -90,20 +101,19 @@ class BASE_EXPORT CPU final {
   // Attempts to guess the core types of individual CPU cores based on frequency
   // information from /sys/devices/system/cpu/cpuN/cpufreq/cpuinfo_max_freq.
   // Beware that it is kernel/hardware dependent whether the information from
-  // sys is accurate.
-  //
-  // Returns a vector with the guessed type for core N at index N.
-  static std::vector<CoreType> GuessCoreTypes();
+  // sys is accurate. Returns a reference to a static-storage vector (leaked on
+  // shutdown) with the guessed type for core N at index N.
+  static const std::vector<CoreType>& GetGuessedCoreTypes();
 
   struct TimeInStateEntry {
     CPU::CoreType core_type;      // type of the cores in this cluster.
     uint32_t cluster_core_index;  // index of the first core in the cluster.
     uint64_t core_frequency_khz;
-    TimeDelta cumulative_cpu_time;
+    TimeDelta cumulative_time;
   };
   using TimeInState = std::vector<TimeInStateEntry>;
 
-  // Emits the device's cumulative CPU usage split by CPU cluster frequency
+  // For each CPU core, emits the cumulative time spent in different frequency
   // states into the output parameter (replacing its current contents). One
   // entry in the output parameter is added for each cluster core index
   // + frequency state combination with a non-zero CPU time value. Returns false
@@ -114,6 +124,17 @@ class BASE_EXPORT CPU final {
   // NOTE: Currently only supported on Linux/Android, and only on kernels with
   // cpufreq-stats driver.
   static bool GetTimeInState(TimeInState&);
+
+  // For each CPU core, emits the total cumulative wall time spent in any idle
+  // state into the output parameter (replacing its current contents). Returns
+  // false on failure. We return the usage via an output parameter to allow
+  // reuse of TimeInState's std::vector by the caller, e.g. to avoid allocations
+  // between repeated calls to this method.
+  //
+  // NOTE: Currently only supported on Linux/Android, and only on kernels with
+  // cpuidle driver.
+  using CoreIdleTimes = std::vector<TimeDelta>;
+  static bool GetCumulativeCoreIdleTimes(CoreIdleTimes&);
 #endif  // defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID) ||
         // defined(OS_AIX)
 
@@ -121,27 +142,31 @@ class BASE_EXPORT CPU final {
   // Query the processor for CPUID information.
   void Initialize();
 
-  int signature_;  // raw form of type, family, model, and stepping
-  int type_;  // process type
-  int family_;  // family of the processor
-  int model_;  // model of processor
-  int stepping_;  // processor revision number
-  int ext_model_;
-  int ext_family_;
-  bool has_mmx_;
-  bool has_sse_;
-  bool has_sse2_;
-  bool has_sse3_;
-  bool has_ssse3_;
-  bool has_sse41_;
-  bool has_sse42_;
-  bool has_popcnt_;
-  bool has_avx_;
-  bool has_avx2_;
-  bool has_aesni_;
-  bool has_non_stop_time_stamp_counter_;
-  bool is_running_in_vm_;
-  std::string cpu_vendor_;
+  int signature_ = 0;  // raw form of type, family, model, and stepping
+  int type_ = 0;       // process type
+  int family_ = 0;     // family of the processor
+  int model_ = 0;      // model of processor
+  int stepping_ = 0;   // processor revision number
+  int ext_model_ = 0;
+  int ext_family_ = 0;
+  uint32_t part_number_ = 0;  // ARM MIDR part number
+  uint8_t implementer_ = 0;   // ARM MIDR implementer identifier
+  bool has_mmx_ = false;
+  bool has_sse_ = false;
+  bool has_sse2_ = false;
+  bool has_sse3_ = false;
+  bool has_ssse3_ = false;
+  bool has_sse41_ = false;
+  bool has_sse42_ = false;
+  bool has_popcnt_ = false;
+  bool has_avx_ = false;
+  bool has_avx2_ = false;
+  bool has_aesni_ = false;
+  bool has_mte_ = false;  // Armv8.5-A MTE (Memory Taggging Extension)
+  bool has_bti_ = false;  // Armv8.5-A BTI (Branch Target Identification)
+  bool has_non_stop_time_stamp_counter_ = false;
+  bool is_running_in_vm_ = false;
+  std::string cpu_vendor_ = "unknown";
   std::string cpu_brand_;
 };
 

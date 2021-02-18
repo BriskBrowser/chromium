@@ -19,6 +19,7 @@
 #include "base/i18n/number_formatting.h"
 #include "base/i18n/rtl.h"
 #include "base/i18n/string_compare.h"
+#include "base/i18n/uchar.h"
 #include "base/lazy_instance.h"
 #include "base/notreached.h"
 #include "base/stl_util.h"
@@ -29,6 +30,7 @@
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "third_party/icu/source/common/unicode/rbbi.h"
 #include "third_party/icu/source/common/unicode/uloc.h"
 #include "ui/base/l10n/l10n_util_collator.h"
@@ -56,16 +58,17 @@ static const char* const kAcceptLanguageList[] = {
     "am",              // Amharic
     "an",              // Aragonese
     "ar",              // Arabic
+    "as",              // Assamese
     "ast",             // Asturian
     "az",              // Azerbaijani
     "be",              // Belarusian
     "bg",              // Bulgarian
-    "bh",              // Bihari
     "bn",              // Bengali
     "br",              // Breton
     "bs",              // Bosnian
     "ca",              // Catalan
     "ceb",             // Cebuano
+    "chr",             // Cherokee
     "ckb",             // Kurdish (Arabic),  Sorani
     "co",              // Corsican
     "cs",              // Czech
@@ -141,6 +144,7 @@ static const char* const kAcceptLanguageList[] = {
     "km",      // Cambodian
     "kn",      // Kannada
     "ko",      // Korean
+    "kok",     // Konkani
     "ku",      // Kurdish
     "ky",      // Kyrgyz
     "la",      // Latin
@@ -167,7 +171,7 @@ static const char* const kAcceptLanguageList[] = {
     "ny",      // Nyanja
     "oc",      // Occitan
     "om",      // Oromo
-    "or",      // Oriya
+    "or",      // Odia (Oriya)
     "pa",      // Punjabi
     "pl",      // Polish
     "ps",      // Pashto
@@ -178,6 +182,7 @@ static const char* const kAcceptLanguageList[] = {
     "rm",      // Romansh
     "ro",      // Romanian
     "ru",      // Russian
+    "rw",      // Kinyarwanda
     "sd",      // Sindhi
     "sh",      // Serbo-Croatian
     "si",      // Sinhalese
@@ -198,16 +203,18 @@ static const char* const kAcceptLanguageList[] = {
     "th",      // Thai
     "ti",      // Tigrinya
     "tk",      // Turkmen
+    "tn",      // Tswana
     "to",      // Tonga
     "tr",      // Turkish
     "tt",      // Tatar
     "tw",      // Twi
-    "ug",      // Uighur
+    "ug",      // Uyghur
     "uk",      // Ukrainian
     "ur",      // Urdu
     "uz",      // Uzbek
     "vi",      // Vietnamese
     "wa",      // Walloon
+    "wo",      // Wolof
     "xh",      // Xhosa
     "yi",      // Yiddish
     "yo",      // Yoruba
@@ -270,9 +277,6 @@ bool IsLocaleAvailable(const std::string& locale) {
   // under a system locale Chrome is not localized to (e.g.Farsi on Linux),
   // but it'd slow down the start up time a little bit for locales Chrome is
   // localized to. So, we don't call it here.
-  if (!l10n_util::IsLocaleSupportedByOS(locale))
-    return false;
-
   return ui::ResourceBundle::LocaleDataPakExists(locale);
 }
 #endif
@@ -308,8 +312,6 @@ struct AvailableLocalesTraits
       // Filter out locales for which we have only partially populated data
       // and to which Chrome is not localized.
       if (IsLocalePartiallyPopulated(locale_name))
-        continue;
-      if (!l10n_util::IsLocaleSupportedByOS(locale_name))
         continue;
       // Normalize underscores to hyphens because that's what our locale files
       // use.
@@ -476,7 +478,7 @@ std::string GetApplicationLocaleInternalNonMac(const std::string& pref_locale) {
 
   // On Android, query java.util.Locale for the default locale.
   candidates.push_back(base::android::GetDefaultLocaleString());
-#elif defined(USE_GLIB) && !defined(OS_CHROMEOS)
+#elif defined(USE_GLIB) && !BUILDFLAG(IS_CHROMEOS_ASH)
   // GLib implements correct environment variable parsing with
   // the precedence order: LANGUAGE, LC_ALL, LC_MESSAGES and LANG.
   // We used to use our custom parsing code along with ICU for this purpose.
@@ -590,11 +592,13 @@ base::string16 GetDisplayNameForLocale(const std::string& locale,
     if (locale_code[0] == '-' || locale_code[0] == '_') {
       actual_size = uloc_getDisplayCountry(
           locale_code.c_str(), display_locale.c_str(),
-          base::WriteInto(&display_name, kBufferSize), kBufferSize - 1, &error);
+          base::i18n::ToUCharPtr(base::WriteInto(&display_name, kBufferSize)),
+          kBufferSize - 1, &error);
     } else {
       actual_size = uloc_getDisplayName(
           locale_code.c_str(), display_locale.c_str(),
-          base::WriteInto(&display_name, kBufferSize), kBufferSize - 1, &error);
+          base::i18n::ToUCharPtr(base::WriteInto(&display_name, kBufferSize)),
+          kBufferSize - 1, &error);
     }
     if (disallow_default && U_USING_DEFAULT_WARNING == error)
       return base::string16();
@@ -727,7 +731,7 @@ base::string16 GetStringFUTF16(int message_id,
   ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
   const base::string16& format_string = rb.GetLocalizedString(message_id);
 
-#ifndef NDEBUG
+#if DCHECK_IS_ON()
   // Make sure every replacement string is being used, so we don't just
   // silently fail to insert one. If |offsets| is non-NULL, then don't do this
   // check as the code may simply want to find the placeholders rather than

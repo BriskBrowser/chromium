@@ -169,7 +169,6 @@ const SiteSettingsBehaviorImpl = {
       embeddingOrigin: embeddingOrigin,
       incognito: exception.incognito,
       isEmbargoed: exception.isEmbargoed,
-      isDiscarded: exception.isDiscarded,
       origin: origin,
       displayName: exception.displayName,
       setting: exception.setting,
@@ -222,12 +221,6 @@ const SiteSettingsBehaviorImpl = {
     addOrRemoveSettingWithFlag(
         ContentSettingsTypes.PAYMENT_HANDLER,
         'enablePaymentHandlerContentSetting');
-    addOrRemoveSettingWithFlag(
-        ContentSettingsTypes.FILE_SYSTEM_WRITE,
-        'enableFileSystemWriteContentSetting');
-    addOrRemoveSettingWithFlag(
-        ContentSettingsTypes.MIXEDSCRIPT,
-        'enableInsecureContentContentSetting');
     addOrRemoveSettingWithFlag(
         ContentSettingsTypes.BLUETOOTH_DEVICES,
         'enableWebBluetoothNewPermissionsBackend');

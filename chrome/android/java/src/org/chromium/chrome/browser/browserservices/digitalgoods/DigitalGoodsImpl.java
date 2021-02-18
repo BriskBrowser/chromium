@@ -6,10 +6,14 @@ package org.chromium.chrome.browser.browserservices.digitalgoods;
 
 import android.net.Uri;
 
+import androidx.annotation.Nullable;
+
 import org.chromium.mojo.system.MojoException;
 import org.chromium.payments.mojom.DigitalGoods;
 import org.chromium.payments.mojom.DigitalGoods.AcknowledgeResponse;
 import org.chromium.payments.mojom.DigitalGoods.GetDetailsResponse;
+import org.chromium.payments.mojom.DigitalGoods.ListPurchasesResponse;
+import org.chromium.url.GURL;
 
 /**
  * An implementation of the {@link DigitalGoods} mojo interface that communicates with Trusted Web
@@ -21,26 +25,37 @@ public class DigitalGoodsImpl implements DigitalGoods {
 
     /** A Delegate that provides the current URL. */
     public interface Delegate {
-        String getUrl();
+        /** @return The current URL or null when the frame is being destroyed. */
+        @Nullable
+        GURL getUrl();
     }
 
     /** Constructs the object with a given adapter and delegate. */
-    public DigitalGoodsImpl(DigitalGoodsAdapter adapter,
-            Delegate delegate) {
+    public DigitalGoodsImpl(DigitalGoodsAdapter adapter, Delegate delegate) {
         mAdapter = adapter;
         mDelegate = delegate;
     }
 
     @Override
     public void getDetails(String[] itemIds, GetDetailsResponse callback) {
-        mAdapter.getDetails(Uri.parse(mDelegate.getUrl()), itemIds, callback);
+        GURL url = mDelegate.getUrl();
+        if (url != null) mAdapter.getDetails(Uri.parse(url.getSpec()), itemIds, callback);
     }
 
     @Override
-    public void acknowledge(String purchaseToken, boolean makeAvailableAgain,
-            AcknowledgeResponse callback) {
-        mAdapter.acknowledge(
-                Uri.parse(mDelegate.getUrl()), purchaseToken, makeAvailableAgain,callback);
+    public void acknowledge(
+            String purchaseToken, boolean makeAvailableAgain, AcknowledgeResponse callback) {
+        GURL url = mDelegate.getUrl();
+        if (url != null) {
+            mAdapter.acknowledge(
+                    Uri.parse(url.getSpec()), purchaseToken, makeAvailableAgain, callback);
+        }
+    }
+
+    @Override
+    public void listPurchases(ListPurchasesResponse callback) {
+        GURL url = mDelegate.getUrl();
+        if (url != null) mAdapter.listPurchases(Uri.parse(url.getSpec()), callback);
     }
 
     @Override

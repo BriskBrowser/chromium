@@ -17,16 +17,15 @@ EncodedVideoChunk* EncodedVideoChunk::Create(EncodedVideoChunkInit* init) {
   EncodedVideoMetadata metadata;
   metadata.timestamp = base::TimeDelta::FromMicroseconds(init->timestamp());
   metadata.key_frame = (init->type() == "key");
-  if (init->hasDurationNonNull()) {
-    metadata.duration =
-        base::TimeDelta::FromMicroseconds(init->durationNonNull());
+  if (init->hasDuration()) {
+    metadata.duration = base::TimeDelta::FromMicroseconds(init->duration());
   }
   DOMArrayPiece piece(init->data());
 
   // A full copy of the data happens here.
-  auto* buffer = piece.IsNull() ? nullptr
-                                : DOMArrayBuffer::Create(
-                                      piece.Data(), piece.ByteLengthAsSizeT());
+  auto* buffer = piece.IsNull()
+                     ? nullptr
+                     : DOMArrayBuffer::Create(piece.Data(), piece.ByteLength());
   return MakeGarbageCollected<EncodedVideoChunk>(metadata, buffer);
 }
 

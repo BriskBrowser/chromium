@@ -78,9 +78,9 @@ using InstallTemplateFunction =
 using InstallRuntimeEnabledFeaturesFunction =
     void (*)(v8::Isolate*,
              const DOMWrapperWorld&,
-             v8::Local<v8::Object> instance,
-             v8::Local<v8::Object> prototype,
-             v8::Local<v8::Function> interface);
+             v8::Local<v8::Object> instance_object,
+             v8::Local<v8::Object> prototype_object,
+             v8::Local<v8::Function> interface_object);
 
 using InstallRuntimeEnabledFeaturesOnTemplateFunction = InstallTemplateFunction;
 
@@ -98,6 +98,24 @@ void V8SetReflectedNullableDOMStringAttribute(
     const QualifiedName& content_attr);
 
 namespace bindings {
+
+CORE_EXPORT void SetupIDLInterfaceTemplate(
+    v8::Isolate* isolate,
+    const WrapperTypeInfo* wrapper_type_info,
+    v8::Local<v8::ObjectTemplate> instance_template,
+    v8::Local<v8::ObjectTemplate> prototype_template,
+    v8::Local<v8::FunctionTemplate> interface_template,
+    v8::Local<v8::FunctionTemplate> parent_interface_template);
+
+CORE_EXPORT void SetupIDLNamespaceTemplate(
+    v8::Isolate* isolate,
+    const WrapperTypeInfo* wrapper_type_info,
+    v8::Local<v8::ObjectTemplate> interface_template);
+
+CORE_EXPORT void SetupIDLCallbackInterfaceTemplate(
+    v8::Isolate* isolate,
+    const WrapperTypeInfo* wrapper_type_info,
+    v8::Local<v8::FunctionTemplate> interface_template);
 
 // Returns the length of arguments ignoring the undefined values at the end.
 inline int NonUndefinedArgumentLength(
@@ -227,6 +245,20 @@ bool ConvertDictionaryMember(v8::Isolate* isolate,
   presence = true;
   return true;
 }
+
+// [CSSProperty]
+CORE_EXPORT void InstallCSSPropertyAttributes(
+    v8::Isolate* isolate,
+    const DOMWrapperWorld& world,
+    v8::Local<v8::Template> instance_template,
+    v8::Local<v8::Template> prototype_template,
+    v8::Local<v8::Template> interface_template,
+    v8::Local<v8::Signature> signature,
+    base::span<const char* const> css_property_names);
+CORE_EXPORT void CSSPropertyAttributeGet(
+    const v8::FunctionCallbackInfo<v8::Value>& info);
+CORE_EXPORT void CSSPropertyAttributeSet(
+    const v8::FunctionCallbackInfo<v8::Value>& info);
 
 // Common implementation to reduce the binary size of attribute set callbacks.
 CORE_EXPORT void PerformAttributeSetCEReactionsReflectTypeBoolean(

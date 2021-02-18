@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "base/memory/weak_ptr.h"
 #include "build/build_config.h"
 
 #if !defined(OS_ANDROID)
@@ -22,6 +23,8 @@ class WebContents;
 }
 
 namespace payments {
+
+class ContentPaymentRequestDelegate;
 
 struct AppDescription {
   std::string label;
@@ -43,6 +46,7 @@ class PaymentRequestTestObserver {
   virtual void OnAbortCalled() {}
   virtual void OnCompleteCalled() {}
   virtual void OnMinimalUIReady() {}
+  virtual void OnUIDisplayed() {}
 
  protected:
   virtual ~PaymentRequestTestObserver() = default;
@@ -70,17 +74,25 @@ class PaymentRequestTestController {
   void SetTwaPaymentApp(const std::string& method_name,
                         const std::string& response);
 
-  // Get the WebContents of the Payment Handler for testing purpose, or null if
+  // Gets the WebContents of the Payment Handler for testing purpose, or null if
   // nonexistent. To guarantee a non-null return, this function should be called
-  // only if: 1) PaymentRequest UI is opening. 2) ScrollToExpandPaymentHandler
-  // feature is enabled (on Android). 3) PaymentHandler is opening.
+  // only if: 1) PaymentRequest UI is opening. 2) PaymentHandler is opening.
   content::WebContents* GetPaymentHandlerWebContents();
 
 #if defined(OS_ANDROID)
-  // Click the security icon on the Expandable Payment Handler toolbar for
-  // testing purpose. return whether it's succeeded.
+  // Clicks the security icon on the Expandable Payment Handler toolbar for
+  // testing purpose. Return whether it's succeeded.
   bool ClickPaymentHandlerSecurityIcon();
 #endif
+
+  // Clicks the close button on the Payment Handler toolbar for testing purpose.
+  // Return whether it's succeeded.
+  bool ClickPaymentHandlerCloseButton();
+
+  // Confirms payment in a browser payment sheet, be it either PAYMENT_REQUEST
+  // or SECURE_PAYMENT_CONFIRMATION type. Returns true if the dialog was
+  // available.
+  bool ConfirmPayment();
 
   // Confirms payment in minimal UI. Returns true on success or if the minimal
   // UI is not implemented on the current platform.
@@ -116,6 +128,7 @@ class PaymentRequestTestController {
   void OnAbortCalled();
   void OnCompleteCalled();
   void OnMinimalUIReady();
+  void OnUIDisplayed();
 
   PaymentRequestTestObserver* observer_ = nullptr;
 
@@ -135,6 +148,8 @@ class PaymentRequestTestController {
 
   class ObserverConverter;
   std::unique_ptr<ObserverConverter> observer_converter_;
+
+  base::WeakPtr<ContentPaymentRequestDelegate> delegate_;
 #endif
 };
 

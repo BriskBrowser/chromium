@@ -15,14 +15,16 @@
 #include "base/i18n/rtl.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
-#include "base/util/type_safety/strong_alias.h"
+#include "base/types/strong_alias.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "components/autofill/core/browser/payments/legal_message_line.h"
 #include "components/autofill/core/browser/payments/risk_data_loader.h"
 #include "components/autofill/core/browser/ui/popup_item_ids.h"
 #include "components/autofill/core/browser/ui/popup_types.h"
+#include "components/profile_metrics/browser_profile_type.h"
 #include "components/security_state/core/security_state.h"
+#include "components/translate/core/browser/language_state.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -57,7 +59,9 @@ enum class Channel;
 namespace autofill {
 
 class AddressNormalizer;
+class AutofillProfile;
 class AutocompleteHistoryManager;
+class AutofillOfferManager;
 class AutofillPopupDelegate;
 class CardUnmaskDelegate;
 class CreditCard;
@@ -132,6 +136,13 @@ class AutofillClient : public RiskDataLoader {
     FIDO = 2,
   };
 
+  enum class SaveAddressProfileOfferUserDecision {
+    kAccepted,
+    kEdited,
+    kDeclined,
+    kIgnored,
+  };
+
   // Used for explicitly requesting the user to enter/confirm cardholder name,
   // expiration date month and year.
   struct UserProvidedCardDetails {
@@ -178,7 +189,7 @@ class AutofillClient : public RiskDataLoader {
   // Required arguments to create a dropdown showing autofill suggestions.
   struct PopupOpenArgs {
     using AutoselectFirstSuggestion =
-        ::util::StrongAlias<class AutoSelectFirstSuggestionTag, bool>;
+        ::base::StrongAlias<class AutoSelectFirstSuggestionTag, bool>;
 
     PopupOpenArgs();
     PopupOpenArgs(const gfx::RectF& element_bounds,
@@ -233,6 +244,10 @@ class AutofillClient : public RiskDataLoader {
   typedef base::RepeatingCallback<void(WebauthnDialogCallbackType)>
       WebauthnDialogCallback;
 
+  using AddressProfileSavePromptCallback =
+      base::OnceCallback<void(SaveAddressProfileOfferUserDecision,
+                              autofill::AutofillProfile profile)>;
+
   ~AutofillClient() override = default;
 
   // Returns the channel for the installation. In branded builds, this will be
@@ -249,6 +264,7 @@ class AutofillClient : public RiskDataLoader {
 
   // Gets the preferences associated with the client.
   virtual PrefService* GetPrefs() = 0;
+  virtual const PrefService* GetPrefs() const = 0;
 
   // Gets the sync service associated with the client.
   virtual syncer::SyncService* GetSyncService() = 0;
@@ -274,20 +290,33 @@ class AutofillClient : public RiskDataLoader {
   // Gets an AddressNormalizer instance (can be null).
   virtual AddressNormalizer* GetAddressNormalizer() = 0;
 
+  // Gets an AutofillOfferManager instance (can be null for unsupported
+  // platforms).
+  virtual AutofillOfferManager* GetAutofillOfferManager();
+
   // Gets the virtual URL of the last committed page of this client's
   // associated WebContents.
-  virtual const GURL& GetLastCommittedURL() = 0;
+  virtual const GURL& GetLastCommittedURL() const = 0;
 
   // Gets the security level used for recording histograms for the current
   // context if possible, SECURITY_LEVEL_COUNT otherwise.
   virtual security_state::SecurityLevel GetSecurityLevelForUmaHistograms() = 0;
 
-  // Returns the current best guess as to the page's display language.
-  virtual std::string GetPageLanguage() const;
+  // Returns the language state, if available.
+  virtual const translate::LanguageState* GetLanguageState() = 0;
+
+  // Returns the translate driver, if available, which is used to observe the
+  // page language for language-dependent heuristics.
+  virtual translate::TranslateDriver* GetTranslateDriver() = 0;
 
   // Retrieves the country code of the user from Chrome variation service.
   // If the variation service is not available, return an empty string.
   virtual std::string GetVariationConfigCountryCode() const;
+
+  // Returns the profile type of the session.
+  // TODO(https://crbug.com/1169142): Replace by getting profile type directly
+  // from BrowserContext.
+  virtual profile_metrics::BrowserProfileType GetProfileType() const;
 
 #if !defined(OS_IOS)
   // Creates the appropriate implementation of InternalAuthenticator. May be
@@ -428,6 +457,12 @@ class AutofillClient : public RiskDataLoader {
   virtual void ConfirmCreditCardFillAssist(const CreditCard& card,
                                            base::OnceClosure callback) = 0;
 
+  // Shows the offer-to-save address profile bubble. Runs |callback| once the
+  // user makes a decision with respect to the offer-to-save prompt.
+  virtual void ConfirmSaveAddressProfile(
+      const AutofillProfile& profile,
+      AddressProfileSavePromptCallback callback) = 0;
+
   // Returns true if both the platform and the device support scanning credit
   // cards. Should be called before ScanCreditCard().
   virtual bool HasCreditCardScanFeature() = 0;
@@ -469,6 +504,16 @@ class AutofillClient : public RiskDataLoader {
   // Hide the Autofill popup if one is currently showing.
   virtual void HideAutofillPopup(PopupHidingReason reason) = 0;
 
+  // TODO(crbug.com/1093057): Rename all the "domain" in this flow to origin.
+  //                          The server is passing down full origin of the
+  //                          urls. "Domain" is no longer accurate.
+  // Will show a bubble or infobar indicating that the current web domain has an
+  // eligible offer or reward if no other notification bubble is currently
+  // visible. See bubble controller for details. The bubble is sticky over a set
+  // of domains given in |domains_to_display_bubble|.
+  virtual void ShowOfferNotificationIfApplicable(
+      const std::vector<GURL>& domains_to_display_bubble);
+
   // Whether the Autocomplete feature of Autofill should be enabled.
   virtual bool IsAutocompleteEnabled() = 0;
 
@@ -484,14 +529,14 @@ class AutofillClient : public RiskDataLoader {
       const base::string16& profile_full_name) = 0;
 
   // If the context is secure.
-  virtual bool IsContextSecure() = 0;
+  virtual bool IsContextSecure() const = 0;
 
   // Whether it is appropriate to show a signin promo for this user.
   virtual bool ShouldShowSigninPromo() = 0;
 
   // Whether server side cards are supported by the client. If false, only
   // local cards will be shown.
-  virtual bool AreServerCardsSupported() = 0;
+  virtual bool AreServerCardsSupported() const = 0;
 
   // Handles simple actions for the autofill popups.
   virtual void ExecuteCommand(int id) = 0;
@@ -499,6 +544,11 @@ class AutofillClient : public RiskDataLoader {
   // Returns a LogManager instance. May be null for platforms that don't support
   // this.
   virtual LogManager* GetLogManager() const;
+
+#if defined(OS_IOS)
+  // Checks whether the qurrent query is the most recent one.
+  virtual bool IsQueryIDRelevant(int query_id) = 0;
+#endif
 };
 
 }  // namespace autofill

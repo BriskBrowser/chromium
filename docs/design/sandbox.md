@@ -362,6 +362,13 @@ policies on the target process for enforcing security characteristics.
 * Compiler/Linker opt-in, not a run-time policy opt-in.  See
 [MSDN](https://msdn.microsoft.com/en-us/library/windows/desktop/mt637065(v=vs.85).aspx).
 
+#### CET Shadow Stack:
+
+* Available in Windows 10 2004 December Update.
+* Is not enabled in the renderer.  See
+[ticket](https://bugs.chromium.org/p/chromium/issues/detail?id=1136224),
+[MSDN](https://docs.microsoft.com/en-us/cpp/build/reference/cetcompat?view=vs-2019).
+
 #### Disable Font Loading:
 
 * &gt;= Win10

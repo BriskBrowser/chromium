@@ -36,8 +36,8 @@ using TeamDriveListCallback =
 
 // Callback used for requests that the server returns FileList data
 // formatted into JSON value.
-typedef base::Callback<void(DriveApiErrorCode error,
-                            std::unique_ptr<FileList> entry)>
+typedef base::OnceCallback<void(DriveApiErrorCode error,
+                                std::unique_ptr<FileList> entry)>
     FileListCallback;
 
 // DEPRECATED: Please use ChangeListOnceCallback instead
@@ -530,7 +530,7 @@ class FilesListRequest : public DriveApiDataRequest<FileList> {
  public:
   FilesListRequest(RequestSender* sender,
                    const DriveApiUrlGenerator& url_generator,
-                   const FileListCallback& callback);
+                   FileListCallback callback);
   ~FilesListRequest() override;
 
   // Optional parameter
@@ -576,8 +576,7 @@ class FilesListRequest : public DriveApiDataRequest<FileList> {
 // This class implements 2)'s request.
 class FilesListNextPageRequest : public DriveApiDataRequest<FileList> {
  public:
-  FilesListNextPageRequest(RequestSender* sender,
-                           const FileListCallback& callback);
+  FilesListNextPageRequest(RequestSender* sender, FileListCallback callback);
   ~FilesListNextPageRequest() override;
 
   const GURL& next_link() const { return next_link_; }
@@ -844,7 +843,7 @@ class InitiateUploadNewFileRequest : public InitiateUploadRequestBase {
                                int64_t content_length,
                                const std::string& parent_resource_id,
                                const std::string& title,
-                               const InitiateUploadCallback& callback);
+                               InitiateUploadCallback callback);
   ~InitiateUploadNewFileRequest() override;
 
   // Optional parameters.
@@ -899,7 +898,7 @@ class InitiateUploadExistingFileRequest : public InitiateUploadRequestBase {
                                     int64_t content_length,
                                     const std::string& resource_id,
                                     const std::string& etag,
-                                    const InitiateUploadCallback& callback);
+                                    InitiateUploadCallback callback);
   ~InitiateUploadExistingFileRequest() override;
 
   // Optional parameters.
@@ -1089,7 +1088,7 @@ class DownloadFileRequest : public DownloadFileRequestBase {
                       const DriveApiUrlGenerator& url_generator,
                       const std::string& resource_id,
                       const base::FilePath& output_file_path,
-                      const DownloadActionCallback& download_action_callback,
+                      DownloadActionCallback download_action_callback,
                       const GetContentCallback& get_content_callback,
                       ProgressCallback progress_callback);
   ~DownloadFileRequest() override;

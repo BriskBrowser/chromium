@@ -69,9 +69,8 @@ class PaintLayer;
 class ScrollingCoordinator;
 class SubtreeLayoutScope;
 
-struct CORE_EXPORT PaintLayerScrollableAreaRareData {
-  USING_FAST_MALLOC(PaintLayerScrollableAreaRareData);
-
+struct CORE_EXPORT PaintLayerScrollableAreaRareData final
+    : public GarbageCollected<PaintLayerScrollableAreaRareData> {
  public:
   PaintLayerScrollableAreaRareData();
   PaintLayerScrollableAreaRareData(const PaintLayerScrollableAreaRareData&) =
@@ -79,10 +78,13 @@ struct CORE_EXPORT PaintLayerScrollableAreaRareData {
   PaintLayerScrollableAreaRareData& operator=(
       const PaintLayerScrollableAreaRareData&) = delete;
 
+  void Trace(Visitor* visitor) const;
+
   StickyConstraintsMap sticky_constraints_map_;
   base::Optional<cc::SnapContainerData> snap_container_data_;
   bool snap_container_data_needs_update_ = true;
   bool needs_resnap_ = false;
+  Vector<IntRect> tickmarks_override_;
 };
 
 // PaintLayerScrollableArea represents the scrollable area of a LayoutBox.
@@ -142,7 +144,7 @@ class CORE_EXPORT PaintLayerScrollableArea final
     // previously "deleted" scrollbar will be restored, rather than constructing
     // a new one.
    public:
-    ScrollbarManager(PaintLayerScrollableArea& scrollable_area)
+    explicit ScrollbarManager(PaintLayerScrollableArea& scrollable_area)
         : scrollable_area_(scrollable_area),
           h_bar_is_attached_(0),
           v_bar_is_attached_(0) {}
@@ -192,7 +194,7 @@ class CORE_EXPORT PaintLayerScrollableArea final
     STACK_ALLOCATED();
 
    public:
-    PreventRelayoutScope(SubtreeLayoutScope&);
+    explicit PreventRelayoutScope(SubtreeLayoutScope&);
     ~PreventRelayoutScope();
 
     static bool RelayoutIsPrevented() { return count_; }
@@ -251,6 +253,9 @@ class CORE_EXPORT PaintLayerScrollableArea final
   // for crashers during PaintLayer setup (see crbug.com/368062).
   explicit PaintLayerScrollableArea(PaintLayer&);
   ~PaintLayerScrollableArea() override;
+
+  // Return the PaintLayerScrollableArea (if any) associated with the Node.
+  static PaintLayerScrollableArea* FromNode(const Node&);
 
   void ForceVerticalScrollbarForFirstLayout() { SetHasVerticalScrollbar(true); }
   bool HasHorizontalScrollbar() const { return HorizontalScrollbar(); }
@@ -346,7 +351,7 @@ class CORE_EXPORT PaintLayerScrollableArea final
   bool ShouldPlaceVerticalScrollbarOnLeft() const override;
   int PageStep(ScrollbarOrientation) const override;
   mojom::blink::ScrollBehavior ScrollBehaviorStyle() const override;
-  WebColorScheme UsedColorScheme() const override;
+  mojom::blink::ColorScheme UsedColorScheme() const override;
   cc::AnimationHost* GetCompositorAnimationHost() const override;
   CompositorAnimationTimeline* GetCompositorAnimationTimeline() const override;
   bool HasTickmarks() const override;
@@ -386,7 +391,7 @@ class CORE_EXPORT PaintLayerScrollableArea final
 
   void DidChangeGlobalRootScroller() override;
 
-  void UpdateAfterStyleChange(const ComputedStyle*);
+  void UpdateAfterStyleChange(const ComputedStyle* old_style);
   void UpdateAfterOverflowRecalc();
 
   bool HasScrollbar() const {
@@ -400,6 +405,8 @@ class CORE_EXPORT PaintLayerScrollableArea final
 
   bool HasOverlayOverflowControls() const;
   bool NeedsScrollCorner() const;
+
+  bool ShouldOverflowControlsPaintAsOverlay() const;
 
   bool HasOverflow() const {
     return HasHorizontalOverflow() || HasVerticalOverflow();
@@ -531,7 +538,7 @@ class CORE_EXPORT PaintLayerScrollableArea final
     return EnsureRareData().sticky_constraints_map_;
   }
   StickyPositionScrollingConstraints* GetStickyConstraints(PaintLayer*);
-  void AddStickyConstraints(PaintLayer*, StickyPositionScrollingConstraints);
+  void AddStickyConstraints(PaintLayer*, StickyPositionScrollingConstraints*);
 
   void InvalidateAllStickyConstraints();
   void InvalidateStickyConstraintsFor(PaintLayer*);
@@ -547,8 +554,10 @@ class CORE_EXPORT PaintLayerScrollableArea final
   // Return the thickness of the existing scrollbar; or, if there is no
   // existing scrollbar, then calculate the thickness it would have if it
   // existed. Returns zero if the (real or hypothetical) scrollbar is an overlay
-  // scrollbar.
-  int HypotheticalScrollbarThickness(ScrollbarOrientation) const;
+  // scrollbar, unless should_include_overlay_thickness has been specified.
+  int HypotheticalScrollbarThickness(
+      ScrollbarOrientation,
+      bool should_include_overlay_thickness = false) const;
 
   void DidAddScrollbar(Scrollbar&, ScrollbarOrientation) override;
   void WillRemoveScrollbar(Scrollbar&, ScrollbarOrientation) override;
@@ -602,6 +611,8 @@ class CORE_EXPORT PaintLayerScrollableArea final
   bool HasPendingHistoryRestoreScrollOffset() override {
     return !!pending_view_state_;
   }
+
+  void SetTickmarksOverride(Vector<IntRect> tickmarks);
 
  private:
   bool NeedsScrollbarReconstruction() const;
@@ -660,22 +671,20 @@ class CORE_EXPORT PaintLayerScrollableArea final
 
   ScrollingCoordinator* GetScrollingCoordinator() const;
 
-  PaintLayerScrollableAreaRareData* RareData() { return rare_data_.get(); }
+  PaintLayerScrollableAreaRareData* RareData() { return rare_data_; }
   const PaintLayerScrollableAreaRareData* RareData() const {
-    return rare_data_.get();
+    return rare_data_;
   }
 
   PaintLayerScrollableAreaRareData& EnsureRareData() {
     if (!rare_data_)
-      rare_data_ = std::make_unique<PaintLayerScrollableAreaRareData>();
-    return *rare_data_.get();
+      rare_data_ = MakeGarbageCollected<PaintLayerScrollableAreaRareData>();
+    return *rare_data_;
   }
 
   IntRect CornerRect() const;
 
   void ScrollControlWasSetNeedsPaintInvalidation() override;
-
-  bool HasNonCompositedStickyDescendants() const;
 
   IntSize PixelSnappedBorderBoxSize() const;
 
@@ -687,7 +696,7 @@ class CORE_EXPORT PaintLayerScrollableArea final
   // PaintLayer is destructed before PaintLayerScrollable area, during this
   // time before PaintLayerScrollableArea has been collected layer_ will
   // be set to nullptr by the Dispose method.
-  PaintLayer* layer_;
+  Member<PaintLayer> layer_;
 
   // Keeps track of whether the layer is currently resizing, so events can cause
   // resizing to start and stop.
@@ -748,14 +757,14 @@ class CORE_EXPORT PaintLayerScrollableArea final
   ScrollOffset last_committed_scroll_offset_;
 
   // LayoutObject to hold our custom scroll corner.
-  LayoutCustomScrollbarPart* scroll_corner_;
+  Member<LayoutCustomScrollbarPart> scroll_corner_;
 
   // LayoutObject to hold our custom resizer.
-  LayoutCustomScrollbarPart* resizer_;
+  Member<LayoutCustomScrollbarPart> resizer_;
 
   ScrollAnchor scroll_anchor_;
 
-  std::unique_ptr<PaintLayerScrollableAreaRareData> rare_data_;
+  Member<PaintLayerScrollableAreaRareData> rare_data_;
 
   // MainThreadScrollingReason due to the properties of the LayoutObject
   uint32_t non_composited_main_thread_scrolling_reasons_;
@@ -770,7 +779,7 @@ class CORE_EXPORT PaintLayerScrollableArea final
     DISALLOW_NEW();
 
    public:
-    ScrollingBackgroundDisplayItemClient(
+    explicit ScrollingBackgroundDisplayItemClient(
         const PaintLayerScrollableArea& scrollable_area)
         : scrollable_area_(&scrollable_area) {}
 
@@ -787,7 +796,7 @@ class CORE_EXPORT PaintLayerScrollableArea final
     DISALLOW_NEW();
 
    public:
-    ScrollCornerDisplayItemClient(
+    explicit ScrollCornerDisplayItemClient(
         const PaintLayerScrollableArea& scrollable_area)
         : scrollable_area_(&scrollable_area) {}
 

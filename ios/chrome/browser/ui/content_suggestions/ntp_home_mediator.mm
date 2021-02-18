@@ -16,9 +16,11 @@
 #include "components/ntp_snippets/features.h"
 #import "components/signin/public/identity_manager/objc/identity_manager_observer_bridge.h"
 #include "components/strings/grit/components_strings.h"
+#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
 #import "ios/chrome/browser/metrics/new_tab_page_uma.h"
 #import "ios/chrome/browser/ntp/new_tab_page_tab_helper.h"
+#import "ios/chrome/browser/policy/policy_util.h"
 #import "ios/chrome/browser/search_engines/search_engine_observer_bridge.h"
 #import "ios/chrome/browser/signin/authentication_service.h"
 #import "ios/chrome/browser/ui/alert_coordinator/alert_coordinator.h"
@@ -37,12 +39,15 @@
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_metrics_recorder.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_view_controller.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_view_controller_audience.h"
+#import "ios/chrome/browser/ui/content_suggestions/discover_feed_metrics_recorder.h"
 #import "ios/chrome/browser/ui/content_suggestions/ntp_home_constant.h"
 #import "ios/chrome/browser/ui/content_suggestions/ntp_home_consumer.h"
 #import "ios/chrome/browser/ui/content_suggestions/ntp_home_metrics.h"
 #import "ios/chrome/browser/ui/content_suggestions/user_account_image_update_delegate.h"
+#import "ios/chrome/browser/ui/ntp/discover_feed_wrapper_view_controller.h"
 #include "ios/chrome/browser/ui/ntp/metrics.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_header_constants.h"
+#import "ios/chrome/browser/ui/ntp/new_tab_page_view_controller.h"
 #import "ios/chrome/browser/ui/ntp/notification_promo_whats_new.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/url_loading/url_loading_browser_agent.h"
@@ -165,8 +170,7 @@ const char kNTPHelpURL[] =
 
 - (void)shutdown {
   _searchEngineObserver.reset();
-  DCHECK(_webStateObserver);
-  if (_webState) {
+  if (_webState && _webStateObserver) {
     [self saveContentOffsetForWebState:_webState];
     _webState->RemoveObserver(_webStateObserver.get());
     _webStateObserver.reset();
@@ -175,6 +179,7 @@ const char kNTPHelpURL[] =
     _voiceSearchAvailability->RemoveObserver(self);
     _voiceSearchAvailability = nullptr;
   }
+  _identityObserverBridge.reset();
 }
 
 - (void)locationBarDidBecomeFirstResponder {
@@ -408,14 +413,17 @@ const char kNTPHelpURL[] =
 
 - (void)handleFeedManageActivityTapped {
   [self openMenuItemWebPage:GURL(kFeedManageActivityURL)];
+  [self.discoverFeedMetrics recordHeaderMenuManageActivityTapped];
 }
 
 - (void)handleFeedManageInterestsTapped {
   [self openMenuItemWebPage:GURL(kFeedManageInterestsURL)];
+  [self.discoverFeedMetrics recordHeaderMenuManageInterestsTapped];
 }
 
 - (void)handleFeedLearnMoreTapped {
   [self openMenuItemWebPage:GURL(kFeedLearnMoreURL)];
+  [self.discoverFeedMetrics recordHeaderMenuLearnMoreTapped];
 }
 
 - (void)handleLearnMoreTapped {
@@ -487,6 +495,12 @@ const char kNTPHelpURL[] =
 - (void)openNewTabWithMostVisitedItem:(ContentSuggestionsMostVisitedItem*)item
                             incognito:(BOOL)incognito
                               atIndex:(NSInteger)index {
+  if (incognito &&
+      IsIncognitoModeDisabled(self.browser->GetBrowserState()->GetPrefs())) {
+    // This should only happen when the policy changes while the option is
+    // presented.
+    return;
+  }
   [self logMostVisitedOpening:item atIndex:index];
   CGPoint cellCenter = [self cellCenterForItem:item];
   [self openNewTabWithURL:item.URL incognito:incognito originPoint:cellCenter];
@@ -513,7 +527,7 @@ const char kNTPHelpURL[] =
 }
 
 - (BOOL)isScrolledToTop {
-  return self.suggestionsViewController.scrolledToTop;
+  return self.primaryViewController.scrolledToTop;
 }
 
 - (void)registerImageUpdater:(id<UserAccountImageUpdateDelegate>)imageUpdater {
@@ -546,13 +560,16 @@ const char kNTPHelpURL[] =
 
 #pragma mark - IdentityManagerObserverBridgeDelegate
 
-- (void)onPrimaryAccountSet:(const CoreAccountInfo&)primaryAccountInfo {
-  [self updateAccountImage];
-}
-
-- (void)onPrimaryAccountCleared:
-    (const CoreAccountInfo&)previousPrimaryAccountInfo {
-  [self updateAccountImage];
+- (void)onPrimaryAccountChanged:
+    (const signin::PrimaryAccountChangeEvent&)event {
+  switch (event.GetEventTypeFor(signin::ConsentLevel::kNotRequired)) {
+    case signin::PrimaryAccountChangeEvent::Type::kSet:
+    case signin::PrimaryAccountChangeEvent::Type::kCleared:
+      [self updateAccountImage];
+      break;
+    case signin::PrimaryAccountChangeEvent::Type::kNone:
+      break;
+  }
 }
 
 #pragma mark - VoiceSearchAvailabilityObserver
@@ -638,10 +655,17 @@ const char kNTPHelpURL[] =
   web::NavigationManager* manager = webState->GetNavigationManager();
   web::NavigationItem* item = manager->GetLastCommittedItem();
   web::PageDisplayState displayState;
-  UIEdgeInsets contentInset =
-      self.suggestionsViewController.collectionView.contentInset;
-  CGPoint contentOffset =
-      self.suggestionsViewController.collectionView.contentOffset;
+
+  // TODO(crbug.com/1114792): Create a protocol to stop having references to
+  // both of these ViewControllers directly.
+  UICollectionView* collectionView =
+      self.refactoredFeedVisible
+          ? self.ntpViewController.discoverFeedWrapperViewController
+                .feedCollectionView
+          : self.suggestionsViewController.collectionView;
+  UIEdgeInsets contentInset = collectionView.contentInset;
+  CGPoint contentOffset = collectionView.contentOffset;
+
   contentOffset.y -=
       self.headerCollectionInteractionHandler.collectionShiftingOffset;
   displayState.scroll_state() =
@@ -658,8 +682,19 @@ const char kNTPHelpURL[] =
   web::NavigationItem* item = navigationManager->GetVisibleItem();
   CGFloat offset =
       item ? item->GetPageDisplayState().scroll_state().content_offset().y : 0;
-  if (offset > 0)
-    [self.suggestionsViewController setContentOffset:offset];
+  CGFloat minimumOffset =
+      [self isRefactoredFeedVisible]
+          ? -self.ntpViewController.contentSuggestionsContentHeight
+          : 0;
+  // TODO(crbug.com/1114792): Create a protocol to stop having references to
+  // both of these ViewControllers directly.
+  if (offset > minimumOffset) {
+    if ([self isRefactoredFeedVisible]) {
+      [self.ntpViewController setContentOffset:offset];
+    } else {
+      [self.suggestionsViewController setContentOffset:offset];
+    }
+  }
 }
 
 // Fetches and update user's avatar on NTP, or use default avatar if user is

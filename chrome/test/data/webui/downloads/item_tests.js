@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import '../mojo_webui_test_support.js';
+
 import {BrowserProxy, DangerType, IconLoader, States} from 'chrome://downloads/downloads.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {createDownload, TestDownloadsProxy, TestIconLoader} from 'chrome://test/downloads/test_support.js';
@@ -12,6 +14,9 @@ suite('item tests', function() {
 
   /** @type {!TestIconLoader} */
   let testIconLoader;
+
+  /** @type {!CrToastManagerElement} */
+  let toastManager;
 
   setup(function() {
     document.body.innerHTML = '';
@@ -24,6 +29,9 @@ suite('item tests', function() {
 
     item = document.createElement('downloads-item');
     document.body.appendChild(item);
+
+    toastManager = document.createElement('cr-toast-manager');
+    document.body.appendChild(toastManager);
   });
 
   test('dangerous downloads aren\'t linkable', () => {
@@ -104,5 +112,29 @@ suite('item tests', function() {
              }));
     flush();
     assertEquals(item.$$('#openNow'), null);
+  });
+
+  test('undo is shown in toast', () => {
+    item.data = createDownload({hideDate: false});
+    toastManager.show('', /* hideSlotted= */ true);
+    assertTrue(toastManager.slottedHidden);
+    item.$.remove.click();
+    assertFalse(toastManager.slottedHidden);
+  });
+
+  test('undo is not shown in toast when item is dangerous', () => {
+    item.data = createDownload({hideDate: false, isDangerous: true});
+    toastManager.show('', /* hideSlotted= */ false);
+    assertFalse(toastManager.slottedHidden);
+    item.$.remove.click();
+    assertTrue(toastManager.slottedHidden);
+  });
+
+  test('undo is not shown in toast when item is mixed content', () => {
+    item.data = createDownload({hideDate: false, isMixedContent: true});
+    toastManager.show('', /* hideSlotted= */ false);
+    assertFalse(toastManager.slottedHidden);
+    item.$.remove.click();
+    assertTrue(toastManager.slottedHidden);
   });
 });

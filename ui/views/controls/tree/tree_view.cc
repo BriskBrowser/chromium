@@ -41,6 +41,7 @@
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/controls/tree/tree_view_controller.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/style/platform_style.h"
 #include "ui/views/vector_icons.h"
 
@@ -1454,6 +1455,6 @@ int TreeView::InternalNode::GetMaxWidth(TreeView* tree, int indent, int depth) {
 }
 
 BEGIN_METADATA(TreeView, View)
-END_METADATA()
+END_METADATA
 
 }  // namespace views

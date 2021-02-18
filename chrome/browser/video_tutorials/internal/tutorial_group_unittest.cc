@@ -24,7 +24,7 @@ TEST(VideoTutorialGroupTest, CopyAndCompareOperators) {
 
   EXPECT_EQ(lhs, rhs);
 
-  rhs.locale = "jp";
+  rhs.language = "jp";
   EXPECT_NE(lhs, rhs);
   ResetTutorialGroup(&rhs);
 

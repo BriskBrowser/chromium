@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/crash_report/breadcrumbs/breadcrumb_manager.h"
+#include "components/breadcrumbs/core/breadcrumb_manager.h"
 
 #import "ios/web/public/test/web_task_environment.h"
 #include "testing/platform_test.h"
@@ -19,7 +19,7 @@ class BreadcrumbManagerTest : public PlatformTest {
   web::WebTaskEnvironment task_env_{
       web::WebTaskEnvironment::Options::DEFAULT,
       base::test::TaskEnvironment::TimeSource::MOCK_TIME};
-  BreadcrumbManager breadcrumb_manager_;
+  breadcrumbs::BreadcrumbManager breadcrumb_manager_;
 };
 
 // Tests that an event is logged and returned.
@@ -85,20 +85,4 @@ TEST_F(BreadcrumbManagerTest, MinimumEventsReturned) {
 
   std::list<std::string> events = breadcrumb_manager_.GetEvents(0);
   EXPECT_EQ(2ul, events.size());
-}
-
-// Tests that previous events are set as expected.
-TEST_F(BreadcrumbManagerTest, SetPreviousEvents) {
-  breadcrumb_manager_.SetPreviousEvents({"event1", "event2"});
-  ASSERT_EQ(2ul, breadcrumb_manager_.GetEvents(0).size());
-
-  task_env_.FastForwardBy(base::TimeDelta::FromMinutes(3));
-  breadcrumb_manager_.AddEvent("event3");
-
-  std::list<std::string> events = breadcrumb_manager_.GetEvents(0);
-  EXPECT_NE(std::string::npos, events.front().find("event1"));
-  events.pop_front();
-  EXPECT_NE(std::string::npos, events.front().find("event2"));
-  events.pop_front();
-  EXPECT_NE(std::string::npos, events.front().find("event3"));
 }

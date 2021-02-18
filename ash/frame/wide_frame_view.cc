@@ -6,15 +6,15 @@
 
 #include "ash/frame/header_view.h"
 #include "ash/frame/non_client_frame_view_ash.h"
-#include "ash/public/cpp/caption_buttons/frame_caption_button_container_view.h"
-#include "ash/public/cpp/default_frame_header.h"
-#include "ash/public/cpp/immersive/immersive_fullscreen_controller.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/shell.h"
 #include "ash/wm/overview/overview_controller.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/wm_event.h"
 #include "base/metrics/user_metrics.h"
+#include "chromeos/ui/frame/caption_buttons/frame_caption_button_container_view.h"
+#include "chromeos/ui/frame/default_frame_header.h"
+#include "chromeos/ui/frame/immersive/immersive_fullscreen_controller.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_targeter.h"
 #include "ui/display/display.h"
@@ -24,6 +24,8 @@
 
 namespace ash {
 namespace {
+
+using ::chromeos::ImmersiveFullscreenController;
 
 class WideFrameTargeter : public aura::WindowTargeter {
  public:
@@ -78,20 +80,21 @@ void WideFrameView::Init(ImmersiveFullscreenController* controller) {
 }
 
 void WideFrameView::SetCaptionButtonModel(
-    std::unique_ptr<CaptionButtonModel> model) {
+    std::unique_ptr<chromeos::CaptionButtonModel> model) {
   header_view_->caption_button_container()->SetModel(std::move(model));
   header_view_->UpdateCaptionButtons();
 }
 
-WideFrameView::WideFrameView(views::Widget* target)
-    : target_(target), widget_(std::make_unique<views::Widget>()) {
+WideFrameView::WideFrameView(views::Widget* target) : target_(target) {
   // WideFrameView is owned by its client, not by Views.
   SetOwnedByWidget(false);
   display::Screen::GetScreen()->AddObserver(this);
 
   aura::Window* target_window = target->GetNativeWindow();
   target_window->AddObserver(this);
-  header_view_ = new HeaderView(target);
+  // Use the HeaderView itself as a frame view because WideFrameView is
+  // is the frame only.
+  header_view_ = new HeaderView(target, /*frame view=*/nullptr);
   AddChildView(header_view_);
   GetTargetHeaderView()->SetShouldPaintHeader(false);
 
@@ -105,8 +108,9 @@ WideFrameView::WideFrameView(views::Widget* target)
   // Setup Opacity Control.
   // WideFrame should be used only when the rounded corner is not necessary.
   params.opacity = views::Widget::InitParams::WindowOpacity::kOpaque;
-
-  widget_->Init(std::move(params));
+  auto widget = std::make_unique<views::Widget>();
+  widget->Init(std::move(params));
+  widget_ = std::move(widget);
 
   aura::Window* window = widget_->GetNativeWindow();
   // Overview normally clips the caption container which exists on the same
@@ -117,6 +121,11 @@ WideFrameView::WideFrameView(views::Widget* target)
   window->SetProperty(kForceVisibleInMiniViewKey, true);
   window->SetEventTargeter(std::make_unique<WideFrameTargeter>(header_view()));
   set_owned_by_client();
+
+  paint_as_active_subscription_ =
+      target_->RegisterPaintAsActiveChangedCallback(base::BindRepeating(
+          &WideFrameView::PaintAsActiveChanged, base::Unretained(this)));
+  PaintAsActiveChanged();
 }
 
 WideFrameView::~WideFrameView() {
@@ -163,7 +172,8 @@ void WideFrameView::OnDisplayMetricsChanged(const display::Display& display,
                                             uint32_t changed_metrics) {
   display::Screen* screen = display::Screen::GetScreen();
   if (screen->GetDisplayNearestWindow(target_->GetNativeWindow()).id() !=
-      display.id()) {
+          display.id() ||
+      !widget_) {
     return;
   }
   DCHECK(target_);
@@ -203,6 +213,11 @@ HeaderView* WideFrameView::GetTargetHeaderView() {
   auto* frame_view = static_cast<NonClientFrameViewAsh*>(
       target_->non_client_view()->frame_view());
   return frame_view->GetHeaderView();
+}
+
+void WideFrameView::PaintAsActiveChanged() {
+  header_view_->GetFrameHeader()->SetPaintAsActive(
+      target_->ShouldPaintAsActive());
 }
 
 }  // namespace ash

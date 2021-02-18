@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 #include "base/run_loop.h"
-#include "base/test/scoped_feature_list.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/renderer/platform/heap/heap_test_utilities.h"
@@ -31,7 +30,6 @@ class ThreadStateSchedulingTest : public TestSupportingGC {
   void SetUp() override {
     state_ = ThreadState::Current();
     ClearOutOldGarbage();
-    initial_gc_age_ = state_->GcAge();
   }
 
   void TearDown() override {
@@ -49,14 +47,10 @@ class ThreadStateSchedulingTest : public TestSupportingGC {
     state_->RunScheduledGC(stack_state);
   }
 
-  // Counter that is incremented when sweep finishes.
-  int GCCount() { return state_->GcAge() - initial_gc_age_; }
-
   ThreadState* state() { return state_; }
 
  private:
   ThreadState* state_;
-  int initial_gc_age_;
 };
 
 TEST_F(ThreadStateSchedulingTest, RunIncrementalGCForTesting) {

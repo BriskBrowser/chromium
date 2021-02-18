@@ -125,12 +125,12 @@ class SelfDeleteInstaller
     FinishInstallation(false);
   }
 
-  void OnRegisterServiceWorkerResult(bool success) {
+  void OnRegisterServiceWorkerResult(blink::ServiceWorkerStatusCode status) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
     if (AbortInstallIfWebContentsOrBrowserContextIsGone())
       return;
 
-    if (!success) {
+    if (status != blink::ServiceWorkerStatusCode::kOk) {
       LOG(ERROR) << "Failed to install the web payment app " << sw_url_.spec();
       FinishInstallation(false);
     }
@@ -207,10 +207,10 @@ class SelfDeleteInstaller
     if (callback_.is_null())
       return;
 
-    if (success && web_contents() != nullptr) {
-      std::move(callback_).Run(web_contents(), registration_id_);
+    if (success) {
+      std::move(callback_).Run(registration_id_);
     } else {
-      std::move(callback_).Run(nullptr, -1);
+      std::move(callback_).Run(-1);
     }
 
     service_worker_context_->RemoveObserver(this);

@@ -29,6 +29,7 @@ class ASH_PUBLIC_EXPORT LoginScreenTestApi {
   static bool IsLoginShelfShown();
   static bool IsRestartButtonShown();
   static bool IsShutdownButtonShown();
+  static bool IsAppsButtonShown();
   static bool IsAuthErrorBubbleShown();
   static bool IsGuestButtonShown();
   static bool IsAddUserButtonShown();
@@ -36,6 +37,7 @@ class ASH_PUBLIC_EXPORT LoginScreenTestApi {
   static bool IsParentAccessButtonShown();
   static bool IsEnterpriseEnrollmentButtonShown();
   static bool IsWarningBubbleShown();
+  static bool IsUserAddingScreenIndicatorShown();
   static bool IsSystemInfoShown();
   static bool IsPasswordFieldShown(const AccountId& account_id);
   static bool IsDisplayPasswordButtonShown(const AccountId& account_id);
@@ -63,6 +65,8 @@ class ASH_PUBLIC_EXPORT LoginScreenTestApi {
 
   static std::string GetDisplayedName(const AccountId& account_id);
   static base::string16 GetDisabledAuthMessage(const AccountId& account_id);
+  static base::string16 GetManagementDisclosureText(
+      const AccountId& account_id);
 
   static bool ExpandPublicSessionPod(const AccountId& account_id);
   static bool HidePublicSessionExpandedPod();

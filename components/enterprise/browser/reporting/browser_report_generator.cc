@@ -9,6 +9,7 @@
 
 #include "base/version.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/enterprise/browser/reporting/reporting_delegate_factory.h"
 #include "components/policy/core/common/cloud/cloud_policy_util.h"
 #include "components/version_info/version_info.h"
@@ -23,10 +24,16 @@ BrowserReportGenerator::BrowserReportGenerator(
 
 BrowserReportGenerator::~BrowserReportGenerator() = default;
 
-void BrowserReportGenerator::Generate(ReportCallback callback) {
+void BrowserReportGenerator::Generate(ReportType report_type,
+                                      ReportCallback callback) {
   auto report = std::make_unique<em::BrowserReport>();
+  delegate_->GenerateProfileInfo(report_type, report.get());
+  if (report_type == ReportType::kExtensionRequest) {
+    report->set_executable_path(delegate_->GetExecutablePath());
+    std::move(callback).Run(std::move(report));
+    return;
+  }
   GenerateBasicInfo(report.get());
-  delegate_->GenerateProfileInfo(report.get());
 
   // std::move is required here because the function completes the report
   // asynchronously.
@@ -34,7 +41,7 @@ void BrowserReportGenerator::Generate(ReportCallback callback) {
 }
 
 void BrowserReportGenerator::GenerateBasicInfo(em::BrowserReport* report) {
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
   report->set_browser_version(version_info::GetVersionNumber());
   report->set_channel(policy::ConvertToProtoChannel(delegate_->GetChannel()));
   delegate_->GenerateBuildStateInfo(report);

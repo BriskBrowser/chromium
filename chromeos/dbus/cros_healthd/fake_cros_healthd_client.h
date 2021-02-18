@@ -8,6 +8,7 @@
 #include "base/callback_forward.h"
 #include "base/files/scoped_file.h"
 #include "base/macros.h"
+#include "base/optional.h"
 #include "base/time/time.h"
 #include "chromeos/dbus/cros_healthd/cros_healthd_client.h"
 #include "chromeos/dbus/cros_healthd/fake_cros_healthd_service.h"
@@ -65,12 +66,44 @@ class COMPONENT_EXPORT(CROS_HEALTHD) FakeCrosHealthdClient
   // Calls the power event OnAcInserted on all registered power observers.
   void EmitAcInsertedEventForTesting();
 
+  // Calls the power event OnAcRemoved on all registered power observers.
+  void EmitAcRemovedEventForTesting();
+
+  // Calls the power event OnOsSuspend on all registered power observers.
+  void EmitOsSuspendEventForTesting();
+
+  // Calls the power event OnOsResume on all registered power observers.
+  void EmitOsResumeEventForTesting();
+
   // Calls the Bluetooth event OnAdapterAdded on all registered Bluetooth
   // observers.
   void EmitAdapterAddedEventForTesting();
 
+  // Calls the Bluetooth event OnAdapterRemoved on all registered Bluetooth
+  // observers.
+  void EmitAdapterRemovedEventForTesting();
+
+  // Calls the Bluetooth event OnAdapterPropertyChanged on all registered
+  // Bluetooth observers.
+  void EmitAdapterPropertyChangedEventForTesting();
+
+  // Calls the Bluetooth event OnDeviceAdded on all registered Bluetooth
+  // observers.
+  void EmitDeviceAddedEventForTesting();
+
+  // Calls the Bluetooth event OnDeviceRemoved on all registered Bluetooth
+  // observers.
+  void EmitDeviceRemovedEventForTesting();
+
+  // Calls the Bluetooth event OnDevicePropertyChanged on all registered
+  // Bluetooth observers.
+  void EmitDevicePropertyChangedEventForTesting();
+
   // Calls the lid event OnLidClosed on all registered lid observers.
   void EmitLidClosedEventForTesting();
+
+  // Calls the lid event OnLidOpened on all registered lid observers.
+  void EmitLidOpenedEventForTesting();
 
   // Requests the network health state using the NetworkHealthService remote.
   void RequestNetworkHealthForTesting(
@@ -82,6 +115,11 @@ class COMPONENT_EXPORT(CROS_HEALTHD) FakeCrosHealthdClient
   void RunLanConnectivityRoutineForTesting(
       chromeos::network_diagnostics::mojom::NetworkDiagnosticsRoutines::
           LanConnectivityCallback);
+
+  // Returns the parameters passed for the most recent call to
+  // `GetRoutineUpdate`.
+  base::Optional<FakeCrosHealthdService::RoutineUpdateParams>
+  GetRoutineUpdateParams();
 
  private:
   FakeCrosHealthdService fake_service_;

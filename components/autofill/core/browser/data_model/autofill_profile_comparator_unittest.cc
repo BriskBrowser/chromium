@@ -12,8 +12,10 @@
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "components/autofill/core/browser/data_model/autofill_structured_address_component.h"
+#include "components/autofill/core/browser/data_model/autofill_structured_address_utils.h"
 #include "components/autofill/core/browser/data_model/contact_info.h"
 #include "components/autofill/core/browser/field_types.h"
+#include "components/autofill/core/browser/geo/alternative_state_name_map_test_utils.h"
 #include "components/autofill/core/browser/geo/country_names.h"
 #include "components/autofill/core/common/autofill_clock.h"
 #include "components/autofill/core/common/autofill_features.h"
@@ -61,7 +63,7 @@ const char kLocale[] = "en-US";
 
 class AutofillProfileComparatorTest
     : public testing::Test,
-      public testing::WithParamInterface<std::tuple<bool, bool>> {
+      public testing::WithParamInterface<std::tuple<bool, bool, bool>> {
  public:
   // Expose the protected methods of autofill::AutofillProfileComparator for
   // testing.
@@ -261,7 +263,8 @@ class AutofillProfileComparatorTest
 
   void MergeAddressesAndExpect(const AutofillProfile& a,
                                const AutofillProfile& b,
-                               const Address& expected) {
+                               const Address& expected,
+                               bool check_structured_address_tokens = false) {
     Address actual;
     ASSERT_TRUE(comparator_.MergeAddresses(a, b, &actual));
 
@@ -290,28 +293,35 @@ class AutofillProfileComparatorTest
     EXPECT_EQ(expected.GetInfo(AutofillType(ADDRESS_HOME_COUNTRY), kLocale),
               actual.GetInfo(AutofillType(ADDRESS_HOME_COUNTRY), kLocale));
 
-    EXPECT_EQ(expected.GetInfo(AutofillType(autofill::ADDRESS_HOME_STREET_NAME),
-                               kLocale),
-              actual.GetInfo(AutofillType(autofill::ADDRESS_HOME_STREET_NAME),
-                             kLocale));
-    EXPECT_EQ(expected.GetInfo(
-                  AutofillType(autofill::ADDRESS_HOME_DEPENDENT_STREET_NAME),
-                  kLocale),
-              actual.GetInfo(
-                  AutofillType(autofill::ADDRESS_HOME_DEPENDENT_STREET_NAME),
-                  kLocale));
-    EXPECT_EQ(expected.GetInfo(
-                  AutofillType(autofill::ADDRESS_HOME_HOUSE_NUMBER), kLocale),
-              actual.GetInfo(AutofillType(autofill::ADDRESS_HOME_HOUSE_NUMBER),
-                             kLocale));
-    EXPECT_EQ(expected.GetInfo(
-                  AutofillType(autofill::ADDRESS_HOME_PREMISE_NAME), kLocale),
-              actual.GetInfo(AutofillType(autofill::ADDRESS_HOME_PREMISE_NAME),
-                             kLocale));
-    EXPECT_EQ(expected.GetInfo(AutofillType(autofill::ADDRESS_HOME_SUBPREMISE),
-                               kLocale),
-              actual.GetInfo(AutofillType(autofill::ADDRESS_HOME_SUBPREMISE),
-                             kLocale));
+    if (check_structured_address_tokens &&
+        (base::FeatureList::IsEnabled(
+             autofill::features::kAutofillAddressEnhancementVotes) ||
+         autofill::structured_address::StructuredAddressesEnabled())) {
+      EXPECT_EQ(expected.GetInfo(
+                    AutofillType(autofill::ADDRESS_HOME_STREET_NAME), kLocale),
+                actual.GetInfo(AutofillType(autofill::ADDRESS_HOME_STREET_NAME),
+                               kLocale));
+      EXPECT_EQ(expected.GetInfo(
+                    AutofillType(autofill::ADDRESS_HOME_DEPENDENT_STREET_NAME),
+                    kLocale),
+                actual.GetInfo(
+                    AutofillType(autofill::ADDRESS_HOME_DEPENDENT_STREET_NAME),
+                    kLocale));
+      EXPECT_EQ(
+          expected.GetInfo(AutofillType(autofill::ADDRESS_HOME_HOUSE_NUMBER),
+                           kLocale),
+          actual.GetInfo(AutofillType(autofill::ADDRESS_HOME_HOUSE_NUMBER),
+                         kLocale));
+      EXPECT_EQ(
+          expected.GetInfo(AutofillType(autofill::ADDRESS_HOME_PREMISE_NAME),
+                           kLocale),
+          actual.GetInfo(AutofillType(autofill::ADDRESS_HOME_PREMISE_NAME),
+                         kLocale));
+      EXPECT_EQ(expected.GetInfo(
+                    AutofillType(autofill::ADDRESS_HOME_SUBPREMISE), kLocale),
+                actual.GetInfo(AutofillType(autofill::ADDRESS_HOME_SUBPREMISE),
+                               kLocale));
+    }
   }
 
   AutofillProfileComparator comparator_{kLocale};
@@ -322,6 +332,7 @@ class AutofillProfileComparatorTest
   void InitializeFeatures() {
     structured_names_enabled_ = std::get<0>(GetParam());
     address_enhancement_votes_enabled_ = std::get<1>(GetParam());
+    structured_addresses_enabled_ = std::get<2>(GetParam());
 
     std::vector<base::Feature> enabled_features;
     std::vector<base::Feature> disabled_features;
@@ -341,9 +352,21 @@ class AutofillProfileComparatorTest
       disabled_features.push_back(
           autofill::features::kAutofillAddressEnhancementVotes);
     }
+
+    if (structured_addresses_enabled_) {
+      enabled_features.push_back(
+          autofill::features::
+              kAutofillEnableSupportForMoreStructureInAddresses);
+    } else {
+      disabled_features.push_back(
+          autofill::features::
+              kAutofillEnableSupportForMoreStructureInAddresses);
+    }
+
     scoped_features_.InitWithFeatures(enabled_features, disabled_features);
   }
 
+  bool StructuredAddresses() const { return structured_addresses_enabled_; }
   bool StructuredNames() const { return structured_names_enabled_; }
   bool AddressEnhancementVotes() const {
     return address_enhancement_votes_enabled_;
@@ -351,6 +374,7 @@ class AutofillProfileComparatorTest
 
   bool address_enhancement_votes_enabled_;
   bool structured_names_enabled_;
+  bool structured_addresses_enabled_;
   base::test::ScopedFeatureList scoped_features_;
 
  private:
@@ -1198,7 +1222,14 @@ TEST_P(AutofillProfileComparatorTest, MergeAddresses) {
   expected.SetRawInfo(ADDRESS_HOME_ZIP, UTF8ToUTF16("90210-1234"));
   expected.SetRawInfo(ADDRESS_HOME_COUNTRY, UTF8ToUTF16("US"));
 
-  MergeAddressesAndExpect(p1, p2, expected);
+  if (autofill::structured_address::StructuredAddressesEnabled()) {
+    expected.SetRawInfo(autofill::ADDRESS_HOME_HOUSE_NUMBER, UTF8ToUTF16("1"));
+    expected.SetRawInfo(autofill::ADDRESS_HOME_STREET_NAME,
+                        UTF8ToUTF16("Some Street"));
+  }
+
+  MergeAddressesAndExpect(p1, p2, expected,
+                          /*check_structured_address_tokens=*/false);
 }
 
 TEST_P(AutofillProfileComparatorTest, MergeAddressesMostUniqueTokens) {
@@ -1206,22 +1237,19 @@ TEST_P(AutofillProfileComparatorTest, MergeAddressesMostUniqueTokens) {
       "1 Some Street", "Unit 3", "Carver", "CA - California", "90210", "US");
 
   p1.SetRawInfo(autofill::ADDRESS_HOME_STREET_NAME,
-                base::UTF8ToUTF16("StreetName"));
+                base::UTF8ToUTF16("Some Street"));
   p1.SetRawInfo(autofill::ADDRESS_HOME_DEPENDENT_STREET_NAME,
-                base::UTF8ToUTF16("DependentStreetName"));
-  p1.SetRawInfo(autofill::ADDRESS_HOME_HOUSE_NUMBER,
-                base::UTF8ToUTF16("HouseNumber"));
-  p1.SetRawInfo(autofill::ADDRESS_HOME_PREMISE_NAME,
-                base::UTF8ToUTF16("PremiseName"));
-  p1.SetRawInfo(autofill::ADDRESS_HOME_SUBPREMISE,
-                base::UTF8ToUTF16("Subpremise"));
+                base::UTF8ToUTF16(""));
+  p1.SetRawInfo(autofill::ADDRESS_HOME_HOUSE_NUMBER, base::UTF8ToUTF16(""));
+  p1.SetRawInfo(autofill::ADDRESS_HOME_PREMISE_NAME, base::UTF8ToUTF16(""));
+  p1.SetRawInfo(autofill::ADDRESS_HOME_SUBPREMISE, base::UTF8ToUTF16("Unit 3"));
 
   AutofillProfile p2 = CreateProfileWithAddress(
       "1 Some Other Street", "Unit 3", "Carver City", "ca", "90210-1234", "us");
 
   p2.set_use_date(p1.use_date() + base::TimeDelta::FromMinutes(1));
   p2.SetRawInfo(autofill::ADDRESS_HOME_STREET_NAME,
-                base::UTF8ToUTF16("StreetName2"));
+                base::UTF8ToUTF16("Some Other Street"));
   p2.SetRawInfo(autofill::ADDRESS_HOME_DEPENDENT_STREET_NAME,
                 base::UTF8ToUTF16("DependentStreetName2"));
   p2.SetRawInfo(autofill::ADDRESS_HOME_HOUSE_NUMBER,
@@ -1401,9 +1429,80 @@ TEST_P(AutofillProfileComparatorTest,
   MergeAddressesAndExpect(p2, p1, expected);
 }
 
+// Checks for various scenarios for determining mergeability of profiles w.r.t.
+// the state.
+TEST_P(AutofillProfileComparatorTest, CheckStatesMergeability) {
+  base::test::ScopedFeatureList feature;
+  feature.InitAndEnableFeature(
+      autofill::features::kAutofillUseAlternativeStateNameMap);
+
+  autofill::test::ClearAlternativeStateNameMapForTesting();
+  autofill::test::PopulateAlternativeStateNameMapForTesting();
+
+  AutofillProfile empty = CreateProfileWithAddress("", "", "", "", "", "DE");
+  AutofillProfile p1 = CreateProfileWithAddress("", "", "", "Bayern", "", "DE");
+  AutofillProfile p2 = CreateProfileWithAddress("", "", "", "Random", "", "DE");
+  AutofillProfile p3 =
+      CreateProfileWithAddress("", "", "", "Bayern - BY - Bavaria", "", "DE");
+  AutofillProfile p4 =
+      CreateProfileWithAddress("", "", "", "Bavaria", "", "DE");
+
+  EXPECT_TRUE(comparator_.HaveMergeableAddresses(empty, empty));
+  EXPECT_TRUE(comparator_.HaveMergeableAddresses(p1, empty));
+  EXPECT_TRUE(comparator_.HaveMergeableAddresses(p1, p1));
+  EXPECT_FALSE(comparator_.HaveMergeableAddresses(p1, p2));
+  EXPECT_TRUE(comparator_.HaveMergeableAddresses(p3, p1));
+  EXPECT_TRUE(comparator_.HaveMergeableAddresses(p1, p4));
+  EXPECT_FALSE(comparator_.HaveMergeableAddresses(p2, p4));
+}
+
+// Tests that the profiles are merged when they have common states.
+TEST_P(AutofillProfileComparatorTest, MergeProfilesBasedOnState) {
+  base::test::ScopedFeatureList feature;
+  // The feature
+  // |autofill::features::kAutofillEnableSupportForMoreStructureInAddresses| is
+  // disabled since it is incompatible with the feature
+  // |autofill::features::kAutofillUseStateMappingCache|.
+  feature.InitWithFeatures(
+      {autofill::features::kAutofillUseAlternativeStateNameMap},
+      {autofill::features::kAutofillEnableSupportForMoreStructureInAddresses});
+
+  autofill::test::ClearAlternativeStateNameMapForTesting();
+  autofill::test::PopulateAlternativeStateNameMapForTesting();
+  autofill::test::PopulateAlternativeStateNameMapForTesting(
+      "IN", "UP",
+      {{.canonical_name = "Uttar Pradesh",
+        .abbreviations = {"UP"},
+        .alternative_names = {}}});
+
+  AutofillProfile empty = CreateProfileWithAddress("", "", "", "", "", "DE");
+  AutofillProfile p1 = CreateProfileWithAddress("", "", "", "Bayern", "", "DE");
+  AutofillProfile p2 =
+      CreateProfileWithAddress("", "", "", "Bayern - BY - Bavaria", "", "DE");
+
+  Address expected;
+  expected.SetRawInfo(ADDRESS_HOME_COUNTRY, UTF8ToUTF16("DE"));
+  expected.SetRawInfo(ADDRESS_HOME_STATE, UTF8ToUTF16("Bayern"));
+  MergeAddressesAndExpect(empty, p1, expected);
+  MergeAddressesAndExpect(p1, empty, expected);
+  MergeAddressesAndExpect(p1, p2, expected);
+  MergeAddressesAndExpect(p2, p1, expected);
+
+  AutofillProfile p3 =
+      CreateProfileWithAddress("", "", "", "Pradesh", "", "IN");
+  AutofillProfile p4 =
+      CreateProfileWithAddress("", "", "", "Uttar Pradesh", "", "IN");
+  expected.SetRawInfo(ADDRESS_HOME_COUNTRY, UTF8ToUTF16("IN"));
+  expected.SetRawInfo(ADDRESS_HOME_STATE, UTF8ToUTF16("Uttar Pradesh"));
+  MergeAddressesAndExpect(p3, p4, expected);
+  MergeAddressesAndExpect(p4, p3, expected);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     All,
     AutofillProfileComparatorTest,
     testing::Combine(testing::Bool(),
+                     testing::Bool(),
                      testing::Bool()));  // Test with and without structured
-                                         // names and address enhancement votes.
+                                         // names and address enhancement votes
+                                         // and structured addresses.

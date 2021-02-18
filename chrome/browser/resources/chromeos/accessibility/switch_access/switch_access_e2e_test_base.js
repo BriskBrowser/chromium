@@ -10,31 +10,29 @@ GEN_INCLUDE([
 SwitchAccessE2ETest = class extends E2ETestBase {
   /** @override */
   testGenCppIncludes() {
+    super.testGenCppIncludes();
     GEN(`
 #include "ash/accessibility/accessibility_delegate.h"
 #include "ash/shell.h"
 #include "base/bind.h"
 #include "base/callback.h"
-#include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
+#include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "content/public/test/browser_test.h"
-#include "ui/accessibility/accessibility_switches.h"
 #include "ash/keyboard/ui/keyboard_util.h"
     `);
   }
 
   /** @override */
   testGenPreamble() {
+    super.testGenPreamble();
     GEN(`
-  base::Closure load_cb =
-      base::Bind(&chromeos::AccessibilityManager::SetSwitchAccessEnabled,
-          base::Unretained(chromeos::AccessibilityManager::Get()),
+  base::OnceClosure load_cb =
+      base::BindOnce(&AccessibilityManager::SetSwitchAccessEnabled,
+          base::Unretained(AccessibilityManager::Get()),
           true);
-  base::CommandLine::ForCurrentProcess()->AppendSwitch(
-      ::switches::kEnableExperimentalAccessibilitySwitchAccess);
-  chromeos::AccessibilityManager::Get()->SetSwitchAccessEnabled(true);
-  WaitForExtension(extension_misc::kSwitchAccessExtensionId, load_cb);
     `);
+    super.testGenPreambleCommon('kSwitchAccessExtensionId');
   }
 
   /**
@@ -65,6 +63,6 @@ SwitchAccessE2ETest = class extends E2ETestBase {
    */
   waitForPredicate(predicate, callback) {
     this.listenUntil(
-        predicate, NavigationManager.desktopNode, 'childrenChanged', callback);
+        predicate, Navigator.instance.desktopNode, 'childrenChanged', callback);
   }
 };

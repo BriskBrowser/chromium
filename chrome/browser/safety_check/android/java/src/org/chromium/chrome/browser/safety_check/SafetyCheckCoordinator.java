@@ -11,8 +11,8 @@ import androidx.lifecycle.Observer;
 
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.password_manager.PasswordScriptsFetcherBridge;
-import org.chromium.chrome.browser.settings.SettingsLauncher;
-import org.chromium.chrome.browser.signin.SigninActivityLauncher;
+import org.chromium.chrome.browser.signin.ui.SigninActivityLauncher;
+import org.chromium.components.browser_ui.settings.SettingsLauncher;
 import org.chromium.ui.modelutil.PropertyModel;
 import org.chromium.ui.modelutil.PropertyModelChangeProcessor;
 
@@ -39,7 +39,7 @@ public class SafetyCheckCoordinator implements DefaultLifecycleObserver {
             SigninActivityLauncher signinLauncher) {
         new SafetyCheckCoordinator(
                 settingsFragment, updatesClient, settingsLauncher, signinLauncher);
-        if (ChromeFeatureList.isEnabled(ChromeFeatureList.PASSWORD_CHANGE_IN_SETTINGS)) {
+        if (ChromeFeatureList.isEnabled(ChromeFeatureList.PASSWORD_SCRIPTS_FETCHING)) {
             // Triggers pre-fetching the list of password change scripts.
             PasswordScriptsFetcherBridge.prewarmCache();
         }

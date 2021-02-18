@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "content/browser/service_worker/service_worker_database.h"
 #include "content/browser/service_worker/service_worker_single_script_update_checker.h"
 #include "content/browser/service_worker/service_worker_updated_script_loader.h"
 
@@ -120,9 +119,6 @@ class CONTENT_EXPORT ServiceWorkerUpdateChecker {
   void OnResourceIdAssignedForOneScriptCheck(const GURL& url,
                                              const int64_t resource_id,
                                              const int64_t new_resource_id);
-  void DidSetUpOnUI(net::HttpRequestHeaders header,
-                    ServiceWorkerUpdatedScriptLoader::BrowserContextGetter
-                        browser_context_getter);
 
   const GURL main_script_url_;
   const int64_t main_script_resource_id_;
@@ -151,9 +147,6 @@ class CONTENT_EXPORT ServiceWorkerUpdateChecker {
 
   // Headers that need to be added to network requests for update checking.
   net::HttpRequestHeaders default_headers_;
-
-  ServiceWorkerUpdatedScriptLoader::BrowserContextGetter
-      browser_context_getter_;
 
   // True if any at least one of the scripts is fetched by network.
   bool network_accessed_ = false;

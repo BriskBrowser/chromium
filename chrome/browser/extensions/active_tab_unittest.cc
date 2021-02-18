@@ -11,6 +11,7 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/values.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/active_tab_permission_granter.h"
 #include "chrome/browser/extensions/chrome_test_extension_loader.h"
@@ -31,7 +32,6 @@
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/frame_navigate_params.h"
 #include "content/public/test/navigation_simulator.h"
 #include "content/public/test/web_contents_tester.h"
 #include "extensions/browser/disable_reason.h"
@@ -47,18 +47,18 @@
 #include "extensions/common/value_builder.h"
 #include "extensions/test/test_extension_dir.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/ash_switches.h"
 #include "base/run_loop.h"
-#include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
+#include "chrome/browser/ash/app_mode/kiosk_app_manager.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/extensions/active_tab_permission_granter_delegate_chromeos.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager_impl.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/ui/ash/test_wallpaper_controller.h"
 #include "chrome/browser/ui/ash/wallpaper_controller_client.h"
 #include "chrome/test/base/scoped_testing_local_state.h"
 #include "chrome/test/base/testing_browser_process.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/dbus/cryptohome/cryptohome_client.h"
 #include "chromeos/login/login_state/scoped_test_public_session_login_state.h"
 #include "components/account_id/account_id.h"
@@ -151,8 +151,8 @@ class ActiveTabTest : public ChromeRenderViewHostTestHarness {
   }
 
   void TearDown() override {
-#if defined(OS_CHROMEOS)
-    chromeos::KioskAppManager::Shutdown();
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    ash::KioskAppManager::Shutdown();
 #endif
     ChromeRenderViewHostTestHarness::TearDown();
   }
@@ -519,7 +519,7 @@ TEST_F(ActiveTabDelegateTest, DelegateUsedOnlyWhenNeeded) {
   EXPECT_EQ(0, test_delegate_->should_grant_call_count());
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 class ActiveTabManagedSessionTest : public ActiveTabTest {
  protected:
   ActiveTabManagedSessionTest() {}
@@ -598,9 +598,9 @@ TEST_F(ActiveTabManagedSessionTest, NoPromptInManagedSession) {
 std::unique_ptr<permission_helper::RequestResolvedCallback>
 QuitRunLoopOnRequestResolved(base::RunLoop* run_loop) {
   auto callback = std::make_unique<permission_helper::RequestResolvedCallback>(
-      base::BindRepeating([](base::RunLoop* run_loop, const PermissionIDSet&) {
-        run_loop->Quit();
-      }, run_loop));
+      base::BindOnce([](base::RunLoop* run_loop,
+                        const PermissionIDSet&) { run_loop->Quit(); },
+                     run_loop));
   ActiveTabPermissionGranterDelegateChromeOS::
       SetRequestResolvedCallbackForTesting(callback.get());
   return callback;
@@ -648,7 +648,7 @@ TEST_F(ActiveTabManagedSessionTest,
   ActiveTabPermissionGranterDelegateChromeOS::
       SetRequestResolvedCallbackForTesting(nullptr);
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 // An active tab test that includes an ExtensionService.
 class ActiveTabWithServiceTest : public ExtensionServiceTestBase {

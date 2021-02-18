@@ -36,8 +36,8 @@ namespace browsing_data_browsertest_utils {
 
 namespace {
 
-void AddServiceWorkerCallback(bool success) {
-  ASSERT_TRUE(success);
+void AddServiceWorkerCallback(blink::ServiceWorkerStatusCode status) {
+  ASSERT_EQ(status, blink::ServiceWorkerStatusCode::kOk);
 }
 
 void GetServiceWorkersCallback(
@@ -60,9 +60,8 @@ ServiceWorkerActivationObserver::ServiceWorkerActivationObserver(
     ServiceWorkerContextWrapper* context,
     base::OnceClosure callback)
     : context_(context),
-      scoped_observer_(this),
       callback_(std::move(callback)) {
-  scoped_observer_.Add(context);
+  scoped_observation_.Observe(context);
 }
 
 ServiceWorkerActivationObserver::~ServiceWorkerActivationObserver() {}

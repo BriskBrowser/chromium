@@ -71,9 +71,13 @@ bool TestLayerTreeFrameSink::BindToClient(LayerTreeFrameSinkClient* client) {
   frame_sink_manager_ =
       std::make_unique<viz::FrameSinkManagerImpl>(shared_bitmap_manager_.get());
 
+  std::unique_ptr<viz::DisplayCompositorMemoryAndTaskController>
+      display_controller;
   std::unique_ptr<viz::OutputSurface> display_output_surface;
   if (renderer_settings_.use_skia_renderer) {
-    auto output_surface = test_client_->CreateDisplaySkiaOutputSurface();
+    display_controller = test_client_->CreateDisplayController();
+    auto output_surface =
+        test_client_->CreateDisplaySkiaOutputSurface(display_controller.get());
     display_output_surface = std::move(output_surface);
   } else {
     display_output_surface =
@@ -105,11 +109,17 @@ bool TestLayerTreeFrameSink::BindToClient(LayerTreeFrameSinkClient* client) {
   }
 
   auto overlay_processor = std::make_unique<viz::OverlayProcessorStub>();
+  // Normally display will need to take ownership of a
+  // gpu::GpuTaskschedulerhelper in order to keep it alive to share between the
+  // output surface and the overlay processor. In this case the overlay
+  // processor is only a stub, and viz::TestGpuServiceHolder will keep a
+  // gpu::GpuTaskSchedulerHelper alive for output surface to use, so there is no
+  // need to pass in an gpu::GpuTaskSchedulerHelper here.
   display_ = std::make_unique<viz::Display>(
       shared_bitmap_manager_.get(), renderer_settings_, debug_settings_,
-      frame_sink_id_, std::move(display_output_surface),
-      std::move(overlay_processor), std::move(scheduler),
-      compositor_task_runner_);
+      frame_sink_id_, std::move(display_controller),
+      std::move(display_output_surface), std::move(overlay_processor),
+      std::move(scheduler), compositor_task_runner_);
 
   constexpr bool is_root = true;
   support_ = std::make_unique<viz::CompositorFrameSinkSupport>(
@@ -169,15 +179,13 @@ void TestLayerTreeFrameSink::SubmitCompositorFrame(viz::CompositorFrame frame,
   gfx::Size frame_size = frame.size_in_pixels();
   float device_scale_factor = frame.device_scale_factor();
   viz::LocalSurfaceId local_surface_id =
-      parent_local_surface_id_allocator_->GetCurrentLocalSurfaceIdAllocation()
-          .local_surface_id();
+      parent_local_surface_id_allocator_->GetCurrentLocalSurfaceId();
 
   if (frame_size != display_size_ ||
       device_scale_factor != device_scale_factor_) {
     parent_local_surface_id_allocator_->GenerateId();
     local_surface_id =
-        parent_local_surface_id_allocator_->GetCurrentLocalSurfaceIdAllocation()
-            .local_surface_id();
+        parent_local_surface_id_allocator_->GetCurrentLocalSurfaceId();
     display_->SetLocalSurfaceId(local_surface_id, device_scale_factor);
     display_->Resize(frame_size);
     display_size_ = frame_size;

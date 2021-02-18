@@ -11,6 +11,7 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/aura/window.h"
@@ -25,6 +26,8 @@
 #include "ui/native_theme/native_theme.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/painter.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
@@ -46,7 +49,9 @@ constexpr int kVerticalPaddingBottom = 5;
 
 // TODO(varkha): Update if native widget can be transparent on Linux.
 bool CanUseTranslucentTooltipWidget() {
-#if (defined(OS_LINUX) && !defined(OS_CHROMEOS)) || defined(OS_WIN)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) || defined(OS_WIN)
   return false;
 #else
   return true;
@@ -56,6 +61,7 @@ bool CanUseTranslucentTooltipWidget() {
 // TODO(oshima): Consider to use views::Label.
 class TooltipView : public views::View {
  public:
+  METADATA_HEADER(TooltipView);
   TooltipView() : render_text_(gfx::RenderText::CreateRenderText()) {
     SetBorder(views::CreateEmptyBorder(kVerticalPaddingTop, kHorizontalPadding,
                                        kVerticalPaddingBottom,
@@ -67,6 +73,8 @@ class TooltipView : public views::View {
     ResetDisplayRect();
   }
 
+  TooltipView(const TooltipView&) = delete;
+  TooltipView& operator=(const TooltipView&) = delete;
   ~TooltipView() override = default;
 
   // views:View:
@@ -89,8 +97,6 @@ class TooltipView : public views::View {
     view_size.Enlarge(insets.width(), insets.height());
     return view_size;
   }
-
-  const char* GetClassName() const override { return "TooltipView"; }
 
   void SetText(const base::string16& text) {
     render_text_->SetHorizontalAlignment(gfx::ALIGN_TO_HEAD);
@@ -147,9 +153,10 @@ class TooltipView : public views::View {
 
   std::unique_ptr<gfx::RenderText> render_text_;
   int max_width_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(TooltipView);
 };
+
+BEGIN_METADATA(TooltipView, views::View)
+END_METADATA
 
 }  // namespace
 
@@ -209,7 +216,7 @@ gfx::Rect TooltipAura::GetTooltipBounds(const gfx::Point& mouse_pos,
   return tooltip_rect;
 }
 
-void TooltipAura::CreateTooltipWidget() {
+void TooltipAura::CreateTooltipWidget(const gfx::Rect& bounds) {
   DCHECK(!widget_);
   DCHECK(tooltip_window_);
   widget_ = new TooltipWidget;
@@ -221,6 +228,7 @@ void TooltipAura::CreateTooltipWidget() {
   DCHECK(params.context);
   params.z_order = ui::ZOrderLevel::kFloatingUIElement;
   params.accept_events = false;
+  params.bounds = bounds;
   if (CanUseTranslucentTooltipWidget())
     params.opacity = views::Widget::InitParams::WindowOpacity::kTranslucent;
   params.shadow_type = views::Widget::InitParams::ShadowType::kNone;
@@ -228,7 +236,6 @@ void TooltipAura::CreateTooltipWidget() {
   // which just amount to overkill for this UI.
   params.force_software_compositing = true;
   widget_->Init(std::move(params));
-  widget_->SetTooltipView(std::make_unique<TooltipView>());
 }
 
 void TooltipAura::DestroyWidget() {
@@ -251,14 +258,20 @@ void TooltipAura::SetText(aura::Window* window,
   tooltip_window_ = window;
 
   if (!widget_) {
-    CreateTooltipWidget();
+    auto new_tooltip_view = std::make_unique<TooltipView>();
+    new_tooltip_view->SetMaxWidth(GetMaxWidth(location));
+    new_tooltip_view->SetText(tooltip_text);
+    CreateTooltipWidget(
+        GetTooltipBounds(location, new_tooltip_view->GetPreferredSize()));
+    widget_->SetTooltipView(std::move(new_tooltip_view));
     widget_->AddObserver(this);
+  } else {
+    TooltipView* old_tooltip_view = widget_->GetTooltipView();
+    old_tooltip_view->SetMaxWidth(GetMaxWidth(location));
+    old_tooltip_view->SetText(tooltip_text);
+    widget_->SetBounds(
+        GetTooltipBounds(location, old_tooltip_view->GetPreferredSize()));
   }
-
-  TooltipView* tooltip_view = widget_->GetTooltipView();
-
-  tooltip_view->SetMaxWidth(GetMaxWidth(location));
-  tooltip_view->SetText(tooltip_text);
 
   ui::NativeTheme* native_theme = widget_->GetNativeTheme();
   auto background_color =
@@ -273,19 +286,9 @@ void TooltipAura::SetText(aura::Window* window,
   if (!CanUseTranslucentTooltipWidget())
     foreground_color =
         color_utils::GetResultingPaintColor(foreground_color, background_color);
+  TooltipView* tooltip_view = widget_->GetTooltipView();
   tooltip_view->SetBackgroundColor(background_color, foreground_color);
   tooltip_view->SetForegroundColor(foreground_color);
-
-  // Calculate the tooltip preferred size after all tooltip attributes are
-  // updated - tooltip updates (for example setting text color) may invalidate
-  // the tooltip render text layout, which would make layout run just done to
-  // calculate the tooltip string size get immendiately disregarded.
-  // This also addresses https://crbug.com/2181825 (after color update,
-  // GetPreferredSize() will generate fresh render text layout, even if the
-  // actual tooltip text hasn't changed).
-  const gfx::Rect adjusted_bounds =
-      GetTooltipBounds(location, tooltip_view->GetPreferredSize());
-  widget_->SetBounds(adjusted_bounds);
 }
 
 void TooltipAura::Show() {

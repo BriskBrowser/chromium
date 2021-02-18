@@ -13,6 +13,8 @@
 #include "ash/accessibility/test_accessibility_controller_client.h"
 #include "ash/app_list/app_list_metrics.h"
 #include "ash/app_list/test/app_list_test_helper.h"
+#include "ash/capture_mode/capture_mode_controller.h"
+#include "ash/capture_mode/capture_mode_types.h"
 #include "ash/display/screen_orientation_controller.h"
 #include "ash/display/screen_orientation_controller_test_api.h"
 #include "ash/ime/ime_controller_impl.h"
@@ -24,6 +26,7 @@
 #include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/public/cpp/ash_switches.h"
+#include "ash/public/cpp/capture_mode_test_api.h"
 #include "ash/public/cpp/ime_info.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/test/shell_test_api.h"
@@ -55,6 +58,7 @@
 #include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/metrics/user_action_tester.h"
 #include "base/test/scoped_feature_list.h"
@@ -85,6 +89,7 @@
 
 namespace ash {
 
+using ::chromeos::WindowStateType;
 using media_session::mojom::MediaSessionAction;
 
 namespace {
@@ -607,12 +612,6 @@ class AcceleratorControllerTestWithClamshellSplitView
       const AcceleratorControllerTestWithClamshellSplitView&) = delete;
   ~AcceleratorControllerTestWithClamshellSplitView() override = default;
 
-  void SetUp() override {
-    scoped_feature_list_.InitAndEnableFeature(
-        features::kDragToSnapInClamshellMode);
-    AcceleratorControllerTest::SetUp();
-  }
-
  protected:
   // Note: These functions assume the default display resolution 800x600.
   void EnterOverviewAndDragToSnapLeft(aura::Window* window) {
@@ -633,8 +632,6 @@ class AcceleratorControllerTestWithClamshellSplitView
         GetOverviewItemForWindow(window)->target_bounds().CenterPoint()));
     generator->DragMouseTo(destination);
   }
-
-  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 TEST_F(AcceleratorControllerTestWithClamshellSplitView, WindowSnapUma) {
@@ -1042,7 +1039,8 @@ TEST_F(AcceleratorControllerTest, ProcessOnce) {
   controller_->Register({accelerator_a}, &target);
 
   // The accelerator is processed only once.
-  ui::EventSink* sink = Shell::GetPrimaryRootWindow()->GetHost()->event_sink();
+  ui::EventSink* sink =
+      Shell::GetPrimaryRootWindow()->GetHost()->GetEventSink();
 
   ui::KeyEvent key_event1(ui::ET_KEY_PRESSED, ui::VKEY_A, ui::EF_NONE);
   ui::EventDispatchDetails details = sink->OnEventFromSource(&key_event1);
@@ -1071,7 +1069,7 @@ TEST_F(AcceleratorControllerTest, GlobalAccelerators) {
 
   // The "Take Screenshot", "Take Partial Screenshot", volume, brightness, and
   // keyboard brightness accelerators are only defined on ChromeOS.
-  {
+  if (!features::IsCaptureModeEnabled()) {
     TestScreenshotDelegate* delegate = GetScreenshotDelegate();
     delegate->set_can_take_screenshot(false);
     EXPECT_TRUE(ProcessInController(
@@ -1226,14 +1224,14 @@ TEST_F(AcceleratorControllerTest, GlobalAcceleratorsToggleAppList) {
   // When spoken feedback is on, the AppList should not toggle.
   accessibility_controller->SetSpokenFeedbackEnabled(true,
                                                      A11Y_NOTIFICATION_NONE);
-  EXPECT_TRUE(accessibility_controller->spoken_feedback_enabled());
+  EXPECT_TRUE(accessibility_controller->spoken_feedback().enabled());
   EXPECT_FALSE(
       ProcessInController(ui::Accelerator(ui::VKEY_LWIN, ui::EF_NONE)));
   EXPECT_FALSE(ProcessInController(
       CreateReleaseAccelerator(ui::VKEY_LWIN, ui::EF_NONE)));
   accessibility_controller->SetSpokenFeedbackEnabled(false,
                                                      A11Y_NOTIFICATION_NONE);
-  EXPECT_FALSE(accessibility_controller->spoken_feedback_enabled());
+  EXPECT_FALSE(accessibility_controller->spoken_feedback().enabled());
   base::RunLoop().RunUntilIdle();
   GetAppListTestHelper()->CheckVisibility(true);
 
@@ -1737,7 +1735,13 @@ TEST_F(AcceleratorControllerTest, ToggleCapsLockAccelerators) {
     generator->PressLeftButton();
     generator->MoveMouseTo(10, 10);
     generator->ReleaseLeftButton();
-    EXPECT_EQ(1, delegate->handle_take_partial_screenshot_count());
+    if (features::IsCaptureModeEnabled()) {
+      auto* controller = CaptureModeController::Get();
+      EXPECT_TRUE(controller->IsActive());
+      EXPECT_EQ(CaptureModeSource::kRegion, controller->source());
+    } else {
+      EXPECT_EQ(1, delegate->handle_take_partial_screenshot_count());
+    }
 
     // Press Search, Press Alt, Release Search, Release Alt. CapsLock should be
     // triggered.
@@ -1899,8 +1903,6 @@ TEST_F(AcceleratorControllerTest, DisallowedAtModalWindow) {
   //  when a modal window is open
   //
   // Screenshot
-  // TODO(sammiequon): Add some basic tests once capture mode is more fleshed
-  // out.
   if (!features::IsCaptureModeEnabled()) {
     TestScreenshotDelegate* delegate = GetScreenshotDelegate();
     delegate->set_can_take_screenshot(false);
@@ -1921,7 +1923,46 @@ TEST_F(AcceleratorControllerTest, DisallowedAtModalWindow) {
     EXPECT_TRUE(ProcessInController(ui::Accelerator(
         ui::VKEY_MEDIA_LAUNCH_APP1, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN)));
     EXPECT_EQ(2, delegate->handle_take_screenshot_count());
+  } else {
+    auto* controller = CaptureModeController::Get();
+
+    // Control + shift + F5 opens capture mode to take a region screenshot.
+    EXPECT_TRUE(ProcessInController(ui::Accelerator(
+        ui::VKEY_MEDIA_LAUNCH_APP1, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN)));
+    EXPECT_TRUE(controller->IsActive());
+    EXPECT_EQ(CaptureModeSource::kRegion, controller->source());
+    controller->Stop();
+
+    // Control + alt + F5 opens capture mode to take a window screenshot.
+    EXPECT_TRUE(ProcessInController(ui::Accelerator(
+        ui::VKEY_MEDIA_LAUNCH_APP1, ui::EF_ALT_DOWN | ui::EF_CONTROL_DOWN)));
+    EXPECT_TRUE(controller->IsActive());
+    EXPECT_EQ(CaptureModeSource::kWindow, controller->source());
+    controller->Stop();
+
+    // Snapshot key opens capture mode with the last type, and closes it if it
+    // is already open.
+    EXPECT_TRUE(
+        ProcessInController(ui::Accelerator(ui::VKEY_SNAPSHOT, ui::EF_NONE)));
+    EXPECT_TRUE(controller->IsActive());
+    EXPECT_EQ(CaptureModeSource::kWindow, controller->source());
+    EXPECT_TRUE(
+        ProcessInController(ui::Accelerator(ui::VKEY_SNAPSHOT, ui::EF_NONE)));
+    ASSERT_FALSE(controller->IsActive());
+
+    // Control + F5 takes a screenshot of all displays without opening capture
+    // mode. The loop will timeout if a screenshot was not successfully taken
+    // and saved.
+    EXPECT_TRUE(ProcessInController(
+        ui::Accelerator(ui::VKEY_MEDIA_LAUNCH_APP1, ui::EF_CONTROL_DOWN)));
+    EXPECT_FALSE(controller->IsActive());
+    base::RunLoop run_loop;
+    CaptureModeTestApi().SetOnCaptureFileSavedCallback(
+        base::BindLambdaForTesting(
+            [&run_loop](const base::FilePath& path) { run_loop.Quit(); }));
+    run_loop.Run();
   }
+
   // Brightness
   const ui::Accelerator brightness_down(ui::VKEY_BRIGHTNESS_DOWN, ui::EF_NONE);
   const ui::Accelerator brightness_up(ui::VKEY_BRIGHTNESS_UP, ui::EF_NONE);
@@ -2025,15 +2066,13 @@ TEST_F(AcceleratorControllerTest, TestDialogCancel) {
   AccessibilityControllerImpl* accessibility_controller =
       Shell::Get()->accessibility_controller();
   // Pressing cancel on the dialog should have no effect.
-  EXPECT_FALSE(
-      accessibility_controller->HasHighContrastAcceleratorDialogBeenAccepted());
+  EXPECT_FALSE(accessibility_controller->high_contrast().WasDialogAccepted());
   EXPECT_FALSE(IsConfirmationDialogOpen());
   EXPECT_TRUE(ProcessInController(accelerator));
   EXPECT_TRUE(IsConfirmationDialogOpen());
   CancelConfirmationDialog();
   base::RunLoop().RunUntilIdle();
-  EXPECT_FALSE(
-      accessibility_controller->HasHighContrastAcceleratorDialogBeenAccepted());
+  EXPECT_FALSE(accessibility_controller->high_contrast().WasDialogAccepted());
   EXPECT_FALSE(IsConfirmationDialogOpen());
 }
 
@@ -2044,23 +2083,20 @@ TEST_F(AcceleratorControllerTest, TestToggleHighContrast) {
   EXPECT_FALSE(IsConfirmationDialogOpen());
   AccessibilityControllerImpl* accessibility_controller =
       Shell::Get()->accessibility_controller();
-  EXPECT_FALSE(
-      accessibility_controller->HasHighContrastAcceleratorDialogBeenAccepted());
+  EXPECT_FALSE(accessibility_controller->high_contrast().WasDialogAccepted());
   EXPECT_TRUE(ProcessInController(accelerator));
   EXPECT_TRUE(IsConfirmationDialogOpen());
   AcceptConfirmationDialog();
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(ContainsHighContrastNotification());
-  EXPECT_TRUE(
-      accessibility_controller->HasHighContrastAcceleratorDialogBeenAccepted());
+  EXPECT_TRUE(accessibility_controller->high_contrast().WasDialogAccepted());
   EXPECT_FALSE(IsConfirmationDialogOpen());
 
   // High Contrast Mode Enabled dialog and notification should be hidden as the
   // feature is disabled.
   EXPECT_TRUE(ProcessInController(accelerator));
   EXPECT_FALSE(ContainsHighContrastNotification());
-  EXPECT_TRUE(
-      accessibility_controller->HasHighContrastAcceleratorDialogBeenAccepted());
+  EXPECT_TRUE(accessibility_controller->high_contrast().WasDialogAccepted());
 
   // Notification should be shown again when toggled, but dialog will not be
   // shown.
@@ -2215,7 +2251,7 @@ class MagnifiersAcceleratorsTester : public AcceleratorControllerTest {
 }  // namespace
 
 // TODO (afakhry): Remove this class after refactoring MagnificationManager.
-// Mocked chrome/browser/chromeos/accessibility/magnification_manager.cc
+// Mocked chrome/browser/ash/accessibility/magnification_manager.cc
 class FakeMagnificationManager {
  public:
   FakeMagnificationManager() = default;
@@ -2255,8 +2291,8 @@ TEST_F(MagnifiersAcceleratorsTester, TestToggleFullscreenMagnifier) {
   // of accelerator.
   const ui::Accelerator fullscreen_magnifier_accelerator(
       ui::VKEY_M, ui::EF_COMMAND_DOWN | ui::EF_CONTROL_DOWN);
-  EXPECT_FALSE(accessibility_controller
-                   ->HasScreenMagnifierAcceleratorDialogBeenAccepted());
+  EXPECT_FALSE(
+      accessibility_controller->fullscreen_magnifier().WasDialogAccepted());
   EXPECT_TRUE(ProcessInController(fullscreen_magnifier_accelerator));
   EXPECT_TRUE(IsConfirmationDialogOpen());
   AcceptConfirmationDialog();
@@ -2269,16 +2305,16 @@ TEST_F(MagnifiersAcceleratorsTester, TestToggleFullscreenMagnifier) {
   EXPECT_TRUE(ProcessInController(fullscreen_magnifier_accelerator));
   EXPECT_FALSE(docked_magnifier_controller()->GetEnabled());
   EXPECT_FALSE(fullscreen_magnifier_controller()->IsEnabled());
-  EXPECT_TRUE(accessibility_controller
-                  ->HasScreenMagnifierAcceleratorDialogBeenAccepted());
+  EXPECT_TRUE(
+      accessibility_controller->fullscreen_magnifier().WasDialogAccepted());
   EXPECT_FALSE(IsConfirmationDialogOpen());
   EXPECT_FALSE(ContainsFullscreenMagnifierNotification());
 
   // Dialog will not be shown the second time the accelerator is used.
   EXPECT_TRUE(ProcessInController(fullscreen_magnifier_accelerator));
   EXPECT_FALSE(IsConfirmationDialogOpen());
-  EXPECT_TRUE(accessibility_controller
-                  ->HasScreenMagnifierAcceleratorDialogBeenAccepted());
+  EXPECT_TRUE(
+      accessibility_controller->fullscreen_magnifier().WasDialogAccepted());
   EXPECT_FALSE(docked_magnifier_controller()->GetEnabled());
   EXPECT_TRUE(fullscreen_magnifier_controller()->IsEnabled());
   EXPECT_TRUE(ContainsFullscreenMagnifierNotification());
@@ -2309,8 +2345,7 @@ TEST_F(MagnifiersAcceleratorsTester, TestToggleDockedMagnifier) {
   EXPECT_TRUE(ProcessInController(docked_magnifier_accelerator));
   EXPECT_FALSE(docked_magnifier_controller()->GetEnabled());
   EXPECT_FALSE(fullscreen_magnifier_controller()->IsEnabled());
-  EXPECT_TRUE(accessibility_controller
-                  ->HasDockedMagnifierAcceleratorDialogBeenAccepted());
+  EXPECT_TRUE(accessibility_controller->docked_magnifier().WasDialogAccepted());
   EXPECT_FALSE(IsConfirmationDialogOpen());
   EXPECT_FALSE(ContainsDockedMagnifierNotification());
 

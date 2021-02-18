@@ -23,19 +23,6 @@
 
 namespace blocked_content {
 
-// static
-void PopupOpenerTabHelper::CreateForWebContents(
-    content::WebContents* contents,
-    const base::TickClock* tick_clock,
-    HostContentSettingsMap* settings_map) {
-  DCHECK(contents);
-  if (!FromWebContents(contents)) {
-    contents->SetUserData(UserDataKey(),
-                          base::WrapUnique(new PopupOpenerTabHelper(
-                              contents, tick_clock, settings_map)));
-  }
-}
-
 PopupOpenerTabHelper::~PopupOpenerTabHelper() {
   DCHECK(visibility_tracker_);
   base::TimeDelta total_visible_time =
@@ -114,9 +101,9 @@ void PopupOpenerTabHelper::MaybeLogPagePopupContentSettings() {
   // Do not record duplicate Popup.Page events for popups opened in succession
   // from the same opener.
   if (source_id != last_opener_source_id_) {
-    bool user_allows_popups = settings_map_->GetContentSetting(
-                                  url, url, ContentSettingsType::POPUPS,
-                                  std::string()) == CONTENT_SETTING_ALLOW;
+    bool user_allows_popups =
+        settings_map_->GetContentSetting(
+            url, url, ContentSettingsType::POPUPS) == CONTENT_SETTING_ALLOW;
     ukm::builders::Popup_Page(source_id)
         .SetAllowed(user_allows_popups)
         .Record(ukm::UkmRecorder::Get());

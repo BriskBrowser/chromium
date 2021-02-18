@@ -8,7 +8,7 @@
 #include <string>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/values.h"
 #include "chromeos/settings/cros_settings_names.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -19,9 +19,8 @@ class StubCrosSettingsProviderTest : public testing::Test {
  protected:
   StubCrosSettingsProviderTest()
       : provider_(new StubCrosSettingsProvider(
-          base::Bind(&StubCrosSettingsProviderTest::FireObservers,
-                     base::Unretained(this)))) {
-  }
+            base::BindRepeating(&StubCrosSettingsProviderTest::FireObservers,
+                                base::Unretained(this)))) {}
 
   ~StubCrosSettingsProviderTest() override {}
 
@@ -61,6 +60,9 @@ TEST_F(StubCrosSettingsProviderTest, Defaults) {
   AssertPref(kAccountsPrefAllowNewUser, &kTrueValue);
   AssertPref(kAccountsPrefShowUserNamesOnSignIn, &kTrueValue);
   AssertPref(kAccountsPrefSupervisedUsersEnabled, &kTrueValue);
+
+  const base::Value kFalseValue(false);
+  AssertPref(kAccountsPrefFamilyLinkAccountsAllowed, &kFalseValue);
 }
 
 TEST_F(StubCrosSettingsProviderTest, Set) {

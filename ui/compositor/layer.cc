@@ -29,7 +29,6 @@
 #include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "components/viz/common/resources/transferable_resource.h"
 #include "ui/compositor/compositor_switches.h"
-#include "ui/compositor/dip_util.h"
 #include "ui/compositor/layer_animator.h"
 #include "ui/compositor/layer_observer.h"
 #include "ui/compositor/paint_context.h"
@@ -38,6 +37,7 @@
 #include "ui/gfx/geometry/dip_util.h"
 #include "ui/gfx/geometry/point3_f.h"
 #include "ui/gfx/geometry/point_conversions.h"
+#include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/interpolated_transform.h"
 
@@ -281,6 +281,9 @@ std::unique_ptr<Layer> Layer::Clone() const {
   clone->SetIsFastRoundedCorner(is_fast_rounded_corner());
   clone->SetName(name_);
 
+  // the |damaged_region_| will be sent to cc later in SendDamagedRects().
+  clone->damaged_region_ = damaged_region_;
+
   return clone;
 }
 
@@ -456,6 +459,14 @@ LayerAnimator* Layer::GetAnimator() {
   return animator_.get();
 }
 
+void Layer::SetSubtreeCaptureId(viz::SubtreeCaptureId subtree_id) {
+  cc_layer_->SetSubtreeCaptureId(subtree_id);
+}
+
+viz::SubtreeCaptureId Layer::GetSubtreeCaptureId() const {
+  return cc_layer_->subtree_capture_id();
+}
+
 void Layer::SetTransform(const gfx::Transform& transform) {
   GetAnimator()->SetTransform(transform);
 }
@@ -625,8 +636,8 @@ void Layer::SetLayerFilters() {
   if (layer_inverted_)
     filters.Append(cc::FilterOperation::CreateInvertFilter(1.0));
   if (layer_blur_sigma_) {
-    filters.Append(cc::FilterOperation::CreateBlurFilter(
-        layer_blur_sigma_, SkBlurImageFilter::kClamp_TileMode));
+    filters.Append(cc::FilterOperation::CreateBlurFilter(layer_blur_sigma_,
+                                                         SkTileMode::kClamp));
   }
   // Brightness goes last, because the resulting colors neeed clamping, which
   // cause further color matrix filters to be applied separately. In this order,
@@ -649,8 +660,8 @@ void Layer::SetLayerBackgroundFilters() {
     filters.Append(cc::FilterOperation::CreateZoomFilter(zoom_, zoom_inset_));
 
   if (background_blur_sigma_) {
-    filters.Append(cc::FilterOperation::CreateBlurFilter(
-        background_blur_sigma_, SkBlurImageFilter::kClamp_TileMode));
+    filters.Append(cc::FilterOperation::CreateBlurFilter(background_blur_sigma_,
+                                                         SkTileMode::kClamp));
   }
   cc_layer_->SetBackdropFilters(filters);
 }
@@ -778,6 +789,7 @@ bool Layer::SwitchToLayer(scoped_refptr<cc::Layer> new_layer) {
   new_layer->SetBackgroundColor(cc_layer_->background_color());
   new_layer->SetSafeOpaqueBackgroundColor(
       cc_layer_->SafeOpaqueBackgroundColor());
+  new_layer->SetSubtreeCaptureId(cc_layer_->subtree_capture_id());
   new_layer->SetCacheRenderSurface(cc_layer_->cache_render_surface());
   new_layer->SetTrilinearFiltering(cc_layer_->trilinear_filtering());
   new_layer->SetRoundedCorner(cc_layer_->corner_radii());
@@ -1076,7 +1088,10 @@ void Layer::UpdateNinePatchLayerAperture(const gfx::Rect& aperture_in_dip) {
   DCHECK_EQ(type_, LAYER_NINE_PATCH);
   DCHECK(nine_patch_layer_.get());
   nine_patch_layer_aperture_ = aperture_in_dip;
-  gfx::Rect aperture_in_pixel = ConvertRectToPixel(this, aperture_in_dip);
+  // TODO(danakj): Specifying the aperture in DIPs as integers is not sufficient
+  // and means the resulting aperture in pixels will not be exact.
+  gfx::Rect aperture_in_pixel = gfx::ToEnclosingRect(
+      gfx::ConvertRectToPixels(aperture_in_dip, device_scale_factor()));
   nine_patch_layer_->SetAperture(aperture_in_pixel);
 }
 
@@ -1293,12 +1308,11 @@ void Layer::RequestCopyOfOutput(
   cc_layer_->RequestCopyOfOutput(std::move(request));
 }
 
-gfx::Rect Layer::PaintableRegion() {
+gfx::Rect Layer::PaintableRegion() const {
   return gfx::Rect(size());
 }
 
-scoped_refptr<cc::DisplayItemList> Layer::PaintContentsToDisplayList(
-    ContentLayerClient::PaintingControlSetting painting_control) {
+scoped_refptr<cc::DisplayItemList> Layer::PaintContentsToDisplayList() {
   TRACE_EVENT1("ui", "Layer::PaintContentsToDisplayList", "name", name_);
   gfx::Rect local_bounds(bounds().size());
   gfx::Rect invalidation(
@@ -1318,12 +1332,6 @@ scoped_refptr<cc::DisplayItemList> Layer::PaintContentsToDisplayList(
 }
 
 bool Layer::FillsBoundsCompletely() const { return fills_bounds_completely_; }
-
-size_t Layer::GetApproximateUnsharedMemoryUsage() const {
-  // Most of the "picture memory" is shared with the cc::DisplayItemList, so
-  // there's nothing significant to report here.
-  return 0;
-}
 
 bool Layer::PrepareTransferableResource(
     cc::SharedBitmapIdRegistrar* bitmap_registar,
@@ -1400,8 +1408,14 @@ void Layer::SetBoundsFromAnimation(const gfx::Rect& bounds,
   if (old_bounds.origin() != bounds_.origin())
     RecomputePosition();
 
+  auto ptr = weak_ptr_factory_.GetWeakPtr();
+
   if (delegate_)
     delegate_->OnLayerBoundsChanged(old_bounds, reason);
+
+  // The layer may be deleted in the observer.
+  if (!ptr)
+    return;
 
   if (bounds.size() == old_bounds.size()) {
     // Don't schedule a draw if we're invisible. We'll schedule one

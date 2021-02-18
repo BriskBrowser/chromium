@@ -4,7 +4,8 @@
 
 import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
 import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
-import './signin_icons.js';
+import 'chrome://resources/polymer/v3_0/paper-spinner/paper-spinner-lite.js';
+import 'chrome://resources/cr_elements/icons.m.js';
 import './signin_shared_css.js';
 import './signin_vars_css.js';
 import './strings.m.js';
@@ -27,6 +28,20 @@ Polymer({
   properties: {
     /** @private {InterceptionParameters} */
     InterceptionParameters_: Object,
+
+    /** @private {boolean} */
+    acceptButtonClicked_: {
+      type: Boolean,
+      value: false,
+    },
+
+    /** @private {string} */
+    guestLink_: {
+      type: String,
+      value() {
+        return loadTimeData.getString('guestLink');
+      },
+    },
   },
 
   /** @private {?DiceWebSigninInterceptBrowserProxy} */
@@ -34,7 +49,6 @@ Polymer({
 
   /** @override */
   attached() {
-    this.setColors_();
     this.diceWebSigninInterceptBrowserProxy_ =
         DiceWebSigninInterceptBrowserProxyImpl.getInstance();
     this.addWebUIListener(
@@ -46,6 +60,7 @@ Polymer({
 
   /** @private */
   onAccept_() {
+    this.acceptButtonClicked_ = true;
     this.diceWebSigninInterceptBrowserProxy_.accept();
   },
 
@@ -55,12 +70,12 @@ Polymer({
   },
 
   /** @private */
-  setColors_() {
-    this.style.setProperty(
-        '--header-background-color',
-        loadTimeData.getString('headerBackgroundColor'));
-    this.style.setProperty(
-        '--header-text-color', loadTimeData.getString('headerTextColor'));
+  onGuest_() {
+    if (this.acceptButtonClicked_) {
+      return;
+    }
+    this.acceptButtonClicked_ = true;
+    this.diceWebSigninInterceptBrowserProxy_.guest();
   },
 
   /**
@@ -70,6 +85,9 @@ Polymer({
    */
   handleParametersChanged_(parameters) {
     this.interceptionParameters_ = parameters;
+    this.style.setProperty(
+        '--header-background-color', parameters.headerBackgroundColor);
+    this.style.setProperty('--header-text-color', parameters.headerTextColor);
     this.notifyPath('interceptionParameters_.interceptedAccount.isManaged');
   },
 });

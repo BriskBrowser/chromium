@@ -23,10 +23,10 @@
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/work_area_insets.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/optional.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/time/time.h"
 #include "components/account_id/account_id.h"
@@ -42,6 +42,7 @@
 #include "ui/gfx/native_widget_types.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/textfield/textfield.h"
+#include "ui/views/test/button_test_api.h"
 #include "ui/views/widget/widget.h"
 
 namespace ash {
@@ -88,6 +89,7 @@ class PinRequestViewTest : public LoginTestBase,
   void StartView(base::Optional<int> pin_length = 6) {
     PinRequest request;
     request.help_button_enabled = true;
+    request.obscure_pin = false;
     request.pin_length = pin_length;
     request.on_pin_request_done = base::DoNothing::Once<bool>();
     view_ = new PinRequestView(std::move(request), this);
@@ -116,7 +118,7 @@ class PinRequestViewTest : public LoginTestBase,
     PinRequestView::TestApi test_api(view);
     ui::MouseEvent event(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
                          ui::EventTimeForNow(), 0, 0);
-    view->ButtonPressed(test_api.back_button(), event);
+    views::test::ButtonTestApi(test_api.back_button()).NotifyClick(event);
   }
 
   void SimulateFailedValidation() {
@@ -354,7 +356,7 @@ TEST_F(PinRequestViewTest, Backspace) {
   EXPECT_EQ("012323", last_code_submitted_);
 }
 
-// Tests input with unknown pin length.
+// Tests digit-only input with unknown pin length.
 TEST_F(PinRequestViewTest, FlexCodeInput) {
   StartView(base::nullopt);
   PinRequestView::TestApi test_api(view_);
@@ -377,6 +379,36 @@ TEST_F(PinRequestViewTest, FlexCodeInput) {
   SimulateMouseClickAt(GetEventGenerator(), test_api.submit_button());
   EXPECT_EQ(2, pin_submitted_);
   EXPECT_EQ("0123456", last_code_submitted_);
+}
+
+// Tests non-digit input with unknown pin length.
+TEST_F(PinRequestViewTest, FlexCodeInputCharacters) {
+  StartView(base::nullopt);
+  PinRequestView::TestApi test_api(view_);
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  will_authenticate_ = false;
+
+  EXPECT_FALSE(test_api.submit_button()->GetEnabled());
+
+  for (int i = 0; i < 3; ++i) {
+    generator->PressKey(ui::KeyboardCode(ui::KeyboardCode::VKEY_A + i),
+                        ui::EF_NONE);
+    base::RunLoop().RunUntilIdle();
+  }
+  for (int i = 0; i < 3; ++i) {
+    generator->PressKey(ui::KeyboardCode(ui::KeyboardCode::VKEY_A + i),
+                        ui::EF_SHIFT_DOWN);
+    base::RunLoop().RunUntilIdle();
+  }
+  generator->PressKey(ui::KeyboardCode(ui::KeyboardCode::VKEY_ADD),
+                      ui::EF_NONE);
+  generator->PressKey(ui::KeyboardCode(ui::KeyboardCode::VKEY_SUBTRACT),
+                      ui::EF_NONE);
+
+  EXPECT_TRUE(test_api.submit_button()->GetEnabled());
+  SimulateMouseClickAt(GetEventGenerator(), test_api.submit_button());
+  EXPECT_EQ(1, pin_submitted_);
+  EXPECT_EQ("abcABC+-", last_code_submitted_);
 }
 
 // Tests input with virtual pin keyboard.
@@ -652,14 +684,14 @@ TEST_F(PinRequestWidgetTest, SpokenFeedbackKeyCombo) {
 
   AccessibilityControllerImpl* controller =
       Shell::Get()->accessibility_controller();
-  EXPECT_FALSE(controller->spoken_feedback_enabled());
+  EXPECT_FALSE(controller->spoken_feedback().enabled());
 
   ui::test::EventGenerator* generator = GetEventGenerator();
   generator->PressKey(ui::KeyboardCode(ui::KeyboardCode::VKEY_Z),
                       ui::EF_ALT_DOWN | ui::EF_CONTROL_DOWN);
   base::RunLoop().RunUntilIdle();
 
-  EXPECT_TRUE(controller->spoken_feedback_enabled());
+  EXPECT_TRUE(controller->spoken_feedback().enabled());
 }
 
 }  // namespace ash

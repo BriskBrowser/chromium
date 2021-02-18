@@ -5,14 +5,25 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_SCHEDULER_PUBLIC_AGENT_GROUP_SCHEDULER_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_SCHEDULER_PUBLIC_AGENT_GROUP_SCHEDULER_H_
 
-#include "third_party/blink/renderer/platform/platform_export.h"
+#include "base/single_thread_task_runner.h"
+#include "third_party/blink/public/common/browser_interface_broker_proxy.h"
+#include "third_party/blink/public/platform/scheduler/web_agent_group_scheduler.h"
+#include "third_party/blink/public/platform/web_common.h"
+#include "third_party/blink/renderer/platform/scheduler/public/page_scheduler.h"
 
 namespace blink {
 
 // AgentGroupScheduler schedules per-AgentSchedulingGroup tasks.
-class PLATFORM_EXPORT AgentGroupScheduler {
+// AgentSchedulingGroup is Blink's unit of scheduling and performance isolation.
+class BLINK_PLATFORM_EXPORT AgentGroupScheduler
+    : public scheduler::WebAgentGroupScheduler {
  public:
-  virtual ~AgentGroupScheduler() = default;
+  // Creates a new PageScheduler for a given Page. Must be called from the
+  // associated WebThread.
+  virtual std::unique_ptr<PageScheduler> CreatePageScheduler(
+      PageScheduler::Delegate*) = 0;
+
+  virtual BrowserInterfaceBrokerProxy& GetBrowserInterfaceBroker() = 0;
 };
 
 }  // namespace blink

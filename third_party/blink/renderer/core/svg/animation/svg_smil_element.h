@@ -82,7 +82,7 @@ class CORE_EXPORT SVGSMILElement : public SVGElement, public SVGTests {
   ~SVGSMILElement() override;
 
   void ParseAttribute(const AttributeModificationParams&) override;
-  void SvgAttributeChanged(const QualifiedName&) override;
+  void SvgAttributeChanged(const SvgAttributeChangedParams&) override;
   InsertionNotificationRequest InsertedInto(ContainerNode&) override;
   void RemovedFrom(ContainerNode&) override;
 
@@ -167,6 +167,9 @@ class CORE_EXPORT SVGSMILElement : public SVGElement, public SVGTests {
 
  private:
   bool IsPresentationAttribute(const QualifiedName&) const override;
+
+  void AddedEventListener(const AtomicString& event_type,
+                          RegisteredEventListener&) final;
 
   void BuildPendingResource() override;
   void ClearResourceAndEventBaseReferences();

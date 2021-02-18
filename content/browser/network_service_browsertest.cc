@@ -3,9 +3,10 @@
 // found in the LICENSE file.
 
 #include "base/bind.h"
+#include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/memory/ref_counted_memory.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "content/browser/storage_partition_impl.h"
@@ -16,6 +17,7 @@
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_ui_controller.h"
 #include "content/public/browser/web_ui_controller_factory.h"
+#include "content/public/common/bindings_policy.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/network_service_util.h"
@@ -36,6 +38,7 @@
 #include "net/test/embedded_test_server/default_handlers.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
+#include "services/cert_verifier/public/mojom/cert_verifier_service_factory.mojom.h"
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/network_switches.h"
 #include "services/network/public/cpp/resource_request.h"
@@ -58,7 +61,7 @@ class WebUITestWebUIControllerFactory : public WebUIControllerFactory {
       const GURL& url) override {
     std::string foo(url.path());
     if (url.path() == "/nobinding/")
-      web_ui->SetBindings(0);
+      web_ui->SetBindings(BINDINGS_POLICY_NONE);
     return HasWebUIScheme(url) ? std::make_unique<WebUIController>(web_ui)
                                : nullptr;
   }
@@ -68,10 +71,6 @@ class WebUITestWebUIControllerFactory : public WebUIControllerFactory {
   }
   bool UseWebUIForURL(BrowserContext* browser_context,
                       const GURL& url) override {
-    return HasWebUIScheme(url);
-  }
-  bool UseWebUIBindingsForURL(BrowserContext* browser_context,
-                              const GURL& url) override {
     return HasWebUIScheme(url);
   }
 };
@@ -258,8 +257,8 @@ IN_PROC_BROWSER_TEST_F(NetworkServiceBrowserTest,
   mojo::Remote<network::mojom::NetworkContext> network_context;
   network::mojom::NetworkContextParamsPtr context_params =
       network::mojom::NetworkContextParams::New();
-  context_params->cert_verifier_params =
-      GetCertVerifierParams(network::mojom::CertVerifierCreationParams::New());
+  context_params->cert_verifier_params = GetCertVerifierParams(
+      cert_verifier::mojom::CertVerifierCreationParams::New());
   context_params->http_cache_path = GetCacheDirectory();
   GetNetworkService()->CreateNetworkContext(
       network_context.BindNewPipeAndPassReceiver(), std::move(context_params));
@@ -425,85 +424,80 @@ IN_PROC_BROWSER_TEST_F(NetworkServiceBrowserTest, SyncCookieGetOnCrash) {
   // If the renderer is hung the test will hang.
 }
 
-class NetworkServiceInProcessBrowserTest : public ContentBrowserTest {
- public:
-  NetworkServiceInProcessBrowserTest() {
-    std::vector<base::Feature> features;
-    features.push_back(features::kNetworkServiceInProcess);
-    scoped_feature_list_.InitWithFeatures(features,
-                                          std::vector<base::Feature>());
-  }
+int64_t GetFirstPartySetCountFromNetworkService() {
+  DCHECK(!content::IsInProcessNetworkService());
 
-  void SetUpOnMainThread() override {
-    host_resolver()->AddRule("*", "127.0.0.1");
-    EXPECT_TRUE(embedded_test_server()->Start());
-  }
+  mojo::Remote<network::mojom::NetworkServiceTest> network_service_test;
+  content::GetNetworkService()->BindTestInterface(
+      network_service_test.BindNewPipeAndPassReceiver());
+  network_service_test.FlushForTesting();
 
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
+  mojo::ScopedAllowSyncCallForTesting allow_sync_call;
 
-  DISALLOW_COPY_AND_ASSIGN(NetworkServiceInProcessBrowserTest);
-};
+  int64_t count = 0;
+  EXPECT_TRUE(network_service_test->GetFirstPartySetEntriesCount(&count));
 
-// Verifies that in-process network service works.
-IN_PROC_BROWSER_TEST_F(NetworkServiceInProcessBrowserTest, Basic) {
-  GURL test_url = embedded_test_server()->GetURL("foo.com", "/echo");
-  StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
-      BrowserContext::GetDefaultStoragePartition(
-          shell()->web_contents()->GetBrowserContext()));
-  EXPECT_TRUE(NavigateToURL(shell(), test_url));
-  ASSERT_EQ(net::OK,
-            LoadBasicRequest(partition->GetNetworkContext(), test_url));
+  return count;
 }
 
-class NetworkServiceInvalidLogBrowserTest : public ContentBrowserTest {
+class NetworkServiceWithFirstPartySetBrowserTest
+    : public NetworkServiceBrowserTest {
  public:
-  NetworkServiceInvalidLogBrowserTest() {}
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    NetworkServiceBrowserTest::SetUpCommandLine(command_line);
+    command_line->AppendSwitchASCII(
+        network::switches::kUseFirstPartySet,
+        "https://example.com,https://member1.com,https://member2.com");
+  }
+};
+
+IN_PROC_BROWSER_TEST_F(NetworkServiceWithFirstPartySetBrowserTest,
+                       GetsUseFirstPartySetSwitch) {
+  if (IsInProcessNetworkService())
+    return;
+
+  EXPECT_EQ(GetFirstPartySetCountFromNetworkService(), 3);
+
+  SimulateNetworkServiceCrash();
+
+  EXPECT_EQ(GetFirstPartySetCountFromNetworkService(), 3);
+}
+
+class NetworkServiceWithoutFirstPartySetBrowserTest
+    : public NetworkServiceBrowserTest {
+ public:
+  NetworkServiceWithoutFirstPartySetBrowserTest() {
+    scoped_feature_list_.InitAndDisableFeature(net::features::kFirstPartySets);
+  }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitchASCII(network::switches::kLogNetLog, "/abc/def");
+    // Supplying this switch should not enable the feature, since the feature
+    // was explicitly disabled.
+    NetworkServiceBrowserTest::SetUpCommandLine(command_line);
+    command_line->AppendSwitchASCII(
+        network::switches::kUseFirstPartySet,
+        "https://example.com,https://member1.com,https://member2.com");
   }
-
-  void SetUpOnMainThread() override {
-    host_resolver()->AddRule("*", "127.0.0.1");
-    EXPECT_TRUE(embedded_test_server()->Start());
-  }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(NetworkServiceInvalidLogBrowserTest);
-};
-
-// Verifies that an invalid --log-net-log flag won't crash the browser.
-IN_PROC_BROWSER_TEST_F(NetworkServiceInvalidLogBrowserTest, Basic) {
-  GURL test_url = embedded_test_server()->GetURL("foo.com", "/echo");
-  StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
-      BrowserContext::GetDefaultStoragePartition(
-          shell()->web_contents()->GetBrowserContext()));
-  EXPECT_TRUE(NavigateToURL(shell(), test_url));
-  ASSERT_EQ(net::OK,
-            LoadBasicRequest(partition->GetNetworkContext(), test_url));
-}
-
-// TODO(yhirano): Merge this to NetworkServiceTest when OOR_CORS is enabled by
-// default.
-class NetworkServiceWithCorsBrowserTest : public NetworkServiceBrowserTest {
- public:
-  NetworkServiceWithCorsBrowserTest() {
-    scoped_feature_list_.InitAndEnableFeature(
-        network::features::kOutOfBlinkCors);
-  }
-  NetworkServiceWithCorsBrowserTest(const NetworkServiceWithCorsBrowserTest&) =
-      delete;
-  NetworkServiceWithCorsBrowserTest& operator=(
-      const NetworkServiceWithCorsBrowserTest&) = delete;
 
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
 };
+
+IN_PROC_BROWSER_TEST_F(NetworkServiceWithoutFirstPartySetBrowserTest,
+                       GetsEnableFirstPartySetsSwitch) {
+  if (IsInProcessNetworkService())
+    return;
+
+  EXPECT_EQ(GetFirstPartySetCountFromNetworkService(), 0);
+
+  SimulateNetworkServiceCrash();
+
+  EXPECT_EQ(GetFirstPartySetCountFromNetworkService(), 0);
+}
 
 // Tests that CORS is performed by the network service when |factory_override|
 // is used.
-IN_PROC_BROWSER_TEST_F(NetworkServiceWithCorsBrowserTest, FactoryOverride) {
+IN_PROC_BROWSER_TEST_F(NetworkServiceBrowserTest, FactoryOverride) {
   class TestURLLoaderFactory final : public network::mojom::URLLoaderFactory {
    public:
     void CreateLoaderAndStart(
@@ -600,6 +594,65 @@ IN_PROC_BROWSER_TEST_F(NetworkServiceWithCorsBrowserTest, FactoryOverride) {
   EXPECT_TRUE(test_loader_factory->has_received_request());
 }
 
+class NetworkServiceInProcessBrowserTest : public ContentBrowserTest {
+ public:
+  NetworkServiceInProcessBrowserTest() {
+    std::vector<base::Feature> features;
+    features.push_back(features::kNetworkServiceInProcess);
+    scoped_feature_list_.InitWithFeatures(features,
+                                          std::vector<base::Feature>());
+  }
+
+  void SetUpOnMainThread() override {
+    host_resolver()->AddRule("*", "127.0.0.1");
+    EXPECT_TRUE(embedded_test_server()->Start());
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+
+  DISALLOW_COPY_AND_ASSIGN(NetworkServiceInProcessBrowserTest);
+};
+
+// Verifies that in-process network service works.
+IN_PROC_BROWSER_TEST_F(NetworkServiceInProcessBrowserTest, Basic) {
+  GURL test_url = embedded_test_server()->GetURL("foo.com", "/echo");
+  StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
+      BrowserContext::GetDefaultStoragePartition(
+          shell()->web_contents()->GetBrowserContext()));
+  EXPECT_TRUE(NavigateToURL(shell(), test_url));
+  ASSERT_EQ(net::OK,
+            LoadBasicRequest(partition->GetNetworkContext(), test_url));
+}
+
+class NetworkServiceInvalidLogBrowserTest : public ContentBrowserTest {
+ public:
+  NetworkServiceInvalidLogBrowserTest() = default;
+
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    command_line->AppendSwitchASCII(network::switches::kLogNetLog, "/abc/def");
+  }
+
+  void SetUpOnMainThread() override {
+    host_resolver()->AddRule("*", "127.0.0.1");
+    EXPECT_TRUE(embedded_test_server()->Start());
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(NetworkServiceInvalidLogBrowserTest);
+};
+
+// Verifies that an invalid --log-net-log flag won't crash the browser.
+IN_PROC_BROWSER_TEST_F(NetworkServiceInvalidLogBrowserTest, Basic) {
+  GURL test_url = embedded_test_server()->GetURL("foo.com", "/echo");
+  StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
+      BrowserContext::GetDefaultStoragePartition(
+          shell()->web_contents()->GetBrowserContext()));
+  EXPECT_TRUE(NavigateToURL(shell(), test_url));
+  ASSERT_EQ(net::OK,
+            LoadBasicRequest(partition->GetNetworkContext(), test_url));
+}
+
 // Test fixture for using a NetworkService that has a non-default limit on the
 // number of allowed open UDP sockets.
 class NetworkServiceWithUDPSocketLimit : public NetworkServiceBrowserTest {
@@ -641,6 +694,8 @@ class NetworkServiceWithUDPSocketLimit : public NetworkServiceBrowserTest {
     mojo::Remote<network::mojom::NetworkContext> network_context;
     network::mojom::NetworkContextParamsPtr context_params =
         network::mojom::NetworkContextParams::New();
+    context_params->cert_verifier_params = GetCertVerifierParams(
+        cert_verifier::mojom::CertVerifierCreationParams::New());
     GetNetworkService()->CreateNetworkContext(
         network_context.BindNewPipeAndPassReceiver(),
         std::move(context_params));

@@ -3754,8 +3754,7 @@ void WebGLImageConversion::ImageExtractor::ExtractImage(
         image_->Data(), data_complete, ImageDecoder::kAlphaNotPremultiplied,
         ImageDecoder::kDefaultBitDepth,
         ignore_color_space ? ColorBehavior::Ignore()
-                           : ColorBehavior::TransformToSRGB(),
-        ImageDecoder::OverrideAllowDecodeToYuv::kDeny));
+                           : ColorBehavior::TransformToSRGB()));
     if (!decoder || !decoder->FrameCount())
       return;
     ImageFrame* frame = decoder->DecodeFrameBufferAtIndex(0);
@@ -3936,7 +3935,7 @@ bool WebGLImageConversion::PackImageData(
 }
 
 bool WebGLImageConversion::ExtractImageData(
-    const uint8_t* image_data,
+    const void* image_data,
     DataFormat source_data_format,
     const IntSize& image_data_size,
     const IntRect& source_image_sub_rectangle,
@@ -4015,7 +4014,7 @@ bool WebGLImageConversion::ExtractTextureData(
   return true;
 }
 
-bool WebGLImageConversion::PackPixels(const uint8_t* source_data,
+bool WebGLImageConversion::PackPixels(const void* source_data,
                                       DataFormat source_data_format,
                                       unsigned source_data_width,
                                       unsigned source_data_height,
@@ -4039,7 +4038,6 @@ bool WebGLImageConversion::PackPixels(const uint8_t* source_data,
       remainder ? (valid_src + source_unpack_alignment - remainder) : valid_src;
   int src_row_offset =
       source_data_sub_rectangle.X() * TexelBytesForFormat(source_data_format);
-
   DataFormat dst_data_format =
       GetDataFormat(destination_format, destination_type);
   if (dst_data_format == kDataFormatNumFormats)
@@ -4057,10 +4055,10 @@ bool WebGLImageConversion::PackPixels(const uint8_t* source_data,
     alpha_op = kAlphaDoNothing;
 
   if (source_data_format == dst_data_format && alpha_op == kAlphaDoNothing) {
-    const uint8_t* base_ptr =
-        source_data + src_stride * source_data_sub_rectangle.Y();
-    const uint8_t* base_end =
-        source_data + src_stride * source_data_sub_rectangle.MaxY();
+    const uint8_t* base_ptr = static_cast<const uint8_t*>(source_data) +
+                              src_stride * source_data_sub_rectangle.Y();
+    const uint8_t* base_end = static_cast<const uint8_t*>(source_data) +
+                              src_stride * source_data_sub_rectangle.MaxY();
 
     // If packing multiple images into a 3D texture, and flipY is true,
     // then the sub-rectangle is pointing at the start of the

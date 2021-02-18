@@ -2,22 +2,25 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/public/cpp/shelf_prefs.h"
 #include "chrome/browser/sync/test/integration/os_sync_test.h"
 #include "chrome/browser/sync/test/integration/preferences_helper.h"
 #include "chrome/browser/sync/test/integration/updated_progress_marker_checker.h"
-#include "chromeos/constants/chromeos_features.h"
+#include "components/prefs/pref_service.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/driver/sync_service.h"
 #include "components/sync/driver/sync_user_settings.h"
 #include "content/public/test/browser_test.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-using preferences_helper::ChangeStringPref;
-using preferences_helper::StringPrefMatches;
-
 namespace {
+
+using preferences_helper::ChangeStringPref;
+using preferences_helper::GetPrefs;
+using testing::Eq;
 
 class SingleClientOsPreferencesSyncTest : public OsSyncTest {
  public:
@@ -30,11 +33,11 @@ IN_PROC_BROWSER_TEST_F(SingleClientOsPreferencesSyncTest, Sanity) {
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
 
   // Shelf alignment is a Chrome OS only preference.
-  ASSERT_TRUE(StringPrefMatches(ash::prefs::kShelfAlignment));
   ChangeStringPref(/*profile_index=*/0, ash::prefs::kShelfAlignment,
                    ash::kShelfAlignmentRight);
-  ASSERT_TRUE(UpdatedProgressMarkerChecker(GetSyncService(0)).Wait());
-  EXPECT_TRUE(StringPrefMatches(ash::prefs::kShelfAlignment));
+  EXPECT_TRUE(UpdatedProgressMarkerChecker(GetSyncService(0)).Wait());
+  EXPECT_THAT(GetPrefs(/*index=*/0)->GetString(ash::prefs::kShelfAlignment),
+              Eq(ash::kShelfAlignmentRight));
 }
 
 IN_PROC_BROWSER_TEST_F(SingleClientOsPreferencesSyncTest,

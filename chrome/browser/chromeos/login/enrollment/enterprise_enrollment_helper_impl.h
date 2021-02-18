@@ -16,11 +16,11 @@
 #include "chrome/browser/chromeos/policy/device_cloud_policy_manager_chromeos.h"
 #include "chrome/browser/chromeos/policy/enrollment_config.h"
 #include "chrome/browser/policy/device_account_initializer.h"
+#include "components/policy/core/common/cloud/dm_auth.h"
 #include "components/policy/core/common/cloud/enterprise_metrics.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 
 namespace policy {
-class DMAuth;
 class PolicyOAuth2TokenFetcher;
 }  // namespace policy
 
@@ -70,8 +70,8 @@ class EnterpriseEnrollmentHelperImpl
   FRIEND_TEST_ALL_PREFIXES(EnterpriseEnrollmentTest,
                            TestAttributePromptPageGetsLoaded);
 
-  // Attempt enrollment using |auth_data| for authentication.
-  void DoEnroll(std::unique_ptr<policy::DMAuth> auth_data);
+  // Attempt enrollment using `auth_data` for authentication.
+  void DoEnroll(policy::DMAuth auth_data);
 
   // Handles completion of the OAuth2 token fetch attempt.
   void OnTokenFetched(const std::string& token,
@@ -90,11 +90,11 @@ class EnterpriseEnrollmentHelperImpl
   void ReportEnrollmentStatus(policy::EnrollmentStatus status);
 
   // Logs an UMA event in the kMetricEnrollment or the kMetricEnrollmentRecovery
-  // histogram, depending on |enrollment_mode_|.
+  // histogram, depending on `enrollment_mode_`.
   void UMA(policy::MetricEnrollment sample);
 
   // Called by ProfileHelper when a signin profile clearance has finished.
-  // |callback| is a callback, that was passed to ClearAuth() before.
+  // `callback` is a callback, that was passed to ClearAuth() before.
   void OnSigninProfileCleared(base::OnceClosure callback);
 
   // Called when CloudPolicyClient exists, so device account can be initialized.
@@ -110,7 +110,7 @@ class EnterpriseEnrollmentHelperImpl
     OAUTH_FINISHED
   } oauth_status_ = OAUTH_NOT_STARTED;
   bool oauth_data_cleared_ = false;
-  std::unique_ptr<policy::DMAuth> auth_data_;
+  policy::DMAuth auth_data_;
   bool success_ = false;
   ActiveDirectoryJoinDelegate* ad_join_delegate_ = nullptr;
 

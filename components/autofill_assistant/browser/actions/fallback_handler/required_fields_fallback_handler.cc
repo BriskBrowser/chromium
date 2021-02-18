@@ -10,11 +10,15 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/optional.h"
+#include "base/strings/strcat.h"
 #include "components/autofill_assistant/browser/actions/action_delegate.h"
 #include "components/autofill_assistant/browser/actions/action_delegate_util.h"
 #include "components/autofill_assistant/browser/batch_element_checker.h"
 #include "components/autofill_assistant/browser/client_status.h"
 #include "components/autofill_assistant/browser/field_formatter.h"
+#include "components/autofill_assistant/browser/web/element_finder.h"
+#include "components/autofill_assistant/browser/web/web_controller.h"
+#include "third_party/re2/src/re2/re2.h"
 
 namespace autofill_assistant {
 namespace {
@@ -175,6 +179,7 @@ void RequiredFieldsFallbackHandler::OnCheckRequiredFieldsDone(
   // If there are any fallbacks for the empty fields, set them, otherwise fail
   // immediately.
   bool has_fallbacks = false;
+  bool has_empty_value = false;
   for (const RequiredField& required_field : required_fields_) {
     if (!required_field.ShouldFallback(/* apply_fallback= */ true)) {
       continue;
@@ -190,9 +195,10 @@ void RequiredFieldsFallbackHandler::OnCheckRequiredFieldsDone(
       VLOG(3) << "Field has no fallback data: " << required_field.selector
               << " " << required_field.value_expression;
       FillStatusDetailsWithMissingFallbackData(required_field, &client_status_);
+      has_empty_value = true;
     }
   }
-  if (!has_fallbacks) {
+  if (!has_fallbacks || has_empty_value) {
     std::move(status_update_callback_)
         .Run(ClientStatus(AUTOFILL_INCOMPLETE), client_status_);
     return;
@@ -224,32 +230,28 @@ void RequiredFieldsFallbackHandler::SetFallbackFieldValuesSequentially(
   const RequiredField& required_field = required_fields_[required_fields_index];
 
   if (required_field.value_expression.empty()) {
-    ActionDelegateUtil::SetFieldValue(
+    action_delegate_util::SetFieldValue(
         action_delegate_, required_field.selector, "",
         required_field.fill_strategy, required_field.delay_in_millisecond,
         base::BindOnce(&RequiredFieldsFallbackHandler::OnSetFallbackFieldValue,
-                       weak_ptr_factory_.GetWeakPtr(), required_fields_index));
+                       weak_ptr_factory_.GetWeakPtr(), required_fields_index,
+                       /* element= */ nullptr));
     return;
   }
 
   auto fallback_value = field_formatter::FormatString(
       required_field.value_expression, fallback_values_);
-  if (!fallback_value.has_value()) {
-    VLOG(3) << "No fallback for " << required_field.selector;
-    // If there is no fallback value, we skip this failed field.
-    SetFallbackFieldValuesSequentially(++required_fields_index);
-    return;
-  }
+  DCHECK(fallback_value.has_value());
 
   if (required_field.fallback_click_element.has_value()) {
-    DVLOG(3) << "Clicking on " << required_field.selector;
     ClickType click_type = required_field.click_type;
     if (click_type == ClickType::NOT_SET) {
       // default: TAP
       click_type = ClickType::TAP;
     }
-    ActionDelegateUtil::ClickOrTapElement(
+    action_delegate_util::ClickOrTapElement(
         action_delegate_, required_field.selector, click_type,
+        /* on_top= */ SKIP_STEP,
         base::BindOnce(
             &RequiredFieldsFallbackHandler::OnClickOrTapFallbackElement,
             weak_ptr_factory_.GetWeakPtr(), fallback_value.value(),
@@ -257,17 +259,41 @@ void RequiredFieldsFallbackHandler::SetFallbackFieldValuesSequentially(
     return;
   }
 
-  DVLOG(3) << "Getting element tag for " << required_field.selector;
-  action_delegate_->GetElementTag(
+  action_delegate_->FindElement(
       required_field.selector,
-      base::BindOnce(&RequiredFieldsFallbackHandler::OnGetFallbackFieldTag,
+      base::BindOnce(&RequiredFieldsFallbackHandler::OnFindElement,
                      weak_ptr_factory_.GetWeakPtr(), fallback_value.value(),
                      required_fields_index));
 }
 
-void RequiredFieldsFallbackHandler::OnGetFallbackFieldTag(
+void RequiredFieldsFallbackHandler::OnFindElement(
     const std::string& value,
     size_t required_fields_index,
+    const ClientStatus& element_status,
+    std::unique_ptr<ElementFinder::Result> element_result) {
+  if (!element_status.ok()) {
+    FillStatusDetailsWithError(required_fields_[required_fields_index],
+                               element_status.proto_status(), &client_status_);
+
+    // Fallback failed: we stop the script without checking the other fields.
+    std::move(status_update_callback_)
+        .Run(ClientStatus(AUTOFILL_INCOMPLETE), client_status_);
+    return;
+  }
+
+  const ElementFinder::Result* element_result_ptr = element_result.get();
+  action_delegate_->GetWebController()->GetElementTag(
+      *element_result_ptr,
+      base::BindOnce(
+          &RequiredFieldsFallbackHandler::OnGetFallbackFieldElementTag,
+          weak_ptr_factory_.GetWeakPtr(), value, required_fields_index,
+          std::move(element_result)));
+}
+
+void RequiredFieldsFallbackHandler::OnGetFallbackFieldElementTag(
+    const std::string& value,
+    size_t required_fields_index,
+    std::unique_ptr<ElementFinder::Result> element,
     const ClientStatus& element_tag_status,
     const std::string& element_tag) {
   if (!element_tag_status.ok()) {
@@ -279,26 +305,42 @@ void RequiredFieldsFallbackHandler::OnGetFallbackFieldTag(
   VLOG(3) << "Setting fallback value for " << required_field.selector << " ("
           << element_tag << ")";
   if (element_tag == kSelectElementTag) {
-    DropdownSelectStrategy select_strategy;
-    if (required_field.select_strategy != UNSPECIFIED_SELECT_STRATEGY) {
-      select_strategy = required_field.select_strategy;
-    } else {
-      // This is the legacy default.
-      select_strategy = LABEL_STARTS_WITH;
+    SelectOptionProto::OptionComparisonAttribute option_comparison_attribute;
+    std::string re2;
+    switch (required_field.select_strategy) {
+      case UNSPECIFIED_SELECT_STRATEGY:
+      case LABEL_STARTS_WITH:
+        // This is the legacy default.
+        option_comparison_attribute = SelectOptionProto::LABEL;
+        re2 = base::StrCat({"^", re2::RE2::QuoteMeta(value)});
+        break;
+      case LABEL_MATCH:
+        option_comparison_attribute = SelectOptionProto::LABEL;
+        re2 = base::StrCat({"^", re2::RE2::QuoteMeta(value), "$"});
+        break;
+      case VALUE_MATCH:
+        option_comparison_attribute = SelectOptionProto::VALUE;
+        re2 = base::StrCat({"^", re2::RE2::QuoteMeta(value), "$"});
+        break;
     }
 
+    const ElementFinder::Result* element_ptr = element.get();
     action_delegate_->SelectOption(
-        required_field.selector, value, select_strategy,
+        re2, /* case_sensitive= */ false, option_comparison_attribute,
+        *element_ptr,
         base::BindOnce(&RequiredFieldsFallbackHandler::OnSetFallbackFieldValue,
-                       weak_ptr_factory_.GetWeakPtr(), required_fields_index));
+                       weak_ptr_factory_.GetWeakPtr(), required_fields_index,
+                       std::move(element)));
     return;
   }
 
-  ActionDelegateUtil::SetFieldValue(
-      action_delegate_, required_field.selector, value,
-      required_field.fill_strategy, required_field.delay_in_millisecond,
+  const ElementFinder::Result* element_ptr = element.get();
+  action_delegate_util::PerformSetFieldValue(
+      action_delegate_, value, required_field.fill_strategy,
+      required_field.delay_in_millisecond, *element_ptr,
       base::BindOnce(&RequiredFieldsFallbackHandler::OnSetFallbackFieldValue,
-                     weak_ptr_factory_.GetWeakPtr(), required_fields_index));
+                     weak_ptr_factory_.GetWeakPtr(), required_fields_index,
+                     std::move(element)));
 }
 
 void RequiredFieldsFallbackHandler::OnClickOrTapFallbackElement(
@@ -318,9 +360,8 @@ void RequiredFieldsFallbackHandler::OnClickOrTapFallbackElement(
 
   DCHECK(required_field.fallback_click_element.has_value());
   Selector value_selector = required_field.fallback_click_element.value();
-  value_selector.MatchingInnerText(value).MustBeVisible();
+  value_selector.MatchingInnerText(re2::RE2::QuoteMeta(value));
 
-  DVLOG(3) << "Finding option for " << required_field.selector;
   action_delegate_->ShortWaitForElement(
       value_selector,
       base::BindOnce(&RequiredFieldsFallbackHandler::OnShortWaitForElement,
@@ -331,8 +372,9 @@ void RequiredFieldsFallbackHandler::OnClickOrTapFallbackElement(
 void RequiredFieldsFallbackHandler::OnShortWaitForElement(
     const Selector& selector_to_click,
     size_t required_fields_index,
-
-    const ClientStatus& find_element_status) {
+    const ClientStatus& find_element_status,
+    base::TimeDelta wait_time) {
+  total_wait_time_ += wait_time;
   const RequiredField& required_field = required_fields_[required_fields_index];
   if (!find_element_status.ok()) {
     FillStatusDetailsWithError(
@@ -344,20 +386,21 @@ void RequiredFieldsFallbackHandler::OnShortWaitForElement(
     return;
   }
 
-  DVLOG(3) << "Clicking option for " << required_field.selector;
   ClickType click_type = required_field.click_type;
   if (click_type == ClickType::NOT_SET) {
     // default: TAP
     click_type = ClickType::TAP;
   }
-  ActionDelegateUtil::ClickOrTapElement(
-      action_delegate_, selector_to_click, click_type,
+  action_delegate_util::ClickOrTapElement(
+      action_delegate_, selector_to_click, click_type, /* on_top= */ SKIP_STEP,
       base::BindOnce(&RequiredFieldsFallbackHandler::OnSetFallbackFieldValue,
-                     weak_ptr_factory_.GetWeakPtr(), required_fields_index));
+                     weak_ptr_factory_.GetWeakPtr(), required_fields_index,
+                     /* element= */ nullptr));
 }
 
 void RequiredFieldsFallbackHandler::OnSetFallbackFieldValue(
     size_t required_fields_index,
+    std::unique_ptr<ElementFinder::Result> element,
     const ClientStatus& set_field_status) {
   if (!set_field_status.ok()) {
     VLOG(1) << "Error setting value for required_field: "

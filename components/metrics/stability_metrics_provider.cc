@@ -61,14 +61,6 @@ void StabilityMetricsProvider::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterIntegerPref(prefs::kStabilityIncompleteSessionEndCount, 0);
   registry->RegisterBooleanPref(prefs::kStabilitySessionEndCompleted, true);
   registry->RegisterIntegerPref(prefs::kStabilityLaunchCount, 0);
-  registry->RegisterIntegerPref(prefs::kStabilityBreakpadRegistrationFail, 0);
-  registry->RegisterIntegerPref(prefs::kStabilityBreakpadRegistrationSuccess,
-                                0);
-  registry->RegisterIntegerPref(prefs::kStabilityDebuggerPresent, 0);
-  registry->RegisterIntegerPref(prefs::kStabilityDebuggerNotPresent, 0);
-  registry->RegisterIntegerPref(prefs::kStabilityDeferredCount, 0);
-  registry->RegisterIntegerPref(prefs::kStabilityDiscardCount, 0);
-  registry->RegisterIntegerPref(prefs::kStabilityVersionMismatchCount, 0);
   registry->RegisterIntegerPref(prefs::kStabilityFileMetricsUnsentFilesCount,
                                 0);
   registry->RegisterIntegerPref(prefs::kStabilityFileMetricsUnsentSamplesCount,
@@ -95,16 +87,8 @@ void StabilityMetricsProvider::Init() {
 void StabilityMetricsProvider::ClearSavedStabilityMetrics() {
   local_state_->SetInteger(prefs::kStabilityCrashCount, 0);
   local_state_->SetInteger(prefs::kStabilityIncompleteSessionEndCount, 0);
-  local_state_->SetInteger(prefs::kStabilityBreakpadRegistrationSuccess, 0);
-  local_state_->SetInteger(prefs::kStabilityBreakpadRegistrationFail, 0);
-  local_state_->SetInteger(prefs::kStabilityDebuggerPresent, 0);
-  local_state_->SetInteger(prefs::kStabilityDebuggerNotPresent, 0);
   local_state_->SetInteger(prefs::kStabilityLaunchCount, 0);
   local_state_->SetBoolean(prefs::kStabilitySessionEndCompleted, true);
-  local_state_->SetInteger(prefs::kStabilityDeferredCount, 0);
-  // Note: kStabilityDiscardCount is not cleared as its intent is to measure
-  // the number of times data is discarded, even across versions.
-  local_state_->SetInteger(prefs::kStabilityVersionMismatchCount, 0);
 
   // The 0 is a valid value for the below prefs, clears pref instead
   // of setting to default value.
@@ -140,38 +124,6 @@ void StabilityMetricsProvider::ProvideStabilityMetrics(
                            &pref_value))
     stability->set_incomplete_shutdown_count(pref_value);
 
-  if (GetAndClearPrefValue(prefs::kStabilityBreakpadRegistrationSuccess,
-                           &pref_value))
-    stability->set_breakpad_registration_success_count(pref_value);
-
-  if (GetAndClearPrefValue(prefs::kStabilityBreakpadRegistrationFail,
-                           &pref_value))
-    stability->set_breakpad_registration_failure_count(pref_value);
-
-  if (GetAndClearPrefValue(prefs::kStabilityDebuggerPresent, &pref_value))
-    stability->set_debugger_present_count(pref_value);
-
-  if (GetAndClearPrefValue(prefs::kStabilityDebuggerNotPresent, &pref_value))
-    stability->set_debugger_not_present_count(pref_value);
-
-  // Note: only logging the following histograms for non-zero values.
-  if (GetAndClearPrefValue(prefs::kStabilityDeferredCount, &pref_value)) {
-    UMA_STABILITY_HISTOGRAM_COUNTS_100(
-        "Stability.Internals.InitialStabilityLogDeferredCount", pref_value);
-  }
-
-  // Note: only logging the following histograms for non-zero values.
-  if (GetAndClearPrefValue(prefs::kStabilityDiscardCount, &pref_value)) {
-    UMA_STABILITY_HISTOGRAM_COUNTS_100("Stability.Internals.DataDiscardCount",
-                                       pref_value);
-  }
-
-  // Note: only logging the following histograms for non-zero values.
-  if (GetAndClearPrefValue(prefs::kStabilityVersionMismatchCount,
-                           &pref_value)) {
-    UMA_STABILITY_HISTOGRAM_COUNTS_100(
-        "Stability.Internals.VersionMismatchCount", pref_value);
-  }
 
   if (local_state_->HasPrefPath(prefs::kStabilityFileMetricsUnsentFilesCount)) {
     UMA_STABILITY_HISTOGRAM_COUNTS_100(
@@ -200,23 +152,12 @@ void StabilityMetricsProvider::ProvideStabilityMetrics(
 #endif
 }
 
-void StabilityMetricsProvider::RecordBreakpadRegistration(bool success) {
-  if (!success)
-    IncrementPrefValue(prefs::kStabilityBreakpadRegistrationFail);
-  else
-    IncrementPrefValue(prefs::kStabilityBreakpadRegistrationSuccess);
-}
-
-void StabilityMetricsProvider::RecordBreakpadHasDebugger(bool has_debugger) {
-  if (!has_debugger)
-    IncrementPrefValue(prefs::kStabilityDebuggerNotPresent);
-  else
-    IncrementPrefValue(prefs::kStabilityDebuggerPresent);
-}
 
 void StabilityMetricsProvider::CheckLastSessionEndCompleted() {
   if (!local_state_->GetBoolean(prefs::kStabilitySessionEndCompleted)) {
     IncrementPrefValue(prefs::kStabilityIncompleteSessionEndCount);
+    StabilityMetricsHelper::RecordStabilityEvent(
+        StabilityEventType::kIncompleteShutdown);
     // This is marked false when we get a WM_ENDSESSION.
     MarkSessionEndCompleted(true);
   }
@@ -246,20 +187,9 @@ void StabilityMetricsProvider::LogCrash(base::Time last_live_timestamp) {
 #endif
 }
 
-void StabilityMetricsProvider::LogStabilityLogDeferred() {
-  IncrementPrefValue(prefs::kStabilityDeferredCount);
-}
-
-void StabilityMetricsProvider::LogStabilityDataDiscarded() {
-  IncrementPrefValue(prefs::kStabilityDiscardCount);
-}
-
 void StabilityMetricsProvider::LogLaunch() {
   IncrementPrefValue(prefs::kStabilityLaunchCount);
-}
-
-void StabilityMetricsProvider::LogStabilityVersionMismatch() {
-  IncrementPrefValue(prefs::kStabilityVersionMismatchCount);
+  StabilityMetricsHelper::RecordStabilityEvent(StabilityEventType::kLaunch);
 }
 
 #if defined(OS_WIN)

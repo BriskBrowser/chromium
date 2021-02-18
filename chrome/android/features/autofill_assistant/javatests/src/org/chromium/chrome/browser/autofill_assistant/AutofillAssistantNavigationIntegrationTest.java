@@ -15,10 +15,10 @@ import static androidx.test.espresso.matcher.ViewMatchers.withText;
 
 import static org.hamcrest.Matchers.containsString;
 
+import static org.chromium.base.test.util.CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL;
 import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.waitUntil;
 import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.waitUntilViewAssertionTrue;
 import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.waitUntilViewMatchesCondition;
-import static org.chromium.content_public.browser.test.util.CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL;
 
 import android.support.test.InstrumentationRegistry;
 
@@ -313,5 +313,30 @@ public class AutofillAssistantNavigationIntegrationTest {
         onView(withId(org.chromium.chrome.R.id.url_bar)).perform(pressImeActionButton());
         waitUntilViewAssertionTrue(
                 withId(R.id.autofill_assistant), doesNotExist(), DEFAULT_MAX_TIME_TO_POLL);
+    }
+
+    @Test
+    @MediumTest
+    public void navigateDuringOnboardingRemovesUI() {
+        // Onboarding has not been accepted.
+        AutofillAssistantPreferencesUtil.setInitialPreferences(false);
+        startAutofillAssistantOnTab(TEST_PAGE_A);
+
+        waitUntil(
+                ()
+                        -> ChromeTabUtils.getUrlOnUiThread(mTestRule.getActivity().getActivityTab())
+                                   .getSpec()
+                                   .equals(getURL(TEST_PAGE_A)));
+        waitUntilViewMatchesCondition(withId(R.id.button_init_ok), isCompletelyDisplayed());
+
+        onView(withId(org.chromium.chrome.R.id.url_bar))
+                .perform(click(), typeText(getURL(TEST_PAGE_B)), pressImeActionButton());
+        waitUntil(
+                ()
+                        -> ChromeTabUtils.getUrlOnUiThread(mTestRule.getActivity().getActivityTab())
+                                   .getSpec()
+                                   .equals(getURL(TEST_PAGE_B)));
+        waitUntilViewAssertionTrue(
+                withId(R.id.button_init_ok), doesNotExist(), DEFAULT_MAX_TIME_TO_POLL);
     }
 }

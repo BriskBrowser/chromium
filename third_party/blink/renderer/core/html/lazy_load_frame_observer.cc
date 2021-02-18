@@ -23,7 +23,6 @@
 #include "third_party/blink/renderer/core/loader/frame_loader.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/geometry/length.h"
-#include "third_party/blink/renderer/platform/heap/visitor.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/network/network_state_notifier.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
@@ -123,7 +122,8 @@ void LazyLoadFrameObserver::DeferLoadUntilNearViewport(
           element_->GetDocument()))},
       {std::numeric_limits<float>::min()}, &element_->GetDocument(),
       WTF::BindRepeating(&LazyLoadFrameObserver::LoadIfHiddenOrNearViewport,
-                         WrapWeakPersistent(this)));
+                         WrapWeakPersistent(this)),
+      LocalFrameUkmAggregator::kLazyLoadIntersectionObserver);
 
   lazy_load_intersection_observer_->observe(element_);
 }
@@ -205,7 +205,8 @@ void LazyLoadFrameObserver::StartTrackingVisibilityMetrics() {
       {}, {std::numeric_limits<float>::min()}, &element_->GetDocument(),
       WTF::BindRepeating(
           &LazyLoadFrameObserver::RecordMetricsOnVisibilityChanged,
-          WrapWeakPersistent(this)));
+          WrapWeakPersistent(this)),
+      LocalFrameUkmAggregator::kLazyLoadIntersectionObserver);
 
   visibility_metrics_observer_->observe(element_);
 }
@@ -252,9 +253,9 @@ void LazyLoadFrameObserver::RecordMetricsOnVisibilityChanged(
   if (time_when_first_load_finished_.is_null() &&
       !is_initially_above_the_fold_) {
     // Note: If the WebEffectiveConnectionType enum ever gets out of sync with
-    // net::EffectiveConnectionType, then this will have to be updated to record
-    // the sample in terms of net::EffectiveConnectionType instead of
-    // WebEffectiveConnectionType.
+    // mojom::blink::EffectiveConnectionType, then this will have to be updated
+    // to record the sample in terms of mojom::blink::EffectiveConnectionType
+    // instead of WebEffectiveConnectionType.
     UMA_HISTOGRAM_ENUMERATION(
         "Blink.VisibleBeforeLoaded.LazyLoadEligibleFrames.BelowTheFold",
         GetNetworkStateNotifier().EffectiveType());

@@ -13,12 +13,11 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/posix/safe_strerror.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/trace_event/trace_event.h"
 #include "media/capture/video/chromeos/camera_buffer_factory.h"
-#include "media/capture/video/chromeos/camera_device_context.h"
 #include "media/capture/video/chromeos/camera_metadata_utils.h"
 #include "media/capture/video/chromeos/video_capture_features_chromeos.h"
 #include "mojo/public/cpp/platform/platform_handle.h"
@@ -78,7 +77,7 @@ RequestManager::RequestManager(
 RequestManager::~RequestManager() = default;
 
 void RequestManager::SetUpStreamsAndBuffers(
-    VideoCaptureFormat capture_format,
+    base::flat_map<ClientType, VideoCaptureParams> capture_params,
     const cros::mojom::CameraMetadataPtr& static_metadata,
     std::vector<cros::mojom::Camera3StreamPtr> streams) {
   // The partial result count metadata is optional; defaults to 1 in case it
@@ -105,7 +104,7 @@ void RequestManager::SetUpStreamsAndBuffers(
   }
 
   stream_buffer_manager_->SetUpStreamsAndBuffers(
-      capture_format, static_metadata, std::move(streams));
+      capture_params, static_metadata, std::move(streams));
 }
 
 cros::mojom::Camera3StreamPtr RequestManager::GetStreamConfiguration(
@@ -267,11 +266,13 @@ void RequestManager::PrepareCaptureRequest() {
   // 2. Capture (YuvOutput)
   // 3. Preview + Capture (YuvOutput)
   // 4. Reprocess (YuvInput + BlobOutput)
+  // 5. Preview + Recording (YuvOutput)
   //
   // For device without reprocess capability:
   // 1. Preview
   // 2. Capture (BlobOutput)
   // 3. Preview + Capture (BlobOutput)
+  // 4. Preview + Recording (YuvOutput)
   std::set<StreamType> stream_types;
   cros::mojom::CameraMetadataPtr settings;
   TakePhotoCallback callback = base::NullCallback();
@@ -281,6 +282,7 @@ void RequestManager::PrepareCaptureRequest() {
   bool is_reprocess_request = false;
   bool is_preview_request = false;
   bool is_oneshot_request = false;
+  bool is_recording_request = false;
 
   // First, check if there are pending reprocess tasks.
   is_reprocess_request = TryPrepareReprocessRequest(
@@ -298,7 +300,12 @@ void RequestManager::PrepareCaptureRequest() {
         TryPrepareOneShotRequest(&stream_types, &settings, &callback);
   }
 
-  if (!is_reprocess_request && !is_oneshot_request && !is_preview_request) {
+  if (is_preview_request) {
+    is_recording_request = TryPrepareRecordingRequest(&stream_types);
+  }
+
+  if (!is_reprocess_request && !is_oneshot_request && !is_preview_request &&
+      !is_recording_request) {
     // We have to keep the pipeline full.
     if (preview_buffers_queued_ < pipeline_depth_) {
       ipc_task_runner_->PostTask(
@@ -445,6 +452,17 @@ bool RequestManager::TryPrepareOneShotRequest(
   }
   SetZeroShutterLag(settings, true);
   take_photo_settings_queue_.pop();
+  return true;
+}
+
+bool RequestManager::TryPrepareRecordingRequest(
+    std::set<StreamType>* stream_types) {
+  if (!stream_buffer_manager_->IsRecordingSupported() ||
+      !stream_buffer_manager_->HasFreeBuffers({StreamType::kRecordingOutput})) {
+    return false;
+  }
+
+  stream_types->insert({StreamType::kRecordingOutput});
   return true;
 }
 
@@ -788,8 +806,10 @@ void RequestManager::SubmitCaptureResult(
   // Deliver the captured data to client.
   if (stream_buffer->status ==
       cros::mojom::Camera3BufferStatus::CAMERA3_BUFFER_STATUS_OK) {
-    if (stream_type == StreamType::kPreviewOutput) {
-      SubmitCapturedPreviewBuffer(frame_number, buffer_ipc_id);
+    if (stream_type == StreamType::kPreviewOutput ||
+        stream_type == StreamType::kRecordingOutput) {
+      SubmitCapturedPreviewRecordingBuffer(frame_number, buffer_ipc_id,
+                                           stream_type);
     } else if (stream_type == StreamType::kJpegOutput) {
       SubmitCapturedJpegBuffer(frame_number, buffer_ipc_id);
     } else if (stream_type == StreamType::kYUVOutput) {
@@ -825,14 +845,17 @@ void RequestManager::SubmitCaptureResult(
   PrepareCaptureRequest();
 }
 
-void RequestManager::SubmitCapturedPreviewBuffer(uint32_t frame_number,
-                                                 uint64_t buffer_ipc_id) {
+void RequestManager::SubmitCapturedPreviewRecordingBuffer(
+    uint32_t frame_number,
+    uint64_t buffer_ipc_id,
+    StreamType stream_type) {
   const CaptureResult& pending_result = pending_results_[frame_number];
+  auto client_type = kStreamClientTypeMap[static_cast<int>(stream_type)];
   if (video_capture_use_gmb_) {
     VideoCaptureFormat format;
     base::Optional<VideoCaptureDevice::Client::Buffer> buffer =
         stream_buffer_manager_->AcquireBufferForClientById(
-            StreamType::kPreviewOutput, buffer_ipc_id, &format);
+            stream_type, buffer_ipc_id, &format);
     CHECK(buffer);
 
     // TODO: Figure out the right color space for the camera frame.  We may need
@@ -847,39 +870,38 @@ void RequestManager::SubmitCapturedPreviewBuffer(uint32_t frame_number,
       auto translate_rotation = [](const int rotation) -> VideoRotation {
         switch (rotation) {
           case 0:
-            return VideoRotation::VIDEO_ROTATION_0;
+            return VIDEO_ROTATION_0;
           case 90:
-            return VideoRotation::VIDEO_ROTATION_90;
+            return VIDEO_ROTATION_90;
           case 180:
-            return VideoRotation::VIDEO_ROTATION_180;
+            return VIDEO_ROTATION_180;
           case 270:
-            return VideoRotation::VIDEO_ROTATION_270;
+            return VIDEO_ROTATION_270;
         }
-        return VideoRotation::VIDEO_ROTATION_0;
+        return VIDEO_ROTATION_0;
       };
-      metadata.rotation =
+      metadata.transformation =
           translate_rotation(device_context_->GetRotationForDisplay());
     } else {
       // All frames are pre-rotated to the display orientation.
-      metadata.rotation = VideoRotation::VIDEO_ROTATION_0;
+      metadata.transformation = VIDEO_ROTATION_0;
     }
     device_context_->SubmitCapturedVideoCaptureBuffer(
-        std::move(*buffer), format, pending_result.reference_time,
+        client_type, std::move(*buffer), format, pending_result.reference_time,
         pending_result.timestamp, metadata);
     // |buffer| ownership is transferred to client, so we need to reserve a
     // new video buffer.
-    stream_buffer_manager_->ReserveBuffer(StreamType::kPreviewOutput);
+    stream_buffer_manager_->ReserveBuffer(stream_type);
   } else {
     gfx::GpuMemoryBuffer* gmb = stream_buffer_manager_->GetGpuMemoryBufferById(
-        StreamType::kPreviewOutput, buffer_ipc_id);
+        stream_type, buffer_ipc_id);
     CHECK(gmb);
     device_context_->SubmitCapturedGpuMemoryBuffer(
-        gmb,
-        stream_buffer_manager_->GetStreamCaptureFormat(
-            StreamType::kPreviewOutput),
+        client_type, gmb,
+        stream_buffer_manager_->GetStreamCaptureFormat(stream_type),
         pending_result.reference_time, pending_result.timestamp);
-    stream_buffer_manager_->ReleaseBufferFromCaptureResult(
-        StreamType::kPreviewOutput, buffer_ipc_id);
+    stream_buffer_manager_->ReleaseBufferFromCaptureResult(stream_type,
+                                                           buffer_ipc_id);
   }
 }
 

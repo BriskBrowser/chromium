@@ -10,7 +10,7 @@
 #include "base/memory/scoped_refptr.h"
 #include "chrome/browser/vr/graphics_delegate.h"
 #include "chrome/browser/vr/render_info.h"
-#include "device/vr/public/mojom/vr_service.mojom-forward.h"
+#include "device/vr/public/mojom/vr_service.mojom.h"
 #include "gpu/GLES2/gl2extchromium.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
 #include "gpu/command_buffer/client/gpu_memory_buffer_manager.h"
@@ -42,7 +42,6 @@ class GraphicsDelegateWin : public GraphicsDelegate {
   // Called on background GL thread.
   void InitializeOnGLThread();
   void SetVRDisplayInfo(device::mojom::VRDisplayInfoPtr info);
-  void Cleanup();
   bool PreRender();
   void PostRender();
   mojo::PlatformHandle GetTexture();

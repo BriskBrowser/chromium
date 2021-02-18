@@ -6,7 +6,11 @@ package org.chromium.chrome.browser.incognito;
 
 import static org.junit.Assert.assertEquals;
 
+import static org.chromium.chrome.browser.customtabs.CustomTabsTestUtils.createMinimalCustomTabIntent;
+import static org.chromium.chrome.browser.customtabs.CustomTabsTestUtils.createMinimalIncognitoCustomTabIntent;
+
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.support.test.InstrumentationRegistry;
 
@@ -16,17 +20,16 @@ import org.chromium.base.ApplicationStatus;
 import org.chromium.base.test.params.ParameterProvider;
 import org.chromium.base.test.params.ParameterSet;
 import org.chromium.base.test.util.CallbackHelper;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
-import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.customtabs.CustomTabActivityTestRule;
 import org.chromium.chrome.browser.customtabs.CustomTabsConnection;
-import org.chromium.chrome.browser.customtabs.CustomTabsTestUtils;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeActivityTestRule;
+import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.content_public.browser.BrowserStartupController;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 import java.util.ArrayList;
@@ -53,12 +56,12 @@ public class IncognitoDataTestUtils {
             this.cct = cct;
         }
 
-        public Tab launchUrl(ChromeActivityTestRule chromeActivityRule,
+        public Tab launchUrl(ChromeTabbedActivityTestRule chromeTabbedActivityRule,
                 CustomTabActivityTestRule customTabActivityTestRule, String url) {
             if (cct) {
                 return launchUrlInCCT(customTabActivityTestRule, url, incognito);
             } else {
-                return launchUrlInTab(chromeActivityRule, url, incognito);
+                return launchUrlInTab(chromeTabbedActivityRule, url, incognito);
             }
         }
     }
@@ -137,7 +140,7 @@ public class IncognitoDataTestUtils {
     }
 
     private static Tab launchUrlInTab(
-            ChromeActivityTestRule testRule, String url, boolean incognito) {
+            ChromeTabbedActivityTestRule testRule, String url, boolean incognito) {
         // This helps to bring back the "existing" chrome tabbed activity to foreground
         // in case the custom tab activity was launched before.
         if (!isChromeTabbedActivityRunningOnTop()) {
@@ -156,15 +159,11 @@ public class IncognitoDataTestUtils {
 
     private static Tab launchUrlInCCT(
             CustomTabActivityTestRule testRule, String url, boolean incognito) {
-        Intent intent = CustomTabsTestUtils.createMinimalCustomTabIntent(
-                InstrumentationRegistry.getContext(), url);
-
-        if (incognito) {
-            intent.putExtra(IntentHandler.EXTRA_OPEN_NEW_INCOGNITO_TAB, true);
-        }
+        Context context = InstrumentationRegistry.getContext();
+        Intent intent = incognito ? createMinimalIncognitoCustomTabIntent(context, url)
+                                  : createMinimalCustomTabIntent(context, url);
 
         testRule.startCustomTabActivityWithIntent(intent);
-
         Tab tab = testRule.getActivity().getActivityTab();
 
         // Giving time to the WebContents to be ready.

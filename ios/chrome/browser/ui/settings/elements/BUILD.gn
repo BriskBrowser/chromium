@@ -15,12 +15,22 @@ source_set("enterprise_info_popover_view_controller") {
   frameworks = [ "UIKit.framework" ]
 
   deps = [
+    ":constants",
     "//base:base",
     "//ios/chrome/app/strings",
+    "//ios/chrome/browser:chrome_url_constants",
     "//ios/chrome/common:common",
     "//ios/chrome/common/ui/colors",
     "//ios/chrome/common/ui/elements:popover_label_view_controller",
     "//ios/chrome/common/ui/util",
     "//ui/base",
+  ]
+}
+
+source_set("constants") {
+  configs += [ "//build/config/compiler:enable_arc" ]
+  sources = [
+    "elements_constants.h",
+    "elements_constants.mm",
   ]
 }

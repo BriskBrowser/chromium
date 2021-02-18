@@ -11,6 +11,7 @@
 #include "base/optional.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "printing/mojom/print.mojom.h"
 #include "printing/print_job_constants.h"
 #include "printing/print_settings.h"
@@ -104,12 +105,12 @@ void ReportPrintSettingsStats(const base::Value& print_settings,
 
   base::Optional<int> color_mode_opt = print_settings.FindIntKey(kSettingColor);
   if (color_mode_opt.has_value()) {
+    mojom::ColorModel color_model =
+        ColorModeToColorModel(color_mode_opt.value());
     bool unknown_color_model =
-        color_mode_opt.value() ==
-        static_cast<int>(mojom::ColorModel::kUnknownColorModel);
+        color_model == mojom::ColorModel::kUnknownColorModel;
     if (!unknown_color_model) {
-      base::Optional<bool> is_color =
-          IsColorModelSelected(color_mode_opt.value());
+      base::Optional<bool> is_color = IsColorModelSelected(color_model);
       ReportPrintSettingHistogram(is_color.value()
                                       ? PrintSettingsBuckets::kColor
                                       : PrintSettingsBuckets::kBlackAndWhite);
@@ -171,10 +172,10 @@ void ReportPrintSettingsStats(const base::Value& print_settings,
     }
   }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (print_settings.FindStringKey(kSettingPinValue))
     ReportPrintSettingHistogram(PrintSettingsBuckets::kPin);
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
 void ReportRegeneratePreviewRequestCountBeforeCancel(size_t count) {

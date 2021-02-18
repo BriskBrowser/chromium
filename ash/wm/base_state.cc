@@ -6,7 +6,6 @@
 
 #include "ash/public/cpp/window_animation_types.h"
 #include "ash/public/cpp/window_properties.h"
-#include "ash/public/cpp/window_state_type.h"
 #include "ash/screen_util.h"
 #include "ash/shell.h"
 #include "ash/wm/overview/overview_controller.h"
@@ -15,10 +14,13 @@
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_positioning_utils.h"
 #include "ash/wm/wm_event.h"
+#include "chromeos/ui/base/window_state_type.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 
 namespace ash {
+
+using ::chromeos::WindowStateType;
 
 BaseState::BaseState(WindowStateType initial_state_type)
     : state_type_(initial_state_type) {}
@@ -217,6 +219,18 @@ gfx::Rect BaseState::GetSnappedWindowBoundsInParent(
                            : GetDefaultRightSnappedWindowBoundsInParent(window);
   }
   return bounds_in_parent;
+}
+
+void BaseState::HandleWindowSnapping(WindowState* window_state,
+                                     WMEventType event_type) {
+  DCHECK(event_type == WM_EVENT_SNAP_LEFT || event_type == WM_EVENT_SNAP_RIGHT);
+  DCHECK(window_state->CanSnap());
+
+  window_state->set_bounds_changed_by_user(true);
+  aura::Window* window = window_state->window();
+  // SplitViewController will decide if the window needs to be snapped in split
+  // view.
+  SplitViewController::Get(window)->OnWindowSnapWMEvent(window, event_type);
 }
 
 }  // namespace ash

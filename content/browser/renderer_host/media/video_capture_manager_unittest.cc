@@ -17,7 +17,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "content/browser/renderer_host/media/in_process_video_capture_provider.h"
@@ -183,10 +183,9 @@ class MockFrameObserver : public VideoCaptureControllerEventHandler {
                    int buffer_id) override {}
   void OnBufferDestroyed(const VideoCaptureControllerID& id,
                          int buffer_id) override {}
-  void OnBufferReady(
-      const VideoCaptureControllerID& id,
-      int buffer_id,
-      const media::mojom::VideoFrameInfoPtr& frame_info) override {}
+  void OnBufferReady(const VideoCaptureControllerID& id,
+                     const ReadyBuffer& buffer,
+                     const std::vector<ReadyBuffer>& scaled_buffers) override {}
   void OnEnded(const VideoCaptureControllerID& id) override {}
 
   void OnGotControllerCallback(const VideoCaptureControllerID&) {}
@@ -280,7 +279,7 @@ class VideoCaptureManagerTest : public testing::Test {
     ASSERT_GE(devices_.size(), 2u);
   }
 
-  void TearDown() override {}
+  void TearDown() override { task_environment_.RunUntilIdle(); }
 
   void OnGotControllerCallback(
       VideoCaptureControllerID id,
@@ -348,12 +347,12 @@ class VideoCaptureManagerTest : public testing::Test {
   }
 #endif
 
+  BrowserTaskEnvironment task_environment_;
   ScreenlockMonitorTestSource* screenlock_monitor_source_;
   std::unique_ptr<ScreenlockMonitor> screenlock_monitor_;
   std::map<VideoCaptureControllerID, VideoCaptureController*> controllers_;
   scoped_refptr<VideoCaptureManager> vcm_;
   std::unique_ptr<MockMediaStreamProviderListener> listener_;
-  BrowserTaskEnvironment task_environment_;
   std::unique_ptr<MockFrameObserver> frame_observer_;
   WrappedDeviceFactory* video_capture_device_factory_;
   blink::MediaStreamDevices devices_;

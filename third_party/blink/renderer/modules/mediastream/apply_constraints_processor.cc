@@ -224,6 +224,10 @@ void ApplyConstraintsProcessor::FinalizeVideoRequest() {
   blink::VideoCaptureSettings settings = SelectVideoSettings({format});
 
   if (settings.HasValue()) {
+    if (settings.min_frame_rate().has_value()) {
+      GetCurrentVideoTrack()->SetMinimumFrameRate(
+          settings.min_frame_rate().value());
+    }
     video_source_->ReconfigureTrack(GetCurrentVideoTrack(),
                                     settings.track_adapter_settings());
     ApplyConstraintsSucceeded();
@@ -245,8 +249,10 @@ blink::VideoCaptureSettings ApplyConstraintsProcessor::SelectVideoSettings(
   device_capabilities.device_id = current_request_->Track()->Source()->Id();
   device_capabilities.group_id = current_request_->Track()->Source()->GroupId();
   device_capabilities.facing_mode =
-      GetCurrentVideoSource() ? GetCurrentVideoSource()->device().video_facing
-                              : media::MEDIA_VIDEO_FACING_NONE;
+      GetCurrentVideoSource()
+          ? static_cast<mojom::blink::FacingMode>(
+                GetCurrentVideoSource()->device().video_facing)
+          : mojom::blink::FacingMode::NONE;
   device_capabilities.formats = std::move(formats);
 
   blink::VideoDeviceCaptureCapabilities video_capabilities;
@@ -282,8 +288,8 @@ ApplyConstraintsProcessor::GetCurrentAudioSource() {
 blink::MediaStreamVideoTrack*
 ApplyConstraintsProcessor::GetCurrentVideoTrack() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  MediaStreamVideoTrack* track = MediaStreamVideoTrack::GetVideoTrack(
-      WebMediaStreamTrack(current_request_->Track()));
+  MediaStreamVideoTrack* track =
+      MediaStreamVideoTrack::From(current_request_->Track());
   DCHECK(track);
   return track;
 }

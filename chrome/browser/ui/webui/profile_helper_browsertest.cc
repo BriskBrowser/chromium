@@ -37,7 +37,7 @@ Profile* CreateProfile() {
   base::FilePath new_path = profile_manager->GenerateNextProfileDirectoryPath();
   base::RunLoop run_loop;
   profile_manager->CreateProfileAsync(
-      new_path, base::Bind(&UnblockOnProfileCreation, &run_loop),
+      new_path, base::BindRepeating(&UnblockOnProfileCreation, &run_loop),
       base::string16(), std::string());
   run_loop.Run();
   return profile_manager->GetProfileByPath(new_path);
@@ -159,6 +159,8 @@ IN_PROC_BROWSER_TEST_F(ProfileHelperTest, DeleteSoleProfile) {
   Browser* original_browser = browser();
   ProfileAttributesStorage& storage =
       g_browser_process->profile_manager()->GetProfileAttributesStorage();
+  base::FilePath original_browser_profile_path =
+      original_browser->profile()->GetPath();
 
   BrowserList* browser_list = BrowserList::GetInstance();
   EXPECT_EQ(1u, browser_list->size());
@@ -173,8 +175,7 @@ IN_PROC_BROWSER_TEST_F(ProfileHelperTest, DeleteSoleProfile) {
   Browser* new_browser = added_observer.Wait();
 
   EXPECT_EQ(1u, browser_list->size());
-  EXPECT_FALSE(base::Contains(*browser_list, original_browser));
-  EXPECT_NE(new_browser, original_browser);
+  EXPECT_NE(original_browser_profile_path, new_browser->profile()->GetPath());
   EXPECT_EQ(1u, storage.GetNumberOfProfiles());
 }
 

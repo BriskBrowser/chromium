@@ -37,7 +37,13 @@ health::mojom::InteractiveRoutineUpdatePtr UncheckedConvertPtr(
 health::mojom::NonInteractiveRoutineUpdatePtr UncheckedConvertPtr(
     cros_healthd::mojom::NonInteractiveRoutineUpdatePtr input);
 
+health::mojom::RunRoutineResponsePtr UncheckedConvertPtr(
+    cros_healthd::mojom::RunRoutineResponsePtr input);
+
 }  // namespace unchecked
+
+base::Optional<health::mojom::DiagnosticRoutineEnum> Convert(
+    cros_healthd::mojom::DiagnosticRoutineEnum input);
 
 std::vector<health::mojom::DiagnosticRoutineEnum> Convert(
     const std::vector<cros_healthd::mojom::DiagnosticRoutineEnum>& input);
@@ -51,7 +57,14 @@ health::mojom::DiagnosticRoutineStatusEnum Convert(
 cros_healthd::mojom::DiagnosticRoutineCommandEnum Convert(
     health::mojom::DiagnosticRoutineCommandEnum input);
 
-std::string Convert(mojo::ScopedHandle handle);
+cros_healthd::mojom::AcPowerStatusEnum Convert(
+    health::mojom::AcPowerStatusEnum input);
+
+cros_healthd::mojom::NvmeSelfTestTypeEnum Convert(
+    health::mojom::NvmeSelfTestTypeEnum input);
+
+cros_healthd::mojom::DiskReadRoutineTypeEnum Convert(
+    health::mojom::DiskReadRoutineTypeEnum input);
 
 }  // namespace converters
 }  // namespace chromeos

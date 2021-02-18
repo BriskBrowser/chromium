@@ -11,9 +11,9 @@
 #include "chrome/browser/lookalikes/lookalike_url_blocking_page.h"
 #include "chrome/browser/lookalikes/lookalike_url_navigation_throttle.h"
 #include "chrome/browser/lookalikes/lookalike_url_service.h"
-#include "chrome/browser/reputation/safety_tips_config.h"
 #include "chrome/common/chrome_features.h"
 #include "components/lookalikes/core/lookalike_url_util.h"
+#include "components/reputation/core/safety_tips_config.h"
 #include "components/security_state/core/features.h"
 #include "components/url_formatter/spoof_checks/top_domains/top_domain_util.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
@@ -23,12 +23,12 @@ namespace {
 const base::FeatureParam<bool> kEnableLookalikeTopSites{
     &security_state::features::kSafetyTipUI, "topsites", true};
 const base::FeatureParam<bool> kEnableLookalikeEditDistance{
-    &security_state::features::kSafetyTipUI, "editdistance", true};
+    &security_state::features::kSafetyTipUI, "editdistance", false};
 const base::FeatureParam<bool> kEnableLookalikeEditDistanceSiteEngagement{
     &security_state::features::kSafetyTipUI, "editdistance_siteengagement",
     true};
 const base::FeatureParam<bool> kEnableLookalikeTargetEmbedding{
-    &security_state::features::kSafetyTipUI, "targetembedding", true};
+    &security_state::features::kSafetyTipUI, "targetembedding", false};
 
 // Binary search through |words| to find |needle|.
 bool SortedWordListContains(const std::string& needle,
@@ -59,34 +59,45 @@ bool ShouldTriggerSafetyTipFromLookalike(
     return false;
   }
 
-  auto* config = GetSafetyTipsRemoteConfigProto();
+  auto* config = reputation::GetSafetyTipsRemoteConfigProto();
   const LookalikeTargetAllowlistChecker in_target_allowlist =
-      base::BindRepeating(&IsTargetHostAllowlistedBySafetyTipsComponent,
-                          config);
+      base::BindRepeating(
+          &reputation::IsTargetHostAllowlistedBySafetyTipsComponent, config);
   if (!GetMatchingDomain(navigated_domain, engaged_sites, in_target_allowlist,
                          &matched_domain, &match_type)) {
     return false;
   }
 
   // If we're already displaying an interstitial, don't warn again.
-  if (ShouldBlockLookalikeUrlNavigation(match_type, navigated_domain)) {
+  if (ShouldBlockLookalikeUrlNavigation(match_type)) {
     return false;
   }
 
   *safe_url = GURL(std::string(url::kHttpScheme) +
                    url::kStandardSchemeSeparator + matched_domain);
+  // Safety Tips can be enabled by several features, with slightly different
+  // behavior for different experiments. The
+  // |kSafetyTipUIForSimplifiedDomainDisplay| feature enables specific lookalike
+  // Safety Tips and doesn't have parameters like the main |kSafetyTipUI|
+  // feature does.
+  bool is_safety_tip_for_simplified_domains_enabled =
+      base::FeatureList::IsEnabled(
+          security_state::features::kSafetyTipUIForSimplifiedDomainDisplay);
   switch (match_type) {
     case LookalikeUrlMatchType::kEditDistance:
-      return kEnableLookalikeEditDistance.Get();
+      return is_safety_tip_for_simplified_domains_enabled ||
+             kEnableLookalikeEditDistance.Get();
     case LookalikeUrlMatchType::kEditDistanceSiteEngagement:
-      return kEnableLookalikeEditDistanceSiteEngagement.Get();
+      return is_safety_tip_for_simplified_domains_enabled ||
+             kEnableLookalikeEditDistanceSiteEngagement.Get();
     case LookalikeUrlMatchType::kTargetEmbedding:
       // Target Embedding should block URL Navigation.
       return false;
     case LookalikeUrlMatchType::kTargetEmbeddingForSafetyTips:
       return kEnableLookalikeTargetEmbedding.Get();
     case LookalikeUrlMatchType::kSkeletonMatchTop5k:
-      return kEnableLookalikeTopSites.Get();
+      return is_safety_tip_for_simplified_domains_enabled ||
+             kEnableLookalikeTopSites.Get();
     case LookalikeUrlMatchType::kFailedSpoofChecks:
       // For now, no safety tip is shown for domain names that fail spoof checks
       // and don't have a suggested URL.
@@ -111,13 +122,15 @@ bool ShouldTriggerSafetyTipFromKeywordInURL(
     const char* const sensitive_keywords[],
     const size_t num_sensitive_keywords) {
   return HostnameContainsKeyword(url, navigated_domain.domain_and_registry,
-                                 sensitive_keywords, num_sensitive_keywords);
+                                 sensitive_keywords, num_sensitive_keywords,
+                                 /* search_e2ld = */ true);
 }
 
 bool HostnameContainsKeyword(const GURL& url,
                              const std::string& eTLD_plus_one,
                              const char* const keywords[],
-                             const size_t num_keywords) {
+                             const size_t num_keywords,
+                             bool search_e2ld) {
   // We never want to trigger this heuristic on any non-http / https sites.
   if (!url.SchemeIsHTTPOrHTTPS()) {
     return false;
@@ -150,10 +163,10 @@ bool HostnameContainsKeyword(const GURL& url,
   // Any problems that would result in an empty e2LD should have been caught via
   // the |eTLD_plus_one| check.
 
-  // If the e2LD is itself a keyword, then chop that off and only
-  // search the rest of it. Otherwise, we keep the full e2LD included to
-  // detect hyphenated spoofs (e.g. "evil-google.com").
-  if (SortedWordListContains(e2LD, keywords, num_keywords)) {
+  // If we want to exclude the e2LD, or if the e2LD is itself a keyword, then
+  // chop that off and only search the rest of it. Otherwise, we keep the full
+  // e2LD included to detect hyphenated spoofs (e.g. "evil-google.com").
+  if (!search_e2ld || SortedWordListContains(e2LD, keywords, num_keywords)) {
     // If the user visited the eTLD+1 directly, bail here.
     if (search_substr.size() == e2LD.size()) {
       return false;

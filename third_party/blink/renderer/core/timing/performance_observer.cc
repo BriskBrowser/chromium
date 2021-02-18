@@ -74,6 +74,10 @@ Vector<AtomicString> PerformanceObserver::supportedEntryTypes(
     supportedEntryTypes.push_back(performance_entry_names::kPaint);
   }
   supportedEntryTypes.push_back(performance_entry_names::kResource);
+  if (RuntimeEnabledFeatures::VisibilityStateEntryEnabled() &&
+      execution_context->IsWindow()) {
+    supportedEntryTypes.push_back(performance_entry_names::kVisibilityState);
+  }
   return supportedEntryTypes;
 }
 
@@ -206,6 +210,9 @@ void PerformanceObserver::observe(const PerformanceObserverInit* observer_init,
   }
   if (filter_options_ & PerformanceEntry::kResource) {
     UseCounter::Count(GetExecutionContext(), WebFeature::kResourceTiming);
+  }
+  if (filter_options_ & PerformanceEntry::kLongTask) {
+    UseCounter::Count(GetExecutionContext(), WebFeature::kLongTaskObserver);
   }
   if (is_registered_)
     performance_->UpdatePerformanceObserverFilterOptions();

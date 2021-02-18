@@ -71,8 +71,7 @@ CONTENT_EXPORT extern const char
 // Levels of RenderDocument support. These are additive in that features enabled
 // at lower levels remain enabled at all higher levels.
 enum class RenderDocumentLevel {
-  kDisabled = 0,
-  // Do not reused RenderFrameHosts when recovering from crashes.
+  // Do not reuse RenderFrameHosts when recovering from crashes.
   kCrashedFrame = 1,
   // Also do not reuse RenderFrameHosts when navigating subframes.
   kSubframe = 2,
@@ -82,6 +81,12 @@ CONTENT_EXPORT RenderDocumentLevel GetRenderDocumentLevel();
 CONTENT_EXPORT std::string GetRenderDocumentLevelName(
     RenderDocumentLevel level);
 CONTENT_EXPORT extern const char kRenderDocumentLevelParameterName[];
+
+// If this is false we continue the old behaviour of doing an early call to
+// RenderFrameHostManager::CommitPending when we are replacing a crashed
+// frame.
+// TODO(https://crbug.com/1072817): Stop allowing this.
+CONTENT_EXPORT bool ShouldSkipEarlyCommitPendingForCrashedFrame();
 
 }  // namespace content
 

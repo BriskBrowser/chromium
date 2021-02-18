@@ -40,7 +40,6 @@
 #include "components/autofill/core/common/form_data.h"
 #include "components/autofill/core/common/form_data_predictions.h"
 #include "components/autofill/core/common/form_field_data.h"
-#include "components/autofill/core/common/password_form.h"
 #include "components/autofill/core/common/password_form_fill_data.h"
 #include "components/autofill/core/common/save_password_progress_logger.h"
 #include "content/public/common/content_switches.h"
@@ -114,7 +113,6 @@ AutofillAgent::ShowSuggestionsOptions::ShowSuggestionsOptions()
     : autofill_on_empty_values(false),
       requires_caret_at_end(false),
       show_full_suggestion_list(false),
-      show_password_suggestions_only(false),
       autoselect_first_suggestion(false) {}
 
 AutofillAgent::AutofillAgent(content::RenderFrame* render_frame,
@@ -218,11 +216,9 @@ void AutofillAgent::FocusedElementChanged(const WebElement& element) {
   HidePopup();
 
   if (element.IsNull()) {
-    if (!last_interacted_form_.IsNull()) {
-      // Focus moved away from the last interacted form to somewhere else on
-      // the page.
-      GetAutofillDriver()->FocusNoLongerOnForm();
-    }
+    // Focus moved away from the last interacted form (if any) to somewhere else
+    // on the page.
+    GetAutofillDriver()->FocusNoLongerOnForm(!last_interacted_form_.IsNull());
     return;
   }
 
@@ -233,7 +229,7 @@ void AutofillAgent::FocusedElementChanged(const WebElement& element) {
       (!input || last_interacted_form_ != input->Form())) {
     // The focused element is not part of the last interacted form (could be
     // in a different form).
-    GetAutofillDriver()->FocusNoLongerOnForm();
+    GetAutofillDriver()->FocusNoLongerOnForm(/*had_interacted_form=*/true);
     focus_moved_to_new_form = true;
   }
 
@@ -441,13 +437,12 @@ void AutofillAgent::TriggerRefillIfNeeded(const FormData& form) {
   if (FindFormAndFieldForFormControlElement(element_, field_data_manager_.get(),
                                             &updated_form, &field) &&
       (!element_.IsAutofilled() || !form.DynamicallySameFormAs(updated_form))) {
-    base::TimeTicks forms_seen_timestamp = AutofillTickClock::NowTicks();
     WebLocalFrame* frame = render_frame()->GetWebFrame();
     std::vector<FormData> forms;
     forms.push_back(updated_form);
     // Always communicate to browser process for topmost frame.
     if (!forms.empty() || !frame->Parent()) {
-      GetAutofillDriver()->FormsSeen(forms, forms_seen_timestamp);
+      GetAutofillDriver()->FormsSeen(forms);
     }
   }
 }
@@ -485,8 +480,10 @@ void AutofillAgent::PreviewForm(int32_t id, const FormData& form) {
   if (id != autofill_query_id_)
     return;
 
+  ClearPreviewedForm();
+
   query_node_autofill_state_ = element_.GetAutofillState();
-  form_util::PreviewForm(form, element_);
+  previewed_elements_ = form_util::PreviewForm(form, element_);
 
   GetAutofillDriver()->DidPreviewAutofillFormData();
 }
@@ -517,8 +514,9 @@ void AutofillAgent::ClearPreviewedForm() {
   if (password_autofill_agent_->DidClearAutofillSelection(element_))
     return;
 
-  form_util::ClearPreviewedFormWithElement(element_,
-                                           query_node_autofill_state_);
+  form_util::ClearPreviewedElements(previewed_elements_, element_,
+                                    query_node_autofill_state_);
+  previewed_elements_ = {};
 }
 
 void AutofillAgent::FillFieldWithValue(const base::string16& value) {
@@ -664,9 +662,6 @@ void AutofillAgent::ShowSuggestions(const WebFormControlElement& element,
   if (is_generation_popup_possibly_visible_)
     return;
 
-  if (options.show_password_suggestions_only)
-    return;
-
   // Password field elements should only have suggestions shown by the password
   // autofill agent.
   // The /*disable presubmit*/ comment below is used to disable a presubmit
@@ -766,6 +761,10 @@ void AutofillAgent::SetAssistantActionState(bool running) {
   }
 }
 
+void AutofillAgent::EnableHeavyFormDataScraping() {
+  is_heavy_form_data_scraping_enabled_ = true;
+}
+
 void AutofillAgent::QueryAutofillSuggestions(
     const WebFormControlElement& element,
     bool autoselect_first_suggestion) {
@@ -833,17 +832,13 @@ void AutofillAgent::DoPreviewFieldWithValue(const base::string16& value,
 }
 
 void AutofillAgent::ProcessForms() {
-  // Record timestamp of when the forms are first seen. This is used to
-  // measure the overhead of the Autofill feature.
-  base::TimeTicks forms_seen_timestamp = AutofillTickClock::NowTicks();
-
   WebLocalFrame* frame = render_frame()->GetWebFrame();
   std::vector<FormData> forms =
       form_cache_.ExtractNewForms(field_data_manager_.get());
 
   // Always communicate to browser process for topmost frame.
   if (!forms.empty() || !frame->Parent()) {
-    GetAutofillDriver()->FormsSeen(forms, forms_seen_timestamp);
+    GetAutofillDriver()->FormsSeen(forms);
   }
 }
 
@@ -934,6 +929,14 @@ bool AutofillAgent::ShouldSuppressKeyboard(
           autofill_assistant_agent_->ShouldSuppressKeyboard());
 }
 
+void AutofillAgent::FormElementReset(const WebFormElement& form) {
+  password_autofill_agent_->InformAboutFormClearing(form);
+}
+
+void AutofillAgent::PasswordFieldReset(const WebInputElement& element) {
+  password_autofill_agent_->InformAboutFieldClearing(element);
+}
+
 void AutofillAgent::SelectWasUpdated(
     const blink::WebFormControlElement& element) {
   // Look for the form and field associated with the select element. If they are
@@ -1018,15 +1021,17 @@ void AutofillAgent::OnProvisionallySaveForm(
       UpdateLastInteractedForm(element.Form());
     } else {
       // Remove invisible elements
+      WebLocalFrame* frame = render_frame()->GetWebFrame();
       for (auto it = formless_elements_user_edited_.begin();
            it != formless_elements_user_edited_.end();) {
-        if (form_util::IsWebElementVisible(*it)) {
+        if (form_util::IsFormControlVisible(frame, *it)) {
           it = formless_elements_user_edited_.erase(it);
         } else {
           ++it;
         }
       }
-      formless_elements_user_edited_.insert(element);
+      formless_elements_user_edited_.insert(
+          FieldRendererId(element.UniqueRendererFormControlId()));
       provisionally_saved_form_ = base::make_optional<FormData>();
       if (!CollectFormlessElements(&provisionally_saved_form_.value())) {
         provisionally_saved_form_.reset();
@@ -1110,6 +1115,11 @@ void AutofillAgent::RemoveFormObserver(Observer* observer) {
   form_tracker_.RemoveObserver(observer);
 }
 
+void AutofillAgent::TrackAutofilledElement(
+    const blink::WebFormControlElement& element) {
+  form_tracker_.TrackAutofilledElement(element);
+}
+
 base::Optional<FormData> AutofillAgent::GetSubmittedForm() const {
   if (!last_interacted_form_.IsNull()) {
     FormData form;
@@ -1121,6 +1131,7 @@ base::Optional<FormData> AutofillAgent::GetSubmittedForm() const {
     }
   } else if (formless_elements_user_edited_.size() != 0 &&
              !form_util::IsSomeControlElementVisible(
+                 render_frame()->GetWebFrame(),
                  formless_elements_user_edited_)) {
     // we check if all the elements the user has interacted with are gone,
     // to decide if submission has occurred, and use the

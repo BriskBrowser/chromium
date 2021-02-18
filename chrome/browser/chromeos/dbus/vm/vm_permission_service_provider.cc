@@ -8,20 +8,20 @@
 #include <utility>
 #include <vector>
 
+#include "ash/constants/ash_features.h"
 #include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chromeos/plugin_vm/plugin_vm_manager.h"
-#include "chrome/browser/chromeos/plugin_vm/plugin_vm_manager_factory.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/chromeos/plugin_vm/plugin_vm_pref_names.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/dbus/vm_permission_service/vm_permission_service.pb.h"
 #include "components/prefs/pref_service.h"
 #include "dbus/message.h"
+#include "media/capture/video/chromeos/ash/camera_hal_dispatcher_impl.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
 namespace {
@@ -156,6 +156,9 @@ void VmPermissionServiceProvider::RegisterVm(
   UpdateVmPermissions(vm.get());
 
   const base::UnguessableToken token(base::UnguessableToken::Create());
+
+  media::CameraHalDispatcherImpl::GetInstance()->RegisterPluginVmToken(token);
+
   vms_[token] = std::move(vm);
 
   vm_permission_service::RegisterVmResponse payload;
@@ -193,6 +196,9 @@ void VmPermissionServiceProvider::UnregisterVm(
             method_call, DBUS_ERROR_INVALID_ARGS, "VM is not registered"));
     return;
   }
+
+  media::CameraHalDispatcherImpl::GetInstance()->UnregisterPluginVmToken(
+      iter->first);
 
   vms_.erase(iter);
 
@@ -327,20 +333,18 @@ void VmPermissionServiceProvider::UpdatePluginVmPermissions(VmInfo* vm) {
   }
 
   const PrefService* prefs = profile->GetPrefs();
-  auto* PluginVmManager =
-      plugin_vm::PluginVmManagerFactory::GetForProfile(profile);
   if (base::FeatureList::IsEnabled(
           chromeos::features::kPluginVmShowCameraPermissions) &&
       prefs->GetBoolean(prefs::kVideoCaptureAllowed)) {
     vm->permission_to_enabled_map[VmInfo::PermissionCamera] =
-        PluginVmManager->GetPermission(plugin_vm::PermissionType::kCamera);
+        prefs->GetBoolean(plugin_vm::prefs::kPluginVmCameraAllowed);
   }
 
   if (base::FeatureList::IsEnabled(
           chromeos::features::kPluginVmShowMicrophonePermissions) &&
       prefs->GetBoolean(prefs::kAudioCaptureAllowed)) {
     vm->permission_to_enabled_map[VmInfo::PermissionMicrophone] =
-        PluginVmManager->GetPermission(plugin_vm::PermissionType::kMicrophone);
+        prefs->GetBoolean(plugin_vm::prefs::kPluginVmMicAllowed);
   }
 }
 

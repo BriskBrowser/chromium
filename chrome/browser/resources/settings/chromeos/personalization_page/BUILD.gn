@@ -8,18 +8,23 @@ import("//ui/webui/resources/tools/js_modulizer.gni")
 import("../os_settings.gni")
 
 js_type_check("closure_compile") {
+  uses_legacy_modules = true
   deps = [
     ":change_picture",
     ":change_picture_browser_proxy",
     ":personalization_page",
+    ":wallpaper_constants",
+    ":wallpaper_subpage",
   ]
 }
 
 js_library("change_picture") {
   deps = [
     ":change_picture_browser_proxy",
+    "..:deep_linking_behavior",
     "..:metrics_recorder",
     "..:os_route",
+    "../..:router",
     "//third_party/polymer/v1_0/components-chromium/iron-a11y-announcer:iron-a11y-announcer-extracted",
     "//third_party/polymer/v1_0/components-chromium/iron-selector:iron-selector-extracted",
     "//ui/webui/resources/cr_elements/chromeos/cr_picture:cr_picture_list",
@@ -40,6 +45,7 @@ js_library("change_picture_browser_proxy") {
 js_library("personalization_page") {
   deps = [
     ":wallpaper_browser_proxy",
+    "..:deep_linking_behavior",
     "..:os_route",
     "../..:router",
     "../../prefs",
@@ -50,8 +56,23 @@ js_library("personalization_page") {
 }
 
 js_library("wallpaper_browser_proxy") {
-  deps = [ "//ui/webui/resources/js:cr" ]
+  deps = [
+    ":wallpaper_constants",
+    "//ui/webui/resources/js:cr",
+  ]
   externs_list = [ "$externs_path/chrome_send.js" ]
+}
+
+js_library("wallpaper_constants") {
+}
+
+js_library("wallpaper_subpage") {
+  deps = [
+    ":wallpaper_browser_proxy",
+    ":wallpaper_constants",
+    "//ui/webui/resources/js:cr",
+    "//ui/webui/resources/js:i18n_behavior",
+  ]
 }
 
 js_type_check("closure_compile_module") {
@@ -61,6 +82,8 @@ js_type_check("closure_compile_module") {
     ":change_picture_browser_proxy.m",
     ":personalization_page.m",
     ":wallpaper_browser_proxy.m",
+    ":wallpaper_constants.m",
+    ":wallpaper_subpage.m",
   ]
 }
 
@@ -68,6 +91,7 @@ js_library("change_picture.m") {
   sources = [ "$root_gen_dir/chrome/browser/resources/settings/chromeos/personalization_page/change_picture.m.js" ]
   deps = [
     ":change_picture_browser_proxy.m",
+    "..:deep_linking_behavior.m",
     "..:metrics_recorder.m",
     "..:os_route.m",
     "../..:router.m",
@@ -96,6 +120,7 @@ js_library("personalization_page.m") {
   sources = [ "$root_gen_dir/chrome/browser/resources/settings/chromeos/personalization_page/personalization_page.m.js" ]
   deps = [
     ":wallpaper_browser_proxy.m",
+    "..:deep_linking_behavior.m",
     "..:os_route.m",
     "../..:router.m",
     "../../prefs:prefs.m",
@@ -109,8 +134,25 @@ js_library("personalization_page.m") {
 
 js_library("wallpaper_browser_proxy.m") {
   sources = [ "$root_gen_dir/chrome/browser/resources/settings/chromeos/personalization_page/wallpaper_browser_proxy.m.js" ]
+  deps = [ ":wallpaper_constants.m" ]
   externs_list = [ "$externs_path/chrome_send.js" ]
   extra_deps = [ ":modulize" ]
+}
+
+js_library("wallpaper_constants.m") {
+  sources = [ "$root_gen_dir/chrome/browser/resources/settings/chromeos/personalization_page/wallpaper_constants.m.js" ]
+  extra_deps = [ ":modulize" ]
+}
+
+js_library("wallpaper_subpage.m") {
+  sources = [ "$root_gen_dir/chrome/browser/resources/settings/chromeos/personalization_page/wallpaper_subpage.m.js" ]
+  deps = [
+    ":wallpaper_browser_proxy.m",
+    ":wallpaper_constants.m",
+    "//third_party/polymer/v3_0/components-chromium/polymer:polymer_bundled",
+    "//ui/webui/resources/js:i18n_behavior.m",
+  ]
+  extra_deps = [ ":wallpaper_subpage_module" ]
 }
 
 group("polymer3_elements") {
@@ -118,6 +160,7 @@ group("polymer3_elements") {
     ":change_picture_module",
     ":modulize",
     ":personalization_page_module",
+    ":wallpaper_subpage_module",
   ]
 }
 
@@ -126,10 +169,9 @@ polymer_modulizer("change_picture") {
   html_file = "change_picture.html"
   html_type = "dom-module"
   migrated_imports = os_settings_migrated_imports
-  namespace_rewrites = os_settings_namespace_rewrites +
-                       [ "Polymer.IronA11yAnnouncer|IronA11yAnnouncer" ]
+  namespace_rewrites = os_settings_namespace_rewrites
   auto_imports = os_settings_auto_imports + [
-                   "ui/webui/resources/html/assert.html|assertNotReached",
+                   "ui/webui/resources/html/assert.html|assert,assertNotReached",
                    "ui/webui/resources/polymer/v3_0/iron-a11y-announcer/iron-a11y-announcer.html|IronA11yAnnouncer",
                  ]
 }
@@ -143,10 +185,20 @@ polymer_modulizer("personalization_page") {
   auto_imports = os_settings_auto_imports
 }
 
+polymer_modulizer("wallpaper_subpage") {
+  js_file = "wallpaper_subpage.js"
+  html_file = "wallpaper_subpage.html"
+  html_type = "dom-module"
+  migrated_imports = os_settings_migrated_imports
+  namespace_rewrites = os_settings_namespace_rewrites
+  auto_imports = os_settings_auto_imports
+}
+
 js_modulizer("modulize") {
   input_files = [
     "change_picture_browser_proxy.js",
     "wallpaper_browser_proxy.js",
+    "wallpaper_constants.js",
   ]
   namespace_rewrites = os_settings_namespace_rewrites
 }

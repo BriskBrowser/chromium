@@ -4,6 +4,8 @@
 
 #include "chrome/browser/chromeos/input_method/emoji_suggester.h"
 
+#include "ash/constants/ash_features.h"
+#include "ash/constants/ash_pref_names.h"
 #include "base/files/file_util.h"
 #include "base/i18n/number_formatting.h"
 #include "base/metrics/field_trial_params.h"
@@ -19,12 +21,11 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/ash/keyboard/chrome_keyboard_controller_client.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/chromeos_pref_names.h"
 #include "chromeos/services/ime/constants.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/events/keycodes/dom/dom_code.h"
 
 namespace chromeos {
 
@@ -34,6 +35,7 @@ constexpr char kEmojiSuggesterShowSettingCount[] =
     "emoji_suggester.show_setting_count";
 const int kMaxCandidateSize = 5;
 const char kSpaceChar = ' ';
+constexpr char kTrimLeadingChars[] = "(";
 constexpr char kEmojiMapFilePathTemplateName[] = "/emoji/emoji-map%s.csv";
 const int kMaxSuggestionIndex = 31;
 const int kMaxSuggestionSize = kMaxSuggestionIndex + 1;
@@ -71,10 +73,15 @@ std::string GetLastWord(const std::string& str) {
 
   // If not found, return the entire string up to the last position to search
   // else return the last word.
-  return space_before_last_word == std::string::npos
-             ? str.substr(0, last_pos_to_search + 1)
-             : str.substr(space_before_last_word + 1,
-                          last_pos_to_search - space_before_last_word);
+  const std::string last_word =
+      space_before_last_word == std::string::npos
+          ? str.substr(0, last_pos_to_search + 1)
+          : str.substr(space_before_last_word + 1,
+                       last_pos_to_search - space_before_last_word);
+
+  // Remove any leading special characters
+  return base::ToLowerASCII(
+      base::TrimString(last_word, kTrimLeadingChars, base::TRIM_LEADING));
 }
 
 void RecordTimeToAccept(base::TimeDelta delta) {
@@ -151,23 +158,24 @@ void EmojiSuggester::OnBlur() {
   context_id_ = -1;
 }
 
-SuggestionStatus EmojiSuggester::HandleKeyEvent(
-    const InputMethodEngineBase::KeyboardEvent& event) {
+SuggestionStatus EmojiSuggester::HandleKeyEvent(const ui::KeyEvent& event) {
   if (!suggestion_shown_)
     return SuggestionStatus::kNotHandled;
 
-  if (event.key == "Esc") {
+  if (event.code() == ui::DomCode::ESCAPE) {
     DismissSuggestion();
     return SuggestionStatus::kDismiss;
   }
   if (highlighted_index_ == kNoneHighlighted && buttons_.size() > 0) {
-    if (event.key == "Down" || event.key == "Up") {
-      highlighted_index_ = event.key == "Down" ? 0 : buttons_.size() - 1;
+    if (event.code() == ui::DomCode::ARROW_DOWN ||
+        event.code() == ui::DomCode::ARROW_UP) {
+      highlighted_index_ =
+          event.code() == ui::DomCode::ARROW_DOWN ? 0 : buttons_.size() - 1;
       SetButtonHighlighted(buttons_[highlighted_index_], true);
       return SuggestionStatus::kBrowsing;
     }
   } else {
-    if (event.key == "Enter") {
+    if (event.code() == ui::DomCode::ENTER) {
       switch (buttons_[highlighted_index_].id) {
         case ui::ime::ButtonId::kSuggestion:
           AcceptSuggestion(highlighted_index_);
@@ -178,9 +186,10 @@ SuggestionStatus EmojiSuggester::HandleKeyEvent(
         default:
           break;
       }
-    } else if (event.key == "Up" || event.key == "Down") {
+    } else if (event.code() == ui::DomCode::ARROW_UP ||
+               event.code() == ui::DomCode::ARROW_DOWN) {
       SetButtonHighlighted(buttons_[highlighted_index_], false);
-      if (event.key == "Up") {
+      if (event.code() == ui::DomCode::ARROW_UP) {
         highlighted_index_ =
             (highlighted_index_ + buttons_.size() - 1) % buttons_.size();
       } else {

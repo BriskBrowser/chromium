@@ -26,24 +26,29 @@
 #include "third_party/blink/renderer/core/html/html_element.h"
 
 #include "base/stl_util.h"
-#include "third_party/blink/renderer/bindings/core/v8/script_event_listener.h"
+#include "third_party/blink/renderer/bindings/core/v8/js_event_handler_for_content_attribute.h"
 #include "third_party/blink/renderer/bindings/core/v8/string_or_trusted_script.h"
 #include "third_party/blink/renderer/bindings/core/v8/string_treat_null_as_empty_string_or_trusted_script.h"
 #include "third_party/blink/renderer/core/css/css_color_value.h"
+#include "third_party/blink/renderer/core/css/css_identifier_value.h"
 #include "third_party/blink/renderer/core/css/css_markup.h"
+#include "third_party/blink/renderer/core/css/css_numeric_literal_value.h"
 #include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/css/css_property_value_set.h"
+#include "third_party/blink/renderer/core/css/css_value_list.h"
 #include "third_party/blink/renderer/core/css/style_change_reason.h"
 #include "third_party/blink/renderer/core/css_value_keywords.h"
 #include "third_party/blink/renderer/core/dom/document_fragment.h"
 #include "third_party/blink/renderer/core/dom/element_rare_data.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
 #include "third_party/blink/renderer/core/dom/events/event_listener.h"
+#include "third_party/blink/renderer/core/dom/events/simulated_click_options.h"
 #include "third_party/blink/renderer/core/dom/flat_tree_traversal.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/node_lists_node_data.h"
 #include "third_party/blink/renderer/core/dom/node_traversal.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
+#include "third_party/blink/renderer/core/dom/slot_assignment.h"
 #include "third_party/blink/renderer/core/dom/text.h"
 #include "third_party/blink/renderer/core/editing/editing_utilities.h"
 #include "third_party/blink/renderer/core/editing/serializers/serialization.h"
@@ -51,6 +56,7 @@
 #include "third_party/blink/renderer/core/events/keyboard_event.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/deprecation.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/html/custom/custom_element.h"
@@ -63,15 +69,19 @@
 #include "third_party/blink/renderer/core/html/html_dimension.h"
 #include "third_party/blink/renderer/core/html/html_document.h"
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
+#include "third_party/blink/renderer/core/html/html_slot_element.h"
 #include "third_party/blink/renderer/core/html/html_template_element.h"
 #include "third_party/blink/renderer/core/html/parser/html_parser_idioms.h"
+#include "third_party/blink/renderer/core/html/shadow/shadow_element_names.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/input_type_names.h"
 #include "third_party/blink/renderer/core/layout/adjust_for_absolute_zoom.h"
+#include "third_party/blink/renderer/core/layout/layout_box.h"
 #include "third_party/blink/renderer/core/layout/layout_box_model_object.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/mathml_names.h"
 #include "third_party/blink/renderer/core/page/spatial_navigation.h"
+#include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
 #include "third_party/blink/renderer/core/svg/svg_svg_element.h"
 #include "third_party/blink/renderer/core/trustedtypes/trusted_script.h"
 #include "third_party/blink/renderer/core/xml_names.h"
@@ -733,7 +743,8 @@ void HTMLElement::ParseAttribute(const AttributeModificationParams& params) {
   if (triggers->event != g_null_atom) {
     SetAttributeEventListener(
         triggers->event,
-        CreateAttributeEventListener(this, params.name, params.new_value));
+        JSEventHandlerForContentAttribute::Create(
+            GetExecutionContext(), params.name, params.new_value));
   }
 
   if (triggers->web_feature != kNoWebFeature) {
@@ -878,6 +889,31 @@ void HTMLElement::setOuterText(const String& text,
     MergeWithNextTextNode(prev_text_node, exception_state);
 }
 
+void HTMLElement::ApplyAspectRatioToStyle(const AtomicString& width,
+                                          const AtomicString& height,
+                                          MutableCSSPropertyValueSet* style) {
+  HTMLDimension width_dim, height_dim;
+  if (!ParseDimensionValue(width, width_dim))
+    return;
+  if (!ParseDimensionValue(height, height_dim))
+    return;
+  if (!width_dim.IsAbsolute() || !height_dim.IsAbsolute())
+    return;
+  CSSValue* width_val = CSSNumericLiteralValue::Create(
+      width_dim.Value(), CSSPrimitiveValue::UnitType::kNumber);
+  CSSValue* height_val = CSSNumericLiteralValue::Create(
+      height_dim.Value(), CSSPrimitiveValue::UnitType::kNumber);
+  CSSValueList* ratio_list = CSSValueList::CreateSlashSeparated();
+  ratio_list->Append(*width_val);
+  ratio_list->Append(*height_val);
+
+  CSSValueList* list = CSSValueList::CreateSpaceSeparated();
+  list->Append(*CSSIdentifierValue::Create(CSSValueID::kAuto));
+  list->Append(*ratio_list);
+
+  style->SetProperty(CSSPropertyID::kAspectRatio, *list);
+}
+
 void HTMLElement::ApplyAlignmentAttributeToStyle(
     const AtomicString& alignment,
     MutableCSSPropertyValueSet* style) {
@@ -1004,13 +1040,11 @@ void HTMLElement::setSpellcheck(bool enable) {
 }
 
 void HTMLElement::click() {
-  DispatchSimulatedClick(nullptr, kSendNoEvents,
-                         SimulatedClickCreationScope::kFromScript);
+  DispatchSimulatedClick(nullptr, SimulatedClickCreationScope::kFromScript);
 }
 
-void HTMLElement::AccessKeyAction(bool send_mouse_events) {
-  DispatchSimulatedClick(
-      nullptr, send_mouse_events ? kSendMouseUpDownEvents : kSendNoEvents);
+void HTMLElement::AccessKeyAction(SimulatedClickCreationScope creation_scope) {
+  DispatchSimulatedClick(nullptr, creation_scope);
 }
 
 String HTMLElement::title() const {
@@ -1076,6 +1110,12 @@ void HTMLElement::setDir(const AtomicString& value) {
   setAttribute(html_names::kDirAttr, value);
 }
 
+HTMLFormElement* HTMLElement::formOwner() const {
+  if (const auto* internals = GetElementInternals())
+    return internals->Form();
+  return nullptr;
+}
+
 HTMLFormElement* HTMLElement::FindFormAncestor() const {
   return Traversal<HTMLFormElement>::FirstAncestor(*this);
 }
@@ -1083,12 +1123,13 @@ HTMLFormElement* HTMLElement::FindFormAncestor() const {
 static inline bool ElementAffectsDirectionality(const Node* node) {
   auto* html_element = DynamicTo<HTMLElement>(node);
   return html_element && (IsA<HTMLBDIElement>(*html_element) ||
-                          html_element->FastHasAttribute(html_names::kDirAttr));
+                          IsValidDirAttribute(html_element->FastGetAttribute(
+                              html_names::kDirAttr)));
 }
 
 void HTMLElement::ChildrenChanged(const ChildrenChange& change) {
   Element::ChildrenChanged(change);
-  AdjustDirectionalityIfNeededAfterChildrenChanged(change);
+  AdjustDirectionalityIfNeededAfterChildrenChanged();
 }
 
 bool HTMLElement::HasDirectionAuto() const {
@@ -1104,15 +1145,16 @@ TextDirection HTMLElement::DirectionalityIfhasDirAutoAttribute(
   is_auto = HasDirectionAuto();
   if (!is_auto)
     return TextDirection::kLtr;
-  return Directionality();
+  bool is_deferred;
+  return ResolveAutoDirectionality(is_deferred);
 }
 
-TextDirection HTMLElement::Directionality() const {
+TextDirection HTMLElement::ResolveAutoDirectionality(bool& is_deferred) const {
+  is_deferred = false;
   if (auto* input_element = DynamicTo<HTMLInputElement>(*this)) {
     bool has_strong_directionality;
-    TextDirection text_direction = DetermineDirectionality(
-        input_element->value(), &has_strong_directionality);
-    return text_direction;
+    return DetermineDirectionality(input_element->value(),
+                                   &has_strong_directionality);
   }
 
   Node* node = FlatTreeTraversal::FirstChild(*this);
@@ -1122,9 +1164,22 @@ TextDirection HTMLElement::Directionality() const {
     if (EqualIgnoringASCIICase(node->nodeName(), "bdi") ||
         IsA<HTMLScriptElement>(*node) || IsA<HTMLStyleElement>(*node) ||
         (element && element->IsTextControl()) ||
-        (element && element->ShadowPseudoId() == "-webkit-input-placeholder")) {
+        (element && element->ShadowPseudoId() ==
+                        shadow_element_names::kPseudoInputPlaceholder)) {
       node = FlatTreeTraversal::NextSkippingChildren(*node, this);
       continue;
+    }
+
+    if (auto* slot = ToHTMLSlotElementIfSupportsAssignmentOrNull(node)) {
+      ShadowRoot* root = slot->ContainingShadowRoot();
+      // Defer to adjust the directionality to avoid recalcuating slot
+      // assignment in FlatTreeTraversal when updating slot.
+      // ResolveAutoDirectionality will be adjusted after recalculating its
+      // children.
+      if (root->NeedsSlotAssignmentRecalc()) {
+        is_deferred = true;
+        return TextDirection::kLtr;
+      }
     }
 
     // Skip elements with valid dir attribute
@@ -1149,20 +1204,13 @@ TextDirection HTMLElement::Directionality() const {
   return TextDirection::kLtr;
 }
 
-bool HTMLElement::SelfOrAncestorHasDirAutoAttribute() const {
-  // TODO(esprehn): Storing this state in the computed style is bad, we
-  // should be able to answer questions about the shape of the DOM and the
-  // text contained inside it without having style.
-  if (const ComputedStyle* style = GetComputedStyle())
-    return style->SelfOrAncestorHasDirAutoAttribute();
-  return false;
-}
-
 void HTMLElement::AdjustDirectionalityIfNeededAfterChildAttributeChanged(
     Element* child) {
   DCHECK(SelfOrAncestorHasDirAutoAttribute());
   const ComputedStyle* style = GetComputedStyle();
-  if (style && style->Direction() != Directionality()) {
+  bool is_deferred;
+  if (style && style->Direction() != ResolveAutoDirectionality(is_deferred) &&
+      !is_deferred) {
     for (Element* element_to_adjust = this; element_to_adjust;
          element_to_adjust =
              FlatTreeTraversal::ParentElement(*element_to_adjust)) {
@@ -1176,31 +1224,95 @@ void HTMLElement::AdjustDirectionalityIfNeededAfterChildAttributeChanged(
   }
 }
 
-void HTMLElement::CalculateAndAdjustDirectionality() {
-  TextDirection text_direction = Directionality();
+bool HTMLElement::CalculateAndAdjustAutoDirectionality() {
   const ComputedStyle* style = GetComputedStyle();
-  if (style && style->Direction() != text_direction) {
+  bool is_deferred;
+  if (style && style->Direction() != ResolveAutoDirectionality(is_deferred) &&
+      !is_deferred) {
     SetNeedsStyleRecalc(kLocalStyleChange,
                         StyleChangeReasonForTracing::Create(
                             style_change_reason::kWritingModeChange));
+    return true;
+  }
+  return false;
+}
+
+TextDirection HTMLElement::ComputeInheritedDirectionality() const {
+  const AtomicString& direction = FastGetAttribute(html_names::kDirAttr);
+  if (HasDirectionAuto()) {
+    bool is_deferred;
+    return ResolveAutoDirectionality(is_deferred);
+  } else if (EqualIgnoringASCIICase(direction, "ltr")) {
+    return TextDirection::kLtr;
+  } else if (EqualIgnoringASCIICase(direction, "rtl")) {
+    return TextDirection::kRtl;
+  } else {
+    auto* parent =
+        DynamicTo<HTMLElement>(FlatTreeTraversal::ParentElement(*this));
+    return parent ? parent->ComputeInheritedDirectionality()
+                  : TextDirection::kLtr;
   }
 }
 
-void HTMLElement::AdjustDirectionalityIfNeededAfterChildrenChanged(
-    const ChildrenChange& change) {
+void HTMLElement::AdjustDirectionalityIfNeededAfterChildrenChanged() {
   if (!SelfOrAncestorHasDirAutoAttribute())
     return;
 
-  UpdateDistributionForFlatTreeTraversal();
+  UpdateDescendantHasDirAutoAttribute(true /* has_dir_auto */);
 
   for (Element* element_to_adjust = this; element_to_adjust;
        element_to_adjust =
            FlatTreeTraversal::ParentElement(*element_to_adjust)) {
     if (ElementAffectsDirectionality(element_to_adjust)) {
-      To<HTMLElement>(element_to_adjust)->CalculateAndAdjustDirectionality();
+      if (RuntimeEnabledFeatures::CSSPseudoDirEnabled()) {
+        if (To<HTMLElement>(element_to_adjust)
+                ->CalculateAndAdjustAutoDirectionality()) {
+          SetNeedsStyleRecalc(kLocalStyleChange,
+                              StyleChangeReasonForTracing::Create(
+                                  style_change_reason::kPseudoClass));
+        }
+        element_to_adjust->PseudoStateChanged(CSSSelector::kPseudoDir);
+      }
       return;
     }
   }
+}
+
+void HTMLElement::AdjustCandidateDirectionalityForSlot(
+    HeapHashSet<Member<HTMLElement>> candidate_set) {
+  HeapHashSet<Member<HTMLElement>> directionality_set;
+  // Transfer a candidate directionality set to |directionality_set| to avoid
+  // the tree walk to the duplicated parent node for the directionality.
+  for (auto& element : candidate_set) {
+    if (!element->SelfOrAncestorHasDirAutoAttribute())
+      continue;
+
+    for (auto* element_to_adjust = element.Get(); element_to_adjust;
+         element_to_adjust = DynamicTo<HTMLElement>(
+             FlatTreeTraversal::ParentElement(*element_to_adjust))) {
+      if (ElementAffectsDirectionality(element_to_adjust)) {
+        directionality_set.insert(element_to_adjust);
+        continue;
+      }
+    }
+  }
+
+  for (auto& element : directionality_set) {
+    if (element->CalculateAndAdjustAutoDirectionality() &&
+        RuntimeEnabledFeatures::CSSPseudoDirEnabled()) {
+      element->SetNeedsStyleRecalc(kLocalStyleChange,
+                                   StyleChangeReasonForTracing::Create(
+                                       style_change_reason::kPseudoClass));
+    }
+  }
+}
+
+void HTMLElement::AddCandidateDirectionalityForSlot() {
+  ShadowRoot* root = ShadowRootOfParent();
+  if (!root || !root->HasSlotAssignment())
+    return;
+
+  root->GetSlotAssignment().GetCandidateDirectionality().insert(this);
 }
 
 Node::InsertionNotificationRequest HTMLElement::InsertedInto(
@@ -1231,7 +1343,8 @@ void HTMLElement::DidMoveToNewDocument(Document& old_document) {
 void HTMLElement::AddHTMLLengthToStyle(MutableCSSPropertyValueSet* style,
                                        CSSPropertyID property_id,
                                        const String& value,
-                                       AllowPercentage allow_percentage) {
+                                       AllowPercentage allow_percentage,
+                                       AllowZero allow_zero) {
   HTMLDimension dimension;
   if (!ParseDimensionValue(value, dimension))
     return;
@@ -1241,7 +1354,10 @@ void HTMLElement::AddHTMLLengthToStyle(MutableCSSPropertyValueSet* style,
   }
   if (dimension.IsRelative())
     return;
-  if (dimension.IsPercentage() && allow_percentage != kAllowPercentageValues)
+  if (dimension.IsPercentage() &&
+      allow_percentage == kDontAllowPercentageValues)
+    return;
+  if (dimension.Value() == 0 && allow_zero == kDontAllowZeroValues)
     return;
   CSSPrimitiveValue::UnitType unit =
       dimension.IsPercentage() ? CSSPrimitiveValue::UnitType::kPercentage
@@ -1483,13 +1599,17 @@ int HTMLElement::offsetWidthForBinding() {
   GetDocument().EnsurePaintLocationDataValidForNode(
       this, DocumentUpdateReason::kJavaScript);
   Element* offset_parent = unclosedOffsetParent();
-  if (LayoutBoxModelObject* layout_object = GetLayoutBoxModelObject())
-    return AdjustForAbsoluteZoom::AdjustLayoutUnit(
-               LayoutUnit(
-                   layout_object->PixelSnappedOffsetWidth(offset_parent)),
-               layout_object->StyleRef())
-        .Round();
-  return 0;
+  int result = 0;
+  if (LayoutBoxModelObject* layout_object = GetLayoutBoxModelObject()) {
+    result =
+        AdjustForAbsoluteZoom::AdjustLayoutUnit(
+            LayoutUnit(layout_object->PixelSnappedOffsetWidth(offset_parent)),
+            layout_object->StyleRef())
+            .Round();
+    RecordScrollbarSizeForStudy(result, /* isWidth= */ true,
+                                /* is_offset= */ true);
+  }
+  return result;
 }
 
 DISABLE_CFI_PERF
@@ -1497,13 +1617,17 @@ int HTMLElement::offsetHeightForBinding() {
   GetDocument().EnsurePaintLocationDataValidForNode(
       this, DocumentUpdateReason::kJavaScript);
   Element* offset_parent = unclosedOffsetParent();
-  if (LayoutBoxModelObject* layout_object = GetLayoutBoxModelObject())
-    return AdjustForAbsoluteZoom::AdjustLayoutUnit(
-               LayoutUnit(
-                   layout_object->PixelSnappedOffsetHeight(offset_parent)),
-               layout_object->StyleRef())
-        .Round();
-  return 0;
+  int result = 0;
+  if (LayoutBoxModelObject* layout_object = GetLayoutBoxModelObject()) {
+    result =
+        AdjustForAbsoluteZoom::AdjustLayoutUnit(
+            LayoutUnit(layout_object->PixelSnappedOffsetHeight(offset_parent)),
+            layout_object->StyleRef())
+            .Round();
+    RecordScrollbarSizeForStudy(result, /* is_width= */ false,
+                                /* is_offset= */ true);
+  }
+  return result;
 }
 
 Element* HTMLElement::unclosedOffsetParent() {
@@ -1517,20 +1641,85 @@ Element* HTMLElement::unclosedOffsetParent() {
   return layout_object->OffsetParent(this);
 }
 
+void HTMLElement::UpdateDescendantHasDirAutoAttribute(bool has_dir_auto) {
+  Node* node = FlatTreeTraversal::FirstChild(*this);
+  while (node) {
+    if (auto* element = DynamicTo<Element>(node)) {
+      AtomicString dir_attribute_value =
+          element->FastGetAttribute(html_names::kDirAttr);
+      if (IsValidDirAttribute(dir_attribute_value)) {
+        node = FlatTreeTraversal::NextSkippingChildren(*node, this);
+        continue;
+      }
+
+      if (auto* slot = ToHTMLSlotElementIfSupportsAssignmentOrNull(node)) {
+        ShadowRoot* root = slot->ContainingShadowRoot();
+        // Defer to adjust the directionality to avoid recalcuating slot
+        // assignment in FlatTreeTraversal when updating slot.
+        // Slot and its children will be updated after recalculating children.
+        if (root->NeedsSlotAssignmentRecalc()) {
+          root->SetNeedsDirAutoAttributeUpdate(true);
+          node = FlatTreeTraversal::NextSkippingChildren(*node, this);
+          continue;
+        }
+      }
+
+      if (!has_dir_auto) {
+        if (!element->SelfOrAncestorHasDirAutoAttribute()) {
+          node = FlatTreeTraversal::NextSkippingChildren(*node, this);
+          continue;
+        }
+
+        element->ClearSelfOrAncestorHasDirAutoAttribute();
+      } else {
+        if (element->SelfOrAncestorHasDirAutoAttribute()) {
+          node = FlatTreeTraversal::NextSkippingChildren(*node, this);
+          continue;
+        }
+        element->SetSelfOrAncestorHasDirAutoAttribute();
+      }
+    }
+    node = FlatTreeTraversal::Next(*node, this);
+  }
+}
+
 void HTMLElement::OnDirAttrChanged(const AttributeModificationParams& params) {
   // If an ancestor has dir=auto, and this node has the first character,
   // changes to dir attribute may affect the ancestor.
   if (!CanParticipateInFlatTree())
     return;
-  UpdateDistributionForFlatTreeTraversal();
-  auto* parent =
-      DynamicTo<HTMLElement>(FlatTreeTraversal::ParentElement(*this));
-  if (parent && parent->SelfOrAncestorHasDirAutoAttribute()) {
-    parent->AdjustDirectionalityIfNeededAfterChildAttributeChanged(this);
+
+  if (!IsValidDirAttribute(params.old_value) &&
+      !IsValidDirAttribute(params.new_value))
+    return;
+
+  bool is_old_auto = SelfOrAncestorHasDirAutoAttribute();
+  bool is_new_auto = HasDirectionAuto();
+  if (!is_old_auto || !is_new_auto) {
+    auto* parent =
+        DynamicTo<HTMLElement>(FlatTreeTraversal::ParentElement(*this));
+    if (parent && parent->SelfOrAncestorHasDirAutoAttribute()) {
+      parent->AdjustDirectionalityIfNeededAfterChildAttributeChanged(this);
+    }
   }
 
-  if (EqualIgnoringASCIICase(params.new_value, "auto"))
-    CalculateAndAdjustDirectionality();
+  if (is_old_auto && !is_new_auto) {
+    ClearSelfOrAncestorHasDirAutoAttribute();
+    UpdateDescendantHasDirAutoAttribute(false /* has_dir_auto */);
+  } else if (!is_old_auto && is_new_auto) {
+    SetSelfOrAncestorHasDirAutoAttribute();
+    UpdateDescendantHasDirAutoAttribute(true /* has_dir_auto */);
+  }
+
+  if (is_new_auto)
+    CalculateAndAdjustAutoDirectionality();
+
+  if (RuntimeEnabledFeatures::CSSPseudoDirEnabled()) {
+    SetNeedsStyleRecalc(
+        kSubtreeStyleChange,
+        StyleChangeReasonForTracing::Create(style_change_reason::kPseudoClass));
+    PseudoStateChanged(CSSSelector::kPseudoDir);
+  }
 }
 
 void HTMLElement::OnFormAttrChanged(const AttributeModificationParams& params) {
@@ -1569,35 +1758,63 @@ void HTMLElement::OnXMLLangAttrChanged(
 
 ElementInternals* HTMLElement::attachInternals(
     ExceptionState& exception_state) {
+  // 1. If this's is value is not null, then throw a "NotSupportedError"
+  // DOMException.
   if (IsValue()) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kNotSupportedError,
         "Unable to attach ElementInternals to a customized built-in element.");
     return nullptr;
   }
+
+  // 2. Let definition be the result of looking up a custom element definition
+  // given this's node document, its namespace, its local name, and null as the
+  // is value.
   CustomElementRegistry* registry = CustomElement::Registry(*this);
   auto* definition =
       registry ? registry->DefinitionForName(localName()) : nullptr;
+
+  // 3. If definition is null, then throw an "NotSupportedError" DOMException.
   if (!definition) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kNotSupportedError,
         "Unable to attach ElementInternals to non-custom elements.");
     return nullptr;
   }
+
+  // 4. If definition's disable internals is true, then throw a
+  // "NotSupportedError" DOMException.
   if (definition->DisableInternals()) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kNotSupportedError,
         "ElementInternals is disabled by disabledFeature static field.");
     return nullptr;
   }
+
+  // 5. If this's attached internals is true, then throw an "NotSupportedError"
+  // DOMException.
   if (DidAttachInternals()) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kNotSupportedError,
         "ElementInternals for the specified element was already attached.");
     return nullptr;
   }
-  UseCounter::Count(GetDocument(), WebFeature::kElementAttachInternals);
+
+  // 6. If this's custom element state is not "precustomized" or "custom", then
+  // throw a "NotSupportedError" DOMException.
+  if (GetCustomElementState() != CustomElementState::kCustom &&
+      GetCustomElementState() != CustomElementState::kPreCustomized) {
+    exception_state.ThrowDOMException(
+        DOMExceptionCode::kNotSupportedError,
+        "The attachInternals() function cannot be called prior to the "
+        "execution of the custom element constructor.");
+    return nullptr;
+  }
+
+  // 7. Set this's attached internals to true.
   SetDidAttachInternals();
+  // 8. Return a new ElementInternals instance whose target element is this.
+  UseCounter::Count(GetDocument(), WebFeature::kElementAttachInternals);
   return &EnsureElementInternals();
 }
 

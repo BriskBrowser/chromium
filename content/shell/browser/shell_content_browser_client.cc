@@ -20,6 +20,8 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/sequence_local_storage_slot.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
+#include "components/performance_manager/embedder/performance_manager_registry.h"
 #include "content/public/browser/client_certificate_delegate.h"
 #include "content/public/browser/login_delegate.h"
 #include "content/public/browser/navigation_throttle.h"
@@ -31,7 +33,6 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/common/user_agent.h"
-#include "content/public/common/web_preferences.h"
 #include "content/shell/browser/shell.h"
 #include "content/shell/browser/shell_browser_context.h"
 #include "content/shell/browser/shell_browser_main_parts.h"
@@ -48,6 +49,7 @@
 #include "services/network/public/mojom/network_service.mojom.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
+#include "third_party/blink/public/common/web_preferences/web_preferences.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/base/ui_base_switches.h"
 #include "url/gurl.h"
@@ -59,7 +61,7 @@
 #include "content/shell/android/shell_descriptors.h"
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "content/public/browser/context_factory.h"
 #endif
 
@@ -81,7 +83,9 @@ namespace content {
 
 namespace {
 
-ShellContentBrowserClient* g_browser_client;
+ShellContentBrowserClient* g_browser_client = nullptr;
+
+bool g_enable_expect_ct_for_testing = false;
 
 #if defined(OS_ANDROID)
 int GetCrashSignalFD(const base::CommandLine& command_line) {
@@ -197,13 +201,6 @@ bool ShellContentBrowserClient::IsHandledURL(const GURL& url) {
   return false;
 }
 
-bool ShellContentBrowserClient::ShouldTerminateOnServiceQuit(
-    const service_manager::Identity& id) {
-  if (should_terminate_on_service_quit_callback_)
-    return std::move(should_terminate_on_service_quit_callback_).Run(id);
-  return false;
-}
-
 void ShellContentBrowserClient::AppendExtraCommandLineSwitches(
     base::CommandLine* command_line,
     int child_process_id) {
@@ -248,8 +245,8 @@ std::string ShellContentBrowserClient::GetDefaultDownloadName() {
 
 WebContentsViewDelegate* ShellContentBrowserClient::GetWebContentsViewDelegate(
     WebContents* web_contents) {
-  if (web_contents_view_delegate_callback_)
-    return web_contents_view_delegate_callback_.Run(web_contents);
+  performance_manager::PerformanceManagerRegistry::GetInstance()
+      ->MaybeCreatePageNodeForWebContents(web_contents);
   return CreateShellWebContentsViewDelegate(web_contents);
 }
 
@@ -283,13 +280,20 @@ SpeechRecognitionManagerDelegate*
 }
 
 void ShellContentBrowserClient::OverrideWebkitPrefs(
-    RenderViewHost* render_view_host,
-    WebPreferences* prefs) {
+    WebContents* web_contents,
+    blink::web_pref::WebPreferences* prefs) {
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kForceDarkMode)) {
-    prefs->preferred_color_scheme = blink::PreferredColorScheme::kDark;
+    prefs->preferred_color_scheme = blink::mojom::PreferredColorScheme::kDark;
   } else {
-    prefs->preferred_color_scheme = blink::PreferredColorScheme::kLight;
+    prefs->preferred_color_scheme = blink::mojom::PreferredColorScheme::kLight;
+  }
+
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kForceHighContrast)) {
+    prefs->preferred_contrast = blink::mojom::PreferredContrast::kMore;
+  } else {
+    prefs->preferred_contrast = blink::mojom::PreferredContrast::kNoPreference;
   }
 
   if (override_web_preferences_callback_)
@@ -310,10 +314,9 @@ void ShellContentBrowserClient::ExposeInterfacesToRenderer(
     service_manager::BinderRegistry* registry,
     blink::AssociatedInterfaceRegistry* associated_registry,
     RenderProcessHost* render_process_host) {
-  if (expose_interfaces_to_renderer_callback_) {
-    expose_interfaces_to_renderer_callback_.Run(registry, associated_registry,
-                                                render_process_host);
-  }
+  performance_manager::PerformanceManagerRegistry::GetInstance()
+      ->CreateProcessNodeAndExposeInterfacesToRendererProcess(
+          registry, render_process_host);
 }
 
 mojo::Remote<::media::mojom::MediaService>
@@ -332,9 +335,8 @@ ShellContentBrowserClient::RunSecondaryMediaService() {
 void ShellContentBrowserClient::RegisterBrowserInterfaceBindersForFrame(
     RenderFrameHost* render_frame_host,
     mojo::BinderMapWithContext<RenderFrameHost*>* map) {
-  if (register_browser_interface_binders_for_frame_callback_)
-    register_browser_interface_binders_for_frame_callback_.Run(
-        render_frame_host, map);
+  performance_manager::PerformanceManagerRegistry::GetInstance()
+      ->ExposeInterfacesToRenderFrame(map);
 }
 
 void ShellContentBrowserClient::OpenURL(
@@ -419,7 +421,7 @@ void ShellContentBrowserClient::GetAdditionalMappedFilesForChildProcess(
 #endif
   int crash_signal_fd = GetCrashSignalFD(command_line);
   if (crash_signal_fd >= 0) {
-    mappings->Share(service_manager::kCrashDumpSignal, crash_signal_fd);
+    mappings->Share(kCrashDumpSignal, crash_signal_fd);
   }
 }
 #endif  // defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID)
@@ -429,7 +431,8 @@ void ShellContentBrowserClient::ConfigureNetworkContextParams(
     bool in_memory,
     const base::FilePath& relative_partition_path,
     network::mojom::NetworkContextParams* network_context_params,
-    network::mojom::CertVerifierCreationParams* cert_verifier_creation_params) {
+    cert_verifier::mojom::CertVerifierCreationParams*
+        cert_verifier_creation_params) {
   ConfigureNetworkContextParamsForShell(context, network_context_params,
                                         cert_verifier_creation_params);
 }
@@ -455,10 +458,16 @@ ShellBrowserContext*
   return shell_browser_main_parts_->off_the_record_browser_context();
 }
 
+void ShellContentBrowserClient::set_enable_expect_ct_for_testing(
+    bool enable_expect_ct_for_testing) {
+  g_enable_expect_ct_for_testing = enable_expect_ct_for_testing;
+}
+
 void ShellContentBrowserClient::ConfigureNetworkContextParamsForShell(
     BrowserContext* context,
     network::mojom::NetworkContextParams* context_params,
-    network::mojom::CertVerifierCreationParams* cert_verifier_creation_params) {
+    cert_verifier::mojom::CertVerifierCreationParams*
+        cert_verifier_creation_params) {
   context_params->allow_any_cors_exempt_header_for_browser =
       allow_any_cors_exempt_header_for_browser_;
   context_params->user_agent = GetUserAgent();
@@ -468,6 +477,29 @@ void ShellContentBrowserClient::ConfigureNetworkContextParamsForShell(
           "cors_exempt_header_list");
   if (!exempt_header.empty())
     context_params->cors_exempt_header_list.push_back(exempt_header);
+
+  if (g_enable_expect_ct_for_testing) {
+    context_params->enforce_chrome_ct_policy = true;
+    context_params->ct_log_update_time = base::Time::Now();
+    context_params->enable_expect_ct_reporting = true;
+  }
+}
+
+void ShellContentBrowserClient::GetHyphenationDictionary(
+    base::OnceCallback<void(const base::FilePath&)> callback) {
+  // If we have the source tree, return the dictionary files in the tree.
+  base::FilePath dir;
+  if (base::PathService::Get(base::DIR_SOURCE_ROOT, &dir)) {
+    dir = dir.AppendASCII("third_party")
+              .AppendASCII("hyphenation-patterns")
+              .AppendASCII("hyb");
+    std::move(callback).Run(dir);
+  }
+  // No need to callback if there were no dictionaries.
+}
+
+bool ShellContentBrowserClient::HasErrorPage(int http_status_code) {
+  return http_status_code >= 400 && http_status_code < 600;
 }
 
 }  // namespace content

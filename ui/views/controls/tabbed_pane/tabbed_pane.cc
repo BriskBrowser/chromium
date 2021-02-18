@@ -5,6 +5,7 @@
 #include "ui/views/controls/tabbed_pane/tabbed_pane.h"
 
 #include <algorithm>
+#include <string>
 #include <utility>
 
 #include "base/check_op.h"
@@ -32,6 +33,7 @@
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/layout/flex_layout.h"
 #include "ui/views/layout/layout_manager.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view_class_properties.h"
 #include "ui/views/widget/widget.h"
 
@@ -228,8 +230,8 @@ void Tab::OnStateChanged() {
   }
 
   ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
-  title_->SetFontList(
-      rb.GetFontListWithDelta(font_size_delta, gfx::Font::NORMAL, font_weight));
+  title_->SetFontList(rb.GetFontListForDetails(ui::ResourceBundle::FontDetails(
+      std::string(), font_size_delta, font_weight)));
 }
 
 void Tab::OnPaint(gfx::Canvas* canvas) {
@@ -271,7 +273,7 @@ void Tab::UpdatePreferredTitleWidth() {
 }
 
 BEGIN_METADATA(Tab, View)
-END_METADATA()
+END_METADATA
 
 // static
 constexpr size_t TabStrip::kNoSelectedTab;
@@ -490,7 +492,7 @@ BEGIN_METADATA(TabStrip, View)
 ADD_READONLY_PROPERTY_METADATA(int, SelectedTabIndex)
 ADD_READONLY_PROPERTY_METADATA(TabbedPane::Orientation, Orientation)
 ADD_READONLY_PROPERTY_METADATA(TabbedPane::TabStripStyle, Style)
-END_METADATA()
+END_METADATA
 
 TabbedPane::TabbedPane(TabbedPane::Orientation orientation,
                        TabbedPane::TabStripStyle style) {
@@ -615,6 +617,6 @@ void TabbedPane::GetAccessibleNodeData(ui::AXNodeData* node_data) {
 }
 
 BEGIN_METADATA(TabbedPane, View)
-END_METADATA()
+END_METADATA
 
 }  // namespace views

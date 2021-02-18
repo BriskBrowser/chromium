@@ -14,7 +14,7 @@ class MenuListInnerElement : public HTMLDivElement {
   explicit MenuListInnerElement(Document& document);
 
  private:
-  scoped_refptr<ComputedStyle> CustomStyleForLayoutObject() override;
+  ComputedStyle* CustomStyleForLayoutObject(const StyleRecalcContext&) override;
 };
 
 }  // namespace blink

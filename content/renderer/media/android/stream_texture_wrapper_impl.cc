@@ -5,8 +5,8 @@
 #include "content/renderer/media/android/stream_texture_wrapper_impl.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "cc/layers/video_frame_provider.h"
 #include "gpu/GLES2/gl2extchromium.h"
@@ -86,7 +86,7 @@ void StreamTextureWrapperImpl::CreateVideoFrame(
   new_frame->set_ycbcr_info(ycbcr_info);
 
   if (enable_texture_copy_) {
-    new_frame->metadata()->copy_mode =
+    new_frame->metadata().copy_mode =
         media::VideoFrameMetadata::CopyMode::kCopyToNewTexture;
   }
 

@@ -80,6 +80,7 @@ Scrollbar::~Scrollbar() = default;
 
 void Scrollbar::Trace(Visitor* visitor) const {
   visitor->Trace(scrollable_area_);
+  visitor->Trace(scroll_timer_);
   visitor->Trace(style_source_);
 }
 
@@ -833,7 +834,7 @@ bool Scrollbar::ContainerIsRightToLeft() const {
   return false;
 }
 
-WebColorScheme Scrollbar::UsedColorScheme() const {
+mojom::blink::ColorScheme Scrollbar::UsedColorScheme() const {
   return scrollable_area_->UsedColorScheme();
 }
 

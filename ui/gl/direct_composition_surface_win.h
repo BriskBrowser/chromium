@@ -12,6 +12,7 @@
 
 #include "base/callback.h"
 #include "base/time/time.h"
+#include "ui/gfx/transform.h"
 #include "ui/gl/child_window_win.h"
 #include "ui/gl/gl_export.h"
 #include "ui/gl/gl_surface_egl.h"
@@ -31,10 +32,10 @@ class GL_EXPORT DirectCompositionSurfaceWin : public GLSurfaceEGL,
 
   struct Settings {
     bool disable_nv12_dynamic_textures = false;
-    bool disable_larger_than_screen_overlays = false;
     bool disable_vp_scaling = false;
     size_t max_pending_frames = 2;
     bool use_angle_texture_offset = false;
+    bool force_root_surface_full_damage = false;
   };
 
   DirectCompositionSurfaceWin(
@@ -61,6 +62,9 @@ class GL_EXPORT DirectCompositionSurfaceWin : public GLSurfaceEGL,
   // current GPU process' lifetime.
   static void DisableOverlays();
 
+  // Similar to the above but disables software overlay support.
+  static void DisableSoftwareOverlays();
+
   // Indicate the overlay caps are invalid.
   static void InvalidateOverlayCaps();
 
@@ -71,7 +75,10 @@ class GL_EXPORT DirectCompositionSurfaceWin : public GLSurfaceEGL,
   static DXGI_FORMAT GetOverlayFormatUsedForSDR();
 
   // Returns monitor size.
-  static gfx::Size GetOverlayMonitorSize();
+  static gfx::Size GetPrimaryMonitorSize();
+
+  // Get the current number of all visible display monitors on the desktop.
+  static int GetNumOfMonitors();
 
   // Returns overlay support flags for the given format.
   // Caller should check for DXGI_OVERLAY_SUPPORT_FLAG_DIRECT and
@@ -98,6 +105,10 @@ class GL_EXPORT DirectCompositionSurfaceWin : public GLSurfaceEGL,
   // supported as well but IDXGIOutput3::CheckOverlaySupport() returns
   // unsupported. So allow manually enabling BGRA8 overlay support.
   static void EnableBGRA8OverlaysWithYUVOverlaySupport();
+
+  // Forces to enable NV12 overlay support regardless of the query results from
+  // IDXGIOutput3::CheckOverlaySupport().
+  static void ForceNV12OverlaySupport();
 
   // GLSurfaceEGL implementation.
   bool Initialize(GLSurfaceFormat format) override;
@@ -139,6 +150,9 @@ class GL_EXPORT DirectCompositionSurfaceWin : public GLSurfaceEGL,
   void OnGpuSwitched(gl::GpuPreference active_gpu_heuristic) override;
   void OnDisplayAdded() override;
   void OnDisplayRemoved() override;
+  void OnDisplayMetricsChanged() override;
+
+  bool SupportsDelegatedInk() override;
 
   HWND window() const { return window_; }
 
@@ -152,6 +166,13 @@ class GL_EXPORT DirectCompositionSurfaceWin : public GLSurfaceEGL,
 
   scoped_refptr<DirectCompositionChildSurfaceWin> GetRootSurfaceForTesting()
       const;
+
+  void GetSwapChainVisualInfoForTesting(size_t index,
+                                        gfx::Transform* transform,
+                                        gfx::Point* offset,
+                                        gfx::Rect* clip_rect) const;
+
+  void SetMonitorInfoForTesting(int num_of_monitors, gfx::Size monitor_size);
 
  protected:
   ~DirectCompositionSurfaceWin() override;

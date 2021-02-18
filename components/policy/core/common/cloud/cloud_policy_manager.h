@@ -54,10 +54,15 @@ class POLICY_EXPORT CloudPolicyManager
   CloudPolicyCore* core() { return &core_; }
   const CloudPolicyCore* core() const { return &core_; }
 
+  // Returns true if the underlying CloudPolicyClient is already registered.
+  // Virtual for mocking.
+  virtual bool IsClientRegistered() const;
+
   // ConfigurationPolicyProvider:
   void Init(SchemaRegistry* registry) override;
   void Shutdown() override;
   bool IsInitializationComplete(PolicyDomain domain) const override;
+  bool IsFirstPolicyLoadComplete(PolicyDomain domain) const override;
   void RefreshPolicies() override;
 
   // CloudPolicyStore::Observer:

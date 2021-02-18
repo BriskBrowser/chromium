@@ -33,8 +33,7 @@ TEST_P(AbstractInlineTextBoxTest, GetTextWithCollapsedWhiteSpace) {
     <div id="target">abc </div>)HTML");
 
   const Element& target = *GetDocument().getElementById("target");
-  LayoutText& layout_text =
-      *ToLayoutText(target.firstChild()->GetLayoutObject());
+  auto& layout_text = *To<LayoutText>(target.firstChild()->GetLayoutObject());
   scoped_refptr<AbstractInlineTextBox> inline_text_box =
       layout_text.FirstAbstractInlineTextBox();
 
@@ -51,8 +50,7 @@ TEST_P(AbstractInlineTextBoxTest, GetTextWithLineBreakAtCollapsedWhiteSpace) {
     <div style="width: 10ch"><label id=label>abc:</label> <input></div>)HTML");
 
   const Element& label = *GetDocument().getElementById("label");
-  LayoutText& layout_text =
-      *ToLayoutText(label.firstChild()->GetLayoutObject());
+  auto& layout_text = *To<LayoutText>(label.firstChild()->GetLayoutObject());
   scoped_refptr<AbstractInlineTextBox> inline_text_box =
       layout_text.FirstAbstractInlineTextBox();
 
@@ -70,8 +68,7 @@ TEST_P(AbstractInlineTextBoxTest,
     <div id="target" style="width: 0ch">012 345</div>)HTML");
 
   const Element& target = *GetDocument().getElementById("target");
-  LayoutText& layout_text =
-      *ToLayoutText(target.firstChild()->GetLayoutObject());
+  auto& layout_text = *To<LayoutText>(target.firstChild()->GetLayoutObject());
   scoped_refptr<AbstractInlineTextBox> inline_text_box =
       layout_text.FirstAbstractInlineTextBox();
 
@@ -89,8 +86,7 @@ TEST_P(AbstractInlineTextBoxTest,
     <p id="t1" style="width: 0ch">012<span id="t2"> </span>345</p>)HTML");
 
   const Element& target1 = *GetDocument().getElementById("t1");
-  LayoutText& layout_text1 =
-      *ToLayoutText(target1.firstChild()->GetLayoutObject());
+  auto& layout_text1 = *To<LayoutText>(target1.firstChild()->GetLayoutObject());
   scoped_refptr<AbstractInlineTextBox> inline_text_box1 =
       layout_text1.FirstAbstractInlineTextBox();
 
@@ -99,8 +95,7 @@ TEST_P(AbstractInlineTextBoxTest,
   EXPECT_FALSE(inline_text_box1->NeedsTrailingSpace());
 
   const Element& target2 = *GetDocument().getElementById("t2");
-  LayoutText& layout_text2 =
-      *ToLayoutText(target2.firstChild()->GetLayoutObject());
+  auto& layout_text2 = *To<LayoutText>(target2.firstChild()->GetLayoutObject());
   scoped_refptr<AbstractInlineTextBox> inline_text_box2 =
       layout_text2.FirstAbstractInlineTextBox();
 
@@ -117,8 +112,7 @@ TEST_P(AbstractInlineTextBoxTest, GetTextWithLineBreakAtTrailingWhiteSpace) {
     <div style="width: 10ch"><label id=label>abc: <input></label></div>)HTML");
 
   const Element& label = *GetDocument().getElementById("label");
-  LayoutText& layout_text =
-      *ToLayoutText(label.firstChild()->GetLayoutObject());
+  auto& layout_text = *To<LayoutText>(label.firstChild()->GetLayoutObject());
   scoped_refptr<AbstractInlineTextBox> inline_text_box =
       layout_text.FirstAbstractInlineTextBox();
 
@@ -131,7 +125,7 @@ TEST_P(AbstractInlineTextBoxTest, GetTextWithLineBreakAtTrailingWhiteSpace) {
   }
 }
 
-TEST_P(AbstractInlineTextBoxTest, GetTextOffsetInContainer) {
+TEST_P(AbstractInlineTextBoxTest, GetTextOffsetInFormattingContext) {
   // The span should not affect the offset in container of the following inline
   // text boxes in the paragraph.
   //
@@ -143,7 +137,7 @@ TEST_P(AbstractInlineTextBoxTest, GetTextOffsetInContainer) {
 
   const Element& paragraph = *GetDocument().getElementById("paragraph");
   const Node& text_node = *paragraph.firstChild()->nextSibling();
-  LayoutText& layout_text = *ToLayoutText(text_node.GetLayoutObject());
+  auto& layout_text = *To<LayoutText>(text_node.GetLayoutObject());
 
   // The above "layout_text" should create five AbstractInlineTextBoxes:
   // 1. "First sentence "
@@ -161,25 +155,26 @@ TEST_P(AbstractInlineTextBoxTest, GetTextOffsetInContainer) {
       layout_text.FirstAbstractInlineTextBox();
   String text = "First sentence";
   EXPECT_EQ(LayoutNGEnabled() ? text : text + " ", inline_text_box->GetText());
-  EXPECT_EQ(6u, inline_text_box->TextOffsetInContainer(0));
+  EXPECT_EQ(6u, inline_text_box->TextOffsetInFormattingContext(0));
 
   // We need to jump over the AbstractInlineTextBox with the line break.
   inline_text_box = inline_text_box->NextInlineTextBox()->NextInlineTextBox();
   text = "of the paragraph. Second sentence of";
   EXPECT_EQ(LayoutNGEnabled() ? text : text + " ", inline_text_box->GetText());
-  EXPECT_EQ(21u, inline_text_box->TextOffsetInContainer(0u));
+  EXPECT_EQ(21u, inline_text_box->TextOffsetInFormattingContext(0u));
 
   // See comment above.
   inline_text_box = inline_text_box->NextInlineTextBox()->NextInlineTextBox();
   EXPECT_EQ("the paragraph.", inline_text_box->GetText());
-  EXPECT_EQ(58u, inline_text_box->TextOffsetInContainer(0u));
+  EXPECT_EQ(58u, inline_text_box->TextOffsetInFormattingContext(0u));
 
-  // Ensure that calling TextOffsetInContainer on a br gives the correct result.
+  // Ensure that calling TextOffsetInFormattingContext on a br gives the correct
+  // result.
   const Element& br_element = *GetDocument().getElementById("br");
-  LayoutText& br_text = *ToLayoutText(br_element.GetLayoutObject());
+  auto& br_text = *To<LayoutText>(br_element.GetLayoutObject());
   inline_text_box = br_text.FirstAbstractInlineTextBox();
   EXPECT_EQ("\n", inline_text_box->GetText());
-  EXPECT_EQ(0u, inline_text_box->TextOffsetInContainer(0));
+  EXPECT_EQ(0u, inline_text_box->TextOffsetInFormattingContext(0));
 }
 
 TEST_P(AbstractInlineTextBoxTest, CharacterWidths) {
@@ -189,7 +184,7 @@ TEST_P(AbstractInlineTextBoxTest, CharacterWidths) {
     <div id="div" style="width: 0ch">012 345</div>)HTML");
 
   const Element& div = *GetDocument().getElementById("div");
-  LayoutText& layout_text = *ToLayoutText(div.firstChild()->GetLayoutObject());
+  auto& layout_text = *To<LayoutText>(div.firstChild()->GetLayoutObject());
   scoped_refptr<AbstractInlineTextBox> inline_text_box =
       layout_text.FirstAbstractInlineTextBox();
 

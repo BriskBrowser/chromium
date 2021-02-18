@@ -5,6 +5,7 @@
 #include "chrome/browser/chromeos/policy/policy_cert_service_factory.h"
 
 #include "base/memory/singleton.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
@@ -12,7 +13,6 @@
 #include "chrome/browser/chromeos/policy/policy_cert_service.h"
 #include "chrome/browser/chromeos/policy/user_network_configuration_updater.h"
 #include "chrome/browser/chromeos/policy/user_network_configuration_updater_factory.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
@@ -61,26 +61,26 @@ PolicyCertServiceFactory* PolicyCertServiceFactory::GetInstance() {
 
 // static
 void PolicyCertServiceFactory::SetUsedPolicyCertificates(
-    const std::string& user_id) {
-  if (UsedPolicyCertificates(user_id))
+    const std::string& user_email) {
+  if (UsedPolicyCertificates(user_email))
     return;
   ListPrefUpdate update(g_browser_process->local_state(),
                         prefs::kUsedPolicyCertificates);
-  update->AppendString(user_id);
+  update->AppendString(user_email);
 }
 
 // static
 void PolicyCertServiceFactory::ClearUsedPolicyCertificates(
-    const std::string& user_id) {
+    const std::string& user_email) {
   ListPrefUpdate update(g_browser_process->local_state(),
                         prefs::kUsedPolicyCertificates);
-  update->Remove(base::Value(user_id), nullptr);
+  update->Remove(base::Value(user_email), nullptr);
 }
 
 // static
 bool PolicyCertServiceFactory::UsedPolicyCertificates(
-    const std::string& user_id) {
-  base::Value value(user_id);
+    const std::string& user_email) {
+  base::Value value(user_email);
   const base::ListValue* list =
       g_browser_process->local_state()->GetList(prefs::kUsedPolicyCertificates);
   if (!list) {

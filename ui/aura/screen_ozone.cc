@@ -85,6 +85,18 @@ display::Display ScreenOzone::GetPrimaryDisplay() const {
   return platform_screen_->GetPrimaryDisplay();
 }
 
+void ScreenOzone::SetScreenSaverSuspended(bool suspend) {
+  platform_screen_->SetScreenSaverSuspended(suspend);
+}
+
+bool ScreenOzone::IsScreenSaverActive() const {
+  return platform_screen_->IsScreenSaverActive();
+}
+
+base::TimeDelta ScreenOzone::CalculateIdleTime() const {
+  return platform_screen_->CalculateIdleTime();
+}
+
 void ScreenOzone::AddObserver(display::DisplayObserver* observer) {
   platform_screen_->AddObserver(observer);
 }
@@ -95,6 +107,11 @@ void ScreenOzone::RemoveObserver(display::DisplayObserver* observer) {
 
 std::string ScreenOzone::GetCurrentWorkspace() {
   return platform_screen_->GetCurrentWorkspace();
+}
+
+base::Value ScreenOzone::GetGpuExtraInfoAsListValue(
+    const gfx::GpuExtraInfo& gpu_extra_info) {
+  return platform_screen_->GetGpuExtraInfoAsListValue(gpu_extra_info);
 }
 
 gfx::NativeWindow ScreenOzone::GetNativeWindowFromAcceleratedWidget(

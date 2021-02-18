@@ -14,13 +14,14 @@
 #include "base/strings/string_split.h"
 #include "base/system/sys_info.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/devices/x11/device_data_manager_x11.h"
 #include "ui/events/devices/x11/device_list_cache_x11.h"
 #include "ui/events/devices/x11/xinput_util.h"
 #include "ui/events/event_switches.h"
 #include "ui/gfx/x/connection.h"
-#include "ui/gfx/x/x11.h"
+#include "ui/gfx/x/future.h"
 
 namespace ui {
 namespace {
@@ -203,27 +204,29 @@ void TouchFactory::SetupXI2ForXWindow(x11::Window window) {
   auto* connection = x11::Connection::Get();
 
   x11::Input::EventMask mask{};
+  mask.mask.push_back({});
+  auto* mask_data = mask.mask.data();
 
-  SetXinputMask(&mask, x11::Input::CrossingEvent::Enter);
-  SetXinputMask(&mask, x11::Input::CrossingEvent::Leave);
-  SetXinputMask(&mask, x11::Input::CrossingEvent::FocusIn);
-  SetXinputMask(&mask, x11::Input::CrossingEvent::FocusOut);
+  SetXinputMask(mask_data, x11::Input::CrossingEvent::Enter);
+  SetXinputMask(mask_data, x11::Input::CrossingEvent::Leave);
+  SetXinputMask(mask_data, x11::Input::CrossingEvent::FocusIn);
+  SetXinputMask(mask_data, x11::Input::CrossingEvent::FocusOut);
 
-  SetXinputMask(&mask, x11::Input::DeviceEvent::TouchBegin);
-  SetXinputMask(&mask, x11::Input::DeviceEvent::TouchUpdate);
-  SetXinputMask(&mask, x11::Input::DeviceEvent::TouchEnd);
+  SetXinputMask(mask_data, x11::Input::DeviceEvent::TouchBegin);
+  SetXinputMask(mask_data, x11::Input::DeviceEvent::TouchUpdate);
+  SetXinputMask(mask_data, x11::Input::DeviceEvent::TouchEnd);
 
-  SetXinputMask(&mask, x11::Input::DeviceEvent::ButtonPress);
-  SetXinputMask(&mask, x11::Input::DeviceEvent::ButtonRelease);
-  SetXinputMask(&mask, x11::Input::DeviceEvent::Motion);
+  SetXinputMask(mask_data, x11::Input::DeviceEvent::ButtonPress);
+  SetXinputMask(mask_data, x11::Input::DeviceEvent::ButtonRelease);
+  SetXinputMask(mask_data, x11::Input::DeviceEvent::Motion);
   // HierarchyChanged and DeviceChanged allow X11EventSource to still pick up
   // these events.
-  SetXinputMask(&mask, x11::Input::HierarchyEvent::opcode);
-  SetXinputMask(&mask, x11::Input::DeviceChangedEvent::opcode);
-#if defined(OS_CHROMEOS)
+  SetXinputMask(mask_data, x11::Input::HierarchyEvent::opcode);
+  SetXinputMask(mask_data, x11::Input::DeviceChangedEvent::opcode);
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (base::SysInfo::IsRunningOnChromeOS()) {
-    SetXinputMask(&mask, x11::Input::DeviceEvent::KeyPress);
-    SetXinputMask(&mask, x11::Input::DeviceEvent::KeyRelease);
+    SetXinputMask(mask_data, x11::Input::DeviceEvent::KeyPress);
+    SetXinputMask(mask_data, x11::Input::DeviceEvent::KeyRelease);
   }
 #endif
 

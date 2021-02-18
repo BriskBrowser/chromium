@@ -8,25 +8,27 @@
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/memory/ptr_util.h"
+#include "base/optional.h"
+#include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
-#include "chrome/browser/banners/app_banner_metrics.h"
-#include "chrome/browser/banners/app_banner_settings_helper.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/web_applications/web_app_dialog_utils.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
 #include "chrome/browser/web_applications/extensions/bookmark_app_util.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
-#include "chrome/common/chrome_features.h"
+#include "components/webapps/browser/banners/app_banner_metrics.h"
+#include "components/webapps/browser/banners/app_banner_settings_helper.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/constants.h"
 #include "third_party/blink/public/mojom/manifest/display_mode.mojom.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace {
 
@@ -34,15 +36,15 @@ namespace {
 // https://github.com/w3c/manifest/wiki/Platforms
 const char kPlatformChromeWebStore[] = "chrome_web_store";
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 const char kPlatformPlay[] = "play";
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 bool gDisableTriggeringForTesting = false;
 
 }  // namespace
 
-namespace banners {
+namespace webapps {
 
 AppBannerManagerDesktop::CreateAppBannerManagerForTesting
     AppBannerManagerDesktop::override_app_banner_manager_desktop_for_testing_ =
@@ -63,12 +65,6 @@ void AppBannerManagerDesktop::CreateForWebContents(
   web_contents->SetUserData(
       UserDataKey(),
       base::WrapUnique(new AppBannerManagerDesktop(web_contents)));
-}
-
-// static
-AppBannerManager* AppBannerManager::FromWebContents(
-    content::WebContents* web_contents) {
-  return AppBannerManagerDesktop::FromWebContents(web_contents);
 }
 
 void AppBannerManagerDesktop::DisableTriggeringForTesting() {
@@ -102,44 +98,53 @@ void AppBannerManagerDesktop::InvalidateWeakPtrs() {
   weak_factory_.InvalidateWeakPtrs();
 }
 
-bool AppBannerManagerDesktop::IsSupportedAppPlatform(
+bool AppBannerManagerDesktop::IsSupportedNonWebAppPlatform(
     const base::string16& platform) const {
   if (base::EqualsASCII(platform, kPlatformChromeWebStore))
     return true;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (base::EqualsASCII(platform, kPlatformPlay) &&
       arc::IsArcAllowedForProfile(
           Profile::FromBrowserContext(web_contents()->GetBrowserContext()))) {
     return true;
   }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   return false;
 }
 
-bool AppBannerManagerDesktop::IsRelatedAppInstalled(
+bool AppBannerManagerDesktop::IsRelatedNonWebAppInstalled(
     const blink::Manifest::RelatedApplication& related_app) const {
-  std::string id = base::UTF16ToUTF8(related_app.id.string());
-  if (id.empty())
+  if (!related_app.id || related_app.id->empty() || !related_app.platform ||
+      related_app.platform->empty()) {
     return false;
+  }
 
-  const base::string16& platform = related_app.platform.string();
+  const std::string id = base::UTF16ToUTF8(*related_app.id);
+  const base::string16& platform = *related_app.platform;
 
   if (base::EqualsASCII(platform, kPlatformChromeWebStore)) {
     return extension_registry_->GetExtensionById(
                id, extensions::ExtensionRegistry::ENABLED) != nullptr;
   }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (base::EqualsASCII(platform, kPlatformPlay)) {
     ArcAppListPrefs* arc_app_list_prefs =
         ArcAppListPrefs::Get(web_contents()->GetBrowserContext());
     return arc_app_list_prefs && arc_app_list_prefs->GetPackage(id) != nullptr;
   }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   return false;
+}
+
+bool AppBannerManagerDesktop::IsWebAppConsideredInstalled() const {
+  return web_app::FindInstalledAppWithUrlInScope(
+             Profile::FromBrowserContext(web_contents()->GetBrowserContext()),
+             manifest_.start_url)
+      .has_value();
 }
 
 web_app::AppRegistrar& AppBannerManagerDesktop::registrar() {
@@ -209,7 +214,7 @@ void AppBannerManagerDesktop::OnEngagementEvent(
     content::WebContents* web_contents,
     const GURL& url,
     double score,
-    SiteEngagementService::EngagementType type) {
+    site_engagement::EngagementType type) {
   if (gDisableTriggeringForTesting)
     return;
 
@@ -267,4 +272,4 @@ void AppBannerManagerDesktop::DidFinishCreatingWebApp(
 
 WEB_CONTENTS_USER_DATA_KEY_IMPL(AppBannerManagerDesktop)
 
-}  // namespace banners
+}  // namespace webapps

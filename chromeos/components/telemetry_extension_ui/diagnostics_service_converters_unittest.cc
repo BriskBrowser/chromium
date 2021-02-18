@@ -37,6 +37,8 @@ TEST(DiagnosticsServiceConvertersTest, ConvertDiagnosticRoutineStatusEnum) {
             health::DiagnosticRoutineStatusEnum::kCancelling);
   EXPECT_EQ(Convert(cros_healthd::DiagnosticRoutineStatusEnum::kUnsupported),
             health::DiagnosticRoutineStatusEnum::kUnsupported);
+  EXPECT_EQ(Convert(cros_healthd::DiagnosticRoutineStatusEnum::kNotRun),
+            health::DiagnosticRoutineStatusEnum::kNotRun);
 }
 
 TEST(DiagnosticsServiceConvertersTest,
@@ -64,6 +66,36 @@ TEST(DiagnosticsServiceConvertersTest, ConvertDiagnosticRoutineCommandEnum) {
             cros_healthd::DiagnosticRoutineCommandEnum::kGetStatus);
   EXPECT_EQ(Convert(health::DiagnosticRoutineCommandEnum::kRemove),
             cros_healthd::DiagnosticRoutineCommandEnum::kRemove);
+}
+
+TEST(DiagnosticsServiceConvertersTest, ConvertAcPowerStatusEnum) {
+  namespace cros_healthd = ::chromeos::cros_healthd::mojom;
+  namespace health = ::chromeos::health::mojom;
+
+  EXPECT_EQ(Convert(health::AcPowerStatusEnum::kConnected),
+            cros_healthd::AcPowerStatusEnum::kConnected);
+  EXPECT_EQ(Convert(health::AcPowerStatusEnum::kDisconnected),
+            cros_healthd::AcPowerStatusEnum::kDisconnected);
+}
+
+TEST(DiagnosticsServiceConvertersTest, ConvertNvmeSelfTestTypeEnum) {
+  namespace cros_healthd = ::chromeos::cros_healthd::mojom;
+  namespace health = ::chromeos::health::mojom;
+
+  EXPECT_EQ(Convert(health::NvmeSelfTestTypeEnum::kShortSelfTest),
+            cros_healthd::NvmeSelfTestTypeEnum::kShortSelfTest);
+  EXPECT_EQ(Convert(health::NvmeSelfTestTypeEnum::kLongSelfTest),
+            cros_healthd::NvmeSelfTestTypeEnum::kLongSelfTest);
+}
+
+TEST(DiagnosticsServiceConvertersTest, ConvertDiskReadRoutineTypeEnum) {
+  namespace cros_healthd = ::chromeos::cros_healthd::mojom;
+  namespace health = ::chromeos::health::mojom;
+
+  EXPECT_EQ(Convert(health::DiskReadRoutineTypeEnum::kLinearRead),
+            cros_healthd::DiskReadRoutineTypeEnum::kLinearRead);
+  EXPECT_EQ(Convert(health::DiskReadRoutineTypeEnum::kRandomRead),
+            cros_healthd::DiskReadRoutineTypeEnum::kRandomRead);
 }
 
 }  // namespace converters

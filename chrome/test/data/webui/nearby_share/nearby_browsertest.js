@@ -7,7 +7,7 @@
 // Polymer BrowserTest fixture.
 GEN_INCLUDE(['//chrome/test/data/webui/polymer_browser_test_base.js']);
 
-GEN('#include "chrome/browser/browser_features.h"');
+GEN('#include "chrome/browser/nearby_sharing/common/nearby_share_features.h"');
 GEN('#include "content/public/test/browser_test.h"');
 
 /** Test fixture for Polymer Nearby Share elements. */
@@ -15,18 +15,6 @@ const NearbyBrowserTest = class extends PolymerTest {
   /** @override */
   get browsePreload() {
     throw 'this is abstract and should be overridden by subclasses';
-  }
-
-  /**
-   * Override default |extraLibraries| since PolymerTest includes more than are
-   * needed in JS Module based tests.
-   * @override
-   */
-  get extraLibraries() {
-    return [
-      '//third_party/mocha/mocha.js',
-      '//chrome/test/data/webui/mocha_adapter.js',
-    ];
   }
 
   /** @override */
@@ -41,11 +29,7 @@ const NearbyBrowserTest = class extends PolymerTest {
 };
 
 [['ConfirmationPage', 'nearby_confirmation_page_test.js'],
- ['Device', 'nearby_device_test.js'],
- ['DeviceIcon', 'nearby_device_icon_test.js'],
  ['DiscoveryPage', 'nearby_discovery_page_test.js'],
- ['Preview', 'nearby_preview_test.js'],
- ['Progress', 'nearby_progress_test.js'],
  ['ShareApp', 'nearby_share_app_test.js'],
 ].forEach(test => registerTest(...test));
 

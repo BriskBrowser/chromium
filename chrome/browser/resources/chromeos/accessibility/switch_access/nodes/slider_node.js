@@ -2,8 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {SAConstants, SwitchAccessMenuAction} from '../switch_access_constants.js';
+
+import {BasicNode} from './basic_node.js';
+import {SAChildNode, SARootNode} from './switch_access_node.js';
+
+const AutomationNode = chrome.automation.AutomationNode;
+
 /** This class handles interactions with sliders. */
-class SliderNode extends NodeWrapper {
+export class SliderNode extends BasicNode {
   /**
    * @param {!AutomationNode} baseNode
    * @param {?SARootNode} parent
@@ -26,10 +33,10 @@ class SliderNode extends NodeWrapper {
     // presses.
     if (this.isCustomSlider_) {
       if (action === SwitchAccessMenuAction.INCREMENT) {
-        EventHelper.simulateKeyPress(EventHelper.KeyCode.RIGHT_ARROW);
+        EventGenerator.sendKeyPress(KeyCode.RIGHT);
         return SAConstants.ActionResponse.REMAIN_OPEN;
       } else if (action === SwitchAccessMenuAction.DECREMENT) {
-        EventHelper.simulateKeyPress(EventHelper.KeyCode.LEFT_ARROW);
+        EventGenerator.sendKeyPress(KeyCode.LEFT);
         return SAConstants.ActionResponse.REMAIN_OPEN;
       }
     }
@@ -37,3 +44,8 @@ class SliderNode extends NodeWrapper {
     return super.performAction(action);
   }
 }
+
+BasicNode.creators.push({
+  predicate: baseNode => baseNode.role === chrome.automation.RoleType.SLIDER,
+  creator: (node, parent) => new SliderNode(node, parent)
+});

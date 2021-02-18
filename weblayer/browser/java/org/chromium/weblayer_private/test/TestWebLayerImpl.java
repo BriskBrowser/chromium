@@ -5,9 +5,13 @@
 package org.chromium.weblayer_private.test;
 
 import android.os.IBinder;
+import android.os.RemoteException;
 import android.view.View;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+
+import androidx.fragment.app.FragmentManager;
 
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
@@ -15,21 +19,32 @@ import org.chromium.base.annotations.UsedByReflection;
 import org.chromium.components.infobars.InfoBarAnimationListener;
 import org.chromium.components.infobars.InfoBarUiItem;
 import org.chromium.components.location.LocationUtils;
+import org.chromium.components.media_router.BrowserMediaRouter;
+import org.chromium.components.media_router.MockMediaRouteProvider;
+import org.chromium.components.media_router.RouterTestUtils;
 import org.chromium.components.permissions.PermissionDialogController;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
+import org.chromium.content_public.browser.test.util.WebContentsUtils;
 import org.chromium.device.geolocation.LocationProviderOverrider;
 import org.chromium.device.geolocation.MockLocationProvider;
 import org.chromium.net.NetworkChangeNotifier;
 import org.chromium.ui.modaldialog.ModalDialogProperties;
+import org.chromium.weblayer_private.BrowserImpl;
 import org.chromium.weblayer_private.InfoBarContainer;
+import org.chromium.weblayer_private.ProfileImpl;
 import org.chromium.weblayer_private.TabImpl;
 import org.chromium.weblayer_private.WebLayerAccessibilityUtil;
+import org.chromium.weblayer_private.interfaces.IBrowser;
 import org.chromium.weblayer_private.interfaces.IObjectWrapper;
+import org.chromium.weblayer_private.interfaces.IProfile;
 import org.chromium.weblayer_private.interfaces.ITab;
 import org.chromium.weblayer_private.interfaces.ObjectWrapper;
+import org.chromium.weblayer_private.media.MediaRouteDialogFragmentImpl;
 import org.chromium.weblayer_private.test_interfaces.ITestWebLayer;
 
+import java.util.ArrayList;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Root implementation class for TestWebLayer.
@@ -178,5 +193,100 @@ public final class TestWebLayerImpl extends ITestWebLayer.Stub {
         assert (textView instanceof TextView);
         TextView urlBarTextView = (TextView) textView;
         return urlBarTextView.getText().toString();
+    }
+
+    @Override
+    public String getTranslateInfoBarTargetLanguage(ITab tab) {
+        TabImpl tabImpl = (TabImpl) tab;
+        return tabImpl.getTranslateInfoBarTargetLanguageForTesting();
+    }
+
+    @Override
+    public boolean didShowFullscreenToast(ITab tab) {
+        TabImpl tabImpl = (TabImpl) tab;
+        return tabImpl.didShowFullscreenToast();
+    }
+
+    @Override
+    public void initializeMockMediaRouteProvider(boolean closeRouteWithErrorOnSend,
+            boolean disableIsSupportsSource, String createRouteErrorMessage,
+            String joinRouteErrorMessage) {
+        BrowserMediaRouter.setRouteProviderFactoryForTest(new MockMediaRouteProvider.Factory());
+
+        if (closeRouteWithErrorOnSend) {
+            MockMediaRouteProvider.Factory.sProvider.setCloseRouteWithErrorOnSend(true);
+        }
+        if (disableIsSupportsSource) {
+            MockMediaRouteProvider.Factory.sProvider.setIsSupportsSource(false);
+        }
+        if (createRouteErrorMessage != null) {
+            MockMediaRouteProvider.Factory.sProvider.setCreateRouteErrorMessage(
+                    createRouteErrorMessage);
+        }
+        if (joinRouteErrorMessage != null) {
+            MockMediaRouteProvider.Factory.sProvider.setJoinRouteErrorMessage(
+                    joinRouteErrorMessage);
+        }
+    }
+
+    @Override
+    public IObjectWrapper getMediaRouteButton(String name) {
+        FragmentManager fm =
+                MediaRouteDialogFragmentImpl.getInstanceForTest().getSupportFragmentManager();
+        return ObjectWrapper.wrap(RouterTestUtils.waitForRouteButton(fm, name));
+    }
+
+    @Override
+    public void crashTab(ITab tab) {
+        try {
+            TabImpl tabImpl = (TabImpl) tab;
+            WebContentsUtils.crashTabAndWait(tabImpl.getWebContents());
+        } catch (TimeoutException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Override
+    public boolean isWindowOnSmallDevice(IBrowser browser) {
+        try {
+            return TestThreadUtils.runOnUiThreadBlocking(
+                    () -> { return ((BrowserImpl) browser).isWindowOnSmallDevice(); });
+        } catch (ExecutionException e) {
+            return true;
+        }
+    }
+
+    @Override
+    public IObjectWrapper getSecurityButton(IObjectWrapper /* View */ view) {
+        View urlBarView = ObjectWrapper.unwrap(view, View.class);
+        assert (urlBarView instanceof LinearLayout);
+        LinearLayout urlBarLayout = (LinearLayout) urlBarView;
+        assert (urlBarLayout.getChildCount() == 2);
+
+        View securityIconView = urlBarLayout.getChildAt(0);
+        assert (securityIconView instanceof ImageView);
+        return ObjectWrapper.wrap((ImageView) securityIconView);
+    }
+
+    @Override
+    public void fetchAccessToken(IProfile profile, IObjectWrapper /* Set<String> */ scopes,
+            IObjectWrapper /* ValueCallback<String> */ onTokenFetched) throws RemoteException {
+        ProfileImpl profileImpl = (ProfileImpl) profile;
+        profileImpl.fetchAccessTokenForTesting(scopes, onTokenFetched);
+    }
+
+    @Override
+    public void addContentCaptureConsumer(IBrowser browser,
+            IObjectWrapper /* Runnable */ onNewEvents,
+            IObjectWrapper /* ArrayList<Integer>*/ eventsObserved) {
+        Runnable unwrappedOnNewEvents = ObjectWrapper.unwrap(onNewEvents, Runnable.class);
+        ArrayList<Integer> unwrappedEventsObserved =
+                ObjectWrapper.unwrap(eventsObserved, ArrayList.class);
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            BrowserImpl browserImpl = (BrowserImpl) browser;
+            browserImpl.getViewController().addContentCaptureConsumerForTesting(
+                    new TestContentCaptureConsumer(browserImpl.getActiveTab().getWebContents(),
+                            unwrappedOnNewEvents, unwrappedEventsObserved));
+        });
     }
 }

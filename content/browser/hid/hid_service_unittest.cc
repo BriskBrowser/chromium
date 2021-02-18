@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "base/command_line.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/gmock_callback_support.h"
 #include "content/browser/hid/hid_test_utils.h"
 #include "content/public/browser/content_browser_client.h"
@@ -128,8 +128,13 @@ TEST_F(HidServiceTest, GetDevicesWithPermission) {
   contents()->GetMainFrame()->GetHidService(
       service.BindNewPipeAndPassReceiver());
 
+  auto collection = device::mojom::HidCollectionInfo::New();
+  collection->usage = device::mojom::HidUsageAndPage::New(0xff00, 0x0001);
+  collection->input_reports.push_back(
+      device::mojom::HidReportDescription::New());
   auto device_info = device::mojom::HidDeviceInfo::New();
   device_info->guid = kTestGuid;
+  device_info->collections.push_back(std::move(collection));
   ConnectDevice(*device_info);
 
   EXPECT_CALL(hid_delegate(), HasDevicePermission).WillOnce(Return(true));
@@ -152,8 +157,13 @@ TEST_F(HidServiceTest, GetDevicesWithoutPermission) {
   contents()->GetMainFrame()->GetHidService(
       service.BindNewPipeAndPassReceiver());
 
+  auto collection = device::mojom::HidCollectionInfo::New();
+  collection->usage = device::mojom::HidUsageAndPage::New(0xff00, 0x0001);
+  collection->input_reports.push_back(
+      device::mojom::HidReportDescription::New());
   auto device_info = device::mojom::HidDeviceInfo::New();
   device_info->guid = kTestGuid;
+  device_info->collections.push_back(std::move(collection));
   ConnectDevice(*device_info);
 
   EXPECT_CALL(hid_delegate(), HasDevicePermission).WillOnce(Return(false));
@@ -276,8 +286,13 @@ TEST_F(HidServiceTest, OpenAndNavigateCrossOrigin) {
   EXPECT_TRUE(contents()->IsConnectedToHidDevice());
 
   NavigateAndCommit(GURL(kCrossOriginTestUrl));
-  base::RunLoop().RunUntilIdle();
+
+  base::RunLoop disconnect_loop;
+  connection.set_disconnect_handler(disconnect_loop.QuitClosure());
+
+  disconnect_loop.Run();
   EXPECT_FALSE(contents()->IsConnectedToHidDevice());
+  EXPECT_FALSE(connection.is_connected());
 }
 
 TEST_F(HidServiceTest, RegisterClient) {
@@ -321,14 +336,86 @@ TEST_F(HidServiceTest, RegisterClient) {
   EXPECT_TRUE(devices.empty());
 
   // 2. Connect a device and wait for DeviceAdded.
+  auto collection = device::mojom::HidCollectionInfo::New();
+  collection->usage = device::mojom::HidUsageAndPage::New(0xff00, 0x0001);
+  collection->input_reports.push_back(
+      device::mojom::HidReportDescription::New());
   auto device_info = device::mojom::HidDeviceInfo::New();
   device_info->guid = kTestGuid;
+  device_info->collections.push_back(std::move(collection));
   ConnectDevice(*device_info);
   device_added_loop.Run();
 
   // 3. Disconnect the device and wait for DeviceRemoved.
   DisconnectDevice(*device_info);
   device_removed_loop.Run();
+}
+
+TEST_F(HidServiceTest, RevokeDevicePermission) {
+  NavigateAndCommit(GURL(kTestUrl));
+
+  mojo::Remote<blink::mojom::HidService> service;
+  contents()->GetMainFrame()->GetHidService(
+      service.BindNewPipeAndPassReceiver());
+
+  // For now the device has permission.
+  EXPECT_CALL(hid_delegate(), HasDevicePermission).WillOnce(Return(true));
+
+  // Create a new device.
+  auto device_info = device::mojom::HidDeviceInfo::New();
+  device_info->guid = kTestGuid;
+  ConnectDevice(*device_info);
+  EXPECT_CALL(hid_delegate(), GetDeviceInfo)
+      .WillOnce(Return(device_info.get()));
+
+  // Connect the device.
+  mojo::PendingRemote<device::mojom::HidConnectionClient> hid_connection_client;
+  connection_client()->Bind(
+      hid_connection_client.InitWithNewPipeAndPassReceiver());
+
+  EXPECT_FALSE(contents()->IsConnectedToHidDevice());
+
+  base::RunLoop run_loop;
+  mojo::Remote<device::mojom::HidConnection> connection;
+  service->Connect(
+      kTestGuid, std::move(hid_connection_client),
+      base::BindLambdaForTesting(
+          [&run_loop,
+           &connection](mojo::PendingRemote<device::mojom::HidConnection> c) {
+            connection.Bind(std::move(c));
+            run_loop.Quit();
+          }));
+  run_loop.Run();
+
+  EXPECT_TRUE(contents()->IsConnectedToHidDevice());
+  EXPECT_TRUE(connection);
+
+  base::RunLoop disconnect_loop;
+  connection.set_disconnect_handler(disconnect_loop.QuitClosure());
+
+  // Simulate user revoking permission.
+  EXPECT_CALL(hid_delegate(), HasDevicePermission).WillOnce(Return(false));
+  url::Origin origin = url::Origin::Create(GURL(kTestUrl));
+  hid_delegate().OnPermissionRevoked(origin, origin);
+
+  disconnect_loop.Run();
+  EXPECT_FALSE(contents()->IsConnectedToHidDevice());
+  EXPECT_FALSE(connection.is_connected());
+}
+
+TEST_F(HidServiceTest, RevokeDevicePermissionWithoutConnection) {
+  NavigateAndCommit(GURL(kTestUrl));
+
+  mojo::Remote<blink::mojom::HidService> service;
+  contents()->GetMainFrame()->GetHidService(
+      service.BindNewPipeAndPassReceiver());
+
+  // Simulate user revoking permission.
+  url::Origin origin = url::Origin::Create(GURL(kTestUrl));
+  hid_delegate().OnPermissionRevoked(origin, origin);
+
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(contents()->IsConnectedToHidDevice());
 }
 
 }  // namespace content

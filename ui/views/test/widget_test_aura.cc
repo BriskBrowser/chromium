@@ -5,6 +5,7 @@
 #include "ui/views/test/widget_test.h"
 
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/test/aura_test_helper.h"
 #include "ui/aura/window.h"
@@ -19,8 +20,7 @@
 #endif
 
 #if defined(USE_X11)
-#include "ui/gfx/x/x11.h"        // nogncheck
-#include "ui/gfx/x/x11_types.h"  // nogncheck
+#include "ui/base/x/x11_util.h"  // nogncheck
 #endif
 
 namespace views {
@@ -85,7 +85,7 @@ std::vector<aura::Window*> GetAllTopLevelWindows() {
 #endif
   aura::test::AuraTestHelper* aura_test_helper =
       aura::test::AuraTestHelper::GetInstance();
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Chrome OS browser tests must use ash::Shell::GetAllRootWindows.
   DCHECK(aura_test_helper) << "Can't find all widgets without a test helper";
 #endif
@@ -127,31 +127,30 @@ gfx::Size WidgetTest::GetNativeWidgetMinimumContentSize(Widget* widget) {
   // be pushed to the window server when they change.
 #if !BUILDFLAG(ENABLE_DESKTOP_AURA) || defined(OS_WIN)
   return widget->GetNativeWindow()->delegate()->GetMinimumSize();
-#elif defined(USE_X11)
-  if (features::IsUsingOzonePlatform()) {
-    // TODO(https://crbug.com/1109114): this is effectively the same as the
-    // NOTREACHED in the #else section. Figure why that is there and fix for
-    // Ozone if needed.
-    NOTREACHED();
-    return gfx::Size();
-  }
-  XSizeHints hints;
-  long supplied_return;  // NOLINT(runtime/int)
-  XGetWMNormalHints(
-      gfx::GetXDisplay(),
-      static_cast<uint32_t>(
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#elif defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if defined(USE_OZONE)
+  if (features::IsUsingOzonePlatform())
+    return widget->GetNativeWindow()->delegate()->GetMinimumSize();
+#endif  // USE_OZONE
+#if defined(USE_X11)
+  EXPECT_FALSE(features::IsUsingOzonePlatform());
+  ui::SizeHints hints;
+  ui::GetWmNormalHints(
+      static_cast<x11::Window>(
           widget->GetNativeWindow()->GetHost()->GetAcceleratedWidget()),
-      &hints, &supplied_return);
+      &hints);
   return gfx::Size(hints.min_width, hints.min_height);
-#else
+#endif  // USE_X11
+#endif  // OS_LINUX && !OS_CHROMEOS
   NOTREACHED();
   return gfx::Size();
-#endif
 }
 
 // static
 ui::EventSink* WidgetTest::GetEventSink(Widget* widget) {
-  return widget->GetNativeWindow()->GetHost()->event_sink();
+  return widget->GetNativeWindow()->GetHost()->GetEventSink();
 }
 
 // static

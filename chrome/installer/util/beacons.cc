@@ -6,6 +6,7 @@
 
 #include <stdint.h>
 
+#include "base/notreached.h"
 #include "base/win/registry.h"
 #include "base/win/win_util.h"
 #include "chrome/install_static/install_details.h"
@@ -56,7 +57,7 @@ std::unique_ptr<Beacon> MakeFirstNotDefaultBeacon() {
 
 // Beacon ----------------------------------------------------------------------
 
-Beacon::Beacon(base::StringPiece16 name, BeaconType type, BeaconScope scope)
+Beacon::Beacon(base::WStringPiece name, BeaconType type, BeaconScope scope)
     : type_(type),
       root_(install_static::IsSystemInstall() ? HKEY_LOCAL_MACHINE
                                               : HKEY_CURRENT_USER),
@@ -105,7 +106,7 @@ base::Time Beacon::Get() {
   return base::Time::FromInternalValue(now);
 }
 
-void Beacon::Initialize(base::StringPiece16 name) {
+void Beacon::Initialize(base::WStringPiece name) {
   const install_static::InstallDetails& install_details =
       install_static::InstallDetails::Get();
 

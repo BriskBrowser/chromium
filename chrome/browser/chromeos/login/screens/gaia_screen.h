@@ -15,38 +15,41 @@
 namespace chromeos {
 
 class GaiaView;
-class ScreenManager;
 
 // This class represents GAIA screen: login screen that is responsible for
 // GAIA-based sign-in.
 class GaiaScreen : public BaseScreen {
  public:
-  enum class Result { BACK };
+  using TView = GaiaView;
+
+  enum class Result {
+    BACK,
+    CANCEL,
+    ENTERPRISE_ENROLL,
+    START_CONSUMER_KIOSK,
+  };
 
   static std::string GetResultString(Result result);
 
   using ScreenExitCallback = base::RepeatingCallback<void(Result result)>;
+
   explicit GaiaScreen(const ScreenExitCallback& exit_callback);
   ~GaiaScreen() override;
 
-  static GaiaScreen* Get(ScreenManager* manager);
-
   void SetView(GaiaView* view);
 
-  void MaybePreloadAuthExtension();
   // Loads online Gaia into the webview.
   void LoadOnline(const AccountId& account);
   // Loads online Gaia (for child signup) into the webview.
   void LoadOnlineForChildSignup();
   // Loads online Gaia (for child signin) into the webview.
   void LoadOnlineForChildSignin();
-  // Loads offline version of Gaia.
-  void LoadOffline(const AccountId& account);
 
  private:
   void ShowImpl() override;
   void HideImpl() override;
   void OnUserAction(const std::string& action_id) override;
+  bool HandleAccelerator(ash::LoginAcceleratorAction action) override;
 
   GaiaView* view_ = nullptr;
 

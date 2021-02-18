@@ -21,7 +21,6 @@
 #include "components/viz/common/frame_sinks/begin_frame_source.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "components/viz/common/surfaces/local_surface_id.h"
-#include "components/viz/common/surfaces/local_surface_id_allocation.h"
 #include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
 #include "components/viz/host/host_frame_sink_client.h"
 #include "components/viz/host/host_frame_sink_manager.h"
@@ -94,7 +93,7 @@ class CONTENT_EXPORT CompositorImpl
   // Compositor implementation.
   void SetRootWindow(gfx::NativeWindow root_window) override;
   void SetRootLayer(scoped_refptr<cc::Layer> root) override;
-  void SetSurface(jobject surface,
+  void SetSurface(const base::android::JavaRef<jobject>& surface,
                   bool can_be_used_with_surface_control) override;
   void SetBackgroundColor(int color) override;
   void SetWindowBounds(const gfx::Size& size) override;
@@ -122,12 +121,8 @@ class CONTENT_EXPORT CompositorImpl
   void UpdateLayerTreeHost() override;
   void ApplyViewportChanges(const cc::ApplyViewportChangesArgs& args) override {
   }
-  void RecordManipulationTypeCounts(cc::ManipulationInfo args) override {}
-  void SendOverscrollEventFromImplSide(
-      const gfx::Vector2dF& overscroll_delta,
-      cc::ElementId scroll_latched_element_id) override {}
-  void SendScrollEndEventFromImplSide(
-      cc::ElementId scroll_latched_element_id) override {}
+  void UpdateCompositorScrollState(
+      const cc::CompositorCommitData& commit_data) override {}
   void RequestNewLayerTreeFrameSink() override;
   void DidInitializeLayerTreeFrameSink() override;
   void DidFailToInitializeLayerTreeFrameSink() override;
@@ -145,12 +140,9 @@ class CONTENT_EXPORT CompositorImpl
       cc::ActiveFrameSequenceTrackers trackers) override {}
   std::unique_ptr<cc::BeginMainFrameMetrics> GetBeginMainFrameMetrics()
       override;
+  std::unique_ptr<cc::WebVitalMetrics> GetWebVitalMetrics() override;
   void NotifyThroughputTrackerResults(
       cc::CustomTrackerResults results) override {}
-  void SubmitThroughputData(ukm::SourceId source_id,
-                            int aggregated_percent,
-                            int impl_percent,
-                            base::Optional<int> main_percent) override {}
   void DidObserveFirstScrollDelay(
       base::TimeDelta first_scroll_delay,
       base::TimeTicks first_scroll_timestamp) override {}
@@ -202,7 +194,7 @@ class CONTENT_EXPORT CompositorImpl
 
   // Returns a new surface ID when in surface-synchronization mode. Otherwise
   // returns an empty surface.
-  viz::LocalSurfaceIdAllocation GenerateLocalSurfaceId();
+  viz::LocalSurfaceId GenerateLocalSurfaceId();
 
   // Tears down the display for both Viz and non-Viz, unregistering the root
   // frame sink ID in the process.

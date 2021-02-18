@@ -21,6 +21,8 @@
 
 #include "third_party/blink/renderer/core/css/style_rule.h"
 
+#include "third_party/blink/renderer/core/css/css_container_rule.h"
+#include "third_party/blink/renderer/core/css/css_counter_style_rule.h"
 #include "third_party/blink/renderer/core/css/css_font_face_rule.h"
 #include "third_party/blink/renderer/core/css/css_identifier_value.h"
 #include "third_party/blink/renderer/core/css/css_import_rule.h"
@@ -32,7 +34,7 @@
 #include "third_party/blink/renderer/core/css/css_scroll_timeline_rule.h"
 #include "third_party/blink/renderer/core/css/css_style_rule.h"
 #include "third_party/blink/renderer/core/css/css_supports_rule.h"
-#include "third_party/blink/renderer/core/css/css_value_list.h"
+#include "third_party/blink/renderer/core/css/style_rule_counter_style.h"
 #include "third_party/blink/renderer/core/css/style_rule_import.h"
 #include "third_party/blink/renderer/core/css/style_rule_keyframe.h"
 #include "third_party/blink/renderer/core/css/style_rule_namespace.h"
@@ -96,6 +98,12 @@ void StyleRuleBase::Trace(Visitor* visitor) const {
     case kViewport:
       To<StyleRuleViewport>(this)->TraceAfterDispatch(visitor);
       return;
+    case kContainer:
+      To<StyleRuleContainer>(this)->TraceAfterDispatch(visitor);
+      return;
+    case kCounterStyle:
+      To<StyleRuleCounterStyle>(this)->TraceAfterDispatch(visitor);
+      return;
   }
   NOTREACHED();
 }
@@ -141,6 +149,12 @@ void StyleRuleBase::FinalizeGarbageCollectedObject() {
     case kViewport:
       To<StyleRuleViewport>(this)->~StyleRuleViewport();
       return;
+    case kContainer:
+      To<StyleRuleContainer>(this)->~StyleRuleContainer();
+      return;
+    case kCounterStyle:
+      To<StyleRuleCounterStyle>(this)->~StyleRuleCounterStyle();
+      return;
   }
   NOTREACHED();
 }
@@ -175,6 +189,10 @@ StyleRuleBase* StyleRuleBase::Copy() const {
     case kKeyframe:
       NOTREACHED();
       return nullptr;
+    case kContainer:
+      return To<StyleRuleContainer>(this)->Copy();
+    case kCounterStyle:
+      return To<StyleRuleCounterStyle>(this)->Copy();
   }
   NOTREACHED();
   return nullptr;
@@ -224,6 +242,14 @@ CSSRule* StyleRuleBase::CreateCSSOMWrapper(CSSStyleSheet* parent_sheet,
     case kNamespace:
       rule = MakeGarbageCollected<CSSNamespaceRule>(
           To<StyleRuleNamespace>(self), parent_sheet);
+      break;
+    case kContainer:
+      rule = MakeGarbageCollected<CSSContainerRule>(
+          To<StyleRuleContainer>(self), parent_sheet);
+      break;
+    case kCounterStyle:
+      rule = MakeGarbageCollected<CSSCounterStyleRule>(
+          To<StyleRuleCounterStyle>(self), parent_sheet);
       break;
     case kKeyframe:
     case kCharset:
@@ -332,6 +358,7 @@ StyleRuleProperty::StyleRuleProperty(const String& name,
 
 StyleRuleProperty::StyleRuleProperty(const StyleRuleProperty& property_rule)
     : StyleRuleBase(property_rule),
+      name_(property_rule.name_),
       properties_(property_rule.properties_->MutableCopy()) {}
 
 StyleRuleProperty::~StyleRuleProperty() = default;
@@ -465,6 +492,24 @@ void StyleRuleMedia::TraceAfterDispatch(blink::Visitor* visitor) const {
 StyleRuleSupports::StyleRuleSupports(const StyleRuleSupports& supports_rule)
     : StyleRuleCondition(supports_rule),
       condition_is_supported_(supports_rule.condition_is_supported_) {}
+
+StyleRuleContainer::StyleRuleContainer(
+    ContainerQuery& container_query,
+    HeapVector<Member<StyleRuleBase>>& adopt_rules)
+    : StyleRuleCondition(kContainer, adopt_rules),
+      container_query_(&container_query) {}
+
+StyleRuleContainer::StyleRuleContainer(const StyleRuleContainer& container_rule)
+    : StyleRuleCondition(container_rule) {
+  DCHECK(container_rule.container_query_);
+  container_query_ =
+      MakeGarbageCollected<ContainerQuery>(*container_rule.container_query_);
+}
+
+void StyleRuleContainer::TraceAfterDispatch(blink::Visitor* visitor) const {
+  visitor->Trace(container_query_);
+  StyleRuleCondition::TraceAfterDispatch(visitor);
+}
 
 StyleRuleViewport::StyleRuleViewport(CSSPropertyValueSet* properties)
     : StyleRuleBase(kViewport), properties_(properties) {}

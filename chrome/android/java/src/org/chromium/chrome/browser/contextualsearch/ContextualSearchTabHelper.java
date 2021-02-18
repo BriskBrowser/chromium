@@ -6,7 +6,6 @@ package org.chromium.chrome.browser.contextualsearch;
 
 import android.app.Activity;
 import android.content.Context;
-import android.view.ContextMenu;
 
 import androidx.annotation.Nullable;
 
@@ -28,8 +27,9 @@ import org.chromium.content_public.browser.SelectionPopupController;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.net.NetworkChangeNotifier;
 import org.chromium.ui.base.WindowAndroid;
+import org.chromium.url.GURL;
 
-/** Manages the activation and gesture listeners for ContextualSearch on a given tab. */
+/** Manages the enabling and disabling and gesture listeners for ContextualSearch on a given Tab. */
 public class ContextualSearchTabHelper
         extends EmptyTabObserver implements NetworkChangeNotifier.ConnectionTypeObserver {
     /** The Tab that this helper tracks. */
@@ -96,7 +96,7 @@ public class ContextualSearchTabHelper
     // ============================================================================================
 
     @Override
-    public void onPageLoadStarted(Tab tab, String url) {
+    public void onPageLoadStarted(Tab tab, GURL url) {
         updateHooksForTab(tab);
         ContextualSearchManager manager = getContextualSearchManager(tab);
         if (manager != null) manager.onBasePageLoadStarted();
@@ -164,7 +164,7 @@ public class ContextualSearchTabHelper
     }
 
     @Override
-    public void onContextMenuShown(Tab tab, ContextMenu menu) {
+    public void onContextMenuShown(Tab tab) {
         ContextualSearchManager manager = getContextualSearchManager(tab);
         if (manager != null) {
             manager.onContextMenuShown();

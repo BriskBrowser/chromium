@@ -11,6 +11,7 @@
 #include "ui/views/bubble/bubble_frame_view.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/layout_provider.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/wm/core/window_animations.h"
 
 namespace ui {
@@ -35,16 +36,16 @@ UndoWindow::UndoWindow(gfx::NativeView parent, AssistiveDelegate* delegate)
   SetArrow(views::BubbleBorder::Arrow::BOTTOM_LEFT);
   SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kHorizontal));
-  AddUndoButton();
-}
 
-void UndoWindow::AddUndoButton() {
   undo_button_ = AddChildView(std::make_unique<views::LabelButton>(
-      this, base::UTF8ToUTF16(kUndoButtonText)));
+      base::BindRepeating(&UndoWindow::UndoButtonPressed,
+                          base::Unretained(this)),
+      base::UTF8ToUTF16(kUndoButtonText)));
   undo_button_->SetImageLabelSpacing(
       views::LayoutProvider::Get()->GetDistanceMetric(
           views::DistanceMetric::DISTANCE_RELATED_BUTTON_HORIZONTAL));
   undo_button_->SetBackground(nullptr);
+  undo_button_->SetFocusBehavior(views::View::FocusBehavior::ACCESSIBLE_ONLY);
 }
 
 void UndoWindow::OnThemeChanged() {
@@ -96,24 +97,19 @@ void UndoWindow::SetButtonHighlighted(const AssistiveWindowButton& button,
                   : nullptr);
 }
 
-void UndoWindow::ButtonPressed(views::Button* sender, const ui::Event& event) {
-  button_pressed_ = sender;
-  if (sender == undo_button_) {
-    AssistiveWindowButton button;
-    button.id = ButtonId::kUndo;
-    button.window_type = AssistiveWindowType::kUndoWindow;
-    SetButtonHighlighted(button, true);
-    delegate_->AssistiveWindowButtonClicked(button);
-  }
-}
-
 views::Button* UndoWindow::GetUndoButtonForTesting() {
   return undo_button_;
 }
 
-const char* UndoWindow::GetClassName() const {
-  return "UndoWindow";
+void UndoWindow::UndoButtonPressed() {
+  const AssistiveWindowButton button = {
+      .id = ButtonId::kUndo, .window_type = AssistiveWindowType::kUndoWindow};
+  SetButtonHighlighted(button, true);
+  delegate_->AssistiveWindowButtonClicked(button);
 }
+
+BEGIN_METADATA(UndoWindow, views::BubbleDialogDelegateView)
+END_METADATA
 
 }  // namespace ime
 }  // namespace ui

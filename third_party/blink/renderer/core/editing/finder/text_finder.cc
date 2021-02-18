@@ -32,7 +32,6 @@
 
 #include "third_party/blink/public/mojom/input/focus_type.mojom-blink.h"
 #include "third_party/blink/public/mojom/scroll/scroll_into_view_params.mojom-blink.h"
-#include "third_party/blink/public/platform/web_float_rect.h"
 #include "third_party/blink/public/platform/web_vector.h"
 #include "third_party/blink/public/web/web_frame_widget.h"
 #include "third_party/blink/public/web/web_local_frame_client.h"
@@ -57,6 +56,7 @@
 #include "third_party/blink/renderer/core/frame/find_in_page.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
+#include "third_party/blink/renderer/core/frame/web_frame_widget_impl.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/layout/layout_shift_tracker.h"
@@ -104,6 +104,12 @@ static void ScrollToVisible(Range* match) {
     first_node.GetDocument().UpdateStyleAndLayoutForNode(
         &first_node, DocumentUpdateReason::kFindInPage);
   }
+
+  // We don't always have a LayoutObject for the node we're trying to scroll to
+  // after the async step: crbug.com/1129341
+  if (!first_node.GetLayoutObject())
+    return;
+
   Settings* settings = first_node.GetDocument().GetSettings();
   bool smooth_find_enabled =
       settings ? settings->GetSmoothScrollForFindEnabled() : false;
@@ -119,6 +125,17 @@ static void ScrollToVisible(Range* match) {
           true /* is_for_scroll_sequence */));
   first_node.GetDocument().SetSequentialFocusNavigationStartingPoint(
       const_cast<Node*>(&first_node));
+}
+
+void TextFinder::InitNewSession(const mojom::blink::FindOptions& options) {
+  should_locate_active_rect_ = false;
+  CancelPendingScopingEffort();
+  if (!options.find_match) {
+    // This gets called in FindInternal if a match is found, but FindInternal
+    // doesn't run when find_match is false, so we need to do it here in case
+    // there is a match (to get the scoping effort to look for it).
+    find_task_controller_->ResetLastFindRequestCompletedWithNoMatches();
+  }
 }
 
 bool TextFinder::Find(int identifier,
@@ -171,9 +188,6 @@ bool TextFinder::FindInternal(int identifier,
       (options.forward ? 0 : kBackwards) |
       (options.match_case ? 0 : kCaseInsensitive) |
       (wrap_within_frame ? kWrapAround : 0) |
-      (options.find_next_if_selection_matches
-           ? 0
-           : kDontFindNextIfSelectionMatches) |
       (options.new_session ? kStartInSelection : 0);
   active_match_ = Editor::FindRangeOfString(
       *OwnerFrame().GetFrame()->GetDocument(), search_text,
@@ -588,6 +602,21 @@ void TextFinder::ClearFindMatchesCache() {
   find_match_rects_are_valid_ = false;
 }
 
+void TextFinder::InvalidateFindMatchRects() {
+  // Increase version number is required to trigger FindMatchRects update when
+  // next find.
+  if (!find_matches_cache_.IsEmpty())
+    ++find_match_markers_version_;
+
+  // For subframes, we need to recalculate the FindMatchRects when the
+  // document size of mainframe changed even if the document size of current
+  // frame has not changed because Find-in-page coordinates are represented as
+  // normalized fractions of the main frame document. So we need to force the
+  // FindMatchRects to be updated instead of changing according to the current
+  // document size.
+  find_match_rects_are_valid_ = false;
+}
+
 void TextFinder::UpdateFindMatchRects() {
   IntSize current_document_size = OwnerFrame().DocumentSize();
   if (document_size_for_current_find_match_rects_ != current_document_size) {
@@ -734,7 +763,7 @@ int TextFinder::SelectFindMatch(unsigned index, gfx::Rect* selection_rect) {
     // Zoom to the active match.
     active_match_rect = OwnerFrame().GetFrameView()->ConvertToRootFrame(
         active_match_bounding_box);
-    OwnerFrame().LocalRoot()->FrameWidget()->ZoomToFindInPageRect(
+    OwnerFrame().LocalRoot()->FrameWidgetImpl()->ZoomToFindInPageRect(
         active_match_rect);
   }
 
@@ -874,7 +903,7 @@ void TextFinder::Scroll(std::unique_ptr<AsyncScrollContext> context) {
   // Likewise, if the target scroll element is display locked, then we shouldn't
   // scroll to it.
   Element* beforematch_element = GetBeforematchElement(*context->range);
-  if (context->range->collapsed() ||
+  if (context->range->collapsed() || !context->range->IsConnected() ||
       (beforematch_element &&
        DisplayLockUtilities::NearestHiddenMatchableInclusiveAncestor(
            *beforematch_element))) {
@@ -886,7 +915,7 @@ void TextFinder::Scroll(std::unique_ptr<AsyncScrollContext> context) {
     // We also need to re-assign to active_match_ here in order to make sure the
     // search starts from context->range. active_match_ may have been unassigned
     // during the async steps.
-    active_match_ = context->range;
+    active_match_ = context->range->IsConnected() ? context->range : nullptr;
     FindInternal(context->identifier, context->search_text, context->options,
                  context->wrap_within_frame, /*active_now=*/nullptr,
                  context->first_match, context->wrapped_around);
@@ -894,6 +923,8 @@ void TextFinder::Scroll(std::unique_ptr<AsyncScrollContext> context) {
   }
 
   if (context->was_match_hidden) {
+    UseCounter::Count(GetFrame()->GetDocument(),
+                      WebFeature::kBeforematchRevealedHiddenMatchable);
     GetFrame()
         ->GetDocument()
         ->MarkHasFindInPageBeforematchExpandedHiddenMatchable();
@@ -905,7 +936,7 @@ void TextFinder::Scroll(std::unique_ptr<AsyncScrollContext> context) {
   // column where the next hit has been found. Doing this when autosizing is
   // not set will result in a zoom reset on small devices.
   if (GetFrame()->GetDocument()->GetTextAutosizer()->PageNeedsAutosizing()) {
-    OwnerFrame().LocalRoot()->FrameWidget()->ZoomToFindInPageRect(
+    OwnerFrame().LocalRoot()->FrameWidgetImpl()->ZoomToFindInPageRect(
         OwnerFrame().GetFrameView()->ConvertToRootFrame(
             ComputeTextRect(EphemeralRange(context->range))));
   }
@@ -923,6 +954,30 @@ void TextFinder::Scroll(std::unique_ptr<AsyncScrollContext> context) {
     marker_controller.AddTextMatchMarker(ephemeral_range,
                                          TextMatchMarker::MatchStatus::kActive);
     SetMarkerActive(context->range, true);
+  }
+}
+
+void TextFinder::IncreaseMarkerVersion() {
+  ++find_match_markers_version_;
+
+  // This is called when the size of the content changes. Normally, the check
+  // for the document size changed at the beginning of UpdateFindMatchRects()
+  // would be responsible for invalidating the cached matches as well.
+  // However, a subframe might not change size but its match rects may still be
+  // affected because Find-in-page coordinates are represented as normalized
+  // fractions of the main frame document, so invalidate the cached matches of
+  // subframes as well.
+  for (Frame* frame = GetFrame()->Tree().TraverseNext(GetFrame()); frame;
+       frame = frame->Tree().TraverseNext(GetFrame())) {
+    // TODO(https://crbug.com/1147796) In OOPIFs mode, the text finder
+    // corresponding to the remote frame also needs to be notified, the
+    // match rects are invalid and need to be recalculated.
+    auto* web_local_frame_impl =
+        WebLocalFrameImpl::FromFrame(DynamicTo<LocalFrame>(frame));
+    if (web_local_frame_impl && web_local_frame_impl->GetTextFinder() &&
+        web_local_frame_impl->GetTextFinder()->TotalMatchCount() > 0) {
+      web_local_frame_impl->GetTextFinder()->InvalidateFindMatchRects();
+    }
   }
 }
 

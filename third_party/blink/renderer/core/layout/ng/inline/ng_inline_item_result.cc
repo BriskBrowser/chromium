@@ -25,6 +25,11 @@ NGInlineItemResult::NGInlineItemResult(const NGInlineItem* item,
       should_create_line_box(should_create_line_box),
       has_unpositioned_floats(has_unpositioned_floats) {}
 
+void NGInlineItemResult::Trace(Visitor* visitor) const {
+  visitor->Trace(layout_result);
+  visitor->Trace(positioned_float);
+}
+
 void NGLineInfo::SetLineStyle(const NGInlineNode& node,
                               const NGInlineItemsData& items_data,
                               bool use_first_line_style) {
@@ -255,5 +260,15 @@ float NGLineInfo::ComputeWidthInFloat() const {
   return inline_size;
 }
 #endif
+
+std::ostream& operator<<(std::ostream& ostream, const NGLineInfo& line_info) {
+  // Feel free to add more NGLneInfo members.
+  ostream << "NGLineInfo available_width_=" << line_info.AvailableWidth()
+          << " width_=" << line_info.Width() << " Results=[\n";
+  for (const auto& result : line_info.Results()) {
+    ostream << "\t" << result.item->ToString() << "\n";
+  }
+  return ostream << "]";
+}
 
 }  // namespace blink

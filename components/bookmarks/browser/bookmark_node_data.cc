@@ -138,9 +138,11 @@ BookmarkNodeData::~BookmarkNodeData() {
 #if !defined(OS_APPLE)
 // static
 bool BookmarkNodeData::ClipboardContainsBookmarks() {
+  ui::DataTransferEndpoint data_dst = ui::DataTransferEndpoint(
+      ui::EndpointType::kDefault, /*notify_if_restricted=*/false);
   return ui::Clipboard::GetForCurrentThread()->IsFormatAvailable(
       ui::ClipboardFormatType::GetType(kClipboardFormatString),
-      ui::ClipboardBuffer::kCopyPaste, /* data_dst = */ nullptr);
+      ui::ClipboardBuffer::kCopyPaste, &data_dst);
 }
 #endif
 
@@ -179,7 +181,7 @@ void BookmarkNodeData::WriteToClipboard() {
   ui::ScopedClipboardWriter scw(ui::ClipboardBuffer::kCopyPaste);
 
 #if defined(OS_WIN)
-  const base::string16 kEOL(L"\r\n");
+  const base::string16 kEOL(STRING16_LITERAL("\r\n"));
 #else
   const base::string16 kEOL = base::ASCIIToUTF16("\n");
 #endif

@@ -5,12 +5,14 @@
 #import <TestLib/EarlGreyImpl/EarlGrey.h>
 #import <UIKit/UIKit.h>
 
+#import "base/ios/ios_util.h"
 #include "ios/chrome/browser/pref_names.h"
+#import "ios/chrome/browser/ui/settings/password/passwords_table_view_constants.h"
 #import "ios/chrome/browser/ui/ui_feature_flags.h"
-#import "ios/chrome/browser/ui/util/multi_window_support.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_actions.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
+#import "ios/chrome/test/earl_grey/chrome_earl_grey_app_interface.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
@@ -64,10 +66,10 @@
 
   // Toggle the passwords switch off and on.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          @"savePasswordsItem_switch")]
+                                          kSavePasswordSwitchTableViewId)]
       performAction:chrome_test_util::TurnSettingsSwitchOn(NO)];
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          @"savePasswordsItem_switch")]
+                                          kSavePasswordSwitchTableViewId)]
       performAction:chrome_test_util::TurnSettingsSwitchOn(YES)];
 
   // Close the settings menu.
@@ -245,36 +247,27 @@
 
 // Tests gracefully kill through AppLaunchManager.
 - (void)testAppLaunchManagerForceRelaunchByCleanShutdown {
-// TODO(crbug.com/1067821): ForceRelaunchByCleanShutdown only compiles and works
-// on simulator.
-#if TARGET_IPHONE_SIMULATOR
   [ChromeEarlGrey openNewTab];
   [[AppLaunchManager sharedManager] ensureAppLaunchedWithFeaturesEnabled:{}
       disabled:{}
       relaunchPolicy:ForceRelaunchByCleanShutdown];
   [[EarlGrey selectElementWithMatcher:grey_text(@"Restore")]
       assertWithMatcher:grey_notVisible()];
-#endif
 }
 
 // Tests hard kill(crash) through AppLaunchManager.
 - (void)testAppLaunchManagerForceRelaunchByKilling {
-  if (IsSceneStartupSupported()) {
-    // TODO(crbug.com/1108395): Session restoration not available yet in MW.
-    EARL_GREY_TEST_DISABLED(@"Disabled in Multiwindow.");
-  }
   [ChromeEarlGrey openNewTab];
   [[AppLaunchManager sharedManager] ensureAppLaunchedWithFeaturesEnabled:{}
       disabled:{}
       relaunchPolicy:ForceRelaunchByKilling];
-  [[EarlGrey selectElementWithMatcher:grey_text(@"Restore")]
-      assertWithMatcher:grey_sufficientlyVisible()];
+  [ChromeEarlGrey
+      waitForSufficientlyVisibleElementWithMatcher:grey_text(@"Restore")];
   [ChromeEarlGrey waitForMainTabCount:1];
 }
 
 // Tests running resets after relaunch through AppLaunchManager.
 - (void)testAppLaunchManagerNoForceRelaunchAndResetState {
-  [self stopHTTPServer];
   [self disableMockAuthentication];
   [ChromeEarlGrey openNewTab];
   [[AppLaunchManager sharedManager]
@@ -282,15 +275,11 @@
                                   disabled:{}
                             relaunchPolicy:NoForceRelaunchAndResetState];
   [ChromeEarlGrey waitForMainTabCount:1];
-  // |stopHTTPServer| and |disableMockAuthentication| DCHECK the flags are in
-  // correct states, which can serve as assertion that proper resets are run.
-  [self stopHTTPServer];
-  [self disableMockAuthentication];
+  DCHECK([ChromeEarlGreyAppInterface isFakeSyncServerSetUp]);
 }
 
 // Tests no force relaunch.
 - (void)testAppLaunchManagerNoForceRelaunchAndKeepState {
-  [self stopHTTPServer];
   [self disableMockAuthentication];
   [ChromeEarlGrey openNewTab];
   // No relauch when feature list isn't changed.
@@ -303,7 +292,19 @@
 }
 
 // Tests backgrounding app and moving app back through AppLaunchManager.
-- (void)testAppLaunchManagerBackgroundAndForegroundApp {
+// TODO:(crbug.com/1164446): Re-enable this test on simulators.
+#if TARGET_OS_SIMULATOR
+#define MAYBE_testAppLaunchManagerBackgroundAndForegroundApp \
+  FLAKY_testAppLaunchManagerBackgroundAndForegroundApp
+#else
+#define MAYBE_testAppLaunchManagerBackgroundAndForegroundApp \
+  testAppLaunchManagerBackgroundAndForegroundApp
+#endif
+- (void)FLAKY_testAppLaunchManagerBackgroundAndForegroundApp {
+  if (!base::ios::IsRunningOnOrLater(13, 0, 0)) {
+    EARL_GREY_TEST_DISABLED(@"Test disabled on iOS 12 and lower.");
+  }
+
   [ChromeEarlGrey openNewTab];
   [[AppLaunchManager sharedManager] backgroundAndForegroundApp];
   [ChromeEarlGrey waitForMainTabCount:2];

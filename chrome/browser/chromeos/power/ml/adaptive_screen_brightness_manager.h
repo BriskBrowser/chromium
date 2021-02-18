@@ -22,15 +22,14 @@
 #include "ui/base/user_activity/user_activity_detector.h"
 #include "ui/base/user_activity/user_activity_observer.h"
 
+class AccessibilityManager;
+class MagnificationManager;
+
 namespace base {
 class RepeatingTimer;
 }  // namespace base
 
 namespace chromeos {
-
-class AccessibilityManager;
-class MagnificationManager;
-
 namespace power {
 namespace ml {
 
@@ -74,9 +73,9 @@ class AdaptiveScreenBrightnessManager
       const power_manager::BacklightBrightnessChange& change) override;
   void PowerChanged(const power_manager::PowerSupplyProperties& proto) override;
   void LidEventReceived(chromeos::PowerManagerClient::LidState state,
-                        const base::TimeTicks& timestamp) override;
+                        base::TimeTicks timestamp) override;
   void TabletModeEventReceived(chromeos::PowerManagerClient::TabletMode mode,
-                               const base::TimeTicks& timestamp) override;
+                               base::TimeTicks timestamp) override;
 
   // viz::mojom::VideoDetectorObserver overrides:
   void OnVideoActivityStarted() override;

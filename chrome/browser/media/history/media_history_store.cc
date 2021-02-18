@@ -23,6 +23,7 @@
 #include "net/cookies/cookie_change_dispatcher.h"
 #include "services/media_session/public/cpp/media_image.h"
 #include "services/media_session/public/cpp/media_position.h"
+#include "sql/database.h"
 #include "sql/recovery.h"
 #include "sql/statement.h"
 #include "sql/transaction.h"
@@ -34,7 +35,7 @@
 
 namespace {
 
-constexpr int kCurrentVersionNumber = 4;
+constexpr int kCurrentVersionNumber = 5;
 constexpr int kCompatibleVersionNumber = 1;
 
 constexpr base::FilePath::CharType kMediaHistoryDatabaseName[] =
@@ -133,6 +134,26 @@ int MigrateFrom3To4(sql::Database* db, sql::MetaTable* meta_table) {
   return 3;
 }
 
+int MigrateFrom4To5(sql::Database* db, sql::MetaTable* meta_table) {
+  // Version 5 adds a new column to mediaFeed.
+  const int target_version = 5;
+
+  // The mediaFeed table might not exist if the feature is disabled.
+  if (!db->DoesTableExist("mediaFeed")) {
+    meta_table->SetVersionNumber(target_version);
+    return target_version;
+  }
+
+  static const char k4To5Sql[] =
+      "ALTER TABLE mediaFeed ADD COLUMN favicon TEXT DEFAULT 0;";
+  sql::Transaction transaction(db);
+  if (transaction.Begin() && db->Execute(k4To5Sql) && transaction.Commit()) {
+    meta_table->SetVersionNumber(target_version);
+    return target_version;
+  }
+  return 4;
+}
+
 bool IsCauseFromExpiration(const net::CookieChangeCause& cause) {
   return cause == net::CookieChangeCause::UNKNOWN_DELETION ||
          cause == net::CookieChangeCause::EXPIRED ||
@@ -177,7 +198,10 @@ MediaHistoryStore::MediaHistoryStore(
     scoped_refptr<base::UpdateableSequencedTaskRunner> db_task_runner)
     : db_task_runner_(db_task_runner),
       db_path_(GetDBPath(profile)),
-      db_(std::make_unique<sql::Database>()),
+      db_(std::make_unique<sql::Database>(
+          sql::DatabaseOptions{.exclusive_locking = true,
+                               .page_size = 4096,
+                               .cache_size = 500})),
       meta_table_(std::make_unique<sql::MetaTable>()),
       origin_table_(new MediaHistoryOriginTable(db_task_runner_)),
       playback_table_(new MediaHistoryPlaybackTable(db_task_runner_)),
@@ -193,7 +217,6 @@ MediaHistoryStore::MediaHistoryStore(
                             : nullptr),
       initialization_successful_(false) {
   db_->set_histogram_tag("MediaHistory");
-  db_->set_exclusive_locking();
 
   // To recover from corruption.
   db_->set_error_callback(
@@ -215,7 +238,7 @@ sql::Database* MediaHistoryStore::DB() {
 }
 
 void MediaHistoryStore::SavePlayback(
-    const content::MediaPlayerWatchTime& watch_time) {
+    std::unique_ptr<content::MediaPlayerWatchTime> watch_time) {
   DCHECK(db_task_runner_->RunsTasksInCurrentSequence());
   if (!CanAccessDatabase())
     return;
@@ -231,8 +254,8 @@ void MediaHistoryStore::SavePlayback(
   }
 
   // TODO(https://crbug.com/1052436): Remove the separate origin.
-  auto origin = url::Origin::Create(watch_time.origin);
-  if (origin != url::Origin::Create(watch_time.url)) {
+  auto origin = url::Origin::Create(watch_time->origin);
+  if (origin != url::Origin::Create(watch_time->url)) {
     DB()->RollbackTransaction();
 
     base::UmaHistogramEnumeration(
@@ -252,7 +275,7 @@ void MediaHistoryStore::SavePlayback(
     return;
   }
 
-  if (!playback_table_->SavePlayback(watch_time)) {
+  if (!playback_table_->SavePlayback(*watch_time)) {
     DB()->RollbackTransaction();
 
     base::UmaHistogramEnumeration(
@@ -262,9 +285,9 @@ void MediaHistoryStore::SavePlayback(
     return;
   }
 
-  if (watch_time.has_audio && watch_time.has_video) {
+  if (watch_time->has_audio && watch_time->has_video) {
     if (!origin_table_->IncrementAggregateAudioVideoWatchTime(
-            origin, watch_time.cumulative_watch_time)) {
+            origin, watch_time->cumulative_watch_time)) {
       DB()->RollbackTransaction();
 
       base::UmaHistogramEnumeration(
@@ -428,6 +451,8 @@ sql::InitStatus MediaHistoryStore::CreateOrUpgradeIfNeeded() {
     cur_version = MigrateFrom2To3(db_.get(), meta_table_.get());
   if (cur_version == 3)
     cur_version = MigrateFrom3To4(db_.get(), meta_table_.get());
+  if (cur_version == 4)
+    cur_version = MigrateFrom4To5(db_.get(), meta_table_.get());
 
   if (cur_version == kCurrentVersionNumber)
     return sql::INIT_OK;
@@ -752,7 +777,8 @@ std::set<GURL> MediaHistoryStore::GetURLsInTableForTest(
   return urls;
 }
 
-void MediaHistoryStore::DiscoverMediaFeed(const GURL& url) {
+void MediaHistoryStore::DiscoverMediaFeed(const GURL& url,
+                                          const base::Optional<GURL>& favicon) {
   DCHECK(db_task_runner_->RunsTasksInCurrentSequence());
   if (!CanAccessDatabase())
     return;
@@ -766,7 +792,7 @@ void MediaHistoryStore::DiscoverMediaFeed(const GURL& url) {
   }
 
   if (!(CreateOriginId(url::Origin::Create(url)) &&
-        feeds_table_->DiscoverFeed(url))) {
+        feeds_table_->DiscoverFeed(url, favicon))) {
     DB()->RollbackTransaction();
     return;
   }

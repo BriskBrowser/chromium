@@ -32,16 +32,69 @@ void CheckSearchParams(const SearchParams& actual,
   EXPECT_DOUBLE_EQ(actual.fuzzy_threshold, expected.fuzzy_threshold);
 }
 
+void GetSizeAndCheckResults(LinearMapSearch* index,
+                            uint32_t expectd_num_items) {
+  bool callback_done = false;
+  uint32_t num_items = 0;
+  index->GetSize(base::BindOnce(
+      [](bool* callback_done, uint32_t* num_items, uint64_t size) {
+        *callback_done = true;
+        *num_items = size;
+      },
+      &callback_done, &num_items));
+  ASSERT_TRUE(callback_done);
+  EXPECT_EQ(num_items, expectd_num_items);
+}
+
+void AddOrUpdate(LinearMapSearch* index, const std::vector<Data>& data) {
+  bool callback_done = false;
+  index->AddOrUpdate(
+      data, base::BindOnce([](bool* callback_done) { *callback_done = true; },
+                           &callback_done));
+  ASSERT_TRUE(callback_done);
+}
+
+void UpdateDocumentsAndCheckResults(LinearMapSearch* index,
+                                    const std::vector<Data>& data,
+                                    uint32_t expect_num_deleted) {
+  bool callback_done = false;
+  uint32_t num_deleted = 0u;
+  index->UpdateDocuments(data,
+                         base::BindOnce(
+                             [](bool* callback_done, uint32_t* num_deleted,
+                                uint32_t num_deleted_callback) {
+                               *callback_done = true;
+                               *num_deleted = num_deleted_callback;
+                             },
+                             &callback_done, &num_deleted));
+  ASSERT_TRUE(callback_done);
+  EXPECT_EQ(num_deleted, expect_num_deleted);
+}
+
 void FindAndCheckResults(LinearMapSearch* index,
                          std::string query,
                          int32_t max_results,
                          ResponseStatus expected_status,
                          const std::vector<ResultWithIds>& expected_results) {
   DCHECK(index);
-
+  bool callback_done = false;
+  ResponseStatus status;
   std::vector<Result> results;
-  auto status = index->Find(base::UTF8ToUTF16(query), max_results, &results);
 
+  index->Find(
+      base::UTF8ToUTF16(query), max_results,
+      base::BindOnce(
+          [](bool* callback_done, ResponseStatus* status,
+             std::vector<Result>* results, ResponseStatus status_callback,
+             const base::Optional<std::vector<Result>>& results_callback) {
+            *callback_done = true;
+            *status = status_callback;
+            if (results_callback.has_value())
+              *results = results_callback.value();
+          },
+          &callback_done, &status, &results));
+
+  ASSERT_TRUE(callback_done);
   EXPECT_EQ(status, expected_status);
 
   if (!results.empty()) {
@@ -71,8 +124,7 @@ void FindAndCheckResults(LinearMapSearch* index,
 
 class LinearMapSearchTest : public testing::Test {
   void SetUp() override {
-    index_ = std::make_unique<LinearMapSearch>(IndexId::kCrosSettings,
-                                               nullptr /* local_state */);
+    index_ = std::make_unique<LinearMapSearch>(IndexId::kCrosSettings);
   }
 
  protected:
@@ -107,8 +159,10 @@ TEST_F(LinearMapSearchTest, RelevanceThreshold) {
   const std::map<std::string, std::vector<ContentWithId>> data_to_register = {
       {"id1", {{"tag1", "Wi-Fi"}}}, {"id2", {{"tag2", "famous"}}}};
   std::vector<Data> data = CreateTestData(data_to_register);
-  index_->AddOrUpdate(data);
-  EXPECT_EQ(index_->GetSize(), 2u);
+
+  AddOrUpdate(index_.get(), data);
+  GetSizeAndCheckResults(index_.get(), 2u);
+
   {
     SearchParams search_params;
     search_params.relevance_threshold = 0.0;
@@ -145,8 +199,9 @@ TEST_F(LinearMapSearchTest, MaxResults) {
       {"id1", {{"tag1", "abcde"}, {"tag2", "Wi-Fi"}}},
       {"id2", {{"tag3", "wifi"}}}};
   std::vector<Data> data = CreateTestData(data_to_register);
-  index_->AddOrUpdate(data);
-  EXPECT_EQ(index_->GetSize(), 2u);
+  AddOrUpdate(index_.get(), data);
+  GetSizeAndCheckResults(index_.get(), 2u);
+
   SearchParams search_params;
   search_params.relevance_threshold = 0.3;
   index_->SetSearchParams(search_params);
@@ -173,8 +228,8 @@ TEST_F(LinearMapSearchTest, ResultFound) {
   std::vector<Data> data = CreateTestData(data_to_register);
   EXPECT_EQ(data.size(), 2u);
 
-  index_->AddOrUpdate(data);
-  EXPECT_EQ(index_->GetSize(), 2u);
+  AddOrUpdate(index_.get(), data);
+  GetSizeAndCheckResults(index_.get(), 2u);
 
   // Find result with query "id1". It returns an exact match.
   const std::vector<ResultWithIds> expected_results = {{"id1", {"cid1"}}};
@@ -183,6 +238,47 @@ TEST_F(LinearMapSearchTest, ResultFound) {
                       expected_results);
   FindAndCheckResults(index_.get(), "abc",
                       /*max_results=*/-1, ResponseStatus::kSuccess, {});
+}
+
+TEST_F(LinearMapSearchTest, ClearIndex) {
+  const std::map<std::string, std::vector<ContentWithId>> data_to_register = {
+      {"id1", {{"cid1", "id1"}, {"cid2", "tag1a"}, {"cid3", "tag1b"}}},
+      {"xyz", {{"cid4", "xyz"}}}};
+  std::vector<Data> data = CreateTestData(data_to_register);
+  EXPECT_EQ(data.size(), 2u);
+
+  AddOrUpdate(index_.get(), data);
+  GetSizeAndCheckResults(index_.get(), 2u);
+
+  bool callback_done = false;
+  index_->ClearIndex(base::BindOnce(
+      [](bool* callback_done) { *callback_done = true; }, &callback_done));
+  ASSERT_TRUE(callback_done);
+  GetSizeAndCheckResults(index_.get(), 0u);
+}
+
+TEST_F(LinearMapSearchTest, UpdateDocuments) {
+  const std::map<std::string, std::vector<ContentWithId>> data_to_register = {
+      {"id1", {{"cid1", "id1"}, {"cid2", "tag1a"}, {"cid3", "tag1b"}}},
+      {"xyz", {{"cid4", "xyz"}}}};
+  std::vector<Data> data = CreateTestData(data_to_register);
+  EXPECT_EQ(data.size(), 2u);
+
+  AddOrUpdate(index_.get(), data);
+  GetSizeAndCheckResults(index_.get(), 2u);
+
+  const std::map<std::string, std::vector<ContentWithId>>
+      update_data_to_register = {{"id1",
+                                  {{"update cid1", "update id1"},
+                                   {"update cid2", "update tag1a"},
+                                   {"update cid3", "update tag1b"}}},
+                                 {"xyz", {}},
+                                 {"nonexistid", {}}};
+  std::vector<Data> update_data = CreateTestData(update_data_to_register);
+  EXPECT_EQ(update_data.size(), 3u);
+
+  UpdateDocumentsAndCheckResults(index_.get(), update_data, 1u);
+  GetSizeAndCheckResults(index_.get(), 1u);
 }
 
 }  // namespace local_search_service

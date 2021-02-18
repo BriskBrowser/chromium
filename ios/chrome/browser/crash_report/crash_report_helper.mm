@@ -15,14 +15,14 @@
 #include "base/path_service.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/time/time.h"
+#include "components/breadcrumbs/core/breadcrumb_manager.h"
 #include "components/upload_list/crash_upload_list.h"
 #include "ios/chrome/browser/chrome_paths.h"
-#include "ios/chrome/browser/crash_report/breakpad_helper.h"
+#include "ios/chrome/browser/crash_report/crash_helper.h"
 #include "ios/chrome/browser/crash_report/crash_keys_helper.h"
 #import "ios/chrome/browser/crash_report/crash_report_user_application_state.h"
 #import "ios/chrome/browser/crash_report/crash_reporter_breadcrumb_observer.h"
 #include "ios/chrome/browser/crash_report/crash_reporter_url_observer.h"
-#import "ios/chrome/browser/ui/util/multi_window_support.h"
 #import "ios/chrome/browser/web/tab_id_tab_helper.h"
 #import "ios/chrome/browser/web_state_list/all_web_state_observation_forwarder.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
@@ -64,8 +64,8 @@
 - (void)setTabInfo:(NSString*)key
          withValue:(const NSString*)value
             forTab:(NSString*)tabId;
-// Retrieves the |key| information for tab |tabId|.
-- (id)getTabInfo:(NSString*)key forTab:(NSString*)tabId;
+// Retrieves the |key| information for tab |tabID|.
+- (id)tabInfo:(NSString*)key forTab:(NSString*)tabID;
 // Removes the |key| information for tab |tabId|
 - (void)removeTabInfo:(NSString*)key forTab:(NSString*)tabId;
 // Observes |webState| by this instance of the CrashReporterTabStateObserver.
@@ -104,7 +104,7 @@ const NSString* kDocumentMimeType = @"application/pdf";
 }
 
 - (void)closingDocumentInTab:(NSString*)tabId {
-  NSString* mime = (NSString*)[self getTabInfo:@"mime" forTab:tabId];
+  NSString* mime = (NSString*)[self tabInfo:@"mime" forTab:tabId];
   if ([kDocumentMimeType isEqualToString:mime])
     crash_keys::SetCurrentTabIsPDF(false);
   [self removeTabInfo:@"mime" forTab:tabId];
@@ -124,8 +124,8 @@ const NSString* kDocumentMimeType = @"application/pdf";
   [tabCurrentState setObject:value forKey:key];
 }
 
-- (id)getTabInfo:(NSString*)key forTab:(NSString*)tabId {
-  NSMutableDictionary* tabValues = [_tabCurrentStateByTabId objectForKey:tabId];
+- (id)tabInfo:(NSString*)key forTab:(NSString*)tabID {
+  NSMutableDictionary* tabValues = [_tabCurrentStateByTabId objectForKey:tabID];
   return [tabValues objectForKey:key];
 }
 
@@ -189,7 +189,7 @@ const NSString* kDocumentMimeType = @"application/pdf";
   if (!loadSuccess || webState->GetContentsMimeType() != "application/pdf")
     return;
   NSString* tabID = TabIdTabHelper::FromWebState(webState)->tab_id();
-  NSString* oldMime = (NSString*)[self getTabInfo:@"mime" forTab:tabID];
+  NSString* oldMime = (NSString*)[self tabInfo:@"mime" forTab:tabID];
   if ([kDocumentMimeType isEqualToString:oldMime])
     return;
 
@@ -236,12 +236,14 @@ void ClearStateForWebStateList(WebStateList* web_state_list) {
       web_state_list);
 }
 
-void MonitorBreadcrumbManager(BreadcrumbManager* breadcrumb_manager) {
+void MonitorBreadcrumbManager(
+    breadcrumbs::BreadcrumbManager* breadcrumb_manager) {
   [[CrashReporterBreadcrumbObserver uniqueInstance]
       observeBreadcrumbManager:breadcrumb_manager];
 }
 
-void StopMonitoringBreadcrumbManager(BreadcrumbManager* breadcrumb_manager) {
+void StopMonitoringBreadcrumbManager(
+    breadcrumbs::BreadcrumbManager* breadcrumb_manager) {
   [[CrashReporterBreadcrumbObserver uniqueInstance]
       stopObservingBreadcrumbManager:breadcrumb_manager];
 }

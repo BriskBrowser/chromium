@@ -19,13 +19,13 @@ bool MathMLRadicalElement::HasIndex() const {
 LayoutObject* MathMLRadicalElement::CreateLayoutObject(
     const ComputedStyle& style,
     LegacyLayout legacy) {
-  // TODO(rbuis): legacy check should be removed.
+  DCHECK(!style.IsDisplayMathType() || legacy != LegacyLayout::kForce);
   if (!RuntimeEnabledFeatures::MathMLCoreEnabled() ||
-      legacy == LegacyLayout::kForce || !style.IsDisplayMathType())
+      !style.IsDisplayMathType())
     return MathMLElement::CreateLayoutObject(style, legacy);
   if (HasTagName(mathml_names::kMsqrtTag))
-    return new LayoutNGMathMLBlockWithAnonymousMrow(this);
-  return new LayoutNGMathMLBlock(this);
+    return MakeGarbageCollected<LayoutNGMathMLBlockWithAnonymousMrow>(this);
+  return MakeGarbageCollected<LayoutNGMathMLBlock>(this);
 }
 
 }  // namespace blink

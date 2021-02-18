@@ -6,8 +6,10 @@
 #define CHROME_BROWSER_UI_VIEWS_CROSTINI_CROSTINI_RECOVERY_VIEW_H_
 
 #include "chrome/browser/chromeos/crostini/crostini_simple_types.h"
+#include "chrome/browser/chromeos/crostini/crostini_util.h"
 #include "storage/browser/file_system/file_system_url.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 
 namespace crostini {
 enum class CrostiniResult;
@@ -19,14 +21,15 @@ class Profile;
 // connection is needed.
 class CrostiniRecoveryView : public views::BubbleDialogDelegateView {
  public:
+  METADATA_HEADER(CrostiniRecoveryView);
+
   static void Show(Profile* profile,
                    const std::string& app_id,
                    int64_t display_id,
-                   const std::vector<storage::FileSystemURL>& files,
+                   const std::vector<crostini::LaunchArg>& args,
                    crostini::CrostiniSuccessCallback callback);
 
   // views::DialogDelegateView:
-  gfx::Size CalculatePreferredSize() const override;
   bool Accept() override;
   bool Cancel() override;
 
@@ -36,7 +39,7 @@ class CrostiniRecoveryView : public views::BubbleDialogDelegateView {
   CrostiniRecoveryView(Profile* profile,
                        const std::string& app_id,
                        int64_t display_id,
-                       const std::vector<storage::FileSystemURL>& files,
+                       const std::vector<crostini::LaunchArg>& args,
                        crostini::CrostiniSuccessCallback callback);
   ~CrostiniRecoveryView() override;
 
@@ -45,7 +48,7 @@ class CrostiniRecoveryView : public views::BubbleDialogDelegateView {
   Profile* profile_;  // Not owned.
   std::string app_id_;
   int64_t display_id_;
-  const std::vector<storage::FileSystemURL> files_;
+  const std::vector<crostini::LaunchArg> args_;
   crostini::CrostiniSuccessCallback callback_;
 
   base::WeakPtrFactory<CrostiniRecoveryView> weak_ptr_factory_;

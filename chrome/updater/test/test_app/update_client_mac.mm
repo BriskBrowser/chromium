@@ -20,9 +20,10 @@
 #import "chrome/updater/app/server/mac/service_protocol.h"
 #import "chrome/updater/app/server/mac/update_service_wrappers.h"
 #import "chrome/updater/mac/xpc_service_names.h"
+#include "chrome/updater/test/test_app/constants.h"
 #include "chrome/updater/test/test_app/test_app_version.h"
 
-@interface CRUUpdateClientOnDemandImpl : NSObject <CRUUpdateChecking> {
+@interface CRUUpdateClientOnDemandImpl : NSObject <CRUUpdateServicing> {
   base::scoped_nsobject<NSXPCConnection> _xpcConnection;
 }
 
@@ -35,11 +36,11 @@
 - (instancetype)init {
   if (self = [super init]) {
     _xpcConnection.reset([[NSXPCConnection alloc]
-        initWithMachServiceName:updater::GetServiceMachName()
+        initWithMachServiceName:updater::GetUpdateServiceMachName()
                         options:0]);
 
     _xpcConnection.get().remoteObjectInterface =
-        updater::GetXPCUpdateCheckingInterface();
+        updater::GetXPCUpdateServicingInterface();
 
     _xpcConnection.get().interruptionHandler = ^{
       LOG(WARNING)
@@ -55,6 +56,17 @@
   }
 
   return self;
+}
+
+- (void)getVersionWithReply:(void (^_Nonnull)(NSString* version))reply {
+  auto errorHandler = ^(NSError* xpcError) {
+    LOG(ERROR) << "XPC Connection failed: "
+               << base::SysNSStringToUTF8([xpcError description]);
+    reply(nil);
+  };
+
+  [[_xpcConnection remoteObjectProxyWithErrorHandler:errorHandler]
+      getVersionWithReply:reply];
 }
 
 - (void)registerForUpdatesWithAppId:(NSString* _Nullable)appId
@@ -132,8 +144,7 @@ void UpdateClientMac::BeginRegister(const std::string& brand_code,
                                   static_cast<UpdateService::Result>(error)));
   };
 
-  [client_.get() registerForUpdatesWithAppId:base::SysUTF8ToNSString(
-                                                 base::mac::BaseBundleID())
+  [client_.get() registerForUpdatesWithAppId:base::SysUTF8ToNSString(kTestAppId)
                                    brandCode:base::SysUTF8ToNSString(brand_code)
                                          tag:base::SysUTF8ToNSString(tag)
                                      version:base::SysUTF8ToNSString(version)

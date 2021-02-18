@@ -13,6 +13,14 @@ namespace switches {
 const char kEnableExperimentalAccessibilityAutoclick[] =
     "enable-experimental-accessibility-autoclick";
 
+// Enables the experimental dictation extension on Chrome OS that hasn't
+// launched yet.
+const char kEnableExperimentalAccessibilityDictationExtension[] =
+    "enable-experimental-accessibility-dictation-extension";
+
+const char kEnableExperimentalAccessibilityDictationOffline[] =
+    "enable-experimental-accessibility-dictation-offline";
+
 // Enables support for visually debugging the accessibility labels
 // feature, which provides images descriptions for screen reader users.
 const char kEnableExperimentalAccessibilityLabelsDebugging[] =
@@ -28,33 +36,27 @@ const char kEnableExperimentalAccessibilityLanguageDetection[] =
 const char kEnableExperimentalAccessibilityLanguageDetectionDynamic[] =
     "enable-experimental-accessibility-language-detection-dynamic";
 
-// Shows setting to enable Switch Access before it has launched.
-const char kEnableExperimentalAccessibilitySwitchAccess[] =
-    "enable-experimental-accessibility-switch-access";
-
 // Enables in progress Switch Access features for text input.
 const char kEnableExperimentalAccessibilitySwitchAccessText[] =
     "enable-experimental-accessibility-switch-access-text";
 
-// Enables annotations feature that hasn't launched yet.
-const char kEnableExperimentalAccessibilityChromeVoxAnnotations[] =
-    "enable-experimental-accessibility-chromevox-annotations";
-
-// Disables ChromeVox language switching feature.
-const char kDisableExperimentalAccessibilityChromeVoxLanguageSwitching[] =
-    "disable-experimental-accessibility-chromevox-language-switching";
-
-// Disables ChromeVox search menus feature.
-const char kDisableExperimentalAccessibilityChromeVoxSearchMenus[] =
-    "disable-experimental-accessibility-chromevox-search-menus";
-
-// Enables interactive tutorial for ChromeVox.
-const char kEnableExperimentalAccessibilityChromeVoxTutorial[] =
-    "enable-experimental-accessibility-chromevox-tutorial";
-
 // Enables Switch Access point scanning. This feature hasn't launched yet.
 const char kEnableSwitchAccessPointScanning[] =
     "enable-switch-access-point-scanning";
+
+// Enables the Switch Access setup guide that hasn't launched yet.
+const char kEnableExperimentalAccessibilitySwitchAccessSetupGuide[] =
+    "enable-experimental-accessibility-switch-access-setup-guide";
+
+bool IsExperimentalAccessibilityDictationExtensionEnabled() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      ::switches::kEnableExperimentalAccessibilityDictationExtension);
+}
+
+bool IsExperimentalAccessibilityDictationOfflineEnabled() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      ::switches::kEnableExperimentalAccessibilityDictationOffline);
+}
 
 bool IsExperimentalAccessibilityLanguageDetectionEnabled() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(

@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -15,7 +16,6 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/metrics/user_metrics.h"
 #include "base/path_service.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
@@ -23,12 +23,11 @@
 #include "base/values.h"
 #include "base/version.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/component_updater/supervised_user_whitelist_installer.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_key.h"
 #include "chrome/browser/supervised_user/permission_request_creator.h"
-#include "chrome/browser/supervised_user/supervised_user_allowlist_service.h"
 #include "chrome/browser/supervised_user/supervised_user_constants.h"
 #include "chrome/browser/supervised_user/supervised_user_features.h"
 #include "chrome/browser/supervised_user/supervised_user_filtering_switches.h"
@@ -39,6 +38,7 @@
 #include "chrome/browser/supervised_user/supervised_user_site_list.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/policy/core/browser/url_util.h"
 #include "components/pref_registry/pref_registry_syncable.h"
@@ -57,7 +57,7 @@
 #include "chrome/browser/ui/browser_list.h"
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/supervised_user_manager.h"
 #include "chromeos/settings/cros_settings_names.h"
@@ -158,12 +158,8 @@ void SupervisedUserService::Init() {
   pref_change_registrar_.Init(profile_->GetPrefs());
   pref_change_registrar_.Add(
       prefs::kSupervisedUserId,
-      base::Bind(&SupervisedUserService::OnSupervisedUserIdChanged,
-          base::Unretained(this)));
-
-  allowlist_service_->AddSiteListsChangedCallback(
-      base::Bind(&SupervisedUserService::OnSiteListsChanged,
-                 weak_ptr_factory_.GetWeakPtr()));
+      base::BindRepeating(&SupervisedUserService::OnSupervisedUserIdChanged,
+                          base::Unretained(this)));
 
   SetActive(IsChild());
 }
@@ -184,9 +180,6 @@ SupervisedUserURLFilter* SupervisedUserService::GetURLFilter() {
   return &url_filter_;
 }
 
-SupervisedUserAllowlistService* SupervisedUserService::GetAllowlistService() {
-  return allowlist_service_.get();
-}
 
 bool SupervisedUserService::AccessRequestsEnabled() {
   return FindEnabledPermissionRequestCreator(0) < permissions_creators_.size();
@@ -214,7 +207,7 @@ std::string SupervisedUserService::GetExtensionRequestId(
 std::string SupervisedUserService::GetCustodianEmailAddress() const {
   std::string email = profile_->GetPrefs()->GetString(
       prefs::kSupervisedUserCustodianEmail);
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // |GetActiveUser()| can return null in unit tests.
   if (email.empty() && !!user_manager::UserManager::Get()->GetActiveUser()) {
     email = chromeos::ChromeUserManager::Get()
@@ -236,7 +229,7 @@ std::string SupervisedUserService::GetCustodianObfuscatedGaiaId() const {
 std::string SupervisedUserService::GetCustodianName() const {
   std::string name = profile_->GetPrefs()->GetString(
       prefs::kSupervisedUserCustodianName);
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // |GetActiveUser()| can return null in unit tests.
   if (name.empty() && !!user_manager::UserManager::Get()->GetActiveUser()) {
     name = base::UTF16ToUTF8(
@@ -277,13 +270,15 @@ bool SupervisedUserService::IsSupervisedUserIframeFilterEnabled() const {
       supervised_users::kSupervisedUserIframeFilter);
 }
 
-bool SupervisedUserService::IsChild() const {
-  return profile_->IsChild();
+// static
+std::string SupervisedUserService::GetEduCoexistenceLoginUrl() {
+  return base::FeatureList::IsEnabled(supervised_users::kEduCoexistenceFlowV2)
+             ? chrome::kChromeUIEDUCoexistenceLoginURLV2
+             : chrome::kChromeUIEDUCoexistenceLoginURLV1;
 }
 
-bool SupervisedUserService::IsSupervisedUserExtensionInstallEnabled() const {
-  return base::FeatureList::IsEnabled(
-      supervised_users::kSupervisedUserInitiatedExtensionInstall);
+bool SupervisedUserService::IsChild() const {
+  return profile_->IsChild();
 }
 
 bool SupervisedUserService::HasACustodian() const {
@@ -318,12 +313,6 @@ SupervisedUserService::SupervisedUserService(Profile* profile)
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   registry_observer_.Add(extensions::ExtensionRegistry::Get(profile));
 #endif
-
-  std::string client_id = component_updater::SupervisedUserWhitelistInstaller::
-      ClientIdForProfilePath(profile_->GetPath());
-  allowlist_service_ = std::make_unique<SupervisedUserAllowlistService>(
-      profile_->GetPrefs(),
-      g_browser_process->supervised_user_whitelist_installer(), client_id);
 }
 
 void SupervisedUserService::SetPrimaryPermissionCreatorForTest(
@@ -395,7 +384,7 @@ void SupervisedUserService::
 }
 
 bool SupervisedUserService::CanInstallExtensions() const {
-  return IsSupervisedUserExtensionInstallEnabled() && HasACustodian() &&
+  return HasACustodian() &&
          GetSupervisedUserExtensionsMayRequestPermissionsPref();
 }
 
@@ -478,7 +467,6 @@ void SupervisedUserService::SetActive(bool active) {
     // Initialize the filter.
     OnDefaultFilteringBehaviorChanged();
     OnSafeSitesSettingChanged();
-    allowlist_service_->Init();
     UpdateManualHosts();
     UpdateManualURLs();
 
@@ -627,12 +615,6 @@ void SupervisedUserService::UpdateAsyncUrlChecker() {
   }
 }
 
-void SupervisedUserService::OnSiteListsChanged(
-    const std::vector<scoped_refptr<SupervisedUserSiteList> >& site_lists) {
-  allowlists_ = site_lists;
-  url_filter_.LoadAllowlists(site_lists);
-}
-
 void SupervisedUserService::LoadDenylist(const base::FilePath& path,
                                          const GURL& url) {
   DCHECK(denylist_state_ == DenylistLoadState::NOT_LOADED);
@@ -700,9 +682,9 @@ void SupervisedUserService::OnDenylistFileChecked(const base::FilePath& path,
 
 void SupervisedUserService::LoadDenylistFromFile(const base::FilePath& path) {
   DCHECK(denylist_state_ == DenylistLoadState::LOAD_STARTED);
-  denylist_.ReadFromFile(path,
-                         base::Bind(&SupervisedUserService::OnDenylistLoaded,
-                                    base::Unretained(this)));
+  denylist_.ReadFromFile(
+      path, base::BindRepeating(&SupervisedUserService::OnDenylistLoaded,
+                                base::Unretained(this)));
 }
 
 void SupervisedUserService::OnDenylistDownloadDone(
@@ -778,7 +760,7 @@ void SupervisedUserService::Shutdown() {
 SupervisedUserService::ExtensionState SupervisedUserService::GetExtensionState(
     const Extension& extension) const {
   bool was_installed_by_default = extension.was_installed_by_default();
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // On Chrome OS all external sources are controlled by us so it means that
   // they are "default". Method was_installed_by_default returns false because
   // extensions creation flags are ignored in case of default extensions with
@@ -802,12 +784,6 @@ SupervisedUserService::ExtensionState SupervisedUserService::GetExtensionState(
 
   if (base::Contains(kAllowlistExtensionIds, extension.id())) {
     return ExtensionState::ALLOWED;
-  }
-
-  // Feature flag for gating new behavior.
-  if (!base::FeatureList::IsEnabled(
-          supervised_users::kSupervisedUserInitiatedExtensionInstall)) {
-    return ExtensionState::BLOCKED;
   }
 
   if (ShouldBlockExtension(extension.id())) {

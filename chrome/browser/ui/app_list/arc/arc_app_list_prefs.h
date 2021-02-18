@@ -16,7 +16,6 @@
 
 #include "base/callback.h"
 #include "base/files/file_path.h"
-#include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
@@ -250,6 +249,8 @@ class ArcAppListPrefs : public KeyedService,
 
   static void UprevCurrentIconsVersionForTesting();
 
+  ArcAppListPrefs(const ArcAppListPrefs&) = delete;
+  ArcAppListPrefs& operator=(const ArcAppListPrefs&) = delete;
   ~ArcAppListPrefs() override;
 
   // Returns a list of all app ids, including ready and non-ready apps.
@@ -266,6 +267,9 @@ class ArcAppListPrefs : public KeyedService,
   // nullptr if the package is not found.
   std::unique_ptr<PackageInfo> GetPackage(
       const std::string& package_name) const;
+
+  // Returns true if a package with |package_name| is installed.
+  bool IsPackageInstalled(const std::string& package_name) const;
 
   // Constructs path to app local data.
   base::FilePath GetAppPath(const std::string& app_id) const;
@@ -295,8 +299,14 @@ class ArcAppListPrefs : public KeyedService,
       const std::string& app_id,
       const ArcAppIconDescriptor& descriptor) const;
 
+  // Returns and resets launch request time for the given app id.
+  // Returns base::Time() value if launch request time wasn't recorded.
+  base::Time PollLaunchRequestTime(const std::string& app_id);
+
   // Sets last launched time for the requested app.
   void SetLastLaunchTime(const std::string& app_id);
+  void SetLaunchRequestTimeForTesting(const std::string& app_id,
+                                      base::Time timestamp);
 
   // Calls RequestIcon if no request is recorded.
   void MaybeRequestIcon(const std::string& app_id,
@@ -396,11 +406,6 @@ class ArcAppListPrefs : public KeyedService,
   void OnUninstallShortcut(const std::string& package_name,
                            const std::string& intent_uri) override;
   void OnPackageRemoved(const std::string& package_name) override;
-  // TODO(crbug.com/1083331): Remove this function, when the ARC change is
-  // rolled in Chrome OS.
-  void OnGetIcon(const std::string& app_id,
-                 const ArcAppIconDescriptor& descriptor,
-                 const std::vector<uint8_t>& icon_png_data);
   void OnIcon(const std::string& app_id,
               const ArcAppIconDescriptor& descriptor,
               arc::mojom::RawIconPngDataPtr icon);
@@ -438,6 +443,9 @@ class ArcAppListPrefs : public KeyedService,
 
   void SetDefaultAppsFilterLevel();
   void RegisterDefaultApps();
+
+  // Sets last launched time for the requested app.
+  void SetLastLaunchTimeInternal(const std::string& app_id);
 
   // Returns list of packages from prefs. If |installed| is set to true then
   // returns currently installed packages. If not, returns list of packages that
@@ -608,9 +616,12 @@ class ArcAppListPrefs : public KeyedService,
   // TODO (b/70566216): Remove this once fixed.
   base::OnceClosure app_list_refreshed_callback_;
 
-  base::WeakPtrFactory<ArcAppListPrefs> weak_ptr_factory_{this};
+  // Records launch request time per app id.
+  // Stored runtime and for the current active session only.
+  // Not to be confused with `last_launch_time_`.
+  std::map<const std::string, base::Time> launch_request_times_;
 
-  DISALLOW_COPY_AND_ASSIGN(ArcAppListPrefs);
+  base::WeakPtrFactory<ArcAppListPrefs> weak_ptr_factory_{this};
 };
 
 #endif  // CHROME_BROWSER_UI_APP_LIST_ARC_ARC_APP_LIST_PREFS_H_

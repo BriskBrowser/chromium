@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/bind.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
 #include "chrome/browser/ui/views/page_info/chosen_object_view_observer.h"
@@ -22,6 +23,7 @@
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/grid_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 ChosenObjectView::ChosenObjectView(
     std::unique_ptr<PageInfoUI::ChosenObjectInfo> info,
@@ -72,19 +74,20 @@ ChosenObjectView::ChosenObjectView(
   icon_ = layout->AddView(std::make_unique<views::ImageView>());
 
   // Create the label that displays the chosen object name.
-  auto label =
-      std::make_unique<views::Label>(display_name, CONTEXT_BODY_TEXT_LARGE);
+  auto label = std::make_unique<views::Label>(
+      display_name, views::style::CONTEXT_DIALOG_BODY_TEXT);
   layout->AddView(std::move(label));
 
   // Create the delete button.
   std::unique_ptr<views::ImageButton> delete_button =
-      views::CreateVectorImageButton(this);
+      views::CreateVectorImageButton(base::BindRepeating(
+          [](ChosenObjectView* view) { view->ExecuteDeleteCommand(); }, this));
+
   views::SetImageFromVectorIcon(
       delete_button.get(), vector_icons::kCloseRoundedIcon,
-      views::style::GetColor(*this, CONTEXT_BODY_TEXT_LARGE,
+      views::style::GetColor(*this, views::style::CONTEXT_DIALOG_BODY_TEXT,
                              views::style::STYLE_PRIMARY));
-  delete_button->SetFocusForPlatform();
-  delete_button->set_request_focus_on_press(true);
+  delete_button->SetRequestFocusOnPress(true);
   delete_button->SetTooltipText(
       l10n_util::GetStringUTF16(info_->ui_info.delete_tooltip_string_id));
   delete_button_ = layout->AddView(std::move(delete_button));
@@ -133,8 +136,7 @@ void ChosenObjectView::AddObserver(ChosenObjectViewObserver* observer) {
 
 ChosenObjectView::~ChosenObjectView() {}
 
-void ChosenObjectView::ButtonPressed(views::Button* sender,
-                                     const ui::Event& event) {
+void ChosenObjectView::ExecuteDeleteCommand() {
   // Change the icon to reflect the selected setting.
   UpdateIconImage(/*is_deleted=*/true);
 
@@ -158,3 +160,6 @@ void ChosenObjectView::UpdateIconImage(bool is_deleted) const {
       views::style::GetColor(*this, views::style::CONTEXT_LABEL,
                              views::style::STYLE_PRIMARY)));
 }
+
+BEGIN_METADATA(ChosenObjectView, views::View)
+END_METADATA

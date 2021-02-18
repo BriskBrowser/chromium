@@ -34,13 +34,13 @@
 #include <memory>
 #include <string>
 
+#include "base/test/metrics/histogram_tester.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/platform/web_data.h"
 #include "third_party/blink/public/platform/web_size.h"
 #include "third_party/blink/renderer/platform/graphics/bitmap_image_metrics.h"
 #include "third_party/blink/renderer/platform/image-decoders/image_animation.h"
 #include "third_party/blink/renderer/platform/image-decoders/image_decoder_test_helpers.h"
-#include "third_party/blink/renderer/platform/testing/histogram_tester.h"
 #include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 
 namespace blink {
@@ -49,13 +49,10 @@ static const size_t kLargeEnoughSize = 1000 * 1000;
 
 namespace {
 
-std::unique_ptr<JPEGImageDecoder> CreateJPEGDecoder(
-    size_t max_decoded_bytes,
-    ImageDecoder::OverrideAllowDecodeToYuv allow_decode_to_yuv =
-        ImageDecoder::OverrideAllowDecodeToYuv::kDeny) {
+std::unique_ptr<JPEGImageDecoder> CreateJPEGDecoder(size_t max_decoded_bytes) {
   return std::make_unique<JPEGImageDecoder>(
       ImageDecoder::kAlphaNotPremultiplied, ColorBehavior::TransformToSRGB(),
-      max_decoded_bytes, allow_decode_to_yuv);
+      max_decoded_bytes);
 }
 
 std::unique_ptr<ImageDecoder> CreateJPEGDecoder() {
@@ -81,22 +78,22 @@ void Downsample(size_t max_decoded_bytes,
 void ReadYUV(size_t max_decoded_bytes,
              const char* image_file_path,
              const IntSize& expected_y_size,
-             const IntSize& expected_uv_size) {
+             const IntSize& expected_uv_size,
+             const bool expect_decoding_failure = false) {
   scoped_refptr<SharedBuffer> data = ReadFile(image_file_path);
   ASSERT_TRUE(data);
 
-  std::unique_ptr<JPEGImageDecoder> decoder = CreateJPEGDecoder(
-      max_decoded_bytes, ImageDecoder::OverrideAllowDecodeToYuv::kDefault);
-  decoder->SetDecodeToYuvForTesting(true);
+  std::unique_ptr<JPEGImageDecoder> decoder =
+      CreateJPEGDecoder(max_decoded_bytes);
   decoder->SetData(data.get(), true);
 
   ASSERT_TRUE(decoder->IsSizeAvailable());
   ASSERT_TRUE(decoder->CanDecodeToYUV());
 
   IntSize size = decoder->DecodedSize();
-  IntSize y_size = decoder->DecodedYUVSize(0);
-  IntSize u_size = decoder->DecodedYUVSize(1);
-  IntSize v_size = decoder->DecodedYUVSize(2);
+  IntSize y_size = decoder->DecodedYUVSize(cc::YUVIndex::kY);
+  IntSize u_size = decoder->DecodedYUVSize(cc::YUVIndex::kU);
+  IntSize v_size = decoder->DecodedYUVSize(cc::YUVIndex::kV);
 
   EXPECT_EQ(size, y_size);
   EXPECT_EQ(u_size, v_size);
@@ -105,9 +102,9 @@ void ReadYUV(size_t max_decoded_bytes,
   EXPECT_EQ(expected_uv_size, u_size);
 
   size_t row_bytes[3];
-  row_bytes[0] = decoder->DecodedYUVWidthBytes(0);
-  row_bytes[1] = decoder->DecodedYUVWidthBytes(1);
-  row_bytes[2] = decoder->DecodedYUVWidthBytes(2);
+  row_bytes[0] = decoder->DecodedYUVWidthBytes(cc::YUVIndex::kY);
+  row_bytes[1] = decoder->DecodedYUVWidthBytes(cc::YUVIndex::kU);
+  row_bytes[2] = decoder->DecodedYUVWidthBytes(cc::YUVIndex::kV);
 
   size_t planes_data_size = row_bytes[0] * y_size.Height() +
                             row_bytes[1] * u_size.Height() +
@@ -123,7 +120,9 @@ void ReadYUV(size_t max_decoded_bytes,
       std::make_unique<ImagePlanes>(planes, row_bytes, kGray_8_SkColorType));
 
   decoder->DecodeToYUV();
-  EXPECT_FALSE(decoder->Failed());
+
+  EXPECT_EQ(expect_decoding_failure, decoder->Failed());
+  EXPECT_TRUE(decoder->HasDisplayableYUVData());
 }
 
 }  // anonymous namespace
@@ -217,13 +216,19 @@ TEST(JPEGImageDecoderTest, yuv) {
   scoped_refptr<SharedBuffer> data = ReadFile(jpeg_file);
   ASSERT_TRUE(data);
 
-  std::unique_ptr<JPEGImageDecoder> decoder = CreateJPEGDecoder(
-      230 * 230 * 4, ImageDecoder::OverrideAllowDecodeToYuv::kDefault);
-  decoder->SetDecodeToYuvForTesting(true);
+  std::unique_ptr<JPEGImageDecoder> decoder = CreateJPEGDecoder(230 * 230 * 4);
   decoder->SetData(data.get(), true);
 
   ASSERT_TRUE(decoder->IsSizeAvailable());
   ASSERT_FALSE(decoder->CanDecodeToYUV());
+}
+
+// Tests that a progressive image missing an EOI marker causes a YUV decoding
+// failure but also results in displayable YUV data.
+TEST(JPEGImageDecoderTest, missingEoi) {
+  const char* jpeg_file = "/images/resources/missing-eoi.jpg";  // 1599x899
+  ReadYUV((1599 * 899 * 4), jpeg_file, IntSize(1599, 899), IntSize(800, 450),
+          /*expect_decoding_failure=*/true);
 }
 
 TEST(JPEGImageDecoderTest,
@@ -420,7 +425,7 @@ class ColorSpaceUMATest
 // Tests that the JPEG color space/subsampling is recorded correctly as a UMA
 // for a variety of images. When the decode fails, no UMA should be recorded.
 TEST_P(ColorSpaceUMATest, CorrectColorSpaceRecorded) {
-  HistogramTester histogram_tester;
+  base::HistogramTester histogram_tester;
   scoped_refptr<SharedBuffer> data =
       ReadFile(("/images/resources/" + GetParam().file).c_str());
   ASSERT_TRUE(data);

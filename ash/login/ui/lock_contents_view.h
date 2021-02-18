@@ -27,12 +27,11 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "chromeos/dbus/power/power_manager_client.h"
 #include "chromeos/dbus/power_manager/power_supply_properties.pb.h"
 #include "ui/display/display_observer.h"
 #include "ui/display/screen.h"
-#include "ui/views/controls/styled_label_listener.h"
 #include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 
@@ -42,7 +41,6 @@ class KeyboardUIController;
 
 namespace views {
 class BoxLayout;
-class StyledLabel;
 }  // namespace views
 
 namespace ash {
@@ -69,13 +67,12 @@ class ASH_EXPORT LockContentsView
       public LoginDataDispatcher::Observer,
       public SystemTrayFocusObserver,
       public display::DisplayObserver,
-      public views::StyledLabelListener,
       public KeyboardControllerObserver,
       public chromeos::PowerManagerClient::Observer {
  public:
   METADATA_HEADER(LockContentsView);
   class AuthErrorBubble;
-  class ManagementPopUp;
+  class ManagementBubble;
   class UserState;
 
   enum class BottomIndicatorState {
@@ -96,12 +93,12 @@ class ASH_EXPORT LockContentsView
     ScrollableUsersListView* users_list() const;
     LockScreenMediaControlsView* media_controls_view() const;
     views::View* note_action() const;
-    LoginTooltipView* tooltip_bubble() const;
-    LoginTooltipView* management_bubble() const;
+    views::View* tooltip_bubble() const;
+    views::View* management_bubble() const;
     LoginErrorBubble* auth_error_bubble() const;
     LoginErrorBubble* detachable_base_error_bubble() const;
     LoginErrorBubble* warning_banner_bubble() const;
-    LoginErrorBubble* supervised_user_deprecation_bubble() const;
+    views::View* user_adding_screen_indicator() const;
     views::View* system_info() const;
     views::View* bottom_status_indicator() const;
     BottomIndicatorState bottom_status_indicator_status() const;
@@ -143,7 +140,8 @@ class ASH_EXPORT LockContentsView
 
   void FocusNextUser();
   void FocusPreviousUser();
-  void ShowEntrepriseDomainName(const std::string& entreprise_domain_name);
+  void ShowEnterpriseDomainManager(
+      const std::string& entreprise_domain_manager);
   void ShowAdbEnabled();
   void ToggleSystemInfo();
   void ShowParentAccessDialog();
@@ -172,6 +170,9 @@ class ASH_EXPORT LockContentsView
   void OnAuthDisabledForUser(
       const AccountId& user,
       const AuthDisabledData& auth_disabled_data) override;
+  void OnSetTpmLockedState(const AccountId& user,
+                           bool is_locked,
+                           base::TimeDelta time_left) override;
   void OnLockScreenNoteStateChanged(mojom::TrayActionState state) override;
   void OnTapToUnlockEnabledForUserChanged(const AccountId& user,
                                           bool enabled) override;
@@ -213,11 +214,6 @@ class ASH_EXPORT LockContentsView
   void OnDisplayMetricsChanged(const display::Display& display,
                                uint32_t changed_metrics) override;
 
-  // views::StyledLabelListener:
-  void StyledLabelLinkClicked(views::StyledLabel* label,
-                              const gfx::Range& range,
-                              int event_flags) override {}
-
   // KeyboardControllerObserver:
   void OnKeyboardVisibilityChanged(bool is_visible) override;
 
@@ -249,8 +245,10 @@ class ASH_EXPORT LockContentsView
     bool disable_auth = false;
     bool show_pin_pad_for_password = false;
     size_t autosubmit_pin_length = 0;
-    base::Optional<EasyUnlockIconOptions> easy_unlock_state;
+    base::Optional<EasyUnlockIconOptions> easy_unlock_state = base::nullopt;
     FingerprintState fingerprint_state;
+    // When present, indicates that the TPM is locked.
+    base::Optional<base::TimeDelta> time_until_tpm_unlock = base::nullopt;
 
    private:
     DISALLOW_COPY_AND_ASSIGN(UserState);
@@ -301,6 +299,10 @@ class ASH_EXPORT LockContentsView
   // is shown if ADB is enabled and at the initialization of lock screen if the
   // device is enrolled.
   void LayoutBottomStatusIndicator();
+
+  // Lay out the user adding screen indicator. This is called when a secondary
+  // user is being added.
+  void LayoutUserAddingScreenIndicator();
 
   // Lay out the expanded public session view.
   void LayoutPublicSessionView();
@@ -370,6 +372,8 @@ class ASH_EXPORT LockContentsView
 
   // Called when the public account is tapped.
   void OnPublicAccountTapped(bool is_primary);
+
+  void LearnMoreButtonPressed();
 
   // Helper method to allocate a LoginBigUserView instance.
   std::unique_ptr<LoginBigUserView> AllocateLoginBigUserView(
@@ -446,8 +450,8 @@ class ASH_EXPORT LockContentsView
   // all actions are executed.
   std::vector<DisplayLayoutAction> layout_actions_;
 
-  ScopedObserver<display::Screen, display::DisplayObserver> display_observer_{
-      this};
+  base::ScopedObservation<display::Screen, display::DisplayObserver>
+      display_observation_{this};
 
   // All error bubbles and the tooltip view are child views of LockContentsView,
   // and will be torn down when LockContentsView is torn down.
@@ -458,11 +462,12 @@ class ASH_EXPORT LockContentsView
   // Bubble for displaying easy-unlock tooltips.
   LoginTooltipView* tooltip_bubble_;
   // Bubble for displaying management details.
-  ManagementPopUp* management_bubble_;
+  ManagementBubble* management_bubble_;
+  // Indicator at top of screen for displaying a warning message when a
+  // secondary user is being added.
+  views::View* user_adding_screen_indicator_ = nullptr;
   // Bubble for displaying warning banner message.
   LoginErrorBubble* warning_banner_bubble_;
-  // Bubble for displaying supervised user deprecation message.
-  LoginErrorBubble* supervised_user_deprecation_bubble_;
 
   // Bottom status indicator displaying entreprise domain or ADB enabled alert
   BottomStatusIndicator* bottom_status_indicator_;

@@ -21,7 +21,7 @@ import androidx.annotation.VisibleForTesting;
 import org.chromium.base.UserData;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.help.HelpAndFeedback;
+import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncherImpl;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.components.ui_metrics.SadTabEvent;
 import org.chromium.content_public.browser.LoadUrlParams;
@@ -29,6 +29,7 @@ import org.chromium.ui.text.NoUnderlineClickableSpan;
 import org.chromium.ui.text.SpanApplier;
 import org.chromium.ui.text.SpanApplier.SpanInfo;
 import org.chromium.ui.widget.ChromeBulletSpan;
+import org.chromium.url.GURL;
 
 /**
  * Represent the sad tab displayed in place of a crashed renderer. Instantiated on the first
@@ -89,7 +90,7 @@ public class SadTab extends EmptyTabObserver implements UserData, TabViewProvide
             public void run() {
                 Activity activity = mTab.getWindowAndroid().getActivity().get();
                 assert activity != null;
-                HelpAndFeedback.getInstance().show(activity,
+                HelpAndFeedbackLauncherImpl.getInstance().show(activity,
                         activity.getString(R.string.help_context_sad_tab),
                         Profile.fromWebContents(mTab.getWebContents()), null);
             }
@@ -139,12 +140,12 @@ public class SadTab extends EmptyTabObserver implements UserData, TabViewProvide
     }
 
     @Override
-    public void onPageLoadStarted(Tab tab, String url) {
+    public void onPageLoadStarted(Tab tab, GURL url) {
         removeIfPresent();
     }
 
     @Override
-    public void onPageLoadFinished(Tab tab, String url) {
+    public void onPageLoadFinished(Tab tab, GURL url) {
         // Reset the succressiveRefresh counter after successfully loading a page.
         mSadTabSuccessiveRefreshCounter = 0;
         removeIfPresent();

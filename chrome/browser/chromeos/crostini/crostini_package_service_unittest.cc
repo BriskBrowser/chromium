@@ -8,7 +8,7 @@
 #include <string>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
@@ -191,7 +191,7 @@ class CrostiniPackageServiceTest : public testing::Test {
     std::string mount_point_name =
         file_manager::util::GetDownloadsMountPointName(profile_.get());
     mount_points->RegisterFileSystem(
-        mount_point_name, storage::kFileSystemTypeNativeLocal,
+        mount_point_name, storage::kFileSystemTypeLocal,
         storage::FileSystemMountOption(),
         file_manager::util::GetDownloadsFolderForProfile(profile_.get()));
     package_file_url_ = mount_points->CreateExternalFileSystemURL(

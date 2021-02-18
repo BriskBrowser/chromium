@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "ash/ambient/ui/ambient_view_ids.h"
 #include "ash/assistant/model/assistant_interaction_model.h"
 #include "ash/assistant/model/assistant_ui_model.h"
 #include "ash/assistant/ui/assistant_view_delegate.h"
@@ -16,16 +17,17 @@
 #include "ash/strings/grit/ash_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/views/layout/box_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace ash {
 
 AmbientAssistantDialogPlate::AmbientAssistantDialogPlate(
     AssistantViewDelegate* delegate)
     : delegate_(delegate) {
-  SetID(AssistantViewID::kAmbientAssistantDialogPlate);
+  SetID(AmbientViewID::kAmbientAssistantDialogPlate);
   InitLayout();
 
-  assistant_controller_observer_.Add(AssistantController::Get());
+  assistant_controller_observation_.Observe(AssistantController::Get());
   AssistantInteractionController::Get()->GetModel()->AddObserver(this);
 }
 
@@ -34,17 +36,15 @@ AmbientAssistantDialogPlate::~AmbientAssistantDialogPlate() {
     AssistantInteractionController::Get()->GetModel()->RemoveObserver(this);
 }
 
-const char* AmbientAssistantDialogPlate::GetClassName() const {
-  return "AmbientAssistantDialogPlate";
-}
-
 void AmbientAssistantDialogPlate::OnButtonPressed(AssistantButtonId button_id) {
   delegate_->OnDialogPlateButtonPressed(button_id);
 }
 
 void AmbientAssistantDialogPlate::OnAssistantControllerDestroying() {
   AssistantInteractionController::Get()->GetModel()->RemoveObserver(this);
-  assistant_controller_observer_.Remove(AssistantController::Get());
+  DCHECK(assistant_controller_observation_.IsObservingSource(
+      AssistantController::Get()));
+  assistant_controller_observation_.Reset();
 }
 
 void AmbientAssistantDialogPlate::OnCommittedQueryChanged(
@@ -73,5 +73,8 @@ void AmbientAssistantDialogPlate::InitLayout() {
   // Voice input query view.
   voice_query_view_ = AddChildView(std::make_unique<AssistantQueryView>());
 }
+
+BEGIN_METADATA(AmbientAssistantDialogPlate, views::View)
+END_METADATA
 
 }  // namespace ash

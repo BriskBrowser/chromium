@@ -9,16 +9,16 @@
 #include "ash/public/cpp/login_screen_model.h"
 #include "ash/public/cpp/login_types.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
+#include "chrome/browser/ash/accessibility/accessibility_manager.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/certificate_provider/certificate_provider_service.h"
 #include "chrome/browser/chromeos/certificate_provider/certificate_provider_service_factory.h"
 #include "chrome/browser/chromeos/input_method/mock_input_method_manager_impl.h"
 #include "chrome/browser/chromeos/lock_screen_apps/state_controller.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/device_settings_test_helper.h"
 #include "chrome/browser/chromeos/settings/scoped_testing_cros_settings.h"
 #include "chrome/browser/ui/ash/accessibility/fake_accessibility_controller.h"
@@ -36,6 +36,7 @@
 #include "chromeos/dbus/biod/biod_client.h"
 #include "chromeos/dbus/cryptohome/cryptohome_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/dbus/tpm_manager/tpm_manager_client.h"
 #include "chromeos/login/login_state/login_state.h"
 #include "chromeos/login/session/session_termination_manager.h"
 #include "chromeos/system/fake_statistics_provider.h"
@@ -73,6 +74,7 @@ class ScreenLockerUnitTest : public testing::Test {
     DBusThreadManager::Initialize();
     BiodClient::InitializeFake();
     CrasAudioClient::InitializeFake();
+    TpmManagerClient::InitializeFake();
     CryptohomeClient::InitializeFake();
 
     // MojoSystemInfoDispatcher dependency:
@@ -137,6 +139,7 @@ class ScreenLockerUnitTest : public testing::Test {
     LoginState::Shutdown();
     bluez::BluezDBusManager::Shutdown();
     CryptohomeClient::Shutdown();
+    TpmManagerClient::Shutdown();
     CrasAudioClient::Shutdown();
     BiodClient::Shutdown();
     DBusThreadManager::Shutdown();
@@ -191,7 +194,7 @@ TEST_F(ScreenLockerUnitTest, VerifyAshIsNotifiedOfScreenLocked) {
   base::RunLoop().RunUntilIdle();
 }
 
-// Tests that |GetUsersToShow()| returns an empty list when the user is a
+// Tests that `GetUsersToShow()` returns an empty list when the user is a
 // Managed Guest Session.
 TEST_F(ScreenLockerUnitTest, GetUsersToShow) {
   CreateSessionForUser(/*is_public_account=*/true);

@@ -2,10 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/test/scoped_feature_list.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/login/login_manager_test.h"
 #include "chrome/browser/chromeos/login/test/login_manager_mixin.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_key.h"
@@ -16,7 +15,6 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "components/account_id/account_id.h"
 #include "components/google/core/common/google_switches.h"
 #include "components/network_session_configurator/common/network_switches.h"
@@ -47,7 +45,7 @@ void TestMirrorRequestForProfile(net::EmbeddedTestServer* test_server,
   replace_host.SetHostStr(kGaiaDomain);
   gaia_url = gaia_url.ReplaceComponents(replace_host);
 
-  Browser* browser = new Browser(Browser::CreateParams(profile, true));
+  Browser* browser = Browser::Create(Browser::CreateParams(profile, true));
   ui_test_utils::NavigateToURLWithDisposition(
       browser, gaia_url, WindowOpenDisposition::SINGLETON_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
@@ -126,11 +124,16 @@ IN_PROC_BROWSER_TEST_F(ChromeOsMirrorAccountConsistencyTest,
   PrefService* prefs = profile->GetPrefs();
   prefs->SetInteger(prefs::kIncognitoModeAvailability,
                     IncognitoModePrefs::DISABLED);
-
   ASSERT_EQ(1, signin::PROFILE_MODE_INCOGNITO_DISABLED);
+
+  // TODO(http://crbug.com/1134144): This test seems to test supervised profiles
+  // instead of child accounts. With the current implementation,
+  // X-Chrome-Connected header gets a supervised=true argument only for child
+  // profiles. Verify if these tests needs to be updated to use child accounts
+  // or whether supervised profiles need to be supported as well.
   TestMirrorRequestForProfile(
       test_server_.get(), profile,
-      "source=Chrome,mode=1,enable_account_consistency=true,"
+      "source=Chrome,mode=1,enable_account_consistency=true,supervised=false,"
       "consistency_enabled_by_default=false");
 }
 
@@ -150,6 +153,6 @@ IN_PROC_BROWSER_TEST_F(ChromeOsMirrorAccountConsistencyTest,
       AccountConsistencyModeManager::IsMirrorEnabledForProfile(profile));
   TestMirrorRequestForProfile(
       test_server_.get(), profile,
-      "source=Chrome,mode=0,enable_account_consistency=true,"
+      "source=Chrome,mode=0,enable_account_consistency=true,supervised=false,"
       "consistency_enabled_by_default=false");
 }

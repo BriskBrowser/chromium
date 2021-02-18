@@ -17,8 +17,8 @@
 #include "base/optional.h"
 #include "base/time/clock.h"
 #include "components/autofill/core/common/mojom/autofill_types.mojom.h"
-#include "components/autofill/core/common/password_form.h"
 #include "components/autofill/core/common/signatures.h"
+#include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
@@ -64,7 +64,7 @@ class PasswordFormMetricsRecorder
   enum ManagerAction {
     kManagerActionNone = 0,
     kManagerActionAutofilled,
-    kManagerActionBlacklisted_Obsolete,
+    kManagerActionBlocklisted_Obsolete,
     kManagerActionMax
   };
 
@@ -170,6 +170,7 @@ class PasswordFormMetricsRecorder
     kNotShown = 0,
     kShownAutomatically = 1,
     kShownManually = 2,
+    kMaxValue = kShownManually,
   };
 
   // Metric: PasswordGeneration.UserDecision
@@ -254,12 +255,12 @@ class PasswordFormMetricsRecorder
     kNoSavedCredentials = 5,
     // Neither user input nor filling.
     kNoUserInputNoFillingInPasswordFields = 6,
-    // Domain is blacklisted and no other credentials exist.
-    kNoSavedCredentialsAndBlacklisted = 7,
+    // Domain is blocklisted and no other credentials exist.
+    kNoSavedCredentialsAndBlocklisted = 7,
     // No credentials exist and the user has ignored the save bubble too often,
     // meaning that they won't be asked to save credentials anymore.
-    kNoSavedCredentialsAndBlacklistedBySmartBubble = 8,
-    kMaxValue = kNoSavedCredentialsAndBlacklistedBySmartBubble,
+    kNoSavedCredentialsAndBlocklistedBySmartBubble = 8,
+    kMaxValue = kNoSavedCredentialsAndBlocklistedBySmartBubble,
   };
 
   // Records which store(s) a filled password came from.
@@ -374,11 +375,11 @@ class PasswordFormMetricsRecorder
   // the successful submission is detected.
   void CalculateFillingAssistanceMetric(
       const autofill::FormData& submitted_form,
-      const std::set<std::pair<base::string16, autofill::PasswordForm::Store>>&
+      const std::set<std::pair<base::string16, PasswordForm::Store>>&
           saved_usernames,
-      const std::set<std::pair<base::string16, autofill::PasswordForm::Store>>&
+      const std::set<std::pair<base::string16, PasswordForm::Store>>&
           saved_passwords,
-      bool is_blacklisted,
+      bool is_blocklisted,
       const std::vector<InteractionsStats>& interactions_stats,
       metrics_util::PasswordAccountStorageUsageLevel
           account_storage_usage_level);

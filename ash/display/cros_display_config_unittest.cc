@@ -16,7 +16,7 @@
 #include "ash/wm/tablet_mode/tablet_mode_controller_test_api.h"
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/stl_util.h"
+#include "base/containers/contains.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/test/scoped_feature_list.h"
 #include "mojo/public/cpp/bindings/associated_receiver.h"
@@ -230,8 +230,7 @@ TEST_F(CrosDisplayConfigTest, OnDisplayConfigChanged) {
   TestObserver observer;
   mojo::AssociatedRemote<mojom::CrosDisplayConfigObserver> observer_remote;
   mojo::AssociatedReceiver<mojom::CrosDisplayConfigObserver> receiver(
-      &observer,
-      observer_remote.BindNewEndpointAndPassDedicatedReceiverForTesting());
+      &observer, observer_remote.BindNewEndpointAndPassDedicatedReceiver());
   cros_display_config()->AddObserver(observer_remote.Unbind());
   base::RunLoop().RunUntilIdle();
 
@@ -751,8 +750,7 @@ TEST_F(CrosDisplayConfigTest, TabletModeAutoRotation) {
   TestObserver observer;
   mojo::AssociatedRemote<mojom::CrosDisplayConfigObserver> observer_remote;
   mojo::AssociatedReceiver<mojom::CrosDisplayConfigObserver> receiver(
-      &observer,
-      observer_remote.BindNewEndpointAndPassDedicatedReceiverForTesting());
+      &observer, observer_remote.BindNewEndpointAndPassDedicatedReceiver());
   cros_display_config()->AddObserver(observer_remote.Unbind());
   base::RunLoop().RunUntilIdle();
 

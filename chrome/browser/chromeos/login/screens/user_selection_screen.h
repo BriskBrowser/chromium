@@ -5,7 +5,7 @@
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_SCREENS_USER_SELECTION_SCREEN_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_SCREENS_USER_SELECTION_SCREEN_H_
 
-#include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -13,39 +13,42 @@
 #include "ash/public/cpp/session/user_info.h"
 #include "base/compiler_specific.h"
 #include "base/macros.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "base/values.h"
+#include "chrome/browser/ash/system/system_clock.h"
+#include "chrome/browser/chromeos/login/saml/password_sync_token_checkers_collection.h"
 #include "chrome/browser/chromeos/login/screens/base_screen.h"
 #include "chrome/browser/chromeos/login/signin/token_handle_util.h"
 #include "chrome/browser/chromeos/login/ui/login_display.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chromeos/components/proximity_auth/screenlock_bridge.h"
+#include "chromeos/dbus/cryptohome/rpc.pb.h"
 #include "components/account_id/account_id.h"
 #include "components/session_manager/core/session_manager_observer.h"
 #include "components/user_manager/user.h"
 #include "ui/base/ime/chromeos/ime_keyboard.h"
 #include "ui/base/ime/chromeos/input_method_manager.h"
-#include "ui/base/user_activity/user_activity_observer.h"
 
 class AccountId;
 
 namespace chromeos {
 
 class EasyUnlockService;
-class LoginDisplayWebUIHandler;
 class UserBoardView;
+
+enum class DisplayedScreen { SIGN_IN_SCREEN, USER_ADDING_SCREEN, LOCK_SCREEN };
 
 // This class represents User Selection screen: user pod-based login screen.
 class UserSelectionScreen
-    : public ui::UserActivityObserver,
-      public proximity_auth::ScreenlockBridge::LockHandler,
+    : public proximity_auth::ScreenlockBridge::LockHandler,
       public BaseScreen,
-      public session_manager::SessionManagerObserver {
+      public session_manager::SessionManagerObserver,
+      public PasswordSyncTokenLoginChecker::Observer {
  public:
-  explicit UserSelectionScreen(const std::string& display_type);
+  explicit UserSelectionScreen(DisplayedScreen display_type);
   ~UserSelectionScreen() override;
 
-  void SetHandler(LoginDisplayWebUIHandler* handler);
   void SetView(UserBoardView* view);
 
   static const user_manager::UserList PrepareUserListForSending(
@@ -54,27 +57,19 @@ class UserSelectionScreen
       bool is_signin_to_add);
 
   virtual void Init(const user_manager::UserList& users);
-  void OnUserImageChanged(const user_manager::User& user);
 
-  void OnPasswordClearTimerExpired();
-
-  void HandleGetUsers();
   void CheckUserStatus(const AccountId& account_id);
   void HandleFocusPod(const AccountId& account_id);
   void HandleNoPodFocused();
   void OnBeforeShow();
 
-  // Build list of users and send it to the webui.
-  virtual void SendUserList();
-
   // Methods for easy unlock support.
   void HardLockPod(const AccountId& account_id);
   void AttemptEasyUnlock(const AccountId& account_id);
 
-  // ui::UserActivityDetector implementation:
-  void OnUserActivity(const ui::Event* event) override;
-
   void InitEasyUnlock();
+
+  void SetTpmLockedState(bool is_locked, base::TimeDelta time_left);
 
   // proximity_auth::ScreenlockBridge::LockHandler implementation:
   void ShowBannerMessage(const base::string16& message,
@@ -101,28 +96,16 @@ class UserSelectionScreen
   // session_manager::SessionManagerObserver
   void OnSessionStateChanged() override;
 
-  // Fills |user_dict| with information about |user|.
-  static void FillUserDictionary(
-      const user_manager::User* user,
-      bool is_owner,
-      bool is_signin_to_add,
-      proximity_auth::mojom::AuthType auth_type,
-      const std::vector<std::string>* public_session_recommended_locales,
-      base::DictionaryValue* user_dict);
-
-  // Fills |user_dict| with |user| multi-profile related preferences.
-  static void FillMultiProfileUserPrefs(const user_manager::User* user,
-                                        base::DictionaryValue* user_dict,
-                                        bool is_signin_to_add);
+  // PasswordSyncTokenLoginChecker::Observer
+  void OnInvalidSyncToken(const AccountId& account_id) override;
 
   // Determines if user auth status requires online sign in.
   static bool ShouldForceOnlineSignIn(const user_manager::User* user);
 
-  // Builds a |UserAvatar| instance which contains the current image for |user|.
+  // Builds a `UserAvatar` instance which contains the current image for `user`.
   static ash::UserAvatar BuildAshUserAvatarForUser(
       const user_manager::User& user);
 
-  std::unique_ptr<base::ListValue> UpdateAndReturnUserListForWebUI();
   std::vector<ash::LoginUserInfo> UpdateAndReturnUserListForAsh();
   void SetUsersLoaded(bool loaded);
 
@@ -144,6 +127,7 @@ class UserSelectionScreen
 
  private:
   class DircryptoMigrationChecker;
+  class TpmLockedChecker;
 
   EasyUnlockService* GetEasyUnlockServiceForUser(
       const AccountId& account_id) const;
@@ -152,10 +136,8 @@ class UserSelectionScreen
                            TokenHandleUtil::TokenHandleStatus status);
   void OnAllowedInputMethodsChanged();
 
-  LoginDisplayWebUIHandler* handler_ = nullptr;
-
-  // Purpose of the screen (see constants in OobeUI).
-  const std::string display_type_;
+  // Purpose of the screen.
+  const DisplayedScreen display_type_;
 
   // Set of Users that are visible.
   user_manager::UserList users_;
@@ -173,9 +155,14 @@ class UserSelectionScreen
   // Helper to check whether a user needs dircrypto migration.
   std::unique_ptr<DircryptoMigrationChecker> dircrypto_migration_checker_;
 
+  // Helper to check whether TPM is locked or not.
+  std::unique_ptr<TpmLockedChecker> tpm_locked_checker_;
+
   user_manager::UserList users_to_send_;
 
   AccountId focused_pod_account_id_;
+  base::Optional<system::SystemClock::ScopedHourClockType>
+      focused_user_clock_type_;
 
   // Sometimes we might get focused pod while user session is still active. e.g.
   // while creating lock screen. So postpone any work until after the session
@@ -185,8 +172,11 @@ class UserSelectionScreen
   // Input Method Engine state used at the user selection screen.
   scoped_refptr<input_method::InputMethodManager::State> ime_state_;
 
-  std::unique_ptr<CrosSettings::ObserverSubscription>
-      allowed_input_methods_subscription_;
+  base::CallbackListSubscription allowed_input_methods_subscription_;
+
+  // Collection of verifiers that check validity of password sync token for SAML
+  // users corresponding to visible pods.
+  std::unique_ptr<PasswordSyncTokenCheckersCollection> sync_token_checkers_;
 
   base::WeakPtrFactory<UserSelectionScreen> weak_factory_{this};
 

@@ -80,26 +80,36 @@ size_t GetDiscardedTokenCountForTesting() {
   return g_discarded_token_count_for_testing;
 }
 
-// This sets the maximum number of tokens which the foreground HTML parser
-// should try to process in one go. Lower values generally mean faster first
-// paints, larger values delay first paint, but make sure it's closer to the
-// final page. This value gives a good speedup, but may need to be tuned
-// further.
-constexpr int kMaxTokenizationBudget = 500;
+// This sets the (default) maximum number of tokens which the foreground HTML
+// parser should try to process in one go. Lower values generally mean faster
+// first paints, larger values delay first paint, but make sure it's closer to
+// the final page. This is the default value to use, if no Finch-provided
+// value exists.
+constexpr int kDefaultMaxTokenizationBudget = 250;
+
+class EndIfDelayedForbiddenScope;
+class ShouldCompleteScope;
+class AttemptToEndForbiddenScope;
 
 // This class encapsulates the internal state needed for synchronous foreground
 // HTML parsing (e.g. if HTMLDocumentParser::PumpTokenizer yields, this class
 // tracks what should be done after the pump completes.)
 class HTMLDocumentParserState
     : public GarbageCollected<HTMLDocumentParserState> {
+  friend EndIfDelayedForbiddenScope;
+  friend ShouldCompleteScope;
+  friend AttemptToEndForbiddenScope;
+
  public:
+  // Keeps track of whether the parser needs to complete tokenization work,
+  // optionally followed by EndIfDelayed.
   enum class DeferredParserState {
     // Indicates that a tokenizer pump has either completed or hasn't been
     // scheduled.
-    kNotScheduled,
+    kNotScheduled = 0,  // Enforce ordering in this enum.
     // Indicates that a tokenizer pump is scheduled and hasn't completed yet.
     kScheduled = 1,
-    // Indicates that a tokenizer pump, followed by EndIfDelayed, is scheduled
+    // Indicates that a tokenizer pump, followed by EndIfDelayed, is scheduled.
     kScheduledWithEndIfDelayed = 2
   };
 
@@ -122,17 +132,21 @@ class HTMLDocumentParserState
       : state_(DeferredParserState::kNotScheduled),
         meta_csp_state_(MetaCSPTokenState::kNotSeen),
         mode_(mode),
-        end_if_delayed_(false),
-        should_complete_(false) {}
+        end_if_delayed_forbidden_(0),
+        should_complete_(0),
+        should_attempt_to_end_on_eof_(0),
+        needs_link_header_dispatch_(true),
+        have_seen_first_byte_(false) {}
 
   void Trace(Visitor* v) const {}
 
-  void SetState(DeferredParserState state) { state_ = state; }
-  DeferredParserState GetState() const { return state_; }
-  bool IsScheduled() const { return state_ == DeferredParserState::kScheduled; }
-  bool IsScheduledToDelayEnd() const {
-    return state_ == DeferredParserState::kScheduledWithEndIfDelayed;
+  void SetState(DeferredParserState state) {
+    DCHECK(!(state == DeferredParserState::kScheduled && ShouldComplete()));
+    state_ = state;
   }
+  DeferredParserState GetState() const { return state_; }
+
+  bool IsScheduled() const { return state_ >= DeferredParserState::kScheduled; }
   const char* GetStateAsString() const {
     switch (state_) {
       case DeferredParserState::kNotScheduled:
@@ -140,18 +154,35 @@ class HTMLDocumentParserState
       case DeferredParserState::kScheduled:
         return "scheduled";
       case DeferredParserState::kScheduledWithEndIfDelayed:
-        return "scheduled_with_synchronous_end_if_delayed";
+        return "scheduled_with_end_if_delayed";
     }
   }
 
-  bool HasPendingWorkScheduled() const {
-    return IsScheduled() || IsScheduledToDelayEnd() || ShouldEndIfDelayed();
+  bool NeedsLinkHeaderPreloadsDispatch() const {
+    return needs_link_header_dispatch_;
+  }
+  void DispatchedLinkHeaderPreloads() { needs_link_header_dispatch_ = false; }
+
+  bool HaveSeenFirstByte() const { return have_seen_first_byte_; }
+  void SetHaveSeenFirstByte() { have_seen_first_byte_ = true; }
+
+  // Keeps track of whether Document::Finish has been called whilst parsing
+  // asynchronously. ShouldAttemptToEndOnEOF() means that the parser should
+  // close when there's no more input.
+  bool ShouldAttemptToEndOnEOF() const {
+    return should_attempt_to_end_on_eof_ > 0;
+  }
+  void SetAttemptToEndOnEOF() {
+    // This method should only be called from ::Finish.
+    should_attempt_to_end_on_eof_++;
+    // Should only ever call ::Finish once.
+    DCHECK(should_attempt_to_end_on_eof_ < 2);
   }
 
-  void SetEndIfDelayed(bool value) { end_if_delayed_ = value; }
-  void SetShouldComplete(bool value) { should_complete_ = value; }
-  bool ShouldEndIfDelayed() const { return end_if_delayed_; }
-  bool ShouldComplete() const { return should_complete_; }
+  bool ShouldEndIfDelayed() const { return end_if_delayed_forbidden_ == 0; }
+  bool ShouldComplete() const {
+    return should_complete_ || GetMode() != kAllowDeferredParsing;
+  }
   bool IsSynchronous() const {
     return mode_ == ParserSynchronizationPolicy::kForceSynchronousParsing;
   }
@@ -174,11 +205,73 @@ class HTMLDocumentParserState
   }
 
  private:
+  void EnterEndIfDelayedForbidden() { end_if_delayed_forbidden_++; }
+  void ExitEndIfDelayedForbidden() {
+    end_if_delayed_forbidden_--;
+    DCHECK_GE(end_if_delayed_forbidden_, 0);
+  }
+
+  void EnterAttemptToEndForbidden() {
+    DCHECK(should_attempt_to_end_on_eof_ > 0);
+    should_attempt_to_end_on_eof_ = 0;
+  }
+
+  void EnterShouldComplete() { should_complete_++; }
+  void ExitShouldComplete() {
+    should_complete_--;
+    DCHECK_GE(should_complete_, 0);
+  }
+
   DeferredParserState state_;
   MetaCSPTokenState meta_csp_state_;
   ParserSynchronizationPolicy mode_;
-  bool end_if_delayed_;
-  bool should_complete_;
+  int end_if_delayed_forbidden_;
+  int should_complete_;
+  // Set to non-zero if Document::Finish has been called and we're operating
+  // asynchronously.
+  int should_attempt_to_end_on_eof_;
+  bool needs_link_header_dispatch_;
+  bool have_seen_first_byte_;
+};
+
+class EndIfDelayedForbiddenScope {
+  STACK_ALLOCATED();
+
+ public:
+  explicit EndIfDelayedForbiddenScope(HTMLDocumentParserState* state)
+      : state_(state) {
+    state_->EnterEndIfDelayedForbidden();
+  }
+  ~EndIfDelayedForbiddenScope() { state_->ExitEndIfDelayedForbidden(); }
+
+ private:
+  HTMLDocumentParserState* state_;
+};
+
+class AttemptToEndForbiddenScope {
+  STACK_ALLOCATED();
+
+ public:
+  explicit AttemptToEndForbiddenScope(HTMLDocumentParserState* state)
+      : state_(state) {
+    state_->EnterAttemptToEndForbidden();
+  }
+
+ private:
+  HTMLDocumentParserState* state_;
+};
+
+class ShouldCompleteScope {
+  STACK_ALLOCATED();
+
+ public:
+  explicit ShouldCompleteScope(HTMLDocumentParserState* state) : state_(state) {
+    state_->EnterShouldComplete();
+  }
+  ~ShouldCompleteScope() { state_->ExitShouldComplete(); }
+
+ private:
+  HTMLDocumentParserState* state_;
 };
 
 // This is a direct transcription of step 4 from:
@@ -239,24 +332,42 @@ class ScopedYieldTimer {
 };
 
 HTMLDocumentParser::HTMLDocumentParser(HTMLDocument& document,
-                                       ParserSynchronizationPolicy sync_policy)
-    : HTMLDocumentParser(document, kAllowScriptingContent, sync_policy) {
+                                       ParserSynchronizationPolicy sync_policy,
+                                       ParserPrefetchPolicy prefetch_policy)
+    : HTMLDocumentParser(document,
+                         kAllowScriptingContent,
+                         sync_policy,
+                         prefetch_policy) {
   script_runner_ =
       HTMLParserScriptRunner::Create(ReentryPermit(), &document, this);
+
+  // Allow declarative shadow DOM for the document parser, if not explicitly
+  // disabled.
+  bool include_shadow_roots = document.GetDeclarativeShadowRootAllowState() !=
+                              Document::DeclarativeShadowRootAllowState::kDeny;
   tree_builder_ = MakeGarbageCollected<HTMLTreeBuilder>(
-      this, document, kAllowScriptingContent, options_);
+      this, document, kAllowScriptingContent, options_, include_shadow_roots);
 }
 
 HTMLDocumentParser::HTMLDocumentParser(
     DocumentFragment* fragment,
     Element* context_element,
-    ParserContentPolicy parser_content_policy)
+    ParserContentPolicy parser_content_policy,
+    ParserPrefetchPolicy parser_prefetch_policy)
     : HTMLDocumentParser(fragment->GetDocument(),
                          parser_content_policy,
-                         kForceSynchronousParsing) {
+                         kForceSynchronousParsing,
+                         parser_prefetch_policy) {
+  // Allow declarative shadow DOM for the fragment parser only if explicitly
+  // enabled.
+  bool include_shadow_roots =
+      fragment->GetDocument().GetDeclarativeShadowRootAllowState() ==
+      Document::DeclarativeShadowRootAllowState::kAllow;
+
   // No script_runner_ in fragment parser.
   tree_builder_ = MakeGarbageCollected<HTMLTreeBuilder>(
-      this, fragment, context_element, parser_content_policy, options_);
+      this, fragment, context_element, parser_content_policy, options_,
+      include_shadow_roots);
 
   // For now document fragment parsing never reports errors.
   bool report_errors = false;
@@ -264,9 +375,19 @@ HTMLDocumentParser::HTMLDocumentParser(
       context_element, report_errors, options_));
 }
 
+namespace {
+int GetMaxTokenizationBudget() {
+  static int max = base::GetFieldTrialParamByFeatureAsInt(
+      features::kForceSynchronousHTMLParsing, "MaxTokenizationBudget",
+      kDefaultMaxTokenizationBudget);
+  return max;
+}
+}  // namespace
+
 HTMLDocumentParser::HTMLDocumentParser(Document& document,
                                        ParserContentPolicy content_policy,
-                                       ParserSynchronizationPolicy sync_policy)
+                                       ParserSynchronizationPolicy sync_policy,
+                                       ParserPrefetchPolicy prefetch_policy)
     : ScriptableDocumentParser(document, content_policy),
       options_(&document),
       reentry_permit_(HTMLParserReentryPermit::Create()),
@@ -319,6 +440,8 @@ HTMLDocumentParser::HTMLDocumentParser(Document& document,
         document.UkmSourceID(), document.UkmRecorder());
   }
 
+  max_tokenization_budget_ = GetMaxTokenizationBudget();
+
   // Don't create preloader for parsing clipboard content.
   if (content_policy == kDisallowScriptingAndPluginContent)
     return;
@@ -333,7 +456,8 @@ HTMLDocumentParser::HTMLDocumentParser(Document& document,
       !document.IsPrefetchOnly())
     return;
 
-  preloader_ = MakeGarbageCollected<HTMLResourcePreloader>(document);
+  if (prefetch_policy == kAllowPrefetching)
+    preloader_ = MakeGarbageCollected<HTMLResourcePreloader>(document);
 }
 
 HTMLDocumentParser::~HTMLDocumentParser() = default;
@@ -356,7 +480,7 @@ void HTMLDocumentParser::Trace(Visitor* visitor) const {
 }
 
 bool HTMLDocumentParser::HasPendingWorkScheduledForTesting() const {
-  return task_runner_state_->HasPendingWorkScheduled();
+  return task_runner_state_->IsScheduled();
 }
 
 void HTMLDocumentParser::Detach() {
@@ -365,7 +489,6 @@ void HTMLDocumentParser::Detach() {
   // Deschedule any pending tokenizer pumps.
   task_runner_state_->SetState(
       HTMLDocumentParserState::DeferredParserState::kNotScheduled);
-  task_runner_state_->SetEndIfDelayed(false);
   DocumentParser::Detach();
   if (script_runner_)
     script_runner_->Detach();
@@ -394,7 +517,6 @@ void HTMLDocumentParser::StopParsing() {
   }
   task_runner_state_->SetState(
       HTMLDocumentParserState::DeferredParserState::kNotScheduled);
-  task_runner_state_->SetEndIfDelayed(false);
   if (have_background_parser_)
     StopBackgroundParser();
 }
@@ -411,7 +533,8 @@ void HTMLDocumentParser::PrepareToStopParsing() {
   // NOTE: This pump should only ever emit buffered character tokens.
   if (tokenizer_ && !GetDocument()->IsPrefetchOnly()) {
     DCHECK(!have_background_parser_);
-    task_runner_state_->SetShouldComplete(true);
+    ShouldCompleteScope should_complete(task_runner_state_);
+    EndIfDelayedForbiddenScope should_not_end_if_delayed(task_runner_state_);
     PumpTokenizerIfPossible();
   }
 
@@ -454,14 +577,19 @@ void HTMLDocumentParser::DeferredPumpTokenizerIfPossible() {
   TRACE_EVENT2("blink", "HTMLDocumentParser::DeferredPumpTokenizerIfPossible",
                "parser", (void*)this, "state",
                task_runner_state_->GetStateAsString());
-  if (IsStopped())
-    return;
+  bool should_call_delay_end =
+      task_runner_state_->GetState() ==
+      HTMLDocumentParserState::DeferredParserState::kScheduledWithEndIfDelayed;
   if (task_runner_state_->IsScheduled()) {
-    HTMLDocumentParser::PumpTokenizerIfPossible();
-  } else if (task_runner_state_->IsScheduledToDelayEnd()) {
-    task_runner_state_->SetShouldComplete(true);
-    EndIfDelayed();
-    task_runner_state_->SetShouldComplete(false);
+    task_runner_state_->SetState(
+        HTMLDocumentParserState::DeferredParserState::kNotScheduled);
+    if (should_call_delay_end) {
+      EndIfDelayedForbiddenScope should_not_end_if_delayed(task_runner_state_);
+      PumpTokenizerIfPossible();
+      EndIfDelayed();
+    } else {
+      PumpTokenizerIfPossible();
+    }
   }
 }
 
@@ -472,27 +600,27 @@ void HTMLDocumentParser::PumpTokenizerIfPossible() {
                (void*)this);
 
   bool yielded = false;
-  const bool should_call_delay_end = task_runner_state_->ShouldEndIfDelayed();
   CheckIfBlockingStylesheetAdded();
-  if (!IsStopped() && (!IsPaused() || should_call_delay_end)) {
+  if (!IsStopped() &&
+      (!IsPaused() || task_runner_state_->ShouldEndIfDelayed())) {
     yielded = PumpTokenizer();
   }
 
   if (yielded) {
     DCHECK(!task_runner_state_->ShouldComplete());
     SchedulePumpTokenizer();
-  } else {
+  } else if (task_runner_state_->ShouldAttemptToEndOnEOF()) {
+    // Fall into this branch if ::Finish has been previously called and we've
+    // just finished asynchronously parsing everything.
+    AttemptToEnd();
+  } else if (task_runner_state_->ShouldEndIfDelayed()) {
     // If we did not exceed the budget or parsed everything there was to
     // parse, check if we should complete the document.
-    if (should_call_delay_end) {
-      if (task_runner_state_->ShouldComplete() ||
-          task_runner_state_->GetMode() != kAllowDeferredParsing) {
-        EndIfDelayed();  // Synchronous case
-      } else if (!IsStopped()) {
-        ScheduleEndIfDelayed();  // async case
-      }
+    if (task_runner_state_->ShouldComplete() || IsStopped() || IsStopping()) {
+      EndIfDelayed();
+    } else {
+      ScheduleEndIfDelayed();
     }
-    task_runner_state_->SetShouldComplete(false);
   }
 }
 
@@ -506,7 +634,7 @@ void HTMLDocumentParser::ResumeParsingAfterYield() {
   DCHECK(have_background_parser_);
   DCHECK(!RuntimeEnabledFeatures::ForceSynchronousHTMLParsingEnabled());
 
-  ScopedYieldTimer(&yield_timer_, metrics_reporter_.get());
+  ScopedYieldTimer timer(&yield_timer_, metrics_reporter_.get());
 
   CheckIfBlockingStylesheetAdded();
   if (IsStopped() || IsPaused())
@@ -529,17 +657,20 @@ void HTMLDocumentParser::RunScriptsForPausedTreeBuilder() {
   CheckIfBlockingStylesheetAdded();
 }
 
-bool HTMLDocumentParser::CanTakeNextToken() {
+HTMLDocumentParser::NextTokenStatus HTMLDocumentParser::CanTakeNextToken() {
   if (IsStopped())
-    return false;
+    return NoTokens;
 
   // If we're paused waiting for a script, we try to execute scripts before
   // continuing.
-  if (tree_builder_->HasParserBlockingScript())
+  auto ret = HaveTokens;
+  if (tree_builder_->HasParserBlockingScript()) {
     RunScriptsForPausedTreeBuilder();
+    ret = HaveTokensAfterScript;
+  }
   if (IsStopped() || IsPaused())
-    return false;
-  return true;
+    return NoTokens;
+  return ret;
 }
 
 void HTMLDocumentParser::EnqueueTokenizedChunk(
@@ -867,19 +998,20 @@ void HTMLDocumentParser::ForcePlaintextForTextDocument() {
 }
 
 bool HTMLDocumentParser::PumpTokenizer() {
-  // If we're in kForceSynchronousParsing, always run until all available input
-  // is consumed.
-  bool should_run_until_completion = task_runner_state_->ShouldComplete() ||
-                                     task_runner_state_->IsSynchronous();
-  TRACE_EVENT2("blink", "HTMLDocumentParser::PumpTokenizer", "should_complete",
-               should_run_until_completion, "parser", (void*)this);
-
   DCHECK(!GetDocument()->IsPrefetchOnly());
   DCHECK(!IsStopped());
   DCHECK(tokenizer_);
   DCHECK(token_);
 
   PumpSession session(pump_session_nesting_level_);
+
+  // If we're in kForceSynchronousParsing, always run until all available input
+  // is consumed.
+  bool should_run_until_completion = task_runner_state_->ShouldComplete() ||
+                                     task_runner_state_->IsSynchronous() ||
+                                     pump_session_nesting_level_ > 1;
+  TRACE_EVENT2("blink", "HTMLDocumentParser::PumpTokenizer", "should_complete",
+               should_run_until_completion, "parser", (void*)this);
 
   // We tell the InspectorInstrumentation about every pump, even if we end up
   // pumping nothing.  It can filter out empty pumps itself.
@@ -889,9 +1021,20 @@ bool HTMLDocumentParser::PumpTokenizer() {
   probe::ParseHTML probe(GetDocument(), this);
 
   bool should_yield = false;
-  int budget = kMaxTokenizationBudget;
+  int budget = max_tokenization_budget_;
 
-  while (CanTakeNextToken() && !should_yield) {
+  while (!should_yield) {
+    const auto next_token_status = CanTakeNextToken();
+    if (next_token_status == NoTokens) {
+      // No tokens left to process in this pump, so break
+      break;
+    } else if (next_token_status == HaveTokensAfterScript &&
+               task_runner_state_->HaveExitedHeader()) {
+      // Just executed a parser-blocking script in the body (which is usually
+      // very expensive), so expire the budget, yield, and permit paint if
+      // needed.
+      budget = 0;
+    }
     {
       RUNTIME_CALL_TIMER_SCOPE(
           V8PerIsolateData::MainThreadIsolate(),
@@ -911,9 +1054,6 @@ bool HTMLDocumentParser::PumpTokenizer() {
     }
     DCHECK(IsStopped() || Token().IsUninitialized());
   }
-
-  task_runner_state_->SetState(
-      HTMLDocumentParserState::DeferredParserState::kNotScheduled);
 
   if (IsStopped())
     return false;
@@ -936,8 +1076,8 @@ bool HTMLDocumentParser::PumpTokenizer() {
     }
   }
 
-  CHECK(!(should_yield && (task_runner_state_->ShouldComplete() ||
-                           task_runner_state_->IsSynchronous())));
+  // should_run_until_completion implies that we should not yield
+  CHECK(!should_run_until_completion || !should_yield);
   return should_yield;
 }
 
@@ -945,6 +1085,12 @@ void HTMLDocumentParser::SchedulePumpTokenizer() {
   TRACE_EVENT0("blink", "HTMLDocumentParser::SchedulePumpTokenizer");
   DCHECK(RuntimeEnabledFeatures::ForceSynchronousHTMLParsingEnabled());
   DCHECK(!IsStopped());
+  DCHECK(!InPumpSession());
+  DCHECK(!task_runner_state_->ShouldComplete());
+  if (task_runner_state_->IsScheduled()) {
+    // If the parser is already scheduled, there's no need to do anything.
+    return;
+  }
   loading_task_runner_->PostTask(
       FROM_HERE, WTF::Bind(&HTMLDocumentParser::DeferredPumpTokenizerIfPossible,
                            WrapPersistent(this)));
@@ -956,12 +1102,20 @@ void HTMLDocumentParser::ScheduleEndIfDelayed() {
   TRACE_EVENT0("blink", "HTMLDocumentParser::ScheduleEndIfDelayed");
   DCHECK(RuntimeEnabledFeatures::ForceSynchronousHTMLParsingEnabled());
   DCHECK(!IsStopped());
-  task_runner_state_->SetEndIfDelayed(true);
+  DCHECK(!InPumpSession());
+  DCHECK(!task_runner_state_->ShouldComplete());
+
+  // Schedule a pump callback if needed.
+  if (!task_runner_state_->IsScheduled()) {
+    loading_task_runner_->PostTask(
+        FROM_HERE,
+        WTF::Bind(&HTMLDocumentParser::DeferredPumpTokenizerIfPossible,
+                  WrapPersistent(this)));
+  }
+  // If a pump is already scheduled, it's OK to just upgrade it to one
+  // which calls EndIfDelayed afterwards.
   task_runner_state_->SetState(
       HTMLDocumentParserState::DeferredParserState::kScheduledWithEndIfDelayed);
-  loading_task_runner_->PostTask(
-      FROM_HERE, WTF::Bind(&HTMLDocumentParser::DeferredPumpTokenizerIfPossible,
-                           WrapPersistent(this)));
 }
 
 void HTMLDocumentParser::ConstructTreeFromHTMLToken() {
@@ -1040,9 +1194,9 @@ void HTMLDocumentParser::insert(const String& source) {
 
   // Pump the the tokenizer to build the document from the given insert point.
   // Should process everything available and not defer anything.
-  task_runner_state_->SetShouldComplete(true);
+  ShouldCompleteScope should_complete(task_runner_state_);
+  EndIfDelayedForbiddenScope should_not_end_if_delayed(task_runner_state_);
   // Call EndIfDelayed manually at the end to maintain preload behaviour.
-  task_runner_state_->SetEndIfDelayed(false);
   PumpTokenizerIfPossible();
 
   if (IsPaused()) {
@@ -1147,31 +1301,29 @@ void HTMLDocumentParser::Append(const String& input_source) {
       return;
 
     preload_scanner_->AppendToEnd(source);
-    ScanAndPreload(preload_scanner_.get());
+    if (preloader_) {
+      // TODO(Richard.Townsend@arm.com): add test coverage of this branch.
+      // The crash in crbug.com/1166786 indicates that text documents are being
+      // speculatively prefetched.
+      ScanAndPreload(preload_scanner_.get());
+    }
 
     // Return after the preload scanner, do not actually parse the document.
     return;
   }
-  if (preload_scanner_) {
-    if (input_.Current().IsEmpty() && !IsPaused()) {
-      // We have parsed until the end of the current input and so are now
-      // moving ahead of the preload scanner. Clear the scanner so we know to
-      // scan starting from the current input point if we block again.
-      preload_scanner_.reset();
-    } else {
-      preload_scanner_->AppendToEnd(source);
-      if (preloader_) {
-        if (!task_runner_state_->IsSynchronous() || IsPaused()) {
-          // Should scan and preload if the parser's paused and operating
-          // synchronously, or if the parser's operating in an asynchronous
-          // mode.
-          ScanAndPreload(preload_scanner_.get());
-        }
-      }
+  if (preload_scanner_ && preloader_) {
+    preload_scanner_->AppendToEnd(source);
+    if (task_runner_state_->GetMode() == kAllowDeferredParsing &&
+        (IsPaused() || !task_runner_state_->HaveSeenFirstByte())) {
+      // Should scan and preload if the parser's paused waiting for a resource,
+      // or if we're starting a document for the first time (we want to at least
+      // prefetch anything that's in the <head> section).
+      ScanAndPreload(preload_scanner_.get());
     }
   }
 
   input_.AppendToEnd(source);
+  task_runner_state_->SetHaveSeenFirstByte();
 
   if (InPumpSession()) {
     // We've gotten data off the network in a nested write. We don't want to
@@ -1181,9 +1333,9 @@ void HTMLDocumentParser::Append(const String& input_source) {
   }
 
   // Schedule a tokenizer pump to process this new data.
-  task_runner_state_->SetEndIfDelayed(true);
   if (task_runner_state_->GetMode() ==
-      ParserSynchronizationPolicy::kAllowDeferredParsing) {
+          ParserSynchronizationPolicy::kAllowDeferredParsing &&
+      !task_runner_state_->ShouldComplete()) {
     SchedulePumpTokenizer();
   } else {
     PumpTokenizerIfPossible();
@@ -1227,7 +1379,11 @@ void HTMLDocumentParser::AttemptToEnd() {
   // an external script to load, we can't finish parsing quite yet.
   TRACE_EVENT1("blink", "HTMLDocumentParser::AttemptToEnd", "parser",
                (void*)this);
-
+  DCHECK(task_runner_state_->ShouldAttemptToEndOnEOF());
+  AttemptToEndForbiddenScope should_not_attempt_to_end(task_runner_state_);
+  // We should only be in this state once after calling Finish.
+  // If there are pending scripts, future control flow should pass to
+  // EndIfDelayed.
   if (ShouldDelayEnd()) {
     end_was_delayed_ = true;
     return;
@@ -1238,7 +1394,8 @@ void HTMLDocumentParser::AttemptToEnd() {
 void HTMLDocumentParser::EndIfDelayed() {
   TRACE_EVENT1("blink", "HTMLDocumentParser::EndIfDelayed", "parser",
                (void*)this);
-  task_runner_state_->SetEndIfDelayed(false);
+  ShouldCompleteScope should_complete(task_runner_state_);
+  EndIfDelayedForbiddenScope should_not_end_if_delayed(task_runner_state_);
   // If we've already been detached, don't bother ending.
   if (IsDetached())
     return;
@@ -1255,6 +1412,8 @@ void HTMLDocumentParser::Finish() {
   // sense to call any methods on DocumentParser once it's been stopped.
   // However, FrameLoader::Stop calls DocumentParser::Finish unconditionally.
 
+  ShouldCompleteScope should_complete(task_runner_state_);
+  EndIfDelayedForbiddenScope should_not_end_if_delayed(task_runner_state_);
   Flush();
   if (IsDetached())
     return;
@@ -1285,11 +1444,11 @@ void HTMLDocumentParser::Finish() {
   if (!input_.HaveSeenEndOfFile())
     input_.MarkEndOfFile();
 
+  // If there's any deferred work remaining, signal that we
+  // want to end the document once all work's complete.
+  task_runner_state_->SetAttemptToEndOnEOF();
   if (task_runner_state_->IsScheduled() && !GetDocument()->IsPrefetchOnly()) {
-    // If there's any deferred work remaining, synchronously pump the tokenizer
-    // one last time to make sure that everything's added to the document.
-    task_runner_state_->SetShouldComplete(true);
-    PumpTokenizerIfPossible();
+    return;
   }
 
   AttemptToEnd();
@@ -1389,11 +1548,11 @@ void HTMLDocumentParser::ResumeParsingAfterPause() {
     // Case 1) or 4): kForceSynchronousParsing, kAllowDeferredParsing.
     // kForceSynchronousParsing must pump the tokenizer synchronously,
     // otherwise it can be deferred.
-    task_runner_state_->SetEndIfDelayed(true);
-    if (task_runner_state_->GetMode() == kAllowDeferredParsing) {
+    if (task_runner_state_->GetMode() == kAllowDeferredParsing &&
+        !task_runner_state_->ShouldComplete() && !InPumpSession()) {
       SchedulePumpTokenizer();
     } else {
-      task_runner_state_->SetShouldComplete(true);
+      ShouldCompleteScope should_complete(task_runner_state_);
       PumpTokenizerIfPossible();
     }
   } else {
@@ -1591,8 +1750,38 @@ void HTMLDocumentParser::ScanAndPreload(HTMLPreloadScanner* scanner) {
   TRACE_EVENT0("blink", "HTMLDocumentParser::ScanAndPreload");
   DCHECK(preloader_);
   bool seen_csp_meta_tag = false;
-  PreloadRequestStream requests = scanner->Scan(
-      GetDocument()->ValidBaseElementURL(), nullptr, seen_csp_meta_tag);
+  base::Optional<ViewportDescription> viewport_description;
+  PreloadRequestStream requests =
+      scanner->Scan(GetDocument()->ValidBaseElementURL(), &viewport_description,
+                    seen_csp_meta_tag);
+  // Make sure that the viewport is up-to-date, so that the correct viewport
+  // dimensions will be fed to the background parser and preload scanner.
+  if (GetDocument()->Loader() &&
+      task_runner_state_->GetMode() == kAllowDeferredParsing) {
+    if (viewport_description.has_value()) {
+      GetDocument()->GetStyleEngine().UpdateViewport();
+    }
+    if (task_runner_state_->NeedsLinkHeaderPreloadsDispatch()) {
+      if (GetDocument()->Loader()->GetPrefetchedSignedExchangeManager()) {
+        TRACE_EVENT0("blink",
+                     "HTMLDocumentParser::DispatchSignedExchangeManager");
+        // Link header preloads for prefetched signed exchanges won't be started
+        // until StartPrefetchedLinkHeaderPreloads() is called. See the header
+        // comment of PrefetchedSignedExchangeManager.
+        GetDocument()
+            ->Loader()
+            ->GetPrefetchedSignedExchangeManager()
+            ->StartPrefetchedLinkHeaderPreloads();
+      } else {
+        TRACE_EVENT0("blink", "HTMLDocumentParser::DispatchLinkHeaderPreloads");
+        GetDocument()->Loader()->DispatchLinkHeaderPreloads(
+            base::OptionalOrNullptr(viewport_description),
+            PreloadHelper::kOnlyLoadMedia);
+      }
+      task_runner_state_->DispatchedLinkHeaderPreloads();
+    }
+  }
+
   task_runner_state_->SetSeenCSPMetaTag(seen_csp_meta_tag);
   for (auto& request : requests) {
     queued_preloads_.push_back(std::move(request));

@@ -10,6 +10,7 @@
 #include "base/check.h"
 #include "base/memory/ptr_util.h"
 #include "base/notreached.h"
+#include "base/stl_util.h"
 #include "components/autofill/core/browser/form_data_importer.h"
 #include "components/autofill/core/browser/logging/log_router.h"
 #include "components/autofill/core/browser/payments/payments_client.h"
@@ -58,7 +59,7 @@ std::unique_ptr<WebViewAutofillClientIOS> WebViewAutofillClientIOS::Create(
       LogManager::Create(
           autofill::WebViewAutofillLogRouterFactory::GetForBrowserState(
               browser_state),
-          base::Closure()));
+          base::RepeatingClosure()));
 }
 
 WebViewAutofillClientIOS::WebViewAutofillClientIOS(
@@ -105,6 +106,10 @@ WebViewAutofillClientIOS::GetAutocompleteHistoryManager() {
 }
 
 PrefService* WebViewAutofillClientIOS::GetPrefs() {
+  return const_cast<PrefService*>(base::as_const(*this).GetPrefs());
+}
+
+const PrefService* WebViewAutofillClientIOS::GetPrefs() const {
   return pref_service_;
 }
 
@@ -142,13 +147,21 @@ AddressNormalizer* WebViewAutofillClientIOS::GetAddressNormalizer() {
   return nullptr;
 }
 
-const GURL& WebViewAutofillClientIOS::GetLastCommittedURL() {
+const GURL& WebViewAutofillClientIOS::GetLastCommittedURL() const {
   return web_state_->GetLastCommittedURL();
 }
 
 security_state::SecurityLevel
 WebViewAutofillClientIOS::GetSecurityLevelForUmaHistograms() {
   return security_state::GetSecurityLevelForWebState(web_state_);
+}
+
+const translate::LanguageState* WebViewAutofillClientIOS::GetLanguageState() {
+  return nullptr;
+}
+
+translate::TranslateDriver* WebViewAutofillClientIOS::GetTranslateDriver() {
+  return nullptr;
 }
 
 void WebViewAutofillClientIOS::ShowAutofillSettings(
@@ -172,7 +185,8 @@ void WebViewAutofillClientIOS::ConfirmAccountNameFixFlow(
     base::OnceCallback<void(const base::string16&)> callback) {
   base::Optional<AccountInfo> primary_account_info =
       identity_manager_->FindExtendedAccountInfoForAccountWithRefreshToken(
-          identity_manager_->GetPrimaryAccountInfo());
+          identity_manager_->GetPrimaryAccountInfo(
+              signin::ConsentLevel::kSync));
   base::string16 account_name =
       primary_account_info ? base::UTF8ToUTF16(primary_account_info->full_name)
                            : base::string16();
@@ -214,6 +228,10 @@ void WebViewAutofillClientIOS::CreditCardUploadCompleted(bool card_saved) {
 void WebViewAutofillClientIOS::ConfirmCreditCardFillAssist(
     const CreditCard& card,
     base::OnceClosure callback) {}
+
+void WebViewAutofillClientIOS::ConfirmSaveAddressProfile(
+    const AutofillProfile& profile,
+    AddressProfileSavePromptCallback callback) {}
 
 bool WebViewAutofillClientIOS::HasCreditCardScanFeature() {
   return false;
@@ -275,7 +293,7 @@ void WebViewAutofillClientIOS::DidFillOrPreviewField(
     const base::string16& autofilled_value,
     const base::string16& profile_full_name) {}
 
-bool WebViewAutofillClientIOS::IsContextSecure() {
+bool WebViewAutofillClientIOS::IsContextSecure() const {
   return IsContextSecureForWebState(web_state_);
 }
 
@@ -283,7 +301,7 @@ bool WebViewAutofillClientIOS::ShouldShowSigninPromo() {
   return false;
 }
 
-bool WebViewAutofillClientIOS::AreServerCardsSupported() {
+bool WebViewAutofillClientIOS::AreServerCardsSupported() const {
   return true;
 }
 
@@ -298,6 +316,10 @@ void WebViewAutofillClientIOS::LoadRiskData(
 
 LogManager* WebViewAutofillClientIOS::GetLogManager() const {
   return log_manager_.get();
+}
+
+bool WebViewAutofillClientIOS::IsQueryIDRelevant(int query_id) {
+  return [bridge_ isQueryIDRelevant:query_id];
 }
 
 }  // namespace autofill

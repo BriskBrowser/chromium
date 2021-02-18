@@ -6,8 +6,8 @@
 
 #include <memory>
 
+#include "ash/public/cpp/app_types.h"
 #include "ash/public/cpp/window_properties.h"
-#include "ash/public/cpp/window_state_type.h"
 #include "ash/shell.h"
 #include "ash/wm/window_properties.h"
 #include "ash/wm/window_state.h"
@@ -18,6 +18,8 @@
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chromeos/ui/base/window_state_type.h"
+#include "components/full_restore/full_restore_utils.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_observer.h"
@@ -110,7 +112,7 @@ void BrowserFrameAsh::GetWindowPlacement(
   if (override_bounds && !override_bounds->IsEmpty()) {
     *bounds = *override_bounds;
     *show_state =
-        ash::ToWindowShowState(GetWidget()->GetNativeWindow()->GetProperty(
+        chromeos::ToWindowShowState(GetWidget()->GetNativeWindow()->GetProperty(
             ash::kRestoreWindowStateTypeOverrideKey));
   } else {
     *bounds = GetWidget()->GetRestoredBounds();
@@ -140,6 +142,22 @@ views::Widget::InitParams BrowserFrameAsh::GetWidgetParams() {
   views::Widget::InitParams params;
   params.native_widget = this;
   params.context = ash::Shell::GetPrimaryRootWindow();
+
+  Browser* browser = browser_view_->browser();
+  const int32_t restore_id = browser->create_params().restore_id;
+  params.init_properties_container.SetProperty(full_restore::kWindowIdKey,
+                                               browser->session_id().id());
+  params.init_properties_container.SetProperty(
+      full_restore::kRestoreWindowIdKey, restore_id);
+
+  // This is only needed for ash. For lacros, Exo tags the associated
+  // ShellSurface as being of AppType::LACROS.
+  params.init_properties_container.SetProperty(
+      aura::client::kAppType,
+      static_cast<int>(browser->deprecated_is_app() ? ash::AppType::CHROME_APP
+                                                    : ash::AppType::BROWSER));
+
+  full_restore::ModifyWidgetParams(restore_id, &params);
   return params;
 }
 
@@ -153,6 +171,14 @@ bool BrowserFrameAsh::UsesNativeSystemMenu() const {
 
 int BrowserFrameAsh::GetMinimizeButtonOffset() const {
   return 0;
+}
+
+bool BrowserFrameAsh::ShouldRestorePreviousBrowserWidgetState() const {
+  // If there is no window info from full restore, maybe use the session
+  // restore.
+  const int32_t restore_id =
+      browser_view_->browser()->create_params().restore_id;
+  return !full_restore::HasWindowInfo(restore_id);
 }
 
 ///////////////////////////////////////////////////////////////////////////////

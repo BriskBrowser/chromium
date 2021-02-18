@@ -7,7 +7,6 @@
 #include <string>
 #include <utility>
 
-#include "ash/public/cpp/vector_icons/vector_icons.h"
 #include "base/bind.h"
 #include "base/i18n/message_formatter.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
@@ -15,6 +14,7 @@
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "chromeos/ui/vector_icons/vector_icons.h"
 #include "components/constrained_window/constrained_window_views.h"
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/browser_thread.h"
@@ -29,6 +29,7 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace chrome {
 
@@ -65,7 +66,11 @@ ExtensionInstallBlockedByParentDialogView::
   SetButtonLabel(ui::DIALOG_BUTTON_CANCEL, l10n_util::GetStringUTF16(IDS_OK));
   set_draggable(true);
 
-  SetIcon(gfx::CreateVectorIcon(ash::kNotificationSupervisedUserIcon,
+  SetModalType(ui::MODAL_TYPE_WINDOW);
+  set_fixed_width(views::LayoutProvider::Get()->GetDistanceMetric(
+      views::DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH));
+
+  SetIcon(gfx::CreateVectorIcon(chromeos::kNotificationSupervisedUserIcon,
                                 SK_ColorDKGRAY));
   SetShowIcon(true);
   ConfigureTitle();
@@ -76,18 +81,6 @@ ExtensionInstallBlockedByParentDialogView::
     ~ExtensionInstallBlockedByParentDialogView() {
   if (done_callback_)
     std::move(done_callback_).Run();
-}
-
-gfx::Size ExtensionInstallBlockedByParentDialogView::CalculatePreferredSize()
-    const {
-  const int width = ChromeLayoutProvider::Get()->GetDistanceMetric(
-                        DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH) -
-                    margins().width();
-  return gfx::Size(width, GetHeightForWidth(width));
-}
-
-ui::ModalType ExtensionInstallBlockedByParentDialogView::GetModalType() const {
-  return ui::MODAL_TYPE_WINDOW;
 }
 
 void ExtensionInstallBlockedByParentDialogView::ConfigureTitle() {
@@ -128,7 +121,7 @@ void ExtensionInstallBlockedByParentDialogView::CreateContents() {
       break;
   }
 
-  icon_ = gfx::CreateVectorIcon(ash::kNotificationSupervisedUserIcon,
+  icon_ = gfx::CreateVectorIcon(chromeos::kNotificationSupervisedUserIcon,
                                 SK_ColorDKGRAY);
 
   const ChromeLayoutProvider* provider = ChromeLayoutProvider::Get();
@@ -138,16 +131,21 @@ void ExtensionInstallBlockedByParentDialogView::CreateContents() {
   set_margins(gfx::Insets(content_insets.top(), content_insets.left(),
                           content_insets.bottom(), content_insets.right()));
 
-  auto* message_body_label = AddChildView(
-      std::make_unique<views::Label>(body_string, CONTEXT_BODY_TEXT_LARGE));
+  auto* message_body_label = AddChildView(std::make_unique<views::Label>(
+      body_string, views::style::CONTEXT_DIALOG_BODY_TEXT));
   message_body_label->SetMultiLine(true);
   message_body_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
 }
 
 base::string16
-ExtensionInstallBlockedByParentDialogView::GetExtensionTypeString() {
+ExtensionInstallBlockedByParentDialogView::GetExtensionTypeString() const {
   return l10n_util::GetStringUTF16(
       extension_->is_app()
           ? IDS_PARENT_PERMISSION_PROMPT_EXTENSION_TYPE_APP
           : IDS_PARENT_PERMISSION_PROMPT_EXTENSION_TYPE_EXTENSION);
 }
+
+BEGIN_METADATA(ExtensionInstallBlockedByParentDialogView,
+               views::DialogDelegateView)
+ADD_READONLY_PROPERTY_METADATA(base::string16, ExtensionTypeString)
+END_METADATA

@@ -16,9 +16,9 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
-import org.chromium.content_public.browser.test.util.CriteriaNotSatisfiedException;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.CriteriaNotSatisfiedException;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.weblayer.shell.InstrumentationActivity;
 
@@ -59,14 +59,25 @@ public class SmokeTest {
 
     @Test
     @SmallTest
+    @MinWebLayerVersion(89)
+    public void testSetMinimumSurfaceSize() {
+        InstrumentationActivity activity = mActivityTestRule.launchShellWithUrl("about:blank");
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> { activity.getBrowser().setMinimumSurfaceSize(100, 200); });
+        // Nothing to check here.
+    }
+
+    @Test
+    @SmallTest
     public void testActivityShouldNotLeak() {
         ReferenceQueue<InstrumentationActivity> referenceQueue = new ReferenceQueue<>();
         PhantomReference<InstrumentationActivity> reference;
         {
             InstrumentationActivity activity = mActivityTestRule.launchShellWithUrl("about:blank");
-            TestThreadUtils.runOnUiThreadBlocking(() -> {
-                activity.getTab().setFullscreenCallback(new TestFullscreenCallback());
-            });
+            // This installs a fullscreen callback, and is to ensure setting a fullscreen callback
+            // doesn't leak.
+            TestFullscreenCallback fullscreenCallback =
+                    new TestFullscreenCallback(mActivityTestRule);
             mActivityTestRule.recreateActivity();
             boolean destroyed =
                     TestThreadUtils.runOnUiThreadBlockingNoException(() -> activity.isDestroyed());

@@ -22,6 +22,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_tester.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_iterator_result_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_uint8_array.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_bidirectional_stream.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_quic_transport_options.h"
@@ -153,6 +154,8 @@ class StubQuicTransport : public network::mojom::blink::QuicTransport {
     was_abort_stream_called_ = true;
   }
 
+  void SetOutgoingDatagramExpirationDuration(base::TimeDelta) override {}
+
  private:
   base::OnceCallback<void(uint32_t,
                           mojo::ScopedDataPipeConsumerHandle,
@@ -263,7 +266,7 @@ class ScopedQuicTransport : public mojom::blink::QuicTransportConnector {
   // |browser_interface_broker_| is cached here because we need to use it in the
   // destructor. This means ScopedQuicTransport must always be destroyed before
   // the V8TestingScope object that owns the BrowserInterfaceBrokerProxy.
-  BrowserInterfaceBrokerProxy* browser_interface_broker_;
+  const BrowserInterfaceBrokerProxy* browser_interface_broker_;
   QuicTransport* quic_transport_;
   std::unique_ptr<StubQuicTransport> stub_;
   mojo::Remote<network::mojom::blink::QuicTransportClient> client_remote_;
@@ -345,7 +348,7 @@ void TestRead(const V8TestingScope& scope,
       V8Uint8Array::ToImplWithTypeCheck(scope.GetIsolate(), v8array);
   ASSERT_TRUE(u8array);
 
-  ASSERT_EQ(u8array->byteLengthAsSizeT(), 1u);
+  ASSERT_EQ(u8array->byteLength(), 1u);
   EXPECT_EQ(reinterpret_cast<char*>(u8array->Data())[0], 'B');
 }
 
@@ -379,6 +382,25 @@ TEST(BidirectionalStreamTest, IncomingStreamCleanClose) {
   scoped_quic_transport.GetQuicTransport()->OnIncomingStreamClosed(
       kDefaultStreamId, true);
   scoped_quic_transport.Stub()->InputProducer().reset();
+
+  auto* script_state = scope.GetScriptState();
+  auto* reader = bidirectional_stream->readable()->GetDefaultReaderForTesting(
+      script_state, ASSERT_NO_EXCEPTION);
+
+  ScriptPromise read_promise = reader->read(script_state, ASSERT_NO_EXCEPTION);
+
+  ScriptPromiseTester read_tester(script_state, read_promise);
+  read_tester.WaitUntilSettled();
+  EXPECT_TRUE(read_tester.IsFulfilled());
+
+  v8::Local<v8::Value> result = read_tester.Value().V8Value();
+  DCHECK(result->IsObject());
+  v8::Local<v8::Value> v8value;
+  bool done = false;
+  EXPECT_TRUE(
+      V8UnpackIteratorResult(script_state, result.As<v8::Object>(), &done)
+          .ToLocal(&v8value));
+  EXPECT_TRUE(done);
 
   ScriptPromiseTester tester(scope.GetScriptState(),
                              bidirectional_stream->writingAborted());

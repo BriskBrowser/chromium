@@ -15,10 +15,9 @@ import androidx.preference.PreferenceViewHolder;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.chrome.browser.signin.IdentityServicesProvider;
-import org.chromium.chrome.browser.signin.PersonalizedSigninPromoView;
-import org.chromium.chrome.browser.signin.ProfileDataCache;
-import org.chromium.chrome.browser.sync.AndroidSyncSettings;
+import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
+import org.chromium.chrome.browser.signin.services.ProfileDataCache;
+import org.chromium.chrome.browser.signin.ui.PersonalizedSigninPromoView;
 import org.chromium.chrome.browser.sync.ProfileSyncService;
 import org.chromium.chrome.browser.sync.settings.SyncSettingsUtils.SyncError;
 import org.chromium.components.signin.base.CoreAccountInfo;
@@ -27,12 +26,17 @@ import org.chromium.components.signin.identitymanager.ConsentLevel;
 import java.util.Collections;
 
 public class SyncErrorCardPreference extends Preference
-        implements AndroidSyncSettings.AndroidSyncSettingsObserver,
-                   ProfileSyncService.SyncStateChangedListener, ProfileDataCache.Observer {
+        implements ProfileSyncService.SyncStateChangedListener, ProfileDataCache.Observer {
     /**
      * Listener for the buttons in the error card.
      */
     public interface SyncErrorCardPreferenceListener {
+        /**
+         * Called to check if the preference should be hidden in case its created from signin
+         * screen.
+         */
+        boolean shouldSuppressSyncSetupIncomplete();
+
         /**
          * Called when the user clicks the primary button.
          */
@@ -46,7 +50,7 @@ public class SyncErrorCardPreference extends Preference
     }
 
     private final ProfileDataCache mProfileDataCache;
-    private SyncErrorCardPreferenceListener mButtonListener;
+    private SyncErrorCardPreferenceListener mListener;
     private @SyncError int mSyncError;
 
     public SyncErrorCardPreference(Context context, AttributeSet attrs) {
@@ -62,7 +66,6 @@ public class SyncErrorCardPreference extends Preference
     public void onAttached() {
         super.onAttached();
         mProfileDataCache.addObserver(this);
-        AndroidSyncSettings.get().registerObserver(this);
         ProfileSyncService syncService = ProfileSyncService.get();
         if (syncService != null) {
             syncService.addSyncStateChangedListener(this);
@@ -74,7 +77,6 @@ public class SyncErrorCardPreference extends Preference
     public void onDetached() {
         super.onDetached();
         mProfileDataCache.removeObserver(this);
-        AndroidSyncSettings.get().unregisterObserver(this);
         ProfileSyncService syncService = ProfileSyncService.get();
         if (syncService != null) {
             syncService.removeSyncStateChangedListener(this);
@@ -101,7 +103,10 @@ public class SyncErrorCardPreference extends Preference
         }
 
         mSyncError = SyncSettingsUtils.getSyncError();
-        if (mSyncError == SyncError.NO_ERROR) {
+        boolean suppressSyncSetupIncompleteFromSigninPage =
+                (mSyncError == SyncError.SYNC_SETUP_INCOMPLETE)
+                && mListener.shouldSuppressSyncSetupIncomplete();
+        if (mSyncError == SyncError.NO_ERROR || suppressSyncSetupIncompleteFromSigninPage) {
             setVisible(false);
         } else {
             setVisible(true);
@@ -114,7 +119,11 @@ public class SyncErrorCardPreference extends Preference
                 IdentityServicesProvider.get()
                         .getIdentityManager(Profile.getLastUsedRegularProfile())
                         .getPrimaryAccountInfo(ConsentLevel.SYNC));
-        assert signedInAccount != null : "There should be a signed in account";
+        // May happen if account is removed from the device while this screen is shown.
+        // ManageSyncSettings will take care of finishing the activity in such case.
+        if (signedInAccount == null) {
+            return;
+        }
 
         mProfileDataCache.update(Collections.singletonList(signedInAccount));
         Drawable accountImage =
@@ -122,27 +131,40 @@ public class SyncErrorCardPreference extends Preference
         errorCardView.getImage().setImageDrawable(accountImage);
 
         errorCardView.getDismissButton().setVisibility(View.GONE);
-        errorCardView.getStatusMessage().setVisibility(View.VISIBLE);
-        errorCardView.getStatusMessage().setText(R.string.sync_error_card_title);
-        errorCardView.getDescription().setText(
-                SyncSettingsUtils.getSyncErrorHint(getContext(), mSyncError));
+        if (mSyncError == SyncError.SYNC_SETUP_INCOMPLETE) {
+            errorCardView.getStatusMessage().setVisibility(View.GONE);
+        } else {
+            errorCardView.getStatusMessage().setVisibility(View.VISIBLE);
+        }
+        if (isTrustedVaultError()) {
+            // TODO(crbug.com/1166582): For trusted vault errors, the "hint" string is already so
+            // short ("Fix now"), that the button would end up simply repeating it. So the "summary"
+            // string is used as the card description instead. In the long run, it would probably be
+            // best to make the hint string for trusted vault errors more detailed.
+            errorCardView.getDescription().setText(
+                    ProfileSyncService.get().isEncryptEverythingEnabled()
+                            ? getContext().getString(R.string.sync_error_card_title)
+                            : getContext().getString(R.string.password_sync_error_summary));
+        } else {
+            errorCardView.getDescription().setText(
+                    SyncSettingsUtils.getSyncErrorHint(getContext(), mSyncError));
+        }
 
         errorCardView.getPrimaryButton().setText(
                 SyncSettingsUtils.getSyncErrorCardButtonLabel(getContext(), mSyncError));
         errorCardView.getPrimaryButton().setOnClickListener(
-                v -> mButtonListener.onSyncErrorCardPrimaryButtonClicked());
+                v -> mListener.onSyncErrorCardPrimaryButtonClicked());
         if (mSyncError == SyncError.SYNC_SETUP_INCOMPLETE) {
             errorCardView.getSecondaryButton().setOnClickListener(
-                    v -> mButtonListener.onSyncErrorCardSecondaryButtonClicked());
-            errorCardView.getSecondaryButton().setText(
-                    R.string.sync_setup_incomplete_error_card_cancel_button);
+                    v -> mListener.onSyncErrorCardSecondaryButtonClicked());
+            errorCardView.getSecondaryButton().setText(R.string.cancel);
         } else {
             errorCardView.getSecondaryButton().setVisibility(View.GONE);
         }
     }
 
     public void setSyncErrorCardPreferenceListener(SyncErrorCardPreferenceListener listener) {
-        mButtonListener = listener;
+        mListener = listener;
     }
 
     public @SyncError int getSyncError() {
@@ -158,18 +180,29 @@ public class SyncErrorCardPreference extends Preference
     }
 
     /**
-     * {@link AndroidSyncSettings.AndroidSyncSettingsObserver} implementation.
-     */
-    @Override
-    public void androidSyncSettingsChanged() {
-        update();
-    }
-
-    /**
      * {@link ProfileDataCache.Observer} implementation.
      */
     @Override
-    public void onProfileDataUpdated(String accountId) {
+    public void onProfileDataUpdated(String accountEmail) {
         update();
+    }
+
+    private boolean isTrustedVaultError() {
+        switch (mSyncError) {
+            case SyncError.TRUSTED_VAULT_KEY_REQUIRED_FOR_EVERYTHING:
+            case SyncError.TRUSTED_VAULT_KEY_REQUIRED_FOR_PASSWORDS:
+                return true;
+            case SyncError.ANDROID_SYNC_DISABLED:
+            case SyncError.AUTH_ERROR:
+            case SyncError.CLIENT_OUT_OF_DATE:
+            case SyncError.OTHER_ERRORS:
+            case SyncError.PASSPHRASE_REQUIRED:
+            case SyncError.SYNC_SETUP_INCOMPLETE:
+            case SyncError.NO_ERROR:
+                return false;
+            default:
+                assert false : "Unknown sync error";
+                return false;
+        }
     }
 }

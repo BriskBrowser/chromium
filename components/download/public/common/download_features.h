@@ -16,6 +16,10 @@ namespace features {
 // network.
 constexpr char kDownloadLaterRequireCellular[] = "require_cellular";
 
+// The Finch parameter for download later feature to enable only in lite
+// mode(data saver).
+constexpr char kDownloadLaterRequireLiteMode[] = "require_lite_mode";
+
 // Whether offline content provider should be used for the downloads UI..
 COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature
     kUseDownloadOfflineContentProvider;
@@ -63,6 +67,10 @@ COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature
 
 // Whether to delete expired download.
 COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature kDeleteExpiredDownloads;
+
+// Whether to delete downloads that are overwritten by others.
+COMPONENTS_DOWNLOAD_EXPORT extern const base::Feature
+    kDeleteOverwrittenDownloads;
 
 }  // namespace features
 

@@ -26,6 +26,7 @@
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/core/common/form_field_data.h"
 #include "components/autofill/core/common/password_form_fill_data.h"
+#include "components/autofill/core/common/password_generation_util.h"
 #include "components/favicon/core/test/mock_favicon_service.h"
 #include "components/password_manager/core/browser/mock_password_feature_manager.h"
 #include "components/password_manager/core/browser/password_manager.h"
@@ -64,6 +65,7 @@ using autofill::SuggestionVectorIconsAre;
 using autofill::SuggestionVectorIdsAre;
 using autofill::SuggestionVectorLabelsAre;
 using autofill::SuggestionVectorValuesAre;
+using autofill::password_generation::PasswordGenerationType;
 using favicon_base::FaviconImageCallback;
 using gfx::test::AreImagesEqual;
 using testing::_;
@@ -144,7 +146,7 @@ class TestPasswordManagerClient : public StubPasswordManagerClient {
         .WillByDefault(Return(needs_signin));
   }
 
-  MOCK_METHOD(void, GeneratePassword, (), (override));
+  MOCK_METHOD(void, GeneratePassword, (PasswordGenerationType), (override));
   MOCK_METHOD(void,
               TriggerReauthForPrimaryAccount,
               (signin_metrics::ReauthAccessPoint,
@@ -452,7 +454,9 @@ TEST_F(PasswordAutofillManagerTest,
         .WillOnce(testing::SaveArg<0>(&open_args));
     password_autofill_manager_->OnShowPasswordSuggestions(
         base::i18n::RIGHT_TO_LEFT, base::string16(),
-        is_suggestion_on_password_field ? autofill::IS_PASSWORD_FIELD : 0,
+        is_suggestion_on_password_field
+            ? autofill::IS_PASSWORD_FIELD
+            : autofill::ShowPasswordSuggestionsOptions(),
         gfx::RectF());
     ASSERT_GE(open_args.suggestions.size(), 2u);
     EXPECT_THAT(
@@ -802,7 +806,7 @@ TEST_F(PasswordAutofillManagerTest,
   EXPECT_CALL(autofill_client,
               HideAutofillPopup(autofill::PopupHidingReason::kAcceptSuggestion))
       .Times(testing::AtLeast(1));
-  EXPECT_CALL(client, GeneratePassword());
+  EXPECT_CALL(client, GeneratePassword(PasswordGenerationType::kAutomatic));
 
   password_autofill_manager_->DidAcceptSuggestion(
       test_username_,
@@ -821,8 +825,8 @@ TEST_F(PasswordAutofillManagerTest, SuccessfullOptInMayShowEmptyState) {
   // Only the unlock button was available. After being clicked, it's in a
   // loading state which the DeleteFillData() call will end.
   Suggestion unlock_suggestion(
-      /*label=*/"Unlock passwords and fill", /*value=*/"", /*icon=*/"",
-      /*fronend_id=*/
+      /*value=*/"Unlock passwords and fill", /*label=*/"", /*icon=*/"",
+      /*frontend_id=*/
       autofill::POPUP_ITEM_ID_PASSWORD_ACCOUNT_STORAGE_OPT_IN);
   unlock_suggestion.is_loading = Suggestion::IsLoading(true);
   EXPECT_CALL(autofill_client, GetPopupSuggestions)
@@ -904,7 +908,8 @@ TEST_F(PasswordAutofillManagerTest, ExtractSuggestions) {
   EXPECT_CALL(autofill_client, ShowAutofillPopup)
       .WillOnce(testing::SaveArg<0>(&open_args));
   password_autofill_manager_->OnShowPasswordSuggestions(
-      base::i18n::RIGHT_TO_LEFT, base::string16(), 0, element_bounds);
+      base::i18n::RIGHT_TO_LEFT, base::string16(),
+      autofill::ShowPasswordSuggestionsOptions(), element_bounds);
   EXPECT_THAT(
       open_args.suggestions,
       SuggestionVectorValuesAre(testing::UnorderedElementsAre(
@@ -920,7 +925,8 @@ TEST_F(PasswordAutofillManagerTest, ExtractSuggestions) {
   EXPECT_CALL(autofill_client, ShowAutofillPopup)
       .WillOnce(testing::SaveArg<0>(&open_args));
   password_autofill_manager_->OnShowPasswordSuggestions(
-      base::i18n::RIGHT_TO_LEFT, base::ASCIIToUTF16("John"), 0, element_bounds);
+      base::i18n::RIGHT_TO_LEFT, base::ASCIIToUTF16("John"),
+      autofill::ShowPasswordSuggestionsOptions(), element_bounds);
   EXPECT_THAT(open_args.suggestions,
               SuggestionVectorValuesAre(
                   ElementsAre(additional.username, GetManagePasswordsTitle())));
@@ -959,7 +965,8 @@ TEST_F(PasswordAutofillManagerTest, PrettifiedAndroidRealmsAreShownAsLabels) {
   EXPECT_CALL(autofill_client, ShowAutofillPopup)
       .WillOnce(testing::SaveArg<0>(&open_args));
   password_autofill_manager_->OnShowPasswordSuggestions(
-      base::i18n::RIGHT_TO_LEFT, base::string16(), 0, gfx::RectF());
+      base::i18n::RIGHT_TO_LEFT, base::string16(),
+      autofill::ShowPasswordSuggestionsOptions(), gfx::RectF());
   EXPECT_THAT(open_args.suggestions,
               SuggestionVectorLabelsAre(testing::Contains(
                   base::ASCIIToUTF16("android://com.example2.android/"))));
@@ -1027,7 +1034,8 @@ TEST_F(PasswordAutofillManagerTest, DisplaySuggestionsWithMatchingTokens) {
   EXPECT_CALL(autofill_client, ShowAutofillPopup)
       .WillOnce(testing::SaveArg<0>(&open_args));
   password_autofill_manager_->OnShowPasswordSuggestions(
-      base::i18n::RIGHT_TO_LEFT, base::ASCIIToUTF16("foo"), 0, element_bounds);
+      base::i18n::RIGHT_TO_LEFT, base::ASCIIToUTF16("foo"),
+      autofill::ShowPasswordSuggestionsOptions(), element_bounds);
   EXPECT_THAT(open_args.suggestions,
               SuggestionVectorValuesAre(testing::UnorderedElementsAre(
                   username, additional.username, GetManagePasswordsTitle())));
@@ -1062,7 +1070,8 @@ TEST_F(PasswordAutofillManagerTest, NoSuggestionForNonPrefixTokenMatch) {
 
   EXPECT_CALL(autofill_client, ShowAutofillPopup).Times(0);
   password_autofill_manager_->OnShowPasswordSuggestions(
-      base::i18n::RIGHT_TO_LEFT, base::ASCIIToUTF16("oo"), 0, element_bounds);
+      base::i18n::RIGHT_TO_LEFT, base::ASCIIToUTF16("oo"),
+      autofill::ShowPasswordSuggestionsOptions(), element_bounds);
 }
 
 // Verify that typing "foo@exam" into the username field will match username
@@ -1096,8 +1105,8 @@ TEST_F(PasswordAutofillManagerTest,
   EXPECT_CALL(autofill_client, ShowAutofillPopup)
       .WillOnce(testing::SaveArg<0>(&open_args));
   password_autofill_manager_->OnShowPasswordSuggestions(
-      base::i18n::RIGHT_TO_LEFT, base::ASCIIToUTF16("foo@exam"), 0,
-      element_bounds);
+      base::i18n::RIGHT_TO_LEFT, base::ASCIIToUTF16("foo@exam"),
+      autofill::ShowPasswordSuggestionsOptions(), element_bounds);
   EXPECT_THAT(open_args.suggestions,
               SuggestionVectorValuesAre(
                   ElementsAre(additional.username, GetManagePasswordsTitle())));
@@ -1136,8 +1145,8 @@ TEST_F(PasswordAutofillManagerTest,
   EXPECT_CALL(autofill_client, ShowAutofillPopup)
       .WillOnce(testing::SaveArg<0>(&open_args));
   password_autofill_manager_->OnShowPasswordSuggestions(
-      base::i18n::RIGHT_TO_LEFT, base::ASCIIToUTF16("foo"), false,
-      element_bounds);
+      base::i18n::RIGHT_TO_LEFT, base::ASCIIToUTF16("foo"),
+      autofill::ShowPasswordSuggestionsOptions(), element_bounds);
   EXPECT_THAT(open_args.suggestions,
               SuggestionVectorValuesAre(ElementsAre(
                   username, additional.username, GetManagePasswordsTitle())));
@@ -1160,7 +1169,7 @@ TEST_F(PasswordAutofillManagerTest, PreviewAndFillEmptyUsernameSuggestion) {
   gfx::RectF element_bounds;
   password_autofill_manager_->OnShowPasswordSuggestions(
       base::i18n::RIGHT_TO_LEFT, base::string16(),
-      /*autoselect_first_suggestion=*/false, element_bounds);
+      autofill::ShowPasswordSuggestionsOptions(), element_bounds);
 
   // Check that preview of the empty username works.
   EXPECT_CALL(*client.mock_driver(),
@@ -1258,7 +1267,8 @@ TEST_F(PasswordAutofillManagerTest, ShowAllPasswordsOptionOnNonPasswordField) {
   EXPECT_CALL(autofill_client, ShowAutofillPopup)
       .WillOnce(testing::SaveArg<0>(&open_args));
   password_autofill_manager_->OnShowPasswordSuggestions(
-      base::i18n::RIGHT_TO_LEFT, test_username_, 0, element_bounds);
+      base::i18n::RIGHT_TO_LEFT, test_username_,
+      autofill::ShowPasswordSuggestionsOptions(), element_bounds);
   EXPECT_THAT(open_args.suggestions,
               SuggestionVectorValuesAre(
                   ElementsAre(test_username_, GetManagePasswordsTitle())));
@@ -1317,7 +1327,7 @@ TEST_F(PasswordAutofillManagerTest,
                                          GetManagePasswordsTitle())));
 
   // Click "Generate password".
-  EXPECT_CALL(client, GeneratePassword());
+  EXPECT_CALL(client, GeneratePassword(PasswordGenerationType::kAutomatic));
   EXPECT_CALL(
       autofill_client,
       HideAutofillPopup(autofill::PopupHidingReason::kAcceptSuggestion));
@@ -1419,7 +1429,8 @@ TEST_F(PasswordAutofillManagerTest, DisplayAccountSuggestionsIndicatorIcon) {
   EXPECT_CALL(autofill_client, ShowAutofillPopup)
       .WillOnce(testing::SaveArg<0>(&open_args));
   password_autofill_manager_->OnShowPasswordSuggestions(
-      base::i18n::RIGHT_TO_LEFT, base::string16(), false, element_bounds);
+      base::i18n::RIGHT_TO_LEFT, base::string16(),
+      autofill::ShowPasswordSuggestionsOptions(), element_bounds);
   ASSERT_THAT(open_args.suggestions.size(),
               testing::Ge(1u));  // No footer on Android.
   EXPECT_THAT(open_args.suggestions[0].store_indicator_icon, "google");

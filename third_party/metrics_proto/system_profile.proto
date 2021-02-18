@@ -5,9 +5,9 @@
 syntax = "proto2";
 
 option optimize_for = LITE_RUNTIME;
+option java_package = "org.chromium.components.metrics";
 
 option java_outer_classname = "SystemProfileProtos";
-option java_package = "org.chromium.components.metrics";
 
 package metrics;
 
@@ -17,7 +17,7 @@ import "extension_install.proto";
 // Almost all the fields should be populated on every upload. (The only
 // exception is some fields in the stability section that are only uploaded
 // once per browsing session, usually shortly after startup.)
-// Next tag: 35
+// Next tag: 36
 message SystemProfileProto {
   // The time when the client was compiled/linked, in seconds since the epoch.
   optional int64 build_timestamp = 1;
@@ -147,12 +147,18 @@ message SystemProfileProto {
   optional OS os = 5;
 
   // Information on the user's hardware.
-  // Next tag: 21
+  // Next tag: 22
   message Hardware {
-    // CPU architecture. Taken from uname -m and modified in Chromium logic.
+    // OS CPU architecture. Taken from uname -m and modified in Chromium logic.
     // Common options are: x86, x86_64, armv7l, armv8l, aarch64.
     // Not recorded on iOS.
     optional string cpu_architecture = 1;
+
+    // Browser process CPU architecture. Will be different from
+    // `cpu_architecture` in the case where Chromium runs non-natively (e.g.
+    // macOS Rosetta or Arm Windows). One of four values: x86, x86_64, ARM,
+    // ARM_64. Added in M90.
+    optional string app_cpu_architecture = 21;
 
     // The amount of RAM present on the system, in megabytes.
     optional int64 system_ram_mb = 2;
@@ -343,6 +349,7 @@ message SystemProfileProto {
       // to be used in logs processing as a more convenient way to manage the
       // ambiguous case when breaking down stats by connection_type.
       CONNECTION_AMBIGUOUS = 8;
+      CONNECTION_5G = 9;
     }
     // The connection type according to NetworkChangeNotifier.
     optional ConnectionType connection_type = 2;
@@ -979,6 +986,22 @@ message SystemProfileProto {
   // The Chrome package name on Android, if it's different from
   // "com.android.chrome".
   optional string app_package_name = 26;
+
+  // The package which installed Chrome, as reported by
+  // PackageManager.getInstallerPackageName().
+  enum InstallerPackage {
+    // This field was not set.
+    INSTALLER_PACKAGE_UNKNOWN = 0;
+    // The installer package name returned by Android was empty.
+    INSTALLER_PACKAGE_NONE = 1;
+    // 'com.android.vending'.
+    INSTALLER_PACKAGE_GOOGLE_PLAY_STORE = 2;
+    // Any other non-empty value.
+    INSTALLER_PACKAGE_OTHER = 3;
+  }
+
+  // The package which installed Chrome, as reported by Android.
+  optional InstallerPackage installer_package = 35;
 
   // Data related to the "Better Together" multi-device features. This is only
   // uploaded on Chrome OS.

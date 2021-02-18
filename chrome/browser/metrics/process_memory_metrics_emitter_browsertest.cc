@@ -77,21 +77,22 @@ int GetNumRenderers(Browser* browser) {
   return static_cast<int>(render_process_hosts.size());
 }
 
-void RequestGlobalDumpCallback(base::Closure quit_closure,
+void RequestGlobalDumpCallback(base::OnceClosure quit_closure,
                                bool success,
                                uint64_t) {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, quit_closure);
+  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
+                                                std::move(quit_closure));
   ASSERT_TRUE(success);
 }
 
 void OnStartTracingDoneCallback(
     base::trace_event::MemoryDumpLevelOfDetail explicit_dump_type,
-    base::Closure quit_closure) {
+    base::OnceClosure quit_closure) {
   memory_instrumentation::MemoryInstrumentation::GetInstance()
       ->RequestGlobalDumpAndAppendToTrace(
           MemoryDumpType::EXPLICITLY_TRIGGERED, explicit_dump_type,
           MemoryDumpDeterminism::NONE,
-          BindOnce(&RequestGlobalDumpCallback, quit_closure));
+          BindOnce(&RequestGlobalDumpCallback, std::move(quit_closure)));
 }
 
 class ProcessMemoryMetricsEmitterFake : public ProcessMemoryMetricsEmitter {
@@ -215,7 +216,7 @@ void CheckStableMemoryMetrics(const base::HistogramTester& histogram_tester,
       count;
 #endif
   const int count_for_private_swap_footprint =
-#if defined(OS_LINUX) || defined(OS_ANDROID)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID)
       count;
 #else
       0;
@@ -554,7 +555,7 @@ IN_PROC_BROWSER_TEST_F(ProcessMemoryMetricsEmitterTest,
 // TODO(https://crbug.com/990148): Re-enable on Win and Linux once not flaky.
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 #if defined(ADDRESS_SANITIZER) || defined(MEMORY_SANITIZER) || \
-    defined(OS_WIN) || defined(OS_LINUX)
+    defined(OS_WIN) || defined(OS_LINUX) || defined(OS_CHROMEOS)
 #define MAYBE_FetchAndEmitMetricsWithExtensions \
   DISABLED_FetchAndEmitMetricsWithExtensions
 #else
@@ -804,7 +805,7 @@ IN_PROC_BROWSER_TEST_F(ProcessMemoryMetricsEmitterTest,
 
 // Test is flaky on chromeos and linux. https://crbug.com/938054.
 // Test is flaky on mac and win: https://crbug.com/948674.
-#if defined(ADDRESS_SANITIZER) || defined(MEMORY_SANITIZER) ||        \
+#if defined(ADDRESS_SANITIZER) || defined(MEMORY_SANITIZER) ||      \
     defined(OS_CHROMEOS) || defined(OS_LINUX) || defined(OS_MAC) || \
     defined(OS_WIN)
 #define MAYBE_ForegroundAndBackgroundPages DISABLED_ForegroundAndBackgroundPages

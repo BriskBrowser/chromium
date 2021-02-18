@@ -7,13 +7,13 @@ package org.chromium.chrome.browser.tasks.tab_management;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
-import android.graphics.RectF;
 import android.os.SystemClock;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Callback;
+import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.compositor.layouts.Layout;
 import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
 import org.chromium.chrome.browser.tab.Tab;
@@ -113,8 +113,9 @@ public interface TabSwitcher {
         /**
          * Called by the StartSurfaceLayout when the system back button is pressed.
          * @return Whether or not the TabSwitcher consumed the event.
+         * @param isOnHomepage Whether the Start surface is showing.
          */
-        boolean onBackPressed();
+        boolean onBackPressed(boolean isOnHomepage);
 
         /**
          * Enable recording the first meaningful paint event of the Grid Tab Switcher.
@@ -214,25 +215,12 @@ public interface TabSwitcher {
     }
 
     /**
-     * Interface to access the Tab Dialog.
-     */
-    interface TabDialogDelegation {
-        /**
-         * Set a hook to receive {@link RectF} with position information about source tab card used
-         * to setup Tab Dialog animation.
-         * @param callback The callback to send rect through.
-         */
-        @VisibleForTesting
-        void setSourceRectCallbackForTesting(Callback<RectF> callback);
-    }
-
-    /**
      * @return The {@link TabListDelegate}.
      */
     TabListDelegate getTabListDelegate();
 
     /**
-     * @return The {@link TabDialogDelegation}.
+     * @return {@link Supplier} that provides dialog visibility.
      */
-    TabDialogDelegation getTabGridDialogDelegation();
+    Supplier<Boolean> getTabGridDialogVisibilitySupplier();
 }

@@ -22,9 +22,11 @@
 #import "ios/chrome/browser/ui/autofill/cells/autofill_edit_item.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
+#import "ios/chrome/browser/ui/settings/autofill/autofill_constants.h"
 #import "ios/chrome/browser/ui/settings/autofill/autofill_edit_table_view_controller+protected.h"
 #import "ios/chrome/browser/ui/settings/cells/copied_to_chrome_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_edit_item_delegate.h"
+#import "ios/chrome/browser/ui/table_view/table_view_utils.h"
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #include "ios/chrome/grit/ios_chromium_strings.h"
@@ -38,9 +40,6 @@
 
 namespace {
 using ::AutofillTypeFromAutofillUIType;
-
-NSString* const kAutofillCreditCardEditTableViewId =
-    @"kAutofillCreditCardEditTableViewId";
 
 typedef NS_ENUM(NSInteger, SectionIdentifier) {
   SectionIdentifierFields = kSectionIdentifierEnumZero,
@@ -71,10 +70,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 - (instancetype)initWithCreditCard:(const autofill::CreditCard&)creditCard
                personalDataManager:(autofill::PersonalDataManager*)dataManager {
-  UITableViewStyle style = base::FeatureList::IsEnabled(kSettingsRefresh)
-                               ? UITableViewStylePlain
-                               : UITableViewStyleGrouped;
-  self = [super initWithStyle:style];
+  self = [super initWithStyle:ChromeTableViewStyle()];
   if (self) {
     DCHECK(dataManager);
 
@@ -163,23 +159,13 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
   BOOL isEditing = self.tableView.editing;
 
-  NSArray<AutofillEditItem*>* editItems;
-  if ([self isCardNicknameManagementEnabled]) {
-    editItems = @[
-      [self cardNumberItem:isEditing],
-      [self expirationMonthItem:isEditing],
-      [self expirationYearItem:isEditing],
-      [self cardholderNameItem:isEditing],
-      [self nicknameItem:isEditing],
-    ];
-  } else {
-    editItems = @[
-      [self cardholderNameItem:isEditing],
-      [self cardNumberItem:isEditing],
-      [self expirationMonthItem:isEditing],
-      [self expirationYearItem:isEditing],
-    ];
-  }
+  NSArray<AutofillEditItem*>* editItems = @[
+    [self cardNumberItem:isEditing],
+    [self expirationMonthItem:isEditing],
+    [self expirationYearItem:isEditing],
+    [self cardholderNameItem:isEditing],
+    [self nicknameItem:isEditing],
+  ];
 
   [model addSectionWithIdentifier:SectionIdentifierFields];
   for (AutofillEditItem* item in editItems) {
@@ -231,6 +217,12 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 - (void)tableViewItemDidEndEditing:
     (TableViewTextEditItem*)tableViewTextEditItem {
+  // If the table view has already been dismissed or the editing stopped
+  // ignore call as the item might no longer be in the cells (crbug/1125094).
+  if (!self.tableView.isEditing) {
+    return;
+  }
+
   if ([tableViewTextEditItem isKindOfClass:[AutofillEditItem class]]) {
     AutofillEditItem* item = (AutofillEditItem*)tableViewTextEditItem;
     // Reconfigure to trigger appropiate icon change.
@@ -402,12 +394,6 @@ typedef NS_ENUM(NSInteger, ItemType) {
   nicknameItem.hideIcon = !isEditing;
   nicknameItem.delegate = self;
   return nicknameItem;
-}
-
-// Returns whether card nickname managment feature is enabled.
-- (BOOL)isCardNicknameManagementEnabled {
-  return base::FeatureList::IsEnabled(
-      autofill::features::kAutofillEnableCardNicknameManagement);
 }
 
 @end

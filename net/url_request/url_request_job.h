@@ -40,7 +40,6 @@ class HttpRequestHeaders;
 class HttpResponseInfo;
 class IOBuffer;
 struct LoadTimingInfo;
-class NetworkDelegate;
 class ProxyServer;
 class SSLCertRequestInfo;
 class SSLInfo;
@@ -51,8 +50,7 @@ class X509Certificate;
 
 class NET_EXPORT URLRequestJob {
  public:
-  explicit URLRequestJob(URLRequest* request,
-                         NetworkDelegate* network_delegate);
+  explicit URLRequestJob(URLRequest* request);
   virtual ~URLRequestJob();
 
   // Returns the request that owns this job.
@@ -242,6 +240,10 @@ class NET_EXPORT URLRequestJob {
   // from the remote party with the actual response headers recieved.
   virtual void SetResponseHeadersCallback(ResponseHeadersCallback callback) {}
 
+  // Causes the current transaction always close its active socket on
+  // destruction. Does not close H2/H3 sessions.
+  virtual void CloseConnectionOnDestruction();
+
   // Given |policy|, |original_referrer|, and |destination|, returns the
   // referrer URL mandated by |request|'s referrer policy.
   //
@@ -324,9 +326,6 @@ class NET_EXPORT URLRequestJob {
   // Subclasses should return the appropriate last SourceStream of the chain,
   // or nullptr on error.
   virtual std::unique_ptr<SourceStream> SetUpSourceStream();
-
-  // Provides derived classes with access to the request's network delegate.
-  NetworkDelegate* network_delegate() { return network_delegate_; }
 
   // Set the proxy server that was used, if any.
   void SetProxyServer(const ProxyServer& proxy_server);
@@ -432,9 +431,6 @@ class NET_EXPORT URLRequestJob {
   // Set when a redirect is deferred. Redirects are deferred after validity
   // checks are performed, so this field must not be modified.
   base::Optional<RedirectInfo> deferred_redirect_info_;
-
-  // The network delegate to use with this request, if any.
-  NetworkDelegate* network_delegate_;
 
   // Non-null if ReadRawData() returned ERR_IO_PENDING, and the read has not
   // completed.

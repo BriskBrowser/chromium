@@ -4,9 +4,9 @@
 
 package org.chromium.chrome.browser.vr;
 
-import android.app.Activity;
-
 import org.chromium.base.annotations.UsedByReflection;
+import org.chromium.components.webxr.ArCoreJavaUtils;
+import org.chromium.components.webxr.ArDelegate;
 
 /**
  * This class provides methods to call into AR. It will be compiled into Chrome
@@ -16,16 +16,6 @@ import org.chromium.base.annotations.UsedByReflection;
 public class ArDelegateImpl implements ArDelegate {
     @UsedByReflection("ArDelegateProvider.java")
     public ArDelegateImpl() {}
-
-    @Override
-    public void init() {
-        ArCoreInstallUtils.installArCoreDeviceProviderFactory();
-    }
-
-    @Override
-    public void registerOnResumeActivity(Activity activity) {
-        ArCoreInstallUtils.onResumeActivityWithNative(activity);
-    }
 
     @Override
     public boolean onBackPressed() {

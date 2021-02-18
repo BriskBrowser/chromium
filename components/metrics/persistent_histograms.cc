@@ -5,7 +5,7 @@
 #include "components/metrics/persistent_histograms.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/metrics/field_trial.h"
@@ -18,6 +18,7 @@
 #include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/metrics/persistent_system_profile.h"
 #include "components/variations/variations_associated_data.h"
 
@@ -84,7 +85,8 @@ const char kBrowserMetricsName[] = "BrowserMetrics";
 
 // Check for feature enabling the use of persistent histogram storage and
 // enable the global allocator if so.
-void InstantiatePersistentHistograms(const base::FilePath& metrics_dir) {
+void InstantiatePersistentHistograms(const base::FilePath& metrics_dir,
+                                     bool default_local_memory) {
   // Create a directory for storing completed metrics files. Files in this
   // directory must have embedded system profiles. If the directory can't be
   // created, the file will just be deleted below.
@@ -129,7 +131,9 @@ void InstantiatePersistentHistograms(const base::FilePath& metrics_dir) {
   static const char kMappedFile[] = "MappedFile";
   static const char kLocalMemory[] = "LocalMemory";
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   // Linux kernel 4.4.0.* shows a huge number of SIGBUS crashes with persistent
   // histograms enabled using a mapped file.  Change this to use local memory.
   // https://bugs.chromium.org/p/chromium/issues/detail?id=753741
@@ -148,7 +152,7 @@ void InstantiatePersistentHistograms(const base::FilePath& metrics_dir) {
     storage = kLocalMemory;
 
   // Create a global histogram allocator using the desired storage type.
-  if (storage.empty() || storage == kMappedFile) {
+  if (storage == kMappedFile || (storage.empty() && !default_local_memory)) {
     if (!base::PathExists(upload_dir)) {
       // Handle failure to create the directory.
       result = kNoUploadDir;
@@ -177,7 +181,8 @@ void InstantiatePersistentHistograms(const base::FilePath& metrics_dir) {
                            &base::GlobalHistogramAllocator::CreateSpareFile),
                        std::move(spare_file), kAllocSize),
         base::TimeDelta::FromSeconds(kSpareFileCreateDelaySeconds));
-  } else if (storage == kLocalMemory) {
+  } else if (storage == kLocalMemory ||
+             (default_local_memory && storage.empty())) {
     // Use local memory for storage even though it will not persist across
     // an unclean shutdown. This sets the result but the actual creation is
     // done below.

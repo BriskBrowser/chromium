@@ -9,7 +9,7 @@
 #include <stdint.h>
 
 #include "base/containers/span.h"
-#include "base/util/type_safety/strong_alias.h"
+#include "base/types/strong_alias.h"
 #include "mojo/public/cpp/system/data_pipe.h"
 #include "mojo/public/cpp/system/simple_watcher.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
@@ -52,6 +52,12 @@ class MODULES_EXPORT OutgoingStream final
     virtual void OnOutgoingStreamAbort() = 0;
   };
 
+  enum class State {
+    kOpen,
+    kSentFin,
+    kAborted,
+  };
+
   OutgoingStream(ScriptState*, Client*, mojo::ScopedDataPipeProducerHandle);
   ~OutgoingStream();
 
@@ -76,6 +82,8 @@ class MODULES_EXPORT OutgoingStream final
   // scope to be entered.
   void Reset();
 
+  State GetState() const { return state_; }
+
   // Called from QuicTransport rather than using
   // ExecutionContextLifecycleObserver to ensure correct destruction order.
   // Does not execute JavaScript.
@@ -86,7 +94,7 @@ class MODULES_EXPORT OutgoingStream final
  private:
   class UnderlyingSink;
 
-  using IsLocalAbort = util::StrongAlias<class IsLocalAbortTag, bool>;
+  using IsLocalAbort = base::StrongAlias<class IsLocalAbortTag, bool>;
 
   // Called when |data_pipe_| becomes writable or errored.
   void OnHandleReady(MojoResult, const mojo::HandleSignalsState&);
@@ -180,6 +188,8 @@ class MODULES_EXPORT OutgoingStream final
   // If an asynchronous write() on the underlying sink object is pending, this
   // will be non-null.
   Member<ScriptPromiseResolver> write_promise_resolver_;
+
+  State state_ = State::kOpen;
 };
 
 }  // namespace blink

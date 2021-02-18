@@ -6,6 +6,7 @@
 #include "base/path_service.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "cc/test/pixel_comparator.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/common/content_paths.h"
@@ -16,6 +17,7 @@
 #include "content/public/test/test_utils.h"
 #include "content/shell/browser/shell.h"
 #include "ui/base/ui_base_features.h"
+#include "ui/base/ui_base_switches.h"
 
 #if defined(OS_ANDROID)
 #include "base/android/build_info.h"
@@ -37,7 +39,9 @@ namespace content {
 class FormControlsBrowserTest : public ContentBrowserTest {
  public:
   FormControlsBrowserTest() {
-    feature_list_.InitWithFeatures({features::kFormControlsRefresh}, {});
+    feature_list_.InitWithFeatures(
+        {features::kFormControlsRefresh, features::kCSSColorSchemeUARendering},
+        {});
   }
 
   void SetUp() override {
@@ -51,6 +55,9 @@ class FormControlsBrowserTest : public ContentBrowserTest {
     // The --disable-lcd-text flag helps text render more similarly on
     // different bots and platform.
     command_line->AppendSwitch(switches::kDisableLCDText);
+
+    // This is required to allow dark mode to be used on some platforms.
+    command_line->AppendSwitch(switches::kForceDarkMode);
   }
 
   void RunTest(const std::string& screenshot_filename,
@@ -60,13 +67,14 @@ class FormControlsBrowserTest : public ContentBrowserTest {
     base::ScopedAllowBlockingForTesting allow_blocking;
 
     ASSERT_TRUE(features::IsFormControlsRefreshEnabled());
+    ASSERT_TRUE(features::IsCSSColorSchemeUARenderingEnabled());
 
     std::string platform_suffix;
 #if defined(OS_MAC)
     platform_suffix = "_mac";
 #elif defined(OS_WIN)
     platform_suffix = "_win";
-#elif defined(OS_CHROMEOS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH)
     platform_suffix = "_chromeos";
 #elif defined(OS_ANDROID)
     int sdk_int = base::android::BuildInfo::GetInstance()->sdk_int();
@@ -89,9 +97,9 @@ class FormControlsBrowserTest : public ContentBrowserTest {
       golden_filepath = golden_filepath_platform;
     }
 
-    ASSERT_TRUE(NavigateToURL(
-        shell()->web_contents(),
-        GURL("data:text/html,<!DOCTYPE html><body>" + body_html + "</body>")));
+    ASSERT_TRUE(
+        NavigateToURL(shell()->web_contents(),
+                      GURL("data:text/html,<!DOCTYPE html>" + body_html)));
 
 #if defined(OS_MAC)
     // This fuzzy pixel comparator handles several mac behaviors:
@@ -100,7 +108,7 @@ class FormControlsBrowserTest : public ContentBrowserTest {
     // - Slight differences in radio and checkbox rendering in 10.15
     cc::FuzzyPixelComparator comparator(
         /* discard_alpha */ true,
-        /* error_pixels_percentage_limit */ 9.f,
+        /* error_pixels_percentage_limit */ 11.f,
         /* small_error_pixels_percentage_limit */ 0.f,
         /* avg_abs_error_limit */ 20.f,
         /* max_abs_error_limit */ 79.f,
@@ -125,11 +133,28 @@ class FormControlsBrowserTest : public ContentBrowserTest {
         gfx::Size(screenshot_width, screenshot_height), comparator));
   }
 
+  // Check if the test can run on the current system.
+  bool SkipTestForOldAndroidVersions() const {
+#if defined(OS_ANDROID)
+    // Lower versions of android running on older devices, ex Nexus 5, render
+    // form controls with a too large of a difference -- >20% error -- to
+    // pixel compare.
+    if (base::android::BuildInfo::GetInstance()->sdk_int() <
+        base::android::SDK_VERSION_OREO) {
+      return true;
+    }
+#endif  // defined(OS_ANDROID)
+    return false;
+  }
+
  private:
   base::test::ScopedFeatureList feature_list_;
 };
 
 IN_PROC_BROWSER_TEST_F(FormControlsBrowserTest, Checkbox) {
+  if (SkipTestForOldAndroidVersions())
+    return;
+
   RunTest("form_controls_browsertest_checkbox",
           "<input type=checkbox>"
           "<input type=checkbox checked>"
@@ -144,6 +169,9 @@ IN_PROC_BROWSER_TEST_F(FormControlsBrowserTest, Checkbox) {
 }
 
 IN_PROC_BROWSER_TEST_F(FormControlsBrowserTest, Radio) {
+  if (SkipTestForOldAndroidVersions())
+    return;
+
   RunTest("form_controls_browsertest_radio",
           "<input type=radio>"
           "<input type=radio checked>"
@@ -155,6 +183,59 @@ IN_PROC_BROWSER_TEST_F(FormControlsBrowserTest, Radio) {
           "</script>",
           /* screenshot_width */ 140,
           /* screenshot_height */ 40);
+}
+
+// TODO(crbug.com/1165919): Re-enable test when there is a resolution for
+// android-bfcache-rel builder producing different results.
+#if defined(OS_ANDROID) || defined(OS_MAC)
+#define MAYBE_DarkModeTextSelection DISABLED_DarkModeTextSelection
+#else
+#define MAYBE_DarkModeTextSelection DarkModeTextSelection
+#endif
+IN_PROC_BROWSER_TEST_F(FormControlsBrowserTest, MAYBE_DarkModeTextSelection) {
+  RunTest("form_controls_browsertest_dark_mode_text_selection",
+          "<meta name=\"color-scheme\" content=\"dark\">"
+          "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+          "<div id=\"target\">This is some basic text that we are going to "
+          "select.</div>"
+          "<script>"
+          "  let container = document.getElementById('target');"
+          "  container.focus();"
+          "  let targetText = container.firstChild;"
+          "  let selectionRange = window.getSelection();"
+          "  selectionRange.setBaseAndExtent(targetText, 5, targetText, 35);"
+          "</script>",
+          /* screenshot_width */ 400,
+          /* screenshot_height */ 40);
+}
+
+// TODO(crbug.com/1165919) skip this test until there is a resolution for
+// android-bfcache-rel builder producing different results.
+#if defined(OS_ANDROID)
+#define MAYBE_Input DISABLED_Input
+#else
+#define MAYBE_Input Input
+#endif
+IN_PROC_BROWSER_TEST_F(FormControlsBrowserTest, MAYBE_Input) {
+  RunTest("form_controls_browsertest_input",
+          "<!-- text inputs -->"
+          "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+          "<style>body {margin: 8px} input {width: 150px; "
+          "margin-bottom: 18px}</style>"
+          "<input type=\"text\" /><br>"
+          "<input type=\"number\" /><br>"
+          "<input type=\"search\" /><br>"
+          "<input type=\"email\" /><br>"
+          "<input type=\"password\" /><br>"
+          "<!-- border -->"
+          "<input type=\"text\" style=\"border: 3px solid lime;\"/><br>"
+          "<!-- shadow -->"
+          "<input type=\"text\" style=\"box-shadow: 4px 4px 10px "
+          "rgba(255,0,0,0.5), inset 4px 4px 4px rgba(0,255,0,0.5);\"/><br>"
+          "<!-- disabled -->"
+          "<input type=\"text\" disabled/>",
+          /* screenshot_width */ 200,
+          /* screenshot_height */ 330);
 }
 
 // TODO(jarhar): Add tests for other elements from

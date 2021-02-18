@@ -15,11 +15,10 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/timer/timer.h"
 #include "chromeos/attestation/attestation_flow_utils.h"
-#include "chromeos/constants/chromeos_switches.h"
-#include "chromeos/cryptohome/async_method_caller.h"
 #include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "chromeos/dbus/attestation/attestation_client.h"
 #include "chromeos/dbus/attestation/interface.pb.h"
+#include "chromeos/dbus/constants/dbus_switches.h"
 #include "components/account_id/account_id.h"
 
 namespace chromeos {
@@ -94,7 +93,7 @@ AttestationFlowIntegrated::AttestationFlowIntegrated()
 // |AttestationFlow|.
 AttestationFlowIntegrated::AttestationFlowIntegrated(
     ::attestation::ACAType aca_type)
-    : AttestationFlow(nullptr, nullptr, nullptr),
+    : AttestationFlow(/*server_proxy=*/nullptr),
       aca_type_(aca_type),
       attestation_client_(AttestationClient::Get()),
       ready_timeout_(kReadyTimeout),
@@ -183,7 +182,9 @@ void AttestationFlowIntegrated::StartCertificateRequest(
 
   request.set_certificate_profile(*profile_attestation_enum);
   request.set_request_origin(request_origin);
-  request.set_username(cryptohome::Identification(account_id).id());
+  if (GetKeyTypeForProfile(certificate_profile) == KEY_USER) {
+    request.set_username(cryptohome::Identification(account_id).id());
+  }
   request.set_key_label(key_name);
   request.set_shall_trigger_enrollment(true);
   request.set_forced(generate_new_key);

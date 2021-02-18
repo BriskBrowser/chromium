@@ -4,81 +4,33 @@
 
 package org.chromium.chrome.browser.omnibox;
 
-import android.animation.Animator;
-import android.animation.AnimatorListenerAdapter;
-import android.animation.ObjectAnimator;
 import android.content.Context;
 import android.graphics.Rect;
 import android.util.AttributeSet;
-import android.util.Property;
 import android.view.MotionEvent;
 import android.view.View;
 
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.download.DownloadUtils;
-import org.chromium.chrome.browser.ntp.NewTabPage;
-import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.toolbar.top.ToolbarTablet;
-import org.chromium.components.browser_ui.widget.animation.CancelAwareAnimatorListener;
 import org.chromium.ui.base.LocalizationUtils;
-import org.chromium.ui.interpolators.BakedBezierInterpolator;
-
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Location bar for tablet form factors.
  */
-public class LocationBarTablet extends LocationBarLayout {
-    private static final long MAX_NTP_KEYBOARD_FOCUS_DURATION_MS = 200;
-
-    private static final int ICON_FADE_ANIMATION_DURATION_MS = 150;
-    private static final int ICON_FADE_ANIMATION_DELAY_MS = 75;
-    private static final int WIDTH_CHANGE_ANIMATION_DURATION_MS = 225;
-    private static final int WIDTH_CHANGE_ANIMATION_DELAY_MS = 75;
-
-    private final Property<LocationBarTablet, Float> mUrlFocusChangePercentProperty =
-            new Property<LocationBarTablet, Float>(Float.class, "") {
-                @Override
-                public Float get(LocationBarTablet object) {
-                    return object.mUrlFocusChangePercent;
-                }
-
-                @Override
-                public void set(LocationBarTablet object, Float value) {
-                    setUrlFocusChangePercent(value);
-                }
-            };
-
-    private final Property<LocationBarTablet, Float> mWidthChangePercentProperty =
-            new Property<LocationBarTablet, Float>(Float.class, "") {
-                @Override
-                public Float get(LocationBarTablet object) {
-                    return object.mWidthChangePercent;
-                }
-
-                @Override
-                public void set(LocationBarTablet object, Float value) {
-                    setWidthChangeAnimationPercent(value);
-                }
-            };
+class LocationBarTablet extends LocationBarLayout {
+    // The number of toolbar buttons that can be hidden at small widths (reload, back, forward).
+    private static final int HIDEABLE_BUTTON_COUNT = 3;
 
     private View mLocationBarIcon;
     private View mBookmarkButton;
     private View mSaveOfflineButton;
-    private Animator mUrlFocusChangeAnimator;
     private View[] mTargets;
     private final Rect mCachedTargetBounds = new Rect();
-
-    // Whether the microphone and bookmark buttons should be shown in the location bar. These
-    // buttons are hidden if the window size is < 600dp.
-    private boolean mShouldShowButtonsWhenUnfocused;
 
     // Variables needed for animating the location bar and toolbar buttons hiding/showing.
     private final int mToolbarButtonsWidth;
     private final int mMicButtonWidth;
     private boolean mAnimatingWidthChange;
-    private float mWidthChangePercent;
+    private float mWidthChangeFraction;
     private float mLayoutLeft;
     private float mLayoutRight;
     private int mToolbarStartPaddingDifference;
@@ -88,10 +40,9 @@ public class LocationBarTablet extends LocationBarLayout {
      */
     public LocationBarTablet(Context context, AttributeSet attrs) {
         super(context, attrs);
-        mShouldShowButtonsWhenUnfocused = true;
 
         mToolbarButtonsWidth = getResources().getDimensionPixelOffset(R.dimen.toolbar_button_width)
-                * ToolbarTablet.HIDEABLE_BUTTON_COUNT;
+                * HIDEABLE_BUTTON_COUNT;
         mMicButtonWidth = getResources().getDimensionPixelOffset(R.dimen.location_bar_icon_width);
     }
 
@@ -104,8 +55,6 @@ public class LocationBarTablet extends LocationBarLayout {
         mSaveOfflineButton = findViewById(R.id.save_offline_button);
 
         mTargets = new View[] {mUrlBar, mDeleteButton};
-        mStatusCoordinator.setShowIconsWhenUrlFocused(true);
-        mStatusCoordinator.setStatusIconShown(true);
     }
 
     @Override
@@ -141,102 +90,6 @@ public class LocationBarTablet extends LocationBarLayout {
         return selectedTarget.onTouchEvent(event);
     }
 
-    // Returns amount by which to adjust to move value inside the given range.
-    private static float distanceToRange(float min, float max, float value) {
-        return value < min ? (min - value) : value > max ? (max - value) : 0;
-    }
-
-    @Override
-    public void handleUrlFocusAnimation(final boolean hasFocus) {
-        super.handleUrlFocusAnimation(hasFocus);
-
-        if (mUrlFocusChangeAnimator != null && mUrlFocusChangeAnimator.isRunning()) {
-            mUrlFocusChangeAnimator.cancel();
-            mUrlFocusChangeAnimator = null;
-        }
-
-        if (getToolbarDataProvider().getNewTabPageForCurrentTab() == null) {
-            finishUrlFocusChange(hasFocus);
-            return;
-        }
-
-        Rect rootViewBounds = new Rect();
-        getRootView().getLocalVisibleRect(rootViewBounds);
-        float screenSizeRatio = (rootViewBounds.height()
-                / (float) (Math.max(rootViewBounds.height(), rootViewBounds.width())));
-        mUrlFocusChangeAnimator =
-                ObjectAnimator.ofFloat(this, mUrlFocusChangePercentProperty, hasFocus ? 1f : 0f);
-        mUrlFocusChangeAnimator.setDuration(
-                (long) (MAX_NTP_KEYBOARD_FOCUS_DURATION_MS * screenSizeRatio));
-        mUrlFocusChangeAnimator.addListener(new CancelAwareAnimatorListener() {
-            @Override
-            public void onEnd(Animator animator) {
-                finishUrlFocusChange(hasFocus);
-            }
-
-            @Override
-            public void onCancel(Animator animator) {
-                setUrlFocusChangeInProgress(false);
-            }
-        });
-        setUrlFocusChangeInProgress(true);
-        mUrlFocusChangeAnimator.start();
-    }
-
-    /**
-     * @param shouldShowButtons Whether buttons should be displayed in the URL bar when it's not
-     *                          focused.
-     */
-    public void setShouldShowButtonsWhenUnfocused(boolean shouldShowButtons) {
-        mShouldShowButtonsWhenUnfocused = shouldShowButtons;
-        updateButtonVisibility();
-    }
-
-    /**
-     * Updates percentage of current the URL focus change animation.
-     * @param percent 1.0 is 100% focused, 0 is completely unfocused.
-     */
-    private void setUrlFocusChangePercent(float percent) {
-        mUrlFocusChangePercent = percent;
-
-        NewTabPage ntp = getToolbarDataProvider().getNewTabPageForCurrentTab();
-        if (ntp != null) ntp.setUrlFocusChangeAnimationPercent(percent);
-    }
-
-    @Override
-    public void updateButtonVisibility() {
-        super.updateButtonVisibility();
-
-        boolean showBookmarkButton =
-                mShouldShowButtonsWhenUnfocused && shouldShowPageActionButtons();
-        mBookmarkButton.setVisibility(showBookmarkButton ? View.VISIBLE : View.GONE);
-
-        boolean showSaveOfflineButton =
-                mShouldShowButtonsWhenUnfocused && shouldShowSaveOfflineButton();
-        mSaveOfflineButton.setVisibility(showSaveOfflineButton ? View.VISIBLE : View.GONE);
-        if (showSaveOfflineButton) mSaveOfflineButton.setEnabled(isSaveOfflineButtonEnabled());
-
-        if (!mShouldShowButtonsWhenUnfocused) {
-            updateMicButtonVisibility();
-        } else {
-            mMicButton.setVisibility(shouldShowMicButton() ? View.VISIBLE : View.GONE);
-        }
-    }
-
-    @Override
-    public void onSuggestionsHidden() {
-        super.onSuggestionsHidden();
-        mStatusCoordinator.setFirstSuggestionIsSearchType(false);
-    }
-
-    @Override
-    public void onSuggestionsChanged(String autocompleteText) {
-        super.onSuggestionsChanged(autocompleteText);
-        mStatusCoordinator.setFirstSuggestionIsSearchType(
-                mAutocompleteCoordinator.getSuggestionCount() > 0
-                && mAutocompleteCoordinator.getSuggestionAt(0).isSearchSuggestion());
-    }
-
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         int measuredWidth = getMeasuredWidth();
@@ -256,156 +109,20 @@ public class LocationBarTablet extends LocationBarLayout {
         mLayoutRight = right;
 
         if (mAnimatingWidthChange) {
-            setWidthChangeAnimationPercent(mWidthChangePercent);
+            setWidthChangeAnimationFraction(mWidthChangeFraction);
         }
     }
 
-    /**
-     * @param button The {@link View} of the button to show.
-     * @return An animator to run for the given view when showing buttons in the unfocused location
-     *         bar. This should also be used to create animators for showing toolbar buttons.
-     */
-    public ObjectAnimator createShowButtonAnimator(View button) {
-        if (button.getVisibility() != View.VISIBLE) {
-            button.setAlpha(0.f);
-        }
-        ObjectAnimator buttonAnimator = ObjectAnimator.ofFloat(button, View.ALPHA, 1.f);
-        buttonAnimator.setInterpolator(BakedBezierInterpolator.FADE_IN_CURVE);
-        buttonAnimator.setStartDelay(ICON_FADE_ANIMATION_DELAY_MS);
-        buttonAnimator.setDuration(ICON_FADE_ANIMATION_DURATION_MS);
-        return buttonAnimator;
-    }
-
-    /**
-     * @param button The {@link View} of the button to hide.
-     * @return An animator to run for the given view when hiding buttons in the unfocused location
-     *         bar. This should also be used to create animators for hiding toolbar buttons.
-     */
-    public ObjectAnimator createHideButtonAnimator(View button) {
-        ObjectAnimator buttonAnimator = ObjectAnimator.ofFloat(button, View.ALPHA, 0.f);
-        buttonAnimator.setInterpolator(BakedBezierInterpolator.FADE_OUT_CURVE);
-        buttonAnimator.setDuration(ICON_FADE_ANIMATION_DURATION_MS);
-        return buttonAnimator;
-    }
-
-    /**
-     * Creates animators for showing buttons in the unfocused location bar. The buttons fade in
-     * while width of the location bar gets smaller. There are toolbar buttons that also show at
-     * the same time, causing the width of the location bar to change.
-     *
-     * @param toolbarStartPaddingDifference The difference in the toolbar's start padding between
-     *                                      the beginning and end of the animation.
-     * @return An ArrayList of animators to run.
-     */
-    public List<Animator> getShowButtonsWhenUnfocusedAnimators(int toolbarStartPaddingDifference) {
-        mToolbarStartPaddingDifference = toolbarStartPaddingDifference;
-
-        ArrayList<Animator> animators = new ArrayList<>();
-
-        Animator widthChangeAnimator =
-                ObjectAnimator.ofFloat(this, mWidthChangePercentProperty, 0f);
-        widthChangeAnimator.setDuration(WIDTH_CHANGE_ANIMATION_DURATION_MS);
-        widthChangeAnimator.setInterpolator(BakedBezierInterpolator.TRANSFORM_CURVE);
-        widthChangeAnimator.addListener(new AnimatorListenerAdapter() {
-            @Override
-            public void onAnimationStart(Animator animation) {
-                mAnimatingWidthChange = true;
-                setShouldShowButtonsWhenUnfocused(true);
-            }
-
-            @Override
-            public void onAnimationEnd(Animator animation) {
-                // Only reset values if the animation is ending because it's completely finished
-                // and not because it was canceled.
-                if (mWidthChangePercent == 0.f) {
-                    mAnimatingWidthChange = false;
-                    resetValuesAfterAnimation();
-                }
-            }
-        });
-        animators.add(widthChangeAnimator);
-
-        // When buttons show in the unfocused location bar, either the delete button or bookmark
-        // button will be showing. If the delete button is currently showing, the bookmark button
-        // should not fade in.
-        if (mDeleteButton.getVisibility() != View.VISIBLE) {
-            animators.add(createShowButtonAnimator(mBookmarkButton));
-        }
-
-        if (shouldShowSaveOfflineButton()) {
-            animators.add(createShowButtonAnimator(mSaveOfflineButton));
-        } else if (mMicButton.getVisibility() != View.VISIBLE || mMicButton.getAlpha() != 1.f) {
-            // If the microphone button is already fully visible, don't animate its appearance.
-            animators.add(createShowButtonAnimator(mMicButton));
-        }
-
-        return animators;
-    }
-
-    /**
-     * Creates animators for hiding buttons in the unfocused location bar. The buttons fade out
-     * while width of the location bar gets larger. There are toolbar buttons that also hide at the
-     * same time, causing the width of the location bar to change.
-     *
-     * @param toolbarStartPaddingDifference The difference in the toolbar's start padding between
-     *                                      the beginning and end of the animation.
-     * @return An ArrayList of animators to run.
-     */
-    public List<Animator> getHideButtonsWhenUnfocusedAnimators(int toolbarStartPaddingDifference) {
-        mToolbarStartPaddingDifference = toolbarStartPaddingDifference;
-
-        ArrayList<Animator> animators = new ArrayList<>();
-
-        Animator widthChangeAnimator =
-                ObjectAnimator.ofFloat(this, mWidthChangePercentProperty, 1f);
-        widthChangeAnimator.setStartDelay(WIDTH_CHANGE_ANIMATION_DELAY_MS);
-        widthChangeAnimator.setDuration(WIDTH_CHANGE_ANIMATION_DURATION_MS);
-        widthChangeAnimator.setInterpolator(BakedBezierInterpolator.TRANSFORM_CURVE);
-        widthChangeAnimator.addListener(new AnimatorListenerAdapter() {
-            @Override
-            public void onAnimationStart(Animator animation) {
-                mAnimatingWidthChange = true;
-            }
-
-            @Override
-            public void onAnimationEnd(Animator animation) {
-                // Only reset values if the animation is ending because it's completely finished
-                // and not because it was canceled.
-                if (mWidthChangePercent == 1.f) {
-                    mAnimatingWidthChange = false;
-                    resetValuesAfterAnimation();
-                    setShouldShowButtonsWhenUnfocused(false);
-                }
-            }
-        });
-        animators.add(widthChangeAnimator);
-
-        // When buttons show in the unfocused location bar, either the delete button or bookmark
-        // button will be showing. If the delete button is currently showing, the bookmark button
-        // should not fade out.
-        if (mDeleteButton.getVisibility() != View.VISIBLE) {
-            animators.add(createHideButtonAnimator(mBookmarkButton));
-        }
-
-        if (shouldShowSaveOfflineButton() && mSaveOfflineButton.getVisibility() == View.VISIBLE) {
-            animators.add(createHideButtonAnimator(mSaveOfflineButton));
-        } else if (!(mUrlBar.hasFocus() && mDeleteButton.getVisibility() != View.VISIBLE)) {
-            // If the save offline button isn't enabled, the microphone button always shows when
-            // buttons are shown in the unfocused location bar. When buttons are hidden in the
-            // unfocused location bar, the microphone shows if the location bar is focused and the
-            // delete button isn't showing. The microphone button should not be hidden if the
-            // url bar is currently focused and the delete button isn't showing.
-            animators.add(createHideButtonAnimator(mMicButton));
-        }
-
-        return animators;
+    /** Returns amount by which to adjust to move value inside the given range. */
+    private static float distanceToRange(float min, float max, float value) {
+        return value < min ? (min - value) : value > max ? (max - value) : 0;
     }
 
     /**
      * Resets the alpha and translation X for all views affected by the animations for showing or
      * hiding buttons.
      */
-    private void resetValuesAfterAnimation() {
+    /* package */ void resetValuesAfterAnimation() {
         mMicButton.setTranslationX(0);
         mDeleteButton.setTranslationX(0);
         mBookmarkButton.setTranslationX(0);
@@ -420,15 +137,16 @@ public class LocationBarTablet extends LocationBarLayout {
     }
 
     /**
-     * Updates completion percentage for the location bar width change animation.
-     * @param percent How complete the animation is, where 0 represents the normal width (toolbar
-     *                buttons fully visible) and 1.f represents the expanded width (toolbar buttons
-     *                fully hidden).
+     * Updates completion progress for the location bar width change animation.
+     *
+     * @param fraction How complete the animation is, where 0 represents the normal width (toolbar
+     *         buttons fully visible) and 1.f represents the expanded width (toolbar buttons fully
+     *         hidden).
      */
-    private void setWidthChangeAnimationPercent(float percent) {
-        mWidthChangePercent = percent;
+    /* package */ void setWidthChangeAnimationFraction(float fraction) {
+        mWidthChangeFraction = fraction;
 
-        float offset = (mToolbarButtonsWidth + mToolbarStartPaddingDifference) * percent;
+        float offset = (mToolbarButtonsWidth + mToolbarStartPaddingDifference) * fraction;
 
         if (LocalizationUtils.isLayoutRtl()) {
             // The location bar's right edge is its regular layout position when toolbar buttons are
@@ -445,8 +163,12 @@ public class LocationBarTablet extends LocationBarLayout {
         // As the location bar's right edge moves right (increases) or left edge moves left
         // (decreases), the child views' translation X increases, keeping them visually in the same
         // location for the duration of the animation.
-        int deleteOffset = (int) (mMicButtonWidth * percent);
+        int deleteOffset = (int) (mMicButtonWidth * fraction);
         setChildTranslationsForWidthChangeAnimation((int) offset, deleteOffset);
+    }
+
+    /* package */ float getWidthChangeFraction() {
+        return mWidthChangeFraction;
     }
 
     /**
@@ -490,32 +212,66 @@ public class LocationBarTablet extends LocationBarLayout {
         }
     }
 
-    private boolean shouldShowSaveOfflineButton() {
-        if (!mNativeInitialized || mToolbarDataProvider == null) return false;
-        Tab tab = mToolbarDataProvider.getTab();
-        if (tab == null) return false;
-        // The save offline button should not be shown on native pages. Currently, trying to
-        // save an offline page in incognito crashes, so don't show it on incognito either.
-        return shouldShowPageActionButtons() && !tab.isIncognito();
+    /* package */ void setBookmarkButtonVisibility(boolean showBookmarkButton) {
+        mBookmarkButton.setVisibility(showBookmarkButton ? View.VISIBLE : View.GONE);
     }
 
-    private boolean isSaveOfflineButtonEnabled() {
-        if (mToolbarDataProvider == null) return false;
-        return DownloadUtils.isAllowedToDownloadPage(mToolbarDataProvider.getTab());
+    /* package */ void setSaveOfflineButtonVisibility(
+            boolean showSaveOfflineButton, boolean isSaveOfflineButtonEnabled) {
+        mSaveOfflineButton.setVisibility(showSaveOfflineButton ? View.VISIBLE : View.GONE);
+        if (showSaveOfflineButton) mSaveOfflineButton.setEnabled(isSaveOfflineButtonEnabled);
     }
 
-    private boolean shouldShowPageActionButtons() {
-        if (!mNativeInitialized) return true;
-
-        // There are two actions, bookmark and save offline, and they should be shown if the
-        // omnibox isn't focused.
-        return !(mUrlBar.hasFocus() || isUrlFocusChangeInProgress());
+    /* package */ boolean isSaveOfflineButtonVisible() {
+        return mSaveOfflineButton.getVisibility() == VISIBLE;
     }
 
-    private boolean shouldShowMicButton() {
-        // If the download UI is enabled, the mic button should be only be shown when the url bar
-        // is focused.
-        return mVoiceSearchEnabled && mNativeInitialized
-                && (mUrlBar.hasFocus() || isUrlFocusChangeInProgress());
+    /* package */ boolean isDeleteButtonVisible() {
+        return mDeleteButton.getVisibility() == VISIBLE;
+    }
+
+    /* package */ boolean isMicButtonVisible() {
+        return mMicButton.getVisibility() == VISIBLE;
+    }
+
+    /* package */ float getMicButtonAlpha() {
+        return mMicButton.getAlpha();
+    }
+
+    /**
+     * Gets the bookmark button view for the purposes of creating an animator that targets it.
+     * Don't use this for any other reason, e.g. to access or modify the view's properties directly.
+     */
+    @Deprecated
+    /* package */ View getBookmarkButtonForAnimation() {
+        return mBookmarkButton;
+    }
+
+    /**
+     * Gets the save offline button view for the purposes of creating an animator that targets it.
+     * Don't use this for any other reason, e.g. to access or modify the view's properties directly.
+     */
+    @Deprecated
+    /* package */ View getSaveOfflineButtonForAnimation() {
+        return mSaveOfflineButton;
+    }
+
+    /**
+     * Gets the mic button view for the purposes of creating an animator that targets it. Don't use
+     * this for any other reason, e.g. to access or modify the view's properties directly.
+     */
+    @Deprecated
+    /* package */ View getMicButtonForAnimation() {
+        return mMicButton;
+    }
+
+    /* package */ void startAnimatingWidthChange(int toolbarStartPaddingDifference) {
+        mAnimatingWidthChange = true;
+        mToolbarStartPaddingDifference = toolbarStartPaddingDifference;
+    }
+
+    /* package */ void finishAnimatingWidthChange() {
+        mAnimatingWidthChange = false;
+        mToolbarStartPaddingDifference = 0;
     }
 }

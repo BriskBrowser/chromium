@@ -16,8 +16,9 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/browsing_data/content/cookie_helper.h"
 #include "components/browsing_data/content/local_shared_objects_container.h"
 #include "components/content_settings/core/browser/content_settings_observer.h"
@@ -123,6 +124,10 @@ class PageSpecificContentSettings
     // and camera state on top of the microphone and camera state at the last
     // media stream request.
     virtual MicrophoneCameraState GetMicrophoneCameraState() = 0;
+
+    // Notifies the delegate a particular content settings type was allowed for
+    // the first time on this page.
+    virtual void OnContentAllowed(ContentSettingsType type) = 0;
 
     // Notifies the delegate a particular content settings type was blocked.
     virtual void OnContentBlocked(ContentSettingsType type) = 0;
@@ -256,9 +261,6 @@ class PageSpecificContentSettings
     return weak_factory_.GetWeakPtr();
   }
 
-  // Notifies that a Flash download has been blocked.
-  void FlashDownloadBlocked();
-
   // Changes the |content_blocked_| entry for popups.
   void ClearPopupsBlocked();
 
@@ -329,11 +331,6 @@ class PageSpecificContentSettings
     return blocked_local_shared_objects_;
   }
 
-  bool load_plugins_link_enabled() { return load_plugins_link_enabled_; }
-  void set_load_plugins_link_enabled(bool enabled) {
-    load_plugins_link_enabled_ = enabled;
-  }
-
   // Called to indicate whether access to the Pepper broker was allowed or
   // blocked.
   void SetPepperBrokerAllowed(bool allowed);
@@ -357,7 +354,7 @@ class PageSpecificContentSettings
                               const url::Origin& constructor_origin,
                               bool blocked_by_policy);
   void OnWebDatabaseAccessed(const GURL& url, bool blocked_by_policy);
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
+#if defined(OS_ANDROID) || BUILDFLAG(IS_CHROMEOS_ASH)
   void OnProtectedMediaIdentifierPermissionSet(const GURL& requesting_frame,
                                                bool allowed);
 #endif
@@ -397,9 +394,6 @@ class PageSpecificContentSettings
       : public content::WebContentsObserver,
         public content::WebContentsUserData<WebContentsHandler> {
    public:
-    static void CreateForWebContents(content::WebContents* web_contents,
-                                     std::unique_ptr<Delegate> delegate);
-
     explicit WebContentsHandler(content::WebContents* web_contents,
                                 std::unique_ptr<Delegate> delegate);
     ~WebContentsHandler() override;
@@ -449,8 +443,6 @@ class PageSpecificContentSettings
         content::RenderFrameHost* rfh);
 
     // content::WebContentsObserver overrides.
-    void RenderFrameForInterstitialPageCreated(
-        content::RenderFrameHost* render_frame_host) override;
     void DidStartNavigation(
         content::NavigationHandle* navigation_handle) override;
     void ReadyToCommitNavigation(
@@ -505,8 +497,7 @@ class PageSpecificContentSettings
   // content_settings::Observer implementation.
   void OnContentSettingChanged(const ContentSettingsPattern& primary_pattern,
                                const ContentSettingsPattern& secondary_pattern,
-                               ContentSettingsType content_type,
-                               const std::string& resource_identifier) override;
+                               ContentSettingsType content_type) override;
 
   // Clears settings changed by the user via PageInfo since the last navigation.
   void ClearContentSettingsChangedViaPageInfo();
@@ -532,9 +523,6 @@ class PageSpecificContentSettings
   browsing_data::LocalSharedObjectsContainer allowed_local_shared_objects_;
   browsing_data::LocalSharedObjectsContainer blocked_local_shared_objects_;
 
-  // Stores whether the user can load blocked plugins on this page.
-  bool load_plugins_link_enabled_;
-
   // The origin of the media stream request. Note that we only support handling
   // settings for one request per tab. The latest request's origin will be
   // stored here. http://crbug.com/259794
@@ -559,8 +547,8 @@ class PageSpecificContentSettings
   bool geolocation_was_just_granted_on_site_level_ = false;
 
   // Observer to watch for content settings changed.
-  ScopedObserver<HostContentSettingsMap, content_settings::Observer> observer_{
-      this};
+  base::ScopedObservation<HostContentSettingsMap, content_settings::Observer>
+      observation_{this};
 
   // Stores content settings changed by the user via page info since the last
   // navigation. Used to determine whether to display the settings in page info.

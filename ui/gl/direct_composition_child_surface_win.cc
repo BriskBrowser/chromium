@@ -7,6 +7,8 @@
 #include <d3d11_1.h>
 #include <dcomptypes.h>
 
+#include "base/debug/alias.h"
+#include "base/debug/dump_without_crashing.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
@@ -21,6 +23,7 @@
 #include "ui/gl/direct_composition_surface_win.h"
 #include "ui/gl/egl_util.h"
 #include "ui/gl/gl_angle_util_win.h"
+#include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_surface_egl.h"
 #include "ui/gl/gl_switches.h"
@@ -70,10 +73,12 @@ DirectCompositionChildSurfaceWin::PendingFrame::operator=(
 DirectCompositionChildSurfaceWin::DirectCompositionChildSurfaceWin(
     VSyncCallback vsync_callback,
     bool use_angle_texture_offset,
-    size_t max_pending_frames)
+    size_t max_pending_frames,
+    bool force_full_damage)
     : vsync_callback_(std::move(vsync_callback)),
       use_angle_texture_offset_(use_angle_texture_offset),
       max_pending_frames_(max_pending_frames),
+      force_full_damage_(force_full_damage),
       vsync_thread_(VSyncThreadWin::GetInstance()),
       task_runner_(base::ThreadTaskRunnerHandle::Get()) {}
 
@@ -131,11 +136,12 @@ bool DirectCompositionChildSurfaceWin::ReleaseDrawTexture(bool will_discard) {
   if (dcomp_surface_.Get() == g_current_surface)
     g_current_surface = nullptr;
 
+  HRESULT hr, device_removed_reason;
   if (draw_texture_) {
     draw_texture_.Reset();
     if (dcomp_surface_) {
       TRACE_EVENT0("gpu", "DirectCompositionChildSurfaceWin::EndDraw");
-      HRESULT hr = dcomp_surface_->EndDraw();
+      hr = dcomp_surface_->EndDraw();
       if (FAILED(hr)) {
         DLOG(ERROR) << "EndDraw failed with error " << std::hex << hr;
         return false;
@@ -147,15 +153,11 @@ bool DirectCompositionChildSurfaceWin::ReleaseDrawTexture(bool will_discard) {
       UINT interval =
           first_swap_ || !vsync_enabled_ || use_swap_chain_tearing ? 0 : 1;
       UINT flags = use_swap_chain_tearing ? DXGI_PRESENT_ALLOW_TEARING : 0;
-      flags |= DXGI_PRESENT_USE_DURATION;
 
-      bool force_full_damage =
-          ShouldForceDirectCompositionRootSurfaceFullDamage();
       TRACE_EVENT2("gpu", "DirectCompositionChildSurfaceWin::PresentSwapChain",
                    "interval", interval, "dirty_rect",
-                   force_full_damage ? "full_damage" : swap_rect_.ToString());
-      HRESULT hr;
-      if (force_full_damage) {
+                   force_full_damage_ ? "full_damage" : swap_rect_.ToString());
+      if (force_full_damage_) {
         hr = swap_chain_->Present(interval, flags);
       } else {
         DXGI_PRESENT_PARAMETERS params = {};
@@ -200,8 +202,14 @@ bool DirectCompositionChildSurfaceWin::ReleaseDrawTexture(bool will_discard) {
             base::WaitableEvent::ResetPolicy::AUTOMATIC,
             base::WaitableEvent::InitialState::NOT_SIGNALED);
         hr = dxgi_device2->EnqueueSetEvent(event.handle());
-        DCHECK(SUCCEEDED(hr));
-        event.Wait();
+        if (SUCCEEDED(hr)) {
+          event.Wait();
+        } else {
+          device_removed_reason = d3d11_device_->GetDeviceRemovedReason();
+          base::debug::Alias(&hr);
+          base::debug::Alias(&device_removed_reason);
+          base::debug::DumpWithoutCrashing();
+        }
       }
     }
   }
@@ -261,6 +269,11 @@ gfx::SwapResult DirectCompositionChildSurfaceWin::SwapBuffers(
                                     ? gfx::SwapResult::SWAP_ACK
                                     : gfx::SwapResult::SWAP_FAILED;
   EnqueuePendingFrame(std::move(callback));
+
+  // Reset swap_rect_ since SetDrawRectangle may not be called when the root
+  // damage rect is empty.
+  swap_rect_ = gfx::Rect();
+
   return swap_result;
 }
 
@@ -371,7 +384,7 @@ bool DirectCompositionChildSurfaceWin::SetDrawRectangle(
     desc.Format = dxgi_format;
     desc.Stereo = FALSE;
     desc.SampleDesc.Count = 1;
-    desc.BufferCount = 2;
+    desc.BufferCount = gl::DirectCompositionRootSurfaceBufferCount();
     desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     desc.Scaling = DXGI_SCALING_STRETCH;
     desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
@@ -406,8 +419,6 @@ bool DirectCompositionChildSurfaceWin::SetDrawRectangle(
       DCHECK(SUCCEEDED(hr))
           << "SetColorSpace1 failed with error " << std::hex << hr;
     }
-
-    SetSwapChainPresentDuration();
   }
 
   swap_rect_ = rectangle;
@@ -502,11 +513,12 @@ bool DirectCompositionChildSurfaceWin::Resize(
 
   // ResizeBuffers can't change alpha blending mode.
   if (swap_chain_ && resize_only) {
+    UINT buffer_count = gl::DirectCompositionRootSurfaceBufferCount();
     DXGI_FORMAT format = gfx::ColorSpaceWin::GetDXGIFormat(color_space_);
     UINT flags = DirectCompositionSurfaceWin::AllowTearing()
                      ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING
                      : 0;
-    HRESULT hr = swap_chain_->ResizeBuffers(2 /* BufferCount */, size.width(),
+    HRESULT hr = swap_chain_->ResizeBuffers(buffer_count, size.width(),
                                             size.height(), format, flags);
     UMA_HISTOGRAM_BOOLEAN("GPU.DirectComposition.SwapChainResizeResult",
                           SUCCEEDED(hr));
@@ -530,23 +542,6 @@ bool DirectCompositionChildSurfaceWin::SetEnableDCLayers(bool enable) {
   swap_chain_.Reset();
   dcomp_surface_.Reset();
   return true;
-}
-
-void DirectCompositionChildSurfaceWin::SetFrameRate(float frame_rate) {
-  frame_rate_ = frame_rate;
-  SetSwapChainPresentDuration();
-}
-
-void DirectCompositionChildSurfaceWin::SetSwapChainPresentDuration() {
-  if (!swap_chain_)
-    return;
-  Microsoft::WRL::ComPtr<IDXGISwapChainMedia> swap_chain_media;
-  if (SUCCEEDED(swap_chain_.As(&swap_chain_media))) {
-    UINT duration_100ns = FrameRateToPresentDuration(frame_rate_);
-    HRESULT hr = swap_chain_media->SetPresentDuration(duration_100ns);
-    if (FAILED(hr))
-      DLOG(ERROR) << "SetPresentDuration failed with error " << std::hex << hr;
-  }
 }
 
 gfx::VSyncProvider* DirectCompositionChildSurfaceWin::GetVSyncProvider() {

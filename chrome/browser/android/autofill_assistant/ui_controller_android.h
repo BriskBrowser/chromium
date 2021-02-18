@@ -11,14 +11,14 @@
 
 #include "base/android/scoped_java_ref.h"
 #include "base/macros.h"
-#include "base/timer/timer.h"
+#include "chrome/browser/android/autofill_assistant/assistant_bottom_bar_delegate.h"
 #include "chrome/browser/android/autofill_assistant/assistant_collect_user_data_delegate.h"
 #include "chrome/browser/android/autofill_assistant/assistant_form_delegate.h"
 #include "chrome/browser/android/autofill_assistant/assistant_generic_ui_delegate.h"
 #include "chrome/browser/android/autofill_assistant/assistant_header_delegate.h"
+#include "chrome/browser/android/autofill_assistant/assistant_header_model.h"
 #include "chrome/browser/android/autofill_assistant/assistant_overlay_delegate.h"
 #include "components/autofill_assistant/browser/chip.h"
-#include "components/autofill_assistant/browser/client.h"
 #include "components/autofill_assistant/browser/controller_observer.h"
 #include "components/autofill_assistant/browser/details.h"
 #include "components/autofill_assistant/browser/info_box.h"
@@ -30,6 +30,7 @@
 namespace autofill_assistant {
 struct ClientSettings;
 class GenericUiRootControllerAndroid;
+class ClientAndroid;
 
 // Starts and owns the UI elements required to display AA.
 //
@@ -63,7 +64,7 @@ class UiControllerAndroid : public ControllerObserver {
   // lifetime of this instance or until Attach() is called again, with different
   // pointers.
   void Attach(content::WebContents* web_contents,
-              Client* client,
+              ClientAndroid* client,
               UiDelegate* ui_delegate);
 
   // Detaches the UI from |ui_delegate_|. It will stop receiving notifications
@@ -96,7 +97,7 @@ class UiControllerAndroid : public ControllerObserver {
       const CollectUserDataOptions* collect_user_data_options) override;
   void OnUserDataChanged(const UserData* state,
                          UserData::FieldChange field_change) override;
-  void OnDetailsChanged(const Details* details) override;
+  void OnDetailsChanged(const std::vector<Details>& details) override;
   void OnInfoBoxChanged(const InfoBox* info_box) override;
   void OnProgressChanged(int progress) override;
   void OnProgressActiveStepChanged(int active_step) override;
@@ -127,7 +128,7 @@ class UiControllerAndroid : public ControllerObserver {
   void OnUserInteractionInsideTouchableArea();
 
   // Called by AssistantHeaderDelegate:
-  void OnFeedbackButtonClicked();
+  void OnHeaderFeedbackButtonClicked();
 
   // Called by AssistantGenericUiDelegate:
   void OnViewEvent(const EventHandler::EventKey& key);
@@ -165,6 +166,10 @@ class UiControllerAndroid : public ControllerObserver {
                                 int choice_index,
                                 bool selected);
 
+  // Called by AssistantBottomBarNativeDelegate:
+  bool OnBackButtonClicked();
+  void OnBottomSheetClosedWithSwipe();
+
   // Called by Java.
   void SnackbarResult(JNIEnv* env,
                       const base::android::JavaParamRef<jobject>& obj,
@@ -189,19 +194,27 @@ class UiControllerAndroid : public ControllerObserver {
   void OnCloseButtonClicked(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& jcaller);
+  void OnFeedbackButtonClicked(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& jcaller,
+      jint actionIndex);
   void OnKeyboardVisibilityChanged(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& jcaller,
       jboolean visible);
-  bool OnBackButtonClicked(JNIEnv* env,
-                           const base::android::JavaParamRef<jobject>& jcaller);
   void SetVisible(JNIEnv* env,
                   const base::android::JavaParamRef<jobject>& jcaller,
                   jboolean visible);
+  void OnTabSwitched(JNIEnv* env,
+                     const base::android::JavaParamRef<jobject>& jcaller,
+                     jint state,
+                     jboolean activity_changed);
+  void OnTabSelected(JNIEnv* env,
+                     const base::android::JavaParamRef<jobject>& jcaller);
 
  private:
   // A pointer to the client. nullptr until Attach() is called.
-  Client* client_ = nullptr;
+  ClientAndroid* client_ = nullptr;
 
   // A pointer to the ui_delegate. nullptr until Attach() is called.
   UiDelegate* ui_delegate_ = nullptr;
@@ -210,6 +223,7 @@ class UiControllerAndroid : public ControllerObserver {
   AssistantCollectUserDataDelegate collect_user_data_delegate_;
   AssistantFormDelegate form_delegate_;
   AssistantGenericUiDelegate generic_ui_delegate_;
+  AssistantBottomBarDelegate bottom_bar_delegate_;
 
   // What to do if undo is not pressed on the current snackbar.
   base::OnceCallback<void()> snackbar_action_;
@@ -259,9 +273,8 @@ class UiControllerAndroid : public ControllerObserver {
   // Makes the whole of AA invisible or visible again.
   void SetVisible(bool visible);
 
-  // Timer started when reaching the STOPPED state. It allows keeping the UI up
-  // for a few seconds before it destroys itself.
-  std::unique_ptr<base::OneShotTimer> destroy_timer_;
+  // Restore the UI for the current UIDelegate.
+  void RestoreUi();
 
   // Java-side AutofillAssistantUiController object.
   base::android::ScopedJavaGlobalRef<jobject> java_object_;
@@ -275,6 +288,8 @@ class UiControllerAndroid : public ControllerObserver {
 
   OverlayState desired_overlay_state_ = OverlayState::FULL;
   OverlayState overlay_state_ = OverlayState::FULL;
+
+  std::unique_ptr<AssistantHeaderModel> header_model_;
 
   base::WeakPtrFactory<UiControllerAndroid> weak_ptr_factory_{this};
 

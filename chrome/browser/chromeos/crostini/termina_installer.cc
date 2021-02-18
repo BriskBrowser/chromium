@@ -4,8 +4,10 @@
 
 #include "chrome/browser/chromeos/crostini/termina_installer.h"
 
+#include <algorithm>
 #include <memory>
 
+#include "ash/constants/ash_features.h"
 #include "base/barrier_closure.h"
 #include "base/bind.h"
 #include "base/callback.h"
@@ -16,7 +18,6 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part_chromeos.h"
 #include "chrome/browser/chromeos/crostini/crostini_util.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "content/public/browser/network_service_instance.h"
 #include "services/network/public/cpp/network_connection_tracker.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
@@ -43,9 +44,11 @@ void TerminaInstaller::Install(
   if (base::FeatureList::IsEnabled(chromeos::features::kCrostiniUseDlc)) {
     RemoveComponentIfPresent(std::move(remove_callback), uninstall_result_ptr);
     InstallDlc(std::move(callback));
+    dlc_id_ = kCrostiniDlcName;
   } else {
     RemoveDlcIfPresent(std::move(remove_callback), uninstall_result_ptr);
     InstallComponent(std::move(callback));
+    dlc_id_ = base::nullopt;
   }
 }
 
@@ -134,6 +137,12 @@ void TerminaInstaller::OnInstallComponent(
     LOG(ERROR)
         << "Failed to install the cros-termina component with error code: "
         << static_cast<int>(error);
+
+    if (error ==
+        component_updater::CrOSComponentManager::Error::MOUNT_FAILURE) {
+      ReinstallComponent(std::move(callback));
+      return;
+    }
     if (is_update_checked) {
       scoped_refptr<component_updater::CrOSComponentManager> component_manager =
           g_browser_process->platform_part()->cros_component_manager();
@@ -185,6 +194,38 @@ void TerminaInstaller::OnInstallComponent(
   std::move(callback).Run(result);
 }
 
+void TerminaInstaller::ReinstallComponent(
+    base::OnceCallback<void(InstallResult)> callback) {
+  scoped_refptr<component_updater::CrOSComponentManager> component_manager =
+      g_browser_process->platform_part()->cros_component_manager();
+  if (component_manager->Unload(imageloader::kTerminaComponentName)) {
+    component_manager->Load(
+        imageloader::kTerminaComponentName,
+        component_updater::CrOSComponentManager::MountPolicy::kMount,
+        UpdatePolicy::kDontForce,
+        base::BindOnce(&TerminaInstaller::OnReinstallComponent,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback),
+                       false));
+  } else {
+    std::move(callback).Run(InstallResult::Failure);
+  }
+}
+
+void TerminaInstaller::OnReinstallComponent(
+    base::OnceCallback<void(InstallResult)> callback,
+    bool is_update_checked,
+    component_updater::CrOSComponentManager::Error error,
+    const base::FilePath& path) {
+  LOG(ERROR) << "Attempting to re-install cros-termina component.";
+  if (error != component_updater::CrOSComponentManager::Error::MOUNT_FAILURE) {
+    OnInstallComponent(std::move(callback), is_update_checked, error, path);
+    return;
+  }
+  // Give up with a permanent failure. The newly downloaded component failed to
+  // mount.
+  std::move(callback).Run(InstallResult::Failure);
+}
+
 void TerminaInstaller::Uninstall(base::OnceCallback<void(bool)> callback) {
   // Unset |termina_location_| now since it will become invalid at some point
   // soon.
@@ -212,6 +253,7 @@ void TerminaInstaller::Uninstall(base::OnceCallback<void(bool)> callback) {
 void TerminaInstaller::RemoveComponentIfPresent(
     base::OnceCallback<void()> callback,
     UninstallResult* result) {
+  VLOG(1) << "Removing component";
   scoped_refptr<component_updater::CrOSComponentManager> component_manager =
       g_browser_process->platform_part()->cros_component_manager();
 
@@ -231,12 +273,14 @@ void TerminaInstaller::RemoveComponentIfPresent(
                 component_manager = g_browser_process->platform_part()
                                         ->cros_component_manager();
             if (is_present) {
+              VLOG(1) << "Component present, unloading";
               *result =
                   component_manager->Unload(imageloader::kTerminaComponentName);
               if (!*result) {
                 LOG(ERROR) << "Failed to remove cros-termina component";
               }
             } else {
+              VLOG(1) << "No component present, skipping";
               *result = true;
             }
             std::move(callback).Run();
@@ -246,6 +290,12 @@ void TerminaInstaller::RemoveComponentIfPresent(
 
 void TerminaInstaller::RemoveDlcIfPresent(base::OnceCallback<void()> callback,
                                           UninstallResult* result) {
+  if (!base::FeatureList::IsEnabled(chromeos::features::kCrostiniEnableDlc)) {
+    // No DLC service, so be a no-op.
+    *result = true;
+    std::move(callback).Run();
+    return;
+  }
   chromeos::DlcserviceClient::Get()->GetExistingDlcs(base::BindOnce(
       [](base::WeakPtr<TerminaInstaller> weak_this,
          base::OnceCallback<void()> callback, UninstallResult* result,
@@ -262,10 +312,12 @@ void TerminaInstaller::RemoveDlcIfPresent(base::OnceCallback<void()> callback,
         }
         for (const auto& dlc : dlcs_with_content.dlc_infos()) {
           if (dlc.id() == kCrostiniDlcName) {
+            VLOG(1) << "DLC present, removing";
             weak_this->RemoveDlc(std::move(callback), result);
             return;
           }
         }
+        VLOG(1) << "No DLC present, skipping";
         *result = true;
         std::move(callback).Run();
       },
@@ -280,6 +332,7 @@ void TerminaInstaller::RemoveDlc(base::OnceCallback<void()> callback,
           [](base::OnceCallback<void()> callback, UninstallResult* result,
              const std::string& err) {
             if (err == dlcservice::kErrorNone) {
+              VLOG(1) << "Removed DLC";
               *result = true;
             } else {
               LOG(ERROR) << "Failed to remove termina-dlc: " << err;
@@ -293,19 +346,20 @@ void TerminaInstaller::RemoveDlc(base::OnceCallback<void()> callback,
 void TerminaInstaller::OnUninstallFinished(
     base::OnceCallback<void(bool)> callback,
     std::vector<UninstallResult> partial_results) {
-  for (auto i : partial_results) {
-    if (!i) {
-      std::move(callback).Run(false);
-      return;
-    }
-  }
-  std::move(callback).Run(true);
+  bool result = std::all_of(partial_results.begin(), partial_results.end(),
+                            [](bool b) { return b; });
+  std::move(callback).Run(result);
 }
 
 base::FilePath TerminaInstaller::GetInstallLocation() {
   CHECK(termina_location_)
       << "GetInstallLocation() called while termina not installed";
   return *termina_location_;
+}
+
+base::Optional<std::string> TerminaInstaller::GetDlcId() {
+  CHECK(termina_location_) << "GetDlcId() called while termina not installed";
+  return dlc_id_;
 }
 
 }  // namespace crostini

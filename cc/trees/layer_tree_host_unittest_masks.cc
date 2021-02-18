@@ -10,7 +10,7 @@
 #include "cc/test/layer_tree_test.h"
 #include "cc/test/property_tree_test_utils.h"
 #include "cc/trees/layer_tree_impl.h"
-#include "components/viz/common/quads/render_pass_draw_quad.h"
+#include "components/viz/common/quads/compositor_render_pass_draw_quad.h"
 
 namespace cc {
 namespace {
@@ -77,17 +77,19 @@ class LayerTreeTestMaskLayerForSurfaceWithContentRectNotAtOrigin
                                    LayerTreeHostImpl::FrameData* frame_data,
                                    DrawResult draw_result) override {
     EXPECT_EQ(3u, frame_data->render_passes.size());
-    viz::RenderPass* root_pass = frame_data->render_passes.back().get();
+    viz::CompositorRenderPass* root_pass =
+        frame_data->render_passes.back().get();
     EXPECT_EQ(2u, root_pass->quad_list.size());
 
     // There's a solid color quad under everything.
     EXPECT_EQ(viz::DrawQuad::Material::kSolidColor,
               root_pass->quad_list.back()->material);
 
-    EXPECT_EQ(viz::DrawQuad::Material::kRenderPass,
+    EXPECT_EQ(viz::DrawQuad::Material::kCompositorRenderPass,
               root_pass->quad_list.front()->material);
-    const viz::RenderPassDrawQuad* render_pass_quad =
-        viz::RenderPassDrawQuad::MaterialCast(root_pass->quad_list.front());
+    const viz::CompositorRenderPassDrawQuad* render_pass_quad =
+        viz::CompositorRenderPassDrawQuad::MaterialCast(
+            root_pass->quad_list.front());
     gfx::Rect rect_in_target_space = MathUtil::MapEnclosingClippedRect(
         render_pass_quad->shared_quad_state->quad_to_target_transform,
         render_pass_quad->rect);
@@ -95,7 +97,7 @@ class LayerTreeTestMaskLayerForSurfaceWithContentRectNotAtOrigin
 
     // We use kDstIn blend mode instead of the mask feature of RenderPass.
     EXPECT_EQ(gfx::RectF(), render_pass_quad->mask_uv_rect);
-    viz::RenderPass* mask_pass = frame_data->render_passes[1].get();
+    viz::CompositorRenderPass* mask_pass = frame_data->render_passes[1].get();
     EXPECT_EQ(SkBlendMode::kDstIn,
               mask_pass->quad_list.front()->shared_quad_state->blend_mode);
     EndTest();
@@ -162,7 +164,7 @@ class LayerTreeTestMaskLayerForSurfaceWithContentRectNotAtOriginWithLayerList
                                    LayerTreeHostImpl::FrameData* frame_data,
                                    DrawResult draw_result) override {
     EXPECT_EQ(1u, frame_data->render_passes.size());
-    viz::RenderPass* pass = frame_data->render_passes.back().get();
+    viz::CompositorRenderPass* pass = frame_data->render_passes.back().get();
     EXPECT_EQ(3u, pass->quad_list.size());
 
     // There's a solid color quad under everything.
@@ -259,7 +261,8 @@ class LayerTreeTestMaskLayerForSurfaceWithClippedLayer : public LayerTreeTest {
                                    LayerTreeHostImpl::FrameData* frame_data,
                                    DrawResult draw_result) override {
     EXPECT_EQ(3u, frame_data->render_passes.size());
-    viz::RenderPass* root_pass = frame_data->render_passes.back().get();
+    viz::CompositorRenderPass* root_pass =
+        frame_data->render_passes.back().get();
     EXPECT_EQ(2u, root_pass->quad_list.size());
 
     // There's a solid color quad under everything.
@@ -267,10 +270,11 @@ class LayerTreeTestMaskLayerForSurfaceWithClippedLayer : public LayerTreeTest {
               root_pass->quad_list.back()->material);
 
     // The surface is clipped to 10x20.
-    EXPECT_EQ(viz::DrawQuad::Material::kRenderPass,
+    EXPECT_EQ(viz::DrawQuad::Material::kCompositorRenderPass,
               root_pass->quad_list.front()->material);
-    const viz::RenderPassDrawQuad* render_pass_quad =
-        viz::RenderPassDrawQuad::MaterialCast(root_pass->quad_list.front());
+    const viz::CompositorRenderPassDrawQuad* render_pass_quad =
+        viz::CompositorRenderPassDrawQuad::MaterialCast(
+            root_pass->quad_list.front());
     gfx::Rect rect_in_target_space = MathUtil::MapEnclosingClippedRect(
         render_pass_quad->shared_quad_state->quad_to_target_transform,
         render_pass_quad->rect);
@@ -279,7 +283,7 @@ class LayerTreeTestMaskLayerForSurfaceWithClippedLayer : public LayerTreeTest {
 
     // We use kDstIn blend mode instead of the mask feature of RenderPass.
     EXPECT_EQ(gfx::RectF(), render_pass_quad->mask_uv_rect);
-    viz::RenderPass* mask_pass = frame_data->render_passes[1].get();
+    viz::CompositorRenderPass* mask_pass = frame_data->render_passes[1].get();
     EXPECT_EQ(SkBlendMode::kDstIn,
               mask_pass->quad_list.front()->shared_quad_state->blend_mode);
     EndTest();
@@ -366,7 +370,8 @@ class LayerTreeTestMaskLayerForSurfaceWithDifferentScale
                                    LayerTreeHostImpl::FrameData* frame_data,
                                    DrawResult draw_result) override {
     EXPECT_EQ(3u, frame_data->render_passes.size());
-    viz::RenderPass* root_pass = frame_data->render_passes.back().get();
+    viz::CompositorRenderPass* root_pass =
+        frame_data->render_passes.back().get();
     EXPECT_EQ(2u, root_pass->quad_list.size());
 
     // There's a solid color quad under everything.
@@ -375,10 +380,11 @@ class LayerTreeTestMaskLayerForSurfaceWithDifferentScale
 
     // The surface is clipped to 10x20, and then scaled by 2, which ends up
     // being 20x40.
-    EXPECT_EQ(viz::DrawQuad::Material::kRenderPass,
+    EXPECT_EQ(viz::DrawQuad::Material::kCompositorRenderPass,
               root_pass->quad_list.front()->material);
-    const viz::RenderPassDrawQuad* render_pass_quad =
-        viz::RenderPassDrawQuad::MaterialCast(root_pass->quad_list.front());
+    const viz::CompositorRenderPassDrawQuad* render_pass_quad =
+        viz::CompositorRenderPassDrawQuad::MaterialCast(
+            root_pass->quad_list.front());
     gfx::Rect rect_in_target_space = MathUtil::MapEnclosingClippedRect(
         render_pass_quad->shared_quad_state->quad_to_target_transform,
         render_pass_quad->rect);
@@ -392,7 +398,7 @@ class LayerTreeTestMaskLayerForSurfaceWithDifferentScale
 
     // We use kDstIn blend mode instead of the mask feature of RenderPass.
     EXPECT_EQ(gfx::RectF(), render_pass_quad->mask_uv_rect);
-    viz::RenderPass* mask_pass = frame_data->render_passes[1].get();
+    viz::CompositorRenderPass* mask_pass = frame_data->render_passes[1].get();
     EXPECT_EQ(SkBlendMode::kDstIn,
               mask_pass->quad_list.front()->shared_quad_state->blend_mode);
     EndTest();
@@ -463,24 +469,26 @@ class LayerTreeTestMaskLayerWithScaling : public LayerTreeTest {
                                    LayerTreeHostImpl::FrameData* frame_data,
                                    DrawResult draw_result) override {
     EXPECT_EQ(3u, frame_data->render_passes.size());
-    viz::RenderPass* root_pass = frame_data->render_passes.back().get();
+    viz::CompositorRenderPass* root_pass =
+        frame_data->render_passes.back().get();
     EXPECT_EQ(2u, root_pass->quad_list.size());
 
     // There's a solid color quad under everything.
     EXPECT_EQ(viz::DrawQuad::Material::kSolidColor,
               root_pass->quad_list.back()->material);
 
-    EXPECT_EQ(viz::DrawQuad::Material::kRenderPass,
+    EXPECT_EQ(viz::DrawQuad::Material::kCompositorRenderPass,
               root_pass->quad_list.front()->material);
-    const viz::RenderPassDrawQuad* render_pass_quad =
-        viz::RenderPassDrawQuad::MaterialCast(root_pass->quad_list.front());
+    const viz::CompositorRenderPassDrawQuad* render_pass_quad =
+        viz::CompositorRenderPassDrawQuad::MaterialCast(
+            root_pass->quad_list.front());
     gfx::Rect rect_in_target_space = MathUtil::MapEnclosingClippedRect(
         render_pass_quad->shared_quad_state->quad_to_target_transform,
         render_pass_quad->rect);
 
     // We use kDstIn blend mode instead of the mask feature of RenderPass.
     EXPECT_EQ(gfx::RectF(), render_pass_quad->mask_uv_rect);
-    viz::RenderPass* mask_pass = frame_data->render_passes[1].get();
+    viz::CompositorRenderPass* mask_pass = frame_data->render_passes[1].get();
     EXPECT_EQ(SkBlendMode::kDstIn,
               mask_pass->quad_list.front()->shared_quad_state->blend_mode);
 
@@ -508,8 +516,7 @@ class LayerTreeTestMaskLayerWithScaling : public LayerTreeTest {
         gfx::Size double_root_size(200, 200);
         GenerateNewLocalSurfaceId();
         layer_tree_host()->SetViewportRectAndScale(
-            gfx::Rect(double_root_size), 2.f,
-            GetCurrentLocalSurfaceIdAllocation());
+            gfx::Rect(double_root_size), 2.f, GetCurrentLocalSurfaceId());
         break;
     }
   }
@@ -567,7 +574,8 @@ class LayerTreeTestMaskWithNonExactTextureSize : public LayerTreeTest {
                                    LayerTreeHostImpl::FrameData* frame_data,
                                    DrawResult draw_result) override {
     EXPECT_EQ(3u, frame_data->render_passes.size());
-    viz::RenderPass* root_pass = frame_data->render_passes.back().get();
+    viz::CompositorRenderPass* root_pass =
+        frame_data->render_passes.back().get();
     EXPECT_EQ(2u, root_pass->quad_list.size());
 
     // There's a solid color quad under everything.
@@ -575,16 +583,17 @@ class LayerTreeTestMaskWithNonExactTextureSize : public LayerTreeTest {
               root_pass->quad_list.back()->material);
 
     // The surface is 100x100
-    EXPECT_EQ(viz::DrawQuad::Material::kRenderPass,
+    EXPECT_EQ(viz::DrawQuad::Material::kCompositorRenderPass,
               root_pass->quad_list.front()->material);
-    const viz::RenderPassDrawQuad* render_pass_quad =
-        viz::RenderPassDrawQuad::MaterialCast(root_pass->quad_list.front());
+    const viz::CompositorRenderPassDrawQuad* render_pass_quad =
+        viz::CompositorRenderPassDrawQuad::MaterialCast(
+            root_pass->quad_list.front());
     EXPECT_EQ(gfx::Rect(0, 0, 100, 100).ToString(),
               render_pass_quad->rect.ToString());
 
     // We use kDstIn blend mode instead of the mask feature of RenderPass.
     EXPECT_EQ(gfx::RectF(), render_pass_quad->mask_uv_rect);
-    viz::RenderPass* mask_pass = frame_data->render_passes[1].get();
+    viz::CompositorRenderPass* mask_pass = frame_data->render_passes[1].get();
     EXPECT_EQ(SkBlendMode::kDstIn,
               mask_pass->quad_list.front()->shared_quad_state->blend_mode);
     EndTest();

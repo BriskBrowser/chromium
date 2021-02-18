@@ -4,6 +4,7 @@
 
 #include "ui/base/ime/chromeos/extension_ime_util.h"
 
+#include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
 #include "build/branding_buildflags.h"
 
@@ -159,13 +160,6 @@ bool IsArcIME(const std::string& input_method_id) {
          input_method_id.size() > kArcIMEPrefixLength + kExtensionIdLength;
 }
 
-bool IsMemberOfExtension(const std::string& input_method_id,
-                         const std::string& extension_id) {
-  return base::StartsWith(input_method_id,
-                          kExtensionIMEPrefix + extension_id,
-                          base::CompareCase::SENSITIVE);
-}
-
 bool IsKeyboardLayoutExtension(const std::string& input_method_id) {
   if (IsComponentExtensionIME(input_method_id))
     return base::StartsWith(GetComponentIDByInputMethodID(input_method_id),
@@ -173,14 +167,15 @@ bool IsKeyboardLayoutExtension(const std::string& input_method_id) {
   return false;
 }
 
-bool IsLanguageForArcIME(const std::string& language) {
-  return language == kArcImeLanguage;
-}
-
-std::string MaybeGetLegacyXkbId(const std::string& input_method_id) {
-  if (IsKeyboardLayoutExtension(input_method_id))
-    return GetComponentIDByInputMethodID(input_method_id);
-  return input_method_id;
+bool IsExperimentalMultilingual(const std::string& input_method_id) {
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
+  const std::string prefix = base::StrCat(
+      {kComponentExtensionIMEPrefix, kXkbExtensionId, "experimental_"});
+  return base::StartsWith(input_method_id, prefix,
+                          base::CompareCase::SENSITIVE);
+#else
+  return false;
+#endif
 }
 
 }  // namespace extension_ime_util

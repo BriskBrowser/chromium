@@ -23,6 +23,7 @@
 <translation id="1450753235335490080">Ni mogoče deliti tega: <ph name="CONTENT_TYPE" /></translation>
 <translation id="1487931858675166540">Element <ph name="FIRST_ITEM_TITLE" /> je zamenjan z elementom <ph name="SECOND_ITEM_TITLE" /></translation>
 <translation id="1498028757988366001">To ste v preteklosti že iskali. Če izbrišete poizvedbo »<ph name="QUERY" />« iz zgodovine, bo trajno odstranjena iz računa v vseh napravah.</translation>
+<translation id="1510238584712386396">Zaganjalnik</translation>
 <translation id="1591184457164800433">{MINUTES,plural, =1{1 min in }one{# min in }two{# min in }few{# min in }other{# min in }}</translation>
 <translation id="1643823602425662293">Obvestilo</translation>
 <translation id="169515659049020177">Shift</translation>
@@ -44,7 +45,6 @@
 <translation id="19085484004813472">To je nova funkcija</translation>
 <translation id="2006524834898217237">Naprava mora biti povezana z internetom.</translation>
 <translation id="208586643495776849">Poskusite znova</translation>
-<translation id="2090963878406559571">Če želite poslati številko z naslova <ph name="ORIGIN" /> v telefon Android, v nastavitvah obiščite to povezavo za odpravljanje težav za obe napravi: <ph name="TROUBLESHOOT_LINK" />.</translation>
 <translation id="2141853158323869627">{DAYS,plural, =1{1 d}one{# d}two{# d}few{# d}other{# d}}</translation>
 <translation id="2148716181193084225">Danes</translation>
 <translation id="2161656808144014275">Besedilo</translation>
@@ -94,17 +94,20 @@
 <translation id="3306688585798492231">Vgrajeni zaslon</translation>
 <translation id="335581015389089642">Speech</translation>
 <translation id="3389286852084373014">Besedilo je preveliko</translation>
+<translation id="3406306243914553062">Vsebina HTML</translation>
 <translation id="348799646910989694">Polica je samodejno skrita</translation>
 <translation id="3554637740840164787">Element <ph name="ITEM_TITLE" /> je bil pripet</translation>
 <translation id="3600566671520689681">{DAYS,plural, =1{Še 1 dan}one{Še # dan}two{Še # dneva}few{Še # dni}other{Še # dni}}</translation>
 <translation id="3600969208114796418">Datoteka <ph name="SAVEAS_EXTENSION_TYPE" /></translation>
 <translation id="3608915363409716668"><ph name="MAXIMUM_VALUE" />+</translation>
 <translation id="3618849550573277856">Poišči »<ph name="LOOKUP_STRING" />«</translation>
+<translation id="3622035490309591977">Zgodovina podatkov v odložišču</translation>
 <translation id="364720409959344976">Izberite mapo, ki jo želite prenesti</translation>
 <translation id="3660179305079774227">Puščica gor</translation>
 <translation id="3670030362669914947">Številka</translation>
 <translation id="3740362395218339114"><ph name="QUANTITY" /> GB/s</translation>
 <translation id="3757388668994797779"><ph name="QUANTITY" /> GB</translation>
+<translation id="3804247818991980532"><ph name="TYPE_1" />. <ph name="TYPE_2" />.</translation>
 <translation id="3842239759367498783">Nadaljevanje branja v mobilni napravi <ph name="TITLE" /></translation>
 <translation id="385051799172605136">Nazaj</translation>
 <translation id="3889424535448813030">Puščica desno</translation>
@@ -117,6 +120,7 @@
 <translation id="4266252015790371705">{MONTHS,plural, =1{Pred 1 mesecem}one{Pred # mesecem}two{Pred # mesecema}few{Pred # meseci}other{Pred # meseci}}</translation>
 <translation id="4289300219472526559">Start Speaking</translation>
 <translation id="430191667033048642">Aplikacija <ph name="MOVED_APP_NAME" /> premaknjena v mapo <ph name="FOLDER_NAME" />.</translation>
+<translation id="4306392492252714209">Odstrani iz odložišča.</translation>
 <translation id="4316910396681052118">VSE APLIKACIJE</translation>
 <translation id="4491109536499578614">Slika</translation>
 <translation id="4588090240171750605">Pomik desno</translation>
@@ -135,8 +139,8 @@
 <translation id="520299402983819650"><ph name="QUANTITY" /> PB</translation>
 <translation id="5266161281976477809">Trikotnik z dodatno vsebino</translation>
 <translation id="5278860589123563674">Pošiljanje ni uspelo</translation>
+<translation id="5283099933536931082"><ph name="APP_ITEM_TITLE" /> potrebuje vašo pozornost.</translation>
 <translation id="528468243742722775">Konec</translation>
-<translation id="5327567770033251652">vklop sinhronizacije</translation>
 <translation id="5329858601952122676">&amp;Izbriši</translation>
 <translation id="5395308026110844773"><ph name="DRAGGED_APP_NAME" /> na <ph name="IN_PLACE_APP" />, spustite, da ustvarite mapo.</translation>
 <translation id="5463830097259460683">Emodži in drugi znaki</translation>
@@ -145,11 +149,13 @@
 <translation id="5528053674512161860">Nalaganje strani ni uspelo, ker modul uporabniškega vmesnika za razvijalce (dev_ui) ni nameščen</translation>
 <translation id="5583640892426849032">Vračalka</translation>
 <translation id="5613020302032141669">Puščica levo</translation>
+<translation id="5652575806481723716"><ph name="FOCUSED_APP_NAME" /> potrebuje vašo pozornost.</translation>
 <translation id="5675363643668471212">Element na polici</translation>
 <translation id="5754277640426581776">{MINUTES,plural, =1{1 min}one{# min}two{# min}few{# min}other{# min}}</translation>
 <translation id="5763338081255973061">{DAYS,plural, =0{Aktivna danes}=1{Aktivna pred 1 dnevom}one{Aktivna pred # dnevom}two{Aktivna pred # dnevoma}few{Aktivna pred # dnevi}other{Aktivna pred # dnevi}}</translation>
 <translation id="5768079895599174203">{DAYS,plural, =1{1 dan in }one{# dan in }two{# dneva in }few{# dni in }other{# dni in }}</translation>
 <translation id="5789643057113097023">.</translation>
+<translation id="5843690142429128814">Slika.</translation>
 <translation id="5866104238061687188">{YEARS,plural, =1{čez 1 l}one{čez # l}two{čez # l}few{čez # l}other{čez # l}}</translation>
 <translation id="588258955323874662">Celozaslonsko</translation>
 <translation id="5906667377645263094">{SECONDS,plural, =1{Še 1 s}one{Še # s}two{Še # s}few{Še # s}other{Še # s}}</translation>
@@ -182,16 +188,15 @@
 <translation id="6578407462441924264">Neimenovano</translation>
 <translation id="6612467943526193239">Če želite zapustiti umerjanje, pritisnite tipko Esc.</translation>
 <translation id="6620110761915583480">Shrani datoteko</translation>
-<translation id="6656912866303152668">Poskrbite, da ima naprava <ph name="TARGET_DEVICE_NAME" /> vklopljeno sinhronizacijo v Chromu, nato poskusite poslati znova.</translation>
 <translation id="6699343763173986273">Naslednja skladba</translation>
 <translation id="6710213216561001401">Prejšnji</translation>
-<translation id="6779314412797872738">Če želite poslati številko iz te naprave v telefon Android, v nastavitvah obiščite to povezavo za odpravljanje težav za obe napravi: <ph name="TROUBLESHOOT_LINK" />.</translation>
 <translation id="6786750046913594791">Zapri mapo</translation>
 <translation id="6808150112686056157">Ustavitev</translation>
 <translation id="6845383723252244143">Izberite mapo</translation>
 <translation id="6845533974506654842">pritisni</translation>
 <translation id="6863590663815976734">{HOURS,plural, =1{Še 1 h}one{Še # h}two{Še # h}few{Še # h}other{Še # h}}</translation>
 <translation id="688711909580084195">Spletna stran brez naslova</translation>
+<translation id="6902419395050653510">Vsebina HTML.</translation>
 <translation id="6907759265145635167"><ph name="QUANTITY" /> PB/s</translation>
 <translation id="6917971086528278418">{YEARS,plural, =1{Še 1 leto}one{Še # leto}two{Še # leti}few{Še # leta}other{Še # let}}</translation>
 <translation id="6945221475159498467">Izberi</translation>
@@ -209,6 +214,7 @@
 <translation id="7430878839542012341">Želite izbrisati to iskanje iz zgodovine?</translation>
 <translation id="7460907917090416791"><ph name="QUANTITY" /> TB</translation>
 <translation id="7507604095951736240">Emoji</translation>
+<translation id="7620655452534002301">Odstranjeno.</translation>
 <translation id="7658239707568436148">Prekliči</translation>
 <translation id="7781829728241885113">Včeraj</translation>
 <translation id="7814458197256864873">&amp;Kopiraj</translation>
@@ -224,11 +230,11 @@
 <translation id="8106081041558092062">{HOURS,plural, =1{Pred 1 h}one{Pred # h}two{Pred # urama}few{Pred # urami}other{Pred # urami}}</translation>
 <translation id="8131263257437993507">{SECONDS,plural, =1{Še 1 s}one{Še # s}two{Še # s}few{Še # s}other{Še # s}}</translation>
 <translation id="8134065097954893699">Vnovično nalaganje te strani</translation>
-<translation id="8144660977431427332">Pri iskanju se uporablja tehnologija Pomočnika Google. <ph name="LEARN_MORE" /></translation>
 <translation id="8152264887680882389"><ph name="TEXT" />, samodokončanje</translation>
 <translation id="815598010540052116">Pomik dol</translation>
 <translation id="8179976553408161302">Enter</translation>
 <translation id="8210608804940886430">Stran dol</translation>
+<translation id="822964464349305906"><ph name="TYPE_1" />, <ph name="TYPE_2" /></translation>
 <translation id="8245914219290430011">Zavihek</translation>
 <translation id="8247998213073982446"><ph name="APP_NAME" />, aplikacija</translation>
 <translation id="8259556432390118667">Vrednost barve v šestnajstiškem zapisu</translation>

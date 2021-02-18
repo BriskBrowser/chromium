@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/feature_list.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/chromeos/apps/apk_web_app_service_factory.h"
@@ -300,21 +300,8 @@ void ApkWebAppService::OnPackageInstalled(
   // artifact. Install it.
   auto* instance = ARC_GET_INSTANCE_FOR_METHOD(
       arc_app_list_prefs_->app_connection_holder(), GetPackageIcon);
-  if (!instance) {
-    // TODO(crbug.com/1083331): Remove the RequestPackageIcon related code,
-    // when the ARC change is rolled in Chrome OS.
-    ARC_GET_INSTANCE_FOR_METHOD(arc_app_list_prefs_->app_connection_holder(),
-                                RequestPackageIcon);
-    if (!instance)
-      return;
-
-    instance->RequestPackageIcon(
-        package_info.package_name, kDefaultIconSize, /*normalize=*/false,
-        base::BindOnce(
-            &ApkWebAppService::OnGetWebAppIcon, weak_ptr_factory_.GetWeakPtr(),
-            package_info.package_name, package_info.web_app_info.Clone()));
+  if (!instance)
     return;
-  }
 
   instance->GetPackageIcon(
       package_info.package_name, kDefaultIconSize, /*normalize=*/false,
@@ -329,10 +316,10 @@ void ApkWebAppService::OnPackageRemoved(const std::string& package_name,
   // associated with an installed web app. If it is, there are 2 potential
   // cases:
   // 1) The user has uninstalled the web app already (e.g. via the
-  // launcher), which has called OnWebAppUninstalled() below and triggered
+  // launcher), which has called OnWebAppWillBeUninstalled() below and triggered
   // the uninstallation of the Android package.
   //
-  // In this case, OnWebAppUninstalled() will have removed the associated
+  // In this case, OnWebAppWillBeUninstalled() will have removed the associated
   // web_app_id from the pref dict before triggering uninstallation, so this
   // method will do nothing.
   //
@@ -343,7 +330,7 @@ void ApkWebAppService::OnPackageRemoved(const std::string& package_name,
   // called, so the associated web_app_id is in the pref dict, and this method
   // will trigger the uninstallation of the web app. Similarly, this method
   // removes the associated web_app_id before triggering uninstallation, so
-  // OnWebAppUninstalled() will do nothing.
+  // OnWebAppWillBeUninstalled() will do nothing.
   if (!base::FeatureList::IsEnabled(features::kApkWebAppInstalls))
     return;
 
@@ -413,7 +400,8 @@ void ApkWebAppService::OnPackageListInitialRefreshed() {
   }
 }
 
-void ApkWebAppService::OnWebAppUninstalled(const web_app::AppId& web_app_id) {
+void ApkWebAppService::OnWebAppWillBeUninstalled(
+    const web_app::AppId& web_app_id) {
   if (!base::FeatureList::IsEnabled(features::kApkWebAppInstalls))
     return;
 
@@ -450,16 +438,6 @@ void ApkWebAppService::OnWebAppUninstalled(const web_app::AppId& web_app_id) {
         FROM_HERE, base::BindOnce(std::move(web_app_uninstalled_callback_),
                                   package_name, web_app_id));
   }
-}
-
-void ApkWebAppService::OnGetWebAppIcon(
-    const std::string& package_name,
-    arc::mojom::WebAppInfoPtr web_app_info,
-    const std::vector<uint8_t>& icon_png_data) {
-  arc::mojom::RawIconPngDataPtr icon = arc::mojom::RawIconPngData::New();
-  icon->is_adaptive_icon = false;
-  icon->icon_png_data = std::vector<uint8_t>(icon_png_data);
-  OnDidGetWebAppIcon(package_name, std::move(web_app_info), std::move(icon));
 }
 
 void ApkWebAppService::OnDidGetWebAppIcon(

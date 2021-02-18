@@ -5,9 +5,10 @@
 #include "chrome/browser/ui/passwords/bubble_controllers/sign_in_promo_bubble_controller.h"
 
 #include "base/strings/utf_string_conversions.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/passwords/passwords_model_delegate_mock.h"
 #include "chrome/test/base/testing_profile.h"
-#include "components/autofill/core/common/password_form.h"
+#include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/public/identity_manager/account_info.h"
@@ -39,7 +40,8 @@ class SignInPromoBubbleControllerTest : public ::testing::Test {
   }
   ~SignInPromoBubbleControllerTest() override = default;
 
-  std::vector<std::unique_ptr<autofill::PasswordForm>> GetCurrentForms() const;
+  std::vector<std::unique_ptr<password_manager::PasswordForm>> GetCurrentForms()
+      const;
 
   PasswordsModelDelegateMock* delegate() { return mock_delegate_.get(); }
   SignInPromoBubbleController* controller() { return controller_.get(); }
@@ -65,17 +67,16 @@ void SignInPromoBubbleControllerTest::Init() {
       new SignInPromoBubbleController(mock_delegate_->AsWeakPtr()));
 }
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 TEST_F(SignInPromoBubbleControllerTest, SignInPromoOK) {
   Init();
   AccountInfo account;
   account.account_id = CoreAccountId("foo_account_id");
   account.gaia = "foo_gaia_id";
   account.email = "foo@bar.com";
-  EXPECT_CALL(*delegate(), EnableSync(AccountEq(account), false));
+  EXPECT_CALL(*delegate(), EnableSync(AccountEq(account)));
 
-  controller()->OnSignInToChromeClicked(account,
-                                        false /* is_default_promo_account */);
+  controller()->OnSignInToChromeClicked(account);
   EXPECT_TRUE(profile()->GetPrefs()->GetBoolean(
       password_manager::prefs::kWasSignInPasswordPromoClicked));
 }

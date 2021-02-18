@@ -9,8 +9,12 @@
 Polymer({
   is: 'timezone-subpage',
 
-  behaviors:
-      [PrefsBehavior, WebUIListenerBehavior, settings.RouteObserverBehavior],
+  behaviors: [
+    DeepLinkingBehavior,
+    PrefsBehavior,
+    settings.RouteObserverBehavior,
+    WebUIListenerBehavior,
+  ],
 
   properties: {
     /**
@@ -19,6 +23,15 @@ Polymer({
     activeTimeZoneDisplayName: {
       type: String,
       notify: true,
+    },
+
+    /**
+     * Used by DeepLinkingBehavior to focus this page's deep links.
+     * @type {!Set<!chromeos.settings.mojom.Setting>}
+     */
+    supportedSettingIds: {
+      type: Object,
+      value: () => new Set([chromeos.settings.mojom.Setting.kChangeTimeZone]),
     },
   },
 
@@ -41,13 +54,20 @@ Polymer({
    * @protected
    */
   currentRouteChanged(newRoute) {
-    if (this.shouldAskForParentAccessCode_(newRoute)) {
+    if (newRoute !== settings.routes.DATETIME_TIMEZONE_SUBPAGE) {
+      return;
+    }
+
+    // Check if should ask for parent access code.
+    if (loadTimeData.getBoolean('isChild')) {
       this.disableTimeZoneSetting_();
       this.addWebUIListener(
           'access-code-validation-complete',
           this.enableTimeZoneSetting_.bind(this));
       this.browserProxy_.showParentAccessForTimeZone();
     }
+
+    this.attemptDeepLink();
   },
 
   /**
@@ -60,7 +80,7 @@ Polymer({
         this.getPref('generated.resolve_timezone_by_geolocation_method_short');
     // Make sure current value is in the list, even if it is not
     // user-selectable.
-    if (pref.value == settings.TimeZoneAutoDetectMethod.DISABLED) {
+    if (pref.value === settings.TimeZoneAutoDetectMethod.DISABLED) {
       // If disabled by policy, show the 'Automatic timezone disabled' label.
       // Otherwise, just show the default string, since the control will be
       // disabled as well.
@@ -75,7 +95,7 @@ Polymer({
       name: loadTimeData.getString('setTimeZoneAutomaticallyIpOnlyDefault')
     });
 
-    if (pref.value ==
+    if (pref.value ===
         settings.TimeZoneAutoDetectMethod.SEND_WIFI_ACCESS_POINTS) {
       result.push({
         value: settings.TimeZoneAutoDetectMethod.SEND_WIFI_ACCESS_POINTS,
@@ -89,15 +109,6 @@ Polymer({
           loadTimeData.getString('setTimeZoneAutomaticallyWithAllLocationInfo')
     });
     return result;
-  },
-
-  /**
-   * @param {!settings.Route} route
-   * @private
-   */
-  shouldAskForParentAccessCode_(route) {
-    return route === settings.routes.DATETIME_TIMEZONE_SUBPAGE &&
-        loadTimeData.getBoolean('isChild');
   },
 
   /**

@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
@@ -28,6 +28,7 @@
 #include "chrome/browser/chromeos/policy/upload_job_impl.h"
 #include "chrome/browser/device_identity/device_oauth2_token_service.h"
 #include "chrome/browser/device_identity/device_oauth2_token_service_factory.h"
+#include "chrome/browser/policy/chrome_browser_policy_connector.h"
 #include "chrome/browser/policy/chrome_policy_conversions_client.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_features.h"
@@ -267,7 +268,8 @@ base::TimeDelta GetUploadFrequency() {
 }
 
 std::string GetUploadUrl() {
-  return BrowserPolicyConnector::GetDeviceManagementUrl() +
+  return g_browser_process->browser_policy_connector()
+             ->GetDeviceManagementUrl() +
          kSystemLogUploadUrlTail;
 }
 
@@ -331,10 +333,11 @@ SystemLogUploader::SystemLogUploader(
   SYSLOG(INFO) << "Creating system log uploader.";
 
   // Watch for policy changes.
-  upload_enabled_observer_ = chromeos::CrosSettings::Get()->AddSettingsObserver(
-      chromeos::kSystemLogUploadEnabled,
-      base::Bind(&SystemLogUploader::RefreshUploadSettings,
-                 base::Unretained(this)));
+  upload_enabled_subscription_ =
+      chromeos::CrosSettings::Get()->AddSettingsObserver(
+          chromeos::kSystemLogUploadEnabled,
+          base::BindRepeating(&SystemLogUploader::RefreshUploadSettings,
+                              base::Unretained(this)));
 
   // Fetch the current value of the policy.
   RefreshUploadSettings();

@@ -11,6 +11,7 @@
 #include "base/strings/string_split.h"
 #include "base/strings/sys_string_conversions.h"
 #include "ios/chrome/browser/chrome_paths.h"
+#include "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "testing/gtest_mac.h"
 #include "testing/platform_test.h"
@@ -31,7 +32,7 @@ class OmniboxTextFieldTest : public PlatformTest {
     // so that the pre-edit label's text alignment can be tested.
     CGRect rect = CGRectMake(0, 0, 100, 20);
     textfield_ = [[OmniboxTextFieldIOS alloc] initWithFrame:rect];
-    [[[UIApplication sharedApplication] keyWindow] addSubview:textfield_];
+    [GetAnyKeyWindow() addSubview:textfield_];
   }
 
   void TearDown() override { [textfield_ removeFromSuperview]; }
@@ -138,7 +139,13 @@ TEST_F(OmniboxTextFieldTest, enterPreEditState_preEditTextAlignment_change) {
   [textfield_ resignFirstResponder];
 }
 
-TEST_F(OmniboxTextFieldTest, SelectedRanges) {
+// TODO:(crbug.com/1156541): Re-enable this test on devices.
+#if TARGET_OS_SIMULATOR
+#define MAYBE_SelectedRanges SelectedRanges
+#else
+#define MAYBE_SelectedRanges FLAKY_SelectedRanges
+#endif
+TEST_F(OmniboxTextFieldTest, MAYBE_SelectedRanges) {
   base::FilePath test_data_directory;
   ASSERT_TRUE(base::PathService::Get(ios::DIR_TEST_DATA, &test_data_directory));
   base::FilePath test_file = test_data_directory.Append(

@@ -5,84 +5,16 @@
 #include "components/viz/service/display/viz_pixel_test.h"
 
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/base/ui_base_features.h"
 
 namespace viz {
-namespace {
-
-std::vector<RendererType> GetRendererTypes(bool include_software,
-                                           bool include_dawn) {
-  std::vector<RendererType> types;
-  if (include_software)
-    types.push_back(RendererType::kSoftware);
-#if defined(ENABLE_VIZ_GL_TESTS)
-  types.push_back(RendererType::kGL);
-  types.push_back(RendererType::kSkiaGL);
-#endif
-#if defined(ENABLE_VIZ_VULKAN_TESTS)
-  types.push_back(RendererType::kSkiaVulkan);
-#endif
-#if defined(ENABLE_VIZ_DAWN_TESTS)
-  if (include_dawn)
-    types.push_back(RendererType::kSkiaDawn);
-#endif
-  return types;
-}
-
-// Provides a test suffix appropriate for |type|.
-const char* RendererTypeTestSuffix(RendererType type) {
-  switch (type) {
-    case RendererType::kSoftware:
-      return "Software";
-    case RendererType::kGL:
-      return "GL";
-    case RendererType::kSkiaGL:
-      return "SkiaGL";
-    case RendererType::kSkiaVulkan:
-      return "SkiaVulkan";
-    case RendererType::kSkiaDawn:
-      return "SkiaDawn";
-  }
-}
-
-}  // namespace
-
-void PrintTo(RendererType type, std::ostream* os) {
-  *os << RendererTypeTestSuffix(type);
-}
-
-std::vector<RendererType> GetRendererTypes() {
-  return GetRendererTypes(true, true);
-}
-
-std::vector<RendererType> GetRendererTypesNoDawn() {
-  return GetRendererTypes(true, false);
-}
-
-std::vector<RendererType> GetGpuRendererTypes() {
-  return GetRendererTypes(false, true);
-}
-
-std::vector<RendererType> GetGpuRendererTypesNoDawn() {
-  return GetRendererTypes(false, false);
-}
 
 // static
 cc::PixelTest::GraphicsBackend VizPixelTest::RenderTypeToBackend(
     RendererType renderer_type) {
-  if (renderer_type == RendererType::kSkiaVulkan) {
-#if defined(USE_OZONE) && defined(OS_LINUX) && !defined(OS_CHROMEOS)
-    // TODO(https://crbug.com/1113577): Enable SkiaVulkan backend for
-    // PixelTests. For example, RendererPixelTest* hadn't been using
-    // SkiaVulkanRenderer until USE_X11 was defined for the OS_LINUX
-    // configuration that uses USE_OZONE. Thus, given the lack of test
-    // coverage, we must fix this test variant so that we do not loose
-    // important test coverage when USE_X11 goes away.
-    if (!features::IsUsingOzonePlatform())
-#endif
-    {
-      return GraphicsBackend::kSkiaVulkan;
-    }
+  if (renderer_type == RendererType::kSkiaVk) {
+    return GraphicsBackend::kSkiaVulkan;
   } else if (renderer_type == RendererType::kSkiaDawn) {
     return GraphicsBackend::kSkiaDawn;
   }
@@ -102,7 +34,7 @@ void VizPixelTest::SetUp() {
       SetUpGLRenderer(GetSurfaceOrigin());
       break;
     case RendererType::kSkiaGL:
-    case RendererType::kSkiaVulkan:
+    case RendererType::kSkiaVk:
     case RendererType::kSkiaDawn:
       SetUpSkiaRenderer(GetSurfaceOrigin());
       break;

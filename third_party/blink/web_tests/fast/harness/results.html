@@ -838,6 +838,10 @@ const Report = {
       toolbars.push(new SimpleLinkToolbar().createDom(
             pathParser.resultLink("-stderr.txt"), "standard error", "stderr"));
     }
+    if (test.command) {
+      toolbars.push(new SimpleLinkToolbar().createDom(
+            pathParser.resultLink("-command.txt"), "Command", "command"));
+    }
     return toolbars;
   },
   getResultsDiv: (test) => {
@@ -1120,6 +1124,9 @@ const GUI = {
   },
 
   translateArtifactsIntoResult: function(artifacts, result, test){
+    if (artifacts.hasOwnProperty('command'))
+      test.command = artifacts.command;
+
     if (result != 'FAIL')
       return result;
     // Check detailed failure type based on artifacts.
@@ -2229,6 +2236,7 @@ class ImageViewerZoom {
       position: relative;
       flex-grow: 1;
       flex-shrink: 1;
+      flex-basis: 100px;
       margin: 16px 8px 16px 8px;
     }
     .image-viewer-zoom-tile > canvas {

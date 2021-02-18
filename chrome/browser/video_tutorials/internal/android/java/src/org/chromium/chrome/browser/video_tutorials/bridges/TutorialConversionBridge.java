@@ -19,16 +19,16 @@ import java.util.List;
 @JNINamespace("video_tutorials")
 public class TutorialConversionBridge {
     @CalledByNative
-    private static List<Tutorial> createList() {
+    private static List<Tutorial> createTutorialList() {
         return new ArrayList<>();
     }
 
     @CalledByNative
     private static Tutorial createTutorialAndMaybeAddToList(@Nullable List<Tutorial> list,
-            int featureType, String title, String videoUrl, String posterUrl, String captionUrl,
-            String shareUrl, int videoLength) {
-        Tutorial tutorial = new Tutorial(
-                featureType, title, videoUrl, posterUrl, captionUrl, shareUrl, videoLength);
+            int featureType, String title, String videoUrl, String posterUrl, String animatedGifUrl,
+            String thumbnailUrl, String captionUrl, String shareUrl, int videoLength) {
+        Tutorial tutorial = new Tutorial(featureType, title, videoUrl, posterUrl, animatedGifUrl,
+                thumbnailUrl, captionUrl, shareUrl, videoLength);
         if (list != null) list.add(tutorial);
         return tutorial;
     }

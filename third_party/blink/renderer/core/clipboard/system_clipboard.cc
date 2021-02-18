@@ -6,7 +6,9 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "mojo/public/cpp/system/platform_handle.h"
+#include "skia/ext/skia_utils_base.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
 #include "third_party/blink/public/platform/platform.h"
@@ -41,10 +43,10 @@ SystemClipboard::SystemClipboard(LocalFrame* frame)
   frame->GetBrowserInterfaceBroker().GetInterface(
       clipboard_.BindNewPipeAndPassReceiver(
           frame->GetTaskRunner(TaskType::kUserInteraction)));
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   is_selection_buffer_available_ =
       frame->GetSettings()->GetSelectionClipboardBufferAvailable();
-#endif  // defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#endif  // defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 }
 
 bool SystemClipboard::IsSelectionMode() const {
@@ -138,6 +140,19 @@ void SystemClipboard::WriteHTML(const String& markup,
     clipboard_->WriteSmartPasteMarker();
 }
 
+void SystemClipboard::ReadSvg(
+    mojom::blink::ClipboardHost::ReadSvgCallback callback) {
+  if (!IsValidBufferType(buffer_) || !clipboard_.is_bound()) {
+    std::move(callback).Run(String());
+    return;
+  }
+  clipboard_->ReadSvg(buffer_, std::move(callback));
+}
+
+void SystemClipboard::WriteSvg(const String& markup) {
+  clipboard_->WriteSvg(NonNullString(markup));
+}
+
 String SystemClipboard::ReadRTF() {
   if (!IsValidBufferType(buffer_) || !clipboard_.is_bound())
     return String();
@@ -169,7 +184,15 @@ void SystemClipboard::WriteImageWithTag(Image* image,
   SkBitmap bitmap;
   if (sk_sp<SkImage> sk_image = paint_image.GetSwSkImage())
     sk_image->asLegacyBitmap(&bitmap);
-  clipboard_->WriteImage(bitmap);
+  // The bitmap backing a canvas can be in non-native skia pixel order (aka
+  // RGBA when kN32_SkColorType is BGRA-ordered, or higher bit-depth color-types
+  // like F16. The IPC to the browser requires the bitmap to be in N32 format
+  // so we convert it here if needed.
+  SkBitmap n32_bitmap;
+  if (skia::SkBitmapToN32OpaqueOrPremul(bitmap, &n32_bitmap))
+    clipboard_->WriteImage(n32_bitmap);
+  else
+    clipboard_->WriteImage(SkBitmap());
 
   if (url.IsValid() && !url.IsEmpty()) {
 #if !defined(OS_MAC)

@@ -19,7 +19,7 @@
 #include "base/synchronization/lock.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/base/unique_position.h"
-#include "components/sync/engine_impl/net/server_connection_manager.h"
+#include "components/sync/engine/net/server_connection_manager.h"
 #include "components/sync/protocol/sync.pb.h"
 
 namespace syncer {
@@ -39,11 +39,9 @@ class MockConnectionManager : public ServerConnectionManager {
   ~MockConnectionManager() override;
 
   // Overridden ServerConnectionManager functions.
-  bool PostBufferToPath(const std::string& buffer_in,
-                        const std::string& path,
-                        const std::string& access_token,
-                        std::string* buffer_out,
-                        HttpResponse* http_response) override;
+  HttpResponse PostBuffer(const std::string& buffer_in,
+                          const std::string& access_token,
+                          std::string* buffer_out) override;
 
   // Control of commit response.
   // NOTE: Commit callback is invoked only once then reset.

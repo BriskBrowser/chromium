@@ -7,11 +7,14 @@
 
 #include <windows.h>
 
+#include <string>
+
 #include "base/callback.h"
 #include "base/strings/string16.h"
 #include "base/threading/thread_checker.h"
 #include "base/win/atl.h"
 #include "base/win/scoped_gdi_object.h"
+#include "chrome/updater/splash_screen.h"
 #include "chrome/updater/win/ui/owner_draw_controls.h"
 #include "chrome/updater/win/ui/resources/resources.grh"
 
@@ -19,8 +22,9 @@ namespace updater {
 namespace ui {
 
 class SplashScreen : public CAxDialogImpl<SplashScreen>,
+                     public CustomDlgColors,
                      public OwnerDrawTitleBar,
-                     public CustomDlgColors {
+                     public updater::SplashScreen {
  public:
   static constexpr int IDD = IDD_PROGRESS;
 
@@ -29,10 +33,9 @@ class SplashScreen : public CAxDialogImpl<SplashScreen>,
   SplashScreen& operator=(const SplashScreen&) = delete;
   ~SplashScreen() override;
 
-  void Show();
-
-  // Does alpha blending and closese the window.
-  void Dismiss(base::OnceClosure on_close_closure);
+  // Overrides for SplashScreen.
+  void Show() override;
+  void Dismiss(base::OnceClosure on_close_closure) override;
 
   BEGIN_MSG_MAP(SplashScreen)
     MESSAGE_HANDLER(WM_TIMER, OnTimer)
@@ -83,7 +86,7 @@ class SplashScreen : public CAxDialogImpl<SplashScreen>,
   int alpha_index_;
 
   // Dialog title.
-  base::string16 title_;
+  std::wstring title_;
 
   WTL::CFont default_font_;
   WTL::CFont font_;

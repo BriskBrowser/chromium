@@ -52,17 +52,19 @@ struct StaticOobeScreenId {
 };
 
 struct OobeScreen {
-  constexpr static StaticOobeScreenId SCREEN_ACCOUNT_PICKER{"account-picker"};
-
   constexpr static StaticOobeScreenId
       SCREEN_CREATE_SUPERVISED_USER_FLOW_DEPRECATED{"supervised-user-creation"};
   constexpr static StaticOobeScreenId SCREEN_CONFIRM_PASSWORD{
       "saml-confirm-password"};
-  constexpr static StaticOobeScreenId SCREEN_FATAL_ERROR{"fatal-error"};
 
   constexpr static StaticOobeScreenId SCREEN_UNKNOWN{"unknown"};
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove when moved to ash.
+namespace ash {
+using ::chromeos::OobeScreen;
+}
 
 #endif  // CHROME_BROWSER_CHROMEOS_LOGIN_OOBE_SCREEN_H_

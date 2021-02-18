@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/process/launch.h"
@@ -78,8 +78,6 @@ class ChromePromptChannelTest : public ::testing::Test {
         new ChromePromptChannel(
             /*on_connection_closed=*/run_loop_.QuitClosure(),
             std::make_unique<ChromePromptActions>(
-                /*extension_service=*/nullptr,
-                /*extension_registry=*/nullptr,
                 /*on_prompt_user=*/base::DoNothing()),
             task_runner),
         base::OnTaskRunnerDeleter(task_runner));

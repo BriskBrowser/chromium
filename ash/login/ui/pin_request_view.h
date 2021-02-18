@@ -12,7 +12,7 @@
 #include "ash/public/cpp/login_types.h"
 #include "ash/public/cpp/tablet_mode_observer.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
-#include "ui/views/controls/button/button.h"
+#include "base/scoped_observation.h"
 #include "ui/views/window/dialog_delegate.h"
 
 namespace views {
@@ -71,7 +71,6 @@ struct ASH_EXPORT PinRequest {
 
 // The view that allows for input of pins to authorize certain actions.
 class ASH_EXPORT PinRequestView : public views::DialogDelegateView,
-                                  public views::ButtonListener,
                                   public TabletModeObserver {
  public:
   enum class SubmissionResult {
@@ -132,9 +131,6 @@ class ASH_EXPORT PinRequestView : public views::DialogDelegateView,
   // views::DialogDelegateView:
   views::View* GetInitiallyFocusedView() override;
   base::string16 GetAccessibleWindowTitle() const override;
-
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
   // TabletModeObserver:
   void OnTabletModeStarted() override;
@@ -206,8 +202,8 @@ class ASH_EXPORT PinRequestView : public views::DialogDelegateView,
   FocusableLabelButton* help_button_ = nullptr;
   ArrowButtonView* submit_button_ = nullptr;
 
-  ScopedObserver<TabletModeController, TabletModeObserver>
-      tablet_mode_observer_{this};
+  base::ScopedObservation<TabletModeController, TabletModeObserver>
+      tablet_mode_observation_{this};
 
   base::WeakPtrFactory<PinRequestView> weak_ptr_factory_{this};
 

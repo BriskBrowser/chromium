@@ -5,93 +5,70 @@
 import {FittingType} from './constants.js';
 
 // Handles events specific to the PDF viewer and logs the corresponding metrics.
-export class PDFMetrics {
-  /**
-   * Records when the zoom mode is changed to fit a FittingType.
-   * @param {FittingType} fittingType the new FittingType.
-   */
-  static recordFitTo(fittingType) {
-    if (fittingType === FittingType.FIT_TO_PAGE) {
-      PDFMetrics.record(PDFMetrics.UserAction.FIT_TO_PAGE);
-    } else if (fittingType === FittingType.FIT_TO_WIDTH) {
-      PDFMetrics.record(PDFMetrics.UserAction.FIT_TO_WIDTH);
-    }
-    // There is no user action to do a fit-to-height, this only happens with
-    // the open param "view=FitV".
-  }
 
-  /**
-   * Records when the two up view mode is enabled or disabled.
-   * @param {boolean} enabled True when two up view mode is enabled.
-   */
-  static recordTwoUpViewEnabled(enabled) {
-    PDFMetrics.record(
-        enabled ? PDFMetrics.UserAction.TWO_UP_VIEW_ENABLE :
-                  PDFMetrics.UserAction.TWO_UP_VIEW_DISABLE);
+/**
+ * Records when the zoom mode is changed to fit a FittingType.
+ * @param {FittingType} fittingType the new FittingType.
+ */
+export function recordFitTo(fittingType) {
+  if (fittingType === FittingType.FIT_TO_PAGE) {
+    record(UserAction.FIT_TO_PAGE);
+  } else if (fittingType === FittingType.FIT_TO_WIDTH) {
+    record(UserAction.FIT_TO_WIDTH);
   }
+  // There is no user action to do a fit-to-height, this only happens with
+  // the open param "view=FitV".
+}
 
-  /**
-   * Records zoom in and zoom out actions.
-   * @param {boolean} isZoomIn True when the action is zooming in, false when
-   *     the action is zooming out.
-   */
-  static recordZoomAction(isZoomIn) {
-    PDFMetrics.record(
-        isZoomIn ? PDFMetrics.UserAction.ZOOM_IN :
-                   PDFMetrics.UserAction.ZOOM_OUT);
+/**
+ * Records the given action to chrome.metricsPrivate.
+ * @param {UserAction} action
+ */
+export function record(action) {
+  if (!chrome.metricsPrivate) {
+    return;
   }
-
-  /**
-   * Records the given action to chrome.metricsPrivate.
-   * @param {PDFMetrics.UserAction} action
-   */
-  static record(action) {
-    if (!chrome.metricsPrivate) {
-      return;
-    }
-    if (!PDFMetrics.actionsMetric_) {
-      PDFMetrics.actionsMetric_ = {
-        'metricName': 'PDF.Actions',
-        'type': chrome.metricsPrivate.MetricTypeType.HISTOGRAM_LOG,
-        'min': 1,
-        'max': PDFMetrics.UserAction.NUMBER_OF_ACTIONS,
-        'buckets': PDFMetrics.UserAction.NUMBER_OF_ACTIONS + 1
-      };
-    }
-    chrome.metricsPrivate.recordValue(PDFMetrics.actionsMetric_, action);
-    if (PDFMetrics.firstMap_.has(action)) {
-      const firstAction = PDFMetrics.firstMap_.get(action);
-      if (!PDFMetrics.firstActionRecorded_.has(firstAction)) {
-        chrome.metricsPrivate.recordValue(
-            PDFMetrics.actionsMetric_, firstAction);
-        PDFMetrics.firstActionRecorded_.add(firstAction);
-      }
-    }
+  if (!actionsMetric) {
+    actionsMetric = {
+      'metricName': 'PDF.Actions',
+      'type': chrome.metricsPrivate.MetricTypeType.HISTOGRAM_LOG,
+      'min': 1,
+      'max': UserAction.NUMBER_OF_ACTIONS,
+      'buckets': UserAction.NUMBER_OF_ACTIONS + 1
+    };
   }
-
-  static resetForTesting() {
-    PDFMetrics.firstActionRecorded_.clear();
-    PDFMetrics.actionsMetric_ = null;
+  chrome.metricsPrivate.recordValue(actionsMetric, action);
+  if (firstMap.has(action)) {
+    const firstAction = firstMap.get(action);
+    if (!firstActionRecorded.has(firstAction)) {
+      chrome.metricsPrivate.recordValue(actionsMetric, firstAction);
+      firstActionRecorded.add(firstAction);
+    }
   }
 }
 
-/** @private {?chrome.metricsPrivate.MetricType} */
-PDFMetrics.actionsMetric_ = null;
+export function resetForTesting() {
+  firstActionRecorded.clear();
+  actionsMetric = null;
+}
 
-/** @private {Set} */
-PDFMetrics.firstActionRecorded_ = new Set();
+/** @type {?chrome.metricsPrivate.MetricType} */
+let actionsMetric = null;
+
+/** @type {!Set<!UserAction>} */
+const firstActionRecorded = new Set();
 
 // Keep in sync with enums.xml.
 // Do not change the numeric values or reuse them since these numbers are
 // persisted to logs.
 /**
- * User Actions that can be recorded by calling PDFMetrics.record.
+ * User Actions that can be recorded by calling record.
  * The *_FIRST values are recorded automaticlly,
- * eg. PDFMetrics.record(...ROTATE) will also record ROTATE_FIRST
+ * eg. record(...ROTATE) will also record ROTATE_FIRST
  * on the first instance.
  * @enum {number}
  */
-PDFMetrics.UserAction = {
+export const UserAction = {
   // Recorded when the document is first loaded. This event serves as
   // denominator to determine percentages of documents in which an action was
   // taken as well as average number of each action per document.
@@ -106,10 +83,6 @@ PDFMetrics.UserAction = {
 
   FIT_TO_PAGE_FIRST: 5,
   FIT_TO_PAGE: 6,
-
-  // Recorded when the bookmarks panel is opened.
-  OPEN_BOOKMARKS_PANEL_FIRST: 7,
-  OPEN_BOOKMARKS_PANEL: 8,
 
   // Recorded when a bookmark is followed.
   FOLLOW_BOOKMARK_FIRST: 9,
@@ -181,99 +154,65 @@ PDFMetrics.UserAction = {
   ZOOM_CUSTOM_FIRST: 43,
   ZOOM_CUSTOM: 44,
 
-  NUMBER_OF_ACTIONS: 45,
+  // Recorded when a thumbnail is used for navigation.
+  THUMBNAIL_NAVIGATE_FIRST: 45,
+  THUMBNAIL_NAVIGATE: 46,
+
+  // Recorded when the user triggers a save of the document and the document
+  // has never been modified.
+  SAVE_ORIGINAL_ONLY_FIRST: 47,
+  SAVE_ORIGINAL_ONLY: 48,
+
+  // Recorded when the user triggers a save of the original document, even
+  // though the document has been modified.
+  SAVE_ORIGINAL_FIRST: 49,
+  SAVE_ORIGINAL: 50,
+
+  // Recorded when the user triggers a save of the edited document.
+  SAVE_EDITED_FIRST: 51,
+  SAVE_EDITED: 52,
+
+  // Recorded when the sidenav menu button is clicked.
+  TOGGLE_SIDENAV_FIRST: 53,
+  TOGGLE_SIDENAV: 54,
+
+  // Recorded when the thumbnails button in the sidenav is clicked.
+  SELECT_SIDENAV_THUMBNAILS_FIRST: 55,
+  SELECT_SIDENAV_THUMBNAILS: 56,
+
+  // Recorded when the outline button in the sidenav is clicked.
+  SELECT_SIDENAV_OUTLINE_FIRST: 57,
+  SELECT_SIDENAV_OUTLINE: 58,
+
+  // Recorded when the show/hide annotations overflow menu item is clicked.
+  TOGGLE_DISPLAY_ANNOTATIONS_FIRST: 59,
+  TOGGLE_DISPLAY_ANNOTATIONS: 60,
+
+  // Recorded when the present menu item is clicked.
+  PRESENT_FIRST: 61,
+  PRESENT: 62,
+
+  // Recorded when the document properties menu item is clicked.
+  PROPERTIES_FIRST: 63,
+  PROPERTIES: 64,
+
+  NUMBER_OF_ACTIONS: 65,
 };
+
+/** @return {!Map<!UserAction, !UserAction>} */
+function createFirstMap() {
+  const entries = Object.entries(UserAction).sort((a, b) => a[1] - b[1]);
+  // Exclude the first and last entries (DOCUMENT_OPENED, and NUMBER_OF_ACTIONS)
+  // which don't have an equivalent "_FIRST" UserAction.
+  const entriesWithFirst = entries.slice(1, entries.length - 1);
+  const map = new Map();
+  for (let i = 0; i < entriesWithFirst.length; i += 2) {
+    map.set(entriesWithFirst[i + 1][1], entriesWithFirst[i][1]);
+  }
+  return map;
+}
 
 // Map from UserAction to the 'FIRST' action. These metrics are recorded
 // by PDFMetrics.log the first time each corresponding action occurs.
-/** @private Map<number, number> */
-PDFMetrics.firstMap_ = new Map([
-  [
-    PDFMetrics.UserAction.ROTATE,
-    PDFMetrics.UserAction.ROTATE_FIRST,
-  ],
-  [
-    PDFMetrics.UserAction.FIT_TO_WIDTH,
-    PDFMetrics.UserAction.FIT_TO_WIDTH_FIRST,
-  ],
-  [
-    PDFMetrics.UserAction.FIT_TO_PAGE,
-    PDFMetrics.UserAction.FIT_TO_PAGE_FIRST,
-  ],
-  [
-    PDFMetrics.UserAction.OPEN_BOOKMARKS_PANEL,
-    PDFMetrics.UserAction.OPEN_BOOKMARKS_PANEL_FIRST,
-  ],
-  [
-    PDFMetrics.UserAction.FOLLOW_BOOKMARK,
-    PDFMetrics.UserAction.FOLLOW_BOOKMARK_FIRST,
-  ],
-  [
-    PDFMetrics.UserAction.PAGE_SELECTOR_NAVIGATE,
-    PDFMetrics.UserAction.PAGE_SELECTOR_NAVIGATE_FIRST,
-  ],
-  [
-    PDFMetrics.UserAction.SAVE,
-    PDFMetrics.UserAction.SAVE_FIRST,
-  ],
-  [
-    PDFMetrics.UserAction.SAVE_WITH_ANNOTATION,
-    PDFMetrics.UserAction.SAVE_WITH_ANNOTATION_FIRST,
-  ],
-  [
-    PDFMetrics.UserAction.PRINT,
-    PDFMetrics.UserAction.PRINT_FIRST,
-  ],
-  [
-    PDFMetrics.UserAction.ENTER_ANNOTATION_MODE,
-    PDFMetrics.UserAction.ENTER_ANNOTATION_MODE_FIRST,
-  ],
-  [
-    PDFMetrics.UserAction.EXIT_ANNOTATION_MODE,
-    PDFMetrics.UserAction.EXIT_ANNOTATION_MODE_FIRST,
-  ],
-  [
-    PDFMetrics.UserAction.ANNOTATE_STROKE_TOOL_PEN,
-    PDFMetrics.UserAction.ANNOTATE_STROKE_TOOL_PEN_FIRST,
-  ],
-  [
-    PDFMetrics.UserAction.ANNOTATE_STROKE_TOOL_ERASER,
-    PDFMetrics.UserAction.ANNOTATE_STROKE_TOOL_ERASER_FIRST,
-  ],
-  [
-    PDFMetrics.UserAction.ANNOTATE_STROKE_TOOL_HIGHLIGHTER,
-    PDFMetrics.UserAction.ANNOTATE_STROKE_TOOL_HIGHLIGHTER_FIRST,
-  ],
-  [
-    PDFMetrics.UserAction.ANNOTATE_STROKE_DEVICE_TOUCH,
-    PDFMetrics.UserAction.ANNOTATE_STROKE_DEVICE_TOUCH_FIRST,
-  ],
-  [
-    PDFMetrics.UserAction.ANNOTATE_STROKE_DEVICE_MOUSE,
-    PDFMetrics.UserAction.ANNOTATE_STROKE_DEVICE_MOUSE_FIRST,
-  ],
-  [
-    PDFMetrics.UserAction.ANNOTATE_STROKE_DEVICE_PEN,
-    PDFMetrics.UserAction.ANNOTATE_STROKE_DEVICE_PEN_FIRST,
-  ],
-  [
-    PDFMetrics.UserAction.TWO_UP_VIEW_ENABLE,
-    PDFMetrics.UserAction.TWO_UP_VIEW_ENABLE_FIRST,
-  ],
-  [
-    PDFMetrics.UserAction.TWO_UP_VIEW_DISABLE,
-    PDFMetrics.UserAction.TWO_UP_VIEW_DISABLE_FIRST,
-  ],
-  [
-    PDFMetrics.UserAction.ZOOM_IN,
-    PDFMetrics.UserAction.ZOOM_IN_FIRST,
-  ],
-  [
-    PDFMetrics.UserAction.ZOOM_OUT,
-    PDFMetrics.UserAction.ZOOM_OUT_FIRST,
-  ],
-  [
-    PDFMetrics.UserAction.ZOOM_CUSTOM,
-    PDFMetrics.UserAction.ZOOM_CUSTOM_FIRST,
-  ],
-]);
+/** @type {!Map<!UserAction, !UserAction>} */
+const firstMap = createFirstMap();

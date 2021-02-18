@@ -7,6 +7,7 @@
 
 #include "base/optional.h"
 #include "third_party/blink/renderer/core/animation/scroll_timeline.h"
+#include "third_party/blink/renderer/core/dom/id_target_observer.h"
 
 namespace blink {
 
@@ -32,14 +33,33 @@ class CORE_EXPORT CSSScrollTimeline : public ScrollTimeline {
 
     Element* source_;
     ScrollTimeline::ScrollDirection direction_;
-    HeapVector<Member<ScrollTimelineOffset>>* offsets_;
+    HeapVector<Member<ScrollTimelineOffset>> offsets_;
     base::Optional<double> time_range_;
+    StyleRuleScrollTimeline* rule_;
   };
 
-  CSSScrollTimeline(Document*, const Options&);
+  CSSScrollTimeline(Document*, Options&&);
+
+  const AtomicString& Name() const;
+
+  bool Matches(const Options&) const;
 
   // AnimationTimeline implementation.
   bool IsCSSScrollTimeline() const override { return true; }
+  void AnimationAttached(Animation*) override;
+  void AnimationDetached(Animation*) override;
+
+  // If a CSSScrollTimeline matching |options| already exists, return that
+  // timeline. Otherwise returns nullptr.
+  static CSSScrollTimeline* FindMatchingTimeline(const Options&);
+
+  void Trace(Visitor*) const override;
+
+ private:
+  void SetObservers(HeapVector<Member<IdTargetObserver>>);
+
+  Member<StyleRuleScrollTimeline> rule_;
+  HeapVector<Member<IdTargetObserver>> observers_;
 };
 
 template <>

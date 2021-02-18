@@ -18,6 +18,7 @@ import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.browser.browserservices.ui.SharedActivityCoordinator;
+import org.chromium.chrome.browser.browserservices.ui.controller.webapps.WebappDisclosureController;
 import org.chromium.chrome.browser.customtabs.CustomTabOrientationController;
 import org.chromium.chrome.browser.dependency_injection.ChromeActivityCommonsModule;
 import org.chromium.chrome.browser.dependency_injection.ModuleOverridesRule;
@@ -79,16 +80,40 @@ public class WebApkInitializationTest {
         public boolean isNativeInitializationFinished() {
             return true;
         }
+
+        @Override
+        public boolean isActivityFinishingOrDestroyed() {
+            return mRealActivityLifecycleDispatcher.isActivityFinishingOrDestroyed();
+        }
     }
 
     private final TrackingActivityLifecycleDispatcher mTrackingActivityLifecycleDispatcher =
             new TrackingActivityLifecycleDispatcher();
 
     private final TestRule mModuleOverridesRule = new ModuleOverridesRule().setOverride(
-            ChromeActivityCommonsModule.Factory.class, (activity, lifecycleDispatcher) -> {
+            ChromeActivityCommonsModule.Factory.class,
+            (activity, bottomSheetControllerSupplier, tabModelSelectorSupplier,
+                    browserControlsManager, browserControlsVisibilityManager, browserControlsSizer,
+                    fullscreenManager, layoutManagerSupplier, lifecycleDispatcher,
+                    snackbarManagerSupplier, activityTabProvider, tabContentManager,
+                    activityWindowAndroid, compositorViewHolderSupplier, tabCreatorManager,
+                    tabCreatorSupplier, isPromotableToTabSupplier, statusBarColorController,
+                    screenOrientationProvider, notificationManagerProxySupplier,
+                    tabContentManagerSupplier, activityTabStartupMetricsTrackerSupplier,
+                    compositorViewHolderInitializer, chromeActivityNativeDelegate,
+                    modalDialogManagerSupplier, browserControlsStateProvider) -> {
                 mTrackingActivityLifecycleDispatcher.init(lifecycleDispatcher);
-                return new ChromeActivityCommonsModule(
-                        activity, mTrackingActivityLifecycleDispatcher);
+                return new ChromeActivityCommonsModule(activity, bottomSheetControllerSupplier,
+                        tabModelSelectorSupplier, browserControlsManager,
+                        browserControlsVisibilityManager, browserControlsSizer, fullscreenManager,
+                        layoutManagerSupplier, mTrackingActivityLifecycleDispatcher,
+                        snackbarManagerSupplier, activityTabProvider, tabContentManager,
+                        activityWindowAndroid, compositorViewHolderSupplier, tabCreatorManager,
+                        tabCreatorSupplier, isPromotableToTabSupplier, statusBarColorController,
+                        screenOrientationProvider, notificationManagerProxySupplier,
+                        tabContentManagerSupplier, activityTabStartupMetricsTrackerSupplier,
+                        compositorViewHolderInitializer, chromeActivityNativeDelegate,
+                        modalDialogManagerSupplier, browserControlsStateProvider);
             });
 
     private final WebApkActivityTestRule mActivityRule = new WebApkActivityTestRule();
@@ -119,8 +144,8 @@ public class WebApkInitializationTest {
                 mTrackingActivityLifecycleDispatcher.getRegisteredObserverClassNames();
         assertTrue(registeredObserverClassNames.contains(
                 WebappActionsNotificationManager.class.getName()));
-        assertTrue(registeredObserverClassNames.contains(
-                WebappDisclosureSnackbarController.class.getName()));
+        assertTrue(
+                registeredObserverClassNames.contains(WebappDisclosureController.class.getName()));
         assertTrue(registeredObserverClassNames.contains(
                 WebApkActivityLifecycleUmaTracker.class.getName()));
         assertTrue(

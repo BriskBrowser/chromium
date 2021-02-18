@@ -17,12 +17,52 @@ class KaleidoscopeToolbarElement extends PolymerElement {
 
   static get properties() {
     return {
-      // Controls whether the search field is shown.
-      showSearch: {type: Boolean, value: false},
-
       // Sets the tooltip text displayed on the menu button.
       menuLabel: {type: String, value: ''},
+
+      // Sets the text displayed beside the menu button.
+      pageName: {type: String, value: ''},
+
+      // Sets the text displayed in the search box.
+      searchPrompt: {type: String, value: ''},
     };
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    this.hideSearch();
+
+    const toolbar = /** @type {CrToolbarElement} */ (this.$.toolbar);
+    const input = toolbar.getSearchField().getSearchInput();
+    input.addEventListener('keyup', (e) => {
+      if (e.keyCode == 13) {
+        const event =
+            new CustomEvent('ks-search-updated', {detail: input.value});
+        this.dispatchEvent(event);
+      }
+    });
+  }
+
+  hideSearch() {
+    const toolbar = /** @type {CrToolbarElement} */ (this.$.toolbar);
+    toolbar.getSearchField().style.display = 'none';
+  }
+
+  showSearch() {
+    const toolbar = /** @type {CrToolbarElement} */ (this.$.toolbar);
+    toolbar.getSearchField().style.display = '';
+    toolbar.getSearchField().getSearchInput().focus();
+  }
+
+  /**
+   * @param {!CustomEvent<string>} e
+   * @private
+   */
+  onSearchChanged_(e) {
+    if (e.detail.length == 0) {
+      const event = new CustomEvent('ks-search-cleared');
+      this.dispatchEvent(event);
+    }
   }
 }
 

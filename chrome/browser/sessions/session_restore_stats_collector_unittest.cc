@@ -181,8 +181,8 @@ class SessionRestoreStatsCollectorTest : public testing::Test {
         test_web_contents_factory_->CreateWebContents(&testing_profile_);
     std::vector<std::unique_ptr<content::NavigationEntry>> entries;
     entries.push_back(content::NavigationEntry::Create());
-    contents->GetController().Restore(
-        0, content::RestoreType::LAST_SESSION_EXITED_CLEANLY, &entries);
+    contents->GetController().Restore(0, content::RestoreType::kRestored,
+                                      &entries);
     // Create a last active time in the past.
     content::WebContentsTester::For(contents)->SetLastActiveTime(
         base::TimeTicks::Now() - base::TimeDelta::FromMinutes(1));
@@ -205,10 +205,7 @@ class SessionRestoreStatsCollectorTest : public testing::Test {
     content::WebContents* contents = restored_tabs_[tab_index].contents();
     content::RenderWidgetHost* host =
         contents->GetRenderWidgetHostView()->GetRenderWidgetHost();
-    stats_collector_->Observe(
-        content::NOTIFICATION_RENDER_WIDGET_HOST_DID_UPDATE_VISUAL_PROPERTIES,
-        content::Source<content::RenderWidgetHost>(host),
-        content::NotificationService::NoDetails());
+    stats_collector_->RenderWidgetHostDidUpdateVisualProperties(host);
   }
 
   void GenerateRenderWidgetVisiblityChanged(size_t tab_index, bool visible) {

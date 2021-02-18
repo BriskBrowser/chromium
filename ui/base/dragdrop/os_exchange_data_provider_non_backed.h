@@ -6,10 +6,13 @@
 #define UI_BASE_DRAGDROP_OS_EXCHANGE_DATA_PROVIDER_NON_BACKED_H_
 
 #include <map>
+#include <memory>
 
 #include "base/component_export.h"
 #include "base/pickle.h"
-#include "ui/base/dragdrop/file_info/file_info.h"
+#include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
+#include "ui/base/clipboard/file_info.h"
 #include "ui/base/dragdrop/os_exchange_data_provider.h"
 #include "ui/gfx/geometry/vector2d.h"
 #include "ui/gfx/image/image_skia.h"
@@ -58,7 +61,7 @@ class COMPONENT_EXPORT(UI_BASE) OSExchangeDataProviderNonBacked
   bool HasURL(FilenameToURLPolicy policy) const override;
   bool HasFile() const override;
   bool HasCustomFormat(const ClipboardFormatType& format) const override;
-#if defined(USE_X11)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
   void SetFileContents(const base::FilePath& filename,
                        const std::string& file_contents) override;
 #endif
@@ -70,6 +73,9 @@ class COMPONENT_EXPORT(UI_BASE) OSExchangeDataProviderNonBacked
                     const gfx::Vector2d& cursor_offset) override;
   gfx::ImageSkia GetDragImage() const override;
   gfx::Vector2d GetDragImageOffset() const override;
+
+  void SetSource(std::unique_ptr<DataTransferEndpoint> data_source) override;
+  DataTransferEndpoint* GetSource() const override;
 
  private:
   // Returns true if |formats_| contains a file format and the file name can be
@@ -104,6 +110,14 @@ class COMPONENT_EXPORT(UI_BASE) OSExchangeDataProviderNonBacked
   // For HTML format
   base::string16 html_;
   GURL base_url_;
+
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
+  // For marking data originating from the renderer.
+  bool originated_from_renderer_ = false;
+#endif
+
+  // Data source.
+  std::unique_ptr<DataTransferEndpoint> source_;
 };
 
 }  // namespace ui

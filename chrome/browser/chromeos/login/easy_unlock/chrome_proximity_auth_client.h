@@ -13,7 +13,7 @@ class Profile;
 namespace chromeos {
 
 // A Chrome-specific implementation of the ProximityAuthClient interface.
-// There is one |ChromeProximityAuthClient| per |Profile|.
+// There is one `ChromeProximityAuthClient` per `Profile`.
 class ChromeProximityAuthClient : public proximity_auth::ProximityAuthClient {
  public:
   explicit ChromeProximityAuthClient(Profile* profile);
@@ -27,7 +27,7 @@ class ChromeProximityAuthClient : public proximity_auth::ProximityAuthClient {
       const std::string& user_email,
       const std::string& remote_public_key,
       const std::string& nonce,
-      base::Callback<void(const std::string& challenge)> callback) override;
+      base::OnceCallback<void(const std::string& challenge)> callback) override;
   proximity_auth::ProximityAuthPrefManager* GetPrefManager() override;
 
  private:

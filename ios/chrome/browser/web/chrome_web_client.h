@@ -39,18 +39,19 @@ class ChromeWebClient : public web::WebClient {
       std::vector<std::string>* additional_schemes) override;
   void PostBrowserURLRewriterCreation(
       web::BrowserURLRewriter* rewriter) override;
+  std::vector<web::JavaScriptFeature*> GetJavaScriptFeatures(
+      web::BrowserState* browser_state) const override;
   NSString* GetDocumentStartScriptForAllFrames(
       web::BrowserState* browser_state) const override;
   NSString* GetDocumentStartScriptForMainFrame(
       web::BrowserState* browser_state) const override;
-  void AllowCertificateError(
-      web::WebState* web_state,
-      int cert_error,
-      const net::SSLInfo& ssl_info,
-      const GURL& request_url,
-      bool overridable,
-      int64_t navigation_id,
-      const base::Callback<void(bool)>& callback) override;
+  void AllowCertificateError(web::WebState* web_state,
+                             int cert_error,
+                             const net::SSLInfo& ssl_info,
+                             const GURL& request_url,
+                             bool overridable,
+                             int64_t navigation_id,
+                             base::OnceCallback<void(bool)> callback) override;
   bool IsLegacyTLSAllowedForHost(web::WebState* web_state,
                                  const std::string& hostname) override;
   void PrepareErrorPage(web::WebState* web_state,
@@ -62,6 +63,8 @@ class ChromeWebClient : public web::WebClient {
                         int64_t navigation_id,
                         base::OnceCallback<void(NSString*)> callback) override;
   UIView* GetWindowedContainer() override;
+  bool EnableLongPressAndForceTouchHandling() const override;
+  bool EnableLongPressUIContextMenu() const override;
   bool ForceMobileVersionByDefault(const GURL& url) override;
   web::UserAgentType GetDefaultUserAgent(id<UITraitEnvironment> web_view,
                                          const GURL& url) override;

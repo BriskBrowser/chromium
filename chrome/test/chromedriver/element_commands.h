@@ -20,12 +20,12 @@ class Status;
 class Timeout;
 class WebView;
 
-typedef base::Callback<Status(Session* session,
-                              WebView* web_view,
-                              const std::string&,
-                              const base::DictionaryValue&,
-                              std::unique_ptr<base::Value>*)>
-    ElementCommand;
+using ElementCommand =
+    base::RepeatingCallback<Status(Session* session,
+                                   WebView* web_view,
+                                   const std::string&,
+                                   const base::DictionaryValue&,
+                                   std::unique_ptr<base::Value>*)>;
 
 // Execute a command on a specific element.
 Status ExecuteElementCommand(
@@ -147,6 +147,18 @@ Status ExecuteIsElementEnabled(Session* session,
                                const std::string& element_id,
                                const base::DictionaryValue& params,
                                std::unique_ptr<base::Value>* value);
+
+Status ExecuteGetComputedLabel(Session* session,
+                               WebView* web_view,
+                               const std::string& element_id,
+                               const base::DictionaryValue& params,
+                               std::unique_ptr<base::Value>* value);
+
+Status ExecuteGetComputedRole(Session* session,
+                              WebView* web_view,
+                              const std::string& element_id,
+                              const base::DictionaryValue& params,
+                              std::unique_ptr<base::Value>* value);
 
 Status ExecuteIsElementDisplayed(Session* session,
                                  WebView* web_view,

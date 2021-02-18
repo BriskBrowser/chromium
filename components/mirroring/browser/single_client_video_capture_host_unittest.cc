@@ -112,12 +112,13 @@ class MockVideoCaptureObserver final
     OnBufferCreatedCall(buffer_id);
   }
   MOCK_METHOD1(OnBufferReadyCall, void(int buffer_id));
-  void OnBufferReady(int32_t buffer_id,
-                     media::mojom::VideoFrameInfoPtr info) override {
-    EXPECT_TRUE(buffers_.find(buffer_id) != buffers_.end());
-    EXPECT_EQ(frame_infos_.find(buffer_id), frame_infos_.end());
-    frame_infos_[buffer_id] = std::move(info);
-    OnBufferReadyCall(buffer_id);
+  void OnBufferReady(
+      media::mojom::ReadyBufferPtr buffer,
+      std::vector<media::mojom::ReadyBufferPtr> scaled_buffers) override {
+    EXPECT_TRUE(buffers_.find(buffer->buffer_id) != buffers_.end());
+    EXPECT_EQ(frame_infos_.find(buffer->buffer_id), frame_infos_.end());
+    frame_infos_[buffer->buffer_id] = std::move(buffer->info);
+    OnBufferReadyCall(buffer->buffer_id);
   }
 
   MOCK_METHOD1(OnBufferDestroyedCall, void(int buffer_id));
@@ -221,8 +222,10 @@ class SingleClientVideoCaptureHostTest : public ::testing::Test {
     EXPECT_CALL(*consumer_, OnBufferReadyCall(buffer_context_id))
         .WillOnce(InvokeWithoutArgs(&run_loop, &base::RunLoop::Quit));
     frame_receiver_->OnFrameReadyInBuffer(
-        buffer_id, feedback_id, std::make_unique<StubReadWritePermission>(),
-        GetVideoFrameInfo());
+        media::ReadyFrameInBuffer(buffer_id, feedback_id,
+                                  std::make_unique<StubReadWritePermission>(),
+                                  GetVideoFrameInfo()),
+        {});
     run_loop.Run();
   }
 
@@ -270,10 +273,7 @@ class SingleClientVideoCaptureHostTest : public ::testing::Test {
 TEST_F(SingleClientVideoCaptureHostTest, Basic) {
   CreateBuffer(1, 0);
   FrameReadyInBuffer(1, 0, 5);
-  FinishConsumingBuffer(
-      0, 5,
-      media::VideoFrameFeedback(1.0, std::numeric_limits<float>::infinity(),
-                                base::nullopt));
+  FinishConsumingBuffer(0, 5, media::VideoFrameFeedback(1.0));
   RetireBuffer(1, 0);
 }
 
@@ -293,10 +293,7 @@ TEST_F(SingleClientVideoCaptureHostTest, ReuseBufferId) {
   FrameReadyInBuffer(0, 1, 7);
 
   // Finish consuming frame in the retired buffer 0.
-  FinishConsumingBuffer(
-      0, 3,
-      media::VideoFrameFeedback(1.0, std::numeric_limits<float>::infinity(),
-                                base::nullopt));
+  FinishConsumingBuffer(0, 3, media::VideoFrameFeedback(1.0));
   // The retired buffer is expected to be destroyed since the consumer finished
   // consuming the frame in that buffer.
   base::RunLoop run_loop;
@@ -304,10 +301,7 @@ TEST_F(SingleClientVideoCaptureHostTest, ReuseBufferId) {
       .WillOnce(InvokeWithoutArgs(&run_loop, &base::RunLoop::Quit));
   run_loop.Run();
 
-  FinishConsumingBuffer(
-      1, 7,
-      media::VideoFrameFeedback(0.5, std::numeric_limits<float>::infinity(),
-                                base::nullopt));
+  FinishConsumingBuffer(1, 7, media::VideoFrameFeedback(0.5));
   RetireBuffer(0, 1);
 }
 

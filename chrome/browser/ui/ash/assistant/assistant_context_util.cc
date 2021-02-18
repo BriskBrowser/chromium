@@ -6,13 +6,13 @@
 
 #include <utility>
 
-#include "ash/public/cpp/window_properties.h"
 #include "base/bind.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chromeos/ui/base/window_properties.h"
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/mojom/app.mojom.h"
 #include "components/arc/session/arc_bridge_service.h"
@@ -44,6 +44,19 @@ ax::mojom::AssistantExtraPtr CreateAssistantExtra(
   return assistant_extra;
 }
 
+gfx::Rect GetWindowBoundsInPixels(const Browser* browser) {
+  gfx::Rect bounds = browser->window()->GetBounds();
+  gfx::Point top_left = bounds.origin();
+  gfx::Point bottom_right = bounds.bottom_right();
+  const aura::Window* window = browser->window()->GetNativeWindow();
+  const auto* window_tree_host = window->GetRootWindow()->GetHost();
+  // TODO: Revisit once multi-monitor support is planned.
+  window_tree_host->ConvertDIPToScreenInPixels(&top_left);
+  window_tree_host->ConvertDIPToScreenInPixels(&bottom_right);
+  return gfx::Rect(top_left.x(), top_left.y(), bottom_right.x() - top_left.x(),
+                   bottom_right.y() - top_left.y());
+}
+
 }  // namespace
 
 void RequestAssistantStructureForActiveBrowserWindow(
@@ -72,7 +85,14 @@ void RequestAssistantStructureForActiveBrowserWindow(
 
   aura::Window* window = browser->window()->GetNativeWindow();
   // Ignore incognito window.
-  if (window->GetProperty(ash::kBlockedForAssistantSnapshotKey)) {
+  if (window->GetProperty(chromeos::kBlockedForAssistantSnapshotKey)) {
+    std::move(callback).Run(nullptr, nullptr);
+    return;
+  }
+
+  content::WebContents* web_contents =
+      browser->tab_strip_model()->GetActiveWebContents();
+  if (!web_contents) {
     std::move(callback).Run(nullptr, nullptr);
     return;
   }
@@ -80,24 +100,16 @@ void RequestAssistantStructureForActiveBrowserWindow(
   // We follow same convention as Clank and thus the contents are all in
   // pixels. The bounds of the window need to be converted to pixel in order
   // to be consistent with rest of the view hierarchy.
-  gfx::Rect bounds = browser->window()->GetBounds();
-  gfx::Point top_left = bounds.origin();
-  gfx::Point bottom_right = bounds.bottom_right();
-  auto* window_tree_host = window->GetRootWindow()->GetHost();
-  // TODO: Revisit once multi-monitor support is planned.
-  window_tree_host->ConvertDIPToScreenInPixels(&top_left);
-  window_tree_host->ConvertDIPToScreenInPixels(&bottom_right);
+  gfx::Rect window_bounds = GetWindowBoundsInPixels(browser);
 
-  content::WebContents* web_contents =
-      browser->tab_strip_model()->GetActiveWebContents();
   web_contents->RequestAXTreeSnapshot(
-      base::BindOnce(
-          &CreateAssistantStructureAndRunCallback, std::move(callback),
-          CreateAssistantExtra(web_contents,
-                               gfx::Rect(top_left.x(), top_left.y(),
-                                         bottom_right.x() - top_left.x(),
-                                         bottom_right.y() - top_left.y()))),
-      ui::kAXModeComplete);
+      base::BindOnce(&CreateAssistantStructureAndRunCallback,
+                     std::move(callback),
+                     CreateAssistantExtra(web_contents, window_bounds)),
+      ui::kAXModeComplete,
+      /* exclude_offscreen= */ false,
+      /* max_nodes= */ 5000,
+      /* timeout= */ {});
 }
 
 void RequestAssistantStructureForWebContentsForTesting(
@@ -107,5 +119,8 @@ void RequestAssistantStructureForWebContentsForTesting(
       base::BindOnce(
           &CreateAssistantStructureAndRunCallback, std::move(callback),
           CreateAssistantExtra(web_contents, gfx::Rect(0, 0, 100, 100))),
-      ui::kAXModeComplete);
+      ui::kAXModeComplete,
+      /* exclude_offscreen= */ false,
+      /* max_nodes= */ 5000,
+      /* timeout= */ {});
 }

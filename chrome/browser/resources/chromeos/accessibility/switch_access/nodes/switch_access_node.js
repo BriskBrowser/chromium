@@ -2,6 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {FocusRingManager} from '../focus_ring_manager.js';
+import {SwitchAccess} from '../switch_access.js';
+import {SAConstants, SwitchAccessMenuAction} from '../switch_access_constants.js';
+
+
+const AutomationNode = chrome.automation.AutomationNode;
+
 /**
  * This interface represents some object or group of objects on screen
  *     that Switch Access may be interested in interacting with.
@@ -12,7 +19,7 @@
  *     (calling .equals() returns true).
  * @abstract
  */
-class SAChildNode {
+export class SAChildNode {
   constructor() {
     /** @private {boolean} */
     this.isFocused_ = false;
@@ -37,8 +44,8 @@ class SAChildNode {
   get actions() {}
 
   /**
-   * Returns the underlying automation node, if one exists.
-   * @return {AutomationNode}
+   * The automation node that most closely contains this node.
+   * @return {!AutomationNode}
    * @abstract
    */
   get automationNode() {}
@@ -205,8 +212,8 @@ class SAChildNode {
   /**
    * String-ifies the node (for debugging purposes).
    * @param {boolean} wholeTree Whether to recursively include descendants.
-   * @param {string=} prefix
-   * @param {SAChildNode=} currentNode the currentNode, to highlight.
+   * @param {string} prefix
+   * @param {?SAChildNode} currentNode the currentNode, to highlight.
    * @return {string}
    */
   debugString(wholeTree, prefix = '', currentNode = null) {
@@ -215,11 +222,10 @@ class SAChildNode {
           wholeTree, prefix + '  ', currentNode);
     }
 
-    let str = this.role + ' ';
+    let str = this.constructor.name + ' role(' + this.role + ') ';
 
-    const autoNode = this.automationNode;
-    if (autoNode && autoNode.name) {
-      str += 'name(' + autoNode.name + ') ';
+    if (this.automationNode.name) {
+      str += 'name(' + this.automationNode.name + ') ';
     }
 
     const loc = this.location;
@@ -245,21 +251,47 @@ class SAChildNode {
     this.valid_ = false;
     throw SwitchAccess.error(error, message, true /* shouldRecover */);
   }
+
+  /**
+   * @return {boolean} Whether to ignore when computing the SARootNode's
+   *     location.
+   */
+  ignoreWhenComputingUnionOfBoundingBoxes() {
+    return false;
+  }
+
+
+  /** @return {SARootNode} */
+  get group() {
+    return null;
+  }
 }
 
 /**
  * This class represents the root node of a Switch Access traversal group.
  */
-class SARootNode {
-  constructor() {
+export class SARootNode {
+  /**
+   * @param {!AutomationNode} autoNode The automation node that most closely
+   *     contains all of this node's children.
+   */
+  constructor(autoNode) {
     /** @private {!Array<!SAChildNode>} */
     this.children_ = [];
+
+    /** @private {!AutomationNode} */
+    this.automationNode_ = autoNode;
   }
 
   // ================= Getters and setters =================
 
-  /** @return {AutomationNode} */
-  get automationNode() {}
+  /**
+   * @return {!AutomationNode} The automation node that most closely
+   *     contains all of this node's children.
+   */
+  get automationNode() {
+    return this.automationNode_;
+  }
 
   /** @param {!Array<!SAChildNode>} newVal */
   set children(newVal) {
@@ -296,8 +328,8 @@ class SARootNode {
 
   /** @return {!chrome.accessibilityPrivate.ScreenRect} */
   get location() {
-    const children =
-        this.children_.filter((c) => !(c instanceof BackButtonNode));
+    const children = this.children_.filter(
+        (c) => !c.ignoreWhenComputingUnionOfBoundingBoxes());
     const childLocations = children.map((c) => c.location);
     return RectUtil.unionAll(childLocations);
   }
@@ -360,10 +392,11 @@ class SARootNode {
 
   /** @return {boolean} */
   isValidGroup() {
-    // Must have one interesting child that is not the back button.
+    // Must have one interesting child whose location is important.
     return this.children_
                .filter(
-                   (child) => !(child instanceof BackButtonNode) &&
+                   (child) =>
+                       !(child.ignoreWhenComputingUnionOfBoundingBoxes()) &&
                        child.isValidAndVisible())
                .length >= 1;
   }
@@ -396,26 +429,22 @@ class SARootNode {
 
   /**
    * String-ifies the node (for debugging purposes).
-   * @param {boolean=} wholeTree Whether to recursively descend the tree
-   * @param {string=} prefix
-   * @param {SAChildNode} currentNode the currently focused node, to mark.
+   * @param {boolean} wholeTree Whether to recursively descend the tree
+   * @param {string} prefix
+   * @param {?SAChildNode} currentNode the currently focused node, to mark.
    * @return {string}
    */
   debugString(wholeTree = false, prefix = '', currentNode = null) {
-    const autoNode = this.automationNode;
-    let str = 'Root: ';
-    if (autoNode && autoNode.role) {
-      str += autoNode.role + ' ';
-    }
-    if (autoNode && autoNode.name) {
-      str += 'name(' + autoNode.name + ') ';
+    let str =
+        'Root: ' + this.constructor.name + ' ' + this.automationNode.role + ' ';
+    if (this.automationNode.name) {
+      str += 'name(' + this.automationNode.name + ') ';
     }
 
     const loc = this.location;
     if (loc) {
       str += 'loc(' + RectUtil.toString(loc) + ') ';
     }
-
 
     for (const child of this.children) {
       str += '\n' + prefix + ((child.equals(currentNode)) ? ' * ' : ' - ');

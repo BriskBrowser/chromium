@@ -9,11 +9,14 @@ android_library("java") {
     ":*",
     "//chrome/android:chrome_all_java",
     "//chrome/android:chrome_java",
+    "//chrome/android:chrome_junit_tests__java_binary",
+    "//chrome/android:chrome_test_java",
   ]
   sources = [
     "java/src/org/chromium/chrome/browser/privacy/secure_dns/SecureDnsBridge.java",
     "java/src/org/chromium/chrome/browser/privacy/secure_dns/SecureDnsProviderPreference.java",
     "java/src/org/chromium/chrome/browser/privacy/secure_dns/SecureDnsSettings.java",
+    "settings/java/src/org/chromium/chrome/browser/privacy/settings/PrivacyPreferencesManager.java",
   ]
   deps = [
     ":java_resources",
@@ -27,15 +30,16 @@ android_library("java") {
     "//chrome/browser/settings:java",
     "//components/browser_ui/settings/android:java",
     "//components/browser_ui/widget/android:java",
-    "//net/dns:secure_dns_mode_generated_enum",
-    "//third_party/android_deps:androidx_annotation_annotation_java",
-    "//third_party/android_deps:androidx_fragment_fragment_java",
-    "//third_party/android_deps:androidx_preference_preference_java",
+    "//components/minidump_uploader:minidump_uploader_java",
+    "//net/dns/public:secure_dns_mode_generated_enum",
     "//third_party/android_deps:material_design_java",
+    "//third_party/androidx:androidx_annotation_annotation_java",
+    "//third_party/androidx:androidx_fragment_fragment_java",
+    "//third_party/androidx:androidx_preference_preference_java",
   ]
   srcjar_deps = [
     "//chrome/browser/net:secure_dns_management_mode_generated_enum",
-    "//net/dns:secure_dns_mode_generated_enum",
+    "//net/dns/public:secure_dns_mode_generated_enum",
   ]
   annotation_processor_deps = [ "//base/android/jni_generator:jni_processor" ]
   resources_package = "org.chromium.chrome.browser.privacy.secure_dns"
@@ -54,7 +58,6 @@ android_resources("java_resources") {
     "//components/browser_ui/widget/android:java_resources",
     "//third_party/android_deps:material_design_java",
   ]
-  create_srcjar = false
 }
 
 generate_jni("jni_headers") {

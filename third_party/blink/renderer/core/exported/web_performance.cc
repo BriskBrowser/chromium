@@ -80,6 +80,11 @@ WebPerformance::BackForwardCacheRestore() const {
         MillisecondsToSeconds(restore_timings[i].navigation_start);
     timings[i].first_paint =
         MillisecondsToSeconds(restore_timings[i].first_paint);
+    for (size_t j = 0; j < restore_timings[i].request_animation_frames.size();
+         j++) {
+      timings[i].request_animation_frames[j] =
+          MillisecondsToSeconds(restore_timings[i].request_animation_frames[j]);
+    }
     timings[i].first_input_delay = restore_timings[i].first_input_delay;
   }
   return timings;
@@ -207,6 +212,10 @@ uint64_t WebPerformance::LargestTextPaintSize() const {
   return private_->timing()->LargestTextPaintSize();
 }
 
+base::TimeTicks WebPerformance::LargestContentfulPaintAsMonotonicTime() const {
+  return private_->timing()->LargestContentfulPaintAsMonotonicTime();
+}
+
 double WebPerformance::ExperimentalLargestImagePaint() const {
   return MillisecondsToSeconds(
       private_->timing()->ExperimentalLargestImagePaint());
@@ -297,6 +306,18 @@ double WebPerformance::ParseBlockedOnScriptExecutionFromDocumentWriteDuration()
 base::Optional<base::TimeTicks> WebPerformance::LastPortalActivatedPaint()
     const {
   return private_->timing()->LastPortalActivatedPaint();
+}
+
+base::Optional<base::TimeTicks> WebPerformance::UnloadStart() const {
+  return private_->timing()->UnloadStart();
+}
+
+base::Optional<base::TimeTicks> WebPerformance::UnloadEnd() const {
+  return private_->timing()->UnloadEnd();
+}
+
+base::Optional<base::TimeTicks> WebPerformance::CommitNavigationEnd() const {
+  return private_->timing()->CommitNavigationEnd();
 }
 
 WebPerformance::WebPerformance(WindowPerformance* performance)

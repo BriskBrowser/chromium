@@ -4,16 +4,17 @@
 
 #include "chrome/browser/chromeos/input_method/assistive_suggester.h"
 
+#include "ash/constants/ash_features.h"
+#include "ash/constants/ash_pref_names.h"
 #include "ash/public/cpp/window_properties.h"
 #include "base/feature_list.h"
 #include "base/hash/hash.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/metrics/user_metrics.h"
 #include "base/strings/string_util.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/chromeos_pref_names.h"
 #include "components/exo/wm_helper.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
@@ -24,7 +25,6 @@ namespace chromeos {
 namespace {
 
 const char kMaxTextBeforeCursorLength = 50;
-const char kKeydown[] = "keydown";
 
 const char* kAllowedDomainsForPersonalInfoSuggester[] = {
     "discord.com",      "messenger.com",       "web.whatsapp.com",
@@ -130,6 +130,10 @@ void RecordAssistiveUserPrefForEmoji(bool value) {
   base::UmaHistogramBoolean("InputMethod.Assistive.UserPref.Emoji", value);
 }
 
+void RecordAssistiveNotAllowed(AssistiveType type) {
+  base::UmaHistogramEnumeration("InputMethod.Assistive.NotAllowed", type);
+}
+
 void RecordAssistiveCoverage(AssistiveType type) {
   base::UmaHistogramEnumeration("InputMethod.Assistive.Coverage", type);
 }
@@ -161,7 +165,9 @@ bool IsInternalWebsite(GURL url) {
 template <size_t N>
 bool IsAllowedUrl(const char* (&allowedDomains)[N]) {
   Browser* browser = chrome::FindLastActive();
-  if (browser && browser->window()->IsActive()) {
+  if (browser && browser->window() && browser->window()->IsActive() &&
+      browser->tab_strip_model() &&
+      browser->tab_strip_model()->GetActiveWebContents()) {
     GURL url = browser->tab_strip_model()
                    ->GetActiveWebContents()
                    ->GetLastCommittedURL();
@@ -306,8 +312,7 @@ void AssistiveSuggester::OnBlur() {
   emoji_suggester_.OnBlur();
 }
 
-bool AssistiveSuggester::OnKeyEvent(
-    const InputMethodEngineBase::KeyboardEvent& event) {
+bool AssistiveSuggester::OnKeyEvent(const ui::KeyEvent& event) {
   if (context_id_ == -1)
     return false;
 
@@ -315,7 +320,7 @@ bool AssistiveSuggester::OnKeyEvent(
   // surrounding text change, which is triggered by a keydown event. As a
   // result, the next key event after suggesting would be a keyup event of the
   // same key, and that event is meaningless to us.
-  if (IsSuggestionShown() && event.type == kKeydown) {
+  if (IsSuggestionShown() && event.type() == ui::ET_KEY_PRESSED) {
     SuggestionStatus status = current_suggester_->HandleKeyEvent(event);
     switch (status) {
       case SuggestionStatus::kAccept:
@@ -337,8 +342,11 @@ bool AssistiveSuggester::OnKeyEvent(
 void AssistiveSuggester::RecordAssistiveMatchMetricsForAction(
     AssistiveType action) {
   RecordAssistiveMatch(action);
-  if (!IsActionEnabled(action))
+  if (!IsActionEnabled(action)) {
     RecordAssistiveDisabled(action);
+  } else if (!IsAllowedUrlOrAppForEmojiSuggestion()) {
+    RecordAssistiveNotAllowed(action);
+  }
 }
 
 void AssistiveSuggester::RecordAssistiveMatchMetrics(const base::string16& text,
@@ -360,6 +368,8 @@ void AssistiveSuggester::RecordAssistiveMatchMetrics(const base::string16& text,
       // Emoji suggestion match
     } else if (emoji_suggester_.ShouldShowSuggestion(text_before_cursor)) {
       RecordAssistiveMatchMetricsForAction(AssistiveType::kEmoji);
+      base::RecordAction(
+          base::UserMetricsAction("InputMethod.Assistive.EmojiSuggested"));
       RecordAssistiveDisabledReasonForEmoji(GetDisabledReasonForEmoji());
     }
   }

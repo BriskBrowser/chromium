@@ -6,117 +6,159 @@
 
 #include "base/memory/singleton.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/post_task.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
+#include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/policy/messaging_layer/public/report_queue.h"
 #include "chrome/browser/policy/messaging_layer/public/report_queue_configuration.h"
-#include "chrome/browser/policy/messaging_layer/util/status.h"
-#include "chrome/browser/policy/messaging_layer/util/status_macros.h"
-#include "chrome/browser/policy/messaging_layer/util/statusor.h"
 #include "components/policy/core/common/cloud/dm_token.h"
-#include "components/policy/proto/record_constants.pb.h"
+#include "components/policy/core/common/cloud/mock_cloud_policy_client.h"
+#include "components/reporting/proto/record_constants.pb.h"
+#include "components/reporting/util/status.h"
+#include "components/reporting/util/status_macros.h"
+#include "components/reporting/util/statusor.h"
+#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
+#include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
+#include "chrome/test/base/testing_profile.h"
+#include "components/user_manager/scoped_user_manager.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace reporting {
 namespace {
 
 using policy::DMToken;
 using reporting::Destination;
-using reporting::Priority;
 
-class TestCallbackWaiter {
+// Usage (in tests only):
+//
+//   TestEvent<ResType> e;
+//   ... Do some async work passing e.cb() as a completion callback of
+//   base::OnceCallback<void(ResType* res)> type which also may perform some
+//   other action specified by |done| callback provided by the caller.
+//   ... = e.result();  // Will wait for e.cb() to be called and return the
+//   collected result.
+//
+template <typename ResType>
+class TestEvent {
  public:
-  TestCallbackWaiter()
-      : completed_(base::WaitableEvent::ResetPolicy::MANUAL,
-                   base::WaitableEvent::InitialState::NOT_SIGNALED) {}
-
-  virtual void Signal() {
-    DCHECK(!completed_.IsSignaled());
-    completed_.Signal();
+  TestEvent() : run_loop_(std::make_unique<base::RunLoop>()) {}
+  ~TestEvent() = default;
+  TestEvent(const TestEvent& other) = delete;
+  TestEvent& operator=(const TestEvent& other) = delete;
+  ResType result() {
+    run_loop_->Run();
+    return std::forward<ResType>(result_);
   }
 
-  void Wait() { completed_.Wait(); }
-  void Reset() { completed_.Reset(); }
+  // Completion callback to hand over to the processing method.
+  base::OnceCallback<void(ResType res)> cb() {
+    return base::BindOnce(
+        [](base::RunLoop* run_loop, ResType* result, ResType res) {
+          *result = std::forward<ResType>(res);
+          run_loop->Quit();
+        },
+        base::Unretained(run_loop_.get()), base::Unretained(&result_));
+  }
 
- protected:
-  base::WaitableEvent completed_;
+ private:
+  std::unique_ptr<base::RunLoop> run_loop_;
+  ResType result_;
 };
 
-class ReportingClientTest : public testing::Test {
+class ReportClientTest : public testing::Test {
  public:
-  void TearDown() override { ReportingClient::Reset_test(); }
+  void SetUp() override {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    // Set up fake primary profile.
+    auto mock_user_manager =
+        std::make_unique<testing::NiceMock<chromeos::FakeChromeUserManager>>();
+    profile_ = std::make_unique<TestingProfile>(
+        base::FilePath(FILE_PATH_LITERAL("/home/chronos/u-0123456789abcdef")));
+    const AccountId account_id(AccountId::FromUserEmailGaiaId(
+        profile_->GetProfileUserName(), "12345"));
+    const user_manager::User* user =
+        mock_user_manager->AddPublicAccountUser(account_id);
+    mock_user_manager->UserLoggedIn(account_id, user->username_hash(),
+                                    /*browser_restart=*/false,
+                                    /*is_child=*/false);
+    user_manager_ = std::make_unique<user_manager::ScopedUserManager>(
+        std::move(mock_user_manager));
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+    // Provide a mock cloud policy client.
+    client_ = std::make_unique<policy::MockCloudPolicyClient>();
+    client_->SetDMToken(
+        policy::DMToken::CreateValidTokenForTesting("FAKE_DM_TOKEN").value());
+    test_reporting_ =
+        std::make_unique<ReportingClient::TestEnvironment>(client_.get());
+
+    scoped_feature_list_.InitAndEnableFeature(
+        ReportingClient::kEncryptedReportingPipeline);
+  }
+
+  void TearDown() override {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    user_manager_.reset();
+    profile_.reset();
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+  }
 
  protected:
-  base::test::TaskEnvironment task_envrionment_{
-      base::test::TaskEnvironment::TimeSource::MOCK_TIME};
+  base::test::ScopedFeatureList scoped_feature_list_;
+  std::unique_ptr<ReportingClient::TestEnvironment> test_reporting_;
+  // BrowserTaskEnvironment needs to be destroyed before TestEnvironment
+  // and ScopedFeatureList, so that tasks on other threads don't run after
+  // they are destroyed.
+  content::BrowserTaskEnvironment task_environment_;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  std::unique_ptr<TestingProfile> profile_;
+  std::unique_ptr<user_manager::ScopedUserManager> user_manager_;
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+  std::unique_ptr<policy::MockCloudPolicyClient> client_;
   const DMToken dm_token_ = DMToken::CreateValidTokenForTesting("TOKEN");
   const Destination destination_ = Destination::UPLOAD_EVENTS;
-  const Priority priority_ = Priority::IMMEDIATE;
   ReportQueueConfiguration::PolicyCheckCallback policy_checker_callback_ =
       base::BindRepeating([]() { return Status::StatusOK(); });
 };
 
 // Tests that a ReportQueue can be created using the ReportingClient.
-TEST_F(ReportingClientTest, CreatesReportQueue) {
+TEST_F(ReportClientTest, CreatesReportQueue) {
   auto config_result = ReportQueueConfiguration::Create(
-      dm_token_, destination_, priority_, policy_checker_callback_);
+      dm_token_, destination_, policy_checker_callback_);
   ASSERT_OK(config_result);
 
-  TestCallbackWaiter waiter;
-  StatusOr<std::unique_ptr<ReportQueue>> result;
-  auto create_report_queue_cb = base::BindOnce(
-      [](TestCallbackWaiter* waiter,
-         StatusOr<std::unique_ptr<ReportQueue>>* result,
-         StatusOr<std::unique_ptr<ReportQueue>> create_result) {
-        *result = std::move(create_result);
-        waiter->Signal();
-      },
-      &waiter, &result);
+  TestEvent<StatusOr<std::unique_ptr<ReportQueue>>> a;
   ReportingClient::CreateReportQueue(std::move(config_result.ValueOrDie()),
-                                     std::move(create_report_queue_cb));
-
-  waiter.Wait();
-  waiter.Reset();
-  ASSERT_OK(result);
+                                     a.cb());
+  ASSERT_OK(a.result());
 }
 
 // Ensures that created ReportQueues are actually different.
-TEST_F(ReportingClientTest, CreatesTwoDifferentReportQueues) {
+TEST_F(ReportClientTest, CreatesTwoDifferentReportQueues) {
   auto config_result = ReportQueueConfiguration::Create(
-      dm_token_, destination_, priority_, policy_checker_callback_);
+      dm_token_, destination_, policy_checker_callback_);
   EXPECT_TRUE(config_result.ok());
 
-  TestCallbackWaiter waiter;
-  StatusOr<std::unique_ptr<ReportQueue>> result;
-  auto create_report_queue_cb = base::BindOnce(
-      [](TestCallbackWaiter* waiter,
-         StatusOr<std::unique_ptr<ReportQueue>>* result,
-         StatusOr<std::unique_ptr<ReportQueue>> create_result) {
-        *result = std::move(create_result);
-        waiter->Signal();
-      },
-      &waiter, &result);
+  TestEvent<StatusOr<std::unique_ptr<ReportQueue>>> a1;
   ReportingClient::CreateReportQueue(std::move(config_result.ValueOrDie()),
-                                     std::move(create_report_queue_cb));
-  waiter.Wait();
-  waiter.Reset();
+                                     a1.cb());
+  auto result = a1.result();
   ASSERT_OK(result);
   auto report_queue_1 = std::move(result.ValueOrDie());
 
-  config_result = ReportQueueConfiguration::Create(
-      dm_token_, destination_, priority_, policy_checker_callback_);
-  create_report_queue_cb = base::BindOnce(
-      [](TestCallbackWaiter* waiter,
-         StatusOr<std::unique_ptr<ReportQueue>>* result,
-         StatusOr<std::unique_ptr<ReportQueue>> create_result) {
-        *result = std::move(create_result);
-        waiter->Signal();
-      },
-      &waiter, &result);
+  TestEvent<StatusOr<std::unique_ptr<ReportQueue>>> a2;
+  config_result = ReportQueueConfiguration::Create(dm_token_, destination_,
+                                                   policy_checker_callback_);
   ReportingClient::CreateReportQueue(std::move(config_result.ValueOrDie()),
-                                     std::move(create_report_queue_cb));
-  waiter.Wait();
+                                     a2.cb());
+  result = a2.result();
   ASSERT_OK(result);
-
   auto report_queue_2 = std::move(result.ValueOrDie());
 
   EXPECT_NE(report_queue_1.get(), report_queue_2.get());

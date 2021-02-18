@@ -14,14 +14,12 @@
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
-#include "base/test/scoped_feature_list.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/plugins/flash_temporary_permission_tracker.h"
 #include "chrome/browser/plugins/plugin_finder.h"
 #include "chrome/browser/plugins/plugin_metadata.h"
 #include "chrome/browser/plugins/plugin_prefs.h"
 #include "chrome/common/chrome_content_client.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
@@ -69,116 +67,3 @@ class ChromePluginServiceFilterTest : public ChromeRenderViewHostTestHarness {
   ChromePluginServiceFilter* filter_;
   base::FilePath flash_plugin_path_;
 };
-
-TEST_F(ChromePluginServiceFilterTest, PreferHtmlOverPluginsDefault) {
-  content::WebPluginInfo flash_plugin(
-      base::ASCIIToUTF16(content::kFlashPluginName), flash_plugin_path_,
-      base::ASCIIToUTF16("1"), base::ASCIIToUTF16("The Flash plugin."));
-
-  // The default content setting should block Flash.
-  GURL url("http://www.google.com");
-  url::Origin main_frame_origin = url::Origin::Create(url);
-  EXPECT_FALSE(IsPluginAvailable(url, main_frame_origin, flash_plugin));
-
-  // Block plugins.
-  HostContentSettingsMap* map =
-      HostContentSettingsMapFactory::GetForProfile(profile());
-  map->SetContentSettingDefaultScope(url, url, ContentSettingsType::PLUGINS,
-                                     std::string(), CONTENT_SETTING_BLOCK);
-
-  EXPECT_FALSE(IsPluginAvailable(url, main_frame_origin, flash_plugin));
-
-  // Allow plugins.
-  map->SetContentSettingDefaultScope(url, url, ContentSettingsType::PLUGINS,
-                                     std::string(), CONTENT_SETTING_ALLOW);
-
-  EXPECT_TRUE(IsPluginAvailable(url, main_frame_origin, flash_plugin));
-
-  // Detect important content should block plugins without user gesture.
-  map->SetContentSettingDefaultScope(url, url, ContentSettingsType::PLUGINS,
-                                     std::string(),
-                                     CONTENT_SETTING_DETECT_IMPORTANT_CONTENT);
-
-  EXPECT_FALSE(IsPluginAvailable(url, main_frame_origin, flash_plugin));
-}
-
-TEST_F(ChromePluginServiceFilterTest,
-       PreferHtmlOverPluginsAllowOrBlockOverrides) {
-  content::WebPluginInfo flash_plugin(
-      base::ASCIIToUTF16(content::kFlashPluginName), flash_plugin_path_,
-      base::ASCIIToUTF16("1"), base::ASCIIToUTF16("The Flash plugin."));
-
-  GURL url("http://www.google.com");
-  url::Origin main_frame_origin = url::Origin::Create(url);
-
-  // Allow plugins.
-  HostContentSettingsMap* map =
-      HostContentSettingsMapFactory::GetForProfile(profile());
-  map->SetContentSettingDefaultScope(url, url, ContentSettingsType::PLUGINS,
-                                     std::string(), CONTENT_SETTING_ALLOW);
-  EXPECT_TRUE(IsPluginAvailable(url, main_frame_origin, flash_plugin));
-
-  // Plugins should be hidden on ASK mode.
-  map->SetContentSettingDefaultScope(url, url, ContentSettingsType::PLUGINS,
-                                     std::string(),
-                                     CONTENT_SETTING_DETECT_IMPORTANT_CONTENT);
-  EXPECT_FALSE(IsPluginAvailable(url, main_frame_origin, flash_plugin));
-
-  // Block plugins.
-  map->SetContentSettingDefaultScope(url, url, ContentSettingsType::PLUGINS,
-                                     std::string(), CONTENT_SETTING_BLOCK);
-  EXPECT_FALSE(IsPluginAvailable(url, main_frame_origin, flash_plugin));
-}
-
-TEST_F(ChromePluginServiceFilterTest,
-       PreferHtmlOverPluginsIncognitoHasIndependentSetting) {
-  Profile* incognito = profile()->GetPrimaryOTRProfile();
-  filter_->RegisterProfile(incognito);
-
-  content::WebPluginInfo flash_plugin(
-      base::ASCIIToUTF16(content::kFlashPluginName), flash_plugin_path_,
-      base::ASCIIToUTF16("1"), base::ASCIIToUTF16("The Flash plugin."));
-
-  GURL url("http://www.google.com");
-
-  // Allow plugins for this url in the incognito profile.
-  HostContentSettingsMap* incognito_map =
-      HostContentSettingsMapFactory::GetForProfile(incognito);
-  incognito_map->SetContentSettingDefaultScope(
-      url, url, ContentSettingsType::PLUGINS, std::string(),
-      CONTENT_SETTING_ALLOW);
-
-  // We pass the availablity check in incognito.
-  url::Origin main_frame_origin = url::Origin::Create(url);
-  SetContents(
-      content::WebContentsTester::CreateTestWebContents(incognito, nullptr));
-  EXPECT_TRUE(IsPluginAvailable(url, main_frame_origin, flash_plugin));
-
-  // But the original profile still fails the availability check.
-  SetContents(
-      content::WebContentsTester::CreateTestWebContents(profile(), nullptr));
-  EXPECT_FALSE(IsPluginAvailable(url, main_frame_origin, flash_plugin));
-}
-
-TEST_F(ChromePluginServiceFilterTest, ManagedSetting) {
-  content::WebPluginInfo flash_plugin(
-      base::ASCIIToUTF16(content::kFlashPluginName), flash_plugin_path_,
-      base::ASCIIToUTF16("1"), base::ASCIIToUTF16("The Flash plugin."));
-
-  sync_preferences::TestingPrefServiceSyncable* prefs =
-      profile()->GetTestingPrefService();
-  prefs->SetManagedPref(prefs::kManagedDefaultPluginsSetting,
-                        std::make_unique<base::Value>(CONTENT_SETTING_ASK));
-
-  GURL url("http://www.google.com");
-  url::Origin main_frame_origin = url::Origin::Create(url);
-  NavigateAndCommit(url);
-
-  // Flash is normally blocked on the ASK managed policy.
-  EXPECT_FALSE(IsPluginAvailable(url, main_frame_origin, flash_plugin));
-
-  // Allow flash temporarily.
-  FlashTemporaryPermissionTracker::Get(profile())->FlashEnabledForWebContents(
-      web_contents());
-  EXPECT_TRUE(IsPluginAvailable(url, main_frame_origin, flash_plugin));
-}

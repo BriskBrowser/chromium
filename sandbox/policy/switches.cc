@@ -5,6 +5,7 @@
 #include "sandbox/policy/switches.h"
 
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 
 #if defined(OS_WIN)
 #include "base/command_line.h"
@@ -38,12 +39,13 @@ const char kPdfConversionSandbox[] = "pdf_conversion";
 const char kProxyResolverSandbox[] = "proxy_resolver";
 const char kXrCompositingSandbox[] = "xr_compositing";
 const char kIconReaderSandbox[] = "icon_reader";
+const char kMediaFoundationCdmSandbox[] = "mf_cdm";
 #endif  // OS_WIN
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 const char kImeSandbox[] = "ime";
 const char kTtsSandbox[] = "tts";
-#endif  // OS_CHROMEOS
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 // Flags owned by the service manager sandbox.
 
@@ -106,13 +108,16 @@ const char kAddXrAppContainerCaps[] = "add-xr-appcontainer-caps";
 // Cause the OS X sandbox write to syslog every time an access to a resource
 // is denied by the sandbox.
 const char kEnableSandboxLogging[] = "enable-sandbox-logging";
+
+// Disables Metal's shader cache, using the GPU sandbox to prevent access to it.
+const char kDisableMetalShaderCache[] = "disable-metal-shader-cache";
 #endif
 
 // Flags spied upon from other layers.
+const char kProcessType[] = "type";
 const char kGpuProcess[] = "gpu-process";
 const char kNaClBrokerProcess[] = "nacl-broker";
 const char kNaClLoaderProcess[] = "nacl-loader";
-const char kPpapiBrokerProcess[] = "ppapi-broker";
 const char kPpapiPluginProcess[] = "ppapi";
 const char kRendererProcess[] = "renderer";
 const char kUtilityProcess[] = "utility";

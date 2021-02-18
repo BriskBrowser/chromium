@@ -105,13 +105,15 @@ bool IntersectionObservation::ShouldCompute(unsigned flags) {
     return false;
 
   // If we're processing post-layout deliveries only and we don't have a
-  // post-layout delivery observer, then return early.
-  if (flags & kPostLayoutDeliveryOnly) {
-    if (Observer()->GetDeliveryBehavior() !=
-        IntersectionObserver::kDeliverDuringPostLayoutSteps) {
-      return false;
-    }
-  }
+  // post-layout delivery observer, then return early. Likewise, return if we
+  // need to compute non-post-layout-delivery observations but the observer
+  // behavior is post-layout.
+  bool post_layout_delivery_only = flags & kPostLayoutDeliveryOnly;
+  bool is_post_layout_delivery_observer =
+      Observer()->GetDeliveryBehavior() ==
+      IntersectionObserver::kDeliverDuringPostLayoutSteps;
+  if (post_layout_delivery_only != is_post_layout_delivery_observer)
+    return false;
 
   if (flags &
       (observer_->RootIsImplicit() ? kImplicitRootObserversNeedUpdate
@@ -130,12 +132,12 @@ bool IntersectionObservation::ShouldCompute(unsigned flags) {
     return false;
   }
   if (target_->isConnected() && Observer()->trackVisibility()) {
-    FrameOcclusionState occlusion_state =
+    mojom::blink::FrameOcclusionState occlusion_state =
         target_->GetDocument().GetFrame()->GetOcclusionState();
     // If we're tracking visibility, and we don't have occlusion information
     // from our parent frame, then postpone computing intersections until a
     // later lifecycle when the occlusion information is known.
-    if (occlusion_state == FrameOcclusionState::kUnknown)
+    if (occlusion_state == mojom::blink::FrameOcclusionState::kUnknown)
       return false;
   }
   last_run_time_ = timestamp;
@@ -198,6 +200,8 @@ unsigned IntersectionObservation::GetIntersectionGeometryFlags(
     geometry_flags |= IntersectionGeometry::kShouldTrackFractionOfRoot;
   if (CanUseCachedRects())
     geometry_flags |= IntersectionGeometry::kShouldUseCachedRects;
+  if (Observer()->UseOverflowClipEdge())
+    geometry_flags |= IntersectionGeometry::kUseOverflowClipEdge;
   return geometry_flags;
 }
 

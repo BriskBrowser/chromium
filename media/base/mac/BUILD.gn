@@ -11,8 +11,9 @@ source_set("mac") {
   # run-time.
   visibility = [ "//media" ]
 
-  set_sources_assignment_filter([])
   sources = [
+    "color_space_util_mac.h",
+    "color_space_util_mac.mm",
     "video_frame_mac.cc",
     "video_frame_mac.h",
     "videotoolbox_helpers.cc",
@@ -26,7 +27,6 @@ source_set("mac") {
       "VideoToolbox.framework",
     ]
   }
-  set_sources_assignment_filter(sources_assignment_filter)
   configs += [ "//media:subcomponent_config" ]
 
   deps = [

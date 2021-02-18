@@ -10,8 +10,8 @@
 #include "base/macros.h"
 #include "base/strings/string16.h"
 #include "net/ssl/client_cert_identity.h"
-#include "ui/views/controls/button/button.h"
 #include "ui/views/controls/table/table_view_observer.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/window/dialog_delegate.h"
 
 namespace content {
@@ -36,9 +36,10 @@ namespace chrome {
 // The currently selected certificate can be obtained using |GetSelectedCert()|.
 // The explanatory text shown to the user must be provided to |InitWithText()|.
 class CertificateSelector : public views::DialogDelegateView,
-                            public views::ButtonListener,
                             public views::TableViewObserver {
  public:
+  METADATA_HEADER(CertificateSelector);
+
   // Indicates if the dialog can be successfully shown.
   // TODO(davidben): Remove this when the certificate selector prompt is moved
   // to the WebContentsDelegate. https://crbug.com/456255.
@@ -47,6 +48,8 @@ class CertificateSelector : public views::DialogDelegateView,
   // |web_contents| must not be null.
   CertificateSelector(net::ClientCertIdentityList identities,
                       content::WebContents* web_contents);
+  CertificateSelector(const CertificateSelector&) = delete;
+  CertificateSelector& operator=(const CertificateSelector&) = delete;
   ~CertificateSelector() override;
 
   // Handles when the user chooses a certificate in the list.
@@ -65,14 +68,9 @@ class CertificateSelector : public views::DialogDelegateView,
 
   // DialogDelegateView:
   bool Accept() override;
-  bool CanResize() const override;
   base::string16 GetWindowTitle() const override;
   bool IsDialogButtonEnabled(ui::DialogButton button) const override;
   views::View* GetInitiallyFocusedView() override;
-  ui::ModalType GetModalType() const override;
-
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
   // views::TableViewObserver:
   void OnSelectionChanged() override;
@@ -93,6 +91,8 @@ class CertificateSelector : public views::DialogDelegateView,
  private:
   class CertificateTableModel;
 
+  void ViewCertButtonPressed();
+
   net::ClientCertIdentityList identities_;
 
   // Whether to show the provider column in the table or not. Certificates
@@ -106,8 +106,6 @@ class CertificateSelector : public views::DialogDelegateView,
 
   views::TableView* table_ = nullptr;
   views::LabelButton* view_cert_button_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(CertificateSelector);
 };
 
 }  // namespace chrome

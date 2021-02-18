@@ -8,6 +8,7 @@
 #include "third_party/blink/renderer/core/layout/geometry/physical_rect.h"
 #include "third_party/blink/renderer/core/paint/paint_phase.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_types.h"
+#include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
@@ -21,9 +22,10 @@ class LayoutView;
 class Document;
 class ComputedStyle;
 class ImageResourceObserver;
+class LayoutNGTableCell;
 
 class BackgroundImageGeometry {
-  DISALLOW_NEW();
+  STACK_ALLOCATED();
 
  public:
   // Constructor for LayoutView where the coordinate space is different.
@@ -38,6 +40,12 @@ class BackgroundImageGeometry {
 
   // Generic constructor for all other elements.
   BackgroundImageGeometry(const LayoutBoxModelObject&);
+
+  // Constructor for TablesNG table parts.
+  BackgroundImageGeometry(const LayoutNGTableCell& cell,
+                          PhysicalOffset cell_offset,
+                          const LayoutBox& table_part,
+                          PhysicalSize table_part_size);
 
   void Calculate(const LayoutBoxModelObject* container,
                  PaintPhase,
@@ -164,7 +172,7 @@ class BackgroundImageGeometry {
   // and sizing the background. It also provides the background properties if
   // painting the view background or a table-cell using its container's
   // (row's/column's) background.
-  const LayoutBoxModelObject* positioning_box_;
+  const LayoutBoxModelObject* const positioning_box_;
 
   // When painting table cells or the view, the positioning area
   // differs from the requested paint rect.

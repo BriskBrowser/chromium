@@ -9,13 +9,42 @@
 #include <memory>
 
 #include "base/check.h"
+#include "base/containers/contains.h"
 #include "base/memory/ptr_util.h"
 #include "base/notreached.h"
-#include "base/stl_util.h"
+#include "build/chromeos_buildflags.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/geometry/size.h"
 
+#if defined(USE_OZONE)
+#include "ui/base/ui_base_features.h"
+#endif
+
 namespace ui {
+
+// static
+bool Clipboard::IsSupportedClipboardBuffer(ClipboardBuffer buffer) {
+  switch (buffer) {
+    case ClipboardBuffer::kCopyPaste:
+      return true;
+    case ClipboardBuffer::kSelection:
+#if defined(USE_OZONE) && !BUILDFLAG(IS_CHROMEOS_ASH)
+      if (features::IsUsingOzonePlatform()) {
+        ui::Clipboard* clipboard = ui::Clipboard::GetForCurrentThread();
+        CHECK(clipboard);
+        return clipboard->IsSelectionBufferAvailable();
+      }
+#endif
+#if !defined(OS_WIN) && !defined(OS_APPLE) && !BUILDFLAG(IS_CHROMEOS_ASH)
+      return true;
+#else
+      return false;
+#endif
+    case ClipboardBuffer::kDrag:
+      return false;
+  }
+  NOTREACHED();
+}
 
 // static
 void Clipboard::SetAllowedThreads(
@@ -154,6 +183,12 @@ void Clipboard::DispatchPortableRepresentation(PortableFormat format,
       break;
     }
 
+    case PortableFormat::kFilenames: {
+      std::string uri_list(&(params[0].front()), params[0].size());
+      WriteFilenames(ui::URIListToFileInfos(uri_list));
+      break;
+    }
+
     case PortableFormat::kData:
       WriteData(ClipboardFormatType::Deserialize(
                     std::string(&(params[0].front()), params[0].size())),
@@ -181,7 +216,7 @@ base::PlatformThreadId Clipboard::GetAndValidateThreadID() {
 
   // A Clipboard instance must be allocated for every thread that uses the
   // clipboard. To prevented unbounded memory use, CHECK that the current thread
-  // was whitelisted to use the clipboard. This is a CHECK rather than a DCHECK
+  // was allowlisted to use the clipboard. This is a CHECK rather than a DCHECK
   // to catch incorrect usage in production (e.g. https://crbug.com/872737).
   CHECK(AllowedThreads().empty() || base::Contains(AllowedThreads(), id));
 

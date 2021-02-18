@@ -37,7 +37,7 @@ class CrostiniInstaller : public KeyedService,
     // kUserCancelled = 1,
     kSuccess = 2,
     kErrorLoadingTermina = 3,
-    kErrorStartingConcierge = 4,
+    // kErrorStartingConcierge = 4,
     kErrorCreatingDiskImage = 5,
     kErrorStartingTermina = 6,
     kErrorStartingContainer = 7,
@@ -48,7 +48,7 @@ class CrostiniInstaller : public KeyedService,
 
     kUserCancelledStart = 12,
     kUserCancelledInstallImageLoader = 13,
-    kUserCancelledStartConcierge = 14,
+    // kUserCancelledStartConcierge = 14,
     kUserCancelledCreateDiskImage = 15,
     kUserCancelledStartTerminaVm = 16,
     kUserCancelledCreateContainer = 17,
@@ -65,7 +65,10 @@ class CrostiniInstaller : public KeyedService,
     kErrorCreateContainer = 25,
     kErrorUnknown = 26,
 
-    kMaxValue = kErrorUnknown,
+    kUserCancelledStartLxd = 27,
+    kErrorStartingLxd = 28,
+
+    kMaxValue = kErrorStartingLxd,
     // When adding a new value, check you've followed the steps in the comment
     // at the top of this enum.
   };
@@ -88,11 +91,11 @@ class CrostiniInstaller : public KeyedService,
   // CrostiniManager::RestartObserver:
   void OnStageStarted(crostini::mojom::InstallerState stage) override;
   void OnComponentLoaded(crostini::CrostiniResult result) override;
-  void OnConciergeStarted(bool success) override;
   void OnDiskImageCreated(bool success,
                           vm_tools::concierge::DiskImageStatus status,
                           int64_t disk_size_available) override;
   void OnVmStarted(bool success) override;
+  void OnLxdStarted(CrostiniResult result) override;
   void OnContainerDownloading(int32_t download_percent) override;
   void OnContainerCreated(crostini::CrostiniResult result) override;
   void OnContainerSetup(bool success) override;

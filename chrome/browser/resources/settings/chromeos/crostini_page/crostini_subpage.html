@@ -2,12 +2,14 @@
 
 <link rel="import" href="chrome://resources/cr_elements/cr_button/cr_button.html">
 <link rel="import" href="chrome://resources/cr_elements/cr_link_row/cr_link_row.html">
+<link rel="import" href="chrome://resources/cr_elements/icons.html">
 <link rel="import" href="chrome://resources/html/i18n_behavior.html">
+<link rel="import" href="chrome://resources/html/load_time_data.html">
 <link rel="import" href="crostini_browser_proxy.html">
 <link rel="import" href="crostini_mic_sharing_dialog.html">
 <link rel="import" href="../../controls/settings_toggle_button.html">
-<link rel="import" href="../../i18n_setup.html">
 <link rel="import" href="../../prefs/prefs_behavior.html">
+<link rel="import" href="../deep_linking_behavior.html">
 <link rel="import" href="../os_route.html">
 <link rel="import" href="../../router.html">
 <link rel="import" href="../route_origin_behavior.html">
@@ -16,16 +18,15 @@
 <link rel="import" href="../metrics_recorder.html">
 <link rel="import" href="crostini_disk_resize_dialog.html">
 <link rel="import" href="crostini_disk_resize_confirmation_dialog.html">
+<link rel="import" href="crostini_port_forwarding.html">
 
 <dom-module id="settings-crostini-subpage">
   <template>
     <style include="settings-shared"></style>
     <template is="dom-if" if="[[showCrostiniContainerUpgrade_]]">
       <div id="container-upgrade" class="settings-box first">
-        <!-- TODO(davidmunro): Add Icon from
-             https://docs.google.com/presentation/d/1cBU0TnQhuorL69NmifWJ1OzLMsu9dihw64Jo031jUZ4/edit#slide=id.g6b38a81213_0_0
-          --->
-        <div class="start" aria-hidden="true">
+        <iron-icon icon="cr:file-download"></iron-icon>
+        <div class="middle settings-box-text" aria-hidden="true">
           <div id="containerUpgradeLabel">
             $i18n{crostiniContainerUpgrade}
           </div>
@@ -37,7 +38,8 @@
             on-click="onContainerUpgradeClick_"
             aria-labelledby="containerUpgradeLabel containerUpgradeButton"
             aria-describedby="containerUpgradeDescription"
-            disabled="[[disableUpgradeButton_]]">
+            disabled="[[disableUpgradeButton_]]"
+            deep-link-focus-id$="[[Setting.kCrostiniContainerUpgrade]]">
           $i18n{crostiniContainerUpgradeButton}
         </cr-button>
       </div>
@@ -45,13 +47,13 @@
     <cr-link-row
         class="hr"
         id="crostini-shared-paths"
-        label="$i18n{crostiniSharedPaths}"
+        label="$i18n{guestOsSharedPaths}"
         on-click="onSharedPathsClick_"
         role-description="$i18n{subpageArrowRoleDescription}">
     </cr-link-row>
     <cr-link-row
         class="hr"
-        label="$i18n{crostiniSharedUsbDevicesLabel}"
+        label="$i18n{guestOsSharedUsbDevicesLabel}"
         id="crostini-shared-usb-devices"
         on-click="onSharedUsbDevicesClick_"
         role-description="$i18n{subpageArrowRoleDescription}">
@@ -96,7 +98,8 @@
         <cr-button on-click="onDiskResizeClick_" hidden="[[!canDiskResize_]]"
             aria-label="[[diskResizeButtonAriaLabel_]]"
             aria-describedby="diskSizeDescription"
-            id="showDiskResizeButton">
+            id="showDiskResizeButton"
+            deep-link-focus-id$="[[Setting.kCrostiniDiskResize]]">
           [[diskResizeButtonLabel_]]
         </cr-button>
       </div>
@@ -119,7 +122,8 @@
       <cr-toggle id="crostini-mic-sharing-toggle"
           checked="[[crostiniMicSharingEnabled_]]"
           on-change="onMicSharingChange_"
-          aria-describedby="crostini-mic-sharing-label">
+          aria-describedby="crostini-mic-sharing-label"
+          deep-link-focus-id$="[[Setting.kCrostiniMicAccess]]">
       </cr-toggle>
     </div>
     <template is="dom-if" if="[[!hideCrostiniUninstall_]]">
@@ -128,7 +132,9 @@
           $i18n{crostiniRemove}
         </div>
         <cr-button on-click="onRemoveClick_"
-            aria-labelledby="removeCrostiniLabel">
+            aria-label="$i18n{crostiniRemoveButton}"
+            aria-describedby="removeCrostiniLabel"
+            deep-link-focus-id$="[[Setting.kUninstallCrostini]]">
           $i18n{crostiniRemoveButton}
         </cr-button>
       </div>

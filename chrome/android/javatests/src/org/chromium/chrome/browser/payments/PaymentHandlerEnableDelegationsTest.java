@@ -19,6 +19,7 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
@@ -40,7 +41,7 @@ public class PaymentHandlerEnableDelegationsTest {
     // Open a tab on the blank page first to initiate the native bindings required by the test
     // server.
     @Rule
-    public PaymentRequestTestRule mRule = new PaymentRequestTestRule("about:blank");
+    public PaymentRequestTestRule mRule = new PaymentRequestTestRule("about:blank", null, true);
 
     // Host the tests on https://127.0.0.1, because file:// URLs cannot have service workers.
     private EmbeddedTestServer mServer;
@@ -114,6 +115,7 @@ public class PaymentHandlerEnableDelegationsTest {
     @Test
     @Feature({"Payments"})
     @MediumTest
+    @DisabledTest(message = "crbug.com/1131674")
     public void testShippingAndContactInfoDelegation() throws Throwable {
         installPaymentHandlerWithDelegations(
                 "['shippingAddress', 'payerName', 'payerEmail', 'payerPhone']");

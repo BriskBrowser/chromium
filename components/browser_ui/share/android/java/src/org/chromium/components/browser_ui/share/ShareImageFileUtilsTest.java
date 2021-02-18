@@ -14,6 +14,7 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Environment;
 import android.os.Looper;
 import android.provider.MediaStore;
@@ -25,18 +26,17 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.BuildInfo;
 import org.chromium.base.Callback;
 import org.chromium.base.ContentUriUtils;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.task.AsyncTask;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.util.CallbackHelper;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.chrome.browser.FileProviderHelper;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.ui.base.Clipboard;
 import org.chromium.ui.test.util.DummyUiActivityTestCase;
 
@@ -121,7 +121,7 @@ public class ShareImageFileUtilsTest extends DummyUiActivityTestCase {
     private Uri generateAnImageToClipboard(String fileExtension) throws TimeoutException {
         GenerateUriCallback imageCallback = new GenerateUriCallback();
         ShareImageFileUtils.generateTemporaryUriFromData(
-                getActivity(), TEST_IMAGE_DATA, fileExtension, imageCallback);
+                TEST_IMAGE_DATA, fileExtension, imageCallback);
         imageCallback.waitForCallback(0, 1, WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         Clipboard.getInstance().setImageUri(imageCallback.getImageUri());
         CriteriaHelper.pollInstrumentationThread(() -> {
@@ -155,7 +155,7 @@ public class ShareImageFileUtilsTest extends DummyUiActivityTestCase {
 
     private void deleteAllTestImages() throws TimeoutException {
         AsyncTask.SERIAL_EXECUTOR.execute(() -> {
-            if (BuildInfo.isAtLeastQ()) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 deleteMediaStoreFiles();
             }
             deleteExternalStorageFiles();

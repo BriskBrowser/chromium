@@ -16,13 +16,15 @@ import androidx.annotation.VisibleForTesting;
 import org.chromium.base.Log;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.payments.PaymentManifestVerifier.ManifestVerifyCallback;
+import org.chromium.components.payments.AndroidPaymentApp;
 import org.chromium.components.payments.ErrorStrings;
 import org.chromium.components.payments.MethodStrings;
 import org.chromium.components.payments.PackageManagerDelegate;
+import org.chromium.components.payments.PaymentAppFactoryDelegate;
+import org.chromium.components.payments.PaymentAppFactoryInterface;
 import org.chromium.components.payments.PaymentFeatureList;
 import org.chromium.components.payments.PaymentManifestDownloader;
 import org.chromium.components.payments.PaymentManifestParser;
-import org.chromium.components.payments.PaymentManifestWebDataService;
 import org.chromium.components.payments.PaymentOptionsUtils;
 import org.chromium.components.payments.SupportedDelegations;
 import org.chromium.components.payments.intent.WebPaymentIntentHelper;
@@ -191,11 +193,11 @@ public class AndroidPaymentAppFinder implements ManifestVerifyCallback {
     }
 
     private void findAppStoreBillingApp(List<ResolveInfo> allInstalledPaymentApps) {
+        assert !mFactoryDelegate.getParams().hasClosed();
         String twaPackageName = mFactoryDelegate.getParams().getTwaPackageName();
         if (TextUtils.isEmpty(twaPackageName)) return;
         ResolveInfo twaApp = findAppWithPackageName(allInstalledPaymentApps, twaPackageName);
         if (twaApp == null) return;
-
         List<String> agreedAppStoreMethods = new ArrayList<>();
         for (GURL appStoreUriMethod : mAppStores.values()) {
             assert appStoreUriMethod != null;
@@ -256,6 +258,7 @@ public class AndroidPaymentAppFinder implements ManifestVerifyCallback {
      * that the merchant is using.
      */
     /* package */ void findAndroidPaymentApps() {
+        if (mFactoryDelegate.getParams().hasClosed()) return;
         // For non-URL payment method names, only names published by W3C should be supported. Keep
         // this in sync with manifest_verifier.cc.
         Set<String> supportedNonUriPaymentMethods = new HashSet<>();
@@ -580,7 +583,7 @@ public class AndroidPaymentAppFinder implements ManifestVerifyCallback {
         assert mPendingVerifiersCount == 0;
 
         mFactoryDelegate.onCanMakePaymentCalculated(mValidApps.size() > 0);
-        if (mValidApps.isEmpty()) {
+        if (mValidApps.isEmpty() || mFactoryDelegate.getParams().hasClosed()) {
             mFactoryDelegate.onDoneCreatingPaymentApps(mFactory);
             return;
         }
@@ -642,6 +645,7 @@ public class AndroidPaymentAppFinder implements ManifestVerifyCallback {
      * @param methodName  The method name that can be used by the app.
      */
     private void onValidPaymentAppForPaymentMethodName(ResolveInfo resolveInfo, String methodName) {
+        if (mFactoryDelegate.getParams().hasClosed()) return;
         String packageName = resolveInfo.activityInfo.packageName;
 
         SupportedDelegations appSupportedDelegations =

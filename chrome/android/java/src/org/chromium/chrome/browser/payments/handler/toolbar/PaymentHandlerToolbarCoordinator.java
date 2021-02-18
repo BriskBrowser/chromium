@@ -102,10 +102,16 @@ public class PaymentHandlerToolbarCoordinator implements PaymentHandlerToolbarMe
         return mToolbarView.getView();
     }
 
-    /** @return The security icon of the PaymentHandlerToolbar. */
+    /** Simulates a click on the security icon of the payment handler toolbar. */
     @VisibleForTesting(otherwise = VisibleForTesting.NONE)
     public void clickSecurityIconForTest() {
         mToolbarView.mSecurityIconView.performClick();
+    }
+
+    /** Simulates a click on the close button of the payment handler toolbar. */
+    @VisibleForTesting(otherwise = VisibleForTesting.NONE)
+    public void clickCloseButtonForTest() {
+        mToolbarView.mCloseButton.performClick();
     }
 
     // Implement PaymentHandlerToolbarMediatorDelegate.
@@ -119,8 +125,7 @@ public class PaymentHandlerToolbarCoordinator implements PaymentHandlerToolbarMe
     @Override
     @DrawableRes
     public int getSecurityIconResource(@ConnectionSecurityLevel int securityLevel) {
-        return SecurityStatusIcon.getSecurityIconResource(securityLevel,
-                SecurityStateModel.shouldShowDangerTriangleForWarningLevel(), mIsSmallDevice,
+        return SecurityStatusIcon.getSecurityIconResource(securityLevel, mIsSmallDevice,
                 /*skipIconForNeutralState=*/false);
     }
 
@@ -139,6 +144,7 @@ public class PaymentHandlerToolbarCoordinator implements PaymentHandlerToolbarMe
                         mActivity::getModalDialogManager,
                         /*offlinePageLoadUrlDelegate=*/
                         new OfflinePageUtils.WebContentsOfflinePageLoadUrlDelegate(mWebContents)),
-                new ChromePermissionParamsListBuilderDelegate());
+                new ChromePermissionParamsListBuilderDelegate(),
+                PageInfoController.NO_HIGHLIGHTED_PERMISSION);
     }
 }

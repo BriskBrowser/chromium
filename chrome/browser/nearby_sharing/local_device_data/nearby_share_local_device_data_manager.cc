@@ -4,6 +4,8 @@
 
 #include "chrome/browser/nearby_sharing/local_device_data/nearby_share_local_device_data_manager.h"
 
+const size_t kNearbyShareDeviceNameMaxLength = 32;
+
 NearbyShareLocalDeviceDataManager::NearbyShareLocalDeviceDataManager() =
     default;
 
@@ -19,13 +21,17 @@ void NearbyShareLocalDeviceDataManager::RemoveObserver(Observer* observer) {
 }
 
 void NearbyShareLocalDeviceDataManager::Start() {
-  DCHECK(!is_running_);
+  if (is_running_)
+    return;
+
   is_running_ = true;
   OnStart();
 }
 
 void NearbyShareLocalDeviceDataManager::Stop() {
-  DCHECK(is_running_);
+  if (!is_running_)
+    return;
+
   is_running_ = false;
   OnStop();
 }

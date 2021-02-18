@@ -287,7 +287,7 @@ void MultiWindowResizeController::OnWindowDestroying(aura::Window* window) {
 
 void MultiWindowResizeController::OnPostWindowStateTypeChange(
     WindowState* window_state,
-    WindowStateType old_type) {
+    chromeos::WindowStateType old_type) {
   if (window_state->IsMaximized() || window_state->IsFullscreen() ||
       window_state->IsMinimized()) {
     ResetResizer();
@@ -474,13 +474,13 @@ void MultiWindowResizeController::ShowNow() {
   params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   params.parent = windows_.window1->GetRootWindow()->GetChildById(
       kShellWindowId_AlwaysOnTopContainer);
-  ResizeView* view = new ResizeView(this, windows_.direction);
   resize_widget_->set_focus_on_creation(false);
   resize_widget_->Init(std::move(params));
   ::wm::SetWindowVisibilityAnimationType(
       resize_widget_->GetNativeWindow(),
       ::wm::WINDOW_VISIBILITY_ANIMATION_TYPE_FADE);
-  resize_widget_->SetContentsView(view);
+  resize_widget_->SetContentsView(
+      std::make_unique<ResizeView>(this, windows_.direction));
   show_bounds_in_screen_ = ConvertRectToScreen(
       windows_.window1->parent(),
       CalculateResizeWidgetBounds(gfx::PointF(show_location_in_parent_)));

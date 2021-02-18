@@ -17,15 +17,16 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
-#include "chrome/browser/notifications/win/notification_image_retainer.h"
 #include "chrome/browser/notifications/win/notification_launch_id.h"
 #include "chrome/common/chrome_features.h"
+#include "chrome/common/notifications/notification_image_retainer.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/url_formatter/elide_url.h"
 #include "third_party/libxml/chromium/xml_writer.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/message_center/public/cpp/notification.h"
+#include "ui/strings/grit/ui_strings.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -192,7 +193,7 @@ void WriteImageElement(XmlWriter* xml_writer,
   if (!path.empty()) {
     xml_writer->StartElement(kImageElement);
     xml_writer->AddAttribute(kPlacement, placement);
-    xml_writer->AddAttribute(kSrc, base::UTF16ToUTF8(path.value()));
+    xml_writer->AddAttribute(kSrc, base::WideToUTF8(path.value()));
     if (!hint_crop.empty())
       xml_writer->AddAttribute(kHintCrop, hint_crop);
     xml_writer->EndElement();
@@ -341,10 +342,7 @@ void EnsureReminderHasButton(XmlWriter* xml_writer,
 
   xml_writer->StartElement(kActionElement);
   xml_writer->AddAttribute(kActivationType, kBackground);
-  // TODO(finnur): Add our own string here (we're past string-freeze so we're
-  // re-using the already translated "Close" from elsewhere).
-  xml_writer->AddAttribute(
-      kContent, l10n_util::GetStringUTF8(IDS_HISTORY_CLOSE_MENU_PROMO));
+  xml_writer->AddAttribute(kContent, l10n_util::GetStringUTF8(IDS_APP_CLOSE));
   copied_launch_id.set_is_for_dismiss_button();
   xml_writer->AddAttribute(kArguments, copied_launch_id.Serialize());
   xml_writer->EndElement();
@@ -359,7 +357,7 @@ const char kNotificationLaunchAttribute[] = "launch";
 // to use) for building the XML template because it is used frequently in
 // Chrome, is nicer to use and has already been vetted.
 // https://docs.microsoft.com/en-us/windows/uwp/controls-and-patterns/tiles-and-notifications-adaptive-interactive-toasts
-base::string16 BuildNotificationTemplate(
+std::wstring BuildNotificationTemplate(
     NotificationImageRetainer* image_retainer,
     const NotificationLaunchId& launch_id,
     const message_center::Notification& notification) {
@@ -438,7 +436,7 @@ base::string16 BuildNotificationTemplate(
 
   // The |kXmlVersionHeader| is automatically appended by libxml, but the toast
   // system in the Windows Action Center expects it to be absent.
-  return base::UTF8ToUTF16(
+  return base::UTF8ToWide(
       base::StringPiece(template_xml).substr(sizeof(kXmlVersionHeader) - 1));
 }
 

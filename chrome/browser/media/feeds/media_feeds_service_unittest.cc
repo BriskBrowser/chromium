@@ -8,7 +8,7 @@
 #include "base/files/file_util.h"
 #include "base/path_service.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/simple_test_clock.h"
@@ -17,7 +17,6 @@
 #include "chrome/browser/media/feeds/media_feeds_store.mojom-shared.h"
 #include "chrome/browser/media/history/media_history_keyed_service.h"
 #include "chrome/browser/media/history/media_history_test_utils.h"
-#include "chrome/browser/media/kaleidoscope/kaleidoscope_prefs.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
@@ -347,8 +346,8 @@ class MediaFeedsServiceTest : public ChromeRenderViewHostTestHarness {
   }
 
   void SetAutomaticSelectionEnabled() {
-    profile()->GetPrefs()->SetBoolean(
-        kaleidoscope::prefs::kKaleidoscopeAutoSelectMediaFeeds, true);
+    profile()->GetPrefs()->SetBoolean(prefs::kMediaFeedsAutoSelectEnabled,
+                                      true);
   }
 
   safe_search_api::StubURLChecker* safe_search_checker() {
@@ -2408,6 +2407,30 @@ TEST_F(MediaFeedsServiceTest, FetchTopMediaFeeds_DisableAutoSelection) {
 
   histogram_tester.ExpectUniqueSample(
       MediaFeedsFetcher::kFetchSizeKbHistogramName, 15, 1);
+}
+
+TEST_F(MediaFeedsServiceTest, AggregateWatchtimeHistogram) {
+  base::HistogramTester histogram_tester;
+
+  task_environment()->RunUntilIdle();
+
+  const GURL feed_url("https://www.google.com/feed");
+
+  GetMediaFeedsService()->DiscoverMediaFeed(feed_url);
+  WaitForDB();
+
+  content::MediaPlayerWatchTime watch_time(feed_url, feed_url.GetOrigin(),
+                                           base::TimeDelta::FromMinutes(30),
+                                           base::TimeDelta(), true, true);
+  GetMediaHistoryService()->SavePlayback(watch_time);
+  WaitForDB();
+
+  GetMediaFeedsService()->RecordFeedWatchtimes();
+  WaitForDB();
+
+  histogram_tester.ExpectUniqueTimeSample(
+      MediaFeedsService::kAggregateWatchtimeHistogramName,
+      base::TimeDelta::FromMinutes(30), 1);
 }
 
 }  // namespace media_feeds

@@ -21,6 +21,7 @@
 #include "ash/app_list/views/apps_grid_view.h"
 #include "ash/app_list/views/contents_view.h"
 #include "ash/app_list/views/expand_arrow_view.h"
+#include "ash/app_list/views/privacy_container_view.h"
 #include "ash/app_list/views/search_box_view.h"
 #include "ash/app_list/views/search_result_actions_view.h"
 #include "ash/app_list/views/search_result_base_view.h"
@@ -32,6 +33,7 @@
 #include "ash/keyboard/keyboard_controller_impl.h"
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
 #include "ash/keyboard/ui/test/keyboard_test_util.h"
+#include "ash/public/cpp/app_list/app_list_color_provider.h"
 #include "ash/public/cpp/app_list/app_list_config.h"
 #include "ash/public/cpp/app_list/app_list_features.h"
 #include "ash/public/cpp/app_list/app_list_switches.h"
@@ -58,6 +60,7 @@
 #include "ash/shell.h"
 #include "ash/system/unified/unified_system_tray.h"
 #include "ash/test/ash_test_base.h"
+#include "ash/test/test_window_builder.h"
 #include "ash/wallpaper/wallpaper_controller_test_api.h"
 #include "ash/wm/mru_window_tracker.h"
 #include "ash/wm/overview/overview_controller.h"
@@ -66,7 +69,7 @@
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
 #include "ash/wm/workspace_controller_test_api.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
@@ -141,12 +144,14 @@ std::unique_ptr<TestSearchResult> CreateOmniboxSuggestionResult(
 
 }  // namespace
 
-class AppListPresenterDelegateZeroStateTest
-    : public AshTestBase,
-      public testing::WithParamInterface<bool> {
+class AppListPresenterDelegateTest : public AshTestBase,
+                                     public testing::WithParamInterface<bool> {
  public:
-  AppListPresenterDelegateZeroStateTest() = default;
-  ~AppListPresenterDelegateZeroStateTest() override = default;
+  AppListPresenterDelegateTest() = default;
+  AppListPresenterDelegateTest(const AppListPresenterDelegateTest&) = delete;
+  AppListPresenterDelegateTest& operator=(const AppListPresenterDelegateTest&) =
+      delete;
+  ~AppListPresenterDelegateTest() override = default;
 
   // testing::Test:
   void SetUp() override {
@@ -161,6 +166,12 @@ class AppListPresenterDelegateZeroStateTest
   void TearDown() override {
     AshTestBase::TearDown();
     AppListView::SetShortAnimationForTesting(false);
+  }
+
+  void SetAppListStateAndWait(AppListViewState new_state) {
+    GetAppListView()->SetState(new_state);
+    GetAppListTestHelper()->WaitUntilIdle();
+    GetAppListTestHelper()->CheckState(new_state);
   }
 
   // Whether to run the test with mouse or gesture events.
@@ -264,34 +275,6 @@ class AppListPresenterDelegateZeroStateTest
                                             ->GetWindowBoundsInScreen();
     return dialog_bounds.y() - search_box_bounds.y();
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(AppListPresenterDelegateZeroStateTest);
-};
-
-class AppListPresenterDelegateTest
-    : public AppListPresenterDelegateZeroStateTest {
- public:
-  AppListPresenterDelegateTest() {
-    // Zeros state changes expected UI behavior. Most test cases in this suite
-    // are the expected UI behavior with zero state being disabled.
-    // TODO(jennyz): Add new test cases for zero state, crbug.com/925195.
-    scoped_feature_list_.InitAndDisableFeature(
-        app_list_features::kEnableZeroStateSuggestions);
-  }
-  ~AppListPresenterDelegateTest() override = default;
-
- protected:
-  void SetAppListStateAndWait(AppListViewState new_state) {
-    GetAppListView()->SetState(new_state);
-    GetAppListTestHelper()->WaitUntilIdle();
-    GetAppListTestHelper()->CheckState(new_state);
-  }
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(AppListPresenterDelegateTest);
 };
 
 // Used to test app_list behavior with a populated apps_grid
@@ -321,20 +304,8 @@ class PopulatedAppListTest : public AshTestBase,
   void CreateAndOpenAppList() {
     app_list_view_ = new AppListView(app_list_test_delegate_.get());
     app_list_view_->InitView(GetContext());
-    app_list_view_->Show(false /*is_side_shelf*/);
-  }
-
-  void ShowAppListInAppsFullScreen() {
-    // Press the ExpandArrowView and check that the AppListView is in
-    // fullscreen.
-    gfx::Point click_point = app_list_view_->app_list_main_view()
-                                 ->contents_view()
-                                 ->expand_arrow_view()
-                                 ->GetBoundsInScreen()
-                                 .CenterPoint();
-    GetEventGenerator()->GestureTapAt(click_point);
-    EXPECT_EQ(AppListViewState::kFullscreenAllApps,
-              app_list_view_->app_list_state());
+    app_list_view_->Show(AppListViewState::kFullscreenAllApps,
+                         false /*is_side_shelf*/);
   }
 
   void InitializeAppsGrid() {
@@ -395,7 +366,7 @@ INSTANTIATE_TEST_SUITE_P(All, AppListPresenterDelegateTest, testing::Bool());
 
 // Verifies that context menu click should not activate the search box
 // (see https://crbug.com/941428).
-TEST_F(AppListPresenterDelegateZeroStateTest, RightClickSearchBoxInPeeking) {
+TEST_F(AppListPresenterDelegateTest, RightClickSearchBoxInPeeking) {
   GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
   AppListView* app_list_view = GetAppListView();
   gfx::Rect app_list_bounds = app_list_view->GetBoundsInScreen();
@@ -411,8 +382,7 @@ TEST_F(AppListPresenterDelegateZeroStateTest, RightClickSearchBoxInPeeking) {
   EXPECT_EQ(AppListViewState::kPeeking, app_list_view->app_list_state());
 }
 
-TEST_F(AppListPresenterDelegateZeroStateTest,
-       ReshownAppListResetsSearchBoxActivation) {
+TEST_F(AppListPresenterDelegateTest, ReshownAppListResetsSearchBoxActivation) {
   // Activate the search box.
   GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
   GetEventGenerator()->GestureTapAt(GetPointInsideSearchbox());
@@ -430,7 +400,7 @@ TEST_F(AppListPresenterDelegateZeroStateTest,
 
 // Tests that the SearchBox activation is reset after the AppList is hidden with
 // no animation from FULLSCREEN_SEARCH.
-TEST_F(AppListPresenterDelegateZeroStateTest,
+TEST_F(AppListPresenterDelegateTest,
        SideShelfAppListResetsSearchBoxActivationOnClose) {
   // Set the shelf to one side, then show the AppList and activate the
   // searchbox.
@@ -456,7 +426,7 @@ TEST_F(AppListPresenterDelegateZeroStateTest,
 
 // Verifies that tapping on the search box in tablet mode with animation and
 // zero state enabled should not bring Chrome crash (https://crbug.com/958267).
-TEST_F(AppListPresenterDelegateZeroStateTest, ClickSearchBoxInTabletMode) {
+TEST_F(AppListPresenterDelegateTest, ClickSearchBoxInTabletMode) {
   EnableTabletMode(true);
   GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
   GetAppListTestHelper()->CheckState(AppListViewState::kFullscreenAllApps);
@@ -484,9 +454,17 @@ TEST_F(AppListPresenterDelegateZeroStateTest, ClickSearchBoxInTabletMode) {
   GetAppListTestHelper()->CheckState(AppListViewState::kFullscreenAllApps);
 }
 
-TEST_F(AppListPresenterDelegateZeroStateTest,
-       RemoveSuggestionShowsConfirmDialog) {
+TEST_F(AppListPresenterDelegateTest, RemoveSuggestionShowsConfirmDialog) {
   ShowZeroStateSearchInHalfState();
+
+  // Mark the suggested content info as dismissed so that it does not interfere
+  // with the layout.
+  Shell::Get()->app_list_controller()->MarkSuggestedContentInfoDismissed();
+  GetAppListView()
+      ->app_list_main_view()
+      ->contents_view()
+      ->privacy_container_view()
+      ->Update();
 
   // Add a zero state suggestion results - the result that will be tested is in
   // the second place.
@@ -563,7 +541,7 @@ TEST_F(AppListPresenterDelegateZeroStateTest,
   EXPECT_EQ(expected_actions, invoked_actions);
 }
 
-TEST_F(AppListPresenterDelegateZeroStateTest, RemoveSuggestionUsingLongTap) {
+TEST_F(AppListPresenterDelegateTest, RemoveSuggestionUsingLongTap) {
   ShowZeroStateSearchInHalfState();
 
   // Add a zero state suggestion results - the result that will be tested is in
@@ -631,7 +609,7 @@ TEST_F(AppListPresenterDelegateZeroStateTest, RemoveSuggestionUsingLongTap) {
   EXPECT_EQ(expected_actions, invoked_actions);
 }
 
-TEST_F(AppListPresenterDelegateZeroStateTest,
+TEST_F(AppListPresenterDelegateTest,
        RemoveSuggestionDialogAnimatesWithAppListView) {
   ShowZeroStateSearchInHalfState();
 
@@ -677,7 +655,7 @@ TEST_F(AppListPresenterDelegateZeroStateTest,
   EXPECT_EQ(gfx::RectF(initial_dialog_bounds), current_bounds);
 }
 
-TEST_F(AppListPresenterDelegateZeroStateTest,
+TEST_F(AppListPresenterDelegateTest,
        RemoveSuggestionDialogBoundsUpdateWithAppListState) {
   ShowZeroStateSearchInHalfState();
 
@@ -716,7 +694,7 @@ TEST_F(AppListPresenterDelegateZeroStateTest,
             GetSearchResultsAnchoredDialogTopOffset(confirmation_dialog));
 }
 
-TEST_F(AppListPresenterDelegateZeroStateTest,
+TEST_F(AppListPresenterDelegateTest,
        TransitionToAppsContainerClosesRemoveSuggestionDialog) {
   GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
   GetAppListView()->SetState(AppListViewState::kFullscreenAllApps);
@@ -755,7 +733,7 @@ TEST_F(AppListPresenterDelegateZeroStateTest,
   widget_close_waiter.Wait();
 }
 
-TEST_F(AppListPresenterDelegateZeroStateTest,
+TEST_F(AppListPresenterDelegateTest,
        RemoveSuggestionDialogBoundsUpdateWhenVKHidden) {
   // Enable virtual keyboard for this test.
   KeyboardController* const keyboard_controller =
@@ -814,7 +792,6 @@ TEST_F(AppListPresenterDelegateZeroStateTest,
 TEST_F(PopulatedAppListTest, MouseDragAppsGridViewHandledByAppList) {
   InitializeAppsGrid();
   app_list_test_model_->PopulateApps(2);
-  ShowAppListInAppsFullScreen();
 
   // Calculate the drag start/end points.
   gfx::Point drag_start_point = apps_grid_view_->GetBoundsInScreen().origin();
@@ -841,7 +818,6 @@ TEST_F(PopulatedAppListTest,
   InitializeAppsGrid();
   app_list_test_model_->PopulateApps(apps_grid_test_api_->TilesPerPage(0) + 1);
   EXPECT_EQ(2, apps_grid_view_->pagination_model()->total_pages());
-  ShowAppListInAppsFullScreen();
 
   // Calculate the drag start/end points. |drag_start_point| is between the
   // first and the second AppListItem. Because in this test case, we want
@@ -873,7 +849,6 @@ TEST_F(PopulatedAppListTest,
 TEST_F(PopulatedAppListTest, CancelItemDragOnMouseCaptureLoss) {
   InitializeAppsGrid();
   app_list_test_model_->PopulateApps(apps_grid_test_api_->TilesPerPage(0) + 1);
-  ShowAppListInAppsFullScreen();
 
   AppListItemView* const dragged_view = apps_grid_view_->GetItemViewAt(0);
 
@@ -910,7 +885,6 @@ TEST_F(PopulatedAppListTest,
   InitializeAppsGrid();
   const int kItemCount = 5;
   app_list_test_model_->PopulateApps(kItemCount);
-  ShowAppListInAppsFullScreen();
 
   ui::ScopedAnimationDurationScaleMode non_zero_duration_mode(
       ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
@@ -959,7 +933,6 @@ TEST_F(PopulatedAppListTest, ScreenRotationDuringAppsGridItemDrag) {
 
   InitializeAppsGrid();
   app_list_test_model_->PopulateApps(apps_grid_test_api_->TilesPerPage(0) + 1);
-  ShowAppListInAppsFullScreen();
 
   AppListItemView* const dragged_view = apps_grid_view_->GetItemViewAt(0);
 
@@ -1003,7 +976,6 @@ TEST_F(PopulatedAppListTest,
 
   InitializeAppsGrid();
   app_list_test_model_->PopulateApps(apps_grid_test_api_->TilesPerPage(0) + 1);
-  ShowAppListInAppsFullScreen();
 
   AppListItemView* const dragged_view = apps_grid_view_->GetItemViewAt(0);
 
@@ -1049,7 +1021,6 @@ TEST_F(PopulatedAppListTest, ScreenRotationDuringFolderItemDrag) {
   AppListFolderItem* folder =
       app_list_test_model_->CreateAndPopulateFolderWithApps(3);
   app_list_test_model_->PopulateApps(10);
-  ShowAppListInAppsFullScreen();
 
   // Tap the folder item to show it.
   ui::test::EventGenerator* event_generator = GetEventGenerator();
@@ -1102,7 +1073,6 @@ TEST_F(PopulatedAppListTest, ScreenRotationDuringAppsGridItemReparentDrag) {
   AppListFolderItem* folder =
       app_list_test_model_->CreateAndPopulateFolderWithApps(3);
   app_list_test_model_->PopulateApps(10);
-  ShowAppListInAppsFullScreen();
 
   // Tap the folder item to show it.
   ui::test::EventGenerator* event_generator = GetEventGenerator();
@@ -1159,7 +1129,6 @@ TEST_F(PopulatedAppListTest, AppsGridItemReparentToFolderDrag) {
   AppListFolderItem* folder =
       app_list_test_model_->CreateAndPopulateFolderWithApps(3);
   app_list_test_model_->PopulateApps(10);
-  ShowAppListInAppsFullScreen();
 
   // Tap the folder item to show it.
   ui::test::EventGenerator* event_generator = GetEventGenerator();
@@ -1206,7 +1175,6 @@ TEST_F(PopulatedAppListTest, RemoveFolderItemAfterFolderCreation) {
   InitializeAppsGrid();
   const int kItemCount = 5;
   app_list_test_model_->PopulateApps(kItemCount);
-  ShowAppListInAppsFullScreen();
 
   // Dragging the item with index 4.
   AppListItemView* const dragged_view = apps_grid_view_->GetItemViewAt(4);
@@ -1313,7 +1281,6 @@ TEST_F(PopulatedAppListTest, FolderItemDroppedRemovesBlankPage) {
   InitializeAppsGrid();
   app_list_test_model_->CreateAndPopulateFolderWithApps(3);
   app_list_test_model_->PopulateApps(2);
-  ShowAppListInAppsFullScreen();
   ASSERT_EQ(1, apps_grid_view_->pagination_model()->total_pages());
 
   // Tap the folder item to show its contents.
@@ -1619,9 +1586,9 @@ TEST_F(AppListPresenterDelegateTest, SideShelfAlignmentTextStateTransitions) {
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(AppListViewState::kFullscreenSearch);
 
-  // Delete the text in the searchbox, the app list should transition to
-  // fullscreen all apps.
-  generator->PressKey(ui::KeyboardCode::VKEY_BACK, 0);
+  // Pressing escape should transition the app list should to fullscreen all
+  // apps state.
+  generator->PressKey(ui::KeyboardCode::VKEY_ESCAPE, 0);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(AppListViewState::kFullscreenAllApps);
 }
@@ -1640,9 +1607,13 @@ TEST_F(AppListPresenterDelegateTest, BottomShelfAlignmentTextStateTransitions) {
   generator->PressKey(ui::KeyboardCode::VKEY_0, 0);
   GetAppListTestHelper()->CheckState(AppListViewState::kHalf);
 
-  // Empty the searchbox, this should transition the app list to it's previous
-  // state.
+  // Empty the searchbox - app list should remain in half state (and show zero
+  // state results).
   generator->PressKey(ui::KeyboardCode::VKEY_BACK, 0);
+  GetAppListTestHelper()->CheckState(AppListViewState::kHalf);
+
+  // ESC should transition app list to the peeking state.
+  generator->PressKey(ui::KeyboardCode::VKEY_ESCAPE, 0);
   GetAppListTestHelper()->CheckState(AppListViewState::kPeeking);
 }
 
@@ -1660,9 +1631,9 @@ TEST_F(AppListPresenterDelegateTest, TabletModeTextStateTransitions) {
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(AppListViewState::kFullscreenSearch);
 
-  // Delete the text in the searchbox, the app list should transition to
-  // fullscreen all apps.
-  generator->PressKey(ui::KeyboardCode::VKEY_BACK, 0);
+  // Pressing the escape key should transition the app list to the fullscreen
+  // all apps state.
+  generator->PressKey(ui::KeyboardCode::VKEY_ESCAPE, 0);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(AppListViewState::kFullscreenAllApps);
 }
@@ -1708,7 +1679,7 @@ TEST_F(AppListPresenterDelegateTest, HalfToFullscreenWhenTabletModeIsActive) {
   // equivalent of the current state.
   EnableTabletMode(true);
   GetAppListTestHelper()->CheckState(AppListViewState::kFullscreenSearch);
-  generator->PressKey(ui::KeyboardCode::VKEY_BACK, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_ESCAPE, 0);
   GetAppListTestHelper()->CheckState(AppListViewState::kFullscreenAllApps);
 }
 
@@ -2219,8 +2190,7 @@ TEST_P(AppListPresenterDelegateTest, TapAndClickOutsideClosesHalfAppList) {
   GetAppListTestHelper()->CheckVisibility(false);
 }
 
-// Tests that the search box is set active with a whitespace query and that the
-// app list state doesn't transition with a whitespace query.
+// Tests that the search box is set active with a whitespace query.
 TEST_F(AppListPresenterDelegateTest, WhitespaceQuery) {
   GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
   AppListView* view = GetAppListView();
@@ -2228,23 +2198,28 @@ TEST_F(AppListPresenterDelegateTest, WhitespaceQuery) {
   EXPECT_FALSE(view->search_box_view()->is_search_box_active());
   GetAppListTestHelper()->CheckState(AppListViewState::kPeeking);
 
-  // Enter a whitespace query, the searchbox should activate but stay in peeking
-  // mode.
+  // Enter a whitespace query, the searchbox should activate (in zero state).
   generator->PressKey(ui::VKEY_SPACE, 0);
   EXPECT_TRUE(view->search_box_view()->is_search_box_active());
-  GetAppListTestHelper()->CheckState(AppListViewState::kPeeking);
-
-  // Enter a non-whitespace character, the Searchbox should stay active and go
-  // to HALF
-  generator->PressKey(ui::VKEY_0, 0);
-  EXPECT_TRUE(view->search_box_view()->is_search_box_active());
+  EXPECT_TRUE(view->search_box_view()->IsSearchBoxTrimmedQueryEmpty());
   GetAppListTestHelper()->CheckState(AppListViewState::kHalf);
 
-  // Delete the non whitespace character, the Searchbox should not deactivate
-  // but go to PEEKING
+  generator->PressKey(ui::VKEY_A, 0);
+  EXPECT_TRUE(view->search_box_view()->is_search_box_active());
+  EXPECT_FALSE(view->search_box_view()->IsSearchBoxTrimmedQueryEmpty());
+  GetAppListTestHelper()->CheckState(AppListViewState::kHalf);
+
+  // Delete the non-whitespace character, the Searchbox should not deactivate.
   generator->PressKey(ui::VKEY_BACK, 0);
   EXPECT_TRUE(view->search_box_view()->is_search_box_active());
-  GetAppListTestHelper()->CheckState(AppListViewState::kPeeking);
+  EXPECT_TRUE(view->search_box_view()->IsSearchBoxTrimmedQueryEmpty());
+  GetAppListTestHelper()->CheckState(AppListViewState::kHalf);
+
+  // Delete the whitespace, the search box remains active, in zero state.
+  generator->PressKey(ui::VKEY_BACK, 0);
+  EXPECT_TRUE(view->search_box_view()->is_search_box_active());
+  EXPECT_TRUE(view->search_box_view()->IsSearchBoxTrimmedQueryEmpty());
+  GetAppListTestHelper()->CheckState(AppListViewState::kHalf);
 }
 
 // Tests that an unhandled two finger tap/right click does not close the app
@@ -2553,7 +2528,8 @@ TEST_F(AppListPresenterDelegateTest,
   GetAppListTestHelper()->ShowAndRunLoop(GetPrimaryDisplayId());
   GetAppListTestHelper()->CheckState(AppListViewState::kPeeking);
 
-  GetAppListView()->HandleScroll(gfx::Vector2d(0, -30), ui::ET_MOUSEWHEEL);
+  GetAppListView()->HandleScroll(gfx::Point(0, 0), gfx::Vector2d(0, 30),
+                                 ui::ET_MOUSEWHEEL);
 
   GetAppListTestHelper()->CheckState(AppListViewState::kFullscreenAllApps);
 }
@@ -2702,7 +2678,7 @@ TEST_F(AppListPresenterDelegateTest, SearchBoxShownOnSmallDisplay) {
   EXPECT_LE(0, view->GetWidget()->GetNativeView()->bounds().y());
 
   // Animate to peeking.
-  generator->PressKey(ui::KeyboardCode::VKEY_BACK, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_ESCAPE, 0);
   GetAppListTestHelper()->CheckState(AppListViewState::kPeeking);
   EXPECT_LE(0, view->GetWidget()->GetNativeView()->bounds().y());
 
@@ -2729,7 +2705,7 @@ TEST_F(AppListPresenterDelegateTest, SearchBoxShownOnSmallWorkArea) {
             view->GetWidget()->GetNativeView()->bounds().y());
 
   // Animate to peeking.
-  generator->PressKey(ui::KeyboardCode::VKEY_BACK, 0);
+  generator->PressKey(ui::KeyboardCode::VKEY_ESCAPE, 0);
   GetAppListTestHelper()->CheckState(AppListViewState::kPeeking);
   EXPECT_LE(GetPrimaryDisplay().work_area().y(),
             view->GetWidget()->GetNativeView()->bounds().y());
@@ -3537,6 +3513,10 @@ class AppListPresenterDelegateHomeLauncherTest
     scoped_feature_list_.InitWithFeatures({features::kEnableBackgroundBlur},
                                           {});
   }
+  AppListPresenterDelegateHomeLauncherTest(
+      const AppListPresenterDelegateHomeLauncherTest&) = delete;
+  AppListPresenterDelegateHomeLauncherTest& operator=(
+      const AppListPresenterDelegateHomeLauncherTest&) = delete;
   ~AppListPresenterDelegateHomeLauncherTest() override = default;
 
   // testing::Test:
@@ -3576,8 +3556,6 @@ class AppListPresenterDelegateHomeLauncherTest
 
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
-
-  DISALLOW_COPY_AND_ASSIGN(AppListPresenterDelegateHomeLauncherTest);
 };
 
 // Verifies that mouse dragging AppListView is enabled.
@@ -3787,8 +3765,10 @@ TEST_P(AppListPresenterDelegateHomeLauncherTest, BackgroundOpacity) {
 
   // The opacity should be set on the color, not the layer. Setting opacity on
   // the layer will change the opacity of the blur effect, which is not desired.
-  const U8CPU clamshell_background_opacity = static_cast<U8CPU>(255 * 0.74);
-  EXPECT_EQ(SkColorSetA(AppListView::kDefaultBackgroundColor,
+  const U8CPU clamshell_background_opacity = static_cast<U8CPU>(255 * 0.8);
+  EXPECT_EQ(SkColorSetA(AppListColorProvider::Get()->GetAppListBackgroundColor(
+                            /*is_tablet_mode*/
+                            false, /*default_color*/ gfx::kGoogleGrey900),
                         clamshell_background_opacity),
             GetAppListView()->GetAppListBackgroundShieldColorForTest());
   EXPECT_EQ(1, GetAppListView()
@@ -3800,7 +3780,9 @@ TEST_P(AppListPresenterDelegateHomeLauncherTest, BackgroundOpacity) {
   EnableTabletMode(true);
 
   const U8CPU tablet_background_opacity = static_cast<U8CPU>(0);
-  EXPECT_EQ(SkColorSetA(AppListView::kDefaultBackgroundColor,
+  EXPECT_EQ(SkColorSetA(AppListColorProvider::Get()->GetAppListBackgroundColor(
+                            /*is_tablet_mode*/
+                            true, /*default_color*/ gfx::kGoogleGrey900),
                         tablet_background_opacity),
             GetAppListView()->GetAppListBackgroundShieldColorForTest());
   EXPECT_EQ(1, GetAppListView()
@@ -4040,7 +4022,7 @@ TEST_P(AppListPresenterDelegateHomeLauncherTest,
   // kHideShelfControlsInTabletMode enabled.
   // TODO(https://crbug.com/1050544) Use the a11y feature specific to showing
   // navigation buttons in tablet mode once it lands.
-  Shell::Get()->accessibility_controller()->SetAutoclickEnabled(true);
+  Shell::Get()->accessibility_controller()->autoclick().SetEnabled(true);
 
   // Enter text in the searchbox, the app list should transition to fullscreen
   // search.
@@ -4380,16 +4362,16 @@ TEST_P(AppListPresenterDelegateHomeLauncherTest,
 
 // Tests that involve the virtual keyboard.
 class AppListPresenterDelegateVirtualKeyboardTest
-    : public AppListPresenterDelegateZeroStateTest {
+    : public AppListPresenterDelegateTest {
  public:
   AppListPresenterDelegateVirtualKeyboardTest() = default;
   ~AppListPresenterDelegateVirtualKeyboardTest() override = default;
 
-  // AppListPresenterDelegateZeroStateTest:
+  // AppListPresenterDelegateTest:
   void SetUp() override {
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
         keyboard::switches::kEnableVirtualKeyboard);
-    AppListPresenterDelegateZeroStateTest::SetUp();
+    AppListPresenterDelegateTest::SetUp();
   }
 
   // Performs mouse click or tap gesture on the provided point, depending on

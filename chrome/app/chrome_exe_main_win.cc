@@ -11,7 +11,10 @@
 #include <string>
 
 #include "base/at_exit.h"
+#include "base/base_switches.h"
 #include "base/command_line.h"
+#include "base/debug/alias.h"
+#include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/path_service.h"
@@ -27,6 +30,7 @@
 #include "base/win/registry.h"
 #include "base/win/win_util.h"
 #include "base/win/windows_version.h"
+#include "build/build_config.h"
 #include "chrome/app/main_dll_loader_win.h"
 #include "chrome/browser/policy/policy_path_parser.h"
 #include "chrome/browser/win/chrome_process_finder.h"
@@ -44,6 +48,11 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/common/result_codes.h"
 #include "third_party/crashpad/crashpad/util/win/initial_client_data.h"
+
+#if defined(WIN_CONSOLE_APP)
+// Forward declaration of main.
+int main();
+#endif
 
 namespace {
 
@@ -81,7 +90,7 @@ bool AttemptFastNotify(const base::CommandLine& command_line) {
 // Returns true if |command_line| contains a /prefetch:# argument where # is in
 // [1, 8].
 bool HasValidWindowsPrefetchArgument(const base::CommandLine& command_line) {
-  const base::char16 kPrefetchArgumentPrefix[] = L"/prefetch:";
+  const wchar_t kPrefetchArgumentPrefix[] = L"/prefetch:";
 
   for (const auto& arg : command_line.argv()) {
     if (arg.size() == base::size(kPrefetchArgumentPrefix) &&
@@ -110,7 +119,7 @@ bool RemoveAppCompatFlagsEntry() {
                KEY_READ | KEY_WRITE) == ERROR_SUCCESS) {
     std::wstring layers;
     if (key.ReadValue(current_exe.value().c_str(), &layers) == ERROR_SUCCESS) {
-      std::vector<base::string16> tokens = base::SplitString(
+      std::vector<std::wstring> tokens = base::SplitString(
           layers, L" ", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
       size_t initial_size = tokens.size();
       static const wchar_t* const kCompatModeTokens[] = {
@@ -125,7 +134,7 @@ bool RemoveAppCompatFlagsEntry() {
       if (tokens.empty()) {
         result = key.DeleteValue(current_exe.value().c_str());
       } else {
-        base::string16 without_compat_mode_tokens =
+        std::wstring without_compat_mode_tokens =
             base::JoinString(tokens, L" ");
         result = key.WriteValue(current_exe.value().c_str(),
                                 without_compat_mode_tokens.c_str());
@@ -144,28 +153,106 @@ int RunFallbackCrashHandler(const base::CommandLine& cmd_line) {
   wchar_t exe_file[MAX_PATH] = {};
   CHECK(::GetModuleFileName(nullptr, exe_file, base::size(exe_file)));
 
-  base::string16 product_name;
-  base::string16 version;
-  base::string16 channel_name;
-  base::string16 special_build;
+  std::wstring product_name, version, channel_name, special_build;
   install_static::GetExecutableVersionDetails(exe_file, &product_name, &version,
                                               &special_build, &channel_name);
 
   return crash_reporter::RunAsFallbackCrashHandler(
-      cmd_line, base::UTF16ToUTF8(product_name), base::UTF16ToUTF8(version),
-      base::UTF16ToUTF8(channel_name));
+      cmd_line, base::WideToUTF8(product_name), base::WideToUTF8(version),
+      base::WideToUTF8(channel_name));
 }
+
+}  // namespace
+
+namespace {
+
+// In 32-bit builds, the main thread starts with the default (small) stack size.
+// The ARCH_CPU_32_BITS blocks here and below are in support of moving the main
+// thread to a fiber with a larger stack size.
+#if defined(ARCH_CPU_32_BITS)
+// The information needed to transfer control to the large-stack fiber and later
+// pass the main routine's exit code back to the small-stack fiber prior to
+// termination.
+struct FiberState {
+  HINSTANCE instance;
+  LPVOID original_fiber;
+  int fiber_result;
+};
+
+// A PFIBER_START_ROUTINE function run on a large-stack fiber that calls the
+// main routine, stores its return value, and returns control to the small-stack
+// fiber. |params| must be a pointer to a FiberState struct.
+void WINAPI FiberBinder(void* params) {
+  auto* fiber_state = static_cast<FiberState*>(params);
+  // Call the main routine from the fiber. Reusing the entry point minimizes
+  // confusion when examining call stacks in crash reports - seeing wWinMain on
+  // the stack is a handy hint that this is the main thread of the process.
+#if !defined(WIN_CONSOLE_APP)
+  fiber_state->fiber_result =
+      wWinMain(fiber_state->instance, nullptr, nullptr, 0);
+#else   // !defined(WIN_CONSOLE_APP)
+  fiber_state->fiber_result = main();
+#endif  // !defined(WIN_CONSOLE_APP)
+  // Switch back to the main thread to exit.
+  ::SwitchToFiber(fiber_state->original_fiber);
+}
+#endif  // defined(ARCH_CPU_32_BITS)
 
 }  // namespace
 
 #if !defined(WIN_CONSOLE_APP)
 int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE prev, wchar_t*, int) {
-#else
+#else   // !defined(WIN_CONSOLE_APP)
 int main() {
   HINSTANCE instance = GetModuleHandle(nullptr);
-#endif
+#endif  // !defined(WIN_CONSOLE_APP)
+
+#if defined(ARCH_CPU_32_BITS)
+  enum class FiberStatus { kConvertFailed, kCreateFiberFailed, kSuccess };
+  FiberStatus fiber_status = FiberStatus::kSuccess;
+  // GetLastError result if fiber conversion failed.
+  DWORD fiber_error = ERROR_SUCCESS;
+  if (!::IsThreadAFiber()) {
+    // Make the main thread's stack size 4 MiB so that it has roughly the same
+    // effective size as the 64-bit build's 8 MiB stack.
+    constexpr size_t kStackSize = 4 * 1024 * 1024;  // 4 MiB
+    // Leak the fiber on exit.
+    LPVOID original_fiber =
+        ::ConvertThreadToFiberEx(nullptr, FIBER_FLAG_FLOAT_SWITCH);
+    if (original_fiber) {
+      FiberState fiber_state = {instance, original_fiber};
+      // Create a fiber with a bigger stack and switch to it. Leak the fiber on
+      // exit.
+      LPVOID big_stack_fiber = ::CreateFiberEx(
+          0, kStackSize, FIBER_FLAG_FLOAT_SWITCH, FiberBinder, &fiber_state);
+      if (big_stack_fiber) {
+        ::SwitchToFiber(big_stack_fiber);
+        // The fibers must be cleaned up to avoid obscure TLS-related shutdown
+        // crashes.
+        ::DeleteFiber(big_stack_fiber);
+        ::ConvertFiberToThread();
+        // Control returns here after Chrome has finished running on FiberMain.
+        return fiber_state.fiber_result;
+      }
+      fiber_status = FiberStatus::kCreateFiberFailed;
+    } else {
+      fiber_status = FiberStatus::kConvertFailed;
+    }
+    // If we reach here then creating and switching to a fiber has failed. This
+    // probably means we are low on memory and will soon crash. Try to report
+    // this error once crash reporting is initialized.
+    fiber_error = ::GetLastError();
+    base::debug::Alias(&fiber_error);
+  }
+  // If we are already a fiber then continue normal execution.
+#endif  // defined(ARCH_CPU_32_BITS)
+
   install_static::InitializeFromPrimaryModule();
   SignalInitializeCrashReporting();
+#if defined(ARCH_CPU_32_BITS)
+  // Intentionally crash if converting to a fiber failed.
+  CHECK_EQ(fiber_status, FiberStatus::kSuccess);
+#endif  // defined(ARCH_CPU_32_BITS)
 
   // Done here to ensure that OOMs that happen early in process initialization
   // are correctly signaled to the OS.
@@ -178,6 +265,13 @@ int main() {
 
   const std::string process_type =
       command_line->GetSwitchValueASCII(switches::kProcessType);
+
+  // In non-component mode, chrome.exe contains a separate instance of
+  // base::FeatureList. Prevent accidental use of this here by forbidding use of
+  // the one that's linked with chrome.exe.
+#if !defined(COMPONENT_BUILD) && DCHECK_IS_ON()
+  base::FeatureList::ForbidUseForCurrentModule();
+#endif
 
   // Confirm that an explicit prefetch profile is used for all process types
   // except for the browser process. Any new process type will have to assign
@@ -259,10 +353,10 @@ int main() {
   delete loader;
 
   // Process shutdown is hard and some process types have been crashing during
-  // shutdown. TerminateProcess is safer and faster.
+  // shutdown. TerminateCurrentProcessImmediately is safer and faster.
   if (process_type == switches::kUtilityProcess ||
       process_type == switches::kPpapiPluginProcess) {
-    TerminateProcess(GetCurrentProcess(), rc);
+    base::Process::TerminateCurrentProcessImmediately(rc);
   }
   return rc;
 }

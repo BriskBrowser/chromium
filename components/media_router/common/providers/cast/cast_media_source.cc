@@ -12,6 +12,7 @@
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
+#include "components/cast_channel/cast_message_util.h"
 #include "components/cast_channel/enum_table.h"
 #include "components/media_router/common/media_source.h"
 #include "net/base/escape.h"
@@ -29,43 +30,57 @@ using media_router::AutoJoinPolicy;
 using media_router::DefaultActionPolicy;
 
 template <>
-const EnumTable<AutoJoinPolicy> EnumTable<AutoJoinPolicy>::instance(
-    {
-        {AutoJoinPolicy::kPageScoped, "page_scoped"},
-        {AutoJoinPolicy::kTabAndOriginScoped, "tab_and_origin_scoped"},
-        {AutoJoinPolicy::kOriginScoped, "origin_scoped"},
-    },
-    AutoJoinPolicy::kMaxValue);
+const EnumTable<AutoJoinPolicy>& EnumTable<AutoJoinPolicy>::GetInstance() {
+  static const EnumTable<AutoJoinPolicy> kInstance(
+      {
+          {AutoJoinPolicy::kPageScoped, "page_scoped"},
+          {AutoJoinPolicy::kTabAndOriginScoped, "tab_and_origin_scoped"},
+          {AutoJoinPolicy::kOriginScoped, "origin_scoped"},
+      },
+      AutoJoinPolicy::kMaxValue);
+  return kInstance;
+}
 
 template <>
-const EnumTable<DefaultActionPolicy> EnumTable<DefaultActionPolicy>::instance(
-    {
-        {DefaultActionPolicy::kCreateSession, "create_session"},
-        {DefaultActionPolicy::kCastThisTab, "cast_this_tab"},
-    },
-    DefaultActionPolicy::kMaxValue);
+const EnumTable<DefaultActionPolicy>&
+EnumTable<DefaultActionPolicy>::GetInstance() {
+  static const EnumTable<DefaultActionPolicy> kInstance(
+      {
+          {DefaultActionPolicy::kCreateSession, "create_session"},
+          {DefaultActionPolicy::kCastThisTab, "cast_this_tab"},
+      },
+      DefaultActionPolicy::kMaxValue);
+  return kInstance;
+}
 
 template <>
-const EnumTable<CastDeviceCapability> EnumTable<CastDeviceCapability>::instance(
-    {
-        {CastDeviceCapability::MULTIZONE_GROUP, "multizone_group"},
-        {CastDeviceCapability::DEV_MODE, "dev_mode"},
-        {CastDeviceCapability::AUDIO_IN, "audio_in"},
-        {CastDeviceCapability::AUDIO_OUT, "audio_out"},
-        {CastDeviceCapability::VIDEO_IN, "video_in"},
-        {CastDeviceCapability::VIDEO_OUT, "video_out"},
-        // NONE deliberately omitted
-    },
-    NonConsecutiveEnumTable);
+const EnumTable<CastDeviceCapability>&
+EnumTable<CastDeviceCapability>::GetInstance() {
+  static const EnumTable<CastDeviceCapability> kInstance(
+      {
+          {CastDeviceCapability::MULTIZONE_GROUP, "multizone_group"},
+          {CastDeviceCapability::DEV_MODE, "dev_mode"},
+          {CastDeviceCapability::AUDIO_IN, "audio_in"},
+          {CastDeviceCapability::AUDIO_OUT, "audio_out"},
+          {CastDeviceCapability::VIDEO_IN, "video_in"},
+          {CastDeviceCapability::VIDEO_OUT, "video_out"},
+          // NONE deliberately omitted
+      },
+      NonConsecutiveEnumTable);
+  return kInstance;
+}
 
 template <>
-const EnumTable<ReceiverAppType> EnumTable<ReceiverAppType>::instance(
-    {
-        {ReceiverAppType::kOther, "OTHER"},
-        {ReceiverAppType::kWeb, "WEB"},
-        {ReceiverAppType::kAndroidTv, "ANDROID_TV"},
-    },
-    ReceiverAppType::kMaxValue);
+const EnumTable<ReceiverAppType>& EnumTable<ReceiverAppType>::GetInstance() {
+  static const EnumTable<ReceiverAppType> kInstance(
+      {
+          {ReceiverAppType::kOther, "OTHER"},
+          {ReceiverAppType::kWeb, "WEB"},
+          {ReceiverAppType::kAndroidTv, "ANDROID_TV"},
+      },
+      ReceiverAppType::kMaxValue);
+  return kInstance;
+}
 
 }  // namespace cast_util
 
@@ -222,7 +237,8 @@ std::unique_ptr<CastMediaSource> CreateFromURLParams(
     const std::string& target_playout_delay_millis_str,
     const std::string& audio_capture_str,
     const std::vector<ReceiverAppType>& supported_app_types,
-    const std::string& app_params) {
+    const std::string& app_params,
+    const std::string& invisible_sender) {
   if (app_infos.empty())
     return nullptr;
 
@@ -260,6 +276,11 @@ std::unique_ptr<CastMediaSource> CreateFromURLParams(
     cast_source->set_supported_app_types(supported_app_types);
   cast_source->set_app_params(app_params);
 
+  if (invisible_sender == "true") {
+    cast_source->set_connection_type(
+        cast_channel::VirtualConnectionType::kInvisible);
+  }
+
   return cast_source;
 }
 
@@ -284,7 +305,8 @@ std::unique_ptr<CastMediaSource> ParseCastUrl(const MediaSource::Id& source_id,
       FindValueOr(params, "streamingTargetPlayoutDelayMillis", ""),
       FindValueOr(params, "streamingCaptureAudio", ""),
       SupportedAppTypesFromString(FindValueOr(params, "supportedAppTypes", "")),
-      FindValueOr(params, "appParams", ""));
+      FindValueOr(params, "appParams", ""),
+      FindValueOr(params, "invisibleSender", ""));
 }
 
 std::unique_ptr<CastMediaSource> ParseLegacyCastUrl(
@@ -345,7 +367,8 @@ std::unique_ptr<CastMediaSource> ParseLegacyCastUrl(
       /* target_playout_delay_millis_str */ "",
       /* audio_capture */ "",
       /* supported_app_types */ {},
-      /* appParams */ "");
+      /* appParams */ "",
+      /* invisibleSender */ "");
 }
 
 }  // namespace

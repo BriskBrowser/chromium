@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "base/base64url.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/memory/ptr_util.h"
@@ -13,8 +14,8 @@
 #include "base/strings/string_number_conversions.h"
 #include "chrome/browser/nearby_sharing/client/nearby_share_api_call_flow_impl.h"
 #include "chrome/browser/nearby_sharing/client/nearby_share_http_notifier.h"
-#include "chrome/browser/nearby_sharing/client/nearby_share_switches.h"
 #include "chrome/browser/nearby_sharing/common/nearby_share_http_result.h"
+#include "chrome/browser/nearby_sharing/common/nearby_share_switches.h"
 #include "chrome/browser/nearby_sharing/logging/logging.h"
 #include "chrome/browser/nearby_sharing/proto/certificate_rpc.pb.h"
 #include "chrome/browser/nearby_sharing/proto/contact_rpc.pb.h"
@@ -35,7 +36,6 @@ const char kDefaultNearbyShareV1HTTPHost[] =
 
 const char kNearbyShareV1Path[] = "v1/";
 
-const char kCheckContactsReachabilityPath[] = "contactsReachability:check";
 const char kListContactPeoplePath[] = "contactRecords";
 const char kListPublicCertificatesPath[] = "publicCertificates";
 
@@ -82,8 +82,12 @@ ListPublicCertificatesRequestToQueryParameters(
   if (!request.page_token().empty()) {
     query_parameters.emplace_back(kPageToken, request.page_token());
   }
-  for (int i = 0; i < request.secret_ids_size(); ++i) {
-    query_parameters.emplace_back(kSecretIds, request.secret_ids(i));
+  for (const std::string& id : request.secret_ids()) {
+    // NOTE: One Platform requires that byte fields be URL-safe base64 encoded.
+    std::string encoded_id;
+    base::Base64UrlEncode(id, base::Base64UrlEncodePolicy::INCLUDE_PADDING,
+                          &encoded_id);
+    query_parameters.emplace_back(kSecretIds, encoded_id);
   }
   return query_parameters;
 }
@@ -238,18 +242,6 @@ void NearbyShareClientImpl::UpdateDevice(
               /*request_as_query_parameters=*/base::nullopt,
               std::move(callback), std::move(error_callback),
               GetUpdateDeviceAnnotation());
-}
-
-void NearbyShareClientImpl::CheckContactsReachability(
-    const nearbyshare::proto::CheckContactsReachabilityRequest& request,
-    CheckContactsReachabilityCallback&& callback,
-    ErrorCallback&& error_callback) {
-  notifier_->NotifyOfRequest(request);
-  MakeApiCall(CreateV1RequestUrl(kCheckContactsReachabilityPath),
-              RequestType::kPost, request.SerializeAsString(),
-              /*request_as_query_parameters=*/base::nullopt,
-              std::move(callback), std::move(error_callback),
-              GetContactsAnnotation());
 }
 
 void NearbyShareClientImpl::ListContactPeople(

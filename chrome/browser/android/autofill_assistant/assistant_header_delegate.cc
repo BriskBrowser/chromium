@@ -26,11 +26,11 @@ AssistantHeaderDelegate::~AssistantHeaderDelegate() {
 void AssistantHeaderDelegate::OnFeedbackButtonClicked(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& jcaller) {
-  ui_controller_->OnFeedbackButtonClicked();
+  ui_controller_->OnHeaderFeedbackButtonClicked();
 }
 
 base::android::ScopedJavaGlobalRef<jobject>
-AssistantHeaderDelegate::GetJavaObject() {
+AssistantHeaderDelegate::GetJavaObject() const {
   return java_assistant_header_delegate_;
 }
 

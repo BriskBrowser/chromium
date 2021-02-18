@@ -20,15 +20,21 @@
 #include "base/threading/thread_checker.h"
 #include "base/values.h"
 #include "components/sync/base/model_type.h"
-#include "components/sync/engine_impl/loopback_server/loopback_server.h"
-#include "components/sync/engine_impl/loopback_server/loopback_server_entity.h"
-#include "components/sync/engine_impl/loopback_server/persistent_bookmark_entity.h"
-#include "components/sync/engine_impl/loopback_server/persistent_tombstone_entity.h"
-#include "components/sync/engine_impl/loopback_server/persistent_unique_client_entity.h"
+#include "components/sync/engine/loopback_server/loopback_server.h"
+#include "components/sync/engine/loopback_server/loopback_server_entity.h"
+#include "components/sync/engine/loopback_server/persistent_bookmark_entity.h"
+#include "components/sync/engine/loopback_server/persistent_tombstone_entity.h"
+#include "components/sync/engine/loopback_server/persistent_unique_client_entity.h"
 #include "components/sync/protocol/client_commands.pb.h"
 #include "components/sync/protocol/sync.pb.h"
 #include "net/http/http_status_code.h"
 #include "testing/gmock/include/gmock/gmock.h"
+
+namespace switches {
+
+extern const char kDisableFakeServerFailureOutput[];
+
+}  // namespace switches
 
 namespace fake_server {
 
@@ -38,12 +44,14 @@ namespace fake_server {
 // is in-line with the server behavior and -- as it keeps changing -- allows
 // integration tests to wait for a GetUpdates call to finish, even if they don't
 // contain data updates.
-bool AreWalletDataProgressMarkersEquivalent(
+bool AreFullUpdateTypeDataProgressMarkersEquivalent(
     const sync_pb::DataTypeProgressMarker& marker1,
     const sync_pb::DataTypeProgressMarker& marker2);
 
 // A fake version of the Sync server used for testing. This class is not thread
 // safe.
+// |switches::kDisableFakeServerFailureOutput| can be passed to the command line
+// to avoid debug logs upon test failure.
 class FakeServer : public syncer::LoopbackServer::ObserverForTests {
  public:
   class Observer {
@@ -52,7 +60,7 @@ class FakeServer : public syncer::LoopbackServer::ObserverForTests {
 
     // Called after FakeServer has processed a successful commit. The types
     // updated as part of the commit are passed in |committed_model_types|.
-    virtual void OnCommit(const std::string& committer_id,
+    virtual void OnCommit(const std::string& committer_invalidator_client_id,
                           syncer::ModelTypeSet committed_model_types) = 0;
   };
 
@@ -93,10 +101,6 @@ class FakeServer : public syncer::LoopbackServer::ObserverForTests {
   std::vector<sync_pb::SyncEntity> GetPermanentSyncEntitiesByModelType(
       syncer::ModelType model_type);
 
-  // Returns an empty string if no top-level permanent item of the given type
-  // was created.
-  std::string GetTopLevelPermanentItemId(syncer::ModelType model_type);
-
   // Returns all keystore keys from the server.
   const std::vector<std::vector<uint8_t>>& GetKeystoreKeys() const;
 
@@ -115,14 +119,24 @@ class FakeServer : public syncer::LoopbackServer::ObserverForTests {
   //
   // The returned value represents the timestamp of the write, such that any
   // progress marker greater or equal to this timestamp must have processed the
-  // changes. See GetWalletProgressMarkerTimestamp() below.
+  // changes. See GetProgressMarkerTimestamp() below.
   base::Time SetWalletData(
       const std::vector<sync_pb::SyncEntity>& wallet_entities);
 
-  // Allows the caller to know the wallet timestamp corresponding to
+  // Sets the Autofill offer data to be served in following GetUpdates
+  // requests (any further GetUpdates response will be empty, indicating no
+  // change, if the client already has received |offer_entities|).
+  //
+  // The returned value represents the timestamp of the write, such that any
+  // progress marker greater or equal to this timestamp must have processed the
+  // changes. See GetProgressMarkerTimestamp() below.
+  base::Time SetOfferData(
+      const std::vector<sync_pb::SyncEntity>& offer_entities);
+
+  // Allows the caller to know the timestamp corresponding to
   // |progress_marker| as annotated by the FakeServer during the GetUpdates
   // request that returned the progress marker.
-  static base::Time GetWalletProgressMarkerTimestamp(
+  static base::Time GetProgressMarkerTimestamp(
       const sync_pb::DataTypeProgressMarker& progress_marker);
 
   // Modifies the entity on the server with the given |id|. The entity's
@@ -188,6 +202,9 @@ class FakeServer : public syncer::LoopbackServer::ObserverForTests {
   // encryption_keys.
   void DisallowSendingEncryptionKeys();
 
+  // Mimics throttling of datatypes.
+  void SetThrottledTypes(syncer::ModelTypeSet types);
+
   // Adds |observer| to FakeServer's observer list. This should be called
   // before the Profile associated with |observer| is connected to the server.
   void AddObserver(Observer* observer);
@@ -208,7 +225,7 @@ class FakeServer : public syncer::LoopbackServer::ObserverForTests {
   void TriggerMigrationDoneError(syncer::ModelTypeSet types);
 
   // Implement LoopbackServer::ObserverForTests:
-  void OnCommit(const std::string& committer_id,
+  void OnCommit(const std::string& committer_invalidator_client_id,
                 syncer::ModelTypeSet committed_model_types) override;
   void OnHistoryCommit(const std::string& url) override;
 
@@ -241,7 +258,9 @@ class FakeServer : public syncer::LoopbackServer::ObserverForTests {
       const sync_pb::ClientToServerMessage& message,
       sync_pb::ClientToServerResponse* response);
 
-  // Logs a string that is meant to be shown in case the running test fails.
+  // Logs a string that is meant to be shown in case the running test fails,
+  // as long as |switches::kDisableFakeServerFailureOutput| hasn't been passed
+  // to the command line.
   void LogForTestFailure(const base::Location& location,
                          const std::string& title,
                          const std::string& body);
@@ -300,6 +319,10 @@ class FakeServer : public syncer::LoopbackServer::ObserverForTests {
   // The LoopbackServer does not know how to handle Wallet data properly, so
   // the FakeServer handles those itself.
   std::vector<sync_pb::SyncEntity> wallet_entities_;
+
+  // The LoopbackServer does not know how to handle offer data properly, so
+  // the FakeServer handles those itself.
+  std::vector<sync_pb::SyncEntity> offer_entities_;
 
   // Creates WeakPtr versions of the current FakeServer. This must be the last
   // data member!

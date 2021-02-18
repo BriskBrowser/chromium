@@ -4,10 +4,15 @@
 
 import 'chrome://resources/cr_elements/cr_grid/cr_grid.js';
 
+import '../../img.js';
+import '../../strings.m.js';
+import '../module_header.js';
+
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {ModuleDescriptor} from '../module_descriptor.js';
+import {FooProxy} from './foo_proxy.js';
 
 /**
  * @fileoverview A dummy module, which serves as an example and a helper to
@@ -25,32 +30,46 @@ class DummyModuleElement extends PolymerElement {
 
   static get properties() {
     return {
-      tiles: {
-        type: Array,
-        value: () => ([
-          {label: 'item1', value: 'foo'},
-          {label: 'item2', value: 'bar'},
-          {label: 'item3', value: 'baz'},
-        ]),
-      }
+      /** @type {!Array<!foo.mojom.FooDataItem>} */
+      tiles: Array,
+
+      /** @type {!string} */
+      title: String,
     };
+  }
+
+  constructor() {
+    super();
+    this.initializeData_();
+  }
+
+  /** @private */
+  async initializeData_() {
+    const tileData = await FooProxy.getInstance().handler.getData();
+    this.tiles = tileData.data;
   }
 }
 
 customElements.define(DummyModuleElement.is, DummyModuleElement);
 
+/**
+ * @param {!string} titleId
+ * @return {!DummyModuleElement}
+ */
+function createDummyElement(titleId) {
+  const element = new DummyModuleElement();
+  element.title = loadTimeData.getString(titleId);
+  return element;
+}
+
 /** @type {!ModuleDescriptor} */
 export const dummyDescriptor = new ModuleDescriptor(
-    /*id=*/ 'dummy', /*name=*/ loadTimeData.getString('modulesDummyName'),
-    /*heightPx=*/ 260, () => Promise.resolve({
-      element: new DummyModuleElement(),
-      title: loadTimeData.getString('modulesDummyTitle'),
-    }));
+    /*id=*/ 'dummy',
+    /*heightPx=*/ 314,
+    () => Promise.resolve(createDummyElement('modulesDummyTitle')));
 
 /** @type {!ModuleDescriptor} */
 export const dummyDescriptor2 = new ModuleDescriptor(
-    /*id=*/ 'dummy2', /*name=*/ loadTimeData.getString('modulesDummy2Name'),
-    /*heightPx=*/ 260, () => Promise.resolve({
-      element: new DummyModuleElement(),
-      title: loadTimeData.getString('modulesDummy2Title'),
-    }));
+    /*id=*/ 'dummy2',
+    /*heightPx=*/ 314,
+    () => Promise.resolve(createDummyElement('modulesDummy2Title')));

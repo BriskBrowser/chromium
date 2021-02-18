@@ -3,7 +3,8 @@
 // found in the LICENSE file.
 #include "third_party/blink/renderer/core/paint/image_paint_timing_detector.h"
 
-#include "third_party/blink/public/platform/web_float_rect.h"
+#include "services/metrics/public/cpp/ukm_builders.h"
+#include "services/metrics/public/cpp/ukm_recorder.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/layout/layout_image_resource.h"
@@ -28,12 +29,12 @@ namespace {
 // As the image do not have a lot of content, we down scale |visual_size| by the
 // ratio of |intrinsic_image_size|/|displayed_image_size| = 1/10000.
 //
-// * |visual_size| referes to the size of the |displayed_image_size| after
+// * |visual_size| refers to the size of the |displayed_image_size| after
 // clipping and transforming. The size is in the main-frame's coordinate.
-// * |displayed_image_size| refers to the paint size in the image object's
-// coordinate.
 // * |intrinsic_image_size| refers to the the image object's original size
 // before scaling. The size is in the image object's coordinate.
+// * |displayed_image_size| refers to the paint size in the image object's
+// coordinate.
 uint64_t DownScaleIfIntrinsicSizeIsSmaller(
     uint64_t visual_size,
     const uint64_t& intrinsic_image_size,
@@ -138,6 +139,7 @@ ImageRecord* ImagePaintTimingDetector::UpdateCandidate() {
 
 void ImagePaintTimingDetector::OnPaintFinished() {
   frame_index_++;
+  viewport_size_ = base::nullopt;
   if (need_update_timing_at_frame_end_) {
     need_update_timing_at_frame_end_ = false;
     frame_view_->GetPaintTimingDetector()
@@ -149,17 +151,7 @@ void ImagePaintTimingDetector::OnPaintFinished() {
     return;
 
   last_registered_frame_index_ = frame_index_ - 1;
-  RegisterNotifySwapTime();
-}
-
-void ImagePaintTimingDetector::LayoutObjectWillBeDestroyed(
-    const LayoutObject& object) {
-  if (!is_recording_)
-    return;
-
-  // The visible record removal has been handled by
-  // |NotifyImageRemoved|.
-  records_manager_.RemoveInvisibleRecordIfNeeded(object);
+  RegisterNotifyPresentationTime();
 }
 
 void ImagePaintTimingDetector::NotifyImageRemoved(
@@ -169,30 +161,43 @@ void ImagePaintTimingDetector::NotifyImageRemoved(
     return;
   RecordId record_id = std::make_pair(&object, cached_image);
   records_manager_.RemoveImageFinishedRecord(record_id);
+  records_manager_.RemoveInvisibleRecordIfNeeded(record_id);
   if (!records_manager_.IsRecordedVisibleImage(record_id))
     return;
   records_manager_.RemoveVisibleRecord(record_id);
   need_update_timing_at_frame_end_ = true;
 }
 
-void ImagePaintTimingDetector::RegisterNotifySwapTime() {
-  auto callback = WTF::Bind(&ImagePaintTimingDetector::ReportSwapTime,
+void ImagePaintTimingDetector::StopRecordEntries() {
+  is_recording_ = false;
+  if (frame_view_->GetFrame().IsMainFrame()) {
+    DCHECK(frame_view_->GetFrame().GetDocument());
+    ukm::builders::Blink_PaintTiming(
+        frame_view_->GetFrame().GetDocument()->UkmSourceID())
+        .SetLCPDebugging_HasViewportImage(contains_full_viewport_image_)
+        .Record(ukm::UkmRecorder::Get());
+  }
+}
+
+void ImagePaintTimingDetector::RegisterNotifyPresentationTime() {
+  auto callback = WTF::Bind(&ImagePaintTimingDetector::ReportPresentationTime,
                             WrapCrossThreadWeakPersistent(this),
                             last_registered_frame_index_);
   callback_manager_->RegisterCallback(std::move(callback));
-  num_pending_swap_callbacks_++;
+  num_pending_presentation_callbacks_++;
 }
 
-void ImagePaintTimingDetector::ReportSwapTime(unsigned last_queued_frame_index,
-                                              base::TimeTicks timestamp) {
+void ImagePaintTimingDetector::ReportPresentationTime(
+    unsigned last_queued_frame_index,
+    base::TimeTicks timestamp) {
   if (!is_recording_)
     return;
   // The callback is safe from race-condition only when running on main-thread.
   DCHECK(ThreadState::Current()->IsMainThread());
   records_manager_.AssignPaintTimeToRegisteredQueuedRecords(
       timestamp, last_queued_frame_index);
-  num_pending_swap_callbacks_--;
-  DCHECK_GE(num_pending_swap_callbacks_, 0);
+  num_pending_presentation_callbacks_--;
+  DCHECK_GE(num_pending_presentation_callbacks_, 0);
 }
 
 void ImageRecordsManager::AssignPaintTimeToRegisteredQueuedRecords(
@@ -222,10 +227,10 @@ void ImagePaintTimingDetector::RecordImage(
   Node* node = object.GetNode();
   if (!node)
     return;
-  if (records_manager_.IsRecordedInvisibleImage(object))
-    return;
 
   RecordId record_id = std::make_pair(&object, &cached_image);
+  if (records_manager_.IsRecordedInvisibleImage(record_id))
+    return;
   bool is_recorded_visible_image =
       records_manager_.IsRecordedVisibleImage(record_id);
   if (int depth = IgnorePaintTimingScope::IgnoreDepth()) {
@@ -269,7 +274,7 @@ void ImagePaintTimingDetector::RecordImage(
                                             current_paint_chunk_properties,
                                             object, cached_image);
   if (rect_size == 0) {
-    records_manager_.RecordInvisible(object);
+    records_manager_.RecordInvisible(record_id);
   } else {
     records_manager_.RecordVisible(record_id, rect_size);
     if (cached_image.IsLoaded()) {
@@ -295,12 +300,26 @@ uint64_t ImagePaintTimingDetector::ComputeImageRectSize(
   }
   uint64_t rect_size = mapped_visual_rect.Size().Area();
   // Transform visual rect to window before calling downscale.
-  WebFloatRect float_visual_rect = FloatRect(image_border);
-  frame_view_->GetPaintTimingDetector().ConvertViewportToWindow(
-      &float_visual_rect);
+  FloatRect float_visual_rect =
+      frame_view_->GetPaintTimingDetector().BlinkSpaceToDIPs(
+          FloatRect(image_border));
+  if (!viewport_size_.has_value()) {
+    FloatRect viewport = frame_view_->GetPaintTimingDetector().BlinkSpaceToDIPs(
+        FloatRect(frame_view_->GetScrollableArea()->VisibleContentRect()));
+    viewport_size_ = viewport.Size().Area();
+  }
+  // An SVG image size is computed with respect to the virtual viewport of the
+  // SVG, so |rect_size| can be larger than |*viewport_size| in edge cases. If
+  // the rect occupies the whole viewport, disregard this candidate by saying
+  // the size is 0.
+  if (rect_size >= *viewport_size_) {
+    contains_full_viewport_image_ = true;
+    return 0;
+  }
+
   rect_size = DownScaleIfIntrinsicSizeIsSmaller(
       rect_size, intrinsic_size.Area(),
-      float_visual_rect.width * float_visual_rect.height);
+      float_visual_rect.Width() * float_visual_rect.Height());
   return rect_size;
 }
 

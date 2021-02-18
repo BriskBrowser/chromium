@@ -30,6 +30,8 @@
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_buffer.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_node_input.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_node_output.h"
@@ -84,6 +86,15 @@ ScriptProcessorHandler::ScriptProcessorHandler(
   }
 
   Initialize();
+
+  LocalDOMWindow* window = To<LocalDOMWindow>(Context()->GetExecutionContext());
+  if (window) {
+    window->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
+          mojom::blink::ConsoleMessageSource::kDeprecation,
+          mojom::blink::ConsoleMessageLevel::kWarning,
+          "The ScriptProcessorNode is deprecated. Use AudioWorkletNode instead."
+          " (https://bit.ly/audio-worklet)"));
+  }
 }
 
 scoped_refptr<ScriptProcessorHandler> ScriptProcessorHandler::Create(
@@ -110,6 +121,14 @@ void ScriptProcessorHandler::Initialize() {
 }
 
 void ScriptProcessorHandler::Process(uint32_t frames_to_process) {
+  // The main thread might be accessing the shared buffers. If so, silience
+  // the output and return.
+  MutexTryLocker try_locker(process_event_lock_);
+  if (!try_locker.Locked()) {
+    Output(0).Bus()->Zero();
+    return;
+  }
+
   // Discussion about inputs and outputs:
   // As in other AudioNodes, ScriptProcessorNode uses an AudioBus for its input
   // and output (see inputBus and outputBus below).  Additionally, there is a
@@ -181,47 +200,26 @@ void ScriptProcessorHandler::Process(uint32_t frames_to_process) {
   buffer_read_write_index_ =
       (buffer_read_write_index_ + frames_to_process) % BufferSize();
 
-  // m_bufferReadWriteIndex will wrap back around to 0 when the current input
-  // and output buffers are full.
-  // When this happens, fire an event and swap buffers.
+  // Fire an event and swap buffers when |buffer_read_write_index_| wraps back
+  // around to 0. It means the current input and output buffers are full.
   if (!buffer_read_write_index_) {
-    // Avoid building up requests on the main thread to fire process events when
-    // they're not being handled.  This could be a problem if the main thread is
-    // very busy doing other things and is being held up handling previous
-    // requests.  The audio thread can't block on this lock, so we call
-    // tryLock() instead.
-    MutexTryLocker try_locker(process_event_lock_);
-    if (!try_locker.Locked()) {
-      // We're late in handling the previous request. The main thread must be
-      // very busy.  The best we can do is clear out the buffer ourself here.
-      shared_output_buffer->Zero();
+    if (Context()->HasRealtimeConstraint()) {
+      // For a realtime context, fire an event and do not wait.
+      PostCrossThreadTask(
+          *task_runner_, FROM_HERE,
+          CrossThreadBindOnce(&ScriptProcessorHandler::FireProcessEvent,
+                              AsWeakPtr(), double_buffer_index_));
     } else {
-      // With the realtime context, execute the script code asynchronously
-      // and do not wait.
-      if (Context()->HasRealtimeConstraint()) {
-        // Fire the event on the main thread with the appropriate buffer
-        // index.
-        PostCrossThreadTask(
-            *task_runner_, FROM_HERE,
-            CrossThreadBindOnce(&ScriptProcessorHandler::FireProcessEvent,
-                                AsWeakPtr(), double_buffer_index_));
-      } else {
-        // If this node is in the offline audio context, use the
-        // waitable event to synchronize to the offline rendering thread.
-        std::unique_ptr<base::WaitableEvent> waitable_event =
-            std::make_unique<base::WaitableEvent>();
-
-        PostCrossThreadTask(
-            *task_runner_, FROM_HERE,
-            CrossThreadBindOnce(
-                &ScriptProcessorHandler::FireProcessEventForOfflineAudioContext,
-                AsWeakPtr(), double_buffer_index_,
-                CrossThreadUnretained(waitable_event.get())));
-
-        // Okay to block the offline audio rendering thread since it is
-        // not the actual audio device thread.
-        waitable_event->Wait();
-      }
+      // For an offline context, wait until the script execution is finished.
+      std::unique_ptr<base::WaitableEvent> waitable_event =
+          std::make_unique<base::WaitableEvent>();
+      PostCrossThreadTask(
+          *task_runner_, FROM_HERE,
+          CrossThreadBindOnce(
+              &ScriptProcessorHandler::FireProcessEventForOfflineAudioContext,
+              AsWeakPtr(), double_buffer_index_,
+              CrossThreadUnretained(waitable_event.get())));
+      waitable_event->Wait();
     }
 
     SwapBuffers();
@@ -440,19 +438,15 @@ ScriptProcessorNode* ScriptProcessorNode::Create(
     case 0:
       // Choose an appropriate size.  For an AudioContext, we need to
       // choose an appropriate size based on the callback buffer size.
-      // For OfflineAudioContext, there's no callback buffer size, so
-      // just use the minimum valid buffer size.
       if (context.HasRealtimeConstraint()) {
-        // TODO(crbug.com/854229): Due to the incompatible constructor between
-        // AudioDestinationNode and RealtimeAudioDestinationNode, casting
-        // directly from |destination()| is impossible. This is a temporary
-        // workaround until the refactoring is completed.
         RealtimeAudioDestinationHandler& destination_handler =
             static_cast<RealtimeAudioDestinationHandler&>(
                 context.destination()->GetAudioDestinationHandler());
         buffer_size =
             ChooseBufferSize(destination_handler.GetCallbackBufferSize());
       } else {
+        // For OfflineAudioContext, there's no callback buffer size, so
+        // just use the minimum valid buffer size.
         buffer_size = 256;
       }
       break;

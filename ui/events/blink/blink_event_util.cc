@@ -322,8 +322,8 @@ WebGestureEvent CreateWebGestureEvent(const GestureEventDetails& details,
   gesture.SetPositionInWidget(location);
   gesture.SetPositionInScreen(raw_location);
 
-  gesture.is_source_touch_event_set_non_blocking =
-      details.is_source_touch_event_set_non_blocking();
+  gesture.is_source_touch_event_set_blocking =
+      details.is_source_touch_event_set_blocking();
   gesture.primary_pointer_type =
       ToWebPointerType(details.primary_pointer_type());
   gesture.unique_touch_event_id = unique_touch_event_id;
@@ -490,9 +490,7 @@ std::unique_ptr<blink::WebInputEvent> TranslateAndScaleWebInputEvent(
     float x = (wheel_event->PositionInWidget().x() + delta.x()) * scale;
     float y = (wheel_event->PositionInWidget().y() + delta.y()) * scale;
     wheel_event->SetPositionInWidget(x, y);
-    if (wheel_event->delta_units != ui::ScrollGranularity::kScrollByPage &&
-        wheel_event->delta_units !=
-            ui::ScrollGranularity::kScrollByPercentage) {
+    if (wheel_event->delta_units != ui::ScrollGranularity::kScrollByPage) {
       wheel_event->delta_x *= scale;
       wheel_event->delta_y *= scale;
       wheel_event->wheel_ticks_x *= scale;

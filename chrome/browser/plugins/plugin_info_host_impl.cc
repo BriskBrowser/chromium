@@ -29,7 +29,6 @@
 #include "chrome/browser/ui/browser_otr_state.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_content_client.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/plugin.mojom.h"
 #include "chrome/common/pref_names.h"
 #include "components/component_updater/component_updater_service.h"
@@ -150,17 +149,17 @@ void PluginInfoHostImpl::Context::ShutdownOnUIThread() {
 
 PluginInfoHostImpl::PluginInfoHostImpl(int render_process_id, Profile* profile)
     : context_(render_process_id, profile) {
-  shutdown_notifier_ =
+  shutdown_subscription_ =
       PluginInfoHostImplShutdownNotifierFactory::GetInstance()
           ->Get(profile)
-          ->Subscribe(base::Bind(&PluginInfoHostImpl::ShutdownOnUIThread,
-                                 base::Unretained(this)));
+          ->Subscribe(base::BindRepeating(
+              &PluginInfoHostImpl::ShutdownOnUIThread, base::Unretained(this)));
 }
 
 void PluginInfoHostImpl::ShutdownOnUIThread() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   context_.ShutdownOnUIThread();
-  shutdown_notifier_.reset();
+  shutdown_subscription_ = {};
 }
 
 // static
@@ -208,18 +207,8 @@ void PluginInfoHostImpl::PluginsLoaded(
         plugin_metadata->identifier(), &output->status);
   }
 
-  if (output->status == chrome::mojom::PluginStatus::kNotFound) {
-    // Check to see if the component updater can fetch an implementation.
-    std::unique_ptr<component_updater::ComponentInfo> cus_plugin_info =
-        g_browser_process->component_updater()->GetComponentForMimeType(
-            params.mime_type);
-    ComponentPluginLookupDone(params, std::move(output), std::move(callback),
-                              std::move(plugin_metadata),
-                              std::move(cus_plugin_info));
-  } else {
-    GetPluginInfoFinish(params, std::move(output), std::move(callback),
-                        std::move(plugin_metadata));
-  }
+  GetPluginInfoFinish(params, std::move(output), std::move(callback),
+                      std::move(plugin_metadata));
 }
 
 void PluginInfoHostImpl::Context::DecidePluginStatus(
@@ -234,6 +223,15 @@ void PluginInfoHostImpl::Context::DecidePluginStatus(
     return;
   }
 
+// This block is separate from the outdated check, because the deprecated UI
+// must take precedence over any content setting or HTML5 by Default.
+#if BUILDFLAG(ENABLE_PLUGINS)
+  if (security_status == PluginMetadata::SECURITY_STATUS_DEPRECATED) {
+    *status = chrome::mojom::PluginStatus::kDeprecated;
+    return;
+  }
+#endif
+
   ContentSetting plugin_setting = CONTENT_SETTING_DEFAULT;
   bool uses_default_content_setting = true;
   bool is_managed = false;
@@ -245,7 +243,6 @@ void PluginInfoHostImpl::Context::DecidePluginStatus(
       &is_managed);
 
   DCHECK(plugin_setting != CONTENT_SETTING_DEFAULT);
-  DCHECK(plugin_setting != CONTENT_SETTING_ASK);
 
   if (*status == chrome::mojom::PluginStatus::kFlashHiddenPreferHtml) {
     if (plugin_setting == CONTENT_SETTING_BLOCK) {
@@ -287,7 +284,7 @@ void PluginInfoHostImpl::Context::DecidePluginStatus(
   }
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
-  if (plugin_setting == CONTENT_SETTING_DETECT_IMPORTANT_CONTENT ||
+  if (plugin_setting == CONTENT_SETTING_ASK ||
       (plugin_setting == CONTENT_SETTING_ALLOW &&
        !run_all_flash_in_allow_mode_.GetValue())) {
     *status = chrome::mojom::PluginStatus::kPlayImportantContent;
@@ -354,16 +351,6 @@ bool PluginInfoHostImpl::Context::FindEnabledPlugin(
     // Otherwise, we only found disabled plugins, so we take the first one.
     i = 0;
     *status = chrome::mojom::PluginStatus::kDisabled;
-
-    // Special case for Flash: this is our Prefer HTML over Plugins logic.
-    if (matching_plugins[0].name ==
-        base::ASCIIToUTF16(content::kFlashPluginName)) {
-      *status = chrome::mojom::PluginStatus::kFlashHiddenPreferHtml;
-
-      // In the Prefer HTML case, the plugin is actually enabled, but hidden.
-      // It will still be blocked in the body of DecidePluginStatus.
-      enabled = true;
-    }
   }
 
   *plugin = matching_plugins[i];
@@ -372,30 +359,6 @@ bool PluginInfoHostImpl::Context::FindEnabledPlugin(
     *plugin_metadata = PluginFinder::GetInstance()->GetPluginMetadata(*plugin);
 
   return enabled;
-}
-
-void PluginInfoHostImpl::ComponentPluginLookupDone(
-    const GetPluginInfo_Params& params,
-    chrome::mojom::PluginInfoPtr output,
-    GetPluginInfoCallback callback,
-    std::unique_ptr<PluginMetadata> plugin_metadata,
-    std::unique_ptr<component_updater::ComponentInfo> cus_plugin_info) {
-  if (cus_plugin_info) {
-    output->status = chrome::mojom::PluginStatus::kComponentUpdateRequired;
-#if defined(OS_LINUX) || defined(OS_CHROMEOS)
-    if (cus_plugin_info->version != base::Version("0")) {
-      output->status = chrome::mojom::PluginStatus::kRestartRequired;
-    }
-#endif
-    // Component Updater wouldn't provide a deprecated plugin.
-    bool plugin_is_deprecated = false;
-    plugin_metadata = std::make_unique<PluginMetadata>(
-        cus_plugin_info->id, cus_plugin_info->name, false, GURL(), GURL(),
-        base::ASCIIToUTF16(cus_plugin_info->id), std::string(),
-        plugin_is_deprecated);
-  }
-  GetPluginInfoFinish(params, std::move(output), std::move(callback),
-                      std::move(plugin_metadata));
 }
 
 void PluginInfoHostImpl::GetPluginInfoFinish(
@@ -410,40 +373,7 @@ void PluginInfoHostImpl::GetPluginInfoFinish(
 
   context_.MaybeGrantAccess(output->status, output->plugin.path);
 
-  if (output->status != chrome::mojom::PluginStatus::kNotFound) {
-    ReportMetrics(params.render_frame_id, output->actual_mime_type,
-                  params.main_frame_origin);
-  }
   std::move(callback).Run(std::move(output));
-}
-
-void PluginInfoHostImpl::ReportMetrics(int render_frame_id,
-                                       const base::StringPiece& mime_type,
-                                       const url::Origin& main_frame_origin) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-
-  content::RenderFrameHost* frame = content::RenderFrameHost::FromID(
-      context_.render_process_id(), render_frame_id);
-  content::WebContents* web_contents =
-      content::WebContents::FromRenderFrameHost(frame);
-  // This can occur the web contents has already been closed or navigated away.
-  if (!web_contents)
-    return;
-
-  if (web_contents->GetBrowserContext()->IsOffTheRecord())
-    return;
-
-  if (main_frame_origin.opaque())
-    return;
-
-  if (mime_type != content::kFlashPluginSwfMimeType &&
-      mime_type != content::kFlashPluginSplMimeType) {
-    return;
-  }
-
-  ukm::builders::Plugins_FlashInstance(
-      ukm::GetSourceIdForWebContentsDocument(web_contents))
-      .Record(ukm::UkmRecorder::Get());
 }
 
 void PluginInfoHostImpl::Context::MaybeGrantAccess(

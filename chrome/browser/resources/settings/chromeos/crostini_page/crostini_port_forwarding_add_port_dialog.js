@@ -8,18 +8,6 @@
  * fields and clicking add.
  */
 
-/**
- * @enum {string}
- */
-const PortState = {
-  VALID: '',
-  INVALID: loadTimeData.getString('crostiniPortForwardingAddError'),
-  DUPLICATE: loadTimeData.getString('crostiniPortForwardingAddExisting'),
-};
-
-const MIN_VALID_PORT_NUMBER = 1024;   // Minimum 16-bit integer value.
-const MAX_VALID_PORT_NUMBER = 65535;  // Maximum 16-bit integer value.
-
 Polymer({
   is: 'settings-crostini-add-port-dialog',
 
@@ -88,17 +76,17 @@ Polymer({
   },
 
   /**
-   * @return {string} input for the port number.
+   * @return {!CrInputElement} input for the port number.
    */
   get portNumberInput() {
-    return this.$.portNumberInput;
+    return /** @type{!CrInputElement} */ (this.$.portNumberInput);
   },
 
   /**
-   * @return {string} input for the optional port label.
+   * @return {!CrInputElement} input for the optional port label.
    */
   get portLabelInput() {
-    return this.$.portLabelInput;
+    return /** @type{!CrInputElement} */ (this.$.portLabelInput);
   },
 
   /**
@@ -120,9 +108,9 @@ Polymer({
       return PortState.INVALID;
     }
     if (this.allPorts.find(
-            portSetting =>
-                portSetting.port_number == this.$.portNumberInput.value &&
-                portSetting.protocol_type == this.inputProtocolIndex_)) {
+            portSetting => portSetting.port_number ===
+                    Number(this.$.portNumberInput.value) &&
+                portSetting.protocol_type === this.inputProtocolIndex_)) {
       return PortState.DUPLICATE;
     }
     return PortState.VALID;
@@ -146,7 +134,7 @@ Polymer({
   /** @private */
   onAddTap_: function() {
     this.portState_ = this.computePortState_();
-    if (!this.portState_ == PortState.VALID) {
+    if (this.portState_ !== PortState.VALID) {
       return;
     }
     const portNumber = +this.$.portNumberInput.value;
@@ -170,7 +158,7 @@ Polymer({
 
   /** @private */
   onPortStateChanged_: function() {
-    if (this.portState_ == PortState.VALID) {
+    if (this.portState_ === PortState.VALID) {
       this.$.portNumberInput.invalid = false;
       this.$.continue.disabled = false;
       return;

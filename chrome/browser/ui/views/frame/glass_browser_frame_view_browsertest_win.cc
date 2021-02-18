@@ -9,12 +9,14 @@
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/views/frame/app_menu_button.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "chrome/browser/ui/views/web_apps/web_app_frame_toolbar_view.h"
+#include "chrome/browser/ui/views/web_apps/frame_toolbar/web_app_frame_toolbar_view.h"
+#include "chrome/browser/ui/views/web_apps/frame_toolbar/web_app_toolbar_button_container.h"
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
-#include "chrome/common/web_application_info.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/test_navigation_observer.h"
+#include "ui/views/view_utils.h"
 
 class WebAppGlassBrowserFrameViewTest : public InProcessBrowserTest {
  public:
@@ -25,12 +27,12 @@ class WebAppGlassBrowserFrameViewTest : public InProcessBrowserTest {
       const WebAppGlassBrowserFrameViewTest&) = delete;
   ~WebAppGlassBrowserFrameViewTest() override = default;
 
-  GURL GetAppURL() { return GURL("https://test.org"); }
+  GURL GetStartURL() { return GURL("https://test.org"); }
 
   void SetUpOnMainThread() override {
     InProcessBrowserTest::SetUpOnMainThread();
 
-    WebAppFrameToolbarView::DisableAnimationForTesting();
+    WebAppToolbarButtonContainer::DisableAnimationForTesting();
   }
 
   // Windows 7 does not use GlassBrowserFrameView when Aero glass is not
@@ -39,14 +41,14 @@ class WebAppGlassBrowserFrameViewTest : public InProcessBrowserTest {
   // test.
   bool InstallAndLaunchWebApp() {
     auto web_app_info = std::make_unique<WebApplicationInfo>();
-    web_app_info->app_url = GetAppURL();
-    web_app_info->scope = GetAppURL().GetWithoutFilename();
+    web_app_info->start_url = GetStartURL();
+    web_app_info->scope = GetStartURL().GetWithoutFilename();
     if (theme_color_)
       web_app_info->theme_color = *theme_color_;
 
     web_app::AppId app_id =
         web_app::InstallWebApp(browser()->profile(), std::move(web_app_info));
-    content::TestNavigationObserver navigation_observer(GetAppURL());
+    content::TestNavigationObserver navigation_observer(GetStartURL());
     navigation_observer.StartWatchingNewWebContents();
     app_browser_ = web_app::LaunchWebAppBrowser(browser()->profile(), app_id);
     navigation_observer.WaitForNavigationFinished();
@@ -55,7 +57,7 @@ class WebAppGlassBrowserFrameViewTest : public InProcessBrowserTest {
     views::NonClientFrameView* frame_view =
         browser_view_->GetWidget()->non_client_view()->frame_view();
 
-    if (frame_view->GetClassName() != GlassBrowserFrameView::kClassName)
+    if (!views::IsViewClass<GlassBrowserFrameView>(frame_view))
       return false;
     glass_frame_view_ = static_cast<GlassBrowserFrameView*>(frame_view);
 

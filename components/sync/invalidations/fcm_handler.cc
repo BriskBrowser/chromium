@@ -5,17 +5,23 @@
 #include "components/sync/invalidations/fcm_handler.h"
 
 #include <map>
+#include <utility>
 
+#include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/time/time.h"
 #include "components/gcm_driver/gcm_driver.h"
 #include "components/gcm_driver/instance_id/instance_id_driver.h"
 #include "components/sync/invalidations/fcm_registration_token_observer.h"
 #include "components/sync/invalidations/invalidations_listener.h"
+#include "components/sync/invalidations/switches.h"
 
 namespace syncer {
 
-const char kPayloadKey[] = "payload";
+// Lower bound time between two token validations when listening.
+const int kTokenValidationPeriodMinutesDefault = 60 * 24;
+
+const int kInstanceIDTokenTTLSeconds = 14 * 24 * 60 * 60;  // 2 weeks.
 
 FCMHandler::FCMHandler(gcm::GCMDriver* gcm_driver,
                        instance_id::InstanceIDDriver* instance_id_driver,
@@ -34,25 +40,45 @@ FCMHandler::~FCMHandler() {
 void FCMHandler::StartListening() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!IsListening());
+  DCHECK(base::FeatureList::IsEnabled(switches::kUseSyncInvalidations));
   gcm_driver_->AddAppHandler(app_id_, this);
-  // TODO(crbug.com/1108780): set appropriate TTL.
-  instance_id_driver_->GetInstanceID(app_id_)->GetToken(
-      sender_id_, instance_id::kGCMScope, /*time_to_live=*/base::TimeDelta(),
-      /*options=*/std::map<std::string, std::string>(),
-      /*flags=*/{instance_id::InstanceID::Flags::kIsLazy},
-      base::BindRepeating(&FCMHandler::DidRetrieveToken,
-                          weak_ptr_factory_.GetWeakPtr()));
+  waiting_for_token_ = true;
+  StartTokenFetch(base::BindOnce(&FCMHandler::DidRetrieveToken,
+                                 weak_ptr_factory_.GetWeakPtr()));
 }
 
 void FCMHandler::StopListening() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (IsListening())
+  // StopListening() may be called after StartListening() right away and
+  // DidRetrieveToken() won't be called.
+  waiting_for_token_ = false;
+  if (IsListening()) {
     gcm_driver_->RemoveAppHandler(app_id_);
+    token_validation_timer_.AbandonAndStop();
+  }
+}
+
+void FCMHandler::StopListeningPermanently() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (instance_id_driver_->ExistsInstanceID(app_id_)) {
+    instance_id_driver_->GetInstanceID(app_id_)->DeleteID(
+        /*callback=*/base::DoNothing());
+    fcm_registration_token_.clear();
+    for (FCMRegistrationTokenObserver& token_observer : token_observers_) {
+      token_observer.OnFCMRegistrationTokenChanged();
+    }
+  }
+  StopListening();
 }
 
 const std::string& FCMHandler::GetFCMRegistrationToken() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return fcm_registration_token_;
+}
+
+bool FCMHandler::IsWaitingForToken() const {
+  DCHECK(!waiting_for_token_ || IsListening());
+  return waiting_for_token_;
 }
 
 void FCMHandler::ShutdownHandler() {
@@ -90,15 +116,10 @@ void FCMHandler::OnMessage(const std::string& app_id,
                            const gcm::IncomingMessage& message) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_EQ(app_id, app_id_);
-
-  auto it = message.data.find(kPayloadKey);
-  std::string payload;
-  if (it != message.data.end()) {
-    payload = it->second;
-  }
+  DCHECK(base::FeatureList::IsEnabled(switches::kUseSyncInvalidations));
 
   for (InvalidationsListener& listener : listeners_) {
-    listener.OnInvalidationReceived(payload);
+    listener.OnInvalidationReceived(message.raw_data);
   }
 }
 
@@ -129,22 +150,72 @@ bool FCMHandler::IsListening() const {
 void FCMHandler::DidRetrieveToken(const std::string& subscription_token,
                                   instance_id::InstanceID::Result result) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  // TODO(crbug.com/1108783): add a UMA histogram to monitor results.
-  if (result == instance_id::InstanceID::SUCCESS) {
-    if (fcm_registration_token_ == subscription_token) {
-      // Nothing has changed, do not notify observers.
-      return;
-    }
+  waiting_for_token_ = false;
 
+  if (!IsListening()) {
+    // After we requested the token, |StopListening| has been called. Thus,
+    // ignore the token.
+    return;
+  }
+
+  // TODO(crbug.com/1108783): add a UMA histogram to monitor results.
+  // Notify observers only if the token has changed.
+  if (result == instance_id::InstanceID::SUCCESS &&
+      fcm_registration_token_ != subscription_token) {
     fcm_registration_token_ = subscription_token;
     for (FCMRegistrationTokenObserver& token_observer : token_observers_) {
       token_observer.OnFCMRegistrationTokenChanged();
     }
-  } else {
+  } else if (result != instance_id::InstanceID::SUCCESS) {
     DLOG(WARNING) << "Messaging subscription failed: " << result;
   }
 
-  // TODO(crbug.com/1102336): schedule next token validation.
+  ScheduleNextTokenValidation();
+}
+
+void FCMHandler::ScheduleNextTokenValidation() {
+  DCHECK(IsListening());
+
+  token_validation_timer_.Start(
+      FROM_HERE,
+      base::TimeDelta::FromMinutes(kTokenValidationPeriodMinutesDefault),
+      base::BindOnce(&FCMHandler::StartTokenValidation,
+                     weak_ptr_factory_.GetWeakPtr()));
+}
+
+void FCMHandler::StartTokenValidation() {
+  DCHECK(IsListening());
+  StartTokenFetch(base::BindOnce(&FCMHandler::DidReceiveTokenForValidation,
+                                 weak_ptr_factory_.GetWeakPtr()));
+}
+
+void FCMHandler::DidReceiveTokenForValidation(
+    const std::string& new_token,
+    instance_id::InstanceID::Result result) {
+  if (!IsListening()) {
+    // After we requested the token, |StopListening| has been called. Thus,
+    // ignore the token.
+    return;
+  }
+
+  // Notify observers only if the token has changed.
+  if (result == instance_id::InstanceID::SUCCESS &&
+      fcm_registration_token_ != new_token) {
+    fcm_registration_token_ = new_token;
+    for (FCMRegistrationTokenObserver& token_observer : token_observers_) {
+      token_observer.OnFCMRegistrationTokenChanged();
+    }
+  }
+
+  ScheduleNextTokenValidation();
+}
+
+void FCMHandler::StartTokenFetch(
+    instance_id::InstanceID::GetTokenCallback callback) {
+  instance_id_driver_->GetInstanceID(app_id_)->GetToken(
+      sender_id_, instance_id::kGCMScope,
+      /*time_to_live=*/base::TimeDelta::FromSeconds(kInstanceIDTokenTTLSeconds),
+      /*flags=*/{instance_id::InstanceID::Flags::kIsLazy}, std::move(callback));
 }
 
 }  // namespace syncer

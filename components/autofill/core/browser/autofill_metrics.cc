@@ -18,6 +18,7 @@
 #include "components/autofill/core/browser/autofill_data_util.h"
 #include "components/autofill/core/browser/autofill_field.h"
 #include "components/autofill/core/browser/autofill_type.h"
+#include "components/autofill/core/browser/data_model/autofill_offer_data.h"
 #include "components/autofill/core/browser/data_model/credit_card.h"
 #include "components/autofill/core/browser/form_structure.h"
 #include "components/autofill/core/browser/form_types.h"
@@ -25,6 +26,7 @@
 #include "components/autofill/core/common/autofill_prefs.h"
 #include "components/autofill/core/common/autofill_tick_clock.h"
 #include "components/autofill/core/common/form_data.h"
+#include "components/language/core/browser/language_usage_metrics.h"
 #include "services/metrics/public/cpp/metrics_utils.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 
@@ -35,10 +37,11 @@ using mojom::SubmissionSource;
 namespace {
 
 // Exponential bucket spacing for UKM event data.
-const double kAutofillEventDataBucketSpacing = 2.0;
+constexpr double kAutofillEventDataBucketSpacing = 2.0;
 
 // Note: if adding an enum value here, update the corresponding description for
-// AutofillTypeQualityByFieldType in histograms.xml.
+// AutofillFieldPredictionQualityByFieldType in
+// tools/metrics/histograms/enums.xml.
 enum FieldTypeGroupForMetrics {
   GROUP_AMBIGUOUS = 0,
   GROUP_NAME,
@@ -49,6 +52,11 @@ enum FieldTypeGroupForMetrics {
   GROUP_ADDRESS_STATE,
   GROUP_ADDRESS_ZIP,
   GROUP_ADDRESS_COUNTRY,
+  GROUP_ADDRESS_HOME_STREET_NAME,
+  GROUP_ADDRESS_HOME_DEPENDENT_STREET_NAME,
+  GROUP_ADDRESS_HOME_HOUSE_NUMBER,
+  GROUP_ADDRESS_HOME_PREMISE_NAME,
+  GROUP_ADDRESS_HOME_SUBPREMISE,
   GROUP_PHONE,
   GROUP_FAX,  // Deprecated.
   GROUP_EMAIL,
@@ -62,6 +70,16 @@ enum FieldTypeGroupForMetrics {
   GROUP_STREET_ADDRESS,
   GROUP_CREDIT_CARD_VERIFICATION,
   GROUP_UNFILLABLE,
+  GROUP_ADDRESS_HOME_APT_NUM,
+  GROUP_ADDRESS_HOME_SORTING_CODE,
+  GROUP_ADDRESS_HOME_DEPENDENT_LOCALITY,
+  GROUP_ADDRESS_HOME_STREET_AND_DEPENDENT_STREET_NAME,
+  GROUP_ADDRESS_HOME_OTHER_SUBUNIT,
+  GROUP_ADDRESS_HOME_ADDRESS,
+  GROUP_ADDRESS_HOME_ADDRESS_WITH_NAME,
+  GROUP_ADDRESS_HOME_FLOOR,
+  GROUP_UNKNOWN_TYPE,
+  // Add new entries here and update enums.xml.
   NUM_FIELD_TYPE_GROUPS_FOR_METRICS
 };
 
@@ -92,9 +110,9 @@ std::string PreviousSaveCreditCardPromptUserDecisionToString(
 // Returns the interpolated index.
 //
 // The interpolation maps the pair (|group|, |metric|) to a single index, so
-// that all the indicies for a given group are adjacent.  In particular, with
-// the groups {AMBIGUOUS, NAME, ...} combining with the metrics {UNKNOWN, MATCH,
-// MISMATCH}, we create this set of mapped indices:
+// that all the indices for a given group are adjacent.  In particular, with
+// the groups {AMBIGUOUS, NAME, ...} combining with the metrics
+// {UNKNOWN, MATCH, MISMATCH}, we create this set of mapped indices:
 // {
 //   AMBIGUOUS+UNKNOWN,
 //   AMBIGUOUS+MATCH,
@@ -118,21 +136,21 @@ int GetFieldTypeGroupPredictionQualityMetric(
 
   FieldTypeGroupForMetrics group = GROUP_AMBIGUOUS;
   switch (AutofillType(field_type).group()) {
-    case NO_GROUP:
+    case FieldTypeGroup::kNoGroup:
       group = GROUP_AMBIGUOUS;
       break;
 
-    case NAME:
-    case NAME_BILLING:
+    case FieldTypeGroup::kName:
+    case FieldTypeGroup::kNameBilling:
       group = GROUP_NAME;
       break;
 
-    case COMPANY:
+    case FieldTypeGroup::kCompany:
       group = GROUP_COMPANY;
       break;
 
-    case ADDRESS_HOME:
-    case ADDRESS_BILLING:
+    case FieldTypeGroup::kAddressHome:
+    case FieldTypeGroup::kAddressBilling:
       switch (AutofillType(field_type).GetStorableType()) {
         case ADDRESS_HOME_LINE1:
           group = GROUP_ADDRESS_LINE_1;
@@ -142,6 +160,9 @@ int GetFieldTypeGroupPredictionQualityMetric(
           break;
         case ADDRESS_HOME_LINE3:
           group = GROUP_ADDRESS_LINE_3;
+          break;
+        case ADDRESS_HOME_APT_NUM:
+          group = GROUP_ADDRESS_HOME_APT_NUM;
           break;
         case ADDRESS_HOME_STREET_ADDRESS:
           group = GROUP_STREET_ADDRESS;
@@ -158,23 +179,140 @@ int GetFieldTypeGroupPredictionQualityMetric(
         case ADDRESS_HOME_COUNTRY:
           group = GROUP_ADDRESS_COUNTRY;
           break;
-        default:
-          NOTREACHED() << field_type << " has no group assigned (ambiguous)";
+        case ADDRESS_HOME_STREET_NAME:
+          group = GROUP_ADDRESS_HOME_STREET_NAME;
+          break;
+        case ADDRESS_HOME_SORTING_CODE:
+          group = GROUP_ADDRESS_HOME_SORTING_CODE;
+          break;
+        case ADDRESS_HOME_DEPENDENT_LOCALITY:
+          group = GROUP_ADDRESS_HOME_DEPENDENT_LOCALITY;
+          break;
+        case ADDRESS_HOME_DEPENDENT_STREET_NAME:
+          group = GROUP_ADDRESS_HOME_DEPENDENT_STREET_NAME;
+          break;
+        case ADDRESS_HOME_HOUSE_NUMBER:
+          group = GROUP_ADDRESS_HOME_HOUSE_NUMBER;
+          break;
+        case ADDRESS_HOME_PREMISE_NAME:
+          group = GROUP_ADDRESS_HOME_PREMISE_NAME;
+          break;
+        case ADDRESS_HOME_STREET_AND_DEPENDENT_STREET_NAME:
+          group = GROUP_ADDRESS_HOME_STREET_AND_DEPENDENT_STREET_NAME;
+          break;
+        case ADDRESS_HOME_SUBPREMISE:
+          group = GROUP_ADDRESS_HOME_SUBPREMISE;
+          break;
+        case ADDRESS_HOME_OTHER_SUBUNIT:
+          group = GROUP_ADDRESS_HOME_OTHER_SUBUNIT;
+          break;
+        case ADDRESS_HOME_ADDRESS:
+          group = GROUP_ADDRESS_HOME_ADDRESS;
+          break;
+        case ADDRESS_HOME_ADDRESS_WITH_NAME:
+          group = GROUP_ADDRESS_HOME_ADDRESS_WITH_NAME;
+          break;
+        case ADDRESS_HOME_FLOOR:
+          group = GROUP_ADDRESS_HOME_FLOOR;
+          break;
+        case UNKNOWN_TYPE:
+          group = GROUP_UNKNOWN_TYPE;
+          break;
+        case NO_SERVER_DATA:
+        case EMPTY_TYPE:
+        case NAME_FIRST:
+        case NAME_MIDDLE:
+        case NAME_LAST:
+        case NAME_MIDDLE_INITIAL:
+        case NAME_FULL:
+        case NAME_SUFFIX:
+        case EMAIL_ADDRESS:
+        case PHONE_HOME_NUMBER:
+        case PHONE_HOME_CITY_CODE:
+        case PHONE_HOME_COUNTRY_CODE:
+        case PHONE_HOME_CITY_AND_NUMBER:
+        case PHONE_HOME_WHOLE_NUMBER:
+        case PHONE_FAX_NUMBER:
+        case PHONE_FAX_CITY_CODE:
+        case PHONE_FAX_COUNTRY_CODE:
+        case PHONE_FAX_CITY_AND_NUMBER:
+        case PHONE_FAX_WHOLE_NUMBER:
+        case ADDRESS_BILLING_LINE1:
+        case ADDRESS_BILLING_LINE2:
+        case ADDRESS_BILLING_APT_NUM:
+        case ADDRESS_BILLING_CITY:
+        case ADDRESS_BILLING_STATE:
+        case ADDRESS_BILLING_ZIP:
+        case ADDRESS_BILLING_COUNTRY:
+        case CREDIT_CARD_NAME_FULL:
+        case CREDIT_CARD_NUMBER:
+        case CREDIT_CARD_EXP_MONTH:
+        case CREDIT_CARD_EXP_2_DIGIT_YEAR:
+        case CREDIT_CARD_EXP_4_DIGIT_YEAR:
+        case CREDIT_CARD_EXP_DATE_2_DIGIT_YEAR:
+        case CREDIT_CARD_EXP_DATE_4_DIGIT_YEAR:
+        case CREDIT_CARD_TYPE:
+        case CREDIT_CARD_VERIFICATION_CODE:
+        case COMPANY_NAME:
+        case FIELD_WITH_DEFAULT_VALUE:
+        case PHONE_BILLING_NUMBER:
+        case PHONE_BILLING_CITY_CODE:
+        case PHONE_BILLING_COUNTRY_CODE:
+        case PHONE_BILLING_CITY_AND_NUMBER:
+        case PHONE_BILLING_WHOLE_NUMBER:
+        case NAME_BILLING_FIRST:
+        case NAME_BILLING_MIDDLE:
+        case NAME_BILLING_LAST:
+        case NAME_BILLING_MIDDLE_INITIAL:
+        case NAME_BILLING_FULL:
+        case NAME_BILLING_SUFFIX:
+        case MERCHANT_EMAIL_SIGNUP:
+        case MERCHANT_PROMO_CODE:
+        case PASSWORD:
+        case ACCOUNT_CREATION_PASSWORD:
+        case ADDRESS_BILLING_STREET_ADDRESS:
+        case ADDRESS_BILLING_SORTING_CODE:
+        case ADDRESS_BILLING_DEPENDENT_LOCALITY:
+        case ADDRESS_BILLING_LINE3:
+        case NOT_ACCOUNT_CREATION_PASSWORD:
+        case USERNAME:
+        case USERNAME_AND_EMAIL_ADDRESS:
+        case NEW_PASSWORD:
+        case PROBABLY_NEW_PASSWORD:
+        case NOT_NEW_PASSWORD:
+        case CREDIT_CARD_NAME_FIRST:
+        case CREDIT_CARD_NAME_LAST:
+        case PHONE_HOME_EXTENSION:
+        case CONFIRMATION_PASSWORD:
+        case AMBIGUOUS_TYPE:
+        case SEARCH_TERM:
+        case PRICE:
+        case NOT_PASSWORD:
+        case SINGLE_USERNAME:
+        case NOT_USERNAME:
+        case UPI_VPA:
+        case NAME_LAST_FIRST:
+        case NAME_LAST_CONJUNCTION:
+        case NAME_LAST_SECOND:
+        case NAME_HONORIFIC_PREFIX:
+        case NAME_FULL_WITH_HONORIFIC_PREFIX:
+        case MAX_VALID_FIELD_TYPE:
+          NOTREACHED() << field_type << " type is not in that group.";
           group = GROUP_AMBIGUOUS;
           break;
       }
       break;
 
-    case EMAIL:
+    case FieldTypeGroup::kEmail:
       group = GROUP_EMAIL;
       break;
 
-    case PHONE_HOME:
-    case PHONE_BILLING:
+    case FieldTypeGroup::kPhoneHome:
+    case FieldTypeGroup::kPhoneBilling:
       group = GROUP_PHONE;
       break;
 
-    case CREDIT_CARD:
+    case FieldTypeGroup::kCreditCard:
       switch (field_type) {
         case CREDIT_CARD_NAME_FULL:
         case CREDIT_CARD_NAME_FIRST:
@@ -204,19 +342,19 @@ int GetFieldTypeGroupPredictionQualityMetric(
       }
       break;
 
-    case PASSWORD_FIELD:
+    case FieldTypeGroup::kPasswordField:
       group = GROUP_PASSWORD;
       break;
 
-    case USERNAME_FIELD:
+    case FieldTypeGroup::kUsernameField:
       group = GROUP_USERNAME;
       break;
 
-    case UNFILLABLE:
+    case FieldTypeGroup::kUnfillable:
       group = GROUP_UNFILLABLE;
       break;
 
-    case TRANSACTION:
+    case FieldTypeGroup::kTransaction:
       NOTREACHED();
       break;
   }
@@ -324,7 +462,8 @@ ServerFieldType GetActualFieldType(const ServerFieldTypeSet& possible_types,
   if (collapsed_field_types.size() == 1)
     actual_type = *collapsed_field_types.begin();
 
-  DVLOG(2) << "Inferred Type: " << AutofillType(actual_type).ToString();
+  DVLOG(2) << "Inferred Type: "
+           << AutofillType::ServerFieldTypeToString(actual_type);
   return actual_type;
 }
 
@@ -531,8 +670,9 @@ void LogPredictionQualityMetrics(
   ServerFieldType actual_type =
       GetActualFieldType(possible_types, predicted_type);
 
-  DVLOG(2) << "Predicted: " << AutofillType(predicted_type).ToString() << "; "
-           << "Actual: " << AutofillType(actual_type).ToString();
+  DVLOG(2) << "Predicted: "
+           << AutofillType::ServerFieldTypeToString(predicted_type) << "; "
+           << "Actual: " << AutofillType::ServerFieldTypeToString(actual_type);
 
   DCHECK_LE(predicted_type, UINT16_MAX);
   DCHECK_LE(actual_type, UINT16_MAX);
@@ -828,77 +968,6 @@ void AutofillMetrics::LogSaveCardPromptResultMetric(
 }
 
 // static
-void AutofillMetrics::LogSaveCardPromptMetric(
-    SaveCardPromptMetric metric,
-    bool is_uploading,
-    bool is_reshow,
-    AutofillClient::SaveCreditCardOptions options,
-    int previous_save_credit_card_prompt_user_decision,
-    security_state::SecurityLevel security_level,
-    AutofillSyncSigninState sync_state) {
-  DCHECK_LT(metric, NUM_SAVE_CARD_PROMPT_METRICS);
-  std::string destination = is_uploading ? ".Upload" : ".Local";
-  std::string show = is_reshow ? ".Reshows" : ".FirstShow";
-  std::string metric_with_destination_and_show =
-      "Autofill.SaveCreditCardPrompt" + destination + show;
-  base::UmaHistogramEnumeration(metric_with_destination_and_show, metric,
-                                NUM_SAVE_CARD_PROMPT_METRICS);
-  base::UmaHistogramEnumeration(
-      metric_with_destination_and_show + GetMetricsSyncStateSuffix(sync_state),
-      metric, NUM_SAVE_CARD_PROMPT_METRICS);
-  if (options.should_request_name_from_user) {
-    base::UmaHistogramEnumeration(
-        metric_with_destination_and_show + ".RequestingCardholderName", metric,
-        NUM_SAVE_CARD_PROMPT_METRICS);
-  }
-  if (options.should_request_expiration_date_from_user) {
-    base::UmaHistogramEnumeration(
-        metric_with_destination_and_show + ".RequestingExpirationDate", metric,
-        NUM_SAVE_CARD_PROMPT_METRICS);
-  }
-  if (options.has_non_focusable_field) {
-    base::UmaHistogramEnumeration(
-        metric_with_destination_and_show + ".FromNonFocusableForm", metric,
-        NUM_SAVE_CARD_PROMPT_METRICS);
-  }
-  if (options.from_dynamic_change_form) {
-    base::UmaHistogramEnumeration(
-        metric_with_destination_and_show + ".FromDynamicChangeForm", metric,
-        NUM_SAVE_CARD_PROMPT_METRICS);
-  }
-  base::UmaHistogramEnumeration(
-      metric_with_destination_and_show +
-          PreviousSaveCreditCardPromptUserDecisionToString(
-              previous_save_credit_card_prompt_user_decision),
-      metric, NUM_SAVE_CARD_PROMPT_METRICS);
-
-  LogSaveCardPromptMetricBySecurityLevel(metric, is_uploading, security_level);
-}
-
-// static
-void AutofillMetrics::LogSaveCardPromptMetricBySecurityLevel(
-    SaveCardPromptMetric metric,
-    bool is_uploading,
-    security_state::SecurityLevel security_level) {
-  // Getting a SECURITY_LEVEL_COUNT security level means that it was not
-  // possible to get the real security level. Don't log.
-  if (security_level == security_state::SecurityLevel::SECURITY_LEVEL_COUNT) {
-    return;
-  }
-
-  std::string histogram_name = "Autofill.SaveCreditCardPrompt.";
-  if (is_uploading) {
-    histogram_name += "Upload";
-  } else {
-    histogram_name += "Local";
-  }
-
-  base::UmaHistogramEnumeration(security_state::GetSecurityLevelHistogramName(
-                                    histogram_name, security_level),
-                                metric, NUM_SAVE_CARD_PROMPT_METRICS);
-}
-
-// static
 void AutofillMetrics::LogCreditCardUploadLegalMessageLinkClicked() {
   base::RecordAction(base::UserMetricsAction(
       "Autofill_CreditCardUpload_LegalMessageLinkClicked"));
@@ -956,19 +1025,6 @@ void AutofillMetrics::LogLocalCardMigrationBubbleOfferMetric(
   histogram_name += is_reshow ? "Reshows" : "FirstShow";
   base::UmaHistogramEnumeration(histogram_name, metric,
                                 NUM_LOCAL_CARD_MIGRATION_BUBBLE_OFFER_METRICS);
-}
-
-// static
-void AutofillMetrics::LogLocalCardMigrationBubbleUserInteractionMetric(
-    LocalCardMigrationBubbleUserInteractionMetric metric,
-    bool is_reshow) {
-  DCHECK_LT(metric, NUM_LOCAL_CARD_MIGRATION_BUBBLE_USER_INTERACTION_METRICS);
-  std::string histogram_name =
-      "Autofill.LocalCardMigrationBubbleUserInteraction.";
-  histogram_name += is_reshow ? "Reshows" : "FirstShow";
-  base::UmaHistogramEnumeration(
-      histogram_name, metric,
-      NUM_LOCAL_CARD_MIGRATION_BUBBLE_USER_INTERACTION_METRICS);
 }
 
 // static
@@ -1430,14 +1486,14 @@ void AutofillMetrics::LogEditedAutofilledFieldAtSubmission(
                                field.Type().GetStorableType(), editing_metric));
 
   // Record the UMA statistics spliced by the autocomplete attribute value.
-  FormType form_type =
-      FormTypes::FieldTypeGroupToFormType(field.Type().group());
-  if (form_type == ADDRESS_FORM || form_type == CREDIT_CARD_FORM) {
+  FormType form_type = FieldTypeGroupToFormType(field.Type().group());
+  if (form_type == FormType::kAddressForm ||
+      form_type == FormType::kCreditCardForm) {
     bool autocomplete_off = field.autocomplete_attribute == "off";
     const std::string autocomplete_histogram = base::StrCat(
         {"Autofill.Autocomplete.", autocomplete_off ? "Off" : "NotOff",
          ".EditedAutofilledFieldAtSubmission.",
-         form_type == ADDRESS_FORM ? "Address" : "CreditCard"});
+         form_type == FormType::kAddressForm ? "Address" : "CreditCard"});
     base::UmaHistogramEnumeration(autocomplete_histogram, editing_metric);
   }
 
@@ -1462,42 +1518,45 @@ void AutofillMetrics::LogUserHappinessMetric(
     FieldTypeGroup field_type_group,
     security_state::SecurityLevel security_level,
     uint32_t profile_form_bitmask) {
-  LogUserHappinessMetric(
-      metric, {FormTypes::FieldTypeGroupToFormType(field_type_group)},
-      security_level, profile_form_bitmask);
+  LogUserHappinessMetric(metric, {FieldTypeGroupToFormType(field_type_group)},
+                         security_level, profile_form_bitmask);
 }
 
 // static
 void AutofillMetrics::LogUserHappinessMetric(
     UserHappinessMetric metric,
-    const std::set<FormType>& form_types,
+    const DenseSet<FormType>& form_types,
     security_state::SecurityLevel security_level,
     uint32_t profile_form_bitmask) {
   DCHECK_LT(metric, NUM_USER_HAPPINESS_METRICS);
   UMA_HISTOGRAM_ENUMERATION("Autofill.UserHappiness", metric,
                             NUM_USER_HAPPINESS_METRICS);
-  if (base::Contains(form_types, CREDIT_CARD_FORM)) {
+  if (base::Contains(form_types, FormType::kCreditCardForm)) {
     UMA_HISTOGRAM_ENUMERATION("Autofill.UserHappiness.CreditCard", metric,
                               NUM_USER_HAPPINESS_METRICS);
-    LogUserHappinessBySecurityLevel(metric, CREDIT_CARD_FORM, security_level);
+    LogUserHappinessBySecurityLevel(metric, FormType::kCreditCardForm,
+                                    security_level);
   }
-  if (base::Contains(form_types, ADDRESS_FORM)) {
+  if (base::Contains(form_types, FormType::kAddressForm)) {
     UMA_HISTOGRAM_ENUMERATION("Autofill.UserHappiness.Address", metric,
                               NUM_USER_HAPPINESS_METRICS);
     if (metric != AutofillMetrics::FORMS_LOADED) {
       LogUserHappinessByProfileFormType(metric, profile_form_bitmask);
     }
-    LogUserHappinessBySecurityLevel(metric, ADDRESS_FORM, security_level);
+    LogUserHappinessBySecurityLevel(metric, FormType::kAddressForm,
+                                    security_level);
   }
-  if (base::Contains(form_types, PASSWORD_FORM)) {
+  if (base::Contains(form_types, FormType::kPasswordForm)) {
     UMA_HISTOGRAM_ENUMERATION("Autofill.UserHappiness.Password", metric,
                               NUM_USER_HAPPINESS_METRICS);
-    LogUserHappinessBySecurityLevel(metric, PASSWORD_FORM, security_level);
+    LogUserHappinessBySecurityLevel(metric, FormType::kPasswordForm,
+                                    security_level);
   }
-  if (base::Contains(form_types, UNKNOWN_FORM_TYPE)) {
+  if (base::Contains(form_types, FormType::kUnknownFormType)) {
     UMA_HISTOGRAM_ENUMERATION("Autofill.UserHappiness.Unknown", metric,
                               NUM_USER_HAPPINESS_METRICS);
-    LogUserHappinessBySecurityLevel(metric, UNKNOWN_FORM_TYPE, security_level);
+    LogUserHappinessBySecurityLevel(metric, FormType::kUnknownFormType,
+                                    security_level);
   }
 }
 
@@ -1512,19 +1571,19 @@ void AutofillMetrics::LogUserHappinessBySecurityLevel(
 
   std::string histogram_name = "Autofill.UserHappiness.";
   switch (form_type) {
-    case CREDIT_CARD_FORM:
+    case FormType::kCreditCardForm:
       histogram_name += "CreditCard";
       break;
 
-    case ADDRESS_FORM:
+    case FormType::kAddressForm:
       histogram_name += "Address";
       break;
 
-    case PASSWORD_FORM:
+    case FormType::kPasswordForm:
       histogram_name += "Password";
       break;
 
-    case UNKNOWN_FORM_TYPE:
+    case FormType::kUnknownFormType:
       histogram_name += "Unknown";
       break;
 
@@ -1570,7 +1629,7 @@ void AutofillMetrics::LogFormFillDurationFromLoadWithoutAutofill(
 
 // static
 void AutofillMetrics::LogFormFillDurationFromInteraction(
-    const std::set<FormType>& form_types,
+    const DenseSet<FormType>& form_types,
     bool used_autofill,
     const base::TimeDelta& duration) {
   std::string parent_metric;
@@ -1580,16 +1639,16 @@ void AutofillMetrics::LogFormFillDurationFromInteraction(
     parent_metric = "Autofill.FillDuration.FromInteraction.WithoutAutofill";
   }
   LogFormFillDuration(parent_metric, duration);
-  if (base::Contains(form_types, CREDIT_CARD_FORM)) {
+  if (base::Contains(form_types, FormType::kCreditCardForm)) {
     LogFormFillDuration(parent_metric + ".CreditCard", duration);
   }
-  if (base::Contains(form_types, ADDRESS_FORM)) {
+  if (base::Contains(form_types, FormType::kAddressForm)) {
     LogFormFillDuration(parent_metric + ".Address", duration);
   }
-  if (base::Contains(form_types, PASSWORD_FORM)) {
+  if (base::Contains(form_types, FormType::kPasswordForm)) {
     LogFormFillDuration(parent_metric + ".Password", duration);
   }
-  if (base::Contains(form_types, UNKNOWN_FORM_TYPE)) {
+  if (base::Contains(form_types, FormType::kUnknownFormType)) {
     LogFormFillDuration(parent_metric + ".Unknown", duration);
   }
 }
@@ -1780,6 +1839,26 @@ void AutofillMetrics::LogStoredCreditCardMetrics(
 }
 
 // static
+void AutofillMetrics::LogStoredOfferMetrics(
+    const std::vector<std::unique_ptr<AutofillOfferData>>& offers) {
+  base::UmaHistogramCounts1000("Autofill.Offer.StoredOfferCount",
+                               offers.size());
+
+  for (const std::unique_ptr<AutofillOfferData>& offer : offers) {
+    base::UmaHistogramCounts1000(
+        "Autofill.Offer.StoredOfferRelatedMerchantCount",
+        offer->merchant_domain.size());
+    base::UmaHistogramCounts1000("Autofill.Offer.StoredOfferRelatedCardCount",
+                                 offer->eligible_instrument_id.size());
+  }
+}
+
+// static
+void AutofillMetrics::LogSyncedOfferDataBeingValid(bool valid) {
+  base::UmaHistogramBoolean("Autofill.Offer.SyncedOfferDataBeingValid", valid);
+}
+
+// static
 void AutofillMetrics::LogNumberOfCreditCardsSuppressedForDisuse(
     size_t num_cards) {
   UMA_HISTOGRAM_COUNTS_1000("Autofill.CreditCardsSuppressedForDisuse",
@@ -1884,7 +1963,7 @@ void AutofillMetrics::LogAutofillFormSubmittedState(
     AutofillFormSubmittedState state,
     bool is_for_credit_card,
     bool has_upi_vpa_field,
-    const std::set<FormType>& form_types,
+    const DenseSet<FormType>& form_types,
     const base::TimeTicks& form_parsed_timestamp,
     FormSignature form_signature,
     AutofillMetrics::FormInteractionsUkmLogger* form_interactions_ukm_logger) {
@@ -2065,7 +2144,7 @@ void AutofillMetrics::LogDeveloperEngagementUkm(
     ukm::SourceId source_id,
     const GURL& url,
     bool is_for_credit_card,
-    std::set<FormType> form_types,
+    DenseSet<FormType> form_types,
     int developer_engagement_metrics,
     FormSignature form_signature) {
   DCHECK(developer_engagement_metrics);
@@ -2271,7 +2350,7 @@ void AutofillMetrics::FormInteractionsUkmLogger::
 }
 
 int64_t AutofillMetrics::FormTypesToBitVector(
-    const std::set<FormType>& form_types) {
+    const DenseSet<FormType>& form_types) {
   int64_t form_type_bv = 0;
   for (const FormType& form_type : form_types) {
     DCHECK_LT(static_cast<int64_t>(form_type), 63);
@@ -2324,7 +2403,7 @@ const char* AutofillMetrics::GetMetricsSyncStateSuffix(
 void AutofillMetrics::FormInteractionsUkmLogger::LogFormSubmitted(
     bool is_for_credit_card,
     bool has_upi_vpa_field,
-    const std::set<FormType>& form_types,
+    const DenseSet<FormType>& form_types,
     AutofillFormSubmittedState state,
     const base::TimeTicks& form_parsed_timestamp,
     FormSignature form_signature) {
@@ -2350,7 +2429,7 @@ void AutofillMetrics::FormInteractionsUkmLogger::LogFormSubmitted(
 
 void AutofillMetrics::FormInteractionsUkmLogger::LogFormEvent(
     FormEvent form_event,
-    const std::set<FormType>& form_types,
+    const DenseSet<FormType>& form_types,
     const base::TimeTicks& form_parsed_timestamp) {
   if (!CanLog())
     return;
@@ -2429,6 +2508,20 @@ void AutofillMetrics::LogAddressFormImportStatustMetric(
 }
 
 // static
+void AutofillMetrics::LogFieldParsingPageTranslationStatusMetric(bool metric) {
+  base::UmaHistogramBoolean("Autofill.ParsedFieldTypesWasPageTranslated",
+                            metric);
+}
+
+// static
+void AutofillMetrics::LogFieldParsingTranslatedFormLanguageMetric(
+    base::StringPiece locale) {
+  base::UmaHistogramSparse(
+      "Autofill.ParsedFieldTypesUsingTranslatedPageLanguage",
+      language::LanguageUsageMetrics::ToLanguageCode(locale));
+}
+
+// static
 void AutofillMetrics::LogWebOTPPhoneCollectionMetricStateUkm(
     ukm::UkmRecorder* recorder,
     ukm::SourceId source_id,
@@ -2442,4 +2535,18 @@ void AutofillMetrics::LogWebOTPPhoneCollectionMetricStateUkm(
   builder.Record(recorder);
 }
 
+// static
+void AutofillMetrics::LogNumberOfAutofilledFieldsAtSubmission(
+    size_t number_of_accepted_fields,
+    size_t number_of_corrected_fields) {
+  base::UmaHistogramExactLinear(
+      "Autofill.NumberOfAutofilledFieldsAtSubmission.Total",
+      number_of_accepted_fields + number_of_corrected_fields, 50);
+  base::UmaHistogramExactLinear(
+      "Autofill.NumberOfAutofilledFieldsAtSubmission.Accepted",
+      number_of_accepted_fields, 50);
+  base::UmaHistogramExactLinear(
+      "Autofill.NumberOfAutofilledFieldsAtSubmission.Corrected",
+      number_of_corrected_fields, 50);
+}
 }  // namespace autofill

@@ -23,6 +23,8 @@
 #include "components/autofill/core/common/autofill_payments_features.h"
 #include "components/autofill/core/common/autofill_prefs.h"
 #include "components/signin/public/identity_manager/account_info.h"
+#include "device/fido/authenticator_selection_criteria.h"
+#include "device/fido/fido_types.h"
 #include "third_party/blink/public/mojom/webauthn/authenticator.mojom.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -518,7 +520,8 @@ void CreditCardFIDOAuthenticator::OnFullCardRequestSucceeded(
   requester_->OnFIDOAuthenticationComplete(/*did_succeed=*/true, &card, cvc);
 }
 
-void CreditCardFIDOAuthenticator::OnFullCardRequestFailed() {
+void CreditCardFIDOAuthenticator::OnFullCardRequestFailed(
+    payments::FullCardRequest::FailureType failure_type) {
   DCHECK_EQ(AUTHENTICATION_FLOW, current_flow_);
   current_flow_ = NONE_FLOW;
   requester_->OnFIDOAuthenticationComplete(/*did_succeed=*/false);
@@ -571,10 +574,13 @@ CreditCardFIDOAuthenticator::ParseCreationOptions(
     options->relying_party.icon_url = GURL(*icon_url);
 
   const std::string gaia =
-      autofill_client_->GetIdentityManager()->GetPrimaryAccountInfo().gaia;
+      autofill_client_->GetIdentityManager()
+          ->GetPrimaryAccountInfo(signin::ConsentLevel::kSync)
+          .gaia;
   options->user.id = std::vector<uint8_t>(gaia.begin(), gaia.end());
-  options->user.name =
-      autofill_client_->GetIdentityManager()->GetPrimaryAccountInfo().email;
+  options->user.name = autofill_client_->GetIdentityManager()
+                           ->GetPrimaryAccountInfo(signin::ConsentLevel::kSync)
+                           .email;
 
   base::Optional<AccountInfo> account_info =
       autofill_client_->GetIdentityManager()
@@ -621,9 +627,10 @@ CreditCardFIDOAuthenticator::ParseCreationOptions(
   }
 
   // Only allow user-verifying platform authenticators.
-  options->authenticator_selection = AuthenticatorSelectionCriteria(
-      AuthenticatorAttachment::kPlatform, /*require_resident_key=*/false,
-      UserVerificationRequirement::kRequired);
+  options->authenticator_selection = device::AuthenticatorSelectionCriteria(
+      device::AuthenticatorAttachment::kPlatform,
+      device::ResidentKeyRequirement::kDiscouraged,
+      device::UserVerificationRequirement::kRequired);
 
   // List of keys that Payments already knows about, and so should not make a
   // new credential.

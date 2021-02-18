@@ -8,7 +8,7 @@
 
 #include "base/numerics/safe_conversions.h"
 #include "build/build_config.h"
-#include "chrome/browser/first_run/first_run.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/upgrade_detector/upgrade_detector.h"
 #include "chrome/common/buildflags.h"
@@ -21,7 +21,7 @@
 #include "media/media_buildflags.h"
 #include "third_party/blink/public/common/peerconnection/webrtc_ip_handling_policy.h"
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ui/accessibility/accessibility_features.h"
 #endif
 
@@ -82,18 +82,16 @@ void RegisterBrowserUserPrefs(user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterBooleanPref(
       prefs::kEnableDoNotTrack, false,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
-#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
+#if !BUILDFLAG(IS_CHROMEOS_ASH) && !defined(OS_ANDROID)
   registry->RegisterBooleanPref(prefs::kPrintPreviewUseSystemDefaultPrinter,
                                 false);
 #endif
-  // TODO(guoweis): Remove next 2 options at M50.
-  registry->RegisterBooleanPref(prefs::kWebRTCMultipleRoutesEnabled, true);
-  registry->RegisterBooleanPref(prefs::kWebRTCNonProxiedUdpEnabled, true);
   registry->RegisterStringPref(prefs::kWebRTCIPHandlingPolicy,
                                blink::kWebRTCIPHandlingDefault);
   registry->RegisterStringPref(prefs::kWebRTCUDPPortRange, std::string());
   registry->RegisterBooleanPref(prefs::kWebRtcEventLogCollectionAllowed, false);
   registry->RegisterListPref(prefs::kWebRtcLocalIpsAllowedUrls);
+  registry->RegisterBooleanPref(prefs::kWebRTCAllowLegacyTLSProtocols, false);
 
   // Dictionaries to keep track of default tasks in the file browser.
   registry->RegisterDictionaryPref(
@@ -135,7 +133,6 @@ void RegisterBrowserUserPrefs(user_prefs::PrefRegistrySyncable* registry) {
 
   registry->RegisterBooleanPref(prefs::kEnterpriseHardwarePlatformAPIEnabled,
                                 false);
-  registry->RegisterBooleanPref(prefs::kAllowPopupsDuringPageUnload, false);
   registry->RegisterBooleanPref(prefs::kUserFeedbackAllowed, true);
   registry->RegisterBooleanPref(prefs::kAllowSyncXHRInPageDismissal, false);
   registry->RegisterBooleanPref(
@@ -149,7 +146,7 @@ void RegisterBrowserUserPrefs(user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterBooleanPref(prefs::kShowCaretBrowsingDialog, true);
 #endif
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
   registry->RegisterBooleanPref(prefs::kAccessibilityFocusHighlightEnabled,
                                 false);
 #endif

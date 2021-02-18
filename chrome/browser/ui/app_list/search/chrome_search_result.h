@@ -26,7 +26,6 @@ namespace app_list {
 class AppContextMenu;
 }  // namespace app_list
 
-
 // ChromeSearchResult consists of an icon, title text and details text. Title
 // and details text can have tagged ranges that are displayed differently from
 // default style.
@@ -40,6 +39,7 @@ class ChromeSearchResult {
   using Action = ash::SearchResultAction;
   using Actions = ash::SearchResultActions;
   using DisplayIndex = ash::SearchResultDisplayIndex;
+  using OmniboxType = ash::SearchResultOmniboxType;
 
   ChromeSearchResult();
   virtual ~ChromeSearchResult();
@@ -62,6 +62,7 @@ class ChromeSearchResult {
   }
   MetricsType metrics_type() const { return metadata_->metrics_type; }
   DisplayIndex display_index() const { return metadata_->display_index; }
+  OmniboxType omnibox_type() const { return metadata_->omnibox_type; }
   float position_priority() const { return metadata_->position_priority; }
   const Actions& actions() const { return metadata_->actions; }
   double display_score() const { return metadata_->display_score; }
@@ -92,6 +93,7 @@ class ChromeSearchResult {
   void SetResultType(ResultType result_type);
   void SetMetricsType(MetricsType metrics_type);
   void SetDisplayIndex(DisplayIndex display_index);
+  void SetOmniboxType(OmniboxType omnibox_type);
   void SetPositionPriority(float position_priority);
   void SetDisplayScore(double display_score);
   void SetActions(const Actions& actions);
@@ -128,7 +130,7 @@ class ChromeSearchResult {
   }
 
   // Invokes a custom action on the result. It does nothing by default.
-  virtual void InvokeAction(int action_index, int event_flags);
+  virtual void InvokeAction(int action_index);
 
   // Opens the result. Clients should use AppListViewDelegate::OpenSearchResult.
   virtual void Open(int event_flags) = 0;

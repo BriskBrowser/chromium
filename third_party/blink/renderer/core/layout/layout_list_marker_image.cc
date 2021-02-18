@@ -15,16 +15,19 @@ LayoutListMarkerImage::LayoutListMarkerImage(Element* element)
 
 LayoutListMarkerImage* LayoutListMarkerImage::CreateAnonymous(
     Document* document) {
-  LayoutListMarkerImage* object = new LayoutListMarkerImage(nullptr);
+  LayoutListMarkerImage* object =
+      MakeGarbageCollected<LayoutListMarkerImage>(nullptr);
   object->SetDocumentForAnonymous(document);
   return object;
 }
 
 bool LayoutListMarkerImage::IsOfType(LayoutObjectType type) const {
+  NOT_DESTROYED();
   return type == kLayoutObjectListMarkerImage || LayoutImage::IsOfType(type);
 }
 
 LayoutSize LayoutListMarkerImage::DefaultSize() const {
+  NOT_DESTROYED();
   const SimpleFontData* font_data = Style()->GetFont().PrimaryFont();
   DCHECK(font_data);
   if (!font_data)
@@ -39,6 +42,7 @@ LayoutSize LayoutListMarkerImage::DefaultSize() const {
 // default object size(ascent/2 x ascent/2).
 void LayoutListMarkerImage::ComputeIntrinsicSizingInfoByDefaultSize(
     IntrinsicSizingInfo& intrinsic_sizing_info) const {
+  NOT_DESTROYED();
   FloatSize concrete_size = ImageResource()->ImageSizeWithDefaultSize(
       Style()->EffectiveZoom(), FloatSize(DefaultSize()));
   concrete_size.Scale(ImageDevicePixelRatio());
@@ -52,6 +56,7 @@ void LayoutListMarkerImage::ComputeIntrinsicSizingInfoByDefaultSize(
 
 void LayoutListMarkerImage::ComputeIntrinsicSizingInfo(
     IntrinsicSizingInfo& intrinsic_sizing_info) const {
+  NOT_DESTROYED();
   LayoutImage::ComputeIntrinsicSizingInfo(intrinsic_sizing_info);
 
   // If this is an image without intrinsic width and height, compute the

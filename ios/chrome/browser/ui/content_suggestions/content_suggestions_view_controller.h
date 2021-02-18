@@ -11,20 +11,24 @@
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_collection_controlling.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_consumer.h"
 
+@class BubblePresenter;
 @class ContentSuggestionsSectionInformation;
 @protocol ContentSuggestionsActionHandler;
 @protocol ContentSuggestionsCommands;
 @protocol ContentSuggestionsDataSource;
+@protocol ContentSuggestionsHeaderControlling;
 @protocol ContentSuggestionsHeaderSynchronizing;
 @protocol ContentSuggestionsMenuProvider;
 @protocol ContentSuggestionsMetricsRecording;
 @protocol ContentSuggestionsViewControllerAudience;
 @protocol DiscoverFeedHeaderChanging;
 @protocol DiscoverFeedMenuCommands;
+@class DiscoverFeedMetricsRecorder;
 @protocol OverscrollActionsControllerDelegate;
 @protocol SnackbarCommands;
 @protocol SuggestedContent;
 @protocol ThemeChangeDelegate;
+@class ViewRevealingVerticalPanHandler;
 
 extern NSString* const
     kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix;
@@ -35,9 +39,10 @@ extern NSString* const
                                 ContentSuggestionsConsumer>
 
 // Inits view controller with |offset| to maintain scroll position if needed.
-// Offset is only required if Discover feed is enabled.
+// Offset is only required if Discover feed is visible.
 - (instancetype)initWithStyle:(CollectionViewControllerStyle)style
-                       offset:(CGFloat)offset NS_DESIGNATED_INITIALIZER;
+                       offset:(CGFloat)offset
+                  feedVisible:(BOOL)visible NS_DESIGNATED_INITIALIZER;
 
 - (instancetype)initWithLayout:(UICollectionViewLayout*)layout
                          style:(CollectionViewControllerStyle)style
@@ -64,11 +69,26 @@ extern NSString* const
     metricsRecorder;
 // Whether or not the contents section should be hidden completely.
 @property(nonatomic, assign) BOOL contentSuggestionsEnabled;
+// Provides information about the content suggestions header. Used to get the
+// header height.
+// TODO(crbug.com/1114792): Remove this and replace its call with refactored
+// header synchronizer.
+@property(nonatomic, weak) id<ContentSuggestionsHeaderControlling>
+    headerProvider;
 // Delegate for handling actions relating to content suggestions.
 @property(nonatomic, weak) id<ContentSuggestionsActionHandler> handler;
 // Provider of menu configurations for the contentSuggestions component.
 @property(nonatomic, weak) id<ContentSuggestionsMenuProvider> menuProvider
     API_AVAILABLE(ios(13.0));
+// Discover Feed metrics recorder.
+@property(nonatomic, strong)
+    DiscoverFeedMetricsRecorder* discoverFeedMetricsRecorder;
+
+// The pan gesture handler for the hider view controller.
+@property(nonatomic, weak) ViewRevealingVerticalPanHandler* panGestureHandler;
+
+// Bubble presenter for displaying IPH bubbles relating to the NTP.
+@property(nonatomic, strong) BubblePresenter* bubblePresenter;
 
 - (void)setDataSource:(id<ContentSuggestionsDataSource>)dataSource;
 - (void)setDispatcher:(id<SnackbarCommands>)dispatcher;

@@ -81,9 +81,14 @@ bool UserfaultFD::RegisterRange(RegisterMode mode,
     return false;
   }
 
-  // To be forward compatible we make sure that the ioctls we were expecting (at
-  // compile time) at minimum are in the ioctls returned from the kernel.
-  CHECK((reg.ioctls & UFFD_API_RANGE_IOCTLS) == UFFD_API_RANGE_IOCTLS);
+  // Make sure we're getting back at least the features we require, these
+  // features were all introduced with userfaultfd so they should remain
+  // supported indefinitely.
+  constexpr uint64_t kRequiredFeatures =
+      (static_cast<uint64_t>(1) << _UFFDIO_WAKE) |
+      (static_cast<uint64_t>(1) << _UFFDIO_COPY) |
+      (static_cast<uint64_t>(1) << _UFFDIO_ZEROPAGE);
+  CHECK((reg.ioctls & kRequiredFeatures) == kRequiredFeatures);
 
   return true;
 #else  // defined(HAS_USERFAULTFD)
@@ -236,7 +241,7 @@ std::unique_ptr<UserfaultFD> UserfaultFD::Create(Features features) {
 #endif
 }
 
-void UserfaultFD::DispatchMessage(const uffd_msg& msg) {
+bool UserfaultFD::DispatchMessage(const uffd_msg& msg) {
 #if defined(HAS_USERFAULTFD)
   if (msg.event == UFFD_EVENT_UNMAP) {
     handler_->Unmapped(msg.arg.remove.start, msg.arg.remove.end);
@@ -245,25 +250,41 @@ void UserfaultFD::DispatchMessage(const uffd_msg& msg) {
   } else if (msg.event == UFFD_EVENT_REMAP) {
     handler_->Remapped(msg.arg.remap.from, msg.arg.remap.to, msg.arg.remap.len);
   } else if (msg.event == UFFD_EVENT_PAGEFAULT) {
-    handler_->Pagefault(msg.arg.pagefault.address,
-                        msg.arg.pagefault.flags & UFFD_PAGEFAULT_FLAG_WRITE
-                            ? UserfaultFDHandler::PagefaultFlags::kWriteFault
-                            : UserfaultFDHandler::PagefaultFlags::kReadFault,
-                        msg.arg.pagefault.feat.ptid);
+    pending_faults_.push_back(msg);
   } else {
     DLOG(ERROR) << "Unknown userfaultfd event: " << msg.event;
   }
 
+  return DrainPendingFaults();
 #endif
+  return true;
+}
+
+bool UserfaultFD::DrainPendingFaults() {
+  while (!pending_faults_.empty()) {
+    const uffd_msg& pending_fault = pending_faults_.front();
+    CHECK(pending_fault.event == UFFD_EVENT_PAGEFAULT);
+    if (!handler_->Pagefault(
+            pending_fault.arg.pagefault.address,
+            pending_fault.arg.pagefault.flags & UFFD_PAGEFAULT_FLAG_WRITE
+                ? UserfaultFDHandler::PagefaultFlags::kWriteFault
+                : UserfaultFDHandler::PagefaultFlags::kReadFault,
+            pending_fault.arg.pagefault.feat.ptid)) {
+      // It'll get retried later (it wasn't popped).
+      return false;
+    }
+
+    // And we successfully handled it, let's remove it and move along.
+    pending_faults_.pop_front();
+  }
+  return true;
 }
 
 void UserfaultFD::UserfaultFDReadable() {
 #if defined(HAS_USERFAULTFD)
   base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
                                                 base::BlockingType::WILL_BLOCK);
-  constexpr int kMsgsToRead = 32;  // Try to read up to 32 messages in one shot.
-  uffd_msg msgs[kMsgsToRead];
-  int msgs_read = 0;
+  uffd_msg msg;
 
   // It's very important that messages are posted in the order they were read
   // otherwise, if another thread also attempted to handle the
@@ -272,20 +293,23 @@ void UserfaultFD::UserfaultFDReadable() {
   base::ReleasableAutoLock read_locker(&read_lock_);
 
   do {
-    memset(msgs, 0, sizeof(msgs));
+    memset(&msg, 0, sizeof(msg));
 
     // We start by draining all messages and then we process them in order.
-    int bytes_read = HANDLE_EINTR(read(fd_.get(), msgs, sizeof(msgs)));
+    int bytes_read = HANDLE_EINTR(read(fd_.get(), &msg, sizeof(msg)));
 
     if (bytes_read <= 0) {
-      if (errno == EAGAIN) {
-        // No problems here.
-        return;
-      }
-
       // We either got an EOF or an EBADF to indicate that we're done.
-      if (errno == EBADF || bytes_read == 0) {
+      if (bytes_read == 0 || errno == EBADF) {
         handler_->Closed(0);  // EBADF will indicate closed at this point.
+      } else if (errno == EWOULDBLOCK) {
+        // No problems here.
+
+        // But make sure before we exit this loop that if there are still queued
+        // messages that we attempt to drain them.
+        DrainPendingFaults();
+
+        return;
       } else {
         PLOG(ERROR) << "Userfaultfd encountered an expected error";
         handler_->Closed(errno);
@@ -296,15 +320,9 @@ void UserfaultFD::UserfaultFDReadable() {
     }
 
     // Partial reads CANNOT happen.
-    CHECK_EQ(bytes_read % sizeof(msgs[0]), 0u);
-
-    msgs_read = bytes_read / sizeof(msgs[0]);
-    DCHECK(msgs_read);
-
-    for (int i = 0; i < msgs_read; ++i) {
-      DispatchMessage(msgs[i]);
-    }
-  } while (msgs_read == kMsgsToRead);
+    CHECK_EQ(bytes_read, static_cast<int>(sizeof(msg)));
+    DispatchMessage(msg);
+  } while (true);
 #endif
 }
 

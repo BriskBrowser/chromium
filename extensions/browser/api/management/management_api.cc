@@ -21,6 +21,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "content/public/browser/browser_context.h"
 #include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/browser/api/management/management_api_constants.h"
@@ -146,11 +147,9 @@ management::ExtensionInfo CreateExtensionInfo(
         !system->management_policy()->MustRemainDisabled(&extension, nullptr,
                                                          nullptr));
   }
-
-  if (!ManifestURL::GetUpdateURL(&extension).is_empty()) {
-    info.update_url.reset(
-        new std::string(ManifestURL::GetUpdateURL(&extension).spec()));
-  }
+  const GURL update_url = delegate->GetEffectiveUpdateURL(extension, context);
+  if (!update_url.is_empty())
+    info.update_url = std::make_unique<std::string>(update_url.spec());
 
   if (extension.is_app()) {
     info.app_launch_url.reset(
@@ -483,7 +482,8 @@ ExtensionFunction::ResponseAction ManagementSetEnabledFunction::Run() {
       AddRef();  // Matched in OnInstallPromptDone().
       install_prompt_ = delegate->SetEnabledFunctionDelegate(
           GetSenderWebContents(), browser_context(), target_extension,
-          base::Bind(&ManagementSetEnabledFunction::OnInstallPromptDone, this));
+          base::BindOnce(&ManagementSetEnabledFunction::OnInstallPromptDone,
+                         this));
       return RespondLater();
     }
     if (HasUnsupportedRequirements(extension_id_)) {
@@ -543,7 +543,7 @@ void ManagementSetEnabledFunction::OnRequirementsChecked(
 
 void ManagementSetEnabledFunction::OnParentPermissionDialogDone(
     SupervisedUserExtensionsDelegate::ParentPermissionDialogResult result) {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   switch (result) {
     case SupervisedUserExtensionsDelegate::ParentPermissionDialogResult::
         kParentPermissionReceived: {
@@ -570,15 +570,15 @@ void ManagementSetEnabledFunction::OnParentPermissionDialogDone(
   }
   // Matches the AddRef in Run().
   Release();
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
 void ManagementSetEnabledFunction::OnBlockedByParentDialogDone() {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   Respond(Error(keys::kUserCantModifyError, extension_id_));
   // Matches the AddRef in Run().
   Release();
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
 ManagementUninstallFunctionBase::ManagementUninstallFunctionBase() = default;

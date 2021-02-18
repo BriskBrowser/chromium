@@ -18,6 +18,7 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/progress_bar.h"
 #include "ui/views/input_event_activation_protector.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/window/non_client_view.h"
 
 namespace gfx {
@@ -30,26 +31,28 @@ class FootnoteContainerView;
 class ImageView;
 
 // The non-client frame view of bubble-styled widgets.
-class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
-                                     public ButtonListener {
+class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView {
  public:
-  enum class PreferredArrowAdjustment { kMirror, kOffset };
+  METADATA_HEADER(BubbleFrameView);
 
-  // Internal class name.
-  static const char kViewClassName[];
+  enum class PreferredArrowAdjustment { kMirror, kOffset };
 
   BubbleFrameView(const gfx::Insets& title_margins,
                   const gfx::Insets& content_margins);
+  BubbleFrameView(const BubbleFrameView&) = delete;
+  BubbleFrameView& operator=(BubbleFrameView&) = delete;
   ~BubbleFrameView() override;
 
   static std::unique_ptr<Label> CreateDefaultTitleLabel(
       const base::string16& title_text);
 
   // Creates a close button used in the corner of the dialog.
-  static std::unique_ptr<Button> CreateCloseButton(ButtonListener* listener);
+  static std::unique_ptr<Button> CreateCloseButton(
+      Button::PressedCallback callback);
 
   // Creates a minimize button used in the corner of the dialog.
-  static std::unique_ptr<Button> CreateMinimizeButton(ButtonListener* listener);
+  static std::unique_ptr<Button> CreateMinimizeButton(
+      Button::PressedCallback callback);
 
   // NonClientFrameView:
   gfx::Rect GetBoundsForClientView() const override;
@@ -70,9 +73,11 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
   // Updates the current progress value of |progress_indicator_|. If progress is
   // absent, hides |the progress_indicator|.
   void SetProgress(base::Optional<double> progress);
+  // Returns the current progress value of |progress_indicator_| if
+  // |progress_indicator_| is visible.
+  base::Optional<double> GetProgress() const;
 
   // View:
-  const char* GetClassName() const override;
   gfx::Size CalculatePreferredSize() const override;
   gfx::Size GetMinimumSize() const override;
   gfx::Size GetMaximumSize() const override;
@@ -83,9 +88,6 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
   void ViewHierarchyChanged(
       const ViewHierarchyChangedDetails& details) override;
   void VisibilityChanged(View* starting_from, bool is_visible) override;
-
-  // ButtonListener:
-  void ButtonPressed(Button* sender, const ui::Event& event) override;
 
   // Use SetBubbleBorder() not SetBorder().
   void SetBubbleBorder(std::unique_ptr<BubbleBorder> border);
@@ -98,7 +100,8 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
         static_cast<const BubbleFrameView*>(this)->title());
   }
 
-  gfx::Insets content_margins() const { return content_margins_; }
+  void SetContentMargins(const gfx::Insets& content_margins);
+  gfx::Insets GetContentMargins() const;
 
   // Sets a custom header view for the dialog. If there is an existing header
   // view it will be deleted. The header view will be inserted above the title,
@@ -115,13 +118,11 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
   // FootnoteContainerView. An example footnote would be some help text.
   void SetFootnoteView(std::unique_ptr<View> view);
   View* GetFootnoteView() const;
-  void set_footnote_margins(const gfx::Insets& footnote_margins) {
-    footnote_margins_ = footnote_margins;
-  }
+  void SetFootnoteMargins(const gfx::Insets& footnote_margins);
+  gfx::Insets GetFootnoteMargins() const;
 
-  void set_preferred_arrow_adjustment(PreferredArrowAdjustment adjustment) {
-    preferred_arrow_adjustment_ = adjustment;
-  }
+  void SetPreferredArrowAdjustment(PreferredArrowAdjustment adjustment);
+  PreferredArrowAdjustment GetPreferredArrowAdjustment() const;
 
   // TODO(crbug.com/1007604): remove this in favor of using
   // Widget::InitParams::accept_events. In the mean time, don't add new uses of
@@ -131,14 +132,13 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
     hit_test_transparent_ = hit_test_transparent;
   }
 
-  // Get/set the corner radius of the bubble border.
-  int corner_radius() const {
-    return bubble_border_ ? bubble_border_->corner_radius() : 0;
-  }
+  // Set the corner radius of the bubble border.
   void SetCornerRadius(int radius);
+  int GetCornerRadius() const;
 
   // Set the arrow of the bubble border.
   void SetArrow(BubbleBorder::Arrow arrow);
+  BubbleBorder::Arrow GetArrow() const;
 
   // Set the background color of the bubble border.
   void SetBackgroundColor(SkColor color);
@@ -294,8 +294,6 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
   bool hit_test_transparent_ = false;
 
   InputEventActivationProtector input_protector_;
-
-  DISALLOW_COPY_AND_ASSIGN(BubbleFrameView);
 };
 
 }  // namespace views

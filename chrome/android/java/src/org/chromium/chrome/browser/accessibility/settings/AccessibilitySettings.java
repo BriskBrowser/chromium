@@ -14,6 +14,7 @@ import androidx.preference.PreferenceFragmentCompat;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.accessibility.FontSizePrefs;
 import org.chromium.chrome.browser.accessibility.FontSizePrefs.FontSizePrefsObserver;
+import org.chromium.chrome.browser.image_descriptions.ImageDescriptionsController;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
@@ -32,9 +33,11 @@ public class AccessibilitySettings
     static final String PREF_FORCE_ENABLE_ZOOM = "force_enable_zoom";
     static final String PREF_READER_FOR_ACCESSIBILITY = "reader_for_accessibility";
     static final String PREF_CAPTIONS = "captions";
+    static final String PREF_IMAGE_DESCRIPTIONS = "image_descriptions";
 
     private TextScalePreference mTextScalePref;
     private ChromeBaseCheckBoxPreference mForceEnableZoomPref;
+    private boolean mRecordFontSizeChangeOnStop;
 
     private FontSizePrefs mFontSizePrefs = FontSizePrefs.getInstance();
     private FontSizePrefsObserver mFontSizePrefsObserver = new FontSizePrefsObserver() {
@@ -99,6 +102,10 @@ public class AccessibilitySettings
 
             return true;
         });
+
+        Preference imageDescriptionsPreference = findPreference(PREF_IMAGE_DESCRIPTIONS);
+        imageDescriptionsPreference.setVisible(
+                ImageDescriptionsController.getInstance().shouldShowImageDescriptionsMenuItem());
     }
 
     @Override
@@ -110,12 +117,17 @@ public class AccessibilitySettings
     @Override
     public void onStop() {
         mFontSizePrefs.removeObserver(mFontSizePrefsObserver);
+        if (mRecordFontSizeChangeOnStop) {
+            mFontSizePrefs.recordUserFontPrefChange();
+            mRecordFontSizeChangeOnStop = false;
+        }
         super.onStop();
     }
 
     @Override
     public boolean onPreferenceChange(Preference preference, Object newValue) {
         if (PREF_TEXT_SCALE.equals(preference.getKey())) {
+            mRecordFontSizeChangeOnStop = true;
             mFontSizePrefs.setUserFontScaleFactor((Float) newValue);
         } else if (PREF_FORCE_ENABLE_ZOOM.equals(preference.getKey())) {
             mFontSizePrefs.setForceEnableZoomFromUser((Boolean) newValue);

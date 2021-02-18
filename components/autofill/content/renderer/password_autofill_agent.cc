@@ -13,13 +13,13 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/feature_list.h"
 #include "base/i18n/case_conversion.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -356,17 +356,6 @@ bool FormHasPasswordField(const FormData& form) {
   return false;
 }
 
-// Whether any of the fields in |form| is a non-empty password field.
-bool FormHasNonEmptyPasswordField(const FormData& form) {
-  for (const auto& field : form.fields) {
-    if (field.IsPasswordInputElement()) {
-      if (!field.value.empty() || !field.typed_value.empty())
-        return true;
-    }
-  }
-  return false;
-}
-
 void AnnotateFieldWithParsingResult(WebDocument doc,
                                     FieldRendererId renderer_id,
                                     const std::string& text) {
@@ -564,7 +553,7 @@ void PasswordAutofillAgent::UpdateStateForTextChange(
   field_data_manager_->UpdateFieldDataMap(element_id, element_value,
                                           FieldPropertiesFlags::kUserTyped);
 
-  ProvisionallySavePassword(element.Form(), element, RESTRICTION_NONE);
+  InformBrowserAboutUserInput(element.Form(), element);
 
   if (element.IsPasswordFieldForAutofill()) {
     auto iter = password_to_username_.find(element);
@@ -579,6 +568,11 @@ void PasswordAutofillAgent::UpdateStateForTextChange(
     GetPasswordManagerDriver()->UserModifiedNonPasswordField(
         FieldRendererId(element.UniqueRendererFormControlId()), element_value);
   }
+}
+
+void PasswordAutofillAgent::TrackAutofilledElement(
+    const blink::WebFormControlElement& element) {
+  autofill_agent_->TrackAutofilledElement(element);
 }
 
 bool PasswordAutofillAgent::FillSuggestion(
@@ -651,6 +645,7 @@ void PasswordAutofillAgent::FillField(WebInputElement* input,
   const FieldRendererId input_id(input->UniqueRendererFormControlId());
   field_data_manager_->UpdateFieldDataMap(
       input_id, credential, FieldPropertiesFlags::kAutofilledOnUserTrigger);
+  TrackAutofilledElement(*input);
 }
 
 void PasswordAutofillAgent::FillPasswordFieldAndSave(
@@ -659,8 +654,7 @@ void PasswordAutofillAgent::FillPasswordFieldAndSave(
   DCHECK(password_input);
   DCHECK(password_input->IsPasswordFieldForAutofill());
   FillField(password_input, credential);
-  ProvisionallySavePassword(password_input->Form(), *password_input,
-                            RESTRICTION_NONE);
+  InformBrowserAboutUserInput(password_input->Form(), *password_input);
 }
 
 bool PasswordAutofillAgent::PreviewSuggestion(
@@ -809,19 +803,6 @@ bool PasswordAutofillAgent::ShouldSuppressKeyboard() {
 
 bool PasswordAutofillAgent::TryToShowTouchToFill(
     const WebFormControlElement& control_element) {
-  // Don't show Touch To Fill if it should only be enabled for insecure origins
-  // and we are currently on a potentially trustworthy origin.
-  if (base::GetFieldTrialParamByFeatureAsBool(features::kAutofillTouchToFill,
-                                              "insecure-origins-only",
-                                              /*default_value=*/false) &&
-      render_frame()
-          ->GetWebFrame()
-          ->GetDocument()
-          .GetSecurityOrigin()
-          .IsPotentiallyTrustworthy()) {
-    return false;
-  }
-
   if (touch_to_fill_state_ != TouchToFillState::kShouldShow)
     return false;
 
@@ -1389,7 +1370,54 @@ PasswordAutofillAgent::GetFormDataFromUnownedInputElements() {
     return nullptr;
   return CreateFormDataFromUnownedInputElements(
       *web_frame, field_data_manager_.get(), &username_detector_cache_,
-      &button_titles_cache_);
+      autofill_agent_ && autofill_agent_->is_heavy_form_data_scraping_enabled()
+          ? &button_titles_cache_
+          : nullptr);
+}
+
+void PasswordAutofillAgent::InformAboutFormClearing(
+    const WebFormElement& form) {
+  if (!FrameCanAccessPasswordManager())
+    return;
+  for (const auto& element : form.GetFormControlElements()) {
+    FieldRendererId element_id(element.UniqueRendererFormControlId());
+    // Notify PasswordManager if |form| has password fields that have user typed
+    // input or input autofilled on user trigger.
+    if (IsPasswordFieldFilledByUser(element)) {
+      NotifyPasswordManagerAboutClearedForm(form);
+      return;
+    }
+  }
+}
+
+void PasswordAutofillAgent::InformAboutFieldClearing(
+    const WebInputElement& cleared_element) {
+  if (!FrameCanAccessPasswordManager())
+    return;
+  DCHECK(cleared_element.Value().IsEmpty());
+  FieldRendererId field_id(cleared_element.UniqueRendererFormControlId());
+  // Ignore fields that had no user input or autofill on user trigger.
+  if (!field_data_manager_->DidUserType(field_id) &&
+      !field_data_manager_->WasAutofilledOnUserTrigger(field_id)) {
+    return;
+  }
+
+  WebFormElement form = cleared_element.Form();
+  if (form.IsNull()) {
+    // Process password field clearing for fields outside the <form> tag.
+    if (auto unowned_form_data = GetFormDataFromUnownedInputElements())
+      GetPasswordManagerDriver()->PasswordFormCleared(*unowned_form_data);
+    return;
+  }
+  // Process field clearing for a form under a <form> tag.
+  // Only notify PasswordManager in case all user filled password fields were
+  // cleared.
+  bool cleared_all_password_fields = base::ranges::all_of(
+      form.GetFormControlElements(), [this](const auto& el) {
+        return !IsPasswordFieldFilledByUser(el) || el.Value().IsEmpty();
+      });
+  if (cleared_all_password_fields)
+    NotifyPasswordManagerAboutClearedForm(form);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1454,29 +1482,23 @@ void PasswordAutofillAgent::ClearPreview(WebInputElement* username,
     password->SetAutofillState(password_autofill_state_);
   }
 }
-void PasswordAutofillAgent::ProvisionallySavePassword(
+void PasswordAutofillAgent::InformBrowserAboutUserInput(
     const WebFormElement& form,
-    const WebInputElement& element,
-    ProvisionallySaveRestriction restriction) {
+    const WebInputElement& element) {
   DCHECK(!form.IsNull() || !element.IsNull());
+  if (!FrameCanAccessPasswordManager())
+    return;
   SetLastUpdatedFormAndField(form, element);
   std::unique_ptr<FormData> form_data =
-      (form.IsNull() ? GetFormDataFromUnownedInputElements()
-                     : GetFormDataFromWebForm(form));
+      form.IsNull() ? GetFormDataFromUnownedInputElements()
+                    : GetFormDataFromWebForm(form);
   if (!form_data)
     return;
 
-  bool has_password = FormHasNonEmptyPasswordField(*form_data);
-  if (restriction == RESTRICTION_NON_EMPTY_PASSWORD && !has_password)
+  if (!FormHasPasswordField(*form_data))
     return;
 
-  if (!FrameCanAccessPasswordManager())
-    return;
-
-  if (has_password)
-    GetPasswordManagerDriver()->ShowManualFallbackForSaving(*form_data);
-  else
-    GetPasswordManagerDriver()->HideManualFallbackForSaving();
+  GetPasswordManagerDriver()->InformAboutUserInput(*form_data);
 
   browser_has_form_to_process_ = true;
 }
@@ -1639,8 +1661,7 @@ void PasswordAutofillAgent::OnProvisionallySaveForm(
   }
 
   DCHECK_EQ(ElementChangeSource::WILL_SEND_SUBMIT_EVENT, source);
-  ProvisionallySavePassword(form, input_element,
-                            RESTRICTION_NON_EMPTY_PASSWORD);
+  InformBrowserAboutUserInput(form, input_element);
 }
 
 void PasswordAutofillAgent::OnFormSubmitted(const WebFormElement& form) {
@@ -1885,6 +1906,26 @@ bool PasswordAutofillAgent::CanShowPopupWithoutPasswords(
     const WebInputElement& password_element) const {
   return should_show_popup_without_passwords_ && !password_element.IsNull() &&
          IsElementEditable(password_element);
+}
+
+bool PasswordAutofillAgent::IsPasswordFieldFilledByUser(
+    const WebFormControlElement& element) const {
+  FieldRendererId element_id(element.UniqueRendererFormControlId());
+  return element.FormControlTypeForAutofill() == "password" &&
+         (field_data_manager_->DidUserType(element_id) ||
+          field_data_manager_->WasAutofilledOnUserTrigger(element_id));
+}
+
+void PasswordAutofillAgent::NotifyPasswordManagerAboutClearedForm(
+    const WebFormElement& cleared_form) {
+  const auto extract_mask = static_cast<form_util::ExtractMask>(
+      form_util::EXTRACT_VALUE | form_util::EXTRACT_OPTIONS);
+  FormData form_data;
+  if (WebFormElementToFormData(cleared_form, WebFormControlElement(),
+                               field_data_manager_.get(), extract_mask,
+                               &form_data, nullptr)) {
+    GetPasswordManagerDriver()->PasswordFormCleared(form_data);
+  }
 }
 
 }  // namespace autofill

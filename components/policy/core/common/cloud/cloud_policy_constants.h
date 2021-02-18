@@ -36,6 +36,7 @@ POLICY_EXPORT extern const char kEnrollmentTokenAuthHeaderPrefix[];
 POLICY_EXPORT extern const char kValueAppType[];
 POLICY_EXPORT extern const char kValueDeviceType[];
 POLICY_EXPORT extern const char kValueRequestAutoEnrollment[];
+POLICY_EXPORT extern const char kValueRequestPsmHasDeviceState[];
 POLICY_EXPORT extern const char kValueRequestPolicy[];
 POLICY_EXPORT extern const char kValueRequestRegister[];
 POLICY_EXPORT extern const char kValueRequestApiAuthorization[];
@@ -128,6 +129,8 @@ enum DeviceManagementStatus {
   DM_STATUS_CANNOT_SIGN_REQUEST = 15,
   // Client error: Request body is too large.
   DM_STATUS_REQUEST_TOO_LARGE = 16,
+  // Client error: Too many request.
+  DM_STATUS_SERVICE_TOO_MANY_REQUESTS = 17,
   // Service error: Policy not found. Error code defined by the DM folks.
   DM_STATUS_SERVICE_POLICY_NOT_FOUND = 902,
   // Service error: ARC is not enabled on this domain.
@@ -138,6 +141,8 @@ enum DeviceManagementStatus {
   DM_STATUS_SERVICE_ENTERPRISE_ACCOUNT_IS_NOT_ELIGIBLE_TO_ENROLL = 906,
   // Service error: Enterprise TOS has not been accepted.
   DM_STATUS_SERVICE_ENTERPRISE_TOS_HAS_NOT_BEEN_ACCEPTED = 907,
+  // Service error: Illegal account for packaged EDU license.
+  DM_STATUS_SERVICE_ILLEGAL_ACCOUNT_FOR_PACKAGED_EDU_LICENSE = 908,
 };
 
 // List of modes that the device can be locked into.
@@ -168,7 +173,13 @@ enum DeviceMode {
 // Domain that demo mode devices are enrolled into: cros-demo-mode.com
 POLICY_EXPORT extern const char kDemoModeDomain[];
 
-// Indicate this device's market segment. go/cros-rlz-segments
+// Indicate this device's market segment. go/cros-rlz-segments.
+// This enum should be kept in sync with MarketSegment enum in
+// device_management_backend.proto (http://shortn/_p0P58C4BRV). If any additions
+// are made to this proto, the UserDeviceMatrix in
+// src/tools/metrics/histograms/enums.xml should also be updated, as well as the
+// browser test suite in usertype_by_devicetype_metrics_provider_browsertest.cc
+// (http://shortn/_gD5uIM9Z78) to account for the new user / device type combo.
 enum class MarketSegment {
   UNKNOWN,  // If device is not enrolled or market segment is not specified.
   EDUCATION,

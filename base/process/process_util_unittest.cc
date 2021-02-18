@@ -36,7 +36,7 @@
 #include "base/threading/simple_thread.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
-#include "build/lacros_buildflags.h"
+#include "build/chromeos_buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/multiprocess_func_list.h"
 
@@ -266,12 +266,11 @@ TEST_F(ProcessUtilTest, HandleTransfersOverrideClones) {
   // Attach the tempdir to "data", but also try to duplicate the existing "data"
   // directory.
   options.paths_to_clone.push_back(
-      base::FilePath(base::fuchsia::kPersistedDataDirectoryPath));
+      base::FilePath(base::kPersistedDataDirectoryPath));
   options.paths_to_clone.push_back(base::FilePath("/tmp"));
   options.paths_to_transfer.push_back(
-      {FilePath(base::fuchsia::kPersistedDataDirectoryPath),
-       base::fuchsia::OpenDirectory(
-           base::FilePath(tmpdir_with_staged.GetPath()))
+      {FilePath(base::kPersistedDataDirectoryPath),
+       base::OpenDirectoryHandle(base::FilePath(tmpdir_with_staged.GetPath()))
            .TakeChannel()
            .release()});
 
@@ -310,7 +309,7 @@ TEST_F(ProcessUtilTest, TransferHandleToPath) {
 
   // Mount the tempdir to "/foo".
   zx::channel tmp_channel =
-      base::fuchsia::OpenDirectory(new_tmpdir.GetPath()).TakeChannel();
+      base::OpenDirectoryHandle(new_tmpdir.GetPath()).TakeChannel();
 
   ASSERT_TRUE(tmp_channel.is_valid());
   LaunchOptions options;
@@ -641,7 +640,7 @@ MULTIPROCESS_TEST_MAIN(CrashingChildProcess) {
 #endif
 TEST_F(ProcessUtilTest, MAYBE_GetTerminationStatusCrash) {
   const std::string signal_file =
-    ProcessUtilTest::GetSignalFilePath(kSignalFileCrash);
+      ProcessUtilTest::GetSignalFilePath(kSignalFileCrash);
   remove(signal_file.c_str());
   Process process = SpawnChild("CrashingChildProcess");
   ASSERT_TRUE(process.IsValid());
@@ -705,7 +704,7 @@ MULTIPROCESS_TEST_MAIN(TerminatedChildProcess) {
 #endif
 TEST_F(ProcessUtilTest, MAYBE_GetTerminationStatusSigKill) {
   const std::string signal_file =
-    ProcessUtilTest::GetSignalFilePath(kSignalFileKill);
+      ProcessUtilTest::GetSignalFilePath(kSignalFileKill);
   remove(signal_file.c_str());
   Process process = SpawnChild("KilledChildProcess");
   ASSERT_TRUE(process.IsValid());
@@ -719,7 +718,7 @@ TEST_F(ProcessUtilTest, MAYBE_GetTerminationStatusSigKill) {
   exit_code = 42;
   TerminationStatus status =
       WaitForChildTermination(process.Handle(), &exit_code);
-#if defined(OS_CHROMEOS) || BUILDFLAG(IS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   EXPECT_EQ(TERMINATION_STATUS_PROCESS_WAS_KILLED_BY_OOM, status);
 #else
   EXPECT_EQ(TERMINATION_STATUS_PROCESS_WAS_KILLED, status);
@@ -742,7 +741,7 @@ TEST_F(ProcessUtilTest, MAYBE_GetTerminationStatusSigKill) {
 // test might not be relevant anyway.
 TEST_F(ProcessUtilTest, GetTerminationStatusSigTerm) {
   const std::string signal_file =
-    ProcessUtilTest::GetSignalFilePath(kSignalFileTerm);
+      ProcessUtilTest::GetSignalFilePath(kSignalFileTerm);
   remove(signal_file.c_str());
   Process process = SpawnChild("TerminatedChildProcess");
   ASSERT_TRUE(process.IsValid());
@@ -829,6 +828,35 @@ TEST_F(ProcessUtilTest, LaunchAsUser) {
   options.as_user = token;
   EXPECT_TRUE(
       LaunchProcess(MakeCmdLine("SimpleChildProcess"), options).IsValid());
+}
+
+MULTIPROCESS_TEST_MAIN(ChildVerifiesCetDisabled) {
+  auto get_process_mitigation_policy =
+      reinterpret_cast<decltype(&GetProcessMitigationPolicy)>(::GetProcAddress(
+          ::GetModuleHandleW(L"kernel32.dll"), "GetProcessMitigationPolicy"));
+
+  // Not available for Win7 but this process should still work.
+  if (!get_process_mitigation_policy)
+    return kSuccess;
+
+  // Policy not defined for Win < Win10 20H1 but that's also ok.
+  PROCESS_MITIGATION_USER_SHADOW_STACK_POLICY policy = {};
+  if (get_process_mitigation_policy(GetCurrentProcess(),
+                                    ProcessUserShadowStackPolicy, &policy,
+                                    sizeof(policy))) {
+    if (policy.EnableUserShadowStack)
+      return 1;
+  }
+  return kSuccess;
+}
+
+TEST_F(ProcessUtilTest, LaunchDisablingCetCompat) {
+  LaunchOptions options;
+  // This only has an effect on Windows > 20H2 with CET hardware but
+  // is safe on every platform.
+  options.disable_cetcompat = true;
+  EXPECT_TRUE(LaunchProcess(MakeCmdLine("ChildVerifiesCetDisabled"), options)
+                  .IsValid());
 }
 
 static const char kEventToTriggerHandleSwitch[] = "event-to-trigger-handle";
@@ -972,11 +1000,13 @@ typedef __uint64_t guardid_t;
 //
 // Atomically replaces |guard|/|guardflags| with |nguard|/|nguardflags| on |fd|.
 int change_fdguard_np(int fd,
-                      const guardid_t *guard, u_int guardflags,
-                      const guardid_t *nguard, u_int nguardflags,
-                      int *fdflagsp) {
-  return syscall(SYS_change_fdguard_np, fd, guard, guardflags,
-                 nguard, nguardflags, fdflagsp);
+                      const guardid_t* guard,
+                      u_int guardflags,
+                      const guardid_t* nguard,
+                      u_int nguardflags,
+                      int* fdflagsp) {
+  return syscall(SYS_change_fdguard_np, fd, guard, guardflags, nguard,
+                 nguardflags, fdflagsp);
 }
 
 // Attempt to set a file-descriptor guard on |fd|.  In case of success, remove
@@ -1036,8 +1066,8 @@ MULTIPROCESS_TEST_MAIN(ProcessUtilsLeakFDChildProcess) {
     }
   }
 
-  int written = HANDLE_EINTR(write(write_pipe, &num_open_files,
-                                   sizeof(num_open_files)));
+  int written =
+      HANDLE_EINTR(write(write_pipe, &num_open_files, sizeof(num_open_files)));
   DCHECK_EQ(static_cast<size_t>(written), sizeof(num_open_files));
   int ret = IGNORE_EINTR(close(write_pipe));
   DPCHECK(ret == 0);

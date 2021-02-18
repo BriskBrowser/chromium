@@ -21,12 +21,13 @@
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/thread_test_helper.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "components/services/storage/indexed_db/transactional_leveldb/transactional_leveldb_database.h"
 #include "components/services/storage/public/mojom/indexed_db_control.mojom-test-utils.h"
+#include "components/services/storage/public/mojom/storage_usage_info.mojom.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
 #include "content/browser/browser_main_loop.h"
 #include "content/browser/web_contents/web_contents_impl.h"
@@ -211,9 +212,9 @@ class IndexedDBBrowserTest : public ContentBrowserTest,
     int64_t size = 0;
     auto& control = GetControl(browser);
     control.GetUsage(base::BindOnce(base::BindLambdaForTesting(
-        [&](std::vector<storage::mojom::IndexedDBStorageUsageInfoPtr> usages) {
+        [&](std::vector<storage::mojom::StorageUsageInfoPtr> usages) {
           for (auto& usage : usages)
-            size += usage->size_in_bytes;
+            size += usage->total_size_bytes;
           loop.Quit();
         })));
     loop.Run();
@@ -419,7 +420,7 @@ IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, NegativeDBDataVersion) {
 
 class IndexedDBBrowserTestWithLowQuota : public IndexedDBBrowserTest {
  public:
-  IndexedDBBrowserTestWithLowQuota() {}
+  IndexedDBBrowserTestWithLowQuota() = default;
 
   void SetUpOnMainThread() override {
     const int kInitialQuotaKilobytes = 5000;
@@ -436,7 +437,7 @@ IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTestWithLowQuota, QuotaTest) {
 
 class IndexedDBBrowserTestWithGCExposed : public IndexedDBBrowserTest {
  public:
-  IndexedDBBrowserTestWithGCExposed() {}
+  IndexedDBBrowserTestWithGCExposed() = default;
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitchASCII(switches::kJavaScriptFlags, "--expose-gc");

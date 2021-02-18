@@ -12,7 +12,6 @@
 
 #include "ash/app_list/app_list_export.h"
 #include "ash/app_list/model/app_list_item_observer.h"
-#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/string16.h"
 #include "base/timer/timer.h"
@@ -25,7 +24,6 @@ class SimpleMenuModel;
 }  // namespace ui
 
 namespace views {
-class ImageView;
 class Label;
 }  // namespace views
 
@@ -42,16 +40,14 @@ class APP_LIST_EXPORT AppListItemView : public views::Button,
                                         public AppListItemObserver,
                                         public ui::ImplicitAnimationObserver {
  public:
-  // Internal class name.
-  static const char kViewClassName[];
+  METADATA_HEADER(AppListItemView);
 
-  AppListItemView(AppsGridView* apps_grid_view,
-                  AppListItem* item,
-                  AppListViewDelegate* delegate);
   AppListItemView(AppsGridView* apps_grid_view,
                   AppListItem* item,
                   AppListViewDelegate* delegate,
                   bool is_in_folder);
+  AppListItemView(const AppListItemView&) = delete;
+  AppListItemView& operator=(const AppListItemView&) = delete;
   ~AppListItemView() override;
 
   // Sets the icon of this image.
@@ -63,6 +59,8 @@ class APP_LIST_EXPORT AppListItemView : public views::Button,
 
   void SetItemName(const base::string16& display_name,
                    const base::string16& full_name);
+
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
   void CancelContextMenu();
 
@@ -125,6 +123,7 @@ class APP_LIST_EXPORT AppListItemView : public views::Button,
 
   // views::Button overrides:
   void OnGestureEvent(ui::GestureEvent* event) override;
+  void OnThemeChanged() override;
 
   // views::View overrides:
   base::string16 GetTooltipText(const gfx::Point& p) const override;
@@ -141,14 +140,19 @@ class APP_LIST_EXPORT AppListItemView : public views::Button,
   // Ensures this item view has its own layer.
   void EnsureLayer();
 
+  bool HasNotificationBadge();
+
   void FireMouseDragTimerForTest();
 
   bool FireTouchDragTimerForTest();
 
   bool is_folder() const { return is_folder_; }
 
+  bool IsNotificationIndicatorShownForTest() const;
+
  private:
   class IconImageView;
+  class AppNotificationIndicatorView;
 
   enum UIState {
     UI_STATE_NORMAL,              // Normal UI (icon + label)
@@ -208,7 +212,6 @@ class APP_LIST_EXPORT AppListItemView : public views::Button,
   void PaintButtonContents(gfx::Canvas* canvas) override;
 
   // views::View overrides:
-  const char* GetClassName() const override;
   void Layout() override;
   gfx::Size CalculatePreferredSize() const override;
   bool OnKeyPressed(const ui::KeyEvent& event) override;
@@ -223,6 +226,8 @@ class APP_LIST_EXPORT AppListItemView : public views::Button,
   // AppListItemObserver overrides:
   void ItemIconChanged(AppListConfigType config_type) override;
   void ItemNameChanged() override;
+  void ItemBadgeVisibilityChanged() override;
+  void ItemBadgeColorChanged() override;
   void ItemBeingDestroyed() override;
 
   // ui::ImplicitAnimationObserver:
@@ -253,7 +258,6 @@ class APP_LIST_EXPORT AppListItemView : public views::Button,
   AppsGridView* apps_grid_view_;                // Parent view, owns this.
   IconImageView* icon_ = nullptr;               // Strongly typed child view.
   views::Label* title_ = nullptr;               // Strongly typed child view.
-  views::ImageView* icon_shadow_ = nullptr;     // Strongly typed child view.
 
   std::unique_ptr<AppListMenuModelAdapter> context_menu_;
 
@@ -298,9 +302,14 @@ class APP_LIST_EXPORT AppListItemView : public views::Button,
   // The scaling factor for displaying the app icon.
   float icon_scale_ = 1.0f;
 
-  base::WeakPtrFactory<AppListItemView> weak_ptr_factory_{this};
+  // Draws an indicator in the top right corner of the image to represent an
+  // active notification.
+  AppNotificationIndicatorView* notification_indicator_ = nullptr;
 
-  DISALLOW_COPY_AND_ASSIGN(AppListItemView);
+  // Whether the notification indicator flag is enabled.
+  const bool is_notification_indicator_enabled_;
+
+  base::WeakPtrFactory<AppListItemView> weak_ptr_factory_{this};
 };
 
 }  // namespace ash

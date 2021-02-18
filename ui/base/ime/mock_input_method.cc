@@ -4,8 +4,8 @@
 
 #include "ui/base/ime/mock_input_method.h"
 
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "build/build_config.h"
 #include "ui/base/ime/input_method_delegate.h"
 #include "ui/base/ime/text_input_client.h"
@@ -129,8 +129,7 @@ void MockInputMethod::RemoveObserver(InputMethodObserver* observer) {
   observer_list_.RemoveObserver(observer);
 }
 
-InputMethodKeyboardController*
-MockInputMethod::GetInputMethodKeyboardController() {
+VirtualKeyboardController* MockInputMethod::GetVirtualKeyboardController() {
   return &keyboard_controller_;
 }
 

@@ -19,6 +19,7 @@
 #include "gpu/config/gpu_driver_bug_workarounds.h"
 #include "gpu/config/gpu_preferences.h"
 #include "media/base/callback_registry.h"
+#include "media/base/supported_video_decoder_config.h"
 #include "media/base/video_decoder.h"
 #include "media/gpu/command_buffer_helper.h"
 #include "media/gpu/media_gpu_export.h"
@@ -29,7 +30,6 @@
 #include "media/gpu/windows/d3d11_video_decoder_client.h"
 #include "media/gpu/windows/d3d11_video_decoder_impl.h"
 #include "media/gpu/windows/d3d11_vp9_accelerator.h"
-#include "media/video/supported_video_decoder_config.h"
 
 namespace gpu {
 class CommandBufferStub;
@@ -68,6 +68,7 @@ class MEDIA_GPU_EXPORT D3D11VideoDecoder : public VideoDecoder,
 
   // VideoDecoder implementation:
   std::string GetDisplayName() const override;
+  VideoDecoderType GetDecoderType() const override;
   void Initialize(const VideoDecoderConfig& config,
                   bool low_delay,
                   CdmContext* cdm_context,
@@ -82,6 +83,7 @@ class MEDIA_GPU_EXPORT D3D11VideoDecoder : public VideoDecoder,
 
   // D3D11VideoDecoderClient implementation.
   D3D11PictureBuffer* GetPicture() override;
+  void UpdateTimestamp(D3D11PictureBuffer* picture_buffer) override;
   bool OutputResult(const CodecPicture* picture,
                     D3D11PictureBuffer* picture_buffer) override;
   void SetDecoderCB(const SetAcceleratorDecoderCB&) override;
@@ -143,10 +145,7 @@ class MEDIA_GPU_EXPORT D3D11VideoDecoder : public VideoDecoder,
   void CreatePictureBuffers();
 
   // Create a D3D11VideoDecoder, if possible, based on the current config.
-  // TODO(liberato): we use a tuple only because ErrorOr<ComD3D111VideoDecoder>
-  // doesn't work.  Something about base::Optional trying to convert to void*,
-  // but the conversion is ambiguous.
-  ErrorOr<std::tuple<ComD3D11VideoDecoder>> CreateD3D11Decoder();
+  StatusOr<ComD3D11VideoDecoder> CreateD3D11Decoder();
 
   enum class NotSupportedReason {
     kVideoIsSupported = 0,
@@ -175,10 +174,13 @@ class MEDIA_GPU_EXPORT D3D11VideoDecoder : public VideoDecoder,
     // GPU workarounds has turned this off.
     kOffByWorkaround = 8,
 
+    // Operating system version too low.
+    kUnsupportedOsVersion = 9,
+
     // For UMA. Must be the last entry. It should be initialized to the
     // numerically largest value above; if you add more entries, then please
     // update this to the last one.
-    kMaxValue = kOffByWorkaround
+    kMaxValue = kUnsupportedOsVersion
   };
 
   enum class D3D11LifetimeProgression {
@@ -298,6 +300,10 @@ class MEDIA_GPU_EXPORT D3D11VideoDecoder : public VideoDecoder,
   // Word-salad callback to set / update D3D11 Video callback to the
   // accelerator.  Needed for config changes.
   SetAcceleratorDecoderCB set_accelerator_decoder_cb_;
+
+  // The currently configured bit depth for the decoder. When this changes we
+  // need to recreate the decoder.
+  uint8_t bit_depth_ = 8u;
 
   base::WeakPtrFactory<D3D11VideoDecoder> weak_factory_{this};
 

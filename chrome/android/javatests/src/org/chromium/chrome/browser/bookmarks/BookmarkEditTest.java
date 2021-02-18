@@ -24,7 +24,9 @@ import org.chromium.base.ActivityState;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.ApplicationStatus.ActivityStateListener;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CallbackHelper;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.browser.bookmarks.BookmarkBridge.BookmarkItem;
 import org.chromium.chrome.browser.bookmarks.BookmarkBridge.BookmarkModelObserver;
@@ -32,8 +34,8 @@ import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.test.ChromeBrowserTestRule;
 import org.chromium.chrome.test.util.BookmarkTestUtil;
 import org.chromium.components.bookmarks.BookmarkId;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
+import org.chromium.url.GURL;
 
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
@@ -42,6 +44,7 @@ import java.util.concurrent.TimeoutException;
  * Tests functionality in BookmarkEditActivity.
  */
 @RunWith(BaseJUnit4ClassRunner.class)
+@Batch(Batch.PER_CLASS)
 public class BookmarkEditTest {
     private static final String TITLE_A = "a";
     private static final String TITLE_B = "b";
@@ -81,7 +84,8 @@ public class BookmarkEditTest {
             mMobileNode = mBookmarkModel.getMobileFolderId();
             mOtherNode = mBookmarkModel.getOtherFolderId();
         });
-        mBookmarkId = BookmarkModelTest.addBookmark(mBookmarkModel, mMobileNode, 0, TITLE_A, URL_A);
+        mBookmarkId = BookmarkModelTest.addBookmark(
+                mBookmarkModel, mMobileNode, 0, TITLE_A, new GURL(URL_A));
 
         mModelObserver = new BookmarkModelObserver() {
             @Override
@@ -98,6 +102,8 @@ public class BookmarkEditTest {
 
     @After
     public void tearDown() {
+        mBookmarkModel.removeObserver(mModelObserver);
+        TestThreadUtils.runOnUiThreadBlocking(() -> mBookmarkModel.removeAllUserBookmarks());
         ApplicationStatus.unregisterActivityStateListener(mActivityStateListener);
     }
 
@@ -120,7 +126,7 @@ public class BookmarkEditTest {
 
         BookmarkItem bookmarkItem = getBookmarkItem(mBookmarkId);
         Assert.assertEquals("Incorrect title after edit.", TITLE_B, bookmarkItem.getTitle());
-        Assert.assertEquals("Incorrect url after edit.", URL_B, bookmarkItem.getUrl());
+        Assert.assertEquals("Incorrect url after edit.", URL_B, bookmarkItem.getUrl().getSpec());
     }
 
     @Test
@@ -141,7 +147,7 @@ public class BookmarkEditTest {
 
         BookmarkItem bookmarkItem = getBookmarkItem(mBookmarkId);
         Assert.assertEquals("Incorrect title after edit.", TITLE_A, bookmarkItem.getTitle());
-        Assert.assertEquals("Incorrect url after edit.", URL_A, bookmarkItem.getUrl());
+        Assert.assertEquals("Incorrect url after edit.", URL_A, bookmarkItem.getUrl().getSpec());
     }
 
     @Test
@@ -158,7 +164,7 @@ public class BookmarkEditTest {
         mDestroyedCallback.waitForCallback(0);
 
         BookmarkItem bookmarkItem = getBookmarkItem(mBookmarkId);
-        Assert.assertEquals("Incorrect url after edit.", URL_A, bookmarkItem.getUrl());
+        Assert.assertEquals("Incorrect url after edit.", URL_A, bookmarkItem.getUrl().getSpec());
     }
 
     @Test

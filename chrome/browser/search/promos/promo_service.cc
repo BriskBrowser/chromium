@@ -17,14 +17,13 @@
 #include "base/values.h"
 #include "chrome/browser/extensions/extension_checkup.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/search/ntp_features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/google/core/common/google_util.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
-#include "content/public/browser/system_connector.h"
+#include "components/search/ntp_features.h"
 #include "extensions/common/extension_features.h"
 #include "net/base/load_flags.h"
 #include "net/base/url_util.h"
@@ -260,7 +259,7 @@ void PromoService::Shutdown() {
     observer.OnPromoServiceShuttingDown();
   }
 
-  DCHECK(!observers_.might_have_observers());
+  DCHECK(observers_.empty());
 }
 
 // static

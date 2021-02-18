@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 #include "chrome/browser/chromeos/login/screens/user_creation_screen.h"
 
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/login_screen_test_api.h"
 #include "chrome/browser/chromeos/login/enrollment/enrollment_screen_view.h"
 #include "chrome/browser/chromeos/login/oobe_screen.h"
@@ -10,14 +11,16 @@
 #include "chrome/browser/chromeos/login/test/fake_gaia_mixin.h"
 #include "chrome/browser/chromeos/login/test/js_checker.h"
 #include "chrome/browser/chromeos/login/test/login_manager_mixin.h"
+#include "chrome/browser/chromeos/login/test/network_portal_detector_mixin.h"
 #include "chrome/browser/chromeos/login/test/oobe_base_test.h"
 #include "chrome/browser/chromeos/login/test/oobe_screen_exit_waiter.h"
 #include "chrome/browser/chromeos/login/test/oobe_screen_waiter.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
+#include "chrome/browser/ui/webui/chromeos/login/error_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
+#include "chrome/browser/ui/webui/chromeos/login/offline_login_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/user_creation_screen_handler.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "content/public/test/browser_test.h"
 
 namespace chromeos {
@@ -87,6 +90,8 @@ class UserCreationScreenTest : public OobeBaseTest {
  protected:
   chromeos::DeviceStateMixin device_state_{
       &mixin_host_, chromeos::DeviceStateMixin::State::OOBE_COMPLETED_UNOWNED};
+
+  NetworkPortalDetectorMixin network_portal_detector_{&mixin_host_};
 
  private:
   void HandleScreenExit(UserCreationScreen::Result result) {
@@ -173,17 +178,25 @@ IN_PROC_BROWSER_TEST_F(UserCreationScreenTest, EnterpriseEnroll) {
   OobeScreenWaiter(EnrollmentScreenView::kScreenId).Wait();
 }
 
+IN_PROC_BROWSER_TEST_F(UserCreationScreenTest, NetworkOffline) {
+  network_portal_detector_.SimulateDefaultNetworkState(
+      NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_OFFLINE);
+
+  OobeScreenWaiter(ErrorScreenView::kScreenId).Wait();
+  test::OobeJS().ExpectVisiblePath(
+      {"error-message", "error-guest-signin-link"});
+
+  network_portal_detector_.SimulateDefaultNetworkState(
+      NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_ONLINE);
+  OobeScreenWaiter(UserCreationView::kScreenId).Wait();
+}
+
 class UserCreationScreenLoginTest : public UserCreationScreenTest {
  public:
   UserCreationScreenLoginTest() : UserCreationScreenTest() {
     login_manager_mixin_.AppendRegularUsers(1);
     device_state_.SetState(
-        chromeos::DeviceStateMixin::State::OOBE_COMPLETED_CLOUD_ENROLLED);
-  }
-
-  void ShowUserCreationScreen() {
-    LoginDisplayHost::default_host()->StartWizard(UserCreationView::kScreenId);
-    OobeScreenWaiter(UserCreationView::kScreenId).Wait();
+        chromeos::DeviceStateMixin::State::OOBE_COMPLETED_CONSUMER_OWNED);
   }
 
  private:
@@ -194,7 +207,9 @@ class UserCreationScreenLoginTest : public UserCreationScreenTest {
 // existing users) and clicking it closes the oobe dialog. Enterprise
 // enrollment button is hidden when there are existing users.
 IN_PROC_BROWSER_TEST_F(UserCreationScreenLoginTest, Cancel) {
-  ShowUserCreationScreen();
+  EXPECT_TRUE(ash::LoginScreenTestApi::ClickAddUserButton());
+  EXPECT_TRUE(ash::LoginScreenTestApi::IsOobeDialogVisible());
+  OobeScreenWaiter(UserCreationView::kScreenId).Wait();
   ASSERT_FALSE(ash::LoginScreenTestApi::IsEnterpriseEnrollmentButtonShown());
 
   test::OobeJS().ExpectVisiblePath(kUserCreationDialog);
@@ -212,6 +227,30 @@ IN_PROC_BROWSER_TEST_F(UserCreationScreenLoginTest, Cancel) {
 
   WaitForScreenExit();
   EXPECT_EQ(screen_result_.value(), UserCreationScreen::Result::CANCEL);
+  EXPECT_FALSE(ash::LoginScreenTestApi::IsOobeDialogVisible());
+}
+
+class UserCreationScreenEnrolledTest : public UserCreationScreenTest {
+ public:
+  UserCreationScreenEnrolledTest() : UserCreationScreenTest() {
+    login_manager_mixin_.AppendRegularUsers(1);
+    device_state_.SetState(
+        chromeos::DeviceStateMixin::State::OOBE_COMPLETED_CLOUD_ENROLLED);
+  }
+
+ private:
+  LoginManagerMixin login_manager_mixin_{&mixin_host_};
+};
+
+// Verify user creation screen is skipped when clicking add user button on
+// managed device.
+IN_PROC_BROWSER_TEST_F(UserCreationScreenEnrolledTest,
+                       ShouldSkipUserCreationScreen) {
+  EXPECT_TRUE(ash::LoginScreenTestApi::ClickAddUserButton());
+  EXPECT_TRUE(ash::LoginScreenTestApi::IsOobeDialogVisible());
+  OobeScreenWaiter(GaiaView::kScreenId).Wait();
+  test::OobeJS().ClickOnPath(
+      {"gaia-signin", "signin-frame-dialog", "signin-back-button"});
   EXPECT_FALSE(ash::LoginScreenTestApi::IsOobeDialogVisible());
 }
 

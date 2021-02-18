@@ -50,9 +50,10 @@ namespace content {
 // running.
 //
 // TODO(crbug/806366): The goal is to remove this code by 2019.
-class SlowWindowCapturerChromeOS : public viz::mojom::FrameSinkVideoCapturer,
-                                   public SlowCaptureOverlayChromeOS::Owner,
-                                   public aura::WindowObserver {
+class SlowWindowCapturerChromeOS final
+    : public viz::mojom::FrameSinkVideoCapturer,
+      public SlowCaptureOverlayChromeOS::Owner,
+      public aura::WindowObserver {
  public:
   explicit SlowWindowCapturerChromeOS(aura::Window* target);
   ~SlowWindowCapturerChromeOS() final;
@@ -66,8 +67,8 @@ class SlowWindowCapturerChromeOS : public viz::mojom::FrameSinkVideoCapturer,
                                 const gfx::Size& max_size,
                                 bool use_fixed_aspect_ratio) final;
   void SetAutoThrottlingEnabled(bool enabled) final;
-  void ChangeTarget(
-      const base::Optional<viz::FrameSinkId>& frame_sink_id) final;
+  void ChangeTarget(const base::Optional<viz::FrameSinkId>& frame_sink_id,
+                    const viz::SubtreeCaptureId& subtree_capture_id) final;
   void Start(
       mojo::PendingRemote<viz::mojom::FrameSinkVideoConsumer> consumer) final;
   void Stop() final;

@@ -86,26 +86,28 @@ String LayoutThemeDefault::ExtraQuirksStyleSheet() {
 }
 
 Color LayoutThemeDefault::PlatformActiveSelectionBackgroundColor(
-    WebColorScheme color_scheme) const {
+    mojom::blink::ColorScheme color_scheme) const {
   return active_selection_background_color_;
 }
 
 Color LayoutThemeDefault::PlatformInactiveSelectionBackgroundColor(
-    WebColorScheme color_scheme) const {
+    mojom::blink::ColorScheme color_scheme) const {
   return inactive_selection_background_color_;
 }
 
 Color LayoutThemeDefault::PlatformActiveSelectionForegroundColor(
-    WebColorScheme color_scheme) const {
+    mojom::blink::ColorScheme color_scheme) const {
   return active_selection_foreground_color_;
 }
 
 Color LayoutThemeDefault::PlatformInactiveSelectionForegroundColor(
-    WebColorScheme color_scheme) const {
+    mojom::blink::ColorScheme color_scheme) const {
   return inactive_selection_foreground_color_;
 }
 
 IntSize LayoutThemeDefault::SliderTickSize() const {
+  // The value should be synchronized with a -webkit-slider-container rule in
+  // html.css.
   if (features::IsFormControlsRefreshEnabled())
     return IntSize(1, 4);
   else
@@ -113,6 +115,8 @@ IntSize LayoutThemeDefault::SliderTickSize() const {
 }
 
 int LayoutThemeDefault::SliderTickOffsetFromTrackCenter() const {
+  // The value should be synchronized with a -webkit-slider-container rule in
+  // html.css and LayoutThemeAndroid::ExtraDefaultStyleSheet().
   if (features::IsFormControlsRefreshEnabled())
     return 7;
   else
@@ -123,8 +127,8 @@ void LayoutThemeDefault::AdjustSliderThumbSize(ComputedStyle& style) const {
   if (!Platform::Current()->ThemeEngine())
     return;
 
-  IntSize size = Platform::Current()->ThemeEngine()->GetSize(
-      WebThemeEngine::kPartSliderThumb);
+  IntSize size = IntSize(Platform::Current()->ThemeEngine()->GetSize(
+      WebThemeEngine::kPartSliderThumb));
 
   float zoom_level = style.EffectiveZoom();
   if (style.EffectiveAppearance() == kSliderThumbHorizontalPart) {
@@ -150,19 +154,20 @@ void LayoutThemeDefault::SetSelectionColors(Color active_background_color,
 namespace {
 
 void SetSizeIfAuto(const IntSize& size, ComputedStyle& style) {
-  if (style.Width().IsIntrinsicOrAuto())
+  if (style.Width().IsAutoOrContentOrIntrinsic())
     style.SetWidth(Length::Fixed(size.Width()));
-  if (style.Height().IsIntrinsicOrAuto())
+  if (style.Height().IsAutoOrContentOrIntrinsic())
     style.SetHeight(Length::Fixed(size.Height()));
 }
 
 void SetMinimumSizeIfAuto(const IntSize& size, ComputedStyle& style) {
   // We only want to set a minimum size if no explicit size is specified, to
   // avoid overriding author intentions.
-  if (style.MinWidth().IsIntrinsicOrAuto() && style.Width().IsIntrinsicOrAuto())
+  if (style.MinWidth().IsAutoOrContentOrIntrinsic() &&
+      style.Width().IsAutoOrContentOrIntrinsic())
     style.SetMinWidth(Length::Fixed(size.Width()));
-  if (style.MinHeight().IsIntrinsicOrAuto() &&
-      style.Height().IsIntrinsicOrAuto())
+  if (style.MinHeight().IsAutoOrContentOrIntrinsic() &&
+      style.Height().IsAutoOrContentOrIntrinsic())
     style.SetMinHeight(Length::Fixed(size.Height()));
 }
 
@@ -170,11 +175,12 @@ void SetMinimumSizeIfAuto(const IntSize& size, ComputedStyle& style) {
 
 void LayoutThemeDefault::SetCheckboxSize(ComputedStyle& style) const {
   // If the width and height are both specified, then we have nothing to do.
-  if (!style.Width().IsIntrinsicOrAuto() && !style.Height().IsAuto())
+  if (!style.Width().IsAutoOrContentOrIntrinsic() &&
+      !style.Height().IsAutoOrContentOrIntrinsic())
     return;
 
-  IntSize size = Platform::Current()->ThemeEngine()->GetSize(
-      WebThemeEngine::kPartCheckbox);
+  IntSize size = IntSize(Platform::Current()->ThemeEngine()->GetSize(
+      WebThemeEngine::kPartCheckbox));
   float zoom_level = style.EffectiveZoom();
   size.SetWidth(size.Width() * zoom_level);
   size.SetHeight(size.Height() * zoom_level);
@@ -184,11 +190,12 @@ void LayoutThemeDefault::SetCheckboxSize(ComputedStyle& style) const {
 
 void LayoutThemeDefault::SetRadioSize(ComputedStyle& style) const {
   // If the width and height are both specified, then we have nothing to do.
-  if (!style.Width().IsIntrinsicOrAuto() && !style.Height().IsAuto())
+  if (!style.Width().IsAutoOrContentOrIntrinsic() &&
+      !style.Height().IsAutoOrContentOrIntrinsic())
     return;
 
-  IntSize size =
-      Platform::Current()->ThemeEngine()->GetSize(WebThemeEngine::kPartRadio);
+  IntSize size = IntSize(
+      Platform::Current()->ThemeEngine()->GetSize(WebThemeEngine::kPartRadio));
   float zoom_level = style.EffectiveZoom();
   size.SetWidth(size.Width() * zoom_level);
   size.SetHeight(size.Height() * zoom_level);
@@ -198,8 +205,8 @@ void LayoutThemeDefault::SetRadioSize(ComputedStyle& style) const {
 
 void LayoutThemeDefault::AdjustInnerSpinButtonStyle(
     ComputedStyle& style) const {
-  IntSize size = Platform::Current()->ThemeEngine()->GetSize(
-      WebThemeEngine::kPartInnerSpinButton);
+  IntSize size = IntSize(Platform::Current()->ThemeEngine()->GetSize(
+      WebThemeEngine::kPartInnerSpinButton));
 
   float zoom_level = style.EffectiveZoom();
   style.SetWidth(Length::Fixed(size.Width() * zoom_level));
@@ -234,16 +241,14 @@ void LayoutThemeDefault::AdjustSearchFieldCancelButtonStyle(
   style.SetHeight(Length::Fixed(cancel_button_size));
 }
 
-void LayoutThemeDefault::AdjustMenuListStyle(ComputedStyle& style,
-                                             Element* element) const {
-  LayoutTheme::AdjustMenuListStyle(style, element);
+void LayoutThemeDefault::AdjustMenuListStyle(ComputedStyle& style) const {
+  LayoutTheme::AdjustMenuListStyle(style);
   // Height is locked to auto on all browsers.
   style.SetLineHeight(ComputedStyleInitialValues::InitialLineHeight());
 }
 
-void LayoutThemeDefault::AdjustMenuListButtonStyle(ComputedStyle& style,
-                                                   Element* e) const {
-  AdjustMenuListStyle(style, e);
+void LayoutThemeDefault::AdjustMenuListButtonStyle(ComputedStyle& style) const {
+  AdjustMenuListStyle(style);
 }
 
 // The following internal paddings are in addition to the user-supplied padding.
@@ -277,7 +282,7 @@ int LayoutThemeDefault::MenuListArrowWidthInDIP() const {
   int width = Platform::Current()
                   ->ThemeEngine()
                   ->GetSize(WebThemeEngine::kPartScrollbarUpArrow)
-                  .width;
+                  .width();
   return width > 0 ? width : 15;
 }
 

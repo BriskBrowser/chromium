@@ -110,6 +110,11 @@ class TestVideoConfig {
   static VideoDecoderConfig ExtraLarge(VideoCodec codec = kCodecVP8);
   static VideoDecoderConfig ExtraLargeEncrypted(VideoCodec codec = kCodecVP8);
 
+  static VideoDecoderConfig Custom(gfx::Size size,
+                                   VideoCodec codec = kCodecVP8);
+  static VideoDecoderConfig CustomEncrypted(gfx::Size size,
+                                            VideoCodec codec = kCodecVP8);
+
   // Returns coded size for Normal and Large config.
   static gfx::Size NormalCodedSize();
   static gfx::Size LargeCodedSize();
@@ -172,6 +177,18 @@ scoped_refptr<AudioBuffer> MakeAudioBuffer(SampleFormat format,
                                            size_t frames,
                                            base::TimeDelta timestamp);
 
+// Similar to above, but for float types where the maximum range is limited to
+// [-1.0f, 1.0f]. Here the stored values will be divided by 65536.
+template <>
+scoped_refptr<AudioBuffer> MakeAudioBuffer<float>(SampleFormat format,
+                                                  ChannelLayout channel_layout,
+                                                  size_t channel_count,
+                                                  int sample_rate,
+                                                  float start,
+                                                  float increment,
+                                                  size_t frames,
+                                                  base::TimeDelta timestamp);
+
 // Create an AudioBuffer containing bitstream data. |start| and |increment| are
 // used to specify the values for the data. The value is determined by:
 //   start + frames * increment
@@ -219,13 +236,19 @@ MATCHER_P(SameStatusCode, status, "") {
   return arg.code() == status.code();
 }
 
-// Compares two an |arg| Status to a StatusCode provided
+// Compares an `arg` Status.code() to a test-supplied StatusCode.
 MATCHER_P(HasStatusCode, status_code, "") {
   return arg.code() == status_code;
 }
 
 MATCHER(IsOkStatus, "") {
   return arg.is_ok();
+}
+
+// True if and only if the Status would be interpreted as an error from a decode
+// callback (not okay, not aborted).
+MATCHER(IsDecodeErrorStatus, "") {
+  return !arg.is_ok() && arg.code() != StatusCode::kAborted;
 }
 
 // Compares two {Audio|Video}DecoderConfigs

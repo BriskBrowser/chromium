@@ -10,10 +10,10 @@
 #include "base/scoped_observer.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/certificate_provider/certificate_provider.h"
 #include "chrome/browser/chromeos/net/client_cert_store_chromeos.h"
 #include "chrome/browser/chromeos/platform_keys/platform_keys_service.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/system_token_cert_db_initializer.h"
 #include "chrome/browser/net/nss_context.h"
 #include "chrome/browser/profiles/incognito_helpers.h"
@@ -51,7 +51,7 @@ void GetCertDatabaseOnIoThread(
 
   base::RepeatingCallback<void(net::NSSCertDatabase*)> on_got_on_io_thread =
       base::BindRepeating(&DidGetCertDbOnIoThread, origin_task_runner,
-                          base::AdaptCallbackForRepeating(std::move(callback)));
+                          base::Passed(&callback));
   net::NSSCertDatabase* cert_db =
       GetNSSCertDatabaseForResourceContext(context, on_got_on_io_thread);
 
@@ -148,12 +148,22 @@ PlatformKeysService* PlatformKeysServiceFactory::GetDeviceWideService() {
     device_wide_service_ = std::make_unique<PlatformKeysServiceImpl>(
         std::make_unique<DelegateForDevice>());
   }
+
+  device_wide_service_->SetMapToSoftokenAttrsForTesting(
+      map_to_softoken_attrs_for_testing_);
+
   return device_wide_service_.get();
 }
 
 void PlatformKeysServiceFactory::SetDeviceWideServiceForTesting(
     PlatformKeysService* device_wide_service_for_testing) {
   device_wide_service_for_testing_ = device_wide_service_for_testing;
+  device_wide_service_for_testing_->SetMapToSoftokenAttrsForTesting(
+      map_to_softoken_attrs_for_testing_);
+}
+
+void PlatformKeysServiceFactory::SetTestingMode(bool is_testing_mode) {
+  map_to_softoken_attrs_for_testing_ = is_testing_mode;
 }
 
 PlatformKeysServiceFactory::PlatformKeysServiceFactory()
@@ -167,14 +177,30 @@ KeyedService* PlatformKeysServiceFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
   std::unique_ptr<PlatformKeysServiceImplDelegate> delegate;
   Profile* profile = Profile::FromBrowserContext(context);
-  if (ProfileHelper::IsSigninProfile(profile) ||
-      ProfileHelper::IsLockScreenAppProfile(profile)) {
+  if (!ProfileHelper::IsRegularProfile(profile)) {
     delegate = std::make_unique<DelegateForDevice>();
   } else {
     delegate = std::make_unique<DelegateForUser>(context);
   }
 
-  return new PlatformKeysServiceImpl(std::move(delegate));
+  PlatformKeysServiceImpl* const platform_keys_service_impl =
+      new PlatformKeysServiceImpl(std::move(delegate));
+  platform_keys_service_impl->SetMapToSoftokenAttrsForTesting(
+      map_to_softoken_attrs_for_testing_);
+
+  return platform_keys_service_impl;
+}
+
+void PlatformKeysServiceFactory::BrowserContextShutdown(
+    content::BrowserContext* context) {
+  PlatformKeysService* platform_keys_service =
+      static_cast<PlatformKeysService*>(
+          GetServiceForBrowserContext(context, false));
+  if (platform_keys_service) {
+    platform_keys_service->SetMapToSoftokenAttrsForTesting(false);
+  }
+
+  BrowserContextKeyedServiceFactory::BrowserContextShutdown(context);
 }
 
 content::BrowserContext* PlatformKeysServiceFactory::GetBrowserContextToUse(

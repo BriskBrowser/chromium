@@ -41,13 +41,13 @@ class CORE_EXPORT LayoutThemeDefault : public LayoutTheme {
   String ExtraQuirksStyleSheet() override;
 
   Color PlatformActiveSelectionBackgroundColor(
-      WebColorScheme color_scheme) const override;
+      mojom::blink::ColorScheme color_scheme) const override;
   Color PlatformInactiveSelectionBackgroundColor(
-      WebColorScheme color_scheme) const override;
+      mojom::blink::ColorScheme color_scheme) const override;
   Color PlatformActiveSelectionForegroundColor(
-      WebColorScheme color_scheme) const override;
+      mojom::blink::ColorScheme color_scheme) const override;
   Color PlatformInactiveSelectionForegroundColor(
-      WebColorScheme color_scheme) const override;
+      mojom::blink::ColorScheme color_scheme) const override;
 
   IntSize SliderTickSize() const override;
   int SliderTickOffsetFromTrackCenter() const override;
@@ -80,8 +80,8 @@ class CORE_EXPORT LayoutThemeDefault : public LayoutTheme {
   // In short, we either go down the MenuList code path or the MenuListButton
   // codepath. We never go down both. And in both cases, they layout the
   // entire menulist.
-  void AdjustMenuListStyle(ComputedStyle&, Element*) const override;
-  void AdjustMenuListButtonStyle(ComputedStyle&, Element*) const override;
+  void AdjustMenuListStyle(ComputedStyle&) const override;
+  void AdjustMenuListButtonStyle(ComputedStyle&) const override;
 
   // These methods define the padding for the MenuList's inner block.
   int PopupInternalPaddingStart(const ComputedStyle&) const override;

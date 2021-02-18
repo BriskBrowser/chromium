@@ -5,11 +5,15 @@
 // https://html.spec.whatwg.org/#cross-origin-opener-policies
 
 [
-  NoInterfaceObject
+  LegacyNoInterfaceObject
 ] interface CoopAccessViolationReportBody : ReportBody {
   readonly attribute DOMString? sourceFile;
   readonly attribute unsigned long? lineNumber;
   readonly attribute unsigned long? columnNumber;
+  readonly attribute DOMString type;
   readonly attribute DOMString property;
+  readonly attribute DOMString? openeeURL;
+  readonly attribute DOMString? openerURL;
+  readonly attribute DOMString? otherDocumentURL;
   [CallWith=ScriptState] object toJSON();
 };

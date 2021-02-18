@@ -11,7 +11,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/cancelable_callback.h"
 #include "base/command_line.h"
 #include "base/location.h"
@@ -25,6 +25,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/activity_log/activity_log.h"
 #include "chrome/browser/extensions/activity_log/activity_log_task_runner.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -38,7 +39,7 @@
 #include "sql/statement.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/chromeos/login/users/scoped_test_user_manager.h"
 #include "chrome/browser/chromeos/settings/scoped_cros_settings_test_helper.h"
 #endif
@@ -49,7 +50,7 @@ class CountingPolicyTest : public testing::Test {
  public:
   CountingPolicyTest()
       : task_environment_(content::BrowserTaskEnvironment::IO_MAINLOOP) {
-#if defined OS_CHROMEOS
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     test_user_manager_.reset(new chromeos::ScopedTestUserManager());
 #endif
     profile_.reset(new TestingProfile());
@@ -63,7 +64,7 @@ class CountingPolicyTest : public testing::Test {
   }
 
   ~CountingPolicyTest() override {
-#if defined OS_CHROMEOS
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     test_user_manager_.reset();
 #endif
     base::RunLoop().RunUntilIdle();
@@ -111,8 +112,8 @@ class CountingPolicyTest : public testing::Test {
 
     // Set up a timeout for receiving results; if we haven't received anything
     // when the timeout triggers then assume that the test is broken.
-    base::CancelableClosure timeout(
-        base::BindRepeating(&CountingPolicyTest::TimeoutCallback));
+    base::CancelableOnceClosure timeout(
+        base::BindOnce(&CountingPolicyTest::TimeoutCallback));
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE, timeout.callback(), TestTimeouts::action_timeout());
 
@@ -386,7 +387,7 @@ class CountingPolicyTest : public testing::Test {
   std::unique_ptr<TestingProfile> profile_;
   content::BrowserTaskEnvironment task_environment_;
 
-#if defined OS_CHROMEOS
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   chromeos::ScopedCrosSettingsTestHelper cros_settings_test_helper_;
   std::unique_ptr<chromeos::ScopedTestUserManager> test_user_manager_;
 #endif

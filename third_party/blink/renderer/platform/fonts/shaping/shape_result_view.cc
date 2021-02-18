@@ -109,15 +109,16 @@ unsigned ShapeResultView::RunInfoPart::PreviousSafeToBreakOffset(
     unsigned offset) const {
   if (offset >= NumCharacters())
     return NumCharacters();
+  offset += offset_;
   if (!Rtl()) {
     for (const auto& glyph : base::Reversed(*this)) {
       if (glyph.safe_to_break_before && glyph.character_index <= offset)
-        return glyph.character_index;
+        return glyph.character_index - offset_;
     }
   } else {
     for (const auto& glyph : *this) {
       if (glyph.safe_to_break_before && glyph.character_index <= offset)
-        return glyph.character_index;
+        return glyph.character_index - offset_;
     }
   }
 
@@ -194,6 +195,12 @@ void ShapeResultView::CreateViewsForResult(const ShapeResultType* other,
       continue;
     // Compute start/end of the run, or of the part if ShapeResultView.
     unsigned part_start = run->start_index_ + other->StartIndexOffsetForRun();
+    if (other->Rtl()) {
+      // Under RTL and multiple parts, A RunInfoPart may have an
+      // offset_ greater than start_index. In this case, run_start
+      // would result in an invalid negative value.
+      part_start = std::max(part_start, run->OffsetToRunStartIndex());
+    }
     unsigned run_end = part_start + run->num_characters_;
     if (start_index < run_end && end_index > part_start) {
       ShapeResult::RunInfo::GlyphDataRange range;
@@ -203,7 +210,9 @@ void ShapeResultView::CreateViewsForResult(const ShapeResultType* other,
       DCHECK_GE(part_start, run->OffsetToRunStartIndex());
       unsigned run_start = part_start - run->OffsetToRunStartIndex();
       unsigned adjusted_start =
-          start_index > run_start ? start_index - run_start : 0;
+          start_index > run_start
+              ? std::max(start_index, part_start) - run_start
+              : 0;
       unsigned adjusted_end = std::min(end_index, run_end) - run_start;
       DCHECK(adjusted_end > adjusted_start);
       unsigned part_characters = adjusted_end - adjusted_start;

@@ -3,5 +3,8 @@ rootWebArea
 ++++genericContainer ignored
 ++++++details
 ++++++++disclosureTriangle collapsed name='details tag'
+++++++++++listMarker ignored name='▸ '
+++++++++++++staticText ignored name='▸ '
 ++++++++++staticText name='details tag'
 ++++++++++++inlineTextBox name='details tag'
+++++++++genericContainer ignored invisible

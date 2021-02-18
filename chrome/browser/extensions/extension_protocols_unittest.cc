@@ -50,6 +50,8 @@
 #include "extensions/test/test_extension_dir.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
+#include "services/metrics/public/cpp/ukm_source_id.h"
+#include "services/network/public/mojom/fetch_api.mojom.h"
 #include "services/network/test/test_url_loader_client.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -58,9 +60,7 @@
 #include "third_party/blink/public/common/privacy_budget/identifiability_metrics.h"
 #include "third_party/blink/public/common/privacy_budget/identifiable_surface.h"
 #include "third_party/blink/public/common/privacy_budget/scoped_identifiability_test_sample_collector.h"
-#include "third_party/blink/public/mojom/loader/resource_load_info.mojom-shared.h"
 
-using blink::mojom::ResourceType;
 using extensions::ExtensionRegistry;
 using network::mojom::URLLoader;
 using testing::_;
@@ -141,9 +141,10 @@ scoped_refptr<const Extension> CreateTestResponseHeaderExtension() {
 }
 
 // Helper function to create a |ResourceRequest| for testing purposes.
-network::ResourceRequest CreateResourceRequest(const std::string& method,
-                                               ResourceType resource_type,
-                                               const GURL& url) {
+network::ResourceRequest CreateResourceRequest(
+    const std::string& method,
+    network::mojom::RequestDestination destination,
+    const GURL& url) {
   network::ResourceRequest request;
   request.method = method;
   request.url = url;
@@ -152,9 +153,9 @@ network::ResourceRequest CreateResourceRequest(const std::string& method,
   request.request_initiator =
       url::Origin::Create(url);  // ensure initiator set.
   request.referrer_policy = blink::ReferrerUtils::GetDefaultNetReferrerPolicy();
-  request.resource_type = static_cast<int>(resource_type);
+  request.destination = destination;
   request.is_main_frame =
-      resource_type == blink::mojom::ResourceType::kMainFrame;
+      destination == network::mojom::RequestDestination::kDocument;
   return request;
 }
 
@@ -202,7 +203,7 @@ class ExtensionProtocolsTestBase : public testing::Test {
       : task_environment_(content::BrowserTaskEnvironment::IO_MAINLOOP),
         rvh_test_enabler_(new content::RenderViewHostTestEnabler()),
         force_incognito_(force_incognito),
-        test_ukm_id_(base::UkmSourceId::New()) {}
+        test_ukm_id_(ukm::SourceIdObj::New()) {}
 
   void SetUp() override {
     testing::Test::SetUp();
@@ -236,12 +237,13 @@ class ExtensionProtocolsTestBase : public testing::Test {
   }
 
   void SetProtocolHandler(bool is_incognito) {
-    loader_factory_ = extensions::CreateExtensionNavigationURLLoaderFactory(
-        browser_context(), test_ukm_id_, false);
+    loader_factory_.Bind(extensions::CreateExtensionNavigationURLLoaderFactory(
+        browser_context(), test_ukm_id_, false));
   }
 
-  GetResult RequestOrLoad(const GURL& url, ResourceType resource_type) {
-    return LoadURL(url, resource_type);
+  GetResult RequestOrLoad(const GURL& url,
+                          network::mojom::RequestDestination destination) {
+    return LoadURL(url, destination);
   }
 
   void AddExtension(const scoped_refptr<const Extension>& extension,
@@ -273,7 +275,7 @@ class ExtensionProtocolsTestBase : public testing::Test {
                    /*notifications_disabled=*/false);
     }
     return RequestOrLoad(extension->GetResourceURL(relative_path),
-                         blink::mojom::ResourceType::kMainFrame);
+                         network::mojom::RequestDestination::kDocument);
   }
 
   ExtensionRegistry* extension_registry() {
@@ -306,8 +308,9 @@ class ExtensionProtocolsTestBase : public testing::Test {
 
     // Load the extension.
     {
-      auto get_result = RequestOrLoad(extension->GetResourceURL("test.dat"),
-                                      blink::mojom::ResourceType::kMainFrame);
+      auto get_result =
+          RequestOrLoad(extension->GetResourceURL("test.dat"),
+                        network::mojom::RequestDestination::kDocument);
       EXPECT_EQ(net::OK, get_result.result());
     }
   }
@@ -319,17 +322,13 @@ class ExtensionProtocolsTestBase : public testing::Test {
           entries,
       ExtensionResourceAccessResult expected) {
     ASSERT_EQ(1u, entries.size());
-    EXPECT_EQ(test_ukm_id_, entries[0].source);
+    EXPECT_EQ(test_ukm_id_.ToInt64(), entries[0].source);
     ASSERT_EQ(1u, entries[0].metrics.size());
-    EXPECT_EQ(blink::IdentifiableSurface::FromTypeAndInput(
+    EXPECT_EQ(blink::IdentifiableSurface::FromTypeAndToken(
                   blink::IdentifiableSurface::Type::kExtensionFileAccess,
-                  blink::IdentifiabilityDigestOfBytes(
-                      base::as_bytes(base::make_span(extension->id()))))
-                  .ToUkmMetricHash(),
-              entries[0].metrics[0].surface.ToUkmMetricHash());
-    EXPECT_EQ(
-        blink::IdentifiabilityDigestHelper(expected),
-        static_cast<uint64_t>(entries[0].metrics[0].value.ToUkmMetricValue()));
+                  base::as_bytes(base::make_span(extension->id()))),
+              entries[0].metrics[0].surface);
+    EXPECT_EQ(blink::IdentifiableToken(expected), entries[0].metrics[0].value);
   }
 
  protected:
@@ -337,7 +336,8 @@ class ExtensionProtocolsTestBase : public testing::Test {
   StrictMock<MockMediaRouterExtensionAccessLogger> media_router_access_logger_;
 
  private:
-  GetResult LoadURL(const GURL& url, ResourceType resource_type) {
+  GetResult LoadURL(const GURL& url,
+                    network::mojom::RequestDestination destination) {
     constexpr int32_t kRoutingId = 81;
     constexpr int32_t kRequestId = 28;
 
@@ -346,7 +346,7 @@ class ExtensionProtocolsTestBase : public testing::Test {
     loader_factory_->CreateLoaderAndStart(
         loader.InitWithNewPipeAndPassReceiver(), kRoutingId, kRequestId,
         network::mojom::kURLLoadOptionNone,
-        CreateResourceRequest("GET", resource_type, url), client.CreateRemote(),
+        CreateResourceRequest("GET", destination, url), client.CreateRemote(),
         net::MutableNetworkTrafficAnnotationTag(TRAFFIC_ANNOTATION_FOR_TESTS));
 
     if (power_monitor_source_) {
@@ -373,11 +373,11 @@ class ExtensionProtocolsTestBase : public testing::Test {
 
   content::BrowserTaskEnvironment task_environment_;
   std::unique_ptr<content::RenderViewHostTestEnabler> rvh_test_enabler_;
-  std::unique_ptr<network::mojom::URLLoaderFactory> loader_factory_;
+  mojo::Remote<network::mojom::URLLoaderFactory> loader_factory_;
   std::unique_ptr<TestingProfile> testing_profile_;
   std::unique_ptr<content::WebContents> contents_;
   const bool force_incognito_;
-  const base::UkmSourceId test_ukm_id_;
+  const ukm::SourceIdObj test_ukm_id_;
 
   // |power_monitor_source_| is owned by the global PowerMonitor.
   base::PowerMonitorTestSource* power_monitor_source_ = nullptr;
@@ -431,8 +431,9 @@ TEST_F(ExtensionProtocolsIncognitoTest, IncognitoRequest) {
       // It doesn't matter that the resource doesn't exist. If the resource
       // is blocked, we should see BLOCKED_BY_CLIENT. Otherwise, the request
       // should just fail because the file doesn't exist.
-      auto get_result = RequestOrLoad(extension->GetResourceURL("404.html"),
-                                      blink::mojom::ResourceType::kMainFrame);
+      auto get_result =
+          RequestOrLoad(extension->GetResourceURL("404.html"),
+                        network::mojom::RequestDestination::kDocument);
 
       if (cases[i].should_allow_main_frame_load) {
         EXPECT_EQ(net::ERR_FILE_NOT_FOUND, get_result.result())
@@ -479,7 +480,7 @@ TEST_F(ExtensionProtocolsTest, ComponentResourceRequest) {
 
     auto get_result =
         RequestOrLoad(extension->GetResourceURL("webstore_icon_16.png"),
-                      blink::mojom::ResourceType::kMedia);
+                      network::mojom::RequestDestination::kVideo);
     EXPECT_EQ(net::OK, get_result.result());
     CheckForContentLengthHeader(get_result);
     EXPECT_EQ("image/png", get_result.GetResponseHeaderByName(
@@ -496,7 +497,7 @@ TEST_F(ExtensionProtocolsTest, ComponentResourceRequest) {
 
     auto get_result =
         RequestOrLoad(extension->GetResourceURL("webstore_icon_16.png"),
-                      blink::mojom::ResourceType::kMedia);
+                      network::mojom::RequestDestination::kVideo);
     EXPECT_EQ(net::OK, get_result.result());
     CheckForContentLengthHeader(get_result);
     EXPECT_EQ("image/png", get_result.GetResponseHeaderByName(
@@ -519,7 +520,7 @@ TEST_F(ExtensionProtocolsTest, ResourceRequestResponseHeaders) {
 
   {
     auto get_result = RequestOrLoad(extension->GetResourceURL("test.dat"),
-                                    blink::mojom::ResourceType::kMedia);
+                                    network::mojom::RequestDestination::kVideo);
     EXPECT_EQ(net::OK, get_result.result());
 
     // Check that cache-related headers are set.
@@ -553,8 +554,9 @@ TEST_F(ExtensionProtocolsTest, AllowFrameRequests) {
   {
     blink::test::ScopedIdentifiabilityTestSampleCollector metrics;
 
-    auto get_result = RequestOrLoad(extension->GetResourceURL("test.dat"),
-                                    blink::mojom::ResourceType::kMainFrame);
+    auto get_result =
+        RequestOrLoad(extension->GetResourceURL("test.dat"),
+                      network::mojom::RequestDestination::kDocument);
     EXPECT_EQ(net::OK, get_result.result());
 
     ExpectExtensionAccessResult(extension, metrics.entries(),
@@ -570,7 +572,7 @@ TEST_F(ExtensionProtocolsTest, AllowFrameRequests) {
     blink::test::ScopedIdentifiabilityTestSampleCollector metrics;
 
     auto get_result = RequestOrLoad(extension->GetResourceURL("test.dat"),
-                                    blink::mojom::ResourceType::kMedia);
+                                    network::mojom::RequestDestination::kVideo);
     EXPECT_EQ(net::ERR_BLOCKED_BY_CLIENT, get_result.result());
 
     ExpectExtensionAccessResult(extension, metrics.entries(),
@@ -820,7 +822,7 @@ TEST_F(ExtensionProtocolsTest, MimeTypesForKnownFiles) {
   for (const auto& test_case : test_cases) {
     SCOPED_TRACE(test_case.file_name);
     auto result = RequestOrLoad(extension->GetResourceURL(test_case.file_name),
-                                blink::mojom::ResourceType::kSubResource);
+                                network::mojom::RequestDestination::kEmpty);
     EXPECT_EQ(
         test_case.expected_mime_type,
         result.GetResponseHeaderByName(net::HttpRequestHeaders::kContentType));

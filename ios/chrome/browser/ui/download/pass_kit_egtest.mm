@@ -8,11 +8,9 @@
 
 #include "base/bind.h"
 #import "base/test/ios/wait_util.h"
-#include "components/infobars/core/infobar_feature.h"
 #include "ios/chrome/browser/download/download_test_util.h"
 #include "ios/chrome/browser/download/pass_kit_mime_type.h"
 #import "ios/chrome/browser/ui/infobars/banners/infobar_banner_constants.h"
-#import "ios/chrome/browser/ui/infobars/infobar_feature.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
@@ -23,14 +21,6 @@
 #include "net/test/embedded_test_server/http_response.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 
-#if defined(CHROME_EARL_GREY_1)
-#include "base/test/scoped_feature_list.h"
-// EG1 test relies on view controller presentation as the signal that PassKit
-// Dialog is shown.
-#import "ios/chrome/app/main_controller.h"  // nogncheck
-#import "ios/chrome/browser/ui/browser_view/browser_view_controller.h"  // nogncheck
-#import "ios/chrome/test/app/chrome_test_util.h"  // nogncheck
-#endif
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -77,30 +67,13 @@ std::unique_ptr<net::test_server::HttpResponse> GetResponse(
 @end
 
 @implementation PassKitEGTest {
-#if defined(CHROME_EARL_GREY_1)
-  base::test::ScopedFeatureList _featureList;
-#endif
 }
 
 - (void)setUp {
   [super setUp];
 
-// Turn on Messages UI.
-#if defined(CHROME_EARL_GREY_1)
-  _featureList.InitWithFeatures(
-      /*enabled_features=*/{kIOSInfobarUIReboot},
-      /*disabled_features=*/{kInfobarUIRebootOnlyiOS13});
-#endif
-
-  self.testServer->RegisterRequestHandler(base::Bind(&GetResponse));
+  self.testServer->RegisterRequestHandler(base::BindRepeating(&GetResponse));
   GREYAssertTrue(self.testServer->Start(), @"Test server failed to start.");
-}
-
-- (AppLaunchConfiguration)appConfigurationForTestCase {
-  AppLaunchConfiguration config;
-  config.features_enabled.push_back(kIOSInfobarUIReboot);
-  config.features_disabled.push_back(kInfobarUIRebootOnlyiOS13);
-  return config;
 }
 
 // Tests that Chrome presents PassKit error infobar if pkpass file cannot be
@@ -135,19 +108,6 @@ std::unique_ptr<net::test_server::HttpResponse> GetResponse(
 
   // PKAddPassesViewController UI is rendered out of host process so EarlGrey
   // matcher can not find PassKit Dialog UI.
-#if defined(CHROME_EARL_GREY_1)
-  // EG1 test relies on view controller presentation as the signal that PassKit
-  // Dialog is shown.
-  id<BrowserInterface> interface =
-      chrome_test_util::GetMainController().interfaceProvider.mainInterface;
-  UIViewController* viewController = interface.viewController;
-  bool dialogShown = WaitUntilConditionOrTimeout(kWaitForDownloadTimeout, ^{
-    UIViewController* presentedController =
-        viewController.presentedViewController;
-    return [presentedController class] == [PKAddPassesViewController class];
-  });
-  GREYAssert(dialogShown, @"PassKit dialog was not shown");
-#elif defined(CHROME_EARL_GREY_2)
   // EG2 test can use XCUIApplication API to check for PassKit dialog UI
   // presentation.
   XCUIApplication* app = [[XCUIApplication alloc] init];
@@ -159,9 +119,6 @@ std::unique_ptr<net::test_server::HttpResponse> GetResponse(
   }
   GREYAssert([title waitForExistenceWithTimeout:kWaitForDownloadTimeout],
              @"PassKit dialog UI was not presented");
-#else
-#error Must define either CHROME_EARL_GREY_1 or CHROME_EARL_GREY_2.
-#endif
 }
 
 @end

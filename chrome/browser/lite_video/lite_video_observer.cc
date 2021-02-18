@@ -20,7 +20,8 @@
 #include "chrome/browser/optimization_guide/optimization_guide_keyed_service.h"
 #include "chrome/browser/optimization_guide/optimization_guide_keyed_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
-#include "components/optimization_guide/optimization_guide_decider.h"
+#include "chrome/common/previews_resource_loading_hints.mojom.h"
+#include "components/optimization_guide/content/browser/optimization_guide_decider.h"
 #include "components/optimization_guide/proto/lite_video_metadata.pb.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
@@ -33,7 +34,6 @@
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/blink/public/common/features.h"
-#include "third_party/blink/public/mojom/loader/previews_resource_loading_hints.mojom.h"
 
 namespace {
 
@@ -183,10 +183,10 @@ void LiteVideoObserver::SendHintToRenderFrameAgentForID(
   if (!render_frame_host)
     return;
 
-  mojo::AssociatedRemote<blink::mojom::PreviewsResourceLoadingHintsReceiver>
+  mojo::AssociatedRemote<previews::mojom::PreviewsResourceLoadingHintsReceiver>
       loading_hints_agent;
 
-  auto hint_ptr = blink::mojom::LiteVideoHint::New();
+  auto hint_ptr = previews::mojom::LiteVideoHint::New();
   hint_ptr->target_downlink_bandwidth_kbps =
       hint.target_downlink_bandwidth_kbps();
   hint_ptr->kilobytes_to_buffer_before_throttle =
@@ -242,14 +242,6 @@ void LiteVideoObserver::MediaBufferUnderflow(const content::MediaPlayerId& id) {
   if (!render_frame_host || !render_frame_host->GetProcess())
     return;
 
-  mojo::AssociatedRemote<blink::mojom::PreviewsResourceLoadingHintsReceiver>
-      loading_hints_agent;
-
-  if (render_frame_host->GetRemoteAssociatedInterfaces()) {
-    render_frame_host->GetRemoteAssociatedInterfaces()->GetInterface(
-        &loading_hints_agent);
-    loading_hints_agent->StopThrottlingMediaRequests();
-  }
   // Only consider a rebuffer event related to LiteVideos if they
   // were allowed on current navigation.
   if (!nav_metrics_ ||
@@ -257,19 +249,60 @@ void LiteVideoObserver::MediaBufferUnderflow(const content::MediaPlayerId& id) {
     return;
   }
 
-  nav_metrics_->SetThrottleResult(
-      lite_video::LiteVideoThrottleResult::kThrottleStoppedOnRebuffer);
+  mojo::AssociatedRemote<previews::mojom::PreviewsResourceLoadingHintsReceiver>
+      loading_hints_agent;
+
+  if (!render_frame_host->GetRemoteAssociatedInterfaces())
+    return;
+
+  render_frame_host->GetRemoteAssociatedInterfaces()->GetInterface(
+      &loading_hints_agent);
+
+  if (nav_metrics_->ShouldStopOnRebufferForFrame(
+          render_frame_host->GetRoutingID())) {
+    loading_hints_agent->StopThrottlingMediaRequests();
+  }
 
   if (!lite_video_decider_)
     return;
 
-  // Determine if the rebuffer happened in the mainframe.
+  // Determine and log if the rebuffer happened in the mainframe.
   render_frame_host->GetMainFrame() == render_frame_host
       ? lite_video_decider_->DidMediaRebuffer(
             render_frame_host->GetLastCommittedURL(), base::nullopt, true)
       : lite_video_decider_->DidMediaRebuffer(
             render_frame_host->GetMainFrame()->GetLastCommittedURL(),
             render_frame_host->GetLastCommittedURL(), true);
+}
+
+void LiteVideoObserver::MediaPlayerSeek(const content::MediaPlayerId& id) {
+  content::RenderFrameHost* render_frame_host = id.render_frame_host;
+
+  if (!lite_video::features::DisableLiteVideoOnMediaPlayerSeek())
+    return;
+
+  if (!render_frame_host || !render_frame_host->GetProcess())
+    return;
+
+  // Only consider a seek event related to LiteVideos if they were allowed on
+  // current navigation.
+  if (!nav_metrics_ ||
+      nav_metrics_->decision() != lite_video::LiteVideoDecision::kAllowed) {
+    return;
+  }
+
+  mojo::AssociatedRemote<previews::mojom::PreviewsResourceLoadingHintsReceiver>
+      loading_hints_agent;
+
+  if (!render_frame_host->GetRemoteAssociatedInterfaces())
+    return;
+
+  render_frame_host->GetRemoteAssociatedInterfaces()->GetInterface(
+      &loading_hints_agent);
+
+  LOCAL_HISTOGRAM_BOOLEAN("LiteVideo.MediaPlayerSeek.StopThrottling", true);
+
+  loading_hints_agent->StopThrottlingMediaRequests();
 }
 
 WEB_CONTENTS_USER_DATA_KEY_IMPL(LiteVideoObserver)

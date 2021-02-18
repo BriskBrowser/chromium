@@ -97,6 +97,8 @@
 #include "mojo/public/cpp/bindings/pending_associated_remote.h"
 #include "services/network/public/cpp/web_sandbox_flags.h"
 #include "services/network/public/mojom/web_sandbox_flags.mojom-blink.h"
+#include "third_party/blink/public/common/context_menu_data/context_menu_params_builder.h"
+#include "third_party/blink/public/common/page_state/page_state.h"
 #include "third_party/blink/public/mojom/devtools/inspector_issue.mojom-blink.h"
 #include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
 #include "third_party/blink/public/mojom/frame/frame_owner_element_type.mojom-blink.h"
@@ -105,9 +107,7 @@
 #include "third_party/blink/public/platform/interface_registry.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/public/platform/web_double_size.h"
-#include "third_party/blink/public/platform/web_float_rect.h"
 #include "third_party/blink/public/platform/web_isolated_world_info.h"
-#include "third_party/blink/public/platform/web_rect.h"
 #include "third_party/blink/public/platform/web_security_origin.h"
 #include "third_party/blink/public/platform/web_size.h"
 #include "third_party/blink/public/platform/web_url_error.h"
@@ -121,6 +121,7 @@
 #include "third_party/blink/public/web/web_document.h"
 #include "third_party/blink/public/web/web_form_element.h"
 #include "third_party/blink/public/web/web_frame_owner_properties.h"
+#include "third_party/blink/public/web/web_history_entry.h"
 #include "third_party/blink/public/web/web_history_item.h"
 #include "third_party/blink/public/web/web_input_element.h"
 #include "third_party/blink/public/web/web_local_frame_client.h"
@@ -172,17 +173,16 @@
 #include "third_party/blink/renderer/core/editing/visible_position.h"
 #include "third_party/blink/renderer/core/events/after_print_event.h"
 #include "third_party/blink/renderer/core/events/before_print_event.h"
-#include "third_party/blink/renderer/core/exported/local_frame_client_impl.h"
 #include "third_party/blink/renderer/core/exported/web_dev_tools_agent_impl.h"
 #include "third_party/blink/renderer/core/exported/web_document_loader_impl.h"
 #include "third_party/blink/renderer/core/exported/web_plugin_container_impl.h"
-#include "third_party/blink/renderer/core/exported/web_remote_frame_impl.h"
 #include "third_party/blink/renderer/core/exported/web_view_impl.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/deprecation.h"
 #include "third_party/blink/renderer/core/frame/find_in_page.h"
 #include "third_party/blink/renderer/core/frame/frame_console.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/frame/local_frame_client_impl.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/page_scale_constraints_set.h"
 #include "third_party/blink/renderer/core/frame/pausable_script_executor.h"
@@ -191,7 +191,8 @@
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/frame/smart_clip.h"
 #include "third_party/blink/renderer/core/frame/visual_viewport.h"
-#include "third_party/blink/renderer/core/frame/web_frame_widget_base.h"
+#include "third_party/blink/renderer/core/frame/web_frame_widget_impl.h"
+#include "third_party/blink/renderer/core/frame/web_remote_frame_impl.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_control_element.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_element.h"
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
@@ -218,7 +219,6 @@
 #include "third_party/blink/renderer/core/loader/frame_load_request.h"
 #include "third_party/blink/renderer/core/loader/frame_loader.h"
 #include "third_party/blink/renderer/core/loader/history_item.h"
-#include "third_party/blink/renderer/core/loader/mixed_content_checker.h"
 #include "third_party/blink/renderer/core/loader/web_associated_url_loader_impl.h"
 #include "third_party/blink/renderer/core/page/context_menu_controller.h"
 #include "third_party/blink/renderer/core/page/focus_controller.h"
@@ -292,7 +292,7 @@ class ChromePrintContext : public PrintContext {
     PrintContext::BeginPrintMode(printed_page_width_, height);
   }
 
-  virtual float GetPageShrink(int page_number) const {
+  virtual float GetPageShrink(uint32_t page_number) const {
     IntRect page_rect = page_rects_[page_number];
     return printed_page_width_ / page_rect.Width();
   }
@@ -311,11 +311,13 @@ class ChromePrintContext : public PrintContext {
     // The page rect gets scaled and translated, so specify the entire
     // print content area here as the recording rect.
     FloatRect bounds(0, 0, printed_page_height_, printed_page_width_);
-    PaintRecordBuilder builder(canvas->GetPrintingMetafile());
-    builder.Context().SetPrinting(true);
-    builder.Context().BeginRecording(bounds);
-    float scale = SpoolPage(builder.Context(), page_number);
-    canvas->drawPicture(builder.Context().EndRecording());
+    PaintRecordBuilder builder;
+    GraphicsContext& context = builder.Context();
+    context.SetPrintingMetafile(canvas->GetPrintingMetafile());
+    context.SetPrinting(true);
+    context.BeginRecording(bounds);
+    float scale = SpoolPage(context, page_number);
+    canvas->drawPicture(context.EndRecording());
     return scale;
   }
 
@@ -338,8 +340,9 @@ class ChromePrintContext : public PrintContext {
     FloatRect all_pages_rect(0, 0, spool_size_in_pixels.Width(),
                              spool_size_in_pixels.Height());
 
-    PaintRecordBuilder builder(canvas->GetPrintingMetafile());
+    PaintRecordBuilder builder;
     GraphicsContext& context = builder.Context();
+    context.SetPrintingMetafile(canvas->GetPrintingMetafile());
     context.SetPrinting(true);
     context.BeginRecording(all_pages_rect);
 
@@ -421,13 +424,11 @@ class ChromePrintContext : public PrintContext {
     auto property_tree_state =
         frame_view->GetLayoutView()->FirstFragment().LocalBorderBoxProperties();
 
-    PaintRecordBuilder builder(context.Canvas()->GetPrintingMetafile(),
-                               &context);
-
+    PaintRecordBuilder builder(context);
     frame_view->PaintContentsOutsideOfLifecycle(
         builder.Context(),
         kGlobalPaintNormalPhase | kGlobalPaintFlattenCompositingLayers |
-            kGlobalPaintPrinting | kGlobalPaintAddUrlMetadata,
+            kGlobalPaintAddUrlMetadata,
         CullRect(page_rect));
     {
       ScopedPaintChunkProperties scoped_paint_chunk_properties(
@@ -488,7 +489,7 @@ class ChromePluginPrintContext final : public ChromePrintContext {
 
   void EndPrintMode() override { plugin_->PrintEnd(); }
 
-  float GetPageShrink(int page_number) const override {
+  float GetPageShrink(uint32_t page_number) const override {
     // We don't shrink the page (maybe we should ask the widget ??)
     return 1.0;
   }
@@ -509,7 +510,7 @@ class ChromePluginPrintContext final : public ChromePrintContext {
   // NativeTheme doesn't play well with scaling. Scaling is done browser side
   // instead. Returns the scale to be applied.
   float SpoolPage(GraphicsContext& context, int page_number) override {
-    PaintRecordBuilder builder(context.Canvas()->GetPrintingMetafile());
+    PaintRecordBuilder builder(context);
     plugin_->PrintPage(page_number, builder.Context());
     context.DrawRecord(builder.EndRecording());
 
@@ -544,9 +545,8 @@ class PaintPreviewContext : public PrintContext {
         !GetFrame()->GetDocument()->GetLayoutView())
       return false;
     FloatRect bounds(0, 0, size.Width(), size.Height());
-    PaintRecordBuilder builder(nullptr, nullptr, nullptr,
-                               canvas->GetPaintPreviewTracker());
-    builder.Context().SetIsPaintingPreview(true);
+    PaintRecordBuilder builder;
+    builder.Context().SetPaintPreviewTracker(canvas->GetPaintPreviewTracker());
 
     LocalFrameView* frame_view = GetFrame()->View();
     DCHECK(frame_view);
@@ -586,20 +586,62 @@ static WebDocumentLoader* DocumentLoaderForDocLoader(DocumentLoader* loader) {
 
 // WebFrame -------------------------------------------------------------------
 
+static CreateWebFrameWidgetCallback* g_create_web_frame_widget = nullptr;
+
+void InstallCreateWebFrameWidgetHook(
+    CreateWebFrameWidgetCallback* create_widget) {
+  // This DCHECK's aims to avoid unexpected replacement of the hook.
+  DCHECK(!g_create_web_frame_widget || !create_widget);
+  g_create_web_frame_widget = create_widget;
+}
+
+WebFrameWidget* WebLocalFrame::InitializeFrameWidget(
+    CrossVariantMojoAssociatedRemote<mojom::blink::FrameWidgetHostInterfaceBase>
+        mojo_frame_widget_host,
+    CrossVariantMojoAssociatedReceiver<mojom::blink::FrameWidgetInterfaceBase>
+        mojo_frame_widget,
+    CrossVariantMojoAssociatedRemote<mojom::blink::WidgetHostInterfaceBase>
+        mojo_widget_host,
+    CrossVariantMojoAssociatedReceiver<mojom::blink::WidgetInterfaceBase>
+        mojo_widget,
+    const viz::FrameSinkId& frame_sink_id,
+    bool is_for_nested_main_frame,
+    bool hidden,
+    bool never_composited) {
+  CreateFrameWidgetInternal(
+      base::PassKey<WebLocalFrame>(), std::move(mojo_frame_widget_host),
+      std::move(mojo_frame_widget), std::move(mojo_widget_host),
+      std::move(mojo_widget), frame_sink_id, is_for_nested_main_frame, hidden,
+      never_composited);
+  return FrameWidget();
+}
+
 int WebFrame::InstanceCount() {
   return g_frame_count;
 }
 
 // static
-WebFrame* WebFrame::FromFrameToken(const base::UnguessableToken& frame_token) {
+WebFrame* WebFrame::FromFrameToken(const FrameToken& frame_token) {
   auto* frame = Frame::ResolveFrame(frame_token);
-  return WebFrame::FromFrame(frame);
+  return WebFrame::FromCoreFrame(frame);
 }
 
 // static
-WebFrame* WebFrame::FromFrameToken(const FrameToken& frame_token) {
+WebFrame* WebFrame::FromFrameToken(const base::UnguessableToken& frame_token) {
   auto* frame = Frame::ResolveFrame(frame_token);
-  return WebFrame::FromFrame(frame);
+  return WebFrame::FromCoreFrame(frame);
+}
+
+// static
+WebFrame* WebFrame::FromFrameToken(const LocalFrameToken& frame_token) {
+  auto* frame = Frame::ResolveFrame(FrameToken(frame_token));
+  return WebFrame::FromCoreFrame(frame);
+}
+
+// static
+WebFrame* WebFrame::FromFrameToken(const RemoteFrameToken& frame_token) {
+  auto* frame = Frame::ResolveFrame(FrameToken(frame_token));
+  return WebFrame::FromCoreFrame(frame);
 }
 
 WebLocalFrame* WebLocalFrame::FrameForCurrentContext() {
@@ -629,7 +671,7 @@ bool WebLocalFrameImpl::ConsumeTransientUserActivation(
 }
 
 void WebLocalFrameImpl::SetOptimizationGuideHints(
-    mojom::blink::DelayAsyncScriptExecutionDelayType delay_type) {
+    const WebOptimizationGuideHints& web_hints) {
   if (!GetFrame())
     return;
   // Re-build the optimization hints.
@@ -637,8 +679,19 @@ void WebLocalFrameImpl::SetOptimizationGuideHints(
   // Blink so that we can directly pass the hints without mojom variant
   // conversion.
   auto hints = mojom::blink::BlinkOptimizationGuideHints::New();
-  hints->delay_async_script_execution_hints =
-      mojom::blink::DelayAsyncScriptExecutionHints::New(delay_type);
+  if (web_hints.delay_async_script_execution_delay_type) {
+    hints->delay_async_script_execution_hints =
+        mojom::blink::DelayAsyncScriptExecutionHints::New(
+            *web_hints.delay_async_script_execution_delay_type);
+  }
+  if (web_hints.delay_competing_low_priority_requests_delay_type &&
+      web_hints.delay_competing_low_priority_requests_priority_threshold) {
+    hints->delay_competing_low_priority_requests_hints =
+        mojom::blink::DelayCompetingLowPriorityRequestsHints::New(
+            *web_hints.delay_competing_low_priority_requests_delay_type,
+            *web_hints
+                 .delay_competing_low_priority_requests_priority_threshold);
+  }
   GetFrame()->SetOptimizationGuideHints(std::move(hints));
 }
 
@@ -666,6 +719,11 @@ WebRemoteFrame* WebLocalFrameImpl::ToWebRemoteFrame() {
 void WebLocalFrameImpl::Close() {
   WebLocalFrame::Close();
 
+  if (frame_widget_) {
+    frame_widget_->Close();
+    frame_widget_ = nullptr;
+  }
+
   client_ = nullptr;
 
   if (dev_tools_agent_)
@@ -676,7 +734,9 @@ void WebLocalFrameImpl::Close() {
   if (print_context_)
     PrintEnd();
   print_client_.reset();
+#if DCHECK_IS_ON()
   is_in_printing_ = false;
+#endif
 }
 
 WebString WebLocalFrameImpl::AssignedName() const {
@@ -711,7 +771,7 @@ bool WebLocalFrameImpl::IsFocused() const {
     return false;
 
   return this ==
-         WebFrame::FromFrame(
+         WebFrame::FromCoreFrame(
              ViewImpl()->GetPage()->GetFocusController().FocusedFrame());
 }
 
@@ -770,10 +830,10 @@ bool WebLocalFrameImpl::HasVisibleContent() const {
   return false;
 }
 
-WebRect WebLocalFrameImpl::VisibleContentRect() const {
+gfx::Rect WebLocalFrameImpl::VisibleContentRect() const {
   if (LocalFrameView* view = GetFrameView())
     return view->LayoutViewport()->VisibleContentRect();
-  return WebRect();
+  return gfx::Rect();
 }
 
 WebView* WebLocalFrameImpl::View() const {
@@ -804,9 +864,15 @@ void WebLocalFrameImpl::SetIsAdSubframe(
   GetFrame()->SetIsAdSubframe(ad_frame_type);
 }
 
+bool WebLocalFrameImpl::IsSubframeCreatedByAdScript() {
+  DCHECK(GetFrame());
+  return GetFrame()->IsSubframeCreatedByAdScript();
+}
+
 void WebLocalFrameImpl::ExecuteScript(const WebScriptSource& source) {
   DCHECK(GetFrame());
-  ClassicScript::CreateUnspecifiedScript(source)->RunScript(GetFrame());
+  ClassicScript::CreateUnspecifiedScript(source)->RunScript(
+      GetFrame()->DomWindow());
 }
 
 void WebLocalFrameImpl::ExecuteScriptInIsolatedWorld(
@@ -821,7 +887,8 @@ void WebLocalFrameImpl::ExecuteScriptInIsolatedWorld(
   v8::HandleScope handle_scope(ToIsolate(GetFrame()));
   ClassicScript::CreateUnspecifiedScript(source_in,
                                          SanitizeScriptErrors::kDoNotSanitize)
-      ->RunScriptInIsolatedWorldAndReturnValue(GetFrame(), world_id);
+      ->RunScriptInIsolatedWorldAndReturnValue(GetFrame()->DomWindow(),
+                                               world_id);
 }
 
 v8::Local<v8::Value>
@@ -836,7 +903,8 @@ WebLocalFrameImpl::ExecuteScriptInIsolatedWorldAndReturnValue(
   // a foreign world.
   return ClassicScript::CreateUnspecifiedScript(
              source_in, SanitizeScriptErrors::kDoNotSanitize)
-      ->RunScriptInIsolatedWorldAndReturnValue(GetFrame(), world_id);
+      ->RunScriptInIsolatedWorldAndReturnValue(GetFrame()->DomWindow(),
+                                               world_id);
 }
 
 void WebLocalFrameImpl::ClearIsolatedWorldCSPForTesting(int32_t world_id) {
@@ -880,11 +948,24 @@ void WebLocalFrameImpl::CollectGarbageForTesting() {
   ThreadState::Current()->CollectAllGarbageForTesting();
 }
 
+v8::MaybeLocal<v8::Value> WebLocalFrameImpl::ExecuteMethodAndReturnValue(
+    v8::Local<v8::Function> function,
+    v8::Local<v8::Value> receiver,
+    int argc,
+    v8::Local<v8::Value> argv[]) {
+  DCHECK(GetFrame());
+
+  return GetFrame()
+      ->DomWindow()
+      ->GetScriptController()
+      .EvaluateMethodInMainWorld(function, receiver, argc, argv);
+}
+
 v8::Local<v8::Value> WebLocalFrameImpl::ExecuteScriptAndReturnValue(
     const WebScriptSource& source) {
   DCHECK(GetFrame());
   return ClassicScript::CreateUnspecifiedScript(source)
-      ->RunScriptAndReturnValue(GetFrame());
+      ->RunScriptAndReturnValue(GetFrame()->DomWindow());
 }
 
 void WebLocalFrameImpl::RequestExecuteScriptAndReturnValue(
@@ -895,8 +976,8 @@ void WebLocalFrameImpl::RequestExecuteScriptAndReturnValue(
 
   scoped_refptr<DOMWrapperWorld> main_world = &DOMWrapperWorld::MainWorld();
   auto* executor = MakeGarbageCollected<PausableScriptExecutor>(
-      GetFrame(), std::move(main_world), CreateSourcesVector(&source, 1),
-      user_gesture, callback);
+      GetFrame()->DomWindow(), std::move(main_world),
+      CreateSourcesVector(&source, 1), user_gesture, callback);
   executor->Run();
 }
 
@@ -908,8 +989,8 @@ void WebLocalFrameImpl::RequestExecuteV8Function(
     v8::Local<v8::Value> argv[],
     WebScriptExecutionCallback* callback) {
   DCHECK(GetFrame());
-  PausableScriptExecutor::CreateAndRun(GetFrame(), ToIsolate(GetFrame()),
-                                       context, function, receiver, argc, argv,
+  PausableScriptExecutor::CreateAndRun(GetFrame()->DomWindow(), context,
+                                       function, receiver, argc, argv,
                                        callback);
 }
 
@@ -927,7 +1008,7 @@ void WebLocalFrameImpl::RequestExecuteScriptInIsolatedWorld(
   scoped_refptr<DOMWrapperWorld> isolated_world =
       DOMWrapperWorld::EnsureIsolatedWorld(ToIsolate(GetFrame()), world_id);
   auto* executor = MakeGarbageCollected<PausableScriptExecutor>(
-      GetFrame(), std::move(isolated_world),
+      GetFrame()->DomWindow(), std::move(isolated_world),
       CreateSourcesVector(sources_in, num_sources), user_gesture, callback);
   switch (option) {
     case kAsynchronousBlockingOnload:
@@ -1005,20 +1086,19 @@ void WebLocalFrameImpl::ReloadImage(const WebNode& web_node) {
     image_element->ForceReload();
 }
 
-void WebLocalFrameImpl::StartNavigation(const WebURLRequest& request) {
-  // TODO(clamy): Remove this function once RenderFrame calls CommitNavigation
-  // for all requests.
+void WebLocalFrameImpl::ResetForTesting() {
   DCHECK(GetFrame());
-  DCHECK(!request.IsNull());
-  DCHECK(!request.Url().ProtocolIs("javascript"));
-  TRACE_EVENT0("navigation", "WebLocalFrameImpl::StartNavigation");
-
   if (GetTextFinder())
     GetTextFinder()->ClearActiveFindMatch();
-
-  FrameLoadRequest frame_load_request(nullptr, request.ToResourceRequest());
-  GetFrame()->Loader().StartNavigation(frame_load_request,
-                                       WebFrameLoadType::kStandard);
+  ResourceRequest resource_request(url::kAboutBlankURL);
+  resource_request.SetMode(network::mojom::RequestMode::kNavigate);
+  resource_request.SetRedirectMode(network::mojom::RedirectMode::kManual);
+  resource_request.SetRequestContext(
+      mojom::blink::RequestContextType::INTERNAL);
+  resource_request.SetRequestorOrigin(
+      blink::WebSecurityOrigin::CreateUniqueOpaque());
+  FrameLoadRequest request(nullptr, resource_request);
+  GetFrame()->Loader().StartNavigation(request, WebFrameLoadType::kStandard);
 }
 
 WebDocumentLoader* WebLocalFrameImpl::GetDocumentLoader() const {
@@ -1048,13 +1128,19 @@ void WebLocalFrameImpl::SetReferrerForRequest(WebURLRequest& request,
   resource_request.SetReferrerString(referrer);
 }
 
-WebAssociatedURLLoader* WebLocalFrameImpl::CreateAssociatedURLLoader(
+std::unique_ptr<WebAssociatedURLLoader>
+WebLocalFrameImpl::CreateAssociatedURLLoader(
     const WebAssociatedURLLoaderOptions& options) {
-  return new WebAssociatedURLLoaderImpl(GetFrame()->DomWindow(), options);
+  return std::make_unique<WebAssociatedURLLoaderImpl>(GetFrame()->DomWindow(),
+                                                      options);
 }
 
-void WebLocalFrameImpl::StopLoading() {
-  GetFrame()->StopLoading();
+void WebLocalFrameImpl::DeprecatedStopLoading() {
+  if (!GetFrame())
+    return;
+  // FIXME: Figure out what we should really do here. It seems like a bug
+  // that FrameLoader::stopLoading doesn't call stopAllLoaders.
+  GetFrame()->Loader().StopAllLoaders(/*abort_client=*/true);
 }
 
 void WebLocalFrameImpl::ReplaceSelection(const WebString& text) {
@@ -1081,7 +1167,7 @@ WebRange WebLocalFrameImpl::MarkedRange() const {
 bool WebLocalFrameImpl::FirstRectForCharacterRange(
     unsigned location,
     unsigned length,
-    WebRect& rect_in_viewport) const {
+    gfx::Rect& rect_in_viewport) const {
   if ((location + length < location) && (location + length))
     length = 0;
 
@@ -1098,9 +1184,8 @@ bool WebLocalFrameImpl::FirstRectForCharacterRange(
       PlainTextRange(location, location + length).CreateRange(*editable);
   if (range.IsNull())
     return false;
-  IntRect int_rect = FirstRectForRange(range);
-  rect_in_viewport = WebRect(int_rect);
-  rect_in_viewport = GetFrame()->View()->FrameToViewport(rect_in_viewport);
+  rect_in_viewport =
+      GetFrame()->View()->FrameToViewport(FirstRectForRange(range));
   return true;
 }
 
@@ -1274,6 +1359,12 @@ WebString WebLocalFrameImpl::SelectionAsMarkup() const {
       DocumentUpdateReason::kSelection);
 
   return GetFrame()->Selection().SelectedHTMLForClipboard();
+}
+
+void WebLocalFrameImpl::TextSelectionChanged(const WebString& selection_text,
+                                             uint32_t offset,
+                                             const gfx::Range& range) {
+  GetFrame()->TextSelectionChanged(selection_text, offset, range);
 }
 
 bool WebLocalFrameImpl::SelectWordAroundCaret() {
@@ -1537,10 +1628,12 @@ WebPlugin* WebLocalFrameImpl::FocusedPluginIfInputMethodSupported() {
 
 void WebLocalFrameImpl::DispatchBeforePrintEvent(
     base::WeakPtr<WebPrintClient> print_client) {
-  CHECK(!is_in_printing_) << "DispatchAfterPrintEvent() should have been "
-                             "called after the previous "
-                             "DispatchBeforePrintEvent() call.";
+#if DCHECK_IS_ON()
+  DCHECK(!is_in_printing_) << "DispatchAfterPrintEvent() should have been "
+                              "called after the previous "
+                              "DispatchBeforePrintEvent() call.";
   is_in_printing_ = true;
+#endif
 
   print_client_ = print_client;
 
@@ -1549,16 +1642,18 @@ void WebLocalFrameImpl::DispatchBeforePrintEvent(
   // popup properly.
   GetFrame()->GetFrameScheduler()->RegisterStickyFeature(
       blink::SchedulingPolicy::Feature::kPrinting,
-      {blink::SchedulingPolicy::RecordMetricsForBackForwardCache()});
+      {blink::SchedulingPolicy::DisableBackForwardCache()});
 
   GetFrame()->GetDocument()->SetPrinting(Document::kBeforePrinting);
   DispatchPrintEventRecursively(event_type_names::kBeforeprint);
 }
 
 void WebLocalFrameImpl::DispatchAfterPrintEvent() {
-  CHECK(is_in_printing_) << "DispatchBeforePrintEvent() should be called "
-                            "before DispatchAfterPrintEvent().";
+#if DCHECK_IS_ON()
+  DCHECK(is_in_printing_) << "DispatchBeforePrintEvent() should be called "
+                             "before DispatchAfterPrintEvent().";
   is_in_printing_ = false;
+#endif
 
   print_client_.reset();
 
@@ -1609,8 +1704,8 @@ WebPlugin* WebLocalFrameImpl::GetPluginToPrint(
   return plugin_container ? plugin_container->Plugin() : nullptr;
 }
 
-int WebLocalFrameImpl::PrintBegin(const WebPrintParams& print_params,
-                                  const WebNode& constrain_to_node) {
+uint32_t WebLocalFrameImpl::PrintBegin(const WebPrintParams& print_params,
+                                       const WebNode& constrain_to_node) {
   WebPluginContainerImpl* plugin_container =
       GetPluginToPrintHelper(constrain_to_node);
   if (plugin_container && plugin_container->SupportsPaginatedPrint()) {
@@ -1621,23 +1716,20 @@ int WebLocalFrameImpl::PrintBegin(const WebPrintParams& print_params,
         GetFrame(), print_params.use_printing_layout);
   }
 
-  FloatSize size(static_cast<float>(print_params.print_content_area.width),
-                 static_cast<float>(print_params.print_content_area.height));
+  FloatSize size(print_params.print_content_area.size());
   print_context_->BeginPrintMode(size.Width(), size.Height());
   print_context_->ComputePageRects(size);
 
-  return static_cast<int>(print_context_->PageCount());
+  return print_context_->PageCount();
 }
 
-float WebLocalFrameImpl::GetPrintPageShrink(int page) {
+float WebLocalFrameImpl::GetPrintPageShrink(uint32_t page) {
   DCHECK(print_context_);
-  DCHECK_GE(page, 0);
   return print_context_->GetPageShrink(page);
 }
 
-float WebLocalFrameImpl::PrintPage(int page, cc::PaintCanvas* canvas) {
+float WebLocalFrameImpl::PrintPage(uint32_t page, cc::PaintCanvas* canvas) {
   DCHECK(print_context_);
-  DCHECK_GE(page, 0);
   DCHECK(GetFrame());
   DCHECK(GetFrame()->GetDocument());
 
@@ -1663,39 +1755,41 @@ bool WebLocalFrameImpl::GetPrintPresetOptionsForPlugin(
   return plugin_container->GetPrintPresetOptionsFromDocument(preset_options);
 }
 
-bool WebLocalFrameImpl::CapturePaintPreview(const WebRect& bounds,
+bool WebLocalFrameImpl::CapturePaintPreview(const gfx::Rect& bounds,
                                             cc::PaintCanvas* canvas,
                                             bool include_linked_destinations) {
-  FloatSize float_bounds(bounds.width, bounds.height);
-  GetFrame()->GetDocument()->SetIsPaintingPreview(true);
-  ResourceCacheValidationSuppressor validation_suppressor(
-      GetFrame()->GetDocument()->Fetcher());
-  GetFrame()->View()->ForceLayoutForPagination(float_bounds, float_bounds, 1);
-  PaintPreviewContext* paint_preview_context =
-      MakeGarbageCollected<PaintPreviewContext>(GetFrame());
-  bool success = paint_preview_context->Capture(canvas, float_bounds,
-                                                include_linked_destinations);
-  GetFrame()->GetDocument()->SetIsPaintingPreview(false);
+  FloatSize float_bounds(bounds.width(), bounds.height());
+  bool success = false;
+  {
+    Document::PaintPreviewScope paint_preview(*GetFrame()->GetDocument());
+    ResourceCacheValidationSuppressor validation_suppressor(
+        GetFrame()->GetDocument()->Fetcher());
+    GetFrame()->View()->ForceLayoutForPagination(float_bounds, float_bounds, 1);
+    PaintPreviewContext* paint_preview_context =
+        MakeGarbageCollected<PaintPreviewContext>(GetFrame());
+    success = paint_preview_context->Capture(canvas, float_bounds,
+                                             include_linked_destinations);
+  }
   GetFrame()->EndPrinting();
   return success;
 }
 
-PageSizeType WebLocalFrameImpl::GetPageSizeType(int page_index) {
+PageSizeType WebLocalFrameImpl::GetPageSizeType(uint32_t page_index) {
   return GetFrame()->GetDocument()->StyleForPage(page_index)->GetPageSizeType();
 }
 
 void WebLocalFrameImpl::GetPageDescription(
-    int page_index,
+    uint32_t page_index,
     WebPrintPageDescription* description) {
   GetFrame()->GetDocument()->GetPageDescription(page_index, description);
 }
 
-WebSize WebLocalFrameImpl::SpoolSizeInPixelsForTesting(
-    const WebSize& page_size_in_pixels,
-    int page_count) {
-  int spool_width = page_size_in_pixels.width;
+gfx::Size WebLocalFrameImpl::SpoolSizeInPixelsForTesting(
+    const gfx::Size& page_size_in_pixels,
+    uint32_t page_count) {
+  int spool_width = page_size_in_pixels.width();
   int spool_height = 0;
-  for (int page_index = 0; page_index < page_count; page_index++) {
+  for (uint32_t page_index = 0; page_index < page_count; page_index++) {
     // Make room for the 1px tall page separator.
     if (page_index)
       spool_height++;
@@ -1703,33 +1797,31 @@ WebSize WebLocalFrameImpl::SpoolSizeInPixelsForTesting(
     WebPrintPageDescription description;
     GetFrame()->GetDocument()->GetPageDescription(page_index, &description);
     if (description.orientation == PageOrientation::kUpright) {
-      spool_height += page_size_in_pixels.height;
+      spool_height += page_size_in_pixels.height();
     } else {
-      spool_height += page_size_in_pixels.width;
-      spool_width = std::max(spool_width, page_size_in_pixels.height);
+      spool_height += page_size_in_pixels.width();
+      spool_width = std::max(spool_width, page_size_in_pixels.height());
     }
   }
-  return WebSize(spool_width, spool_height);
+  return gfx::Size(spool_width, spool_height);
 }
 
 void WebLocalFrameImpl::PrintPagesForTesting(
     cc::PaintCanvas* canvas,
-    const WebSize& page_size_in_pixels,
-    const WebSize& spool_size_in_pixels) {
+    const gfx::Size& page_size_in_pixels,
+    const gfx::Size& spool_size_in_pixels) {
   DCHECK(print_context_);
 
   print_context_->SpoolAllPagesWithBoundariesForTesting(
-      canvas, FloatSize(page_size_in_pixels.width, page_size_in_pixels.height),
-      FloatSize(spool_size_in_pixels.width, spool_size_in_pixels.height));
+      canvas, FloatSize(page_size_in_pixels), FloatSize(spool_size_in_pixels));
 }
 
-WebRect WebLocalFrameImpl::GetSelectionBoundsRectForTesting() const {
+gfx::Rect WebLocalFrameImpl::GetSelectionBoundsRectForTesting() const {
   GetFrame()->View()->UpdateLifecycleToLayoutClean(
       DocumentUpdateReason::kSelection);
-  return HasSelection()
-             ? WebRect(PixelSnappedIntRect(
-                   GetFrame()->Selection().AbsoluteUnclippedBounds()))
-             : WebRect();
+  return HasSelection() ? PixelSnappedIntRect(
+                              GetFrame()->Selection().AbsoluteUnclippedBounds())
+                        : gfx::Rect();
 }
 
 gfx::Point WebLocalFrameImpl::GetPositionInViewportForTesting() const {
@@ -1743,20 +1835,20 @@ WebLocalFrame* WebLocalFrame::CreateMainFrame(
     WebView* web_view,
     WebLocalFrameClient* client,
     InterfaceRegistry* interface_registry,
-    const base::UnguessableToken& frame_token,
+    const LocalFrameToken& frame_token,
+    std::unique_ptr<WebPolicyContainer> policy_container,
     WebFrame* opener,
     const WebString& name,
-    network::mojom::blink::WebSandboxFlags sandbox_flags,
-    const FeaturePolicyFeatureState& opener_feature_state) {
+    network::mojom::blink::WebSandboxFlags sandbox_flags) {
   return WebLocalFrameImpl::CreateMainFrame(
       web_view, client, interface_registry, frame_token, opener, name,
-      sandbox_flags, opener_feature_state);
+      sandbox_flags, std::move(policy_container));
 }
 
 WebLocalFrame* WebLocalFrame::CreateProvisional(
     WebLocalFrameClient* client,
     InterfaceRegistry* interface_registry,
-    const base::UnguessableToken& frame_token,
+    const LocalFrameToken& frame_token,
     WebFrame* previous_frame,
     const FramePolicy& frame_policy,
     const WebString& name) {
@@ -1769,13 +1861,13 @@ WebLocalFrameImpl* WebLocalFrameImpl::CreateMainFrame(
     WebView* web_view,
     WebLocalFrameClient* client,
     InterfaceRegistry* interface_registry,
-    const base::UnguessableToken& frame_token,
+    const LocalFrameToken& frame_token,
     WebFrame* opener,
     const WebString& name,
     network::mojom::blink::WebSandboxFlags sandbox_flags,
-    const FeaturePolicyFeatureState& opener_feature_state) {
+    std::unique_ptr<WebPolicyContainer> policy_container) {
   auto* frame = MakeGarbageCollected<WebLocalFrameImpl>(
-      util::PassKey<WebLocalFrameImpl>(),
+      base::PassKey<WebLocalFrameImpl>(),
       mojom::blink::TreeScopeType::kDocument, client, interface_registry,
       frame_token);
   Page& page = *static_cast<WebViewImpl*>(web_view)->GetPage();
@@ -1783,14 +1875,14 @@ WebLocalFrameImpl* WebLocalFrameImpl::CreateMainFrame(
   frame->InitializeCoreFrame(
       page, nullptr, nullptr, nullptr, FrameInsertType::kInsertInConstructor,
       name, opener ? &ToCoreFrame(*opener)->window_agent_factory() : nullptr,
-      opener, sandbox_flags, opener_feature_state);
+      opener, std::move(policy_container), sandbox_flags);
   return frame;
 }
 
 WebLocalFrameImpl* WebLocalFrameImpl::CreateProvisional(
     WebLocalFrameClient* client,
     blink::InterfaceRegistry* interface_registry,
-    const base::UnguessableToken& frame_token,
+    const LocalFrameToken& frame_token,
     WebFrame* previous_web_frame,
     const FramePolicy& frame_policy,
     const WebString& name) {
@@ -1798,7 +1890,7 @@ WebLocalFrameImpl* WebLocalFrameImpl::CreateProvisional(
   Frame* previous_frame = ToCoreFrame(*previous_web_frame);
   DCHECK(name.IsEmpty() || name.Equals(previous_frame->Tree().GetName()));
   auto* web_frame = MakeGarbageCollected<WebLocalFrameImpl>(
-      util::PassKey<WebLocalFrameImpl>(),
+      base::PassKey<WebLocalFrameImpl>(),
       previous_web_frame->InShadowTree()
           ? mojom::blink::TreeScopeType::kShadow
           : mojom::blink::TreeScopeType::kDocument,
@@ -1811,9 +1903,6 @@ WebLocalFrameImpl* WebLocalFrameImpl::CreateProvisional(
     // to inherit sandbox flags when a sandboxed frame does a window.open()
     // which triggers a cross-process navigation.
     sandbox_flags = frame_policy.sandbox_flags;
-    // If there is an opener (even disowned), the opener policies must be
-    // inherited the same way as sandbox flag.
-    feature_state = previous_frame->OpenerFeatureState();
   }
   // Note: this *always* temporarily sets a frame owner, even for main frames!
   // When a core Frame is created with no owner, it attempts to set itself as
@@ -1833,9 +1922,12 @@ WebLocalFrameImpl* WebLocalFrameImpl::CreateProvisional(
       frame_policy.disallow_document_access
           ? nullptr
           : &ToCoreFrame(*previous_web_frame)->window_agent_factory(),
-      previous_web_frame->Opener(), sandbox_flags, feature_state);
+      previous_web_frame->Opener(), /* policy_container */ nullptr,
+      sandbox_flags);
 
   LocalFrame* new_frame = web_frame->GetFrame();
+  previous_frame->SetProvisionalFrame(new_frame);
+
   new_frame->SetOwner(previous_frame->Owner());
   if (auto* remote_frame_owner =
           DynamicTo<RemoteFrameOwner>(new_frame->Owner())) {
@@ -1849,19 +1941,19 @@ WebLocalFrameImpl* WebLocalFrameImpl::CreateLocalChild(
     mojom::blink::TreeScopeType scope,
     WebLocalFrameClient* client,
     blink::InterfaceRegistry* interface_registry,
-    const base::UnguessableToken& frame_token) {
+    const LocalFrameToken& frame_token) {
   auto* frame = MakeGarbageCollected<WebLocalFrameImpl>(
-      util::PassKey<WebLocalFrameImpl>(), scope, client, interface_registry,
+      base::PassKey<WebLocalFrameImpl>(), scope, client, interface_registry,
       frame_token);
   return frame;
 }
 
 WebLocalFrameImpl::WebLocalFrameImpl(
-    util::PassKey<WebLocalFrameImpl>,
+    base::PassKey<WebLocalFrameImpl>,
     mojom::blink::TreeScopeType scope,
     WebLocalFrameClient* client,
     blink::InterfaceRegistry* interface_registry,
-    const base::UnguessableToken& frame_token)
+    const LocalFrameToken& frame_token)
     : WebNavigationControl(scope, frame_token),
       client_(client),
       local_frame_client_(MakeGarbageCollected<LocalFrameClientImpl>(this)),
@@ -1872,18 +1964,17 @@ WebLocalFrameImpl::WebLocalFrameImpl(
       input_method_controller_(*this),
       spell_check_panel_host_client_(nullptr),
       self_keep_alive_(PERSISTENT_FROM_HERE, this) {
-  DCHECK(client_);
+  CHECK(client_);
   g_frame_count++;
   client_->BindToFrame(this);
 }
 
-WebLocalFrameImpl::WebLocalFrameImpl(
-    util::PassKey<WebRemoteFrameImpl>,
-    mojom::blink::TreeScopeType scope,
-    WebLocalFrameClient* client,
-    blink::InterfaceRegistry* interface_registry,
-    const base::UnguessableToken& frame_token)
-    : WebLocalFrameImpl(util::PassKey<WebLocalFrameImpl>(),
+WebLocalFrameImpl::WebLocalFrameImpl(base::PassKey<WebRemoteFrameImpl>,
+                                     mojom::blink::TreeScopeType scope,
+                                     WebLocalFrameClient* client,
+                                     InterfaceRegistry* interface_registry,
+                                     const LocalFrameToken& frame_token)
+    : WebLocalFrameImpl(base::PassKey<WebLocalFrameImpl>(),
                         scope,
                         client,
                         interface_registry,
@@ -1918,19 +2009,48 @@ void WebLocalFrameImpl::InitializeCoreFrame(
     const AtomicString& name,
     WindowAgentFactory* window_agent_factory,
     WebFrame* opener,
-    network::mojom::blink::WebSandboxFlags sandbox_flags,
-    const FeaturePolicyFeatureState& opener_feature_state) {
+    std::unique_ptr<blink::WebPolicyContainer> policy_container,
+    network::mojom::blink::WebSandboxFlags sandbox_flags) {
+  InitializeCoreFrameInternal(page, owner, parent, previous_sibling,
+                              insert_type, name, window_agent_factory, opener,
+                              PolicyContainer::CreateFromWebPolicyContainer(
+                                  std::move(policy_container)),
+                              sandbox_flags);
+}
+
+void WebLocalFrameImpl::InitializeCoreFrameInternal(
+    Page& page,
+    FrameOwner* owner,
+    WebFrame* parent,
+    WebFrame* previous_sibling,
+    FrameInsertType insert_type,
+    const AtomicString& name,
+    WindowAgentFactory* window_agent_factory,
+    WebFrame* opener,
+    std::unique_ptr<PolicyContainer> policy_container,
+    network::mojom::blink::WebSandboxFlags sandbox_flags) {
   Frame* parent_frame = parent ? ToCoreFrame(*parent) : nullptr;
   Frame* previous_sibling_frame =
       previous_sibling ? ToCoreFrame(*previous_sibling) : nullptr;
   SetCoreFrame(MakeGarbageCollected<LocalFrame>(
       local_frame_client_.Get(), page, owner, parent_frame,
-      previous_sibling_frame, insert_type, GetFrameToken(),
-      window_agent_factory, interface_registry_));
+      previous_sibling_frame, insert_type, GetLocalFrameToken(),
+      window_agent_factory, interface_registry_, std::move(policy_container)));
   frame_->Tree().SetName(name);
-  if (RuntimeEnabledFeatures::FeaturePolicyForSandboxEnabled())
-    frame_->SetOpenerFeatureState(opener_feature_state);
-  frame_->Loader().ForceSandboxFlags(sandbox_flags);
+
+  // See sandbox inheritance: content/browser/renderer_host/sandbox_flags.md
+  //
+  // New documents are either:
+  // 1. The initial empty document:
+  //   a. In a new iframe.
+  //   b. In a new popup.
+  // 2. A document replacing the previous, one via a navigation.
+  //
+  // This is about 1.b. This is used to define sandbox flags for the initial
+  // empty document in a new popup.
+  if (frame_->IsMainFrame())
+    frame_->SetOpenerSandboxFlags(sandbox_flags);
+
   Frame* opener_frame = opener ? ToCoreFrame(*opener) : nullptr;
 
   // We must call init() after frame_ is assigned because it is referenced
@@ -1965,27 +2085,45 @@ LocalFrame* WebLocalFrameImpl::CreateChildFrame(
       owner_element->ScrollbarMode(), owner_element->MarginWidth(),
       owner_element->MarginHeight(), owner_element->AllowFullscreen(),
       owner_element->AllowPaymentRequest(), owner_element->IsDisplayNone(),
-      owner_element->RequiredCsp());
+      owner_element->GetColorScheme(), owner_element->RequiredCsp());
+
+  mojo::PendingAssociatedRemote<mojom::blink::PolicyContainerHost>
+      policy_container_remote;
+  mojo::PendingAssociatedReceiver<mojom::blink::PolicyContainerHost>
+      policy_container_receiver =
+          policy_container_remote.InitWithNewEndpointAndPassReceiver();
+
   // FIXME: Using subResourceAttributeName as fallback is not a perfect
   // solution. subResourceAttributeName returns just one attribute name. The
   // element might not have the attribute, and there might be other attributes
   // which can identify the element.
-  WebLocalFrameImpl* webframe_child = To<WebLocalFrameImpl>(
-      client_->CreateChildFrame(this, scope, name,
-                                owner_element->getAttribute(
-                                    owner_element->SubResourceAttributeName()),
-                                owner_element->GetFramePolicy(),
-                                owner_properties, owner_element->OwnerType()));
+  WebLocalFrameImpl* webframe_child =
+      To<WebLocalFrameImpl>(client_->CreateChildFrame(
+          scope, name,
+          owner_element->getAttribute(
+              owner_element->SubResourceAttributeName()),
+          owner_element->GetFramePolicy(), owner_properties,
+          owner_element->OwnerType(),
+          WebPolicyContainerBindParams{std::move(policy_container_receiver)}));
   if (!webframe_child)
     return nullptr;
 
-  webframe_child->InitializeCoreFrame(
+  // Inherit policy container from parent.
+  mojom::blink::PolicyContainerPoliciesPtr policy_container_data =
+      mojo::Clone(GetFrame()->GetPolicyContainer()->GetPolicies());
+  std::unique_ptr<PolicyContainer> policy_container =
+      std::make_unique<PolicyContainer>(std::move(policy_container_remote),
+                                        std::move(policy_container_data));
+
+  webframe_child->InitializeCoreFrameInternal(
       *GetFrame()->GetPage(), owner_element, this, LastChild(),
       FrameInsertType::kInsertInConstructor, name,
       owner_element->GetFramePolicy().disallow_document_access
           ? nullptr
           : &GetFrame()->window_agent_factory(),
-      nullptr);
+      nullptr, std::move(policy_container));
+
+  webframe_child->Client()->InitializeAsChildFrame(/*parent=*/this);
 
   DCHECK(webframe_child->Parent());
   return webframe_child->GetFrame();
@@ -2070,6 +2208,19 @@ WebLocalFrameImpl* WebLocalFrameImpl::FromFrame(LocalFrame* frame) {
   return FromFrame(*frame);
 }
 
+std::string WebLocalFrameImpl::GetNullFrameReasonForBug1139104(
+    LocalFrame* frame) {
+  LocalFrameClient* client = frame->Client();
+  if (!client)
+    return "WebLocalFrameImpl::client";
+  if (!client->IsLocalFrameClientImpl())
+    return "WebLocalFrameImpl::client-not-local";
+  WebLocalFrame* web_frame = client->GetWebFrame();
+  if (!web_frame)
+    return "WebLocalFrameImpl::web_frame";
+  return "not-null";
+}
+
 WebLocalFrameImpl* WebLocalFrameImpl::FromFrame(LocalFrame& frame) {
   LocalFrameClient* client = frame.Client();
   if (!client || !client->IsLocalFrameClientImpl())
@@ -2149,7 +2300,7 @@ WebLocalFrameImpl* WebLocalFrameImpl::LocalRoot() {
 }
 
 WebFrame* WebLocalFrameImpl::FindFrameByName(const WebString& name) {
-  return WebFrame::FromFrame(GetFrame()->Tree().FindFrameByName(name));
+  return WebFrame::FromCoreFrame(GetFrame()->Tree().FindFrameByName(name));
 }
 
 void WebLocalFrameImpl::SetEmbeddingToken(
@@ -2220,7 +2371,7 @@ void WebLocalFrameImpl::LoadJavaScriptURL(const WebURL& url) {
   // into the omnibox.  See https://crbug.com/1082900
   LocalFrame::NotifyUserActivation(
       GetFrame(), mojom::blink::UserActivationNotificationType::kInteraction);
-  GetFrame()->GetScriptController().ExecuteJavaScriptURL(
+  GetFrame()->DomWindow()->GetScriptController().ExecuteJavaScriptURL(
       url, network::mojom::CSPDisposition::DO_NOT_CHECK,
       &DOMWrapperWorld::MainWorld());
 }
@@ -2269,26 +2420,6 @@ void WebLocalFrameImpl::BlinkFeatureUsageReport(
   UseCounter::Count(GetFrame()->GetDocument(), feature);
 }
 
-void WebLocalFrameImpl::MixedContentFound(
-    const WebURL& main_resource_url,
-    const WebURL& mixed_content_url,
-    mojom::RequestContextType request_context,
-    bool was_allowed,
-    const WebURL& url_before_redirects,
-    bool had_redirect,
-    const WebSourceLocation& source_location) {
-  DCHECK(GetFrame());
-  std::unique_ptr<SourceLocation> source;
-  if (!source_location.url.IsNull()) {
-    source = std::make_unique<SourceLocation>(
-        source_location.url, source_location.line_number,
-        source_location.column_number, nullptr);
-  }
-  MixedContentChecker::MixedContentFound(
-      GetFrame(), main_resource_url, mixed_content_url, request_context,
-      was_allowed, url_before_redirects, had_redirect, std::move(source));
-}
-
 void WebLocalFrameImpl::DidDropNavigation() {
   GetFrame()->Loader().DidDropNavigation();
 }
@@ -2310,15 +2441,19 @@ bool WebLocalFrameImpl::WillStartNavigation(const WebNavigationInfo& info) {
 }
 
 void WebLocalFrameImpl::SendOrientationChangeEvent() {
-  if (!GetFrame())
+  // Speculative fix for https://crbug.com/1143380.
+  // TODO(https://crbug.com/838348): It's a logic bug that this function is
+  // being called when either the LocalFrame or LocalDOMWindow are null, but
+  // there is a bug where the browser can inadvertently detach the main frame of
+  // a WebView that is still active.
+  if (!GetFrame() || !GetFrame()->DomWindow())
     return;
 
   // Screen Orientation API
   CoreInitializer::GetInstance().NotifyOrientationChanged(*GetFrame());
 
   // Legacy window.orientation API
-  if (RuntimeEnabledFeatures::OrientationEventEnabled() &&
-      GetFrame()->DomWindow())
+  if (RuntimeEnabledFeatures::OrientationEventEnabled())
     GetFrame()->DomWindow()->SendOrientationChangeEvent();
 }
 
@@ -2327,9 +2462,8 @@ WebNode WebLocalFrameImpl::ContextMenuNode() const {
 }
 
 void WebLocalFrameImpl::WillBeDetached() {
-  // The |frame_widget_| can be null for frames in non-composited WebViews.
-  if (frame_->IsLocalRoot() && frame_widget_)
-    frame_widget_->DidDetachLocalFrameTree();
+  if (frame_->IsMainFrame())
+    ViewImpl()->DidDetachLocalMainFrame();
   if (dev_tools_agent_)
     dev_tools_agent_->WillBeDestroyed();
   if (find_in_page_)
@@ -2350,8 +2484,60 @@ void WebLocalFrameImpl::WillDetachParent() {
   }
 }
 
-void WebLocalFrameImpl::SetFrameWidget(WebFrameWidgetBase* frame_widget) {
-  frame_widget_ = frame_widget;
+void WebLocalFrameImpl::CreateFrameWidgetInternal(
+    base::PassKey<WebLocalFrame> pass_key,
+    CrossVariantMojoAssociatedRemote<mojom::blink::FrameWidgetHostInterfaceBase>
+        mojo_frame_widget_host,
+    CrossVariantMojoAssociatedReceiver<mojom::blink::FrameWidgetInterfaceBase>
+        mojo_frame_widget,
+    CrossVariantMojoAssociatedRemote<mojom::blink::WidgetHostInterfaceBase>
+        mojo_widget_host,
+    CrossVariantMojoAssociatedReceiver<mojom::blink::WidgetInterfaceBase>
+        mojo_widget,
+    const viz::FrameSinkId& frame_sink_id,
+    bool is_for_nested_main_frame,
+    bool hidden,
+    bool never_composited) {
+  DCHECK(!frame_widget_);
+  DCHECK(frame_->IsLocalRoot());
+  bool is_for_child_local_root = Parent();
+
+  // Check that if this is for a child local root |is_for_nested_main_frame|
+  // is false.
+  DCHECK(!is_for_child_local_root || !is_for_nested_main_frame);
+
+  if (g_create_web_frame_widget) {
+    // It is safe to cast to WebFrameWidgetImpl because the only concrete
+    // subclass of WebFrameWidget that is allowed is WebFrameWidgetImpl. This
+    // is enforced via a private constructor (and friend class) on
+    // WebFrameWidget.
+    frame_widget_ =
+        static_cast<WebFrameWidgetImpl*>(g_create_web_frame_widget->Run(
+            std::move(pass_key), std::move(mojo_frame_widget_host),
+            std::move(mojo_frame_widget), std::move(mojo_widget_host),
+            std::move(mojo_widget),
+            Scheduler()->GetAgentGroupScheduler()->DefaultTaskRunner(),
+            frame_sink_id, hidden, never_composited, is_for_child_local_root,
+            is_for_nested_main_frame));
+  } else {
+    frame_widget_ = MakeGarbageCollected<WebFrameWidgetImpl>(
+        std::move(pass_key), std::move(mojo_frame_widget_host),
+        std::move(mojo_frame_widget), std::move(mojo_widget_host),
+        std::move(mojo_widget),
+        Scheduler()->GetAgentGroupScheduler()->DefaultTaskRunner(),
+        frame_sink_id, hidden, never_composited, is_for_child_local_root,
+        is_for_nested_main_frame);
+  }
+  frame_widget_->BindLocalRoot(*this);
+
+  // If this is for a main frame grab the associated WebViewImpl and
+  // assign this widget as the main frame widget.
+  // Note: this can't DCHECK that the view's main frame points to
+  // |this|, as provisional frames violate this precondition.
+  if (!is_for_child_local_root) {
+    DCHECK(ViewImpl());
+    ViewImpl()->SetMainFrameViewWidget(frame_widget_);
+  }
 }
 
 WebFrameWidget* WebLocalFrameImpl::FrameWidget() const {
@@ -2363,21 +2549,86 @@ void WebLocalFrameImpl::CopyImageAtForTesting(
   GetFrame()->CopyImageAtViewportPoint(IntPoint(pos_in_viewport));
 }
 
+void WebLocalFrameImpl::ShowContextMenuFromExternal(
+    const UntrustworthyContextMenuParams& params,
+    CrossVariantMojoAssociatedRemote<
+        mojom::blink::ContextMenuClientInterfaceBase> context_menu_client) {
+  GetFrame()->GetLocalFrameHostRemote().ShowContextMenu(
+      std::move(context_menu_client), params);
+}
+
+void WebLocalFrameImpl::ShowContextMenu(
+    mojo::PendingAssociatedRemote<mojom::blink::ContextMenuClient> client,
+    const blink::ContextMenuData& data,
+    const base::Optional<gfx::Point>& host_context_menu_location) {
+  UntrustworthyContextMenuParams params =
+      blink::ContextMenuParamsBuilder::Build(data);
+  if (host_context_menu_location.has_value()) {
+    // If the context menu request came from the browser, it came with a
+    // position that was stored on blink::WebFrameWidgetImpl and is relative to
+    // the WindowScreenRect.
+    params.x = host_context_menu_location.value().x();
+    params.y = host_context_menu_location.value().y();
+  } else {
+    // If the context menu request came from the renderer, the position in
+    // |params| is real, but they come in blink viewport coordinates, which
+    // include the device scale factor, but not emulation scale. Here we convert
+    // them to DIP coordinates relative to the WindowScreenRect.
+    // TODO(crbug.com/1093904): This essentially is a floor of the coordinates.
+    // Determine if rounding is more appropriate.
+    gfx::Rect position_in_dips =
+        LocalRootFrameWidget()->BlinkSpaceToEnclosedDIPs(
+            gfx::Rect(params.x, params.y, 0, 0));
+
+    const float scale = LocalRootFrameWidget()->GetEmulatorScale();
+    params.x = position_in_dips.x() * scale;
+    params.y = position_in_dips.y() * scale;
+  }
+
+  // Serializing a GURL longer than kMaxURLChars will fail, so don't do
+  // it.  We replace it with an empty GURL so the appropriate items are disabled
+  // in the context menu.
+  // TODO(jcivelli): http://crbug.com/45160 This prevents us from saving large
+  //                 data encoded images.  We should have a way to save them.
+  if (params.src_url.spec().size() > url::kMaxURLChars)
+    params.src_url = KURL();
+
+  params.selection_rect =
+      LocalRootFrameWidget()->BlinkSpaceToEnclosedDIPs(data.selection_rect);
+
+#if defined(OS_ANDROID)
+  // The Samsung Email app relies on the context menu being shown after the
+  // javascript onselectionchanged is triggered.
+  // See crbug.com/729488
+  GetFrame()
+      ->GetTaskRunner(TaskType::kInternalDefault)
+      ->PostTask(
+          FROM_HERE,
+          WTF::Bind(&WebLocalFrameImpl::ShowDeferredContextMenu,
+                    WrapWeakPersistent(this), std::move(client), params));
+#else
+  ShowDeferredContextMenu(std::move(client), params);
+#endif
+
+  if (Client())
+    Client()->UpdateContextMenuDataForTesting(data, host_context_menu_location);
+}
+
+void WebLocalFrameImpl::ShowDeferredContextMenu(
+    mojo::PendingAssociatedRemote<mojom::blink::ContextMenuClient> client,
+    const UntrustworthyContextMenuParams& params) {
+  // The local frame may become detached before the object is GC'ed. So, this
+  // method needs to check if GetFrame() returns a nullptr.
+  if (!GetFrame())
+    return;
+  GetFrame()->GetLocalFrameHostRemote().ShowContextMenu(std::move(client),
+                                                        params);
+}
+
 bool WebLocalFrameImpl::IsAllowedToDownload() const {
   if (!GetFrame())
     return true;
 
-  if (RuntimeEnabledFeatures::FeaturePolicyForSandboxEnabled()) {
-    // Downloads could be disabled if the parent frame's FeaturePolicy does not
-    // allow downloads.
-    if (GetFrame()->Tree().Parent() &&
-        !GetFrame()->Tree().Parent()->GetSecurityContext()->IsFeatureEnabled(
-            mojom::blink::FeaturePolicyFeature::kDownloads)) {
-      return false;
-    }
-    return !GetFrame()->Owner() ||
-           GetFrame()->Owner()->GetFramePolicy().allowed_to_download;
-  }
   return (GetFrame()->Loader().PendingEffectiveSandboxFlags() &
           network::mojom::blink::WebSandboxFlags::kDownloads) ==
          network::mojom::blink::WebSandboxFlags::kNone;
@@ -2419,6 +2670,11 @@ FrameScheduler* WebLocalFrameImpl::Scheduler() const {
   return GetFrame()->GetFrameScheduler();
 }
 
+scheduler::WebAgentGroupScheduler* WebLocalFrameImpl::GetAgentGroupScheduler()
+    const {
+  return Scheduler()->GetAgentGroupScheduler();
+}
+
 scoped_refptr<base::SingleThreadTaskRunner> WebLocalFrameImpl::GetTaskRunner(
     TaskType task_type) {
   return GetFrame()->GetTaskRunner(task_type);
@@ -2432,18 +2688,19 @@ WebInputMethodController* WebLocalFrameImpl::GetInputMethodController() {
 // "core/editing/serializers/Serialization.cpp".
 static String CreateMarkupInRect(LocalFrame*, const IntPoint&, const IntPoint&);
 
-void WebLocalFrameImpl::ExtractSmartClipData(WebRect rect_in_viewport,
+void WebLocalFrameImpl::ExtractSmartClipData(const gfx::Rect& rect_in_viewport,
                                              WebString& clip_text,
                                              WebString& clip_html,
-                                             WebRect& clip_rect) {
+                                             gfx::Rect& clip_rect) {
   // TODO(mahesh.ma): Check clip_data even after use-zoom-for-dsf is enabled.
-  SmartClipData clip_data = SmartClip(GetFrame()).DataForRect(rect_in_viewport);
+  SmartClipData clip_data =
+      SmartClip(GetFrame()).DataForRect(IntRect(rect_in_viewport));
   clip_text = clip_data.ClipData();
   clip_rect = clip_data.RectInViewport();
 
-  IntPoint start_point(rect_in_viewport.x, rect_in_viewport.y);
-  IntPoint end_point(rect_in_viewport.x + rect_in_viewport.width,
-                     rect_in_viewport.y + rect_in_viewport.height);
+  IntPoint start_point(rect_in_viewport.x(), rect_in_viewport.y());
+  IntPoint end_point(rect_in_viewport.x() + rect_in_viewport.width(),
+                     rect_in_viewport.y() + rect_in_viewport.height());
   clip_html = CreateMarkupInRect(
       GetFrame(), GetFrame()->View()->ViewportToFrame(start_point),
       GetFrame()->View()->ViewportToFrame(end_point));
@@ -2515,7 +2772,7 @@ void WebLocalFrameImpl::SetSpellCheckPanelHostClient(
   spell_check_panel_host_client_ = spell_check_panel_host_client;
 }
 
-WebFrameWidgetBase* WebLocalFrameImpl::LocalRootFrameWidget() {
+WebFrameWidgetImpl* WebLocalFrameImpl::LocalRootFrameWidget() {
   CHECK(LocalRoot());
   return LocalRoot()->FrameWidgetImpl();
 }
@@ -2579,6 +2836,51 @@ void WebLocalFrameImpl::SetAllowsCrossBrowsingInstanceFrameLookup() {
   // instance, for example extensions and webview tag.
   auto* window = GetFrame()->DomWindow();
   window->GetMutableSecurityOrigin()->GrantCrossAgentClusterAccess();
+}
+
+const WebHistoryItem& WebLocalFrameImpl::GetCurrentHistoryItem() const {
+  return current_history_item_;
+}
+
+void WebLocalFrameImpl::SetTargetToCurrentHistoryItem(const WebString& target) {
+  current_history_item_.SetTarget(target);
+}
+
+void WebLocalFrameImpl::UpdateCurrentHistoryItem() {
+  current_history_item_ = WebHistoryItem(
+      GetFrame()->Loader().GetDocumentLoader()->GetHistoryItem());
+}
+
+PageState WebLocalFrameImpl::CurrentHistoryItemToPageState() {
+  return SingleHistoryItemToPageState(current_history_item_);
+}
+
+void WebLocalFrameImpl::ScrollFocusedEditableElementIntoRect(
+    const gfx::Rect& rect) {
+  // TODO(ekaramad): Perhaps we should remove |rect| since all it seems to be
+  // doing is helping verify if scrolling animation for a given focused editable
+  // element has finished.
+  if (has_scrolled_focused_editable_node_into_rect_ &&
+      rect == rect_for_scrolled_focused_editable_node_ && autofill_client_) {
+    autofill_client_->DidCompleteFocusChangeInFrame();
+    return;
+  }
+
+  WebFrameWidgetImpl* local_root_frame_widget = LocalRootFrameWidget();
+
+  if (!local_root_frame_widget->ScrollFocusedEditableElementIntoView())
+    return;
+
+  rect_for_scrolled_focused_editable_node_ = rect;
+  has_scrolled_focused_editable_node_into_rect_ = true;
+  if (!local_root_frame_widget->HasPendingPageScaleAnimation() &&
+      autofill_client_) {
+    autofill_client_->DidCompleteFocusChangeInFrame();
+  }
+}
+
+void WebLocalFrameImpl::ResetHasScrolledFocusedEditableIntoView() {
+  has_scrolled_focused_editable_node_into_rect_ = false;
 }
 
 }  // namespace blink

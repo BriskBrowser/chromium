@@ -36,22 +36,25 @@ namespace {
 // The modulus length for RSA keys used by easy sign-in.
 const int kKeyModulusLength = 2048;
 
-// Relays |GetSystemSlotOnIOThread| callback to |response_task_runner|.
+// Relays `GetSystemSlotOnIOThread` callback to `response_task_runner`.
 void RunCallbackOnTaskRunner(
     const scoped_refptr<base::SingleThreadTaskRunner>& response_task_runner,
-    const base::Callback<void(crypto::ScopedPK11Slot)>& callback,
+    base::OnceCallback<void(crypto::ScopedPK11Slot)> callback,
     crypto::ScopedPK11Slot slot) {
-  response_task_runner->PostTask(FROM_HERE,
-                                 base::BindOnce(callback, std::move(slot)));
+  response_task_runner->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), std::move(slot)));
 }
 
 // Gets TPM system slot. Must be called on IO thread.
-// The callback wil be relayed to |response_task_runner|.
+// The callback wil be relayed to `response_task_runner`.
 void GetSystemSlotOnIOThread(
     const scoped_refptr<base::SingleThreadTaskRunner>& response_task_runner,
-    const base::Callback<void(crypto::ScopedPK11Slot)>& callback) {
-  base::Callback<void(crypto::ScopedPK11Slot)> callback_on_origin_thread =
-      base::Bind(&RunCallbackOnTaskRunner, response_task_runner, callback);
+    base::OnceCallback<void(crypto::ScopedPK11Slot)> callback) {
+  // This callback will only be executed once but must be marked repeating
+  // because it could be discarded by GetSystemNSSKeySlot() and invoked here
+  // instead.
+  auto callback_on_origin_thread = base::BindRepeating(
+      &RunCallbackOnTaskRunner, response_task_runner, base::Passed(&callback));
 
   crypto::ScopedPK11Slot system_slot =
       crypto::GetSystemNSSKeySlot(callback_on_origin_thread);
@@ -59,22 +62,25 @@ void GetSystemSlotOnIOThread(
     callback_on_origin_thread.Run(std::move(system_slot));
 }
 
-// Relays |EnsureUserTpmInitializedOnIOThread| callback to
-// |response_task_runner|, ignoring |slot|.
+// Relays `EnsureUserTpmInitializedOnIOThread` callback to
+// `response_task_runner`, ignoring `slot`.
 void RunCallbackWithoutSlotOnTaskRunner(
     const scoped_refptr<base::SingleThreadTaskRunner>& response_task_runner,
-    const base::Closure& callback,
+    base::OnceClosure callback,
     crypto::ScopedPK11Slot slot) {
-  response_task_runner->PostTask(FROM_HERE, callback);
+  response_task_runner->PostTask(FROM_HERE, std::move(callback));
 }
 
 void EnsureUserTPMInitializedOnIOThread(
     const std::string& username_hash,
     const scoped_refptr<base::SingleThreadTaskRunner>& response_task_runner,
-    const base::Closure& callback) {
-  base::Callback<void(crypto::ScopedPK11Slot)> callback_on_origin_thread =
-      base::Bind(&RunCallbackWithoutSlotOnTaskRunner, response_task_runner,
-                 callback);
+    base::OnceClosure callback) {
+  // This callback will only be executed once but must be marked repeating
+  // because it could be discarded by GetPrivateSlotForChromeOSUser() and
+  // invoked here instead.
+  auto callback_on_origin_thread =
+      base::BindRepeating(&RunCallbackWithoutSlotOnTaskRunner,
+                          response_task_runner, base::Passed(&callback));
 
   crypto::ScopedPK11Slot private_slot = crypto::GetPrivateSlotForChromeOSUser(
       username_hash, callback_on_origin_thread);
@@ -82,8 +88,8 @@ void EnsureUserTPMInitializedOnIOThread(
     callback_on_origin_thread.Run(std::move(private_slot));
 }
 
-// Checks if a private RSA key associated with |public_key| can be found in
-// |slot|. |slot| must be non-null.
+// Checks if a private RSA key associated with `public_key` can be found in
+// `slot`. `slot` must be non-null.
 // Must be called on a worker thread.
 crypto::ScopedSECKEYPrivateKey GetPrivateKeyOnWorkerThread(
     PK11SlotInfo* slot,
@@ -102,21 +108,21 @@ crypto::ScopedSECKEYPrivateKey GetPrivateKeyOnWorkerThread(
   return rsa_key;
 }
 
-// Signs |data| using a private key associated with |public_key| and stored in
-// |slot|. Once the data is signed, callback is run on |response_task_runner|.
+// Signs `data` using a private key associated with `public_key` and stored in
+// `slot`. Once the data is signed, callback is run on `response_task_runner`.
 // In case of an error, the callback will be passed an empty string.
 void SignDataOnWorkerThread(
     crypto::ScopedPK11Slot slot,
     const std::string& public_key,
     const std::string& data,
     const scoped_refptr<base::SingleThreadTaskRunner>& response_task_runner,
-    const base::Callback<void(const std::string&)>& callback) {
+    base::OnceCallback<void(const std::string&)> callback) {
   crypto::ScopedSECKEYPrivateKey private_key(
       GetPrivateKeyOnWorkerThread(slot.get(), public_key));
   if (!private_key) {
     LOG(ERROR) << "Private key for signing data not found";
-    response_task_runner->PostTask(FROM_HERE,
-                                   base::BindOnce(callback, std::string()));
+    response_task_runner->PostTask(
+        FROM_HERE, base::BindOnce(std::move(callback), std::string()));
     return;
   }
 
@@ -126,31 +132,31 @@ void SignDataOnWorkerThread(
                    data.size(), private_key.get(),
                    SEC_OID_PKCS1_SHA256_WITH_RSA_ENCRYPTION) != SECSuccess) {
     LOG(ERROR) << "Failed to sign data";
-    response_task_runner->PostTask(FROM_HERE,
-                                   base::BindOnce(callback, std::string()));
+    response_task_runner->PostTask(
+        FROM_HERE, base::BindOnce(std::move(callback), std::string()));
     return;
   }
 
   std::string signature(reinterpret_cast<const char*>(sign_result->data),
                         sign_result->len);
-  response_task_runner->PostTask(FROM_HERE,
-                                 base::BindOnce(callback, signature));
+  response_task_runner->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), signature));
 }
 
-// Creates a RSA key pair in |slot|. When done, it runs |callback| with the
-// created public key on |response_task_runner|.
-// If |public_key| is not empty, a key pair will be created only if the private
-// key associated with |public_key| does not exist in |slot|. Otherwise the
-// callback will be run with |public_key|.
+// Creates a RSA key pair in `slot`. When done, it runs `callback` with the
+// created public key on `response_task_runner`.
+// If `public_key` is not empty, a key pair will be created only if the private
+// key associated with `public_key` does not exist in `slot`. Otherwise the
+// callback will be run with `public_key`.
 void CreateTpmKeyPairOnWorkerThread(
     crypto::ScopedPK11Slot slot,
     const std::string& public_key,
     const scoped_refptr<base::SingleThreadTaskRunner>& response_task_runner,
-    const base::Callback<void(const std::string&)>& callback) {
+    base::OnceCallback<void(const std::string&)> callback) {
   if (!public_key.empty() &&
       GetPrivateKeyOnWorkerThread(slot.get(), public_key)) {
-    response_task_runner->PostTask(FROM_HERE,
-                                   base::BindOnce(callback, public_key));
+    response_task_runner->PostTask(
+        FROM_HERE, base::BindOnce(std::move(callback), public_key));
     return;
   }
 
@@ -160,8 +166,8 @@ void CreateTpmKeyPairOnWorkerThread(
                                      true /* permanent */, &public_key_obj,
                                      &private_key_obj)) {
     LOG(ERROR) << "Failed to create an RSA key.";
-    response_task_runner->PostTask(FROM_HERE,
-                                   base::BindOnce(callback, std::string()));
+    response_task_runner->PostTask(
+        FROM_HERE, base::BindOnce(std::move(callback), std::string()));
     return;
   }
 
@@ -169,16 +175,17 @@ void CreateTpmKeyPairOnWorkerThread(
       SECKEY_EncodeDERSubjectPublicKeyInfo(public_key_obj.get()));
   if (!public_key_der) {
     LOG(ERROR) << "Failed to export public key.";
-    response_task_runner->PostTask(FROM_HERE,
-                                   base::BindOnce(callback, std::string()));
+    response_task_runner->PostTask(
+        FROM_HERE, base::BindOnce(std::move(callback), std::string()));
     return;
   }
 
   response_task_runner->PostTask(
       FROM_HERE,
-      base::BindOnce(callback, std::string(reinterpret_cast<const char*>(
-                                               public_key_der->data),
-                                           public_key_der->len)));
+      base::BindOnce(
+          std::move(callback),
+          std::string(reinterpret_cast<const char*>(public_key_der->data),
+                      public_key_der->len)));
 }
 
 }  // namespace
@@ -214,7 +221,7 @@ EasyUnlockTpmKeyManager::EasyUnlockTpmKeyManager(
 EasyUnlockTpmKeyManager::~EasyUnlockTpmKeyManager() {}
 
 bool EasyUnlockTpmKeyManager::PrepareTpmKey(bool check_private_key,
-                                            const base::Closure& callback) {
+                                            base::OnceClosure callback) {
   CHECK(account_id_.is_valid());
   CHECK(!username_hash_.empty());
 
@@ -227,19 +234,20 @@ bool EasyUnlockTpmKeyManager::PrepareTpmKey(bool check_private_key,
     return true;
   }
 
-  prepare_tpm_key_callbacks_.push_back(callback);
+  prepare_tpm_key_callbacks_.push_back(std::move(callback));
 
   if (create_tpm_key_state_ == CREATE_TPM_KEY_NOT_STARTED) {
     create_tpm_key_state_ = CREATE_TPM_KEY_WAITING_FOR_USER_SLOT;
 
-    base::Closure on_user_tpm_ready =
-        base::Bind(&EasyUnlockTpmKeyManager::OnUserTPMInitialized,
-                   get_tpm_slot_weak_ptr_factory_.GetWeakPtr(), key);
+    auto on_user_tpm_ready =
+        base::BindOnce(&EasyUnlockTpmKeyManager::OnUserTPMInitialized,
+                       get_tpm_slot_weak_ptr_factory_.GetWeakPtr(), key);
 
     content::GetIOThreadTaskRunner({})->PostTask(
         FROM_HERE,
         base::BindOnce(&EnsureUserTPMInitializedOnIOThread, username_hash_,
-                       base::ThreadTaskRunnerHandle::Get(), on_user_tpm_ready));
+                       base::ThreadTaskRunnerHandle::Get(),
+                       std::move(on_user_tpm_ready)));
   }
 
   return false;
@@ -275,21 +283,21 @@ std::string EasyUnlockTpmKeyManager::GetPublicTpmKey(
 void EasyUnlockTpmKeyManager::SignUsingTpmKey(
     const AccountId& account_id,
     const std::string& data,
-    const base::Callback<void(const std::string& data)> callback) {
+    base::OnceCallback<void(const std::string& data)> callback) {
   const std::string key = GetPublicTpmKey(account_id);
   if (key.empty()) {
-    callback.Run(std::string());
+    std::move(callback).Run(std::string());
     return;
   }
 
-  base::Callback<void(crypto::ScopedPK11Slot)> sign_with_system_slot =
-      base::Bind(&EasyUnlockTpmKeyManager::SignDataWithSystemSlot,
-                 weak_ptr_factory_.GetWeakPtr(), key, data, callback);
+  auto sign_with_system_slot = base::BindOnce(
+      &EasyUnlockTpmKeyManager::SignDataWithSystemSlot,
+      weak_ptr_factory_.GetWeakPtr(), key, data, std::move(callback));
 
   content::GetIOThreadTaskRunner({})->PostTask(
       FROM_HERE, base::BindOnce(&GetSystemSlotOnIOThread,
                                 base::ThreadTaskRunnerHandle::Get(),
-                                sign_with_system_slot));
+                                std::move(sign_with_system_slot)));
 }
 
 bool EasyUnlockTpmKeyManager::StartedCreatingTpmKeys() const {
@@ -313,14 +321,14 @@ void EasyUnlockTpmKeyManager::OnUserTPMInitialized(
     const std::string& public_key) {
   create_tpm_key_state_ = CREATE_TPM_KEY_WAITING_FOR_SYSTEM_SLOT;
 
-  base::Callback<void(crypto::ScopedPK11Slot)> create_key_with_system_slot =
-      base::Bind(&EasyUnlockTpmKeyManager::CreateKeyInSystemSlot,
-                 get_tpm_slot_weak_ptr_factory_.GetWeakPtr(), public_key);
+  auto create_key_with_system_slot =
+      base::BindOnce(&EasyUnlockTpmKeyManager::CreateKeyInSystemSlot,
+                     get_tpm_slot_weak_ptr_factory_.GetWeakPtr(), public_key);
 
   content::GetIOThreadTaskRunner({})->PostTask(
       FROM_HERE, base::BindOnce(&GetSystemSlotOnIOThread,
                                 base::ThreadTaskRunnerHandle::Get(),
-                                create_key_with_system_slot));
+                                std::move(create_key_with_system_slot)));
 }
 
 void EasyUnlockTpmKeyManager::CreateKeyInSystemSlot(
@@ -329,9 +337,9 @@ void EasyUnlockTpmKeyManager::CreateKeyInSystemSlot(
   CHECK(system_slot);
   create_tpm_key_state_ = CREATE_TPM_KEY_GOT_SYSTEM_SLOT;
 
-  // If there are any delayed tasks posted using |StartGetSystemSlotTimeoutMs|,
+  // If there are any delayed tasks posted using `StartGetSystemSlotTimeoutMs`,
   // this will cancel them.
-  // Note that this would cancel other pending |CreateKeyInSystemSlot| tasks,
+  // Note that this would cancel other pending `CreateKeyInSystemSlot` tasks,
   // but there should be at most one such task at a time.
   get_tpm_slot_weak_ptr_factory_.InvalidateWeakPtrs();
 
@@ -341,14 +349,14 @@ void EasyUnlockTpmKeyManager::CreateKeyInSystemSlot(
       {base::MayBlock(), base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
       base::BindOnce(&CreateTpmKeyPairOnWorkerThread, std::move(system_slot),
                      public_key, base::ThreadTaskRunnerHandle::Get(),
-                     base::Bind(&EasyUnlockTpmKeyManager::OnTpmKeyCreated,
-                                weak_ptr_factory_.GetWeakPtr())));
+                     base::BindOnce(&EasyUnlockTpmKeyManager::OnTpmKeyCreated,
+                                    weak_ptr_factory_.GetWeakPtr())));
 }
 
 void EasyUnlockTpmKeyManager::SignDataWithSystemSlot(
     const std::string& public_key,
     const std::string& data,
-    const base::Callback<void(const std::string& data)> callback,
+    base::OnceCallback<void(const std::string& data)> callback,
     crypto::ScopedPK11Slot system_slot) {
   CHECK(system_slot);
 
@@ -356,19 +364,20 @@ void EasyUnlockTpmKeyManager::SignDataWithSystemSlot(
   base::ThreadPool::PostTask(
       FROM_HERE,
       {base::MayBlock(), base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
-      base::BindOnce(&SignDataOnWorkerThread, std::move(system_slot),
-                     public_key, data, base::ThreadTaskRunnerHandle::Get(),
-                     base::Bind(&EasyUnlockTpmKeyManager::OnDataSigned,
-                                weak_ptr_factory_.GetWeakPtr(), callback)));
+      base::BindOnce(
+          &SignDataOnWorkerThread, std::move(system_slot), public_key, data,
+          base::ThreadTaskRunnerHandle::Get(),
+          base::BindOnce(&EasyUnlockTpmKeyManager::OnDataSigned,
+                         weak_ptr_factory_.GetWeakPtr(), std::move(callback))));
 }
 
 void EasyUnlockTpmKeyManager::OnTpmKeyCreated(const std::string& public_key) {
-  // |OnTpmKeyCreated| is called by a timeout task posted by
-  // |StartGetSystemSlotTimeoutMs|. Invalidating the factory will have
-  // an effect of canceling any pending |GetSystemSlotOnIOThread| callbacks,
+  // `OnTpmKeyCreated` is called by a timeout task posted by
+  // `StartGetSystemSlotTimeoutMs`. Invalidating the factory will have
+  // an effect of canceling any pending `GetSystemSlotOnIOThread` callbacks,
   // as well as other pending timeouts.
-  // Note that in the case |OnTpmKeyCreated| was called as a result of
-  // |CreateKeyInSystemSlot|, this should have no effect as no weak ptrs from
+  // Note that in the case `OnTpmKeyCreated` was called as a result of
+  // `CreateKeyInSystemSlot`, this should have no effect as no weak ptrs from
   // this factory should be in use in this case.
   get_tpm_slot_weak_ptr_factory_.InvalidateWeakPtrs();
 
@@ -377,7 +386,7 @@ void EasyUnlockTpmKeyManager::OnTpmKeyCreated(const std::string& public_key) {
 
   for (size_t i = 0; i < prepare_tpm_key_callbacks_.size(); ++i) {
     if (!prepare_tpm_key_callbacks_[i].is_null())
-      prepare_tpm_key_callbacks_[i].Run();
+      std::move(prepare_tpm_key_callbacks_[i]).Run();
   }
 
   prepare_tpm_key_callbacks_.clear();
@@ -388,9 +397,9 @@ void EasyUnlockTpmKeyManager::OnTpmKeyCreated(const std::string& public_key) {
 }
 
 void EasyUnlockTpmKeyManager::OnDataSigned(
-    const base::Callback<void(const std::string&)>& callback,
+    base::OnceCallback<void(const std::string&)> callback,
     const std::string& signature) {
-  callback.Run(signature);
+  std::move(callback).Run(signature);
 }
 
 }  // namespace chromeos

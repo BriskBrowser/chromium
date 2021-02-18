@@ -11,10 +11,11 @@
 #include <utility>
 
 #include "apps/launcher.h"
+#include "ash/constants/ash_features.h"
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/stl_util.h"
 #include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -36,18 +37,17 @@
 #include "chrome/browser/chromeos/file_manager/open_with_browser.h"
 #include "chrome/browser/chromeos/file_manager/web_file_tasks.h"
 #include "chrome/browser/chromeos/fileapi/file_system_backend.h"
-#include "chrome/browser/chromeos/web_applications/default_web_app_ids.h"
 #include "chrome/browser/extensions/extension_tab_util.h"
 #include "chrome/browser/extensions/launch_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/webui/extensions/extension_icon_source.h"
+#include "chrome/browser/web_applications/components/web_app_id_constants.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/extensions/api/file_browser_handlers/file_browser_handler.h"
 #include "chrome/common/extensions/api/file_manager_private.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "components/drive/drive_api_util.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
@@ -170,6 +170,20 @@ void RemoveFileManagerInternalActions(const std::set<std::string>& actions,
   tasks->swap(filtered);
 }
 
+// Returns whether |path| is a RAW image file according to its extension. Note
+// that since none of the extensions of interest are "known" mime types (per
+// net/mime_util.cc), it's enough to simply check the extension rather than
+// using MimeTypeCollector. TODO(crbug/1030935): Remove this.
+bool IsRawImage(const base::FilePath& path) {
+  constexpr const char* kRawExtensions[] = {".arw", ".cr2", ".dng", ".nef",
+                                            ".nrw", ".orf", ".raf", ".rw2"};
+  for (const char* extension : kRawExtensions) {
+    if (path.MatchesExtension(extension))
+      return true;
+  }
+  return false;
+}
+
 // Adjusts |tasks| to reflect the product decision that chrome://media-app
 // should behave more like a user-installed app than a fallback handler.
 // Specifically, only apps set as the default in user prefs should be preferred
@@ -187,18 +201,19 @@ void AdjustTasksForMediaApp(const std::vector<extensions::EntryInfo>& entries,
     });
   };
 
-  const auto media_app_task =
-      task_for_app(chromeos::default_web_apps::kMediaAppId);
+  const auto media_app_task = task_for_app(web_app::kMediaAppId);
   if (media_app_task == tasks->end())
     return;
 
-  // TODO(crbug/1030935): Once Media app supports RAW files, delete the
-  // IsRawImage early exit. This is necessary while Gallery is still the
-  // better option for RAW files. The any_non_image check can be removed once
-  // video player functionality of the Media App is fully polished.
+  // TODO(crbug/1030935): Delete the IsRawImage function and early exit when
+  // kMediaAppHandlesRaw is removed. The any_non_image check can be removed once
+  // video player functionality of the Media App is fully polished
+  // (b/171154148).
   bool any_non_image = false;
   for (const auto& entry : entries) {
-    if (IsRawImage(entry.path)) {
+    if (!base::FeatureList::IsEnabled(
+            chromeos::features::kMediaAppHandlesRaw) &&
+        IsRawImage(entry.path)) {
       tasks->erase(media_app_task);
       return;  // Let Gallery handle it.
     }
@@ -255,7 +270,7 @@ bool IsFallbackFileHandler(const FullTaskDescriptor& task) {
     return false;
   }
 
-  // Note that chromeos::default_web_apps::kMediaAppId does not appear in the
+  // Note that web_app::kMediaAppId does not appear in the
   // list of built-in apps below. Doing so would mean the presence of any other
   // handler of image files (e.g. Keep, Photos) would take precedence. But we
   // want that only to occur if the user has explicitly set the preference for
@@ -552,7 +567,9 @@ bool ExecuteFileTask(Profile* profile,
   }
 
   // Some action IDs of the file manager's file browser handlers require the
-  // files to be directly opened with the browser.
+  // files to be directly opened with the browser. In a multiprofile session
+  // this will always open on the current desktop, regardless of which profile
+  // owns the files, so return TASK_RESULT_OPENED.
   if (ShouldBeOpenedWithBrowser(task.app_id, task.action_id)) {
     const bool result =
         OpenFilesWithBrowser(profile, file_urls, task.action_id);
@@ -585,6 +602,9 @@ bool ExecuteFileTask(Profile* profile,
     DCHECK(!extension->from_bookmark());
     apps::LaunchPlatformAppWithFileHandler(extension_task_profile, extension,
                                            task.action_id, paths);
+    // In a multiprofile session, platform apps will open on the desktop
+    // corresponding to the profile that owns the files, so return
+    // TASK_RESULT_MESSAGE_SENT.
     if (!done.is_null())
       std::move(done).Run(
           extensions::api::file_manager_private::TASK_RESULT_MESSAGE_SENT, "");
@@ -881,10 +901,17 @@ void ChooseAndSetDefaultTask(const PrefService& pref_service,
   }
 
   // Prefer a fallback app over viewing in the browser (crbug.com/1111399).
+  // Unless it's HTML which should open in the browser (crbug.com/1121396).
   for (size_t i = 0; i < tasks->size(); ++i) {
     FullTaskDescriptor& task = (*tasks)[i];
     if (IsFallbackFileHandler(task) &&
         task.task_descriptor().action_id != "view-in-browser") {
+      const extensions::EntryInfo entry = entries[0];
+      const base::FilePath& file_path = entry.path;
+
+      if (IsHtmlFile(file_path)) {
+        break;
+      }
       task.set_is_default(true);
       return;
     }
@@ -902,10 +929,10 @@ void ChooseAndSetDefaultTask(const PrefService& pref_service,
   }
 }
 
-bool IsRawImage(const base::FilePath& path) {
-  constexpr const char* kRawExtensions[] = {".arw", ".cr2", ".dng", ".nef",
-                                            ".nrw", ".orf", ".raf", ".rw2"};
-  for (const char* extension : kRawExtensions) {
+bool IsHtmlFile(const base::FilePath& path) {
+  constexpr const char* kHtmlExtensions[] = {".htm", ".html", ".mhtml",
+                                             ".xht", ".xhtm", ".xhtml"};
+  for (const char* extension : kHtmlExtensions) {
     if (path.MatchesExtension(extension))
       return true;
   }

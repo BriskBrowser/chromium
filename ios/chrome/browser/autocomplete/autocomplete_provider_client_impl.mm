@@ -45,7 +45,9 @@ AutocompleteProviderClientImpl::AutocompleteProviderClientImpl(
       url_consent_helper_(unified_consent::UrlKeyedDataCollectionConsentHelper::
                               NewPersonalizedDataCollectionConsentHelper(
                                   ProfileSyncServiceFactory::GetForBrowserState(
-                                      browser_state_))) {}
+                                      browser_state_))),
+      omnibox_triggered_feature_service_(
+          std::make_unique<OmniboxTriggeredFeatureService>()) {}
 
 AutocompleteProviderClientImpl::~AutocompleteProviderClientImpl() {}
 
@@ -56,6 +58,10 @@ AutocompleteProviderClientImpl::GetURLLoaderFactory() {
 
 PrefService* AutocompleteProviderClientImpl::GetPrefs() {
   return browser_state_->GetPrefs();
+}
+
+PrefService* AutocompleteProviderClientImpl::GetLocalState() {
+  return GetApplicationContext()->GetLocalState();
 }
 
 const AutocompleteSchemeClassifier&
@@ -141,6 +147,11 @@ query_tiles::TileService* AutocompleteProviderClientImpl::GetQueryTileService()
   return nullptr;
 }
 
+OmniboxTriggeredFeatureService*
+AutocompleteProviderClientImpl::GetOmniboxTriggeredFeatureService() const {
+  return omnibox_triggered_feature_service_.get();
+}
+
 std::string AutocompleteProviderClientImpl::GetAcceptLanguages() const {
   return browser_state_->GetPrefs()->GetString(
       language::prefs::kAcceptLanguages);
@@ -174,6 +185,11 @@ AutocompleteProviderClientImpl::GetComponentUpdateService() {
   return GetApplicationContext()->GetComponentUpdateService();
 }
 
+signin::IdentityManager* AutocompleteProviderClientImpl::GetIdentityManager()
+    const {
+  return IdentityManagerFactory::GetForBrowserState(browser_state_);
+}
+
 bool AutocompleteProviderClientImpl::IsOffTheRecord() const {
   return browser_state_->IsOffTheRecord();
 }
@@ -190,7 +206,8 @@ bool AutocompleteProviderClientImpl::IsPersonalizedUrlDataCollectionActive()
 bool AutocompleteProviderClientImpl::IsAuthenticated() const {
   signin::IdentityManager* identity_manager =
       IdentityManagerFactory::GetForBrowserState(browser_state_);
-  return identity_manager != nullptr && identity_manager->HasPrimaryAccount();
+  return identity_manager &&
+         identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSync);
 }
 
 bool AutocompleteProviderClientImpl::IsSyncActive() const {

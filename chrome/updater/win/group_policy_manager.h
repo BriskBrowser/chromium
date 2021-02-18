@@ -27,9 +27,8 @@ class GroupPolicyManager : public PolicyManagerInterface {
   bool IsManaged() const override;
 
   bool GetLastCheckPeriodMinutes(int* minutes) const override;
-  bool GetUpdatesSuppressedTimes(int* start_hour,
-                                 int* start_min,
-                                 int* duration_min) const override;
+  bool GetUpdatesSuppressedTimes(
+      UpdatesSuppressedTimes* suppressed_times) const override;
   bool GetDownloadPreferenceGroupPolicy(
       std::string* download_preference) const override;
   bool GetPackageCacheSizeLimitMBytes(int* cache_size_limit) const override;
@@ -51,8 +50,8 @@ class GroupPolicyManager : public PolicyManagerInterface {
   bool GetProxyServer(std::string* proxy_server) const override;
 
  private:
-  bool ReadValue(const base::char16* name, std::string* value) const;
-  bool ReadValueDW(const base::char16* name, int* value) const;
+  bool ReadValue(const wchar_t* name, std::string* value) const;
+  bool ReadValueDW(const wchar_t* name, int* value) const;
 
   base::win::RegKey key_;
 };

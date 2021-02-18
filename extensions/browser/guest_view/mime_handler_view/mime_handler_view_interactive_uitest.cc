@@ -13,6 +13,7 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/test/test_timeouts.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
@@ -29,6 +30,7 @@
 #include "extensions/browser/guest_view/extensions_guest_view_manager_delegate.h"
 #include "extensions/browser/guest_view/mime_handler_view/mime_handler_view_guest.h"
 #include "extensions/browser/guest_view/mime_handler_view/test_mime_handler_view_guest.h"
+#include "extensions/common/constants.h"
 #include "extensions/test/result_catcher.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "third_party/blink/public/common/input/web_pointer_properties.h"
@@ -39,9 +41,6 @@ using guest_view::TestGuestViewManager;
 using guest_view::TestGuestViewManagerFactory;
 
 namespace extensions {
-
-// The test extension id is set by the key value in the manifest.
-const char kExtensionId[] = "oickdpebdnfbgkcaoklfcdhjniefkcji";
 
 // Counts the number of URL requests made for a given URL.
 class MimeHandlerViewTest : public ExtensionApiTest {
@@ -87,7 +86,8 @@ class MimeHandlerViewTest : public ExtensionApiTest {
     if (!extension)
       return nullptr;
 
-    CHECK_EQ(std::string(kExtensionId), extension->id());
+    EXPECT_EQ(std::string(extension_misc::kMimeHandlerPrivateTestExtensionId),
+              extension->id());
 
     return extension;
   }
@@ -144,7 +144,13 @@ void WaitForFullscreenAnimation() {
 
 }  // namespace
 
-IN_PROC_BROWSER_TEST_F(MimeHandlerViewTest, EscapeExitsFullscreen) {
+// TODO(1119576): Flaky under Lacros.
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#define MAYBE_EscapeExitsFullscreen DISABLED_EscapeExitsFullscreen
+#else
+#define MAYBE_EscapeExitsFullscreen EscapeExitsFullscreen
+#endif
+IN_PROC_BROWSER_TEST_F(MimeHandlerViewTest, MAYBE_EscapeExitsFullscreen) {
   // Use the testing subclass of MimeHandlerViewGuest.
   GetGuestViewManager()->RegisterTestGuestViewType<MimeHandlerViewGuest>(
       base::BindRepeating(&TestMimeHandlerViewGuest::Create));

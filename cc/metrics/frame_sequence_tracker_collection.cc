@@ -67,23 +67,21 @@ FrameSequenceTracker* FrameSequenceTrackerCollection::StartSequenceInternal(
     metrics->SetScrollingThread(scrolling_thread);
   }
 
-  if (type != FrameSequenceTrackerType::kUniversal) {
-    if (metrics->GetEffectiveThread() == ThreadType::kCompositor) {
-      if (compositor_frame_reporting_controller_ &&
-          compositor_thread_driving_smoothness_ == 0) {
-        compositor_frame_reporting_controller_->SetThreadAffectsSmoothness(
-            ThreadType::kCompositor, true);
-      }
-      ++compositor_thread_driving_smoothness_;
-    } else {
-      DCHECK_EQ(metrics->GetEffectiveThread(), ThreadType::kMain);
-      if (compositor_frame_reporting_controller_ &&
-          main_thread_driving_smoothness_ == 0) {
-        compositor_frame_reporting_controller_->SetThreadAffectsSmoothness(
-            ThreadType::kMain, true);
-      }
-      ++main_thread_driving_smoothness_;
+  if (metrics->GetEffectiveThread() == ThreadType::kCompositor) {
+    if (compositor_frame_reporting_controller_ &&
+        compositor_thread_driving_smoothness_ == 0) {
+      compositor_frame_reporting_controller_->SetThreadAffectsSmoothness(
+          ThreadType::kCompositor, true);
     }
+    ++compositor_thread_driving_smoothness_;
+  } else {
+    DCHECK_EQ(metrics->GetEffectiveThread(), ThreadType::kMain);
+    if (compositor_frame_reporting_controller_ &&
+        main_thread_driving_smoothness_ == 0) {
+      compositor_frame_reporting_controller_->SetThreadAffectsSmoothness(
+          ThreadType::kMain, true);
+    }
+    ++main_thread_driving_smoothness_;
   }
   return frame_trackers_[key].get();
 }
@@ -133,23 +131,21 @@ void FrameSequenceTrackerCollection::StopSequence(
         tracker->type());
   }
 
-  if (type != FrameSequenceTrackerType::kUniversal) {
-    if (tracker->metrics()->GetEffectiveThread() == ThreadType::kCompositor) {
-      DCHECK_GT(compositor_thread_driving_smoothness_, 0u);
-      --compositor_thread_driving_smoothness_;
-      if (compositor_frame_reporting_controller_ &&
-          compositor_thread_driving_smoothness_ == 0) {
-        compositor_frame_reporting_controller_->SetThreadAffectsSmoothness(
-            ThreadType::kCompositor, false);
-      }
-    } else {
-      DCHECK_GT(main_thread_driving_smoothness_, 0u);
-      --main_thread_driving_smoothness_;
-      if (compositor_frame_reporting_controller_ &&
-          main_thread_driving_smoothness_ == 0) {
-        compositor_frame_reporting_controller_->SetThreadAffectsSmoothness(
-            ThreadType::kMain, false);
-      }
+  if (tracker->metrics()->GetEffectiveThread() == ThreadType::kCompositor) {
+    DCHECK_GT(compositor_thread_driving_smoothness_, 0u);
+    --compositor_thread_driving_smoothness_;
+    if (compositor_frame_reporting_controller_ &&
+        compositor_thread_driving_smoothness_ == 0) {
+      compositor_frame_reporting_controller_->SetThreadAffectsSmoothness(
+          ThreadType::kCompositor, false);
+    }
+  } else {
+    DCHECK_GT(main_thread_driving_smoothness_, 0u);
+    --main_thread_driving_smoothness_;
+    if (compositor_frame_reporting_controller_ &&
+        main_thread_driving_smoothness_ == 0) {
+      compositor_frame_reporting_controller_->SetThreadAffectsSmoothness(
+          ThreadType::kMain, false);
     }
   }
 
@@ -298,35 +294,6 @@ void FrameSequenceTrackerCollection::NotifyFramePresented(
   DestroyTrackers();
 }
 
-bool FrameSequenceTrackerCollection::HasThroughputData() const {
-  return throughput_ukm_reporter_ &&
-         throughput_ukm_reporter_->HasThroughputData();
-}
-
-int FrameSequenceTrackerCollection::TakeLastAggregatedPercent() {
-  DCHECK(throughput_ukm_reporter_);
-  return throughput_ukm_reporter_->TakeLastAggregatedPercent();
-}
-
-int FrameSequenceTrackerCollection::TakeLastImplPercent() {
-  DCHECK(throughput_ukm_reporter_);
-  return throughput_ukm_reporter_->TakeLastImplPercent();
-}
-
-base::Optional<int> FrameSequenceTrackerCollection::TakeLastMainPercent() {
-  DCHECK(throughput_ukm_reporter_);
-  return throughput_ukm_reporter_->TakeLastMainPercent();
-}
-
-void FrameSequenceTrackerCollection::ComputeUniversalThroughputForTesting() {
-  DCHECK(throughput_ukm_reporter_);
-  const auto type = FrameSequenceTrackerType::kUniversal;
-  auto key = std::make_pair(type, ThreadType::kUnknown);
-  DCHECK(frame_trackers_.contains(key));
-  throughput_ukm_reporter_->ComputeUniversalThroughput(
-      frame_trackers_[key]->metrics());
-}
-
 void FrameSequenceTrackerCollection::DestroyTrackers() {
   for (auto& tracker : removal_trackers_) {
     if (tracker->termination_status() ==
@@ -351,15 +318,10 @@ void FrameSequenceTrackerCollection::DestroyTrackers() {
         accumulated_metrics_.erase(key);
       }
 
-      if (metrics->HasEnoughDataForReporting()) {
-        // Do this before ReportMetrics() which clears the throughput data.
-        if (metrics->type() == FrameSequenceTrackerType::kUniversal)
-          throughput_ukm_reporter_->ComputeUniversalThroughput(metrics.get());
+      if (metrics->HasEnoughDataForReporting())
         metrics->ReportMetrics();
-      }
-      if (metrics->HasDataLeftForReporting()) {
+      if (metrics->HasDataLeftForReporting())
         accumulated_metrics_[key] = std::move(metrics);
-      }
     }
   }
 
@@ -411,13 +373,6 @@ FrameSequenceTrackerCollection::FrameSequenceTrackerActiveTypes() {
   return encoded_types;
 }
 
-CustomTrackerResults
-FrameSequenceTrackerCollection::TakeCustomTrackerResults() {
-  CustomTrackerResults results;
-  results.swap(custom_tracker_results_);
-  return results;
-}
-
 FrameSequenceTracker*
 FrameSequenceTrackerCollection::GetRemovalTrackerForTesting(
     FrameSequenceTrackerType type) {
@@ -437,10 +392,12 @@ void FrameSequenceTrackerCollection::SetUkmManager(UkmManager* manager) {
 
 void FrameSequenceTrackerCollection::AddCustomTrackerResult(
     int custom_sequence_id,
-    FrameSequenceMetrics::ThroughputData throughput_data) {
-  // |custom_tracker_results_| should be picked up timely.
-  DCHECK_LT(custom_tracker_results_.size(), 500u);
-  custom_tracker_results_[custom_sequence_id] = std::move(throughput_data);
+    const FrameSequenceMetrics::CustomReportData& data) {
+  DCHECK(custom_tracker_results_added_callback_);
+
+  CustomTrackerResults results;
+  results[custom_sequence_id] = data;
+  custom_tracker_results_added_callback_.Run(results);
 }
 
 }  // namespace cc

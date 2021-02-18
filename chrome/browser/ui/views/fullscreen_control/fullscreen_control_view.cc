@@ -21,6 +21,8 @@
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/layout/fill_layout.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/vector_icons.h"
 
 namespace {
@@ -32,16 +34,21 @@ constexpr int kCloseIconSize = 24;
 
 class CloseFullscreenButton : public views::Button {
  public:
-  explicit CloseFullscreenButton(views::ButtonListener* listener)
-      : views::Button(listener) {
+  METADATA_HEADER(CloseFullscreenButton);
+  explicit CloseFullscreenButton(PressedCallback callback)
+      : views::Button(std::move(callback)) {
     std::unique_ptr<views::ImageView> close_image_view =
         std::make_unique<views::ImageView>();
     close_image_view->SetImage(gfx::CreateVectorIcon(
         views::kIcCloseIcon, kCloseIconSize, SK_ColorWHITE));
+    // Not focusable by default, only for accessibility.
+    SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
     SetAccessibleName(l10n_util::GetStringUTF16(IDS_EXIT_FULLSCREEN_MODE));
     AddChildView(close_image_view.release());
     SetLayoutManager(std::make_unique<views::FillLayout>());
   }
+  CloseFullscreenButton(const CloseFullscreenButton&) = delete;
+  CloseFullscreenButton& operator=(const CloseFullscreenButton&) = delete;
 
  private:
   void PaintButtonContents(gfx::Canvas* canvas) override {
@@ -53,17 +60,17 @@ class CloseFullscreenButton : public views::Button {
     float radius = FullscreenControlView::kCircleButtonDiameter / 2.0f;
     canvas->DrawCircle(gfx::PointF(radius, radius), radius, flags);
   }
-
-  DISALLOW_COPY_AND_ASSIGN(CloseFullscreenButton);
 };
+
+BEGIN_METADATA(CloseFullscreenButton, views::Button)
+END_METADATA
 
 }  // namespace
 
 FullscreenControlView::FullscreenControlView(
-    const base::RepeatingClosure& on_button_pressed)
-    : on_button_pressed_(on_button_pressed),
-      exit_fullscreen_button_(new CloseFullscreenButton(this)) {
-  AddChildView(exit_fullscreen_button_);
+    views::Button::PressedCallback callback) {
+  exit_fullscreen_button_ = AddChildView(
+      std::make_unique<CloseFullscreenButton>(std::move(callback)));
   SetLayoutManager(std::make_unique<views::FillLayout>());
   exit_fullscreen_button_->SetPreferredSize(
       gfx::Size(kCircleButtonDiameter, kCircleButtonDiameter));
@@ -71,8 +78,5 @@ FullscreenControlView::FullscreenControlView(
 
 FullscreenControlView::~FullscreenControlView() = default;
 
-void FullscreenControlView::ButtonPressed(views::Button* sender,
-                                          const ui::Event& event) {
-  if (sender == exit_fullscreen_button_ && on_button_pressed_)
-    on_button_pressed_.Run();
-}
+BEGIN_METADATA(FullscreenControlView, views::View)
+END_METADATA

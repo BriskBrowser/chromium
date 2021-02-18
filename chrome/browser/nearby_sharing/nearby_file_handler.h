@@ -13,7 +13,7 @@
 #include "base/files/file_path.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/sequenced_task_runner.h"
-#include "chrome/services/sharing/public/mojom/nearby_connections_types.mojom-forward.h"
+#include "chromeos/services/nearby/public/mojom/nearby_connections_types.mojom-forward.h"
 
 // This class manages async File IO for Nearby Share file payloads. Opening and
 // releasing files need to run on a MayBlock task runner.
@@ -30,6 +30,7 @@ class NearbyFileHandler {
   using PayloadPtr = location::nearby::connections::mojom::PayloadPtr;
   using OpenFilesCallback = base::OnceCallback<void(std::vector<FileInfo>)>;
   using CreateFileCallback = base::OnceCallback<void(CreateFileResult)>;
+  using GetUniquePathCallback = base::OnceCallback<void(base::FilePath)>;
 
   NearbyFileHandler();
   ~NearbyFileHandler();
@@ -47,6 +48,12 @@ class NearbyFileHandler {
   // Create and open the file given in |file_path| and returns the opened files
   // via |callback|.
   void CreateFile(const base::FilePath& file_path, CreateFileCallback callback);
+
+  void DeleteFilesFromDisk(std::vector<base::FilePath> file_paths);
+
+  // Finds a unique path name for |file_path| and runs |callback| with the same.
+  void GetUniquePath(const base::FilePath& file_path,
+                     GetUniquePathCallback callback);
 
  private:
   // Task runner for doing file operations.

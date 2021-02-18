@@ -12,7 +12,6 @@
 #include "ash/wm/window_util.h"
 #include "ash/wm/wm_event.h"
 #include "base/metrics/user_metrics.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "ui/display/display.h"
 #include "ui/display/display_switches.h"
 #include "ui/display/manager/display_manager.h"
@@ -22,6 +21,8 @@
 
 namespace ash {
 namespace accelerators {
+
+using ::chromeos::WindowStateType;
 
 bool ZoomDisplay(bool up) {
   if (up)

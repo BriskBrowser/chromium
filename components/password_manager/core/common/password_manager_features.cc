@@ -12,8 +12,7 @@ namespace password_manager {
 //       names, e.g. "MyGreatFeature".
 namespace features {
 
-// Enables Biometrics for the Touch To Fill feature. This only effects Android
-// and requires autofill::features::kAutofillTouchToFill to be enabled as well.
+// Enables Biometrics for the Touch To Fill feature. This only effects Android.
 const base::Feature kBiometricTouchToFill = {"BiometricTouchToFill",
                                              base::FEATURE_DISABLED_BY_DEFAULT};
 
@@ -22,20 +21,24 @@ const base::Feature kBiometricTouchToFill = {"BiometricTouchToFill",
 const base::Feature kChangePasswordAffiliationInfo = {
     "ChangePasswordAffiliationInfo", base::FEATURE_DISABLED_BY_DEFAULT};
 
-// After saving/updating a password show a bubble reminder about the status of
-// other compromised credentials.
-const base::Feature kCompromisedPasswordsReengagement = {
-    "CompromisedPasswordsReengagement", base::FEATURE_DISABLED_BY_DEFAULT};
+// Enables submission detection for forms dynamically cleared but not removed
+// from the page.
+const base::Feature kDetectFormSubmissionOnFormClear = {
+    "DetectFormSubmissionOnFormClear", base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Enables the editing of passwords in chrome://settings/passwords, i.e. the
-// Desktop passwords settings page.
-const base::Feature kEditPasswordsInDesktopSettings = {
-    "EditPasswordsInDesktopSettings", base::FEATURE_DISABLED_BY_DEFAULT};
+// Enables the editing of passwords in Chrome settings.
+const base::Feature kEditPasswordsInSettings = {
+#if defined(OS_ANDROID) || defined(OS_IOS)
+    "EditPasswordsInSettings", base::FEATURE_DISABLED_BY_DEFAULT};
+#else
+    "EditPasswordsInSettings", base::FEATURE_ENABLED_BY_DEFAULT};
+#endif
 
-// Recovers lost passwords on Mac by deleting the ones that cannot be decrypted
-// with the present encryption key from the Keychain.
-const base::Feature kDeleteCorruptedPasswords = {
-    "DeleteCorruptedPasswords", base::FEATURE_DISABLED_BY_DEFAULT};
+// Enables UI in settings that allows the user to move multiple passwords to the
+// account storage.
+const base::Feature kEnableMovingMultiplePasswordsToAccount = {
+    "EnableMovingMultiplePasswordsToAccount",
+    base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Enables the overwriting of prefilled username fields if the server predicted
 // the field to contain a placeholder value.
@@ -62,9 +65,11 @@ const base::Feature kFillingPasswordsFromAnyOrigin{
 const base::Feature kFillOnAccountSelect = {"fill-on-account-select",
                                             base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Integration with Google's Password Manager for signed-in and sync users.
-const base::Feature kGooglePasswordManager = {
-    "google-password-manager", base::FEATURE_DISABLED_BY_DEFAULT};
+// Enables finding a confirmation password field during saving by inspecting the
+// values of the fields. Used as a kill switch.
+// TODO(crbug.com/1164861): Remove once confirmed to be safe (around M92 or so).
+const base::Feature kInferConfirmationPasswordField = {
+    "InferConfirmationPasswordField", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Enables password change flow from leaked password dialog.
 const base::Feature kPasswordChange = {"PasswordChange",
@@ -74,44 +79,55 @@ const base::Feature kPasswordChange = {"PasswordChange",
 const base::Feature kPasswordChangeInSettings = {
     "PasswordChangeInSettings", base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Enables the bulk Password Check feature for signed in users.
-const base::Feature kPasswordCheck = {"PasswordCheck",
-#if defined(OS_ANDROID) || defined(OS_IOS)
-                                      base::FEATURE_DISABLED_BY_DEFAULT
-#else
-                                      base::FEATURE_ENABLED_BY_DEFAULT
-#endif
-};
-
-// Enables editing saved passwords for Android.
-const base::Feature kPasswordEditingAndroid = {
-    "PasswordEditingAndroid", base::FEATURE_DISABLED_BY_DEFAULT};
-
 // Controls the ability to import passwords from Chrome's settings page.
 const base::Feature kPasswordImport = {"PasswordImport",
                                        base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Controls whether the password manager onboarding experience is shown
-// on Android.
-const base::Feature kPasswordManagerOnboardingAndroid = {
-    "PasswordManagerOnboardingAndroid", base::FEATURE_DISABLED_BY_DEFAULT};
+// Enables password reuse detection.
+const base::Feature kPasswordReuseDetectionEnabled = {
+    "PasswordReuseDetectionEnabled",
+#if defined(OS_IOS)
+    base::FEATURE_DISABLED_BY_DEFAULT
+#else
+    base::FEATURE_ENABLED_BY_DEFAULT
+#endif  // defined(OS_IOS)
+};
 
-// Enables checking credentials for weakness in Password Check.
-const base::Feature kPasswordsWeaknessCheck = {
-    "PasswordsWeaknessCheck", base::FEATURE_DISABLED_BY_DEFAULT};
+// Enables password scripts fetching for the |PasswordChangeInSettings| feature.
+const base::Feature kPasswordScriptsFetching = {
+    "PasswordScriptsFetching", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Enables showing UI which allows users to easily revert their choice to
 // never save passwords on a certain website.
 const base::Feature kRecoverFromNeverSaveAndroid = {
     "RecoverFromNeverSaveAndroid", base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Enables reparsing server predictions once the password form manager notices a
+// dynamic form change.
+const base::Feature kReparseServerPredictionsFollowingFormChange = {
+    "ReparseServerPredictionsFollowingFormChange",
+    base::FEATURE_ENABLED_BY_DEFAULT};
+
+// Enables considering secondary server field predictions during form parsing.
+const base::Feature kSecondaryServerFieldPredictions = {
+    "SecondaryServerFieldPredictions", base::FEATURE_ENABLED_BY_DEFAULT};
+
+// Enables syncing of compromised credentials.
+const base::Feature kSyncingCompromisedCredentials = {
+    "SyncingCompromisedCredentials", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Treat heuritistics to find new password fields as reliable. This enables
+// password generation on more forms, but could lead to false positives.
+const base::Feature kTreatNewPasswordHeuristicsAsReliable = {
+    "TreatNewPasswordHeuristicsAsReliable", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Enables use of Hash Affiliation fetcher for all requests.
+const base::Feature kUseOfHashAffiliationFetcher = {
+    "UseOfHashAffiliationFetcher", base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Enables support of filling and saving on username first flow.
 const base::Feature kUsernameFirstFlow = {"UsernameFirstFlow",
                                           base::FEATURE_DISABLED_BY_DEFAULT};
-
-// Enable support for .well-known/change-password URLs.
-const base::Feature kWellKnownChangePassword = {
-    "WellKnownChangePassword", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Field trial identifier for password generation requirements.
 const char kGenerationRequirementsFieldTrial[] =
@@ -149,6 +165,19 @@ const char kMaxMoveToAccountOffersForNonOptedInUser[] =
     "max_move_to_account_offers_for_non_opted_in_user";
 
 const int kMaxMoveToAccountOffersForNonOptedInUserDefaultValue = 5;
+
+// If set to true, Chrome will default to saving to the profile store for users
+// who haven't made an explicit choice yet.
+const char kSaveToProfileStoreByDefault[] = "save_to_profile_store_by_default";
+
+const bool kSaveToProfileStoreByDefaultDefaultValue = false;
+
+// If set to true, Chrome will set the default store to the account store when
+// the user opts in. This is mostly meaningful together with
+// |kSaveToProfileStoreByDefault|.
+const char kSaveToAccountStoreOnOptIn[] = "save_to_account_store_on_optin";
+
+const bool kSaveToAccountStoreOnOptInDefaultValue = false;
 
 }  // namespace features
 

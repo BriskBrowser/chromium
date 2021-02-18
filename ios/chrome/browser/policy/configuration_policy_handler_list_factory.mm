@@ -12,6 +12,7 @@
 #include "components/bookmarks/managed/managed_bookmarks_policy_handler.h"
 #include "components/content_settings/core/common/pref_names.h"
 #include "components/enterprise/browser/reporting/common_pref_names.h"
+#include "components/metrics/metrics_pref_names.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/policy/core/browser/configuration_policy_handler.h"
 #include "components/policy/core/browser/configuration_policy_handler_list.h"
@@ -25,6 +26,7 @@
 #include "components/translate/core/browser/translate_pref_names.h"
 #include "components/variations/pref_names.h"
 #include "components/variations/service/variations_service.h"
+#include "ios/chrome/browser/policy/browser_signin_policy_handler.h"
 #include "ios/chrome/browser/policy/policy_features.h"
 #include "ios/chrome/browser/pref_names.h"
 
@@ -59,6 +61,15 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { policy::key::kDefaultPopupsSetting,
     prefs::kManagedDefaultPopupsSetting,
     base::Value::Type::INTEGER },
+  { policy::key::kIncognitoModeAvailability,
+    prefs::kIncognitoModeAvailability,
+    base::Value::Type::INTEGER },
+  { policy::key::kMetricsReportingEnabled,
+    metrics::prefs::kMetricsReportingEnabled,
+    base::Value::Type::BOOLEAN },
+  { policy::key::kPolicyRefreshRate,
+    policy::policy_prefs::kUserPolicyRefreshRate,
+    base::Value::Type::INTEGER },
   { policy::key::kPopupsAllowedForUrls,
     prefs::kManagedPopupsAllowedForUrls,
     base::Value::Type::LIST },
@@ -81,7 +92,7 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
     prefs::kOfferTranslateEnabled,
     base::Value::Type::BOOLEAN },
   { policy::key::kURLAllowlist,
-    policy::policy_prefs::kUrlWhitelist,
+    policy::policy_prefs::kUrlAllowlist,
     base::Value::Type::LIST},
 };
 // clang-format on
@@ -97,8 +108,9 @@ std::unique_ptr<policy::ConfigurationPolicyHandlerList> BuildPolicyHandlerList(
   DCHECK(IsEnterprisePolicyEnabled());
   std::unique_ptr<policy::ConfigurationPolicyHandlerList> handlers =
       std::make_unique<policy::ConfigurationPolicyHandlerList>(
-          base::Bind(&PopulatePolicyHandlerParameters),
-          base::Bind(&policy::GetChromePolicyDetails), allow_future_policies);
+          base::BindRepeating(&PopulatePolicyHandlerParameters),
+          base::BindRepeating(&policy::GetChromePolicyDetails),
+          allow_future_policies);
 
   // Check the feature flag before adding handlers to the list.
   if (!ShouldInstallEnterprisePolicyHandlers()) {
@@ -115,15 +127,14 @@ std::unique_ptr<policy::ConfigurationPolicyHandlerList> BuildPolicyHandlerList(
       std::make_unique<autofill::AutofillAddressPolicyHandler>());
   handlers->AddHandler(
       std::make_unique<autofill::AutofillCreditCardPolicyHandler>());
+  handlers->AddHandler(
+      std::make_unique<policy::BrowserSigninPolicyHandler>(chrome_schema));
   handlers->AddHandler(std::make_unique<policy::DefaultSearchPolicyHandler>());
   handlers->AddHandler(
       std::make_unique<safe_browsing::SafeBrowsingPolicyHandler>());
-
-  if (ShouldInstallManagedBookmarksPolicyHandler()) {
-    handlers->AddHandler(
-        std::make_unique<bookmarks::ManagedBookmarksPolicyHandler>(
-            chrome_schema));
-  }
+  handlers->AddHandler(
+      std::make_unique<bookmarks::ManagedBookmarksPolicyHandler>(
+          chrome_schema));
 
   if (ShouldInstallURLBlocklistPolicyHandlers()) {
     handlers->AddHandler(std::make_unique<policy::URLBlocklistPolicyHandler>(

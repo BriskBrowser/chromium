@@ -5,7 +5,7 @@
 #include "remoting/host/linux/certificate_watcher.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_util.h"
 #include "base/hash/hash.h"
 #include "base/location.h"
@@ -113,7 +113,7 @@ void CertDbContentWatcher::StartWatching() {
 
   // base::Unretained() is safe since this class owns the FileWatcher.
   file_watcher_->Watch(
-      cert_watch_path_, true,
+      cert_watch_path_, base::FilePathWatcher::Type::kRecursive,
       base::BindRepeating(&CertDbContentWatcher::OnCertDirectoryChanged,
                           base::Unretained(this)));
 

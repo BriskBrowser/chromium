@@ -44,6 +44,8 @@ const wchar_t kSafariKey[] =
     L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\safari.exe";
 const wchar_t kChromeKey[] =
     L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe";
+const wchar_t kEdgeKey[] =
+    L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\msedge.exe";
 
 const wchar_t kIExploreDdeHost[] = L"IExplore";
 
@@ -52,12 +54,14 @@ const wchar_t kIEVarName[] = L"${ie}";
 const wchar_t kFirefoxVarName[] = L"${firefox}";
 const wchar_t kOperaVarName[] = L"${opera}";
 const wchar_t kSafariVarName[] = L"${safari}";
+const wchar_t kEdgeVarName[] = L"${edge}";
 
 // Case-insensitive, typical filenames for popular browsers' executables.
 const wchar_t kChromeTypicalExecutable[] = L"chrome.exe";
 const wchar_t kIETypicalExecutable[] = L"iexplore.exe";
 const wchar_t kFirefoxTypicalExecutable[] = L"firefox.exe";
 const wchar_t kOperaTypicalExecutable[] = L"launcher.exe";
+const wchar_t kEdgeTypicalExecutable[] = L"msedge.exe";
 
 struct BrowserVarMapping {
   const wchar_t* var_name;
@@ -77,6 +81,8 @@ const BrowserVarMapping kBrowserVarMappings[] = {
     {kOperaVarName, kOperaKey, kOperaTypicalExecutable, "Opera",
      BrowserType::kOpera},
     {kSafariVarName, kSafariKey, L"", "Safari", BrowserType::kSafari},
+    {kEdgeVarName, kEdgeKey, kEdgeTypicalExecutable, "Microsoft Edge",
+     BrowserType::kEdge},
 };
 
 // DDE Callback function which is not used in our case at all.
@@ -118,7 +124,7 @@ std::wstring GetBrowserLocation(const wchar_t* regkey_name) {
   return location;
 }
 
-const BrowserVarMapping* FindBrowserMapping(base::StringPiece16 path,
+const BrowserVarMapping* FindBrowserMapping(base::WStringPiece path,
                                             bool compare_typical_executable) {
   // If |compare_typical_executable| is true: also look at executable filenames,
   // to reduce false-negatives when the path is specified explicitly by the
@@ -188,7 +194,8 @@ bool IsInternetExplorer(base::StringPiece path) {
   // We don't treat IExplore.exe as Internet Explorer here. This way, admins can
   // set |AlternativeBrowserPath| to IExplore.exe to disable DDE, if it's
   // causing issues or slowness.
-  return (path.empty() || base::EqualsASCII(kIExploreKey, path));
+  return path.empty() ||
+         base::EqualsASCII(base::as_u16cstr(kIExploreKey), path);
 }
 
 bool TryLaunchWithDde(const GURL& url, const std::string& path) {

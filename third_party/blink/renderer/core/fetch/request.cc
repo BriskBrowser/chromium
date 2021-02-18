@@ -125,13 +125,13 @@ static BodyStreamBuffer* ExtractBody(ScriptState* script_state,
         script_state,
         MakeGarbageCollected<BlobBytesConsumer>(execution_context,
                                                 blob->GetBlobDataHandle()),
-        nullptr /* AbortSignal */);
+        nullptr /* AbortSignal */, /*cached_metadata_handler=*/nullptr);
     content_type = blob->type();
   } else if (body->IsArrayBuffer()) {
     // Avoid calling into V8 from the following constructor parameters, which
     // is potentially unsafe.
     DOMArrayBuffer* array_buffer = V8ArrayBuffer::ToImpl(body.As<v8::Object>());
-    if (!base::CheckedNumeric<wtf_size_t>(array_buffer->ByteLengthAsSizeT())
+    if (!base::CheckedNumeric<wtf_size_t>(array_buffer->ByteLength())
              .IsValid()) {
       exception_state.ThrowRangeError(
           "The provided ArrayBuffer exceeds the maximum supported size");
@@ -139,14 +139,13 @@ static BodyStreamBuffer* ExtractBody(ScriptState* script_state,
     }
     return_buffer = BodyStreamBuffer::Create(
         script_state, MakeGarbageCollected<FormDataBytesConsumer>(array_buffer),
-        nullptr /* AbortSignal */);
+        nullptr /* AbortSignal */, /*cached_metadata_handler=*/nullptr);
   } else if (body->IsArrayBufferView()) {
     // Avoid calling into V8 from the following constructor parameters, which
     // is potentially unsafe.
     DOMArrayBufferView* array_buffer_view =
         V8ArrayBufferView::ToImpl(body.As<v8::Object>());
-    if (!base::CheckedNumeric<wtf_size_t>(
-             array_buffer_view->byteLengthAsSizeT())
+    if (!base::CheckedNumeric<wtf_size_t>(array_buffer_view->byteLength())
              .IsValid()) {
       exception_state.ThrowRangeError(
           "The provided ArrayBufferView exceeds the maximum supported size");
@@ -155,7 +154,7 @@ static BodyStreamBuffer* ExtractBody(ScriptState* script_state,
     return_buffer = BodyStreamBuffer::Create(
         script_state,
         MakeGarbageCollected<FormDataBytesConsumer>(array_buffer_view),
-        nullptr /* AbortSignal */);
+        nullptr /* AbortSignal */, /*cached_metadata_handler=*/nullptr);
   } else if (V8FormData::HasInstance(body, isolate)) {
     scoped_refptr<EncodedFormData> form_data =
         V8FormData::ToImpl(body.As<v8::Object>())->EncodeMultiPartFormData();
@@ -163,22 +162,21 @@ static BodyStreamBuffer* ExtractBody(ScriptState* script_state,
     // FormDataEncoder::generateUniqueBoundaryString.
     content_type = AtomicString("multipart/form-data; boundary=") +
                    form_data->Boundary().data();
-    return_buffer =
-        BodyStreamBuffer::Create(script_state,
-                                 MakeGarbageCollected<FormDataBytesConsumer>(
-                                     execution_context, std::move(form_data)),
-                                 nullptr /* AbortSignal */);
+    return_buffer = BodyStreamBuffer::Create(
+        script_state,
+        MakeGarbageCollected<FormDataBytesConsumer>(execution_context,
+                                                    std::move(form_data)),
+        nullptr /* AbortSignal */, /*cached_metadata_handler=*/nullptr);
   } else if (V8URLSearchParams::HasInstance(body, isolate)) {
     scoped_refptr<EncodedFormData> form_data =
         V8URLSearchParams::ToImpl(body.As<v8::Object>())->ToEncodedFormData();
-    return_buffer =
-        BodyStreamBuffer::Create(script_state,
-                                 MakeGarbageCollected<FormDataBytesConsumer>(
-                                     execution_context, std::move(form_data)),
-                                 nullptr /* AbortSignal */);
+    return_buffer = BodyStreamBuffer::Create(
+        script_state,
+        MakeGarbageCollected<FormDataBytesConsumer>(execution_context,
+                                                    std::move(form_data)),
+        nullptr /* AbortSignal */, /*cached_metadata_handler=*/nullptr);
     content_type = "application/x-www-form-urlencoded;charset=UTF-8";
-  } else if (RuntimeEnabledFeatures::OutOfBlinkCorsEnabled() &&
-             RuntimeEnabledFeatures::FetchUploadStreamingEnabled(
+  } else if (RuntimeEnabledFeatures::FetchUploadStreamingEnabled(
                  execution_context) &&
              V8ReadableStream::HasInstance(body, isolate)) {
     ReadableStream* readable_stream =
@@ -197,8 +195,8 @@ static BodyStreamBuffer* ExtractBody(ScriptState* script_state,
       return nullptr;
     }
     //   "Set |stream| to |object|."
-    return_buffer =
-        MakeGarbageCollected<BodyStreamBuffer>(script_state, readable_stream);
+    return_buffer = MakeGarbageCollected<BodyStreamBuffer>(
+        script_state, readable_stream, /*cached_metadata_handler=*/nullptr);
   } else {
     String string = NativeValueTraits<IDLUSVString>::NativeValue(
         isolate, body, exception_state);
@@ -207,7 +205,7 @@ static BodyStreamBuffer* ExtractBody(ScriptState* script_state,
 
     return_buffer = BodyStreamBuffer::Create(
         script_state, MakeGarbageCollected<FormDataBytesConsumer>(string),
-        nullptr /* AbortSignal */);
+        nullptr /* AbortSignal */, /*cached_metadata_handler=*/nullptr);
     content_type = "text/plain;charset=UTF-8";
   }
 
@@ -540,8 +538,9 @@ Request* Request::CreateRequestWithRequestOrString(
         !execution_context->IsFeatureEnabled(
             mojom::blink::FeaturePolicyFeature::kTrustTokenRedemption)) {
       exception_state.ThrowTypeError(
-          "trustToken: Redemption ('srr-token-redemption') and signing "
-          "('send-srr') operations require that the trust-token-redemption "
+          "trustToken: Redemption ('token-redemption') and signing "
+          "('send-redemption-record') operations require that the "
+          "trust-token-redemption "
           "Feature Policy feature be enabled.");
       return nullptr;
     }
@@ -696,8 +695,9 @@ Request* Request::CreateRequestWithRequestOrString(
   // non-null, run these substeps:"
   if (input_request && input_request->BodyBuffer()) {
     // "Let |dummyStream| be an empty ReadableStream object."
-    auto* dummy_stream = BodyStreamBuffer::Create(
-        script_state, BytesConsumer::CreateClosed(), nullptr);
+    auto* dummy_stream =
+        BodyStreamBuffer::Create(script_state, BytesConsumer::CreateClosed(),
+                                 nullptr, /*cached_metadata_handler=*/nullptr);
     // "Set |input|'s request's body to a new body whose stream is
     // |dummyStream|."
     input_request->request_->SetBuffer(dummy_stream);
@@ -1012,11 +1012,11 @@ String Request::ContentType() const {
   return result;
 }
 
-mojom::RequestContextType Request::GetRequestContextType() const {
+mojom::blink::RequestContextType Request::GetRequestContextType() const {
   if (!request_) {
-    return mojom::RequestContextType::UNSPECIFIED;
+    return mojom::blink::RequestContextType::UNSPECIFIED;
   }
-  return request_->Context();
+  return mojom::blink::RequestContextType::FETCH;
 }
 
 network::mojom::RequestDestination Request::GetRequestDestination() const {

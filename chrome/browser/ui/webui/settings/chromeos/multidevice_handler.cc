@@ -4,8 +4,9 @@
 
 #include "chrome/browser/ui/webui/settings/chromeos/multidevice_handler.h"
 
+#include "ash/constants/ash_features.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/android_sms/android_sms_pairing_state_tracker_impl.h"
@@ -16,8 +17,8 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/chromeos/multidevice_setup/multidevice_setup_dialog.h"
 #include "chromeos/components/multidevice/logging/logging.h"
+#include "chromeos/components/phonehub/util/histogram_util.h"
 #include "chromeos/components/proximity_auth/proximity_auth_pref_names.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/services/multidevice_setup/public/cpp/prefs.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
 #include "components/prefs/pref_service.h"
@@ -38,12 +39,11 @@ const char kPageContentDataMessagesStateKey[] = "messagesState";
 const char kPageContentDataPhoneHubStateKey[] = "phoneHubState";
 const char kPageContentDataPhoneHubNotificationsStateKey[] =
     "phoneHubNotificationsState";
-const char kPageContentDataPhoneHubNotificationBadgeStateKey[] =
-    "phoneHubNotificationBadgeState";
 const char kPageContentDataPhoneHubTaskContinuationStateKey[] =
     "phoneHubTaskContinuationState";
+const char kPageContentDataWifiSyncStateKey[] = "wifiSyncState";
 const char kPageContentDataSmartLockStateKey[] = "smartLockState";
-const char kIsNotificationAccessGranted[] = "isNotificationAccessGranted";
+const char kNotificationAccessStatus[] = "notificationAccessStatus";
 const char kIsAndroidSmsPairingComplete[] = "isAndroidSmsPairingComplete";
 
 constexpr char kAndroidSmsInfoOriginKey[] = "origin";
@@ -70,11 +70,7 @@ MultideviceHandler::MultideviceHandler(
       multidevice_setup_client_(multidevice_setup_client),
       notification_access_manager_(notification_access_manager),
       android_sms_pairing_state_tracker_(android_sms_pairing_state_tracker),
-      android_sms_app_manager_(android_sms_app_manager),
-      multidevice_setup_observer_(this),
-      android_sms_pairing_state_tracker_observer_(this),
-      android_sms_app_manager_observer_(this),
-      notification_access_manager_observer_(this) {
+      android_sms_app_manager_(android_sms_app_manager) {
   pref_change_registrar_.Init(prefs_);
 }
 
@@ -133,18 +129,19 @@ void MultideviceHandler::RegisterMessages() {
 
 void MultideviceHandler::OnJavascriptAllowed() {
   if (multidevice_setup_client_)
-    multidevice_setup_observer_.Add(multidevice_setup_client_);
+    multidevice_setup_observation_.Observe(multidevice_setup_client_);
 
   if (notification_access_manager_)
-    notification_access_manager_observer_.Add(notification_access_manager_);
+    notification_access_manager_observation_.Observe(
+        notification_access_manager_);
 
   if (android_sms_pairing_state_tracker_) {
-    android_sms_pairing_state_tracker_observer_.Add(
+    android_sms_pairing_state_tracker_observation_.Observe(
         android_sms_pairing_state_tracker_);
   }
 
   if (android_sms_app_manager_)
-    android_sms_app_manager_observer_.Add(android_sms_app_manager_);
+    android_sms_app_manager_observation_.Observe(android_sms_app_manager_);
 
   pref_change_registrar_.Add(
       proximity_auth::prefs::kProximityAuthIsChromeOSLoginEnabled,
@@ -161,21 +158,30 @@ void MultideviceHandler::OnJavascriptAllowed() {
 void MultideviceHandler::OnJavascriptDisallowed() {
   pref_change_registrar_.RemoveAll();
 
-  if (multidevice_setup_client_)
-    multidevice_setup_observer_.Remove(multidevice_setup_client_);
+  if (multidevice_setup_client_) {
+    DCHECK(multidevice_setup_observation_.IsObservingSource(
+        multidevice_setup_client_));
+    multidevice_setup_observation_.Reset();
+  }
 
   if (notification_access_manager_) {
-    notification_access_manager_observer_.Remove(notification_access_manager_);
+    DCHECK(notification_access_manager_observation_.IsObservingSource(
+        notification_access_manager_));
+    notification_access_manager_observation_.Reset();
     notification_access_operation_.reset();
   }
 
   if (android_sms_pairing_state_tracker_) {
-    android_sms_pairing_state_tracker_observer_.Remove(
-        android_sms_pairing_state_tracker_);
+    DCHECK(android_sms_pairing_state_tracker_observation_.IsObservingSource(
+        android_sms_pairing_state_tracker_));
+    android_sms_pairing_state_tracker_observation_.Reset();
   }
 
-  if (android_sms_app_manager_)
-    android_sms_app_manager_observer_.Remove(android_sms_app_manager_);
+  if (android_sms_app_manager_) {
+    DCHECK(android_sms_app_manager_observation_.IsObservingSource(
+        android_sms_app_manager_));
+    android_sms_app_manager_observation_.Reset();
+  }
 
   // Ensure that pending callbacks do not complete and cause JS to be evaluated.
   callback_weak_ptr_factory_.InvalidateWeakPtrs();
@@ -274,6 +280,11 @@ void MultideviceHandler::HandleSetFeatureEnabledState(
       feature, enabled, auth_token,
       base::BindOnce(&MultideviceHandler::OnSetFeatureStateEnabledResult,
                      callback_weak_ptr_factory_.GetWeakPtr(), callback_id));
+
+  if (enabled && feature == multidevice_setup::mojom::Feature::kPhoneHub) {
+    phonehub::util::LogFeatureOptInEntryPoint(
+        phonehub::util::OptInEntryPoint::kSettings);
+  }
 }
 
 void MultideviceHandler::HandleRemoveHostDevice(const base::ListValue* args) {
@@ -374,9 +385,12 @@ void MultideviceHandler::HandleAttemptNotificationSetup(
   DCHECK(features::IsPhoneHubEnabled());
   DCHECK(!notification_access_operation_);
 
-  if (notification_access_manager_->HasAccessBeenGranted()) {
-    PA_LOG(WARNING) << "Phonehub notification access has already been granted, "
-                       "returning early.";
+  phonehub::NotificationAccessManager::AccessStatus access_status =
+      notification_access_manager_->GetAccessStatus();
+  if (access_status != phonehub::NotificationAccessManager::AccessStatus::
+                           kAvailableButNotGranted) {
+    PA_LOG(WARNING) << "Cannot request notification access setup flow; current "
+                    << "status: " << access_status;
     return;
   }
 
@@ -448,15 +462,14 @@ MultideviceHandler::GeneratePageContentDataDictionary() {
           feature_states
               [multidevice_setup::mojom::Feature::kPhoneHubNotifications]));
   page_content_dictionary->SetInteger(
-      kPageContentDataPhoneHubNotificationBadgeStateKey,
-      static_cast<int32_t>(
-          feature_states
-              [multidevice_setup::mojom::Feature::kPhoneHubNotificationBadge]));
-  page_content_dictionary->SetInteger(
       kPageContentDataPhoneHubTaskContinuationStateKey,
       static_cast<int32_t>(
           feature_states
               [multidevice_setup::mojom::Feature::kPhoneHubTaskContinuation]));
+  page_content_dictionary->SetInteger(
+      kPageContentDataWifiSyncStateKey,
+      static_cast<int32_t>(
+          feature_states[multidevice_setup::mojom::Feature::kWifiSync]));
 
   if (host_status_with_device.second) {
     page_content_dictionary->SetString(kPageContentDataHostDeviceNameKey,
@@ -469,11 +482,12 @@ MultideviceHandler::GeneratePageContentDataDictionary() {
           ? android_sms_pairing_state_tracker_->IsAndroidSmsPairingComplete()
           : false);
 
-  page_content_dictionary->SetBoolean(
-      kIsNotificationAccessGranted,
-      notification_access_manager_
-          ? notification_access_manager_->HasAccessBeenGranted()
-          : false);
+  phonehub::NotificationAccessManager::AccessStatus access_status = phonehub::
+      NotificationAccessManager::AccessStatus::kAvailableButNotGranted;
+  if (notification_access_manager_)
+    access_status = notification_access_manager_->GetAccessStatus();
+  page_content_dictionary->SetInteger(kNotificationAccessStatus,
+                                      static_cast<int32_t>(access_status));
 
   return page_content_dictionary;
 }

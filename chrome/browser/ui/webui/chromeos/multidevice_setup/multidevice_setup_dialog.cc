@@ -17,6 +17,7 @@
 #include "chrome/browser/ui/webui/chromeos/multidevice_setup/multidevice_setup_handler.h"
 #include "chrome/browser/ui/webui/chromeos/multidevice_setup/multidevice_setup_localized_strings_provider.h"
 #include "chrome/browser/ui/webui/metrics_handler.h"
+#include "chrome/browser/ui/webui/webui_util.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/generated_resources.h"
@@ -47,20 +48,26 @@ constexpr int kPreferredDialogWidthPx = 768;
 MultiDeviceSetupDialog* MultiDeviceSetupDialog::current_instance_ = nullptr;
 
 // static
+gfx::NativeWindow MultiDeviceSetupDialog::containing_window_ = nullptr;
+
+// static
 void MultiDeviceSetupDialog::Show() {
-  // The dialog is already showing, so there is nothing to do.
-  if (current_instance_)
+  // Focus the window hosting the dialog that has already been created.
+  if (containing_window_) {
+    DCHECK(current_instance_);
+    containing_window_->Focus();
     return;
+  }
 
   current_instance_ = new MultiDeviceSetupDialog();
-  gfx::NativeWindow window = chrome::ShowWebDialog(
+  containing_window_ = chrome::ShowWebDialog(
       nullptr /* parent */, ProfileManager::GetActiveUserProfile(),
       current_instance_);
 
   // Remove the black backdrop behind the dialog window which appears in tablet
   // and full-screen mode.
-  ash::WindowBackdrop::Get(window)->SetBackdropMode(
-      ash::WindowBackdrop::BackdropMode::kDisabled);
+  ash::WindowBackdrop::Get(containing_window_)
+      ->SetBackdropMode(ash::WindowBackdrop::BackdropMode::kDisabled);
 }
 
 // static
@@ -101,6 +108,7 @@ void MultiDeviceSetupDialog::GetDialogSize(gfx::Size* size) const {
 void MultiDeviceSetupDialog::OnDialogClosed(const std::string& json_retval) {
   DCHECK(this == current_instance_);
   current_instance_ = nullptr;
+  containing_window_ = nullptr;
 
   // Note: The call below deletes |this|, so there is no further need to keep
   // track of the pointer.
@@ -116,16 +124,12 @@ MultiDeviceSetupDialogUI::MultiDeviceSetupDialogUI(content::WebUI* web_ui)
 
   chromeos::multidevice_setup::AddLocalizedStrings(source);
   source->UseStringsJs();
-  source->SetDefaultResource(
-      IDR_MULTIDEVICE_SETUP_MULTIDEVICE_SETUP_DIALOG_HTML);
 
-  // Note: The |kMultiDeviceSetupResourcesSize| and |kMultideviceSetupResources|
-  // fields are defined in the generated file
-  // chrome/grit/multidevice_setup_resources_map.h.
-  for (size_t i = 0; i < kMultideviceSetupResourcesSize; ++i) {
-    source->AddResourcePath(kMultideviceSetupResources[i].name,
-                            kMultideviceSetupResources[i].value);
-  }
+  webui::SetupWebUIDataSource(
+      source,
+      base::make_span(kMultideviceSetupResources,
+                      kMultideviceSetupResourcesSize),
+      IDR_MULTIDEVICE_SETUP_MULTIDEVICE_SETUP_DIALOG_HTML);
 
   web_ui->AddMessageHandler(std::make_unique<MultideviceSetupHandler>());
   web_ui->AddMessageHandler(std::make_unique<MetricsHandler>());

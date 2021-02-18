@@ -24,16 +24,19 @@
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/page_load_metrics/observers/aborts_page_load_metrics_observer.h"
+#include "chrome/browser/page_load_metrics/observers/core/ukm_page_load_metrics_observer.h"
 #include "chrome/browser/page_load_metrics/observers/document_write_page_load_metrics_observer.h"
 #include "chrome/browser/page_load_metrics/observers/service_worker_page_load_metrics_observer.h"
 #include "chrome/browser/page_load_metrics/observers/session_restore_page_load_metrics_observer.h"
-#include "chrome/browser/page_load_metrics/observers/ukm_page_load_metrics_observer.h"
 #include "chrome/browser/page_load_metrics/page_load_metrics_initialize.h"
+#include "chrome/browser/prefetch/no_state_prefetch/no_state_prefetch_manager_factory.h"
+#include "chrome/browser/prefetch/no_state_prefetch/prerender_test_utils.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
-#include "chrome/browser/prerender/prerender_manager_factory.h"
-#include "chrome/browser/prerender/prerender_test_utils.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_keep_alive_types.h"
+#include "chrome/browser/profiles/scoped_profile_keep_alive.h"
 #include "chrome/browser/sessions/session_restore.h"
 #include "chrome/browser/sessions/session_restore_test_helper.h"
 #include "chrome/browser/sessions/session_service_factory.h"
@@ -52,15 +55,16 @@
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/keep_alive_registry/keep_alive_types.h"
 #include "components/keep_alive_registry/scoped_keep_alive.h"
-#include "components/page_load_metrics/browser/observers/core_page_load_metrics_observer.h"
+#include "components/no_state_prefetch/browser/no_state_prefetch_handle.h"
+#include "components/no_state_prefetch/browser/no_state_prefetch_manager.h"
+#include "components/no_state_prefetch/browser/prerender_histograms.h"
+#include "components/no_state_prefetch/common/prerender_origin.h"
+#include "components/page_load_metrics/browser/observers/core/uma_page_load_metrics_observer.h"
 #include "components/page_load_metrics/browser/observers/use_counter_page_load_metrics_observer.h"
 #include "components/page_load_metrics/browser/page_load_metrics_test_waiter.h"
 #include "components/page_load_metrics/browser/page_load_tracker.h"
+#include "components/page_load_metrics/common/page_load_metrics_constants.h"
 #include "components/prefs/pref_service.h"
-#include "components/prerender/browser/prerender_handle.h"
-#include "components/prerender/browser/prerender_histograms.h"
-#include "components/prerender/browser/prerender_manager.h"
-#include "components/prerender/common/prerender_origin.h"
 #include "components/sessions/content/content_test_helper.h"
 #include "components/sessions/core/serialized_navigation_entry.h"
 #include "components/sessions/core/serialized_navigation_entry_test_helper.h"
@@ -92,6 +96,7 @@
 using page_load_metrics::PageLoadMetricsTestWaiter;
 using TimingField = page_load_metrics::PageLoadMetricsTestWaiter::TimingField;
 using WebFeature = blink::mojom::WebFeature;
+using testing::SizeIs;
 using testing::UnorderedElementsAre;
 using NoStatePrefetch = ukm::builders::NoStatePrefetch;
 
@@ -192,16 +197,16 @@ class PageLoadMetricsBrowserTest : public InProcessBrowserTest {
 
   // Triggers nostate prefetch of |url|.
   void TriggerNoStatePrefetch(const GURL& url) {
-    prerender::PrerenderManager* prerender_manager =
-        prerender::PrerenderManagerFactory::GetForBrowserContext(
+    prerender::NoStatePrefetchManager* no_state_prefetch_manager =
+        prerender::NoStatePrefetchManagerFactory::GetForBrowserContext(
             browser()->profile());
-    ASSERT_TRUE(prerender_manager);
+    ASSERT_TRUE(no_state_prefetch_manager);
 
-    prerender::test_utils::TestPrerenderContentsFactory*
-        prerender_contents_factory =
-            new prerender::test_utils::TestPrerenderContentsFactory();
-    prerender_manager->SetPrerenderContentsFactoryForTest(
-        prerender_contents_factory);
+    prerender::test_utils::TestNoStatePrefetchContentsFactory*
+        no_state_prefetch_contents_factory =
+            new prerender::test_utils::TestNoStatePrefetchContentsFactory();
+    no_state_prefetch_manager->SetNoStatePrefetchContentsFactoryForTest(
+        no_state_prefetch_contents_factory);
 
     content::SessionStorageNamespace* storage_namespace =
         browser()
@@ -212,13 +217,13 @@ class PageLoadMetricsBrowserTest : public InProcessBrowserTest {
     ASSERT_TRUE(storage_namespace);
 
     std::unique_ptr<prerender::test_utils::TestPrerender> test_prerender =
-        prerender_contents_factory->ExpectPrerenderContents(
+        no_state_prefetch_contents_factory->ExpectNoStatePrefetchContents(
             prerender::FINAL_STATUS_NOSTATE_PREFETCH_FINISHED);
 
-    std::unique_ptr<prerender::PrerenderHandle> prerender_handle =
-        prerender_manager->AddPrerenderFromOmnibox(url, storage_namespace,
-                                                   gfx::Size(640, 480));
-    ASSERT_EQ(prerender_handle->contents(), test_prerender->contents());
+    std::unique_ptr<prerender::NoStatePrefetchHandle> no_state_prefetch_handle =
+        no_state_prefetch_manager->AddPrerenderFromOmnibox(
+            url, storage_namespace, gfx::Size(640, 480));
+    ASSERT_EQ(no_state_prefetch_handle->contents(), test_prerender->contents());
 
     // The final status may be either  FINAL_STATUS_NOSTATE_PREFETCH_FINISHED or
     // FINAL_STATUS_RECENTLY_VISITED.
@@ -508,10 +513,13 @@ class PageLoadMetricsBrowserTest : public InProcessBrowserTest {
     return observer.navigation_handle_timing();
   }
 
-  content::RenderFrameHost* RenderFrameHost() const {
-    return browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame();
+  content::WebContents* web_contents() const {
+    return browser()->tab_strip_model()->GetActiveWebContents();
   }
 
+  content::RenderFrameHost* RenderFrameHost() const {
+    return web_contents()->GetMainFrame();
+  }
   base::test::ScopedFeatureList scoped_feature_list_;
   std::unique_ptr<base::HistogramTester> histogram_tester_;
   std::unique_ptr<ukm::TestAutoSetUkmRecorder> test_ukm_recorder_;
@@ -1642,7 +1650,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest,
 
   const auto& entries = test_ukm_recorder_->GetEntriesByName(
       ukm::builders::Blink_UseCounter::kEntryName);
-  EXPECT_EQ(4u, entries.size());
+  EXPECT_THAT(entries, SizeIs(4));
   std::vector<int64_t> ukm_features;
   for (const auto* entry : entries) {
     test_ukm_recorder_->ExpectEntrySourceHasUrl(entry, url);
@@ -1683,7 +1691,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTestWithAutoupgradesDisabled,
 
   const auto& entries = test_ukm_recorder_->GetEntriesByName(
       ukm::builders::Blink_UseCounter::kEntryName);
-  EXPECT_EQ(7u, entries.size());
+  EXPECT_THAT(entries, SizeIs(7));
   std::vector<int64_t> ukm_features;
   for (const auto* entry : entries) {
     test_ukm_recorder_->ExpectEntrySourceHasUrl(entry, url);
@@ -1930,15 +1938,15 @@ class SessionRestorePageLoadMetricsBrowserTest
 
     SessionStartupPref::SetStartupPref(
         profile, SessionStartupPref(SessionStartupPref::LAST));
-#if defined(OS_CHROMEOS)
-    SessionServiceTestHelper helper(
-        SessionServiceFactory::GetForProfile(profile));
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    SessionServiceTestHelper helper(profile);
     helper.SetForceBrowserNotAliveWithNoWindows(true);
-    helper.ReleaseService();
 #endif
 
-    std::unique_ptr<ScopedKeepAlive> keep_alive(new ScopedKeepAlive(
-        KeepAliveOrigin::SESSION_RESTORE, KeepAliveRestartOption::DISABLED));
+    auto keep_alive = std::make_unique<ScopedKeepAlive>(
+        KeepAliveOrigin::SESSION_RESTORE, KeepAliveRestartOption::DISABLED);
+    auto profile_keep_alive = std::make_unique<ScopedProfileKeepAlive>(
+        profile, ProfileKeepAliveOrigin::kBrowserWindow);
     CloseBrowserSynchronously(browser);
 
     // Create a new window, which should trigger session restore.
@@ -2760,8 +2768,6 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest,
 
 // Creates a single frame within the main frame and verifies the intersection
 // with the main frame.
-// TODO(https://crbug/1085175): Main frame document intersections need to be
-// transformed into the main frame documents coordinate system.
 IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest,
                        MainFrameIntersectionSingleFrame) {
   ASSERT_TRUE(embedded_test_server()->Start());
@@ -3139,19 +3145,22 @@ class PageLoadMetricsBrowserTestWithBackForwardCache
  public:
   void SetUpCommandLine(base::CommandLine* command_line) override {
     PageLoadMetricsBrowserTest::SetUpCommandLine(command_line);
-    feature_list.InitAndEnableFeatureWithParameters(
-        features::kBackForwardCache,
-        // Set a very long TTL before expiration (longer than the test timeout)
-        // so tests that are expecting deletion don't pass when they shouldn't.
-        //
-        // TODO(hajimehoshi): This value is used in various places. Define a
-        // constant and use it.
-        //
-        // Some features like the outstanding network requests are expected to
-        // appear in almost any output. Filter them out to make the tests
-        // simpler.
-        {{"TimeToLiveInBackForwardCacheInSeconds", "3600"},
-         {"ignore_outstanding_network_request_for_testing", "true"}});
+    feature_list.InitWithFeaturesAndParameters(
+        {{features::kBackForwardCache,
+          // Set a very long TTL before expiration (longer than the test
+          // timeout) so tests that are expecting deletion don't pass when they
+          // shouldn't.
+          //
+          // TODO(hajimehoshi): This value is used in various places. Define a
+          // constant and use it.
+          //
+          // Some features like the outstanding network requests are expected to
+          // appear in almost any output. Filter them out to make the tests
+          // simpler.
+          {{"TimeToLiveInBackForwardCacheInSeconds", "3600"},
+           {"ignore_outstanding_network_request_for_testing", "true"}}}},
+        // Allow BackForwardCache for all devices regardless of their memory.
+        {features::kBackForwardCacheMemoryControl});
   }
 
  private:
@@ -3196,10 +3205,10 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTestWithBackForwardCache,
       internal::kHistogramBackForwardCacheEvent,
       internal::PageLoadBackForwardCacheEvent::kEnterBackForwardCache, 2);
 
-  // For now CorePageLoadMetricsObserver::OnEnterBackForwardCache returns
+  // For now UmaPageLoadMetricsObserver::OnEnterBackForwardCache returns
   // STOP_OBSERVING, OnRestoreFromBackForward is never reached.
   //
-  // TODO(hajimehoshi): Update this when the CorePageLoadMetricsObserver
+  // TODO(hajimehoshi): Update this when the UmaPageLoadMetricsObserver
   // continues to observe after entering to back-forward cache.
   histogram_tester_->ExpectBucketCount(
       internal::kHistogramBackForwardCacheEvent,
@@ -3216,6 +3225,19 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, EarlyHints) {
   EXPECT_FALSE(timing.early_hints_for_final_request_time.is_null());
   EXPECT_EQ(timing.early_hints_for_first_request_time,
             timing.early_hints_for_final_request_time);
+
+  // The Early Hints response (informational response) start time should be
+  // equal to the response start time.
+  EXPECT_FALSE(timing.first_response_start_time.is_null());
+  EXPECT_FALSE(timing.final_response_start_time.is_null());
+  EXPECT_EQ(timing.first_response_start_time,
+            timing.early_hints_for_first_request_time);
+  EXPECT_EQ(timing.final_response_start_time,
+            timing.early_hints_for_first_request_time);
+  // The non-informational response start time should be recorded separately.
+  EXPECT_FALSE(timing.final_non_informational_response_start_time.is_null());
+  EXPECT_LT(timing.final_response_start_time,
+            timing.final_non_informational_response_start_time);
 
   // The timings of the Early Hints response should be recorded.
   histogram_tester_->ExpectTotalCount(
@@ -3246,6 +3268,12 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, EarlyHints_NoHints) {
   // No Early Hints responses were received.
   EXPECT_TRUE(timing.early_hints_for_first_request_time.is_null());
   EXPECT_TRUE(timing.early_hints_for_final_request_time.is_null());
+  // There were no informational responses, so the final response start time
+  // should be equal to the final non-informational response start time.
+  EXPECT_FALSE(timing.final_response_start_time.is_null());
+  EXPECT_FALSE(timing.final_non_informational_response_start_time.is_null());
+  EXPECT_EQ(timing.final_response_start_time,
+            timing.final_non_informational_response_start_time);
 
   // The timings of the Early Hints response should not be recorded.
   histogram_tester_->ExpectTotalCount(
@@ -3280,6 +3308,19 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, EarlyHints_MultipleHints) {
   EXPECT_EQ(timing.early_hints_for_first_request_time,
             timing.early_hints_for_final_request_time);
 
+  // The Early Hints response (informational response) start time should be
+  // equal to the response start time.
+  EXPECT_FALSE(timing.first_response_start_time.is_null());
+  EXPECT_FALSE(timing.final_response_start_time.is_null());
+  EXPECT_EQ(timing.first_response_start_time,
+            timing.early_hints_for_first_request_time);
+  EXPECT_EQ(timing.final_response_start_time,
+            timing.early_hints_for_first_request_time);
+  // The non-informational response start time should be recorded separately.
+  EXPECT_FALSE(timing.final_non_informational_response_start_time.is_null());
+  EXPECT_LT(timing.final_response_start_time,
+            timing.final_non_informational_response_start_time);
+
   // The timings of the Early Hints responses should be recorded only one time.
   histogram_tester_->ExpectTotalCount(
       internal::kHistogramEarlyHintsFirstRequestStartToEarlyHints, 1);
@@ -3311,6 +3352,14 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest,
   // redirected request.
   EXPECT_FALSE(timing.early_hints_for_first_request_time.is_null());
   EXPECT_TRUE(timing.early_hints_for_final_request_time.is_null());
+
+  // There were no informational responses for the redirected request, so the
+  // final response start time should be equal to the final non-informational
+  // response start time.
+  EXPECT_FALSE(timing.final_response_start_time.is_null());
+  EXPECT_FALSE(timing.final_non_informational_response_start_time.is_null());
+  EXPECT_EQ(timing.final_response_start_time,
+            timing.final_non_informational_response_start_time);
 
   // The timings of the Early Hints response should be recorded only for the
   // first request.
@@ -3344,6 +3393,16 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest,
   // first request.
   EXPECT_TRUE(timing.early_hints_for_first_request_time.is_null());
   EXPECT_FALSE(timing.early_hints_for_final_request_time.is_null());
+
+  // The Early Hints response (informational response) start time should be
+  // equal to the final response start time.
+  EXPECT_FALSE(timing.final_response_start_time.is_null());
+  EXPECT_EQ(timing.final_response_start_time,
+            timing.early_hints_for_final_request_time);
+  // The non-informational response start time should be recorded separately.
+  EXPECT_FALSE(timing.final_non_informational_response_start_time.is_null());
+  EXPECT_LT(timing.final_response_start_time,
+            timing.final_non_informational_response_start_time);
 
   // The timings of the Early Hints response should be recorded only for the
   // redirected request.
@@ -3380,6 +3439,16 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest,
   EXPECT_LT(timing.early_hints_for_first_request_time,
             timing.early_hints_for_final_request_time);
 
+  // The Early Hints response (informational response) start time should be
+  // equal to the final response start time.
+  EXPECT_FALSE(timing.final_response_start_time.is_null());
+  EXPECT_EQ(timing.final_response_start_time,
+            timing.early_hints_for_final_request_time);
+  // The non-informational response start time should be recorded separately.
+  EXPECT_FALSE(timing.final_non_informational_response_start_time.is_null());
+  EXPECT_LT(timing.final_response_start_time,
+            timing.final_non_informational_response_start_time);
+
   // The timings of the Early Hints response should be recorded.
   histogram_tester_->ExpectTotalCount(
       internal::kHistogramEarlyHintsFirstRequestStartToEarlyHints, 1);
@@ -3401,3 +3470,93 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest,
         kv.second.get(), NavigationTiming::kEarlyHintsForFinalRequestName));
   }
 }
+
+class NavigationPageLoadMetricsBrowserTest
+    : public PageLoadMetricsBrowserTest,
+      public ::testing::WithParamInterface<std::string> {
+ public:
+  NavigationPageLoadMetricsBrowserTest() = default;
+  ~NavigationPageLoadMetricsBrowserTest() override = default;
+
+ protected:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    scoped_feature_list_.InitAndEnableFeatureWithParameters(
+        page_load_metrics::kPageLoadMetricsTimerDelayFeature,
+        {
+            // Set a very long TTL before expiration (longer than the test
+            // timeout) so tests that are expecting deletion don't pass when
+            // they shouldn't.
+            {"BufferTimerDelayMillis", "100000"},
+        });
+    PageLoadMetricsBrowserTest::SetUpCommandLine(command_line);
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+IN_PROC_BROWSER_TEST_P(NavigationPageLoadMetricsBrowserTest, FirstInputDelay) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  GURL url1(embedded_test_server()->GetURL("a.com", "/title1.html"));
+  GURL url2(embedded_test_server()->GetURL(
+      (GetParam() == "SameSite") ? "a.com" : "b.com", "/title2.html"));
+
+  EXPECT_THAT(histogram_tester_->GetAllSamples(
+                  internal::kHistogramFirstContentfulPaint),
+              testing::IsEmpty());
+
+  // 1) Navigate to url1.
+  EXPECT_TRUE(content::NavigateToURL(web_contents(), url1));
+  content::RenderFrameHost* rfh_a = RenderFrameHost();
+  content::RenderProcessHost* rfh_a_process = rfh_a->GetProcess();
+
+  // Simulate mouse click. FirstInputDelay won't get updated immediately.
+  content::SimulateMouseClickAt(web_contents(), 0,
+                                blink::WebMouseEvent::Button::kLeft,
+                                gfx::Point(100, 100));
+  // Run arbitrary script and run tasks in the brwoser to ensure the input is
+  // processed in the renderer.
+  EXPECT_TRUE(content::ExecJs(rfh_a, "var foo = 42;"));
+  base::RunLoop().RunUntilIdle();
+  content::FetchHistogramsFromChildProcesses();
+  histogram_tester_->ExpectTotalCount(internal::kHistogramFirstInputDelay, 0);
+
+  // 2) Immediately navigate to url2.
+  if (GetParam() == "CrossSiteRendererInitiated") {
+    EXPECT_TRUE(content::NavigateToURLFromRenderer(web_contents(), url2));
+  } else {
+    EXPECT_TRUE(content::NavigateToURL(web_contents(), url2));
+  }
+
+  content::FetchHistogramsFromChildProcesses();
+  if (GetParam() != "CrossSiteBrowserInitiated" ||
+      rfh_a_process == RenderFrameHost()->GetProcess()) {
+    // - For "SameSite" case, since the old and new RenderFrame either share a
+    // process (with RenderDocument/back-forward cache) or the RenderFrame is
+    // reused the metrics update will be sent to the browser during commit and
+    // won't get ignored, successfully updating the FirstInputDelay histogram.
+    // - For "CrossSiteRendererInitiated" case, FirstInputDelay was sent when
+    // the renderer-initiated navigation started on the old frame.
+    // - For "CrossSiteBrowserInitiated" case, if the old and new RenderFrame
+    // share a process, the metrics update will be sent to the browser during
+    // commit and won't get ignored, successfully updating the histogram.
+    histogram_tester_->ExpectTotalCount(internal::kHistogramFirstInputDelay, 1);
+  } else {
+    // Note that in some cases the metrics might flakily get updated in time,
+    // before the browser changed the current RFH. So, we can neither expect it
+    // to be 0 all the time or 1 all the time.
+    // TODO(crbug.com/1150242): Support updating metrics consistently on
+    // cross-RFH cross-process navigations.
+  }
+}
+
+std::vector<std::string> NavigationPageLoadMetricsBrowserTestTestValues() {
+  return {"SameSite", "CrossSiteRendererInitiated",
+          "CrossSiteBrowserInitiated"};
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    All,
+    NavigationPageLoadMetricsBrowserTest,
+    testing::ValuesIn(NavigationPageLoadMetricsBrowserTestTestValues()));

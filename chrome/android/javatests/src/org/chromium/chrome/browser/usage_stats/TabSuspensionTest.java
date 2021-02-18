@@ -25,6 +25,7 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.JniMocker;
 import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.chrome.R;
@@ -46,7 +47,6 @@ import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.MenuUtils;
 import org.chromium.components.safe_browsing.SafeBrowsingApiBridge;
 import org.chromium.content_public.browser.LoadUrlParams;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.DOMUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.common.ContentSwitches;
@@ -118,7 +118,8 @@ public class TabSuspensionTest {
         mTab = mActivity.getActivityTab();
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             mPageViewObserver = new PageViewObserver(mActivity, mActivity.getTabModelSelector(),
-                    mEventTracker, mTokenTracker, mSuspensionTracker);
+                    mEventTracker, mTokenTracker, mSuspensionTracker,
+                    mActivity.getTabContentManagerSupplier());
         });
     }
 
@@ -248,7 +249,8 @@ public class TabSuspensionTest {
         // can trigger view maniplation.
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             mPageViewObserver2 = new PageViewObserver(activity2, activity2.getTabModelSelector(),
-                    mEventTracker, mTokenTracker, mSuspensionTracker);
+                    mEventTracker, mTokenTracker, mSuspensionTracker,
+                    mActivity.getTabContentManagerSupplier());
         });
 
         suspendDomain(STARTING_FQDN);
@@ -334,6 +336,35 @@ public class TabSuspensionTest {
         });
     }
 
+    @Test
+    @MediumTest
+    public void testSuspendNullCurrentTab() {
+        mActivityTestRule.loadUrl(mStartingUrl);
+        ChromeTabUtils.closeAllTabs(InstrumentationRegistry.getInstrumentation(), mActivity);
+
+        doReturn(true).when(mSuspensionTracker).isWebsiteSuspended(STARTING_FQDN);
+        suspendDomain(STARTING_FQDN);
+
+        // We can't use loadUrlInNewTab because the site being suspended will prevent loading from
+        // completing, and loadUrlInNewTab expects loading to succeed.
+        ChromeTabUtils.newTabFromMenu(
+                InstrumentationRegistry.getInstrumentation(), mActivityTestRule.getActivity());
+        Tab tab2 = mActivity.getActivityTab();
+
+        startLoadingUrl(tab2, mStartingUrl);
+        waitForSuspendedTabToShow(tab2, STARTING_FQDN);
+    }
+
+    @Test
+    @MediumTest
+    public void testSuspendUninitializedCurrentTab() {
+        mActivityTestRule.loadUrl(mStartingUrl);
+        TestThreadUtils.runOnUiThreadBlocking(() -> mTab.destroy());
+
+        doReturn(true).when(mSuspensionTracker).isWebsiteSuspended(STARTING_FQDN);
+        suspendDomain(STARTING_FQDN);
+    }
+
     private void startLoadingUrl(Tab tab, String url) {
         TestThreadUtils.runOnUiThreadBlocking(
                 () -> { tab.loadUrl(new LoadUrlParams(url, PageTransition.TYPED)); });
@@ -349,7 +380,8 @@ public class TabSuspensionTest {
 
     private void assertSuspendedTabState(Tab tab, boolean showing, String fqdn) {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
-            SuspendedTab suspendedTab = SuspendedTab.from(tab);
+            SuspendedTab suspendedTab =
+                    SuspendedTab.from(tab, mActivity.getTabContentManagerSupplier());
             assertEquals(suspendedTab.isShowing(), showing);
             assertEquals(suspendedTab.isViewAttached(), showing);
             assertTrue((suspendedTab.getFqdn() == null && fqdn == null)
@@ -369,7 +401,7 @@ public class TabSuspensionTest {
 
     private void waitForSuspendedTabToShow(Tab tab, String fqdn) {
         CriteriaHelper.pollUiThread(() -> {
-            return SuspendedTab.from(tab).isShowing();
+            return SuspendedTab.from(tab, mActivity.getTabContentManagerSupplier()).isShowing();
         }, "Suspended tab should be showing", 10000, 50);
 
         assertSuspendedTabShowing(tab, fqdn);

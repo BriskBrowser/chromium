@@ -10,10 +10,10 @@
 #include <string>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
+#include "base/containers/contains.h"
 #include "base/files/file_util.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/test/browser_task_environment.h"
@@ -103,8 +103,8 @@ class FileSystemHelperTest : public testing::Test {
         ->GetFileSystemContext()
         ->OpenFileSystem(
             origin, type, open_mode,
-            base::Bind(&FileSystemHelperTest::OpenFileSystemCallback,
-                       base::Unretained(this), &run_loop));
+            base::BindOnce(&FileSystemHelperTest::OpenFileSystemCallback,
+                           base::Unretained(this), &run_loop));
     BlockUntilQuit(&run_loop);
     return open_file_system_result_ == base::File::FILE_OK;
   }
@@ -135,8 +135,8 @@ class FileSystemHelperTest : public testing::Test {
   void FetchFileSystems() {
     base::RunLoop run_loop;
     helper_->StartFetching(
-        base::Bind(&FileSystemHelperTest::CallbackStartFetching,
-                   base::Unretained(this), &run_loop));
+        base::BindOnce(&FileSystemHelperTest::CallbackStartFetching,
+                       base::Unretained(this), &run_loop));
     BlockUntilQuit(&run_loop);
   }
 
@@ -145,8 +145,8 @@ class FileSystemHelperTest : public testing::Test {
   void FetchCannedFileSystems() {
     base::RunLoop run_loop;
     canned_helper_->StartFetching(
-        base::Bind(&FileSystemHelperTest::CallbackStartFetching,
-                   base::Unretained(this), &run_loop));
+        base::BindOnce(&FileSystemHelperTest::CallbackStartFetching,
+                       base::Unretained(this), &run_loop));
     BlockUntilQuit(&run_loop);
   }
 

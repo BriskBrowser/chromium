@@ -95,7 +95,11 @@ CreateAutofillMappings<autofill::AutofillProfile>(
     // TODO(b/159309560): Capitalize first letter of the state name.
     auto state_name =
         base::UTF16ToUTF8(autofill::state_names::GetNameForAbbreviation(state));
-    if (!state_name.empty()) {
+    if (state_name.empty()) {
+      mappings[base::NumberToString(
+          static_cast<int>(AutofillFormatProto::ADDRESS_HOME_STATE_NAME))] =
+          base::UTF16ToUTF8(state);
+    } else {
       mappings[base::NumberToString(static_cast<int>(
           AutofillFormatProto::ADDRESS_HOME_STATE_NAME))] = state_name;
     }
@@ -128,6 +132,14 @@ std::map<std::string, std::string> CreateAutofillMappings<autofill::CreditCard>(
     mappings[base::NumberToString(static_cast<int>(
         AutofillFormatProto::CREDIT_CARD_NUMBER_LAST_FOUR_DIGITS))] =
         last_four_digits;
+  }
+  int month;
+  if (base::StringToInt(
+          credit_card.GetInfo(autofill::CREDIT_CARD_EXP_MONTH, locale),
+          &month)) {
+    mappings[base::NumberToString(static_cast<int>(
+        AutofillFormatProto::CREDIT_CARD_NON_PADDED_EXP_MONTH))] =
+        base::NumberToString(month);
   }
 
   return mappings;

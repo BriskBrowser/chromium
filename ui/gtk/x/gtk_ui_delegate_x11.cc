@@ -4,21 +4,29 @@
 
 #include "ui/gtk/x/gtk_ui_delegate_x11.h"
 
-#include <gdk/gdkx.h>
 #include <gtk/gtk.h>
 
-// gdkx.h includes Xlib.h directly, so we need to manually undef any macros
-// that conflict with the below includes.
-#undef None
-
 #include "base/check.h"
+#include "base/environment.h"
 #include "ui/base/x/x11_util.h"
 #include "ui/events/platform/x11/x11_event_source.h"
 #include "ui/gfx/native_widget_types.h"
+#include "ui/gfx/x/xlib_support.h"
 #include "ui/gfx/x/xproto.h"
+#include "ui/gfx/x/xproto_util.h"
 #include "ui/gtk/x/gtk_event_loop_x11.h"
 #include "ui/platform_window/x11/x11_window.h"
 #include "ui/platform_window/x11/x11_window_manager.h"
+
+extern "C" {
+GdkWindow* gdk_x11_window_foreign_new_for_display(GdkDisplay* display,
+                                                  unsigned long window);
+
+GdkWindow* gdk_x11_window_lookup_for_display(GdkDisplay* display,
+                                             unsigned long window);
+
+unsigned long gdk_x11_window_get_xid(GdkWindow* window);
+}
 
 namespace ui {
 
@@ -26,6 +34,10 @@ GtkUiDelegateX11::GtkUiDelegateX11(x11::Connection* connection)
     : connection_(connection) {
   DCHECK(connection_);
   gdk_set_allowed_backends("x11");
+  // GDK_BACKEND takes precedence over gdk_set_allowed_backends(), so override
+  // it to ensure we get the x11 backend.
+  base::Environment::Create()->SetVar("GDK_BACKEND", "x11");
+  x11::InitXlib();
 }
 
 GtkUiDelegateX11::~GtkUiDelegateX11() = default;
@@ -33,6 +45,11 @@ GtkUiDelegateX11::~GtkUiDelegateX11() = default;
 void GtkUiDelegateX11::OnInitialized() {
   // Ensure the singleton instance of GtkEventLoopX11 is created and started.
   GtkEventLoopX11::EnsureInstance();
+
+  // GTK sets an Xlib error handler that exits the process on any async errors.
+  // We don't want this behavior, so reset the error handler to something that
+  // just logs the error.
+  x11::SetXlibErrorHandler();
 }
 
 GdkKeymap* GtkUiDelegateX11::GetGdkKeymap() {
@@ -53,13 +70,13 @@ GdkWindow* GtkUiDelegateX11::GetGdkWindow(gfx::AcceleratedWidget window_id) {
 
 bool GtkUiDelegateX11::SetGdkWindowTransientFor(GdkWindow* window,
                                                 gfx::AcceleratedWidget parent) {
-  SetProperty(static_cast<x11::Window>(GDK_WINDOW_XID(window)),
-              x11::Atom::WM_TRANSIENT_FOR, x11::Atom::WINDOW, parent);
+  auto x11_window = static_cast<x11::Window>(gdk_x11_window_get_xid(window));
+  SetProperty(x11_window, x11::Atom::WM_TRANSIENT_FOR, x11::Atom::WINDOW,
+              parent);
 
   ui::X11Window* parent_window =
       ui::X11WindowManager::GetInstance()->GetWindow(parent);
-  parent_window->SetTransientWindow(
-      static_cast<x11::Window>(gdk_x11_window_get_xid(window)));
+  parent_window->SetTransientWindow(x11_window);
 
   return true;
 }
@@ -85,6 +102,18 @@ void GtkUiDelegateX11::ShowGtkWindow(GtkWindow* window) {
   gtk_window_present_with_time(
       window,
       static_cast<uint32_t>(X11EventSource::GetInstance()->GetTimestamp()));
+}
+
+int GtkUiDelegateX11::GetGdkKeyState() {
+  auto* xevent =
+      X11EventSource::GetInstance()->connection()->dispatching_event();
+
+  if (!xevent)
+    return ui::EF_NONE;
+
+  auto* key_xevent = xevent->As<x11::KeyEvent>();
+  DCHECK(key_xevent);
+  return static_cast<int>(key_xevent->state);
 }
 
 }  // namespace ui

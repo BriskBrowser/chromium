@@ -11,6 +11,7 @@
 #include "base/at_exit.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
+#include "base/containers/contains.h"
 #include "base/logging.h"
 #include "base/stl_util.h"
 #include "base/strings/string_piece.h"
@@ -98,10 +99,6 @@ base::ThreadLocalPointer<CurrentGL>* g_current_gl_context_tls = NULL;
 
 #if defined(USE_EGL)
 EGLApi* g_current_egl_context;
-#endif
-
-#if defined(OS_WIN)
-WGLApi* g_current_wgl_context;
 #endif
 
 #if defined(USE_GLX)
@@ -269,8 +266,10 @@ bool WillUseGLGetStringForExtensions() {
 bool WillUseGLGetStringForExtensions(GLApi* api) {
   const char* version_str =
       reinterpret_cast<const char*>(api->glGetStringFn(GL_VERSION));
+  const char* renderer_str =
+      reinterpret_cast<const char*>(api->glGetStringFn(GL_RENDERER));
   gfx::ExtensionSet extensions;
-  GLVersionInfo version_info(version_str, nullptr, extensions);
+  GLVersionInfo version_info(version_str, renderer_str, extensions);
   return version_info.is_es || version_info.major_version < 3;
 }
 
@@ -289,5 +288,11 @@ base::NativeLibrary LoadLibraryAndPrintError(const base::FilePath& filename) {
   }
   return library;
 }
+
+#if BUILDFLAG(USE_OPENGL_APITRACE)
+void TerminateFrame() {
+  GetGLProcAddress("glFrameTerminatorGREMEDY")();
+}
+#endif
 
 }  // namespace gl

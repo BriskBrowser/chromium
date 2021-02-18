@@ -5,6 +5,11 @@
 #include "ui/gl/gl_switches.h"
 
 #include "base/stl_util.h"
+#include "build/build_config.h"
+
+#if defined(OS_ANDROID)
+#include "base/android/build_info.h"
+#endif
 
 namespace gl {
 
@@ -41,6 +46,11 @@ const char kANGLEImplementationMetalNULLName[] = "metal-null";
 // The command decoder names that can be passed to --use-cmd-decoder.
 const char kCmdDecoderValidatingName[] = "validating";
 const char kCmdDecoderPassthroughName[] = "passthrough";
+
+// Swap chain formats for direct composition SDR video overlays.
+const char kSwapChainFormatNV12[] = "nv12";
+const char kSwapChainFormatYUY2[] = "yuy2";
+const char kSwapChainFormatBGRA[] = "bgra";
 
 }  // namespace gl
 
@@ -152,6 +162,11 @@ const char kUseAdapterLuid[] = "use-adapter-luid";
 const char kDirectCompositionForceFullDamageForTesting[] =
     "direct-composition-force-full-damage-for-testing";
 
+// Used for overriding the swap chain format for direct composition SDR video
+// overlays.
+const char kDirectCompositionVideoSwapChainFormat[] =
+    "direct-composition-video-swap-chain-format";
+
 // This is the list of switches passed from this file that are passed from the
 // GpuProcessHost to the GPU Process. Add your switch to this list if you need
 // to read it in the GPU process, else don't add it.
@@ -173,6 +188,7 @@ const char* const kGLSwitchesCopiedFromGpuProcessHost[] = {
     kEnableDirectCompositionVideoOverlays,
     kDisableDirectCompositionVideoOverlays,
     kDirectCompositionForceFullDamageForTesting,
+    kDirectCompositionVideoSwapChainFormat,
 };
 const int kGLSwitchesCopiedFromGpuProcessHostNumSwitches =
     base::size(kGLSwitchesCopiedFromGpuProcessHost);
@@ -181,39 +197,40 @@ const int kGLSwitchesCopiedFromGpuProcessHostNumSwitches =
 
 namespace features {
 
+// Use BufferCount of 3 for the direct composition root swap chain.
+const base::Feature kDCompTripleBufferRootSwapChain{
+    "DCompTripleBufferRootSwapChain", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Use BufferCount of 3 for direct composition video swap chains.
+const base::Feature kDCompTripleBufferVideoSwapChain{
+    "DCompTripleBufferVideoSwapChain", base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Forces Chrome's main backbuffer to full damage if the actual damage
 // is large enough and allows DWM to consider the main backbuffer as an
 // an overlay candidate.
 const base::Feature kDirectCompositionForceFullDamage{
-    "DirectCompositionForceFullDamage", base::FEATURE_DISABLED_BY_DEFAULT};
+    "DirectCompositionForceFullDamage", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Use presentation feedback event queries (must be enabled) to limit latency.
 const base::Feature kDirectCompositionLowLatencyPresentation{
     "DirectCompositionLowLatencyPresentation",
     base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Overrides preferred overlay format to NV12 instead of YUY2.
-const base::Feature kDirectCompositionPreferNV12Overlays{
-    "DirectCompositionPreferNV12Overlays", base::FEATURE_ENABLED_BY_DEFAULT};
-
 // Allow overlay swapchain to present on all GPUs even if they only support
 // software overlays.
 const base::Feature kDirectCompositionSoftwareOverlays{
     "DirectCompositionSoftwareOverlays", base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Allow putting a video swapchain underneath the main swapchain, so overlays
-// can be used even if there are controls on top of the video. It can be
-// enabled only when overlay is supported.
-const base::Feature kDirectCompositionUnderlays{
-    "DirectCompositionUnderlays", base::FEATURE_ENABLED_BY_DEFAULT};
-
-// Use decode swap chain created from compatible video decoder buffers.
-const base::Feature kDirectCompositionUseNV12DecodeSwapChain{
-    "DirectCompositionUseNV12DecodeSwapChain",
-    base::FEATURE_ENABLED_BY_DEFAULT};
-
 // Default to using ANGLE's OpenGL backend
 const base::Feature kDefaultANGLEOpenGL{"DefaultANGLEOpenGL",
+                                        base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Default to using ANGLE's Metal backend.
+const base::Feature kDefaultANGLEMetal{"DefaultANGLEMetal",
+                                       base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Default to using ANGLE's Vulkan backend.
+const base::Feature kDefaultANGLEVulkan{"DefaultANGLEVulkan",
                                         base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Track current program's shaders at glUseProgram() call for crash report
@@ -221,5 +238,16 @@ const base::Feature kDefaultANGLEOpenGL{"DefaultANGLEOpenGL",
 // be reliably retrieved with ANGLE backend.
 const base::Feature kTrackCurrentShaders{"TrackCurrentShaders",
                                          base::FEATURE_DISABLED_BY_DEFAULT};
+
+bool IsDefaultANGLEVulkan() {
+#if defined(OS_ANDROID)
+  // No support for devices before Q -- exit before checking feature flags
+  // so that devices are not counted in finch trials.
+  if (base::android::BuildInfo::GetInstance()->sdk_int() <
+      base::android::SDK_VERSION_Q)
+    return false;
+#endif  // defined(OS_ANDROID)
+  return base::FeatureList::IsEnabled(kDefaultANGLEVulkan);
+}
 
 }  // namespace features

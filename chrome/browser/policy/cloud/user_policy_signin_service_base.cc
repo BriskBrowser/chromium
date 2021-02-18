@@ -73,9 +73,13 @@ void UserPolicySigninServiceBase::FetchPolicyForSignedInUser(
   manager->core()->service()->RefreshPolicy(std::move(callback));
 }
 
-void UserPolicySigninServiceBase::OnPrimaryAccountCleared(
-    const CoreAccountInfo& previous_primary_account_info) {
-  ShutdownUserCloudPolicyManager();
+void UserPolicySigninServiceBase::OnPrimaryAccountChanged(
+    const signin::PrimaryAccountChangeEvent& event) {
+  if (event.GetEventTypeFor(signin::ConsentLevel::kSync) ==
+      signin::PrimaryAccountChangeEvent::Type::kCleared) {
+    DCHECK(!identity_manager_->HasPrimaryAccount(signin::ConsentLevel::kSync));
+    ShutdownUserCloudPolicyManager();
+  }
 }
 
 void UserPolicySigninServiceBase::Observe(
@@ -187,8 +191,8 @@ void UserPolicySigninServiceBase::InitializeOnProfileReady(Profile* profile) {
   // (http://crbug.com/316229).
   identity_manager()->AddObserver(this);
 
-  AccountId account_id =
-      AccountIdFromAccountInfo(identity_manager()->GetPrimaryAccountInfo());
+  AccountId account_id = AccountIdFromAccountInfo(
+      identity_manager()->GetPrimaryAccountInfo(signin::ConsentLevel::kSync));
   if (!account_id.is_valid())
     ShutdownUserCloudPolicyManager();
   else
@@ -201,13 +205,14 @@ void UserPolicySigninServiceBase::InitializeForSignedInUser(
     const AccountId& account_id,
     scoped_refptr<network::SharedURLLoaderFactory> profile_url_loader_factory) {
   DCHECK(account_id.is_valid());
+  UserCloudPolicyManager* manager = policy_manager();
   if (!ShouldLoadPolicyForUser(account_id.GetUserEmail())) {
+    manager->SetPoliciesRequired(false);
     DVLOG(1) << "Policy load not enabled for user: "
              << account_id.GetUserEmail();
     return;
   }
 
-  UserCloudPolicyManager* manager = policy_manager();
   // Initialize the UCPM if it is not already initialized.
   if (!manager->core()->service()) {
     // If there is no cached DMToken then we can detect this when the

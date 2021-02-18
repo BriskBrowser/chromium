@@ -12,7 +12,6 @@
 #include <string>
 #include <vector>
 
-#include "base/macros.h"
 #include "base/pickle.h"
 #include "base/strings/string_piece.h"
 #include "base/trace_event/trace_event_impl.h"
@@ -28,6 +27,8 @@ class BASE_EXPORT TracedValue : public ConvertableToTraceFormat {
   // TODO(oysteine): |capacity| is not used in any production code. Consider
   // removing it.
   explicit TracedValue(size_t capacity = 0);
+  TracedValue(const TracedValue&) = delete;
+  TracedValue& operator=(const TracedValue&) = delete;
   ~TracedValue() override;
 
   void EndDictionary();
@@ -105,9 +106,10 @@ class BASE_EXPORT TracedValue : public ConvertableToTraceFormat {
 
   // Call |BeginArray| or |BeginArrayWithCopiedName| with no / the same
   // parameter and return an |ArrayScope| holding |this|.
-  ArrayScope AppendArrayScoped();
-  ArrayScope BeginArrayScoped(const char* name);
-  ArrayScope BeginArrayScopedWithCopiedName(base::StringPiece name);
+  ArrayScope AppendArrayScoped() WARN_UNUSED_RESULT;
+  ArrayScope BeginArrayScoped(const char* name) WARN_UNUSED_RESULT;
+  ArrayScope BeginArrayScopedWithCopiedName(base::StringPiece name)
+      WARN_UNUSED_RESULT;
 
   // Helper to auto-close a dictionary. The call to
   // |DictionaryScope::~DictionaryScope| closes the dictionary.
@@ -147,9 +149,10 @@ class BASE_EXPORT TracedValue : public ConvertableToTraceFormat {
 
   // Call |BeginDictionary| or |BeginDictionaryWithCopiedName| with no / the
   // same parameter and return a |DictionaryScope| holding |this|.
-  DictionaryScope AppendDictionaryScoped();
-  DictionaryScope BeginDictionaryScoped(const char* name);
-  DictionaryScope BeginDictionaryScopedWithCopiedName(base::StringPiece name);
+  DictionaryScope AppendDictionaryScoped() WARN_UNUSED_RESULT;
+  DictionaryScope BeginDictionaryScoped(const char* name) WARN_UNUSED_RESULT;
+  DictionaryScope BeginDictionaryScopedWithCopiedName(base::StringPiece name)
+      WARN_UNUSED_RESULT;
 
   class BASE_EXPORT Array;
   class BASE_EXPORT Dictionary;
@@ -391,8 +394,6 @@ class BASE_EXPORT TracedValue : public ConvertableToTraceFormat {
   // In debug builds checks the pairings of {Start,End}{Dictionary,Array}
   std::vector<bool> nesting_stack_;
 #endif
-
-  DISALLOW_COPY_AND_ASSIGN(TracedValue);
 };
 
 // TracedValue that is convertable to JSON format. This has lower performance

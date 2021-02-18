@@ -11,23 +11,17 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/web_applications/components/externally_installed_web_app_prefs.h"
 #include "chrome/browser/web_applications/components/install_bounce_metric.h"
-#include "chrome/browser/web_applications/components/policy/web_app_policy_manager.h"
+#include "chrome/browser/web_applications/components/os_integration_manager.h"
 #include "chrome/browser/web_applications/components/web_app_audio_focus_id_map.h"
 #include "chrome/browser/web_applications/components/web_app_prefs_utils.h"
 #include "chrome/browser/web_applications/components/web_app_ui_manager.h"
 #include "chrome/browser/web_applications/components/web_app_utils.h"
 #include "chrome/browser/web_applications/daily_metrics_helper.h"
-#include "chrome/browser/web_applications/extensions/bookmark_app_file_handler_manager.h"
-#include "chrome/browser/web_applications/extensions/bookmark_app_icon_manager.h"
-#include "chrome/browser/web_applications/extensions/bookmark_app_install_finalizer.h"
-#include "chrome/browser/web_applications/extensions/bookmark_app_registrar.h"
-#include "chrome/browser/web_applications/extensions/bookmark_app_registry_controller.h"
-#include "chrome/browser/web_applications/extensions/bookmark_app_shortcut_manager.h"
 #include "chrome/browser/web_applications/external_web_app_manager.h"
 #include "chrome/browser/web_applications/file_utils_wrapper.h"
 #include "chrome/browser/web_applications/manifest_update_manager.h"
-#include "chrome/browser/web_applications/os_integration_manager.h"
 #include "chrome/browser/web_applications/pending_app_manager_impl.h"
+#include "chrome/browser/web_applications/policy/web_app_policy_manager.h"
 #include "chrome/browser/web_applications/system_web_app_manager.h"
 #include "chrome/browser/web_applications/web_app_database_factory.h"
 #include "chrome/browser/web_applications/web_app_file_handler_manager.h"
@@ -35,6 +29,8 @@
 #include "chrome/browser/web_applications/web_app_install_finalizer.h"
 #include "chrome/browser/web_applications/web_app_install_manager.h"
 #include "chrome/browser/web_applications/web_app_migration_manager.h"
+#include "chrome/browser/web_applications/web_app_mover.h"
+#include "chrome/browser/web_applications/web_app_protocol_handler_manager.h"
 #include "chrome/browser/web_applications/web_app_provider_factory.h"
 #include "chrome/browser/web_applications/web_app_registrar.h"
 #include "chrome/browser/web_applications/web_app_shortcut_manager.h"
@@ -44,6 +40,13 @@
 #include "content/public/browser/web_contents.h"
 
 namespace web_app {
+
+namespace {
+
+WebAppProvider::OsIntegrationManagerFactory
+    g_os_integration_manager_factory_for_testing = nullptr;
+
+}  // namespace
 
 // static
 WebAppProvider* WebAppProvider::Get(Profile* profile) {
@@ -57,6 +60,12 @@ WebAppProvider* WebAppProvider::GetForWebContents(
       Profile::FromBrowserContext(web_contents->GetBrowserContext());
   DCHECK(profile);
   return WebAppProvider::Get(profile);
+}
+
+// static
+void WebAppProvider::SetOsIntegrationManagerFactoryForTesting(
+    OsIntegrationManagerFactory factory) {
+  g_os_integration_manager_factory_for_testing = factory;
 }
 
 WebAppProvider::WebAppProvider(Profile* profile) : profile_(profile) {
@@ -129,19 +138,9 @@ WebAppAudioFocusIdMap& WebAppProvider::audio_focus_id_map() {
   return *audio_focus_id_map_;
 }
 
-FileHandlerManager& WebAppProvider::file_handler_manager() {
-  CheckIsConnected();
-  return *file_handler_manager_;
-}
-
 AppIconManager& WebAppProvider::icon_manager() {
   CheckIsConnected();
   return *icon_manager_;
-}
-
-AppShortcutManager& WebAppProvider::shortcut_manager() {
-  CheckIsConnected();
-  return *shortcut_manager_;
 }
 
 SystemWebAppManager& WebAppProvider::system_web_app_manager() {
@@ -163,6 +162,8 @@ void WebAppProvider::Shutdown() {
   icon_manager_->Shutdown();
   install_finalizer_->Shutdown();
   registrar_->Shutdown();
+  if (web_app_mover_)
+    web_app_mover_->Shutdown();
 }
 
 void WebAppProvider::StartImpl() {
@@ -188,7 +189,6 @@ void WebAppProvider::CreateCommonSubsystems(Profile* profile) {
   external_web_app_manager_ = std::make_unique<ExternalWebAppManager>(profile);
   system_web_app_manager_ = std::make_unique<SystemWebAppManager>(profile);
   web_app_policy_manager_ = std::make_unique<WebAppPolicyManager>(profile);
-  os_integration_manager_ = std::make_unique<OsIntegrationManager>(profile);
 }
 
 void WebAppProvider::CreateWebAppsSubsystems(Profile* profile) {
@@ -209,21 +209,38 @@ void WebAppProvider::CreateWebAppsSubsystems(Profile* profile) {
     registrar = std::move(mutable_registrar);
   }
 
-  auto legacy_finalizer =
-      std::make_unique<extensions::BookmarkAppInstallFinalizer>(profile);
+  auto legacy_finalizer = CreateBookmarkAppInstallFinalizer(profile);
   legacy_finalizer->SetSubsystems(/*registrar=*/nullptr,
                                   /*ui_manager=*/nullptr,
-                                  /*registry_controller=*/nullptr);
+                                  /*registry_controller=*/nullptr,
+                                  /*os_integration_manager=*/nullptr);
 
   auto icon_manager = std::make_unique<WebAppIconManager>(
       profile, *registrar, std::make_unique<FileUtilsWrapper>());
   install_finalizer_ = std::make_unique<WebAppInstallFinalizer>(
       profile, icon_manager.get(), std::move(legacy_finalizer));
-  file_handler_manager_ = std::make_unique<WebAppFileHandlerManager>(profile);
-  shortcut_manager_ = std::make_unique<WebAppShortcutManager>(
-      profile, icon_manager.get(), file_handler_manager_.get());
+
+  if (g_os_integration_manager_factory_for_testing) {
+    os_integration_manager_ =
+        g_os_integration_manager_factory_for_testing(profile);
+  } else {
+    auto file_handler_manager =
+        std::make_unique<WebAppFileHandlerManager>(profile);
+    auto protocol_handler_manager =
+        std::make_unique<WebAppProtocolHandlerManager>(profile);
+    auto shortcut_manager = std::make_unique<WebAppShortcutManager>(
+        profile, icon_manager.get(), file_handler_manager.get());
+    os_integration_manager_ = std::make_unique<OsIntegrationManager>(
+        profile, std::move(shortcut_manager), std::move(file_handler_manager),
+        std::move(protocol_handler_manager));
+  }
+
   migration_manager_ = std::make_unique<WebAppMigrationManager>(
-      profile, database_factory_.get(), icon_manager.get());
+      profile, database_factory_.get(), icon_manager.get(),
+      os_integration_manager_.get());
+  web_app_mover_ = WebAppMover::CreateIfNeeded(
+      profile, registrar.get(), install_finalizer_.get(),
+      install_manager_.get(), sync_bridge.get());
 
   // Upcast to unified subsystem types:
   registrar_ = std::move(registrar);
@@ -231,31 +248,12 @@ void WebAppProvider::CreateWebAppsSubsystems(Profile* profile) {
   icon_manager_ = std::move(icon_manager);
 }
 
-void WebAppProvider::CreateBookmarkAppsSubsystems(Profile* profile) {
-  std::unique_ptr<extensions::BookmarkAppRegistrar> registrar =
-      std::make_unique<extensions::BookmarkAppRegistrar>(profile);
-  std::unique_ptr<extensions::BookmarkAppRegistryController>
-      registry_controller =
-          std::make_unique<extensions::BookmarkAppRegistryController>(
-              profile, registrar.get());
-  icon_manager_ = std::make_unique<extensions::BookmarkAppIconManager>(profile);
-  install_finalizer_ =
-      std::make_unique<extensions::BookmarkAppInstallFinalizer>(profile);
-  file_handler_manager_ =
-      std::make_unique<extensions::BookmarkAppFileHandlerManager>(profile);
-  shortcut_manager_ =
-      std::make_unique<extensions::BookmarkAppShortcutManager>(profile);
-
-  // Upcast to unified subsystem types:
-  registrar_ = std::move(registrar);
-  registry_controller_ = std::move(registry_controller);
-}
-
 void WebAppProvider::ConnectSubsystems() {
   DCHECK(!started_);
 
   install_finalizer_->SetSubsystems(registrar_.get(), ui_manager_.get(),
-                                    registry_controller_.get());
+                                    registry_controller_.get(),
+                                    os_integration_manager_.get());
   install_manager_->SetSubsystems(registrar_.get(),
                                   os_integration_manager_.get(),
                                   install_finalizer_.get());
@@ -268,14 +266,16 @@ void WebAppProvider::ConnectSubsystems() {
   external_web_app_manager_->SetSubsystems(pending_app_manager_.get());
   system_web_app_manager_->SetSubsystems(
       pending_app_manager_.get(), registrar_.get(), registry_controller_.get(),
-      ui_manager_.get(), file_handler_manager_.get());
-  web_app_policy_manager_->SetSubsystems(pending_app_manager_.get());
-  file_handler_manager_->SetSubsystems(registrar_.get());
-  shortcut_manager_->SetSubsystems(icon_manager_.get(), registrar_.get());
+      ui_manager_.get(), os_integration_manager_.get(),
+      web_app_policy_manager_.get());
+  web_app_policy_manager_->SetSubsystems(
+      pending_app_manager_.get(), registrar_.get(), registry_controller_.get(),
+      system_web_app_manager_.get(), os_integration_manager_.get());
   ui_manager_->SetSubsystems(registry_controller_.get());
-  os_integration_manager_->SetSubsystems(
-      registrar_.get(), shortcut_manager_.get(), file_handler_manager_.get(),
-      ui_manager_.get());
+  os_integration_manager_->SetSubsystems(registrar_.get(), ui_manager_.get(),
+                                         icon_manager_.get());
+  registrar_->SetSubsystems(os_integration_manager_.get());
+  registry_controller_->SetSubsystems(os_integration_manager_.get());
 
   connected_ = true;
 }
@@ -297,9 +297,10 @@ void WebAppProvider::OnRegistryControllerReady() {
   web_app_policy_manager_->Start();
   system_web_app_manager_->Start();
   manifest_update_manager_->Start();
-  file_handler_manager_->Start();
   os_integration_manager_->Start();
   ui_manager_->Start();
+  if (web_app_mover_)
+    web_app_mover_->Start();
 
   on_registry_ready_.Signal();
 }
@@ -313,6 +314,7 @@ void WebAppProvider::CheckIsConnected() const {
 void WebAppProvider::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
   ExternallyInstalledWebAppPrefs::RegisterProfilePrefs(registry);
+  ExternalWebAppManager::RegisterProfilePrefs(registry);
   WebAppPolicyManager::RegisterProfilePrefs(registry);
   SystemWebAppManager::RegisterProfilePrefs(registry);
   WebAppPrefsUtilsRegisterProfilePrefs(registry);

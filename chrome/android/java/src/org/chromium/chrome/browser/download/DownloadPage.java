@@ -14,6 +14,8 @@ import org.chromium.chrome.browser.download.home.DownloadManagerCoordinator;
 import org.chromium.chrome.browser.download.home.DownloadManagerCoordinatorFactoryHelper;
 import org.chromium.chrome.browser.download.home.DownloadManagerUiConfig;
 import org.chromium.chrome.browser.download.home.DownloadManagerUiConfigHelper;
+import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.profiles.ProfileKey;
 import org.chromium.chrome.browser.ui.native_page.BasicNativePage;
 import org.chromium.chrome.browser.ui.native_page.NativePageHost;
 import org.chromium.components.embedder_support.util.UrlConstants;
@@ -39,6 +41,8 @@ public class DownloadPage extends BasicNativePage implements DownloadManagerCoor
         DownloadManagerUiConfig config =
                 DownloadManagerUiConfigHelper.fromFlags()
                         .setIsOffTheRecord(activity.getCurrentTabModel().isIncognito())
+                        .setOTRProfileID(
+                                activity.getCurrentTabModel().getProfile().getOTRProfileID())
                         .setIsSeparateActivity(false)
                         .setShowPaginationHeaders(DownloadUtils.shouldShowPaginationHeaders())
                         .build();
@@ -56,8 +60,10 @@ public class DownloadPage extends BasicNativePage implements DownloadManagerCoor
         // resumed.
         mActivityStateListener = (activity1, newState) -> {
             if (newState == ActivityState.RESUMED) {
-                DownloadUtils.checkForExternallyRemovedDownloads(
-                        activity.getCurrentTabModel().isIncognito());
+                Profile profile = activity.getCurrentTabModel().getProfile();
+                ProfileKey profileKey = profile == null ? ProfileKey.getLastUsedRegularProfileKey()
+                                                        : profile.getProfileKey();
+                DownloadUtils.checkForExternallyRemovedDownloads(profileKey);
             }
         };
         ApplicationStatus.registerStateListenerForActivity(mActivityStateListener, activity);

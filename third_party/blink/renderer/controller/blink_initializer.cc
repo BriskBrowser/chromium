@@ -38,7 +38,7 @@
 #include "mojo/public/cpp/bindings/binder_map.h"
 #include "third_party/blink/public/common/experiments/memory_ablation_experiment.h"
 #include "third_party/blink/public/common/features.h"
-#include "third_party/blink/public/mojom/loader/previews_resource_loading_hints.mojom-blink.h"
+#include "third_party/blink/public/mojom/optimization_guide/optimization_guide.mojom-blink.h"
 #include "third_party/blink/public/platform/interface_registry.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/web/blink.h"
@@ -46,7 +46,7 @@
 #include "third_party/blink/renderer/controller/blink_leak_detector.h"
 #include "third_party/blink/renderer/controller/dev_tools_frontend_impl.h"
 #include "third_party/blink/renderer/controller/performance_manager/renderer_resource_coordinator_impl.h"
-#include "third_party/blink/renderer/controller/performance_manager/v8_per_frame_memory_reporter_impl.h"
+#include "third_party/blink/renderer/controller/performance_manager/v8_detailed_memory_reporter_impl.h"
 #include "third_party/blink/renderer/core/animation/animation_clock.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/execution_context/agent.h"
@@ -190,6 +190,14 @@ void CreateMainThreadAndInitialize(Platform* platform,
 // Function defined in third_party/blink/public/web/blink.h.
 void SetIsCrossOriginIsolated(bool value) {
   Agent::SetIsCrossOriginIsolated(value);
+  if (value) {
+    v8::V8::SetIsCrossOriginIsolated();
+  }
+}
+
+// Function defined in third_party/blink/public/web/blink.h.
+bool IsCrossOriginIsolated() {
+  return Agent::IsCrossOriginIsolated();
 }
 
 void BlinkInitializer::RegisterInterfaces(mojo::BinderMap& binders) {
@@ -225,7 +233,7 @@ void BlinkInitializer::RegisterInterfaces(mojo::BinderMap& binders) {
               main_thread->GetTaskRunner());
 
   binders.Add(ConvertToBaseRepeatingCallback(CrossThreadBindRepeating(
-                  &V8PerFrameMemoryReporterImpl::Create)),
+                  &V8DetailedMemoryReporterImpl::Create)),
               main_thread->GetTaskRunner());
 }
 

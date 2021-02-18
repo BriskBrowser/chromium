@@ -19,6 +19,7 @@
 #import "ios/chrome/browser/safe_browsing/unsafe_resource_util.h"
 #include "ios/components/security_interstitials/ios_blocking_page_metrics_helper.h"
 #import "ios/web/public/web_state.h"
+#include "services/network/public/mojom/fetch_api.mojom.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/webui/jstemplate_builder.h"
 #include "ui/base/webui/web_ui_util.h"
@@ -36,7 +37,8 @@ using security_interstitials::SafeBrowsingLoudErrorUI;
 namespace {
 // Retrieves the main frame URL for |resource| in |web_state|.
 const GURL GetMainFrameUrl(const UnsafeResource& resource) {
-  if (resource.resource_type == safe_browsing::ResourceType::kMainFrame)
+  if (resource.request_destination ==
+      network::mojom::RequestDestination::kDocument)
     return resource.url;
   return resource.web_state_getter.Run()->GetLastCommittedURL();
 }
@@ -64,7 +66,9 @@ BaseSafeBrowsingErrorUI::SBErrorDisplayOptions GetDefaultDisplayOptions(
       /*is_enhanced_protection_enabled=*/false,
       prefs->GetBoolean(prefs::kSafeBrowsingProceedAnywayDisabled),
       /*should_open_links_in_new_tab=*/false,
-      /*always_show_back_to_safety=*/true, "cpn_safe_browsing");
+      /*always_show_back_to_safety=*/true,
+      /*is_enhanced_protection_message_enabled=*/false,
+      /*is_safe_browsing_managed=*/false, "cpn_safe_browsing");
 }
 }  // namespace
 
@@ -143,6 +147,11 @@ void SafeBrowsingBlockingPage::HandleScriptCommand(
   }
 
   error_ui_->HandleCommand(static_cast<SecurityInterstitialCommand>(command));
+  if (command == security_interstitials::CMD_DONT_PROCEED) {
+    // |error_ui_| handles recording PROCEED decisions.
+    client_->metrics_helper()->RecordUserDecision(
+        security_interstitials::MetricsHelper::DONT_PROCEED);
+  }
 }
 
 bool SafeBrowsingBlockingPage::ShouldCreateNewNavigation() const {
@@ -151,7 +160,6 @@ bool SafeBrowsingBlockingPage::ShouldCreateNewNavigation() const {
 
 void SafeBrowsingBlockingPage::PopulateInterstitialStrings(
     base::DictionaryValue* load_time_data) const {
-  load_time_data->SetBoolean("committed_interstitials_enabled", true);
   load_time_data->SetString("url_to_reload", request_url().spec());
   error_ui_->PopulateStringsForHtml(load_time_data);
 }
@@ -166,7 +174,7 @@ SafeBrowsingBlockingPage::SafeBrowsingControllerClient::
           resource.web_state_getter.Run(),
           CreateMetricsHelper(resource),
           GetApplicationContext()->GetApplicationLocale()),
-      url_(resource.url),
+      url_(SafeBrowsingUrlAllowList::GetDecisionUrl(resource)),
       threat_type_(resource.threat_type) {}
 
 SafeBrowsingBlockingPage::SafeBrowsingControllerClient::

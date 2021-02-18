@@ -13,6 +13,8 @@ import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.SystemClock;
 import android.text.TextUtils;
+import android.text.format.DateUtils;
+import android.util.Pair;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
@@ -43,8 +45,10 @@ import org.chromium.chrome.browser.ui.appmenu.internal.R;
 import org.chromium.components.browser_ui.widget.highlight.ViewHighlighter;
 import org.chromium.ui.widget.Toast;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Queue;
 
 /**
  * Shows a popup of menuitems anchored to a host view. When a item is selected we call
@@ -52,12 +56,13 @@ import java.util.List;
  *   - Only visible MenuItems are shown.
  *   - Disabled items are grayed out.
  */
-class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuAdapter.OnClickHandler {
+class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuClickHandler {
     private static final float LAST_ITEM_SHOW_FRACTION = 0.5f;
+    @VisibleForTesting
+    static final long RECENT_SELECTED_MENUITEM_EXPIRATION_MS = 10 * DateUtils.SECOND_IN_MILLIS;
 
     private final Menu mMenu;
     private final int mItemRowHeight;
-    private final int mItemDividerHeight;
     private final int mVerticalFadeDistance;
     private final int mNegativeSoftwareVerticalOffset;
     private final int mNegativeVerticalOffsetNotTopAnchored;
@@ -67,7 +72,8 @@ class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuAdapter.OnCl
     private PopupWindow mPopup;
     private ListView mListView;
     private AppMenuAdapter mAdapter;
-    private AppMenuHandlerImpl mHandler;
+    @VisibleForTesting
+    AppMenuHandlerImpl mHandler;
     private View mFooterView;
     private int mCurrentScreenRotation = -1;
     private boolean mIsByPermanentButton;
@@ -75,26 +81,25 @@ class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuAdapter.OnCl
     private long mMenuShownTimeMs;
     private boolean mSelectedItemBeforeDismiss;
 
+    // Selected menu item id and the timestamp.
+    private final Queue<Pair<Integer, Long>> mRecentSelectedMenuItems = new ArrayDeque<>();
+
     /**
      * Creates and sets up the App Menu.
      * @param menu Original menu created by the framework.
      * @param itemRowHeight Desired height for each app menu row.
-     * @param itemDividerHeight Desired height for the divider between app menu items.
      * @param handler AppMenuHandlerImpl receives callbacks from AppMenu.
      * @param res Resources object used to get dimensions and style attributes.
      * @param iconBeforeItem Whether icon is shown before the text.
      */
-    AppMenu(Menu menu, int itemRowHeight, int itemDividerHeight, AppMenuHandlerImpl handler,
-            Resources res, boolean iconBeforeItem) {
+    AppMenu(Menu menu, int itemRowHeight, AppMenuHandlerImpl handler, Resources res,
+            boolean iconBeforeItem) {
         mMenu = menu;
 
         mItemRowHeight = itemRowHeight;
         assert mItemRowHeight > 0;
 
         mHandler = handler;
-
-        mItemDividerHeight = itemDividerHeight;
-        assert mItemDividerHeight >= 0;
 
         mNegativeSoftwareVerticalOffset =
                 res.getDimensionPixelSize(R.dimen.menu_negative_software_vertical_offset);
@@ -168,16 +173,12 @@ class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuAdapter.OnCl
      *                              by external apps.
      * @param groupDividerResourceId     The resource id of divider menu items. This will be used to
      *         determine the number of dividers that appear in the menu.
-     * @param circleHighlightItem   Whether the highlighted item should use a circle highlight or
-     *                              not.
-     * @param showFromBottom        Whether the appearance animation should run from the bottom up.
      * @param customViewBinders     See {@link AppMenuPropertiesDelegate#getCustomViewBinders()}.
      */
     void show(Context context, final View anchorView, boolean isByPermanentButton,
             int screenRotation, Rect visibleDisplayFrame, int screenHeight,
             @IdRes int footerResourceId, @IdRes int headerResourceId,
             @IdRes int groupDividerResourceId, Integer highlightedItemId,
-            boolean circleHighlightItem, boolean showFromBottom,
             @Nullable List<CustomViewBinder> customViewBinders) {
         mPopup = new PopupWindow(context);
         mPopup.setFocusable(true);
@@ -215,10 +216,7 @@ class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuAdapter.OnCl
         // an incorrectly drawn background.
         mPopup.setBackgroundDrawable(ApiCompatibilityUtils.getDrawable(
                 context.getResources(), R.drawable.popup_bg_tinted));
-        if (!isByPermanentButton) {
-            mPopup.setAnimationStyle(
-                    showFromBottom ? R.style.OverflowMenuAnimBottom : R.style.OverflowMenuAnim);
-        }
+        if (!isByPermanentButton) mPopup.setAnimationStyle(R.style.OverflowMenuAnim);
 
         // Turn off window animations for low end devices.
         if (SysUtils.isLowEndDevice()) mPopup.setAnimationStyle(0);
@@ -235,16 +233,13 @@ class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuAdapter.OnCl
         mIsByPermanentButton = isByPermanentButton;
 
         // Extract visible items from the Menu.
-        int numItems = mMenu.size();
-        int numGroupDivider = 0;
         List<MenuItem> menuItems = new ArrayList<MenuItem>();
-        for (int i = 0; i < numItems; ++i) {
+        List<Integer> heightList = new ArrayList<Integer>();
+        for (int i = 0; i < mMenu.size(); ++i) {
             MenuItem item = mMenu.getItem(i);
             if (item.isVisible()) {
                 menuItems.add(item);
-                if (item.getItemId() == groupDividerResourceId) {
-                    numGroupDivider++;
-                }
+                heightList.add(getMenuItemHeight(item, context, customViewBinders));
             }
         }
 
@@ -270,19 +265,19 @@ class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuAdapter.OnCl
 
         if (highlightedItemId != null) {
             View viewToHighlight = contentView.findViewById(highlightedItemId);
-            ViewHighlighter.turnOnHighlight(viewToHighlight, circleHighlightItem);
+            ViewHighlighter.turnOnRectangularHighlight(viewToHighlight);
         }
 
         // Set the adapter after the header is added to avoid crashes on JellyBean.
         // See crbug.com/761726.
         mListView.setAdapter(mAdapter);
 
-        int popupHeight = setMenuHeight(menuItems.size() - numGroupDivider, visibleDisplayFrame,
-                screenHeight, sizingPadding, footerHeight, headerHeight, anchorView);
+        int popupHeight = setMenuHeight(menuItems, heightList, visibleDisplayFrame, screenHeight,
+                sizingPadding, footerHeight, headerHeight, anchorView, groupDividerResourceId);
         int[] popupPosition = getPopupPosition(mTempLocation, mIsByPermanentButton,
                 mNegativeSoftwareVerticalOffset, mNegativeVerticalOffsetNotTopAnchored,
                 mCurrentScreenRotation, visibleDisplayFrame, sizingPadding, anchorView, popupWidth,
-                popupHeight, showFromBottom, anchorView.getRootView().getLayoutDirection());
+                popupHeight, anchorView.getRootView().getLayoutDirection());
 
         mPopup.setContentView(contentView);
         mPopup.showAtLocation(
@@ -318,7 +313,7 @@ class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuAdapter.OnCl
     static int[] getPopupPosition(int[] tempLocation, boolean isByPermanentButton,
             int negativeSoftwareVerticalOffset, int negativeVerticalOffsetNotTopAnchored,
             int screenRotation, Rect appRect, Rect padding, View anchorView, int popupWidth,
-            int popupHeight, boolean isAnchorAtBottom, int viewLayoutDirection) {
+            int popupHeight, int viewLayoutDirection) {
         anchorView.getLocationInWindow(tempLocation);
         int anchorViewX = tempLocation[0];
         int anchorViewY = tempLocation[1];
@@ -348,19 +343,6 @@ class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuAdapter.OnCl
             offsets[1] = -padding.bottom;
         } else {
             offsets[1] = -negativeSoftwareVerticalOffset;
-
-            // If the anchor is at the bottom of the screen, align the popup with the bottom of the
-            // anchor. The anchor may not be fully visible, so
-            // (appRect.bottom - anchorViewLocationOnScreenY) is used to determine the visible
-            // bottom edge of the anchor view.
-            if (isAnchorAtBottom) {
-                anchorView.getLocationOnScreen(tempLocation);
-                int anchorViewLocationOnScreenY = tempLocation[1];
-                offsets[1] += appRect.bottom - anchorViewLocationOnScreenY - popupHeight;
-                offsets[1] -= negativeVerticalOffsetNotTopAnchored;
-                offsets[1] += padding.bottom;
-            }
-
             if (viewLayoutDirection != View.LAYOUT_DIRECTION_RTL) {
                 offsets[0] = anchorView.getWidth() - popupWidth;
             }
@@ -375,6 +357,7 @@ class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuAdapter.OnCl
     @Override
     public void onItemClick(MenuItem menuItem) {
         if (menuItem.isEnabled()) {
+            recordSelectedMenuItem(menuItem.getItemId(), SystemClock.elapsedRealtime());
             mSelectedItemBeforeDismiss = true;
             dismiss();
             mHandler.onOptionsItemSelected(menuItem);
@@ -469,11 +452,9 @@ class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuAdapter.OnCl
         if (mAdapter != null) mAdapter.notifyDataSetChanged();
     }
 
-    // TODO(crbug.com/1114611): Calculate app menu height by each items height since custom menu
-    // item may have different height than |mItemRowHeight|.
-    private int setMenuHeight(int numMenuItems, Rect appDimensions, int screenHeight, Rect padding,
-            int footerHeight, int headerHeight, View anchorView) {
-        int menuHeight;
+    private int setMenuHeight(List<MenuItem> menuItems, List<Integer> heightList,
+            Rect appDimensions, int screenHeight, Rect padding, int footerHeight, int headerHeight,
+            View anchorView, @IdRes int groupDividerResourceId) {
         anchorView.getLocationOnScreen(mTempLocation);
         int anchorViewY = mTempLocation[1] - appDimensions.top;
 
@@ -489,27 +470,52 @@ class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuAdapter.OnCl
         availableScreenSpace -= (padding.bottom + footerHeight + headerHeight);
         if (mIsByPermanentButton) availableScreenSpace -= padding.top;
 
-        int numCanFit = availableScreenSpace / (mItemRowHeight + mItemDividerHeight);
-
-        // Fade out the last item if we cannot fit all items.
-        if (numCanFit < numMenuItems) {
-            int spaceForFullItems = numCanFit * (mItemRowHeight + mItemDividerHeight);
-            spaceForFullItems += footerHeight + headerHeight;
-
-            int spaceForPartialItem = (int) (LAST_ITEM_SHOW_FRACTION * mItemRowHeight);
-            // Determine which item needs hiding.
-            if (spaceForFullItems + spaceForPartialItem < availableScreenSpace) {
-                menuHeight = spaceForFullItems + spaceForPartialItem + padding.top + padding.bottom;
-            } else {
-                menuHeight = spaceForFullItems - mItemRowHeight + spaceForPartialItem + padding.top
-                        + padding.bottom;
-            }
-        } else {
-            int spaceForFullItems = numMenuItems * (mItemRowHeight + mItemDividerHeight);
-            spaceForFullItems += footerHeight + headerHeight;
-            menuHeight = spaceForFullItems + padding.top + padding.bottom;
-        }
+        int menuHeight = calculateHeightForItems(
+                menuItems, heightList, groupDividerResourceId, availableScreenSpace);
+        menuHeight += footerHeight + headerHeight + padding.top + padding.bottom;
         mPopup.setHeight(menuHeight);
+        return menuHeight;
+    }
+
+    @VisibleForTesting
+    int calculateHeightForItems(List<MenuItem> menuItems, List<Integer> heightList,
+            @IdRes int groupDividerResourceId, int availableScreenSpace) {
+        int spaceForFullItems = 0;
+        for (int i = 0; i < heightList.size(); i++) {
+            spaceForFullItems += heightList.get(i);
+        }
+
+        int menuHeight;
+        // Fade out the last item if we cannot fit all items.
+        if (availableScreenSpace < spaceForFullItems) {
+            int spaceForItems = 0;
+            int lastItem = 0;
+            // App menu should show 1 full item at least.
+            do {
+                spaceForItems += heightList.get(lastItem++);
+                if (spaceForItems + heightList.get(lastItem) > availableScreenSpace) {
+                    break;
+                }
+            } while (lastItem < heightList.size() - 1);
+
+            int spaceForPartialItem = (int) (LAST_ITEM_SHOW_FRACTION * heightList.get(lastItem));
+            // Determine which item needs hiding. We only show Partial of the last item, if there is
+            // not enough screen space to partially show the last identified item, then partially
+            // show the second to last item instead. We also do not show the partial divider line.
+            assert menuItems.size() == heightList.size();
+            while (lastItem > 1
+                    && (spaceForItems + spaceForPartialItem > availableScreenSpace
+                            || menuItems.get(lastItem).getItemId() == groupDividerResourceId)) {
+                spaceForItems -= heightList.get(lastItem - 1);
+                spaceForPartialItem =
+                        (int) (LAST_ITEM_SHOW_FRACTION * heightList.get(lastItem - 1));
+                lastItem--;
+            }
+
+            menuHeight = spaceForItems + spaceForPartialItem;
+        } else {
+            menuHeight = spaceForFullItems;
+        }
         return menuHeight;
     }
 
@@ -578,5 +584,42 @@ class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuAdapter.OnCl
                 + (mSelectedItemBeforeDismiss ? "SelectedItem" : "Abandoned");
         final long timeToTakeActionMs = SystemClock.elapsedRealtime() - mMenuShownTimeMs;
         RecordHistogram.recordMediumTimesHistogram(histogramName, timeToTakeActionMs);
+    }
+
+    private int getMenuItemHeight(
+            MenuItem item, Context context, @Nullable List<CustomViewBinder> customViewBinders) {
+        // Check if |item| is custom type
+        if (customViewBinders != null) {
+            for (int i = 0; i < customViewBinders.size(); i++) {
+                CustomViewBinder binder = customViewBinders.get(i);
+                if (binder.getItemViewType(item.getItemId()) != CustomViewBinder.NOT_HANDLED) {
+                    return binder.getPixelHeight(context);
+                }
+            }
+        }
+        return mItemRowHeight;
+    }
+
+    @VisibleForTesting
+    void recordSelectedMenuItem(int menuItemId, long timestamp) {
+        // Remove the selected MenuItems older than RECENT_SELECTED_MENUITEM_EXPIRATION_MS.
+        while (!mRecentSelectedMenuItems.isEmpty()
+                && (timestamp - mRecentSelectedMenuItems.peek().second
+                        > RECENT_SELECTED_MENUITEM_EXPIRATION_MS)) {
+            mRecentSelectedMenuItems.remove();
+        }
+        recordSelectionSequence(menuItemId);
+
+        mRecentSelectedMenuItems.add(new Pair<Integer, Long>(menuItemId, timestamp));
+    }
+
+    private void recordSelectionSequence(int menuItemId) {
+        for (Pair<Integer, Long> previousSelectedMenuItem : mRecentSelectedMenuItems) {
+            if (mHandler.recordAppMenuSimilarSelectionIfNeeded(
+                        previousSelectedMenuItem.first, menuItemId)) {
+                // Only record the similar selection once for one user action.
+                return;
+            }
+        }
     }
 }

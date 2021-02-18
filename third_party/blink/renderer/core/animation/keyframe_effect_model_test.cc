@@ -31,7 +31,7 @@
 #include "third_party/blink/renderer/core/animation/keyframe_effect_model.h"
 
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/renderer/core/animation/animation_test_helper.h"
+#include "third_party/blink/renderer/core/animation/animation_test_helpers.h"
 #include "third_party/blink/renderer/core/animation/css/compositor_keyframe_color.h"
 #include "third_party/blink/renderer/core/animation/css/compositor_keyframe_double.h"
 #include "third_party/blink/renderer/core/animation/css/compositor_keyframe_value_factory.h"
@@ -52,6 +52,8 @@
 #include "third_party/skia/include/core/SkColor.h"
 
 namespace blink {
+
+using animation_test_helpers::EnsureInterpolatedValueCached;
 
 class AnimationKeyframeEffectModel : public PageTestBase {
  protected:
@@ -158,7 +160,8 @@ const PropertySpecificKeyframeVector& ConstructEffectAndGetKeyframes(
 
   auto* effect = MakeGarbageCollected<StringKeyframeEffectModel>(keyframes);
 
-  auto style = document->GetStyleResolver().StyleForElement(element);
+  auto* style = document->GetStyleResolver().StyleForElement(
+      element, StyleRecalcContext());
 
   // Snapshot should update first time after construction
   EXPECT_TRUE(effect->SnapshotAllCompositorKeyframesIfNecessary(
@@ -632,7 +635,8 @@ TEST_F(AnimationKeyframeEffectModel, CompositorSnapshotUpdateBasic) {
       KeyframesAtZeroAndOne(CSSPropertyID::kOpacity, "0", "1");
   auto* effect = MakeGarbageCollected<StringKeyframeEffectModel>(keyframes);
 
-  auto style = GetDocument().GetStyleResolver().StyleForElement(element);
+  auto* style = GetDocument().GetStyleResolver().StyleForElement(
+      element, StyleRecalcContext());
 
   const CompositorKeyframeValue* value;
 
@@ -668,7 +672,8 @@ TEST_F(AnimationKeyframeEffectModel,
   auto* effect =
       MakeGarbageCollected<StringKeyframeEffectModel>(opacity_keyframes);
 
-  auto style = GetDocument().GetStyleResolver().StyleForElement(element);
+  auto* style = GetDocument().GetStyleResolver().StyleForElement(
+      element, StyleRecalcContext());
 
   EXPECT_TRUE(effect->SnapshotAllCompositorKeyframesIfNecessary(
       *element, *style, nullptr));
@@ -873,6 +878,20 @@ TEST_F(KeyframeEffectModelTest, EvenlyDistributed3) {
   EXPECT_DOUBLE_EQ(0.9, result[9]);
   EXPECT_DOUBLE_EQ(0.95, result[10]);
   EXPECT_DOUBLE_EQ(1.0, result[11]);
+}
+
+TEST_F(KeyframeEffectModelTest, RejectInvalidPropertyValue) {
+  StringKeyframe* keyframe = MakeGarbageCollected<StringKeyframe>();
+  keyframe->SetCSSPropertyValue(CSSPropertyID::kBackgroundColor,
+                                "not a valid color",
+                                SecureContextMode::kInsecureContext, nullptr);
+  // Verifty that property is quietly rejected.
+  EXPECT_EQ(0U, keyframe->Properties().size());
+
+  // Verify that a valid property value is accepted.
+  keyframe->SetCSSPropertyValue(CSSPropertyID::kBackgroundColor, "blue",
+                                SecureContextMode::kInsecureContext, nullptr);
+  EXPECT_EQ(1U, keyframe->Properties().size());
 }
 
 }  // namespace blink

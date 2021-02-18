@@ -5,6 +5,7 @@
 #include "chrome/browser/themes/theme_helper_win.h"
 
 #include "base/bind.h"
+#include "base/callback.h"
 #include "base/win/windows_version.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/win/titlebar_config.h"
@@ -64,7 +65,7 @@ SkColor ThemeHelperWin::GetDefaultColor(
   // In high contrast mode on Windows the platform provides the color. Try to
   // get that color first.
   SkColor color;
-  if (ui::NativeTheme::GetInstanceForNativeUi()->UsesHighContrastColors() &&
+  if (ui::NativeTheme::GetInstanceForNativeUi()->InForcedColorsMode() &&
       GetPlatformHighContrastColor(id, &color)) {
     return color;
   }
@@ -208,6 +209,7 @@ bool ThemeHelperWin::GetPlatformHighContrastColor(int id,
     case ThemeProperties::COLOR_OMNIBOX_RESULTS_TEXT_DIMMED_SELECTED:
     case ThemeProperties::COLOR_OMNIBOX_RESULTS_ICON_SELECTED:
     case ThemeProperties::COLOR_OMNIBOX_RESULTS_URL_SELECTED:
+    case ThemeProperties::COLOR_OMNIBOX_RESULTS_FOCUS_BAR:
       system_theme_color = ui::NativeTheme::SystemThemeColor::kHighlightText;
       break;
 
@@ -290,6 +292,7 @@ void ThemeHelperWin::OnDwmKeyUpdated() {
 
   // Watch for future changes.
   if (!dwm_key_->StartWatching(base::BindOnce(&ThemeHelperWin::OnDwmKeyUpdated,
-                                              base::Unretained(this))))
+                                              base::Unretained(this)))) {
     dwm_key_.reset();
+  }
 }

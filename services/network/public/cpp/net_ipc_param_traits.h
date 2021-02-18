@@ -19,9 +19,9 @@
 #include "net/base/load_timing_info.h"
 #include "net/base/proxy_server.h"
 #include "net/base/request_priority.h"
+#include "net/base/schemeful_site.h"
 #include "net/cert/cert_verify_result.h"
 #include "net/cert/ct_policy_status.h"
-#include "net/cert/ct_verify_result.h"
 #include "net/cert/signed_certificate_timestamp.h"
 #include "net/cert/signed_certificate_timestamp_and_status.h"
 #include "net/cert/x509_certificate.h"
@@ -52,16 +52,6 @@
 namespace IPC {
 
 template <>
-struct COMPONENT_EXPORT(NETWORK_CPP_BASE) ParamTraits<net::AuthChallengeInfo> {
-  typedef net::AuthChallengeInfo param_type;
-  static void Write(base::Pickle* m, const param_type& p);
-  static bool Read(const base::Pickle* m,
-                   base::PickleIterator* iter,
-                   param_type* r);
-  static void Log(const param_type& p, std::string* l);
-};
-
-template <>
 struct COMPONENT_EXPORT(NETWORK_CPP_BASE) ParamTraits<net::AuthCredentials> {
   typedef net::AuthCredentials param_type;
   static void Write(base::Pickle* m, const param_type& p);
@@ -74,16 +64,6 @@ struct COMPONENT_EXPORT(NETWORK_CPP_BASE) ParamTraits<net::AuthCredentials> {
 template <>
 struct COMPONENT_EXPORT(NETWORK_CPP_BASE) ParamTraits<net::CertVerifyResult> {
   typedef net::CertVerifyResult param_type;
-  static void Write(base::Pickle* m, const param_type& p);
-  static bool Read(const base::Pickle* m,
-                   base::PickleIterator* iter,
-                   param_type* r);
-  static void Log(const param_type& p, std::string* l);
-};
-
-template <>
-struct COMPONENT_EXPORT(NETWORK_CPP_BASE) ParamTraits<net::ct::CTVerifyResult> {
-  typedef net::ct::CTVerifyResult param_type;
   static void Write(base::Pickle* m, const param_type& p);
   static bool Read(const base::Pickle* m,
                    base::PickleIterator* iter,
@@ -248,6 +228,16 @@ struct COMPONENT_EXPORT(NETWORK_CPP_BASE) ParamTraits<net::SiteForCookies> {
 template <>
 struct COMPONENT_EXPORT(NETWORK_CPP_BASE) ParamTraits<url::Origin> {
   typedef url::Origin param_type;
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* p);
+  static void Log(const param_type& p, std::string* l);
+};
+
+template <>
+struct COMPONENT_EXPORT(NETWORK_CPP_BASE) ParamTraits<net::SchemefulSite> {
+  typedef net::SchemefulSite param_type;
   static void Write(base::Pickle* m, const param_type& p);
   static bool Read(const base::Pickle* m,
                    base::PickleIterator* iter,

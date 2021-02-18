@@ -6,12 +6,10 @@
 
 #include <string>
 
-#include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/http/http_response_headers.h"
 #include "services/network/public/cpp/cross_origin_embedder_policy.h"
-#include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/initiator_lock_compatibility.h"
 #include "services/network/public/cpp/url_loader_completion_status.h"
 #include "services/network/public/mojom/cross_origin_embedder_policy.mojom.h"
@@ -74,10 +72,8 @@ CrossOriginResourcePolicy::ParsedHeader ParseHeaderByString(
   if (header_value == "same-site")
     return CrossOriginResourcePolicy::kSameSite;
 
-  if (base::FeatureList::IsEnabled(features::kCrossOriginEmbedderPolicy) &&
-      header_value == "cross-origin") {
+  if (header_value == "cross-origin")
     return CrossOriginResourcePolicy::kCrossOrigin;
-  }
 
   // TODO(lukasza): Once https://github.com/whatwg/fetch/issues/760 gets
   // resolved, add support for parsing specific origins.
@@ -145,12 +141,23 @@ base::Optional<mojom::BlockedByResponseReason> IsBlockedInternal(
     mojom::RequestMode request_mode,
     base::Optional<url::Origin> request_initiator_origin_lock,
     mojom::CrossOriginEmbedderPolicyValue embedder_policy) {
+  // Browser-initiated requests are not subject to Cross-Origin-Resource-Policy.
+  if (!request_initiator.has_value()) {
+    // The DCHECK further confirm that this is a browser-initiated request.
+    // Note also CorsURLLoaderFactory::IsValidRequest which rejects
+    // renderer-initiated requests without a |request_initiator| and/or without
+    // a |request_initiator_origin_lock| via
+    // InitiatorLockCompatibility::kNoInitiator and
+    // InitiatorLockCompatibility::kNoLock cases.
+    DCHECK(!request_initiator_origin_lock.has_value());
+    return base::nullopt;
+  }
+
   // COEP https://mikewest.github.io/corpp/#corp-check
   bool upgrade_to_same_origin = false;
   if ((policy == CrossOriginResourcePolicy::kNoHeader ||
        policy == CrossOriginResourcePolicy::kParsingError) &&
       embedder_policy == mojom::CrossOriginEmbedderPolicyValue::kRequireCorp) {
-    DCHECK(base::FeatureList::IsEnabled(features::kCrossOriginEmbedderPolicy));
     policy = CrossOriginResourcePolicy::kSameOrigin;
     upgrade_to_same_origin = true;
   }

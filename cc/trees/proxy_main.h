@@ -5,6 +5,9 @@
 #ifndef CC_TREES_PROXY_MAIN_H_
 #define CC_TREES_PROXY_MAIN_H_
 
+#include <memory>
+#include <vector>
+
 #include "cc/cc_export.h"
 #include "cc/input/browser_controls_state.h"
 #include "cc/trees/layer_tree_host.h"
@@ -58,10 +61,6 @@ class CC_EXPORT ProxyMain : public Proxy {
       std::vector<LayerTreeHost::PresentationTimeCallback> callbacks,
       const gfx::PresentationFeedback& feedback);
   void NotifyThroughputTrackerResults(CustomTrackerResults results);
-  void SubmitThroughputData(ukm::SourceId source_id,
-                            int aggregated_percent,
-                            int impl_percent,
-                            base::Optional<int> main_percent);
   void DidObserveFirstScrollDelay(base::TimeDelta first_scroll_delay,
                                   base::TimeTicks first_scroll_timestamp);
 
@@ -93,7 +92,6 @@ class CC_EXPORT ProxyMain : public Proxy {
   bool CommitRequested() const override;
   void Start() override;
   void Stop() override;
-  bool SupportsImplScrolling() const override;
   void SetMutator(std::unique_ptr<LayerTreeMutator> mutator) override;
   void SetPaintWorkletLayerPainter(
       std::unique_ptr<PaintWorkletLayerPainter> painter) override;
@@ -104,6 +102,8 @@ class CC_EXPORT ProxyMain : public Proxy {
                                   bool animate) override;
   void RequestBeginMainFrameNotExpected(bool new_state) override;
   void SetSourceURL(ukm::SourceId source_id, const GURL& url) override;
+  void SetUkmSmoothnessDestination(
+      base::WritableSharedMemoryMapping ukm_smoothness_data) override;
   void ClearHistory() override;
   void SetRenderFrameObserver(
       std::unique_ptr<RenderFrameMetadataObserver> observer) override;

@@ -20,9 +20,9 @@
 #include "ui/base/ime/input_method.h"
 #include "ui/base/x/test/x11_property_change_waiter.h"
 #include "ui/base/x/x11_util.h"
-#include "ui/events/platform/x11/x11_event_source.h"
-#include "ui/gfx/x/x11.h"
 #include "ui/gfx/x/x11_atom_cache.h"
+#include "ui/gfx/x/xproto.h"
+#include "ui/gfx/x/xproto_util.h"
 #include "ui/views/controls/textfield/textfield.h"
 #endif  // defined(USE_X11)
 
@@ -68,24 +68,18 @@ void DispatchMouseMotionEvent(DesktopWindowTreeHostLinux* desktop_host,
   gfx::Rect bounds_in_screen = desktop_host->window()->GetBoundsInScreen();
 
   auto* connection = x11::Connection::Get();
-  xcb_generic_event_t ge;
-  memset(&ge, 0, sizeof(ge));
-  auto* xev = reinterpret_cast<xcb_motion_notify_event_t*>(&ge);
-  xev->response_type = MotionNotify;
-  xev->event = static_cast<uint32_t>(desktop_host->GetAcceleratedWidget());
-  xev->root = static_cast<uint32_t>(connection->default_screen().root);
-  xev->child = 0;
-  xev->time = x11::CurrentTime;
-  xev->event_x = point_in_screen.x() - bounds_in_screen.x();
-  xev->event_y = point_in_screen.y() - bounds_in_screen.y();
-  xev->root_x = point_in_screen.x();
-  xev->root_y = point_in_screen.y();
-  xev->state = 0;
-  xev->detail = NotifyNormal;
-  xev->same_screen = x11::True;
+  x11::MotionNotifyEvent xev{
+      .detail = x11::Motion::Normal,
+      .root = connection->default_root(),
+      .event = static_cast<x11::Window>(desktop_host->GetAcceleratedWidget()),
+      .root_x = point_in_screen.x(),
+      .root_y = point_in_screen.y(),
+      .event_x = point_in_screen.x() - bounds_in_screen.x(),
+      .event_y = point_in_screen.y() - bounds_in_screen.y(),
+      .same_screen = true,
+  };
 
-  x11::Event x11_event(&ge, connection);
-  ui::X11EventSource::GetInstance()->ProcessXEvent(&x11_event);
+  connection->DispatchEvent(x11::Event{xev});
 }
 
 // Blocks till |window| gets activated.
@@ -103,10 +97,10 @@ class ActivationWaiter : public ui::X11PropertyChangeWaiter {
 
  private:
   // ui::X11PropertyChangeWaiter:
-  bool ShouldKeepOnWaiting(x11::Event* event) override {
+  bool ShouldKeepOnWaiting() override {
     x11::Window window = x11::Window::None;
-    ui::GetProperty(ui::GetX11RootWindow(), gfx::GetAtom("_NET_ACTIVE_WINDOW"),
-                    &window);
+    GetProperty(ui::GetX11RootWindow(), x11::GetAtom("_NET_ACTIVE_WINDOW"),
+                &window);
     return window != window_;
   }
 
@@ -214,25 +208,17 @@ class HitTestNonClientFrameView : public NativeFrameView {
 // This is used to return HitTestNonClientFrameView on create call.
 class HitTestWidgetDelegate : public WidgetDelegate {
  public:
-  explicit HitTestWidgetDelegate(Widget* widget) : widget_(widget) {
+  HitTestWidgetDelegate() {
+    SetCanResize(true);
     SetOwnedByWidget(true);
   }
   ~HitTestWidgetDelegate() override = default;
 
-  void set_can_resize(bool can_resize) {
-    can_resize_ = can_resize;
-    widget_->OnSizeConstraintsChanged();
-  }
-
   HitTestNonClientFrameView* frame_view() { return frame_view_; }
 
   // WidgetDelegate:
-  bool CanResize() const override { return can_resize_; }
-  Widget* GetWidget() override { return widget_; }
-  Widget* GetWidget() const override { return widget_; }
   std::unique_ptr<NonClientFrameView> CreateNonClientFrameView(
       Widget* widget) override {
-    DCHECK_EQ(widget_, widget);
     DCHECK(!frame_view_);
     auto frame_view = std::make_unique<HitTestNonClientFrameView>(widget);
     frame_view_ = frame_view.get();
@@ -240,9 +226,7 @@ class HitTestWidgetDelegate : public WidgetDelegate {
   }
 
  private:
-  Widget* const widget_;
   HitTestNonClientFrameView* frame_view_ = nullptr;
-  bool can_resize_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(HitTestWidgetDelegate);
 };
@@ -289,7 +273,7 @@ class DesktopWindowTreeHostLinuxTest
  protected:
   Widget* BuildTopLevelDesktopWidget(const gfx::Rect& bounds) {
     Widget* toplevel = new Widget;
-    delegate_ = new HitTestWidgetDelegate(toplevel);
+    delegate_ = new HitTestWidgetDelegate();
     Widget::InitParams toplevel_params =
         CreateParams(Widget::InitParams::TYPE_WINDOW);
     auto* native_widget = new DesktopNativeWidgetAura(toplevel);
@@ -355,7 +339,6 @@ TEST_F(DesktopWindowTreeHostLinuxTest, HitTest) {
   host_->DestroyNonClientEventFilter();
   host_->non_client_window_event_filter_ =
       std::make_unique<WindowEventFilterLinux>(host_, handler.get());
-  delegate_->set_can_resize(true);
 
   // It is not important to use pointer locations corresponding to the hittests
   // values used in the browser itself, because we fake the hit test results,
@@ -526,9 +509,6 @@ TEST_F(DesktopWindowTreeHostLinuxTest,
 // Chrome even if it not possible to deactivate the window wrt to the x server.
 // This behavior is required by several interactive_ui_tests.
 TEST_F(DesktopWindowTreeHostLinuxTest, Deactivate) {
-  // TODO(1109112): enable this test.
-  if (features::IsUsingOzonePlatform())
-    GTEST_SKIP();
   std::unique_ptr<Widget> widget(CreateWidget(gfx::Rect(100, 100, 100, 100)));
 
   ActivationWaiter waiter(static_cast<x11::Window>(
@@ -554,9 +534,6 @@ TEST_F(DesktopWindowTreeHostLinuxTest, Deactivate) {
 // Chrome synchronously switches the window that mouse events are forwarded to
 // when capture is changed.
 TEST_F(DesktopWindowTreeHostLinuxTest, CaptureEventForwarding) {
-  // TODO(1109112): enable this test.
-  if (features::IsUsingOzonePlatform())
-    GTEST_SKIP();
   std::unique_ptr<Widget> widget1(CreateWidget(gfx::Rect(100, 100, 100, 100)));
   aura::Window* window1 = widget1->GetNativeWindow();
   DesktopWindowTreeHostLinux* host1 =
@@ -631,9 +608,6 @@ TEST_F(DesktopWindowTreeHostLinuxTest, CaptureEventForwarding) {
 }
 
 TEST_F(DesktopWindowTreeHostLinuxTest, InputMethodFocus) {
-  // TODO(1109112): enable this test.
-  if (features::IsUsingOzonePlatform())
-    GTEST_SKIP();
   std::unique_ptr<Widget> widget(CreateWidget(gfx::Rect(100, 100, 100, 100)));
 
   // Waiter should be created as early as possible so that PropertyNotify has

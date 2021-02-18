@@ -8,7 +8,7 @@ import android.content.Context;
 import android.view.View;
 
 import org.chromium.base.supplier.Supplier;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.content_public.browser.NavigationHistory;
 
@@ -16,9 +16,6 @@ import org.chromium.content_public.browser.NavigationHistory;
  * Interface that defines the methods for controlling Navigation sheet.
  */
 public interface NavigationSheet {
-    // Field trial variation key that enables navigation sheet.
-    static final String NAVIGATION_SHEET_ENABLED_KEY = "overscroll_history_navigation_bottom_sheet";
-
     /**
      * Delegate performing navigation-related operations/providing the required info.
      */
@@ -42,19 +39,16 @@ public interface NavigationSheet {
      * @param bottomSheetController {@link BottomSheetController} object.
      * @return NavigationSheet object.
      */
-    public static NavigationSheet create(
-            View rootView, Context context, Supplier<BottomSheetController> bottomSheetController) {
-        return new NavigationSheetCoordinator(rootView, context, bottomSheetController);
+    public static NavigationSheet create(View rootView, Context context,
+            Supplier<BottomSheetController> bottomSheetController, Profile profile) {
+        return new NavigationSheetCoordinator(rootView, context, bottomSheetController, profile);
     }
 
     /**
      * @return {@code true} if navigation sheet is enabled.
      */
     static boolean isEnabled() {
-        return ChromeFeatureList.isInitialized()
-                && ChromeFeatureList.getFieldTrialParamByFeatureAsBoolean(
-                        ChromeFeatureList.OVERSCROLL_HISTORY_NAVIGATION,
-                        NAVIGATION_SHEET_ENABLED_KEY, false);
+        return false;
     }
 
     /**

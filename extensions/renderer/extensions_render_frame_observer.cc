@@ -6,6 +6,10 @@
 
 #include <stddef.h>
 
+#include <memory>
+#include <utility>
+#include <vector>
+
 #include "base/bind.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
@@ -81,11 +85,10 @@ StackTrace GetStackTraceFromMessage(base::string16* message,
 ExtensionsRenderFrameObserver::ExtensionsRenderFrameObserver(
     content::RenderFrame* render_frame,
     service_manager::BinderRegistry* registry)
-    : content::RenderFrameObserver(render_frame),
-      webview_visually_deemphasized_(false) {
+    : content::RenderFrameObserver(render_frame) {
   registry->AddInterface(
-      base::Bind(&ExtensionsRenderFrameObserver::BindAppWindowReceiver,
-                 base::Unretained(this)));
+      base::BindRepeating(&ExtensionsRenderFrameObserver::BindAppWindowReceiver,
+                          base::Unretained(this)));
 }
 
 ExtensionsRenderFrameObserver::~ExtensionsRenderFrameObserver() {

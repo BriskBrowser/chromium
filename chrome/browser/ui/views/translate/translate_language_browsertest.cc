@@ -1,6 +1,8 @@
 // Copyright 2017 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+#include "build/chromeos_buildflags.h"
+
 #if defined(USE_AURA)
 
 #include <stddef.h>
@@ -40,14 +42,10 @@ namespace translate {
 
 namespace {
 
-const base::FilePath::CharType kEnglishTestPath[] =
-    FILE_PATH_LITERAL("english_page.html");
-const base::FilePath::CharType kItalianTestPath[] =
-    FILE_PATH_LITERAL("italian_page.html");
-const base::FilePath::CharType kFrenchTestPath[] =
-    FILE_PATH_LITERAL("french_page.html");
-const base::FilePath::CharType kGermanTestPath[] =
-    FILE_PATH_LITERAL("german_page.html");
+const char kEnglishTestPath[] = "/english_page.html";
+const char kItalianTestPath[] = "/italian_page.html";
+const char kFrenchTestPath[] = "/french_page.html";
+const char kGermanTestPath[] = "/german_page.html";
 
 static const char kTestValidScript[] =
     "var google = {};"
@@ -115,7 +113,7 @@ class TranslateLanguageBrowserTest : public InProcessBrowserTest {
     browser_ = incognito ? CreateIncognitoBrowser() : browser();
   }
 
-  void NavigateToUrl(const base::FilePath::StringPieceType path) {
+  void NavigateToUrl(const char* path) {
     // Close previous Translate bubble, if it exists. This is intended to
     // prevent a race condition in which the previous page's call to
     // TranslateBubbleView::WindowClosing doesn't occur until after the new page
@@ -124,13 +122,11 @@ class TranslateLanguageBrowserTest : public InProcessBrowserTest {
     // TODO(789593): investigate a more robust fix.
     TranslateBubbleView::CloseCurrentBubble();
 
-    const GURL url =
-        ui_test_utils::GetTestUrl(base::FilePath(), base::FilePath(path));
-    ui_test_utils::NavigateToURL(browser_, url);
+    ui_test_utils::NavigateToURL(browser_,
+                                 GURL(embedded_test_server()->GetURL(path)));
   }
 
-  void CheckForTranslateUI(const base::FilePath::StringPieceType path,
-                           const bool expect_translate) {
+  void CheckForTranslateUI(const char* path, const bool expect_translate) {
     ASSERT_TRUE(browser_);
 
     auto waiter = CreateTranslateWaiter(
@@ -184,7 +180,7 @@ class TranslateLanguageBrowserTest : public InProcessBrowserTest {
 
   void Revert() { test_utils::PressRevert(browser_); }
 
-  LanguageState& GetLanguageState() {
+  const LanguageState& GetLanguageState() {
     auto* const client = ChromeTranslateClient::FromWebContents(
         browser_->tab_strip_model()->GetActiveWebContents());
     CHECK(client);
@@ -219,7 +215,9 @@ class TranslateLanguageBrowserTest : public InProcessBrowserTest {
   DISALLOW_COPY_AND_ASSIGN(TranslateLanguageBrowserTest);
 };
 
-IN_PROC_BROWSER_TEST_F(TranslateLanguageBrowserTest, LanguageModelLogSucceed) {
+// Flaky failures & timeouts: https://crbug.com/1131622
+IN_PROC_BROWSER_TEST_F(TranslateLanguageBrowserTest,
+                       DISABLED_LanguageModelLogSucceed) {
   InitInIncognitoMode(false);
 
   for (int i = 0; i < 10; ++i) {
@@ -245,7 +243,9 @@ IN_PROC_BROWSER_TEST_F(TranslateLanguageBrowserTest, LanguageModelLogSucceed) {
 }
 
 // https://crbug.com/863241
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 #define MAYBE_DontLogInIncognito DISABLED_DontLogInIncognito
 #else
 #define MAYBE_DontLogInIncognito DontLogInIncognito
@@ -300,7 +300,7 @@ IN_PROC_BROWSER_TEST_F(TranslateLanguageBrowserTestWithTranslateRecentTarget,
   InitInIncognitoMode(false);
 
   // Before browsing: set auto translate from French to Chinese.
-  GetTranslatePrefs()->WhitelistLanguagePair("fr", "zh-CN");
+  GetTranslatePrefs()->AddLanguagePairToAlwaysTranslateList("fr", "zh-CN");
   EXPECT_EQ("", GetTranslatePrefs()->GetRecentTargetLanguage());
 
   // Load an Italian page and translate to Spanish. After this, Spanish should

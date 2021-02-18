@@ -12,6 +12,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/viz/common/frame_sinks/begin_frame_source.h"
 #include "components/viz/service/display/delegated_ink_point_renderer_base.h"
 #include "components/viz/service/display/display.h"
@@ -41,9 +42,11 @@ RootCompositorFrameSinkImpl::Create(
   // First create an output surface.
   mojo::Remote<mojom::DisplayClient> display_client(
       std::move(params->display_client));
+  auto display_controller = output_surface_provider->CreateGpuDependency(
+      params->gpu_compositing, params->widget, params->renderer_settings);
   auto output_surface = output_surface_provider->CreateOutputSurface(
       params->widget, params->gpu_compositing, display_client.get(),
-      params->renderer_settings, debug_settings);
+      display_controller.get(), params->renderer_settings, debug_settings);
 
   // Creating output surface failed. The host can send a new request, possibly
   // with a different compositing mode.
@@ -54,7 +57,9 @@ RootCompositorFrameSinkImpl::Create(
   output_surface->SetNeedsSwapSizeNotifications(
       params->send_swap_size_notifications);
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   // For X11, we need notify client about swap completion after resizing, so the
   // client can use it for synchronize with X11 WM.
   output_surface->SetNeedsSwapSizeNotifications(true);
@@ -127,16 +132,22 @@ RootCompositorFrameSinkImpl::Create(
 #if !defined(OS_APPLE)
   auto* output_surface_ptr = output_surface.get();
 #endif
+  gpu::SharedImageInterface* sii = nullptr;
+  if (output_surface->context_provider())
+    sii = output_surface->context_provider()->SharedImageInterface();
+  else if (display_controller)
+    sii = display_controller->shared_image_interface();
 
   auto overlay_processor = OverlayProcessorInterface::CreateOverlayProcessor(
-      output_surface.get(), output_surface_provider->GetSharedImageManager(),
-      params->renderer_settings, debug_settings);
+      output_surface.get(), output_surface->GetSurfaceHandle(),
+      output_surface->capabilities(),
+      display_controller.get(), sii, params->renderer_settings, debug_settings);
 
   auto display = std::make_unique<Display>(
       frame_sink_manager->shared_bitmap_manager(), params->renderer_settings,
-      debug_settings, params->frame_sink_id, std::move(output_surface),
-      std::move(overlay_processor), std::move(scheduler),
-      std::move(task_runner));
+      debug_settings, params->frame_sink_id, std::move(display_controller),
+      std::move(output_surface), std::move(overlay_processor),
+      std::move(scheduler), std::move(task_runner));
 
   if (external_begin_frame_source_mojo)
     external_begin_frame_source_mojo->SetDisplay(display.get());
@@ -150,8 +161,7 @@ RootCompositorFrameSinkImpl::Create(
       std::move(synthetic_begin_frame_source),
       std::move(external_begin_frame_source), std::move(display),
       params->use_preferred_interval_for_video,
-      hw_support_for_multiple_refresh_rates,
-      params->num_of_frames_to_toggle_interval));
+      hw_support_for_multiple_refresh_rates));
 
 #if !defined(OS_APPLE)
   // On Mac vsync parameter updates come from the browser process. We don't need
@@ -185,7 +195,8 @@ void RootCompositorFrameSinkImpl::DisableSwapUntilResize(
 #endif
 
 void RootCompositorFrameSinkImpl::Resize(const gfx::Size& size) {
-  display_->Resize(size);
+  if (!display_->resize_based_on_root_surface())
+    display_->Resize(size);
 }
 
 void RootCompositorFrameSinkImpl::SetDisplayColorMatrix(
@@ -323,8 +334,13 @@ void RootCompositorFrameSinkImpl::SubmitCompositorFrame(
     CompositorFrame frame,
     base::Optional<HitTestRegionList> hit_test_region_list,
     uint64_t submit_time) {
-  if (support_->last_activated_local_surface_id() != local_surface_id)
+  if (support_->last_activated_local_surface_id() != local_surface_id) {
     display_->SetLocalSurfaceId(local_surface_id, frame.device_scale_factor());
+    // Resize the |display_| to the root compositor frame |output_rect| so that
+    // we won't show root surface gutters.
+    if (display_->resize_based_on_root_surface())
+      display_->Resize(frame.render_pass_list.back()->output_rect.size());
+  }
 
   const auto result = support_->MaybeSubmitCompositorFrame(
       local_surface_id, std::move(frame), std::move(hit_test_region_list),
@@ -386,8 +402,7 @@ RootCompositorFrameSinkImpl::RootCompositorFrameSinkImpl(
     std::unique_ptr<ExternalBeginFrameSource> external_begin_frame_source,
     std::unique_ptr<Display> display,
     bool use_preferred_interval_for_video,
-    bool hw_support_for_multiple_refresh_rates,
-    size_t num_of_frames_to_toggle_interval)
+    bool hw_support_for_multiple_refresh_rates)
     : compositor_frame_sink_client_(std::move(frame_sink_client)),
       compositor_frame_sink_receiver_(this, std::move(frame_sink_receiver)),
       display_client_(std::move(display_client)),
@@ -406,8 +421,7 @@ RootCompositorFrameSinkImpl::RootCompositorFrameSinkImpl(
                                                support_->frame_sink_id());
   display_->Initialize(this, support_->frame_sink_manager()->surface_manager(),
                        Display::kEnableSharedImages,
-                       hw_support_for_multiple_refresh_rates,
-                       num_of_frames_to_toggle_interval);
+                       hw_support_for_multiple_refresh_rates);
   support_->SetUpHitTest(display_.get());
   if (use_preferred_interval_for_video &&
       !hw_support_for_multiple_refresh_rates) {
@@ -456,7 +470,9 @@ void RootCompositorFrameSinkImpl::DisplayDidCompleteSwapWithSize(
 #if defined(OS_ANDROID)
   if (display_client_)
     display_client_->DidCompleteSwapWithSize(pixel_size);
-#elif defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#elif defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   if (display_client_ && pixel_size != last_swap_pixel_size_) {
     last_swap_pixel_size_ = pixel_size;
     display_client_->DidCompleteSwapWithNewSize(last_swap_pixel_size_);

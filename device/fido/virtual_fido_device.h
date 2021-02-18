@@ -177,6 +177,10 @@ class COMPONENT_EXPORT(DEVICE_FIDO) VirtualFidoDevice : public FidoDevice {
     uint8_t pin_uv_token_permissions = 0;
     // The permissions RPID for |pin_token|.
     base::Optional<std::string> pin_uv_token_rpid;
+    // If true, fail all PinUvAuthToken requests until a new PIN is set.
+    bool force_pin_change = false;
+    // The minimum PIN length as unicode code points.
+    uint32_t min_pin_length = kMinPinLength;
 
     // Number of internal UV retries remaining.
     int uv_retries = kMaxUvRetries;
@@ -226,6 +230,15 @@ class COMPONENT_EXPORT(DEVICE_FIDO) VirtualFidoDevice : public FidoDevice {
     // expected sequence of requests was sent.
     std::vector<size_t> allow_list_sizes;
 
+    // The large-blob array.
+    std::vector<uint8_t> large_blob;
+
+    // Buffer that gets progressively filled with large blob fragments until
+    // committed.
+    std::vector<uint8_t> large_blob_buffer;
+    uint64_t large_blob_expected_next_offset = 0;
+    uint64_t large_blob_expected_length = 0;
+
     FidoTransportProtocol transport =
         FidoTransportProtocol::kUsbHumanInterfaceDevice;
 
@@ -264,6 +277,19 @@ class COMPONENT_EXPORT(DEVICE_FIDO) VirtualFidoDevice : public FidoDevice {
                            base::span<const uint8_t> user_id,
                            base::Optional<std::string> user_name,
                            base::Optional<std::string> user_display_name);
+
+    // Returns the large blob associated with the credential, if any.
+    base::Optional<std::vector<uint8_t>> GetLargeBlob(
+        const RegistrationData& credential);
+
+    // Injects a large blob for the credential. If the credential already has an
+    // associated large blob, replaces it. If the |large_blob| is malformed,
+    // completely replaces its contents.
+    void InjectLargeBlob(RegistrationData* credential,
+                         base::span<const uint8_t> blob);
+
+    // Clears all large blobs resetting |large_blob| to its default value.
+    void ClearLargeBlobs();
 
    private:
     friend class base::RefCounted<State>;

@@ -8,6 +8,18 @@
   await TestRunner.showPanel('elements');
   await TestRunner.loadHTML(`
       <style>
+      #inspected::target-text {
+        color: green;
+      }
+
+      #inspected::spelling-error {
+        color: orange;
+      }
+
+      #inspected::grammar-error {
+        color: teal;
+      }
+
       #inspected {
         display: list-item;
       }

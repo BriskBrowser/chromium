@@ -35,7 +35,7 @@ class LatencyInfo;
 
 namespace cc {
 
-class EventMetrics;
+class CompositorDelegateForInput;
 class ScrollElasticityHelper;
 
 enum class PointerResultType { kUnhandled = 0, kScrollbarScroll };
@@ -150,18 +150,34 @@ struct InputHandlerCommitData {
   bool has_scrolled_by_precisiontouchpad = false;
 };
 
-// The InputHandler is a way for the embedders to interact with the impl thread
-// side of the compositor implementation. There is one InputHandler per
-// LayerTreeHost. To use the input handler, implement the InputHanderClient
-// interface and bind it to the handler on the compositor thread.
+// The InputHandler interface is a way for the embedders to interact with the
+// input system running on the compositor thread. Each instance of a compositor
+// (i.e. a LayerTreeHostImpl) is associated with one InputHandler instance. The
+// InputHandler sits in between the embedder (the UI compositor or Blink) and
+// the compositor (LayerTreeHostImpl); as such, it must be bound to both.
+//
+// To use the input handler, instantiate it by passing in the compositor's
+// CompositorDelegateForInput to the Create factory method. The compositor
+// assumes ownership of the InputHandler and will bind itself. Then, implement
+// the InputHandlerClient interface and bind it to the handler by calling
+// BindToClient on the input handler. This should all be done on the
+// input-handling thread (i.e. the "compositor" thread if one exists).
 class CC_EXPORT InputHandler {
  public:
+  // Creates an instance of the InputHandler and binds it to the layer tree
+  // delegate. The delegate owns the InputHandler so their lifetimes
+  // are tied together, hence, this returns a WeakPtr.
+  static base::WeakPtr<InputHandler> Create(
+      CompositorDelegateForInput& compositor_delegate);
+
   // Note these are used in a histogram. Do not reorder or delete existing
   // entries.
   enum class ScrollThread {
     SCROLL_ON_MAIN_THREAD = 0,
     SCROLL_ON_IMPL_THREAD,
     SCROLL_IGNORED,
+    // SCROLL_UNKOWN is not used anymore. However we'll keep this entry as per
+    // the comment above.
     SCROLL_UNKNOWN,
     LAST_SCROLL_STATUS = SCROLL_UNKNOWN
   };
@@ -181,9 +197,17 @@ class CC_EXPORT InputHandler {
           main_thread_scrolling_reasons(main_thread_scrolling_reasons),
           needs_main_thread_hit_test(needs_main_thread_hit_test) {}
     ScrollThread thread = ScrollThread::SCROLL_ON_IMPL_THREAD;
+    // TODO(crbug.com/1155663): Make sure to set main_thread_scrolling_reasons
+    // only when ScrollStatus.thread is set to
+    // InputHander::ScrollThread::SCROLL_ON_MAIN_THREAD
     uint32_t main_thread_scrolling_reasons =
         MainThreadScrollingReason::kNotScrollingOnMain;
-    bool bubble = false;
+    // TODO(crbug.com/1155758): This is a temporary workaround for GuestViews
+    // as they create viewport nodes and want to bubble scroll if the
+    // viewport cannot scroll in the given delta directions. There should be
+    // a parameter to ThreadInputHandler to specify whether unused delta is
+    // consumed by the viewport or bubbles to the parent.
+    bool viewport_cannot_scroll = false;
 
     // Used only in scroll unification. Tells the caller that the input handler
     // detected a case where it cannot reliably target a scroll node and needs
@@ -196,6 +220,8 @@ class CC_EXPORT InputHandler {
     HANDLER,
     HANDLER_ON_SCROLLING_LAYER
   };
+
+  virtual base::WeakPtr<InputHandler> AsWeakPtr() const = 0;
 
   // Binds a client to this handler to receive notifications. Only one client
   // can be bound to an InputHandler. The client must live at least until the
@@ -238,7 +264,7 @@ class CC_EXPORT InputHandler {
   // returned SCROLL_STARTED. No-op if ScrollBegin wasn't called or didn't
   // result in a successful scroll latch. Snap to a snap position if
   // |should_snap| is true.
-  virtual void ScrollEnd(bool should_snap) = 0;
+  virtual void ScrollEnd(bool should_snap = false) = 0;
 
   // Called to notify every time scroll-begin/end is attempted by an input
   // event.
@@ -246,6 +272,7 @@ class CC_EXPORT InputHandler {
                                  ScrollBeginThreadState scroll_start_state) = 0;
   virtual void RecordScrollEnd(ui::ScrollInputType input_type) = 0;
 
+  virtual PointerResultType HitTest(const gfx::PointF& mouse_position) = 0;
   virtual InputHandlerPointerResult MouseMoveAt(
       const gfx::Point& mouse_position) = 0;
   // TODO(arakeri): Pass in the modifier instead of a bool once the refactor
@@ -311,13 +338,18 @@ class CC_EXPORT InputHandler {
   virtual std::unique_ptr<SwapPromiseMonitor>
   CreateLatencyInfoSwapPromiseMonitor(ui::LatencyInfo* latency) = 0;
 
-  // During the lifetime of the returned EventsMetricsManager::ScopedMonitor, if
-  // SetNeedsOneBeginImplFrame() or SetNeedsRedraw() are called on
-  // LayerTreeHostImpl or a scroll animation is updated, |event_metrics| will be
-  // saved for reporting event latency metrics. It is allowed to pass nullptr as
-  // |event_metrics| in which case the return value would also be nullptr.
+  // Returns a new instance of `EventsMetricsManager::ScopedMonitor` to monitor
+  // the scope of handling an event. If `done_callback` is not a null callback,
+  // it will be called when the scope ends. If During the lifetime of the scoped
+  // monitor, `SetNeedsOneBeginImplFrame()` or `SetNeedsRedraw()` are called on
+  // `LayerTreeHostImpl` or a scroll animation is updated, the callback will be
+  // called in the end with `handled` argument set to true, denoting that the
+  // event was handled and the client should return `EventMetrics` associated
+  // with the event if it is interested in reporting event latency metrics for
+  // it.
   virtual std::unique_ptr<EventsMetricsManager::ScopedMonitor>
-  GetScopedEventMetricsMonitor(std::unique_ptr<EventMetrics> event_metrics) = 0;
+  GetScopedEventMetricsMonitor(
+      EventsMetricsManager::ScopedMonitor::DoneCallback done_callback) = 0;
 
   virtual ScrollElasticityHelper* CreateScrollElasticityHelper() = 0;
 
@@ -350,8 +382,8 @@ class CC_EXPORT InputHandler {
   virtual void NotifyInputEvent() = 0;
 
  protected:
-  InputHandler() = default;
   virtual ~InputHandler() = default;
+  InputHandler() = default;
 };
 
 }  // namespace cc

@@ -4,7 +4,7 @@
 
 #include "chrome/browser/chromeos/crostini/crostini_port_forwarder.h"
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/run_loop.h"
 #include "chrome/browser/chromeos/crostini/crostini_manager.h"
 #include "chrome/browser/chromeos/crostini/crostini_test_helper.h"
@@ -18,9 +18,9 @@
 using testing::Mock;
 using testing::Return;
 
-void TestingCallback(bool* out, base::Closure closure, bool in) {
+void TestingCallback(bool* out, base::OnceClosure closure, bool in) {
   *out = in;
-  closure.Run();
+  std::move(closure).Run();
 }
 
 namespace crostini {

@@ -83,7 +83,12 @@ TEST_F(FromGWSPageLoadMetricsObserverTest, NoPreviousCommittedUrl) {
   tester()->NavigateToUntrackedUrl();
   tester()->histogram_tester().ExpectTotalCount(
       internal::kHistogramFromGWSFirstImagePaint, 0);
-  EXPECT_EQ(0ul, tester()->test_ukm_recorder().entries_count());
+  size_t document_created_entries_count =
+      tester()->test_ukm_recorder().GetEntriesByName("DocumentCreated").size();
+  size_t unload_entries_count =
+      tester()->test_ukm_recorder().GetEntriesByName("Unload").size();
+  EXPECT_EQ(0ul, tester()->test_ukm_recorder().entries_count() -
+                     document_created_entries_count - unload_entries_count);
 }
 
 TEST_F(FromGWSPageLoadMetricsObserverTest, NonSearchPreviousCommittedUrl) {
@@ -101,7 +106,12 @@ TEST_F(FromGWSPageLoadMetricsObserverTest, NonSearchPreviousCommittedUrl) {
   tester()->NavigateToUntrackedUrl();
   tester()->histogram_tester().ExpectTotalCount(
       internal::kHistogramFromGWSFirstImagePaint, 0);
-  EXPECT_EQ(0ul, tester()->test_ukm_recorder().entries_count());
+  size_t document_created_entries_count =
+      tester()->test_ukm_recorder().GetEntriesByName("DocumentCreated").size();
+  size_t unload_entries_count =
+      tester()->test_ukm_recorder().GetEntriesByName("Unload").size();
+  EXPECT_EQ(0ul, tester()->test_ukm_recorder().entries_count() -
+                     document_created_entries_count - unload_entries_count);
 }
 
 TEST_F(FromGWSPageLoadMetricsObserverTest,
@@ -120,7 +130,12 @@ TEST_F(FromGWSPageLoadMetricsObserverTest,
   tester()->NavigateToUntrackedUrl();
   tester()->histogram_tester().ExpectTotalCount(
       internal::kHistogramFromGWSFirstImagePaint, 0);
-  EXPECT_EQ(0ul, tester()->test_ukm_recorder().entries_count());
+  size_t document_created_entries_count =
+      tester()->test_ukm_recorder().GetEntriesByName("DocumentCreated").size();
+  size_t unload_entries_count =
+      tester()->test_ukm_recorder().GetEntriesByName("Unload").size();
+  EXPECT_EQ(0ul, tester()->test_ukm_recorder().entries_count() -
+                     document_created_entries_count - unload_entries_count);
 }
 
 TEST_F(FromGWSPageLoadMetricsObserverTest,
@@ -141,7 +156,12 @@ TEST_F(FromGWSPageLoadMetricsObserverTest,
   tester()->NavigateToUntrackedUrl();
   tester()->histogram_tester().ExpectTotalCount(
       internal::kHistogramFromGWSFirstImagePaint, 0);
-  EXPECT_EQ(0ul, tester()->test_ukm_recorder().entries_count());
+  size_t document_created_entries_count =
+      tester()->test_ukm_recorder().GetEntriesByName("DocumentCreated").size();
+  size_t unload_entries_count =
+      tester()->test_ukm_recorder().GetEntriesByName("Unload").size();
+  EXPECT_EQ(0ul, tester()->test_ukm_recorder().entries_count() -
+                     document_created_entries_count - unload_entries_count);
 }
 
 TEST_F(FromGWSPageLoadMetricsObserverTest, SearchPreviousCommittedUrl1) {
@@ -172,7 +192,7 @@ TEST_F(FromGWSPageLoadMetricsObserverTest, SearchPreviousCommittedUrl1) {
 
   tester()->SimulateTimingUpdate(timing);
   page_load_metrics::mojom::FrameRenderDataUpdate render_data(1.0, 1.0, 0, 0, 0,
-                                                              0);
+                                                              0, {});
   tester()->SimulateRenderDataUpdate(render_data);
   render_data.layout_shift_delta = 1.5;
   render_data.layout_shift_delta_before_input_or_scroll = 0.0;
@@ -573,7 +593,12 @@ TEST_F(FromGWSPageLoadMetricsObserverTest,
   tester()->histogram_tester().ExpectTotalCount(
       internal::kHistogramFromGWSFirstImagePaint, 0);
 
-  EXPECT_EQ(0ul, tester()->test_ukm_recorder().entries_count());
+  size_t document_created_entries_count =
+      tester()->test_ukm_recorder().GetEntriesByName("DocumentCreated").size();
+  size_t unload_entries_count =
+      tester()->test_ukm_recorder().GetEntriesByName("Unload").size();
+  EXPECT_EQ(0ul, tester()->test_ukm_recorder().entries_count() -
+                     document_created_entries_count - unload_entries_count);
 }
 
 TEST_F(FromGWSPageLoadMetricsObserverTest,
@@ -588,7 +613,7 @@ TEST_F(FromGWSPageLoadMetricsObserverTest,
   NavigateAndCommit(GURL("https://www.google.com/search#q=test"));
   NavigateAndCommit(GURL(kExampleUrl));
   page_load_metrics::mojom::FrameRenderDataUpdate render_data(1.0, 1.0, 0, 0, 0,
-                                                              0);
+                                                              0, {});
   tester()->SimulateRenderDataUpdate(render_data);
 
   web_contents()->WasHidden();

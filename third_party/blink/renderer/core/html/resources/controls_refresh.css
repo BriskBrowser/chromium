@@ -22,16 +22,16 @@ textarea {
   border-color: -internal-light-dark(#767676, #858585);
 }
 
-a:-webkit-any-link:focus {
+a:-webkit-any-link:focus-visible {
   outline-offset: 1px;
 }
 
-input:focus, textarea:focus, select:focus {
+input:focus-visible, textarea:focus-visible, select:focus-visible {
   outline-offset: 0;
 }
 
-input[type="checkbox" i]:focus,
-input[type="radio" i]:focus {
+input[type="checkbox" i]:focus-visible,
+input[type="radio" i]:focus-visible {
   outline-offset: 2px;
 }
 
@@ -55,6 +55,7 @@ textarea:disabled {
 input:disabled,
 textarea:disabled {
   background-color: -internal-light-dark(rgba(239, 239, 239, 0.3), rgba(59, 59, 59, 0.3));
+  color: -internal-light-dark(default, rgba(255, 255, 255, 0.6));
 }
 
 select:disabled {
@@ -80,7 +81,7 @@ input[type="file" i]:disabled::-webkit-file-upload-button,
 button:disabled {
   background-color: -internal-light-dark(rgba(239, 239, 239, 0.3), rgba(19, 1, 1, 0.3));
   border-color: -internal-light-dark(rgba(118, 118, 118, 0.3), rgba(195, 195, 195, 0.3));
-  color: -internal-light-dark(rgba(16, 16, 16, 0.3), white);
+  color: -internal-light-dark(rgba(16, 16, 16, 0.3), rgba(255, 255, 255, 0.3));
 }
 
 input[type="password" i]::-internal-reveal {
@@ -125,7 +126,7 @@ meter::-webkit-meter-bar {
   grid-row-start: line1;
   grid-row-end: line2;
   border-style: solid;
-  border-color: rgba(118, 118, 118, 0.3);
+  border-color: -internal-light-dark(rgba(118, 118, 118, 0.3), #858585);
   border-radius: 20px;
   box-sizing: border-box;
   overflow: hidden;
@@ -162,10 +163,10 @@ input[type="week" i]::-webkit-calendar-picker-indicator {
   width: 1.2em;
 }
 
-input[type="date" i]::-webkit-calendar-picker-indicator:focus,
-input[type="datetime-local" i]::-webkit-calendar-picker-indicator:focus,
-input[type="month" i]::-webkit-calendar-picker-indicator:focus,
-input[type="week" i]::-webkit-calendar-picker-indicator:focus {
+input[type="date" i]::-webkit-calendar-picker-indicator:focus-visible,
+input[type="datetime-local" i]::-webkit-calendar-picker-indicator:focus-visible,
+input[type="month" i]::-webkit-calendar-picker-indicator:focus-visible,
+input[type="week" i]::-webkit-calendar-picker-indicator:focus-visible {
   outline: solid 2px -webkit-focus-ring-color;
   outline-offset: -2px;
 }
@@ -186,7 +187,7 @@ input[type="time" i]::-webkit-calendar-picker-indicator {
   width: 1.05em;
 }
 
-input[type="time" i]::-webkit-calendar-picker-indicator:focus {
+input[type="time" i]::-webkit-calendar-picker-indicator:focus-visible {
   outline: solid 2px -webkit-focus-ring-color;
   outline-offset: -2px;
 }
@@ -203,31 +204,47 @@ select:-internal-list-box {
   border-radius: 2px;
 }
 
-select:-internal-list-box:enabled option:hover:enabled {
+select:-internal-list-box option:hover {
   background-color: initial;
 }
 
-/* option selected */
+/* option selected, list-box not focused */
 select:-internal-list-box option:checked,
-select:-internal-list-box:enabled option:checked:enabled:hover {
-  background-color: #cecece !important;
-  color: #101010 !important;
+select:-internal-list-box option:checked:hover {
+  background-color: -internal-light-dark(#cecece, #545454) !important;
+  color: -internal-light-dark(#101010, #FFFFFF) !important;
 }
 
-select:-internal-list-box:focus option:checked:enabled:hover {
-  background-color: -internal-active-list-box-selection !important;
-  color: -internal-active-list-box-selection-text !important;
+/* option selected, list-box focused */
+select:-internal-list-box:focus option:checked,
+select:-internal-list-box:focus option:checked:hover {
+  /* TODO(crbug.com/1129658): The dark mode color here should be handled
+     within LayoutTheme::ActiveListBoxSelectionBackgroundColor(). */
+  background-color: -internal-light-dark(-internal-active-list-box-selection, #99C8FF) !important;
+  color: -internal-light-dark(-internal-active-list-box-selection-text, #3B3B3B) !important;
 }
 
-input::-webkit-datetime-edit-ampm-field:focus,
-input::-webkit-datetime-edit-day-field:focus,
-input::-webkit-datetime-edit-hour-field:focus,
-input::-webkit-datetime-edit-millisecond-field:focus,
-input::-webkit-datetime-edit-minute-field:focus,
-input::-webkit-datetime-edit-month-field:focus,
-input::-webkit-datetime-edit-second-field:focus,
-input::-webkit-datetime-edit-week-field:focus,
-input::-webkit-datetime-edit-year-field:focus {
+select:-internal-list-box:focus option:checked:disabled {
+  /* TODO(crbug.com/1129658): The dark mode color here should be handled
+     within LayoutTheme::ActiveListBoxSelectionBackgroundColor(). */
+  background-color: -internal-light-dark(-internal-inactive-list-box-selection, rgba(59, 59, 59, 0.3)) !important;
+}
+
+select:-internal-list-box:disabled option:checked,
+select:-internal-list-box option:checked:disabled,
+select:-internal-list-box option:checked:disabled:hover {
+  color: -internal-light-dark(gray, #aaa) !important;
+}
+
+input::-webkit-datetime-edit-ampm-field:focus-visible,
+input::-webkit-datetime-edit-day-field:focus-visible,
+input::-webkit-datetime-edit-hour-field:focus-visible,
+input::-webkit-datetime-edit-millisecond-field:focus-visible,
+input::-webkit-datetime-edit-minute-field:focus-visible,
+input::-webkit-datetime-edit-month-field:focus-visible,
+input::-webkit-datetime-edit-second-field:focus-visible,
+input::-webkit-datetime-edit-week-field:focus-visible,
+input::-webkit-datetime-edit-year-field:focus-visible {
     background-color: -internal-light-dark(highlight, #99C8FF);
     color: -internal-light-dark(highlighttext, #000000);
     outline: none;

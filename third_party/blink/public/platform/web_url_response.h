@@ -35,6 +35,7 @@
 
 #include "base/optional.h"
 #include "base/time/time.h"
+#include "net/base/ip_endpoint.h"
 #include "net/cert/ct_policy_status.h"
 #include "net/http/http_response_info.h"
 #include "third_party/blink/public/common/security/security_style.h"
@@ -46,6 +47,7 @@ namespace network {
 namespace mojom {
 enum class FetchResponseSource;
 enum class FetchResponseType : int32_t;
+enum class IPAddressSpace : int32_t;
 class LoadTimingInfo;
 }
 }  // namespace network
@@ -262,6 +264,12 @@ class WebURLResponse {
   BLINK_PLATFORM_EXPORT void SetType(network::mojom::FetchResponseType);
   BLINK_PLATFORM_EXPORT network::mojom::FetchResponseType GetType() const;
 
+  // Pre-computed padding.  This should only be non-zero if the type is
+  // kOpaque.  In addition, it is only set for responses provided by a
+  // service worker FetchEvent handler.
+  BLINK_PLATFORM_EXPORT void SetPadding(int64_t);
+  BLINK_PLATFORM_EXPORT int64_t GetPadding() const;
+
   // The URL list of the Response object the ServiceWorker passed to
   // respondWith(). See
   // network::ResourceResponseInfo::url_list_via_service_worker for details.
@@ -285,13 +293,13 @@ class WebURLResponse {
   // See network::ResourceResponseInfo::did_navigation_preload for details.
   BLINK_PLATFORM_EXPORT void SetDidServiceWorkerNavigationPreload(bool);
 
-  // Remote IP address of the socket which fetched this resource.
-  BLINK_PLATFORM_EXPORT WebString RemoteIPAddress() const;
-  BLINK_PLATFORM_EXPORT void SetRemoteIPAddress(const WebString&);
+  // Remote IP endpoint of the socket which fetched this resource.
+  BLINK_PLATFORM_EXPORT net::IPEndPoint RemoteIPEndpoint() const;
+  BLINK_PLATFORM_EXPORT void SetRemoteIPEndpoint(const net::IPEndPoint&);
 
-  // Remote port number of the socket which fetched this resource.
-  BLINK_PLATFORM_EXPORT uint16_t RemotePort() const;
-  BLINK_PLATFORM_EXPORT void SetRemotePort(uint16_t);
+  // Address space from which this resource was fetched.
+  BLINK_PLATFORM_EXPORT network::mojom::IPAddressSpace AddressSpace() const;
+  BLINK_PLATFORM_EXPORT void SetAddressSpace(network::mojom::IPAddressSpace);
 
   // ALPN negotiated protocol of the socket which fetched this resource.
   BLINK_PLATFORM_EXPORT bool WasAlpnNegotiated() const;
@@ -318,11 +326,25 @@ class WebURLResponse {
 
   BLINK_PLATFORM_EXPORT void SetIsSignedExchangeInnerResponse(bool);
   BLINK_PLATFORM_EXPORT void SetWasInPrefetchCache(bool);
+  BLINK_PLATFORM_EXPORT void SetWasCookieInRequest(bool);
   BLINK_PLATFORM_EXPORT void SetRecursivePrefetchToken(
       const base::Optional<base::UnguessableToken>&);
 
   // Whether this resource is from a MHTML archive.
   BLINK_PLATFORM_EXPORT bool FromArchive() const;
+
+  // Sets any DNS aliases for the requested URL. The alias chain order is
+  // expected to be in reverse, from canonical name (i.e. address record name)
+  // through to query name.
+  BLINK_PLATFORM_EXPORT void SetDnsAliases(const WebVector<WebString>&);
+
+  BLINK_PLATFORM_EXPORT WebURL WebBundleURL() const;
+  BLINK_PLATFORM_EXPORT void SetWebBundleURL(const WebURL&);
+
+  BLINK_PLATFORM_EXPORT void SetAuthChallengeInfo(
+      const base::Optional<net::AuthChallengeInfo>&);
+  BLINK_PLATFORM_EXPORT const base::Optional<net::AuthChallengeInfo>&
+  AuthChallengeInfo() const;
 
 #if INSIDE_BLINK
  protected:

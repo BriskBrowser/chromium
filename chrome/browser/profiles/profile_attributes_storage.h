@@ -18,6 +18,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/strings/string16.h"
+#include "build/build_config.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"
 #include "chrome/browser/profiles/profile_info_cache_observer.h"
 
@@ -44,11 +45,7 @@ class ProfileAttributesStorage
   ProfileAttributesStorage& operator=(const ProfileAttributesStorage&) = delete;
   virtual ~ProfileAttributesStorage();
 
-  // If the |supervised_user_id| is non-empty, the profile will be marked to be
-  // omitted from the avatar-menu list on desktop versions. This is used while a
-  // supervised user is in the process of being registered with the server. Use
-  // ProfileAttributesEntry::SetIsOmitted() to clear the flag when the profile
-  // is ready to be shown in the menu.
+  // Adds a new profile at |profile_path| to the attributes storage.
   virtual void AddProfile(const base::FilePath& profile_path,
                           const base::string16& name,
                           const std::string& gaia_id,
@@ -68,19 +65,26 @@ class ProfileAttributesStorage
 
   // Returns a vector containing one attributes entry per known profile. They
   // are not sorted in any particular order.
-  std::vector<ProfileAttributesEntry*> GetAllProfilesAttributes();
+  std::vector<ProfileAttributesEntry*> GetAllProfilesAttributes(
+      bool include_guest_profile = false);
+
+  // Returns all non-Guest profile attributes sorted by name.
   std::vector<ProfileAttributesEntry*> GetAllProfilesAttributesSortedByName();
 
-  // Populates |entry| with the data for the profile at |path| and returns true
-  // if the operation is successful and |entry| can be used. Returns false
-  // otherwise.
-  // |entry| should not be cached as it may not reflect subsequent changes to
-  // the profile's metadata.
-  virtual bool GetProfileAttributesWithPath(
-      const base::FilePath& path, ProfileAttributesEntry** entry) = 0;
+  // Returns all non-Guest profile attributes sorted by local profile name.
+  std::vector<ProfileAttributesEntry*>
+  GetAllProfilesAttributesSortedByLocalProfilName();
+
+  // Returns a ProfileAttributesEntry with the data for the profile at |path|
+  // if the operation is successful. Returns |nullptr| otherwise.
+  // Returned value should not be cached because the profile entry may be
+  // deleted at any time, an then using this value would cause use-after-free.
+  virtual ProfileAttributesEntry* GetProfileAttributesWithPath(
+      const base::FilePath& path) = 0;
 
   // Returns the count of known profiles.
-  virtual size_t GetNumberOfProfiles() const = 0;
+  virtual size_t GetNumberOfProfiles(
+      bool include_guest_profile = false) const = 0;
 
   // Returns a unique name that can be assigned to a newly created profile.
   base::string16 ChooseNameForNewProfile(size_t icon_index) const;
@@ -95,6 +99,13 @@ class ProfileAttributesStorage
   // is not used.
   bool IsDefaultProfileName(const base::string16& name,
                             bool include_check_for_legacy_profile_name) const;
+
+#if !defined(OS_ANDROID)
+  // Records statistics about a profile `entry` that is being deleted. If the
+  // profile has opened browser window(s) in the moment of deletion, this
+  // function must be called before these windows get closed.
+  void RecordDeletedProfileState(ProfileAttributesEntry* entry);
+#endif
 
   // Records statistics about profiles as would be visible in the profile picker
   // (if we would display it in this moment).
@@ -189,6 +200,9 @@ class ProfileAttributesStorage
   scoped_refptr<base::SequencedTaskRunner> file_task_runner_;
 
  private:
+  std::vector<ProfileAttributesEntry*> GetAllProfilesAttributesSorted(
+      bool use_local_profile_name);
+
   // Called when the picture given by |key| has been loaded from disk and
   // decoded into |image|.
   void OnAvatarPictureLoaded(const base::FilePath& profile_path,

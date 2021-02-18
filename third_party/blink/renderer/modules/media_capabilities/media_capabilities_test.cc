@@ -10,7 +10,7 @@
 
 #include "base/strings/string_number_conversions.h"
 #include "base/task/post_task.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "media/base/media_switches.h"
 #include "media/base/video_codecs.h"
@@ -27,6 +27,7 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/platform/web_size.h"
+#include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_tester.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_audio_configuration.h"
@@ -34,6 +35,8 @@
 #include "third_party/blink/renderer/bindings/modules/v8/v8_media_configuration.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_media_decoding_configuration.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_configuration.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/frame/navigator.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support.h"
@@ -185,9 +188,9 @@ class FakeMediaMetricsProvider
   void SetHasAudio(media::mojom::AudioCodec audio_codec) override {}
   void SetHasVideo(media::mojom::VideoCodec video_codec) override {}
   void SetVideoPipelineInfo(
-      media::mojom::blink::PipelineDecoderInfoPtr info) override {}
+      media::mojom::blink::VideoDecoderInfoPtr info) override {}
   void SetAudioPipelineInfo(
-      media::mojom::blink::PipelineDecoderInfoPtr info) override {}
+      media::mojom::blink::AudioDecoderInfoPtr info) override {}
 
  private:
   mojo::Receiver<media::mojom::blink::MediaMetricsProvider> receiver_{this};
@@ -286,8 +289,8 @@ class MediaCapabilitiesTestContext {
                       &MockPerfHistoryService::BindRequest,
                       base::Unretained(perf_history_service_.get()))));
 
-    media_capabilities_ = MakeGarbageCollected<MediaCapabilities>(
-        v8_scope_.GetExecutionContext());
+    media_capabilities_ = MediaCapabilities::mediaCapabilities(
+        *v8_scope_.GetWindow().navigator());
   }
 
   ~MediaCapabilitiesTestContext() {

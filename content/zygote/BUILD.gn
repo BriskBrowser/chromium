@@ -17,11 +17,11 @@ if (is_linux || is_chromeos) {
     deps = [
       "//base",
       "//base:i18n",
+      "//build:chromeos_buildflags",
       "//content/public/common:common_sources",
       "//ipc",
       "//sandbox",
       "//sandbox/policy",
-      "//services/service_manager/embedder",
       "//third_party/icu",
     ]
 

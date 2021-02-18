@@ -12,10 +12,12 @@
 #include <set>
 #include <vector>
 
+#include "base/containers/flat_map.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "media/capture/mojom/image_capture.mojom.h"
 #include "media/capture/video/chromeos/camera_app_device_impl.h"
+#include "media/capture/video/chromeos/camera_device_context.h"
 #include "media/capture/video/chromeos/camera_device_delegate.h"
 #include "media/capture/video/chromeos/capture_metadata_dispatcher.h"
 #include "media/capture/video/chromeos/mojom/camera3.mojom.h"
@@ -29,7 +31,6 @@
 namespace media {
 
 class CameraBufferFactory;
-class CameraDeviceContext;
 
 // The JPEG transport header as defined by Android camera HAL v3 API.  The JPEG
 // transport header is at the end of the blob buffer filled by the HAL.
@@ -113,7 +114,7 @@ class CAPTURE_EXPORT RequestManager final
   // Sets up the stream context and allocate buffers according to the
   // configuration specified in |streams|.
   void SetUpStreamsAndBuffers(
-      VideoCaptureFormat capture_format,
+      base::flat_map<ClientType, VideoCaptureParams> capture_params,
       const cros::mojom::CameraMetadataPtr& static_metadata,
       std::vector<cros::mojom::Camera3StreamPtr> streams);
 
@@ -226,6 +227,8 @@ class CAPTURE_EXPORT RequestManager final
                                 cros::mojom::CameraMetadataPtr* settings,
                                 TakePhotoCallback* callback);
 
+  bool TryPrepareRecordingRequest(std::set<StreamType>* stream_types);
+
   // Callback for ProcessCaptureRequest().
   void OnProcessedCaptureRequest(int32_t result);
 
@@ -256,8 +259,9 @@ class CAPTURE_EXPORT RequestManager final
   void SubmitCaptureResult(uint32_t frame_number,
                            StreamType stream_type,
                            cros::mojom::Camera3StreamBufferPtr stream_buffer);
-  void SubmitCapturedPreviewBuffer(uint32_t frame_number,
-                                   uint64_t buffer_ipc_id);
+  void SubmitCapturedPreviewRecordingBuffer(uint32_t frame_number,
+                                            uint64_t buffer_ipc_id,
+                                            StreamType stream_type);
   void SubmitCapturedJpegBuffer(uint32_t frame_number, uint64_t buffer_ipc_id);
 
   // If there are some metadata set by SetCaptureMetadata() or

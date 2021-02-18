@@ -35,9 +35,7 @@ class APP_LIST_EXPORT SearchResultListView : public SearchResultContainerView {
                              int event_flags,
                              bool by_button_press);
 
-  void SearchResultActionActivated(SearchResultView* view,
-                                   size_t action_index,
-                                   int event_flags);
+  void SearchResultActionActivated(SearchResultView* view, size_t action_index);
 
   void OnSearchResultInstalled(SearchResultView* view);
 
@@ -71,6 +69,12 @@ class APP_LIST_EXPORT SearchResultListView : public SearchResultContainerView {
   // after a period of time.
   void LogImpressions();
 
+  // Returns search results specific to Assistant if any are available.
+  std::vector<SearchResult*> GetAssistantResults();
+
+  // Returns regular search results with Assistant search results appended.
+  std::vector<SearchResult*> GetSearchResults();
+
   AppListMainView* main_view_;          // Owned by views hierarchy.
   AppListViewDelegate* view_delegate_;  // Not owned.
 
@@ -80,10 +84,6 @@ class APP_LIST_EXPORT SearchResultListView : public SearchResultContainerView {
 
   // Used for logging impressions shown to users.
   base::OneShotTimer impression_timer_;
-  base::OneShotTimer zero_state_file_impression_timer_;
-  base::OneShotTimer drive_quick_access_impression_timer_;
-  bool previous_found_zero_state_file_ = false;
-  bool previous_found_drive_quick_access_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(SearchResultListView);
 };

@@ -10,13 +10,13 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/strings/string16.h"
 #include "build/build_config.h"
 #include "ui/base/ui_base_types.h"
-#include "ui/views/controls/button/button.h"
 #include "ui/views/controls/textfield/textfield_controller.h"
 #include "ui/views/layout/animating_layout_manager.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/style/typography.h"
 #include "ui/views/view.h"
 #include "ui/views/view_observer.h"
@@ -33,6 +33,7 @@ class Event;
 }  // namespace ui
 
 namespace views {
+class Button;
 class EditableComboboxMenuModel;
 class EditableComboboxPreTargetHandler;
 class MenuRunner;
@@ -43,7 +44,6 @@ class VIEWS_EXPORT EditableCombobox
     : public View,
       public TextfieldController,
       public ViewObserver,
-      public ButtonListener,
       public views::AnimatingLayoutManager::Observer {
  public:
   METADATA_HEADER(EditableCombobox);
@@ -85,7 +85,7 @@ class VIEWS_EXPORT EditableCombobox
 
   const gfx::FontList& GetFontList() const;
 
-  void set_callback(base::RepeatingClosure callback) {
+  void SetCallback(base::RepeatingClosure callback) {
     content_changed_callback_ = std::move(callback);
   }
 
@@ -123,6 +123,9 @@ class VIEWS_EXPORT EditableCombobox
   // Notifies listener of new content and updates the menu items to show.
   void HandleNewContent(const base::string16& new_content);
 
+  // Toggles the dropdown menu in response to |event|.
+  void ArrowButtonPressed(const ui::Event& event);
+
   // Shows the drop-down menu.
   void ShowDropDownMenu(ui::MenuSourceType source_type = ui::MENU_SOURCE_NONE);
 
@@ -141,9 +144,6 @@ class VIEWS_EXPORT EditableCombobox
 
   // Overridden from ViewObserver:
   void OnViewBlurred(View* observed_view) override;
-
-  // Overridden from ButtonListener:
-  void ButtonPressed(Button* sender, const ui::Event& event) override;
 
   // Overridden from views::AnimatingLayoutManager::Observer:
   void OnLayoutIsAnimatingChanged(views::AnimatingLayoutManager* source,
@@ -188,7 +188,7 @@ class VIEWS_EXPORT EditableCombobox
 
   bool dropdown_blocked_for_animation_ = false;
 
-  ScopedObserver<View, ViewObserver> observer_{this};
+  base::ScopedObservation<View, ViewObserver> observation_{this};
 
   DISALLOW_COPY_AND_ASSIGN(EditableCombobox);
 };

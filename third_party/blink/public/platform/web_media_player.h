@@ -31,10 +31,12 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_PLATFORM_WEB_MEDIA_PLAYER_H_
 #define THIRD_PARTY_BLINK_PUBLIC_PLATFORM_WEB_MEDIA_PLAYER_H_
 
+#include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "components/viz/common/surfaces/surface_id.h"
 #include "media/base/video_frame_metadata.h"
+#include "third_party/blink/public/common/media/display_type.h"
 #include "third_party/blink/public/platform/web_content_decryption_module.h"
 #include "third_party/blink/public/platform/web_media_source.h"
 #include "third_party/blink/public/platform/web_set_sink_id_callbacks.h"
@@ -54,6 +56,10 @@ class GLES2Interface;
 }
 }
 
+namespace media {
+class VideoFrame;
+}
+
 namespace blink {
 
 class WebContentDecryptionModule;
@@ -61,7 +67,6 @@ class WebMediaPlayerSource;
 class WebString;
 class WebURL;
 enum class WebFullscreenVideoStatus;
-struct WebRect;
 
 class WebMediaPlayer {
  public:
@@ -152,7 +157,10 @@ class WebMediaPlayer {
 
   virtual ~WebMediaPlayer() = default;
 
-  virtual LoadTiming Load(LoadType, const WebMediaPlayerSource&, CorsMode) = 0;
+  virtual LoadTiming Load(LoadType,
+                          const WebMediaPlayerSource&,
+                          CorsMode,
+                          bool is_cache_disabled) = 0;
 
   // Playback controls.
   virtual void Play() = 0;
@@ -171,12 +179,13 @@ class WebMediaPlayer {
   // adjustments when using a playback rate other than 1.0.
   virtual void SetPreservesPitch(bool preserves_pitch) = 0;
 
+  // Sets a flag indicating whether the audio stream was initiated by autoplay.
+  virtual void SetAutoplayInitiated(bool autoplay_initiated) = 0;
+
   // The associated media element is going to enter Picture-in-Picture. This
   // method should make sure the player is set up for this and has a SurfaceId
   // as it will be needed.
   virtual void OnRequestPictureInPicture() = 0;
-
-  virtual void OnPictureInPictureAvailabilityChanged(bool available) = 0;
 
   // Called to notify about changes of the associated media element's media
   // time, playback rate, and duration. During uninterrupted playback, the
@@ -194,7 +203,7 @@ class WebMediaPlayer {
   virtual WebTimeRanges Seekable() const = 0;
 
   // Attempts to switch the audio output device.
-  virtual void SetSinkId(const WebString& sing_id,
+  virtual bool SetSinkId(const WebString& sing_id,
                          WebSetSinkIdCompleteCallback) = 0;
 
   // True if the loaded media has a playable video/audio track.
@@ -258,10 +267,16 @@ class WebMediaPlayer {
   // |out_metadata|, if not null, is used to return metadata about the frame
   //   that is uploaded during this call.
   virtual void Paint(cc::PaintCanvas*,
-                     const WebRect&,
+                     const gfx::Rect&,
                      cc::PaintFlags&,
                      int already_uploaded_id = -1,
                      VideoFrameUploadMetadata* out_metadata = nullptr) = 0;
+
+  // Similar to Paint(), but just returns the frame directly instead of trying
+  // to upload or convert it. Note: This may kick off a process to update the
+  // current frame for a future call in some cases. Returns nullptr if no frame
+  // is available.
+  virtual scoped_refptr<media::VideoFrame> GetCurrentFrame() = 0;
 
   // Do a GPU-GPU texture copy of the current video frame to |texture|,
   // reallocating |texture| at the appropriate size with given internal
@@ -420,17 +435,6 @@ class WebMediaPlayer {
   // but if the element is using them.
   virtual void OnHasNativeControlsChanged(bool) {}
 
-  enum class DisplayType {
-    // Playback is happening inline.
-    kInline,
-    // Playback is happening either with the video fullscreen. It may also be
-    // set when Blink detects that the video is effectively fullscreen even if
-    // the element is not.
-    kFullscreen,
-    // Playback is happening in a Picture-in-Picture window.
-    kPictureInPicture,
-  };
-
   // Callback called whenever the media element display type changes. By
   // default, the display type is `kInline`.
   virtual void OnDisplayTypeChanged(DisplayType) {}
@@ -470,6 +474,11 @@ class WebMediaPlayer {
   GetVideoFramePresentationMetadata() {
     return nullptr;
   }
+
+  // Forces the WebMediaPlayer to update its frame if it is stale. This is used
+  // during immersive WebXR sessions with the RequestVideoFrameCallback() API,
+  // when compositors aren't driving frame updates.
+  virtual void UpdateFrameIfStale() {}
 
   virtual base::WeakPtr<WebMediaPlayer> AsWeakPtr() = 0;
 };

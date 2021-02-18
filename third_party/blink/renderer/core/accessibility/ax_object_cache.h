@@ -63,6 +63,12 @@ class CORE_EXPORT AXObjectCache : public GarbageCollected<AXObjectCache> {
 
   virtual void Dispose() = 0;
 
+  // A Freeze() occurs during a serialization run.
+  // Used here as a hint for DCHECKS to enforce the following behavior:
+  // objects in the ax hierarchy should not be destroyed during serialization.
+  virtual void Freeze() = 0;
+  virtual void Thaw() = 0;
+
   // Register/remove popups
   virtual void InitializePopup(Document* document) = 0;
   virtual void DisposePopup(Document* document) = 0;
@@ -76,7 +82,6 @@ class CORE_EXPORT AXObjectCache : public GarbageCollected<AXObjectCache> {
   virtual void ListboxSelectedChildrenChanged(HTMLSelectElement*) = 0;
   virtual void ListboxActiveIndexChanged(HTMLSelectElement*) = 0;
   virtual void LocationChanged(const LayoutObject*) = 0;
-  virtual void RadiobuttonRemovedFromGroup(HTMLInputElement*) = 0;
   virtual void ImageLoaded(const LayoutObject*) = 0;
 
   virtual void Remove(AccessibleNode*) = 0;
@@ -93,9 +98,10 @@ class CORE_EXPORT AXObjectCache : public GarbageCollected<AXObjectCache> {
   // changed.
   virtual void TextChanged(const LayoutObject*) = 0;
   virtual void DocumentTitleChanged() = 0;
-  // Called when a node has just been attached, so we can make sure we have the
-  // right subclass of AXObject.
+  // Called when a layout tree for a node has just been attached, so we can make
+  // sure we have the right subclass of AXObject.
   virtual void UpdateCacheAfterNodeIsAttached(Node*) = 0;
+  // A DOM node was inserted , but does not necessarily have a layout tree.
   virtual void DidInsertChildrenOfNode(Node*) = 0;
 
   // Returns true if the AXObjectCache cares about this attribute
@@ -117,7 +123,11 @@ class CORE_EXPORT AXObjectCache : public GarbageCollected<AXObjectCache> {
   virtual void HandleLayoutComplete(Document*) = 0;
   virtual void HandleClicked(Node*) = 0;
   virtual void HandleValidationMessageVisibilityChanged(
-      const Element* form_control) = 0;
+      const Node* form_control) = 0;
+  virtual void HandleEventListenerAdded(const Node& node,
+                                        const AtomicString& event_type) = 0;
+  virtual void HandleEventListenerRemoved(const Node& node,
+                                          const AtomicString& event_type) = 0;
 
   // Handle any notifications which arrived while layout was dirty.
   virtual void ProcessDeferredAccessibilityEvents(Document&) = 0;
@@ -162,6 +172,9 @@ class CORE_EXPORT AXObjectCache : public GarbageCollected<AXObjectCache> {
 
   // Static helper functions.
   static bool IsInsideFocusableElementOrARIAWidget(const Node&);
+
+  // Returns true if there are any pending updates that need processing.
+  virtual bool IsDirty() const = 0;
 
  protected:
   friend class ScopedBlinkAXEventIntent;

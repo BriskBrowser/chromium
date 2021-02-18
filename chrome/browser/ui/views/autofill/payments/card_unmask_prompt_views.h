@@ -11,16 +11,17 @@
 #include "chrome/browser/ui/autofill/payments/autofill_dialog_models.h"
 #include "components/autofill/core/browser/ui/payments/card_unmask_prompt_view.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
-#include "ui/views/controls/combobox/combobox_listener.h"
 #include "ui/views/controls/textfield/textfield_controller.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/window/dialog_delegate.h"
 
 namespace content {
 class WebContents;
-}
+}  // namespace content
 
 namespace views {
 class Checkbox;
+class Combobox;
 class Label;
 class Textfield;
 class Throbber;
@@ -31,29 +32,27 @@ namespace autofill {
 class CardUnmaskPromptController;
 
 class CardUnmaskPromptViews : public CardUnmaskPromptView,
-                              public views::ComboboxListener,
                               public views::BubbleDialogDelegateView,
                               public views::TextfieldController {
  public:
+  METADATA_HEADER(CardUnmaskPromptViews);
   CardUnmaskPromptViews(CardUnmaskPromptController* controller,
                         content::WebContents* web_contents);
+  CardUnmaskPromptViews(const CardUnmaskPromptViews&) = delete;
+  CardUnmaskPromptViews& operator=(const CardUnmaskPromptViews&) = delete;
   ~CardUnmaskPromptViews() override;
 
-  // CardUnmaskPromptView
+  // CardUnmaskPromptView:
   void Show() override;
   void ControllerGone() override;
   void DisableAndWaitForVerification() override;
   void GotVerificationResult(const base::string16& error_message,
                              bool allow_retry) override;
 
-  // views::DialogDelegateView
+  // views::BubbleDialogDelegateView:
   View* GetContentsView() override;
-
-  // views::View
-  gfx::Size CalculatePreferredSize() const override;
   void AddedToWidget() override;
   void OnThemeChanged() override;
-  ui::ModalType GetModalType() const override;
   base::string16 GetWindowTitle() const override;
   void DeleteDelegate() override;
   bool IsDialogButtonEnabled(ui::DialogButton button) const override;
@@ -65,9 +64,6 @@ class CardUnmaskPromptViews : public CardUnmaskPromptView,
   // views::TextfieldController
   void ContentsChanged(views::Textfield* sender,
                        const base::string16& new_contents) override;
-
-  // views::ComboboxListener
-  void OnPerformAction(views::Combobox* combobox) override;
 
  private:
   friend class CardUnmaskPromptViewTesterViews;
@@ -82,6 +78,8 @@ class CardUnmaskPromptViews : public CardUnmaskPromptView,
   void UpdateButtons();
 
   void LinkClicked();
+
+  void DateChanged();
 
   CardUnmaskPromptController* controller_;
   content::WebContents* web_contents_;
@@ -114,8 +112,6 @@ class CardUnmaskPromptViews : public CardUnmaskPromptView,
   views::Throbber* progress_throbber_ = nullptr;
 
   base::WeakPtrFactory<CardUnmaskPromptViews> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(CardUnmaskPromptViews);
 };
 
 }  // namespace autofill

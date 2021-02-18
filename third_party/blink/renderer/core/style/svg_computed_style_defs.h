@@ -31,27 +31,16 @@
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/style_color.h"
-#include "third_party/blink/renderer/core/style/style_path.h"
+#include "third_party/blink/renderer/core/style/svg_dash_array.h"
+#include "third_party/blink/renderer/core/style/svg_paint.h"
+#include "third_party/blink/renderer/core/style/unzoomed_length.h"
 #include "third_party/blink/renderer/platform/geometry/length.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
-#include "third_party/blink/renderer/platform/wtf/ref_counted.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
 
 class StyleSVGResource;
-
-typedef base::RefCountedData<WTF::Vector<Length>> SVGDashArray;
-
-enum SVGPaintType {
-  SVG_PAINTTYPE_COLOR,
-  SVG_PAINTTYPE_NONE,
-  SVG_PAINTTYPE_URI_NONE,
-  SVG_PAINTTYPE_URI_COLOR,
-  SVG_PAINTTYPE_URI
-};
-
-enum EBaselineShift { BS_LENGTH, BS_SUB, BS_SUPER };
 
 enum ETextAnchor { TA_START, TA_MIDDLE, TA_END };
 
@@ -63,21 +52,6 @@ enum EShapeRendering {
   SR_OPTIMIZESPEED,
   SR_CRISPEDGES,
   SR_GEOMETRICPRECISION
-};
-
-enum EAlignmentBaseline {
-  AB_AUTO,
-  AB_BASELINE,
-  AB_BEFORE_EDGE,
-  AB_TEXT_BEFORE_EDGE,
-  AB_MIDDLE,
-  AB_CENTRAL,
-  AB_AFTER_EDGE,
-  AB_TEXT_AFTER_EDGE,
-  AB_IDEOGRAPHIC,
-  AB_ALPHABETIC,
-  AB_HANGING,
-  AB_MATHEMATICAL
 };
 
 enum EDominantBaseline {
@@ -95,12 +69,6 @@ enum EDominantBaseline {
   DB_TEXT_BEFORE_EDGE
 };
 
-enum EVectorEffect { VE_NONE, VE_NON_SCALING_STROKE };
-
-enum EBufferedRendering { BR_AUTO, BR_DYNAMIC, BR_STATIC };
-
-enum EMaskType { MT_LUMINANCE, MT_ALPHA };
-
 enum EPaintOrderType {
   PT_NONE = 0,
   PT_FILL = 1,
@@ -116,37 +84,6 @@ enum EPaintOrder {
   kPaintOrderStrokeMarkersFill = 4,
   kPaintOrderMarkersFillStroke = 5,
   kPaintOrderMarkersStrokeFill = 6
-};
-
-struct SVGPaint {
-  CORE_EXPORT SVGPaint();
-  SVGPaint(Color color);
-  SVGPaint(const SVGPaint& paint);
-  CORE_EXPORT ~SVGPaint();
-  CORE_EXPORT SVGPaint& operator=(const SVGPaint& paint);
-
-  CORE_EXPORT bool operator==(const SVGPaint&) const;
-  bool operator!=(const SVGPaint& other) const { return !(*this == other); }
-
-  bool IsNone() const { return type == SVG_PAINTTYPE_NONE; }
-  bool IsColor() const { return type == SVG_PAINTTYPE_COLOR; }
-  // Used by CSSPropertyEquality::PropertiesEqual.
-  bool EqualTypeOrColor(const SVGPaint& other) const {
-    return type == other.type &&
-           (type != SVG_PAINTTYPE_COLOR || color == other.color);
-  }
-  bool HasFallbackColor() const { return type == SVG_PAINTTYPE_URI_COLOR; }
-  bool HasColor() const { return IsColor() || HasFallbackColor(); }
-  bool HasUrl() const { return type >= SVG_PAINTTYPE_URI_NONE; }
-  bool HasCurrentColor() const { return HasColor() && color.IsCurrentColor(); }
-  StyleSVGResource* Resource() const { return resource.get(); }
-
-  const StyleColor& GetColor() const { return color; }
-  const AtomicString& GetUrl() const;
-
-  scoped_refptr<StyleSVGResource> resource;
-  StyleColor color;
-  SVGPaintType type{SVG_PAINTTYPE_NONE};
 };
 
 // Inherited/Non-Inherited Style Datastructures
@@ -173,27 +110,6 @@ class StyleFillData : public RefCounted<StyleFillData> {
  private:
   StyleFillData();
   StyleFillData(const StyleFillData&);
-};
-
-class UnzoomedLength {
-  DISALLOW_NEW();
-
- public:
-  explicit UnzoomedLength(const Length& length) : length_(length) {}
-
-  bool IsZero() const { return length_.IsZero(); }
-
-  bool operator==(const UnzoomedLength& other) const {
-    return length_ == other.length_;
-  }
-  bool operator!=(const UnzoomedLength& other) const {
-    return !operator==(other);
-  }
-
-  const Length& length() const { return length_; }
-
- private:
-  Length length_;
 };
 
 class CORE_EXPORT StyleStrokeData : public RefCounted<StyleStrokeData> {
@@ -228,84 +144,6 @@ class CORE_EXPORT StyleStrokeData : public RefCounted<StyleStrokeData> {
   StyleStrokeData(const StyleStrokeData&);
 };
 
-class StyleStopData : public RefCounted<StyleStopData> {
-  USING_FAST_MALLOC(StyleStopData);
-
- public:
-  static scoped_refptr<StyleStopData> Create() {
-    return base::AdoptRef(new StyleStopData);
-  }
-  scoped_refptr<StyleStopData> Copy() const {
-    return base::AdoptRef(new StyleStopData(*this));
-  }
-
-  bool operator==(const StyleStopData&) const;
-  bool operator!=(const StyleStopData& other) const {
-    return !(*this == other);
-  }
-
-  StyleColor color;
-  float opacity;
-
- private:
-  StyleStopData();
-  StyleStopData(const StyleStopData&);
-};
-
-// Note: the rule for this class is, *no inheritance* of these props
-class CORE_EXPORT StyleMiscData : public RefCounted<StyleMiscData> {
-  USING_FAST_MALLOC(StyleMiscData);
-
- public:
-  static scoped_refptr<StyleMiscData> Create() {
-    return base::AdoptRef(new StyleMiscData);
-  }
-  scoped_refptr<StyleMiscData> Copy() const {
-    return base::AdoptRef(new StyleMiscData(*this));
-  }
-
-  bool operator==(const StyleMiscData&) const;
-  bool operator!=(const StyleMiscData& other) const {
-    return !(*this == other);
-  }
-
-  Length baseline_shift_value;
-
-  StyleColor flood_color;
-  StyleColor lighting_color;
-
-  float flood_opacity;
-
- private:
-  StyleMiscData();
-  StyleMiscData(const StyleMiscData&);
-};
-
-// Non-inherited resources
-class StyleResourceData : public RefCounted<StyleResourceData> {
-  USING_FAST_MALLOC(StyleResourceData);
-
- public:
-  static scoped_refptr<StyleResourceData> Create() {
-    return base::AdoptRef(new StyleResourceData);
-  }
-  ~StyleResourceData();
-  scoped_refptr<StyleResourceData> Copy() const {
-    return base::AdoptRef(new StyleResourceData(*this));
-  }
-
-  bool operator==(const StyleResourceData&) const;
-  bool operator!=(const StyleResourceData& other) const {
-    return !(*this == other);
-  }
-
-  scoped_refptr<StyleSVGResource> masker;
-
- private:
-  StyleResourceData();
-  StyleResourceData(const StyleResourceData&);
-};
-
 // Inherited resources
 class StyleInheritedResourceData
     : public RefCounted<StyleInheritedResourceData> {
@@ -332,33 +170,6 @@ class StyleInheritedResourceData
  private:
   StyleInheritedResourceData();
   StyleInheritedResourceData(const StyleInheritedResourceData&);
-};
-
-// Geometry properties
-class StyleGeometryData : public RefCounted<StyleGeometryData> {
-  USING_FAST_MALLOC(StyleGeometryData);
-
- public:
-  static scoped_refptr<StyleGeometryData> Create() {
-    return base::AdoptRef(new StyleGeometryData);
-  }
-  scoped_refptr<StyleGeometryData> Copy() const;
-  bool operator==(const StyleGeometryData&) const;
-  bool operator!=(const StyleGeometryData& other) const {
-    return !(*this == other);
-  }
-  scoped_refptr<StylePath> d;
-  Length cx;
-  Length cy;
-  Length x;
-  Length y;
-  Length r;
-  Length rx;
-  Length ry;
-
- private:
-  StyleGeometryData();
-  StyleGeometryData(const StyleGeometryData&);
 };
 
 }  // namespace blink

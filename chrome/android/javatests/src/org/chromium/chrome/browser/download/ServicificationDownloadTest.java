@@ -15,6 +15,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.TestFileUtil;
@@ -27,14 +28,13 @@ import org.chromium.components.offline_items_collection.OfflineContentProvider;
 import org.chromium.components.offline_items_collection.OfflineItem;
 import org.chromium.components.offline_items_collection.OfflineItemState;
 import org.chromium.components.offline_items_collection.UpdateDelta;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServerRule;
 
-import java.util.ArrayList;
+import java.util.List;
 
 /**
- * Tests interrupted download can be resumed with Service Manager only mode.
+ * Tests interrupted download can be resumed with minimal browser mode.
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 public final class ServicificationDownloadTest {
@@ -70,7 +70,7 @@ public final class ServicificationDownloadTest {
         private boolean mDownloadCompleted;
 
         @Override
-        public void onItemsAdded(ArrayList<OfflineItem> items) {}
+        public void onItemsAdded(List<OfflineItem> items) {}
 
         @Override
         public void onItemRemoved(ContentId id) {}
@@ -104,7 +104,7 @@ public final class ServicificationDownloadTest {
     @Feature({"Download"})
     public void testResumeInterruptedDownload() {
         if (useDownloadOfflineContentProvider()) return;
-        mNativeTestRule.assertOnlyServiceManagerStarted();
+        mNativeTestRule.assertMinimalBrowserStarted();
 
         String tempFile = InstrumentationRegistry.getInstrumentation()
                                   .getTargetContext()
@@ -137,7 +137,7 @@ public final class ServicificationDownloadTest {
     @CommandLineFlags.Add({"enable-features=UseDownloadOfflineContentProvider"})
     public void testResumeInterruptedDownloadUsingDownloadOfflineContentProvider() {
         if (!useDownloadOfflineContentProvider()) return;
-        mNativeTestRule.assertOnlyServiceManagerStarted();
+        mNativeTestRule.assertMinimalBrowserStarted();
 
         String tempFile = InstrumentationRegistry.getInstrumentation()
                                   .getTargetContext()

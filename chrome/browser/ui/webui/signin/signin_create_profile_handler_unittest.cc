@@ -19,10 +19,10 @@
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile_manager.h"
-#include "components/sync/model/fake_sync_change_processor.h"
 #include "components/sync/model/sync_data.h"
-#include "components/sync/model/sync_error_factory_mock.h"
 #include "components/sync/protocol/sync.pb.h"
+#include "components/sync/test/model/fake_sync_change_processor.h"
+#include "components/sync/test/model/sync_error_factory_mock.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "content/public/test/test_web_ui.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -172,7 +172,7 @@ TEST_F(SigninCreateProfileHandlerTest, CreateProfile) {
 }
 
 TEST_F(SigninCreateProfileHandlerTest, CreateProfileWithForceSignin) {
-  signin_util::SetForceSigninForTesting(true);
+  signin_util::ScopedForceSigninSetterForTesting signin_setter(true);
   ASSERT_TRUE(signin_util::IsForceSigninEnabled());
 
   // Expect the call to create the profile.
@@ -200,6 +200,4 @@ TEST_F(SigninCreateProfileHandlerTest, CreateProfileWithForceSignin) {
   std::string callback_name;
   ASSERT_TRUE(web_ui()->call_data()[0]->arg1()->GetAsString(&callback_name));
   EXPECT_EQ("create-profile-success", callback_name);
-
-  signin_util::SetForceSigninForTesting(false);
 }

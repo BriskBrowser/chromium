@@ -14,7 +14,6 @@ config("delay_load_mf") {
 
 component("media_foundation_util") {
   defines = [ "MF_INITIALIZER_IMPLEMENTATION" ]
-  set_sources_assignment_filter([])
   sources = [
     "mf_helpers.cc",
     "mf_helpers.h",
@@ -22,7 +21,6 @@ component("media_foundation_util") {
     "mf_initializer.h",
     "mf_initializer_export.h",
   ]
-  set_sources_assignment_filter(sources_assignment_filter)
   configs += [
     # TODO(crbug.com/167187): Fix size_t to int truncations.
     "//build/config/compiler:no_size_t_to_int_warning",

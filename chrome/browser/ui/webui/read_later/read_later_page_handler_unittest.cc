@@ -8,7 +8,7 @@
 #include <string>
 #include <utility>
 
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/read_later/read_later_test_utils.h"
@@ -42,6 +42,9 @@ class MockPage : public read_later::mojom::Page {
     return receiver_.BindNewPipeAndPassRemote();
   }
   mojo::Receiver<read_later::mojom::Page> receiver_{this};
+
+  MOCK_METHOD1(ItemsChanged,
+               void(read_later::mojom::ReadLaterEntriesByStatusPtr));
 };
 
 void ExpectNewReadLaterEntry(const read_later::mojom::ReadLaterEntry* entry,
@@ -57,7 +60,8 @@ class TestReadLaterPageHandler : public ReadLaterPageHandler {
       mojo::PendingRemote<read_later::mojom::Page> page)
       : ReadLaterPageHandler(
             mojo::PendingReceiver<read_later::mojom::PageHandler>(),
-            std::move(page)) {}
+            std::move(page),
+            nullptr) {}
 };
 
 class TestReadLaterPageHandlerTest : public BrowserWithTestWindowTest {
@@ -104,8 +108,9 @@ class TestReadLaterPageHandlerTest : public BrowserWithTestWindowTest {
                                         base::ASCIIToUTF16(title));
   }
 
- private:
   testing::StrictMock<MockPage> page_;
+
+ private:
   std::unique_ptr<TestReadLaterPageHandler> handler_;
   ReadingListModel* model_;
 };
@@ -156,6 +161,7 @@ TEST_F(TestReadLaterPageHandlerTest, OpenSavedEntry) {
 
 TEST_F(TestReadLaterPageHandlerTest, UpdateReadStatus) {
   handler()->UpdateReadStatus(GURL(kTabUrl3), true);
+  EXPECT_CALL(page_, ItemsChanged(testing::_)).Times(1);
 
   // Get Read later entries.
   read_later::mojom::PageHandler::GetReadLaterEntriesCallback callback1 =
@@ -177,6 +183,7 @@ TEST_F(TestReadLaterPageHandlerTest, UpdateReadStatus) {
 
 TEST_F(TestReadLaterPageHandlerTest, RemoveEntry) {
   handler()->RemoveEntry(GURL(kTabUrl3));
+  EXPECT_CALL(page_, ItemsChanged(testing::_)).Times(1);
 
   // Get Read later entries.
   read_later::mojom::PageHandler::GetReadLaterEntriesCallback callback1 =

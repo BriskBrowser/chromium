@@ -17,6 +17,7 @@ repack("packed_resources") {
   sources = [
     "$root_gen_dir/ios/web/ios_web_resources.pak",
     "$root_gen_dir/ios/web/test/test_resources.pak",
+    "$root_gen_dir/ui/resources/webui_generated_resources.pak",
     "$root_gen_dir/ui/resources/webui_resources.pak",
   ]
   deps = [
@@ -37,10 +38,6 @@ grit("resources") {
     "grit/test_resources.h",
     "test_resources.pak",
   ]
-  grit_flags = [
-    "-E",
-    "root_gen_dir=" + rebase_path(root_gen_dir, root_build_dir),
-  ]
 }
 
 source_set("test_support") {
@@ -53,12 +50,15 @@ source_set("test_support") {
 
   deps = [
     ":all_frames_web_test_bundle",
+    ":java_script_feature_test_inject_once_js",
+    ":java_script_feature_test_reinject_js",
     ":test_constants",
     "//base",
     "//base/test:test_support",
     "//components/crash/core/common",
     "//ios/testing:verify_custom_webkit",
     "//ios/web",
+    "//ios/web/common:uikit",
     "//ios/web/common:web_view_creation_util",
     "//ios/web/navigation:core",
     "//ios/web/public/test:util",
@@ -100,4 +100,18 @@ js_compile_bundle("all_frames_web_test_bundle") {
     "resources/all_frames_web_test_bundle.js",
     "resources/cookie_test.js",
   ]
+}
+
+js_compile_bundle("java_script_feature_test_inject_once_js") {
+  testonly = true
+  closure_entry_point = "__crWeb.javaScriptFeatureTestInjectOnce"
+
+  sources = [ "resources/java_script_feature_test_inject_once.js" ]
+}
+
+js_compile_bundle("java_script_feature_test_reinject_js") {
+  testonly = true
+  closure_entry_point = "__crWeb.javaScriptFeatureTestReinject"
+
+  sources = [ "resources/java_script_feature_test_reinject.js" ]
 }

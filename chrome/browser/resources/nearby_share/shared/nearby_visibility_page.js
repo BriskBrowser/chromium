@@ -14,26 +14,45 @@
 Polymer({
   is: 'nearby-visibility-page',
 
+  behaviors: [I18nBehavior],
+
   properties: {
     /** @type {?nearby_share.NearbySettings} */
     settings: {
       type: Object,
       notify: true,
-    }
+    },
+
+    /** @private */
+    isVisibilitySelected_: {
+      type: Boolean,
+      notify: true,
+    },
   },
 
-  onNextTap_() {
+  listeners: {
+    'next': 'onNext_',
+    'manage-contacts': 'onManageContacts_',
+    'close': 'onClose_'
+  },
+
+  /** @private */
+  onNext_() {
+    const contactVisibility = /** @type {NearbyContactVisibilityElement} */
+        (this.$.contactVisibility);
+    contactVisibility.saveVisibilityAndAllowedContacts();
     this.set('settings.enabled', true);
-    this.fire('change-page', {page: 'discovery'});
+    this.fire('onboarding-complete');
   },
 
-  onCloseTap_() {
-    this.fire('close');
+  /** @private */
+  onClose_() {
+    this.fire('onboarding-cancelled');
   },
 
-  onManageContactsTap_() {
-    // TODO(vecore): this is not a final link
-    window.open('https://contacts.google.com');
+  /** @private */
+  onManageContacts_() {
+    window.open(this.i18n('nearbyShareManageContactsUrl'), '_blank');
   },
 
 });

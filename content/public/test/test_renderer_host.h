@@ -35,6 +35,12 @@ class AuraTestHelper;
 }
 }  // namespace aura
 
+namespace blink {
+namespace web_pref {
+struct WebPreferences;
+}
+}  // namespace blink
+
 namespace display {
 class Screen;
 }
@@ -53,6 +59,7 @@ namespace content {
 
 class BrowserContext;
 class ContentBrowserConsistencyChecker;
+class MockAgentSchedulingGroupHostFactory;
 class MockRenderProcessHost;
 class MockRenderProcessHostFactory;
 class NavigationController;
@@ -62,7 +69,6 @@ class TestRenderViewHostFactory;
 class TestRenderWidgetHostFactory;
 class TestNavigationURLLoaderFactory;
 class WebContents;
-struct WebPreferences;
 
 // An interface and utility for driving tests of RenderFrameHost.
 class RenderFrameHostTester {
@@ -100,6 +106,12 @@ class RenderFrameHostTester {
   // RenderFrameHost is owned by the parent RenderFrameHost.
   virtual RenderFrameHost* AppendChild(const std::string& frame_name) = 0;
 
+  // Same as AppendChild above, but simulates a custom allow attribute being
+  // used as the container policy.
+  virtual RenderFrameHost* AppendChildWithPolicy(
+      const std::string& frame_name,
+      const blink::ParsedFeaturePolicy& allow) = 0;
+
   // Gives tests access to RenderFrameHostImpl::OnDetach. Destroys |this|.
   virtual void Detach() = 0;
 
@@ -107,17 +119,10 @@ class RenderFrameHostTester {
   // parameter.
   virtual void SimulateBeforeUnloadCompleted(bool proceed) = 0;
 
-  // Simulates the FrameHostMsg_Unload_ACK that fires if you commit a cross-site
-  // navigation without making any network requests.
+  // Simulates the mojo::AgentSchedulingGroupHost::DidUnloadRenderFrame that
+  // fires if you commit a cross-site navigation without making any network
+  // requests.
   virtual void SimulateUnloadACK() = 0;
-
-  // Set the feature policy header for the RenderFrameHost for test. Currently
-  // this is limited to setting an allowlist for a single feature. This function
-  // can be generalized as needed. Setting a header policy should only be done
-  // once per navigation of the RFH.
-  virtual void SimulateFeaturePolicyHeader(
-      blink::mojom::FeaturePolicyFeature feature,
-      const std::vector<url::Origin>& allowlist) = 0;
 
   // Simulates the frame receiving a user activation.
   virtual void SimulateUserActivation() = 0;
@@ -151,10 +156,7 @@ class RenderViewHostTester {
   virtual ~RenderViewHostTester() {}
 
   // Gives tests access to RenderViewHostImpl::CreateRenderView.
-  virtual bool CreateTestRenderView(
-      const base::Optional<base::UnguessableToken>& opener_frame_route_id,
-      int proxy_routing_id,
-      bool created_with_opener) = 0;
+  virtual bool CreateTestRenderView() = 0;
 
   // Makes the WasHidden/WasShown calls to the RenderWidget that
   // tell it it has been hidden or restored from having been hidden.
@@ -162,7 +164,7 @@ class RenderViewHostTester {
   virtual void SimulateWasShown() = 0;
 
   // Promote ComputeWebPreferences to public.
-  virtual WebPreferences TestComputeWebPreferences() = 0;
+  virtual blink::web_pref::WebPreferences TestComputeWebPreferences() = 0;
 };
 
 // You can instantiate only one class like this at a time.  During its
@@ -182,6 +184,7 @@ class RenderViewHostTestEnabler {
 #endif
   std::unique_ptr<base::test::SingleThreadTaskEnvironment> task_environment_;
   std::unique_ptr<MockRenderProcessHostFactory> rph_factory_;
+  std::unique_ptr<MockAgentSchedulingGroupHostFactory> asgh_factory_;
   std::unique_ptr<TestRenderViewHostFactory> rvh_factory_;
   std::unique_ptr<TestRenderFrameHostFactory> rfh_factory_;
   std::unique_ptr<TestRenderWidgetHostFactory> rwhi_factory_;

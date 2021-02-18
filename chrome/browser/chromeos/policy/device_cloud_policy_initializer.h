@@ -15,9 +15,11 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "chrome/browser/chromeos/policy/server_backed_state_keys_broker.h"
+#include "chromeos/dbus/attestation/interface.pb.h"
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/cloud_policy_store.h"
+#include "components/policy/core/common/cloud/dm_auth.h"
 #include "components/policy/core/common/cloud/signing_service.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
@@ -41,16 +43,11 @@ class StatisticsProvider;
 
 }  // namespace chromeos
 
-namespace cryptohome {
-class AsyncMethodCaller;
-}
-
 namespace policy {
 
 class DeviceCloudPolicyManagerChromeOS;
 class DeviceCloudPolicyStoreChromeOS;
 class DeviceManagementService;
-class DMAuth;
 struct EnrollmentConfig;
 class EnrollmentHandlerChromeOS;
 class EnrollmentStatus;
@@ -59,7 +56,7 @@ class EnrollmentStatus;
 // handles the enrollment process.
 class DeviceCloudPolicyInitializer : public CloudPolicyStore::Observer {
  public:
-  using EnrollmentCallback = base::Callback<void(EnrollmentStatus)>;
+  using EnrollmentCallback = base::OnceCallback<void(EnrollmentStatus)>;
 
   // |background_task_runner| is used to execute long-running background tasks
   // that may involve file I/O.
@@ -71,7 +68,6 @@ class DeviceCloudPolicyInitializer : public CloudPolicyStore::Observer {
       ServerBackedStateKeysBroker* state_keys_broker,
       DeviceCloudPolicyStoreChromeOS* policy_store,
       DeviceCloudPolicyManagerChromeOS* policy_manager,
-      cryptohome::AsyncMethodCaller* async_method_caller,
       std::unique_ptr<chromeos::attestation::AttestationFlow> attestation_flow,
       chromeos::system::StatisticsProvider* statistics_provider);
 
@@ -88,8 +84,8 @@ class DeviceCloudPolicyInitializer : public CloudPolicyStore::Observer {
       DeviceManagementService* device_management_service,
       chromeos::ActiveDirectoryJoinDelegate* ad_join_delegate,
       const EnrollmentConfig& enrollment_config,
-      std::unique_ptr<DMAuth> dm_auth,
-      const EnrollmentCallback& enrollment_callback);
+      DMAuth dm_auth,
+      EnrollmentCallback enrollment_callback);
 
   // Starts enrollment.
   virtual void StartEnrollment();
@@ -122,8 +118,7 @@ class DeviceCloudPolicyInitializer : public CloudPolicyStore::Observer {
   // sign data using the enrollment certificate's TPM-bound key.
   class TpmEnrollmentKeySigningService : public policy::SigningService {
    public:
-    TpmEnrollmentKeySigningService(
-        cryptohome::AsyncMethodCaller* async_method_caller);
+    TpmEnrollmentKeySigningService();
     ~TpmEnrollmentKeySigningService() override;
 
     void SignData(const std::string& data, SigningCallback callback) override;
@@ -131,18 +126,22 @@ class DeviceCloudPolicyInitializer : public CloudPolicyStore::Observer {
    private:
     void OnDataSigned(const std::string& data,
                       SigningCallback callback,
-                      bool success,
-                      const std::string& signed_data);
-
-    cryptohome::AsyncMethodCaller* async_method_caller_;
+                      const ::attestation::SignSimpleChallengeReply& reply);
 
     // Used to create tasks which run delayed on the UI thread.
     base::WeakPtrFactory<TpmEnrollmentKeySigningService> weak_ptr_factory_{
         this};
   };
 
+  FRIEND_TEST_ALL_PREFIXES(
+      DeviceCloudPolicyInitializerTpmEnrollmentKeySigningServiceTest,
+      SigningSuccess);
+  FRIEND_TEST_ALL_PREFIXES(
+      DeviceCloudPolicyInitializerTpmEnrollmentKeySigningServiceTest,
+      SigningFailure);
+
   // Handles completion signaled by |enrollment_handler_|.
-  void EnrollmentCompleted(const EnrollmentCallback& enrollment_callback,
+  void EnrollmentCompleted(EnrollmentCallback enrollment_callback,
                            EnrollmentStatus status);
 
   // Creates a new CloudPolicyClient.
@@ -170,7 +169,7 @@ class DeviceCloudPolicyInitializer : public CloudPolicyStore::Observer {
   // Non-NULL if there is an enrollment operation pending.
   std::unique_ptr<EnrollmentHandlerChromeOS> enrollment_handler_;
 
-  ServerBackedStateKeysBroker::Subscription state_keys_update_subscription_;
+  base::CallbackListSubscription state_keys_update_subscription_;
 
   // Our signing service.
   std::unique_ptr<SigningService> signing_service_;

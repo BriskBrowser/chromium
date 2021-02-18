@@ -5,6 +5,7 @@
 package org.chromium.components.paintpreview.player;
 
 import android.graphics.Rect;
+import android.os.Build;
 import android.os.Build.VERSION_CODES;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.uiautomator.By;
@@ -26,12 +27,11 @@ import org.junit.runner.RunWith;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.util.CallbackHelper;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisableIf;
-import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.ScalableTimeout;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.ui.test.util.DummyUiActivityTestCase;
 import org.chromium.url.GURL;
 
@@ -153,26 +153,10 @@ public class PaintPreviewPlayerTest extends DummyUiActivityTestCase {
         final View playerHostView = mPlayerManager.getView();
         assertLinkUrl(playerHostView, 220, 220, TEST_IN_VIEWPORT_LINK_URL);
         assertLinkUrl(playerHostView, 300, 270, TEST_IN_VIEWPORT_LINK_URL);
-
-        // Temporarily commenting out as this is flaky on P.
-
-        // UiDevice device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
-        // int deviceHeight = device.getDisplayHeight();
-        // int statusBarHeight = statusBarHeight();
-        // int navigationBarHeight = navigationBarHeight();
-        // int padding = 20;
-        // int fromY = deviceHeight - navigationBarHeight - padding;
-        // int toY = statusBarHeight + padding;
-        // mLinkClickHandler.mUrl = null;
-        // device.swipe(300, fromY, 300, toY, 10);
-
-        // Manually click as assertLinkUrl() doesn't handle subframe scrolls well.
-        // assertLinkUrl(playerHostView, 200, 1500, TEST_OUT_OF_VIEWPORT_LINK_URL);
     }
 
     @Test
     @MediumTest
-    @DisabledTest(message = "crbug.com/1117264")
     public void overscrollRefreshTest() throws Exception {
         initPlayerManager(true);
         UiDevice uiDevice = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
@@ -200,13 +184,36 @@ public class PaintPreviewPlayerTest extends DummyUiActivityTestCase {
                     new PaintPreviewTestService(mTempFolder.getRoot().getPath());
             // Use the wrong URL to simulate a failure.
             mPlayerManager = new PlayerManager(new GURL("about:blank"), getActivity(), service,
-                    TEST_DIRECTORY_KEY, mLinkClickHandler,
-                    () -> { Assert.fail("Unexpected overscroll refresh attempted."); },
-                    () -> {
-                        Assert.fail("View Ready callback occurred, but expected a failure.");
-                    },
-                    null, null, 0xffffffff,
-                    (status) -> { compositorErrorCallback.notifyCalled(); }, false);
+                    TEST_DIRECTORY_KEY, new PlayerManager.Listener() {
+                        @Override
+                        public void onCompositorError(int status) {
+                            compositorErrorCallback.notifyCalled();
+                        }
+
+                        @Override
+                        public void onViewReady() {
+                            Assert.fail("View Ready callback occurred, but expected a failure.");
+                        }
+
+                        @Override
+                        public void onFirstPaint() {}
+
+                        @Override
+                        public void onUserInteraction() {}
+
+                        @Override
+                        public void onUserFrustration() {}
+
+                        @Override
+                        public void onPullToRefresh() {
+                            Assert.fail("Unexpected overscroll refresh attempted.");
+                        }
+
+                        @Override
+                        public void onLinkClick(GURL url) {
+                            mLinkClickHandler.onLinkClicked(url);
+                        }
+                    }, 0xffffffff, false);
             mPlayerManager.setCompressOnClose(false);
         });
         compositorErrorCallback.waitForFirst();
@@ -214,10 +221,33 @@ public class PaintPreviewPlayerTest extends DummyUiActivityTestCase {
 
     private void scaleSmokeTest(boolean multiFrame) throws Exception {
         initPlayerManager(multiFrame);
-        UiDevice device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
+        final UiDevice device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
 
-        // Query all FrameLayout objects as the PlayerFrameView isn't recognized.
-        List<UiObject2> objects = device.findObjects(By.clazz("android.widget.FrameLayout"));
+        device.waitForIdle();
+        List<UiObject2> objects = null;
+        boolean failed = false;
+        try {
+            // Query all FrameLayout objects as the PlayerFrameView isn't recognized.
+            //
+            // This may throw a NullPointerException when an AccessibilityNodeInfo is unexpectedly
+            // null on P. It appears to be a bug with null checks inside UiAutomator. However, it
+            // could be exacerbated were the UI state to change mid-invocation (it is unclear
+            // why/whether that happens). This occurs < 30% of the time.
+            objects = device.findObjects(By.clazz("android.widget.FrameLayout"));
+        } catch (NullPointerException e) {
+            failed = true;
+        }
+        if (failed || objects == null) {
+            // Ignore NullPointerException failures on P (particularly Pixel 2 ARM on the
+            // waterfall).
+            if (Build.VERSION.SDK_INT > VERSION_CODES.O_MR1
+                    && Build.VERSION.SDK_INT < VERSION_CODES.Q) {
+                return;
+            }
+
+            // If this fails on any other configuration it is an unexpected issue.
+            Assert.fail("UiDevice#findObjects() threw an unexpected NullPointerException.");
+        }
 
         int viewAxHashCode = mPlayerManager.getView().createAccessibilityNodeInfo().hashCode();
         boolean didPinch = false;
@@ -344,6 +374,7 @@ public class PaintPreviewPlayerTest extends DummyUiActivityTestCase {
         mLinkClickHandler = new TestLinkClickHandler();
         mRefreshedCallback = new CallbackHelper();
         CallbackHelper viewReady = new CallbackHelper();
+        CallbackHelper firstPaint = new CallbackHelper();
         mInitializationFailed = false;
 
         PostTask.postTask(UiThreadTaskTraits.DEFAULT, () -> {
@@ -356,9 +387,38 @@ public class PaintPreviewPlayerTest extends DummyUiActivityTestCase {
             }
 
             mPlayerManager = new PlayerManager(new GURL(TEST_URL), getActivity(), service,
-                    TEST_DIRECTORY_KEY, mLinkClickHandler, mRefreshedCallback::notifyCalled,
-                    viewReady::notifyCalled, null, null, 0xffffffff,
-                    (status) -> { mInitializationFailed = true; }, false);
+                    TEST_DIRECTORY_KEY, new PlayerManager.Listener() {
+                        @Override
+                        public void onCompositorError(int status) {
+                            mInitializationFailed = true;
+                        }
+
+                        @Override
+                        public void onViewReady() {
+                            viewReady.notifyCalled();
+                        }
+
+                        @Override
+                        public void onFirstPaint() {
+                            firstPaint.notifyCalled();
+                        }
+
+                        @Override
+                        public void onUserInteraction() {}
+
+                        @Override
+                        public void onUserFrustration() {}
+
+                        @Override
+                        public void onPullToRefresh() {
+                            mRefreshedCallback.notifyCalled();
+                        }
+
+                        @Override
+                        public void onLinkClick(GURL url) {
+                            mLinkClickHandler.onLinkClicked(url);
+                        }
+                    }, 0xffffffff, false);
             mPlayerManager.setCompressOnClose(false);
             getActivity().setContentView(mPlayerManager.getView());
         });
@@ -393,6 +453,12 @@ public class PaintPreviewPlayerTest extends DummyUiActivityTestCase {
         if (mInitializationFailed) {
             Assert.fail("Compositor may have crashed.");
         }
+
+        try {
+            firstPaint.waitForFirst();
+        } catch (Exception e) {
+            Assert.fail("First paint not issued.");
+        }
     }
 
     /*
@@ -422,6 +488,7 @@ public class PaintPreviewPlayerTest extends DummyUiActivityTestCase {
         int[] locationXY = new int[2];
         view.getLocationOnScreen(locationXY);
         UiDevice device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
+        device.waitForIdle();
         device.click(scaledX + locationXY[0], scaledY + locationXY[1]);
 
         CriteriaHelper.pollUiThread(() -> {

@@ -75,6 +75,8 @@ public class TabModelSelectorTabObserver
                 // Post the removal of the observer so that other tab events are notified
                 // before removing the tab observer (e.g. detach tab from activity).
                 PostTask.postTask(UiThreadTaskTraits.DEFAULT, () -> {
+                    // If the tab as been destroyed we cannot access PersistedTabData.
+                    if (tab.isDestroyed()) return;
                     tab.removeObserver(TabModelSelectorTabObserver.this);
                     CriticalPersistedTabData.from(tab).removeObserver(
                             TabModelSelectorTabObserver.this);
@@ -137,7 +139,9 @@ public class TabModelSelectorTabObserver
             for (int j = 0; j < comprehensiveTabList.getCount(); j++) {
                 Tab tab = comprehensiveTabList.getTabAt(j);
                 tab.removeObserver(this);
-                CriticalPersistedTabData.from(tab).removeObserver(this);
+                if (tab.isInitialized()) {
+                    CriticalPersistedTabData.from(tab).removeObserver(this);
+                }
                 onTabUnregistered(tab);
             }
         }

@@ -8,8 +8,8 @@
 #include <string>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
@@ -40,10 +40,10 @@ const unsigned char kAuthority1DN[] = {0x30, 0x0f, 0x31, 0x0d, 0x30, 0x0b,
                                        0x04, 0x42, 0x20, 0x43, 0x41};
 
 void SaveIdentitiesAndQuitCallback(net::ClientCertIdentityList* out_identities,
-                                   base::Closure quit_closure,
+                                   base::OnceClosure quit_closure,
                                    net::ClientCertIdentityList in_identities) {
   *out_identities = std::move(in_identities);
-  quit_closure.Run();
+  std::move(quit_closure).Run();
 }
 
 }  // namespace

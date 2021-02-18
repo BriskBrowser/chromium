@@ -50,17 +50,73 @@ The API lives in
 The ash-side implementation lives in
 [//chrome/browser/chromeos/crosapi](https://chromium.googlesource.com/chromium/src.git/+/master/chrome/browser/chromeos/crosapi).
 
-Code can be conditionally compiled into lacros via BUILDFLAG(IS_LACROS).
+Code can be conditionally compiled into lacros via
+BUILDFLAG(IS_CHROMEOS_LACROS).
 
-Lacros bugs can be filed under component: OS>LaCrOs.
+## Filing bugs 
+
+Lacros bugs should be filed under OS=Lacros
+
+Bugs in the ash-chrome binary that only affect ash-chrome should be labeled OS=Chrome.
+
+Bugs in the lacros-chrome binary that only affect lacros-chrome should be labeled OS=Lacros.
+
+Bugs in the ash-chrome binary that affect lacros-chrome should be labeled with both OS=Chrome and OS=Lacros. 
+These should not block ash-chrome releases in the short term, but should block ash-chrome releases in the long term.
+
+Bug in the lacros-chrome binary that affects ash-chrome: should not be possible. If lacros-chrome causes bugs in ash-chrome, then there must be a corresponding bug in ash-chrome as well. 
+The lacros-chrome bug should be labeled OS=Lacros and the ash-chrome bug should be labeled OS=Chrome. 
+
+Cross-platform browser bugs e.g. Blink bug should set both OS=Lacros and OS=Chrome in the short term, since we are supporting both ash and lacros as browsers in the short term. 
+Once Lacros launches, the plan to use Lacros vs Chrome will be finalized.
+
+
+## GN var and C++ macros
+
+*Note* that this will take effect once target_os flip of lacros-chrome is landed
+with patch [crrev.com/c/2644407](https://crrev.com/c/2644407). For a short while
+please keep using `BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS`
+and `is_chromeos_ash || is_chromeos_lacros` to target both binaries.
+
+Both lacros and ash are built with gn arg `target_os="chromeos"`. This means
+that C++ macro defined(OS_CHROMEOS) and gn variable is_chromeos are set true for
+both lacros and ash.
+
+### Targeting ash or lacros
+To target lacros or ash separately, use BUILDFLAG(IS_CHROMEOS_LACROS),
+BUILDFLAG(IS_CHROMEOS_ASH) in C++ files and is_chromeos_lacros and
+is_chromeos_ash in gn files.
+
+Note that these are not defined globally and must be included manually.
+
+To use the buildflags in C++ files, add #include "build/chromeos_buildflags.h"
+and then also add "//build:chromeos_buildflags" to deps of the target that is
+using the update C++ files inside gn files. See e.g. crrev.com/c/2494186.
+
+To use the gn variables add `import("//build/config/chromeos/ui_mode.gni")`.
+
+Doc for googlers:
+[go/lacros-porting](http://go/lacros-porting) has tips on determining which
+binary (lacros or ash) a feature should live in.
 
 ## Testing
 
 Most test suites require ash-chrome to be running in order to provide a basic
-Wayland server and the crosapi implementation. This requires a special test
-runner:
+Wayland server. This requires a special test runner:
 
 `./build/lacros/test_runner.py test out/lacros/browser_tests --gtest_filter=BrowserTest.Title`
+
+Some test suites require ash-chrome to provide both a Wayland server and a valid
+mojo crosapi connection. This requires the test target
+`lacros_chrome_browsertests`:
+
+`./build/lacros/test_runner.py test out/lacros/lacros_chrome_browsertests --gtest_filter=ScreenManagerLacrosBrowserTest.*`
+
+By default, the test runner downloads a prebuilt ash-chrome, add the
+`--ash-chrome-path` command line argument to run the test against a locally
+built version of Ash:
+
+`./build/lacros/test_runner.py test --ash-chrome-path=out/ash/chrome out/lacros/lacros_chrome_browsertests --gtest_filter=ScreenManagerLacrosBrowserTest.*`
 
 If you're sshing to your desktop, please prefix the command with
 `./testing/xvfb.py`.

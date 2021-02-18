@@ -15,6 +15,7 @@
 #include "base/rand_util.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -194,6 +195,9 @@ static const MimeInfo kSecondaryMappings[] = {
     {"application/rss+xml", "rss"},
     {"application/vnd.android.package-archive", "apk"},
     {"application/vnd.mozilla.xul+xml", "xul"},
+    {"application/vnd.ms-excel", "xls"},
+    {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+     "xlsx"},
     {"application/x-gzip", "gz,tgz"},
     {"application/x-mpegurl", "m3u8"},
     {"application/x-shockwave-flash", "swf,swl"},
@@ -247,7 +251,7 @@ static base::FilePath::StringType StringToFilePathStringType(
 #if defined(OS_WIN)
   return base::UTF8ToWide(string_piece);
 #else
-  return string_piece.as_string();
+  return std::string(string_piece);
 #endif
 }
 

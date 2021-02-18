@@ -13,7 +13,10 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/values.h"
+#include "build/chromeos_buildflags.h"
+#include "chrome/browser/enterprise/connectors/common.h"
 #include "chrome/browser/safe_browsing/cloud_content_scanning/deep_scanning_utils.h"
+#include "components/download/public/common/download_danger_type.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
 #include "components/policy/core/common/cloud/cloud_policy_core.h"
@@ -39,10 +42,9 @@ class DeviceManagementService;
 namespace safe_browsing {
 class BinaryUploadService;
 enum class DeepScanAccessPoint;
-struct ContentAnalysisScanResult;
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace user_manager {
 class User;
@@ -74,12 +76,16 @@ class SafeBrowsingPrivateEventRouter
   static const char kKeyNetErrorCode[];
   static const char kKeyClickedThrough[];
   static const char kKeyTriggeredRuleName[];
+  static const char kKeyTriggeredRuleId[];
   static const char kKeyTriggeredRuleInfo[];
   static const char kKeyThreatType[];
   static const char kKeyContentType[];
   static const char kKeyContentSize[];
   static const char kKeyTrigger[];
   static const char kKeyEventResult[];
+  static const char kKeyMalwareFamily[];
+  static const char kKeyMalwareCategory[];
+  static const char kKeyEvidenceLockerFilePath[];
 
   static const char kKeyPasswordReuseEvent[];
   static const char kKeyPasswordChangedEvent[];
@@ -87,6 +93,8 @@ class SafeBrowsingPrivateEventRouter
   static const char kKeyInterstitialEvent[];
   static const char kKeySensitiveDataEvent[];
   static const char kKeyUnscannedFileEvent[];
+  static const char* kAllEvents[6];
+
   static const char kKeyUnscannedReason[];
 
   // String constants for the "trigger" event field.  This corresponds to
@@ -113,6 +121,7 @@ class SafeBrowsingPrivateEventRouter
                                  const std::string& file_name,
                                  const std::string& download_digest_sha256,
                                  const std::string& mime_type,
+                                 const download::DownloadDangerType danger_type,
                                  const int64_t content_size);
 
   // Notifies listeners that the user saw a security interstitial.
@@ -133,7 +142,7 @@ class SafeBrowsingPrivateEventRouter
       const std::string& mime_type,
       const std::string& trigger,
       safe_browsing::DeepScanAccessPoint access_point,
-      const safe_browsing::ContentAnalysisScanResult& result,
+      const enterprise_connectors::ContentAnalysisResponse::Result& result,
       const int64_t content_size,
       safe_browsing::EventResult event_result);
 
@@ -145,7 +154,7 @@ class SafeBrowsingPrivateEventRouter
       const std::string& mime_type,
       const std::string& trigger,
       safe_browsing::DeepScanAccessPoint access_point,
-      const safe_browsing::ContentAnalysisScanResult& result,
+      const enterprise_connectors::ContentAnalysisResponse::Result& result,
       const int64_t content_size);
 
   // Notifies listeners that deep scanning failed, for the given |reason|.
@@ -164,12 +173,20 @@ class SafeBrowsingPrivateEventRouter
   // - |file_name| is the path on disk
   // - |download_digest_sha256| is the hex-encoded SHA256
   // - |threat_type| is the danger type of the download.
-  void OnDangerousDownloadWarning(const GURL& url,
-                                  const std::string& file_name,
-                                  const std::string& download_digest_sha256,
-                                  const std::string& threat_type,
-                                  const std::string& mime_type,
-                                  const int64_t content_size);
+  void OnDangerousDownloadEvent(const GURL& url,
+                                const std::string& file_name,
+                                const std::string& download_digest_sha256,
+                                const std::string& threat_type,
+                                const std::string& mime_type,
+                                const int64_t content_size,
+                                safe_browsing::EventResult event_result);
+  void OnDangerousDownloadEvent(const GURL& url,
+                                const std::string& file_name,
+                                const std::string& download_digest_sha256,
+                                const download::DownloadDangerType danger_type,
+                                const std::string& mime_type,
+                                const int64_t content_size,
+                                safe_browsing::EventResult event_result);
 
   // Notifies listeners that the user bypassed a download warning.
   // - |url| is the download URL
@@ -183,13 +200,21 @@ class SafeBrowsingPrivateEventRouter
       const std::string& threat_type,
       const std::string& mime_type,
       const int64_t content_size);
+  void OnDangerousDownloadWarningBypassed(
+      const GURL& url,
+      const std::string& file_name,
+      const std::string& download_digest_sha256,
+      const download::DownloadDangerType danger_type,
+      const std::string& mime_type,
+      const int64_t content_size);
 
   // Returns true if enterprise real-time reporting should be initialized,
-  // checking both the feature flag and whether the browser is managed.  This
-  // function is public so that it can called in tests.
+  // checking both the feature flag. This function is public so that it can
+  // called in tests.
   static bool ShouldInitRealtimeReportingClient();
 
-  void SetCloudPolicyClientForTesting(policy::CloudPolicyClient* client);
+  void SetBrowserCloudPolicyClientForTesting(policy::CloudPolicyClient* client);
+  void SetProfileCloudPolicyClientForTesting(policy::CloudPolicyClient* client);
 
   void SetBinaryUploadServiceForTesting(
       safe_browsing::BinaryUploadService* binary_upload_service);
@@ -207,29 +232,50 @@ class SafeBrowsingPrivateEventRouter
   // directly by tests. Events are created lazily to avoid doing useless work if
   // they are discarded.
   using EventBuilder = base::OnceCallback<base::Value()>;
-  void ReportRealtimeEventCallback(const std::string& name,
-                                   EventBuilder event_builder,
-                                   bool authorized);
+  void ReportRealtimeEventCallback(
+      const std::string& name,
+      enterprise_connectors::ReportingSettings settings,
+      EventBuilder event_builder,
+      bool authorized);
 
  private:
-  // Initialize the real-time report client if needed.  This client is used only
+  // Initialize a real-time report client if needed.  This client is used only
   // if real-time reporting is enabled, the machine is properly reigistered
   // with CBCM and the appropriate policies are enabled.
-  void InitRealtimeReportingClient();
+  void InitRealtimeReportingClient(
+      const enterprise_connectors::ReportingSettings& settings);
+
+  // Sub-methods called by InitRealtimeReportingClient to make appropriate
+  // verifications and initialize the corresponding client. Returns a policy
+  // client description and a client, which can be nullptr if it can't be
+  // initialized.
+  std::pair<std::string, policy::CloudPolicyClient*> InitBrowserReportingClient(
+      const std::string& dm_token);
+
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
+  std::pair<std::string, policy::CloudPolicyClient*> InitProfileReportingClient(
+      const std::string& dm_token);
+#endif
 
   // Continues execution if the client is authorized to do so.
-  void IfAuthorized(base::OnceCallback<void(bool)> cont);
+  void IfAuthorized(const std::string& dm_token,
+                    base::OnceCallback<void(bool)> cont);
 
   // Determines if the real-time reporting feature is enabled.
-  bool IsRealtimeReportingEnabled();
+  // Obtain settings to apply to a reporting event from ConnectorsService.
+  // base::nullopt represents that reporting should not be done.
+  base::Optional<enterprise_connectors::ReportingSettings>
+  GetReportingSettings();
 
   // Called whenever the real-time reporting policy changes.
   void RealtimeReportingPrefChanged(const std::string& pref);
 
   // Report safe browsing event through real-time reporting channel, if enabled.
   // Declared as virtual for tests.
-  virtual void ReportRealtimeEvent(const std::string&,
-                                   EventBuilder event_builder);
+  virtual void ReportRealtimeEvent(
+      const std::string&,
+      enterprise_connectors::ReportingSettings settings,
+      EventBuilder event_builder);
 
   // Create a privately owned cloud policy client for events routing.
   void CreatePrivateCloudPolicyClient(
@@ -242,7 +288,7 @@ class SafeBrowsingPrivateEventRouter
   void OnCloudPolicyClientAvailable(const std::string& policy_client_desc,
                                     policy::CloudPolicyClient* client);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 
   // Return the Chrome OS user who is subject to reporting, or nullptr if
   // the user cannot be deterined.
@@ -258,14 +304,18 @@ class SafeBrowsingPrivateEventRouter
   std::string GetProfileUserName() const;
 
   // Notifies listeners that deep scanning detected a dangerous download.
-  void OnDangerousDeepScanningResult(const GURL& url,
-                                     const std::string& file_name,
-                                     const std::string& download_digest_sha256,
-                                     const std::string& threat_type,
-                                     const std::string& mime_type,
-                                     const std::string& trigger,
-                                     const int64_t content_size,
-                                     safe_browsing::EventResult event_result);
+  void OnDangerousDeepScanningResult(
+      const GURL& url,
+      const std::string& file_name,
+      const std::string& download_digest_sha256,
+      const std::string& threat_type,
+      const std::string& mime_type,
+      const std::string& trigger,
+      const int64_t content_size,
+      safe_browsing::EventResult event_result,
+      const std::string& malware_family,
+      const std::string& malware_category,
+      const std::string& evidence_locker_filepath);
 
   // Notifies listeners that the analysis connector detected a violation.
   void OnSensitiveDataEvent(
@@ -274,7 +324,7 @@ class SafeBrowsingPrivateEventRouter
       const std::string& download_digest_sha256,
       const std::string& mime_type,
       const std::string& trigger,
-      const safe_browsing::ContentAnalysisScanResult& result,
+      const enterprise_connectors::ContentAnalysisResponse::Result& result,
       const int64_t content_size,
       safe_browsing::EventResult event_result);
 
@@ -282,12 +332,17 @@ class SafeBrowsingPrivateEventRouter
   signin::IdentityManager* identity_manager_ = nullptr;
   EventRouter* event_router_ = nullptr;
   safe_browsing::BinaryUploadService* binary_upload_service_ = nullptr;
-  // The cloud policy client used to upload events to the cloud. This client
-  // is never used to fetch policies. This pointer is not owned by the class.
-  policy::CloudPolicyClient* client_ = nullptr;
-  // The |private_client_| is used on platforms where we cannot just get a
-  // client and we create our own (used through |client_|).
-  std::unique_ptr<policy::CloudPolicyClient> private_client_;
+
+  // The cloud policy clients used to upload browser events and profile events
+  // to the cloud. These clients are never used to fetch policies. These
+  // pointers are not owned by the class.
+  policy::CloudPolicyClient* browser_client_ = nullptr;
+  policy::CloudPolicyClient* profile_client_ = nullptr;
+
+  // The private clients are used on platforms where we cannot just get a
+  // client and we create our own (used through the above client pointers).
+  std::unique_ptr<policy::CloudPolicyClient> browser_private_client_;
+  std::unique_ptr<policy::CloudPolicyClient> profile_private_client_;
 
   base::WeakPtrFactory<SafeBrowsingPrivateEventRouter> weak_ptr_factory_{this};
   DISALLOW_COPY_AND_ASSIGN(SafeBrowsingPrivateEventRouter);

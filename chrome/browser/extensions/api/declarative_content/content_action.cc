@@ -9,7 +9,7 @@
 #include "base/lazy_instance.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/metrics/histogram_macros.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/api/extension_action/extension_action_api.h"
@@ -20,10 +20,11 @@
 #include "content/public/browser/invalidate_type.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
-#include "extensions/browser/declarative_user_script_manager.h"
 #include "extensions/browser/extension_action.h"
 #include "extensions/browser/extension_action_manager.h"
 #include "extensions/browser/extension_system.h"
+#include "extensions/browser/extension_user_script_loader.h"
+#include "extensions/browser/user_script_manager.h"
 #include "extensions/common/api/declarative/declarative_constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_messages.h"
@@ -52,6 +53,12 @@ const char kIconNotSufficientlyVisible[] =
 
 bool g_allow_invisible_icons_content_action = true;
 
+void RecordContentActionCreated(
+    declarative_content_constants::ContentActionType type) {
+  base::UmaHistogramEnumeration("Extensions.DeclarativeContentActionCreated",
+                                type);
+}
+
 //
 // The following are concrete actions.
 //
@@ -74,6 +81,9 @@ class ShowExtensionAction : public ContentAction {
       *error = kNoAction;
       return nullptr;
     }
+
+    RecordContentActionCreated(
+        declarative_content_constants::ContentActionType::kShowAction);
     return std::make_unique<ShowExtensionAction>();
   }
 
@@ -230,37 +240,10 @@ std::unique_ptr<ContentAction> RequestContentScript::Create(
   if (!InitScriptData(dict, error, &script_data))
     return std::unique_ptr<ContentAction>();
 
+  RecordContentActionCreated(
+      declarative_content_constants::ContentActionType::kRequestContentScript);
   return base::WrapUnique(
       new RequestContentScript(browser_context, extension, script_data));
-}
-
-// static
-std::unique_ptr<ContentAction> RequestContentScript::CreateForTest(
-    DeclarativeUserScriptSet* script_set,
-    const Extension* extension,
-    const base::Value& json_action,
-    std::string* error) {
-  // Simulate ContentAction-level initialization. Check that instance type is
-  // RequestContentScript.
-  error->clear();
-  const base::DictionaryValue* action_dict = NULL;
-  std::string instance_type;
-  if (!(json_action.GetAsDictionary(&action_dict) &&
-        action_dict->GetString(declarative_content_constants::kInstanceType,
-                               &instance_type) &&
-        instance_type ==
-            std::string(declarative_content_constants::kRequestContentScript)))
-    return std::unique_ptr<ContentAction>();
-
-  // Normal RequestContentScript data initialization.
-  ScriptData script_data;
-  if (!InitScriptData(action_dict, error, &script_data))
-    return std::unique_ptr<ContentAction>();
-
-  // Inject provided DeclarativeUserScriptSet, rather than looking it up
-  // using a BrowserContext.
-  return base::WrapUnique(
-      new RequestContentScript(script_set, extension, script_data));
 }
 
 // static
@@ -310,24 +293,16 @@ RequestContentScript::RequestContentScript(
   HostID host_id(HostID::EXTENSIONS, extension->id());
   InitScript(host_id, extension, script_data);
 
-  script_set_ = DeclarativeUserScriptManager::Get(browser_context)
-                    ->GetDeclarativeUserScriptSetByID(host_id);
-  AddScript();
-}
-
-RequestContentScript::RequestContentScript(DeclarativeUserScriptSet* script_set,
-                                           const Extension* extension,
-                                           const ScriptData& script_data) {
-  HostID host_id(HostID::EXTENSIONS, extension->id());
-  InitScript(host_id, extension, script_data);
-
-  script_set_ = script_set;
+  script_loader_ = ExtensionSystem::Get(browser_context)
+                       ->user_script_manager()
+                       ->GetUserScriptLoaderForExtension(extension->id());
   AddScript();
 }
 
 RequestContentScript::~RequestContentScript() {
-  DCHECK(script_set_);
-  script_set_->RemoveScript(UserScriptIDPair(script_.id(), script_.host_id()));
+  DCHECK(script_loader_);
+  script_loader_->RemoveScripts(
+      {UserScriptIDPair(script_.id(), script_.host_id())});
 }
 
 void RequestContentScript::InitScript(const HostID& host_id,
@@ -358,8 +333,10 @@ void RequestContentScript::InitScript(const HostID& host_id,
 }
 
 void RequestContentScript::AddScript() {
-  DCHECK(script_set_);
-  script_set_->AddScript(UserScript::CopyMetadataFrom(script_));
+  DCHECK(script_loader_);
+  auto scripts = std::make_unique<UserScriptList>();
+  scripts->push_back(UserScript::CopyMetadataFrom(script_));
+  script_loader_->AddScripts(std::move(scripts));
 }
 
 void RequestContentScript::Apply(const ApplyInfo& apply_info) const {
@@ -407,17 +384,20 @@ std::unique_ptr<ContentAction> SetIcon::Create(
   const SkBitmap bitmap = image.AsBitmap();
   const bool is_sufficiently_visible =
       extensions::image_util::IsIconSufficientlyVisible(bitmap);
-  UMA_HISTOGRAM_BOOLEAN("Extensions.DeclarativeSetIconWasVisible",
-                        is_sufficiently_visible);
+  base::UmaHistogramBoolean("Extensions.DeclarativeSetIconWasVisible",
+                            is_sufficiently_visible);
   const bool is_sufficiently_visible_rendered =
       extensions::ui_util::IsRenderedIconSufficientlyVisibleForBrowserContext(
           bitmap, browser_context);
-  UMA_HISTOGRAM_BOOLEAN("Extensions.DeclarativeSetIconWasVisibleRendered",
-                        is_sufficiently_visible_rendered);
+  base::UmaHistogramBoolean("Extensions.DeclarativeSetIconWasVisibleRendered",
+                            is_sufficiently_visible_rendered);
   if (!is_sufficiently_visible && !g_allow_invisible_icons_content_action) {
     *error = kIconNotSufficientlyVisible;
     return nullptr;
   }
+
+  RecordContentActionCreated(
+      declarative_content_constants::ContentActionType::kSetIcon);
   return std::make_unique<SetIcon>(image);
 }
 

@@ -8,8 +8,8 @@
 #include <memory>
 
 #include "base/compiler_specific.h"
-#include "base/macros.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/test/base/test_browser_window.h"
 #include "chrome/test/base/testing_profile.h"
@@ -21,7 +21,7 @@
 #if defined(TOOLKIT_VIEWS)
 #include "chrome/test/views/chrome_test_views_delegate.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/test/ash_test_helper.h"
 #include "ash/test/ash_test_views_delegate.h"
 #include "chrome/browser/chromeos/login/users/scoped_test_user_manager.h"
@@ -30,6 +30,10 @@
 #else
 #include "ui/views/test/scoped_views_test_helper.h"
 #endif
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "chromeos/ui/base/tablet_state.h"
 #endif
 
 #if defined(OS_WIN)
@@ -99,6 +103,10 @@ class BrowserWithTestWindowTest : public testing::Test {
             base::trait_helpers::HasTrait<HostedApp,
                                           TaskEnvironmentTraits...>()) {}
 
+  BrowserWithTestWindowTest(const BrowserWithTestWindowTest&) = delete;
+  BrowserWithTestWindowTest& operator=(const BrowserWithTestWindowTest&) =
+      delete;
+
   ~BrowserWithTestWindowTest() override;
 
   void SetUp() override;
@@ -129,7 +137,7 @@ class BrowserWithTestWindowTest : public testing::Test {
     return window_.release();
   }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   ash::AshTestHelper* ash_test_helper() { return &ash_test_helper_; }
 #endif
 
@@ -181,7 +189,7 @@ class BrowserWithTestWindowTest : public testing::Test {
 
 #if defined(TOOLKIT_VIEWS)
   views::TestViewsDelegate* test_views_delegate() {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     return test_views_delegate_.get();
 #else
     return views_test_helper_->test_views_delegate();
@@ -189,7 +197,7 @@ class BrowserWithTestWindowTest : public testing::Test {
   }
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   chromeos::ScopedCrosSettingsTestHelper* GetCrosSettingsHelper();
   chromeos::StubInstallAttributes* GetInstallAttributes();
 #endif
@@ -205,7 +213,7 @@ class BrowserWithTestWindowTest : public testing::Test {
   // We need to create a MessageLoop, otherwise a bunch of things fails.
   std::unique_ptr<content::BrowserTaskEnvironment> task_environment_;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   chromeos::ScopedCrosSettingsTestHelper cros_settings_test_helper_;
   chromeos::ScopedTestUserManager test_user_manager_;
 #endif
@@ -220,7 +228,7 @@ class BrowserWithTestWindowTest : public testing::Test {
   std::unique_ptr<BrowserWindow> window_;  // Usually a TestBrowserWindow.
   std::unique_ptr<Browser> browser_;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   ash::AshTestHelper ash_test_helper_;
   std::unique_ptr<views::TestViewsDelegate> test_views_delegate_ =
       std::make_unique<ChromeTestViewsDelegate<ash::AshTestViewsDelegate>>();
@@ -228,6 +236,10 @@ class BrowserWithTestWindowTest : public testing::Test {
   std::unique_ptr<views::ScopedViewsTestHelper> views_test_helper_ =
       std::make_unique<views::ScopedViewsTestHelper>(
           std::make_unique<ChromeTestViewsDelegate<>>());
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  std::unique_ptr<chromeos::TabletState> tablet_state_;
 #endif
 
   // The existence of this object enables tests via RenderViewHostTester.
@@ -242,8 +254,6 @@ class BrowserWithTestWindowTest : public testing::Test {
 
   // Whether the browser is part of a hosted app.
   const bool hosted_app_;
-
-  DISALLOW_COPY_AND_ASSIGN(BrowserWithTestWindowTest);
 };
 
 #endif  // CHROME_TEST_BASE_BROWSER_WITH_TEST_WINDOW_TEST_H_

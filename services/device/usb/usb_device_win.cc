@@ -29,12 +29,12 @@ UsbDeviceWin::UsbDeviceWin(const std::wstring& device_path,
                            const base::flat_map<int, FunctionInfo>& functions,
                            uint32_t bus_number,
                            uint32_t port_number,
-                           const std::wstring& driver_name)
+                           DriverType driver_type)
     : UsbDevice(bus_number, port_number),
       device_path_(device_path),
       hub_path_(hub_path),
       functions_(functions),
-      driver_name_(driver_name) {}
+      driver_type_(driver_type) {}
 
 UsbDeviceWin::~UsbDeviceWin() {}
 
@@ -42,16 +42,13 @@ void UsbDeviceWin::Open(OpenCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   scoped_refptr<UsbDeviceHandle> device_handle;
-  if (base::EqualsCaseInsensitiveASCII(driver_name_, L"winusb") ||
-      base::EqualsCaseInsensitiveASCII(driver_name_, L"usbccgp")) {
+  if (driver_type_ != DriverType::kUnsupported) {
     device_handle = new UsbDeviceHandleWin(this);
+    handles().push_back(device_handle.get());
   }
 
-  if (device_handle)
-    handles().push_back(device_handle.get());
-
   base::SequencedTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(std::move(callback), device_handle));
+      FROM_HERE, base::BindOnce(std::move(callback), std::move(device_handle)));
 }
 
 void UsbDeviceWin::ReadDescriptors(base::OnceCallback<void(bool)> callback) {
@@ -76,7 +73,7 @@ void UsbDeviceWin::ReadDescriptors(base::OnceCallback<void(bool)> callback) {
 
 void UsbDeviceWin::UpdateFunction(int interface_number,
                                   const FunctionInfo& function_info) {
-  functions_.insert({interface_number, function_info});
+  functions_[interface_number] = function_info;
 
   for (UsbDeviceHandle* handle : handles()) {
     // This is safe because only this class only adds instance of

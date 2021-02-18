@@ -4,8 +4,11 @@
 
 #include "chrome/browser/chromeos/release_notes/release_notes_notification.h"
 
+#include "ash/constants/ash_features.h"
 #include "base/feature_list.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/version.h"
 #include "chrome/browser/notifications/notification_display_service_tester.h"
 #include "chrome/browser/notifications/system_notification_helper.h"
 #include "chrome/common/pref_names.h"
@@ -14,8 +17,8 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "components/prefs/testing_pref_service.h"
+#include "components/version_info/version_info.h"
 #include "ui/chromeos/devicetype_utils.h"
 
 namespace chromeos {
@@ -40,8 +43,11 @@ class ReleaseNotesNotificationTest : public BrowserWithTestWindowTest {
                             base::Unretained(this)));
     release_notes_notification_ =
         std::make_unique<ReleaseNotesNotification>(profile());
-    scoped_feature_list_.InitAndEnableFeature(
-        chromeos::features::kReleaseNotesNotification);
+    scoped_feature_list_.InitWithFeatures(
+        /*enabled_features=*/{chromeos::features::kReleaseNotesNotification,
+                              chromeos::features::
+                                  kReleaseNotesNotificationAllChannels},
+        /*disabled_features=*/{});
   }
 
   void TearDown() override {
@@ -73,6 +79,10 @@ class ReleaseNotesNotificationTest : public BrowserWithTestWindowTest {
 };
 
 TEST_F(ReleaseNotesNotificationTest, DoNotShowReleaseNotesNotification) {
+  std::unique_ptr<ReleaseNotesStorage> release_notes_storage =
+      std::make_unique<ReleaseNotesStorage>(profile());
+  profile()->GetPrefs()->SetInteger(prefs::kReleaseNotesLastShownMilestone,
+                                    version_info::GetVersion().components()[0]);
   release_notes_notification_->MaybeShowReleaseNotes();
   EXPECT_EQ(false, HasReleaseNotesNotification());
   EXPECT_EQ(0, notification_count_);
@@ -81,12 +91,14 @@ TEST_F(ReleaseNotesNotificationTest, DoNotShowReleaseNotesNotification) {
 TEST_F(ReleaseNotesNotificationTest, ShowReleaseNotesNotification) {
   std::unique_ptr<ReleaseNotesStorage> release_notes_storage =
       std::make_unique<ReleaseNotesStorage>(profile());
-  profile()->GetPrefs()->SetInteger(prefs::kReleaseNotesLastShownMilestone, -1);
+  profile()->GetPrefs()->SetInteger(prefs::kReleaseNotesLastShownMilestone, 20);
   release_notes_notification_->MaybeShowReleaseNotes();
   EXPECT_EQ(true, HasReleaseNotesNotification());
   EXPECT_EQ(ui::SubstituteChromeOSDeviceType(
                 IDS_RELEASE_NOTES_DEVICE_SPECIFIC_NOTIFICATION_TITLE),
             GetReleaseNotesNotification().title());
+  EXPECT_EQ("Work better across devices, do things faster, and more",
+            base::UTF16ToASCII(GetReleaseNotesNotification().message()));
   EXPECT_EQ(1, notification_count_);
 }
 

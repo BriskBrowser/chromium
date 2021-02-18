@@ -9,7 +9,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.LinearLayout;
 
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -32,14 +32,12 @@ public class PageInfoViewV2 extends PageInfoView {
     protected void init(PageInfoView.PageInfoViewParams params) {
         super.init(params);
         mRowWrapper = findViewById(R.id.page_info_row_wrapper);
-        initializePageInfoViewChild(mRowWrapper, true, 0f, null);
+        initializePageInfoViewChild(mRowWrapper, true, null);
     }
 
     @Override
     protected void initUrlTitle(PageInfoView.PageInfoViewParams params) {
-        super.initUrlTitle(params);
-        // Adjust the mUrlTitle
-        mUrlTitle.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
+        // URL is initialized in PageInfoContainer.
     }
 
     @Override
@@ -62,8 +60,14 @@ public class PageInfoViewV2 extends PageInfoView {
     }
 
     @Override
-    protected void initHttpsImageCompression(PageInfoViewParams params) {
-        // TODO(crbug.com/1077766): Migrate image compression UI.
+    protected void initSiteSettings(PageInfoViewParams params) {}
+
+    @Override
+    protected void initPreview(PageInfoViewParams params) {
+        mPreviewLoadOriginal = findViewById(R.id.page_info_preview_load_original);
+        initializePageInfoViewChild(mPreviewLoadOriginal, params.previewUIShown,
+                params.previewShowOriginalClickCallback);
+        mPreviewLoadOriginal.setText(params.previewLoadOriginalMessage);
     }
 
     public PageInfoRowView getConnectionRowView() {
@@ -78,12 +82,13 @@ public class PageInfoViewV2 extends PageInfoView {
         return mCookiesRow;
     }
 
-    /**
-     * Create a list of all the views which we want to individually fade in.
-     */
+    @Override
+    public void toggleUrlTruncation() {
+        throw new RuntimeException();
+    }
+
     @Override
     protected List<View> collectAnimatableViews() {
-        return Arrays.asList(mUrlTitle, mPreviewMessage, mPreviewLoadOriginal, mPreviewSeparator,
-                mInstantAppButton, mRowWrapper, mSiteSettingsButton);
+        return Collections.emptyList();
     }
 }

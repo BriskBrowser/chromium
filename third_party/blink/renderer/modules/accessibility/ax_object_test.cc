@@ -40,6 +40,22 @@ TEST_F(AccessibilityTest, IsAncestorOf) {
   EXPECT_FALSE(button->IsAncestorOf(*root));
 }
 
+TEST_F(AccessibilityTest, DetachedIsIgnored) {
+  SetBodyInnerHTML(R"HTML(<button id="button">button</button>)HTML");
+
+  const AXObject* root = GetAXRootObject();
+  ASSERT_NE(nullptr, root);
+  AXObject* button = GetAXObjectByElementId("button");
+  ASSERT_NE(nullptr, button);
+
+  EXPECT_FALSE(button->IsDetached());
+  EXPECT_FALSE(button->AccessibilityIsIgnored());
+  GetAXObjectCache().Remove(button->GetNode());
+  EXPECT_TRUE(button->IsDetached());
+  EXPECT_TRUE(button->AccessibilityIsIgnored());
+  EXPECT_FALSE(button->AccessibilityIsIgnoredButIncludedInTree());
+}
+
 TEST_F(AccessibilityTest, UnignoredChildren) {
   SetBodyInnerHTML(R"HTML(This is a test with
                    <p role="presentation">
@@ -144,6 +160,48 @@ TEST_F(AccessibilityTest, SimpleTreeNavigation) {
   ASSERT_NE(nullptr, button->DeepestFirstChildIncludingIgnored());
   EXPECT_EQ(ax::mojom::Role::kStaticText,
             paragraph->DeepestFirstChildIncludingIgnored()->RoleValue());
+}
+
+TEST_F(AccessibilityTest, LangAttrInteresting) {
+  SetBodyInnerHTML(R"HTML(
+      <div id="A"><span>some text</span></div>
+      <div id="B"><span lang='en'>some text</span></div>
+      )HTML");
+
+  const AXObject* obj_a = GetAXObjectByElementId("A");
+  ASSERT_NE(nullptr, obj_a);
+  ASSERT_EQ(obj_a->ChildCountIncludingIgnored(), 1);
+
+  // A.span will be excluded from tree as it isn't semantically interesting.
+  // Instead its kStaticText child will be promoted.
+  const AXObject* span_1 = obj_a->ChildAtIncludingIgnored(0);
+  ASSERT_NE(nullptr, span_1);
+  EXPECT_EQ(ax::mojom::Role::kStaticText, span_1->RoleValue());
+
+  const AXObject* obj_b = GetAXObjectByElementId("B");
+  ASSERT_NE(nullptr, obj_b);
+  ASSERT_EQ(obj_b->ChildCountIncludingIgnored(), 1);
+
+  // B.span will be present as the lang attribute is semantically interesting.
+  const AXObject* span_2 = obj_b->ChildAtIncludingIgnored(0);
+  ASSERT_NE(nullptr, span_2);
+  EXPECT_EQ(ax::mojom::Role::kGenericContainer, span_2->RoleValue());
+}
+
+TEST_F(AccessibilityTest, LangAttrInterestingHidden) {
+  SetBodyInnerHTML(R"HTML(
+      <div id="A"><span lang='en' aria-hidden='true'>some text</span></div>
+      )HTML");
+
+  const AXObject* obj_a = GetAXObjectByElementId("A");
+  ASSERT_NE(nullptr, obj_a);
+  ASSERT_EQ(obj_a->ChildCountIncludingIgnored(), 1);
+
+  // A.span will be present as the lang attribute is semantically interesting.
+  const AXObject* span_1 = obj_a->ChildAtIncludingIgnored(0);
+  ASSERT_NE(nullptr, span_1);
+  EXPECT_EQ(ax::mojom::Role::kGenericContainer, span_1->RoleValue());
+  EXPECT_TRUE(span_1->AccessibilityIsIgnoredButIncludedInTree());
 }
 
 TEST_F(AccessibilityTest, TreeNavigationWithIgnoredContainer) {
@@ -724,10 +782,6 @@ TEST_F(AccessibilityTest, InitRelationCacheAriaOwns) {
 
   const AXObject* root = GetAXRootObject();
   ASSERT_NE(nullptr, root);
-
-  // Perform deferred processing so that aria-owns children are attached.
-  GetDocument().Lifecycle().AdvanceTo(DocumentLifecycle::kInAccessibility);
-  GetAXObjectCache().ProcessDeferredAccessibilityEvents(GetDocument());
 
   // Note: retrieve the LI first and check that its parent is not
   // the paragraph element. If we were to retrieve the UL element,

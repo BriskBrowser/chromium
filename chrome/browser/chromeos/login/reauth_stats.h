@@ -49,6 +49,16 @@ enum ReauthReason {
   // User cancelled the password change prompt when prompted by Chrome OS.
   PASSWORD_UPDATE_SKIPPED = 8,
 
+  // SAML password sync token validation failed.
+  SAML_PASSWORD_SYNC_TOKEN_VALIDATION_FAILED = 9,
+
+  // Corrupted cryptohome
+  UNRECOVERABLE_CRYPTOHOME = 10,
+
+  // Gaia policy is set, which requires re-auth on every login if the offline
+  // login time limit has been reached.
+  GAIA_REAUTH_POLICY = 11,
+
   // Must be the last value in this list.
   NUM_REAUTH_FLOW_REASONS,
 };

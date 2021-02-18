@@ -10,6 +10,8 @@
 #include "base/run_loop.h"
 #include "base/task/current_thread.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/common/content_paths.h"
 #include "content/public/common/content_switches.h"
@@ -25,11 +27,13 @@
 #include "base/mac/foundation_util.h"
 #endif
 
-#if !defined(OS_CHROMEOS) && defined(OS_LINUX)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if BUILDFLAG(IS_CHROMEOS_LACROS) || defined(OS_LINUX)
 #include "ui/base/ime/init/input_method_initializer.h"
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "content/public/test/network_connection_change_simulator.h"
 #endif
 
@@ -52,6 +56,10 @@ ContentBrowserTest::ContentBrowserTest() {
   CHECK(base::PathService::Override(base::FILE_EXE, content_shell_path));
 #endif
   CreateTestServer(GetTestDataFilePath());
+
+  // Fail as quickly as possible during tests, rather than attempting to reset
+  // accessibility and continue when unserialization fails.
+  RenderFrameHostImpl::max_accessibility_resets_ = 0;
 }
 
 ContentBrowserTest::~ContentBrowserTest() {
@@ -82,7 +90,9 @@ void ContentBrowserTest::SetUp() {
 #endif
 
   // LinuxInputMethodContextFactory has to be initialized.
-#if !defined(OS_CHROMEOS) && defined(OS_LINUX)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if BUILDFLAG(IS_CHROMEOS_LACROS) || defined(OS_LINUX)
   ui::InitializeInputMethodForTesting();
 #endif
 
@@ -95,13 +105,15 @@ void ContentBrowserTest::TearDown() {
   BrowserTestBase::TearDown();
 
   // LinuxInputMethodContextFactory has to be shutdown.
-#if !defined(OS_CHROMEOS) && defined(OS_LINUX)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if BUILDFLAG(IS_CHROMEOS_LACROS) || defined(OS_LINUX)
   ui::ShutdownInputMethodForTesting();
 #endif
 }
 
 void ContentBrowserTest::PreRunTestOnMainThread() {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   NetworkConnectionChangeSimulator network_change_simulator;
   network_change_simulator.InitializeChromeosConnectionType();
 #endif

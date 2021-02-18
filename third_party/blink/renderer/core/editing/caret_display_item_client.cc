@@ -130,7 +130,7 @@ void CaretDisplayItemClient::UpdateStyleAndLayoutIfNeeded(
   // We don't care about intermediate changes of LayoutBlock because they are
   // not painted.
   if (!previous_layout_block_)
-    previous_layout_block_ = layout_block_;
+    previous_layout_block_ = layout_block_.Get();
 
   CaretRectAndPainterBlock rect_and_block =
       ComputeCaretRectAndPainterBlock(caret_position);
@@ -167,6 +167,13 @@ void CaretDisplayItemClient::UpdateStyleAndLayoutIfNeeded(
 
   if (needs_paint_invalidation_)
     new_layout_block->SetShouldCheckForPaintInvalidation();
+}
+
+void CaretDisplayItemClient::SetVisibleIfActive(bool visible) {
+  if (visible == is_visible_if_active_)
+    return;
+  is_visible_if_active_ = visible;
+  needs_paint_invalidation_ = true;
 }
 
 void CaretDisplayItemClient::InvalidatePaint(
@@ -227,7 +234,25 @@ void CaretDisplayItemClient::PaintCaret(
   DrawingRecorder recorder(context, *this, display_item_type,
                            EnclosingIntRect(drawing_rect));
   IntRect paint_rect = PixelSnappedIntRect(drawing_rect);
-  context.FillRect(paint_rect, color_, DarkModeFilter::ElementRole::kText);
+  context.FillRect(paint_rect, is_visible_if_active_ ? color_ : Color(),
+                   DarkModeFilter::ElementRole::kText);
+}
+
+void CaretDisplayItemClient::RecordSelection(
+    GraphicsContext& context,
+    const PhysicalOffset& paint_offset) {
+  PhysicalRect drawing_rect = local_rect_;
+  drawing_rect.Move(paint_offset);
+  IntRect paint_rect = PixelSnappedIntRect(drawing_rect);
+
+  // For the caret, the start and selection selection bounds are recorded as
+  // the same edges, with the type marked as CENTER.
+  PaintedSelectionBound start = {gfx::SelectionBound::Type::CENTER,
+                                 paint_rect.MinXMinYCorner(),
+                                 paint_rect.MinXMaxYCorner(), false};
+  PaintedSelectionBound end = start;
+
+  context.GetPaintController().RecordSelection(start, end);
 }
 
 String CaretDisplayItemClient::DebugName() const {

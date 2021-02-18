@@ -5,8 +5,8 @@
 #include "content/browser/media/session/pepper_player_delegate.h"
 
 #include "base/command_line.h"
-#include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/media/session/pepper_playback_observer.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/common/frame_messages.h"
 #include "media/base/media_switches.h"
 #include "services/media_session/public/cpp/media_position.h"
@@ -94,8 +94,13 @@ RenderFrameHost* PepperPlayerDelegate::render_frame_host() const {
 }
 
 void PepperPlayerDelegate::SetVolume(int player_id, double volume) {
-  render_frame_host_->Send(new FrameMsg_SetPepperVolume(
-      render_frame_host_->GetRoutingID(), pp_instance_, volume));
+  static_cast<RenderFrameHostImpl*>(render_frame_host_)
+      ->PepperSetVolume(pp_instance_, volume);
+}
+
+bool PepperPlayerDelegate::HasAudio(int player_id) const {
+  // We don't actually know whether a pepper player has both audio/video.
+  return true;
 }
 
 bool PepperPlayerDelegate::HasVideo(int player_id) const {
@@ -106,6 +111,11 @@ bool PepperPlayerDelegate::HasVideo(int player_id) const {
 std::string PepperPlayerDelegate::GetAudioOutputSinkId(int player_id) const {
   // This operation is not supported for pepper players.
   return "";
+}
+
+bool PepperPlayerDelegate::SupportsAudioOutputDeviceSwitching(
+    int player_id) const {
+  return false;
 }
 
 }  // namespace content

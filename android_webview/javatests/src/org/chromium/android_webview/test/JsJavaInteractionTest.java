@@ -5,15 +5,14 @@
 package org.chromium.android_webview.test;
 
 import android.net.Uri;
-import android.support.test.InstrumentationRegistry;
 import android.webkit.JavascriptInterface;
 
 import androidx.test.filters.MediumTest;
 import androidx.test.filters.SmallTest;
 
-import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -24,11 +23,13 @@ import org.chromium.android_webview.ScriptReference;
 import org.chromium.android_webview.WebMessageListener;
 import org.chromium.android_webview.test.TestAwContentsClient.OnReceivedTitleHelper;
 import org.chromium.android_webview.test.util.CommonResources;
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.Feature;
 import org.chromium.content_public.browser.MessagePort;
 import org.chromium.content_public.browser.test.util.TestCallbackHelperContainer.OnPageFinishedHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServer;
+import org.chromium.net.test.EmbeddedTestServerRule;
 import org.chromium.net.test.util.TestWebServer;
 
 import java.util.concurrent.LinkedBlockingQueue;
@@ -37,9 +38,12 @@ import java.util.concurrent.LinkedBlockingQueue;
  * Test suite for JavaScript Java interaction.
  */
 @RunWith(AwJUnit4ClassRunner.class)
+@Batch(Batch.PER_CLASS)
 public class JsJavaInteractionTest {
     @Rule
     public AwActivityTestRule mActivityTestRule = new AwActivityTestRule();
+    @ClassRule
+    public static EmbeddedTestServerRule sTestServerRule = new EmbeddedTestServerRule();
 
     private static final String RESOURCE_PATH = "/android_webview/test/data";
     private static final String POST_MESSAGE_SIMPLE_HTML =
@@ -108,13 +112,7 @@ public class JsJavaInteractionTest {
         mAwContents = testContainerView.getAwContents();
         mListener = new TestWebMessageListener();
         mActivityTestRule.getAwSettingsOnUiThread(mAwContents).setJavaScriptEnabled(true);
-        mTestServer = EmbeddedTestServer.createAndStartServer(
-                InstrumentationRegistry.getInstrumentation().getContext());
-    }
-
-    @After
-    public void tearDown() {
-        mTestServer.stopAndDestroyServer();
+        mTestServer = sTestServerRule.getServer();
     }
 
     @Test
@@ -620,22 +618,6 @@ public class JsJavaInteractionTest {
                 isJsObjectInjectedWhenLoadingUrl("https://www.ok.com", JS_OBJECT_NAME_2));
         Assert.assertFalse(
                 isJsObjectInjectedWhenLoadingUrl("https://www.noinjection.com", JS_OBJECT_NAME_2));
-    }
-
-    @Test
-    @MediumTest
-    @Feature({"AndroidWebView", "JsJavaInteraction"})
-    public void testAddWebMessageListener_dontInjectWhenMatchesImplicitRules() throws Throwable {
-        // allowedOriginRules is an empty String array, shouldn't inject the object to any frame.
-        addWebMessageListenerOnUiThread(mAwContents, JS_OBJECT_NAME, new String[0], mListener);
-
-        // following are some origins allowed by implicit rules.
-        Assert.assertFalse(isJsObjectInjectedWhenLoadingUrl("http://127.0.0.1", JS_OBJECT_NAME));
-        Assert.assertFalse(isJsObjectInjectedWhenLoadingUrl("https://127.0.0.1", JS_OBJECT_NAME));
-        Assert.assertFalse(isJsObjectInjectedWhenLoadingUrl("http://localhost", JS_OBJECT_NAME));
-        Assert.assertFalse(isJsObjectInjectedWhenLoadingUrl("http://169.254.0.1", JS_OBJECT_NAME));
-        Assert.assertFalse(isJsObjectInjectedWhenLoadingUrl("http://localhost6", JS_OBJECT_NAME));
-        Assert.assertFalse(isJsObjectInjectedWhenLoadingUrl("http://[::1]", JS_OBJECT_NAME));
     }
 
     @Test

@@ -19,6 +19,7 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/chromeos/extensions/file_manager/file_stream_string_converter.h"
+#include "chrome/browser/chromeos/extensions/file_manager/files_extension_function.h"
 #include "chrome/browser/chromeos/extensions/file_manager/private_api_base.h"
 #include "chrome/browser/extensions/chrome_extension_function_details.h"
 #include "components/drive/file_errors.h"
@@ -72,7 +73,7 @@ class FileManagerPrivateEnableExternalFileSchemeFunction
 
 // Grants R/W permissions to profile-specific directories (Drive, Downloads)
 // from other profiles.
-class FileManagerPrivateGrantAccessFunction : public ExtensionFunction {
+class FileManagerPrivateGrantAccessFunction : public FilesExtensionFunction {
  public:
   FileManagerPrivateGrantAccessFunction();
 
@@ -95,7 +96,7 @@ class FileManagerPrivateGrantAccessFunction : public ExtensionFunction {
 // directories.
 class FileWatchFunctionBase : public LoggedExtensionFunction {
  public:
-  using ResponseCallback = base::Callback<void(bool success)>;
+  using ResponseCallback = base::OnceCallback<void(bool success)>;
 
   // Calls Respond() with |success| converted to base::Value.
   void RespondWith(bool success);
@@ -229,6 +230,21 @@ class FileManagerPrivateFormatVolumeFunction : public LoggedExtensionFunction {
   ResponseAction Run() override;
 };
 
+// Implements the chrome.fileManagerPrivate.singlePartitionFormat method.
+// Deletes removable device partitions, create a single partition and format.
+class FileManagerPrivateSinglePartitionFormatFunction
+    : public LoggedExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("fileManagerPrivate.singlePartitionFormat",
+                             FILEMANAGERPRIVATE_SINGLEPARTITIONFORMAT)
+
+ protected:
+  ~FileManagerPrivateSinglePartitionFormatFunction() override = default;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+};
+
 // Implements the chrome.fileManagerPrivate.renameVolume method.
 // Renames Volume given its mount path and new Volume name.
 class FileManagerPrivateRenameVolumeFunction : public LoggedExtensionFunction {
@@ -259,10 +275,16 @@ class FileManagerPrivateInternalCopyImageToClipboardFunction
   ResponseAction Run() override;
 
  private:
-  void RespondWith(scoped_refptr<base::RefCountedString> bytes);
+  // `is_on_clipboard` specifies whether or not the image was copied to the
+  // clipboard.
+  void RespondWith(bool is_on_clipboard);
+  void MoveBytesToClipboard(scoped_refptr<base::RefCountedString> bytes);
 
   const ChromeExtensionFunctionDetails chrome_details_;
   std::unique_ptr<storage::FileStreamStringConverter> converter_;
+  // Stores the clipboard copy sequence number to validate the clipboard did not
+  // change during an async operation.
+  uint64_t clipboard_sequence_ = 0;
 };
 
 // Implements the chrome.fileManagerPrivate.startCopy method.

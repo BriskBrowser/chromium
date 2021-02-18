@@ -10,7 +10,6 @@
 #include <memory>
 #include <vector>
 
-#include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
@@ -20,6 +19,7 @@
 #include "base/strings/string16.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/resource_coordinator/lifecycle_unit.h"
 #include "chrome/browser/resource_coordinator/lifecycle_unit_observer.h"
 #include "chrome/browser/resource_coordinator/lifecycle_unit_source_observer.h"
@@ -46,7 +46,7 @@ namespace resource_coordinator {
 
 class BackgroundTabNavigationThrottle;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 class TabManagerDelegate;
 #endif
 class TabManagerStatsCollector;
@@ -343,7 +343,7 @@ class TabManager : public LifecycleUnitObserver,
   // A listener to global memory pressure events.
   std::unique_ptr<base::MemoryPressureListener> memory_pressure_listener_;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   std::unique_ptr<TabManagerDelegate> delegate_;
 #endif
 

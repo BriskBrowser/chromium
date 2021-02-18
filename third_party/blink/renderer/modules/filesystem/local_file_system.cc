@@ -85,7 +85,7 @@ void LocalFileSystem::RequestFileSystem(
       WrapCrossThreadPersistent(this), type, std::move(callbacks), sync_type));
   GetSupplementable()->GetScheduler()->RegisterStickyFeature(
       blink::SchedulingPolicy::Feature::kWebFileSystem,
-      {blink::SchedulingPolicy::RecordMetricsForBackForwardCache()});
+      {blink::SchedulingPolicy::DisableBackForwardCache()});
 }
 
 void LocalFileSystem::RequestFileSystemCallback(
@@ -107,7 +107,9 @@ void LocalFileSystem::RequestFileSystemAccessInternal(
     if (!client) {
       std::move(callback).Run(true);
     } else {
-      client->RequestFileSystemAccessAsync(std::move(callback));
+      client->AllowStorageAccess(
+          WebContentSettingsClient::StorageType::kFileSystem,
+          std::move(callback));
     }
     return;
   }
@@ -116,7 +118,8 @@ void LocalFileSystem::RequestFileSystemAccessInternal(
     if (!client) {
       std::move(callback).Run(true);
     } else {
-      std::move(callback).Run(client->RequestFileSystemAccessSync());
+      std::move(callback).Run(client->AllowStorageAccessSync(
+          WebContentSettingsClient::StorageType::kFileSystem));
     }
     return;
   }

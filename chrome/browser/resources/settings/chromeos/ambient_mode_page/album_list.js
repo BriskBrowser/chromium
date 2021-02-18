@@ -12,6 +12,10 @@
 Polymer({
   is: 'album-list',
 
+  behaviors: [
+    settings.GlobalScrollTargetBehavior,
+  ],
+
   properties: {
     /** @private {!AmbientModeTopicSource} */
     topicSource: {
@@ -27,14 +31,15 @@ Polymer({
       value: null,
       notify: true,
     },
-  },
 
-  /**
-   * @return {boolean} Whether the iron-list layout is grid.
-   * @private
-   */
-  computeLayout_() {
-    return this.topicSource === AmbientModeTopicSource.GOOGLE_PHOTOS;
+    /**
+     * Needed by GlobalScrollTargetBehavior.
+     * @override
+     */
+    subpageRoute: {
+      type: Object,
+      value: settings.routes.AMBIENT_MODE_PHOTOS,
+    },
   },
 
   /**

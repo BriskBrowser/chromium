@@ -48,8 +48,8 @@ used when committed.
     (on a Linux host)
 *   [Cast for Android Build Instructions](android_cast_build_instructions.md) -
     Cast for Android (on a Linux host)
-*   [Fuchsia Build Instructions](fuchsia_build_instructions.md) - Fuchsia target
-    (on a Linux host)
+*   [Fuchsia Build Instructions](fuchsia/build_instructions.md) -
+    Fuchsia target (on a Linux host)
 *   [iOS Build Instructions](ios/build_instructions.md) - iOS target (on a MacOS
     host)
 *   [Chrome OS Build Instructions](chromeos_build_instructions.md) - Chrome OS
@@ -123,6 +123,7 @@ used when committed.
     and handle thread safety in Chrome.
 *   [Callback<> and Bind()](callback.md) - All about Callbacks, Closures, and
     Bind().
+*   [Chromium Views UI](ui/index.md) - Working with the desktop UI framework.
 *   [Views Platform Styling](ui/views/platform_style.md) - How views are styled
     to fit in different native platforms
 *   [Tab Helpers](tab_helpers.md) - Using WebContents/WebContentsObserver to add
@@ -159,6 +160,7 @@ used when committed.
 
 ### Testing
 *   [Running and Debugging Web Tests](testing/web_tests.md)
+*   [On disabling tests](testing/disabling_tests.md)
 *   [Writing Web Tests](testing/writing_web_tests.md) - Web Tests using
     `content_shell`
 *   [Web Test Expectations and Baselines](testing/web_test_expectations.md) -
@@ -252,6 +254,11 @@ used when committed.
     on top of DirectX
 *   [Windows Split DLLs](windows_split_dll.md) - Splitting `chrome.dll` into
     multiple dlls to work around toolchain limitations on Windows.
+*   [Windows Native Window Occlusion Tracking](windows_native_window_occlusion_tracking.md)
+*   [Windows PWA Integration](windows_pwa_integration.md) - Integration with
+    Progressive Web Apps on Windows
+*   [Windows Shortcut and Taskbar Handling](windows_shortcut_and_taskbar_handling.md)
+*   [Windows Virtual Desktop Integration](windows_virtual_desktop_handling.md)
 
 ### Misc Android-Specific Docs
 *   [Google Play Services in Chrome for Android](google_play_services.md)
@@ -298,10 +305,13 @@ used when committed.
     *   [Kiosk mode and public sessions](enterprise/kiosk_public_session.md)
 *   [Debugging UI in OOBE/login/lock](login/ui_debugging.md)
 *   [Chrome Logging on Chrome OS](chrome_os_logging.md)
+*   [Debugging tips](testing/chromeos_debugging_tips.md)
 
 ### Misc WebUI-Specific Docs
 *   [Creating WebUI Interfaces in components/](webui_in_components.md) How to
     create a new WebUI component in the `components/` directory.
+*   [Trusted Types on WebUI](trusted_types_on_webui.md) Tips for coding in WebUI
+    with Trusted Types in mind.
 
 ### Media
 *   [Audio Focus Handling](media/audio_focus.md) - How multiple MediaSession
@@ -348,6 +358,11 @@ used when committed.
 *   [Memory Benchmarks](memory-infra/memory_benchmarks.md)
 *   [Heap Profiling](memory-infra/heap_profiler.md)
 
+### Metrics
+*   [Histograms](/tools/metrics/histograms/README.md)
+*   [User Actions](/tools/metrics/actions/README.md)
+*   [Code review guidelines](/tools/metrics/histograms/review_guidelines.md)
+
 ### Misc
 *   [Useful URLs](useful_urls.md) - A collection of links to various tools and
     dashboards
@@ -385,10 +400,6 @@ used when committed.
 ### Speed
 *   [Chrome Speed](speed/README.md) - Documentation for performance measurements and regressions in Chrome.
 *   [Chrome Speed Metrics](speed_metrics/README.md) - Documentation about user experience metrics in the web and their JavaScript APIs.
-
-### WebXR
-*   [Running OpenVR Without Headset](xr/run_openvr_without_headset.md) -
-    Instructions for running OpenVR on Windows without a headset
 
 ### Probably Obsolete
 *   [TPM Quick Reference](tpm_quick_ref.md) - Trusted Platform Module notes.

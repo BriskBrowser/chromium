@@ -6,13 +6,14 @@
 
 #include <wayland-server-core.h>
 #include <wayland-server-protocol-core.h>
+#include <xdg-decoration-unstable-v1-server-protocol.h>
 #include <xdg-shell-server-protocol.h>
 
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/window_properties.h"
-#include "ash/public/cpp/window_state_type.h"
 #include "base/bind.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chromeos/ui/base/window_state_type.h"
 #include "components/exo/display.h"
 #include "components/exo/wayland/serial_tracker.h"
 #include "components/exo/wayland/server_util.h"
@@ -123,7 +124,7 @@ int XdgToplevelResizeComponent(uint32_t edges) {
 
 using XdgSurfaceConfigureCallback =
     base::RepeatingCallback<void(const gfx::Size& size,
-                                 ash::WindowStateType state_type,
+                                 chromeos::WindowStateType state_type,
                                  bool resizing,
                                  bool activated)>;
 
@@ -132,7 +133,7 @@ uint32_t HandleXdgSurfaceConfigureCallback(
     SerialTracker* serial_tracker,
     const XdgSurfaceConfigureCallback& callback,
     const gfx::Size& size,
-    ash::WindowStateType state_type,
+    chromeos::WindowStateType state_type,
     bool resizing,
     bool activated,
     const gfx::Vector2d& origin_offset) {
@@ -176,6 +177,7 @@ class WaylandToplevel : public aura::WindowObserver {
             base::BindRepeating(&WaylandToplevel::OnConfigure,
                                 weak_ptr_factory_.GetWeakPtr())));
   }
+
   ~WaylandToplevel() override {
     if (shell_surface_data_)
       shell_surface_data_->shell_surface->host_window()->RemoveObserver(this);
@@ -255,6 +257,11 @@ class WaylandToplevel : public aura::WindowObserver {
       shell_surface_data_->shell_surface->Minimize();
   }
 
+  void SetFrame(SurfaceFrameType type) {
+    if (shell_surface_data_)
+      shell_surface_data_->shell_surface->OnSetFrame(type);
+  }
+
  private:
   void OnClose() {
     xdg_toplevel_send_close(resource_);
@@ -269,14 +276,14 @@ class WaylandToplevel : public aura::WindowObserver {
   }
 
   void OnConfigure(const gfx::Size& size,
-                   ash::WindowStateType state_type,
+                   chromeos::WindowStateType state_type,
                    bool resizing,
                    bool activated) {
     wl_array states;
     wl_array_init(&states);
-    if (state_type == ash::WindowStateType::kMaximized)
+    if (state_type == chromeos::WindowStateType::kMaximized)
       AddState(&states, XDG_TOPLEVEL_STATE_MAXIMIZED);
-    if (state_type == ash::WindowStateType::kFullscreen)
+    if (state_type == chromeos::WindowStateType::kFullscreen)
       AddState(&states, XDG_TOPLEVEL_STATE_FULLSCREEN);
     if (resizing)
       AddState(&states, XDG_TOPLEVEL_STATE_RESIZING);
@@ -393,6 +400,44 @@ const struct xdg_toplevel_interface xdg_toplevel_implementation = {
     xdg_toplevel_unset_maximized,  xdg_toplevel_set_fullscreen,
     xdg_toplevel_unset_fullscreen, xdg_toplevel_set_minimized};
 
+class WaylandXdgToplevelDecoration {
+ public:
+  WaylandXdgToplevelDecoration(wl_resource* resource,
+                               wl_resource* toplevel_resource)
+      : resource_(resource),
+        top_level_(GetUserDataAs<WaylandToplevel>(toplevel_resource)) {}
+
+  WaylandXdgToplevelDecoration(const WaylandXdgToplevelDecoration&) = delete;
+  WaylandXdgToplevelDecoration& operator=(const WaylandXdgToplevelDecoration&) =
+      delete;
+
+  uint32_t decoration_mode() const { return default_mode_; }
+  void SetDecorationMode(uint32_t mode) {
+    if (default_mode_ != mode) {
+      default_mode_ = mode;
+      OnConfigure(mode);
+    }
+  }
+
+ private:
+  void OnConfigure(uint32_t mode) {
+    switch (mode) {
+      case ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE:
+        top_level_->SetFrame(SurfaceFrameType::NONE);
+        break;
+      case ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE:
+        top_level_->SetFrame(SurfaceFrameType::NORMAL);
+        break;
+    }
+    zxdg_toplevel_decoration_v1_send_configure(resource_, mode);
+  }
+
+  wl_resource* const resource_;
+  WaylandToplevel* top_level_;
+  // Keeps track of the xdg-decoration mode on server side.
+  uint32_t default_mode_ = ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE;
+};
+
 ////////////////////////////////////////////////////////////////////////////////
 // xdg_popup_interface:
 
@@ -445,7 +490,7 @@ class WaylandPopup : aura::WindowObserver {
   }
 
   void OnConfigure(const gfx::Size& size,
-                   ash::WindowStateType state_type,
+                   chromeos::WindowStateType state_type,
                    bool resizing,
                    bool activated) {
     // Nothing to do here as popups don't have additional configure state.
@@ -541,7 +586,7 @@ void xdg_surface_get_popup(wl_client* client,
   // Try layout using parent's flip state.
   WaylandPositioner* positioner =
       GetUserDataAs<WaylandPositioner>(positioner_resource);
-  WaylandPositioner::Result position = positioner->CalculatePosition(
+  WaylandPositioner::Result position = positioner->CalculateBounds(
       work_area, parent_data->shell_surface->x_flipped(),
       parent_data->shell_surface->y_flipped());
 
@@ -657,7 +702,76 @@ const struct xdg_wm_base_interface xdg_wm_base_implementation = {
     xdg_wm_base_destroy, xdg_wm_base_create_positioner,
     xdg_wm_base_get_xdg_surface, xdg_wm_base_pong};
 
+////////////////////////////////////////////////////////////////////////////////
+// Top level decoration
+void toplevel_decoration_handle_destroy(wl_client* client,
+                                        wl_resource* resource) {
+  wl_resource_destroy(resource);
+}
+
+void toplevel_decoration_handle_set_mode(wl_client* client,
+                                         wl_resource* resource,
+                                         uint32_t mode) {
+  GetUserDataAs<WaylandXdgToplevelDecoration>(resource)->SetDecorationMode(
+      mode);
+}
+
+void toplevel_decoration_handle_unset_mode(wl_client* client,
+                                           wl_resource* resource) {
+  NOTIMPLEMENTED();
+}
+
+const struct zxdg_toplevel_decoration_v1_interface toplevel_decoration_impl = {
+    .destroy = toplevel_decoration_handle_destroy,
+    .set_mode = toplevel_decoration_handle_set_mode,
+    .unset_mode = toplevel_decoration_handle_unset_mode,
+};
+
+// Decoration manager
+void decoration_manager_handle_destroy(wl_client* client,
+                                       wl_resource* manager_resource) {
+  wl_resource_destroy(manager_resource);
+}
+
+void decoration_manager_handle_get_toplevel_decoration(
+    wl_client* client,
+    wl_resource* manager_resource,
+    uint32_t id,
+    wl_resource* toplevel_resource) {
+  uint32_t version = wl_resource_get_version(manager_resource);
+  wl_resource* decoration_resource = wl_resource_create(
+      client, &zxdg_toplevel_decoration_v1_interface, version, id);
+  if (!decoration_resource) {
+    wl_client_post_no_memory(client);
+    return;
+  }
+
+  auto xdg_toplevel_decoration = std::make_unique<WaylandXdgToplevelDecoration>(
+      decoration_resource, toplevel_resource);
+
+  SetImplementation(decoration_resource, &toplevel_decoration_impl,
+                    std::move(xdg_toplevel_decoration));
+}
+
+static const struct zxdg_decoration_manager_v1_interface
+    decoration_manager_impl = {
+        .destroy = decoration_manager_handle_destroy,
+        .get_toplevel_decoration =
+            decoration_manager_handle_get_toplevel_decoration,
+};
+
 }  // namespace
+
+void bind_zxdg_decoration_manager(wl_client* client,
+                                  void* data,
+                                  uint32_t version,
+                                  uint32_t id) {
+  wl_resource* resource = wl_resource_create(
+      client, &zxdg_decoration_manager_v1_interface, version, id);
+
+  wl_resource_set_implementation(resource, &decoration_manager_impl, data,
+                                 nullptr);
+}
 
 void bind_xdg_shell(wl_client* client,
                     void* data,

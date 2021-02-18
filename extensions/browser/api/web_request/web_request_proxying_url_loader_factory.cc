@@ -99,7 +99,7 @@ WebRequestProxyingURLLoaderFactory::InProgressRequest::InProgressRequest(
     int32_t network_service_request_id,
     int32_t routing_id,
     uint32_t options,
-    ukm::SourceId ukm_source_id,
+    ukm::SourceIdObj ukm_source_id,
     const network::ResourceRequest& request,
     const net::MutableNetworkTrafficAnnotationTag& traffic_annotation,
     mojo::PendingReceiver<network::mojom::URLLoader> loader_receiver,
@@ -139,7 +139,7 @@ WebRequestProxyingURLLoaderFactory::InProgressRequest::InProgressRequest(
       request_(request),
       original_initiator_(request.request_initiator),
       request_id_(request_id),
-      ukm_source_id_(ukm::kInvalidSourceId),
+      ukm_source_id_(ukm::kInvalidSourceIdObj),
       proxied_loader_receiver_(this),
       for_cors_preflight_(true),
       has_any_extra_headers_listeners_(
@@ -156,6 +156,7 @@ WebRequestProxyingURLLoaderFactory::InProgressRequest::~InProgressRequest() {
       ukm::builders::Extensions_WebRequest_KeepaliveRequestFinished(
           ukm_source_id_)
           .SetState(state_)
+          .SetNumRedirects(num_redirects_)
           .Record(ukm::UkmRecorder::Get());
     }
   }
@@ -195,7 +196,8 @@ void WebRequestProxyingURLLoaderFactory::InProgressRequest::
                                     : nullptr,
       routing_id_, request_for_info, factory_->IsForDownload(),
       !(options_ & network::mojom::kURLLoadOptionSynchronous),
-      factory_->IsForServiceWorkerScript(), factory_->navigation_id_));
+      factory_->IsForServiceWorkerScript(), factory_->navigation_id_,
+      ukm_source_id_));
 
   current_request_uses_header_client_ =
       factory_->url_loader_header_client_receiver_.is_bound() &&
@@ -301,6 +303,7 @@ void WebRequestProxyingURLLoaderFactory::InProgressRequest::FollowRedirect(
     }
   }
 
+  ++num_redirects_;
   RestartInternal();
 }
 
@@ -530,36 +533,19 @@ void WebRequestProxyingURLLoaderFactory::InProgressRequest::
       "Non-Authoritative-Reason: WebRequest API\n\n",
       kInternalRedirectStatusCode, redirect_url_.spec().c_str());
 
-  if (factory_->browser_context_->ShouldEnableOutOfBlinkCors()) {
-    // Cross-origin requests need to modify the Origin header to 'null'. Since
-    // CorsURLLoader sets |request_initiator| to the Origin request header in
-    // NetworkService, we need to modify |request_initiator| here to craft the
-    // Origin header indirectly.
-    // Following checks implement the step 10 of "4.4. HTTP-redirect fetch",
-    // https://fetch.spec.whatwg.org/#http-redirect-fetch
-    if (request_.request_initiator &&
-        (!url::Origin::Create(redirect_url_)
-              .IsSameOriginWith(url::Origin::Create(request_.url)) &&
-         !request_.request_initiator->IsSameOriginWith(
-             url::Origin::Create(request_.url)))) {
-      // Reset the initiator to pretend tainted origin flag of the spec is set.
-      request_.request_initiator = url::Origin();
-    }
-  } else {
-    // If this redirect is used in a cross-origin request, add CORS headers to
-    // make sure that the redirect gets through the Blink CORS. Note that the
-    // destination URL is still subject to the usual CORS policy, i.e. the
-    // resource will only be available to web pages if the server serves the
-    // response with the required CORS response headers. Matches the behavior in
-    // url_request_redirect_job.cc.
-    std::string http_origin;
-    if (request_.headers.GetHeader("Origin", &http_origin)) {
-      headers += base::StringPrintf(
-          "\n"
-          "Access-Control-Allow-Origin: %s\n"
-          "Access-Control-Allow-Credentials: true",
-          http_origin.c_str());
-    }
+  // Cross-origin requests need to modify the Origin header to 'null'. Since
+  // CorsURLLoader sets |request_initiator| to the Origin request header in
+  // NetworkService, we need to modify |request_initiator| here to craft the
+  // Origin header indirectly.
+  // Following checks implement the step 10 of "4.4. HTTP-redirect fetch",
+  // https://fetch.spec.whatwg.org/#http-redirect-fetch
+  if (request_.request_initiator &&
+      (!url::Origin::Create(redirect_url_)
+            .IsSameOriginWith(url::Origin::Create(request_.url)) &&
+       !request_.request_initiator->IsSameOriginWith(
+           url::Origin::Create(request_.url)))) {
+    // Reset the initiator to pretend tainted origin flag of the spec is set.
+    request_.request_initiator = url::Origin();
   }
   head->headers = base::MakeRefCounted<net::HttpResponseHeaders>(
       net::HttpUtil::AssembleRawHeaders(headers));
@@ -1087,8 +1073,8 @@ bool WebRequestProxyingURLLoaderFactory::InProgressRequest::IsRedirectSafe(
             .GetByID(to_url.host());
     if (!extension)
       return false;
-    return WebAccessibleResourcesInfo::IsResourceWebAccessible(extension,
-                                                               to_url.path());
+    return WebAccessibleResourcesInfo::IsResourceWebAccessible(
+        extension, to_url.path(), original_initiator_);
   }
   return content::IsSafeRedirectTarget(from_url, to_url);
 }
@@ -1096,10 +1082,10 @@ bool WebRequestProxyingURLLoaderFactory::InProgressRequest::IsRedirectSafe(
 WebRequestProxyingURLLoaderFactory::WebRequestProxyingURLLoaderFactory(
     content::BrowserContext* browser_context,
     int render_process_id,
-    int frame_id,
     WebRequestAPI::RequestIDGenerator* request_id_generator,
     std::unique_ptr<ExtensionNavigationUIData> navigation_ui_data,
     base::Optional<int64_t> navigation_id,
+    ukm::SourceIdObj ukm_source_id,
     mojo::PendingReceiver<network::mojom::URLLoaderFactory> loader_receiver,
     mojo::PendingRemote<network::mojom::URLLoaderFactory> target_factory_remote,
     mojo::PendingReceiver<network::mojom::TrustedURLLoaderHeaderClient>
@@ -1108,17 +1094,17 @@ WebRequestProxyingURLLoaderFactory::WebRequestProxyingURLLoaderFactory(
     content::ContentBrowserClient::URLLoaderFactoryType loader_factory_type)
     : browser_context_(browser_context),
       render_process_id_(render_process_id),
-      frame_id_(frame_id),
       request_id_generator_(request_id_generator),
       navigation_ui_data_(std::move(navigation_ui_data)),
       navigation_id_(std::move(navigation_id)),
       proxies_(proxies),
-      loader_factory_type_(loader_factory_type) {
+      loader_factory_type_(loader_factory_type),
+      ukm_source_id_(ukm_source_id) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   // base::Unretained is safe here because the callback will be
-  // canceled when |shutdown_notifier_| is destroyed, and |proxies_|
-  // owns this.
-  shutdown_notifier_ =
+  // canceled when |shutdown_notifier_subscription_| is destroyed, and
+  // |proxies_| owns this.
+  shutdown_notifier_subscription_ =
       ShutdownNotifierFactory::GetInstance()
           ->Get(browser_context)
           ->Subscribe(base::BindRepeating(&WebRequestAPI::ProxySet::RemoveProxy,
@@ -1140,10 +1126,10 @@ WebRequestProxyingURLLoaderFactory::WebRequestProxyingURLLoaderFactory(
 void WebRequestProxyingURLLoaderFactory::StartProxying(
     content::BrowserContext* browser_context,
     int render_process_id,
-    int frame_id,
     WebRequestAPI::RequestIDGenerator* request_id_generator,
     std::unique_ptr<ExtensionNavigationUIData> navigation_ui_data,
     base::Optional<int64_t> navigation_id,
+    ukm::SourceIdObj ukm_source_id,
     mojo::PendingReceiver<network::mojom::URLLoaderFactory> loader_receiver,
     mojo::PendingRemote<network::mojom::URLLoaderFactory> target_factory_remote,
     mojo::PendingReceiver<network::mojom::TrustedURLLoaderHeaderClient>
@@ -1153,8 +1139,8 @@ void WebRequestProxyingURLLoaderFactory::StartProxying(
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   auto proxy = std::make_unique<WebRequestProxyingURLLoaderFactory>(
-      browser_context, render_process_id, frame_id, request_id_generator,
-      std::move(navigation_ui_data), std::move(navigation_id),
+      browser_context, render_process_id, request_id_generator,
+      std::move(navigation_ui_data), std::move(navigation_id), ukm_source_id,
       std::move(loader_receiver), std::move(target_factory_remote),
       std::move(header_client_receiver), proxies, loader_factory_type);
 
@@ -1170,19 +1156,6 @@ void WebRequestProxyingURLLoaderFactory::CreateLoaderAndStart(
     mojo::PendingRemote<network::mojom::URLLoaderClient> client,
     const net::MutableNetworkTrafficAnnotationTag& traffic_annotation) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-
-  if (!ukm_source_id_) {
-    auto* frame =
-        content::RenderFrameHost::FromID(render_process_id_, frame_id_);
-    using FactoryType = content::ContentBrowserClient::URLLoaderFactoryType;
-    if (loader_factory_type_ == FactoryType::kDocumentSubResource ||
-        loader_factory_type_ == FactoryType::kWorkerSubResource) {
-      ukm_source_id_ =
-          frame ? frame->GetPageUkmSourceId() : ukm::kInvalidSourceId;
-    } else {
-      ukm_source_id_ = ukm::kInvalidSourceId;
-    }
-  }
 
   // Make sure we are not proxying a browser initiated non-navigation
   // request except for loading service worker scripts.
@@ -1212,7 +1185,7 @@ void WebRequestProxyingURLLoaderFactory::CreateLoaderAndStart(
   auto result = requests_.emplace(
       web_request_id, std::make_unique<InProgressRequest>(
                           this, web_request_id, request_id, routing_id, options,
-                          *ukm_source_id_, request, traffic_annotation,
+                          ukm_source_id_, request, traffic_annotation,
                           std::move(loader_receiver), std::move(client)));
   result.first->second->Restart();
 }

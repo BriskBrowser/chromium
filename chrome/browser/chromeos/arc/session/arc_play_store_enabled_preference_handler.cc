@@ -19,7 +19,6 @@
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "components/arc/arc_prefs.h"
 #include "components/arc/arc_util.h"
 #include "components/consent_auditor/consent_auditor.h"
@@ -51,8 +50,9 @@ void ArcPlayStoreEnabledPreferenceHandler::Start() {
   pref_change_registrar_.Init(profile_->GetPrefs());
   pref_change_registrar_.Add(
       prefs::kArcEnabled,
-      base::Bind(&ArcPlayStoreEnabledPreferenceHandler::OnPreferenceChanged,
-                 weak_ptr_factory_.GetWeakPtr()));
+      base::BindRepeating(
+          &ArcPlayStoreEnabledPreferenceHandler::OnPreferenceChanged,
+          weak_ptr_factory_.GetWeakPtr()));
 
   const bool is_play_store_enabled = IsArcPlayStoreEnabledForProfile(profile_);
   VLOG(1) << "Start observing Google Play Store enabled preference. "

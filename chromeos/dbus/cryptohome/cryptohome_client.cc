@@ -11,8 +11,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
-#include "base/command_line.h"
+#include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/macros.h"
@@ -44,28 +43,9 @@ static const char kUserIdStubHashSuffix[] = "-hash";
 // is 2 minutes.
 const int kTpmDBusTimeoutMs = 2 * 60 * 1000;
 
-// Values for the attestation server switch.
-const char kAttestationServerDefault[] = "default";
-const char kAttestationServerTest[] = "test";
-
 constexpr char kCryptohomeClientUmaPrefix[] = "CryptohomeClient.";
 
 CryptohomeClient* g_instance = nullptr;
-
-static attestation::VerifiedAccessType GetVerifiedAccessType() {
-  std::string value =
-      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-          chromeos::switches::kAttestationServer);
-  if (value.empty() || value == kAttestationServerDefault) {
-    return attestation::DEFAULT_VA;
-  }
-  if (value == kAttestationServerTest) {
-    return attestation::TEST_VA;
-  }
-  LOG(WARNING) << "Invalid Verified Access server value: " << value
-               << ". Using default.";
-  return attestation::DEFAULT_VA;
-}
 
 void UmaCallbackWraper(const std::string& metric_name,
                        const base::Time& start_time,
@@ -282,100 +262,6 @@ class CryptohomeClientImpl : public CryptohomeClient {
   }
 
   // CryptohomeClient override.
-  void TpmIsReady(DBusMethodCallback<bool> callback) override {
-    dbus::MethodCall method_call(cryptohome::kCryptohomeInterface,
-                                 cryptohome::kCryptohomeTpmIsReady);
-    CallBoolMethod(&method_call, std::move(callback));
-  }
-
-  // CryptohomeClient override.
-  void TpmIsEnabled(DBusMethodCallback<bool> callback) override {
-    dbus::MethodCall method_call(cryptohome::kCryptohomeInterface,
-                                 cryptohome::kCryptohomeTpmIsEnabled);
-    CallBoolMethod(&method_call, std::move(callback));
-  }
-
-  // CryptohomeClient override.
-  // TODO(hashimoto): Remove this method. crbug.com/141006
-  bool CallTpmIsEnabledAndBlock(bool* enabled) override {
-    dbus::MethodCall method_call(cryptohome::kCryptohomeInterface,
-                                 cryptohome::kCryptohomeTpmIsEnabled);
-    return CallBoolMethodAndBlock(&method_call, enabled);
-  }
-
-  // CryptohomeClient override.
-  void TpmGetPassword(DBusMethodCallback<std::string> callback) override {
-    dbus::MethodCall method_call(cryptohome::kCryptohomeInterface,
-                                 cryptohome::kCryptohomeTpmGetPassword);
-    proxy_->CallMethod(
-        &method_call, kTpmDBusTimeoutMs,
-        base::BindOnce(&CryptohomeClientImpl::OnStringMethod,
-                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
-  }
-
-  // CryptohomeClient override.
-  void TpmIsOwned(DBusMethodCallback<bool> callback) override {
-    dbus::MethodCall method_call(cryptohome::kCryptohomeInterface,
-                                 cryptohome::kCryptohomeTpmIsOwned);
-    CallBoolMethod(&method_call, std::move(callback));
-  }
-
-  // CryptohomeClient override.
-  // TODO(hashimoto): Remove this method. crbug.com/141012
-  bool CallTpmIsOwnedAndBlock(bool* owned) override {
-    dbus::MethodCall method_call(cryptohome::kCryptohomeInterface,
-                                 cryptohome::kCryptohomeTpmIsOwned);
-    return CallBoolMethodAndBlock(&method_call, owned);
-  }
-
-  // CryptohomeClient override.
-  void TpmIsBeingOwned(DBusMethodCallback<bool> callback) override {
-    dbus::MethodCall method_call(cryptohome::kCryptohomeInterface,
-                                 cryptohome::kCryptohomeTpmIsBeingOwned);
-    CallBoolMethod(&method_call, std::move(callback));
-  }
-
-  // CryptohomeClient override.
-  // TODO(hashimoto): Remove this method. crbug.com/141011
-  bool CallTpmIsBeingOwnedAndBlock(bool* owning) override {
-    dbus::MethodCall method_call(cryptohome::kCryptohomeInterface,
-                                 cryptohome::kCryptohomeTpmIsBeingOwned);
-    return CallBoolMethodAndBlock(&method_call, owning);
-  }
-
-  // CryptohomeClient override.
-  void TpmCanAttemptOwnership(VoidDBusMethodCallback callback) override {
-    dbus::MethodCall method_call(cryptohome::kCryptohomeInterface,
-                                 cryptohome::kCryptohomeTpmCanAttemptOwnership);
-    CallVoidMethod(&method_call, std::move(callback));
-  }
-
-  // CryptohomeClient overrides.
-  void TpmClearStoredPassword(VoidDBusMethodCallback callback) override {
-    dbus::MethodCall method_call(cryptohome::kCryptohomeInterface,
-                                 cryptohome::kCryptohomeTpmClearStoredPassword);
-    CallVoidMethod(&method_call, std::move(callback));
-  }
-
-  // CryptohomeClient override.
-  // TODO(hashimoto): Remove this method. crbug.com/141010
-  bool CallTpmClearStoredPasswordAndBlock() override {
-    dbus::MethodCall method_call(cryptohome::kCryptohomeInterface,
-                                 cryptohome::kCryptohomeTpmClearStoredPassword);
-
-    base::Time start_time = base::Time::Now();
-
-    std::unique_ptr<dbus::Response> response(
-        blocking_method_caller_->CallMethodAndBlock(&method_call));
-
-    UmaHistogramMediumTimes(
-        kCryptohomeClientUmaPrefix + method_call.GetMember(),
-        base::Time::Now() - start_time);
-
-    return response.get() != NULL;
-  }
-
-  // CryptohomeClient override.
   void Pkcs11IsTpmTokenReady(DBusMethodCallback<bool> callback) override {
     dbus::MethodCall method_call(cryptohome::kCryptohomeInterface,
                                  cryptohome::kCryptohomePkcs11IsTpmTokenReady);
@@ -481,328 +367,16 @@ class CryptohomeClientImpl : public CryptohomeClient {
     return CallBoolMethodAndBlock(&method_call, is_first_install);
   }
 
-  // CryptohomeClient override.
-  void TpmAttestationIsPrepared(DBusMethodCallback<bool> callback) override {
-    dbus::MethodCall method_call(
-        cryptohome::kCryptohomeInterface,
-        cryptohome::kCryptohomeTpmIsAttestationPrepared);
-    return CallBoolMethod(&method_call, std::move(callback));
-  }
-
-  // CryptohomeClient override.
-  void TpmAttestationGetEnrollmentId(
-      bool ignore_cache,
-      DBusMethodCallback<TpmAttestationDataResult> callback) override {
-    dbus::MethodCall method_call(
-        cryptohome::kCryptohomeInterface,
-        cryptohome::kCryptohomeTpmAttestationGetEnrollmentId);
+  void GetLoginStatus(
+      const cryptohome::GetLoginStatusRequest& request,
+      DBusMethodCallback<cryptohome::BaseReply> callback) override {
+    dbus::MethodCall method_call(cryptohome::kCryptohomeInterface,
+                                 cryptohome::kCryptohomeGetLoginStatus);
     dbus::MessageWriter writer(&method_call);
-    writer.AppendBool(ignore_cache);
+    writer.AppendProtoAsArrayOfBytes(request);
     proxy_->CallMethod(
         &method_call, kTpmDBusTimeoutMs,
-        base::BindOnce(&CryptohomeClientImpl::OnTpmAttestationDataMethod,
-                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
-  }
-
-  // CryptohomeClient override.
-  void TpmAttestationIsEnrolled(DBusMethodCallback<bool> callback) override {
-    dbus::MethodCall method_call(
-        cryptohome::kCryptohomeInterface,
-        cryptohome::kCryptohomeTpmIsAttestationEnrolled);
-    return CallBoolMethod(&method_call, std::move(callback));
-  }
-
-  // CryptohomeClient override.
-  void AsyncTpmAttestationCreateEnrollRequest(
-      attestation::PrivacyCAType pca_type,
-      AsyncMethodCallback callback) override {
-    dbus::MethodCall method_call(
-        cryptohome::kCryptohomeInterface,
-        cryptohome::kCryptohomeAsyncTpmAttestationCreateEnrollRequest);
-    dbus::MessageWriter writer(&method_call);
-    writer.AppendInt32(pca_type);
-    proxy_->CallMethod(
-        &method_call, kTpmDBusTimeoutMs,
-        base::BindOnce(&CryptohomeClientImpl::OnAsyncMethodCall,
-                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
-  }
-
-  // CryptohomeClient override.
-  void AsyncTpmAttestationEnroll(attestation::PrivacyCAType pca_type,
-                                 const std::string& pca_response,
-                                 AsyncMethodCallback callback) override {
-    dbus::MethodCall method_call(
-        cryptohome::kCryptohomeInterface,
-        cryptohome::kCryptohomeAsyncTpmAttestationEnroll);
-    dbus::MessageWriter writer(&method_call);
-    writer.AppendInt32(pca_type);
-    writer.AppendArrayOfBytes(
-        reinterpret_cast<const uint8_t*>(pca_response.data()),
-        pca_response.size());
-    proxy_->CallMethod(
-        &method_call, kTpmDBusTimeoutMs,
-        base::BindOnce(&CryptohomeClientImpl::OnAsyncMethodCall,
-                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
-  }
-
-  // CryptohomeClient override.
-  void AsyncTpmAttestationCreateCertRequest(
-      attestation::PrivacyCAType pca_type,
-      attestation::AttestationCertificateProfile certificate_profile,
-      const cryptohome::AccountIdentifier& id,
-      const std::string& request_origin,
-      AsyncMethodCallback callback) override {
-    dbus::MethodCall method_call(
-        cryptohome::kCryptohomeInterface,
-        cryptohome::kCryptohomeAsyncTpmAttestationCreateCertRequest);
-    dbus::MessageWriter writer(&method_call);
-    writer.AppendInt32(pca_type);
-    writer.AppendInt32(certificate_profile);
-    writer.AppendString(id.account_id());
-    writer.AppendString(request_origin);
-    proxy_->CallMethod(
-        &method_call, kTpmDBusTimeoutMs,
-        base::BindOnce(&CryptohomeClientImpl::OnAsyncMethodCall,
-                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
-  }
-
-  // CryptohomeClient override.
-  void AsyncTpmAttestationFinishCertRequest(
-      const std::string& pca_response,
-      attestation::AttestationKeyType key_type,
-      const cryptohome::AccountIdentifier& id,
-      const std::string& key_name,
-      AsyncMethodCallback callback) override {
-    dbus::MethodCall method_call(
-        cryptohome::kCryptohomeInterface,
-        cryptohome::kCryptohomeAsyncTpmAttestationFinishCertRequest);
-    dbus::MessageWriter writer(&method_call);
-    writer.AppendArrayOfBytes(
-        reinterpret_cast<const uint8_t*>(pca_response.data()),
-        pca_response.size());
-    bool is_user_specific = (key_type == attestation::KEY_USER);
-    writer.AppendBool(is_user_specific);
-    writer.AppendString(id.account_id());
-    writer.AppendString(key_name);
-    proxy_->CallMethod(
-        &method_call, kTpmDBusTimeoutMs,
-        base::BindOnce(&CryptohomeClientImpl::OnAsyncMethodCall,
-                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
-  }
-
-  // CryptohomeClient override.
-  void TpmAttestationDoesKeyExist(attestation::AttestationKeyType key_type,
-                                  const cryptohome::AccountIdentifier& id,
-                                  const std::string& key_name,
-                                  DBusMethodCallback<bool> callback) override {
-    dbus::MethodCall method_call(
-        cryptohome::kCryptohomeInterface,
-        cryptohome::kCryptohomeTpmAttestationDoesKeyExist);
-    dbus::MessageWriter writer(&method_call);
-    bool is_user_specific = (key_type == attestation::KEY_USER);
-    writer.AppendBool(is_user_specific);
-    writer.AppendString(id.account_id());
-    writer.AppendString(key_name);
-    CallBoolMethod(&method_call, std::move(callback));
-  }
-
-  // CryptohomeClient override.
-  void TpmAttestationGetCertificate(
-      attestation::AttestationKeyType key_type,
-      const cryptohome::AccountIdentifier& id,
-      const std::string& key_name,
-      DBusMethodCallback<TpmAttestationDataResult> callback) override {
-    dbus::MethodCall method_call(
-        cryptohome::kCryptohomeInterface,
-        cryptohome::kCryptohomeTpmAttestationGetCertificate);
-    dbus::MessageWriter writer(&method_call);
-    bool is_user_specific = (key_type == attestation::KEY_USER);
-    writer.AppendBool(is_user_specific);
-    writer.AppendString(id.account_id());
-    writer.AppendString(key_name);
-    proxy_->CallMethod(
-        &method_call, kTpmDBusTimeoutMs,
-        base::BindOnce(&CryptohomeClientImpl::OnTpmAttestationDataMethod,
-                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
-  }
-
-  // CryptohomeClient override.
-  void TpmAttestationGetPublicKey(
-      attestation::AttestationKeyType key_type,
-      const cryptohome::AccountIdentifier& id,
-      const std::string& key_name,
-      DBusMethodCallback<TpmAttestationDataResult> callback) override {
-    dbus::MethodCall method_call(
-        cryptohome::kCryptohomeInterface,
-        cryptohome::kCryptohomeTpmAttestationGetPublicKey);
-    dbus::MessageWriter writer(&method_call);
-    bool is_user_specific = (key_type == attestation::KEY_USER);
-    writer.AppendBool(is_user_specific);
-    writer.AppendString(id.account_id());
-    writer.AppendString(key_name);
-    proxy_->CallMethod(
-        &method_call, kTpmDBusTimeoutMs,
-        base::BindOnce(&CryptohomeClientImpl::OnTpmAttestationDataMethod,
-                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
-  }
-
-  // CryptohomeClient override.
-  void TpmAttestationRegisterKey(attestation::AttestationKeyType key_type,
-                                 const cryptohome::AccountIdentifier& id,
-                                 const std::string& key_name,
-                                 AsyncMethodCallback callback) override {
-    dbus::MethodCall method_call(
-        cryptohome::kCryptohomeInterface,
-        cryptohome::kCryptohomeTpmAttestationRegisterKey);
-    dbus::MessageWriter writer(&method_call);
-    bool is_user_specific = (key_type == attestation::KEY_USER);
-    writer.AppendBool(is_user_specific);
-    writer.AppendString(id.account_id());
-    writer.AppendString(key_name);
-    proxy_->CallMethod(
-        &method_call, kTpmDBusTimeoutMs,
-        base::BindOnce(&CryptohomeClientImpl::OnAsyncMethodCall,
-                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
-  }
-
-  // CryptohomeClient override.
-  void TpmAttestationSignEnterpriseChallenge(
-      attestation::AttestationKeyType key_type,
-      const cryptohome::AccountIdentifier& id,
-      const std::string& key_name,
-      const std::string& domain,
-      const std::string& device_id,
-      attestation::AttestationChallengeOptions options,
-      const std::string& challenge,
-      const std::string& key_name_for_spkac,
-      AsyncMethodCallback callback) override {
-    dbus::MethodCall method_call(
-        cryptohome::kCryptohomeInterface,
-        cryptohome::kCryptohomeTpmAttestationSignEnterpriseVaChallengeV2);
-    dbus::MessageWriter writer(&method_call);
-    writer.AppendInt32(GetVerifiedAccessType());
-    bool is_user_specific = (key_type == attestation::KEY_USER);
-    writer.AppendBool(is_user_specific);
-    writer.AppendString(id.account_id());
-    writer.AppendString(key_name);
-    writer.AppendString(domain);
-    writer.AppendArrayOfBytes(
-        reinterpret_cast<const uint8_t*>(device_id.data()), device_id.size());
-    bool include_signed_public_key =
-        (options & attestation::CHALLENGE_INCLUDE_SIGNED_PUBLIC_KEY);
-    writer.AppendBool(include_signed_public_key);
-    writer.AppendArrayOfBytes(
-        reinterpret_cast<const uint8_t*>(challenge.data()), challenge.size());
-    writer.AppendString(key_name_for_spkac);
-    proxy_->CallMethod(
-        &method_call, kTpmDBusTimeoutMs,
-        base::BindOnce(&CryptohomeClientImpl::OnAsyncMethodCall,
-                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
-  }
-
-  // CryptohomeClient override.
-  void TpmAttestationSignSimpleChallenge(
-      attestation::AttestationKeyType key_type,
-      const cryptohome::AccountIdentifier& id,
-      const std::string& key_name,
-      const std::string& challenge,
-      AsyncMethodCallback callback) override {
-    dbus::MethodCall method_call(
-        cryptohome::kCryptohomeInterface,
-        cryptohome::kCryptohomeTpmAttestationSignSimpleChallenge);
-    dbus::MessageWriter writer(&method_call);
-    bool is_user_specific = (key_type == attestation::KEY_USER);
-    writer.AppendBool(is_user_specific);
-    writer.AppendString(id.account_id());
-    writer.AppendString(key_name);
-    writer.AppendArrayOfBytes(
-        reinterpret_cast<const uint8_t*>(challenge.data()), challenge.size());
-    proxy_->CallMethod(
-        &method_call, kTpmDBusTimeoutMs,
-        base::BindOnce(&CryptohomeClientImpl::OnAsyncMethodCall,
-                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
-  }
-
-  // CryptohomeClient override.
-  void TpmAttestationGetKeyPayload(
-      attestation::AttestationKeyType key_type,
-      const cryptohome::AccountIdentifier& id,
-      const std::string& key_name,
-      DBusMethodCallback<TpmAttestationDataResult> callback) override {
-    dbus::MethodCall method_call(
-        cryptohome::kCryptohomeInterface,
-        cryptohome::kCryptohomeTpmAttestationGetKeyPayload);
-    dbus::MessageWriter writer(&method_call);
-    bool is_user_specific = (key_type == attestation::KEY_USER);
-    writer.AppendBool(is_user_specific);
-    writer.AppendString(id.account_id());
-    writer.AppendString(key_name);
-    proxy_->CallMethod(
-        &method_call, kTpmDBusTimeoutMs,
-        base::BindOnce(&CryptohomeClientImpl::OnTpmAttestationDataMethod,
-                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
-  }
-
-  // CryptohomeClient override.
-  void TpmAttestationSetKeyPayload(attestation::AttestationKeyType key_type,
-                                   const cryptohome::AccountIdentifier& id,
-                                   const std::string& key_name,
-                                   const std::string& payload,
-                                   DBusMethodCallback<bool> callback) override {
-    dbus::MethodCall method_call(
-        cryptohome::kCryptohomeInterface,
-        cryptohome::kCryptohomeTpmAttestationSetKeyPayload);
-    dbus::MessageWriter writer(&method_call);
-    bool is_user_specific = (key_type == attestation::KEY_USER);
-    writer.AppendBool(is_user_specific);
-    writer.AppendString(id.account_id());
-    writer.AppendString(key_name);
-    writer.AppendArrayOfBytes(reinterpret_cast<const uint8_t*>(payload.data()),
-                              payload.size());
-    CallBoolMethod(&method_call, std::move(callback));
-  }
-
-  // CryptohomeClient override.
-  void TpmAttestationDeleteKeysByPrefix(
-      attestation::AttestationKeyType key_type,
-      const cryptohome::AccountIdentifier& id,
-      const std::string& key_prefix,
-      DBusMethodCallback<bool> callback) override {
-    dbus::MethodCall method_call(
-        cryptohome::kCryptohomeInterface,
-        cryptohome::kCryptohomeTpmAttestationDeleteKeys);
-    dbus::MessageWriter writer(&method_call);
-    bool is_user_specific = (key_type == attestation::KEY_USER);
-    writer.AppendBool(is_user_specific);
-    writer.AppendString(id.account_id());
-    writer.AppendString(key_prefix);
-    CallBoolMethod(&method_call, std::move(callback));
-  }
-
-  // CryptohomeClient override.
-  void TpmAttestationDeleteKey(attestation::AttestationKeyType key_type,
-                               const cryptohome::AccountIdentifier& id,
-                               const std::string& key_name,
-                               DBusMethodCallback<bool> callback) override {
-    dbus::MethodCall method_call(
-        cryptohome::kCryptohomeInterface,
-        cryptohome::kCryptohomeTpmAttestationDeleteKey);
-    dbus::MessageWriter writer(&method_call);
-    bool is_user_specific = (key_type == attestation::KEY_USER);
-    writer.AppendBool(is_user_specific);
-    writer.AppendString(id.account_id());
-    writer.AppendString(key_name);
-    CallBoolMethod(&method_call, std::move(callback));
-  }
-
-  // CryptohomeClient override.
-  void TpmGetVersion(DBusMethodCallback<TpmVersionInfo> callback) override {
-    dbus::MethodCall method_call(
-        cryptohome::kCryptohomeInterface,
-        cryptohome::kCryptohomeTpmGetVersionStructured);
-    proxy_->CallMethod(
-        &method_call, kTpmDBusTimeoutMs,
-        base::BindOnce(&CryptohomeClientImpl::OnTpmGetVersion,
+        base::BindOnce(&CryptohomeClientImpl::OnBaseReplyMethod,
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
@@ -891,24 +465,6 @@ class CryptohomeClientImpl : public CryptohomeClient {
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
-  void UpdateKeyEx(
-      const cryptohome::AccountIdentifier& id,
-      const cryptohome::AuthorizationRequest& auth,
-      const cryptohome::UpdateKeyRequest& request,
-      DBusMethodCallback<cryptohome::BaseReply> callback) override {
-    const char* method_name = cryptohome::kCryptohomeUpdateKeyEx;
-    dbus::MethodCall method_call(cryptohome::kCryptohomeInterface, method_name);
-    dbus::MessageWriter writer(&method_call);
-    writer.AppendProtoAsArrayOfBytes(id);
-    writer.AppendProtoAsArrayOfBytes(auth);
-    writer.AppendProtoAsArrayOfBytes(request);
-
-    proxy_->CallMethod(
-        &method_call, kTpmDBusTimeoutMs,
-        base::BindOnce(&CryptohomeClientImpl::OnBaseReplyMethod,
-                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
-  }
-
   void RemoveKeyEx(
       const cryptohome::AccountIdentifier& id,
       const cryptohome::AuthorizationRequest& auth,
@@ -975,34 +531,6 @@ class CryptohomeClientImpl : public CryptohomeClient {
         &method_call, kTpmDBusTimeoutMs,
         base::BindOnce(&CryptohomeClientImpl::OnBaseReplyMethod,
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
-  }
-
-  void GetBootAttribute(
-      const cryptohome::GetBootAttributeRequest& request,
-      DBusMethodCallback<cryptohome::BaseReply> callback) override {
-    CallCryptohomeMethod(cryptohome::kCryptohomeGetBootAttribute, request,
-                         std::move(callback));
-  }
-
-  void SetBootAttribute(
-      const cryptohome::SetBootAttributeRequest& request,
-      DBusMethodCallback<cryptohome::BaseReply> callback) override {
-    CallCryptohomeMethod(cryptohome::kCryptohomeSetBootAttribute, request,
-                         std::move(callback));
-  }
-
-  void FlushAndSignBootAttributes(
-      const cryptohome::FlushAndSignBootAttributesRequest& request,
-      DBusMethodCallback<cryptohome::BaseReply> callback) override {
-    CallCryptohomeMethod(cryptohome::kCryptohomeFlushAndSignBootAttributes,
-                         request, std::move(callback));
-  }
-
-  void GetTpmStatus(
-      const cryptohome::GetTpmStatusRequest& request,
-      DBusMethodCallback<cryptohome::BaseReply> callback) override {
-    CallCryptohomeMethod(cryptohome::kCryptohomeGetTpmStatus, request,
-                         std::move(callback));
   }
 
   void RemoveFirmwareManagementParametersFromTpm(
@@ -1097,6 +625,41 @@ class CryptohomeClientImpl : public CryptohomeClient {
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
+  void GetCurrentSpaceForProjectId(
+      const int project_id,
+      DBusMethodCallback<int64_t> callback) override {
+    dbus::MethodCall method_call(
+        cryptohome::kCryptohomeInterface,
+        cryptohome::kCryptohomeGetCurrentSpaceForProjectId);
+
+    dbus::MessageWriter writer(&method_call);
+    writer.AppendUint32(project_id);
+
+    proxy_->CallMethod(
+        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+        base::BindOnce(&CryptohomeClientImpl::OnInt64DBusMethod,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+  }
+
+  void SetProjectId(const int project_id,
+                    const cryptohome::SetProjectIdAllowedPathType parent_path,
+                    const std::string& child_path,
+                    const cryptohome::AccountIdentifier& account_id,
+                    DBusMethodCallback<bool> callback) override {
+    dbus::MethodCall method_call(cryptohome::kCryptohomeInterface,
+                                 cryptohome::kCryptohomeSetProjectId);
+    dbus::MessageWriter writer(&method_call);
+    writer.AppendUint32(project_id);
+    writer.AppendInt32(parent_path);
+    writer.AppendString(child_path);
+    writer.AppendProtoAsArrayOfBytes(account_id);
+
+    proxy_->CallMethod(
+        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+        base::BindOnce(&CryptohomeClientImpl::OnBoolMethod,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+  }
+
   void GetRsuDeviceId(
       DBusMethodCallback<cryptohome::BaseReply> callback) override {
     cryptohome::GetRsuDeviceIdRequest request;
@@ -1135,26 +698,6 @@ class CryptohomeClientImpl : public CryptohomeClient {
     blocking_method_caller_.reset(new BlockingMethodCaller(bus, proxy));
 
     proxy_->ConnectToSignal(
-        cryptohome::kCryptohomeInterface, cryptohome::kSignalAsyncCallStatus,
-        base::BindRepeating(&CryptohomeClientImpl::AsyncCallStatusReceived,
-                            weak_ptr_factory_.GetWeakPtr()),
-        base::BindOnce(&CryptohomeClientImpl::OnSignalConnected,
-                       weak_ptr_factory_.GetWeakPtr()));
-    proxy_->ConnectToSignal(
-        cryptohome::kCryptohomeInterface,
-        cryptohome::kSignalAsyncCallStatusWithData,
-        base::BindRepeating(
-            &CryptohomeClientImpl::AsyncCallStatusWithDataReceived,
-            weak_ptr_factory_.GetWeakPtr()),
-        base::BindOnce(&CryptohomeClientImpl::OnSignalConnected,
-                       weak_ptr_factory_.GetWeakPtr()));
-    proxy_->ConnectToSignal(
-        cryptohome::kCryptohomeInterface, cryptohome::kSignalTpmInitStatus,
-        base::BindRepeating(&CryptohomeClientImpl::TpmInitStatusReceived,
-                            weak_ptr_factory_.GetWeakPtr()),
-        base::BindOnce(&CryptohomeClientImpl::OnSignalConnected,
-                       weak_ptr_factory_.GetWeakPtr()));
-    proxy_->ConnectToSignal(
         cryptohome::kCryptohomeInterface, cryptohome::kSignalLowDiskSpace,
         base::BindRepeating(&CryptohomeClientImpl::LowDiskSpaceReceived,
                             weak_ptr_factory_.GetWeakPtr()),
@@ -1171,23 +714,6 @@ class CryptohomeClientImpl : public CryptohomeClient {
   }
 
  private:
-  // Handles the result of AsyncXXX methods.
-  void OnAsyncMethodCall(AsyncMethodCallback callback,
-                         dbus::Response* response) {
-    if (!response) {
-      std::move(callback).Run(base::nullopt);
-      return;
-    }
-    dbus::MessageReader reader(response);
-    int async_id = 0;
-    if (!reader.PopInt32(&async_id)) {
-      LOG(ERROR) << "Invalid response: " << response->ToString();
-      std::move(callback).Run(base::nullopt);
-      return;
-    }
-    std::move(callback).Run(async_id);
-  }
-
   // Handles the result of GetSystemSalt().
   void OnGetSystemSalt(DBusMethodCallback<std::vector<uint8_t>> callback,
                        dbus::Response* response) {
@@ -1347,76 +873,6 @@ class CryptohomeClientImpl : public CryptohomeClient {
       return;
     }
     std::move(callback).Run(std::move(token_info));
-  }
-
-  // Handles responses for TpmGetVersion.
-  void OnTpmGetVersion(DBusMethodCallback<TpmVersionInfo> callback,
-                       dbus::Response* response) {
-    if (!response) {
-      std::move(callback).Run(base::nullopt);
-      return;
-    }
-    dbus::MessageReader reader(response);
-    TpmVersionInfo version;
-    if (!reader.PopUint32(&version.family) ||
-        !reader.PopUint64(&version.spec_level) ||
-        !reader.PopUint32(&version.manufacturer) ||
-        !reader.PopUint32(&version.tpm_model) ||
-        !reader.PopUint64(&version.firmware_version) ||
-        !reader.PopString(&version.vendor_specific)) {
-      std::move(callback).Run(base::nullopt);
-      LOG(ERROR) << "Invalid response: " << response->ToString();
-      return;
-    }
-    std::move(callback).Run(std::move(version));
-  }
-
-  // Handles AsyncCallStatus signal.
-  void AsyncCallStatusReceived(dbus::Signal* signal) {
-    dbus::MessageReader reader(signal);
-    int async_id = 0;
-    bool return_status = false;
-    int return_code = 0;
-    if (!reader.PopInt32(&async_id) || !reader.PopBool(&return_status) ||
-        !reader.PopInt32(&return_code)) {
-      LOG(ERROR) << "Invalid signal: " << signal->ToString();
-      return;
-    }
-    for (auto& observer : observer_list_)
-      observer.AsyncCallStatus(async_id, return_status, return_code);
-  }
-
-  // Handles AsyncCallStatusWithData signal.
-  void AsyncCallStatusWithDataReceived(dbus::Signal* signal) {
-    dbus::MessageReader reader(signal);
-    int async_id = 0;
-    bool return_status = false;
-    const uint8_t* return_data_buffer = NULL;
-    size_t return_data_length = 0;
-    if (!reader.PopInt32(&async_id) || !reader.PopBool(&return_status) ||
-        !reader.PopArrayOfBytes(&return_data_buffer, &return_data_length)) {
-      LOG(ERROR) << "Invalid signal: " << signal->ToString();
-      return;
-    }
-    std::string return_data(reinterpret_cast<const char*>(return_data_buffer),
-                            return_data_length);
-    for (auto& observer : observer_list_)
-      observer.AsyncCallStatusWithData(async_id, return_status, return_data);
-  }
-
-  // Handles TpmInitStatus signal.
-  void TpmInitStatusReceived(dbus::Signal* signal) {
-    dbus::MessageReader reader(signal);
-    bool ready = false;
-    bool owned = false;
-    bool was_owned_this_boot = false;
-    if (!reader.PopBool(&ready) || !reader.PopBool(&owned) ||
-        !reader.PopBool(&was_owned_this_boot)) {
-      LOG(ERROR) << "Invalid signal: " << signal->ToString();
-      return;
-    }
-    for (auto& observer : observer_list_)
-      observer.TpmInitStatusUpdated(ready, owned, was_owned_this_boot);
   }
 
   // Handles LowDiskSpace signal.

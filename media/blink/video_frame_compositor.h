@@ -25,6 +25,10 @@
 #include "third_party/blink/public/platform/web_video_frame_submitter.h"
 #include "ui/gfx/geometry/size.h"
 
+namespace base {
+class WaitableEvent;
+}
+
 namespace viz {
 class SurfaceId;
 }
@@ -65,6 +69,12 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor : public VideoRendererSink,
 
   using OnNewFramePresentedCB = base::OnceClosure;
 
+  enum UpdateType {
+    kNormal,
+    kBypassClient,  // Disregards whether |client| is driving frame updates, and
+                    // forces an attempt to update the frame.
+  };
+
   // |task_runner| is the task runner on which this class will live,
   // though it may be constructed on any thread.
   VideoFrameCompositor(
@@ -82,7 +92,6 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor : public VideoRendererSink,
   // submit video frames given by VideoFrameCompositor.
   virtual void EnableSubmission(
       const viz::SurfaceId& id,
-      base::TimeTicks local_surface_id_allocation_time,
       VideoRotation rotation,
       bool force_submit);
 
@@ -121,7 +130,7 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor : public VideoRendererSink,
   // where the <video> tag is invisible (possibly not even in the DOM) and thus
   // does not receive a |client_|.  In this case, frame acquisition is driven by
   // the frequency of canvas or WebGL paints requested via JavaScript.
-  void UpdateCurrentFrameIfStale();
+  virtual void UpdateCurrentFrameIfStale(UpdateType type = UpdateType::kNormal);
 
   // Sets the callback to be run when the new frame has been processed. The
   // callback is only run once and then reset.
@@ -172,7 +181,7 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor : public VideoRendererSink,
 
   // Signals the VideoFrameSubmitter to stop submitting frames. Sets whether the
   // video surface is visible within the view port.
-  void SetIsSurfaceVisible(bool is_visible);
+  void SetIsSurfaceVisible(bool is_visible, base::WaitableEvent* done_event);
 
   // Indicates whether the endpoint for the VideoFrame exists.
   bool IsClientSinkAvailable();
@@ -246,7 +255,7 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor : public VideoRendererSink,
   OnNewProcessedFrameCB new_processed_frame_cb_;
   cc::UpdateSubmissionStateCB update_submission_state_callback_;
 
-  // Callback used to satisfy video.rAF requests.
+  // Callback used to satisfy video.rVFC requests.
   // Set on the main thread, fired on the compositor thread.
   OnNewFramePresentedCB new_presented_frame_cb_ GUARDED_BY(current_frame_lock_);
 

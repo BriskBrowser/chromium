@@ -94,12 +94,12 @@ class WebContentsViewAndroid : public WebContentsView,
       bool allow_multiple_selection) override;
   ui::OverscrollRefreshHandler* GetOverscrollRefreshHandler() const override;
   void StartDragging(const DropData& drop_data,
-                     blink::WebDragOperationsMask allowed_ops,
+                     blink::DragOperationsMask allowed_ops,
                      const gfx::ImageSkia& image,
                      const gfx::Vector2d& image_offset,
-                     const DragEventSourceInfo& event_info,
+                     const blink::mojom::DragEventSourceInfo& event_info,
                      RenderWidgetHostImpl* source_rwh) override;
-  void UpdateDragCursor(blink::WebDragOperation operation) override;
+  void UpdateDragCursor(ui::mojom::DragOperation operation) override;
   void GotFocus(RenderWidgetHostImpl* render_widget_host) override;
   void LostFocus(RenderWidgetHostImpl* render_widget_host) override;
   void TakeFocus(bool reverse) override;
@@ -121,9 +121,12 @@ class WebContentsViewAndroid : public WebContentsView,
   bool ScrollBy(float delta_x, float delta_y) override;
   bool ScrollTo(float x, float y) override;
   void OnSizeChanged() override;
-  void OnPhysicalBackingSizeChanged() override;
+  void OnPhysicalBackingSizeChanged(
+      base::Optional<base::TimeDelta> deadline_override) override;
   void OnBrowserControlsHeightChanged() override;
   void OnControlsResizeViewChanged() override;
+  void NotifyVirtualKeyboardOverlayRect(
+      const gfx::Rect& keyboard_rect) override;
 
   void SetFocus(bool focused);
   void set_device_orientation(int orientation) {

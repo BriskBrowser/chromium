@@ -8,7 +8,6 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_source_code.h"
 #include "third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
-#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/workers/worker_or_worklet_global_scope.h"
 #include "third_party/blink/renderer/core/workers/worker_reporting_proxy.h"
 
@@ -26,29 +25,29 @@ void ClassicScript::Trace(Visitor* visitor) const {
   visitor->Trace(script_source_code_);
 }
 
-void ClassicScript::RunScript(LocalFrame* frame) {
-  return RunScript(frame,
-                   ScriptController::kDoNotExecuteScriptWhenScriptsDisabled);
+void ClassicScript::RunScript(LocalDOMWindow* window) {
+  return RunScript(window,
+                   ExecuteScriptPolicy::kDoNotExecuteScriptWhenScriptsDisabled);
 }
 
-void ClassicScript::RunScript(LocalFrame* frame,
-                              ScriptController::ExecuteScriptPolicy policy) {
-  v8::HandleScope handle_scope(frame->DomWindow()->GetIsolate());
-  RunScriptAndReturnValue(frame, policy);
+void ClassicScript::RunScript(LocalDOMWindow* window,
+                              ExecuteScriptPolicy policy) {
+  v8::HandleScope handle_scope(window->GetIsolate());
+  RunScriptAndReturnValue(window, policy);
 }
 
 v8::Local<v8::Value> ClassicScript::RunScriptAndReturnValue(
-    LocalFrame* frame,
-    ScriptController::ExecuteScriptPolicy policy) {
-  return frame->GetScriptController().EvaluateScriptInMainWorld(
+    LocalDOMWindow* window,
+    ExecuteScriptPolicy policy) {
+  return window->GetScriptController().EvaluateScriptInMainWorld(
       GetScriptSourceCode(), BaseURL(), sanitize_script_errors_, FetchOptions(),
       policy);
 }
 
 v8::Local<v8::Value> ClassicScript::RunScriptInIsolatedWorldAndReturnValue(
-    LocalFrame* frame,
+    LocalDOMWindow* window,
     int32_t world_id) {
-  return frame->GetScriptController().ExecuteScriptInIsolatedWorld(
+  return window->GetScriptController().ExecuteScriptInIsolatedWorld(
       world_id, GetScriptSourceCode(), BaseURL(), sanitize_script_errors_);
 }
 
@@ -56,12 +55,12 @@ bool ClassicScript::RunScriptOnWorkerOrWorklet(
     WorkerOrWorkletGlobalScope& global_scope) {
   DCHECK(global_scope.IsContextThread());
 
-  ScriptState::Scope scope(global_scope.ScriptController()->GetScriptState());
-  v8::Local<v8::Value> result =
+  v8::HandleScope handle_scope(
+      global_scope.ScriptController()->GetScriptState()->GetIsolate());
+  ScriptEvaluationResult result =
       global_scope.ScriptController()->EvaluateAndReturnValue(
-          GetScriptSourceCode(), sanitize_script_errors_,
-          nullptr /* error_event */, global_scope.GetV8CacheOptions());
-  return !result.IsEmpty();
+          GetScriptSourceCode(), sanitize_script_errors_);
+  return result.GetResultType() == ScriptEvaluationResult::ResultType::kSuccess;
 }
 
 std::pair<size_t, size_t> ClassicScript::GetClassicScriptSizes() const {

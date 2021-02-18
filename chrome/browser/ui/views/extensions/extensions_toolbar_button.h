@@ -9,6 +9,7 @@
 
 #include "chrome/browser/ui/views/toolbar/toolbar_button.h"
 #include "ui/views/controls/button/menu_button_controller.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/widget/widget_observer.h"
 
 class Browser;
@@ -18,24 +19,26 @@ class ExtensionsToolbarContainer;
 // Button in the toolbar that provides access to the corresponding extensions
 // menu.
 class ExtensionsToolbarButton : public ToolbarButton,
-                                public views::ButtonListener,
                                 public views::WidgetObserver {
  public:
+  METADATA_HEADER(ExtensionsToolbarButton);
   ExtensionsToolbarButton(Browser* browser,
                           ExtensionsToolbarContainer* extensions_container);
   ExtensionsToolbarButton(const ExtensionsToolbarButton&) = delete;
   ExtensionsToolbarButton& operator=(const ExtensionsToolbarButton&) = delete;
   ~ExtensionsToolbarButton() override;
 
+  // Toggle the Extensions menu. If the ExtensionsToolbarContainer is in
+  // kAutoHide mode and hidden this will cause it to show.
+  void ToggleExtensionsMenu();
+
+  bool GetExtensionsMenuShowing() const;
+
   // ToolbarButton:
   gfx::Size CalculatePreferredSize() const override;
   gfx::Size GetMinimumSize() const override;
   void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
-  const char* GetClassName() const override;
   void UpdateIcon() override;
-
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
   // views::WidgetObserver:
   void OnWidgetDestroying(views::Widget* widget) override;

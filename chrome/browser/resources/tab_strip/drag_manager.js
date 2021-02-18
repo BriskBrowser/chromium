@@ -82,6 +82,9 @@ export class DragManagerDelegate {
    * @param {number} index
    */
   placeTabGroupElement(element, index) {}
+
+  /** @return {boolean} */
+  shouldPreventDrag() {}
 }
 
 /** @typedef {!DragManagerDelegate|!HTMLElement} */
@@ -107,6 +110,9 @@ class DragSession {
      * @private {boolean}
      */
     this.hasMoved_ = false;
+
+    /** @private {!Object<{x: number, y: number}>} */
+    this.lastPoint_ = {x: 0, y: 0};
 
     /** @const {number} */
     this.srcIndex = srcIndex;
@@ -221,7 +227,8 @@ class DragSession {
     return dstIndex;
   }
 
-  cancel() {
+  /** @param {!DragEvent} event */
+  cancel(event) {
     if (this.isDraggingPlaceholder()) {
       this.element_.remove();
       return;
@@ -236,8 +243,21 @@ class DragSession {
           this.element_.tab.pinned, this.srcGroup);
     }
 
+    if (this.element_.isDraggedOut() &&
+        event.dataTransfer.dropEffect === 'move') {
+      // The element was dragged out of the current tab strip and was dropped
+      // into a new window. In this case, do not mark the element as no longer
+      // being dragged out. The element needs to be kept hidden, and will be
+      // automatically removed from the DOM with the next tab-removed event.
+      return;
+    }
+
     this.element_.setDragging(false);
     this.element_.setDraggedOut(false);
+
+    if (event.type === 'dragend') {
+      this.maybeShowTabContextMenu_();
+    }
   }
 
   /** @return {boolean} */
@@ -266,7 +286,8 @@ class DragSession {
 
   /** @param {!DragEvent} event */
   finish(event) {
-    if (this.isDraggingPlaceholderTab_()) {
+    const wasDraggingPlaceholder = this.isDraggingPlaceholderTab_();
+    if (wasDraggingPlaceholder) {
       const id = Number(event.dataTransfer.getData(getTabIdDataType()));
       this.element_.tab = Object.assign({}, this.element_.tab, {id});
     } else if (this.isDraggingPlaceholderGroup_()) {
@@ -291,12 +312,21 @@ class DragSession {
     this.element_.setDragging(false);
     this.element_.setDraggedOut(false);
 
-    if (isTabElement(this.element_) && !this.hasMoved_) {
-      // If the user was dragging a tab and the tab has not ever been moved,
-      // show a context menu instead.
-      this.tabStripEmbedderProxy_.showTabContextMenu(
-          this.element_.tab.id, event.clientX, event.clientY);
+    if (!wasDraggingPlaceholder) {
+      this.maybeShowTabContextMenu_();
     }
+  }
+
+  /** @private */
+  maybeShowTabContextMenu_() {
+    if (!isTabElement(this.element_) || this.hasMoved_) {
+      return;
+    }
+
+    // If the user was dragging a tab and the tab has not ever been moved,
+    // show a context menu instead.
+    this.tabStripEmbedderProxy_.showTabContextMenu(
+        this.element_.tab.id, this.lastPoint_.x, this.lastPoint_.y);
   }
 
   /**
@@ -314,6 +344,7 @@ class DragSession {
 
   /** @param {!DragEvent} event */
   start(event) {
+    this.lastPoint_ = {x: event.clientX, y: event.clientY};
     event.dataTransfer.effectAllowed = 'move';
     const draggedItemRect = event.composedPath()[0].getBoundingClientRect();
     this.element_.setDragging(true);
@@ -368,6 +399,8 @@ class DragSession {
 
   /** @param {!DragEvent} event */
   update(event) {
+    this.lastPoint_ = {x: event.clientX, y: event.clientY};
+
     if (event.type === 'dragleave') {
       this.element_.setDraggedOut(true);
       this.hasMoved_ = true;
@@ -481,6 +514,9 @@ export class DragManager {
 
     /** @private {!TabsApiProxy} */
     this.tabsProxy_ = TabsApiProxyImpl.getInstance();
+
+    /** @private {!TabStripEmbedderProxy} */
+    this.tabStripEmbedderProxy_ = TabStripEmbedderProxyImpl.getInstance();
   }
 
   /**
@@ -489,7 +525,7 @@ export class DragManager {
    */
   onDragLeave_(event) {
     if (this.dragSession_ && this.dragSession_.isDraggingPlaceholder()) {
-      this.dragSession_.cancel();
+      this.dragSession_.cancel(event);
       this.dragSession_ = null;
       return;
     }
@@ -517,6 +553,19 @@ export class DragManager {
       return;
     }
 
+    if (this.delegate_.shouldPreventDrag()) {
+      event.preventDefault();
+
+      // The gesture to start a drag and to open a context menu are the same
+      // on touch, so fallback to showing the context menu when drag is
+      // prevented.
+      if (isTabElement(draggedItem)) {
+        this.tabStripEmbedderProxy_.showTabContextMenu(
+            draggedItem.tab.id, event.clientX, event.clientY);
+      }
+      return;
+    }
+
     this.dragSession_ = DragSession.createFromElement(
         this.delegate_,
         /** @type {!TabElement|!TabGroupElement} */ (draggedItem));
@@ -529,7 +578,7 @@ export class DragManager {
       return;
     }
 
-    this.dragSession_.cancel();
+    this.dragSession_.cancel(event);
     this.dragSession_ = null;
   }
 

@@ -116,6 +116,7 @@
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/cursor/mojom/cursor_type.mojom-blink.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom-blink.h"
 
 namespace blink {
 
@@ -250,6 +251,8 @@ EventHandler::EventHandler(LocalFrame& frame)
 void EventHandler::Trace(Visitor* visitor) const {
   visitor->Trace(frame_);
   visitor->Trace(selection_controller_);
+  visitor->Trace(hover_timer_);
+  visitor->Trace(cursor_update_timer_);
   visitor->Trace(capturing_mouse_events_element_);
   visitor->Trace(capturing_subframe_element_);
   visitor->Trace(last_mouse_move_event_subframe_);
@@ -263,6 +266,7 @@ void EventHandler::Trace(Visitor* visitor) const {
   visitor->Trace(keyboard_event_manager_);
   visitor->Trace(pointer_event_manager_);
   visitor->Trace(gesture_manager_);
+  visitor->Trace(active_interval_timer_);
   visitor->Trace(last_deferred_tap_element_);
 }
 
@@ -299,8 +303,10 @@ void EventHandler::StartMiddleClickAutoscroll(LayoutObject* layout_object) {
   AutoscrollController* controller = scroll_manager_->GetAutoscrollController();
   if (!controller)
     return;
+
   LayoutBox* scrollable = LayoutBox::FindAutoscrollable(
       layout_object, /*is_middle_click_autoscroll*/ true);
+
   controller->StartMiddleClickAutoscroll(
       layout_object->GetFrame(), scrollable,
       LastKnownMousePositionInRootFrame(),
@@ -786,6 +792,10 @@ WebInputEventResult EventHandler::HandleMousePressEvent(
       PhysicalOffset(FlooredIntPoint(mouse_event.PositionInRootFrame())));
   MouseEventWithHitTestResults mev = GetMouseEventTarget(request, mouse_event);
   if (!mev.InnerNode()) {
+    // An anonymous box can be scrollable.
+    if (PassMousePressEventToScrollbar(mev))
+      return WebInputEventResult::kHandledSystem;
+
     mouse_event_manager_->InvalidateClick();
     return WebInputEventResult::kNotHandled;
   }
@@ -1386,6 +1396,10 @@ Element* EventHandler::EffectiveMouseEventTargetElement(
   return new_element_under_mouse;
 }
 
+Element* EventHandler::GetElementUnderMouse() {
+  return mouse_event_manager_->GetElementUnderMouse();
+}
+
 bool EventHandler::IsPointerIdActiveOnFrame(PointerId pointer_id,
                                             LocalFrame* frame) const {
   DCHECK(frame_ == &frame_->LocalFrameRoot() || frame_ == frame);
@@ -1512,7 +1526,7 @@ void EventHandler::ResetMousePositionForPointerUnlock() {
 }
 
 bool EventHandler::LongTapShouldInvokeContextMenu() {
-  return gesture_manager_->LongTapShouldInvokeContextMenu();
+  return gesture_manager_->GestureContextMenuDeferred();
 }
 
 WebInputEventResult EventHandler::DispatchMousePointerEvent(
@@ -2130,7 +2144,7 @@ WebInputEventResult EventHandler::ShowNonLocatedContextMenu(
     // Intersect the selection rect and the visible bounds of focused_element.
     if (focused_element) {
       IntRect clipped_rect = view->ViewportToFrame(
-          focused_element->VisibleBoundsInVisualViewport());
+          GetFocusedElementRectForNonLocatedContextMenu(focused_element));
       left = std::max(clipped_rect.X(), left);
       top = std::max(clipped_rect.Y(), top);
       right = std::min(clipped_rect.MaxX(), right);
@@ -2147,7 +2161,8 @@ WebInputEventResult EventHandler::ShowNonLocatedContextMenu(
           view->ConvertToRootFrame(selection_rect.Center());
     }
   } else if (focused_element) {
-    IntRect clipped_rect = focused_element->VisibleBoundsInVisualViewport();
+    IntRect clipped_rect =
+        GetFocusedElementRectForNonLocatedContextMenu(focused_element);
     location_in_root_frame =
         visual_viewport.ViewportToRootFrame(clipped_rect.Center());
   } else {
@@ -2193,6 +2208,20 @@ WebInputEventResult EventHandler::ShowNonLocatedContextMenu(
   mouse_event.SetFrameScale(1);
 
   return SendContextMenuEvent(mouse_event, focused_element);
+}
+
+IntRect EventHandler::GetFocusedElementRectForNonLocatedContextMenu(
+    Element* focused_element) {
+  IntRect clipped_rect = focused_element->VisibleBoundsInVisualViewport();
+  // The bounding rect of multiline elements may include points that are
+  // not within the element. Intersect the clipped rect with the first
+  // outline rect to ensure that the selection rect only includes visible
+  // points within the focused element.
+  Vector<IntRect> outline_rects =
+      focused_element->OutlineRectsInVisualViewport();
+  if (outline_rects.size() > 1)
+    clipped_rect.Intersect(outline_rects[0]);
+  return clipped_rect;
 }
 
 void EventHandler::ScheduleHoverStateUpdate() {
@@ -2281,8 +2310,9 @@ void EventHandler::DefaultKeyboardEventHandler(KeyboardEvent* event) {
       event, mouse_event_manager_->MousePressNode());
 }
 
-void EventHandler::DragSourceEndedAt(const WebMouseEvent& event,
-                                     DragOperation operation) {
+void EventHandler::DragSourceEndedAt(
+    const WebMouseEvent& event,
+    ui::mojom::blink::DragOperation operation) {
   // Asides from routing the event to the correct frame, the hit test is also an
   // opportunity for Layer to update the :hover and :active pseudoclasses.
   HitTestRequest request(HitTestRequest::kRelease |
@@ -2296,6 +2326,12 @@ void EventHandler::DragSourceEndedAt(const WebMouseEvent& event,
   }
 
   mouse_event_manager_->DragSourceEndedAt(event, operation);
+
+  if (frame_->GetSettings() &&
+      frame_->GetSettings()->GetTouchDragDropEnabled() &&
+      frame_->GetSettings()->GetTouchDragEndContextMenu()) {
+    gesture_manager_->SendContextMenuEventTouchDragEnd(event);
+  }
 }
 
 void EventHandler::UpdateDragStateAfterEditDragIfNeeded(

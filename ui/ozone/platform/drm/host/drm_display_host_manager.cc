@@ -237,15 +237,11 @@ void DrmDisplayHostManager::UpdateDisplays(
 void DrmDisplayHostManager::ConfigureDisplays(
     const std::vector<display::DisplayConfigurationParams>& config_requests,
     display::ConfigureCallback callback) {
-  base::flat_map<int64_t, bool> dummy_statuses;
-  bool is_any_dummy = false;
   for (auto& config : config_requests) {
-    is_any_dummy |= GetDisplay(config.id)->is_dummy();
-    dummy_statuses.insert(std::make_pair(config.id, true));
-  }
-  if (is_any_dummy) {
-    std::move(callback).Run(dummy_statuses);
-    return;
+    if (GetDisplay(config.id)->is_dummy()) {
+      std::move(callback).Run(true);
+      return;
+    }
   }
 
   proxy_->GpuConfigureNativeDisplays(config_requests, std::move(callback));
@@ -412,12 +408,14 @@ void DrmDisplayHostManager::GpuHasUpdatedNativeDisplays(
   }
 }
 
-void DrmDisplayHostManager::GpuReceivedHDCPState(int64_t display_id,
-                                                 bool status,
-                                                 display::HDCPState state) {
+void DrmDisplayHostManager::GpuReceivedHDCPState(
+    int64_t display_id,
+    bool status,
+    display::HDCPState state,
+    display::ContentProtectionMethod protection_method) {
   DrmDisplayHost* display = GetDisplay(display_id);
   if (display)
-    display->OnHDCPStateReceived(status, state);
+    display->OnHDCPStateReceived(status, state, protection_method);
   else
     LOG(ERROR) << "Couldn't find display with id=" << display_id;
 }

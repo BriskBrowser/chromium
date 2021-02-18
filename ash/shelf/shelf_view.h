@@ -24,8 +24,10 @@
 #include "ash/shell_observer.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "base/optional.h"
 #include "base/timer/timer.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/compositor/throughput_tracker.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/accessible_pane_view.h"
 #include "ui/views/animation/bounds_animator_observer.h"
@@ -115,6 +117,10 @@ class ASH_EXPORT ShelfView : public views::AccessiblePaneView,
   // for showing tooltips without stuttering over gaps.
   void UpdateVisibleShelfItemBoundsUnion();
 
+  // Returns true if the given location is within the bounds of all visiable app
+  // icons. Used for tool tip visibility and scrolling event propogation.
+  bool LocationInsideVisibleShelfItemBounds(const gfx::Point& location) const;
+
   // ShelfTooltipDelegate:
   bool ShouldShowTooltipForView(const views::View* view) const override;
   bool ShouldHideTooltip(const gfx::Point& cursor_location) const override;
@@ -134,6 +140,7 @@ class ASH_EXPORT ShelfView : public views::AccessiblePaneView,
   bool OnKeyPressed(const ui::KeyEvent& event) override;
   void OnMouseEvent(ui::MouseEvent* event) override;
   const char* GetClassName() const override;
+  void OnThemeChanged() override;
 
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   View* GetTooltipHandlerForPoint(const gfx::Point& point) override;
@@ -268,6 +275,10 @@ class ASH_EXPORT ShelfView : public views::AccessiblePaneView,
   // Returns the app button whose context menu is shown. Returns nullptr if no
   // app buttons have a context menu showing.
   ShelfAppButton* GetShelfItemViewWithContextMenu();
+
+  // Modifies the announcement view to verbalize that the focused app button has
+  // new updates, based on the item having a notification badge.
+  void AnnounceShelfItemNotificationBadge(views::View* button);
 
   // Return the view model for test purposes.
   const views::ViewModel* view_model_for_test() const {
@@ -690,14 +701,11 @@ class ASH_EXPORT ShelfView : public views::AccessiblePaneView,
 
   std::unique_ptr<FadeInAnimationDelegate> fade_in_animation_delegate_;
 
-  // The animation metrics reporter for icon move animation.
-  std::unique_ptr<ui::AnimationMetricsReporter> move_animation_reporter_;
+  // Tracks the icon move animation.
+  base::Optional<ui::ThroughputTracker> move_animation_tracker_;
 
-  // The animation metrics reporter for icon fade-in animation.
-  std::unique_ptr<ui::AnimationMetricsReporter> fade_in_animation_reporter_;
-
-  // The animation metrics reporter for icon fade-out animation.
-  std::unique_ptr<ui::AnimationMetricsReporter> fade_out_animation_reporter_;
+  // Tracks the icon fade-out animation.
+  base::Optional<ui::ThroughputTracker> fade_out_animation_tracker_;
 
   // Called when showing shelf context menu.
   base::RepeatingClosure context_menu_shown_callback_;

@@ -10,6 +10,8 @@
 // <include src="../../common/js/lru_cache.js">
 // <include src="../../common/js/progress_center_common.js">
 // <include src="../../common/js/importer_common.js">
+// <include src="../../common/js/trash.js">
+// <include src="../../common/js/file_operation_common.js">
 // <include src="metadata_proxy.js">
 // <include src="crostini.js">
 // <include src="device_handler.js">
@@ -27,4 +29,5 @@
 // <include src="mount_metrics.js">
 // <include src="progress_center.js">
 // <include src="test_util.js">
+// <include src="trash.js">
 // <include src="background.js">

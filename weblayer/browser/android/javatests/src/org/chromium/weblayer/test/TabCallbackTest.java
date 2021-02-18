@@ -16,16 +16,18 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CallbackHelper;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.browser.test.util.TestTouchUtils;
 import org.chromium.weblayer.ContextMenuParams;
+import org.chromium.weblayer.Profile;
 import org.chromium.weblayer.ScrollNotificationType;
 import org.chromium.weblayer.Tab;
 import org.chromium.weblayer.TabCallback;
 import org.chromium.weblayer.shell.InstrumentationActivity;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -84,84 +86,101 @@ public class TabCallbackTest {
         callback.visibleUriChangedCallback.waitUntilValueObserved(url);
     }
 
-    @Test
-    @SmallTest
-    public void testOnRenderProcessGone() throws TimeoutException {
-        InstrumentationActivity activity = mActivityTestRule.launchShellWithUrl("about:blank");
+    private ContextMenuParams runContextMenuTest(String file) throws TimeoutException {
+        String pageUrl = mActivityTestRule.getTestDataURL(file);
+        InstrumentationActivity activity = mActivityTestRule.launchShellWithUrl(pageUrl);
+
+        ContextMenuParams params[] = new ContextMenuParams[1];
         CallbackHelper callbackHelper = new CallbackHelper();
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             Tab tab = activity.getTab();
-            activity.setIgnoreRendererCrashes();
             TabCallback callback = new TabCallback() {
                 @Override
-                public void onRenderProcessGone() {
+                public void showContextMenu(ContextMenuParams param) {
+                    params[0] = param;
                     callbackHelper.notifyCalled();
                 }
             };
             tab.registerTabCallback(callback);
-            tab.getNavigationController().navigate(Uri.parse("chrome://crash"));
         });
+
+        TestTouchUtils.longClickView(
+                InstrumentationRegistry.getInstrumentation(), activity.getWindow().getDecorView());
         callbackHelper.waitForFirst();
+        Assert.assertEquals(Uri.parse(pageUrl), params[0].pageUri);
+        return params[0];
     }
 
-    // Requires implementation M82.
     @Test
     @SmallTest
     public void testShowContextMenu() throws TimeoutException {
-        String pageUrl = mActivityTestRule.getTestDataURL("download.html");
-        InstrumentationActivity activity = mActivityTestRule.launchShellWithUrl(pageUrl);
-
-        ContextMenuParams params[] = new ContextMenuParams[1];
-        CallbackHelper callbackHelper = new CallbackHelper();
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            Tab tab = activity.getTab();
-            TabCallback callback = new TabCallback() {
-                @Override
-                public void showContextMenu(ContextMenuParams param) {
-                    params[0] = param;
-                    callbackHelper.notifyCalled();
-                }
-            };
-            tab.registerTabCallback(callback);
-        });
-
-        TestTouchUtils.longClickView(
-                InstrumentationRegistry.getInstrumentation(), activity.getWindow().getDecorView());
-        callbackHelper.waitForFirst();
-        Assert.assertEquals(Uri.parse(pageUrl), params[0].pageUri);
+        ContextMenuParams params = runContextMenuTest("download.html");
         Assert.assertEquals(
-                Uri.parse(mActivityTestRule.getTestDataURL("lorem_ipsum.txt")), params[0].linkUri);
-        Assert.assertEquals("anchor text", params[0].linkText);
+                Uri.parse(mActivityTestRule.getTestDataURL("lorem_ipsum.txt")), params.linkUri);
+        Assert.assertEquals("anchor text", params.linkText);
     }
 
-    // Requires implementation M82.
     @Test
     @SmallTest
     public void testShowContextMenuImg() throws TimeoutException {
-        String pageUrl = mActivityTestRule.getTestDataURL("img.html");
-        InstrumentationActivity activity = mActivityTestRule.launchShellWithUrl(pageUrl);
-
-        ContextMenuParams params[] = new ContextMenuParams[1];
-        CallbackHelper callbackHelper = new CallbackHelper();
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            Tab tab = activity.getTab();
-            TabCallback callback = new TabCallback() {
-                @Override
-                public void showContextMenu(ContextMenuParams param) {
-                    params[0] = param;
-                    callbackHelper.notifyCalled();
-                }
-            };
-            tab.registerTabCallback(callback);
-        });
-
-        TestTouchUtils.longClickView(
-                InstrumentationRegistry.getInstrumentation(), activity.getWindow().getDecorView());
-        callbackHelper.waitForFirst();
-        Assert.assertEquals(Uri.parse(pageUrl), params[0].pageUri);
+        ContextMenuParams params = runContextMenuTest("img.html");
         Assert.assertEquals(
-                Uri.parse(mActivityTestRule.getTestDataURL("notfound.png")), params[0].srcUri);
-        Assert.assertEquals("alt_text", params[0].titleOrAltText);
+                Uri.parse(mActivityTestRule.getTestDataURL("favicon.png")), params.srcUri);
+        Assert.assertEquals("alt_text", params.titleOrAltText);
+    }
+
+    private File setTempDownloadDir() {
+        // Don't fill up the default download directory on the device.
+        File tempDownloadDirectory = new File(
+                InstrumentationRegistry.getInstrumentation().getTargetContext().getCacheDir()
+                + "/weblayer/Downloads");
+
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            Profile profile = mActivityTestRule.getActivity().getBrowser().getProfile();
+            profile.setDownloadDirectory(tempDownloadDirectory);
+        });
+        return tempDownloadDirectory;
+    }
+
+    private void waitForFileExist(File filePath, String fileName) {
+        File file = new File(filePath, fileName);
+        CriteriaHelper.pollInstrumentationThread(() -> {
+            Criteria.checkThat("Invalid file existence state for: " + fileName, file.exists(),
+                    Matchers.is(true));
+        });
+        file.delete();
+    }
+
+    @MinWebLayerVersion(88)
+    @Test
+    @SmallTest
+    public void testDownloadFromContextMenu() throws TimeoutException {
+        ContextMenuParams params = runContextMenuTest("download.html");
+        ;
+        Assert.assertFalse(params.isImage);
+        Assert.assertFalse(params.isVideo);
+        Assert.assertTrue(params.canDownload);
+
+        File tempDownloadDirectory = setTempDownloadDir();
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> { mActivityTestRule.getActivity().getTab().download(params); });
+        waitForFileExist(tempDownloadDirectory, "lorem_ipsum.txt");
+    }
+
+    @MinWebLayerVersion(88)
+    @Test
+    @SmallTest
+    public void testDownloadFromContextMenuImg() throws TimeoutException {
+        ContextMenuParams params = runContextMenuTest("img.html");
+        ;
+        Assert.assertTrue(params.isImage);
+        Assert.assertFalse(params.isVideo);
+        Assert.assertTrue(params.canDownload);
+
+        File tempDownloadDirectory = setTempDownloadDir();
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> { mActivityTestRule.getActivity().getTab().download(params); });
+        waitForFileExist(tempDownloadDirectory, "favicon.png");
     }
 
     @Test
@@ -324,7 +343,6 @@ public class TabCallbackTest {
         CriteriaHelper.pollUiThread(() -> Criteria.checkThat(titles[0], Matchers.is("foobar")));
     }
 
-    @MinWebLayerVersion(85)
     @Test
     @SmallTest
     public void testOnBackgroundColorChanged() throws TimeoutException {
@@ -353,7 +371,6 @@ public class TabCallbackTest {
         Assert.assertEquals(0xffff0000, (int) backgroundColors[0]);
     }
 
-    @MinWebLayerVersion(85)
     @Test
     @SmallTest
     public void testScrollNotificationDirectionChange() throws TimeoutException {

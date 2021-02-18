@@ -6,6 +6,8 @@
 
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
+#include "components/ukm/content/source_url_recorder.h"
+#include "services/metrics/public/cpp/ukm_builders.h"
 
 namespace autofill_assistant {
 
@@ -106,6 +108,42 @@ void Metrics::RecordPaymentRequestMandatoryPostalCode(bool required,
 
   base::UmaHistogramEnumeration(kPaymentRequestMandatoryPostalCode,
                                 mandatory_postal_code);
+}
+
+// static
+void Metrics::RecordLiteScriptFinished(ukm::UkmRecorder* ukm_recorder,
+                                       content::WebContents* web_contents,
+                                       TriggerUIType trigger_ui_type,
+                                       LiteScriptFinishedState event) {
+  ukm::builders::AutofillAssistant_LiteScriptFinished(
+      ukm::GetSourceIdForWebContentsDocument(web_contents))
+      .SetTriggerUIType(static_cast<int64_t>(trigger_ui_type))
+      .SetLiteScriptFinished(static_cast<int64_t>(event))
+      .Record(ukm_recorder);
+}
+
+// static
+void Metrics::RecordLiteScriptShownToUser(ukm::UkmRecorder* ukm_recorder,
+                                          content::WebContents* web_contents,
+                                          TriggerUIType trigger_ui_type,
+                                          LiteScriptShownToUser event) {
+  ukm::builders::AutofillAssistant_LiteScriptShownToUser(
+      ukm::GetSourceIdForWebContentsDocument(web_contents))
+      .SetTriggerUIType(static_cast<int64_t>(trigger_ui_type))
+      .SetLiteScriptShownToUser(static_cast<int64_t>(event))
+      .Record(ukm_recorder);
+}
+
+// static
+void Metrics::RecordLiteScriptOnboarding(ukm::UkmRecorder* ukm_recorder,
+                                         content::WebContents* web_contents,
+                                         TriggerUIType trigger_ui_type,
+                                         LiteScriptOnboarding event) {
+  ukm::builders::AutofillAssistant_LiteScriptOnboarding(
+      ukm::GetSourceIdForWebContentsDocument(web_contents))
+      .SetTriggerUIType(static_cast<int64_t>(trigger_ui_type))
+      .SetLiteScriptOnboarding(static_cast<int64_t>(event))
+      .Record(ukm_recorder);
 }
 
 }  // namespace autofill_assistant

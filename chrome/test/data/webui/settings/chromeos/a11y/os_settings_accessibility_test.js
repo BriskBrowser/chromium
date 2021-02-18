@@ -13,7 +13,7 @@ GEN_INCLUDE([
 /**
  * Test fixture for Accessibility of Chrome Settings.
  * @constructor
- * @extends {PolymerTest}
+ * @extends {Polymer2DeprecatedTest}
  */
 function OSSettingsAccessibilityTest() {}
 
@@ -42,18 +42,18 @@ OSSettingsAccessibilityTest.axeOptionsExcludeLinkInTextBlock =
 // Default accessibility audit options. Specify in test definition to use.
 OSSettingsAccessibilityTest.violationFilter = {
   'aria-valid-attr': function(nodeResult) {
-    const attributeWhitelist = [
+    const attributeAllowlist = [
       'aria-active-attribute',  // Polymer components use aria-active-attribute.
       'aria-roledescription',   // This attribute is now widely supported.
     ];
 
-    return attributeWhitelist.some(a => nodeResult.element.hasAttribute(a));
+    return attributeAllowlist.some(a => nodeResult.element.hasAttribute(a));
   },
   'aria-allowed-attr': function(nodeResult) {
-    const attributeWhitelist = [
+    const attributeAllowlist = [
       'aria-roledescription',  // This attribute is now widely supported.
     ];
-    return attributeWhitelist.some(a => nodeResult.element.hasAttribute(a));
+    return attributeAllowlist.some(a => nodeResult.element.hasAttribute(a));
   },
   'button-name': function(nodeResult) {
     if (nodeResult.element.classList.contains('icon-expand-more')) {
@@ -70,7 +70,7 @@ OSSettingsAccessibilityTest.violationFilter = {
 };
 
 OSSettingsAccessibilityTest.prototype = {
-  __proto__: PolymerTest.prototype,
+  __proto__: Polymer2DeprecatedTest.prototype,
 
   /** @override */
   browsePreload: 'chrome://os-settings/',

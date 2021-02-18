@@ -27,11 +27,10 @@ namespace gpu {
 class SharedImageInterface;
 class WebGPUInProcessContext;
 
-void OnRequestDeviceCallback(bool is_request_device_success,
-                             webgpu::DawnDeviceClientID device_client_id);
-
 namespace webgpu {
 
+class WebGPUCmdHelper;
+class WebGPUDecoder;
 class WebGPUImplementation;
 
 }  // namespace webgpu
@@ -57,33 +56,35 @@ class WebGPUTest : public testing::Test {
   void Initialize(const Options& options);
 
   webgpu::WebGPUImplementation* webgpu() const;
+  webgpu::WebGPUCmdHelper* webgpu_cmds() const;
   SharedImageInterface* GetSharedImageInterface() const;
+  webgpu::WebGPUDecoder* GetDecoder() const;
 
   void RunPendingTasks();
   void WaitForCompletion(wgpu::Device device);
 
-  struct DeviceAndClientID {
-    wgpu::Device device;
-    webgpu::DawnDeviceClientID client_id;
-  };
-  DeviceAndClientID GetNewDeviceAndClientID();
+  wgpu::Device GetNewDevice();
 
   viz::TestGpuServiceHolder* GetGpuServiceHolder() {
     return gpu_service_holder_.get();
   }
 
-  const uint32_t kAdapterServiceID = 0u;
+  uint32_t GetAdapterId() const { return adapter_id_; }
+
+  const WGPUDeviceProperties& GetDeviceProperties() const {
+    return device_properties_;
+  }
 
  private:
   std::unique_ptr<viz::TestGpuServiceHolder> gpu_service_holder_;
   std::unique_ptr<WebGPUInProcessContext> context_;
+  std::unique_ptr<webgpu::WebGPUCmdHelper> cmd_helper_;
 #if defined(OS_MAC)
   // SharedImages on macOS require a valid image factory.
   GpuMemoryBufferFactoryIOSurface image_factory_;
 #endif
-  bool is_initialized_ = false;
-
-  webgpu::DawnDeviceClientID next_device_client_id_ = 1;
+  uint32_t adapter_id_;
+  WGPUDeviceProperties device_properties_;
 };
 
 }  // namespace gpu

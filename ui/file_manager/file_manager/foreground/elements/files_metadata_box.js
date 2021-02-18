@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-const FilesMetadataBox = Polymer({
+Polymer({
   is: 'files-metadata-box',
 
   properties: {
@@ -362,3 +362,5 @@ const FilesMetadataBox = Polymer({
     return result.trimEnd();
   },
 });
+
+//# sourceURL=//ui/file_manager/file_manager/foreground/elements/files_metadata_box.js

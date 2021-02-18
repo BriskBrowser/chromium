@@ -5,11 +5,13 @@
 /** @fileoverview Runs the Polymer tests for the PasswordsDeviceSection page. */
 
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {MultiStorePasswordUiEntry, PasswordManagerImpl, PasswordManagerProxy, Router, routes, SyncBrowserProxyImpl} from 'chrome://settings/settings.js';
-import {createMultiStorePasswordEntry, createPasswordEntry} from 'chrome://test/settings/passwords_and_autofill_fake_data.js';
+import {MultiStorePasswordUiEntry, PasswordManagerImpl, Router, routes, SyncBrowserProxyImpl} from 'chrome://settings/settings.js';
+import {createMultiStorePasswordEntry, createPasswordEntry, PasswordDeviceSectionElementFactory} from 'chrome://test/settings/passwords_and_autofill_fake_data.js';
 import {simulateStoredAccounts, simulateSyncStatus} from 'chrome://test/settings/sync_test_util.m.js';
 import {TestPasswordManagerProxy} from 'chrome://test/settings/test_password_manager_proxy.js';
 import {TestSyncBrowserProxy} from 'chrome://test/settings/test_sync_browser_proxy.m.js';
+import {eventToPromise} from 'chrome://test/test_util.m.js';
+import {assertEquals, assertTrue} from '../chai_assert.js';
 
 /**
  * Sets the fake password data, the appropriate route and creates the element.
@@ -64,6 +66,10 @@ suite('PasswordsDeviceSection', function() {
   let passwordManager = null;
   /** @type {TestSyncBrowserProxy} */
   let syncBrowserProxy = null;
+  /** @type {!settings.StoredAccount} */
+  const SIGNED_IN_ACCOUNT = {email: 'john@gmail.com'};
+  /** @type {PasswordDeviceSectionElementFactory} */
+  let elementFactory = null;
 
   setup(function() {
     PolymerTest.clearBody();
@@ -71,10 +77,11 @@ suite('PasswordsDeviceSection', function() {
     PasswordManagerImpl.instance_ = passwordManager;
     syncBrowserProxy = new TestSyncBrowserProxy();
     SyncBrowserProxyImpl.instance_ = syncBrowserProxy;
+    elementFactory = new PasswordDeviceSectionElementFactory(document);
 
     // The user only enters this page when they are eligible (signed-in but not
     // syncing) and opted-in to account storage.
-    syncBrowserProxy.storedAccounts = [{email: 'john@gmail.com'}];
+    syncBrowserProxy.storedAccounts = [SIGNED_IN_ACCOUNT];
     simulateStoredAccounts(syncBrowserProxy.storedAccounts);
     syncBrowserProxy.syncStatus = {signedIn: false};
     simulateSyncStatus(syncBrowserProxy.syncStatus);
@@ -190,18 +197,52 @@ suite('PasswordsDeviceSection', function() {
         passwordsDeviceSection.$.deviceAndAccountPasswordList, []);
   });
 
-  // Test verifies that the overflow menu offers an option to move a password
-  // to the account and that it has the right text.
-  test('hasMoveToAccountOption', async function() {
+  // Test checks that when the overflow menu is opened for any password not
+  // corresponding to the first signed-in account, an option to move it to that
+  // account is shown.
+  test(
+      'hasMoveToAccountOptionIfIsNotSignedInAccountPassword', async function() {
+        const nonGooglePasswordWithSameEmail = createPasswordEntry(
+            {username: SIGNED_IN_ACCOUNT.email, url: 'not-google.com'});
+        const googlePasswordWithDifferentEmail = createPasswordEntry(
+            {username: 'another-user', url: 'accounts.google.com'});
+        const passwordsDeviceSection = await createPasswordsDeviceSection(
+            syncBrowserProxy, passwordManager,
+            [nonGooglePasswordWithSameEmail, googlePasswordWithDifferentEmail]);
+        const passwordElements =
+            passwordsDeviceSection.root.querySelectorAll('password-list-item');
+
+        passwordElements[0].$.moreActionsButton.click();
+        flush();
+        let moveToAccountOption = passwordsDeviceSection.$.passwordsListHandler
+                                      .$.menuMovePasswordToAccount;
+        assertFalse(moveToAccountOption.hidden);
+
+        passwordsDeviceSection.$.passwordsListHandler.$.menu.close();
+
+        passwordElements[1].$.moreActionsButton.click();
+        flush();
+        moveToAccountOption = passwordsDeviceSection.$.passwordsListHandler.$
+                                  .menuMovePasswordToAccount;
+        assertFalse(moveToAccountOption.hidden);
+      });
+
+  // Test checks that when the overflow menu is opened for the password
+  // corresponding to the first signed-in account, no option to move it to the
+  // same account is shown.
+  test('hasNoMoveToAccountOptionIfIsSignedInAccountPassword', async function() {
+    const signedInGoogleAccountPassword = createPasswordEntry(
+        {username: SIGNED_IN_ACCOUNT.email, url: 'accounts.google.com'});
     const passwordsDeviceSection = await createPasswordsDeviceSection(
-        syncBrowserProxy, passwordManager, []);
-    const moveToAccountButton =
-        passwordsDeviceSection.$.passwordsListHandler.$$(
-            '#menuMovePasswordToAccount');
-    assertTrue(!!moveToAccountButton);
-    assertEquals(
-        passwordsDeviceSection.i18n('movePasswordToAccount'),
-        moveToAccountButton.innerText);
+        syncBrowserProxy, passwordManager, [signedInGoogleAccountPassword]);
+    const [password] =
+        passwordsDeviceSection.root.querySelectorAll('password-list-item');
+
+    password.$.moreActionsButton.click();
+    flush();
+    const moveToAccountOption = passwordsDeviceSection.$.passwordsListHandler.$
+                                    .menuMovePasswordToAccount;
+    assertTrue(moveToAccountOption.hidden);
   });
 
 
@@ -225,8 +266,7 @@ suite('PasswordsDeviceSection', function() {
     const [password] =
         passwordsDeviceSection.root.querySelectorAll('password-list-item');
     password.$.moreActionsButton.click();
-    passwordsDeviceSection.$.passwordsListHandler
-        .$$('#menuMovePasswordToAccount')
+    passwordsDeviceSection.$.passwordsListHandler.$.menuMovePasswordToAccount
         .click();
     flush();
     const moveToAccountDialog =
@@ -237,8 +277,8 @@ suite('PasswordsDeviceSection', function() {
     // Click the Move button in the dialog. The API should be called with the id
     // for the device copy. Verify the dialog disappears.
     moveToAccountDialog.$.moveButton.click();
-    const movedId = await passwordManager.whenCalled('movePasswordToAccount');
-    assertEquals(deviceCopy.id, movedId);
+    const movedId = await passwordManager.whenCalled('movePasswordsToAccount');
+    assertEquals(deviceCopy.id, movedId[0]);
   });
 
   // Test verifies that Chrome navigates to the standard passwords page if the
@@ -270,4 +310,119 @@ suite('PasswordsDeviceSection', function() {
     flush();
     assertEquals(Router.getInstance().currentRoute, routes.PASSWORDS);
   });
+
+  // The move multiple password dialog is dismissable.
+  test('moveMultiplePasswordsDialogDismissable', function() {
+    const deviceEntry = createMultiStorePasswordEntry(
+        {url: 'goo.gl', username: 'bart', deviceId: 42});
+    const moveMultipleDialog =
+        elementFactory.createMoveMultiplePasswordsDialog([deviceEntry]);
+    assertTrue(moveMultipleDialog.$.dialog.open);
+    moveMultipleDialog.$.cancelButton.click();
+    flush();
+    assertFalse(moveMultipleDialog.$.dialog.open);
+  });
+
+  test('moveMultiplePasswordsDialogFiresCloseEventWhenCanceled', function() {
+    const deviceEntry = createMultiStorePasswordEntry(
+        {url: 'goo.gl', username: 'bart', deviceId: 42});
+    const moveMultipleDialog =
+        elementFactory.createMoveMultiplePasswordsDialog([deviceEntry]);
+    moveMultipleDialog.$.cancelButton.click();
+    return eventToPromise('close', moveMultipleDialog);
+  });
+
+  // Testing moving multiple password dialog Move button.
+  test('moveMultiplePasswordsDialogMoveButton', async function() {
+    const deviceEntry1 = createMultiStorePasswordEntry(
+        {url: 'goo.gl', username: 'bart1', deviceId: 41});
+    const deviceEntry2 = createMultiStorePasswordEntry(
+        {url: 'goo.gl', username: 'bart2', deviceId: 54});
+    const moveMultipleDialog = elementFactory.createMoveMultiplePasswordsDialog(
+        [deviceEntry1, deviceEntry2]);
+    // Uncheck the first entry.
+    const firstPasswordItem = moveMultipleDialog.$$('password-list-item');
+    firstPasswordItem.querySelector('cr-checkbox').click();
+    // Press the Move button
+    moveMultipleDialog.$.moveButton.click();
+    flush();
+    // Only the 2nd entry should be moved
+    const movedIds = await passwordManager.whenCalled('movePasswordsToAccount');
+    assertEquals(1, movedIds.length);
+    assertEquals(deviceEntry2.deviceId, movedIds[0]);
+    // The dialog should be closed.
+    assertFalse(moveMultipleDialog.$.dialog.open);
+  });
+
+  // Testing moving multiple password dialog doesn't have more actions menu
+  // button next to each password row..
+  test('moveMultiplePasswordsDialogNoMoreActionButton', function() {
+    const deviceEntry = createMultiStorePasswordEntry(
+        {url: 'goo.gl', username: 'bart', deviceId: 42});
+    const moveMultipleDialog =
+        elementFactory.createMoveMultiplePasswordsDialog([deviceEntry]);
+    const firstPasswordItem = moveMultipleDialog.$$('password-list-item');
+    assertTrue(firstPasswordItem.$.moreActionsButton.hidden);
+  });
+
+
+  test(
+      'moveMultiplePasswordsBannerHiddenWhenNoLocalPasswords',
+      async function() {
+        loadTimeData.overrideValues(
+            {enableMovingMultiplePasswordsToAccount: true});
+
+        const passwordsDeviceSection = await createPasswordsDeviceSection(
+            syncBrowserProxy, passwordManager, []);
+
+        assertTrue(passwordsDeviceSection.shadowRoot
+                       .querySelector('#moveMultiplePasswordsBanner')
+                       .hidden);
+      });
+
+  test(
+      'moveMultiplePasswordsBannerVisibleWhenLocalPasswords', async function() {
+        loadTimeData.overrideValues(
+            {enableMovingMultiplePasswordsToAccount: true});
+
+        const devicePassword = createPasswordEntry(
+            {username: 'device', id: 0, fromAccountStore: false});
+        const passwordsDeviceSection = await createPasswordsDeviceSection(
+            syncBrowserProxy, passwordManager, [devicePassword]);
+
+        assertFalse(passwordsDeviceSection.shadowRoot
+                        .querySelector('#moveMultiplePasswordsBanner')
+                        .hidden);
+      });
+
+  test(
+      'moveMultiplePasswordsBannerHiddenWhenConflictingLocalAndDevicesPasswords',
+      async function() {
+        loadTimeData.overrideValues(
+            {enableMovingMultiplePasswordsToAccount: true});
+
+        // The existence of two entries with the same url and password username
+        // indicate that they must have different passwords. Otherwise, they
+        // would have deduped earlier.
+        const devicePassword = createPasswordEntry({
+          url: 'www.test.com',
+          username: 'username',
+          id: 0,
+          fromAccountStore: false
+        });
+        const accountPassword = createPasswordEntry({
+          url: 'www.test.com',
+          username: 'username',
+          id: 1,
+          fromAccountStore: true
+        });
+
+        const passwordsDeviceSection = await createPasswordsDeviceSection(
+            syncBrowserProxy, passwordManager,
+            [devicePassword, accountPassword]);
+
+        assertTrue(passwordsDeviceSection.shadowRoot
+                       .querySelector('#moveMultiplePasswordsBanner')
+                       .hidden);
+      });
 });

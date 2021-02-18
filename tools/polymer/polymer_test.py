@@ -46,13 +46,24 @@ class PolymerModulizerTest(unittest.TestCase):
     actual_js = self._read_out_file(js_out_file)
     expected_js = open(os.path.join(
         _HERE_DIR, 'tests', js_file_expected), 'rb').read()
-    self.assertEquals(expected_js, actual_js)
+    self.assertEquals(expected_js.split('\n'), actual_js.split('\n'))
 
   # Test case where HTML is extracted from a Polymer2 <dom-module>.
   def testDomModule(self):
     self._run_test(
         'dom-module', 'dom_module.html', 'dom_module.js',
         'dom_module.m.js', 'dom_module_expected.js')
+
+  # Test case where a commented out HTML import exists in the original HTML
+  # file. It is purposefully picked up and converted to a JS module, to address
+  # a unique use case of the FilesApp where an HTML import does not actually
+  # exist in the Polymer2 code.
+  # TODO(crbug.com/1133186): Remove after FilesApp Polymer3 migration is
+  # completed.
+  def testDomModuleWithCommentedOutImport(self):
+    self._run_test('dom-module', 'dom_module_with_commented_out_import.html',
+                   'dom_module.js', 'dom_module.m.js',
+                   'dom_module_with_commented_out_import_expected.js')
 
   # Test case where HTML is extracted from a Polymer2 <dom-module> that is
   # wrapped in an IIFE function.
@@ -67,6 +78,14 @@ class PolymerModulizerTest(unittest.TestCase):
     self._run_test(
         'dom-module', 'dom_module.html', 'dom_module_iife_arrow.js',
         'dom_module_iife_arrow.m.js', 'dom_module_iife_expected.js')
+
+  # Test case where HTML is extracted from a Polymer2 <dom-module> that is
+  # assigned to a variable.
+  def testDomModuleIifeAndAssigned(self):
+    self._run_test(
+        'dom-module', 'dom_module.html', 'dom_module_with_assignment.js',
+        'dom_module_with_assignment.m.js',
+        'dom_module_with_assignment_expected.js')
 
   # Test case where HTML is extracted from a Polymer2 <dom-module> that also
   # has a 'cr.define()' in its JS file.
@@ -165,54 +184,86 @@ class PolymerModulizerTest(unittest.TestCase):
         # Case where relative path to polymer.html is used.
         [
             '../../html/polymer.html',
-            'import {Polymer, html} from \'//resources/polymer/v3_0/polymer/polymer_bundled.min.js\';'
+            'import {Polymer, html} from \'//resources/polymer/v3_0/polymer/polymer_bundled.min.js\';',
+            'import {Polymer, html} from \'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js\';',
         ],
         # Case where relative path to file in the same folder is used.
-        ['foo.html', 'import \'./foo.m.js\';'],
+        [
+            'foo.html',
+            'import \'./foo.m.js\';',
+            'import \'./foo.m.js\';',
+        ],
         # Case where relative path to file in the same subtree is used.
         [
             'path/to/subfolder/foo.html',
-            'import \'./path/to/subfolder/foo.m.js\';'
+            'import \'./path/to/subfolder/foo.m.js\';',
+            'import \'./path/to/subfolder/foo.m.js\';',
         ],
         # Case where relative path to file in ui/webui/resources/html/ is used.
-        ['../../html/foo.html', 'import {Foo} from \'../../js/foo.m.js\';'],
+        [
+            '../../html/foo.html',
+            'import {Foo} from \'../../js/foo.m.js\';',
+            'import {Foo} from \'../../js/foo.m.js\';',
+        ],
 
         # chrome:// paths cases.
         # Case where absolute path to a Polymer UI element is used.
         [
             'chrome://resources/polymer/v1_0/path/to/folder/foo.html',
-            'import \'//resources/polymer/v3_0/path/to/folder/foo.js\';'
+            'import \'//resources/polymer/v3_0/path/to/folder/foo.js\';',
+            'import \'chrome://resources/polymer/v3_0/path/to/folder/foo.js\';',
         ],
         # Case where chrome:// path to polymer.html is used.
         [
             'chrome://resources/html/polymer.html',
-            'import {Polymer, html} from \'//resources/polymer/v3_0/polymer/polymer_bundled.min.js\';'
+            'import {Polymer, html} from \'//resources/polymer/v3_0/polymer/polymer_bundled.min.js\';',
+            'import {Polymer, html} from \'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js\';',
         ],
         # Case where chrome://resources/html/ path to something other than
         # polymer.html is used.
         [
             'chrome://resources/html/bar.html',
-            'import \'//resources/js/bar.m.js\';'
+            'import \'//resources/js/bar.m.js\';',
+            'import \'chrome://resources/js/bar.m.js\';',
+        ],
+
+        # chrome-extension:// paths cases.
+        [
+            'chrome-extension://path/to/folder/foo.html',
+            'import \'//path/to/folder/foo.m.js\';',
+            'import \'chrome-extension://path/to/folder/foo.m.js\';',
         ],
 
         # Scheme-relative paths cases.
         # Case where absolute path to a Polymer UI element is used.
         [
             '//resources/polymer/v1_0/path/to/folder/foo.html',
-            'import \'//resources/polymer/v3_0/path/to/folder/foo.js\';'
+            'import \'//resources/polymer/v3_0/path/to/folder/foo.js\';',
+            'import \'//resources/polymer/v3_0/path/to/folder/foo.js\';',
         ],
         # Case where path to polymer.html is used.
         [
             '//resources/html/polymer.html',
-            'import {Polymer, html} from \'//resources/polymer/v3_0/polymer/polymer_bundled.min.js\';'
+            'import {Polymer, html} from \'//resources/polymer/v3_0/polymer/polymer_bundled.min.js\';',
+            'import {Polymer, html} from \'//resources/polymer/v3_0/polymer/polymer_bundled.min.js\';',
         ],
         # Case where //resources/html/ path to something other than
         # polymer.html is used.
-        ['//resources/html/bar.html', 'import \'//resources/js/bar.m.js\';'],
+        [
+            '//resources/html/bar.html',
+            'import \'//resources/js/bar.m.js\';',
+            'import \'//resources/js/bar.m.js\';',
+        ],
     ]
 
-    for [html, js_expected] in cases:
-      assert_html_to_js(html, js_expected)
+    for [html, js_expected1, js_expected2] in cases:
+      # Test case where |preserve_url_scheme| is False
+      polymer._preserve_url_scheme = False
+      assert_html_to_js(html, js_expected1)
+
+      # Test case where |preserve_url_scheme| is True
+      polymer._preserve_url_scheme = True
+      assert_html_to_js(html, js_expected2)
 
 
 if __name__ == '__main__':

@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_SHARESHEET_SHARESHEET_TYPES_H_
 #define CHROME_BROWSER_SHARESHEET_SHARESHEET_TYPES_H_
 
+#include "base/callback.h"
 #include "base/optional.h"
 #include "base/strings/string16.h"
 #include "ui/gfx/image/image_skia.h"
@@ -13,6 +14,11 @@ namespace sharesheet {
 
 // In DIP (Density Independent Pixel).
 constexpr int kIconSize = 40;
+
+enum class SharesheetResult {
+  kSuccess,  // Share was successful.
+  kCancel,   // Sharesheet closed without sharing complete.
+};
 
 // The type of a target.
 enum class TargetType {
@@ -23,7 +29,7 @@ enum class TargetType {
 
 struct TargetInfo {
   TargetInfo(TargetType type,
-             const gfx::ImageSkia& icon,
+             const base::Optional<gfx::ImageSkia> icon,
              const base::string16& launch_name,
              const base::string16& display_name,
              const base::Optional<base::string16>& secondary_display_name,
@@ -42,8 +48,9 @@ struct TargetInfo {
   TargetType type;
 
   // The icon to be displayed for this target in the sharesheet bubble.
-  // DIP size must be kIconSize
-  gfx::ImageSkia icon;
+  // DIP size must be kIconSize. Only apps will have icons as share actions will
+  // have vector_icons that get generated when the view is displayed.
+  base::Optional<gfx::ImageSkia> icon;
 
   // The string used to launch this target. Represents an Android package name
   // when the app type is kArc.
@@ -62,6 +69,8 @@ struct TargetInfo {
   // is kArc.
   base::Optional<std::string> activity_name;
 };
+
+using CloseCallback = base::OnceCallback<void(SharesheetResult success)>;
 
 }  // namespace sharesheet
 

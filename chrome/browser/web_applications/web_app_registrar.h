@@ -12,12 +12,12 @@
 #include <vector>
 
 #include "base/check_op.h"
-#include "base/macros.h"
 #include "base/optional.h"
 #include "chrome/browser/profiles/profile_manager_observer.h"
 #include "chrome/browser/web_applications/components/app_registrar.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
 #include "chrome/browser/web_applications/components/web_app_id.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 
 namespace web_app {
 
@@ -29,6 +29,8 @@ using Registry = std::map<AppId, std::unique_ptr<WebApp>>;
 class WebAppRegistrar : public AppRegistrar, public ProfileManagerObserver {
  public:
   explicit WebAppRegistrar(Profile* profile);
+  WebAppRegistrar(const WebAppRegistrar&) = delete;
+  WebAppRegistrar& operator=(const WebAppRegistrar&) = delete;
   ~WebAppRegistrar() override;
 
   bool is_empty() const { return registry_.empty(); }
@@ -47,7 +49,13 @@ class WebAppRegistrar : public AppRegistrar, public ProfileManagerObserver {
   base::Optional<SkColor> GetAppThemeColor(const AppId& app_id) const override;
   base::Optional<SkColor> GetAppBackgroundColor(
       const AppId& app_id) const override;
-  const GURL& GetAppLaunchURL(const AppId& app_id) const override;
+  const GURL& GetAppStartUrl(const AppId& app_id) const override;
+  const std::string* GetAppLaunchQueryParams(
+      const AppId& app_id) const override;
+  const apps::ShareTarget* GetAppShareTarget(
+      const AppId& app_id) const override;
+  blink::mojom::CaptureLinks GetAppCaptureLinks(
+      const web_app::AppId& app_id) const override;
   base::Optional<GURL> GetAppScopeInternal(const AppId& app_id) const override;
   DisplayMode GetAppDisplayMode(const AppId& app_id) const override;
   DisplayMode GetAppUserDisplayMode(const AppId& app_id) const override;
@@ -57,7 +65,7 @@ class WebAppRegistrar : public AppRegistrar, public ProfileManagerObserver {
   base::Time GetAppInstallTime(const web_app::AppId& app_id) const override;
   std::vector<WebApplicationIconInfo> GetAppIconInfos(
       const AppId& app_id) const override;
-  std::vector<SquareSizePx> GetAppDownloadedIconSizesAny(
+  SortedSizesPx GetAppDownloadedIconSizesAny(
       const AppId& app_id) const override;
   std::vector<WebApplicationShortcutsMenuItemInfo> GetAppShortcutsMenuItemInfos(
       const AppId& app_id) const override;
@@ -71,6 +79,9 @@ class WebAppRegistrar : public AppRegistrar, public ProfileManagerObserver {
   void OnProfileMarkedForPermanentDeletion(
       Profile* profile_to_be_deleted) override;
 
+  // A filter must return false to skip the |web_app|.
+  using Filter = bool (*)(const WebApp& web_app);
+
   // Only range-based |for| loop supported. Don't use AppSet directly.
   // Doesn't support registration and unregistration of WebApp while iterating.
   class AppSet {
@@ -81,24 +92,46 @@ class WebAppRegistrar : public AppRegistrar, public ProfileManagerObserver {
      public:
       using InternalIter = Registry::const_iterator;
 
-      explicit Iter(InternalIter&& internal_iter)
-          : internal_iter_(std::move(internal_iter)) {}
+      Iter(InternalIter&& internal_iter,
+           InternalIter&& internal_end,
+           Filter filter)
+          : internal_iter_(std::move(internal_iter)),
+            internal_end_(std::move(internal_end)),
+            filter_(filter) {
+        FilterAndSkipApps();
+      }
       Iter(Iter&&) = default;
+      Iter(const Iter&) = delete;
+      Iter& operator=(const Iter&) = delete;
       ~Iter() = default;
 
-      void operator++() { ++internal_iter_; }
+      void operator++() {
+        ++internal_iter_;
+        FilterAndSkipApps();
+      }
       WebAppType& operator*() const { return *internal_iter_->second.get(); }
       bool operator!=(const Iter& iter) const {
         return internal_iter_ != iter.internal_iter_;
       }
 
      private:
+      void FilterAndSkipApps() {
+        if (!filter_)
+          return;
+
+        while (internal_iter_ != internal_end_ && !filter_(**this))
+          ++internal_iter_;
+      }
+
       InternalIter internal_iter_;
-      DISALLOW_COPY_AND_ASSIGN(Iter);
+      InternalIter internal_end_;
+      Filter filter_;
     };
 
-    explicit AppSet(const WebAppRegistrar* registrar);
+    AppSet(const WebAppRegistrar* registrar, Filter filter);
     AppSet(AppSet&&) = default;
+    AppSet(const AppSet&) = delete;
+    AppSet& operator=(const AppSet&) = delete;
     ~AppSet();
 
     using iterator = Iter<WebApp>;
@@ -111,17 +144,24 @@ class WebAppRegistrar : public AppRegistrar, public ProfileManagerObserver {
 
    private:
     const WebAppRegistrar* const registrar_;
+    const Filter filter_;
 #if DCHECK_IS_ON()
     const size_t mutations_count_;
 #endif
-    DISALLOW_COPY_AND_ASSIGN(AppSet);
   };
 
-  const AppSet AllApps() const;
+  // Returns all apps in the registry (a superset) including stubs.
+  const AppSet GetAppsIncludingStubs() const;
+  // Returns all apps excluding stubs for apps in sync install. Apps in sync
+  // install are being installed and should be hidden for most subsystems. This
+  // is a subset of GetAppsIncludingStubs().
+  const AppSet GetApps() const;
 
  protected:
   Registry& registry() { return registry_; }
   void SetRegistry(Registry&& registry);
+
+  const AppSet FilterApps(Filter filter) const;
 
   void CountMutation();
 
@@ -131,7 +171,6 @@ class WebAppRegistrar : public AppRegistrar, public ProfileManagerObserver {
 #if DCHECK_IS_ON()
   size_t mutations_count_ = 0;
 #endif
-  DISALLOW_COPY_AND_ASSIGN(WebAppRegistrar);
 };
 
 // A writable API for the registry model. Mutable WebAppRegistrar must be used
@@ -144,7 +183,11 @@ class WebAppRegistrarMutable : public WebAppRegistrar {
   void InitRegistry(Registry&& registry);
 
   WebApp* GetAppByIdMutable(const AppId& app_id);
-  AppSet AllAppsMutable();
+
+  AppSet FilterAppsMutable(Filter filter);
+
+  AppSet GetAppsIncludingStubsMutable();
+  AppSet GetAppsMutable();
 
   using WebAppRegistrar::CountMutation;
   using WebAppRegistrar::registry;

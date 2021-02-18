@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/values.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/active_tab_permission_granter.h"
 #include "chrome/browser/extensions/extension_tab_util.h"
 #include "chrome/browser/extensions/tab_helper.h"
@@ -20,7 +21,7 @@
 #include "extensions/common/extension_set.h"
 #include "extensions/common/manifest_constants.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/ui/ash/media_client_impl.h"
 #endif
 
@@ -101,7 +102,7 @@ void ExtensionKeybindingRegistry::RemoveExtensionKeybinding(
 
       media_keys_listener_manager->EnableInternalMediaKeyHandling();
     } else {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
       MediaClientImpl::Get()->DisableCustomMediaKeyHandler(browser_context_,
                                                            this);
 #endif
@@ -217,7 +218,7 @@ void ExtensionKeybindingRegistry::AddEventTarget(
 
       media_keys_listener_manager->DisableInternalMediaKeyHandling();
     } else {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
       MediaClientImpl::Get()->EnableCustomMediaKeyHandler(browser_context_,
                                                           this);
 #endif
@@ -242,12 +243,6 @@ bool ExtensionKeybindingRegistry::GetFirstTarget(
 
 bool ExtensionKeybindingRegistry::IsEventTargetsEmpty() const {
   return event_targets_.empty();
-}
-
-void ExtensionKeybindingRegistry::ExecuteCommand(
-    const std::string& extension_id,
-    const ui::Accelerator& accelerator) {
-  ExecuteCommands(accelerator, extension_id);
 }
 
 void ExtensionKeybindingRegistry::OnExtensionLoaded(

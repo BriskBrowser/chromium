@@ -9,14 +9,20 @@
 #include <vector>
 
 #include "base/macros.h"
+#include "base/values.h"
 #include "ui/display/display.h"
 #include "ui/display/display_export.h"
+#include "ui/gfx/gpu_extra_info.h"
 #include "ui/gfx/native_widget_types.h"
+
+namespace base {
+class TimeDelta;
+}  // namespace base
 
 namespace gfx {
 class Point;
 class Rect;
-}
+}  // namespace gfx
 
 namespace display {
 class DisplayObserver;
@@ -35,7 +41,7 @@ class DISPLAY_EXPORT Screen {
   Screen();
   virtual ~Screen();
 
-  // Retrieves the single Screen object.
+  // Retrieves the single Screen object; this may be null (e.g. in some tests).
   static Screen* GetScreen();
 
   // Sets the global screen. Returns the previously installed screen, if any.
@@ -78,10 +84,10 @@ class DISPLAY_EXPORT Screen {
   // the location of the view within that window won't influence the result).
   virtual Display GetDisplayNearestView(gfx::NativeView view) const;
 
-  // Returns the display nearest the specified point. |point| should be in DIPs.
+  // Returns the display nearest the specified DIP |point|.
   virtual Display GetDisplayNearestPoint(const gfx::Point& point) const = 0;
 
-  // Returns the display that most closely intersects the provided bounds.
+  // Returns the display that most closely intersects the DIP rect |match_rect|.
   virtual Display GetDisplayMatching(const gfx::Rect& match_rect) const = 0;
 
   // Returns the primary display. It is guaranteed that this will return a
@@ -95,6 +101,15 @@ class DISPLAY_EXPORT Screen {
 
   // Sets the suggested display to use when creating a new window.
   void SetDisplayForNewWindows(int64_t display_id);
+
+  // Suspends the platform-specific screensaver, if applicable.
+  virtual void SetScreenSaverSuspended(bool suspend);
+
+  // Returns whether the screensaver is currently running.
+  virtual bool IsScreenSaverActive() const;
+
+  // Calculates idle time.
+  virtual base::TimeDelta CalculateIdleTime() const;
 
   // Adds/Removes display observers.
   virtual void AddObserver(DisplayObserver* observer) = 0;
@@ -126,6 +141,11 @@ class DISPLAY_EXPORT Screen {
   // by implementing and setting self as a DisplayObserver. It is also possible
   // to get current workspace through the GetCurrentWorkspace method.
   virtual std::string GetCurrentWorkspace();
+
+  // Returns human readable description of the window manager, desktop, and
+  // other system properties related to the compositing.
+  virtual base::Value GetGpuExtraInfoAsListValue(
+      const gfx::GpuExtraInfo& gpu_extra_info);
 
  private:
   friend class ScopedDisplayForNewWindows;

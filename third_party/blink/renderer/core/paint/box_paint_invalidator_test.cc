@@ -32,8 +32,8 @@ class BoxPaintInvalidatorTest : public PaintAndRasterInvalidationTest {
     FragmentData fragment_data;
     PaintInvalidatorContext context;
     context.old_paint_offset = old_paint_offset;
-    fragment_data_.SetPaintOffset(box.FirstFragment().PaintOffset());
-    context.fragment_data = &fragment_data_;
+    fragment_data_->SetPaintOffset(box.FirstFragment().PaintOffset());
+    context.fragment_data = fragment_data_;
     return BoxPaintInvalidator(box, context).ComputePaintInvalidationReason();
   }
 
@@ -45,7 +45,7 @@ class BoxPaintInvalidatorTest : public PaintAndRasterInvalidationTest {
 
     UpdateAllLifecyclePhasesForTest();
     auto& target = *GetDocument().getElementById("target");
-    auto& box = *ToLayoutBox(target.GetLayoutObject());
+    auto& box = *target.GetLayoutBox();
     auto paint_offset = box.FirstFragment().PaintOffset();
     box.SetShouldCheckForPaintInvalidation();
 
@@ -95,7 +95,8 @@ class BoxPaintInvalidatorTest : public PaintAndRasterInvalidationTest {
   }
 
  private:
-  FragmentData fragment_data_;
+  Persistent<FragmentData> fragment_data_ =
+      MakeGarbageCollected<FragmentData>();
 };
 
 INSTANTIATE_PAINT_TEST_SUITE_P(BoxPaintInvalidatorTest);
@@ -106,7 +107,7 @@ INSTANTIATE_PAINT_TEST_SUITE_P(BoxPaintInvalidatorTest);
 TEST_P(BoxPaintInvalidatorTest, ComputePaintInvalidationReasonEmptyContent) {
   SetUpHTML();
   auto& target = *GetDocument().getElementById("target");
-  auto& box = *ToLayoutBox(target.GetLayoutObject());
+  auto& box = *target.GetLayoutBox();
   // Remove border.
   target.setAttribute(html_names::kClassAttr, "");
   UpdateAllLifecyclePhasesForTest();
@@ -135,7 +136,7 @@ TEST_P(BoxPaintInvalidatorTest, ComputePaintInvalidationReasonEmptyContent) {
 TEST_P(BoxPaintInvalidatorTest, ComputePaintInvalidationReasonBasic) {
   SetUpHTML();
   auto& target = *GetDocument().getElementById("target");
-  auto& box = *ToLayoutBox(target.GetLayoutObject());
+  auto& box = *target.GetLayoutBox();
   // Remove border.
   target.setAttribute(html_names::kClassAttr, "");
   target.setAttribute(html_names::kStyleAttr, "background: blue");
@@ -281,7 +282,7 @@ TEST_P(BoxPaintInvalidatorTest, InvalidatePaintRectangle) {
 
   GetDocument().View()->SetTracksRasterInvalidations(true);
 
-  auto* target = ToLayoutBox(GetLayoutObjectByElementId("target"));
+  auto* target = GetLayoutBoxByElementId("target");
   auto* display_item_client = static_cast<DisplayItemClient*>(target);
   EXPECT_FALSE(target->HasPartialInvalidationRect());
   EXPECT_TRUE(display_item_client->PartialInvalidationVisualRect().IsEmpty());
@@ -292,15 +293,13 @@ TEST_P(BoxPaintInvalidatorTest, InvalidatePaintRectangle) {
   EXPECT_TRUE(target->ShouldCheckForPaintInvalidation());
 
   EXPECT_TRUE(display_item_client->IsValid());
-  GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint(
-      DocumentUpdateReason::kTest);
+  UpdateAllLifecyclePhasesExceptPaint();
   EXPECT_EQ(IntRect(18, 18, 80, 80),
             display_item_client->PartialInvalidationVisualRect());
   EXPECT_FALSE(display_item_client->IsValid());
 
   target->InvalidatePaintRectangle(PhysicalRect(30, 30, 50, 80));
-  GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint(
-      DocumentUpdateReason::kTest);
+  UpdateAllLifecyclePhasesExceptPaint();
   // PartialInvalidationVisualRect should accumulate until painting.
   EXPECT_EQ(IntRect(18, 18, 80, 100),
             display_item_client->PartialInvalidationVisualRect());

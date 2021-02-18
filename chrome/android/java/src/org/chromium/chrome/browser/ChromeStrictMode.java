@@ -18,6 +18,7 @@ import org.chromium.base.Log;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
+import org.chromium.chrome.browser.version.ChromeVersionInfo;
 import org.chromium.components.strictmode.KnownViolations;
 import org.chromium.components.strictmode.StrictModePolicyViolation;
 import org.chromium.components.strictmode.ThreadStrictModeInterceptor;
@@ -104,16 +105,28 @@ public class ChromeStrictMode {
     private static void turnOnDetection(StrictMode.ThreadPolicy.Builder threadPolicy,
             StrictMode.VmPolicy.Builder vmPolicy) {
         threadPolicy.detectAll();
+        // Do not enable detectUntaggedSockets(). It does not support native (the vast majority
+        // of our sockets), and we have not bothered to tag our Java uses.
+        // https://crbug.com/770792
+        // Also: Do not enable detectCleartextNetwork(). We can't prevent websites from using
+        // non-https.
+        vmPolicy.detectActivityLeaks()
+                .detectLeakedClosableObjects()
+                .detectLeakedRegistrationObjects()
+                .detectLeakedSqlLiteObjects();
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // Introduced in O.
+            vmPolicy.detectContentUriWithoutPermission();
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Introduced in Q.
+            vmPolicy.detectCredentialProtectedWhileLocked().detectImplicitDirectBoot();
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            vmPolicy.detectAll();
-        } else {
-            // Explicitly enable detection of all violations except file URI leaks, as that
-            // results in false positives when file URI intents are passed between Chrome
-            // activities in separate processes. See http://crbug.com/508282#c11.
-            vmPolicy.detectActivityLeaks()
-                    .detectLeakedClosableObjects()
-                    .detectLeakedRegistrationObjects()
-                    .detectLeakedSqlLiteObjects();
+            // File URI leak detection, has false positives when file URI intents are passed between
+            // Chrome activities in separate processes. See http://crbug.com/508282#c11.
+            vmPolicy.detectFileUriExposure();
         }
     }
 
@@ -189,9 +202,12 @@ public class ChromeStrictMode {
         StrictMode.setVmPolicy(vmPolicy.build());
     }
 
-    public static void addExemptions(ThreadStrictModeInterceptor.Builder threadInterceptor) {
-        KnownViolations.addExemptions(threadInterceptor);
-
+    /**
+     * Add exemptions which should only be used for Chrome. Exemptions which also apply to WebLayer
+     * and WebView should be in org.chromium.components.strictmode.KnownViolations.
+     */
+    private static void addChromeOnlyExemptions(
+            ThreadStrictModeInterceptor.Builder threadInterceptor) {
         // Ignore strict mode violations due to SharedPreferences.
         threadInterceptor.ignoreExternalClass(
                 Violation.DETECT_DISK_IO, "android.content.SharedPreferences");
@@ -201,6 +217,25 @@ public class ChromeStrictMode {
         // Ignore strict mode violations due to xposed.
         threadInterceptor.ignoreExternalPackage(
                 Violation.DETECT_ALL_KNOWN, "re.dobv.android.xposed");
+
+        // crbug.com/1121181
+        if (Build.MANUFACTURER.toLowerCase(Locale.US).equals("samsung")) {
+            threadInterceptor.ignoreExternalMethod(Violation.DETECT_DISK_READ,
+                    "android.net.ConnectivityManager#registerDefaultNetworkCallback");
+        }
+
+        // crbug.com/1133401
+        threadInterceptor.ignoreExternalMethod(
+                Violation.DETECT_DISK_IO, "android.content.ContentResolver#removePeriodicSync");
+        threadInterceptor.ignoreExternalMethod(
+                Violation.DETECT_DISK_IO, "android.content.ContentResolver#setIsSyncable");
+        threadInterceptor.ignoreExternalMethod(
+                Violation.DETECT_DISK_IO, "android.content.ContentResolver#setSyncAutomatically");
+    }
+
+    public static void addExemptions(ThreadStrictModeInterceptor.Builder threadInterceptor) {
+        KnownViolations.addExemptions(threadInterceptor);
+        addChromeOnlyExemptions(threadInterceptor);
 
         // WebView code must be strict mode clean on all devices. Since Chrome uploads strict mode
         // violations but WebView does not, detect strict mode violations which originate from

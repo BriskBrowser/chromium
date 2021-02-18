@@ -15,7 +15,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
 #include "base/optional.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/tabs/tab_types.h"
@@ -32,20 +32,18 @@
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
-#include "ui/views/accessible_pane_view.h"
 #include "ui/views/animation/bounds_animator.h"
 #include "ui/views/controls/button/image_button.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/mouse_watcher.h"
 #include "ui/views/view.h"
 #include "ui/views/view_model.h"
 #include "ui/views/view_targeter_delegate.h"
 #include "ui/views/widget/widget_observer.h"
 
-class NewTabButton;
 class StackedTabStripLayout;
 class Tab;
 class TabHoverCardBubbleView;
-class TabSearchButton;
 class TabStripController;
 class TabStripObserver;
 class TabStripLayoutHelper;
@@ -75,8 +73,7 @@ class ImageView;
 //  - It takes part in Tab Drag & Drop with Tab, TabDragHelper and
 //    DraggedTab, focusing on tasks that require reshuffling other tabs
 //    in response to dragged tabs.
-class TabStrip : public views::AccessiblePaneView,
-                 public views::ButtonListener,
+class TabStrip : public views::View,
                  public views::MouseWatcherListener,
                  public views::ViewObserver,
                  public views::ViewTargeterDelegate,
@@ -84,6 +81,7 @@ class TabStrip : public views::AccessiblePaneView,
                  public TabController,
                  public BrowserRootView::DropTarget {
  public:
+  METADATA_HEADER(TabStrip);
   explicit TabStrip(std::unique_ptr<TabStripController> controller);
   TabStrip(const TabStrip&) = delete;
   TabStrip& operator=(const TabStrip&) = delete;
@@ -91,6 +89,8 @@ class TabStrip : public views::AccessiblePaneView,
 
   void SetAvailableWidthCallback(
       base::RepeatingCallback<int()> available_width_callback);
+
+  void NewTabButtonPressed(const ui::Event& event);
 
   // Returns the size needed for the specified views. This is invoked during
   // drag and drop to calculate offsets and positioning.
@@ -148,11 +148,6 @@ class TabStrip : public views::AccessiblePaneView,
   // Sets |stacked_layout_| and animates if necessary.
   void SetStackedLayout(bool stacked_layout);
 
-  // Returns the ideal bounds of the tab controls container.
-  gfx::Rect tab_controls_container_ideal_bounds() const {
-    return tab_controls_container_ideal_bounds_;
-  }
-
   // Adds a tab at the specified index.
   void AddTabAt(int model_index, TabRendererData data, bool is_active);
 
@@ -164,6 +159,8 @@ class TabStrip : public views::AccessiblePaneView,
   void RemoveTabAt(content::WebContents* contents,
                    int model_index,
                    bool was_active);
+
+  void ScrollTabToVisible(int model_index);
 
   // Sets the tab data at the specified model index.
   void SetTabData(int model_index, TabRendererData data);
@@ -189,6 +186,11 @@ class TabStrip : public views::AccessiblePaneView,
   // |TabStripController::GetGroupColorId(group)| changes.
   void OnGroupVisualsChanged(const tab_groups::TabGroupId& group);
 
+  // Handles animations relating to toggling the collapsed state of a group.
+  void ToggleTabGroup(const tab_groups::TabGroupId& group,
+                      bool is_collapsing,
+                      ToggleTabGroupCollapsedStateOrigin origin);
+
   // Updates the ordering of the group header when the whole group is moved.
   // Needed to ensure display and focus order of the group header view.
   void OnGroupMoved(const tab_groups::TabGroupId& group);
@@ -201,12 +203,6 @@ class TabStrip : public views::AccessiblePaneView,
 
   // Attempts to move the specified group to the right.
   void ShiftGroupRight(const tab_groups::TabGroupId& group);
-
-  // While the Tab Search bubble is open, the |tab_controls_container_| is kept
-  // in a fixed position in the tab strip. This is called when the bubble is
-  // closed to allow the |tab_controls_container_| to animate to the correct
-  // position.
-  void OnTabSearchBubbleClosed();
 
   // Returns true if the tab is not partly or fully clipped (due to overflow),
   // and the tab couldn't become partly clipped due to changing the selected tab
@@ -241,18 +237,12 @@ class TabStrip : public views::AccessiblePaneView,
     return group_views_.at(id).get()->header();
   }
 
-  // Returns the NewTabButton.
-  NewTabButton* new_tab_button() { return new_tab_button_; }
-
-  // Returns the TabSearchButton.
-  TabSearchButton* tab_search_button() { return tab_search_button_; }
-
   // Returns the index of the specified view in the model coordinate system, or
   // -1 if view is closing or not a tab.
   int GetModelIndexOf(const TabSlotView* view) const;
 
   // Gets the number of Tabs in the tab strip.
-  int tab_count() const { return tabs_.view_size(); }
+  int GetTabCount() const;
 
   // Cover method for TabStripController::GetCount.
   int GetModelCount() const;
@@ -283,6 +273,9 @@ class TabStrip : public views::AccessiblePaneView,
   // binding.
   views::View* GetTabViewForPromoAnchor(int index_hint);
 
+  // Gets the default focusable child view in the TabStrip.
+  views::View* GetDefaultFocusableChild();
+
   // TabController:
   const ui::ListSelectionModel& GetSelectionModel() const override;
   bool SupportsMultipleSelection() override;
@@ -292,8 +285,8 @@ class TabStrip : public views::AccessiblePaneView,
   void ToggleSelected(Tab* tab) override;
   void AddSelectionFromAnchorTo(Tab* tab) override;
   void CloseTab(Tab* tab, CloseTabSource source) override;
-  void ShiftTabLeft(Tab* tab) override;
-  void ShiftTabRight(Tab* tab) override;
+  void ShiftTabNext(Tab* tab) override;
+  void ShiftTabPrevious(Tab* tab) override;
   void MoveTabFirst(Tab* tab) override;
   void MoveTabLast(Tab* tab) override;
   void ShowContextMenuForTab(Tab* tab,
@@ -345,16 +338,12 @@ class TabStrip : public views::AccessiblePaneView,
   // MouseWatcherListener:
   void MouseMovedOutOfHost() override;
 
-  // views::AccessiblePaneView:
+  // views::View:
   void Layout() override;
   void PaintChildren(const views::PaintInfo& paint_info) override;
-  const char* GetClassName() const override;
   gfx::Size GetMinimumSize() const override;
   gfx::Size CalculatePreferredSize() const override;
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   views::View* GetTooltipHandlerForPoint(const gfx::Point& point) override;
-  void OnThemeChanged() override;
-  views::View* GetDefaultFocusableChild() override;
 
   // BrowserRootView::DropTarget:
   BrowserRootView::DropIndex GetDropIndex(
@@ -374,6 +363,7 @@ class TabStrip : public views::AccessiblePaneView,
   friend class TabHoverCardBubbleViewBrowserTest;
   friend class TabHoverCardBubbleViewInteractiveUiTest;
   friend class TabStripTest;
+  friend class TabStripRegionViewTestBase;
 
   class TabContextMenuController : public views::ContextMenuController {
    public:
@@ -423,7 +413,8 @@ class TabStrip : public views::AccessiblePaneView,
 
     views::ImageView* arrow_view_ = nullptr;
 
-    ScopedObserver<views::Widget, views::WidgetObserver> scoped_observer_{this};
+    base::ScopedObservation<views::Widget, views::WidgetObserver>
+        scoped_observation_{this};
   };
 
   void Init();
@@ -462,14 +453,6 @@ class TabStrip : public views::AccessiblePaneView,
   // Returns whether the close button should be highlighted after a remove.
   bool ShouldHighlightCloseButtonAfterRemove();
 
-  // Returns the spacing between the trailing edge of the tabs and the leading
-  // edge of the new tab button.
-  int TabToNewTabButtonSpacing() const;
-
-  // Returns the space to reserve after the tabs to guarantee the user can grab
-  // part of the window frame (to move the window with).
-  int FrameGrabWidth() const;
-
   // Returns whether the window background behind the tabstrip is transparent.
   bool TitlebarBackgroundIsTransparent() const;
 
@@ -490,18 +473,6 @@ class TabStrip : public views::AccessiblePaneView,
   // Returns the current width of inactive tabs. An individual inactive tab may
   // differ from this width slightly due to rounding.
   int GetInactiveTabWidth() const;
-
-  // Returns the width of the area that contains tabs not including the new tab
-  // button.
-  int GetTabAreaWidth() const;
-
-  // Returns the width of the area right of the tabs reserved for the new tab
-  // button and the frame grab area.
-  int GetRightSideReservedWidth() const;
-
-  // Returns the X coordinate the new tab button should be placed at.  Requires
-  // |tabs_| to have correct ideal bounds.
-  int GetNewTabButtonIdealX() const;
 
   // Returns the last tab in the strip that's actually visible.  This will be
   // the actual last tab unless the strip is in the overflow node_data.
@@ -591,8 +562,12 @@ class TabStrip : public views::AccessiblePaneView,
   // the index of the first non-pinned tab.
   int UpdateIdealBoundsForPinnedTabs(int* first_non_pinned_index);
 
-  // Calculates the width that can be occupied by the tabs in the strip.
-  int CalculateAvailableWidthForTabs();
+  // Calculates the width that can be occupied by the tabs in the strip. This
+  // can differ from GetAvailableWidthForTabStrip() when in tab closing mode.
+  int CalculateAvailableWidthForTabs() const;
+
+  // Returns the total width available for the TabStrip's use.
+  int GetAvailableWidthForTabStrip() const;
 
   // Starts various types of TabStrip animations.
   void StartResizeLayoutAnimation();
@@ -632,10 +607,6 @@ class TabStrip : public views::AccessiblePaneView,
   // layout is reset.
   void SetResetToShrinkOnExit(bool value);
 
-  // Updates the border padding for |new_tab_button_|.  This should be called
-  // whenever any input of the computation of the border's sizing changes.
-  void UpdateNewTabButtonBorder();
-
   // Called whenever a tab animation has progressed.
   void OnTabSlotAnimationProgressed(TabSlotView* view);
 
@@ -643,11 +614,7 @@ class TabStrip : public views::AccessiblePaneView,
   // moved or resized.
   void UpdateTabGroupVisuals(tab_groups::TabGroupId tab_group_id);
 
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
-
   // views::View:
-  const views::View* GetViewByID(int id) const override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
   bool OnMouseDragged(const ui::MouseEvent& event) override;
   void OnMouseReleased(const ui::MouseEvent& event) override;
@@ -674,6 +641,10 @@ class TabStrip : public views::AccessiblePaneView,
 
   void OnTouchUiChanged();
 
+  // Screen-reader-only announcements that depend on tab group titles.
+  void AnnounceTabAddedToGroup(tab_groups::TabGroupId group_id);
+  void AnnounceTabRemovedFromGroup(tab_groups::TabGroupId group_id);
+
   // -- Member Variables ------------------------------------------------------
 
   base::ObserverList<TabStripObserver>::Unchecked observers_;
@@ -690,7 +661,8 @@ class TabStrip : public views::AccessiblePaneView,
   // The view tracker is used to keep track of if the hover card has been
   // destroyed by its widget.
   TabHoverCardBubbleView* hover_card_ = nullptr;
-  ScopedObserver<views::View, views::ViewObserver> hover_card_observer_{this};
+  base::ScopedObservation<views::View, views::ViewObserver>
+      hover_card_observation_{this};
   std::unique_ptr<ui::EventHandler> hover_card_event_sniffer_;
 
   std::unique_ptr<TabStripController> controller_;
@@ -702,20 +674,10 @@ class TabStrip : public views::AccessiblePaneView,
   // Responsible for animating tabs in response to model changes.
   views::BoundsAnimator bounds_animator_{this};
 
-  // Container that holds the |new_tab_button_| and the |tab_search_button_|.
-  views::View* tab_controls_container_ = nullptr;
-  NewTabButton* new_tab_button_ = nullptr;
-  // |tab_search_button_| will be null if features::kTabSearch is disabled or if
-  // the current profile is an incognito profile.
-  TabSearchButton* tab_search_button_ = nullptr;
-
-  // Ideal bounds of container holding the tab controls.
-  gfx::Rect tab_controls_container_ideal_bounds_;
-
   // If this value is defined, it is used as the width to lay out tabs
-  // (instead of GetTabAreaWidth()). It is defined when closing tabs with the
-  // mouse, and is used to control which tab will end up under the cursor
-  // after the close animation completes.
+  // (instead of GetAvailableWidthForTabStrip()). It is defined when closing
+  // tabs with the mouse, and is used to control which tab will end up under the
+  // cursor after the close animation completes.
   base::Optional<int> override_available_width_for_tabs_;
 
   // The background offset used by inactive tabs to match the frame image.
@@ -739,9 +701,6 @@ class TabStrip : public views::AccessiblePaneView,
 
   // The width available for tabs at the time of last layout.
   int last_available_width_ = 0;
-
-  // Guard to protect against layout loops.
-  bool is_doing_layout_ = false;
 
   // See description above stacked_layout().
   bool stacked_layout_ = false;
@@ -794,7 +753,7 @@ class TabStrip : public views::AccessiblePaneView,
 
   SkColor separator_color_ = gfx::kPlaceholderColor;
 
-  std::unique_ptr<ui::TouchUiController::Subscription> subscription_ =
+  const base::CallbackListSubscription subscription_ =
       ui::TouchUiController::Get()->RegisterCallback(
           base::BindRepeating(&TabStrip::OnTouchUiChanged,
                               base::Unretained(this)));

@@ -4,6 +4,13 @@
 
 package org.chromium.chrome.browser.omnibox;
 
+import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
+
+import static org.hamcrest.CoreMatchers.allOf;
+import static org.hamcrest.CoreMatchers.is;
+
+import static org.chromium.chrome.test.util.ViewUtils.onViewWaiting;
+
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -24,17 +31,16 @@ import org.chromium.base.test.params.ParameterizedCommandLineFlags;
 import org.chromium.base.test.params.ParameterizedCommandLineFlags.Switches;
 import org.chromium.base.test.util.CloseableOnMainThread;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
-import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
+import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.OmniboxTestUtils;
 import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.browser.test.util.TouchCommon;
 import org.chromium.content_public.common.ContentUrlConstants;
@@ -58,8 +64,7 @@ public class UrlBarIntegrationTest {
             "data:text/plain,H" + new String(new char[9000]).replace('\0', 'u') + "ge!";
 
     @Rule
-    public ChromeActivityTestRule<ChromeTabbedActivity> mActivityTestRule =
-            new ChromeActivityTestRule<>(ChromeTabbedActivity.class);
+    public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
 
     private UrlBar getUrlBar() {
         return (UrlBar) mActivityTestRule.getActivity().findViewById(R.id.url_bar);
@@ -200,6 +205,7 @@ public class UrlBarIntegrationTest {
         ActionModeCreatedCallback callback = new ActionModeCreatedCallback();
         getUrlBar().setCustomSelectionActionModeCallback(callback);
 
+        onViewWaiting(allOf(is(getUrlBar()), isDisplayed()));
         TouchCommon.longPressView(getUrlBar());
 
         CriteriaHelper.pollUiThread(() -> {

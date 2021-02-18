@@ -5,10 +5,11 @@
 module network.mojom;
 
 import "mojo/public/mojom/base/big_buffer.mojom";
-import "mojo/public/mojom/base/file.mojom";
 import "mojo/public/mojom/base/file_path.mojom";
 import "mojo/public/mojom/base/time.mojom";
 import "mojo/public/mojom/base/unguessable_token.mojom";
+import "services/network/public/mojom/auth_and_certificate_observer.mojom";
+import "services/network/public/mojom/client_security_state.mojom";
 import "services/network/public/mojom/cors.mojom";
 import "services/network/public/mojom/cookie_access_observer.mojom";
 import "services/network/public/mojom/chunked_data_pipe_getter.mojom";
@@ -20,6 +21,7 @@ import "services/network/public/mojom/network_param.mojom";
 import "services/network/public/mojom/site_for_cookies.mojom";
 import "services/network/public/mojom/trust_tokens.mojom";
 import "services/network/public/mojom/url_response_head.mojom";
+import "services/network/public/mojom/web_bundle_handle.mojom";
 import "url/mojom/origin.mojom";
 import "url/mojom/url.mojom";
 
@@ -54,25 +56,6 @@ enum URLRequestReferrerPolicy {
   kNoReferrer
 };
 
-// Used for represents the type of the internal contents of
-// network::DataElement.
-enum DataElementType {
-  kUnknown = -1,
-
-  // Only used for Upload with Network Service as of now:
-  kDataPipe,
-  kChunkedDataPipe,
-  kReadOnceStream,
-  kRawFile,
-
-  // Used for Upload when Network Service is disabled:
-  kBlob,
-  kFile,
-
-  // Commonly used in every case:
-  kBytes,
-};
-
 // Options that may only be set on URLRequests passed to a URLLoaderFactory
 // created with |is_trusted| set to true.
 struct TrustedUrlRequestParams {
@@ -92,6 +75,34 @@ struct TrustedUrlRequestParams {
   // a cookie. If this is set to non-null, the observer passed to
   // URLLoaderFactory will be ignored.
   pending_remote<CookieAccessObserver>? cookie_observer;
+
+  // Observer which should be notified when this URLRequest has authentication
+  // and certificate events. If this is set to non-null, the observer passed to
+  // URLLoaderFactory will be ignored.
+  pending_remote<AuthenticationAndCertificateObserver>? auth_cert_observer;
+
+  // Specifies the security state of the client, for cases when the
+  // URLLoaderFactory is shared among multiple clients.
+  //
+  // This field is only used if no ClientSecurityState was specified in the
+  // URLLoaderFactoryParams passed to the factory. Otherwise, the value from
+  // the factory params is used unconditionally.
+  ClientSecurityState? client_security_state;
+};
+
+// Options that may only be set on URLRequests which are related to WebBundle.
+struct WebBundleTokenParams {
+  // Unique token to identify a WebBundle.
+  mojo_base.mojom.UnguessableToken token;
+  // Handle for the WebBundle-related communication between the network process
+  // and the renderer. This is also used as a 'keep-alive' handle. We clean up
+  // the WebBundle data in the network process when the renderer-side endpoint
+  // is deleted.
+  pending_remote<WebBundleHandle>? web_bundle_handle;
+  // Renderer process ID of the request initiator frame. Set by the browser
+  // process, for subframe navigation requests to bundled resources. Not used
+  // for subresource requests sent by renderer processes.
+  int32 render_process_id;
 };
 
 // Typemapped to network::ResourceRequest.
@@ -118,12 +129,6 @@ struct URLRequest {
   // landed.
   SiteForCookies site_for_cookies;
 
-  // Boolean indicating whether SameSite cookies should be indiscriminately
-  // attached to the request, bypassing the usual site_for_cookies checks.
-  // Setting this param to true causes SameSite cookies to be included on
-  // cross-site requests (or requests that "look" cross-site).
-  bool force_ignore_site_for_cookies;
-
   // First-party URL redirect policy: During server redirects, the first-party
   // URL for cookies normally doesn't change. However, if this is true, the
   // the first-party URL should be updated to the URL on every redirect.
@@ -131,23 +136,31 @@ struct URLRequest {
 
   // |request_initiator| indicates the origin initiating the resource request.
   //
-  // |request_initiator| is null for browser-initiated requests (e.g.
-  // navigations initiated via omnibox or bookmarks, internal subresource
-  // requests like fetching the SafeBrowsing data, etc.).
-  //
   // For all requests initiated via web (both subresource requests and
-  // navigations), |request_initiator| is always set to the origin of the frame
-  // that has initiated the request.  This is true even if the request might
-  // have been initiated by an isolated world (e.g. from a content script of an
-  // extension, with its own, separate origin).  This needs to be true even if
-  // the request might be "proxied" in the browser process on behalf of a web
-  // origin (e.g. as is the case for PaymentRequest API).
+  // navigations), |request_initiator| should always be set to the origin of
+  // the frame (or worker) that has initiated the request.  This is true even
+  // if the request might have been initiated by an isolated world (e.g. from a
+  // content script of an extension, with its own, separate origin).  This
+  // needs to be true even if the request might be "proxied" in the browser
+  // process on behalf of a web origin (e.g. as is the case for PaymentRequest
+  // API).
   //
-  // |request_initiator| is consulted in a variety of security features,
-  // including: calculating Sec-Fetch-Site request header, determining if the
-  // request should be subject to CORS, determining if CORB and/or CORP should
-  // block the response, determining if SameSite=strict cookies should be sent,
-  // etc.
+  // |request_initiator| should be omitted (i.e. set to base::nullopt) for
+  // browser-initiated requests (e.g. navigations initiated via omnibox or
+  // bookmarks, internal subresource requests like fetching the SafeBrowsing
+  // data, etc.).  Various security features may treat browser-initiated
+  // requests in a special way - for example in such requests 1) the special
+  // `Sec-Fetch-Site: none` request header is sent, 2) http responses are not
+  // blocked based on their Cross-Origin-Resource-Policy header, etc.
+  //
+  // SECURITY NOTE: Factories with |process_id| set to |kBrowserProcessId| do
+  // not enforce |request_initiator_origin_lock| and instead rely on the
+  // factory user to ensure that a valid, non-nullopt |request_initiator| is
+  // provided.  Failure to provide a correct, verified |request_initiator| may
+  // lead to bypasses of CORS, CORB, SameSite cookies and other HTTP security
+  // features.  An untrustworthy process (e.g. a renderer or a utility process)
+  // should not be able to trigger or influence requests with a base::nullopt
+  // |request_initiator|).
   //
   // See also:
   // - |isolated_world_origin|
@@ -243,11 +256,6 @@ struct URLRequest {
 
   // If true then the request continues even if it's blocked by CORB.
   bool corb_detachable = false;
-
-  // TODO(lukasza): https://crbug.com/846339: Remove the field below and instead
-  // make plugins use a separate URLoaderFactory. Note requests of this type are
-  // only excluded if mode is kNoCors.
-  bool corb_excluded = false;
 
   // https://fetch.spec.whatwg.org/#concept-request-mode
   // Used mainly by CORS handling (out-of-blink CORS), CORB, Service Worker.
@@ -364,11 +372,23 @@ struct URLRequest {
   // renderer.
   string? devtools_request_id;
 
+  // A V8 stack id string describing where the request was initiated. DevTools
+  // can use this to display the initiator call stack when debugging a process
+  // that later intercepts the request, e.g., in a service worker fetch event
+  // handler.
+  string? devtools_stack_id;
+
   // True for prefetch requests when SignedExchangePrefetchCacheForNavigations
   // feature is enabled by flags or SignedExchangeSubresourcePrefetch feature is
   // enabled by flags, or OriginTrial. TODO(horo): Remove this when these
   // features are enabled by default.
   bool is_signed_exchange_prefetch_cache_enabled;
+
+  // True for XHR, Fetch, and EventSource.
+  bool is_fetch_like_api;
+
+  // True for favicon.
+  bool is_favicon;
 
   // If set, the network service will attempt to retrieve the appropriate origin
   // policy, if necessary, and attach it to the ResourceResponseHead.
@@ -388,12 +408,17 @@ struct URLRequest {
   // and the request has set the trustToken Fetch parameter, denoting that it
   // wishes to execute a Trust Tokens protocol operation.
   TrustTokenParams? trust_token_params;
+
+  // Set for WebBundle related requests. See the comment of WebBundleTokenParams
+  // for details.
+  WebBundleTokenParams? web_bundle_token_params;
 };
 
 // URLRequestBody represents body (i.e. upload data) of a HTTP request.
 // Typemapped to network::ResourceRequestBody
 struct URLRequestBody {
-  // Store upload bodies
+  // The body contents. DataElementChunkedDataPipe can be used in `elements`
+  // only if `elements` consists of one element.
   array<DataElement> elements;
 
   // Identifies a particular upload instance, which is used by the cache to
@@ -409,29 +434,40 @@ struct URLRequestBody {
   bool allow_http1_for_streaming_upload;
 };
 
-// Represents part of an upload body. This could be either one of bytes, file or
-// a data pipe.
-// Typemapped to network::DataElement
-struct DataElement {
-  DataElementType type;
+// Represents part of an upload body consisting of bytes.
+struct DataElementBytes {
+  mojo_base.mojom.BigBuffer data;
+};
 
-  // For kBytes.
-  array<uint8> buf;
-  // For kFile and kRawFile
+// Represents part of an upload body consisting of (part of) a file.
+struct DataElementFile {
   mojo_base.mojom.FilePath path;
-  // For kRawFile
-  mojo_base.mojom.File? file;
-  // For kBlob
-  // TODO(richard.li): Deprecate this once NetworkService is fully shipped.
-  string? blob_uuid;
-  // For kDataPipe
-  pending_remote<network.mojom.DataPipeGetter>? data_pipe_getter;
-  // For kChunkedDataPipe
-  pending_remote<network.mojom.ChunkedDataPipeGetter>? chunked_data_pipe_getter;
-
   uint64 offset;
   uint64 length;
   mojo_base.mojom.Time expected_modification_time;
+};
+
+// Represents part of an upload body consisting of a data pipe with a known
+// size.
+struct DataElementDataPipe {
+  pending_remote<network.mojom.DataPipeGetter> data_pipe_getter;
+};
+
+// Represents part of an upload body consisting of a data pipe without a known
+// size.
+struct DataElementChunkedDataPipe {
+  pending_remote<network.mojom.ChunkedDataPipeGetter> data_pipe_getter;
+  // When true, a data pipe can be gotten from `chunked_data_pipe_getter` only
+  // once.
+  bool read_only_once;
+};
+
+// Represents part of an upload body.
+union DataElement {
+  DataElementBytes bytes;
+  DataElementFile file;
+  DataElementDataPipe data_pipe;
+  DataElementChunkedDataPipe chunked_data_pipe;
 };
 
 // URLLoader is an interface for performing a single request to a URL.

@@ -168,7 +168,7 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
                     (int) (coordinateSpace.getContentOffsetYPix()
                             / coordinateSpace.getDeviceScaleFactor()));
             Bundle bundle = new Bundle();
-            bundle.putString("url", getVisibleUrlString());
+            bundle.putString("url", getVisibleUrl().getSpec());
             bundle.putString("title", getTitle());
             bundle.putString("text", text);
             bundle.putString("html", html);
@@ -391,6 +391,24 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
                 mNativeWebContentsAndroid, renderProcessId, renderFrameId);
     }
 
+    public List<RenderFrameHost> getAllRenderFrameHosts() {
+        checkNotDestroyed();
+        RenderFrameHost[] frames = WebContentsImplJni.get().getAllRenderFrameHosts(
+                mNativeWebContentsAndroid, WebContentsImpl.this);
+        return Collections.unmodifiableList(Arrays.asList(frames));
+    }
+
+    @CalledByNative
+    private static RenderFrameHost[] createRenderFrameHostArray(int size) {
+        return new RenderFrameHost[size];
+    }
+
+    @CalledByNative
+    private static void addRenderFrameHostToArray(
+            RenderFrameHost[] frames, int index, RenderFrameHost frame) {
+        frames[index] = frame;
+    }
+
     @Override
     public @Nullable RenderWidgetHostViewImpl getRenderWidgetHostView() {
         if (mNativeWebContentsAndroid == 0) return null;
@@ -426,11 +444,6 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
         checkNotDestroyed();
         return WebContentsImplJni.get().getVisibleURL(
                 mNativeWebContentsAndroid, WebContentsImpl.this);
-    }
-
-    @Override
-    public String getVisibleUrlString() {
-        return getVisibleUrl().getSpec();
     }
 
     @Override
@@ -613,7 +626,7 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
     }
 
     @Override
-    public String getLastCommittedUrl() {
+    public GURL getLastCommittedUrl() {
         checkNotDestroyed();
         return WebContentsImplJni.get().getLastCommittedURL(
                 mNativeWebContentsAndroid, WebContentsImpl.this);
@@ -1061,6 +1074,8 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
         RenderFrameHost getFocusedFrame(long nativeWebContentsAndroid, WebContentsImpl caller);
         RenderFrameHost getRenderFrameHostFromId(
                 long nativeWebContentsAndroid, int renderProcessId, int renderFrameId);
+        RenderFrameHost[] getAllRenderFrameHosts(
+                long nativeWebContentsAndroid, WebContentsImpl caller);
         RenderWidgetHostViewImpl getRenderWidgetHostView(
                 long nativeWebContentsAndroid, WebContentsImpl caller);
         WebContentsImpl[] getInnerWebContents(
@@ -1095,7 +1110,7 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
         void selectWordAroundCaret(long nativeWebContentsAndroid, WebContentsImpl caller);
         void adjustSelectionByCharacterOffset(long nativeWebContentsAndroid, WebContentsImpl caller,
                 int startAdjust, int endAdjust, boolean showSelectionMenu);
-        String getLastCommittedURL(long nativeWebContentsAndroid, WebContentsImpl caller);
+        GURL getLastCommittedURL(long nativeWebContentsAndroid, WebContentsImpl caller);
         boolean isIncognito(long nativeWebContentsAndroid, WebContentsImpl caller);
         void resumeLoadingCreatedWebContents(long nativeWebContentsAndroid, WebContentsImpl caller);
         void evaluateJavaScript(long nativeWebContentsAndroid, WebContentsImpl caller,

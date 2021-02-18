@@ -5,27 +5,35 @@
 #include "chrome/browser/chromeos/policy/system_proxy_manager.h"
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
+#include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/ui/request_system_proxy_credentials_view.h"
 #include "chrome/browser/chromeos/ui/system_proxy_notification.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/login/login_handler.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/dbus/system_proxy/system_proxy_client.h"
+#include "chromeos/login/login_state/login_state.h"
 #include "chromeos/network/network_event_log.h"
+#include "chromeos/network/network_state.h"
+#include "chromeos/network/network_state_handler.h"
+#include "chromeos/network/proxy/proxy_config_service_impl.h"
+#include "chromeos/network/proxy/ui_proxy_config_service.h"
 #include "chromeos/settings/cros_settings_names.h"
 #include "chromeos/settings/cros_settings_provider.h"
 #include "components/arc/arc_prefs.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
+#include "components/proxy_config/proxy_config_pref_names.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/storage_partition.h"
@@ -41,6 +49,40 @@
 
 namespace {
 const char kSystemProxyService[] = "system-proxy-service";
+
+// A `content::LoginDelegate` implementation that returns to the caller the
+// proxy credentials set by the policy `SystemProxySettings`.
+class SystemProxyLoginHandler : public content::LoginDelegate {
+ public:
+  SystemProxyLoginHandler() = default;
+  ~SystemProxyLoginHandler() override = default;
+
+  SystemProxyLoginHandler(const SystemProxyLoginHandler&) = delete;
+  SystemProxyLoginHandler& operator=(const SystemProxyLoginHandler&) = delete;
+
+  void AuthenticateWithCredentials(
+      const std::string& username,
+      const std::string& password,
+      LoginAuthRequiredCallback auth_required_callback) {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::BindOnce(&SystemProxyLoginHandler::InvokeWithCredentials,
+                       weak_factory_.GetWeakPtr(), username, password,
+                       std::move(auth_required_callback)));
+  }
+
+ private:
+  void InvokeWithCredentials(const std::string& username,
+                             const std::string& password,
+                             LoginAuthRequiredCallback auth_required_callback) {
+    std::move(auth_required_callback)
+        .Run(base::make_optional<net::AuthCredentials>(
+            base::UTF8ToUTF16(username), base::UTF8ToUTF16(password)));
+  }
+
+  base::WeakPtrFactory<SystemProxyLoginHandler> weak_factory_{this};
+};
+
 }  // namespace
 
 namespace policy {
@@ -70,12 +112,18 @@ SystemProxyManager::SystemProxyManager(chromeos::CrosSettings* cros_settings,
       prefs::kKerberosEnabled,
       base::BindRepeating(&SystemProxyManager::OnKerberosEnabledChanged,
                           weak_factory_.GetWeakPtr()));
-
+  DCHECK(chromeos::NetworkHandler::IsInitialized());
+  chromeos::NetworkHandler::Get()->network_state_handler()->AddObserver(
+      this, FROM_HERE);
   // Fire it once so we're sure we get an invocation on startup.
   OnSystemProxySettingsPolicyChanged();
 }
 
-SystemProxyManager::~SystemProxyManager() = default;
+SystemProxyManager::~SystemProxyManager() {
+  DCHECK(chromeos::NetworkHandler::IsInitialized());
+  chromeos::NetworkHandler::Get()->network_state_handler()->RemoveObserver(
+      this, FROM_HERE);
+}
 
 std::string SystemProxyManager::SystemServicesProxyPacString() const {
   return system_proxy_enabled_ && !system_services_address_.empty()
@@ -85,6 +133,7 @@ std::string SystemProxyManager::SystemServicesProxyPacString() const {
 
 void SystemProxyManager::StartObservingPrimaryProfilePrefs(Profile* profile) {
   primary_profile_ = profile;
+  extension_prefs_util_ = std::make_unique<extensions::PrefsUtil>(profile);
   // Listen to pref changes.
   profile_pref_change_registrar_ = std::make_unique<PrefChangeRegistrar>();
   profile_pref_change_registrar_->Init(primary_profile_->GetPrefs());
@@ -96,7 +145,12 @@ void SystemProxyManager::StartObservingPrimaryProfilePrefs(Profile* profile) {
       arc::prefs::kArcEnabled,
       base::BindRepeating(&SystemProxyManager::OnArcEnabledChanged,
                           weak_factory_.GetWeakPtr()));
+  profile_pref_change_registrar_->Add(
+      proxy_config::prefs::kProxy,
+      base::BindRepeating(&SystemProxyManager::OnProxyConfigChanged,
+                          base::Unretained(this)));
   if (system_proxy_enabled_) {
+    OnProxyConfigChanged();
     OnKerberosAccountChanged();
     OnArcEnabledChanged();
   }
@@ -105,6 +159,7 @@ void SystemProxyManager::StartObservingPrimaryProfilePrefs(Profile* profile) {
 void SystemProxyManager::StopObservingPrimaryProfilePrefs() {
   profile_pref_change_registrar_->RemoveAll();
   profile_pref_change_registrar_.reset();
+  extension_prefs_util_.reset();
   primary_profile_ = nullptr;
 }
 
@@ -153,28 +208,47 @@ void SystemProxyManager::OnSystemProxySettingsPolicyChanged() {
     CloseAuthenticationUI();
     return;
   }
-  system_proxy::SetAuthenticationDetailsRequest request;
-  system_proxy::Credentials credentials;
   const std::string* username = proxy_settings->FindStringKey(
       chromeos::kSystemProxySettingsKeySystemServicesUsername);
 
   const std::string* password = proxy_settings->FindStringKey(
       chromeos::kSystemProxySettingsKeySystemServicesPassword);
 
+  const base::Value* auth_schemes =
+      proxy_settings->FindListKey(chromeos::kSystemProxySettingsKeyAuthSchemes);
+
+  policy_credentials_auth_schemes_.clear();
+  if (auth_schemes) {
+    for (const auto& auth_scheme : auth_schemes->GetList())
+      policy_credentials_auth_schemes_.push_back(auth_scheme.GetString());
+  }
+
   if (!username || username->empty() || !password || password->empty()) {
     NET_LOG(DEBUG) << "Proxy credentials for system traffic not set: "
                    << kSystemProxyService;
   } else {
-    credentials.set_username(*username);
-    credentials.set_password(*password);
-    *request.mutable_credentials() = credentials;
+    system_services_username_ = *username;
+    system_services_password_ = *password;
+  }
+  if (IsManagedProxyConfigured()) {
+    // Force send the configuration in case the credentials hand't changed, but
+    // `policy_credentials_auth_schemes_` has.
+    SendPolicyAuthenticationCredentials(system_services_username_,
+                                        system_services_password_,
+                                        /*force_send=*/true);
+  } else {
+    // To avoid leaking the policy set credentials, don't send them to
+    // System-proxy if there's no managed proxy on the network.
+    // Note: When SystemProxyManager is starting, the credentials are empty and
+    // they were never sent before. We need to force send them, otherwise
+    // `SendPolicyAuthenticationCredentials` will detect that no change to the
+    // credentials occurred and will not trigger a D-Bus request. This means the
+    // worker service for Chrome OS system services will not be started.
+    SendPolicyAuthenticationCredentials(/*username=*/"",
+                                        /*password=*/"",
+                                        /*force_send=*/true);
   }
 
-  request.set_traffic_type(system_proxy::TrafficOrigin::SYSTEM);
-
-  chromeos::SystemProxyClient::Get()->SetAuthenticationDetails(
-      request, base::BindOnce(&SystemProxyManager::OnSetAuthenticationDetails,
-                              weak_factory_.GetWeakPtr()));
   // Fire once to cover the case where the SystemProxySetting policy is set
   // during a user session.
   if (IsArcEnabled()) {
@@ -207,6 +281,11 @@ void SystemProxyManager::OnArcEnabledChanged() {
     return;
   }
 
+  if (local_state_->GetBoolean(prefs::kKerberosEnabled)) {
+    SendKerberosAuthenticationDetails();
+    return;
+  }
+
   system_proxy::SetAuthenticationDetailsRequest request;
   request.set_traffic_type(system_proxy::TrafficOrigin::USER);
   chromeos::SystemProxyClient::Get()->SetAuthenticationDetails(
@@ -235,9 +314,43 @@ void SystemProxyManager::SendUserAuthenticationCredentials(
   user_credentials.set_password(password);
 
   system_proxy::SetAuthenticationDetailsRequest request;
-  request.set_traffic_type(system_proxy::TrafficOrigin::ALL);
+  request.set_traffic_type(IsArcEnabled()
+                               ? system_proxy::TrafficOrigin::ALL
+                               : system_proxy::TrafficOrigin::SYSTEM);
   *request.mutable_credentials() = user_credentials;
   *request.mutable_protection_space() = protection_space;
+
+  chromeos::SystemProxyClient::Get()->SetAuthenticationDetails(
+      request, base::BindOnce(&SystemProxyManager::OnSetAuthenticationDetails,
+                              weak_factory_.GetWeakPtr()));
+}
+
+void SystemProxyManager::SendPolicyAuthenticationCredentials(
+    const std::string& username,
+    const std::string& password,
+    bool force_send) {
+  if (!system_proxy_enabled_)
+    return;
+
+  if (!force_send &&
+      (last_sent_username_ == username && last_sent_password_ == password)) {
+    // Credentials were already sent.
+    return;
+  }
+
+  last_sent_username_ = username;
+  last_sent_password_ = password;
+
+  system_proxy::SetAuthenticationDetailsRequest request;
+  system_proxy::Credentials credentials;
+  credentials.set_username(username);
+  credentials.set_password(password);
+  for (const auto& auth_scheme : policy_credentials_auth_schemes_) {
+    credentials.add_policy_credentials_auth_schemes(auth_scheme);
+  }
+  *request.mutable_credentials() = credentials;
+
+  request.set_traffic_type(system_proxy::TrafficOrigin::SYSTEM);
 
   chromeos::SystemProxyClient::Get()->SetAuthenticationDetails(
       request, base::BindOnce(&SystemProxyManager::OnSetAuthenticationDetails,
@@ -250,7 +363,9 @@ void SystemProxyManager::SendKerberosAuthenticationDetails() {
   }
 
   system_proxy::SetAuthenticationDetailsRequest request;
-  request.set_traffic_type(system_proxy::TrafficOrigin::SYSTEM);
+  request.set_traffic_type(IsArcEnabled()
+                               ? system_proxy::TrafficOrigin::ALL
+                               : system_proxy::TrafficOrigin::SYSTEM);
   request.set_kerberos_enabled(
       local_state_->GetBoolean(prefs::kKerberosEnabled));
   if (primary_profile_) {
@@ -302,6 +417,47 @@ void SystemProxyManager::RegisterProfilePrefs(PrefRegistrySimple* registry) {
                                /*default_value=*/std::string());
 }
 
+bool SystemProxyManager::CanUsePolicyCredentials(
+    const net::AuthChallengeInfo& auth_info,
+    bool first_auth_attempt) {
+  if (!auth_info.is_proxy || !first_auth_attempt)
+    return false;
+
+  if (!chromeos::LoginState::IsInitialized() ||
+      (!chromeos::LoginState::Get()->IsPublicSessionUser() &&
+       !chromeos::LoginState::Get()->IsKioskApp())) {
+    VLOG(1) << "Only kiosk app and MGS can reuse the policy provided proxy "
+               "credentials for authentication";
+    return false;
+  }
+
+  if (!system_proxy_enabled_ || system_services_username_.empty() ||
+      system_services_password_.empty()) {
+    return false;
+  }
+
+  if (!IsManagedProxyConfigured()) {
+    return false;
+  }
+  if (!policy_credentials_auth_schemes_.empty()) {
+    if (!base::Contains(policy_credentials_auth_schemes_, auth_info.scheme)) {
+      VLOG(1) << "Auth scheme not allowed by policy";
+      return false;
+    }
+  }
+
+  return true;
+}
+
+std::unique_ptr<content::LoginDelegate> SystemProxyManager::CreateLoginDelegate(
+    LoginAuthRequiredCallback auth_required_callback) {
+  auto login_delegate = std::make_unique<SystemProxyLoginHandler>();
+  login_delegate->AuthenticateWithCredentials(
+      system_services_username_, system_services_password_,
+      std::move(auth_required_callback));
+  return std::move(login_delegate);
+}
+
 void SystemProxyManager::OnSetAuthenticationDetails(
     const system_proxy::SetAuthenticationDetailsResponse& response) {
   if (response.has_error_message()) {
@@ -311,6 +467,62 @@ void SystemProxyManager::OnSetAuthenticationDetails(
   }
   if (send_auth_details_closure_for_test_)
     send_auth_details_closure_for_test_.Run();
+}
+
+// This function is called when the default network changes or when any of its
+// properties change.
+void SystemProxyManager::DefaultNetworkChanged(
+    const chromeos::NetworkState* network) {
+  if (!network)
+    return;
+  OnProxyConfigChanged();
+}
+
+void SystemProxyManager::OnProxyConfigChanged() {
+  if (!IsManagedProxyConfigured()) {
+    SendPolicyAuthenticationCredentials(/*username=*/"", /*password=*/"",
+                                        /*force_send=*/false);
+    return;
+  }
+  SendPolicyAuthenticationCredentials(system_services_username_,
+                                      system_services_password_,
+                                      /*force_send=*/false);
+}
+
+bool SystemProxyManager::IsManagedProxyConfigured() {
+  DCHECK(chromeos::NetworkHandler::IsInitialized());
+  chromeos::NetworkHandler* network_handler = chromeos::NetworkHandler::Get();
+  base::Value proxy_settings(base::Value::Type::DICTIONARY);
+
+  // |ui_proxy_config_service| may be missing in tests. If the device is offline
+  // (no network connected) the |DefaultNetwork| is null.
+  if (chromeos::NetworkHandler::HasUiProxyConfigService() &&
+      network_handler->network_state_handler()->DefaultNetwork()) {
+    // Check if proxy is enforced by user policy, force installed extension or
+    // ONC policies. This will only read managed settings.
+    chromeos::NetworkHandler::GetUiProxyConfigService()
+        ->MergeEnforcedProxyConfig(
+            network_handler->network_state_handler()->DefaultNetwork()->guid(),
+            &proxy_settings);
+  }
+  if (proxy_settings.DictEmpty())
+    return false;  // no managed proxy set
+
+  if (IsProxyConfiguredByUserViaExtension())
+    return false;
+
+  // Proxy was configured by the admin
+  return true;
+}
+
+bool SystemProxyManager::IsProxyConfiguredByUserViaExtension() {
+  if (!extension_prefs_util_)
+    return false;
+
+  std::unique_ptr<extensions::api::settings_private::PrefObject> pref =
+      extension_prefs_util_->GetPref(proxy_config::prefs::kProxy);
+  return pref && pref->extension_can_be_disabled &&
+         *pref->extension_can_be_disabled;
 }
 
 void SystemProxyManager::OnShutDownProcess(

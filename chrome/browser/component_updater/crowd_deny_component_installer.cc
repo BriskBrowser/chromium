@@ -16,6 +16,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/values.h"
 #include "chrome/browser/permissions/crowd_deny_preload_data.h"
+#include "components/permissions/permission_uma_util.h"
 
 namespace {
 
@@ -86,7 +87,7 @@ void CrowdDenyComponentInstallerPolicy::ComponentReady(
   }
 
   CrowdDenyPreloadData::GetInstance()->LoadFromDisk(
-      GetPreloadDataFilePath(install_dir));
+      GetPreloadDataFilePath(install_dir), version);
 }
 
 base::FilePath CrowdDenyComponentInstallerPolicy::GetRelativeInstallDir()
@@ -105,20 +106,13 @@ std::string CrowdDenyComponentInstallerPolicy::GetName() const {
   return kCrowdDenyHumanReadableName;
 }
 
-std::vector<std::string> CrowdDenyComponentInstallerPolicy::GetMimeTypes()
-    const {
-  // Not a plugin.
-  return std::vector<std::string>();
-}
-
 update_client::InstallerAttributes
 CrowdDenyComponentInstallerPolicy::GetInstallerAttributes() const {
   // No special update rules.
   return update_client::InstallerAttributes();
 }
 
-void RegisterCrowdDenyComponent(ComponentUpdateService* cus,
-                                const base::FilePath& user_data_dir) {
+void RegisterCrowdDenyComponent(ComponentUpdateService* cus) {
   auto installer = base::MakeRefCounted<ComponentInstaller>(
       std::make_unique<CrowdDenyComponentInstallerPolicy>());
   installer->Register(cus, base::OnceClosure());

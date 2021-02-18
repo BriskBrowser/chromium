@@ -9,6 +9,7 @@
 #include "ash/shell.h"
 #include "ash/style/ash_color_provider.h"
 #include "ash/style/default_color_constants.h"
+#include "ash/style/default_colors.h"
 #include "ash/system/power/power_button_menu_metrics_type.h"
 #include "ash/system/power/power_button_menu_view.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
@@ -26,7 +27,7 @@ constexpr int PowerButtonMenuView::kMenuViewTransformDistanceDp;
 namespace {
 
 // Opacity of the power button menu fullscreen background shield.
-constexpr float kPowerButtonMenuOpacity = 0.6f;
+constexpr float kPowerButtonMenuOpacity = 0.4f;
 
 // TODO(minch): Get the internal display size instead if needed.
 // Gets the landscape size of the primary display. For landscape orientation,
@@ -64,12 +65,11 @@ class PowerButtonMenuScreenView::PowerButtonMenuBackgroundView
   PowerButtonMenuBackgroundView(base::RepeatingClosure show_animation_done)
       : show_animation_done_(show_animation_done) {
     SetPaintToLayer(ui::LAYER_SOLID_COLOR);
-    layer()->SetColor(AshColorProvider::Get()->DeprecatedGetShieldLayerColor(
-        AshColorProvider::ShieldLayerType::kShield60,
-        kPowerButtonMenuFullscreenShieldColor));
     layer()->SetOpacity(0.f);
   }
-
+  PowerButtonMenuBackgroundView(const PowerButtonMenuBackgroundView&) = delete;
+  PowerButtonMenuBackgroundView& operator=(
+      const PowerButtonMenuBackgroundView&) = delete;
   ~PowerButtonMenuBackgroundView() override = default;
 
   void OnImplicitAnimationsCompleted() override {
@@ -105,10 +105,16 @@ class PowerButtonMenuScreenView::PowerButtonMenuBackgroundView
   }
 
  private:
+  // views::View:
+  void OnThemeChanged() override {
+    views::View::OnThemeChanged();
+    layer()->SetColor(DeprecatedGetShieldLayerColor(
+        AshColorProvider::ShieldLayerType::kShield40,
+        kPowerButtonMenuFullscreenShieldColor));
+  }
+
   // A callback for when the animation that shows the power menu has finished.
   base::RepeatingClosure show_animation_done_;
-
-  DISALLOW_COPY_AND_ASSIGN(PowerButtonMenuBackgroundView);
 };
 
 PowerButtonMenuScreenView::PowerButtonMenuScreenView(
@@ -150,9 +156,13 @@ void PowerButtonMenuScreenView::OnWidgetShown(
     double offset_percentage) {
   power_button_position_ = position;
   power_button_offset_percentage_ = offset_percentage;
+  // The order here matters. RecreateItems() must be called before calling
+  // UpdateMenuBoundsOrigins(), since the latter relies on the
+  // power_button_menu_view_'s preferred size, which depends on the items added
+  // to the view.
+  power_button_menu_view_->RecreateItems();
   if (power_button_position_ != PowerButtonPosition::NONE)
     UpdateMenuBoundsOrigins();
-  power_button_menu_view_->RecreateItems();
   Layout();
 }
 

@@ -50,10 +50,12 @@ class MockScrollableArea : public GarbageCollected<MockScrollableArea>,
   }
 
   explicit MockScrollableArea()
-      : maximum_scroll_offset_(ScrollOffset(0, 100)),
+      : ScrollableArea(blink::scheduler::GetSingleThreadTaskRunnerForTesting()),
+        maximum_scroll_offset_(ScrollOffset(0, 100)),
         chrome_client_(MakeGarbageCollected<MockPlatformChromeClient>()) {}
   explicit MockScrollableArea(const ScrollOffset& offset)
-      : maximum_scroll_offset_(offset),
+      : ScrollableArea(blink::scheduler::GetSingleThreadTaskRunnerForTesting()),
+        maximum_scroll_offset_(offset),
         chrome_client_(MakeGarbageCollected<MockPlatformChromeClient>()) {}
 
   MOCK_CONST_METHOD0(VisualRectForScrollbarParts, LayoutRect());
@@ -71,7 +73,7 @@ class MockScrollableArea : public GarbageCollected<MockScrollableArea>,
   MOCK_CONST_METHOD0(VerticalScrollbar, Scrollbar*());
   MOCK_CONST_METHOD0(ScrollbarsHiddenIfOverlay, bool());
   MOCK_METHOD0(ScheduleAnimation, bool());
-  MOCK_CONST_METHOD0(UsedColorScheme, WebColorScheme());
+  MOCK_CONST_METHOD0(UsedColorScheme, mojom::blink::ColorScheme());
 
   bool UserInputScrollable(ScrollbarOrientation) const override { return true; }
   bool ScrollbarsCanBeActive() const override { return true; }

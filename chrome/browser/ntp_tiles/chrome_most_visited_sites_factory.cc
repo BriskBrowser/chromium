@@ -17,6 +17,7 @@
 #include "chrome/browser/ntp_tiles/chrome_custom_links_manager_factory.h"
 #include "chrome/browser/ntp_tiles/chrome_popular_sites_factory.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/search/repeatable_queries/repeatable_queries_service_factory.h"
 #include "chrome/browser/search/suggestions/suggestions_service_factory.h"
 #include "chrome/common/buildflags.h"
 #include "components/history/core/browser/top_sites.h"
@@ -50,7 +51,7 @@ class SupervisorBridge : public ntp_tiles::MostVisitedSitesSupervisor,
 
   void SetObserver(Observer* observer) override;
   bool IsBlocked(const GURL& url) override;
-  std::vector<MostVisitedSitesSupervisor::Whitelist> GetWhitelists() override;
+  std::vector<MostVisitedSitesSupervisor::Allowlist> GetAllowlists() override;
   bool IsChildProfile() override;
 
   // SupervisedUserServiceObserver implementation.
@@ -90,18 +91,10 @@ bool SupervisorBridge::IsBlocked(const GURL& url) {
          SupervisedUserURLFilter::FilteringBehavior::BLOCK;
 }
 
-std::vector<ntp_tiles::MostVisitedSitesSupervisor::Whitelist>
-SupervisorBridge::GetWhitelists() {
-  std::vector<MostVisitedSitesSupervisor::Whitelist> results;
-  SupervisedUserService* supervised_user_service =
-      SupervisedUserServiceFactory::GetForProfile(profile_);
-  for (const auto& whitelist : supervised_user_service->allowlists()) {
-    results.emplace_back(Whitelist{
-        whitelist->title(), whitelist->entry_point(),
-        whitelist->large_icon_path(),
-    });
-  }
-  return results;
+std::vector<ntp_tiles::MostVisitedSitesSupervisor::Allowlist>
+SupervisorBridge::GetAllowlists() {
+  // TODO(crbug.com/1149782): Remove allowlists from New Tab Page.
+  return {};
 }
 
 bool SupervisorBridge::IsChildProfile() {
@@ -127,6 +120,11 @@ ChromeMostVisitedSitesFactory::NewForProfile(Profile* profile) {
 
   auto most_visited_sites = std::make_unique<ntp_tiles::MostVisitedSites>(
       profile->GetPrefs(), TopSitesFactory::GetForProfile(profile),
+#if defined(OS_ANDROID)
+      nullptr,
+#else
+      RepeatableQueriesServiceFactory::GetForProfile(profile),
+#endif
       SuggestionsServiceFactory::GetForProfile(profile),
 #if defined(OS_ANDROID)
       ChromePopularSitesFactory::NewForProfile(profile),

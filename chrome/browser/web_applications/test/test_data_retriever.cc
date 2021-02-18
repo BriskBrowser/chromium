@@ -10,7 +10,7 @@
 #include "base/check.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
-#include "chrome/common/web_application_info.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "third_party/blink/public/common/manifest/manifest.h"
 
 namespace web_app {
@@ -41,7 +41,7 @@ void TestDataRetriever::CheckInstallabilityAndRetrieveManifest(
     opt_manifest = *manifest_;
 
   completion_callback_ =
-      base::BindOnce(std::move(callback), opt_manifest,
+      base::BindOnce(std::move(callback), opt_manifest, manifest_url_,
                      /*valid_manifest_for_web_app=*/true, is_installable_);
   ScheduleCompletionCallback();
 }
@@ -73,9 +73,11 @@ void TestDataRetriever::SetEmptyRendererWebApplicationInfo() {
 }
 
 void TestDataRetriever::SetManifest(std::unique_ptr<blink::Manifest> manifest,
-                                    bool is_installable) {
+                                    bool is_installable,
+                                    GURL manifest_url) {
   manifest_ = std::move(manifest);
   is_installable_ = is_installable;
+  manifest_url_ = manifest_url;
 }
 
 void TestDataRetriever::SetIcons(IconsMap icons_map) {
@@ -101,8 +103,7 @@ void TestDataRetriever::BuildDefaultDataToRetrieve(const GURL& url,
   manifest->start_url = url;
   manifest->scope = scope;
   manifest->display = DisplayMode::kStandalone;
-  manifest->short_name =
-      base::NullableString16(base::ASCIIToUTF16("Manifest Name"), false);
+  manifest->short_name = base::ASCIIToUTF16("Manifest Name");
 
   SetManifest(std::move(manifest), /*is_installable=*/true);
 

@@ -150,8 +150,8 @@ std::string GetDownloadDangerNames(DownloadDangerType type) {
       return "DANGEROUS_HOST";
     case DOWNLOAD_DANGER_TYPE_POTENTIALLY_UNWANTED:
       return "POTENTIALLY_UNWANTED";
-    case DOWNLOAD_DANGER_TYPE_WHITELISTED_BY_POLICY:
-      return "WHITELISTED_BY_POLICY";
+    case DOWNLOAD_DANGER_TYPE_ALLOWLISTED_BY_POLICY:
+      return "ALLOWLISTED_BY_POLICY";
     default:
       NOTREACHED();
       return "UNKNOWN_DANGER_TYPE";
@@ -984,6 +984,10 @@ DownloadFile* DownloadItemImpl::GetDownloadFile() {
   return download_file_.get();
 }
 
+DownloadItemRenameHandler* DownloadItemImpl::GetRenameHandler() {
+  return rename_handler_.get();
+}
+
 bool DownloadItemImpl::IsDangerous() const {
   return danger_type_ == DOWNLOAD_DANGER_TYPE_DANGEROUS_FILE ||
          danger_type_ == DOWNLOAD_DANGER_TYPE_DANGEROUS_URL ||
@@ -1313,22 +1317,8 @@ void DownloadItemImpl::UpdateValidatorsOnResumption(
   // a full request rather than a partial. Full restarts clobber validators.
   if (etag_ != new_create_info.etag ||
       last_modified_time_ != new_create_info.last_modified) {
-    if (destination_info_.received_bytes > 0) {
-      RecordResumptionRestartCount(
-          ResumptionRestartCountTypes::kStrongValidatorChangesCount);
-    }
     received_slices_.clear();
     destination_info_.received_bytes = 0;
-  }
-
-  if (destination_info_.received_bytes > 0 && new_create_info.offset == 0) {
-    if (!base::FeatureList::IsEnabled(
-            features::kAllowDownloadResumptionWithoutStrongValidators) ||
-        GetDownloadValidationLengthConfig() >
-            destination_info_.received_bytes) {
-      RecordResumptionRestartCount(
-          ResumptionRestartCountTypes::kRequestedByServerCount);
-    }
   }
 
   request_info_.url_chain.insert(request_info_.url_chain.end(), chain_iter,
@@ -1946,11 +1936,20 @@ void DownloadItemImpl::OnDownloadCompleting() {
   DCHECK(!IsDangerous());
 
   DCHECK(download_file_);
+
   // Unilaterally rename; even if it already has the right name,
-  // we need theannotation.
+  // we need the annotation.
   DownloadFile::RenameCompletionCallback callback =
       base::BindOnce(&DownloadItemImpl::OnDownloadRenamedToFinalName,
-                 weak_ptr_factory_.GetWeakPtr());
+                     weak_ptr_factory_.GetWeakPtr());
+
+  // If an alternate rename handler is specified, use it instead.
+  rename_handler_ = delegate_->GetRenameHandlerForDownload(this);
+  if (rename_handler_) {
+    rename_handler_->Start(std::move(callback));
+    return;
+  }
+
 #if defined(OS_ANDROID)
   if (GetTargetFilePath().IsContentUri()) {
     GetDownloadTaskRunner()->PostTask(
@@ -1967,6 +1966,7 @@ void DownloadItemImpl::OnDownloadCompleting() {
   auto quarantine_callback = delegate_->GetQuarantineConnectionCallback();
   if (quarantine_callback)
     quarantine_callback.Run(quarantine.InitWithNewPipeAndPassReceiver());
+
   GetDownloadTaskRunner()->PostTask(
       FROM_HERE,
       base::BindOnce(&DownloadFile::RenameAndAnnotate,
@@ -2521,10 +2521,6 @@ void DownloadItemImpl::ResumeInterruptedDownload(
     LOG_IF(ERROR, !GetFullPath().empty())
         << "Download full path should be empty before resumption";
     if (destination_info_.received_bytes > 0) {
-      if (!HasStrongValidators()) {
-        RecordResumptionRestartCount(
-            ResumptionRestartCountTypes::kMissingStrongValidatorsCount);
-      }
       RecordResumptionRestartReason(last_reason_);
     }
     destination_info_.received_bytes = 0;

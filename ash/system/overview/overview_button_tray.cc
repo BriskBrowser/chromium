@@ -26,6 +26,7 @@
 #include "ui/views/animation/ink_drop.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/image_view.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/wm/core/window_util.h"
 
 namespace ash {
@@ -39,8 +40,7 @@ OverviewButtonTray::OverviewButtonTray(Shelf* shelf)
   gfx::ImageSkia image = gfx::CreateVectorIcon(
       kShelfOverviewIcon,
       AshColorProvider::Get()->GetContentLayerColor(
-          AshColorProvider::ContentLayerType::kButtonIconColor,
-          AshColorProvider::AshColorMode::kDark));
+          AshColorProvider::ContentLayerType::kButtonIconColor));
   icon_->SetImage(image);
   const int vertical_padding = (kTrayItemSize - image.height()) / 2;
   const int horizontal_padding = (kTrayItemSize - image.width()) / 2;
@@ -108,8 +108,7 @@ bool OverviewButtonTray::PerformAction(const ui::Event& event) {
     const OverviewEnterExitType enter_exit_type =
         overview_controller->overview_session()->enter_exit_overview_type();
     if (mru_window_list.size() > 1u &&
-        enter_exit_type != OverviewEnterExitType::kFadeInEnter &&
-        enter_exit_type != OverviewEnterExitType::kSlideInEnter) {
+        enter_exit_type != OverviewEnterExitType::kFadeInEnter) {
       aura::Window* new_active_window = mru_window_list[1];
 
       // In tablet split view mode, quick switch will only affect the windows on
@@ -189,10 +188,6 @@ void OverviewButtonTray::HideBubbleWithView(const TrayBubbleView* bubble_view) {
   // This class has no bubbles to hide.
 }
 
-const char* OverviewButtonTray::GetClassName() const {
-  return "OverviewButtonTray";
-}
-
 void OverviewButtonTray::UpdateIconVisibility() {
   // The visibility of the OverviewButtonTray has diverged from
   // OverviewController::CanSelect. The visibility of the button should
@@ -212,5 +207,8 @@ void OverviewButtonTray::UpdateIconVisibility() {
   SetVisiblePreferred(should_show && active_session && shelf_controls_shown &&
                       !app_mode);
 }
+
+BEGIN_METADATA(OverviewButtonTray, TrayBackgroundView)
+END_METADATA
 
 }  // namespace ash

@@ -30,6 +30,7 @@
 
 #include "base/unguessable_token.h"
 #include "services/network/public/mojom/ip_address_space.mojom-blink.h"
+#include "services/network/public/mojom/web_bundle_handle.mojom-blink.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/platform/network/encoded_form_data.h"
@@ -39,6 +40,38 @@
 #include "third_party/blink/renderer/platform/weborigin/referrer.h"
 
 namespace blink {
+
+ResourceRequestHead::WebBundleTokenParams&
+ResourceRequestHead::WebBundleTokenParams::operator=(
+    const WebBundleTokenParams& other) {
+  token = other.token;
+  handle = other.CloneHandle();
+  return *this;
+}
+
+ResourceRequestHead::WebBundleTokenParams::WebBundleTokenParams(
+    const WebBundleTokenParams& other) {
+  *this = other;
+}
+
+ResourceRequestHead::WebBundleTokenParams::WebBundleTokenParams(
+    const base::UnguessableToken& web_bundle_token,
+    mojo::PendingRemote<network::mojom::WebBundleHandle> web_bundle_handle)
+    : token(web_bundle_token), handle(std::move(web_bundle_handle)) {}
+
+mojo::PendingRemote<network::mojom::WebBundleHandle>
+ResourceRequestHead::WebBundleTokenParams::CloneHandle() const {
+  if (!handle)
+    return mojo::NullRemote();
+  mojo::Remote<network::mojom::WebBundleHandle> remote(std::move(
+      const_cast<mojo::PendingRemote<network::mojom::WebBundleHandle>&>(
+          handle)));
+  mojo::PendingRemote<network::mojom::WebBundleHandle> new_remote;
+  remote->Clone(new_remote.InitWithNewPipeAndPassReceiver());
+  const_cast<mojo::PendingRemote<network::mojom::WebBundleHandle>&>(handle) =
+      remote.Unbind();
+  return new_remote;
+}
 
 const base::TimeDelta ResourceRequestHead::default_timeout_interval_ =
     base::TimeDelta::Max();
@@ -67,7 +100,7 @@ ResourceRequestHead::ResourceRequestHead(const KURL& url)
       intra_priority_value_(0),
       requestor_id_(0),
       previews_state_(PreviewsTypes::kPreviewsUnspecified),
-      request_context_(mojom::RequestContextType::UNSPECIFIED),
+      request_context_(mojom::blink::RequestContextType::UNSPECIFIED),
       destination_(network::mojom::RequestDestination::kEmpty),
       mode_(network::mojom::RequestMode::kNoCors),
       fetch_importance_mode_(mojom::FetchImportanceMode::kImportanceAuto),
@@ -127,25 +160,11 @@ ResourceRequest::ResourceRequest(const KURL& url) : ResourceRequestHead(url) {}
 ResourceRequest::ResourceRequest(const ResourceRequestHead& head)
     : ResourceRequestHead(head) {}
 
-ResourceRequest& ResourceRequest::operator=(const ResourceRequest& src) {
-  DCHECK(!body_.StreamBody().is_valid());
-  DCHECK(!src.body_.StreamBody().is_valid());
-  this->ResourceRequestHead::operator=(src);
-  body_.SetFormBody(src.body_.FormBody());
-  return *this;
-}
-
 ResourceRequest::ResourceRequest(ResourceRequest&&) = default;
 
 ResourceRequest& ResourceRequest::operator=(ResourceRequest&&) = default;
 
 ResourceRequest::~ResourceRequest() = default;
-
-void ResourceRequest::CopyFrom(const ResourceRequest& src) {
-  DCHECK(!body_.StreamBody().is_valid());
-  DCHECK(!src.body_.StreamBody().is_valid());
-  *this = src;
-}
 
 void ResourceRequest::CopyHeadFrom(const ResourceRequestHead& src) {
   this->ResourceRequestHead::operator=(src);
@@ -196,6 +215,8 @@ std::unique_ptr<ResourceRequest> ResourceRequestHead::CreateRedirectRequest(
   request->SetSignedExchangePrefetchCacheEnabled(
       IsSignedExchangePrefetchCacheEnabled());
   request->SetRecursivePrefetchToken(RecursivePrefetchToken());
+  request->SetFetchLikeAPI(IsFetchLikeAPI());
+  request->SetFavicon(IsFavicon());
 
   return request;
 }

@@ -26,6 +26,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_MEDIA_HTML_VIDEO_ELEMENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_MEDIA_HTML_VIDEO_ELEMENT_H_
 
+#include "third_party/blink/public/common/media/display_type.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_image_source.h"
 #include "third_party/blink/renderer/core/html/html_image_loader.h"
@@ -185,10 +186,8 @@ class CORE_EXPORT HTMLVideoElement final
   void MediaRemotingStarted(const WebString& remote_device_friendly_name) final;
   bool SupportsPictureInPicture() const final;
   void MediaRemotingStopped(int error_code) final;
-  WebMediaPlayer::DisplayType DisplayType() const final;
+  DisplayType GetDisplayType() const final;
   bool IsInAutoPIP() const final;
-  void RequestEnterPictureInPicture() final;
-  void RequestExitPictureInPicture() final;
   void OnPictureInPictureStateChange() final;
 
   // Used by the PictureInPictureController as callback when the video element
@@ -207,6 +206,7 @@ class CORE_EXPORT HTMLVideoElement final
                           RegisteredEventListener&) override;
 
   void OnWebMediaPlayerCreated() final;
+  void OnWebMediaPlayerCleared() final;
 
   void AttributeChanged(const AttributeModificationParams& params) override;
 
@@ -235,6 +235,12 @@ class CORE_EXPORT HTMLVideoElement final
   void OnPlay() final;
   void OnLoadStarted() final;
   void OnLoadFinished() final;
+
+  // Video-specific overrides for part of the media::mojom::MediaPlayer
+  // interface, fully implemented in the parent class HTMLMediaElement.
+  void RequestEnterPictureInPicture() final;
+  void RequestExitPictureInPicture() final;
+
   void DidMoveToNewDocument(Document& old_document) override;
 
   void UpdatePictureInPictureAvailability();

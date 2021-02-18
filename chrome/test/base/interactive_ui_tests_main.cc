@@ -7,6 +7,7 @@
 #include "base/command_line.h"
 #include "base/test/launcher/test_launcher.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/test/base/chrome_test_suite.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
@@ -16,16 +17,17 @@
 #if defined(USE_AURA)
 #include "ui/aura/test/ui_controls_factory_aura.h"
 #include "ui/base/test/ui_controls_aura.h"
-#if defined(USE_OZONE) && defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#if defined(USE_OZONE) && (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
 #include "ui/base/ui_base_features.h"
 #include "ui/ozone/public/ozone_platform.h"
+#include "ui/views/test/ui_controls_factory_desktop_aura_ozone.h"
 #endif
 #if defined(USE_X11)
 #include "ui/views/test/ui_controls_factory_desktop_aurax11.h"
 #endif
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/test/ui_controls_factory_ash.h"
 #endif
 
@@ -37,7 +39,7 @@
 class InteractiveUITestSuite : public ChromeTestSuite {
  public:
   InteractiveUITestSuite(int argc, char** argv) : ChromeTestSuite(argc, argv) {}
-  ~InteractiveUITestSuite() override {}
+  ~InteractiveUITestSuite() override = default;
 
  protected:
   // ChromeTestSuite overrides:
@@ -47,26 +49,35 @@ class InteractiveUITestSuite : public ChromeTestSuite {
 
     ChromeTestSuite::Initialize();
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     ui_controls::InstallUIControlsAura(ash::test::CreateAshUIControls());
 #elif defined(OS_WIN)
     com_initializer_.reset(new base::win::ScopedCOMInitializer());
     ui_controls::InstallUIControlsAura(
         aura::test::CreateUIControlsAura(nullptr));
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 #if defined(USE_OZONE)
     if (features::IsUsingOzonePlatform()) {
       ui::OzonePlatform::InitParams params;
       params.single_process = true;
       ui::OzonePlatform::InitializeForUI(params);
-    } else
-#endif
-    {
-#if defined(USE_X11)
+
+#if !BUILDFLAG(IS_CHROMEOS_LACROS)
+      // TODO(1134495): when ozone/wayland implements ui controls test helper,
+      // make lacros also use the ui controls created below.
+      //
+      // ui controls implementation for Ozone desktop.
       ui_controls::InstallUIControlsAura(
-          views::test::CreateUIControlsDesktopAura());
+          views::test::CreateUIControlsDesktopAuraOzone());
+      return;
 #endif
     }
+#endif
+#if defined(USE_X11)
+    DCHECK(!features::IsUsingOzonePlatform());
+    ui_controls::InstallUIControlsAura(
+        views::test::CreateUIControlsDesktopAura());
+#endif
 #else
     ui_controls::EnableUIControls();
 #endif
@@ -88,6 +99,10 @@ class InteractiveUITestLauncherDelegate : public ChromeTestLauncherDelegate {
  public:
   explicit InteractiveUITestLauncherDelegate(ChromeTestSuiteRunner* runner)
       : ChromeTestLauncherDelegate(runner) {}
+  InteractiveUITestLauncherDelegate(const InteractiveUITestLauncherDelegate&) =
+      delete;
+  InteractiveUITestLauncherDelegate& operator=(
+      const InteractiveUITestLauncherDelegate&) = delete;
 
  protected:
   // content::TestLauncherDelegate:
@@ -128,9 +143,6 @@ class InteractiveUITestLauncherDelegate : public ChromeTestLauncherDelegate {
     ChromeTestLauncherDelegate::PostRunTest(test_result);
   }
 #endif  // defined(OS_MAC)
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(InteractiveUITestLauncherDelegate);
 };
 
 class InteractiveUITestSuiteRunner : public ChromeTestSuiteRunner {
@@ -143,7 +155,7 @@ class InteractiveUITestSuiteRunner : public ChromeTestSuiteRunner {
 int main(int argc, char** argv) {
   base::CommandLine::Init(argc, argv);
 
-#if defined(OS_CHROMEOS) && defined(MEMORY_SANITIZER)
+#if BUILDFLAG(IS_CHROMEOS_ASH) && defined(MEMORY_SANITIZER)
   // Force software-gl. This is necessary for mus tests to avoid an msan warning
   // in gl init.
   base::CommandLine::ForCurrentProcess()->AppendSwitch(

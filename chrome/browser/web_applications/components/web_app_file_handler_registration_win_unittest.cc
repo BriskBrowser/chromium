@@ -1,8 +1,8 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/web_applications/components/web_app_file_handler_registration_win.h"
+#include "chrome/browser/web_applications/components/web_app_file_handler_registration.h"
 
 #include <set>
 #include <string>
@@ -20,6 +20,7 @@
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/web_applications/chrome_pwa_launcher/chrome_pwa_launcher_util.h"
+#include "chrome/browser/web_applications/components/web_app_handler_registration_utils_win.h"
 #include "chrome/browser/web_applications/test/test_file_handler_manager.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/installer/util/shell_util.h"
@@ -87,16 +88,16 @@ class WebAppFileHandlerRegistrationWinTest : public testing::Test {
   bool ProgIdRegisteredForFileExtension(const std::string& file_ext,
                                         const AppId& app_id,
                                         Profile* profile) {
-    base::string16 key_name(ShellUtil::kRegClasses);
+    std::wstring key_name(ShellUtil::kRegClasses);
     key_name.push_back(base::FilePath::kSeparators[0]);
-    key_name.append(base::UTF8ToUTF16(file_ext));
+    key_name.append(base::UTF8ToWide(file_ext));
     key_name.push_back(base::FilePath::kSeparators[0]);
     key_name.append(ShellUtil::kRegOpenWithProgids);
     base::win::RegKey key;
     std::wstring value;
     EXPECT_EQ(ERROR_SUCCESS,
               key.Open(HKEY_CURRENT_USER, key_name.c_str(), KEY_READ));
-    base::string16 prog_id = GetProgIdForApp(profile->GetPath(), app_id);
+    std::wstring prog_id = GetProgIdForApp(profile->GetPath(), app_id);
     return key.ReadValue(prog_id.c_str(), &value) == ERROR_SUCCESS &&
            value == L"";
   }
@@ -114,6 +115,9 @@ class WebAppFileHandlerRegistrationWinTest : public testing::Test {
     RegisterFileHandlersWithOs(app_id(), app_name, profile, file_handlers);
 
     base::ThreadPoolInstance::Get()->FlushForTesting();
+    base::RunLoop().RunUntilIdle();
+    base::ThreadPoolInstance::Get()->FlushForTesting();
+
     base::FilePath registered_app_path = ShellUtil::GetApplicationPathForProgId(
         GetProgIdForApp(profile->GetPath(), app_id()));
     EXPECT_TRUE(base::PathExists(registered_app_path));
@@ -128,7 +132,7 @@ class WebAppFileHandlerRegistrationWinTest : public testing::Test {
   base::FilePath GetAppSpecificLauncherFilePath(
       const std::string& sanitized_app_name) {
     base::FilePath app_specific_launcher_filepath(
-        base::ASCIIToUTF16(sanitized_app_name));
+        base::ASCIIToWide(sanitized_app_name));
     if (base::win::GetVersion() > base::win::Version::WIN7) {
       app_specific_launcher_filepath =
           app_specific_launcher_filepath.AddExtension(L"exe");
@@ -159,28 +163,6 @@ class WebAppFileHandlerRegistrationWinTest : public testing::Test {
   const AppId app_id_ = "app_id";
 };
 
-// Test various attributes of ProgIds returned by GetAppIdForApp.
-TEST_F(WebAppFileHandlerRegistrationWinTest, GetProgIdForApp) {
-  // Create a long app_id and verify that the prog id is less
-  // than 39 characters, and only contains alphanumeric characters and
-  // non leading '.'s See
-  // https://docs.microsoft.com/en-us/windows/win32/com/-progid--key.
-  AppId app_id1("app_id12345678901234567890123456789012345678901234");
-  constexpr unsigned int kMaxProgIdLen = 39;
-  base::string16 prog_id1 = GetProgIdForApp(profile()->GetPath(), app_id1);
-  EXPECT_LE(prog_id1.length(), kMaxProgIdLen);
-  for (auto itr = prog_id1.begin(); itr != prog_id1.end(); itr++)
-    EXPECT_TRUE(std::isalnum(*itr) || (*itr == '.' && itr != prog_id1.begin()));
-  AppId app_id2("different_appid");
-  // Check that different app ids in the same profile have different
-  // prog ids.
-  EXPECT_NE(prog_id1, GetProgIdForApp(profile()->GetPath(), app_id2));
-
-  // Create a different profile, and verify that the prog id for the same
-  // app_id in a different profile is different.
-  TestingProfile profile2;
-  EXPECT_NE(prog_id1, GetProgIdForApp(profile2.GetPath(), app_id1));
-}
 
 TEST_F(WebAppFileHandlerRegistrationWinTest, RegisterFileHandlersForWebApp) {
   AddAndVerifyFileAssociations(profile(), kAppName, "");
@@ -207,7 +189,7 @@ TEST_F(WebAppFileHandlerRegistrationWinTest,
   ASSERT_FALSE(file_associations_and_app_name.app_name.empty());
   // Profile 1's app name should now include the profile in the name.
   std::string app_name_str =
-      base::UTF16ToUTF8(file_associations_and_app_name.app_name);
+      base::WideToUTF8(file_associations_and_app_name.app_name);
   EXPECT_EQ(app_name_str, "app name (Default)");
   // Profile 1's app_launcher should include the profile in its name.
   base::FilePath profile1_app_specific_launcher_path =
@@ -232,9 +214,9 @@ TEST_F(WebAppFileHandlerRegistrationWinTest,
       testing_profile_manager()->CreateTestingProfile("Profile 2");
   ProfileAttributesStorage& storage =
       profile_manager()->GetProfileAttributesStorage();
-  ProfileAttributesEntry* entry;
-  ASSERT_TRUE(
-      storage.GetProfileAttributesWithPath(profile2->GetPath(), &entry));
+  ProfileAttributesEntry* entry =
+      storage.GetProfileAttributesWithPath(profile2->GetPath());
+  ASSERT_NE(entry, nullptr);
   entry->SetGAIAName(base::ASCIIToUTF16("gaia user"));
   AddAndVerifyFileAssociations(profile2, kAppName, " (Profile 2)");
 }
@@ -259,6 +241,8 @@ TEST_F(WebAppFileHandlerRegistrationWinTest,
 
   UnregisterFileHandlersWithOs(app_id(), profile());
   base::ThreadPoolInstance::Get()->FlushForTesting();
+  base::RunLoop().RunUntilIdle();
+  base::ThreadPoolInstance::Get()->FlushForTesting();
   EXPECT_FALSE(base::PathExists(app_specific_launcher_path));
   // Verify that "(Profile 2)" was removed from the web app launcher and
   // file association registry entries.
@@ -268,7 +252,7 @@ TEST_F(WebAppFileHandlerRegistrationWinTest,
   ASSERT_FALSE(file_associations_and_app_name.app_name.empty());
   // Profile 2's app name should no longer include the profile in the name.
   std::string app_name_str =
-      base::UTF16ToUTF8(file_associations_and_app_name.app_name);
+      base::WideToUTF8(file_associations_and_app_name.app_name);
   EXPECT_EQ(app_name_str, kAppName);
   // Profile 2's app_launcher should no longer include the profile in its name.
   base::FilePath profile2_app_specific_launcher_path =
@@ -306,6 +290,8 @@ TEST_F(WebAppFileHandlerRegistrationWinTest,
 
   UnregisterFileHandlersWithOs(app_id(), profile());
   base::ThreadPoolInstance::Get()->FlushForTesting();
+  base::RunLoop().RunUntilIdle();
+  base::ThreadPoolInstance::Get()->FlushForTesting();
   EXPECT_FALSE(base::PathExists(app_specific_launcher_path));
   // Verify that "(Profile 2)" was not removed from the web app launcher and
   // file association registry entries.
@@ -315,7 +301,7 @@ TEST_F(WebAppFileHandlerRegistrationWinTest,
   ASSERT_FALSE(file_associations_and_app_name2.app_name.empty());
   // Profile 2's app name should still include the profile name in its name.
   std::string app_name_str =
-      base::UTF16ToUTF8(file_associations_and_app_name2.app_name);
+      base::WideToUTF8(file_associations_and_app_name2.app_name);
   EXPECT_EQ(app_name_str, "app name (Profile 2)");
 
   // Profile 3's app name should still include the profile name in its name.
@@ -324,7 +310,7 @@ TEST_F(WebAppFileHandlerRegistrationWinTest,
           GetProgIdForApp(profile3->GetPath(), app_id())));
   ASSERT_FALSE(file_associations_and_app_name3.app_name.empty());
   // Profile 2's app name should still include the profile in the name.
-  app_name_str = base::UTF16ToUTF8(file_associations_and_app_name3.app_name);
+  app_name_str = base::WideToUTF8(file_associations_and_app_name3.app_name);
   EXPECT_EQ(app_name_str, "app name (Profile 3)");
 }
 
@@ -338,6 +324,7 @@ TEST_F(WebAppFileHandlerRegistrationWinTest, UnregisterFileHandlersForWebApp) {
 
   UnregisterFileHandlersWithOs(app_id(), profile());
   base::ThreadPoolInstance::Get()->FlushForTesting();
+  base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(base::PathExists(app_specific_launcher_path));
   EXPECT_FALSE(ProgIdRegisteredForFileExtension(".txt", app_id(), profile()));
   EXPECT_FALSE(ProgIdRegisteredForFileExtension(".doc", app_id(), profile()));
@@ -346,68 +333,6 @@ TEST_F(WebAppFileHandlerRegistrationWinTest, UnregisterFileHandlersForWebApp) {
       ShellUtil::GetFileAssociationsAndAppName(
           GetProgIdForApp(profile()->GetPath(), app_id()));
   EXPECT_TRUE(file_associations_and_app_name.app_name.empty());
-}
-
-// Test that invalid file name characters in app_name are replaced with '_'.
-TEST_F(WebAppFileHandlerRegistrationWinTest, AppNameWithInvalidChars) {
-  // '*' is an invalid char in Windows file names, so it should be replaced
-  // with '_'.
-  std::string app_name("app*name");
-  base::FilePath app_specific_launcher_path =
-      GetLauncherPathForApp(profile(), app_id(), "app_name");
-  apps::FileHandlers file_handlers =
-      GetFileHandlersWithFileExtensions({".txt"});
-
-  RegisterFileHandlersWithOs(app_id(), app_name, profile(), file_handlers);
-
-  base::ThreadPoolInstance::Get()->FlushForTesting();
-  base::FilePath registered_app_path = ShellUtil::GetApplicationPathForProgId(
-      GetProgIdForApp(profile()->GetPath(), app_id()));
-  EXPECT_FALSE(registered_app_path.empty());
-  EXPECT_TRUE(base::PathExists(app_specific_launcher_path));
-  EXPECT_EQ(app_specific_launcher_path, registered_app_path);
-}
-
-// Test that an app name that is a reserved filename on Windows has '_'
-// prepended to it when used as a filename for its launcher.
-TEST_F(WebAppFileHandlerRegistrationWinTest, AppNameIsReservedFilename) {
-  // "con" is a reserved filename on Windows, so it should have '_' prepended.
-  std::string app_name("con");
-  base::FilePath app_specific_launcher_path =
-      GetLauncherPathForApp(profile(), app_id(), "_con");
-  apps::FileHandlers file_handlers =
-      GetFileHandlersWithFileExtensions({".txt"});
-
-  RegisterFileHandlersWithOs(app_id(), app_name, profile(), file_handlers);
-
-  base::ThreadPoolInstance::Get()->FlushForTesting();
-  base::FilePath registered_app_path = ShellUtil::GetApplicationPathForProgId(
-      GetProgIdForApp(profile()->GetPath(), app_id()));
-  EXPECT_FALSE(registered_app_path.empty());
-  EXPECT_TRUE(base::PathExists(app_specific_launcher_path));
-  EXPECT_EQ(app_specific_launcher_path, registered_app_path);
-}
-
-// Test that an app name containing '.' characters has them replaced with '_' on
-// Windows 7 when used as a filename for its launcher.
-TEST_F(WebAppFileHandlerRegistrationWinTest, AppNameContainsDot) {
-  // "some.app.name" should become "some_app_name" on Windows 7.
-  std::string app_name("some.app.name");
-  base::FilePath app_specific_launcher_path = GetLauncherPathForApp(
-      profile(), app_id(),
-      base::win::GetVersion() > base::win::Version::WIN7 ? "some.app.name"
-                                                         : "some_app_name");
-  apps::FileHandlers file_handlers =
-      GetFileHandlersWithFileExtensions({".txt"});
-
-  RegisterFileHandlersWithOs(app_id(), app_name, profile(), file_handlers);
-
-  base::ThreadPoolInstance::Get()->FlushForTesting();
-  base::FilePath registered_app_path = ShellUtil::GetApplicationPathForProgId(
-      GetProgIdForApp(profile()->GetPath(), app_id()));
-  EXPECT_FALSE(registered_app_path.empty());
-  EXPECT_TRUE(base::PathExists(app_specific_launcher_path));
-  EXPECT_EQ(app_specific_launcher_path, registered_app_path);
 }
 
 }  // namespace web_app

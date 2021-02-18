@@ -125,6 +125,18 @@ void EnumerateOverlayInfo(const gpu::OverlayInfo& info,
 }
 #endif
 
+bool IsSoftwareRenderer(uint32_t vendor_id) {
+  switch (vendor_id) {
+    case 0x0000:  // Info collection failed to identify a GPU
+    case 0xffff:  // Chromium internal flag for software rendering
+    case 0x15ad:  // VMware
+    case 0x1414:  // Microsoft software renderer
+      return true;
+    default:
+      return false;
+  }
+}
+
 }  // namespace
 
 namespace gpu {
@@ -236,6 +248,21 @@ const GPUInfo::GPUDevice& GPUInfo::active_gpu() const {
 
 bool GPUInfo::IsInitialized() const {
   return gpu.vendor_id != 0 || !gl_vendor.empty();
+}
+
+bool GPUInfo::UsesSwiftShader() const {
+  return gl_renderer.find("SwiftShader") != std::string::npos;
+}
+
+unsigned int GPUInfo::GpuCount() const {
+  unsigned int gpu_count = 0;
+  if (!IsSoftwareRenderer(gpu.vendor_id))
+    ++gpu_count;
+  for (const auto& secondary_gpu : secondary_gpus) {
+    if (!IsSoftwareRenderer(secondary_gpu.vendor_id))
+      ++gpu_count;
+  }
+  return gpu_count;
 }
 
 void GPUInfo::EnumerateFields(Enumerator* enumerator) const {

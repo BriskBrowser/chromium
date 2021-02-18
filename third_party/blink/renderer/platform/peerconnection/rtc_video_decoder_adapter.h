@@ -16,10 +16,10 @@
 #include "base/synchronization/lock.h"
 #include "media/base/decode_status.h"
 #include "media/base/status.h"
+#include "media/base/supported_video_decoder_config.h"
 #include "media/base/video_codecs.h"
 #include "media/base/video_decoder.h"
 #include "media/base/video_decoder_config.h"
-#include "media/video/supported_video_decoder_config.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/deque.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
@@ -28,7 +28,7 @@
 #include "ui/gfx/geometry/size.h"
 
 namespace base {
-class SingleThreadTaskRunner;
+class SequencedTaskRunner;
 }  // namespace base
 
 namespace media {
@@ -83,7 +83,7 @@ class PLATFORM_EXPORT RTCVideoDecoderAdapter : public webrtc::VideoDecoder {
   // Called on the worker thread and on the DecodingThread.
   int32_t Release() override;
   // Called on the worker thread and on the DecodingThread.
-  const char* ImplementationName() const override;
+  DecoderInfo GetDecoderInfo() const override;
 
  private:
   using CreateVideoDecoderCB =
@@ -104,7 +104,7 @@ class PLATFORM_EXPORT RTCVideoDecoderAdapter : public webrtc::VideoDecoder {
   static void OnInitializeDone(base::OnceCallback<void(bool)> cb,
                                media::Status status);
   void DecodeOnMediaThread();
-  void OnDecodeDone(media::DecodeStatus status);
+  void OnDecodeDone(media::Status status);
   void OnOutput(scoped_refptr<media::VideoFrame> frame);
 
   bool ShouldReinitializeForSettingHDRColorSpace(
@@ -114,7 +114,7 @@ class PLATFORM_EXPORT RTCVideoDecoderAdapter : public webrtc::VideoDecoder {
                           FlushDoneCB flush_fail_cb);
 
   // Construction parameters.
-  const scoped_refptr<base::SingleThreadTaskRunner> media_task_runner_;
+  const scoped_refptr<base::SequencedTaskRunner> media_task_runner_;
   media::GpuVideoAcceleratorFactories* const gpu_factories_;
   const webrtc::SdpVideoFormat format_;
   const media::VideoDecoderImplementation implementation_;
@@ -142,6 +142,7 @@ class PLATFORM_EXPORT RTCVideoDecoderAdapter : public webrtc::VideoDecoder {
   WTF::Deque<base::TimeDelta> decode_timestamps_;
 
   // Thread management.
+  SEQUENCE_CHECKER(media_sequence_checker_);
   SEQUENCE_CHECKER(worker_sequence_checker_);
   SEQUENCE_CHECKER(decoding_sequence_checker_);
 

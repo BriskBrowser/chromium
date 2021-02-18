@@ -7,7 +7,7 @@
 
 #include "base/callback.h"
 #include "base/memory/ref_counted.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/api/browsing_data/browsing_data_api.h"
 #include "chrome/browser/extensions/extension_function_test_utils.h"
@@ -53,11 +53,11 @@ const char kRemoveEverythingArguments[] =
 // Sets the SAPISID Gaia cookie, which is monitored by the AccountReconcilor.
 bool SetGaiaCookieForProfile(Profile* profile) {
   GURL google_url = GaiaUrls::GetInstance()->secure_google_url();
-  net::CanonicalCookie cookie("SAPISID", std::string(), "." + google_url.host(),
-                              "/", base::Time(), base::Time(), base::Time(),
-                              /*secure=*/true, false,
-                              net::CookieSameSite::NO_RESTRICTION,
-                              net::COOKIE_PRIORITY_DEFAULT);
+  auto cookie = net::CanonicalCookie::CreateUnsafeCookieForTesting(
+      "SAPISID", std::string(), "." + google_url.host(), "/", base::Time(),
+      base::Time(), base::Time(),
+      /*secure=*/true, false, net::CookieSameSite::NO_RESTRICTION,
+      net::COOKIE_PRIORITY_DEFAULT, false);
 
   bool success = false;
   base::RunLoop loop;
@@ -72,7 +72,7 @@ bool SetGaiaCookieForProfile(Profile* profile) {
       content::BrowserContext::GetDefaultStoragePartition(profile)
           ->GetCookieManagerForBrowserProcess();
   cookie_manager->SetCanonicalCookie(
-      cookie, google_url, net::CookieOptions::MakeAllInclusive(),
+      *cookie, google_url, net::CookieOptions::MakeAllInclusive(),
       mojo::WrapCallbackWithDefaultInvokeIfNotRun(
           std::move(callback),
           net::CookieAccessResult(net::CookieInclusionStatus(

@@ -25,6 +25,7 @@
 #include "third_party/blink/renderer/core/css/parser/css_parser.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/css/style_rule.h"
+#include "third_party/blink/renderer/core/css/style_rule_counter_style.h"
 #include "third_party/blink/renderer/core/css/style_rule_import.h"
 #include "third_party/blink/renderer/core/css/style_rule_namespace.h"
 #include "third_party/blink/renderer/core/dom/document.h"
@@ -407,12 +408,8 @@ void StyleSheetContents::CheckLoaded() {
   for (unsigned i = 0; i < loading_clients.size(); ++i) {
     if (loading_clients[i]->LoadCompleted())
       continue;
-
-    if (loading_clients[i]->IsConstructed()) {
-      // Resolve the promise for CSSStyleSheet.replace calls.
-      loading_clients[i]->ResolveReplacePromiseIfNeeded(did_load_error_occur_);
+    if (loading_clients[i]->IsConstructed())
       continue;
-    }
 
     // sheetLoaded might be invoked after its owner node is removed from
     // document.
@@ -494,9 +491,10 @@ static bool ChildRulesHaveFailedOrCanceledSubresources(
                 .HasFailedOrCanceledSubresources())
           return true;
         break;
+      case StyleRuleBase::kContainer:
       case StyleRuleBase::kMedia:
         if (ChildRulesHaveFailedOrCanceledSubresources(
-                To<StyleRuleMedia>(rule)->ChildRules()))
+                To<StyleRuleGroup>(rule)->ChildRules()))
           return true;
         break;
       case StyleRuleBase::kCharset:
@@ -511,6 +509,10 @@ static bool ChildRulesHaveFailedOrCanceledSubresources(
       case StyleRuleBase::kScrollTimeline:
       case StyleRuleBase::kSupports:
       case StyleRuleBase::kViewport:
+        break;
+      case StyleRuleBase::kCounterStyle:
+        if (To<StyleRuleCounterStyle>(rule)->HasFailedOrCanceledSubresources())
+          return true;
         break;
     }
   }

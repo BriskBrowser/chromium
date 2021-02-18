@@ -423,7 +423,7 @@ function cellsToArray(cells) {
   return cells.split(/\s+/).map(function(cellString) {
     let cell = 0;
     assertTrue(cellString.length > 0);
-    if (cellString != '0') {
+    if (cellString !== '0') {
       for (let i = 0; i < cellString.length; ++i) {
         const dot = cellString.charCodeAt(i) - '0'.charCodeAt(0);
         assertTrue(dot >= 1);
@@ -504,7 +504,7 @@ ChromeVoxBrailleInputHandlerWebUITest = class extends ChromeVoxWebUITestBase {
 
   storeKeyEvent(event, opt_callback) {
     const storedCopy = {keyCode: event.keyCode};
-    if (event.type == 'keydown') {
+    if (event.type === 'keydown') {
       this.keyEvents.push(storedCopy);
     } else {
       assertEquals('keyup', event.type);
@@ -702,7 +702,7 @@ TEST_F('ChromeVoxBrailleInputHandlerWebUITest', 'Backspace', function() {
   // Now, backspace should be handled as usual, synthetizing key events.
   assertEquals(0, this.keyEvents.length);
   this.sendKeyEvent('Backspace');
-  assertEqualsJSON([{keyCode: 8}], this.keyEvents);
+  assertEqualsJSON([{keyCode: KeyCode.BACK}], this.keyEvents);
 });
 
 
@@ -710,5 +710,6 @@ TEST_F('ChromeVoxBrailleInputHandlerWebUITest', 'KeysImeNotActive', function() {
   const editor = this.createEditor();
   this.sendKeyEvent('Enter');
   this.sendKeyEvent('ArrowUp');
-  assertEqualsJSON([{keyCode: 13}, {keyCode: 38}], this.keyEvents);
+  assertEqualsJSON(
+      [{keyCode: KeyCode.RETURN}, {keyCode: KeyCode.UP}], this.keyEvents);
 });

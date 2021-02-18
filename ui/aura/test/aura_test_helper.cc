@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "base/run_loop.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/aura/client/default_capture_client.h"
 #include "ui/aura/env.h"
 #include "ui/aura/input_state_lookup.h"
@@ -42,6 +43,14 @@
 #include "ui/base/x/x11_util.h"  // nogncheck
 #endif
 
+#if defined(USE_OZONE)
+#include "ui/events/ozone/events_ozone.h"
+#endif
+
+#if defined(OS_FUCHSIA)
+#include "ui/platform_window/platform_window_init_properties.h"
+#endif
+
 namespace aura {
 namespace test {
 namespace {
@@ -57,6 +66,14 @@ AuraTestHelper::AuraTestHelper(ui::ContextFactory* context_factory,
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
   ui::test::EnableTestConfigForPlatformWindows();
+#endif
+
+#if defined(USE_OZONE) && BUILDFLAG(IS_CHROMEOS_ASH)
+  ui::DisableNativeUiEventDispatchForTest();
+#endif
+
+#if defined(OS_FUCHSIA)
+  ui::PlatformWindowInitProperties::allow_null_view_token_for_test = true;
 #endif
 
   ui::InitializeInputMethodForTesting();

@@ -13,7 +13,6 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
@@ -24,6 +23,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/device_event_log/device_event_log.h"
 #include "device/bluetooth/bluetooth_common.h"
 #include "device/bluetooth/bluetooth_device.h"
@@ -51,8 +51,8 @@
 #include "device/bluetooth/public/cpp/bluetooth_uuid.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
-#if defined(OS_CHROMEOS)
-#include "chromeos/constants/devicetype.h"
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/devicetype.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "device/bluetooth/chromeos/bluetooth_utils.h"
 #endif
@@ -102,7 +102,7 @@ UMABluetoothDiscoverySessionOutcome TranslateDiscoveryErrorToUMA(
   }
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 device::BluetoothDevice::ServiceDataMap ConvertServiceDataMap(
     const base::flat_map<std::string, std::vector<uint8_t>>& input) {
   device::BluetoothDevice::ServiceDataMap output;
@@ -118,7 +118,7 @@ device::BluetoothDevice::ManufacturerDataMap ConvertManufacturerDataMap(
   return device::BluetoothDevice::ManufacturerDataMap(input.begin(),
                                                       input.end());
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 }  // namespace
 
@@ -593,6 +593,38 @@ void BluetoothAdapterBlueZ::ResetAdvertising(
                                         std::move(error_callback)));
 }
 
+void BluetoothAdapterBlueZ::ConnectDevice(
+    const std::string& address,
+    const base::Optional<device::BluetoothDevice::AddressType>& address_type,
+    ConnectDeviceCallback callback,
+    ErrorCallback error_callback) {
+  DCHECK(bluez::BluezDBusManager::Get());
+
+  base::Optional<BluetoothAdapterClient::AddressType> client_address_type;
+  if (address_type) {
+    switch (*address_type) {
+      case device::BluetoothDevice::AddressType::ADDR_TYPE_PUBLIC:
+        client_address_type = BluetoothAdapterClient::AddressType::kPublic;
+        break;
+      case device::BluetoothDevice::AddressType::ADDR_TYPE_RANDOM:
+        client_address_type = BluetoothAdapterClient::AddressType::kRandom;
+        break;
+      case device::BluetoothDevice::AddressType::ADDR_TYPE_UNKNOWN:
+      default:
+        // Keep |client_address_type| unset.
+        break;
+    };
+  }
+
+  bluez::BluezDBusManager::Get()->GetBluetoothAdapterClient()->ConnectDevice(
+      object_path_, address, client_address_type,
+      base::BindOnce(&BluetoothAdapterBlueZ::OnConnectDevice,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)),
+      base::BindOnce(&BluetoothAdapterBlueZ::OnConnectDeviceError,
+                     weak_ptr_factory_.GetWeakPtr(),
+                     std::move(error_callback)));
+}
+
 device::BluetoothLocalGattService* BluetoothAdapterBlueZ::GetGattService(
     const std::string& identifier) const {
   const auto& service = owned_gatt_services_.find(dbus::ObjectPath(identifier));
@@ -743,6 +775,8 @@ void BluetoothAdapterBlueZ::DevicePropertyChanged(
     device_bluez->UpdateManufacturerData();
   else if (property_name == properties->advertising_data_flags.name())
     device_bluez->UpdateAdvertisingDataFlags();
+  else if (property_name == properties->uuids.name())
+    device_bluez->UpdateServiceUUIDs();
 
   if (property_name == properties->bluetooth_class.name() ||
       property_name == properties->appearance.name() ||
@@ -1090,7 +1124,7 @@ void BluetoothAdapterBlueZ::SetAdapter(const dbus::ObjectPath& object_path) {
 
   BLUETOOTH_LOG(EVENT) << object_path_.value() << ": using adapter.";
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   SetStandardChromeOSAdapterName();
 #endif
 
@@ -1118,7 +1152,7 @@ void BluetoothAdapterBlueZ::SetAdapter(const dbus::ObjectPath& object_path) {
   }
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 void BluetoothAdapterBlueZ::SetStandardChromeOSAdapterName() {
   DCHECK(IsPresent());
 
@@ -1236,24 +1270,26 @@ void BluetoothAdapterBlueZ::NotifyDeviceAdvertisementReceived(
   for (auto& observer : observers_)
     observer.DeviceAdvertisementReceived(this, device, rssi, eir);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (ble_scan_parser_.is_bound()) {
     ScanRecordCallback callback =
         base::BindOnce(&BluetoothAdapterBlueZ::OnAdvertisementReceived,
                        weak_ptr_factory_.GetWeakPtr(), device->GetAddress(),
                        device->GetName() ? *(device->GetName()) : std::string(),
-                       rssi, device->GetAppearance());
+                       rssi, device->GetAppearance(), device->object_path());
     ble_scan_parser_->Parse(eir, std::move(callback));
   }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
-#if defined(OS_CHROMEOS)
-void BluetoothAdapterBlueZ::OnAdvertisementReceived(std::string device_address,
-                                                    std::string device_name,
-                                                    uint8_t rssi,
-                                                    uint16_t device_appearance,
-                                                    ScanRecordPtr scan_record) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+void BluetoothAdapterBlueZ::OnAdvertisementReceived(
+    std::string device_address,
+    std::string device_name,
+    uint8_t rssi,
+    uint16_t device_appearance,
+    const dbus::ObjectPath& device_path,
+    ScanRecordPtr scan_record) {
   // Ignore the packet if it could not be parsed successfully.
   if (!scan_record)
     return;
@@ -1267,8 +1303,16 @@ void BluetoothAdapterBlueZ::OnAdvertisementReceived(std::string device_address,
         scan_record->tx_power, device_appearance, scan_record->service_uuids,
         service_data_map, manufacturer_data_map);
   }
+
+  BluetoothDeviceBlueZ* device = GetDeviceWithPath(device_path);
+  if (!device) {
+    BLUETOOTH_LOG(ERROR) << "Device " << device_path.value() << " not found!";
+    return;
+  }
+
+  device->SetAdvertisedUUIDs(scan_record->service_uuids);
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 void BluetoothAdapterBlueZ::NotifyDeviceConnectedStateChanged(
     BluetoothDeviceBlueZ* device,
@@ -1589,9 +1633,9 @@ void BluetoothAdapterBlueZ::StartScanWithFilter(
 }
 
 void BluetoothAdapterBlueZ::StopScan(DiscoverySessionResultCallback callback) {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   ble_scan_parser_.reset();
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   // Not having an adapter qualifies as not scanning so we callback a success
   if (!IsPresent()) {
@@ -1682,7 +1726,7 @@ void BluetoothAdapterBlueZ::OnStartDiscovery(
   // Report success on the original request and increment the count.
   BLUETOOTH_LOG(EVENT) << __func__;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   device::BluetoothAdapterFactory::BleScanParserCallback
       ble_scan_parser_callback =
           device::BluetoothAdapterFactory::GetBleScanParserCallback();
@@ -1700,7 +1744,7 @@ void BluetoothAdapterBlueZ::OnStartDiscovery(
     logged_once = true;
 #endif  // DCHECK_IS_ON()
   }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   if (IsPresent()) {
     std::move(callback).Run();
@@ -1882,6 +1926,19 @@ void BluetoothAdapterBlueZ::ServiceRecordErrorConnector(
   }
 
   std::move(error_callback).Run(code);
+}
+
+void BluetoothAdapterBlueZ::OnConnectDevice(
+    ConnectDeviceCallback callback,
+    const dbus::ObjectPath& object_path) {
+  std::move(callback).Run(GetDeviceWithPath(object_path));
+}
+
+void BluetoothAdapterBlueZ::OnConnectDeviceError(
+    ErrorCallback error_callback,
+    const std::string& error_name,
+    const std::string& error_message) {
+  std::move(error_callback).Run();
 }
 
 void BluetoothAdapterBlueZ::UpdateDeviceBatteryLevelFromBatteryClient(

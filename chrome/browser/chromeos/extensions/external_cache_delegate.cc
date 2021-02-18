@@ -15,9 +15,7 @@ void ExternalCacheDelegate::OnExtensionLoadedInCache(
 void ExternalCacheDelegate::OnExtensionDownloadFailed(
     const extensions::ExtensionId& id) {}
 
-std::string ExternalCacheDelegate::GetInstalledExtensionVersion(
-    const extensions::ExtensionId& id) {
-  return std::string();
-}
+void ExternalCacheDelegate::OnCachedExtensionFileDeleted(
+    const extensions::ExtensionId& id) {}
 
 }  // namespace chromeos

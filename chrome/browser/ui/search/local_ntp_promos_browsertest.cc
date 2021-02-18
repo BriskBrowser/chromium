@@ -12,6 +12,7 @@
 #include "base/optional.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "chrome/browser/search/promos/promo_service.h"
 #include "chrome/browser/search/promos/promo_service_factory.h"
@@ -88,9 +89,7 @@ class LocalNTPPromoTest : public InProcessBrowserTest {
         context, base::BindRepeating(&LocalNTPPromoTest::CreatePromoService));
   }
 
-  std::unique_ptr<
-      BrowserContextDependencyManager::CreateServicesCallbackList::Subscription>
-      create_services_subscription_;
+  base::CallbackListSubscription create_services_subscription_;
 };
 
 IN_PROC_BROWSER_TEST_F(LocalNTPPromoTest, PromoInjectedIntoPage) {

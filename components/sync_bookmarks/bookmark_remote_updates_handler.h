@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include "components/sync/engine/non_blocking_sync_common.h"
+#include "components/sync/engine/commit_and_get_updates_types.h"
 #include "components/sync_bookmarks/synced_bookmark_tracker.h"
 
 namespace bookmarks {
@@ -51,10 +51,6 @@ class BookmarkRemoteUpdatesHandler {
   // Public for testing.
   static std::vector<const syncer::UpdateResponseData*> ReorderUpdatesForTest(
       const syncer::UpdateResponseDataList* updates);
-
-  size_t valid_updates_without_full_title_for_uma() const {
-    return valid_updates_without_full_title_;
-  }
 
   static size_t ComputeChildNodeIndexForTest(
       const bookmarks::BookmarkNode* parent,
@@ -124,9 +120,6 @@ class BookmarkRemoteUpdatesHandler {
   bookmarks::BookmarkModel* const bookmark_model_;
   favicon::FaviconService* const favicon_service_;
   SyncedBookmarkTracker* const bookmark_tracker_;
-
-  // Counts number of initiated reuploads.
-  size_t valid_updates_without_full_title_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(BookmarkRemoteUpdatesHandler);
 };

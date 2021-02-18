@@ -34,6 +34,7 @@
 
 #include <memory>
 
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
@@ -130,7 +131,8 @@ void EventSource::Connect() {
   request.SetHttpMethod(http_names::kGET);
   request.SetHttpHeaderField(http_names::kAccept, "text/event-stream");
   request.SetHttpHeaderField(http_names::kCacheControl, "no-cache");
-  request.SetRequestContext(mojom::RequestContextType::EVENT_SOURCE);
+  request.SetRequestContext(mojom::blink::RequestContextType::EVENT_SOURCE);
+  request.SetFetchLikeAPI(true);
   request.SetMode(network::mojom::RequestMode::kCors);
   request.SetCredentialsMode(
       with_credentials_ ? network::mojom::CredentialsMode::kInclude
@@ -363,6 +365,7 @@ bool EventSource::HasPendingActivity() const {
 void EventSource::Trace(Visitor* visitor) const {
   visitor->Trace(parser_);
   visitor->Trace(loader_);
+  visitor->Trace(connect_timer_);
   EventTargetWithInlineData::Trace(visitor);
   ThreadableLoaderClient::Trace(visitor);
   ExecutionContextLifecycleObserver::Trace(visitor);

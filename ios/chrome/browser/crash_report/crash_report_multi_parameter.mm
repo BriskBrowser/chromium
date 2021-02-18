@@ -11,7 +11,8 @@
 #include "base/notreached.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/values.h"
-#import "ios/chrome/browser/crash_report/breakpad_helper.h"
+#import "components/previous_session_info/previous_session_info.h"
+#import "ios/chrome/browser/crash_report/crash_helper.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -25,15 +26,14 @@ const int kMaximumBreakpadValueSize = 255;
 }
 
 @implementation CrashReportMultiParameter {
-  NSString* _crashReportKey;
+  crash_reporter::CrashKeyString<256>* _key;
   std::unique_ptr<base::DictionaryValue> _dictionary;
 }
 
-- (instancetype)initWithKey:(NSString*)key {
+- (instancetype)initWithKey:(crash_reporter::CrashKeyString<256>&)key {
   if ((self = [super init])) {
-    DCHECK([key length] && ([key length] <= kMaximumBreakpadValueSize));
     _dictionary.reset(new base::DictionaryValue());
-    _crashReportKey = [key copy];
+    _key = &key;
   }
   return self;
 }
@@ -79,11 +79,7 @@ const int kMaximumBreakpadValueSize = 255;
     NOTREACHED();
     return;
   }
-  breakpad_helper::AddReportParameter(
-      _crashReportKey,
-      [NSString stringWithCString:stateAsJson.c_str()
-                         encoding:[NSString defaultCStringEncoding]],
-      true);
+  _key->Set(stateAsJson);
 }
 
 @end

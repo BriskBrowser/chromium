@@ -25,19 +25,20 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ApiCompatibilityUtils;
+import org.chromium.base.BuildInfo;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.IntentUtils;
 import org.chromium.base.Log;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.ShortcutHelper;
-import org.chromium.chrome.browser.ShortcutSource;
 import org.chromium.chrome.browser.WarmupManager;
 import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider;
 import org.chromium.chrome.browser.customtabs.BaseCustomTabActivity;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.firstrun.FirstRunFlowSequencer;
 import org.chromium.components.webapk.lib.client.WebApkValidator;
+import org.chromium.components.webapps.ShortcutSource;
 
 import java.lang.ref.WeakReference;
 
@@ -93,8 +94,7 @@ public class WebappLauncherActivity extends Activity {
             Intent sourceIntent, @NonNull String webApkPackageName, @NonNull String url) {
         Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
         intent.setPackage(webApkPackageName);
-        intent.setFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK | ApiCompatibilityUtils.getActivityNewDocumentFlag());
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NEW_DOCUMENT);
         Bundle extras = sourceIntent.getExtras();
         if (extras != null) {
             intent.putExtras(extras);
@@ -139,8 +139,11 @@ public class WebappLauncherActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         // Close the notification tray.
-        ContextUtils.getApplicationContext().sendBroadcast(
-                new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS));
+        if (!BuildInfo.isAtLeastS()) {
+            // https://crbug.com/1166691
+            ContextUtils.getApplicationContext().sendBroadcast(
+                    new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS));
+        }
 
         long createTimestamp = SystemClock.elapsedRealtime();
         Intent intent = getIntent();
@@ -282,8 +285,7 @@ public class WebappLauncherActivity extends Activity {
                 appContext.getPackageName(), ChromeLauncherActivity.class.getName());
         launchIntent.putExtra(ShortcutHelper.REUSE_URL_MATCHING_TAB_ELSE_NEW_TAB, true);
         launchIntent.putExtra(ShortcutHelper.EXTRA_SOURCE, webappSource);
-        launchIntent.setFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK | ApiCompatibilityUtils.getActivityNewDocumentFlag());
+        launchIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NEW_DOCUMENT);
 
         Log.e(TAG, "Shortcut (%s) opened in Chrome.", webappUrl);
 
@@ -350,8 +352,7 @@ public class WebappLauncherActivity extends Activity {
             launchIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NO_ANIMATION
                     | Intent.FLAG_ACTIVITY_FORWARD_RESULT);
         } else {
-            launchIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                    | ApiCompatibilityUtils.getActivityNewDocumentFlag()
+            launchIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NEW_DOCUMENT
                     | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         }
 

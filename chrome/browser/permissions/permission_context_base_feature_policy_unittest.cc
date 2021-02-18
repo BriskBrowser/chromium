@@ -17,6 +17,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/navigation_simulator.h"
 #include "content/public/test/test_renderer_host.h"
+#include "third_party/blink/public/common/feature_policy/feature_policy.h"
 #include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -54,10 +55,20 @@ class PermissionContextBaseFeaturePolicyTest
     return result;
   }
 
-  content::RenderFrameHost* AddChildRFH(content::RenderFrameHost* parent,
-                                        const char* origin) {
+  content::RenderFrameHost* AddChildRFH(
+      content::RenderFrameHost* parent,
+      const char* origin,
+      blink::mojom::FeaturePolicyFeature feature =
+          blink::mojom::FeaturePolicyFeature::kNotFound) {
+    blink::ParsedFeaturePolicy frame_policy = {};
+    if (feature != blink::mojom::FeaturePolicyFeature::kNotFound) {
+      frame_policy.push_back(
+          {feature, std::vector<url::Origin>{url::Origin::Create(GURL(origin))},
+           false, false});
+    }
     content::RenderFrameHost* result =
-        content::RenderFrameHostTester::For(parent)->AppendChild("");
+        content::RenderFrameHostTester::For(parent)->AppendChildWithPolicy(
+            "", frame_policy);
     content::RenderFrameHostTester::For(result)
         ->InitializeRenderFrameIfNeeded();
     SimulateNavigation(&result, GURL(origin));
@@ -70,13 +81,15 @@ class PermissionContextBaseFeaturePolicyTest
                                      blink::mojom::FeaturePolicyFeature feature,
                                      const std::vector<std::string>& origins) {
     content::RenderFrameHost* current = *rfh;
-    SimulateNavigation(&current, current->GetLastCommittedURL());
+    auto navigation = content::NavigationSimulator::CreateRendererInitiated(
+        current->GetLastCommittedURL(), current);
     std::vector<url::Origin> parsed_origins;
     for (const std::string& origin : origins)
       parsed_origins.push_back(url::Origin::Create(GURL(origin)));
-    content::RenderFrameHostTester::For(current)->SimulateFeaturePolicyHeader(
-        feature, parsed_origins);
-    *rfh = current;
+    navigation->SetFeaturePolicyHeader(
+        {{feature, parsed_origins, false, false}});
+    navigation->Commit();
+    *rfh = navigation->GetFinalRenderFrameHost();
   }
 
   ContentSetting GetPermissionForFrame(permissions::PermissionContextBase* pcb,
@@ -183,19 +196,15 @@ TEST_F(PermissionContextBaseFeaturePolicyTest, EnabledForChildFrame) {
   content::RenderFrameHost* parent = GetMainRFH(kOrigin1);
 
   // Enable midi for the child frame.
-  RefreshPageAndSetHeaderPolicy(
-      &parent, blink::mojom::FeaturePolicyFeature::kMidiFeature,
-      {kOrigin1, kOrigin2});
-  content::RenderFrameHost* child = AddChildRFH(parent, kOrigin2);
+  content::RenderFrameHost* child = AddChildRFH(
+      parent, kOrigin2, blink::mojom::FeaturePolicyFeature::kMidiFeature);
   MidiPermissionContext midi(profile());
   EXPECT_EQ(CONTENT_SETTING_ALLOW, GetPermissionForFrame(&midi, parent));
   EXPECT_EQ(CONTENT_SETTING_ALLOW, GetPermissionForFrame(&midi, child));
 
   // Enable geolocation for the child frame.
-  RefreshPageAndSetHeaderPolicy(
-      &parent, blink::mojom::FeaturePolicyFeature::kGeolocation,
-      {kOrigin1, kOrigin2});
-  child = AddChildRFH(parent, kOrigin2);
+  child = AddChildRFH(parent, kOrigin2,
+                      blink::mojom::FeaturePolicyFeature::kGeolocation);
   auto geolocation = MakeGeolocationPermissionContext();
   EXPECT_EQ(CONTENT_SETTING_ASK,
             GetPermissionForFrame(geolocation.get(), parent));

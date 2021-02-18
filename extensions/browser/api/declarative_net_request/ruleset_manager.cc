@@ -29,7 +29,6 @@
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_util.h"
 #include "extensions/common/api/declarative_net_request.h"
-#include "extensions/common/api/declarative_net_request/utils.h"
 #include "extensions/common/constants.h"
 #include "url/origin.h"
 
@@ -82,7 +81,6 @@ RulesetManager::~RulesetManager() {
 void RulesetManager::AddRuleset(const ExtensionId& extension_id,
                                 std::unique_ptr<CompositeMatcher> matcher) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(IsAPIAvailable());
 
   bool inserted =
       rulesets_
@@ -101,7 +99,6 @@ void RulesetManager::AddRuleset(const ExtensionId& extension_id,
 
 void RulesetManager::RemoveRuleset(const ExtensionId& extension_id) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(IsAPIAvailable());
 
   auto compare_by_id =
       [&extension_id](const ExtensionRulesetData& ruleset_data) {
@@ -130,8 +127,14 @@ std::set<ExtensionId> RulesetManager::GetExtensionsWithRulesets() const {
 
 CompositeMatcher* RulesetManager::GetMatcherForExtension(
     const ExtensionId& extension_id) {
+  return const_cast<CompositeMatcher*>(
+      static_cast<const RulesetManager*>(this)->GetMatcherForExtension(
+          extension_id));
+}
+
+const CompositeMatcher* RulesetManager::GetMatcherForExtension(
+    const ExtensionId& extension_id) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(IsAPIAvailable());
 
   // This is O(n) but it's ok since the number of extensions will be small and
   // we have to maintain the rulesets sorted in decreasing order of installation
@@ -385,7 +388,7 @@ std::vector<RequestAction> RulesetManager::EvaluateRequestInternal(
     PageAccess page_access = WebRequestPermissions::CanExtensionAccessURL(
         permission_helper_, ruleset.extension_id, request.url, tab_id,
         crosses_incognito, WebRequestPermissions::DO_NOT_CHECK_HOST,
-        request.initiator, request.type);
+        request.initiator, request.web_request_type);
     DCHECK_NE(PageAccess::kWithheld, page_access);
     if (page_access != PageAccess::kAllowed)
       continue;
@@ -398,7 +401,7 @@ std::vector<RequestAction> RulesetManager::EvaluateRequestInternal(
             crosses_incognito,
             WebRequestPermissions::
                 REQUIRE_HOST_PERMISSION_FOR_URL_AND_INITIATOR,
-            request.initiator, request.type);
+            request.initiator, request.web_request_type);
 
     rulesets_to_evaluate.push_back(
         std::make_pair(&ruleset, host_permissions_access));
@@ -428,11 +431,6 @@ bool RulesetManager::ShouldEvaluateRequest(
 
   // Ensure clients filter out sensitive requests.
   DCHECK(!WebRequestPermissions::HideRequest(permission_helper_, request));
-
-  if (!IsAPIAvailable()) {
-    DCHECK(rulesets_.empty());
-    return false;
-  }
 
   // Prevent extensions from modifying any resources on the chrome-extension
   // scheme. Practically, this has the effect of not allowing an extension to

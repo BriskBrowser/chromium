@@ -6,12 +6,12 @@
 
 #include <stdio.h>
 
+#include "base/containers/contains.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/process/launch.h"
-#include "base/stl_util.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -218,7 +218,7 @@ bool TrafficAnnotationAuditor::RunExtractor(
   base::CommandLine cmdline(
       base::MakeAbsoluteFilePath(source_path_.Append(kExtractorScript)));
 #if defined(OS_WIN)
-  cmdline.PrependWrapper(L"python");
+  cmdline.PrependWrapper(L"python.bat");
 #endif
   cmdline.AppendArg(base::StringPrintf(
       "--options-file=%s", options_filepath.MaybeAsASCII().c_str()));
@@ -727,7 +727,7 @@ void TrafficAnnotationAuditor::AddMissingAnnotations() {
           item.second.type, item.first, item.second.unique_id_hash_code,
           item.second.second_id_hash_code, item.second.content_hash_code,
           item.second.semantics_fields, item.second.policy_fields,
-          item.second.file_path));
+          item.second.file_path, item.second.added_in_milestone));
     }
   }
 }

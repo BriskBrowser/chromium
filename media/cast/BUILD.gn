@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import("//build/config/android/config.gni")
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/features.gni")
 import("//build/config/ui.gni")
 import("//testing/test.gni")
@@ -277,6 +278,8 @@ static_library("test_support") {
 }
 
 test("cast_unittests") {
+  use_xvfb = use_xvfb_in_this_config
+
   sources = [
     "common/expanded_value_base_unittest.cc",
     "common/rtp_time_unittest.cc",
@@ -361,14 +364,13 @@ test("cast_unittests") {
   }
 }
 
-if (is_win || is_mac || (is_linux && !is_chromeos)) {
+if (is_win || is_mac || is_linux || is_chromeos_lacros) {
   # This is a target for the collection of cast development tools.  They are
   # not built/linked into the Chromium browser.
   group("testing_tools") {
     testonly = true
     deps = [
       ":cast_benchmarks",
-      ":cast_receiver_app",
       ":cast_sender_app",
       ":cast_simulator",
       ":generate_barcode_video",
@@ -393,36 +395,6 @@ if (is_win || is_mac || (is_linux && !is_chromeos)) {
       "//testing/gtest",
       "//ui/gfx/geometry",
     ]
-  }
-
-  executable("cast_receiver_app") {
-    testonly = true
-    sources = [ "test/receiver.cc" ]
-    public_deps = []
-    deps = [
-      ":common",
-      ":net",
-      ":receiver",
-      ":test_support",
-      "//base",
-      "//build/win:default_exe_manifest",
-      "//media:test_support",
-      "//net",
-      "//ui/base:features",
-      "//ui/gfx/geometry",
-    ]
-
-    if (use_x11) {
-      sources += [
-        "test/linux_output_window.cc",
-        "test/linux_output_window.h",
-      ]
-      public_deps += [ "//ui/gfx/x" ]
-      deps += [
-        "//cc/paint",
-        "//ui/base/x",
-      ]
-    }
   }
 
   executable("cast_sender_app") {
@@ -493,13 +465,13 @@ if (is_win || is_mac || (is_linux && !is_chromeos)) {
       "//net",
     ]
   }
-} else {  # !(is_win || is_mac || (is_linux && !is_chromeos))
+} else {  # !(is_win || is_mac || is_linux || is_chromeos_lacros)
   # The testing tools are only built for the desktop platforms.
   group("testing_tools") {
   }
 }
 
-if (is_linux && !is_chromeos) {
+if (is_linux || is_chromeos_lacros) {
   test("tap_proxy") {
     sources = [ "test/utility/tap_proxy.cc" ]
 

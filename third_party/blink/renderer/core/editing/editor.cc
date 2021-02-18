@@ -132,7 +132,7 @@ SelectionInDOMTree Editor::SelectionForCommand(Event* event) {
 // not available.
 EditingBehavior Editor::Behavior() const {
   if (!GetFrame().GetSettings())
-    return EditingBehavior(kEditingMacBehavior);
+    return EditingBehavior(mojom::blink::EditingBehavior::kEditingMacBehavior);
 
   return EditingBehavior(GetFrame().GetSettings()->GetEditingBehaviorType());
 }
@@ -851,10 +851,7 @@ Range* Editor::FindRangeOfString(
   // the reference range, find again. Build a selection with the found range
   // to remove collapsed whitespace. Compare ranges instead of selection
   // objects to ignore the way that the current selection was made.
-  const bool find_next_if_selection_matches =
-      !(options & kDontFindNextIfSelectionMatches);
-  if (find_next_if_selection_matches && result_range &&
-      start_in_reference_range &&
+  if (result_range && start_in_reference_range &&
       NormalizeRange(EphemeralRangeInFlatTree(result_range)) ==
           reference_range) {
     if (forward)
@@ -889,7 +886,7 @@ void Editor::SetMarkedTextMatchesAreHighlighted(bool flag) {
 void Editor::RespondToChangedSelection() {
   GetSpellChecker().RespondToChangedSelection();
   frame_->Client()->DidChangeSelection(
-      GetFrameSelection().GetSelectionInDOMTree().Type() != kRangeSelection);
+      !GetFrameSelection().GetSelectionInDOMTree().IsRange());
   SetStartNewKillRingSequence(true);
 }
 

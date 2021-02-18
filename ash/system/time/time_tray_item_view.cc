@@ -4,6 +4,8 @@
 
 #include "ash/system/time/time_tray_item_view.h"
 
+#include "ash/public/cpp/ash_features.h"
+#include "ash/session/session_controller_impl.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
 #include "ash/system/model/clock_model.h"
@@ -15,14 +17,18 @@ namespace ash {
 
 namespace tray {
 
-TimeTrayItemView::TimeTrayItemView(Shelf* shelf)
-    : TrayItemView(shelf), session_observer_(this) {
+TimeTrayItemView::TimeTrayItemView(Shelf* shelf, UnifiedSystemTrayModel* model)
+    : TrayItemView(shelf), model_(model), session_observer_(this) {
+  system_tray_model_observation_.Observe(model_);
+
   TimeView::ClockLayout clock_layout =
       shelf->IsHorizontalAlignment() ? TimeView::ClockLayout::HORIZONTAL_CLOCK
                                      : TimeView::ClockLayout::VERTICAL_CLOCK;
   time_view_ =
       new TimeView(clock_layout, Shell::Get()->system_tray_model()->clock());
   AddChildView(time_view_);
+
+  OnSystemTrayButtonSizeChanged(model_->GetSystemTrayButtonSize());
 }
 
 TimeTrayItemView::~TimeTrayItemView() = default;
@@ -43,8 +49,25 @@ void TimeTrayItemView::OnSessionStateChanged(
   time_view_->SetTextColor(TrayIconColor(state));
 }
 
+void TimeTrayItemView::OnSystemTrayButtonSizeChanged(
+    UnifiedSystemTrayModel::SystemTrayButtonSize system_tray_size) {
+  time_view_->SetShowDateWhenHorizontal(
+      features::IsScalableStatusAreaEnabled() &&
+      system_tray_size == UnifiedSystemTrayModel::SystemTrayButtonSize::kLarge);
+}
+
+void TimeTrayItemView::Reset() {
+  system_tray_model_observation_.Reset();
+}
+
 const char* TimeTrayItemView::GetClassName() const {
   return "TimeTrayItemView";
+}
+
+void TimeTrayItemView::OnThemeChanged() {
+  TrayItemView::OnThemeChanged();
+  time_view_->SetTextColor(
+      TrayIconColor(Shell::Get()->session_controller()->GetSessionState()));
 }
 
 }  // namespace tray

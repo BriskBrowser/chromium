@@ -12,6 +12,7 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
+#include "build/build_config.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "third_party/blink/public/mojom/native_io/native_io.mojom.h"
@@ -23,12 +24,12 @@ class TaskRunner;
 
 namespace content {
 
-class NativeIOContext;
+class NativeIOManager;
 class NativeIOFileHost;
 
 // Implements the NativeIO Web Platform feature for an origin.
 //
-// NativeIOContext owns an instance of this class for each origin that is
+// NativeIOManager owns an instance of this class for each origin that is
 // actively using NativeIO.
 //
 // This class is not thread-safe, so all access to an instance must happen on
@@ -37,9 +38,15 @@ class NativeIOFileHost;
 // sequences, if desired.
 class NativeIOHost : public blink::mojom::NativeIOHost {
  public:
-  explicit NativeIOHost(NativeIOContext* context,
-                        const url::Origin& origin,
-                        base::FilePath root_path);
+  // `allow_set_length_ipc` gates NativeIOFileHost::SetLength(), which works
+  // around a sandboxing limitation on macOS < 10.15. This is plumbed as a flag
+  // all the from NativeIOManager to facilitate testing.
+  explicit NativeIOHost(const url::Origin& origin,
+                        base::FilePath root_path,
+#if defined(OS_MAC)
+                        bool allow_set_length_ipc,
+#endif  // defined(OS_MAC)
+                        NativeIOManager* manager);
 
   NativeIOHost(const NativeIOHost&) = delete;
   NativeIOHost& operator=(const NativeIOHost&) = delete;
@@ -91,26 +98,35 @@ class NativeIOHost : public blink::mojom::NativeIOHost {
   // Called after the file I/O part of DeleteFile() completed.
   void DidDeleteFile(const std::string& name,
                      DeleteFileCallback callback,
-                     bool success);
+                     blink::mojom::NativeIOErrorPtr delete_error);
 
   // Called after the file I/O part of RenameFile() completed.
   void DidRenameFile(const std::string& old_name,
                      const std::string& new_name,
                      RenameFileCallback callback,
-                     bool success);
+                     blink::mojom::NativeIOErrorPtr rename_error);
 
-  // The directory holding all the files for this origin.
-  const base::FilePath root_path_;
-
-  // Raw pointer use is safe because NativeIOContext owns this NativeIOHost, and
-  // therefore is guaranteed to outlive it.
-  NativeIOContext* const context_;
+  SEQUENCE_CHECKER(sequence_checker_);
 
   // The origin served by this host.
   const url::Origin origin_;
 
-  // All receivers for frames and workers whose origin is |origin_| associated
-  // with the StoragePartition that owns |context_|.
+  // The directory holding all the files for this origin.
+  const base::FilePath root_path_;
+
+#if defined(OS_MAC)
+  const bool allow_set_length_ipc_;
+#endif  // defined(OS_MAC)
+
+  // Raw pointer use is safe because NativeIOManager owns this NativeIOHost, and
+  // therefore is guaranteed to outlive it.
+  NativeIOManager* const manager_;
+
+  // Schedules all operations involving file I/O done by this NativeIOHost.
+  const scoped_refptr<base::TaskRunner> file_task_runner_;
+
+  // All receivers for frames and workers whose origin is `origin_` associated
+  // with the StoragePartition that owns `manager_`.
   mojo::ReceiverSet<blink::mojom::NativeIOHost> receivers_;
 
   // The names of files that have pending I/O tasks.
@@ -123,10 +139,6 @@ class NativeIOHost : public blink::mojom::NativeIOHost {
   // This map's keys must not overlap with the contents of |io_pending_files_|.
   std::map<std::string, std::unique_ptr<NativeIOFileHost>> open_file_hosts_;
 
-  // Schedules all operations involving file I/O done by this NativeIOHost.
-  const scoped_refptr<base::TaskRunner> file_task_runner_;
-
-  SEQUENCE_CHECKER(sequence_checker_);
   base::WeakPtrFactory<NativeIOHost> weak_factory_{this};
 };
 

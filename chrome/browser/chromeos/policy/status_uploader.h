@@ -96,15 +96,14 @@ class StatusUploader : public MediaCaptureDevicesDispatcher::Observer {
   // How long to wait between status uploads.
   base::TimeDelta upload_frequency_;
 
-  // Observer to changes in the upload frequency.
-  std::unique_ptr<chromeos::CrosSettings::ObserverSubscription>
-      upload_frequency_observer_;
+  // Subscription for the callback about changes in the upload frequency.
+  base::CallbackListSubscription upload_frequency_subscription_;
 
   // The time the last upload was performed.
   base::Time last_upload_;
 
   // Callback invoked via a delay to upload device status.
-  base::CancelableClosure upload_callback_;
+  base::CancelableOnceClosure upload_callback_;
 
   // True if there has been any captured media in this session.
   bool has_captured_media_;

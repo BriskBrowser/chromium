@@ -26,9 +26,13 @@
 #include "components/omnibox/browser/autocomplete_provider.h"
 #include "components/omnibox/browser/autocomplete_provider_client.h"
 #include "components/omnibox/browser/fake_autocomplete_provider_client.h"
+#include "components/omnibox/browser/intranet_redirector_state.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
+#include "components/omnibox/browser/omnibox_prefs.h"
 #include "components/omnibox/browser/test_scheme_classifier.h"
 #include "components/omnibox/common/omnibox_features.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/testing_pref_service.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/variations/variations_associated_data.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -56,10 +60,12 @@ const AutocompleteMatchTestData kNonVerbatimMatches[] = {
 };
 
 // Adds |count| AutocompleteMatches to |matches|.
-void PopulateAutocompleteMatchesFromTestData(
-    const AutocompleteMatchTestData* data,
-    size_t count,
-    ACMatches* matches) {
+template <typename T>
+void PopulateAutocompleteMatchesFromTestData(const T* data,
+                                             size_t count,
+                                             ACMatches* matches) {
+  static_assert(std::is_base_of<AutocompleteMatchTestData, T>::value,
+                "T must derive from AutocompleteMatchTestData");
   ASSERT_TRUE(matches != nullptr);
   for (size_t i = 0; i < count; ++i) {
     AutocompleteMatch match;
@@ -110,6 +116,15 @@ class AutocompleteResultTest : public testing::Test {
 
     // Duplicate matches.
     std::vector<AutocompleteMatch> duplicate_matches;
+
+    // Type of the match
+    AutocompleteMatchType::Type type{AutocompleteMatchType::SEARCH_SUGGEST};
+
+    // Suggestion Group ID for this suggeston
+    base::Optional<int> suggestion_group_id;
+
+    // Inline autocompletion.
+    std::string inline_autocompletion;
   };
 
   AutocompleteResultTest() {
@@ -145,6 +160,10 @@ class AutocompleteResultTest : public testing::Test {
                            const TestData* expected,
                            size_t expected_count);
 
+  void AssertMatch(AutocompleteMatch match,
+                   const TestData& expected_match_data,
+                   int i);
+
   // Creates an AutocompleteResult from |last| and |current|. The two are
   // merged by |TransferOldMatches| and compared by |AssertResultMatches|.
   void RunTransferOldMatchesTest(const TestData* last,
@@ -153,6 +172,13 @@ class AutocompleteResultTest : public testing::Test {
                                  size_t current_size,
                                  const TestData* expected,
                                  size_t expected_size);
+  void RunTransferOldMatchesTest(const TestData* last,
+                                 size_t last_size,
+                                 const TestData* current,
+                                 size_t current_size,
+                                 const TestData* expected,
+                                 size_t expected_size,
+                                 AutocompleteInput input);
 
   void SortMatchesAndVerifyOrder(
       const std::string& input_text,
@@ -181,12 +207,15 @@ void AutocompleteResultTest::PopulateAutocompleteMatch(
     const TestData& data,
     AutocompleteMatch* match) {
   match->provider = GetProvider(data.provider_id);
+  match->type = data.type;
   match->fill_into_edit = base::NumberToString16(data.url_id);
   std::string url_id(1, data.url_id + 'a');
   match->destination_url = GURL("http://" + url_id);
   match->relevance = data.relevance;
   match->allowed_to_be_default_match = data.allowed_to_be_default_match;
   match->duplicate_matches = data.duplicate_matches;
+  match->suggestion_group_id = data.suggestion_group_id;
+  match->inline_autocompletion = base::UTF8ToUTF16(data.inline_autocompletion);
 }
 
 void AutocompleteResultTest::PopulateAutocompleteMatches(
@@ -205,17 +234,25 @@ void AutocompleteResultTest::AssertResultMatches(
     const TestData* expected,
     size_t expected_count) {
   ASSERT_EQ(expected_count, result.size());
-  for (size_t i = 0; i < expected_count; ++i) {
-    AutocompleteMatch expected_match;
-    PopulateAutocompleteMatch(expected[i], &expected_match);
-    const AutocompleteMatch& match = *(result.begin() + i);
-    EXPECT_EQ(expected_match.provider, match.provider) << i;
-    EXPECT_EQ(expected_match.relevance, match.relevance) << i;
-    EXPECT_EQ(expected_match.allowed_to_be_default_match,
-              match.allowed_to_be_default_match) << i;
-    EXPECT_EQ(expected_match.destination_url.spec(),
-              match.destination_url.spec()) << i;
-  }
+  for (size_t i = 0; i < expected_count; ++i)
+    AssertMatch(*(result.begin() + i), expected[i], i);
+}
+
+void AutocompleteResultTest::AssertMatch(AutocompleteMatch match,
+                                         const TestData& expected_match_data,
+                                         int i) {
+  AutocompleteMatch expected_match;
+  PopulateAutocompleteMatch(expected_match_data, &expected_match);
+  EXPECT_EQ(expected_match.provider, match.provider) << i;
+  EXPECT_EQ(expected_match.type, match.type) << i;
+  EXPECT_EQ(expected_match.relevance, match.relevance) << i;
+  EXPECT_EQ(expected_match.allowed_to_be_default_match,
+            match.allowed_to_be_default_match)
+      << i;
+  EXPECT_EQ(expected_match.destination_url.spec(), match.destination_url.spec())
+      << i;
+  EXPECT_EQ(expected_match.inline_autocompletion, match.inline_autocompletion)
+      << i;
 }
 
 void AutocompleteResultTest::RunTransferOldMatchesTest(const TestData* last,
@@ -227,7 +264,18 @@ void AutocompleteResultTest::RunTransferOldMatchesTest(const TestData* last,
   AutocompleteInput input(base::ASCIIToUTF16("a"),
                           metrics::OmniboxEventProto::OTHER,
                           TestSchemeClassifier());
+  RunTransferOldMatchesTest(last, last_size, current, current_size, expected,
+                            expected_size, input);
+}
 
+void AutocompleteResultTest::RunTransferOldMatchesTest(
+    const TestData* last,
+    size_t last_size,
+    const TestData* current,
+    size_t current_size,
+    const TestData* expected,
+    size_t expected_size,
+    AutocompleteInput input) {
   ACMatches last_matches;
   PopulateAutocompleteMatches(last, last_size, &last_matches);
   AutocompleteResult last_result;
@@ -302,13 +350,18 @@ TEST_F(AutocompleteResultTest, AlternateNavUrl) {
                           metrics::OmniboxEventProto::OTHER,
                           TestSchemeClassifier());
 
+  FakeAutocompleteProviderClient client;
+  reinterpret_cast<TestingPrefServiceSimple*>(client.GetLocalState())
+      ->registry()
+      ->RegisterIntegerPref(omnibox::kIntranetRedirectBehavior, 0);
+
   // Against search matches, we should generate an alternate nav URL.
   {
     AutocompleteMatch match;
     match.type = AutocompleteMatchType::SEARCH_SUGGEST;
     match.destination_url = GURL("http://www.foo.com/s?q=foo");
     GURL alternate_nav_url =
-        AutocompleteResult::ComputeAlternateNavUrl(input, match);
+        AutocompleteResult::ComputeAlternateNavUrl(input, match, &client);
     EXPECT_EQ("http://a/", alternate_nav_url.spec());
   }
 
@@ -318,7 +371,47 @@ TEST_F(AutocompleteResultTest, AlternateNavUrl) {
     match.type = AutocompleteMatchType::SEARCH_SUGGEST;
     match.destination_url = GURL("http://a/");
     GURL alternate_nav_url =
-        AutocompleteResult::ComputeAlternateNavUrl(input, match);
+        AutocompleteResult::ComputeAlternateNavUrl(input, match, &client);
+    EXPECT_FALSE(alternate_nav_url.is_valid());
+  }
+}
+
+TEST_F(AutocompleteResultTest, AlternateNavUrl_IntranetRedirectPolicy) {
+  AutocompleteInput input(base::ASCIIToUTF16("a"),
+                          metrics::OmniboxEventProto::OTHER,
+                          TestSchemeClassifier());
+
+  FakeAutocompleteProviderClient client;
+  reinterpret_cast<TestingPrefServiceSimple*>(client.GetLocalState())
+      ->registry()
+      ->RegisterIntegerPref(omnibox::kIntranetRedirectBehavior, 0);
+
+  // Allow alternate nav URLs when policy allows.
+  {
+    client.GetLocalState()->SetInteger(
+        omnibox::kIntranetRedirectBehavior,
+        static_cast<int>(omnibox::IntranetRedirectorBehavior::
+                             ENABLE_INTERCEPTION_CHECKS_AND_INFOBARS));
+
+    AutocompleteMatch match;
+    match.type = AutocompleteMatchType::SEARCH_SUGGEST;
+    match.destination_url = GURL("http://www.foo.com/s?q=foo");
+    GURL alternate_nav_url =
+        AutocompleteResult::ComputeAlternateNavUrl(input, match, &client);
+    EXPECT_EQ("http://a/", alternate_nav_url.spec());
+  }
+
+  // Disallow alternate nav URLs when policy disallows.
+  {
+    client.GetLocalState()->SetInteger(
+        omnibox::kIntranetRedirectBehavior,
+        static_cast<int>(omnibox::IntranetRedirectorBehavior::DISABLE_FEATURE));
+
+    AutocompleteMatch match;
+    match.type = AutocompleteMatchType::SEARCH_SUGGEST;
+    match.destination_url = GURL("http://www.foo.com/s?q=foo");
+    GURL alternate_nav_url =
+        AutocompleteResult::ComputeAlternateNavUrl(input, match, &client);
     EXPECT_FALSE(alternate_nav_url.is_valid());
   }
 }
@@ -367,6 +460,141 @@ TEST_F(AutocompleteResultTest, TransferOldMatchesAllowedToBeDefault) {
   ASSERT_NO_FATAL_FAILURE(RunTransferOldMatchesTest(
       last, base::size(last), current, base::size(current), result,
       base::size(result)));
+}
+
+// Tests |TransferOldMatches()| with an |AutocompleteInput| with
+// |prevent_inline_autocomplete| set to true. Noteworthy, expect that resulting
+// matches must have effectively empty autocompletions; i.e. either empty
+// |inline_autocompletion|, or false |allowed_to_be_default|. Tests all 12
+// combinations of 1) last match has a lower or higher relevance than current
+// match, 2) last match was allowed to be default, 3) last match had
+// autocompletion (only possible if its allowed to be default), and 4) current
+// match is allowed to be default.
+TEST_F(AutocompleteResultTest,
+       TransferOldMatchesAllowedToBeDefaultWithPreventInlineAutocompletion) {
+  AutocompleteInput input(base::ASCIIToUTF16("a"),
+                          metrics::OmniboxEventProto::OTHER,
+                          TestSchemeClassifier());
+  input.set_prevent_inline_autocomplete(true);
+
+  {
+    SCOPED_TRACE(
+        "Current matches not allowed to be default and scored higher.");
+    // 1) |allowed_to_be_default| should be true only for |last| matches without
+    // autocompletion.
+    // 2) When |allowed_to_be_default| is false, |current| matches should be
+    // preferred as they're scored higher.
+    // clang-format off
+    TestData last[] = {
+        {0, 1, 1020, true, {}, AutocompleteMatchType::SEARCH_SUGGEST, {}, "autocompletion"},
+        {1, 1, 1010, true},
+        {2, 1, 1000, false},
+    };
+    TestData current[] = {
+        {0, 2, 1520, false},
+        {1, 2, 1510, false},
+        {2, 2, 1500, false},
+    };
+    TestData result[] = {
+        {1, 1, 1510, true},
+        {0, 2, 1520, false},
+        {2, 1, 1500, true},
+    };
+    // clang-format on
+
+    ASSERT_NO_FATAL_FAILURE(RunTransferOldMatchesTest(
+        last, base::size(last), current, base::size(current), result,
+        base::size(result), input));
+  }
+
+  {
+    SCOPED_TRACE("Current matches not allowed to be default and scored lower.");
+    // Similar to above, except |last| matches should be preferred in deduping
+    // as they're scored higher.
+    // clang-format off
+    TestData last[] = {
+        {0, 1, 1020, true, {}, AutocompleteMatchType::SEARCH_SUGGEST, {}, "autocompletion"},
+        {1, 1, 1010, true},
+        {2, 1, 1000, false},
+    };
+    TestData current[] = {
+        // Need a high-scoring current match to avoid demoting last matches.
+        {3, 2, 1500, false},
+        {0, 2, 520, false},
+        {1, 2, 510, false},
+        {2, 2, 500, false},
+    };
+    TestData result[] = {
+        {1, 1, 1010, true},
+        {3, 2, 1500, false},
+        {0, 1, 1020, false, {}, AutocompleteMatchType::SEARCH_SUGGEST, {}, "autocompletion"},
+        {2, 1, 1000, true},
+    };
+    // clang-format on
+
+    ASSERT_NO_FATAL_FAILURE(RunTransferOldMatchesTest(
+        last, base::size(last), current, base::size(current), result,
+        base::size(result), input));
+  }
+
+  {
+    SCOPED_TRACE("Current matches allowed to be default and scored higher.");
+    // Deduping should prefer the |current| matches as they're both allowed to
+    // be default and scored higher.
+    // clang-format off
+    TestData last[] = {
+        {0, 1, 1020, true, {}, AutocompleteMatchType::SEARCH_SUGGEST, {}, "autocompletion"},
+        {1, 1, 1010, true},
+        {2, 1, 1000, false},
+    };
+    TestData current[] = {
+        {0, 2, 1520, true},
+        {1, 2, 1510, true},
+        {2, 2, 1500, true},
+    };
+    TestData result[] = {
+        {0, 2, 1520, true},
+        {1, 2, 1510, true},
+        {2, 2, 1500, true},
+    };
+    // clang-format on
+
+    ASSERT_NO_FATAL_FAILURE(RunTransferOldMatchesTest(
+        last, base::size(last), current, base::size(current), result,
+        base::size(result), input));
+  }
+
+  {
+    SCOPED_TRACE("Current matches allowed to be default and scored lower.");
+    // |last| matches with empty autocompletion should be made allowed to be
+    // default and preferred in deduping as they're scored higher. Otherwise,
+    // |current| matches should be preferred in deduping as they're allowed to
+    // be default.
+    // clang-format off
+    TestData last[] = {
+        {0, 1, 1020, true, {}, AutocompleteMatchType::SEARCH_SUGGEST, {}, "autocompletion"},
+        {1, 1, 1010, true},
+        {2, 1, 1000, false},
+    };
+    TestData current[] = {
+        // Need a high-scoring current match to avoid demoting last matches.
+        {3, 2, 1500, true},
+        {0, 2, 520, true},
+        {1, 2, 510, true},
+        {2, 2, 500, true},
+    };
+    TestData result[] = {
+        {3, 2, 1500, true},
+        {0, 2, 1020, true},
+        {1, 1, 1010, true},
+        {2, 1, 1000, true},
+    };
+    // clang-format on
+
+    ASSERT_NO_FATAL_FAILURE(RunTransferOldMatchesTest(
+        last, base::size(last), current, base::size(current), result,
+        base::size(result), input));
+  }
 }
 
 // Tests that matches are copied correctly from two distinct providers.
@@ -420,6 +648,26 @@ TEST_F(AutocompleteResultTest,
     { 6, 2, 800,  false },
     { 4, 1, 700,  false },
     { 7, 1, 500,  true  },
+  };
+
+  ASSERT_NO_FATAL_FAILURE(RunTransferOldMatchesTest(
+      last, base::size(last), current, base::size(current), result,
+      base::size(result)));
+}
+
+// Tests that transferred matches do not include the specialized match types.
+TEST_F(AutocompleteResultTest, TransferOldMatchesSkipsSpecializedSuggestions) {
+  TestData last[] = {
+      {0, 1, 1000, true, {}, AutocompleteMatchType::TILE_NAVSUGGEST},
+      {1, 4, 999, true, {}, AutocompleteMatchType::TILE_SUGGESTION},
+      {2, 2, 500, true},
+  };
+  TestData current[] = {
+      {3, 1, 600, true},
+  };
+  TestData result[] = {
+      {3, 1, 600, true},
+      {2, 2, 500, true},
   };
 
   ASSERT_NO_FATAL_FAILURE(RunTransferOldMatchesTest(
@@ -1443,26 +1691,16 @@ TEST_F(AutocompleteResultTest, SortAndCullGroupSuggestionsByType) {
         {{OmniboxFieldTrial::kUIMaxAutocompleteMatchesParam, "6"}}}},
       {/* nothing disabled */});
   TestData data[] = {
-    { 0, 1,  500, false },
-    { 1, 2,  600, false },
-    { 2, 1,  700, false },
-    { 3, 2,  800, true  },
-    { 4, 1,  900, false },
-    { 5, 2, 1000, false },
-    { 6, 3, 1100, false },
+      {0, 1, 500, false, {}, AutocompleteMatchType::SEARCH_SUGGEST},
+      {1, 2, 600, false, {}, AutocompleteMatchType::HISTORY_URL},
+      {2, 1, 700, false, {}, AutocompleteMatchType::SEARCH_HISTORY},
+      {3, 2, 800, true, {}, AutocompleteMatchType::HISTORY_TITLE},
+      {4, 1, 900, false, {}, AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED},
+      {5, 2, 1000, false, {}, AutocompleteMatchType::HISTORY_BODY},
+      {6, 3, 1100, false, {}, AutocompleteMatchType::BOOKMARK_TITLE},
   };
   ACMatches matches;
   PopulateAutocompleteMatches(data, base::size(data), &matches);
-  AutocompleteMatchType::Type match_types[] = {
-      AutocompleteMatchType::SEARCH_SUGGEST,
-      AutocompleteMatchType::HISTORY_URL,
-      AutocompleteMatchType::SEARCH_HISTORY,
-      AutocompleteMatchType::HISTORY_TITLE,
-      AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED,
-      AutocompleteMatchType::HISTORY_BODY,
-      AutocompleteMatchType::BOOKMARK_TITLE};
-  for (size_t i = 0; i < base::size(data); ++i)
-    matches[i].type = match_types[i];
 
   AutocompleteInput input(base::ASCIIToUTF16("a"),
                           metrics::OmniboxEventProto::OTHER,
@@ -1472,16 +1710,67 @@ TEST_F(AutocompleteResultTest, SortAndCullGroupSuggestionsByType) {
   result.SortAndCull(input, template_url_service_.get());
 
   TestData expected_data[] = {
-      {3, 2, 800, true},                         // default match unmoved
-      {4, 1, 900, false},                        // search types
-      {2, 1, 700, false},  {6, 3, 1100, false},  // other types
-      {5, 2, 1000, false}, {1, 2, 600, false},
+      // default match unmoved
+      {3, 2, 800, true, {}, AutocompleteMatchType::HISTORY_TITLE},
+      // search types
+      {4, 1, 900, false, {}, AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED},
+      {2, 1, 700, false, {}, AutocompleteMatchType::SEARCH_HISTORY},
+      // other types
+      {6, 3, 1100, false, {}, AutocompleteMatchType::BOOKMARK_TITLE},
+      {5, 2, 1000, false, {}, AutocompleteMatchType::HISTORY_BODY},
+      {1, 2, 600, false, {}, AutocompleteMatchType::HISTORY_URL},
   };
 
   AssertResultMatches(result, expected_data,
                       AutocompleteResult::GetMaxMatches());
 }
 #endif
+
+TEST_F(AutocompleteResultTest, SortAndCullKeepGroupedSuggestionsLast) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeaturesAndParameters(
+      {{omnibox::kUIExperimentMaxAutocompleteMatches,
+        {{OmniboxFieldTrial::kUIMaxAutocompleteMatchesParam, "6"}}}},
+      {/* nothing disabled */});
+  TestData data[] = {
+      {0, 1, 500, false, {}, AutocompleteMatchType::SEARCH_SUGGEST, 1},
+      {1, 2, 600, false, {}, AutocompleteMatchType::HISTORY_URL},
+      {2, 1, 700, false, {}, AutocompleteMatchType::SEARCH_SUGGEST, 1},
+      {3, 2, 800, true, {}, AutocompleteMatchType::HISTORY_TITLE},
+      {4, 1, 900, false, {}, AutocompleteMatchType::SEARCH_SUGGEST, 2},
+      {5, 2, 1000, false, {}, AutocompleteMatchType::SEARCH_SUGGEST, 2},
+      {6, 3, 1100, false, {}, AutocompleteMatchType::BOOKMARK_TITLE},
+  };
+  ACMatches matches;
+  PopulateAutocompleteMatches(data, base::size(data), &matches);
+
+  AutocompleteInput input(base::ASCIIToUTF16("a"),
+                          metrics::OmniboxEventProto::OTHER,
+                          TestSchemeClassifier());
+  AutocompleteResult result;
+
+  result.headers_map_[1] = STRING16_LITERAL("1");
+  result.headers_map_[2] = STRING16_LITERAL("2");
+
+  result.AppendMatches(input, matches);
+  result.SortAndCull(input, template_url_service_.get());
+
+  TestData expected_data[] = {
+      // default match unmoved
+      {3, 2, 800, true, {}, AutocompleteMatchType::HISTORY_TITLE},
+      // search types
+      {6, 3, 1100, false, {}, AutocompleteMatchType::BOOKMARK_TITLE},
+      {1, 2, 600, false, {}, AutocompleteMatchType::HISTORY_URL},
+      // Group <2> is scored higher
+      {5, 2, 1000, false, {}, AutocompleteMatchType::SEARCH_SUGGEST},
+      {4, 1, 900, false, {}, AutocompleteMatchType::SEARCH_SUGGEST},
+      // Group <1> is scored lower
+      {2, 1, 700, false, {}, AutocompleteMatchType::SEARCH_SUGGEST},
+  };
+
+  AssertResultMatches(result, expected_data,
+                      AutocompleteResult::GetMaxMatches());
+}
 
 TEST_F(AutocompleteResultTest, SortAndCullMaxURLMatches) {
   base::test::ScopedFeatureList feature_list;
@@ -1568,37 +1857,6 @@ TEST_F(AutocompleteResultTest, SortAndCullMaxURLMatches) {
     for (size_t i = 0; i < result.size(); ++i)
       EXPECT_EQ(result.match_at(i)->type, expected_types[i]);
   }
-}
-
-TEST_F(AutocompleteResultTest, TopMatchIsStandaloneVerbatimMatch) {
-  ACMatches matches;
-  AutocompleteResult result;
-  result.AppendMatches(AutocompleteInput(), matches);
-
-  // Case 1: Result set is empty.
-  EXPECT_FALSE(result.TopMatchIsStandaloneVerbatimMatch());
-
-  // Case 2: Top match is not a verbatim match.
-  PopulateAutocompleteMatchesFromTestData(kNonVerbatimMatches, 1, &matches);
-  result.AppendMatches(AutocompleteInput(), matches);
-  EXPECT_FALSE(result.TopMatchIsStandaloneVerbatimMatch());
-  result.Reset();
-  matches.clear();
-
-  // Case 3: Top match is a verbatim match.
-  PopulateAutocompleteMatchesFromTestData(kVerbatimMatches, 1, &matches);
-  result.AppendMatches(AutocompleteInput(), matches);
-  EXPECT_TRUE(result.TopMatchIsStandaloneVerbatimMatch());
-  result.Reset();
-  matches.clear();
-
-  // Case 4: Standalone verbatim match found in AutocompleteResult.
-  PopulateAutocompleteMatchesFromTestData(kVerbatimMatches, 1, &matches);
-  PopulateAutocompleteMatchesFromTestData(kNonVerbatimMatches, 1, &matches);
-  result.AppendMatches(AutocompleteInput(), matches);
-  EXPECT_TRUE(result.TopMatchIsStandaloneVerbatimMatch());
-  result.Reset();
-  matches.clear();
 }
 
 namespace {
@@ -1694,6 +1952,68 @@ TEST_F(AutocompleteResultTest, ConvertsOpenTabsCorrectly) {
   EXPECT_FALSE(result.match_at(2)->has_tab_match);
 }
 
+TEST_F(AutocompleteResultTest, AttachesPedals) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      {omnibox::kOmniboxPedalSuggestions, omnibox::kOmniboxSuggestionButtonRow},
+      {});
+  EXPECT_TRUE(OmniboxFieldTrial::IsPedalSuggestionsEnabled());
+  FakeAutocompleteProviderClient client;
+  EXPECT_NE(nullptr, client.GetPedalProvider());
+
+  AutocompleteResult result;
+  AutocompleteInput input(base::ASCIIToUTF16("a"),
+                          metrics::OmniboxEventProto::OTHER,
+                          TestSchemeClassifier());
+
+  // Populate result with test matches.
+  {
+    ACMatches matches;
+    struct TestData : AutocompleteMatchTestData {
+      std::string contents;
+      TestData(std::string url,
+               AutocompleteMatch::Type type,
+               std::string contents)
+          : AutocompleteMatchTestData{url, type}, contents(contents) {}
+    };
+    const TestData data[] = {
+        {"http://search-what-you-typed/",
+         AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED, "search what you typed"},
+        {"http://search-history/", AutocompleteMatchType::SEARCH_HISTORY,
+         "search history"},
+        {"http://history-url/", AutocompleteMatchType::HISTORY_URL,
+         "history url"},
+        {"http://history-title/", AutocompleteMatchType::HISTORY_TITLE,
+         "history title"},
+        {"http://url-what-you-typed/",
+         AutocompleteMatchType::URL_WHAT_YOU_TYPED, "url what you typed"},
+        {"http://clipboard-url/", AutocompleteMatchType::CLIPBOARD_URL,
+         "clipboard url"},
+        {"http://bookmark-title/", AutocompleteMatchType::BOOKMARK_TITLE,
+         "bookmark title"},
+        {"http://entity-clear-history/",
+         AutocompleteMatchType::SEARCH_SUGGEST_ENTITY, "clear history"},
+        {"http://clear-history/", AutocompleteMatchType::SEARCH_SUGGEST,
+         "clear history"},
+    };
+    PopulateAutocompleteMatchesFromTestData(data, base::size(data), &matches);
+    for (size_t i = 0; i < base::size(data); i++) {
+      matches[i].contents = base::UTF8ToUTF16(data[i].contents);
+    }
+    result.AppendMatches(input, matches);
+  }
+
+  // Attach |pedal| to result matches where appropriate.
+  result.AttachPedalsToMatches(input, client);
+
+  // Ensure the entity suggestion doesn't get a pedal even though its contents
+  // form a concept match.
+  EXPECT_EQ(nullptr, std::prev(std::prev(result.end()))->pedal);
+
+  // The same concept-matching contents on a non-entity suggestion gets a pedal.
+  EXPECT_NE(nullptr, std::prev(result.end())->pedal);
+}
+
 TEST_F(AutocompleteResultTest, DocumentSuggestionsCanMergeButNotToDefault) {
   // Types are populated below to avoid introducing a new test data creation
   // process.
@@ -1772,8 +2092,7 @@ TEST_F(AutocompleteResultTest, CalculateNumMatchesPerUrlCountTest) {
            {OmniboxFieldTrial::kDynamicMaxAutocompleteIncreasedLimitParam,
             increased_limit}}},
          {omnibox::kUIExperimentMaxAutocompleteMatches,
-          {{OmniboxFieldTrial::kUIMaxAutocompleteMatchesParam, base_limit}}},
-         {omnibox::kNewSearchFeatures, {}}},
+          {{OmniboxFieldTrial::kUIMaxAutocompleteMatchesParam, base_limit}}}},
         {});
 
     ACMatches matches;
@@ -1838,4 +2157,76 @@ TEST_F(AutocompleteResultTest, ClipboardSuggestionOnTopOfSearchSuggestionTest) {
   EXPECT_EQ(result.size(), 5u);
   EXPECT_EQ(result.match_at(0)->relevance, 1500);
   EXPECT_EQ(AutocompleteMatchType::CLIPBOARD_URL, result.match_at(0)->type);
+}
+
+TEST_F(AutocompleteResultTest, BubbleURLSuggestions) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(omnibox::kBubbleUrlSuggestions);
+
+  auto test = [&](const std::vector<int>& scores, size_t begin_search,
+                  size_t begin_url, const std::vector<size_t>& expected_order,
+                  const std::string& trace_string) {
+    SCOPED_TRACE(trace_string);
+    std::vector<TestData> data;
+    for (size_t i = 0; i < scores.size(); ++i)
+      data.push_back(TestData{i, 0, scores[i]});
+    ACMatches matches;
+    PopulateAutocompleteMatches(data.data(), scores.size(), &matches);
+    AutocompleteResult::BubbleURLSuggestions(
+        matches.begin() + begin_search, matches.begin() + begin_url, matches);
+    ASSERT_EQ(matches.size(), scores.size());
+    for (size_t i = 0; i < matches.size(); ++i)
+      AssertMatch(matches[i], data[expected_order[i]], i);
+  };
+
+  // Regardless of scores, in the trivial cases with only either searches or
+  // URLs, the matches should not be reordered.
+  test({500, 1100, 1000, 1300, 1200}, 0, 5, {0, 1, 2, 3, 4}, "Only searches");
+  test({500, 1100, 1000, 1300, 1200}, 0, 0, {0, 1, 2, 3, 4}, "Only URLs");
+  test({500, 1100, 1000, 1300, 1200}, 3, 5, {0, 1, 2, 3, 4},
+       "Only skipped suggestions & searches");
+  test({500, 1100, 1000, 1300, 1200}, 3, 3, {0, 1, 2, 3, 4},
+       "Only skipped suggestions & URLs");
+
+  // URLs are bubbled above a search suggestion if 2 conditions are met:
+  // 1) There must be a sufficient score gap between the adjacent searches. E.g.
+  // for (S1, U1, S2), the difference in scores of S1 and S2 must be larger than
+  // some threshold.
+  // 2) There must be a sufficient buffer between the URL and search scores.
+  // This only applies to the first URL suggestion in a group. E.g. for
+  // (S1, U1, U2, S2, U3, S3), U1 & U3 must score higher than S2 + threshold &
+  // S3 + threshold respectively, but U2 need only score higher than S2.
+  test({600, 400, /*URL*/ 500}, 0, 2, {0, 2, 1}, "Bubble 1 URL");
+  test({599, 400, /*URL*/ 500}, 0, 2, {0, 1, 2}, "Insufficient gap");
+  test({600, 400, /*URL*/ 499}, 0, 2, {0, 1, 2}, "Insufficient buffer");
+
+  // No buffer is necessary for subsequent URLs in a group, but is necessary
+  // for the 1st URL of each group.
+  test({600, 400, 200, /*URL group 1*/ 500, 450, /*URL group 2*/ 300, 250}, 0,
+       3, {0, 3, 4, 1, 5, 6, 2}, "Bubble 2 URL groups");
+  test({600, 400, 200, /*URL group 1*/ 500, 450, /*URL group 2*/ 299, 250}, 0,
+       3, {0, 3, 4, 1, 2, 5, 6},
+       "Bubble 1st of 2 URL groups; insufficient buffer for 2nd group");
+  test({600, 399, 200, /*URL group 1*/ 500, 450, /*URL group 2*/ 300, 250}, 0,
+       3, {0, 3, 4, 1, 2, 5, 6},
+       "Bubble 1st of 2 URL groups; insufficient gap for 2nd group");
+  test({600, 400, 200, /*URL group 1*/ 499, 450, /*URL group 2*/ 300, 250}, 0,
+       3, {0, 1, 3, 4, 5, 6, 2},
+       "Bubble 2nd of 2 URL groups; insufficient buffer for 1st group");
+  test({599, 400, 200, /*URL group 1*/ 500, 450, /*URL group 2*/ 300, 250}, 0,
+       3, {0, 1, 3, 4, 5, 6, 2},
+       "Bubble 2nd of 2 URL groups; insufficient gap for 1st group");
+
+  // No gap is necessary when bubbling into the top position.
+  test({600, /*URLs*/ 700, 650}, 0, 1, {1, 2, 0},
+       "Bubble 1 URL group into top position");
+  test({600, /*URL*/ 650}, 0, 1, {0, 1},
+       "Insufficient buffer for top position");
+
+  // Skipped suggestions (e.g. default or clipboard suggestions) should not
+  // affect ordering.
+  test({/*skipped*/ 900, /*search*/ 600, /*URL*/ 700}, 1, 2, {0, 2, 1},
+       "Skipped suggestion");
+  test({/*skipped*/ 600, /*search*/ 600, /*URL*/ 700}, 1, 2, {0, 2, 1},
+       "Skipped suggestion should not affect gap");
 }

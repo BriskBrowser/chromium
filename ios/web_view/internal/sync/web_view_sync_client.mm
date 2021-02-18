@@ -16,10 +16,10 @@
 #include "components/history/core/common/pref_names.h"
 #include "components/invalidation/impl/profile_invalidation_provider.h"
 #include "components/keyed_service/core/service_access_type.h"
+#include "components/metrics/demographics/user_demographics.h"
 #include "components/sync/base/sync_util.h"
 #include "components/sync/driver/data_type_controller.h"
 #include "components/sync/driver/sync_api_component_factory.h"
-#include "components/sync/engine/passive_model_worker.h"
 #include "components/version_info/version_info.h"
 #include "components/version_info/version_string.h"
 #include "ios/web/public/thread/web_task_traits.h"
@@ -31,6 +31,7 @@
 #import "ios/web_view/internal/sync/web_view_device_info_sync_service_factory.h"
 #import "ios/web_view/internal/sync/web_view_model_type_store_service_factory.h"
 #import "ios/web_view/internal/sync/web_view_profile_invalidation_provider_factory.h"
+#import "ios/web_view/internal/sync/web_view_sync_invalidations_service_factory.h"
 #include "ios/web_view/internal/webdata_services/web_view_web_data_service_wrapper_factory.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -74,8 +75,8 @@ std::unique_ptr<WebViewSyncClient> WebViewSyncClient::Create(
       WebViewProfileInvalidationProviderFactory::GetForBrowserState(
           browser_state)
           ->GetInvalidationService(),
-      /*sync_invalidations_service=*/nullptr);
-  // TODO(crbug.com/1082122): implement sync invalidations on iOS platform.
+      WebViewSyncInvalidationsServiceFactory::GetForBrowserState(
+          browser_state));
 }
 
 WebViewSyncClient::WebViewSyncClient(
@@ -146,6 +147,11 @@ history::HistoryService* WebViewSyncClient::GetHistoryService() {
   return nullptr;
 }
 
+sync_preferences::PrefServiceSyncable*
+WebViewSyncClient::GetPrefServiceSyncable() {
+  return nullptr;
+}
+
 sync_sessions::SessionSyncService* WebViewSyncClient::GetSessionSyncService() {
   return nullptr;
 }
@@ -188,27 +194,10 @@ WebViewSyncClient::GetExtensionsActivity() {
   return nullptr;
 }
 
-base::WeakPtr<syncer::SyncableService>
-WebViewSyncClient::GetSyncableServiceForType(syncer::ModelType type) {
-  NOTREACHED();
-  return base::WeakPtr<syncer::SyncableService>();
-}
-
 base::WeakPtr<syncer::ModelTypeControllerDelegate>
 WebViewSyncClient::GetControllerDelegateForModelType(syncer::ModelType type) {
   NOTREACHED();
   return base::WeakPtr<syncer::ModelTypeControllerDelegate>();
-}
-
-scoped_refptr<syncer::ModelSafeWorker>
-WebViewSyncClient::CreateModelWorkerForGroup(syncer::ModelSafeGroup group) {
-  DCHECK_CURRENTLY_ON(web::WebThread::UI);
-  switch (group) {
-    case syncer::GROUP_PASSIVE:
-      return new syncer::PassiveModelWorker();
-    default:
-      return nullptr;
-  }
 }
 
 syncer::SyncApiComponentFactory*
@@ -218,6 +207,11 @@ WebViewSyncClient::GetSyncApiComponentFactory() {
 
 syncer::SyncTypePreferenceProvider* WebViewSyncClient::GetPreferenceProvider() {
   return nullptr;
+}
+
+void WebViewSyncClient::OnLocalSyncTransportDataCleared() {
+  DCHECK_CURRENTLY_ON(web::WebThread::UI);
+  metrics::ClearDemographicsPrefs(pref_service_);
 }
 
 }  // namespace ios_web_view

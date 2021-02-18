@@ -52,6 +52,8 @@
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/layout/layout_manager.h"
 #include "ui/views/layout/layout_provider.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/style/platform_style.h"
 #include "ui/views/style/typography.h"
 #include "ui/views/view.h"
@@ -63,15 +65,19 @@ namespace {
 
 class Arrow : public Button {
  public:
-  explicit Arrow(ButtonListener* listener) : Button(listener) {
+  METADATA_HEADER(Arrow);
+
+  explicit Arrow(PressedCallback callback) : Button(std::move(callback)) {
     // Similar to Combobox's TransparentButton.
     SetFocusBehavior(FocusBehavior::NEVER);
     button_controller()->set_notify_action(
         ButtonController::NotifyAction::kOnPress);
 
     SetInkDropMode(InkDropMode::ON);
-    set_has_ink_drop_action_on_click(true);
+    SetHasInkDropActionOnClick(true);
   }
+  Arrow(const Arrow&) = delete;
+  Arrow& operator=(const Arrow&) = delete;
   ~Arrow() override = default;
 
   double GetAnimationValue() const {
@@ -91,7 +97,7 @@ class Arrow : public Button {
     return std::make_unique<views::FloodFillInkDropRipple>(
         size(), GetInkDropCenterBasedOnLastEvent(),
         style::GetColor(*this, style::CONTEXT_TEXTFIELD, style::STYLE_PRIMARY),
-        ink_drop_visible_opacity());
+        GetInkDropVisibleOpacity());
   }
 
  private:
@@ -114,9 +120,10 @@ class Arrow : public Button {
     if (GetEnabled())
       node_data->SetDefaultActionVerb(ax::mojom::DefaultActionVerb::kOpen);
   }
-
-  DISALLOW_COPY_AND_ASSIGN(Arrow);
 };
+
+BEGIN_METADATA(Arrow, Button)
+END_METADATA
 
 }  // namespace
 
@@ -135,7 +142,7 @@ class EditableCombobox::EditableComboboxMenuModel
         filter_on_edit_(filter_on_edit),
         show_on_empty_(show_on_empty) {
     UpdateItemsShown();
-    observer_.Add(combobox_model_);
+    observation_.Observe(combobox_model_);
   }
 
   ~EditableComboboxMenuModel() override = default;
@@ -251,7 +258,8 @@ class EditableCombobox::EditableComboboxMenuModel
   // When false, UpdateItemsShown doesn't do anything.
   bool update_items_shown_enabled_ = true;
 
-  ScopedObserver<ui::ComboboxModel, ui::ComboboxModelObserver> observer_{this};
+  base::ScopedObservation<ui::ComboboxModel, ui::ComboboxModelObserver>
+      observation_{this};
 
   DISALLOW_COPY_AND_ASSIGN(EditableComboboxMenuModel);
 };
@@ -321,7 +329,7 @@ EditableCombobox::EditableCombobox(
       show_on_empty_(show_on_empty),
       showing_password_text_(type != Type::kPassword) {
   SetModel(std::move(combobox_model));
-  observer_.Add(textfield_);
+  observation_.Observe(textfield_);
   textfield_->set_controller(this);
   textfield_->SetFontList(GetFontList());
   textfield_->SetTextInputType((type == Type::kPassword)
@@ -332,7 +340,8 @@ EditableCombobox::EditableCombobox(
     textfield_->SetExtraInsets(gfx::Insets(
         /*top=*/0, /*left=*/0, /*bottom=*/0,
         /*right=*/kComboboxArrowContainerWidth - kComboboxArrowPaddingWidth));
-    arrow_ = AddChildView(std::make_unique<Arrow>(this));
+    arrow_ = AddChildView(std::make_unique<Arrow>(base::BindRepeating(
+        &EditableCombobox::ArrowButtonPressed, base::Unretained(this))));
   }
   SetLayoutManager(std::make_unique<views::FillLayout>());
 }
@@ -445,14 +454,6 @@ void EditableCombobox::OnViewBlurred(View* observed_view) {
   CloseMenu();
 }
 
-void EditableCombobox::ButtonPressed(Button* sender, const ui::Event& event) {
-  textfield_->RequestFocus();
-  if (menu_runner_ && menu_runner_->IsRunning())
-    CloseMenu();
-  else
-    ShowDropDownMenu(ui::GetMenuSourceTypeForEvent(event));
-}
-
 void EditableCombobox::OnLayoutIsAnimatingChanged(
     views::AnimatingLayoutManager* source,
     bool is_animating) {
@@ -476,7 +477,7 @@ void EditableCombobox::OnItemSelected(int index) {
   // handling code directly.
   HandleNewContent(selected_item_text);
   NotifyAccessibilityEvent(ax::mojom::Event::kValueChanged,
-                           /*xsend_native_event=*/true);
+                           /*send_native_event=*/true);
 }
 
 void EditableCombobox::HandleNewContent(const base::string16& new_content) {
@@ -493,6 +494,14 @@ void EditableCombobox::HandleNewContent(const base::string16& new_content) {
     menu_model_->EnableUpdateItemsShown();
   }
   menu_model_->UpdateItemsShown();
+}
+
+void EditableCombobox::ArrowButtonPressed(const ui::Event& event) {
+  textfield_->RequestFocus();
+  if (menu_runner_ && menu_runner_->IsRunning())
+    CloseMenu();
+  else
+    ShowDropDownMenu(ui::GetMenuSourceTypeForEvent(event));
 }
 
 void EditableCombobox::ShowDropDownMenu(ui::MenuSourceType source_type) {
@@ -539,6 +548,6 @@ void EditableCombobox::ShowDropDownMenu(ui::MenuSourceType source_type) {
 }
 
 BEGIN_METADATA(EditableCombobox, View)
-END_METADATA()
+END_METADATA
 
 }  // namespace views

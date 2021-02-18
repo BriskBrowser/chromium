@@ -7,7 +7,9 @@
 #include <stddef.h>
 
 #include <map>
+#include <memory>
 #include <set>
+#include <utility>
 
 #include "base/auto_reset.h"
 #include "cc/base/math_util.h"
@@ -37,6 +39,7 @@ struct DataForRecursion {
   int scroll_tree_parent;
   int closest_ancestor_with_cached_render_surface;
   int closest_ancestor_with_copy_request;
+  int closest_ancestor_being_captured;
   SkColor safe_opaque_background_color;
   bool animation_axis_aligned_since_render_target;
   bool not_axis_aligned_since_last_clip;
@@ -135,13 +138,9 @@ bool HasPotentiallyRunningTransformAnimation(const MutatorHost& host,
       layer->element_id(), layer->GetElementTypeForAnimation());
 }
 
-void GetAnimationScales(const MutatorHost& host,
-                        Layer* layer,
-                        float* maximum_scale,
-                        float* starting_scale) {
-  return host.GetAnimationScales(layer->element_id(),
-                                 layer->GetElementTypeForAnimation(),
-                                 maximum_scale, starting_scale);
+float MaximumAnimationScale(const MutatorHost& host, Layer* layer) {
+  return host.MaximumScale(layer->element_id(),
+                           layer->GetElementTypeForAnimation());
 }
 
 bool AnimationsPreserveAxisAlignment(const MutatorHost& host, Layer* layer) {
@@ -163,10 +162,6 @@ bool LayerClipsSubtreeToItsBounds(Layer* layer) {
 bool LayerClipsSubtree(Layer* layer) {
   return LayerClipsSubtreeToItsBounds(layer) || layer->HasRoundedCorner() ||
          !layer->clip_rect().IsEmpty();
-}
-
-gfx::RRectF RoundedCornerBounds(Layer* layer) {
-  return gfx::RRectF(layer->EffectiveClipRect(), layer->corner_radii());
 }
 
 void PropertyTreeBuilderContext::AddClipNodeIfNeeded(
@@ -289,8 +284,7 @@ bool PropertyTreeBuilderContext::AddTransformNodeIfNeeded(
 
   node->has_potential_animation = has_potentially_animated_transform;
   node->is_currently_animating = TransformIsAnimating(mutator_host_, layer);
-  GetAnimationScales(mutator_host_, layer, &node->maximum_animation_scale,
-                     &node->starting_animation_scale);
+  node->maximum_animation_scale = MaximumAnimationScale(mutator_host_, layer);
 
   node->scroll_offset = layer->scroll_offset();
 
@@ -344,8 +338,9 @@ RenderSurfaceReason ComputeRenderSurfaceReason(const MutatorHost& mutator_host,
 
   // If the layer has blending.
   // TODO(rosca): this is temporary, until blending is implemented for other
-  // types of quads than viz::RenderPassDrawQuad. Layers having descendants that
-  // draw content will still create a separate rendering surface.
+  // types of quads than viz::CompositorRenderPassDrawQuad. Layers having
+  // descendants that draw content will still create a separate rendering
+  // surface.
   if (layer->blend_mode() != SkBlendMode::kSrcOver) {
     return RenderSurfaceReason::kBlendMode;
   }
@@ -389,6 +384,9 @@ RenderSurfaceReason ComputeRenderSurfaceReason(const MutatorHost& mutator_host,
   // If the layer is mirrored.
   if (layer->mirror_count())
     return RenderSurfaceReason::kMirrored;
+
+  if (layer->subtree_capture_id().is_valid())
+    return RenderSurfaceReason::kSubtreeIsBeingCaptured;
 
   return RenderSurfaceReason::kNone;
 }
@@ -456,6 +454,7 @@ bool PropertyTreeBuilderContext::AddEffectNodeIfNeeded(
   node->stable_id = layer->id();
   node->opacity = layer->opacity();
   node->blend_mode = layer->blend_mode();
+  node->subtree_capture_id = layer->subtree_capture_id();
   node->cache_render_surface = layer->cache_render_surface();
   node->has_copy_request = layer->HasCopyRequest();
   node->filters = layer->filters();
@@ -485,12 +484,17 @@ bool PropertyTreeBuilderContext::AddEffectNodeIfNeeded(
       layer->HasCopyRequest()
           ? node_id
           : data_from_ancestor.closest_ancestor_with_copy_request;
+  node->closest_ancestor_being_captured_id =
+      layer->subtree_capture_id().is_valid()
+          ? node_id
+          : data_from_ancestor.closest_ancestor_being_captured;
 
   if (layer->HasRoundedCorner()) {
     // This is currently in the local space of the layer and hence in an invalid
     // space. Once we have the associated transform node for this effect node,
     // we will update this to the transform node's coordinate space.
-    node->rounded_corner_bounds = RoundedCornerBounds(layer);
+    node->mask_filter_info =
+        gfx::MaskFilterInfo(layer->EffectiveClipRect(), layer->corner_radii());
     node->is_fast_rounded_corner = layer->is_fast_rounded_corner();
   }
 
@@ -518,6 +522,8 @@ bool PropertyTreeBuilderContext::AddEffectNodeIfNeeded(
       node->closest_ancestor_with_cached_render_surface_id;
   data_for_children->closest_ancestor_with_copy_request =
       node->closest_ancestor_with_copy_request_id;
+  data_for_children->closest_ancestor_being_captured =
+      node->closest_ancestor_being_captured_id;
   data_for_children->effect_tree_parent = node_id;
   layer->SetEffectTreeIndex(node_id);
 
@@ -556,7 +562,8 @@ bool PropertyTreeBuilderContext::UpdateRenderSurfaceIfNeeded(
 
   EffectNode* effect_node =
       effect_tree_.Node(data_for_children->effect_tree_parent);
-  const bool has_rounded_corner = !effect_node->rounded_corner_bounds.IsEmpty();
+  const bool has_rounded_corner =
+      effect_node->mask_filter_info.HasRoundedCorners();
 
   // Having a rounded corner should trigger a transform node.
   if (has_rounded_corner)
@@ -715,6 +722,8 @@ void PropertyTreeBuilderContext::BuildPropertyTrees() {
   data_for_recursion.closest_ancestor_with_cached_render_surface =
       EffectTree::kInvalidNodeId;
   data_for_recursion.closest_ancestor_with_copy_request =
+      EffectTree::kInvalidNodeId;
+  data_for_recursion.closest_ancestor_being_captured =
       EffectTree::kInvalidNodeId;
   data_for_recursion.compound_transform_since_render_target = gfx::Transform();
   data_for_recursion.animation_axis_aligned_since_render_target = true;

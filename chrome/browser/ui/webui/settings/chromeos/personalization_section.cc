@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/webui/settings/chromeos/personalization_section.h"
 
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/ambient/ambient_client.h"
 #include "ash/public/cpp/ambient/ambient_prefs.h"
 #include "base/bind.h"
@@ -12,6 +13,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/settings/chromeos/ambient_mode_handler.h"
 #include "chrome/browser/ui/webui/settings/chromeos/change_picture_handler.h"
+#include "chrome/browser/ui/webui/settings/chromeos/constants/routes.mojom-forward.h"
 #include "chrome/browser/ui/webui/settings/chromeos/os_settings_features_util.h"
 #include "chrome/browser/ui/webui/settings/chromeos/search/search_tag_registry.h"
 #include "chrome/browser/ui/webui/settings/chromeos/wallpaper_handler.h"
@@ -19,7 +21,6 @@
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
@@ -41,14 +42,6 @@ const std::vector<SearchConcept>& GetPersonalizationSearchConcepts() {
        {.section = mojom::Section::kPersonalization},
        {IDS_OS_SETTINGS_TAG_PERSONALIZATION_ALT1,
         IDS_OS_SETTINGS_TAG_PERSONALIZATION_ALT2, SearchConcept::kAltTagEnd}},
-      {IDS_OS_SETTINGS_TAG_CHANGE_WALLPAPER,
-       mojom::kPersonalizationSectionPath,
-       mojom::SearchResultIcon::kWallpaper,
-       mojom::SearchResultDefaultRank::kMedium,
-       mojom::SearchResultType::kSetting,
-       {.setting = mojom::Setting::kOpenWallpaper},
-       {IDS_OS_SETTINGS_TAG_CHANGE_WALLPAPER_ALT1,
-        IDS_OS_SETTINGS_TAG_CHANGE_WALLPAPER_ALT2, SearchConcept::kAltTagEnd}},
       {IDS_OS_SETTINGS_TAG_CHANGE_DEVICE_ACCOUNT_IMAGE,
        mojom::kChangePictureSubpagePath,
        mojom::SearchResultIcon::kAvatar,
@@ -61,6 +54,34 @@ const std::vector<SearchConcept>& GetPersonalizationSearchConcepts() {
         IDS_OS_SETTINGS_TAG_CHANGE_DEVICE_ACCOUNT_IMAGE_ALT4,
         SearchConcept::kAltTagEnd}},
   });
+  return *tags;
+}
+
+const std::vector<SearchConcept>& GetWallpaperChromeAppSearchConcepts() {
+  static const base::NoDestructor<std::vector<SearchConcept>> tags(
+      {{IDS_OS_SETTINGS_TAG_CHANGE_WALLPAPER,
+        mojom::kPersonalizationSectionPath,
+        mojom::SearchResultIcon::kWallpaper,
+        mojom::SearchResultDefaultRank::kMedium,
+        mojom::SearchResultType::kSetting,
+        {.setting = mojom::Setting::kOpenWallpaper},
+        {IDS_OS_SETTINGS_TAG_CHANGE_WALLPAPER_ALT1,
+         IDS_OS_SETTINGS_TAG_CHANGE_WALLPAPER_ALT2,
+         SearchConcept::kAltTagEnd}}});
+  return *tags;
+}
+
+const std::vector<SearchConcept>& GetWallpaperWebUISearchConcepts() {
+  static const base::NoDestructor<std::vector<SearchConcept>> tags(
+      {{IDS_OS_SETTINGS_TAG_CHANGE_WALLPAPER,
+        mojom::kWallpaperSubpagePath,
+        mojom::SearchResultIcon::kWallpaper,
+        mojom::SearchResultDefaultRank::kMedium,
+        mojom::SearchResultType::kSubpage,
+        {.subpage = mojom::Subpage::kWallpaper},
+        {IDS_OS_SETTINGS_TAG_CHANGE_WALLPAPER_ALT1,
+         IDS_OS_SETTINGS_TAG_CHANGE_WALLPAPER_ALT2,
+         SearchConcept::kAltTagEnd}}});
   return *tags;
 }
 
@@ -123,7 +144,9 @@ const std::vector<SearchConcept>& GetAmbientModeOffSearchConcepts() {
 }
 
 bool IsAmbientModeAllowed() {
+  // TODO(b/172029925): Set up to test this code.
   return chromeos::features::IsAmbientModeEnabled() &&
+         ash::AmbientClient::Get() &&
          ash::AmbientClient::Get()->IsAmbientModeAllowed();
 }
 
@@ -149,6 +172,11 @@ PersonalizationSection::PersonalizationSection(
 
   SearchTagRegistry::ScopedTagUpdater updater = registry()->StartUpdate();
   updater.AddSearchTags(GetPersonalizationSearchConcepts());
+
+  if (chromeos::features::IsWallpaperWebUIEnabled())
+    updater.AddSearchTags(GetWallpaperWebUISearchConcepts());
+  else
+    updater.AddSearchTags(GetWallpaperChromeAppSearchConcepts());
 
   if (IsAmbientModeAllowed()) {
     updater.AddSearchTags(GetAmbientModeSearchConcepts());
@@ -193,8 +221,6 @@ void PersonalizationSection::AddLoadTimeData(
        IDS_OS_SETTINGS_AMBIENT_MODE_TOPIC_SOURCE_UNSELECTED_ROW},
       {"ambientModeTopicSourceSubpage",
        IDS_OS_SETTINGS_AMBIENT_MODE_TOPIC_SOURCE_SUBPAGE},
-      {"ambientModeAlbumsSubpageGooglePhotosNoAlbum",
-       IDS_OS_SETTINGS_AMBIENT_MODE_ALBUMS_SUBPAGE_GOOGLE_PHOTOS_NO_ALBUM},
       {"ambientModeWeatherTitle", IDS_OS_SETTINGS_AMBIENT_MODE_WEATHER_TITLE},
       {"ambientModeTemperatureUnitFahrenheit",
        IDS_OS_SETTINGS_AMBIENT_MODE_TEMPERATURE_UNIT_FAHRENHEIT},
@@ -204,6 +230,10 @@ void PersonalizationSection::AddLoadTimeData(
        IDS_OS_SETTINGS_AMBIENT_MODE_ALBUMS_SUBPAGE_ALBUM_SELECTED},
       {"ambientModeAlbumsSubpageAlbumUnselected",
        IDS_OS_SETTINGS_AMBIENT_MODE_ALBUMS_SUBPAGE_ALBUM_UNSELECTED},
+      {"ambientModeLastArtAlbumMessage",
+       IDS_OS_SETTINGS_AMBIENT_MODE_LAST_ART_ALBUM_MESSAGE},
+      {"ambientModeArtAlbumDialogCloseButtonLabel",
+       IDS_OS_SETTINGS_AMBIENT_MODE_ART_ALBUM_DIALOG_CLOSE_BUTTON_LABEL},
       {"changePictureTitle", IDS_OS_SETTINGS_CHANGE_PICTURE_TITLE},
       {"openWallpaperApp", IDS_OS_SETTINGS_OPEN_WALLPAPER_APP},
       {"personalizationPageTitle", IDS_OS_SETTINGS_PERSONALIZATION},
@@ -226,8 +256,10 @@ void PersonalizationSection::AddLoadTimeData(
        IDS_SETTINGS_PHOTO_DISCARD_ACCESSIBLE_TEXT},
       {"photoModeAccessibleText", IDS_SETTINGS_PHOTO_MODE_ACCESSIBLE_TEXT},
       {"videoModeAccessibleText", IDS_SETTINGS_VIDEO_MODE_ACCESSIBLE_TEXT},
+      // TODO(b/178399962) finalize error string for WallpaperWebUI.
+      {"wallpaperCollectionsError", IDS_WALLPAPER_MANAGER_NETWORK_ERROR},
   };
-  AddLocalizedStringsBulk(html_source, kLocalizedStrings);
+  html_source->AddLocalizedStrings(kLocalizedStrings);
 
   html_source->AddBoolean(
       "changePictureVideoModeEnabled",
@@ -240,6 +272,14 @@ void PersonalizationSection::AddLoadTimeData(
       l10n_util::GetStringFUTF16(
           IDS_OS_SETTINGS_AMBIENT_MODE_ALBUMS_SUBPAGE_GOOGLE_PHOTOS_TITLE,
           base::UTF8ToUTF16(GetGooglePhotosURL().spec())));
+  html_source->AddString(
+      "ambientModeAlbumsSubpageGooglePhotosNoAlbum",
+      l10n_util::GetStringFUTF16(
+          IDS_OS_SETTINGS_AMBIENT_MODE_ALBUMS_SUBPAGE_GOOGLE_PHOTOS_NO_ALBUM,
+          base::UTF8ToUTF16(GetGooglePhotosURL().spec())));
+
+  html_source->AddBoolean("isWallpaperWebUIEnabled",
+                          chromeos::features::IsWallpaperWebUIEnabled());
 }
 
 void PersonalizationSection::AddHandlers(content::WebUI* web_ui) {
@@ -251,7 +291,8 @@ void PersonalizationSection::AddHandlers(content::WebUI* web_ui) {
   if (!profile()->IsGuestSession() &&
       chromeos::features::IsAmbientModeEnabled()) {
     web_ui->AddMessageHandler(
-        std::make_unique<chromeos::settings::AmbientModeHandler>());
+        std::make_unique<chromeos::settings::AmbientModeHandler>(
+            pref_service_));
   }
 }
 
@@ -271,6 +312,12 @@ std::string PersonalizationSection::GetSectionPath() const {
   return mojom::kPersonalizationSectionPath;
 }
 
+bool PersonalizationSection::LogMetric(mojom::Setting setting,
+                                       base::Value& value) const {
+  // Unimplemented.
+  return false;
+}
+
 void PersonalizationSection::RegisterHierarchy(
     HierarchyGenerator* generator) const {
   generator->RegisterTopLevelSetting(mojom::Setting::kOpenWallpaper);
@@ -282,6 +329,12 @@ void PersonalizationSection::RegisterHierarchy(
       mojom::kChangePictureSubpagePath);
   generator->RegisterNestedSetting(mojom::Setting::kChangeDeviceAccountImage,
                                    mojom::Subpage::kChangePicture);
+
+  // Wallpaper.
+  generator->RegisterTopLevelSubpage(
+      IDS_OS_SETTINGS_SET_WALLPAPER, mojom::Subpage::kWallpaper,
+      mojom::SearchResultIcon::kWallpaper,
+      mojom::SearchResultDefaultRank::kMedium, mojom::kWallpaperSubpagePath);
 
   // Ambient mode.
   generator->RegisterTopLevelSubpage(

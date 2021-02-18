@@ -17,7 +17,6 @@
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/common/url_constants.h"
-#include "media/base/media_switches.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/blink/public/mojom/autoplay/autoplay.mojom.h"
@@ -52,9 +51,6 @@ void SoundContentSettingObserver::ReadyToCommitNavigation(
   if (navigation_handle->IsSameDocument())
     return;
 
-  if (!base::FeatureList::IsEnabled(media::kAutoplayWhitelistSettings))
-    return;
-
   GURL url = navigation_handle->IsInMainFrame()
                  ? navigation_handle->GetURL()
                  : navigation_handle->GetWebContents()->GetLastCommittedURL();
@@ -63,7 +59,7 @@ void SoundContentSettingObserver::ReadyToCommitNavigation(
   std::unique_ptr<base::Value> setting =
       host_content_settings_map_->GetWebsiteSetting(
           url, navigation_handle->GetURL(), ContentSettingsType::SOUND,
-          std::string(), &setting_info);
+          &setting_info);
 
   if (content_settings::ValueToContentSetting(setting.get()) !=
       CONTENT_SETTING_ALLOW) {
@@ -102,15 +98,13 @@ void SoundContentSettingObserver::OnAudioStateChanged(bool audible) {
 void SoundContentSettingObserver::OnContentSettingChanged(
     const ContentSettingsPattern& primary_pattern,
     const ContentSettingsPattern& secondary_pattern,
-    ContentSettingsType content_type,
-    const std::string& resource_identifier) {
+    ContentSettingsType content_type) {
   if (content_type != ContentSettingsType::SOUND)
     return;
 
 #if !defined(OS_ANDROID)
   if (primary_pattern == ContentSettingsPattern() &&
-      secondary_pattern == ContentSettingsPattern() &&
-      resource_identifier.empty()) {
+      secondary_pattern == ContentSettingsPattern()) {
     UpdateAutoplayPolicy();
   }
 #endif
@@ -152,7 +146,7 @@ void SoundContentSettingObserver::MuteOrUnmuteIfNecessary() {
 ContentSetting SoundContentSettingObserver::GetCurrentContentSetting() {
   GURL url = web_contents()->GetLastCommittedURL();
   return host_content_settings_map_->GetContentSetting(
-      url, url, ContentSettingsType::SOUND, std::string());
+      url, url, ContentSettingsType::SOUND);
 }
 
 void SoundContentSettingObserver::CheckSoundBlocked(bool is_audible) {
@@ -188,7 +182,7 @@ SoundContentSettingObserver::GetSiteMutedReason() {
   const GURL url = web_contents()->GetLastCommittedURL();
   content_settings::SettingInfo info;
   host_content_settings_map_->GetWebsiteSetting(
-      url, url, ContentSettingsType::SOUND, std::string(), &info);
+      url, url, ContentSettingsType::SOUND, &info);
 
   DCHECK_EQ(content_settings::SETTING_SOURCE_USER, info.source);
 

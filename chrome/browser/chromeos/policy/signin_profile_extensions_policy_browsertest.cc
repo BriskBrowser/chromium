@@ -5,15 +5,18 @@
 #include <memory>
 #include <string>
 
+#include "ash/constants/ash_paths.h"
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/files/file_path.h"
+#include "base/files/file_util.h"
 #include "base/macros.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/version.h"
 #include "chrome/browser/chromeos/policy/signin_profile_extensions_policy_test_base.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/extensions/crx_installer.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/policy/extension_force_install_mixin.h"
@@ -106,8 +109,9 @@ class ExtensionInstallErrorObserver final {
         extension_id_(extension_id),
         notification_observer_(
             extensions::NOTIFICATION_EXTENSION_INSTALL_ERROR,
-            base::Bind(&ExtensionInstallErrorObserver::IsNotificationRelevant,
-                       base::Unretained(this))) {}
+            base::BindRepeating(
+                &ExtensionInstallErrorObserver::IsNotificationRelevant,
+                base::Unretained(this))) {}
 
   void Wait() { notification_observer_.Wait(); }
 
@@ -279,15 +283,12 @@ IN_PROC_BROWSER_TEST_F(SigninProfileExtensionsPolicyTest, ExtensionsEnabled) {
 // Tests that a background page is created for the installed sign-in profile
 // app.
 IN_PROC_BROWSER_TEST_F(SigninProfileExtensionsPolicyTest, BackgroundPage) {
-  EXPECT_FALSE(
-      chromeos::ProfileHelper::SigninProfileHasLoginScreenExtensions());
   EXPECT_TRUE(extension_force_install_mixin_.ForceInstallFromCrx(
       base::PathService::CheckedGet(chrome::DIR_TEST_DATA)
           .AppendASCII(kWhitelistedAppCrxPath),
       ExtensionForceInstallMixin::WaitMode::kBackgroundPageReady));
   EXPECT_TRUE(extension_force_install_mixin_.IsExtensionBackgroundPageReady(
       kWhitelistedAppId));
-  EXPECT_TRUE(chromeos::ProfileHelper::SigninProfileHasLoginScreenExtensions());
 }
 
 // Tests installation of multiple sign-in profile apps/extensions.
@@ -396,12 +397,82 @@ IN_PROC_BROWSER_TEST_F(SigninProfileExtensionsPolicyOfflineLaunchTest, Test) {
   WaitForTestExtensionLoaded();
 }
 
+// Class for testing the sign-in profile extensions with a corrupt cache file.
+class SigninProfileExtensionsPolicyCorruptCacheTest
+    : public SigninProfileExtensionsPolicyTest {
+ protected:
+  void SetUpOnMainThread() override {
+    SigninProfileExtensionsPolicyTest::SetUpOnMainThread();
+
+    test_extension_registry_observer_ =
+        std::make_unique<extensions::TestExtensionRegistryObserver>(
+            extensions::ExtensionRegistry::Get(GetInitialProfile()),
+            kWhitelistedAppId);
+
+    EXPECT_TRUE(extension_force_install_mixin_.ForceInstallFromCrx(
+        base::PathService::CheckedGet(chrome::DIR_TEST_DATA)
+            .AppendASCII(kWhitelistedAppCrxPath),
+        ExtensionForceInstallMixin::WaitMode::kNone, &installed_extension_id_,
+        &installed_extension_version_));
+  }
+
+  void TearDownOnMainThread() override {
+    test_extension_registry_observer_.reset();
+
+    SigninProfileExtensionsPolicyTest::TearDownOnMainThread();
+  }
+
+  void WaitForTestExtensionLoaded() {
+    test_extension_registry_observer_->WaitForExtensionLoaded();
+  }
+
+  const base::FilePath GetCachedCrxFilePath() {
+    const base::FilePath cache_file_path =
+        base::PathService::CheckedGet(chromeos::DIR_SIGNIN_PROFILE_EXTENSIONS);
+    const std::string file_name =
+        base::StringPrintf("%s-%s.crx", installed_extension_id_.c_str(),
+                           installed_extension_version_.GetString().c_str());
+    return cache_file_path.AppendASCII(file_name);
+  }
+
+ private:
+  std::unique_ptr<extensions::TestExtensionRegistryObserver>
+      test_extension_registry_observer_;
+
+  extensions::ExtensionId installed_extension_id_;
+  base::Version installed_extension_version_;
+};
+
+// This is the preparation step for the actual test. Here the allowlisted app
+// gets installed into the sign-in profile and then the cached .crx file get
+// corrupted.
+IN_PROC_BROWSER_TEST_F(SigninProfileExtensionsPolicyCorruptCacheTest,
+                       PRE_ExtensionIsInstalledAfterCorruption) {
+  WaitForTestExtensionLoaded();
+
+  // Manually corrupt file. The directory for cached extensions
+  // (|DIR_SIGNIN_PROFILE_EXTENSIONS|) is overridden with a new temp directory
+  // for every test run (see RegisterStubPathOverrides()) so this does not
+  // affect any other tests.
+  base::ScopedAllowBlockingForTesting scoped_allowed_blocking_for_testing;
+  const base::FilePath cached_crx_file_path = GetCachedCrxFilePath();
+  ASSERT_TRUE(PathExists(cached_crx_file_path));
+  ASSERT_TRUE(base::WriteFile(cached_crx_file_path, "random-data"));
+}
+
+// Tests that the allowlisted app still gets installed correctly, even if the
+// existing file in cache is corrupted.
+IN_PROC_BROWSER_TEST_F(SigninProfileExtensionsPolicyCorruptCacheTest,
+                       ExtensionIsInstalledAfterCorruption) {
+  WaitForTestExtensionLoaded();
+}
+
 // Class for testing the auto update of the sign-in profile extensions.
 class SigninProfileExtensionsAutoUpdatePolicyTest
     : public SigninProfileExtensionsPolicyTest {
  public:
   SigninProfileExtensionsAutoUpdatePolicyTest() {
-    embedded_test_server()->RegisterRequestHandler(base::Bind(
+    embedded_test_server()->RegisterRequestHandler(base::BindRepeating(
         &SigninProfileExtensionsAutoUpdatePolicyTest::HandleTestServerRequest,
         base::Unretained(this)));
   }

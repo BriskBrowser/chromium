@@ -7,7 +7,7 @@
 #include <map>
 #include <string>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/guid.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -56,9 +56,6 @@ class ClipboardObserver : public ui::ClipboardObserver {
 
   // ui::ClipboardObserver:
   void OnClipboardDataChanged() override { callback_.Run(); }
-#if defined(OS_CHROMEOS)
-  void OnClipboardDataRead() override {}
-#endif
 
  private:
   base::RepeatingClosure callback_;

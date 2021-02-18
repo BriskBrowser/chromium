@@ -141,18 +141,9 @@ CSSValueList* ConsumeFontFaceSrc(CSSParserTokenRange& range,
 }
 
 CSSValue* ConsumeScrollTimelineSource(CSSParserTokenRange& range) {
-  if (range.Peek().FunctionId() == CSSValueID::kSelector) {
-    auto block = css_parsing_utils::ConsumeFunction(range);
-    block.ConsumeWhitespace();
-    if (auto* id_value = css_parsing_utils::ConsumeIdSelector(block)) {
-      if (!block.AtEnd())
-        return nullptr;
-      auto* selector_function =
-          MakeGarbageCollected<CSSFunctionValue>(CSSValueID::kSelector);
-      selector_function->Append(*id_value);
-      return selector_function;
-    }
-    return nullptr;
+  if (auto* selector_function =
+          css_parsing_utils::ConsumeSelectorFunction(range)) {
+    return selector_function;
   }
   return css_parsing_utils::ConsumeIdent<CSSValueID::kAuto, CSSValueID::kNone>(
       range);
@@ -173,18 +164,22 @@ CSSValue* ConsumeTimeRange(CSSParserTokenRange& range,
 
 CSSValue* ConsumeDescriptor(StyleRule::RuleType rule_type,
                             AtRuleDescriptorID id,
-                            CSSParserTokenRange& range,
+                            const CSSTokenizedValue& tokenized_value,
                             const CSSParserContext& context) {
   using Parser = AtRuleDescriptorParser;
+  CSSParserTokenRange range = tokenized_value.range;
 
   switch (rule_type) {
     case StyleRule::kFontFace:
       return Parser::ParseFontFaceDescriptor(id, range, context);
     case StyleRule::kProperty:
-      return Parser::ParseAtPropertyDescriptor(id, range, context);
+      return Parser::ParseAtPropertyDescriptor(id, tokenized_value, context);
+    case StyleRule::kCounterStyle:
+      return Parser::ParseAtCounterStyleDescriptor(id, range, context);
     case StyleRule::kScrollTimeline:
       return Parser::ParseAtScrollTimelineDescriptor(id, range, context);
     case StyleRule::kCharset:
+    case StyleRule::kContainer:
     case StyleRule::kStyle:
     case StyleRule::kImport:
     case StyleRule::kMedia:
@@ -204,15 +199,19 @@ CSSValue* ConsumeFontMetricOverride(CSSParserTokenRange& range,
                                     const CSSParserContext& context) {
   if (!RuntimeEnabledFeatures::CSSFontMetricsOverrideEnabled())
     return nullptr;
+  if (CSSIdentifierValue* normal =
+          css_parsing_utils::ConsumeIdent<CSSValueID::kNormal>(range)) {
+    return normal;
+  }
   return css_parsing_utils::ConsumePercent(range, context,
                                            kValueRangeNonNegative);
 }
 
 CSSValue* ConsumeAdvanceOverride(CSSParserTokenRange& range,
                                  const CSSParserContext& context) {
-  if (!RuntimeEnabledFeatures::CSSFontMetricsOverrideEnabled())
+  if (!RuntimeEnabledFeatures::CSSFontFaceAdvanceOverrideEnabled())
     return nullptr;
-  return css_parsing_utils::ConsumeNumber(range, context, kValueRangeAll);
+  return ConsumeFontMetricOverride(range, context);
 }
 
 }  // namespace
@@ -307,9 +306,10 @@ CSSValue* AtRuleDescriptorParser::ParseFontFaceDeclaration(
 
 CSSValue* AtRuleDescriptorParser::ParseAtPropertyDescriptor(
     AtRuleDescriptorID id,
-    CSSParserTokenRange& range,
+    const CSSTokenizedValue& tokenized_value,
     const CSSParserContext& context) {
   CSSValue* parsed_value = nullptr;
+  CSSParserTokenRange range = tokenized_value.range;
   switch (id) {
     case AtRuleDescriptorID::Syntax:
       range.ConsumeWhitespace();
@@ -318,7 +318,8 @@ CSSValue* AtRuleDescriptorParser::ParseAtPropertyDescriptor(
     case AtRuleDescriptorID::InitialValue: {
       // Note that we must retain leading whitespace here.
       return CSSVariableParser::ParseDeclarationValue(
-          g_null_atom, range, false /* is_animation_tainted */, context);
+          g_null_atom, tokenized_value, false /* is_animation_tainted */,
+          context);
     }
     case AtRuleDescriptorID::Inherits:
       range.ConsumeWhitespace();
@@ -370,10 +371,10 @@ CSSValue* AtRuleDescriptorParser::ParseAtScrollTimelineDescriptor(
 bool AtRuleDescriptorParser::ParseAtRule(
     StyleRule::RuleType rule_type,
     AtRuleDescriptorID id,
-    CSSParserTokenRange& range,
+    const CSSTokenizedValue& tokenized_value,
     const CSSParserContext& context,
     HeapVector<CSSPropertyValue, 256>& parsed_descriptors) {
-  CSSValue* result = ConsumeDescriptor(rule_type, id, range, context);
+  CSSValue* result = ConsumeDescriptor(rule_type, id, tokenized_value, context);
 
   if (!result)
     return false;

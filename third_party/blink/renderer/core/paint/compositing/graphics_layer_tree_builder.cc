@@ -82,12 +82,11 @@ void GraphicsLayerTreeBuilder::RebuildRecursive(
                                    : &pending_reparents;
 
 #if DCHECK_IS_ON()
-  PaintLayerListMutationDetector mutation_checker(layer);
+  PaintLayerListMutationDetector mutation_checker(&layer);
 #endif
 
   bool recursion_blocked_by_display_lock =
-      layer.GetLayoutObject().PrePaintBlockedByDisplayLock(
-          DisplayLockLifecycleTarget::kChildren);
+      layer.GetLayoutObject().ChildPrePaintBlockedByDisplayLock();
   // If the recursion is blocked meaningfully (i.e. we would have recursed,
   // since the layer has children), then we should inform the display-lock
   // context that we blocked a graphics layer recursion, so that we can ensure
@@ -100,7 +99,7 @@ void GraphicsLayerTreeBuilder::RebuildRecursive(
 
   if (layer.IsStackingContextWithNegativeZOrderChildren()) {
     if (!recursion_blocked_by_display_lock) {
-      PaintLayerPaintOrderIterator iterator(layer, kNegativeZOrderChildren);
+      PaintLayerPaintOrderIterator iterator(&layer, kNegativeZOrderChildren);
       while (PaintLayer* child_layer = iterator.Next()) {
         RebuildRecursive(*child_layer, *layer_vector_for_children,
                          *pending_reparents_for_children);
@@ -117,7 +116,7 @@ void GraphicsLayerTreeBuilder::RebuildRecursive(
   }
 
   if (!recursion_blocked_by_display_lock) {
-    PaintLayerPaintOrderIterator iterator(layer,
+    PaintLayerPaintOrderIterator iterator(&layer,
                                           kNormalFlowAndPositiveZOrderChildren);
     while (PaintLayer* child_layer = iterator.Next()) {
       RebuildRecursive(*child_layer, *layer_vector_for_children,
@@ -125,22 +124,27 @@ void GraphicsLayerTreeBuilder::RebuildRecursive(
     }
   }
 
-  if (layer.GetLayoutObject().IsLayoutEmbeddedContent()) {
+  if (auto* embedded =
+          DynamicTo<LayoutEmbeddedContent>(layer.GetLayoutObject())) {
     DCHECK(this_layer_children.IsEmpty());
     PaintLayerCompositor* inner_compositor =
-        PaintLayerCompositor::FrameContentsCompositor(
-            ToLayoutEmbeddedContent(layer.GetLayoutObject()));
+        PaintLayerCompositor::FrameContentsCompositor(*embedded);
     if (inner_compositor) {
-      // If the embedded frame is render-throttled, it might not be compositing
-      // clean at this point. In that case, we still need to connect its
-      // existing root graphics layer, so we need to query the stale compositing
-      // state.
+      // Disabler required because inner frame might be throttled.
       DisableCompositingQueryAsserts disabler;
-      if (inner_compositor->InCompositingMode()) {
-        if (GraphicsLayer* inner_root_layer =
-                inner_compositor->RootGraphicsLayer()) {
-          layer_vector_for_children->push_back(inner_root_layer);
-        }
+      if (GraphicsLayer* inner_root_graphics_layer =
+              inner_compositor->RootGraphicsLayer()) {
+        // If inner_root_graphics_layer is non-null, then either the inner frame
+        // is up-to-date and in compositing mode; or the inner frame is
+        // throttled and we're using its pre-existing root graphics layer.
+        DCHECK(inner_compositor->RootLayer()
+                   ->GetLayoutObject()
+                   .GetFrameView()
+                   ->ShouldThrottleRendering() ||
+               inner_compositor->InCompositingMode());
+        layer_vector_for_children->push_back(inner_root_graphics_layer);
+        CHECK(layer.Compositor()->RootLayer()->GetCompositingReasons() &
+              CompositingReason::kRoot);
       }
       inner_compositor->ClearRootLayerAttachmentDirty();
     }

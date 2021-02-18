@@ -23,36 +23,32 @@ import org.chromium.base.MathUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.supplier.ObservableSupplier;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
 import org.chromium.chrome.browser.browser_controls.BrowserControlsUtils;
 import org.chromium.chrome.browser.compositor.LayerTitleCache;
-import org.chromium.chrome.browser.compositor.animation.CompositorAnimator;
-import org.chromium.chrome.browser.compositor.animation.FloatProperty;
 import org.chromium.chrome.browser.compositor.layouts.Layout;
-import org.chromium.chrome.browser.compositor.layouts.LayoutManager;
+import org.chromium.chrome.browser.compositor.layouts.LayoutManagerImpl;
 import org.chromium.chrome.browser.compositor.layouts.LayoutRenderHost;
 import org.chromium.chrome.browser.compositor.layouts.LayoutUpdateHost;
 import org.chromium.chrome.browser.compositor.layouts.components.LayoutTab;
 import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
-import org.chromium.chrome.browser.compositor.layouts.eventfilter.EventFilter;
 import org.chromium.chrome.browser.compositor.layouts.eventfilter.GestureEventFilter;
 import org.chromium.chrome.browser.compositor.layouts.eventfilter.GestureHandler;
-import org.chromium.chrome.browser.compositor.layouts.phone.stack.NonOverlappingStack;
 import org.chromium.chrome.browser.compositor.layouts.phone.stack.OverlappingStack;
 import org.chromium.chrome.browser.compositor.layouts.phone.stack.Stack;
 import org.chromium.chrome.browser.compositor.layouts.phone.stack.StackTab;
-import org.chromium.chrome.browser.compositor.scene_layer.SceneLayer;
 import org.chromium.chrome.browser.compositor.scene_layer.TabListSceneLayer;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.homepage.HomepageManager;
+import org.chromium.chrome.browser.layouts.EventFilter;
+import org.chromium.chrome.browser.layouts.LayoutType;
+import org.chromium.chrome.browser.layouts.animation.CompositorAnimator;
+import org.chromium.chrome.browser.layouts.animation.FloatProperty;
+import org.chromium.chrome.browser.layouts.scene_layer.SceneLayer;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.TabList;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorTabModelObserver;
 import org.chromium.chrome.browser.tabmodel.TabModelUtils;
-import org.chromium.chrome.browser.toolbar.bottom.BottomToolbarConfiguration;
-import org.chromium.ui.UiUtils;
 import org.chromium.ui.base.LocalizationUtils;
 import org.chromium.ui.resources.ResourceManager;
 
@@ -229,7 +225,6 @@ public abstract class StackLayoutBase extends Layout {
     private final ViewGroup mViewContainer;
 
     private final GestureEventFilter mGestureEventFilter;
-    private final TabListSceneLayer mSceneLayer;
 
     private StackLayoutGestureHandler mGestureHandler;
 
@@ -239,6 +234,10 @@ public abstract class StackLayoutBase extends Layout {
     private final ObservableSupplier<BrowserControlsStateProvider> mBrowserControlsSupplier;
     private final BrowserControlsStateProvider.Observer mBrowserControlsObserver;
     private Callback<BrowserControlsStateProvider> mBrowserControlsSupplierObserver;
+    private TabListSceneLayer mSceneLayer;
+    private boolean mShowPending;
+
+    private boolean mUiDoneEnteringStack;
 
     private class StackLayoutGestureHandler implements GestureHandler {
         @Override
@@ -370,7 +369,7 @@ public abstract class StackLayoutBase extends Layout {
         }
 
         private long time() {
-            return LayoutManager.time();
+            return LayoutManagerImpl.time();
         }
     }
 
@@ -397,7 +396,7 @@ public abstract class StackLayoutBase extends Layout {
         mStacks = new ArrayList<Stack>();
         mStackRects = new ArrayList<RectF>();
         mViewContainer = new FrameLayout(getContext());
-        mSceneLayer = new TabListSceneLayer();
+
         mDpToPx = context.getResources().getDisplayMetrics().density;
         mBrowserControlsSupplier = browserControlsStateProviderSupplier;
         mBrowserControlsObserver = new BrowserControlsStateProvider.Observer() {
@@ -414,6 +413,14 @@ public abstract class StackLayoutBase extends Layout {
         mBrowserControlsSupplierObserver = (browserControlsStateProvider)
                 -> browserControlsStateProvider.addObserver(mBrowserControlsObserver);
         mBrowserControlsSupplier.addObserver(mBrowserControlsSupplierObserver);
+    }
+
+    public void initWithNative() {
+        ensureSceneLayerCreated();
+        if (mShowPending) {
+            mShowPending = false;
+            show(LayoutManagerImpl.time(), false);
+        }
     }
 
     @Override
@@ -440,19 +447,11 @@ public abstract class StackLayoutBase extends Layout {
     }
 
     /**
-     * Whether or not the HorizontalTabSwitcherAndroid flag (which enables the new horizontal tab
-     * switcher in both portrait and landscape mode) is enabled.
-     */
-    protected boolean isHorizontalTabSwitcherFlagEnabled() {
-        return ChromeFeatureList.isEnabled(ChromeFeatureList.HORIZONTAL_TAB_SWITCHER_ANDROID);
-    }
-
-    /**
      * Whether or not we're currently having the tabs scroll horizontally (as opposed to
      * vertically).
      */
     private boolean isUsingHorizontalLayout() {
-        return getOrientation() == Orientation.LANDSCAPE || isHorizontalTabSwitcherFlagEnabled();
+        return getOrientation() == Orientation.LANDSCAPE;
     }
 
     /**
@@ -465,12 +464,7 @@ public abstract class StackLayoutBase extends Layout {
             mStacks.subList(lists.size(), mStacks.size()).clear();
         }
         while (mStacks.size() < lists.size()) {
-            Stack stack;
-            if (isHorizontalTabSwitcherFlagEnabled()) {
-                stack = new NonOverlappingStack(getContext(), this);
-            } else {
-                stack = new OverlappingStack(getContext(), this);
-            }
+            Stack stack = new OverlappingStack(getContext(), this);
             stack.notifySizeChanged(mWidth, mHeight, mOrientation);
             mStacks.add(stack);
         }
@@ -529,14 +523,16 @@ public abstract class StackLayoutBase extends Layout {
     @Override
     public void setTabModelSelector(TabModelSelector modelSelector, TabContentManager manager) {
         super.setTabModelSelector(modelSelector, manager);
-        mSceneLayer.setTabModelSelector(modelSelector);
+        if (mSceneLayer != null) {
+            mSceneLayer.setTabModelSelector(modelSelector);
+        }
         resetScrollData();
 
         new TabModelSelectorTabModelObserver(mTabModelSelector) {
             @Override
             public void tabClosureUndone(Tab tab) {
                 if (!isActive()) return;
-                onTabClosureCancelled(LayoutManager.time(), tab.getId(), tab.isIncognito());
+                onTabClosureCancelled(LayoutManagerImpl.time(), tab.getId(), tab.isIncognito());
             }
         };
     }
@@ -649,21 +645,11 @@ public abstract class StackLayoutBase extends Layout {
 
     @Override
     public void attachViews(ViewGroup container) {
-        if (BottomToolbarConfiguration.isBottomToolbarEnabled()) {
-            // In practice, the "container view" is used for animation. When Duet is enabled, the
-            // container is placed behind the bottom toolbar since it is persistent.
-            ViewGroup compositorViewHolder = container.findViewById(R.id.compositor_view_holder);
-            UiUtils.insertAfter((ViewGroup) compositorViewHolder.getParent(), mViewContainer,
-                    compositorViewHolder);
-            mViewContainer.getLayoutParams().width = LayoutParams.MATCH_PARENT;
-            mViewContainer.getLayoutParams().height = LayoutParams.MATCH_PARENT;
-        } else {
-            // TODO(dtrainor): This is a hack.  We're attaching to the parent of the view container
-            // which is the content container of the Activity.
-            ((ViewGroup) container.getParent())
-                    .addView(mViewContainer,
-                            new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
-        }
+        // TODO(dtrainor): This is a hack.  We're attaching to the parent of the view container
+        // which is the content container of the Activity.
+        ((ViewGroup) container.getParent())
+                .addView(mViewContainer,
+                        new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
     }
 
     @Override
@@ -726,6 +712,10 @@ public abstract class StackLayoutBase extends Layout {
         super.onTabRestored(time, tabId);
         // Call show() so that new stack tabs and potentially new stacks get created.
         // TODO(twellington): add animation for showing the restored tab.
+        if (mSceneLayer == null) {
+            mShowPending = true;
+            return;
+        }
         show(time, false);
     }
 
@@ -760,18 +750,6 @@ public abstract class StackLayoutBase extends Layout {
             return false;
         }
     }
-
-    /**
-     * Called by a NonOverlappingStack that's had switchAwayEffect() called on it, once the
-     * animation has finished.
-     */
-    public void onSwitchAwayFinished() {}
-
-    /**
-     * Called by a NonOverlappingStack that's had switchToEffect() called on it, once the
-     * animation has finished.
-     */
-    public void onSwitchToFinished() {}
 
     /**
      * Called when layout-specific actions are needed after the animation finishes.
@@ -858,10 +836,11 @@ public abstract class StackLayoutBase extends Layout {
      * Called when a {@link Stack} instance is done animating the stack enter effect.
      */
     public void uiDoneEnteringStack() {
+        mUiDoneEnteringStack = true;
         // Tabs don't overlap in the horizontal tab switcher experiment, so the order comparator
         // already does what we want (the visibility comparator's logic actually doesn't compute
         // visibility properly in this case).
-        if (!isHorizontalTabSwitcherFlagEnabled()) mSortingComparator = mVisibilityComparator;
+        mSortingComparator = mVisibilityComparator;
         doneShowing();
     }
 
@@ -901,6 +880,7 @@ public abstract class StackLayoutBase extends Layout {
     @Override
     public void show(long time, boolean animate) {
         super.show(time, animate);
+        mUiDoneEnteringStack = false;
 
         if (!mIsActiveLayout) {
             // The mIsActiveLayout check is necessary because there are certain edge cases where
@@ -956,6 +936,8 @@ public abstract class StackLayoutBase extends Layout {
 
     @Override
     public void doneShowing() {
+        if (!mUiDoneEnteringStack) return;
+
         super.doneShowing();
 
         if (mBrowserControlsSupplier.get() != null) {
@@ -1158,10 +1140,6 @@ public abstract class StackLayoutBase extends Layout {
 
         @Override
         float getInnerMargin() {
-            // If we're using the new horizontal tab switcher, don't show the edge of the other
-            // stack (normal if in incognito mode and incognito if in normal mode) on-screen.
-            if (isHorizontalTabSwitcherFlagEnabled()) return 0;
-
             float margin = mInnerMarginPercent
                     * Math.max(mMinMaxInnerMargin, mWidth * INNER_MARGIN_PERCENT_PERCENT);
             return margin;
@@ -1219,7 +1197,6 @@ public abstract class StackLayoutBase extends Layout {
             // Need getHeight() for this case instead of getHeightMinusBrowserControls() so the
             // normal stack goes up high enough to clear the status bar when the incognito stack is
             // active.
-            if (isHorizontalTabSwitcherFlagEnabled()) return StackLayoutBase.this.getHeight();
             return Math.round(mWidth - getInnerMargin());
         }
     }
@@ -1334,6 +1311,8 @@ public abstract class StackLayoutBase extends Layout {
 
     @Override
     protected void updateLayout(long time, long dt) {
+        if (mStacks.size() == 0) return;
+
         super.updateLayout(time, dt);
         boolean needUpdate = false;
 
@@ -1371,8 +1350,7 @@ public abstract class StackLayoutBase extends Layout {
             // If the non-overlapping horizontal tab switcher experiment is enabled, we pass -1 so
             // NonOverlappingStack can use the scroll position to keep the index used for visibility
             // prioritization up-to-date.
-            final boolean useFixedIndex =
-                    mSortingComparator == mOrderComparator && !isHorizontalTabSwitcherFlagEnabled();
+            final boolean useFixedIndex = mSortingComparator == mOrderComparator;
             mStacks.get(i).setStackFocusInfo(
                     stackFocus, useFixedIndex ? mStacks.get(i).getTabList().index() : -1);
         }
@@ -1445,11 +1423,6 @@ public abstract class StackLayoutBase extends Layout {
      * @return The distance between two neighboring tab stacks.
      */
     private float getFullScrollDistance() {
-        // For the horizontal tab switcher experiment, we use getHeight() instead of
-        // getHeightMinusBrowserControls() to make sure the normal stack goes up enough to clear the
-        // status bar when switching to incognito mode.
-        if (isHorizontalTabSwitcherFlagEnabled()) return getHeight();
-
         float distance = isUsingHorizontalLayout() ? getHeightMinusContentOffsetsDp() : getWidth();
         if (mStacks.size() > 2) {
             return distance - getViewportParameters().getInnerMargin();
@@ -1654,10 +1627,16 @@ public abstract class StackLayoutBase extends Layout {
         return mSceneLayer;
     }
 
+    private void ensureSceneLayerCreated() {
+        if (mSceneLayer != null) return;
+        mSceneLayer = new TabListSceneLayer();
+    }
+
     @Override
     protected void updateSceneLayer(RectF viewport, RectF contentViewport,
             LayerTitleCache layerTitleCache, TabContentManager tabContentManager,
             ResourceManager resourceManager, BrowserControlsStateProvider browserControls) {
+        ensureSceneLayerCreated();
         super.updateSceneLayer(viewport, contentViewport, layerTitleCache, tabContentManager,
                 resourceManager, browserControls);
         assert mSceneLayer != null;
@@ -1665,6 +1644,11 @@ public abstract class StackLayoutBase extends Layout {
         mSceneLayer.pushLayers(getContext(), viewport, contentViewport, this, layerTitleCache,
                 tabContentManager, resourceManager, browserControls, SceneLayer.INVALID_RESOURCE_ID,
                 0, 0);
+    }
+
+    @Override
+    public int getLayoutType() {
+        return LayoutType.TAB_SWITCHER;
     }
 
     /**

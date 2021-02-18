@@ -127,16 +127,6 @@ ParkableStringManager& ParkableStringManager::Instance() {
 
 ParkableStringManager::~ParkableStringManager() = default;
 
-void ParkableStringManager::SetRendererBackgrounded(bool backgrounded) {
-  DCHECK(IsMainThread());
-  backgrounded_ = backgrounded;
-}
-
-bool ParkableStringManager::IsRendererBackgrounded() const {
-  DCHECK(IsMainThread());
-  return backgrounded_;
-}
-
 bool ParkableStringManager::OnMemoryDump(
     base::trace_event::ProcessMemoryDump* pmd) {
   DCHECK(IsMainThread());
@@ -328,8 +318,8 @@ void ParkableStringManager::RecordStatisticsAfter5Minutes() const {
   if (stats.compressed_original_size != 0) {
     size_t ratio_percentage =
         (100 * stats.compressed_size) / stats.compressed_original_size;
-    base::UmaHistogramPercentage("Memory.ParkableString.CompressionRatio.5min",
-                                 ratio_percentage);
+    base::UmaHistogramPercentageObsoleteDoNotUse(
+        "Memory.ParkableString.CompressionRatio.5min", ratio_percentage);
   }
 
   // May not be usable, e.g. Incognito, permission or write failure.
@@ -486,7 +476,6 @@ ParkableStringManager::Statistics ParkableStringManager::ComputeStatistics()
 }
 
 void ParkableStringManager::ResetForTesting() {
-  backgrounded_ = false;
   has_pending_aging_task_ = false;
   has_posted_unparking_time_accounting_task_ = false;
   did_register_memory_pressure_listener_ = false;
@@ -501,8 +490,7 @@ void ParkableStringManager::ResetForTesting() {
 }
 
 ParkableStringManager::ParkableStringManager()
-    : backgrounded_(false),
-      has_pending_aging_task_(false),
+    : has_pending_aging_task_(false),
       has_posted_unparking_time_accounting_task_(false),
       did_register_memory_pressure_listener_(false),
       allocator_for_testing_(nullptr) {}

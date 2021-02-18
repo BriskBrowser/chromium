@@ -28,6 +28,7 @@
 #include "cc/debug/layer_tree_debug_state.h"
 #include "cc/input/layer_selection_bound.h"
 #include "cc/layers/layer.h"
+#include "cc/metrics/web_vital_metrics.h"
 #include "cc/trees/layer_tree_host.h"
 #include "cc/trees/layer_tree_mutator.h"
 #include "cc/trees/render_frame_metadata_observer.h"
@@ -38,11 +39,10 @@
 #include "components/viz/common/quads/compositor_frame_metadata.h"
 #include "components/viz/common/resources/single_release_callback.h"
 #include "third_party/blink/public/platform/scheduler/web_thread_scheduler.h"
+#include "third_party/blink/renderer/platform/graphics/dark_mode_filter.h"
+#include "third_party/blink/renderer/platform/graphics/dark_mode_settings_builder.h"
+#include "third_party/blink/renderer/platform/graphics/raster_dark_mode_filter_impl.h"
 #include "ui/gfx/presentation_feedback.h"
-
-namespace base {
-class Value;
-}
 
 namespace cc {
 class Layer;
@@ -50,34 +50,33 @@ class Layer;
 
 namespace blink {
 
-LayerTreeView::LayerTreeView(
-    LayerTreeViewDelegate* delegate,
-    scoped_refptr<base::SingleThreadTaskRunner> main_thread,
-    scoped_refptr<base::SingleThreadTaskRunner> compositor_thread,
-    cc::TaskGraphRunner* task_graph_runner,
-    scheduler::WebThreadScheduler* scheduler)
-    : main_thread_(std::move(main_thread)),
-      compositor_thread_(std::move(compositor_thread)),
-      task_graph_runner_(task_graph_runner),
-      web_main_thread_scheduler_(scheduler),
+LayerTreeView::LayerTreeView(LayerTreeViewDelegate* delegate,
+                             scheduler::WebThreadScheduler* scheduler)
+    : web_main_thread_scheduler_(scheduler),
       animation_host_(cc::AnimationHost::CreateMainInstance()),
+      dark_mode_filter_(std::make_unique<RasterDarkModeFilterImpl>(
+          GetCurrentDarkModeSettings())),
       delegate_(delegate) {}
 
 LayerTreeView::~LayerTreeView() = default;
 
 void LayerTreeView::Initialize(
     const cc::LayerTreeSettings& settings,
+    scoped_refptr<base::SingleThreadTaskRunner> main_thread,
+    scoped_refptr<base::SingleThreadTaskRunner> compositor_thread,
+    cc::TaskGraphRunner* task_graph_runner,
     std::unique_ptr<cc::UkmRecorderFactory> ukm_recorder_factory) {
   DCHECK(delegate_);
-  const bool is_threaded = !!compositor_thread_;
+  const bool is_threaded = !!compositor_thread;
 
   cc::LayerTreeHost::InitParams params;
   params.client = this;
   params.scheduling_client = this;
   params.settings = &settings;
-  params.task_graph_runner = task_graph_runner_;
-  params.main_task_runner = main_thread_;
+  params.task_graph_runner = task_graph_runner;
+  params.main_task_runner = std::move(main_thread);
   params.mutator_host = animation_host_.get();
+  params.dark_mode_filter = dark_mode_filter_.get();
   params.ukm_recorder_factory = std::move(ukm_recorder_factory);
   if (base::ThreadPoolInstance::Get()) {
     // The image worker thread needs to allow waiting since it makes discardable
@@ -93,8 +92,8 @@ void LayerTreeView::Initialize(
     layer_tree_host_ =
         cc::LayerTreeHost::CreateSingleThreaded(this, std::move(params));
   } else {
-    layer_tree_host_ = cc::LayerTreeHost::CreateThreaded(compositor_thread_,
-                                                         std::move(params));
+    layer_tree_host_ =
+        cc::LayerTreeHost::CreateThreaded(std::move(compositor_thread), std::move(params));
   }
 }
 
@@ -207,26 +206,11 @@ void LayerTreeView::ApplyViewportChanges(
   delegate_->ApplyViewportChanges(args);
 }
 
-void LayerTreeView::RecordManipulationTypeCounts(cc::ManipulationInfo info) {
+void LayerTreeView::UpdateCompositorScrollState(
+    const cc::CompositorCommitData& commit_data) {
   if (!delegate_)
     return;
-  delegate_->RecordManipulationTypeCounts(info);
-}
-
-void LayerTreeView::SendOverscrollEventFromImplSide(
-    const gfx::Vector2dF& overscroll_delta,
-    cc::ElementId scroll_latched_element_id) {
-  if (!delegate_)
-    return;
-  delegate_->SendOverscrollEventFromImplSide(overscroll_delta,
-                                             scroll_latched_element_id);
-}
-
-void LayerTreeView::SendScrollEndEventFromImplSide(
-    cc::ElementId scroll_latched_element_id) {
-  if (!delegate_)
-    return;
-  delegate_->SendScrollEndEventFromImplSide(scroll_latched_element_id);
+  delegate_->UpdateCompositorScrollState(commit_data);
 }
 
 void LayerTreeView::RequestNewLayerTreeFrameSink() {
@@ -329,19 +313,15 @@ LayerTreeView::GetBeginMainFrameMetrics() {
   return delegate_->GetBeginMainFrameMetrics();
 }
 
+std::unique_ptr<cc::WebVitalMetrics> LayerTreeView::GetWebVitalMetrics() {
+  if (!delegate_)
+    return nullptr;
+  return delegate_->GetWebVitalMetrics();
+}
+
 void LayerTreeView::NotifyThroughputTrackerResults(
     cc::CustomTrackerResults results) {
   NOTREACHED();
-}
-
-void LayerTreeView::SubmitThroughputData(ukm::SourceId source_id,
-                                         int aggregated_percent,
-                                         int impl_percent,
-                                         base::Optional<int> main_percent) {
-  if (!delegate_)
-    return;
-  delegate_->SubmitThroughputData(source_id, aggregated_percent, impl_percent,
-                                  main_percent);
 }
 
 void LayerTreeView::DidObserveFirstScrollDelay(
@@ -352,6 +332,12 @@ void LayerTreeView::DidObserveFirstScrollDelay(
   }
   delegate_->DidObserveFirstScrollDelay(first_scroll_delay,
                                         first_scroll_timestamp);
+}
+
+void LayerTreeView::RunPaintBenchmark(int repeat_count,
+                                      cc::PaintBenchmarkResult& result) {
+  if (delegate_)
+    delegate_->RunPaintBenchmark(repeat_count, result);
 }
 
 void LayerTreeView::DidScheduleBeginMainFrame() {

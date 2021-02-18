@@ -11,16 +11,13 @@
 #include "ash/public/cpp/app_list/internal_app_id_constants.h"
 #include "ash/public/cpp/app_menu_constants.h"
 #include "ash/public/cpp/keyboard_shortcut_viewer.h"
-#include "base/metrics/user_metrics.h"
 #include "base/time/time.h"
 #include "chrome/browser/apps/app_service/app_icon_factory.h"
 #include "chrome/browser/apps/app_service/app_service_metrics.h"
 #include "chrome/browser/apps/app_service/menu_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/internal_app/internal_app_metadata.h"
-#include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
-#include "chrome/browser/ui/webui/chromeos/login/discover/discover_window_manager.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/services/app_service/public/mojom/types.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -78,15 +75,6 @@ BuiltInChromeOsApps::BuiltInChromeOsApps(
 
 BuiltInChromeOsApps::~BuiltInChromeOsApps() = default;
 
-bool BuiltInChromeOsApps::hide_settings_app_for_testing_ = false;
-
-// static
-bool BuiltInChromeOsApps::SetHideSettingsAppForTesting(bool hide) {
-  bool old_value = hide_settings_app_for_testing_;
-  hide_settings_app_for_testing_ = hide;
-  return old_value;
-}
-
 void BuiltInChromeOsApps::Connect(
     mojo::PendingRemote<apps::mojom::Subscriber> subscriber_remote,
     apps::mojom::ConnectOptionsPtr opts) {
@@ -97,18 +85,14 @@ void BuiltInChromeOsApps::Connect(
     for (const auto& internal_app : app_list::GetInternalAppList(profile_)) {
       apps::mojom::AppPtr app = Convert(internal_app);
       if (!app.is_null()) {
-        if (hide_settings_app_for_testing_ &&
-            (internal_app.internal_app_name == BuiltInAppName::kSettings)) {
-          app->show_in_shelf = app->show_in_search =
-              apps::mojom::OptionalBool::kFalse;
-        }
         apps.push_back(std::move(app));
       }
     }
   }
   mojo::Remote<apps::mojom::Subscriber> subscriber(
       std::move(subscriber_remote));
-  subscriber->OnApps(std::move(apps));
+  subscriber->OnApps(std::move(apps), apps::mojom::AppType::kBuiltIn,
+                     true /* should_notify_initialized */);
 
   // Unlike other apps::mojom::Publisher implementations, we don't need to
   // retain the subscriber (e.g. add it to a
@@ -138,17 +122,9 @@ void BuiltInChromeOsApps::LoadIcon(const std::string& app_id,
 void BuiltInChromeOsApps::Launch(const std::string& app_id,
                                  int32_t event_flags,
                                  apps::mojom::LaunchSource launch_source,
-                                 int64_t display_id) {
+                                 apps::mojom::WindowInfoPtr window_info) {
   if (app_id == ash::kInternalAppIdKeyboardShortcutViewer) {
     ash::ToggleKeyboardShortcutViewer();
-  } else if (app_id == ash::kInternalAppIdDiscover) {
-    base::RecordAction(base::UserMetricsAction("ShowDiscover"));
-    chromeos::DiscoverWindowManager::GetInstance()
-        ->ShowChromeDiscoverPageForProfile(profile_);
-  } else if (app_id == ash::kReleaseNotesAppId) {
-    base::RecordAction(
-        base::UserMetricsAction("ReleaseNotes.SuggestionChipLaunched"));
-    chrome::LaunchReleaseNotes(profile_, launch_source);
   }
 }
 

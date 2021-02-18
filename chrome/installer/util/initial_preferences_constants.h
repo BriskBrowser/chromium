@@ -2,17 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
-// This file contains the constants used to process master_preferences files
+// This file contains the constants used to process initial_preferences files
 // used by setup and first run.
 
 #ifndef CHROME_INSTALLER_UTIL_INITIAL_PREFERENCES_CONSTANTS_H_
 #define CHROME_INSTALLER_UTIL_INITIAL_PREFERENCES_CONSTANTS_H_
 
 namespace installer {
-namespace master_preferences {
+namespace initial_preferences {
 // All the preferences below are expected to be inside the JSON "distribution"
 // block. Some of them also have equivalent command line option. If same option
-// is specified in master preference as well as command line, the command line
+// is specified in initial preference as well as command line, the command line
 // value takes precedence.
 
 // Boolean pref that disables all logging.
@@ -53,18 +53,23 @@ extern const char kMsi[];
 // String. The MSI Product ID under which the MSI stores its information.  This
 // is used to update the DisplayVersion to match Chrome's version number.
 extern const char kMsiProductId[];
+// Installs Chrome in the location specified by the msi PROGRAMFILESDIR custom
+// property. The only accepted values are the values mapped to
+// CSIDL_PROGRAM_FILESX86 and CSIDL_PROGRAM_FILES. This property will only be
+// applied on fresh system installs.
+extern const char kProgramFilesDir[];
 // Boolean. Show EULA dialog before install.
 extern const char kRequireEula[];
 // Boolean. Install Chrome to system wise location. Cmd line override present.
 extern const char kSystemLevel[];
 // Boolean. Run installer in verbose mode. Cmd line override present.
 extern const char kVerboseLogging[];
-// Name of the block that contains the extensions on the master preferences.
+// Name of the block that contains the extensions on the initial preferences.
 extern const char kExtensionsBlock[];
 // Boolean. Allow Chrome to be downgraded to a previous version if true.
 extern const char kAllowDowngrade[];
 
-}  // namespace master_preferences
+}  // namespace initial_preferences
 }  // namespace installer
 
 #endif  // CHROME_INSTALLER_UTIL_INITIAL_PREFERENCES_CONSTANTS_H_

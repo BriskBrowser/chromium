@@ -10,11 +10,13 @@
 #include <vector>
 
 #include "ash/ash_export.h"
+#include "ash/public/cpp/autotest_desks_api.h"
 #include "ash/public/cpp/desks_helper.h"
 #include "ash/public/cpp/session/session_observer.h"
 #include "ash/wm/desks/desks_histogram_enums.h"
 #include "ash/wm/desks/root_window_desk_switch_animator.h"
 #include "base/containers/flat_map.h"
+#include "base/containers/flat_set.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "components/account_id/account_id.h"
@@ -46,6 +48,9 @@ class ASH_EXPORT DesksController : public DesksHelper,
     // observers have been notified with this.
     virtual void OnDeskRemoved(const Desk* desk) = 0;
 
+    // Called when the desk at |old_index| is reordered to |new_index|.
+    virtual void OnDeskReordered(int old_index, int new_index) = 0;
+
     // Called when the |activated| desk gains activation from the |deactivated|
     // desk.
     virtual void OnDeskActivationChanged(const Desk* activated,
@@ -68,13 +73,34 @@ class ASH_EXPORT DesksController : public DesksHelper,
   // instance is created and owned by Shell.
   static DesksController* Get();
 
+  // Returns the default name for a desk at |desk_index|.
+  static base::string16 GetDeskDefaultName(size_t desk_index);
+
   const std::vector<std::unique_ptr<Desk>>& desks() const { return desks_; }
 
   const Desk* active_desk() const { return active_desk_; }
 
+  const base::flat_set<aura::Window*>& visible_on_all_desks_windows() const {
+    return visible_on_all_desks_windows_;
+  }
+
+  DeskAnimationBase* animation() const { return animation_.get(); }
+
   // Returns the current |active_desk()| or the soon-to-be active desk if a desk
   // switch animation is in progress.
   const Desk* GetTargetActiveDesk() const;
+
+  // Returns the visible on all desks windows that reside on |root_window|.
+  base::flat_set<aura::Window*> GetVisibleOnAllDesksWindowsOnRoot(
+      aura::Window* root_window) const;
+
+  // Restores the primary user's activate desk at active_desk_index.
+  void RestorePrimaryUserActiveDeskIndex(int active_desk_index);
+
+  // Restacks the visible on all desks windows on the active desks and notifies
+  // all desks of content change. Should be called during user switch when the
+  // new user's windows have been shown.
+  void OnNewUserShown();
 
   // Destroys any pending animations in preparation for shutdown.
   void Shutdown();
@@ -94,11 +120,11 @@ class ASH_EXPORT DesksController : public DesksHelper,
   // there is at least one single desk at any time.
   bool CanRemoveDesks() const;
 
-  // Returns the next / previous desks to the currently active desk. Returns
-  // nullptr if the active desk is the first on the left or the last on the
-  // right, and previous and next desks are requested respectively.
-  Desk* GetNextDesk() const;
-  Desk* GetPreviousDesk() const;
+  // Returns the next / previous desks to the target / currently active desk.
+  // Returns nullptr if the active desk is the first on the left or the last on
+  // the right, and previous and next desks are requested respectively.
+  Desk* GetNextDesk(bool use_target_active_desk = true) const;
+  Desk* GetPreviousDesk(bool use_target_active_desk = true) const;
 
   // Creates a new desk. CanCreateDesks() must be checked before calling this.
   void NewDesk(DesksCreationRemovalSource source);
@@ -108,6 +134,9 @@ class ASH_EXPORT DesksController : public DesksHelper,
   // This will trigger the `DeskRemovalAnimation` if the active desk is being
   // removed outside of overview.
   void RemoveDesk(const Desk* desk, DesksCreationRemovalSource source);
+
+  // Reorder the desk at |old_index| to |new_index|.
+  void ReorderDesk(int old_index, int new_index);
 
   // Performs the desk switch animation on all root windows to activate the
   // given |desk| and to deactivate the currently active one. |desk| has to be
@@ -123,19 +152,38 @@ class ASH_EXPORT DesksController : public DesksHelper,
   // do nothing, no desk switch or hit the wall animation.
   bool ActivateAdjacentDesk(bool going_left, DesksSwitchSource source);
 
+  // Functions used by WmGestureHandler to modify the current touchpad desk
+  // animation, if it exists. StartSwipeAnimation starts a new animation to
+  // an adjacent desk, or replaces an existing swipe animation. It returns
+  // true if either of those were successful, false otherwise.
+  bool StartSwipeAnimation(bool move_left);
+  void UpdateSwipeAnimation(float scroll_delta_x);
+  void EndSwipeAnimation();
+
   // Moves |window| (which must belong to the currently active desk) to
   // |target_desk| (which must be a different desk).
   // |target_root| is provided if |window| is desired to be moved to another
   // desk on another display, otherwise, you can just provide
   // |window->GetRootWindow()| if the window should stay on the same display.
-  // If |window| is minimized, it will be unminimized after it's moved to
-  // |target_desk|.
-  // Returns true on success, false otherwise (e.g. if |window| doesn't belong
-  // to the active desk).
+  // If |window| is minimized and isn't visible on all desks, it will be
+  // unminimized after it's moved to |target_desk|. Returns true on success,
+  // false otherwise (e.g. if |window| doesn't belong to the active desk or
+  // |window| is visible on all desks and user is manually moving it). If
+  // |window| is visible on all desks and |source| is kShortcut, it will be made
+  // not visible on all desks.
   bool MoveWindowFromActiveDeskTo(aura::Window* window,
                                   Desk* target_desk,
                                   aura::Window* target_root,
                                   DesksMoveWindowFromActiveDeskSource source);
+
+  // Adds |window| to |visible_on_all_desks_windows_|.
+  void AddVisibleOnAllDesksWindow(aura::Window* window);
+
+  // Removes |window| if it is in |visible_on_all_desks_windows_|.
+  void MaybeRemoveVisibleOnAllDesksWindow(aura::Window* window);
+
+  // Notifies each desk in |desks_| that their contents has changed.
+  void NotifyAllDesksForContentChanged();
 
   // Reverts the name of the given |desk| to the default value (i.e. "Desk 1",
   // "Desk 2", ... etc.) according to its position in the |desks_| list, as if
@@ -152,8 +200,23 @@ class ASH_EXPORT DesksController : public DesksHelper,
   void OnRootWindowAdded(aura::Window* root_window);
   void OnRootWindowClosing(aura::Window* root_window);
 
+  int GetDeskIndex(const Desk* desk) const;
+
+  // Gets the container of the desk at |desk_index| in a specific screen with a
+  // |target_root|. If desk_index is invalid, it returns nullptr.
+  aura::Window* GetDeskContainer(aura::Window* target_root, int desk_index);
+
   // DesksHelper:
   bool BelongsToActiveDesk(aura::Window* window) override;
+  int GetActiveDeskIndex() const override;
+  base::string16 GetDeskName(int index) const override;
+  int GetNumberOfDesks() const override;
+  void SendToDeskAtIndex(aura::Window* window, int desk_index) override;
+
+  // Updates the default names (e.g. "Desk 1", "Desk 2", ... etc.) given to the
+  // desks. This is called when desks are added, removed or reordered to update
+  // the names based on the desks order.
+  void UpdateDesksDefaultNames();
 
   // ::wm::ActivationChangeObserver:
   void OnWindowActivating(ActivationReason reason,
@@ -167,7 +230,11 @@ class ASH_EXPORT DesksController : public DesksHelper,
   void OnActiveUserSessionChanged(const AccountId& account_id) override;
   void OnFirstSessionStarted() override;
 
+  // Fires the timer used for recording desk traversals immediately.
+  void FireMetricsTimerForTesting();
+
  private:
+  class DeskTraversalsMetricsHelper;
   friend class DeskAnimationBase;
   friend class DeskActivationAnimation;
   friend class DeskRemovalAnimation;
@@ -175,8 +242,6 @@ class ASH_EXPORT DesksController : public DesksHelper,
   void OnAnimationFinished(DeskAnimationBase* animation);
 
   bool HasDesk(const Desk* desk) const;
-
-  int GetDeskIndex(const Desk* desk) const;
 
   // Activates the given |desk| and deactivates the currently active one. |desk|
   // has to be an existing desk. If |update_window_activation| is true,
@@ -192,6 +257,15 @@ class ASH_EXPORT DesksController : public DesksHelper,
   // Removes `desk` without animation.
   void RemoveDeskInternal(const Desk* desk, DesksCreationRemovalSource source);
 
+  // Moves all the windows that are visible on all desks that currently
+  // reside on |active_desk_| to |new_desk|.
+  void MoveVisibleOnAllDesksWindowsFromActiveDeskTo(Desk* new_desk);
+
+  // Iterates through the visible on all desks windows on the active desk
+  // and restacks them based on their position in the global MRU tracker. This
+  // should be called after desk activation.
+  void RestackVisibleOnAllDesksWindowsOnActiveDesk();
+
   // Returns the desk to which |window| belongs or nullptr if it doesn't belong
   // to any desk.
   const Desk* FindDeskOfWindow(aura::Window* window) const;
@@ -201,11 +275,6 @@ class ASH_EXPORT DesksController : public DesksHelper,
   void ReportNumberOfWindowsPerDeskHistogram() const;
 
   void ReportDesksCountHistogram() const;
-
-  // Updates the default names (e.g. "Desk 1", "Desk 2", ... etc.) given to the
-  // desks. This is called when desks are added or removed to update the names
-  // based on the desks order.
-  void UpdateDesksDefaultNames();
 
   std::vector<std::unique_ptr<Desk>> desks_;
 
@@ -217,14 +286,16 @@ class ASH_EXPORT DesksController : public DesksHelper,
   // Stores the per-user last active desk index.
   base::flat_map<AccountId, int> user_to_active_desk_index_;
 
+  // Stores the visible on all desks windows.
+  base::flat_set<aura::Window*> visible_on_all_desks_windows_;
+
   // True when desks addition, removal, or activation change are in progress.
   // This can be checked when overview mode is active to avoid exiting overview
   // mode as a result of desks modifications.
   bool are_desks_being_modified_ = false;
 
-  // List of on-going desks animations.
-  // TODO(sammiequon): Investigate if this needs to still be a list.
-  std::vector<std::unique_ptr<DeskAnimationBase>> animations_;
+  // Not null if there is an on-going desks animation.
+  std::unique_ptr<DeskAnimationBase> animation_;
 
   // A free list of desk container IDs to be used for newly-created desks. New
   // desks pops from this queue and removed desks's associated container IDs are
@@ -233,6 +304,10 @@ class ASH_EXPORT DesksController : public DesksHelper,
 
   // True when the enhanced desk animations feature is enabled.
   const bool is_enhanced_desk_animations_;
+
+  // Responsible for tracking and writing number of desk traversals one has
+  // done within a span of X seconds.
+  std::unique_ptr<DeskTraversalsMetricsHelper> metrics_helper_;
 
   base::ObserverList<Observer>::Unchecked observers_;
 

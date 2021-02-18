@@ -40,6 +40,7 @@
 #include "third_party/blink/public/common/input/web_menu_source_type.h"
 #include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
 #include "third_party/blink/public/common/widget/screen_info.h"
+#include "third_party/blink/public/mojom/frame/viewport_intersection_state.mojom-blink.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom-blink-forward.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_spell_check_panel_host_client.h"
@@ -96,7 +97,10 @@ class CORE_EXPORT EmptyChromeClient : public ChromeClient {
   void DidFocusPage() override {}
   bool CanTakeFocus(mojom::blink::FocusType) override { return false; }
   void TakeFocus(mojom::blink::FocusType) override {}
-  void Show(NavigationPolicy) override {}
+  void Show(const base::UnguessableToken& opener_frame_token,
+            NavigationPolicy navigation_policy,
+            const IntRect& initial_rect,
+            bool user_gesture) override {}
   void DidOverscroll(const gfx::Vector2dF&,
                      const gfx::Vector2dF&,
                      const gfx::PointF&,
@@ -110,12 +114,14 @@ class CORE_EXPORT EmptyChromeClient : public ChromeClient {
                             cc::PaintHoldingCommitTrigger) override {}
   void StartDragging(LocalFrame*,
                      const WebDragData&,
-                     WebDragOperationsMask,
+                     DragOperationsMask,
                      const SkBitmap& drag_image,
                      const gfx::Point& drag_image_offset) override {}
   bool AcceptsLoadDrops() const override { return true; }
-  bool ShouldReportDetailedMessageForSource(LocalFrame&,
-                                            const String&) override {
+  bool ShouldReportDetailedMessageForSourceAndSeverity(
+      LocalFrame&,
+      mojom::blink::ConsoleMessageLevel,
+      const String&) override {
     return false;
   }
   void AddMessageToConsole(LocalFrame*,
@@ -135,8 +141,8 @@ class CORE_EXPORT EmptyChromeClient : public ChromeClient {
                              const AtomicString&,
                              const WebWindowFeatures&,
                              network::mojom::blink::WebSandboxFlags,
-                             const FeaturePolicyFeatureState&,
-                             const SessionStorageNamespaceId&) override {
+                             const SessionStorageNamespaceId&,
+                             bool& consumed_user_gesture) override {
     return nullptr;
   }
   bool OpenJavaScriptAlertDelegate(LocalFrame*, const String&) override {
@@ -216,7 +222,7 @@ class CORE_EXPORT EmptyChromeClient : public ChromeClient {
   void InstallSupplements(LocalFrame&) override {}
   void MainFrameScrollOffsetChanged(LocalFrame& main_frame) const override {}
   void BatterySavingsChanged(LocalFrame& main_frame,
-                             WebBatterySavingsFlags savings) override {}
+                             BatterySavingsFlags savings) override {}
 };
 
 class CORE_EXPORT EmptyLocalFrameClient : public LocalFrameClient {
@@ -238,9 +244,14 @@ class CORE_EXPORT EmptyLocalFrameClient : public LocalFrameClient {
 
   void DispatchDidHandleOnloadEvents() override {}
   void DispatchDidReceiveTitle(const String&) override {}
-  void DispatchDidCommitLoad(HistoryItem*,
-                             WebHistoryCommitType,
-                             bool) override {}
+  void DispatchDidCommitLoad(
+      HistoryItem* item,
+      WebHistoryCommitType commit_type,
+      bool should_reset_browser_interface_broker,
+      network::mojom::WebSandboxFlags sandbox_flags,
+      const blink::ParsedFeaturePolicy& feature_policy_header,
+      const blink::DocumentPolicyFeatureState& document_policy_header)
+      override {}
   void DispatchDidFailLoad(const ResourceError&,
                            WebHistoryCommitType) override {}
   void DispatchDidFinishDocumentLoad() override {}
@@ -255,7 +266,7 @@ class CORE_EXPORT EmptyLocalFrameClient : public LocalFrameClient {
       NavigationPolicy,
       WebFrameLoadType,
       bool,
-      TriggeringEventInfo,
+      mojom::blink::TriggeringEventInfo,
       HTMLFormElement*,
       network::mojom::CSPDisposition,
       mojo::PendingRemote<mojom::blink::BlobURLToken>,
@@ -264,9 +275,11 @@ class CORE_EXPORT EmptyLocalFrameClient : public LocalFrameClient {
       const base::Optional<WebImpression>&,
       WTF::Vector<network::mojom::blink::ContentSecurityPolicyPtr>
           initiator_csp,
-      network::mojom::blink::CSPSourcePtr initiator_self_source,
       network::mojom::IPAddressSpace,
-      mojo::PendingRemote<mojom::blink::NavigationInitiator>) override;
+      mojo::PendingRemote<mojom::blink::NavigationInitiator>,
+      const base::UnguessableToken* initiator_frame_token,
+      mojo::PendingRemote<mojom::blink::PolicyContainerHostKeepAliveHandle>)
+      override;
 
   void DispatchWillSendSubmitEvent(HTMLFormElement*) override;
 
@@ -315,7 +328,6 @@ class CORE_EXPORT EmptyLocalFrameClient : public LocalFrameClient {
   WebRemotePlaybackClient* CreateWebRemotePlaybackClient(
       HTMLMediaElement&) override;
 
-  void DidCreateInitialEmptyDocument() override {}
   void DidCommitDocumentReplacementNavigation(DocumentLoader*) override {}
   void DispatchDidClearWindowObjectInMainWorld() override {}
   void DocumentElementAvailable() override {}
@@ -387,38 +399,6 @@ class EmptySpellCheckPanelHostClient : public WebSpellCheckPanelHostClient {
   void UpdateSpellingUIWithMisspelledWord(const WebString&) override {}
 
   DISALLOW_COPY_AND_ASSIGN(EmptySpellCheckPanelHostClient);
-};
-
-class CORE_EXPORT EmptyRemoteFrameClient : public RemoteFrameClient {
- public:
-  EmptyRemoteFrameClient();
-
-  // RemoteFrameClient implementation.
-  void Navigate(const ResourceRequest&,
-                blink::WebLocalFrame* initiator_frame,
-                bool should_replace_current_entry,
-                bool is_opener_navigation,
-                bool initiator_frame_has_download_sandbox_flag,
-                bool initiator_frame_is_ad,
-                mojo::PendingRemote<mojom::blink::BlobURLToken>,
-                const base::Optional<WebImpression>&) override {}
-  unsigned BackForwardLength() override { return 0; }
-  void FrameRectsChanged(const IntRect& local_frame_rect,
-                         const IntRect& transformed_frame_rect) override {}
-  void UpdateRemoteViewportIntersection(
-      const ViewportIntersectionState& intersection_state) override {}
-  AssociatedInterfaceProvider* GetRemoteAssociatedInterfaces() override {
-    return AssociatedInterfaceProvider::GetEmptyAssociatedInterfaceProvider();
-  }
-
-  // FrameClient implementation.
-  bool InShadowTree() const override { return false; }
-  void Detached(FrameDetachType) override {}
-  base::UnguessableToken GetDevToolsFrameToken() const override {
-    return base::UnguessableToken::Create();
-  }
-
-  DISALLOW_COPY_AND_ASSIGN(EmptyRemoteFrameClient);
 };
 
 CORE_EXPORT void FillWithEmptyClients(Page::PageClients&);

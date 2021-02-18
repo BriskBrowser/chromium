@@ -27,7 +27,7 @@ class TrayEventFilter;
 // inherits from ActionableView so that the tray items can override
 // PerformAction when clicked on.
 class ASH_EXPORT TrayBackgroundView : public ActionableView,
-                                      public ui::ImplicitAnimationObserver,
+                                      public ui::LayerAnimationObserver,
                                       public ShelfBackgroundAnimatorObserver,
                                       public TrayBubbleView::Delegate,
                                       public VirtualKeyboardModel::Observer {
@@ -76,9 +76,6 @@ class ASH_EXPORT TrayBackgroundView : public ActionableView,
   // Called whenever the status area's collapse state changes.
   virtual void UpdateAfterStatusAreaCollapseChange();
 
-  // Called whenever the system color mode changes.
-  virtual void UpdateAfterColorModeChange();
-
   // Called when the anchor (tray or bubble) may have moved or changed.
   virtual void AnchorUpdated() {}
 
@@ -100,6 +97,9 @@ class ASH_EXPORT TrayBackgroundView : public ActionableView,
   // Called by the bubble wrapper when a click event occurs outside the bubble.
   // May close the bubble.
   virtual void ClickedOutsideBubble() = 0;
+
+  // Updates the background layer.
+  virtual void UpdateBackground();
 
   void SetIsActive(bool is_active);
   bool is_active() const { return is_active_; }
@@ -153,6 +153,10 @@ class ASH_EXPORT TrayBackgroundView : public ActionableView,
     show_with_virtual_keyboard_ = show_with_virtual_keyboard;
   }
 
+  void set_use_bounce_in_animation(bool use_bounce_in_animation) {
+    use_bounce_in_animation_ = use_bounce_in_animation;
+  }
+
  private:
   class TrayWidgetObserver;
 
@@ -165,18 +169,19 @@ class ASH_EXPORT TrayBackgroundView : public ActionableView,
   const char* GetClassName() const override;
 
   // ui::ImplicitAnimationObserver:
-  void OnImplicitAnimationsCompleted() override;
-  bool RequiresNotificationWhenAnimatorDestroyed() const override;
+  void OnLayerAnimationAborted(ui::LayerAnimationSequence* sequence) override {}
+  void OnLayerAnimationEnded(ui::LayerAnimationSequence* sequence) override;
+  void OnLayerAnimationScheduled(
+      ui::LayerAnimationSequence* sequence) override {}
 
   // Applies transformations to the |layer()| to animate the view when
   // SetVisible(false) is called.
-  void HideTransformation();
+  void HideAnimation();
+  void FadeInAnimation();
+  void BounceInAnimation();
 
   // Helper function that calculates background insets relative to local bounds.
   gfx::Insets GetBackgroundInsets() const;
-
-  // Updates the background layer.
-  virtual void UpdateBackground();
 
   // Returns the effective visibility of the tray item based on the current
   // state.
@@ -206,6 +211,8 @@ class ASH_EXPORT TrayBackgroundView : public ActionableView,
 
   // If true, the view is visible when the status area is collapsed.
   bool show_when_collapsed_;
+
+  bool use_bounce_in_animation_ = false;
 
   std::unique_ptr<TrayWidgetObserver> widget_observer_;
   std::unique_ptr<TrayEventFilter> tray_event_filter_;

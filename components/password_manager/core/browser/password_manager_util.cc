@@ -10,20 +10,22 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/feature_list.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/ranges/algorithm.h"
 #include "base/stl_util.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "components/autofill/core/browser/logging/log_manager.h"
 #include "components/autofill/core/browser/ui/popup_item_ids.h"
-#include "components/autofill/core/common/password_form.h"
 #include "components/autofill/core/common/password_generation_util.h"
 #include "components/password_manager/core/browser/android_affiliation/affiliation_utils.h"
 #include "components/password_manager/core/browser/credentials_cleaner.h"
 #include "components/password_manager/core/browser/credentials_cleaner_runner.h"
 #include "components/password_manager/core/browser/http_credentials_cleaner.h"
 #include "components/password_manager/core/browser/password_feature_manager.h"
+#include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/password_generation_frame_helper.h"
 #include "components/password_manager/core/browser/password_manager.h"
 #include "components/password_manager/core/browser/password_manager_client.h"
@@ -39,7 +41,8 @@
 #include "components/sync/driver/sync_service.h"
 #include "components/sync/driver/sync_user_settings.h"
 
-using autofill::PasswordForm;
+using autofill::password_generation::PasswordGenerationType;
+using password_manager::PasswordForm;
 
 namespace password_manager_util {
 namespace {
@@ -144,7 +147,7 @@ void UserTriggeredManualGenerationFromContextMenu(
     password_manager::PasswordManagerClient* password_manager_client) {
   if (!password_manager_client->GetPasswordFeatureManager()
            ->ShouldShowAccountStorageOptIn()) {
-    password_manager_client->GeneratePassword();
+    password_manager_client->GeneratePassword(PasswordGenerationType::kManual);
     LogPasswordGenerationEvent(autofill::password_generation::
                                    PASSWORD_GENERATION_CONTEXT_MENU_PRESSED);
     return;
@@ -158,7 +161,7 @@ void UserTriggeredManualGenerationFromContextMenu(
              password_manager::PasswordManagerClient::ReauthSucceeded
                  succeeded) {
             if (succeeded) {
-              client->GeneratePassword();
+              client->GeneratePassword(PasswordGenerationType::kManual);
               LogPasswordGenerationEvent(
                   autofill::password_generation::
                       PASSWORD_GENERATION_CONTEXT_MENU_PRESSED);
@@ -170,13 +173,13 @@ void UserTriggeredManualGenerationFromContextMenu(
 // TODO(http://crbug.com/890318): Add unitests to check cleaners are correctly
 // created.
 void RemoveUselessCredentials(
+    password_manager::CredentialsCleanerRunner* cleaning_tasks_runner,
     scoped_refptr<password_manager::PasswordStore> store,
     PrefService* prefs,
-    int delay_in_seconds,
+    base::TimeDelta delay,
     base::RepeatingCallback<network::mojom::NetworkContext*()>
         network_context_getter) {
-  auto cleaning_tasks_runner =
-      std::make_unique<password_manager::CredentialsCleanerRunner>();
+  DCHECK(cleaning_tasks_runner);
 
 #if !defined(OS_IOS)
   // Can be null for some unittests.
@@ -194,23 +197,19 @@ void RemoveUselessCredentials(
         FROM_HERE,
         base::BindOnce(
             &password_manager::CredentialsCleanerRunner::StartCleaning,
-            base::Unretained(cleaning_tasks_runner.release())),
-        base::TimeDelta::FromSeconds(delay_in_seconds));
+            cleaning_tasks_runner->GetWeakPtr()),
+        delay);
   }
 }
 
 base::StringPiece GetSignonRealmWithProtocolExcluded(const PasswordForm& form) {
-  base::StringPiece signon_realm_protocol_excluded = form.signon_realm;
+  base::StringPiece signon_realm = form.signon_realm;
 
   // Find the web origin (with protocol excluded) in the signon_realm.
-  const size_t after_protocol =
-      signon_realm_protocol_excluded.find(form.url.host_piece());
-  DCHECK_NE(after_protocol, base::StringPiece::npos);
+  const size_t after_protocol = signon_realm.find(form.url.host_piece());
 
   // Keep the string starting with position |after_protocol|.
-  signon_realm_protocol_excluded =
-      signon_realm_protocol_excluded.substr(after_protocol);
-  return signon_realm_protocol_excluded;
+  return signon_realm.substr(std::min(after_protocol, signon_realm.size()));
 }
 
 void FindBestMatches(
@@ -219,9 +218,8 @@ void FindBestMatches(
     std::vector<const PasswordForm*>* non_federated_same_scheme,
     std::vector<const PasswordForm*>* best_matches,
     const PasswordForm** preferred_match) {
-  DCHECK(std::all_of(
-      non_federated_matches.begin(), non_federated_matches.end(),
-      [](const PasswordForm* match) { return !match->blocked_by_user; }));
+  DCHECK(base::ranges::none_of(non_federated_matches,
+                               &PasswordForm::blocked_by_user));
   DCHECK(non_federated_same_scheme);
   DCHECK(best_matches);
   DCHECK(preferred_match);
@@ -315,9 +313,9 @@ const PasswordForm* GetMatchForUpdating(
   return credentials.empty() ? nullptr : credentials.front();
 }
 
-autofill::PasswordForm MakeNormalizedBlacklistedForm(
+PasswordForm MakeNormalizedBlocklistedForm(
     password_manager::PasswordStore::FormDigest digest) {
-  autofill::PasswordForm result;
+  PasswordForm result;
   result.blocked_by_user = true;
   result.scheme = std::move(digest.scheme);
   result.signon_realm = std::move(digest.signon_realm);

@@ -14,7 +14,7 @@
 #include "chrome/browser/signin/account_consistency_mode_manager.h"
 #include "chrome/browser/signin/signin_ui_util.h"
 #include "chrome/browser/ui/browser_window.h"
-#include "chrome/browser/ui/user_manager.h"
+#include "chrome/browser/ui/profile_picker.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service_factory.h"
 #include "chrome/browser/ui/webui/signin/signin_error_handler.h"
@@ -34,8 +34,8 @@
 SigninErrorUI::SigninErrorUI(content::WebUI* web_ui)
     : SigninWebDialogUI(web_ui) {
   Profile* webui_profile = Profile::FromWebUI(web_ui);
-  if (webui_profile->GetOriginalProfile()->IsSystemProfile()) {
-    InitializeMessageHandlerForUserManager();
+  if (webui_profile->IsSystemProfile()) {
+    InitializeMessageHandlerForProfilePicker();
   }
 }
 
@@ -44,7 +44,7 @@ void SigninErrorUI::InitializeMessageHandlerWithBrowser(Browser* browser) {
   Initialize(browser, false /* is_system_profile */);
 }
 
-void SigninErrorUI::InitializeMessageHandlerForUserManager() {
+void SigninErrorUI::InitializeMessageHandlerForProfilePicker() {
   Initialize(nullptr, true /* is_system_profile */);
 }
 
@@ -56,7 +56,7 @@ void SigninErrorUI::Initialize(Browser* browser, bool is_system_profile) {
 
   if (is_system_profile) {
     signin_profile = g_browser_process->profile_manager()->GetProfileByPath(
-        UserManager::GetSigninProfilePath());
+        ProfilePicker::GetForceSigninProfilePath());
     // Sign in is completed before profile creation.
     if (!signin_profile)
       signin_profile = webui_profile->GetOriginalProfile();
@@ -73,6 +73,7 @@ void SigninErrorUI::Initialize(Browser* browser, bool is_system_profile) {
   source->AddResourcePath("signin_error_app.js", IDR_SIGNIN_ERROR_APP_JS);
   source->AddResourcePath("signin_error.js", IDR_SIGNIN_ERROR_JS);
   source->AddResourcePath("signin_shared_css.js", IDR_SIGNIN_SHARED_CSS_JS);
+  source->AddResourcePath("signin_vars_css.js", IDR_SIGNIN_VARS_CSS_JS);
   source->AddBoolean("isSystemProfile", is_system_profile);
 
   // Retrieve the last signin error message and email used.

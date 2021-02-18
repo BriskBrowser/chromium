@@ -39,9 +39,11 @@ struct NetworkInfo {
   chromeos::network_config::mojom::ConnectionStateType connection_state;
   chromeos::network_config::mojom::NetworkType type;
   chromeos::network_config::mojom::OncSource source;
+  // Used by cellular networks, for other network types, activation_status is
+  // set to a default value of kUnknown.
+  chromeos::network_config::mojom::ActivationStateType activation_state;
   int battery_percentage = 0;
   int signal_strength = 0;
-  std::string captive_portal_provider_name;
 };
 
 }  // namespace ash

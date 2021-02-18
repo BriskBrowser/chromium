@@ -10,15 +10,12 @@
   "incognito": "split",
 {% endif %}
   "background": {
-    "scripts": [
-      "accessibility_common/autoclick/autoclick.js",
-      "accessibility_common/magnifier/magnifier.js",
-      "accessibility_common/accessibility_common_loader.js"
-    ]
+    "page": "accessibility_common/background.html"
   },
   "permissions": [
     "accessibilityPrivate",
     "accessibilityFeatures.read",
+    "accessibilityFeatures.modify",
     "settingsPrivate"
   ],
   "automation": {

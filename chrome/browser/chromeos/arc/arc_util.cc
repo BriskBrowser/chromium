@@ -11,6 +11,8 @@
 #include <string>
 #include <utility>
 
+#include "ash/constants/ash_features.h"
+#include "ash/constants/ash_switches.h"
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/files/file_path.h"
@@ -23,19 +25,18 @@
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
-#include "chrome/browser/chrome_content_browser_client.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/arc/arc_web_contents_data.h"
 #include "chrome/browser/chromeos/arc/policy/arc_policy_util.h"
 #include "chrome/browser/chromeos/arc/session/arc_session_manager.h"
+#include "chrome/browser/chromeos/file_manager/path_util.h"
+#include "chrome/browser/chromeos/guest_os/guest_os_share_path.h"
 #include "chrome/browser/chromeos/login/configuration_keys.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_setup_controller.h"
 #include "chrome/browser/chromeos/login/oobe_configuration.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
-#include "chrome/browser/chromeos/login/user_flow.h"
-#include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -44,11 +45,10 @@
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #include "chrome/browser/ui/simple_message_box.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "components/arc/arc_features.h"
 #include "components/arc/arc_prefs.h"
 #include "components/arc/arc_util.h"
+#include "components/embedder_support/user_agent_utils.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/known_user.h"
 #include "components/user_manager/user.h"
@@ -71,11 +71,6 @@ namespace {
 // a value then this means that check has not been performed yet.
 base::LazyInstance<std::map<const Profile*, bool>>::DestructorAtExit
     g_profile_status_check = LAZY_INSTANCE_INITIALIZER;
-
-// The cached value of migration allowed for profile. It is necessary to use
-// the same value during a user session.
-base::LazyInstance<std::map<base::FilePath, bool>>::DestructorAtExit
-    g_is_arc_migration_allowed = LAZY_INSTANCE_INITIALIZER;
 
 // Let IsAllowedForProfile() return "false" for any profile.
 bool g_disallow_for_testing = false;
@@ -136,13 +131,6 @@ void StoreCompatibilityCheckResult(const AccountId& account_id,
   std::move(callback).Run();
 }
 
-bool IsArcMigrationAllowedInternal(const Profile* profile) {
-  return static_cast<policy_util::EcryptfsMigrationAction>(
-             profile->GetPrefs()->GetInteger(
-                 prefs::kEcryptfsMigrationStrategy)) !=
-         policy_util::EcryptfsMigrationAction::kDisallowMigration;
-}
-
 bool IsUnaffiliatedArcAllowed() {
   bool arc_allowed;
   ArcSessionManager* arc_session_manager = ArcSessionManager::Get();
@@ -190,19 +178,6 @@ bool IsArcAllowedForProfileInternal(const Profile* profile,
     return false;
   }
 
-  if (profile->IsLegacySupervised()) {
-    VLOG_IF(1, should_report_reason)
-        << "Supervised users are not supported in ARC.";
-    return false;
-  }
-
-  if (IsArcBlockedDueToIncompatibleFileSystem(profile) &&
-      !IsArcMigrationAllowedByPolicyForProfile(profile)) {
-    VLOG_IF(1, should_report_reason)
-        << "Incompatible encryption and migration forbidden.";
-    return false;
-  }
-
   if (policy_util::IsArcDisabledForEnterprise() &&
       policy_util::IsAccountManaged(profile)) {
     VLOG_IF(1, should_report_reason)
@@ -227,16 +202,6 @@ bool IsArcAllowedForProfileInternal(const Profile* profile,
     return false;
   }
 
-  // Do not run ARC instance when supervised user is being created.
-  // Otherwise noisy notification may be displayed.
-  chromeos::UserFlow* user_flow =
-      chromeos::ChromeUserManager::Get()->GetUserFlow(user->GetAccountId());
-  if (!user_flow || !user_flow->CanStartArc()) {
-    VLOG_IF(1, should_report_reason)
-        << "ARC is not allowed in the current user flow.";
-    return false;
-  }
-
   return true;
 }
 
@@ -246,12 +211,46 @@ void ShowContactAdminDialog() {
       l10n_util::GetStringUTF16(IDS_ARC_OPT_IN_CONTACT_ADMIN_CONTEXT));
 }
 
+void SharePathIfRequired(ConvertToContentUrlsAndShareCallback callback,
+                         const std::vector<GURL>& content_urls,
+                         const std::vector<base::FilePath>& paths_to_share) {
+  DCHECK(arc::IsArcVmEnabled() || paths_to_share.empty());
+  std::vector<base::FilePath> path_list;
+  for (const auto& path : paths_to_share) {
+    if (!guest_os::GuestOsSharePath::GetForProfile(
+             ProfileManager::GetPrimaryUserProfile())
+             ->IsPathShared(arc::kArcVmName, path)) {
+      path_list.push_back(path);
+    }
+  }
+  if (path_list.empty()) {
+    std::move(callback).Run(content_urls);
+    return;
+  }
+
+  guest_os::GuestOsSharePath::GetForProfile(
+      ProfileManager::GetPrimaryUserProfile())
+      ->SharePaths(arc::kArcVmName, path_list, /*persist=*/false,
+                   base::BindOnce(
+                       [](ConvertToContentUrlsAndShareCallback callback,
+                          const std::vector<GURL>& content_urls, bool success,
+                          const std::string& failure_reason) {
+                         if (success) {
+                           std::move(callback).Run(content_urls);
+                         } else {
+                           LOG(ERROR) << "Error sharing ARC content URLs: "
+                                      << failure_reason;
+                           std::move(callback).Run(std::vector<GURL>());
+                         }
+                       },
+                       std::move(callback), content_urls));
+}
+
 }  // namespace
 
 bool IsRealUserProfile(const Profile* profile) {
   // Return false for signin, lock screen and incognito profiles.
-  return profile && !chromeos::ProfileHelper::IsSigninProfile(profile) &&
-         !chromeos::ProfileHelper::IsLockScreenAppProfile(profile) &&
+  return profile && chromeos::ProfileHelper::IsRegularProfile(profile) &&
          !profile->IsOffTheRecord();
 }
 
@@ -287,23 +286,6 @@ bool IsArcProvisioned(const Profile* profile) {
 
 void ResetArcAllowedCheckForTesting(const Profile* profile) {
   g_profile_status_check.Get().erase(profile);
-}
-
-bool IsArcMigrationAllowedByPolicyForProfile(const Profile* profile) {
-  // Always allow migration for unmanaged users.
-  if (!profile || !policy_util::IsAccountManaged(profile))
-    return true;
-
-  // Use the profile path as unique identifier for profile.
-  const base::FilePath path = profile->GetPath();
-  auto iter = g_is_arc_migration_allowed.Get().find(path);
-  if (iter == g_is_arc_migration_allowed.Get().end()) {
-    iter = g_is_arc_migration_allowed.Get()
-               .emplace(path, IsArcMigrationAllowedInternal(profile))
-               .first;
-  }
-
-  return iter->second;
 }
 
 bool IsArcBlockedDueToIncompatibleFileSystem(const Profile* profile) {
@@ -638,10 +620,6 @@ bool IsPlayStoreAvailable() {
          chromeos::features::ShouldShowPlayStoreInDemoMode();
 }
 
-bool IsSecondaryAccountForChildEnabled() {
-  return base::FeatureList::IsEnabled(kEnableSecondaryAccountsForChild);
-}
-
 bool ShouldStartArcSilentlyForManagedProfile(const Profile* profile) {
   return IsArcPlayStoreEnabledPreferenceManagedForProfile(profile) &&
          (AreArcAllOptInPreferencesIgnorableForProfile(profile) ||
@@ -677,7 +655,7 @@ std::unique_ptr<content::WebContents> CreateArcCustomTabWebContents(
   ua_override.ua_string_override = content::BuildUserAgentFromOSAndProduct(
       kOsOverrideForTabletSite, product);
 
-  ua_override.ua_metadata_override = ::GetUserAgentMetadata();
+  ua_override.ua_metadata_override = embedder_support::GetUserAgentMetadata();
   ua_override.ua_metadata_override->platform = "Android";
   ua_override.ua_metadata_override->platform_version = "9";
   ua_override.ua_metadata_override->model = "Chrome tablet";
@@ -723,6 +701,15 @@ std::string GetHistogramNameByUserType(const std::string& base_name,
 std::string GetHistogramNameByUserTypeForPrimaryProfile(
     const std::string& base_name) {
   return GetHistogramNameByUserType(base_name, /*profile=*/nullptr);
+}
+
+void ConvertToContentUrlsAndShare(
+    Profile* profile,
+    const std::vector<storage::FileSystemURL>& file_system_urls,
+    ConvertToContentUrlsAndShareCallback callback) {
+  file_manager::util::ConvertToContentUrls(
+      profile, std::move(file_system_urls),
+      base::BindOnce(&SharePathIfRequired, std::move(callback)));
 }
 
 }  // namespace arc

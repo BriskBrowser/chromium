@@ -16,20 +16,21 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.DisableIf;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.components.payments.PaymentFeatureList;
 import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.net.test.ServerCertificate;
 import org.chromium.ui.test.util.DisableAnimationsTestRule;
+import org.chromium.ui.test.util.UiDisableIf;
 
 /** An integration test for PaymentRequestEvent.changePaymentMethod(). */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE,
-        "enable-blink-features=PaymentMethodChangeEvent,PaymentHandlerChangePaymentMethod",
-        "disable-features=" + PaymentFeatureList.SCROLL_TO_EXPAND_PAYMENT_HANDLER})
+        "enable-blink-features=PaymentMethodChangeEvent,PaymentHandlerChangePaymentMethod"})
 @MediumTest
 public class PaymentHandlerChangePaymentMethodTest {
     // Disable animations to reduce flakiness.
@@ -39,7 +40,7 @@ public class PaymentHandlerChangePaymentMethodTest {
     // Open a tab on the blank page first to initiate the native bindings required by the test
     // server.
     @Rule
-    public PaymentRequestTestRule mRule = new PaymentRequestTestRule("about:blank");
+    public PaymentRequestTestRule mRule = new PaymentRequestTestRule("about:blank", null, true);
 
     // Host the tests on https://127.0.0.1, because file:// URLs cannot have service workers.
     private EmbeddedTestServer mServer;
@@ -100,6 +101,7 @@ public class PaymentHandlerChangePaymentMethodTest {
      */
     @Test
     @Feature({"Payments"})
+    @DisableIf.Device(type = {UiDisableIf.TABLET}) // See https://crbug.com/1136100.
     public void testReject() throws Throwable {
         installPaymentHandler();
         mRule.clickNodeAndWait("testReject", mRule.getDismissed());
@@ -113,6 +115,7 @@ public class PaymentHandlerChangePaymentMethodTest {
      */
     @Test
     @Feature({"Payments"})
+    @DisableIf.Device(type = {UiDisableIf.TABLET}) // See https://crbug.com/1136100.
     public void testRejectBasicCard() throws Throwable {
         mRule.clickNode("basicCardMethodName");
         installPaymentHandler();
@@ -156,6 +159,7 @@ public class PaymentHandlerChangePaymentMethodTest {
      */
     @Test
     @Feature({"Payments"})
+    @DisableIf.Device(type = {UiDisableIf.TABLET}) // See https://crbug.com/1136100.
     public void testDetails() throws Throwable {
         installPaymentHandler();
         mRule.clickNodeAndWait("testDetails", mRule.getDismissed());
@@ -179,6 +183,7 @@ public class PaymentHandlerChangePaymentMethodTest {
      */
     @Test
     @Feature({"Payments"})
+    @DisabledTest(message = "crbug.com/1131674")
     public void testDetailsBasicCard() throws Throwable {
         mRule.clickNode("basicCardMethodName");
         installPaymentHandler();

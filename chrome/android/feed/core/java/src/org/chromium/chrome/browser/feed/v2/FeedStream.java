@@ -18,13 +18,17 @@ import org.json.JSONObject;
 
 import org.chromium.base.Log;
 import org.chromium.base.ObserverList;
+import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.feed.shared.stream.Header;
 import org.chromium.chrome.browser.feed.shared.stream.Stream;
-import org.chromium.chrome.browser.help.HelpAndFeedback;
+import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncherImpl;
 import org.chromium.chrome.browser.native_page.NativePageNavigationDelegate;
+import org.chromium.chrome.browser.ntp.ScrollListener;
+import org.chromium.chrome.browser.share.ShareDelegate;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
+import org.chromium.ui.base.WindowAndroid;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -53,11 +57,15 @@ public class FeedStream implements Stream {
 
     public FeedStream(Activity activity, boolean isBackgroundDark, SnackbarManager snackbarManager,
             NativePageNavigationDelegate nativePageNavigationDelegate,
-            BottomSheetController bottomSheetController) {
+            BottomSheetController bottomSheetController, boolean isPlaceholderShown,
+            WindowAndroid windowAndroid, Supplier<ShareDelegate> shareDelegateSupplier) {
         // TODO(petewil): Use isBackgroundDark to turn on dark theme.
         this.mActivity = activity;
+
         this.mFeedStreamSurface = new FeedStreamSurface(activity, isBackgroundDark, snackbarManager,
-                nativePageNavigationDelegate, bottomSheetController, HelpAndFeedback.getInstance());
+                nativePageNavigationDelegate, bottomSheetController,
+                HelpAndFeedbackLauncherImpl.getInstance(), isPlaceholderShown,
+                new FeedStreamSurface.ShareHelperWrapper(windowAndroid, shareDelegateSupplier));
     }
 
     @Override
@@ -73,6 +81,7 @@ public class FeedStream implements Stream {
 
     @Override
     public void onHide() {
+        mAccumulatedDySinceLastLoadMore = 0;
         mScrollStateToRestore = null;
         if (mFeedStreamSurface.isOpened()) {
             mScrollStateToRestore = getSavedInstanceStateString();
@@ -124,6 +133,11 @@ public class FeedStream implements Stream {
     @Override
     public void setStreamContentVisibility(boolean visible) {
         mFeedStreamSurface.setStreamContentVisibility(visible);
+    }
+
+    @Override
+    public void toggledArticlesListVisible(boolean visible) {
+        mFeedStreamSurface.toggledArticlesListVisible(visible);
     }
 
     @Override
@@ -193,7 +207,34 @@ public class FeedStream implements Stream {
     }
 
     @Override
+    public void recordActionManageInterests() {
+        mFeedStreamSurface.recordActionManageInterests();
+    }
+    @Override
+    public void recordActionManageActivity() {
+        mFeedStreamSurface.recordActionManageActivity();
+    }
+    @Override
+    public void recordActionManageReactions() {
+        mFeedStreamSurface.recordActionManageReactions();
+    }
+    @Override
+    public void recordActionLearnMore() {
+        mFeedStreamSurface.recordActionLearnMore();
+    }
+
+    @Override
     public void triggerRefresh() {}
+
+    @Override
+    public boolean isPlaceholderShown() {
+        return mFeedStreamSurface.isPlaceholderShown();
+    }
+
+    @Override
+    public void hidePlaceholder() {
+        mFeedStreamSurface.hidePlaceholder();
+    }
 
     private void setupRecyclerView() {
         mRecyclerView = (RecyclerView) mFeedStreamSurface.getView();
@@ -224,6 +265,9 @@ public class FeedStream implements Stream {
         if (!mFeedStreamSurface.isOpened()) return;
 
         mAccumulatedDySinceLastLoadMore += dy;
+        if (mAccumulatedDySinceLastLoadMore < 0) {
+            mAccumulatedDySinceLastLoadMore = 0;
+        }
         if (mAccumulatedDySinceLastLoadMore < TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP,
                     LOAD_MORE_TRIGGER_SCROLL_DISTANCE_DP,
                     mRecyclerView.getResources().getDisplayMetrics())) {

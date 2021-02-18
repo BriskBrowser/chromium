@@ -27,7 +27,7 @@ class TestAppMenuPropertiesDelegate implements AppMenuPropertiesDelegate {
     public int groupDividerId;
     public boolean enableAppIconRow;
     public boolean iconBeforeItem;
-    public boolean regroupedMenu;
+    public boolean recordAppMenuSimilarSelection;
 
     @Override
     public void destroy() {}
@@ -117,7 +117,8 @@ class TestAppMenuPropertiesDelegate implements AppMenuPropertiesDelegate {
     }
 
     @Override
-    public boolean shouldShowRegroupedMenu() {
-        return regroupedMenu;
+    public boolean recordAppMenuSimilarSelectionIfNeeded(
+            int previousMenuItemId, int currentMenuItemId) {
+        return recordAppMenuSimilarSelection;
     }
 }

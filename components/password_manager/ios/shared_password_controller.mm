@@ -22,7 +22,6 @@
 #include "components/autofill/core/browser/ui/popup_item_ids.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/core/common/form_data.h"
-#include "components/autofill/core/common/password_form.h"
 #include "components/autofill/core/common/password_form_fill_data.h"
 #include "components/autofill/core/common/password_form_generation_data.h"
 #include "components/autofill/core/common/renderer_id.h"
@@ -38,9 +37,9 @@
 #include "components/password_manager/core/browser/password_manager_driver.h"
 #include "components/password_manager/ios/account_select_fill_data.h"
 #import "components/password_manager/ios/js_password_manager.h"
+#include "components/password_manager/ios/password_manager_ios_util.h"
 #include "components/strings/grit/components_strings.h"
 #include "ios/web/common/url_scheme_util.h"
-#import "ios/web/public/deprecated/crw_js_injection_receiver.h"
 #include "ios/web/public/js_messaging/web_frame.h"
 #include "ios/web/public/js_messaging/web_frame_util.h"
 #include "ios/web/public/navigation/navigation_context.h"
@@ -56,10 +55,10 @@
 using autofill::FormActivityObserverBridge;
 using autofill::FormData;
 using autofill::PasswordFormGenerationData;
-using autofill::PasswordForm;
 using autofill::FormRendererId;
 using autofill::FieldRendererId;
 using base::SysNSStringToUTF16;
+using base::SysUTF8ToNSString;
 using base::SysUTF16ToNSString;
 using l10n_util::GetNSString;
 using l10n_util::GetNSStringF;
@@ -68,6 +67,7 @@ using password_manager::metrics_util::PasswordDropdownState;
 using password_manager::AccountSelectFillData;
 using password_manager::FillData;
 using password_manager::GetPageURLAndCheckTrustLevel;
+using password_manager::JsonStringToFormData;
 using password_manager::PasswordFormManagerForUI;
 using password_manager::PasswordGenerationFrameHelper;
 using password_manager::PasswordManagerInterface;
@@ -265,7 +265,7 @@ NSString* const kSuggestionSuffix = @" ••••••••";
                                     suggestionsAvailable);
                        }];
 
-  if (self.isPasswordGenerated &&
+  if ([formQuery.type isEqual:@"input"] && self.isPasswordGenerated &&
       formQuery.uniqueFieldID == self.passwordGeneratedIdentifier) {
     // On other platforms, when the user clicks on generation field, we show
     // password in clear text. And the user has the possibility to edit it. On
@@ -295,11 +295,11 @@ NSString* const kSuggestionSuffix = @" ••••••••";
     if ([formQuery.type isEqual:@"input"]) {
       [self.formHelper updateFieldDataOnUserInput:formQuery.uniqueFieldID
                                        inputValue:formQuery.typedValue];
-    }
 
-    _passwordManager->UpdateStateOnUserInput(
-        _delegate.passwordManagerDriver, formQuery.uniqueFormID,
-        formQuery.uniqueFieldID, SysNSStringToUTF16(formQuery.typedValue));
+      _passwordManager->UpdateStateOnUserInput(
+          _delegate.passwordManagerDriver, formQuery.uniqueFormID,
+          formQuery.uniqueFieldID, SysNSStringToUTF16(formQuery.typedValue));
+    }
   }
 }
 
@@ -404,7 +404,7 @@ NSString* const kSuggestionSuffix = @" ••••••••";
       NSString* username = [suggestion.value
           substringToIndex:suggestion.value.length - kSuggestionSuffix.length];
       std::unique_ptr<password_manager::FillData> fillData =
-          [self.suggestionHelper getFillDataForUsername:username];
+          [self.suggestionHelper passwordFillDataForUsername:username];
 
       if (!fillData) {
         completion();
@@ -412,6 +412,7 @@ NSString* const kSuggestionSuffix = @" ••••••••";
       }
 
       [self.formHelper fillPasswordFormWithFillData:*fillData
+                                   triggeredOnField:uniqueFieldID
                                   completionHandler:^(BOOL success) {
                                     completion();
                                   }];
@@ -526,7 +527,7 @@ NSString* const kSuggestionSuffix = @" ••••••••";
   if (![fieldType isEqual:kPasswordFieldType])
     return NO;
   const PasswordFormGenerationData* generation_data =
-      [self getFormForGenerationFromFormId:formIdentifier];
+      [self formForGenerationFromFormID:formIdentifier];
   if (!generation_data)
     return NO;
 
@@ -539,7 +540,7 @@ NSString* const kSuggestionSuffix = @" ••••••••";
   return NO;
 }
 
-- (const PasswordFormGenerationData*)getFormForGenerationFromFormId:
+- (const PasswordFormGenerationData*)formForGenerationFromFormID:
     (FormRendererId)formIdentifier {
   if (_formGenerationData.find(formIdentifier) != _formGenerationData.end()) {
     return &_formGenerationData[formIdentifier];
@@ -549,7 +550,7 @@ NSString* const kSuggestionSuffix = @" ••••••••";
 
 - (void)generatePasswordForFormId:(FormRendererId)formIdentifier
                   fieldIdentifier:(FieldRendererId)fieldIdentifier {
-  if (![self getFormForGenerationFromFormId:formIdentifier])
+  if (![self formForGenerationFromFormID:formIdentifier])
     return;
 
   // TODO(crbug.com/886583): pass correct |max_length|.
@@ -586,7 +587,7 @@ NSString* const kSuggestionSuffix = @" ••••••••";
                        generatedPassword:(NSString*)generatedPassword
                        completionHandler:(void (^)())completionHandler {
   const autofill::PasswordFormGenerationData* generation_data =
-      [self getFormForGenerationFromFormId:formIdentifier];
+      [self formForGenerationFromFormID:formIdentifier];
   if (!generation_data)
     return;
   FieldRendererId newPasswordUniqueId =
@@ -628,7 +629,8 @@ NSString* const kSuggestionSuffix = @" ••••••••";
                     inFrame:(web::WebFrame*)frame {
   DCHECK_EQ(_webState, webState);
 
-  if (!GetPageURLAndCheckTrustLevel(webState, nullptr))
+  GURL pageURL;
+  if (!GetPageURLAndCheckTrustLevel(webState, &pageURL))
     return;
 
   if (!frame || !frame->CanCallJavaScriptFunction())
@@ -648,7 +650,20 @@ NSString* const kSuggestionSuffix = @" ••••••••";
   if (params.type == "password_form_removed") {
     _passwordManager->OnPasswordFormRemoved(
         _delegate.passwordManagerDriver, self.formHelper.fieldDataManager.get(),
-        FormRendererId(params.unique_form_id));
+        params.unique_form_id);
+  }
+
+  // If the form was cleared PasswordManager should be informed to decide
+  // whether it's a change password form that was submitted.
+  if (params.type == "password_form_cleared") {
+    FormData formData;
+    if (!JsonStringToFormData(SysUTF8ToNSString(params.value), &formData,
+                              pageURL)) {
+      return;
+    }
+
+    _passwordManager->OnPasswordFormCleared(_delegate.passwordManagerDriver,
+                                            formData);
   }
 }
 

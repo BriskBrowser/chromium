@@ -2,13 +2,17 @@
 
 <link rel="import" href="chrome://resources/cr_elements/cr_radio_button/cr_radio_button.html">
 <link rel="import" href="chrome://resources/cr_elements/shared_vars_css.html">
+<link rel="import" href="chrome://resources/html/load_time_data.html">
 <link rel="import" href="../deep_linking_behavior.html">
+<link rel="import" href="../os_route.html">
 <link rel="import" href="../localized_link/localized_link.html">
 <link rel="import" href="../../controls/settings_radio_group.html">
+<link rel="import" href="../../controls/settings_dropdown_menu.html">
 <link rel="import" href="../../controls/settings_slider.html">
 <link rel="import" href="../../controls/settings_toggle_button.html">
 <link rel="import" href="../../prefs/prefs_behavior.html">
 <link rel="import" href="../../settings_shared_css.html">
+<link rel="import" href="../../router.html">
 <link rel="import" href="device_page_browser_proxy.html">
 
 <dom-module id="settings-pointers">
@@ -34,25 +38,28 @@
         padding-inline-end: 0;
       }
     </style>
-    <div id="mouse" hidden$="[[!hasMouse]]">
-      <!-- Subsection title only appears if both mouse and touchpad exist. -->
-      <h2 hidden$="[[!hasTouchpad]]">$i18n{mouseTitle}</h2>
-      <div class$="[[getSubsectionClass_(hasMouse, hasTouchpad)]]">
-        <!-- Do not change the mouse button pref before the mouse is released.
-             See crbug.com/686949 -->
-        <settings-toggle-button id="mouseSwapButton"
-            pref="{{prefs.settings.mouse.primary_right}}"
-            label="$i18n{mouseSwapButtons}"
-            on-settings-boolean-control-change="onMouseSwapButtonsChange_"
-            on-down="onMouseSwapButtonsDown_" on-up="onMouseSwapButtonsUp_"
-            deep-link-focus-id$="[[Setting.kMouseSwapPrimaryButtons]]"
-            no-set-pref>
-        </settings-toggle-button>
+    <div id="mouse" hidden$="[[!showMouseSection_]]">
+      <!-- Subsection title only appears if multiple sections are visible. -->
+      <h2 hidden$="[[!showHeadings_]]">$i18n{mouseTitle}</h2>
+      <div class$="[[subsectionClass_]]">
+        <div class="settings-box">
+          <div class="start settings-box-text" id="mouseSwapButtonLabel">
+            $i18n{mouseSwapButtons}
+          </div>
+          <settings-dropdown-menu id="mouseSwapButtonDropdown"
+              aria-labeledby="mouseSwapButtonLabel"
+              pref="{{prefs.settings.mouse.primary_right}}"
+              menu-options="[[swapPrimaryOptions]]"
+              on-settings-control-change="onMousePrimaryButtonChanged_"
+              deep-link-focus-id$="[[Setting.kMouseSwapPrimaryButtons]]">
+          </settings-dropdown-menu>
+        </div>
         <template is="dom-if" if="[[allowDisableAcceleration_]]">
           <settings-toggle-button id="mouseAcceleration"
               class="hr"
               pref="{{prefs.settings.mouse.acceleration}}"
               label="$i18n{mouseAccelerationLabel}"
+              on-change="onMouseAccelerationChanged_"
               deep-link-focus-id$="[[Setting.kMouseAcceleration]]">
           </settings-toggle-button>
         </template>
@@ -60,11 +67,13 @@
           <div class="start" id="mouseSpeedLabel" aria-hidden="true">
             $i18n{mouseSpeed}
           </div>
-          <settings-slider pref="{{prefs.settings.mouse.sensitivity2}}"
+          <settings-slider id="mouseSpeedSlider"
+              pref="{{prefs.settings.mouse.sensitivity2}}"
               ticks="[[sensitivityValues_]]"
               label-aria="$i18n{mouseSpeed}"
               label-min="$i18n{pointerSlow}"
               label-max="$i18n{pointerFast}"
+              on-cr-slider-value-changed="onMouseSpeedChanged_"
               deep-link-focus-id$="[[Setting.kMouseSpeed]]">
           </settings-slider>
         </div>
@@ -87,18 +96,70 @@
             </settings-slider>
           </div>
         </template>
-        <settings-toggle-button id="mouseReverseScroll"
-            class="hr"
-            pref="{{prefs.settings.mouse.reverse_scroll}}"
-            label="$i18n{mouseReverseScroll}"
-            deep-link-focus-id$="[[Setting.kMouseReverseScrolling]]">
-        </settings-toggle-button>
+        <div class="settings-box" id="mouseReverseScrollRow"
+             on-click="onMouseReverseScrollRowClicked_">
+          <div class="start settings-box-text">
+            <settings-localized-link
+                on-click="onLearnMoreLinkClicked_"
+                id="enableMouseReverseScrollingLabel"
+                localized-string="$i18n{mouseReverseScroll}"
+                link-url="$i18n{naturalScrollLearnMoreLink}">
+            </settings-localized-link>
+          </div>
+          <cr-toggle id="mouseReverseScroll"
+              checked="{{prefs.settings.mouse.reverse_scroll.value}}"
+              aria-labelledby="enableMouseReverseScrollingLabel"
+              deep-link-focus-id$="[[Setting.kMouseReverseScrolling]]">
+          </cr-toggle>
+        </div>
       </div>
     </div>
+    <template is="dom-if" if="[[separatePointingStickSettings_]]">
+      <div id="pointingStick" hidden$="[[!hasPointingStick]]">
+        <!-- Subsection title only appears if multiple sections are visible. -->
+        <h2 hidden$="[[!showHeadings_]]">$i18n{pointingStickTitle}</h2>
+        <div class$="[[subsectionClass_]]">
+          <div class="settings-box">
+            <div class="start settings-box-text"
+                id="pointingStickSwapButtonLabel">
+              $i18n{pointingStickPrimaryButton}
+            </div>
+            <settings-dropdown-menu id="pointingStickSwapButtonDropdown"
+                aria-labeledby="pointingStickSwapButtonLabel"
+                pref="{{prefs.settings.pointing_stick.primary_right}}"
+                menu-options="[[swapPrimaryOptions]]"
+                deep-link-focus-id$=
+                    "[[Setting.kPointingStickSwapPrimaryButtons]]">
+            </settings-dropdown-menu>
+          </div>
+          <template is="dom-if" if="[[allowDisableAcceleration_]]">
+            <settings-toggle-button id="pointingStickAcceleration"
+                class="hr"
+                pref="{{prefs.settings.pointing_stick.acceleration}}"
+                label="$i18n{pointingStickAccelerationLabel}"
+                deep-link-focus-id$="[[Setting.kPointingStickAcceleration]]">
+            </settings-toggle-button>
+          </template>
+          <div class="settings-box">
+            <div class="start" id="pointingStickSpeedLabel" aria-hidden="true">
+              $i18n{pointingStickSpeed}
+            </div>
+            <settings-slider id="pointingStickSpeedSlider"
+                pref="{{prefs.settings.pointing_stick.sensitivity}}"
+                ticks="[[sensitivityValues_]]"
+                label-aria="$i18n{pointingStickSpeed}"
+                label-min="$i18n{pointerSlow}"
+                label-max="$i18n{pointerFast}"
+                deep-link-focus-id$="[[Setting.kPointingStickSpeed]]">
+            </settings-slider>
+          </div>
+        </div>
+      </div>
+    </template>
     <div id="touchpad" hidden$="[[!hasTouchpad]]">
-      <!-- Subsection title only appears if both mouse and touchpad exist. -->
-      <h2 hidden$="[[!hasMouse]]">$i18n{touchpadTitle}</h2>
-      <div class$="[[getSubsectionClass_(hasMouse, hasTouchpad)]]">
+      <!-- Subsection title only appears if multiple sections are visible. -->
+      <h2 hidden$="[[!showHeadings_]]">$i18n{touchpadTitle}</h2>
+      <div class$="[[subsectionClass_]]">
         <settings-toggle-button id="enableTapToClick"
             pref="{{prefs.settings.touchpad.enable_tap_to_click}}"
             label="$i18n{touchpadTapToClickEnabledLabel}"
@@ -152,7 +213,7 @@
           </div>
         </template>
         <div class="settings-box" id="reverseScrollRow"
-             on-click="onReverseScrollRowClicked_">
+             on-click="onTouchpadReverseScrollRowClicked_">
           <div class="start settings-box-text">
             <settings-localized-link
                 on-click="onLearnMoreLinkClicked_"

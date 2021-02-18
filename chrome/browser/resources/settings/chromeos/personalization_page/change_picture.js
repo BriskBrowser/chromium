@@ -11,6 +11,7 @@ Polymer({
   is: 'settings-change-picture',
 
   behaviors: [
+    DeepLinkingBehavior,
     settings.RouteObserverBehavior,
     I18nBehavior,
     WebUIListenerBehavior,
@@ -66,6 +67,16 @@ Polymer({
 
     /** @private */
     oldImageLabel_: String,
+
+    /**
+     * Used by DeepLinkingBehavior to focus this page's deep links.
+     * @type {!Set<!chromeos.settings.mojom.Setting>}
+     */
+    supportedSettingIds: {
+      type: Object,
+      value: () =>
+          new Set([chromeos.settings.mojom.Setting.kChangeDeviceAccountImage]),
+    },
   },
 
   listeners: {
@@ -109,13 +120,28 @@ Polymer({
     Polymer.IronA11yAnnouncer.requestAvailability();
   },
 
+  /**
+   * Overridden from DeepLinkingBehavior.
+   * @param {!chromeos.settings.mojom.Setting} settingId
+   * @return {boolean}
+   */
+  beforeDeepLinkAttempt(settingId) {
+    assert(
+        settingId ===
+        chromeos.settings.mojom.Setting.kChangeDeviceAccountImage);
+
+    this.pictureList_.setFocus();
+    return false;
+  },
+
 
   /** @protected */
   currentRouteChanged(newRoute) {
-    if (newRoute == settings.routes.CHANGE_PICTURE) {
+    if (newRoute === settings.routes.CHANGE_PICTURE) {
       this.browserProxy_.initialize();
       this.browserProxy_.requestSelectedImage();
       this.pictureList_.setFocus();
+      this.attemptDeepLink();
     } else {
       // Ensure we deactivate the camera when we navigate away.
       this.selectedItem_ = null;
@@ -312,7 +338,7 @@ Polymer({
    */
   isAuthorCreditShown_(selectedItem) {
     return !!selectedItem &&
-        (selectedItem.dataset.type == CrPicture.SelectionTypes.DEFAULT ||
+        (selectedItem.dataset.type === CrPicture.SelectionTypes.DEFAULT ||
          (selectedItem.dataset.imageIndex !== undefined &&
           selectedItem.dataset.imageIndex >= 0));
   },

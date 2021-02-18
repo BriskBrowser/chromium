@@ -4,6 +4,7 @@
 
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 
+#include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/login_screen_test_api.h"
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -13,13 +14,13 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/test_mock_time_task_runner.h"
 #include "base/time/time.h"
+#include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/base/locale_util.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_setup_controller.h"
 #include "chrome/browser/chromeos/login/enrollment/auto_enrollment_controller.h"
@@ -62,7 +63,6 @@
 #include "chrome/browser/chromeos/policy/enrollment_config.h"
 #include "chrome/browser/chromeos/policy/fake_auto_enrollment_client.h"
 #include "chrome/browser/chromeos/policy/server_backed_device_state.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/webui/chromeos/login/error_screen_handler.h"
@@ -76,8 +76,6 @@
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chromeos/audio/cras_audio_handler.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/dbus/constants/dbus_switches.h"
 #include "chromeos/dbus/cryptohome/fake_cryptohome_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
@@ -150,6 +148,9 @@ const char kTimezoneResponseBody[] =
 
 const char kDisabledMessage[] = "This device has been disabled.";
 
+const test::UIPath kGuestSessionLink = {"error-message",
+                                        "error-guest-signin-fix-network"};
+
 // Matches on the mode parameter of an EnrollmentConfig object.
 MATCHER_P(EnrollmentModeMatches, mode, "") {
   return arg.mode == mode;
@@ -168,7 +169,7 @@ class PrefStoreStub : public TestingPrefStore {
   ~PrefStoreStub() override {}
 };
 
-// Used to set up a |FakeAutoEnrollmentClientFactory| for the duration of a
+// Used to set up a `FakeAutoEnrollmentClientFactory` for the duration of a
 // test.
 class ScopedFakeAutoEnrollmentClientFactory {
  public:
@@ -187,10 +188,10 @@ class ScopedFakeAutoEnrollmentClientFactory {
     controller_->SetAutoEnrollmentClientFactoryForTesting(nullptr);
   }
 
-  // Waits until the |AutoEnrollmentController| has requested the creation of an
-  // |AutoEnrollmentClient|. Returns the created |AutoEnrollmentClient|. If an
-  // |AutoEnrollmentClient| has already been created, returns immediately.
-  // Note: The returned instance is owned by |AutoEnrollmentController|.
+  // Waits until the `AutoEnrollmentController` has requested the creation of an
+  // `AutoEnrollmentClient`. Returns the created `AutoEnrollmentClient`. If an
+  // `AutoEnrollmentClient` has already been created, returns immediately.
+  // Note: The returned instance is owned by `AutoEnrollmentController`.
   policy::FakeAutoEnrollmentClient* WaitAutoEnrollmentClientCreated() {
     if (created_auto_enrollment_client_)
       return created_auto_enrollment_client_;
@@ -202,17 +203,17 @@ class ScopedFakeAutoEnrollmentClientFactory {
     return created_auto_enrollment_client_;
   }
 
-  // Resets the cached |AutoEnrollmentClient|, so another |AutoEnrollmentClient|
+  // Resets the cached `AutoEnrollmentClient`, so another `AutoEnrollmentClient`
   // may be created through this factory.
   void Reset() { created_auto_enrollment_client_ = nullptr; }
 
  private:
-  // Called when |fake_auto_enrollment_client_factory_| was asked to create an
-  // |AutoEnrollmentClient|.
+  // Called when `fake_auto_enrollment_client_factory_` was asked to create an
+  // `AutoEnrollmentClient`.
   void OnFakeAutoEnrollmentClientCreated(
       policy::FakeAutoEnrollmentClient* auto_enrollment_client) {
     // Only allow an AutoEnrollmentClient to be created when the test expects
-    // it. The test should call |Reset| to expect a new |AutoEnrollmentClient|
+    // it. The test should call `Reset` to expect a new `AutoEnrollmentClient`
     // to be created.
     EXPECT_FALSE(created_auto_enrollment_client_);
     created_auto_enrollment_client_ = auto_enrollment_client;
@@ -221,8 +222,8 @@ class ScopedFakeAutoEnrollmentClientFactory {
       std::move(run_on_auto_enrollment_client_created_).Run();
   }
 
-  // The |AutoEnrollmentController| which is using
-  // |fake_auto_enrollment_client_factory_|.
+  // The `AutoEnrollmentController` which is using
+  // `fake_auto_enrollment_client_factory_`.
   AutoEnrollmentController* controller_;
   policy::FakeAutoEnrollmentClient::FactoryImpl
       fake_auto_enrollment_client_factory_;
@@ -251,8 +252,8 @@ void RunSwitchLanguageTest(const std::string& locale,
                            const bool expect_success) {
   SwitchLanguageTestData data;
   locale_util::SwitchLanguageCallback callback(
-      base::Bind(&OnLocaleSwitched, base::Unretained(&data)));
-  locale_util::SwitchLanguage(locale, true, false, callback,
+      base::BindOnce(&OnLocaleSwitched, base::Unretained(&data)));
+  locale_util::SwitchLanguage(locale, true, false, std::move(callback),
                               ProfileManager::GetActiveUserProfile());
 
   // Token writing moves control to BlockingPool and back.
@@ -268,7 +269,7 @@ void SetUpCrasAndEnableChromeVox(int volume_percent, bool mute_on) {
   AccessibilityManager* a11y = AccessibilityManager::Get();
   CrasAudioHandler* cras = CrasAudioHandler::Get();
 
-  // Audio output is at |volume_percent| and |mute_on|. Spoken feedback
+  // Audio output is at `volume_percent` and `mute_on`. Spoken feedback
   // is disabled.
   cras->SetOutputVolumePercent(volume_percent);
   cras->SetOutputMute(mute_on);
@@ -288,10 +289,10 @@ void QuitLoopOnAutoEnrollmentProgress(
 }
 
 // Returns a string which can be put into the VPD variable
-// |kEnterpriseManagementEmbargoEndDateKey|. If |days_offset| is 0, the return
-// value represents the current day. If |days_offset| is positive, the return
-// value represents |days_offset| days in the future. If |days_offset| is
-// negative, the return value represents |days_offset| days in the past.
+// `kEnterpriseManagementEmbargoEndDateKey`. If `days_offset` is 0, the return
+// value represents the current day. If `days_offset` is positive, the return
+// value represents `days_offset` days in the future. If `days_offset` is
+// negative, the return value represents `days_offset` days in the past.
 std::string GenerateEmbargoEndDate(int days_offset) {
   base::Time::Exploded exploded;
   base::Time target_time =
@@ -467,15 +468,6 @@ IN_PROC_BROWSER_TEST_F(WizardControllerTest, VolumeIsAdjustedForChromeVox) {
             cras->GetOutputVolumePercent());
 }
 
-class TimeZoneTestRunner {
- public:
-  void OnResolved() { loop_.Quit(); }
-  void Run() { loop_.Run(); }
-
- private:
-  base::RunLoop loop_;
-};
-
 class WizardControllerFlowTest : public WizardControllerTest {
  protected:
   WizardControllerFlowTest() {}
@@ -484,7 +476,8 @@ class WizardControllerFlowTest : public WizardControllerTest {
     WizardControllerTest::SetUpOnMainThread();
 
     // Make sure that OOBE is run as an "official" build.
-    branded_build_override_ = WizardController::ForceBrandedBuildForTesting();
+    branded_build_override_ =
+        WizardController::ForceBrandedBuildForTesting(true);
 
     WizardController* wizard_controller =
         WizardController::default_controller();
@@ -634,10 +627,6 @@ class WizardControllerFlowTest : public WizardControllerTest {
     network_portal_detector_ = new NetworkPortalDetectorTestImpl();
     network_portal_detector::InitializeForTesting(network_portal_detector_);
 
-    NetworkPortalDetector::CaptivePortalState online_state;
-    online_state.status = NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_ONLINE;
-    online_state.response_code = 204;
-
     // Default detworks happens to be usually "eth1" in tests.
     const NetworkState* default_network =
         NetworkHandler::Get()->network_state_handler()->DefaultNetwork();
@@ -645,7 +634,8 @@ class WizardControllerFlowTest : public WizardControllerTest {
     network_portal_detector_->SetDefaultNetworkForTesting(
         default_network->guid());
     network_portal_detector_->SetDetectionResultsForTesting(
-        default_network->guid(), online_state);
+        default_network->guid(),
+        NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_ONLINE, 204);
   }
 
   chromeos::SimpleGeolocationProvider* GetGeolocationProvider() {
@@ -653,15 +643,13 @@ class WizardControllerFlowTest : public WizardControllerTest {
   }
 
   void WaitUntilTimezoneResolved() {
-    auto runner = std::make_unique<TimeZoneTestRunner>();
+    base::RunLoop loop;
     if (!WizardController::default_controller()
-             ->SetOnTimeZoneResolvedForTesting(
-                 base::Bind(&TimeZoneTestRunner::OnResolved,
-                            base::Unretained(runner.get())))) {
+             ->SetOnTimeZoneResolvedForTesting(loop.QuitClosure())) {
       return;
     }
 
-    runner->Run();
+    loop.Run();
   }
 
   void ResetAutoEnrollmentCheckScreen() {
@@ -1073,12 +1061,10 @@ class WizardControllerDeviceStateTest : public WizardControllerFlowTest {
 
   static void WaitForAutoEnrollmentState(policy::AutoEnrollmentState state) {
     base::RunLoop loop;
-    std::unique_ptr<
-        AutoEnrollmentController::ProgressCallbackList::Subscription>
-        progress_subscription(
-            auto_enrollment_controller()->RegisterProgressCallback(
-                base::BindRepeating(&QuitLoopOnAutoEnrollmentProgress, state,
-                                    &loop)));
+    base::CallbackListSubscription progress_subscription =
+        auto_enrollment_controller()->RegisterProgressCallback(
+            base::BindRepeating(&QuitLoopOnAutoEnrollmentProgress, state,
+                                &loop));
     loop.Run();
   }
 
@@ -1099,8 +1085,8 @@ class WizardControllerDeviceStateTest : public WizardControllerFlowTest {
     histogram_tester_ = std::make_unique<base::HistogramTester>();
 
     // Initialize the FakeShillManagerClient. This does not happen
-    // automatically because of the |DBusThreadManager::GetSetterForTesting|
-    // call in |SetUpInProcessBrowserTestFixture|. See https://crbug.com/847422.
+    // automatically because of the `DBusThreadManager::GetSetterForTesting`
+    // call in `SetUpInProcessBrowserTestFixture`. See https://crbug.com/847422.
     // TODO(pmarko): Find a way for FakeShillManagerClient to be initialized
     // automatically (https://crbug.com/847422).
     DBusThreadManager::Get()
@@ -1246,8 +1232,8 @@ IN_PROC_BROWSER_TEST_F(WizardControllerDeviceStateTest,
 }
 
 // Allows testing different behavior if forced re-enrollment is performed but
-// not explicitly required (instantiated with |false|) vs. if forced
-// re-enrollment is explicitly required (instantiated with |true|).
+// not explicitly required (instantiated with `false`) vs. if forced
+// re-enrollment is explicitly required (instantiated with `true`).
 class WizardControllerDeviceStateExplicitRequirementTest
     : public WizardControllerDeviceStateTest,
       public testing::WithParamInterface<bool /* fre_explicitly_required */> {
@@ -1312,16 +1298,14 @@ IN_PROC_BROWSER_TEST_P(WizardControllerDeviceStateExplicitRequirementTest,
   EXPECT_EQ(AutoEnrollmentCheckScreenView::kScreenId.AsId(),
             GetErrorScreen()->GetParentScreen());
 
-  constexpr char guest_session_link_display[] =
-      "window.getComputedStyle($('error-guest-signin-fix-network')).display";
   if (IsFREExplicitlyRequired()) {
     // Check that guest sign-in is not allowed on the network error screen
     // (because the check_enrollment VPD key was set to "1", making FRE
     // explicitly required).
-    EXPECT_EQ("none", JSExecuteStringExpression(guest_session_link_display));
+    test::OobeJS().ExpectHiddenPath(kGuestSessionLink);
   } else {
     // Check that guest sign-in is allowed if FRE was not explicitly required.
-    EXPECT_EQ("block", JSExecuteStringExpression(guest_session_link_display));
+    test::OobeJS().ExpectVisiblePath(kGuestSessionLink);
   }
   EXPECT_EQ(0,
             FakeCryptohomeClient::Get()
@@ -1413,13 +1397,10 @@ IN_PROC_BROWSER_TEST_P(WizardControllerDeviceStateExplicitRequirementTest,
     EXPECT_EQ(AutoEnrollmentCheckScreenView::kScreenId.AsId(),
               GetErrorScreen()->GetParentScreen());
 
-    constexpr char guest_session_link_display[] =
-        "window.getComputedStyle($('error-guest-signin-fix-network'))."
-        "display";
     // Check that guest sign-in is not allowed on the network error screen
     // (because the check_enrollment VPD key was set to "1", making FRE
     // explicitly required).
-    EXPECT_EQ("none", JSExecuteStringExpression(guest_session_link_display));
+    test::OobeJS().ExpectHiddenPath(kGuestSessionLink);
 
     base::DictionaryValue device_state;
     device_state.SetString(policy::kDeviceStateMode,
@@ -1643,12 +1624,9 @@ IN_PROC_BROWSER_TEST_F(WizardControllerDeviceStateWithInitialEnrollmentTest,
   EXPECT_EQ(AutoEnrollmentCheckScreenView::kScreenId.AsId(),
             GetErrorScreen()->GetParentScreen());
 
-  constexpr char guest_session_link_display[] =
-      "window.getComputedStyle($('error-guest-signin-fix-network'))."
-      "display";
   // Check that guest sign-in is allowed on the network error screen for initial
   // enrollment.
-  EXPECT_EQ("block", JSExecuteStringExpression(guest_session_link_display));
+  test::OobeJS().ExpectVisiblePath(kGuestSessionLink);
 
   base::DictionaryValue device_state;
   device_state.SetString(policy::kDeviceStateMode,
@@ -1818,7 +1796,7 @@ IN_PROC_BROWSER_TEST_F(WizardControllerDeviceStateWithInitialEnrollmentTest,
   EXPECT_EQ(AutoEnrollmentController::AutoEnrollmentCheckType::kNone,
             auto_enrollment_controller()->auto_enrollment_check_type());
 
-  // The timeout is 45 seconds, see |auto_enrollment_controller.cc|.
+  // The timeout is 45 seconds, see `auto_enrollment_controller.cc`.
   // Fast-forward by a bit more than that.
   task_runner->FastForwardBy(base::TimeDelta::FromSeconds(45 + 1));
 
@@ -1917,19 +1895,13 @@ IN_PROC_BROWSER_TEST_F(WizardControllerDeviceStateWithInitialEnrollmentTest,
 
 class WizardControllerScreenPriorityOOBETest : public OobeBaseTest {
  protected:
-  WizardControllerScreenPriorityOOBETest() {
-    feature_list_.InitAndEnableFeature(
-        chromeos::features::kOobeScreensPriority);
-  }
+  WizardControllerScreenPriorityOOBETest() = default;
   ~WizardControllerScreenPriorityOOBETest() override = default;
 
   void CheckCurrentScreen(OobeScreenId screen) {
     EXPECT_EQ(WizardController::default_controller()->GetScreen(screen),
               WizardController::default_controller()->current_screen());
   }
-
- private:
-  base::test::ScopedFeatureList feature_list_;
 };
 
 IN_PROC_BROWSER_TEST_F(WizardControllerScreenPriorityOOBETest,
@@ -1960,8 +1932,6 @@ class WizardControllerScreenPriorityTest : public LoginManagerTest,
  protected:
   WizardControllerScreenPriorityTest() {
     login_manager_mixin_.AppendRegularUsers(1);
-    feature_list_.InitAndEnableFeature(
-        chromeos::features::kOobeScreensPriority);
   }
   ~WizardControllerScreenPriorityTest() override = default;
 
@@ -1978,7 +1948,6 @@ class WizardControllerScreenPriorityTest : public LoginManagerTest,
   }
 
  private:
-  base::test::ScopedFeatureList feature_list_;
   LoginManagerMixin login_manager_mixin_{&mixin_host_};
   LocalStateMixin local_state_mixin_{&mixin_host_, this};
 };
@@ -2047,13 +2016,14 @@ IN_PROC_BROWSER_TEST_F(WizardControllerBrokenLocalStateTest,
   OobeScreenWaiter(ErrorScreenView::kScreenId).Wait();
 
   // Checks visibility of the error message and powerwash button.
-  test::OobeJS().ExpectVisible({"error-message"});
-  test::OobeJS().ExpectHasClass("ui-state-local-state-error",
-                                {"error-message"});
+  test::OobeJS().ExpectVisible("error-message");
+  test::OobeJS().ExpectVisiblePath({"error-message", "powerwashButton"});
+  test::OobeJS().ExpectVisiblePath({"error-message", "localStateErrorText"});
+  test::OobeJS().ExpectVisiblePath({"error-message", "guestSessionText"});
 
   // Emulates user click on the "Restart and Powerwash" button.
   ASSERT_EQ(0, FakeSessionManagerClient::Get()->start_device_wipe_call_count());
-  test::OobeJS().TapOn("error-message-md-powerwash-button");
+  test::OobeJS().TapOnPath({"error-message", "powerwashButton"});
   ASSERT_EQ(1, FakeSessionManagerClient::Get()->start_device_wipe_call_count());
 }
 
@@ -2737,7 +2707,8 @@ class WizardControllerOobeResumeTest : public WizardControllerTest {
     WizardControllerTest::SetUpOnMainThread();
 
     // Make sure that OOBE is run as an "official" build.
-    branded_build_override_ = WizardController::ForceBrandedBuildForTesting();
+    branded_build_override_ =
+        WizardController::ForceBrandedBuildForTesting(true);
 
     WizardController* wizard_controller =
         WizardController::default_controller();
@@ -2849,8 +2820,8 @@ class WizardControllerOobeConfigurationTest : public WizardControllerTest {
 IN_PROC_BROWSER_TEST_F(WizardControllerOobeConfigurationTest,
                        ConfigurationIsLoaded) {
   OobeScreenWaiter(WelcomeView::kScreenId).Wait();
-  WelcomeScreen* screen = WelcomeScreen::Get(
-      WizardController::default_controller()->screen_manager());
+  WelcomeScreen* screen =
+      WizardController::default_controller()->GetScreen<WelcomeScreen>();
   base::Value* configuration = screen->GetConfigurationForTesting();
   ASSERT_NE(configuration, nullptr);
   EXPECT_FALSE(configuration->DictEmpty());
@@ -2870,8 +2841,6 @@ IN_PROC_BROWSER_TEST_F(WizardControllerOobeConfigurationTest,
 // TODO(alemate): Add tests for Sync Consent UI.
 
 // TODO(rsgingerrs): Add tests for Recommend Apps UI.
-
-// TODO(alemate): Add tests for Discover UI.
 
 // TODO(alemate): Add tests for Marketing Opt-In.
 

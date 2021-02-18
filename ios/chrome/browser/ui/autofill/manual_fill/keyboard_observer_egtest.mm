@@ -20,7 +20,6 @@
 #error "This file requires ARC support."
 #endif
 
-#if defined(CHROME_EARL_GREY_2)
 // TODO(crbug.com/1015113): The EG2 macro is breaking indexing for some reason
 // without the trailing semicolon.  For now, disable the extra semi warning
 // so Xcode indexing works for the egtest.
@@ -28,7 +27,6 @@
 #pragma clang diagnostic ignored "-Wc++98-compat-extra-semi"
 GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(KeyboardObserverHelperAppInterface);
 #pragma clang diagnostic pop
-#endif  // defined(CHROME_EARL_GREY_2)
 
 using base::TimeDelta;
 using base::test::ios::kWaitForUIElementTimeout;
@@ -99,8 +97,14 @@ void TapOnWebElementWithID(const std::string& elementID) {
   [super tearDown];
 }
 
+// TODO(crbug.com/1173513) This test is flaky on the ios simulator bots.
+#if TARGET_OS_SIMULATOR
+#define MAYBE_testKeyboardHideState DISABLED_testKeyboardHideState
+#else
+#define MAYBE_testKeyboardHideState testKeyboardHideState
+#endif
 // Tests that when the keyboard actually dismiss the right callback is done.
-- (void)testKeyboardHideState {
+- (void)MAYBE_testKeyboardHideState {
   // Opening the keyboard from a webview blocks EarlGrey's synchronization.
   ScopedSynchronizationDisabler disabler;
 

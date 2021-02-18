@@ -14,11 +14,10 @@
 #include "build/build_config.h"
 #include "components/viz/common/vertical_scroll_direction.h"
 #include "content/common/content_export.h"
-#include "content/common/drag_event_source_info.h"
 #include "content/public/common/drop_data.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
-#include "third_party/blink/public/common/page/web_drag_operation.h"
+#include "third_party/blink/public/common/page/drag_operation.h"
 #include "third_party/blink/public/mojom/frame/lifecycle.mojom.h"
 #include "third_party/blink/public/mojom/manifest/display_mode.mojom.h"
 #include "ui/gfx/native_widget_types.h"
@@ -31,11 +30,8 @@ class WebGestureEvent;
 
 namespace gfx {
 class Point;
+class Rect;
 class Size;
-}
-
-namespace rappor {
-class Sample;
 }
 
 namespace content {
@@ -71,18 +67,11 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
   // The RenderWidgetHost is going to be deleted.
   virtual void RenderWidgetDeleted(RenderWidgetHostImpl* render_widget_host) {}
 
-  // The RenderWidgetHost got the focus.
-  virtual void RenderWidgetGotFocus(RenderWidgetHostImpl* render_widget_host) {}
-
   // If a main frame navigation is in progress, this will return the zoom level
   // for the pending page. Otherwise, this returns the zoom level for the
   // current page. Note that subframe navigations do not affect the zoom level,
   // which is tracked at the level of the page.
   virtual double GetPendingPageZoomLevel();
-
-  // The RenderWidgetHost lost the focus.
-  virtual void RenderWidgetLostFocus(
-      RenderWidgetHostImpl* render_widget_host) {}
 
   // The RenderWidget was resized.
   virtual void RenderWidgetWasResized(RenderWidgetHostImpl* render_widget_host,
@@ -273,14 +262,6 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
   // Returns the associated RenderViewHostDelegateView*, if possible.
   virtual RenderViewHostDelegateView* GetDelegateView();
 
-  // Returns the current Flash fullscreen RenderWidgetHostImpl if any. This is
-  // not intended for use with other types of fullscreen, such as HTML
-  // fullscreen, and will return nullptr for those cases.
-  virtual RenderWidgetHostImpl* GetFullscreenRenderWidgetHost() const;
-
-  // Allow the delegate to handle the cursor update. Returns true if handled.
-  virtual bool OnUpdateDragCursor();
-
   // Returns true if the provided RenderWidgetHostImpl matches the current
   // RenderWidgetHost on the main frame, and false otherwise.
   virtual bool IsWidgetForMainFrame(RenderWidgetHostImpl*);
@@ -301,11 +282,6 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
   // the focused WebContents.
   virtual void FocusOwningWebContents(
       RenderWidgetHostImpl* render_widget_host) {}
-
-  // Augment a Rappor sample with eTLD+1 context. The caller is still
-  // responsible for logging the sample to the RapporService. Returns false
-  // if the eTLD+1 is not known for |render_widget_host|.
-  virtual bool AddDomainInfoToRapporSample(rappor::Sample* sample);
 
   // Return this object cast to a WebContents, if it is one. If the object is
   // not a WebContents, returns nullptr.
@@ -338,11 +314,11 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
   // Notify the delegate that the screen orientation has been changed.
   virtual void DidChangeScreenOrientation() {}
 
-  // Returns the FrameTree that this RenderWidgetHost is attached to. If the
-  // RenderWidgetHost is attached to a frame, then its RenderFrameHost will be
-  // in the tree. Otherwise, the RenderWidgetHost is for a popup which was
-  // opened by a frame in the FrameTree.
-  virtual FrameTree* GetFrameTree();
+  // Show the newly created widget with the specified bounds.
+  // The widget is identified by the route_id passed to CreateNewWidget.
+  virtual void ShowCreatedWidget(int process_id,
+                                 int widget_route_id,
+                                 const gfx::Rect& initial_rect_in_dips) {}
 
  protected:
   virtual ~RenderWidgetHostDelegate() {}

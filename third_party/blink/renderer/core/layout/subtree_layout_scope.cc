@@ -41,13 +41,11 @@ SubtreeLayoutScope::SubtreeLayoutScope(LayoutObject& root) : root_(root) {
 }
 
 SubtreeLayoutScope::~SubtreeLayoutScope() {
-  CHECK(!root_.SelfNeedsLayout() ||
-        root_.LayoutBlockedByDisplayLock(DisplayLockLifecycleTarget::kSelf));
-  CHECK(!root_.NeedsLayout() || root_.LayoutBlockedByDisplayLock(
-                                    DisplayLockLifecycleTarget::kChildren));
+  CHECK(!root_.SelfNeedsLayout());
+  CHECK(!root_.NeedsLayout() || root_.ChildLayoutBlockedByDisplayLock());
 
 #if DCHECK_IS_ON()
-  for (auto* layout_object : layout_objects_to_layout_) {
+  for (const auto& layout_object : layout_objects_to_layout_) {
     // There are situations where the object to layout was never laid out, such
     // as if there was a display-locked descendant of the root and ancestor of
     // the object which prevented layout. This can happen in quirks mode, where

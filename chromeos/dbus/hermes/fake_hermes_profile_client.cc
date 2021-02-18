@@ -154,12 +154,6 @@ void FakeHermesProfileClient::UpdateCellularDevice(
 
   // Update the cellular device properties so that they match the carrier
   // profile that was just enabled.
-  device_test->SetDeviceProperty(
-      kCellularDevicePath, shill::kCarrierProperty,
-      base::Value(properties->service_provider().value()), true);
-  device_test->SetDeviceProperty(
-      kCellularDevicePath, shill::kCarrierProperty,
-      base::Value(properties->service_provider().value()), true);
   base::DictionaryValue home_provider;
   home_provider.SetKey(shill::kNameProperty,
                        base::Value(properties->service_provider().value()));
@@ -179,7 +173,7 @@ void FakeHermesProfileClient::SetCellularServicesState(
 
   base::Value service_list = manager_test->GetEnabledServiceList();
   for (const base::Value& service_path : service_list.GetList()) {
-    const base::DictionaryValue* properties =
+    const base::Value* properties =
         service_test->GetServiceProperties(service_path.GetString());
     const base::Value* type = properties->FindDictKey(shill::kTypeProperty);
     if (!type || type->GetString() != shill::kTypeCellular)

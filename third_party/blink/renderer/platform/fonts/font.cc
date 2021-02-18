@@ -60,11 +60,6 @@ FontFallbackMap& GetFontFallbackMap(FontSelector* font_selector) {
 scoped_refptr<FontFallbackList> GetOrCreateFontFallbackList(
     const FontDescription& font_description,
     FontSelector* font_selector) {
-  if (!RuntimeEnabledFeatures::
-          CSSReducedFontLoadingLayoutInvalidationsEnabled()) {
-    return FontFallbackList::Create(font_selector);
-  }
-
   return GetFontFallbackMap(font_selector).Get(font_description);
 }
 
@@ -101,9 +96,8 @@ Font::~Font() {
 // should clear the entry from FontFallbackMap.
 // Note that we must not persist a FontFallbackList reference outside Font.
 void Font::ReleaseFontFallbackListRef() const {
-  if (!RuntimeEnabledFeatures::
-          CSSReducedFontLoadingLayoutInvalidationsEnabled() ||
-      !font_fallback_list_ || !font_fallback_list_->IsValid()) {
+  if (!font_fallback_list_ || !font_fallback_list_->IsValid() ||
+      !font_fallback_list_->HasFontFallbackMap()) {
     font_fallback_list_.reset();
     return;
   }
@@ -113,24 +107,13 @@ void Font::ReleaseFontFallbackListRef() const {
   CHECK(!list_ref.HasOneRef());
   font_fallback_list_.reset();
   if (list_ref.HasOneRef())
-    GetFontFallbackMap(list_ref.GetFontSelector()).Remove(font_description_);
+    list_ref.GetFontFallbackMap().Remove(font_description_);
 }
 
 void Font::RevalidateFontFallbackList() const {
-  if (!RuntimeEnabledFeatures::CSSReducedFontLoadingInvalidationsEnabled()) {
-    // This should be a not-reached, but some test code reaches it. Since this
-    // is a deprecated code path, we don't intend to fix it.
-    return;
-  }
-
-  if (!RuntimeEnabledFeatures::
-          CSSReducedFontLoadingLayoutInvalidationsEnabled()) {
-    font_fallback_list_->RevalidateDeprecated();
-    return;
-  }
-
+  DCHECK(font_fallback_list_);
   font_fallback_list_ =
-      GetFontFallbackMap(GetFontSelector()).Get(font_description_);
+      font_fallback_list_->GetFontFallbackMap().Get(font_description_);
 }
 
 FontFallbackList* Font::EnsureFontFallbackList() const {
@@ -143,30 +126,13 @@ FontFallbackList* Font::EnsureFontFallbackList() const {
   return font_fallback_list_.get();
 }
 
-namespace {
-
-bool FontFallbackListVersionEqual(const FontFallbackList* first,
-                                  const FontFallbackList* second) {
-  if (RuntimeEnabledFeatures::CSSReducedFontLoadingInvalidationsEnabled())
-    return true;
-  return (first ? first->FontSelectorVersion() : 0) ==
-             (second ? second->FontSelectorVersion() : 0) &&
-         (first ? first->Generation() : 0) ==
-             (second ? second->Generation() : 0);
-}
-
-}  // namespace
-
 bool Font::operator==(const Font& other) const {
-  if (RuntimeEnabledFeatures::
-          CSSReducedFontLoadingLayoutInvalidationsEnabled()) {
-    // When the feature is enabled, two Font objects with the same
-    // FontDescription and FontSelector should always hold reference to the same
-    // FontFallbackList object, unless invalidated.
-    if (font_fallback_list_ && font_fallback_list_->IsValid() &&
-        other.font_fallback_list_ && other.font_fallback_list_->IsValid()) {
-      return font_fallback_list_ == other.font_fallback_list_;
-    }
+  // Two Font objects with the same FontDescription and FontSelector should
+  // always hold reference to the same FontFallbackList object, unless
+  // invalidated.
+  if (font_fallback_list_ && font_fallback_list_->IsValid() &&
+      other.font_fallback_list_ && other.font_fallback_list_->IsValid()) {
+    return font_fallback_list_ == other.font_fallback_list_;
   }
 
   FontSelector* first =
@@ -175,9 +141,7 @@ bool Font::operator==(const Font& other) const {
                              ? other.font_fallback_list_->GetFontSelector()
                              : nullptr;
 
-  return first == second && font_description_ == other.font_description_ &&
-         FontFallbackListVersionEqual(font_fallback_list_.get(),
-                                      other.font_fallback_list_.get());
+  return first == second && font_description_ == other.font_description_;
 }
 
 namespace {
@@ -190,12 +154,45 @@ void DrawBlobs(cc::PaintCanvas* canvas,
   for (const auto& blob_info : blobs) {
     DCHECK(blob_info.blob);
     cc::PaintCanvasAutoRestore auto_restore(canvas, false);
-    if (blob_info.rotation == CanvasRotationInVertical::kRotateCanvasUpright) {
-      canvas->save();
+    switch (blob_info.rotation) {
+      case CanvasRotationInVertical::kRegular:
+        break;
+      case CanvasRotationInVertical::kRotateCanvasUpright: {
+        canvas->save();
 
-      SkMatrix m;
-      m.setSinCos(-1, 0, point.X(), point.Y());
-      canvas->concat(m);
+        SkMatrix m;
+        m.setSinCos(-1, 0, point.X(), point.Y());
+        canvas->concat(m);
+        break;
+      }
+      case CanvasRotationInVertical::kRotateCanvasUprightOblique: {
+        canvas->save();
+
+        SkMatrix m;
+        m.setSinCos(-1, 0, point.X(), point.Y());
+        // TODO(yosin): We should use angle specified in CSS instead of
+        // constant value -15deg.
+        // Note: We draw glyph in right-top corner upper.
+        // See CSS "transform: skew(0, -15deg)"
+        SkMatrix skewY;
+        constexpr SkScalar kSkewY = -0.2679491924311227;  // tan(-15deg)
+        skewY.setSkew(0, kSkewY, point.X(), point.Y());
+        m.preConcat(skewY);
+        canvas->concat(m);
+        break;
+      }
+      case CanvasRotationInVertical::kOblique: {
+        // TODO(yosin): We should use angle specified in CSS instead of
+        // constant value 15deg.
+        // Note: We draw glyph in right-top corner upper.
+        // See CSS "transform: skew(0, -15deg)"
+        canvas->save();
+        SkMatrix skewX;
+        constexpr SkScalar kSkewX = 0.2679491924311227;  // tan(15deg)
+        skewX.setSkew(kSkewX, 0, point.X(), point.Y());
+        canvas->concat(skewX);
+        break;
+      }
     }
     if (node_id != cc::kInvalidNodeId) {
       canvas->drawTextBlob(blob_info.blob, point.X(), point.Y(), node_id,
@@ -307,7 +304,7 @@ bool Font::DrawBidiText(cc::PaintCanvas* canvas,
     curr_point.Move(run_width, 0);
   }
 
-  bidi_runs.DeleteRuns();
+  bidi_runs.ClearRuns();
   return true;
 }
 
@@ -394,7 +391,7 @@ unsigned InterceptsFromBlobs(const ShapeResultBloberizer::BlobBuffer& blobs,
     // for a change in font. A TextBlob can contain runs with differing fonts
     // and the getTextBlobIntercepts method handles multiple fonts for us. For
     // upright in vertical blobs we currently have to bail, see crbug.com/655154
-    if (blob_info.rotation == CanvasRotationInVertical::kRotateCanvasUpright)
+    if (IsCanvasRotationInVerticalUpright(blob_info.rotation))
       continue;
 
     SkScalar* offset_intercepts_buffer = nullptr;
@@ -635,10 +632,6 @@ LayoutUnit Font::TabWidth(const TabSize& tab_size, LayoutUnit position) const {
     distance_to_tab_stop += base_tab_width;
 
   return distance_to_tab_stop;
-}
-
-bool Font::LoadingCustomFonts() const {
-  return font_fallback_list_ && font_fallback_list_->LoadingCustomFonts();
 }
 
 bool Font::IsFallbackValid() const {

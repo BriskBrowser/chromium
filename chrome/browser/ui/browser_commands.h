@@ -12,6 +12,7 @@
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/devtools/devtools_toggle_action.h"
+#include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_delegate.h"
@@ -51,6 +52,7 @@ void NewEmptyWindow(Profile* profile);
 
 // Opens a new window with the default blank tab. This bypasses metrics and
 // various internal bookkeeping; NewEmptyWindow (above) is preferred.
+// Returns nullptr if browser creation is not possible.
 Browser* OpenEmptyWindow(Profile* profile);
 
 // Opens a new window with the tabs from |profile|'s TabRestoreService.
@@ -78,6 +80,7 @@ void NewWindow(Browser* browser);
 void NewIncognitoWindow(Profile* profile);
 void CloseWindow(Browser* browser);
 void NewTab(Browser* browser);
+void NewTabToRight(Browser* browser);
 void CloseTab(Browser* browser);
 bool CanZoomIn(content::WebContents* contents);
 bool CanZoomOut(content::WebContents* contents);
@@ -140,13 +143,16 @@ void BookmarkCurrentTab(Browser* browser);
 bool CanBookmarkCurrentTab(const Browser* browser);
 void BookmarkAllTabs(Browser* browser);
 bool CanBookmarkAllTabs(const Browser* browser);
+bool CanMoveActiveTabToReadLater(Browser* browser);
 bool MoveCurrentTabToReadLater(Browser* browser);
+bool MoveTabToReadLater(Browser* browser, content::WebContents* web_contents);
 bool MarkCurrentTabAsReadInReadLater(Browser* browser);
 bool IsCurrentTabUnreadInReadLater(Browser* browser);
+void MaybeShowBookmarkBarForReadLater(Browser* browser);
+void ShowOffersAndRewardsForPage(Browser* browser);
 void SaveCreditCard(Browser* browser);
 void MigrateLocalCards(Browser* browser);
-void MaybeShowSaveLocalCardSignInPromo(Browser* browser);
-void CloseSaveLocalCardSignInPromo(Browser* browser);
+void SaveAutofillAddress(Browser* browser);
 void Translate(Browser* browser);
 void ManagePasswordsForPage(Browser* browser);
 void SendTabToSelfFromPageAction(Browser* browser);
@@ -170,6 +176,7 @@ void FindNext(Browser* browser);
 void FindPrevious(Browser* browser);
 void FindInPage(Browser* browser, bool find_next, bool forward_direction);
 void ShowTabSearch(Browser* browser);
+void CloseTabSearch(Browser* browser);
 bool CanCloseFind(Browser* browser);
 void CloseFind(Browser* browser);
 void Zoom(Browser* browser, content::PageZoom zoom);
@@ -181,10 +188,15 @@ void FocusBookmarksToolbar(Browser* browser);
 void FocusInactivePopupForAccessibility(Browser* browser);
 void FocusNextPane(Browser* browser);
 void FocusPreviousPane(Browser* browser);
-void ToggleDevToolsWindow(Browser* browser, DevToolsToggleAction action);
+void ToggleDevToolsWindow(Browser* browser,
+                          DevToolsToggleAction action,
+                          DevToolsOpenedByAction opened_by);
 bool CanOpenTaskManager();
 void OpenTaskManager(Browser* browser);
-void OpenFeedbackDialog(Browser* browser, FeedbackSource source);
+void OpenFeedbackDialog(
+    Browser* browser,
+    FeedbackSource source,
+    const std::string& description_template = std::string());
 void ToggleBookmarkBar(Browser* browser);
 void ToggleShowFullURLs(Browser* browser);
 void ShowAppMenu(Browser* browser);
@@ -206,7 +218,11 @@ void CopyURL(Browser* browser);
 // the tabbed Browser.
 Browser* OpenInChrome(Browser* hosted_app_browser);
 bool CanViewSource(const Browser* browser);
+bool CanToggleCaretBrowsing(Browser* browser);
 void ToggleCaretBrowsing(Browser* browser);
+void PromptToNameWindow(Browser* browser);
+void ToggleCommander(Browser* browser);
+void ExecuteUIDebugCommand(int id, const Browser* browser);
 
 base::Optional<int> GetKeyboardFocusedTabIndex(const Browser* browser);
 

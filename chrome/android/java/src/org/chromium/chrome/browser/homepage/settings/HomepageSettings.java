@@ -13,17 +13,14 @@ import androidx.preference.PreferenceFragmentCompat;
 
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.homepage.HomepageManager;
 import org.chromium.chrome.browser.homepage.HomepagePolicyManager;
 import org.chromium.chrome.browser.homepage.settings.RadioButtonGroupHomepagePreference.HomepageOption;
 import org.chromium.chrome.browser.homepage.settings.RadioButtonGroupHomepagePreference.PreferenceValues;
-import org.chromium.chrome.browser.ntp.NewTabPage;
 import org.chromium.chrome.browser.settings.ChromeManagedPreferenceDelegate;
-import org.chromium.chrome.browser.toolbar.bottom.BottomToolbarVariationManager;
 import org.chromium.components.browser_ui.settings.ChromeSwitchPreference;
 import org.chromium.components.browser_ui.settings.SettingsUtils;
-import org.chromium.components.browser_ui.settings.TextMessagePreference;
+import org.chromium.components.embedder_support.util.UrlUtilities;
 import org.chromium.components.url_formatter.UrlFormatter;
 
 /**
@@ -33,11 +30,7 @@ public class HomepageSettings extends PreferenceFragmentCompat {
     @VisibleForTesting
     public static final String PREF_HOMEPAGE_SWITCH = "homepage_switch";
     @VisibleForTesting
-    public static final String PREF_HOMEPAGE_EDIT = "homepage_edit";
-    @VisibleForTesting
     public static final String PREF_HOMEPAGE_RADIO_GROUP = "homepage_radio_group";
-    @VisibleForTesting
-    public static final String PREF_TEXT_MANAGED = "text_managed";
 
     /**
      * Delegate used to mark that the homepage is being managed.
@@ -51,12 +44,8 @@ public class HomepageSettings extends PreferenceFragmentCompat {
         }
     }
 
-    private static boolean sIsHomeButtonOnBottomToolbar;
-
     private HomepageManager mHomepageManager;
-    private Preference mHomepageEdit;
     private RadioButtonGroupHomepagePreference mRadioButtons;
-    private TextMessagePreference mTextManaged;
 
     @Override
     public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
@@ -71,80 +60,28 @@ public class HomepageSettings extends PreferenceFragmentCompat {
                 (ChromeSwitchPreference) findPreference(PREF_HOMEPAGE_SWITCH);
         homepageSwitch.setManagedPreferenceDelegate(managedDelegate);
 
-        mHomepageEdit = findPreference(PREF_HOMEPAGE_EDIT);
-        mTextManaged = (TextMessagePreference) findPreference(PREF_TEXT_MANAGED);
         mRadioButtons =
                 (RadioButtonGroupHomepagePreference) findPreference(PREF_HOMEPAGE_RADIO_GROUP);
 
-        mTextManaged.setManagedPreferenceDelegate(managedDelegate);
-        setupPreferenceVisibility();
-
         // Set up listeners and update the page.
-        if (isHomeButtonOnBottomToolbar()) {
-            homepageSwitch.setVisible(false);
-        } else {
-            boolean isHomepageEnabled = HomepageManager.isHomepageEnabled();
-            homepageSwitch.setChecked(isHomepageEnabled);
-            homepageSwitch.setOnPreferenceChangeListener((preference, newValue) -> {
-                onSwitchPreferenceChange((boolean) newValue);
-                return true;
-            });
-        }
+        boolean isHomepageEnabled = HomepageManager.isHomepageEnabled();
+        homepageSwitch.setChecked(isHomepageEnabled);
+        homepageSwitch.setOnPreferenceChangeListener((preference, newValue) -> {
+            onSwitchPreferenceChange((boolean) newValue);
+            return true;
+        });
+        mRadioButtons.setupPreferenceValues(createPreferenceValuesForRadioGroup());
 
         RecordUserAction.record("Settings.Homepage.Opened");
-
-        // Update preference views and state.
-        updatePreferenceState();
-    }
-
-    /**
-     * Set up the visibility for HomepageSettings based on {@link
-     * ChromeFeatureList#HOMEPAGE_SETTINGS_UI_CONVERSION}.
-     * TODO(wenyufu): If the feature flag is removed in the future, remove the unused component and
-     * delete this function.
-     */
-    private void setupPreferenceVisibility() {
-        boolean useNewUI = isHomepageSettingsUIConversionEnabled();
-
-        mHomepageEdit.setVisible(!useNewUI);
-
-        mRadioButtons.setVisible(useNewUI);
-    }
-
-    /**
-     * Update the visibility when pref values or policy state changes.
-     */
-    private void updatePreferenceState() {
-        boolean isManagedByPolicy = HomepagePolicyManager.isHomepageManagedByPolicy();
-        mTextManaged.setVisible(isManagedByPolicy && isHomeButtonOnBottomToolbar());
-
-        if (isHomepageSettingsUIConversionEnabled()) {
-            if (mRadioButtons != null) {
-                mRadioButtons.setupPreferenceValues(createPreferenceValuesForRadioGroup());
-            }
-        } else {
-            mHomepageEdit.setEnabled(!isManagedByPolicy && HomepageManager.isHomepageEnabled());
-            mHomepageEdit.setSummary(mHomepageManager.getHomepageUriIgnoringEnabledState());
-        }
-    }
-
-    private boolean isHomepageSettingsUIConversionEnabled() {
-        return ChromeFeatureList.isEnabled(ChromeFeatureList.HOMEPAGE_SETTINGS_UI_CONVERSION);
-    }
-
-    private boolean isHomeButtonOnBottomToolbar() {
-        return sIsHomeButtonOnBottomToolbar || BottomToolbarVariationManager.isHomeButtonOnBottom();
-    }
-
-    @VisibleForTesting
-    public static void setIsHomeButtonOnBottomToolbar(boolean isOnBottom) {
-        sIsHomeButtonOnBottomToolbar = isOnBottom;
     }
 
     @Override
     public void onResume() {
         super.onResume();
-        updatePreferenceState();
+        // If view created, update the state for pref values or policy state changes.
+        if (mRadioButtons != null) {
+            mRadioButtons.setupPreferenceValues(createPreferenceValuesForRadioGroup());
+        }
     }
 
     @Override
@@ -152,9 +89,7 @@ public class HomepageSettings extends PreferenceFragmentCompat {
         super.onStop();
 
         // Save the final shared preference data.
-        if (isHomepageSettingsUIConversionEnabled()) {
-            updateHomepageFromRadioGroupPreference(mRadioButtons.getPreferenceValue());
-        }
+        updateHomepageFromRadioGroupPreference(mRadioButtons.getPreferenceValue());
     }
 
     /**
@@ -163,11 +98,13 @@ public class HomepageSettings extends PreferenceFragmentCompat {
      */
     private void onSwitchPreferenceChange(boolean isChecked) {
         mHomepageManager.setPrefHomepageEnabled(isChecked);
-        updatePreferenceState();
+        mRadioButtons.setupPreferenceValues(createPreferenceValuesForRadioGroup());
     }
 
     /**
      * Will be called when the status of {@link #mRadioButtons} is changed.
+     * TODO(https://crbug.com/1127383): Record changes whenever user changes settings rather than
+     * homepage settings is stopped.
      * @param newValue The {@link PreferenceValues} that the {@link
      *         RadioButtonGroupHomepagePreference} is holding.
      */
@@ -194,10 +131,10 @@ public class HomepageSettings extends PreferenceFragmentCompat {
         String defaultUrl = HomepageManager.getDefaultHomepageUri();
         String customUrl = mHomepageManager.getPrefHomepageCustomUri();
         if (mHomepageManager.getPrefHomepageUseDefaultUri()) {
-            return NewTabPage.isNTPUrl(defaultUrl) ? "" : defaultUrl;
+            return UrlUtilities.isNTPUrl(defaultUrl) ? "" : defaultUrl;
         }
 
-        if (TextUtils.isEmpty(customUrl) && !NewTabPage.isNTPUrl(defaultUrl)) {
+        if (TextUtils.isEmpty(customUrl) && !UrlUtilities.isNTPUrl(defaultUrl)) {
             return defaultUrl;
         }
 
@@ -212,11 +149,11 @@ public class HomepageSettings extends PreferenceFragmentCompat {
         // URL, we don't check Chrome's Homepage radio button.
         boolean shouldCheckNTP;
         if (isPolicyEnabled) {
-            shouldCheckNTP = NewTabPage.isNTPUrl(HomepagePolicyManager.getHomepageUrl());
+            shouldCheckNTP = UrlUtilities.isNTPUrl(HomepagePolicyManager.getHomepageUrl());
         } else {
             shouldCheckNTP = mHomepageManager.getPrefHomepageUseChromeNTP()
                     || (mHomepageManager.getPrefHomepageUseDefaultUri()
-                            && NewTabPage.isNTPUrl(HomepageManager.getDefaultHomepageUri()));
+                            && UrlUtilities.isNTPUrl(HomepageManager.getDefaultHomepageUri()));
         }
 
         @HomepageOption

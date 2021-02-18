@@ -15,7 +15,6 @@
 namespace views {
 class ButtonControllerDelegate;
 class MenuButton;
-class ButtonListener;
 
 // A controller that contains the logic for showing a menu when the left mouse
 // is pushed.
@@ -41,7 +40,7 @@ class VIEWS_EXPORT MenuButtonController : public ButtonController {
   };
 
   MenuButtonController(Button* button,
-                       ButtonListener* listener,
+                       Button::PressedCallback callback,
                        std::unique_ptr<ButtonControllerDelegate> delegate);
   ~MenuButtonController() override;
 
@@ -90,8 +89,8 @@ class VIEWS_EXPORT MenuButtonController : public ButtonController {
   // Called if the button state changes while pressed lock is engaged.
   void OnButtonStateChangedWhilePressedLocked();
 
-  // Our listener. Not owned.
-  ButtonListener* const listener_;
+  // Our callback.
+  Button::PressedCallback callback_;
 
   // We use a time object in order to keep track of when the menu was closed.
   // The time is used for simulating menu behavior for the menu button; that
@@ -116,7 +115,7 @@ class VIEWS_EXPORT MenuButtonController : public ButtonController {
   bool should_disable_after_press_ = false;
 
   // Subscribes to state changes on the button while pressed lock is engaged.
-  views::PropertyChangedSubscription state_changed_subscription_;
+  base::CallbackListSubscription state_changed_subscription_;
 
   base::WeakPtrFactory<MenuButtonController> weak_factory_{this};
 

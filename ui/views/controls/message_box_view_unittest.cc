@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <memory>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -122,6 +122,56 @@ TEST_F(MessageBoxViewTest, CheckInterRowHeightChange) {
   EXPECT_EQ(
       scroll_height + kNewInterRowSpacing + prompt_height + box_border.height(),
       message_box_->height());
+}
+
+TEST_F(MessageBoxViewTest, CheckHasVisibleCheckBox) {
+  EXPECT_FALSE(message_box_->HasVisibleCheckBox());
+
+  // Set and show a checkbox.
+  message_box_->SetCheckBoxLabel(base::ASCIIToUTF16("test checkbox"));
+  EXPECT_TRUE(message_box_->HasVisibleCheckBox());
+}
+
+TEST_F(MessageBoxViewTest, CheckGetVisiblePromptField) {
+  EXPECT_FALSE(message_box_->GetVisiblePromptField());
+
+  // Set the prompt field.
+  message_box_->SetPromptField(base::string16());
+  EXPECT_TRUE(message_box_->GetVisiblePromptField());
+}
+
+TEST_F(MessageBoxViewTest, CheckGetInputText) {
+  EXPECT_TRUE(message_box_->GetInputText().empty());
+
+  // Set the prompt field with an empty string. The returned text is still
+  // empty.
+  message_box_->SetPromptField(base::string16());
+  EXPECT_TRUE(message_box_->GetInputText().empty());
+
+  const base::string16 prompt = base::ASCIIToUTF16("prompt");
+  message_box_->SetPromptField(prompt);
+  EXPECT_FALSE(message_box_->GetInputText().empty());
+  EXPECT_EQ(prompt, message_box_->GetInputText());
+
+  // After user types some text, the returned input text should change to the
+  // user input.
+  views::Textfield* text_field = message_box_->GetVisiblePromptField();
+  const base::string16 input = base::ASCIIToUTF16("new input");
+  text_field->SetText(input);
+  EXPECT_FALSE(message_box_->GetInputText().empty());
+  EXPECT_EQ(input, message_box_->GetInputText());
+}
+
+TEST_F(MessageBoxViewTest, CheckIsCheckBoxSelected) {
+  EXPECT_FALSE(message_box_->IsCheckBoxSelected());
+
+  // Set and show a checkbox.
+  message_box_->SetCheckBoxLabel(base::ASCIIToUTF16("test checkbox"));
+  EXPECT_FALSE(message_box_->IsCheckBoxSelected());
+
+  // Select the checkbox.
+  message_box_->SetCheckBoxSelected(true);
+  EXPECT_TRUE(message_box_->IsCheckBoxSelected());
 }
 
 }  // namespace views

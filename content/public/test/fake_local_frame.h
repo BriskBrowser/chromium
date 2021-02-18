@@ -42,12 +42,14 @@ class FakeLocalFrame : public blink::mojom::LocalFrame {
                               const std::string& message) override;
   void SetFrameOwnerProperties(
       blink::mojom::FrameOwnerPropertiesPtr properties) override;
-  void NotifyUserActivation() override;
+  void NotifyUserActivation(
+      blink::mojom::UserActivationNotificationType notification_type) override;
   void NotifyVirtualKeyboardOverlayRect(const gfx::Rect&) override;
   void AddMessageToConsole(blink::mojom::ConsoleMessageLevel level,
                            const std::string& message,
                            bool discard_duplicates) override;
   void AddInspectorIssue(blink::mojom::InspectorIssueInfoPtr info) override;
+  void SwapInImmediately() override;
   void CheckCompleted() override;
   void StopLoading() override;
   void Collapse(bool collapsed) override;
@@ -66,7 +68,7 @@ class FakeLocalFrame : public blink::mojom::LocalFrame {
   void MediaPlayerActionAt(const gfx::Point& location,
                            blink::mojom::MediaPlayerActionPtr action) override;
   void AdvanceFocusInFrame(blink::mojom::FocusType focus_type,
-                           const base::Optional<base::UnguessableToken>&
+                           const base::Optional<blink::RemoteFrameToken>&
                                source_frame_token) override;
   void AdvanceFocusInForm(blink::mojom::FocusType focus_type) override;
   void ReportContentSecurityPolicyViolation(
@@ -74,7 +76,7 @@ class FakeLocalFrame : public blink::mojom::LocalFrame {
   void DidUpdateFramePolicy(const blink::FramePolicy& frame_policy) override;
   void OnScreensChange() override;
   void PostMessageEvent(
-      const base::Optional<base::UnguessableToken>& source_frame_token,
+      const base::Optional<blink::RemoteFrameToken>& source_frame_token,
       const base::string16& source_origin,
       const base::string16& target_origin,
       blink::TransferableMessage message) override;
@@ -90,6 +92,14 @@ class FakeLocalFrame : public blink::mojom::LocalFrame {
       mojo::PendingReceiver<blink::mojom::ReportingObserver> receiver) override;
   void UpdateOpener(const base::Optional<base::UnguessableToken>&
                         opener_frame_token) override;
+  void MixedContentFound(
+      const GURL& main_resource_url,
+      const GURL& mixed_content_url,
+      blink::mojom::RequestContextType request_context,
+      bool was_allowed,
+      const GURL& url_before_redirects,
+      bool had_redirect,
+      network::mojom::SourceLocationPtr source_location) override;
 
  private:
   void BindFrameHostReceiver(mojo::ScopedInterfaceEndpointHandle handle);

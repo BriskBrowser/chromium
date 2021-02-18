@@ -19,6 +19,7 @@ class NavigationHandle;
 }  // namespace content
 
 namespace password_manager {
+class AffiliationService;
 class ChangePasswordUrlService;
 }  // namespace password_manager
 
@@ -33,10 +34,13 @@ class WellKnownChangePasswordNavigationThrottle
     : public content::NavigationThrottle,
       public password_manager::WellKnownChangePasswordStateDelegate {
  public:
-  ~WellKnownChangePasswordNavigationThrottle() override;
-
   static std::unique_ptr<WellKnownChangePasswordNavigationThrottle>
   MaybeCreateThrottleFor(content::NavigationHandle* handle);
+
+  explicit WellKnownChangePasswordNavigationThrottle(
+      content::NavigationHandle* handle);
+
+  ~WellKnownChangePasswordNavigationThrottle() override;
 
   // We don't need to override WillRedirectRequest since a redirect is the
   // expected behaviour and does not need manual intervention.
@@ -47,8 +51,6 @@ class WellKnownChangePasswordNavigationThrottle
   const char* GetNameForLogging() override;
 
  private:
-  explicit WellKnownChangePasswordNavigationThrottle(
-      content::NavigationHandle* handle);
   // password_manager::WellKnownChangePasswordStateDelegate:
   void OnProcessingFinished(bool is_supported) override;
   // Redirects to a given URL in the same tab.
@@ -56,10 +58,16 @@ class WellKnownChangePasswordNavigationThrottle
   // Records the given UKM metric.
   void RecordMetric(password_manager::WellKnownChangePasswordResult result);
 
+  // Stores `navigation_handle()->GetURL()` if the first navigation was to
+  // .well-known/change-password. It is later used to derive the URL for the
+  // non-existing resource, and to provide fallback logic.
+  const GURL request_url_;
   password_manager::WellKnownChangePasswordState
       well_known_change_password_state_{this};
-  password_manager::ChangePasswordUrlService* change_password_url_service_;
   ukm::SourceId source_id_ = ukm::kInvalidSourceId;
+  password_manager::ChangePasswordUrlService* change_password_url_service_ =
+      nullptr;
+  password_manager::AffiliationService* affiliation_service_ = nullptr;
 };
 
 #endif  // CHROME_BROWSER_UI_PASSWORDS_WELL_KNOWN_CHANGE_PASSWORD_NAVIGATION_THROTTLE_H_

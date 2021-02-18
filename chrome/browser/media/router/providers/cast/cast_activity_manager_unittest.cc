@@ -11,12 +11,12 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/json/json_reader.h"
 #include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/strings/strcat.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/mock_callback.h"
 #include "base/test/values_test_util.h"
 #include "base/values.h"
@@ -25,11 +25,12 @@
 #include "chrome/browser/media/router/providers/cast/mock_app_activity.h"
 #include "chrome/browser/media/router/providers/cast/test_util.h"
 #include "chrome/browser/media/router/providers/common/buffered_message_sender.h"
-#include "chrome/browser/media/router/test/mock_logger.h"
 #include "chrome/browser/media/router/test/mock_mojo_media_router.h"
-#include "chrome/browser/media/router/test/test_helper.h"
+#include "chrome/browser/media/router/test/provider_test_helpers.h"
+#include "components/cast_channel/cast_message_util.h"
 #include "components/cast_channel/cast_test_util.h"
 #include "components/media_router/common/media_source.h"
+#include "components/media_router/common/test/mock_logger.h"
 #include "components/media_router/common/test/test_helper.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -105,6 +106,16 @@ base::Value MakeReceiverStatus(const std::string& app_id,
 }
 
 using MockAppActivityCallback = base::RepeatingCallback<void(MockAppActivity*)>;
+
+class MockLaunchSessionCallback {
+ public:
+  MOCK_METHOD(void,
+              Run,
+              (const base::Optional<MediaRoute>& route,
+               mojom::RoutePresentationConnectionPtr presentation_connections,
+               const base::Optional<std::string>& error_message,
+               media_router::RouteRequestResult::ResultCode result_code));
+};
 
 class MockMirroringActivity : public MirroringActivity {
  public:
@@ -288,7 +299,14 @@ class CastActivityManagerTest : public testing::Test,
     });
 
     EXPECT_CALL(message_handler_,
-                EnsureConnection(kChannelId, "theClientId", "theTransportId"));
+                EnsureConnection(kChannelId, "theClientId", "theTransportId",
+                                 cast_channel::VirtualConnectionType::kStrong));
+    EXPECT_CALL(message_handler_,
+                SendMediaRequest(kChannelId,
+                                 // NOTE: MEDIA_GET_STATUS is translated to
+                                 // GET_STATUS inside SendMediaRequest.
+                                 IsJson(R"({"type": "MEDIA_GET_STATUS"})"),
+                                 "theClientId", "theTransportId"));
 
     auto response = GetSuccessLaunchResponse(app_id);
     session_tracker_->SetSessionForTest(
@@ -311,8 +329,31 @@ class CastActivityManagerTest : public testing::Test,
     }
   }
 
-  void LaunchMirroringSession() {
-    CallLaunchSession(kCastStreamingAppId);
+  void LaunchNonSdkMirroringSession() {
+    CallLaunchSession(kCastStreamingAppId, /* app_params */ "",
+                      /* client_id */ "");
+    ResolveMirroringSessionLaunch();
+  }
+
+  void LaunchCastSdkMirroringSession() {
+    CallLaunchSession(kCastStreamingAppId, kAppParams, kClientId);
+    // We expect EnsureConnection() to be called for both the sender client and
+    // |message_handler_.sender_id()|. The latter is captured in
+    // ResolveMirroringSessionLaunch().
+    //
+    // CallLaunchSession() calls VerifyAndClearExpectations() on
+    // |message_handler_|, so this EXPECT_CALL() must come after that.
+    EXPECT_CALL(message_handler_,
+                EnsureConnection(kChannelId, "theClientId", "theTransportId",
+                                 cast_channel::VirtualConnectionType::kStrong));
+    ResolveMirroringSessionLaunch();
+  }
+
+  void ResolveMirroringSessionLaunch() {
+    EXPECT_CALL(message_handler_,
+                EnsureConnection(kChannelId, message_handler_.sender_id(),
+                                 "theTransportId",
+                                 cast_channel::VirtualConnectionType::kStrong));
     auto response = GetSuccessLaunchResponse();
     SetSessionForTest(route_->media_sink_id(),
                       CastSession::From(sink_, *response.receiver_status));
@@ -320,10 +361,20 @@ class CastActivityManagerTest : public testing::Test,
     DCHECK(mirroring_activity_);
   }
 
-  void ExpectMirroringActivityStopped() {
+  void AddRemoteMirroringSession() {
+    auto session =
+        CastSession::From(sink2_, MakeReceiverStatus(kCastStreamingAppId));
+    manager_->OnSessionAddedOrUpdated(sink2_, *session);
+    SetSessionForTest(sink2_.id(), std::move(session));
     DCHECK(mirroring_activity_);
-    EXPECT_CALL(message_handler_, StopSession).Times(1);
-    EXPECT_CALL(*mirroring_activity_, SendStopSessionMessageToClients).Times(1);
+    DCHECK(!mirroring_activity_->route().is_local());
+  }
+
+  void ExpectMirroringActivityStoppedTimes(int times) {
+    DCHECK(mirroring_activity_);
+    EXPECT_CALL(message_handler_, StopSession).Times(times);
+    EXPECT_CALL(*mirroring_activity_, SendStopSessionMessageToClients)
+        .Times(times);
   }
 
   void TerminateSession(bool expect_success) {
@@ -425,7 +476,12 @@ TEST_F(CastActivityManagerTest, LaunchAppSessionWithAppParams) {
 }
 
 TEST_F(CastActivityManagerTest, LaunchMirroringSession) {
-  LaunchMirroringSession();
+  LaunchNonSdkMirroringSession();
+  EXPECT_EQ(RouteControllerType::kMirroring, route_->controller_type());
+}
+
+TEST_F(CastActivityManagerTest, LaunchMirroringSessionViaCastSdk) {
+  LaunchCastSdkMirroringSession();
   EXPECT_EQ(RouteControllerType::kMirroring, route_->controller_type());
 }
 
@@ -438,8 +494,8 @@ TEST_F(CastActivityManagerTest, LaunchSiteInitiatedMirroringSession) {
 }
 
 TEST_F(CastActivityManagerTest, MirroringSessionStopped) {
-  LaunchMirroringSession();
-  ExpectMirroringActivityStopped();
+  LaunchNonSdkMirroringSession();
+  ExpectMirroringActivityStoppedTimes(1);
   mirroring_activity_->DidStop();
 }
 
@@ -608,9 +664,15 @@ TEST_F(CastActivityManagerTest, TerminateSessionFails) {
   TerminateSession(false);
 }
 
-TEST_F(CastActivityManagerTest, DestructorClosesMirroringSession) {
-  LaunchMirroringSession();
-  ExpectMirroringActivityStopped();
+TEST_F(CastActivityManagerTest, DestructorClosesLocalMirroringSession) {
+  LaunchNonSdkMirroringSession();
+  ExpectMirroringActivityStoppedTimes(1);
+  manager_.reset();
+}
+
+TEST_F(CastActivityManagerTest, DestructorIgnoresNonlocalMirroringSession) {
+  AddRemoteMirroringSession();
+  ExpectMirroringActivityStoppedTimes(0);
   manager_.reset();
 }
 
@@ -651,6 +713,29 @@ TEST_F(CastActivityManagerTest, OnMediaStatusUpdated) {
   EXPECT_CALL(*app_activity_,
               SendMediaStatusToClients(IsJson(status), request_id));
   manager_->OnMediaStatusUpdated(sink_, ParseJson(status), request_id);
+}
+
+TEST_F(CastActivityManagerTest, SecondPendingRequestCancelsTheFirst) {
+  auto source =
+      CastMediaSource::FromMediaSourceId(MakeSourceId(kAppId1, "", kClientId));
+  MockLaunchSessionCallback callback;
+  // Launch a session so that the next launch request gets queued.
+  LaunchAppSession();
+
+  // Ignore StopSession() so that pending requests don't get executed.
+  EXPECT_CALL(message_handler_, StopSession).WillRepeatedly([]() {});
+  // The first request gets queued, then cancelled when the second request
+  // replaces it.
+  EXPECT_CALL(callback, Run)
+      .WillOnce(WithArg<3>([](RouteRequestResult::ResultCode code) {
+        EXPECT_EQ(RouteRequestResult::ResultCode::CANCELLED, code);
+      }));
+  for (int i = 0; i < 2; i++) {
+    manager_->LaunchSession(*source, sink_, kPresentationId, origin_, kTabId,
+                            /*incognito*/ false,
+                            base::BindOnce(&MockLaunchSessionCallback::Run,
+                                           base::Unretained(&callback)));
+  }
 }
 
 }  // namespace media_router

@@ -44,6 +44,8 @@ RENDERING_BENCHMARK_UMA = [
     'Graphics.Smoothness.PercentDroppedFrames.SlowerThread.Universal',
     'Graphics.Smoothness.PercentDroppedFrames.ScrollingThread.TouchScroll',
     'Graphics.Smoothness.PercentDroppedFrames.ScrollingThread.WheelScroll',
+    'Graphics.Smoothness.MaxPercentDroppedFrames_1sWindow',
+    'Graphics.Smoothness.95pctPercentDroppedFrames_1sWindow',
     'Memory.GPU.PeakMemoryUsage.Scroll',
     'Memory.GPU.PeakMemoryUsage.PageLoad',
 ]
@@ -70,10 +72,19 @@ class _RenderingBenchmark(perf_benchmark.PerfBenchmark):
     # Supplement the base trace categories with "gpu.memory" which records
     # timings associated with memory ablation experiments.
     category_filter.AddFilterString('gpu.memory')
+    category_filter.AddDisabledByDefault(
+        'disabled-by-default-histogram_samples')
     options = timeline_based_measurement.Options(category_filter)
     options.config.chrome_trace_config.EnableUMAHistograms(
         *RENDERING_BENCHMARK_UMA)
-    options.SetTimelineBasedMetrics(['renderingMetric', 'umaMetric', 'memoryAblationMetric'])
+    options.SetTimelineBasedMetrics([
+        'renderingMetric',
+        'umaMetric',
+        'memoryAblationMetric',
+        # Unless --experimentatil-tbmv3-metric flag is used, the following tbmv3
+        # metrics do nothing.
+        'tbmv3:uma_metrics'
+    ])
     return options
 
 

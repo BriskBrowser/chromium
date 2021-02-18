@@ -33,12 +33,6 @@ let prefsGeolocation;
 let prefsGeolocationEmpty;
 
 /**
- * An example of prefs controlledBy policy.
- * @type {SiteSettingsPref}
- */
-let prefsControlled;
-
-/**
  * An example pref with mixed schemes (present and absent).
  * @type {SiteSettingsPref}
  */
@@ -107,11 +101,6 @@ let prefsChromeExtension;
 let prefsEmbargo;
 
 /**
- * An example prefs with 1 discarded content setting.
- */
-let prefsDiscarded;
-
-/**
  * Creates all the test |SiteSettingsPref|s that are needed for the tests in
  * this file. They are populated after test setup in order to access the
  * |settings| constants required.
@@ -132,14 +121,6 @@ function populateTestExceptions() {
         ]),
   ]);
 
-  prefsControlled = createSiteSettingsPrefs(
-      [], [createContentSettingTypeToValuePair(
-              ContentSettingsTypes.PLUGINS,
-              [createRawSiteException('http://foo-block.com', {
-                embeddingOrigin: '',
-                setting: ContentSetting.BLOCK,
-                source: SiteSettingSource.POLICY,
-              })])]);
 
   prefsMixedSchemes = createSiteSettingsPrefs([], [
     createContentSettingTypeToValuePair(
@@ -295,19 +276,9 @@ function populateTestExceptions() {
           isEmbargoed: true,
         })]),
   ]);
-
-  prefsDiscarded = createSiteSettingsPrefs([], [
-    createContentSettingTypeToValuePair(
-        ContentSettingsTypes.PLUGINS,
-        [createRawSiteException('https://[*.]example.com:443', {
-          embeddingOrigin: '',
-          setting: ContentSetting.BLOCK,
-          isDiscarded: true,
-        })]),
-  ]);
 }
 
-suite('SiteListProperties', function() {
+suite('SiteListEmbargoedOrigin', function() {
   /**
    * A site list element created before each test.
    * @type {!SiteListElement}
@@ -386,14 +357,6 @@ suite('SiteListProperties', function() {
             .querySelectorAll('site-list-entry')[0]
             .$$('#siteDescription')
             .innerHTML);
-  });
-
-  test('Discarded setting', async function() {
-    setUpCategory(
-        ContentSettingsTypes.PLUGINS, ContentSetting.BLOCK, prefsDiscarded);
-    const result = await browserProxy.whenCalled('getExceptionList');
-    flush();
-    assertTrue(testElement.hasDiscardedExceptions);
   });
 });
 
@@ -662,43 +625,6 @@ suite('SiteList', function() {
           assertMenu(['Allow', 'Block', 'Edit', 'Remove']);
 
           assertFalse(testElement.$$('#category').hidden);
-        });
-  });
-
-  test('update lists for incognito', function() {
-    const contentType = ContentSettingsTypes.PLUGINS;
-    const categorySubtype = ContentSetting.BLOCK;
-    setUpCategory(contentType, categorySubtype, prefsControlled);
-    const list = testElement.$$('#listContainer');
-    return browserProxy.whenCalled('getExceptionList')
-        .then(function(actualContentType) {
-          flush();
-          assertEquals(1, list.querySelector('iron-list').items.length);
-          assertFalse(hasAnIncognito(list));
-          browserProxy.resetResolver('getExceptionList');
-          browserProxy.setIncognito(true);
-          return browserProxy.whenCalled('getExceptionList');
-        })
-        .then(function() {
-          flush();
-          assertEquals(2, list.querySelector('iron-list').items.length);
-          assertTrue(hasAnIncognito(list));
-          browserProxy.resetResolver('getExceptionList');
-          browserProxy.setIncognito(false);
-          return browserProxy.whenCalled('getExceptionList');
-        })
-        .then(function() {
-          flush();
-          assertEquals(1, list.querySelector('iron-list').items.length);
-          assertFalse(hasAnIncognito(list));
-          browserProxy.resetResolver('getExceptionList');
-          browserProxy.setIncognito(true);
-          return browserProxy.whenCalled('getExceptionList');
-        })
-        .then(function() {
-          flush();
-          assertEquals(2, list.querySelector('iron-list').items.length);
-          assertTrue(hasAnIncognito(list));
         });
   });
 
@@ -1054,7 +980,7 @@ suite('SiteList', function() {
 
       const testsParams = [
         ['a', testElement, new MouseEvent('mouseleave')],
-        ['b', testElement, new MouseEvent('tap')],
+        ['b', testElement, new MouseEvent('click')],
         ['c', testElement, new Event('blur')],
         ['d', tooltip, new MouseEvent('mouseenter')],
       ];
@@ -1104,7 +1030,6 @@ suite('EditExceptionDialog', function() {
       embeddingOrigin: SITE_EXCEPTION_WILDCARD,
       isEmbargoed: false,
       incognito: false,
-      isDiscarded: false,
       setting: ContentSetting.BLOCK,
       enforcement: null,
       controlledBy: chrome.settingsPrivate.ControlledBy.USER_POLICY,

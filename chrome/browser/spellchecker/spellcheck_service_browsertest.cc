@@ -9,7 +9,8 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
+#include "base/files/file_util.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
@@ -147,11 +148,6 @@ class SpellcheckServiceBrowserTest : public InProcessBrowserTest,
     change.AddWord("3");
 
     spellcheck->OnCustomDictionaryChanged(change);
-  }
-
-  void SetSingleLanguageDictionary(const std::string& single_dictionary) {
-    prefs_->SetString(spellcheck::prefs::kSpellCheckDictionary,
-                      single_dictionary);
   }
 
   void SetMultiLingualDictionaries(const std::string& multiple_dictionaries) {
@@ -323,6 +319,28 @@ class SpellcheckServiceHostBrowserTest : public SpellcheckServiceBrowserTest {
   DISALLOW_COPY_AND_ASSIGN(SpellcheckServiceHostBrowserTest);
 };
 
+// Disable spell check should disable spelling service
+IN_PROC_BROWSER_TEST_F(SpellcheckServiceBrowserTest,
+                       DisableSpellcheckDisableSpellingService) {
+  InitSpellcheck(true, "", "en-US");
+  GetPrefs()->SetBoolean(spellcheck::prefs::kSpellCheckUseSpellingService,
+                         true);
+
+  EnableSpellcheck(false);
+  EXPECT_FALSE(
+      GetPrefs()->GetBoolean(spellcheck::prefs::kSpellCheckUseSpellingService));
+}
+
+#if !defined(OS_MAC)
+IN_PROC_BROWSER_TEST_F(SpellcheckServiceBrowserTest,
+                       DisableSpellcheckIfDictionaryIsEmpty) {
+  InitSpellcheck(true, "", "en-US");
+  SetMultiLingualDictionaries("");
+
+  EXPECT_FALSE(GetPrefs()->GetBoolean(spellcheck::prefs::kSpellCheckEnable));
+}
+#endif  // !defined(OS_MAC)
+
 // Removing a spellcheck language from accept languages should remove it from
 // spellcheck languages list as well.
 IN_PROC_BROWSER_TEST_F(SpellcheckServiceBrowserTest,
@@ -459,17 +477,6 @@ IN_PROC_BROWSER_TEST_F(SpellcheckServiceHostBrowserTest, RequestDictionary) {
 
   RequestDictionary();
   EXPECT_TRUE(GetEnableSpellcheckState());
-}
-
-// When the renderer notifies that it corrected a word, the render process
-// host should record UMA stats about the correction.
-IN_PROC_BROWSER_TEST_F(SpellcheckServiceHostBrowserTest, NotifyChecked) {
-  const char kMisspellRatio[] = "SpellCheck.MisspellRatio";
-
-  base::HistogramTester tester;
-  tester.ExpectTotalCount(kMisspellRatio, 0);
-  NotifyChecked();
-  tester.ExpectTotalCount(kMisspellRatio, 1);
 }
 
 #if BUILDFLAG(USE_RENDERER_SPELLCHECKER)

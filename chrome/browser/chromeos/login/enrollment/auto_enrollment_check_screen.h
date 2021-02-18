@@ -21,7 +21,6 @@
 namespace chromeos {
 
 class ErrorScreensHistogramHelper;
-class ScreenManager;
 
 // Handles the control flow after OOBE auto-update completes to wait for the
 // enterprise auto-enrollment check that happens as part of OOBE. This includes
@@ -33,12 +32,12 @@ class AutoEnrollmentCheckScreen
       public BaseScreen,
       public NetworkPortalDetector::Observer {
  public:
+  using TView = AutoEnrollmentCheckScreenView;
+
   AutoEnrollmentCheckScreen(AutoEnrollmentCheckScreenView* view,
                             ErrorScreen* error_screen,
                             const base::RepeatingClosure& exit_callback);
   ~AutoEnrollmentCheckScreen() override;
-
-  static AutoEnrollmentCheckScreen* Get(ScreenManager* manager);
 
   // Clears the cached state causing the forced enrollment check to be retried.
   void ClearState();
@@ -58,15 +57,15 @@ class AutoEnrollmentCheckScreen
   // NetworkPortalDetector::Observer implementation:
   void OnPortalDetectionCompleted(
       const NetworkState* network,
-      const NetworkPortalDetector::CaptivePortalState& state) override;
+      const NetworkPortalDetector::CaptivePortalStatus status) override;
 
  protected:
   // BaseScreen:
   void ShowImpl() override;
   void HideImpl() override;
 
-  // Runs |exit_callback_| - used to prevent |exit_callback_| from running after
-  // |this| has been destroyed (by wrapping it with a callback bound to a weak
+  // Runs `exit_callback_` - used to prevent `exit_callback_` from running after
+  // `this` has been destroyed (by wrapping it with a callback bound to a weak
   // ptr).
   void RunExitCallback() { exit_callback_.Run(); }
 
@@ -77,12 +76,12 @@ class AutoEnrollmentCheckScreen
   // Handles a state update, updating the UI and saving the state.
   void UpdateState();
 
-  // Configures the UI to reflect |new_captive_portal_status|. Returns true if
+  // Configures the UI to reflect `new_captive_portal_status`. Returns true if
   // and only if a UI change has been made.
   bool UpdateCaptivePortalStatus(
       NetworkPortalDetector::CaptivePortalStatus new_captive_portal_status);
 
-  // Configures the UI to reflect |new_auto_enrollment_state|. Returns true if
+  // Configures the UI to reflect `new_auto_enrollment_state`. Returns true if
   // and only if a UI change has been made.
   bool UpdateAutoEnrollmentState(
       policy::AutoEnrollmentState new_auto_enrollment_state);
@@ -94,7 +93,7 @@ class AutoEnrollmentCheckScreen
   // error screen gets hidden.
   void OnErrorScreenHidden();
 
-  // Asynchronously signals completion. The owner might destroy |this| in
+  // Asynchronously signals completion. The owner might destroy `this` in
   // response, so no code should be run after the completion of a message loop
   // task, in which this function was called.
   void SignalCompletion();
@@ -116,15 +115,14 @@ class AutoEnrollmentCheckScreen
   base::RepeatingClosure exit_callback_;
   AutoEnrollmentController* auto_enrollment_controller_;
 
-  std::unique_ptr<AutoEnrollmentController::ProgressCallbackList::Subscription>
-      auto_enrollment_progress_subscription_;
+  base::CallbackListSubscription auto_enrollment_progress_subscription_;
 
   NetworkPortalDetector::CaptivePortalStatus captive_portal_status_;
   policy::AutoEnrollmentState auto_enrollment_state_;
 
   std::unique_ptr<ErrorScreensHistogramHelper> histogram_helper_;
 
-  ErrorScreen::ConnectRequestCallbackSubscription connect_request_subscription_;
+  base::CallbackListSubscription connect_request_subscription_;
 
   base::WeakPtrFactory<AutoEnrollmentCheckScreen> weak_ptr_factory_{this};
 

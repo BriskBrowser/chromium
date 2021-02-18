@@ -10,8 +10,6 @@
 #include <map>
 #include <memory>
 
-#include <VideoToolbox/VideoToolbox.h>
-
 #include "base/containers/queue.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/macros.h"
@@ -19,6 +17,7 @@
 #include "base/threading/thread.h"
 #include "base/threading/thread_checker.h"
 #include "base/trace_event/memory_dump_provider.h"
+#include "gpu/config/gpu_driver_bug_workarounds.h"
 #include "media/base/media_log.h"
 #include "media/gpu/gpu_video_decode_accelerator_helpers.h"
 #include "media/gpu/media_gpu_export.h"
@@ -26,7 +25,12 @@
 #include "media/video/h264_poc.h"
 #include "media/video/video_decode_accelerator.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_image_io_surface.h"
+
+// This must be included after gl_bindings.h, or the various GL headers on the
+// system and in the source tree will conflict with each other.
+#include <VideoToolbox/VideoToolbox.h>
 
 namespace media {
 class VP9ConfigChangeDetector;
@@ -41,6 +45,7 @@ class VTVideoDecodeAccelerator : public VideoDecodeAccelerator,
                                  public base::trace_event::MemoryDumpProvider {
  public:
   VTVideoDecodeAccelerator(const GpuVideoDecodeGLClient& gl_client_,
+                           const gpu::GpuDriverBugWorkarounds& workarounds,
                            MediaLog* media_log);
 
   ~VTVideoDecodeAccelerator() override;
@@ -60,6 +65,8 @@ class VTVideoDecodeAccelerator : public VideoDecodeAccelerator,
       const base::WeakPtr<Client>& decode_client,
       const scoped_refptr<base::SingleThreadTaskRunner>& decode_task_runner)
       override;
+  bool SupportsSharedImagePictureBuffers() const override;
+  TextureAllocationMode GetSharedImageTextureAllocationMode() const override;
 
   // MemoryDumpProvider implementation.
   bool OnMemoryDump(const base::trace_event::MemoryDumpArgs& args,
@@ -70,7 +77,8 @@ class VTVideoDecodeAccelerator : public VideoDecodeAccelerator,
               OSStatus status,
               CVImageBufferRef image_buffer);
 
-  static VideoDecodeAccelerator::SupportedProfiles GetSupportedProfiles();
+  static VideoDecodeAccelerator::SupportedProfiles GetSupportedProfiles(
+      const gpu::GpuDriverBugWorkarounds& workarounds);
 
  private:
   // Logged to UMA, so never reuse values. Make sure to update
@@ -109,6 +117,7 @@ class VTVideoDecodeAccelerator : public VideoDecodeAccelerator,
     // Slice header information.
     bool has_slice = false;
     bool is_idr = false;
+    bool has_recovery_point = false;
     bool has_mmco5 = false;
     int32_t pic_order_cnt = 0;
     int32_t reorder_window = 0;
@@ -130,16 +139,26 @@ class VTVideoDecodeAccelerator : public VideoDecodeAccelerator,
   };
 
   struct PictureInfo {
+    // A PictureInfo that specifies no texture IDs will be used for shared
+    // images.
+    PictureInfo();
     PictureInfo(uint32_t client_texture_id, uint32_t service_texture_id);
     ~PictureInfo();
 
+    // If true, then |scoped_shared_image| is used and |client_texture_id| and
+    // |service_texture_id| are not used.
+    const bool uses_shared_images;
+
     // Information about the currently bound image, for OnMemoryDump().
     scoped_refptr<gl::GLImageIOSurface> gl_image;
-    int32_t bitstream_id;
+    int32_t bitstream_id = 0;
 
     // Texture IDs for the image buffer.
-    const uint32_t client_texture_id;
-    const uint32_t service_texture_id;
+    const uint32_t client_texture_id = 0;
+    const uint32_t service_texture_id = 0;
+
+    // The shared image holder that will be passed to the client.
+    scoped_refptr<Picture::ScopedSharedImage> scoped_shared_image;
 
    private:
     DISALLOW_COPY_AND_ASSIGN(PictureInfo);
@@ -199,6 +218,7 @@ class VTVideoDecodeAccelerator : public VideoDecodeAccelerator,
   // GPU thread state.
   //
   const GpuVideoDecodeGLClient gl_client_;
+  const gpu::GpuDriverBugWorkarounds workarounds_;
   MediaLog* media_log_;
 
   VideoDecodeAccelerator::Client* client_ = nullptr;

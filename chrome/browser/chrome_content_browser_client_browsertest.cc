@@ -15,6 +15,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -66,16 +67,7 @@
 #include "chrome/test/base/launchservices_utils_mac.h"
 #endif
 
-namespace content {
-
 namespace {
-
-enum class NetworkServiceState {
-  kDisabled,
-  kEnabled,
-};
-
-}  // namespace
 
 // Use a test class with SetUpCommandLine to ensure the flag is sent to the
 // first renderer process.
@@ -84,7 +76,7 @@ class ChromeContentBrowserClientBrowserTest : public InProcessBrowserTest {
   ChromeContentBrowserClientBrowserTest() {}
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    IsolateAllSitesForTesting(command_line);
+    content::IsolateAllSitesForTesting(command_line);
   }
 
  private:
@@ -100,64 +92,15 @@ IN_PROC_BROWSER_TEST_F(ChromeContentBrowserClientBrowserTest,
   const GURL url(embedded_test_server()->GetURL("/title1.html"));
 
   ui_test_utils::NavigateToURL(browser(), url);
-  NavigationEntry* entry = browser()
-                               ->tab_strip_model()
-                               ->GetWebContentsAt(0)
-                               ->GetController()
-                               .GetLastCommittedEntry();
+  content::NavigationEntry* entry = browser()
+                                        ->tab_strip_model()
+                                        ->GetWebContentsAt(0)
+                                        ->GetController()
+                                        .GetLastCommittedEntry();
 
   ASSERT_TRUE(entry != NULL);
   EXPECT_EQ(url, entry->GetURL());
   EXPECT_EQ(url, entry->GetVirtualURL());
-}
-
-class ChromeContentBrowserClientPopupsTest : public InProcessBrowserTest {
- public:
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    // Required setup for kAllowPopupsDuringPageUnload switch
-    // as its being checked (whether its going to be enabled or not)
-    // only if the process type is renderer process.
-    command_line_.AppendSwitchASCII(switches::kProcessType,
-                                    switches::kRendererProcess);
-  }
-  void SetUpOnMainThread() override {
-    kChildProcessId = browser()
-                          ->tab_strip_model()
-                          ->GetActiveWebContents()
-                          ->GetMainFrame()
-                          ->GetProcess()
-                          ->GetID();
-  }
-  ChromeContentBrowserClientPopupsTest()
-      : command_line_(base::CommandLine::NO_PROGRAM) {}
-
-  void AppendContentBrowserClientSwitches() {
-    client_.AppendExtraCommandLineSwitches(&command_line_, kChildProcessId);
-  }
-
-  const base::CommandLine& command_line() const { return command_line_; }
-
- private:
-  ChromeContentBrowserClient client_;
-  base::CommandLine command_line_;
-  int kChildProcessId;
-};
-
-IN_PROC_BROWSER_TEST_F(ChromeContentBrowserClientPopupsTest,
-                       AllowPopupsDuringPageUnload) {
-  // Verify that the switch is included only when the
-  // pref AllowPopupsDuringPageUnload value is true.
-
-  PrefService* pref_service = browser()->profile()->GetPrefs();
-  pref_service->SetBoolean(prefs::kAllowPopupsDuringPageUnload, false);
-  AppendContentBrowserClientSwitches();
-  EXPECT_FALSE(
-      command_line().HasSwitch(switches::kAllowPopupsDuringPageUnload));
-  // When the pref value is being set to true
-  // the switch should be included.
-  pref_service->SetBoolean(prefs::kAllowPopupsDuringPageUnload, true);
-  AppendContentBrowserClientSwitches();
-  EXPECT_TRUE(command_line().HasSwitch(switches::kAllowPopupsDuringPageUnload));
 }
 
 // Helper class to mark "https://ntp.com/" as an isolated origin.
@@ -197,22 +140,25 @@ IN_PROC_BROWSER_TEST_F(IsolatedOriginNTPBrowserTest,
       https_test_server().GetURL("ntp.com", "/instant_extended.html");
   GURL ntp_url =
       https_test_server().GetURL("ntp.com", "/instant_extended_ntp.html");
-  InstantTestBase::Init(base_url, ntp_url, false);
-
-  SetupInstant(browser());
+  SetupInstant(browser()->profile(), base_url, ntp_url);
 
   // Sanity check that a SiteInstance for a generic ntp.com URL requires a
   // dedicated process.
   content::BrowserContext* context = browser()->profile();
   GURL isolated_url(https_test_server().GetURL("ntp.com", "/title1.html"));
-  scoped_refptr<SiteInstance> site_instance =
-      SiteInstance::CreateForURL(context, isolated_url);
+  scoped_refptr<content::SiteInstance> site_instance =
+      content::SiteInstance::CreateForURL(context, isolated_url);
   EXPECT_TRUE(site_instance->RequiresDedicatedProcess());
+  // Verify the isolated origin does not receive an NTP site URL scheme.
+  EXPECT_FALSE(
+      site_instance->GetSiteURL().SchemeIs(chrome::kChromeSearchScheme));
 
   // The site URL for the NTP URL should resolve to a chrome-search:// URL via
   // GetEffectiveURL(), even if the NTP URL matches an isolated origin.
-  GURL site_url(content::SiteInstance::GetSiteForURL(context, ntp_url));
-  EXPECT_TRUE(site_url.SchemeIs(chrome::kChromeSearchScheme));
+  scoped_refptr<content::SiteInstance> ntp_site_instance =
+      content::SiteInstance::CreateForURL(context, ntp_url);
+  EXPECT_TRUE(
+      ntp_site_instance->GetSiteURL().SchemeIs(chrome::kChromeSearchScheme));
 
   // Navigate to the NTP URL and verify that the resulting process is marked as
   // an Instant process.
@@ -223,12 +169,16 @@ IN_PROC_BROWSER_TEST_F(IsolatedOriginNTPBrowserTest,
       InstantServiceFactory::GetForProfile(browser()->profile());
   EXPECT_TRUE(instant_service->IsInstantProcess(
       contents->GetMainFrame()->GetProcess()->GetID()));
+  EXPECT_EQ(contents->GetMainFrame()->GetSiteInstance()->GetSiteURL(),
+            ntp_site_instance->GetSiteURL());
 
   // Navigating to a non-NTP URL on ntp.com should not result in an Instant
   // process.
   ui_test_utils::NavigateToURL(browser(), isolated_url);
   EXPECT_FALSE(instant_service->IsInstantProcess(
       contents->GetMainFrame()->GetProcess()->GetID()));
+  EXPECT_EQ(contents->GetMainFrame()->GetSiteInstance()->GetSiteURL(),
+            site_instance->GetSiteURL());
 }
 
 // Helper class to test window creation from NTP.
@@ -261,9 +211,7 @@ IN_PROC_BROWSER_TEST_F(OpenWindowFromNTPBrowserTest,
       https_test_server().GetURL("ntp.com", "/instant_extended.html");
   GURL ntp_url =
       https_test_server().GetURL("ntp.com", "/instant_extended_ntp.html");
-  InstantTestBase::Init(search_url, ntp_url, false);
-
-  SetupInstant(browser());
+  SetupInstant(browser()->profile(), search_url, ntp_url);
 
   // Navigate to the NTP URL and verify that the resulting process is marked as
   // an Instant process.
@@ -411,6 +359,86 @@ IN_PROC_BROWSER_TEST_P(PrefersColorSchemeTest, FeatureOverridesPdfUI) {
 
 INSTANTIATE_TEST_SUITE_P(All, PrefersColorSchemeTest, testing::Bool());
 
+class PrefersContrastTest
+    : public testing::WithParamInterface<ui::NativeTheme::PreferredContrast>,
+      public InProcessBrowserTest {
+ protected:
+  PrefersContrastTest() : theme_client_(&test_theme_) {}
+
+  ~PrefersContrastTest() override {
+    CHECK_EQ(&theme_client_, SetBrowserClientForTesting(original_client_));
+  }
+
+  const char* ExpectedPrefersContrast() const {
+    switch (GetParam()) {
+      case ui::NativeTheme::PreferredContrast::kNoPreference:
+        return "no-preference";
+      case ui::NativeTheme::PreferredContrast::kMore:
+        return "more";
+      case ui::NativeTheme::PreferredContrast::kLess:
+        return "less";
+    }
+  }
+
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    InProcessBrowserTest::SetUpCommandLine(command_line);
+    command_line->AppendSwitchASCII(switches::kEnableBlinkFeatures,
+                                    "PrefersContrast");
+    command_line->AppendSwitchASCII(switches::kEnableBlinkFeatures,
+                                    "ForcedColors");
+  }
+
+  void SetUpOnMainThread() override {
+    InProcessBrowserTest::SetUpOnMainThread();
+    original_client_ = SetBrowserClientForTesting(&theme_client_);
+  }
+
+ protected:
+  ui::TestNativeTheme test_theme_;
+
+ private:
+  content::ContentBrowserClient* original_client_ = nullptr;
+
+  class ChromeContentBrowserClientWithWebTheme
+      : public ChromeContentBrowserClient {
+   public:
+    explicit ChromeContentBrowserClientWithWebTheme(
+        const ui::NativeTheme* theme)
+        : theme_(theme) {}
+
+   protected:
+    const ui::NativeTheme* GetWebTheme() const override { return theme_; }
+
+   private:
+    const ui::NativeTheme* const theme_;
+  };
+
+  ChromeContentBrowserClientWithWebTheme theme_client_;
+};
+
+IN_PROC_BROWSER_TEST_P(PrefersContrastTest, PrefersContrast) {
+  test_theme_.set_preferred_contrast(GetParam());
+  browser()
+      ->tab_strip_model()
+      ->GetActiveWebContents()
+      ->OnWebPreferencesChanged();
+  ui_test_utils::NavigateToURL(
+      browser(),
+      ui_test_utils::GetTestUrl(
+          base::FilePath(base::FilePath::kCurrentDirectory),
+          base::FilePath(FILE_PATH_LITERAL("prefers-contrast.html"))));
+  base::string16 tab_title;
+  ASSERT_TRUE(ui_test_utils::GetCurrentTabTitle(browser(), &tab_title));
+  EXPECT_EQ(base::ASCIIToUTF16(ExpectedPrefersContrast()), tab_title);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    All,
+    PrefersContrastTest,
+    testing::Values(ui::NativeTheme::PreferredContrast::kNoPreference,
+                    ui::NativeTheme::PreferredContrast::kMore,
+                    ui::NativeTheme::PreferredContrast::kLess));
+
 class ProtocolHandlerTest : public InProcessBrowserTest {
  public:
   ProtocolHandlerTest() = default;
@@ -464,7 +492,7 @@ IN_PROC_BROWSER_TEST_F(ProtocolHandlerTest, HandlersIgnoredWhenDisabled) {
   EXPECT_EQ(base::ASCIIToUTF16("about:blank"), tab_title);
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // Tests that if a protocol handler is registered for a scheme, an external
 // program (another Chrome tab in this case) is not launched to handle the
 // navigation. This is a regression test for crbug.com/963133.
@@ -483,4 +511,4 @@ IN_PROC_BROWSER_TEST_F(ProtocolHandlerTest, ExternalProgramNotLaunched) {
 }
 #endif
 
-}  // namespace content
+}  // namespace

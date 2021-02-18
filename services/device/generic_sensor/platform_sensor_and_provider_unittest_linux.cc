@@ -12,10 +12,11 @@
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "build/chromeos_buildflags.h"
 #include "services/device/generic_sensor/generic_sensor_consts.h"
 #include "services/device/generic_sensor/linux/sensor_data_linux.h"
 #include "services/device/generic_sensor/linux/sensor_device_manager.h"
@@ -579,15 +580,6 @@ TEST_F(PlatformSensorAndProviderLinuxTest,
 
   SensorReadingSharedBuffer* buffer =
       static_cast<SensorReadingSharedBuffer*>(mapping.get());
-#if defined(OS_CHROMEOS)
-  double scaling = base::kMeanGravityDouble / kAccelerometerScalingValue;
-  EXPECT_THAT(buffer->reading.accel.x,
-              RoundAccelerometerValue(scaling * sensor_values[0]));
-  EXPECT_THAT(buffer->reading.accel.y,
-              RoundAccelerometerValue(scaling * sensor_values[1]));
-  EXPECT_THAT(buffer->reading.accel.z,
-              RoundAccelerometerValue(scaling * sensor_values[2]));
-#else
   double scaling = kAccelerometerScalingValue;
   EXPECT_THAT(buffer->reading.accel.x,
               RoundAccelerometerValue(
@@ -598,7 +590,6 @@ TEST_F(PlatformSensorAndProviderLinuxTest,
   EXPECT_THAT(buffer->reading.accel.z,
               RoundAccelerometerValue(
                   -scaling * (sensor_values[2] + kAccelerometerOffsetValue)));
-#endif
 
   EXPECT_TRUE(sensor->StopListening(client.get(), configuration));
 }
@@ -619,12 +610,7 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckLinearAcceleration) {
   mojo::ScopedSharedBufferMapping mapping = handle->MapAtOffset(
       sizeof(SensorReadingSharedBuffer),
       SensorReadingSharedBuffer::GetOffset(SensorType::LINEAR_ACCELERATION));
-#if defined(OS_CHROMEOS)
-  // CrOS has a different axes plane and scale, see crbug.com/501184.
-  double sensor_values[3] = {0, 0, 1};
-#else
   double sensor_values[3] = {0, 0, -base::kMeanGravityDouble};
-#endif
   InitializeSupportedSensor(SensorType::ACCELEROMETER,
                             kAccelerometerFrequencyValue, kZero, kZero,
                             sensor_values);
@@ -689,16 +675,6 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckGyroscopeReadingConversion) {
 
   SensorReadingSharedBuffer* buffer =
       static_cast<SensorReadingSharedBuffer*>(mapping.get());
-#if defined(OS_CHROMEOS)
-  double scaling =
-      gfx::DegToRad(base::kMeanGravityDouble) / kGyroscopeScalingValue;
-  EXPECT_THAT(buffer->reading.gyro.x,
-              RoundGyroscopeValue(-scaling * sensor_values[0]));
-  EXPECT_THAT(buffer->reading.gyro.y,
-              RoundGyroscopeValue(-scaling * sensor_values[1]));
-  EXPECT_THAT(buffer->reading.gyro.z,
-              RoundGyroscopeValue(-scaling * sensor_values[2]));
-#else
   double scaling = kGyroscopeScalingValue;
   EXPECT_THAT(buffer->reading.gyro.x,
               RoundGyroscopeValue(scaling *
@@ -709,7 +685,6 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckGyroscopeReadingConversion) {
   EXPECT_THAT(buffer->reading.gyro.z,
               RoundGyroscopeValue(scaling *
                                   (sensor_values[2] + kGyroscopeOffsetValue)));
-#endif
 
   EXPECT_TRUE(sensor->StopListening(client.get(), configuration));
 }

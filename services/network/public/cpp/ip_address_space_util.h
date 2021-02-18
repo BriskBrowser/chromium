@@ -17,8 +17,8 @@ namespace network {
 
 // Returns the IPAddressSpace from an IPAddress.
 //
-// This can be used as-is for subresource requests. For documents, also take
-// into account the 'treat-as-public-address' CSP directive.
+// WARNING: This can only be used as-is for subresource requests loaded over the
+// network. For other cases, see the Calculate*AddressSpace() functions below.
 mojom::IPAddressSpace COMPONENT_EXPORT(NETWORK_CPP)
     IPAddressToIPAddressSpace(const net::IPAddress& address);
 

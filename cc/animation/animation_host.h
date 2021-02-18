@@ -82,11 +82,8 @@ class CC_ANIMATION_EXPORT AnimationHost : public MutatorHost,
   void SetNeedsPushProperties();
   bool needs_push_properties() const { return needs_push_properties_; }
 
-  bool SupportsScrollAnimations() const;
-
   // MutatorHost implementation.
-  std::unique_ptr<MutatorHost> CreateImplInstance(
-      bool supports_impl_scrolling) const override;
+  std::unique_ptr<MutatorHost> CreateImplInstance() const override;
   void ClearMutators() override;
 
   // Processes the current |element_to_animations_map_|, registering animations
@@ -106,7 +103,6 @@ class CC_ANIMATION_EXPORT AnimationHost : public MutatorHost,
 
   void PushPropertiesTo(MutatorHost* host_impl) override;
 
-  void SetSupportsScrollAnimations(bool supports_scroll_animations) override;
   void SetScrollAnimationDurationForTesting(base::TimeDelta duration) override;
   bool NeedsTickAnimations() const override;
 
@@ -158,10 +154,8 @@ class CC_ANIMATION_EXPORT AnimationHost : public MutatorHost,
 
   bool AnimationsPreserveAxisAlignment(ElementId element_id) const override;
 
-  void GetAnimationScales(ElementId element_id,
-                          ElementListType list_type,
-                          float* maximum_scale,
-                          float* starting_scale) const override;
+  float MaximumScale(ElementId element_id,
+                     ElementListType list_type) const override;
 
   bool IsElementAnimating(ElementId element_id) const override;
   bool HasTickingKeyframeModelForTesting(ElementId element_id) const override;
@@ -212,6 +206,8 @@ class CC_ANIMATION_EXPORT AnimationHost : public MutatorHost,
   bool CurrentFrameHadRAF() const override;
   bool NextFrameHasPendingRAF() const override;
   PendingThroughputTrackerInfos TakePendingThroughputTrackerInfos() override;
+  bool HasCanvasInvalidation() const override;
+  bool HasJSAnimation() const override;
 
   // Starts/stops throughput tracking represented by |sequence_id|.
   void StartThroughputTracking(TrackedAnimationSequenceId sequence_id);
@@ -220,6 +216,9 @@ class CC_ANIMATION_EXPORT AnimationHost : public MutatorHost,
   void SetAnimationCounts(size_t total_animations_count,
                           bool current_frame_had_raf,
                           bool next_frame_has_pending_raf);
+
+  void SetHasCanvasInvalidation(bool has_canvas_invalidation);
+  void SetHasInlineStyleMutation(bool has_inline_style_mutation);
 
  private:
   explicit AnimationHost(ThreadInstance thread_instance);
@@ -264,7 +263,6 @@ class CC_ANIMATION_EXPORT AnimationHost : public MutatorHost,
 
   const ThreadInstance thread_instance_;
 
-  bool supports_scroll_animations_;
   bool needs_push_properties_;
 
   std::unique_ptr<LayerTreeMutator> mutator_;
@@ -272,6 +270,8 @@ class CC_ANIMATION_EXPORT AnimationHost : public MutatorHost,
   size_t main_thread_animations_count_ = 0;
   bool current_frame_had_raf_ = false;
   bool next_frame_has_pending_raf_ = false;
+  bool has_canvas_invalidation_ = false;
+  bool has_inline_style_mutation_ = false;
 
   PendingThroughputTrackerInfos pending_throughput_tracker_infos_;
 

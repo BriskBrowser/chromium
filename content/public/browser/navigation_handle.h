@@ -7,13 +7,13 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "content/common/content_export.h"
 #include "content/public/browser/navigation_handle_timing.h"
 #include "content/public/browser/navigation_throttle.h"
 #include "content/public/browser/reload_type.h"
 #include "content/public/browser/restore_type.h"
-#include "content/public/common/impression.h"
 #include "content/public/common/referrer.h"
 #include "net/base/auth.h"
 #include "net/base/ip_endpoint.h"
@@ -21,7 +21,9 @@
 #include "net/base/net_errors.h"
 #include "net/dns/public/resolve_error_info.h"
 #include "net/http/http_response_info.h"
+#include "services/metrics/public/cpp/ukm_source_id.h"
 #include "services/network/public/cpp/resource_request_body.h"
+#include "third_party/blink/public/common/navigation/impression.h"
 #include "third_party/blink/public/mojom/loader/referrer.mojom.h"
 #include "third_party/blink/public/mojom/loader/transferrable_url_loader.mojom.h"
 #include "ui/base/page_transition_types.h"
@@ -37,6 +39,7 @@ class ProxyServer;
 namespace content {
 struct GlobalFrameRoutingId;
 struct GlobalRequestID;
+class NavigationEntry;
 class NavigationThrottle;
 class NavigationUIData;
 class RenderFrameHost;
@@ -60,6 +63,10 @@ class CONTENT_EXPORT NavigationHandle {
 
   // Get a unique ID for this navigation.
   virtual int64_t GetNavigationId() = 0;
+
+  // Get the page UKM ID that will be in use once this navigation fully commits
+  // (the eventual value of GetRenderFrameHost()->GetPageUkmSourceId()).
+  virtual ukm::SourceId GetNextPageUkmSourceId() = 0;
 
   // The URL the frame is navigating to. This may change during the navigation
   // when encountering a server redirect.
@@ -237,11 +244,6 @@ class CONTENT_EXPORT NavigationHandle {
   // GetNetErrorCode will be net::OK.
   virtual bool IsErrorPage() = 0;
 
-  // Indicates whether navigation committed a custom error page (i.e. an error
-  // page that provides its own HTML.) IsErrorPage is always true if this is
-  // true, but the inverse doesn't hold.
-  virtual bool IsCustomErrorPage() = 0;
-
   // Not all committed subframe navigations (i.e., !IsInMainFrame &&
   // HasCommitted) end up causing a change of the current NavigationEntry. For
   // example, some users of NavigationHandle may want to ignore the initial
@@ -265,7 +267,7 @@ class CONTENT_EXPORT NavigationHandle {
 
   // The previous main frame URL that the user was on. This may be empty if
   // there was no last committed entry.
-  virtual const GURL& GetPreviousURL() = 0;
+  virtual const GURL& GetPreviousMainFrameURL() = 0;
 
   // Returns the remote address of the socket which fetched this resource.
   virtual net::IPEndPoint GetSocketAddress() = 0;
@@ -365,21 +367,36 @@ class CONTENT_EXPORT NavigationHandle {
   // Returns, if available, the impression associated with the link clicked to
   // initiate this navigation. The impression is available for the entire
   // lifetime of the navigation.
-  virtual const base::Optional<Impression>& GetImpression() = 0;
+  virtual const base::Optional<blink::Impression>& GetImpression() = 0;
 
-  // Returns the routing id associated with the frame that initiated the
-  // navigation. This can contain a null routing id if the navigation was not
-  // associated with a frame, or may return a valid routing id to a frame that
-  // no longer exists because it was deleted before the navigation began.
-  virtual const GlobalFrameRoutingId& GetInitiatorRoutingId() = 0;
+  // Returns the frame token associated with the frame that initiated the
+  // navigation. This can be nullptr if the navigation was not associated with a
+  // frame, or may return a valid frame token to a frame that no longer exists
+  // because it was deleted before the navigation began. This parameter is
+  // defined if and only if GetInitiatorProcessID below is.
+  virtual const base::Optional<base::UnguessableToken>&
+  GetInitiatorFrameToken() = 0;
+
+  // Return the ID of the renderer process of the frame host that initiated the
+  // navigation. This is defined if and only if GetInitiatorFrameToken above is,
+  // and it is only valid in conjunction with it.
+  virtual int GetInitiatorProcessID() = 0;
 
   // Returns, if available, the origin of the document that has initiated the
   // navigation for this NavigationHandle.
   virtual const base::Optional<url::Origin>& GetInitiatorOrigin() = 0;
 
+  // Retrieves any DNS aliases for the requested URL. The alias chain order
+  // is preserved in reverse, from canonical name (i.e. address record name)
+  // through to query name.
+  virtual const std::vector<std::string>& GetDnsAliases() = 0;
+
   // Whether the new document will be hosted in the same process as the current
   // document or not. Set only when the navigation commits.
   virtual bool IsSameProcess() = 0;
+
+  // Returns the NavigationEntry associated with this, which may be null.
+  virtual NavigationEntry* GetNavigationEntry() = 0;
 
   // Returns the offset between the indices of the previous last committed and
   // the newly committed navigation entries.
@@ -408,6 +425,24 @@ class CONTENT_EXPORT NavigationHandle {
   // called from DidStartNavigation().
   virtual void SetIsOverridingUserAgent(bool override_ua) = 0;
   virtual bool GetIsOverridingUserAgent() = 0;
+
+  // Suppress any errors during a navigation and behave as if the user cancelled
+  // the navigation: no error page will commit.
+  virtual void SetSilentlyIgnoreErrors() = 0;
+
+  // The sandbox flags of the new document created by this navigation. This
+  // function can only be called for cross-document navigations after receiving
+  // the final response.
+  // See also: content/browser/renderer_host/sandbox_flags.md
+  //
+  // TODO(arthursonzogni): After RenderDocument, this can be computed and stored
+  // directly into the RenderDocumentHost.
+  virtual network::mojom::WebSandboxFlags SandboxFlagsToCommit() = 0;
+
+  // Whether the navigation was sent to be committed in a renderer by the
+  // RenderFrameHost. This can either be for the commit of a successful
+  // navigation or an error page.
+  virtual bool IsWaitingToCommit() = 0;
 
   // Testing methods ----------------------------------------------------------
   //

@@ -13,6 +13,7 @@
 #include "ash/app_list/views/app_list_view.h"
 #include "ash/app_list/views/apps_grid_view.h"
 #include "ash/public/cpp/shell_window_ids.h"
+#include "ash/public/cpp/test/test_app_list_color_provider.h"
 #include "ash/wm/container_finder.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
@@ -52,7 +53,8 @@ class AppListPresenterDelegateTest : public AppListPresenterDelegate {
     view_ = view;
     view->InitView(container_);
   }
-  void ShowForDisplay(int64_t display_id) override {}
+  void ShowForDisplay(AppListViewState preferred_state,
+                      int64_t display_id) override {}
   void OnClosing() override { on_dismissed_called_ = true; }
   void OnClosed() override {}
   bool IsTabletMode() const override { return false; }
@@ -103,6 +105,7 @@ class AppListPresenterImplTest : public aura::test::AuraTestBase {
   std::unique_ptr<AppListPresenterImpl> presenter_;
   AppListPresenterDelegateTest* presenter_delegate_ = nullptr;
   std::unique_ptr<aura::Window> container_;
+  std::unique_ptr<TestAppListColorProvider> app_list_color_provider_;
 
   DISALLOW_COPY_AND_ASSIGN(AppListPresenterImplTest);
 };
@@ -120,10 +123,12 @@ void AppListPresenterImplTest::SetUp() {
   presenter_delegate_ = presenter_delegate.get();
   presenter_ =
       std::make_unique<AppListPresenterImpl>(std::move(presenter_delegate));
+  app_list_color_provider_ = std::make_unique<TestAppListColorProvider>();
 }
 
 void AppListPresenterImplTest::TearDown() {
   container_.reset();
+  app_list_color_provider_.reset();
   AuraTestBase::TearDown();
 }
 
@@ -134,7 +139,8 @@ void AppListPresenterImplTest::TearDown() {
 TEST_F(AppListPresenterImplTest, HideOnFocusOut) {
   aura::client::FocusClient* focus_client =
       aura::client::GetFocusClient(root_window());
-  presenter()->Show(GetDisplayId(), base::TimeTicks());
+  presenter()->Show(AppListViewState::kPeeking, GetDisplayId(),
+                    base::TimeTicks());
   EXPECT_TRUE(delegate()->init_called());
   EXPECT_FALSE(delegate()->on_dismissed_called());
   focus_client->FocusWindow(presenter()->GetWindow());
@@ -154,7 +160,8 @@ TEST_F(AppListPresenterImplTest, HideOnFocusOut) {
 TEST_F(AppListPresenterImplTest, RemainVisibleWhenFocusingToSibling) {
   aura::client::FocusClient* focus_client =
       aura::client::GetFocusClient(root_window());
-  presenter()->Show(GetDisplayId(), base::TimeTicks());
+  presenter()->Show(AppListViewState::kPeeking, GetDisplayId(),
+                    base::TimeTicks());
   focus_client->FocusWindow(presenter()->GetWindow());
   EXPECT_TRUE(presenter()->GetTargetVisibility());
   EXPECT_TRUE(delegate()->init_called());
@@ -172,7 +179,8 @@ TEST_F(AppListPresenterImplTest, RemainVisibleWhenFocusingToSibling) {
 // Tests that the app list is dismissed but the delegate is still active when
 // the app list's widget is destroyed.
 TEST_F(AppListPresenterImplTest, WidgetDestroyed) {
-  presenter()->Show(GetDisplayId(), base::TimeTicks());
+  presenter()->Show(AppListViewState::kPeeking, GetDisplayId(),
+                    base::TimeTicks());
   EXPECT_TRUE(presenter()->GetTargetVisibility());
   presenter()->GetView()->GetWidget()->CloseNow();
   EXPECT_FALSE(presenter()->GetTargetVisibility());
@@ -188,7 +196,8 @@ TEST_F(AppListPresenterImplTest, ClickingContextMenuDoesNotDismiss) {
   view_delegate->GetTestModel()->PopulateApps(2);
 
   // Show the app list on the primary display.
-  presenter()->Show(display::Screen::GetScreen()->GetPrimaryDisplay().id(),
+  presenter()->Show(AppListViewState::kPeeking,
+                    display::Screen::GetScreen()->GetPrimaryDisplay().id(),
                     base::TimeTicks());
   aura::Window* window = presenter()->GetWindow();
   ASSERT_TRUE(window);

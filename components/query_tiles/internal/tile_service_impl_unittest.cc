@@ -10,8 +10,8 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
-#include "base/test/bind_test_util.h"
+#include "base/callback_helpers.h"
+#include "base/test/bind.h"
 #include "base/test/simple_test_clock.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -42,6 +42,10 @@ class MockTileManager : public TileManager {
   MOCK_METHOD(void, SetAcceptLanguagesForTesting, (const std::string&));
   MOCK_METHOD(TileGroupStatus, PurgeDb, ());
   MOCK_METHOD(TileGroup*, GetTileGroup, ());
+  MOCK_METHOD(void, OnTileClicked, (const std::string&));
+  MOCK_METHOD(void,
+              OnQuerySelected,
+              (const base::Optional<std::string>&, const base::string16&));
 };
 
 class MockTileServiceScheduler : public TileServiceScheduler {

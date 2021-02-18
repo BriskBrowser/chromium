@@ -12,9 +12,8 @@
 #include "chrome/browser/extensions/launch_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/web_applications/components/app_registrar_observer.h"
-#include "chrome/browser/web_applications/components/web_app_provider_base.h"
+#include "chrome/browser/web_applications/components/os_integration_manager.h"
 #include "chrome/browser/web_applications/extensions/bookmark_app_util.h"
-#include "chrome/browser/web_applications/os_integration_manager.h"
 #include "chrome/common/extensions/api/url_handlers/url_handlers_parser.h"
 #include "chrome/common/extensions/manifest_handlers/app_display_mode_info.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
@@ -78,10 +77,9 @@ void BookmarkAppRegistrar::OnExtensionUninstalled(
     DCHECK(!bookmark_app_being_observed_);
     bookmark_app_being_observed_ = extension;
 
-    NotifyWebAppUninstalled(extension->id());
-    web_app::WebAppProviderBase::GetProviderBase(profile())
-        ->os_integration_manager()
-        .UninstallOsHooks(extension->id(), base::DoNothing());
+    NotifyWebAppWillBeUninstalled(extension->id());
+    os_integration_manager().UninstallAllOsHooks(extension->id(),
+                                                  base::DoNothing());
 
     bookmark_app_being_observed_ = nullptr;
   }
@@ -102,9 +100,8 @@ void BookmarkAppRegistrar::OnExtensionUnloaded(
   // can cleanup any state outside the profile dir (e.g., registry settings).
   if (reason == UnloadedExtensionReason::PROFILE_SHUTDOWN) {
     NotifyWebAppProfileWillBeDeleted(extension->id());
-    web_app::WebAppProviderBase::GetProviderBase(profile())
-        ->os_integration_manager()
-        .UninstallOsHooks(extension->id(), base::DoNothing());
+    os_integration_manager().UninstallAllOsHooks(extension->id(),
+                                                  base::DoNothing());
   }
 
   bookmark_app_being_observed_ = nullptr;
@@ -142,11 +139,29 @@ base::Optional<SkColor> BookmarkAppRegistrar::GetAppBackgroundColor(
   return base::nullopt;
 }
 
-const GURL& BookmarkAppRegistrar::GetAppLaunchURL(
+const GURL& BookmarkAppRegistrar::GetAppStartUrl(
     const web_app::AppId& app_id) const {
   const Extension* extension = GetBookmarkAppDchecked(app_id);
   return extension ? AppLaunchInfo::GetLaunchWebURL(extension)
                    : GURL::EmptyGURL();
+}
+
+// Only implemented for WebApp. Bookmark apps are going away.
+const std::string* BookmarkAppRegistrar::GetAppLaunchQueryParams(
+    const web_app::AppId& app_id) const {
+  return nullptr;
+}
+
+// Only implemented for WebApp. Bookmark apps are going away.
+const apps::ShareTarget* BookmarkAppRegistrar::GetAppShareTarget(
+    const web_app::AppId& app_id) const {
+  return nullptr;
+}
+
+// Only implemented for WebApp. Bookmark apps are going away.
+blink::mojom::CaptureLinks BookmarkAppRegistrar::GetAppCaptureLinks(
+    const web_app::AppId& app_id) const {
+  return blink::mojom::CaptureLinks::kUndefined;
 }
 
 base::Optional<GURL> BookmarkAppRegistrar::GetAppScopeInternal(
@@ -190,6 +205,37 @@ DisplayMode BookmarkAppRegistrar::GetAppUserDisplayMode(
   }
 }
 
+DisplayMode BookmarkAppRegistrar::GetAppUserDisplayModeForMigration(
+    const web_app::AppId& app_id) const {
+  const Extension* extension = GetBookmarkAppDchecked(app_id);
+  if (!extension)
+    return DisplayMode::kStandalone;
+
+  LaunchType launch_type = LAUNCH_TYPE_WINDOW;
+  int launch_type_value = GetLaunchTypePrefValue(
+      extensions::ExtensionPrefs::Get(profile()), app_id);
+  if (launch_type_value >= LAUNCH_TYPE_FIRST &&
+      launch_type_value < NUM_LAUNCH_TYPES) {
+    launch_type = static_cast<LaunchType>(launch_type_value);
+  }
+
+  DisplayMode user_display_mode = DisplayMode::kStandalone;
+  switch (launch_type) {
+    case LAUNCH_TYPE_PINNED:
+    case LAUNCH_TYPE_REGULAR:
+      user_display_mode = DisplayMode::kBrowser;
+      break;
+    case LAUNCH_TYPE_FULLSCREEN:
+    case LAUNCH_TYPE_WINDOW:
+    case LAUNCH_TYPE_INVALID:
+    case NUM_LAUNCH_TYPES:
+      user_display_mode = DisplayMode::kStandalone;
+      break;
+  }
+
+  return user_display_mode;
+}
+
 std::vector<DisplayMode> BookmarkAppRegistrar::GetAppDisplayModeOverride(
     const web_app::AppId& app_id) const {
   NOTIMPLEMENTED();
@@ -226,17 +272,18 @@ std::vector<WebApplicationIconInfo> BookmarkAppRegistrar::GetAppIconInfos(
     if (icon_info.size != LinkedAppIcons::kAnySize)
       web_app_icon_info.square_size_px = icon_info.size;
     // Legacy bookmark apps only have Purpose::ANY icons.
-    web_app_icon_info.purpose = blink::Manifest::ImageResource::Purpose::ANY;
+    web_app_icon_info.purpose =
+        blink::mojom::ManifestImageResource_Purpose::ANY;
     result.push_back(std::move(web_app_icon_info));
   }
   return result;
 }
 
-std::vector<SquareSizePx> BookmarkAppRegistrar::GetAppDownloadedIconSizesAny(
+SortedSizesPx BookmarkAppRegistrar::GetAppDownloadedIconSizesAny(
     const web_app::AppId& app_id) const {
   const Extension* extension = GetBookmarkAppDchecked(app_id);
   return extension ? GetBookmarkAppDownloadedIconSizes(extension)
-                   : std::vector<SquareSizePx>();
+                   : SortedSizesPx();
 }
 
 std::vector<WebApplicationShortcutsMenuItemInfo>
@@ -282,7 +329,7 @@ BookmarkAppRegistrar::GetAppDownloadedShortcutsMenuIconsSizes(
 web_app::RunOnOsLoginMode BookmarkAppRegistrar::GetAppRunOnOsLoginMode(
     const web_app::AppId& app_id) const {
   NOTIMPLEMENTED();
-  return web_app::RunOnOsLoginMode::kUndefined;
+  return web_app::RunOnOsLoginMode::kNotRun;
 }
 
 std::vector<web_app::AppId> BookmarkAppRegistrar::GetAppIds() const {

@@ -25,7 +25,7 @@
 #include "ash/wm/mru_window_tracker.h"
 #include "ash/wm/window_util.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "components/account_id/account_id.h"
@@ -111,14 +111,14 @@ bool SessionControllerImpl::ShouldEnableSettings() const {
     return false;
   }
 
-  return user_sessions_[0]->should_enable_settings;
+  return true;
 }
 
 bool SessionControllerImpl::ShouldShowNotificationTray() const {
   if (!IsActiveUserSessionStarted() || IsInSecondaryLoginScreen())
     return false;
 
-  return user_sessions_[0]->should_show_notification_tray;
+  return true;
 }
 
 const SessionControllerImpl::UserSessions&
@@ -134,6 +134,19 @@ const UserSession* SessionControllerImpl::GetUserSession(
   return user_sessions_[index].get();
 }
 
+const UserSession* SessionControllerImpl::GetUserSessionByAccountId(
+    const AccountId& account_id) const {
+  auto it =
+      std::find_if(user_sessions_.begin(), user_sessions_.end(),
+                   [&account_id](const std::unique_ptr<UserSession>& session) {
+                     return session->user_info.account_id == account_id;
+                   });
+  if (it == user_sessions_.end())
+    return nullptr;
+
+  return (*it).get();
+}
+
 const UserSession* SessionControllerImpl::GetPrimaryUserSession() const {
   auto it = std::find_if(user_sessions_.begin(), user_sessions_.end(),
                          [this](const std::unique_ptr<UserSession>& session) {
@@ -145,21 +158,13 @@ const UserSession* SessionControllerImpl::GetPrimaryUserSession() const {
   return (*it).get();
 }
 
-bool SessionControllerImpl::IsUserSupervised() const {
+bool SessionControllerImpl::IsUserChildOrDeprecatedSupervised() const {
   if (!IsActiveUserSessionStarted())
     return false;
 
   user_manager::UserType active_user_type = GetUserSession(0)->user_info.type;
-  return active_user_type == user_manager::USER_TYPE_SUPERVISED ||
+  return active_user_type == user_manager::USER_TYPE_SUPERVISED_DEPRECATED ||
          active_user_type == user_manager::USER_TYPE_CHILD;
-}
-
-bool SessionControllerImpl::IsUserLegacySupervised() const {
-  if (!IsActiveUserSessionStarted())
-    return false;
-
-  user_manager::UserType active_user_type = GetUserSession(0)->user_info.type;
-  return active_user_type == user_manager::USER_TYPE_SUPERVISED;
 }
 
 bool SessionControllerImpl::IsUserChild() const {
@@ -215,6 +220,11 @@ void SessionControllerImpl::LockScreen() {
 void SessionControllerImpl::RequestSignOut() {
   if (client_)
     client_->RequestSignOut();
+}
+
+void SessionControllerImpl::AttemptRestartChrome() {
+  if (client_)
+    client_->AttemptRestartChrome();
 }
 
 void SessionControllerImpl::SwitchActiveUser(const AccountId& account_id) {
@@ -549,12 +559,10 @@ LoginStatus SessionControllerImpl::CalculateLoginStatusForActiveSession()
       return LoginStatus::GUEST;
     case user_manager::USER_TYPE_PUBLIC_ACCOUNT:
       return LoginStatus::PUBLIC;
-    case user_manager::USER_TYPE_SUPERVISED:
-      return LoginStatus::SUPERVISED;
     case user_manager::USER_TYPE_KIOSK_APP:
       return LoginStatus::KIOSK_APP;
     case user_manager::USER_TYPE_CHILD:
-      return LoginStatus::SUPERVISED;
+      return LoginStatus::CHILD;
     case user_manager::USER_TYPE_ARC_KIOSK_APP:
       return LoginStatus::KIOSK_APP;
     case user_manager::USER_TYPE_ACTIVE_DIRECTORY:
@@ -563,6 +571,7 @@ LoginStatus SessionControllerImpl::CalculateLoginStatusForActiveSession()
     case user_manager::USER_TYPE_WEB_KIOSK_APP:
       return LoginStatus::KIOSK_APP;
     case user_manager::NUM_USER_TYPES:
+    case user_manager::USER_TYPE_SUPERVISED_DEPRECATED:
       // Avoid having a "default" case so the compiler catches new enum values.
       NOTREACHED();
       return LoginStatus::USER;

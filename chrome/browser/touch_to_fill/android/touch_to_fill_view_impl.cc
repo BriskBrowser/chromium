@@ -62,9 +62,14 @@ void TouchToFillViewImpl::Show(
     const GURL& url,
     IsOriginSecure is_origin_secure,
     base::span<const password_manager::UiCredential> credentials) {
-  auto java_object = GetOrCreateJavaObject();
-  if (!java_object)
+  if (!RecreateJavaObject()) {
+    // It's possible that the constructor cannot access the bottom sheet clank
+    // component. That case may be temporary but we can't let users in a waiting
+    // state so report that TouchToFill is dismissed in order to show the normal
+    // Android keyboard (plus keyboard accessory) instead.
+    controller_->OnDismiss();
     return;
+  }
   // Serialize the |credentials| span into a Java array and instruct the bridge
   // to show it together with |url| to the user.
   JNIEnv* env = AttachCurrentThread();
@@ -83,7 +88,7 @@ void TouchToFillViewImpl::Show(
   }
 
   Java_TouchToFillBridge_showCredentials(
-      env, java_object, ConvertUTF8ToJavaString(env, url.spec()),
+      env, java_object_internal_, ConvertUTF8ToJavaString(env, url.spec()),
       is_origin_secure.value(), credential_array);
 }
 
@@ -109,16 +114,17 @@ void TouchToFillViewImpl::OnDismiss(JNIEnv* env) {
   OnDismiss();
 }
 
-base::android::ScopedJavaGlobalRef<jobject>
-TouchToFillViewImpl::GetOrCreateJavaObject() {
-  if (java_object_internal_) {
-    return java_object_internal_;
-  }
+bool TouchToFillViewImpl::RecreateJavaObject() {
   if (controller_->GetNativeView() == nullptr ||
       controller_->GetNativeView()->GetWindowAndroid() == nullptr) {
-    return nullptr;  // No window attached (yet or anymore).
+    return false;  // No window attached (yet or anymore).
   }
-  return java_object_internal_ = Java_TouchToFillBridge_create(
-             AttachCurrentThread(), reinterpret_cast<intptr_t>(this),
-             controller_->GetNativeView()->GetWindowAndroid()->GetJavaObject());
+  if (java_object_internal_) {
+    Java_TouchToFillBridge_destroy(AttachCurrentThread(),
+                                   java_object_internal_);
+  }
+  java_object_internal_ = Java_TouchToFillBridge_create(
+      AttachCurrentThread(), reinterpret_cast<intptr_t>(this),
+      controller_->GetNativeView()->GetWindowAndroid()->GetJavaObject());
+  return !!java_object_internal_;
 }

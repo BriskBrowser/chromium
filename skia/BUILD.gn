@@ -23,18 +23,12 @@ if (current_cpu == "mipsel" || current_cpu == "mips64el") {
   import("//build/config/mips.gni")
 }
 
-# Reset sources_assignment_filter for the BUILD.gn file to prevent
-# regression during the migration of Chromium away from the feature.
-# See docs/no_sources_assignment_filter.md for more information.
-# TODO(crbug.com/1018739): remove this when migration is done.
-set_sources_assignment_filter([])
-
 skia_support_gpu = !is_ios
 skia_support_pdf = !is_ios && enable_basic_printing
 skia_support_skottie = true
 
 declare_args() {
-  enable_skia_wuffs_gif = false
+  enable_skia_wuffs_gif = true
 }
 
 # Generate a buildflag header for compile-time checking of Dawn support.
@@ -58,7 +52,8 @@ config("skia_config") {
   }
   if (enable_vulkan) {
     include_dirs += [ "//third_party/vulkan/include" ]
-    configs = [ "//third_party/vulkan_headers:vulkan_headers_config" ]
+    configs =
+        [ "//third_party/vulkan-deps/vulkan-headers/src:vulkan_headers_config" ]
   }
 
   defines += [
@@ -255,6 +250,8 @@ component("skia") {
     "ext/google_logging.cc",
     "ext/image_operations.cc",
     "ext/image_operations.h",
+    "ext/legacy_display_globals.cc",
+    "ext/legacy_display_globals.h",
     "ext/opacity_filter_canvas.cc",
     "ext/opacity_filter_canvas.h",
     "ext/recursive_gaussian_convolution.cc",
@@ -268,7 +265,7 @@ component("skia") {
     "ext/skia_utils_base.cc",
     "ext/skia_utils_base.h",
   ]
-  if (!is_mac && !is_ios) {
+  if (!is_apple) {
     sources += [
       "ext/fontmgr_default.cc",
       "ext/fontmgr_default.h",
@@ -922,6 +919,7 @@ test("skia_unittests") {
     "ext/platform_canvas_unittest.cc",
     "ext/recursive_gaussian_convolution_unittest.cc",
     "ext/skia_memory_dump_provider_unittest.cc",
+    "ext/skia_utils_base_unittest.cc",
   ]
   if (is_ios) {
     sources += [ "ext/skia_utils_ios_unittest.mm" ]
@@ -948,10 +946,9 @@ test("skia_unittests") {
   if (!is_ios) {
     sources += [ "public/mojom/test/mojom_traits_unittest.cc" ]
     deps += [
-      # TODO: Fix this test to not depend on cc.
-      "//cc:test_support",
       "//mojo/public/cpp/bindings",
-      "//skia/public/mojom:test_interfaces",
+      "//mojo/public/cpp/test_support:test_utils",
+      "//skia/public/mojom",
     ]
   }
 
@@ -1007,10 +1004,8 @@ grit("skia_resources") {
     "skia_resources.pak",
   ]
 
-  grit_flags = [
-    "-E",
-    "root_gen_dir=" + rebase_path(root_gen_dir, root_build_dir),
+  deps = [
+    "//skia/public/mojom:mojom_js",
+    "//skia/public/mojom:mojom_webui_js",
   ]
-
-  deps = [ "public/mojom:mojom_js" ]
 }

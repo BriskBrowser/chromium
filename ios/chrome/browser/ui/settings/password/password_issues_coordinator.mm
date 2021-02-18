@@ -15,6 +15,7 @@
 #import "ios/chrome/browser/ui/settings/password/password_issues_mediator.h"
 #import "ios/chrome/browser/ui/settings/password/password_issues_presenter.h"
 #import "ios/chrome/browser/ui/settings/password/password_issues_table_view_controller.h"
+#import "ios/chrome/browser/ui/table_view/table_view_utils.h"
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/common/ui/reauthentication/reauthentication_module.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -65,12 +66,8 @@
   // To start, a password check manager should be ready.
   DCHECK(_manager);
 
-  UITableViewStyle style = base::FeatureList::IsEnabled(kSettingsRefresh)
-                               ? UITableViewStylePlain
-                               : UITableViewStyleGrouped;
-
-  self.viewController =
-      [[PasswordIssuesTableViewController alloc] initWithStyle:style];
+  self.viewController = [[PasswordIssuesTableViewController alloc]
+      initWithStyle:ChromeTableViewStyle()];
 
   self.mediator =
       [[PasswordIssuesMediator alloc] initWithPasswordCheckManager:_manager];
@@ -104,7 +101,7 @@
 }
 
 - (void)presentPasswordIssueDetails:(id<PasswordIssue>)password {
-  autofill::PasswordForm form =
+  password_manager::PasswordForm form =
       base::mac::ObjCCastStrict<PasswordIssueWithForm>(password).form;
 
   DCHECK(!self.passwordDetails);
@@ -114,7 +111,6 @@
                               password:form
                           reauthModule:self.reauthModule
                   passwordCheckManager:_manager];
-  self.passwordDetails.dispatcher = self.dispatcher;
   self.passwordDetails.delegate = self;
   [self.passwordDetails start];
 }
@@ -130,7 +126,8 @@
 }
 
 - (void)passwordDetailsCoordinator:(PasswordDetailsCoordinator*)coordinator
-                    deletePassword:(const autofill::PasswordForm&)password {
+                    deletePassword:
+                        (const password_manager::PasswordForm&)password {
   if (![self.delegate willHandlePasswordDeletion:password]) {
     [self.mediator deletePassword:password];
     [self.baseNavigationController popViewControllerAnimated:YES];

@@ -44,12 +44,11 @@ public interface AppMenuPropertiesDelegate {
     void prepareMenu(Menu menu, AppMenuHandler handler);
 
     /**
-     * Gets an optional bundle of extra data associated with the provided MenuItem.
+     * Gets a bundle of (optional) extra data associated with the provided MenuItem.
      *
      * @param item The {@link MenuItem} for which to return the Bundle.
-     * @return A {@link Bundle} for the provided MenuItem containing extra data, or null.
+     * @return A {@link Bundle} for the provided MenuItem containing extra data, if any.
      */
-    @Nullable
     Bundle getBundleForMenuItem(MenuItem item);
 
     /**
@@ -118,7 +117,11 @@ public interface AppMenuPropertiesDelegate {
     boolean shouldShowIconBeforeItem();
 
     /**
-     * @return whether regrouped app menu should be shown.
+     * Record the user selections if users make selected similar MenuItems.
+     *
+     * @param previousMenuItemId The previous selected MenuItem Id.
+     * @param currentMenuItemId The current selected MenuItem Id.
+     * @return Whether the pattern is recorded.
      */
-    boolean shouldShowRegroupedMenu();
+    boolean recordAppMenuSimilarSelectionIfNeeded(int previousMenuItemId, int currentMenuItemId);
 }

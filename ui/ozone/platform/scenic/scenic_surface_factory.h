@@ -63,6 +63,7 @@ class ScenicSurfaceFactory : public SurfaceFactoryOzone {
                                NativePixmapCallback callback) override;
 #if BUILDFLAG(ENABLE_VULKAN)
   std::unique_ptr<gpu::VulkanImplementation> CreateVulkanImplementation(
+      bool use_swiftshader,
       bool allow_protected_memory,
       bool enforce_protected_memory) override;
 #endif
@@ -85,10 +86,10 @@ class ScenicSurfaceFactory : public SurfaceFactoryOzone {
   ScenicSurface* GetSurface(gfx::AcceleratedWidget widget)
       LOCKS_EXCLUDED(surface_lock_);
 
- private:
   // Creates a new scenic session on any thread.
   scenic::SessionPtrAndListenerRequest CreateScenicSession();
 
+ private:
   // Links a surface to its parent window in the host process.
   void AttachSurfaceToWindow(
       gfx::AcceleratedWidget window,

@@ -13,7 +13,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "chrome/browser/web_applications/components/web_app_id.h"
-#include "chrome/common/web_application_info.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "components/arc/mojom/app.mojom.h"
 
 class GURL;
@@ -66,7 +66,7 @@ class ApkWebAppInstaller {
                                     web_app::InstallResultCode code);
 
   // Callback method for installation completed response.
-  void OnWebAppCreated(const GURL& app_url,
+  void OnWebAppCreated(const GURL& start_url,
                        const web_app::AppId& app_id,
                        web_app::InstallResultCode code);
 

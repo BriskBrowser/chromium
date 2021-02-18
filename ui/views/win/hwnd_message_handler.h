@@ -18,7 +18,7 @@
 #include "base/lazy_instance.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/strings/string16.h"
 #include "base/win/scoped_gdi_object.h"
 #include "base/win/win_util.h"
@@ -36,7 +36,6 @@
 #include "ui/views/views_export.h"
 #include "ui/views/win/pen_event_processor.h"
 #include "ui/views/win/scoped_enable_unadjusted_mouse_events_win.h"
-#include "ui/views/window/window_resize_utils.h"
 
 namespace gfx {
 class ImageSkia;
@@ -608,7 +607,7 @@ class VIEWS_EXPORT HWNDMessageHandler : public gfx::WindowImpl,
 
   // Updates |rect| to adhere to the |aspect_ratio| of the window. |param|
   // refers to the edge of the window being sized.
-  void SizeRectToAspectRatio(UINT param, gfx::Rect* rect);
+  void SizeWindowToAspectRatio(UINT param, gfx::Rect* rect);
 
   // Get the cursor position, which may be mocked if running a test
   POINT GetCursorPos() const;
@@ -715,6 +714,14 @@ class VIEWS_EXPORT HWNDMessageHandler : public gfx::WindowImpl,
   // IsMouseEventFromTouch function.
   static LONG last_touch_or_pen_message_time_;
 
+  // When true, this flag makes us discard window management mouse messages.
+  // Windows sends window management mouse messages at the mouse location when
+  // window states change (e.g. tooltips or status bubbles opening/closing).
+  // Those system generated messages should be ignored while the pen is active
+  // over the client area, where it is not in sync with the mouse position.
+  // Reset to false when we get user mouse input again.
+  static bool is_pen_active_in_client_area_;
+
   // Time the last WM_MOUSEHWHEEL message is received. Please refer to the
   // HandleMouseEventInternal function as to why this is needed.
   LONG last_mouse_hwheel_time_;
@@ -812,7 +819,8 @@ class VIEWS_EXPORT HWNDMessageHandler : public gfx::WindowImpl,
   // Populated if the cursor position is being mocked for testing purposes.
   base::Optional<gfx::Point> mock_cursor_position_;
 
-  ScopedObserver<ui::InputMethod, ui::InputMethodObserver> observer_{this};
+  base::ScopedObservation<ui::InputMethod, ui::InputMethodObserver>
+      observation_{this};
 
   // The WeakPtrFactories below (one inside the
   // CR_MSG_MAP_CLASS_DECLARATIONS macro and autohide_factory_) must

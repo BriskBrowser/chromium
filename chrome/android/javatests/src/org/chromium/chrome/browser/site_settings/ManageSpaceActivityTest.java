@@ -4,10 +4,18 @@
 
 package org.chromium.chrome.browser.site_settings;
 
+import static androidx.test.espresso.Espresso.onView;
+import static androidx.test.espresso.action.ViewActions.click;
+import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
+import static androidx.test.espresso.matcher.ViewMatchers.withId;
+import static androidx.test.espresso.matcher.ViewMatchers.withText;
+
 import android.content.Intent;
 import android.support.test.InstrumentationRegistry;
 
 import androidx.appcompat.app.AlertDialog;
+import androidx.test.espresso.Espresso;
+import androidx.test.espresso.assertion.ViewAssertions;
 import androidx.test.filters.MediumTest;
 import androidx.test.filters.SmallTest;
 
@@ -19,14 +27,14 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.browser.app.ChromeActivity;
+import org.chromium.chrome.R;
 import org.chromium.chrome.browser.browsing_data.BrowsingDataBridge;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
-import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
+import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServer;
 
@@ -37,8 +45,7 @@ import org.chromium.net.test.EmbeddedTestServer;
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 public class ManageSpaceActivityTest {
     @Rule
-    public ChromeActivityTestRule<ChromeActivity> mActivityTestRule =
-            new ChromeActivityTestRule<>(ChromeActivity.class);
+    public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
 
     private EmbeddedTestServer mTestServer;
 
@@ -93,7 +100,7 @@ public class ManageSpaceActivityTest {
     @Test
     @SmallTest
     public void testLaunchActivity() {
-        startManageSpaceActivity();
+        startManageSpaceActivity().finish();
     }
 
     @Test
@@ -146,6 +153,17 @@ public class ManageSpaceActivityTest {
         TestThreadUtils.runOnUiThreadBlocking(
                 getPressClearRunnable(manageSpaceActivity.getUnimportantConfirmDialog()));
         waitForClearButtonEnabled(manageSpaceActivity);
+        manageSpaceActivity.finish();
+    }
+
+    @Test
+    @MediumTest
+    @Feature({"SiteEngagement"})
+    public void testManageSiteStorage() {
+        ManageSpaceActivity manageSpaceActivity = startManageSpaceActivity();
+        waitForClearButtonEnabled(manageSpaceActivity);
+        onView(withId(R.id.manage_site_data_storage)).perform(click());
+        Espresso.onView(withText("Data stored")).check(ViewAssertions.matches(isDisplayed()));
         manageSpaceActivity.finish();
     }
 

@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/python.gni")
 import("//third_party/blink/renderer/bindings/bindings.gni")
 import("//third_party/blink/renderer/bindings/generated_in_modules.gni")
 import("//third_party/blink/renderer/bindings/modules/v8/generated.gni")
@@ -16,14 +17,22 @@ blink_modules_sources("v8") {
   visibility = [ "//third_party/blink/renderer/modules" ]
 
   sources = generated_enumeration_sources_in_modules
-  if (use_blink_v8_binding_new_idl_interface) {
-    sources += generated_interface_sources_in_modules
+  if (use_blink_v8_binding_new_idl_callback_function) {
+    sources += generated_callback_function_sources_in_modules
+  }
+  if (use_blink_v8_binding_new_idl_callback_interface) {
+    sources += generated_callback_interface_sources_in_modules
   }
   if (use_blink_v8_binding_new_idl_dictionary) {
     sources += generated_dictionary_sources_in_modules
   }
+  if (use_blink_v8_binding_new_idl_interface) {
+    sources += generated_interface_sources_in_modules +
+               generated_namespace_sources_in_modules
+  }
 
   deps = [
+    ":generate_mojo_bindings",
     ":generated",
     "//third_party/blink/renderer/platform",
     "//v8",
@@ -53,6 +62,8 @@ source_set("testing") {
 
   deps = [
     ":generated",
+    "//third_party/blink/renderer/core",
+    "//third_party/blink/renderer/modules",
     "//third_party/blink/renderer/platform",
     "//v8",
   ]
@@ -68,8 +79,10 @@ group("generated") {
     "//third_party/blink/renderer/modules/*",
   ]
 
-  public_deps =
-      [ "//third_party/blink/renderer/bindings:generate_bindings_all" ]
+  public_deps = [
+    ":bindings_modules_v8_generated",
+    "//third_party/blink/renderer/bindings:generate_bindings_all",
+  ]
 }
 
 group("bindings_modules_v8_generated") {
@@ -80,30 +93,31 @@ group("bindings_modules_v8_generated") {
     ":generate_bindings_modules_v8_partial_interfaces",
     ":generate_bindings_modules_v8_partial_interfaces_for_testing",
     ":generate_v8_context_snapshot_external_references",
+    "//third_party/blink/renderer/bindings/core/v8:bindings_core_v8_generated",
   ]
 }
 
-idl_compiler("generate_bindings_modules_v8_interfaces") {
-  if (use_blink_v8_binding_new_idl_interface) {
-    # modules_idl_files = interfaces + callback interfaces
-    # modules_non_callback_idl_files = interfaces only
-    set_sources_assignment_filter([ "*_callback.idl" ])
-    sources = modules_idl_files
-    modules_non_callback_idl_files = sources
-    set_sources_assignment_filter([])
+if (!use_blink_v8_binding_new_idl_callback_interface ||
+    !use_blink_v8_binding_new_idl_dictionary ||
+    !use_blink_v8_binding_new_idl_interface) {
+  idl_compiler("generate_bindings_modules_v8_interfaces") {
     sources = []
+    if (!use_blink_v8_binding_new_idl_callback_interface) {
+      sources += filter_include(modules_idl_files, [ "*_callback.idl" ])
+    }
+    if (!use_blink_v8_binding_new_idl_dictionary) {
+      sources += modules_dictionary_idl_files
+    }
+    if (!use_blink_v8_binding_new_idl_interface) {
+      sources += filter_exclude(modules_idl_files, [ "*_callback.idl" ])
+    }
+    output_dir = bindings_modules_v8_output_dir
+    output_name_suffix = ""
+    target_component = "modules"
   }
-
-  sources = modules_definition_idl_files
-  if (use_blink_v8_binding_new_idl_interface) {
-    sources -= modules_non_callback_idl_files
+} else {
+  group("generate_bindings_modules_v8_interfaces") {
   }
-  if (use_blink_v8_binding_new_idl_dictionary) {
-    sources -= modules_dictionary_idl_files
-  }
-  output_dir = bindings_modules_v8_output_dir
-  output_name_suffix = ""
-  target_component = "modules"
 }
 
 idl_impl("bindings_modules_impl_generated") {
@@ -112,8 +126,10 @@ idl_impl("bindings_modules_impl_generated") {
   } else {
     dict_idls = modules_dictionary_idl_files
   }
-  non_dict_outputs = bindings_modules_generated_union_type_files +
-                     generated_modules_callback_function_files
+  non_dict_outputs = bindings_modules_generated_union_type_files
+  if (!use_blink_v8_binding_new_idl_callback_function) {
+    non_dict_outputs += generated_modules_callback_function_files
+  }
   non_dict_output_dir = bindings_modules_v8_output_dir
   target_component = "modules"
 }
@@ -194,7 +210,7 @@ group("generate_mojo_bindings") {
 
   deps = [
     "//device/gamepad/public/mojom:mojom_blink_headers",
-    "//device/vr/public/mojom:mojom_blink_headers",
+    "//device/vr/public/mojom:vr_service_blink_headers",
     "//media/capture/mojom:image_capture_blink_headers",
     "//media/midi:mojo_blink_headers",
     "//services/device/public/mojom:generic_sensor_headers",
@@ -211,8 +227,13 @@ group("generate_mojo_bindings") {
 blink_modules_sources("bindings_modules_impl") {
   # ":generate_bindings_modules_v8_partial_interfaces_for_testing" is not
   # included here.
-  sources = get_target_outputs(":generate_bindings_modules_v8_interfaces") +
-            get_target_outputs(":bindings_modules_impl_generated")
+  sources = get_target_outputs(":bindings_modules_impl_generated")
+
+  if (!use_blink_v8_binding_new_idl_callback_interface ||
+      !use_blink_v8_binding_new_idl_dictionary ||
+      !use_blink_v8_binding_new_idl_interface) {
+    sources += get_target_outputs(":generate_bindings_modules_v8_interfaces")
+  }
   if (!use_blink_v8_binding_new_idl_interface) {
     sources +=
         get_target_outputs(":generate_bindings_modules_v8_partial_interfaces") +

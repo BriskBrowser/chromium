@@ -5,7 +5,7 @@
 #include "chrome/browser/push_messaging/push_messaging_refresher.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/feature_list.h"
 #include "chrome/browser/push_messaging/push_messaging_app_identifier.h"
 #include "chrome/browser/push_messaging/push_messaging_constants.h"
@@ -106,6 +106,10 @@ PushMessagingRefresher::FindActiveAppIdentifier(const std::string& app_id) {
     }
   }
   return app_identifier;
+}
+
+base::WeakPtr<PushMessagingRefresher> PushMessagingRefresher::GetWeakPtr() {
+  return weak_factory_.GetWeakPtr();
 }
 
 void PushMessagingRefresher::AddObserver(Observer* observer) {

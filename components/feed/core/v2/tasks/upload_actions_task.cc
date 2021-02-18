@@ -111,8 +111,11 @@ UploadActionsTask::UploadActionsTask(
       upload_now_(upload_now),
       wire_action_(std::move(action)),
       callback_(std::move(callback)) {
-  wire_action_->mutable_client_data()->set_timestamp_seconds(
+  auto* client_data = wire_action_->mutable_client_data();
+  client_data->set_timestamp_seconds(
       (base::Time::Now() - base::Time::UnixEpoch()).InSeconds());
+  client_data->set_action_surface(
+      feedwire::FeedAction::ClientData::ANDROID_CHROME_NEW_TAB);
 }
 
 UploadActionsTask::UploadActionsTask(
@@ -174,6 +177,11 @@ void UploadActionsTask::OnStorePendingActionFinished(bool write_ok) {
     return;
   }
 
+  if (!stream_->CanUploadActions()) {
+    Done(UploadActionsStatus::kAbortUploadBecauseDisabled);
+    return;
+  }
+
   // If the new action was stored and upload_now was set, load all pending
   // actions and try to upload.
   ReadActions();
@@ -199,6 +207,10 @@ void UploadActionsTask::UploadPendingActions() {
   // Can't upload actions for signed-out users, so abort.
   if (!stream_->IsSignedIn()) {
     Done(UploadActionsStatus::kAbortUploadForSignedOutUser);
+    return;
+  }
+  if (!stream_->CanUploadActions()) {
+    Done(UploadActionsStatus::kAbortUploadBecauseDisabled);
     return;
   }
   UpdateAndUploadNextBatch();
@@ -245,7 +257,7 @@ void UploadActionsTask::OnUpdateActionsFinished(
   FeedNetwork* network = stream_->GetNetwork();
   DCHECK(network);
 
-  network->SendActionRequest(
+  network->SendApiRequest<UploadActionsDiscoverApi>(
       *request,
       base::BindOnce(&UploadActionsTask::OnUploadFinished,
                      weak_ptr_factory_.GetWeakPtr(), std::move(batch)));
@@ -253,9 +265,8 @@ void UploadActionsTask::OnUpdateActionsFinished(
 
 void UploadActionsTask::OnUploadFinished(
     std::unique_ptr<UploadActionsTask::Batch> batch,
-    FeedNetwork::ActionRequestResult result) {
+    FeedNetwork::ApiResult<feedwire::UploadActionsResponse> result) {
   last_network_response_info_ = result.response_info;
-
   if (!result.response_body)
     return BatchComplete(UploadActionsBatchStatus::kFailedToUpload);
 

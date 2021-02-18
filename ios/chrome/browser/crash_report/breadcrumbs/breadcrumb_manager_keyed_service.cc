@@ -5,13 +5,9 @@
 #include "ios/chrome/browser/crash_report/breadcrumbs/breadcrumb_manager_keyed_service.h"
 
 #include "base/strings/stringprintf.h"
-#include "ios/chrome/browser/crash_report/breadcrumbs/breadcrumb_manager.h"
+#include "components/breadcrumbs/core/breadcrumb_manager.h"
+#include "ios/chrome/browser/crash_report/breadcrumbs/breadcrumb_persistent_storage_manager.h"
 #include "ios/web/public/browser_state.h"
-
-void BreadcrumbManagerKeyedService::SetPreviousEvents(
-    const std::vector<std::string>& events) {
-  breadcrumb_manager_->SetPreviousEvents(events);
-}
 
 void BreadcrumbManagerKeyedService::AddEvent(const std::string& event) {
   std::string event_log =
@@ -20,12 +16,12 @@ void BreadcrumbManagerKeyedService::AddEvent(const std::string& event) {
 }
 
 void BreadcrumbManagerKeyedService::AddObserver(
-    BreadcrumbManagerObserver* observer) {
+    breadcrumbs::BreadcrumbManagerObserver* observer) {
   breadcrumb_manager_->AddObserver(observer);
 }
 
 void BreadcrumbManagerKeyedService::RemoveObserver(
-    BreadcrumbManagerObserver* observer) {
+    breadcrumbs::BreadcrumbManagerObserver* observer) {
   breadcrumb_manager_->RemoveObserver(observer);
 }
 
@@ -38,11 +34,37 @@ const std::list<std::string> BreadcrumbManagerKeyedService::GetEvents(
   return breadcrumb_manager_->GetEvents(event_count_limit);
 }
 
+void BreadcrumbManagerKeyedService::StartPersisting(
+    BreadcrumbPersistentStorageManager* persistent_storage_manager) {
+  DCHECK(persistent_storage_manager);
+
+  if (persistent_storage_manager_) {
+    StopPersisting();
+  }
+
+  persistent_storage_manager_ = persistent_storage_manager;
+  persistent_storage_manager_->MonitorBreadcrumbManagerService(this);
+}
+
+void BreadcrumbManagerKeyedService::StopPersisting() {
+  if (!persistent_storage_manager_) {
+    return;
+  }
+
+  persistent_storage_manager_->StopMonitoringBreadcrumbManagerService(this);
+  persistent_storage_manager_ = nullptr;
+}
+
+BreadcrumbPersistentStorageManager*
+BreadcrumbManagerKeyedService::GetPersistentStorageManager() {
+  return persistent_storage_manager_;
+}
+
 BreadcrumbManagerKeyedService::BreadcrumbManagerKeyedService(
     web::BrowserState* browser_state)
     // Set "I" for Incognito (Chrome branded OffTheRecord implementation) and
     // empty string for Normal browsing mode.
     : browsing_mode_(browser_state->IsOffTheRecord() ? "I " : ""),
-      breadcrumb_manager_(std::make_unique<BreadcrumbManager>()) {}
+      breadcrumb_manager_(std::make_unique<breadcrumbs::BreadcrumbManager>()) {}
 
 BreadcrumbManagerKeyedService::~BreadcrumbManagerKeyedService() = default;

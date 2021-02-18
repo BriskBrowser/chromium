@@ -79,8 +79,6 @@ class CC_EXPORT Proxy {
   virtual void SetPaintWorkletLayerPainter(
       std::unique_ptr<PaintWorkletLayerPainter> painter) = 0;
 
-  virtual bool SupportsImplScrolling() const = 0;
-
   virtual void UpdateBrowserControlsState(BrowserControlsState constraints,
                                           BrowserControlsState current,
                                           bool animate) = 0;
@@ -91,6 +89,9 @@ class CC_EXPORT Proxy {
   virtual bool MainFrameWillHappenForTesting() = 0;
 
   virtual void SetSourceURL(ukm::SourceId source_id, const GURL& url) = 0;
+
+  virtual void SetUkmSmoothnessDestination(
+      base::WritableSharedMemoryMapping ukm_smoothness_data) = 0;
 
   virtual void ClearHistory() = 0;
 

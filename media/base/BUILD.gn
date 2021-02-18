@@ -6,6 +6,7 @@ import("//build/config/android/config.gni")
 import("//build/config/arm.gni")
 import("//build/config/features.gni")
 import("//build/config/linux/pkg_config.gni")
+import("//build/config/ozone.gni")
 import("//build/config/ui.gni")
 import("//media/media_options.gni")
 import("//testing/libfuzzer/fuzzer_test.gni")
@@ -57,6 +58,8 @@ source_set("base") {
     "audio_decoder_config.h",
     "audio_discard_helper.cc",
     "audio_discard_helper.h",
+    "audio_encoder.cc",
+    "audio_encoder.h",
     "audio_fifo.cc",
     "audio_fifo.h",
     "audio_hash.cc",
@@ -153,16 +156,12 @@ source_set("base") {
     "encryption_scheme.h",
     "fake_audio_worker.cc",
     "fake_audio_worker.h",
-    "fallback_video_decoder.cc",
-    "fallback_video_decoder.h",
     "feedback_signal_accumulator.h",
     "flinging_controller.h",
     "format_utils.cc",
     "format_utils.h",
     "frame_rate_estimator.cc",
     "frame_rate_estimator.h",
-    "hdr_metadata.cc",
-    "hdr_metadata.h",
     "key_system_names.cc",
     "key_system_names.h",
     "key_system_properties.cc",
@@ -229,6 +228,8 @@ source_set("base") {
     "multi_channel_resampler.h",
     "null_video_sink.cc",
     "null_video_sink.h",
+    "offloading_video_encoder.cc",
+    "offloading_video_encoder.h",
     "output_device_info.cc",
     "output_device_info.h",
     "overlay_info.cc",
@@ -262,6 +263,8 @@ source_set("base") {
     "seekable_buffer.h",
     "serial_runner.cc",
     "serial_runner.h",
+    "shared_memory_pool.cc",
+    "shared_memory_pool.h",
     "silent_sink_suspender.cc",
     "silent_sink_suspender.h",
     "simple_sync_token_client.cc",
@@ -282,6 +285,9 @@ source_set("base") {
     "subsample_entry.h",
     "supported_types.cc",
     "supported_types.h",
+    "supported_types.h",
+    "supported_video_decoder_config.cc",
+    "supported_video_decoder_config.h",
     "text_cue.cc",
     "text_cue.h",
     "text_ranges.cc",
@@ -299,6 +305,7 @@ source_set("base") {
     "tuneable.h",
     "unaligned_shared_memory.cc",
     "unaligned_shared_memory.h",
+    "use_after_free_checker.h",
     "user_input_monitor.cc",
     "user_input_monitor.h",
     "video_bitrate_allocation.cc",
@@ -333,6 +340,8 @@ source_set("base") {
     "video_types.h",
     "video_util.cc",
     "video_util.h",
+    "wait_and_replace_sync_token_client.cc",
+    "wait_and_replace_sync_token_client.h",
     "waiting.h",
     "wall_clock_time_source.cc",
     "wall_clock_time_source.h",
@@ -347,16 +356,22 @@ source_set("base") {
     "//media:media_buildflags",
     "//media:shared_memory_support",
     "//ui/gfx:color_space",
+    "//ui/gl",
   ]
   deps = [
     "//base/allocator:buildflags",
     "//base/util/values:values_util",
+    "//build:chromeos_buildflags",
     "//components/system_media_controls/linux/buildflags",
+    "//gpu/command_buffer/client:interface_base",
+    "//gpu/command_buffer/client:raster_interface",
     "//gpu/command_buffer/common",
     "//gpu/ipc/common:common",
+    "//skia",
     "//third_party/libyuv",
     "//third_party/widevine/cdm:headers",
     "//ui/display:display",
+    "//ui/events:events",
     "//ui/events:events_base",
     "//url:url",
   ]
@@ -382,7 +397,7 @@ source_set("base") {
     deps += [ "//third_party/libvpx" ]
   }
 
-  if (use_x11) {
+  if (use_x11 || ozone_platform_x11) {
     sources += [ "user_input_monitor_linux.cc" ]
     deps += [
       "//ui/base:features",
@@ -396,18 +411,18 @@ source_set("base") {
       "CoreVideo.framework",
       "CoreFoundation.framework",
       "CoreGraphics.framework",
+      "IOSurface.framework",
     ]
   } else if (is_win) {
     sources += [ "user_input_monitor_win.cc" ]
   } else {
     defines += [ "DISABLE_USER_INPUT_MONITOR" ]
   }
-
-  if (is_linux || is_chromeos || is_win) {
-    sources += [
-      "keyboard_event_counter.cc",
-      "keyboard_event_counter.h",
-    ]
+  if (use_x11) {
+    deps += [ "//ui/base/x" ]
+  }
+  if (use_ozone) {
+    deps += [ "//ui/ozone" ]
   }
 
   # Note: should also work on is_posix || is_fuchsia
@@ -422,10 +437,14 @@ source_set("base") {
     public_deps += [ "//media/base/win:mf_cdm_proxy" ]
   }
 
-  if (is_chromecast || is_fuchsia) {
-    sources += [ "demuxer_memory_limit_low.cc" ]
-  } else if (is_android) {
+  # TODO(ziyangch): Check |is_chromecast| first when using cast media pipeline
+  # on Android cast devices.
+  if (is_android) {
     sources += [ "demuxer_memory_limit_android.cc" ]
+  } else if (is_chromecast) {
+    sources += [ "demuxer_memory_limit_cast.cc" ]
+  } else if (is_fuchsia) {
+    sources += [ "demuxer_memory_limit_low.cc" ]
   } else {
     sources += [ "demuxer_memory_limit_default.cc" ]
   }
@@ -553,7 +572,6 @@ source_set("unit_tests") {
     "djb2_unittest.cc",
     "fake_audio_worker_unittest.cc",
     "fake_demuxer_stream_unittest.cc",
-    "fallback_video_decoder_unittest.cc",
     "feedback_signal_accumulator_unittest.cc",
     "frame_rate_estimator_unittest.cc",
     "key_systems_unittest.cc",
@@ -564,18 +582,21 @@ source_set("unit_tests") {
     "moving_average_unittest.cc",
     "multi_channel_resampler_unittest.cc",
     "null_video_sink_unittest.cc",
+    "offloading_video_encoder_unittest.cc",
     "pipeline_impl_unittest.cc",
     "ranges_unittest.cc",
     "reentrancy_checker_unittest.cc",
     "renderer_factory_selector_unittest.cc",
     "seekable_buffer_unittest.cc",
     "serial_runner_unittest.cc",
+    "shared_memory_pool_unittest.cc",
     "silent_sink_suspender_unittest.cc",
     "sinc_resampler_unittest.cc",
     "status_unittest.cc",
     "stream_parser_unittest.cc",
     "subsample_entry_unittest.cc",
     "supported_types_unittest.cc",
+    "supported_video_decoder_config_unittest.cc",
     "text_ranges_unittest.cc",
     "text_renderer_unittest.cc",
     "time_delta_interpolator_unittest.cc",
@@ -602,6 +623,7 @@ source_set("unit_tests") {
   ]
   deps = [
     "//base/test:test_support",
+    "//build:chromeos_buildflags",
     "//components/viz/common",
     "//gpu/command_buffer/common",
     "//media:test_support",
@@ -616,16 +638,20 @@ source_set("unit_tests") {
     deps += [ "//media/base/mac:unit_tests" ]
   }
 
-  if (is_linux || is_chromeos || is_win) {
-    sources += [ "keyboard_event_counter_unittest.cc" ]
-  }
   if (is_win) {
     sources += [ "win/dxgi_device_scope_handle_unittest.cc" ]
-    deps += [ "//media/base/win:media_foundation_util" ]
+    deps += [
+      "//media/base/win:media_foundation_util",
+      "//ui/events:test_support",
+    ]
     libs = [
       "d3d11.lib",
       "mfplat.lib",
     ]
+  }
+
+  if (is_chromecast && !is_android) {
+    sources += [ "demuxer_memory_limit_cast_unittest.cc" ]
   }
 }
 

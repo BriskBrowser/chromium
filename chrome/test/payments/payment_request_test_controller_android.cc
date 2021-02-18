@@ -5,6 +5,7 @@
 #include "chrome/test/payments/payment_request_test_controller.h"
 
 #include "base/bind.h"
+#include "base/notreached.h"
 #include "chrome/browser/android/background_task_scheduler/chrome_background_task_factory.h"
 #include "chrome/test/payments/android/payment_request_test_bridge.h"
 
@@ -21,6 +22,15 @@ PaymentRequestTestController::GetPaymentHandlerWebContents() {
 
 bool PaymentRequestTestController::ClickPaymentHandlerSecurityIcon() {
   return ClickPaymentHandlerSecurityIconForTest();
+}
+
+bool PaymentRequestTestController::ClickPaymentHandlerCloseButton() {
+  return ClickPaymentHandlerCloseButtonForTest();
+}
+
+bool PaymentRequestTestController::ConfirmPayment() {
+  NOTIMPLEMENTED();
+  return false;
 }
 
 bool PaymentRequestTestController::ConfirmMinimalUI() {
@@ -69,7 +79,7 @@ void PaymentRequestTestController::SetUpOnMainThread() {
 
   SetUseDelegateOnPaymentRequestForTesting(
       /*use_delegate_for_test=*/true, is_off_the_record_, valid_ssl_,
-      /*is_browser_window_active=*/true, can_make_payment_pref_,
+      can_make_payment_pref_,
       /*skip_ui_for_basic_card=*/false, twa_package_name_);
 }
 
@@ -82,7 +92,7 @@ void PaymentRequestTestController::SetOffTheRecord(bool is_off_the_record) {
   is_off_the_record_ = is_off_the_record;
   SetUseDelegateOnPaymentRequestForTesting(
       /*use_delegate_for_test=*/true, is_off_the_record_, valid_ssl_,
-      /*is_browser_window_active=*/true, can_make_payment_pref_,
+      can_make_payment_pref_,
       /*skip_ui_for_basic_card=*/false, twa_package_name_);
 }
 
@@ -90,7 +100,7 @@ void PaymentRequestTestController::SetValidSsl(bool valid_ssl) {
   valid_ssl_ = valid_ssl;
   SetUseDelegateOnPaymentRequestForTesting(
       /*use_delegate_for_test=*/true, is_off_the_record_, valid_ssl_,
-      /*is_browser_window_active=*/true, can_make_payment_pref_,
+      can_make_payment_pref_,
       /*skip_ui_for_basic_card=*/false, twa_package_name_);
 }
 
@@ -99,7 +109,7 @@ void PaymentRequestTestController::SetCanMakePaymentEnabledPref(
   can_make_payment_pref_ = can_make_payment_enabled;
   SetUseDelegateOnPaymentRequestForTesting(
       /*use_delegate_for_test=*/true, is_off_the_record_, valid_ssl_,
-      /*is_browser_window_active=*/true, can_make_payment_pref_,
+      can_make_payment_pref_,
       /*skip_ui_for_basic_card=*/false, twa_package_name_);
 }
 
@@ -108,7 +118,7 @@ void PaymentRequestTestController::SetTwaPackageName(
   twa_package_name_ = twa_package_name;
   SetUseDelegateOnPaymentRequestForTesting(
       /*use_delegate_for_test=*/true, is_off_the_record_, valid_ssl_,
-      /*is_browser_window_active=*/true, can_make_payment_pref_,
+      can_make_payment_pref_,
       /*skip_ui_for_basic_card=*/false, twa_package_name_);
 }
 

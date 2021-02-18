@@ -13,8 +13,8 @@ namespace events {
 #if defined(OS_WIN) || defined(OS_APPLE) || defined(OS_LINUX) || \
     defined(OS_CHROMEOS)
 const char kNewTabOpened[] = "new_tab_opened";
-#endif  // defined(OS_WIN) || defined(OS_APPLE) ||
-        // defined(OS_LINUX) || defined(OS_CHROMEOS)
+#endif  // defined(OS_WIN) || defined(OS_APPLE) || defined(OS_LINUX) ||
+        // defined(OS_CHROMEOS)
 
 #if defined(OS_WIN) || defined(OS_APPLE) || defined(OS_LINUX) || \
     defined(OS_CHROMEOS)
@@ -32,6 +32,8 @@ const char kFocusModeConditionsMet[] = "focus_mode_conditions_met";
 
 const char kWebUITabStripClosed[] = "webui_tab_strip_closed";
 const char kWebUITabStripOpened[] = "webui_tab_strip_opened";
+
+const char kDesktopPwaInstalled[] = "desktop_pwa_installed";
 #endif  // defined(OS_WIN) || defined(OS_APPLE) || defined(OS_LINUX) ||
         // defined(OS_CHROMEOS)
 
@@ -42,7 +44,12 @@ const char kClearedBrowsingData[] = "cleared_browsing_data";
 const char kViewedReadingList[] = "viewed_reading_list";
 const char kTriggeredTranslateInfobar[] = "triggered_translate_infobar";
 const char kBottomToolbarOpened[] = "bottom_toolbar_opened";
+const char kDiscoverFeedLoaded[] = "discover_feed_loaded";
 #endif  // defined(OS_IOS)
+
+#if defined(OS_ANDROID)
+const char kPwaInstallMenuSelected[] = "pwa_install_menu_clicked";
+#endif  // defined(OS_ANDROID)
 
 }  // namespace events
 

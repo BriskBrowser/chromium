@@ -16,7 +16,6 @@
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/common/child_process_host.h"
 #include "content/public/common/url_constants.h"
-#include "content/public/common/web_preferences.h"
 #include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_registry.h"
@@ -35,6 +34,7 @@
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/blink/public/common/input/web_gesture_event.h"
+#include "third_party/blink/public/common/web_preferences/web_preferences.h"
 
 using content::WebContents;
 using guest_view::GuestViewBase;
@@ -217,6 +217,7 @@ void MimeHandlerViewGuest::CreateWebContents(
 }
 
 void MimeHandlerViewGuest::DidAttachToEmbedder() {
+  DCHECK(stream_->handler_url().SchemeIs(extensions::kExtensionScheme));
   web_contents()->GetController().LoadURL(
       stream_->handler_url(), content::Referrer(),
       ui::PAGE_TRANSITION_AUTO_TOPLEVEL, std::string());
@@ -441,6 +442,22 @@ void MimeHandlerViewGuest::ReadyToCommitNavigation(
     content::NavigationHandle* navigation_handle) {
   navigation_handle->RegisterSubresourceOverride(
       stream_->TakeTransferrableURLLoader());
+}
+
+void MimeHandlerViewGuest::DidFinishNavigation(
+    content::NavigationHandle* navigation_handle) {
+  guest_view::GuestView<MimeHandlerViewGuest>::DidFinishNavigation(
+      navigation_handle);
+
+  if (navigation_handle->IsInMainFrame()) {
+    // We should not navigate the guest away from the handling extension.
+    const url::Origin handler_origin =
+        url::Origin::Create(stream_->handler_url());
+    const GURL& new_url = navigation_handle->GetURL();
+    const url::Origin new_origin = url::Origin::Create(new_url);
+    CHECK(new_origin.IsSameOriginWith(handler_origin) ||
+          new_url.IsAboutBlank());
+  }
 }
 
 void MimeHandlerViewGuest::FuseBeforeUnloadControl(

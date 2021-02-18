@@ -14,7 +14,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/engagement/site_engagement_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/resource_coordinator/lifecycle_unit.h"
 #include "chrome/browser/resource_coordinator/lifecycle_unit_state.mojom.h"
@@ -27,10 +26,12 @@
 #include "chrome/browser/ui/webui/discards/site_data.mojom-forward.h"
 #include "chrome/browser/ui/webui/discards/site_data_provider_impl.h"
 #include "chrome/browser/ui/webui/favicon_source.h"
+#include "chrome/browser/ui/webui/webui_util.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/browser_resources.h"
 #include "components/favicon_base/favicon_url_parser.h"
 #include "components/performance_manager/public/performance_manager.h"
+#include "components/site_engagement/content/site_engagement_service.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/url_data_source.h"
@@ -42,6 +43,7 @@
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "services/network/public/mojom/content_security_policy.mojom.h"
 #include "ui/resources/grit/ui_resources.h"
+#include "ui/resources/grit/ui_resources_map.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -84,11 +86,10 @@ double GetSiteEngagementScore(content::WebContents* contents) {
   auto* nav_entry = controller.GetEntryAtIndex(current_entry_index);
   DCHECK(nav_entry);
 
-  auto* engagement_svc = SiteEngagementService::Get(
+  auto* engagement_svc = site_engagement::SiteEngagementService::Get(
       Profile::FromBrowserContext(contents->GetBrowserContext()));
   return engagement_svc->GetDetails(nav_entry->GetURL()).total_score;
 }
-
 
 class DiscardsDetailsProviderImpl : public discards::mojom::DetailsProvider {
  public:
@@ -217,35 +218,24 @@ DiscardsUI::DiscardsUI(content::WebUI* web_ui)
       "script-src chrome://resources chrome://test 'self';");
   source->DisableTrustedTypesCSP();
 
-  source->AddResourcePath("discards.js", IDR_DISCARDS_JS);
+  const webui::ResourcePath kResources[] = {
+      {"discards.js", IDR_DISCARDS_JS},
+      {"discards_main.js", IDR_DISCARDS_DISCARDS_MAIN_JS},
+      {"database_tab.js", IDR_DISCARDS_DATABASE_TAB_JS},
+      {"discards_tab.js", IDR_DISCARDS_DISCARDS_TAB_JS},
+      {"sorted_table_behavior.js", IDR_DISCARDS_SORTED_TABLE_BEHAVIOR_JS},
+      {"graph_tab.js", IDR_DISCARDS_GRAPH_TAB_JS},
 
-  source->AddResourcePath("discards_main.js", IDR_DISCARDS_DISCARDS_MAIN_JS);
-
-  source->AddResourcePath("database_tab.js", IDR_DISCARDS_DATABASE_TAB_JS);
-  source->AddResourcePath("discards_tab.js", IDR_DISCARDS_DISCARDS_TAB_JS);
-  source->AddResourcePath("sorted_table_behavior.js",
-                          IDR_DISCARDS_SORTED_TABLE_BEHAVIOR_JS);
-  source->AddResourcePath("graph_tab.js", IDR_DISCARDS_GRAPH_TAB_JS);
-
-  source->AddResourcePath("mojo_api.js", IDR_DISCARDS_MOJO_API_JS);
-
-  // Full paths (relative to src) are important for Mojom generated files.
-  source->AddResourcePath(
-      "chrome/browser/ui/webui/discards/discards.mojom-lite.js",
-      IDR_DISCARDS_MOJOM_LITE_JS);
-  source->AddResourcePath(
-      "chrome/browser/resource_coordinator/lifecycle_unit_state.mojom-lite.js",
-      IDR_DISCARDS_LIFECYCLE_UNIT_STATE_MOJOM_LITE_JS);
-  source->AddResourcePath(
-      "chrome/browser/ui/webui/discards/site_data.mojom-lite.js",
-      IDR_DISCARDS_SITE_DATA_MOJOM_LITE_JS);
-
-  // Add the mojo base dependency for the WebUI Graph Dump.
-  source->AddResourcePath(
-      "mojo/public/mojom/base/process_id.mojom-lite.js",
-      IDR_DISCARDS_MOJO_PUBLIC_BASE_PROCESS_ID_MOJOM_LITE_JS);
-
-  source->SetDefaultResource(IDR_DISCARDS_HTML);
+      // Full paths (relative to source) for mojom generated files.
+      {"chrome/browser/ui/webui/discards/discards.mojom-webui.js",
+       IDR_DISCARDS_MOJOM_WEBUI_JS},
+      {"chrome/browser/resource_coordinator/"
+       "lifecycle_unit_state.mojom-webui.js",
+       IDR_DISCARDS_LIFECYCLE_UNIT_STATE_MOJOM_WEBUI_JS},
+      {"chrome/browser/ui/webui/discards/site_data.mojom-webui.js",
+       IDR_DISCARDS_SITE_DATA_MOJOM_WEBUI_JS},
+  };
+  webui::SetupWebUIDataSource(source.get(), kResources, IDR_DISCARDS_HTML);
 
   Profile* profile = Profile::FromWebUI(web_ui);
   content::WebUIDataSource::Add(profile, source.release());

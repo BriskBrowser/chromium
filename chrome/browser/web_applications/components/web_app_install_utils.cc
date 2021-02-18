@@ -8,18 +8,22 @@
 #include <string>
 #include <utility>
 
-#include "base/metrics/histogram_functions.h"
+#include "base/feature_list.h"
+#include "base/optional.h"
 #include "base/stl_util.h"
+#include "base/strings/string16.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
-#include "chrome/browser/banners/app_banner_manager.h"
 #include "chrome/browser/banners/app_banner_manager_desktop.h"
-#include "chrome/browser/banners/app_banner_settings_helper.h"
-#include "chrome/browser/installable/installable_data.h"
-#include "chrome/browser/installable/installable_metrics.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
 #include "chrome/browser/web_applications/components/web_app_icon_generator.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "chrome/common/chrome_features.h"
-#include "chrome/common/web_application_info.h"
+#include "components/services/app_service/public/cpp/share_target.h"
+#include "components/webapps/browser/banners/app_banner_manager.h"
+#include "components/webapps/browser/banners/app_banner_settings_helper.h"
+#include "components/webapps/browser/installable/installable_data.h"
+#include "components/webapps/browser/installable/installable_metrics.h"
 #include "third_party/blink/public/common/manifest/manifest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
@@ -122,20 +126,80 @@ UpdateShortcutsMenuItemInfosFromManifest(
   return web_app_shortcut_infos;
 }
 
+apps::ShareTarget::Method ToAppsShareTargetMethod(
+    blink::mojom::ManifestShareTarget_Method method) {
+  switch (method) {
+    case blink::mojom::ManifestShareTarget_Method::kGet:
+      return apps::ShareTarget::Method::kGet;
+    case blink::mojom::ManifestShareTarget_Method::kPost:
+      return apps::ShareTarget::Method::kPost;
+  }
+  NOTREACHED();
+}
+
+apps::ShareTarget::Enctype ToAppsShareTargetEnctype(
+    blink::mojom::ManifestShareTarget_Enctype enctype) {
+  switch (enctype) {
+    case blink::mojom::ManifestShareTarget_Enctype::kFormUrlEncoded:
+      return apps::ShareTarget::Enctype::kFormUrlEncoded;
+    case blink::mojom::ManifestShareTarget_Enctype::kMultipartFormData:
+      return apps::ShareTarget::Enctype::kMultipartFormData;
+  }
+  NOTREACHED();
+}
+
+base::Optional<apps::ShareTarget> ToWebAppShareTarget(
+    const base::Optional<blink::Manifest::ShareTarget>& share_target) {
+  if (!share_target) {
+    return base::nullopt;
+  }
+  apps::ShareTarget apps_share_target;
+  apps_share_target.action = share_target->action;
+  apps_share_target.method = ToAppsShareTargetMethod(share_target->method);
+  apps_share_target.enctype = ToAppsShareTargetEnctype(share_target->enctype);
+
+  if (share_target->params.title.has_value()) {
+    apps_share_target.params.title =
+        base::UTF16ToUTF8(*share_target->params.title);
+  }
+  if (share_target->params.text.has_value()) {
+    apps_share_target.params.text =
+        base::UTF16ToUTF8(*share_target->params.text);
+  }
+  if (share_target->params.url.has_value()) {
+    apps_share_target.params.url = base::UTF16ToUTF8(*share_target->params.url);
+  }
+
+  for (const auto& file_filter : share_target->params.files) {
+    apps::ShareTarget::Files apps_share_target_files;
+    apps_share_target_files.name = base::UTF16ToUTF8(file_filter.name);
+
+    for (const auto& file_type : file_filter.accept) {
+      apps_share_target_files.accept.push_back(base::UTF16ToUTF8(file_type));
+    }
+
+    apps_share_target.params.files.push_back(
+        std::move(apps_share_target_files));
+  }
+
+  return std::move(apps_share_target);
+}
+
 }  // namespace
 
 void UpdateWebAppInfoFromManifest(const blink::Manifest& manifest,
+                                  const GURL& manifest_url,
                                   WebApplicationInfo* web_app_info) {
-  if (!manifest.short_name.is_null())
-    web_app_info->title = manifest.short_name.string();
-
   // Give the full length name priority if it's not empty.
-  if (!manifest.name.is_null() && !manifest.name.string().empty())
-    web_app_info->title = manifest.name.string();
+  base::string16 name = manifest.name.value_or(base::string16());
+  if (!name.empty())
+    web_app_info->title = name;
+  else if (manifest.short_name)
+    web_app_info->title = *manifest.short_name;
 
   // Set the url based on the manifest value, if any.
   if (manifest.start_url.is_valid())
-    web_app_info->app_url = manifest.start_url;
+    web_app_info->start_url = manifest.start_url;
 
   if (manifest.scope.is_valid())
     web_app_info->scope = manifest.scope;
@@ -157,10 +221,8 @@ void UpdateWebAppInfoFromManifest(const blink::Manifest& manifest,
     web_app_info->display_override = manifest.display_override;
 
   // Create the WebApplicationInfo icons list *outside* of |web_app_info|, so
-  // that we can decide later whether or not to replace the existing icons array
-  // (conditionally on whether there were any that didn't have purpose ANY).
+  // that we can decide later whether or not to replace the existing icons.
   std::vector<WebApplicationIconInfo> web_app_icons;
-  bool has_purpose_any = false;
   for (const auto& icon : manifest.icons) {
     // An icon's purpose vector should never be empty (the manifest parser
     // should have added ANY if there was no purpose specified in the manifest).
@@ -190,9 +252,6 @@ void UpdateWebAppInfoFromManifest(const blink::Manifest& manifest,
       info.purpose = purpose;
       web_app_icons.push_back(std::move(info));
 
-      if (purpose == IconPurpose::ANY)
-        has_purpose_any = true;
-
       // Limit the number of icons we store on the user's machine.
       if (web_app_icons.size() == kMaxIcons)
         break;
@@ -201,14 +260,18 @@ void UpdateWebAppInfoFromManifest(const blink::Manifest& manifest,
     if (web_app_icons.size() == kMaxIcons)
       break;
   }
-  // If any icons are specified in the manifest, they take precedence over any
-  // we picked up from the web_app stuff.
-  if (has_purpose_any)
+  // If any icons are correctly specified in the manifest, they take precedence
+  // over any we picked up from web page metadata.
+  if (!web_app_icons.empty())
     web_app_info->icon_infos = std::move(web_app_icons);
 
   web_app_info->file_handlers = manifest.file_handlers;
 
+  web_app_info->share_target = ToWebAppShareTarget(manifest.share_target);
+
   web_app_info->protocol_handlers = manifest.protocol_handlers;
+
+  web_app_info->url_handlers = manifest.url_handlers;
 
   // If any shortcuts are specified in the manifest, they take precedence over
   // any we picked up from the web_app stuff.
@@ -218,6 +281,11 @@ void UpdateWebAppInfoFromManifest(const blink::Manifest& manifest,
     web_app_info->shortcuts_menu_item_infos =
         UpdateShortcutsMenuItemInfosFromManifest(manifest.shortcuts);
   }
+
+  web_app_info->capture_links = manifest.capture_links;
+
+  if (manifest_url.is_valid())
+    web_app_info->manifest_url = manifest_url;
 }
 
 std::vector<GURL> GetValidIconUrlsToDownload(
@@ -309,7 +377,7 @@ void FilterAndResizeIconsGenerateMissing(WebApplicationInfo* web_app_info,
 
   base::char16 icon_letter =
       web_app_info->title.empty()
-          ? GenerateIconLetterFromUrl(web_app_info->app_url)
+          ? GenerateIconLetterFromUrl(web_app_info->start_url)
           : GenerateIconLetterFromAppName(web_app_info->title);
   web_app_info->generated_icon_color = SK_ColorTRANSPARENT;
   // Ensure that all top-level icons that are in web_app_info with  Purpose::ANY
@@ -330,41 +398,34 @@ void FilterAndResizeIconsGenerateMissing(WebApplicationInfo* web_app_info,
 }
 
 void RecordAppBanner(content::WebContents* contents, const GURL& app_url) {
-  AppBannerSettingsHelper::RecordBannerEvent(
+  webapps::AppBannerSettingsHelper::RecordBannerEvent(
       contents, app_url, app_url.spec(),
-      AppBannerSettingsHelper::APP_BANNER_EVENT_DID_ADD_TO_HOMESCREEN,
+      webapps::AppBannerSettingsHelper::APP_BANNER_EVENT_DID_ADD_TO_HOMESCREEN,
       base::Time::Now());
 }
 
-WebappInstallSource ConvertExternalInstallSourceToInstallSource(
+webapps::WebappInstallSource ConvertExternalInstallSourceToInstallSource(
     ExternalInstallSource external_install_source) {
-  WebappInstallSource install_source;
+  webapps::WebappInstallSource install_source;
   switch (external_install_source) {
     case ExternalInstallSource::kInternalDefault:
-      install_source = WebappInstallSource::INTERNAL_DEFAULT;
+      install_source = webapps::WebappInstallSource::INTERNAL_DEFAULT;
       break;
     case ExternalInstallSource::kExternalDefault:
-      install_source = WebappInstallSource::EXTERNAL_DEFAULT;
+      install_source = webapps::WebappInstallSource::EXTERNAL_DEFAULT;
       break;
     case ExternalInstallSource::kExternalPolicy:
-      install_source = WebappInstallSource::EXTERNAL_POLICY;
+      install_source = webapps::WebappInstallSource::EXTERNAL_POLICY;
       break;
     case ExternalInstallSource::kSystemInstalled:
-      install_source = WebappInstallSource::SYSTEM_DEFAULT;
+      install_source = webapps::WebappInstallSource::SYSTEM_DEFAULT;
       break;
     case ExternalInstallSource::kArc:
-      install_source = WebappInstallSource::ARC;
+      install_source = webapps::WebappInstallSource::ARC;
       break;
   }
 
   return install_source;
-}
-
-void RecordExternalAppInstallResultCode(
-    const char* histogram_name,
-    std::map<GURL, InstallResultCode> install_results) {
-  for (const auto& url_and_result : install_results)
-    base::UmaHistogramEnumeration(histogram_name, url_and_result.second);
 }
 
 }  // namespace web_app

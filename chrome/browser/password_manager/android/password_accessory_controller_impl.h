@@ -14,12 +14,14 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/task/cancelable_task_tracker.h"
+#include "chrome/browser/password_manager/android/all_passwords_bottom_sheet_helper.h"
 #include "chrome/browser/password_manager/android/password_accessory_controller.h"
 #include "components/autofill/core/browser/ui/accessory_sheet_data.h"
 #include "components/autofill/core/common/mojom/autofill_types.mojom-forward.h"
 #include "components/autofill/core/common/password_generation_util.h"
 #include "components/password_manager/core/browser/credential_cache.h"
 #include "components/password_manager/core/browser/password_manager_client.h"
+#include "components/security_state/core/security_state.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "url/gurl.h"
 
@@ -41,6 +43,8 @@ class PasswordAccessoryControllerImpl
   ~PasswordAccessoryControllerImpl() override;
 
   // AccessoryController:
+  void RegisterFillingSourceObserver(FillingSourceObserver observer) override;
+  base::Optional<autofill::AccessorySheetData> GetSheetData() const override;
   void OnFillingTriggered(const autofill::UserInfo::Field& selection) override;
   void OnOptionSelected(autofill::AccessoryAction selected_action) override;
   void OnToggleChanged(autofill::AccessoryAction toggled_action,
@@ -79,6 +83,18 @@ class PasswordAccessoryControllerImpl
       password_manager::ContentPasswordManagerDriver* driver,
       autofill::mojom::FocusedFieldType focused_field_type);
 
+  // Returns true if the current site attached to `web_contents_` has a SECURE
+  // security level.
+  bool IsSecureSite();
+
+#if defined(UNIT_TEST)
+  // Used for testing to set `security_level_for_testing_`.
+  void SetSecurityLevelForTesting(
+      security_state::SecurityLevel security_level) {
+    security_level_for_testing_ = security_level;
+  }
+#endif
+
  private:
   friend class content::WebContentsUserData<PasswordAccessoryControllerImpl>;
 
@@ -92,13 +108,17 @@ class PasswordAccessoryControllerImpl
       password_manager::PasswordManagerClient* password_client);
 
   // Enables or disables saving for the focused origin. This involves removing
-  // or adding blacklisted entry in the |PasswordStore|.
+  // or adding blocklisted entry in the |PasswordStore|.
   void ChangeCurrentOriginSavePasswordsStatus(bool enabled);
 
   // Returns true if |suggestion| matches a credential for |origin|.
   bool AppearsInSuggestions(const base::string16& suggestion,
                             bool is_password,
                             const url::Origin& origin) const;
+
+  // Returns true if the `origin` of a focused field allows to show
+  // the option toggle to recover from a "never save" state.
+  bool ShouldShowRecoveryToggle(const url::Origin& origin) const;
 
   // Lazy-initializes and returns the ManualFillingController for the current
   // |web_contents_|. The lazy initialization allows injecting mocks for tests.
@@ -134,6 +154,14 @@ class PasswordAccessoryControllerImpl
   // first call to |ShowAllPasswords()|.
   std::unique_ptr<AllPasswordsBottomSheetController>
       all_passords_bottom_sheet_controller_;
+
+  // Helper for determining whether a bottom sheet showing passwords is useful.
+  AllPasswordsBottomSheetHelper all_passwords_helper_{
+      password_client_->GetProfilePasswordStore()};
+
+  // Security level used for testing only.
+  security_state::SecurityLevel security_level_for_testing_ =
+      security_state::NONE;
 
   WEB_CONTENTS_USER_DATA_KEY_DECL();
 

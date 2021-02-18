@@ -19,7 +19,6 @@ cc_component("animation") {
     "animation_host.h",
     "animation_id_provider.cc",
     "animation_id_provider.h",
-    "animation_target.h",
     "animation_timeline.cc",
     "animation_timeline.h",
     "element_animations.cc",
@@ -42,10 +41,6 @@ cc_component("animation") {
     "scroll_timeline.h",
     "timing_function.cc",
     "timing_function.h",
-    "transform_operation.cc",
-    "transform_operation.h",
-    "transform_operations.cc",
-    "transform_operations.h",
     "worklet_animation.cc",
     "worklet_animation.h",
   ]

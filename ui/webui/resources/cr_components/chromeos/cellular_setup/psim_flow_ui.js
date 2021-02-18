@@ -4,14 +4,14 @@
 
 cr.define('cellularSetup', function() {
   /** @enum{string} */
-  const PSimPageName = {
-    SIM_DETECT: 'sim-detect-page',
-    PROVISIONING: 'provisioning-page',
-    FINAL: 'final-page',
+  /* #export */ const PSimPageName = {
+    SIM_DETECT: 'simDetectPage',
+    PROVISIONING: 'provisioningPage',
+    FINAL: 'finalPage',
   };
 
   /** @enum{string} */
-  const PSimUIState = {
+  /* #export */ const PSimUIState = {
     IDLE: 'idle',
     STARTING_ACTIVATION: 'starting-activation',
     WAITING_FOR_ACTIVATION_TO_START: 'waiting-for-activation-to-start',
@@ -67,6 +67,26 @@ cr.define('cellularSetup', function() {
     ],
 
     properties: {
+      /** @type {!cellular_setup.CellularSetupDelegate} */
+      delegate: Object,
+
+      /**
+       * Carrier name; used in dialog title to show the current carrier
+       * name being setup
+       * @type {string}
+       */
+      nameOfCarrierPendingSetup: {
+        type: String,
+        notify: true,
+        computed: 'getCarrierText(' +
+            'selectedPSimPageName_, cellularMetadata_.*)',
+      },
+
+      forwardButtonLabel: {
+        type: String,
+        notify: true,
+      },
+
       /**
        * @type {!cellularSetup.PSimUIState}
        * @private
@@ -89,7 +109,7 @@ cr.define('cellularSetup', function() {
 
       /**
        * DOM Element for the current selected sub-page.
-       * @private {!SimDetectPageElement|!ProvisioningPageElement|
+       * @private {!SetupLoadingPageElement|!ProvisioningPageElement|
        *           !FinalPageElement}
        */
       selectedPage_: Object,
@@ -109,37 +129,20 @@ cr.define('cellularSetup', function() {
         type: Object,
         value: null,
       },
-
-      /**
-       * Whether try again should be shown in the button bar.
-       * @private {boolean}
-       */
-      showTryAgainButton_: {type: Boolean, value: false},
-
-      /**
-       * Whether finish button should be shown in the button bar.
-       * @private {boolean}
-       */
-      showFinishButton_: {type: Boolean, value: false},
-
-      /**
-       * Whether cancel button should be shown in the button bar.
-       * @private {boolean}
-       */
-      showCancelButton_: {type: Boolean, value: false}
     },
 
     observers: [
       'updateShowError_(state_)',
       'updateSelectedPage_(state_)',
       'handlePSimUIStateChange_(state_)',
+      'updateButtonBarState_(state_)',
     ],
 
     /**
      * Provides an interface to the CellularSetup Mojo service.
-     * @private {?cellular_setup.MojoInterfaceProvider}
+     * @private {?chromeos.cellularSetup.mojom.CellularSetupRemote}
      */
-    mojoInterfaceProvider_: null,
+    cellularSetupRemote_: null,
 
     /**
      * Delegate responsible for routing activation started/finished events.
@@ -163,8 +166,7 @@ cr.define('cellularSetup', function() {
 
     /** @override */
     created() {
-      this.mojoInterfaceProvider_ =
-          cellular_setup.MojoInterfaceProviderImpl.getInstance();
+      this.cellularSetupRemote_ = cellular_setup.getCellularSetupRemote();
     },
 
     /**
@@ -180,13 +182,72 @@ cr.define('cellularSetup', function() {
 
     initSubflow() {
       this.state_ = PSimUIState.STARTING_ACTIVATION;
-      this.set('buttonState', {
-        backward: cellularSetup.ButtonState.HIDDEN,
-        cancel: cellularSetup.ButtonState.SHOWN_AND_ENABLED,
-        finish: cellularSetup.ButtonState.HIDDEN,
-        next: cellularSetup.ButtonState.SHOWN_AND_ENABLED,
-        tryAgain: cellularSetup.ButtonState.HIDDEN
-      });
+      this.updateButtonBarState_();
+    },
+
+    navigateForward() {
+      switch (this.state_) {
+        case PSimUIState.WAITING_FOR_PORTAL_TO_LOAD:
+        case PSimUIState.TIMEOUT_PORTAL_LOAD:
+        case PSimUIState.WAITING_FOR_USER_PAYMENT:
+        case PSimUIState.ACTIVATION_SUCCESS:
+          this.state_ = PSimUIState.WAITING_FOR_ACTIVATION_TO_FINISH;
+          break;
+        case PSimUIState.WAITING_FOR_ACTIVATION_TO_FINISH:
+        case PSimUIState.TIMEOUT_FINISH_ACTIVATION:
+          this.fire('exit-cellular-setup');
+          break;
+        default:
+          assertNotReached();
+          break;
+      }
+    },
+
+    /**
+     * @returns {boolean} true if backward navigation was handled
+     */
+    attemptBackwardNavigation() {
+      // Back navigation for pSIM flow always goes back to selection page
+      return false;
+    },
+
+    /** @private */
+    updateButtonBarState_() {
+      let buttonState;
+      switch (this.state_) {
+        case PSimUIState.IDLE:
+        case PSimUIState.STARTING_ACTIVATION:
+        case PSimUIState.WAITING_FOR_ACTIVATION_TO_START:
+        case PSimUIState.TIMEOUT_START_ACTIVATION:
+        case PSimUIState.WAITING_FOR_PORTAL_TO_LOAD:
+        case PSimUIState.TIMEOUT_PORTAL_LOAD:
+        case PSimUIState.WAITING_FOR_USER_PAYMENT:
+          buttonState = {
+            backward: cellularSetup.ButtonState.ENABLED,
+            cancel: cellularSetup.ButtonState.ENABLED,
+            forward: cellularSetup.ButtonState.DISABLED,
+          };
+          break;
+        case PSimUIState.ACTIVATION_SUCCESS:
+        case PSimUIState.ALREADY_ACTIVATED:
+        case PSimUIState.ACTIVATION_FAILURE:
+          buttonState = {
+            backward: cellularSetup.ButtonState.ENABLED,
+            cancel: cellularSetup.ButtonState.ENABLED,
+            forward: cellularSetup.ButtonState.ENABLED,
+          };
+          break;
+        case PSimUIState.WAITING_FOR_ACTIVATION_TO_FINISH:
+        case PSimUIState.TIMEOUT_FINISH_ACTIVATION:
+          this.forwardButtonLabel = this.i18n('done');
+          buttonState = {
+            forward: cellularSetup.ButtonState.ENABLED,
+          };
+          break;
+        default:
+          assertNotReached();
+      }
+      this.set('buttonState', buttonState);
     },
 
     /**
@@ -211,6 +272,15 @@ cr.define('cellularSetup', function() {
         default:
           assertNotReached();
       }
+    },
+
+    /** @private */
+    getCarrierText() {
+      if (this.selectedPSimPageName_ === PSimPageName.PROVISIONING &&
+          this.cellularMetadata_) {
+        return this.cellularMetadata_.carrier;
+      }
+      return '';
     },
 
     /** @private */
@@ -240,11 +310,11 @@ cr.define('cellularSetup', function() {
         case PSimUIState.WAITING_FOR_PORTAL_TO_LOAD:
         case PSimUIState.TIMEOUT_PORTAL_LOAD:
         case PSimUIState.WAITING_FOR_USER_PAYMENT:
+        case PSimUIState.ACTIVATION_SUCCESS:
           this.selectedPSimPageName_ = PSimPageName.PROVISIONING;
           return;
         case PSimUIState.WAITING_FOR_ACTIVATION_TO_FINISH:
         case PSimUIState.TIMEOUT_FINISH_ACTIVATION:
-        case PSimUIState.ACTIVATION_SUCCESS:
         case PSimUIState.ALREADY_ACTIVATED:
         case PSimUIState.ACTIVATION_FAILURE:
           this.selectedPSimPageName_ = PSimPageName.FINAL;
@@ -304,7 +374,7 @@ cr.define('cellularSetup', function() {
                */
               (this));
 
-      this.mojoInterfaceProvider_.getMojoServiceRemote()
+      this.cellularSetupRemote_
           .startActivation(
               this.activationDelegateReceiver_.$.bindNewPipeAndPassRemote())
           .then(
@@ -351,6 +421,15 @@ cr.define('cellularSetup', function() {
       const success = event.detail;
       this.state_ = success ? PSimUIState.ACTIVATION_SUCCESS :
                               PSimUIState.ACTIVATION_FAILURE;
+    },
+
+    /**
+     * @param {boolean} showError
+     * @private
+     */
+    getLoadingPageState_(showError) {
+      return showError ? LoadingPageState.SIM_DETECT_ERROR :
+                         LoadingPageState.LOADING;
     },
   });
 

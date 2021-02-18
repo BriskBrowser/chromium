@@ -16,19 +16,17 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
+#include "chrome/browser/ash/system/timezone_resolver_manager.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/arc/policy/arc_policy_util.h"
 #include "chrome/browser/chromeos/arc/session/arc_session_manager.h"
 #include "chrome/browser/chromeos/settings/stats_reporting_controller.h"
-#include "chrome/browser/chromeos/system/timezone_resolver_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/zoom/chrome_zoom_level_prefs.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/network/network_handler.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
@@ -170,6 +168,7 @@ class ArcSettingsServiceImpl
   void SyncAccessibilityLargeMouseCursorEnabled() const;
   void SyncAccessibilityVirtualKeyboardEnabled() const;
   void SyncBackupEnabled() const;
+  void SyncDockedMagnifierEnabled() const;
   void SyncFocusHighlightEnabled() const;
   void SyncLocale() const;
   void SyncLocationServiceEnabled() const;
@@ -178,6 +177,7 @@ class ArcSettingsServiceImpl
   void SyncProxySettingsForSystemProxy() const;
   void SyncReportingConsent(bool initial_sync) const;
   void SyncPictureInPictureEnabled() const;
+  void SyncScreenMagnifierEnabled() const;
   void SyncSelectToSpeakEnabled() const;
   void SyncSpokenFeedbackEnabled() const;
   void SyncSwitchAccessEnabled() const;
@@ -222,19 +222,17 @@ class ArcSettingsServiceImpl
   // Manages pref observation registration.
   PrefChangeRegistrar registrar_;
 
-  std::unique_ptr<chromeos::StatsReportingController::ObserverSubscription>
-      reporting_consent_subscription_;
+  base::CallbackListSubscription reporting_consent_subscription_;
 
   // Subscription for preference change of default zoom level. Subscription
   // automatically unregisters a callback when it's destructed.
-  std::unique_ptr<ChromeZoomLevelPrefs::DefaultZoomLevelSubscription>
-      default_zoom_level_subscription_;
+  base::CallbackListSubscription default_zoom_level_subscription_;
 
   // Name of the default network. Used to keep track of whether the default
   // network has changed.
   std::string default_network_name_;
   // Proxy configuration of the default network.
-  base::Optional<base::Value> default_proxy_config_;
+  base::Value default_proxy_config_;
 
   DISALLOW_COPY_AND_ASSIGN(ArcSettingsServiceImpl);
 };
@@ -273,6 +271,8 @@ void ArcSettingsServiceImpl::OnPrefChanged(const std::string& pref_name) const {
     SyncFocusHighlightEnabled();
   } else if (pref_name == ash::prefs::kAccessibilityLargeCursorEnabled) {
     SyncAccessibilityLargeMouseCursorEnabled();
+  } else if (pref_name == ash::prefs::kAccessibilityScreenMagnifierEnabled) {
+    SyncScreenMagnifierEnabled();
   } else if (pref_name == ash::prefs::kAccessibilitySelectToSpeakEnabled) {
     SyncSelectToSpeakEnabled();
   } else if (pref_name == ash::prefs::kAccessibilitySpokenFeedbackEnabled) {
@@ -281,6 +281,8 @@ void ArcSettingsServiceImpl::OnPrefChanged(const std::string& pref_name) const {
     SyncSwitchAccessEnabled();
   } else if (pref_name == ash::prefs::kAccessibilityVirtualKeyboardEnabled) {
     SyncAccessibilityVirtualKeyboardEnabled();
+  } else if (pref_name == ash::prefs::kDockedMagnifierEnabled) {
+    SyncDockedMagnifierEnabled();
   } else if (pref_name == ::language::prefs::kApplicationLocale ||
              pref_name == ::language::prefs::kPreferredLanguages) {
     SyncLocale();
@@ -313,18 +315,15 @@ void ArcSettingsServiceImpl::DefaultNetworkChanged(
   // Trigger a proxy settings sync to ARC if the default network changes.
   if (default_network_name_ != network->name()) {
     default_network_name_ = network->name();
-    default_proxy_config_.reset();
+    default_proxy_config_ = base::Value();
     sync_proxy = true;
   }
   // Trigger a proxy settings sync to ARC if the proxy configuration of the
   // default network changes. Note: this code is only called if kProxy pref is
   // not set.
-  if (network->proxy_config()) {
-    if (!default_proxy_config_ ||
-        (*default_proxy_config_ != *network->proxy_config())) {
-      default_proxy_config_ = network->proxy_config()->Clone();
-      sync_proxy = true;
-    }
+  if (default_proxy_config_ != network->proxy_config()) {
+    default_proxy_config_ = network->proxy_config().Clone();
+    sync_proxy = true;
   }
   if (!sync_proxy)
     return;
@@ -344,10 +343,12 @@ void ArcSettingsServiceImpl::StartObservingSettingsChanges() {
   // Keep these lines ordered lexicographically.
   AddPrefToObserve(ash::prefs::kAccessibilityFocusHighlightEnabled);
   AddPrefToObserve(ash::prefs::kAccessibilityLargeCursorEnabled);
+  AddPrefToObserve(ash::prefs::kAccessibilityScreenMagnifierEnabled);
   AddPrefToObserve(ash::prefs::kAccessibilitySelectToSpeakEnabled);
   AddPrefToObserve(ash::prefs::kAccessibilitySpokenFeedbackEnabled);
   AddPrefToObserve(ash::prefs::kAccessibilitySwitchAccessEnabled);
   AddPrefToObserve(ash::prefs::kAccessibilityVirtualKeyboardEnabled);
+  AddPrefToObserve(ash::prefs::kDockedMagnifierEnabled);
   AddPrefToObserve(::prefs::kResolveTimezoneByGeolocationMethod);
   AddPrefToObserve(::prefs::kSystemProxyUserTrafficHostAndPort);
   AddPrefToObserve(::prefs::kUse24HourClock);
@@ -372,7 +373,7 @@ void ArcSettingsServiceImpl::StartObservingSettingsChanges() {
 
 void ArcSettingsServiceImpl::StopObservingSettingsChanges() {
   registrar_.RemoveAll();
-  reporting_consent_subscription_.reset();
+  reporting_consent_subscription_ = {};
 
   TimezoneSettings::GetInstance()->RemoveObserver(this);
   chromeos::NetworkHandler::Get()->network_state_handler()->RemoveObserver(
@@ -390,10 +391,12 @@ void ArcSettingsServiceImpl::SyncBootTimeSettings() const {
   // Keep these lines ordered lexicographically.
   SyncAccessibilityLargeMouseCursorEnabled();
   SyncAccessibilityVirtualKeyboardEnabled();
+  SyncDockedMagnifierEnabled();
   SyncFocusHighlightEnabled();
   SyncProxySettings();
   SyncReportingConsent(/*initial_sync=*/false);
   SyncPictureInPictureEnabled();
+  SyncScreenMagnifierEnabled();
   SyncSelectToSpeakEnabled();
   SyncSpokenFeedbackEnabled();
   SyncSwitchAccessEnabled();
@@ -455,6 +458,18 @@ void ArcSettingsServiceImpl::SyncFocusHighlightEnabled() const {
   SendBoolPrefSettingsBroadcast(
       ash::prefs::kAccessibilityFocusHighlightEnabled,
       "org.chromium.arc.intent_helper.SET_FOCUS_HIGHLIGHT_ENABLED");
+}
+
+void ArcSettingsServiceImpl::SyncScreenMagnifierEnabled() const {
+  SendBoolPrefSettingsBroadcast(
+      ash::prefs::kAccessibilityScreenMagnifierEnabled,
+      "org.chromium.arc.intent_helper.SET_SCREEN_MAGNIFIER_ENABLED");
+}
+
+void ArcSettingsServiceImpl::SyncDockedMagnifierEnabled() const {
+  SendBoolPrefSettingsBroadcast(
+      ash::prefs::kDockedMagnifierEnabled,
+      "org.chromium.arc.intent_helper.SET_DOCKED_MAGNIFIER_ENABLED");
 }
 
 void ArcSettingsServiceImpl::SyncLocale() const {

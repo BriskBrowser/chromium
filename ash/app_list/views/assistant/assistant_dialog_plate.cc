@@ -4,6 +4,8 @@
 
 #include "ash/app_list/views/assistant/assistant_dialog_plate.h"
 
+#include <utility>
+
 #include "ash/assistant/model/assistant_interaction_model.h"
 #include "ash/assistant/model/assistant_ui_model.h"
 #include "ash/assistant/ui/assistant_ui_constants.h"
@@ -11,7 +13,6 @@
 #include "ash/assistant/ui/assistant_view_ids.h"
 #include "ash/assistant/ui/base/assistant_button.h"
 #include "ash/assistant/ui/dialog_plate/mic_view.h"
-#include "ash/assistant/ui/logo_view/logo_view.h"
 #include "ash/assistant/util/animation_util.h"
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
 #include "ash/public/cpp/assistant/controller/assistant_interaction_controller.h"
@@ -20,6 +21,7 @@
 #include "ash/strings/grit/ash_strings.h"
 #include "base/bind.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chromeos/ui/vector_icons/vector_icons.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/callback_layer_animation_observer.h"
 #include "ui/compositor/layer_animator.h"
@@ -28,6 +30,7 @@
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/image_button.h"
+#include "ui/views/controls/image_view.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
@@ -101,7 +104,7 @@ AssistantDialogPlate::AssistantDialogPlate(AssistantViewDelegate* delegate)
   SetID(AssistantViewID::kDialogPlate);
   InitLayout();
 
-  assistant_controller_observer_.Add(AssistantController::Get());
+  assistant_controller_observation_.Observe(AssistantController::Get());
   AssistantInteractionController::Get()->GetModel()->AddObserver(this);
   AssistantUiController::Get()->GetModel()->AddObserver(this);
 }
@@ -171,7 +174,9 @@ bool AssistantDialogPlate::HandleKeyEvent(views::Textfield* textfield,
 void AssistantDialogPlate::OnAssistantControllerDestroying() {
   AssistantUiController::Get()->GetModel()->RemoveObserver(this);
   AssistantInteractionController::Get()->GetModel()->RemoveObserver(this);
-  assistant_controller_observer_.Remove(AssistantController::Get());
+  DCHECK(assistant_controller_observation_.IsObservingSource(
+      AssistantController::Get()));
+  assistant_controller_observation_.Reset();
 }
 
 void AssistantDialogPlate::OnInputModalityChanged(
@@ -294,7 +299,7 @@ views::View* AssistantDialogPlate::FindFirstFocusableView() {
     case InputModality::kKeyboard:
       return textfield_;
     case InputModality::kVoice:
-      return animated_voice_input_toggle_;
+      return voice_layout_container_;
   }
 }
 
@@ -309,11 +314,11 @@ void AssistantDialogPlate::InitLayout() {
       views::BoxLayout::CrossAxisAlignment::kCenter);
 
   // Molecule icon.
-  molecule_icon_ = AddChildView(LogoView::Create());
+  molecule_icon_ = AddChildView(std::make_unique<views::ImageView>());
   molecule_icon_->SetID(AssistantViewID::kModuleIcon);
   molecule_icon_->SetPreferredSize(gfx::Size(kIconSizeDip, kIconSizeDip));
-  molecule_icon_->SetState(LogoView::State::kMoleculeWavy,
-                           /*animate=*/false);
+  molecule_icon_->SetImage(gfx::CreateVectorIcon(
+      chromeos::kAssistantIcon, kIconSizeDip, gfx::kPlaceholderColor));
 
   // Input modality layout container.
   input_modality_layout_container_ =
@@ -476,14 +481,14 @@ void AssistantDialogPlate::UpdateKeyboardVisibility() {
 
 void AssistantDialogPlate::OnAnimationStarted(
     const ui::CallbackLayerAnimationObserver& observer) {
-  keyboard_layout_container_->set_can_process_events_within_subtree(false);
-  voice_layout_container_->set_can_process_events_within_subtree(false);
+  keyboard_layout_container_->SetCanProcessEventsWithinSubtree(false);
+  voice_layout_container_->SetCanProcessEventsWithinSubtree(false);
 }
 
 bool AssistantDialogPlate::OnAnimationEnded(
     const ui::CallbackLayerAnimationObserver& observer) {
-  keyboard_layout_container_->set_can_process_events_within_subtree(true);
-  voice_layout_container_->set_can_process_events_within_subtree(true);
+  keyboard_layout_container_->SetCanProcessEventsWithinSubtree(true);
+  voice_layout_container_->SetCanProcessEventsWithinSubtree(true);
 
   UpdateModalityVisibility();
   RequestFocus();

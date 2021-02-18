@@ -11,6 +11,7 @@
 #include "gpu/command_buffer/common/mailbox_holder.h"
 #include "media/base/decode_status.h"
 #include "media/base/decoder_buffer.h"
+#include "media/base/media_util.h"
 #include "media/base/test_data_util.h"
 #include "media/base/test_helpers.h"
 #include "media/base/video_frame.h"
@@ -25,7 +26,8 @@
 #include "mojo/public/cpp/bindings/unique_receiver_set.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/common/browser_interface_broker_proxy.h"
+#include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
+#include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 
@@ -63,7 +65,7 @@ class FakeGpuVideoDecoder : public media::FakeVideoDecoder {
             media::VideoFrame::ReleaseMailboxCB(), current_config_.coded_size(),
             current_config_.visible_rect(), current_config_.natural_size(),
             buffer.timestamp());
-    frame->metadata()->power_efficient = true;
+    frame->metadata().power_efficient = true;
     return frame;
   }
 
@@ -147,6 +149,13 @@ class FakeInterfaceFactory : public media::mojom::InterfaceFactory {
                             mojo::NullRemote(), "CDM creation not supported");
   }
 
+#if defined(OS_WIN)
+  void CreateMediaFoundationRenderer(
+      mojo::PendingReceiver<media::mojom::Renderer> receiver,
+      mojo::PendingReceiver<media::mojom::MediaFoundationRendererExtension>
+          renderer_extension_receiver) override {}
+#endif  // defined(OS_WIN)
+
  private:
   media::MojoCdmServiceContext cdm_service_context_;
   FakeMojoMediaClient mojo_media_client_;
@@ -169,8 +178,8 @@ class VideoDecoderBrokerTest : public testing::Test {
     done_cb.Run();
   }
   void OnDecodeDoneWithClosure(base::RepeatingClosure done_cb,
-                               media::DecodeStatus status) {
-    OnDecodeDone(status);
+                               media::Status status) {
+    OnDecodeDone(std::move(status));
     done_cb.Run();
   }
 
@@ -180,7 +189,7 @@ class VideoDecoderBrokerTest : public testing::Test {
   }
 
   MOCK_METHOD1(OnInit, void(media::Status status));
-  MOCK_METHOD1(OnDecodeDone, void(media::DecodeStatus));
+  MOCK_METHOD1(OnDecodeDone, void(media::Status));
   MOCK_METHOD0(OnResetDone, void());
 
   void OnOutput(scoped_refptr<media::VideoFrame> frame) {
@@ -193,7 +202,7 @@ class VideoDecoderBrokerTest : public testing::Test {
     // that simulate gpu-accelerated decode.
     interface_factory_ = std::make_unique<FakeInterfaceFactory>();
     EXPECT_TRUE(
-        execution_context.GetBrowserInterfaceBroker().SetBinderForTesting(
+        Platform::Current()->GetBrowserInterfaceBroker()->SetBinderForTesting(
             media::mojom::InterfaceFactory::Name_,
             WTF::BindRepeating(&FakeInterfaceFactory::BindRequest,
                                base::Unretained(interface_factory_.get()))));
@@ -219,7 +228,7 @@ class VideoDecoderBrokerTest : public testing::Test {
 
   void ConstructDecoder(ExecutionContext& execution_context) {
     decoder_broker_ = std::make_unique<VideoDecoderBroker>(
-        execution_context, gpu_factories_.get());
+        execution_context, gpu_factories_.get(), &null_media_log_);
   }
 
   void InitializeDecoder(media::VideoDecoderConfig config) {
@@ -238,9 +247,9 @@ class VideoDecoderBrokerTest : public testing::Test {
 
   void DecodeBuffer(
       scoped_refptr<media::DecoderBuffer> buffer,
-      media::DecodeStatus expected_status = media::DecodeStatus::OK) {
+      media::StatusCode expected_status = media::StatusCode::kOk) {
     base::RunLoop run_loop;
-    EXPECT_CALL(*this, OnDecodeDone(expected_status));
+    EXPECT_CALL(*this, OnDecodeDone(HasStatusCode(expected_status)));
     decoder_broker_->Decode(
         buffer, WTF::Bind(&VideoDecoderBrokerTest::OnDecodeDoneWithClosure,
                           WTF::Unretained(this), run_loop.QuitClosure()));
@@ -273,6 +282,7 @@ class VideoDecoderBrokerTest : public testing::Test {
   int GetMaxDecodeRequests() { return decoder_broker_->GetMaxDecodeRequests(); }
 
  protected:
+  media::NullMediaLog null_media_log_;
   std::unique_ptr<VideoDecoderBroker> decoder_broker_;
   std::vector<scoped_refptr<media::VideoFrame>> output_frames_;
   std::unique_ptr<media::MockGpuVideoAcceleratorFactories> gpu_factories_;

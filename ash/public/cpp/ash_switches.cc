@@ -20,6 +20,10 @@ constexpr base::TimeDelta kAshContextualNudgesMaxInterval =
 namespace ash {
 namespace switches {
 
+// Clear the fast ink buffer upon creation. This is needed on some devices that
+// do not zero out new buffers.
+const char kAshClearFastInkBuffer[] = "ash-clear-fast-ink-buffer";
+
 // Force the pointer (cursor) position to be kept inside root windows.
 const char kAshConstrainPointerToRoot[] = "ash-constrain-pointer-to-root";
 
@@ -42,10 +46,6 @@ const char kAshDeveloperShortcuts[] = "ash-dev-shortcuts";
 // set.
 const char kAshDisableTouchExplorationMode[] =
     "ash-disable-touch-exploration-mode";
-
-// Enables Backbutton on frame for v1 apps.
-// TODO(oshima): Remove this once the feature is launched. crbug.com/749713.
-const char kAshEnableV1AppBackButton[] = "ash-enable-v1-app-back-button";
 
 // Enable cursor motion blur.
 const char kAshEnableCursorMotionBlur[] = "ash-enable-cursor-motion-blur";
@@ -118,6 +118,10 @@ const char kAuraLegacyPowerButton[] = "aura-legacy-power-button";
 // Enables Shelf Dimming for ChromeOS.
 const char kEnableDimShelf[] = "enable-dim-shelf";
 
+// Enables compositing-based throttling
+const char kEnableCompositingBasedThrottling[] =
+    "enable-compositing-based-throttling";
+
 // If set, tablet-like power button behavior (i.e. tapping the button turns the
 // screen off) is used even if the device is in laptop mode.
 const char kForceTabletPowerButton[] = "force-tablet-power-button";
@@ -142,6 +146,12 @@ const char kTouchscreenUsableWhileScreenOff[] =
 
 // Hides all Message Center notification popups (toasts). Used for testing.
 const char kSuppressMessageCenterPopups[] = "suppress-message-center-popups";
+
+// If set, the device will be forced to stay in physical tablet state. Then the
+// UI will stay in tablet mode without external mouse, or clamshell mode if an
+// external mouse is attached. Screen auto rotation will be supported if
+// accelerometer data can be detected.
+const char kForceInTabletPhysicalState[] = "force-in-tablet-physical-state";
 
 base::Optional<base::TimeDelta> ContextualNudgesInterval() {
   int numeric_cooldown_time;
@@ -168,6 +178,16 @@ bool ContextualNudgesResetShownCount() {
 
 bool IsUsingShelfAutoDim() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(kEnableDimShelf);
+}
+
+bool IsCompositingBasedThrottlingEnabled() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      kEnableCompositingBasedThrottling);
+}
+
+bool ShouldClearFastInkBuffer() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      kAshClearFastInkBuffer);
 }
 
 }  // namespace switches

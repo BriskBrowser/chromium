@@ -9,11 +9,12 @@
 #include "content/browser/renderer_host/render_widget_host_delegate.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_view_child_frame.h"
-#include "content/common/widget_messages.h"
 #include "content/public/browser/touch_selection_controller_client_manager.h"
 #include "content/public/common/use_zoom_for_dsf_policy.h"
 #include "ui/base/clipboard/clipboard.h"
+#include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
 #include "ui/base/pointer/touch_editing_controller.h"
+#include "ui/base/ui_base_types.h"
 #include "ui/gfx/geometry/point_conversions.h"
 #include "ui/strings/grit/ui_strings.h"
 
@@ -77,6 +78,13 @@ void TouchSelectionControllerClientChildFrame::UpdateSelectionBoundsIfNeeded(
   }
 }
 
+void TouchSelectionControllerClientChildFrame::ShowTouchSelectionContextMenu(
+    const gfx::Point& location) {
+  // |location| should be in root-view coordinates, and RenderWidgetHostImpl
+  // will do the conversion to renderer coordinates.
+  rwhv_->host()->ShowContextMenuAtPoint(location, ui::MENU_SOURCE_TOUCH_HANDLE);
+}
+
 // Since an active touch selection in a child frame can have its screen position
 // changed by a scroll in a containing frame (and thus without the child frame
 // sending a new compositor frame), we must manually recompute the screen
@@ -135,6 +143,7 @@ void TouchSelectionControllerClientChildFrame::OnSelectionEvent(
 }
 
 void TouchSelectionControllerClientChildFrame::OnDragUpdate(
+    const ui::TouchSelectionDraggable::Type type,
     const gfx::PointF& position) {
   NOTREACHED();
 }
@@ -158,8 +167,10 @@ bool TouchSelectionControllerClientChildFrame::IsCommandIdEnabled(
       return readable && has_selection;
     case ui::TouchEditable::kPaste: {
       base::string16 result;
+      ui::DataTransferEndpoint data_dst = ui::DataTransferEndpoint(
+          ui::EndpointType::kDefault, /*notify_if_restricted=*/false);
       ui::Clipboard::GetForCurrentThread()->ReadText(
-          ui::ClipboardBuffer::kCopyPaste, /* data_dst = */ nullptr, &result);
+          ui::ClipboardBuffer::kCopyPaste, &data_dst, &result);
       return editable && !result.empty();
     }
     default:

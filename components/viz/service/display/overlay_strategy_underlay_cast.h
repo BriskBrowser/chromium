@@ -6,6 +6,7 @@
 #define COMPONENTS_VIZ_SERVICE_DISPLAY_OVERLAY_STRATEGY_UNDERLAY_CAST_H_
 
 #include <memory>
+#include <vector>
 
 #include "base/callback.h"
 #include "base/macros.h"
@@ -33,9 +34,32 @@ class VIZ_SERVICE_EXPORT OverlayStrategyUnderlayCast
                    render_pass_backdrop_filters,
                DisplayResourceProvider* resource_provider,
                AggregatedRenderPassList* render_pass,
+               SurfaceDamageRectList* surface_damage_rect_list,
                const PrimaryPlane* primary_plane,
                OverlayCandidateList* candidate_list,
                std::vector<gfx::Rect>* content_bounds) override;
+
+  void ProposePrioritized(const SkMatrix44& output_color_matrix,
+                          const OverlayProcessorInterface::FilterOperationsMap&
+                              render_pass_backdrop_filters,
+                          DisplayResourceProvider* resource_provider,
+                          AggregatedRenderPassList* render_pass_list,
+                          SurfaceDamageRectList* surface_damage_rect_list,
+                          const PrimaryPlane* primary_plane,
+                          OverlayProposedCandidateList* candidates,
+                          std::vector<gfx::Rect>* content_bounds) override;
+
+  bool AttemptPrioritized(
+      const SkMatrix44& output_color_matrix,
+      const OverlayProcessorInterface::FilterOperationsMap&
+          render_pass_backdrop_filters,
+      DisplayResourceProvider* resource_provider,
+      AggregatedRenderPassList* render_pass_list,
+      SurfaceDamageRectList* surface_damage_rect_list,
+      const PrimaryPlane* primary_plane,
+      OverlayCandidateList* candidates,
+      std::vector<gfx::Rect>* content_bounds,
+      OverlayProposedCandidate* proposed_candidate) override;
 
   // Callback that's made whenever an overlay quad is processed in the
   // compositor. Used to allow hardware video plane to be positioned to match

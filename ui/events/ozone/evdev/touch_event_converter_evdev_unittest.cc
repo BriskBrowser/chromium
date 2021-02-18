@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
@@ -164,8 +164,9 @@ class MockDeviceEventDispatcherEvdev : public DeviceEventDispatcherEvdev {
       const std::vector<InputDevice>& devices) override {}
   void DispatchTouchscreenDevicesUpdated(
       const std::vector<TouchscreenDevice>& devices) override {}
-  void DispatchMouseDevicesUpdated(
-      const std::vector<InputDevice>& devices) override {}
+  void DispatchMouseDevicesUpdated(const std::vector<InputDevice>& devices,
+                                   bool has_mouse,
+                                   bool has_pointing_stick) override {}
   void DispatchTouchpadDevicesUpdated(
       const std::vector<InputDevice>& devices) override {}
   void DispatchUncategorizedDevicesUpdated(

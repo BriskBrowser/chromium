@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -39,6 +39,13 @@ AtkObject* FindAtkObjectParentFrame(AtkObject* atk_object) {
 static bool IsAtkObjectFocused(AtkObject* object) {
   AtkStateSet* state_set = atk_object_ref_state_set(object);
   bool result = atk_state_set_contains_state(state_set, ATK_STATE_FOCUSED);
+  g_object_unref(state_set);
+  return result;
+}
+
+static bool IsAtkObjectEditable(AtkObject* object) {
+  AtkStateSet* state_set = atk_object_ref_state_set(object);
+  bool result = atk_state_set_contains_state(state_set, ATK_STATE_EDITABLE);
   g_object_unref(state_set);
   return result;
 }
@@ -1474,6 +1481,46 @@ IN_PROC_BROWSER_TEST_F(AccessibilityAuraLinuxBrowserTest,
   EXPECT_FALSE(saw_selection_change_in_child2);
 }
 
+IN_PROC_BROWSER_TEST_F(AccessibilityAuraLinuxBrowserTest,
+                       SetCaretInTextWithGeneratedContent) {
+  LoadInitialAccessibilityTreeFromHtml(
+      R"HTML(<!DOCTYPE html>
+      <html>
+      <body>
+      <style>h1.generated::before{content:"   [   ";}</style>
+      <style>h1.generated::after{content:"   ]   ";}</style>
+      <h1 class="generated">Foo</h1>
+      </body>
+      </html>)HTML");
+
+  AtkObject* document = GetRendererAccessible();
+  AtkObject* heading = atk_object_ref_accessible_child(document, 0);
+  ASSERT_EQ(atk_object_get_role(heading), ATK_ROLE_HEADING);
+
+  // The accessible text for the heading should match the rendered text and
+  // not the DOM text.
+  gchar* text = atk_text_get_text(ATK_TEXT(heading), 0, -1);
+  ASSERT_STREQ(text, "[ Foo ]");
+  g_free(text);
+
+  AccessibilityNotificationWaiter waiter(
+      shell()->web_contents(), ui::kAXModeComplete,
+      ax::mojom::Event::kTextSelectionChanged);
+
+  // Caret can't be set inside generated content, it will go to the closest
+  // allowed place. Ordered the targets so that the caret will always actually
+  // move somewhere between steps, and thus the waiter will always be satisfied.
+  std::vector<int> target_offset = {0, 3, 1, 4, 2, 4, 5, 4, 6};
+  std::vector<int> expect_offset = {2, 3, 2, 4, 2, 4, 2, 4, 2};
+  for (size_t i = 0; i < target_offset.size(); i++) {
+    atk_text_set_caret_offset(ATK_TEXT(heading), target_offset[i]);
+    waiter.WaitForNotification();
+    ASSERT_EQ(expect_offset[i], atk_text_get_caret_offset(ATK_TEXT(heading)));
+  }
+
+  g_object_unref(heading);
+}
+
 // TODO(crbug.com/981913): This flakes on linux.
 IN_PROC_BROWSER_TEST_F(
     AccessibilityAuraLinuxBrowserTest,
@@ -1562,6 +1609,170 @@ IN_PROC_BROWSER_TEST_F(
   g_object_unref(child_2);
   g_object_unref(child_3);
   g_object_unref(child_7);
+}
+
+IN_PROC_BROWSER_TEST_F(AccessibilityAuraLinuxBrowserTest,
+                       SelectionTriggersReparentingOnSelectionStart) {
+  LoadInitialAccessibilityTreeFromHtml(
+      R"HTML(<!DOCTYPE html>
+      <html>
+      <head>
+        <script>
+          document.onselectstart = () => {
+            var tomove = document.getElementById("tomove");
+            document.getElementById("div").appendChild(tomove);
+          }
+        </script>
+      </head>
+      <body>
+         <div id="tomove">Move me</div>
+         <p id="paragraph">hello world</p>
+         <div id="div"></div>
+      </body>
+      </html>)HTML");
+
+  AtkObject* document = GetRendererAccessible();
+  AtkObject* paragraph = atk_object_ref_accessible_child(document, 1);
+  ASSERT_EQ(atk_object_get_role(paragraph), ATK_ROLE_PARAGRAPH);
+
+  AccessibilityNotificationWaiter waiter(
+      shell()->web_contents(), ui::kAXModeComplete,
+      ax::mojom::Event::kTextSelectionChanged);
+
+  EXPECT_TRUE(atk_text_set_selection(ATK_TEXT(paragraph), 0, 0, 5));
+  waiter.WaitForNotification();
+
+  gchar* selected =
+      atk_text_get_selection(ATK_TEXT(paragraph), 0, nullptr, nullptr);
+  EXPECT_STREQ(selected, "hello");
+  g_free(selected);
+
+  g_object_unref(paragraph);
+}
+
+IN_PROC_BROWSER_TEST_F(AccessibilityAuraLinuxBrowserTest,
+                       SelectionTriggersAnchorDeletionOnSelectionStart) {
+  LoadInitialAccessibilityTreeFromHtml(
+      R"HTML(<!DOCTYPE html>
+      <html>
+      <head>
+        <script>
+          document.onselectstart = () => {
+          document.getElementById("p").removeChild(p.childNodes[0]);
+          }
+        </script>
+      </head>
+      <body>
+         <p id="p"><span>hello</span> <span>world</span></p>
+         <button id="button">ok</button>
+      </body>
+      </html>)HTML");
+
+  AtkObject* document = GetRendererAccessible();
+  AtkObject* paragraph = atk_object_ref_accessible_child(document, 0);
+  ASSERT_EQ(atk_object_get_role(paragraph), ATK_ROLE_PARAGRAPH);
+
+  AtkObject* button = atk_object_ref_accessible_child(document, 1);
+  ASSERT_EQ(atk_object_get_role(button), ATK_ROLE_PUSH_BUTTON);
+
+  AccessibilityNotificationWaiter waiter(
+      shell()->web_contents(), ui::kAXModeComplete, ax::mojom::Event::kFocus);
+
+  EXPECT_TRUE(atk_text_set_selection(ATK_TEXT(paragraph), 0, 0, 11));
+  atk_component_grab_focus(ATK_COMPONENT(button));
+  waiter.WaitForNotification();
+
+  gchar* selected =
+      atk_text_get_selection(ATK_TEXT(paragraph), 0, nullptr, nullptr);
+  EXPECT_STREQ(selected, nullptr);
+  g_free(selected);
+
+  g_object_unref(paragraph);
+  g_object_unref(button);
+}
+
+IN_PROC_BROWSER_TEST_F(AccessibilityAuraLinuxBrowserTest,
+                       SelectionTriggersFocusDeletionOnSelectionStart) {
+  LoadInitialAccessibilityTreeFromHtml(
+      R"HTML(<!DOCTYPE html>
+      <head>
+        <script>
+          document.onselectstart = () => {
+          document.getElementById("p").removeChild(p.childNodes[2]);
+          }
+        </script>
+      </head>
+      <body>
+         <p id="p"><span>hello</span> <span>world</span></p>
+         <button id="button">ok</button>
+      </body>
+      </html>)HTML");
+
+  AtkObject* document = GetRendererAccessible();
+  AtkObject* paragraph = atk_object_ref_accessible_child(document, 0);
+  ASSERT_EQ(atk_object_get_role(paragraph), ATK_ROLE_PARAGRAPH);
+
+  AtkObject* button = atk_object_ref_accessible_child(document, 1);
+  ASSERT_EQ(atk_object_get_role(button), ATK_ROLE_PUSH_BUTTON);
+
+  AccessibilityNotificationWaiter waiter(
+      shell()->web_contents(), ui::kAXModeComplete, ax::mojom::Event::kFocus);
+
+  EXPECT_TRUE(atk_text_set_selection(ATK_TEXT(paragraph), 0, 0, 11));
+  atk_component_grab_focus(ATK_COMPONENT(button));
+  waiter.WaitForNotification();
+
+  gchar* selected =
+      atk_text_get_selection(ATK_TEXT(paragraph), 0, nullptr, nullptr);
+  EXPECT_STREQ(selected, nullptr);
+  g_free(selected);
+
+  g_object_unref(paragraph);
+  g_object_unref(button);
+}
+
+IN_PROC_BROWSER_TEST_F(AccessibilityAuraLinuxBrowserTest,
+                       SelectionTriggersReparentingOnFocus) {
+  LoadInitialAccessibilityTreeFromHtml(
+      R"HTML(<!DOCTYPE html>
+      <html>
+      <head>
+        <script>
+          function go() {
+            var edit = document.getElementById("edit");
+            document.getElementById("search").appendChild(edit);
+          }
+        </script>
+      </head>
+      <body>
+        <span id="edit" tabindex="0" contenteditable onfocusin="go()">foo</span>
+        <div id="search" role="search"></div>
+      </body>
+      </html>)HTML");
+
+  AtkObject* document = GetRendererAccessible();
+  AtkObject* section = atk_object_ref_accessible_child(document, 0);
+  AtkObject* edit = atk_object_ref_accessible_child(section, 0);
+  ASSERT_TRUE(IsAtkObjectEditable(edit));
+  ASSERT_FALSE(IsAtkObjectFocused(edit));
+
+  AccessibilityNotificationWaiter waiter(
+      shell()->web_contents(), ui::kAXModeComplete,
+      ax::mojom::Event::kTextSelectionChanged);
+
+  EXPECT_TRUE(atk_text_set_selection(ATK_TEXT(edit), 0, 1, 2));
+  waiter.WaitForNotification();
+
+  // When the unfocused contenteditable span has its selection set, focus will
+  // be set. That will trigger the script in the source to move that span to
+  // a different parent, causing focus to be removed and the selection cleared.
+  ASSERT_FALSE(IsAtkObjectFocused(edit));
+  gchar* selected = atk_text_get_selection(ATK_TEXT(edit), 0, nullptr, nullptr);
+  EXPECT_STREQ(selected, nullptr);
+  g_free(selected);
+
+  g_object_unref(edit);
+  g_object_unref(section);
 }
 
 IN_PROC_BROWSER_TEST_F(AccessibilityAuraLinuxBrowserTest,
@@ -1941,6 +2152,22 @@ IN_PROC_BROWSER_TEST_F(AccessibilityAuraLinuxBrowserTest,
     ASSERT_NE(nullptr, hit_child_node);
     EXPECT_EQ(node->GetId(), hit_child_node->GetDelegate()->GetData().id);
   }
+}
+
+// Tests if it does not DCHECK when textarea has a placeholder break element.
+IN_PROC_BROWSER_TEST_F(AccessibilityAuraLinuxBrowserTest,
+                       TestGetTextContainerFromTextArea) {
+  std::string content = std::string("<textarea style=\"height:100px;\">hello") +
+                        std::string("\n") + std::string("</textarea>");
+  LoadInitialAccessibilityTreeFromHtml(content);
+
+  AtkText* atk_text = FindNode(ATK_ROLE_ENTRY);
+  AtkTextRectangle atk_rect;
+  // atk_text_get_range_extents() calls GetTextContainerForPlainTextField() and
+  // DCHECK on checking children counts.
+  atk_text_get_range_extents(atk_text, 0, 7, AtkCoordType::ATK_XY_SCREEN,
+                             &atk_rect);
+  g_object_unref(atk_text);
 }
 
 }  // namespace content

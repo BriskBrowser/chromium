@@ -5,6 +5,8 @@
 package org.chromium.chrome.browser.tab.state;
 
 import android.content.Context;
+import android.os.StrictMode;
+import android.os.SystemClock;
 
 import androidx.annotation.MainThread;
 import androidx.annotation.VisibleForTesting;
@@ -14,6 +16,7 @@ import org.chromium.base.Callback;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
 import org.chromium.base.StreamUtil;
+import org.chromium.base.StrictModeContext;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.task.AsyncTask;
@@ -45,8 +48,13 @@ public class FilePersistedTabDataStorage implements PersistedTabDataStorage {
         private static File sDirectory;
 
         static {
-            sDirectory =
-                    ContextUtils.getApplicationContext().getDir(sBaseDirName, Context.MODE_PRIVATE);
+            StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskWrites();
+            try {
+                sDirectory =
+                ContextUtils.getApplicationContext().getDir(sBaseDirName, Context.MODE_PRIVATE);
+            } finally {
+                StrictMode.setThreadPolicy(oldPolicy);
+            }
         }
     }
     private SequencedTaskRunner mSequencedTaskRunner;
@@ -110,8 +118,12 @@ public class FilePersistedTabDataStorage implements PersistedTabDataStorage {
         processNextItemOnQueue();
     }
 
-    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
-    protected File getFile(int tabId, String dataId) {
+    /**
+     * @return {@link File} serialized {@link CriticalPersistedTabData} is stored in
+     * @param tabId tab identifier
+     * @param dataId type of data stored for the {@link Tab}
+     */
+    protected static File getFile(int tabId, String dataId) {
         return new File(getOrCreateBaseStorageDirectory(),
                 String.format(Locale.ENGLISH, "%d%s", tabId, dataId));
     }
@@ -135,7 +147,7 @@ public class FilePersistedTabDataStorage implements PersistedTabDataStorage {
         StorageRequest(int tabId, String dataId) {
             mTabId = tabId;
             mDataId = dataId;
-            mFile = getFile(tabId, dataId);
+            mFile = FilePersistedTabDataStorage.getFile(tabId, dataId);
         }
 
         /**
@@ -200,9 +212,14 @@ public class FilePersistedTabDataStorage implements PersistedTabDataStorage {
             FileOutputStream outputStream = null;
             boolean success = false;
             try {
+                long startTime = SystemClock.elapsedRealtime();
                 outputStream = new FileOutputStream(mFile);
                 outputStream.write(mData);
                 success = true;
+                RecordHistogram.recordTimesHistogram(
+                        String.format(Locale.US, "Tabs.PersistedTabData.Storage.SaveTime.%s",
+                                getUmaTag()),
+                        SystemClock.elapsedRealtime() - startTime);
             } catch (FileNotFoundException e) {
                 Log.e(TAG,
                         String.format(Locale.ENGLISH,
@@ -325,9 +342,14 @@ public class FilePersistedTabDataStorage implements PersistedTabDataStorage {
             boolean success = false;
             byte[] res = null;
             try {
+                long startTime = SystemClock.elapsedRealtime();
                 AtomicFile atomicFile = new AtomicFile(mFile);
                 res = atomicFile.readFully();
                 success = true;
+                RecordHistogram.recordTimesHistogram(
+                        String.format(Locale.US, "Tabs.PersistedTabData.Storage.LoadTime.%s",
+                                getUmaTag()),
+                        SystemClock.elapsedRealtime() - startTime);
             } catch (FileNotFoundException e) {
                 Log.e(TAG,
                         String.format(Locale.ENGLISH,
@@ -378,5 +400,33 @@ public class FilePersistedTabDataStorage implements PersistedTabDataStorage {
     @Override
     public String getUmaTag() {
         return "File";
+    }
+
+    /**
+     * Determines if a {@link Tab} is incognito or not based on the existence of the
+     * corresponding {@link CriticalPersistedTabData} file. This involves a disk access
+     * and will be slow. This method can be called from the UI thread.
+     * @param tabId identifier for the {@link Tab}
+     * @return true/false if the {@link Tab} is incognito based on the existence of the
+     *         CriticalPersistedTabData file and null if it is not known if the
+     *         {@link Tab} is incognito or not.
+     */
+    public static Boolean isIncognito(int tabId) {
+        try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
+            String regularId =
+                    PersistedTabDataConfiguration.get(CriticalPersistedTabData.class, false)
+                            .getId();
+            File regularFile = FilePersistedTabDataStorage.getFile(tabId, regularId);
+            if (regularFile.exists()) {
+                return false;
+            }
+            String incognitoId =
+                    PersistedTabDataConfiguration.get(CriticalPersistedTabData.class, true).getId();
+            File incognitoFile = FilePersistedTabDataStorage.getFile(tabId, incognitoId);
+            if (incognitoFile.exists()) {
+                return true;
+            }
+            return null;
+        }
     }
 }

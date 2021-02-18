@@ -82,7 +82,7 @@ public class TabGridDialogCoordinator implements TabGridDialogMediator.DialogCon
                         : TabListCoordinator.TabListMode.GRID,
                 context, tabModelSelector, tabContentManager::getTabThumbnailWithCallback, null,
                 false, gridCardOnClickListenerProvider, mMediator.getTabGridDialogHandler(),
-                TabProperties.UiType.CLOSABLE, null, containerView, false, mComponentName);
+                TabProperties.UiType.CLOSABLE, null, null, containerView, false, mComponentName);
         TabListRecyclerView recyclerView = mTabListCoordinator.getContainerView();
 
         TabGroupUiToolbarView toolbarView =
@@ -107,7 +107,8 @@ public class TabGridDialogCoordinator implements TabGridDialogMediator.DialogCon
             int mode = SysUtils.isLowEndDevice() ? TabListCoordinator.TabListMode.LIST
                                                  : TabListCoordinator.TabListMode.GRID;
             mTabSelectionEditorCoordinator = new TabSelectionEditorCoordinator(context,
-                    mContainerView, tabModelSelector, tabContentManager, mDialogView, mode);
+                    mDialogView.findViewById(R.id.dialog_container_view), tabModelSelector,
+                    tabContentManager, mode);
 
             controller = mTabSelectionEditorCoordinator.getController();
         } else {

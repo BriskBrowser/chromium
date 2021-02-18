@@ -20,11 +20,12 @@
 #include "components/country_codes/country_codes.h"
 #include "components/prefs/pref_service.h"
 #include "net/dns/public/doh_provider_entry.h"
+#include "net/dns/public/secure_dns_mode.h"
 #include "net/dns/public/util.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 
@@ -58,7 +59,8 @@ void RunProbe(base::WaitableEvent* waiter,
       std::move(overrides),
       base::BindRepeating(&SystemNetworkContextManager::GetContext,
                           base::Unretained(manager)));
-  runner->RunProbe(base::BindOnce(
+  auto* const runner_ptr = runner.get();
+  runner_ptr->RunProbe(base::BindOnce(
       [](base::WaitableEvent* waiter, bool* success,
          std::unique_ptr<DnsProbeRunner> runner) {
         *success = runner->result() == DnsProbeRunner::CORRECT;
@@ -79,9 +81,9 @@ static jint JNI_SecureDnsBridge_GetMode(JNIEnv* env) {
 
 static void JNI_SecureDnsBridge_SetMode(JNIEnv* env, jint mode) {
   PrefService* local_state = g_browser_process->local_state();
-  local_state->SetString(prefs::kDnsOverHttpsMode,
-                         SecureDnsConfig::ModeToString(
-                             static_cast<net::DnsConfig::SecureDnsMode>(mode)));
+  local_state->SetString(
+      prefs::kDnsOverHttpsMode,
+      SecureDnsConfig::ModeToString(static_cast<net::SecureDnsMode>(mode)));
 }
 
 static jboolean JNI_SecureDnsBridge_IsModeManaged(JNIEnv* env) {
@@ -167,7 +169,7 @@ static jboolean JNI_SecureDnsBridge_ProbeServer(
   net::DnsConfigOverrides overrides;
   overrides.search = std::vector<std::string>();
   overrides.attempts = 1;
-  overrides.secure_dns_mode = net::DnsConfig::SecureDnsMode::SECURE;
+  overrides.secure_dns_mode = net::SecureDnsMode::kSecure;
   secure_dns::ApplyTemplate(&overrides,
                             base::android::ConvertJavaStringToUTF8(jtemplate));
 

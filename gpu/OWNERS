@@ -1,6 +1,6 @@
 backer@chromium.org
 kbr@chromium.org
-khushalsagar@chromium.org
+vasilyt@chromium.org
 vmiura@chromium.org
 zmo@chromium.org
 sunnyps@chromium.org
@@ -14,5 +14,3 @@ per-file *passthrough*=geofflang@chromium.org
 
 # For SharedImages
 vikassoni@chromium.org
-
-# COMPONENT: Internals>GPU>Internals

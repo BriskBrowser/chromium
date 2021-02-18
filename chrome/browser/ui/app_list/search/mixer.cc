@@ -15,6 +15,8 @@
 #include "base/macros.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/numerics/ranges.h"
+#include "base/strings/strcat.h"
+#include "base/strings/string_number_conversions.h"
 #include "chrome/browser/ui/app_list/app_list_model_updater.h"
 #include "chrome/browser/ui/app_list/search/chrome_search_result.h"
 #include "chrome/browser/ui/app_list/search/search_controller.h"
@@ -24,6 +26,32 @@
 #include "chrome/browser/ui/app_list/search/search_result_ranker/search_result_ranker.h"
 
 namespace app_list {
+namespace {
+
+// TODO(crbug.com/1028447): This is a stop-gap until we remove the two-stage
+// result adding logic in Mixer::MixAndPublish. Remove this when possible.
+void RemoveDuplicates(Mixer::SortedResults* results) {
+  Mixer::SortedResults deduplicated;
+  deduplicated.reserve(results->size());
+
+  std::set<std::string> seen;
+  for (const Mixer::SortData& sort_data : *results) {
+    // If a result is intended for display in two views, we will have two
+    // results with the same id but different display types. We want to keep
+    // both of these, so insert concat(id, display_type).
+    const std::string display_type = base::NumberToString(
+        static_cast<int>(sort_data.result->display_type()));
+    if (!seen.insert(base::StrCat({sort_data.result->id(), display_type}))
+             .second)
+      continue;
+
+    deduplicated.emplace_back(sort_data);
+  }
+
+  results->swap(deduplicated);
+}
+
+}  // namespace
 
 Mixer::SortData::SortData() : result(nullptr), score(0.0) {}
 
@@ -122,11 +150,6 @@ void Mixer::MixAndPublish(size_t num_max_results, const base::string16& query) {
     results.insert(results.end(), group->results().begin(),
                    group->results().begin() + num_results);
   }
-  // Remove results with duplicate IDs before sorting. If two providers give a
-  // result with the same ID, the result from the provider with the *lower group
-  // number* will be kept (e.g., an app result takes priority over a web store
-  // result with the same ID).
-  RemoveDuplicates(&results);
 
   // Zero state search results: if any search provider won't have any results
   // displayed, but has a high-scoring result that the user hasn't seen many
@@ -144,13 +167,11 @@ void Mixer::MixAndPublish(size_t num_max_results, const base::string16& query) {
   const size_t original_size = results.size();
   if (original_size < num_max_results) {
     // We didn't get enough results. Insert all the results again, and this
-    // time, do not limit the maximum number of results from each group. (This
-    // will result in duplicates, which will be removed by RemoveDuplicates.)
+    // time, do not limit the maximum number of results from each group.
     for (const auto& group : groups_) {
       results.insert(results.end(), group->results().begin(),
                      group->results().end());
     }
-    RemoveDuplicates(&results);
     // Sort just the newly added results. This ensures that, for example, if
     // there are 6 Omnibox results (score = 0.8) and 1 People result (score =
     // 0.4) that the People result will be 5th, not 7th, because the Omnibox
@@ -158,6 +179,7 @@ void Mixer::MixAndPublish(size_t num_max_results, const base::string16& query) {
     // would not be seen at all once the result list is truncated.)
     std::sort(results.begin() + original_size, results.end());
   }
+  RemoveDuplicates(&results);
 
   std::vector<ChromeSearchResult*> new_results;
   for (const SortData& sort_data : results) {
@@ -165,21 +187,6 @@ void Mixer::MixAndPublish(size_t num_max_results, const base::string16& query) {
     new_results.push_back(sort_data.result);
   }
   model_updater_->PublishSearchResults(new_results);
-}
-
-void Mixer::RemoveDuplicates(SortedResults* results) {
-  SortedResults final;
-  final.reserve(results->size());
-
-  std::set<std::string> id_set;
-  for (const SortData& sort_data : *results) {
-    if (!id_set.insert(sort_data.result->id()).second)
-      continue;
-
-    final.emplace_back(sort_data);
-  }
-
-  results->swap(final);
 }
 
 void Mixer::FetchResults(const base::string16& query) {

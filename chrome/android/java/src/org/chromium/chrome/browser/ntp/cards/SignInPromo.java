@@ -12,18 +12,18 @@ import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Callback;
 import org.chromium.base.ContextUtils;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.chrome.browser.signin.IdentityServicesProvider;
-import org.chromium.chrome.browser.signin.ProfileDataCache;
-import org.chromium.chrome.browser.signin.SigninManager;
-import org.chromium.chrome.browser.signin.SigninManager.SignInAllowedObserver;
-import org.chromium.chrome.browser.signin.SigninManager.SignInStateObserver;
-import org.chromium.chrome.browser.signin.SigninPreferencesManager;
-import org.chromium.chrome.browser.signin.SigninPromoController;
+import org.chromium.chrome.browser.signin.SigninActivityLauncherImpl;
+import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
+import org.chromium.chrome.browser.signin.services.ProfileDataCache;
+import org.chromium.chrome.browser.signin.services.SigninManager;
+import org.chromium.chrome.browser.signin.services.SigninManager.SignInAllowedObserver;
+import org.chromium.chrome.browser.signin.services.SigninManager.SignInStateObserver;
+import org.chromium.chrome.browser.signin.services.SigninPreferencesManager;
+import org.chromium.chrome.browser.signin.ui.SigninPromoController;
 import org.chromium.components.signin.AccountManagerFacade;
 import org.chromium.components.signin.AccountManagerFacadeProvider;
 import org.chromium.components.signin.AccountsChangeObserver;
@@ -80,10 +80,9 @@ public abstract class SignInPromo extends OptionalLeaf {
         mAccountsReady = AccountManagerFacadeProvider.getInstance().isCachePopulated();
         updateVisibility();
 
-        mProfileDataCache = ProfileDataCache.createProfileDataCache(
-                context, isUserSignedInButNotSyncing() ? R.drawable.ic_sync_badge_off_20dp : 0);
-        mSigninPromoController =
-                new SigninPromoController(SigninAccessPoint.NTP_CONTENT_SUGGESTIONS);
+        mProfileDataCache = ProfileDataCache.createProfileDataCache(context);
+        mSigninPromoController = new SigninPromoController(
+                SigninAccessPoint.NTP_CONTENT_SUGGESTIONS, SigninActivityLauncherImpl.get());
 
         mSigninObserver = new SigninObserver(signinManager);
     }
@@ -241,23 +240,25 @@ public abstract class SignInPromo extends OptionalLeaf {
             // implementing this we can show the promo if the user did not sign in during the FRE.
             mCanSignIn = mSigninManager.isSignInAllowed();
             updateVisibility();
+            // Update the promo state between sign-in promo and sync promo if required.
+            notifyDataChanged();
         }
 
         // SignInStateObserver implementation.
         @Override
         public void onSignedIn() {
             mCanSignIn = false;
-            if (isUserSignedInButNotSyncing()) {
-                mProfileDataCache.updateBadgeConfig(R.drawable.ic_sync_badge_off_20dp);
-            }
             updateVisibility();
+            // Update the promo state between sign-in promo and sync promo if required.
+            notifyDataChanged();
         }
 
         @Override
         public void onSignedOut() {
             mCanSignIn = mSigninManager.isSignInAllowed();
-            mProfileDataCache.updateBadgeConfig(0);
             updateVisibility();
+            // Update the promo state between sign-in promo and sync promo if required.
+            notifyDataChanged();
         }
 
         // AccountsChangeObserver implementation.
@@ -271,7 +272,7 @@ public abstract class SignInPromo extends OptionalLeaf {
 
         // ProfileDataCache.Observer implementation.
         @Override
-        public void onProfileDataUpdated(String accountId) {
+        public void onProfileDataUpdated(String accountEmail) {
             notifyDataChanged();
         }
     }

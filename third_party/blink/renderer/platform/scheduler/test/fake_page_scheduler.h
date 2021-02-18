@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_SCHEDULER_TEST_FAKE_PAGE_SCHEDULER_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_SCHEDULER_TEST_FAKE_PAGE_SCHEDULER_H_
 
+#include "third_party/blink/public/platform/scheduler/web_agent_group_scheduler.h"
 #include "third_party/blink/renderer/platform/scheduler/public/page_scheduler.h"
 
 namespace blink {
@@ -14,7 +15,8 @@ class FakePageScheduler final : public PageScheduler {
  public:
   FakePageScheduler(bool is_audio_playing, bool is_throttling_exempt)
       : is_audio_playing_(is_audio_playing),
-        is_throttling_exempt_(is_throttling_exempt) {}
+        is_throttling_exempt_(is_throttling_exempt),
+        agent_group_scheduler_(WebAgentGroupScheduler::CreateForTesting()) {}
 
   class Builder {
    public:
@@ -53,6 +55,7 @@ class FakePageScheduler final : public PageScheduler {
   void SetPageVisible(bool is_page_visible) override {}
   void SetPageFrozen(bool is_page_frozen) override {}
   void SetPageBackForwardCached(bool) override {}
+  void OnFocusChanged(bool focused) override {}
   void SetKeepActive(bool keep_active) override {}
   bool IsMainFrameLocal() const override { return true; }
   void SetIsMainFrameLocal(bool is_local) override {}
@@ -85,10 +88,15 @@ class FakePageScheduler final : public PageScheduler {
       WebScopedVirtualTimePauser::VirtualTaskDuration) override {
     return WebScopedVirtualTimePauser();
   }
+  scheduler::WebAgentGroupScheduler& GetAgentGroupScheduler() override {
+    return *agent_group_scheduler_;
+  }
+  bool IsInBackForwardCache() const override { return false; }
 
  private:
   bool is_audio_playing_;
   bool is_throttling_exempt_;
+  std::unique_ptr<WebAgentGroupScheduler> agent_group_scheduler_;
 
   DISALLOW_COPY_AND_ASSIGN(FakePageScheduler);
 };

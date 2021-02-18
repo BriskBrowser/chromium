@@ -20,7 +20,18 @@ using autofill::CreateBoolCallback;
 using autofill::CreateStringCallback;
 using autofill::FormRendererId;
 using autofill::FieldRendererId;
+using autofill::kNotSetRendererID;
 using base::SysNSStringToUTF8;
+
+// Converts FormRendererId to int value that can be used in Javascript methods.
+int FormRendererIdToJsParameter(FormRendererId formID) {
+  return formID ? formID.value() : kNotSetRendererID;
+}
+
+// Converts FieldRendererId to int value that can be used in Javascript methods.
+int FieldRendererIdToJsParameter(FieldRendererId fieldID) {
+  return fieldID ? fieldID.value() : kNotSetRendererID;
+}
 
 namespace password_manager {
 
@@ -33,14 +44,14 @@ std::unique_ptr<base::Value> SerializeFillData(
     const base::string16& password_value) {
   auto rootDict = std::make_unique<base::DictionaryValue>();
   rootDict->SetString("origin", origin.spec());
-  rootDict->SetInteger("unique_renderer_id", form_renderer_id.value());
+  rootDict->SetInteger("unique_renderer_id",
+                       FormRendererIdToJsParameter(form_renderer_id));
 
   auto fieldList = std::make_unique<base::ListValue>();
 
   auto usernameField = std::make_unique<base::DictionaryValue>();
-  usernameField->SetInteger("unique_renderer_id", username_element
-                                                      ? username_element.value()
-                                                      : kNotSetRendererID);
+  usernameField->SetInteger("unique_renderer_id",
+                            FieldRendererIdToJsParameter(username_element));
   usernameField->SetString("value", username_value);
   fieldList->Append(std::move(usernameField));
 
@@ -64,9 +75,11 @@ std::unique_ptr<base::Value> SerializePasswordFormFillData(
 }
 
 std::unique_ptr<base::Value> SerializeFillData(
-    const password_manager::FillData& fillData) {
+    const password_manager::FillData& fillData,
+    BOOL fillUsername) {
   return SerializeFillData(
-      fillData.origin, fillData.form_id, fillData.username_element_id,
+      fillData.origin, fillData.form_id,
+      fillUsername ? fillData.username_element_id : FieldRendererId(),
       fillData.username_value, fillData.password_element_id,
       fillData.password_value);
 }
@@ -89,7 +102,7 @@ std::unique_ptr<base::Value> SerializeFillData(
     completionHandler:(void (^)(NSString*))completionHandler {
   DCHECK(completionHandler);
   std::vector<base::Value> parameters;
-  parameters.emplace_back(static_cast<int>(formIdentifier.value()));
+  parameters.emplace_back(FormRendererIdToJsParameter(formIdentifier));
   autofill::ExecuteJavaScriptFunction("passwords.getPasswordFormDataAsString",
                                       parameters, frame,
                                       CreateStringCallback(completionHandler));
@@ -118,9 +131,10 @@ std::unique_ptr<base::Value> SerializeFillData(
             completionHandler:(void (^)(BOOL))completionHandler {
   DCHECK(completionHandler);
   std::vector<base::Value> parameters;
-  parameters.emplace_back(static_cast<int>(formIdentifier.value()));
-  parameters.emplace_back(static_cast<int>(newPasswordIdentifier.value()));
-  parameters.emplace_back(static_cast<int>(confirmPasswordIdentifier.value()));
+  parameters.emplace_back(FormRendererIdToJsParameter(formIdentifier));
+  parameters.emplace_back(FieldRendererIdToJsParameter(newPasswordIdentifier));
+  parameters.emplace_back(
+      FieldRendererIdToJsParameter(confirmPasswordIdentifier));
   parameters.push_back(base::Value(SysNSStringToUTF8(generatedPassword)));
   autofill::ExecuteJavaScriptFunction(
       "passwords.fillPasswordFormWithGeneratedPassword", parameters, frame,

@@ -25,6 +25,7 @@
 #include "extensions/renderer/extensions_renderer_client.h"
 #include "extensions/renderer/script_injection_callback.h"
 #include "extensions/renderer/scripts_run_info.h"
+#include "services/metrics/public/cpp/ukm_source_id.h"
 #include "third_party/blink/public/platform/web_isolated_world_info.h"
 #include "third_party/blink/public/platform/web_security_origin.h"
 #include "third_party/blink/public/platform/web_string.h"
@@ -90,8 +91,8 @@ class TimedScriptInjectionCallback : public ScriptInjectionCallback {
  public:
   TimedScriptInjectionCallback(base::WeakPtr<ScriptInjection> injection)
       : ScriptInjectionCallback(
-            base::Bind(&TimedScriptInjectionCallback::OnCompleted,
-                       base::Unretained(this))),
+            base::BindOnce(&TimedScriptInjectionCallback::OnCompleted,
+                           base::Unretained(this))),
         injection_(injection) {}
   ~TimedScriptInjectionCallback() override {}
 
@@ -165,7 +166,7 @@ ScriptInjection::ScriptInjection(
       injection_host_(std::move(injection_host)),
       run_location_(run_location),
       request_id_(kInvalidRequestId),
-      ukm_source_id_(base::UkmSourceId::FromInt64(
+      ukm_source_id_(ukm::SourceIdObj::FromInt64(
           render_frame_->GetWebFrame()->GetDocument().GetUkmSourceId())),
       complete_(false),
       did_inject_js_(false),
@@ -182,7 +183,7 @@ ScriptInjection::~ScriptInjection() {
 ScriptInjection::InjectionResult ScriptInjection::TryToInject(
     UserScript::RunLocation current_location,
     ScriptsRunInfo* scripts_run_info,
-    const CompletionCallback& async_completion_callback) {
+    CompletionCallback async_completion_callback) {
   if (current_location < run_location_)
     return INJECTION_WAITING;  // Wait for the right location.
 
@@ -211,7 +212,7 @@ ScriptInjection::InjectionResult ScriptInjection::TryToInject(
       // If the injection is blocked, we need to set the manager so we can
       // notify it upon completion.
       if (result == INJECTION_BLOCKED)
-        async_completion_callback_ = async_completion_callback;
+        async_completion_callback_ = std::move(async_completion_callback);
       return result;
   }
 
@@ -255,22 +256,22 @@ ScriptInjection::InjectionResult ScriptInjection::Inject(
   DCHECK(!complete_);
   bool should_inject_js = injector_->ShouldInjectJs(
       run_location_, scripts_run_info->executing_scripts[host_id().id()]);
-  bool should_inject_css = injector_->ShouldInjectCss(
+  bool should_inject_or_remove_css = injector_->ShouldInjectOrRemoveCss(
       run_location_, scripts_run_info->injected_stylesheets[host_id().id()]);
 
   // This can happen if the extension specified a script to
   // be run in multiple rules, and the script has already run.
   // See crbug.com/631247.
-  if (!should_inject_js && !should_inject_css) {
+  if (!should_inject_js && !should_inject_or_remove_css) {
     return INJECTION_FINISHED;
   }
 
   if (should_inject_js)
     InjectJs(&(scripts_run_info->executing_scripts[host_id().id()]),
              &(scripts_run_info->num_js));
-  if (should_inject_css)
-    InjectCss(&(scripts_run_info->injected_stylesheets[host_id().id()]),
-              &(scripts_run_info->num_css));
+  if (should_inject_or_remove_css)
+    InjectOrRemoveCss(&(scripts_run_info->injected_stylesheets[host_id().id()]),
+                      &(scripts_run_info->num_css));
 
   complete_ = did_inject_js_ || !should_inject_js;
 
@@ -375,28 +376,54 @@ void ScriptInjection::OnJsInjectionCompleted(
     injector_->OnInjectionComplete(std::move(execution_result_), run_location_,
                                    render_frame_);
     // Warning: this object can be destroyed after this line!
-    async_completion_callback_.Run(this);
+    std::move(async_completion_callback_).Run(this);
   }
 }
 
-void ScriptInjection::InjectCss(std::set<std::string>* injected_stylesheets,
-                                size_t* num_injected_stylesheets) {
+void ScriptInjection::InjectOrRemoveCss(
+    std::set<std::string>* injected_stylesheets,
+    size_t* num_injected_stylesheets) {
   std::vector<blink::WebString> css_sources = injector_->GetCssSources(
       run_location_, injected_stylesheets, num_injected_stylesheets);
   blink::WebLocalFrame* web_frame = render_frame_->GetWebFrame();
-  // Default CSS origin is "author", but can be overridden to "user" by scripts.
-  base::Optional<CSSOrigin> css_origin = injector_->GetCssOrigin();
+
   blink::WebDocument::CSSOrigin blink_css_origin =
-      css_origin && *css_origin == CSS_ORIGIN_USER
-          ? blink::WebDocument::kUserOrigin
-          : blink::WebDocument::kAuthorOrigin;
+      blink::WebDocument::kAuthorOrigin;
+  switch (injector_->GetCssOrigin()) {
+    case CSSOrigin::kUser:
+      blink_css_origin = blink::WebDocument::kUserOrigin;
+      break;
+    case CSSOrigin::kAuthor:
+      blink_css_origin = blink::WebDocument::kAuthorOrigin;
+      break;
+  }
+
   blink::WebStyleSheetKey style_sheet_key;
   if (const base::Optional<std::string>& injection_key =
           injector_->GetInjectionKey())
     style_sheet_key = blink::WebString::FromASCII(*injection_key);
-  for (const blink::WebString& css : css_sources)
-    web_frame->GetDocument().InsertStyleSheet(css, &style_sheet_key,
-                                              blink_css_origin);
+  // CSS deletion can be thought of as the inverse of CSS injection
+  // (i.e. x - y = x + -y and x | y = ~(~x & ~y)), so it is handled here in the
+  // injection function.
+  //
+  // TODO(https://crbug.com/1116061): Extend this API's capabilities to also
+  // remove CSS added by content scripts?
+  bool adding_css = injector_->IsAddingCSS();
+  bool removing_css = injector_->IsRemovingCSS();
+  DCHECK(!(adding_css && removing_css)) << "Operations are mutually exclusive.";
+  DCHECK(adding_css || removing_css)
+      << "At least one of the operations must happen for InjectOrRemoveCss() "
+         "to be called.";
+
+  if (removing_css) {
+    web_frame->GetDocument().RemoveInsertedStyleSheet(style_sheet_key,
+                                                      blink_css_origin);
+  } else {
+    DCHECK(adding_css);
+    for (const blink::WebString& css : css_sources)
+      web_frame->GetDocument().InsertStyleSheet(css, &style_sheet_key,
+                                                blink_css_origin);
+  }
 }
 
 }  // namespace extensions

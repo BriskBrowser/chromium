@@ -10,6 +10,7 @@ from datetime import datetime
 from functools import partial
 import json
 import os
+import posixpath
 import re
 import sys
 
@@ -55,6 +56,7 @@ CC_FILE_BEGIN = """
 #include "extensions/common/features/feature_provider.h"
 #include "extensions/common/features/manifest_feature.h"
 #include "extensions/common/features/permission_feature.h"
+#include "extensions/common/mojom/feature_session_type.mojom.h"
 
 namespace extensions {
 
@@ -68,9 +70,12 @@ CC_FILE_END = """
 }  // namespace extensions
 """
 
-# Legacy keys for the allow and blocklists.
-LEGACY_ALLOWLIST_KEY = 'whitelist'
-LEGACY_BLOCKLIST_KEY = 'blacklist'
+def ToPosixPath(path):
+  """Returns |path| with separator converted to POSIX style.
+
+  This is needed to generate C++ #include paths.
+  """
+  return path.replace(os.path.sep, posixpath.sep)
 
 # Returns true if the list 'l' only contains strings that are a hex-encoded SHA1
 # hashes.
@@ -124,7 +129,16 @@ FEATURE_GRAMMAR = ({
         str: {},
         'shared': True
     },
-    LEGACY_BLOCKLIST_KEY: {
+    'allowlist': {
+        list: {
+            'subtype':
+            str,
+            'validators':
+            [(ListContainsOnlySha1Hashes,
+              'list should only have hex-encoded SHA1 hashes of extension ids')]
+        }
+    },
+    'blocklist': {
         list: {
             'subtype':
             str,
@@ -163,7 +177,8 @@ FEATURE_GRAMMAR = ({
                 'webui_untrusted': 'Feature::WEBUI_UNTRUSTED_CONTEXT',
                 'unblessed_extension': 'Feature::UNBLESSED_EXTENSION_CONTEXT',
             },
-            'allow_all': True
+            'allow_all': True,
+            'allow_empty': True
         },
     },
     'default_parent': {
@@ -250,24 +265,16 @@ FEATURE_GRAMMAR = ({
     'session_types': {
         list: {
             'enum_map': {
-                'regular': 'FeatureSessionType::REGULAR',
-                'kiosk': 'FeatureSessionType::KIOSK',
-                'kiosk.autolaunched': 'FeatureSessionType::AUTOLAUNCHED_KIOSK',
+                'regular': 'mojom::FeatureSessionType::kRegular',
+                'kiosk': 'mojom::FeatureSessionType::kKiosk',
+                'kiosk.autolaunched':
+                  'mojom::FeatureSessionType::kAutolaunchedKiosk',
             }
         }
     },
     'source': {
         str: {},
         'shared': True
-    },
-    LEGACY_ALLOWLIST_KEY: {
-        list: {
-            'subtype':
-            str,
-            'validators':
-            [(ListContainsOnlySha1Hashes,
-              'list should only have hex-encoded SHA1 hashes of extension ids')]
-        }
     },
 })
 
@@ -285,6 +292,28 @@ def DoesNotHaveAllProperties(property_names, value):
 
 def DoesNotHaveProperty(property_name, value):
   return property_name not in value
+
+def IsEmptyContextsAllowed(feature, all_features):
+  # An alias feature wouldn't have the 'contexts' feature value.
+  if feature.GetValue('source'):
+    return True
+
+  if type(feature) is ComplexFeature:
+    for child_feature in feature.feature_list:
+      if not IsEmptyContextsAllowed(child_feature, all_features):
+        return False
+    return True
+
+  contexts = feature.GetValue('contexts')
+  assert contexts, 'contexts must have been specified for the APIFeature'
+
+  allowlisted_empty_context_namespaces = [
+    'manifestTypes',
+    'extensionsManifestTypes',
+    'empty_contexts' # Only added for testing.
+  ]
+  return (contexts != '{}' or
+          feature.name in allowlisted_empty_context_namespaces)
 
 def IsFeatureCrossReference(property_name, reverse_property_name, feature,
                             all_features):
@@ -318,7 +347,7 @@ def IsFeatureCrossReference(property_name, reverse_property_name, feature,
 # Verifies that a feature with an allowlist is not available to hosted apps,
 # returning true on success.
 def DoesNotHaveAllowlistForHostedApps(value):
-  if not LEGACY_ALLOWLIST_KEY in value:
+  if not 'allowlist' in value:
     return True
 
   # Hack Alert: |value| here has the code for the generated C++ feature. Since
@@ -357,12 +386,11 @@ def DoesNotHaveAllowlistForHostedApps(value):
   # Exceptions (see the feature files).
   # DO NOT ADD MORE.
   HOSTED_APP_EXCEPTIONS = [
-      '99060B01DE911EB85FD630C8BA6320C9186CA3AB',
       'B44D08FD98F1523ED5837D78D0A606EA9D6206E5',
       '2653F6F6C39BC6EEBD36A09AFB92A19782FF7EB4',
   ]
 
-  allowlist = cpp_list_to_list(value[LEGACY_ALLOWLIST_KEY])
+  allowlist = cpp_list_to_list(value['allowlist'])
   for entry in allowlist:
     if entry not in HOSTED_APP_EXCEPTIONS:
       return False
@@ -386,7 +414,7 @@ VALIDATION = ({
   ],
   'APIFeature': [
     (partial(HasProperty, 'contexts'),
-     'APIFeatures must specify at least one context'),
+     'APIFeatures must specify the contexts property'),
     (partial(DoesNotHaveAllProperties, ['alias', 'source']),
      'Features cannot specify both alias and source.')
   ],
@@ -426,8 +454,9 @@ FINAL_VALIDATION = ({
      'property references it back.'),
     (partial(IsFeatureCrossReference, 'source', 'alias'),
      'A feature source property should reference a feature whose alias '
-     'property references it back.')
-
+     'property references it back.'),
+    (IsEmptyContextsAllowed,
+    'An empty contexts list is not allowed for this feature.')
   ],
   'ManifestFeature': [],
   'BehaviorFeature': [],
@@ -449,14 +478,7 @@ def GetCodeForFeatureValues(feature_values):
     if key in IGNORED_KEYS:
       continue;
 
-    # TODO(devlin): Remove this hack as part of 842387.
-    set_key = key
-    if key == LEGACY_ALLOWLIST_KEY:
-      set_key = 'allowlist'
-    elif key == LEGACY_BLOCKLIST_KEY:
-      set_key = 'blocklist'
-
-    c.Append('feature->set_%s(%s);' % (set_key, feature_values[key]))
+    c.Append('feature->set_%s(%s);' % (key, feature_values[key]))
   return c
 
 class Feature(object):
@@ -596,8 +618,7 @@ class Feature(object):
                                               sub_value)
         if cpp_sub_value:
           cpp_value.append(cpp_sub_value)
-      if cpp_value:
-        cpp_value = '{' + ','.join(cpp_value) + '}'
+      cpp_value = '{' + ','.join(cpp_value) + '}'
     else:
       cpp_value = self._GetCheckedValue(key, expected_type, expected_values,
                                         enum_map, v)
@@ -717,7 +738,7 @@ class FeatureCompiler(object):
   """A compiler to load, parse, and generate C++ code for a number of
   features.json files."""
   def __init__(self, chrome_root, source_files, feature_type,
-               method_name, out_root, out_base_filename):
+               method_name, out_root, gen_dir_relpath, out_base_filename):
     # See __main__'s ArgumentParser for documentation on these properties.
     self._chrome_root = chrome_root
     self._source_files = source_files
@@ -725,6 +746,7 @@ class FeatureCompiler(object):
     self._method_name = method_name
     self._out_root = out_root
     self._out_base_filename = out_base_filename
+    self._gen_dir_relpath = gen_dir_relpath
 
     # The json value for the feature files.
     self._json = {}
@@ -860,10 +882,7 @@ class FeatureCompiler(object):
     header_file = self._out_base_filename + '.h'
     cc_file = self._out_base_filename + '.cc'
 
-    include_file_root = self._out_root
-    GEN_DIR_PREFIX = 'gen/'
-    if include_file_root.startswith(GEN_DIR_PREFIX):
-      include_file_root = include_file_root[len(GEN_DIR_PREFIX):]
+    include_file_root = self._out_root[len(self._gen_dir_relpath)+1:]
     header_file_path = '%s/%s' % (include_file_root, header_file)
     cc_file_path = '%s/%s' % (include_file_root, cc_file)
     substitutions = ({
@@ -871,7 +890,7 @@ class FeatureCompiler(object):
         'header_guard': (header_file_path.replace('/', '_').
                              replace('.', '_').upper()),
         'method_name': self._method_name,
-        'source_files': str(self._source_files),
+        'source_files': str([ToPosixPath(f) for f in self._source_files]),
         'year': str(datetime.now().year)
     })
     if not os.path.exists(self._out_root):
@@ -906,6 +925,9 @@ if __name__ == '__main__':
                       help='The name of the method to populate the provider')
   parser.add_argument('out_root', type=str,
                       help='The root directory to generate the C++ files into')
+  parser.add_argument('gen_dir_relpath', default='gen', help='Path of the '
+      'gen directory relative to the out/. If running in the default '
+      'toolchain, the path is gen, otherwise $toolchain_name/gen')
   parser.add_argument(
       'out_base_filename', type=str,
       help='The base filename for the C++ files (.h and .cc will be appended)')
@@ -915,7 +937,7 @@ if __name__ == '__main__':
   if args.feature_type not in FEATURE_TYPES:
     raise NameError('Unknown feature type: %s' % args.feature_type)
   c = FeatureCompiler(args.chrome_root, args.source_files, args.feature_type,
-                      args.method_name, args.out_root,
+                      args.method_name, args.out_root, args.gen_dir_relpath,
                       args.out_base_filename)
   c.Load()
   c.Compile()

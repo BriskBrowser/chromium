@@ -9,18 +9,17 @@
 #include "base/feature_list.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_feature_list.h"
-#include "base/test/task_environment.h"
 #include "base/values.h"
 #include "chrome/browser/ssl/ssl_config_service_manager.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "components/prefs/testing_pref_service.h"
 #include "content/public/browser/network_service_instance.h"
+#include "content/public/test/browser_task_environment.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "net/cert/cert_verifier.h"
 #include "net/ssl/ssl_config.h"
+#include "services/cert_verifier/public/mojom/cert_verifier_service_factory.mojom.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 #include "services/network/public/mojom/ssl_config.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -49,7 +48,7 @@ class SSLConfigServiceManagerPrefTest : public testing::Test,
         network::mojom::NetworkContextParams::New();
     network_context_params->cert_verifier_params =
         content::GetCertVerifierParams(
-            network::mojom::CertVerifierCreationParams::New());
+            cert_verifier::mojom::CertVerifierCreationParams::New());
     config_manager->AddToNetworkContextParams(network_context_params.get());
     EXPECT_TRUE(network_context_params->initial_ssl_config);
     initial_config_ = std::move(network_context_params->initial_ssl_config);
@@ -92,7 +91,7 @@ class SSLConfigServiceManagerPrefTest : public testing::Test,
   }
 
  protected:
-  base::test::SingleThreadTaskEnvironment task_environment_;
+  content::BrowserTaskEnvironment task_environment_;
 
   TestingPrefServiceSimple local_state_;
 

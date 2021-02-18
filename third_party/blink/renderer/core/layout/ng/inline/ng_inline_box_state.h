@@ -38,7 +38,7 @@ struct NGInlineBoxState {
  public:
   unsigned fragment_start = 0;
   const NGInlineItem* item = nullptr;
-  const ComputedStyle* style = nullptr;
+  Persistent<const ComputedStyle> style;
 
   // The united metrics for the current box. This includes all objects in this
   // box, including descendants, and adjusted by placement properties such as
@@ -79,8 +79,7 @@ struct NGInlineBoxState {
   // Compute text metrics for a box. All text in a box share the same
   // metrics.
   // The computed metrics is included into the line height of the current box.
-  void ComputeTextMetrics(const ComputedStyle& style,
-                          FontBaseline baseline_type);
+  void ComputeTextMetrics(const ComputedStyle&, FontBaseline baseline_type);
   void EnsureTextMetrics(const ComputedStyle&, FontBaseline);
   void ResetTextMetrics();
 
@@ -257,7 +256,7 @@ class CORE_EXPORT NGInlineLayoutStateStack {
 
     void UpdateFragmentEdges(Vector<BoxData, 4>& list);
 
-    scoped_refptr<const NGLayoutResult> CreateBoxFragment(NGLogicalLineItems*);
+    const NGLayoutResult* CreateBoxFragment(NGLogicalLineItems*);
   };
 
   Vector<NGInlineBoxState, 4> stack_;

@@ -3,18 +3,19 @@
 # found in the LICENSE file.
 
 import("//build/buildflag_header.gni")
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/compiler/compiler.gni")
 import("//build/config/dcheck_always_on.gni")
 import("//build/config/linux/gtk/gtk.gni")
 import("//build/config/linux/pangocairo/pangocairo.gni")
+import("//build/config/ozone.gni")
 import("//build/config/sanitizers/sanitizers.gni")
 import("//build/config/ui.gni")
 import("//build/util/branding.gni")
-import("//components/system_media_controls/linux/buildflags/buildflags.gni")
+import("//testing/libfuzzer/fuzzer_test.gni")
 import("//testing/test.gni")
 import("//tools/grit/grit_rule.gni")
 import("//ui/base/ui_features.gni")
-import("//ui/ozone/ozone.gni")
 
 if (is_android) {
   import("//build/config/android/config.gni")
@@ -22,12 +23,6 @@ if (is_android) {
 } else if (is_mac) {
   import("//build/config/mac/rules.gni")
 }
-
-# Reset sources_assignment_filter for the BUILD.gn file to prevent
-# regression during the migration of Chromium away from the feature.
-# See docs/no_sources_assignment_filter.md for more information.
-# TODO(crbug.com/1018739): remove this when migration is done.
-set_sources_assignment_filter([])
 
 build_ime = !is_ios
 
@@ -68,6 +63,7 @@ buildflag_header("buildflags") {
     "USE_ATK=$use_atk",
     "USE_XKBCOMMON=$use_xkbcommon",
     "HAS_NATIVE_ACCESSIBILITY=$has_native_accessibility",
+    "HAS_PLATFORM_ACCESSIBILITY_SUPPORT=$has_platform_accessibility_support",
     "USE_GTK=$use_gtk",
   ]
 }
@@ -95,6 +91,7 @@ component("base") {
     "default_style.h",
     "device_form_factor.h",
     "device_form_factor_desktop.cc",
+    "dragdrop/drag_drop_types.cc",
     "dragdrop/drag_drop_types.h",
     "dragdrop/drop_target_event.cc",
     "dragdrop/drop_target_event.h",
@@ -102,6 +99,8 @@ component("base") {
     "dragdrop/os_exchange_data.h",
     "dragdrop/os_exchange_data_provider_factory.cc",
     "dragdrop/os_exchange_data_provider_factory.h",
+    "ime/utf_offset.cc",
+    "ime/utf_offset.h",
     "l10n/formatter.cc",
     "l10n/formatter.h",
     "l10n/l10n_font_util.cc",
@@ -150,9 +149,9 @@ component("base") {
     "page_transition_types.h",
     "pointer/touch_ui_controller.cc",
     "pointer/touch_ui_controller.h",
+    "resource/allowlist.h",
     "resource/resource_bundle.cc",
     "resource/resource_bundle.h",
-    "resource/whitelist.h",
     "scoped_visibility_tracker.cc",
     "scoped_visibility_tracker.h",
     "template_expressions.cc",
@@ -172,6 +171,7 @@ component("base") {
     "webui/i18n_source_stream.h",
     "webui/jstemplate_builder.cc",
     "webui/jstemplate_builder.h",
+    "webui/resource_path.h",
     "webui/web_ui_util.cc",
     "webui/web_ui_util.h",
     "window_open_disposition.cc",
@@ -227,6 +227,8 @@ component("base") {
       "win/message_box_win.h",
       "win/mouse_wheel_util.cc",
       "win/mouse_wheel_util.h",
+      "win/power_setting_change_listener.cc",
+      "win/power_setting_change_listener.h",
       "win/scoped_ole_initializer.cc",
       "win/scoped_ole_initializer.h",
       "win/session_change_observer.cc",
@@ -276,6 +278,8 @@ component("base") {
       "cocoa/focus_window_set.mm",
       "cocoa/menu_controller.h",
       "cocoa/menu_controller.mm",
+      "cocoa/nsmenuitem_additions.h",
+      "cocoa/nsmenuitem_additions.mm",
       "cocoa/permissions_utils.h",
       "cocoa/permissions_utils.mm",
       "cocoa/quartz_util.h",
@@ -313,10 +317,6 @@ component("base") {
     ]
   }
 
-  if (is_posix) {
-    sources += [ "l10n/l10n_util_posix.cc" ]
-  }
-
   if (is_ios) {
     sources += [
       "device_form_factor_ios.mm",
@@ -338,8 +338,6 @@ component("base") {
       "accelerators/media_keys_util.h",
       "accelerators/menu_label_accelerator_util.cc",
       "accelerators/menu_label_accelerator_util.h",
-      "accelerators/system_media_controls_media_keys_listener.cc",
-      "accelerators/system_media_controls_media_keys_listener.h",
       "base_window.cc",
       "base_window.h",
       "emoji/emoji_panel_helper.h",
@@ -379,7 +377,7 @@ component("base") {
     sources += [ "emoji/emoji_panel_helper_mac.mm" ]
   } else if (is_win) {
     sources += [ "emoji/emoji_panel_helper_win.cc" ]
-  } else if (is_chromeos) {
+  } else if (is_chromeos_ash) {
     sources += [ "emoji/emoji_panel_helper_chromeos.cc" ]
   } else {
     # Empty implementation for all other platforms.
@@ -394,8 +392,6 @@ component("base") {
       "accelerators/global_media_keys_listener_win.h",
       "accelerators/media_keys_listener_win.cc",
     ]
-  } else if (use_mpris) {
-    sources += [ "accelerators/media_keys_listener_linux.cc" ]
   } else {
     sources += [ "accelerators/media_keys_listener_stub.cc" ]
   }
@@ -415,10 +411,7 @@ component("base") {
   }
 
   if (is_fuchsia) {
-    sources += [
-      "l10n/l10n_util_posix.cc",
-      "resource/resource_bundle_fuchsia.cc",
-    ]
+    sources += [ "resource/resource_bundle_fuchsia.cc" ]
   }
 
   configs += [ "//build/config/compiler:wexit_time_destructors" ]
@@ -442,6 +435,7 @@ component("base") {
     "//base:i18n",
     "//base/third_party/dynamic_annotations",
     "//base/util/type_safety:type_safety",
+    "//build:chromeos_buildflags",
     "//net",
     "//third_party/brotli:dec",
     "//third_party/icu",
@@ -450,9 +444,11 @@ component("base") {
     "//third_party/zlib/google:compression_utils",
     "//ui/base:data_exchange",
     "//ui/base/clipboard:clipboard_types",
+    "//ui/base/dragdrop/mojom",
     "//ui/display",
     "//ui/events",
     "//ui/events/devices",
+    "//ui/resources:webui_generated_resources_grd",
     "//ui/resources:webui_resources_grd",
     "//ui/strings",
     "//url",
@@ -465,7 +461,7 @@ component("base") {
   if (!is_ios) {
     # iOS does not use Chromium-specific code for event handling.
     public_deps += [
-      "//ui/base/dragdrop/file_info",
+      "//ui/base/clipboard:file_info",
       "//ui/events:events_base",
       "//ui/events/platform",
     ]
@@ -487,18 +483,16 @@ component("base") {
     deps += [ "//ui/events" ]
   }
 
-  if ((is_desktop_linux || is_chromeos) && (use_x11 || ozone_platform_x11)) {
+  if ((is_linux || is_chromeos) && (use_x11 || ozone_platform_x11)) {
     public_deps += [ "//ui/base/x" ]
 
     # X11 drag and drop wants to use common drag and drop types.
     allow_circular_includes_from = [ "//ui/base/x" ]
 
-    if (!is_chromeos) {
+    if (!is_chromeos_ash) {
       deps += [ "//ui/gfx/x" ]
     }
   }
-
-  deps += [ "//components/system_media_controls" ]
 
   if (use_x11 && use_aura) {
     sources += [
@@ -510,7 +504,7 @@ component("base") {
       "//ui/gfx/x",
     ]
 
-    if (!is_chromeos) {
+    if (!is_chromeos_ash) {
       # These Aura X11 files aren't used on ChromeOS.
       sources += [
         "dragdrop/os_exchange_data_provider_x11.cc",
@@ -536,7 +530,7 @@ component("base") {
     ]
   }
 
-  if (is_chromeos || (use_aura && is_linux)) {
+  if (is_chromeos_ash || (use_aura && (is_linux || is_chromeos_lacros))) {
     sources += [
       "dragdrop/os_exchange_data_provider_non_backed.cc",
       "dragdrop/os_exchange_data_provider_non_backed.h",
@@ -570,6 +564,7 @@ component("base") {
 
   if (!toolkit_views && !use_aura) {
     sources -= [
+      "dragdrop/drag_drop_types.cc",
       "dragdrop/drag_drop_types.h",
       "dragdrop/drop_target_event.cc",
       "dragdrop/drop_target_event.h",
@@ -615,11 +610,13 @@ component("data_exchange") {
   deps = [
     "//base",
     "//ui/base/clipboard:clipboard_types",
-    "//ui/base/dragdrop/file_info",
+    "//ui/base/clipboard:file_info",
     "//ui/gfx",
     "//ui/gfx/geometry",
     "//url",
   ]
+
+  public_deps = [ "//ui/base/data_transfer_policy" ]
 }
 
 component("features") {
@@ -635,12 +632,15 @@ component("features") {
   deps = [
     ":buildflags",
     "//base",
-    "//build:lacros_buildflags",
+    "//build:chromeos_buildflags",
   ]
+  if (!is_ios) {
+    deps += [ "//media:media_buildflags" ]
+  }
 }
 
 # TODO(crbug.com/1091985): Support CrOS.
-if (is_win || is_mac || (is_linux && !is_chromeos)) {
+if (is_win || is_mac || (is_linux || is_chromeos_lacros)) {
   static_library("pixel_diff_test_support") {
     testonly = true
     sources = [
@@ -651,6 +651,8 @@ if (is_win || is_mac || (is_linux && !is_chromeos)) {
     ]
     deps = [
       "//base",
+      "//base/test:test_config",
+      "//build:chromeos_buildflags",
       "//testing/gtest",
       "//ui/gfx",
       "//ui/snapshot",
@@ -724,6 +726,7 @@ static_library("test_support") {
       "accelerators/test_accelerator_target.h",
       "test/mock_base_window.cc",
       "test/mock_base_window.h",
+      "test/test_dialog_model_host.h",
       "test/ui_controls.h",
       "test/view_tree_validator.h",
     ]
@@ -748,6 +751,7 @@ static_library("test_support") {
     "//base",
     "//base/test:test_config",
     "//base/test:test_support",
+    "//build:chromeos_buildflags",
     "//skia",
     "//testing/gmock",
     "//testing/gtest",
@@ -772,14 +776,9 @@ static_library("test_support") {
       "ime/dummy_input_method.h",
       "ime/dummy_text_input_client.cc",
       "ime/dummy_text_input_client.h",
+      "ime/fake_text_input_client.cc",
+      "ime/fake_text_input_client.h",
     ]
-
-    if (is_win) {
-      sources += [
-        "ime/win/mock_tsf_bridge.cc",
-        "ime/win/mock_tsf_bridge.h",
-      ]
-    }
 
     deps += [
       "//ui/base/ime",
@@ -791,18 +790,22 @@ static_library("test_support") {
     }
   }
 
-  if (is_chromeos) {
+  if (is_chromeos_ash) {
     sources += [
-      "ime/chromeos/input_method_whitelist.cc",
-      "ime/chromeos/input_method_whitelist.h",
+      "ime/chromeos/mock_component_extension_ime_manager.cc",
+      "ime/chromeos/mock_component_extension_ime_manager.h",
+      "ime/chromeos/mock_component_extension_ime_manager_delegate.cc",
+      "ime/chromeos/mock_component_extension_ime_manager_delegate.h",
+      "ime/chromeos/mock_ime_candidate_window_handler.cc",
+      "ime/chromeos/mock_ime_candidate_window_handler.h",
+      "ime/chromeos/mock_ime_engine_handler.cc",
+      "ime/chromeos/mock_ime_engine_handler.h",
+      "ime/chromeos/mock_ime_input_context_handler.cc",
+      "ime/chromeos/mock_ime_input_context_handler.h",
       "ime/chromeos/mock_input_method_manager.cc",
       "ime/chromeos/mock_input_method_manager.h",
     ]
-    deps += [
-      # Generates a header used by input_method_whitelist.cc
-      "//chromeos/ime:gencode",
-      "//ui/base/ime/chromeos",
-    ]
+    deps += [ "//ui/base/ime/chromeos" ]
   }
 }
 
@@ -865,8 +868,12 @@ if (is_ios) {
 }
 
 test("ui_base_unittests") {
+  use_xvfb = use_xvfb_in_this_config
+
   sources = [
     "class_property_unittest.cc",
+    "clipboard/file_info_unittest.cc",
+    "ime/utf_offset_unittest.cc",
     "l10n/l10n_util_unittest.cc",
     "l10n/time_format_unittest.cc",
     "layout_unittest.cc",
@@ -898,7 +905,10 @@ test("ui_base_unittests") {
     "webui/i18n_source_stream_unittest.cc",
   ]
   if (is_mac) {
-    sources += [ "l10n/l10n_util_mac_unittest.mm" ]
+    sources += [
+      "cocoa/nsmenuitem_additions_unittest.mm",
+      "l10n/l10n_util_mac_unittest.mm",
+    ]
   }
   if (!is_ios) {
     sources += [ "user_activity/user_activity_detector_unittest.cc" ]
@@ -912,12 +922,13 @@ test("ui_base_unittests") {
   }
 
   data = []
-  data_deps = []
+  data_deps = [ "//testing/buildbot/filters:ui_base_unittests_filters" ]
   deps = [
     ":ui_base_test_resources_grit",
     ":ui_base_unittests_bundle_data",
     "//base",
     "//base/test:test_support",
+    "//build:chromeos_buildflags",
     "//mojo/core/embedder",
     "//net",
     "//net:test_support",
@@ -933,7 +944,9 @@ test("ui_base_unittests") {
     "//ui/base:ui_data_pack",
     "//ui/base/clipboard:clipboard_test",
     "//ui/base/clipboard:clipboard_types",
+    "//ui/base/clipboard:file_info",
     "//ui/base/cursor:unittests",
+    "//ui/base/data_transfer_policy:unittests",
     "//ui/base/prediction:prediction",
     "//ui/display",
     "//ui/events:events_base",
@@ -964,14 +977,13 @@ test("ui_base_unittests") {
       "accelerators/accelerator_manager_unittest.cc",
       "accelerators/accelerator_unittest.cc",
       "accelerators/menu_label_accelerator_util_unittest.cc",
-      "accelerators/system_media_controls_media_keys_listener_unittest.cc",
+      "models/dialog_model_unittest.cc",
       "models/list_model_unittest.cc",
       "models/list_selection_model_unittest.cc",
       "models/tree_node_model_unittest.cc",
       "text/bytes_formatting_unittest.cc",
       "webui/web_ui_util_unittest.cc",
     ]
-    deps += [ "//components/system_media_controls:test_support" ]
 
     if (is_linux || is_chromeos) {
       sources +=
@@ -995,7 +1007,7 @@ test("ui_base_unittests") {
   }
 
   # TODO(crbug.com/1091985): Support CrOS.
-  if (is_win || is_mac || (is_linux && !is_chromeos)) {
+  if (is_win || is_mac || (is_linux || is_chromeos_lacros)) {
     sources += [
       "test/skia_gold_matching_algorithm_unittest.cc",
       "test/skia_gold_pixel_diff_unittest.cc",
@@ -1014,22 +1026,28 @@ test("ui_base_unittests") {
       sources += [
         "ime/win/imm32_manager_unittest.cc",
         "ime/win/on_screen_keyboard_display_manager_unittest.cc",
-        "ime/win/tsf_input_policy_unittest.cc",
         "ime/win/tsf_input_scope_unittest.cc",
         "ime/win/tsf_text_store_unittest.cc",
       ]
       deps += [ "//ui/base/ime/win" ]
     }
-    if (is_chromeos) {
+    if (is_chromeos_ash) {
       sources += [
+        "dragdrop/os_exchange_data_provider_non_backed_unittest.cc",
         "ime/chromeos/extension_ime_util_unittest.cc",
         "ime/chromeos/ime_keyboard_unittest.cc",
         "ime/chromeos/input_method_chromeos_unittest.cc",
+        "ime/chromeos/input_method_descriptor_unittest.cc",
         "ime/chromeos/input_method_util_unittest.cc",
       ]
-      deps += [ "//ui/base/ime/chromeos" ]
+      deps += [
+        "//build:branding_buildflags",
+        "//ui/base/ime/chromeos",
+      ]
     }
-    if (is_linux && use_aura && !is_chromeos) {
+    if ((is_linux || is_chromeos_lacros) && use_aura) {
+      sources += [ "dragdrop/os_exchange_data_provider_non_backed_unittest.cc" ]
+
       if (use_x11 || use_ozone) {
         sources += [ "ime/linux/input_method_auralinux_unittest.cc" ]
         deps += [
@@ -1044,7 +1062,7 @@ test("ui_base_unittests") {
     if (use_x11) {
       sources += [ "ime/linux/composition_text_util_pango_unittest.cc" ]
     }
-    if (is_chromeos || use_ozone) {
+    if (is_chromeos_ash || use_ozone) {
       sources += [ "ime/character_composer_unittest.cc" ]
     }
   }
@@ -1128,7 +1146,7 @@ test("ui_base_unittests") {
     deps += [ "//ui/gfx/x:unit_test" ]
   }
 
-  if (is_chromeos) {
+  if (is_chromeos_ash) {
     deps += [ "//ui/events:dom_keycode_converter" ]
   }
 
@@ -1208,4 +1226,12 @@ source_set("base_interactive_ui_tests") {
       "//ui/events:events",
     ]
   }
+}
+
+fuzzer_test("file_info_fuzzer") {
+  sources = [ "clipboard/file_info_fuzzer.cc" ]
+  deps = [
+    "//base",
+    "//ui/base/clipboard:file_info",
+  ]
 }

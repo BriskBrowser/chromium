@@ -4,14 +4,15 @@
 
 #include "chrome/browser/browsing_data/access_context_audit_database.h"
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "components/content_settings/core/common/content_settings_utils.h"
 #include "sql/database.h"
 #include "sql/test/scoped_error_expecter.h"
+#include "sql/test/test_helpers.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {

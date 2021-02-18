@@ -9,12 +9,12 @@
 #include <set>
 #include <string>
 
+#include "base/callback.h"
 #include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/time/time.h"
-#include "chrome/browser/ui/hats/hats_survey_status_checker.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "content/public/browser/web_contents_observer.h"
 
@@ -22,8 +22,11 @@ namespace content {
 class WebContents;
 }
 
+namespace user_prefs {
+class PrefRegistrySyncable;
+}
+
 class Browser;
-class PrefRegistrySimple;
 class Profile;
 
 // Trigger identifiers currently used; duplicates not allowed.
@@ -31,10 +34,19 @@ extern const char kHatsSurveyTriggerTesting[];
 extern const char kHatsSurveyTriggerSatisfaction[];
 extern const char kHatsSurveyTriggerSettings[];
 extern const char kHatsSurveyTriggerSettingsPrivacy[];
+extern const char kHatsSurveyTriggerDevToolsIssuesCOEP[];
+extern const char kHatsSurveyTriggerDevToolsIssuesMixedContent[];
+extern const char kHatsSurveyTriggerDevToolsIssuesCookiesSameSite[];
+extern const char kHatsSurveyTriggerDevToolsIssuesHeavyAd[];
+extern const char kHatsSurveyTriggerDevToolsIssuesCSP[];
 
 // The Trigger ID for a test HaTS Next survey which is available for testing
 // and demo purposes when the migration feature flag is enabled.
 extern const char kHatsNextSurveyTriggerIDTesting[];
+
+// The name of the histogram which records if a survey was shown, or if not, the
+// reason why not.
+extern const char kHatsShouldShowSurveyReasonHistogram[];
 
 // This class provides the client side logic for determining if a
 // survey should be shown for any trigger based on input from a finch
@@ -42,8 +54,10 @@ extern const char kHatsNextSurveyTriggerIDTesting[];
 class HatsService : public KeyedService {
  public:
   struct SurveyConfig {
-    SurveyConfig(const double probability, const std::string en_site_id)
-        : probability_(probability), en_site_id_(en_site_id) {}
+    SurveyConfig(double probability, std::string en_site_id, bool user_prompted)
+        : probability_(probability),
+          en_site_id_(std::move(en_site_id)),
+          user_prompted_(user_prompted) {}
 
     SurveyConfig() = default;
 
@@ -52,16 +66,24 @@ class HatsService : public KeyedService {
 
     // Site ID for the survey.
     std::string en_site_id_;
+
+    // The survey will prompt every time because the user has explicitly decided
+    // to take the survey e.g. clicking a link.
+    bool user_prompted_;
   };
 
   struct SurveyMetadata {
     SurveyMetadata();
     ~SurveyMetadata();
 
+    // Trigger specific metadata.
     base::Optional<int> last_major_version;
     base::Optional<base::Time> last_survey_started_time;
     base::Optional<bool> is_survey_full;
     base::Optional<base::Time> last_survey_check_time;
+
+    // Metadata affecting all triggers.
+    base::Optional<base::Time> any_last_survey_started_time;
   };
 
   class DelayedSurveyTask : public content::WebContentsObserver {
@@ -97,14 +119,42 @@ class HatsService : public KeyedService {
     base::WeakPtrFactory<DelayedSurveyTask> weak_ptr_factory_{this};
   };
 
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused.
+  enum class ShouldShowSurveyReasons {
+    kYes = 0,
+    kNoOffline = 1,
+    kNoLastSessionCrashed = 2,
+    kNoReceivedSurveyInCurrentMilestone = 3,
+    kNoProfileTooNew = 4,
+    kNoLastSurveyTooRecent = 5,
+    kNoBelowProbabilityLimit = 6,
+    kNoTriggerStringMismatch = 7,
+    kNoNotRegularBrowser = 8,
+    kNoIncognitoDisabled = 9,
+    kNoCookiesBlocked = 10,            // Unused.
+    kNoThirdPartyCookiesBlocked = 11,  // Unused.
+    kNoSurveyUnreachable = 12,
+    kNoSurveyOverCapacity = 13,
+    kNoSurveyAlreadyInProgress = 14,
+    kNoAnyLastSurveyTooRecent = 15,
+    kNoRejectedByHatsService = 16,
+    kMaxValue = kNoRejectedByHatsService,
+  };
+
   ~HatsService() override;
 
   explicit HatsService(Profile* profile);
 
-  static void RegisterProfilePrefs(PrefRegistrySimple* registry);
+  static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
 
   // Launches survey with identifier |trigger| if appropriate.
-  virtual void LaunchSurvey(const std::string& trigger);
+  // |success_callback| is called when the survey is shown to the user.
+  // |failure_callback| is called if the survey does not launch for any reason.
+  virtual void LaunchSurvey(
+      const std::string& trigger,
+      base::OnceClosure success_callback = base::DoNothing(),
+      base::OnceClosure failure_callback = base::DoNothing());
 
   // Launches survey (with id |trigger|) with a timeout |timeout_ms| if
   // appropriate. Survey will be shown at the active window/tab by the
@@ -136,37 +186,48 @@ class HatsService : public KeyedService {
 
   void SetSurveyMetadataForTesting(const SurveyMetadata& metadata);
   void GetSurveyMetadataForTesting(HatsService::SurveyMetadata* metadata) const;
-  void SetSurveyCheckerForTesting(
-      std::unique_ptr<HatsSurveyStatusChecker> checker);
   bool HasPendingTasks();
+
+  // Whether the survey specified by |trigger| can be shown to the user. This
+  // is a pre-check that calculates as many conditions as possible, but could
+  // still return a false positive due to client-side rate limiting, a change
+  // in network conditions, or intervening calls to this API.
+  bool CanShowSurvey(const std::string& trigger) const;
+
+  // Returns whether a HaTS Next dialog currently exists, regardless of whether
+  // it is being shown or not.
+  bool hats_next_dialog_exists_for_testing() {
+    return hats_next_dialog_exists_;
+  }
 
  private:
   friend class DelayedSurveyTask;
-  FRIEND_TEST_ALL_PREFIXES(HatsServiceHatsNext, SingleHatsNextDialog);
+  FRIEND_TEST_ALL_PREFIXES(HatsServiceProbabilityOne, SingleHatsNextDialog);
 
   void LaunchSurveyForWebContents(const std::string& trigger,
                                   content::WebContents* web_contents);
 
-  void LaunchSurveyForBrowser(const std::string& trigger, Browser* browser);
+  void LaunchSurveyForBrowser(Browser* browser,
+                              const std::string& trigger,
+                              base::OnceClosure success_callback,
+                              base::OnceClosure failure_callback);
 
   // Returns true is the survey trigger specified should be shown.
   bool ShouldShowSurvey(const std::string& trigger) const;
 
-  // Check whether the survey is reachable and under capacity.
+  // Check whether the survey is reachable and under capacity and show it.
+  // |success_callback| is called when the survey is shown to the user.
+  // |failure_callback| is called if the survey does not launch for any reason.
   void CheckSurveyStatusAndMaybeShow(Browser* browser,
-                                     const std::string& trigger);
+                                     const std::string& trigger,
+                                     base::OnceClosure success_callback,
+                                     base::OnceClosure failure_callback);
 
-  // Callbacks for survey capacity checking.
-  void ShowSurvey(Browser* browser, const std::string& trigger);
-
-  void OnSurveyStatusError(const std::string& trigger,
-                           HatsSurveyStatusChecker::Status error);
+  // Remove |task| from the set of |pending_tasks_|.
   void RemoveTask(const DelayedSurveyTask& task);
 
   // Profile associated with this service.
   Profile* const profile_;
-
-  std::unique_ptr<HatsSurveyStatusChecker> checker_;
 
   std::set<DelayedSurveyTask> pending_tasks_;
 

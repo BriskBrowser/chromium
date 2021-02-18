@@ -12,7 +12,7 @@
 #include "base/scoped_native_library.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/test_reg_util_win.h"
 #include "base/threading/thread_restrictions.h"
@@ -122,9 +122,9 @@ class IncompatibleApplicationsBrowserTest : public InProcessBrowserTest {
   // Writes an empty serialized ModuleList proto to |GetModuleListPath()|.
   void CreateModuleList() {
     chrome::conflicts::ModuleList module_list;
-    // Include an empty blacklist and whitelist.
-    module_list.mutable_blacklist();
-    module_list.mutable_whitelist();
+    // Include an empty blocklist and allowlist.
+    module_list.mutable_blocklist();
+    module_list.mutable_allowlist();
 
     std::string contents;
     ASSERT_TRUE(module_list.SerializeToString(&contents));
@@ -240,6 +240,6 @@ IN_PROC_BROWSER_TEST_F(IncompatibleApplicationsBrowserTest,
   ASSERT_EQ(incompatible_applications.size(), 1u);
   const auto& incompatible_application = incompatible_applications[0];
   EXPECT_EQ(incompatible_application.info.name, kApplicationName);
-  EXPECT_EQ(incompatible_application.blacklist_action->message_type(),
-            chrome::conflicts::BlacklistMessageType::UNINSTALL);
+  EXPECT_EQ(incompatible_application.blocklist_action->message_type(),
+            chrome::conflicts::BlocklistMessageType::UNINSTALL);
 }

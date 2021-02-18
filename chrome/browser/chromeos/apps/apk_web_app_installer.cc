@@ -9,14 +9,13 @@
 
 #include "base/bind.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/installable/installable_metrics.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/web_applications/components/externally_installed_web_app_prefs.h"
 #include "chrome/browser/web_applications/components/install_manager.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
 #include "chrome/browser/web_applications/components/web_app_install_utils.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
-#include "chrome/common/chrome_features.h"
+#include "components/webapps/browser/installable/installable_metrics.h"
 #include "content/public/browser/browser_thread.h"
 #include "services/data_decoder/public/cpp/decode_image.h"
 #include "third_party/blink/public/mojom/manifest/display_mode.mojom.h"
@@ -83,8 +82,8 @@ void ApkWebAppInstaller::Start(arc::mojom::WebAppInfoPtr web_app_info,
 
   web_app_info_->title = base::UTF8ToUTF16(web_app_info->title);
 
-  web_app_info_->app_url = GURL(web_app_info->start_url);
-  DCHECK(web_app_info_->app_url.is_valid());
+  web_app_info_->start_url = GURL(web_app_info->start_url);
+  DCHECK(web_app_info_->start_url.is_valid());
 
   web_app_info_->scope = GURL(web_app_info->scope_url);
   DCHECK(web_app_info_->scope.is_valid());
@@ -116,7 +115,7 @@ void ApkWebAppInstaller::CompleteInstallation(const web_app::AppId& id,
   delete this;
 }
 
-void ApkWebAppInstaller::OnWebAppCreated(const GURL& app_url,
+void ApkWebAppInstaller::OnWebAppCreated(const GURL& start_url,
                                          const web_app::AppId& app_id,
                                          web_app::InstallResultCode code) {
   // It is assumed that if |weak_owner_| is gone, |profile_| is gone too. The
@@ -137,7 +136,7 @@ void ApkWebAppInstaller::OnWebAppCreated(const GURL& app_url,
   // is not removed automatically. TODO(crbug.com/910008): have a less bad way
   // of doing this.
   web_app::ExternallyInstalledWebAppPrefs(profile_->GetPrefs())
-      .Insert(app_url, app_id, web_app::ExternalInstallSource::kArc);
+      .Insert(start_url, app_id, web_app::ExternalInstallSource::kArc);
   CompleteInstallation(app_id, code);
 }
 
@@ -162,13 +161,13 @@ void ApkWebAppInstaller::DoInstall() {
   auto* provider = web_app::WebAppProvider::Get(profile_);
   DCHECK(provider);
 
-  GURL app_url = web_app_info_->app_url;
+  GURL start_url = web_app_info_->start_url;
 
   provider->install_manager().InstallWebAppFromInfo(
       std::move(web_app_info_), web_app::ForInstallableSite::kYes,
-      WebappInstallSource::ARC,
+      webapps::WebappInstallSource::ARC,
       base::BindOnce(&ApkWebAppInstaller::OnWebAppCreated,
-                     base::Unretained(this), std::move(app_url)));
+                     base::Unretained(this), std::move(start_url)));
 }
 
 }  // namespace chromeos

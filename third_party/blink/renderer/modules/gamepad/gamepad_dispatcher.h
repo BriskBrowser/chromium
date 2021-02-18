@@ -53,14 +53,14 @@ class GamepadDispatcher final : public GarbageCollected<GamepadDispatcher>,
   void ButtonOrAxisDidChange(uint32_t index, const device::Gamepad&) override;
 
   // PlatformEventDispatcher
-  void StartListening(LocalFrame* frame) override;
+  void StartListening(LocalDOMWindow*) override;
   void StopListening() override;
 
   void DispatchDidConnectOrDisconnectGamepad(uint32_t index,
                                              const device::Gamepad&,
                                              bool connected);
 
-  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+  WeakMember<ExecutionContext> execution_context_;
   Member<GamepadSharedMemoryReader> reader_;
   HeapMojoRemote<device::mojom::blink::GamepadHapticsManager,
                  HeapMojoWrapperMode::kWithoutContextObserver>

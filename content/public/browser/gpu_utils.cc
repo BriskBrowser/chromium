@@ -10,8 +10,10 @@
 #include "base/command_line.h"
 #include "base/single_thread_task_runner.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "cc/base/switches.h"
 #include "components/viz/common/features.h"
+#include "components/viz/common/switches.h"
 #include "components/viz/common/viz_utils.h"
 #include "content/browser/browser_main_loop.h"
 #include "content/browser/gpu/gpu_process_host.h"
@@ -45,6 +47,13 @@ void KillGpuProcessImpl(content::GpuProcessHost* host) {
   if (host) {
     host->ForceShutdown();
   }
+}
+
+bool GetUintFromSwitch(const base::CommandLine* command_line,
+                       const base::StringPiece& switch_string,
+                       uint32_t* value) {
+  std::string switch_value(command_line->GetSwitchValueASCII(switch_string));
+  return base::StringToUint(switch_value, value);
 }
 
 }  // namespace
@@ -99,6 +108,8 @@ const gpu::GpuPreferences GetGpuPreferencesFromCommandLine() {
 
   gpu_preferences.enable_oop_rasterization_ddl =
       base::FeatureList::IsEnabled(features::kOopRasterizationDDL);
+  gpu_preferences.enable_vulkan_protected_memory =
+      command_line->HasSwitch(switches::kEnableVulkanProtectedMemory);
   gpu_preferences.enforce_vulkan_protected_memory =
       command_line->HasSwitch(switches::kEnforceVulkanProtectedMemory);
   gpu_preferences.disable_vulkan_fallback_to_gl_for_testing =
@@ -117,16 +128,42 @@ const gpu::GpuPreferences GetGpuPreferencesFromCommandLine() {
   gpu_preferences.enable_native_gpu_memory_buffers =
       command_line->HasSwitch(switches::kEnableNativeGpuMemoryBuffers);
 
-#if defined(OS_CHROMEOS)
-  gpu_preferences.platform_disallows_chromeos_direct_video_decoder =
-      command_line->HasSwitch(
-          switches::kPlatformDisallowsChromeOSDirectVideoDecoder);
-#endif
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
+  // The direct VideoDecoder is disallowed on some particular SoC/platforms.
+  const bool should_use_direct_video_decoder =
+      !command_line->HasSwitch(
+          switches::kPlatformDisallowsChromeOSDirectVideoDecoder) &&
+      base::FeatureList::IsEnabled(media::kUseChromeOSDirectVideoDecoder);
+
+  // For testing purposes, the following flag allows using the "other" video
+  // decoder implementation.
+  if (base::FeatureList::IsEnabled(
+          media::kUseAlternateVideoDecoderImplementation)) {
+    gpu_preferences.enable_chromeos_direct_video_decoder =
+        !should_use_direct_video_decoder;
+  } else {
+    gpu_preferences.enable_chromeos_direct_video_decoder =
+        should_use_direct_video_decoder;
+  }
+#else   // !BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
+  gpu_preferences.enable_chromeos_direct_video_decoder = false;
+#endif  // BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if defined(OS_ANDROID)
   gpu_preferences.disable_oopr_debug_crash_dump =
       command_line->HasSwitch(switches::kDisableOoprDebugCrashDump);
 #endif
+
+  if (GetUintFromSwitch(command_line, switches::kVulkanHeapMemoryLimitMb,
+                        &gpu_preferences.vulkan_heap_memory_limit)) {
+    gpu_preferences.vulkan_heap_memory_limit *= 1024 * 1024;
+  }
+  if (GetUintFromSwitch(command_line, switches::kVulkanSyncCpuMemoryLimitMb,
+                        &gpu_preferences.vulkan_sync_cpu_memory_limit)) {
+    gpu_preferences.vulkan_sync_cpu_memory_limit *= 1024 * 1024;
+  }
 
   // Some of these preferences are set or adjusted in
   // GpuDataManagerImplPrivate::AppendGpuCommandLine.

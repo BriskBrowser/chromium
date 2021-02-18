@@ -2,6 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import {assert} from 'chrome://resources/js/assert.m.js';
+// #import {VolumeInfo} from '../../externs/volume_info.m.js';
+// #import {VolumeInfoList} from '../../externs/volume_info_list.m.js';
+// #import {VolumeManager, ExternallyUnmountedEvent} from '../../externs/volume_manager.m.js';
+// #import {FilesAppEntry} from '../../externs/files_app_entry_interfaces.m.js';
+// #import {EntryLocation} from '../../externs/entry_location.m.js';
+// #import * as wrappedVolumeManagerCommon from './volume_manager_types.m.js'; const {VolumeManagerCommon, AllowedPaths} = wrappedVolumeManagerCommon;
+// #import {dispatchSimpleEvent} from 'chrome://resources/js/cr.m.js';
+// #import {ArrayDataModel} from 'chrome://resources/js/cr/ui/array_data_model.m.js';
+// #import {NativeEventTarget as EventTarget} from 'chrome://resources/js/cr/event_target.m.js';
+// clang-format on
+
 /**
  * Implementation of VolumeInfoList for FilteredVolumeManager.
  * In foreground/ we want to enforce this list to be filtered, so we forbid
@@ -12,7 +25,7 @@
  * @final
  * @implements {VolumeInfoList}
  */
-class FilteredVolumeInfoList {
+/* #export */ class FilteredVolumeInfoList {
   /**
    * @param {!cr.ui.ArrayDataModel} list
    */
@@ -60,18 +73,16 @@ class FilteredVolumeInfoList {
  *
  * @implements {VolumeManager}
  */
-class FilteredVolumeManager extends cr.EventTarget {
+/* #export */ class FilteredVolumeManager extends cr.EventTarget {
   /**
    *
    * @param {!AllowedPaths} allowedPaths Which paths are supported in the Files
    *     app dialog.
    * @param {boolean} writableOnly If true, only writable volumes are returned.
-   * @param {Window=} opt_backgroundPage Window object of the background
-   *     page. If this is specified, the class skips to get background page.
-   *     TODO(hirono): Let all clients of the class pass the background page and
-   *     make the argument not optional.
+   * @param {!Promise<!VolumeManager>} volumeManagerGetter Promise that resolves
+   *     when the VolumeManager has been initialized.
    */
-  constructor(allowedPaths, writableOnly, opt_backgroundPage) {
+  constructor(allowedPaths, writableOnly, volumeManagerGetter) {
     super();
 
     this.allowedPaths_ = allowedPaths;
@@ -91,8 +102,8 @@ class FilteredVolumeManager extends cr.EventTarget {
 
     this.disposed_ = false;
 
-    /** private {Window} */
-    this.backgroundPage_ = opt_backgroundPage;
+    /** private {!Promise<!VolumeManager>} */
+    this.volumeManagerGetter_ = volumeManagerGetter;
 
     /**
      * Tracks async initialization of volume manager.
@@ -117,7 +128,7 @@ class FilteredVolumeManager extends cr.EventTarget {
       case AllowedPaths.ANY_PATH_OR_URL:
         return true;
       case AllowedPaths.NATIVE_PATH:
-        return VolumeManagerCommon.VolumeType.isNative(volumeType);
+        return VolumeManagerCommon.VolumeType.isNative(assert(volumeType));
     }
     return false;
   }
@@ -143,13 +154,7 @@ class FilteredVolumeManager extends cr.EventTarget {
    * @private
    */
   async initialize_() {
-    if (!this.backgroundPage_) {
-      this.backgroundPage_ = await new Promise(
-          resolve => chrome.runtime.getBackgroundPage(resolve));
-    }
-
-    this.volumeManager_ =
-        await this.backgroundPage_.volumeManagerFactory.getInstance();
+    this.volumeManager_ = await this.volumeManagerGetter_;
 
     if (this.disposed_) {
       return;
@@ -292,6 +297,7 @@ class FilteredVolumeManager extends cr.EventTarget {
         type: chrome.fileManagerPrivate.DriveConnectionStateType.OFFLINE,
         reason: chrome.fileManagerPrivate.DriveOfflineReason.NO_SERVICE,
         hasCellularNetworkAccess: false,
+        canPinHostedFiles: false,
       };
     }
 

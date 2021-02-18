@@ -6,8 +6,7 @@
 #include "base/json/json_reader.h"
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
-#include "base/test/scoped_feature_list.h"
+#include "base/test/bind.h"
 #include "build/build_config.h"
 #include "content/browser/renderer_host/input/synthetic_gesture_controller.h"
 #include "content/browser/renderer_host/input/synthetic_gesture_target.h"
@@ -68,8 +67,11 @@ class InputEventBrowserTest : public ContentBrowserTest {
   ~InputEventBrowserTest() override = default;
 
   RenderWidgetHostImpl* GetWidgetHost() {
-    return RenderWidgetHostImpl::From(
-        shell()->web_contents()->GetRenderViewHost()->GetWidget());
+    return RenderWidgetHostImpl::From(shell()
+                                          ->web_contents()
+                                          ->GetMainFrame()
+                                          ->GetRenderViewHost()
+                                          ->GetWidget());
   }
 
  protected:
@@ -221,8 +223,7 @@ class InputEventBrowserTest : public ContentBrowserTest {
 IN_PROC_BROWSER_TEST_F(InputEventBrowserTest, MAYBE_MouseDownEventTimeStamp) {
   LoadURL(kEventListenerDataURL);
 
-  MainThreadFrameObserver frame_observer(
-      shell()->web_contents()->GetRenderViewHost()->GetWidget());
+  MainThreadFrameObserver frame_observer(GetWidgetHost());
   base::TimeTicks event_time = base::TimeTicks::Now();
   int64_t event_time_ms = event_time.since_origin().InMilliseconds();
   SimulateSyntheticMousePressAt(event_time);
@@ -239,8 +240,7 @@ IN_PROC_BROWSER_TEST_F(InputEventBrowserTest, MAYBE_MouseDownEventTimeStamp) {
 IN_PROC_BROWSER_TEST_F(InputEventBrowserTest, KeyDownEventTimeStamp) {
   LoadURL(kEventListenerDataURL);
 
-  MainThreadFrameObserver frame_observer(
-      shell()->web_contents()->GetRenderViewHost()->GetWidget());
+  MainThreadFrameObserver frame_observer(GetWidgetHost());
 
   base::TimeTicks event_time = base::TimeTicks::Now();
   int64_t event_time_ms = event_time.since_origin().InMilliseconds();
@@ -259,8 +259,7 @@ IN_PROC_BROWSER_TEST_F(InputEventBrowserTest, KeyDownEventTimeStamp) {
 IN_PROC_BROWSER_TEST_F(InputEventBrowserTest, TouchStartEventTimeStamp) {
   LoadURL(kEventListenerDataURL);
 
-  MainThreadFrameObserver frame_observer(
-      shell()->web_contents()->GetRenderViewHost()->GetWidget());
+  MainThreadFrameObserver frame_observer(GetWidgetHost());
 
   base::TimeTicks event_time = base::TimeTicks::Now();
   int64_t event_time_ms = event_time.since_origin().InMilliseconds();
@@ -279,8 +278,7 @@ IN_PROC_BROWSER_TEST_F(InputEventBrowserTest, TouchStartEventTimeStamp) {
 IN_PROC_BROWSER_TEST_F(InputEventBrowserTest, ClickEventTimeStamp) {
   LoadURL(kEventListenerDataURL);
 
-  MainThreadFrameObserver frame_observer(
-      shell()->web_contents()->GetRenderViewHost()->GetWidget());
+  MainThreadFrameObserver frame_observer(GetWidgetHost());
 
   base::TimeTicks event_time = base::TimeTicks::Now();
   int64_t event_time_ms = event_time.since_origin().InMilliseconds();
@@ -299,8 +297,7 @@ IN_PROC_BROWSER_TEST_F(InputEventBrowserTest, ClickEventTimeStamp) {
 IN_PROC_BROWSER_TEST_F(InputEventBrowserTest, WheelEventTimeStamp) {
   LoadURL(kEventListenerDataURL);
 
-  MainThreadFrameObserver frame_observer(
-      shell()->web_contents()->GetRenderViewHost()->GetWidget());
+  MainThreadFrameObserver frame_observer(GetWidgetHost());
 
   base::TimeTicks event_time = base::TimeTicks::Now();
   int64_t event_time_ms = event_time.since_origin().InMilliseconds();

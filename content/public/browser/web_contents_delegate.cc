@@ -19,6 +19,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/bindings_policy.h"
 #include "content/public/common/url_constants.h"
+#include "third_party/blink/public/common/security/protocol_handler_security_level.h"
 #include "third_party/blink/public/mojom/mediastream/media_stream.mojom-shared.h"
 #include "ui/gfx/geometry/rect.h"
 
@@ -37,7 +38,11 @@ bool WebContentsDelegate::ShouldTransferNavigation(
 }
 
 bool WebContentsDelegate::CanOverscrollContent() {
+#if defined(USE_AURA)
+  return true;
+#else
   return false;
+#endif
 }
 
 bool WebContentsDelegate::ShouldSuppressDialogs(WebContents* source) {
@@ -111,7 +116,7 @@ bool WebContentsDelegate::PreHandleGestureEvent(
 bool WebContentsDelegate::CanDragEnter(
     WebContents* source,
     const DropData& data,
-    blink::WebDragOperationsMask operations_allowed) {
+    blink::DragOperationsMask operations_allowed) {
   return true;
 }
 
@@ -145,29 +150,12 @@ JavaScriptDialogManager* WebContentsDelegate::GetJavaScriptDialogManager(
   return nullptr;
 }
 
-std::unique_ptr<BluetoothChooser> WebContentsDelegate::RunBluetoothChooser(
-    RenderFrameHost* frame,
-    const BluetoothChooser::EventHandler& event_handler) {
-  return nullptr;
-}
-
 void WebContentsDelegate::CreateSmsPrompt(
     RenderFrameHost* host,
-    const url::Origin& origin,
+    const std::vector<url::Origin>& origin_list,
     const std::string& one_time_code,
     base::OnceCallback<void()> on_confirm,
     base::OnceCallback<void()> on_cancel) {}
-
-std::unique_ptr<BluetoothScanningPrompt>
-WebContentsDelegate::ShowBluetoothScanningPrompt(
-    RenderFrameHost* frame,
-    const BluetoothScanningPrompt::EventHandler& event_handler) {
-  return nullptr;
-}
-
-bool WebContentsDelegate::EmbedsFullscreenWidget() {
-  return false;
-}
 
 bool WebContentsDelegate::IsFullscreenForTabOrPending(
     const WebContents* web_contents) {
@@ -177,6 +165,23 @@ bool WebContentsDelegate::IsFullscreenForTabOrPending(
 blink::mojom::DisplayMode WebContentsDelegate::GetDisplayMode(
     const WebContents* web_contents) {
   return blink::mojom::DisplayMode::kBrowser;
+}
+
+blink::ProtocolHandlerSecurityLevel
+WebContentsDelegate::GetProtocolHandlerSecurityLevel(RenderFrameHost*) {
+  return blink::ProtocolHandlerSecurityLevel::kStrict;
+}
+
+void WebContentsDelegate::RequestToLockMouse(WebContents* web_contents,
+                                             bool user_gesture,
+                                             bool last_unlocked_by_target) {
+  web_contents->GotResponseToLockMouseRequest(
+      blink::mojom::PointerLockResult::kUnknownError);
+}
+
+void WebContentsDelegate::RequestKeyboardLock(WebContents* web_contents,
+                                              bool esc_key_locked) {
+  web_contents->GotResponseToKeyboardLockRequest(false);
 }
 
 ColorChooser* WebContentsDelegate::OpenColorChooser(
@@ -350,12 +355,6 @@ void WebContentsDelegate::UpdateInspectedWebContentsIfNecessary(
 
 bool WebContentsDelegate::ShouldShowStaleContentOnEviction(
     WebContents* source) {
-  return false;
-}
-
-bool WebContentsDelegate::IsFrameLowPriority(
-    const WebContents* web_contents,
-    const RenderFrameHost* render_frame_host) {
   return false;
 }
 

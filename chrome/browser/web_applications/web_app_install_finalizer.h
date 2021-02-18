@@ -9,14 +9,16 @@
 #include <memory>
 #include <vector>
 
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/web_applications/components/install_finalizer.h"
+#include "chrome/browser/web_applications/components/os_integration_manager.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
-#include "chrome/common/web_application_info.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
 class Profile;
+class ScopedKeepAlive;
+class ScopedProfileKeepAlive;
 
 namespace web_app {
 
@@ -30,6 +32,8 @@ class WebAppInstallFinalizer final : public InstallFinalizer {
   WebAppInstallFinalizer(Profile* profile,
                          WebAppIconManager* icon_manager,
                          std::unique_ptr<InstallFinalizer> legacy_finalizer);
+  WebAppInstallFinalizer(const WebAppInstallFinalizer&) = delete;
+  WebAppInstallFinalizer& operator=(const WebAppInstallFinalizer&) = delete;
   ~WebAppInstallFinalizer() override;
 
   // InstallFinalizer:
@@ -43,9 +47,6 @@ class WebAppInstallFinalizer final : public InstallFinalizer {
   void UninstallExternalWebApp(const AppId& app_id,
                                ExternalInstallSource external_install_source,
                                UninstallWebAppCallback callback) override;
-  bool CanUserUninstallFromSync(const AppId& app_id) const override;
-  void UninstallWebAppFromSyncByUser(const AppId& app_id,
-                                     UninstallWebAppCallback callback) override;
   bool CanUserUninstallExternalApp(const AppId& app_id) const override;
   void UninstallExternalAppByUser(const AppId& app_id,
                                   UninstallWebAppCallback callback) override;
@@ -56,6 +57,22 @@ class WebAppInstallFinalizer final : public InstallFinalizer {
 
  private:
   using CommitCallback = base::OnceCallback<void(bool success)>;
+
+  // A pair of keepalive objects, to prevent BrowserProcess and Profile*
+  // teardown.
+  class KeepAlive {
+   public:
+    explicit KeepAlive(Profile* profile);
+    KeepAlive(KeepAlive&&);
+    ~KeepAlive();
+
+    KeepAlive(const KeepAlive&) = delete;
+    KeepAlive& operator=(const KeepAlive&) = delete;
+
+   private:
+    std::unique_ptr<ScopedKeepAlive> browser_keep_alive_;
+    std::unique_ptr<ScopedProfileKeepAlive> profile_keep_alive_;
+  };
 
   void UninstallWebApp(const AppId& app_id, UninstallWebAppCallback callback);
   void UninstallWebAppOrRemoveSource(const AppId& app_id,
@@ -77,9 +94,10 @@ class WebAppInstallFinalizer final : public InstallFinalizer {
                                        std::unique_ptr<WebApp> web_app,
                                        bool success);
 
-  void OnIconsDataDeleted(const AppId& app_id,
-                          UninstallWebAppCallback callback,
-                          bool success);
+  void OnIconsDataDeletedAndWebAppUninstalled(const AppId& app_id,
+                                              UninstallWebAppCallback callback,
+                                              KeepAlive keep_alive,
+                                              bool success);
   void OnDatabaseCommitCompletedForInstall(InstallFinalizedCallback callback,
                                            AppId app_id,
                                            bool success);
@@ -89,9 +107,14 @@ class WebAppInstallFinalizer final : public InstallFinalizer {
       std::string old_name,
       const WebApplicationInfo& web_app_info,
       bool success);
+  void OnUninstallOsHooks(const AppId& app_id,
+                          UninstallWebAppCallback callback,
+                          KeepAlive keep_alive,
+                          OsHooksResults os_hooks_info);
 
   WebAppRegistrar& GetWebAppRegistrar() const;
 
+  // Used for legacy Bookmark Apps.
   std::unique_ptr<InstallFinalizer> legacy_finalizer_;
 
   Profile* const profile_;
@@ -100,7 +123,6 @@ class WebAppInstallFinalizer final : public InstallFinalizer {
 
   base::WeakPtrFactory<WebAppInstallFinalizer> weak_ptr_factory_{this};
 
-  DISALLOW_COPY_AND_ASSIGN(WebAppInstallFinalizer);
 };
 
 }  // namespace web_app

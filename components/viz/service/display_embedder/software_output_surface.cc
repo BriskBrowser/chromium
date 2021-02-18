@@ -11,6 +11,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/viz/common/frame_sinks/begin_frame_source.h"
 #include "components/viz/service/display/output_surface_client.h"
 #include "components/viz/service/display/output_surface_frame.h"
@@ -26,10 +27,6 @@ SoftwareOutputSurface::SoftwareOutputSurface(
     std::unique_ptr<SoftwareOutputDevice> software_device)
     : OutputSurface(std::move(software_device)) {
   capabilities_.max_frames_pending = software_device_->MaxFramesPending();
-  // Arbitrary max texture size to help avoid OOM crashes. A 8192*8192 RGBA
-  // texture will require ~268mb of memory so we probably don't want to allow
-  // much bigger.
-  capabilities_.max_render_target_size = 8192;
 }
 
 SoftwareOutputSurface::~SoftwareOutputSurface() = default;
@@ -116,7 +113,9 @@ void SoftwareOutputSurface::SwapBuffersCallback(base::TimeTicks swap_time,
   base::TimeTicks now = base::TimeTicks::Now();
   base::TimeDelta interval_to_next_refresh =
       now.SnappedToNextTick(refresh_timebase_, refresh_interval_) - now;
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   if (needs_swap_size_notifications_)
     client_->DidSwapWithSize(pixel_size);
 #endif
@@ -145,19 +144,12 @@ gfx::OverlayTransform SoftwareOutputSurface::GetDisplayTransform() {
   return gfx::OVERLAY_TRANSFORM_NONE;
 }
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 void SoftwareOutputSurface::SetNeedsSwapSizeNotifications(
     bool needs_swap_size_notifications) {
   needs_swap_size_notifications_ = needs_swap_size_notifications;
 }
 #endif
-
-scoped_refptr<gpu::GpuTaskSchedulerHelper>
-SoftwareOutputSurface::GetGpuTaskSchedulerHelper() {
-  return nullptr;
-}
-
-gpu::MemoryTracker* SoftwareOutputSurface::GetMemoryTracker() {
-  return nullptr;
-}
 }  // namespace viz

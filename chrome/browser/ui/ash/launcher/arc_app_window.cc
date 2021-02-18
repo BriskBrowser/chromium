@@ -12,7 +12,6 @@
 #include "chrome/browser/ui/app_list/arc/arc_app_icon.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/ash/launcher/arc_app_window_delegate.h"
-#include "chrome/common/chrome_features.h"
 #include "components/arc/arc_util.h"
 #include "components/exo/shell_surface_base.h"
 #include "components/exo/shell_surface_util.h"
@@ -112,7 +111,7 @@ void ArcAppWindow::SetIcon(const gfx::ImageSkia& icon) {
   // Reset any pending request to set default app icon.
   apply_default_image_timer_.Stop();
 
-  if (!exo::GetShellMainSurface(GetNativeWindow())) {
+  if (!exo::GetShellRootSurface(GetNativeWindow())) {
     // Support unit tests where we don't have exo system initialized.
     views::NativeWidgetAura::AssignIconToAuraWindow(
         GetNativeWindow(), gfx::ImageSkia() /* window_icon */,

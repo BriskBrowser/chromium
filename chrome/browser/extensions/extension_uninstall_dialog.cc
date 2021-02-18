@@ -5,12 +5,13 @@
 #include "chrome/browser/extensions/extension_uninstall_dialog.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/extensions/chrome_app_icon_service.h"
+#include "chrome/browser/extensions/extension_management.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/profiles/profile.h"
@@ -73,6 +74,7 @@ ExtensionUninstallDialog::ExtensionUninstallDialog(
     gfx::NativeWindow parent,
     ExtensionUninstallDialog::Delegate* delegate)
     : profile_(profile), parent_(parent), delegate_(delegate) {
+  DCHECK(delegate_);
   if (parent)
     parent_window_tracker_ = NativeWindowTracker::Create(parent);
 }
@@ -285,7 +287,9 @@ void ExtensionUninstallDialog::HandleReportAbuse() {
 }
 
 bool ExtensionUninstallDialog::ShouldShowReportAbuseCheckbox() const {
-  return ManifestURL::UpdatesFromGallery(extension_.get());
+  ExtensionManagement* extension_management =
+      ExtensionManagementFactory::GetForBrowserContext(profile_);
+  return extension_management->UpdatesFromWebstore(*extension_);
 }
 
 bool ExtensionUninstallDialog::ShouldShowRemoveDataCheckbox() const {

@@ -6,9 +6,11 @@
 #define CHROME_BROWSER_MEDIA_HISTORY_MEDIA_HISTORY_KEYED_SERVICE_H_
 
 #include "base/macros.h"
+#include "base/scoped_observation.h"
 #include "base/time/time.h"
 #include "chrome/browser/media/feeds/media_feeds_store.mojom.h"
 #include "chrome/browser/media/history/media_history_store.mojom.h"
+#include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_service_observer.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "content/public/browser/media_player_watch_time.h"
@@ -26,10 +28,6 @@ struct MediaImage;
 struct MediaMetadata;
 struct MediaPosition;
 }  // namespace media_session
-
-namespace history {
-class HistoryService;
-}  // namespace history
 
 namespace media_history {
 
@@ -249,8 +247,11 @@ class MediaHistoryKeyedService : public KeyedService,
       // |origin_audio_video_watchtime_percentile| field in |MediaFeedPtr|.
       kTopFeedsForDisplay,
 
-      // Returns the feeeds that have been selected by the user to be fetched.
+      // Returns the feeds that have been selected by the user to be fetched.
       kSelectedFeedsForFetch,
+
+      // Returns the feeds that have been newly discovered.
+      kNewFeeds,
     };
 
     static GetMediaFeedsRequest CreateTopFeedsForFetch(
@@ -264,6 +265,8 @@ class MediaHistoryKeyedService : public KeyedService,
         base::Optional<media_feeds::mojom::MediaFeedItemType> filter_by_type);
 
     static GetMediaFeedsRequest CreateSelectedFeedsForFetch();
+
+    static GetMediaFeedsRequest CreateNewFeeds();
 
     GetMediaFeedsRequest();
     GetMediaFeedsRequest(const GetMediaFeedsRequest& t);
@@ -352,6 +355,7 @@ class MediaHistoryKeyedService : public KeyedService,
 
   // Saves a newly discovered media feed in the media history store.
   void DiscoverMediaFeed(const GURL& url,
+                         const base::Optional<GURL>& favicon,
                          base::OnceClosure callback = base::DoNothing());
 
  private:
@@ -360,6 +364,10 @@ class MediaHistoryKeyedService : public KeyedService,
   std::unique_ptr<StoreHolder> store_;
 
   Profile* profile_;
+
+  base::ScopedObservation<history::HistoryService,
+                          history::HistoryServiceObserver>
+      history_service_observation_{this};
 
   DISALLOW_COPY_AND_ASSIGN(MediaHistoryKeyedService);
 };

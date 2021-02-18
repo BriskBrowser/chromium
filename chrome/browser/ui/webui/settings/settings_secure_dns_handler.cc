@@ -14,7 +14,6 @@
 #include "chrome/browser/net/secure_dns_util.h"
 #include "chrome/browser/net/stub_resolver_config_reader.h"
 #include "chrome/browser/net/system_network_context_manager.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/country_codes/country_codes.h"
@@ -24,6 +23,7 @@
 #include "content/public/browser/web_ui.h"
 #include "net/dns/public/dns_over_https_server_config.h"
 #include "net/dns/public/doh_provider_entry.h"
+#include "net/dns/public/secure_dns_mode.h"
 #include "net/dns/public/util.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -96,12 +96,14 @@ void SecureDnsHandler::OnJavascriptAllowed() {
   pref_registrar_.Init(g_browser_process->local_state());
   pref_registrar_.Add(
       prefs::kDnsOverHttpsMode,
-      base::Bind(&SecureDnsHandler::SendSecureDnsSettingUpdatesToJavascript,
-                 base::Unretained(this)));
+      base::BindRepeating(
+          &SecureDnsHandler::SendSecureDnsSettingUpdatesToJavascript,
+          base::Unretained(this)));
   pref_registrar_.Add(
       prefs::kDnsOverHttpsTemplates,
-      base::Bind(&SecureDnsHandler::SendSecureDnsSettingUpdatesToJavascript,
-                 base::Unretained(this)));
+      base::BindRepeating(
+          &SecureDnsHandler::SendSecureDnsSettingUpdatesToJavascript,
+          base::Unretained(this)));
 }
 
 void SecureDnsHandler::OnJavascriptDisallowed() {
@@ -205,7 +207,7 @@ void SecureDnsHandler::HandleProbeCustomDnsTemplate(
   net::DnsConfigOverrides overrides;
   overrides.search = std::vector<std::string>();
   overrides.attempts = 1;
-  overrides.secure_dns_mode = net::DnsConfig::SecureDnsMode::SECURE;
+  overrides.secure_dns_mode = net::SecureDnsMode::kSecure;
   secure_dns::ApplyTemplate(&overrides, server_template);
   DCHECK(!runner_);
   runner_ = std::make_unique<chrome_browser_net::DnsProbeRunner>(

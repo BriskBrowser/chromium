@@ -23,6 +23,9 @@ class ChromeAppListItem;
 class ChromeAppListModelUpdater : public AppListModelUpdater {
  public:
   explicit ChromeAppListModelUpdater(Profile* profile);
+  ChromeAppListModelUpdater(const ChromeAppListModelUpdater&) = delete;
+  ChromeAppListModelUpdater& operator=(const ChromeAppListModelUpdater&) =
+      delete;
   ~ChromeAppListModelUpdater() override;
 
   void SetActive(bool active) override;
@@ -49,11 +52,14 @@ class ChromeAppListModelUpdater : public AppListModelUpdater {
   void SetItemNameAndShortName(const std::string& id,
                                const std::string& name,
                                const std::string& short_name) override;
+  void SetAppStatus(const std::string& id, ash::AppStatus app_status) override;
   void SetItemPosition(const std::string& id,
                        const syncer::StringOrdinal& new_position) override;
   void SetItemIsPersistent(const std::string& id, bool is_persistent) override;
   void SetItemFolderId(const std::string& id,
                        const std::string& folder_id) override;
+  void SetNotificationBadgeColor(const std::string& id,
+                                 const SkColor color) override;
 
   // Methods only used by ChromeSearchResult that talk to ash directly.
   void SetSearchResultMetadata(
@@ -79,6 +85,7 @@ class ChromeAppListModelUpdater : public AppListModelUpdater {
   void GetContextMenuModel(const std::string& id,
                            GetMenuModelCallback callback) override;
   syncer::StringOrdinal GetFirstAvailablePosition() const override;
+  syncer::StringOrdinal GetPositionBeforeFirstItem() const override;
 
   // Methods for AppListSyncableService:
   void AddItemToOemFolder(
@@ -105,6 +112,8 @@ class ChromeAppListModelUpdater : public AppListModelUpdater {
   void RemoveObserver(AppListModelUpdaterObserver* observer) override;
 
  private:
+  std::vector<ChromeAppListItem*> GetTopLevelItems() const;
+
   // A map from a ChromeAppListItem's id to its unique pointer. This item set
   // matches the one in AppListModel.
   std::map<std::string, std::unique_ptr<ChromeAppListItem>> items_;
@@ -116,8 +125,6 @@ class ChromeAppListModelUpdater : public AppListModelUpdater {
   bool search_engine_is_google_ = false;
 
   base::WeakPtrFactory<ChromeAppListModelUpdater> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeAppListModelUpdater);
 };
 
 #endif  // CHROME_BROWSER_UI_APP_LIST_CHROME_APP_LIST_MODEL_UPDATER_H_

@@ -4,9 +4,8 @@
 
 #include "ui/ozone/platform/wayland/host/wayland_touch.h"
 
-#include <wayland-client.h>
-
 #include "base/time/time.h"
+#include "ui/events/types/event_type.h"
 #include "ui/gfx/geometry/point_f.h"
 #include "ui/ozone/platform/wayland/common/wayland_util.h"
 #include "ui/ozone/platform/wayland/host/wayland_connection.h"
@@ -23,14 +22,11 @@ WaylandTouch::WaylandTouch(wl_touch* touch,
       &WaylandTouch::Frame, &WaylandTouch::Cancel,
   };
 
-  DCHECK(delegate_);
-  delegate_->OnTouchCreated(this);
-
   wl_touch_add_listener(obj_.get(), &listener, this);
 }
 
 WaylandTouch::~WaylandTouch() {
-  delegate_->OnTouchDestroyed(this);
+  delegate_->OnTouchCancelEvent();
 }
 
 void WaylandTouch::Down(void* data,
@@ -46,7 +42,7 @@ void WaylandTouch::Down(void* data,
 
   WaylandTouch* touch = static_cast<WaylandTouch*>(data);
   DCHECK(touch);
-  touch->connection_->set_serial(serial);
+  touch->connection_->set_serial(serial, ET_TOUCH_PRESSED);
 
   WaylandWindow* window = wl::RootWindowFromWlSurface(surface);
   gfx::PointF location(wl_fixed_to_double(x), wl_fixed_to_double(y));
@@ -62,6 +58,8 @@ void WaylandTouch::Up(void* data,
                       int32_t id) {
   WaylandTouch* touch = static_cast<WaylandTouch*>(data);
   DCHECK(touch);
+
+  touch->connection_->set_serial(serial, ET_TOUCH_RELEASED);
 
   base::TimeTicks timestamp =
       base::TimeTicks() + base::TimeDelta::FromMilliseconds(time);

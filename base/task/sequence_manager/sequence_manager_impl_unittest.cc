@@ -6,11 +6,12 @@
 
 #include <stddef.h>
 #include <memory>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
 #include "base/cancelable_callback.h"
@@ -41,7 +42,7 @@
 #include "base/task/sequence_manager/thread_controller_with_message_pump_impl.h"
 #include "base/task/sequence_manager/work_queue.h"
 #include "base/task/sequence_manager/work_queue_sets.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/mock_callback.h"
 #include "base/test/null_task_runner.h"
 #include "base/test/simple_test_tick_clock.h"
@@ -76,8 +77,8 @@ using testing::UnorderedElementsAre;
 namespace base {
 namespace sequence_manager {
 namespace internal {
-// To avoid symbol collisions in jumbo builds.
-namespace sequence_manager_impl_unittest {
+
+namespace {
 
 enum class TestType {
   kMockTaskRunner,
@@ -224,7 +225,7 @@ class FixtureWithMockTaskRunner final : public Fixture {
 
 class FixtureWithMockMessagePump : public Fixture {
  public:
-  explicit FixtureWithMockMessagePump() : call_counting_clock_(&mock_clock_) {
+  FixtureWithMockMessagePump() : call_counting_clock_(&mock_clock_) {
     // A null clock triggers some assertions.
     mock_clock_.Advance(TimeDelta::FromMilliseconds(1));
 
@@ -235,10 +236,11 @@ class FixtureWithMockMessagePump : public Fixture {
                         .SetRandomisedSamplingEnabled(false)
                         .SetTickClock(mock_tick_clock())
                         .Build();
-    sequence_manager_ = SequenceManagerForTest::Create(
+    auto thread_controller =
         std::make_unique<ThreadControllerWithMessagePumpImpl>(std::move(pump),
-                                                              settings),
-        std::move(settings));
+                                                              settings);
+    sequence_manager_ = SequenceManagerForTest::Create(
+        std::move(thread_controller), std::move(settings));
     sequence_manager_->SetDefaultTaskRunner(MakeRefCounted<NullTaskRunner>());
 
     // The SequenceManager constructor calls Now() once for setting up
@@ -414,6 +416,8 @@ void NopTask() {}
 class TestCountUsesTimeSource : public TickClock {
  public:
   TestCountUsesTimeSource() = default;
+  TestCountUsesTimeSource(const TestCountUsesTimeSource&) = delete;
+  TestCountUsesTimeSource& operator=(const TestCountUsesTimeSource&) = delete;
   ~TestCountUsesTimeSource() override = default;
 
   TimeTicks NowTicks() const override {
@@ -426,9 +430,22 @@ class TestCountUsesTimeSource : public TickClock {
 
  private:
   mutable int now_calls_count_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(TestCountUsesTimeSource);
 };
+
+class QueueTimeTaskObserver : public TaskObserver {
+ public:
+  void WillProcessTask(const PendingTask& pending_task,
+                       bool was_blocked_or_low_priority) override {
+    queue_times_.push_back(pending_task.queue_time);
+  }
+  void DidProcessTask(const PendingTask& pending_task) override {}
+  std::vector<TimeTicks> queue_times() const { return queue_times_; }
+
+ private:
+  std::vector<TimeTicks> queue_times_;
+};
+
+}  // namespace
 
 TEST_P(SequenceManagerTest, GetCorrectTaskRunnerForCurrentTask) {
   auto queue = CreateTaskQueue();
@@ -578,6 +595,7 @@ TEST_P(SequenceManagerTest, NonNestableTaskExecutesInExpectedOrder) {
 }
 
 TEST_P(SequenceManagerTest, NonNestableTasksDoesntExecuteInNestedLoop) {
+  // TestMockTimeTaskRunner doesn't support nested loops.
   if (GetUnderlyingRunnerType() == TestType::kMockTaskRunner)
     return;
   auto queue = CreateTaskQueue();
@@ -603,6 +621,77 @@ TEST_P(SequenceManagerTest, NonNestableTasksDoesntExecuteInNestedLoop) {
   RunLoop().RunUntilIdle();
   // Note we expect tasks 3 & 4 to run last because they're non-nestable.
   EXPECT_THAT(run_order, ElementsAre(1u, 2u, 5u, 6u, 3u, 4u));
+}
+
+TEST_P(SequenceManagerTest, NonNestableTaskQueueTimeShiftsToEndOfNestedLoop) {
+  // TestMockTimeTaskRunner doesn't support nested loops.
+  if (GetUnderlyingRunnerType() == TestType::kMockTaskRunner)
+    return;
+
+  auto queue = CreateTaskQueue();
+
+  QueueTimeTaskObserver observer;
+  sequence_manager()->AddTaskObserver(&observer);
+  sequence_manager()->SetAddQueueTimeToTasks(true);
+
+  RunLoop nested_run_loop(RunLoop::Type::kNestableTasksAllowed);
+
+  const TimeTicks start_time = mock_tick_clock()->NowTicks();
+
+  constexpr auto kTimeSpentInNestedLoop = TimeDelta::FromSeconds(1);
+  constexpr auto kTimeInTaskAfterNestedLoop = TimeDelta::FromSeconds(3);
+
+  // 1) Run task 1
+  // 2) Enter a nested loop
+  // 3) Run task 3
+  // 4) Advance time by 1 second
+  // 5) Run task 5
+  // 6) Exit nested loop
+  // 7) Run task 7 (non-nestable)
+  // 8) Advance time by 3 seconds (non-nestable)
+  // 9) Run task 9 (non-nestable)
+  // Steps 7-9 are expected to run last and have had their queue time adjusted
+  // to 6 (task 8 shouldn't affect task 9's queue time).
+  std::vector<EnqueueOrder> run_order;
+  queue->task_runner()->PostTask(FROM_HERE, BindOnce(&TestTask, 1, &run_order));
+  queue->task_runner()->PostTask(FROM_HERE, BindLambdaForTesting([&]() {
+                                   TestTask(2, &run_order);
+                                   nested_run_loop.Run();
+                                 }));
+  queue->task_runner()->PostTask(FROM_HERE, BindOnce(&TestTask, 3, &run_order));
+  queue->task_runner()->PostNonNestableTask(FROM_HERE,
+                                            BindOnce(&TestTask, 7, &run_order));
+  queue->task_runner()->PostTask(FROM_HERE, BindLambdaForTesting([&]() {
+                                   TestTask(4, &run_order);
+                                   AdvanceMockTickClock(kTimeSpentInNestedLoop);
+                                 }));
+  queue->task_runner()->PostNonNestableTask(
+      FROM_HERE, BindLambdaForTesting([&]() {
+        TestTask(8, &run_order);
+        AdvanceMockTickClock(kTimeInTaskAfterNestedLoop);
+      }));
+  queue->task_runner()->PostTask(FROM_HERE, BindOnce(&TestTask, 5, &run_order));
+  queue->task_runner()->PostNonNestableTask(FROM_HERE,
+                                            BindOnce(&TestTask, 9, &run_order));
+  queue->task_runner()->PostTask(FROM_HERE, BindLambdaForTesting([&]() {
+                                   TestTask(6, &run_order);
+                                   nested_run_loop.Quit();
+                                 }));
+
+  RunLoop().RunUntilIdle();
+
+  EXPECT_THAT(run_order, ElementsAre(1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u));
+
+  const TimeTicks expected_adjusted_queueing_time =
+      start_time + kTimeSpentInNestedLoop;
+  EXPECT_THAT(
+      observer.queue_times(),
+      ElementsAre(start_time, start_time, start_time, start_time, start_time,
+                  start_time, expected_adjusted_queueing_time,
+                  expected_adjusted_queueing_time,
+                  expected_adjusted_queueing_time));
+
+  sequence_manager()->RemoveTaskObserver(&observer);
 }
 
 namespace {
@@ -868,6 +957,8 @@ TEST(SequenceManagerTestWithMockTaskRunner,
   EXPECT_EQ(1u, fixture.test_task_runner()->GetPendingTaskCount());
 }
 
+namespace {
+
 class TestObject {
  public:
   ~TestObject() { destructor_count__++; }
@@ -878,6 +969,8 @@ class TestObject {
 };
 
 int TestObject::destructor_count__ = 0;
+
+}  // namespace
 
 TEST_P(SequenceManagerTest, PendingDelayedTasksRemovedOnShutdown) {
   auto queue = CreateTaskQueue();
@@ -1342,6 +1435,7 @@ TEST_P(SequenceManagerTest, ReentrantPosting) {
 }
 
 namespace {
+
 class RefCountedCallbackFactory {
  public:
   OnceCallback<void()> WrapCallback(OnceCallback<void()> cb) {
@@ -1356,6 +1450,7 @@ class RefCountedCallbackFactory {
   bool dummy_;
   WeakPtrFactory<bool> task_references_{&dummy_};
 };
+
 }  // namespace
 
 TEST_P(SequenceManagerTest, NoTasksAfterShutdown) {
@@ -1452,12 +1547,16 @@ TEST_P(SequenceManagerTest, WorkBatching) {
   EXPECT_THAT(run_order, ElementsAre(0u, 1u, 2u, 3u));
 }
 
+namespace {
+
 class MockTaskObserver : public TaskObserver {
  public:
   MOCK_METHOD1(DidProcessTask, void(const PendingTask& task));
   MOCK_METHOD2(WillProcessTask,
                void(const PendingTask& task, bool was_blocked_or_low_priority));
 };
+
+}  // namespace
 
 TEST_P(SequenceManagerTest, TaskObserverAdding) {
   auto queue = CreateTaskQueue();
@@ -1816,6 +1915,8 @@ TEST_P(SequenceManagerTest, DelayedTaskDoesNotSkipAHeadOfShorterDelayedTask) {
   EXPECT_THAT(run_order, ElementsAre(2u, 1u));
 }
 
+namespace {
+
 void CheckIsNested(bool* is_nested) {
   *is_nested = RunLoop::IsNestedOnCurrentThread();
 }
@@ -1828,6 +1929,8 @@ void PostAndQuitFromNestedRunloop(RunLoop* run_loop,
                                   BindOnce(&CheckIsNested, was_nested));
   run_loop->Run();
 }
+
+}  // namespace
 
 TEST_P(SequenceManagerTest, QuitWhileNested) {
   if (GetUnderlyingRunnerType() == TestType::kMockTaskRunner)
@@ -1847,6 +1950,8 @@ TEST_P(SequenceManagerTest, QuitWhileNested) {
   EXPECT_FALSE(was_nested);
 }
 
+namespace {
+
 class SequenceNumberCapturingTaskObserver : public TaskObserver {
  public:
   // TaskObserver overrides.
@@ -1861,6 +1966,8 @@ class SequenceNumberCapturingTaskObserver : public TaskObserver {
  private:
   std::vector<int> sequence_numbers_;
 };
+
+}  // namespace
 
 TEST_P(SequenceManagerTest, SequenceNumSetWhenTaskIsPosted) {
   auto queue = CreateTaskQueue();
@@ -2391,6 +2498,8 @@ TEST_P(SequenceManagerTest, TaskQueueObserver_DelayedWorkWhichCanRunNow) {
   queue->ShutdownTaskQueue();
 }
 
+namespace {
+
 class CancelableTask {
  public:
   explicit CancelableTask(const TickClock* clock) : clock_(clock) {}
@@ -2399,9 +2508,32 @@ class CancelableTask {
     run_times->push_back(clock_->NowTicks());
   }
 
+  template <typename... Args>
+  void FailTask(Args...) {
+    FAIL();
+  }
+
   const TickClock* clock_;
   WeakPtrFactory<CancelableTask> weak_factory_{this};
 };
+
+class DestructionCallback {
+ public:
+  explicit DestructionCallback(OnceCallback<void()> on_destroy)
+      : on_destroy_(std::move(on_destroy)) {}
+  ~DestructionCallback() {
+    if (on_destroy_)
+      std::move(on_destroy_).Run();
+  }
+  DestructionCallback(const DestructionCallback&) = delete;
+  DestructionCallback& operator=(const DestructionCallback&) = delete;
+  DestructionCallback(DestructionCallback&&) = default;
+
+ private:
+  OnceCallback<void()> on_destroy_;
+};
+
+}  // namespace
 
 TEST_P(SequenceManagerTest, TaskQueueObserver_SweepCanceledDelayedTasks) {
   auto queue = CreateTaskQueue();
@@ -2436,12 +2568,56 @@ TEST_P(SequenceManagerTest, TaskQueueObserver_SweepCanceledDelayedTasks) {
   sequence_manager()->ReclaimMemory();
 }
 
+TEST_P(SequenceManagerTest, SweepLastTaskInQueue) {
+  auto queue = CreateTaskQueue();
+  CancelableTask task(mock_tick_clock());
+  queue->task_runner()->PostDelayedTask(
+      FROM_HERE,
+      BindOnce(&CancelableTask::FailTask<>, task.weak_factory_.GetWeakPtr()),
+      base::TimeDelta::FromSeconds(1));
+
+  // Make sure sweeping away the last task in the queue doesn't end up accessing
+  // invalid iterators.
+  task.weak_factory_.InvalidateWeakPtrs();
+  sequence_manager()->ReclaimMemory();
+}
+
+TEST_P(SequenceManagerTest, CancelledTaskPostAnother) {
+  // This check ensures that a task whose destruction causes another task to be
+  // posted as a side-effect doesn't cause us to access invalid iterators while
+  // sweeping away cancelled tasks.
+  auto queue = CreateTaskQueue();
+  bool did_post = false;
+  auto on_destroy = BindLambdaForTesting([&] {
+    queue->task_runner()->PostDelayedTask(FROM_HERE,
+                                          BindLambdaForTesting([] {}),
+                                          base::TimeDelta::FromSeconds(1));
+    did_post = true;
+  });
+
+  DestructionCallback destruction_observer(std::move(on_destroy));
+  CancelableTask task(mock_tick_clock());
+  queue->task_runner()->PostDelayedTask(
+      FROM_HERE,
+      BindOnce(&CancelableTask::FailTask<DestructionCallback>,
+               task.weak_factory_.GetWeakPtr(),
+               std::move(destruction_observer)),
+      base::TimeDelta::FromSeconds(1));
+
+  task.weak_factory_.InvalidateWeakPtrs();
+  EXPECT_FALSE(did_post);
+  sequence_manager()->ReclaimMemory();
+  EXPECT_TRUE(did_post);
+}
+
 namespace {
+
 void ChromiumRunloopInspectionTask(
     scoped_refptr<TestMockTimeTaskRunner> test_task_runner) {
   // We don't expect more than 1 pending task at any time.
   EXPECT_GE(1u, test_task_runner->GetPendingTaskCount());
 }
+
 }  // namespace
 
 TEST(SequenceManagerTestWithMockTaskRunner,
@@ -4038,6 +4214,73 @@ TEST_P(SequenceManagerTest, HasPendingHighResolutionTasks) {
   EXPECT_FALSE(sequence_manager()->HasPendingHighResolutionTasks());
 }
 
+TEST_P(SequenceManagerTest, HasPendingHighResolutionTasksLowPriority) {
+  auto queue = CreateTaskQueue();
+  queue->SetQueuePriority(TaskQueue::QueuePriority::kLowPriority);
+  bool supports_high_res = false;
+#if defined(OS_WIN)
+  supports_high_res = true;
+#endif
+
+  // No task should be considered high resolution in a low priority queue.
+  EXPECT_FALSE(sequence_manager()->HasPendingHighResolutionTasks());
+  queue->task_runner()->PostTask(FROM_HERE, BindOnce(&NopTask));
+  EXPECT_FALSE(sequence_manager()->HasPendingHighResolutionTasks());
+  queue->task_runner()->PostDelayedTask(FROM_HERE, BindOnce(&NopTask),
+                                        TimeDelta::FromMilliseconds(100));
+  EXPECT_FALSE(sequence_manager()->HasPendingHighResolutionTasks());
+  queue->task_runner()->PostDelayedTask(FROM_HERE, BindOnce(&NopTask),
+                                        TimeDelta::FromMilliseconds(10));
+  EXPECT_FALSE(sequence_manager()->HasPendingHighResolutionTasks());
+
+  // Increasing queue priority should enable high resolution timer.
+  queue->SetQueuePriority(TaskQueue::QueuePriority::kNormalPriority);
+  EXPECT_EQ(sequence_manager()->HasPendingHighResolutionTasks(),
+            supports_high_res);
+  queue->SetQueuePriority(TaskQueue::QueuePriority::kLowPriority);
+  EXPECT_FALSE(sequence_manager()->HasPendingHighResolutionTasks());
+
+  // Running immediate tasks doesn't affect pending high resolution tasks.
+  RunLoop().RunUntilIdle();
+  EXPECT_FALSE(sequence_manager()->HasPendingHighResolutionTasks());
+
+  // Advancing to just before a pending low resolution task doesn't mean that we
+  // have pending high resolution work.
+  AdvanceMockTickClock(TimeDelta::FromMilliseconds(99));
+  RunLoop().RunUntilIdle();
+  EXPECT_FALSE(sequence_manager()->HasPendingHighResolutionTasks());
+
+  AdvanceMockTickClock(TimeDelta::FromMilliseconds(100));
+  RunLoop().RunUntilIdle();
+  EXPECT_FALSE(sequence_manager()->HasPendingHighResolutionTasks());
+}
+
+TEST_P(SequenceManagerTest,
+       HasPendingHighResolutionTasksLowAndNormalPriorityQueues) {
+  auto queueLow = CreateTaskQueue();
+  queueLow->SetQueuePriority(TaskQueue::QueuePriority::kLowPriority);
+  auto queueNormal = CreateTaskQueue();
+  queueNormal->SetQueuePriority(TaskQueue::QueuePriority::kNormalPriority);
+  bool supports_high_res = false;
+#if defined(OS_WIN)
+  supports_high_res = true;
+#endif
+
+  // No task should be considered high resolution in a low priority queue.
+  EXPECT_FALSE(sequence_manager()->HasPendingHighResolutionTasks());
+  queueLow->task_runner()->PostDelayedTask(FROM_HERE, BindOnce(&NopTask),
+                                           TimeDelta::FromMilliseconds(10));
+  EXPECT_FALSE(sequence_manager()->HasPendingHighResolutionTasks());
+  queueNormal->task_runner()->PostDelayedTask(FROM_HERE, BindOnce(&NopTask),
+                                              TimeDelta::FromMilliseconds(100));
+  EXPECT_FALSE(sequence_manager()->HasPendingHighResolutionTasks());
+
+  // Increasing queue priority should enable high resolution timer.
+  queueLow->SetQueuePriority(TaskQueue::QueuePriority::kNormalPriority);
+  EXPECT_EQ(sequence_manager()->HasPendingHighResolutionTasks(),
+            supports_high_res);
+}
+
 namespace {
 
 class PostTaskWhenDeleted;
@@ -4194,19 +4437,6 @@ TEST_P(SequenceManagerTest, DeletePendingTasks_Complex) {
 // TODO(altimin): Add a test that posts an infinite number of other tasks
 // from its destructor.
 
-class QueueTimeTaskObserver : public TaskObserver {
- public:
-  void WillProcessTask(const PendingTask& pending_task,
-                       bool was_blocked_or_low_priority) override {
-    queue_time_ = pending_task.queue_time;
-  }
-  void DidProcessTask(const PendingTask& pending_task) override {}
-  TimeTicks queue_time() { return queue_time_; }
-
- private:
-  TimeTicks queue_time_;
-};
-
 TEST_P(SequenceManagerTest, DoesNotRecordQueueTimeIfSettingFalse) {
   auto queue = CreateTaskQueue();
 
@@ -4218,7 +4448,7 @@ TEST_P(SequenceManagerTest, DoesNotRecordQueueTimeIfSettingFalse) {
   AdvanceMockTickClock(TimeDelta::FromMilliseconds(99));
   queue->task_runner()->PostTask(FROM_HERE, BindOnce(&NopTask));
   RunLoop().RunUntilIdle();
-  EXPECT_TRUE(observer.queue_time().is_null());
+  EXPECT_THAT(observer.queue_times(), ElementsAre(TimeTicks()));
 
   sequence_manager()->RemoveTaskObserver(&observer);
 }
@@ -4235,13 +4465,14 @@ TEST_P(SequenceManagerTest, RecordsQueueTimeIfSettingTrue) {
   AdvanceMockTickClock(TimeDelta::FromMilliseconds(99));
   queue->task_runner()->PostTask(FROM_HERE, BindOnce(&NopTask));
   RunLoop().RunUntilIdle();
-  EXPECT_EQ(observer.queue_time(),
-            kStartTime + TimeDelta::FromMilliseconds(99));
+  EXPECT_THAT(observer.queue_times(),
+              ElementsAre(kStartTime + TimeDelta::FromMilliseconds(99)));
 
   sequence_manager()->RemoveTaskObserver(&observer);
 }
 
 namespace {
+
 // Inject a test point for recording the destructor calls for OnceClosure
 // objects sent to PostTask(). It is awkward usage since we are trying to hook
 // the actual destruction, which is not a common operation.
@@ -4332,7 +4563,9 @@ namespace {
 
 class MockTimeDomain : public TimeDomain {
  public:
-  MockTimeDomain() {}
+  MockTimeDomain() = default;
+  MockTimeDomain(const MockTimeDomain&) = delete;
+  MockTimeDomain& operator=(const MockTimeDomain&) = delete;
   ~MockTimeDomain() override = default;
 
   LazyNow CreateLazyNow() const override { return LazyNow(now_); }
@@ -4350,8 +4583,6 @@ class MockTimeDomain : public TimeDomain {
 
  private:
   TimeTicks now_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockTimeDomain);
 };
 
 }  // namespace
@@ -4463,6 +4694,8 @@ TEST_P(SequenceManagerTest, PostDelayedTaskFromOtherThread) {
   thread.Stop();
 }
 
+namespace {
+
 void PostTaskA(scoped_refptr<TaskRunner> task_runner) {
   task_runner->PostTask(FROM_HERE, BindOnce(&NopTask));
   task_runner->PostDelayedTask(FROM_HERE, BindOnce(&NopTask),
@@ -4480,6 +4713,8 @@ void PostTaskC(scoped_refptr<TaskRunner> task_runner) {
   task_runner->PostDelayedTask(FROM_HERE, BindOnce(&NopTask),
                                base::TimeDelta::FromMilliseconds(30));
 }
+
+}  // namespace
 
 TEST_P(SequenceManagerTest, DescribeAllPendingTasks) {
   auto queues = CreateTaskQueues(3u);
@@ -4528,6 +4763,8 @@ TEST_P(SequenceManagerTest, TaskPriortyInterleaving) {
             "666666666666666666666666666666666666666666666666666666666666");
 }
 
+namespace {
+
 class CancelableTaskWithDestructionObserver {
  public:
   CancelableTaskWithDestructionObserver() {}
@@ -4539,6 +4776,8 @@ class CancelableTaskWithDestructionObserver {
   std::unique_ptr<ScopedClosureRunner> destruction_observer_;
   WeakPtrFactory<CancelableTaskWithDestructionObserver> weak_factory_{this};
 };
+
+}  // namespace
 
 TEST_P(SequenceManagerTest, PeriodicHousekeeping) {
   auto queue = CreateTaskQueue();
@@ -4599,6 +4838,8 @@ TEST_P(SequenceManagerTest, PeriodicHousekeeping) {
   FastForwardUntilNoTasksRemain();
 }
 
+namespace {
+
 class MockCrashKeyImplementation : public debug::CrashKeyImplementation {
  public:
   MOCK_METHOD2(Allocate,
@@ -4606,6 +4847,8 @@ class MockCrashKeyImplementation : public debug::CrashKeyImplementation {
   MOCK_METHOD2(Set, void(debug::CrashKeyString*, StringPiece));
   MOCK_METHOD1(Clear, void(debug::CrashKeyString*));
 };
+
+}  // namespace
 
 TEST_P(SequenceManagerTest, CrashKeys) {
   testing::InSequence sequence;
@@ -4995,7 +5238,6 @@ TEST_P(SequenceManagerTest, TaskObserverBlockedOrLowPriority_Mix) {
   sequence_manager()->RemoveTaskObserver(&observer);
 }
 
-}  // namespace sequence_manager_impl_unittest
 }  // namespace internal
 }  // namespace sequence_manager
 }  // namespace base

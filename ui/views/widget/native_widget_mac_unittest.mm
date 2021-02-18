@@ -18,6 +18,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #import "components/remote_cocoa/app_shim/bridged_content_view.h"
 #import "components/remote_cocoa/app_shim/native_widget_mac_nswindow.h"
 #import "components/remote_cocoa/app_shim/native_widget_ns_window_bridge.h"
@@ -401,56 +402,6 @@ class PaintCountView : public View {
   DISALLOW_COPY_AND_ASSIGN(PaintCountView);
 };
 
-// Test for correct child window restore when parent window is minimized
-// and restored using -makeKeyAndOrderFront:.
-// Parent-child window relationships in AppKit are not supported when window
-// visibility changes.
-// Disabled because it relies on cocoa occlusion APIs
-// and state changes that are unavoidably flaky.
-TEST_F(NativeWidgetMacTest, DISABLED_OrderFrontAfterMiniaturize) {
-  Widget* widget = CreateTopLevelPlatformWidget();
-  NSWindow* ns_window = widget->GetNativeWindow().GetNativeNSWindow();
-
-  Widget* child_widget = CreateChildPlatformWidget(widget->GetNativeView());
-  NSWindow* child_ns_window =
-      child_widget->GetNativeWindow().GetNativeNSWindow();
-
-  // Set parent bounds that overlap child.
-  widget->SetBounds(gfx::Rect(100, 100, 300, 300));
-  child_widget->SetBounds(gfx::Rect(110, 110, 100, 100));
-
-  widget->Show();
-  base::RunLoop().RunUntilIdle();
-
-  EXPECT_FALSE(widget->IsMinimized());
-
-  // Minimize parent.
-  [ns_window performMiniaturize:nil];
-  base::RunLoop().RunUntilIdle();
-
-  EXPECT_TRUE(widget->IsMinimized());
-  EXPECT_FALSE(widget->IsVisible());
-  EXPECT_FALSE(child_widget->IsVisible());
-
-  // Restore parent window as AppController does.
-  [ns_window makeKeyAndOrderFront:nil];
-
-  // Wait and check that child is really visible.
-  // TODO(kirr): remove the fixed delay.
-  base::RunLoop run_loop;
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, run_loop.QuitWhenIdleClosure(),
-      base::TimeDelta::FromSeconds(2));
-  run_loop.Run();
-
-  EXPECT_FALSE(widget->IsMinimized());
-  EXPECT_TRUE(widget->IsVisible());
-  EXPECT_TRUE(child_widget->IsVisible());
-  // Check that child window is visible.
-  EXPECT_TRUE([child_ns_window occlusionState] & NSWindowOcclusionStateVisible);
-  EXPECT_TRUE(IsWindowStackedAbove(child_widget, widget));
-  widget->Close();
-}
 
 // Test that a child widget is only added to its parent NSWindow when the
 // parent is on the active space. Otherwise, it may cause a space transition.
@@ -482,8 +433,6 @@ TEST_F(NativeWidgetMacTest, ChildWidgetOnInactiveSpace) {
 // Test minimized states triggered externally, implied visibility and restored
 // bounds whilst minimized.
 TEST_F(NativeWidgetMacTest, MiniaturizeExternally) {
-  if (base::mac::IsOS10_10())
-    return;  // Fails when swarmed. http://crbug.com/660582
   Widget* widget = new Widget;
   Widget::InitParams init_params(Widget::InitParams::TYPE_WINDOW);
   widget->Init(std::move(init_params));
@@ -879,34 +828,10 @@ TEST_F(NativeWidgetMacTest, NonWidgetParentLastReference) {
   EXPECT_TRUE(native_parent_dealloced);
 }
 
-// Tests visibility for child of native NSWindow, reshowing after -[NSApp hide].
-// Occasionally flaky (maybe due to [NSApp hide]). See https://crbug.com/777247.
-TEST_F(NativeWidgetMacTest, DISABLED_VisibleAfterNativeParentShow) {
-  NSWindow* native_parent = MakeBorderlessNativeParent();
-  Widget* child = AttachPopupToNativeParent(native_parent);
-  child->Show();
-  EXPECT_TRUE(child->IsVisible());
-
-  WidgetChangeObserver child_observer(child);
-  [NSApp hide:nil];
-  child_observer.WaitForVisibleCounts(0, 1);
-  EXPECT_FALSE(child->IsVisible());
-
-  [native_parent makeKeyAndOrderFront:nil];
-  child_observer.WaitForVisibleCounts(1, 1);
-  EXPECT_TRUE(child->IsVisible());
-
-  [native_parent close];
-}
-
 // Tests visibility for a child of a native NSWindow, reshowing after a
 // deminiaturize on the parent window (after attempting to show the child while
 // the parent was miniaturized).
 TEST_F(NativeWidgetMacTest, VisibleAfterNativeParentDeminiaturize) {
-  // Disabled on 10.10 due to flakes. See http://crbug.com/777247.
-  if (base::mac::IsOS10_10())
-    return;
-
   NSWindow* native_parent = MakeBorderlessNativeParent();
   [native_parent makeKeyAndOrderFront:nil];
   [native_parent miniaturize:nil];
@@ -1300,21 +1225,14 @@ TEST_F(NativeWidgetMacTest, ShowAnimationControl) {
   EXPECT_FALSE([retained_animation isAnimating]);
 }
 
-// Expect that |children|, the list of child windows of a window that has a
-// sheet open, is logically empty. "Logically empty" accounts for the
-// AppKit-created visual effect window that shows atop windows with open sheets
-// on macOS 11.
-void AssertNoChildrenForWindowWithSheet(NSArray<NSWindow*>* children) {
-  if (base::mac::IsAtLeastOS11()) {
-    ASSERT_EQ(1u, children.count);
-    EXPECT_NSEQ(@"NSSheetEffectDimmingWindow", children[0].className);
-  } else {
-    ASSERT_EQ(0u, children.count);
-  }
-}
-
 // Tests behavior of window-modal dialogs, displayed as sheets.
-TEST_F(NativeWidgetMacTest, WindowModalSheet) {
+#if defined(ARCH_CPU_ARM64)
+// Bulk-disabled as part of arm64 bot stabilization: https://crbug.com/1154345
+#define MAYBE_WindowModalSheet DISABLED_WindowModalSheet
+#else
+#define MAYBE_WindowModalSheet WindowModalSheet
+#endif
+TEST_F(NativeWidgetMacTest, MAYBE_WindowModalSheet) {
   NSWindow* native_parent = MakeClosableTitledNativeParent();
 
   Widget* sheet_widget = views::DialogDelegate::CreateDialogWidget(
@@ -1370,7 +1288,7 @@ TEST_F(NativeWidgetMacTest, WindowModalSheet) {
   ASSERT_EQ(2u, children.size());
   EXPECT_TRUE(children.count(sheet_widget));
 
-  AssertNoChildrenForWindowWithSheet(native_parent.childWindows);
+  ASSERT_EQ(0U, native_parent.childWindows.count);
 
   // Modal, so the close button in the parent window should get disabled.
   EXPECT_FALSE([parent_close_button isEnabled]);
@@ -1393,7 +1311,7 @@ TEST_F(NativeWidgetMacTest, WindowModalSheet) {
   widget_observer.WaitForVisibleCounts(1, 1);
   EXPECT_FALSE(sheet_widget->IsVisible());
   [native_parent makeKeyAndOrderFront:nil];
-  AssertNoChildrenForWindowWithSheet(native_parent.childWindows);
+  ASSERT_EQ(0u, native_parent.childWindows.count);
   widget_observer.WaitForVisibleCounts(2, 1);
   EXPECT_TRUE(sheet_widget->IsVisible());
 
@@ -1718,7 +1636,7 @@ TEST_F(NativeWidgetMacTest, NativeProperties) {
   EXPECT_FALSE([dialog_widget->GetNativeWindow().GetNativeNSWindow()
                     canBecomeMainWindow]);
 
-  // Create a bubble widget with a parent: also shouldn't get main.
+  // Create a bubble widget (with a parent): also shouldn't get main.
   BubbleDialogDelegateView* bubble_view = new SimpleBubbleView();
   bubble_view->set_parent_window(regular_widget->GetNativeView());
   Widget* bubble_widget = BubbleDialogDelegateView::CreateBubble(bubble_view);
@@ -1731,15 +1649,6 @@ TEST_F(NativeWidgetMacTest, NativeProperties) {
                     collectionBehavior] &
                 NSWindowCollectionBehaviorTransient);
 
-  // But a bubble without a parent should still be able to become main.
-  Widget* toplevel_bubble_widget =
-      BubbleDialogDelegateView::CreateBubble(new SimpleBubbleView());
-  EXPECT_TRUE([toplevel_bubble_widget->GetNativeWindow().GetNativeNSWindow()
-                   canBecomeKeyWindow]);
-  EXPECT_TRUE([toplevel_bubble_widget->GetNativeWindow().GetNativeNSWindow()
-                   canBecomeMainWindow]);
-
-  toplevel_bubble_widget->CloseNow();
   regular_widget->CloseNow();
 }
 

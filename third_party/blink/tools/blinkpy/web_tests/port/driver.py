@@ -126,7 +126,8 @@ class DriverOutput(object):
                  crash_site=None,
                  leak=False,
                  leak_log=None,
-                 pid=None):
+                 pid=None,
+                 command=None):
         # FIXME: Args could be renamed to better clarify what they do.
         self.text = text
         self.image = image  # May be empty-string if the test crashes.
@@ -145,6 +146,7 @@ class DriverOutput(object):
         self.timeout = timeout
         self.error = error  # stderr output
         self.pid = pid
+        self.command = command
 
     def has_stderr(self):
         return bool(self.error)
@@ -229,10 +231,11 @@ class Driver(object):
         self.error_from_test = str()
         self.err_seen_eof = False
 
-        command = self._command_from_driver_input(driver_input)
-        deadline = test_begin_time + int(driver_input.timeout) / 1000.0
+        test_command = self._command_from_driver_input(driver_input)
+        server_process_command = self._server_process.cmd()
 
-        self._server_process.write(command)
+        deadline = test_begin_time + int(driver_input.timeout) / 1000.0
+        self._server_process.write(test_command)
         # First block is either text or audio
         text, audio = self._read_first_block(deadline)
         # The second (optional) block is image data.
@@ -285,24 +288,25 @@ class Driver(object):
                 if self.error_from_test:
                     crash_log += '\nstdout:\n%s\nstderr:\n%s\n' % (
                         text, self.error_from_test)
+        command = "%s %s" % (" ".join(server_process_command), test_command)
 
-        return DriverOutput(
-            text,
-            image,
-            actual_image_hash,
-            audio,
-            crash=crashed,
-            test_time=time.time() - test_begin_time,
-            measurements=self._measurements,
-            timeout=timed_out,
-            error=self.error_from_test,
-            crashed_process_name=self._crashed_process_name,
-            crashed_pid=self._crashed_pid,
-            crash_log=crash_log,
-            crash_site=crash_site,
-            leak=leaked,
-            leak_log=self._leak_log,
-            pid=pid)
+        return DriverOutput(text,
+                            image,
+                            actual_image_hash,
+                            audio,
+                            crash=crashed,
+                            test_time=time.time() - test_begin_time,
+                            measurements=self._measurements,
+                            timeout=timed_out,
+                            error=self.error_from_test,
+                            crashed_process_name=self._crashed_process_name,
+                            crashed_pid=self._crashed_pid,
+                            crash_log=crash_log,
+                            crash_site=crash_site,
+                            leak=leaked,
+                            leak_log=self._leak_log,
+                            pid=pid,
+                            command=command)
 
     def _get_crash_log(self, stdout, stderr, newer_than):
         # pylint: disable=protected-access
@@ -359,6 +363,8 @@ class Driver(object):
                 test_dir_prefix = 'external/wpt/'
                 test_url_prefix = '/'
             hostname, insecure_port, secure_port = self.WPT_HOST_AND_PORTS
+            if '.www.' in test_name:
+                hostname = "www.%s" % hostname
         else:
             test_dir_prefix = self.HTTP_DIR
             test_url_prefix = '/'
@@ -427,6 +433,14 @@ class Driver(object):
             environment = self._profiler.adjusted_environment(environment)
         return environment
 
+    def _initialize_server_process(self, server_name, cmd_line, environment):
+        self._server_process = self._port.server_process_constructor(
+            self._port,
+            server_name,
+            cmd_line,
+            environment,
+            more_logging=self._port.get_option('driver_logging'))
+
     def _start(self, per_test_args, wait_for_ready=True):
         self.stop()
         self._driver_tempdir = self._port.host.filesystem.mkdtemp(
@@ -438,12 +452,7 @@ class Driver(object):
         self._crashed_pid = None
         self._leaked = False
         cmd_line = self.cmd_line(per_test_args)
-        self._server_process = self._port.server_process_constructor(
-            self._port,
-            server_name,
-            cmd_line,
-            environment,
-            more_logging=self._port.get_option('driver_logging'))
+        self._initialize_server_process(server_name, cmd_line, environment)
         self._server_process.start()
         self._current_cmd_line = cmd_line
 
@@ -512,14 +521,6 @@ class Driver(object):
         cmd.extend(self._port.additional_driver_flags())
         if self._port.get_option('enable_leak_detection'):
             cmd.append('--enable-leak-detection')
-
-        # Run tests with the new SameSite cookie behavior by default.
-        # By appending the features to --enable-features, they will be enabled if
-        # they are not also explicitly disabled (as base::FeatureList disables a
-        # feature that appears in both --disable-features and --enable-features).
-        cmd.append(
-            '--enable-features=SameSiteByDefaultCookies,CookiesWithoutSameSiteMustBeSecure'
-        )
 
         cmd.extend(per_test_args)
         cmd = coalesce_repeated_switches(cmd)

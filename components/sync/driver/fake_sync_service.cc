@@ -4,10 +4,13 @@
 
 #include "components/sync/driver/fake_sync_service.h"
 
+#include <utility>
+
 #include "base/values.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/sync/driver/sync_token_status.h"
 #include "components/sync/engine/cycle/sync_cycle_snapshot.h"
+#include "components/sync/model/type_entities_count.h"
 
 namespace syncer {
 
@@ -52,10 +55,6 @@ ModelTypeSet FakeSyncService::GetActiveDataTypes() const {
   return ModelTypeSet();
 }
 
-ModelTypeSet FakeSyncService::GetBackedOffDataTypes() const {
-  return ModelTypeSet();
-}
-
 void FakeSyncService::AddObserver(SyncServiceObserver* observer) {}
 
 void FakeSyncService::RemoveObserver(SyncServiceObserver* observer) {}
@@ -66,11 +65,9 @@ bool FakeSyncService::HasObserver(const SyncServiceObserver* observer) const {
 
 void FakeSyncService::StopAndClear() {}
 
-void FakeSyncService::OnDataTypeRequestsSyncStartup(ModelType type) {}
+void FakeSyncService::SetSyncAllowedByPlatform(bool allowed) {}
 
-ModelTypeSet FakeSyncService::GetRegisteredDataTypes() const {
-  return ModelTypeSet();
-}
+void FakeSyncService::OnDataTypeRequestsSyncStartup(ModelType type) {}
 
 ModelTypeSet FakeSyncService::GetPreferredDataTypes() const {
   return ModelTypeSet();
@@ -121,6 +118,12 @@ std::unique_ptr<base::Value> FakeSyncService::GetTypeStatusMapForDebugging() {
   return nullptr;
 }
 
+void FakeSyncService::GetEntityCountsForDebugging(
+    base::OnceCallback<void(const std::vector<TypeEntitiesCount>&)> callback)
+    const {
+  return std::move(callback).Run({});
+}
+
 const GURL& FakeSyncService::GetSyncServiceUrlForDebugging() const {
   return sync_service_url_;
 }
@@ -140,12 +143,6 @@ void FakeSyncService::AddProtocolEventObserver(
 void FakeSyncService::RemoveProtocolEventObserver(
     ProtocolEventObserver* observer) {}
 
-void FakeSyncService::AddTypeDebugInfoObserver(
-    TypeDebugInfoObserver* observer) {}
-
-void FakeSyncService::RemoveTypeDebugInfoObserver(
-    TypeDebugInfoObserver* observer) {}
-
 base::WeakPtr<JsController> FakeSyncService::GetJsController() {
   return base::WeakPtr<JsController>();
 }
@@ -160,11 +157,10 @@ void FakeSyncService::AddTrustedVaultDecryptionKeysFromWeb(
     const std::vector<std::vector<uint8_t>>& keys,
     int last_key_version) {}
 
-UserDemographicsResult FakeSyncService::GetUserNoisedBirthYearAndGender(
-    base::Time now) {
-  return UserDemographicsResult::ForStatus(
-      UserDemographicsStatus::kIneligibleDemographicsData);
-}
+void FakeSyncService::AddTrustedVaultRecoveryMethodFromWeb(
+    const std::string& gaia_id,
+    const std::vector<uint8_t>& public_key,
+    base::OnceClosure callback) {}
 
 void FakeSyncService::Shutdown() {}
 

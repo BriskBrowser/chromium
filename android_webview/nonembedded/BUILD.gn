@@ -7,13 +7,17 @@ import("//android_webview/variables.gni")
 import("//build/config/android/rules.gni")
 
 generate_jni("nonembedded_jni_headers") {
-  sources = [ "java/src/org/chromium/android_webview/nonembedded/WebViewApkApplication.java" ]
+  sources = [
+    "java/src/org/chromium/android_webview/nonembedded/AwComponentUpdateService.java",
+    "java/src/org/chromium/android_webview/nonembedded/WebViewApkApplication.java",
+  ]
 }
 
 # Contains classes needed by the webview apk, but not used when loading the apk
 # as a library.
 android_library("nonembedded_java") {
   sources = [
+    "java/src/org/chromium/android_webview/nonembedded/AwComponentUpdateService.java",
     "java/src/org/chromium/android_webview/nonembedded/AwNonembeddedUmaRecorder.java",
     "java/src/org/chromium/android_webview/nonembedded/LicenseActivity.java",
     "java/src/org/chromium/android_webview/nonembedded/LicenseContentProvider.java",
@@ -25,14 +29,15 @@ android_library("nonembedded_java") {
     "//android_webview:android_webview_product_config_java",
     "//android_webview:common_aidl_java",
     "//android_webview:common_java",
+    "//android_webview/glue:glue_java",
     "//android_webview/proto:metrics_bridge_records_proto_java",
     "//base:base_java",
     "//base:jni_java",
     "//components/about_ui/android:aboutui_java",
     "//components/embedder_support/android:application_java",
-    "//third_party/android_deps:androidx_annotation_annotation_java",
     "//third_party/android_deps:com_google_code_findbugs_jsr305_java",
     "//third_party/android_deps:protobuf_lite_runtime_java",
+    "//third_party/androidx:androidx_annotation_annotation_java",
     "//ui/android:ui_no_recycler_view_java",
   ]
   annotation_processor_deps = [ "//base/android/jni_generator:jni_processor" ]
@@ -65,13 +70,13 @@ android_library("devui_java") {
     "//base:base_java",
     "//components/minidump_uploader:minidump_uploader_java",
     "//components/version_info/android:version_constants_java",
-    "//third_party/android_deps:androidx_activity_activity_java",
-    "//third_party/android_deps:androidx_annotation_annotation_java",
-    "//third_party/android_deps:androidx_core_core_java",
-    "//third_party/android_deps:androidx_fragment_fragment_java",
-    "//third_party/android_deps:androidx_lifecycle_lifecycle_common_java",
-    "//third_party/android_deps:androidx_lifecycle_lifecycle_viewmodel_java",
-    "//third_party/android_deps:androidx_savedstate_savedstate_java",
+    "//third_party/androidx:androidx_activity_activity_java",
+    "//third_party/androidx:androidx_annotation_annotation_java",
+    "//third_party/androidx:androidx_core_core_java",
+    "//third_party/androidx:androidx_fragment_fragment_java",
+    "//third_party/androidx:androidx_lifecycle_lifecycle_common_java",
+    "//third_party/androidx:androidx_lifecycle_lifecycle_viewmodel_java",
+    "//third_party/androidx:androidx_savedstate_savedstate_java",
     "//ui/android:ui_no_recycler_view_java",
   ]
   resources_package = "org.chromium.android_webview.devui"
@@ -102,18 +107,38 @@ android_library("services_java") {
     "//components/minidump_uploader:minidump_uploader_java",
     "//components/variations/android:variations_java",
     "//components/version_info/android:version_constants_java",
-    "//third_party/android_deps:androidx_annotation_annotation_java",
     "//third_party/android_deps:com_google_code_findbugs_jsr305_java",
     "//third_party/android_deps:protobuf_lite_runtime_java",
+    "//third_party/androidx:androidx_annotation_annotation_java",
   ]
 }
 
 source_set("nonembedded") {
-  sources = [ "webview_apk_application.cc" ]
+  sources = [
+    "component_updater/aw_component_update_service.cc",
+    "component_updater/aw_component_update_service.h",
+    "component_updater/aw_component_updater_configurator.cc",
+    "component_updater/aw_component_updater_configurator.h",
+    "component_updater/registration.cc",
+    "component_updater/registration.h",
+    "webview_apk_application.cc",
+    "webview_apk_process.cc",
+    "webview_apk_process.h",
+  ]
   deps = [
     ":nonembedded_jni_headers",
     "//android_webview/common",
     "//base",
+    "//base",
+    "//components/component_updater",
+    "//components/prefs",
+    "//components/services/patch/content",
+    "//components/services/unzip/content",
+    "//components/update_client",
+    "//components/update_client:patch_impl",
+    "//components/update_client:unzip_impl",
+    "//components/version_info",
+    "//components/version_info/android:channel_getter",
 
     # Called via JNI by LicenseContentProvider in :nonembedded_java.
     "//components/about_ui:about_ui_android",
@@ -128,7 +153,6 @@ android_resources("icon_resources") {
     "java/res_icon/drawable-xhdpi/icon_webview.png",
     "java/res_icon/drawable-xxhdpi/icon_webview.png",
   ]
-  create_srcjar = false
 }
 
 android_resources("devui_resources") {
@@ -138,8 +162,8 @@ android_resources("devui_resources") {
     "java/res_devui/drawable/ic_alert_error.xml",
     "java/res_devui/drawable/ic_clear_text.xml",
     "java/res_devui/drawable/ic_delete.xml",
+    "java/res_devui/drawable/ic_devui_search.xml",
     "java/res_devui/drawable/ic_flag.xml",
-    "java/res_devui/drawable/ic_search.xml",
     "java/res_devui/layout/activity_main.xml",
     "java/res_devui/layout/crashes_list_item_body.xml",
     "java/res_devui/layout/crashes_list_item_header.xml",
@@ -160,19 +184,16 @@ android_resources("devui_resources") {
     "java/res_devui/values/strings.xml",
     "java/res_devui/values/styles.xml",
   ]
-  create_srcjar = false
 }
 
 android_resources("devui_launcher_icon_resources") {
   sources = []
-  create_srcjar = false
   android_manifest = "java/DeveloperUiLauncherManifest.xml"
 }
 
 android_resources("monochrome_devui_launcher_icon_resources") {
   sources = []
   android_manifest = "java/MonochromeDeveloperUiLauncherManifest.xml"
-  create_srcjar = false
 }
 
 _webview_jinja_variables = [ "manifest_package=$system_webview_package_name" ] +
@@ -187,19 +208,10 @@ jinja_template("system_webview_manifest") {
 jinja_template("trichrome_webview_manifest") {
   input = "java/AndroidManifest.xml"
   output = trichrome_webview_android_manifest
-  variables = trichrome_jinja_variables + _webview_jinja_variables
-  if (android_64bit_target_cpu) {
-    variables += [
-      "use32bitAbi=",
-      "library=libmonochrome_64.so",
-      "trichrome_version=$trichrome_64_32_version_code",
-    ]
-  } else {
-    variables += [
-      "library=libmonochrome.so",
-      "trichrome_version=$trichrome_version_code",
-    ]
-  }
+  variables = trichrome_jinja_variables + _webview_jinja_variables + [
+                "trichrome_version=$trichrome_version_code",
+                "library=libmonochrome.so",
+              ]
 }
 
 if (android_64bit_target_cpu) {
@@ -210,15 +222,6 @@ if (android_64bit_target_cpu) {
                   "use32bitAbi=",
                   "trichrome_version=$trichrome_64_32_version_code",
                   "library=libmonochrome_64.so",
-                ]
-  }
-
-  jinja_template("trichrome_webview_32_64_manifest") {
-    input = "java/AndroidManifest.xml"
-    output = trichrome_webview_32_64_android_manifest
-    variables = trichrome_jinja_variables + _webview_jinja_variables + [
-                  "trichrome_version=$trichrome_32_64_version_code",
-                  "library=libmonochrome.so",
                 ]
   }
 

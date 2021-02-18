@@ -7,7 +7,8 @@
 namespace chromeos {
 namespace phonehub {
 
-FakeTetherController::FakeTetherController() = default;
+FakeTetherController::FakeTetherController()
+    : status_(Status::kConnectionAvailable) {}
 
 FakeTetherController::~FakeTetherController() = default;
 
@@ -24,6 +25,7 @@ TetherController::Status FakeTetherController::GetStatus() const {
 }
 
 void FakeTetherController::ScanForAvailableConnection() {
+  num_scan_for_available_connection_calls_++;
   if (status_ == Status::kConnectionUnavailable)
     SetStatus(Status::kConnectionAvailable);
 }
@@ -33,6 +35,11 @@ void FakeTetherController::AttemptConnection() {
       status_ == Status::kConnectionAvailable) {
     SetStatus(Status::kConnecting);
   }
+}
+
+void FakeTetherController::Disconnect() {
+  if (status_ == Status::kConnecting || status_ == Status::kConnected)
+    SetStatus(Status::kConnecting);
 }
 
 }  // namespace phonehub

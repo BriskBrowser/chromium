@@ -5,7 +5,7 @@
 #include "chrome/browser/extensions/api/enterprise_networking_attributes/enterprise_networking_attributes_api.h"
 
 #include "base/values.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/extensions/api/enterprise_networking_attributes.h"
 #include "chromeos/network/device_state.h"
@@ -84,7 +84,8 @@ EnterpriseNetworkingAttributesGetNetworkDetailsFunction::Run() {
     details.ipv6 = std::make_unique<std::string>(ipv6_address);
   }
 
-  return RespondNow(OneArgument(details.ToValue()));
+  return RespondNow(
+      OneArgument(base::Value::FromUniquePtrValue(details.ToValue())));
 }
 
 }  // namespace extensions

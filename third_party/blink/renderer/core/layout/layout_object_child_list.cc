@@ -32,7 +32,6 @@
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_fragment_items.h"
-#include "third_party/blink/renderer/core/paint/ng/ng_paint_fragment.h"
 #include "third_party/blink/renderer/core/paint/object_paint_invalidator.h"
 
 namespace blink {
@@ -46,9 +45,9 @@ namespace {
 void InvalidateInlineItems(LayoutObject* object) {
   DCHECK(object->IsInLayoutNGInlineFormattingContext());
 
-  if (auto* layout_text = ToLayoutTextOrNull(object)) {
+  if (auto* layout_text = DynamicTo<LayoutText>(object)) {
     layout_text->InvalidateInlineItems();
-  } else if (auto* layout_inline = ToLayoutInlineOrNull(object)) {
+  } else if (auto* layout_inline = DynamicTo<LayoutInline>(object)) {
     // In some cases, only top-level objects are moved, when |SplitFlow()| moves
     // subtree, or when moving without |notify_layout_object|. Ensure to
     // invalidate all descendants in this inline formatting context.
@@ -59,24 +58,22 @@ void InvalidateInlineItems(LayoutObject* object) {
     }
   }
 
-  if (RuntimeEnabledFeatures::LayoutNGFragmentItemEnabled()) {
-    // This LayoutObject is not technically destroyed, but further access should
-    // be prohibited when moved to different parent as if it were destroyed.
-    if (object->FirstInlineFragmentItemIndex()) {
-      if (auto* text = ToLayoutTextOrNull(object))
-        text->DetachAbstractInlineTextBoxesIfNeeded();
-      NGFragmentItems::LayoutObjectWillBeMoved(*object);
-    }
-  } else if (NGPaintFragment* fragment = object->FirstInlineFragment()) {
-    // This LayoutObject is not technically destroyed, but further access should
-    // be prohibited when moved to different parent as if it were destroyed.
-    fragment->LayoutObjectWillBeDestroyed();
-    object->SetFirstInlineFragment(nullptr);
+  // This LayoutObject is not technically destroyed, but further access should
+  // be prohibited when moved to different parent as if it were destroyed.
+  if (object->FirstInlineFragmentItemIndex()) {
+    if (auto* text = DynamicTo<LayoutText>(object))
+      text->DetachAbstractInlineTextBoxesIfNeeded();
+    NGFragmentItems::LayoutObjectWillBeMoved(*object);
   }
   object->SetIsInLayoutNGInlineFormattingContext(false);
 }
 
 }  // namespace
+
+void LayoutObjectChildList::Trace(Visitor* visitor) const {
+  visitor->Trace(first_child_);
+  visitor->Trace(last_child_);
+}
 
 void LayoutObjectChildList::DestroyLeftoverChildren() {
   // Destroy any anonymous children remaining in the layout tree, as well as
@@ -97,7 +94,7 @@ LayoutObject* LayoutObjectChildList::RemoveChildNode(
   DCHECK_EQ(this, owner->VirtualChildren());
 
   if (old_child->IsFloatingOrOutOfFlowPositioned())
-    ToLayoutBox(old_child)->RemoveFloatingOrPositionedChildFromBlockLists();
+    To<LayoutBox>(old_child)->RemoveFloatingOrPositionedChildFromBlockLists();
 
   if (!owner->DocumentBeingDestroyed()) {
     // So that we'll get the appropriate dirty bit set (either that a normal
@@ -116,7 +113,7 @@ LayoutObject* LayoutObjectChildList::RemoveChildNode(
 
   // If we have a line box wrapper, delete it.
   if (old_child->IsBox())
-    ToLayoutBox(old_child)->DeleteLineBoxWrapper();
+    To<LayoutBox>(old_child)->DeleteLineBoxWrapper();
 
   if (!owner->DocumentBeingDestroyed()) {
     owner->NotifyOfSubtreeChange();
@@ -125,14 +122,13 @@ LayoutObject* LayoutObjectChildList::RemoveChildNode(
       LayoutCounter::LayoutObjectSubtreeWillBeDetached(old_child);
       old_child->WillBeRemovedFromTree();
     } else if (old_child->IsBox() &&
-               ToLayoutBox(old_child)->IsOrthogonalWritingModeRoot()) {
-      ToLayoutBox(old_child)->UnmarkOrthogonalWritingModeRoot();
+               To<LayoutBox>(old_child)->IsOrthogonalWritingModeRoot()) {
+      To<LayoutBox>(old_child)->UnmarkOrthogonalWritingModeRoot();
     }
 
     if (old_child->IsInLayoutNGInlineFormattingContext()) {
       owner->SetChildNeedsCollectInlines();
-      if (RuntimeEnabledFeatures::LayoutNGFragmentItemEnabled())
-        InvalidateInlineItems(old_child);
+      InvalidateInlineItems(old_child);
     }
   }
 
@@ -188,8 +184,7 @@ void LayoutObjectChildList::InsertChildNode(LayoutObject* owner,
     return;
   }
 
-  if (RuntimeEnabledFeatures::LayoutNGFragmentItemEnabled() &&
-      !owner->DocumentBeingDestroyed() &&
+  if (!owner->DocumentBeingDestroyed() &&
       new_child->IsInLayoutNGInlineFormattingContext()) {
     InvalidateInlineItems(new_child);
   }
@@ -242,12 +237,11 @@ void LayoutObjectChildList::InsertChildNode(LayoutObject* owner,
   if (new_child->WasNotifiedOfSubtreeChange())
     owner->NotifyAncestorsOfSubtreeChange();
 
-  if (owner->ForceLegacyLayout()) {
+  if (owner->ForceLegacyLayout() && !new_child->IsLayoutNGObject())
     new_child->SetForceLegacyLayout();
-    // TODO(crbug.com/943574): This would be a great place to DCHECK that the
-    // child isn't an NG object, but there are unfortunately cases where this
-    // actually happens.
-  }
+
+  // Mark the ancestor chain for paint invalidation checking.
+  owner->SetShouldCheckForPaintInvalidation();
 
   new_child->SetNeedsLayoutAndIntrinsicWidthsRecalc(
       layout_invalidation_reason::kAddedToLayout);

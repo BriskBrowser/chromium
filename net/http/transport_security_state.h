@@ -303,6 +303,7 @@ class NET_EXPORT TransportSecurityState {
     virtual void Send(const GURL& report_uri,
                       base::StringPiece content_type,
                       base::StringPiece report,
+                      const NetworkIsolationKey& network_isolation_key,
                       base::OnceCallback<void()> success_callback,
                       base::OnceCallback<void(const GURL&,
                                               int /* net_error */,
@@ -385,6 +386,7 @@ class NET_EXPORT TransportSecurityState {
       const X509Certificate* served_certificate_chain,
       const X509Certificate* validated_certificate_chain,
       const PublicKeyPinReportStatus report_status,
+      const NetworkIsolationKey& network_isolation_key,
       std::string* failure_log);
   bool HasPublicKeyPins(const std::string& host);
 
@@ -459,13 +461,14 @@ class NET_EXPORT TransportSecurityState {
       const NetworkIsolationKey& network_isolation_key,
       const ExpectCTState& state);
 
-  // Deletes all dynamic data (e.g. HSTS or HPKP data) created since a given
-  // time.
+  // Deletes all dynamic data (e.g. HSTS or HPKP data) created between a time
+  // period  [|start_time|, |end_time|).
   //
   // If any entries are deleted, the new state will be persisted through
   // the Delegate (if any). Calls |callback| when data is persisted to disk.
-  void DeleteAllDynamicDataSince(const base::Time& time,
-                                 base::OnceClosure callback);
+  void DeleteAllDynamicDataBetween(base::Time start_time,
+                                   base::Time end_time,
+                                   base::OnceClosure callback);
 
   // Deletes any dynamic data stored for |host| (e.g. HSTS or HPKP data).
   // If |host| doesn't have an exact entry then no action is taken. Does
@@ -605,6 +608,7 @@ class NET_EXPORT TransportSecurityState {
       const X509Certificate* served_certificate_chain,
       const X509Certificate* validated_certificate_chain,
       const PublicKeyPinReportStatus report_status,
+      const NetworkIsolationKey& network_isolation_key,
       std::string* failure_log);
 
   // If a Delegate is present, notify it that the internal state has
@@ -647,6 +651,7 @@ class NET_EXPORT TransportSecurityState {
       const X509Certificate* served_certificate_chain,
       const X509Certificate* validated_certificate_chain,
       const TransportSecurityState::PublicKeyPinReportStatus report_status,
+      const net::NetworkIsolationKey& network_isolation_key,
       std::string* failure_log);
 
   // Returns true and updates |*expect_ct_result| iff there is a static

@@ -8,18 +8,28 @@
 #include <vector>
 
 #include "base/check.h"
+#include "base/files/file_path.h"
 #include "base/optional.h"
+#include "base/path_service.h"
 #include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
 #include "base/test/gtest_util.h"
+#include "cc/test/pixel_comparator.h"
+#include "cc/test/pixel_test_utils.h"
+#include "pdf/accessibility_structs.h"
 #include "pdf/pdfium/pdfium_engine.h"
 #include "pdf/pdfium/pdfium_test_base.h"
+#include "pdf/ppapi_migration/geometry_conversions.h"
 #include "pdf/test/test_client.h"
-#include "pdf/test/test_utils.h"
+#include "pdf/thumbnail.h"
 #include "ppapi/c/private/ppb_pdf.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/pdfium/public/fpdf_formfill.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/range/range.h"
+#include "ui/gfx/test/gfx_util.h"
 
 namespace chrome_pdf {
 
@@ -41,17 +51,14 @@ TEST(PDFiumPageHelperDeathTest, ToPDFiumRotation) {
 #endif
 }
 
-void CompareTextRuns(
-    const pp::PDF::PrivateAccessibilityTextRunInfo& expected_text_run,
-    const pp::PDF::PrivateAccessibilityTextRunInfo actual_text_run) {
+void CompareTextRuns(const AccessibilityTextRunInfo& expected_text_run,
+                     const AccessibilityTextRunInfo& actual_text_run) {
   EXPECT_EQ(expected_text_run.len, actual_text_run.len);
-  CompareRect(expected_text_run.bounds, actual_text_run.bounds);
+  EXPECT_RECTF_EQ(expected_text_run.bounds, actual_text_run.bounds);
   EXPECT_EQ(expected_text_run.direction, actual_text_run.direction);
 
-  const pp::PDF::PrivateAccessibilityTextStyleInfo& expected_style =
-      expected_text_run.style;
-  const pp::PDF::PrivateAccessibilityTextStyleInfo& actual_style =
-      actual_text_run.style;
+  const AccessibilityTextStyleInfo& expected_style = expected_text_run.style;
+  const AccessibilityTextStyleInfo& actual_style = actual_text_run.style;
 
   EXPECT_EQ(expected_style.font_name, actual_style.font_name);
   EXPECT_EQ(expected_style.font_weight, actual_style.font_weight);
@@ -71,6 +78,23 @@ void PopulateTextObjects(const std::vector<gfx::Range>& ranges,
     (*text_objects)[i].start_char_index = ranges[i].start();
     (*text_objects)[i].char_count = ranges[i].end() - ranges[i].start();
   }
+}
+
+base::FilePath GetThumbnailTestData(const std::string& expectation_file_prefix,
+                                    size_t page_index,
+                                    float device_pixel_ratio) {
+  std::string file_dir = base::StringPrintf("%.1fx", device_pixel_ratio);
+  std::string file_name = base::StringPrintf(
+      "%s_expected.pdf.%zu.png", expectation_file_prefix.c_str(), page_index);
+  base::FilePath root_path;
+  if (!base::PathService::Get(base::DIR_SOURCE_ROOT, &root_path))
+    return base::FilePath();
+  return root_path.Append(FILE_PATH_LITERAL("pdf"))
+      .Append(FILE_PATH_LITERAL("test"))
+      .Append(FILE_PATH_LITERAL("data"))
+      .Append(FILE_PATH_LITERAL("thumbnail"))
+      .AppendASCII(file_dir)
+      .AppendASCII(file_name);
 }
 
 }  // namespace
@@ -106,7 +130,7 @@ TEST_F(PDFiumPageLinkTest, TestLinkGeneration) {
   ASSERT_TRUE(engine);
   ASSERT_EQ(1, engine->GetNumberOfPages());
 
-  bool is_chromeos = IsRunningOnChromeOS();
+  bool using_test_fonts = UsingTestFonts();
 
   const std::vector<PDFiumPage::Link>& links = GetLinks(*engine, 0);
   ASSERT_EQ(3u, links.size());
@@ -116,7 +140,7 @@ TEST_F(PDFiumPageLinkTest, TestLinkGeneration) {
   EXPECT_EQ(7, link.start_char_index);
   EXPECT_EQ(16, link.char_count);
   ASSERT_EQ(1u, link.bounding_rects.size());
-  if (is_chromeos) {
+  if (using_test_fonts) {
     EXPECT_EQ(gfx::Rect(75, 192, 110, 15), link.bounding_rects[0]);
   } else {
     EXPECT_EQ(gfx::Rect(75, 191, 110, 16), link.bounding_rects[0]);
@@ -127,7 +151,7 @@ TEST_F(PDFiumPageLinkTest, TestLinkGeneration) {
   EXPECT_EQ(52, second_link.start_char_index);
   EXPECT_EQ(15, second_link.char_count);
   ASSERT_EQ(1u, second_link.bounding_rects.size());
-  if (is_chromeos) {
+  if (using_test_fonts) {
     EXPECT_EQ(gfx::Rect(131, 120, 138, 22), second_link.bounding_rects[0]);
   } else {
     EXPECT_EQ(gfx::Rect(131, 121, 138, 20), second_link.bounding_rects[0]);
@@ -159,7 +183,7 @@ TEST_F(PDFiumPageLinkTest, TestAnnotLinkGeneration) {
        {{242, 455, 1, 18}, {242, 472, 1, 15}},
        "https://cs.chromium.org"},
       {-1, 0, {{58, 926, 28, 27}}, "https://www.google.com"}};
-  if (IsRunningOnChromeOS()) {
+  if (UsingTestFonts()) {
     expected_links[0].bounding_rects[0] = {99, 436, 236, 14};
   }
   static constexpr size_t kExpectedLinkCount = base::size(expected_links);
@@ -244,7 +268,7 @@ TEST_F(PDFiumPageTextTest, TestTextRunBounds) {
   constexpr int kFirstRunStartIndex = 0;
   constexpr int kFirstRunEndIndex = 20;
   constexpr int kPageIndex = 0;
-  base::Optional<pp::PDF::PrivateAccessibilityTextRunInfo> text_run_info_1 =
+  base::Optional<AccessibilityTextRunInfo> text_run_info_1 =
       engine->GetTextRunInfo(kPageIndex, kFirstRunStartIndex);
   ASSERT_TRUE(text_run_info_1.has_value());
 
@@ -253,7 +277,7 @@ TEST_F(PDFiumPageTextTest, TestTextRunBounds) {
 
   EXPECT_TRUE(base::IsUnicodeWhitespace(
       engine->GetCharUnicode(kPageIndex, kFirstRunStartIndex)));
-  pp::FloatRect text_run_bounds = actual_text_run_1.bounds;
+  gfx::RectF text_run_bounds = actual_text_run_1.bounds;
   EXPECT_TRUE(text_run_bounds.Contains(
       engine->GetCharBounds(kPageIndex, kFirstRunStartIndex)));
 
@@ -271,7 +295,7 @@ TEST_F(PDFiumPageTextTest, TestTextRunBounds) {
 
   EXPECT_TRUE(base::IsUnicodeWhitespace(
       engine->GetCharUnicode(kPageIndex, kFirstRunEndIndex)));
-  pp::FloatRect end_char_rect =
+  gfx::RectF end_char_rect =
       engine->GetCharBounds(kPageIndex, kFirstRunEndIndex);
   EXPECT_FALSE(text_run_bounds.Contains(end_char_rect));
   // Equals to the length of the previous text run.
@@ -280,7 +304,7 @@ TEST_F(PDFiumPageTextTest, TestTextRunBounds) {
   // Test the properties of second text run.
   // Note: The leading spaces in second text run are accounted for in the end
   // of first text run. Hence we won't see a space leading the second text run.
-  base::Optional<pp::PDF::PrivateAccessibilityTextRunInfo> text_run_info_2 =
+  base::Optional<AccessibilityTextRunInfo> text_run_info_2 =
       engine->GetTextRunInfo(kPageIndex, kSecondRunStartIndex);
   ASSERT_TRUE(text_run_info_2.has_value());
 
@@ -317,57 +341,52 @@ TEST_F(PDFiumPageTextTest, GetTextRunInfo) {
 
   int current_char_index = 0;
 
-  pp::PDF::PrivateAccessibilityTextStyleInfo expected_style_1 = {
+  AccessibilityTextStyleInfo expected_style_1 = {
       "Times-Roman",
       0,
-      PP_TEXTRENDERINGMODE_FILL,
+      AccessibilityTextRenderMode::kFill,
       12,
       0xff000000,
       0xff000000,
       false,
       false};
-  pp::PDF::PrivateAccessibilityTextStyleInfo expected_style_2 = {
-      "Helvetica", 0,    PP_TEXTRENDERINGMODE_FILL, 16, 0xff000000, 0xff000000,
+  AccessibilityTextStyleInfo expected_style_2 = {
+      "Helvetica", 0,          AccessibilityTextRenderMode::kFill,
+      16,          0xff000000, 0xff000000,
       false,       false};
   // The links span from [7, 22], [52, 66] and [92, 108] with 16, 15 and 17
   // text run lengths respectively. There are text runs preceding and
   // succeeding them.
-  pp::PDF::PrivateAccessibilityTextRunInfo expected_text_runs[] = {
-      {7,
-       PP_MakeFloatRectFromXYWH(26.666666f, 189.333333f, 38.666672f,
-                                13.333344f),
-       PP_PrivateDirection::PP_PRIVATEDIRECTION_LTR, expected_style_1},
-      {16,
-       PP_MakeFloatRectFromXYWH(70.666664f, 189.333333f, 108.0f, 14.666672f),
-       PP_PrivateDirection::PP_PRIVATEDIRECTION_LTR, expected_style_1},
-      {20,
-       PP_MakeFloatRectFromXYWH(181.333333f, 189.333333f, 117.333333f,
-                                14.666672f),
-       PP_PrivateDirection::PP_PRIVATEDIRECTION_LTR, expected_style_1},
-      {9, PP_MakeFloatRectFromXYWH(28.0f, 117.33334f, 89.333328f, 20.0f),
-       PP_PrivateDirection::PP_PRIVATEDIRECTION_LTR, expected_style_2},
-      {15, PP_MakeFloatRectFromXYWH(126.66666f, 117.33334f, 137.33334f, 20.0f),
-       PP_PrivateDirection::PP_PRIVATEDIRECTION_LTR, expected_style_2},
-      {20,
-       PP_MakeFloatRectFromXYWH(266.66666f, 118.66666f, 169.33334f, 18.666664f),
-       PP_PrivateDirection::PP_PRIVATEDIRECTION_LTR, expected_style_2},
-      {5, PP_MakeFloatRectFromXYWH(28.0f, 65.333336f, 40.0f, 18.666664f),
-       PP_PrivateDirection::PP_PRIVATEDIRECTION_LTR, expected_style_2},
-      {17, PP_MakeFloatRectFromXYWH(77.333336f, 64.0f, 160.0f, 20.0f),
-       PP_PrivateDirection::PP_PRIVATEDIRECTION_LTR, expected_style_2}};
+  AccessibilityTextRunInfo expected_text_runs[] = {
+      {7, gfx::RectF(26.666666f, 189.333333f, 38.666672f, 13.333344f),
+       AccessibilityTextDirection::kLeftToRight, expected_style_1},
+      {16, gfx::RectF(70.666664f, 189.333333f, 108.0f, 14.666672f),
+       AccessibilityTextDirection::kLeftToRight, expected_style_1},
+      {20, gfx::RectF(181.333333f, 189.333333f, 117.333333f, 14.666672f),
+       AccessibilityTextDirection::kLeftToRight, expected_style_1},
+      {9, gfx::RectF(28.0f, 117.33334f, 89.333328f, 20.0f),
+       AccessibilityTextDirection::kLeftToRight, expected_style_2},
+      {15, gfx::RectF(126.66666f, 117.33334f, 137.33334f, 20.0f),
+       AccessibilityTextDirection::kLeftToRight, expected_style_2},
+      {20, gfx::RectF(266.66666f, 118.66666f, 169.33334f, 18.666664f),
+       AccessibilityTextDirection::kLeftToRight, expected_style_2},
+      {5, gfx::RectF(28.0f, 65.333336f, 40.0f, 18.666664f),
+       AccessibilityTextDirection::kLeftToRight, expected_style_2},
+      {17, gfx::RectF(77.333336f, 64.0f, 160.0f, 20.0f),
+       AccessibilityTextDirection::kLeftToRight, expected_style_2}};
 
-  if (IsRunningOnChromeOS()) {
+  if (UsingTestFonts()) {
     expected_text_runs[4].bounds =
-        PP_MakeFloatRectFromXYWH(126.66666f, 117.33334f, 137.33334f, 21.33334f);
+        gfx::RectF(126.66666f, 117.33334f, 137.33334f, 21.33334f);
     expected_text_runs[5].bounds =
-        PP_MakeFloatRectFromXYWH(266.66666f, 118.66666f, 170.66666f, 20.0f);
+        gfx::RectF(266.66666f, 118.66666f, 170.66666f, 20.0f);
     expected_text_runs[7].bounds =
-        PP_MakeFloatRectFromXYWH(77.333336f, 64.0f, 160.0f, 21.33333f);
+        gfx::RectF(77.333336f, 64.0f, 160.0f, 21.33333f);
   }
 
   // Test negative char index returns nullopt
-  base::Optional<pp::PDF::PrivateAccessibilityTextRunInfo>
-      text_run_info_result = engine->GetTextRunInfo(0, -1);
+  base::Optional<AccessibilityTextRunInfo> text_run_info_result =
+      engine->GetTextRunInfo(0, -1);
   ASSERT_FALSE(text_run_info_result.has_value());
 
   // Test valid char index returns expected text run info and expected text
@@ -395,36 +414,33 @@ TEST_F(PDFiumPageTextTest, TestHighlightTextRunInfo) {
   ASSERT_EQ(1, engine->GetNumberOfPages());
 
   // Highlights span across text run indices 0, 2 and 3.
-  static const pp::PDF::PrivateAccessibilityTextStyleInfo kExpectedStyle = {
-      "Helvetica", 0,    PP_TEXTRENDERINGMODE_FILL, 16, 0xff000000, 0xff000000,
+  static const AccessibilityTextStyleInfo kExpectedStyle = {
+      "Helvetica", 0,          AccessibilityTextRenderMode::kFill,
+      16,          0xff000000, 0xff000000,
       false,       false};
-  pp::PDF::PrivateAccessibilityTextRunInfo expected_text_runs[] = {
-      {5,
-       PP_MakeFloatRectFromXYWH(1.3333334f, 198.66667f, 46.666668f, 14.666672f),
-       PP_PrivateDirection::PP_PRIVATEDIRECTION_LTR, kExpectedStyle},
-      {7,
-       PP_MakeFloatRectFromXYWH(50.666668f, 198.66667f, 47.999996f, 17.333328f),
-       PP_PrivateDirection::PP_PRIVATEDIRECTION_LTR, kExpectedStyle},
-      {7,
-       PP_MakeFloatRectFromXYWH(106.66666f, 198.66667f, 73.333336f, 18.666672f),
-       PP_PrivateDirection::PP_PRIVATEDIRECTION_LTR, kExpectedStyle},
-      {2, PP_MakeFloatRectFromXYWH(181.33333f, 192.0f, 16.0f, 25.333344f),
-       PP_PrivateDirection::PP_PRIVATEDIRECTION_NONE, kExpectedStyle},
-      {2,
-       PP_MakeFloatRectFromXYWH(198.66667f, 202.66667f, 21.333328f, 10.666672f),
-       PP_PrivateDirection::PP_PRIVATEDIRECTION_LTR, kExpectedStyle}};
+  AccessibilityTextRunInfo expected_text_runs[] = {
+      {5, gfx::RectF(1.3333334f, 198.66667f, 46.666668f, 14.666672f),
+       AccessibilityTextDirection::kLeftToRight, kExpectedStyle},
+      {7, gfx::RectF(50.666668f, 198.66667f, 47.999996f, 17.333328f),
+       AccessibilityTextDirection::kLeftToRight, kExpectedStyle},
+      {7, gfx::RectF(106.66666f, 198.66667f, 73.333336f, 18.666672f),
+       AccessibilityTextDirection::kLeftToRight, kExpectedStyle},
+      {2, gfx::RectF(181.33333f, 202.66667f, 16.0f, 14.66667f),
+       AccessibilityTextDirection::kNone, kExpectedStyle},
+      {2, gfx::RectF(198.66667f, 202.66667f, 21.333328f, 10.666672f),
+       AccessibilityTextDirection::kLeftToRight, kExpectedStyle}};
 
-  if (IsRunningOnChromeOS()) {
-    expected_text_runs[2].bounds = PP_MakeFloatRectFromXYWH(
-        106.66666f, 198.66667f, 73.333336f, 19.999985f);
-    expected_text_runs[4].bounds = PP_MakeFloatRectFromXYWH(
-        198.66667f, 201.33333f, 21.333328f, 12.000015f);
+  if (UsingTestFonts()) {
+    expected_text_runs[2].bounds =
+        gfx::RectF(106.66666f, 198.66667f, 73.333336f, 19.999985f);
+    expected_text_runs[4].bounds =
+        gfx::RectF(198.66667f, 201.33333f, 21.333328f, 12.000015f);
   }
 
   int current_char_index = 0;
   for (const auto& expected_text_run : expected_text_runs) {
-    base::Optional<pp::PDF::PrivateAccessibilityTextRunInfo>
-        text_run_info_result = engine->GetTextRunInfo(0, current_char_index);
+    base::Optional<AccessibilityTextRunInfo> text_run_info_result =
+        engine->GetTextRunInfo(0, current_char_index);
     ASSERT_TRUE(text_run_info_result.has_value());
     const auto& actual_text_run = text_run_info_result.value();
     CompareTextRuns(expected_text_run, actual_text_run);
@@ -704,6 +720,66 @@ TEST_F(PDFiumPageOverlappingTest, CountCompleteOverlaps) {
   PopulateTextObjects(kLinkRanges, &links);
   PopulateTextObjects(kHighlightRanges, &highlights);
   ASSERT_EQ(12u, PDFiumPage::CountLinkHighlightOverlaps(links, highlights));
+}
+
+class PDFiumPageThumbnailTest : public PDFiumTestBase {
+ public:
+  PDFiumPageThumbnailTest() = default;
+  PDFiumPageThumbnailTest(const PDFiumPageThumbnailTest&) = delete;
+  PDFiumPageThumbnailTest& operator=(const PDFiumPageThumbnailTest&) = delete;
+  ~PDFiumPageThumbnailTest() override = default;
+
+  void TestGenerateThumbnail(PDFiumEngine& engine,
+                             size_t page_index,
+                             float device_pixel_ratio,
+                             const gfx::Size& expected_thumbnail_size,
+                             const std::string& expectation_file_prefix) {
+    PDFiumPage& page = GetPDFiumPageForTest(engine, page_index);
+    Thumbnail thumbnail = page.GenerateThumbnail(device_pixel_ratio);
+    EXPECT_EQ(expected_thumbnail_size, gfx::Size(thumbnail.bitmap().width(),
+                                                 thumbnail.bitmap().height()));
+    EXPECT_EQ(device_pixel_ratio, thumbnail.device_pixel_ratio());
+
+    base::FilePath expectation_png_file_path = GetThumbnailTestData(
+        expectation_file_prefix, page_index, device_pixel_ratio);
+
+    cc::MatchesPNGFile(thumbnail.bitmap(), expectation_png_file_path,
+                       cc::ExactPixelComparator(/*discard_alpha=*/false));
+  }
+};
+
+TEST_F(PDFiumPageThumbnailTest, GenerateThumbnail) {
+  TestClient client;
+  std::unique_ptr<PDFiumEngine> engine =
+      InitializeEngine(&client, FILE_PATH_LITERAL("variable_page_sizes.pdf"));
+  ASSERT_EQ(7, engine->GetNumberOfPages());
+
+  static constexpr struct {
+    size_t page_index;
+    float device_pixel_ratio;
+    gfx::Size expected_thumbnail_size;
+  } kGenerateThumbnailTestParams[] = {
+      {0, 1, {108, 140}},  // ANSI Letter
+      {1, 1, {108, 152}},  // ISO 216 A4
+      {2, 1, {140, 140}},  // Square
+      {3, 1, {540, 108}},  // Wide
+      {4, 1, {108, 540}},  // Tall
+      {5, 1, {1399, 46}},  // Super wide
+      {6, 1, {46, 1399}},  // Super tall
+      {0, 2, {216, 280}},  // ANSI Letter
+      {1, 2, {214, 303}},  // ISO 216 A4
+      {2, 2, {255, 255}},  // Square
+      {3, 2, {571, 114}},  // Wide
+      {4, 2, {114, 571}},  // Tall
+      {5, 2, {1399, 46}},  // Super wide
+      {6, 2, {46, 1399}},  // Super tall
+  };
+
+  for (const auto& params : kGenerateThumbnailTestParams) {
+    TestGenerateThumbnail(*engine, params.page_index, params.device_pixel_ratio,
+                          params.expected_thumbnail_size,
+                          "variable_page_sizes");
+  }
 }
 
 }  // namespace chrome_pdf

@@ -22,7 +22,6 @@
 #include "net/cert/cert_verify_proc.h"
 #include "net/cert/ct_policy_enforcer.h"
 #include "net/cert/ct_policy_status.h"
-#include "net/cert/do_nothing_ct_verifier.h"
 #include "net/cert/multi_threaded_cert_verifier.h"
 #include "net/dns/context_host_resolver.h"
 #include "net/dns/host_resolver.h"
@@ -90,7 +89,9 @@ const char kQuicHostWhitelist[] = "host_whitelist";
 const char kQuicEnableSocketRecvOptimization[] =
     "enable_socket_recv_optimization";
 const char kQuicVersion[] = "quic_version";
+const char kQuicObsoleteVersionsAllowed[] = "obsolete_versions_allowed";
 const char kQuicFlags[] = "set_quic_flags";
+const char kQuicIOSNetworkServiceType[] = "ios_network_service_type";
 
 // AsyncDNS experiment dictionary name.
 const char kAsyncDnsFieldTrialName[] = "AsyncDNS";
@@ -316,6 +317,27 @@ void URLRequestContextConfig::ParseAndSetExperimentalOptions(
       if (quic_args->GetString(kQuicVersion, &quic_version_string)) {
         quic::ParsedQuicVersionVector supported_versions =
             quic::ParseQuicVersionVectorString(quic_version_string);
+        bool obsolete_versions_allowed = false;
+        if (!quic_args->GetBoolean(kQuicObsoleteVersionsAllowed,
+                                   &obsolete_versions_allowed) ||
+            !obsolete_versions_allowed) {
+          quic::ParsedQuicVersionVector filtered_versions;
+          quic::ParsedQuicVersionVector obsolete_versions =
+              net::ObsoleteQuicVersions();
+          for (const quic::ParsedQuicVersion& version : supported_versions) {
+            if (version == quic::ParsedQuicVersion::Q043()) {
+              // TODO(dschinazi) Remove this special-casing of Q043 once we no
+              // longer have cronet applications that require it.
+              filtered_versions.push_back(version);
+              continue;
+            }
+            if (std::find(obsolete_versions.begin(), obsolete_versions.end(),
+                          version) == obsolete_versions.end()) {
+              filtered_versions.push_back(version);
+            }
+          }
+          supported_versions = filtered_versions;
+        }
         if (!supported_versions.empty())
           quic_params->supported_versions = supported_versions;
       }
@@ -522,6 +544,33 @@ void URLRequestContextConfig::ParseAndSetExperimentalOptions(
           if (tokens.size() != 2)
             continue;
           SetQuicFlagByName(tokens[0], tokens[1]);
+        }
+      }
+
+      int quic_ios_network_service_type;
+      if (quic_args->GetInteger(kQuicIOSNetworkServiceType,
+                                &quic_ios_network_service_type)) {
+        quic_params->ios_network_service_type = quic_ios_network_service_type;
+      }
+
+      // Do not enable IETF QUIC when connection migration is enabled because
+      // our current connection migration code does not yet fully support the
+      // version of connection migration in the IETF spec.
+      // TODO(dschinazi) remove this once we support the spec.
+      if ((quic_migrate_sessions_on_network_change_v2 ||
+           quic_migrate_idle_sessions || quic_migrate_sessions_early_v2) &&
+          quic_version_string.empty()) {
+        quic::ParsedQuicVersionVector migration_versions;
+        for (const quic::ParsedQuicVersion& version :
+             quic_params->supported_versions) {
+          if (!version.UsesHttp3()) {
+            migration_versions.push_back(version);
+          }
+        }
+        quic_params->supported_versions = migration_versions;
+        if (quic_params->supported_versions.empty()) {
+          quic_params->supported_versions =
+              quic::ParsedQuicVersionVector{quic::ParsedQuicVersion::Q050()};
         }
       }
 
@@ -744,8 +793,6 @@ void URLRequestContextConfig::ConfigureURLRequestContextBuilder(
     context_builder->SetCertVerifier(std::move(mock_cert_verifier));
   // Certificate Transparency is intentionally ignored in Cronet.
   // See //net/docs/certificate-transparency.md for more details.
-  context_builder->set_ct_verifier(
-      std::make_unique<net::DoNothingCTVerifier>());
   context_builder->set_ct_policy_enforcer(
       std::make_unique<net::DefaultCTPolicyEnforcer>());
   // TODO(mef): Use |config| to set cookies.

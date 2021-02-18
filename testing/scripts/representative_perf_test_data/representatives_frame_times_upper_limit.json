@@ -33,7 +33,9 @@
     "aquarium_20k": {
       "ci_095": 45.797,
       "avg": 139.949,
-      "cpu_wall_time_ratio": 0.455
+      "cpu_wall_time_ratio": 0.455,
+      "experimental": true,
+      "_comment": "crbug.com/1134251"
     },
     "balls_css_transition_2_properties": {
       "ci_095": 7.166,
@@ -86,7 +88,9 @@
     "balls_javascript_canvas": {
       "ci_095": 1.324,
       "avg": 39.475,
-      "cpu_wall_time_ratio": 0.556
+      "cpu_wall_time_ratio": 0.556,
+      "experimental": true,
+      "_comment": "crbug.com/1122037"
     },
     "transform_transitions_js_block": {
       "ci_095": 0.366,
@@ -101,17 +105,23 @@
     "fill_shapes": {
       "ci_095": 0.949,
       "avg": 32.306,
-      "cpu_wall_time_ratio": 0.539
+      "cpu_wall_time_ratio": 0.539,
+      "experimental": true,
+      "_comment": "crbug.com/1122037"
     },
     "css_value_type_shadow": {
       "ci_095": 18.3,
       "avg": 65.502,
-      "cpu_wall_time_ratio": 0.585
+      "cpu_wall_time_ratio": 0.585,
+      "experimental": true,
+      "_comment": "crbug.com/1139155"
     },
     "animometer_webgl_attrib_arrays": {
       "ci_095": 0.44,
       "avg": 16.747,
-      "cpu_wall_time_ratio": 0.375
+      "cpu_wall_time_ratio": 0.375,
+      "experimental": true,
+      "_comment": "crbug.com/1122394"
     },
     "canvas_05000_pixels_per_second": {
       "ci_095": 0.177,
@@ -127,7 +137,9 @@
     "ie_chalkboard": {
       "ci_095": 32.615,
       "avg": 62.871,
-      "cpu_wall_time_ratio": 0.491
+      "cpu_wall_time_ratio": 0.491,
+      "experimental": true,
+      "_comment": "crbug.com/1133599"
     },
     "new_tilings": {
       "ci_095": 0.146,

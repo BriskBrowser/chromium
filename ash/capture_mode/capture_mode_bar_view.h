@@ -7,7 +7,8 @@
 
 #include "ash/ash_export.h"
 #include "ash/capture_mode/capture_mode_types.h"
-#include "ui/views/controls/button/button.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/view.h"
 
 namespace views {
 class Separator;
@@ -15,32 +16,37 @@ class Separator;
 
 namespace ash {
 
-class CaptureModeCloseButton;
+class CaptureModeButton;
 class CaptureModeSourceView;
+class CaptureModeToggleButton;
 class CaptureModeTypeView;
 
 // A view that acts as the content view of the capture mode bar widget.
 // It has a set of buttons to toggle between image and video capture, and
 // another set of buttons to toggle between fullscreen, region, and window
-// capture sources. The structure looks like this:
+// capture sources. It also contains a settings button. The structure looks like
+// this:
 //
-//   +--------------------------------------------------------+
-//   |  +----------------+  |                       |         |
-//   |  |  +---+  +---+  |  |  +---+  +---+  +---+  |  +---+  |
-//   |  |  |   |  |   |  |  |  |   |  |   |  |   |  |  |   |  |
-//   |  |  +---+  +---+  |  |  +---+  +---+  +---+  |  +---+  |
-//   |  +----------------+  |  ^                 ^  |  ^      |
-//   +--^----------------------|-----------------|-----|------+
-//   ^  |                      +-----------------+     |
-//   |  |                      |                       CaptureModeCloseButton
+//   +---------------------------------------------------------------+
+//   |  +----------------+  |                       |                |
+//   |  |  +---+  +---+  |  |  +---+  +---+  +---+  |  +---+  +---+  |
+//   |  |  |   |  |   |  |  |  |   |  |   |  |   |  |  |   |  |   |  |
+//   |  |  +---+  +---+  |  |  +---+  +---+  +---+  |  +---+  +---+  |
+//   |  +----------------+  |  ^                 ^  |  ^      ^      |
+//   +--^----------------------|-----------------|-----|------|------+
+//   ^  |                      +-----------------+     |      |
+//   |  |                      |                       |      CaptureModeButton
+//   |  |                      |                       |
+//   |  |                      |                       CaptureModeToggleButton
 //   |  |                      CaptureModeSourceView
 //   |  CaptureModeTypeView
 //   |
 //   CaptureModeBarView
 //
-class ASH_EXPORT CaptureModeBarView : public views::View,
-                                      public views::ButtonListener {
+class ASH_EXPORT CaptureModeBarView : public views::View {
  public:
+  METADATA_HEADER(CaptureModeBarView);
+
   CaptureModeBarView();
   CaptureModeBarView(const CaptureModeBarView&) = delete;
   CaptureModeBarView& operator=(const CaptureModeBarView&) = delete;
@@ -50,28 +56,32 @@ class ASH_EXPORT CaptureModeBarView : public views::View,
   CaptureModeSourceView* capture_source_view() const {
     return capture_source_view_;
   }
-  CaptureModeCloseButton* close_button() const { return close_button_; }
+  CaptureModeToggleButton* settings_button() const { return settings_button_; }
 
-  // Gets the ideal bounds of the bar of widget on the given |root| window.
+  // Gets the ideal bounds in screen coordinates of the bar of widget on the
+  // given |root| window.
   static gfx::Rect GetBounds(aura::Window* root);
 
   // Called when either the capture mode source or type changes.
   void OnCaptureSourceChanged(CaptureModeSource new_source);
   void OnCaptureTypeChanged(CaptureModeType new_type);
 
-  // views::View:
-  const char* GetClassName() const override;
+  // Called when settings is toggled on or off.
+  void SetSettingsMenuShown(bool shown);
 
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
+  CaptureModeButton* close_button_for_testing() const { return close_button_; }
 
  private:
+  void OnSettingsButtonPressed();
+  void OnCloseButtonPressed();
+
   // Owned by the views hierarchy.
   CaptureModeTypeView* capture_type_view_;
   views::Separator* separator_1_;
   CaptureModeSourceView* capture_source_view_;
   views::Separator* separator_2_;
-  CaptureModeCloseButton* close_button_;
+  CaptureModeToggleButton* settings_button_;
+  CaptureModeButton* close_button_;
 };
 
 }  // namespace ash

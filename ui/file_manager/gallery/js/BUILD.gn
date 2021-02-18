@@ -7,6 +7,7 @@ import("//third_party/closure_compiler/js_unit_tests.gni")
 import("//ui/file_manager/base/gn/js_test_gen_html.gni")
 
 js_type_check("closure_compile_module") {
+  uses_legacy_modules = true
   deps = [
     ":background",
     ":dimmable_ui_controller",
@@ -76,6 +77,7 @@ js_library("gallery") {
     ":gallery_constants",
     ":gallery_item",
     ":thumbnail_mode",
+    "//ui/file_manager/base/js:app_util",
     "//ui/file_manager/base/js:filtered_volume_manager",
     "//ui/file_manager/file_manager/common/js:util",
     "//ui/file_manager/file_manager/foreground/js/ui:files_confirm_dialog",

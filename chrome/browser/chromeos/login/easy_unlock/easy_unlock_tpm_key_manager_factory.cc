@@ -5,9 +5,9 @@
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_tpm_key_manager_factory.h"
 
 #include "base/memory/singleton.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_tpm_key_manager.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/account_id/account_id.h"
@@ -63,10 +63,11 @@ KeyedService* EasyUnlockTpmKeyManagerFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
   Profile* profile = Profile::FromBrowserContext(context);
   const user_manager::User* user = NULL;
-  if (ProfileHelper::IsLockScreenAppProfile(profile))
-    return nullptr;
-  if (!ProfileHelper::IsSigninProfile(profile))
+  if (ProfileHelper::IsRegularProfile(profile))
     user = ProfileHelper::Get()->GetUserByProfile(profile);
+  else if (!ProfileHelper::IsSigninProfile(profile))
+    return nullptr;
+
   return new EasyUnlockTpmKeyManager(
       user ? user->GetAccountId() : EmptyAccountId(),
       user ? user->username_hash() : std::string(), GetLocalState());

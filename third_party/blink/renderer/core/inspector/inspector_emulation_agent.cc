@@ -14,12 +14,15 @@
 #include "third_party/blink/renderer/core/inspector/dev_tools_emulator.h"
 #include "third_party/blink/renderer/core/inspector/locale_controller.h"
 #include "third_party/blink/renderer/core/inspector/protocol/DOM.h"
+#include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/core/page/focus_controller.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/platform/geometry/double_rect.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
+#include "third_party/blink/renderer/platform/loader/fetch/resource.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
+#include "third_party/blink/renderer/platform/loader/fetch/url_loader/request_conversion.h"
 #include "third_party/blink/renderer/platform/network/network_utils.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread_cpu_throttler.h"
@@ -45,8 +48,9 @@ InspectorEmulationAgent::InspectorEmulationAgent(
       navigator_platform_override_(&agent_state_,
                                    /*default_value=*/WTF::String()),
       user_agent_override_(&agent_state_, /*default_value=*/WTF::String()),
-      serialized_ua_metadata_override_(&agent_state_,
-                                       /*default_value=*/WTF::String()),
+      serialized_ua_metadata_override_(
+          &agent_state_,
+          /*default_value=*/std::vector<uint8_t>()),
       accept_language_override_(&agent_state_,
                                 /*default_value=*/WTF::String()),
       locale_override_(&agent_state_, /*default_value=*/WTF::String()),
@@ -58,7 +62,8 @@ InspectorEmulationAgent::InspectorEmulationAgent(
       virtual_time_task_starvation_count_(&agent_state_, /*default_value=*/0),
       wait_for_navigation_(&agent_state_, /*default_value=*/false),
       emulate_focus_(&agent_state_, /*default_value=*/false),
-      timezone_id_override_(&agent_state_, /*default_value=*/WTF::String()) {}
+      timezone_id_override_(&agent_state_, /*default_value=*/WTF::String()),
+      disabled_image_types_(&agent_state_, /*default_value=*/false) {}
 
 InspectorEmulationAgent::~InspectorEmulationAgent() = default;
 
@@ -70,14 +75,15 @@ void InspectorEmulationAgent::Restore() {
   // Since serialized_ua_metadata_override_ can't directly be converted back
   // to appropriate protocol message, we initially pass null and decode it
   // directly.
-  WTF::String save_serialized_ua_metadata_override =
+  std::vector<uint8_t> save_serialized_ua_metadata_override =
       serialized_ua_metadata_override_.Get();
   setUserAgentOverride(
       user_agent_override_.Get(), accept_language_override_.Get(),
       navigator_platform_override_.Get(),
       protocol::Maybe<protocol::Emulation::UserAgentMetadata>());
-  ua_metadata_override_ = blink::UserAgentMetadata::Demarshal(
-      save_serialized_ua_metadata_override.Latin1());
+  ua_metadata_override_ = blink::UserAgentMetadata::Demarshal(std::string(
+      reinterpret_cast<char*>(save_serialized_ua_metadata_override.data()),
+      save_serialized_ua_metadata_override.size()));
   serialized_ua_metadata_override_.Set(save_serialized_ua_metadata_override);
 
   if (!locale_override_.Get().IsEmpty())
@@ -179,6 +185,7 @@ Response InspectorEmulationAgent::disable() {
   setCPUThrottlingRate(1);
   setFocusEmulationEnabled(false);
   setDefaultBackgroundColorOverride(Maybe<protocol::DOM::RGBA>());
+  disabled_image_types_.Clear();
   return Response::Success();
 }
 
@@ -427,6 +434,9 @@ void InspectorEmulationAgent::ApplyVirtualTimePolicy(
         budget_amount,
         WTF::Bind(&InspectorEmulationAgent::VirtualTimeBudgetExpired,
                   WrapWeakPersistent(this)));
+    for (DocumentLoader* loader : pending_document_loaders_)
+      loader->SetDefersLoading(WebURLLoader::DeferType::kNotDeferred);
+    pending_document_loaders_.clear();
   }
   if (new_policy.max_virtual_time_task_starvation_count) {
     web_local_frame_->View()->Scheduler()->SetMaxVirtualTimeTaskStarvationCount(
@@ -442,11 +452,24 @@ void InspectorEmulationAgent::FrameStartedLoading(LocalFrame*) {
   }
 }
 
-void InspectorEmulationAgent::PrepareRequest(
-    DocumentLoader* loader,
-    ResourceRequest& request,
-    const FetchInitiatorInfo& initiator_info,
-    ResourceType resource_type) {
+AtomicString InspectorEmulationAgent::OverrideAcceptImageHeader(
+    const HashSet<String>* disabled_image_types) {
+  String header(kImageAcceptHeader);
+  for (String type : *disabled_image_types) {
+    // The header string is expected to be like
+    // `image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8` and is
+    // expected to be always ending with `image/*,*/*;q=xxx`, therefore, to
+    // remove a type we replace `image/x,` with empty string. Only webp and avif
+    // types can be disabled.
+    header.Replace(String(type + ","), "");
+  }
+  return AtomicString(header);
+}
+
+void InspectorEmulationAgent::PrepareRequest(DocumentLoader* loader,
+                                             ResourceRequest& request,
+                                             ResourceLoaderOptions& options,
+                                             ResourceType resource_type) {
   if (!accept_language_override_.Get().IsEmpty() &&
       request.HttpHeaderField("Accept-Language").IsEmpty()) {
     request.SetHttpHeaderField(
@@ -454,6 +477,24 @@ void InspectorEmulationAgent::PrepareRequest(
         AtomicString(network_utils::GenerateAcceptLanguageHeader(
             accept_language_override_.Get())));
   }
+
+  if (resource_type != ResourceType::kImage || disabled_image_types_.IsEmpty())
+    return;
+
+  if (!options.unsupported_image_mime_types) {
+    options.unsupported_image_mime_types =
+        base::MakeRefCounted<base::RefCountedData<HashSet<String>>>();
+  }
+
+  for (String type : disabled_image_types_.Keys()) {
+    options.unsupported_image_mime_types->data.insert(type);
+  }
+
+  request.SetHTTPAccept(
+      OverrideAcceptImageHeader(&options.unsupported_image_mime_types->data));
+  // Bypassing caching to prevent the use of the previously loaded and cached
+  // images.
+  request.SetCacheMode(mojom::blink::FetchCacheMode::kBypassCache);
 }
 
 Response InspectorEmulationAgent::setNavigatorOverrides(
@@ -548,24 +589,37 @@ Response InspectorEmulationAgent::setUserAgentOverride(
   }
 
   if (ua_metadata_override.isJust()) {
+    blink::UserAgentMetadata default_ua_metadata =
+        Platform::Current()->UserAgentMetadata();
+
     if (user_agent.IsEmpty()) {
       ua_metadata_override_ = base::nullopt;
-      serialized_ua_metadata_override_.Set(WTF::String());
+      serialized_ua_metadata_override_.Set(std::vector<uint8_t>());
       return Response::InvalidParams(
           "Can't specify UserAgentMetadata but no UA string");
     }
     std::unique_ptr<protocol::Emulation::UserAgentMetadata> ua_metadata =
         ua_metadata_override.takeJust();
     ua_metadata_override_.emplace();
-    if (ua_metadata->getBrands()) {
-      for (const auto& bv : *ua_metadata->getBrands()) {
+    if (ua_metadata->hasBrands()) {
+      for (const auto& bv : *ua_metadata->getBrands(nullptr)) {
         blink::UserAgentBrandVersion out_bv;
         out_bv.brand = bv->getBrand().Ascii();
         out_bv.major_version = bv->getVersion().Ascii();
         ua_metadata_override_->brand_version_list.push_back(std::move(out_bv));
       }
+    } else {
+      ua_metadata_override_->brand_version_list =
+          std::move(default_ua_metadata.brand_version_list);
     }
-    ua_metadata_override_->full_version = ua_metadata->getFullVersion().Ascii();
+
+    if (ua_metadata->hasFullVersion()) {
+      ua_metadata_override_->full_version =
+          ua_metadata->getFullVersion("").Ascii();
+    } else {
+      ua_metadata_override_->full_version =
+          std::move(default_ua_metadata.full_version);
+    }
     ua_metadata_override_->platform = ua_metadata->getPlatform().Ascii();
     ua_metadata_override_->platform_version =
         ua_metadata->getPlatformVersion().Ascii();
@@ -580,8 +634,10 @@ Response InspectorEmulationAgent::setUserAgentOverride(
   std::string marshalled =
       blink::UserAgentMetadata::Marshal(ua_metadata_override_)
           .value_or(std::string());
-  serialized_ua_metadata_override_.Set(
-      WTF::String(marshalled.data(), marshalled.size()));
+  std::vector<uint8_t> marshalled_as_bytes;
+  marshalled_as_bytes.insert(marshalled_as_bytes.end(), marshalled.begin(),
+                             marshalled.end());
+  serialized_ua_metadata_override_.Set(std::move(marshalled_as_bytes));
 
   return Response::Success();
 }
@@ -604,9 +660,14 @@ Response InspectorEmulationAgent::setLocaleOverride(
 
 Response InspectorEmulationAgent::setTimezoneOverride(
     const String& timezone_id) {
-  timezone_override_.reset();
-  if (!timezone_id.IsEmpty()) {
-    timezone_override_ = TimeZoneController::SetTimeZoneOverride(timezone_id);
+  if (timezone_id.IsEmpty()) {
+    timezone_override_.reset();
+  } else {
+    if (timezone_override_) {
+      timezone_override_->change(timezone_id);
+    } else {
+      timezone_override_ = TimeZoneController::SetTimeZoneOverride(timezone_id);
+    }
     if (!timezone_override_) {
       return TimeZoneController::HasTimeZoneOverride()
                  ? Response::ServerError(
@@ -618,6 +679,24 @@ Response InspectorEmulationAgent::setTimezoneOverride(
   timezone_id_override_.Set(timezone_id);
 
   return Response::Success();
+}
+
+void InspectorEmulationAgent::GetDisabledImageTypes(HashSet<String>* result) {
+  if (disabled_image_types_.IsEmpty())
+    return;
+
+  for (String type : disabled_image_types_.Keys())
+    result->insert(type);
+}
+
+void InspectorEmulationAgent::WillCommitLoad(LocalFrame*,
+                                             DocumentLoader* loader) {
+  if (virtual_time_policy_.Get() !=
+      protocol::Emulation::VirtualTimePolicyEnum::Pause) {
+    return;
+  }
+  loader->SetDefersLoading(WebURLLoader::DeferType::kDeferred);
+  pending_document_loaders_.push_back(loader);
 }
 
 void InspectorEmulationAgent::ApplyAcceptLanguageOverride(String* accept_lang) {
@@ -656,7 +735,28 @@ Response InspectorEmulationAgent::AssertPage() {
 
 void InspectorEmulationAgent::Trace(Visitor* visitor) const {
   visitor->Trace(web_local_frame_);
+  visitor->Trace(pending_document_loaders_);
   InspectorBaseAgent::Trace(visitor);
+}
+
+protocol::Response InspectorEmulationAgent::setDisabledImageTypes(
+    std::unique_ptr<protocol::Array<protocol::Emulation::DisabledImageType>>
+        disabled_types) {
+  if (disabled_types->size() > 0 && !enabled_)
+    InnerEnable();
+  disabled_image_types_.Clear();
+  String prefix = "image/";
+  namespace DisabledImageTypeEnum = protocol::Emulation::DisabledImageTypeEnum;
+  for (protocol::Emulation::DisabledImageType type : *disabled_types) {
+    if (DisabledImageTypeEnum::Avif == type ||
+        DisabledImageTypeEnum::Webp == type) {
+      disabled_image_types_.Set(prefix + type, true);
+      continue;
+    }
+    disabled_image_types_.Clear();
+    return Response::InvalidParams("Invalid image type");
+  }
+  return Response::Success();
 }
 
 }  // namespace blink

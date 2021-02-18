@@ -31,7 +31,6 @@ from xml.etree import ElementTree
 from util import build_utils
 from util import diff_utils
 from util import manifest_utils
-from util import md5_check
 from util import parallel
 from util import protoresources
 from util import resource_utils
@@ -160,6 +159,12 @@ def _ParseArgs(args):
       default='[]',
       help='GN list of globs that say which files to include even '
       'when --resource-exclusion-regex is set.')
+
+  input_opts.add_argument(
+      '--dependencies-res-zip-overlays',
+      help='GN list with subset of --dependencies-res-zips to use overlay '
+      'semantics for.')
+
   input_opts.add_argument(
       '--values-filter-rules',
       help='GN list of source_glob:regex for filtering resources after they '
@@ -232,6 +237,15 @@ def _ParseArgs(args):
       action='store_true',
       help='Whether resources are being generated for a bundle module.')
 
+  input_opts.add_argument(
+      '--uses-split',
+      help='Value to set uses-split to in the AndroidManifest.xml.')
+
+  input_opts.add_argument(
+      '--extra-verification-manifest',
+      help='Path to AndroidManifest.xml which should be merged into base '
+      'manifest when performing verification.')
+
   diff_utils.AddCommandLineFlags(parser)
   options = parser.parse_args(args)
 
@@ -242,6 +256,8 @@ def _ParseArgs(args):
       options.shared_resources_allowlist_locales)
   options.resource_exclusion_exceptions = build_utils.ParseGnList(
       options.resource_exclusion_exceptions)
+  options.dependencies_res_zip_overlays = build_utils.ParseGnList(
+      options.dependencies_res_zip_overlays)
   options.values_filter_rules = build_utils.ParseGnList(
       options.values_filter_rules)
   options.extra_main_r_text_files = build_utils.ParseGnList(
@@ -400,7 +416,7 @@ def _MoveImagesToNonMdpiFolders(res_root, path_info):
           os.path.relpath(dst_file, res_root))
 
 
-def _FixManifest(options, temp_dir):
+def _FixManifest(options, temp_dir, extra_manifest=None):
   """Fix the APK's AndroidManifest.xml.
 
   This adds any missing namespaces for 'android' and 'tools', and
@@ -410,6 +426,8 @@ def _FixManifest(options, temp_dir):
   Args:
     options: The command-line arguments tuple.
     temp_dir: A temporary directory where the fixed manifest will be written to.
+    extra_manifest: Path to an AndroidManifest.xml file which will get merged
+        into the application node of the base manifest.
   Returns:
     Tuple of:
      * Manifest path within |temp_dir|.
@@ -440,6 +458,17 @@ def _FixManifest(options, temp_dir):
   doc, manifest_node, app_node = manifest_utils.ParseManifest(
       options.android_manifest)
 
+  if extra_manifest:
+    _, extra_manifest_node, extra_app_node = manifest_utils.ParseManifest(
+        extra_manifest)
+    for node in extra_app_node:
+      app_node.append(node)
+    for node in extra_manifest_node:
+      # DFM manifests have a bunch of tags we don't care about inside
+      # <manifest>, so only take <queries>.
+      if node.tag == 'queries':
+        manifest_node.append(node)
+
   manifest_utils.AssertUsesSdk(manifest_node, options.min_sdk_version,
                                options.target_sdk_version)
   # We explicitly check that maxSdkVersion is set in the manifest since we don't
@@ -460,6 +489,18 @@ def _FixManifest(options, temp_dir):
   if options.debuggable:
     app_node.set('{%s}%s' % (manifest_utils.ANDROID_NAMESPACE, 'debuggable'),
                  'true')
+
+  if options.uses_split:
+    uses_split = ElementTree.SubElement(manifest_node, 'uses-split')
+    uses_split.set('{%s}name' % manifest_utils.ANDROID_NAMESPACE,
+                   options.uses_split)
+
+  # Make sure the min-sdk condition is not less than the min-sdk of the bundle.
+  for min_sdk_node in manifest_node.iter('{%s}min-sdk' %
+                                         manifest_utils.DIST_NAMESPACE):
+    dist_value = '{%s}value' % manifest_utils.DIST_NAMESPACE
+    if int(min_sdk_node.get(dist_value)) < int(options.min_sdk_version):
+      min_sdk_node.set(dist_value, options.min_sdk_version)
 
   manifest_utils.SaveManifest(doc, debug_manifest_path)
   return debug_manifest_path, orig_package
@@ -612,7 +653,8 @@ def _CreateValuesKeepPredicate(exclusion_rules, dep_subdir):
   return lambda x: not any(r.search(x) for r in regexes)
 
 
-def _CompileDeps(aapt2_path, dep_subdirs, temp_dir, exclusion_rules):
+def _CompileDeps(aapt2_path, dep_subdirs, dep_subdir_overlay_set, temp_dir,
+                 exclusion_rules):
   partials_dir = os.path.join(temp_dir, 'partials')
   build_utils.MakeDirectory(partials_dir)
 
@@ -622,11 +664,19 @@ def _CompileDeps(aapt2_path, dep_subdirs, temp_dir, exclusion_rules):
 
   # Filtering is slow, so ensure jobs with keep_predicate are started first.
   job_params.sort(key=lambda x: not x[2])
-  return list(
+  partials = list(
       parallel.BulkForkAndCall(_CompileSingleDep,
                                job_params,
                                aapt2_path=aapt2_path,
                                partials_dir=partials_dir))
+
+  partials_cmd = list()
+  for i, partial in enumerate(partials):
+    dep_subdir = job_params[i][1]
+    if dep_subdir in dep_subdir_overlay_set:
+      partials_cmd += ['-R']
+    partials_cmd += [partial]
+  return partials_cmd
 
 
 def _CreateResourceInfoFile(path_info, info_path, dependencies_res_zips):
@@ -722,8 +772,15 @@ def _PackageApk(options, build):
     The manifest package name for the APK.
   """
   logging.debug('Extracting resource .zips')
-  dep_subdirs = resource_utils.ExtractDeps(options.dependencies_res_zips,
-                                           build.deps_dir)
+  dep_subdirs = []
+  dep_subdir_overlay_set = set()
+  for dependency_res_zip in options.dependencies_res_zips:
+    extracted_dep_subdirs = resource_utils.ExtractDeps([dependency_res_zip],
+                                                       build.deps_dir)
+    dep_subdirs += extracted_dep_subdirs
+    if dependency_res_zip in options.dependencies_res_zip_overlays:
+      dep_subdir_overlay_set.update(extracted_dep_subdirs)
+
   logging.debug('Applying locale transformations')
   path_info = resource_utils.ResourceInfoFile()
   if options.support_zh_hk:
@@ -750,7 +807,8 @@ def _PackageApk(options, build):
 
   logging.debug('Running aapt2 compile')
   exclusion_rules = [x.split(':', 1) for x in options.values_filter_rules]
-  partials = _CompileDeps(options.aapt2_path, dep_subdirs, build.temp_dir,
+  partials = _CompileDeps(options.aapt2_path, dep_subdirs,
+                          dep_subdir_overlay_set, build.temp_dir,
                           exclusion_rules)
 
   link_command = [
@@ -815,8 +873,7 @@ def _PackageApk(options, build):
                          desired_manifest_package_name)
     link_command += ['--stable-ids', build.stable_ids_path]
 
-  for partial in partials:
-    link_command += ['-R', partial]
+  link_command += partials
 
   # We always create a binary arsc file first, then convert to proto, so flags
   # such as --shared-lib can be supported.
@@ -1006,14 +1063,25 @@ def _WriteOutputs(options, build):
       shutil.move(temp, final)
 
 
-def _CreateNormalizedManifest(options):
+def _CreateNormalizedManifestForVerification(options):
   with build_utils.TempDir() as tempdir:
-    fixed_manifest, _ = _FixManifest(options, tempdir)
+    fixed_manifest, _ = _FixManifest(
+        options, tempdir, extra_manifest=options.extra_verification_manifest)
     with open(fixed_manifest) as f:
       return manifest_utils.NormalizeManifest(f.read())
 
 
-def _OnStaleMd5(options):
+def main(args):
+  build_utils.InitLogging('RESOURCE_DEBUG')
+  args = build_utils.ExpandFileArgs(args)
+  options = _ParseArgs(args)
+
+  if options.expected_file:
+    actual_data = _CreateNormalizedManifestForVerification(options)
+    diff_utils.CheckExpectations(actual_data, options)
+    if options.only_verify_expectations:
+      return
+
   path = options.arsc_path or options.proto_path
   debug_temp_resources_dir = os.environ.get('TEMP_RESOURCES_DIR')
   if debug_temp_resources_dir:
@@ -1100,88 +1168,11 @@ def _OnStaleMd5(options):
     logging.debug('Copying outputs')
     _WriteOutputs(options, build)
 
-
-def main(args):
-  build_utils.InitLogging('RESOURCE_DEBUG')
-  args = build_utils.ExpandFileArgs(args)
-  options = _ParseArgs(args)
-
-  if options.expected_file:
-    actual_data = _CreateNormalizedManifest(options)
-    diff_utils.CheckExpectations(actual_data, options)
-    if options.only_verify_expectations:
-      return
-
-  depfile_deps = (options.dependencies_res_zips +
-                  options.extra_main_r_text_files + options.include_resources)
-
-  possible_input_paths = depfile_deps + options.resources_config_paths + [
-      options.aapt2_path,
-      options.android_manifest,
-      options.expected_file,
-      options.expected_file_base,
-      options.shared_resources_allowlist,
-      options.use_resource_ids_path,
-      options.webp_binary,
-  ]
-  input_paths = [p for p in possible_input_paths if p]
-  input_strings = [
-      options.app_as_shared_lib,
-      options.arsc_package_name,
-      options.debuggable,
-      options.extra_res_packages,
-      options.failure_file,
-      options.include_resources,
-      options.locale_allowlist,
-      options.manifest_package,
-      options.max_sdk_version,
-      options.min_sdk_version,
-      options.no_xml_namespaces,
-      options.package_id,
-      options.package_name,
-      options.png_to_webp,
-      options.rename_manifest_package,
-      options.resource_exclusion_exceptions,
-      options.resource_exclusion_regex,
-      options.r_java_root_package_name,
-      options.shared_resources,
-      options.shared_resources_allowlist_locales,
-      options.short_resource_paths,
-      options.strip_resource_names,
-      options.support_zh_hk,
-      options.target_sdk_version,
-      options.values_filter_rules,
-      options.version_code,
-      options.version_name,
-      options.webp_cache_dir,
-  ]
-  output_paths = [options.srcjar_out]
-  possible_output_paths = [
-      options.actual_file,
-      options.arsc_path,
-      options.emit_ids_out,
-      options.info_path,
-      options.optimized_arsc_path,
-      options.optimized_proto_path,
-      options.proguard_file,
-      options.proguard_file_main_dex,
-      options.proto_path,
-      options.resources_path_map_out_path,
-      options.r_text_out,
-  ]
-  output_paths += [p for p in possible_output_paths if p]
-
-  # Since we overspecify deps, this target depends on java deps that are not
-  # going to change its output. This target is also slow (6-12 seconds) and
-  # blocking the critical path. We want changes to java_library targets to not
-  # trigger re-compilation of resources, thus we need to use md5_check.
-  md5_check.CallAndWriteDepfileIfStale(
-      lambda: _OnStaleMd5(options),
-      options,
-      input_paths=input_paths,
-      input_strings=input_strings,
-      output_paths=output_paths,
-      depfile_deps=depfile_deps)
+  if options.depfile:
+    depfile_deps = (options.dependencies_res_zips +
+                    options.dependencies_res_zip_overlays +
+                    options.extra_main_r_text_files + options.include_resources)
+    build_utils.WriteDepfile(options.depfile, options.srcjar_out, depfile_deps)
 
 
 if __name__ == '__main__':

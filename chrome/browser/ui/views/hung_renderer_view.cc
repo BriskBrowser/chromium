@@ -42,6 +42,7 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/layout/grid_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 
 #if defined(OS_WIN)
@@ -106,6 +107,10 @@ void HungPagesTableModel::Reset() {
   widget_observer_.RemoveAll();
   tab_observers_.clear();
   render_widget_host_ = nullptr;
+
+  // Inform the table model observers that we cleared the model.
+  if (observer_)
+    observer_->OnModelChanged();
 }
 
 void HungPagesTableModel::RestartHangMonitorTimeout() {
@@ -154,6 +159,10 @@ void HungPagesTableModel::RenderProcessExited(
 
 void HungPagesTableModel::RenderWidgetHostDestroyed(
     content::RenderWidgetHost* widget_host) {
+  DCHECK(widget_observer_.IsObserving(render_widget_host_));
+  widget_observer_.Remove(widget_host);
+  render_widget_host_ = nullptr;
+
   // Notify the delegate.
   delegate_->TabDestroyed();
   // WARNING: we've likely been deleted.
@@ -277,7 +286,8 @@ HungRendererDialogView::HungRendererDialogView() {
   set_margins(ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(
       views::TEXT, views::CONTROL));
   auto info_label = std::make_unique<views::Label>(
-      base::string16(), CONTEXT_BODY_TEXT_LARGE, views::style::STYLE_SECONDARY);
+      base::string16(), views::style::CONTEXT_DIALOG_BODY_TEXT,
+      views::style::STYLE_SECONDARY);
   info_label->SetMultiLine(true);
   info_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
 
@@ -287,10 +297,6 @@ HungRendererDialogView::HungRendererDialogView() {
       hung_pages_table_model_.get(), columns, views::ICON_AND_TEXT, true);
   hung_pages_table_ = hung_pages_table.get();
 
-  SetButtonLabel(
-      ui::DIALOG_BUTTON_CANCEL,
-      l10n_util::GetPluralStringFUTF16(IDS_BROWSER_HANGMONITOR_RENDERER_END,
-                                       hung_pages_table_model_->RowCount()));
   SetButtonLabel(
       ui::DIALOG_BUTTON_OK,
       l10n_util::GetStringUTF16(IDS_BROWSER_HANGMONITOR_RENDERER_WAIT));
@@ -415,12 +421,6 @@ void HungRendererDialogView::WindowClosing() {
 }
 
 void HungRendererDialogView::ForceCrashHungRenderer() {
-  auto* render_widget_host = hung_pages_table_model_->GetRenderWidgetHost();
-  bool currently_unresponsive =
-      render_widget_host && render_widget_host->IsCurrentlyUnresponsive();
-  UMA_HISTOGRAM_BOOLEAN("Stability.RendererUnresponsiveBeforeTermination",
-                        currently_unresponsive);
-
   content::RenderProcessHost* rph =
       hung_pages_table_model_->GetRenderWidgetHost()->GetProcess();
   if (rph) {
@@ -462,8 +462,10 @@ void HungRendererDialogView::UpdateLabels() {
   GetWidget()->UpdateWindowTitle();
   info_label_->SetText(l10n_util::GetPluralStringFUTF16(
       IDS_BROWSER_HANGMONITOR_RENDERER, hung_pages_table_model_->RowCount()));
-  // Update the "Exit" button.
-  DialogModelChanged();
+  SetButtonLabel(
+      ui::DIALOG_BUTTON_CANCEL,
+      l10n_util::GetPluralStringFUTF16(IDS_BROWSER_HANGMONITOR_RENDERER_END,
+                                       hung_pages_table_model_->RowCount()));
 }
 
 void HungRendererDialogView::CloseDialogWithNoAction() {
@@ -474,3 +476,6 @@ void HungRendererDialogView::CloseDialogWithNoAction() {
   hung_pages_table_model_->Reset();
   GetWidget()->Close();
 }
+
+BEGIN_METADATA(HungRendererDialogView, views::DialogDelegateView)
+END_METADATA

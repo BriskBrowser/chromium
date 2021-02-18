@@ -6,6 +6,7 @@
 #include "build/build_config.h"
 #include "components/viz/common/resources/resource_format_utils.h"
 #include "gpu/command_buffer/service/shared_context_state.h"
+#include "skia/ext/legacy_display_globals.h"
 #include "third_party/skia/include/core/SkPromiseImageTexture.h"
 #include "third_party/skia/include/gpu/GrBackendSurface.h"
 #include "third_party/skia/include/gpu/mock/GrMockTypes.h"
@@ -72,7 +73,20 @@ class TestSharedImageRepresentationSkia : public SharedImageRepresentationSkia {
     if (!static_cast<TestSharedImageBacking*>(backing())->can_access()) {
       return nullptr;
     }
-    return SkSurface::MakeRasterN32Premul(size().width(), size().height());
+    SkSurfaceProps props = skia::LegacyDisplayGlobals::GetSkSurfaceProps();
+    return SkSurface::MakeRasterN32Premul(size().width(), size().height(),
+                                          &props);
+  }
+  sk_sp<SkPromiseImageTexture> BeginWriteAccess(
+      std::vector<GrBackendSemaphore>* begin_semaphores,
+      std::vector<GrBackendSemaphore>* end_semaphores,
+      std::unique_ptr<GrBackendSurfaceMutableState>* end_state) override {
+    if (!static_cast<TestSharedImageBacking*>(backing())->can_access()) {
+      return nullptr;
+    }
+    GrBackendTexture backend_tex(size().width(), size().height(),
+                                 GrMipMapped::kNo, GrMockTextureInfo());
+    return SkPromiseImageTexture::Make(backend_tex);
   }
   void EndWriteAccess(sk_sp<SkSurface> surface) override {}
   sk_sp<SkPromiseImageTexture> BeginReadAccess(
@@ -115,8 +129,10 @@ class TestSharedImageRepresentationOverlay
                                        MemoryTypeTracker* tracker)
       : SharedImageRepresentationOverlay(manager, backing, tracker) {}
 
-  bool BeginReadAccess() override { return true; }
-  void EndReadAccess() override {}
+  bool BeginReadAccess(std::vector<gfx::GpuFence>* acquire_fences) override {
+    return true;
+  }
+  void EndReadAccess(gfx::GpuFenceHandle release_fence) override {}
   gl::GLImage* GetGLImage() override { return nullptr; }
 
 #if defined(OS_ANDROID)

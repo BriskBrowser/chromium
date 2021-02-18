@@ -16,8 +16,8 @@
 #include "ui/shell_dialogs/selected_file_info.h"
 #include "ui/views/bubble/bubble_border.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
-#include "ui/views/controls/button/button.h"
 #include "ui/views/controls/menu/menu_runner.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 
 class Browser;
 class Profile;
@@ -36,10 +36,11 @@ struct UIMediaSink;
 // to devices. The list of devices used to populate the dialog is supplied by
 // CastDialogModel.
 class CastDialogView : public views::BubbleDialogDelegateView,
-                       public views::ButtonListener,
                        public CastDialogController::Observer,
                        public ui::SimpleMenuModel::Delegate {
  public:
+  METADATA_HEADER(CastDialogView);
+
   class Observer : public base::CheckedObserver {
    public:
     virtual void OnDialogModelUpdated(CastDialogView* dialog_view) = 0;
@@ -47,6 +48,9 @@ class CastDialogView : public views::BubbleDialogDelegateView,
   };
 
   enum SourceType { kTab, kDesktop, kLocalFile };
+
+  CastDialogView(const CastDialogView&) = delete;
+  CastDialogView& operator=(const CastDialogView&) = delete;
 
   // Shows the singleton dialog anchored to the Cast toolbar icon. Requires that
   // BrowserActionsContainer exists for |browser|.
@@ -90,11 +94,7 @@ class CastDialogView : public views::BubbleDialogDelegateView,
   void OnModelUpdated(const CastDialogModel& model) override;
   void OnControllerInvalidated() override;
 
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
-
-  // views::View:
-  gfx::Size CalculatePreferredSize() const override;
+  // views::BubbleDialogDelegateView:
   void OnPaint(gfx::Canvas* canvas) override;
 
   // ui::SimpleMenuModel::Delegate:
@@ -243,8 +243,6 @@ class CastDialogView : public views::BubbleDialogDelegateView,
   bool keep_shown_for_testing_ = false;
 
   base::WeakPtrFactory<CastDialogView> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(CastDialogView);
 };
 
 }  // namespace media_router

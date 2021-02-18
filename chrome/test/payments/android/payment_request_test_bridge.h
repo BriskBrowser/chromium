@@ -24,19 +24,22 @@ void SetUseDelegateOnPaymentRequestForTesting(
     bool use_delegate,
     bool is_incognito,
     bool is_valid_ssl,
-    bool is_web_contents_active,
     bool prefs_can_make_payment,
     bool skip_ui_for_basic_card,
     const std::string& twa_package_name);
 
-// Get the WebContents of the Expandable Payment Handler for testing purpose, or
-// null if nonexistent. To guarantee a non-null return, this function should be
-// called only if: 1) PaymentRequest UI is opening. 2)
-// ScrollToExpandPaymentHandler feature is enabled. 3) PaymentHandler is
+// Gets the WebContents of the Expandable Payment Handler for testing purpose,
+// or null if nonexistent. To guarantee a non-null return, this function should
+// be called only if: 1) PaymentRequest UI is opening. 2) PaymentHandler is
 // opening.
 content::WebContents* GetPaymentHandlerWebContentsForTest();
 
+// Simulates a click on the security icon of the Payment Handler UI. Returns
+// true on success.
 bool ClickPaymentHandlerSecurityIconForTest();
+
+// Click the close button on the Payment Handler UI. Returns true on success.
+bool ClickPaymentHandlerCloseButtonForTest();
 
 // Confirms payment in minimal UI. Returns true on success.
 bool ConfirmMinimalUIForTest();

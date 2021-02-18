@@ -4,6 +4,9 @@
 
 #include "third_party/blink/renderer/core/layout/ng/ng_layout_input_node.h"
 
+#include "third_party/blink/renderer/core/html/forms/html_input_element.h"
+#include "third_party/blink/renderer/core/html/shadow/shadow_element_utils.h"
+#include "third_party/blink/renderer/core/input_type_names.h"
 #include "third_party/blink/renderer/core/layout/geometry/logical_size.h"
 #include "third_party/blink/renderer/core/layout/intrinsic_sizing_info.h"
 #include "third_party/blink/renderer/core/layout/layout_replaced.h"
@@ -63,23 +66,38 @@ void AppendNodeToString(NGLayoutInputNode node,
 
 }  // namespace
 
+bool NGLayoutInputNode::IsSlider() const {
+  if (const auto* input = DynamicTo<HTMLInputElement>(box_->GetNode()))
+    return input->type() == input_type_names::kRange;
+  return false;
+}
+
+bool NGLayoutInputNode::IsSliderThumb() const {
+  return IsBlock() && blink::IsSliderThumb(GetDOMNode());
+}
+
 bool NGLayoutInputNode::IsEmptyTableSection() const {
-  return box_->IsTableSection() && To<LayoutNGTableSection>(box_)->IsEmpty();
+  return box_->IsTableSection() &&
+         To<LayoutNGTableSection>(box_.Get())->IsEmpty();
 }
 
 wtf_size_t NGLayoutInputNode::TableColumnSpan() const {
   DCHECK(IsTableCol() || IsTableColgroup());
-  return To<LayoutNGTableColumn>(box_)->Span();
+  return To<LayoutNGTableColumn>(box_.Get())->Span();
 }
 
 wtf_size_t NGLayoutInputNode::TableCellColspan() const {
   DCHECK(box_->IsTableCell());
-  return To<LayoutNGTableCell>(box_)->ColSpan();
+  return To<LayoutNGTableCell>(box_.Get())->ColSpan();
 }
 
 wtf_size_t NGLayoutInputNode::TableCellRowspan() const {
   DCHECK(box_->IsTableCell());
-  return To<LayoutNGTableCell>(box_)->ComputedRowSpan();
+  return To<LayoutNGTableCell>(box_.Get())->ComputedRowSpan();
+}
+
+bool NGLayoutInputNode::IsTextControlPlaceholder() const {
+  return IsBlock() && blink::IsTextControlPlaceholder(GetDOMNode());
 }
 
 MinMaxSizesResult NGLayoutInputNode::ComputeMinMaxSizes(
@@ -102,7 +120,8 @@ void NGLayoutInputNode::IntrinsicSize(
 
   IntrinsicSizingInfo legacy_sizing_info;
 
-  ToLayoutReplaced(box_)->ComputeIntrinsicSizingInfo(legacy_sizing_info);
+  To<LayoutReplaced>(box_.Get())
+      ->ComputeIntrinsicSizingInfo(legacy_sizing_info);
   if (!*computed_inline_size && legacy_sizing_info.has_width)
     *computed_inline_size = LayoutUnit(legacy_sizing_info.size.Width());
   if (!*computed_block_size && legacy_sizing_info.has_height)
@@ -119,10 +138,6 @@ PhysicalSize NGLayoutInputNode::InitialContainingBlockSize() const {
   IntSize icb_size =
       GetDocument().GetLayoutView()->GetLayoutSize(kIncludeScrollbars);
   return PhysicalSize(icb_size);
-}
-
-const NGPaintFragment* NGLayoutInputNode::PaintFragment() const {
-  return GetLayoutBox()->PaintFragment();
 }
 
 String NGLayoutInputNode::ToString() const {
@@ -163,6 +178,7 @@ void NGLayoutInputNode::GetOverrideIntrinsicSize(
       *computed_block_size = default_block_size;
   }
 
+  // TODO(mstensho): Update for contain:inline-size / contain:block-size.
   if (ShouldApplySizeContainment()) {
     if (!*computed_inline_size)
       *computed_inline_size = LayoutUnit();

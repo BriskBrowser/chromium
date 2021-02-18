@@ -6,11 +6,11 @@
 #define CHROME_BROWSER_UI_SAD_TAB_TYPES_H_
 
 #include "build/build_config.h"
-#include "build/lacros_buildflags.h"
+#include "build/chromeos_buildflags.h"
 
 enum SadTabKind {
   SAD_TAB_KIND_CRASHED,  // Tab crashed.
-#if defined(OS_CHROMEOS) || BUILDFLAG(IS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   SAD_TAB_KIND_KILLED_BY_OOM,  // Tab killed by oom killer.
 #endif
   SAD_TAB_KIND_OOM,    // Tab ran out of memory.

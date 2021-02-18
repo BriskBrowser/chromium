@@ -45,7 +45,7 @@ class NGInlineItemsBuilderTemplate {
  public:
   // Create a builder that appends items to |items|.
   NGInlineItemsBuilderTemplate(LayoutBlockFlow* block_flow,
-                               Vector<NGInlineItem>* items)
+                               HeapVector<NGInlineItem>* items)
       : block_flow_(block_flow), items_(items) {}
   ~NGInlineItemsBuilderTemplate();
 
@@ -62,12 +62,10 @@ class NGInlineItemsBuilderTemplate {
 
   bool IsBlockLevel() const { return is_block_level_; }
 
-  // True if changes to an item may affect different layout of earlier lines.
-  // May not be able to use line caches even when the line or earlier lines are
-  // not dirty.
-  bool ChangesMayAffectEarlierLines() const {
-    return changes_may_affect_earlier_lines_;
-  }
+  // True if there were any `unicode-bidi: plaintext`. In this case, changes to
+  // an item may affect different layout of earlier lines. May not be able to
+  // use line caches even when the line or earlier lines are not dirty.
+  bool HasUnicodeBidiPlainText() const { return has_unicode_bidi_plain_text_; }
 
   // Append a string from |LayoutText|.
   //
@@ -146,11 +144,23 @@ class NGInlineItemsBuilderTemplate {
   void ClearNeedsLayout(LayoutObject*);
   void UpdateShouldCreateBoxFragment(LayoutInline*);
 
+  // In public to modify VectorTraits<BidiContext> in WTF namespace.
+  struct BidiContext {
+    DISALLOW_NEW();
+
+   public:
+    void Trace(Visitor*) const;
+
+    Member<LayoutObject> node;
+    UChar enter;
+    UChar exit;
+  };
+
  private:
   static bool NeedsBoxInfo();
 
   LayoutBlockFlow* const block_flow_;
-  Vector<NGInlineItem>* items_;
+  HeapVector<NGInlineItem>* items_;
   StringBuilder text_;
 
   // |mapping_builder_| builds the whitespace-collapsed offset mapping
@@ -169,22 +179,17 @@ class NGInlineItemsBuilderTemplate {
 
     BoxInfo(unsigned item_index, const NGInlineItem& item);
     bool ShouldCreateBoxFragmentForChild(const BoxInfo& child) const;
-    void SetShouldCreateBoxFragment(Vector<NGInlineItem>* items);
+    void SetShouldCreateBoxFragment(HeapVector<NGInlineItem>* items);
   };
   Vector<BoxInfo> boxes_;
 
-  struct BidiContext {
-    LayoutObject* node;
-    UChar enter;
-    UChar exit;
-  };
-  Vector<BidiContext> bidi_context_;
+  HeapVector<BidiContext> bidi_context_;
 
   bool has_bidi_controls_ = false;
   bool has_ruby_ = false;
   bool is_empty_inline_ = true;
   bool is_block_level_ = true;
-  bool changes_may_affect_earlier_lines_ = false;
+  bool has_unicode_bidi_plain_text_ = false;
 
   // Append a character.
   // Currently this function is for adding control characters such as
@@ -266,5 +271,10 @@ using NGInlineItemsBuilderForOffsetMapping =
     NGInlineItemsBuilderTemplate<NGOffsetMappingBuilder>;
 
 }  // namespace blink
+
+WTF_ALLOW_CLEAR_UNUSED_SLOTS_WITH_MEM_FUNCTIONS(
+    blink::NGInlineItemsBuilder::BidiContext)
+WTF_ALLOW_CLEAR_UNUSED_SLOTS_WITH_MEM_FUNCTIONS(
+    blink::NGInlineItemsBuilderForOffsetMapping::BidiContext)
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_INLINE_ITEMS_BUILDER_H_

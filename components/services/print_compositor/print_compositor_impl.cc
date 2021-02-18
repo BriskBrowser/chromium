@@ -9,11 +9,11 @@
 #include <tuple>
 #include <utility>
 
+#include "base/containers/contains.h"
 #include "base/debug/alias.h"
 #include "base/logging.h"
 #include "base/memory/discardable_memory.h"
 #include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "components/crash/core/common/crash_key.h"
@@ -112,7 +112,7 @@ void PrintCompositorImpl::SetDiscardableSharedMemoryManager(
   // Set up discardable memory manager.
   mojo::PendingRemote<discardable_memory::mojom::DiscardableSharedMemoryManager>
       manager_remote(std::move(manager));
-  discardable_shared_memory_manager_ = std::make_unique<
+  discardable_shared_memory_manager_ = base::MakeRefCounted<
       discardable_memory::ClientDiscardableSharedMemoryManager>(
       std::move(manager_remote), io_task_runner_);
   base::DiscardableMemoryAllocator::SetInstance(

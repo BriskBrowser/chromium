@@ -19,6 +19,7 @@
 #include "base/observer_list.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/tts_controller.h"
 #include "content/public/browser/tts_platform.h"
@@ -29,7 +30,7 @@
 namespace content {
 class BrowserContext;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 class TtsControllerDelegate;
 #endif
 
@@ -65,6 +66,8 @@ class CONTENT_EXPORT TtsControllerImpl : public TtsController,
   void SetTtsEngineDelegate(TtsEngineDelegate* delegate) override;
   TtsEngineDelegate* GetTtsEngineDelegate() override;
 
+  void Shutdown();
+
   // Called directly by ~BrowserContext, because a raw BrowserContext pointer
   // is stored in an Utterance.
   void OnBrowserContextDestroyed(BrowserContext* browser_context);
@@ -82,18 +85,23 @@ class CONTENT_EXPORT TtsControllerImpl : public TtsController,
   TtsControllerImpl();
   ~TtsControllerImpl() override;
 
- private:
-  friend class TtsControllerTestHelper;
-  FRIEND_TEST_ALL_PREFIXES(TtsControllerTest, TestTtsControllerShutdown);
-  FRIEND_TEST_ALL_PREFIXES(TtsControllerTest, TestGetMatchingVoice);
-  FRIEND_TEST_ALL_PREFIXES(TtsControllerTest,
-                           TestTtsControllerUtteranceDefaults);
-  FRIEND_TEST_ALL_PREFIXES(TtsControllerTest, TestBrowserContextRemoved);
+  // Exposed for unittest.
+  bool IsPausedForTesting() const { return paused_; }
 
+ private:
+  friend class TestTtsControllerImpl;
   friend struct base::DefaultSingletonTraits<TtsControllerImpl>;
 
   // Get the platform TTS implementation (or injected mock).
   TtsPlatform* GetTtsPlatform();
+
+  // Whether the platform implementation is supported and completed its
+  // initialization.
+  bool TtsPlatformReady();
+
+  // Whether the platform implementation is supported, but still being
+  // initialized.
+  bool TtsPlatformLoading();
 
   // Start speaking the given utterance. Will either take ownership of
   // |utterance| or delete it if there's an error. Returns true on success.
@@ -149,9 +157,9 @@ class CONTENT_EXPORT TtsControllerImpl : public TtsController,
   void WebContentsDestroyed() override;
   void OnVisibilityChanged(Visibility visibility) override;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   TtsControllerDelegate* GetTtsControllerDelegate();
-
+  void SetTtsControllerDelegateForTesting(TtsControllerDelegate* delegate);
   TtsControllerDelegate* delegate_ = nullptr;
 #endif
 

@@ -10,6 +10,7 @@
 
 #include "base/memory/ref_counted.h"
 #include "content/common/content_export.h"
+#include "content/public/browser/site_instance_process_assignment.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -169,6 +170,12 @@ class CONTENT_EXPORT SiteInstance : public base::RefCounted<SiteInstance> {
   // Returns true if this object is used for a <webview> guest.
   virtual bool IsGuest() = 0;
 
+  // Returns how this SiteInstance was assigned to a renderer process the most
+  // recent time that such an assignment was done. This allows the content
+  // embedder to collect metrics on how renderer process starting or reuse
+  // affects performance.
+  virtual SiteInstanceProcessAssignment GetLastProcessAssignmentOutcome() = 0;
+
   // Factory method to create a new SiteInstance.  This will create a new
   // BrowsingInstance, so it should only be used when creating a new tab from
   // scratch (or similar circumstances).
@@ -198,12 +205,6 @@ class CONTENT_EXPORT SiteInstance : public base::RefCounted<SiteInstance> {
   // Determine if a URL should "use up" a site.  URLs such as about:blank or
   // chrome-native:// leave the site unassigned.
   static bool ShouldAssignSiteForURL(const GURL& url);
-
-  // Returns the site for the given URL, which includes only the scheme and
-  // registered domain.  Returns an empty GURL if the URL has no host. Prior to
-  // determining the site, |url| is resolved to an effective URL via
-  // ContentBrowserClient::GetEffectiveURL().
-  static GURL GetSiteForURL(BrowserContext* context, const GURL& url);
 
   // Starts requiring a dedicated process for |url|'s site.  On platforms where
   // strict site isolation is disabled, this may be used as a runtime signal

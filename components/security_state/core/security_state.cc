@@ -21,25 +21,6 @@ namespace security_state {
 
 namespace {
 
-// For nonsecure pages, returns a SecurityLevel based on the
-// provided information and the kMarkHttpAsFeature field trial.
-SecurityLevel GetSecurityLevelForNonSecureFieldTrial(
-    const InsecureInputEventData& input_events) {
-  if (base::FeatureList::IsEnabled(features::kMarkHttpAsFeature)) {
-    std::string parameter = base::GetFieldTrialParamValueByFeature(
-        features::kMarkHttpAsFeature,
-        features::kMarkHttpAsFeatureParameterName);
-    if (parameter == features::kMarkHttpAsParameterDangerous) {
-      return DANGEROUS;
-    }
-    if (parameter ==
-        features::kMarkHttpAsParameterWarningAndDangerousOnFormEdits) {
-      return input_events.insecure_field_edited ? DANGEROUS : WARNING;
-    }
-  }
-  return WARNING;
-}
-
 std::string GetHistogramSuffixForSecurityLevel(
     security_state::SecurityLevel level) {
   switch (level) {
@@ -84,7 +65,7 @@ std::string GetHistogramSuffixForSafetyTipStatus(
 // Sets |level| to the right value if status should be set.
 bool ShouldSetSecurityLevelFromSafetyTip(security_state::SafetyTipStatus status,
                                          SecurityLevel* level) {
-  if (!base::FeatureList::IsEnabled(security_state::features::kSafetyTipUI)) {
+  if (!IsSafetyTipUIFeatureEnabled()) {
     return false;
   }
 
@@ -177,8 +158,7 @@ SecurityLevel GetSecurityLevel(
         return NONE;
       }
 #endif  // !defined(OS_ANDROID)
-      return GetSecurityLevelForNonSecureFieldTrial(
-          visible_security_state.insecure_input_events);
+      return WARNING;
     }
     return NONE;
   }
@@ -210,10 +190,7 @@ SecurityLevel GetSecurityLevel(
   DCHECK(!visible_security_state.ran_content_with_cert_errors);
 
   if (visible_security_state.displayed_mixed_content) {
-    if (base::FeatureList::IsEnabled(features::kPassiveMixedContentWarning)) {
-      return kDisplayedInsecureContentWarningLevel;
-    }
-    return kDisplayedInsecureContentLevel;
+    return kDisplayedInsecureContentWarningLevel;
   }
 
   if ((visible_security_state.contained_mixed_form &&
@@ -325,10 +302,11 @@ bool IsSHA1InChain(const VisibleSecurityState& visible_security_state) {
           net::CERT_STATUS_SHA1_SIGNATURE_PRESENT);
 }
 
-// TODO(crbug.com/1015626): Clean this up once the experiment is fully
-// launched.
-bool ShouldShowDangerTriangleForWarningLevel() {
-  return true;
+bool IsSafetyTipUIFeatureEnabled() {
+  return base::FeatureList::IsEnabled(features::kSafetyTipUI) ||
+         base::FeatureList::IsEnabled(
+             features::kSafetyTipUIForSimplifiedDomainDisplay) ||
+         base::FeatureList::IsEnabled(features::kSafetyTipUIOnDelayedWarning);
 }
 
 }  // namespace security_state

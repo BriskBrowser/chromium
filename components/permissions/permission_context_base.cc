@@ -34,7 +34,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_features.h"
-#include "content/public/common/origin_util.h"
+#include "services/network/public/cpp/is_potentially_trustworthy.h"
 #include "url/gurl.h"
 
 namespace permissions {
@@ -72,8 +72,8 @@ const char kPermissionBlockedRepeatedIgnoresMessage[] =
 #endif
 
 const char kPermissionBlockedFeaturePolicyMessage[] =
-    "%s permission has been blocked because of a Feature Policy applied to the "
-    "current document. See https://goo.gl/EuHzyv for more details.";
+    "%s permission has been blocked because of a permissions policy applied to"
+    " the current document. See https://goo.gl/EuHzyv for more details.";
 
 const char kPermissionBlockedPortalsMessage[] =
     "%s permission has been blocked because it was requested inside a portal. "
@@ -131,8 +131,8 @@ void PermissionContextBase::RequestPermission(
              << embedding_origin << " (" << type_name
              << " is not supported in popups)";
     NotifyPermissionSet(id, requesting_origin, embedding_origin,
-                        std::move(callback), false /* persist */,
-                        CONTENT_SETTING_BLOCK);
+                        std::move(callback), /*persist=*/false,
+                        CONTENT_SETTING_BLOCK, /*is_one_time=*/false);
     return;
   }
 
@@ -183,8 +183,8 @@ void PermissionContextBase::RequestPermission(
     // suppressed the prompt.
     PermissionUmaUtil::RecordEmbargoPromptSuppressionFromSource(result.source);
     NotifyPermissionSet(id, requesting_origin, embedding_origin,
-                        std::move(callback), false /* persist */,
-                        result.content_setting);
+                        std::move(callback), /*persist=*/false,
+                        result.content_setting, /*is_one_time=*/false);
     return;
   }
 
@@ -289,7 +289,7 @@ bool PermissionContextBase::IsPermissionAvailableToOrigins(
     const GURL& requesting_origin,
     const GURL& embedding_origin) const {
   if (IsRestrictedToSecureOrigins()) {
-    if (!content::IsOriginSecure(requesting_origin))
+    if (!network::IsUrlPotentiallyTrustworthy(requesting_origin))
       return false;
 
     // TODO(raymes): We should check the entire chain of embedders here whenever
@@ -298,7 +298,7 @@ bool PermissionContextBase::IsPermissionAvailableToOrigins(
     // the top level and requesting origins.
     if (!PermissionsClient::Get()->CanBypassEmbeddingOriginCheck(
             requesting_origin, embedding_origin) &&
-        !content::IsOriginSecure(embedding_origin)) {
+        !network::IsUrlPotentiallyTrustworthy(embedding_origin)) {
       return false;
     }
   }
@@ -321,7 +321,7 @@ void PermissionContextBase::ResetPermission(const GURL& requesting_origin,
   PermissionsClient::Get()
       ->GetSettingsMap(browser_context_)
       ->SetContentSettingDefaultScope(requesting_origin, embedding_origin,
-                                      content_settings_type_, std::string(),
+                                      content_settings_type_,
                                       CONTENT_SETTING_DEFAULT);
 }
 
@@ -340,7 +340,7 @@ ContentSetting PermissionContextBase::GetPermissionStatusInternal(
   return PermissionsClient::Get()
       ->GetSettingsMap(browser_context_)
       ->GetContentSetting(requesting_origin, embedding_origin,
-                          content_settings_type_, std::string());
+                          content_settings_type_);
 }
 
 void PermissionContextBase::DecidePermission(
@@ -370,8 +370,7 @@ void PermissionContextBase::DecidePermission(
 
   std::unique_ptr<PermissionRequest> request_ptr =
       std::make_unique<PermissionRequestImpl>(
-          embedding_origin, requesting_origin, content_settings_type_,
-          user_gesture,
+          requesting_origin, content_settings_type_, user_gesture,
           base::BindOnce(&PermissionContextBase::PermissionDecided,
                          weak_factory_.GetWeakPtr(), id, requesting_origin,
                          embedding_origin, std::move(callback)),
@@ -402,7 +401,8 @@ void PermissionContextBase::PermissionDecided(
     const GURL& requesting_origin,
     const GURL& embedding_origin,
     BrowserPermissionCallback callback,
-    ContentSetting content_setting) {
+    ContentSetting content_setting,
+    bool is_one_time) {
   DCHECK(content_setting == CONTENT_SETTING_ALLOW ||
          content_setting == CONTENT_SETTING_BLOCK ||
          content_setting == CONTENT_SETTING_DEFAULT);
@@ -411,7 +411,8 @@ void PermissionContextBase::PermissionDecided(
 
   bool persist = content_setting != CONTENT_SETTING_DEFAULT;
   NotifyPermissionSet(id, requesting_origin, embedding_origin,
-                      std::move(callback), persist, content_setting);
+                      std::move(callback), persist, content_setting,
+                      is_one_time);
 }
 
 content::BrowserContext* PermissionContextBase::browser_context() const {
@@ -424,11 +425,14 @@ void PermissionContextBase::NotifyPermissionSet(
     const GURL& embedding_origin,
     BrowserPermissionCallback callback,
     bool persist,
-    ContentSetting content_setting) {
+    ContentSetting content_setting,
+    bool is_one_time) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  if (persist)
-    UpdateContentSetting(requesting_origin, embedding_origin, content_setting);
+  if (persist) {
+    UpdateContentSetting(requesting_origin, embedding_origin, content_setting,
+                         is_one_time);
+  }
 
   UpdateTabContext(id, requesting_origin,
                    content_setting == CONTENT_SETTING_ALLOW);
@@ -444,10 +448,10 @@ void PermissionContextBase::CleanUpRequest(const PermissionRequestID& id) {
   DCHECK(success == 1) << "Missing request " << id.ToString();
 }
 
-void PermissionContextBase::UpdateContentSetting(
-    const GURL& requesting_origin,
-    const GURL& embedding_origin,
-    ContentSetting content_setting) {
+void PermissionContextBase::UpdateContentSetting(const GURL& requesting_origin,
+                                                 const GURL& embedding_origin,
+                                                 ContentSetting content_setting,
+                                                 bool is_one_time) {
   DCHECK_EQ(requesting_origin, requesting_origin.GetOrigin());
   DCHECK_EQ(embedding_origin, embedding_origin.GetOrigin());
   DCHECK(content_setting == CONTENT_SETTING_ALLOW ||
@@ -455,11 +459,15 @@ void PermissionContextBase::UpdateContentSetting(
   DCHECK(!requesting_origin.SchemeIsFile());
   DCHECK(!embedding_origin.SchemeIsFile());
 
+  using Constraints = content_settings::ContentSettingConstraints;
   PermissionsClient::Get()
       ->GetSettingsMap(browser_context_)
-      ->SetContentSettingDefaultScope(requesting_origin, embedding_origin,
-                                      content_settings_type_, std::string(),
-                                      content_setting);
+      ->SetContentSettingDefaultScope(
+          requesting_origin, embedding_origin, content_settings_type_,
+          content_setting,
+          is_one_time ? Constraints{base::Time(),
+                                    content_settings::SessionModel::OneTime}
+                      : Constraints());
 }
 
 bool PermissionContextBase::PermissionAllowedByFeaturePolicy(

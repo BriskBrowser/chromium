@@ -27,7 +27,6 @@
 #include "content/public/renderer/renderer_ppapi_host.h"
 #include "content/renderer/pepper/gfx_conversion.h"
 #include "content/renderer/pepper/pepper_plugin_instance_impl.h"
-#include "content/renderer/pepper/plugin_instance_throttler_impl.h"
 #include "content/renderer/pepper/ppb_image_data_impl.h"
 #include "content/renderer/render_thread_impl.h"
 #include "gpu/GLES2/gl2extchromium.h"
@@ -308,8 +307,10 @@ bool PepperGraphics2DHost::ReadImageData(PP_Resource image,
     // We want to replace the contents of the bitmap rather than blend.
     SkPaint paint;
     paint.setBlendMode(SkBlendMode::kSrc);
-    dest_canvas->drawBitmapRect(
-        image_data_->GetMappedBitmap(), src_irect, dest_rect, &paint);
+    dest_canvas->drawImageRect(image_data_->GetMappedBitmap().asImage(),
+                               SkRect::Make(src_irect), dest_rect,
+                               SkSamplingOptions(), &paint,
+                               SkCanvas::kStrict_SrcRectConstraint);
   }
   return true;
 }
@@ -397,7 +398,8 @@ void PepperGraphics2DHost::Paint(cc::PaintCanvas* canvas,
   // TODO(khushalsagar): Can this be cached on image_data_, and invalidated when
   // the bitmap changes?
   canvas->drawImage(cc::PaintImage::CreateFromBitmap(std::move(backing_bitmap)),
-                    pixel_origin.x(), pixel_origin.y(), &flags);
+                    pixel_origin.x(), pixel_origin.y(), SkSamplingOptions(),
+                    &flags);
 }
 
 void PepperGraphics2DHost::ViewInitiatedPaint() {
@@ -855,11 +857,6 @@ int32_t PepperGraphics2DHost::Flush(PP_Resource* old_image_data) {
     need_flush_ack_ = true;
   }
 
-  if (bound_instance_ && bound_instance_->throttler() &&
-      bound_instance_->throttler()->needs_representative_keyframe()) {
-    bound_instance_->throttler()->OnImageFlush(image_data_->GetMappedBitmap());
-  }
-
   return PP_OK_COMPLETIONPENDING;
 }
 
@@ -905,8 +902,9 @@ void PepperGraphics2DHost::ExecutePaintImageData(PPB_ImageData_Impl* image,
     // We want to replace the contents of the bitmap rather than blend.
     SkPaint paint;
     paint.setBlendMode(SkBlendMode::kSrc);
-    backing_canvas->drawBitmapRect(
-        image->GetMappedBitmap(), src_irect, dest_rect, &paint);
+    backing_canvas->drawImageRect(
+        image->GetMappedBitmap().asImage(), SkRect::Make(src_irect), dest_rect,
+        SkSamplingOptions(), &paint, SkCanvas::kStrict_SrcRectConstraint);
   }
 }
 

@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "base/i18n/time_formatting.h"
+#import "base/ios/ios_util.h"
 #include "base/mac/foundation_util.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
@@ -33,11 +34,10 @@
 #import "ios/chrome/browser/ui/settings/cells/passphrase_error_item.h"
 #import "ios/chrome/browser/ui/settings/settings_navigation_controller.h"
 #import "ios/chrome/browser/ui/settings/sync/utils/sync_util.h"
-#import "ios/chrome/browser/ui/settings/utils/settings_utils.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_link_header_footer_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_item.h"
+#import "ios/chrome/browser/ui/table_view/table_view_utils.h"
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
-#import "ios/chrome/browser/ui/util/multi_window_support.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/public/provider/chrome/browser/signin/chrome_identity.h"
@@ -86,10 +86,8 @@ const CGFloat kSpinnerButtonPadding = 18;
 
 - (instancetype)initWithBrowser:(Browser*)browser {
   DCHECK(browser);
-  UITableViewStyle style = base::FeatureList::IsEnabled(kSettingsRefresh)
-                               ? UITableViewStylePlain
-                               : UITableViewStyleGrouped;
-  self = [super initWithStyle:style];
+
+  self = [super initWithStyle:ChromeTableViewStyle()];
   if (self) {
     _browser = browser;
     ChromeBrowserState* browserState = self.browser->GetBrowserState();
@@ -157,7 +155,7 @@ const CGFloat kSpinnerButtonPadding = 18;
   [super viewDidLoad];
   [self loadModel];
   [self setRightNavBarItem];
-  if (IsSceneStartupSupported()) {
+  if (base::ios::IsSceneStartupSupported()) {
     SceneState* sceneState =
         SceneStateBrowserAgent::FromBrowser(self.browser)->GetSceneState();
     _uiBlocker = std::make_unique<ScopedUIBlocker>(sceneState);
@@ -328,7 +326,6 @@ const CGFloat kSpinnerButtonPadding = 18;
       [self hideDecryptionProgress];
     }
   } else {
-    service->GetUserSettings()->EnableEncryptEverything();
     service->GetUserSettings()->SetEncryptionPassphrase(passphrase);
   }
   [self reloadData];
@@ -422,8 +419,7 @@ const CGFloat kSpinnerButtonPadding = 18;
                                       kSpinnerButtonCustomViewSize);
   UIView* customView = [[UIView alloc] initWithFrame:customViewFrame];
 
-  UIActivityIndicatorView* spinner = [[UIActivityIndicatorView alloc]
-      initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleGray];
+  UIActivityIndicatorView* spinner = GetMediumUIActivityIndicatorView();
 
   CGRect spinnerFrame = [spinner bounds];
   spinnerFrame.origin.x = kSpinnerButtonPadding;

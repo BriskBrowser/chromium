@@ -4,9 +4,10 @@
 
 #include "chrome/browser/ui/global_media_controls/cast_media_notification_provider.h"
 
-#include "chrome/browser/media/router/media_router.h"
-#include "chrome/browser/media/router/media_router_factory.h"
 #include "chrome/browser/profiles/profile.h"
+#include "components/media_message_center/media_notification_controller.h"
+#include "components/media_router/browser/media_router.h"
+#include "components/media_router/browser/media_router_factory.h"
 #include "components/media_router/common/providers/cast/cast_media_source.h"
 
 namespace {
@@ -53,6 +54,23 @@ CastMediaNotificationProvider::CastMediaNotificationProvider(
 
 CastMediaNotificationProvider::~CastMediaNotificationProvider() = default;
 
+base::WeakPtr<media_message_center::MediaNotificationItem>
+CastMediaNotificationProvider::GetNotificationItem(const std::string& id) {
+  const auto item_it = items_.find(id);
+  if (item_it == items_.end())
+    return nullptr;
+  return item_it->second.GetWeakPtr();
+}
+
+std::set<std::string>
+CastMediaNotificationProvider::GetActiveControllableNotificationIds() const {
+  std::set<std::string> ids;
+  for (const auto& item : items_) {
+    ids.insert(item.first);
+  }
+  return ids;
+}
+
 void CastMediaNotificationProvider::OnRoutesUpdated(
     const std::vector<media_router::MediaRoute>& routes,
     const std::vector<media_router::MediaRoute::Id>& joinable_route_ids) {
@@ -86,20 +104,13 @@ void CastMediaNotificationProvider::OnRoutesUpdated(
       router_->GetMediaController(
           route.media_route_id(), std::move(controller_receiver),
           it_pair.first->second.GetObserverPendingRemote());
+      notification_controller_->ShowNotification(route.media_route_id());
     } else {
       item_it->second.OnRouteUpdated(route);
     }
   }
   if (HasItems() != had_items)
     items_changed_callback_.Run();
-}
-
-base::WeakPtr<media_message_center::MediaNotificationItem>
-CastMediaNotificationProvider::GetNotificationItem(const std::string& id) {
-  const auto item_it = items_.find(id);
-  if (item_it == items_.end())
-    return nullptr;
-  return item_it->second.GetWeakPtr();
 }
 
 bool CastMediaNotificationProvider::HasItems() const {

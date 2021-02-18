@@ -18,7 +18,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/common/content_features.h"
-#include "content/public/common/origin_util.h"
+#include "services/network/public/cpp/is_potentially_trustworthy.h"
 
 namespace client_hints {
 
@@ -49,14 +49,14 @@ void ClientHints::GetAllowedClientHintsFromSource(
     blink::WebEnabledClientHints* client_hints) {
   ContentSettingsForOneType client_hints_rules;
   settings_map_->GetSettingsForOneType(ContentSettingsType::CLIENT_HINTS,
-                                       std::string(), &client_hints_rules);
+                                       &client_hints_rules);
   client_hints::GetAllowedClientHintsFromSource(url, client_hints_rules,
                                                 client_hints);
 }
 
 bool ClientHints::IsJavaScriptAllowed(const GURL& url) {
-  return settings_map_->GetContentSetting(
-             url, url, ContentSettingsType::JAVASCRIPT, std::string()) !=
+  return settings_map_->GetContentSetting(url, url,
+                                          ContentSettingsType::JAVASCRIPT) !=
          CONTENT_SETTING_BLOCK;
 }
 
@@ -87,7 +87,8 @@ void ClientHints::PersistClientHints(
 
   // TODO(tbansal): crbug.com/735518. Consider killing the renderer that sent
   // the malformed IPC.
-  if (!primary_url.is_valid() || !content::IsOriginSecure(primary_url))
+  if (!primary_url.is_valid() ||
+      !network::IsUrlPotentiallyTrustworthy(primary_url))
     return;
 
   if (!IsJavaScriptAllowed(primary_url))
@@ -109,9 +110,8 @@ void ClientHints::PersistClientHints(
   if (expiration_duration <= base::TimeDelta::FromSeconds(0))
     return;
 
-  std::unique_ptr<base::ListValue> expiration_times_list =
-      std::make_unique<base::ListValue>();
-  expiration_times_list->Reserve(client_hints.size());
+  base::Value::ListStorage expiration_times_list;
+  expiration_times_list.reserve(client_hints.size());
 
   // Use wall clock since the expiration time would be persisted across embedder
   // restarts.
@@ -119,17 +119,17 @@ void ClientHints::PersistClientHints(
       (base::Time::Now() + expiration_duration).ToDoubleT();
 
   for (const auto& entry : client_hints)
-    expiration_times_list->AppendInteger(static_cast<int>(entry));
+    expiration_times_list.push_back(base::Value(static_cast<int>(entry)));
 
   auto expiration_times_dictionary = std::make_unique<base::DictionaryValue>();
-  expiration_times_dictionary->SetList("client_hints",
-                                       std::move(expiration_times_list));
-  expiration_times_dictionary->SetDouble("expiration_time", expiration_time);
+  expiration_times_dictionary->SetKey(
+      "client_hints", base::Value(std::move(expiration_times_list)));
+  expiration_times_dictionary->SetDoubleKey("expiration_time", expiration_time);
 
   // TODO(tbansal): crbug.com/735518. Disable updates to client hints settings
   // when cookies are disabled for |primary_origin|.
   settings_map_->SetWebsiteSettingDefaultScope(
-      primary_url, GURL(), ContentSettingsType::CLIENT_HINTS, std::string(),
+      primary_url, GURL(), ContentSettingsType::CLIENT_HINTS,
       std::move(expiration_times_dictionary),
       {base::Time(), content_settings::SessionModel::UserSession});
 

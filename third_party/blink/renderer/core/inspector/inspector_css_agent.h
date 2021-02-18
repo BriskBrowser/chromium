@@ -105,7 +105,8 @@ class CORE_EXPORT InspectorCSSAgent final
   static void GetBackgroundColors(Element* element,
                                   Vector<Color>* background_colors,
                                   String* computed_font_size,
-                                  String* computed_font_weight);
+                                  String* computed_font_weight,
+                                  float* text_opacity);
 
   InspectorCSSAgent(InspectorDOMAgent*,
                     InspectedFrames*,
@@ -319,7 +320,6 @@ class CORE_EXPORT InspectorCSSAgent final
 
   // InspectorDOMAgent::DOMListener implementation
   void DidAddDocument(Document*) override;
-  void DidRemoveDocument(Document*) override;
   void WillRemoveDOMNode(Node*) override;
   void DidModifyDOMAttr(Element*) override;
 

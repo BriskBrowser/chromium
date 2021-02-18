@@ -7,15 +7,16 @@
 #include <utility>
 #include <vector>
 
+#include "ash/constants/ash_paths.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/check_op.h"
+#include "base/containers/contains.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/optional.h"
 #include "base/path_service.h"
 #include "base/sequenced_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
@@ -27,8 +28,6 @@
 #include "chrome/browser/chromeos/policy/device_local_account_policy_store.h"
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
 #include "chrome/common/chrome_content_client.h"
-#include "chrome/common/chrome_features.h"
-#include "chromeos/constants/chromeos_paths.h"
 #include "chromeos/dbus/session_manager/session_manager_client.h"
 #include "chromeos/settings/cros_settings_names.h"
 #include "chromeos/settings/cros_settings_provider.h"
@@ -129,7 +128,7 @@ DeviceLocalAccountPolicyBroker::DeviceLocalAccountPolicyBroker(
     const base::FilePath& component_policy_cache_path,
     std::unique_ptr<DeviceLocalAccountPolicyStore> store,
     scoped_refptr<DeviceLocalAccountExternalDataManager> external_data_manager,
-    const base::Closure& policy_update_callback,
+    const base::RepeatingClosure& policy_update_callback,
     const scoped_refptr<base::SequencedTaskRunner>& task_runner,
     const scoped_refptr<base::SequencedTaskRunner>& resource_cache_task_runner,
     AffiliatedInvalidationServiceProvider* invalidation_service_provider)
@@ -274,7 +273,7 @@ DeviceLocalAccountPolicyService::DeviceLocalAccountPolicyService(
       url_loader_factory_(url_loader_factory),
       local_accounts_subscription_(cros_settings_->AddSettingsObserver(
           chromeos::kAccountsPrefDeviceLocalAccounts,
-          base::Bind(
+          base::BindRepeating(
               &DeviceLocalAccountPolicyService::UpdateAccountListIfNonePending,
               base::Unretained(this)))),
       component_policy_cache_root_(base::PathService::CheckedGet(
@@ -468,8 +467,9 @@ void DeviceLocalAccountPolicyService::UpdateAccountList() {
           component_policy_cache_root_.Append(
               GetCacheSubdirectoryForAccountID(it->account_id)),
           std::move(store), external_data_manager,
-          base::Bind(&DeviceLocalAccountPolicyService::NotifyPolicyUpdated,
-                     base::Unretained(this), it->user_id),
+          base::BindRepeating(
+              &DeviceLocalAccountPolicyService::NotifyPolicyUpdated,
+              base::Unretained(this), it->user_id),
           base::ThreadTaskRunnerHandle::Get(), resource_cache_task_runner_,
           invalidation_service_provider_));
     }

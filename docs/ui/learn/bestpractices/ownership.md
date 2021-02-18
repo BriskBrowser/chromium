@@ -48,7 +48,7 @@ safer:
 ...
 views::Label* title =
     new views::Label(
-        title_text, CONTEXT_BODY_TEXT_LARGE,
+        title_text, views::style::CONTEXT_DIALOG_BODY_TEXT,
         text_style);
 
 title->SetHorizontalAlignment(
@@ -71,7 +71,7 @@ AddChildView(signin_button_view_);
 auto* title =
     AddChildView(
         std::make_unique<views::Label>(
-            title_text, CONTEXT_BODY_TEXT_LARGE,
+            title_text, views::style::CONTEXT_DIALOG_BODY_TEXT,
             text_style));
 title->SetHorizontalAlignment(
     gfx::HorizontalAlignment::ALIGN_LEFT);
@@ -289,8 +289,7 @@ destroyed:
 #####
 
 ``` cpp
-class CastDialogNoSinksView
-    : public views::View, public views::ButtonListener {
+class CastDialogNoSinksView ... {
   ...
  private:
   base::WeakPtrFactory<CastDialogNoSinksView>
@@ -313,8 +312,7 @@ CastDialogNoSinksView::CastDialogNoSinksView(
 #####
 
 ``` cpp
-class CastDialogNoSinksView
-    : public views::View, public views::ButtonListener {
+class CastDialogNoSinksView ... {
   ...
  private:
   base::OneShotTimer timer_;

@@ -22,8 +22,10 @@ namespace chromeos {
 
 EasyUnlockGetKeysOperation::EasyUnlockGetKeysOperation(
     const UserContext& user_context,
-    const GetKeysCallback& callback)
-    : user_context_(user_context), callback_(callback), key_index_(0) {}
+    GetKeysCallback callback)
+    : user_context_(user_context),
+      callback_(std::move(callback)),
+      key_index_(0) {}
 
 EasyUnlockGetKeysOperation::~EasyUnlockGetKeysOperation() {}
 
@@ -37,7 +39,7 @@ void EasyUnlockGetKeysOperation::Start() {
 void EasyUnlockGetKeysOperation::OnCryptohomeAvailable(bool available) {
   if (!available) {
     PA_LOG(ERROR) << "Failed to wait for cryptohome to become available";
-    callback_.Run(false, EasyUnlockDeviceKeyDataList());
+    std::move(callback_).Run(false, EasyUnlockDeviceKeyDataList());
     return;
   }
 
@@ -70,23 +72,23 @@ void EasyUnlockGetKeysOperation::OnGetKeyData(
     // Other error codes are treated as failures.
     if (return_code == cryptohome::MOUNT_ERROR_NONE ||
         return_code == cryptohome::MOUNT_ERROR_KEY_FAILURE) {
-      // Prior to the introduction of the |unlock_key| field, only one
+      // Prior to the introduction of the `unlock_key` field, only one
       // EasyUnlockDeviceKeyData was peristed, and implicitly assumed to be the
       // unlock key. Now, multiple EasyUnlockDeviceKeyData objects are
       // persisted, and this deserializing logic cannot assume that a given
       // object is the unlock key. To handle the case of migrating from the old
       // paradigm of a single persisted EasyUnlockDeviceKeyData, the
-      // |unlock_key| field is defaulted to true if only a single device entry
+      // `unlock_key` field is defaulted to true if only a single device entry
       // exists, in order to correctly mark that old entry as the unlock key.
       if (devices_.size() == 1)
         devices_[0].unlock_key = true;
 
-      callback_.Run(true, devices_);
+      std::move(callback_).Run(true, devices_);
       return;
     }
 
     PA_LOG(ERROR) << "Easy unlock failed to get key data, code=" << return_code;
-    callback_.Run(false, EasyUnlockDeviceKeyDataList());
+    std::move(callback_).Run(false, EasyUnlockDeviceKeyDataList());
     return;
   }
 
@@ -129,7 +131,7 @@ void EasyUnlockGetKeysOperation::OnGetKeyData(
       else
         NOTREACHED();
     } else if (entry.name == kEasyUnlockKeyMetaNameUnlockKey) {
-      // ProviderData only has the std::string |bytes| and int64_t |number|
+      // ProviderData only has the std::string `bytes` and int64_t `number`
       // fields for persistence -- the number field is used to store this
       // boolean. The boolean was stored as either a 1 or 0 in as an int64_t.
       // Cast it back to bool here.

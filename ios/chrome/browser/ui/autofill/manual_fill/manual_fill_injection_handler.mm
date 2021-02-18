@@ -27,7 +27,6 @@
 #include "ios/chrome/common/ui/reauthentication/reauthentication_event.h"
 #import "ios/chrome/common/ui/reauthentication/reauthentication_module.h"
 #include "ios/chrome/grit/ios_strings.h"
-#import "ios/web/public/deprecated/crw_js_injection_receiver.h"
 #include "ios/web/public/js_messaging/web_frame.h"
 #include "ios/web/public/js_messaging/web_frame_util.h"
 #include "ios/web/public/js_messaging/web_frames_manager.h"
@@ -51,11 +50,8 @@ const int64_t kJavaScriptExecutionTimeoutInSeconds = 1;
 // The object in charge of listening to form events and reporting back.
 @property(nonatomic, strong) FormObserverHelper* formHelper;
 
-// Convenience getter for the current injection reciever.
-@property(nonatomic, readonly) CRWJSInjectionReceiver* injectionReceiver;
-
 // Convenience getter for the current suggestion manager.
-@property(nonatomic, readonly) JsSuggestionManager* suggestionManager;
+@property(nonatomic, readonly) autofill::JsSuggestionManager* suggestionManager;
 
 // Interface for |reauthenticationModule|, handling mostly the case when no
 // hardware for authentication is available.
@@ -131,42 +127,33 @@ const int64_t kJavaScriptExecutionTimeoutInSeconds = 1;
 
   if ([self canUserInjectInPasswordField:passwordField
                            requiresHTTPS:requiresHTTPS]) {
-    if (!base::FeatureList::IsEnabled(kEnableAutofillPasswordReauthIOS)) {
+    if (!passwordField) {
       [self fillLastSelectedFieldWithString:content];
-      if (passwordField) {
-        UmaHistogramEnumeration("IOS.Reauth.Password.ManualFallback",
-                                ReauthenticationEvent::kSuccess);
-      }
+      return;
+    }
+
+    if ([self.reauthenticationModule canAttemptReauth]) {
+      NSString* reason = l10n_util::GetNSString(IDS_IOS_AUTOFILL_REAUTH_REASON);
+      __weak __typeof(self) weakSelf = self;
+      auto completionHandler = ^(ReauthenticationResult result) {
+        if (result != ReauthenticationResult::kFailure) {
+          UmaHistogramEnumeration("IOS.Reauth.Password.ManualFallback",
+                                  ReauthenticationEvent::kSuccess);
+          [weakSelf fillLastSelectedFieldWithString:content];
+        } else {
+          UmaHistogramEnumeration("IOS.Reauth.Password.ManualFallback",
+                                  ReauthenticationEvent::kFailure);
+        }
+      };
+
+      [self.reauthenticationModule
+          attemptReauthWithLocalizedReason:reason
+                      canReusePreviousAuth:YES
+                                   handler:completionHandler];
     } else {
-      if (!passwordField) {
-        [self fillLastSelectedFieldWithString:content];
-        return;
-      }
-
-      if ([self.reauthenticationModule canAttemptReauth]) {
-        NSString* reason =
-            l10n_util::GetNSString(IDS_IOS_AUTOFILL_REAUTH_REASON);
-        __weak __typeof(self) weakSelf = self;
-        auto completionHandler = ^(ReauthenticationResult result) {
-          if (result != ReauthenticationResult::kFailure) {
-            UmaHistogramEnumeration("IOS.Reauth.Password.ManualFallback",
-                                    ReauthenticationEvent::kSuccess);
-            [weakSelf fillLastSelectedFieldWithString:content];
-          } else {
-            UmaHistogramEnumeration("IOS.Reauth.Password.ManualFallback",
-                                    ReauthenticationEvent::kFailure);
-          }
-        };
-
-        [self.reauthenticationModule
-            attemptReauthWithLocalizedReason:reason
-                        canReusePreviousAuth:YES
-                                     handler:completionHandler];
-      } else {
-        UmaHistogramEnumeration("IOS.Reauth.Password.ManualFallback",
-                                ReauthenticationEvent::kMissingPasscode);
-        [self.securityAlertHandler showSetPasscodeDialog];
-      }
+      UmaHistogramEnumeration("IOS.Reauth.Password.ManualFallback",
+                              ReauthenticationEvent::kMissingPasscode);
+      [self.securityAlertHandler showSetPasscodeDialog];
     }
   }
 }
@@ -193,22 +180,14 @@ const int64_t kJavaScriptExecutionTimeoutInSeconds = 1;
 
 #pragma mark - Getters
 
-- (CRWJSInjectionReceiver*)injectionReceiver {
+- (autofill::JsSuggestionManager*)suggestionManager {
+  autofill::JsSuggestionManager* suggestionManager = nullptr;
   web::WebState* webState = self.webStateList->GetActiveWebState();
   if (webState) {
-    return webState->GetJSInjectionReceiver();
+    suggestionManager =
+        autofill::JsSuggestionManager::GetOrCreateForWebState(webState);
   }
-  return nil;
-}
-
-- (JsSuggestionManager*)suggestionManager {
-  JsSuggestionManager* manager = base::mac::ObjCCastStrict<JsSuggestionManager>(
-      [self.injectionReceiver instanceOfClass:[JsSuggestionManager class]]);
-  web::WebState* webState = self.webStateList->GetActiveWebState();
-  if (webState) {
-    [manager setWebFramesManager:webState->GetWebFramesManager()];
-  }
-  return manager;
+  return suggestionManager;
 }
 
 #pragma mark - Private

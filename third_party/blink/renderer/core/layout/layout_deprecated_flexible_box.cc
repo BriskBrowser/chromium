@@ -67,13 +67,14 @@ static int GetHeightForLineCount(const LayoutBlockFlow* block_flow,
   LayoutBox* normal_flow_child_without_lines = nullptr;
   for (LayoutBox* obj = block_flow->FirstChildBox(); obj;
        obj = obj->NextSiblingBox()) {
-    auto* block_flow = DynamicTo<LayoutBlockFlow>(obj);
-    if (block_flow && ShouldCheckLines(block_flow)) {
-      int result = GetHeightForLineCount(block_flow, line_count, false, count);
+    auto* child_block_flow = DynamicTo<LayoutBlockFlow>(obj);
+    if (child_block_flow && ShouldCheckLines(child_block_flow)) {
+      int result =
+          GetHeightForLineCount(child_block_flow, line_count, false, count);
       if (result != -1)
         return (result + obj->Location().Y() +
-                (include_bottom ? (block_flow->BorderBottom() +
-                                   block_flow->PaddingBottom())
+                (include_bottom ? (child_block_flow->BorderBottom() +
+                                   child_block_flow->PaddingBottom())
                                 : LayoutUnit()))
             .ToInt();
     } else if (!obj->IsFloatingOrOutOfFlowPositioned()) {
@@ -188,6 +189,7 @@ static LayoutUnit MarginWidthForChild(LayoutBox* child) {
 }
 
 MinMaxSizes LayoutDeprecatedFlexibleBox::ComputeIntrinsicLogicalWidths() const {
+  NOT_DESTROYED();
   MinMaxSizes sizes;
   for (LayoutBox* child = FirstChildBox(); child;
        child = child->NextSiblingBox()) {
@@ -201,11 +203,13 @@ MinMaxSizes LayoutDeprecatedFlexibleBox::ComputeIntrinsicLogicalWidths() const {
   }
 
   sizes.max_size = std::max(sizes.min_size, sizes.max_size);
-  sizes += BorderAndPaddingLogicalWidth() + ScrollbarLogicalWidth();
+  sizes +=
+      BorderAndPaddingLogicalWidth() + ComputeLogicalScrollbars().InlineSum();
   return sizes;
 }
 
 void LayoutDeprecatedFlexibleBox::UpdateBlockLayout(bool relayout_children) {
+  NOT_DESTROYED();
   DCHECK(NeedsLayout());
   DCHECK_EQ(StyleRef().BoxOrient(), EBoxOrient::kVertical);
   DCHECK(StyleRef().HasLineClamp());
@@ -249,8 +253,9 @@ void LayoutDeprecatedFlexibleBox::UpdateBlockLayout(bool relayout_children) {
 }
 
 void LayoutDeprecatedFlexibleBox::LayoutVerticalBox(bool relayout_children) {
+  NOT_DESTROYED();
   LayoutUnit to_add =
-      BorderBottom() + PaddingBottom() + HorizontalScrollbarHeight();
+      BorderBottom() + PaddingBottom() + ComputeScrollbars().bottom;
 
   // We confine the line clamp ugliness to vertical flexible boxes (thus keeping
   // it out of mainstream block layout); this is not really part of the XUL box
@@ -259,7 +264,7 @@ void LayoutDeprecatedFlexibleBox::LayoutVerticalBox(bool relayout_children) {
 
   PaintLayerScrollableArea::DelayScrollOffsetClampScope delay_clamp_scope;
 
-  SetHeight(BorderTop() + PaddingTop());
+  SetHeight(BorderTop() + PaddingTop() + ComputeScrollbars().top);
   LayoutUnit min_height = Size().Height() + to_add;
 
   for (LayoutBox* child = FirstChildBox(); child;
@@ -337,6 +342,7 @@ void LayoutDeprecatedFlexibleBox::LayoutVerticalBox(bool relayout_children) {
 }
 
 void LayoutDeprecatedFlexibleBox::ApplyLineClamp(bool relayout_children) {
+  NOT_DESTROYED();
   int max_line_count = 0;
   for (LayoutBox* child = FirstChildBox(); child;
        child = child->NextSiblingBox()) {

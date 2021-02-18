@@ -5,15 +5,16 @@
 #ifndef CHROME_CREDENTIAL_PROVIDER_GAIACP_DEVICE_POLICIES_H_
 #define CHROME_CREDENTIAL_PROVIDER_GAIACP_DEVICE_POLICIES_H_
 
+#include <string>
 #include <vector>
 
-#include "base/strings/string16.h"
+#include "base/component_export.h"
 #include "chrome/credential_provider/gaiacp/user_policies.h"
 
 namespace credential_provider {
 
 // Structure to hold the policies for the device.
-struct DevicePolicies {
+struct COMPONENT_EXPORT(GCPW_POLICIES) DevicePolicies {
   // Controls whether MDM enrollment is enabled/disabled.
   bool enable_dm_enrollment;
 
@@ -29,7 +30,7 @@ struct DevicePolicies {
 
   // The list of domains from which the users are allowed to sign in to the
   // device.
-  std::vector<base::string16> domains_allowed_to_login;
+  std::vector<std::wstring> domains_allowed_to_login;
 
   // Creates a default policy for the device honoring any existing registry
   // settings.
@@ -47,6 +48,9 @@ struct DevicePolicies {
   void MergeWith(const DevicePolicies& other);
 
   bool operator==(const DevicePolicies& other) const;
+
+  // Get a string with comma separated values from domains_allowed_to_login.
+  std::wstring GetAllowedDomainsStr() const;
 };
 
 }  // namespace credential_provider

@@ -14,12 +14,17 @@
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
 #include "chrome/browser/chromeos/login/signin/token_handle_util.h"
-#include "chromeos/components/account_manager/account_manager.h"
 #include "components/account_id/account_id.h"
+#include "components/account_manager_core/account.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/signin/core/browser/signin_error_controller.h"
 
 class Profile;
+class PrefRegistrySimple;
+
+namespace ash {
+class AccountManager;
+}
 
 namespace signin {
 class IdentityManager;
@@ -34,6 +39,8 @@ class SigninErrorNotifier : public SigninErrorController::Observer,
 
   static std::unique_ptr<base::AutoReset<bool>> IgnoreSyncErrorsForTesting();
 
+  static void RegisterPrefs(PrefRegistrySimple* registry);
+
   // KeyedService:
   void Shutdown() override;
 
@@ -47,19 +54,21 @@ class SigninErrorNotifier : public SigninErrorController::Observer,
 
   // Handles errors for Secondary Accounts.
   // Displays a notification that allows users to open crOS Account Manager UI.
-  // |account_id| is the account identifier (used by the Token Service chain)
+  // `account_id` is the account identifier (used by the Token Service chain)
   // for the Secondary Account which received an error.
   void HandleSecondaryAccountError(const CoreAccountId& account_id);
 
-  // |chromeos::AccountManager::GetAccounts| callback handler.
-  void OnGetAccounts(
-      const std::vector<chromeos::AccountManager::Account>& accounts);
+  // `ash::AccountManager::CheckDummyGaiaTokenForAllAccounts` callback
+  // handler.
+  void OnCheckDummyGaiaTokenForAllAccounts(
+      const std::vector<std::pair<account_manager::Account, bool>>&
+          account_dummy_token_list);
 
   void OnTokenHandleCheck(const AccountId& account_id,
                           TokenHandleUtil::TokenHandleStatus status);
 
   // Handles clicks on the Secondary Account reauth notification. See
-  // |message_center::HandleNotificationClickDelegate|.
+  // `message_center::HandleNotificationClickDelegate`.
   void HandleSecondaryAccountReauthNotificationClick(
       base::Optional<int> button_index);
 
@@ -77,7 +86,7 @@ class SigninErrorNotifier : public SigninErrorController::Observer,
   signin::IdentityManager* const identity_manager_;
 
   // A non-owning pointer.
-  chromeos::AccountManager* const account_manager_;
+  ash::AccountManager* const account_manager_;
 
   // Used to keep track of the message center notifications.
   std::string device_account_notification_id_;

@@ -8,8 +8,8 @@
 #include <string>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/check.h"
 #include "base/guid.h"
 #include "base/memory/ptr_util.h"
@@ -61,7 +61,7 @@ int64_t ManagedBookmarksTracker::LoadInitial(BookmarkNode* folder,
       continue;
 
     BookmarkNode* child = folder->Add(std::make_unique<BookmarkNode>(
-        next_node_id++, base::GenerateGUID(), url));
+        next_node_id++, base::GUID::GenerateRandomV4(), url));
     child->SetTitle(title);
     if (children) {
       child->set_date_folder_modified(base::Time::Now());

@@ -29,9 +29,10 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.task.PostTask;
 import org.chromium.base.test.util.CallbackHelper;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.MetricsUtils.HistogramDelta;
 import org.chromium.chrome.browser.MockSafeBrowsingApiHandler;
-import org.chromium.chrome.browser.browserservices.OriginVerifier;
+import org.chromium.chrome.browser.browserservices.verification.OriginVerifier;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.firstrun.FirstRunStatus;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
@@ -47,7 +48,6 @@ import org.chromium.components.safe_browsing.SafeBrowsingApiBridge;
 import org.chromium.components.user_prefs.UserPrefs;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.WebContents;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.JavaScriptUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.NetError;
@@ -490,11 +490,11 @@ public class DetachedResourceRequestTest {
             Assert.assertTrue(mConnection.canDoParallelRequest(token, ORIGIN));
         });
 
-        mCustomTabActivityTestRule.startCustomTabActivityWithIntent(intent);
+        mContext.startActivity(intent);
         callback.waitForRequest(0, 1);
         callback.waitForCompletion(0, 1);
 
-        mCustomTabActivityTestRule.startCustomTabActivityWithIntent(intent);
+        mContext.startActivity(intent);
         callback.waitForRequest(1, 1);
         callback.waitForCompletion(1, 1);
     }

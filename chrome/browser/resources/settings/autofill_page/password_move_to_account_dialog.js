@@ -28,10 +28,11 @@ import {PasswordManagerImpl} from './password_manager_proxy.js';
  * numeric values should never be reused.
  * @enum {number}
  */
-const MoveToAccountStoreTrigger = {
+export const MoveToAccountStoreTrigger = {
   SUCCESSFUL_LOGIN_WITH_PROFILE_STORE_PASSWORD: 0,
   EXPLICITLY_TRIGGERED_IN_SETTINGS: 1,
-  COUNT: 2,
+  EXPLICITLY_TRIGGERED_FOR_MULTIPLE_PASSWORDS_IN_SETTINGS: 2,
+  COUNT: 3,
 };
 
 Polymer({
@@ -42,9 +43,7 @@ Polymer({
   behaviors: [I18nBehavior],
 
   properties: {
-    /**
-     * @type {!MultiStorePasswordUiEntry}
-     */
+    /** @type {!MultiStorePasswordUiEntry} */
     passwordToMove: Object,
 
   },
@@ -60,20 +59,15 @@ Polymer({
     this.$.dialog.showModal();
   },
 
-  /**
-   * @private
-   */
+  /** @private */
   onMoveButtonClick_() {
     assert(this.passwordToMove.isPresentOnDevice());
-    PasswordManagerImpl.getInstance()
-        .movePasswordToAccount(/** @type {number} */
-                               (this.passwordToMove.deviceId));
+    PasswordManagerImpl.getInstance().movePasswordsToAccount(
+        [this.passwordToMove.deviceId]);
     this.$.dialog.close();
   },
 
-  /**
-   * @private
-   */
+  /** @private */
   onCancelButtonClick_() {
     this.$.dialog.close();
   }

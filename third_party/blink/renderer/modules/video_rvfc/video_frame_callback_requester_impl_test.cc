@@ -32,6 +32,7 @@ namespace {
 
 class MockWebMediaPlayer : public EmptyWebMediaPlayer {
  public:
+  MOCK_METHOD0(UpdateFrameIfStale, void());
   MOCK_METHOD0(RequestVideoFrameCallback, void());
   MOCK_METHOD0(GetVideoFramePresentationMetadata,
                std::unique_ptr<VideoFramePresentationMetadata>());
@@ -57,13 +58,11 @@ class MockFunction : public ScriptFunction {
 // constructor, due to it having a media::VideoFrameMetadata instance.
 class MetadataHelper {
  public:
-  static VideoFramePresentationMetadata* GetDefaultMedatada() {
-    DCHECK(initialized);
-    return &metadata_;
+  static const VideoFramePresentationMetadata& GetDefaultMedatada() {
+    return metadata_;
   }
 
   static std::unique_ptr<VideoFramePresentationMetadata> CopyDefaultMedatada() {
-    DCHECK(initialized);
     auto copy = std::make_unique<VideoFramePresentationMetadata>();
 
     copy->presented_frames = metadata_.presented_frames;
@@ -72,15 +71,15 @@ class MetadataHelper {
     copy->width = metadata_.width;
     copy->height = metadata_.height;
     copy->media_time = metadata_.media_time;
-    copy->metadata.MergeMetadataFrom(&(metadata_.metadata));
+    copy->metadata.MergeMetadataFrom(metadata_.metadata);
 
     return copy;
   }
 
-  static void InitializeFields(base::TimeTicks now) {
-    if (initialized)
-      return;
-
+  // This method should be called by each test, passing in its own
+  // DocumentLoadTiming::ReferenceMonotonicTime(). Otherwise, we will run into
+  // clamping verification test issues, as described below.
+  static void ReinitializeFields(base::TimeTicks now) {
     // We don't want any time ticks be a multiple of 5us, otherwise, we couldn't
     // tell whether or not the implementation clamped their values. Therefore,
     // we manually set the values for a deterministic test, and make sure we
@@ -101,16 +100,12 @@ class MetadataHelper {
     metadata_.metadata.receive_time =
         now + base::TimeDelta::FromMillisecondsD(17.1234);
     metadata_.metadata.rtp_timestamp = 12345;
-
-    initialized = true;
   }
 
  private:
-  static bool initialized;
   static VideoFramePresentationMetadata metadata_;
 };
 
-bool MetadataHelper::initialized = false;
 VideoFramePresentationMetadata MetadataHelper::metadata_;
 
 // Helper class that compares the parameters used when invoking a callback, with
@@ -126,28 +121,28 @@ class VfcRequesterParameterVerifierCallback
     was_invoked_ = true;
     now_ = now;
 
-    auto* expected = MetadataHelper::GetDefaultMedatada();
-    EXPECT_EQ(expected->presented_frames, metadata->presentedFrames());
-    EXPECT_EQ((unsigned int)expected->width, metadata->width());
-    EXPECT_EQ((unsigned int)expected->height, metadata->height());
-    EXPECT_EQ(expected->media_time.InSecondsF(), metadata->mediaTime());
+    auto expected = MetadataHelper::GetDefaultMedatada();
+    EXPECT_EQ(expected.presented_frames, metadata->presentedFrames());
+    EXPECT_EQ((unsigned int)expected.width, metadata->width());
+    EXPECT_EQ((unsigned int)expected.height, metadata->height());
+    EXPECT_EQ(expected.media_time.InSecondsF(), metadata->mediaTime());
 
-    EXPECT_EQ(*expected->metadata.rtp_timestamp, metadata->rtpTimestamp());
+    EXPECT_EQ(*expected.metadata.rtp_timestamp, metadata->rtpTimestamp());
 
     // Verify that values were correctly clamped.
-    VerifyTicksClamping(expected->presentation_time,
+    VerifyTicksClamping(expected.presentation_time,
                         metadata->presentationTime(), "presentation_time");
-    VerifyTicksClamping(expected->expected_display_time,
+    VerifyTicksClamping(expected.expected_display_time,
                         metadata->expectedDisplayTime(),
                         "expected_display_time");
 
-    VerifyTicksClamping(*expected->metadata.capture_begin_time,
+    VerifyTicksClamping(*expected.metadata.capture_begin_time,
                         metadata->captureTime(), "capture_time");
 
-    VerifyTicksClamping(*expected->metadata.receive_time,
+    VerifyTicksClamping(*expected.metadata.receive_time,
                         metadata->receiveTime(), "receive_time");
 
-    base::TimeDelta processing_time = *expected->metadata.processing_time;
+    base::TimeDelta processing_time = *expected.metadata.processing_time;
     EXPECT_EQ(ClampElapsedProcessingTime(processing_time),
               metadata->processingDuration());
     EXPECT_NE(processing_time.InSecondsF(), metadata->processingDuration());
@@ -265,7 +260,7 @@ TEST_F(VideoFrameCallbackRequesterImplTest, VerifyRequestVideoFrameCallback) {
 
   auto* function = MockFunction::Create(scope.GetScriptState());
 
-  // Queuing up a video.rAF call should propagate to the WebMediaPlayer.
+  // Queuing up a video.rVFC call should propagate to the WebMediaPlayer.
   EXPECT_CALL(*media_player(), RequestVideoFrameCallback()).Times(1);
   vfc_requester().requestVideoFrameCallback(GetCallback(function));
 
@@ -326,9 +321,31 @@ TEST_F(VideoFrameCallbackRequesterImplTest,
   testing::Mock::VerifyAndClear(function);
 }
 
-TEST_F(VideoFrameCallbackRequesterImplTest, VerifyParameters) {
+TEST_F(VideoFrameCallbackRequesterImplTest,
+       VerifyClearedMediaPlayerCancelsPendingExecution) {
+  V8TestingScope scope;
+
+  auto* function = MockFunction::Create(scope.GetScriptState());
+
+  // Queue a request.
+  vfc_requester().requestVideoFrameCallback(GetCallback(function));
+  SimulateFramePresented();
+
+  // The callback should be scheduled for execution, but not yet run.
+  EXPECT_CALL(*function, Call(_)).Times(0);
+
+  // Simulate the HTMLVideoElement getting changing its WebMediaPlayer.
+  vfc_requester().OnWebMediaPlayerCleared();
+
+  // This should be a no-op, else we could get metadata for a null frame.
+  SimulateVideoFrameCallback(base::TimeTicks::Now());
+
+  testing::Mock::VerifyAndClear(function);
+}
+
+TEST_F(VideoFrameCallbackRequesterImplTest, VerifyParameters_WindowRaf) {
   auto timing = GetDocument().Loader()->GetTiming();
-  MetadataHelper::InitializeFields(timing.ReferenceMonotonicTime());
+  MetadataHelper::ReinitializeFields(timing.ReferenceMonotonicTime());
 
   auto* callback =
       MakeGarbageCollected<VfcRequesterParameterVerifierCallback>(timing);
@@ -345,10 +362,33 @@ TEST_F(VideoFrameCallbackRequesterImplTest, VerifyParameters) {
 
   // Run the callbacks directly, since they weren't scheduled to be run by the
   // ScriptedAnimationController.
-  vfc_requester().OnRenderingSteps(now_ms);
+  vfc_requester().OnExecution(now_ms);
 
   EXPECT_EQ(callback->last_now(), now_ms);
   EXPECT_TRUE(callback->was_invoked());
+
+  testing::Mock::VerifyAndClear(media_player());
+}
+
+TEST_F(VideoFrameCallbackRequesterImplTest, OnXrFrameData) {
+  V8TestingScope scope;
+
+  // New immersive frames should not drive frame updates if we don't have any
+  // pending callbacks.
+  EXPECT_CALL(*media_player(), UpdateFrameIfStale()).Times(0);
+
+  vfc_requester().OnImmersiveFrame();
+
+  testing::Mock::VerifyAndClear(media_player());
+
+  auto* function = MockFunction::Create(scope.GetScriptState());
+  vfc_requester().requestVideoFrameCallback(GetCallback(function));
+
+  // Immersive frames should trigger video frame updates when there are pending
+  // callbacks.
+  EXPECT_CALL(*media_player(), UpdateFrameIfStale());
+
+  vfc_requester().OnImmersiveFrame();
 
   testing::Mock::VerifyAndClear(media_player());
 }

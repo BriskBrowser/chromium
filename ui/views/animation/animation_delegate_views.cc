@@ -4,7 +4,8 @@
 
 #include "ui/views/animation/animation_delegate_views.h"
 
-#include "ui/compositor/animation_metrics_recorder.h"
+#include <utility>
+
 #include "ui/gfx/animation/animation_container.h"
 #include "ui/views/animation/compositor_animation_runner.h"
 #include "ui/views/widget/widget.h"
@@ -13,7 +14,7 @@ namespace views {
 
 AnimationDelegateViews::AnimationDelegateViews(View* view) : view_(view) {
   if (view)
-    scoped_observer_.Add(view);
+    scoped_observation_.Observe(view);
 }
 
 AnimationDelegateViews::~AnimationDelegateViews() {
@@ -45,7 +46,8 @@ void AnimationDelegateViews::OnViewRemovedFromWidget(View* observed_view) {
 }
 
 void AnimationDelegateViews::OnViewIsDeleting(View* observed_view) {
-  scoped_observer_.Remove(view_);
+  DCHECK(scoped_observation_.IsObservingSource(view_));
+  scoped_observation_.Reset();
   view_ = nullptr;
   UpdateAnimationRunner();
 }
@@ -61,20 +63,6 @@ base::TimeDelta AnimationDelegateViews::GetAnimationDurationForReporting()
   return base::TimeDelta();
 }
 
-void AnimationDelegateViews::SetAnimationMetricsReporter(
-    ui::AnimationMetricsReporter* animation_metrics_reporter) {
-  if (animation_metrics_reporter_ == animation_metrics_reporter)
-    return;
-
-  animation_metrics_reporter_ = animation_metrics_reporter;
-
-  if (!compositor_animation_runner_)
-    return;
-
-  compositor_animation_runner_->SetAnimationMetricsReporter(
-      animation_metrics_reporter_, GetAnimationDurationForReporting());
-}
-
 void AnimationDelegateViews::UpdateAnimationRunner() {
   if (!view_ || !view_->GetWidget() || !view_->GetWidget()->GetCompositor()) {
     ClearAnimationRunner();
@@ -87,8 +75,6 @@ void AnimationDelegateViews::UpdateAnimationRunner() {
   auto compositor_animation_runner =
       std::make_unique<CompositorAnimationRunner>(view_->GetWidget());
   compositor_animation_runner_ = compositor_animation_runner.get();
-  compositor_animation_runner_->SetAnimationMetricsReporter(
-      animation_metrics_reporter_, GetAnimationDurationForReporting());
   container_->SetAnimationRunner(std::move(compositor_animation_runner));
 }
 

@@ -6,7 +6,6 @@
 #define UI_OZONE_PLATFORM_WAYLAND_HOST_WAYLAND_KEYBOARD_H_
 
 #include <keyboard-extension-unstable-v1-client-protocol.h>
-#include <wayland-client.h>
 
 #include "base/time/time.h"
 #include "ui/base/buildflags.h"
@@ -18,7 +17,6 @@
 
 namespace ui {
 
-class DomKey;
 class KeyboardLayoutEngine;
 class WaylandConnection;
 class WaylandWindow;
@@ -38,12 +36,16 @@ class WaylandKeyboard : public EventAutoRepeatHandler::Delegate {
   virtual ~WaylandKeyboard();
 
   int device_id() const { return obj_.id(); }
-  bool Decode(DomCode dom_code,
-              int modifiers,
-              DomKey* out_dom_key,
-              KeyboardCode* out_key_code);
 
  private:
+  using LayoutEngine =
+#if BUILDFLAG(USE_XKBCOMMON)
+      XkbKeyboardLayoutEngine
+#else
+      KeyboardLayoutEngine
+#endif
+      ;
+
   // wl_keyboard_listener
   static void Keymap(void* data,
                      wl_keyboard* obj,
@@ -100,27 +102,20 @@ class WaylandKeyboard : public EventAutoRepeatHandler::Delegate {
   base::OnceClosure auto_repeat_closure_;
   wl::Object<wl_callback> sync_callback_;
 
-#if BUILDFLAG(USE_XKBCOMMON)
-  XkbKeyboardLayoutEngine* layout_engine_;
-#else
-  KeyboardLayoutEngine* layout_engine_;
-#endif
+  LayoutEngine* layout_engine_;
 };
 
 class WaylandKeyboard::Delegate {
  public:
-  virtual void OnKeyboardCreated(WaylandKeyboard* keyboard) = 0;
-  virtual void OnKeyboardDestroyed(WaylandKeyboard* keyboard) = 0;
   virtual void OnKeyboardFocusChanged(WaylandWindow* window, bool focused) = 0;
   virtual void OnKeyboardModifiersChanged(int modifiers) = 0;
   // Returns a mask of ui::PostDispatchAction indicating how the event was
   // dispatched.
   virtual uint32_t OnKeyboardKeyEvent(EventType type,
                                       DomCode dom_code,
-                                      DomKey dom_key,
-                                      KeyboardCode key_code,
                                       bool repeat,
-                                      base::TimeTicks timestamp) = 0;
+                                      base::TimeTicks timestamp,
+                                      int device_id) = 0;
 
  protected:
   // Prevent deletion through a WaylandKeyboard::Delegate pointer.

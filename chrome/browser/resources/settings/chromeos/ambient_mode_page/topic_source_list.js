@@ -16,48 +16,47 @@ Polymer({
   properties: {
     /**
      * Contains topic sources.
-     * @private {!Array<!AmbientModeTopicSource>}
+     * @type {!Array<!AmbientModeTopicSource>}
      */
     topicSources: {
       type: Array,
       value: [],
     },
 
-    /**
-     * Reflects the iron-list selectedItem property.
-     * @type {AmbientModeTopicSource}
-     */
-    selectedItem: Object,
+    /** @type {!AmbientModeTopicSource} */
+    selectedTopicSource: {
+      type: AmbientModeTopicSource,
+      value: AmbientModeTopicSource.UNKNOWN,
+    },
+
+    hasGooglePhotosAlbums: Boolean,
 
     /**
-     * The last iron-list selectedItem.
-     * @type {AmbientModeTopicSource}
+     * The items in this list will be disabled when |selectedTopicSource| is
+     * |AmbientModeTopicSource.UNKNOWN|.
      */
-    lastSelectedItem_: Object,
-  },
-
-  /** @private */
-  onSelectedItemChanged_() {
-    // <iron-list> causes |this.$.topicSourceList.selectedItem| to be null if
-    // tapped a second time.
-    if (this.$.topicSourceList.selectedItem === null) {
-      // In the case that the user deselects an item, reselect the item manually
-      // by altering the list.
-      this.selectedItem_ = this.lastSelectedItem_;
-      return;
-    }
-
-    if (this.lastSelectedItem_ !== this.$.topicSourceList.selectedItem) {
-      this.lastSelectedItem_ = this.$.topicSourceList.selectedItem;
-      this.fire('selected-topic-source-changed', this.lastSelectedItem_);
-    }
+    disabled: Boolean,
   },
 
   /**
-   * @param {!AmbientModeTopicSource} item
+   * @param {!AmbientModeTopicSource} topic_source
    * @private
    */
-  isItemSelected_(item) {
-    return this.selectedItem === item;
+  isSelected_(topic_source) {
+    return this.selectedTopicSource === topic_source;
   },
+
+  /**
+   * @param {number} tabIndex
+   * @param {boolean} disabled
+   * @return {number}
+   * @private
+   */
+  computeTabIndex_(tabIndex, disabled) {
+    // Disabled "topic-source-item" cannot be navigated into.
+    if (disabled) {
+      return -1;
+    }
+    return tabIndex;
+  }
 });

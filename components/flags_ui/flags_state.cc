@@ -9,20 +9,22 @@
 #include <utility>
 
 #include "base/callback.h"
+#include "base/containers/contains.h"
 #include "base/containers/span.h"
 #include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/metrics/field_trial.h"
-#include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_tokenizer.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/flags_ui/feature_entry.h"
 #include "components/flags_ui/flags_storage.h"
 #include "components/flags_ui/flags_ui_switches.h"
+#include "components/variations/field_trial_config/field_trial_util.h"
 #include "components/variations/variations_associated_data.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
@@ -288,7 +290,7 @@ std::string GetCombinedOriginListValue(const FlagsStorage& flags_storage,
   return CombineAndSanitizeOriginLists(existing_value, new_value);
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // ChromeOS does not call ConvertFlagsToSwitches on startup (see
 // ChromeFeatureListCreator::ConvertFlagsToSwitches() for details) so the
 // command line cannot be updated using pref values. Instead, this method
@@ -435,7 +437,7 @@ void FlagsState::SetFeatureEntryEnabled(FlagsStorage* flags_storage,
     else
       needs_restart_ |= (enabled_entries.erase(internal_name) > 0);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     // If an origin list was enabled or disabled, update the command line flag.
     if (e->type == FeatureEntry::ORIGIN_LIST_VALUE && enable)
       DidModifyOriginListFlag(*flags_storage, *e);
@@ -474,7 +476,7 @@ void FlagsState::SetOriginListFlag(const std::string& internal_name,
       CombineAndSanitizeOriginLists(std::string(), value);
   flags_storage->SetOriginListFlag(internal_name, new_value);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   const FeatureEntry* entry = FindFeatureEntryByName(internal_name);
   DCHECK(entry);
 
@@ -500,7 +502,7 @@ void FlagsState::RemoveFlagsSwitches(
     // The below is either a std::string or a base::string16 based on platform.
     const auto& existing_value = (*switch_list)[switch_name];
 #if defined(OS_WIN)
-    const std::string existing_value_utf8 = base::UTF16ToUTF8(existing_value);
+    const std::string existing_value_utf8 = base::WideToUTF8(existing_value);
 #else
     const std::string& existing_value_utf8 = existing_value;
 #endif
@@ -522,7 +524,7 @@ void FlagsState::RemoveFlagsSwitches(
     } else {
       std::string switch_value = base::JoinString(remaining_features, ",");
 #if defined(OS_WIN)
-      (*switch_list)[switch_name] = base::UTF8ToUTF16(switch_value);
+      (*switch_list)[switch_name] = base::UTF8ToWide(switch_value);
 #else
       (*switch_list)[switch_name] = switch_value;
 #endif
@@ -662,7 +664,7 @@ void FlagsState::GetFlagFeatureEntries(
     }
 
     bool supported = (entry.supported_platforms & current_platform) != 0;
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     if (access == kOwnerAccessToFlags &&
         (entry.supported_platforms & kOsCrOSOwnerOnly) != 0) {
       supported = true;
@@ -684,9 +686,10 @@ int FlagsState::GetCurrentPlatform() {
   return kOsMac;
 #elif defined(OS_WIN)
   return kOsWin;
-#elif defined(OS_CHROMEOS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH)
   return kOsCrOS;
-#elif defined(OS_LINUX) || defined(OS_OPENBSD)
+#elif (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) || \
+    defined(OS_OPENBSD)
   return kOsLinux;
 #elif defined(OS_ANDROID)
   return kOsAndroid;
@@ -862,7 +865,7 @@ void FlagsState::GetSanitizedEnabledFlagsForCurrentPlatform(
   GetSanitizedEnabledFlags(flags_storage, result);
 
   int platform_mask = GetCurrentPlatform();
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   platform_mask |= kOsCrOSOwnerOnly;
 #endif
   std::set<std::string> platform_entries =
@@ -927,10 +930,27 @@ void FlagsState::GenerateFlagsToSwitchesMapping(
             AddFeatureMapping(entry.NameForOption(j), std::string(), false,
                               name_to_switch_map);
           } else {
-            AddFeatureMapping(entry.NameForOption(j),
-                              entry.feature.feature->name,
-                              state == FeatureEntry::FeatureState::ENABLED,
-                              name_to_switch_map);
+            const FeatureEntry::FeatureVariation* variation =
+                entry.VariationForOption(j);
+            std::string feature_name(entry.feature.feature->name);
+            std::vector<std::string> params_value;
+
+            if (variation) {
+              feature_name.append(":");
+              for (int i = 0; i < variation->num_params; ++i) {
+                std::string param_name =
+                    variations::EscapeValue(variation->params[i].param_name);
+                std::string param_value =
+                    variations::EscapeValue(variation->params[i].param_value);
+                params_value.push_back(
+                    param_name.append("/").append(param_value));
+              }
+            }
+            AddFeatureMapping(
+                entry.NameForOption(j),
+                feature_name.append(base::JoinString(params_value, "/")),
+                state == FeatureEntry::FeatureState::ENABLED,
+                name_to_switch_map);
           }
         }
         break;

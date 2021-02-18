@@ -21,9 +21,9 @@
 #include "url/gurl.h"
 #include "url/origin.h"
 
-using autofill::PasswordForm;
 using base::ASCIIToUTF16;
 using password_manager::MockPasswordFormManagerForUI;
+using password_manager::PasswordForm;
 using password_manager::PasswordStoreChange;
 using password_manager::PasswordStoreChangeList;
 using ::testing::_;
@@ -456,7 +456,7 @@ TEST_F(ManagePasswordsStateTest, OnInactive) {
   TestNoisyUpdates();
 }
 
-TEST_F(ManagePasswordsStateTest, PendingPasswordAddBlacklisted) {
+TEST_F(ManagePasswordsStateTest, PendingPasswordAddBlocklisted) {
   std::vector<const PasswordForm*> best_matches;
   std::unique_ptr<MockPasswordFormManagerForUI> test_form_manager(
       CreateFormManager(&best_matches, {}));
@@ -467,7 +467,7 @@ TEST_F(ManagePasswordsStateTest, PendingPasswordAddBlacklisted) {
   TestBlocklistedUpdates();
 }
 
-TEST_F(ManagePasswordsStateTest, RequestCredentialsAddBlacklisted) {
+TEST_F(ManagePasswordsStateTest, RequestCredentialsAddBlocklisted) {
   std::vector<std::unique_ptr<PasswordForm>> local_credentials;
   local_credentials.emplace_back(new PasswordForm(saved_match()));
   const url::Origin origin = url::Origin::Create(saved_match().url);
@@ -480,7 +480,7 @@ TEST_F(ManagePasswordsStateTest, RequestCredentialsAddBlacklisted) {
   TestBlocklistedUpdates();
 }
 
-TEST_F(ManagePasswordsStateTest, AutoSigninAddBlacklisted) {
+TEST_F(ManagePasswordsStateTest, AutoSigninAddBlocklisted) {
   std::vector<std::unique_ptr<PasswordForm>> local_credentials;
   local_credentials.emplace_back(new PasswordForm(saved_match()));
   passwords_data().OnAutoSignin(std::move(local_credentials),
@@ -490,7 +490,7 @@ TEST_F(ManagePasswordsStateTest, AutoSigninAddBlacklisted) {
   TestBlocklistedUpdates();
 }
 
-TEST_F(ManagePasswordsStateTest, AutomaticPasswordSaveAddBlacklisted) {
+TEST_F(ManagePasswordsStateTest, AutomaticPasswordSaveAddBlocklisted) {
   std::vector<const PasswordForm*> best_matches;
   std::unique_ptr<MockPasswordFormManagerForUI> test_form_manager(
       CreateFormManager(&best_matches, {}));
@@ -500,7 +500,7 @@ TEST_F(ManagePasswordsStateTest, AutomaticPasswordSaveAddBlacklisted) {
   TestBlocklistedUpdates();
 }
 
-TEST_F(ManagePasswordsStateTest, BackgroundAutofilledAddBlacklisted) {
+TEST_F(ManagePasswordsStateTest, BackgroundAutofilledAddBlocklisted) {
   std::vector<const PasswordForm*> password_forms;
   password_forms.push_back(&saved_match());
   passwords_data().OnPasswordAutofilled(
@@ -511,7 +511,7 @@ TEST_F(ManagePasswordsStateTest, BackgroundAutofilledAddBlacklisted) {
   TestBlocklistedUpdates();
 }
 
-TEST_F(ManagePasswordsStateTest, PasswordUpdateAddBlacklisted) {
+TEST_F(ManagePasswordsStateTest, PasswordUpdateAddBlocklisted) {
   std::vector<const PasswordForm*> best_matches = {&saved_match()};
   std::unique_ptr<MockPasswordFormManagerForUI> test_form_manager(
       CreateFormManager(&best_matches, {}));
@@ -602,15 +602,15 @@ TEST_F(ManagePasswordsStateTest, ChooseCredentialLocalWithNonEmptyFederation) {
 TEST_F(ManagePasswordsStateTest, AutofillCausedByInternalFormManager) {
   struct OwningPasswordFormManagerForUI : public MockPasswordFormManagerForUI {
     GURL url;
-    std::vector<const autofill::PasswordForm*> best_matches;
-    std::vector<const autofill::PasswordForm*> federated_matches;
+    std::vector<const password_manager::PasswordForm*> best_matches;
+    std::vector<const password_manager::PasswordForm*> federated_matches;
 
     const GURL& GetURL() const override { return url; }
-    const std::vector<const autofill::PasswordForm*>& GetBestMatches()
+    const std::vector<const password_manager::PasswordForm*>& GetBestMatches()
         const override {
       return best_matches;
     }
-    std::vector<const autofill::PasswordForm*> GetFederatedMatches()
+    std::vector<const password_manager::PasswordForm*> GetFederatedMatches()
         const override {
       return federated_matches;
     }

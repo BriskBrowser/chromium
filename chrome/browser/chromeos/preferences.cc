@@ -7,6 +7,9 @@
 #include <limits>
 #include <vector>
 
+#include "ash/constants/ash_features.h"
+#include "ash/constants/ash_pref_names.h"
+#include "ash/constants/ash_switches.h"
 #include "ash/public/ash_interfaces.h"
 #include "ash/public/cpp/ash_constants.h"
 #include "ash/public/cpp/ash_pref_names.h"
@@ -21,33 +24,30 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/ash/accessibility/magnification_manager.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
+#include "chrome/browser/ash/system/input_device_settings.h"
+#include "chrome/browser/ash/system/timezone_resolver_manager.h"
+#include "chrome/browser/ash/system/timezone_util.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/chromeos/accessibility/magnification_manager.h"
 #include "chrome/browser/chromeos/base/locale_util.h"
 #include "chrome/browser/chromeos/child_accounts/parent_access_code/parent_access_service.h"
 #include "chrome/browser/chromeos/crosapi/browser_util.h"
 #include "chrome/browser/chromeos/drive/file_system_util.h"
-#include "chrome/browser/chromeos/first_run/help_app_first_run_field_trial.h"
+#include "chrome/browser/chromeos/input_method/input_method_persistence.h"
 #include "chrome/browser/chromeos/input_method/input_method_syncer.h"
 #include "chrome/browser/chromeos/login/login_pref_names.h"
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/sync/split_settings_sync_field_trial.h"
 #include "chrome/browser/chromeos/sync/turn_sync_on_helper.h"
-#include "chrome/browser/chromeos/system/input_device_settings.h"
-#include "chrome/browser/chromeos/system/timezone_resolver_manager.h"
-#include "chrome/browser/chromeos/system/timezone_util.h"
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/prefs/pref_service_syncable_util.h"
 #include "chrome/browser/ui/ash/system_tray_client.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/chromeos_pref_names.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/settings/cros_settings_names.h"
 #include "chromeos/system/devicemode.h"
 #include "chromeos/system/statistics_provider.h"
@@ -157,6 +157,8 @@ Preferences::~Preferences() {
 // static
 void Preferences::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterBooleanPref(::prefs::kOwnerPrimaryMouseButtonRight, false);
+  registry->RegisterBooleanPref(::prefs::kOwnerPrimaryPointingStickButtonRight,
+                                false);
   registry->RegisterBooleanPref(::prefs::kOwnerTapToClickEnabled, true);
   // TODO(jamescook): Move ownership and registration into ash.
   registry->RegisterStringPref(::prefs::kLogoutStartedLast, std::string());
@@ -171,10 +173,12 @@ void Preferences::RegisterPrefs(PrefRegistrySimple* registry) {
       ::prefs::kSystemTimezoneAutomaticDetectionPolicy,
       enterprise_management::SystemTimezoneProto::USERS_DECIDE);
   registry->RegisterStringPref(::prefs::kMinimumAllowedChromeVersion, "");
+  registry->RegisterBooleanPref(::prefs::kLacrosAllowed, true);
+  registry->RegisterBooleanPref(
+      chromeos::prefs::kDeviceSystemWideTracingEnabled, true);
 
   ash::RegisterLocalStatePrefs(registry);
   split_settings_sync_field_trial::RegisterLocalStatePrefs(registry);
-  help_app_first_run_field_trial::RegisterLocalStatePrefs(registry);
 }
 
 // static
@@ -232,10 +236,16 @@ void Preferences::RegisterProfilePrefs(
       ::prefs::kPrimaryMouseButtonRight, false,
       user_prefs::PrefRegistrySyncable::SYNCABLE_OS_PRIORITY_PREF);
   registry->RegisterBooleanPref(
+      ::prefs::kPrimaryPointingStickButtonRight, false,
+      user_prefs::PrefRegistrySyncable::SYNCABLE_OS_PRIORITY_PREF);
+  registry->RegisterBooleanPref(
       ::prefs::kMouseAcceleration, true,
       user_prefs::PrefRegistrySyncable::SYNCABLE_OS_PRIORITY_PREF);
   registry->RegisterBooleanPref(
       ::prefs::kMouseScrollAcceleration, true,
+      user_prefs::PrefRegistrySyncable::SYNCABLE_OS_PRIORITY_PREF);
+  registry->RegisterBooleanPref(
+      ::prefs::kPointingStickAcceleration, true,
       user_prefs::PrefRegistrySyncable::SYNCABLE_OS_PRIORITY_PREF);
   registry->RegisterBooleanPref(
       ::prefs::kTouchpadAcceleration, true,
@@ -253,6 +263,9 @@ void Preferences::RegisterProfilePrefs(
       user_prefs::PrefRegistrySyncable::SYNCABLE_OS_PRIORITY_PREF);
   registry->RegisterIntegerPref(
       ::prefs::kMouseScrollSensitivity, 3,
+      user_prefs::PrefRegistrySyncable::SYNCABLE_OS_PRIORITY_PREF);
+  registry->RegisterIntegerPref(
+      ::prefs::kPointingStickSensitivity, 3,
       user_prefs::PrefRegistrySyncable::SYNCABLE_OS_PRIORITY_PREF);
   registry->RegisterIntegerPref(
       ::prefs::kTouchpadSensitivity, 3,
@@ -439,6 +452,9 @@ void Preferences::RegisterProfilePrefs(
                                 false);
 
   // OOBE and login related prefs.
+  registry->RegisterStringPref(chromeos::prefs::kLastLoginInputMethod,
+                               std::string(),
+                               PrefRegistry::NO_REGISTRATION_FLAGS);
   registry->RegisterTimePref(chromeos::prefs::kOobeOnboardingTime,
                              base::Time());
 
@@ -480,13 +496,23 @@ void Preferences::RegisterProfilePrefs(
   registry->RegisterBooleanPref(
       chromeos::prefs::kSuggestedContentEnabled, true,
       user_prefs::PrefRegistrySyncable::SYNCABLE_OS_PREF);
+  registry->RegisterBooleanPref(
+      chromeos::prefs::kLauncherResultEverLaunched, false,
+      user_prefs::PrefRegistrySyncable::SYNCABLE_OS_PREF);
+
+  registry->RegisterBooleanPref(
+      chromeos::prefs::kHasCameraAppMigratedToSWA, false,
+      user_prefs::PrefRegistrySyncable::SYNCABLE_OS_PREF);
+
+  registry->RegisterDictionaryPref(
+      chromeos::prefs::kLauncherSearchNormalizerParameters);
 }
 
 void Preferences::InitUserPrefs(sync_preferences::PrefServiceSyncable* prefs) {
   prefs_ = prefs;
 
-  BooleanPrefMember::NamedChangeCallback callback =
-      base::Bind(&Preferences::OnPreferenceChanged, base::Unretained(this));
+  BooleanPrefMember::NamedChangeCallback callback = base::BindRepeating(
+      &Preferences::OnPreferenceChanged, base::Unretained(this));
 
   performance_tracing_enabled_.Init(::prefs::kPerformanceTracingEnabled, prefs,
                                     callback);
@@ -505,11 +531,17 @@ void Preferences::InitUserPrefs(sync_preferences::PrefServiceSyncable* prefs) {
   touchpad_sensitivity_.Init(::prefs::kTouchpadSensitivity, prefs, callback);
   touchpad_scroll_sensitivity_.Init(::prefs::kTouchpadScrollSensitivity, prefs,
                                     callback);
+  pointing_stick_sensitivity_.Init(::prefs::kPointingStickSensitivity, prefs,
+                                   callback);
   primary_mouse_button_right_.Init(::prefs::kPrimaryMouseButtonRight, prefs,
                                    callback);
+  primary_pointing_stick_button_right_.Init(
+      ::prefs::kPrimaryPointingStickButtonRight, prefs, callback);
   mouse_acceleration_.Init(::prefs::kMouseAcceleration, prefs, callback);
   mouse_scroll_acceleration_.Init(::prefs::kMouseScrollAcceleration, prefs,
                                   callback);
+  pointing_stick_acceleration_.Init(::prefs::kPointingStickAcceleration, prefs,
+                                    callback);
   touchpad_acceleration_.Init(::prefs::kTouchpadAcceleration, prefs, callback);
   touchpad_scroll_acceleration_.Init(::prefs::kTouchpadScrollAcceleration,
                                      prefs, callback);
@@ -577,6 +609,17 @@ void Preferences::Init(Profile* profile, const user_manager::User* user) {
   // Initialize preferences to currently saved state.
   ApplyPreferences(REASON_INITIALIZATION, "");
 
+  const std::string& login_input_method_used =
+      session_manager->user_context().GetLoginInputMethodUsed();
+
+  if (user_is_primary_ && !login_input_method_used.empty()) {
+    // Persist input method when transitioning from Login screen into the
+    // session.
+    input_method::InputMethodPersistence::SetUserLastLoginInputMethod(
+        login_input_method_used, input_method::InputMethodManager::Get(),
+        profile);
+  }
+
   // Note that |ime_state_| was modified by ApplyPreferences(), and
   // SetState() is modifying |current_input_method_| (via
   // PersistUserInputMethod() ). This way SetState() here may be called only
@@ -624,6 +667,30 @@ void Preferences::OnPreferenceChanged(const std::string& pref_name) {
   ApplyPreferences(REASON_PREF_CHANGED, pref_name);
 }
 
+void Preferences::ReportBooleanPrefApplication(
+    ApplyReason reason,
+    const std::string& changed_histogram_name,
+    const std::string& started_histogram_name,
+    bool sample) {
+  if (reason == REASON_PREF_CHANGED)
+    base::UmaHistogramBoolean(changed_histogram_name, sample);
+  else if (reason == REASON_INITIALIZATION)
+    base::UmaHistogramBoolean(started_histogram_name, sample);
+}
+
+void Preferences::ReportSensitivityPrefApplication(
+    ApplyReason reason,
+    const std::string& changed_histogram_name,
+    const std::string& started_histogram_name,
+    int sensitivity_int) {
+  system::PointerSensitivity sensitivity =
+      static_cast<system::PointerSensitivity>(sensitivity_int);
+  if (reason == REASON_PREF_CHANGED)
+    base::UmaHistogramEnumeration(changed_histogram_name, sensitivity);
+  else if (reason == REASON_INITIALIZATION)
+    base::UmaHistogramEnumeration(started_histogram_name, sensitivity);
+}
+
 void Preferences::ApplyPreferences(ApplyReason reason,
                                    const std::string& pref_name) {
   DCHECK(reason != REASON_PREF_CHANGED || !pref_name.empty());
@@ -634,6 +701,7 @@ void Preferences::ApplyPreferences(ApplyReason reason,
 
   system::TouchpadSettings touchpad_settings;
   system::MouseSettings mouse_settings;
+  system::PointingStickSettings pointing_stick_settings;
 
   if (user_is_primary_ && (reason == REASON_INITIALIZATION ||
                            pref_name == ::prefs::kPerformanceTracingEnabled)) {
@@ -649,10 +717,8 @@ void Preferences::ApplyPreferences(ApplyReason reason,
     const bool enabled = tap_to_click_enabled_.GetValue();
     if (user_is_active)
       touchpad_settings.SetTapToClick(enabled);
-    if (reason == REASON_PREF_CHANGED)
-      UMA_HISTOGRAM_BOOLEAN("Touchpad.TapToClick.Changed", enabled);
-    else if (reason == REASON_INITIALIZATION)
-      UMA_HISTOGRAM_BOOLEAN("Touchpad.TapToClick.Started", enabled);
+    ReportBooleanPrefApplication(reason, "Touchpad.TapToClick.Changed",
+                                 "Touchpad.TapToClick.Started", enabled);
 
     // Save owner preference in local state to use on login screen.
     if (user_is_owner) {
@@ -666,10 +732,6 @@ void Preferences::ApplyPreferences(ApplyReason reason,
     const bool enabled = three_finger_click_enabled_.GetValue();
     if (user_is_active)
       touchpad_settings.SetThreeFingerClick(enabled);
-    if (reason == REASON_PREF_CHANGED)
-      UMA_HISTOGRAM_BOOLEAN("Touchpad.ThreeFingerClick.Changed", enabled);
-    else if (reason == REASON_INITIALIZATION)
-      UMA_HISTOGRAM_BOOLEAN("Touchpad.ThreeFingerClick.Started", enabled);
   }
   if (reason != REASON_PREF_CHANGED ||
       pref_name == ::prefs::kUnifiedDesktopEnabledByDefault) {
@@ -691,20 +753,16 @@ void Preferences::ApplyPreferences(ApplyReason reason,
     DVLOG(1) << "Natural scroll set to " << enabled;
     if (user_is_active)
       touchpad_settings.SetNaturalScroll(enabled);
-    if (reason == REASON_PREF_CHANGED)
-      UMA_HISTOGRAM_BOOLEAN("Touchpad.NaturalScroll.Changed", enabled);
-    else if (reason == REASON_INITIALIZATION)
-      UMA_HISTOGRAM_BOOLEAN("Touchpad.NaturalScroll.Started", enabled);
+    ReportBooleanPrefApplication(reason, "Touchpad.NaturalScroll.Changed",
+                                 "Touchpad.NaturalScroll.Started", enabled);
   }
   if (reason != REASON_PREF_CHANGED ||
       pref_name == ash::prefs::kMouseReverseScroll) {
     const bool enabled = mouse_reverse_scroll_.GetValue();
     if (user_is_active)
       mouse_settings.SetReverseScroll(enabled);
-    if (reason == REASON_PREF_CHANGED)
-      UMA_HISTOGRAM_BOOLEAN("Mouse.ReverseScroll.Changed", enabled);
-    else if (reason == REASON_INITIALIZATION)
-      UMA_HISTOGRAM_BOOLEAN("Mouse.ReverseScroll.Started", enabled);
+    ReportBooleanPrefApplication(reason, "Mouse.ReverseScroll.Changed",
+                                 "Mouse.ReverseScroll.Started", enabled);
   }
 
   if (reason != REASON_PREF_CHANGED ||
@@ -718,15 +776,9 @@ void Preferences::ApplyPreferences(ApplyReason reason,
       if (!AreScrollSettingsAllowed())
         mouse_settings.SetScrollSensitivity(sensitivity_int);
     }
-    system::PointerSensitivity sensitivity =
-        static_cast<system::PointerSensitivity>(sensitivity_int);
-    if (reason == REASON_PREF_CHANGED) {
-      UMA_HISTOGRAM_ENUMERATION("Mouse.PointerSensitivity.Changed",
-                                sensitivity);
-    } else if (reason == REASON_INITIALIZATION) {
-      UMA_HISTOGRAM_ENUMERATION("Mouse.PointerSensitivity.Started",
-                                sensitivity);
-    }
+    ReportSensitivityPrefApplication(reason, "Mouse.PointerSensitivity.Changed",
+                                     "Mouse.PointerSensitivity.Started",
+                                     sensitivity_int);
   }
   if (reason != REASON_PREF_CHANGED ||
       pref_name == ::prefs::kMouseScrollSensitivity) {
@@ -737,12 +789,19 @@ void Preferences::ApplyPreferences(ApplyReason reason,
                                     : mouse_sensitivity_.GetValue();
     if (user_is_active)
       mouse_settings.SetScrollSensitivity(sensitivity_int);
-    system::PointerSensitivity sensitivity =
-        static_cast<system::PointerSensitivity>(sensitivity_int);
-    if (reason == REASON_PREF_CHANGED)
-      UMA_HISTOGRAM_ENUMERATION("Mouse.ScrollSensitivity.Changed", sensitivity);
-    else if (reason == REASON_INITIALIZATION)
-      UMA_HISTOGRAM_ENUMERATION("Mouse.ScrollSensitivity.Started", sensitivity);
+    ReportSensitivityPrefApplication(reason, "Mouse.ScrollSensitivity.Changed",
+                                     "Mouse.ScrollSensitivity.Started",
+                                     sensitivity_int);
+  }
+  if (reason != REASON_PREF_CHANGED ||
+      pref_name == ::prefs::kPointingStickSensitivity) {
+    const int sensitivity_int = pointing_stick_sensitivity_.GetValue();
+    if (user_is_active) {
+      pointing_stick_settings.SetSensitivity(sensitivity_int);
+    }
+    ReportSensitivityPrefApplication(
+        reason, "PointingStick.PointerSensitivity.Changed",
+        "PointingStick.PointerSensitivity.Started", sensitivity_int);
   }
   if (reason != REASON_PREF_CHANGED ||
       pref_name == ::prefs::kTouchpadSensitivity) {
@@ -755,15 +814,9 @@ void Preferences::ApplyPreferences(ApplyReason reason,
       if (!AreScrollSettingsAllowed())
         touchpad_settings.SetScrollSensitivity(sensitivity_int);
     }
-    system::PointerSensitivity sensitivity =
-        static_cast<system::PointerSensitivity>(sensitivity_int);
-    if (reason == REASON_PREF_CHANGED) {
-      UMA_HISTOGRAM_ENUMERATION("Touchpad.PointerSensitivity.Changed",
-                                sensitivity);
-    } else if (reason == REASON_INITIALIZATION) {
-      UMA_HISTOGRAM_ENUMERATION("Touchpad.PointerSensitivity.Started",
-                                sensitivity);
-    }
+    ReportSensitivityPrefApplication(
+        reason, "Touchpad.PointerSensitivity.Changed",
+        "Touchpad.PointerSensitivity.Started", sensitivity_int);
   }
   if (reason != REASON_PREF_CHANGED ||
       pref_name == ::prefs::kTouchpadScrollSensitivity) {
@@ -774,25 +827,17 @@ void Preferences::ApplyPreferences(ApplyReason reason,
                                     : touchpad_sensitivity_.GetValue();
     if (user_is_active)
       touchpad_settings.SetScrollSensitivity(sensitivity_int);
-    system::PointerSensitivity sensitivity =
-        static_cast<system::PointerSensitivity>(sensitivity_int);
-    if (reason == REASON_PREF_CHANGED) {
-      UMA_HISTOGRAM_ENUMERATION("Touchpad.ScrollSensitivity.Changed",
-                                sensitivity);
-    } else if (reason == REASON_INITIALIZATION) {
-      UMA_HISTOGRAM_ENUMERATION("Touchpad.ScrollSensitivity.Started",
-                                sensitivity);
-    }
+    ReportSensitivityPrefApplication(
+        reason, "Touchpad.ScrollSensitivity.Changed",
+        "Touchpad.ScrollSensitivity.Started", sensitivity_int);
   }
   if (reason != REASON_PREF_CHANGED ||
       pref_name == ::prefs::kPrimaryMouseButtonRight) {
     const bool right = primary_mouse_button_right_.GetValue();
     if (user_is_active)
       mouse_settings.SetPrimaryButtonRight(right);
-    if (reason == REASON_PREF_CHANGED)
-      UMA_HISTOGRAM_BOOLEAN("Mouse.PrimaryButtonRight.Changed", right);
-    else if (reason == REASON_INITIALIZATION)
-      UMA_HISTOGRAM_BOOLEAN("Mouse.PrimaryButtonRight.Started", right);
+    ReportBooleanPrefApplication(reason, "Mouse.PrimaryButtonRight.Changed",
+                                 "Mouse.PrimaryButtonRight.Started", right);
     // Save owner preference in local state to use on login screen.
     if (user_is_owner) {
       PrefService* prefs = g_browser_process->local_state();
@@ -801,57 +846,72 @@ void Preferences::ApplyPreferences(ApplyReason reason,
     }
   }
   if (reason != REASON_PREF_CHANGED ||
+      pref_name == ::prefs::kPrimaryPointingStickButtonRight) {
+    const bool right = primary_pointing_stick_button_right_.GetValue();
+    if (user_is_active)
+      pointing_stick_settings.SetPrimaryButtonRight(right);
+    ReportBooleanPrefApplication(
+        reason, "PointingStick.PrimaryButtonRight.Changed",
+        "PointingStick.PrimaryButtonRight.Started", right);
+    // Save owner preference in local state to use on login screen.
+    if (user_is_owner) {
+      PrefService* prefs = g_browser_process->local_state();
+      if (prefs->GetBoolean(::prefs::kOwnerPrimaryPointingStickButtonRight) !=
+          right) {
+        prefs->SetBoolean(::prefs::kOwnerPrimaryPointingStickButtonRight,
+                          right);
+      }
+    }
+  }
+  if (reason != REASON_PREF_CHANGED ||
       pref_name == ::prefs::kMouseAcceleration) {
     const bool enabled = mouse_acceleration_.GetValue();
     if (user_is_active)
       mouse_settings.SetAcceleration(enabled);
-    if (reason == REASON_PREF_CHANGED)
-      base::UmaHistogramBoolean("Mouse.Acceleration.Changed", enabled);
-    else if (reason == REASON_INITIALIZATION)
-      base::UmaHistogramBoolean("Mouse.Acceleration.Started", enabled);
+    ReportBooleanPrefApplication(reason, "Mouse.Acceleration.Changed",
+                                 "Mouse.Acceleration.Started", enabled);
   }
   if (reason != REASON_PREF_CHANGED ||
       pref_name == ::prefs::kMouseScrollAcceleration) {
     const bool enabled = mouse_scroll_acceleration_.GetValue();
     if (user_is_active)
       mouse_settings.SetScrollAcceleration(enabled);
-    if (reason == REASON_PREF_CHANGED)
-      base::UmaHistogramBoolean("Mouse.ScrollAcceleration.Changed", enabled);
-    else if (reason == REASON_INITIALIZATION)
-      base::UmaHistogramBoolean("Mouse.ScrollAcceleration.Started", enabled);
+    ReportBooleanPrefApplication(reason, "Mouse.ScrollAcceleration.Changed",
+                                 "Mouse.ScrollAcceleration.Started", enabled);
+  }
+  if (reason != REASON_PREF_CHANGED ||
+      pref_name == ::prefs::kPointingStickAcceleration) {
+    const bool enabled = pointing_stick_acceleration_.GetValue();
+    if (user_is_active)
+      pointing_stick_settings.SetAcceleration(enabled);
+    ReportBooleanPrefApplication(reason, "PointingStick.Acceleration.Changed",
+                                 "PointingStick.Acceleration.Started", enabled);
   }
   if (reason != REASON_PREF_CHANGED ||
       pref_name == ::prefs::kTouchpadAcceleration) {
     const bool enabled = touchpad_acceleration_.GetValue();
     if (user_is_active)
       touchpad_settings.SetAcceleration(enabled);
-    if (reason == REASON_PREF_CHANGED)
-      base::UmaHistogramBoolean("Touchpad.Acceleration.Changed", enabled);
-    else if (reason == REASON_INITIALIZATION)
-      base::UmaHistogramBoolean("Touchpad.Acceleration.Started", enabled);
+    ReportBooleanPrefApplication(reason, "Touchpad.Acceleration.Changed",
+                                 "Touchpad.Acceleration.Started", enabled);
   }
   if (reason != REASON_PREF_CHANGED ||
       pref_name == ::prefs::kTouchpadScrollAcceleration) {
     const bool enabled = touchpad_scroll_acceleration_.GetValue();
     if (user_is_active)
       touchpad_settings.SetScrollAcceleration(enabled);
-    if (reason == REASON_PREF_CHANGED)
-      base::UmaHistogramBoolean("Touchpad.ScrollAcceleration.Changed", enabled);
-    else if (reason == REASON_INITIALIZATION)
-      base::UmaHistogramBoolean("Touchpad.ScrollAcceleration.Started", enabled);
+    ReportBooleanPrefApplication(reason, "Touchpad.ScrollAcceleration.Changed",
+                                 "Touchpad.ScrollAcceleration.Started",
+                                 enabled);
   }
   if (reason != REASON_PREF_CHANGED ||
       pref_name == ::prefs::kDownloadDefaultDirectory) {
     const bool default_download_to_drive = drive::util::IsUnderDriveMountPoint(
         download_default_directory_.GetValue());
-    if (reason == REASON_PREF_CHANGED)
-      UMA_HISTOGRAM_BOOLEAN(
-          "FileBrowser.DownloadDestination.IsGoogleDrive.Changed",
-          default_download_to_drive);
-    else if (reason == REASON_INITIALIZATION)
-      UMA_HISTOGRAM_BOOLEAN(
-          "FileBrowser.DownloadDestination.IsGoogleDrive.Started",
-          default_download_to_drive);
+    ReportBooleanPrefApplication(
+        reason, "FileBrowser.DownloadDestination.IsGoogleDrive.Changed",
+        "FileBrowser.DownloadDestination.IsGoogleDrive.Started",
+        default_download_to_drive);
   }
 
   if (reason != REASON_PREF_CHANGED ||
@@ -929,6 +989,8 @@ void Preferences::ApplyPreferences(ApplyReason reason,
     system::InputDeviceSettings::Get()->UpdateTouchpadSettings(
         touchpad_settings);
     system::InputDeviceSettings::Get()->UpdateMouseSettings(mouse_settings);
+    system::InputDeviceSettings::Get()->UpdatePointingStickSettings(
+        pointing_stick_settings);
   }
 
   if (pref_name == ::prefs::kUserTimezone &&
@@ -1030,7 +1092,6 @@ void Preferences::ForceNaturalScrollDefault() {
       is_syncing && !prefs_->GetUserPrefValue(ash::prefs::kNaturalScroll)) {
     DVLOG(1) << "Natural scroll forced to true";
     natural_scroll_.SetValue(true);
-    UMA_HISTOGRAM_BOOLEAN("Touchpad.NaturalScroll.Forced", true);
   }
 }
 
@@ -1089,9 +1150,8 @@ void Preferences::UpdateAutoRepeatRate() {
   rate.repeat_interval_in_ms = xkb_auto_repeat_interval_pref_.GetValue();
   DCHECK(rate.initial_delay_in_ms > 0);
   DCHECK(rate.repeat_interval_in_ms > 0);
-  input_method::InputMethodManager::Get()
-      ->GetImeKeyboard()
-      ->SetAutoRepeatRate(rate);
+  input_method::InputMethodManager::Get()->GetImeKeyboard()->SetAutoRepeatRate(
+      rate);
 
   user_manager::known_user::SetIntegerPref(user_->GetAccountId(),
                                            ash::prefs::kXkbAutoRepeatDelay,

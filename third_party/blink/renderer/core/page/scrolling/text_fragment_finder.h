@@ -26,7 +26,13 @@ class CORE_EXPORT TextFragmentFinder final {
         const EphemeralRangeInFlatTree& range,
         const TextFragmentAnchorMetrics::Match match_metrics,
         bool is_unique) = 0;
+    virtual void NoMatchFound() = 0;
   };
+
+  // Returns true if start and end positions are in the same block and there are
+  // no other blocks between them. Otherwise, returns false.
+  static bool IsInSameUninterruptedBlock(const PositionInFlatTree& start,
+                                         const PositionInFlatTree& end);
 
   // Client must outlive the finder.
   TextFragmentFinder(Client& client, const TextFragmentSelector& selector);

@@ -34,18 +34,12 @@ namespace content {
 //
 // This class's behavior is modelled as a state machine; see the DoLoop function
 // for comments about this.
-//
-// Note that currently we have two types of interfaces to create an instance of
-// ServiceWorkerCacheWriter: storage service and non storage service.
-// After storage service is shipped, we use Mojo connection to read and write
-// the resource.
-// See https://crbug.com/1055677 for more info.
 class CONTENT_EXPORT ServiceWorkerCacheWriter {
  public:
   using OnWriteCompleteCallback = base::OnceCallback<void(net::Error)>;
 
   // This class defines the interfaces of observer that observes write
-  // operations. The observer is notified when response info or data
+  // operations. The observer is notified when response head or data
   // will be written to storage.
   class WriteObserver {
    public:
@@ -145,6 +139,8 @@ class CONTENT_EXPORT ServiceWorkerCacheWriter {
   void set_write_observer(WriteObserver* write_observer) {
     write_observer_ = write_observer;
   }
+
+  void FlushRemotesForTesting();
 
  private:
   class ReadResponseHeadCallbackAdapter;
@@ -262,7 +258,7 @@ class CONTENT_EXPORT ServiceWorkerCacheWriter {
   // WriteResponseHead() operates the same as
   // WriteResponseHeadToResponseWriter() and WriteData() operates the same as
   // WriteDataToResponseWriter().
-  // If observer is set, the argument |response_info| or |data| is first sent
+  // If observer is set, the argument |response_head| or |data| is first sent
   // to observer then WriteResponseHeadToResponseWriter() or
   // WriteDataToResponseWriter() is called.
   int WriteResponseHead(network::mojom::URLResponseHeadPtr response_head);
@@ -275,6 +271,8 @@ class CONTENT_EXPORT ServiceWorkerCacheWriter {
   void OnWillWriteDataCompleted(scoped_refptr<net::IOBuffer> data,
                                 int length,
                                 net::Error error);
+
+  void OnRemoteDisconnected();
 
   // Callback used by the above helpers for their IO operations. This is only
   // run when those IO operations complete asynchronously, in which case it

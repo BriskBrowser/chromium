@@ -10,6 +10,7 @@
 #include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/notreached.h"
+#include "build/chromeos_buildflags.h"
 #include "sandbox/policy/features.h"
 #include "sandbox/policy/switches.h"
 
@@ -28,6 +29,7 @@ bool IsUnsandboxedSandboxType(SandboxType sandbox_type) {
     case SandboxType::kProxyResolver:
     case SandboxType::kPdfConversion:
     case SandboxType::kIconReader:
+    case SandboxType::kMediaFoundationCdm:
       return false;
 #endif
     case SandboxType::kAudio:
@@ -39,11 +41,7 @@ bool IsUnsandboxedSandboxType(SandboxType sandbox_type) {
       return true;
 #endif
     case SandboxType::kNetwork:
-#if defined(OS_MAC)
       return false;
-#else
-      return !base::FeatureList::IsEnabled(features::kNetworkServiceSandbox);
-#endif  // defined(OS_MAC)
     case SandboxType::kRenderer:
     case SandboxType::kUtility:
     case SandboxType::kGpu:
@@ -56,7 +54,7 @@ bool IsUnsandboxedSandboxType(SandboxType sandbox_type) {
 #if defined(OS_MAC)
     case SandboxType::kNaClLoader:
 #endif
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     case SandboxType::kIme:
     case SandboxType::kTts:
 #endif
@@ -75,8 +73,7 @@ void SetCommandLineFlagsForSandboxType(base::CommandLine* command_line,
                                        SandboxType sandbox_type) {
   switch (sandbox_type) {
     case SandboxType::kNoSandbox:
-      if (command_line->GetSwitchValueASCII(
-              service_manager::switches::kProcessType) ==
+      if (command_line->GetSwitchValueASCII(switches::kProcessType) ==
           switches::kUtilityProcess) {
         DCHECK(!command_line->HasSwitch(switches::kServiceSandboxType));
         command_line->AppendSwitchASCII(
@@ -92,24 +89,20 @@ void SetCommandLineFlagsForSandboxType(base::CommandLine* command_line,
       break;
 #endif
     case SandboxType::kRenderer:
-      DCHECK(command_line->GetSwitchValueASCII(
-                 service_manager::switches::kProcessType) ==
+      DCHECK(command_line->GetSwitchValueASCII(switches::kProcessType) ==
              switches::kRendererProcess);
       break;
     case SandboxType::kGpu:
-      DCHECK(command_line->GetSwitchValueASCII(
-                 service_manager::switches::kProcessType) ==
+      DCHECK(command_line->GetSwitchValueASCII(switches::kProcessType) ==
              switches::kGpuProcess);
       break;
     case SandboxType::kPpapi:
-      if (command_line->GetSwitchValueASCII(
-              service_manager::switches::kProcessType) ==
+      if (command_line->GetSwitchValueASCII(switches::kProcessType) ==
           switches::kUtilityProcess) {
         command_line->AppendSwitchASCII(switches::kServiceSandboxType,
                                         switches::kPpapiSandbox);
       } else {
-        DCHECK(command_line->GetSwitchValueASCII(
-                   service_manager::switches::kProcessType) ==
+        DCHECK(command_line->GetSwitchValueASCII(switches::kProcessType) ==
                switches::kPpapiPluginProcess);
       }
       break;
@@ -124,17 +117,17 @@ void SetCommandLineFlagsForSandboxType(base::CommandLine* command_line,
     case SandboxType::kProxyResolver:
     case SandboxType::kPdfConversion:
     case SandboxType::kIconReader:
+    case SandboxType::kMediaFoundationCdm:
 #endif  // defined(OS_WIN)
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     case SandboxType::kIme:
     case SandboxType::kTts:
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 #if !defined(OS_MAC)
     case SandboxType::kSharingService:
 #endif
     case SandboxType::kSpeechRecognition:
-      DCHECK(command_line->GetSwitchValueASCII(
-                 service_manager::switches::kProcessType) ==
+      DCHECK(command_line->GetSwitchValueASCII(switches::kProcessType) ==
              switches::kUtilityProcess);
       DCHECK(!command_line->HasSwitch(switches::kServiceSandboxType));
       command_line->AppendSwitchASCII(
@@ -166,7 +159,7 @@ SandboxType SandboxTypeFromCommandLine(const base::CommandLine& command_line) {
 #endif
 
   std::string process_type =
-      command_line.GetSwitchValueASCII(service_manager::switches::kProcessType);
+      command_line.GetSwitchValueASCII(switches::kProcessType);
   if (process_type.empty())
     return SandboxType::kNoSandbox;
 
@@ -182,8 +175,6 @@ SandboxType SandboxTypeFromCommandLine(const base::CommandLine& command_line) {
       return SandboxType::kNoSandbox;
     return SandboxType::kGpu;
   }
-  if (process_type == switches::kPpapiBrokerProcess)
-    return SandboxType::kNoSandbox;
 
   if (process_type == switches::kPpapiPluginProcess)
     return SandboxType::kPpapi;
@@ -249,13 +240,15 @@ std::string StringFromUtilitySandboxType(SandboxType sandbox_type) {
       return switches::kPdfConversionSandbox;
     case SandboxType::kIconReader:
       return switches::kIconReaderSandbox;
+    case SandboxType::kMediaFoundationCdm:
+      return switches::kMediaFoundationCdmSandbox;
 #endif  // defined(OS_WIN)
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     case SandboxType::kIme:
       return switches::kImeSandbox;
     case SandboxType::kTts:
       return switches::kTtsSandbox;
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
       // The following are not utility processes so should not occur.
     case SandboxType::kRenderer:
     case SandboxType::kGpu:
@@ -303,6 +296,8 @@ SandboxType UtilitySandboxTypeFromString(const std::string& sandbox_string) {
     return SandboxType::kPdfConversion;
   if (sandbox_string == switches::kIconReaderSandbox)
     return SandboxType::kIconReader;
+  if (sandbox_string == switches::kMediaFoundationCdmSandbox)
+    return SandboxType::kMediaFoundationCdm;
 #endif
   if (sandbox_string == switches::kAudioSandbox)
     return SandboxType::kAudio;
@@ -310,12 +305,12 @@ SandboxType UtilitySandboxTypeFromString(const std::string& sandbox_string) {
     return SandboxType::kSpeechRecognition;
   if (sandbox_string == switches::kVideoCaptureSandbox)
     return SandboxType::kVideoCapture;
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (sandbox_string == switches::kImeSandbox)
     return SandboxType::kIme;
   if (sandbox_string == switches::kTtsSandbox)
     return SandboxType::kTts;
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   return SandboxType::kUtility;
 }
 

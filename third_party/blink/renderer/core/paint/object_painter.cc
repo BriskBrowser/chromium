@@ -37,7 +37,7 @@ void ObjectPainter::PaintOutline(const PaintInfo& paint_info,
 
   auto outline_rects = layout_object_.OutlineRects(
       paint_offset,
-      layout_object_.OutlineRectsShouldIncludeBlockVisualOverflow());
+      style_to_use.OutlineRectsShouldIncludeBlockVisualOverflow());
   if (outline_rects.IsEmpty())
     return;
 
@@ -60,7 +60,7 @@ void ObjectPainter::PaintInlineChildrenOutlines(const PaintInfo& paint_info) {
   for (LayoutObject* child = layout_object_.SlowFirstChild(); child;
        child = child->NextSibling()) {
     if (child->IsLayoutInline() &&
-        !ToLayoutInline(child)->HasSelfPaintingLayer())
+        !To<LayoutInline>(child)->HasSelfPaintingLayer())
       child->Paint(paint_info_for_descendants);
   }
 }

@@ -24,17 +24,16 @@ class DownloadPermissionRequest : public permissions::PermissionRequest {
 
  private:
   // permissions::PermissionRequest:
-  IconId GetIconId() const override;
+  permissions::RequestType GetRequestType() const override;
 #if defined(OS_ANDROID)
   base::string16 GetMessageText() const override;
 #endif
   base::string16 GetMessageTextFragment() const override;
   GURL GetOrigin() const override;
-  void PermissionGranted() override;
+  void PermissionGranted(bool is_one_time) override;
   void PermissionDenied() override;
   void Cancelled() override;
   void RequestFinished() override;
-  permissions::PermissionRequestType GetPermissionRequestType() const override;
 
   base::WeakPtr<DownloadRequestLimiter::TabDownloadState> host_;
   url::Origin request_origin_;

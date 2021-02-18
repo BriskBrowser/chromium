@@ -49,8 +49,8 @@ void SelectTargetLanguageByDisplayName(Browser* browser,
 
   // Get index of the language with the matching display name.
   int language_index = -1;
-  for (int i = 0; i < model->GetNumberOfLanguages(); ++i) {
-    const base::string16& language_name = model->GetLanguageNameAt(i);
+  for (int i = 0; i < model->GetNumberOfTargetLanguages(); ++i) {
+    const base::string16& language_name = model->GetTargetLanguageNameAt(i);
 
     if (language_name == display_name) {
       language_index = i;
@@ -61,8 +61,7 @@ void SelectTargetLanguageByDisplayName(Browser* browser,
 
   // Simulate selecting the correct index of the target language combo box.
   bubble->target_language_combobox_->SetSelectedIndex(language_index);
-  bubble->HandleComboboxPerformAction(
-      TranslateBubbleView::COMBOBOX_ID_TARGET_LANGUAGE);
+  bubble->TargetLanguageChanged();
 }
 
 }  // namespace test_utils

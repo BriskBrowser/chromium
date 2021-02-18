@@ -14,18 +14,38 @@
 namespace chromeos {
 
 class GaiaPasswordChangedView;
-class ScreenManager;
 
 // Controller for the tpm error screen.
 class GaiaPasswordChangedScreen : public BaseScreen {
  public:
-  explicit GaiaPasswordChangedScreen(GaiaPasswordChangedView* view);
+  using TView = GaiaPasswordChangedView;
+
+  enum class Result {
+    CANCEL,
+    RESYNC,
+    MIGRATE,
+  };
+
+  using ScreenExitCallback = base::RepeatingCallback<void(Result result)>;
+
+  explicit GaiaPasswordChangedScreen(const ScreenExitCallback& exit_callback,
+                                     GaiaPasswordChangedView* view);
   GaiaPasswordChangedScreen(const GaiaPasswordChangedScreen&) = delete;
   GaiaPasswordChangedScreen& operator=(const GaiaPasswordChangedScreen&) =
       delete;
   ~GaiaPasswordChangedScreen() override;
 
-  static GaiaPasswordChangedScreen* Get(ScreenManager* manager);
+  // This enum is tied directly to a UMA enum defined in
+  // //tools/metrics/histograms/enums.xml, and should always reflect it (do not
+  // change one without changing the other).  Entries should be never modified
+  // or deleted.  Only additions possible.
+  enum class UserAction {
+    kResyncUserData = 0,
+    kMigrateUserData = 1,
+    kCancel = 2,
+    kIncorrectOldPassword = 3,
+    kMaxValue = kIncorrectOldPassword
+  };
 
   // Called when the screen is being destroyed. This should call Unbind() on the
   // associated View if this class is destroyed before that.
@@ -48,6 +68,7 @@ class GaiaPasswordChangedScreen : public BaseScreen {
   bool show_error_ = false;
 
   GaiaPasswordChangedView* view_ = nullptr;
+  ScreenExitCallback exit_callback_;
 
   base::WeakPtrFactory<GaiaPasswordChangedScreen> weak_factory_{this};
 };

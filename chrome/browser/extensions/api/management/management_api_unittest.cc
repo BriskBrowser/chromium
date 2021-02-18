@@ -155,7 +155,7 @@ void ManagementApiUnitTest::SetUp() {
   Browser::CreateParams params(profile(), true);
   params.type = Browser::TYPE_NORMAL;
   params.window = browser_window_.get();
-  browser_.reset(new Browser(params));
+  browser_.reset(Browser::Create(params));
 }
 
 void ManagementApiUnitTest::TearDown() {
@@ -774,7 +774,7 @@ class TestManagementAPIDelegate : public ManagementAPIDelegate {
       content::WebContents* web_contents,
       content::BrowserContext* browser_context,
       const Extension* extension,
-      const base::Callback<void(bool)>& callback) const override {
+      base::OnceCallback<void(bool)> callback) const override {
     return nullptr;
   }
   void EnableExtension(content::BrowserContext* context,
@@ -836,6 +836,10 @@ class TestManagementAPIDelegate : public ManagementAPIDelegate {
                   int icon_size,
                   ExtensionIconSet::MatchType match,
                   bool grayscale) const override {
+    return GURL();
+  }
+  GURL GetEffectiveUpdateURL(const extensions::Extension& extension,
+                             content::BrowserContext* context) const override {
     return GURL();
   }
 

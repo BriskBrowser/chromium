@@ -5,6 +5,7 @@
 module arc.mojom;
 
 import "components/arc/mojom/accessibility_helper.mojom";
+import "components/arc/mojom/adbd.mojom";
 import "components/arc/mojom/app.mojom";
 import "components/arc/mojom/app_permissions.mojom";
 import "components/arc/mojom/appfuse.mojom";
@@ -18,9 +19,11 @@ import "components/arc/mojom/cast_receiver.mojom";
 import "components/arc/mojom/cert_store.mojom";
 import "components/arc/mojom/clipboard.mojom";
 import "components/arc/mojom/crash_collector.mojom";
+import "components/arc/mojom/digital_goods.mojom";
 import "components/arc/mojom/disk_quota.mojom";
 import "components/arc/mojom/enterprise_reporting.mojom";
 import "components/arc/mojom/file_system.mojom";
+import "components/arc/mojom/iio_sensor.mojom";
 import "components/arc/mojom/ime.mojom";
 import "components/arc/mojom/input_method_manager.mojom";
 import "components/arc/mojom/intent_helper.mojom";
@@ -44,6 +47,7 @@ import "components/arc/mojom/property.mojom";
 import "components/arc/mojom/rotation_lock.mojom";
 import "components/arc/mojom/screen_capture.mojom";
 import "components/arc/mojom/sensor.mojom";
+import "components/arc/mojom/sharesheet.mojom";
 import "components/arc/mojom/storage_manager.mojom";
 import "components/arc/mojom/timer.mojom";
 import "components/arc/mojom/tracing.mojom";
@@ -56,9 +60,9 @@ import "components/arc/mojom/volume_mounter.mojom";
 import "components/arc/mojom/wake_lock.mojom";
 import "components/arc/mojom/wallpaper.mojom";
 
-// Next MinVersion: 51
+// Next MinVersion: 55
 // Deprecated method IDs: 101, 105, 121
-// Next method ID: 156
+// Next method ID: 160
 interface ArcBridgeHost {
   // Keep the entries alphabetical. In order to do so without breaking
   // compatibility with the ARC instance, explicitly assign each interface a
@@ -67,6 +71,10 @@ interface ArcBridgeHost {
   // Notifies Chrome that the AccessibilityHelperInstance interface is ready.
   [MinVersion=21] OnAccessibilityHelperInstanceReady@127(
       pending_remote<AccessibilityHelperInstance> instance_remote);
+
+  // Notifies Chrome that the AdbdMonitorInstance interface is ready.
+  [MinVersion=53] OnAdbdMonitorInstanceReady@158(
+      pending_remote<AdbdMonitorInstance> instance_remote);
 
   // Notifies Chrome that the AppInstance interface is ready.
   OnAppInstanceReady@100(pending_remote<AppInstance> instance_remote);
@@ -119,6 +127,10 @@ interface ArcBridgeHost {
   [MinVersion=7] OnCrashCollectorInstanceReady@112(
       pending_remote<CrashCollectorInstance> instance_remote);
 
+  // Notifies Chrome that the DigitalGoodsInstance interface is ready.
+  [MinVersion=51] OnDigitalGoodsInstanceReady@156(
+      pending_remote<DigitalGoodsInstance> instance_remote);
+
   // Notifies Chrome that the DiskQuotaInstance interface is ready.
   [MinVersion=39] OnDiskQuotaInstanceReady@144(
       pending_remote<DiskQuotaInstance> instance_remote);
@@ -130,6 +142,10 @@ interface ArcBridgeHost {
   // Notifies Chrome that the FileSystemInstance interface is ready.
   [MinVersion=13] OnFileSystemInstanceReady@119(
       pending_remote<FileSystemInstance> instance_remote);
+
+  // Notifies Chrome that the IioSensorInstance interface is ready.
+  [MinVersion=54] OnIioSensorInstanceReady@159(
+      pending_remote<IioSensorInstance> instance_remote);
 
   // Notifies Chrome that the ImeInstance interface is ready.
   [MinVersion=3] OnImeInstanceReady@110(
@@ -220,6 +236,10 @@ interface ArcBridgeHost {
   // Notifies Chrome that the SensorInstance interface is ready.
   [MinVersion=49] OnSensorInstanceReady@154(
       pending_remote<SensorInstance> instance_ptr);
+
+  // Notifies Chrome that the SharesheetInstance interface is ready.
+  [MinVersion=52] OnSharesheetInstanceReady@157(
+                      pending_remote<SharesheetInstance> instance_remote);
 
   // Notifies Chrome that the SmartCardManagerInstance interface is ready.
   [MinVersion=48] OnSmartCardManagerInstanceReady@153(

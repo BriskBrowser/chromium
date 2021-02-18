@@ -23,7 +23,7 @@ class WebviewRpcInstance : public PlatformViewsRpcInstance {
   bool Initialize() override;
 
  private:
-  void CreateWebview(int app_id, int window_id);
+  void CreateWebview(int app_id, int window_id, bool incognito);
   webview::PlatformViewsService::AsyncService* platform_views_service_;
   bool enabled_for_dev_ = false;
 

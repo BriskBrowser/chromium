@@ -9,9 +9,11 @@ import static androidx.test.espresso.action.ViewActions.click;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
 
 import static org.chromium.base.test.util.Restriction.RESTRICTION_TYPE_NON_LOW_END_DEVICE;
+import static org.chromium.chrome.test.util.ViewUtils.createMotionEvent;
 
 import android.content.pm.ActivityInfo;
 import android.graphics.Point;
+import android.os.Build.VERSION_CODES;
 import android.os.Debug;
 import android.os.SystemClock;
 import android.support.test.InstrumentationRegistry;
@@ -33,28 +35,30 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.test.util.ApplicationTestUtils;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.compositor.animation.CompositorAnimationHandler;
 import org.chromium.chrome.browser.compositor.layouts.Layout;
-import org.chromium.chrome.browser.compositor.layouts.LayoutManager;
 import org.chromium.chrome.browser.compositor.layouts.LayoutManagerChrome;
 import org.chromium.chrome.browser.compositor.layouts.LayoutManagerChromePhone;
+import org.chromium.chrome.browser.compositor.layouts.LayoutManagerImpl;
 import org.chromium.chrome.browser.compositor.layouts.SceneChangeObserver;
 import org.chromium.chrome.browser.compositor.layouts.StaticLayout;
 import org.chromium.chrome.browser.compositor.layouts.components.LayoutTab;
-import org.chromium.chrome.browser.compositor.layouts.eventfilter.EdgeSwipeHandler;
-import org.chromium.chrome.browser.compositor.layouts.eventfilter.ScrollDirection;
 import org.chromium.chrome.browser.compositor.layouts.phone.StackLayout;
 import org.chromium.chrome.browser.compositor.layouts.phone.stack.Stack;
 import org.chromium.chrome.browser.compositor.layouts.phone.stack.StackTab;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
+import org.chromium.chrome.browser.layouts.animation.CompositorAnimationHandler;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabLaunchType;
@@ -70,19 +74,18 @@ import org.chromium.chrome.browser.tabpersistence.TabStateDirectory;
 import org.chromium.chrome.browser.toolbar.top.ToggleTabStackButton;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
-import org.chromium.chrome.test.util.ApplicationTestUtils;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.MenuUtils;
 import org.chromium.chrome.test.util.NewTabPageTestUtils;
 import org.chromium.chrome.test.util.OverviewModeBehaviorWatcher;
+import org.chromium.components.browser_ui.widget.gesture.SwipeGestureListener.ScrollDirection;
+import org.chromium.components.browser_ui.widget.gesture.SwipeGestureListener.SwipeHandler;
 import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.components.javascript_dialogs.JavascriptTabModalDialog;
 import org.chromium.content_public.browser.SelectionPopupController;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsObserver;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.DOMUtils;
 import org.chromium.content_public.browser.test.util.JavaScriptUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -93,6 +96,7 @@ import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.ui.modaldialog.ModalDialogProperties;
 import org.chromium.ui.modelutil.PropertyModel;
 import org.chromium.ui.test.util.UiRestriction;
+import org.chromium.url.GURL;
 
 import java.io.File;
 import java.util.Locale;
@@ -538,7 +542,10 @@ public class TabsTest {
     @LargeTest
     @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
     @Feature({"Android-TabSwitcher"})
-    public void testTabSwitcherPortraitCloseButton() {
+    @DisableIf.Build(sdk_is_greater_than = VERSION_CODES.O_MR1,
+            message = "Very flaky on android-pie-x86-rel https://crbug.com/1135837")
+    public void
+    testTabSwitcherPortraitCloseButton() {
         mActivityTestRule.getActivity().setRequestedOrientation(
                 ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         int portraitWidth = Math.min(
@@ -557,8 +564,11 @@ public class TabsTest {
     @Test
     @LargeTest
     @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE, RESTRICTION_TYPE_NON_LOW_END_DEVICE})
+    @DisableIf.Build(message = "Flaky on Android P, see https://crbug.com/1164443",
+            sdk_is_greater_than = VERSION_CODES.O_MR1, sdk_is_less_than = VERSION_CODES.Q)
     @Feature({"Android-TabSwitcher"})
-    public void testTabSwitcherLandscapeCloseButton() {
+    public void
+    testTabSwitcherLandscapeCloseButton() {
         mActivityTestRule.getActivity().setRequestedOrientation(
                 ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         // Hard-coded coordinates of the close button on the bottom left of the screen.
@@ -864,7 +874,7 @@ public class TabsTest {
 
         // This is about as fast as you can ever click.
         final long fastestUserInput = 20; // ms
-        for (int i = 0; i < 200; i++) {
+        for (int i = 0; i < 50; i++) {
             // Show overview
             InstrumentationRegistry.getInstrumentation().runOnMainSync(
                     new ClickOptionButtonOnMainThread());
@@ -1568,7 +1578,7 @@ public class TabsTest {
     public void testOSKIsNotShownDuringSwipe() throws InterruptedException {
         final View urlBar = mActivityTestRule.getActivity().findViewById(R.id.url_bar);
         final LayoutManagerChrome layoutManager = updateTabsViewSize();
-        final EdgeSwipeHandler edgeSwipeHandler = layoutManager.getToolbarSwipeHandler();
+        final SwipeHandler swipeHandler = layoutManager.getToolbarSwipeHandler();
 
         UiUtils.settleDownUI(InstrumentationRegistry.getInstrumentation());
         InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> urlBar.requestFocus());
@@ -1585,10 +1595,10 @@ public class TabsTest {
                         mActivityTestRule.getActivity(), urlBar));
 
         PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> {
-            edgeSwipeHandler.swipeStarted(ScrollDirection.RIGHT, 0, 0);
+            swipeHandler.onSwipeStarted(ScrollDirection.RIGHT, createMotionEvent(0, 0));
             float swipeXChange = mTabsViewWidthDp / 2.f;
-            edgeSwipeHandler.swipeUpdated(
-                    swipeXChange, 0.f, swipeXChange, 0.f, swipeXChange, 0.f);
+            swipeHandler.onSwipeUpdated(createMotionEvent(swipeXChange / mPxToDp, 0.f),
+                    swipeXChange / mPxToDp, 0.f, swipeXChange / mPxToDp, 0.f);
         });
 
         CriteriaHelper.pollUiThread(() -> {
@@ -1602,11 +1612,11 @@ public class TabsTest {
             Assert.assertFalse("Keyboard should be hidden while swiping",
                     mActivityTestRule.getKeyboardDelegate().isKeyboardShowing(
                             mActivityTestRule.getActivity(), urlBar));
-            edgeSwipeHandler.swipeFinished();
+            swipeHandler.onSwipeFinished();
         });
 
         CriteriaHelper.pollUiThread(() -> {
-            LayoutManager driver = mActivityTestRule.getActivity().getLayoutManager();
+            LayoutManagerImpl driver = mActivityTestRule.getActivity().getLayoutManager();
             return driver.getActiveLayout().shouldDisplayContentOverlay();
         }, "Layout not requesting Tab Android view be attached");
 
@@ -1839,7 +1849,7 @@ public class TabsTest {
                     pageLoadedCallbacks[index] = pageLoadCallback;
                     currentTab.addObserver(new EmptyTabObserver() {
                         @Override
-                        public void onPageLoadFinished(Tab tab, String url) {
+                        public void onPageLoadFinished(Tab tab, GURL url) {
                             pageLoadCallback.notifyCalled();
                             tab.removeObserver(this);
                         }

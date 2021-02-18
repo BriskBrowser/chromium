@@ -22,7 +22,6 @@
 #include "content/browser/renderer_host/text_input_manager.h"
 #include "content/common/content_export.h"
 #include "content/common/render_widget_host_ns_view.mojom.h"
-#include "ipc/ipc_sender.h"
 #include "mojo/public/cpp/bindings/associated_receiver.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
 #include "ui/accelerated_widget_mac/accelerated_widget_mac.h"
@@ -80,10 +79,10 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
       public remote_cocoa::mojom::RenderWidgetHostNSViewHost,
       public BrowserCompositorMacClient,
       public TextInputManager::Observer,
+      public RenderFrameMetadataProvider::Observer,
       public ui::GestureProviderClient,
       public ui::AcceleratedWidgetMacNSView,
-      public ui::AccessibilityFocusOverrider::Client,
-      public IPC::Sender {
+      public ui::AccessibilityFocusOverrider::Client {
  public:
   // The view will associate itself with the given widget. The native view must
   // be hooked up immediately to the view hierarchy, or else when it is
@@ -122,7 +121,6 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
   // Implementation of RenderWidgetHostViewBase.
   void InitAsPopup(RenderWidgetHostView* parent_host_view,
                    const gfx::Rect& pos) override;
-  void InitAsFullscreen(RenderWidgetHostView* reference_host_view) override;
   void Focus() override;
   void UpdateCursor(const WebCursor& cursor) override;
   void DisplayCursor(const WebCursor& cursor) override;
@@ -145,9 +143,6 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
                           const gfx::Rect& node_bounds_in_screen) override;
   void ResetFallbackToFirstNavigationSurface() override;
   bool RequestRepaintForTesting() override;
-  BrowserAccessibilityManager* CreateBrowserAccessibilityManager(
-      BrowserAccessibilityDelegate* delegate,
-      bool for_root_frame) override;
   gfx::NativeViewAccessible AccessibilityGetNativeViewAccessible() override;
   gfx::NativeViewAccessible AccessibilityGetNativeViewAccessibleForWindow()
       override;
@@ -182,8 +177,7 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
       override;
 
   const viz::FrameSinkId& GetFrameSinkId() const override;
-  const viz::LocalSurfaceIdAllocation& GetLocalSurfaceIdAllocation()
-      const override;
+  const viz::LocalSurfaceId& GetLocalSurfaceId() const override;
   // Returns true when we can hit test input events with location data to be
   // sent to the targeted RenderWidgetHost.
   bool ShouldRouteEvents() const;
@@ -226,10 +220,12 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
   void OnGestureEvent(const ui::GestureEventData& gesture) override;
 
   // RenderFrameMetadataProvider::Observer
+  void OnRenderFrameMetadataChangedBeforeActivation(
+      const cc::RenderFrameMetadata& metadata) override {}
   void OnRenderFrameMetadataChangedAfterActivation() override;
-
-  // IPC::Sender implementation.
-  bool Send(IPC::Message* message) override;
+  void OnRenderFrameSubmission() override {}
+  void OnLocalSurfaceIdChanged(
+      const cc::RenderFrameMetadata& metadata) override {}
 
   void SetTextInputActive(bool active);
 
@@ -512,6 +508,9 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
   // RenderWidgetHostViewBase:
   void UpdateBackgroundColor() override;
   bool HasFallbackSurface() const override;
+  base::Optional<DisplayFeature> GetDisplayFeature() override;
+  void SetDisplayFeatureForTesting(
+      const DisplayFeature* display_feature) override;
 
   // Gets a textual view of the page's contents, and passes it to the callback
   // provided.
@@ -650,6 +649,11 @@ class CONTENT_EXPORT RenderWidgetHostViewMac
   // content::BrowserAccessibilityCocoa accessibility tree when the NSView for
   // this is focused.
   ui::AccessibilityFocusOverrider accessibility_focus_overrider_;
+
+  // Represents a feature of the physical display whose offset and mask_length
+  // are expressed in DIPs relative to the view. See display_feature.h for more
+  // details.
+  base::Optional<DisplayFeature> display_feature_;
 
   // Factory used to safely scope delayed calls to ShutdownHost().
   base::WeakPtrFactory<RenderWidgetHostViewMac> weak_factory_;

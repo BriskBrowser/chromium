@@ -9,9 +9,10 @@
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/macros.h"
-#include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/app/chrome_command_ids.h"
+#include "chrome/browser/external_protocol/external_protocol_handler.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -27,9 +28,9 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/omnibox/browser/autocomplete_match.h"
 #include "components/omnibox/browser/omnibox_popup_model.h"
 #include "components/omnibox/browser/test_scheme_classifier.h"
-#include "components/omnibox/common/omnibox_features.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/browser_test.h"
@@ -38,9 +39,7 @@
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
-#include "ui/base/ime/init/input_method_factory.h"
 #include "ui/base/ime/input_method.h"
-#include "ui/base/ime/mock_input_method.h"
 #include "ui/base/ime/text_edit_commands.h"
 #include "ui/base/ime/text_input_client.h"
 #include "ui/base/test/ui_controls.h"
@@ -71,10 +70,8 @@ void SetClipboardText(ui::ClipboardBuffer buffer, const std::string& text) {
 
 class OmniboxViewViewsTest : public InProcessBrowserTest {
  protected:
-  OmniboxViewViewsTest() {
-    scoped_feature_list_.InitAndEnableFeature(
-        omnibox::kOmniboxContextMenuShowFullUrls);
-  }
+  OmniboxViewViewsTest() = default;
+  ~OmniboxViewViewsTest() override = default;
 
   static void GetOmniboxViewForBrowser(const Browser* browser,
                                        OmniboxView** omnibox_view) {
@@ -141,8 +138,6 @@ class OmniboxViewViewsTest : public InProcessBrowserTest {
 #endif
     return native_window;
   }
-
-  base::test::ScopedFeatureList scoped_feature_list_;
 
   DISALLOW_COPY_AND_ASSIGN(OmniboxViewViewsTest);
 };
@@ -234,7 +229,9 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, DISABLED_SelectAllOnClick) {
   ASSERT_NO_FATAL_FAILURE(ClickBrowserWindowCenter());
   ASSERT_NO_FATAL_FAILURE(Click(ui_controls::MIDDLE,
                                 click_location, click_location));
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   EXPECT_TRUE(ui_test_utils::IsViewFocused(browser(), VIEW_ID_OMNIBOX));
 #else
   EXPECT_FALSE(ui_test_utils::IsViewFocused(browser(), VIEW_ID_OMNIBOX));
@@ -242,7 +239,9 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, DISABLED_SelectAllOnClick) {
   EXPECT_FALSE(omnibox_view->IsSelectAll());
 }
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, SelectionClipboard) {
   OmniboxView* omnibox_view = NULL;
   ASSERT_NO_FATAL_FAILURE(GetOmniboxViewForBrowser(browser(), &omnibox_view));
@@ -536,7 +535,10 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, FragmentUnescapedForDisplay) {
   ui_test_utils::NavigateToURL(browser(),
                                GURL("http://example.com/#%E2%98%83"));
 
-  EXPECT_EQ(view->GetText(), base::UTF8ToUTF16("example.com/#\u2603"));
+  EXPECT_EQ(view->GetText(),
+            OmniboxFieldTrial::ShouldRevealPathQueryRefOnHover()
+                ? base::UTF8ToUTF16("http://example.com/#\u2603")
+                : base::UTF8ToUTF16("example.com/#\u2603"));
 }
 
 // Ensure that when the user navigates between suggestions, that the accessible
@@ -686,9 +688,10 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, AccessiblePopup) {
   EXPECT_FALSE(popup_node_data_2.HasState(ax::mojom::State::kInvisible));
 }
 
+// Flaky: https://crbug.com/1143630.
 // Omnibox returns to clean state after chrome://kill and reload.
 // https://crbug.com/993701 left the URL and icon as chrome://kill after reload.
-IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, ReloadAfterKill) {
+IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, DISABLED_ReloadAfterKill) {
   OmniboxView* omnibox_view = nullptr;
   ASSERT_NO_FATAL_FAILURE(GetOmniboxViewForBrowser(browser(), &omnibox_view));
   OmniboxViewViews* omnibox_view_views =
@@ -725,23 +728,40 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, AlwaysShowFullURLs) {
       static_cast<OmniboxViewViews*>(omnibox_view);
 
   ASSERT_TRUE(embedded_test_server()->Start());
-  GURL url = embedded_test_server()->GetURL("/title1.html");
+  // Use a hostname ("a.test") since IP addresses aren't eligible for eliding.
+  GURL url = embedded_test_server()->GetURL("a.test", "/title1.html");
   base::string16 url_text = base::ASCIIToUTF16(url.spec());
 
   ui_test_utils::NavigateToURL(browser(), url);
 
-  // By default, the elided URL should be shown.
-  EXPECT_EQ(url_text,
-            base::ASCIIToUTF16("http://") + omnibox_view_views->GetText());
+  // By default, the URL should be elided. Depending on field trial
+  // configuration, this will be implemented by pushing the scheme out of the
+  // display area or by eliding it from the actual text.
+  if (OmniboxFieldTrial::ShouldRevealPathQueryRefOnHover()) {
+    EXPECT_EQ(url_text, omnibox_view_views->GetText());
+    EXPECT_GT(
+        0, omnibox_view_views->GetRenderText()->GetUpdatedDisplayOffset().x());
+  } else {
+    EXPECT_EQ(url_text,
+              base::ASCIIToUTF16("http://") + omnibox_view_views->GetText());
+  }
 
   // After toggling the setting, the full URL should be shown.
   chrome::ToggleShowFullURLs(browser());
   EXPECT_EQ(url_text, omnibox_view_views->GetText());
+  EXPECT_EQ(0,
+            omnibox_view_views->GetRenderText()->GetUpdatedDisplayOffset().x());
 
   // Toggling the setting again should go back to the elided URL.
   chrome::ToggleShowFullURLs(browser());
-  EXPECT_EQ(url_text,
-            base::ASCIIToUTF16("http://") + omnibox_view_views->GetText());
+  if (OmniboxFieldTrial::ShouldRevealPathQueryRefOnHover()) {
+    EXPECT_EQ(url_text, omnibox_view_views->GetText());
+    EXPECT_GT(
+        0, omnibox_view_views->GetRenderText()->GetUpdatedDisplayOffset().x());
+  } else {
+    EXPECT_EQ(url_text,
+              base::ASCIIToUTF16("http://") + omnibox_view_views->GetText());
+  }
 }
 
 // The following set of tests require UIA accessibility support, which only
@@ -812,55 +832,96 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsUIATest, AccessibleOmnibox) {
   close_waiter.Wait();
   EXPECT_FALSE(omnibox_view->model()->popup_model()->IsOpen());
 }
-
-namespace {
-
-// MockInputMethod ------------------------------------------------------------
-class OmniBoxMockInputMethod : public ui::MockInputMethod {
- public:
-  OmniBoxMockInputMethod() : ui::MockInputMethod(nullptr) {}
-  bool IsInputLocaleCJK() const override { return input_locale_cjk; }
-  void SetInputLocaleCJK(bool is_cjk) { input_locale_cjk = is_cjk; }
-
- private:
-  bool input_locale_cjk = false;
-};
-
-}  // namespace
-
-class OmniboxViewViewsIMETest : public OmniboxViewViewsTest {
- public:
-  OmniboxViewViewsIMETest() {}
-  void SetUp() override {
-    input_method_ = new OmniBoxMockInputMethod();
-    // transfers ownership.
-    ui::SetUpInputMethodForTesting(input_method_);
-    InProcessBrowserTest::SetUp();
-  }
-
- protected:
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    OmniboxViewViewsTest::SetUpCommandLine(command_line);
-    command_line->AppendSwitch(switches::kEnableExperimentalUIAutomation);
-  }
-  OmniBoxMockInputMethod* input_method_ = nullptr;
-};
-
-IN_PROC_BROWSER_TEST_F(OmniboxViewViewsIMETest, TextInputTypeChangedTest) {
-  chrome::FocusLocationBar(browser());
-  OmniboxView* view = nullptr;
-  ASSERT_NO_FATAL_FAILURE(GetOmniboxViewForBrowser(browser(), &view));
-  OmniboxViewViews* omnibox_view_views = static_cast<OmniboxViewViews*>(view);
-  ui::InputMethod* input_method =
-      omnibox_view_views->GetWidget()->GetInputMethod();
-  EXPECT_EQ(input_method, input_method_);
-  EXPECT_EQ(ui::TEXT_INPUT_TYPE_URL, omnibox_view_views->GetTextInputType());
-  input_method_->SetInputLocaleCJK(/*is_cjk*/ true);
-  omnibox_view_views->OnInputMethodChanged();
-  EXPECT_EQ(ui::TEXT_INPUT_TYPE_SEARCH, omnibox_view_views->GetTextInputType());
-
-  input_method_->SetInputLocaleCJK(/*is_cjk*/ false);
-  omnibox_view_views->OnInputMethodChanged();
-  EXPECT_EQ(ui::TEXT_INPUT_TYPE_URL, omnibox_view_views->GetTextInputType());
-}
 #endif  // OS_WIN
+
+// ClickOnView(VIEW_ID_OMNIBOX) does not set focus to omnibox on Mac.
+// Looks like the same problem as in the SelectAllOnClick().
+// Tracked in: https://crbug.com/915591
+// Test is also flaky on Linux: https://crbug.com/1157250
+// TODO(crbug.com/1052397): Revisit once build flag switch of lacros-chrome is
+// complete.
+#if defined(OS_MAC) || (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
+#define MAYBE_HandleExternalProtocolURLs DISABLED_HandleExternalProtocolURLs
+#else
+#define MAYBE_HandleExternalProtocolURLs HandleExternalProtocolURLs
+#endif
+
+// Checks that focusing on the omnibox allows the page to open external protocol
+// URLs. Regression test for https://crbug.com/1143632
+IN_PROC_BROWSER_TEST_F(OmniboxViewViewsTest, MAYBE_HandleExternalProtocolURLs) {
+  OmniboxView* omnibox_view = nullptr;
+  ASSERT_NO_FATAL_FAILURE(GetOmniboxViewForBrowser(browser(), &omnibox_view));
+  OmniboxPopupModel* popup_model = omnibox_view->model()->popup_model();
+  ASSERT_TRUE(popup_model);
+  AutocompleteController* controller =
+      omnibox_view->model()->autocomplete_controller();
+  ASSERT_TRUE(controller);
+
+  auto set_text_and_perform_navigation = [this, omnibox_view, popup_model,
+                                          controller]() {
+    const char fake_protocol[] = "fake";
+    const char fake_url[] = "fake://path";
+
+    EXPECT_TRUE(ui_test_utils::IsViewFocused(browser(), VIEW_ID_OMNIBOX));
+
+    // Set omnibox text and wait for autocomplete.
+    omnibox_view->SetUserText(base::ASCIIToUTF16(fake_url));
+    if (!controller->done())
+      ui_test_utils::WaitForAutocompleteDone(browser());
+    ASSERT_TRUE(controller->done());
+    ASSERT_TRUE(popup_model->IsOpen());
+
+    EXPECT_NE(ExternalProtocolHandler::BLOCK,
+              ExternalProtocolHandler::GetBlockState(fake_protocol, nullptr,
+                                                     browser()->profile()));
+
+    // Check SWYT and UWYT suggestions
+    const AutocompleteResult& result = controller->result();
+    ASSERT_EQ(result.size(), 2U);
+    EXPECT_EQ(result.match_at(0).type,
+              AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED);
+    EXPECT_EQ(result.match_at(1).type,
+              AutocompleteMatchType::URL_WHAT_YOU_TYPED);
+
+    // Navigate to UWYT suggestion.
+    ASSERT_TRUE(ui_test_utils::SendKeyPressSync(browser(), ui::VKEY_DOWN, false,
+                                                false, false, false));
+    ASSERT_TRUE(ui_test_utils::SendKeyPressSync(browser(), ui::VKEY_RETURN,
+                                                false, false, false, false));
+
+    content::WebContents* tab =
+        browser()->tab_strip_model()->GetActiveWebContents();
+    EXPECT_TRUE(content::WaitForLoadStop(tab));
+
+    EXPECT_EQ(ExternalProtocolHandler::BLOCK,
+              ExternalProtocolHandler::GetBlockState(fake_protocol, nullptr,
+                                                     browser()->profile()));
+  };
+
+  set_text_and_perform_navigation();
+
+  // Set focus to omnibox by click.
+  ASSERT_NO_FATAL_FAILURE(
+      ui_test_utils::ClickOnView(browser(), VIEW_ID_OMNIBOX));
+  ASSERT_NO_FATAL_FAILURE(
+      ui_test_utils::WaitForViewFocus(browser(), VIEW_ID_OMNIBOX, true));
+
+  set_text_and_perform_navigation();
+
+// No touch on desktop Mac. Tracked in http://crbug.com/445520.
+#if !defined(OS_MAC) || defined(USE_AURA)
+
+  // Set focus to omnibox by tap.
+  const gfx::Point omnibox_tap_point =
+      BrowserView::GetBrowserViewForBrowser(browser())
+          ->GetViewByID(VIEW_ID_OMNIBOX)
+          ->GetBoundsInScreen()
+          .CenterPoint();
+  ASSERT_NO_FATAL_FAILURE(Tap(omnibox_tap_point, omnibox_tap_point));
+  ASSERT_NO_FATAL_FAILURE(
+      ui_test_utils::WaitForViewFocus(browser(), VIEW_ID_OMNIBOX, true));
+
+  set_text_and_perform_navigation();
+
+#endif  // !defined(OS_MAC) || defined(USE_AURA)
+}

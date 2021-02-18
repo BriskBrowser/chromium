@@ -7,11 +7,12 @@
 
 #include <memory>
 
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/ui/tabs/tab_utils.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 
 namespace gfx {
 class ImageSkia;
@@ -28,6 +29,7 @@ class Tab;
 // Dialog that displays an informational hover card containing page information.
 class TabHoverCardBubbleView : public views::BubbleDialogDelegateView {
  public:
+  METADATA_HEADER(TabHoverCardBubbleView);
   explicit TabHoverCardBubbleView(Tab* tab);
   TabHoverCardBubbleView(const TabHoverCardBubbleView&) = delete;
   TabHoverCardBubbleView& operator=(const TabHoverCardBubbleView&) = delete;
@@ -36,11 +38,11 @@ class TabHoverCardBubbleView : public views::BubbleDialogDelegateView {
   // Updates card content and anchoring and shows the tab hover card.
   void UpdateAndShow(Tab* tab);
 
-  bool IsVisible();
+  bool GetWidgetVisible() const;
 
   void FadeOutToHide();
 
-  bool IsFadingOut() const;
+  bool GetFadingOut() const;
 
   // Returns the target tab (if any).
   views::View* GetDesiredAnchorView();
@@ -99,7 +101,7 @@ class TabHoverCardBubbleView : public views::BubbleDialogDelegateView {
   std::unique_ptr<WidgetFadeAnimationDelegate> fade_animation_delegate_;
   // Used to animate the tab hover card's movement between tabs.
   std::unique_ptr<WidgetSlideAnimationDelegate> slide_animation_delegate_;
-  std::unique_ptr<ThumbnailObserver> thumbnail_observer_;
+  std::unique_ptr<ThumbnailObserver> thumbnail_observation_;
 
   // Timestamp of the last time a hover card was visible, recorded before it is
   // hidden. This is used for metrics.
@@ -121,6 +123,8 @@ class TabHoverCardBubbleView : public views::BubbleDialogDelegateView {
   // tab is selected by mouse press.
   size_t hover_cards_seen_count_ = 0;
   bool waiting_for_decompress_ = false;
+
+  const bool using_rounded_corners_;
 
   base::OneShotTimer delayed_show_timer_;
 };

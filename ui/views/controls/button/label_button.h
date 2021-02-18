@@ -8,6 +8,7 @@
 #include <array>
 #include <memory>
 
+#include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
@@ -19,6 +20,7 @@
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/layout_provider.h"
+#include "ui/views/metadata/view_factory.h"
 #include "ui/views/native_theme_delegate.h"
 #include "ui/views/style/typography.h"
 #include "ui/views/widget/widget.h"
@@ -28,17 +30,19 @@ namespace views {
 class InkDropContainerView;
 class LabelButtonBorder;
 
-// LabelButton is a button with text and an icon, it's not focusable by default.
+// LabelButton is a button with text and an icon.
 class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
  public:
   METADATA_HEADER(LabelButton);
 
-  // Creates a LabelButton with ButtonPressed() events sent to |listener| and
-  // label |text|. |button_context| is a value from views::style::TextContext
-  // and determines the appearance of |text|.
-  explicit LabelButton(ButtonListener* listener = nullptr,
+  // Creates a LabelButton with pressed events sent to |callback| and label
+  // |text|. |button_context| is a value from views::style::TextContext and
+  // determines the appearance of |text|.
+  explicit LabelButton(PressedCallback callback = PressedCallback(),
                        const base::string16& text = base::string16(),
                        int button_context = style::CONTEXT_BUTTON);
+  LabelButton(const LabelButton&) = delete;
+  LabelButton& operator=(const LabelButton&) = delete;
   ~LabelButton() override;
 
   // Gets or sets the image shown for the specified button state.
@@ -114,7 +118,6 @@ class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
   gfx::Size GetMinimumSize() const override;
   int GetHeightForWidth(int w) const override;
   void Layout() override;
-  void EnableCanvasFlippingForRTLUI(bool flip) override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   void AddLayerBeneathView(ui::Layer* new_layer) override;
   void RemoveLayerBeneathView(ui::Layer* old_layer) override;
@@ -155,8 +158,8 @@ class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
   virtual void UpdateBackgroundColor() {}
 
   // Returns the current visual appearance of the button. This takes into
-  // account both the button's underlying state and the state of the containing
-  // widget.
+  // account both the button's underlying state, the state of the containing
+  // widget, and the parent of the containing widget.
   ButtonState GetVisualState() const;
 
   // Fills |params| with information about the button.
@@ -204,6 +207,8 @@ class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
   // Returns the state whose image is shown for |for_state|, by falling back to
   // STATE_NORMAL when |for_state|'s image is empty.
   ButtonState ImageStateForState(ButtonState for_state) const;
+
+  void FlipCanvasOnPaintForRTLUIChanged();
 
   // The image and label shown in the button.
   ImageView* image_;
@@ -258,12 +263,26 @@ class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
   // UI direction).
   gfx::HorizontalAlignment horizontal_alignment_ = gfx::ALIGN_LEFT;
 
-  std::unique_ptr<Widget::PaintAsActiveCallbackList::Subscription>
-      paint_as_active_subscription_;
+  base::CallbackListSubscription paint_as_active_subscription_;
 
-  DISALLOW_COPY_AND_ASSIGN(LabelButton);
+  base::CallbackListSubscription flip_canvas_on_paint_subscription_ =
+      AddFlipCanvasOnPaintForRTLUIChangedCallback(
+          base::BindRepeating(&LabelButton::FlipCanvasOnPaintForRTLUIChanged,
+                              base::Unretained(this)));
 };
 
+BEGIN_VIEW_BUILDER(VIEWS_EXPORT, LabelButton, Button)
+VIEW_BUILDER_PROPERTY(base::string16, Text)
+VIEW_BUILDER_PROPERTY(gfx::HorizontalAlignment, HorizontalAlignment)
+VIEW_BUILDER_PROPERTY(gfx::Size, MinSize)
+VIEW_BUILDER_PROPERTY(gfx::Size, MaxSize)
+VIEW_BUILDER_PROPERTY(bool, IsDefault)
+VIEW_BUILDER_PROPERTY(int, ImageLabelSpacing)
+VIEW_BUILDER_PROPERTY(bool, ImageCentered)
+END_VIEW_BUILDER
+
 }  // namespace views
+
+DEFINE_VIEW_BUILDER(VIEWS_EXPORT, LabelButton)
 
 #endif  // UI_VIEWS_CONTROLS_BUTTON_LABEL_BUTTON_H_

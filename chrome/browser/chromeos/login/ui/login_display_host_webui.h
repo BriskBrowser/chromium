@@ -14,6 +14,7 @@
 #include "ash/public/cpp/multi_user_window_manager_observer.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "base/observer_list.h"
 #include "base/trace_event/trace_event.h"
 #include "chrome/browser/chromeos/login/existing_user_controller.h"
 #include "chrome/browser/chromeos/login/oobe_configuration.h"
@@ -82,15 +83,23 @@ class LoginDisplayHostWebUI : public LoginDisplayHostCommon,
   void OnBrowserCreated() override;
   void ShowGaiaDialog(const AccountId& prefilled_account) override;
   void HideOobeDialog() override;
+  void SetShelfButtonsEnabled(bool enabled) override;
   void UpdateOobeDialogState(ash::OobeDialogState state) override;
   void HandleDisplayCaptivePortal() override;
   void UpdateAddUserButtonStatus() override;
   void RequestSystemInfoUpdate() override;
   void OnCancelPasswordChangedFlow() override;
+  void ShowEnableConsumerKioskScreen() override;
+  bool HasUserPods() override;
+  void VerifyOwnerForKiosk(base::OnceClosure) override;
+  void ShowPasswordChangedDialog(const AccountId& account_id,
+                                 bool show_password_error) override;
+  void AddObserver(LoginDisplayHost::Observer* observer) override;
+  void RemoveObserver(LoginDisplayHost::Observer* observer) override;
 
   // Trace id for ShowLoginWebUI event (since there exists at most one login
   // WebUI at a time).
-  static const trace_event_internal::TraceID kShowLoginWebUIid;
+  static const char kShowLoginWebUIid[];
 
   views::Widget* login_window_for_test() { return login_window_; }
 
@@ -130,7 +139,11 @@ class LoginDisplayHostWebUI : public LoginDisplayHostCommon,
 
   // views::WidgetObserver:
   void OnWidgetDestroying(views::Widget* widget) override;
+  void OnWidgetBoundsChanged(views::Widget* widget,
+                             const gfx::Rect& new_bounds) override;
 
+  // TODO (crbug.com/1168114): remove whole observer hierarchy, it is not needed
+  // anymore.
   // ash::MultiUserWindowManagerObserver:
   void OnUserSwitchAnimationFinished() override;
 
@@ -140,7 +153,6 @@ class LoginDisplayHostWebUI : public LoginDisplayHostCommon,
     RESTORE_UNKNOWN,
     RESTORE_WIZARD,
     RESTORE_SIGN_IN,
-    RESTORE_ADD_USER_INTO_SESSION,
   };
 
   // Type of animations to run after the login screen.
@@ -149,8 +161,6 @@ class LoginDisplayHostWebUI : public LoginDisplayHostCommon,
     ANIMATION_WORKSPACE,  // Use initial workspace animation (drop and
                           // and fade in workspace). Used for user login.
     ANIMATION_FADE_OUT,   // Fade out login screen. Used for app launch.
-    ANIMATION_ADD_USER,   // Use UserSwitchAnimatorChromeOS animation when
-                          // adding a user into multi-profile session.
   };
 
   // Schedules workspace transition animation.
@@ -165,10 +175,10 @@ class LoginDisplayHostWebUI : public LoginDisplayHostCommon,
   // Shows OOBE/sign in WebUI that was previously initialized in hidden state.
   void ShowWebUI();
 
-  // Initializes |login_window_| and |login_view_| fields if needed.
+  // Initializes `login_window_` and `login_view_` fields if needed.
   void InitLoginWindowAndView();
 
-  // Closes |login_window_| and resets |login_window_| and |login_view_| fields.
+  // Closes `login_window_` and resets `login_window_` and `login_view_` fields.
   void ResetLoginWindowAndView();
 
   // Toggles OOBE progress bar visibility, the bar is hidden by default.
@@ -182,11 +192,14 @@ class LoginDisplayHostWebUI : public LoginDisplayHostCommon,
   // Called when login-prompt-visible signal is caught.
   void OnLoginPromptVisible();
 
-  // Creates or recreates |existing_user_controller_|.
+  // Creates or recreates `existing_user_controller_`.
   void CreateExistingUserController();
 
   // Plays startup sound if needed and audio device is ready.
   void PlayStartupSoundIfPossible();
+
+  // Resets login view and unbinds login display from the signin screen handler.
+  void ResetLoginView();
 
   // Sign in screen controller.
   std::unique_ptr<ExistingUserController> existing_user_controller_;
@@ -249,6 +262,8 @@ class LoginDisplayHostWebUI : public LoginDisplayHostCommon,
 
   // True if we need to play startup sound when audio device becomes available.
   bool need_to_play_startup_sound_ = false;
+
+  base::ObserverList<LoginDisplayHost::Observer> observers_;
 
   base::WeakPtrFactory<LoginDisplayHostWebUI> weak_factory_{this};
 

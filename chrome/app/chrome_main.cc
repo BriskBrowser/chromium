@@ -23,6 +23,14 @@
 #endif
 
 #if defined(OS_WIN)
+#include "base/allocator/buildflags.h"
+#if BUILDFLAG(USE_ALLOCATOR_SHIM)
+#include "base/allocator/allocator_shim.h"
+#endif
+
+#include <timeapi.h>
+
+#include "base/base_switches.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/files/file_util.h"
 #include "base/metrics/histogram_functions.h"
@@ -60,6 +68,12 @@ int ChromeMain(int argc, const char** argv) {
 #endif
 
 #if defined(OS_WIN)
+#if BUILDFLAG(USE_ALLOCATOR_SHIM) && BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+  // Call this early on in order to configure heap workarounds. This must be
+  // called from chrome.dll. This may be a NOP on some platforms.
+  base::allocator::ConfigurePartitionAlloc();
+#endif
+
   base::UmaHistogramEnumeration("Windows.ChromeDllPrefetchResult",
                                 prefetch_result_code);
   install_static::InitializeFromPrimaryModule();
@@ -96,6 +110,14 @@ int ChromeMain(int argc, const char** argv) {
   base::CommandLine::Init(0, nullptr);
   const base::CommandLine* command_line(base::CommandLine::ForCurrentProcess());
   ALLOW_UNUSED_LOCAL(command_line);
+
+#if defined(OS_WIN)
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          ::switches::kRaiseTimerFrequency)) {
+    // Raise the timer interrupt frequency and leave it raised.
+    timeBeginPeriod(1);
+  }
+#endif
 
 #if defined(OS_MAC)
   SetUpBundleOverrides();

@@ -13,15 +13,6 @@
 #include "ui/views/focus/focus_manager.h"
 #include "ui/views/widget/widget.h"
 
-// static
-void ChromeWebContentsViewFocusHelper::CreateForWebContents(
-    content::WebContents* web_contents) {
-  if (!ChromeWebContentsViewFocusHelper::FromWebContents(web_contents)) {
-    web_contents->SetUserData(
-        ChromeWebContentsViewFocusHelper::UserDataKey(),
-        base::WrapUnique(new ChromeWebContentsViewFocusHelper(web_contents)));
-  }
-}
 
 ChromeWebContentsViewFocusHelper::ChromeWebContentsViewFocusHelper(
     content::WebContents* web_contents)
@@ -86,9 +77,7 @@ views::View* ChromeWebContentsViewFocusHelper::GetStoredFocus() {
 }
 
 gfx::NativeView ChromeWebContentsViewFocusHelper::GetActiveNativeView() {
-  return web_contents_->GetFullscreenRenderWidgetHostView() ?
-      web_contents_->GetFullscreenRenderWidgetHostView()->GetNativeView() :
-      web_contents_->GetNativeView();
+  return web_contents_->GetNativeView();
 }
 
 views::Widget* ChromeWebContentsViewFocusHelper::GetTopLevelWidget() {

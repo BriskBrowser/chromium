@@ -14,6 +14,18 @@
 <dom-module id="settings-captions">
   <template>
     <style include="cr-shared-style settings-shared">
+      /* Override the default padding of a cr-row to 0. The template inside has
+         left and right padding. */
+      .cr-row-with-template {
+        padding: 0;
+      }
+
+      /* Ensure the toggle button stretches the width of its container despite
+         removing its parent's padding. */
+      #liveCaptionToggleButton {
+        width: 100%;
+      }
+
       .preview-box {
         all: initial;
         align-items: center;
@@ -23,14 +35,28 @@
         background-size: cover;
         display: flex;
         justify-content: center;
-        margin: 0 var(--cr-section-padding) var(--cr-section-padding);
+        margin: var(--cr-section-padding);
+        margin-inline-start: var(--cr-section-indent-padding);
         min-height: 112px;
         padding: 20px;
         text-align: center;
       }
     </style>
+    <template is="dom-if" if="[[enableLiveCaption_]]">
+      <div class="cr-row cr-row-with-template first">
+        <settings-toggle-button id="liveCaptionToggleButton"
+            pref="{{prefs.accessibility.captions.live_caption_enabled}}"
+            on-change="onA11yLiveCaptionChange_"
+            label="$i18n{captionsEnableLiveCaptionTitle}"
+            sub-label="[[enableLiveCaptionSubtitle_]]">
+        </settings-toggle-button>
+      </div>
+    </template>
+    <div class="cr-row">
+      <h2 class="start">$i18n{captionsPreferencesTitle}</h2>
+    </div>
     <div class="cr-row first">
-      <h2>$i18n{captionsPreview}</h2>
+      <div class="start">$i18n{captionsPreferencesSubtitle}</div>
     </div>
     <div class="preview-box">
       <span style="
@@ -48,9 +74,6 @@
               prefs.accessibility.captions.text_size.value)]]">
         $i18n{quickBrownFox}
       </span>
-    </div>
-    <div class="cr-row continuation">
-      <h2 class="start">$i18n{captionsSettings}</h2>
     </div>
     <div class="list-frame">
       <div class="list-item underbar first">

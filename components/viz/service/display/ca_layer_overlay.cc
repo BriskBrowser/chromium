@@ -14,6 +14,7 @@
 #include "components/viz/common/quads/tile_draw_quad.h"
 #include "components/viz/service/display/display_resource_provider.h"
 #include "gpu/GLES2/gl2extchromium.h"
+#include "third_party/skia/include/core/SkDeferredDisplayList.h"
 
 namespace viz {
 
@@ -207,10 +208,10 @@ class CALayerOverlayProcessorInternal {
     // possible to make rounded corner rects independent of clip rect (by adding
     // another CALayer to the tree). Handling non-single border radii is also,
     // but requires APIs not supported on all macOS versions.
-    if (!quad->shared_quad_state->rounded_corner_bounds.IsEmpty()) {
+    if (quad->shared_quad_state->mask_filter_info.HasRoundedCorners()) {
       DCHECK(quad->shared_quad_state->is_clipped);
-      if (quad->shared_quad_state->rounded_corner_bounds.GetType() >
-          gfx::RRectF::Type::kSingle) {
+      if (quad->shared_quad_state->mask_filter_info.rounded_corner_bounds()
+              .GetType() > gfx::RRectF::Type::kSingle) {
         return CA_LAYER_FAILED_QUAD_ROUNDED_CORNER_NOT_UNIFORM;
       }
     }
@@ -237,7 +238,7 @@ class CALayerOverlayProcessorInternal {
       most_recent_overlay_shared_state_->clip_rect =
           gfx::RectF(quad->shared_quad_state->clip_rect);
       most_recent_overlay_shared_state_->rounded_corner_bounds =
-          quad->shared_quad_state->rounded_corner_bounds;
+          quad->shared_quad_state->mask_filter_info.rounded_corner_bounds();
 
       most_recent_overlay_shared_state_->opacity =
           quad->shared_quad_state->opacity;
@@ -296,7 +297,10 @@ CALayerOverlay::CALayerOverlay() : filter(GL_LINEAR) {}
 
 CALayerOverlay::CALayerOverlay(const CALayerOverlay& other) = default;
 
-CALayerOverlay::~CALayerOverlay() {}
+CALayerOverlay::~CALayerOverlay() = default;
+
+CALayerOverlay& CALayerOverlay::operator=(const CALayerOverlay& other) =
+    default;
 
 bool CALayerOverlayProcessor::ProcessForCALayerOverlays(
     DisplayResourceProvider* resource_provider,

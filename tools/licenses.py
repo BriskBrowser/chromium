@@ -163,12 +163,6 @@ SPECIAL_CASES = {
         "URL": "http://code.google.com/p/angleproject/",
         "License": "BSD",
     },
-    os.path.join('third_party', 'angle', 'third_party', 'vulkan-headers'): {
-        "Name": "Vulkan-Headers",
-        "URL": "https://github.com/KhronosGroup/Vulkan-Headers",
-        "License": "Apache 2.0",
-        "License File": "src/LICENSE.txt",
-    },
     os.path.join('third_party', 'cros_system_api'): {
         "Name": "Chromium OS system API",
         "URL": "http://www.chromium.org/chromium-os",
@@ -176,11 +170,46 @@ SPECIAL_CASES = {
         # Absolute path here is resolved as relative to the source root.
         "License File": "/LICENSE.chromium_os",
     },
+    os.path.join('third_party', 'devtools-frontend'): {
+        # TODO(crbug.com/1151057): Remove this special case when issue is fixed.
+        "Name": "Devtools-Frontend",
+        "URL": "https://chromium.googlesource.com/devtools/devtools-frontend",
+        "License": "BSD",
+        "License File": "src/LICENSE",
+    },
     os.path.join('third_party', 'lss'): {
         "Name": "linux-syscall-support",
         "URL": "http://code.google.com/p/linux-syscall-support/",
         "License": "BSD",
         "License File": "/LICENSE",
+    },
+    os.path.join('third_party', 'openscreen', 'src', 'third_party', 'abseil'): {
+        "Name": "abseil",
+        "URL": "https://github.com/abseil/abseil-cpp/",
+        "License": "Apache 2.0",
+        "License File": "/third_party/abseil-cpp/LICENSE",
+    },
+    os.path.join('third_party', 'openscreen', 'src', 'third_party',
+                 'boringssl'):
+    {
+        "Name": "BoringSSL",
+        "URL": "https://boringssl.googlesource.com/boringssl/",
+        "License": "BSDish",
+        "License File": "/third_party/boringssl/src/LICENSE",
+    },
+    os.path.join('third_party', 'openscreen', 'src', 'third_party', 'jsoncpp'):
+    {
+        "Name": "jsoncpp",
+        "URL": "https://github.com/open-source-parsers/jsoncpp",
+        "License": "MIT",
+        "License File": "/third_party/jsoncpp/LICENSE",
+    },
+    os.path.join('third_party', 'openscreen', 'src', 'third_party', 'mozilla'):
+    {
+        "Name": "mozilla",
+        "URL": "https://github.com/mozilla",
+        "License": "MPL 1.1/GPL 2.0/LGPL 2.1",
+        "License File": "LICENSE.txt",
     },
     os.path.join('third_party', 'pdfium'): {
         "Name": "PDFium",
@@ -203,15 +232,15 @@ SPECIAL_CASES = {
         "License": "BSD",
         "License File": "NOT_SHIPPED",
     },
-    os.path.join('third_party', 'crashpad', 'crashpad', 'third_party',
-                 'lss'): {
+    os.path.join('third_party', 'crashpad', 'crashpad', 'third_party', 'lss'): {
         "Name": "linux-syscall-support",
         "URL": "https://chromium.googlesource.com/linux-syscall-support/",
         "License": "BSD",
         "License File": "NOT_SHIPPED",
     },
     os.path.join('third_party', 'crashpad', 'crashpad', 'third_party',
-                 'mini_chromium'): {
+                 'mini_chromium'):
+    {
         "Name": "mini_chromium",
         "URL": "https://chromium.googlesource.com/chromium/mini_chromium/",
         "License": "BSD",
@@ -223,8 +252,8 @@ SPECIAL_CASES = {
         "License": "Apple Public Source License 2.0",
         "License File": "APPLE_LICENSE",
     },
-    os.path.join('third_party', 'crashpad', 'crashpad', 'third_party',
-                 'zlib'): {
+    os.path.join('third_party', 'crashpad', 'crashpad', 'third_party', 'zlib'):
+    {
         "Name": "zlib",
         "URL": "https://zlib.net/",
         "License": "zlib",
@@ -275,8 +304,8 @@ SPECIAL_CASES = {
         "URL": "http://www.netlib.org/fdlibm/",
         "License": "Freely Distributable",
         # Absolute path here is resolved as relative to the source root.
-        "License File" : "/v8/LICENSE.fdlibm",
-        "License Android Compatible" : "yes",
+        "License File": "/v8/LICENSE.fdlibm",
+        "License Android Compatible": "yes",
     },
     os.path.join('third_party', 'khronos_glcts'): {
         # These sources are not shipped, are not public, and it isn't
@@ -320,7 +349,6 @@ KNOWN_NON_IOS_LIBRARIES = set([
     os.path.join('chrome', 'installer', 'mac', 'third_party', 'xz'),
     os.path.join('chrome', 'test', 'data', 'third_party', 'kraken'),
     os.path.join('chrome', 'test', 'data', 'third_party', 'spaceport'),
-    os.path.join('chrome', 'third_party', 'mock4js'),
     os.path.join('chrome', 'third_party', 'mozilla_security_manager'),
     os.path.join('third_party', 'angle'),
     os.path.join('third_party', 'apple_apsl'),
@@ -339,7 +367,6 @@ KNOWN_NON_IOS_LIBRARIES = set([
     os.path.join('third_party', 'libXNVCtrl'),
     os.path.join('third_party', 'libevent'),
     os.path.join('third_party', 'libjpeg'),
-    os.path.join('third_party', 'libovr'),
     os.path.join('third_party', 'libusb'),
     os.path.join('third_party', 'libxslt'),
     os.path.join('third_party', 'lss'),
@@ -469,10 +496,10 @@ def FilterDirsWithFiles(dirs_list, root):
   return [x for x in dirs_list if ContainsFiles(x, root)]
 
 
-def ProcessAdditionalReadmePathsJson(dirname, third_party_dirs):
+def ProcessAdditionalReadmePathsJson(root, dirname, third_party_dirs):
   """For a given directory, process the additional readme paths, and add to
     third_party_dirs."""
-  additional_paths_file = os.path.join(dirname, ADDITIONAL_PATHS_FILENAME)
+  additional_paths_file = os.path.join(root, dirname, ADDITIONAL_PATHS_FILENAME)
   if os.path.exists(additional_paths_file):
     with open(additional_paths_file) as paths_file:
       extra_paths = json.load(paths_file)
@@ -504,8 +531,7 @@ def FindThirdPartyDirs(prune_paths, root):
         if dirpath not in prune_paths:
           third_party_dirs.add(dirpath)
 
-        additional_paths_dir = os.path.join(root, dirpath)
-        ProcessAdditionalReadmePathsJson(additional_paths_dir, third_party_dirs)
+        ProcessAdditionalReadmePathsJson(root, dirpath, third_party_dirs)
 
       # Don't recurse into any subdirs from here.
       dirs[:] = []
@@ -519,8 +545,7 @@ def FindThirdPartyDirs(prune_paths, root):
   for dir in ADDITIONAL_PATHS:
     if dir not in prune_paths:
       third_party_dirs.add(dir)
-      additional_paths_dir = os.path.join(root, dir)
-      ProcessAdditionalReadmePathsJson(additional_paths_dir, third_party_dirs)
+      ProcessAdditionalReadmePathsJson(root, dir, third_party_dirs)
 
   return third_party_dirs
 

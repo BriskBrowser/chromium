@@ -37,26 +37,13 @@
 #include "ui/views/controls/tree/tree_view.h"
 #include "ui/views/focus/focus_manager.h"
 #include "ui/views/layout/grid_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 #include "url/gurl.h"
 
 using bookmarks::BookmarkExpandedStateTracker;
 using bookmarks::BookmarkModel;
 using bookmarks::BookmarkNode;
-
-namespace {
-
-std::unique_ptr<views::LabelButton> CreateNewFolderButton(
-    views::ButtonListener* listener,
-    bool enabled) {
-  auto new_folder_button = std::make_unique<views::MdTextButton>(
-      listener,
-      l10n_util::GetStringUTF16(IDS_BOOKMARK_EDITOR_NEW_FOLDER_BUTTON));
-  new_folder_button->SetEnabled(enabled);
-  return new_folder_button;
-}
-
-}  // namespace
 
 BookmarkEditorView::BookmarkEditorView(
     Profile* profile,
@@ -71,10 +58,19 @@ BookmarkEditorView::BookmarkEditorView(
   DCHECK(profile);
   DCHECK(bb_model_);
   DCHECK(bb_model_->client()->CanBeEditedByUser(parent));
+  SetCanResize(true);
+  SetModalType(ui::MODAL_TYPE_WINDOW);
+  SetShowCloseButton(false);
+  SetAcceptCallback(base::BindOnce(&BookmarkEditorView::ApplyEdits,
+                                   base::Unretained(this), nullptr));
+  SetTitle(details_.GetWindowTitleId());
   SetButtonLabel(ui::DIALOG_BUTTON_OK, l10n_util::GetStringUTF16(IDS_SAVE));
   if (show_tree_) {
-    new_folder_button_ =
-        SetExtraView(CreateNewFolderButton(this, bb_model_->loaded()));
+    new_folder_button_ = SetExtraView(std::make_unique<views::MdTextButton>(
+        base::BindRepeating(&BookmarkEditorView::NewFolderButtonPressed,
+                            base::Unretained(this)),
+        l10n_util::GetStringUTF16(IDS_BOOKMARK_EDITOR_NEW_FOLDER_BUTTON)));
+    new_folder_button_->SetEnabled(bb_model_->loaded());
   }
   set_margins(ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(
       views::CONTROL, views::CONTROL));
@@ -98,36 +94,6 @@ bool BookmarkEditorView::IsDialogButtonEnabled(ui::DialogButton button) const {
     if (details_.GetNodeType() != BookmarkNode::FOLDER)
       return GetInputURL().is_valid();
   }
-  return true;
-}
-
-ui::ModalType BookmarkEditorView::GetModalType() const {
-  return ui::MODAL_TYPE_WINDOW;
-}
-
-bool BookmarkEditorView::CanResize() const {
-  return true;
-}
-
-bool BookmarkEditorView::ShouldShowCloseButton() const {
-  return false;
-}
-
-base::string16 BookmarkEditorView::GetWindowTitle() const {
-  return l10n_util::GetStringUTF16(details_.GetWindowTitleId());
-}
-
-bool BookmarkEditorView::Accept() {
-  if (!IsDialogButtonEnabled(ui::DIALOG_BUTTON_OK)) {
-    if (details_.GetNodeType() != BookmarkNode::FOLDER) {
-      // The url is invalid, focus the url field.
-      url_tf_->SelectAll(true);
-      url_tf_->RequestFocus();
-    }
-    return false;
-  }
-  // Otherwise save changes and close the dialog box.
-  ApplyEdits();
   return true;
 }
 
@@ -164,13 +130,6 @@ bool BookmarkEditorView::HandleKeyEvent(views::Textfield* sender,
 void BookmarkEditorView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   views::DialogDelegateView::GetAccessibleNodeData(node_data);
   node_data->SetName(l10n_util::GetStringUTF8(IDS_BOOKMARK_EDITOR_TITLE));
-}
-
-void BookmarkEditorView::ButtonPressed(views::Button* sender,
-                                       const ui::Event& event) {
-  DCHECK_EQ(new_folder_button_, sender);
-  DCHECK(tree_view_->GetSelectedNode());
-  NewFolder(tree_model_->AsNode(tree_view_->GetSelectedNode()));
 }
 
 bool BookmarkEditorView::IsCommandIdChecked(int command_id) const {
@@ -253,10 +212,6 @@ void BookmarkEditorView::ShowContextMenuForViewImpl(
                                   nullptr, gfx::Rect(point, gfx::Size()),
                                   views::MenuAnchorPosition::kTopRight,
                                   source_type);
-}
-
-const char* BookmarkEditorView::GetClassName() const {
-  return "BookmarkEditorView";
 }
 
 void BookmarkEditorView::BookmarkNodeMoved(BookmarkModel* model,
@@ -446,13 +401,14 @@ void BookmarkEditorView::UserInputChanged() {
   DialogModelChanged();
 }
 
+void BookmarkEditorView::NewFolderButtonPressed() {
+  DCHECK(tree_view_->GetSelectedNode());
+  NewFolder(tree_model_->AsNode(tree_view_->GetSelectedNode()));
+}
+
 void BookmarkEditorView::NewFolder(EditorNode* parent) {
   // Create a new entry parented to the given item.
-  if (!parent) {
-    NOTREACHED();
-    return;
-  }
-
+  DCHECK(parent);
   tree_view_->StartEditing(AddNewFolder(parent));
 }
 
@@ -526,23 +482,18 @@ BookmarkEditorView::EditorNode* BookmarkEditorView::FindNodeWithID(
   return nullptr;
 }
 
-void BookmarkEditorView::ApplyEdits() {
+void BookmarkEditorView::ApplyEdits(EditorNode* parent) {
   DCHECK(bb_model_->loaded());
 
-  if (tree_view_)
-    tree_view_->CommitEdit();
+  if (!parent) {
+    if (tree_view_)
+      tree_view_->CommitEdit();
 
-  EditorNode* parent =
-      show_tree_ ? tree_model_->AsNode(tree_view_->GetSelectedNode()) : nullptr;
-  if (show_tree_ && !parent) {
-    NOTREACHED();
-    return;
+    if (show_tree_) {
+      parent = tree_model_->AsNode(tree_view_->GetSelectedNode());
+      DCHECK(parent);
+    }
   }
-  ApplyEdits(parent);
-}
-
-void BookmarkEditorView::ApplyEdits(EditorNode* parent) {
-  DCHECK(!show_tree_ || parent);
 
   // We're going to apply edits to the bookmark bar model, which will call us
   // back. Normally when a structural edit occurs we reset the tree model.
@@ -640,3 +591,7 @@ void BookmarkEditorView::EditorTreeModel::SetTitle(
   if (!title.empty())
     ui::TreeNodeModel<EditorNode>::SetTitle(node, title);
 }
+
+BEGIN_METADATA(BookmarkEditorView, views::DialogDelegateView)
+ADD_READONLY_PROPERTY_METADATA(GURL, InputURL)
+END_METADATA

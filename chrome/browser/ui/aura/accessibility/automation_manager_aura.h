@@ -34,8 +34,7 @@ class AXAuraObjWrapper;
 class View;
 }  // namespace views
 
-using AuraAXTreeSerializer = ui::
-    AXTreeSerializer<views::AXAuraObjWrapper*, ui::AXNodeData, ui::AXTreeData>;
+using AuraAXTreeSerializer = ui::AXTreeSerializer<views::AXAuraObjWrapper*>;
 
 // Manages a tree of automation nodes backed by aura constructs.
 class AutomationManagerAura : public ui::AXActionHandler,
@@ -109,11 +108,11 @@ class AutomationManagerAura : public ui::AXActionHandler,
   // Holds the active views-based accessibility tree. A tree currently consists
   // of all views descendant to a |Widget| (see |AXTreeSourceViews|).
   // A tree becomes active when an event is fired on a descendant view.
-  std::unique_ptr<views::AXTreeSourceViews> current_tree_;
+  std::unique_ptr<views::AXTreeSourceViews> tree_;
 
   // Serializes incremental updates on the currently active tree
-  // |current_tree_|.
-  std::unique_ptr<AuraAXTreeSerializer> current_tree_serializer_;
+  // |tree_|.
+  std::unique_ptr<AuraAXTreeSerializer> tree_serializer_;
 
   bool processing_posted_ = false;
 

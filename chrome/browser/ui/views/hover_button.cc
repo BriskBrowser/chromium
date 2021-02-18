@@ -21,6 +21,8 @@
 #include "ui/views/focus/focus_manager.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/flex_layout.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/style/typography.h"
 #include "ui/views/view_class_properties.h"
 
@@ -41,12 +43,13 @@ std::unique_ptr<views::Border> CreateBorderWithVerticalSpacing(
 // badged part of the icon to extend into the padding.
 class IconWrapper : public views::View {
  public:
+  METADATA_HEADER(IconWrapper);
   explicit IconWrapper(std::unique_ptr<views::View> icon, int vertical_spacing)
       : icon_(AddChildView(std::move(icon))) {
     SetLayoutManager(std::make_unique<views::BoxLayout>(
         views::BoxLayout::Orientation::kHorizontal));
     // Make sure hovering over the icon also hovers the |HoverButton|.
-    set_can_process_events_within_subtree(false);
+    SetCanProcessEventsWithinSubtree(false);
     // Don't cover |icon| when the ink drops are being painted.
     // |MenuButton| already does this with its own image.
     SetPaintToLayer();
@@ -69,13 +72,15 @@ class IconWrapper : public views::View {
   views::View* icon_;
 };
 
+BEGIN_METADATA(IconWrapper, views::View)
+END_METADATA
+
 }  // namespace
 
-HoverButton::HoverButton(views::ButtonListener* button_listener,
-                         const base::string16& text)
-    : views::LabelButton(button_listener, text, views::style::CONTEXT_BUTTON) {
+HoverButton::HoverButton(PressedCallback callback, const base::string16& text)
+    : views::LabelButton(callback, text, views::style::CONTEXT_BUTTON) {
   SetButtonController(std::make_unique<HoverButtonController>(
-      this, button_listener,
+      this, std::move(callback),
       std::make_unique<views::Button::DefaultButtonControllerDelegate>(this)));
 
   views::InstallRectHighlightPathGenerator(this);
@@ -90,27 +95,27 @@ HoverButton::HoverButton(views::ButtonListener* button_listener,
 
   SetInkDropMode(InkDropMode::ON);
 
-  set_triggerable_event_flags(ui::EF_LEFT_MOUSE_BUTTON |
-                              ui::EF_RIGHT_MOUSE_BUTTON);
+  SetTriggerableEventFlags(ui::EF_LEFT_MOUSE_BUTTON |
+                           ui::EF_RIGHT_MOUSE_BUTTON);
   button_controller()->set_notify_action(
       views::ButtonController::NotifyAction::kOnRelease);
 }
 
-HoverButton::HoverButton(views::ButtonListener* button_listener,
+HoverButton::HoverButton(PressedCallback callback,
                          const gfx::ImageSkia& icon,
                          const base::string16& text)
-    : HoverButton(button_listener, text) {
+    : HoverButton(std::move(callback), text) {
   SetImage(STATE_NORMAL, icon);
 }
 
-HoverButton::HoverButton(views::ButtonListener* button_listener,
+HoverButton::HoverButton(PressedCallback callback,
                          std::unique_ptr<views::View> icon_view,
                          const base::string16& title,
                          const base::string16& subtitle,
                          std::unique_ptr<views::View> secondary_view,
                          bool resize_row_for_secondary_view,
                          bool secondary_view_can_process_events)
-    : HoverButton(button_listener, base::string16()) {
+    : HoverButton(std::move(callback), base::string16()) {
   label()->SetHandlesTooltips(false);
 
   // Set the layout manager to ignore the ink_drop_container to ensure the ink
@@ -140,7 +145,7 @@ HoverButton::HoverButton(views::ButtonListener* button_listener,
   title_->SizeToFit(0);
   // Hover the whole button when hovering |title_|. This is OK because |title_|
   // will never have a link in it.
-  title_->set_can_process_events_within_subtree(false);
+  title_->SetCanProcessEventsWithinSubtree(false);
 
   if (!subtitle.empty()) {
     auto subtitle_label = std::make_unique<views::Label>(
@@ -157,16 +162,16 @@ HoverButton::HoverButton(views::ButtonListener* button_listener,
       views::kFlexBehaviorKey,
       views::FlexSpecification(views::MinimumFlexSizeRule::kScaleToZero,
                                views::MaximumFlexSizeRule::kUnbounded));
-  label_wrapper->set_can_process_events_within_subtree(false);
+  label_wrapper->SetCanProcessEventsWithinSubtree(false);
   label_wrapper->SetProperty(views::kMarginsKey,
                              gfx::Insets(vertical_spacing, 0));
   label_wrapper_ = AddChildView(std::move(label_wrapper));
   // Observe |label_wrapper_| bounds changes to ensure the HoverButton tooltip
   // is kept in sync with the size.
-  observed_label_.Add(label_wrapper_);
+  label_observation_.Observe(label_wrapper_);
 
   if (secondary_view) {
-    secondary_view->set_can_process_events_within_subtree(
+    secondary_view->SetCanProcessEventsWithinSubtree(
         secondary_view_can_process_events);
     // |secondary_view| needs a layer otherwise it's obscured by the layer
     // used in drawing ink drops.
@@ -299,3 +304,6 @@ views::View* HoverButton::GetTooltipHandlerForPoint(const gfx::Point& point) {
 
   return this;
 }
+
+BEGIN_METADATA(HoverButton, views::LabelButton)
+END_METADATA

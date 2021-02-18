@@ -14,6 +14,7 @@
 #include "base/optional.h"
 #include "base/strings/string16.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/bookmarks/bookmark_editor.h"
 #include "chrome/common/buildflags.h"
 #include "content/public/browser/content_browser_client.h"
@@ -92,7 +93,7 @@ void ShowCreateChromeAppShortcutsDialog(
     gfx::NativeWindow parent_window,
     Profile* profile,
     const extensions::Extension* app,
-    const base::Callback<void(bool /* created */)>& close_callback);
+    base::OnceCallback<void(bool /* created */)> close_callback);
 
 // Shows the create chrome app shortcut dialog box. Same as above but for a
 // WebApp instead of an Extension. |close_callback| may be null.
@@ -100,7 +101,7 @@ void ShowCreateChromeAppShortcutsDialog(
     gfx::NativeWindow parent_window,
     Profile* profile,
     const std::string& web_app_id,
-    const base::Callback<void(bool /* created */)>& close_callback);
+    base::OnceCallback<void(bool /* created */)> close_callback);
 
 // Callback used to indicate whether a user has accepted the installation of a
 // web app. The boolean parameter is true when the user accepts the dialog. The
@@ -124,19 +125,32 @@ void ShowWebAppInstallDialog(content::WebContents* web_contents,
 void SetAutoAcceptWebAppDialogForTesting(bool auto_accept,
                                          bool auto_open_in_window);
 
+// Describes the state of in-product-help being shown to the user.
+enum class PwaInProductHelpState {
+  // The in-product-help bubble was shown.
+  kShown,
+  // The in-product-help bubble was not shown.
+  kNotShown
+};
+
 // Shows the PWA installation confirmation bubble anchored off the PWA install
 // icon in the omnibox.
 //
 // |web_app_info| is the WebApplicationInfo to be installed.
-void ShowPWAInstallBubble(content::WebContents* web_contents,
-                          std::unique_ptr<WebApplicationInfo> web_app_info,
-                          AppInstallationAcceptanceCallback callback);
+// |callback| is called when install bubble closed.
+// |iph_state| records whether PWA install iph is shown before Install bubble is
+// shown.
+void ShowPWAInstallBubble(
+    content::WebContents* web_contents,
+    std::unique_ptr<WebApplicationInfo> web_app_info,
+    AppInstallationAcceptanceCallback callback,
+    PwaInProductHelpState iph_state = PwaInProductHelpState::kNotShown);
 
 // Sets whether |ShowPWAInstallBubble| should accept immediately without any
 // user interaction.
 void SetAutoAcceptPWAInstallConfirmationForTesting(bool auto_accept);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 
 // Shows the print job confirmation dialog bubble anchored to the toolbar icon
 // for the extension.
@@ -151,7 +165,7 @@ void ShowPrintJobConfirmationDialog(gfx::NativeWindow parent,
                                     const base::string16& printer_name,
                                     base::OnceCallback<void(bool)> callback);
 
-#endif  // OS_CHROMEOS
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if defined(OS_MAC)
 
@@ -282,6 +296,7 @@ enum class DialogIdentifier {
   CROSTINI_RECOVERY = 103,
   PARENT_PERMISSION = 104,  // ChromeOS only.
   SIGNIN_REAUTH = 105,
+  CURRENT_BROWSING_CONTEXT_CONFIRMATION_BOX = 106,
   // Add values above this line with a corresponding label in
   // tools/metrics/histograms/enums.xml
   MAX_VALUE
@@ -354,10 +369,18 @@ void ShowExtensionSettingsOverriddenDialog(
 // Returns a OnceClosure that client code can call to close the device chooser.
 // This OnceClosure references the actual dialog as a WeakPtr, so it's safe to
 // call at any point.
+#if defined(TOOLKIT_VIEWS)
 base::OnceClosure ShowDeviceChooserDialog(
     content::RenderFrameHost* owner,
     std::unique_ptr<ChooserController> controller);
 bool IsDeviceChooserShowingForTesting(Browser* browser);
+#endif
+
+// Show the prompt to set a window name for browser's window, optionally with
+// the given context.
+void ShowWindowNamePrompt(Browser* browser);
+void ShowWindowNamePromptForTesting(Browser* browser,
+                                    gfx::NativeWindow context);
 
 }  // namespace chrome
 

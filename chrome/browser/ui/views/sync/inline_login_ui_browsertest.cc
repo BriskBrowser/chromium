@@ -338,15 +338,15 @@ IN_PROC_BROWSER_TEST_F(InlineLoginUIBrowserTest, OneProcessLimit) {
 
 IN_PROC_BROWSER_TEST_F(InlineLoginUIBrowserTest, CanOfferNoProfile) {
   std::string error_message;
-  EXPECT_FALSE(CanOfferSignin(NULL, CAN_OFFER_SIGNIN_FOR_ALL_ACCOUNTS, "12345",
-                              "user@gmail.com", &error_message));
+  EXPECT_FALSE(CanOfferSignin(nullptr, CAN_OFFER_SIGNIN_FOR_ALL_ACCOUNTS,
+                              "12345", "user@gmail.com", &error_message));
   EXPECT_EQ("", error_message);
 }
 
 IN_PROC_BROWSER_TEST_F(InlineLoginUIBrowserTest, CanOffer) {
   EXPECT_TRUE(CanOfferSignin(browser()->profile(),
                              CAN_OFFER_SIGNIN_FOR_ALL_ACCOUNTS, "12345",
-                             "user@gmail.com", NULL));
+                             "user@gmail.com", nullptr));
 
   std::string error_message;
 
@@ -416,21 +416,17 @@ IN_PROC_BROWSER_TEST_F(InlineLoginUIBrowserTest, CanOfferNoSigninCookies) {
 
 class InlineLoginHelperBrowserTest : public InProcessBrowserTest {
  public:
-  InlineLoginHelperBrowserTest() {
-    signin_util::SetForceSigninForTesting(true);
-  }
+  InlineLoginHelperBrowserTest() : forced_signin_setter_(true) {}
 
-  ~InlineLoginHelperBrowserTest() override {
-    signin_util::ResetForceSigninForTesting();
-  }
+  ~InlineLoginHelperBrowserTest() override = default;
 
   void SetUpInProcessBrowserTestFixture() override {
     create_services_subscription_ =
         BrowserContextDependencyManager::GetInstance()
             ->RegisterCreateServicesCallbackForTesting(
-                base::Bind(&InlineLoginHelperBrowserTest::
-                               OnWillCreateBrowserContextServices,
-                           base::Unretained(this)));
+                base::BindRepeating(&InlineLoginHelperBrowserTest::
+                                        OnWillCreateBrowserContextServices,
+                                    base::Unretained(this)));
   }
 
   void OnWillCreateBrowserContextServices(content::BrowserContext* context) {
@@ -515,10 +511,9 @@ class InlineLoginHelperBrowserTest : public InProcessBrowserTest {
  private:
   std::unique_ptr<IdentityTestEnvironmentProfileAdaptor>
       identity_test_env_profile_adaptor_;
-  std::unique_ptr<
-      BrowserContextDependencyManager::CreateServicesCallbackList::Subscription>
-      create_services_subscription_;
+  base::CallbackListSubscription create_services_subscription_;
   Profile* profile_ = nullptr;
+  signin_util::ScopedForceSigninSetterForTesting forced_signin_setter_;
 
   DISALLOW_COPY_AND_ASSIGN(InlineLoginHelperBrowserTest);
 };
@@ -567,10 +562,11 @@ IN_PROC_BROWSER_TEST_F(InlineLoginHelperBrowserTest,
           /*is_force_sign_in_with_usermanager=*/false);
   EXPECT_CALL(*helper, CreateSyncStarter("refresh_token"));
 
-  ProfileAttributesEntry* entry;
-  ASSERT_TRUE(g_browser_process->profile_manager()
-                  ->GetProfileAttributesStorage()
-                  .GetProfileAttributesWithPath(profile()->GetPath(), &entry));
+  ProfileAttributesEntry* entry =
+      g_browser_process->profile_manager()
+          ->GetProfileAttributesStorage()
+          .GetProfileAttributesWithPath(profile()->GetPath());
+  ASSERT_NE(entry, nullptr);
   entry->SetIsSigninRequired(true);
 
   ASSERT_EQ(0ul, BrowserList::GetInstance()->size());
@@ -725,10 +721,11 @@ IN_PROC_BROWSER_TEST_F(InlineLoginHelperBrowserTest,
           /*is_force_sign_in_with_usermanager=*/true);
   EXPECT_CALL(*helper, CreateSyncStarter("refresh_token"));
 
-  ProfileAttributesEntry* entry;
-  ASSERT_TRUE(g_browser_process->profile_manager()
-                  ->GetProfileAttributesStorage()
-                  .GetProfileAttributesWithPath(profile()->GetPath(), &entry));
+  ProfileAttributesEntry* entry =
+      g_browser_process->profile_manager()
+          ->GetProfileAttributesStorage()
+          .GetProfileAttributesWithPath(profile()->GetPath());
+  ASSERT_NE(entry, nullptr);
   entry->SetIsSigninRequired(true);
 
   ASSERT_EQ(0ul, BrowserList::GetInstance()->size());
@@ -744,7 +741,7 @@ class InlineLoginUISafeIframeBrowserTest : public InProcessBrowserTest {
  private:
   void SetUp() override {
     embedded_test_server()->RegisterRequestHandler(
-        base::Bind(&EmptyHtmlResponseHandler));
+        base::BindRepeating(&EmptyHtmlResponseHandler));
 
     // Don't spin up the IO thread yet since no threads are allowed while
     // spawning sandbox host process. See crbug.com/322732.
@@ -777,6 +774,8 @@ class InlineLoginUISafeIframeBrowserTest : public InProcessBrowserTest {
     content::WebUIControllerFactory::UnregisterFactoryForTesting(
         test_factory_.get());
     test_factory_.reset();
+    content::WebUIControllerFactory::RegisterFactory(
+        ChromeWebUIControllerFactory::GetInstance());
     EXPECT_TRUE(embedded_test_server()->ShutdownAndWaitUntilComplete());
   }
 

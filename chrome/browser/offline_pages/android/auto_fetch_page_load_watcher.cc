@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "chrome/browser/android/tab_android.h"
@@ -438,7 +438,7 @@ void AutoFetchPageLoadWatcher::HandleNavigation(
   }
 
   // Ignore if the URL didn't change.
-  const GURL& previous_url = navigation_handle->GetPreviousURL();
+  const GURL& previous_url = navigation_handle->GetPreviousMainFrameURL();
   if (navigation_handle->GetURL() == previous_url)
     return;
 

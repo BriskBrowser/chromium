@@ -10,6 +10,7 @@
 #include "base/containers/span.h"
 #include "base/logging.h"
 #include "base/memory/shared_memory_mapping.h"
+#include "build/chromeos_buildflags.h"
 #include "pdf/pdf.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
@@ -29,7 +30,7 @@ PdfThumbnailer::PdfThumbnailer() = default;
 
 PdfThumbnailer::~PdfThumbnailer() = default;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 void PdfThumbnailer::GetThumbnail(printing::mojom::ThumbParamsPtr params,
                                   base::ReadOnlySharedMemoryRegion pdf_region,
                                   GetThumbnailCallback callback) {
@@ -63,10 +64,16 @@ void PdfThumbnailer::GetThumbnail(printing::mojom::ThumbParamsPtr params,
   }
 
   // Convert PDF bytes into a bitmap thumbnail.
-  if (!chrome_pdf::RenderPDFPageToBitmap(
-          pdf_buffer, 0, result.getPixels(), width_px, height_px,
-          params->dpi.width(), params->dpi.height(), params->stretch,
-          params->keep_aspect, kAutorotate, kUseColor)) {
+  chrome_pdf::RenderOptions options = {
+      .stretch_to_bounds = params->stretch,
+      .keep_aspect_ratio = params->keep_aspect,
+      .autorotate = kAutorotate,
+      .use_color = kUseColor,
+      .render_device_type = chrome_pdf::RenderDeviceType::kDisplay,
+  };
+  if (!chrome_pdf::RenderPDFPageToBitmap(pdf_buffer, 0, result.getPixels(),
+                                         params->size_px, params->dpi,
+                                         options)) {
     DLOG(ERROR) << "Failed to render PDF buffer as bitmap image";
     std::move(callback).Run(SkBitmap());
     return;
@@ -76,6 +83,6 @@ void PdfThumbnailer::GetThumbnail(printing::mojom::ThumbParamsPtr params,
   DCHECK_EQ(height_px, result.height());
   std::move(callback).Run(result);
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 }  // namespace printing

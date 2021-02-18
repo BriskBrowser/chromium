@@ -107,7 +107,7 @@ ScriptPromise ClipboardPromise::CreateForWriteText(ExecutionContext* context,
 
 ClipboardPromise::ClipboardPromise(ExecutionContext* context,
                                    ScriptState* script_state)
-    : ExecutionContextClient(context),
+    : ExecutionContextLifecycleObserver(context),
       script_state_(script_state),
       script_promise_resolver_(
           MakeGarbageCollected<ScriptPromiseResolver>(script_state)),
@@ -272,8 +272,10 @@ void ClipboardPromise::OnReadAvailableFormatNames(
 
   clipboard_item_data_.ReserveInitialCapacity(format_names.size());
   for (const String& format_name : format_names) {
-    clipboard_item_data_.emplace_back(format_name,
-                                      /* Placeholder value. */ nullptr);
+    if (ClipboardWriter::IsValidType(format_name, is_raw_)) {
+      clipboard_item_data_.emplace_back(format_name,
+                                        /* Placeholder value. */ nullptr);
+    }
   }
   ReadNextRepresentation();
 }
@@ -434,8 +436,9 @@ void ClipboardPromise::RequestPermission(
   }
 
   constexpr char kFeaturePolicyMessage[] =
-      "The Clipboard API has been blocked because of a Feature Policy applied "
-      "to the current document. See https://goo.gl/EuHzyv for more details.";
+      "The Clipboard API has been blocked because of a permissions policy "
+      "applied to the current document. See https://goo.gl/EuHzyv for more "
+      "details.";
 
   if ((permission == mojom::blink::PermissionName::CLIPBOARD_READ &&
        !window.IsFeatureEnabled(
@@ -496,13 +499,20 @@ scoped_refptr<base::SingleThreadTaskRunner> ClipboardPromise::GetTaskRunner() {
   return GetExecutionContext()->GetTaskRunner(TaskType::kUserInteraction);
 }
 
+// ExecutionContextLifecycleObserver implementation.
+void ClipboardPromise::ContextDestroyed() {
+  script_promise_resolver_->Reject(MakeGarbageCollected<DOMException>(
+      DOMExceptionCode::kNotAllowedError, "Document detached."));
+  clipboard_writer_.Clear();
+}
+
 void ClipboardPromise::Trace(Visitor* visitor) const {
   visitor->Trace(script_state_);
   visitor->Trace(script_promise_resolver_);
   visitor->Trace(clipboard_writer_);
   visitor->Trace(permission_service_);
   visitor->Trace(clipboard_item_data_);
-  ExecutionContextClient::Trace(visitor);
+  ExecutionContextLifecycleObserver::Trace(visitor);
 }
 
 }  // namespace blink

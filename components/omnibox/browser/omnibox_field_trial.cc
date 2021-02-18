@@ -218,18 +218,13 @@ void OmniboxFieldTrial::GetActiveSuggestFieldTrialHashes(
 base::TimeDelta OmniboxFieldTrial::StopTimerFieldTrialDuration() {
   int stop_timer_ms;
   if (base::StringToInt(
-      base::FieldTrialList::FindFullName(kStopTimerFieldTrialName),
+          base::FieldTrialList::FindFullName(kStopTimerFieldTrialName),
           &stop_timer_ms))
     return base::TimeDelta::FromMilliseconds(stop_timer_ms);
   return base::TimeDelta::FromMilliseconds(1500);
 }
 
 base::Time OmniboxFieldTrial::GetLocalHistoryZeroSuggestAgeThreshold() {
-  // If new search features are disabled, return the default value.
-  if (!base::FeatureList::IsEnabled(omnibox::kNewSearchFeatures)) {
-    return history::AutocompleteAgeThreshold();
-  }
-
   std::string param_value = base::GetFieldTrialParamValueByFeature(
       omnibox::kOmniboxLocalZeroSuggestAgeThreshold,
       OmniboxFieldTrial::kOmniboxLocalZeroSuggestAgeThresholdParam);
@@ -238,57 +233,10 @@ base::Time OmniboxFieldTrial::GetLocalHistoryZeroSuggestAgeThreshold() {
   // integer, return the default value.
   unsigned int param_value_as_int = 0;
   if (!base::StringToUint(param_value, &param_value_as_int)) {
-    return history::AutocompleteAgeThreshold();
+    param_value_as_int = 7;
   }
 
   return (base::Time::Now() - base::TimeDelta::FromDays(param_value_as_int));
-}
-
-// static
-std::vector<std::string> OmniboxFieldTrial::GetZeroSuggestVariants(
-    OmniboxEventProto::PageClassification page_classification) {
-  if (!base::FeatureList::IsEnabled(omnibox::kNewSearchFeatures))
-    return {};
-
-  // Deprecated: Prefer to add a simple boolean flag that's checked directly
-  // in ZeroSuggestProvider instead of using this complicated mechanism.
-  //
-  // We check all these features for ZeroSuggestVariant because it's not
-  // possible to enable multiple features using Finch Forcing groups
-  // (omnibox::kOnFocusSuggestions as well as another feature). Therefore, in
-  // order to specify the ZeroSuggestVariant parameter in those groups we allow
-  // it to be associated with the feature that is being force enabled.
-  const base::Feature* features_to_check[] = {
-      // kOnFocusSuggestions must be the first checked feature, because it's
-      // used by about:flags to set a variety of ZeroSuggest parameters.
-      // We want it to be first so it overrides server-provided field trials.
-      &omnibox::kOnFocusSuggestions,
-
-      &omnibox::kZeroSuggestionsOnNTP,
-      &omnibox::kZeroSuggestionsOnNTPRealbox,
-      &omnibox::kZeroSuggestionsOnSERP,
-  };
-  for (const base::Feature* feature : features_to_check) {
-    // We check every feature on the list until we find one that matches
-    // |page_classification|, since GetValueForRuleInContextByFeature returns
-    // an empty string if no paramater matches |page_classification|.
-    //
-    // For instance, if we have:
-    //  kOnFocusSuggestions - ZeroSuggestVariant:7:* = RemoteNoUrl
-    //  kZeroSuggestionsOnNTPRealbox - ZeroSuggestVariant:15:* = RemoteSendUrl
-    //
-    // These can both simultaneously work, since they configure different
-    // page classifications. If one of them had a ZeroSuggestVariant:*:*
-    // wildcard rule, however, it would shadow all subsequent features.
-    auto parameter_value = internal::GetValueForRuleInContextByFeature(
-        *feature, kZeroSuggestVariantRule, page_classification);
-    if (!parameter_value.empty()) {
-      return base::SplitString(parameter_value, ",", base::TRIM_WHITESPACE,
-                               base::SPLIT_WANT_NONEMPTY);
-    }
-  }
-
-  return {};
 }
 
 bool OmniboxFieldTrial::ShortcutsScoringMaxRelevance(
@@ -384,11 +332,6 @@ size_t OmniboxFieldTrial::GetProviderMaxMatches(
     AutocompleteProvider::Type provider) {
   size_t default_max_matches_per_provider = 3;
 
-  // If new search features are disabled, ignore the parameter and use the
-  // default value.
-  if (!base::FeatureList::IsEnabled(omnibox::kNewSearchFeatures))
-    return default_max_matches_per_provider;
-
   std::string param_value = base::GetFieldTrialParamValueByFeature(
       omnibox::kUIExperimentMaxAutocompleteMatches,
       OmniboxFieldTrial::kUIMaxAutocompleteMatchesByProviderParam);
@@ -419,22 +362,11 @@ size_t OmniboxFieldTrial::GetProviderMaxMatches(
 }
 
 bool OmniboxFieldTrial::IsMaxURLMatchesFeatureEnabled() {
-  // If new search features are disabled, return the default/launched value for
-  // the respective platforms, independent of the state of the Feature.
-  if (!base::FeatureList::IsEnabled(omnibox::kNewSearchFeatures))
-    return omnibox::kOmniboxMaxURLMatchesEnabledByDefault;
-
   return base::FeatureList::IsEnabled(omnibox::kOmniboxMaxURLMatches);
 }
 
 size_t OmniboxFieldTrial::GetMaxURLMatches() {
   constexpr size_t kDefaultMaxURLMatches = 7;
-
-  // If new search features are disabled, ignore the parameter and use the
-  // default value.
-  if (!base::FeatureList::IsEnabled(omnibox::kNewSearchFeatures))
-    return kDefaultMaxURLMatches;
-
   return base::GetFieldTrialParamByFeatureAsInt(
       omnibox::kOmniboxMaxURLMatches,
       OmniboxFieldTrial::kOmniboxMaxURLMatchesParam, kDefaultMaxURLMatches);
@@ -449,7 +381,7 @@ void OmniboxFieldTrial::GetDefaultHUPScoringParams(
   // values here are based on the results of field trials to determine what
   // maximized overall result quality.
   const std::string& typed_count_score_buckets_str =
-    "1.0:1413,0.97:1390,0.93:1360,0.85:1340,0.72:1320,0.50:1250,0.0:1203";
+      "1.0:1413,0.97:1390,0.93:1360,0.85:1340,0.72:1320,0.50:1250,0.0:1203";
   InitializeBucketsFromString(typed_count_score_buckets_str,
                               type_score_buckets);
 
@@ -473,15 +405,15 @@ void OmniboxFieldTrial::GetExperimentalHUPScoringParams(
     return;
 
   InitializeScoreBuckets(params, kHUPNewScoringTypedCountRelevanceCapParam,
-      kHUPNewScoringTypedCountHalfLifeTimeParam,
-      kHUPNewScoringTypedCountScoreBucketsParam,
-      kHUPNewScoringTypedCountUseDecayFactorParam,
-      &scoring_params->typed_count_buckets);
+                         kHUPNewScoringTypedCountHalfLifeTimeParam,
+                         kHUPNewScoringTypedCountScoreBucketsParam,
+                         kHUPNewScoringTypedCountUseDecayFactorParam,
+                         &scoring_params->typed_count_buckets);
   InitializeScoreBuckets(params, kHUPNewScoringVisitedCountRelevanceCapParam,
-      kHUPNewScoringVisitedCountHalfLifeTimeParam,
-      kHUPNewScoringVisitedCountScoreBucketsParam,
-      kHUPNewScoringVisitedCountUseDecayFactorParam,
-      &scoring_params->visited_count_buckets);
+                         kHUPNewScoringVisitedCountHalfLifeTimeParam,
+                         kHUPNewScoringVisitedCountScoreBucketsParam,
+                         kHUPNewScoringVisitedCountUseDecayFactorParam,
+                         &scoring_params->visited_count_buckets);
 }
 
 float OmniboxFieldTrial::HQPBookmarkValue() {
@@ -565,8 +497,10 @@ int OmniboxFieldTrial::MaxNumHQPUrlsIndexedAtStartup() {
     return kMaxNumHQPUrlsIndexedAtStartupOnLowEndDevices;
   return kMaxNumHQPUrlsIndexedAtStartupOnNonLowEndDevices;
 #else
-  // Default value is set to -1 for unlimited number of urls.
-  return -1;
+  // Use 20,000 entries as a safety cap for users with spammed history,
+  // such as users who were stuck in a redirect loop with autogenerated URLs.
+  // This limit will only affect 0.01% of Windows users. crbug.com/750845.
+  return 20000;
 #endif  // defined(OS_ANDROID)
 }
 
@@ -650,13 +584,6 @@ bool OmniboxFieldTrial::HUPSearchDatabase() {
   return value.empty() || (value == "true");
 }
 
-bool OmniboxFieldTrial::KeywordRequiresPrefixMatch() {
-  const std::string& value = variations::GetVariationParamValue(
-      kBundledExperimentFieldTrialName,
-      kKeywordRequiresPrefixMatchRule);
-  return value.empty() || (value == "true");
-}
-
 int OmniboxFieldTrial::KeywordScoreForSufficientlyCompleteMatch() {
   std::string value_str = variations::GetVariationParamValue(
       kBundledExperimentFieldTrialName,
@@ -704,15 +631,47 @@ OmniboxFieldTrial::GetEmphasizeTitlesConditionForInput(
   return static_cast<EmphasizeTitlesCondition>(value);
 }
 
-bool OmniboxFieldTrial::IsReverseAnswersEnabled() {
-  return base::FeatureList::IsEnabled(omnibox::kOmniboxReverseAnswers);
+bool OmniboxFieldTrial::IsShortBookmarkSuggestionsEnabled() {
+  return base::FeatureList::IsEnabled(omnibox::kShortBookmarkSuggestions);
 }
 
-bool OmniboxFieldTrial::IsShortBookmarkSuggestionsEnabled() {
+bool OmniboxFieldTrial::IsShortBookmarkSuggestionsByTotalInputLengthEnabled() {
   return base::FeatureList::IsEnabled(
-             omnibox::kOmniboxShortBookmarkSuggestions) ||
-         base::FeatureList::IsEnabled(omnibox::kAutocompleteTitles) ||
-         base::FeatureList::IsEnabled(omnibox::kRichAutocompletion);
+             omnibox::kShortBookmarkSuggestionsByTotalInputLength) ||
+         (IsRichAutocompletionEnabled() &&
+          (RichAutocompletionAutocompleteTitles() ||
+           RichAutocompletionAutocompleteNonPrefixAll()));
+}
+
+bool OmniboxFieldTrial::
+    ShortBookmarkSuggestionsByTotalInputLengthCounterfactual() {
+  return base::GetFieldTrialParamByFeatureAsBool(
+      omnibox::kShortBookmarkSuggestionsByTotalInputLength,
+      kShortBookmarkSuggestionsByTotalInputLengthCounterfactualParam, false);
+}
+
+size_t
+OmniboxFieldTrial::ShortBookmarkSuggestionsByTotalInputLengthThreshold() {
+  // The rich autocompletion feature requires this feature to be enabled. If
+  // short bookmarks is enabled transitively; i.e. rich autocompletion is
+  // enabled, but short bookmarks isn't explicitly enabled, then use the rich
+  // autocompletion min char limit.
+  if (!base::FeatureList::IsEnabled(
+          omnibox::kShortBookmarkSuggestionsByTotalInputLength) &&
+      IsRichAutocompletionEnabled()) {
+    if (RichAutocompletionAutocompleteTitles() &&
+        RichAutocompletionAutocompleteNonPrefixAll()) {
+      return std::min(RichAutocompletionAutocompleteTitlesMinChar(),
+                      RichAutocompletionAutocompleteNonPrefixMinChar());
+    } else if (RichAutocompletionAutocompleteTitles())
+      return RichAutocompletionAutocompleteTitlesMinChar();
+    else if (RichAutocompletionAutocompleteNonPrefixAll())
+      return RichAutocompletionAutocompleteNonPrefixMinChar();
+  }
+
+  return base::GetFieldTrialParamByFeatureAsInt(
+      omnibox::kShortBookmarkSuggestionsByTotalInputLength,
+      kShortBookmarkSuggestionsByTotalInputLengthThresholdParam, 3);
 }
 
 bool OmniboxFieldTrial::IsSuggestionButtonRowEnabled() {
@@ -737,6 +696,10 @@ bool OmniboxFieldTrial::IsExperimentalKeywordModeEnabled() {
   return base::FeatureList::IsEnabled(omnibox::kExperimentalKeywordMode);
 }
 
+bool OmniboxFieldTrial::IsRefinedFocusStateEnabled() {
+  return base::FeatureList::IsEnabled(omnibox::kOmniboxRefinedFocusState);
+}
+
 bool OmniboxFieldTrial::IsRichAutocompletionEnabled() {
   return base::FeatureList::IsEnabled(omnibox::kRichAutocompletion);
 }
@@ -753,21 +716,17 @@ size_t OmniboxFieldTrial::RichAutocompletionAutocompleteTitlesMinChar() {
       kRichAutocompletionAutocompleteTitlesMinCharParam, 0);
 }
 
-bool OmniboxFieldTrial::RichAutocompletionTwoLineOmnibox() {
-  return base::GetFieldTrialParamByFeatureAsBool(
-      omnibox::kRichAutocompletion, kRichAutocompletionTwoLineOmniboxParam,
-      false);
-}
-
-bool OmniboxFieldTrial::RichAutocompletionShowTitles() {
-  return base::GetFieldTrialParamByFeatureAsBool(
-      omnibox::kRichAutocompletion, kRichAutocompletionShowTitlesParam, false);
-}
-
-bool OmniboxFieldTrial::RichAutocompletionAutocompleteNonPrefix() {
+bool OmniboxFieldTrial::RichAutocompletionAutocompleteNonPrefixAll() {
   return base::GetFieldTrialParamByFeatureAsBool(
       omnibox::kRichAutocompletion,
-      kRichAutocompletionAutocompleteNonPrefixParam, false);
+      kRichAutocompletionAutocompleteNonPrefixAllParam, false);
+}
+
+bool OmniboxFieldTrial::
+    RichAutocompletionAutocompleteNonPrefixShortcutProvider() {
+  return base::GetFieldTrialParamByFeatureAsBool(
+      omnibox::kRichAutocompletion,
+      kRichAutocompletionAutocompleteNonPrefixShortcutProviderParam, false);
 }
 
 size_t OmniboxFieldTrial::RichAutocompletionAutocompleteNonPrefixMinChar() {
@@ -781,6 +740,38 @@ bool OmniboxFieldTrial::RichAutocompletionShowAdditionalText() {
          base::GetFieldTrialParamByFeatureAsBool(
              omnibox::kRichAutocompletion,
              kRichAutocompletionShowAdditionalTextParam, true);
+}
+
+bool OmniboxFieldTrial::RichAutocompletionSplitTitleCompletion() {
+  return OmniboxFieldTrial::IsRichAutocompletionEnabled() &&
+         base::GetFieldTrialParamByFeatureAsBool(
+             omnibox::kRichAutocompletion,
+             kRichAutocompletionSplitTitleCompletionParam, false);
+}
+
+bool OmniboxFieldTrial::RichAutocompletionSplitUrlCompletion() {
+  return OmniboxFieldTrial::IsRichAutocompletionEnabled() &&
+         base::GetFieldTrialParamByFeatureAsBool(
+             omnibox::kRichAutocompletion,
+             kRichAutocompletionSplitUrlCompletionParam, false);
+}
+
+size_t OmniboxFieldTrial::RichAutocompletionSplitCompletionMinChar() {
+  return base::GetFieldTrialParamByFeatureAsInt(
+      omnibox::kRichAutocompletion,
+      kRichAutocompletionSplitCompletionMinCharParam, 0);
+}
+
+bool OmniboxFieldTrial::RichAutocompletionCounterfactual() {
+  return base::GetFieldTrialParamByFeatureAsBool(
+      omnibox::kRichAutocompletion, kRichAutocompletionCounterfactualParam,
+      false);
+}
+
+bool OmniboxFieldTrial::RichAutocompletionAutocompletePreferUrlsOverPrefixes() {
+  return base::GetFieldTrialParamByFeatureAsBool(
+      omnibox::kRichAutocompletion,
+      kRichAutocompletionAutocompletePreferUrlsOverPrefixesParam, false);
 }
 
 bool OmniboxFieldTrial::IsOnDeviceHeadSuggestEnabledForIncognito() {
@@ -807,21 +798,33 @@ std::string OmniboxFieldTrial::OnDeviceHeadModelLocaleConstraint(
 }
 
 int OmniboxFieldTrial::OnDeviceHeadSuggestMaxScoreForNonUrlInput(
-    bool is_incognito,
-    const int default_score) {
+    bool is_incognito) {
+  const int kDefaultScore =
+#if defined(OS_ANDROID) || defined(OS_IOS)
+      99;
+#else
+      is_incognito ? 99 : 1000;
+#endif  // defined(OS_ANDROID) || defined(OS_IOS)
   return is_incognito
-             ? default_score
+             ? kDefaultScore
              : base::GetFieldTrialParamByFeatureAsInt(
                    omnibox::kOnDeviceHeadProviderNonIncognito,
-                   kOnDeviceHeadSuggestMaxScoreForNonUrlInput, default_score);
+                   kOnDeviceHeadSuggestMaxScoreForNonUrlInput, kDefaultScore);
 }
 
 int OmniboxFieldTrial::OnDeviceHeadSuggestDelaySuggestRequestMs(
     bool is_incognito) {
+  const int kDefaultDelayNonIncognito =
+#if defined(OS_ANDROID) || defined(OS_IOS)
+      100;
+#else
+      0;
+#endif  // defined(OS_ANDROID) || defined(OS_IOS)
   return is_incognito ? 0
                       : base::GetFieldTrialParamByFeatureAsInt(
                             omnibox::kOnDeviceHeadProviderNonIncognito,
-                            kOnDeviceHeadSuggestDelaySuggestRequestMs, 0);
+                            kOnDeviceHeadSuggestDelaySuggestRequestMs,
+                            kDefaultDelayNonIncognito);
 }
 
 int OmniboxFieldTrial::OnDeviceSearchProviderDefaultLoaderTimeoutMs(
@@ -833,9 +836,14 @@ int OmniboxFieldTrial::OnDeviceSearchProviderDefaultLoaderTimeoutMs(
 }
 
 std::string OmniboxFieldTrial::OnDeviceHeadSuggestDemoteMode() {
-  return base::GetFieldTrialParamValueByFeature(
+  std::string demote_mode = base::GetFieldTrialParamValueByFeature(
       omnibox::kOnDeviceHeadProviderNonIncognito,
       kOnDeviceHeadSuggestDemoteMode);
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+  if (demote_mode.empty())
+    demote_mode = "decrease-relevances";
+#endif  // !defined(OS_ANDROID) && !defined(OS_IOS)
+  return demote_mode;
 }
 
 bool OmniboxFieldTrial::ShouldRevealPathQueryRefOnHover() {
@@ -860,6 +868,10 @@ int OmniboxFieldTrial::UnelideURLOnHoverThresholdMs() {
   return threshold < 0 ? kDefaultThresholdMs : threshold;
 }
 
+bool OmniboxFieldTrial::ShouldDisableCGIParamMatching() {
+  return base::FeatureList::IsEnabled(omnibox::kDisableCGIParamMatching);
+}
+
 const char OmniboxFieldTrial::kBundledExperimentFieldTrialName[] =
     "OmniboxBundledExperimentV1";
 const char OmniboxFieldTrial::kDisableProvidersRule[] = "DisableProviders";
@@ -872,7 +884,6 @@ const char OmniboxFieldTrial::kHQPTypedValueRule[] = "HQPTypedValue";
 const char OmniboxFieldTrial::kHQPAllowMatchInTLDRule[] = "HQPAllowMatchInTLD";
 const char OmniboxFieldTrial::kHQPAllowMatchInSchemeRule[] =
     "HQPAllowMatchInScheme";
-const char OmniboxFieldTrial::kZeroSuggestVariantRule[] = "ZeroSuggestVariant";
 const char
     OmniboxFieldTrial::kMeasureSuggestPollingDelayFromLastKeystrokeRule[] =
         "MeasureSuggestPollingDelayFromLastKeystroke";
@@ -888,8 +899,6 @@ const char OmniboxFieldTrial::kHQPAlsoDoHUPLikeScoringRule[] =
 const char OmniboxFieldTrial::kHUPSearchDatabaseRule[] = "HUPSearchDatabase";
 const char OmniboxFieldTrial::kKeywordRequiresRegistryRule[] =
     "KeywordRequiresRegistry";
-const char OmniboxFieldTrial::kKeywordRequiresPrefixMatchRule[] =
-    "KeywordRequiresPrefixMatch";
 const char OmniboxFieldTrial::kKeywordScoreForSufficientlyCompleteMatchRule[] =
     "KeywordScoreForSufficientlyCompleteMatch";
 const char OmniboxFieldTrial::kEmphasizeTitlesRule[] = "EmphasizeTitles";
@@ -940,6 +949,15 @@ const char OmniboxFieldTrial::kDynamicMaxAutocompleteUrlCutoffParam[] =
 const char OmniboxFieldTrial::kDynamicMaxAutocompleteIncreasedLimitParam[] =
     "OmniboxDynamicMaxAutocompleteIncreasedLimit";
 
+const char OmniboxFieldTrial::kBubbleUrlSuggestionsAbsoluteGapParam[] =
+    "OmniboxBubbleUrlSuggestionsAbsoluteGap";
+const char OmniboxFieldTrial::kBubbleUrlSuggestionsRelativeGapParam[] =
+    "OmniboxBubbleUrlSuggestionsRelativeGap";
+const char OmniboxFieldTrial::kBubbleUrlSuggestionsAbsoluteBufferParam[] =
+    "OmniboxBubbleUrlSuggestionsAbsoluteBuffer";
+const char OmniboxFieldTrial::kBubbleUrlSuggestionsRelativeBufferParam[] =
+    "OmniboxBubbleUrlSuggestionsRelativeBuffer";
+
 const char OmniboxFieldTrial::kOnDeviceHeadModelLocaleConstraint[] =
     "ForceModelLocaleConstraint";
 const char OmniboxFieldTrial::kOnDeviceHeadSuggestMaxScoreForNonUrlInput[] =
@@ -953,28 +971,61 @@ const char OmniboxFieldTrial::kOnDeviceHeadSuggestDemoteMode[] =
 
 int OmniboxFieldTrial::kDefaultMinimumTimeBetweenSuggestQueriesMs = 100;
 
+const char OmniboxFieldTrial::
+    kShortBookmarkSuggestionsByTotalInputLengthCounterfactualParam[] =
+        "ShortBookmarkSuggestionsByTotalInputLengthCounterfactual";
+const char OmniboxFieldTrial::
+    kShortBookmarkSuggestionsByTotalInputLengthThresholdParam[] =
+        "ShortBookmarkSuggestionsByTotalInputLengthThreshold";
+
 const char OmniboxFieldTrial::kRichAutocompletionAutocompleteTitlesParam[] =
     "RichAutocompletionAutocompleteTitles";
 const char
     OmniboxFieldTrial::kRichAutocompletionAutocompleteTitlesMinCharParam[] =
         "RichAutocompletionAutocompleteTitlesMinChar";
-const char OmniboxFieldTrial::kRichAutocompletionTwoLineOmniboxParam[] =
-    "RichAutocompletionTwoLineOmnibox";
-const char OmniboxFieldTrial::kRichAutocompletionShowTitlesParam[] =
-    "RichAutocompletionShowTitles";
-const char OmniboxFieldTrial::kRichAutocompletionAutocompleteNonPrefixParam[] =
-    "RichAutocompletionAutocompleteNonPrefix";
+const char
+    OmniboxFieldTrial::kRichAutocompletionAutocompleteNonPrefixAllParam[] =
+        "RichAutocompletionAutocompleteNonPrefixAll";
+const char OmniboxFieldTrial::
+    kRichAutocompletionAutocompleteNonPrefixShortcutProviderParam[] =
+        "RichAutocompletionAutocompleteNonPrefixShortcutProvider";
 const char
     OmniboxFieldTrial::kRichAutocompletionAutocompleteNonPrefixMinCharParam[] =
         "RichAutocompletionAutocompleteNonPrefixMinChar";
 const char OmniboxFieldTrial::kRichAutocompletionShowAdditionalTextParam[] =
     "RichAutocompletionAutocompleteShowAdditionalText";
-
-const char OmniboxFieldTrial::kImageSearchSuggestionThumbnail[] =
-    "ImageSearchSuggestionThumbnail";
+const char OmniboxFieldTrial::kRichAutocompletionSplitTitleCompletionParam[] =
+    "RichAutocompletionSplitTitleCompletion";
+const char OmniboxFieldTrial::kRichAutocompletionSplitUrlCompletionParam[] =
+    "RichAutocompletionSplitUrlCompletion";
+const char OmniboxFieldTrial::kRichAutocompletionSplitCompletionMinCharParam[] =
+    "RichAutocompletionSplitCompletionMinChar";
+const char OmniboxFieldTrial::kRichAutocompletionCounterfactualParam[] =
+    "RichAutocompletionCounterfactual";
+const char OmniboxFieldTrial::
+    kRichAutocompletionAutocompletePreferUrlsOverPrefixesParam[] =
+        "RichAutocompletionAutocompletePreferUrlsOverPrefixes";
 
 const char OmniboxFieldTrial::kOmniboxUIUnelideURLOnHoverThresholdMsParam[] =
     "OmniboxUIUnelideURLOnHoverThresholdMsdMs";
+
+const char
+    OmniboxFieldTrial::kEntitySuggestionsReduceLatencyDecoderTimeoutParam[] =
+        "EntitySuggestionsReduceLatencyDecoderTimeout";
+const char
+    OmniboxFieldTrial::kEntitySuggestionsReduceLatencyDecoderWakeupParam[] =
+        "EntitySuggestionsReduceLatencyDecoderWakeup";
+
+extern const char OmniboxFieldTrial::kBookmarkPathsCounterfactual[] =
+    "OmniboxBookmarkPathsCounterfactual";
+extern const char OmniboxFieldTrial::kBookmarkPathsUiReplaceTitle[] =
+    "OmniboxBookmarkPathsUiReplaceTitle";
+extern const char OmniboxFieldTrial::kBookmarkPathsUiReplaceUrl[] =
+    "OmniboxBookmarkPathsUiReplaceUrl";
+extern const char OmniboxFieldTrial::kBookmarkPathsUiAppendAfterTitle[] =
+    "OmniboxBookmarkPathsUiAppendAfterTitle";
+extern const char OmniboxFieldTrial::kBookmarkPathsUiDynamicReplaceUrl[] =
+    "OmniboxBookmarkPathsUiDynamicReplaceUrl";
 
 std::string OmniboxFieldTrial::internal::GetValueForRuleInContext(
     const std::string& rule,

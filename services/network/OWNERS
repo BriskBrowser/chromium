@@ -40,4 +40,5 @@ per-file BUILD.gn=file://services/network/resource_scheduler/OWNERS
 per-file content_security_policy*=lfg@chromium.org
 per-file content_security_policy*=nasko@chromium.org
 
-# COMPONENT: Internals>Services>Network
+# Cookies
+per-file *cookie*=file://net/cookies/OWNERS

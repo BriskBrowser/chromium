@@ -10,22 +10,18 @@ import("//build/config/c++/c++.gni")
 import("//build/config/sanitizers/sanitizers.gni")
 import("//build/toolchain/toolchain.gni")
 import("//build_overrides/build.gni")
-import("//testing/test.gni")
 import("//third_party/abseil-cpp/absl.gni")
 
 config("absl_component_build") {
   defines = [ "ABSL_CONSUME_DLL" ]
 }
 
-# TODO(mbonadei): WebRTC tests and binaries use absl flags but they are
-# marked testonly because we don't want them to be usable in Chromium.
-# Add an absl_flags component which depends on the main absl component.
 component("absl") {
   public_deps = [ ":absl_component_deps" ]
   if (is_component_build) {
     public_configs = [ ":absl_component_build" ]
 
-    if (is_win) {
+    if (is_win && is_clang) {
       if (current_cpu == "x64") {
         if (is_debug) {
           sources = [ "symbols_x64_dbg.def" ]
@@ -76,7 +72,8 @@ group("absl_component_deps") {
     "//third_party/abseil-cpp/absl/memory",
     "//third_party/abseil-cpp/absl/meta:type_traits",
     "//third_party/abseil-cpp/absl/numeric:int128",
-    "//third_party/abseil-cpp/absl/status:status",
+    "//third_party/abseil-cpp/absl/status",
+    "//third_party/abseil-cpp/absl/status:statusor",
     "//third_party/abseil-cpp/absl/strings",
     "//third_party/abseil-cpp/absl/strings:str_format",
     "//third_party/abseil-cpp/absl/synchronization",
@@ -177,28 +174,31 @@ config("absl_test_cflags_cc") {
   }
 }
 
-if (!is_component_build) {
-  test("absl_tests") {
-    testonly = true
-    deps = [
-      "absl/algorithm:algorithm_test",
-      "absl/algorithm:container_test",
-      "absl/base:config_test",
-      "absl/container:inlined_vector_test",
-      "absl/memory:memory_test",
-      "absl/meta:type_traits_test",
-      "absl/strings:ascii_test",
-      "absl/strings:match_test",
-      "absl/strings:str_replace_test",
-      "absl/strings:string_view_test",
-      "absl/types:optional_test",
-      "absl/types:variant_test",
-      "//third_party/googletest:gtest_main",
-    ]
-  }
-}
-
 if (build_with_chromium) {
+  import("//testing/test.gni")
+
+  if (!is_component_build) {
+    test("absl_tests") {
+      testonly = true
+      deps = [
+        "absl/algorithm:algorithm_test",
+        "absl/algorithm:container_test",
+        "absl/base:config_test",
+        "absl/cleanup:cleanup_test",
+        "absl/container:inlined_vector_test",
+        "absl/memory:memory_test",
+        "absl/meta:type_traits_test",
+        "absl/strings:ascii_test",
+        "absl/strings:match_test",
+        "absl/strings:str_replace_test",
+        "absl/strings:string_view_test",
+        "absl/types:optional_test",
+        "absl/types:variant_test",
+        "//third_party/googletest:gtest_main",
+      ]
+    }
+  }
+
   test("absl_hardening_tests") {
     testonly = true
     sources = [ "absl_hardening_test.cc" ]

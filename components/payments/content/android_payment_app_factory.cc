@@ -58,6 +58,7 @@ class AppFinder : public base::SupportsUserData::Data {
     DCHECK_EQ(0U, number_of_pending_is_ready_to_pay_queries_);
     DCHECK_EQ(nullptr, communication_.get());
     DCHECK_NE(nullptr, communication.get());
+    DCHECK(delegate->GetSpec());
     DCHECK(delegate->GetSpec()->details().id.has_value());
 
     delegate_ = delegate;
@@ -87,7 +88,7 @@ class AppFinder : public base::SupportsUserData::Data {
       std::vector<std::unique_ptr<AndroidAppDescription>> app_descriptions) {
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
     // The browser could be shutting down.
-    if (!communication_ || !delegate_)
+    if (!communication_ || !delegate_ || !delegate_->GetSpec())
       return;
 
     if (error_message.has_value()) {
@@ -151,13 +152,14 @@ class AppFinder : public base::SupportsUserData::Data {
         continue;
       }
 
+      const std::string package = single_activity_app->package;
+      const std::string service_name =
+          single_activity_app->service_names.front();
       std::map<std::string, std::set<std::string>>
           stringified_method_data_copy = *stringified_method_data;
       communication_->IsReadyToPay(
-          single_activity_app->package,
-          single_activity_app->service_names.front(),
-          stringified_method_data_copy, delegate_->GetTopOrigin(),
-          delegate_->GetFrameOrigin(),
+          package, service_name, stringified_method_data_copy,
+          delegate_->GetTopOrigin(), delegate_->GetFrameOrigin(),
           delegate_->GetSpec()->details().id.value(),
           base::BindOnce(&AppFinder::OnIsReadyToPay,
                          weak_ptr_factory_.GetWeakPtr(),
@@ -177,7 +179,8 @@ class AppFinder : public base::SupportsUserData::Data {
     DCHECK_LT(0U, number_of_pending_is_ready_to_pay_queries_);
 
     // The browser could be shutting down.
-    if (!communication_ || !delegate_) {
+    if (!communication_ || !delegate_ || !delegate_->GetSpec() ||
+        !delegate_->GetInitiatorRenderFrameHost()) {
       OnDoneCreatingPaymentApps();
       return;
     }
@@ -189,7 +192,8 @@ class AppFinder : public base::SupportsUserData::Data {
           payment_method_names, std::move(stringified_method_data),
           delegate_->GetTopOrigin(), delegate_->GetFrameOrigin(),
           delegate_->GetSpec()->details().id.value(),
-          std::move(app_description), communication_));
+          std::move(app_description), communication_,
+          delegate_->GetInitiatorRenderFrameHost()->GetGlobalFrameRoutingId()));
     }
 
     if (--number_of_pending_is_ready_to_pay_queries_ == 0)
@@ -223,8 +227,11 @@ AndroidPaymentAppFactory::AndroidPaymentAppFactory(
 AndroidPaymentAppFactory::~AndroidPaymentAppFactory() = default;
 
 void AndroidPaymentAppFactory::Create(base::WeakPtr<Delegate> delegate) {
-  auto app_finder = AppFinder::CreateAndSetOwnedBy(delegate->GetWebContents());
-  app_finder->FindApps(communication_, delegate);
+  content::WebContents* web_contents = delegate->GetWebContents();
+  if (web_contents) {
+    auto app_finder = AppFinder::CreateAndSetOwnedBy(web_contents);
+    app_finder->FindApps(communication_, delegate);
+  }
 }
 
 }  // namespace payments

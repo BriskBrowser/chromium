@@ -26,6 +26,7 @@
 #include "base/threading/thread_id_name_manager.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
+#include "base/trace_event/task_execution_macros.h"
 #include "base/trace_event/thread_instruction_count.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/trace_log.h"
@@ -36,6 +37,7 @@
 #include "services/tracing/public/mojom/perfetto_service.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/perfetto/include/perfetto/tracing/track.h"
+#include "third_party/perfetto/include/perfetto/tracing/track_event_interned_data_index.h"
 #include "third_party/perfetto/protos/perfetto/trace/clock_snapshot.pb.h"
 #include "third_party/perfetto/protos/perfetto/trace/trace_packet.pb.h"
 #include "third_party/perfetto/protos/perfetto/trace/trace_packet.pbzero.h"
@@ -60,6 +62,15 @@ constexpr const char kCategoryGroup[] = "foo";
 constexpr uint32_t kClockIdAbsolute = 64;
 constexpr uint32_t kClockIdIncremental = 65;
 
+// Resets trace event data source at destruction.
+class ScopedDataSourceReset {
+ public:
+  ~ScopedDataSourceReset() {
+    PerfettoTracedProcess::Get()->ClearDataSourcesForTesting();
+    TraceEventDataSource::ResetForTesting();
+  }
+};
+
 class TraceEventDataSourceTest : public testing::Test {
  public:
   void SetUp() override {
@@ -74,7 +85,6 @@ class TraceEventDataSourceTest : public testing::Test {
         base::trace_event::TraceLog::GetInstance()->process_name();
     base::trace_event::TraceLog::GetInstance()->set_process_name(kTestProcess);
 
-    PerfettoTracedProcess::Get()->ClearDataSourcesForTesting();
     PerfettoTracedProcess::ResetTaskRunnerForTesting();
     PerfettoTracedProcess::GetTaskRunner()->GetOrCreateTaskRunner();
     auto perfetto_wrapper = std::make_unique<PerfettoTaskRunner>(
@@ -108,24 +118,14 @@ class TraceEventDataSourceTest : public testing::Test {
         old_process_name_);
   }
 
-  void CreateTraceEventDataSource(bool privacy_filtering_enabled = false,
-                                  bool start_trace = true,
-                                  const std::string& chrome_trace_config = "") {
-    task_environment_.RunUntilIdle();
-    base::RunLoop tracing_started;
-    base::SequencedTaskRunnerHandle::Get()->PostTaskAndReply(
-        FROM_HERE,
-        base::BindOnce([]() { TraceEventDataSource::ResetForTesting(); }),
-        tracing_started.QuitClosure());
-    tracing_started.Run();
-    if (start_trace) {
-      perfetto::DataSourceConfig config;
-      config.mutable_chrome_config()->set_privacy_filtering_enabled(
-          privacy_filtering_enabled);
-      config.mutable_chrome_config()->set_trace_config(chrome_trace_config);
-      TraceEventDataSource::GetInstance()->StartTracing(producer_client(),
-                                                        config);
-    }
+  void StartTraceEventDataSource(bool privacy_filtering_enabled = false,
+                                 const std::string& chrome_trace_config = "") {
+    perfetto::DataSourceConfig config;
+    config.mutable_chrome_config()->set_privacy_filtering_enabled(
+        privacy_filtering_enabled);
+    config.mutable_chrome_config()->set_trace_config(chrome_trace_config);
+    TraceEventDataSource::GetInstance()->StartTracing(producer_client(),
+                                                      config);
   }
 
   TestProducerClient* producer_client() { return producer_client_.get(); }
@@ -306,6 +306,13 @@ class TraceEventDataSourceTest : public testing::Test {
     EXPECT_EQ(packet->sequence_flags(),
               static_cast<uint32_t>(perfetto::protos::pbzero::TracePacket::
                                         SEQ_INCREMENTAL_STATE_CLEARED));
+  }
+
+  void ExpectChildTrack(const perfetto::protos::TracePacket* packet,
+                        uint64_t uuid,
+                        uint64_t parent_uuid) {
+    EXPECT_EQ(packet->track_descriptor().uuid(), uuid);
+    EXPECT_EQ(packet->track_descriptor().parent_uuid(), parent_uuid);
   }
 
   size_t ExpectStandardPreamble(size_t packet_index = 0,
@@ -565,7 +572,11 @@ class TraceEventDataSourceTest : public testing::Test {
   }
 
  protected:
-  // Should be the first member.
+  // Destroy after task environment shuts down so that no other threads try to
+  // add trace events.
+  ScopedDataSourceReset reset_trace_event_source_;
+
+  // Do not add any other members above this member.
   base::test::TaskEnvironment task_environment_;
 
   std::unique_ptr<TestProducerClient> producer_client_;
@@ -713,7 +724,7 @@ TEST_F(TraceEventDataSourceTest, MultipleMetadataGenerators) {
 }
 
 TEST_F(TraceEventDataSourceTest, BasicTraceEvent) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   TRACE_EVENT_BEGIN0(kCategoryGroup, "bar");
 
@@ -727,30 +738,8 @@ TEST_F(TraceEventDataSourceTest, BasicTraceEvent) {
   ExpectEventNames(e_packet, {{1u, "bar"}});
 }
 
-TEST_F(TraceEventDataSourceTest, TraceLogMetadataEvents) {
-  CreateTraceEventDataSource();
-
-  base::RunLoop wait_for_flush;
-  TraceEventDataSource::GetInstance()->StopTracing(
-      wait_for_flush.QuitClosure());
-  wait_for_flush.Run();
-
-  bool has_process_uptime_event = false;
-  for (size_t i = 0; i < producer_client()->GetFinalizedPacketCount(); ++i) {
-    auto* packet = producer_client()->GetFinalizedPacket(i);
-    for (auto& event_name : packet->interned_data().event_names()) {
-      if (event_name.name() == "process_uptime_seconds") {
-        has_process_uptime_event = true;
-        break;
-      }
-    }
-  }
-
-  EXPECT_TRUE(has_process_uptime_event);
-}
-
 TEST_F(TraceEventDataSourceTest, TimestampedTraceEvent) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   TRACE_EVENT_BEGIN_WITH_ID_TID_AND_TIMESTAMP0(
       kCategoryGroup, "bar", 42, 4242,
@@ -775,7 +764,7 @@ TEST_F(TraceEventDataSourceTest, TimestampedTraceEvent) {
 }
 
 TEST_F(TraceEventDataSourceTest, InstantTraceEvent) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   TRACE_EVENT_INSTANT0(kCategoryGroup, "bar", TRACE_EVENT_SCOPE_THREAD);
 
@@ -790,7 +779,7 @@ TEST_F(TraceEventDataSourceTest, InstantTraceEvent) {
 }
 
 TEST_F(TraceEventDataSourceTest, InstantTraceEventOnOtherThread) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   auto* category_group_enabled =
       TRACE_EVENT_API_GET_CATEGORY_GROUP_ENABLED(kCategoryGroup);
@@ -820,7 +809,7 @@ TEST_F(TraceEventDataSourceTest, InstantTraceEventOnOtherThread) {
 }
 
 TEST_F(TraceEventDataSourceTest, EventWithStringArgs) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   TRACE_EVENT_INSTANT2(kCategoryGroup, "bar", TRACE_EVENT_SCOPE_THREAD,
                        "arg1_name", "arg1_val", "arg2_name", "arg2_val");
@@ -844,7 +833,7 @@ TEST_F(TraceEventDataSourceTest, EventWithStringArgs) {
 }
 
 TEST_F(TraceEventDataSourceTest, EventWithCopiedStrings) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   TRACE_EVENT_INSTANT2(kCategoryGroup, "bar",
                        TRACE_EVENT_SCOPE_THREAD | TRACE_EVENT_FLAG_COPY,
@@ -870,7 +859,7 @@ TEST_F(TraceEventDataSourceTest, EventWithCopiedStrings) {
 }
 
 TEST_F(TraceEventDataSourceTest, EventWithUIntArgs) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   TRACE_EVENT_INSTANT2(kCategoryGroup, "bar", TRACE_EVENT_SCOPE_THREAD, "foo",
                        42u, "bar", 4242u);
@@ -888,7 +877,7 @@ TEST_F(TraceEventDataSourceTest, EventWithUIntArgs) {
 }
 
 TEST_F(TraceEventDataSourceTest, EventWithIntArgs) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   TRACE_EVENT_INSTANT2(kCategoryGroup, "bar", TRACE_EVENT_SCOPE_THREAD, "foo",
                        42, "bar", 4242);
@@ -906,7 +895,7 @@ TEST_F(TraceEventDataSourceTest, EventWithIntArgs) {
 }
 
 TEST_F(TraceEventDataSourceTest, EventWithBoolArgs) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   TRACE_EVENT_INSTANT2(kCategoryGroup, "bar", TRACE_EVENT_SCOPE_THREAD, "foo",
                        true, "bar", false);
@@ -926,7 +915,7 @@ TEST_F(TraceEventDataSourceTest, EventWithBoolArgs) {
 }
 
 TEST_F(TraceEventDataSourceTest, EventWithDoubleArgs) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   TRACE_EVENT_INSTANT2(kCategoryGroup, "bar", TRACE_EVENT_SCOPE_THREAD, "foo",
                        42.42, "bar", 4242.42);
@@ -944,7 +933,7 @@ TEST_F(TraceEventDataSourceTest, EventWithDoubleArgs) {
 }
 
 TEST_F(TraceEventDataSourceTest, EventWithPointerArgs) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   TRACE_EVENT_INSTANT2(kCategoryGroup, "bar", TRACE_EVENT_SCOPE_THREAD, "foo",
                        reinterpret_cast<void*>(0xBEEF), "bar",
@@ -963,7 +952,7 @@ TEST_F(TraceEventDataSourceTest, EventWithPointerArgs) {
 }
 
 TEST_F(TraceEventDataSourceTest, EventWithConvertableArgs) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   static const char kArgValue1[] = "\"conv_value1\"";
   static const char kArgValue2[] = "\"conv_value2\"";
@@ -1008,22 +997,19 @@ TEST_F(TraceEventDataSourceTest, EventWithConvertableArgs) {
 }
 
 TEST_F(TraceEventDataSourceTest, TaskExecutionEvent) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
-  INTERNAL_TRACE_EVENT_ADD(
-      TRACE_EVENT_PHASE_INSTANT, "toplevel", "ThreadControllerImpl::RunTask",
-      TRACE_EVENT_SCOPE_THREAD | TRACE_EVENT_FLAG_TYPED_PROTO_ARGS, "src_file",
-      "my_file", "src_func", "my_func");
-  INTERNAL_TRACE_EVENT_ADD(
-      TRACE_EVENT_PHASE_INSTANT, "toplevel", "ThreadControllerImpl::RunTask",
-      TRACE_EVENT_SCOPE_THREAD | TRACE_EVENT_FLAG_TYPED_PROTO_ARGS, "src_file",
-      "my_file", "src_func", "my_func");
+  base::PendingTask task;
+  task.posted_from =
+      base::Location("my_func", "my_file", 0, /*program_counter=*/&task);
+  { TRACE_TASK_EXECUTION("ThreadControllerImpl::RunTask1", task); }
+  { TRACE_TASK_EXECUTION("ThreadControllerImpl::RunTask1", task); }
 
   size_t packet_index = ExpectStandardPreamble();
 
   auto* e_packet = producer_client()->GetFinalizedPacket(packet_index++);
   ExpectTraceEvent(e_packet, /*category_iid=*/1u, /*name_iid=*/1u,
-                   TRACE_EVENT_PHASE_INSTANT, TRACE_EVENT_SCOPE_THREAD);
+                   TRACE_EVENT_PHASE_BEGIN);
 
   const auto& annotations = e_packet->track_event().debug_annotations();
   EXPECT_EQ(annotations.size(), 0);
@@ -1035,27 +1021,27 @@ TEST_F(TraceEventDataSourceTest, TaskExecutionEvent) {
   EXPECT_EQ(locations[0].function_name(), "my_func");
 
   // Second event should refer to the same interning entries.
-  auto* e_packet2 = producer_client()->GetFinalizedPacket(packet_index++);
+  auto* e_packet2 = producer_client()->GetFinalizedPacket(++packet_index);
   ExpectTraceEvent(e_packet2, /*category_iid=*/1u, /*name_iid=*/1u,
-                   TRACE_EVENT_PHASE_INSTANT, TRACE_EVENT_SCOPE_THREAD);
+                   TRACE_EVENT_PHASE_BEGIN);
 
   EXPECT_EQ(e_packet2->track_event().task_execution().posted_from_iid(), 1u);
   EXPECT_EQ(e_packet2->interned_data().source_locations().size(), 0);
 }
 
 TEST_F(TraceEventDataSourceTest, TaskExecutionEventWithoutFunction) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
-  INTERNAL_TRACE_EVENT_ADD(
-      TRACE_EVENT_PHASE_INSTANT, "toplevel", "ThreadControllerImpl::RunTask",
-      TRACE_EVENT_SCOPE_THREAD | TRACE_EVENT_FLAG_TYPED_PROTO_ARGS, "src",
-      "my_file");
+  base::PendingTask task;
+  task.posted_from = base::Location(/*function_name=*/nullptr, "my_file", 0,
+                                    /*program_counter=*/&task);
+  { TRACE_TASK_EXECUTION("ThreadControllerImpl::RunTask", task); }
 
   size_t packet_index = ExpectStandardPreamble();
 
   auto* e_packet = producer_client()->GetFinalizedPacket(packet_index++);
   ExpectTraceEvent(e_packet, /*category_iid=*/1u, /*name_iid=*/1u,
-                   TRACE_EVENT_PHASE_INSTANT, TRACE_EVENT_SCOPE_THREAD);
+                   TRACE_EVENT_PHASE_BEGIN, TRACE_EVENT_SCOPE_THREAD);
 
   const auto& annotations = e_packet->track_event().debug_annotations();
   EXPECT_EQ(annotations.size(), 0);
@@ -1068,7 +1054,7 @@ TEST_F(TraceEventDataSourceTest, TaskExecutionEventWithoutFunction) {
 }
 
 TEST_F(TraceEventDataSourceTest, UpdateDurationOfCompleteEvent) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   static const char kEventName[] = "bar";
 
@@ -1150,7 +1136,7 @@ TEST_F(TraceEventDataSourceTest, UpdateDurationOfCompleteEvent) {
 }
 
 TEST_F(TraceEventDataSourceTest, ExplicitThreadTimeForDifferentThread) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   static const char kEventName[] = "bar";
 
@@ -1191,7 +1177,7 @@ TEST_F(TraceEventDataSourceTest, ExplicitThreadTimeForDifferentThread) {
 }
 
 TEST_F(TraceEventDataSourceTest, TrackSupportOnBeginAndEndWithLambda) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   auto track = perfetto::Track(1);
   bool begin_called = false;
@@ -1216,6 +1202,9 @@ TEST_F(TraceEventDataSourceTest, TrackSupportOnBeginAndEndWithLambda) {
   ExpectEventCategories(b_packet, {{1u, "browser"}});
   ExpectEventNames(b_packet, {{1u, "bar"}});
 
+  auto* t_packet = producer_client()->GetFinalizedPacket(packet_index++);
+  ExpectChildTrack(t_packet, track.uuid, track.parent_uuid);
+
   auto* e_packet = producer_client()->GetFinalizedPacket(packet_index++);
 
   ExpectTraceEvent(e_packet, /*category_iid=*/0, /*name_iid=*/0,
@@ -1225,7 +1214,7 @@ TEST_F(TraceEventDataSourceTest, TrackSupportOnBeginAndEndWithLambda) {
 }
 
 TEST_F(TraceEventDataSourceTest, TrackSupportOnBeginAndEnd) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   auto track = perfetto::Track(1);
 
@@ -1243,6 +1232,9 @@ TEST_F(TraceEventDataSourceTest, TrackSupportOnBeginAndEnd) {
   ExpectEventCategories(b_packet, {{1u, "browser"}});
   ExpectEventNames(b_packet, {{1u, "bar"}});
 
+  auto* t_packet = producer_client()->GetFinalizedPacket(packet_index++);
+  ExpectChildTrack(t_packet, track.uuid, track.parent_uuid);
+
   auto* e_packet = producer_client()->GetFinalizedPacket(packet_index++);
 
   ExpectTraceEvent(e_packet, /*category_iid=*/0, /*name_iid=*/0,
@@ -1252,7 +1244,7 @@ TEST_F(TraceEventDataSourceTest, TrackSupportOnBeginAndEnd) {
 }
 
 TEST_F(TraceEventDataSourceTest, TrackSupportWithTimestamp) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   auto timestamp =
       TRACE_TIME_TICKS_NOW() - base::TimeDelta::FromMicroseconds(100);
@@ -1275,7 +1267,7 @@ TEST_F(TraceEventDataSourceTest, TrackSupportWithTimestamp) {
 }
 
 TEST_F(TraceEventDataSourceTest, TrackSupportWithTimestampAndLambda) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   auto timestamp =
       TRACE_TIME_TICKS_NOW() - base::TimeDelta::FromMicroseconds(100);
@@ -1304,7 +1296,7 @@ TEST_F(TraceEventDataSourceTest, TrackSupportWithTimestampAndLambda) {
 // TODO(ddrone): following tests should be re-enabled once we figure out how
 // tracks on scoped events supposed to work
 TEST_F(TraceEventDataSourceTest, DISABLED_TrackSupport) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   auto track = perfetto::Track(1);
 
@@ -1329,7 +1321,7 @@ TEST_F(TraceEventDataSourceTest, DISABLED_TrackSupport) {
 }
 
 TEST_F(TraceEventDataSourceTest, DISABLED_TrackSupportWithLambda) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   auto track = perfetto::Track(1);
   bool lambda_called = false;
@@ -1365,7 +1357,7 @@ TEST_F(TraceEventDataSourceTest, DISABLED_TrackSupportWithLambda) {
 // TODO(eseckler): Add a test with multiple events + same strings with reset.
 
 TEST_F(TraceEventDataSourceTest, InternedStrings) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   size_t packet_index = 0u;
   for (size_t i = 0; i < 2; i++) {
@@ -1424,7 +1416,7 @@ TEST_F(TraceEventDataSourceTest, InternedStrings) {
 }
 
 TEST_F(TraceEventDataSourceTest, FilteringSimpleTraceEvent) {
-  CreateTraceEventDataSource(/* privacy_filtering_enabled =*/true);
+  StartTraceEventDataSource(/* privacy_filtering_enabled =*/true);
   TRACE_EVENT_BEGIN0(kCategoryGroup, "bar");
 
   size_t packet_index = ExpectStandardPreamble(
@@ -1441,7 +1433,7 @@ TEST_F(TraceEventDataSourceTest, FilteringSimpleTraceEvent) {
 }
 
 TEST_F(TraceEventDataSourceTest, FilteringEventWithArgs) {
-  CreateTraceEventDataSource(/* privacy_filtering_enabled =*/true);
+  StartTraceEventDataSource(/* privacy_filtering_enabled =*/true);
   TRACE_EVENT_INSTANT2(kCategoryGroup, "bar", TRACE_EVENT_SCOPE_THREAD, "foo",
                        42, "bar", "string_val");
 
@@ -1462,7 +1454,7 @@ TEST_F(TraceEventDataSourceTest, FilteringEventWithArgs) {
 }
 
 TEST_F(TraceEventDataSourceTest, FilteringEventWithFlagCopy) {
-  CreateTraceEventDataSource(/* privacy_filtering_enabled =*/true);
+  StartTraceEventDataSource(/* privacy_filtering_enabled =*/true);
   TRACE_EVENT_INSTANT2(kCategoryGroup, "bar",
                        TRACE_EVENT_SCOPE_THREAD | TRACE_EVENT_FLAG_COPY,
                        "arg1_name", "arg1_val", "arg2_name", "arg2_val");
@@ -1523,7 +1515,7 @@ TEST_F(TraceEventDataSourceTest, FilteringMetadataSource) {
 }
 
 TEST_F(TraceEventDataSourceTest, ProtoMetadataSource) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
   auto* metadata_source = TraceEventMetadataSource::GetInstance();
   metadata_source->AddGeneratorFunction(base::BindRepeating(
       [](perfetto::protos::pbzero::ChromeMetadataPacket* metadata,
@@ -1564,7 +1556,7 @@ class TraceEventDataSourceNoInterningTest : public TraceEventDataSourceTest {
 };
 
 TEST_F(TraceEventDataSourceNoInterningTest, InterningScopedToPackets) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   TRACE_EVENT_INSTANT1("cat1", "e1", TRACE_EVENT_SCOPE_THREAD, "arg1", 4);
   TRACE_EVENT_INSTANT1("cat1", "e1", TRACE_EVENT_SCOPE_THREAD, "arg1", 2);
@@ -1616,8 +1608,6 @@ TEST_F(TraceEventDataSourceNoInterningTest, InterningScopedToPackets) {
 }
 
 TEST_F(TraceEventDataSourceTest, StartupTracingTimeout) {
-  CreateTraceEventDataSource(/* privacy_filtering_enabled = */ false,
-                             /* start_trace = */ false);
   PerfettoTracedProcess::ResetTaskRunnerForTesting(
       base::SequencedTaskRunnerHandle::Get());
   constexpr char kStartupTestEvent1[] = "startup_registry";
@@ -1700,7 +1690,7 @@ TEST_F(TraceEventDataSourceTest, TypedArgumentsTracingOff) {
 }
 
 TEST_F(TraceEventDataSourceTest, TypedArgumentsTracingOnBegin) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   bool begin_called = false;
 
@@ -1724,7 +1714,7 @@ TEST_F(TraceEventDataSourceTest, TypedArgumentsTracingOnBegin) {
 }
 
 TEST_F(TraceEventDataSourceTest, TypedArgumentsTracingOnEnd) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   bool end_called = false;
 
@@ -1746,7 +1736,7 @@ TEST_F(TraceEventDataSourceTest, TypedArgumentsTracingOnEnd) {
 }
 
 TEST_F(TraceEventDataSourceTest, TypedArgumentsTracingOnBeginAndEnd) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   TRACE_EVENT_BEGIN("browser", "bar", [&](perfetto::EventContext ctx) {
     ctx.event()->set_log_message()->set_body_iid(42);
@@ -1775,12 +1765,11 @@ TEST_F(TraceEventDataSourceTest, TypedArgumentsTracingOnBeginAndEnd) {
 }
 
 TEST_F(TraceEventDataSourceTest, TypedArgumentsTracingOnInstant) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
-  TRACE_EVENT_INSTANT("browser", "bar", TRACE_EVENT_SCOPE_THREAD,
-                      [&](perfetto::EventContext ctx) {
-                        ctx.event()->set_log_message()->set_body_iid(42);
-                      });
+  TRACE_EVENT_INSTANT("browser", "bar", [&](perfetto::EventContext ctx) {
+    ctx.event()->set_log_message()->set_body_iid(42);
+  });
 
   size_t packet_index = ExpectStandardPreamble();
 
@@ -1795,7 +1784,7 @@ TEST_F(TraceEventDataSourceTest, TypedArgumentsTracingOnInstant) {
 }
 
 TEST_F(TraceEventDataSourceTest, TypedArgumentsTracingOnScoped) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   // Use a if statement with no brackets to ensure that the Scoped TRACE_EVENT
   // macro properly emits the end event when leaving the single expression
@@ -1824,7 +1813,7 @@ TEST_F(TraceEventDataSourceTest, TypedArgumentsTracingOnScoped) {
 }
 
 TEST_F(TraceEventDataSourceTest, TypedArgumentsTracingOnScopedCapture) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   bool called = false;
   {
@@ -1854,7 +1843,7 @@ TEST_F(TraceEventDataSourceTest, TypedArgumentsTracingOnScopedCapture) {
 }
 
 TEST_F(TraceEventDataSourceTest, TypedArgumentsTracingOnScopedMultipleEvents) {
-  CreateTraceEventDataSource();
+  StartTraceEventDataSource();
 
   {
     TRACE_EVENT("browser", "bar", [&](perfetto::EventContext ctx) {
@@ -1903,8 +1892,8 @@ TEST_F(TraceEventDataSourceTest, HistogramSampleTraceConfigEmpty) {
       "-*,disabled-by-default-histogram_samples",
       base::trace_event::RECORD_UNTIL_FULL);
 
-  CreateTraceEventDataSource(/*privacy_filtering_enabled=*/false,
-                             /*start_trace=*/true, trace_config.ToString());
+  StartTraceEventDataSource(/*privacy_filtering_enabled=*/false,
+                            trace_config.ToString());
 
   UMA_HISTOGRAM_BOOLEAN("Foo.Bar", true);
 
@@ -1916,9 +1905,11 @@ TEST_F(TraceEventDataSourceTest, HistogramSampleTraceConfigEmpty) {
                         {{1u, TRACE_DISABLED_BY_DEFAULT("histogram_samples")}});
   ExpectEventNames(e_packet, {{1u, "HistogramSample"}});
   ASSERT_TRUE(e_packet->track_event().has_chrome_histogram_sample());
-  EXPECT_EQ(e_packet->track_event().chrome_histogram_sample().name_hash(),
-            base::HashMetricName("Foo.Bar"));
   EXPECT_EQ(e_packet->track_event().chrome_histogram_sample().sample(), 1u);
+  ASSERT_TRUE(e_packet->has_interned_data());
+  EXPECT_EQ(e_packet->track_event().chrome_histogram_sample().name_iid(),
+            e_packet->interned_data().histogram_names()[0].iid());
+  EXPECT_EQ(e_packet->interned_data().histogram_names()[0].name(), "Foo.Bar");
 }
 
 TEST_F(TraceEventDataSourceTest, HistogramSampleTraceConfigNotEmpty) {
@@ -1928,8 +1919,8 @@ TEST_F(TraceEventDataSourceTest, HistogramSampleTraceConfigNotEmpty) {
   trace_config.EnableHistogram("Foo1.Bar1");
   trace_config.EnableHistogram("Foo3.Bar3");
 
-  CreateTraceEventDataSource(/*privacy_filtering_enabled=*/false,
-                             /*start_trace=*/true, trace_config.ToString());
+  StartTraceEventDataSource(/*privacy_filtering_enabled=*/false,
+                            trace_config.ToString());
 
   UMA_HISTOGRAM_BOOLEAN("Foo1.Bar1", true);
   UMA_HISTOGRAM_BOOLEAN("Foo2.Bar2", true);
@@ -1945,9 +1936,11 @@ TEST_F(TraceEventDataSourceTest, HistogramSampleTraceConfigNotEmpty) {
   ASSERT_TRUE(e_packet->track_event().has_chrome_histogram_sample());
   EXPECT_EQ(e_packet->track_event().chrome_histogram_sample().name_hash(),
             base::HashMetricName("Foo1.Bar1"));
-  EXPECT_EQ(e_packet->track_event().chrome_histogram_sample().name(),
-            "Foo1.Bar1");
   EXPECT_EQ(e_packet->track_event().chrome_histogram_sample().sample(), 1u);
+  ASSERT_TRUE(e_packet->has_interned_data());
+  EXPECT_EQ(e_packet->track_event().chrome_histogram_sample().name_iid(),
+            e_packet->interned_data().histogram_names()[0].iid());
+  EXPECT_EQ(e_packet->interned_data().histogram_names()[0].name(), "Foo1.Bar1");
 
   e_packet = producer_client()->GetFinalizedPacket(packet_index++);
 
@@ -1956,9 +1949,11 @@ TEST_F(TraceEventDataSourceTest, HistogramSampleTraceConfigNotEmpty) {
   ASSERT_TRUE(e_packet->track_event().has_chrome_histogram_sample());
   EXPECT_EQ(e_packet->track_event().chrome_histogram_sample().name_hash(),
             base::HashMetricName("Foo3.Bar3"));
-  EXPECT_EQ(e_packet->track_event().chrome_histogram_sample().name(),
-            "Foo3.Bar3");
   EXPECT_EQ(e_packet->track_event().chrome_histogram_sample().sample(), 1u);
+  ASSERT_TRUE(e_packet->has_interned_data());
+  EXPECT_EQ(e_packet->track_event().chrome_histogram_sample().name_iid(),
+            e_packet->interned_data().histogram_names()[0].iid());
+  EXPECT_EQ(e_packet->interned_data().histogram_names()[0].name(), "Foo3.Bar3");
 
   EXPECT_EQ(packet_index, producer_client()->GetFinalizedPacketCount());
 }
@@ -1970,8 +1965,8 @@ TEST_F(TraceEventDataSourceTest, UserActionEvent) {
       "-*,disabled-by-default-user_action_samples",
       base::trace_event::RECORD_UNTIL_FULL);
 
-  CreateTraceEventDataSource(/*privacy_filtering_enabled=*/false,
-                             /*start_trace=*/true, trace_config.ToString());
+  StartTraceEventDataSource(/*privacy_filtering_enabled=*/false,
+                            trace_config.ToString());
 
   // Wait for registering callback on current thread.
   base::RunLoop().RunUntilIdle();
@@ -1988,6 +1983,46 @@ TEST_F(TraceEventDataSourceTest, UserActionEvent) {
   ASSERT_TRUE(e_packet->track_event().has_chrome_user_event());
   EXPECT_EQ(e_packet->track_event().chrome_user_event().action_hash(),
             base::HashMetricName("Test_Action"));
+}
+
+namespace {
+
+struct InternedLogMessageBody
+    : public perfetto::TrackEventInternedDataIndex<
+          InternedLogMessageBody,
+          perfetto::protos::pbzero::InternedData::kLogMessageBodyFieldNumber,
+          std::string> {
+  static void Add(perfetto::protos::pbzero::InternedData* interned_data,
+                  size_t iid,
+                  const std::string& body) {
+    auto* msg = interned_data->add_log_message_body();
+    msg->set_iid(iid);
+    msg->set_body(body);
+  }
+};
+
+}  // namespace
+
+TEST_F(TraceEventDataSourceTest, TypedEventInterning) {
+  StartTraceEventDataSource();
+
+  {
+    TRACE_EVENT("browser", "bar", [&](perfetto::EventContext ctx) {
+      size_t iid = InternedLogMessageBody::Get(&ctx, "Hello interned world!");
+      ctx.event()->set_log_message()->set_body_iid(iid);
+    });
+  }
+  size_t packet_index = ExpectStandardPreamble();
+  auto* e_packet = producer_client()->GetFinalizedPacket(packet_index++);
+
+  ExpectEventCategories(e_packet, {{1u, "browser"}});
+  ExpectEventNames(e_packet, {{1u, "bar"}});
+  ASSERT_TRUE(e_packet->track_event().has_log_message());
+  ASSERT_TRUE(e_packet->has_interned_data());
+  EXPECT_EQ(e_packet->track_event().log_message().body_iid(),
+            e_packet->interned_data().log_message_body()[0].iid());
+  ASSERT_EQ("Hello interned world!",
+            e_packet->interned_data().log_message_body()[0].body());
 }
 
 // TODO(eseckler): Add startup tracing unittests.

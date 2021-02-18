@@ -10,6 +10,7 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/ioctl.h>
+#include <sys/socket.h>
 
 #include "base/bind.h"
 #include "base/callback.h"
@@ -27,6 +28,7 @@
 #include "base/task_runner_util.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "net/base/io_buffer.h"
 #include "net/base/ip_address.h"
 #include "net/base/ip_endpoint.h"
@@ -69,37 +71,6 @@ const int kActivityMonitorBytesThreshold = 65535;
 const int kActivityMonitorMinimumSamplesForThroughputEstimate = 2;
 const base::TimeDelta kActivityMonitorMsThreshold =
     base::TimeDelta::FromMilliseconds(100);
-
-#if defined(OS_APPLE)
-// When enabling multicast using setsockopt(IP_MULTICAST_IF) MacOS
-// requires passing IPv4 address instead of interface index. This function
-// resolves IPv4 address by interface index. The |address| is returned in
-// network order.
-int GetIPv4AddressFromIndex(int socket, uint32_t index, uint32_t* address) {
-  if (!index) {
-    *address = htonl(INADDR_ANY);
-    return OK;
-  }
-
-  sockaddr_in* result = nullptr;
-
-  ifreq ifr;
-  ifr.ifr_addr.sa_family = AF_INET;
-  if (!if_indextoname(index, ifr.ifr_name))
-    return MapSystemError(errno);
-  int rv = ioctl(socket, SIOCGIFADDR, &ifr);
-  if (rv == -1)
-    return MapSystemError(errno);
-  result = reinterpret_cast<sockaddr_in*>(&ifr.ifr_addr);
-
-  if (!result)
-    return ERR_ADDRESS_INVALID;
-
-  *address = result->sin_addr.s_addr;
-  return OK;
-}
-
-#endif  // OS_APPLE
 
 #if defined(OS_MAC)
 
@@ -322,6 +293,13 @@ void UDPSocketPosix::Close() {
   // crbug.com/906005.
   CHECK_EQ(socket_hash_, GetSocketFDHash(socket_));
 #if defined(OS_MAC)
+  // Attempt to clear errors on the socket so that they are not returned by
+  // close(). See https://crbug.com/1151048.
+  // TODO(ricea): Remove this if it doesn't work, or when the OS bug is fixed.
+  int value = 0;
+  socklen_t value_len = sizeof(value);
+  HANDLE_EINTR(getsockopt(socket_, SOL_SOCKET, SO_ERROR, &value, &value_len));
+
   PCHECK(IGNORE_EINTR(guarded_close_np(socket_, &kSocketFdGuard)) == 0);
 #else
   PCHECK(IGNORE_EINTR(close(socket_)) == 0);
@@ -944,17 +922,9 @@ int UDPSocketPosix::SetMulticastOptions() {
   if (multicast_interface_ != 0) {
     switch (addr_family_) {
       case AF_INET: {
-#if defined(OS_APPLE)
-        ip_mreq mreq = {};
-        int error = GetIPv4AddressFromIndex(socket_, multicast_interface_,
-                                            &mreq.imr_interface.s_addr);
-        if (error != OK)
-          return error;
-#else   //  defined(OS_APPLE)
         ip_mreqn mreq = {};
         mreq.imr_ifindex = multicast_interface_;
         mreq.imr_address.s_addr = htonl(INADDR_ANY);
-#endif  //  !defined(OS_APPLE)
         int rv = setsockopt(socket_, IPPROTO_IP, IP_MULTICAST_IF,
                             reinterpret_cast<const char*>(&mreq), sizeof(mreq));
         if (rv)
@@ -986,7 +956,7 @@ int UDPSocketPosix::DoBind(const IPEndPoint& address) {
   if (rv == 0)
     return OK;
   int last_error = errno;
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (last_error == EINVAL)
     return ERR_ADDRESS_IN_USE;
 #elif defined(OS_APPLE)
@@ -1017,18 +987,9 @@ int UDPSocketPosix::JoinGroup(const IPAddress& group_address) const {
     case IPAddress::kIPv4AddressSize: {
       if (addr_family_ != AF_INET)
         return ERR_ADDRESS_INVALID;
-
-#if defined(OS_APPLE)
-      ip_mreq mreq = {};
-      int error = GetIPv4AddressFromIndex(socket_, multicast_interface_,
-                                          &mreq.imr_interface.s_addr);
-      if (error != OK)
-        return error;
-#else
       ip_mreqn mreq = {};
       mreq.imr_ifindex = multicast_interface_;
       mreq.imr_address.s_addr = htonl(INADDR_ANY);
-#endif
       memcpy(&mreq.imr_multiaddr, group_address.bytes().data(),
              IPAddress::kIPv4AddressSize);
       int rv = setsockopt(socket_, IPPROTO_IP, IP_ADD_MEMBERSHIP,
@@ -1496,6 +1457,19 @@ int UDPSocketPosix::ResetWrittenBytes() {
   int bytes = written_bytes_;
   written_bytes_ = 0;
   return bytes;
+}
+
+int UDPSocketPosix::SetIOSNetworkServiceType(int ios_network_service_type) {
+  if (ios_network_service_type == 0) {
+    return OK;
+  }
+#if defined(OS_IOS)
+  if (setsockopt(socket_, SOL_SOCKET, SO_NET_SERVICE_TYPE,
+                 &ios_network_service_type, sizeof(ios_network_service_type))) {
+    return MapSystemError(errno);
+  }
+#endif  // defined(OS_IOS)
+  return OK;
 }
 
 }  // namespace net

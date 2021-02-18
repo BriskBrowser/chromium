@@ -32,8 +32,8 @@
 #include "net/base/net_errors.h"
 #include "net/base/trace_constants.h"
 #include "net/cert/cert_verifier.h"
-#include "net/cert/ct_verifier.h"
 #include "net/dns/host_resolver.h"
+#include "net/dns/public/secure_dns_mode.h"
 #include "net/log/net_log.h"
 #include "net/log/net_log_capture_mode.h"
 #include "net/log/net_log_event_type.h"
@@ -55,6 +55,8 @@
 #include "net/socket/socket_performance_watcher.h"
 #include "net/socket/socket_performance_watcher_factory.h"
 #include "net/socket/udp_client_socket.h"
+#include "net/ssl/cert_compression.h"
+#include "net/ssl/ssl_key_logger.h"
 #include "net/third_party/quiche/src/quic/core/crypto/null_decrypter.h"
 #include "net/third_party/quiche/src/quic/core/crypto/proof_verifier.h"
 #include "net/third_party/quiche/src/quic/core/crypto/quic_random.h"
@@ -109,6 +111,14 @@ enum class ConnectionStateAfterDNS {
   kMaxValue = kCryptoFinishedDnsNoMatch,
 };
 
+enum class JobProtocolErrorLocation {
+  kSessionStartReadingFailed = 0,
+  kCreateSessionFailed = 1,
+  kCryptoConnectFailedSync = 2,
+  kCryptoConnectFailedAsync = 3,
+  kMaxValue = kCryptoConnectFailedAsync,
+};
+
 base::Value NetLogQuicStreamFactoryJobParams(
     const QuicStreamFactory::QuicSessionAliasKey* key) {
   base::Value dict(base::Value::Type::DICTIONARY);
@@ -144,6 +154,11 @@ std::string QuicPlatformNotificationToString(
 void HistogramCreateSessionFailure(enum CreateSessionFailure error) {
   UMA_HISTOGRAM_ENUMERATION("Net.QuicSession.CreationError", error,
                             CREATION_ERROR_MAX);
+}
+
+void HistogramProtocolErrorLocation(enum JobProtocolErrorLocation location) {
+  UMA_HISTOGRAM_ENUMERATION("Net.QuicStreamFactory.DoConnectFailureLocation",
+                            location);
 }
 
 void LogConnectionIpPooling(bool pooled) {
@@ -646,6 +661,11 @@ void QuicStreamFactory::Job::OnConnectComplete(int rv) {
     return;
   }
 
+  if (rv == ERR_QUIC_PROTOCOL_ERROR) {
+    HistogramProtocolErrorLocation(
+        JobProtocolErrorLocation::kCryptoConnectFailedAsync);
+  }
+
   rv = DoLoop(rv);
   if (rv != ERR_IO_PENDING && !callback_.is_null())
     std::move(callback_).Run(rv);
@@ -677,7 +697,7 @@ int QuicStreamFactory::Job::DoResolveHost() {
         HostResolver::ResolveHostParameters::CacheUsage::STALE_ALLOWED;
   }
   if (key_.session_key().disable_secure_dns())
-    parameters.secure_dns_mode_override = DnsConfig::SecureDnsMode::OFF;
+    parameters.secure_dns_mode_override = SecureDnsMode::kOff;
   resolve_host_request_ = host_resolver_->CreateRequest(
       key_.destination(), key_.session_key().network_isolation_key(), net_log_,
       parameters);
@@ -778,6 +798,10 @@ int QuicStreamFactory::Job::DoConnect() {
   if (rv != OK) {
     DCHECK(rv != ERR_IO_PENDING);
     DCHECK(!session_);
+    if (rv == ERR_QUIC_PROTOCOL_ERROR) {
+      HistogramProtocolErrorLocation(
+          JobProtocolErrorLocation::kCreateSessionFailed);
+    }
     return rv;
   }
 
@@ -785,8 +809,11 @@ int QuicStreamFactory::Job::DoConnect() {
     return ERR_CONNECTION_CLOSED;
 
   session_->StartReading();
-  if (!session_->connection()->connected())
+  if (!session_->connection()->connected()) {
+    HistogramProtocolErrorLocation(
+        JobProtocolErrorLocation::kSessionStartReadingFailed);
     return ERR_QUIC_PROTOCOL_ERROR;
+  }
 
   rv = session_->CryptoConnect(
       base::BindOnce(&QuicStreamFactory::Job::OnConnectComplete, GetWeakPtr()));
@@ -796,6 +823,10 @@ int QuicStreamFactory::Job::DoConnect() {
     return ERR_QUIC_HANDSHAKE_FAILED;
   }
 
+  if (rv == ERR_QUIC_PROTOCOL_ERROR) {
+    HistogramProtocolErrorLocation(
+        JobProtocolErrorLocation::kCryptoConnectFailedSync);
+  }
   return rv;
 }
 
@@ -1067,7 +1098,6 @@ QuicStreamFactory::QuicStreamFactory(
     CertVerifier* cert_verifier,
     CTPolicyEnforcer* ct_policy_enforcer,
     TransportSecurityState* transport_security_state,
-    CTVerifier* cert_transparency_verifier,
     SCTAuditingDelegate* sct_auditing_delegate,
     SocketPerformanceWatcherFactory* socket_performance_watcher_factory,
     QuicCryptoClientStreamFactory* quic_crypto_client_stream_factory,
@@ -1081,7 +1111,6 @@ QuicStreamFactory::QuicStreamFactory(
       cert_verifier_(cert_verifier),
       ct_policy_enforcer_(ct_policy_enforcer),
       transport_security_state_(transport_security_state),
-      cert_transparency_verifier_(cert_transparency_verifier),
       sct_auditing_delegate_(sct_auditing_delegate),
       quic_crypto_client_stream_factory_(quic_crypto_client_stream_factory),
       random_generator_(quic_context->random_generator()),
@@ -1116,7 +1145,7 @@ QuicStreamFactory::QuicStreamFactory(
   DCHECK(transport_security_state_);
   DCHECK(http_server_properties_);
   if (params_.disable_tls_zero_rtt)
-    SetQuicRestartFlag(quic_enable_zero_rtt_for_tls_v2, false);
+    SetQuicFlag(FLAGS_quic_disable_client_tls_zero_rtt, true);
   InitializeMigrationOptions();
 }
 
@@ -1145,11 +1174,6 @@ QuicStreamFactory::~QuicStreamFactory() {
 
 bool QuicStreamFactory::CanUseExistingSession(const QuicSessionKey& session_key,
                                               const HostPortPair& destination) {
-  // TODO(zhongyi): delete active_sessions_.empty() checks once the
-  // android crash issue(crbug.com/498823) is resolved.
-  if (active_sessions_.empty())
-    return false;
-
   if (base::Contains(active_sessions_, session_key))
     return true;
 
@@ -1193,27 +1217,24 @@ int QuicStreamFactory::Create(const QuicSessionKey& session_key,
   }
 
   // Use active session for |session_key| if such exists.
-  // TODO(rtenneti): crbug.com/498823 - delete active_sessions_.empty() checks.
-  if (!active_sessions_.empty()) {
-    auto it = active_sessions_.find(session_key);
-    if (it != active_sessions_.end()) {
-      QuicChromiumClientSession* session = it->second;
-      request->SetSession(session->CreateHandle(destination));
-      return OK;
-    }
+  auto active_session = active_sessions_.find(session_key);
+  if (active_session != active_sessions_.end()) {
+    QuicChromiumClientSession* session = active_session->second;
+    request->SetSession(session->CreateHandle(destination));
+    return OK;
   }
 
   // Associate with active job to |session_key| if such exists.
-  auto it = active_jobs_.find(session_key);
-  if (it != active_jobs_.end()) {
-    const NetLogWithSource& job_net_log = it->second->net_log();
+  auto active_job = active_jobs_.find(session_key);
+  if (active_job != active_jobs_.end()) {
+    const NetLogWithSource& job_net_log = active_job->second->net_log();
     job_net_log.AddEventReferencingSource(
         NetLogEventType::QUIC_STREAM_FACTORY_JOB_BOUND_TO_HTTP_STREAM_JOB,
         net_log.source());
     net_log.AddEventReferencingSource(
         NetLogEventType::HTTP_STREAM_JOB_BOUND_TO_QUIC_STREAM_FACTORY_JOB,
         job_net_log.source());
-    it->second->AddRequest(request);
+    active_job->second->AddRequest(request);
     return ERR_IO_PENDING;
   }
 
@@ -1253,10 +1274,6 @@ int QuicStreamFactory::Create(const QuicSessionKey& session_key,
     return rv;
   }
   if (rv == OK) {
-    // TODO(rtenneti): crbug.com/498823 - revert active_sessions_.empty()
-    // related changes.
-    if (active_sessions_.empty())
-      return ERR_QUIC_PROTOCOL_ERROR;
     auto it = active_sessions_.find(session_key);
     DCHECK(it != active_sessions_.end());
     if (it == active_sessions_.end())
@@ -1461,6 +1478,9 @@ std::unique_ptr<DatagramClientSocket> QuicStreamFactory::CreateSocket(
       DatagramSocket::DEFAULT_BIND, net_log, source);
   if (params_.enable_socket_recv_optimization)
     socket->EnableRecvOptimization();
+  if (params_.ios_network_service_type > 0) {
+    socket->SetIOSNetworkServiceType(params_.ios_network_service_type);
+  }
   return socket;
 }
 
@@ -1700,9 +1720,6 @@ void QuicStreamFactory::OnJobComplete(Job* job, int rv) {
 
 bool QuicStreamFactory::HasActiveSession(
     const QuicSessionKey& session_key) const {
-  // TODO(rtenneti): crbug.com/498823 - delete active_sessions_.empty() check.
-  if (active_sessions_.empty())
-    return false;
   return base::Contains(active_sessions_, session_key);
 }
 
@@ -1749,12 +1766,13 @@ int QuicStreamFactory::CreateSession(
   }
 
   if (!helper_.get()) {
-    helper_.reset(new QuicChromiumConnectionHelper(clock_, random_generator_));
+    helper_ = std::make_unique<QuicChromiumConnectionHelper>(clock_,
+                                                             random_generator_);
   }
 
   if (!alarm_factory_.get()) {
-    alarm_factory_.reset(new QuicChromiumAlarmFactory(
-        base::ThreadTaskRunnerHandle::Get().get(), clock_));
+    alarm_factory_ = std::make_unique<QuicChromiumAlarmFactory>(
+        base::ThreadTaskRunnerHandle::Get().get(), clock_);
   }
 
   quic::QuicConnectionId connection_id =
@@ -1773,8 +1791,8 @@ int QuicStreamFactory::CreateSession(
   QuicChromiumPacketWriter* writer =
       new QuicChromiumPacketWriter(socket.get(), task_runner_);
   quic::QuicConnection* connection = new quic::QuicConnection(
-      connection_id, ToQuicSocketAddress(addr), helper_.get(),
-      alarm_factory_.get(), writer, true /* owns_writer */,
+      connection_id, quic::QuicSocketAddress(), ToQuicSocketAddress(addr),
+      helper_.get(), alarm_factory_.get(), writer, true /* owns_writer */,
       quic::Perspective::IS_CLIENT, {quic_version});
   connection->set_ping_timeout(ping_timeout_);
   connection->SetMaxPacketLength(params_.max_packet_length);
@@ -2139,7 +2157,7 @@ QuicStreamFactory::CreateCryptoConfigHandle(
       std::make_unique<QuicCryptoClientConfigOwner>(
           std::make_unique<ProofVerifierChromium>(
               cert_verifier_, ct_policy_enforcer_, transport_security_state_,
-              cert_transparency_verifier_, sct_auditing_delegate_,
+              sct_auditing_delegate_,
               HostsFromOrigins(params_.origins_to_force_quic_on),
               actual_network_isolation_key),
           std::make_unique<QuicClientSessionCache>(), this);
@@ -2151,6 +2169,12 @@ QuicStreamFactory::CreateCryptoConfigHandle(
   crypto_config->AddCanonicalSuffix(".googlevideo.com");
   crypto_config->AddCanonicalSuffix(".googleusercontent.com");
   crypto_config->AddCanonicalSuffix(".gvt1.com");
+  if (SSLKeyLoggerManager::IsActive()) {
+    SSL_CTX_set_keylog_callback(crypto_config->ssl_ctx(),
+                                SSLKeyLoggerManager::KeyLogCallback);
+  }
+
+  ConfigureCertificateCompression(crypto_config->ssl_ctx());
 
   if (!prefer_aes_gcm_recorded_) {
     bool prefer_aes_gcm =

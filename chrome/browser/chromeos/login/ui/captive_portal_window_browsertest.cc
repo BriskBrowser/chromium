@@ -4,6 +4,7 @@
 
 #include <memory>
 
+#include "ash/constants/ash_switches.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/location.h"
@@ -25,7 +26,6 @@
 #include "chrome/browser/ui/webui/chromeos/login/error_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
 #include "chrome/test/base/in_process_browser_test.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/dbus/shill/fake_shill_manager_client.h"
 #include "chromeos/network/portal_detector/network_portal_detector.h"
 #include "content/public/test/browser_test.h"
@@ -77,7 +77,8 @@ class CaptivePortalWindowTest : public InProcessBrowserTest {
   void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(chromeos::switches::kForceLoginManagerInTests);
     command_line->AppendSwitch(chromeos::switches::kLoginManager);
-    command_line->AppendSwitch(chromeos::switches::kDisableHIDDetectionOnOOBE);
+    command_line->AppendSwitch(
+        chromeos::switches::kDisableHIDDetectionOnOOBEForTesting);
   }
 
   void SetUpOnMainThread() override {
@@ -189,13 +190,11 @@ class CaptivePortalWindowCtorDtorTest : public LoginManagerTest {
 
     network_portal_detector_ = new NetworkPortalDetectorTestImpl();
     network_portal_detector::InitializeForTesting(network_portal_detector_);
-    NetworkPortalDetector::CaptivePortalState portal_state;
-    portal_state.status = NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_PORTAL;
-    portal_state.response_code = 200;
     network_portal_detector_->SetDefaultNetworkForTesting(
         FakeShillManagerClient::kFakeEthernetNetworkGuid);
     network_portal_detector_->SetDetectionResultsForTesting(
-        FakeShillManagerClient::kFakeEthernetNetworkGuid, portal_state);
+        FakeShillManagerClient::kFakeEthernetNetworkGuid,
+        NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_PORTAL, 200);
   }
 
  protected:

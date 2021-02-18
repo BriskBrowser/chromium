@@ -76,6 +76,8 @@ class NotificationPlatformBridgeWin : public NotificationPlatformBridge {
                            DisplayWithFakeAC);
   FRIEND_TEST_ALL_PREFIXES(NotificationPlatformBridgeWinUITest,
                            SynchronizeNotifications);
+  FRIEND_TEST_ALL_PREFIXES(NotificationPlatformBridgeWinUITest,
+                           SynchronizeNotificationsAfterClose);
 
   void SynchronizeNotificationsForTesting();
 
@@ -111,7 +113,7 @@ class NotificationPlatformBridgeWin : public NotificationPlatformBridge {
   Microsoft::WRL::ComPtr<ABI::Windows::UI::Notifications::IToastNotification>
   GetToastNotificationForTesting(
       const message_center::Notification& notification,
-      const base::string16& xml_template,
+      const std::wstring& xml_template,
       const std::string& profile_id,
       bool incognito);
 

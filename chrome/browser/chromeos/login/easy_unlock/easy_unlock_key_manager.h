@@ -33,24 +33,24 @@ class UserContext;
 // A class to manage Easy unlock cryptohome keys.
 class EasyUnlockKeyManager {
  public:
-  typedef EasyUnlockRefreshKeysOperation::RefreshKeysCallback
-      RefreshKeysCallback;
-  typedef EasyUnlockGetKeysOperation::GetKeysCallback GetDeviceDataListCallback;
+  using RefreshKeysCallback =
+      EasyUnlockRefreshKeysOperation::RefreshKeysCallback;
+  using GetDeviceDataListCallback = EasyUnlockGetKeysOperation::GetKeysCallback;
 
   EasyUnlockKeyManager();
   ~EasyUnlockKeyManager();
 
   // Clears existing Easy unlock keys and creates new ones for the given
-  // |remote_devices| and the given |user_context|. |user_context| must have
+  // `remote_devices` and the given `user_context`. `user_context` must have
   // secret to allow keys to be created.
   void RefreshKeys(const UserContext& user_context,
                    const base::ListValue& remote_devices,
-                   const RefreshKeysCallback& callback);
+                   RefreshKeysCallback callback);
 
   // Retrieves the remote device data from cryptohome keys for the given
-  // |user_context|.
+  // `user_context`.
   void GetDeviceDataList(const UserContext& user_context,
-                         const GetDeviceDataListCallback& callback);
+                         GetDeviceDataListCallback callback);
 
   // Helpers to convert between DeviceData and remote device dictionary.
   // DeviceDataToRemoteDeviceDictionary fills the remote device dictionary and
@@ -80,22 +80,21 @@ class EasyUnlockKeyManager {
 
  private:
   // Runs the next operation if there is one. We first run all the operations in
-  // the |write_operation_queue_| and then run all the operations in the
-  // |read_operation_queue_|.
+  // the `write_operation_queue_` and then run all the operations in the
+  // `read_operation_queue_`.
   void RunNextOperation();
 
   // Called when the TPM key is ready to be used for creating Easy Unlock key
   // challenges.
   void RefreshKeysWithTpmKeyPresent(const UserContext& user_context,
                                     base::ListValue* remote_devices,
-                                    const RefreshKeysCallback& callback);
+                                    RefreshKeysCallback callback);
 
   // Callback invoked after refresh keys operation.
-  void OnKeysRefreshed(const RefreshKeysCallback& callback,
-                       bool create_success);
+  void OnKeysRefreshed(RefreshKeysCallback callback, bool create_success);
 
   // Callback invoked after get keys op.
-  void OnKeysFetched(const GetDeviceDataListCallback& callback,
+  void OnKeysFetched(GetDeviceDataListCallback callback,
                      bool fetch_success,
                      const EasyUnlockDeviceKeyDataList& fetched_data);
 

@@ -45,7 +45,7 @@ class ProgressShadowElement : public HTMLDivElement {
 
  private:
   HTMLProgressElement* ProgressElement() const;
-  scoped_refptr<ComputedStyle> CustomStyleForLayoutObject() override;
+  ComputedStyle* CustomStyleForLayoutObject(const StyleRecalcContext&) override;
 };
 
 }  // namespace blink

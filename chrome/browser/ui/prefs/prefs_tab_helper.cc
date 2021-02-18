@@ -19,6 +19,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/font_pref_change_notifier_factory.h"
@@ -40,11 +41,11 @@
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/web_preferences.h"
 #include "extensions/buildflags/buildflags.h"
 #include "media/media_buildflags.h"
 #include "third_party/blink/public/common/features.h"
-#include "third_party/blink/public/mojom/renderer_preferences.mojom.h"
+#include "third_party/blink/public/common/renderer_preferences/renderer_preferences.h"
+#include "third_party/blink/public/common/web_preferences/web_preferences.h"
 #include "third_party/icu/source/common/unicode/uchar.h"
 #include "third_party/icu/source/common/unicode/uscript.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -60,8 +61,8 @@
 #include "chrome/browser/themes/theme_service_factory.h"
 #endif
 
+using blink::web_pref::WebPreferences;
 using content::WebContents;
-using content::WebPreferences;
 
 namespace {
 
@@ -135,7 +136,7 @@ const FontDefault kFontDefaults[] = {
     {prefs::kWebKitCursiveFontFamily, IDS_CURSIVE_FONT_FAMILY},
     {prefs::kWebKitFantasyFontFamily, IDS_FANTASY_FONT_FAMILY},
     {prefs::kWebKitPictographFontFamily, IDS_PICTOGRAPH_FONT_FAMILY},
-#if defined(OS_CHROMEOS) || defined(OS_MAC) || defined(OS_WIN)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || defined(OS_MAC) || defined(OS_WIN)
     {prefs::kWebKitStandardFontFamilyJapanese,
      IDS_STANDARD_FONT_FAMILY_JAPANESE},
     {prefs::kWebKitFixedFontFamilyJapanese, IDS_FIXED_FONT_FAMILY_JAPANESE},
@@ -165,7 +166,7 @@ const FontDefault kFontDefaults[] = {
     {prefs::kWebKitCursiveFontFamilyTraditionalHan,
      IDS_CURSIVE_FONT_FAMILY_TRADITIONAL_HAN},
 #endif
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     {prefs::kWebKitStandardFontFamilyArabic, IDS_STANDARD_FONT_FAMILY_ARABIC},
     {prefs::kWebKitSerifFontFamilyArabic, IDS_SERIF_FONT_FAMILY_ARABIC},
     {prefs::kWebKitSansSerifFontFamilyArabic,
@@ -246,11 +247,11 @@ UScriptCode GetScriptOfBrowserLocale(const std::string& locale) {
 }
 
 // Sets a font family pref in |prefs| to |pref_value|.
-void OverrideFontFamily(WebPreferences* prefs,
+void OverrideFontFamily(blink::web_pref::WebPreferences* prefs,
                         const std::string& generic_family,
                         const std::string& script,
                         const std::string& pref_value) {
-  content::ScriptFontFamilyMap* map = NULL;
+  blink::web_pref::ScriptFontFamilyMap* map = nullptr;
   if (generic_family == "standard")
     map = &prefs->standard_font_family_map;
   else if (generic_family == "fixed")
@@ -297,24 +298,25 @@ PrefsTabHelper::PrefsTabHelper(WebContents* contents)
     ChromeZoomLevelPrefs* zoom_level_prefs =
         profile_to_track->GetZoomLevelPrefs();
 
-    base::Closure renderer_callback = base::Bind(
-        &PrefsTabHelper::UpdateRendererPreferences, base::Unretained(this));
     // Tests should not need to create a ZoomLevelPrefs.
     if (zoom_level_prefs) {
       default_zoom_level_subscription_ =
-          zoom_level_prefs->RegisterDefaultZoomLevelCallback(renderer_callback);
+          zoom_level_prefs->RegisterDefaultZoomLevelCallback(
+              base::BindRepeating(&PrefsTabHelper::UpdateRendererPreferences,
+                                  base::Unretained(this)));
     }
 
     // Unretained is safe because the registrar will be scoped to this class.
     font_change_registrar_.Register(
         FontPrefChangeNotifierFactory::GetForProfile(profile_),
-        base::Bind(&PrefsTabHelper::OnWebPrefChanged, base::Unretained(this)));
+        base::BindRepeating(&PrefsTabHelper::OnWebPrefChanged,
+                            base::Unretained(this)));
 #endif  // !defined(OS_ANDROID)
 
     PrefWatcher::Get(profile_)->RegisterHelper(this);
   }
 
-  blink::mojom::RendererPreferences* render_prefs =
+  blink::RendererPreferences* render_prefs =
       web_contents_->GetMutableRendererPrefs();
   renderer_preferences_util::UpdateFromSystemSettings(render_prefs, profile_);
 
@@ -357,6 +359,7 @@ void PrefsTabHelper::RegisterProfilePrefs(
       prefs::kEnableReferrers,
       !base::FeatureList::IsEnabled(features::kNoReferrers));
   registry->RegisterBooleanPref(prefs::kEnableEncryptedMedia, true);
+  registry->RegisterBooleanPref(prefs::kEnableDRM, true);
   registry->RegisterBooleanPref(prefs::kScrollToTextFragmentEnabled, true);
 #if defined(OS_ANDROID)
   registry->RegisterDoublePref(prefs::kWebKitFontScaleFactor, 1.0);
@@ -448,8 +451,7 @@ void PrefsTabHelper::UpdateWebPreferences() {
 }
 
 void PrefsTabHelper::UpdateRendererPreferences() {
-  blink::mojom::RendererPreferences* prefs =
-      web_contents_->GetMutableRendererPrefs();
+  blink::RendererPreferences* prefs = web_contents_->GetMutableRendererPrefs();
   renderer_preferences_util::UpdateFromSystemSettings(prefs, profile_);
   web_contents_->SyncRendererPrefs();
 }
@@ -475,7 +477,8 @@ void PrefsTabHelper::OnFontFamilyPrefChanged(const std::string& pref_name) {
     PrefService* prefs = profile_->GetPrefs();
     std::string pref_value = prefs->GetString(pref_name);
     if (pref_value.empty()) {
-      WebPreferences web_prefs = web_contents_->GetOrCreateWebPreferences();
+      blink::web_pref::WebPreferences web_prefs =
+          web_contents_->GetOrCreateWebPreferences();
       OverrideFontFamily(&web_prefs, generic_family, script, std::string());
       web_contents_->SetWebPreferences(web_prefs);
       return;

@@ -15,8 +15,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "components/password_manager/core/browser/hash_password_manager.h"
 
-using autofill::PasswordForm;
-
 namespace password_manager {
 
 std::unique_ptr<PasswordForm> PasswordFormFromData(
@@ -63,13 +61,12 @@ std::unique_ptr<PasswordForm> FillPasswordFormWithData(
   return form;
 }
 
-std::unique_ptr<autofill::PasswordForm> CreateEntry(
-    const std::string& username,
-    const std::string& password,
-    const GURL& origin_url,
-    bool is_psl_match,
-    bool is_affiliation_based_match) {
-  auto form = std::make_unique<autofill::PasswordForm>();
+std::unique_ptr<PasswordForm> CreateEntry(const std::string& username,
+                                          const std::string& password,
+                                          const GURL& origin_url,
+                                          bool is_psl_match,
+                                          bool is_affiliation_based_match) {
+  auto form = std::make_unique<PasswordForm>();
   form->username_value = base::ASCIIToUTF16(username);
   form->password_value = base::ASCIIToUTF16(password);
   form->url = origin_url;
@@ -123,7 +120,6 @@ MockPasswordStoreObserver::MockPasswordStoreObserver() = default;
 
 MockPasswordStoreObserver::~MockPasswordStoreObserver() = default;
 
-#if defined(PASSWORD_REUSE_DETECTION_ENABLED)
 MockPasswordReuseDetectorConsumer::MockPasswordReuseDetectorConsumer() =
     default;
 
@@ -160,7 +156,5 @@ void PasswordHashDataMatcher::DescribeNegationTo(::std::ostream* os) const {
     base::Optional<PasswordHashData> expected) {
   return ::testing::MakeMatcher(new PasswordHashDataMatcher(expected));
 }
-
-#endif
 
 }  // namespace password_manager

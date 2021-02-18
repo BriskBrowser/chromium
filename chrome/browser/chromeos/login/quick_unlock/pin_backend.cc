@@ -4,21 +4,21 @@
 
 #include "chrome/browser/chromeos/login/quick_unlock/pin_backend.h"
 
+#include "ash/constants/ash_features.h"
 #include "base/base64.h"
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/string_util.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/login/quick_unlock/pin_storage_cryptohome.h"
 #include "chrome/browser/chromeos/login/quick_unlock/pin_storage_prefs.h"
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_factory.h"
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_storage.h"
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_utils.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "components/account_id/account_id.h"
 #include "components/keep_alive_registry/keep_alive_types.h"
 #include "components/keep_alive_registry/scoped_keep_alive.h"
@@ -184,7 +184,7 @@ void PinBackend::Set(const AccountId& account_id,
   DCHECK(storage);
 
   if (cryptohome_backend_) {
-    // If |user_context| is null, then the token timed out.
+    // If `user_context` is null, then the token timed out.
     const UserContext* user_context = storage->GetUserContext(token);
     if (!user_context) {
       PostResponse(std::move(did_set), false);
@@ -255,7 +255,7 @@ void PinBackend::Remove(const AccountId& account_id,
   UpdatePinAutosubmitOnRemove(account_id);
 
   if (cryptohome_backend_) {
-    // If |user_context| is null, then the token timed out.
+    // If `user_context` is null, then the token timed out.
     const UserContext* user_context = storage->GetUserContext(token);
     if (!user_context) {
       PostResponse(std::move(did_remove), false);

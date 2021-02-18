@@ -46,13 +46,14 @@ class MergeXmlTest(unittest.TestCase):
 <histograms>
 
 <variants name="TestToken">
-  <variant name="Variant1" label="Label1"/>
-  <variant name="Variant2" label="Label2"/>
+  <variant name="Variant1" summary="Label1"/>
+  <variant name="Variant2" summary="Label2"/>
 </variants>
 
 <histogram name="Foo.Bar" units="xxxxxxxxxxxxxxxxxxyyyyyyyyyyyyyyyyyyyyyyzzzz"
     expires_after="M85">
   <owner>person@chromium.org</owner>
+  <component>Component</component>
   <summary>Foo</summary>
 </histogram>
 
@@ -145,13 +146,14 @@ class MergeXmlTest(unittest.TestCase):
 <histograms>
 
 <variants name="TestToken">
-  <variant name="Variant1" label="Label1"/>
-  <variant name="Variant2" label="Label2"/>
+  <variant name="Variant1" summary="Label1"/>
+  <variant name="Variant2" summary="Label2"/>
 </variants>
 
 <histogram name="Foo.Bar" units="xxxxxxxxxxxxxxxxxxyyyyyyyyyyyyyyyyyyyyyyzzzz"
     expires_after="M85">
   <owner>person@chromium.org</owner>
+  <component>Component</component>
   <summary>Foo</summary>
 </histogram>
 

@@ -7,15 +7,13 @@
 #include <utility>
 #include <vector>
 
+#include "base/logging.h"
 #include "chrome/browser/ui/app_list/chrome_app_list_item.h"
 #include "components/sync/protocol/sync.pb.h"
 
 AppListModelBuilder::AppListModelBuilder(AppListControllerDelegate* controller,
                                          const char* item_type)
     : controller_(controller), item_type_(item_type) {}
-
-AppListModelBuilder::~AppListModelBuilder() {
-}
 
 void AppListModelBuilder::Initialize(app_list::AppListSyncableService* service,
                                      Profile* profile,

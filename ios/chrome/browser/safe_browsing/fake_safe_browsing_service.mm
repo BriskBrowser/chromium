@@ -4,7 +4,7 @@
 
 #include "ios/chrome/browser/safe_browsing/fake_safe_browsing_service.h"
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "components/safe_browsing/core/browser/safe_browsing_url_checker_impl.h"
 #include "components/safe_browsing/core/db/test_database_manager.h"
 #import "ios/chrome/browser/safe_browsing/url_checker_delegate_impl.h"
@@ -22,12 +22,13 @@ class FakeSafeBrowsingUrlCheckerImpl
     : public safe_browsing::SafeBrowsingUrlCheckerImpl {
  public:
   explicit FakeSafeBrowsingUrlCheckerImpl(
-      safe_browsing::ResourceType resource_type)
+      network::mojom::RequestDestination request_destination)
       : SafeBrowsingUrlCheckerImpl(
-            resource_type,
+            request_destination,
             base::MakeRefCounted<UrlCheckerDelegateImpl>(
                 /*database_manager=*/nullptr),
-            base::Bind([]() { return static_cast<web::WebState*>(nullptr); }),
+            base::BindRepeating(
+                []() { return static_cast<web::WebState*>(nullptr); }),
             /*real_time_lookup_enabled=*/false,
             /*can_rt_check_subresource_url=*/false,
             /*url_lookup_service_on_ui=*/nullptr) {}
@@ -70,9 +71,9 @@ void FakeSafeBrowsingService::ShutDown() {
 
 std::unique_ptr<safe_browsing::SafeBrowsingUrlCheckerImpl>
 FakeSafeBrowsingService::CreateUrlChecker(
-    safe_browsing::ResourceType resource_type,
+    network::mojom::RequestDestination request_destination,
     web::WebState* web_state) {
-  return std::make_unique<FakeSafeBrowsingUrlCheckerImpl>(resource_type);
+  return std::make_unique<FakeSafeBrowsingUrlCheckerImpl>(request_destination);
 }
 
 bool FakeSafeBrowsingService::CanCheckUrl(const GURL& url) const {
@@ -86,8 +87,14 @@ FakeSafeBrowsingService::GetURLLoaderFactory() {
       &url_loader_factory_);
 }
 
+scoped_refptr<safe_browsing::SafeBrowsingDatabaseManager>
+FakeSafeBrowsingService::GetDatabaseManager() {
+  return nil;
+}
+
 void FakeSafeBrowsingService::ClearCookies(
     const net::CookieDeletionInfo::TimeRange& creation_range,
     base::OnceClosure callback) {
   DCHECK_CURRENTLY_ON(web::WebThread::UI);
+  std::move(callback).Run();
 }

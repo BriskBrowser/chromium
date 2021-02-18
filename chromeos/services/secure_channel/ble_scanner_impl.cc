@@ -9,6 +9,8 @@
 
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
+#include "base/strings/strcat.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "chromeos/components/multidevice/logging/logging.h"
 #include "chromeos/components/multidevice/remote_device_ref.h"
@@ -25,7 +27,7 @@ namespace secure_channel {
 
 namespace {
 
-// TODO(hansberry): Share this constant with BleServiceDataHelper.
+// TODO(hansberry): Share this constant with BluetoothHelper.
 const size_t kMinNumBytesInServiceData = 2;
 
 }  // namespace
@@ -35,17 +37,16 @@ BleScannerImpl::Factory* BleScannerImpl::Factory::test_factory_ = nullptr;
 
 // static
 std::unique_ptr<BleScanner> BleScannerImpl::Factory::Create(
-    Delegate* delegate,
-    BleServiceDataHelper* service_data_helper,
+    BluetoothHelper* bluetooth_helper,
     BleSynchronizerBase* ble_synchronizer,
     scoped_refptr<device::BluetoothAdapter> adapter) {
   if (test_factory_) {
-    return test_factory_->CreateInstance(delegate, service_data_helper,
-                                         ble_synchronizer, adapter);
+    return test_factory_->CreateInstance(bluetooth_helper, ble_synchronizer,
+                                         adapter);
   }
 
-  return base::WrapUnique(new BleScannerImpl(delegate, service_data_helper,
-                                             ble_synchronizer, adapter));
+  return base::WrapUnique(
+      new BleScannerImpl(bluetooth_helper, ble_synchronizer, adapter));
 }
 
 // static
@@ -64,12 +65,10 @@ BleScannerImpl::ServiceDataProvider::ExtractProximityAuthServiceData(
       device::BluetoothUUID(kAdvertisingServiceUuid));
 }
 
-BleScannerImpl::BleScannerImpl(Delegate* delegate,
-                               BleServiceDataHelper* service_data_helper,
+BleScannerImpl::BleScannerImpl(BluetoothHelper* bluetooth_helper,
                                BleSynchronizerBase* ble_synchronizer,
                                scoped_refptr<device::BluetoothAdapter> adapter)
-    : BleScanner(delegate),
-      service_data_helper_(service_data_helper),
+    : bluetooth_helper_(bluetooth_helper),
       ble_synchronizer_(ble_synchronizer),
       adapter_(adapter),
       service_data_provider_(std::make_unique<ServiceDataProvider>()) {
@@ -80,7 +79,15 @@ BleScannerImpl::~BleScannerImpl() {
   adapter_->RemoveObserver(this);
 }
 
-void BleScannerImpl::HandleScanFilterChange() {
+void BleScannerImpl::HandleScanRequestChange() {
+  if (GetAllDeviceIdPairs().empty()) {
+    PA_LOG(INFO) << "No devices to scan for";
+  } else {
+    PA_LOG(INFO) << "Scanning for: "
+                 << bluetooth_helper_->ExpectedServiceDataToString(
+                        GetAllDeviceIdPairs());
+  }
+
   UpdateDiscoveryStatus();
 }
 
@@ -205,11 +212,11 @@ void BleScannerImpl::HandleDeviceUpdated(
       base::WriteInto(&service_data_str, service_data->size() + 1);
   memcpy(string_contents_ptr, service_data->data(), service_data->size());
 
-  auto potential_result = service_data_helper_->IdentifyRemoteDevice(
+  auto potential_result = bluetooth_helper_->IdentifyRemoteDevice(
       service_data_str, GetAllDeviceIdPairs());
 
   // There was service data for the ProximityAuth UUID, but it did not apply to
-  // any active scan filters. The advertisement was likely from a nearby device
+  // any active scan requests. The advertisement was likely from a nearby device
   // attempting a ProximityAuth connection for another account.
   if (!potential_result)
     return;
@@ -220,42 +227,56 @@ void BleScannerImpl::HandleDeviceUpdated(
 
 void BleScannerImpl::HandlePotentialScanResult(
     const std::string& service_data,
-    const BleServiceDataHelper::DeviceWithBackgroundBool& potential_result,
+    const BluetoothHelper::DeviceWithBackgroundBool& potential_result,
     device::BluetoothDevice* bluetooth_device) {
-  // Background advertisements correspond to the listener role; foreground
-  // advertisements correspond to the initiator role.
-  ConnectionRole connection_role = potential_result.second
-                                       ? ConnectionRole::kListenerRole
-                                       : ConnectionRole::kInitiatorRole;
+  std::vector<std::pair<ConnectionMedium, ConnectionRole>> results;
 
-  // Check to see if a corresponding scan filter exists. At this point, it is
+  // Check to see if a corresponding scan request exists. At this point, it is
   // possible that a scan result was received for the correct DeviceIdPair but
-  // incorrect ConnectionRole.
-  bool does_corresponding_scan_filter_exist = false;
-  for (const auto& scan_filter : scan_filters()) {
-    if (scan_filter.first.remote_device_id() !=
+  // incorrect ConnectionMedium and/or ConnectionRole.
+  for (const auto& scan_request : scan_requests()) {
+    if (scan_request.remote_device_id() !=
         potential_result.first.GetDeviceId()) {
       continue;
     }
 
-    if (scan_filter.second == connection_role) {
-      does_corresponding_scan_filter_exist = true;
-      break;
+    switch (scan_request.connection_medium()) {
+      // BLE scans for background advertisements in the listener role and for
+      // foreground advertisements in the initiator role.
+      case ConnectionMedium::kBluetoothLowEnergy:
+        if (potential_result.second &&
+            scan_request.connection_role() == ConnectionRole::kListenerRole) {
+          results.emplace_back(ConnectionMedium::kBluetoothLowEnergy,
+                               ConnectionRole::kListenerRole);
+        } else if (!potential_result.second &&
+                   scan_request.connection_role() ==
+                       ConnectionRole::kInitiatorRole) {
+          results.emplace_back(ConnectionMedium::kBluetoothLowEnergy,
+                               ConnectionRole::kInitiatorRole);
+        }
+        break;
+
+      // Nearby Connections scans for background advertisements in the initiator
+      // role and does not have support for the listener role.
+      case ConnectionMedium::kNearbyConnections:
+        DCHECK_EQ(ConnectionRole::kInitiatorRole,
+                  scan_request.connection_role());
+        results.emplace_back(ConnectionMedium::kNearbyConnections,
+                             ConnectionRole::kInitiatorRole);
+        break;
     }
   }
 
   // Prepare a hex string of |service_data|.
-  std::stringstream ss;
-  ss << "0x" << std::hex;
-  for (const auto& character : service_data)
-    ss << static_cast<uint32_t>(character);
+  std::string hex_service_data = base::StrCat(
+      {"0x", base::HexEncode(service_data.data(), service_data.size())});
 
-  if (!does_corresponding_scan_filter_exist) {
+  if (results.empty()) {
     PA_LOG(WARNING) << "BleScannerImpl::HandleDeviceUpdated(): Received scan "
                     << "result from device with ID \""
                     << potential_result.first.GetTruncatedDeviceIdForLogs()
                     << "\", but it did not correspond to an active scan "
-                    << "filter. Service data: " << ss.str()
+                    << "request. Service data: " << hex_service_data
                     << ", Background advertisement: "
                     << (potential_result.second ? "true" : "false");
     return;
@@ -264,12 +285,14 @@ void BleScannerImpl::HandlePotentialScanResult(
   PA_LOG(INFO) << "BleScannerImpl::HandleDeviceUpdated(): Received scan result "
                << "from device with ID \""
                << potential_result.first.GetTruncatedDeviceIdForLogs() << "\""
-               << ". Service data: " << ss.str()
+               << ". Service data: " << hex_service_data
                << ", Background advertisement: "
                << (potential_result.second ? "true" : "false");
 
-  NotifyReceivedAdvertisementFromDevice(potential_result.first,
-                                        bluetooth_device, connection_role);
+  for (const std::pair<ConnectionMedium, ConnectionRole>& result : results) {
+    NotifyReceivedAdvertisementFromDevice(
+        potential_result.first, bluetooth_device, result.first, result.second);
+  }
 }
 
 void BleScannerImpl::SetServiceDataProviderForTesting(

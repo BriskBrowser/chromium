@@ -11,6 +11,7 @@
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/bubble/bubble_frame_view.h"
 #include "ui/views/bubble/info_bubble.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/mouse_watcher_view_host.h"
 
 namespace views {
@@ -97,7 +98,7 @@ void TooltipIcon::ShowBubble() {
   bubble_->SetCanActivate(!mouse_inside_);
 
   bubble_->Show();
-  observer_.Add(bubble_->GetWidget());
+  observation_.Observe(bubble_->GetWidget());
 
   if (mouse_inside_) {
     View* frame = bubble_->GetWidget()->non_client_view()->frame_view();
@@ -116,7 +117,8 @@ void TooltipIcon::HideBubble() {
 }
 
 void TooltipIcon::OnWidgetDestroyed(Widget* widget) {
-  observer_.Remove(widget);
+  DCHECK(observation_.IsObservingSource(widget));
+  observation_.Reset();
 
   SetDrawAsHovered(false);
   mouse_watcher_.reset();
@@ -124,6 +126,6 @@ void TooltipIcon::OnWidgetDestroyed(Widget* widget) {
 }
 
 BEGIN_METADATA(TooltipIcon, ImageView)
-END_METADATA()
+END_METADATA
 
 }  // namespace views

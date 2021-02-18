@@ -12,9 +12,11 @@
 
 #include "base/macros.h"
 #include "base/observer_list_types.h"
-#include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
+#include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/arc/input_method_manager/arc_input_method_manager_bridge.h"
+#include "chrome/browser/chromeos/arc/input_method_manager/arc_input_method_state.h"
 #include "chrome/browser/chromeos/arc/input_method_manager/input_connection_impl.h"
+#include "chrome/browser/chromeos/arc/input_method_manager/input_method_prefs.h"
 #include "chrome/browser/chromeos/input_method/input_method_engine.h"
 #include "components/arc/mojom/input_method_manager.mojom-forward.h"
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
@@ -92,7 +94,7 @@ class ArcInputMethodManagerService
   // Called when a11y keyboard option changed and disables ARC IME while a11y
   // keyboard option is enabled.
   void OnAccessibilityStatusChanged(
-      const chromeos::AccessibilityStatusEventDetails& event_details);
+      const AccessibilityStatusEventDetails& event_details);
 
   void OnArcInputMethodBoundsChanged(const gfx::Rect& bounds);
 
@@ -114,18 +116,11 @@ class ArcInputMethodManagerService
   mojom::TextInputStatePtr GetTextInputState(
       bool is_input_state_update_requested);
 
-  // Removes ARC IME from IME related prefs that are current active IME pref,
-  // previous active IME pref, enabled IME list pref and preloading IME list
-  // pref.
-  void RemoveArcIMEFromPrefs();
-  void RemoveArcIMEFromPref(const char* pref_name);
+  void OnTabletModeToggled(bool enabled);
 
-  // Calls InputMethodManager.SetAllowedInputMethods according to the return
-  // value of ShouldArcImeAllowed().
-  void UpdateArcIMEAllowed();
-  // Returns whether ARC IMEs should be allowed now or not.
-  // It depends on tablet mode state and a11y keyboard option.
-  bool ShouldArcIMEAllowed() const;
+  // Update the descriptors in IMM and the prefs according to
+  // |arc_ime_state_|.
+  void UpdateInputMethodEntryWithImeInfo();
 
   // Notifies InputMethodManager's observers of possible ARC IME state changes.
   void NotifyInputMethodManagerObservers(bool is_tablet_mode);
@@ -139,7 +134,9 @@ class ArcInputMethodManagerService
 
   std::unique_ptr<ArcInputMethodManagerBridge> imm_bridge_;
   std::set<std::string> active_arc_ime_ids_;
-  std::set<std::string> ime_ids_allowed_in_clamshell_mode_;
+  std::unique_ptr<ArcInputMethodState::Delegate> arc_ime_state_delegate_;
+  ArcInputMethodState arc_ime_state_;
+  InputMethodPrefs prefs_;
   bool is_virtual_keyboard_shown_;
   // This flag is set to true while updating ARC IMEs entries in IMM to avoid
   // exposing incomplete state.
@@ -164,8 +161,7 @@ class ArcInputMethodManagerService
 
   std::unique_ptr<ArcInputMethodBoundsObserver> input_method_bounds_observer_;
 
-  std::unique_ptr<chromeos::AccessibilityStatusSubscription>
-      accessibility_status_subscription_;
+  base::CallbackListSubscription accessibility_status_subscription_;
 
   base::ObserverList<Observer> observers_;
 

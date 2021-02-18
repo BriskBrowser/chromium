@@ -4,7 +4,7 @@ Initial state:
 Application
   Manifest (selected)
   Service Workers
-  Clear storage
+  Storage
 Storage
   Local Storage
     http://127.0.0.1:8000
@@ -14,6 +14,7 @@ Storage
   Web SQL
   Cookies
     http://127.0.0.1:8000
+  Trust Tokens
 Cache
   Cache Storage
   Application Cache
@@ -36,7 +37,7 @@ Revealed json-value.js:
 Application
   Manifest
   Service Workers
-  Clear storage
+  Storage
 Storage
   Local Storage
     http://127.0.0.1:8000
@@ -46,6 +47,7 @@ Storage
   Web SQL
   Cookies
     http://127.0.0.1:8000
+  Trust Tokens
 Cache
   Cache Storage
   Application Cache
@@ -68,7 +70,7 @@ Revealed image.png:
 Application
   Manifest
   Service Workers
-  Clear storage
+  Storage
 Storage
   Local Storage
     http://127.0.0.1:8000
@@ -78,6 +80,7 @@ Storage
   Web SQL
   Cookies
     http://127.0.0.1:8000
+  Trust Tokens
 Cache
   Cache Storage
   Application Cache
@@ -100,7 +103,7 @@ Revealed resources-panel-resource-preview.js:
 Application
   Manifest
   Service Workers
-  Clear storage
+  Storage
 Storage
   Local Storage
     http://127.0.0.1:8000
@@ -110,6 +113,7 @@ Storage
   Web SQL
   Cookies
     http://127.0.0.1:8000
+  Trust Tokens
 Cache
   Cache Storage
   Application Cache

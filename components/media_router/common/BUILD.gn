@@ -39,6 +39,8 @@ static_library("common") {
       "discovery/media_sink_service_base.h",
       "discovery/media_sink_service_util.cc",
       "discovery/media_sink_service_util.h",
+      "pref_names.cc",
+      "pref_names.h",
       "providers/cast/cast_media_source.cc",
       "providers/cast/cast_media_source.h",
     ]
@@ -52,9 +54,12 @@ static_library("test_support") {
   deps = [
     "//base",
     "//base/test:test_support",
+    "//components/media_router/common/mojom:logger",
   ]
   public_deps = [ ":common" ]
   sources = [
+    "test/mock_logger.cc",
+    "test/mock_logger.h",
     "test/test_helper.cc",
     "test/test_helper.h",
   ]
@@ -86,6 +91,7 @@ source_set("unit_tests") {
     ]
 
     deps += [
+      "//components/cast_channel:cast_channel",
       "//components/media_router/common/mojom:media_router_test_interfaces",
     ]
   }

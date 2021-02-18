@@ -19,7 +19,6 @@
 #include "components/prefs/pref_member.h"
 #include "ios/chrome/browser/ios_chrome_io_thread.h"
 #include "ios/chrome/browser/net/net_types.h"
-#include "net/cert/ct_verifier.h"
 #include "net/cookies/cookie_monster.h"
 #include "net/http/http_cache.h"
 #include "net/http/http_network_session.h"
@@ -48,7 +47,7 @@ class ReportSender;
 class SystemCookieStore;
 class TransportSecurityPersister;
 class TransportSecurityState;
-class URLRequestJobFactoryImpl;
+class URLRequestJobFactory;
 }  // namespace net
 
 // Conceptually speaking, the ChromeBrowserStateIOData represents data that
@@ -67,9 +66,8 @@ class ChromeBrowserStateIOData {
   // Utility to install additional WebUI handlers into the |job_factory|.
   // Ownership of the handlers is transferred from |protocol_handlers|
   // to the |job_factory|.
-  static void InstallProtocolHandlers(
-      net::URLRequestJobFactoryImpl* job_factory,
-      ProtocolHandlerMap* protocol_handlers);
+  static void InstallProtocolHandlers(net::URLRequestJobFactory* job_factory,
+                                      ProtocolHandlerMap* protocol_handlers);
 
   // Initializes the ChromeBrowserStateIOData object and primes the
   // RequestContext generation. Must be called prior to any of the Get*()
@@ -244,7 +242,6 @@ class ChromeBrowserStateIOData {
       proxy_resolution_service_;
   mutable std::unique_ptr<net::TransportSecurityState>
       transport_security_state_;
-  mutable std::unique_ptr<net::CTVerifier> cert_transparency_verifier_;
   mutable std::unique_ptr<net::HttpServerProperties> http_server_properties_;
   mutable std::unique_ptr<net::TransportSecurityPersister>
       transport_security_persister_;

@@ -8,8 +8,8 @@
 #include <memory>
 #include <set>
 
+#include "base/callback_forward.h"
 #include "base/compiler_specific.h"
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "chrome/browser/ui/bookmarks/bookmark_bar.h"
@@ -23,9 +23,9 @@
 #include "ui/views/accessible_pane_view.h"
 #include "ui/views/animation/animation_delegate_views.h"
 #include "ui/views/context_menu_controller.h"
-#include "ui/views/controls/button/button.h"
 #include "ui/views/controls/menu/menu_types.h"
 #include "ui/views/drag_controller.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 
 class BookmarkBarViewObserver;
 class BookmarkBarViewTestHelper;
@@ -70,35 +70,13 @@ class BookmarkBarView : public views::AccessiblePaneView,
                         public BookmarkMenuControllerObserver,
                         public bookmarks::BookmarkBubbleObserver {
  public:
-  // TODO(pbos): Get rid of these proxy classes by unifying a single
-  // ButtonPressed to handle all buttons. This class only exists to forward
-  // events into ::OnButtonPressed.
-  class ButtonListener : public views::ButtonListener {
-   public:
-    explicit ButtonListener(BookmarkBarView* parent);
-    void ButtonPressed(views::Button* source, const ui::Event& event) override;
+  class ButtonSeparatorView;
 
-   private:
-    BookmarkBarView* const parent_;
-  };
-
-  // TODO(pbos): Get rid of these proxy classes by unifying a single
-  // ButtonPressed to handle all buttons. This class only exists to forward
-  // events into ::OnMenuButtonPressed.
-  class MenuButtonListener : public views::ButtonListener {
-   public:
-    explicit MenuButtonListener(BookmarkBarView* parent);
-    void ButtonPressed(views::Button* source, const ui::Event& event) override;
-
-   private:
-    BookmarkBarView* const parent_;
-  };
-
-  // The internal view class name.
-  static const char kViewClassName[];
-
+  METADATA_HEADER(BookmarkBarView);
   // |browser_view| can be NULL during tests.
   BookmarkBarView(Browser* browser, BrowserView* browser_view);
+  BookmarkBarView(const BookmarkBarView&) = delete;
+  BookmarkBarView& operator=(const BookmarkBarView&) = delete;
   ~BookmarkBarView() override;
 
   static void DisableAnimationsForTesting(bool disabled);
@@ -116,6 +94,7 @@ class BookmarkBarView : public views::AccessiblePaneView,
   // Sets whether the containing browser is showing an infobar.  This affects
   // layout during animation.
   void SetInfoBarVisible(bool infobar_visible);
+  bool GetInfoBarVisible() const;
 
   // Changes the state of the bookmark bar.
   void SetBookmarkBarState(BookmarkBar::State state,
@@ -189,9 +168,9 @@ class BookmarkBarView : public views::AccessiblePaneView,
   void OnDragEntered(const ui::DropTargetEvent& event) override;
   int OnDragUpdated(const ui::DropTargetEvent& event) override;
   void OnDragExited() override;
-  int OnPerformDrop(const ui::DropTargetEvent& event) override;
+  ui::mojom::DragOperation OnPerformDrop(
+      const ui::DropTargetEvent& event) override;
   void OnThemeChanged() override;
-  const char* GetClassName() const override;
   void VisibilityChanged(View* starting_from, bool is_visible) override;
 
   // AccessiblePaneView:
@@ -252,7 +231,6 @@ class BookmarkBarView : public views::AccessiblePaneView,
                                   ui::MenuSourceType source_type) override;
 
  private:
-  class ButtonSeparatorView;
   struct DropInfo;
   struct DropLocation;
 
@@ -266,8 +244,11 @@ class BookmarkBarView : public views::AccessiblePaneView,
   // calculating the preferred height.
   void Init();
 
-  void OnButtonPressed(views::Button* sender, const ui::Event& event);
-  void OnMenuButtonPressed(views::Button* sender, const ui::Event& event);
+  void AppsPageShortcutPressed(const ui::Event& event);
+  void OnButtonPressed(const bookmarks::BookmarkNode* node,
+                       const ui::Event& event);
+  void OnMenuButtonPressed(const bookmarks::BookmarkNode* node,
+                           const ui::Event& event);
 
   // NOTE: unless otherwise stated all methods that take an index are in terms
   // of the bookmark bar view. Typically the view index and model index are the
@@ -278,7 +259,7 @@ class BookmarkBarView : public views::AccessiblePaneView,
 
   // Returns the index of the first hidden bookmark button. If all buttons are
   // visible, this returns GetBookmarkButtonCount().
-  size_t GetFirstHiddenNodeIndex();
+  size_t GetFirstHiddenNodeIndex() const;
 
   // Creates the button showing the "Other Bookmarks" folder.
   std::unique_ptr<views::MenuButton> CreateOtherBookmarksButton();
@@ -384,9 +365,12 @@ class BookmarkBarView : public views::AccessiblePaneView,
   // or size_t{-1} if |button| is not a bookmark button from this bar.
   size_t GetIndexForButton(views::View* button);
 
-  // These forward button callbacks into ::On{Menu}ButtonPressed.
-  ButtonListener button_listener_{this};
-  MenuButtonListener menu_button_listener_{this};
+  // Returns a callback that fetches the content::PageNavigator for
+  // opening bookmarks. This callback is passed to menus, eventually
+  // used by chrome::OpenAllIfAllowed(). A callback is used since
+  // opening many bookmarks is asynchronous and |page_navigator_| may
+  // change in the meantime.
+  base::RepeatingCallback<content::PageNavigator*()> GetPageNavigatorGetter();
 
   // Needed to react to kShowAppsShortcutInBookmarkBar changes.
   PrefChangeRegistrar profile_pref_registrar_;
@@ -458,7 +442,9 @@ class BookmarkBarView : public views::AccessiblePaneView,
   // Factory used to delay showing of the drop menu.
   base::WeakPtrFactory<BookmarkBarView> show_folder_method_factory_{this};
 
-  DISALLOW_COPY_AND_ASSIGN(BookmarkBarView);
+  // Returns WeakPtrs used in GetPageNavigatorGetter(). Used to ensure
+  // safety if BookmarkBarView is deleted after getting the callback.
+  base::WeakPtrFactory<BookmarkBarView> weak_ptr_factory_{this};
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_BOOKMARKS_BOOKMARK_BAR_VIEW_H_

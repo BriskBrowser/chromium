@@ -20,6 +20,7 @@
 #include "base/unguessable_token.h"
 #include "build/build_config.h"
 #include "ipc/ipc_param_traits.h"
+#include "third_party/perfetto/include/perfetto/tracing/traced_value_forward.h"
 #include "url/scheme_host_port.h"
 #include "url/third_party/mozilla/url_parse.h"
 #include "url/url_canon.h"
@@ -56,8 +57,7 @@ struct UrlOriginAdapter;
 }  // namespace mojo
 
 namespace net {
-class NetworkIsolationKey;
-class OpaqueNonTransientNetworkIsolationKeyTest;
+class SchemefulSite;
 }  // namespace net
 
 namespace url {
@@ -296,10 +296,13 @@ class COMPONENT_EXPORT(URL) Origin {
       const base::android::JavaRef<jobject>& java_origin);
 #endif  // OS_ANDROID
 
+  void WriteIntoTracedValue(perfetto::TracedValue context) const;
+
  private:
   friend class blink::SecurityOrigin;
-  friend class net::NetworkIsolationKey;
-  friend class net::OpaqueNonTransientNetworkIsolationKeyTest;
+  // SchemefulSite needs access to the serialization/deserialization logic which
+  // includes the nonce.
+  friend class net::SchemefulSite;
   friend class OriginTest;
   friend struct mojo::UrlOriginAdapter;
   friend struct ipc_fuzzer::FuzzTraits<Origin>;
@@ -395,10 +398,16 @@ class COMPONENT_EXPORT(URL) Origin {
   base::Optional<base::UnguessableToken> GetNonceForSerialization() const;
 
   // Serializes this Origin, including its nonce if it is opaque. If an opaque
-  // origin's |tuple_| is invalid or the nonce isn't initialized, nullopt is
-  // returned. Use of this method should be limited as an opaque origin will
-  // never be matchable in future browser sessions.
+  // origin's |tuple_| is invalid nullopt is returned. If the nonce is not
+  // initialized, a nonce of 0 is used. Use of this method should be limited as
+  // an opaque origin will never be matchable in future browser sessions.
   base::Optional<std::string> SerializeWithNonce() const;
+
+  // Like SerializeWithNonce(), but forces |nonce_| to be initialized prior to
+  // serializing.
+  base::Optional<std::string> SerializeWithNonceAndInitIfNeeded();
+
+  base::Optional<std::string> SerializeWithNonceImpl() const;
 
   // Deserializes an origin from |ToValueWithNonce|. Returns nullopt if the
   // value was invalid in any way.

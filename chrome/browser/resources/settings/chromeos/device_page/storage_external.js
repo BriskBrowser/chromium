@@ -19,7 +19,7 @@ Polymer({
   properties: {
     /**
      * List of the plugged-in external storages.
-     * @private {Arrray<!settings.ExternalStorage>}
+     * @private {Array<!settings.ExternalStorage>}
      */
     externalStorages_: {
       type: Array,
@@ -61,13 +61,13 @@ Polymer({
   },
 
   /**
-   * @param {Arrray<!settings.ExternalStorage>} externalStorages
+   * @param {Array<!settings.ExternalStorage>} externalStorages
    * @return {string}
    * @private
    */
   computeStorageListHeader_(externalStorages) {
     return this.i18n(
-        !externalStorages || externalStorages.length == 0 ?
+        !externalStorages || externalStorages.length === 0 ?
             'storageExternalStorageEmptyListHeader' :
             'storageExternalStorageListHeader');
   },

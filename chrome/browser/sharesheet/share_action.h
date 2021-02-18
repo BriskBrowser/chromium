@@ -8,8 +8,11 @@
 #include "base/strings/string16.h"
 #include "chrome/browser/sharesheet/sharesheet_controller.h"
 #include "components/services/app_service/public/mojom/types.mojom.h"
-#include "ui/gfx/image/image_skia.h"
 #include "ui/views/view.h"
+
+namespace gfx {
+struct VectorIcon;
+}
 
 namespace sharesheet {
 
@@ -20,8 +23,7 @@ class ShareAction {
 
   virtual const base::string16 GetActionName() = 0;
 
-  // Icon DIP (Density Independent Pixel) size must be 40 x 40.
-  virtual const gfx::ImageSkia GetActionIcon() = 0;
+  virtual const gfx::VectorIcon& GetActionIcon() = 0;
 
   // LaunchAction should synchronously create all UI needed and fill
   // the |root_view|. Methods on |controller| can be used to inform
@@ -45,6 +47,12 @@ class ShareAction {
   // shutdown when OnClosing is called, and not use |root_view| or |controller|
   // once the method completes as they will be destroyed.
   virtual void OnClosing(SharesheetController* controller) = 0;
+
+  // Return true if the action should be shown on the sharesheet. By default,
+  // the actions are only visible if the files don't contain a Google Drive
+  // hosted document.
+  virtual bool ShouldShowAction(const apps::mojom::IntentPtr& intent,
+                                bool contains_hosted_document);
 };
 
 }  // namespace sharesheet

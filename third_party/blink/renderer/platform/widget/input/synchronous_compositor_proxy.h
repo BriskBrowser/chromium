@@ -19,7 +19,7 @@
 #include "third_party/blink/public/mojom/input/input_event_result.mojom-shared.h"
 #include "third_party/blink/public/mojom/input/synchronous_compositor.mojom-blink.h"
 #include "third_party/blink/public/platform/input/synchronous_input_handler_proxy.h"
-#include "third_party/blink/public/platform/input/synchronous_layer_tree_frame_sink.h"
+#include "third_party/blink/renderer/platform/widget/compositing/android_webview/synchronous_layer_tree_frame_sink.h"
 #include "ui/gfx/geometry/scroll_offset.h"
 #include "ui/gfx/geometry/size_f.h"
 
@@ -59,6 +59,7 @@ class SynchronousCompositorProxy : public blink::SynchronousInputHandler,
   void Invalidate(bool needs_draw) final;
   void SubmitCompositorFrame(
       uint32_t layer_tree_frame_sink_id,
+      const viz::LocalSurfaceId& local_surface_id,
       base::Optional<viz::CompositorFrame> frame,
       base::Optional<viz::HitTestRegionList> hit_test_region_list) final;
   void SetNeedsBeginFrames(bool needs_begin_frames) final;
@@ -99,6 +100,7 @@ class SynchronousCompositorProxy : public blink::SynchronousInputHandler,
       mojom::blink::SyncCompositorCommonRendererParamsPtr,
       uint32_t layer_tree_frame_sink_id,
       uint32_t metadata_version,
+      const base::Optional<viz::LocalSurfaceId>& local_surface_id,
       base::Optional<viz::CompositorFrame>,
       base::Optional<viz::HitTestRegionList> hit_test_region_list);
 

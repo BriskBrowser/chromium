@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/views/toolbar/home_button.h"
 
+#include "base/bind.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/vector_icons/vector_icons.h"
@@ -16,22 +17,23 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_prefs/user_prefs.h"
-#include "ui/base/dragdrop/drag_drop_types.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/models/menu_model.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/controls/styled_label.h"
-#include "ui/views/controls/styled_label_listener.h"
 #include "ui/views/layout/fill_layout.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 
 // HomePageUndoBubble --------------------------------------------------------
 
 namespace {
 
-class HomePageUndoBubble : public views::BubbleDialogDelegateView,
-                           public views::StyledLabelListener {
+class HomePageUndoBubble : public views::BubbleDialogDelegateView {
  public:
+  METADATA_HEADER(HomePageUndoBubble);
   HomePageUndoBubble(const HomePageUndoBubble&) = delete;
   HomePageUndoBubble& operator=(const HomePageUndoBubble&) = delete;
 
@@ -50,10 +52,8 @@ class HomePageUndoBubble : public views::BubbleDialogDelegateView,
   void Init() override;
   void WindowClosing() override;
 
-  // views::StyledLabelListener:
-  void StyledLabelLinkClicked(views::StyledLabel* label,
-                              const gfx::Range& range,
-                              int event_flags) override;
+  // Called when the "undo" link is clicked.
+  void UndoClicked();
 
   static HomePageUndoBubble* home_page_undo_bubble_;
 
@@ -91,6 +91,7 @@ HomePageUndoBubble::HomePageUndoBubble(
       browser_(browser),
       undo_value_is_ntp_(undo_value_is_ntp),
       undo_url_(undo_url) {
+  DCHECK(browser_);
   SetButtons(ui::DIALOG_BUTTON_NONE);
   set_margins(
       ChromeLayoutProvider::Get()->GetInsetsMetric(views::INSETS_DIALOG));
@@ -107,22 +108,22 @@ void HomePageUndoBubble::Init() {
   std::vector<base::string16> message = {
       l10n_util::GetStringUTF16(IDS_TOOLBAR_INFORM_SET_HOME_PAGE), undo_string};
   views::StyledLabel* label =
-      AddChildView(std::make_unique<views::StyledLabel>(this));
+      AddChildView(std::make_unique<views::StyledLabel>());
   label->SetText(
       base::JoinString(message, base::StringPiece16(base::ASCIIToUTF16(" "))));
 
   gfx::Range undo_range(label->GetText().length() - undo_string.length(),
                         label->GetText().length());
-  label->AddStyleRange(undo_range,
-                       views::StyledLabel::RangeStyleInfo::CreateForLink());
+  label->AddStyleRange(
+      undo_range,
+      views::StyledLabel::RangeStyleInfo::CreateForLink(base::BindRepeating(
+          &HomePageUndoBubble::UndoClicked, base::Unretained(this))));
 
   // Ensure StyledLabel has a cached size to return in GetPreferredSize().
   label->SizeToFit(0);
 }
 
-void HomePageUndoBubble::StyledLabelLinkClicked(views::StyledLabel* label,
-                                                const gfx::Range& range,
-                                                int event_flags) {
+void HomePageUndoBubble::UndoClicked() {
   PrefService* prefs = user_prefs::UserPrefs::Get(browser_->profile());
   prefs->SetBoolean(prefs::kHomePageIsNewTabPage, undo_value_is_ntp_);
   prefs->SetString(prefs::kHomePage, undo_url_.spec());
@@ -140,15 +141,18 @@ void HomePageUndoBubble::WindowClosing() {
   home_page_undo_bubble_ = nullptr;
 }
 
+BEGIN_METADATA(HomePageUndoBubble, views::BubbleDialogDelegateView)
+END_METADATA
+
 }  // namespace
 
 
 // HomeButton -----------------------------------------------------------
 
-HomeButton::HomeButton(views::ButtonListener* listener, Browser* browser)
-    : ToolbarButton(listener), browser_(browser) {
-  set_triggerable_event_flags(ui::EF_LEFT_MOUSE_BUTTON |
-                              ui::EF_MIDDLE_MOUSE_BUTTON);
+HomeButton::HomeButton(PressedCallback callback, Browser* browser)
+    : ToolbarButton(std::move(callback)), browser_(browser) {
+  SetTriggerableEventFlags(ui::EF_LEFT_MOUSE_BUTTON |
+                           ui::EF_MIDDLE_MOUSE_BUTTON);
   SetTooltipText(l10n_util::GetStringUTF16(IDS_TOOLTIP_HOME));
   SetAccessibleName(l10n_util::GetStringUTF16(IDS_ACCNAME_HOME));
   SetID(VIEW_ID_HOME_BUTTON);
@@ -156,10 +160,6 @@ HomeButton::HomeButton(views::ButtonListener* listener, Browser* browser)
 }
 
 HomeButton::~HomeButton() {
-}
-
-const char* HomeButton::GetClassName() const {
-  return "HomeButton";
 }
 
 bool HomeButton::GetDropFormats(
@@ -177,7 +177,11 @@ int HomeButton::OnDragUpdated(const ui::DropTargetEvent& event) {
   return event.source_operations();
 }
 
-int HomeButton::OnPerformDrop(const ui::DropTargetEvent& event) {
+ui::mojom::DragOperation HomeButton::OnPerformDrop(
+    const ui::DropTargetEvent& event) {
+  if (!browser_)
+    return ui::mojom::DragOperation::kNone;
+
   GURL new_homepage_url;
   base::string16 title;
   if (event.data().GetURLAndTitle(ui::FilenameToURLPolicy::CONVERT_FILENAMES,
@@ -192,7 +196,7 @@ int HomeButton::OnPerformDrop(const ui::DropTargetEvent& event) {
 
     HomePageUndoBubble::ShowBubble(browser_, old_is_ntp, old_homepage, this);
   }
-  return ui::DragDropTypes::DRAG_NONE;
+  return ui::mojom::DragOperation::kNone;
 }
 
 void HomeButton::UpdateIcon() {
@@ -201,3 +205,6 @@ void HomeButton::UpdateIcon() {
                                           : kNavigateHomeIcon;
   UpdateIconsWithStandardColors(home_image);
 }
+
+BEGIN_METADATA(HomeButton, ToolbarButton)
+END_METADATA

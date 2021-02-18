@@ -30,6 +30,7 @@
 
 #include "base/macros.h"
 #include "mojo/public/mojom/base/text_direction.mojom-blink-forward.h"
+#include "third_party/blink/public/mojom/webpreferences/web_preferences.mojom-blink.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/editing/editing_style.h"
 #include "third_party/blink/renderer/core/editing/finder/find_options.h"
@@ -48,6 +49,7 @@ class EditorCommand;
 class FrameSelection;
 class LocalFrame;
 class HitTestResult;
+class KeyboardEvent;
 class KillRing;
 class SpellChecker;
 class CSSPropertyValueSet;

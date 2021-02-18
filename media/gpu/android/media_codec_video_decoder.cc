@@ -8,11 +8,11 @@
 
 #include "base/android/build_info.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/threading/sequenced_task_runner_handle.h"
@@ -26,6 +26,7 @@
 #include "media/base/media_switches.h"
 #include "media/base/scoped_async_trace.h"
 #include "media/base/status.h"
+#include "media/base/supported_video_decoder_config.h"
 #include "media/base/video_codecs.h"
 #include "media/base/video_decoder_config.h"
 #include "media/base/video_frame.h"
@@ -33,7 +34,6 @@
 #include "media/gpu/android/android_video_surface_chooser.h"
 #include "media/gpu/android/codec_allocator.h"
 #include "media/media_buildflags.h"
-#include "media/video/supported_video_decoder_config.h"
 
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
 #include "media/base/android/extract_sps_and_pps.h"
@@ -232,10 +232,10 @@ MediaCodecVideoDecoder::MediaCodecVideoDecoder(
           base::FeatureList::IsEnabled(media::kAllowNonSecureOverlays)) {
   DVLOG(2) << __func__;
   surface_chooser_helper_.chooser()->SetClientCallbacks(
-      base::Bind(&MediaCodecVideoDecoder::OnSurfaceChosen,
-                 weak_factory_.GetWeakPtr()),
-      base::Bind(&MediaCodecVideoDecoder::OnSurfaceChosen,
-                 weak_factory_.GetWeakPtr(), nullptr));
+      base::BindRepeating(&MediaCodecVideoDecoder::OnSurfaceChosen,
+                          weak_factory_.GetWeakPtr()),
+      base::BindRepeating(&MediaCodecVideoDecoder::OnSurfaceChosen,
+                          weak_factory_.GetWeakPtr(), nullptr));
 }
 
 std::unique_ptr<VideoDecoder> MediaCodecVideoDecoder::Create(
@@ -500,9 +500,9 @@ void MediaCodecVideoDecoder::StartLazyInit() {
     overlay_mode = VideoFrameFactory::OverlayMode::kDontRequestPromotionHints;
 
   video_frame_factory_->Initialize(
-      overlay_mode,
-      base::Bind(&MediaCodecVideoDecoder::OnVideoFrameFactoryInitialized,
-                 weak_factory_.GetWeakPtr()));
+      overlay_mode, base::BindRepeating(
+                        &MediaCodecVideoDecoder::OnVideoFrameFactoryInitialized,
+                        weak_factory_.GetWeakPtr()));
 }
 
 void MediaCodecVideoDecoder::OnVideoFrameFactoryInitialized(
@@ -601,7 +601,8 @@ void MediaCodecVideoDecoder::OnSurfaceDestroyed(AndroidOverlay* overlay) {
   if (target_surface_bundle_ && target_surface_bundle_->overlay() == overlay)
     target_surface_bundle_ = texture_owner_bundle_;
 
-  // Transition the codec away from the overlay if necessary.
+  // Transition the codec away from the overlay if necessary.  This must be
+  // complete before this function returns.
   if (SurfaceTransitionPending())
     TransitionToTargetSurface();
 }
@@ -815,9 +816,10 @@ void MediaCodecVideoDecoder::StartTimerOrPumpCodec() {
   // at this frequency is likely overkill in the steady state.
   const auto kPollingPeriod = base::TimeDelta::FromMilliseconds(10);
   if (!pump_codec_timer_.IsRunning()) {
-    pump_codec_timer_.Start(FROM_HERE, kPollingPeriod,
-                            base::Bind(&MediaCodecVideoDecoder::PumpCodec,
-                                       base::Unretained(this), false));
+    pump_codec_timer_.Start(
+        FROM_HERE, kPollingPeriod,
+        base::BindRepeating(&MediaCodecVideoDecoder::PumpCodec,
+                            base::Unretained(this), false));
   }
 }
 
@@ -965,6 +967,16 @@ bool MediaCodecVideoDecoder::DequeueOutput() {
   std::unique_ptr<ScopedAsyncTrace> async_trace =
       ScopedAsyncTrace::CreateIfEnabled(
           "MediaCodecVideoDecoder::CreateVideoFrame");
+  // Make sure that we're notified when this is rendered.  Otherwise, if we're
+  // waiting for all output buffers to drain so that we can swap the output
+  // surface, we might not realize that we may continue.  If we're using
+  // SurfaceControl overlays, then this isn't needed; there is never a surface
+  // transition anyway.
+  if (!is_surface_control_enabled_) {
+    output_buffer->set_render_cb(BindToCurrentLoop(
+        base::BindOnce(&MediaCodecVideoDecoder::StartTimerOrPumpCodec,
+                       weak_factory_.GetWeakPtr())));
+  }
   video_frame_factory_->CreateVideoFrame(
       std::move(output_buffer), presentation_time,
       GetNaturalSize(visible_rect, decoder_config_.GetPixelAspectRatio()),
@@ -1009,7 +1021,7 @@ void MediaCodecVideoDecoder::ForwardVideoFrame(
   if (reset_generation == reset_generation_) {
     // TODO(liberato): We might actually have a SW decoder.  Consider setting
     // this to false if so, especially for higher bitrates.
-    frame->metadata()->power_efficient = true;
+    frame->metadata().power_efficient = true;
     output_cb_.Run(std::move(frame));
   }
 }
@@ -1145,6 +1157,10 @@ AndroidOverlayFactoryCB MediaCodecVideoDecoder::CreateOverlayFactoryCb() {
 
 std::string MediaCodecVideoDecoder::GetDisplayName() const {
   return "MediaCodecVideoDecoder";
+}
+
+VideoDecoderType MediaCodecVideoDecoder::GetDecoderType() const {
+  return VideoDecoderType::kMediaCodec;
 }
 
 bool MediaCodecVideoDecoder::NeedsBitstreamConversion() const {

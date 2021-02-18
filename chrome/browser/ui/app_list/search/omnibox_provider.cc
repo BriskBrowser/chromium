@@ -33,16 +33,15 @@ bool IsDriveUrl(const GURL& url) {
 OmniboxProvider::OmniboxProvider(Profile* profile,
                                  AppListControllerDelegate* list_controller)
     : profile_(profile),
-      is_zero_state_enabled_(
-          app_list_features::IsZeroStateSuggestionsEnabled()),
       list_controller_(list_controller),
       controller_(std::make_unique<AutocompleteController>(
           std::make_unique<ChromeAutocompleteProviderClient>(profile),
-          is_zero_state_enabled_
-              ? AutocompleteClassifier::DefaultOmniboxProviders()
-              : AutocompleteClassifier::DefaultOmniboxProviders() &
-                    ~AutocompleteProvider::TYPE_ZERO_SUGGEST)) {
+          AutocompleteClassifier::DefaultOmniboxProviders())) {
   controller_->AddObserver(this);
+  if (base::FeatureList::IsEnabled(
+          app_list_features::kEnableLauncherSearchNormalization)) {
+    normalizer_.emplace("omnibox_provider", profile, 25);
+  }
 }
 
 OmniboxProvider::~OmniboxProvider() {}
@@ -51,18 +50,14 @@ void OmniboxProvider::Start(const base::string16& query) {
   controller_->Stop(false);
   // The new page classification value(CHROMEOS_APP_LIST) is introduced
   // to differentiate the suggest requests initiated by ChromeOS app_list from
-  // the ones by Chrome omnibox. Until we fully test the integration with
-  // suggest server with Zero State feature, we will keep the related change
-  // out of picture if zero state feature is not enabled.
-  AutocompleteInput input = AutocompleteInput(
-      query,
-      is_zero_state_enabled_ ? metrics::OmniboxEventProto::CHROMEOS_APP_LIST
-                             : metrics::OmniboxEventProto::INVALID_SPEC,
-      ChromeAutocompleteSchemeClassifier(profile_));
+  // the ones by Chrome omnibox.
+  AutocompleteInput input =
+      AutocompleteInput(query, metrics::OmniboxEventProto::CHROMEOS_APP_LIST,
+                        ChromeAutocompleteSchemeClassifier(profile_));
 
   // Sets the |from_omnibox_focus| flag to enable ZeroSuggestProvider to process
   // the requests from app_list.
-  if (is_zero_state_enabled_ && input.text().empty()) {
+  if (input.text().empty()) {
     input.set_focus_type(OmniboxFocusType::ON_FOCUS);
     is_zero_state_input_ = true;
   } else {
@@ -95,6 +90,11 @@ void OmniboxProvider::PopulateFromACResult(const AutocompleteResult& result) {
     new_results.emplace_back(std::make_unique<OmniboxResult>(
         profile_, list_controller_, controller_.get(), match,
         is_zero_state_input_));
+  }
+
+  if (normalizer_.has_value()) {
+    normalizer_->RecordResults(new_results);
+    normalizer_->NormalizeResults(&new_results);
   }
 
   SwapResults(&new_results);

@@ -7,7 +7,7 @@
 #include "base/optional.h"
 #include "base/test/gmock_callback_support.h"
 #include "base/time/time.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "net/test/cert_builder.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -57,7 +57,7 @@ CertificateHelperForTesting::~CertificateHelperForTesting() = default;
 
 void CertificateHelperForTesting::GetCertificates(
     platform_keys::TokenId token_id,
-    const platform_keys::GetCertificatesCallback& callback) {
+    platform_keys::GetCertificatesCallback callback) {
   auto result = std::make_unique<net::CertificateList>();
   *result = cert_list_;
   std::move(callback).Run(std::move(result), platform_keys::Status::kSuccess);
@@ -156,31 +156,6 @@ Profile* ProfileHelperForTesting::GetProfile() const {
 
 user_manager::User* ProfileHelperForTesting::GetUser() const {
   return user_;
-}
-
-//================ SpyingFakeCryptohomeClient ==================================
-
-SpyingFakeCryptohomeClient::SpyingFakeCryptohomeClient() = default;
-SpyingFakeCryptohomeClient::~SpyingFakeCryptohomeClient() = default;
-
-void SpyingFakeCryptohomeClient::TpmAttestationDeleteKey(
-    attestation::AttestationKeyType key_type,
-    const cryptohome::AccountIdentifier& cryptohome_id,
-    const std::string& key_prefix,
-    DBusMethodCallback<bool> callback) {
-  OnTpmAttestationDeleteKey(key_type, key_prefix);
-  FakeCryptohomeClient::TpmAttestationDeleteKey(
-      key_type, cryptohome_id, key_prefix, std::move(callback));
-}
-
-void SpyingFakeCryptohomeClient::TpmAttestationDeleteKeysByPrefix(
-    attestation::AttestationKeyType key_type,
-    const cryptohome::AccountIdentifier& cryptohome_id,
-    const std::string& key_prefix,
-    DBusMethodCallback<bool> callback) {
-  OnTpmAttestationDeleteKeysByPrefix(key_type, key_prefix);
-  FakeCryptohomeClient::TpmAttestationDeleteKeysByPrefix(
-      key_type, cryptohome_id, key_prefix, std::move(callback));
 }
 
 }  // namespace cert_provisioning

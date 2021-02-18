@@ -2,11 +2,37 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+/**
+ * @typedef {{
+ *   name: string,
+ *   size: number,
+ *   readable: boolean,
+ * }}
+ */
+export let Attachment;
+
 /** @enum {string} */
 export const DisplayAnnotationsAction = {
   DISPLAY_ANNOTATIONS: 'display-annotations',
   HIDE_ANNOTATIONS: 'hide-annotations',
 };
+
+/**
+ * @typedef {{
+ *   author: string,
+ *   canSerializeDocument: boolean,
+ *   creationDate: string,
+ *   creator: string,
+ *   keywords: string,
+ *   linearized: boolean,
+ *   modDate: string,
+ *   producer: string,
+ *   subject: string,
+ *   title: string,
+ *   version: string,
+ * }}
+ */
+export let DocumentMetadata;
 
 /**
  * Enumeration of page fitting types.
@@ -18,6 +44,15 @@ export const FittingType = {
   FIT_TO_WIDTH: 'fit-to-width',
   FIT_TO_HEIGHT: 'fit-to-height',
 };
+
+/**
+ * @typedef {{
+ *   messageId: string,
+ *   namedDestinationView: (string|undefined),
+ *   pageNumber: number,
+ * }}
+ */
+export let NamedDestinationMessageData;
 
 /**
  * Enumeration of save message request types. Must Match SaveRequestType in

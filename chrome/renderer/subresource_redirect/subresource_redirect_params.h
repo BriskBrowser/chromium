@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "base/time/time.h"
 #include "url/origin.h"
 
 namespace subresource_redirect {
@@ -14,6 +15,21 @@ namespace subresource_redirect {
 // Returns the origin to use for subresource redirect from fieldtrial or the
 // default.
 url::Origin GetSubresourceRedirectOrigin();
+
+// Returns the timeout for the compressed subresource redirect, after which the
+// subresource should be fetched directly from the origin.
+base::TimeDelta GetCompressionRedirectTimeout();
+
+// Returns the public image hinte receive timeout value from field trial.
+int64_t GetHintsReceiveTimeout();
+
+// Returns the timeout to wait for the robots rules to be received, after which
+// the subresource should be fetched directly from the origin.
+base::TimeDelta GetRobotsRulesReceiveTimeout();
+
+// The maximum number of robots rules parsers the renderer should cache locally
+// for reuse by the renderframes in the renderer process.
+int MaxRobotsRulesParsersCacheSize();
 
 }  // namespace subresource_redirect
 

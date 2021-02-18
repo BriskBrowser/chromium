@@ -36,12 +36,16 @@
 namespace blink {
 
 class ExceptionState;
+class LocalFrame;
 class NavigatorContentUtilsClient;
+enum class ProtocolHandlerSecurityLevel;
 
 // Verify custom handler schemes for errors as described in
 // https://html.spec.whatwg.org/multipage/system-state.html#custom-handlers.
 // Callers should surface an error with |error_message| if it returns false.
-bool VerifyCustomHandlerScheme(const String& scheme, String& error_message);
+bool VerifyCustomHandlerScheme(const String& scheme,
+                               String& error_message,
+                               ProtocolHandlerSecurityLevel security_level);
 
 // Verify custom handler URLs for syntax errors as described in
 // https://html.spec.whatwg.org/multipage/system-state.html#custom-handlers.
@@ -70,7 +74,6 @@ class MODULES_EXPORT NavigatorContentUtils final
   static void registerProtocolHandler(Navigator&,
                                       const String& scheme,
                                       const String& url,
-                                      const String& title,
                                       ExceptionState&);
   static void unregisterProtocolHandler(Navigator&,
                                         const String& scheme,

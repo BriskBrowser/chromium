@@ -20,6 +20,7 @@
 #include "base/strings/string_piece.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/net/secure_dns_config.h"
 #include "chrome/browser/net/secure_dns_util.h"
@@ -30,6 +31,7 @@
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/network_service_instance.h"
+#include "net/dns/public/secure_dns_mode.h"
 #include "net/dns/public/util.h"
 #include "services/network/public/mojom/host_resolver.mojom.h"
 #include "services/network/public/mojom/network_service.mojom.h"
@@ -125,14 +127,13 @@ StubResolverConfigReader::StubResolverConfigReader(PrefService* local_state,
   if (set_up_pref_defaults) {
     local_state_->SetDefaultPrefValue(prefs::kBuiltInDnsClientEnabled,
                                       base::Value(ShouldEnableAsyncDns()));
-    net::DnsConfig::SecureDnsMode default_secure_dns_mode =
-        net::DnsConfig::SecureDnsMode::OFF;
+    net::SecureDnsMode default_secure_dns_mode = net::SecureDnsMode::kOff;
     std::string default_doh_templates;
     if (base::FeatureList::IsEnabled(features::kDnsOverHttps)) {
       if (features::kDnsOverHttpsFallbackParam.Get()) {
-        default_secure_dns_mode = net::DnsConfig::SecureDnsMode::AUTOMATIC;
+        default_secure_dns_mode = net::SecureDnsMode::kAutomatic;
       } else {
-        default_secure_dns_mode = net::DnsConfig::SecureDnsMode::SECURE;
+        default_secure_dns_mode = net::SecureDnsMode::kSecure;
       }
       default_doh_templates = features::kDnsOverHttpsTemplatesParam.Get();
     }
@@ -226,7 +227,7 @@ bool StubResolverConfigReader::ShouldDisableDohForManaged() {
   if (base::IsMachineExternallyManaged())
     return true;
 #endif
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+#if !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
   if (g_browser_process->browser_policy_connector()->HasMachineLevelPolicies())
     return true;
 #endif
@@ -265,23 +266,23 @@ SecureDnsConfig StubResolverConfigReader::GetAndUpdateConfiguration(
     bool update_network_service) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  net::DnsConfig::SecureDnsMode secure_dns_mode;
+  net::SecureDnsMode secure_dns_mode;
   SecureDnsModeDetailsForHistogram mode_details;
   SecureDnsConfig::ManagementMode forced_management_mode =
       SecureDnsConfig::ManagementMode::kNoOverride;
   bool is_managed =
       local_state_->FindPreference(prefs::kDnsOverHttpsMode)->IsManaged();
   if (!is_managed && ShouldDisableDohForManaged()) {
-    secure_dns_mode = net::DnsConfig::SecureDnsMode::OFF;
+    secure_dns_mode = net::SecureDnsMode::kOff;
     forced_management_mode = SecureDnsConfig::ManagementMode::kDisabledManaged;
   } else {
     secure_dns_mode = SecureDnsConfig::ParseMode(
                           local_state_->GetString(prefs::kDnsOverHttpsMode))
-                          .value_or(net::DnsConfig::SecureDnsMode::OFF);
+                          .value_or(net::SecureDnsMode::kOff);
   }
 
   bool check_parental_controls = false;
-  if (secure_dns_mode == net::DnsConfig::SecureDnsMode::SECURE) {
+  if (secure_dns_mode == net::SecureDnsMode::kSecure) {
     mode_details =
         is_managed ? SecureDnsModeDetailsForHistogram::kSecureByEnterprisePolicy
                    : SecureDnsModeDetailsForHistogram::kSecureByUser;
@@ -290,7 +291,7 @@ SecureDnsConfig StubResolverConfigReader::GetAndUpdateConfiguration(
     // enabled through policy, which takes precedence over parental controls)
     // because the mode allows sending DoH requests immediately.
     check_parental_controls = !is_managed;
-  } else if (secure_dns_mode == net::DnsConfig::SecureDnsMode::AUTOMATIC) {
+  } else if (secure_dns_mode == net::SecureDnsMode::kAutomatic) {
     mode_details =
         is_managed
             ? SecureDnsModeDetailsForHistogram::kAutomaticByEnterprisePolicy
@@ -333,7 +334,7 @@ SecureDnsConfig StubResolverConfigReader::GetAndUpdateConfiguration(
     if (ShouldDisableDohForParentalControls()) {
       forced_management_mode =
           SecureDnsConfig::ManagementMode::kDisabledParentalControls;
-      secure_dns_mode = net::DnsConfig::SecureDnsMode::OFF;
+      secure_dns_mode = net::SecureDnsMode::kOff;
       mode_details =
           SecureDnsModeDetailsForHistogram::kOffByDetectedParentalControls;
 
@@ -356,8 +357,7 @@ SecureDnsConfig StubResolverConfigReader::GetAndUpdateConfiguration(
   std::vector<net::DnsOverHttpsServerConfig> dns_over_https_servers;
   base::Optional<std::vector<network::mojom::DnsOverHttpsServerPtr>>
       servers_mojo;
-  if (!doh_templates.empty() &&
-      secure_dns_mode != net::DnsConfig::SecureDnsMode::OFF) {
+  if (!doh_templates.empty() && secure_dns_mode != net::SecureDnsMode::kOff) {
     for (base::StringPiece server_template :
          chrome_browser_net::secure_dns::SplitGroup(doh_templates)) {
       if (!net::dns_util::IsValidDohTemplate(server_template, &server_method)) {

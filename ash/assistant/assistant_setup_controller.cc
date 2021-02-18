@@ -9,7 +9,7 @@
 #include "ash/assistant/util/i18n_util.h"
 #include "ash/public/cpp/assistant/controller/assistant_ui_controller.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "chromeos/services/assistant/public/cpp/assistant_prefs.h"
 #include "chromeos/services/assistant/public/cpp/features.h"
 
@@ -25,7 +25,7 @@ namespace ash {
 AssistantSetupController::AssistantSetupController(
     AssistantControllerImpl* assistant_controller)
     : assistant_controller_(assistant_controller) {
-  assistant_controller_observer_.Add(AssistantController::Get());
+  assistant_controller_observation_.Observe(AssistantController::Get());
 }
 
 AssistantSetupController::~AssistantSetupController() = default;

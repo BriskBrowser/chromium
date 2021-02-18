@@ -220,7 +220,7 @@ class CORE_EXPORT VisualViewport : public GarbageCollected<VisualViewport>,
       IncludeScrollbarsInRect = kExcludeScrollbars) const override;
   scoped_refptr<base::SingleThreadTaskRunner> GetTimerTaskRunner()
       const override;
-  WebColorScheme UsedColorScheme() const override;
+  mojom::blink::ColorScheme UsedColorScheme() const override;
 
   // VisualViewport scrolling may involve pinch zoom and gets routed through
   // WebViewImpl explicitly rather than via ScrollingCoordinator::DidScroll
@@ -289,7 +289,7 @@ class CORE_EXPORT VisualViewport : public GarbageCollected<VisualViewport>,
 
   RootFrameViewport* GetRootFrameViewport() const;
 
-  LocalFrame* MainFrame() const;
+  LocalFrame* LocalMainFrame() const;
 
   Page& GetPage() const {
     DCHECK(page_);

@@ -9,9 +9,8 @@
 
 #include "base/bind.h"
 #include "base/containers/queue.h"
-#include "content/browser/browser_plugin/browser_plugin_guest.h"
 #include "content/browser/find_in_page_client.h"
-#include "content/browser/frame_host/render_frame_host_impl.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/common/frame_messages.h"
 
@@ -520,6 +519,7 @@ void FindRequestManager::OnGetNearestFindResultReply(RenderFrameHostImpl* rfh,
 void FindRequestManager::RequestFindMatchRects(int current_version) {
   match_rects_.pending_replies.clear();
   match_rects_.request_version = current_version;
+  match_rects_.active_rect = gfx::RectF();
 
   // Request the latest find match rects from each frame.
   for (WebContentsImpl* contents : contents_->GetWebContentsAndAllInner()) {
@@ -759,6 +759,7 @@ void FindRequestManager::UpdateActiveMatchOrdinal() {
 void FindRequestManager::FinalUpdateReceived(int request_id,
                                              RenderFrameHost* rfh) {
   if (!number_of_matches_ ||
+      !current_request_.options->find_match ||
       (active_match_ordinal_ && !pending_active_match_ordinal_) ||
       pending_find_next_reply_) {
     // All the find results for |request_id| are in and ready to report. Note

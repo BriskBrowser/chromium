@@ -10,9 +10,10 @@
 #include <vector>
 
 #include "base/memory/weak_ptr.h"
+#include "build/chromeos_buildflags.h"
 #include "device/bluetooth/bluetooth_remote_gatt_characteristic.h"
 #include "device/bluetooth/public/cpp/bluetooth_uuid.h"
-#include "device/bluetooth/public/mojom/test/fake_bluetooth.mojom-forward.h"
+#include "device/bluetooth/public/mojom/test/fake_bluetooth.mojom.h"
 #include "device/bluetooth/test/fake_read_response.h"
 #include "device/bluetooth/test/fake_remote_gatt_descriptor.h"
 
@@ -97,14 +98,14 @@ class FakeRemoteGattCharacteristic
       const std::vector<uint8_t>& value,
       base::OnceClosure callback,
       ErrorCallback error_callback) override;
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   void PrepareWriteRemoteCharacteristic(const std::vector<uint8_t>& value,
                                         base::OnceClosure callback,
                                         ErrorCallback error_callback) override;
 #endif
 
  protected:
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // device::BluetoothRemoteGattCharacteristic overrides:
   void SubscribeToNotifications(
       device::BluetoothRemoteGattDescriptor* ccc_descriptor,

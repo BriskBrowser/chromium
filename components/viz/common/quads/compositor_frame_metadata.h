@@ -15,6 +15,7 @@
 #include "build/build_config.h"
 #include "components/viz/common/delegated_ink_metadata.h"
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
+#include "components/viz/common/quads/compositor_frame_transition_directive.h"
 #include "components/viz/common/quads/frame_deadline.h"
 #include "components/viz/common/surfaces/surface_id.h"
 #include "components/viz/common/surfaces/surface_range.h"
@@ -145,10 +146,6 @@ class VIZ_COMMON_EXPORT CompositorFrameMetadata {
   // value set.
   base::Optional<float> top_controls_visible_height;
 
-  // The time at which the LocalSurfaceId used to submit this CompositorFrame
-  // was allocated.
-  base::TimeTicks local_surface_id_allocation_time;
-
   base::Optional<base::TimeDelta> preferred_frame_interval;
 
   // Display transform hint when the frame is generated. Note this is only
@@ -167,6 +164,10 @@ class VIZ_COMMON_EXPORT CompositorFrameMetadata {
   // before it disappears, regardless of whether or not the next frame contains
   // delegated ink metadata.
   std::unique_ptr<DelegatedInkMetadata> delegated_ink_metadata;
+
+  // This represents a list of directives to execute in order to support the
+  // document transitions.
+  std::vector<CompositorFrameTransitionDirective> transition_directives;
 
  private:
   CompositorFrameMetadata(const CompositorFrameMetadata& other);

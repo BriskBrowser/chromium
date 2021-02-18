@@ -13,6 +13,7 @@
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/platform/graphics/gpu_memory_buffer_image_copy.h"
 #include "third_party/blink/renderer/platform/graphics/static_bitmap_image.h"
+#include "third_party/blink/renderer/platform/mojo/mojo_binding_context.h"
 #include "ui/gfx/gpu_fence.h"
 
 namespace blink {
@@ -230,11 +231,10 @@ base::TimeDelta XRFrameTransport::WaitForPreviousRenderToFinish() {
   return base::TimeTicks::Now() - start;
 }
 
-void XRFrameTransport::OnSubmitFrameGpuFence(
-    const gfx::GpuFenceHandle& handle) {
+void XRFrameTransport::OnSubmitFrameGpuFence(gfx::GpuFenceHandle handle) {
   // We just received a GpuFence, unblock WaitForGpuFenceReceived.
   waiting_for_previous_frame_fence_ = false;
-  previous_frame_fence_ = std::make_unique<gfx::GpuFence>(handle);
+  previous_frame_fence_ = std::make_unique<gfx::GpuFence>(std::move(handle));
 }
 
 base::TimeDelta XRFrameTransport::WaitForGpuFenceReceived() {

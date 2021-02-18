@@ -8,9 +8,12 @@
 #include <string>
 #include <utility>
 
+#include "ash/accessibility/accessibility_controller_impl.h"
 #include "ash/accessibility/touch_accessibility_enabler.h"
 #include "ash/public/cpp/shell_window_ids.h"
+#include "ash/shell.h"
 #include "ash/wm/container_finder.h"
+#include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
@@ -227,7 +230,7 @@ ui::EventDispatchDetails TouchExplorationController::RewriteEvent(
     if (gesture_provider_->OnTouchEvent(&touch_event_dip)) {
       gesture_provider_->OnTouchEventAck(
           touch_event_dip.unique_event_id(), false /* event_consumed */,
-          false /* is_source_touch_event_set_non_blocking */);
+          false /* is_source_touch_event_set_blocking */);
     }
     ProcessGestureEvents();
   }
@@ -323,8 +326,7 @@ ui::EventDispatchDetails TouchExplorationController::InSingleTapPressed(
               << gesture_detector_config_.minimum_swipe_velocity;
     }
     // Change to slide gesture if the slide occurred at the right edge.
-    int edge = FindEdgesWithinInset(event.location(), kMaxDistanceFromEdge);
-    if (edge & RIGHT_EDGE && edge != BOTTOM_RIGHT_CORNER) {
+    if (ShouldEnableVolumeSlideGesture(event)) {
       SET_STATE(SLIDE_GESTURE);
       return InSlideGesture(event, continuation);
     }
@@ -1210,6 +1212,18 @@ bool TouchExplorationController::IsTargetedToArcVirtualKeyboard(
     return false;
 
   return container->id() == kShellWindowId_ArcVirtualKeyboardContainer;
+}
+
+bool TouchExplorationController::ShouldEnableVolumeSlideGesture(
+    const ui::TouchEvent& event) {
+  // Can be nullptr in unit tests.
+  int edge = FindEdgesWithinInset(event.location(), kMaxDistanceFromEdge);
+  return edge & RIGHT_EDGE && edge != BOTTOM_RIGHT_CORNER &&
+         (!Shell::HasInstance() ||
+          Shell::Get()->tablet_mode_controller()->InTabletMode() ||
+          Shell::Get()
+              ->accessibility_controller()
+              ->enable_chromevox_volume_slide_gesture());
 }
 
 }  // namespace ash

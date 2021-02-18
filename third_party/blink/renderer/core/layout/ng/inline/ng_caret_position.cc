@@ -13,9 +13,6 @@
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_node.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_offset_mapping.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_physical_line_box_fragment.h"
-#include "third_party/blink/renderer/core/layout/ng/inline/ng_physical_text_fragment.h"
-#include "third_party/blink/renderer/core/paint/ng/ng_paint_fragment.h"
-#include "third_party/blink/renderer/core/paint/ng/ng_paint_fragment_traversal.h"
 
 namespace blink {
 
@@ -271,6 +268,8 @@ NGCaretPosition ComputeNGCaretPosition(const LayoutBlockFlow& context,
   NGInlineCursor cursor(context);
 
   NGCaretPosition candidate;
+  if (layout_text && layout_text->HasInlineFragments())
+    cursor.MoveTo(*layout_text);
   for (; cursor; cursor.MoveToNext()) {
     const CaretPositionResolution resolution =
         TryResolveCaretPositionWithFragment(cursor, offset, affinity);
@@ -314,19 +313,35 @@ NGCaretPosition ComputeNGCaretPosition(
   const base::Optional<unsigned> maybe_offset =
       mapping->GetTextContentOffset(position);
   if (!maybe_offset.has_value()) {
-    // TODO(xiaochengh): Investigate if we reach here.
-    NOTREACHED();
-    return NGCaretPosition();
+    // We can reach here with empty text nodes.
+    if (auto* data = DynamicTo<Text>(position.AnchorNode())) {
+      DCHECK_EQ(data->length(), 0u);
+    } else {
+      // TODO(xiaochengh): Investigate if we reach here.
+      NOTREACHED();
+      return NGCaretPosition();
+    }
   }
 
   const LayoutText* const layout_text =
       position.IsOffsetInAnchor() && IsA<Text>(position.AnchorNode())
-          ? To<Text>(position.AnchorNode())->GetLayoutObject()
+          ? To<LayoutText>(AssociatedLayoutObjectOf(
+                *position.AnchorNode(), position.OffsetInContainerNode()))
           : nullptr;
 
-  const unsigned offset = *maybe_offset;
+  const unsigned offset = maybe_offset.value_or(0);
   const TextAffinity affinity = position_with_affinity.Affinity();
-  return ComputeNGCaretPosition(*context, offset, affinity, layout_text);
+  // For upstream position, we use offset before ZWS to distinguish downstream
+  // and upstream position when line breaking before ZWS.
+  // "    Zabc" where "Z" represents zero-width-space.
+  // See AccessibilitySelectionTest.FromCurrentSelectionInTextareaWithAffinity
+  const unsigned adjusted_offset =
+      affinity == TextAffinity::kUpstream && offset &&
+              mapping->GetText()[offset - 1] == kZeroWidthSpaceCharacter
+          ? offset - 1
+          : offset;
+  return ComputeNGCaretPosition(*context, adjusted_offset, affinity,
+                                layout_text);
 }
 
 Position NGCaretPosition::ToPositionInDOMTree() const {
@@ -354,6 +369,13 @@ PositionWithAffinity NGCaretPosition::ToPositionInDOMTreeWithAffinity() const {
       DCHECK(text_offset.has_value());
       const NGOffsetMapping* mapping =
           NGOffsetMapping::GetFor(cursor.Current().GetLayoutObject());
+      if (!mapping) {
+        // TODO(yosin): We're not sure why |mapping| is |nullptr|. It seems
+        // we are attempt to use destroyed/moved |NGFragmentItem|.
+        // See http://crbug.com/1145514
+        NOTREACHED() << cursor << " " << cursor.Current().GetLayoutObject();
+        return PositionWithAffinity();
+      }
       const TextAffinity affinity =
           *text_offset == cursor.Current().TextEndOffset()
               ? TextAffinity::kUpstreamIfPossible

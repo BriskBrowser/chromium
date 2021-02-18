@@ -34,6 +34,11 @@ void OverrideWithFinch(Config* config) {
           kInterestFeedV2, "max_feed_query_requests_per_day",
           config->max_feed_query_requests_per_day);
 
+  config->max_next_page_requests_per_day =
+      base::GetFieldTrialParamByFeatureAsInt(
+          kInterestFeedV2, "max_next_page_requests_per_day",
+          config->max_next_page_requests_per_day);
+
   config->max_action_upload_requests_per_day =
       base::GetFieldTrialParamByFeatureAsInt(
           kInterestFeedV2, "max_action_upload_requests_per_day",
@@ -44,10 +49,20 @@ void OverrideWithFinch(Config* config) {
           kInterestFeedV2, "stale_content_threshold_seconds",
           config->stale_content_threshold.InSecondsF()));
 
+  config->content_expiration_threshold =
+      base::TimeDelta::FromSecondsD(base::GetFieldTrialParamByFeatureAsDouble(
+          kInterestFeedV2, "content_expiration_threshold_seconds",
+          config->content_expiration_threshold.InSecondsF()));
+
+  config->background_refresh_window_length =
+      base::TimeDelta::FromSecondsD(base::GetFieldTrialParamByFeatureAsDouble(
+          kInterestFeedV2, "background_refresh_window_length_seconds",
+          config->background_refresh_window_length.InSecondsF()));
+
   config->default_background_refresh_interval =
       base::TimeDelta::FromSecondsD(base::GetFieldTrialParamByFeatureAsDouble(
           kInterestFeedV2, "default_background_refresh_interval_seconds",
-          config->stale_content_threshold.InSecondsF()));
+          config->default_background_refresh_interval.InSecondsF()));
 
   config->max_action_upload_attempts = base::GetFieldTrialParamByFeatureAsInt(
       kInterestFeedV2, "max_action_upload_attempts",
@@ -75,6 +90,21 @@ void OverrideWithFinch(Config* config) {
       base::GetFieldTrialParamByFeatureAsBool(
           kInterestFeedV2, "upload_actions_on_enter_background",
           config->upload_actions_on_enter_background);
+
+  config->send_signed_out_session_logs =
+      base::GetFieldTrialParamByFeatureAsBool(
+          kInterestFeedV2, "send_signed_out_session_logs",
+          config->send_signed_out_session_logs);
+
+  config->session_id_max_age =
+      base::TimeDelta::FromDays(base::GetFieldTrialParamByFeatureAsInt(
+          kInterestFeedV2, "session_id_max_age_days",
+          config->session_id_max_age.InDays()));
+
+  config->max_prefetch_image_requests_per_refresh =
+      base::GetFieldTrialParamByFeatureAsInt(
+          kInterestFeedV2, "max_prefetch_image_requests_per_refresh",
+          config->max_prefetch_image_requests_per_refresh);
 
   // Erase any capabilities with "enable_CAPABILITY = false" set.
   base::EraseIf(config->experimental_capabilities, CapabilityDisabled);

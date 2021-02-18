@@ -23,6 +23,7 @@
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/omnibox/browser/omnibox_client.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/base/models/image_model.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/native_widget_types.h"
@@ -92,7 +93,7 @@ class OmniboxView {
 
   // Returns the icon to display as the location icon. If a favicon is
   // available, |on_icon_fetched| may be called later asynchronously.
-  gfx::ImageSkia GetIcon(int dip_size,
+  ui::ImageModel GetIcon(int dip_size,
                          SkColor color,
                          IconFetchedCallback on_icon_fetched) const;
 
@@ -104,9 +105,7 @@ class OmniboxView {
                            bool update_popup);
 
   // Sets the window text and the caret position. |notify_text_changed| is true
-  // if the model should be notified of the change. If rich autocompletion is
-  // enabled, |additional_text| is displayed in a non-editable views::Label
-  // adjacent to the omnibox.
+  // if the model should be notified of the change. Clears the additional text.
   virtual void SetWindowTextAndCaretPos(const base::string16& text,
                                         size_t caret_pos,
                                         bool update_popup,
@@ -180,14 +179,13 @@ class OmniboxView {
                                            bool notify_text_changed) = 0;
 
   // Called when the inline autocomplete text in the model may have changed.
-  // |display_text| is the new text to show. |user_text_start| and
-  // |user_text_length| are the start and length of the user input portion of
-  // the text (not including the inline autocompletion or prefix inline
-  // autocompletion). If rich autocompletion is enabled, |additional_text| is
-  // displayed in a non-editable views::Label adjacent to the omnibox.
+  // |display_text| is the new text to show. |selection| indicates the
+  // autocompleted portions which should be selected. |user_text_length| is the
+  // length of the user input portion of the text (not including the
+  // autocompletion).
   virtual void OnInlineAutocompleteTextMaybeChanged(
       const base::string16& display_text,
-      size_t user_text_start,
+      std::vector<gfx::Range> selections,
       size_t user_text_length) = 0;
 
   // Called when the inline autocomplete text in the model has been cleared.

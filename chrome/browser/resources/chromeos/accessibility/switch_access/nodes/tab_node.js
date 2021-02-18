@@ -2,11 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {Navigator} from '../navigator.js';
+import {SAConstants, SwitchAccessMenuAction} from '../switch_access_constants.js';
+
+import {BackButtonNode} from './back_button_node.js';
+import {BasicNode, BasicRootNode} from './basic_node.js';
+import {SAChildNode, SARootNode} from './switch_access_node.js';
+
+const AutomationNode = chrome.automation.AutomationNode;
+
 /**
  * This class handles the behavior of tab nodes at the top level (i.e. as
  * groups).
  */
-class TabNode extends NodeWrapper {
+export class TabNode extends BasicNode {
   /**
    * @param {!AutomationNode} node The node in the automation
    *    tree
@@ -45,7 +54,7 @@ class TabNode extends NodeWrapper {
     if (action !== SwitchAccessMenuAction.SELECT) {
       return SAConstants.ActionResponse.NO_ACTION_TAKEN;
     }
-    NavigationManager.enterGroup();
+    Navigator.instance.enterGroup();
     return SAConstants.ActionResponse.CLOSE_MENU;
   }
 
@@ -53,12 +62,12 @@ class TabNode extends NodeWrapper {
 
   /** @override */
   static create(tabNode, parent) {
-    const tabAsRoot = new RootNodeWrapper(tabNode);
+    const tabAsRoot = new BasicRootNode(tabNode);
 
     let closeButton;
     for (const child of tabNode.children) {
       if (child.role === chrome.automation.RoleType.BUTTON) {
-        closeButton = new NodeWrapper(child, tabAsRoot);
+        closeButton = new BasicNode(child, tabAsRoot);
         break;
       }
     }
@@ -77,7 +86,7 @@ class TabNode extends NodeWrapper {
 }
 
 /** This class handles the behavior of tabs as actionable elements */
-class ActionableTabNode extends NodeWrapper {
+class ActionableTabNode extends BasicNode {
   /**
    * @param {!AutomationNode} node
    * @param {?SARootNode} parent
@@ -117,3 +126,9 @@ class ActionableTabNode extends NodeWrapper {
     return false;
   }
 }
+
+BasicNode.creators.push({
+  predicate: baseNode => baseNode.role === chrome.automation.RoleType.TAB &&
+      baseNode.root.role === chrome.automation.RoleType.DESKTOP,
+  creator: TabNode.create
+});

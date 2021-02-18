@@ -9,6 +9,7 @@
 #include "base/callback.h"
 #include "base/strings/string_piece.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "device/fido/features.h"
 #include "device/fido/fido_discovery_factory.h"
 
@@ -61,9 +62,6 @@ bool AuthenticatorRequestClientDelegate::SupportsResidentKeys() {
   return false;
 }
 
-void AuthenticatorRequestClientDelegate::SetMightCreateResidentCredential(
-    bool v) {}
-
 void AuthenticatorRequestClientDelegate::ConfigureCable(
     const url::Origin& origin,
     base::span<const device::CableDiscoveryData> pairings_from_extension,
@@ -88,6 +86,14 @@ AuthenticatorRequestClientDelegate::GetTouchIdAuthenticatorConfig() {
 }
 #endif  // defined(OS_MAC)
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+AuthenticatorRequestClientDelegate::ChromeOSGenerateRequestIdCallback
+AuthenticatorRequestClientDelegate::GetGenerateRequestIdCallback(
+    RenderFrameHost* render_frame_host) {
+  return base::NullCallback();
+}
+#endif
+
 base::Optional<bool> AuthenticatorRequestClientDelegate::
     IsUserVerifyingPlatformAuthenticatorAvailableOverride() {
   return base::nullopt;
@@ -101,6 +107,9 @@ void AuthenticatorRequestClientDelegate::DisableUI() {}
 bool AuthenticatorRequestClientDelegate::IsWebAuthnUIEnabled() {
   return false;
 }
+
+void AuthenticatorRequestClientDelegate::SetConditionalRequest(
+    bool is_conditional) {}
 
 void AuthenticatorRequestClientDelegate::OnTransportAvailabilityEnumerated(
     device::FidoRequestHandlerBase::TransportAvailabilityInfo data) {}
@@ -124,8 +133,8 @@ bool AuthenticatorRequestClientDelegate::SupportsPIN() const {
 }
 
 void AuthenticatorRequestClientDelegate::CollectPIN(
-    base::Optional<int> attempts,
-    base::OnceCallback<void(std::string)> provide_pin_cb) {
+    CollectPINOptions options,
+    base::OnceCallback<void(base::string16)> provide_pin_cb) {
   NOTREACHED();
 }
 
@@ -135,13 +144,9 @@ void AuthenticatorRequestClientDelegate::StartBioEnrollment(
 void AuthenticatorRequestClientDelegate::OnSampleCollected(
     int bio_samples_remaining) {}
 
-void AuthenticatorRequestClientDelegate::FinishCollectToken() {
-  NOTREACHED();
-}
+void AuthenticatorRequestClientDelegate::FinishCollectToken() {}
 
 void AuthenticatorRequestClientDelegate::OnRetryUserVerification(int attempts) {
 }
-
-void AuthenticatorRequestClientDelegate::OnInternalUserVerificationLocked() {}
 
 }  // namespace content

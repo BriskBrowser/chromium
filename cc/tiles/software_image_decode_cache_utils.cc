@@ -9,7 +9,7 @@
 #include <utility>
 
 #include "base/atomic_sequence_num.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/hash/hash.h"
 #include "base/memory/discardable_memory_allocator.h"
 #include "base/metrics/histogram_macros.h"
@@ -154,7 +154,10 @@ SoftwareImageDecodeCacheUtils::GenerateCacheEntryFromCandidate(
     result = ImageDecodeCacheUtils::ScaleToHalfFloatPixmapUsingN32Intermediate(
         decoded_pixmap, &target_pixmap, filter_quality);
   } else {
-    result = decoded_pixmap.scalePixels(target_pixmap, filter_quality);
+    result = decoded_pixmap.scalePixels(
+        target_pixmap,
+        SkSamplingOptions(filter_quality,
+                          SkSamplingOptions::kMedium_asMipmapLinear));
   }
   DCHECK(result) << key.ToString();
 

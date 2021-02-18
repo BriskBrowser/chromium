@@ -16,6 +16,7 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "base/optional.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_mode_detector.h"
 #include "chrome/browser/chromeos/login/screens/base_screen.h"
 #include "device/bluetooth/bluetooth_adapter.h"
@@ -28,7 +29,6 @@
 namespace chromeos {
 
 class HIDDetectionView;
-class ScreenManager;
 class WizardContext;
 
 // Representation independent class that controls screen showing warning about
@@ -39,10 +39,11 @@ class HIDDetectionScreen : public BaseScreen,
                            public device::mojom::InputDeviceManagerClient,
                            public DemoModeDetector::Observer {
  public:
+  using TView = HIDDetectionView;
   using InputDeviceInfoPtr = device::mojom::InputDeviceInfoPtr;
   using DeviceMap = std::map<std::string, InputDeviceInfoPtr>;
 
-  enum class Result { NEXT, START_DEMO, SKIP };
+  enum class Result { NEXT, START_DEMO, SKIP, SKIPPED_FOR_TESTS };
 
   using ScreenExitCallback = base::RepeatingCallback<void(Result result)>;
 
@@ -50,17 +51,15 @@ class HIDDetectionScreen : public BaseScreen,
                      const ScreenExitCallback& exit_callback);
   ~HIDDetectionScreen() override;
 
-  static HIDDetectionScreen* Get(ScreenManager* manager);
-
   static std::string GetResultString(Result result);
 
   // This method is called when the view is being destroyed.
   void OnViewDestroyed(HIDDetectionView* view);
 
-  // Checks if this screen should be displayed. |on_check_done| should be
+  // Checks if this screen should be displayed. `on_check_done` should be
   // invoked with the result; true if the screen should be displayed, false
   // otherwise.
-  void CheckIsScreenRequired(const base::Callback<void(bool)>& on_check_done);
+  void CheckIsScreenRequired(base::OnceCallback<void(bool)> on_check_done);
 
   // Allows tests to override how this class binds InputDeviceManager receivers.
   using InputDeviceManagerBinder = base::RepeatingCallback<void(
@@ -68,8 +67,12 @@ class HIDDetectionScreen : public BaseScreen,
   static void OverrideInputDeviceManagerBinderForTesting(
       InputDeviceManagerBinder binder);
 
+  const base::Optional<Result>& get_exit_result_for_testing() const {
+    return exit_result_for_testing_;
+  }
+
  private:
-  friend class HIDDetectionScreenTest;
+  friend class HIDDetectionScreenChromeboxTest;
 
   // BaseScreen:
   bool MaybeSkip(WizardContext* context) override;
@@ -111,6 +114,8 @@ class HIDDetectionScreen : public BaseScreen,
 
   void CleanupOnExit();
 
+  bool ShouldEnableContinueButton();
+
   // Types of dialog leaving scenarios for UMA metric.
   enum ContinueScenarioType {
     // Only pointing device detected, user pressed 'Continue'.
@@ -143,7 +148,7 @@ class HIDDetectionScreen : public BaseScreen,
   // that expects true if screen is required. The returned devices list is not
   // saved.
   void OnGetInputDevicesListForCheck(
-      const base::Callback<void(bool)>& on_check_done,
+      base::OnceCallback<void(bool)> on_check_done,
       std::vector<InputDeviceInfoPtr> devices);
 
   // Saves and processes the list of input devices returned by the request made
@@ -198,8 +203,8 @@ class HIDDetectionScreen : public BaseScreen,
   void BTConnected(device::BluetoothDeviceType device_type);
 
   // Called by device::BluetoothDevice in response to a failure to
-  // connect to the device with bluetooth address |address| due to an error
-  // encoded in |error_code|.
+  // connect to the device with bluetooth address `address` due to an error
+  // encoded in `error_code`.
   void BTConnectError(const std::string& address,
                       device::BluetoothDeviceType device_type,
                       device::BluetoothDevice::ConnectErrorCode error_code);
@@ -212,9 +217,14 @@ class HIDDetectionScreen : public BaseScreen,
   // keyboard device.
   void SendKeyboardDeviceNotification();
 
+  // Sends a notification to the Web UI of the status of available Touch Screen
+  void SendTouchScreenDeviceNotification();
+
   // Helper methods. Sets device name or placeholder if the name is empty.
   void SetKeyboardDeviceName(const std::string& name);
   void SetPointingDeviceName(const std::string& name);
+
+  void Exit(Result result);
 
   scoped_refptr<device::BluetoothAdapter> GetAdapterForTesting();
   void SetAdapterInitialPoweredForTesting(bool powered);
@@ -222,6 +232,7 @@ class HIDDetectionScreen : public BaseScreen,
   HIDDetectionView* view_;
 
   const ScreenExitCallback exit_callback_;
+  base::Optional<Result> exit_result_for_testing_;
 
   std::unique_ptr<DemoModeDetector> demo_mode_detector_;
 
@@ -237,9 +248,12 @@ class HIDDetectionScreen : public BaseScreen,
   DeviceMap devices_;
 
   // The current device discovery session. Only one active discovery session is
-  // kept at a time and the instance that |discovery_session_| points to gets
+  // kept at a time and the instance that `discovery_session_` points to gets
   // replaced by a new one when a new discovery session is initiated.
   std::unique_ptr<device::BluetoothDiscoverySession> discovery_session_;
+
+  // Does the screen has a touch screen available?
+  std::string touchscreen_id_;
 
   // Current pointing device, if any. Device name is kept in screen context.
   std::string pointing_device_id_;

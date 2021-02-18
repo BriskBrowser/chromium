@@ -75,12 +75,13 @@ bool CopyBytesFromImageBitmapForWebGPU(
     scoped_refptr<StaticBitmapImage> image,
     base::span<uint8_t> dst,
     const IntRect& rect,
-    const CanvasColorParams& color_params,
     const WGPUTextureFormat destination_format) {
   DCHECK(image);
   DCHECK_GT(dst.size(), static_cast<size_t>(0));
   DCHECK(image->width() - rect.X() >= rect.Width());
   DCHECK(image->height() - rect.Y() >= rect.Height());
+  DCHECK(rect.Width());
+  DCHECK(rect.Height());
 
   WebGPUImageUploadSizeInfo wgpu_info =
       ComputeImageBitmapWebGPUUploadSizeInfo(rect, destination_format);
@@ -91,6 +92,7 @@ bool CopyBytesFromImageBitmapForWebGPU(
   if (sk_color_type == kUnknown_SkColorType) {
     return false;
   }
+  PaintImage paint_image = image->PaintImageForCurrentFrame();
 
   // Read pixel request dst info.
   // Keep premulalpha config and color space from imageBitmap and using dest
@@ -98,9 +100,9 @@ bool CopyBytesFromImageBitmapForWebGPU(
   SkImageInfo info = SkImageInfo::Make(
       rect.Width(), rect.Height(), sk_color_type,
       image->IsPremultiplied() ? kPremul_SkAlphaType : kUnpremul_SkAlphaType,
-      color_params.GetSkColorSpaceForSkSurfaces());
+      paint_image.GetSkImageInfo().refColorSpace());
 
-  bool read_pixels_successful = image->PaintImageForCurrentFrame().readPixels(
+  bool read_pixels_successful = paint_image.readPixels(
       info, dst.data(), wgpu_info.wgpu_bytes_per_row, rect.X(), rect.Y());
 
   if (!read_pixels_successful) {
@@ -131,55 +133,4 @@ uint64_t DawnTextureFormatBytesPerPixel(const WGPUTextureFormat color_type) {
   }
 }
 
-DawnTextureFromImageBitmap::DawnTextureFromImageBitmap(
-    scoped_refptr<DawnControlClientHolder> dawn_control_client,
-    uint64_t device_client_id)
-    : dawn_control_client_(dawn_control_client),
-      device_client_id_(device_client_id) {}
-
-DawnTextureFromImageBitmap::~DawnTextureFromImageBitmap() {
-  // Ensure calls to ProduceDawnTextureFromImageBitmap
-  // and FinishDawnTextureFromImageBitmapAccess are matched.
-  DCHECK_EQ(wire_texture_id_, 0u);
-  DCHECK_EQ(wire_texture_generation_, 0u);
-
-  device_client_id_ = 0;
-  dawn_control_client_.reset();
-}
-
-WGPUTexture DawnTextureFromImageBitmap::ProduceDawnTextureFromImageBitmap(
-    scoped_refptr<StaticBitmapImage> image) {
-  DCHECK(!dawn_control_client_->IsDestroyed());
-
-  associated_resource_ = image->GetMailboxHolder().mailbox;
-
-  // Produce and inject image to WebGPU texture
-  gpu::webgpu::WebGPUInterface* webgpu = dawn_control_client_->GetInterface();
-  gpu::webgpu::ReservedTexture reservation =
-      webgpu->ReserveTexture(device_client_id_);
-  DCHECK(reservation.texture);
-
-  wire_texture_id_ = reservation.id;
-  wire_texture_generation_ = reservation.generation;
-
-  // This may fail because gl_backing resource cannot produce dawn
-  // representation.
-  webgpu->AssociateMailbox(device_client_id_, 0, wire_texture_id_,
-                           wire_texture_generation_, WGPUTextureUsage_CopySrc,
-                           reinterpret_cast<GLbyte*>(&associated_resource_));
-
-  return reservation.texture;
-}
-
-void DawnTextureFromImageBitmap::FinishDawnTextureFromImageBitmapAccess() {
-  DCHECK(!dawn_control_client_->IsDestroyed());
-  DCHECK_NE(wire_texture_id_, 0u);
-
-  gpu::webgpu::WebGPUInterface* webgpu = dawn_control_client_->GetInterface();
-  webgpu->DissociateMailbox(device_client_id_, wire_texture_id_,
-                            wire_texture_generation_);
-  wire_texture_id_ = 0;
-  wire_texture_generation_ = 0;
-  associated_resource_.SetZero();
-}
 }  // namespace blink

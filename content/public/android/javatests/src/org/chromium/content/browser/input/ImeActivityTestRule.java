@@ -21,13 +21,14 @@ import org.hamcrest.Matchers;
 import org.junit.Assert;
 
 import org.chromium.base.test.util.CallbackHelper;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.CriteriaNotSatisfiedException;
 import org.chromium.content.browser.ViewEventSinkImpl;
 import org.chromium.content.browser.selection.SelectionPopupControllerImpl;
 import org.chromium.content.browser.webcontents.WebContentsImpl;
 import org.chromium.content_public.browser.ImeAdapter;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
-import org.chromium.content_public.browser.test.util.CriteriaNotSatisfiedException;
+import org.chromium.content_public.browser.test.RenderFrameHostTestExt;
 import org.chromium.content_public.browser.test.util.DOMUtils;
 import org.chromium.content_public.browser.test.util.JavaScriptUtils;
 import org.chromium.content_public.browser.test.util.TestCallbackHelperContainer;
@@ -56,6 +57,8 @@ class ImeActivityTestRule extends ContentShellActivityTestRule {
     static final String PASSWORD_FORM_HTML = "content/test/data/android/input/password_form.html";
     static final String INPUT_MODE_HTML = "content/test/data/android/input/input_mode.html";
     static final String INPUT_ACTION_HTML = "content/test/data/android/input/input_action.html";
+    static final String INPUT_VK_API_HTML =
+            "content/test/data/android/input/virtual_keyboard_api.html";
 
     private SelectionPopupControllerImpl mSelectionPopupController;
     private TestCallbackHelperContainer mCallbackContainer;
@@ -374,6 +377,15 @@ class ImeActivityTestRule extends ContentShellActivityTestRule {
     void cut() {
         final WebContentsImpl webContents = (WebContentsImpl) getWebContents();
         TestThreadUtils.runOnUiThreadBlocking(() -> { webContents.cut(); });
+    }
+
+    void notifyVirtualKeyboardOverlayRect(int x, int y, int width, int height) {
+        final WebContentsImpl webContents = (WebContentsImpl) getWebContents();
+        RenderFrameHostTestExt rfh = TestThreadUtils.runOnUiThreadBlockingNoException(
+                () -> new RenderFrameHostTestExt(webContents.getMainFrame()));
+        Assert.assertTrue("Did not get a focused frame", rfh != null);
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> { rfh.notifyVirtualKeyboardOverlayRect(x, y, width, height); });
     }
 
     void setClip(final CharSequence text) {

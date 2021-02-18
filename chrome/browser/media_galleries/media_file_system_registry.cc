@@ -12,10 +12,11 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/check_op.h"
+#include "base/containers/contains.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/notreached.h"
-#include "base/stl_util.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/media_galleries/fileapi/media_file_system_backend.h"
 #include "chrome/browser/media_galleries/gallery_watch_manager.h"
 #include "chrome/browser/media_galleries/media_file_system_context.h"
@@ -45,7 +46,7 @@
 #include "storage/common/file_system/file_system_mount_option.h"
 #include "storage/common/file_system/file_system_types.h"
 
-#if defined(OS_WIN) || defined(OS_MAC) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || defined(OS_MAC) || BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/media_galleries/fileapi/mtp_device_map_service.h"
 #endif
 
@@ -666,7 +667,7 @@ class MediaFileSystemRegistry::MediaFileSystemContextImpl
   void RevokeFileSystem(const std::string& fs_name) override {
     ExternalMountPoints::GetSystemInstance()->RevokeFileSystem(fs_name);
 
-#if defined(OS_WIN) || defined(OS_MAC) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || defined(OS_MAC) || BUILDFLAG(IS_CHROMEOS_ASH)
     content::GetIOThreadTaskRunner({})->PostTask(
         FROM_HERE,
         base::BindOnce(&MTPDeviceMapService::RevokeMTPFileSystem,
@@ -698,14 +699,14 @@ class MediaFileSystemRegistry::MediaFileSystemContextImpl
     CHECK(!path.ReferencesParent());
 
     return ExternalMountPoints::GetSystemInstance()->RegisterFileSystem(
-        fs_name, storage::kFileSystemTypeNativeMedia,
+        fs_name, storage::kFileSystemTypeLocalMedia,
         storage::FileSystemMountOption(), path);
   }
 
   bool RegisterFileSystemForMTPDevice(const std::string& device_id,
                                       const std::string fs_name,
                                       const base::FilePath& path) {
-#if defined(OS_WIN) || defined(OS_MAC) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || defined(OS_MAC) || BUILDFLAG(IS_CHROMEOS_ASH)
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
     DCHECK(!StorageInfo::IsMassStorageDevice(device_id));
 

@@ -17,8 +17,8 @@
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/replaced_navigation_entry_data.h"
-#include "content/public/common/page_state.h"
 #include "content/public/common/referrer.h"
+#include "third_party/blink/public/common/page_state/page_state.h"
 
 namespace sessions {
 namespace {
@@ -70,7 +70,6 @@ ContentSerializedNavigationBuilder::FromNavigationEntry(
   navigation.task_id_ = NavigationTaskId::Get(entry)->id();
   navigation.parent_task_id_ = NavigationTaskId::Get(entry)->parent_id();
   navigation.root_task_id_ = NavigationTaskId::Get(entry)->root_id();
-  navigation.children_task_ids_ = NavigationTaskId::Get(entry)->children_ids();
 
   for (const auto& handler_entry :
        ContentSerializedNavigationDriver::GetInstance()
@@ -122,7 +121,7 @@ ContentSerializedNavigationBuilder::ToNavigationEntry(
     // Ensure that the deserialized/restored content::NavigationEntry (and
     // the content::FrameNavigationEntry underneath) has a valid PageState.
     entry->SetPageState(
-        content::PageState::CreateFromURL(navigation->virtual_url_));
+        blink::PageState::CreateFromURL(navigation->virtual_url_));
 
     // The |navigation|-based referrer set below might be inconsistent with the
     // referrer embedded inside the PageState set above.  Nevertheless, to
@@ -141,7 +140,7 @@ ContentSerializedNavigationBuilder::ToNavigationEntry(
     // Note that PageState covers some of the values inside |navigation| (e.g.
     // URL, Referrer).  Calling SetPageState will clobber these values in
     // content::NavigationEntry (and FrameNavigationEntry(s) below).
-    entry->SetPageState(content::PageState::CreateFromEncodedData(
+    entry->SetPageState(blink::PageState::CreateFromEncodedData(
         navigation->encoded_page_state_));
 
     // |navigation|-level referrer information is redundant wrt PageState, but

@@ -10,6 +10,7 @@
 
 #include "base/macros.h"
 #include "base/strings/strcat.h"
+#include "base/test/bind.h"
 #include "chrome/common/extensions/api/file_manager_private.h"
 #include "chromeos/components/drivefs/mojom/drivefs.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -18,6 +19,7 @@
 namespace file_manager {
 namespace file_manager_private = extensions::api::file_manager_private;
 
+using file_manager_private::DriveConfirmDialogEvent;
 using file_manager_private::DriveSyncErrorEvent;
 using file_manager_private::FileTransferStatus;
 using file_manager_private::FileWatchEvent;
@@ -70,6 +72,8 @@ class TestDriveFsEventRouter : public DriveFsEventRouter {
  public:
   TestDriveFsEventRouter() {
     ON_CALL(*this, IsPathWatched).WillByDefault(testing::Return(true));
+    ON_CALL(*this, GetEventListenerExtensionIds)
+        .WillByDefault(testing::Return(std::set<std::string>{"ext"}));
   }
 
   void DispatchEventToExtension(
@@ -80,11 +84,12 @@ class TestDriveFsEventRouter : public DriveFsEventRouter {
     DispatchEventToExtensionImpl(extension_id, event_name, *event_args);
   }
 
-  MOCK_METHOD3(DispatchEventToExtensionImpl,
-               void(const std::string& extension_id,
-                    const std::string& name,
-                    const base::ListValue& event));
-  MOCK_METHOD1(IsPathWatched, bool(const base::FilePath&));
+  MOCK_METHOD(void,
+              DispatchEventToExtensionImpl,
+              (const std::string& extension_id,
+               const std::string& name,
+               const base::ListValue& event));
+  MOCK_METHOD(bool, IsPathWatched, (const base::FilePath&));
 
   GURL ConvertDrivePathToFileSystemUrl(
       const base::FilePath& file_path,
@@ -94,10 +99,10 @@ class TestDriveFsEventRouter : public DriveFsEventRouter {
 
   std::string GetDriveFileSystemName() override { return "drivefs"; }
 
-  std::set<std::string> GetEventListenerExtensionIds(
-      const std::string& event_name) override {
-    return {"ext"};
-  }
+  MOCK_METHOD(std::set<std::string>,
+              GetEventListenerExtensionIds,
+              (const std::string& event_name),
+              (override));
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TestDriveFsEventRouter);
@@ -109,10 +114,26 @@ class DriveFsEventRouterTest : public testing::Test {
     event_router_ = std::make_unique<TestDriveFsEventRouter>();
   }
 
+  void Unmount() {
+    EXPECT_CALL(
+        mock(),
+        DispatchEventToExtensionImpl(
+            "ext", file_manager_private::OnFileTransfersUpdated::kEventName,
+            MatchFileTransferStatus(
+                "", file_manager_private::TRANSFER_STATE_FAILED, 0, 0, 0)));
+    EXPECT_CALL(
+        mock(),
+        DispatchEventToExtensionImpl(
+            "ext", file_manager_private::OnPinTransfersUpdated::kEventName,
+            MatchFileTransferStatus(
+                "", file_manager_private::TRANSFER_STATE_FAILED, 0, 0, 0)));
+
+    observer().OnUnmounted();
+  }
+
   drivefs::DriveFsHostObserver& observer() { return *event_router_; }
   TestDriveFsEventRouter& mock() { return *event_router_; }
 
- private:
   std::unique_ptr<TestDriveFsEventRouter> event_router_;
 };
 
@@ -131,14 +152,34 @@ TEST_F(DriveFsEventRouterTest, OnSyncingStatusUpdate_Basic) {
           MatchFileTransferStatus(
               "ext:b", file_manager_private::TRANSFER_STATE_IN_PROGRESS, 50,
               200, 2)));
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName,
+          MatchFileTransferStatus(
+              "ext:c", file_manager_private::TRANSFER_STATE_IN_PROGRESS, 25, 80,
+              2)));
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName,
+          MatchFileTransferStatus(
+              "ext:d", file_manager_private::TRANSFER_STATE_IN_PROGRESS, 25, 80,
+              2)));
 
   drivefs::mojom::SyncingStatus syncing_status;
   syncing_status.item_events.emplace_back(
       base::in_place, 1, 1, "a", drivefs::mojom::ItemEvent::State::kInProgress,
-      50, 100);
+      50, 100, drivefs::mojom::ItemEventReason::kTransfer);
   syncing_status.item_events.emplace_back(
       base::in_place, 2, 3, "b", drivefs::mojom::ItemEvent::State::kQueued, 0,
-      100);
+      100, drivefs::mojom::ItemEventReason::kTransfer);
+  syncing_status.item_events.emplace_back(
+      base::in_place, 3, 4, "c", drivefs::mojom::ItemEvent::State::kInProgress,
+      25, 40, drivefs::mojom::ItemEventReason::kPin);
+  syncing_status.item_events.emplace_back(
+      base::in_place, 3, 4, "d", drivefs::mojom::ItemEvent::State::kQueued, 0,
+      40, drivefs::mojom::ItemEventReason::kPin);
   observer().OnSyncingStatusUpdate(syncing_status);
 }
 
@@ -147,6 +188,12 @@ TEST_F(DriveFsEventRouterTest, OnSyncingStatusUpdate_EmptyStatus) {
       mock(),
       DispatchEventToExtensionImpl(
           "ext", file_manager_private::OnFileTransfersUpdated::kEventName,
+          MatchFileTransferStatus(
+              "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)));
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName,
           MatchFileTransferStatus(
               "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)));
 
@@ -159,26 +206,31 @@ TEST_F(DriveFsEventRouterTest,
   drivefs::mojom::SyncingStatus syncing_status;
   syncing_status.item_events.emplace_back(
       base::in_place, 1, 1, "a", drivefs::mojom::ItemEvent::State::kInProgress,
-      50, 100);
+      50, 100, drivefs::mojom::ItemEventReason::kTransfer);
   syncing_status.item_events.emplace_back(
       base::in_place, 2, 3, "b", drivefs::mojom::ItemEvent::State::kQueued, 0,
-      100);
+      100, drivefs::mojom::ItemEventReason::kTransfer);
   EXPECT_CALL(
       mock(),
       DispatchEventToExtensionImpl(
           "ext", file_manager_private::OnFileTransfersUpdated::kEventName, _))
       .Times(4);
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName, _))
+      .Times(2);
   observer().OnSyncingStatusUpdate(syncing_status);
 
   syncing_status.item_events.clear();
   syncing_status.item_events.emplace_back(
       base::in_place, 1, 1, "a", drivefs::mojom::ItemEvent::State::kCompleted,
-      -1, -1);
+      -1, -1, drivefs::mojom::ItemEventReason::kTransfer);
   syncing_status.item_events.emplace_back(
       base::in_place, 2, 3, "b", drivefs::mojom::ItemEvent::State::kInProgress,
-      10, 100);
+      10, 100, drivefs::mojom::ItemEventReason::kTransfer);
   observer().OnSyncingStatusUpdate(syncing_status);
-  testing::Mock::VerifyAndClear(&observer());
+  testing::Mock::VerifyAndClearExpectations(&observer());
 
   EXPECT_CALL(
       mock(),
@@ -186,11 +238,17 @@ TEST_F(DriveFsEventRouterTest,
           "ext", file_manager_private::OnFileTransfersUpdated::kEventName,
           MatchFileTransferStatus(
               "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)));
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName,
+          MatchFileTransferStatus(
+              "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)));
 
   syncing_status.item_events.clear();
   observer().OnSyncingStatusUpdate(syncing_status);
 
-  testing::Mock::VerifyAndClear(&observer());
+  testing::Mock::VerifyAndClearExpectations(&observer());
 
   EXPECT_CALL(
       mock(),
@@ -199,10 +257,16 @@ TEST_F(DriveFsEventRouterTest,
           MatchFileTransferStatus(
               "ext:c", file_manager_private::TRANSFER_STATE_IN_PROGRESS, 60, 70,
               1)));
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName,
+          MatchFileTransferStatus(
+              "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)));
 
   syncing_status.item_events.emplace_back(
       base::in_place, 1, 1, "c", drivefs::mojom::ItemEvent::State::kInProgress,
-      60, 70);
+      60, 70, drivefs::mojom::ItemEventReason::kTransfer);
   observer().OnSyncingStatusUpdate(syncing_status);
 }
 
@@ -210,33 +274,46 @@ TEST_F(DriveFsEventRouterTest, OnSyncingStatusUpdate_FailedSync) {
   drivefs::mojom::SyncingStatus syncing_status;
   syncing_status.item_events.emplace_back(
       base::in_place, 1, 1, "a", drivefs::mojom::ItemEvent::State::kInProgress,
-      50, 100);
+      50, 100, drivefs::mojom::ItemEventReason::kPin);
   EXPECT_CALL(
       mock(),
       DispatchEventToExtensionImpl(
-          "ext", file_manager_private::OnFileTransfersUpdated::kEventName, _))
+          "ext", file_manager_private::OnFileTransfersUpdated::kEventName,
+          MatchFileTransferStatus(
+              "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)))
+      .Times(2);
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName, _))
       .Times(2);
   observer().OnSyncingStatusUpdate(syncing_status);
 
   syncing_status.item_events.clear();
   syncing_status.item_events.emplace_back(
       base::in_place, 1, 1, "a", drivefs::mojom::ItemEvent::State::kInProgress,
-      80, 100);
+      80, 100, drivefs::mojom::ItemEventReason::kPin);
   observer().OnSyncingStatusUpdate(syncing_status);
 
-  testing::Mock::VerifyAndClear(&observer());
+  testing::Mock::VerifyAndClearExpectations(&observer());
 
   EXPECT_CALL(
       mock(),
       DispatchEventToExtensionImpl(
           "ext", file_manager_private::OnFileTransfersUpdated::kEventName,
+          MatchFileTransferStatus(
+              "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)));
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName,
           MatchFileTransferStatus("ext:a",
                                   file_manager_private::TRANSFER_STATE_FAILED,
                                   100, 100, 0)));
   syncing_status.item_events.clear();
   syncing_status.item_events.emplace_back(
       base::in_place, 1, 1, "a", drivefs::mojom::ItemEvent::State::kFailed, -1,
-      -1);
+      -1, drivefs::mojom::ItemEventReason::kPin);
   observer().OnSyncingStatusUpdate(syncing_status);
 }
 
@@ -244,21 +321,28 @@ TEST_F(DriveFsEventRouterTest, OnSyncingStatusUpdate_CompletedSync) {
   drivefs::mojom::SyncingStatus syncing_status;
   syncing_status.item_events.emplace_back(
       base::in_place, 1, 1, "a", drivefs::mojom::ItemEvent::State::kInProgress,
-      50, 100);
+      50, 100, drivefs::mojom::ItemEventReason::kTransfer);
   EXPECT_CALL(
       mock(),
       DispatchEventToExtensionImpl(
           "ext", file_manager_private::OnFileTransfersUpdated::kEventName, _))
+      .Times(2);
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName,
+          MatchFileTransferStatus(
+              "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)))
       .Times(2);
   observer().OnSyncingStatusUpdate(syncing_status);
 
   syncing_status.item_events.clear();
   syncing_status.item_events.emplace_back(
       base::in_place, 1, 1, "a", drivefs::mojom::ItemEvent::State::kInProgress,
-      80, 100);
+      80, 100, drivefs::mojom::ItemEventReason::kTransfer);
   observer().OnSyncingStatusUpdate(syncing_status);
 
-  testing::Mock::VerifyAndClear(&observer());
+  testing::Mock::VerifyAndClearExpectations(&observer());
 
   EXPECT_CALL(
       mock(),
@@ -267,10 +351,16 @@ TEST_F(DriveFsEventRouterTest, OnSyncingStatusUpdate_CompletedSync) {
           MatchFileTransferStatus(
               "ext:a", file_manager_private::TRANSFER_STATE_COMPLETED, 100, 100,
               0)));
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName,
+          MatchFileTransferStatus(
+              "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)));
   syncing_status.item_events.clear();
   syncing_status.item_events.emplace_back(
       base::in_place, 1, 1, "a", drivefs::mojom::ItemEvent::State::kCompleted,
-      -1, -1);
+      -1, -1, drivefs::mojom::ItemEventReason::kTransfer);
   observer().OnSyncingStatusUpdate(syncing_status);
 }
 
@@ -279,18 +369,24 @@ TEST_F(DriveFsEventRouterTest,
   drivefs::mojom::SyncingStatus syncing_status;
   syncing_status.item_events.emplace_back(
       base::in_place, 1, 1, "a", drivefs::mojom::ItemEvent::State::kInProgress,
-      50, 100);
+      50, 100, drivefs::mojom::ItemEventReason::kTransfer);
   syncing_status.item_events.emplace_back(
       base::in_place, 2, 3, "b", drivefs::mojom::ItemEvent::State::kQueued, 0,
-      100);
+      100, drivefs::mojom::ItemEventReason::kTransfer);
   EXPECT_CALL(
       mock(),
       DispatchEventToExtensionImpl(
           "ext", file_manager_private::OnFileTransfersUpdated::kEventName, _))
       .Times(2);
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName,
+          MatchFileTransferStatus(
+              "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)));
   observer().OnSyncingStatusUpdate(syncing_status);
 
-  testing::Mock::VerifyAndClear(&observer());
+  testing::Mock::VerifyAndClearExpectations(&observer());
 
   EXPECT_CALL(
       mock(),
@@ -306,13 +402,19 @@ TEST_F(DriveFsEventRouterTest,
           MatchFileTransferStatus(
               "ext:b", file_manager_private::TRANSFER_STATE_IN_PROGRESS, 110,
               200, 1)));
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName,
+          MatchFileTransferStatus(
+              "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)));
   syncing_status.item_events.clear();
   syncing_status.item_events.emplace_back(
       base::in_place, 1, 1, "a", drivefs::mojom::ItemEvent::State::kCompleted,
-      -1, -1);
+      -1, -1, drivefs::mojom::ItemEventReason::kTransfer);
   syncing_status.item_events.emplace_back(
       base::in_place, 2, 3, "b", drivefs::mojom::ItemEvent::State::kInProgress,
-      10, 100);
+      10, 100, drivefs::mojom::ItemEventReason::kTransfer);
   observer().OnSyncingStatusUpdate(syncing_status);
 }
 
@@ -320,18 +422,24 @@ TEST_F(DriveFsEventRouterTest, OnSyncingStatusUpdate_CompletedSync_WithQueued) {
   drivefs::mojom::SyncingStatus syncing_status;
   syncing_status.item_events.emplace_back(
       base::in_place, 1, 1, "a", drivefs::mojom::ItemEvent::State::kInProgress,
-      50, 100);
+      50, 100, drivefs::mojom::ItemEventReason::kTransfer);
   syncing_status.item_events.emplace_back(
       base::in_place, 2, 3, "b", drivefs::mojom::ItemEvent::State::kQueued, 0,
-      100);
+      100, drivefs::mojom::ItemEventReason::kTransfer);
   EXPECT_CALL(
       mock(),
       DispatchEventToExtensionImpl(
           "ext", file_manager_private::OnFileTransfersUpdated::kEventName, _))
       .Times(2);
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName,
+          MatchFileTransferStatus(
+              "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)));
   observer().OnSyncingStatusUpdate(syncing_status);
 
-  testing::Mock::VerifyAndClear(&observer());
+  testing::Mock::VerifyAndClearExpectations(&observer());
 
   EXPECT_CALL(
       mock(),
@@ -347,13 +455,19 @@ TEST_F(DriveFsEventRouterTest, OnSyncingStatusUpdate_CompletedSync_WithQueued) {
           MatchFileTransferStatus(
               "ext:b", file_manager_private::TRANSFER_STATE_IN_PROGRESS, 110,
               200, 1)));
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName,
+          MatchFileTransferStatus(
+              "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)));
   syncing_status.item_events.clear();
   syncing_status.item_events.emplace_back(
       base::in_place, 1, 1, "a", drivefs::mojom::ItemEvent::State::kCompleted,
-      -1, -1);
+      -1, -1, drivefs::mojom::ItemEventReason::kTransfer);
   syncing_status.item_events.emplace_back(
       base::in_place, 2, 3, "b", drivefs::mojom::ItemEvent::State::kQueued, 10,
-      100);
+      100, drivefs::mojom::ItemEventReason::kTransfer);
   observer().OnSyncingStatusUpdate(syncing_status);
 }
 
@@ -362,15 +476,21 @@ TEST_F(DriveFsEventRouterTest,
   drivefs::mojom::SyncingStatus syncing_status;
   syncing_status.item_events.emplace_back(
       base::in_place, 1, 1, "a", drivefs::mojom::ItemEvent::State::kInProgress,
-      50, 100);
+      50, 100, drivefs::mojom::ItemEventReason::kTransfer);
   EXPECT_CALL(
       mock(),
       DispatchEventToExtensionImpl(
           "ext", file_manager_private::OnFileTransfersUpdated::kEventName, _))
       .Times(1);
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName,
+          MatchFileTransferStatus(
+              "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)));
   observer().OnSyncingStatusUpdate(syncing_status);
 
-  testing::Mock::VerifyAndClear(&observer());
+  testing::Mock::VerifyAndClearExpectations(&observer());
 
   EXPECT_CALL(
       mock(),
@@ -386,13 +506,19 @@ TEST_F(DriveFsEventRouterTest,
           MatchFileTransferStatus(
               "ext:b", file_manager_private::TRANSFER_STATE_IN_PROGRESS, 110,
               200, 1)));
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName,
+          MatchFileTransferStatus(
+              "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)));
   syncing_status.item_events.clear();
   syncing_status.item_events.emplace_back(
       base::in_place, 1, 1, "a", drivefs::mojom::ItemEvent::State::kCompleted,
-      -1, -1);
+      -1, -1, drivefs::mojom::ItemEventReason::kTransfer);
   syncing_status.item_events.emplace_back(
       base::in_place, 2, 3, "b", drivefs::mojom::ItemEvent::State::kQueued, 10,
-      100);
+      100, drivefs::mojom::ItemEventReason::kTransfer);
   observer().OnSyncingStatusUpdate(syncing_status);
 }
 
@@ -400,21 +526,28 @@ TEST_F(DriveFsEventRouterTest, OnSyncingStatusUpdate_CompletedSync_ThenQueued) {
   drivefs::mojom::SyncingStatus syncing_status;
   syncing_status.item_events.emplace_back(
       base::in_place, 1, 1, "a", drivefs::mojom::ItemEvent::State::kInProgress,
-      50, 100);
+      50, 100, drivefs::mojom::ItemEventReason::kTransfer);
   EXPECT_CALL(
       mock(),
       DispatchEventToExtensionImpl(
           "ext", file_manager_private::OnFileTransfersUpdated::kEventName, _))
+      .Times(2);
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName,
+          MatchFileTransferStatus(
+              "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)))
       .Times(2);
   observer().OnSyncingStatusUpdate(syncing_status);
 
   syncing_status.item_events.clear();
   syncing_status.item_events.emplace_back(
       base::in_place, 1, 1, "a", drivefs::mojom::ItemEvent::State::kCompleted,
-      -1, -1);
+      -1, -1, drivefs::mojom::ItemEventReason::kTransfer);
   observer().OnSyncingStatusUpdate(syncing_status);
 
-  testing::Mock::VerifyAndClear(&observer());
+  testing::Mock::VerifyAndClearExpectations(&observer());
 
   EXPECT_CALL(
       mock(),
@@ -422,10 +555,16 @@ TEST_F(DriveFsEventRouterTest, OnSyncingStatusUpdate_CompletedSync_ThenQueued) {
           "ext", file_manager_private::OnFileTransfersUpdated::kEventName,
           MatchFileTransferStatus(
               "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)));
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName,
+          MatchFileTransferStatus(
+              "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)));
   syncing_status.item_events.clear();
   syncing_status.item_events.emplace_back(
       base::in_place, 2, 3, "b", drivefs::mojom::ItemEvent::State::kQueued, 10,
-      100);
+      100, drivefs::mojom::ItemEventReason::kTransfer);
   observer().OnSyncingStatusUpdate(syncing_status);
 }
 
@@ -434,27 +573,39 @@ TEST_F(DriveFsEventRouterTest,
   drivefs::mojom::SyncingStatus syncing_status;
   syncing_status.item_events.emplace_back(
       base::in_place, 1, 1, "a", drivefs::mojom::ItemEvent::State::kInProgress,
-      50, 100);
+      50, 100, drivefs::mojom::ItemEventReason::kTransfer);
   EXPECT_CALL(
       mock(),
       DispatchEventToExtensionImpl(
           "ext", file_manager_private::OnFileTransfersUpdated::kEventName, _))
       .Times(1);
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName,
+          MatchFileTransferStatus(
+              "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)));
   observer().OnSyncingStatusUpdate(syncing_status);
 
-  testing::Mock::VerifyAndClear(&observer());
+  testing::Mock::VerifyAndClearExpectations(&observer());
 
   EXPECT_CALL(
       mock(),
       DispatchEventToExtensionImpl(
           "ext", file_manager_private::OnFileTransfersUpdated::kEventName, _));
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName,
+          MatchFileTransferStatus(
+              "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)));
   syncing_status.item_events.clear();
   syncing_status.item_events.emplace_back(
       base::in_place, 1, 1, "a", drivefs::mojom::ItemEvent::State::kCompleted,
-      -1, -1);
+      -1, -1, drivefs::mojom::ItemEventReason::kTransfer);
   observer().OnSyncingStatusUpdate(syncing_status);
 
-  testing::Mock::VerifyAndClear(&observer());
+  testing::Mock::VerifyAndClearExpectations(&observer());
 
   EXPECT_CALL(
       mock(),
@@ -463,10 +614,16 @@ TEST_F(DriveFsEventRouterTest,
           MatchFileTransferStatus(
               "ext:b", file_manager_private::TRANSFER_STATE_IN_PROGRESS, 10,
               500, 1)));
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName,
+          MatchFileTransferStatus(
+              "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)));
   syncing_status.item_events.clear();
   syncing_status.item_events.emplace_back(
       base::in_place, 2, 3, "b", drivefs::mojom::ItemEvent::State::kInProgress,
-      10, 500);
+      10, 500, drivefs::mojom::ItemEventReason::kTransfer);
   observer().OnSyncingStatusUpdate(syncing_status);
 }
 
@@ -474,9 +631,9 @@ TEST_F(DriveFsEventRouterTest, OnSyncingStatusUpdate_QueuedOnly) {
   drivefs::mojom::SyncingStatus syncing_status;
   syncing_status.item_events.emplace_back(
       base::in_place, 2, 3, "b", drivefs::mojom::ItemEvent::State::kQueued, 0,
-      100);
+      100, drivefs::mojom::ItemEventReason::kTransfer);
 
-  testing::Mock::VerifyAndClear(&observer());
+  testing::Mock::VerifyAndClearExpectations(&observer());
 
   EXPECT_CALL(
       mock(),
@@ -484,22 +641,22 @@ TEST_F(DriveFsEventRouterTest, OnSyncingStatusUpdate_QueuedOnly) {
           "ext", file_manager_private::OnFileTransfersUpdated::kEventName,
           MatchFileTransferStatus(
               "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)));
+  EXPECT_CALL(
+      mock(),
+      DispatchEventToExtensionImpl(
+          "ext", file_manager_private::OnPinTransfersUpdated::kEventName,
+          MatchFileTransferStatus(
+              "", file_manager_private::TRANSFER_STATE_COMPLETED, 0, 0, 0)));
+
   syncing_status.item_events.clear();
   syncing_status.item_events.emplace_back(
       base::in_place, 2, 3, "b", drivefs::mojom::ItemEvent::State::kQueued, 10,
-      100);
+      100, drivefs::mojom::ItemEventReason::kTransfer);
   observer().OnSyncingStatusUpdate(syncing_status);
 }
 
 TEST_F(DriveFsEventRouterTest, OnSyncingStatusUpdate_OnUnmounted) {
-  EXPECT_CALL(
-      mock(),
-      DispatchEventToExtensionImpl(
-          "ext", file_manager_private::OnFileTransfersUpdated::kEventName,
-          MatchFileTransferStatus(
-              "", file_manager_private::TRANSFER_STATE_FAILED, 0, 0, 0)));
-
-  observer().OnUnmounted();
+  Unmount();
 }
 
 TEST_F(DriveFsEventRouterTest, OnFilesChanged_Basic) {
@@ -628,6 +785,119 @@ TEST_F(DriveFsEventRouterTest, OnError_CantPinDiskFull) {
 
   observer().OnError({drivefs::mojom::DriveError::Type::kPinningFailedDiskFull,
                       base::FilePath("a")});
+}
+
+TEST_F(DriveFsEventRouterTest, DisplayConfirmDialog_Display) {
+  DriveConfirmDialogEvent expected_event;
+  expected_event.type =
+      file_manager_private::DRIVE_CONFIRM_DIALOG_TYPE_ENABLE_DOCS_OFFLINE;
+  expected_event.file_url = "ext:a";
+  EXPECT_CALL(mock(),
+              DispatchEventToExtensionImpl(
+                  "ext", file_manager_private::OnDriveConfirmDialog::kEventName,
+                  testing::MakeMatcher(new ListValueMatcher(std::move(
+                      *file_manager_private::OnDriveConfirmDialog::Create(
+                          expected_event))))));
+
+  drivefs::mojom::DialogReason reason;
+  reason.type = drivefs::mojom::DialogReason::Type::kEnableDocsOffline;
+  reason.path = base::FilePath("a");
+  bool called = false;
+  event_router_->DisplayConfirmDialog(
+      reason,
+      base::BindLambdaForTesting([&](drivefs::mojom::DialogResult result) {
+        called = true;
+        EXPECT_EQ(drivefs::mojom::DialogResult::kAccept, result);
+      }));
+  EXPECT_FALSE(called);
+  event_router_->OnDialogResult(drivefs::mojom::DialogResult::kAccept);
+  EXPECT_TRUE(called);
+}
+
+TEST_F(DriveFsEventRouterTest, DisplayConfirmDialog_OneDialogAtATime) {
+  DriveConfirmDialogEvent expected_event;
+  expected_event.type =
+      file_manager_private::DRIVE_CONFIRM_DIALOG_TYPE_ENABLE_DOCS_OFFLINE;
+  expected_event.file_url = "ext:a";
+  EXPECT_CALL(mock(),
+              DispatchEventToExtensionImpl(
+                  "ext", file_manager_private::OnDriveConfirmDialog::kEventName,
+                  testing::MakeMatcher(new ListValueMatcher(std::move(
+                      *file_manager_private::OnDriveConfirmDialog::Create(
+                          expected_event))))));
+
+  drivefs::mojom::DialogReason reason;
+  reason.type = drivefs::mojom::DialogReason::Type::kEnableDocsOffline;
+  reason.path = base::FilePath("a");
+  bool called1 = false;
+  event_router_->DisplayConfirmDialog(
+      reason,
+      base::BindLambdaForTesting([&](drivefs::mojom::DialogResult result) {
+        called1 = true;
+        EXPECT_EQ(drivefs::mojom::DialogResult::kReject, result);
+      }));
+  EXPECT_FALSE(called1);
+
+  bool called2 = false;
+  event_router_->DisplayConfirmDialog(
+      reason,
+      base::BindLambdaForTesting([&](drivefs::mojom::DialogResult result) {
+        called2 = true;
+        EXPECT_EQ(drivefs::mojom::DialogResult::kNotDisplayed, result);
+      }));
+  EXPECT_TRUE(called2);
+  event_router_->OnDialogResult(drivefs::mojom::DialogResult::kReject);
+  EXPECT_TRUE(called1);
+}
+
+TEST_F(DriveFsEventRouterTest, DisplayConfirmDialog_UnmountBeforeResult) {
+  DriveConfirmDialogEvent expected_event;
+  expected_event.type =
+      file_manager_private::DRIVE_CONFIRM_DIALOG_TYPE_ENABLE_DOCS_OFFLINE;
+  expected_event.file_url = "ext:a";
+  EXPECT_CALL(mock(),
+              DispatchEventToExtensionImpl(
+                  "ext", file_manager_private::OnDriveConfirmDialog::kEventName,
+                  testing::MakeMatcher(new ListValueMatcher(std::move(
+                      *file_manager_private::OnDriveConfirmDialog::Create(
+                          expected_event))))))
+      .Times(2);
+
+  drivefs::mojom::DialogReason reason;
+  reason.type = drivefs::mojom::DialogReason::Type::kEnableDocsOffline;
+  reason.path = base::FilePath("a");
+  event_router_->DisplayConfirmDialog(
+      reason, base::BindLambdaForTesting(
+                  [&](drivefs::mojom::DialogResult result) { NOTREACHED(); }));
+  Unmount();
+  event_router_->OnDialogResult(drivefs::mojom::DialogResult::kAccept);
+
+  bool called = false;
+  event_router_->DisplayConfirmDialog(
+      reason,
+      base::BindLambdaForTesting([&](drivefs::mojom::DialogResult result) {
+        called = true;
+        EXPECT_EQ(drivefs::mojom::DialogResult::kDismiss, result);
+      }));
+  event_router_->OnDialogResult(drivefs::mojom::DialogResult::kDismiss);
+  EXPECT_TRUE(called);
+}
+
+TEST_F(DriveFsEventRouterTest, DisplayConfirmDialog_NoListeners) {
+  EXPECT_CALL(mock(), GetEventListenerExtensionIds)
+      .WillRepeatedly(testing::Return(std::set<std::string>{}));
+
+  drivefs::mojom::DialogReason reason;
+  reason.type = drivefs::mojom::DialogReason::Type::kEnableDocsOffline;
+  reason.path = base::FilePath("a");
+  bool called = false;
+  event_router_->DisplayConfirmDialog(
+      reason,
+      base::BindLambdaForTesting([&](drivefs::mojom::DialogResult result) {
+        called = true;
+        EXPECT_EQ(drivefs::mojom::DialogResult::kNotDisplayed, result);
+      }));
+  EXPECT_TRUE(called);
 }
 
 }  // namespace

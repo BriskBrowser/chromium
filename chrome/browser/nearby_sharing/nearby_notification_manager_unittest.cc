@@ -7,22 +7,27 @@
 #include <memory>
 #include <vector>
 
+#include "ash/public/cpp/ash_features.h"
+#include "ash/public/cpp/holding_space/holding_space_controller.h"
+#include "ash/public/cpp/holding_space/holding_space_item.h"
+#include "ash/public/cpp/holding_space/holding_space_model.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_restrictions.h"
 #include "chrome/app/vector_icons/vector_icons.h"
-#include "chrome/browser/browser_features.h"
+#include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/download/chrome_download_manager_delegate.h"
 #include "chrome/browser/download/download_core_service_factory.h"
 #include "chrome/browser/download/download_core_service_impl.h"
 #include "chrome/browser/download/download_prefs.h"
+#include "chrome/browser/nearby_sharing/common/nearby_share_features.h"
 #include "chrome/browser/nearby_sharing/common/nearby_share_prefs.h"
 #include "chrome/browser/nearby_sharing/constants.h"
 #include "chrome/browser/nearby_sharing/mock_nearby_sharing_service.h"
@@ -32,11 +37,21 @@
 #include "chrome/browser/nearby_sharing/transfer_metadata_builder.h"
 #include "chrome/browser/notifications/notification_display_service_factory.h"
 #include "chrome/browser/notifications/notification_display_service_tester.h"
+#include "chrome/browser/ui/ash/holding_space/fake_holding_space_color_provider.h"
+#include "chrome/browser/ui/ash/holding_space/holding_space_keyed_service_factory.h"
+#include "chrome/browser/ui/ash/holding_space/scoped_test_mount_point.h"
+#include "chrome/browser/ui/ash/test_session_controller.h"
 #include "chrome/grit/generated_resources.h"
+#include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
+#include "chrome/test/base/testing_profile_manager.h"
+#include "components/account_id/account_id.h"
 #include "components/prefs/testing_pref_service.h"
+#include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "content/public/test/browser_task_environment.h"
 #include "services/data_decoder/public/cpp/test_support/in_process_data_decoder.h"
+#include "storage/browser/file_system/external_mount_points.h"
+#include "storage/browser/file_system/file_system_context.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -50,6 +65,7 @@
 namespace {
 
 const char kTextBody[] = "text body";
+const char kTextUrl[] = "https://google.com";
 
 MATCHER_P(MatchesTarget, target, "") {
   return arg.id == target.id;
@@ -57,6 +73,10 @@ MATCHER_P(MatchesTarget, target, "") {
 
 TextAttachment CreateTextAttachment(TextAttachment::Type type) {
   return TextAttachment(type, kTextBody);
+}
+
+TextAttachment CreateUrlAttachment() {
+  return TextAttachment(TextAttachment::Type::kUrl, kTextUrl);
 }
 
 FileAttachment CreateFileAttachment(FileAttachment::Type type) {
@@ -94,6 +114,13 @@ SkBitmap CreateTestSkBitmap() {
   bitmap.allocN32Pixels(/*w=*/10, /*h=*/15);
   bitmap.eraseColor(SK_ColorRED);
   return bitmap;
+}
+
+std::unique_ptr<TestingProfileManager> CreateTestingProfileManager() {
+  std::unique_ptr<TestingProfileManager> profile_manager(
+      new TestingProfileManager(TestingBrowserProcess::GetGlobal()));
+  EXPECT_TRUE(profile_manager->SetUp());
+  return profile_manager;
 }
 
 class NearbyNotificationManagerTest : public testing::Test {
@@ -149,6 +176,7 @@ class NearbyNotificationManagerTest : public testing::Test {
   }
 
   ShareTarget CreateIncomingShareTarget(int text_attachments,
+                                        int url_attachements,
                                         int image_attachments,
                                         int other_file_attachments) {
     ShareTarget share_target;
@@ -156,6 +184,10 @@ class NearbyNotificationManagerTest : public testing::Test {
     for (int i = 0; i < text_attachments; i++) {
       share_target.text_attachments.push_back(
           CreateTextAttachment(TextAttachment::Type::kText));
+    }
+
+    for (int i = 0; i < url_attachements; i++) {
+      share_target.text_attachments.push_back(CreateUrlAttachment());
     }
 
     for (int i = 0; i < image_attachments; i++) {
@@ -187,6 +219,7 @@ class NearbyNotificationManagerTest : public testing::Test {
   base::ScopedTempDir temp_dir_;
   content::BrowserTaskEnvironment task_environment_{
       base::test::TaskEnvironment::TimeSource::MOCK_TIME};
+  std::unique_ptr<TestingProfileManager> profile_manager_;
   TestingPrefServiceSimple pref_service_;
   TestingProfile profile_;
   std::unique_ptr<NotificationDisplayServiceTester> notification_tester_;
@@ -199,45 +232,76 @@ class NearbyNotificationManagerTest : public testing::Test {
 struct AttachmentsTestParamInternal {
   std::vector<TextAttachment::Type> text_attachments;
   std::vector<FileAttachment::Type> file_attachments;
-  int expected_resource_id;
+  int expected_capitalized_resource_id;
+  int expected_not_capitalized_resource_id;
 };
 
 AttachmentsTestParamInternal kAttachmentsTestParams[] = {
     // No attachments.
-    {{}, {}, IDS_NEARBY_UNKNOWN_ATTACHMENTS},
+    {{},
+     {},
+     IDS_NEARBY_CAPITALIZED_UNKNOWN_ATTACHMENTS,
+     IDS_NEARBY_NOT_CAPITALIZED_UNKNOWN_ATTACHMENTS},
 
     // Mixed attachments.
-    {{TextAttachment::Type::kText},
-     {FileAttachment::Type::kUnknown},
-     IDS_NEARBY_UNKNOWN_ATTACHMENTS},
+    {
+        {TextAttachment::Type::kText},
+        {FileAttachment::Type::kUnknown},
+        IDS_NEARBY_CAPITALIZED_UNKNOWN_ATTACHMENTS,
+        IDS_NEARBY_NOT_CAPITALIZED_UNKNOWN_ATTACHMENTS,
+    },
 
     // Text attachments.
-    {{TextAttachment::Type::kUrl}, {}, IDS_NEARBY_TEXT_ATTACHMENTS_LINKS},
-    {{TextAttachment::Type::kText}, {}, IDS_NEARBY_TEXT_ATTACHMENTS_UNKNOWN},
+    {{TextAttachment::Type::kUrl},
+     {},
+     IDS_NEARBY_TEXT_ATTACHMENTS_CAPITALIZED_LINKS,
+     IDS_NEARBY_TEXT_ATTACHMENTS_NOT_CAPITALIZED_LINKS},
+    {{TextAttachment::Type::kText},
+     {},
+     IDS_NEARBY_TEXT_ATTACHMENTS_CAPITALIZED_UNKNOWN,
+     IDS_NEARBY_TEXT_ATTACHMENTS_NOT_CAPITALIZED_UNKNOWN},
     {{TextAttachment::Type::kAddress},
      {},
-     IDS_NEARBY_TEXT_ATTACHMENTS_ADDRESSES},
+     IDS_NEARBY_TEXT_ATTACHMENTS_CAPITALIZED_ADDRESSES,
+     IDS_NEARBY_TEXT_ATTACHMENTS_NOT_CAPITALIZED_ADDRESSES},
     {{TextAttachment::Type::kPhoneNumber},
      {},
-     IDS_NEARBY_TEXT_ATTACHMENTS_PHONE_NUMBERS},
+     IDS_NEARBY_TEXT_ATTACHMENTS_CAPITALIZED_PHONE_NUMBERS,
+     IDS_NEARBY_TEXT_ATTACHMENTS_NOT_CAPITALIZED_PHONE_NUMBERS},
     {{TextAttachment::Type::kAddress, TextAttachment::Type::kAddress},
      {},
-     IDS_NEARBY_TEXT_ATTACHMENTS_ADDRESSES},
+     IDS_NEARBY_TEXT_ATTACHMENTS_CAPITALIZED_ADDRESSES,
+     IDS_NEARBY_TEXT_ATTACHMENTS_NOT_CAPITALIZED_ADDRESSES},
     {{TextAttachment::Type::kAddress, TextAttachment::Type::kUrl},
      {},
-     IDS_NEARBY_TEXT_ATTACHMENTS_UNKNOWN},
+     IDS_NEARBY_TEXT_ATTACHMENTS_CAPITALIZED_UNKNOWN,
+     IDS_NEARBY_TEXT_ATTACHMENTS_NOT_CAPITALIZED_UNKNOWN},
 
     // File attachments.
-    {{}, {FileAttachment::Type::kApp}, IDS_NEARBY_FILE_ATTACHMENTS_APPS},
-    {{}, {FileAttachment::Type::kImage}, IDS_NEARBY_FILE_ATTACHMENTS_IMAGES},
-    {{}, {FileAttachment::Type::kUnknown}, IDS_NEARBY_FILE_ATTACHMENTS_UNKNOWN},
-    {{}, {FileAttachment::Type::kVideo}, IDS_NEARBY_FILE_ATTACHMENTS_VIDEOS},
+    {{},
+     {FileAttachment::Type::kApp},
+     IDS_NEARBY_FILE_ATTACHMENTS_CAPITALIZED_APPS,
+     IDS_NEARBY_FILE_ATTACHMENTS_NOT_CAPITALIZED_APPS},
+    {{},
+     {FileAttachment::Type::kImage},
+     IDS_NEARBY_FILE_ATTACHMENTS_CAPITALIZED_IMAGES,
+     IDS_NEARBY_FILE_ATTACHMENTS_NOT_CAPITALIZED_IMAGES},
+    {{},
+     {FileAttachment::Type::kUnknown},
+     IDS_NEARBY_FILE_ATTACHMENTS_CAPITALIZED_UNKNOWN,
+     IDS_NEARBY_FILE_ATTACHMENTS_NOT_CAPITALIZED_UNKNOWN},
+    {{},
+     {FileAttachment::Type::kVideo},
+     IDS_NEARBY_FILE_ATTACHMENTS_CAPITALIZED_VIDEOS,
+     IDS_NEARBY_FILE_ATTACHMENTS_NOT_CAPITALIZED_VIDEOS},
     {{},
      {FileAttachment::Type::kApp, FileAttachment::Type::kApp},
-     IDS_NEARBY_FILE_ATTACHMENTS_APPS},
+     IDS_NEARBY_FILE_ATTACHMENTS_CAPITALIZED_APPS,
+     IDS_NEARBY_FILE_ATTACHMENTS_NOT_CAPITALIZED_APPS},
     {{},
      {FileAttachment::Type::kApp, FileAttachment::Type::kImage},
-     IDS_NEARBY_FILE_ATTACHMENTS_UNKNOWN},
+     IDS_NEARBY_FILE_ATTACHMENTS_CAPITALIZED_UNKNOWN,
+     IDS_NEARBY_FILE_ATTACHMENTS_NOT_CAPITALIZED_UNKNOWN},
 };
 
 using AttachmentsTestParam = std::tuple<AttachmentsTestParamInternal, bool>;
@@ -255,11 +319,15 @@ class NearbyNotificationManagerConnectionRequestTest
 base::string16 FormatNotificationTitle(
     int resource_id,
     const AttachmentsTestParamInternal& param,
-    const std::string& device_name) {
+    const std::string& device_name,
+    bool use_capitalized_resource) {
   size_t total = param.text_attachments.size() + param.file_attachments.size();
+  int attachments_resource_id =
+      use_capitalized_resource ? param.expected_capitalized_resource_id
+                               : param.expected_not_capitalized_resource_id;
   return base::ReplaceStringPlaceholders(
       l10n_util::GetPluralStringFUTF16(resource_id, total),
-      {l10n_util::GetPluralStringFUTF16(param.expected_resource_id, total),
+      {l10n_util::GetPluralStringFUTF16(attachments_resource_id, total),
        base::ASCIIToUTF16(device_name)},
       /*offsets=*/nullptr);
 }
@@ -386,7 +454,7 @@ TEST_P(NearbyNotificationManagerAttachmentsTest, ShowProgress) {
   base::string16 expected = FormatNotificationTitle(
       is_incoming ? IDS_NEARBY_NOTIFICATION_RECEIVE_PROGRESS_TITLE
                   : IDS_NEARBY_NOTIFICATION_SEND_PROGRESS_TITLE,
-      param, device_name);
+      param, device_name, /*use_capitalized_resource=*/false);
 
   std::vector<message_center::Notification> notifications =
       GetDisplayedNotifications();
@@ -416,7 +484,7 @@ TEST_P(NearbyNotificationManagerAttachmentsTest, ShowSuccess) {
   base::string16 expected = FormatNotificationTitle(
       is_incoming ? IDS_NEARBY_NOTIFICATION_RECEIVE_SUCCESS_TITLE
                   : IDS_NEARBY_NOTIFICATION_SEND_SUCCESS_TITLE,
-      param, device_name);
+      param, device_name, /*use_capitalized_resource=*/true);
 
   std::vector<message_center::Notification> notifications =
       GetDisplayedNotifications();
@@ -441,19 +509,39 @@ TEST_P(NearbyNotificationManagerAttachmentsTest, ShowFailure) {
   for (FileAttachment::Type type : param.file_attachments)
     share_target.file_attachments.push_back(CreateFileAttachment(type));
 
-  manager()->ShowFailure(share_target);
+  for (std::pair<TransferMetadata::Status, int> error :
+       std::vector<std::pair<TransferMetadata::Status, int>>{
+           {TransferMetadata::Status::kNotEnoughSpace,
+            IDS_NEARBY_ERROR_NOT_ENOUGH_SPACE},
+           {TransferMetadata::Status::kTimedOut, IDS_NEARBY_ERROR_TIME_OUT},
+           {TransferMetadata::Status::kUnsupportedAttachmentType,
+            IDS_NEARBY_ERROR_UNSUPPORTED_FILE_TYPE},
+           {TransferMetadata::Status::kFailed, 0},
+       }) {
+    manager()->ShowFailure(
+        share_target,
+        TransferMetadataBuilder().set_status(error.first).build());
 
-  base::string16 expected = FormatNotificationTitle(
-      is_incoming ? IDS_NEARBY_NOTIFICATION_RECEIVE_FAILURE_TITLE
-                  : IDS_NEARBY_NOTIFICATION_SEND_FAILURE_TITLE,
-      param, device_name);
+    base::string16 expected_title = FormatNotificationTitle(
+        is_incoming ? IDS_NEARBY_NOTIFICATION_RECEIVE_FAILURE_TITLE
+                    : IDS_NEARBY_NOTIFICATION_SEND_FAILURE_TITLE,
+        param, device_name, /*use_capitalized_resource=*/false);
+    base::string16 expected_message =
+        error.second ? l10n_util::GetStringUTF16(error.second)
+                     : base::string16();
 
-  std::vector<message_center::Notification> notifications =
-      GetDisplayedNotifications();
-  ASSERT_EQ(1u, notifications.size());
+    std::vector<message_center::Notification> notifications =
+        GetDisplayedNotifications();
+    ASSERT_EQ(1u, notifications.size());
 
-  const message_center::Notification& notification = notifications[0];
-  EXPECT_EQ(expected, notification.title());
+    const message_center::Notification& notification = notifications[0];
+    EXPECT_EQ(expected_title, notification.title());
+    EXPECT_EQ(expected_message, notification.message());
+
+    notification_tester_->RemoveNotification(
+        NotificationHandler::Type::NEARBY_SHARE, notifications[0].id(),
+        /*by_user=*/true);
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -497,7 +585,8 @@ TEST_P(NearbyNotificationManagerConnectionRequestTest,
   base::string16 expected_message = base::ReplaceStringPlaceholders(
       plural_message,
       {base::ASCIIToUTF16(device_name),
-       l10n_util::GetPluralStringFUTF16(IDS_NEARBY_FILE_ATTACHMENTS_IMAGES, 1)},
+       l10n_util::GetPluralStringFUTF16(
+           IDS_NEARBY_FILE_ATTACHMENTS_NOT_CAPITALIZED_IMAGES, 1)},
       /*offsets=*/nullptr);
 
   if (with_token) {
@@ -588,7 +677,7 @@ TEST_F(NearbyNotificationManagerTest, ShowSuccess_ShowsNotification) {
 }
 
 TEST_F(NearbyNotificationManagerTest, ShowFailure_ShowsNotification) {
-  manager()->ShowFailure(ShareTarget());
+  manager()->ShowFailure(ShareTarget(), TransferMetadataBuilder().build());
 
   std::vector<message_center::Notification> notifications =
       GetDisplayedNotifications();
@@ -876,7 +965,54 @@ TEST_F(NearbyNotificationManagerTest, Onboarding_DismissTimeout) {
 }
 
 TEST_F(NearbyNotificationManagerTest,
-       SuccessNotificationClicked_SingleImageReceived) {
+       SuccessNotificationClicked_SingleImageReceived_OpenDownloads) {
+  base::RunLoop run_loop;
+  manager()->SetOnSuccessClickedForTesting(base::BindLambdaForTesting(
+      [&](NearbyNotificationManager::SuccessNotificationAction action) {
+        EXPECT_EQ(NearbyNotificationManager::SuccessNotificationAction::
+                      kOpenDownloads,
+                  action);
+        run_loop.Quit();
+      }));
+
+  ShareTarget share_target = CreateIncomingShareTarget(
+      /*text_attachments=*/0, /*url_attachments=*/0, /*image_attachments=*/1,
+      /*other_file_attachments=*/0);
+  manager()->ShowSuccess(share_target);
+
+  // Image decoding happens asynchronously so wait for the notification to show.
+  base::RunLoop display_run_loop;
+  notification_tester_->SetNotificationAddedClosure(
+      display_run_loop.QuitClosure());
+  display_run_loop.Run();
+
+  std::vector<message_center::Notification> notifications =
+      GetDisplayedNotifications();
+  ASSERT_EQ(1u, notifications.size());
+  const message_center::Notification& notification = notifications[0];
+  EXPECT_EQ(message_center::NOTIFICATION_TYPE_IMAGE, notification.type());
+  EXPECT_FALSE(notification.image().IsEmpty());
+  ASSERT_EQ(2u, notification.buttons().size());
+  EXPECT_EQ(
+      l10n_util::GetStringUTF16(IDS_NEARBY_NOTIFICATION_ACTION_OPEN_FOLDER),
+      notification.buttons()[0].title);
+  EXPECT_EQ(l10n_util::GetStringUTF16(
+                IDS_NEARBY_NOTIFICATION_ACTION_COPY_TO_CLIPBOARD),
+            notification.buttons()[1].title);
+
+  notification_tester_->SimulateClick(NotificationHandler::Type::NEARBY_SHARE,
+                                      notification.id(),
+                                      /*action_index=*/0,
+                                      /*reply=*/base::nullopt);
+
+  run_loop.Run();
+
+  // Notification should be closed.
+  EXPECT_EQ(0u, GetDisplayedNotifications().size());
+}
+
+TEST_F(NearbyNotificationManagerTest,
+       SuccessNotificationClicked_SingleImageReceived_CopyToClipboard) {
   base::RunLoop run_loop;
   manager()->SetOnSuccessClickedForTesting(base::BindLambdaForTesting(
       [&](NearbyNotificationManager::SuccessNotificationAction action) {
@@ -886,18 +1022,34 @@ TEST_F(NearbyNotificationManagerTest,
         run_loop.Quit();
       }));
 
-  ShareTarget share_target =
-      CreateIncomingShareTarget(/*text_attachments=*/0, /*image_attachments=*/1,
-                                /*other_file_attachments=*/0);
+  ShareTarget share_target = CreateIncomingShareTarget(
+      /*text_attachments=*/0, /*url_attachments=*/0, /*image_attachments=*/1,
+      /*other_file_attachments=*/0);
   manager()->ShowSuccess(share_target);
+
+  // Image decoding happens asynchronously so wait for the notification to show.
+  base::RunLoop display_run_loop;
+  notification_tester_->SetNotificationAddedClosure(
+      display_run_loop.QuitClosure());
+  display_run_loop.Run();
 
   std::vector<message_center::Notification> notifications =
       GetDisplayedNotifications();
   ASSERT_EQ(1u, notifications.size());
+  const message_center::Notification& notification = notifications[0];
+  EXPECT_EQ(message_center::NOTIFICATION_TYPE_IMAGE, notification.type());
+  EXPECT_FALSE(notification.image().IsEmpty());
+  ASSERT_EQ(2u, notification.buttons().size());
+  EXPECT_EQ(
+      l10n_util::GetStringUTF16(IDS_NEARBY_NOTIFICATION_ACTION_OPEN_FOLDER),
+      notification.buttons()[0].title);
+  EXPECT_EQ(l10n_util::GetStringUTF16(
+                IDS_NEARBY_NOTIFICATION_ACTION_COPY_TO_CLIPBOARD),
+            notification.buttons()[1].title);
 
   notification_tester_->SimulateClick(NotificationHandler::Type::NEARBY_SHARE,
-                                      notifications[0].id(),
-                                      /*action_index=*/base::nullopt,
+                                      notification.id(),
+                                      /*action_index=*/1,
                                       /*reply=*/base::nullopt);
 
   run_loop.Run();
@@ -921,18 +1073,25 @@ TEST_F(NearbyNotificationManagerTest,
         run_loop.Quit();
       }));
 
-  ShareTarget share_target =
-      CreateIncomingShareTarget(/*text_attachments=*/0, /*image_attachments=*/2,
-                                /*other_file_attachments=*/0);
+  ShareTarget share_target = CreateIncomingShareTarget(
+      /*text_attachments=*/0, /*url_attachments=*/0, /*image_attachments=*/2,
+      /*other_file_attachments=*/0);
   manager()->ShowSuccess(share_target);
 
   std::vector<message_center::Notification> notifications =
       GetDisplayedNotifications();
   ASSERT_EQ(1u, notifications.size());
+  const message_center::Notification& notification = notifications[0];
+  EXPECT_EQ(message_center::NOTIFICATION_TYPE_SIMPLE, notification.type());
+  EXPECT_TRUE(notification.image().IsEmpty());
+  ASSERT_EQ(1u, notification.buttons().size());
+  EXPECT_EQ(
+      l10n_util::GetStringUTF16(IDS_NEARBY_NOTIFICATION_ACTION_OPEN_FOLDER),
+      notification.buttons()[0].title);
 
   notification_tester_->SimulateClick(NotificationHandler::Type::NEARBY_SHARE,
-                                      notifications[0].id(),
-                                      /*action_index=*/base::nullopt,
+                                      notification.id(),
+                                      /*action_index=*/0,
                                       /*reply=*/base::nullopt);
 
   run_loop.Run();
@@ -951,22 +1110,62 @@ TEST_F(NearbyNotificationManagerTest, SuccessNotificationClicked_TextReceived) {
         run_loop.Quit();
       }));
 
-  ShareTarget share_target =
-      CreateIncomingShareTarget(/*text_attachments=*/1, /*image_attachments=*/0,
-                                /*other_file_attachments=*/0);
+  ShareTarget share_target = CreateIncomingShareTarget(
+      /*text_attachments=*/1, /*url_attachments=*/0, /*image_attachments=*/0,
+      /*other_file_attachments=*/0);
   manager()->ShowSuccess(share_target);
 
   std::vector<message_center::Notification> notifications =
       GetDisplayedNotifications();
   ASSERT_EQ(1u, notifications.size());
+  const message_center::Notification& notification = notifications[0];
+  ASSERT_EQ(1u, notification.buttons().size());
+  EXPECT_EQ(l10n_util::GetStringUTF16(
+                IDS_NEARBY_NOTIFICATION_ACTION_COPY_TO_CLIPBOARD),
+            notification.buttons()[0].title);
 
   notification_tester_->SimulateClick(NotificationHandler::Type::NEARBY_SHARE,
-                                      notifications[0].id(),
-                                      /*action_index=*/base::nullopt,
+                                      notification.id(),
+                                      /*action_index=*/0,
                                       /*reply=*/base::nullopt);
 
   run_loop.Run();
   EXPECT_EQ(kTextBody, GetClipboardText());
+
+  // Notification should be closed.
+  EXPECT_EQ(0u, GetDisplayedNotifications().size());
+}
+
+TEST_F(NearbyNotificationManagerTest, SuccessNotificationClicked_UrlReceived) {
+  base::RunLoop run_loop;
+  manager()->SetOnSuccessClickedForTesting(base::BindLambdaForTesting(
+      [&](NearbyNotificationManager::SuccessNotificationAction action) {
+        EXPECT_EQ(
+            NearbyNotificationManager::SuccessNotificationAction::kOpenUrl,
+            action);
+        run_loop.Quit();
+      }));
+
+  ShareTarget share_target = CreateIncomingShareTarget(
+      /*text_attachments=*/0, /*url_attachments=*/1, /*image_attachments=*/0,
+      /*other_file_attachments=*/0);
+  manager()->ShowSuccess(share_target);
+
+  std::vector<message_center::Notification> notifications =
+      GetDisplayedNotifications();
+  ASSERT_EQ(1u, notifications.size());
+  const message_center::Notification& notification = notifications[0];
+  ASSERT_EQ(1u, notification.buttons().size());
+  EXPECT_EQ(l10n_util::GetStringUTF16(IDS_NEARBY_NOTIFICATION_ACTION_OPEN_URL),
+            notification.buttons()[0].title);
+
+  EXPECT_CALL(*nearby_service_, OpenURL(testing::_)).Times(1);
+  notification_tester_->SimulateClick(NotificationHandler::Type::NEARBY_SHARE,
+                                      notification.id(),
+                                      /*action_index=*/0,
+                                      /*reply=*/base::nullopt);
+
+  run_loop.Run();
 
   // Notification should be closed.
   EXPECT_EQ(0u, GetDisplayedNotifications().size());
@@ -983,18 +1182,23 @@ TEST_F(NearbyNotificationManagerTest,
         run_loop.Quit();
       }));
 
-  ShareTarget share_target =
-      CreateIncomingShareTarget(/*text_attachments=*/0, /*image_attachments=*/0,
-                                /*other_file_attachments=*/1);
+  ShareTarget share_target = CreateIncomingShareTarget(
+      /*text_attachments=*/0, /*url_attachments=*/0, /*image_attachments=*/0,
+      /*other_file_attachments=*/1);
   manager()->ShowSuccess(share_target);
 
   std::vector<message_center::Notification> notifications =
       GetDisplayedNotifications();
   ASSERT_EQ(1u, notifications.size());
+  const message_center::Notification& notification = notifications[0];
+  ASSERT_EQ(1u, notification.buttons().size());
+  EXPECT_EQ(
+      l10n_util::GetStringUTF16(IDS_NEARBY_NOTIFICATION_ACTION_OPEN_FOLDER),
+      notification.buttons()[0].title);
 
   notification_tester_->SimulateClick(NotificationHandler::Type::NEARBY_SHARE,
-                                      notifications[0].id(),
-                                      /*action_index=*/base::nullopt,
+                                      notification.id(),
+                                      /*action_index=*/0,
                                       /*reply=*/base::nullopt);
 
   run_loop.Run();
@@ -1014,22 +1218,123 @@ TEST_F(NearbyNotificationManagerTest,
         run_loop.Quit();
       }));
 
-  ShareTarget share_target =
-      CreateIncomingShareTarget(/*text_attachments=*/0, /*image_attachments=*/1,
-                                /*other_file_attachments=*/2);
+  ShareTarget share_target = CreateIncomingShareTarget(
+      /*text_attachments=*/0, /*url_attachments=*/0, /*image_attachments=*/1,
+      /*other_file_attachments=*/2);
   manager()->ShowSuccess(share_target);
 
   std::vector<message_center::Notification> notifications =
       GetDisplayedNotifications();
   ASSERT_EQ(1u, notifications.size());
+  const message_center::Notification& notification = notifications[0];
+  ASSERT_EQ(1u, notification.buttons().size());
+  EXPECT_EQ(
+      l10n_util::GetStringUTF16(IDS_NEARBY_NOTIFICATION_ACTION_OPEN_FOLDER),
+      notification.buttons()[0].title);
 
   notification_tester_->SimulateClick(NotificationHandler::Type::NEARBY_SHARE,
-                                      notifications[0].id(),
-                                      /*action_index=*/base::nullopt,
+                                      notification.id(),
+                                      /*action_index=*/0,
                                       /*reply=*/base::nullopt);
 
   run_loop.Run();
 
   // Notification should be closed.
   EXPECT_EQ(0u, GetDisplayedNotifications().size());
+}
+
+class NearbyFilesHoldingSpaceTest : public testing::Test {
+ public:
+  NearbyFilesHoldingSpaceTest()
+      : session_controller_(std::make_unique<TestSessionController>()),
+        user_manager_(new chromeos::FakeChromeUserManager) {
+    scoped_feature_list_.InitWithFeatures(
+        {features::kNearbySharing, ash::features::kTemporaryHoldingSpace}, {});
+
+    holding_space_controller_ = std::make_unique<ash::HoldingSpaceController>(
+        std::make_unique<ash::holding_space::FakeHoldingSpaceColorProvider>());
+    profile_manager_ = CreateTestingProfileManager();
+    const AccountId account_id(AccountId::FromUserEmail(""));
+    user_manager_->AddUser(account_id);
+    user_manager_->LoginUser(account_id);
+    profile_ = profile_manager_->CreateTestingProfile("");
+  }
+
+  ~NearbyFilesHoldingSpaceTest() override = default;
+
+  // testing::Test:
+  void SetUp() override {
+    manager_ = std::make_unique<NearbyNotificationManager>(
+        NotificationDisplayServiceFactory::GetForProfile(profile_),
+        CreateAndUseMockNearbySharingService(profile_), profile_->GetPrefs(),
+        profile_);
+  }
+
+  NearbyNotificationManager* manager() { return manager_.get(); }
+
+  ash::HoldingSpaceModel* GetHoldingSpaceModel() const {
+    return holding_space_controller_ ? holding_space_controller_->model()
+                                     : nullptr;
+  }
+
+ protected:
+  base::test::ScopedFeatureList scoped_feature_list_;
+  content::BrowserTaskEnvironment task_environment_{
+      base::test::TaskEnvironment::TimeSource::MOCK_TIME};
+  std::unique_ptr<TestingProfileManager> profile_manager_;
+  TestingProfile* profile_;
+  std::unique_ptr<NearbyNotificationManager> manager_;
+  std::unique_ptr<TestSessionController> session_controller_;
+  std::unique_ptr<ash::HoldingSpaceController> holding_space_controller_;
+  chromeos::FakeChromeUserManager* user_manager_;
+};
+
+TEST_F(NearbyFilesHoldingSpaceTest, ShowSuccess_Files) {
+  std::unique_ptr<ash::holding_space::ScopedTestMountPoint> downloads_mount =
+      ash::holding_space::ScopedTestMountPoint::CreateAndMountDownloads(
+          profile_);
+  ASSERT_TRUE(downloads_mount->IsValid());
+
+  ShareTarget share_target;
+  share_target.is_incoming = true;
+
+  const base::FilePath file_virtual_path("Sample.txt");
+  base::FilePath file_path =
+      downloads_mount->CreateFile(file_virtual_path, "Sample Text");
+
+  FileAttachment attachment(file_path);
+  share_target.file_attachments.push_back(std::move(attachment));
+
+  manager()->ShowSuccess(share_target);
+
+  ash::HoldingSpaceModel* holding_space_model = GetHoldingSpaceModel();
+  ASSERT_TRUE(holding_space_model);
+
+  ASSERT_EQ(share_target.file_attachments.size(),
+            holding_space_model->items().size());
+
+  for (int i = 0; i < share_target.file_attachments.size(); ++i) {
+    ash::HoldingSpaceItem* holding_space_item =
+        holding_space_model->items()[i].get();
+    EXPECT_EQ(ash::HoldingSpaceItem::Type::kNearbyShare,
+              holding_space_item->type());
+
+    EXPECT_EQ(share_target.file_attachments[i].file_path(),
+              holding_space_item->file_path());
+  }
+}
+
+TEST_F(NearbyFilesHoldingSpaceTest, ShowSuccess_Text) {
+  ShareTarget share_target;
+  share_target.is_incoming = true;
+
+  TextAttachment attachment(TextAttachment::Type::kText, "Sample Text");
+  share_target.text_attachments.push_back(std::move(attachment));
+
+  manager()->ShowSuccess(share_target);
+
+  ash::HoldingSpaceModel* holding_space_model = GetHoldingSpaceModel();
+  ASSERT_TRUE(holding_space_model);
+
+  EXPECT_TRUE(holding_space_model->items().empty());
 }

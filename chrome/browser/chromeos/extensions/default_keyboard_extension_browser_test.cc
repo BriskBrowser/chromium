@@ -9,6 +9,7 @@
 
 #include "ash/public/cpp/keyboard/keyboard_switches.h"
 #include "base/command_line.h"
+#include "base/files/file_util.h"
 #include "base/run_loop.h"
 #include "base/threading/thread_restrictions.h"
 #include "chrome/browser/ui/ash/keyboard/chrome_keyboard_controller_client.h"
@@ -103,8 +104,10 @@ DefaultKeyboardExtensionBrowserTest::GetKeyboardWebContents(
       content::RenderWidgetHost::GetRenderWidgetHosts());
   while (content::RenderWidgetHost* widget = widgets->GetNextHost()) {
     content::RenderViewHost* view = content::RenderViewHost::From(widget);
-    if (view && url == view->GetSiteInstance()->GetSiteURL()) {
-      content::WebContents* wc = content::WebContents::FromRenderViewHost(view);
+    if (!view)
+      continue;
+    content::WebContents* wc = content::WebContents::FromRenderViewHost(view);
+    if (wc && url == wc->GetMainFrame()->GetSiteInstance()->GetSiteURL()) {
       // Waits for virtual keyboard to load.
       EXPECT_TRUE(content::WaitForLoadStop(wc));
       return wc;

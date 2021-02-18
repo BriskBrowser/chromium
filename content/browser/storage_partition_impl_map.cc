@@ -8,8 +8,8 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
@@ -341,13 +341,19 @@ StoragePartitionImpl* StoragePartitionImplMap::Get(
   base::FilePath relative_partition_path = GetStoragePartitionPath(
       partition_config.partition_domain(), partition_config.partition_name());
 
+  base::Optional<StoragePartitionConfig> fallback_config =
+      partition_config.GetFallbackForBlobUrls();
+  StoragePartitionImpl* fallback_for_blob_urls =
+      fallback_config.has_value() ? Get(*fallback_config, /*can_create=*/false)
+                                  : nullptr;
+
   std::unique_ptr<StoragePartitionImpl> partition_ptr(
       StoragePartitionImpl::Create(
           browser_context_, partition_config.in_memory(),
           relative_partition_path, partition_config.partition_domain()));
   StoragePartitionImpl* partition = partition_ptr.get();
   partitions_[partition_config] = std::move(partition_ptr);
-  partition->Initialize();
+  partition->Initialize(fallback_for_blob_urls);
 
   // Arm the serviceworker cookie change observation API.
   partition->GetCookieStoreContext()->ListenToCookieChanges(
@@ -463,18 +469,6 @@ void StoragePartitionImplMap::PostCreateInitialization(
 
   // Check first to avoid memory leak in unittests.
   if (BrowserThread::IsThreadInitialized(BrowserThread::IO)) {
-    partition->GetCacheStorageContext()->SetBlobParametersForCache(
-        ChromeBlobStorageContext::GetFor(browser_context_));
-
-    if (!ServiceWorkerContext::IsServiceWorkerOnUIEnabled()) {
-      GetIOThreadTaskRunner({})->PostTask(
-          FROM_HERE,
-          base::BindOnce(
-              &ServiceWorkerContextWrapper::InitializeResourceContext,
-              partition->GetServiceWorkerContext(),
-              browser_context_->GetResourceContext()));
-    }
-
     // Use PostTask() instead of RunOrPostTaskOnThread() because not posting a
     // task causes it to run before the CacheStorageManager has been
     // initialized, and then CacheStorageContextImpl::CacheManager() ends up

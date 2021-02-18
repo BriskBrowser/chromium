@@ -12,20 +12,20 @@
 #include "base/callback.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
+#include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
-#include "base/strings/nullable_string16.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "chrome/browser/installable/installable_data.h"
-#include "chrome/browser/installable/installable_metrics.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
 #include "chrome/browser/web_applications/components/web_app_icon_generator.h"
 #include "chrome/browser/web_applications/components/web_app_utils.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "chrome/browser/web_applications/test/test_data_retriever.h"
 #include "chrome/browser/web_applications/test/test_file_handler_manager.h"
 #include "chrome/browser/web_applications/test/test_file_utils.h"
@@ -44,16 +44,17 @@
 #include "chrome/browser/web_applications/web_app_registrar.h"
 #include "chrome/browser/web_applications/web_app_sync_bridge.h"
 #include "chrome/common/chrome_features.h"
-#include "chrome/common/web_application_info.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
+#include "components/webapps/browser/installable/installable_data.h"
+#include "components/webapps/browser/installable/installable_metrics.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/manifest/manifest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "url/gurl.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/ui/app_list/arc/arc_app_test.h"
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/intent_helper/arc_intent_helper_bridge.h"
@@ -98,25 +99,23 @@ class WebAppInstallTaskTest : public WebAppTest {
     install_finalizer_ =
         std::make_unique<WebAppInstallFinalizer>(profile(), icon_manager_.get(),
                                                  /*legacy_finalizer=*/nullptr);
-    os_integration_manager_ =
-        std::make_unique<TestOsIntegrationManager>(profile());
 
-    install_finalizer_->SetSubsystems(
-        &registrar(), ui_manager_.get(),
-        &test_registry_controller_->sync_bridge());
+    install_finalizer_->SetSubsystems(&registrar(), ui_manager_.get(),
+                                      &test_registry_controller_->sync_bridge(),
+                                      &test_os_integration_manager());
 
     auto data_retriever = std::make_unique<TestDataRetriever>();
     data_retriever_ = data_retriever.get();
 
     install_task_ = std::make_unique<WebAppInstallTask>(
-        profile(), os_integration_manager_.get(), install_finalizer_.get(),
-        std::move(data_retriever));
+        profile(), &test_os_integration_manager(), install_finalizer_.get(),
+        std::move(data_retriever), &registrar());
 
     url_loader_ = std::make_unique<TestWebAppUrlLoader>();
     controller().Init();
     install_finalizer_->Start();
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     arc_test_.SetUp(profile());
 
     auto* arc_bridge_service =
@@ -132,7 +131,7 @@ class WebAppInstallTaskTest : public WebAppTest {
   }
 
   void TearDown() override {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     arc_test_.arc_service_manager()
         ->arc_bridge_service()
         ->intent_helper()
@@ -160,7 +159,7 @@ class WebAppInstallTaskTest : public WebAppTest {
                              bool open_as_window) {
     auto web_app_info = std::make_unique<WebApplicationInfo>();
 
-    web_app_info->app_url = url;
+    web_app_info->start_url = url;
     web_app_info->title = base::UTF8ToUTF16(name);
     web_app_info->description = base::UTF8ToUTF16(description);
     web_app_info->scope = scope;
@@ -177,17 +176,13 @@ class WebAppInstallTaskTest : public WebAppTest {
                           /*open_as_window*/ true);
   }
 
-  static base::NullableString16 ToNullableUTF16(const std::string& str) {
-    return base::NullableString16(base::UTF8ToUTF16(str), false);
-  }
-
   void ResetInstallTask() {
     auto data_retriever = std::make_unique<TestDataRetriever>();
     data_retriever_ = static_cast<TestDataRetriever*>(data_retriever.get());
 
     install_task_ = std::make_unique<WebAppInstallTask>(
-        profile(), os_integration_manager_.get(), install_finalizer_.get(),
-        std::move(data_retriever));
+        profile(), &test_os_integration_manager(), install_finalizer_.get(),
+        std::move(data_retriever), &registrar());
   }
 
   void SetInstallFinalizerForTesting() {
@@ -216,8 +211,7 @@ class WebAppInstallTaskTest : public WebAppTest {
 
     auto manifest = std::make_unique<blink::Manifest>();
     manifest->start_url = url;
-    manifest->short_name =
-        base::NullableString16(base::UTF8ToUTF16("Manifest Name"), false);
+    manifest->short_name = base::ASCIIToUTF16("Manifest Name");
     data_retriever_->SetManifest(std::move(manifest), /*is_installable=*/true);
 
     data_retriever_->SetIcons(IconsMap{});
@@ -244,7 +238,7 @@ class WebAppInstallTaskTest : public WebAppTest {
     const bool force_shortcut_app = false;
     install_task_->InstallWebAppFromManifestWithFallback(
         web_contents(), force_shortcut_app,
-        WebappInstallSource::MENU_BROWSER_TAB,
+        webapps::WebappInstallSource::MENU_BROWSER_TAB,
         base::BindOnce(TestAcceptDialogCallback),
         base::BindLambdaForTesting(
             [&](const AppId& installed_app_id, InstallResultCode code) {
@@ -260,7 +254,7 @@ class WebAppInstallTaskTest : public WebAppTest {
     InstallResult result;
     base::RunLoop run_loop;
     install_task_->LoadAndInstallWebAppFromManifestWithFallback(
-        url, web_contents(), &url_loader(), WebappInstallSource::SYNC,
+        url, web_contents(), &url_loader(), webapps::WebappInstallSource::SYNC,
         base::BindLambdaForTesting(
             [&](const AppId& installed_app_id, InstallResultCode code) {
               result.app_id = installed_app_id;
@@ -297,7 +291,7 @@ class WebAppInstallTaskTest : public WebAppTest {
     AppId app_id;
     base::RunLoop run_loop;
     install_task_->InstallWebAppWithParams(
-        web_contents(), params, WebappInstallSource::EXTERNAL_DEFAULT,
+        web_contents(), params, webapps::WebappInstallSource::EXTERNAL_DEFAULT,
         base::BindLambdaForTesting(
             [&](const AppId& installed_app_id, InstallResultCode code) {
               ASSERT_EQ(InstallResultCode::kSuccessNewInstall, code);
@@ -327,7 +321,7 @@ class WebAppInstallTaskTest : public WebAppTest {
 
   WebAppRegistrar& registrar() { return controller().registrar(); }
   TestOsIntegrationManager& test_os_integration_manager() {
-    return *os_integration_manager_;
+    return controller().os_integration_manager();
   }
   TestWebAppUrlLoader& url_loader() { return *url_loader_; }
   TestDataRetriever& data_retriever() {
@@ -339,14 +333,13 @@ class WebAppInstallTaskTest : public WebAppTest {
   std::unique_ptr<WebAppInstallTask> install_task_;
   std::unique_ptr<TestWebAppUiManager> ui_manager_;
   std::unique_ptr<InstallFinalizer> install_finalizer_;
-  std::unique_ptr<TestOsIntegrationManager> os_integration_manager_;
 
   // Owned by icon_manager_:
   TestFileUtils* file_utils_ = nullptr;
   // Owned by install_task_:
   TestDataRetriever* data_retriever_ = nullptr;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   ArcAppTest arc_test_;
   std::unique_ptr<arc::ArcIntentHelperBridge> intent_helper_bridge_;
   std::unique_ptr<arc::FakeIntentHelperInstance> fake_intent_helper_instance_;
@@ -376,7 +369,7 @@ class WebAppInstallTaskWithRunOnOsLoginTest : public WebAppInstallTaskTest {
                              bool run_on_os_login) {
     auto web_app_info = std::make_unique<WebApplicationInfo>();
 
-    web_app_info->app_url = url;
+    web_app_info->start_url = url;
     web_app_info->title = base::UTF8ToUTF16(name);
     web_app_info->description = base::UTF8ToUTF16(description);
     web_app_info->scope = scope;
@@ -409,8 +402,7 @@ TEST_F(WebAppInstallTaskTest, InstallFromWebContents) {
     auto manifest = std::make_unique<blink::Manifest>();
     manifest->start_url = url;
     manifest->scope = scope;
-    manifest->short_name =
-        base::NullableString16(base::ASCIIToUTF16(manifest_name), false);
+    manifest->short_name = base::ASCIIToUTF16(manifest_name);
 
     data_retriever().SetManifest(std::move(manifest), /*is_installable=*/true);
   }
@@ -420,7 +412,8 @@ TEST_F(WebAppInstallTaskTest, InstallFromWebContents) {
   const bool force_shortcut_app = false;
 
   install_task_->InstallWebAppFromManifestWithFallback(
-      web_contents(), force_shortcut_app, WebappInstallSource::MENU_BROWSER_TAB,
+      web_contents(), force_shortcut_app,
+      webapps::WebappInstallSource::MENU_BROWSER_TAB,
       base::BindOnce(TestAcceptDialogCallback),
       base::BindLambdaForTesting(
           [&](const AppId& installed_app_id, InstallResultCode code) {
@@ -439,7 +432,7 @@ TEST_F(WebAppInstallTaskTest, InstallFromWebContents) {
   EXPECT_EQ(app_id, web_app->app_id());
   EXPECT_EQ(manifest_name, web_app->name());
   EXPECT_EQ(description, web_app->description());
-  EXPECT_EQ(url, web_app->launch_url());
+  EXPECT_EQ(url, web_app->start_url());
   EXPECT_EQ(scope, web_app->scope());
   EXPECT_EQ(theme_color, web_app->theme_color());
 }
@@ -462,8 +455,7 @@ TEST_F(WebAppInstallTaskTest, ForceReinstall) {
     auto manifest = std::make_unique<blink::Manifest>();
     manifest->start_url = url;
     manifest->scope = url;
-    manifest->short_name =
-        base::NullableString16(base::ASCIIToUTF16("Manifest Name2"), false);
+    manifest->short_name = base::ASCIIToUTF16("Manifest Name2");
 
     data_retriever().SetManifest(std::move(manifest), /*is_installable=*/true);
   }
@@ -473,7 +465,8 @@ TEST_F(WebAppInstallTaskTest, ForceReinstall) {
   const bool force_shortcut_app = false;
 
   install_task_->InstallWebAppFromManifestWithFallback(
-      web_contents(), force_shortcut_app, WebappInstallSource::MENU_BROWSER_TAB,
+      web_contents(), force_shortcut_app,
+      webapps::WebappInstallSource::MENU_BROWSER_TAB,
       base::BindOnce(TestAcceptDialogCallback),
       base::BindLambdaForTesting(
           [&](const AppId& force_installed_app_id, InstallResultCode code) {
@@ -498,7 +491,8 @@ TEST_F(WebAppInstallTaskTest, GetWebApplicationInfoFailed) {
   const bool force_shortcut_app = false;
 
   install_task_->InstallWebAppFromManifestWithFallback(
-      web_contents(), force_shortcut_app, WebappInstallSource::MENU_BROWSER_TAB,
+      web_contents(), force_shortcut_app,
+      webapps::WebappInstallSource::MENU_BROWSER_TAB,
       base::BindOnce(TestAcceptDialogCallback),
       base::BindLambdaForTesting(
           [&](const AppId& installed_app_id, InstallResultCode code) {
@@ -522,7 +516,8 @@ TEST_F(WebAppInstallTaskTest, WebContentsDestroyed) {
   const bool force_shortcut_app = false;
 
   install_task_->InstallWebAppFromManifestWithFallback(
-      web_contents(), force_shortcut_app, WebappInstallSource::MENU_BROWSER_TAB,
+      web_contents(), force_shortcut_app,
+      webapps::WebappInstallSource::MENU_BROWSER_TAB,
       base::BindOnce(TestAcceptDialogCallback),
       base::BindLambdaForTesting(
           [&](const AppId& installed_app_id, InstallResultCode code) {
@@ -557,8 +552,8 @@ TEST_F(WebAppInstallTaskTest, InstallableCheck) {
 
   {
     auto manifest = std::make_unique<blink::Manifest>();
-    manifest->short_name = ToNullableUTF16("Short Name from Manifest");
-    manifest->name = ToNullableUTF16(manifest_name);
+    manifest->short_name = base::ASCIIToUTF16("Short Name from Manifest");
+    manifest->name = base::ASCIIToUTF16(manifest_name);
     manifest->start_url = manifest_start_url;
     manifest->scope = manifest_scope;
     manifest->theme_color = manifest_theme_color;
@@ -572,7 +567,8 @@ TEST_F(WebAppInstallTaskTest, InstallableCheck) {
   const bool force_shortcut_app = false;
 
   install_task_->InstallWebAppFromManifestWithFallback(
-      web_contents(), force_shortcut_app, WebappInstallSource::MENU_BROWSER_TAB,
+      web_contents(), force_shortcut_app,
+      webapps::WebappInstallSource::MENU_BROWSER_TAB,
       base::BindOnce(TestAcceptDialogCallback),
       base::BindLambdaForTesting(
           [&](const AppId& installed_app_id, InstallResultCode code) {
@@ -591,7 +587,7 @@ TEST_F(WebAppInstallTaskTest, InstallableCheck) {
   // Manifest data overrides Renderer data, except |description|.
   EXPECT_EQ(app_id, web_app->app_id());
   EXPECT_EQ(manifest_name, web_app->name());
-  EXPECT_EQ(manifest_start_url, web_app->launch_url());
+  EXPECT_EQ(manifest_start_url, web_app->start_url());
   EXPECT_EQ(renderer_description, web_app->description());
   EXPECT_EQ(manifest_scope, web_app->scope());
   EXPECT_EQ(expected_theme_color, web_app->theme_color());
@@ -723,9 +719,9 @@ TEST_F(WebAppInstallTaskTest, WriteDataToDisk) {
 }
 
 TEST_F(WebAppInstallTaskTest, WriteDataToDiskFailed) {
-  const GURL app_url = GURL("https://example.com/path");
-  CreateDefaultDataToRetrieve(app_url);
-  CreateRendererAppInfo(app_url, "Name", "Description");
+  const GURL start_url = GURL("https://example.com/path");
+  CreateDefaultDataToRetrieve(start_url);
+  CreateRendererAppInfo(start_url, "Name", "Description");
 
   IconsMap icons_map;
   AddIconToIconsMap(GURL("https://example.com/app.ico"), icon_size::k512,
@@ -746,7 +742,8 @@ TEST_F(WebAppInstallTaskTest, WriteDataToDiskFailed) {
   const bool force_shortcut_app = false;
 
   install_task_->InstallWebAppFromManifestWithFallback(
-      web_contents(), force_shortcut_app, WebappInstallSource::MENU_BROWSER_TAB,
+      web_contents(), force_shortcut_app,
+      webapps::WebappInstallSource::MENU_BROWSER_TAB,
       base::BindOnce(TestAcceptDialogCallback),
       base::BindLambdaForTesting(
           [&](const AppId& installed_app_id, InstallResultCode code) {
@@ -762,7 +759,7 @@ TEST_F(WebAppInstallTaskTest, WriteDataToDiskFailed) {
   EXPECT_TRUE(file_utils_->DirectoryExists(temp_dir));
   EXPECT_TRUE(file_utils_->IsDirectoryEmpty(temp_dir));
 
-  const AppId app_id = GenerateAppIdFromURL(app_url);
+  const AppId app_id = GenerateAppIdFromURL(start_url);
   const base::FilePath app_dir =
       manifest_resources_directory.AppendASCII(app_id);
   EXPECT_FALSE(file_utils_->DirectoryExists(app_dir));
@@ -780,7 +777,8 @@ TEST_F(WebAppInstallTaskTest, UserInstallDeclined) {
   const bool force_shortcut_app = false;
 
   install_task_->InstallWebAppFromManifestWithFallback(
-      web_contents(), force_shortcut_app, WebappInstallSource::MENU_BROWSER_TAB,
+      web_contents(), force_shortcut_app,
+      webapps::WebappInstallSource::MENU_BROWSER_TAB,
       base::BindOnce(TestDeclineDialogCallback),
       base::BindLambdaForTesting(
           [&](const AppId& installed_app_id, InstallResultCode code) {
@@ -805,7 +803,7 @@ TEST_F(WebAppInstallTaskTest, FinalizerMethodsCalled) {
   EXPECT_EQ(1u, test_os_integration_manager().num_create_shortcuts_calls());
   EXPECT_EQ(1, test_install_finalizer().num_reparent_tab_calls());
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   const size_t expected_num_add_app_to_quick_launch_bar_calls = 0;
 #else
   const size_t expected_num_add_app_to_quick_launch_bar_calls = 1;
@@ -839,8 +837,7 @@ TEST_F(WebAppInstallTaskTest, InstallWebAppFromManifest_Success) {
 
   auto manifest = std::make_unique<blink::Manifest>();
   manifest->start_url = url;
-  manifest->short_name =
-      base::NullableString16(base::UTF8ToUTF16("Server Name"), false);
+  manifest->short_name = base::ASCIIToUTF16("Server Name");
 
   data_retriever_->SetManifest(std::move(manifest), /*is_installable=*/true);
 
@@ -848,7 +845,7 @@ TEST_F(WebAppInstallTaskTest, InstallWebAppFromManifest_Success) {
 
   install_task_->InstallWebAppFromManifest(
       web_contents(), /*bypass_service_worker_check=*/false,
-      WebappInstallSource::MENU_BROWSER_TAB,
+      webapps::WebappInstallSource::MENU_BROWSER_TAB,
       base::BindOnce(TestAcceptDialogCallback),
       base::BindLambdaForTesting(
           [&](const AppId& installed_app_id, InstallResultCode code) {
@@ -867,7 +864,7 @@ TEST_F(WebAppInstallTaskTest, InstallWebAppFromInfo_Success) {
   const AppId app_id = GenerateAppIdFromURL(url);
 
   auto web_app_info = std::make_unique<WebApplicationInfo>();
-  web_app_info->app_url = url;
+  web_app_info->start_url = url;
   web_app_info->open_as_window = true;
   web_app_info->title = base::ASCIIToUTF16("App Name");
 
@@ -875,7 +872,7 @@ TEST_F(WebAppInstallTaskTest, InstallWebAppFromInfo_Success) {
 
   install_task_->InstallWebAppFromInfo(
       std::move(web_app_info), ForInstallableSite::kYes,
-      WebappInstallSource::MENU_BROWSER_TAB,
+      webapps::WebappInstallSource::MENU_BROWSER_TAB,
       base::BindLambdaForTesting(
           [&](const AppId& installed_app_id, InstallResultCode code) {
             EXPECT_EQ(InstallResultCode::kSuccessNewInstall, code);
@@ -895,7 +892,7 @@ TEST_F(WebAppInstallTaskTest, InstallWebAppFromInfo_GenerateIcons) {
   SetInstallFinalizerForTesting();
 
   auto web_app_info = std::make_unique<WebApplicationInfo>();
-  web_app_info->app_url = GURL("https://example.com/path");
+  web_app_info->start_url = GURL("https://example.com/path");
   web_app_info->open_as_window = false;
   web_app_info->title = base::ASCIIToUTF16("App Name");
 
@@ -907,7 +904,7 @@ TEST_F(WebAppInstallTaskTest, InstallWebAppFromInfo_GenerateIcons) {
 
   install_task_->InstallWebAppFromInfo(
       std::move(web_app_info), ForInstallableSite::kYes,
-      WebappInstallSource::ARC,
+      webapps::WebappInstallSource::ARC,
       base::BindLambdaForTesting([&](const AppId& installed_app_id,
                                      InstallResultCode code) {
         std::unique_ptr<WebApplicationInfo> final_web_app_info =
@@ -942,7 +939,7 @@ TEST_F(WebAppInstallTaskTest, InstallWebAppFromManifestWithFallback_NoIcons) {
 
   install_task_->InstallWebAppFromManifestWithFallback(
       web_contents(), /*force_shortcut_app=*/true,
-      WebappInstallSource::MENU_BROWSER_TAB,
+      webapps::WebappInstallSource::MENU_BROWSER_TAB,
       base::BindOnce(TestAcceptDialogCallback),
       base::BindLambdaForTesting([&](const AppId& installed_app_id,
                                      InstallResultCode code) {
@@ -966,7 +963,7 @@ TEST_F(WebAppInstallTaskTest, InstallWebAppFromManifestWithFallback_NoIcons) {
   run_loop.Run();
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 TEST_F(WebAppInstallTaskTest, IntentToPlayStore) {
   arc_test_.app_instance()->set_is_installable(true);
 
@@ -983,9 +980,8 @@ TEST_F(WebAppInstallTaskTest, IntentToPlayStore) {
     manifest->start_url = url;
     manifest->scope = scope;
     blink::Manifest::RelatedApplication related_app;
-    related_app.platform =
-        base::NullableString16(base::ASCIIToUTF16("chromeos_play"));
-    related_app.id = base::NullableString16(base::ASCIIToUTF16("com.app.id"));
+    related_app.platform = base::ASCIIToUTF16("chromeos_play");
+    related_app.id = base::ASCIIToUTF16("com.app.id");
     manifest->related_applications.push_back(std::move(related_app));
 
     data_retriever_->SetManifest(std::move(manifest), /*is_installable=*/true);
@@ -996,7 +992,7 @@ TEST_F(WebAppInstallTaskTest, IntentToPlayStore) {
   base::RunLoop run_loop;
   install_task_->InstallWebAppFromManifestWithFallback(
       web_contents(), /*force_shortcut_app=*/false,
-      WebappInstallSource::MENU_BROWSER_TAB,
+      webapps::WebappInstallSource::MENU_BROWSER_TAB,
       base::BindOnce(TestAcceptDialogCallback),
       base::BindLambdaForTesting(
           [&](const AppId& installed_app_id, InstallResultCode code) {
@@ -1008,26 +1004,39 @@ TEST_F(WebAppInstallTaskTest, IntentToPlayStore) {
 }
 #endif
 
+class GuestWebAppInstallTaskTest : public WebAppInstallTaskTest,
+                                   public ::testing::WithParamInterface<bool> {
+ public:
+  GuestWebAppInstallTaskTest() {
+    TestingProfile::SetScopedFeatureListForEphemeralGuestProfiles(
+        scoped_feature_list_, GetParam());
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
 // Default apps should be installable for guest profiles.
-TEST_F(WebAppInstallTaskTest, InstallWebAppWithParams_GuestProfile) {
+TEST_P(GuestWebAppInstallTaskTest, InstallWebAppWithParams_GuestProfile) {
   SetInstallFinalizerForTesting();
 
   TestingProfileManager profile_manager(TestingBrowserProcess::GetGlobal());
   ASSERT_TRUE(profile_manager.SetUp());
   Profile* guest_profile = profile_manager.CreateGuestProfile();
 
-  const GURL app_url("https://example.com/path");
+  const GURL start_url("https://example.com/path");
   auto data_retriever = std::make_unique<TestDataRetriever>();
-  data_retriever->BuildDefaultDataToRetrieve(app_url,
+  data_retriever->BuildDefaultDataToRetrieve(start_url,
                                              /*scope=*/GURL{});
 
   auto install_task = std::make_unique<WebAppInstallTask>(
-      guest_profile, os_integration_manager_.get(), install_finalizer_.get(),
-      std::move(data_retriever));
+      guest_profile, &test_os_integration_manager(), install_finalizer_.get(),
+      std::move(data_retriever), &registrar());
 
   base::RunLoop run_loop;
   install_task->InstallWebAppWithParams(
-      web_contents(), MakeParams(), WebappInstallSource::EXTERNAL_DEFAULT,
+      web_contents(), MakeParams(),
+      webapps::WebappInstallSource::EXTERNAL_DEFAULT,
       base::BindLambdaForTesting(
           [&](const AppId& app_id, InstallResultCode code) {
             EXPECT_EQ(InstallResultCode::kSuccessNewInstall, code);
@@ -1035,6 +1044,10 @@ TEST_F(WebAppInstallTaskTest, InstallWebAppWithParams_GuestProfile) {
           }));
   run_loop.Run();
 }
+
+INSTANTIATE_TEST_SUITE_P(AllGuestTypes,
+                         GuestWebAppInstallTaskTest,
+                         /*is_ephemeral_guest=*/testing::Bool());
 
 TEST_F(WebAppInstallTaskTest, InstallWebAppWithParams_DisplayMode) {
   {
@@ -1181,7 +1194,7 @@ TEST_F(WebAppInstallTaskTest, LoadAndRetrieveWebApplicationInfoWithIcons) {
     std::unique_ptr<WebApplicationInfo> result =
         LoadAndRetrieveWebApplicationInfoWithIcons(url);
     EXPECT_TRUE(result);
-    EXPECT_EQ(result->app_url, start_url);
+    EXPECT_EQ(result->start_url, start_url);
     EXPECT_TRUE(result->icon_infos.empty());
     EXPECT_FALSE(result->icon_bitmaps_any.empty());
   }
@@ -1194,8 +1207,8 @@ TEST_F(WebAppInstallTaskTest, LoadAndRetrieveWebApplicationInfoWithIcons) {
     url_loader().SetNextLoadUrlResult(url, WebAppUrlLoader::Result::kUrlLoaded);
 
     auto task = std::make_unique<WebAppInstallTask>(
-        profile(), os_integration_manager_.get(), install_finalizer_.get(),
-        std::move(data_retriever));
+        profile(), &test_os_integration_manager(), install_finalizer_.get(),
+        std::move(data_retriever), &registrar());
 
     std::unique_ptr<WebApplicationInfo> info;
     task->LoadAndRetrieveWebApplicationInfoWithIcons(
@@ -1231,7 +1244,8 @@ TEST_F(WebAppInstallTaskWithRunOnOsLoginTest,
   const bool force_shortcut_app = false;
 
   install_task_->InstallWebAppFromManifestWithFallback(
-      web_contents(), force_shortcut_app, WebappInstallSource::MENU_BROWSER_TAB,
+      web_contents(), force_shortcut_app,
+      webapps::WebappInstallSource::MENU_BROWSER_TAB,
       base::BindOnce(TestAcceptDialogCallback),
       base::BindLambdaForTesting(
           [&](const AppId& installed_app_id, InstallResultCode code) {
@@ -1249,7 +1263,7 @@ TEST_F(WebAppInstallTaskWithRunOnOsLoginTest,
 
   EXPECT_EQ(app_id, web_app->app_id());
   EXPECT_EQ(description, web_app->description());
-  EXPECT_EQ(url, web_app->launch_url());
+  EXPECT_EQ(url, web_app->start_url());
   EXPECT_EQ(scope, web_app->scope());
   EXPECT_EQ(theme_color, web_app->theme_color());
   EXPECT_EQ(1u,
@@ -1277,7 +1291,8 @@ TEST_F(WebAppInstallTaskWithRunOnOsLoginTest,
   const bool force_shortcut_app = false;
 
   install_task_->InstallWebAppFromManifestWithFallback(
-      web_contents(), force_shortcut_app, WebappInstallSource::MENU_BROWSER_TAB,
+      web_contents(), force_shortcut_app,
+      webapps::WebappInstallSource::MENU_BROWSER_TAB,
       base::BindOnce(TestAcceptDialogCallback),
       base::BindLambdaForTesting(
           [&](const AppId& installed_app_id, InstallResultCode code) {
@@ -1295,7 +1310,7 @@ TEST_F(WebAppInstallTaskWithRunOnOsLoginTest,
 
   EXPECT_EQ(app_id, web_app->app_id());
   EXPECT_EQ(description, web_app->description());
-  EXPECT_EQ(url, web_app->launch_url());
+  EXPECT_EQ(url, web_app->start_url());
   EXPECT_EQ(scope, web_app->scope());
   EXPECT_EQ(theme_color, web_app->theme_color());
   EXPECT_EQ(0u,
@@ -1330,8 +1345,7 @@ class WebAppInstallTaskTestWithShortcutsMenu : public WebAppInstallTaskTest {
     auto manifest = std::make_unique<blink::Manifest>();
     manifest->start_url = start_url;
     manifest->theme_color = theme_color;
-    manifest->name =
-        base::NullableString16(base::ASCIIToUTF16("Manifest Name"));
+    manifest->name = base::ASCIIToUTF16("Manifest Name");
 
     // Add shortcuts to manifest.
     blink::Manifest::ShortcutItem shortcut_item;
@@ -1352,7 +1366,7 @@ class WebAppInstallTaskTestWithShortcutsMenu : public WebAppInstallTaskTest {
 
     install_task_->InstallWebAppFromManifest(
         web_contents(), /*bypass_service_worker_check=*/false,
-        WebappInstallSource::MENU_BROWSER_TAB,
+        webapps::WebappInstallSource::MENU_BROWSER_TAB,
         base::BindOnce(TestAcceptDialogCallback),
         base::BindLambdaForTesting([&](const AppId& installed_app_id,
                                        InstallResultCode code) {
@@ -1399,7 +1413,7 @@ class WebAppInstallTaskTestWithShortcutsMenu : public WebAppInstallTaskTest {
     const AppId app_id = GenerateAppIdFromURL(url);
 
     auto web_app_info = std::make_unique<WebApplicationInfo>();
-    web_app_info->app_url = url;
+    web_app_info->start_url = url;
     web_app_info->open_as_window = true;
     web_app_info->theme_color = theme_color;
     web_app_info->title = base::ASCIIToUTF16("App Name");

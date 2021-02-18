@@ -4,8 +4,11 @@
 
 package org.chromium.content_public.browser;
 
+import androidx.annotation.Nullable;
+
 import org.chromium.base.Callback;
-import org.chromium.services.service_manager.InterfaceProvider;
+import org.chromium.mojo.bindings.Interface;
+import org.chromium.url.GURL;
 import org.chromium.url.Origin;
 
 /**
@@ -15,17 +18,19 @@ public interface RenderFrameHost {
     /**
      * Get the last committed URL of the frame.
      *
-     * @return The last committed URL of the frame.
+     * @return The last committed URL of the frame or null when being destroyed.
      */
-    String getLastCommittedURL();
+    @Nullable
+    GURL getLastCommittedURL();
 
     /**
      * Get the last committed Origin of the frame. This is not always the same as scheme/host/port
      * of getLastCommittedURL(), since it can be an "opaque" origin in such cases as, for example,
      * sandboxed frame.
      *
-     * @return The last committed Origin of the frame.
+     * @return The last committed Origin of the frame or null when being destroyed.
      */
+    @Nullable
     Origin getLastCommittedOrigin();
 
     /**
@@ -33,7 +38,7 @@ public interface RenderFrameHost {
      *
      * @param callback The callback to be notified once the canonical URL has been fetched.
      */
-    void getCanonicalUrlForSharing(Callback<String> callback);
+    void getCanonicalUrlForSharing(Callback<GURL> callback);
 
     /**
      * Returns whether the feature policy allows the feature in this frame.
@@ -45,13 +50,28 @@ public interface RenderFrameHost {
     boolean isFeatureEnabled(@FeaturePolicyFeature int feature);
 
     /**
-     * Returns an InterfaceProvider that provides access to interface implementations provided by
-     * the corresponding RenderFrame. This provides access to interfaces implemented in the renderer
-     * to Java code in the browser process.
+     * Returns an interface by name to the Frame in the renderer process. This
+     * provides access to interfaces implemented in the renderer to Java code in
+     * the browser process.
      *
-     * @return The InterfaceProvider for the frame.
+     * Callers are responsible to ensure that the renderer Frame exists before
+     * trying to make a mojo connection to it. This can be done via
+     * isRenderFrameCreated() if the caller is not inside the call-stack of an
+     * IPC form the renderer (which would guarantee its existence at that time).
+     *
+     * @param pipe The message pipe to be connected to the renderer. If it fails
+     * to make the connection, the pipe will be closed.
      */
-    InterfaceProvider getRemoteInterfaces();
+    <I extends Interface, P extends Interface.Proxy> P getInterfaceToRendererFrame(
+            Interface.Manager<I, P> manager);
+
+    /**
+     * Kills the renderer process when it is detected to be misbehaving and has
+     * made a bad request.
+     *
+     * @param reason The BadMessageReason code from content::BadMessageReasons.
+     */
+    void terminateRendererDueToBadMessage(int reason);
 
     /**
      * Notifies the native RenderFrameHost about a user activation from the browser side.

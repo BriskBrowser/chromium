@@ -27,10 +27,7 @@ NGSimplifiedLayoutAlgorithm::NGSimplifiedLayoutAlgorithm(
     : NGLayoutAlgorithm(params),
       previous_result_(result),
       writing_direction_(Style().GetWritingDirection()) {
-  // Currently this only supports block-flow layout due to the static-position
-  // calculations. If support for other layout types is added this logic will
-  // need to be changed.
-  bool is_block_flow = Node().IsBlockFlow();
+  const bool is_block_flow = Node().IsBlockFlow();
   const NGPhysicalBoxFragment& physical_fragment =
       To<NGPhysicalBoxFragment>(result.PhysicalFragment());
 
@@ -69,6 +66,18 @@ NGSimplifiedLayoutAlgorithm::NGSimplifiedLayoutAlgorithm(
 
     if (physical_fragment.LastBaseline())
       container_builder_.SetLastBaseline(*physical_fragment.LastBaseline());
+
+    if (ConstraintSpace().IsTableCell()) {
+      container_builder_.SetHasCollapsedBorders(
+          physical_fragment.HasCollapsedBorders());
+
+      if (!ConstraintSpace().IsLegacyTableCell()) {
+        container_builder_.SetTableCellColumnIndex(
+            physical_fragment.TableCellColumnIndex());
+      }
+    } else {
+      DCHECK(!physical_fragment.HasCollapsedBorders());
+    }
   } else {
     // Only block-flow layout sets the following fields.
     DCHECK(physical_fragment.IsFormattingContextRoot());
@@ -102,11 +111,36 @@ NGSimplifiedLayoutAlgorithm::NGSimplifiedLayoutAlgorithm(
     container_builder_.SetCustomLayoutData(result.CustomLayoutData());
   }
 
+  if (physical_fragment.IsTableNG()) {
+    container_builder_.SetTableColumnCount(result.TableColumnCount());
+    container_builder_.SetTableGridRect(physical_fragment.TableGridRect());
+
+    container_builder_.SetHasCollapsedBorders(
+        physical_fragment.HasCollapsedBorders());
+
+    if (const auto* table_column_geometries =
+            physical_fragment.TableColumnGeometries())
+      container_builder_.SetTableColumnGeometries(table_column_geometries);
+
+    if (const auto* table_collapsed_borders =
+            physical_fragment.TableCollapsedBorders())
+      container_builder_.SetTableCollapsedBorders(*table_collapsed_borders);
+
+    if (const auto* table_collapsed_borders_geometry =
+            physical_fragment.TableCollapsedBordersGeometry()) {
+      container_builder_.SetTableCollapsedBordersGeometry(
+          std::make_unique<NGTableFragmentData::CollapsedBordersGeometry>(
+              *table_collapsed_borders_geometry));
+    }
+  }
+
   if (physical_fragment.IsHiddenForPaint())
     container_builder_.SetIsHiddenForPaint(true);
 
   if (physical_fragment.Baseline())
     container_builder_.SetBaseline(*physical_fragment.Baseline());
+  if (physical_fragment.IsTableNGPart())
+    container_builder_.SetIsTableNGPart();
 
   container_builder_.SetIntrinsicBlockSize(result.IntrinsicBlockSize());
   container_builder_.SetOverflowBlockSize(result.OverflowBlockSize());
@@ -121,9 +155,12 @@ NGSimplifiedLayoutAlgorithm::NGSimplifiedLayoutAlgorithm(
     container_builder_.SetFragmentBlockSize(new_block_size);
   } else {
     LayoutUnit old_block_size =
-        NGFragment(writing_direction_.GetWritingMode(), physical_fragment)
-            .BlockSize();
-    DCHECK_EQ(old_block_size, new_block_size);
+        NGFragment(writing_direction_, physical_fragment).BlockSize();
+#if DCHECK_IS_ON()
+    // Tables don't respect the typical block-sizing rules.
+    if (!physical_fragment.IsTableNG())
+      DCHECK_EQ(old_block_size, new_block_size);
+#endif
     container_builder_.SetFragmentBlockSize(old_block_size);
   }
 
@@ -132,10 +169,10 @@ NGSimplifiedLayoutAlgorithm::NGSimplifiedLayoutAlgorithm(
   previous_physical_container_size_ = physical_fragment.Size();
 }
 
-scoped_refptr<const NGLayoutResult> NGSimplifiedLayoutAlgorithm::Layout() {
+const NGLayoutResult* NGSimplifiedLayoutAlgorithm::Layout() {
   // Since simplified layout's |Layout()| function deals with laying out
   // children, we can early out if we are display-locked.
-  if (Node().LayoutBlockedByDisplayLock(DisplayLockLifecycleTarget::kChildren))
+  if (Node().ChildLayoutBlockedByDisplayLock())
     return container_builder_.ToBoxFragment();
 
   const auto& previous_fragment =
@@ -156,8 +193,8 @@ scoped_refptr<const NGLayoutResult> NGSimplifiedLayoutAlgorithm::Layout() {
     }
 
     // Add the (potentially updated) layout result.
-    scoped_refptr<const NGLayoutResult> result =
-        NGBlockNode(ToLayoutBox(child_fragment.GetMutableLayoutObject()))
+    const NGLayoutResult* result =
+        NGBlockNode(To<LayoutBox>(child_fragment.GetMutableLayoutObject()))
             .SimplifiedLayout(child_fragment);
 
     // The child may have failed "simplified" layout! (Due to adding/removing
@@ -166,7 +203,13 @@ scoped_refptr<const NGLayoutResult> NGSimplifiedLayoutAlgorithm::Layout() {
     if (!result)
       return nullptr;
 
-    AddChildFragment(child_link, result->PhysicalFragment());
+    const NGMarginStrut end_margin_strut = result->EndMarginStrut();
+    // No margins should pierce outside formatting-context roots.
+    DCHECK(!result->PhysicalFragment().IsFormattingContextRoot() ||
+           end_margin_strut.IsEmpty());
+
+    AddChildFragment(child_link, result->PhysicalFragment(), &end_margin_strut,
+                     result->IsSelfCollapsing());
   }
 
   // Iterate through all our OOF-positioned children and add them as candidates.
@@ -188,14 +231,11 @@ scoped_refptr<const NGLayoutResult> NGSimplifiedLayoutAlgorithm::Layout() {
 
   // We add both items and line-box fragments for existing mechanisms to work.
   // We may revisit this in future. See also |NGBoxFragmentBuilder::AddResult|.
-  if (RuntimeEnabledFeatures::LayoutNGFragmentItemEnabled()) {
-    if (const NGFragmentItems* previous_items = previous_fragment.Items()) {
-      auto* items_builder = container_builder_.ItemsBuilder();
-      DCHECK(items_builder);
-      DCHECK_EQ(items_builder->GetWritingDirection(), writing_direction_);
-      items_builder->AddPreviousItems(*previous_items,
-                                      previous_physical_container_size_);
-    }
+  if (const NGFragmentItems* previous_items = previous_fragment.Items()) {
+    auto* items_builder = container_builder_.ItemsBuilder();
+    DCHECK(items_builder);
+    DCHECK_EQ(items_builder->GetWritingDirection(), writing_direction_);
+    items_builder->AddPreviousItems(previous_fragment, *previous_items);
   }
 
   NGOutOfFlowLayoutPart(Node(), ConstraintSpace(), &container_builder_).Run();
@@ -210,11 +250,11 @@ scoped_refptr<const NGLayoutResult> NGSimplifiedLayoutAlgorithm::Layout() {
   return container_builder_.ToBoxFragment();
 }
 
-NOINLINE scoped_refptr<const NGLayoutResult>
+NOINLINE const NGLayoutResult*
 NGSimplifiedLayoutAlgorithm::LayoutWithItemsBuilder() {
   NGFragmentItemsBuilder items_builder(writing_direction_);
   container_builder_.SetItemsBuilder(&items_builder);
-  scoped_refptr<const NGLayoutResult> result = Layout();
+  const NGLayoutResult* result = Layout();
   // Ensure stack-allocated |NGFragmentItemsBuilder| is not used anymore.
   // TODO(kojii): Revisit when the storage of |NGFragmentItemsBuilder| is
   // finalized.
@@ -224,7 +264,9 @@ NGSimplifiedLayoutAlgorithm::LayoutWithItemsBuilder() {
 
 void NGSimplifiedLayoutAlgorithm::AddChildFragment(
     const NGLink& old_fragment,
-    const NGPhysicalContainerFragment& new_fragment) {
+    const NGPhysicalContainerFragment& new_fragment,
+    const NGMarginStrut* margin_strut,
+    bool is_self_collapsing) {
   DCHECK_EQ(old_fragment->Size(), new_fragment.Size());
 
   // Determine the previous position in the logical coordinate system.
@@ -233,17 +275,12 @@ void NGSimplifiedLayoutAlgorithm::AddChildFragment(
                            previous_physical_container_size_)
           .ToLogical(old_fragment.Offset(), new_fragment.Size());
 
-  // Un-apply the relative position offset.
-  if (const auto* box_child = DynamicTo<NGPhysicalBoxFragment>(*old_fragment)) {
-    if (box_child->Style().GetPosition() == EPosition::kRelative) {
-      child_offset -= ComputeRelativeOffsetForBoxFragment(
-          *box_child, ConstraintSpace().GetWritingDirection(),
-          container_builder_.ChildAvailableSize());
-    }
-  }
+  RemoveRelativeOffset(container_builder_, *old_fragment, &child_offset);
 
   // Add the new fragment to the builder.
-  container_builder_.AddChild(new_fragment, child_offset);
+  container_builder_.AddChild(new_fragment, child_offset,
+                              /* inline_container */ nullptr, margin_strut,
+                              is_self_collapsing);
 }
 
 }  // namespace blink

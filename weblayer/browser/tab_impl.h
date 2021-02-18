@@ -14,10 +14,10 @@
 #include "base/observer_list.h"
 #include "base/strings/string16.h"
 #include "build/build_config.h"
+#include "cc/input/browser_controls_state.h"
 #include "components/find_in_page/find_result_observer.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/browser/web_contents_observer.h"
-#include "content/public/common/browser_controls_state.h"
 #include "weblayer/browser/i18n_util.h"
 #include "weblayer/public/tab.h"
 
@@ -34,12 +34,17 @@ namespace autofill {
 class AutofillProvider;
 }  // namespace autofill
 
+namespace blink {
+namespace web_pref {
+struct WebPreferences;
+}
+}  // namespace blink
+
 namespace content {
 class RenderWidgetHostView;
 class WebContents;
 struct ContextMenuParams;
-struct WebPreferences;
-}
+}  // namespace content
 
 namespace gfx {
 class Rect;
@@ -57,12 +62,10 @@ class FullscreenDelegate;
 class NavigationControllerImpl;
 class NewTabDelegate;
 class ProfileImpl;
-class HttpAuthHandlerImpl;
 
 #if defined(OS_ANDROID)
 class BrowserControlsContainerView;
 enum class ControlsVisibilityReason;
-class WebMessageHostFactoryProxy;
 #endif
 
 class TabImpl : public Tab,
@@ -123,20 +126,20 @@ class TabImpl : public Tab,
   bool has_new_tab_delegate() const { return new_tab_delegate_ != nullptr; }
   NewTabDelegate* new_tab_delegate() const { return new_tab_delegate_; }
 
-  // Called from Browser when this Tab is losing active status.
+  // Called from Browser when this Tab is gaining/losing active status.
+  void OnGainedActive();
   void OnLosingActive();
 
   bool IsActive();
 
   void ShowContextMenu(const content::ContextMenuParams& params);
 
-  void ShowHttpAuthPrompt(HttpAuthHandlerImpl* auth_handler);
-  void CloseHttpAuthPrompt();
-
 #if defined(OS_ANDROID)
   base::android::ScopedJavaGlobalRef<jobject> GetJavaTab() {
     return java_impl_;
   }
+
+  bool desktop_user_agent_enabled() { return desktop_user_agent_enabled_; }
 
   // Call this method to disable integration with the system-level Autofill
   // infrastructure. Useful in conjunction with InitializeAutofillForTests().
@@ -179,10 +182,6 @@ class TabImpl : public Tab,
                    const base::android::JavaParamRef<jobjectArray>& data);
   base::android::ScopedJavaLocalRef<jobjectArray> GetData(JNIEnv* env);
   jboolean IsRendererControllingBrowserControlsOffsets(JNIEnv* env);
-  void SetHttpAuth(JNIEnv* env,
-                   const base::android::JavaParamRef<jstring>& username,
-                   const base::android::JavaParamRef<jstring>& password);
-  void CancelHttpAuth(JNIEnv* env);
   base::android::ScopedJavaLocalRef<jstring> RegisterWebMessageCallback(
       JNIEnv* env,
       const base::android::JavaParamRef<jstring>& js_object_name,
@@ -193,6 +192,13 @@ class TabImpl : public Tab,
       const base::android::JavaParamRef<jstring>& js_object_name);
   jboolean CanTranslate(JNIEnv* env);
   void ShowTranslateUi(JNIEnv* env);
+  void RemoveTabFromBrowserBeforeDestroying(JNIEnv* env);
+  void SetTranslateTargetLanguage(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jstring>& translate_target_lang);
+  void SetDesktopUserAgentEnabled(JNIEnv* env, jboolean enable);
+  jboolean IsDesktopUserAgentEnabled(JNIEnv* env);
+  void Download(JNIEnv* env, jlong native_context_menu_params);
 #endif
 
   ErrorPageDelegate* error_page_delegate() { return error_page_delegate_; }
@@ -205,6 +211,7 @@ class TabImpl : public Tab,
   }
 
   // Tab:
+  Browser* GetBrowser() override;
   void SetErrorPageDelegate(ErrorPageDelegate* delegate) override;
   void SetFullscreenDelegate(FullscreenDelegate* delegate) override;
   void SetNewTabDelegate(NewTabDelegate* delegate) override;
@@ -231,7 +238,7 @@ class TabImpl : public Tab,
 #endif
 
   void WebPreferencesChanged();
-  void SetWebPreferences(content::WebPreferences* prefs);
+  void SetWebPreferences(blink::web_pref::WebPreferences* prefs);
 
   // Executes |script| with a user gesture.
   void ExecuteScriptWithUserGestureForTests(const base::string16& script);
@@ -259,7 +266,7 @@ class TabImpl : public Tab,
                       scoped_refptr<content::FileSelectListener> listener,
                       const blink::mojom::FileChooserParams& params) override;
   void CreateSmsPrompt(content::RenderFrameHost*,
-                       const url::Origin&,
+                       const std::vector<url::Origin>&,
                        const std::string& one_time_code,
                        base::OnceClosure on_confirm,
                        base::OnceClosure on_cancel) override;
@@ -270,7 +277,6 @@ class TabImpl : public Tab,
       content::WebContents* web_contents) override;
   bool OnlyExpandTopControlsAtPageTop() override;
   bool ShouldAnimateBrowserControlsHeightChanges() override;
-  bool EmbedsFullscreenWidget() override;
   void RequestMediaAccessPermission(
       content::WebContents* web_contents,
       const content::MediaStreamRequest& request,
@@ -315,7 +321,7 @@ class TabImpl : public Tab,
       gfx::Rect* src_rect,
       gfx::Size* output_size);
 
-  void UpdateBrowserControlsState(content::BrowserControlsState new_state,
+  void UpdateBrowserControlsState(cc::BrowserControlsState new_state,
                                   bool animate);
 #endif
 
@@ -329,10 +335,10 @@ class TabImpl : public Tab,
 #if defined(OS_ANDROID)
   // BrowserControlsNavigationStateHandlerDelegate:
   void OnBrowserControlsStateStateChanged(
-      content::BrowserControlsState state) override;
+      ControlsVisibilityReason reason,
+      cc::BrowserControlsState state) override;
   void OnUpdateBrowserControlsStateBecauseOfProcessSwitch(
       bool did_commit) override;
-  void OnForceBrowserControlsShown() override;
 #endif
 
   // Called from closure supplied to delegate to exit fullscreen.
@@ -350,12 +356,14 @@ class TabImpl : public Tab,
 
 #if defined(OS_ANDROID)
   void SetBrowserControlsConstraint(ControlsVisibilityReason reason,
-                                    content::BrowserControlsState constraint);
+                                    cc::BrowserControlsState constraint);
 #endif
 
   void UpdateBrowserVisibleSecurityStateIfNecessary();
 
   bool SetDataInternal(const std::map<std::string, std::string>& data);
+
+  void EnterFullscreenImpl();
 
   BrowserImpl* browser_ = nullptr;
   ErrorPageDelegate* error_page_delegate_ = nullptr;
@@ -366,7 +374,7 @@ class TabImpl : public Tab,
   std::unique_ptr<content::WebContents> web_contents_;
   std::unique_ptr<NavigationControllerImpl> navigation_controller_;
   base::ObserverList<TabObserver>::Unchecked observers_;
-  std::unique_ptr<i18n::LocaleChangeSubscription> locale_change_subscription_;
+  base::CallbackListSubscription locale_change_subscription_;
 
 #if defined(OS_ANDROID)
   BrowserControlsContainerView* top_controls_container_view_ = nullptr;
@@ -380,17 +388,18 @@ class TabImpl : public Tab,
   // visible, HIDDEN, if for example fullscreen is forcing the controls to be
   // hidden, or BOTH, if either state is viable (e.g. during normal browsing).
   // When BOTH, the actual current state could be showing or hidden.
-  content::BrowserControlsState
-      current_browser_controls_visibility_constraint_ =
-          content::BROWSER_CONTROLS_STATE_SHOWN;
+  cc::BrowserControlsState current_browser_controls_visibility_constraint_ =
+      cc::BrowserControlsState::kShown;
 
-  std::map<std::string, std::unique_ptr<WebMessageHostFactoryProxy>>
-      js_name_to_proxy_;
+  bool desktop_user_agent_enabled_ = false;
 #endif
 
   bool is_fullscreen_ = false;
   // Set to true doing EnterFullscreenModeForTab().
   bool processing_enter_fullscreen_ = false;
+
+  // If true, the fullscreen delegate is called when the tab gains active.
+  bool enter_fullscreen_on_gained_active_ = false;
 
   std::unique_ptr<autofill::AutofillProvider> autofill_provider_;
 
@@ -401,11 +410,9 @@ class TabImpl : public Tab,
 
   base::string16 title_;
 
-  HttpAuthHandlerImpl* auth_handler_ = nullptr;
-
   std::unique_ptr<js_injection::JsCommunicationHost> js_communication_host_;
 
-  base::WeakPtrFactory<TabImpl> weak_ptr_factory_{this};
+  base::WeakPtrFactory<TabImpl> weak_ptr_factory_for_fullscreen_exit_{this};
 
   DISALLOW_COPY_AND_ASSIGN(TabImpl);
 };

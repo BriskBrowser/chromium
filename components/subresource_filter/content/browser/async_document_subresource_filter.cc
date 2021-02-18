@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/check_op.h"
 #include "base/location.h"
 #include "base/task_runner_util.h"
@@ -25,22 +25,6 @@ mojom::ActivationState ComputeActivationState(
     const mojom::ActivationState& parent_activation_state,
     const MemoryMappedRuleset* ruleset) {
   DCHECK(ruleset);
-
-  SCOPED_UMA_HISTOGRAM_MICRO_TIMER(
-      "SubresourceFilter.DocumentLoad.Activation.WallDuration");
-  SCOPED_UMA_HISTOGRAM_MICRO_THREAD_TIMER(
-      "SubresourceFilter.DocumentLoad.Activation.CPUDuration");
-
-  auto page_wall_duration_timer = ScopedTimers::StartIf(
-      parent_document_origin.opaque(), [](base::TimeDelta delta) {
-        UMA_HISTOGRAM_MICRO_TIMES(
-            "SubresourceFilter.PageLoad.Activation.WallDuration", delta);
-      });
-  auto page_cpu_duration_timer = ScopedThreadTimers::StartIf(
-      parent_document_origin.opaque(), [](base::TimeDelta delta) {
-        UMA_HISTOGRAM_MICRO_TIMES(
-            "SubresourceFilter.PageLoad.Activation.CPUDuration", delta);
-      });
 
   IndexedRulesetMatcher matcher(ruleset->data(), ruleset->length());
   mojom::ActivationState activation_state = parent_activation_state;
@@ -178,6 +162,20 @@ void AsyncDocumentSubresourceFilter::GetLoadPolicyForSubdocument(
       std::move(result_callback));
 }
 
+void AsyncDocumentSubresourceFilter::GetLoadPolicyForSubdocumentURLs(
+    const std::vector<GURL>& urls,
+    MultiLoadPolicyCallback result_callback) {
+  DCHECK(sequence_checker_.CalledOnValidSequence());
+
+  // TODO(pkalinnikov): Think about avoiding copying of |urls| if they are
+  // too big and won't be allowed anyway (e.g. data: URI).
+  base::PostTaskAndReplyWithResult(
+      task_runner_, FROM_HERE,
+      base::BindOnce(&AsyncDocumentSubresourceFilter::Core::GetLoadPolicies,
+                     base::Unretained(core_.get()), urls),
+      std::move(result_callback));
+}
+
 void AsyncDocumentSubresourceFilter::ReportDisallowedLoad() {
   if (!first_disallowed_load_callback_.is_null())
     std::move(first_disallowed_load_callback_).Run();
@@ -220,6 +218,19 @@ AsyncDocumentSubresourceFilter::Core::Core() {
 
 AsyncDocumentSubresourceFilter::Core::~Core() {
   DCHECK(sequence_checker_.CalledOnValidSequence());
+}
+
+std::vector<LoadPolicy> AsyncDocumentSubresourceFilter::Core::GetLoadPolicies(
+    const std::vector<GURL>& urls) {
+  std::vector<LoadPolicy> policies;
+  for (const auto& url : urls) {
+    auto policy =
+        filter() ? filter()->GetLoadPolicy(
+                       url, url_pattern_index::proto::ELEMENT_TYPE_SUBDOCUMENT)
+                 : LoadPolicy::ALLOW;
+    policies.push_back(policy);
+  }
+  return policies;
 }
 
 void AsyncDocumentSubresourceFilter::Core::SetActivationState(

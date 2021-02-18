@@ -35,7 +35,7 @@
               id="languagesSubpageTrigger"
               label="$i18n{osLanguagesPageTitle}"
               sub-label="[[getSubLabel_(languages.prospectiveUILanguage,
-                  languages.inputMethods.currentId)]]"
+                  languages.inputMethods.currentId, languageHelper)]]"
               on-click="onLanguagesTap_"
               role-description="$i18n{subpageArrowRoleDescription}">
           </cr-link-row>
@@ -44,6 +44,8 @@
             <cr-link-row
                 id="languagesPageTrigger"
                 label="$i18n{languagesPageTitle}"
+                sub-label="[[getLanguageDisplayName_(
+                    languages.prospectiveUILanguage, languageHelper)]]"
                 on-click="onLanguagesV2Click_"
                 role-description="$i18n{subpageArrowRoleDescription}">
             </cr-link-row>
@@ -51,6 +53,8 @@
                 class="hr"
                 id="inputPageTrigger"
                 label="$i18n{inputPageTitle}"
+                sub-label="[[getInputMethodDisplayName_(
+                  languages.inputMethods.currentId, languageHelper)]]"
                 on-click="onInputClick_"
                 role-description="$i18n{subpageArrowRoleDescription}">
             </cr-link-row>
@@ -99,7 +103,8 @@
             associated-control="[[$$('#inputPageTrigger')]]"
             page-title="$i18n{inputPageTitle}">
           <os-settings-input-page language-helper="[[languageHelper]]"
-              languages="[[languages]]" prefs="{{prefs}}">
+              languages="[[languages]]" prefs="{{prefs}}"
+              focus-config="[[focusConfig_]]">
           </os-settings-input-page>
         </settings-subpage>
       </template>
@@ -139,6 +144,15 @@
               language-helper="[[languageHelper]]"
               prefs="{{prefs}}">
           </settings-input-method-options-page>
+        </settings-subpage>
+      </template>
+
+      <!-- "Customize spell check" sub-sub-page. -->
+      <template is="dom-if" route-path="/osLanguages/editDictionary">
+        <settings-subpage
+            associated-control="[[$$('#editDictionarySubpageTrigger')]]"
+            page-title="$i18n{editDictionaryLabel}">
+          <os-settings-edit-dictionary-page></os-settings-edit-dictionary-page>
         </settings-subpage>
       </template>
     </settings-animated-pages>

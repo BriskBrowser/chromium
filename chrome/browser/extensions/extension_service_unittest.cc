@@ -35,12 +35,12 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
-#include "base/test/scoped_feature_list.h"
+#include "base/test/bind.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "base/version.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/blocklist.h"
@@ -76,6 +76,7 @@
 #include "chrome/browser/extensions/unpacked_installer.h"
 #include "chrome/browser/extensions/updater/extension_updater.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
+#include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/ui/global_error/global_error.h"
 #include "chrome/browser/ui/global_error/global_error_service.h"
 #include "chrome/browser/ui/global_error/global_error_service_factory.h"
@@ -107,6 +108,7 @@
 #include "content/public/common/content_constants.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_utils.h"
+#include "extensions/browser/blocklist_state.h"
 #include "extensions/browser/disable_reason.h"
 #include "extensions/browser/extension_creator.h"
 #include "extensions/browser/extension_prefs.h"
@@ -126,6 +128,7 @@
 #include "extensions/browser/updater/null_extension_cache.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_builder.h"
+#include "extensions/common/extension_features.h"
 #include "extensions/common/extension_l10n_util.h"
 #include "extensions/common/extension_resource.h"
 #include "extensions/common/extension_urls.h"
@@ -844,13 +847,16 @@ TEST_F(ExtensionServiceTest, LoadAllExtensionsFromDirectorySuccess) {
                                scripts[0]->js_scripts()[0]->relative_path());
   base::FilePath expected_path =
       base::MakeAbsoluteFilePath(extension->path().AppendASCII("script1.js"));
-  EXPECT_TRUE(resource00.ComparePathWithDefault(expected_path));
+
+  EXPECT_EQ(expected_path.NormalizePathSeparators(),
+            resource00.GetFilePath().NormalizePathSeparators());
   ExtensionResource resource01(extension->id(),
                                scripts[0]->js_scripts()[1]->extension_root(),
                                scripts[0]->js_scripts()[1]->relative_path());
   expected_path =
       base::MakeAbsoluteFilePath(extension->path().AppendASCII("script2.js"));
-  EXPECT_TRUE(resource01.ComparePathWithDefault(expected_path));
+  EXPECT_EQ(expected_path.NormalizePathSeparators(),
+            resource01.GetFilePath().NormalizePathSeparators());
   EXPECT_EQ(1u, scripts[1]->url_patterns().patterns().size());
   EXPECT_EQ("http://*.news.com/*",
             scripts[1]->url_patterns().begin()->GetAsString());
@@ -860,7 +866,8 @@ TEST_F(ExtensionServiceTest, LoadAllExtensionsFromDirectorySuccess) {
   expected_path =
       extension->path().AppendASCII("js_files").AppendASCII("script3.js");
   expected_path = base::MakeAbsoluteFilePath(expected_path);
-  EXPECT_TRUE(resource10.ComparePathWithDefault(expected_path));
+  EXPECT_EQ(expected_path.NormalizePathSeparators(),
+            resource10.GetFilePath().NormalizePathSeparators());
 
   expected_patterns.ClearPatterns();
   AddPattern(&expected_patterns, "http://*.google.com/*");
@@ -1297,10 +1304,10 @@ TEST_F(ExtensionServiceTest, UninstallExternalExtensionAndReinstallAsUser) {
   installer->set_allow_silent_install(true);
   base::RunLoop run_loop;
   installer->set_installer_callback(base::BindOnce(
-      [](base::Closure quit_closure,
+      [](base::OnceClosure quit_closure,
          const base::Optional<CrxInstallError>& result) {
         ASSERT_FALSE(result) << result->message();
-        quit_closure.Run();
+        std::move(quit_closure).Run();
       },
       run_loop.QuitWhenIdleClosure()));
   installer->InstallCrx(path);
@@ -1341,10 +1348,10 @@ TEST_F(ExtensionServiceTest,
   installer->set_allow_silent_install(true);
   base::RunLoop run_loop;
   installer->set_installer_callback(base::BindOnce(
-      [](base::Closure quit_closure,
+      [](base::OnceClosure quit_closure,
          const base::Optional<CrxInstallError>& result) {
         ASSERT_FALSE(result) << result->message();
-        quit_closure.Run();
+        std::move(quit_closure).Run();
       },
       run_loop.QuitWhenIdleClosure()));
   installer->InstallCrx(data_dir().AppendASCII("good.crx"));
@@ -1919,7 +1926,7 @@ TEST_F(ExtensionServiceTest, UpdateIncognitoMode) {
   EXPECT_FALSE(util::IsIncognitoEnabled(id, profile()));
 }
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 // This tests that the granted permissions preferences are correctly set for
 // default apps.
 TEST_F(ExtensionServiceTest, DefaultAppsGrantedPermissions) {
@@ -2286,13 +2293,12 @@ TEST_F(ExtensionServiceTest, TestInstallThemeWithExtensionsDisabled) {
   ValidateIntegerPref(theme_crx, "location", Manifest::INTERNAL);
 }
 
-#if defined(THREAD_SANITIZER)
-// Flaky under Tsan. http://crbug.com/377702
+#if defined(OS_MAC) || defined(OS_WIN)
+// Flaky on these platforms. http://crbug.com/1148894
 #define MAYBE_InstallTheme DISABLED_InstallTheme
 #else
 #define MAYBE_InstallTheme InstallTheme
 #endif
-
 TEST_F(ExtensionServiceTest, MAYBE_InstallTheme) {
   InitializeEmptyExtensionService();
   service()->Init();
@@ -2335,6 +2341,10 @@ TEST_F(ExtensionServiceTest, LoadLocalizedTheme) {
 
   base::FilePath extension_path = data_dir().AppendASCII("theme_i18n");
 
+  // Don't create "Cached Theme.pak" in the extension directory, so as not to
+  // modify the source tree.
+  ThemeService::DisableThemePackForTesting();
+
   UnpackedInstaller::Create(service())->Load(extension_path);
   content::RunAllTasksUntilIdle();
   EXPECT_EQ(0u, GetErrors().size());
@@ -2343,13 +2353,6 @@ TEST_F(ExtensionServiceTest, LoadLocalizedTheme) {
   const Extension* theme = registry()->enabled_extensions().begin()->get();
   EXPECT_EQ("name", theme->name());
   EXPECT_EQ("description", theme->description());
-
-  // Cleanup the "Cached Theme.pak" file. Ideally, this would be installed in a
-  // temporary directory, but it automatically installs to the extension's
-  // directory, and we don't want to copy the whole extension for a unittest.
-  base::FilePath theme_file = extension_path.Append(chrome::kThemePackFilename);
-  ASSERT_TRUE(base::PathExists(theme_file));
-  ASSERT_TRUE(base::DeleteFile(theme_file));  // Not recursive.
 }
 
 #if defined(OS_POSIX)
@@ -3058,7 +3061,7 @@ TEST_F(ExtensionServiceTest, LoadExtensionsCanDowngrade) {
 
 namespace {
 
-bool IsExtension(const Extension* extension) {
+bool IsExtension(const Extension* extension, content::BrowserContext* context) {
   return extension->GetType() == Manifest::TYPE_EXTENSION;
 }
 
@@ -3173,7 +3176,7 @@ TEST_F(ExtensionServiceTest, UpdatePendingExtensionWrongVersion) {
 
 namespace {
 
-bool IsTheme(const Extension* extension) {
+bool IsTheme(const Extension* extension, content::BrowserContext* context) {
   return extension->is_theme();
 }
 
@@ -3431,6 +3434,10 @@ TEST_F(ExtensionServiceTest, SetUnsetBlocklistInPrefs) {
 // re-enabled if it's not present in the Safe Browsing blocklist.
 // Regression test for https://crbug.com/1107040.
 TEST_F(ExtensionServiceTest, NoUnsetBlocklistInPrefs) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(
+      extensions_features::kDisableMalwareExtensionsRemotely);
+
   TestBlocklist test_blocklist;
   // A profile with 3 extensions installed: good0, good1, and good2.
   // We really only care about good0 for this test since the other
@@ -3553,7 +3560,7 @@ TEST_F(ExtensionServiceTest, UnloadBlocklistedExtensionPolicy) {
   test_blocklist.SetBlocklistState(good_crx, BLOCKLISTED_MALWARE, true);
   content::RunAllTasksUntilIdle();
 
-  // The good_crx is blocklisted and the whitelist doesn't negate it.
+  // The good_crx is blocklisted and the allowlist doesn't negate it.
   ASSERT_TRUE(ValidateBooleanPref(good_crx, kPrefBlocklist, true));
   EXPECT_EQ(0u, registry()->enabled_extensions().size());
 }
@@ -4052,7 +4059,7 @@ TEST_F(ExtensionServiceTest, ComponentExtensionAllowlisted) {
 
 // Tests that active permissions are not revoked from component extensions
 // by policy when the policy is updated. https://crbug.com/746017.
-TEST_F(ExtensionServiceTest, ComponentExtensionWhitelistedPermission) {
+TEST_F(ExtensionServiceTest, ComponentExtensionAllowlistedPermission) {
   InitializeEmptyExtensionServiceWithTestingPrefs();
 
   // Install a component extension.
@@ -4538,7 +4545,7 @@ TEST_F(ExtensionServiceTest, MAYBE_ExternalExtensionAutoAcknowledgement) {
   int count = 2;
   content::WindowedNotificationObserver observer(
       NOTIFICATION_CRX_INSTALLER_DONE,
-      base::Bind(&WaitForCountNotificationsCallback, &count));
+      base::BindRepeating(&WaitForCountNotificationsCallback, &count));
   service()->CheckForExternalUpdates();
 
   observer.Wait();
@@ -4697,12 +4704,16 @@ TEST_F(ExtensionServiceTest, ExternalExtensionRemainsDisabledIfIgnored) {
   }
 }
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 // This tests if default apps are installed correctly.
 TEST_F(ExtensionServiceTest, DefaultAppsInstall) {
   InitializeEmptyExtensionService();
 
   {
+    // Initializing the ExtensionService will have set the default app
+    // state; reset it for the sake of testing.
+    profile()->GetPrefs()->SetInteger(prefs::kDefaultAppsInstallState,
+                                      default_apps::kUnknown);
     std::string json_data =
         "{"
         "  \"ldnnhddmnhbkjipkidpdiheffobcpfmf\" : {"
@@ -4793,8 +4804,13 @@ TEST_F(ExtensionServiceTest, DisableExtension) {
   EXPECT_EQ(0u, registry()->blocklisted_extensions().size());
 }
 
-// Tests performing actions on extension Omaha attributes.
-TEST_F(ExtensionServiceTest, PerformActionBasedOnOmahaAttributes) {
+// Tests the malware Omaha attributes to remotely disable an extension for
+// malware.
+TEST_F(ExtensionServiceTest, DisableRemotelyForMalware) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(
+      extensions_features::kDisableMalwareExtensionsRemotely);
+
   InitializeEmptyExtensionService();
 
   InstallCRX(data_dir().AppendASCII("good.crx"), INSTALL_NEW);
@@ -4820,6 +4836,10 @@ TEST_F(ExtensionServiceTest, PerformActionBasedOnOmahaAttributes) {
 // Tests not re-enabling previously remotely disabled extension if it's not the
 // only reason but the disable reasons should be gone.
 TEST_F(ExtensionServiceTest, NoEnableRemotelyDisabledExtension) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(
+      extensions_features::kDisableMalwareExtensionsRemotely);
+
   InitializeEmptyExtensionService();
 
   InstallCRX(data_dir().AppendASCII("good.crx"), INSTALL_NEW);
@@ -4839,6 +4859,56 @@ TEST_F(ExtensionServiceTest, NoEnableRemotelyDisabledExtension) {
   EXPECT_FALSE(prefs->GetDisableReasons(good_crx) &
                disable_reason::DISABLE_REMOTELY_FOR_MALWARE);
   EXPECT_FALSE(prefs->IsExtensionBlocklisted(good_crx));
+}
+
+TEST_F(ExtensionServiceTest, CanAddDisableReasonToBlocklistedExtension) {
+  InitializeGoodInstalledExtensionService();
+  ExtensionPrefs* prefs = ExtensionPrefs::Get(profile());
+  TestBlocklist blocklist;
+
+  blocklist.Attach(service()->blocklist_);
+  service()->Init();
+
+  blocklist.SetBlocklistState(good0, BLOCKLISTED_MALWARE, true);
+  blocklist.SetBlocklistState(good1, BLOCKLISTED_MALWARE, true);
+  content::RunAllTasksUntilIdle();
+  EXPECT_TRUE(prefs->IsExtensionBlocklisted(good0));
+  EXPECT_TRUE(prefs->IsExtensionBlocklisted(good1));
+
+  // Test that a disable reason can be added to a blocklisted extension.
+  prefs->AddDisableReason(good0, disable_reason::DISABLE_REMOTELY_FOR_MALWARE);
+  EXPECT_TRUE(prefs->HasDisableReason(
+      good0, disable_reason::DISABLE_REMOTELY_FOR_MALWARE));
+
+  // Test that a blocklisted extension can be disabled.
+  service()->DisableExtension(good1, disable_reason::DISABLE_BLOCKED_BY_POLICY);
+  EXPECT_TRUE(prefs->HasDisableReason(
+      good1, disable_reason::DISABLE_BLOCKED_BY_POLICY));
+  EXPECT_TRUE(prefs->IsExtensionBlocklisted(good1));
+  // Even though the extension was disabled with a new disable reason, it should
+  // remain in the blocklisted set (which can't be re-enabled by the user).
+  EXPECT_TRUE(registry()->blocklisted_extensions().Contains(good1));
+  // Since the extension is blocklisted, it should not be in the disabled set.
+  EXPECT_FALSE(registry()->disabled_extensions().Contains(good1));
+
+  // Extensions should remain in the appropriate sets after being reloaded (as
+  // in a profile restart).
+  service()->ReloadExtensionsForTest();
+  EXPECT_TRUE(prefs->HasDisableReason(
+      good1, disable_reason::DISABLE_BLOCKED_BY_POLICY));
+  EXPECT_TRUE(prefs->IsExtensionBlocklisted(good1));
+  EXPECT_TRUE(registry()->blocklisted_extensions().Contains(good1));
+  EXPECT_FALSE(registry()->disabled_extensions().Contains(good1));
+
+  // Test that the extension is disabled when unblocklisted.
+  blocklist.SetBlocklistState(good1, NOT_BLOCKLISTED, true);
+  content::RunAllTasksUntilIdle();
+  EXPECT_FALSE(prefs->IsExtensionBlocklisted(good1));
+  EXPECT_TRUE(prefs->IsExtensionDisabled(good1));
+  EXPECT_FALSE(registry()->blocklisted_extensions().Contains(good1));
+  EXPECT_TRUE(registry()->disabled_extensions().Contains(good1));
+  EXPECT_TRUE(prefs->HasDisableReason(
+      good1, disable_reason::DISABLE_BLOCKED_BY_POLICY));
 }
 
 TEST_F(ExtensionServiceTest, TerminateExtension) {
@@ -6614,19 +6684,17 @@ TEST_F(ExtensionServiceTest, ConcurrentExternalLocalFile) {
   EXPECT_FALSE(pending_info->version().IsValid());
 }
 
-// This makes sure we can package and install CRX files that use whitelisted
+// This makes sure we can package and install CRX files that use allowlisted
 // permissions.
-TEST_F(ExtensionServiceTest, InstallWhitelistedExtension) {
+TEST_F(ExtensionServiceTest, InstallAllowlistedExtension) {
   std::string test_id = "hdkklepkcpckhnpgjnmbdfhehckloojk";
   base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
       switches::kAllowlistedExtensionID, test_id);
 
   InitializeEmptyExtensionService();
   base::FilePath path = data_dir().AppendASCII("permissions");
-  base::FilePath pem_path = path
-      .AppendASCII("whitelist.pem");
-  path = path
-      .AppendASCII("whitelist");
+  base::FilePath pem_path = path.AppendASCII("allowlist.pem");
+  path = path.AppendASCII("allowlist");
 
   const Extension* extension = PackAndInstallCRX(path, pem_path, INSTALL_NEW);
   EXPECT_EQ(0u, GetErrors().size());
@@ -6953,7 +7021,7 @@ TEST_F(ExtensionServiceTest, MAYBE_ExternalInstallMultiple) {
   int count = 3;
   content::WindowedNotificationObserver observer(
       NOTIFICATION_CRX_INSTALLER_DONE,
-      base::Bind(&WaitForCountNotificationsCallback, &count));
+      base::BindRepeating(&WaitForCountNotificationsCallback, &count));
   service()->CheckForExternalUpdates();
   observer.Wait();
   EXPECT_TRUE(HasExternalInstallErrors(service()));
@@ -7234,7 +7302,7 @@ TEST_F(ExtensionServiceTest, BubbleAlertDoesNotHideAnotherAlertFromMenu) {
   // Bring the bubble alert error again by clicking its menu item.
   global_error->ExecuteMenuItem(nullptr);
 
-  // Install another webstore extension that will trigger an erorr of type
+  // Install another webstore extension that will trigger an error of type
   // BUBBLE_ALERT.
   // Make sure that this bubble alert does not replace the current bubble alert.
   {

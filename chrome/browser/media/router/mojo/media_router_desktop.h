@@ -32,6 +32,9 @@ class WiredDisplayMediaRouteProvider;
 // the component extension.
 class MediaRouterDesktop : public MediaRouterMojoImpl {
  public:
+  // This constructor performs a firewall check on Windows and is not suitable
+  // for use in unit tests; instead use the constructor below.
+  explicit MediaRouterDesktop(content::BrowserContext* context);
   ~MediaRouterDesktop() override;
 
   // Max number of Mojo connection error counts on a MediaRouteProvider message
@@ -68,13 +71,8 @@ class MediaRouterDesktop : public MediaRouterMojoImpl {
 
  private:
   friend class MediaRouterDesktopTest;
-  friend class MediaRouterFactory;
-  FRIEND_TEST_ALL_PREFIXES(MediaRouterDesktopTest, ProvideSinks);
   FRIEND_TEST_ALL_PREFIXES(MediaRouterDesktopTest,
                            ExtensionMrpRecoversFromConnectionError);
-  // This constructor performs a firewall check on Windows and is not suitable
-  // for use in unit tests; instead use the constructor below.
-  explicit MediaRouterDesktop(content::BrowserContext* context);
 
   // Used by tests only. This constructor skips the firewall check so unit tests
   // do not have to depend on the system's firewall configuration.
@@ -105,17 +103,6 @@ class MediaRouterDesktop : public MediaRouterMojoImpl {
   // Passes the extension's ID to the event page request manager.
   void BindToMojoReceiver(mojo::PendingReceiver<mojom::MediaRouter> receiver,
                           const extensions::Extension& extension);
-
-  // Provides the current list of sinks from |media_sink_service_| to the
-  // extension. Also registers with |media_sink_service_| to listen for updates.
-  void ProvideSinksToExtension();
-
-  // Notifies the Media Router that the list of MediaSinks discovered by a
-  // MediaSinkService has been updated.
-  // |provider_name|: Name of the MediaSinkService providing the sinks.
-  // |sinks|: sinks discovered by MediaSinkService.
-  void ProvideSinks(const std::string& provider_name,
-                    const std::vector<MediaSinkInternal>& sinks);
 
   // Initializes MRPs and adds them to |media_route_providers_|.
   void InitializeMediaRouteProviders();
@@ -161,7 +148,7 @@ class MediaRouterDesktop : public MediaRouterMojoImpl {
       dial_provider_;
 
   DualMediaSinkService* media_sink_service_;
-  DualMediaSinkService::Subscription media_sink_service_subscription_;
+  base::CallbackListSubscription media_sink_service_subscription_;
 
   // A flag to ensure that we record the provider version once, during the
   // initial event page wakeup attempt.

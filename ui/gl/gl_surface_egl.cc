@@ -9,14 +9,16 @@
 
 #include <map>
 #include <memory>
+#include <sstream>
 #include <vector>
 
 #include "base/command_line.h"
+#include "base/containers/contains.h"
+#include "base/debug/crash_logging.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/system/sys_info.h"
@@ -27,6 +29,7 @@
 #include "ui/gfx/gpu_fence.h"
 #include "ui/gl/angle_platform_impl.h"
 #include "ui/gl/egl_util.h"
+#include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_context_egl.h"
 #include "ui/gl/gl_display_egl_util.h"
@@ -50,6 +53,10 @@
 
 #if !defined(EGL_OPENGL_ES3_BIT)
 #define EGL_OPENGL_ES3_BIT 0x00000040
+#endif
+
+#if defined(USE_X11)
+#include "ui/base/x/x11_util.h"
 #endif
 
 // Not present egl/eglext.h yet.
@@ -177,8 +184,10 @@ class EGLGpuSwitchingObserver;
 EGLDisplay g_egl_display = EGL_NO_DISPLAY;
 EGLDisplayPlatform g_native_display(EGL_DEFAULT_DISPLAY);
 
+const char* g_egl_client_extensions = nullptr;
 const char* g_egl_extensions = nullptr;
 bool g_egl_create_context_robustness_supported = false;
+bool g_egl_robustness_video_memory_purge_supported = false;
 bool g_egl_create_context_bind_generates_resource_supported = false;
 bool g_egl_create_context_webgl_compatability_supported = false;
 bool g_egl_sync_control_supported = false;
@@ -199,6 +208,7 @@ bool g_egl_android_native_fence_sync_supported = false;
 bool g_egl_ext_pixel_format_float_supported = false;
 bool g_egl_angle_feature_control_supported = false;
 bool g_egl_angle_power_preference_supported = false;
+bool g_egl_angle_external_context_and_surface_supported = false;
 EGLGpuSwitchingObserver* g_egl_gpu_switching_observer = nullptr;
 
 constexpr const char kSwapEventTraceCategories[] = "gpu";
@@ -347,6 +357,7 @@ EGLDisplay GetPlatformANGLEDisplay(
   // TODO(dbehr) Add an attrib to Angle to pass EGL platform.
 
   display_attribs.push_back(EGL_NONE);
+
   // This is an EGL 1.5 function that we know ANGLE supports. It's used to pass
   // EGLAttribs (pointers) instead of EGLints into the display
   return eglGetPlatformDisplay(
@@ -804,11 +815,21 @@ void GetEGLInitDisplays(bool supports_angle_d3d,
   // If no display has been explicitly requested and the DefaultANGLEOpenGL
   // experiment is enabled, try creating OpenGL displays first.
   // TODO(oetuaho@nvidia.com): Only enable this path on specific GPUs with a
-  // blacklist entry. http://crbug.com/693090
+  // blocklist entry. http://crbug.com/693090
   if (supports_angle_opengl && use_angle_default &&
       base::FeatureList::IsEnabled(features::kDefaultANGLEOpenGL)) {
     AddInitDisplay(init_displays, ANGLE_OPENGL);
     AddInitDisplay(init_displays, ANGLE_OPENGLES);
+  }
+
+  if (supports_angle_metal && use_angle_default &&
+      base::FeatureList::IsEnabled(features::kDefaultANGLEMetal)) {
+    AddInitDisplay(init_displays, ANGLE_METAL);
+  }
+
+  if (supports_angle_vulkan && use_angle_default &&
+      features::IsDefaultANGLEVulkan()) {
+    AddInitDisplay(init_displays, ANGLE_VULKAN);
   }
 
   if (supports_angle_d3d) {
@@ -941,10 +962,13 @@ bool GLSurfaceEGL::InitializeOneOffForTesting() {
 
 // static
 bool GLSurfaceEGL::InitializeOneOffCommon() {
+  g_egl_client_extensions = eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
   g_egl_extensions = eglQueryString(g_egl_display, EGL_EXTENSIONS);
 
   g_egl_create_context_robustness_supported =
       HasEGLExtension("EGL_EXT_create_context_robustness");
+  g_egl_robustness_video_memory_purge_supported =
+      HasEGLExtension("EGL_NV_robustness_video_memory_purge");
   g_egl_create_context_bind_generates_resource_supported =
       HasEGLExtension("EGL_CHROMIUM_create_context_bind_generates_resource");
   g_egl_create_context_webgl_compatability_supported =
@@ -1046,6 +1070,9 @@ bool GLSurfaceEGL::InitializeOneOffCommon() {
   g_egl_angle_power_preference_supported =
       HasEGLExtension("EGL_ANGLE_power_preference");
 
+  g_egl_angle_external_context_and_surface_supported =
+      HasEGLExtension("EGL_ANGLE_external_context_and_surface");
+
   if (g_egl_angle_power_preference_supported) {
     g_egl_gpu_switching_observer = new EGLGpuSwitchingObserver();
     ui::GpuSwitchingManager::GetInstance()->AddObserver(
@@ -1061,6 +1088,7 @@ bool GLSurfaceEGL::InitializeExtensionSettingsOneOff() {
   if (!initialized_)
     return false;
   g_driver_egl.UpdateConditionalExtensionBindings();
+  g_egl_client_extensions = eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
   g_egl_extensions = eglQueryString(g_egl_display, EGL_EXTENSIONS);
 
   return true;
@@ -1083,8 +1111,10 @@ void GLSurfaceEGL::ShutdownOneOff() {
   }
   g_egl_display = EGL_NO_DISPLAY;
 
+  g_egl_client_extensions = nullptr;
   g_egl_extensions = nullptr;
   g_egl_create_context_robustness_supported = false;
+  g_egl_robustness_video_memory_purge_supported = false;
   g_egl_create_context_bind_generates_resource_supported = false;
   g_egl_create_context_webgl_compatability_supported = false;
   g_egl_sync_control_supported = false;
@@ -1111,8 +1141,18 @@ EGLNativeDisplayType GLSurfaceEGL::GetNativeDisplay() {
 }
 
 // static
+const char* GLSurfaceEGL::GetEGLClientExtensions() {
+  return g_egl_client_extensions ? g_egl_client_extensions : "";
+}
+
+// static
 const char* GLSurfaceEGL::GetEGLExtensions() {
   return g_egl_extensions;
+}
+
+// static
+bool GLSurfaceEGL::HasEGLClientExtension(const char* name) {
+  return ExtensionsContain(GetEGLClientExtensions(), name);
 }
 
 // static
@@ -1123,6 +1163,11 @@ bool GLSurfaceEGL::HasEGLExtension(const char* name) {
 // static
 bool GLSurfaceEGL::IsCreateContextRobustnessSupported() {
   return g_egl_create_context_robustness_supported;
+}
+
+// static
+bool GLSurfaceEGL::IsRobustnessVideoMemoryPurgeSupported() {
+  return g_egl_robustness_video_memory_purge_supported;
 }
 
 bool GLSurfaceEGL::IsCreateContextBindGeneratesResourceSupported() {
@@ -1180,7 +1225,11 @@ bool GLSurfaceEGL::IsANGLEPowerPreferenceSupported() {
   return g_egl_angle_power_preference_supported;
 }
 
-GLSurfaceEGL::~GLSurfaceEGL() {}
+bool GLSurfaceEGL::IsANGLEExternalContextAndSurfaceSupported() {
+  return g_egl_angle_external_context_and_surface_supported;
+}
+
+GLSurfaceEGL::~GLSurfaceEGL() = default;
 
 // InitializeDisplay is necessary because the static binding code
 // needs a full Display init before it can query the Display extensions.
@@ -1194,12 +1243,9 @@ EGLDisplay GLSurfaceEGL::InitializeDisplay(EGLDisplayPlatform native_display) {
 
   // If EGL_EXT_client_extensions not supported this call to eglQueryString
   // will return NULL.
-  const char* client_extensions =
-      eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
+  g_egl_client_extensions = eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
 
-  bool supports_egl_debug =
-      client_extensions &&
-      ExtensionsContain(client_extensions, "EGL_KHR_debug");
+  bool supports_egl_debug = HasEGLClientExtension("EGL_KHR_debug");
   if (supports_egl_debug) {
     EGLAttrib controls[] = {
         EGL_DEBUG_MSG_CRITICAL_KHR,
@@ -1225,32 +1271,28 @@ EGLDisplay GLSurfaceEGL::InitializeDisplay(EGLDisplayPlatform native_display) {
   bool supports_angle_egl = false;
   bool supports_angle_metal = false;
   // Check for availability of ANGLE extensions.
-  if (client_extensions &&
-      ExtensionsContain(client_extensions, "EGL_ANGLE_platform_angle")) {
-    supports_angle_d3d =
-        ExtensionsContain(client_extensions, "EGL_ANGLE_platform_angle_d3d");
+  if (HasEGLClientExtension("EGL_ANGLE_platform_angle")) {
+    supports_angle_d3d = HasEGLClientExtension("EGL_ANGLE_platform_angle_d3d");
     supports_angle_opengl =
-        ExtensionsContain(client_extensions, "EGL_ANGLE_platform_angle_opengl");
+        HasEGLClientExtension("EGL_ANGLE_platform_angle_opengl");
     supports_angle_null =
-        ExtensionsContain(client_extensions, "EGL_ANGLE_platform_angle_null");
+        HasEGLClientExtension("EGL_ANGLE_platform_angle_null");
     supports_angle_vulkan =
-        ExtensionsContain(client_extensions, "EGL_ANGLE_platform_angle_vulkan");
-    supports_angle_swiftshader = ExtensionsContain(
-        client_extensions, "EGL_ANGLE_platform_angle_device_type_swiftshader");
-    supports_angle_egl = ExtensionsContain(
-        client_extensions, "EGL_ANGLE_platform_angle_device_type_egl_angle");
+        HasEGLClientExtension("EGL_ANGLE_platform_angle_vulkan");
+    supports_angle_swiftshader = HasEGLClientExtension(
+        "EGL_ANGLE_platform_angle_device_type_swiftshader");
+    supports_angle_egl =
+        HasEGLClientExtension("EGL_ANGLE_platform_angle_device_type_egl_angle");
     supports_angle_metal =
-        ExtensionsContain(client_extensions, "EGL_ANGLE_platform_angle_metal");
+        HasEGLClientExtension("EGL_ANGLE_platform_angle_metal");
   }
 
   bool supports_angle = supports_angle_d3d || supports_angle_opengl ||
                         supports_angle_null || supports_angle_vulkan ||
                         supports_angle_swiftshader || supports_angle_metal;
 
-  if (client_extensions) {
-    g_egl_angle_feature_control_supported =
-        ExtensionsContain(client_extensions, "EGL_ANGLE_feature_control");
-  }
+  g_egl_angle_feature_control_supported =
+      HasEGLClientExtension("EGL_ANGLE_feature_control");
 
   std::vector<DisplayType> init_displays;
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
@@ -1289,18 +1331,39 @@ EGLDisplay GLSurfaceEGL::InitializeDisplay(EGLDisplayPlatform native_display) {
           GetANGLEImplementationFromDisplayType(display_type));
     }
 
+#if defined(USE_X11)
+    // Unset DISPLAY env, so the vulkan can be initialized successfully, if the
+    // X server doesn't support Vulkan surface.
+    base::Optional<ui::ScopedUnsetDisplay> unset_display;
+    if (display_type == ANGLE_VULKAN && !ui::IsVulkanSurfaceSupported())
+      unset_display.emplace();
+#endif  // defined(USE_X11)
+
     if (!eglInitialize(display, nullptr, nullptr)) {
       bool is_last = disp_index == init_displays.size() - 1;
 
       LOG(ERROR) << "eglInitialize " << DisplayTypeString(display_type)
                  << " failed with error " << GetLastEGLErrorString()
                  << (is_last ? "" : ", trying next display type");
-    } else {
-      UMA_HISTOGRAM_ENUMERATION("GPU.EGLDisplayType", display_type,
-                                DISPLAY_TYPE_MAX);
-      g_egl_display = display;
-      break;
+      continue;
     }
+
+    std::ostringstream display_type_string;
+    auto gl_implementation = GetGLImplementation();
+    display_type_string << GetGLImplementationName(gl_implementation);
+    if (gl_implementation == kGLImplementationEGLANGLE) {
+      display_type_string << ":" << DisplayTypeString(display_type);
+    }
+
+    static auto* egl_display_type_key = base::debug::AllocateCrashKeyString(
+        "egl-display-type", base::debug::CrashKeySize::Size32);
+    base::debug::SetCrashKeyString(egl_display_type_key,
+                                   display_type_string.str());
+
+    UMA_HISTOGRAM_ENUMERATION("GPU.EGLDisplayType", display_type,
+                              DISPLAY_TYPE_MAX);
+    g_egl_display = display;
+    break;
   }
 
   return g_egl_display;

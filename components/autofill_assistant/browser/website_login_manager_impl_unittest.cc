@@ -11,16 +11,17 @@
 #include "components/password_manager/core/browser/mock_password_store.h"
 #include "components/password_manager/core/browser/password_store_consumer.h"
 #include "components/password_manager/core/browser/stub_password_manager_client.h"
-#include "components/password_manager/core/browser/stub_password_manager_driver.h"
 #include "components/password_manager/core/common/password_manager_features.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_task_environment.h"
+#include "content/public/test/test_renderer_host.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using autofill::FormData;
 using autofill::FormFieldData;
-using autofill::PasswordForm;
 using base::ASCIIToUTF16;
+using password_manager::PasswordForm;
 using testing::_;
 using testing::Invoke;
 using testing::Mock;
@@ -48,15 +49,6 @@ class MockPasswordManagerClient
                      password_manager::PasswordStore*());
   MOCK_CONST_METHOD0(GetAccountPasswordStore,
                      password_manager::PasswordStore*());
-};
-
-class MockPasswordManagerDriver
-    : public password_manager::StubPasswordManagerDriver {
- public:
-  MockPasswordManagerDriver() = default;
-
-  MOCK_CONST_METHOD0(GetId, int());
-  MOCK_CONST_METHOD0(IsMainFrame, bool());
 };
 
 FormData MakeFormDataWithPasswordField() {
@@ -101,13 +93,17 @@ PasswordForm MakeSimplePasswordFormWithoutUsername() {
 
 }  // namespace
 
-class WebsiteLoginManagerImplTest : public testing::Test {
+class WebsiteLoginManagerImplTest : public content::RenderViewHostTestHarness {
  public:
-  WebsiteLoginManagerImplTest() = default;
+  WebsiteLoginManagerImplTest()
+      : RenderViewHostTestHarness(
+            base::test::TaskEnvironment::MainThreadType::UI,
+            base::test::TaskEnvironment::TimeSource::MOCK_TIME) {}
   ~WebsiteLoginManagerImplTest() override = default;
 
  protected:
   void SetUp() override {
+    RenderViewHostTestHarness::SetUp();
     profile_store_ = new password_manager::MockPasswordStore;
     ON_CALL(*profile_store_, IsAccountStore()).WillByDefault(Return(false));
     ASSERT_TRUE(profile_store_->Init(/*prefs=*/nullptr));
@@ -125,10 +121,8 @@ class WebsiteLoginManagerImplTest : public testing::Test {
           .WillByDefault(Return(account_store_.get()));
     }
 
-    ON_CALL(driver_, GetId()).WillByDefault(Return(0));
-    ON_CALL(driver_, IsMainFrame()).WillByDefault(Return(true));
-
-    manager_ = std::make_unique<WebsiteLoginManagerImpl>(&client_, &driver_);
+    manager_ =
+        std::make_unique<WebsiteLoginManagerImpl>(&client_, web_contents());
   }
 
   void TearDown() override {
@@ -136,22 +130,19 @@ class WebsiteLoginManagerImplTest : public testing::Test {
       account_store_->ShutdownOnUIThread();
     }
     profile_store_->ShutdownOnUIThread();
+    RenderViewHostTestHarness::TearDown();
   }
 
   WebsiteLoginManagerImpl* manager() { return manager_.get(); }
   password_manager::MockPasswordStore* store() { return profile_store_.get(); }
 
-  void WaitForPasswordStore() { task_environment_.RunUntilIdle(); }
+  void WaitForPasswordStore() { task_environment()->RunUntilIdle(); }
 
  private:
   testing::NiceMock<MockPasswordManagerClient> client_;
-  MockPasswordManagerDriver driver_;
   std::unique_ptr<WebsiteLoginManagerImpl> manager_;
   scoped_refptr<password_manager::MockPasswordStore> profile_store_;
   scoped_refptr<password_manager::MockPasswordStore> account_store_;
-  content::BrowserTaskEnvironment task_environment_{
-      base::test::TaskEnvironment::TimeSource::MOCK_TIME,
-      content::BrowserTaskEnvironment::IO_MAINLOOP};
 };
 
 // Checks if PasswordForm matches other PasswordForm.
@@ -174,7 +165,7 @@ TEST_F(WebsiteLoginManagerImplTest, SaveGeneratedPassword) {
           })));
 
   password_manager::PasswordStore::FormDigest form_digest(
-      autofill::PasswordForm::Scheme::kHtml, kFakeUrl, GURL(kFakeUrl));
+      password_manager::PasswordForm::Scheme::kHtml, kFakeUrl, GURL(kFakeUrl));
   // Presave generated password. Form with empty username is presaved.
   EXPECT_CALL(*store(), GetLogins(form_digest, _));
   EXPECT_CALL(*store(),

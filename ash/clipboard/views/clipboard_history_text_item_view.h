@@ -16,20 +16,27 @@ namespace ash {
 // The menu item showing the plain text.
 class ClipboardHistoryTextItemView : public ClipboardHistoryItemView {
  public:
-  ClipboardHistoryTextItemView(const ClipboardHistoryItem& item,
-                               views::MenuItemView* container);
+  ClipboardHistoryTextItemView(
+      const ClipboardHistoryItem* clipboard_history_item,
+      views::MenuItemView* container);
   ClipboardHistoryTextItemView(const ClipboardHistoryTextItemView& rhs) =
       delete;
   ClipboardHistoryItemView& operator=(const ClipboardHistoryTextItemView& rhs) =
       delete;
   ~ClipboardHistoryTextItemView() override;
 
+ protected:
+  const base::string16& text() const { return text_; }
+
+  // ClipboardHistoryItemView:
+  std::unique_ptr<ContentsView> CreateContentsView() override;
+
  private:
   class TextContentsView;
 
   // ClipboardHistoryItemView:
+  base::string16 GetAccessibleName() const override;
   const char* GetClassName() const override;
-  std::unique_ptr<ContentsView> CreateContentsView() override;
 
   // Text to show.
   const base::string16 text_;

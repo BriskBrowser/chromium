@@ -20,23 +20,25 @@
 #include "base/check_op.h"
 #include "base/debug/alias.h"
 #include "base/feature_list.h"
-#include "base/memory/scoped_refptr.h"
 #include "base/notreached.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "gin/array_buffer.h"
 #include "gin/public/gin_embedders.h"
 #include "gin/public/isolate_holder.h"
 #include "gin/public/v8_platform.h"
+#include "pdf/accessibility_structs.h"
 #include "pdf/document_loader_impl.h"
 #include "pdf/draw_utils/coordinates.h"
 #include "pdf/draw_utils/shadow.h"
 #include "pdf/pdf_features.h"
 #include "pdf/pdf_transform.h"
+#include "pdf/pdf_utils/dates.h"
 #include "pdf/pdfium/pdfium_api_string_buffer_adapter.h"
 #include "pdf/pdfium/pdfium_document.h"
 #include "pdf/pdfium/pdfium_mem_buffer_file_read.h"
@@ -50,7 +52,6 @@
 #include "pdf/url_loader_wrapper_impl.h"
 #include "ppapi/cpp/instance.h"
 #include "ppapi/cpp/private/pdf.h"
-#include "ppapi/cpp/var_dictionary.h"
 #include "printing/units.h"
 #include "third_party/pdfium/public/cpp/fpdf_scopers.h"
 #include "third_party/pdfium/public/fpdf_annot.h"
@@ -65,9 +66,14 @@
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/point_conversions.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/geometry/vector2d.h"
 #include "v8/include/v8.h"
+
+#if defined(PDF_ENABLE_XFA)
+#include "v8/include/cppgc/platform.h"
+#endif
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
 #include "pdf/pdfium/pdfium_font_linux.h"
@@ -223,6 +229,7 @@ bool FindMultipleClickBoundary(bool is_double_click, base::char16 cur) {
   return false;
 }
 
+#if defined(PDF_ENABLE_V8)
 gin::IsolateHolder* g_isolate_holder = nullptr;
 
 bool IsV8Initialized() {
@@ -241,13 +248,20 @@ void SetUpV8() {
       base::ThreadTaskRunnerHandle::Get(), gin::IsolateHolder::kSingleThread,
       gin::IsolateHolder::IsolateType::kUtility);
   g_isolate_holder->isolate()->Enter();
+#if defined(PDF_ENABLE_XFA)
+  cppgc::InitializeProcess(gin::V8Platform::Get()->GetPageAllocator());
+#endif
 }
 
 void TearDownV8() {
+#if defined(PDF_ENABLE_XFA)
+  cppgc::ShutdownProcess();
+#endif
   g_isolate_holder->isolate()->Exit();
   delete g_isolate_holder;
   g_isolate_holder = nullptr;
 }
+#endif  // defined(PDF_ENABLE_V8)
 
 // Returns true if the given |area| and |form_type| combination from
 // PDFiumEngine::GetCharIndex() indicates it is a form text area.
@@ -349,21 +363,6 @@ wchar_t SimplifyForSearch(wchar_t c) {
   }
 }
 
-PDFiumEngine::SetSelectedTextFunction g_set_selected_text_func_for_testing =
-    nullptr;
-
-void SetSelectedText(pp::Instance* instance, const std::string& selected_text) {
-  pp::PDF::SetSelectedText(instance, selected_text.c_str());
-}
-
-PDFiumEngine::SetLinkUnderCursorFunction
-    g_set_link_under_cursor_func_for_testing = nullptr;
-
-void SetLinkUnderCursor(pp::Instance* instance,
-                        const std::string& link_under_cursor) {
-  pp::PDF::SetLinkUnderCursor(instance, link_under_cursor.c_str());
-}
-
 PP_PrivateFocusObjectType GetAnnotationFocusType(
     FPDF_ANNOTATION_SUBTYPE annot_type) {
   switch (annot_type) {
@@ -391,13 +390,114 @@ base::string16 GetAttachmentName(FPDF_ATTACHMENT attachment) {
       /*check_expected_size=*/true);
 }
 
+std::string GetXYZParamsString(FPDF_DEST dest, PDFiumPage* page) {
+  FPDF_BOOL has_x_coord;
+  FPDF_BOOL has_y_coord;
+  FPDF_BOOL has_zoom;
+  FS_FLOAT x;
+  FS_FLOAT y;
+  FS_FLOAT zoom;
+  if (!FPDFDest_GetLocationInPage(dest, &has_x_coord, &has_y_coord, &has_zoom,
+                                  &x, &y, &zoom)) {
+    return "";
+  }
+
+  // Handle out-of-range page coordinates.
+  x = has_x_coord ? page->PreProcessInPageCoordX(x) : 0;
+  y = has_y_coord ? page->PreProcessInPageCoordY(y) : 0;
+
+  // Convert in-page coordinates to in-screen coordinates.
+  gfx::PointF xy(x, y);
+  gfx::PointF screen_coords = page->TransformPageToScreenXY(xy);
+
+  // Generate a string of the parameters
+  std::string xyz_params;
+  if (has_x_coord)
+    xyz_params = base::NumberToString(screen_coords.x()) + ",";
+  else
+    xyz_params = "null,";
+
+  if (has_y_coord)
+    xyz_params += base::NumberToString(screen_coords.y()) + ",";
+  else
+    xyz_params += "null,";
+
+  if (has_zoom) {
+    if (zoom == 0.0f)
+      NOTREACHED();
+
+    xyz_params += base::NumberToString(zoom);
+  } else {
+    xyz_params += "null";
+  }
+
+  return xyz_params;
+}
+
+void SetXYZParamsInScreenCoords(PDFiumPage* page, float* params) {
+  gfx::PointF page_coords(params[0], params[1]);
+  gfx::PointF screen_coords = page->TransformPageToScreenXY(page_coords);
+  params[0] = screen_coords.x();
+  params[1] = screen_coords.y();
+}
+
+void SetFitRParamsInScreenCoords(PDFiumPage* page, float* params) {
+  gfx::PointF point_1 =
+      page->TransformPageToScreenXY(gfx::PointF(params[0], params[1]));
+  gfx::PointF point_2 =
+      page->TransformPageToScreenXY(gfx::PointF(params[2], params[3]));
+  params[0] = point_1.x();
+  params[1] = point_1.y();
+  params[2] = point_2.x();
+  params[3] = point_2.y();
+}
+
+// A helper function that transforms the in-page coordinates in `params` to
+// in-screen coordinates depending on the view's fit type. `params` is both an
+// input and a output parameter.
+void ParamsTransformPageToScreen(unsigned long view_fit_type,
+                                 PDFiumPage* page,
+                                 float* params) {
+  switch (view_fit_type) {
+    case PDFDEST_VIEW_XYZ:
+      SetXYZParamsInScreenCoords(page, params);
+      break;
+    case PDFDEST_VIEW_FIT:
+    case PDFDEST_VIEW_FITB:
+      // No parameters for coordinates to be transformed.
+      break;
+    case PDFDEST_VIEW_FITBH:
+    case PDFDEST_VIEW_FITH:
+      // FitH/FitBH only has 1 parameter for y coordinate.
+      params[0] = page->TransformPageToScreenY(params[0]);
+      break;
+    case PDFDEST_VIEW_FITBV:
+    case PDFDEST_VIEW_FITV:
+      // FitV/FitBV only has 1 parameter for x coordinate.
+      params[0] = page->TransformPageToScreenX(params[0]);
+      break;
+    case PDFDEST_VIEW_FITR:
+      SetFitRParamsInScreenCoords(page, params);
+      break;
+    case PDFDEST_VIEW_UNKNOWN_MODE:
+      break;
+    default:
+      NOTREACHED();
+      break;
+  }
+}
+
 }  // namespace
 
 void InitializeSDK(bool enable_v8) {
   FPDF_LIBRARY_CONFIG config;
   config.version = 3;
   config.m_pUserFontPaths = nullptr;
+  config.m_pIsolate = nullptr;
+  config.m_pPlatform = nullptr;
+  config.m_v8EmbedderSlot = gin::kEmbedderPDFium;
 
+#if defined(PDF_ENABLE_V8)
   if (enable_v8) {
     SetUpV8();
     config.m_pIsolate = v8::Isolate::GetCurrent();
@@ -405,11 +505,9 @@ void InitializeSDK(bool enable_v8) {
     // will manipulate the pointer value should gin::V8Platform someday have
     // multiple base classes.
     config.m_pPlatform = static_cast<v8::Platform*>(gin::V8Platform::Get());
-  } else {
-    config.m_pIsolate = nullptr;
-    config.m_pPlatform = nullptr;
   }
-  config.m_v8EmbedderSlot = gin::kEmbedderPDFium;
+#endif  // defined(PDF_ENABLE_V8)
+
   FPDF_InitLibraryWithConfig(&config);
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
@@ -421,46 +519,23 @@ void InitializeSDK(bool enable_v8) {
 
 void ShutdownSDK() {
   FPDF_DestroyLibrary();
+#if defined(PDF_ENABLE_V8)
   if (IsV8Initialized())
     TearDownV8();
+#endif  // defined(PDF_ENABLE_V8)
 }
 
-PDFEngine::AccessibilityLinkInfo::AccessibilityLinkInfo() = default;
-
-PDFEngine::AccessibilityLinkInfo::AccessibilityLinkInfo(
-    const AccessibilityLinkInfo& that) = default;
-
-PDFEngine::AccessibilityLinkInfo::~AccessibilityLinkInfo() = default;
-
-PDFEngine::AccessibilityImageInfo::AccessibilityImageInfo() = default;
-
-PDFEngine::AccessibilityImageInfo::AccessibilityImageInfo(
-    const AccessibilityImageInfo& that) = default;
-
-PDFEngine::AccessibilityImageInfo::~AccessibilityImageInfo() = default;
-
-PDFEngine::AccessibilityHighlightInfo::AccessibilityHighlightInfo() = default;
-
-PDFEngine::AccessibilityHighlightInfo::AccessibilityHighlightInfo(
-    const AccessibilityHighlightInfo& that) = default;
-
-PDFEngine::AccessibilityHighlightInfo::~AccessibilityHighlightInfo() = default;
-
-PDFEngine::AccessibilityTextFieldInfo::AccessibilityTextFieldInfo() = default;
-
-PDFEngine::AccessibilityTextFieldInfo::AccessibilityTextFieldInfo(
-    const AccessibilityTextFieldInfo& that) = default;
-
-PDFEngine::AccessibilityTextFieldInfo::~AccessibilityTextFieldInfo() = default;
-
-PDFiumEngine::PDFiumEngine(PDFEngine::Client* client, bool enable_javascript)
+PDFiumEngine::PDFiumEngine(PDFEngine::Client* client,
+                           PDFiumFormFiller::ScriptOption script_option)
     : client_(client),
-      form_filler_(this, enable_javascript),
+      form_filler_(this, script_option),
       mouse_down_state_(PDFiumPage::NONSELECTABLE_AREA,
                         PDFiumPage::LinkTarget()),
       print_(this) {
-  if (enable_javascript)
+#if defined(PDF_ENABLE_V8)
+  if (script_option != PDFiumFormFiller::ScriptOption::kNoJavaScript)
     DCHECK(IsV8Initialized());
+#endif  // defined(PDF_ENABLE_V8)
 
   IFSDK_PAUSE::version = 1;
   IFSDK_PAUSE::user = nullptr;
@@ -486,18 +561,6 @@ void PDFiumEngine::SetDocumentLoaderForTesting(
   DCHECK(!doc_loader_);
   doc_loader_ = std::move(loader);
   doc_loader_set_for_testing_ = true;
-}
-
-// static
-void PDFiumEngine::OverrideSetSelectedTextFunctionForTesting(
-    SetSelectedTextFunction function) {
-  g_set_selected_text_func_for_testing = function;
-}
-
-// static
-void PDFiumEngine::OverrideSetLinkUnderCursorFunctionForTesting(
-    SetLinkUnderCursorFunction function) {
-  g_set_link_under_cursor_func_for_testing = function;
 }
 
 bool PDFiumEngine::New(const char* url, const char* headers) {
@@ -545,11 +608,11 @@ void PDFiumEngine::PrePaint() {
     paint.set_painted(false);
 }
 
-void PDFiumEngine::Paint(const pp::Rect& rect,
+void PDFiumEngine::Paint(const gfx::Rect& rect,
                          SkBitmap& image_data,
-                         std::vector<pp::Rect>& ready,
-                         std::vector<pp::Rect>& pending) {
-  pp::Rect leftover = rect;
+                         std::vector<gfx::Rect>& ready,
+                         std::vector<gfx::Rect>& pending) {
+  gfx::Rect leftover = rect;
   for (size_t i = 0; i < visible_pages_.size(); ++i) {
     int index = visible_pages_[i];
     // Convert the current page's rectangle to screen rectangle.  We do this
@@ -557,8 +620,9 @@ void PDFiumEngine::Paint(const pp::Rect& rect,
     // page coordinates) because then we'd have to convert back to screen
     // coordinates, and the rounding errors sometime leave pixels dirty or even
     // move the text up or down a pixel when zoomed.
-    pp::Rect page_rect_in_screen = GetPageScreenRect(index);
-    pp::Rect dirty_in_screen = page_rect_in_screen.Intersect(leftover);
+    gfx::Rect page_rect_in_screen = GetPageScreenRect(index);
+    gfx::Rect dirty_in_screen =
+        gfx::IntersectRects(page_rect_in_screen, leftover);
     if (dirty_in_screen.IsEmpty())
       continue;
 
@@ -570,13 +634,13 @@ void PDFiumEngine::Paint(const pp::Rect& rect,
     // rectangle.
     if (!layout_.options().two_up_view_enabled()) {
       if (i == 0) {
-        pp::Rect blank_space_in_screen = dirty_in_screen;
+        gfx::Rect blank_space_in_screen = dirty_in_screen;
         blank_space_in_screen.set_y(0);
         blank_space_in_screen.set_height(dirty_in_screen.y());
-        leftover = leftover.Subtract(blank_space_in_screen);
+        leftover.Subtract(blank_space_in_screen);
       }
 
-      leftover = leftover.Subtract(dirty_in_screen);
+      leftover.Subtract(dirty_in_screen);
     }
 
     if (pages_[index]->available()) {
@@ -631,7 +695,7 @@ void PDFiumEngine::PostPaint() {
   }
 }
 
-bool PDFiumEngine::HandleDocumentLoad(scoped_refptr<UrlLoader> loader) {
+bool PDFiumEngine::HandleDocumentLoad(std::unique_ptr<UrlLoader> loader) {
   password_tries_remaining_ = kMaxPasswordTries;
   process_when_pending_request_complete_ =
       base::FeatureList::IsEnabled(features::kPdfIncrementalLoading);
@@ -690,13 +754,13 @@ void PDFiumEngine::OnPendingRequestComplete() {
   if (!fpdf_availability()) {
     document_->file_access().m_FileLen = doc_loader_->GetDocumentSize();
     document_->CreateFPDFAvailability();
-    DCHECK(fpdf_availability());
+
     // Currently engine does not deal efficiently with some non-linearized
     // files.
     // See http://code.google.com/p/chromium/issues/detail?id=59400
     // To improve user experience we download entire file for non-linearized
     // PDF.
-    if (FPDFAvail_IsLinearized(fpdf_availability()) != PDF_LINEARIZED) {
+    if (!IsLinearized()) {
       // Wait complete document.
       process_when_pending_request_complete_ = false;
       document_->ResetFPDFAvailability();
@@ -802,15 +866,7 @@ void PDFiumEngine::FinishLoadingDocument() {
     FORM_DoPageAAction(new_page, form(), FPDFPAGE_AACTION_OPEN);
   }
 
-  if (doc()) {
-    DocumentFeatures document_features;
-    document_features.page_count = pages_.size();
-    document_features.has_attachments = !doc_attachment_info_list_.empty();
-    document_features.is_tagged = FPDFCatalog_IsTagged(doc());
-    document_features.form_type =
-        static_cast<FormType>(FPDF_GetFormType(doc()));
-    client_->DocumentLoadComplete(document_features);
-  }
+  client_->DocumentLoadComplete();
 }
 
 void PDFiumEngine::UnsupportedFeature(const std::string& feature) {
@@ -827,6 +883,10 @@ FPDF_DOCUMENT PDFiumEngine::doc() const {
 
 FPDF_FORMHANDLE PDFiumEngine::form() const {
   return document_ ? document_->form() : nullptr;
+}
+
+bool PDFiumEngine::IsValidLink(const std::string& url) {
+  return client_->IsValidLink(url);
 }
 
 void PDFiumEngine::ContinueFind(int32_t result) {
@@ -989,7 +1049,7 @@ void PDFiumEngine::KillFormFocus() {
 
 void PDFiumEngine::UpdateFocus(bool has_focus) {
   base::AutoReset<bool> updating_focus_guard(&updating_focus_, true);
-  if (has_focus) {
+  if (has_focus && !IsReadOnly()) {
     UpdateFocusItemType(last_focused_item_type_);
     if (focus_item_type_ == FocusElementType::kPage &&
         PageIndexInBounds(last_focused_page_) &&
@@ -1009,8 +1069,7 @@ void PDFiumEngine::UpdateFocus(bool has_focus) {
       FPDF_ANNOTATION last_focused_annot = nullptr;
       FPDF_BOOL ret = FORM_GetFocusedAnnot(form(), &last_focused_page_,
                                            &last_focused_annot);
-      DCHECK(ret);
-      if (PageIndexInBounds(last_focused_page_) && last_focused_annot) {
+      if (ret && PageIndexInBounds(last_focused_page_) && last_focused_annot) {
         last_focused_annot_index_ = FPDFPage_GetAnnotIndex(
             pages_[last_focused_page_]->GetPage(), last_focused_annot);
       } else {
@@ -1031,8 +1090,8 @@ PP_PrivateAccessibilityFocusInfo PDFiumEngine::GetFocusInfo() {
       break;
     }
     case FocusElementType::kPage: {
-      int page_index;
-      FPDF_ANNOTATION focused_annot;
+      int page_index = -1;
+      FPDF_ANNOTATION focused_annot = nullptr;
       FPDF_BOOL ret = FORM_GetFocusedAnnot(form(), &page_index, &focused_annot);
       DCHECK(ret);
 
@@ -1086,7 +1145,7 @@ void PDFiumEngine::SetFormSelectedText(FPDF_FORMHANDLE form_handle,
   selected_form_text_ = base::UTF16ToUTF8(selected_form_text16);
   if (selected_form_text != selected_form_text_) {
     DCHECK(in_form_text_area_);
-    pp::PDF::SetSelectedText(GetPluginInstance(), selected_form_text_.c_str());
+    client_->SetSelectedText(selected_form_text_);
   }
 }
 
@@ -1320,10 +1379,10 @@ bool PDFiumEngine::OnRightMouseDown(const MouseInputEvent& event) {
   if (selection_.empty())
     return false;
 
-  std::vector<pp::Rect> selection_rect_vector = GetAllScreenRectsUnion(
-      selection_, PointFromPPPoint(GetVisibleRect().point()));
+  std::vector<gfx::Rect> selection_rect_vector =
+      GetAllScreenRectsUnion(selection_, GetVisibleRect().origin());
   for (const auto& rect : selection_rect_vector) {
-    if (rect.Contains(point.x(), point.y()))
+    if (rect.Contains(point))
       return false;
   }
   SelectionChangeInvalidator selection_invalidator(this);
@@ -1758,10 +1817,10 @@ void PDFiumEngine::StartFind(const std::string& text, bool case_sensitive) {
   if (doc_loader_set_for_testing_) {
     ContinueFind(case_sensitive ? 1 : 0);
   } else {
-    pp::Module::Get()->core()->CallOnMainThread(
-        0,
-        PPCompletionCallbackFromResultCallback(base::BindOnce(
-            &PDFiumEngine::ContinueFind, find_weak_factory_.GetWeakPtr())),
+    client_->ScheduleTaskOnMainThread(
+        base::TimeDelta(),
+        base::BindOnce(&PDFiumEngine::ContinueFind,
+                       find_weak_factory_.GetWeakPtr()),
         case_sensitive ? 1 : 0);
   }
 }
@@ -1977,8 +2036,8 @@ bool PDFiumEngine::SelectFindResult(bool forward) {
   selection_.push_back(find_results_[current_find_index_.value()]);
 
   // If the result is not in view, scroll to it.
-  pp::Rect bounding_rect;
-  pp::Rect visible_rect = GetVisibleRect();
+  gfx::Rect bounding_rect;
+  gfx::Rect visible_rect = GetVisibleRect();
 
   // TODO(crbug.com/1108574): Remove after fixing the issue.
   size_t find_results_size = find_results_.size();
@@ -1987,17 +2046,17 @@ bool PDFiumEngine::SelectFindResult(bool forward) {
   base::debug::Alias(&current_find_index_value);
 
   // Use zoom of 1.0 since |visible_rect| is without zoom.
-  const std::vector<pp::Rect>& rects =
+  const std::vector<gfx::Rect>& rects =
       find_results_[current_find_index_.value()].GetScreenRects(
           gfx::Point(), 1.0, layout_.options().default_page_orientation());
   for (const auto& rect : rects)
-    bounding_rect = bounding_rect.Union(rect);
+    bounding_rect.Union(rect);
   if (!visible_rect.Contains(bounding_rect)) {
-    gfx::Point center = PointFromPPPoint(bounding_rect.CenterPoint());
+    gfx::Point center = bounding_rect.CenterPoint();
     // Make the page centered.
     int new_y = CalculateCenterForZoom(center.y(), visible_rect.height(),
                                        current_zoom_);
-    client_->ScrollToY(new_y, /*compensate_for_toolbar=*/false);
+    client_->ScrollToY(new_y);
 
     // Only move horizontally if it's not visible.
     if (center.x() < visible_rect.x() || center.x() > visible_rect.right()) {
@@ -2030,24 +2089,24 @@ void PDFiumEngine::StopFind() {
   find_weak_factory_.InvalidateWeakPtrs();
 }
 
-std::vector<pp::Rect> PDFiumEngine::GetAllScreenRectsUnion(
+std::vector<gfx::Rect> PDFiumEngine::GetAllScreenRectsUnion(
     const std::vector<PDFiumRange>& rect_range,
     const gfx::Point& point) const {
-  std::vector<pp::Rect> rect_vector;
+  std::vector<gfx::Rect> rect_vector;
   rect_vector.reserve(rect_range.size());
   for (const auto& range : rect_range) {
-    pp::Rect result_rect;
-    const std::vector<pp::Rect>& rects = range.GetScreenRects(
+    gfx::Rect result_rect;
+    const std::vector<gfx::Rect>& rects = range.GetScreenRects(
         point, current_zoom_, layout_.options().default_page_orientation());
     for (const auto& rect : rects)
-      result_rect = result_rect.Union(rect);
+      result_rect.Union(rect);
     rect_vector.push_back(result_rect);
   }
   return rect_vector;
 }
 
 void PDFiumEngine::UpdateTickMarks() {
-  std::vector<pp::Rect> tickmarks =
+  std::vector<gfx::Rect> tickmarks =
       GetAllScreenRectsUnion(find_results_, gfx::Point());
   client_->UpdateTickMarks(tickmarks);
 }
@@ -2071,6 +2130,28 @@ void PDFiumEngine::RotateCounterclockwise() {
   ProposeNextDocumentLayout();
 }
 
+bool PDFiumEngine::IsReadOnly() const {
+  return read_only_;
+}
+
+void PDFiumEngine::SetReadOnly(bool enable) {
+  read_only_ = enable;
+
+  // Restore form highlights.
+  if (!read_only_) {
+    FPDF_SetFormFieldHighlightAlpha(form(), kFormHighlightAlpha);
+    return;
+  }
+
+  // Hide form highlights.
+  FPDF_SetFormFieldHighlightAlpha(form(), /*alpha=*/0);
+  KillFormFocus();
+
+  // Unselect text.
+  SelectionChangeInvalidator selection_invalidator(this);
+  selection_.clear();
+}
+
 void PDFiumEngine::SetTwoUpView(bool enable) {
   desired_layout_options_.set_two_up_view_enabled(enable);
   ProposeNextDocumentLayout();
@@ -2089,7 +2170,7 @@ void PDFiumEngine::InvalidateAllPages() {
   StopFind();
   DCHECK(document_loaded_);
   RefreshCurrentDocumentLayout();
-  client_->Invalidate(pp::Rect(PPSizeFromSize(plugin_size_)));
+  client_->Invalidate(gfx::Rect(plugin_size_));
 }
 
 std::string PDFiumEngine::GetSelectedText() {
@@ -2164,7 +2245,7 @@ void PDFiumEngine::HandleAccessibilityAction(
     const PP_PdfAccessibilityActionData& action_data) {
   switch (action_data.action) {
     case PP_PdfAccessibilityAction::PP_PDF_SCROLL_TO_MAKE_VISIBLE: {
-      ScrollBasedOnScrollAlignment(action_data.target_rect,
+      ScrollBasedOnScrollAlignment(RectFromPPRect(action_data.target_rect),
                                    action_data.horizontal_scroll_alignment,
                                    action_data.vertical_scroll_alignment);
       break;
@@ -2184,7 +2265,7 @@ void PDFiumEngine::HandleAccessibilityAction(
       break;
     }
     case PP_PdfAccessibilityAction::PP_PDF_SCROLL_TO_GLOBAL_POINT: {
-      ScrollToGlobalPoint(action_data.target_rect,
+      ScrollToGlobalPoint(RectFromPPRect(action_data.target_rect),
                           PointFromPPPoint(action_data.target_point));
       break;
     }
@@ -2193,6 +2274,10 @@ void PDFiumEngine::HandleAccessibilityAction(
           IsPageCharacterIndexInBounds(action_data.selection_end_index)) {
         SetSelection(action_data.selection_start_index,
                      action_data.selection_end_index);
+        gfx::Rect target_rect = RectFromPPRect(action_data.target_rect);
+        if (GetVisibleRect().Contains(target_rect))
+          return;
+        client_->ScrollBy(GetScreenRect(target_rect).OffsetFromOrigin());
       }
       break;
     }
@@ -2223,7 +2308,7 @@ bool PDFiumEngine::HasPermission(DocumentPermission permission) const {
 }
 
 void PDFiumEngine::SelectAll() {
-  if (in_form_text_area_)
+  if (in_form_text_area_ || IsReadOnly())
     return;
 
   SelectionChangeInvalidator selection_invalidator(this);
@@ -2269,37 +2354,41 @@ int PDFiumEngine::GetNumberOfPages() const {
   return pages_.size();
 }
 
-pp::VarArray PDFiumEngine::GetBookmarks() {
-  pp::VarDictionary dict = TraverseBookmarks(nullptr, 0);
+base::Value PDFiumEngine::GetBookmarks() {
+  base::Value dict = TraverseBookmarks(nullptr, 0);
+  DCHECK(dict.is_dict());
   // The root bookmark contains no useful information.
-  return pp::VarArray(dict.Get(pp::Var("children")));
+  base::Value* children = dict.FindListKey("children");
+  DCHECK(children);
+  return std::move(*children);
 }
 
-pp::VarDictionary PDFiumEngine::TraverseBookmarks(FPDF_BOOKMARK bookmark,
-                                                  unsigned int depth) {
-  pp::VarDictionary dict;
+base::Value PDFiumEngine::TraverseBookmarks(FPDF_BOOKMARK bookmark,
+                                            unsigned int depth) {
+  base::Value dict(base::Value::Type::DICTIONARY);
   base::string16 title = CallPDFiumWideStringBufferApi(
       base::BindRepeating(&FPDFBookmark_GetTitle, bookmark),
       /*check_expected_size=*/true);
-  dict.Set(pp::Var("title"), pp::Var(base::UTF16ToUTF8(title)));
+  dict.SetStringKey("title", title);
 
   FPDF_DEST dest = FPDFBookmark_GetDest(doc(), bookmark);
   // Some bookmarks don't have a page to select.
   if (dest) {
     int page_index = FPDFDest_GetDestPageIndex(doc(), dest);
     if (PageIndexInBounds(page_index)) {
-      dict.Set(pp::Var("page"), pp::Var(page_index));
+      dict.SetIntKey("page", page_index);
 
-      base::Optional<gfx::PointF> xy;
+      base::Optional<float> x;
+      base::Optional<float> y;
       base::Optional<float> zoom;
-      pages_[page_index]->GetPageDestinationTarget(dest, &xy, &zoom);
-      if (xy) {
-        dict.Set(pp::Var("x"), pp::Var(static_cast<int>(xy.value().x())));
-        dict.Set(pp::Var("y"), pp::Var(static_cast<int>(xy.value().y())));
-      }
-      if (zoom) {
-        dict.Set(pp::Var("zoom"), pp::Var(zoom.value()));
-      }
+      pages_[page_index]->GetPageDestinationTarget(dest, &x, &y, &zoom);
+
+      if (x)
+        dict.SetIntKey("x", static_cast<int>(x.value()));
+      if (y)
+        dict.SetIntKey("y", static_cast<int>(y.value()));
+      if (zoom)
+        dict.SetDoubleKey("zoom", zoom.value());
     }
   } else {
     // Extract URI for bookmarks linking to an external page.
@@ -2308,15 +2397,14 @@ pp::VarDictionary PDFiumEngine::TraverseBookmarks(FPDF_BOOKMARK bookmark,
         base::BindRepeating(&FPDFAction_GetURIPath, doc(), action),
         /*check_expected_size=*/true);
     if (!uri.empty())
-      dict.Set(pp::Var("uri"), pp::Var(uri));
+      dict.SetStringKey("uri", uri);
   }
 
-  pp::VarArray children;
+  base::Value children(base::Value::Type::LIST);
 
   // Don't trust PDFium to handle circular bookmarks.
   constexpr unsigned int kMaxDepth = 128;
   if (depth < kMaxDepth) {
-    int child_index = 0;
     std::set<FPDF_BOOKMARK> seen_bookmarks;
     for (FPDF_BOOKMARK child_bookmark =
              FPDFBookmark_GetFirstChild(doc(), bookmark);
@@ -2326,20 +2414,18 @@ pp::VarDictionary PDFiumEngine::TraverseBookmarks(FPDF_BOOKMARK bookmark,
         break;
 
       seen_bookmarks.insert(child_bookmark);
-      children.Set(child_index, TraverseBookmarks(child_bookmark, depth + 1));
-      child_index++;
+      children.Append(TraverseBookmarks(child_bookmark, depth + 1));
     }
   }
-  dict.Set(pp::Var("children"), children);
+  dict.SetKey("children", std::move(children));
   return dict;
 }
 
 void PDFiumEngine::ScrollBasedOnScrollAlignment(
-    const pp::Rect& scroll_rect,
+    const gfx::Rect& scroll_rect,
     const PP_PdfAccessibilityScrollAlignment& horizontal_scroll_alignment,
     const PP_PdfAccessibilityScrollAlignment& vertical_scroll_alignment) {
-  gfx::Vector2d scroll_offset =
-      GetScreenRect(RectFromPPRect(scroll_rect)).OffsetFromOrigin();
+  gfx::Vector2d scroll_offset = GetScreenRect(scroll_rect).OffsetFromOrigin();
   switch (horizontal_scroll_alignment) {
     case PP_PdfAccessibilityScrollAlignment::PP_PDF_SCROLL_ALIGNMENT_RIGHT:
       scroll_offset.set_x(scroll_offset.x() - plugin_size_.width());
@@ -2391,10 +2477,9 @@ void PDFiumEngine::ScrollBasedOnScrollAlignment(
   client_->ScrollBy(scroll_offset);
 }
 
-void PDFiumEngine::ScrollToGlobalPoint(const pp::Rect& target_rect,
+void PDFiumEngine::ScrollToGlobalPoint(const gfx::Rect& target_rect,
                                        const gfx::Point& global_point) {
-  gfx::Point scroll_offset =
-      GetScreenRect(RectFromPPRect(target_rect)).origin();
+  gfx::Point scroll_offset = GetScreenRect(target_rect).origin();
   client_->ScrollBy(scroll_offset - global_point);
 }
 
@@ -2423,6 +2508,16 @@ base::Optional<PDFEngine::NamedDestination> PDFiumEngine::GetNamedDestination(
   result.page = page;
   unsigned long view_int =
       FPDFDest_GetView(dest, &result.num_params, result.params);
+
+  // FPDFDest_GetView() gets the in-page coordinates directly from the PDF
+  // document. The in-page coordinates need to be transformed into in-screen
+  // coordinates before getting sent to the viewport.
+  PDFiumPage* page_ptr = pages_[page].get();
+  ParamsTransformPageToScreen(view_int, page_ptr, result.params);
+
+  if (view_int == PDFDEST_VIEW_XYZ)
+    result.xyz_params = GetXYZParamsString(dest, page_ptr);
+
   result.view = ConvertViewIntToViewString(view_int);
   return result;
 }
@@ -2473,7 +2568,7 @@ int PDFiumEngine::GetCharCount(int page_index) {
   return pages_[page_index]->GetCharCount();
 }
 
-pp::FloatRect PDFiumEngine::GetCharBounds(int page_index, int char_index) {
+gfx::RectF PDFiumEngine::GetCharBounds(int page_index, int char_index) {
   DCHECK(PageIndexInBounds(page_index));
   return pages_[page_index]->GetCharBounds(char_index);
 }
@@ -2483,8 +2578,9 @@ uint32_t PDFiumEngine::GetCharUnicode(int page_index, int char_index) {
   return pages_[page_index]->GetCharUnicode(char_index);
 }
 
-base::Optional<pp::PDF::PrivateAccessibilityTextRunInfo>
-PDFiumEngine::GetTextRunInfo(int page_index, int start_char_index) {
+base::Optional<AccessibilityTextRunInfo> PDFiumEngine::GetTextRunInfo(
+    int page_index,
+    int start_char_index) {
   DCHECK(PageIndexInBounds(page_index));
   auto info = pages_[page_index]->GetTextRunInfo(start_char_index);
   if (!client_->IsPrintPreview() && start_char_index >= 0)
@@ -2492,28 +2588,32 @@ PDFiumEngine::GetTextRunInfo(int page_index, int start_char_index) {
   return info;
 }
 
-std::vector<PDFEngine::AccessibilityLinkInfo> PDFiumEngine::GetLinkInfo(
-    int page_index) {
+std::vector<AccessibilityLinkInfo> PDFiumEngine::GetLinkInfo(
+    int page_index,
+    const std::vector<AccessibilityTextRunInfo>& text_runs) {
   DCHECK(PageIndexInBounds(page_index));
-  return pages_[page_index]->GetLinkInfo();
+  return pages_[page_index]->GetLinkInfo(text_runs);
 }
 
-std::vector<PDFEngine::AccessibilityImageInfo> PDFiumEngine::GetImageInfo(
-    int page_index) {
+std::vector<AccessibilityImageInfo> PDFiumEngine::GetImageInfo(
+    int page_index,
+    uint32_t text_run_count) {
   DCHECK(PageIndexInBounds(page_index));
-  return pages_[page_index]->GetImageInfo();
+  return pages_[page_index]->GetImageInfo(text_run_count);
 }
 
-std::vector<PDFEngine::AccessibilityHighlightInfo>
-PDFiumEngine::GetHighlightInfo(int page_index) {
+std::vector<AccessibilityHighlightInfo> PDFiumEngine::GetHighlightInfo(
+    int page_index,
+    const std::vector<AccessibilityTextRunInfo>& text_runs) {
   DCHECK(PageIndexInBounds(page_index));
-  return pages_[page_index]->GetHighlightInfo();
+  return pages_[page_index]->GetHighlightInfo(text_runs);
 }
 
-std::vector<PDFEngine::AccessibilityTextFieldInfo>
-PDFiumEngine::GetTextFieldInfo(int page_index) {
+std::vector<AccessibilityTextFieldInfo> PDFiumEngine::GetTextFieldInfo(
+    int page_index,
+    uint32_t text_run_count) {
   DCHECK(PageIndexInBounds(page_index));
-  return pages_[page_index]->GetTextFieldInfo();
+  return pages_[page_index]->GetTextFieldInfo(text_run_count);
 }
 
 bool PDFiumEngine::GetPrintScaling() {
@@ -2738,9 +2838,8 @@ std::vector<gfx::Size> PDFiumEngine::LoadPageSizes(
   pending_pages_.clear();
   size_t new_page_count = FPDF_GetPageCount(doc());
 
-  bool doc_complete = doc_loader_->IsDocumentComplete();
-  bool is_linear =
-      FPDFAvail_IsLinearized(fpdf_availability()) == PDF_LINEARIZED;
+  const bool doc_complete = doc_loader_->IsDocumentComplete();
+  const bool is_linear = IsLinearized();
   for (size_t i = 0; i < new_page_count; ++i) {
     // Get page availability. If |document_loaded_| == true and the page is not
     // new, then the page has been constructed already. Get page availability
@@ -2791,12 +2890,10 @@ std::vector<gfx::Size> PDFiumEngine::LoadPageSizes(
 
 void PDFiumEngine::LoadBody() {
   DCHECK(doc());
-  DCHECK(fpdf_availability());
   if (doc_loader_->IsDocumentComplete()) {
     LoadForm();
-  } else if (FPDFAvail_IsLinearized(fpdf_availability()) == PDF_LINEARIZED &&
-             FPDF_GetPageCount(doc()) == 1) {
-    // If we have only one page we should load form first, bacause it is may be
+  } else if (IsLinearized() && FPDF_GetPageCount(doc()) == 1) {
+    // If we have only one page we should load form first, because it may be an
     // XFA document. And after loading form the page count and its contents may
     // be changed.
     LoadForm();
@@ -2831,10 +2928,11 @@ void PDFiumEngine::LoadForm() {
       ScopedUnsupportedFeature scoped_unsupported_feature(this);
       document_->InitializeForm(&form_filler_);
     }
-#if defined(PDF_ENABLE_XFA)
-    FPDF_LoadXFA(doc());
-#endif
 
+    if (form_filler_.script_option() ==
+        PDFiumFormFiller::ScriptOption::kJavaScriptAndXFA) {
+      FPDF_LoadXFA(doc());
+    }
     FPDF_SetFormFieldHighlightColor(form(), FPDF_FORMFIELD_UNKNOWN,
                                     kFormHighlightColor);
     FPDF_SetFormFieldHighlightAlpha(form(), kFormHighlightAlpha);
@@ -2848,6 +2946,11 @@ void PDFiumEngine::LoadForm() {
       DCHECK(ret);
     }
   }
+}
+
+bool PDFiumEngine::IsLinearized() {
+  DCHECK(fpdf_availability());
+  return FPDFAvail_IsLinearized(fpdf_availability()) == PDF_LINEARIZED;
 }
 
 void PDFiumEngine::CalculateVisiblePages() {
@@ -2865,7 +2968,7 @@ void PDFiumEngine::CalculateVisiblePages() {
   doc_loader_->ClearPendingRequests();
 
   visible_pages_.clear();
-  pp::Rect visible_rect(PPSizeFromSize(plugin_size_));
+  gfx::Rect visible_rect(plugin_size_);
   for (int i = 0; i < static_cast<int>(pages_.size()); ++i) {
     // Check an entire PageScreenRect, since we might need to repaint side
     // borders and shadows even if the page itself is not visible.
@@ -2896,8 +2999,8 @@ void PDFiumEngine::CalculateVisiblePages() {
                                      pages_[visible_page_index]->rect());
   }
 
-  int most_visible_page = draw_utils::GetMostVisiblePage(
-      visible_pages_rects, RectFromPPRect(GetVisibleRect()));
+  int most_visible_page =
+      draw_utils::GetMostVisiblePage(visible_pages_rects, GetVisibleRect());
   SetCurrentPage(most_visible_page);
 }
 
@@ -2942,33 +3045,28 @@ gfx::Size PDFiumEngine::GetPageSize(int index) {
 gfx::Size PDFiumEngine::GetPageSizeForLayout(
     int index,
     const DocumentLayout::Options& layout_options) {
-  gfx::Size size;
-  double width_in_points = 0;
-  double height_in_points = 0;
-  int rv = FPDF_GetPageSizeByIndex(doc(), index, &width_in_points,
-                                   &height_in_points);
+  FS_SIZEF size_in_points;
+  if (!FPDF_GetPageSizeByIndexF(doc(), index, &size_in_points))
+    return gfx::Size();
 
-  if (rv) {
-    int width_in_pixels = static_cast<int>(
-        ConvertUnitDouble(width_in_points, kPointsPerInch, kPixelsPerInch));
-    int height_in_pixels = static_cast<int>(
-        ConvertUnitDouble(height_in_points, kPointsPerInch, kPixelsPerInch));
+  int width_in_pixels = static_cast<int>(
+      ConvertUnitDouble(size_in_points.width, kPointsPerInch, kPixelsPerInch));
+  int height_in_pixels = static_cast<int>(
+      ConvertUnitDouble(size_in_points.height, kPointsPerInch, kPixelsPerInch));
 
-    switch (layout_options.default_page_orientation()) {
-      case PageOrientation::kOriginal:
-      case PageOrientation::kClockwise180:
-        // No axis swap needed.
-        break;
-      case PageOrientation::kClockwise90:
-      case PageOrientation::kClockwise270:
-        // Rotated 90 degrees: swap axes.
-        std::swap(width_in_pixels, height_in_pixels);
-        break;
-    }
-
-    size = gfx::Size(width_in_pixels, height_in_pixels);
+  switch (layout_options.default_page_orientation()) {
+    case PageOrientation::kOriginal:
+    case PageOrientation::kClockwise180:
+      // No axis swap needed.
+      break;
+    case PageOrientation::kClockwise90:
+    case PageOrientation::kClockwise270:
+      // Rotated 90 degrees: swap axes.
+      std::swap(width_in_pixels, height_in_pixels);
+      break;
   }
-  return size;
+
+  return gfx::Size(width_in_pixels, height_in_pixels);
 }
 
 draw_utils::PageInsetSizes PDFiumEngine::GetInsetSizes(
@@ -3000,13 +3098,13 @@ void PDFiumEngine::InsetPage(const DocumentLayout::Options& layout_options,
                              size_t page_index,
                              size_t num_of_pages,
                              double multiplier,
-                             pp::Rect* rect) const {
+                             gfx::Rect& rect) const {
   draw_utils::PageInsetSizes inset_sizes =
       GetInsetSizes(layout_options, page_index, num_of_pages);
-  rect->Inset(static_cast<int>(ceil(inset_sizes.left * multiplier)),
-              static_cast<int>(ceil(inset_sizes.top * multiplier)),
-              static_cast<int>(ceil(inset_sizes.right * multiplier)),
-              static_cast<int>(ceil(inset_sizes.bottom * multiplier)));
+  rect.Inset(static_cast<int>(ceil(inset_sizes.left * multiplier)),
+             static_cast<int>(ceil(inset_sizes.top * multiplier)),
+             static_cast<int>(ceil(inset_sizes.right * multiplier)),
+             static_cast<int>(ceil(inset_sizes.bottom * multiplier)));
 }
 
 base::Optional<size_t> PDFiumEngine::GetAdjacentPageIndexForTwoUpView(
@@ -3025,7 +3123,7 @@ base::Optional<size_t> PDFiumEngine::GetAdjacentPageIndexForTwoUpView(
   return adjacent_page_index;
 }
 
-int PDFiumEngine::StartPaint(int page_index, const pp::Rect& dirty) {
+int PDFiumEngine::StartPaint(int page_index, const gfx::Rect& dirty) {
   // For the first time we hit paint, do nothing and just record the paint for
   // the next callback.  This keeps the UI responsive in case the user is doing
   // a lot of scrolling.
@@ -3054,7 +3152,7 @@ bool PDFiumEngine::ContinuePaint(int progressive_index, SkBitmap& image_data) {
     int start_y;
     int size_x;
     int size_y;
-    pp::Rect dirty = progressive_paints_[progressive_index].rect();
+    gfx::Rect dirty = progressive_paints_[progressive_index].rect();
     GetPDFiumRect(page_index, dirty, &start_x, &start_y, &size_x, &size_y);
 
     ScopedFPDFBitmap new_bitmap = CreateBitmap(dirty, image_data);
@@ -3075,8 +3173,7 @@ void PDFiumEngine::FinishPaint(int progressive_index, SkBitmap& image_data) {
   DCHECK_LT(static_cast<size_t>(progressive_index), progressive_paints_.size());
 
   int page_index = progressive_paints_[progressive_index].page_index();
-  const pp::Rect& dirty_in_screen =
-      progressive_paints_[progressive_index].rect();
+  gfx::Rect dirty_in_screen = progressive_paints_[progressive_index].rect();
 
   int start_x;
   int start_y;
@@ -3116,8 +3213,7 @@ void PDFiumEngine::FillPageSides(int progressive_index) {
   DCHECK_LT(static_cast<size_t>(progressive_index), progressive_paints_.size());
 
   int page_index = progressive_paints_[progressive_index].page_index();
-  gfx::Rect dirty_in_screen =
-      RectFromPPRect(progressive_paints_[progressive_index].rect());
+  gfx::Rect dirty_in_screen = progressive_paints_[progressive_index].rect();
   FPDF_BITMAP bitmap = progressive_paints_[progressive_index].bitmap();
   draw_utils::PageInsetSizes inset_sizes =
       GetInsetSizes(layout_.options(), page_index, pages_.size());
@@ -3180,21 +3276,20 @@ void PDFiumEngine::PaintPageShadow(int progressive_index,
   DCHECK_LT(static_cast<size_t>(progressive_index), progressive_paints_.size());
 
   int page_index = progressive_paints_[progressive_index].page_index();
-  const pp::Rect& dirty_in_screen =
-      progressive_paints_[progressive_index].rect();
-  pp::Rect page_rect = PPRectFromRect(pages_[page_index]->rect());
-  pp::Rect shadow_rect(page_rect);
+  gfx::Rect dirty_in_screen = progressive_paints_[progressive_index].rect();
+  gfx::Rect page_rect = pages_[page_index]->rect();
+  gfx::Rect shadow_rect(page_rect);
   InsetPage(layout_.options(), page_index, pages_.size(), /*multiplier=*/-1,
-            &shadow_rect);
+            shadow_rect);
 
   // Due to the rounding errors of the GetScreenRect it is possible to get
   // different size shadows on the left and right sides even they are defined
   // the same. To fix this issue let's calculate shadow rect and then shrink
   // it by the size of the shadows.
-  shadow_rect = PPRectFromRect(GetScreenRect(RectFromPPRect(shadow_rect)));
+  shadow_rect = GetScreenRect(shadow_rect);
   page_rect = shadow_rect;
   InsetPage(layout_.options(), page_index, pages_.size(),
-            /*multiplier=*/current_zoom_, &page_rect);
+            /*multiplier=*/current_zoom_, page_rect);
 
   DrawPageShadow(page_rect, shadow_rect, dirty_in_screen, image_data);
 }
@@ -3205,49 +3300,46 @@ void PDFiumEngine::DrawSelections(int progressive_index,
   DCHECK_LT(static_cast<size_t>(progressive_index), progressive_paints_.size());
 
   int page_index = progressive_paints_[progressive_index].page_index();
-  const pp::Rect& dirty_in_screen =
-      progressive_paints_[progressive_index].rect();
+  gfx::Rect dirty_in_screen = progressive_paints_[progressive_index].rect();
 
   void* region = nullptr;
   int stride;
-  GetRegion(PointFromPPPoint(dirty_in_screen.point()), image_data, region,
-            stride);
+  GetRegion(dirty_in_screen.origin(), image_data, region, stride);
 
-  std::vector<pp::Rect> highlighted_rects;
-  pp::Rect visible_rect = GetVisibleRect();
+  std::vector<gfx::Rect> highlighted_rects;
+  gfx::Rect visible_rect = GetVisibleRect();
   for (const auto& range : selection_) {
     if (range.page_index() != page_index)
       continue;
 
-    const std::vector<pp::Rect>& rects = range.GetScreenRects(
-        PointFromPPPoint(visible_rect.point()), current_zoom_,
-        layout_.options().default_page_orientation());
+    const std::vector<gfx::Rect>& rects =
+        range.GetScreenRects(visible_rect.origin(), current_zoom_,
+                             layout_.options().default_page_orientation());
     for (const auto& rect : rects) {
-      pp::Rect visible_selection = rect.Intersect(dirty_in_screen);
+      gfx::Rect visible_selection = gfx::IntersectRects(rect, dirty_in_screen);
       if (visible_selection.IsEmpty())
         continue;
 
-      visible_selection.Offset(-dirty_in_screen.point().x(),
-                               -dirty_in_screen.point().y());
+      visible_selection.Offset(-dirty_in_screen.OffsetFromOrigin());
       Highlight(region, stride, visible_selection, kHighlightColorR,
-                kHighlightColorG, kHighlightColorB, &highlighted_rects);
+                kHighlightColorG, kHighlightColorB, highlighted_rects);
     }
   }
 
   for (const auto& highlight : form_highlights_) {
-    pp::Rect visible_selection = highlight.Intersect(dirty_in_screen);
+    gfx::Rect visible_selection =
+        gfx::IntersectRects(highlight, dirty_in_screen);
     if (visible_selection.IsEmpty())
       continue;
 
-    visible_selection.Offset(-dirty_in_screen.point().x(),
-                             -dirty_in_screen.point().y());
+    visible_selection.Offset(-dirty_in_screen.OffsetFromOrigin());
     Highlight(region, stride, visible_selection, kHighlightColorR,
-              kHighlightColorG, kHighlightColorB, &highlighted_rects);
+              kHighlightColorG, kHighlightColorB, highlighted_rects);
   }
 }
 
 void PDFiumEngine::PaintUnavailablePage(int page_index,
-                                        const pp::Rect& dirty,
+                                        const gfx::Rect& dirty,
                                         SkBitmap& image_data) {
   int start_x;
   int start_y;
@@ -3272,11 +3364,11 @@ int PDFiumEngine::GetProgressiveIndex(int page_index) const {
   return -1;
 }
 
-ScopedFPDFBitmap PDFiumEngine::CreateBitmap(const pp::Rect& rect,
+ScopedFPDFBitmap PDFiumEngine::CreateBitmap(const gfx::Rect& rect,
                                             SkBitmap& image_data) const {
   void* region;
   int stride;
-  GetRegion(PointFromPPPoint(rect.point()), image_data, region, stride);
+  GetRegion(rect.origin(), image_data, region, stride);
   if (!region)
     return nullptr;
   return ScopedFPDFBitmap(FPDFBitmap_CreateEx(rect.width(), rect.height(),
@@ -3284,7 +3376,7 @@ ScopedFPDFBitmap PDFiumEngine::CreateBitmap(const pp::Rect& rect,
 }
 
 void PDFiumEngine::GetPDFiumRect(int page_index,
-                                 const pp::Rect& rect,
+                                 const gfx::Rect& rect,
                                  int* start_x,
                                  int* start_y,
                                  int* size_x,
@@ -3309,8 +3401,8 @@ int PDFiumEngine::GetRenderingFlags() const {
   return flags;
 }
 
-pp::Rect PDFiumEngine::GetVisibleRect() const {
-  pp::Rect rv;
+gfx::Rect PDFiumEngine::GetVisibleRect() const {
+  gfx::Rect rv;
   rv.set_x(static_cast<int>(position_.x() / current_zoom_));
   rv.set_y(static_cast<int>(position_.y() / current_zoom_));
   rv.set_width(static_cast<int>(ceil(plugin_size_.width() / current_zoom_)));
@@ -3318,8 +3410,8 @@ pp::Rect PDFiumEngine::GetVisibleRect() const {
   return rv;
 }
 
-pp::Rect PDFiumEngine::GetPageScreenRect(int page_index) const {
-  pp::Rect page_rect = PPRectFromRect(pages_[page_index]->rect());
+gfx::Rect PDFiumEngine::GetPageScreenRect(int page_index) const {
+  gfx::Rect page_rect = pages_[page_index]->rect();
   draw_utils::PageInsetSizes inset_sizes =
       GetInsetSizes(layout_.options(), page_index, pages_.size());
 
@@ -3331,9 +3423,9 @@ pp::Rect PDFiumEngine::GetPageScreenRect(int page_index) const {
         max_page_height, pages_[adjacent_page_index.value()]->rect().height());
   }
 
-  return PPRectFromRect(GetScreenRect(draw_utils::GetSurroundingRect(
+  return GetScreenRect(draw_utils::GetSurroundingRect(
       page_rect.y(), max_page_height, inset_sizes, layout_.size().width(),
-      DocumentLayout::kBottomSeparator)));
+      DocumentLayout::kBottomSeparator));
 }
 
 gfx::Rect PDFiumEngine::GetScreenRect(const gfx::Rect& rect) const {
@@ -3342,27 +3434,27 @@ gfx::Rect PDFiumEngine::GetScreenRect(const gfx::Rect& rect) const {
 
 void PDFiumEngine::Highlight(void* buffer,
                              int stride,
-                             const pp::Rect& rect,
+                             const gfx::Rect& rect,
                              int color_red,
                              int color_green,
                              int color_blue,
-                             std::vector<pp::Rect>* highlighted_rects) const {
+                             std::vector<gfx::Rect>& highlighted_rects) const {
   if (!buffer)
     return;
 
-  pp::Rect new_rect = rect;
-  for (const auto& highlighted : *highlighted_rects)
-    new_rect = new_rect.Subtract(highlighted);
+  gfx::Rect new_rect = rect;
+  for (const auto& highlighted : highlighted_rects)
+    new_rect.Subtract(highlighted);
   if (new_rect.IsEmpty())
     return;
 
   std::vector<size_t> overlapping_rect_indices;
-  for (size_t i = 0; i < highlighted_rects->size(); ++i) {
-    if (new_rect.Intersects((*highlighted_rects)[i]))
+  for (size_t i = 0; i < highlighted_rects.size(); ++i) {
+    if (new_rect.Intersects((highlighted_rects)[i]))
       overlapping_rect_indices.push_back(i);
   }
 
-  highlighted_rects->push_back(new_rect);
+  highlighted_rects.push_back(new_rect);
   int l = new_rect.x();
   int t = new_rect.y();
   int w = new_rect.width();
@@ -3372,7 +3464,7 @@ void PDFiumEngine::Highlight(void* buffer,
     for (int x = l; x < l + w; ++x) {
       bool overlaps = false;
       for (size_t i : overlapping_rect_indices) {
-        const auto& highlighted = (*highlighted_rects)[i];
+        const auto& highlighted = (highlighted_rects)[i];
         if (highlighted.Contains(x, y)) {
           overlaps = true;
           break;
@@ -3392,23 +3484,22 @@ void PDFiumEngine::Highlight(void* buffer,
 PDFiumEngine::SelectionChangeInvalidator::SelectionChangeInvalidator(
     PDFiumEngine* engine)
     : engine_(engine),
-      previous_origin_(PointFromPPPoint(engine_->GetVisibleRect().point())),
+      previous_origin_(engine_->GetVisibleRect().origin()),
       old_selections_(GetVisibleSelections()) {}
 
 PDFiumEngine::SelectionChangeInvalidator::~SelectionChangeInvalidator() {
   // Offset the old selections if the document scrolled since we recorded them.
-  gfx::Vector2d offset =
-      previous_origin_ - RectFromPPRect(engine_->GetVisibleRect()).origin();
+  gfx::Vector2d offset = previous_origin_ - engine_->GetVisibleRect().origin();
   for (auto& old_selection : old_selections_)
-    old_selection.Offset(PPPointFromVector(offset));
+    old_selection.Offset(offset);
 
-  std::vector<pp::Rect> new_selections = GetVisibleSelections();
+  std::vector<gfx::Rect> new_selections = GetVisibleSelections();
   for (auto& new_selection : new_selections) {
     for (auto& old_selection : old_selections_) {
       if (!old_selection.IsEmpty() && new_selection == old_selection) {
         // Rectangle was selected before and after, so no need to invalidate it.
         // Mark the rectangles by setting them to empty.
-        new_selection = old_selection = pp::Rect();
+        new_selection = old_selection = gfx::Rect();
         break;
       }
     }
@@ -3434,17 +3525,16 @@ PDFiumEngine::SelectionChangeInvalidator::~SelectionChangeInvalidator() {
   }
 }
 
-std::vector<pp::Rect>
+std::vector<gfx::Rect>
 PDFiumEngine::SelectionChangeInvalidator::GetVisibleSelections() const {
-  std::vector<pp::Rect> rects;
-  gfx::Point visible_point =
-      PointFromPPPoint(engine_->GetVisibleRect().point());
+  std::vector<gfx::Rect> rects;
+  gfx::Point visible_point = engine_->GetVisibleRect().origin();
   for (const auto& range : engine_->selection_) {
     // Exclude selections on pages that's not currently visible.
     if (!engine_->IsPageVisible(range.page_index()))
       continue;
 
-    const std::vector<pp::Rect>& selection_rects = range.GetScreenRects(
+    const std::vector<gfx::Rect>& selection_rects = range.GetScreenRects(
         visible_point, engine_->current_zoom_,
         engine_->layout_.options().default_page_orientation());
     rects.insert(rects.end(), selection_rects.begin(), selection_rects.end());
@@ -3453,8 +3543,8 @@ PDFiumEngine::SelectionChangeInvalidator::GetVisibleSelections() const {
 }
 
 void PDFiumEngine::SelectionChangeInvalidator::Invalidate(
-    const pp::Rect& selection) {
-  pp::Rect expanded_selection = selection;
+    const gfx::Rect& selection) {
+  gfx::Rect expanded_selection = selection;
   expanded_selection.Inset(-1, -1);
   engine_->client_->Invalidate(expanded_selection);
 }
@@ -3496,7 +3586,8 @@ void PDFiumEngine::DeviceToPage(int page_index,
                                 const gfx::Point& device_point,
                                 double* page_x,
                                 double* page_y) {
-  *page_x = *page_y = 0;
+  *page_x = 0;
+  *page_y = 0;
   float device_x = device_point.x();
   float device_y = device_point.y();
   int temp_x = static_cast<int>((device_x + position_.x()) / current_zoom_ -
@@ -3542,17 +3633,17 @@ void PDFiumEngine::SetCurrentPage(int index) {
   }
 }
 
-void PDFiumEngine::DrawPageShadow(const pp::Rect& page_rc,
-                                  const pp::Rect& shadow_rc,
-                                  const pp::Rect& clip_rc,
+void PDFiumEngine::DrawPageShadow(const gfx::Rect& page_rc,
+                                  const gfx::Rect& shadow_rc,
+                                  const gfx::Rect& clip_rc,
                                   SkBitmap& image_data) {
-  gfx::Rect page_rect(RectFromPPRect(page_rc));
+  gfx::Rect page_rect(page_rc);
   page_rect.Offset(page_offset_);
 
-  gfx::Rect shadow_rect(RectFromPPRect(shadow_rc));
+  gfx::Rect shadow_rect(shadow_rc);
   shadow_rect.Offset(page_offset_);
 
-  gfx::Rect clip_rect(RectFromPPRect(clip_rc));
+  gfx::Rect clip_rect(clip_rc);
   clip_rect.Offset(page_offset_);
 
   // Page drop shadow parameters.
@@ -3602,20 +3693,20 @@ void PDFiumEngine::GetRegion(const gfx::Point& location,
 
 void PDFiumEngine::OnSelectionTextChanged() {
   DCHECK(!in_form_text_area_);
-  pp::PDF::SetSelectedText(GetPluginInstance(), GetSelectedText().c_str());
+  client_->SetSelectedText(GetSelectedText());
 }
 
 void PDFiumEngine::OnSelectionPositionChanged() {
   // We need to determine the top-left and bottom-right points of the selection
   // in order to report those to the embedder. This code assumes that the
   // selection list is out of order.
-  pp::Rect left(std::numeric_limits<int32_t>::max(),
-                std::numeric_limits<int32_t>::max(), 0, 0);
-  pp::Rect right;
+  gfx::Rect left(std::numeric_limits<int32_t>::max(),
+                 std::numeric_limits<int32_t>::max(), 0, 0);
+  gfx::Rect right;
   for (const auto& sel : selection_) {
-    const std::vector<pp::Rect>& screen_rects = sel.GetScreenRects(
-        PointFromPPPoint(GetVisibleRect().point()), current_zoom_,
-        layout_.options().default_page_orientation());
+    const std::vector<gfx::Rect>& screen_rects =
+        sel.GetScreenRects(GetVisibleRect().origin(), current_zoom_,
+                           layout_.options().default_page_orientation());
     for (const auto& rect : screen_rects) {
       if (IsAboveOrDirectlyLeftOf(rect, left))
         left = rect;
@@ -3691,11 +3782,7 @@ void PDFiumEngine::SetInFormTextArea(bool in_form_text_area) {
   // observer is notified of the change in selection. When |in_form_text_area_|
   // is true, this is the Renderer. After it flips, the MimeHandler is notified.
   if (in_form_text_area_) {
-    SetSelectedTextFunction set_selected_text_func =
-        g_set_selected_text_func_for_testing
-            ? g_set_selected_text_func_for_testing
-            : &SetSelectedText;
-    set_selected_text_func(GetPluginInstance(), "");
+    client_->SetSelectedText("");
   }
 
   client_->FormTextFieldFocusChange(in_form_text_area);
@@ -3744,10 +3831,6 @@ bool PDFiumEngine::IsPageCharacterIndexInBounds(
     const PP_PdfPageCharacterIndex& index) const {
   return PageIndexInBounds(index.page_index) &&
          pages_[index.page_index]->IsCharIndexInBounds(index.char_index);
-}
-
-float PDFiumEngine::GetToolbarHeightInScreenCoords() {
-  return client_->GetToolbarHeightInScreenCoords();
 }
 
 FPDF_BOOL PDFiumEngine::Pause_NeedToPauseNow(IFSDK_PAUSE* param) {
@@ -3814,16 +3897,15 @@ void PDFiumEngine::ScrollAnnotationIntoView(FPDF_ANNOTATION annot,
       annot_rect.right, annot_rect.bottom,
       layout_.options().default_page_orientation());
 
-  pp::Rect visible_rect = GetVisibleRect();
-  if (visible_rect.Contains(PPRectFromRect(rect)))
+  gfx::Rect visible_rect = GetVisibleRect();
+  if (visible_rect.Contains(rect))
     return;
   // Since the focus rect is not already in the visible area, scrolling
   // horizontally and/or vertically is required.
   if (rect.y() < visible_rect.y() || rect.bottom() > visible_rect.bottom()) {
     // Scroll the viewport vertically to align the top of focus rect to
     // centre.
-    client_->ScrollToY(rect.y() * current_zoom_ - plugin_size_.height() / 2,
-                       /*compensate_for_toolbar=*/false);
+    client_->ScrollToY(rect.y() * current_zoom_ - plugin_size_.height() / 2);
   }
   if (rect.x() < visible_rect.x() || rect.right() > visible_rect.right()) {
     // Scroll the viewport horizontally to align the left of focus rect to
@@ -3950,21 +4032,34 @@ void PDFiumEngine::LoadDocumentAttachmentInfoList() {
 void PDFiumEngine::LoadDocumentMetadata() {
   DCHECK(document_loaded_);
 
-  // Document information dictionary entries
   doc_metadata_.version = GetDocumentVersion();
-  doc_metadata_.title = GetMetadataByField("Title");
-  doc_metadata_.author = GetMetadataByField("Author");
-  doc_metadata_.subject = GetMetadataByField("Subject");
-  doc_metadata_.creator = GetMetadataByField("Creator");
-  doc_metadata_.producer = GetMetadataByField("Producer");
+  doc_metadata_.page_count = pages_.size();
+  doc_metadata_.linearized = IsLinearized();
+  doc_metadata_.has_attachments = !doc_attachment_info_list_.empty();
+  doc_metadata_.tagged = FPDFCatalog_IsTagged(doc());
+  doc_metadata_.form_type = static_cast<FormType>(FPDF_GetFormType(doc()));
+
+  // Document information dictionary entries
+  doc_metadata_.title = GetTrimmedMetadataByField("Title");
+  doc_metadata_.author = GetTrimmedMetadataByField("Author");
+  doc_metadata_.subject = GetTrimmedMetadataByField("Subject");
+  doc_metadata_.keywords = GetTrimmedMetadataByField("Keywords");
+  doc_metadata_.creator = GetTrimmedMetadataByField("Creator");
+  doc_metadata_.producer = GetTrimmedMetadataByField("Producer");
+  doc_metadata_.creation_date =
+      ParsePdfDate(GetTrimmedMetadataByField("CreationDate"));
+  doc_metadata_.mod_date = ParsePdfDate(GetTrimmedMetadataByField("ModDate"));
 }
 
-std::string PDFiumEngine::GetMetadataByField(FPDF_BYTESTRING field) const {
+std::string PDFiumEngine::GetTrimmedMetadataByField(
+    FPDF_BYTESTRING field) const {
   DCHECK(doc());
 
-  return base::UTF16ToUTF8(CallPDFiumWideStringBufferApi(
+  base::string16 metadata = CallPDFiumWideStringBufferApi(
       base::BindRepeating(&FPDF_GetMetaText, doc(), field),
-      /*check_expected_size=*/false));
+      /*check_expected_size=*/false);
+
+  return base::UTF16ToUTF8(base::TrimWhitespace(metadata, base::TRIM_ALL));
 }
 
 PdfVersion PDFiumEngine::GetDocumentVersion() const {
@@ -4123,12 +4218,7 @@ void PDFiumEngine::UpdateLinkUnderCursor(const std::string& target_url) {
     return;
 
   link_under_cursor_ = target_url;
-
-  SetLinkUnderCursorFunction set_link_under_cursor_func =
-      g_set_link_under_cursor_func_for_testing
-          ? g_set_link_under_cursor_func_for_testing
-          : &SetLinkUnderCursor;
-  set_link_under_cursor_func(GetPluginInstance(), link_under_cursor_);
+  client_->SetLinkUnderCursor(link_under_cursor_);
 }
 
 void PDFiumEngine::SetLinkUnderCursorForAnnotation(FPDF_ANNOTATION annot,
@@ -4143,8 +4233,16 @@ void PDFiumEngine::SetLinkUnderCursorForAnnotation(FPDF_ANNOTATION annot,
   UpdateLinkUnderCursor(target.url);
 }
 
+void PDFiumEngine::RequestThumbnail(int page_index,
+                                    float device_pixel_ratio,
+                                    SendThumbnailCallback send_callback) {
+  DCHECK(PageIndexInBounds(page_index));
+  pages_[page_index]->RequestThumbnail(device_pixel_ratio,
+                                       std::move(send_callback));
+}
+
 PDFiumEngine::ProgressivePaint::ProgressivePaint(int index,
-                                                 const pp::Rect& rect)
+                                                 const gfx::Rect& rect)
     : page_index_(index), rect_(rect) {}
 
 PDFiumEngine::ProgressivePaint::ProgressivePaint(ProgressivePaint&& that) =

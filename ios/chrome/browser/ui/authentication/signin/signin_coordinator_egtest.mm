@@ -6,9 +6,9 @@
 #include "base/ios/ios_util.h"
 #include "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
-#include "base/test/scoped_feature_list.h"
 #import "ios/chrome/browser/ui/authentication/signin_earl_grey.h"
 #import "ios/chrome/browser/ui/authentication/signin_earl_grey_ui.h"
+#import "ios/chrome/browser/ui/authentication/unified_consent/unified_consent_constants.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_feature.h"
 #import "ios/chrome/browser/ui/recent_tabs/recent_tabs_constants.h"
 #include "ios/chrome/grit/ios_strings.h"
@@ -49,23 +49,6 @@ typedef NS_ENUM(NSInteger, OpenSigninMethod) {
 };
 
 namespace {
-
-// Taps on the primary sign-in button in recent tabs, and scroll first, if
-// necessary.
-void TapOnPrimarySignInButtonInRecentTabs() {
-  id<GREYMatcher> matcher =
-      grey_allOf(PrimarySignInButton(), grey_sufficientlyVisible(), nil);
-  const CGFloat kPixelsToScroll = 300;
-  id<GREYAction> searchAction =
-      grey_scrollInDirection(kGREYDirectionDown, kPixelsToScroll);
-  GREYElementInteraction* interaction =
-      [[EarlGrey selectElementWithMatcher:matcher]
-             usingSearchAction:searchAction
-          onElementWithMatcher:
-              grey_accessibilityID(
-                  kRecentTabsTableViewControllerAccessibilityIdentifier)];
-  [interaction performAction:grey_tap()];
-}
 
 // Returns a matcher for |userEmail| in IdentityChooserViewController.
 id<GREYMatcher> identityChooserButtonMatcherWithEmail(NSString* userEmail) {
@@ -170,28 +153,6 @@ void ChooseImportOrKeepDataSepareteDialog(id<GREYMatcher> choiceButtonMatcher) {
 
   // Sign out.
   [SigninEarlGreyUI signOutAndClearDataFromDevice];
-}
-
-// Tests that signing in, tapping the Settings link on the confirmation screen
-// and closing the advanced sign-in settings correctly leaves the user signed
-// in.
-- (void)testSignInOpenSettings {
-  FakeChromeIdentity* fakeIdentity = [SigninEarlGrey fakeIdentity1];
-  [SigninEarlGrey addFakeIdentity:fakeIdentity];
-
-  [self openSigninFromView:OpenSigninMethodFromSettings tapSettingsLink:YES];
-
-  [[EarlGrey selectElementWithMatcher:SyncSettingsConfirmButton()]
-      performAction:grey_tap()];
-
-  // Test sync is on in the settings view.
-  id<GREYMatcher> settings_matcher =
-      chrome_test_util::StaticTextWithAccessibilityLabelId(
-          IDS_IOS_SIGN_IN_TO_CHROME_SETTING_SYNC_ON);
-  [[EarlGrey selectElementWithMatcher:settings_matcher]
-      assertWithMatcher:grey_sufficientlyVisible()];
-  // Test the user is signed in.
-  [SigninEarlGrey verifySignedInWithFakeIdentity:fakeIdentity];
 }
 
 // Opens the sign in screen and then cancel it by opening a new tab. Ensures
@@ -397,6 +358,31 @@ void ChooseImportOrKeepDataSepareteDialog(id<GREYMatcher> choiceButtonMatcher) {
                         tapSettingsLink:YES];
 }
 
+// Tests to dismiss sign-in by opening an URL from another app.
+// Sign-in opened from: tab switcher.
+// Interrupted at: identity picker.
+- (void)testDismissSigninFromTabSwitcherFromIdentityPicker {
+  FakeChromeIdentity* fakeIdentity = [SigninEarlGrey fakeIdentity1];
+  [SigninEarlGrey addFakeIdentity:fakeIdentity];
+  [self openSigninFromView:OpenSigninMethodFromTabSwitcher tapSettingsLink:NO];
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kIdentityPickerViewIdentifier)]
+      performAction:grey_tap()];
+
+  // Open the URL as if it was opened from another app.
+  [ChromeEarlGrey simulateExternalAppURLOpening];
+
+  // Check if the URL was opened.
+  const GURL expectedURL("http://www.example.com/");
+  GREYAssertEqual(expectedURL, [ChromeEarlGrey webStateVisibleURL],
+                  @"Didn't open new tab with example.com.");
+
+  [SigninEarlGrey verifySignedOut];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+      assertWithMatcher:chrome_test_util::OmniboxContainingText(
+                            "www.example.com")];
+}
+
 // Verifies that advanced sign-in shows an alert dialog when being swiped to
 // dismiss.
 - (void)testSwipeDownToCancelAdvancedSignin {
@@ -437,18 +423,10 @@ void ChooseImportOrKeepDataSepareteDialog(id<GREYMatcher> choiceButtonMatcher) {
           performAction:grey_tap()];
       break;
     case OpenSigninMethodFromRecentTabs:
-      [ChromeEarlGreyUI openToolsMenu];
-      [ChromeEarlGreyUI
-          tapToolsMenuButton:chrome_test_util::RecentTabsMenuButton()];
-      TapOnPrimarySignInButtonInRecentTabs();
+      [SigninEarlGreyUI tapPrimarySignInButtonInRecentTabs];
       break;
     case OpenSigninMethodFromTabSwitcher:
-      [[EarlGrey selectElementWithMatcher:chrome_test_util::ShowTabsButton()]
-          performAction:grey_tap()];
-      [[EarlGrey selectElementWithMatcher:chrome_test_util::
-                                              TabGridOtherDevicesPanelButton()]
-          performAction:grey_tap()];
-      TapOnPrimarySignInButtonInRecentTabs();
+      [SigninEarlGreyUI tapPrimarySignInButtonInTabSwitcher];
       break;
   }
   if (tapSettingsLink) {
@@ -481,6 +459,10 @@ void ChooseImportOrKeepDataSepareteDialog(id<GREYMatcher> choiceButtonMatcher) {
     // Should be not signed in.
     [SigninEarlGrey verifySignedOut];
   }
+  // Check that the web page is visible.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+      assertWithMatcher:chrome_test_util::OmniboxContainingText(
+                            "www.example.com")];
 }
 
 // Checks that the fake SSO screen shown on adding an account is visible

@@ -23,13 +23,11 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import static org.chromium.base.test.util.CallbackHelper.WAIT_TIMEOUT_SECONDS;
+import static org.chromium.base.test.util.CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL;
+import static org.chromium.base.test.util.CriteriaHelper.DEFAULT_POLLING_INTERVAL;
 import static org.chromium.components.browser_ui.widget.RecyclerViewTestUtils.waitForStableRecyclerView;
-import static org.chromium.content_public.browser.test.util.CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL;
-import static org.chromium.content_public.browser.test.util.CriteriaHelper.DEFAULT_POLLING_INTERVAL;
 
 import android.app.Activity;
-import android.content.pm.ActivityInfo;
-import android.content.res.Configuration;
 import android.provider.Settings;
 import android.support.test.InstrumentationRegistry;
 import android.view.View;
@@ -51,6 +49,9 @@ import androidx.test.espresso.contrib.RecyclerViewActions;
 import org.hamcrest.Matcher;
 
 import org.chromium.base.ContextUtils;
+import org.chromium.base.test.util.ApplicationTestUtils;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
 import org.chromium.chrome.browser.tab.Tab;
@@ -60,11 +61,8 @@ import org.chromium.chrome.browser.tasks.pseudotab.PseudoTab;
 import org.chromium.chrome.browser.tasks.tab_groups.TabGroupModelFilter;
 import org.chromium.chrome.tab_ui.R;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
-import org.chromium.chrome.test.util.ApplicationTestUtils;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.OverviewModeBehaviorWatcher;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 import java.io.File;
@@ -99,8 +97,7 @@ public class TabUiTestHelper {
     public static void enterTabSwitcher(ChromeTabbedActivity cta) {
         OverviewModeBehaviorWatcher showWatcher = createOverviewShowWatcher(cta);
         assertFalse(cta.getLayoutManager().overviewVisible());
-        // TODO(crbug.com/1019727) Figure out a better way to wait until isCompletelyDisplayed() is
-        // true in espresso.
+        // TODO(crbug.com/1145271): Replace this with clicking tab switcher button via espresso.
         TestThreadUtils.runOnUiThreadBlocking(
                 () -> { cta.findViewById(R.id.tab_switcher_button).performClick(); });
         showWatcher.waitForBehavior();
@@ -392,24 +389,6 @@ public class TabUiTestHelper {
      */
     public static OverviewModeBehaviorWatcher createOverviewHideWatcher(ChromeTabbedActivity cta) {
         return new OverviewModeBehaviorWatcher(cta.getLayoutManager(), false, true);
-    }
-
-    /**
-     * Rotate device to the target orientation. Do nothing if the screen is already in that
-     * orientation.
-     * @param cta             The current running activity.
-     * @param orientation     The target orientation we want the screen to rotate to.
-     */
-    public static void rotateDeviceToOrientation(ChromeTabbedActivity cta, int orientation) {
-        if (cta.getResources().getConfiguration().orientation == orientation) return;
-        assertTrue(orientation == Configuration.ORIENTATION_LANDSCAPE
-                || orientation == Configuration.ORIENTATION_PORTRAIT);
-        cta.setRequestedOrientation(orientation == Configuration.ORIENTATION_LANDSCAPE
-                        ? ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                        : ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-        CriteriaHelper.pollUiThread(() -> {
-            Criteria.checkThat(cta.getResources().getConfiguration().orientation, is(orientation));
-        });
     }
 
     /**

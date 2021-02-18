@@ -43,14 +43,6 @@ std::unique_ptr<KeyedService> CreateMockSyncService(
   return std::make_unique<syncer::MockSyncService>();
 }
 
-std::unique_ptr<KeyedService> CreateMockSyncSetupService(
-    web::BrowserState* context) {
-  ChromeBrowserState* browser_state =
-      ChromeBrowserState::FromBrowserState(context);
-  return std::make_unique<SyncSetupServiceMock>(
-      ProfileSyncServiceFactory::GetForBrowserState(browser_state));
-}
-
 std::unique_ptr<KeyedService> CreateFakeConsentAuditor(
     web::BrowserState* context) {
   return std::make_unique<consent_auditor::FakeConsentAuditor>();
@@ -77,8 +69,9 @@ class UserSigninMediatorTest : public PlatformTest {
                               base::BindRepeating(&CreateFakeConsentAuditor));
     builder.AddTestingFactory(ProfileSyncServiceFactory::GetInstance(),
                               base::BindRepeating(&CreateMockSyncService));
-    builder.AddTestingFactory(SyncSetupServiceFactory::GetInstance(),
-                              base::BindRepeating(&CreateMockSyncSetupService));
+    builder.AddTestingFactory(
+        SyncSetupServiceFactory::GetInstance(),
+        base::BindRepeating(&SyncSetupServiceMock::CreateKeyedService));
     browser_state_ = builder.Build();
 
     SetAuthenticationFlow();
@@ -132,16 +125,16 @@ class UserSigninMediatorTest : public PlatformTest {
         .andDo(^(NSInvocation*) {
           [authentication_flow_ didFetchManagedStatus:nil];
         });
-    OCMExpect([performer_mock_
-                  shouldHandleMergeCaseForIdentity:identity_
-                                      browserState:browser_state_.get()])
-        .andReturn(NO);
     OCMExpect([performer_mock_ signInIdentity:identity_
                              withHostedDomain:nil
                                toBrowserState:browser_state_.get()])
         .andDo(^(NSInvocation*) {
           authentication_service()->SignIn(identity_);
         });
+    OCMExpect([performer_mock_
+                  shouldHandleMergeCaseForIdentity:identity_
+                                      browserState:browser_state_.get()])
+        .andReturn(NO);
   }
 
   // Sets up the sign-in failure expectations for the
@@ -168,9 +161,9 @@ class UserSigninMediatorTest : public PlatformTest {
         });
   }
 
-  // Sets up the expectations for cancelAndDismiss in the
+  // Sets up the expectations for cancelAndDismissAnimated in the
   // AuthenticationFlowPerformer.
-  void SetPerformerCancelAndDismissExpectations() {
+  void SetPerformerCancelAndDismissExpectations(BOOL animated) {
     OCMExpect([performer_mock_ fetchManagedStatus:browser_state_.get()
                                       forIdentity:identity_])
         .andDo(^(NSInvocation*) {
@@ -184,7 +177,7 @@ class UserSigninMediatorTest : public PlatformTest {
         promptMergeCaseForIdentity:identity_
                            browser:browser_.get()
                     viewController:presenting_view_controller_mock_]);
-    OCMExpect([performer_mock_ cancelAndDismiss]);
+    OCMExpect([performer_mock_ cancelAndDismissAnimated:animated]);
   }
 
   void ExpectNoConsent() {
@@ -344,7 +337,7 @@ TEST_F(UserSigninMediatorTest, CancelAuthenticationNotInProgress) {
 
 // Tests a user sign-in operation cancel when authentication is in progress.
 TEST_F(UserSigninMediatorTest, CancelWithAuthenticationInProgress) {
-  SetPerformerCancelAndDismissExpectations();
+  SetPerformerCancelAndDismissExpectations(/*animated=*/NO);
 
   // Unsuccessful sign-in completion updates the primary button.
   OCMExpect([mediator_delegate_mock_ userSigninMediatorSigninFailed]);
@@ -358,20 +351,36 @@ TEST_F(UserSigninMediatorTest, CancelWithAuthenticationInProgress) {
 // Tests a user sign-in operation cancel and dismiss when authentication has not
 // begun.
 TEST_F(UserSigninMediatorTest, CancelAndDismissAuthenticationNotInProgress) {
-  [mediator_ cancelAndDismissAuthenticationFlow];
+  [mediator_ cancelAndDismissAuthenticationFlowAnimated:NO];
   ExpectNoConsent();
 }
 
-// Tests a user sign-in operation cancel and dismiss when authentication is in
-// progress.
-TEST_F(UserSigninMediatorTest, CancelAndDismissAuthenticationInProgress) {
-  SetPerformerCancelAndDismissExpectations();
+// Tests a user sign-in operation cancel and dismiss with animation when
+// authentication is in progress.
+TEST_F(UserSigninMediatorTest,
+       CancelAndDismissAuthenticationInProgressWithAnimation) {
+  SetPerformerCancelAndDismissExpectations(/*animated=*/YES);
 
   // Unsuccessful sign-in completion updates the primary button.
   OCMExpect([mediator_delegate_mock_ userSigninMediatorSigninFailed]);
 
   [mediator_ authenticateWithIdentity:identity_
                    authenticationFlow:authentication_flow_];
-  [mediator_ cancelAndDismissAuthenticationFlow];
+  [mediator_ cancelAndDismissAuthenticationFlowAnimated:YES];
+  ExpectNoConsent();
+}
+
+// Tests a user sign-in operation cancel and dismiss without animation when
+// authentication is in progress.
+TEST_F(UserSigninMediatorTest,
+       CancelAndDismissAuthenticationInProgressWithoutAnimation) {
+  SetPerformerCancelAndDismissExpectations(/*animated=*/NO);
+
+  // Unsuccessful sign-in completion updates the primary button.
+  OCMExpect([mediator_delegate_mock_ userSigninMediatorSigninFailed]);
+
+  [mediator_ authenticateWithIdentity:identity_
+                   authenticationFlow:authentication_flow_];
+  [mediator_ cancelAndDismissAuthenticationFlowAnimated:NO];
   ExpectNoConsent();
 }

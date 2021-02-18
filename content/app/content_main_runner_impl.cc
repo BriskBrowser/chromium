@@ -14,8 +14,6 @@
 #include <vector>
 
 #include "base/allocator/allocator_check.h"
-#include "base/allocator/allocator_extension.h"
-#include "base/allocator/buildflags.h"
 #include "base/at_exit.h"
 #include "base/base_switches.h"
 #include "base/bind.h"
@@ -23,7 +21,6 @@
 #include "base/debug/debugger.h"
 #include "base/debug/leak_annotations.h"
 #include "base/debug/stack_trace.h"
-#include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/i18n/icu_util.h"
 #include "base/lazy_instance.h"
@@ -46,10 +43,13 @@
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/threading/hang_watcher.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "components/discardable_memory/service/discardable_shared_memory_manager.h"
 #include "components/download/public/common/download_task_runner.h"
+#include "components/power_scheduler/power_mode_arbiter.h"
 #include "content/app/mojo/mojo_init.h"
-#include "content/app/service_manager_environment.h"
+#include "content/app/mojo_ipc_support.h"
+#include "content/app/partition_alloc_support.h"
 #include "content/browser/browser_main.h"
 #include "content/browser/browser_process_sub_thread.h"
 #include "content/browser/browser_thread_impl.h"
@@ -68,7 +68,7 @@
 #include "content/gpu/in_process_gpu_thread.h"
 #include "content/public/app/content_main_delegate.h"
 #include "content/public/browser/content_browser_client.h"
-#include "content/public/browser/system_connector.h"
+#include "content/public/common/content_client.h"
 #include "content/public/common/content_constants.h"
 #include "content/public/common/content_descriptor_keys.h"
 #include "content/public/common/content_features.h"
@@ -86,6 +86,7 @@
 #include "gin/v8_initializer.h"
 #include "media/base/media.h"
 #include "media/media_buildflags.h"
+#include "mojo/core/embedder/embedder.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "mojo/public/cpp/platform/platform_channel.h"
 #include "mojo/public/cpp/system/dynamic_library_support.h"
@@ -95,7 +96,6 @@
 #include "sandbox/policy/sandbox_type.h"
 #include "sandbox/policy/switches.h"
 #include "services/network/public/cpp/features.h"
-#include "services/service_manager/embedder/switches.h"
 #include "services/tracing/public/cpp/trace_startup.h"
 #include "third_party/blink/public/common/origin_trials/trial_token_validator.h"
 #include "ui/base/ui_base_paths.h"
@@ -165,14 +165,15 @@
 #endif
 
 #if defined(OS_ANDROID)
+#include "base/system/sys_info.h"
 #include "content/browser/android/browser_startup_controller.h"
+#include "content/common/android/cpu_affinity.h"
 #endif
 
 namespace content {
 extern int GpuMain(const content::MainFunctionParams&);
 #if BUILDFLAG(ENABLE_PLUGINS)
 extern int PpapiPluginMain(const MainFunctionParams&);
-extern int PpapiBrokerMain(const MainFunctionParams&);
 #endif
 extern int RendererMain(const content::MainFunctionParams&);
 extern int UtilityMain(const MainFunctionParams&);
@@ -472,6 +473,10 @@ int RunZygote(ContentMainDelegate* delegate) {
       *base::CommandLine::ForCurrentProcess();
   std::string process_type =
       command_line.GetSwitchValueASCII(switches::kProcessType);
+
+  internal::PartitionAllocSupport::Get()->ReconfigureAfterZygoteFork(
+      process_type);
+
   ContentClientInitializer::Set(process_type, delegate);
 
   MainFunctionParams main_params(command_line);
@@ -479,6 +484,11 @@ int RunZygote(ContentMainDelegate* delegate) {
 
   InitializeFieldTrialAndFeatureList();
   delegate->PostFieldTrialInitialization();
+
+  internal::PartitionAllocSupport::Get()->ReconfigureAfterFeatureListInit(
+      process_type);
+
+  mojo::core::InitFeatures();
 
   for (size_t i = 0; i < base::size(kMainFunctions); ++i) {
     if (process_type == kMainFunctions[i].name)
@@ -515,7 +525,6 @@ int RunOtherNamedProcessTypeMain(const std::string& process_type,
   static const MainFunction kMainFunctions[] = {
 #if BUILDFLAG(ENABLE_PLUGINS)
     {switches::kPpapiPluginProcess, PpapiPluginMain},
-    {switches::kPpapiBrokerProcess, PpapiBrokerMain},
 #endif  // ENABLE_PLUGINS
     {switches::kUtilityProcess, UtilityMain},
     {switches::kRendererProcess, RendererMain},
@@ -534,7 +543,7 @@ int RunOtherNamedProcessTypeMain(const std::string& process_type,
 #if BUILDFLAG(USE_ZYGOTE_HANDLE)
   // Zygote startup is special -- see RunZygote comments above
   // for why we don't use ZygoteMain directly.
-  if (process_type == service_manager::switches::kZygoteProcess)
+  if (process_type == switches::kZygoteProcess)
     return RunZygote(delegate);
 #endif  // BUILDFLAG(USE_ZYGOTE_HANDLE)
 
@@ -543,8 +552,8 @@ int RunOtherNamedProcessTypeMain(const std::string& process_type,
 }
 
 // static
-ContentMainRunnerImpl* ContentMainRunnerImpl::Create() {
-  return new ContentMainRunnerImpl();
+std::unique_ptr<ContentMainRunnerImpl> ContentMainRunnerImpl::Create() {
+  return std::make_unique<ContentMainRunnerImpl>();
 }
 
 ContentMainRunnerImpl::ContentMainRunnerImpl() {
@@ -575,11 +584,11 @@ int ContentMainRunnerImpl::Initialize(const ContentMainParams& params) {
 #endif  // defined(OS_MAC)
 
 #if defined(OS_ANDROID)
-  // Now that mojo's core is initialized (by service manager's Main()), we can
-  // enable tracing. Note that only Android builds have the ctor/dtor handlers
-  // set up to use trace events at this point (because AtExitManager is already
-  // set up when the library is loaded). Other platforms enable tracing below,
-  // after the initialization of AtExitManager.
+  // Now that mojo's core is initialized we can enable tracing. Note that only
+  // Android builds have the ctor/dtor handlers set up to use trace events at
+  // this point (because AtExitManager is already set up when the library is
+  // loaded). Other platforms enable tracing below, after the initialization of
+  // AtExitManager.
   tracing::EnableStartupTracingIfNeeded();
 
   TRACE_EVENT0("startup,benchmark,rail", "ContentMainRunnerImpl::Initialize");
@@ -590,19 +599,16 @@ int ContentMainRunnerImpl::Initialize(const ContentMainParams& params) {
 
 // On Android, the ipc_fd is passed through the Java service.
 #if !defined(OS_ANDROID)
-    g_fds->Set(service_manager::kMojoIPCChannel,
-               service_manager::kMojoIPCChannel +
-                   base::GlobalDescriptors::kBaseDescriptor);
+  g_fds->Set(kMojoIPCChannel,
+             kMojoIPCChannel + base::GlobalDescriptors::kBaseDescriptor);
 
-    g_fds->Set(service_manager::kFieldTrialDescriptor,
-               service_manager::kFieldTrialDescriptor +
-                   base::GlobalDescriptors::kBaseDescriptor);
+  g_fds->Set(kFieldTrialDescriptor,
+             kFieldTrialDescriptor + base::GlobalDescriptors::kBaseDescriptor);
 #endif  // !OS_ANDROID
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_OPENBSD)
-    g_fds->Set(service_manager::kCrashDumpSignal,
-               service_manager::kCrashDumpSignal +
-                   base::GlobalDescriptors::kBaseDescriptor);
+  g_fds->Set(kCrashDumpSignal,
+             kCrashDumpSignal + base::GlobalDescriptors::kBaseDescriptor);
 #endif  // defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_OPENBSD)
 
 #endif  // !OS_WIN
@@ -635,6 +641,8 @@ int ContentMainRunnerImpl::Initialize(const ContentMainParams& params) {
   std::string process_type =
       command_line.GetSwitchValueASCII(switches::kProcessType);
 
+  internal::PartitionAllocSupport::Get()->ReconfigureEarlyish(process_type);
+
 #if defined(OS_WIN)
   if (command_line.HasSwitch(switches::kDeviceScaleFactor)) {
     std::string scale_factor_string =
@@ -655,8 +663,7 @@ int ContentMainRunnerImpl::Initialize(const ContentMainParams& params) {
   //
   // Startup tracing flags are not (and should not be) passed to Zygote
   // processes. We will enable tracing when forked, if needed.
-  bool enable_startup_tracing =
-      process_type != service_manager::switches::kZygoteProcess;
+  bool enable_startup_tracing = process_type != switches::kZygoteProcess;
 #if BUILDFLAG(USE_ZYGOTE_HANDLE)
   // In the browser process, we have to enable startup tracing after
   // InitializeZygoteSandboxForBrowserProcess() is run below, because that
@@ -677,149 +684,150 @@ int ContentMainRunnerImpl::Initialize(const ContentMainParams& params) {
   TRACE_EVENT0("startup,benchmark,rail", "ContentMainRunnerImpl::Initialize");
 #endif  // !OS_ANDROID
 
-    // If we are on a platform where the default allocator is overridden (shim
-    // layer on windows, tcmalloc on Linux Desktop) smoke-tests that the
-    // overriding logic is working correctly. If not causes a hard crash, as its
-    // unexpected absence has security implications.
-    CHECK(base::allocator::IsAllocatorInitialized());
+  // If we are on a platform where the default allocator is overridden (shim
+  // layer on windows, tcmalloc on Linux Desktop) smoke-tests that the
+  // overriding logic is working correctly. If not causes a hard crash, as its
+  // unexpected absence has security implications.
+  CHECK(base::allocator::IsAllocatorInitialized());
 
 #if defined(OS_POSIX) || defined(OS_FUCHSIA)
-    if (!process_type.empty()) {
-      // When you hit Ctrl-C in a terminal running the browser
-      // process, a SIGINT is delivered to the entire process group.
-      // When debugging the browser process via gdb, gdb catches the
-      // SIGINT for the browser process (and dumps you back to the gdb
-      // console) but doesn't for the child processes, killing them.
-      // The fix is to have child processes ignore SIGINT; they'll die
-      // on their own when the browser process goes away.
-      //
-      // Note that we *can't* rely on BeingDebugged to catch this case because
-      // we are the child process, which is not being debugged.
-      // TODO(evanm): move this to some shared subprocess-init function.
-      if (!base::debug::BeingDebugged())
-        signal(SIGINT, SIG_IGN);
-    }
+  if (!process_type.empty()) {
+    // When you hit Ctrl-C in a terminal running the browser
+    // process, a SIGINT is delivered to the entire process group.
+    // When debugging the browser process via gdb, gdb catches the
+    // SIGINT for the browser process (and dumps you back to the gdb
+    // console) but doesn't for the child processes, killing them.
+    // The fix is to have child processes ignore SIGINT; they'll die
+    // on their own when the browser process goes away.
+    //
+    // Note that we *can't* rely on BeingDebugged to catch this case because
+    // we are the child process, which is not being debugged.
+    // TODO(evanm): move this to some shared subprocess-init function.
+    if (!base::debug::BeingDebugged())
+      signal(SIGINT, SIG_IGN);
+  }
 #endif
 
-    RegisterPathProvider();
+  RegisterPathProvider();
 
 #if defined(OS_ANDROID) && (ICU_UTIL_DATA_IMPL == ICU_UTIL_DATA_FILE)
-    // On Android, we have two ICU data files. A main one with most languages
-    // that is expected to always be available and an extra one that is
-    // installed separately via a dynamic feature module. If the extra ICU data
-    // file is available we have to apply it _before_ the main ICU data file.
-    // Otherwise, the languages of the extra ICU file will be overridden.
-    if (process_type.empty()) {
-      TRACE_EVENT0("startup", "InitializeICU");
-      // In browser process load ICU data files from disk.
-      if (GetContentClient()->browser()->ShouldLoadExtraIcuDataFile()) {
-        if (!base::i18n::InitializeExtraICU()) {
-          return TerminateForFatalInitializationError();
-        }
-      }
-      if (!base::i18n::InitializeICU()) {
-        return TerminateForFatalInitializationError();
-      }
-    } else {
-      // In child process map ICU data files loaded by browser process.
-      int icu_extra_data_fd = g_fds->MaybeGet(kAndroidICUExtraDataDescriptor);
-      if (icu_extra_data_fd != -1) {
-        auto icu_extra_data_region =
-            g_fds->GetRegion(kAndroidICUExtraDataDescriptor);
-        if (!base::i18n::InitializeExtraICUWithFileDescriptor(
-                icu_extra_data_fd, icu_extra_data_region)) {
-          return TerminateForFatalInitializationError();
-        }
-      }
-      int icu_data_fd = g_fds->MaybeGet(kAndroidICUDataDescriptor);
-      if (icu_data_fd == -1) {
-        return TerminateForFatalInitializationError();
-      }
-      auto icu_data_region = g_fds->GetRegion(kAndroidICUDataDescriptor);
-      if (!base::i18n::InitializeICUWithFileDescriptor(icu_data_fd,
-                                                       icu_data_region)) {
+  // On Android, we have two ICU data files. A main one with most languages
+  // that is expected to always be available and an extra one that is
+  // installed separately via a dynamic feature module. If the extra ICU data
+  // file is available we have to apply it _before_ the main ICU data file.
+  // Otherwise, the languages of the extra ICU file will be overridden.
+  if (process_type.empty()) {
+    TRACE_EVENT0("startup", "InitializeICU");
+    // In browser process load ICU data files from disk.
+    std::string split_name;
+    if (GetContentClient()->browser()->ShouldLoadExtraIcuDataFile(
+            &split_name)) {
+      if (!base::i18n::InitializeExtraICU(split_name)) {
         return TerminateForFatalInitializationError();
       }
     }
-#else
-    if (!base::i18n::InitializeICU())
+    if (!base::i18n::InitializeICU()) {
       return TerminateForFatalInitializationError();
+    }
+  } else {
+    // In child process map ICU data files loaded by browser process.
+    int icu_extra_data_fd = g_fds->MaybeGet(kAndroidICUExtraDataDescriptor);
+    if (icu_extra_data_fd != -1) {
+      auto icu_extra_data_region =
+          g_fds->GetRegion(kAndroidICUExtraDataDescriptor);
+      if (!base::i18n::InitializeExtraICUWithFileDescriptor(
+              icu_extra_data_fd, icu_extra_data_region)) {
+        return TerminateForFatalInitializationError();
+      }
+    }
+    int icu_data_fd = g_fds->MaybeGet(kAndroidICUDataDescriptor);
+    if (icu_data_fd == -1) {
+      return TerminateForFatalInitializationError();
+    }
+    auto icu_data_region = g_fds->GetRegion(kAndroidICUDataDescriptor);
+    if (!base::i18n::InitializeICUWithFileDescriptor(icu_data_fd,
+                                                     icu_data_region)) {
+      return TerminateForFatalInitializationError();
+    }
+  }
+#else
+  if (!base::i18n::InitializeICU())
+    return TerminateForFatalInitializationError();
 #endif  // OS_ANDROID && (ICU_UTIL_DATA_IMPL == ICU_UTIL_DATA_FILE)
 
-    InitializeV8IfNeeded(command_line, process_type);
+  InitializeV8IfNeeded(command_line, process_type);
 
-    blink::TrialTokenValidator::SetOriginTrialPolicyGetter(
-        base::BindRepeating([]() -> blink::OriginTrialPolicy* {
-          if (auto* client = GetContentClient())
-            return client->GetOriginTrialPolicy();
-          return nullptr;
-        }));
+  blink::TrialTokenValidator::SetOriginTrialPolicyGetter(
+      base::BindRepeating([]() -> blink::OriginTrialPolicy* {
+        if (auto* client = GetContentClient())
+          return client->GetOriginTrialPolicy();
+        return nullptr;
+      }));
 
 #if !defined(OFFICIAL_BUILD)
 #if defined(OS_WIN)
-    bool should_enable_stack_dump = !process_type.empty();
+  bool should_enable_stack_dump = !process_type.empty();
 #else
-    bool should_enable_stack_dump = true;
+  bool should_enable_stack_dump = true;
 #endif
-    // Print stack traces to stderr when crashes occur. This opens up security
-    // holes so it should never be enabled for official builds. This needs to
-    // happen before crash reporting is initialized (which for chrome happens in
-    // the call to PreSandboxStartup() on the delegate below), because otherwise
-    // this would interfere with signal handlers used by crash reporting.
-    if (should_enable_stack_dump &&
-        !command_line.HasSwitch(
-            service_manager::switches::kDisableInProcessStackTraces)) {
-      base::debug::EnableInProcessStackDumping();
-    }
+  // Print stack traces to stderr when crashes occur. This opens up security
+  // holes so it should never be enabled for official builds. This needs to
+  // happen before crash reporting is initialized (which for chrome happens in
+  // the call to PreSandboxStartup() on the delegate below), because otherwise
+  // this would interfere with signal handlers used by crash reporting.
+  if (should_enable_stack_dump &&
+      !command_line.HasSwitch(switches::kDisableInProcessStackTraces)) {
+    base::debug::EnableInProcessStackDumping();
+  }
 
-    base::debug::VerifyDebugger();
+  base::debug::VerifyDebugger();
 #endif  // !defined(OFFICIAL_BUILD)
 
-    delegate_->PreSandboxStartup();
+  delegate_->PreSandboxStartup();
 
 #if defined(OS_WIN)
-    if (!InitializeSandbox(
-            sandbox::policy::SandboxTypeFromCommandLine(command_line),
-            params.sandbox_info))
-      return TerminateForFatalInitializationError();
+  if (!InitializeSandbox(
+          sandbox::policy::SandboxTypeFromCommandLine(command_line),
+          params.sandbox_info))
+    return TerminateForFatalInitializationError();
 #elif defined(OS_MAC)
-    // Only the GPU process still runs the V1 sandbox.
-    bool v2_enabled = base::CommandLine::ForCurrentProcess()->HasSwitch(
-        sandbox::switches::kSeatbeltClientName);
+  // Only the GPU process still runs the V1 sandbox.
+  bool v2_enabled = base::CommandLine::ForCurrentProcess()->HasSwitch(
+      sandbox::switches::kSeatbeltClientName);
 
-    if (!v2_enabled && process_type == switches::kGpuProcess) {
-      if (!InitializeSandbox()) {
-        return TerminateForFatalInitializationError();
-      }
-    } else if (v2_enabled) {
-      CHECK(sandbox::Seatbelt::IsSandboxed());
+  if (!v2_enabled && process_type == switches::kGpuProcess) {
+    if (!InitializeSandbox()) {
+      return TerminateForFatalInitializationError();
     }
+  } else if (v2_enabled) {
+    CHECK(sandbox::Seatbelt::IsSandboxed());
+  }
 #endif
 
-    delegate_->SandboxInitialized(process_type);
+  delegate_->SandboxInitialized(process_type);
 
 #if BUILDFLAG(USE_ZYGOTE_HANDLE)
-    if (process_type.empty()) {
-      // The sandbox host needs to be initialized before forking a thread to
-      // start the ServiceManager, and after setting up the sandbox and invoking
-      // SandboxInitialized().
-      InitializeZygoteSandboxForBrowserProcess(
-          *base::CommandLine::ForCurrentProcess());
+  if (process_type.empty()) {
+    // The sandbox host needs to be initialized before forking a thread to
+    // start IPC support, and after setting up the sandbox and invoking
+    // SandboxInitialized().
+    InitializeZygoteSandboxForBrowserProcess(
+        *base::CommandLine::ForCurrentProcess());
 
-      // We can only enable startup tracing after
-      // InitializeZygoteSandboxForBrowserProcess(), because the latter may fork
-      // and run code that calls trace event macros in the forked process (which
-      // could cause all sorts of issues, like writing to the same tracing SMB
-      // from two processes).
-      tracing::EnableStartupTracingIfNeeded();
-    }
+    // We can only enable startup tracing after
+    // InitializeZygoteSandboxForBrowserProcess(), because the latter may fork
+    // and run code that calls trace event macros in the forked process (which
+    // could cause all sorts of issues, like writing to the same tracing SMB
+    // from two processes).
+    tracing::EnableStartupTracingIfNeeded();
+  }
 #endif  // BUILDFLAG(USE_ZYGOTE_HANDLE)
 
-    // Return -1 to indicate no early termination.
-    return -1;
+  // Return -1 to indicate no early termination.
+  return -1;
 }
 
-int ContentMainRunnerImpl::Run(bool start_service_manager_only) {
+int ContentMainRunnerImpl::Run(bool start_minimal_browser) {
   DCHECK(is_initialized_);
   DCHECK(!is_shutdown_);
   const base::CommandLine& command_line =
@@ -828,11 +836,16 @@ int ContentMainRunnerImpl::Run(bool start_service_manager_only) {
       command_line.GetSwitchValueASCII(switches::kProcessType);
   // Run this logic on all child processes.
   if (!process_type.empty()) {
-    if (process_type != service_manager::switches::kZygoteProcess) {
+    if (process_type != switches::kZygoteProcess) {
       // Zygotes will run this at a later point in time when the command line
       // has been updated.
       InitializeFieldTrialAndFeatureList();
       delegate_->PostFieldTrialInitialization();
+
+      internal::PartitionAllocSupport::Get()->ReconfigureAfterFeatureListInit(
+          process_type);
+
+      mojo::core::InitFeatures();
     }
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
@@ -860,21 +873,20 @@ int ContentMainRunnerImpl::Run(bool start_service_manager_only) {
   RegisterMainThreadFactories();
 
   if (process_type.empty())
-    return RunServiceManager(main_params, start_service_manager_only);
+    return RunBrowser(main_params, start_minimal_browser);
 
   return RunOtherNamedProcessTypeMain(process_type, main_params, delegate_);
 }
 
-int ContentMainRunnerImpl::RunServiceManager(MainFunctionParams& main_params,
-                                             bool start_service_manager_only) {
-  TRACE_EVENT_INSTANT0("startup",
-                       "ContentMainRunnerImpl::RunServiceManager (begin)",
+int ContentMainRunnerImpl::RunBrowser(MainFunctionParams& main_params,
+                                      bool start_minimal_browser) {
+  TRACE_EVENT_INSTANT0("startup", "ContentMainRunnerImpl::RunBrowser(begin)",
                        TRACE_EVENT_SCOPE_THREAD);
   if (is_browser_main_loop_started_)
     return -1;
 
-  bool should_start_service_manager_only = start_service_manager_only;
-  if (!service_manager_environment_) {
+  bool should_start_minimal_browser = start_minimal_browser;
+  if (!mojo_ipc_support_) {
     if (delegate_->ShouldCreateFeatureList()) {
       // This is intentionally leaked since it needs to live for the duration
       // of the process and there's no benefit in cleaning it up at exit.
@@ -883,13 +895,13 @@ int ContentMainRunnerImpl::RunServiceManager(MainFunctionParams& main_params,
       ANNOTATE_LEAKING_OBJECT_PTR(leaked_field_trial_list);
       ignore_result(leaked_field_trial_list);
       delegate_->PostFieldTrialInitialization();
+      mojo::core::InitFeatures();
     }
 
-    if (GetContentClient()->browser()->ShouldCreateThreadPool()) {
-      // Create and start the ThreadPool early to allow upcoming code to use
-      // the post_task.h API.
-      base::ThreadPoolInstance::Create("Browser");
-    }
+    // Create and start the ThreadPool early to allow upcoming code to use
+    // the post_task.h API.
+    const bool has_thread_pool =
+        GetContentClient()->browser()->CreateThreadPool("Browser");
 
     delegate_->PreCreateMainMessageLoop();
 #if defined(OS_WIN)
@@ -917,7 +929,7 @@ int ContentMainRunnerImpl::RunServiceManager(MainFunctionParams& main_params,
       ANNOTATE_LEAKING_OBJECT_PTR(hang_watcher_);
     }
 
-    if (GetContentClient()->browser()->ShouldCreateThreadPool()) {
+    if (has_thread_pool) {
       // The FeatureList needs to create before starting the ThreadPool.
       StartBrowserThreadPool();
     }
@@ -928,9 +940,13 @@ int ContentMainRunnerImpl::RunServiceManager(MainFunctionParams& main_params,
 
 #if defined(OS_ANDROID)
     SetupCpuTimeMetrics();
+    // For child processes, this requires allowing of the
+    // sched_setaffinity() syscall in the sandbox (baseline_policy_android.cc).
+    // When this call is removed, the sandbox allowlist should be updated too.
+    SetupCpuAffinityPollingOnce();
 #endif
 
-    if (should_start_service_manager_only)
+    if (should_start_minimal_browser)
       ForceInProcessNetworkService(true);
 
     discardable_shared_memory_manager_ =
@@ -941,8 +957,11 @@ int ContentMainRunnerImpl::RunServiceManager(MainFunctionParams& main_params,
     base::PowerMonitor::Initialize(
         std::make_unique<base::PowerMonitorDeviceSource>());
 
-    service_manager_environment_ = std::make_unique<ServiceManagerEnvironment>(
-        BrowserTaskExecutor::CreateIOThread());
+    // Requires base::PowerMonitor to be initialized first.
+    power_scheduler::PowerModeArbiter::GetInstance()->OnThreadPoolAvailable();
+
+    mojo_ipc_support_ =
+        std::make_unique<MojoIpcSupport>(BrowserTaskExecutor::CreateIOThread());
 
     const base::CommandLine& command_line =
         *base::CommandLine::ForCurrentProcess();
@@ -955,27 +974,29 @@ int ContentMainRunnerImpl::RunServiceManager(MainFunctionParams& main_params,
           invitation.ExtractMessagePipe(0));
     }
 
-    download::SetIOTaskRunner(
-        service_manager_environment_->io_thread()->task_runner());
+    download::SetIOTaskRunner(mojo_ipc_support_->io_thread()->task_runner());
 
     InitializeBrowserMemoryInstrumentationClient();
 
 #if defined(OS_ANDROID)
-    if (start_service_manager_only) {
+    if (start_minimal_browser) {
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::BindOnce(&ServiceManagerStartupComplete));
+          FROM_HERE, base::BindOnce(&MinimalBrowserStartupComplete));
     }
 #endif
   }
 
-  if (should_start_service_manager_only) {
-    DVLOG(0) << "Chrome is running in ServiceManager only mode.";
+  // No specified process type means this is the Browser process.
+  internal::PartitionAllocSupport::Get()->ReconfigureAfterFeatureListInit("");
+
+  if (should_start_minimal_browser) {
+    DVLOG(0) << "Chrome is running in minimal browser mode.";
     return -1;
   }
 
   DVLOG(0) << "Chrome is running in full browser mode.";
   is_browser_main_loop_started_ = true;
-  startup_data_ = service_manager_environment_->CreateBrowserStartupData();
+  startup_data_ = mojo_ipc_support_->CreateBrowserStartupData();
   main_params.startup_data = startup_data_.get();
   return RunBrowserProcessMain(main_params, delegate_);
 }
@@ -984,7 +1005,7 @@ void ContentMainRunnerImpl::Shutdown() {
   DCHECK(is_initialized_);
   DCHECK(!is_shutdown_);
 
-  service_manager_environment_.reset();
+  mojo_ipc_support_.reset();
 
   if (completed_basic_startup_) {
     const base::CommandLine& command_line =
@@ -995,7 +1016,6 @@ void ContentMainRunnerImpl::Shutdown() {
     delegate_->ProcessExiting(process_type);
   }
 
-  service_manager_environment_.reset();
   // The BrowserTaskExecutor needs to be destroyed before |exit_manager_|.
   BrowserTaskExecutor::Shutdown();
 
@@ -1012,8 +1032,18 @@ void ContentMainRunnerImpl::Shutdown() {
 }
 
 // static
-ContentMainRunner* ContentMainRunner::Create() {
+std::unique_ptr<ContentMainRunner> ContentMainRunner::Create() {
   return ContentMainRunnerImpl::Create();
 }
+
+ContentClient* GetContentClientForTesting() {
+  return GetContentClient();
+}
+
+#if defined(OS_ANDROID)
+ContentMainDelegate* GetContentMainDelegateForTesting() {
+  return GetContentMainDelegate();
+}
+#endif
 
 }  // namespace content

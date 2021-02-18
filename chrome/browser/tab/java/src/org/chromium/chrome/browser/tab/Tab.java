@@ -38,6 +38,9 @@ public interface Tab extends TabLifecycle {
      */
     void removeObserver(TabObserver observer);
 
+    /** Returns if the given {@link TabObserver} is present. */
+    boolean hasObserver(TabObserver observer);
+
     /**
      * @return {@link UserDataHost} that manages {@link UserData} objects attached to.
      *         This is used for managing Tab-specific attributes/objects without Tab
@@ -122,7 +125,7 @@ public interface Tab extends TabLifecycle {
      * @return Original url of the tab without any Chrome feature modifications applied
      *         (e.g. reader mode).
      */
-    String getOriginalUrl();
+    GURL getOriginalUrl();
 
     /**
      * @return The tab title.
@@ -160,6 +163,16 @@ public interface Tab extends TabLifecycle {
      */
     @TabLaunchType
     int getLaunchType();
+
+    /**
+     * @return The theme color for this tab.
+     */
+    int getThemeColor();
+
+    /**
+     * @return {@code true} if the theme color from contents is valid and can be used for theming.
+     */
+    boolean isThemingAllowed();
 
     /**
      * @return {@code true} if the Tab is in incognito mode.
@@ -265,4 +278,31 @@ public interface Tab extends TabLifecycle {
      * @param isDirty Whether the Tab's state has changed.
      */
     void setIsTabStateDirty(boolean isTabStateDirty);
+
+    /**
+     * If set to true, any future navigations in the tab automatically get
+     * PageTransition.FROM_API_2 applied.
+     */
+    void setAddApi2TransitionToFutureNavigations(boolean shouldAdd);
+    boolean getAddApi2TransitionToFutureNavigations();
+
+    /**
+     * If true, all future navigations are hidden. See |HistoryTabHelper::hide_navigations_|
+     * for the specifics on this.
+     */
+    public void setHideFutureNavigations(boolean hide);
+    public boolean getHideFutureNavigations();
+
+    /**
+     * If true, new notification requests are blocked.
+     */
+    public void setShouldBlockNewNotificationRequests(boolean value);
+    public boolean getShouldBlockNewNotificationRequests();
+
+    /**
+     * Set whether {@link Tab} metadata (specifically all {@link PersistedTabData})
+     * will be saved. Not all Tabs need to be persisted across restarts.
+     * The default value when a Tab is initialized is false.
+     */
+    void setIsTabSaveEnabled(boolean isSaveEnabled);
 }

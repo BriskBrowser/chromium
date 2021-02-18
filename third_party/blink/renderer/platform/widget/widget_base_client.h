@@ -8,18 +8,23 @@
 #include <vector>
 
 #include "base/time/time.h"
+#include "cc/metrics/begin_main_frame_metrics.h"
+#include "cc/metrics/frame_sequence_tracker_collection.h"
+#include "cc/metrics/web_vital_metrics.h"
 #include "cc/paint/element_id.h"
+#include "cc/trees/layer_tree_host_client.h"
 #include "third_party/blink/public/common/metrics/document_update_reason.h"
 #include "third_party/blink/public/mojom/page/widget.mojom-blink.h"
 #include "third_party/blink/public/mojom/widget/screen_orientation.mojom-blink.h"
 #include "third_party/blink/public/platform/input/input_handler_proxy.h"
+#include "third_party/blink/public/platform/web_input_event_result.h"
 #include "third_party/blink/public/platform/web_text_input_type.h"
 #include "third_party/blink/public/web/web_lifecycle_update.h"
 
 namespace cc {
 class LayerTreeFrameSink;
 struct BeginMainFrameMetrics;
-class RenderFrameMetadataObserver;
+struct WebVitalMetrics;
 }  // namespace cc
 
 namespace blink {
@@ -40,10 +45,6 @@ class WidgetBaseClient {
   // Called to update the document lifecycle, advance the state of animations
   // and dispatch rAF.
   virtual void BeginMainFrame(base::TimeTicks frame_time) = 0;
-
-  // Called to record the time between when the widget was marked visible
-  // until the compositor begain producing a frame.
-  virtual void RecordTimeToFirstActivePaint(base::TimeDelta duration) = 0;
 
   // Requests that the lifecycle of the widget be updated.
   virtual void UpdateLifecycle(WebLifecycleUpdate requested_update,
@@ -74,6 +75,10 @@ class WidgetBaseClient {
     return nullptr;
   }
 
+  virtual std::unique_ptr<cc::WebVitalMetrics> GetWebVitalMetrics() {
+    return nullptr;
+  }
+
   // Methods called to mark the beginning and end of the
   // LayerTreeHost::UpdateLayers method. Only called when gathering main frame
   // UMA and UKM. That is, when RecordStartOfFrameMetrics has been called, and
@@ -92,14 +97,11 @@ class WidgetBaseClient {
   // thread.
   virtual void ApplyViewportChanges(const cc::ApplyViewportChangesArgs& args) {}
 
-  virtual void RecordManipulationTypeCounts(cc::ManipulationInfo info) {}
+  virtual void UpdateCompositorScrollState(
+      const cc::CompositorCommitData& commit_data) {}
 
-  virtual void SendOverscrollEventFromImplSide(
-      const gfx::Vector2dF& overscroll_delta,
-      cc::ElementId scroll_latched_element_id) {}
-  virtual void SendScrollEndEventFromImplSide(
-      cc::ElementId scroll_latched_element_id) {}
-
+  // Notifies that the layer tree host has completed a call to
+  // RequestMainFrameUpdate in response to a BeginMainFrame.
   virtual void DidBeginMainFrame() {}
   virtual void DidCommitAndDrawCompositorFrame() {}
 
@@ -107,21 +109,16 @@ class WidgetBaseClient {
       base::TimeDelta first_scroll_delay,
       base::TimeTicks first_scroll_timestamp) {}
 
-  using LayerTreeFrameSinkCallback = base::OnceCallback<void(
-      std::unique_ptr<cc::LayerTreeFrameSink>,
-      std::unique_ptr<cc::RenderFrameMetadataObserver>)>;
-
-  // Requests a LayerTreeFrameSink to submit CompositorFrames to.
-  virtual void RequestNewLayerTreeFrameSink(
-      LayerTreeFrameSinkCallback callback) = 0;
-
   virtual void WillBeginMainFrame() {}
   virtual void DidCompletePageScaleAnimation() {}
 
-  virtual void SubmitThroughputData(ukm::SourceId source_id,
-                                    int aggregated_percent,
-                                    int impl_percent,
-                                    base::Optional<int> main_percent) {}
+  // Allocates a LayerTreeFrameSink to submit CompositorFrames to. Only
+  // override this method if you wish to provide your own implementation
+  // of LayerTreeFrameSinks (usually for tests). If this method returns null
+  // a frame sink will be requested from the browser process (ie. default flow)
+  virtual std::unique_ptr<cc::LayerTreeFrameSink>
+  AllocateNewLayerTreeFrameSink() = 0;
+
   virtual void FocusChangeComplete() {}
 
   virtual WebInputEventResult DispatchBufferedTouchEvents() = 0;
@@ -131,7 +128,7 @@ class WidgetBaseClient {
 
   virtual void DidHandleKeyEvent() {}
   virtual bool WillHandleGestureEvent(const WebGestureEvent& event) = 0;
-  virtual bool WillHandleMouseEvent(const WebMouseEvent& event) = 0;
+  virtual void WillHandleMouseEvent(const WebMouseEvent& event) = 0;
   virtual void ObserveGestureEventAndResult(
       const WebGestureEvent& gesture_event,
       const gfx::Vector2dF& unused_delta,
@@ -145,16 +142,13 @@ class WidgetBaseClient {
   // Called to inform the Widget of the mouse cursor's visibility.
   virtual void SetCursorVisibilityState(bool is_visible) {}
 
-  // Mouse capture has been lost.
-  virtual void MouseCaptureLost() {}
-
   // The FrameWidget interface if this is a FrameWidget.
   virtual blink::FrameWidget* FrameWidget() { return nullptr; }
 
   // Called to inform the Widget that it has gained or lost keyboard focus.
-  virtual void FocusChanged(bool) = 0;
+  virtual void FocusChanged(bool) {}
 
-  // Call to schedule an animation.
+  // Call to request an animation frame from the compositor.
   virtual void ScheduleAnimation() {}
 
   // TODO(bokan): Temporary to unblock synthetic gesture events running under
@@ -199,10 +193,31 @@ class WidgetBaseClient {
   }
 
   // Return the overridden device scale factor for testing.
-  virtual float GetDeviceScaleFactorForTesting() { return 0.f; }
+  virtual float GetTestingDeviceScaleFactorOverride() { return 0.f; }
 
   // Test-specific methods below this point.
   virtual void ScheduleAnimationForWebTests() {}
+
+  // Inform the widget that it was hidden.
+  virtual void WasHidden() {}
+
+  // Inform the widget that it was shown.
+  virtual void WasShown(bool was_evicted) {}
+
+  virtual void RunPaintBenchmark(int repeat_count,
+                                 cc::PaintBenchmarkResult& result) {}
+
+  // Called to indicate a synthetic event was queued.
+  virtual void WillQueueSyntheticEvent(const WebCoalescedInputEvent& event) {}
+
+  // When the WebWidget is part of a frame tree, returns the active url for
+  // main frame of that tree, if the main frame is local in that tree. When
+  // the WebWidget is of a different kind (e.g. a popup) it returns the active
+  // url for the main frame of the frame tree that spawned the WebWidget, if
+  // the main frame is local in that tree. When the relevant main frame is
+  // remote in that frame tree, then the url is not known, and an empty url is
+  // returned.
+  virtual KURL GetURLForDebugTrace() = 0;
 };
 
 }  // namespace blink

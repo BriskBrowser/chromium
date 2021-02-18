@@ -27,23 +27,21 @@
 
 #include "third_party/blink/renderer/core/style/svg_computed_style.h"
 
+#include "third_party/blink/renderer/core/style/data_equivalency.h"
 #include "third_party/blink/renderer/core/style/style_difference.h"
 #include "third_party/blink/renderer/core/style/style_svg_resource.h"
 
 namespace blink {
 
-static const int kPaintOrderBitwidth = 2;
-
 SVGComputedStyle::SVGComputedStyle() {
-  static SVGComputedStyle* initial_style = new SVGComputedStyle(kCreateInitial);
-
-  fill = initial_style->fill;
-  stroke = initial_style->stroke;
-  stops = initial_style->stops;
-  misc = initial_style->misc;
-  inherited_resources = initial_style->inherited_resources;
-  geometry = initial_style->geometry;
-  resources = initial_style->resources;
+  DEFINE_THREAD_SAFE_STATIC_LOCAL(ThreadSpecific<SVGComputedStyle*>,
+                                  initial_style, ());
+  if (!*initial_style) {
+    *initial_style = new SVGComputedStyle(kCreateInitial);
+  }
+  fill = (*initial_style)->fill;
+  stroke = (*initial_style)->stroke;
+  inherited_resources = (*initial_style)->inherited_resources;
 
   SetBitDefaults();
 }
@@ -53,31 +51,22 @@ SVGComputedStyle::SVGComputedStyle(CreateInitialType) {
 
   fill.Init();
   stroke.Init();
-  stops.Init();
-  misc.Init();
   inherited_resources.Init();
-  geometry.Init();
-  resources.Init();
 }
 
 SVGComputedStyle::SVGComputedStyle(const SVGComputedStyle& other)
     : RefCounted<SVGComputedStyle>() {
   fill = other.fill;
   stroke = other.stroke;
-  stops = other.stops;
-  misc = other.misc;
   inherited_resources = other.inherited_resources;
-  geometry = other.geometry;
-  resources = other.resources;
 
   svg_inherited_flags = other.svg_inherited_flags;
-  svg_noninherited_flags = other.svg_noninherited_flags;
 }
 
 SVGComputedStyle::~SVGComputedStyle() = default;
 
 bool SVGComputedStyle::operator==(const SVGComputedStyle& other) const {
-  return InheritedEqual(other) && NonInheritedEqual(other);
+  return InheritedEqual(other);
 }
 
 bool SVGComputedStyle::InheritedEqual(const SVGComputedStyle& other) const {
@@ -86,27 +75,12 @@ bool SVGComputedStyle::InheritedEqual(const SVGComputedStyle& other) const {
          svg_inherited_flags == other.svg_inherited_flags;
 }
 
-bool SVGComputedStyle::NonInheritedEqual(const SVGComputedStyle& other) const {
-  return stops == other.stops && misc == other.misc &&
-         geometry == other.geometry && resources == other.resources &&
-         svg_noninherited_flags == other.svg_noninherited_flags;
-}
-
 void SVGComputedStyle::InheritFrom(const SVGComputedStyle& svg_inherit_parent) {
   fill = svg_inherit_parent.fill;
   stroke = svg_inherit_parent.stroke;
   inherited_resources = svg_inherit_parent.inherited_resources;
 
   svg_inherited_flags = svg_inherit_parent.svg_inherited_flags;
-}
-
-void SVGComputedStyle::CopyNonInheritedFromCached(
-    const SVGComputedStyle& other) {
-  svg_noninherited_flags = other.svg_noninherited_flags;
-  stops = other.stops;
-  misc = other.misc;
-  geometry = other.geometry;
-  resources = other.resources;
 }
 
 scoped_refptr<SVGDashArray> SVGComputedStyle::InitialStrokeDashArray() {
@@ -130,11 +104,6 @@ StyleDifference SVGComputedStyle::Diff(const SVGComputedStyle& other) const {
 
 bool SVGComputedStyle::DiffNeedsLayoutAndPaintInvalidation(
     const SVGComputedStyle& other) const {
-  // If resources change, we need a relayout, as the presence of resources
-  // influences the visual rect.
-  if (resources != other.resources)
-    return true;
-
   // If markers change, we need a relayout, as marker boundaries are cached in
   // LayoutSVGPath.
   if (inherited_resources != other.inherited_resources)
@@ -144,25 +113,12 @@ bool SVGComputedStyle::DiffNeedsLayoutAndPaintInvalidation(
   if (svg_inherited_flags.text_anchor !=
           other.svg_inherited_flags.text_anchor ||
       svg_inherited_flags.dominant_baseline !=
-          other.svg_inherited_flags.dominant_baseline ||
-      svg_noninherited_flags.f.alignment_baseline !=
-          other.svg_noninherited_flags.f.alignment_baseline ||
-      svg_noninherited_flags.f.baseline_shift !=
-          other.svg_noninherited_flags.f.baseline_shift)
-    return true;
-
-  // Text related properties influence layout.
-  if (misc->baseline_shift_value != other.misc->baseline_shift_value)
+          other.svg_inherited_flags.dominant_baseline)
     return true;
 
   // These properties affect the cached stroke bounding box rects.
   if (svg_inherited_flags.cap_style != other.svg_inherited_flags.cap_style ||
       svg_inherited_flags.join_style != other.svg_inherited_flags.join_style)
-    return true;
-
-  // vector-effect changes require a re-layout.
-  if (svg_noninherited_flags.f.vector_effect !=
-      other.svg_noninherited_flags.f.vector_effect)
     return true;
 
   // Some stroke properties require relayouts as the cached stroke boundaries
@@ -183,10 +139,6 @@ bool SVGComputedStyle::DiffNeedsLayoutAndPaintInvalidation(
       return true;
   }
 
-  // The geometry properties require a re-layout.
-  if (geometry.Get() != other.geometry.Get() && *geometry != *other.geometry)
-    return true;
-
   return false;
 }
 
@@ -205,14 +157,6 @@ bool SVGComputedStyle::DiffNeedsPaintInvalidation(
       return true;
   }
 
-  // Painting related properties only need paint invalidation.
-  if (misc.Get() != other.misc.Get()) {
-    if (misc->flood_color != other.misc->flood_color ||
-        misc->flood_opacity != other.misc->flood_opacity ||
-        misc->lighting_color != other.misc->lighting_color)
-      return true;
-  }
-
   // If fill changes, we just need to issue paint invalidations. Fill boundaries
   // are not influenced by this, only by the Path, that LayoutSVGPath contains.
   if (fill.Get() != other.fill.Get()) {
@@ -220,11 +164,6 @@ bool SVGComputedStyle::DiffNeedsPaintInvalidation(
         fill->opacity != other.fill->opacity)
       return true;
   }
-
-  // If gradient stops change, we just need to issue paint invalidations. Style
-  // updates are already handled through SVGStopElement.
-  if (stops != other.stops)
-    return true;
 
   // Changes of these flags only cause paint invalidations.
   if (svg_inherited_flags.shape_rendering !=
@@ -238,54 +177,7 @@ bool SVGComputedStyle::DiffNeedsPaintInvalidation(
       svg_inherited_flags.paint_order != other.svg_inherited_flags.paint_order)
     return true;
 
-  if (svg_noninherited_flags.f.mask_type !=
-      other.svg_noninherited_flags.f.mask_type)
-    return true;
-
   return false;
-}
-
-unsigned PaintOrderSequence(EPaintOrderType first,
-                            EPaintOrderType second,
-                            EPaintOrderType third) {
-  return (((third << kPaintOrderBitwidth) | second) << kPaintOrderBitwidth) |
-         first;
-}
-
-EPaintOrderType SVGComputedStyle::PaintOrderType(unsigned index) const {
-  unsigned pt = 0;
-  DCHECK(index < ((1 << kPaintOrderBitwidth) - 1));
-  switch (this->PaintOrder()) {
-    case kPaintOrderNormal:
-    case kPaintOrderFillStrokeMarkers:
-      pt = PaintOrderSequence(PT_FILL, PT_STROKE, PT_MARKERS);
-      break;
-    case kPaintOrderFillMarkersStroke:
-      pt = PaintOrderSequence(PT_FILL, PT_MARKERS, PT_STROKE);
-      break;
-    case kPaintOrderStrokeFillMarkers:
-      pt = PaintOrderSequence(PT_STROKE, PT_FILL, PT_MARKERS);
-      break;
-    case kPaintOrderStrokeMarkersFill:
-      pt = PaintOrderSequence(PT_STROKE, PT_MARKERS, PT_FILL);
-      break;
-    case kPaintOrderMarkersFillStroke:
-      pt = PaintOrderSequence(PT_MARKERS, PT_FILL, PT_STROKE);
-      break;
-    case kPaintOrderMarkersStrokeFill:
-      pt = PaintOrderSequence(PT_MARKERS, PT_STROKE, PT_FILL);
-      break;
-  }
-
-  pt =
-      (pt >> (kPaintOrderBitwidth * index)) & ((1u << kPaintOrderBitwidth) - 1);
-  return (EPaintOrderType)pt;
-}
-
-void SVGComputedStyle::SetMaskerResource(
-    scoped_refptr<StyleSVGResource> resource) {
-  if (!(resources->masker == resource))
-    resources.Access()->masker = std::move(resource);
 }
 
 void SVGComputedStyle::SetMarkerStartResource(

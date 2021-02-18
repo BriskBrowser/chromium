@@ -6,8 +6,9 @@
 
 #include "ash/ambient/model/ambient_backend_model.h"
 
-#include "ash/ambient/ambient_constants.h"
 #include "ash/ambient/model/ambient_backend_model_observer.h"
+#include "ash/public/cpp/ambient/ambient_ui_model.h"
+#include "base/logging.h"
 
 namespace ash {
 
@@ -35,10 +36,7 @@ bool PhotoWithDetails::IsNull() const {
 }
 
 // AmbientBackendModel---------------------------------------------------------
-AmbientBackendModel::AmbientBackendModel() {
-  SetPhotoRefreshInterval(kPhotoRefreshInterval);
-}
-
+AmbientBackendModel::AmbientBackendModel() = default;
 AmbientBackendModel::~AmbientBackendModel() = default;
 
 void AmbientBackendModel::AddObserver(AmbientBackendModelObserver* observer) {
@@ -56,47 +54,76 @@ void AmbientBackendModel::AppendTopics(
   NotifyTopicsChanged();
 }
 
-bool AmbientBackendModel::ShouldFetchImmediately() const {
-  // Prefetch one image |next_image_| for photo transition animation.
-  return current_image_.IsNull() || next_image_.IsNull();
+bool AmbientBackendModel::ImagesReady() const {
+  return !current_image_.IsNull() && !next_image_.IsNull();
 }
 
 void AmbientBackendModel::AddNextImage(
     const PhotoWithDetails& photo_with_details) {
+  DCHECK(!photo_with_details.IsNull());
+
+  ResetImageFailures();
+
+  bool should_notify_ready = false;
+
   if (current_image_.IsNull()) {
+    // If |current_image_| is null, |photo_with_details| should be the first
+    // image stored. |next_image_| should also be null.
+    DCHECK(next_image_.IsNull());
     current_image_ = photo_with_details;
   } else if (next_image_.IsNull()) {
+    // |current_image_| and |next_image_| are set.
     next_image_ = photo_with_details;
+    should_notify_ready = true;
   } else {
+    // Cycle out the old |current_image_|.
     current_image_ = next_image_;
     next_image_ = photo_with_details;
   }
 
-  NotifyImagesChanged();
+  NotifyImageAdded();
+
+  // Observers expect |OnImagesReady| after |OnImageAdded|.
+  if (should_notify_ready)
+    NotifyImagesReady();
 }
 
-base::TimeDelta AmbientBackendModel::GetPhotoRefreshInterval() {
-  if (ShouldFetchImmediately())
+bool AmbientBackendModel::IsHashDuplicate(const std::string& hash) const {
+  // Make sure that a photo does not appear twice in a row. If |next_image_| is
+  // not null, the new image must not be identical to |next_image_|.
+  const auto& image_to_compare =
+      next_image_.IsNull() ? current_image_ : next_image_;
+  return image_to_compare.hash == hash;
+}
+
+void AmbientBackendModel::AddImageFailure() {
+  failures_++;
+  if (ImageLoadingFailed()) {
+    DVLOG(3) << "image loading failed";
+    for (auto& observer : observers_)
+      observer.OnImagesFailed();
+  }
+}
+
+void AmbientBackendModel::ResetImageFailures() {
+  failures_ = 0;
+}
+
+bool AmbientBackendModel::ImageLoadingFailed() {
+  return !ImagesReady() && failures_ >= kMaxConsecutiveReadPhotoFailures;
+}
+
+base::TimeDelta AmbientBackendModel::GetPhotoRefreshInterval() const {
+  if (!ImagesReady())
     return base::TimeDelta();
 
-  return photo_refresh_interval_;
-}
-
-void AmbientBackendModel::SetPhotoRefreshInterval(base::TimeDelta interval) {
-  photo_refresh_interval_ = interval;
+  return AmbientUiModel::Get()->photo_refresh_interval();
 }
 
 void AmbientBackendModel::Clear() {
   topics_.clear();
   current_image_.Clear();
   next_image_.Clear();
-}
-
-const PhotoWithDetails& AmbientBackendModel::GetNextImage() const {
-  if (!next_image_.IsNull())
-    return next_image_;
-
-  return current_image_;
 }
 
 float AmbientBackendModel::GetTemperatureInCelsius() const {
@@ -120,9 +147,14 @@ void AmbientBackendModel::NotifyTopicsChanged() {
     observer.OnTopicsChanged();
 }
 
-void AmbientBackendModel::NotifyImagesChanged() {
+void AmbientBackendModel::NotifyImageAdded() {
   for (auto& observer : observers_)
-    observer.OnImagesChanged();
+    observer.OnImageAdded();
+}
+
+void AmbientBackendModel::NotifyImagesReady() {
+  for (auto& observer : observers_)
+    observer.OnImagesReady();
 }
 
 void AmbientBackendModel::NotifyWeatherInfoUpdated() {

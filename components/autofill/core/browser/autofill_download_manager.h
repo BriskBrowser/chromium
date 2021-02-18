@@ -19,6 +19,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string_piece.h"
 #include "base/time/time.h"
+#include "base/types/strong_alias.h"
 #include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/form_structure.h"
 #include "components/autofill/core/common/signatures.h"
@@ -46,17 +47,22 @@ struct ScopedActiveAutofillExperiments {
 // Handles getting and updating Autofill heuristics.
 class AutofillDownloadManager {
  public:
-  enum RequestType { REQUEST_QUERY, REQUEST_UPLOAD, };
+  enum RequestType {
+    REQUEST_QUERY,
+    REQUEST_UPLOAD,
+  };
+  using IsRawMetadataUploadingEnabled =
+      base::StrongAlias<class IsRawMetadataUploadingEnabledTag, bool>;
 
   // An interface used to notify clients of AutofillDownloadManager.
   class Observer {
    public:
     // Called when field type predictions are successfully received from the
     // server. |response| contains the server response for the forms
-    // represented by |signatures|.
+    // represented by |queried_form_signatures|.
     virtual void OnLoadedServerPredictions(
         std::string response,
-        const FormAndFieldSignatures& signatures) = 0;
+        const std::vector<FormSignature>& queried_form_signatures) = 0;
 
     // These notifications are used to help with testing.
     // Called when heuristic either successfully considered for upload and
@@ -76,16 +82,18 @@ class AutofillDownloadManager {
 
   // |driver| must outlive this instance.
   // |observer| - observer to notify on successful completion or error.
-  // Uses an API callback function that gives an empty string.
-  AutofillDownloadManager(AutofillDriver* driver, Observer* observer);
-  // |driver| must outlive this instance.
-  // |observer| - observer to notify on successful completion or error.
   // |api_key| - API key to add to API request query parameters. Will only take
   //   effect if using API.
-  AutofillDownloadManager(AutofillDriver* driver,
-                          Observer* observer,
-                          const std::string& api_key,
-                          LogManager* log_manager);
+  AutofillDownloadManager(
+      AutofillDriver* driver,
+      Observer* observer,
+      const std::string& api_key,
+      IsRawMetadataUploadingEnabled is_raw_metadata_uploading_enabled,
+      LogManager* log_manager);
+  // |driver| must outlive this instance.
+  // |observer| - observer to notify on successful completion or error.
+  // Uses an API callback function that gives an empty string.
+  AutofillDownloadManager(AutofillDriver* driver, Observer* observer);
   virtual ~AutofillDownloadManager();
 
   // Starts a query request to Autofill servers. The observer is called with the
@@ -136,7 +144,7 @@ class AutofillDownloadManager {
   FRIEND_TEST_ALL_PREFIXES(AutofillDownloadManagerTest, RetryLimit_Query);
 
   struct FormRequestData;
-  typedef std::list<std::pair<FormAndFieldSignatures, std::string>>
+  typedef std::list<std::pair<std::vector<FormSignature>, std::string>>
       QueryRequestCache;
 
   // Returns the URL and request method to use when issuing the request
@@ -165,12 +173,13 @@ class AutofillDownloadManager {
 
   // Caches query request. |forms_in_query| is a vector of form signatures in
   // the query. |query_data| is the successful data returned over the wire.
-  void CacheQueryRequest(const FormAndFieldSignatures& forms_in_query,
+  void CacheQueryRequest(const std::vector<FormSignature>& forms_in_query,
                          const std::string& query_data);
   // Returns true if query is in the cache, while filling |query_data|, false
   // otherwise. |forms_in_query| is a vector of form signatures in the query.
-  bool CheckCacheForQueryRequest(const FormAndFieldSignatures& forms_in_query,
-                                 std::string* query_data) const;
+  bool CheckCacheForQueryRequest(
+      const std::vector<FormSignature>& forms_in_query,
+      std::string* query_data) const;
   // Concatenates |forms_in_query| into one signature.
   std::string GetCombinedSignature(
       const std::vector<std::string>& forms_in_query) const;
@@ -220,6 +229,10 @@ class AutofillDownloadManager {
 
   // Used for exponential backoff of requests.
   net::BackoffEntry loader_backoff_;
+
+  // Whether form data (e.g. form and field names) can be uploaded in clear
+  // text.
+  bool is_raw_metadata_uploading_enabled_ = false;
 
   base::WeakPtrFactory<AutofillDownloadManager> weak_factory_{this};
 };

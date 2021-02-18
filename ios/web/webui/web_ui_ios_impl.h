@@ -34,7 +34,7 @@ class WebUIIOSImpl : public web::WebUIIOS,
   void SetController(std::unique_ptr<WebUIIOSController> controller) override;
   void AddMessageHandler(
       std::unique_ptr<WebUIIOSMessageHandler> handler) override;
-  typedef base::Callback<void(const base::ListValue*)> MessageCallback;
+  typedef base::RepeatingCallback<void(const base::ListValue*)> MessageCallback;
   void RegisterMessageCallback(const std::string& message,
                                const MessageCallback& callback) override;
   void ProcessWebUIIOSMessage(const GURL& source_url,
@@ -67,7 +67,7 @@ class WebUIIOSImpl : public web::WebUIIOS,
   std::vector<std::unique_ptr<WebUIIOSMessageHandler>> handlers_;
 
   // Subscription for JS message.
-  std::unique_ptr<web::WebState::ScriptCommandSubscription> subscription_;
+  base::CallbackListSubscription subscription_;
 
   // Non-owning pointer to the WebState this WebUIIOS is associated with.
   WebState* web_state_;

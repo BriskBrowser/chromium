@@ -27,7 +27,6 @@
 #include "components/password_manager/core/browser/leak_detection_dialog_utils.h"
 #import "components/password_manager/ios/shared_password_controller.h"
 #include "components/sync/driver/sync_service.h"
-#import "ios/web/public/deprecated/crw_js_injection_receiver.h"
 #include "ios/web/public/js_messaging/web_frame.h"
 #include "ios/web/public/js_messaging/web_frame_util.h"
 #import "ios/web/public/js_messaging/web_frames_manager.h"
@@ -71,9 +70,6 @@ using autofill::FieldRendererId;
   // Javascript autofill manager associated with |webState|.
   JsAutofillManager* _JSAutofillManager;
 
-  // Javascript suggestion manager associated with |webState|.
-  JsSuggestionManager* _JSSuggestionManager;
-
   // The |webState| which this autofill controller should observe.
   web::WebState* _webState;
 
@@ -96,7 +92,7 @@ using autofill::FieldRendererId;
   std::unique_ptr<autofill::FormActivityObserverBridge>
       _formActivityObserverBridge;
 
-  NSString* _lastFormActivityWebFrameID;
+  std::string _lastFormActivityWebFrameID;
   NSString* _lastFormActivityTypedValue;
   NSString* _lastFormActivityType;
   FormRendererId _lastFormActivityUniqueFormID;
@@ -111,7 +107,6 @@ using autofill::FieldRendererId;
                               autofillClient
             autofillAgent:(AutofillAgent*)autofillAgent
         JSAutofillManager:(JsAutofillManager*)JSAutofillManager
-      JSSuggestionManager:(JsSuggestionManager*)JSSuggestionManager
           passwordManager:(std::unique_ptr<password_manager::PasswordManager>)
                               passwordManager
     passwordManagerClient:
@@ -144,8 +139,6 @@ using autofill::FieldRendererId;
         autofill::AutofillManager::ENABLE_AUTOFILL_DOWNLOAD_MANAGER);
 
     _JSAutofillManager = JSAutofillManager;
-
-    _JSSuggestionManager = JSSuggestionManager;
 
     _passwordManagerClient = std::move(passwordManagerClient);
     _passwordManagerClient->set_bridge(self);
@@ -181,14 +174,17 @@ using autofill::FieldRendererId;
         completionHandler:(nullable void (^)(void))completionHandler {
   web::WebFrame* frame =
       web::GetWebFrameWithId(_webState, base::SysNSStringToUTF8(frameID));
-  [_JSAutofillManager clearAutofilledFieldsForFormName:formName
-                                       fieldIdentifier:fieldIdentifier
-                                               inFrame:frame
-                                     completionHandler:^(NSString*) {
-                                       if (completionHandler) {
-                                         completionHandler();
-                                       }
-                                     }];
+  [_JSAutofillManager
+      clearAutofilledFieldsForFormName:formName
+                          formUniqueID:_lastFormActivityUniqueFormID
+                       fieldIdentifier:fieldIdentifier
+                         fieldUniqueID:_lastFormActivityUniqueFieldID
+                               inFrame:frame
+                     completionHandler:^(NSString*) {
+                       if (completionHandler) {
+                         completionHandler();
+                       }
+                     }];
 }
 
 - (void)fetchSuggestionsForFormWithName:(NSString*)formName
@@ -299,21 +295,20 @@ using autofill::FieldRendererId;
 }
 
 - (void)focusPreviousField {
-  [_JSSuggestionManager
-      selectPreviousElementInFrameWithID:_lastFormActivityWebFrameID];
+  autofill::JsSuggestionManager::GetOrCreateForWebState(_webState)
+      ->SelectPreviousElementInFrameWithID(_lastFormActivityWebFrameID);
 }
 
 - (void)focusNextField {
-  [_JSSuggestionManager
-      selectNextElementInFrameWithID:_lastFormActivityWebFrameID];
+  autofill::JsSuggestionManager::GetOrCreateForWebState(_webState)
+      ->SelectNextElementInFrameWithID(_lastFormActivityWebFrameID);
 }
 
 - (void)checkIfPreviousAndNextFieldsAreAvailableForFocusWithCompletionHandler:
     (void (^)(BOOL previous, BOOL next))completionHandler {
-  [_JSSuggestionManager
-      fetchPreviousAndNextElementsPresenceInFrameWithID:
-          _lastFormActivityWebFrameID
-                                      completionHandler:completionHandler];
+  autofill::JsSuggestionManager::GetOrCreateForWebState(_webState)
+      ->FetchPreviousAndNextElementsPresenceInFrameWithID(
+          _lastFormActivityWebFrameID, base::BindOnce(completionHandler));
 }
 
 #pragma mark - CWVAutofillClientIOSBridge
@@ -337,6 +332,10 @@ using autofill::FieldRendererId;
 
 - (void)hideAutofillPopup {
   [_autofillAgent hideAutofillPopup];
+}
+
+- (bool)isQueryIDRelevant:(int)queryID {
+  return [_autofillAgent isQueryIDRelevant:queryID];
 }
 
 - (void)
@@ -477,17 +476,17 @@ showUnmaskPromptForCard:(const autofill::CreditCard&)creditCard
   DCHECK_EQ(_webState, webState);
 
   NSString* nsFormName = base::SysUTF8ToNSString(params.form_name);
-  _lastFormActivityUniqueFormID = FormRendererId(params.unique_form_id);
+  _lastFormActivityUniqueFormID = params.unique_form_id;
   NSString* nsFieldIdentifier =
       base::SysUTF8ToNSString(params.field_identifier);
-  _lastFormActivityUniqueFieldID = FieldRendererId(params.unique_field_id);
+  _lastFormActivityUniqueFieldID = params.unique_field_id;
   NSString* nsFieldType = base::SysUTF8ToNSString(params.field_type);
   NSString* nsFrameID = base::SysUTF8ToNSString(GetWebFrameId(frame));
   NSString* nsValue = base::SysUTF8ToNSString(params.value);
   NSString* nsType = base::SysUTF8ToNSString(params.type);
   BOOL userInitiated = params.has_user_gesture;
 
-  _lastFormActivityWebFrameID = nsFrameID;
+  _lastFormActivityWebFrameID = GetWebFrameId(frame);
   _lastFormActivityTypedValue = nsValue;
   _lastFormActivityType = nsType;
   if (params.type == "focus") {
@@ -587,7 +586,8 @@ showUnmaskPromptForCard:(const autofill::CreditCard&)creditCard
   __block std::unique_ptr<password_manager::PasswordFormManagerForUI> formPtr(
       std::move(formToSave));
 
-  const autofill::PasswordForm& credentials = formPtr->GetPendingCredentials();
+  const password_manager::PasswordForm& credentials =
+      formPtr->GetPendingCredentials();
   CWVPassword* password =
       [[CWVPassword alloc] initWithPasswordForm:credentials];
 
@@ -599,7 +599,7 @@ showUnmaskPromptForCard:(const autofill::CreditCard&)creditCard
                           formPtr->Save();
                           break;
                         case CWVPasswordUserDecisionNever:
-                          formPtr->PermanentlyBlacklist();
+                          formPtr->Blocklist();
                           break;
                         case CWVPasswordUserDecisionNotThisTime:
                           // Do nothing.
@@ -621,22 +621,23 @@ showUnmaskPromptForCard:(const autofill::CreditCard&)creditCard
   __block std::unique_ptr<password_manager::PasswordFormManagerForUI> formPtr(
       std::move(formToUpdate));
 
-  const autofill::PasswordForm& credentials = formPtr->GetPendingCredentials();
+  const password_manager::PasswordForm& credentials =
+      formPtr->GetPendingCredentials();
   CWVPassword* password =
       [[CWVPassword alloc] initWithPasswordForm:credentials];
 
-  [self.delegate
-               autofillController:self
-      decideSavePolicyForPassword:password
-                  decisionHandler:^(CWVPasswordUserDecision decision) {
-                    // Marking a password update as "never" makes no sense as
-                    // the password has already been saved.
-                    DCHECK_NE(decision, CWVPasswordUserDecisionNever)
-                        << "A password update can only be accepted or ignored.";
-                    if (decision == CWVPasswordUserDecisionYes) {
-                      formPtr->Update(credentials);
-                    }
-                  }];
+  [self.delegate autofillController:self
+      decideUpdatePolicyForPassword:password
+                    decisionHandler:^(CWVPasswordUserDecision decision) {
+                      // Marking a password update as "never" makes no sense as
+                      // the password has already been saved.
+                      DCHECK_NE(decision, CWVPasswordUserDecisionNever)
+                          << "A password update can only be accepted or "
+                             "ignored.";
+                      if (decision == CWVPasswordUserDecisionYes) {
+                        formPtr->Update(credentials);
+                      }
+                    }];
 }
 
 - (void)removePasswordInfoBarManualFallback:(BOOL)manual {
@@ -662,6 +663,10 @@ showUnmaskPromptForCard:(const autofill::CreditCard&)creditCard
         notifyUserOfPasswordLeakOnURL:net::NSURLWithGURL(URL)
                              leakType:cwvLeakType];
   }
+}
+
+- (void)showPasswordProtectionWarning:(NSString*)warningText {
+  // No op.
 }
 
 #pragma mark - SharedPasswordControllerDelegate

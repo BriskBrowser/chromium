@@ -5,15 +5,17 @@
 #include "chrome/browser/nearby_sharing/instantmessaging/stream_parser.h"
 
 #include "chrome/browser/nearby_sharing/instantmessaging/proto/instantmessaging.pb.h"
+#include "chrome/browser/nearby_sharing/logging/logging.h"
 
 StreamParser::StreamParser(
-    base::RepeatingCallback<void(const std::string& message)> listener)
-    : listener_(listener) {}
+    base::RepeatingCallback<void(const std::string& message)> listener,
+    base::OnceClosure fastpath_ready_callback)
+    : listener_(listener),
+      fastpath_ready_callback_(std::move(fastpath_ready_callback)) {}
 StreamParser::~StreamParser() = default;
 
 void StreamParser::Append(base::StringPiece data) {
-  size_t size = data.as_string().size();
-  data_.append(data.as_string().data(), size);
+  data_.append(data.data(), data.size());
 
   base::Optional<chrome_browser_nearby_sharing_instantmessaging::StreamBody>
       stream_body = GetNextMessage();
@@ -32,8 +34,8 @@ StreamParser::GetNextMessage() {
   // Security Note - The StreamBody proto is coming from a trusted Google server
   // and hence can be parsed on the browser process.
 
-  // TODO(himanshujaju) - Add metrics to figure out which code paths are more
-  // used and the time taken to parse the incoming messages.
+  // TODO(crbug.com/1123172) - Add metrics to figure out which code paths are
+  // more used and the time taken to parse the incoming messages.
   if (data_.empty())
     return base::nullopt;
 
@@ -49,9 +51,9 @@ StreamParser::GetNextMessage() {
   int end_pos = 1;
   int size = data_.size();
   while (end_pos < size) {
-    // TODO(himanshujaju) - Optimize this function to use header information to
-    // figure out the start and end of proto instead of checking for every
-    // length.
+    // TODO(crbug.com/1123169) - Optimize this function to use header
+    // information to figure out the start and end of proto instead of checking
+    // for every length.
     if (stream_body.ParseFromArray(data_.data(), end_pos)) {
       data_.erase(data_.begin(), data_.begin() + end_pos);
       return stream_body;
@@ -73,9 +75,22 @@ void StreamParser::DelegateMessage(
     chrome_browser_nearby_sharing_instantmessaging::ReceiveMessagesResponse
         response;
     response.ParseFromString(stream_body.messages(i));
-    if (response.body_case() != chrome_browser_nearby_sharing_instantmessaging::
-                                    ReceiveMessagesResponse::kInboxMessage)
-      continue;
-    listener_.Run(response.inbox_message().message());
+    switch (response.body_case()) {
+      case chrome_browser_nearby_sharing_instantmessaging::
+          ReceiveMessagesResponse::kFastPathReady:
+        NS_LOG(INFO) << __func__ << ": received kFastPathReady";
+        if (fastpath_ready_callback_) {
+          std::move(fastpath_ready_callback_).Run();
+        }
+        break;
+      case chrome_browser_nearby_sharing_instantmessaging::
+          ReceiveMessagesResponse::kInboxMessage:
+        listener_.Run(response.inbox_message().message());
+        break;
+      default:
+        NS_LOG(ERROR) << __func__ << ": message body case was unexpected: "
+                      << response.body_case();
+        NOTREACHED();
+    }
   }
 }

@@ -39,10 +39,22 @@
         "description": "Accessibility gestures fired by the touch exploration controller."
       },
       {
+        "id": "MagnifierCommand",
+        "type": "string",
+        "enum": [ "moveStop", "moveUp", "moveDown", "moveLeft", "moveRight" ],
+        "description": "Commands for magnifier (e.g. move magnifier viewport up)."
+      },
+      {
         "id": "SwitchAccessCommand",
         "type": "string",
         "enum": [ "select", "next", "previous" ],
         "description": "Commands that can be triggered by switch activation."
+      },
+      {
+        "id": "PointScanState",
+        "type": "string",
+        "enum": ["start", "stop"],
+        "description" : "Point scanning states in Switch Access."
       },
       {
         "id": "SwitchAccessBubble",
@@ -51,9 +63,23 @@
         "description": "Different Switch Access bubbles that can be shown or hidden."
       },
       {
+        "id": "PointScanPoint",
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "number",
+            "description": "X coordinate of the selected point in DIPs."
+          },
+          "y": {
+            "type": "number",
+            "description": "Y coordinate of the selected point in DIPs."
+          }
+        }
+      },
+      {
         "id": "SwitchAccessMenuAction",
         "type": "string",
-        "enum": [ "copy", "cut", "decrement", "dictation", "endTextSelection", "increment", "jumpToBeginningOfText", "jumpToEndOfText", "keyboard", "moveBackwardOneCharOfText", "moveBackwardOneWordOfText", "moveCursor", "moveDownOneLineOfText", "moveForwardOneCharOfText", "moveForwardOneWordOfText", "moveUpOneLineOfText", "paste", "scrollDown", "scrollLeft", "scrollRight", "scrollUp", "select", "settings", "startTextSelection" ],
+        "enum": [ "copy", "cut", "decrement", "dictation", "endTextSelection", "increment", "itemScan", "jumpToBeginningOfText", "jumpToEndOfText", "keyboard", "leftClick", "moveBackwardOneCharOfText", "moveBackwardOneWordOfText", "moveCursor", "moveDownOneLineOfText", "moveForwardOneCharOfText", "moveForwardOneWordOfText", "moveUpOneLineOfText", "paste", "pointScan", "rightClick", "scrollDown", "scrollLeft", "scrollRight", "scrollUp", "select", "settings", "startTextSelection" ],
         "description": "Available actions to be shown in the Switch Access menu. Must be kept in sync with the strings in ash/system/accessibility/switch_access_menu_view.cc"
       },
       {
@@ -108,6 +134,12 @@
         "enum": ["press", "release", "drag", "move", "enter", "exit"]
       },
       {
+        "id": "SyntheticMouseEventButton",
+        "type": "string",
+        "description": "The button to send event on",
+        "enum": ["left", "middle", "right", "back", "foward"]
+      },
+      {
         "id": "SyntheticMouseEvent",
         "type": "object",
         "properties": {
@@ -117,6 +149,11 @@
           "touchAccessibility": {
             "type": "boolean",
             "description": "True if the touch accessibility flag should be set.",
+            "optional": true
+          },
+          "mouseButton": {
+            "$ref": "SyntheticMouseEventButton",
+            "description": "The default mouse button is set to left if mouseButton is not specified.",
             "optional": true
           }
         }
@@ -132,6 +169,12 @@
         "type": "string",
         "description": "The type of visual appearance for the focus ring.",
         "enum": ["glow", "solid", "dashed"]
+      },
+      {
+        "id": "FocusRingStackingOrder",
+        "type": "string",
+        "description": "Whether to stack focus rings above or below accessibility bubble panels. Note: focus rings will be stacked above most other UI in either case",
+        "enum": ["aboveAccessibilityBubbles", "belowAccessibilityBubbles"]
       },
       {
         "id": "FocusRingInfo",
@@ -160,14 +203,44 @@
             "description": "A RGB hex-value color string (e.g. #803F82E4) that describes the color drawn outside of the focus ring and over the rest of the display.",
             "optional": true
           },
+          "stackingOrder": {
+            "$ref": "FocusRingStackingOrder",
+            "description": "The FocusType for the ring.",
+            "optional": true
+          },
           "id": {
             "type": "string",
             "description": "An identifier for this focus ring, unique within the extension.",
             "optional": true
           }
         }
+      },
+      {
+        "id": "AcceleratorAction",
+        "type": "string",
+        "enum": [ "focusPreviousPane", "focusNextPane" ],
+        "description": "A subset of accelerator actions used by accessibility."
+      },
+      {
+        "id": "AccessibilityFeature",
+        "type": "string",
+        "enum": [ "selectToSpeakNavigationControl" ],
+        "description": "Subset of accessibility features."
+      },
+      {
+        "id": "SelectToSpeakPanelAction",
+        "type": "string",
+        "enum": [ "previousParagraph", "previousSentence", "pause", "resume", "nextSentence", "nextParagraph", "exit", "changeSpeed" ],
+        "description": "Actions that can be performed in the Select-to-speak panel."
       }
     ],
+    "properties": {
+      "IS_DEFAULT_EVENT_SOURCE_TOUCH": {
+        "type": "integer",
+        "value": 0,
+        "description": "Property to indicate whether event source should default to touch."
+      }
+    },
     "functions": [
       {
         "name": "getDisplayNameForLocale",
@@ -326,6 +399,19 @@
         "platforms": ["chromeos"]
       },
       {
+        "name": "setPointScanState",
+        "type": "function",
+        "description": "Sets point scanning state Switch Access.",
+        "parameters": [
+          {
+            "name": "state",
+            "$ref": "PointScanState",
+            "description": "The point scanning state to set."
+          }
+        ],
+        "platforms": ["chromeos"]
+      },
+      {
         "name": "setNativeChromeVoxArcSupportForCurrentApp",
         "type": "function",
         "description": "Sets current ARC app to use native ARC support.",
@@ -352,14 +438,14 @@
         "platforms": ["chromeos"]
       },
       {
-        "name": "enableChromeVoxMouseEvents",
+        "name": "enableMouseEvents",
         "type": "function",
-        "description": "Enables or disables mouse events in ChromeVox.",
+        "description": "Enables or disables mouse events in accessibility extensions",
         "parameters": [
           {
             "name": "enabled",
             "type": "boolean",
-            "description": "True if ChromeVox should receive mouse events."
+            "description": "True if accessibility component extensions should receive mouse events."
           }
         ],
         "platforms": ["chromeos"]
@@ -378,7 +464,7 @@
         "platforms": ["chromeos"]
       },
       {
-        "name": "onSelectToSpeakStateChanged",
+        "name": "setSelectToSpeakState",
         "type": "function",
         "description": "Called by the Select-to-Speak extension when Select-to-Speak has changed states, between selecting with the mouse, speaking, and inactive.",
         "parameters": [
@@ -390,13 +476,26 @@
         "platforms": ["chromeos"]
       },
       {
-        "name": "onScrollableBoundsForPointFound",
+        "name": "handleScrollableBoundsForPointFound",
         "type": "function",
-        "description": "Called by the Accessibility Common extension when findScrollableBoundsForPoint has found a scrolling container. |rect| will be the bounds of the nearest scrollable ancestor of the node at the point requested using findScrollableBoundsForPoint.",
+        "description": "Called by the Accessibility Common extension when onScrollableBoundsForPointRequested has found a scrolling container. |rect| will be the bounds of the nearest scrollable ancestor of the node at the point requested using onScrollableBoundsForPointRequested.",
         "parameters": [
           {
             "name": "rect",
             "$ref": "ScreenRect"
+          }
+        ],
+        "platforms": ["chromeos"]
+      },
+      {
+        "name": "moveMagnifierToRect",
+        "type": "function",
+        "description": "Called by the Accessibility Common extension to move |rect| within the magnifier viewport (e.g. when focus has changed). If |rect| is already completely within the viewport, magnifier doesn't move. If any edge of |rect| is outside the viewport (e.g. if rect is larger than or extends partially beyond the viewport), magnifier will center the overflowing dimensions of the viewport on center of |rect| (e.g. center viewport vertically if |rect| extends beyond bottom of screen).",
+        "parameters": [
+          {
+            "name": "rect",
+            "$ref": "ScreenRect",
+            "description": "Rect to ensure visible in the magnified viewport."
           }
         ],
         "platforms": ["chromeos"]
@@ -428,6 +527,72 @@
           {
             "name": "subpage",
             "type": "string"
+          }
+        ],
+        "platforms": ["chromeos"]
+      },
+      {
+        "name": "performAcceleratorAction",
+        "type": "function",
+        "description": "Performs an accelerator action.",
+        "parameters": [
+          {
+            "name": "acceleratorAction",
+            "$ref": "AcceleratorAction"
+          }
+        ],
+        "platforms": ["chromeos"]
+      },
+      {
+        "name": "isFeatureEnabled",
+        "type": "function",
+        "description": "Checks to see if an accessibility feature is enabled.",
+        "parameters": [
+          {
+            "name": "feature",
+            "$ref": "AccessibilityFeature"
+          },
+          {
+            "name": "callback",
+            "type": "function",
+            "description": "Returns whether feature is enabled.",
+            "parameters": [
+              {
+                "name": "featureEnabled",
+                "type": "boolean"
+              }
+            ]
+          }
+        ],
+        "platforms": ["chromeos"]
+      },
+      {
+        "name": "updateSelectToSpeakPanel",
+        "type": "function",
+        "description": "Updates properties of the Select-to-speak panel.",
+        "parameters": [
+          {
+            "name": "show",
+            "type": "boolean",
+            "description": "True to show panel, false to hide it"
+          },
+          {
+            "name": "anchor",
+            "$ref": "ScreenRect",
+            "description": "A rectangle indicating the bounds of the object the panel should be displayed next to.",
+            "optional": true
+          },
+          {
+            "name": "isPaused",
+            "type": "boolean",
+            "description": "True if Select-to-speak playback is paused.",
+            "optional": true
+          },
+          {
+            "name": "speed",
+            "type": "number",
+            "description": "Current reading speed (TTS speech rate).",
+            "optional": true
           }
         ],
         "platforms": ["chromeos"]
@@ -478,6 +643,23 @@
         "platforms": ["chromeos"]
       },
       {
+        "name": "onSelectToSpeakPanelAction",
+        "type": "function",
+        "description": "Fired when an action is performed in the Select-to-speak panel.",
+        "parameters": [
+          {
+            "name": "action",
+            "$ref": "SelectToSpeakPanelAction"
+          },
+          {
+            "name": "value",
+            "type": "number",
+            "optional": true
+          }
+        ],
+        "platforms": ["chromeos"]
+      },
+      {
         "name": "onSwitchAccessCommand",
         "type": "function",
         "description": "Fired when Chrome OS has received a key event corresponding to a Switch Access command.",
@@ -485,6 +667,30 @@
           {
             "name": "command",
             "$ref": "SwitchAccessCommand"
+          }
+        ],
+        "platforms": ["chromeos"]
+      },
+      {
+        "name": "onPointScanSet",
+        "type": "function",
+        "description": "Fired when Chrome OS has received the final point of point scanning.",
+        "parameters": [
+          {
+            "name": "point",
+            "$ref": "PointScanPoint"
+          }
+        ],
+        "platforms": ["chromeos"]
+      },
+      {
+        "name": "onMagnifierCommand",
+        "type": "function",
+        "description": "Fired when Chrome OS has received a key event corresponding to a Magnifier command.",
+        "parameters": [
+          {
+            "name": "command",
+            "$ref": "MagnifierCommand"
           }
         ],
         "platforms": ["chromeos"]
@@ -504,7 +710,7 @@
         "platforms": ["chromeos"]
       },
       {
-        "name": "findScrollableBoundsForPoint",
+        "name": "onScrollableBoundsForPointRequested",
         "type": "function",
         "description": "Fired when an internal component within accessibility wants to find the nearest scrolling container at a given screen coordinate. Used in Automatic Clicks.",
         "parameters": [
@@ -517,6 +723,19 @@
             "name": "y",
             "type": "number",
             "description": "Y screen coordinate of the point."
+          }
+        ],
+        "platforms": ["chromeos"]
+      },
+      {
+        "name": "onMagnifierBoundsChanged",
+        "type": "function",
+        "description": "Fired when Chrome OS magnifier bounds are updated.",
+        "parameters": [
+          {
+            "name": "magnifierBounds",
+            "$ref": "ScreenRect",
+            "description": "Updated bounds of magnifier viewport."
           }
         ],
         "platforms": ["chromeos"]

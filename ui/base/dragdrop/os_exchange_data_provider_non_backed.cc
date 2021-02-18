@@ -10,9 +10,11 @@
 #include "base/files/file_path.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/chromeos_buildflags.h"
 #include "net/base/filename_util.h"
 #include "ui/base/clipboard/clipboard_format_type.h"
-#include "ui/base/dragdrop/file_info/file_info.h"
+#include "ui/base/clipboard/file_info.h"
+#include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "url/gurl.h"
 
@@ -35,6 +37,12 @@ std::unique_ptr<OSExchangeDataProvider> OSExchangeDataProviderNonBacked::Clone()
   // We skip copying the drag images.
   clone->html_ = html_;
   clone->base_url_ = base_url_;
+  clone->source_ =
+      source_ ? std::make_unique<ui::DataTransferEndpoint>(*source_.get())
+              : nullptr;
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
+  clone->originated_from_renderer_ = originated_from_renderer_;
+#endif
 
   return clone;
 }
@@ -42,10 +50,17 @@ std::unique_ptr<OSExchangeDataProvider> OSExchangeDataProviderNonBacked::Clone()
 void OSExchangeDataProviderNonBacked::MarkOriginatedFromRenderer() {
   // TODO(dcheng): Currently unneeded because ChromeOS Aura correctly separates
   // URL and filename metadata, and does not implement the DownloadURL protocol.
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
+  originated_from_renderer_ = true;
+#endif
 }
 
 bool OSExchangeDataProviderNonBacked::DidOriginateFromRenderer() const {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   return false;
+#else
+  return originated_from_renderer_;
+#endif
 }
 
 void OSExchangeDataProviderNonBacked::SetString(const base::string16& data) {
@@ -85,6 +100,15 @@ void OSExchangeDataProviderNonBacked::SetPickledData(
 }
 
 bool OSExchangeDataProviderNonBacked::GetString(base::string16* data) const {
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+  if (HasFile()) {
+    // Various Linux file managers both pass a list of file:// URIs and set the
+    // string representation to the URI. We explicitly don't want to return use
+    // this representation.
+    return false;
+  }
+#endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
+
   if ((formats_ & OSExchangeData::STRING) == 0)
     return false;
   *data = string_;
@@ -160,11 +184,11 @@ bool OSExchangeDataProviderNonBacked::HasCustomFormat(
   return base::Contains(pickle_data_, format);
 }
 
-#if defined(USE_X11)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
 void OSExchangeDataProviderNonBacked::SetFileContents(
     const base::FilePath& filename,
     const std::string& file_contents) {
-  NOTREACHED();
+  NOTIMPLEMENTED();
 }
 #endif
 
@@ -228,6 +252,15 @@ bool OSExchangeDataProviderNonBacked::GetPlainTextURL(GURL* url) const {
   if (url)
     *url = test_url;
   return true;
+}
+
+void OSExchangeDataProviderNonBacked::SetSource(
+    std::unique_ptr<DataTransferEndpoint> data_source) {
+  source_ = std::move(data_source);
+}
+
+DataTransferEndpoint* OSExchangeDataProviderNonBacked::GetSource() const {
+  return source_.get();
 }
 
 }  // namespace ui

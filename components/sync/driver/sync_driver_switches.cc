@@ -40,10 +40,6 @@ const char kSyncShortInitialRetryOverride[] =
 // sure that it's what you want.
 const char kSyncShortNudgeDelayForTest[] = "sync-short-nudge-delay-for-test";
 
-// If enabled, the sync engine will be shut down in the "paused" state.
-const base::Feature kStopSyncInPausedState{"StopSyncInPausedState",
-                                           base::FEATURE_ENABLED_BY_DEFAULT};
-
 // Allows custom passphrase users to receive Wallet data for secondary accounts
 // while in transport-only mode.
 const base::Feature kSyncAllowWalletDataInTransportModeWithCustomPassphrase{
@@ -58,9 +54,6 @@ const base::Feature kSyncAutofillWalletOfferData{
 const base::Feature kSyncWifiConfigurations{"SyncWifiConfigurations",
                                             base::FEATURE_ENABLED_BY_DEFAULT};
 
-const base::Feature kSyncDeviceInfoInTransportMode{
-    "SyncDeviceInfoInTransportMode", base::FEATURE_ENABLED_BY_DEFAULT};
-
 // Stops honoring the Android master sync toggle.
 const base::Feature kDecoupleSyncFromAndroidMasterSync{
     "DecoupleSyncFromAndroidMasterSync", base::FEATURE_DISABLED_BY_DEFAULT};
@@ -69,5 +62,32 @@ const base::Feature kDecoupleSyncFromAndroidMasterSync{
 // registration).
 const base::Feature kFollowTrustedVaultKeyRotation{
     "FollowTrustedVaultKeyRotation", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Allows device registration within trusted vault server without having trusted
+// vault key. Effectively disabled if kFollowTrustedVaultKeyRotation is
+// disabled.
+const base::Feature kAllowSilentTrustedVaultDeviceRegistration{
+    "AllowSilentTrustedVaultDeviceRegistration",
+    base::FEATURE_ENABLED_BY_DEFAULT};
+
+// Specifies how long requests to vault service shouldn't be retried after
+// encountering transient error.
+const base::FeatureParam<base::TimeDelta>
+    kTrustedVaultServiceThrottlingDuration{
+        &kFollowTrustedVaultKeyRotation,
+        "TrustedVaultServiceThrottlingDuration", base::TimeDelta::FromDays(1)};
+
+// Sync requires policies to be loaded before starting.
+const base::Feature kSyncRequiresPoliciesLoaded{
+    "SyncRequiresPoliciesLoaded", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Max time to delay the sync startup while waiting for policies to load.
+const base::FeatureParam<base::TimeDelta> kSyncPolicyLoadTimeout{
+    &kSyncRequiresPoliciesLoaded, "SyncPolicyLoadTimeout",
+    base::TimeDelta::FromSeconds(10)};
+
+const base::Feature kSyncSupportTrustedVaultPassphraseRecovery{
+    "SyncSupportTrustedVaultPassphraseRecovery",
+    base::FEATURE_DISABLED_BY_DEFAULT};
 
 }  // namespace switches

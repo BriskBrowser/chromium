@@ -8,6 +8,7 @@ import android.util.Pair;
 
 import androidx.annotation.IntDef;
 
+import org.chromium.chrome.browser.password_check.helper.PasswordCheckIconHelper.FaviconOrFallback;
 import org.chromium.ui.modelutil.ListModel;
 import org.chromium.ui.modelutil.MVCListAdapter;
 import org.chromium.ui.modelutil.PropertyKey;
@@ -52,9 +53,12 @@ class PasswordCheckProperties {
                 new PropertyModel.ReadableObjectPropertyKey<>("credential_handler");
         static final PropertyModel.ReadableBooleanPropertyKey HAS_MANUAL_CHANGE_BUTTON =
                 new PropertyModel.ReadableBooleanPropertyKey("has_change_button");
+        static final PropertyModel
+                .WritableObjectPropertyKey<FaviconOrFallback> FAVICON_OR_FALLBACK =
+                new PropertyModel.WritableObjectPropertyKey<>("favicon");
 
-        static final PropertyKey[] ALL_KEYS = {
-                COMPROMISED_CREDENTIAL, CREDENTIAL_HANDLER, HAS_MANUAL_CHANGE_BUTTON};
+        static final PropertyKey[] ALL_KEYS = {COMPROMISED_CREDENTIAL, CREDENTIAL_HANDLER,
+                HAS_MANUAL_CHANGE_BUTTON, FAVICON_OR_FALLBACK};
 
         private CompromisedCredentialProperties() {}
     }
@@ -78,10 +82,12 @@ class PasswordCheckProperties {
                 new PropertyModel.ReadableObjectPropertyKey<>("launch_account_checkup_action");
         static final PropertyModel.ReadableObjectPropertyKey<Runnable> RESTART_BUTTON_ACTION =
                 new PropertyModel.ReadableObjectPropertyKey<>("restart_button_action");
+        static final PropertyModel.WritableBooleanPropertyKey SHOW_CHECK_SUBTITLE =
+                new PropertyModel.WritableBooleanPropertyKey("show_check_subtitle");
 
         static final PropertyKey[] ALL_KEYS = {CHECK_PROGRESS, CHECK_STATUS, CHECK_TIMESTAMP,
-                COMPROMISED_CREDENTIALS_COUNT, LAUNCH_ACCOUNT_CHECKUP_ACTION,
-                RESTART_BUTTON_ACTION};
+                COMPROMISED_CREDENTIALS_COUNT, LAUNCH_ACCOUNT_CHECKUP_ACTION, RESTART_BUTTON_ACTION,
+                SHOW_CHECK_SUBTITLE};
 
         static final Pair<Integer, Integer> UNKNOWN_PROGRESS = new Pair<>(-1, -1);
 

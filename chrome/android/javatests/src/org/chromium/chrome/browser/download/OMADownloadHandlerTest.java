@@ -15,13 +15,16 @@ import androidx.test.filters.SmallTest;
 import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Rule;
+import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.Callback;
 import org.chromium.base.test.util.AdvancedMockContext;
+import org.chromium.base.test.util.Batch;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.chrome.browser.download.DownloadManagerBridge.DownloadQueryResult;
@@ -33,8 +36,6 @@ import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.components.offline_items_collection.OfflineItem;
 import org.chromium.components.offline_items_collection.OfflineItemState;
 import org.chromium.components.offline_items_collection.UpdateDelta;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServer;
 
@@ -47,9 +48,10 @@ import java.util.Set;
  * Tests for OMADownloadHandler class.
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
+@Batch(Batch.PER_CLASS)
 public class OMADownloadHandlerTest {
-    @Rule
-    public final ChromeBrowserTestRule mBrowserTestRule = new ChromeBrowserTestRule();
+    @ClassRule
+    public static final ChromeBrowserTestRule sBrowserTestRule = new ChromeBrowserTestRule();
 
     private static final String INSTALL_NOTIFY_URI = "http://test/test";
 
@@ -76,7 +78,7 @@ public class OMADownloadHandlerTest {
         public OfflineItem mLastUpdatedItem;
 
         public TestInfoBarController() {
-            super(false);
+            super(/*otrProfileID=*/null);
         }
 
         @Override

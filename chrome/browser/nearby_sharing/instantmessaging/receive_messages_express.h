@@ -55,6 +55,7 @@ class ReceiveMessagesExpress : public network::SimpleURLLoaderStreamConsumer {
   void DoStartReceivingMessages(
       const chrome_browser_nearby_sharing_instantmessaging::
           ReceiveMessagesExpressRequest& request,
+      base::RepeatingCallback<void(const std::string& message)> listener,
       const std::string& oauth_token);
 
   // network::SimpleURLLoaderStreamConsumer:
@@ -62,6 +63,8 @@ class ReceiveMessagesExpress : public network::SimpleURLLoaderStreamConsumer {
                       base::OnceClosure resume) override;
   void OnComplete(bool success) override;
   void OnRetry(base::OnceClosure start_retry) override;
+
+  void OnFastPathReady();
 
   TokenFetcher* token_fetcher_;
   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;

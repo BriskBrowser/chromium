@@ -34,9 +34,11 @@ static base::flat_set<std::string>& KnownAccessories() {
 }
 
 AndroidAccessoryDiscovery::AndroidAccessoryDiscovery(
-    mojo::Remote<device::mojom::UsbDeviceManager> device_manager)
+    mojo::Remote<device::mojom::UsbDeviceManager> device_manager,
+    std::string request_description)
     : FidoDeviceDiscovery(FidoTransportProtocol::kUsbHumanInterfaceDevice),
-      device_manager_(std::move(device_manager)) {}
+      device_manager_(std::move(device_manager)),
+      request_description_(std::move(request_description)) {}
 
 AndroidAccessoryDiscovery::~AndroidAccessoryDiscovery() = default;
 
@@ -58,9 +60,9 @@ void AndroidAccessoryDiscovery::OnDeviceAdded(
   }
 
   mojo::Remote<device::mojom::UsbDevice> device;
-  device_manager_->GetDevice(device_info->guid,
-                             device.BindNewPipeAndPassReceiver(),
-                             mojo::NullRemote() /* device_client */);
+  device_manager_->GetSecurityKeyDevice(device_info->guid,
+                                        device.BindNewPipeAndPassReceiver(),
+                                        /*device_client=*/mojo::NullRemote());
 
   auto* device_ptr = device.get();
   if (device_info->vendor_id == 0x18d1 &&
@@ -183,6 +185,7 @@ void AndroidAccessoryDiscovery::OnOpenAccessory(
         base::BindOnce(&AndroidAccessoryDiscovery::OnAccessoryConfigured,
                        weak_factory_.GetWeakPtr(), std::move(device),
                        interface_info));
+    return;
   }
 
   OnAccessoryConfigured(std::move(device), interface_info, /*success=*/true);
@@ -349,40 +352,54 @@ void AndroidAccessoryDiscovery::OnConfigurationStepComplete(
     return;
   }
 
-  static const size_t kNumStrings = 3;
-  static const char kStrings[kNumStrings][24] = {
-      "Chromium",              // manufacturer
-      "Chromium",              // model
-      "Security key request",  // description. TODO(agl): translate.
-  };
-
+  // The semantics of each step number are defined at
+  // https://source.android.com/devices/accessories/aoa#attempt-to-start-in-accessory-mode
   auto* device_ptr = device.get();
-  if (step < kNumStrings) {
-    device_ptr->ControlTransferOut(
-        ControlTransferParams(kSendString, step),
-        VectorFromString(kStrings[step]), kTimeoutMilliseconds,
-        base::BindOnce(&AndroidAccessoryDiscovery::OnConfigurationStepComplete,
-                       weak_factory_.GetWeakPtr(), std::move(device),
-                       step + 1));
-    return;
-  } else if (step == kNumStrings) {
-    device_ptr->ControlTransferOut(
-        ControlTransferParams(kSendString, step),
-        VectorFromString(kCableOverAOAVersion), kTimeoutMilliseconds,
-        base::BindOnce(&AndroidAccessoryDiscovery::OnConfigurationStepComplete,
-                       weak_factory_.GetWeakPtr(), std::move(device),
-                       step + 1));
-    return;
-  } else if (step == kNumStrings + 1) {
-    device_ptr->ControlTransferOut(
-        ControlTransferParams(kStart), {}, kTimeoutMilliseconds,
-        base::BindOnce(&AndroidAccessoryDiscovery::OnConfigurationStepComplete,
-                       weak_factory_.GetWeakPtr(), std::move(device),
-                       step + 1));
-    return;
+  std::vector<uint8_t> encoded_string;
+  switch (step) {
+    case 0:
+      // Manufacturer.
+      encoded_string = VectorFromString("Chromium");
+      break;
+
+    case 1:
+      // Model.
+      encoded_string = VectorFromString(
+          device::mojom::UsbControlTransferParams::kSecurityKeyAOAModel);
+      break;
+
+    case 2:
+      encoded_string = VectorFromString(request_description_.c_str());
+      break;
+
+    case 3:
+      // Version. Always some value as a version in order to avoid a potential
+      // Android crash. See https://crbug.com/1174217.
+      encoded_string = VectorFromString("1");
+      break;
+
+    case 4:
+      // Finished sending strings; request switch to AOA mode.
+      device_ptr->ControlTransferOut(
+          ControlTransferParams(kStart), {}, kTimeoutMilliseconds,
+          base::BindOnce(
+              &AndroidAccessoryDiscovery::OnConfigurationStepComplete,
+              weak_factory_.GetWeakPtr(), std::move(device), step + 1));
+      return;
+
+    case 5:
+      FIDO_LOG(DEBUG) << "Device requested to switch to accessory mode";
+      return;
+
+    default:
+      CHECK(false);
   }
 
-  FIDO_LOG(DEBUG) << "Device requested to switch to accessory mode";
+  device_ptr->ControlTransferOut(
+      ControlTransferParams(kSendString, step), encoded_string,
+      kTimeoutMilliseconds,
+      base::BindOnce(&AndroidAccessoryDiscovery::OnConfigurationStepComplete,
+                     weak_factory_.GetWeakPtr(), std::move(device), step + 1));
 }
 
 void AndroidAccessoryDiscovery::OnDeviceRemoved(
@@ -403,8 +420,9 @@ void AndroidAccessoryDiscovery::OnGetDevices(
     FIDO_LOG(DEBUG) << "Previously opened accessory device found.";
 
     mojo::Remote<device::mojom::UsbDevice> device;
-    device_manager_->GetDevice(guid, device.BindNewPipeAndPassReceiver(),
-                               mojo::NullRemote() /* device_client */);
+    device_manager_->GetSecurityKeyDevice(guid,
+                                          device.BindNewPipeAndPassReceiver(),
+                                          /*device_client=*/mojo::NullRemote());
 
     HandleAccessoryDevice(std::move(device), std::move(device_info));
   }

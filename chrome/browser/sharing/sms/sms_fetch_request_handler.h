@@ -29,7 +29,7 @@ class SmsFetchRequestHandler : public SharingMessageHandler {
                  SharingMessageHandler::DoneCallback done_callback) override;
 
  private:
-  // Request represents an incoming request from a remote SmsService.
+  // Request represents an incoming request from a remote WebOTPService.
   // It manages subscribing and unsubscribing for SMSes in SmsFetcher and
   // responding to the callback.
   // It also lets SmsFetchRequestHandler know when the request is fulfilled
@@ -42,12 +42,14 @@ class SmsFetchRequestHandler : public SharingMessageHandler {
             SharingMessageHandler::DoneCallback respond_callback);
     ~Request() override;
 
-    void OnReceive(const std::string& one_time_code) override;
+    void OnReceive(const std::string& one_time_code,
+                   content::SmsFetcher::UserConsent) override;
+    void OnFailure(content::SmsFetcher::FailureType failure_type) override;
 
    private:
     SmsFetchRequestHandler* handler_;
     content::SmsFetcher* fetcher_;
-    const url::Origin& origin_;
+    const content::OriginList origin_list_;
     SharingMessageHandler::DoneCallback respond_callback_;
 
     DISALLOW_COPY_AND_ASSIGN(Request);

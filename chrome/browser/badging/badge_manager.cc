@@ -37,6 +37,8 @@
 namespace badging {
 
 BadgeManager::BadgeManager(Profile* profile) {
+  // The delegate is also set for Chrome OS but is set from the constructor of
+  // web_apps_chromeos.cc.
 #if defined(OS_MAC)
   SetDelegate(std::make_unique<BadgeManagerDelegateMac>(profile, this));
 #elif defined(OS_WIN)
@@ -215,7 +217,7 @@ BadgeManager::FrameBindingContext::GetAppIdsAndUrlsForBadging() const {
   if (!app_id)
     return std::vector<std::tuple<web_app::AppId, GURL>>{};
   return std::vector<std::tuple<web_app::AppId, GURL>>{std::make_tuple(
-      app_id.value(), registrar.GetAppLaunchURL(app_id.value()))};
+      app_id.value(), registrar.GetAppStartUrl(app_id.value()))};
 }
 
 std::vector<std::tuple<web_app::AppId, GURL>>
@@ -234,7 +236,7 @@ BadgeManager::ServiceWorkerBindingContext::GetAppIdsAndUrlsForBadging() const {
   std::vector<std::tuple<web_app::AppId, GURL>> app_ids_urls{};
   for (const auto& app_id : registrar.FindAppsInScope(scope_)) {
     app_ids_urls.push_back(
-        std::make_tuple(app_id, registrar.GetAppLaunchURL(app_id)));
+        std::make_tuple(app_id, registrar.GetAppStartUrl(app_id)));
   }
   return app_ids_urls;
 }

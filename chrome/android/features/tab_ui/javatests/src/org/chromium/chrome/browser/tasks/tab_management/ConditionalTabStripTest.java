@@ -4,8 +4,6 @@
 
 package org.chromium.chrome.browser.tasks.tab_management;
 
-import static android.os.Build.VERSION_CODES.M;
-
 import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.action.ViewActions.click;
 import static androidx.test.espresso.action.ViewActions.longClick;
@@ -31,12 +29,12 @@ import static org.chromium.chrome.browser.flags.ChromeFeatureList.TAB_GRID_LAYOU
 import static org.chromium.chrome.browser.flags.ChromeFeatureList.TAB_GROUPS_ANDROID;
 import static org.chromium.chrome.browser.tasks.ConditionalTabStripUtils.CONDITIONAL_TAB_STRIP_SESSION_TIME_MS;
 import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.createTabs;
-import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.enterTabSwitcher;
 import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.verifyTabModelTabCount;
 import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.verifyTabStripFaviconCount;
 
 import android.content.Context;
 import android.os.Build;
+import android.os.Build.VERSION_CODES;
 import android.support.test.InstrumentationRegistry;
 import android.view.View;
 import android.widget.ListView;
@@ -46,15 +44,21 @@ import androidx.test.espresso.contrib.RecyclerViewActions;
 import androidx.test.filters.MediumTest;
 
 import org.hamcrest.Matchers;
+import org.junit.After;
 import org.junit.Before;
+import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.DisabledTest;
+import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.TabsTest.SimulateClickOnMainThread;
@@ -80,13 +84,12 @@ import org.chromium.chrome.browser.util.ChromeAccessibilityUtil;
 import org.chromium.chrome.tab_ui.R;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.batch.BlankCTATabInitialStateRule;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.OverviewModeBehaviorWatcher;
 import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.content_public.browser.LoadUrlParams;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.test.util.UiRestriction;
 
@@ -95,15 +98,22 @@ import java.util.concurrent.ExecutionException;
 /** End-to-end tests for conditional tab strip component. */
 @RunWith(ChromeJUnit4ClassRunner.class)
 // clang-format off
-@CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
+@CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE,
+        ChromeSwitches.DISABLE_STARTUP_PROMOS})
 @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
 @Features.EnableFeatures({CONDITIONAL_TAB_STRIP_ANDROID})
 @Features.DisableFeatures({TAB_GRID_LAYOUT_ANDROID, TAB_GROUPS_ANDROID, START_SURFACE_ANDROID})
+@Batch(Batch.PER_CLASS)
 public class ConditionalTabStripTest {
     // clang-format on
     private static final int TEST_SESSION_MS = 600000;
     private static final int SWIPE_TO_RIGHT_DIRECTION = 1;
     private static final int SWIPE_TO_LEFT_DIRECTION = -1;
+
+    @ClassRule
+    public static final ChromeTabbedActivityTestRule sActivityTestRule =
+            new ChromeTabbedActivityTestRule();
+
     private SimulateTabSwipeOnMainThread mSwipeToNormal;
     private SimulateTabSwipeOnMainThread mSwipeToIncognito;
     private float mPxToDp = 1f;
@@ -111,7 +121,8 @@ public class ConditionalTabStripTest {
     private float mTabsViewWidthDp;
 
     @Rule
-    public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
+    public final BlankCTATabInitialStateRule mInitialStateRule =
+            new BlankCTATabInitialStateRule(sActivityTestRule, false);
 
     @Before
     public void setUp() {
@@ -121,9 +132,9 @@ public class ConditionalTabStripTest {
         CONDITIONAL_TAB_STRIP_SESSION_TIME_MS.setForTesting(0);
         ConditionalTabStripUtils.setOptOutIndicator(false);
         ConditionalTabStripUtils.setContinuousDismissCount(0);
+        ConditionalTabStripUtils.setFeatureStatus(ConditionalTabStripUtils.FeatureStatus.DEFAULT);
 
-        mActivityTestRule.startMainActivityOnBlankPage();
-        ChromeTabbedActivity cta = mActivityTestRule.getActivity();
+        ChromeTabbedActivity cta = sActivityTestRule.getActivity();
         CriteriaHelper.pollUiThread(cta.getTabModelSelector()::isTabStateInitialized);
 
         float dpToPx = InstrumentationRegistry.getInstrumentation()
@@ -132,7 +143,7 @@ public class ConditionalTabStripTest {
                                .getDisplayMetrics()
                                .density;
         mPxToDp = 1.0f / dpToPx;
-        View tabsView = mActivityTestRule.getActivity().getTabsView();
+        View tabsView = cta.getTabsView();
         mTabsViewHeightDp = tabsView.getHeight() * mPxToDp;
         mTabsViewWidthDp = tabsView.getWidth() * mPxToDp;
         mSwipeToIncognito =
@@ -142,11 +153,28 @@ public class ConditionalTabStripTest {
                 mTabsViewHeightDp / 2, SWIPE_TO_RIGHT_DIRECTION * mTabsViewWidthDp, 0);
     }
 
+    @After
+    public void tearDown() {
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            sActivityTestRule.getActivity().getTabModelSelector().getModel(true).closeAllTabs();
+            ChromeAccessibilityUtil.get().setAccessibilityEnabledForTesting(null);
+        });
+    }
+
+    private void enterTabSwitcher(ChromeTabbedActivity cta) {
+        OverviewModeBehaviorWatcher showWatcher = TabUiTestHelper.createOverviewShowWatcher(cta);
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> { cta.findViewById(R.id.tab_switcher_button).performClick(); });
+        showWatcher.waitForBehavior();
+    }
+
     @Test
     @MediumTest
-    @DisableIf.Build(sdk_is_less_than = M, message = "crbug.com/1081832")
-    public void testStrip_updateWithAddition() throws Exception {
-        ChromeTabbedActivity cta = mActivityTestRule.getActivity();
+    @DisableIf.Build(sdk_is_less_than = VERSION_CODES.O,
+            message = "Failing or flaky on N & P, see crbug.com/1177383 & crbug.com/1081832")
+    public void
+    testStrip_updateWithAddition() throws Exception {
+        ChromeTabbedActivity cta = sActivityTestRule.getActivity();
         verifyHidingStrip();
 
         // Unintentional tab creation will not trigger tab strip.
@@ -193,7 +221,7 @@ public class ConditionalTabStripTest {
     @Test
     @MediumTest
     public void testStrip_updateWithClosure() throws Exception {
-        ChromeTabbedActivity cta = mActivityTestRule.getActivity();
+        ChromeTabbedActivity cta = sActivityTestRule.getActivity();
         verifyHidingStrip();
 
         createTabs(cta, false, 3);
@@ -216,7 +244,7 @@ public class ConditionalTabStripTest {
     @Test
     @MediumTest
     public void testStrip_updateWithSelection() throws Exception {
-        ChromeTabbedActivity cta = mActivityTestRule.getActivity();
+        ChromeTabbedActivity cta = sActivityTestRule.getActivity();
         verifyHidingStrip();
 
         for (int i = 0; i < 3; i++) {
@@ -243,7 +271,7 @@ public class ConditionalTabStripTest {
     @Test
     @MediumTest
     public void testStrip_updateWithTabModelSwitch() throws Exception {
-        ChromeTabbedActivity cta = mActivityTestRule.getActivity();
+        ChromeTabbedActivity cta = sActivityTestRule.getActivity();
         verifyHidingStrip();
 
         createTabs(cta, false, 3);
@@ -273,7 +301,7 @@ public class ConditionalTabStripTest {
     @Test
     @MediumTest
     public void testStrip_createTabWithStrip() throws Exception {
-        ChromeTabbedActivity cta = mActivityTestRule.getActivity();
+        ChromeTabbedActivity cta = sActivityTestRule.getActivity();
         verifyHidingStrip();
 
         // Test creating normal tabs by clicking the plus button in tab strip.
@@ -305,7 +333,7 @@ public class ConditionalTabStripTest {
     @Test
     @MediumTest
     public void testStrip_switchTabWithStrip() throws Exception {
-        ChromeTabbedActivity cta = mActivityTestRule.getActivity();
+        ChromeTabbedActivity cta = sActivityTestRule.getActivity();
         verifyHidingStrip();
 
         createTabs(cta, false, 4);
@@ -322,7 +350,7 @@ public class ConditionalTabStripTest {
     @Test
     @MediumTest
     public void testStrip_closeTabWithStrip() throws Exception {
-        ChromeTabbedActivity cta = mActivityTestRule.getActivity();
+        ChromeTabbedActivity cta = sActivityTestRule.getActivity();
         verifyHidingStrip();
 
         createTabs(cta, false, 2);
@@ -363,7 +391,7 @@ public class ConditionalTabStripTest {
     @Test
     @MediumTest
     public void testStrip_dismiss() throws Exception {
-        ChromeTabbedActivity cta = mActivityTestRule.getActivity();
+        ChromeTabbedActivity cta = sActivityTestRule.getActivity();
         verifyHidingStrip();
 
         triggerStripAndDismiss(cta);
@@ -381,7 +409,7 @@ public class ConditionalTabStripTest {
     @Test
     @MediumTest
     public void testStrip_disabled_expired() throws Exception {
-        triggerStripAndDismiss(mActivityTestRule.getActivity());
+        triggerStripAndDismiss(sActivityTestRule.getActivity());
 
         ChromeTabbedActivity cta = restartChrome();
         verifyHidingStrip();
@@ -393,7 +421,7 @@ public class ConditionalTabStripTest {
     @Test
     @MediumTest
     public void testStrip_disabled_notExpired() throws Exception {
-        triggerStripAndDismiss(mActivityTestRule.getActivity());
+        triggerStripAndDismiss(sActivityTestRule.getActivity());
 
         // Update the session time so that the disabled state is not expired for next restart.
         CONDITIONAL_TAB_STRIP_SESSION_TIME_MS.setForTesting(TEST_SESSION_MS);
@@ -407,7 +435,7 @@ public class ConditionalTabStripTest {
     @Test
     @MediumTest
     public void testStrip_enabled_expired() throws Exception {
-        ChromeTabbedActivity cta = mActivityTestRule.getActivity();
+        ChromeTabbedActivity cta = sActivityTestRule.getActivity();
         for (int i = 0; i < 3; i++) {
             createBlankPageWithLaunchType(cta, false, TabLaunchType.FROM_CHROME_UI);
         }
@@ -419,8 +447,11 @@ public class ConditionalTabStripTest {
 
     @Test
     @MediumTest
-    public void testStrip_enabled_notExpired() throws Exception {
-        ChromeTabbedActivity cta = mActivityTestRule.getActivity();
+    @DisableIf.Build(sdk_is_greater_than = VERSION_CODES.M, sdk_is_less_than = VERSION_CODES.O,
+            message = "Failing on N, see crbug.com/1177383")
+    public void
+    testStrip_enabled_notExpired() throws Exception {
+        ChromeTabbedActivity cta = sActivityTestRule.getActivity();
         for (int i = 0; i < 3; i++) {
             createBlankPageWithLaunchType(cta, false, TabLaunchType.FROM_CHROME_UI);
         }
@@ -436,7 +467,7 @@ public class ConditionalTabStripTest {
     @MediumTest
     @DisabledTest(message = "crbug.com/1081697")
     public void testStrip_UndoDismiss() throws Exception {
-        ChromeTabbedActivity cta = mActivityTestRule.getActivity();
+        ChromeTabbedActivity cta = sActivityTestRule.getActivity();
         for (int i = 0; i < 3; i++) {
             createBlankPageWithLaunchType(cta, false, TabLaunchType.FROM_CHROME_UI);
         }
@@ -456,9 +487,9 @@ public class ConditionalTabStripTest {
 
     @Test
     @MediumTest
-    @DisableIf.Build(supported_abis_includes = "x86", message = "https://crbug.com/1094998")
+    @FlakyTest(message = "https://crbug.com/1171567")
     public void testStrip_InfoBarOptOut() throws Exception {
-        ChromeTabbedActivity cta = mActivityTestRule.getActivity();
+        ChromeTabbedActivity cta = sActivityTestRule.getActivity();
         for (int i = 0; i < 3; i++) {
             createBlankPageWithLaunchType(cta, false, TabLaunchType.FROM_CHROME_UI);
         }
@@ -470,7 +501,7 @@ public class ConditionalTabStripTest {
         assertTrue(ConditionalTabStripUtils.shouldShowSnackbarForDismissal());
         clickDismissButtonInStrip();
         CriteriaHelper.pollUiThread(
-                () -> mActivityTestRule.getActivity().getSnackbarManager().isShowing());
+                () -> sActivityTestRule.getActivity().getSnackbarManager().isShowing());
 
         // Update the dismiss counter so that the next dismissal should be the third continuous
         // dismissal, and we should show opt-out info bar.
@@ -504,9 +535,9 @@ public class ConditionalTabStripTest {
 
     @Test
     @MediumTest
-    @DisableIf.Build(supported_abis_includes = "x86", message = "https://crbug.com/1094998")
+    @FlakyTest(message = "https://crbug.com/1169672")
     public void testStrip_InfoBarOptIn() throws Exception {
-        ChromeTabbedActivity cta = mActivityTestRule.getActivity();
+        ChromeTabbedActivity cta = sActivityTestRule.getActivity();
         for (int i = 0; i < 3; i++) {
             createBlankPageWithLaunchType(cta, false, TabLaunchType.FROM_CHROME_UI);
         }
@@ -518,7 +549,7 @@ public class ConditionalTabStripTest {
         assertTrue(ConditionalTabStripUtils.shouldShowSnackbarForDismissal());
         clickDismissButtonInStrip();
         CriteriaHelper.pollUiThread(
-                () -> mActivityTestRule.getActivity().getSnackbarManager().isShowing());
+                () -> sActivityTestRule.getActivity().getSnackbarManager().isShowing());
 
         // Update the dismiss counter so that the next dismissal should be the third continuous
         // dismissal, and we should show opt-out info bar.
@@ -544,7 +575,7 @@ public class ConditionalTabStripTest {
         verifyShowingStrip(cta, false, 6);
         clickDismissButtonInStrip();
         CriteriaHelper.pollUiThread(
-                () -> mActivityTestRule.getActivity().getSnackbarManager().isShowing());
+                () -> sActivityTestRule.getActivity().getSnackbarManager().isShowing());
     }
 
     @Test
@@ -574,7 +605,7 @@ public class ConditionalTabStripTest {
         verifyShowingStrip(cta, false, 3);
         clickDismissButtonInStrip();
         CriteriaHelper.pollUiThread(
-                () -> mActivityTestRule.getActivity().getSnackbarManager().isShowing());
+                () -> sActivityTestRule.getActivity().getSnackbarManager().isShowing());
 
         // Update the dismiss counter so that the next dismissal should be the sixth continuous
         // dismissal, and we should show opt-out info bar.
@@ -590,7 +621,7 @@ public class ConditionalTabStripTest {
         onView(withId(R.id.infobar_close_button)).perform(click());
         CriteriaHelper.pollUiThread(() -> {
             InfoBarContainer container = InfoBarContainer.get(
-                    mActivityTestRule.getActivity().getTabModelSelector().getCurrentTab());
+                    sActivityTestRule.getActivity().getTabModelSelector().getCurrentTab());
             return container.getInfoBarsForTesting().size() == 0;
         });
 
@@ -605,8 +636,8 @@ public class ConditionalTabStripTest {
     public void testUndoClosure_AccessibilityMode() throws Exception {
         TestThreadUtils.runOnUiThreadBlocking(
                 () -> ChromeAccessibilityUtil.get().setAccessibilityEnabledForTesting(true));
-        ChromeTabbedActivity cta = mActivityTestRule.getActivity();
-        SnackbarManager snackbarManager = mActivityTestRule.getActivity().getSnackbarManager();
+        ChromeTabbedActivity cta = sActivityTestRule.getActivity();
+        SnackbarManager snackbarManager = sActivityTestRule.getActivity().getSnackbarManager();
         createTabs(cta, false, 3);
         verifyShowingStrip(cta, false, 3);
         verifyStripSelectedPosition(cta, 2);
@@ -654,20 +685,22 @@ public class ConditionalTabStripTest {
     }
 
     private ChromeTabbedActivity restartChrome() throws Exception {
-        TabUiTestHelper.finishActivity(mActivityTestRule.getActivity());
-        mActivityTestRule.startMainActivityFromLauncher();
+        TabUiTestHelper.finishActivity(sActivityTestRule.getActivity());
+        sActivityTestRule.startMainActivityFromLauncher();
         // Wait for bottom controls to stabilize.
-        CriteriaHelper.pollUiThread(()
-                                            -> mActivityTestRule.getActivity()
-                                                       .getBrowserControlsManager()
-                                                       .getBottomControlOffset()
-                        == 0);
-        return mActivityTestRule.getActivity();
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(sActivityTestRule.getActivity()
+                                       .getBrowserControlsManager()
+                                       .getBottomControlOffset(),
+                    Matchers.is(0));
+        });
+        return sActivityTestRule.getActivity();
     }
 
     private void createBlankPageWithLaunchType(ChromeTabbedActivity cta, boolean isIncognito,
             @TabLaunchType int type) throws ExecutionException {
-        TabCreator tabCreator = cta.getTabCreator(isIncognito);
+        TabCreator tabCreator =
+                TestThreadUtils.runOnUiThreadBlocking(() -> cta.getTabCreator(isIncognito));
         LoadUrlParams loadUrlParams = new LoadUrlParams(UrlConstants.CHROME_BLANK_URL);
         TestThreadUtils.runOnUiThreadBlocking(
                 () -> tabCreator.createNewTab(loadUrlParams, type, null));
@@ -833,16 +866,16 @@ public class ConditionalTabStripTest {
     }
 
     private LayoutManagerChrome updateTabsViewSize() {
-        View tabsView = mActivityTestRule.getActivity().getTabsView();
+        View tabsView = sActivityTestRule.getActivity().getTabsView();
         mTabsViewHeightDp = tabsView.getHeight() * mPxToDp;
         mTabsViewWidthDp = tabsView.getWidth() * mPxToDp;
-        return mActivityTestRule.getActivity().getLayoutManager();
+        return sActivityTestRule.getActivity().getLayoutManager();
     }
 
     // Utility methods from OverviewListLayoutTest.java.
     private ListView getAccessibilityOverviewList() {
         AccessibilityTabModelWrapper container =
-                ((OverviewListLayout) mActivityTestRule.getActivity().getOverviewListLayout())
+                ((OverviewListLayout) sActivityTestRule.getActivity().getOverviewListLayout())
                         .getContainer();
         return (ListView) container.findViewById(R.id.list_view);
     }

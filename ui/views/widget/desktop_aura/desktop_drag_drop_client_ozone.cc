@@ -27,7 +27,6 @@
 #include "ui/ozone/public/ozone_platform.h"
 #include "ui/platform_window/platform_window_delegate.h"
 #include "ui/views/controls/image_view.h"
-#include "ui/views/widget/desktop_aura/desktop_native_cursor_manager.h"
 #include "ui/views/widget/widget.h"
 
 namespace views {
@@ -112,10 +111,8 @@ DesktopDragDropClientOzone::DragContext::~DragContext() = default;
 
 DesktopDragDropClientOzone::DesktopDragDropClientOzone(
     aura::Window* root_window,
-    views::DesktopNativeCursorManager* cursor_manager,
     ui::WmDragHandler* drag_handler)
     : root_window_(root_window),
-      cursor_manager_(cursor_manager),
       drag_handler_(drag_handler) {}
 
 DesktopDragDropClientOzone::~DesktopDragDropClientOzone() {
@@ -147,8 +144,7 @@ int DesktopDragDropClientOzone::StartDragAndDrop(
   auto initial_cursor = source_window->GetHost()->last_cursor();
   drag_operation_ = operation;
   if (cursor_client) {
-    cursor_client->SetCursor(cursor_manager_->GetInitializedCursor(
-        ui::mojom::CursorType::kGrabbing));
+    cursor_client->SetCursor(ui::mojom::CursorType::kGrabbing);
   }
 
   if (DragImageIsNeeded()) {
@@ -237,8 +233,10 @@ int DesktopDragDropClientOzone::OnDragMotion(const gfx::PointF& point,
   int client_operation = ui::DragDropTypes::DRAG_NONE;
   std::unique_ptr<ui::DropTargetEvent> event =
       UpdateTargetAndCreateDropEvent(point, modifiers);
-  if (drag_drop_delegate_ && event)
-    client_operation = drag_drop_delegate_->OnDragUpdated(*event);
+  if (drag_drop_delegate_ && event) {
+    client_operation =
+        drag_drop_delegate_->OnDragUpdated(*event).drag_operation;
+  }
   return client_operation;
 }
 
@@ -250,26 +248,28 @@ void DesktopDragDropClientOzone::OnDragDrop(
   // before handling the actual drop.
   const bool posponed_enter_and_update = !data_to_drop_;
 
-  // If we had |data_to_drop_| already since the drag had entered the window,
-  // then we don't expect new data to come now, and vice versa.
-  DCHECK((data_to_drop_ && !data) || (!data_to_drop_ && data));
+  // If we didn't have |data_to_drop_| already since the drag had entered the
+  // window, take the new data that comes now.
   if (!data_to_drop_)
     data_to_drop_ = std::move(data);
 
-  // This will call the delegate's OnDragEntered if needed.
-  auto event = UpdateTargetAndCreateDropEvent(last_drag_point_, modifiers);
-  if (drag_drop_delegate_ && event) {
-    if (posponed_enter_and_update) {
-      // TODO(https://crbug.com/1014860): deal with drop refusals.
-      // The delegate's OnDragUpdated returns an operation that the delegate
-      // would accept.  Normally the accepted operation would be propagated
-      // properly, and if the delegate didn't accept it, the drop would never
-      // be called, but in this scenario of postponed updates we send all events
-      // at once.  Now we just drop, but perhaps we could call OnDragLeave
-      // and quit?
-      drag_drop_delegate_->OnDragUpdated(*event);
+  // crbug.com/1151836: check that we have data.
+  if (data_to_drop_) {
+    // This will call the delegate's OnDragEntered if needed.
+    auto event = UpdateTargetAndCreateDropEvent(last_drag_point_, modifiers);
+    if (drag_drop_delegate_ && event) {
+      if (posponed_enter_and_update) {
+        // TODO(https://crbug.com/1014860): deal with drop refusals.
+        // The delegate's OnDragUpdated returns an operation that the delegate
+        // would accept.  Normally the accepted operation would be propagated
+        // properly, and if the delegate didn't accept it, the drop would never
+        // be called, but in this scenario of postponed updates we send all
+        // events at once.  Now we just drop, but perhaps we could call
+        // OnDragLeave and quit?
+        drag_drop_delegate_->OnDragUpdated(*event);
+      }
+      drag_drop_delegate_->OnPerformDrop(*event, std::move(data_to_drop_));
     }
-    drag_drop_delegate_->OnPerformDrop(*event, std::move(data_to_drop_));
   }
   ResetDragDropTarget(false);
 }
@@ -329,7 +329,7 @@ void DesktopDragDropClientOzone::OnDragOperationChanged(
       cursor_type = ui::mojom::CursorType::kDndLink;
       break;
   }
-  cursor_client->SetCursor(cursor_manager_->GetInitializedCursor(cursor_type));
+  cursor_client->SetCursor(cursor_type);
 }
 
 void DesktopDragDropClientOzone::OnDragFinished(int dnd_action) {
@@ -340,6 +340,8 @@ std::unique_ptr<ui::DropTargetEvent>
 DesktopDragDropClientOzone::UpdateTargetAndCreateDropEvent(
     const gfx::PointF& location,
     int modifiers) {
+  DCHECK(data_to_drop_);
+
   const gfx::Point point(location.x(), location.y());
   aura::Window* window = GetTargetWindow(root_window_, point);
   if (!window) {

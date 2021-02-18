@@ -9,15 +9,18 @@ import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.ViewGroup;
 
+import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.feed.FeedSurfaceCoordinator;
+import org.chromium.chrome.browser.feed.FeedV1ActionOptions;
 import org.chromium.chrome.browser.feed.StreamLifecycleManager;
-import org.chromium.chrome.browser.feed.action.FeedActionHandler;
 import org.chromium.chrome.browser.feed.shared.FeedFeatures;
 import org.chromium.chrome.browser.feed.shared.FeedSurfaceDelegate;
 import org.chromium.chrome.browser.feed.shared.stream.Stream;
+import org.chromium.chrome.browser.ntp.ScrollableContainerDelegate;
 import org.chromium.chrome.browser.ntp.snippets.SectionHeaderView;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.start_surface.R;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.ui.modelutil.PropertyModel;
@@ -28,6 +31,7 @@ class ExploreSurfaceCoordinator implements FeedSurfaceDelegate {
     private final ChromeActivity mActivity;
     private final PropertyModelChangeProcessor mPropertyModelChangeProcessor;
     private final FeedSurfaceCreator mFeedSurfaceCreator;
+    private final Supplier<Tab> mParentTabSupplier;
     private final boolean mHasHeader;
 
     // mExploreSurfaceNavigationDelegate is lightweight, we keep it across FeedSurfaceCoordinators
@@ -47,9 +51,11 @@ class ExploreSurfaceCoordinator implements FeedSurfaceDelegate {
 
     ExploreSurfaceCoordinator(ChromeActivity activity, ViewGroup parentView,
             PropertyModel containerPropertyModel, boolean hasHeader,
-            BottomSheetController bottomSheetController) {
+            BottomSheetController bottomSheetController, Supplier<Tab> parentTabSupplier,
+            ScrollableContainerDelegate scrollableContainerDelegate) {
         mActivity = activity;
         mHasHeader = hasHeader;
+        mParentTabSupplier = parentTabSupplier;
 
         mPropertyModelChangeProcessor = PropertyModelChangeProcessor.create(
                 containerPropertyModel, parentView, ExploreSurfaceViewBinder::bind);
@@ -57,8 +63,8 @@ class ExploreSurfaceCoordinator implements FeedSurfaceDelegate {
             @Override
             public FeedSurfaceCoordinator createFeedSurfaceCoordinator(
                     boolean isInNightMode, boolean isPlaceholderShown) {
-                return internalCreateFeedSurfaceCoordinator(
-                        mHasHeader, isInNightMode, isPlaceholderShown, bottomSheetController);
+                return internalCreateFeedSurfaceCoordinator(mHasHeader, isInNightMode,
+                        isPlaceholderShown, bottomSheetController, scrollableContainerDelegate);
             }
         };
     }
@@ -84,16 +90,23 @@ class ExploreSurfaceCoordinator implements FeedSurfaceDelegate {
 
     private FeedSurfaceCoordinator internalCreateFeedSurfaceCoordinator(boolean hasHeader,
             boolean isInNightMode, boolean isPlaceholderShown,
-            BottomSheetController bottomSheetController) {
+            BottomSheetController bottomSheetController,
+            ScrollableContainerDelegate scrollableContainerDelegate) {
         if (mExploreSurfaceNavigationDelegate == null) {
-            mExploreSurfaceNavigationDelegate = new ExploreSurfaceNavigationDelegate(mActivity);
+            mExploreSurfaceNavigationDelegate =
+                    new ExploreSurfaceNavigationDelegate(mParentTabSupplier);
         }
         Profile profile = Profile.getLastUsedRegularProfile();
 
         SectionHeaderView sectionHeaderView = null;
         if (hasHeader) {
             LayoutInflater inflater = LayoutInflater.from(mActivity);
-            if (FeedFeatures.isReportingUserActions()) {
+            // This should be kept in sync with NewTabPage#initializeMainView().
+            if (FeedFeatures.isV2Enabled()) {
+                sectionHeaderView = (SectionHeaderView) inflater.inflate(
+                        R.layout.new_tab_page_feed_v2_expandable_header, null, false);
+
+            } else if (FeedFeatures.isReportingUserActions()) {
                 sectionHeaderView = (SectionHeaderView) inflater.inflate(
                         R.layout.new_tab_page_snippets_expandable_header_with_menu, null, false);
             } else {
@@ -102,7 +115,7 @@ class ExploreSurfaceCoordinator implements FeedSurfaceDelegate {
             }
         }
 
-        FeedActionHandler.Options feedActionOptions = new FeedActionHandler.Options();
+        FeedV1ActionOptions feedActionOptions = new FeedV1ActionOptions();
         feedActionOptions.inhibitDownload = true;
         feedActionOptions.inhibitOpenInIncognito = true;
         feedActionOptions.inhibitOpenInNewTab = true;
@@ -110,9 +123,10 @@ class ExploreSurfaceCoordinator implements FeedSurfaceDelegate {
 
         FeedSurfaceCoordinator feedSurfaceCoordinator = new FeedSurfaceCoordinator(mActivity,
                 mActivity.getSnackbarManager(), mActivity.getTabModelSelector(),
-                mActivity.getActivityTabProvider(), null, null, sectionHeaderView,
-                feedActionOptions, isInNightMode, this, mExploreSurfaceNavigationDelegate, profile,
-                isPlaceholderShown, bottomSheetController);
+                mActivity.getWindowAndroid(), null, null, sectionHeaderView, feedActionOptions,
+                isInNightMode, this, mExploreSurfaceNavigationDelegate, profile, isPlaceholderShown,
+                bottomSheetController, mActivity.getShareDelegateSupplier(),
+                scrollableContainerDelegate);
         feedSurfaceCoordinator.getView().setId(R.id.start_surface_explore_view);
         return feedSurfaceCoordinator;
         // TODO(crbug.com/982018): Customize surface background for incognito and dark mode.

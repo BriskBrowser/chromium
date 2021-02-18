@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/core/layout/layout_table_cell.h"
 #include "third_party/blink/renderer/core/layout/layout_table_col.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
+#include "third_party/blink/renderer/core/layout/ng/table/layout_ng_table_cell.h"
 #include "third_party/blink/renderer/core/paint/compositing/composited_layer_mapping.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
@@ -59,7 +60,7 @@ PhysicalOffset AccumulatedScrollOffsetForFixedBackground(
   for (const LayoutBlock* block = object.ContainingBlock(&skip_info);
        block && !skip_info.AncestorSkipped();
        block = block->ContainingBlock(&skip_info)) {
-    if (block->HasNonVisibleOverflow())
+    if (block->IsScrollContainer())
       result += PhysicalOffsetToBeNoop(block->ScrolledContentOffset());
     if (block == container)
       break;
@@ -292,7 +293,7 @@ PhysicalOffset BackgroundImageGeometry::GetPositioningOffsetForCell(
     return PhysicalOffset(cell.Location().X() - h_border_spacing,
                           cell.Location().Y() - v_border_spacing);
   }
-  if (positioning_box.IsTableRow()) {
+  if (positioning_box.IsLegacyTableRow()) {
     return PhysicalOffset(cell.Location().X() - h_border_spacing, LayoutUnit());
   }
 
@@ -305,16 +306,15 @@ PhysicalOffset BackgroundImageGeometry::GetPositioningOffsetForCell(
                      cell.Table()->BorderBefore() - height_of_captions) +
                         cell.Location().Y());
 
-  DCHECK(positioning_box.IsLayoutTableCol());
-  if (ToLayoutTableCol(positioning_box).IsTableColumn()) {
+  const auto& table_col = To<LayoutTableCol>(positioning_box);
+  if (table_col.IsTableColumn()) {
     offset_in_background.top -= v_border_spacing;
     return offset_in_background;
   }
 
-  DCHECK(ToLayoutTableCol(positioning_box).IsTableColumnGroup());
+  DCHECK(table_col.IsTableColumnGroup());
   LayoutUnit offset = offset_in_background.left;
-  ExpandToTableColumnGroup(cell, ToLayoutTableCol(positioning_box), offset,
-                           kColumnGroupStart);
+  ExpandToTableColumnGroup(cell, table_col, offset, kColumnGroupStart);
   offset_in_background.left += offset;
   offset_in_background.top -= v_border_spacing;
   return offset_in_background;
@@ -342,15 +342,14 @@ PhysicalSize BackgroundImageGeometry::GetBackgroundObjectDimensions(
   LayoutUnit column_height = sections_rect.Height() -
                              cell.Table()->BorderBefore() -
                              border_spacing.height - border_spacing.height;
-  if (ToLayoutTableCol(positioning_box).IsTableColumn())
+  const auto& table_col = To<LayoutTableCol>(positioning_box);
+  if (table_col.IsTableColumn())
     return PhysicalSize(cell.Size().Width(), column_height);
 
-  DCHECK(ToLayoutTableCol(positioning_box).IsTableColumnGroup());
+  DCHECK(table_col.IsTableColumnGroup());
   LayoutUnit width = cell.Size().Width();
-  ExpandToTableColumnGroup(cell, ToLayoutTableCol(positioning_box), width,
-                           kColumnGroupStart);
-  ExpandToTableColumnGroup(cell, ToLayoutTableCol(positioning_box), width,
-                           kColumnGroupEnd);
+  ExpandToTableColumnGroup(cell, table_col, width, kColumnGroupStart);
+  ExpandToTableColumnGroup(cell, table_col, width, kColumnGroupEnd);
 
   return PhysicalSize(width, column_height);
 }
@@ -443,17 +442,28 @@ BackgroundImageGeometry::BackgroundImageGeometry(
     const LayoutObject* background_object)
     : box_(&cell),
       positioning_box_(background_object && !background_object->IsTableCell()
-                           ? &ToLayoutBoxModelObject(*background_object)
+                           ? &To<LayoutBoxModelObject>(*background_object)
                            : &cell),
       painting_table_cell_(true) {
   cell_using_container_background_ =
       background_object && !background_object->IsTableCell();
   if (cell_using_container_background_) {
     element_positioning_area_offset_ =
-        GetPositioningOffsetForCell(cell, ToLayoutBox(*background_object));
+        GetPositioningOffsetForCell(cell, To<LayoutBox>(*background_object));
     positioning_size_override_ =
-        GetBackgroundObjectDimensions(cell, ToLayoutBox(*background_object));
+        GetBackgroundObjectDimensions(cell, To<LayoutBox>(*background_object));
   }
+}
+
+// TablesNG background painting.
+BackgroundImageGeometry::BackgroundImageGeometry(const LayoutNGTableCell& cell,
+                                                 PhysicalOffset cell_offset,
+                                                 const LayoutBox& table_part,
+                                                 PhysicalSize table_part_size)
+    : box_(&cell), positioning_box_(&table_part), painting_table_cell_(true) {
+  cell_using_container_background_ = true;
+  element_positioning_area_offset_ = cell_offset;
+  positioning_size_override_ = table_part_size;
 }
 
 void BackgroundImageGeometry::ComputeDestRectAdjustments(

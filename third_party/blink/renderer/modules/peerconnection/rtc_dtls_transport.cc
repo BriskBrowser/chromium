@@ -94,7 +94,8 @@ webrtc::DtlsTransportInterface* RTCDtlsTransport::native_transport() {
 }
 
 void RTCDtlsTransport::ChangeState(webrtc::DtlsTransportInformation info) {
-  DCHECK(current_state_.state() != webrtc::DtlsTransportState::kClosed);
+  DCHECK(info.state() == webrtc::DtlsTransportState::kClosed ||
+         current_state_.state() != webrtc::DtlsTransportState::kClosed);
   current_state_ = info;
 }
 
@@ -153,10 +154,9 @@ void RTCDtlsTransport::OnStateChange(webrtc::DtlsTransportInformation info) {
             der_cert.data(), static_cast<unsigned int>(der_cert.size()));
         // Don't replace the certificate if it's unchanged.
         // Should have been "if (*dab_cert != *remote_certificates_[i])"
-        if (dab_cert->ByteLengthAsSizeT() !=
-                remote_certificates_[i]->ByteLengthAsSizeT() ||
+        if (dab_cert->ByteLength() != remote_certificates_[i]->ByteLength() ||
             memcmp(dab_cert->Data(), remote_certificates_[i]->Data(),
-                   dab_cert->ByteLengthAsSizeT()) != 0) {
+                   dab_cert->ByteLength()) != 0) {
           remote_certificates_[i] = dab_cert;
         }
       }

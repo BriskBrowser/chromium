@@ -129,8 +129,7 @@ void CheckVideoSourceAndTrack(blink::MediaStreamVideoSource* source,
                    expected_source_frame_rate);
   EXPECT_EQ(component->Source()->GetReadyState(),
             MediaStreamSource::kReadyStateLive);
-  MediaStreamVideoTrack* track =
-      MediaStreamVideoTrack::GetVideoTrack(WebMediaStreamTrack(component));
+  MediaStreamVideoTrack* track = MediaStreamVideoTrack::From(component);
   EXPECT_EQ(track->source(), source);
 
   MediaStreamTrackPlatform::Settings settings;
@@ -193,7 +192,7 @@ class MockMediaDevicesDispatcherHost
         blink::mojom::blink::VideoInputDeviceCapabilities::New();
     device->device_id = kFakeVideoInputDeviceId1;
     device->group_id = String("dummy");
-    device->facing_mode = media::MEDIA_VIDEO_FACING_USER;
+    device->facing_mode = mojom::blink::FacingMode::USER;
     if (!video_source_ || !video_source_->IsRunning() ||
         !video_source_->GetCurrentFormat()) {
       device->formats.push_back(media::VideoCaptureFormat(
@@ -211,7 +210,7 @@ class MockMediaDevicesDispatcherHost
     device = blink::mojom::blink::VideoInputDeviceCapabilities::New();
     device->device_id = kFakeVideoInputDeviceId2;
     device->group_id = String("dummy");
-    device->facing_mode = media::MEDIA_VIDEO_FACING_ENVIRONMENT;
+    device->facing_mode = mojom::blink::FacingMode::ENVIRONMENT;
     device->formats.push_back(media::VideoCaptureFormat(
         gfx::Size(640, 480), 30.0f, media::PIXEL_FORMAT_I420));
     result.push_back(std::move(device));
@@ -928,8 +927,9 @@ TEST_F(UserMediaClientTest, DefaultConstraintsPropagate) {
             blink::MediaStreamVideoSource::kDefaultWidth);
   EXPECT_EQ(video_capture_settings.Height(),
             blink::MediaStreamVideoSource::kDefaultHeight);
-  EXPECT_EQ(video_capture_settings.FrameRate(),
-            blink::MediaStreamVideoSource::kDefaultFrameRate);
+  EXPECT_EQ(
+      video_capture_settings.FrameRate(),
+      static_cast<float>(blink::MediaStreamVideoSource::kDefaultFrameRate));
   EXPECT_EQ(video_capture_settings.ResolutionChangePolicy(),
             media::ResolutionChangePolicy::FIXED_RESOLUTION);
   EXPECT_FALSE(video_capture_settings.noise_reduction());
@@ -938,10 +938,11 @@ TEST_F(UserMediaClientTest, DefaultConstraintsPropagate) {
   const blink::VideoTrackAdapterSettings& track_settings =
       video_capture_settings.track_adapter_settings();
   EXPECT_FALSE(track_settings.target_size().has_value());
-  EXPECT_EQ(track_settings.min_aspect_ratio(),
-            1.0 / blink::MediaStreamVideoSource::kDefaultHeight);
+  EXPECT_EQ(
+      track_settings.min_aspect_ratio(),
+      1.0 / static_cast<double>(blink::MediaStreamVideoSource::kDefaultHeight));
   EXPECT_EQ(track_settings.max_aspect_ratio(),
-            blink::MediaStreamVideoSource::kDefaultWidth);
+            static_cast<double>(blink::MediaStreamVideoSource::kDefaultWidth));
   // 0.0 is the default max_frame_rate and it indicates no frame-rate adjustment
   EXPECT_EQ(track_settings.max_frame_rate(), 0.0);
 }
@@ -1182,8 +1183,7 @@ TEST_F(UserMediaClientTest, CreateWithFacingModeEnvironment) {
 TEST_F(UserMediaClientTest, ApplyConstraintsVideoDeviceSingleTrack) {
   EXPECT_CALL(mock_dispatcher_host_, OnStreamStarted(_));
   MediaStreamComponent* component = RequestLocalVideoTrack();
-  MediaStreamVideoTrack* track =
-      MediaStreamVideoTrack::GetVideoTrack(WebMediaStreamTrack(component));
+  MediaStreamVideoTrack* track = MediaStreamVideoTrack::From(component);
   blink::MediaStreamVideoSource* source = track->source();
   CheckVideoSource(source, 0, 0, 0.0);
 

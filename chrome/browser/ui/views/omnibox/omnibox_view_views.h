@@ -12,9 +12,9 @@
 #include <string>
 
 #include "base/gtest_prod_util.h"
-#include "base/macros.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/send_tab_to_self/send_tab_to_self_sub_menu_model.h"
 #include "components/omnibox/browser/omnibox_view.h"
 #include "components/prefs/pref_change_registrar.h"
@@ -30,8 +30,9 @@
 #include "ui/views/animation/animation_delegate_views.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/controls/textfield/textfield_controller.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ui/base/ime/chromeos/input_method_manager.h"
 #endif
 
@@ -55,7 +56,7 @@ class OSExchangeData;
 // Views-implementation of OmniboxView.
 class OmniboxViewViews : public OmniboxView,
                          public views::Textfield,
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
                          public chromeos::input_method::InputMethodManager::
                              CandidateWindowObserver,
 #endif
@@ -64,14 +65,7 @@ class OmniboxViewViews : public OmniboxView,
                          public TemplateURLServiceObserver,
                          public content::WebContentsObserver {
  public:
-  // The internal view class name.
-  static const char kViewClassName[];
-
-  // Range of command IDs to use for the items in the send tab to self submenu.
-  static const int kMinSendTabToSelfSubMenuCommandId =
-      send_tab_to_self::SendTabToSelfSubMenuModel::kMinCommandId;
-  static const int kMaxSendTabToSelfSubMenuCommandId =
-      send_tab_to_self::SendTabToSelfSubMenuModel::kMaxCommandId;
+  METADATA_HEADER(OmniboxViewViews);
 
   // Max width of the gradient mask used to smooth ElideAnimation edges.
   static const int kSmoothingGradientMaxWidth = 15;
@@ -81,6 +75,8 @@ class OmniboxViewViews : public OmniboxView,
                    bool popup_window_mode,
                    LocationBarView* location_bar,
                    const gfx::FontList& font_list);
+  OmniboxViewViews(const OmniboxViewViews&) = delete;
+  OmniboxViewViews& operator=(const OmniboxViewViews&) = delete;
   ~OmniboxViewViews() override;
 
   // Initialize, create the underlying views, etc.
@@ -108,10 +104,9 @@ class OmniboxViewViews : public OmniboxView,
   // "Search Google or type a URL" when the Omnibox is empty and unfocused.
   void InstallPlaceholderText();
 
-  // Indicates if the cursor is at one end of the input. Requires that both
+  // Indicates if the cursor is at the end of the input. Requires that both
   // ends of the selection reside there.
-  bool SelectionAtBeginning() const;
-  bool SelectionAtEnd() const;
+  bool GetSelectionAtEnd() const;
 
   // Returns the width in pixels needed to display the current text. The
   // returned value includes margins.
@@ -153,7 +148,7 @@ class OmniboxViewViews : public OmniboxView,
   void OnMouseReleased(const ui::MouseEvent& event) override;
   void OnPaint(gfx::Canvas* canvas) override;
   void ExecuteCommand(int command_id, int event_flags) override;
-  void OnInputMethodChanged() override;
+  ui::TextInputType GetTextInputType() const override;
   void AddedToWidget() override;
   void RemovedFromWidget() override;
   base::string16 GetLabelForCommandId(int command_id) const override;
@@ -256,11 +251,9 @@ class OmniboxViewViews : public OmniboxView,
     // The current offset, exposed for testing.
     int current_offset_;
 
-    // As the animation runs, each range fades from |starting_color_| to
-    // |ending_color_|. This is normally the ranges surrounding the simplified
-    // domain, but can omit one of them if the simplified domain is not
-    // displayed contiguously (which can happen for some bidirectional URLs).
-    std::vector<gfx::Range> ranges_to_color_;
+    // Holds the ranges surrounding the simplified domain part. As the animation
+    // runs, each range fades from |starting_color_| to |ending_color_|.
+    std::vector<gfx::Range> ranges_surrounding_simplified_domain_;
     SkColor starting_color_;
     SkColor ending_color_;
 
@@ -282,10 +275,11 @@ class OmniboxViewViews : public OmniboxView,
   virtual void ApplyColor(SkColor color, const gfx::Range& range);
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(
+      OmniboxViewViewsTest,
+      RendererInitiatedFocusPreservesCursorWhenStartingFocused);
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsRevealOnHoverTest, HoverAndExit);
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsRevealOnHoverTest, HoverAndExitIDN);
-  FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsRevealOnHoverTest,
-                           PathNotTransparentSplitURL);
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsRevealOnHoverTest, PrivateRegistry);
   FRIEND_TEST_ALL_PREFIXES(
       OmniboxViewViewsHideOnInteractionAndRevealOnHoverTest,
@@ -331,6 +325,8 @@ class OmniboxViewViews : public OmniboxView,
       OmniboxViewViewsHideOnInteractionAndRevealOnHoverTest,
       NoStaleGradientMask);
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsHideOnInteractionTest, ModifierKeys);
+  FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsHideOnInteractionTest,
+                           ErrorPageNavigation);
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsHideOnInteractionTest,
                            SameDocNavigations);
   FRIEND_TEST_ALL_PREFIXES(OmniboxViewViewsHideOnInteractionTest,
@@ -414,7 +410,7 @@ class OmniboxViewViews : public OmniboxView,
                                    bool save_original_selection,
                                    bool notify_text_changed) override;
   void OnInlineAutocompleteTextMaybeChanged(const base::string16& display_text,
-                                            size_t user_text_start,
+                                            std::vector<gfx::Range> selections,
                                             size_t user_text_length) override;
   void OnInlineAutocompleteTextCleared() override;
   void OnRevertTemporaryText(const base::string16& display_text,
@@ -434,7 +430,6 @@ class OmniboxViewViews : public OmniboxView,
 
   // views::Textfield:
   bool IsItemForCommandIdDynamic(int command_id) const override;
-  const char* GetClassName() const override;
   void OnGestureEvent(ui::GestureEvent* event) override;
   void AboutToRequestFocusFromTabTraversal(bool reverse) override;
   bool SkipDefaultKeyEventProcessing(const ui::KeyEvent& event) override;
@@ -450,7 +445,7 @@ class OmniboxViewViews : public OmniboxView,
   bool ShouldShowPlaceholderText() const override;
 
   // chromeos::input_method::InputMethodManager::CandidateWindowObserver:
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   void CandidateWindowOpened(
       chromeos::input_method::InputMethodManager* manager) override;
   void CandidateWindowClosed(
@@ -470,7 +465,7 @@ class OmniboxViewViews : public OmniboxView,
   void AppendDropFormats(
       int* formats,
       std::set<ui::ClipboardFormatType>* format_types) override;
-  int OnDrop(const ui::OSExchangeData& data) override;
+  ui::mojom::DragOperation OnDrop(const ui::OSExchangeData& data) override;
   void UpdateContextMenu(ui::SimpleMenuModel* menu_contents) override;
 
   // ui::SimpleMenuModel::Delegate:
@@ -485,6 +480,11 @@ class OmniboxViewViews : public OmniboxView,
 
   // TemplateURLServiceObserver:
   void OnTemplateURLServiceChanged() override;
+
+  // Permits launch of the external protocol handler after user actions in
+  // the omnibox. The handler needs to be informed that omnibox input should
+  // always be considered "user gesture-triggered", lest it always return BLOCK.
+  void PermitExternalProtocolHandler();
 
   // Returns the gfx::Range of the simplified domain of the current URL, if
   // there is one. The simplified domain could be either the registrable domain
@@ -506,7 +506,7 @@ class OmniboxViewViews : public OmniboxView,
   // This method does NOT take field trials into account or the "Always show
   // full URLs" option. Calling code should check field trial state and
   // model()->ShouldPreventElision() if applicable.
-  bool IsURLEligibleForSimplifiedDomainEliding();
+  bool GetURLEligibleForSimplifiedDomainEliding() const;
 
   // When certain field trials are enabled, the URL is shown on page load
   // and elided to a simplified domain when the user interacts with the page.
@@ -556,7 +556,7 @@ class OmniboxViewViews : public OmniboxView,
 
   // Parses GetText() as a URL, trims trivial subdomains from it (if any and if
   // applicable), and returns the result.
-  url::Component GetHostComponentAfterTrivialSubdomain();
+  url::Component GetHostComponentAfterTrivialSubdomain() const;
 
   // When true, the location bar view is read only and also is has a slightly
   // different presentation (smaller font size). This is used for popups.
@@ -621,7 +621,7 @@ class OmniboxViewViews : public OmniboxView,
   // |location_bar_view_| can be NULL in tests.
   LocationBarView* location_bar_view_;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // True if the IME candidate window is open. When this is true, we want to
   // avoid showing the popup. So far, the candidate window is detected only
   // on Chrome OS.
@@ -646,6 +646,9 @@ class OmniboxViewViews : public OmniboxView,
   // GESTURE_TAP. We want to select all only when the textfield is not in focus
   // and gets a tap. So we use this variable to remember focus state before tap.
   bool select_all_on_gesture_tap_ = false;
+
+  // Whether the user should be notified if the clipboard is restricted.
+  bool show_rejection_ui_if_any_ = false;
 
   // Keep track of the word that would be selected if URL is unelided between
   // a single and double click. This is an edge case where the elided URL is
@@ -682,10 +685,10 @@ class OmniboxViewViews : public OmniboxView,
   // this is set to 7 (the length of "Google ").
   int friendly_suggestion_text_prefix_length_;
 
-  ScopedObserver<ui::Compositor, ui::CompositorObserver>
-      scoped_compositor_observer_{this};
-  ScopedObserver<TemplateURLService, TemplateURLServiceObserver>
-      scoped_template_url_service_observer_{this};
+  base::ScopedObservation<ui::Compositor, ui::CompositorObserver>
+      scoped_compositor_observation_{this};
+  base::ScopedObservation<TemplateURLService, TemplateURLServiceObserver>
+      scoped_template_url_service_observation_{this};
 
   // Send tab to self submenu.
   std::unique_ptr<send_tab_to_self::SendTabToSelfSubMenuModel>
@@ -694,8 +697,6 @@ class OmniboxViewViews : public OmniboxView,
   PrefChangeRegistrar pref_change_registrar_;
 
   base::WeakPtrFactory<OmniboxViewViews> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(OmniboxViewViews);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_OMNIBOX_OMNIBOX_VIEW_VIEWS_H_

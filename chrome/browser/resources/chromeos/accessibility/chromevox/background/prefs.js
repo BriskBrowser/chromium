@@ -15,7 +15,6 @@ goog.require('ConsoleTts');
 goog.require('EventStreamLogger');
 goog.require('ChromeVox');
 goog.require('ExtensionBridge');
-goog.require('KeyMap');
 
 /**
  * This object has default values of preferences and contains the common
@@ -31,18 +30,10 @@ ChromeVoxPrefs = class {
     let loadExistingSettings = true;
     // TODO(dtseng): Logic below needs clarification. Perhaps needs a
     // 'lastIncompatibleVersion' member.
-    if (lastRunVersion == '1.16.0') {
+    if (lastRunVersion === '1.16.0') {
       loadExistingSettings = false;
     }
     localStorage['lastRunVersion'] = chrome.runtime.getManifest().version;
-
-    /**
-     * The current mapping from keys to command.
-     * @type {!KeyMap}
-     * @private
-     */
-    this.keyMap_ = KeyMap.fromLocalStorage() || KeyMap.fromDefaults();
-    this.keyMap_.merge(KeyMap.fromDefaults());
 
     // Clear per session preferences.
     // This is to keep the position dictionary from growing excessively large.
@@ -70,36 +61,6 @@ ChromeVoxPrefs = class {
         localStorage[pref] = ChromeVoxPrefs.DEFAULT_PREFS[pref];
       }
     }
-    // Since language switching is currently an experimental feature, ensure
-    // that it is off if the feature flag is absent.
-    chrome.commandLinePrivate.hasSwitch(
-        'disable-experimental-accessibility-chromevox-language-switching',
-        (enabled) => {
-          if (enabled) {
-            localStorage['languageSwitching'] = false;
-          }
-        });
-  }
-
-  /**
-   * Switches to another key map.
-   * @param {string} selectedKeyMap The id of the keymap in
-   * KeyMap.AVAIABLE_KEYMAP_INFO.
-   */
-  switchToKeyMap(selectedKeyMap) {
-    // Switching key maps potentially affects the key codes that involve
-    // sequencing. Without resetting this list, potentially stale key
-    // codes remain. The key codes themselves get pushed in
-    // KeySequence.deserialize which gets called by KeyMap.
-    ChromeVox.sequenceSwitchKeyCodes = [];
-
-    // TODO(dtseng): Leaking state about multiple key maps here until we have a
-    // class to manage multiple key maps.
-    localStorage['currentKeyMap'] = selectedKeyMap;
-    this.keyMap_ = KeyMap.fromCurrentKeyMap();
-    ChromeVoxKbHandler.handlerKeyMap = this.keyMap_;
-    this.keyMap_.toLocalStorage();
-    this.keyMap_.resetModifier();
   }
 
   /**
@@ -116,43 +77,12 @@ ChromeVoxPrefs = class {
   }
 
   /**
-   * Reloads the key map from local storage.
-   */
-  reloadKeyMap() {
-    // Get the current key map from localStorage.
-    // TODO(dtseng): We currently don't support merges since we write the entire
-    // map back to local storage.
-    let currentKeyMap = KeyMap.fromLocalStorage();
-    if (!currentKeyMap) {
-      currentKeyMap = KeyMap.fromCurrentKeyMap();
-      currentKeyMap.toLocalStorage();
-    }
-    this.keyMap_ = currentKeyMap;
-  }
-
-  /**
-   * Get the key map, from key binding to an array of [command, description].
-   * @return {KeyMap} The key map.
-   */
-  getKeyMap() {
-    return this.keyMap_;
-  }
-
-  /**
-   * Reset to the default key bindings.
-   */
-  resetKeys() {
-    this.keyMap_ = KeyMap.fromDefaults();
-    this.keyMap_.toLocalStorage();
-  }
-
-  /**
    * Set the value of a pref.
    * @param {string} key The pref key.
    * @param {Object|string|boolean} value The new value of the pref.
    */
   setPref(key, value) {
-    if (localStorage[key] != value) {
+    if (localStorage[key] !== value) {
       localStorage[key] = value;
     }
   }
@@ -164,25 +94,11 @@ ChromeVoxPrefs = class {
    */
   setLoggingPrefs(key, value) {
     localStorage[key] = value;
-    if (key == 'enableSpeechLogging') {
+    if (key === 'enableSpeechLogging') {
       ConsoleTts.getInstance().setEnabled(value);
-    } else if (key == 'enableEventStreamLogging') {
+    } else if (key === 'enableEventStreamLogging') {
       EventStreamLogger.instance.notifyEventStreamFilterChangedAll(value);
     }
-  }
-
-  /**
-   * Delegates to KeyMap.
-   * @param {string} command The command to set.
-   * @param {KeySequence} newKey The new key to assign it to.
-   * @return {boolean} True if the key was bound to the command.
-   */
-  setKey(command, newKey) {
-    if (this.keyMap_.rebind(command, newKey)) {
-      this.keyMap_.toLocalStorage();
-      return true;
-    }
-    return false;
   }
 };
 
@@ -203,7 +119,6 @@ ChromeVoxPrefs.DEFAULT_PREFS = {
   'brailleTable6': 'en-UEB-g2',
   'brailleTable8': 'en-US-comp8',
   'capitalStrategy': 'increasePitch',
-  'currentKeyMap': KeyMap.DEFAULT_KEYMAP,
   'cvoxKey': '',
   'enableBrailleLogging': false,
   'enableEarconLogging': false,
@@ -276,7 +191,7 @@ ChromeVoxPrefs.DEFAULT_PREFS = {
   'textChanged': true,
   'textSelectionChanged': true,
   'treeChanged': true,
-  'valueChanged': true
+  'valueInTextFieldChanged': true
 };
 
 

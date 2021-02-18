@@ -13,7 +13,7 @@ CastWebPreferences::Preferences::Preferences() = default;
 
 CastWebPreferences::CastWebPreferences() = default;
 
-void CastWebPreferences::Update(content::WebPreferences* prefs) {
+void CastWebPreferences::Update(blink::web_pref::WebPreferences* prefs) {
   if (preferences_.autoplay_policy)
     prefs->autoplay_policy = preferences_.autoplay_policy.value();
 
@@ -22,6 +22,10 @@ void CastWebPreferences::Update(content::WebPreferences* prefs) {
 
   if (preferences_.javascript_enabled)
     prefs->javascript_enabled = preferences_.javascript_enabled.value();
+
+  if (preferences_.supports_multiple_windows) {
+    prefs->supports_multiple_windows = preferences_.supports_multiple_windows.value();
+  }
 }
 
 }  // namespace chromecast

@@ -26,6 +26,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_PAGE_DRAG_DATA_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAGE_DRAG_DATA_H_
 
+#include "third_party/blink/public/common/page/drag_operation.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/page/drag_actions.h"
 #include "third_party/blink/renderer/platform/geometry/float_point.h"
@@ -51,11 +52,11 @@ class CORE_EXPORT DragData {
   DragData(DataObject*,
            const FloatPoint& client_position,
            const FloatPoint& global_position,
-           DragOperation);
+           DragOperationsMask);
   const FloatPoint& ClientPosition() const { return client_position_; }
   const FloatPoint& GlobalPosition() const { return global_position_; }
   DataObject* PlatformData() const { return platform_drag_data_; }
-  DragOperation DraggingSourceOperationMask() const {
+  DragOperationsMask DraggingSourceOperationMask() const {
     return dragging_source_operation_mask_;
   }
   bool ContainsURL(
@@ -78,7 +79,7 @@ class CORE_EXPORT DragData {
   const FloatPoint client_position_;
   const FloatPoint global_position_;
   DataObject* const platform_drag_data_;
-  const DragOperation dragging_source_operation_mask_;
+  const DragOperationsMask dragging_source_operation_mask_;
 
   bool ContainsHTML() const;
 };

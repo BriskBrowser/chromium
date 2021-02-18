@@ -4,10 +4,10 @@
 
 #include "chrome/browser/chromeos/login/screens/gaia_password_changed_screen.h"
 
+#include "base/metrics/histogram_functions.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/login/reauth_stats.h"
-#include "chrome/browser/chromeos/login/screen_manager.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/ui/webui/chromeos/login/gaia_password_changed_screen_handler.h"
 
 namespace chromeos {
@@ -18,18 +18,18 @@ constexpr const char kUserActionResyncData[] = "resync";
 
 }  // namespace
 
-// static
-GaiaPasswordChangedScreen* GaiaPasswordChangedScreen::Get(
-    ScreenManager* manager) {
-  return static_cast<GaiaPasswordChangedScreen*>(
-      manager->GetScreen(GaiaPasswordChangedView::kScreenId));
+void RecordEulaScreenAction(GaiaPasswordChangedScreen::UserAction value) {
+  base::UmaHistogramEnumeration("OOBE.GaiaPasswordChangedScreen.UserActions",
+                                value);
 }
 
 GaiaPasswordChangedScreen::GaiaPasswordChangedScreen(
+    const ScreenExitCallback& exit_callback,
     GaiaPasswordChangedView* view)
     : BaseScreen(GaiaPasswordChangedView::kScreenId,
                  OobeScreenPriority::DEFAULT),
-      view_(view) {
+      exit_callback_(exit_callback) {
+  view_ = view;
   if (view_)
     view_->Bind(this);
 }
@@ -60,21 +60,25 @@ void GaiaPasswordChangedScreen::Configure(const AccountId& account_id,
   DCHECK(account_id.is_valid());
   account_id_ = account_id;
   show_error_ = after_incorrect_attempt;
+  if (after_incorrect_attempt)
+    RecordEulaScreenAction(UserAction::kIncorrectOldPassword);
 }
 
 void GaiaPasswordChangedScreen::OnUserAction(const std::string& action_id) {
   if (action_id == kUserActionCancelLogin) {
+    RecordEulaScreenAction(UserAction::kCancel);
     CancelPasswordChangedFlow();
   } else if (action_id == kUserActionResyncData) {
+    RecordEulaScreenAction(UserAction::kResyncUserData);
     // LDH will pass control to ExistingUserController to proceed with clearing
     // cryptohome.
-    if (LoginDisplayHost::default_host())
-      LoginDisplayHost::default_host()->ResyncUserData();
+    exit_callback_.Run(Result::RESYNC);
   }
 }
 
 void GaiaPasswordChangedScreen::MigrateUserData(
     const std::string& old_password) {
+  RecordEulaScreenAction(UserAction::kMigrateUserData);
   // LDH will pass control to ExistingUserController to proceed with updating
   // cryptohome keys.
   if (LoginDisplayHost::default_host())
@@ -87,12 +91,12 @@ void GaiaPasswordChangedScreen::CancelPasswordChangedFlow() {
   }
   ProfileHelper* profile_helper = ProfileHelper::Get();
   profile_helper->ClearSigninProfile(
-      base::Bind(&GaiaPasswordChangedScreen::OnCookiesCleared,
-                 weak_factory_.GetWeakPtr()));
+      base::BindOnce(&GaiaPasswordChangedScreen::OnCookiesCleared,
+                     weak_factory_.GetWeakPtr()));
 }
 
 void GaiaPasswordChangedScreen::OnCookiesCleared() {
-  LoginDisplayHost::default_host()->StartSignInScreen();
+  exit_callback_.Run(Result::CANCEL);
 }
 
 }  // namespace chromeos

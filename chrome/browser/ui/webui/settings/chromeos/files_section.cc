@@ -5,7 +5,7 @@
 #include "chrome/browser/ui/webui/settings/chromeos/files_section.h"
 
 #include "base/no_destructor.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/ui/webui/chromeos/smb_shares/smb_handler.h"
 #include "chrome/browser/ui/webui/chromeos/smb_shares/smb_shares_localized_strings_provider.h"
 #include "chrome/browser/ui/webui/settings/chromeos/search/search_tag_registry.h"
@@ -85,7 +85,7 @@ void FilesSection::AddLoadTimeData(content::WebUIDataSource* html_source) {
       {"smbShareAddedInvalidSSOURLMessage",
        IDS_SETTINGS_DOWNLOADS_SHARE_ADDED_MOUNT_INVALID_SSO_URL_MESSAGE},
   };
-  AddLocalizedStringsBulk(html_source, kLocalizedStrings);
+  html_source->AddLocalizedStrings(kLocalizedStrings);
 
   chromeos::smb_dialog::AddLocalizedStrings(html_source);
 
@@ -117,6 +117,11 @@ mojom::SearchResultIcon FilesSection::GetSectionIcon() const {
 
 std::string FilesSection::GetSectionPath() const {
   return mojom::kFilesSectionPath;
+}
+
+bool FilesSection::LogMetric(mojom::Setting setting, base::Value& value) const {
+  // Unimplemented.
+  return false;
 }
 
 void FilesSection::RegisterHierarchy(HierarchyGenerator* generator) const {

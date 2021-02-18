@@ -431,6 +431,7 @@ class TestEntryInfo {
   constructor(options) {
     this.type = options.type;
     this.sourceFileName = options.sourceFileName || '';
+    this.thumbnailFileName = options.thumbnailFileName || '';
     this.targetPath = options.targetPath;
     this.teamDriveName = options.teamDriveName || '';
     this.computerName = options.computerName || '';
@@ -484,6 +485,7 @@ const ENTRIES = {
   world: new TestEntryInfo({
     type: EntryType.FILE,
     sourceFileName: 'video.ogv',
+    thumbnailFileName: 'image.png',
     targetPath: 'world.ogv',
     mimeType: 'video/ogg',
     lastModifiedTime: 'Jul 4, 2012, 10:35 AM',
@@ -539,6 +541,7 @@ const ENTRIES = {
   desktop: new TestEntryInfo({
     type: EntryType.FILE,
     sourceFileName: 'image.png',
+    thumbnailFileName: 'image.png',
     targetPath: 'My Desktop Background.png',
     mimeType: 'image/png',
     lastModifiedTime: 'Jan 18, 2038, 1:02 AM',
@@ -724,6 +727,17 @@ const ENTRIES = {
     typeText: 'Plain text',
   }),
 
+  utf8Text: new TestEntryInfo({
+    type: EntryType.FILE,
+    sourceFileName: 'utf8.txt',
+    targetPath: 'utf8.txt',
+    mimeType: 'text/plain',
+    lastModifiedTime: 'Sep 4, 1998, 12:34 PM',
+    nameText: 'utf8.txt',
+    sizeText: '191 bytes',
+    typeText: 'Plain text',
+  }),
+
   mHtml: new TestEntryInfo({
     type: EntryType.FILE,
     sourceFileName: 'page.mhtml',
@@ -754,6 +768,17 @@ const ENTRIES = {
     lastModifiedTime: 'Sep 4, 1998, 12:34 PM',
     nameText: 'tall.pdf',
     sizeText: '15 KB',
+    typeText: 'PDF document',
+  }),
+
+  popupPdf: new TestEntryInfo({
+    type: EntryType.FILE,
+    sourceFileName: 'popup.pdf',
+    targetPath: 'popup.pdf',
+    mimeType: 'application/pdf',
+    lastModifiedTime: 'Jul 4, 2000, 10:42 AM',
+    nameText: 'popup.pdf',
+    sizeText: '538 bytes',
     typeText: 'PDF document',
   }),
 
@@ -830,6 +855,15 @@ const ENTRIES = {
     targetPath: 'D/E/F',
     lastModifiedTime: 'Jan 1, 2000, 1:00 AM',
     nameText: 'F',
+    sizeText: '--',
+    typeText: 'Folder'
+  }),
+
+  dotTrash: new TestEntryInfo({
+    type: EntryType.DIRECTORY,
+    targetPath: '.Trash',
+    lastModifiedTime: 'Jan 1, 2000, 1:00 AM',
+    nameText: '.Trash',
     sizeText: '--',
     typeText: 'Folder'
   }),

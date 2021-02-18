@@ -10,10 +10,12 @@
 #import "ios/chrome/browser/main/browser_list.h"
 #import "ios/chrome/browser/main/browser_list_factory.h"
 #include "ios/chrome/browser/main/test_browser.h"
+#import "ios/chrome/browser/snapshots/snapshot_browser_agent.h"
+#import "ios/chrome/browser/snapshots/snapshot_tab_helper.h"
 #import "ios/chrome/browser/web/tab_id_tab_helper.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_state_opener.h"
-#import "ios/web/public/test/fakes/test_web_state.h"
+#import "ios/web/public/test/fakes/fake_web_state.h"
 #import "ios/web/public/test/web_task_environment.h"
 #import "testing/gtest_mac.h"
 #import "testing/platform_test.h"
@@ -43,6 +45,11 @@ class BrowserUtilTest : public PlatformTest {
     browser_list_->AddIncognitoBrowser(incognito_browser_.get());
     browser_list_->AddIncognitoBrowser(other_incognito_browser_.get());
 
+    SnapshotBrowserAgent::CreateForBrowser(browser_.get());
+    SnapshotBrowserAgent::CreateForBrowser(other_browser_.get());
+    SnapshotBrowserAgent::CreateForBrowser(incognito_browser_.get());
+    SnapshotBrowserAgent::CreateForBrowser(other_incognito_browser_.get());
+
     AppendNewWebState(browser_.get());
     AppendNewWebState(browser_.get());
     AppendNewWebState(browser_.get());
@@ -50,13 +57,16 @@ class BrowserUtilTest : public PlatformTest {
   }
 
   // Appends a new web state in the web state list of |browser|.
-  web::TestWebState* AppendNewWebState(Browser* browser) {
-    auto test_web_state = std::make_unique<web::TestWebState>();
-    web::TestWebState* inserted_web_state = test_web_state.get();
-    browser->GetWebStateList()->InsertWebState(
-        WebStateList::kInvalidIndex, std::move(test_web_state),
-        WebStateList::INSERT_ACTIVATE, WebStateOpener());
+  web::FakeWebState* AppendNewWebState(Browser* browser) {
+    auto fake_web_state = std::make_unique<web::FakeWebState>();
+    web::FakeWebState* inserted_web_state = fake_web_state.get();
     TabIdTabHelper::CreateForWebState(inserted_web_state);
+    NSString* tab_id =
+        TabIdTabHelper::FromWebState(inserted_web_state)->tab_id();
+    SnapshotTabHelper::CreateForWebState(inserted_web_state, tab_id);
+    browser->GetWebStateList()->InsertWebState(
+        WebStateList::kInvalidIndex, std::move(fake_web_state),
+        WebStateList::INSERT_ACTIVATE, WebStateOpener());
     return inserted_web_state;
   }
 

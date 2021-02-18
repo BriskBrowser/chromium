@@ -4,6 +4,7 @@
 
 #include "fuchsia/runners/common/web_component.h"
 
+#include <fuchsia/logger/cpp/fidl.h>
 #include <fuchsia/sys/cpp/fidl.h>
 #include <fuchsia/ui/views/cpp/fidl.h>
 #include <lib/fidl/cpp/binding_set.h>
@@ -18,11 +19,13 @@
 #include "fuchsia/runners/common/web_content_runner.h"
 
 WebComponent::WebComponent(
+    base::StringPiece debug_name,
     WebContentRunner* runner,
-    std::unique_ptr<base::fuchsia::StartupContext> context,
+    std::unique_ptr<base::StartupContext> context,
     fidl::InterfaceRequest<fuchsia::sys::ComponentController>
         controller_request)
-    : runner_(runner),
+    : debug_name_(debug_name.as_string()),
+      runner_(runner),
       startup_context_(std::move(context)),
       controller_binding_(this),
       module_context_(
@@ -49,9 +52,11 @@ WebComponent::~WebComponent() {
   if (module_context_)
     module_context_->RemoveSelfFromStory();
 
-  // Send process termination details to the client.
-  controller_binding_.events().OnTerminated(termination_exit_code_,
-                                            termination_reason_);
+  if (controller_binding_.is_bound()) {
+    // Send process termination details to the client.
+    controller_binding_.events().OnTerminated(termination_exit_code_,
+                                              termination_reason_);
+  }
 }
 
 void WebComponent::EnableRemoteDebugging() {
@@ -64,8 +69,12 @@ void WebComponent::StartComponent() {
 
   // Create the underlying Frame and get its NavigationController.
   fuchsia::web::CreateFrameParams create_params;
+  if (!debug_name_.empty())
+    create_params.set_debug_name(debug_name_);
   create_params.set_enable_remote_debugging(enable_remote_debugging_);
-  frame_ = runner_->CreateFrame(std::move(create_params));
+  create_params.set_autoplay_policy(
+      fuchsia::web::AutoplayPolicy::REQUIRE_USER_ACTIVATION);
+  runner_->CreateFrameWithParams(std::move(create_params), frame_.NewRequest());
 
   // If the Frame unexpectedly disconnects then tear-down this Component.
   // ZX_OK indicates intentional termination (e.g. via window.close()).
@@ -84,7 +93,7 @@ void WebComponent::StartComponent() {
     // Publish outgoing services and start serving component's outgoing
     // directory.
     view_provider_binding_ = std::make_unique<
-        base::fuchsia::ScopedServiceBinding<fuchsia::ui::app::ViewProvider>>(
+        base::ScopedServiceBinding<fuchsia::ui::app::ViewProvider>>(
         startup_context()->component_context()->outgoing().get(), this);
     lifecycle_ = std::make_unique<cr_fuchsia::LifecycleImpl>(
         startup_context()->component_context()->outgoing().get(),

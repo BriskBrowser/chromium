@@ -8,23 +8,28 @@
 #include <memory>
 
 #include "base/memory/scoped_refptr.h"
+#include "media/base/media_log.h"
+#include "media/base/supported_video_decoder_config.h"
 #include "media/gpu/media_gpu_export.h"
-#include "media/video/supported_video_decoder_config.h"
 
 namespace base {
 class SequencedTaskRunner;
 }  // namespace base
 
+namespace gpu {
+class GpuDriverBugWorkarounds;
+}
+
 namespace media {
 
 class DmabufVideoFramePool;
-class MediaLog;
 class VideoDecoder;
 class VideoFrameConverter;
 
 class MEDIA_GPU_EXPORT ChromeosVideoDecoderFactory {
  public:
-  static SupportedVideoDecoderConfigs GetSupportedConfigs();
+  static SupportedVideoDecoderConfigs GetSupportedConfigs(
+      const gpu::GpuDriverBugWorkarounds& workarounds);
 
   // Create VideoDecoder instance that allocates VideoFrame from |frame_pool|
   // and converts the output VideoFrame |frame_converter|.

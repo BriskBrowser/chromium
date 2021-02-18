@@ -16,6 +16,7 @@ import android.provider.Settings;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.Selection;
+import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.util.AttributeSet;
 import android.view.ActionMode;
@@ -52,6 +53,7 @@ import org.chromium.components.find_in_page.FindMatchRectsDetails;
 import org.chromium.components.find_in_page.FindNotificationDetails;
 import org.chromium.components.find_in_page.FindResultBar;
 import org.chromium.ui.base.WindowAndroid;
+import org.chromium.url.GURL;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -206,7 +208,7 @@ public class FindToolbar extends LinearLayout {
             }
 
             @Override
-            public void onPageLoadStarted(Tab tab, String url) {
+            public void onPageLoadStarted(Tab tab, GURL url) {
                 deactivate();
             }
 
@@ -335,6 +337,7 @@ public class FindToolbar extends LinearLayout {
         });
 
         mFindStatus = (TextView) findViewById(R.id.find_status);
+        setStatus("", false);
 
         mFindPrevButton = findViewById(R.id.find_prev_button);
         mFindPrevButton.setOnClickListener(new OnClickListener() {
@@ -769,6 +772,7 @@ public class FindToolbar extends LinearLayout {
         mFindStatus.setText(text);
         mFindStatus.setContentDescription(null);
         mFindStatus.setTextColor(getStatusColor(failed, isIncognito()));
+        mFindStatus.setVisibility(TextUtils.isEmpty(text) ? GONE : VISIBLE);
     }
 
     /**

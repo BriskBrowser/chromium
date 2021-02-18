@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/optional.h"
 
 struct CoreAccountInfo;
 
@@ -27,16 +28,36 @@ enum class TrustedVaultRequestStatus {
   kOtherError
 };
 
+struct TrustedVaultKeyAndVersion {
+  TrustedVaultKeyAndVersion(const std::vector<uint8_t>& key, int version);
+  TrustedVaultKeyAndVersion(const TrustedVaultKeyAndVersion& other);
+  TrustedVaultKeyAndVersion& operator=(const TrustedVaultKeyAndVersion& other);
+  ~TrustedVaultKeyAndVersion();
+
+  std::vector<uint8_t> key;
+  int version;
+};
+
 // Supports interaction with vault service, all methods must called on trusted
 // vault backend sequence.
 class TrustedVaultConnection {
  public:
-  using RegisterDeviceCallback =
+  using RegisterAuthenticationFactorCallback =
       base::OnceCallback<void(TrustedVaultRequestStatus)>;
-  using DownloadKeysCallback =
+  using DownloadNewKeysCallback =
       base::OnceCallback<void(TrustedVaultRequestStatus,
                               const std::vector<std::vector<uint8_t>>& /*keys*/,
                               int /*last_key_version*/)>;
+
+  // Used to control ongoing request lifetime, destroying Request object causes
+  // request cancellation.
+  class Request {
+   public:
+    Request() = default;
+    Request(const Request& other) = delete;
+    Request& operator=(const Request& other) = delete;
+    virtual ~Request() = default;
+  };
 
   TrustedVaultConnection() = default;
   TrustedVaultConnection(const TrustedVaultConnection& other) = delete;
@@ -44,22 +65,30 @@ class TrustedVaultConnection {
       delete;
   virtual ~TrustedVaultConnection() = default;
 
-  // Asynchronously attempts to register the device on the trusted vault server
-  // to allow further DownloadKeys(). Calls |callback| upon completion.
-  virtual void RegisterDevice(
+  // Asynchronously attempts to register the authentication factor on the
+  // trusted vault server to allow further vault server API calls using this
+  // authentication factor. If |last_trusted_vault_key_and_version| is
+  // base::nullopt, registration attempt with constant key will be made. Calls
+  // |callback| upon completion, unless the returned object is destroyed
+  // earlier. Caller should hold returned request object until |callback| call
+  // or until request needs to be cancelled.
+  virtual std::unique_ptr<Request> RegisterAuthenticationFactor(
       const CoreAccountInfo& account_info,
-      const std::vector<uint8_t>& last_trusted_vault_key,
-      int last_trusted_vault_key_version,
-      const SecureBoxPublicKey& device_public_key,
-      RegisterDeviceCallback callback) = 0;
+      const base::Optional<TrustedVaultKeyAndVersion>&
+          last_trusted_vault_key_and_version,
+      const SecureBoxPublicKey& authentication_factor_public_key,
+      RegisterAuthenticationFactorCallback callback) WARN_UNUSED_RESULT = 0;
 
-  // Asynchronously attempts to download new vault keys from the trusted vault
-  // server.
-  virtual void DownloadKeys(const CoreAccountInfo& account_info,
-                            const std::vector<uint8_t>& last_trusted_vault_key,
-                            int last_trusted_vault_key_version,
-                            std::unique_ptr<SecureBoxKeyPair> device_key_pair,
-                            DownloadKeysCallback callback) = 0;
+  // Asynchronously attempts to download new vault keys (e.g. keys with version
+  // greater than the on in |last_trusted_vault_key_and_version|) from the
+  // trusted vault server. Caller should hold returned request object until
+  // |callback| call or until request needs to be cancelled.
+  virtual std::unique_ptr<Request> DownloadNewKeys(
+      const CoreAccountInfo& account_info,
+      const base::Optional<TrustedVaultKeyAndVersion>&
+          last_trusted_vault_key_and_version,
+      std::unique_ptr<SecureBoxKeyPair> device_key_pair,
+      DownloadNewKeysCallback callback) WARN_UNUSED_RESULT = 0;
 };
 
 }  // namespace syncer

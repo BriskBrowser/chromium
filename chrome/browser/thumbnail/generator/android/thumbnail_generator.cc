@@ -31,7 +31,7 @@ void ForwardJavaCallback(const ScopedJavaGlobalRef<jobject>& java_delegate,
   JNIEnv* env = base::android::AttachCurrentThread();
   Java_ThumbnailGenerator_onThumbnailRetrieved(
       env, java_delegate, content_id, icon_size,
-      thumbnail.drawsNothing() ? nullptr : gfx::ConvertToJavaBitmap(&thumbnail),
+      thumbnail.drawsNothing() ? nullptr : gfx::ConvertToJavaBitmap(thumbnail),
       callback);
 }
 
@@ -107,10 +107,11 @@ void ThumbnailGenerator::RetrieveThumbnail(
   if (base::StartsWith(mime_type, "video/",
                        base::CompareCase::INSENSITIVE_ASCII)) {
     auto parser = ThumbnailMediaParser::Create(mime_type, file_path);
-    parser->Start(base::BindOnce(&ThumbnailGenerator::OnVideoThumbnailRetrieved,
-                                 weak_factory_.GetWeakPtr(),
-                                 std::move(java_callback), icon_size,
-                                 std::move(parser)));
+    auto* const parser_ptr = parser.get();
+    parser_ptr->Start(
+        base::BindOnce(&ThumbnailGenerator::OnVideoThumbnailRetrieved,
+                       weak_factory_.GetWeakPtr(), std::move(java_callback),
+                       icon_size, std::move(parser)));
     return;
   }
 

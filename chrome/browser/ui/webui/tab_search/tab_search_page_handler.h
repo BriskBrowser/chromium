@@ -13,11 +13,12 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "chrome/browser/ui/webui/tab_search/tab_search.mojom.h"
+#include "content/public/browser/web_contents_observer.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
-#include "ui/webui/mojo_web_ui_controller.h"
+#include "ui/webui/mojo_bubble_web_ui_controller.h"
 
 class Browser;
 
@@ -31,23 +32,29 @@ enum class TabSearchCloseAction {
 
 class TabSearchPageHandler : public tab_search::mojom::PageHandler,
                              public TabStripModelObserver,
-                             public BrowserTabStripTrackerDelegate {
+                             public BrowserTabStripTrackerDelegate,
+                             public content::WebContentsObserver {
  public:
   TabSearchPageHandler(
       mojo::PendingReceiver<tab_search::mojom::PageHandler> receiver,
       mojo::PendingRemote<tab_search::mojom::Page> page,
-      content::WebUI* web_ui);
+      content::WebUI* web_ui,
+      ui::MojoBubbleWebUIController* webui_controller);
   TabSearchPageHandler(const TabSearchPageHandler&) = delete;
   TabSearchPageHandler& operator=(const TabSearchPageHandler&) = delete;
   ~TabSearchPageHandler() override;
 
   // tab_search::mojom::PageHandler:
   void CloseTab(int32_t tab_id) override;
-  void GetProfileTabs(GetProfileTabsCallback callback) override;
+  void GetProfileData(GetProfileDataCallback callback) override;
   void GetTabGroups(GetTabGroupsCallback callback) override;
   void ShowFeedbackPage() override;
   void SwitchToTab(
       tab_search::mojom::SwitchToTabInfoPtr switch_to_tab_info) override;
+  void ShowUI() override;
+  // TODO(tluk): Remove this once all uses of the CloseUI() interface are
+  // removed from the Tab Search WebUI code.
+  void CloseUI() override {}
 
   // TabStripModelObserver:
   void OnTabStripModelChanged(
@@ -60,6 +67,9 @@ class TabSearchPageHandler : public tab_search::mojom::PageHandler,
 
   // BrowserTabStripTrackerDelegate:
   bool ShouldTrackBrowser(Browser* browser) override;
+
+  // content::WebContentsObserver:
+  void OnVisibilityChanged(content::Visibility visibility) override;
 
  protected:
   void SetTimerForTesting(std::unique_ptr<base::RetainingOneShotTimer> timer);
@@ -74,6 +84,8 @@ class TabSearchPageHandler : public tab_search::mojom::PageHandler,
     TabStripModel* tab_strip_model;
     int index;
   };
+
+  tab_search::mojom::ProfileDataPtr CreateProfileData();
 
   tab_search::mojom::TabPtr GetTabData(TabStripModel* tab_strip_model,
                                        content::WebContents* contents,
@@ -92,8 +104,10 @@ class TabSearchPageHandler : public tab_search::mojom::PageHandler,
   mojo::Remote<tab_search::mojom::Page> page_;
   Browser* const browser_;
   content::WebUI* const web_ui_;
+  ui::MojoBubbleWebUIController* const webui_controller_;
   BrowserTabStripTracker browser_tab_strip_tracker_{this, this};
   std::unique_ptr<base::RetainingOneShotTimer> debounce_timer_;
+  bool webui_hidden_ = false;
 
   // Tracks how many times |CloseTab()| has been evoked for the currently open
   // instance of Tab Search for logging in UMA.

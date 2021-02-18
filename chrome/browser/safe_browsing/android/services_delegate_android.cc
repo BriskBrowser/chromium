@@ -70,16 +70,13 @@ void ServicesDelegateAndroid::ShutdownServices() {
 
 void ServicesDelegateAndroid::RefreshState(bool enable) {}
 
-void ServicesDelegateAndroid::ProcessResourceRequest(
-    const ResourceRequestInfo* request) {}
-
 std::unique_ptr<prefs::mojom::TrackedPreferenceValidationDelegate>
 ServicesDelegateAndroid::CreatePreferenceValidationDelegate(Profile* profile) {
   return nullptr;
 }
 
 void ServicesDelegateAndroid::RegisterDelayedAnalysisCallback(
-    const DelayedAnalysisCallback& callback) {}
+    DelayedAnalysisCallback callback) {}
 
 void ServicesDelegateAndroid::AddDownloadManager(
     content::DownloadManager* download_manager) {}

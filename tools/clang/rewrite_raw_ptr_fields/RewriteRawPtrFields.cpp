@@ -307,21 +307,35 @@ class FilterFile {
     return it != file_lines_.end();
   }
 
-  // Returns true if any of the filter file lines is a substring of
-  // |string_to_match|.
+  // Returns true if |string_to_match| matches based on the filter file lines.
+  // Filter file lines can contain both inclusions and exclusions in the filter.
+  // Only returns true if |string_to_match| both matches an inclusion filter and
+  // is *not* matched by an exclusion filter.
   bool ContainsSubstringOf(llvm::StringRef string_to_match) const {
-    if (!substring_regex_.hasValue()) {
-      std::vector<std::string> regex_escaped_file_lines;
-      regex_escaped_file_lines.reserve(file_lines_.size());
-      for (const llvm::StringRef& file_line : file_lines_.keys())
-        regex_escaped_file_lines.push_back(llvm::Regex::escape(file_line));
-      std::string substring_regex_pattern =
-          llvm::join(regex_escaped_file_lines.begin(),
-                     regex_escaped_file_lines.end(), "|");
-      substring_regex_.emplace(substring_regex_pattern);
+    if (!inclusion_substring_regex_.hasValue()) {
+      std::vector<std::string> regex_escaped_inclusion_file_lines;
+      std::vector<std::string> regex_escaped_exclusion_file_lines;
+      regex_escaped_inclusion_file_lines.reserve(file_lines_.size());
+      for (const llvm::StringRef& file_line : file_lines_.keys()) {
+        if (file_line.startswith("!")) {
+          regex_escaped_exclusion_file_lines.push_back(
+              llvm::Regex::escape(file_line.substr(1)));
+        } else {
+          regex_escaped_inclusion_file_lines.push_back(
+              llvm::Regex::escape(file_line));
+        }
+      }
+      std::string inclusion_substring_regex_pattern =
+          llvm::join(regex_escaped_inclusion_file_lines.begin(),
+                     regex_escaped_inclusion_file_lines.end(), "|");
+      inclusion_substring_regex_.emplace(inclusion_substring_regex_pattern);
+      std::string exclusion_substring_regex_pattern =
+          llvm::join(regex_escaped_exclusion_file_lines.begin(),
+                     regex_escaped_exclusion_file_lines.end(), "|");
+      exclusion_substring_regex_.emplace(exclusion_substring_regex_pattern);
     }
-
-    return substring_regex_->match(string_to_match);
+    return inclusion_substring_regex_->match(string_to_match) &&
+           !exclusion_substring_regex_->match(string_to_match);
   }
 
  private:
@@ -368,9 +382,16 @@ class FilterFile {
   // Stores all file lines (after stripping comments and blank lines).
   llvm::StringSet<> file_lines_;
 
+  // |file_lines_| is partitioned based on whether the line starts with a !
+  // (exclusion line) or not (inclusion line). Inclusion lines specify things to
+  // be matched by the filter. The exclusion lines specify what to force exclude
+  // from the filter. Lazily-constructed regex that matches strings that contain
+  // any of the inclusion lines in |file_lines_|.
+  mutable llvm::Optional<llvm::Regex> inclusion_substring_regex_;
+
   // Lazily-constructed regex that matches strings that contain any of the
-  // |file_lines_|.
-  mutable llvm::Optional<llvm::Regex> substring_regex_;
+  // exclusion lines in |file_lines_|.
+  mutable llvm::Optional<llvm::Regex> exclusion_substring_regex_;
 };
 
 AST_MATCHER_P(clang::FieldDecl,
@@ -489,6 +510,30 @@ const clang::FieldDecl* GetExplicitDecl(const clang::FieldDecl* field_decl) {
   return field_decl;
 }
 
+// Given:
+//   template <typename T>
+//   class MyTemplate {
+//     T field;  // This is an explicit field declaration.
+//   };
+//   void foo() {
+//     // This creates implicit template specialization for MyTemplate,
+//     // including an implicit |field| declaration.
+//     MyTemplate<int> v;
+//     v.field = 123;
+//   }
+// and
+//   innerMatcher that will match the explicit |T field| declaration (but not
+//   necessarily the implicit template declarations),
+// hasExplicitFieldDecl(innerMatcher) will match both explicit and implicit
+// field declarations.
+//
+// For example, |member_expr_matcher| below will match |v.field| in the example
+// above, even though the type of |v.field| is |int|, rather than |T| (matched
+// by substTemplateTypeParmType()):
+//   auto explicit_field_decl_matcher =
+//       fieldDecl(hasType(substTemplateTypeParmType()));
+//   auto member_expr_matcher = memberExpr(member(fieldDecl(
+//       hasExplicitFieldDecl(explicit_field_decl_matcher))))
 AST_MATCHER_P(clang::FieldDecl,
               hasExplicitFieldDecl,
               clang::ast_matchers::internal::Matcher<clang::FieldDecl>,
@@ -673,18 +718,97 @@ AST_MATCHER(clang::FieldDecl, overlapsOtherDeclsWithinRecordDecl) {
   return has_sibling_with_overlapping_location;
 }
 
-// Matches RecordDecl if
-// 1) it has a FieldDecl that matches the InnerMatcher
+// Matches clang::Type if
+// 1) it represents a RecordDecl with a FieldDecl that matches the InnerMatcher
+//    (*all* such FieldDecls will be matched)
 // or
-// 2) it has a FieldDecl that hasType of a RecordDecl that matches the
-//    InnerMatcher (this recurses to any depth).
-AST_MATCHER_P(clang::RecordDecl,
-              hasNestedFieldDecl,
+// 2) it represents an array or a RecordDecl that nests the case #1
+//    (this recurses to any depth).
+AST_MATCHER_P(clang::QualType,
+              typeWithEmbeddedFieldDecl,
               clang::ast_matchers::internal::Matcher<clang::FieldDecl>,
               InnerMatcher) {
-  auto matcher = recordDecl(has(fieldDecl(anyOf(
-      InnerMatcher, hasType(recordDecl(hasNestedFieldDecl(InnerMatcher)))))));
-  return matcher.matches(Node, Finder, Builder);
+  const clang::Type* type =
+      Node.getDesugaredType(Finder->getASTContext()).getTypePtrOrNull();
+  if (!type)
+    return false;
+
+  if (const clang::CXXRecordDecl* record_decl = type->getAsCXXRecordDecl()) {
+    auto matcher = recordDecl(forEach(fieldDecl(hasExplicitFieldDecl(anyOf(
+        InnerMatcher, hasType(typeWithEmbeddedFieldDecl(InnerMatcher)))))));
+    return matcher.matches(*record_decl, Finder, Builder);
+  }
+
+  if (type->isArrayType()) {
+    const clang::ArrayType* array_type =
+        Finder->getASTContext().getAsArrayType(Node);
+    auto matcher = typeWithEmbeddedFieldDecl(InnerMatcher);
+    return matcher.matches(array_type->getElementType(), Finder, Builder);
+  }
+
+  return false;
+}
+
+// forEachInitExprWithFieldDecl matches InitListExpr if it
+// 1) evaluates to a RecordType
+// 2) has a InitListExpr + FieldDecl pair that matches the submatcher args.
+//
+// forEachInitExprWithFieldDecl is based on and very similar to the builtin
+// forEachArgumentWithParam matcher.
+AST_MATCHER_P2(clang::InitListExpr,
+               forEachInitExprWithFieldDecl,
+               clang::ast_matchers::internal::Matcher<clang::Expr>,
+               init_expr_matcher,
+               clang::ast_matchers::internal::Matcher<clang::FieldDecl>,
+               field_decl_matcher) {
+  const clang::InitListExpr& init_list_expr = Node;
+  const clang::Type* type = init_list_expr.getType()
+                                .getDesugaredType(Finder->getASTContext())
+                                .getTypePtrOrNull();
+  if (!type)
+    return false;
+  const clang::CXXRecordDecl* record_decl = type->getAsCXXRecordDecl();
+  if (!record_decl)
+    return false;
+
+  bool is_matching = false;
+  clang::ast_matchers::internal::BoundNodesTreeBuilder result;
+  const std::vector<const clang::FieldDecl*> field_decls(
+      record_decl->field_begin(), record_decl->field_end());
+  for (unsigned i = 0; i < init_list_expr.getNumInits(); i++) {
+    const clang::Expr* expr = init_list_expr.getInit(i);
+
+    const clang::FieldDecl* field_decl = nullptr;
+    if (const clang::ImplicitValueInitExpr* implicit_value_init_expr =
+            clang::dyn_cast<clang::ImplicitValueInitExpr>(expr)) {
+      continue;  // Do not match implicit value initializers.
+    } else if (const clang::DesignatedInitExpr* designated_init_expr =
+                   clang::dyn_cast<clang::DesignatedInitExpr>(expr)) {
+      // Nested designators are unsupported by C++.
+      if (designated_init_expr->size() != 1)
+        break;
+      expr = designated_init_expr->getInit();
+      field_decl = designated_init_expr->getDesignator(0)->getField();
+    } else {
+      if (i >= field_decls.size())
+        break;
+      field_decl = field_decls[i];
+    }
+
+    clang::ast_matchers::internal::BoundNodesTreeBuilder field_matches(
+        *Builder);
+    if (field_decl_matcher.matches(*field_decl, Finder, &field_matches)) {
+      clang::ast_matchers::internal::BoundNodesTreeBuilder expr_matches(
+          field_matches);
+      if (init_expr_matcher.matches(*expr, Finder, &expr_matches)) {
+        result.addMatch(expr_matches);
+        is_matching = true;
+      }
+    }
+  }
+
+  *Builder = std::move(result);
+  return is_matching;
 }
 
 // Rewrites |SomeClass* field| (matched as "affectedFieldDecl") into
@@ -838,9 +962,11 @@ int main(int argc, const char* argv[]) {
   llvm::cl::opt<std::string> exclude_paths_param(
       kExcludePathsParamName, llvm::cl::value_desc("filepath"),
       llvm::cl::desc("file listing paths to be blocked (not rewritten)"));
-  clang::tooling::CommonOptionsParser options(argc, argv, category);
-  clang::tooling::ClangTool tool(options.getCompilations(),
-                                 options.getSourcePathList());
+  llvm::Expected<clang::tooling::CommonOptionsParser> options =
+      clang::tooling::CommonOptionsParser::create(argc, argv, category);
+  assert(static_cast<bool>(options));  // Should not return an error.
+  clang::tooling::ClangTool tool(options->getCompilations(),
+                                 options->getSourcePathList());
 
   MatchFinder match_finder;
   OutputHelper output_helper;
@@ -853,16 +979,11 @@ int main(int argc, const char* argv[]) {
   //     int (*func_ptr)();
   //     int (MyStruct::* member_func_ptr)(char);
   //     int (*ptr_to_array_of_ints)[123]
-  //     StructOrClassWithDeletedOperatorNew* stack_or_gc_ptr;
   //   };
   // matches |int*|, but not the other types.
-  auto record_with_deleted_allocation_operator_type_matcher =
-      recordType(hasDeclaration(cxxRecordDecl(
-          hasMethod(allOf(hasOverloadedOperatorName("new"), isDeleted())))));
   auto supported_pointer_types_matcher =
       pointerType(unless(pointee(hasUnqualifiedDesugaredType(
-          anyOf(record_with_deleted_allocation_operator_type_matcher,
-                functionType(), memberPointerType(), arrayType())))));
+          anyOf(functionType(), memberPointerType(), arrayType())))));
 
   // Implicit field declarations =========
   // Matches field declarations that do not explicitly appear in the source
@@ -952,6 +1073,26 @@ int main(int argc, const char* argv[]) {
   match_finder.addMatcher(affected_ternary_operator_arg_matcher,
                           &affected_expr_rewriter);
 
+  // Affected string binary operator =========
+  // Given
+  //   struct S { const char* y; }
+  //   void foo(const S& s) {
+  //     std::string other;
+  //     bool v1 = s.y == other;
+  //     std::string v2 = s.y + other;
+  //   }
+  // binds the |s.y| expr if it matches the |affected_expr_matcher| above.
+  //
+  // See also testcases in tests/affected-expr-original.cc
+  auto std_string_expr_matcher =
+      expr(hasType(cxxRecordDecl(hasName("::std::basic_string"))));
+  auto affected_string_binary_operator_arg_matcher = cxxOperatorCallExpr(
+      hasAnyOverloadedOperatorName("+", "==", "!=", "<", "<=", ">", ">="),
+      hasAnyArgument(std_string_expr_matcher),
+      forEachArgumentWithParam(affected_expr_matcher, parmVarDecl()));
+  match_finder.addMatcher(affected_string_binary_operator_arg_matcher,
+                          &affected_expr_rewriter);
+
   // Calls to templated functions =========
   // Given
   //   struct S { int* y; };
@@ -972,9 +1113,28 @@ int main(int argc, const char* argv[]) {
   // TODO(lukasza): It is unclear why |traverse| below is needed.  Maybe it can
   // be removed if https://bugs.llvm.org/show_bug.cgi?id=46287 is fixed.
   match_finder.addMatcher(
-      traverse(clang::ast_type_traits::TK_AsIs,
+      traverse(clang::TraversalKind::TK_AsIs,
                cxxConstructExpr(templated_function_arg_matcher)),
       &affected_expr_rewriter);
+
+  // Calls to constructors via an implicit cast =========
+  // Given
+  //   struct I { I(int*) {} };
+  //   void bar(I i) {}
+  //   struct S { int* y; };
+  //   void foo(const S& s) {
+  //     bar(s.y);  // implicit cast from |s.y| to I.
+  //   }
+  // binds the |s.y| expr if it matches the |affected_expr_matcher| above.
+  //
+  // See also testcases in tests/affected-expr-original.cc
+  auto implicit_ctor_expr_matcher = cxxConstructExpr(allOf(
+      anyOf(hasParent(materializeTemporaryExpr()),
+            hasParent(implicitCastExpr())),
+      hasDeclaration(
+          cxxConstructorDecl(allOf(parameterCountIs(1), unless(isExplicit())))),
+      forEachArgumentWithParam(affected_expr_matcher, parmVarDecl())));
+  match_finder.addMatcher(implicit_ctor_expr_matcher, &affected_expr_rewriter);
 
   // |auto| type declarations =========
   // Given
@@ -1038,6 +1198,32 @@ int main(int argc, const char* argv[]) {
   match_finder.addMatcher(overlapping_field_decl_matcher,
                           &overlapping_field_decl_writer);
 
+  // Matches fields initialized with a non-nullptr value in a constexpr
+  // constructor.  See also the testcase in tests/gen-constexpr-test.cc.
+  auto non_nullptr_expr_matcher =
+      expr(unless(ignoringImplicit(cxxNullPtrLiteralExpr())));
+  auto constexpr_ctor_field_initializer_matcher = cxxConstructorDecl(
+      allOf(isConstexpr(), forEachConstructorInitializer(allOf(
+                               forField(field_decl_matcher),
+                               withInitializer(non_nullptr_expr_matcher)))));
+  FilteredExprWriter constexpr_ctor_field_initializer_writer(
+      &output_helper, "constexpr-ctor-field-initializer");
+  match_finder.addMatcher(constexpr_ctor_field_initializer_matcher,
+                          &constexpr_ctor_field_initializer_writer);
+
+  // Matches constexpr initializer list expressions that initialize a rewritable
+  // field with a non-nullptr value.  For more details and rationale see the
+  // testcases in tests/gen-constexpr-test.cc.
+  auto constexpr_var_initializer_matcher = varDecl(
+      allOf(isConstexpr(),
+            hasInitializer(findAll(initListExpr(forEachInitExprWithFieldDecl(
+                non_nullptr_expr_matcher,
+                hasExplicitFieldDecl(field_decl_matcher)))))));
+  FilteredExprWriter constexpr_var_initializer_writer(
+      &output_helper, "constexpr-var-initializer");
+  match_finder.addMatcher(constexpr_var_initializer_matcher,
+                          &constexpr_var_initializer_writer);
+
   // See the doc comment for the isInMacroLocation matcher
   // and the testcases in tests/gen-macro-test.cc.
   auto macro_field_decl_matcher =
@@ -1056,12 +1242,63 @@ int main(int argc, const char* argv[]) {
                           &char_ptr_field_decl_writer);
 
   // See the testcases in tests/gen-global-destructor-test.cc.
-  auto global_destructor_matcher = varDecl(
-      allOf(hasGlobalStorage(),
-            hasType(recordDecl(hasNestedFieldDecl(field_decl_matcher)))));
-  FilteredExprWriter global_destructor_writer(&output_helper,
-                                              "global-destructor");
+  auto global_destructor_matcher =
+      varDecl(allOf(hasGlobalStorage(),
+                    hasType(typeWithEmbeddedFieldDecl(field_decl_matcher))));
+  FilteredExprWriter global_destructor_writer(&output_helper, "global-scope");
   match_finder.addMatcher(global_destructor_matcher, &global_destructor_writer);
+
+  // Matches CXXRecordDecls with a deleted operator new - e.g.
+  // StructWithNoOperatorNew below:
+  //     struct StructWithNoOperatorNew {
+  //       void* operator new(size_t) = delete;
+  //     };
+  auto record_with_deleted_allocation_operator_type_matcher = cxxRecordDecl(
+      hasMethod(allOf(hasOverloadedOperatorName("new"), isDeleted())));
+  // Matches rewritable fields inside structs with no operator new.  See the
+  // testcase in tests/gen-deleted-operator-new-test.cc
+  auto field_in_record_with_deleted_operator_new_matcher = fieldDecl(
+      allOf(field_decl_matcher,
+            hasParent(record_with_deleted_allocation_operator_type_matcher)));
+  FilteredExprWriter field_in_record_with_deleted_operator_new_writer(
+      &output_helper, "embedder-has-no-operator-new");
+  match_finder.addMatcher(field_in_record_with_deleted_operator_new_matcher,
+                          &field_in_record_with_deleted_operator_new_writer);
+  // Matches rewritable fields that contain a pointer, pointing to a pointee
+  // with no operator new.  See the testcase in
+  // tests/gen-deleted-operator-new-test.cc
+  auto field_pointing_to_record_with_deleted_operator_new_matcher =
+      fieldDecl(allOf(
+          field_decl_matcher,
+          hasType(pointerType(
+              pointee(hasUnqualifiedDesugaredType(recordType(hasDeclaration(
+                  record_with_deleted_allocation_operator_type_matcher))))))));
+  FilteredExprWriter field_pointing_to_record_with_deleted_operator_new_writer(
+      &output_helper, "pointee-has-no-operator-new");
+  match_finder.addMatcher(
+      field_pointing_to_record_with_deleted_operator_new_matcher,
+      &field_pointing_to_record_with_deleted_operator_new_writer);
+
+  // Matches fields in unions (both directly rewritable fields as well as union
+  // fields that embed a struct that contains a rewritable field).  See also the
+  // testcases in tests/gen-unions-test.cc.
+  auto union_field_decl_matcher = recordDecl(allOf(
+      isUnion(), forEach(fieldDecl(anyOf(field_decl_matcher,
+                                         hasType(typeWithEmbeddedFieldDecl(
+                                             field_decl_matcher)))))));
+  FilteredExprWriter union_field_decl_writer(&output_helper, "union");
+  match_finder.addMatcher(union_field_decl_matcher, &union_field_decl_writer);
+
+  // Matches rewritable fields of struct `SomeStruct` if that struct happens to
+  // be a destination type of a `reinterpret_cast<SomeStruct*>` cast.
+  auto reinterpret_cast_struct_matcher =
+      cxxReinterpretCastExpr(hasDestinationType(
+          pointerType(pointee(hasUnqualifiedDesugaredType(recordType(
+              hasDeclaration(recordDecl(forEach(field_decl_matcher)))))))));
+  FilteredExprWriter reinterpret_cast_struct_writer(&output_helper,
+                                                    "reinterpret-cast-struct");
+  match_finder.addMatcher(reinterpret_cast_struct_matcher,
+                          &reinterpret_cast_struct_writer);
 
   // Prepare and run the tool.
   std::unique_ptr<clang::tooling::FrontendActionFactory> factory =

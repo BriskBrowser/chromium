@@ -10,8 +10,9 @@
 #include "build/branding_buildflags.h"
 #include "build/buildflag.h"
 #include "chrome/browser/ui/passwords/account_avatar_fetcher.h"
-#include "components/autofill/core/common/password_form.h"
+#include "components/password_manager/core/browser/password_form.h"
 #include "ui/views/controls/button/button.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/style/typography.h"
 
 namespace gfx {
@@ -34,20 +35,22 @@ class Label;
 class CredentialsItemView : public AccountAvatarFetcherDelegate,
                             public views::Button {
  public:
-  CredentialsItemView(views::ButtonListener* button_listener,
+  METADATA_HEADER(CredentialsItemView);
+
+  CredentialsItemView(PressedCallback callback,
                       const base::string16& upper_text,
                       const base::string16& lower_text,
-                      const autofill::PasswordForm* form,
+                      const password_manager::PasswordForm* form,
                       network::mojom::URLLoaderFactory* loader_factory,
                       int upper_text_style = views::style::STYLE_PRIMARY,
                       int lower_text_style = views::style::STYLE_SECONDARY);
+  CredentialsItemView(const CredentialsItemView&) = delete;
+  CredentialsItemView& operator=(const CredentialsItemView&) = delete;
   ~CredentialsItemView() override;
 
   // If |store| is kAccountStore and the build is official, adds a G logo icon
   // to the view. If |store| is kProfileStore, removes any existing icon.
-  void SetStoreIndicatorIcon(autofill::PasswordForm::Store store);
-
-  const autofill::PasswordForm* form() const { return form_; }
+  void SetStoreIndicatorIcon(password_manager::PasswordForm::Store store);
 
   // AccountAvatarFetcherDelegate:
   void UpdateAvatar(const gfx::ImageSkia& image) override;
@@ -57,8 +60,6 @@ class CredentialsItemView : public AccountAvatarFetcherDelegate,
  private:
   // views::View:
   void OnPaintBackground(gfx::Canvas* canvas) override;
-
-  const autofill::PasswordForm* form_;
 
   views::ImageView* image_view_;
 
@@ -71,8 +72,6 @@ class CredentialsItemView : public AccountAvatarFetcherDelegate,
   views::ImageView* info_icon_ = nullptr;
 
   base::WeakPtrFactory<CredentialsItemView> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(CredentialsItemView);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_PASSWORDS_CREDENTIALS_ITEM_VIEW_H_

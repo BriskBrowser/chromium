@@ -9,7 +9,10 @@ import("//third_party/blink/renderer/config.gni")
 import("//third_party/blink/renderer/core/core.gni")
 import("//third_party/blink/renderer/modules/modules.gni")
 
-visibility = [ "//third_party/blink/*" ]
+visibility = [
+  "//:gn_all",
+  "//third_party/blink/*",
+]
 
 component("controller") {
   output_name = "blink_controller"
@@ -24,6 +27,7 @@ component("controller") {
   ]
 
   configs += [
+    "//build/config/compiler:noshadowing",
     "//build/config/compiler:wexit_time_destructors",
     "//third_party/blink/renderer:config",
     "//third_party/blink/renderer:inside_blink",
@@ -45,8 +49,8 @@ component("controller") {
     "memory_usage_monitor.h",
     "performance_manager/renderer_resource_coordinator_impl.cc",
     "performance_manager/renderer_resource_coordinator_impl.h",
-    "performance_manager/v8_per_frame_memory_reporter_impl.cc",
-    "performance_manager/v8_per_frame_memory_reporter_impl.h",
+    "performance_manager/v8_detailed_memory_reporter_impl.cc",
+    "performance_manager/v8_detailed_memory_reporter_impl.h",
     "performance_manager/v8_worker_memory_reporter.cc",
     "performance_manager/v8_worker_memory_reporter.h",
   ]
@@ -67,6 +71,7 @@ component("controller") {
       "oom_intervention_impl.cc",
       "oom_intervention_impl.h",
     ]
+    public_deps = [ "//third_party/blink/public/mojom:memory_usage_monitor_linux_mojo_bindings_blink" ]
   }
   if (is_win) {
     sources += [
@@ -153,10 +158,33 @@ source_set("blink_perf_tests_sources") {
   deps = [
     ":controller",
     "//base",
+    "//base/test:test_support",
     "//content/test:test_support",
+    "//third_party/blink/renderer/core:core",
     "//third_party/blink/renderer/core:perf_tests",
   ]
 
+  configs += [
+    "//third_party/blink/renderer:config",
+    "//third_party/blink/renderer:inside_blink",
+    "//third_party/blink/renderer/core:blink_core_pch",
+  ]
+}
+
+source_set("blink_bindings_test_sources") {
+  testonly = true
+  sources = bindings_unittest_files
+  deps = [
+    "//base/test:test_support",
+    "//testing/gmock",
+    "//testing/gtest",
+    "//third_party/blink/public:test_headers",
+    "//third_party/blink/renderer/core:testing",
+    "//third_party/blink/renderer/core:unit_test_support",
+    "//third_party/blink/renderer/modules:modules",
+    "//third_party/blink/renderer/platform:platform",
+    "//third_party/blink/renderer/platform:test_support",
+  ]
   configs += [
     "//third_party/blink/renderer:config",
     "//third_party/blink/renderer:inside_blink",
@@ -170,11 +198,11 @@ source_set("blink_unittests_sources") {
   testonly = true
 
   sources = [
-    "performance_manager/v8_per_frame_memory_reporter_impl_test.cc",
+    "performance_manager/renderer_resource_coordinator_impl_test.cc",
+    "performance_manager/v8_detailed_memory_reporter_impl_test.cc",
     "performance_manager/v8_worker_memory_reporter_test.cc",
     "tests/run_all_tests.cc",
   ]
-  sources += bindings_unittest_files
   if (is_linux || is_chromeos) {
     sources += [ "memory_usage_monitor_posix_test.cc" ]
   }
@@ -194,16 +222,21 @@ source_set("blink_unittests_sources") {
   }
 
   deps = [
+    ":blink_bindings_test_sources",
     ":controller",
     "//base",
     "//base:i18n",
     "//base/test:test_support",
     "//components/payments/mojom:mojom_blink",
+    "//components/performance_manager/public/mojom:mojom_blink",
     "//content/test:test_support",
     "//gpu:test_support",
     "//testing/gmock",
     "//testing/gtest",
+    "//third_party/blink/renderer/core:testing",
+    "//third_party/blink/renderer/core:unit_test_support",
     "//third_party/blink/renderer/core:unit_tests",
+    "//third_party/blink/renderer/modules:modules",
     "//third_party/blink/renderer/modules:unit_tests",
     "//third_party/blink/renderer/modules/exported:test_support",
     "//third_party/blink/renderer/platform",

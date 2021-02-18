@@ -30,7 +30,6 @@ struct RootCompositorFrameSinkParams {
   // Disables begin frame rate limiting for the display compositor.
   bool disable_frame_rate_limit = false;
   bool use_preferred_interval_for_video = false;
-  uint32 num_of_frames_to_toggle_interval = 60;
 
   [EnableIf=is_android]
   float refresh_rate;
@@ -127,10 +126,9 @@ interface FrameSinkManager {
 
   // Starts throttling the frame sinks specified by |frame_sink_ids| and all
   // their descendant sinks to send BeginFrames at an interval of |interval|.
-  // |interval| should be greater than zero. Calling this function before
-  // calling EndThrottling() to end a previous throttling operation will
-  // automatically end the previous operation before applying the current
-  // throttling operation.
+  // |interval| should be greater than zero. Previous throttling operation on
+  // any frame sinks must be first ended by calling EndThrottling() before
+  // applying the current throttling operation.
   StartThrottling(
       array<FrameSinkId> frame_sink_ids,
       mojo_base.mojom.TimeDelta interval);

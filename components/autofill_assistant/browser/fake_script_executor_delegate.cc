@@ -9,7 +9,7 @@
 namespace autofill_assistant {
 
 FakeScriptExecutorDelegate::FakeScriptExecutorDelegate()
-    : trigger_context_(TriggerContext::CreateEmpty()) {}
+    : trigger_context_(std::make_unique<TriggerContext>()) {}
 
 FakeScriptExecutorDelegate::~FakeScriptExecutorDelegate() = default;
 
@@ -35,6 +35,10 @@ Service* FakeScriptExecutorDelegate::GetService() {
 
 WebController* FakeScriptExecutorDelegate::GetWebController() {
   return web_controller_;
+}
+
+ElementStore* FakeScriptExecutorDelegate::GetElementStore() const {
+  return element_store_;
 }
 
 TriggerContext* FakeScriptExecutorDelegate::GetTriggerContext() {
@@ -82,15 +86,29 @@ std::string FakeScriptExecutorDelegate::GetStatusMessage() const {
 }
 
 void FakeScriptExecutorDelegate::SetBubbleMessage(const std::string& message) {
-  status_message_ = message;
+  bubble_message_ = message;
 }
 
 std::string FakeScriptExecutorDelegate::GetBubbleMessage() const {
-  return status_message_;
+  return bubble_message_;
 }
 
-void FakeScriptExecutorDelegate::SetDetails(std::unique_ptr<Details> details) {
-  details_ = std::move(details);
+void FakeScriptExecutorDelegate::SetDetails(std::unique_ptr<Details> details,
+                                            base::TimeDelta delay) {
+  // We ignore |delay|.
+  if (details) {
+    details_ = {*details};
+  } else {
+    details_ = {};
+  }
+}
+
+void FakeScriptExecutorDelegate::AppendDetails(std::unique_ptr<Details> details,
+                                               base::TimeDelta delay) {
+  // We ignore |delay|.
+  if (details) {
+    details_.push_back(*details);
+  }
 }
 
 void FakeScriptExecutorDelegate::SetInfoBox(const InfoBox& info_box) {
@@ -103,9 +121,16 @@ void FakeScriptExecutorDelegate::ClearInfoBox() {
 
 void FakeScriptExecutorDelegate::SetProgress(int progress) {}
 
+bool FakeScriptExecutorDelegate::SetProgressActiveStepIdentifier(
+    const std::string& active_step_identifier) {
+  return true;
+}
+
 void FakeScriptExecutorDelegate::SetProgressActiveStep(int active_step) {}
 
 void FakeScriptExecutorDelegate::SetProgressVisible(bool visible) {}
+
+void FakeScriptExecutorDelegate::SetProgressBarErrorState(bool error) {}
 
 void FakeScriptExecutorDelegate::SetStepProgressBarConfiguration(
     const ShowProgressBarProto::StepProgressBarConfiguration& configuration) {}
@@ -206,7 +231,7 @@ void FakeScriptExecutorDelegate::SetExpandSheetForPromptAction(bool expand) {
   expand_sheet_for_prompt_ = expand;
 }
 
-void FakeScriptExecutorDelegate::SetBrowseDomainsWhitelist(
+void FakeScriptExecutorDelegate::SetBrowseDomainsAllowlist(
     std::vector<std::string> domains) {
   browse_domains_ = std::move(domains);
 }
@@ -238,5 +263,11 @@ void FakeScriptExecutorDelegate::SetOverlayBehavior(
     ConfigureUiStateProto::OverlayBehavior overaly_behavior) {}
 
 void FakeScriptExecutorDelegate::SetBrowseModeInvisible(bool invisible) {}
+
+void FakeScriptExecutorDelegate::SetShowFeedbackChip(bool show_feedback_chip) {}
+
+bool FakeScriptExecutorDelegate::ShouldShowWarning() {
+  return true;
+}
 
 }  // namespace autofill_assistant

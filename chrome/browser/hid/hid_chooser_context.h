@@ -33,11 +33,6 @@ class Value;
 class HidChooserContext : public permissions::ChooserContextBase,
                           public device::mojom::HidManagerClient {
  public:
-  explicit HidChooserContext(Profile* profile);
-  HidChooserContext(const HidChooserContext&) = delete;
-  HidChooserContext& operator=(const HidChooserContext&) = delete;
-  ~HidChooserContext() override;
-
   // This observer can be used to be notified when HID devices are connected or
   // disconnected.
   class DeviceObserver : public base::CheckedObserver {
@@ -50,6 +45,19 @@ class HidChooserContext : public permissions::ChooserContextBase,
     // themselves before returning.
     virtual void OnHidChooserContextShutdown() = 0;
   };
+
+  explicit HidChooserContext(Profile* profile);
+  HidChooserContext(const HidChooserContext&) = delete;
+  HidChooserContext& operator=(const HidChooserContext&) = delete;
+  ~HidChooserContext() override;
+
+  // Returns a human-readable string identifier for |device|.
+  static base::string16 DisplayNameFromDeviceInfo(
+      const device::mojom::HidDeviceInfo& device);
+
+  // Returns true if a persistent permission can be granted for |device|.
+  static bool CanStorePersistentEntry(
+      const device::mojom::HidDeviceInfo& device);
 
   // permissions::ChooserContextBase implementation:
   bool IsValidObject(const base::Value& object) override;
@@ -78,6 +86,11 @@ class HidChooserContext : public permissions::ChooserContextBase,
 
   // Forward HidManager::GetDevices.
   void GetDevices(device::mojom::HidManager::GetDevicesCallback callback);
+
+  // Only call this if you're sure |devices_| has been initialized before-hand.
+  // The returned raw pointer is owned by |devices_| and will be destroyed when
+  // the device is removed.
+  const device::mojom::HidDeviceInfo* GetDeviceInfo(const std::string& guid);
 
   device::mojom::HidManager* GetHidManager();
 

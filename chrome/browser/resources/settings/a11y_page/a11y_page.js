@@ -142,6 +142,13 @@ Polymer({
 
     // Enables javascript and gets the screen reader state.
     chrome.send('a11yPageReady');
+
+    if (this.captionSettingsOpensExternally_) {
+      // If captions settings open externally, then this page doesn't have a
+      // separate captions subpage. Send a captionsSubpageReady notification in
+      // order to start observing SODA events.
+      chrome.send('captionsSubpageReady');
+    }
   },
 
   /**
@@ -187,7 +194,7 @@ Polymer({
   onA11yLiveCaptionChange_(event) {
     const a11yLiveCaptionOn = event.target.checked;
     chrome.metricsPrivate.recordBoolean(
-        'Accessibility.LiveCaption.ToggleEnabled', a11yLiveCaptionOn);
+        'Accessibility.LiveCaption.EnableFromSettings', a11yLiveCaptionOn);
   },
 
   /**
@@ -197,6 +204,15 @@ Polymer({
    */
   onEnableLiveCaptionSubtitleChanged_(enableLiveCaptionSubtitle) {
     this.enableLiveCaptionSubtitle_ = enableLiveCaptionSubtitle;
+  },
+
+  /**
+   * @private
+   * @param {!Event} event
+   */
+  onFocusHighlightChange_(event) {
+    chrome.metricsPrivate.recordBoolean(
+        'Accessibility.FocusHighlight.ToggleEnabled', event.target.checked);
   },
   // </if>
 
@@ -215,25 +231,10 @@ Polymer({
 
   /** @private */
   onCaptionsClick_() {
-    // Open the system captions dialog for Mac.
-    // <if expr="is_macosx">
-    CaptionsBrowserProxyImpl.getInstance().openSystemCaptionsDialog();
-    // </if>
-
-    // Open the system captions dialog for Windows 10+ or navigate to the
-    // caption settings page for older versions of Windows
-    // <if expr="is_win">
-    if (loadTimeData.getBoolean('isWindows10OrNewer')) {
+    if (this.captionSettingsOpensExternally_) {
       CaptionsBrowserProxyImpl.getInstance().openSystemCaptionsDialog();
     } else {
       Router.getInstance().navigateTo(routes.CAPTIONS);
     }
-    // </if>
-
-    // Navigate to the caption settings page for Linux as they do not have
-    // system caption settings.
-    // <if expr="is_linux">
-    Router.getInstance().navigateTo(routes.CAPTIONS);
-    // </if>
   },
 });

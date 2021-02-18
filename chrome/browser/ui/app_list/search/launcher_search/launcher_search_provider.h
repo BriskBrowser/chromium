@@ -16,6 +16,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/search/launcher_search/launcher_search_result.h"
 #include "chrome/browser/ui/app_list/search/search_provider.h"
+#include "chromeos/components/string_matching/tokenized_string.h"
 #include "extensions/common/extension_id.h"
 
 namespace app_list {
@@ -36,7 +37,7 @@ class LauncherSearchProvider : public SearchProvider {
  private:
   // Delays query for |kLauncherSearchProviderQueryDelayInMs|. This dispatches
   // the latest query after no more calls to Start() for the delay duration.
-  void DelayQuery(const base::Closure& closure);
+  void DelayQuery(base::OnceClosure closure);
 
   // Dispatches |query| to LauncherSearchProvider service.
   void StartInternal(const base::string16& query);
@@ -53,6 +54,9 @@ class LauncherSearchProvider : public SearchProvider {
   base::Time last_query_time_;
 
   base::TimeTicks query_start_time_;
+
+  base::Optional<chromeos::string_matching::TokenizedString>
+      last_tokenized_query_;
 
   // The reference to profile to get LauncherSearchProvider service.
   Profile* profile_;

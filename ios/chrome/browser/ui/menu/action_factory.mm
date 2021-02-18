@@ -7,6 +7,9 @@
 #import "base/metrics/histogram_functions.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
+#import "ios/chrome/browser/ui/incognito_reauth/incognito_reauth_scene_agent.h"
+#import "ios/chrome/browser/ui/main/scene_state_browser_agent.h"
+#include "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/ui/util/pasteboard_util.h"
 #import "ios/chrome/browser/url_loading/url_loading_browser_agent.h"
 #import "ios/chrome/browser/url_loading/url_loading_params.h"
@@ -130,6 +133,23 @@
 }
 
 - (UIAction*)actionToOpenInNewIncognitoTabWithBlock:(ProceduralBlock)block {
+  // Wrap the block with the incognito auth check, if necessary.
+  if (base::FeatureList::IsEnabled(kIncognitoAuthentication)) {
+    IncognitoReauthSceneAgent* reauthAgent = [IncognitoReauthSceneAgent
+        agentFromScene:SceneStateBrowserAgent::FromBrowser(self.browser)
+                           ->GetSceneState()];
+    if (reauthAgent.authenticationRequired) {
+      block = ^{
+        [reauthAgent
+            authenticateIncognitoContentWithCompletionBlock:^(BOOL success) {
+              if (success && block != nullptr) {
+                block();
+              }
+            }];
+      };
+    }
+  }
+
   return [self actionWithTitle:l10n_util::GetNSString(
                                    IDS_IOS_OPEN_IN_INCOGNITO_ACTION_TITLE)
                          image:[UIImage imageNamed:@"open_in_incognito"]
@@ -138,8 +158,8 @@
 }
 
 - (UIAction*)actionToOpenInNewWindowWithURL:(const GURL)URL
-                             activityOrigin:(WindowActivityOrigin)activityOrigin
-                                 completion:(ProceduralBlock)completion {
+                             activityOrigin:
+                                 (WindowActivityOrigin)activityOrigin {
   id<ApplicationCommands> windowOpener = HandlerForProtocol(
       self.browser->GetCommandDispatcher(), ApplicationCommands);
   NSUserActivity* activity = ActivityToLoadURL(activityOrigin, URL);
@@ -149,9 +169,6 @@
                           type:MenuActionType::OpenInNewWindow
                          block:^{
                            [windowOpener openNewWindowWithActivity:activity];
-                           if (completion) {
-                             completion();
-                           }
                          }];
 }
 
@@ -189,6 +206,39 @@
                 image:[UIImage imageNamed:@"move_folder"]
                  type:MenuActionType::Move
                 block:block];
+}
+
+- (UIAction*)actionToMarkAsReadWithBlock:(ProceduralBlock)block {
+  return [self actionWithTitle:l10n_util::GetNSString(
+                                   IDS_IOS_READING_LIST_MARK_AS_READ_ACTION)
+                         image:[UIImage imageNamed:@"mark_read"]
+                          type:MenuActionType::Read
+                         block:block];
+}
+
+- (UIAction*)actionToMarkAsUnreadWithBlock:(ProceduralBlock)block {
+  return [self actionWithTitle:l10n_util::GetNSString(
+                                   IDS_IOS_READING_LIST_MARK_AS_UNREAD_ACTION)
+                         image:[UIImage imageNamed:@"remove"]
+                          type:MenuActionType::Unread
+                         block:block];
+}
+
+- (UIAction*)actionToOpenOfflineVersionInNewTabWithBlock:
+    (ProceduralBlock)block {
+  return [self actionWithTitle:l10n_util::GetNSString(
+                                   IDS_IOS_READING_LIST_OPEN_OFFLINE_BUTTON)
+                         image:[UIImage imageNamed:@"offline"]
+                          type:MenuActionType::ViewOffline
+                         block:block];
+}
+
+- (UIAction*)actionToOpenJavascriptWithBlock:(ProceduralBlock)block {
+  return
+      [self actionWithTitle:l10n_util::GetNSString(IDS_IOS_CONTENT_CONTEXT_OPEN)
+                      image:[UIImage imageNamed:@"open"]
+                       type:MenuActionType::OpenJavascript
+                      block:block];
 }
 
 @end

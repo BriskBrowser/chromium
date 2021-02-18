@@ -5,8 +5,6 @@
 #include "content/renderer/worker/dedicated_worker_host_factory_client.h"
 
 #include <utility>
-#include "content/renderer/loader/child_url_loader_factory_bundle.h"
-#include "content/renderer/loader/resource_dispatcher.h"
 #include "content/renderer/loader/web_worker_fetch_context_impl.h"
 #include "content/renderer/render_thread_impl.h"
 #include "content/renderer/service_worker/service_worker_provider_context.h"
@@ -22,6 +20,7 @@
 #include "third_party/blink/public/mojom/service_worker/service_worker_provider.mojom.h"
 #include "third_party/blink/public/mojom/tokens/tokens.mojom.h"
 #include "third_party/blink/public/mojom/worker/worker_main_script_load_params.mojom.h"
+#include "third_party/blink/public/platform/child_url_loader_factory_bundle.h"
 #include "third_party/blink/public/platform/web_dedicated_worker.h"
 #include "third_party/blink/public/platform/web_url.h"
 
@@ -43,11 +42,14 @@ void DedicatedWorkerHostFactoryClient::CreateWorkerHostDeprecated(
   DCHECK(!base::FeatureList::IsEnabled(blink::features::kPlzDedicatedWorker));
   mojo::PendingRemote<blink::mojom::BrowserInterfaceBroker>
       browser_interface_broker;
+  mojo::PendingRemote<blink::mojom::DedicatedWorkerHost> dedicated_worker_host;
   factory_->CreateWorkerHost(
       dedicated_worker_token,
       browser_interface_broker.InitWithNewPipeAndPassReceiver(),
+      dedicated_worker_host.InitWithNewPipeAndPassReceiver(),
       std::move(callback));
-  OnWorkerHostCreated(std::move(browser_interface_broker));
+  OnWorkerHostCreated(std::move(browser_interface_broker),
+                      std::move(dedicated_worker_host));
 }
 
 void DedicatedWorkerHostFactoryClient::CreateWorkerHost(
@@ -89,7 +91,7 @@ DedicatedWorkerHostFactoryClient::CloneWorkerFetchContext(
 
 scoped_refptr<WebWorkerFetchContextImpl>
 DedicatedWorkerHostFactoryClient::CreateWorkerFetchContext(
-    blink::mojom::RendererPreferences renderer_preference,
+    const blink::RendererPreferences& renderer_preference,
     mojo::PendingReceiver<blink::mojom::RendererPreferenceWatcher>
         watcher_receiver,
     mojo::PendingRemote<blink::mojom::ResourceLoadInfoNotifier>
@@ -98,13 +100,12 @@ DedicatedWorkerHostFactoryClient::CreateWorkerFetchContext(
   DCHECK(subresource_loader_factory_bundle_);
   scoped_refptr<WebWorkerFetchContextImpl> worker_fetch_context =
       WebWorkerFetchContextImpl::Create(
-          service_worker_provider_context_.get(),
-          std::move(renderer_preference), std::move(watcher_receiver),
+          service_worker_provider_context_.get(), renderer_preference,
+          std::move(watcher_receiver),
           subresource_loader_factory_bundle_->Clone(),
           subresource_loader_factory_bundle_->CloneWithoutAppCacheFactory(),
           std::move(pending_subresource_loader_updater_),
           RenderThreadImpl::current()
-              ->resource_dispatcher()
               ->cors_exempt_header_list(),
           std::move(pending_resource_load_info_notifier));
   return worker_fetch_context;
@@ -112,8 +113,11 @@ DedicatedWorkerHostFactoryClient::CreateWorkerFetchContext(
 
 void DedicatedWorkerHostFactoryClient::OnWorkerHostCreated(
     mojo::PendingRemote<blink::mojom::BrowserInterfaceBroker>
-        browser_interface_broker) {
-  worker_->OnWorkerHostCreated(std::move(browser_interface_broker));
+        browser_interface_broker,
+    mojo::PendingRemote<blink::mojom::DedicatedWorkerHost>
+        dedicated_worker_host) {
+  worker_->OnWorkerHostCreated(std::move(browser_interface_broker),
+                               std::move(dedicated_worker_host));
 }
 
 void DedicatedWorkerHostFactoryClient::OnScriptLoadStarted(
@@ -132,8 +136,8 @@ void DedicatedWorkerHostFactoryClient::OnScriptLoadStarted(
   // Initialize the loader factory bundle passed by the browser process.
   DCHECK(!subresource_loader_factory_bundle_);
   subresource_loader_factory_bundle_ =
-      base::MakeRefCounted<ChildURLLoaderFactoryBundle>(
-          std::make_unique<ChildPendingURLLoaderFactoryBundle>(
+      base::MakeRefCounted<blink::ChildURLLoaderFactoryBundle>(
+          std::make_unique<blink::ChildPendingURLLoaderFactoryBundle>(
               std::move(pending_subresource_loader_factory_bundle)));
 
   DCHECK(!pending_subresource_loader_updater_);

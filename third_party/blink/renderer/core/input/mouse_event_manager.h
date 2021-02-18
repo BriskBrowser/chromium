@@ -10,10 +10,10 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/synchronous_mutation_observer.h"
 #include "third_party/blink/renderer/core/input/boundary_event_dispatcher.h"
-#include "third_party/blink/renderer/core/page/drag_actions.h"
 #include "third_party/blink/renderer/core/page/event_with_hit_test_results.h"
 #include "third_party/blink/renderer/platform/timer.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom-blink-forward.h"
 
 namespace blink {
 
@@ -108,7 +108,7 @@ class CORE_EXPORT MouseEventManager final
   // drag heuristics.
   void ClearDragHeuristicState();
 
-  void DragSourceEndedAt(const WebMouseEvent&, DragOperation);
+  void DragSourceEndedAt(const WebMouseEvent&, ui::mojom::blink::DragOperation);
 
   void UpdateSelectionForMouseDrag();
 

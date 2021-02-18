@@ -13,7 +13,7 @@
 #include "chrome/browser/nearby_sharing/logging/logging.h"
 #include "chrome/browser/nearby_sharing/nearby_sharing_service_factory.h"
 #include "chrome/browser/nearby_sharing/text_attachment.h"
-#include "chrome/services/sharing/public/mojom/nearby_share_target_types.mojom.h"
+#include "chromeos/services/nearby/public/mojom/nearby_share_target_types.mojom.h"
 
 namespace {
 
@@ -27,6 +27,15 @@ const char kShareTargetIdKey[] = "share_targetId";
 const char kStatusCodeKey[] = "statusCode";
 const char kTriggerEventKey[] = "triggerEvent";
 const char kTransferUpdateMetaDataKey[] = "transfer_metadataStatus";
+
+// Keys in the JSON representation of a dictiory send to UITriggerTab for
+// the state of the transfer.
+const char kIsConnecting[] = "isConnecting";
+const char kIsInHighVisibility[] = "isInHighVisibility";
+const char kIsReceiving[] = "isReceiving";
+const char kIsScanning[] = "isScanning";
+const char kIsSending[] = "isSending";
+const char kIsTransferring[] = "isTransferring";
 
 // TriggerEvents in alphabetical order.
 enum class TriggerEvent {
@@ -61,6 +70,8 @@ std::string StatusCodeToString(
       return "STATUS ALREADY STOPPED";
     case NearbySharingService::StatusCodes::kTransferAlreadyInProgress:
       return "TRANSFER ALREADY IN PROGRESS";
+    case NearbySharingService::StatusCodes::kNoAvailableConnectionMedium:
+      return "NO AVAILABLE CONNECTION MEDIUM";
   }
 }
 
@@ -182,6 +193,23 @@ base::Value TransferUpdateToDictionary(
   return dictionary;
 }
 
+base::Value StatusBooleansToDictionary(const bool is_scanning,
+                                       const bool is_transferring,
+                                       const bool is_receiving_files,
+                                       const bool is_sending_files,
+                                       const bool is_conecting,
+                                       const bool is_in_high_visibility) {
+  base::Value dictionary(base::Value::Type::DICTIONARY);
+  dictionary.SetBoolKey(kIsScanning, is_scanning);
+  dictionary.SetBoolKey(kIsTransferring, is_transferring);
+  dictionary.SetBoolKey(kIsSending, is_sending_files);
+  dictionary.SetBoolKey(kIsReceiving, is_receiving_files);
+  dictionary.SetBoolKey(kIsConnecting, is_conecting);
+  dictionary.SetBoolKey(kIsInHighVisibility, is_in_high_visibility);
+  dictionary.SetKey(kTimeStampKey, GetJavascriptTimestamp());
+  return dictionary;
+}
+
 }  // namespace
 
 NearbyInternalsUiTriggerHandler::NearbyInternalsUiTriggerHandler(
@@ -241,6 +269,10 @@ void NearbyInternalsUiTriggerHandler::RegisterMessages() {
       base::BindRepeating(
           &NearbyInternalsUiTriggerHandler::UnregisterReceiveSurface,
           base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "getStates",
+      base::BindRepeating(&NearbyInternalsUiTriggerHandler::GetState,
+                          base::Unretained(this)));
 }
 
 void NearbyInternalsUiTriggerHandler::InitializeContents(
@@ -516,4 +548,21 @@ void NearbyInternalsUiTriggerHandler::Cancel(const base::ListValue* args) {
       it->second,
       base::BindOnce(&NearbyInternalsUiTriggerHandler::OnCancelCalled,
                      weak_ptr_factory_.GetWeakPtr()));
+}
+
+void NearbyInternalsUiTriggerHandler::GetState(const base::ListValue* args) {
+  NearbySharingService* service_ =
+      NearbySharingServiceFactory::GetForBrowserContext(context_);
+  if (!service_) {
+    NS_LOG(ERROR) << "No NearbyShareService instance to call.";
+    return;
+  }
+
+  const base::Value& callback_id = args->GetList()[0];
+  ResolveJavascriptCallback(
+      callback_id,
+      StatusBooleansToDictionary(
+          service_->IsScanning(), service_->IsTransferring(),
+          service_->IsReceivingFile(), service_->IsSendingFile(),
+          service_->IsConnecting(), service_->IsInHighVisibility()));
 }

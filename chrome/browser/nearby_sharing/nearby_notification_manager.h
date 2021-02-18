@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_NEARBY_SHARING_NEARBY_NOTIFICATION_MANAGER_H_
 
 #include "base/containers/flat_map.h"
+#include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/time/time.h"
 #include "chrome/browser/nearby_sharing/nearby_notification_delegate.h"
@@ -18,6 +19,7 @@ class NearbySharingService;
 class NotificationDisplayService;
 class PrefService;
 class Profile;
+class SkBitmap;
 
 // Manages notifications shown for Nearby Share. Only a single notification will
 // be shown as simultaneous connections are not supported. All methods should be
@@ -33,6 +35,15 @@ class NearbyNotificationManager : public TransferUpdateCallback,
     kCopyText,
     kCopyImage,
     kOpenDownloads,
+    kOpenUrl,
+  };
+
+  // Type of content we received that determines the actions we provide.
+  enum class ReceivedContentType {
+    kFiles,        // One or more generic files
+    kSingleImage,  // One image that will be shown as a preview
+    kSingleUrl,    // One URL that will be opened on click.
+    kText,         // Arbitrary text content
   };
 
   NearbyNotificationManager(
@@ -70,7 +81,8 @@ class NearbyNotificationManager : public TransferUpdateCallback,
   void ShowSuccess(const ShareTarget& share_target);
 
   // Shows a notification for send or receive failure.
-  void ShowFailure(const ShareTarget& share_target);
+  void ShowFailure(const ShareTarget& share_target,
+                   const TransferMetadata& transfer_metadata);
 
   // Closes any currently shown transfer notification (e.g. progress or
   // connection).
@@ -82,6 +94,8 @@ class NearbyNotificationManager : public TransferUpdateCallback,
   // Gets the currently registered delegate for |notification_id|.
   NearbyNotificationDelegate* GetNotificationDelegate(
       const std::string& notification_id);
+
+  void OpenURL(GURL url);
 
   // Cancels the currently in progress transfer.
   void CancelTransfer();
@@ -105,6 +119,10 @@ class NearbyNotificationManager : public TransferUpdateCallback,
       base::OnceCallback<void(SuccessNotificationAction)> callback);
 
  private:
+  void ShowIncomingSuccess(const ShareTarget& share_target,
+                           ReceivedContentType type,
+                           const SkBitmap& image);
+
   NotificationDisplayService* notification_display_service_;
   NearbySharingService* nearby_service_;
   PrefService* pref_service_;
@@ -117,8 +135,14 @@ class NearbyNotificationManager : public TransferUpdateCallback,
   // ShareTarget of the current transfer.
   base::Optional<ShareTarget> share_target_;
 
+  // Last transfer status reported to OnTransferUpdate(). Null when no transfer
+  // is in progress.
+  base::Optional<TransferMetadata::Status> last_transfer_status_;
+
   base::OnceCallback<void(SuccessNotificationAction)>
       success_action_test_callback_;
+
+  base::WeakPtrFactory<NearbyNotificationManager> weak_ptr_factory_{this};
 };
 
 #endif  // CHROME_BROWSER_NEARBY_SHARING_NEARBY_NOTIFICATION_MANAGER_H_

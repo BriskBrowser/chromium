@@ -4,17 +4,18 @@
 
 #include <string>
 
+#include "ash/constants/ash_features.h"
+#include "ash/constants/ash_switches.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/path_service.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/chromeos/web_applications/system_web_app_integration_test.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/web_applications/system_web_app_manager.h"
 #include "chrome/common/chrome_paths.h"
 #include "chromeos/components/telemetry_extension_ui/url_constants.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
@@ -91,16 +92,8 @@ class TelemetryExtensionWithDirIntegrationTest
   }
 };
 
-INSTANTIATE_TEST_SUITE_P(
-    All,
-    TelemetryExtensionIntegrationTest,
-    ::testing::Combine(
-        ::testing::Values(web_app::ProviderType::kBookmarkApps,
-                          web_app::ProviderType::kWebApps),
-        // TODO: Change this ::testing::Value(false) to
-        // ::testing::Bool() when a WebApplicationProvider is ready
-        ::testing::Values(false)),
-    web_app::ProviderAndInstallationTypeToString);
+INSTANTIATE_SYSTEM_WEB_APP_MANAGER_TEST_SUITE_REGULAR_PROFILE_P(
+    TelemetryExtensionIntegrationTest);
 
 // Tests that TelemetryExtensionUntrustedSource can successfully load a resource
 // from disk.
@@ -138,14 +131,5 @@ IN_PROC_BROWSER_TEST_P(
       content::NavigateToURL(web_contents, non_existent_resource_gurl));
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    All,
-    TelemetryExtensionWithDirIntegrationTest,
-    ::testing::Combine(
-        ::testing::Values(web_app::ProviderType::kBookmarkApps,
-                          web_app::ProviderType::kWebApps),
-        // TODO: Change this ::testing::Values(kManifestInstall) to
-        // ::testing::Values(kManifestInstall, kWebAppInfoInstall) when a
-        // WebApplicationProvider is ready
-        ::testing::Values(web_app::InstallationType::kManifestInstall)),
-    web_app::ProviderAndInstallationTypeToString);
+INSTANTIATE_SYSTEM_WEB_APP_MANAGER_TEST_SUITE_REGULAR_PROFILE_P(
+    TelemetryExtensionWithDirIntegrationTest);

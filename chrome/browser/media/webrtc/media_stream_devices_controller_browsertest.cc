@@ -30,6 +30,7 @@
 #include "components/permissions/permission_request.h"
 #include "components/permissions/permission_request_manager.h"
 #include "components/permissions/permission_util.h"
+#include "components/permissions/request_type.h"
 #include "components/permissions/test/mock_permission_prompt_factory.h"
 #include "components/prefs/pref_service.h"
 #include "components/variations/variations_associated_data.h"
@@ -118,13 +119,13 @@ class MediaStreamDevicesControllerTest : public WebRtcTestBase {
             Profile::FromBrowserContext(GetWebContents()->GetBrowserContext()));
     content_settings->SetContentSettingDefaultScope(
         example_url_, GURL(), ContentSettingsType::MEDIASTREAM_MIC,
-        std::string(), mic_setting);
+        mic_setting);
     content_settings->SetContentSettingDefaultScope(
         example_url_, GURL(), ContentSettingsType::MEDIASTREAM_CAMERA,
-        std::string(), cam_setting);
+        cam_setting);
     content_settings->SetContentSettingDefaultScope(
         example_url_, GURL(), ContentSettingsType::CAMERA_PAN_TILT_ZOOM,
-        std::string(), ptz_setting);
+        ptz_setting);
   }
 
   // Checks whether the devices returned in OnMediaStreamResponse contains a
@@ -183,7 +184,9 @@ class MediaStreamDevicesControllerTest : public WebRtcTestBase {
               GetContentSettings()->GetMicrophoneCameraState());
   }
 
-  virtual bool IsPanTiltZoomSupported() const { return false; }
+  virtual media::VideoCaptureControlSupport GetControlSupport() const {
+    return media::VideoCaptureControlSupport();
+  }
 
   permissions::MockPermissionPromptFactory* prompt_factory() {
     return prompt_factory_.get();
@@ -231,8 +234,8 @@ class MediaStreamDevicesControllerTest : public WebRtcTestBase {
     blink::MediaStreamDevices video_devices;
     blink::MediaStreamDevice fake_video_device(
         blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE, example_video_id_,
-        "Fake Video Device", media::MEDIA_VIDEO_FACING_NONE, base::nullopt,
-        IsPanTiltZoomSupported());
+        "Fake Video Device", GetControlSupport(),
+        media::MEDIA_VIDEO_FACING_NONE, base::nullopt);
     video_devices.push_back(fake_video_device);
     MediaCaptureDevicesDispatcher::GetInstance()->SetTestVideoCaptureDevices(
         video_devices);
@@ -262,9 +265,11 @@ class MediaStreamDevicesControllerTest : public WebRtcTestBase {
 
 class MediaStreamDevicesControllerPtzTest
     : public MediaStreamDevicesControllerTest,
-      public ::testing::WithParamInterface<bool> {
+      public ::testing::WithParamInterface<media::VideoCaptureControlSupport> {
  protected:
-  bool IsPanTiltZoomSupported() const override { return GetParam(); }
+  media::VideoCaptureControlSupport GetControlSupport() const override {
+    return GetParam();
+  }
 };
 
 // Request and allow microphone access.
@@ -606,7 +611,9 @@ IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
       dispatcher->GetMediaStreamCaptureIndicator()->RegisterMediaStream(
           GetWebContents(), video_devices);
   video_stream_ui->OnStarted(base::OnceClosure(),
-                             content::MediaStreamUI::SourceCallback());
+                             content::MediaStreamUI::SourceCallback(),
+                             /*label=*/std::string(), /*screen_capture_ids=*/{},
+                             content::MediaStreamUI::StateChangeCallback());
 
   // Request mic and deny.
   SetDevicePolicy(DEVICE_TYPE_AUDIO, ACCESS_DENIED);
@@ -659,17 +666,33 @@ struct ContentSettingsTestData {
 
   // Whether the infobar should be displayed to request mic/cam/ptz for the
   // given content settings inputs.
-  bool ExpectMicInfobar(bool pan_tilt_zoom_supported) const {
-    return mic == CONTENT_SETTING_ASK && cam != CONTENT_SETTING_BLOCK &&
-           (!pan_tilt_zoom_supported || ptz != CONTENT_SETTING_BLOCK);
+  bool ExpectMicInfobar(
+      const media::VideoCaptureControlSupport& control_support) const {
+    if (cam == CONTENT_SETTING_BLOCK)
+      return false;
+    if (control_support.pan || control_support.tilt || control_support.zoom) {
+      if (ptz == CONTENT_SETTING_BLOCK)
+        return false;
+    }
+    return mic == CONTENT_SETTING_ASK;
   }
-  bool ExpectCamInfobar(bool pan_tilt_zoom_supported) const {
-    return cam == CONTENT_SETTING_ASK && mic != CONTENT_SETTING_BLOCK &&
-           (!pan_tilt_zoom_supported || ptz != CONTENT_SETTING_BLOCK);
+  bool ExpectCamInfobar(
+      const media::VideoCaptureControlSupport& control_support) const {
+    if (mic == CONTENT_SETTING_BLOCK)
+      return false;
+    if (control_support.pan || control_support.tilt || control_support.zoom) {
+      if (ptz == CONTENT_SETTING_BLOCK)
+        return false;
+    }
+    return cam == CONTENT_SETTING_ASK;
   }
-  bool ExpectPtzInfobar(bool pan_tilt_zoom_supported) const {
-    return pan_tilt_zoom_supported && ptz == CONTENT_SETTING_ASK &&
-           mic != CONTENT_SETTING_BLOCK && cam != CONTENT_SETTING_BLOCK;
+  bool ExpectPtzInfobar(
+      const media::VideoCaptureControlSupport& control_support) const {
+    if (mic == CONTENT_SETTING_BLOCK || cam == CONTENT_SETTING_BLOCK)
+      return false;
+    if (!(control_support.pan || control_support.tilt || control_support.zoom))
+      return false;
+    return ptz == CONTENT_SETTING_ASK;
   }
 
   // Whether or not the mic/cam/ptz should be allowed after clicking accept/deny
@@ -690,10 +713,15 @@ struct ContentSettingsTestData {
   // The expected media stream result after clicking accept/deny for the given
   // inputs.
   blink::mojom::MediaStreamRequestResult ExpectedMediaStreamResult(
-      bool pan_tilt_zoom_supported) const {
-    if (ExpectMicAllowed() && ExpectCamAllowed() &&
-        (!pan_tilt_zoom_supported || ptz != CONTENT_SETTING_BLOCK)) {
-      return blink::mojom::MediaStreamRequestResult::OK;
+      const media::VideoCaptureControlSupport& control_support) const {
+    if (ExpectMicAllowed() && ExpectCamAllowed()) {
+      if (!control_support.pan && !control_support.tilt &&
+          !control_support.zoom) {
+        return blink::mojom::MediaStreamRequestResult::OK;
+      }
+      if (ptz != CONTENT_SETTING_BLOCK) {
+        return blink::mojom::MediaStreamRequestResult::OK;
+      }
     }
     return blink::mojom::MediaStreamRequestResult::PERMISSION_DENIED;
   }
@@ -763,16 +791,16 @@ IN_PROC_BROWSER_TEST_P(MediaStreamDevicesControllerPtzTest, ContentSettings) {
           Profile::FromBrowserContext(GetWebContents()->GetBrowserContext()));
   content_settings->RemoveObserver(camera_pan_tilt_zoom_permission_context);
 
-  const bool pan_tilt_zoom_supported = IsPanTiltZoomSupported();
+  const auto& control_support = GetControlSupport();
   for (auto& test : tests) {
     SetContentSettings(test.mic, test.cam, test.ptz);
 
     prompt_factory()->ResetCounts();
 
     // Accept or deny the infobar if it's showing.
-    if (test.ExpectMicInfobar(pan_tilt_zoom_supported) ||
-        test.ExpectCamInfobar(pan_tilt_zoom_supported) ||
-        test.ExpectPtzInfobar(pan_tilt_zoom_supported)) {
+    if (test.ExpectMicInfobar(control_support) ||
+        test.ExpectCamInfobar(control_support) ||
+        test.ExpectPtzInfobar(control_support)) {
       if (test.accept_infobar) {
         prompt_factory()->set_response_type(
             permissions::PermissionRequestManager::ACCEPT_ALL);
@@ -789,33 +817,36 @@ IN_PROC_BROWSER_TEST_P(MediaStreamDevicesControllerPtzTest, ContentSettings) {
         CreateRequest(example_audio_id(), example_video_id(), true));
 
     ASSERT_LE(prompt_factory()->TotalRequestCount(), 3);
-    EXPECT_EQ(
-        test.ExpectMicInfobar(pan_tilt_zoom_supported),
-        prompt_factory()->RequestTypeSeen(
-            permissions::PermissionRequestType::PERMISSION_MEDIASTREAM_MIC));
-    EXPECT_EQ(
-        test.ExpectCamInfobar(pan_tilt_zoom_supported),
-        prompt_factory()->RequestTypeSeen(
-            permissions::PermissionRequestType::PERMISSION_MEDIASTREAM_CAMERA));
-    EXPECT_EQ(
-        test.ExpectPtzInfobar(pan_tilt_zoom_supported),
-        prompt_factory()->RequestTypeSeen(permissions::PermissionRequestType::
-                                              PERMISSION_CAMERA_PAN_TILT_ZOOM));
+    EXPECT_EQ(test.ExpectMicInfobar(control_support),
+              prompt_factory()->RequestTypeSeen(
+                  permissions::RequestType::kMicStream));
+    EXPECT_EQ(test.ExpectCamInfobar(control_support),
+              prompt_factory()->RequestTypeSeen(
+                  permissions::RequestType::kCameraStream));
+    EXPECT_EQ(test.ExpectPtzInfobar(control_support),
+              prompt_factory()->RequestTypeSeen(
+                  permissions::RequestType::kCameraPanTiltZoom));
 
     // Check the media stream result is expected and the devices returned are
     // expected;
-    VerifyResultState(
-        test.ExpectedMediaStreamResult(pan_tilt_zoom_supported),
-        test.ExpectMicAllowed() && test.ExpectCamAllowed() &&
-            (!pan_tilt_zoom_supported || test.ptz != CONTENT_SETTING_BLOCK),
-        test.ExpectMicAllowed() && test.ExpectCamAllowed() &&
-            (!pan_tilt_zoom_supported || test.ptz != CONTENT_SETTING_BLOCK));
+    VerifyResultState(test.ExpectedMediaStreamResult(control_support),
+                      test.ExpectMicAllowed() && test.ExpectCamAllowed() &&
+                          (!(control_support.pan || control_support.tilt ||
+                             control_support.zoom) ||
+                           test.ptz != CONTENT_SETTING_BLOCK),
+                      test.ExpectMicAllowed() && test.ExpectCamAllowed() &&
+                          (!(control_support.pan || control_support.tilt ||
+                             control_support.zoom) ||
+                           test.ptz != CONTENT_SETTING_BLOCK));
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(All,
-                         MediaStreamDevicesControllerPtzTest,
-                         ::testing::Values(false, true));
+INSTANTIATE_TEST_SUITE_P(
+    All,
+    MediaStreamDevicesControllerPtzTest,
+    ::testing::Values(media::VideoCaptureControlSupport({false, false, false}),
+                      media::VideoCaptureControlSupport({false, false, true}),
+                      media::VideoCaptureControlSupport({true, true, true})));
 
 // Request and allow camera access on WebUI pages without prompting.
 IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
@@ -843,9 +874,9 @@ IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
       CreateRequest(example_audio_id(), example_video_id(), false));
   ASSERT_EQ(2, prompt_factory()->TotalRequestCount());
   ASSERT_TRUE(prompt_factory()->RequestTypeSeen(
-      permissions::PermissionRequestType::PERMISSION_MEDIASTREAM_CAMERA));
-  ASSERT_TRUE(prompt_factory()->RequestTypeSeen(
-      permissions::PermissionRequestType::PERMISSION_MEDIASTREAM_MIC));
+      permissions::RequestType::kCameraStream));
+  ASSERT_TRUE(
+      prompt_factory()->RequestTypeSeen(permissions::RequestType::kMicStream));
 
   VerifyResultState(blink::mojom::MediaStreamRequestResult::OK, true, true);
 
@@ -910,15 +941,18 @@ IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
   const int prompt_contents_index =
       browser()->tab_strip_model()->GetIndexOfWebContents(prompt_contents);
 
-  // Now request permissions, but before the callback is asynchronously called,
-  // destroy the tab.
+  // Now request permissions, but before the request is handled, destroy the
+  // tab.
   permission_bubble_media_access_handler_->HandleRequest(
       prompt_contents,
       CreateRequest(example_audio_id(), example_video_id(), false),
       base::BindOnce([](const blink::MediaStreamDevices& devices,
                         blink::mojom::MediaStreamRequestResult result,
                         std::unique_ptr<content::MediaStreamUI> ui) {
-        ADD_FAILURE() << " this callback shouldn't be reached";
+        // The permission may be dismissed before we have a chance to delete the
+        // request.
+        EXPECT_EQ(blink::mojom::MediaStreamRequestResult::PERMISSION_DISMISSED,
+                  result);
       }),
       nullptr);
   // Since the mock prompt factory holds a reference to the

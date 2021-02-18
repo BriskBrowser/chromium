@@ -18,11 +18,10 @@ GEN('#include "chrome/browser/chromeos/crostini/fake_crostini_features.h"');
 GEN('#include "chrome/browser/profiles/profile.h"');
 GEN('#include "chrome/browser/ui/browser.h"');
 GEN('#include "chrome/common/chrome_features.h"');
-GEN('#include "chromeos/constants/chromeos_features.h"');
 GEN('#include "components/prefs/pref_service.h"');
 
 // eslint-disable-next-line no-var
-var CrostiniAccessibilityTest = class extends PolymerTest {
+var CrostiniAccessibilityTest = class extends Polymer2DeprecatedTest {
   /** @override */
   get featureList() {
     return {enabled: ['features::kCrostini']};

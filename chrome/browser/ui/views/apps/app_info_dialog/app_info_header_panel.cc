@@ -38,6 +38,7 @@
 #include "ui/views/controls/link.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/grid_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view.h"
 
 namespace {
@@ -96,7 +97,7 @@ void AppInfoHeaderPanel::CreateControls() {
         vertical_info_container_ptr->AddChildView(std::make_unique<views::Link>(
             l10n_util::GetStringUTF16(IDS_APPLICATION_INFO_WEB_STORE_LINK)));
     view_in_store_link->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-    view_in_store_link->set_callback(base::BindRepeating(
+    view_in_store_link->SetCallback(base::BindRepeating(
         &AppInfoHeaderPanel::ShowAppInWebStore, base::Unretained(this)));
     view_in_store_link->SetFocusBehavior(views::View::FocusBehavior::ALWAYS);
   } else {
@@ -123,3 +124,6 @@ bool AppInfoHeaderPanel::CanShowAppInWebStore() const {
   return app_->from_webstore() && !app_->was_installed_by_default() &&
       !app_->is_shared_module();
 }
+
+BEGIN_METADATA(AppInfoHeaderPanel, AppInfoPanel)
+END_METADATA

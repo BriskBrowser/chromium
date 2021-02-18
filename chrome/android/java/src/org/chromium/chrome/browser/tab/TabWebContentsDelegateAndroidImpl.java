@@ -17,7 +17,7 @@ import org.chromium.base.ObserverList.RewindableIterator;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.chrome.browser.AppHooks;
-import org.chromium.chrome.browser.media.MediaCaptureNotificationService;
+import org.chromium.chrome.browser.media.MediaCaptureNotificationServiceImpl;
 import org.chromium.chrome.browser.policy.PolicyAuditor;
 import org.chromium.chrome.browser.policy.PolicyAuditorJni;
 import org.chromium.components.find_in_page.FindMatchRectsDetails;
@@ -25,6 +25,7 @@ import org.chromium.components.find_in_page.FindNotificationDetails;
 import org.chromium.content_public.browser.InvalidateTypes;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.common.ResourceRequestBody;
+import org.chromium.url.GURL;
 
 /**
  * Implementation class of {@link TabWebContentsDelegateAndroid}.
@@ -87,9 +88,8 @@ final class TabWebContentsDelegateAndroidImpl extends TabWebContentsDelegateAndr
         findMatchRectsDetails.rects[index] = rect;
     }
 
-    @CalledByNative
     @Override
-    protected int getDisplayMode() {
+    public int getDisplayMode() {
         return mDelegate.getDisplayMode();
     }
 
@@ -110,7 +110,7 @@ final class TabWebContentsDelegateAndroidImpl extends TabWebContentsDelegateAndr
     // WebContentsDelegateAndroid
 
     @Override
-    public void openNewTab(String url, String extraHeaders, ResourceRequestBody postData,
+    public void openNewTab(GURL url, String extraHeaders, ResourceRequestBody postData,
             int disposition, boolean isRendererInitiated) {
         mDelegate.openNewTab(url, extraHeaders, postData, disposition, isRendererInitiated);
     }
@@ -138,7 +138,7 @@ final class TabWebContentsDelegateAndroidImpl extends TabWebContentsDelegateAndr
     }
 
     @Override
-    public void onUpdateUrl(String url) {
+    public void onUpdateUrl(GURL url) {
         RewindableIterator<TabObserver> observers = mTab.getTabObservers();
         while (observers.hasNext()) observers.next().onUpdateUrl(mTab, url);
         mDelegate.onUpdateUrl(url);
@@ -160,6 +160,11 @@ final class TabWebContentsDelegateAndroidImpl extends TabWebContentsDelegateAndr
     }
 
     @Override
+    public void fullscreenStateChangedForTab(boolean prefersNavigationBar) {
+        mDelegate.enterFullscreenModeForTab(prefersNavigationBar);
+    }
+
+    @Override
     public void exitFullscreenModeForTab() {
         mDelegate.exitFullscreenModeForTab();
     }
@@ -172,9 +177,9 @@ final class TabWebContentsDelegateAndroidImpl extends TabWebContentsDelegateAndr
     @Override
     public void navigationStateChanged(int flags) {
         if ((flags & InvalidateTypes.TAB) != 0) {
-            MediaCaptureNotificationService.updateMediaNotificationForTab(
+            MediaCaptureNotificationServiceImpl.updateMediaNotificationForTab(
                     ContextUtils.getApplicationContext(), mTab.getId(), mTab.getWebContents(),
-                    mTab.getUrlString());
+                    mTab.getUrl());
         }
         if ((flags & InvalidateTypes.TITLE) != 0) {
             // Update cached title then notify observers.
@@ -199,19 +204,14 @@ final class TabWebContentsDelegateAndroidImpl extends TabWebContentsDelegateAndr
     }
 
     @Override
-    public boolean shouldCreateWebContents(String targetUrl) {
+    public boolean shouldCreateWebContents(GURL targetUrl) {
         return mDelegate.shouldCreateWebContents(targetUrl);
     }
 
     @Override
     public void webContentsCreated(WebContents sourceWebContents, long openerRenderProcessId,
-            long openerRenderFrameId, String frameName, String targetUrl,
+            long openerRenderFrameId, String frameName, GURL targetUrl,
             WebContents newWebContents) {
-        RewindableIterator<TabObserver> observers = mTab.getTabObservers();
-        while (observers.hasNext()) {
-            observers.next().webContentsCreated(mTab, sourceWebContents, openerRenderProcessId,
-                    openerRenderFrameId, frameName, targetUrl, newWebContents);
-        }
         mDelegate.webContentsCreated(sourceWebContents, openerRenderProcessId, openerRenderFrameId,
                 frameName, targetUrl, newWebContents);
     }
@@ -222,7 +222,7 @@ final class TabWebContentsDelegateAndroidImpl extends TabWebContentsDelegateAndr
     }
 
     @Override
-    public boolean shouldBlockMediaRequest(String url) {
+    public boolean shouldBlockMediaRequest(GURL url) {
         return mDelegate.shouldBlockMediaRequest(url);
     }
 

@@ -73,7 +73,8 @@ FloatSize LayoutImageResourceStyleImage::ImageSize(float multiplier) const {
   // TODO(davve): Find out the correct default object size in this context.
   FloatSize default_size =
       layout_object_->IsListMarkerImage()
-          ? FloatSize(ToLayoutListMarkerImage(layout_object_)->DefaultSize())
+          ? FloatSize(
+                To<LayoutListMarkerImage>(layout_object_.Get())->DefaultSize())
           : FloatSize(LayoutReplaced::kDefaultWidth,
                       LayoutReplaced::kDefaultHeight);
   return ImageSizeWithDefaultSize(multiplier, default_size);
@@ -86,6 +87,16 @@ FloatSize LayoutImageResourceStyleImage::ImageSizeWithDefaultSize(
       layout_object_->GetDocument(), multiplier, default_size,
       LayoutObject::ShouldRespectImageOrientation(layout_object_));
 }
+
+RespectImageOrientationEnum LayoutImageResourceStyleImage::ImageOrientation()
+    const {
+  // Always respect the orientation of opaque origin images to avoid leaking
+  // image data. Otherwise pull orientation from the layout object's style.
+  RespectImageOrientationEnum respect_orientation =
+      LayoutObject::ShouldRespectImageOrientation(layout_object_);
+  return style_image_->ForceOrientationIfNecessary(respect_orientation);
+}
+
 void LayoutImageResourceStyleImage::Trace(Visitor* visitor) const {
   visitor->Trace(style_image_);
   LayoutImageResource::Trace(visitor);

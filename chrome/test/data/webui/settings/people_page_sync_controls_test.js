@@ -15,17 +15,13 @@ import {waitBeforeNextRender} from 'chrome://test/test_util.m.js';
 
 // clang-format on
 
-suite('SyncControlsTest', function() {
+suite('SyncControlsTest', async function() {
   let syncControls = null;
   let browserProxy = null;
+  let syncEverything = null;
+  let customizeSync = null;
 
-  suiteSetup(function() {
-    loadTimeData.overrideValues({
-      syncSetupFriendlySettings: false,
-    });
-  });
-
-  setup(function() {
+  setup(async function() {
     setupRouterWithSyncRoutes();
     browserProxy = new TestSyncBrowserProxy();
     SyncBrowserProxyImpl.instance_ = browserProxy;
@@ -37,54 +33,60 @@ suite('SyncControlsTest', function() {
     // Start with Sync All.
     webUIListenerCallback('sync-prefs-changed', getSyncAllPrefs());
     flush();
+
+    await waitBeforeNextRender();
+    syncEverything = syncControls.$$('cr-radio-button[name="sync-everything"]');
+    customizeSync = syncControls.$$('cr-radio-button[name="customize-sync"]');
+    assertTrue(!!syncEverything);
+    assertTrue(!!customizeSync);
   });
 
   teardown(function() {
     syncControls.remove();
   });
 
-  test('SettingIndividualDatatypes', function() {
-    const syncAllDataTypesControl = syncControls.$$('#syncAllDataTypesControl');
-    assertFalse(syncAllDataTypesControl.disabled);
-    assertTrue(syncAllDataTypesControl.checked);
+
+  /**
+   * @param {!settings.SyncPrefs} syncPrefs
+   * @param {NodeList<!CrToggleElement>} datatypeControls
+   */
+  function assertPrefs(prefs, datatypeControls) {
+    const expected = getSyncAllPrefs();
+    expected.syncAllDataTypes = false;
+    assertEquals(JSON.stringify(expected), JSON.stringify(prefs));
+
+    webUIListenerCallback('sync-prefs-changed', expected);
+
+    // Assert that all the individual datatype controls are enabled.
+    for (const control of datatypeControls) {
+      assertFalse(control.disabled);
+      assertTrue(control.checked);
+    }
+    browserProxy.resetResolver('setSyncDatatypes');
+  }
+
+  test('SettingIndividualDatatypes', async function() {
+    assertTrue(syncEverything.checked);
+    assertFalse(customizeSync.checked);
+    assertEquals(syncControls.$$('#syncAllDataTypesControl'), null);
 
     // Assert that all the individual datatype controls are disabled.
     const datatypeControls = syncControls.shadowRoot.querySelectorAll(
         '.list-item:not([hidden]) > cr-toggle');
 
+    assertTrue(datatypeControls.length > 0);
     for (const control of datatypeControls) {
       assertTrue(control.disabled);
       assertTrue(control.checked);
     }
 
-    // Uncheck the Sync All control.
-    syncAllDataTypesControl.click();
+    customizeSync.click();
+    flush();
+    assertFalse(syncEverything.checked);
+    assertTrue(customizeSync.checked);
 
-    function verifyPrefs(prefs) {
-      const expected = getSyncAllPrefs();
-      expected.syncAllDataTypes = false;
-      assertEquals(JSON.stringify(expected), JSON.stringify(prefs));
-
-      webUIListenerCallback('sync-prefs-changed', expected);
-
-      // Assert that all the individual datatype controls are enabled.
-      for (const control of datatypeControls) {
-        assertFalse(control.disabled);
-        assertTrue(control.checked);
-      }
-
-      browserProxy.resetResolver('setSyncDatatypes');
-
-      // Test an arbitrarily-selected control (extensions synced control).
-      datatypeControls[2].click();
-      return browserProxy.whenCalled('setSyncDatatypes').then(function(prefs) {
-        const expected = getSyncAllPrefs();
-        expected.syncAllDataTypes = false;
-        expected.extensionsSynced = false;
-        assertEquals(JSON.stringify(expected), JSON.stringify(prefs));
-      });
-    }
-    return browserProxy.whenCalled('setSyncDatatypes').then(verifyPrefs);
+    const prefs = await browserProxy.whenCalled('setSyncDatatypes');
+    assertPrefs(prefs, datatypeControls);
   });
 
   test('SignedIn', function() {
@@ -174,84 +176,5 @@ suite('SyncControlsSubpageTest', function() {
     };
     const router = Router.getInstance();
     assertEquals(router.getRoutes().SYNC.path, router.getCurrentRoute().path);
-  });
-});
-
-// TODO(crbug.com/1045423): Merge |SyncControlsFriendlySettingsOnTest| and
-// |SyncControlsTest| once |syncSetupFriendlySettings| is enabled 100%.
-suite('SyncControlsFriendlySettingsOnTest', function() {
-  let syncControls = null;
-  let browserProxy = null;
-  let syncEverything = null;
-  let customizeSync = null;
-
-  suiteSetup(function() {
-    loadTimeData.overrideValues({
-      syncSetupFriendlySettings: true,
-    });
-  });
-
-  setup(function() {
-    browserProxy = new TestSyncBrowserProxy();
-    SyncBrowserProxyImpl.instance_ = browserProxy;
-
-    PolymerTest.clearBody();
-    syncControls = document.createElement('settings-sync-controls');
-    document.body.appendChild(syncControls);
-
-    // Start with Sync All.
-    webUIListenerCallback('sync-prefs-changed', getSyncAllPrefs());
-    flush();
-
-    return waitBeforeNextRender().then(() => {
-      syncEverything =
-          syncControls.$$('cr-radio-button[name="sync-everything"]');
-      customizeSync = syncControls.$$('cr-radio-button[name="customize-sync"]');
-      assertTrue(!!syncEverything);
-      assertTrue(!!customizeSync);
-    });
-  });
-
-  teardown(function() {
-    syncControls.remove();
-  });
-
-  function assertPrefs(prefs, datatypeControls) {
-    const expected = getSyncAllPrefs();
-    expected.syncAllDataTypes = false;
-    assertEquals(JSON.stringify(expected), JSON.stringify(prefs));
-
-    webUIListenerCallback('sync-prefs-changed', expected);
-
-    // Assert that all the individual datatype controls are enabled.
-    for (const control of datatypeControls) {
-      assertFalse(control.disabled);
-      assertTrue(control.checked);
-    }
-    browserProxy.resetResolver('setSyncDatatypes');
-  }
-
-  test('SettingIndividualDatatypes', function() {
-    assertTrue(syncEverything.checked);
-    assertFalse(customizeSync.checked);
-    assertEquals(syncControls.$$('#syncAllDataTypesControl'), null);
-
-    // Assert that all the individual datatype controls are disabled.
-    const datatypeControls = syncControls.shadowRoot.querySelectorAll(
-        '.list-item:not([hidden]) > cr-toggle');
-
-    assertTrue(datatypeControls.length > 0);
-    for (const control of datatypeControls) {
-      assertTrue(control.disabled);
-      assertTrue(control.checked);
-    }
-
-    customizeSync.click();
-    flush();
-    assertFalse(syncEverything.checked);
-    assertTrue(customizeSync.checked);
-
-    return browserProxy.whenCalled('setSyncDatatypes')
-        .then(prefs => assertPrefs(prefs, datatypeControls));
   });
 });

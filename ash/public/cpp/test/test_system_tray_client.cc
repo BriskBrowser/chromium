@@ -38,6 +38,8 @@ void TestSystemTrayClient::ShowConnectedDevicesSettings() {
   show_connected_devices_settings_count_++;
 }
 
+void TestSystemTrayClient::ShowTetherNetworkSettings() {}
+
 void TestSystemTrayClient::ShowAboutChromeOS() {}
 
 void TestSystemTrayClient::ShowHelp() {}
@@ -60,6 +62,8 @@ void TestSystemTrayClient::ShowNetworkConfigure(const std::string& network_id) {
 }
 
 void TestSystemTrayClient::ShowNetworkCreate(const std::string& type) {}
+
+void TestSystemTrayClient::ShowSettingsCellularSetup(bool show_psim_flow) {}
 
 void TestSystemTrayClient::ShowThirdPartyVpnCreate(
     const std::string& extension_id) {}

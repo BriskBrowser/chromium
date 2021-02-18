@@ -155,8 +155,7 @@ static bool IsSpecialHTMLElement(const Node& n) {
   if (!layout_object)
     return false;
 
-  if (layout_object->Style()->Display() == EDisplay::kTable ||
-      layout_object->Style()->Display() == EDisplay::kInlineTable)
+  if (layout_object->Style()->IsDisplayTableBox())
     return true;
 
   if (layout_object->IsFloating())
@@ -384,9 +383,9 @@ Node* EnclosingListChild(const Node* node) {
   // instead of node->parentNode()
   for (Node* n = const_cast<Node*>(node); n && n->parentNode();
        n = n->parentNode()) {
-    if (IsA<HTMLLIElement>(*n) ||
-        (IsHTMLListElement(n->parentNode()) && n != root))
+    if ((IsListItemTag(n) || IsListElementTag(n->parentNode())) && n != root) {
       return n;
+    }
     if (n == root || IsTableCell(n))
       return nullptr;
   }
@@ -656,7 +655,7 @@ void ChangeSelectionAfterCommand(LocalFrame* frame,
   if (!selection_did_not_change_dom_position)
     return;
   frame->Client()->DidChangeSelection(
-      frame->Selection().GetSelectionInDOMTree().Type() != kRangeSelection);
+      !frame->Selection().GetSelectionInDOMTree().IsRange());
 }
 
 InputEvent::EventIsComposing IsComposingFromCommand(

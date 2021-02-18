@@ -12,7 +12,9 @@
 
 #include "base/atomic_sequence_num.h"
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/macros.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/stl_util.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
@@ -22,12 +24,6 @@
 #include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/media/router/issue_manager.h"
-#include "chrome/browser/media/router/issues_observer.h"
-#include "chrome/browser/media/router/media_router.h"
-#include "chrome/browser/media/router/media_router_factory.h"
-#include "chrome/browser/media/router/media_router_metrics.h"
-#include "chrome/browser/media/router/media_routes_observer.h"
 #include "chrome/browser/media/router/providers/wired_display/wired_display_media_route_provider.h"
 #include "chrome/browser/media/webrtc/desktop_media_picker_controller.h"
 #include "chrome/browser/profiles/profile.h"
@@ -38,6 +34,12 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/media_router/browser/issue_manager.h"
+#include "components/media_router/browser/issues_observer.h"
+#include "components/media_router/browser/media_router.h"
+#include "components/media_router/browser/media_router_factory.h"
+#include "components/media_router/browser/media_routes_observer.h"
+#include "components/media_router/browser/presentation/presentation_service_delegate_impl.h"
 #include "components/media_router/common/media_route.h"
 #include "components/media_router/common/media_sink.h"
 #include "components/media_router/common/media_source.h"
@@ -46,11 +48,11 @@
 #include "components/url_formatter/elide_url.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/navigation_handle.h"
-#include "content/public/common/fullscreen_video_element.mojom.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/constants.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/blink/public/mojom/media/fullscreen_video_element.mojom.h"
 #include "third_party/icu/source/i18n/unicode/coll.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/display/display.h"
@@ -96,7 +98,7 @@ MediaSource GetSourceForRouteObserver(const std::vector<MediaSource>& sources) {
 void MaybeReportCastingSource(MediaCastMode cast_mode,
                               const RouteRequestResult& result) {
   if (result.result_code() == RouteRequestResult::OK)
-    MediaRouterMetrics::RecordMediaRouterCastingSource(cast_mode);
+    base::UmaHistogramSparse("MediaRouter.Source.CastingSource", cast_mode);
 }
 
 void RunRouteResponseCallbacks(
@@ -226,7 +228,7 @@ class MediaRouterUI::WebContentsFullscreenOnLoadedObserver final
 
   void FullscreenIfContentCaptured(content::WebContents* web_contents) {
     if (web_contents->IsBeingCaptured()) {
-      mojo::AssociatedRemote<content::mojom::FullscreenVideoElementHandler>
+      mojo::AssociatedRemote<blink::mojom::FullscreenVideoElementHandler>
           client;
       web_contents->GetMainFrame()
           ->GetRemoteAssociatedInterfaces()
@@ -351,6 +353,11 @@ void MediaRouterUI::InitWithDefaultMediaSource() {
   }
 }
 
+void MediaRouterUI::InitWithDefaultMediaSourceAndMirroring() {
+  InitWithDefaultMediaSource();
+  InitMirroring();
+}
+
 void MediaRouterUI::InitWithStartPresentationContext(
     std::unique_ptr<StartPresentationContext> context) {
   DCHECK(context);
@@ -364,6 +371,12 @@ void MediaRouterUI::InitWithStartPresentationContext(
       &start_presentation_context_->presentation_request());
 }
 
+void MediaRouterUI::InitWithStartPresentationContextAndMirroring(
+    std::unique_ptr<StartPresentationContext> context) {
+  InitWithStartPresentationContext(std::move(context));
+  InitMirroring();
+}
+
 bool MediaRouterUI::CreateRoute(const MediaSink::Id& sink_id,
                                 MediaCastMode cast_mode) {
   logger_->LogInfo(mojom::LogCategory::kUi, kLoggerComponent,
@@ -374,7 +387,8 @@ bool MediaRouterUI::CreateRoute(const MediaSink::Id& sink_id,
     const bool screen_capture_allowed =
         screen_capture_allowed_for_testing_.has_value()
             ? *screen_capture_allowed_for_testing_
-            : ui::IsScreenCaptureAllowed();
+            : (ui::IsScreenCaptureAllowed() ||
+               ui::TryPromptUserForScreenCapture());
     if (!screen_capture_allowed) {
       SendIssueForScreenPermission(sink_id);
       return false;
@@ -606,6 +620,18 @@ void MediaRouterUI::InitCommon() {
       std::make_unique<QueryResultManager>(GetMediaRouter());
   query_result_manager_->AddObserver(this);
 
+  // Get the current list of media routes, so that the WebUI will have routes
+  // information at initialization.
+  OnRoutesUpdated(GetMediaRouter()->GetCurrentRoutes(),
+                  std::vector<MediaRoute::Id>());
+  display_observer_ = WebContentsDisplayObserver::Create(
+      initiator_,
+      base::BindRepeating(&MediaRouterUI::UpdateSinks, base::Unretained(this)));
+
+  StartObservingIssues();
+}
+
+void MediaRouterUI::InitMirroring() {
   // Use a placeholder URL as origin for mirroring.
   url::Origin origin = url::Origin::Create(GURL());
 
@@ -625,16 +651,6 @@ void MediaRouterUI::InitCommon() {
     query_result_manager_->SetSourcesForCastMode(MediaCastMode::TAB_MIRROR,
                                                  {mirroring_source}, origin);
   }
-
-  // Get the current list of media routes, so that the WebUI will have routes
-  // information at initialization.
-  OnRoutesUpdated(GetMediaRouter()->GetCurrentRoutes(),
-                  std::vector<MediaRoute::Id>());
-  display_observer_ = WebContentsDisplayObserver::Create(
-      initiator_,
-      base::BindRepeating(&MediaRouterUI::UpdateSinks, base::Unretained(this)));
-
-  StartObservingIssues();
 }
 
 void MediaRouterUI::OnDefaultPresentationChanged(
@@ -758,8 +774,6 @@ base::Optional<RouteParameters> MediaRouterUI::GetRouteParameters(
                      sink_id, cast_mode, GetPresentationRequestSourceName()));
   if (for_presentation_source) {
     if (start_presentation_context_) {
-      // |start_presentation_context_| will be nullptr after this call, as the
-      // object will be transferred to the callback.
       params.presentation_callback =
           base::BindOnce(&StartPresentationContext::HandleRouteResponse,
                          std::move(start_presentation_context_));
@@ -966,6 +980,8 @@ UIMediaSink MediaRouterUI::ConvertToUISink(const MediaSinkWithCastModes& sink,
   ui_sink.id = sink.sink.id();
   ui_sink.friendly_name = GetSinkFriendlyName(sink.sink);
   ui_sink.icon_type = sink.sink.icon_type();
+  ui_sink.cast_modes = sink.cast_modes;
+  ui_sink.provider = sink.sink.provider_id();
 
   if (route) {
     ui_sink.status_text = base::UTF8ToUTF16(route->description());
@@ -979,7 +995,6 @@ UIMediaSink MediaRouterUI::ConvertToUISink(const MediaSinkWithCastModes& sink,
                             sink.sink.id() == current_route_request()->sink_id
                         ? UIMediaSinkState::CONNECTING
                         : UIMediaSinkState::AVAILABLE;
-    ui_sink.cast_modes = sink.cast_modes;
   }
   if (ui_sink.icon_type == SinkIconType::HANGOUT &&
       ui_sink.state == UIMediaSinkState::AVAILABLE && sink.sink.domain()) {

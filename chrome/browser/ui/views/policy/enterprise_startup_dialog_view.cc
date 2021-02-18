@@ -30,6 +30,7 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/throbber.h"
 #include "ui/views/layout/grid_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 #if defined(OS_MAC)
 #include "base/task/current_thread.h"
@@ -59,7 +60,7 @@ std::unique_ptr<views::Label> CreateText(const base::string16& message) {
   text->SetFontList(gfx::FontList().Derive(kFontSizeDelta, gfx::Font::NORMAL,
                                            gfx::Font::Weight::MEDIUM));
   text->SetEnabledColor(
-      views::style::GetColor(*text, views::style::CONTEXT_MESSAGE_BOX_BODY_TEXT,
+      views::style::GetColor(*text, views::style::CONTEXT_DIALOG_BODY_TEXT,
                              views::style::STYLE_PRIMARY));
   text->SetLineHeight(kLineHeight);
   return text;
@@ -75,7 +76,7 @@ std::unique_ptr<views::View> CreateLogoView() {
                              ? IDR_PRODUCT_LOGO_ENTERPRISE_WHITE
                              : IDR_PRODUCT_LOGO_ENTERPRISE)
           .AsImageSkia());
-  logo_image->set_tooltip_text(
+  logo_image->SetTooltipText(
       l10n_util::GetStringUTF16(IDS_PRODUCT_LOGO_ENTERPRISE_ALT_TEXT));
   gfx::Rect logo_bounds = logo_image->GetImageBounds();
   logo_image->SetImageSize(gfx::Size(
@@ -95,6 +96,7 @@ EnterpriseStartupDialogView::EnterpriseStartupDialogView(
   set_draggable(true);
   SetButtons(ui::DIALOG_BUTTON_OK);
   SetExtraView(CreateLogoView());
+  SetModalType(ui::MODAL_TYPE_NONE);
   SetAcceptCallback(
       base::BindOnce(&EnterpriseStartupDialogView::RunDialogCallback,
                      base::Unretained(this), true));
@@ -190,10 +192,6 @@ bool EnterpriseStartupDialogView::ShouldShowWindowTitle() const {
   return false;
 }
 
-ui::ModalType EnterpriseStartupDialogView::GetModalType() const {
-  return ui::MODAL_TYPE_NONE;
-}
-
 gfx::Size EnterpriseStartupDialogView::CalculatePreferredSize() const {
   return gfx::Size(kDialogContentWidth, kDialogContentHeight);
 }
@@ -236,6 +234,9 @@ void EnterpriseStartupDialogView::SetupLayout(
   GetWidget()->GetRootView()->Layout();
   GetWidget()->GetRootView()->SchedulePaint();
 }
+
+BEGIN_METADATA(EnterpriseStartupDialogView, views::DialogDelegateView)
+END_METADATA
 
 /*
  * EnterpriseStartupDialogImpl

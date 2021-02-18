@@ -6,22 +6,46 @@
 #define CHROME_TEST_BASE_CHROME_TEST_LAUNCHER_H_
 
 #include <memory>
+#include <string>
 
-#include "base/macros.h"
 #include "build/build_config.h"
 #include "content/public/test/test_launcher.h"
+
+#if defined(OS_ANDROID)
+#include "chrome/app/android/chrome_main_delegate_android.h"
+#else
+#include "chrome/app/chrome_main_delegate.h"
+#endif
 
 // Allows a test suite to override the TestSuite class used. By default it is an
 // instance of ChromeTestSuite.
 class ChromeTestSuiteRunner {
  public:
-  ChromeTestSuiteRunner();
-  virtual ~ChromeTestSuiteRunner();
+  ChromeTestSuiteRunner() = default;
+  ChromeTestSuiteRunner(const ChromeTestSuiteRunner&) = delete;
+  ChromeTestSuiteRunner& operator=(const ChromeTestSuiteRunner&) = delete;
+  virtual ~ChromeTestSuiteRunner() = default;
 
   virtual int RunTestSuite(int argc, char** argv);
+};
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(ChromeTestSuiteRunner);
+// Acts like normal ChromeMainDelegate but injects behaviour for browser tests.
+class ChromeTestChromeMainDelegate
+#if defined(OS_ANDROID)
+    : public ChromeMainDelegateAndroid {
+#else
+    : public ChromeMainDelegate {
+#endif
+ public:
+#if defined(OS_ANDROID)
+  ChromeTestChromeMainDelegate() : ChromeMainDelegateAndroid() {}
+#else
+  explicit ChromeTestChromeMainDelegate(base::TimeTicks time)
+      : ChromeMainDelegate(time) {}
+#endif
+
+  // ChromeMainDelegateOverrides.
+  content::ContentBrowserClient* CreateContentBrowserClient() override;
 };
 
 // Delegate used for setting up and running chrome browser tests.
@@ -29,6 +53,9 @@ class ChromeTestLauncherDelegate : public content::TestLauncherDelegate {
  public:
   // Does not take ownership of ChromeTestSuiteRunner.
   explicit ChromeTestLauncherDelegate(ChromeTestSuiteRunner* runner);
+  ChromeTestLauncherDelegate(const ChromeTestLauncherDelegate&) = delete;
+  ChromeTestLauncherDelegate& operator=(const ChromeTestLauncherDelegate&) =
+      delete;
   ~ChromeTestLauncherDelegate() override;
 
  protected:
@@ -49,8 +76,6 @@ class ChromeTestLauncherDelegate : public content::TestLauncherDelegate {
 #endif
 
   ChromeTestSuiteRunner* runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(ChromeTestLauncherDelegate);
 };
 
 // Launches Chrome browser tests. |parallel_jobs| is number of test jobs to be

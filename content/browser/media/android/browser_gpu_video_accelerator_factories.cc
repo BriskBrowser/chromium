@@ -172,7 +172,7 @@ BrowserGpuVideoAcceleratorFactories::CreateSharedMemoryRegion(size_t size) {
   return {};
 }
 
-scoped_refptr<base::SingleThreadTaskRunner>
+scoped_refptr<base::SequencedTaskRunner>
 BrowserGpuVideoAcceleratorFactories::GetTaskRunner() {
   return nullptr;
 }
@@ -200,5 +200,11 @@ BrowserGpuVideoAcceleratorFactories::GetMediaContextProvider() {
 
 void BrowserGpuVideoAcceleratorFactories::SetRenderingColorSpace(
     const gfx::ColorSpace& color_space) {}
+
+const gfx::ColorSpace&
+BrowserGpuVideoAcceleratorFactories::GetRenderingColorSpace() const {
+  static constexpr gfx::ColorSpace cs = gfx::ColorSpace::CreateSRGB();
+  return cs;
+}
 
 }  // namespace content

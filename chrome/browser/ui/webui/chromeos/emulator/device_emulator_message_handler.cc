@@ -8,12 +8,12 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/chromeos/system/fake_input_device_settings.h"
-#include "chrome/browser/chromeos/system/input_device_settings.h"
+#include "chrome/browser/ash/system/fake_input_device_settings.h"
+#include "chrome/browser/ash/system/input_device_settings.h"
 #include "chrome/browser/ui/webui/chromeos/bluetooth_pairing_dialog.h"
 #include "chromeos/dbus/audio/fake_cras_audio_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
@@ -643,6 +643,10 @@ void DeviceEmulatorMessageHandler::MouseExists(bool exists) {
   if (!IsJavascriptAllowed())
     return;
   FireWebUIListener("mouse-exists-changed", base::Value(exists));
+}
+
+void DeviceEmulatorMessageHandler::PointingStickExists(bool exists) {
+  // TODO(crbug.com/1114828): support fake pointing sticks.
 }
 
 }  // namespace chromeos

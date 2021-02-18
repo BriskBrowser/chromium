@@ -242,8 +242,7 @@ async function waitForIceGatheringState(pc, wantedStates) {
 async function listenForSSRCs(t, receiver) {
   while (true) {
     const ssrcs = receiver.getSynchronizationSources();
-    assert_true(Array.isArray(ssrcs));
-    if (ssrcs.length > 0) {
+    if (Array.isArray(ssrcs) && ssrcs.length > 0) {
       return ssrcs;
     }
     await new Promise(r => t.step_timeout(r, 0));
@@ -539,8 +538,12 @@ async function exchangeOffer(caller, callee) {
 }
 // Performs an answer exchange caller -> callee.
 async function exchangeAnswer(caller, callee) {
-  await callee.setLocalDescription(await callee.createAnswer());
-  await caller.setRemoteDescription(callee.localDescription);
+  // Note that caller's remote description must be set first; if not,
+  // there's a chance that candidates from callee arrive at caller before
+  // it has a remote description to apply them to.
+  const answer = await callee.createAnswer();
+  await caller.setRemoteDescription(answer);
+  await callee.setLocalDescription(answer);
 }
 async function exchangeOfferAnswer(caller, callee) {
   await exchangeOffer(caller, callee);

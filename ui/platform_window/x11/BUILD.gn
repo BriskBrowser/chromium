@@ -2,9 +2,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/ozone.gni")
 import("//build/config/ui.gni")
 import("//testing/test.gni")
-import("//ui/ozone/ozone.gni")
 
 assert(use_x11 || ozone_platform_x11)
 
@@ -13,6 +13,7 @@ component("x11") {
 
   deps = [
     "//base",
+    "//build:chromeos_buildflags",
     "//skia",
     "//ui/base",
     "//ui/base/x",
@@ -50,6 +51,8 @@ component("x11") {
 }
 
 test("x11_unittests") {
+  use_xvfb = true
+
   sources = [
     "test/device_data_manager_x11_unittest.cc",
     "test/events_x_unittest.cc",
@@ -60,6 +63,7 @@ test("x11_unittests") {
     ":x11",
     "//base/test:run_all_unittests",
     "//base/test:test_support",
+    "//build:chromeos_buildflags",
     "//skia",
     "//testing/gmock",
     "//testing/gtest",

@@ -34,7 +34,6 @@ import org.chromium.components.browser_ui.widget.displaystyle.HorizontalDisplayS
 import org.chromium.components.browser_ui.widget.displaystyle.UiConfig;
 import org.chromium.components.browser_ui.widget.displaystyle.UiConfig.DisplayStyle;
 import org.chromium.components.browser_ui.widget.selectable_list.SelectionDelegate.SelectionObserver;
-import org.chromium.ui.vr.VrModeProvider;
 
 import java.util.List;
 
@@ -147,14 +146,15 @@ public class SelectableListLayout<E>
         mAdapter = adapter;
 
         if (recyclerView == null) {
-            mRecyclerView = findViewById(R.id.recycler_view);
+            mRecyclerView = findViewById(R.id.selectable_list_recycler_view);
             mRecyclerView.setLayoutManager(new LinearLayoutManager(getContext()));
         } else {
             mRecyclerView = recyclerView;
 
             // Replace the inflated recycler view with the one supplied to this method.
             FrameLayout contentView = findViewById(R.id.list_content);
-            RecyclerView existingView = contentView.findViewById(R.id.recycler_view);
+            RecyclerView existingView =
+                    contentView.findViewById(R.id.selectable_list_recycler_view);
             contentView.removeView(existingView);
             contentView.addView(mRecyclerView, 0);
         }
@@ -200,14 +200,13 @@ public class SelectableListLayout<E>
     public SelectableListToolbar<E> initializeToolbar(int toolbarLayoutId,
             SelectionDelegate<E> delegate, int titleResId, int normalGroupResId,
             int selectedGroupResId, @Nullable OnMenuItemClickListener listener,
-            boolean showShadowOnSelection, boolean updateStatusBarColor,
-            VrModeProvider vrModeProvider) {
+            boolean showShadowOnSelection, boolean updateStatusBarColor) {
         mToolbarStub.setLayoutResource(toolbarLayoutId);
         @SuppressWarnings("unchecked")
         SelectableListToolbar<E> toolbar = (SelectableListToolbar<E>) mToolbarStub.inflate();
         mToolbar = toolbar;
-        mToolbar.initialize(delegate, titleResId, normalGroupResId, selectedGroupResId,
-                updateStatusBarColor, vrModeProvider);
+        mToolbar.initialize(
+                delegate, titleResId, normalGroupResId, selectedGroupResId, updateStatusBarColor);
 
         if (listener != null) {
             mToolbar.setOnMenuItemClickListener(listener);
@@ -234,15 +233,25 @@ public class SelectableListLayout<E>
      * @return The {@link TextView} displayed when the list is empty.
      */
     public TextView initializeEmptyView(int emptyStringResId, int searchEmptyStringResId) {
-        mEmptyStringResId = emptyStringResId;
-        mSearchEmptyStringResId = searchEmptyStringResId;
-
-        mEmptyView.setText(mEmptyStringResId);
+        setEmptyViewText(emptyStringResId, searchEmptyStringResId);
 
         // Dummy listener to have the touch events dispatched to this view tree for navigation UI.
         mEmptyViewWrapper.setOnTouchListener((v, event) -> true);
 
         return mEmptyView;
+    }
+
+    /**
+     * Sets the view text when the selectable list is empty.
+     * @param emptyStringResId The string to show when the selectable list is empty.
+     * @param searchEmptyStringResId The string to show when the selectable list is empty during
+     *                               a search.
+     */
+    public void setEmptyViewText(int emptyStringResId, int searchEmptyStringResId) {
+        mEmptyStringResId = emptyStringResId;
+        mSearchEmptyStringResId = searchEmptyStringResId;
+
+        mEmptyView.setText(mEmptyStringResId);
     }
 
     /**

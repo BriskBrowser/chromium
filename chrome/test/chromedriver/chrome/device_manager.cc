@@ -8,10 +8,10 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/check.h"
-#include "base/stl_util.h"
+#include "base/containers/contains.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -190,7 +190,10 @@ Status Device::ForwardDevtoolsPort(const std::string& package,
     *device_socket = socket_name.substr(1);
   }
 
-  return adb_->ForwardPort(serial_, *device_socket, devtools_port);
+  Status status = adb_->ForwardPort(serial_, *device_socket, devtools_port);
+  if (status.IsOk())
+    devtools_port_ = *devtools_port;
+  return status;
 }
 
 Status Device::TearDown() {
@@ -200,6 +203,12 @@ Status Device::TearDown() {
     if (status.IsError())
       return status;
     active_package_ = "";
+  }
+  if (devtools_port_ != 0) {
+    Status status = adb_->KillForwardPort(serial_, devtools_port_);
+    if (status.IsError())
+      return status;
+    devtools_port_ = 0;
   }
   return Status(kOk);
 }

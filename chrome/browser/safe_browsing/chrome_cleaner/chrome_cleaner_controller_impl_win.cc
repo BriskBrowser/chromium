@@ -12,8 +12,8 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
 #include "base/logging.h"
@@ -36,6 +36,7 @@
 #include "chrome/browser/safe_browsing/chrome_cleaner/srt_client_info_win.h"
 #include "chrome/browser/safe_browsing/chrome_cleaner/srt_field_trial_win.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/installer/util/scoped_token_privilege.h"
 #include "components/chrome_cleaner/public/constants/constants.h"
 #include "components/chrome_cleaner/public/proto/chrome_prompt.pb.h"
@@ -45,7 +46,6 @@
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
-#include "extensions/browser/extension_registry.h"
 #include "net/http/http_status_code.h"
 #include "ui/base/window_open_disposition.h"
 
@@ -295,6 +295,11 @@ void ChromeCleanerControllerImpl::RemoveObserver(Observer* observer) {
   observer_list_.RemoveObserver(observer);
 }
 
+bool ChromeCleanerControllerImpl::HasObserver(Observer* observer) {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  return observer_list_.HasObserver(observer);
+}
+
 void ChromeCleanerControllerImpl::OnReporterSequenceStarted() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
@@ -340,12 +345,20 @@ void ChromeCleanerControllerImpl::OnReporterSequenceDone(
       break;
 
     case SwReporterInvocationResult::kNothingFound:
+    case SwReporterInvocationResult::kCleanupNotOffered: {
+      // TODO(crbug.com/1139806): The scan completion timestamp is not always
+      // written to the registry. As a workaround, write the completion
+      // timestamp also to a pref. This ensures that the timestamp is preserved
+      // in case Chrome is still opened when the scan completes. Remove this
+      // workaround once the timestamp is written to the registry in all cases.
+      PrefService* pref_service = g_browser_process->local_state();
+      if (pref_service) {
+        pref_service->SetTime(prefs::kChromeCleanerScanCompletionTime,
+                              base::Time::Now());
+      }
       idle_reason_ = IdleReason::kReporterFoundNothing;
       break;
-
-    case SwReporterInvocationResult::kCleanupNotOffered:
-      idle_reason_ = IdleReason::kReporterFoundNothing;
-      break;
+    }
 
     case SwReporterInvocationResult::kCleanupToBeOffered:
       // A request to scan will immediately follow this message, so no state
@@ -453,7 +466,6 @@ void ChromeCleanerControllerImpl::Scan(
 
 void ChromeCleanerControllerImpl::ReplyWithUserResponse(
     Profile* profile,
-    extensions::ExtensionService* extension_service,
     UserResponse user_response) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
@@ -471,8 +483,6 @@ void ChromeCleanerControllerImpl::ReplyWithUserResponse(
       RecordCleanerLogsAcceptanceHistogram(true);
       new_state = State::kCleaning;
       delegate_->TagForResetting(profile);
-      extension_service_ = extension_service;
-      extension_registry_ = extensions::ExtensionRegistry::Get(profile);
       break;
     case UserResponse::kAcceptedWithoutLogs:
       acceptance = PromptUserResponse::ACCEPTED_WITHOUT_LOGS;
@@ -480,8 +490,6 @@ void ChromeCleanerControllerImpl::ReplyWithUserResponse(
       RecordCleanerLogsAcceptanceHistogram(false);
       new_state = State::kCleaning;
       delegate_->TagForResetting(profile);
-      extension_service_ = extension_service;
-      extension_registry_ = extensions::ExtensionRegistry::Get(profile);
       break;
     case UserResponse::kDenied:  // Fallthrough
     case UserResponse::kDismissed:
@@ -601,8 +609,7 @@ void ChromeCleanerControllerImpl::OnChromeCleanerFetchedAndVerified(
           : ChromeCleanerRunner::ChromeMetricsStatus::kDisabled;
 
   ChromeCleanerRunner::RunChromeCleanerAndReplyWithExitCode(
-      extension_service_, extension_registry_, executable_path,
-      *reporter_invocation_, metrics_status,
+      executable_path, *reporter_invocation_, metrics_status,
       base::BindOnce(&ChromeCleanerControllerImpl::WeakOnPromptUser,
                      weak_factory_.GetWeakPtr()),
       base::BindOnce(&ChromeCleanerControllerImpl::OnConnectionClosed,
@@ -640,7 +647,6 @@ void ChromeCleanerControllerImpl::OnPromptUser(
   DCHECK_EQ(State::kScanning, state());
   DCHECK(scanner_results_.files_to_delete().empty());
   DCHECK(scanner_results_.registry_keys().empty());
-  DCHECK(scanner_results_.extension_ids().empty());
   DCHECK(!prompt_user_reply_callback_);
   DCHECK(!time_scanning_started_.is_null());
 
@@ -652,6 +658,18 @@ void ChromeCleanerControllerImpl::OnPromptUser(
     idle_reason_ = IdleReason::kScanningFoundNothing;
     SetStateAndNotifyObservers(State::kIdle);
     RecordPromptNotShownWithReasonHistogram(NO_PROMPT_REASON_NOTHING_FOUND);
+
+    // TODO(crbug.com/1139806): The scan completion timestamp is not always
+    // written to the registry. As a workaround, write the completion
+    // timestamp also to a pref. This ensures that the timestamp is preserved
+    // in case Chrome is still opened when the scan completes. Remove this
+    // workaround once the timestamp is written to the registry in all cases.
+    PrefService* pref_service = g_browser_process->local_state();
+    if (pref_service) {
+      pref_service->SetTime(prefs::kChromeCleanerScanCompletionTime,
+                            base::Time::Now());
+    }
+
     return;
   }
 

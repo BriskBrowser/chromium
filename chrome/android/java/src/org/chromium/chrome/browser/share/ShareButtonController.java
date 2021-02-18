@@ -8,10 +8,8 @@ import android.content.Context;
 import android.content.res.Configuration;
 import android.view.View.OnClickListener;
 
-import androidx.annotation.Nullable;
 import androidx.appcompat.content.res.AppCompatResources;
 
-import org.chromium.base.Callback;
 import org.chromium.base.ObserverList;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.supplier.ObservableSupplier;
@@ -20,10 +18,10 @@ import org.chromium.chrome.browser.ActivityTabProvider;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.lifecycle.ConfigurationChangedObserver;
+import org.chromium.chrome.browser.share.ShareDelegateImpl.ShareOrigin;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.toolbar.ButtonData;
 import org.chromium.chrome.browser.toolbar.ButtonDataProvider;
-import org.chromium.chrome.browser.toolbar.bottom.BottomToolbarVariationManager;
 import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.ui.modaldialog.ModalDialogManager.ModalDialogManagerObserver;
 import org.chromium.ui.modelutil.PropertyModel;
@@ -52,7 +50,6 @@ public class ShareButtonController implements ButtonDataProvider, ConfigurationC
 
     private ButtonData mButtonData;
     private ObserverList<ButtonDataObserver> mObservers = new ObserverList<>();
-    private final ObservableSupplier<Boolean> mBottomToolbarVisibilitySupplier;
     private OnClickListener mOnClickListener;
 
     private ModalDialogManager mModalDialogManager;
@@ -63,31 +60,24 @@ public class ShareButtonController implements ButtonDataProvider, ConfigurationC
 
     private int mCurrentOrientation;
 
-    private @Nullable Callback<Boolean> mBottomToolbarVisibilityObserver;
-
     /**
      * Creates ShareButtonController object.
      * @param context The Context for retrieving resources, etc.
      * @param tabProvider The {@link ActivityTabProvider} used for accessing the tab.
      * @param shareDelegateSupplier The supplier to get a handle on the share delegate.
      * @param shareUtils The share utility functions used by this class.
-     * @param bottomToolbarVisibilitySupplier Supplier that queries and updates the visibility of
-     * the bottom toolbar.
      * @param activityLifecycleDispatcher Dispatcher for activity lifecycle events, e.g.
      * configuration changes.
      * @param modalDialogManager dispatcher for modal lifecycles events
+     * @param onShareRunnable A {@link Runnable} to execute when a share event occurs. This object
+     *                        does not actually handle sharing, but can provide supplemental
+     *                        functionality when the share button is pressed.
      */
     public ShareButtonController(Context context, ActivityTabProvider tabProvider,
             ObservableSupplier<ShareDelegate> shareDelegateSupplier, ShareUtils shareUtils,
-            ObservableSupplier<Boolean> bottomToolbarVisibilitySupplier,
             ActivityLifecycleDispatcher activityLifecycleDispatcher,
-            ModalDialogManager modalDialogManager) {
+            ModalDialogManager modalDialogManager, Runnable onShareRunnable) {
         mContext = context;
-        mBottomToolbarVisibilitySupplier = bottomToolbarVisibilitySupplier;
-        mBottomToolbarVisibilityObserver = (bottomToolbarIsVisible)
-                -> notifyObservers(!(bottomToolbarIsVisible
-                        && BottomToolbarVariationManager.isShareButtonOnBottom()));
-        mBottomToolbarVisibilitySupplier.addObserver(mBottomToolbarVisibilityObserver);
 
         mActivityLifecycleDispatcher = activityLifecycleDispatcher;
         mActivityLifecycleDispatcher.register(this);
@@ -103,8 +93,9 @@ public class ShareButtonController implements ButtonDataProvider, ConfigurationC
             Tab tab = mTabProvider.get();
             assert tab != null : "Tab became null after share button was displayed";
             if (tab == null) return;
+            if (onShareRunnable != null) onShareRunnable.run();
             RecordUserAction.record("MobileTopToolbarShareButton");
-            shareDelegate.share(tab, /*shareDirectly=*/false);
+            shareDelegate.share(tab, /*shareDirectly=*/false, ShareOrigin.TOP_TOOLBAR);
         });
 
         mModalDialogManagerObserver = new ModalDialogManagerObserver() {
@@ -146,10 +137,6 @@ public class ShareButtonController implements ButtonDataProvider, ConfigurationC
             mActivityLifecycleDispatcher.unregister(this);
             mActivityLifecycleDispatcher = null;
         }
-        if (mBottomToolbarVisibilityObserver != null) {
-            mBottomToolbarVisibilitySupplier.removeObserver(mBottomToolbarVisibilityObserver);
-            mBottomToolbarVisibilityObserver = null;
-        }
         if (mModalDialogManagerObserver != null && mModalDialogManager != null) {
             mModalDialogManager.removeObserver(mModalDialogManagerObserver);
             mModalDialogManagerObserver = null;
@@ -188,9 +175,7 @@ public class ShareButtonController implements ButtonDataProvider, ConfigurationC
 
         boolean isDeviceWideEnough = mScreenWidthDp > mMinimumWidthDp;
 
-        if ((mBottomToolbarVisibilitySupplier.get()
-                    && BottomToolbarVariationManager.isShareButtonOnBottom())
-                || mShareDelegateSupplier.get() == null || !isDeviceWideEnough) {
+        if (mShareDelegateSupplier.get() == null || !isDeviceWideEnough) {
             mButtonData.canShow = false;
             return;
         }

@@ -18,6 +18,7 @@
 #include "base/files/memory_mapped_file.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
+#include "base/optional.h"
 #include "base/sequence_checker.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_piece.h"
@@ -66,6 +67,26 @@ class COMPONENT_EXPORT(UI_BASE) ResourceBundle {
     LargeFont,
   };
 
+  struct COMPONENT_EXPORT(UI_BASE) FontDetails {
+    explicit FontDetails(std::string typeface = std::string(),
+                         int size_delta = 0,
+                         gfx::Font::Weight weight = gfx::Font::Weight::NORMAL);
+    FontDetails(const FontDetails&) = default;
+    FontDetails(FontDetails&&) = default;
+    FontDetails& operator=(const FontDetails&) = default;
+    FontDetails& operator=(FontDetails&&) = default;
+    ~FontDetails() = default;
+
+    bool operator==(const FontDetails& rhs) const;
+    bool operator<(const FontDetails& rhs) const;
+
+    // If typeface is empty, we default to the platform-specific "Base" font
+    // list.
+    std::string typeface;
+    int size_delta;
+    gfx::Font::Weight weight;
+  };
+
   enum LoadResources {
     LOAD_COMMON_RESOURCES,
     DO_NOT_LOAD_COMMON_RESOURCES
@@ -73,6 +94,8 @@ class COMPONENT_EXPORT(UI_BASE) ResourceBundle {
 
   // Delegate class that allows interception of pack file loading and resource
   // requests. The methods of this class may be called on multiple threads.
+  // TODO(crbug.com/1146446): The interface and usage model of this class are
+  // clunky; it would be good to clean them up.
   class Delegate {
    public:
     // Called before a resource pack file is loaded. Return the full path for
@@ -105,15 +128,24 @@ class COMPONENT_EXPORT(UI_BASE) ResourceBundle {
         int resource_id,
         ScaleFactor scale_factor) = 0;
 
+    // Supports intercepting of ResourceBundle::LoadDataResourceString(): Return
+    // a populated base::Optional instance to override the value that
+    // ResourceBundle::LoadDataResourceString() would return by default, or an
+    // empty base::Optional instance to pass through to the default behavior of
+    // ResourceBundle::LoadDataResourceString().
+    virtual base::Optional<std::string> LoadDataResourceString(
+        int resource_id) = 0;
+
     // Retrieve a raw data resource. Return true if a resource was provided or
     // false to attempt retrieval of the default resource.
     virtual bool GetRawDataResource(int resource_id,
                                     ScaleFactor scale_factor,
-                                    base::StringPiece* value) = 0;
+                                    base::StringPiece* value) const = 0;
 
     // Retrieve a localized string. Return true if a string was provided or
     // false to attempt retrieval of the default string.
-    virtual bool GetLocalizedString(int message_id, base::string16* value) = 0;
+    virtual bool GetLocalizedString(int message_id,
+                                    base::string16* value) const = 0;
 
    protected:
     virtual ~Delegate() {}
@@ -277,30 +309,15 @@ class COMPONENT_EXPORT(UI_BASE) ResourceBundle {
 
   // Get a localized resource (for example, localized image logo) given a
   // resource id.
-  base::RefCountedMemory* LoadLocalizedResourceBytes(int resource_id);
+  base::RefCountedMemory* LoadLocalizedResourceBytes(int resource_id) const;
 
   // Returns a font list derived from the platform-specific "Base" font list.
   // The result is always cached and exists for the lifetime of the process.
-  const gfx::FontList& GetFontListWithDelta(
-      int size_delta,
-      gfx::Font::FontStyle style = gfx::Font::NORMAL,
-      gfx::Font::Weight weight = gfx::Font::Weight::NORMAL);
+  const gfx::FontList& GetFontListWithDelta(int size_delta);
 
-  // Returns a font list derived from the user-specified typeface. The
-  // result is always cached and exists for the lifetime of the process.
-  // If typeface is empty, we default to the platform-specific "Base" font
-  // list.
-  const gfx::FontList& GetFontListWithTypefaceAndDelta(
-      const std::string& typeface,
-      int size_delta,
-      gfx::Font::FontStyle style = gfx::Font::NORMAL,
-      gfx::Font::Weight weight = gfx::Font::Weight::NORMAL);
-
-  // Returns the primary font from the FontList given by GetFontListWithDelta().
-  const gfx::Font& GetFontWithDelta(
-      int size_delta,
-      gfx::Font::FontStyle style = gfx::Font::NORMAL,
-      gfx::Font::Weight weight = gfx::Font::Weight::NORMAL);
+  // Returns a font list for the given set of |details|. The result is always
+  // cached and exists for the lifetime of the process.
+  const gfx::FontList& GetFontListForDetails(const FontDetails& details);
 
   // Deprecated. Returns fonts using hard-coded size deltas implied by |style|.
   const gfx::FontList& GetFontList(FontStyle style);
@@ -348,6 +365,7 @@ class COMPONENT_EXPORT(UI_BASE) ResourceBundle {
     mangle_localized_strings_ = mangle;
   }
 
+  std::string GetLoadedLocaleForTesting() { return loaded_locale_; }
 #if DCHECK_IS_ON()
   // Gets whether overriding locale strings is supported.
   bool get_can_override_locale_string_resources_for_test() {
@@ -367,8 +385,6 @@ class COMPONENT_EXPORT(UI_BASE) ResourceBundle {
 
   class ResourceBundleImageSource;
   friend class ResourceBundleImageSource;
-
-  struct FontKey;
 
   using IdToStringMap = std::unordered_map<int, base::string16>;
 
@@ -457,19 +473,19 @@ class COMPONENT_EXPORT(UI_BASE) ResourceBundle {
   // bright red bitmap.
   gfx::Image& GetEmptyImage();
 
-  const base::FilePath& GetOverriddenPakPath();
+  const base::FilePath& GetOverriddenPakPath() const;
 
   // If mangling of localized strings is enabled, mangles |str| to make it
   // longer and to add begin and end markers so that any truncation of it is
   // visible and returns the mangled string. If not, returns |str|.
-  base::string16 MaybeMangleLocalizedString(const base::string16& str);
+  base::string16 MaybeMangleLocalizedString(const base::string16& str) const;
 
   // An internal implementation of |GetLocalizedString()| without setting the
   // flag of whether overriding locale strings is supported to false. We don't
   // update this flag only in |InitDefaultFontList()| which is called earlier
   // than the overriding. This is okay, because the font list doesn't need to be
   // overridden by variations.
-  base::string16 GetLocalizedStringImpl(int resource_id);
+  base::string16 GetLocalizedStringImpl(int resource_id) const;
 
   // This pointer is guaranteed to outlive the ResourceBundle instance and may
   // be null.
@@ -497,7 +513,7 @@ class COMPONENT_EXPORT(UI_BASE) ResourceBundle {
   // platform base font size, plus style, to the FontList. Cached to avoid
   // repeated GDI creation/destruction and font derivation.
   // Must be accessed only from UI thread.
-  std::map<FontKey, gfx::FontList> font_cache_;
+  std::map<FontDetails, gfx::FontList> font_cache_;
 
   base::FilePath overridden_pak_path_;
 
@@ -509,6 +525,10 @@ class COMPONENT_EXPORT(UI_BASE) ResourceBundle {
 
   bool is_test_resources_ = false;
   bool mangle_localized_strings_ = false;
+
+  // This is currently just used by the testing infrastructure to make sure
+  // the loaded locale_ is en-US at the start of each unit_test.
+  std::string loaded_locale_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 

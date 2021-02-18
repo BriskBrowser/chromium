@@ -30,24 +30,23 @@
 
 namespace views {
 
-MdTextButton::MdTextButton(ButtonListener* listener,
+MdTextButton::MdTextButton(PressedCallback callback,
                            const base::string16& text,
                            int button_context)
-    : LabelButton(listener, text, button_context) {
+    : LabelButton(std::move(callback), text, button_context) {
   SetInkDropMode(InkDropMode::ON);
-  set_has_ink_drop_action_on_click(true);
-  set_show_ink_drop_when_hot_tracked(true);
+  SetHasInkDropActionOnClick(true);
+  SetShowInkDropWhenHotTracked(true);
   SetCornerRadius(LayoutProvider::Get()->GetCornerRadiusMetric(EMPHASIS_LOW));
   SetHorizontalAlignment(gfx::ALIGN_CENTER);
-  SetFocusForPlatform();
 
   const int minimum_width = LayoutProvider::Get()->GetDistanceMetric(
       DISTANCE_DIALOG_BUTTON_MINIMUM_WIDTH);
   SetMinSize(gfx::Size(minimum_width, 0));
   SetInstallFocusRingOnFocus(true);
   label()->SetAutoColorReadabilityEnabled(false);
-  set_request_focus_on_press(false);
-  set_animate_on_state_change(true);
+  SetRequestFocusOnPress(false);
+  SetAnimateOnStateChange(true);
 
   // Paint to a layer so that the canvas is snapped to pixel boundaries (useful
   // for fractional DSF).
@@ -74,6 +73,8 @@ bool MdTextButton::GetProminent() const {
 }
 
 void MdTextButton::SetBgColorOverride(const base::Optional<SkColor>& color) {
+  if (color == bg_color_override_)
+    return;
   bg_color_override_ = color;
   UpdateColors();
   OnPropertyChanged(&bg_color_override_, kPropertyEffectsNone);
@@ -84,8 +85,11 @@ base::Optional<SkColor> MdTextButton::GetBgColorOverride() const {
 }
 
 void MdTextButton::SetCornerRadius(float radius) {
+  if (corner_radius_ == radius)
+    return;
   corner_radius_ = radius;
-  set_ink_drop_corner_radii(corner_radius_, corner_radius_);
+  SetInkDropSmallCornerRadius(corner_radius_);
+  SetInkDropLargeCornerRadius(corner_radius_);
   OnPropertyChanged(&corner_radius_, kPropertyEffectsPaint);
 }
 
@@ -159,9 +163,14 @@ void MdTextButton::SetEnabledTextColors(base::Optional<SkColor> color) {
   UpdateColors();
 }
 
-void MdTextButton::SetCustomPadding(const gfx::Insets& padding) {
+void MdTextButton::SetCustomPadding(
+    const base::Optional<gfx::Insets>& padding) {
   custom_padding_ = padding;
   UpdatePadding();
+}
+
+base::Optional<gfx::Insets> MdTextButton::GetCustomPadding() const {
+  return custom_padding_.value_or(CalculateDefaultPadding());
 }
 
 void MdTextButton::SetText(const base::string16& text) {
@@ -290,6 +299,7 @@ BEGIN_METADATA(MdTextButton, LabelButton)
 ADD_PROPERTY_METADATA(bool, Prominent)
 ADD_PROPERTY_METADATA(float, CornerRadius)
 ADD_PROPERTY_METADATA(base::Optional<SkColor>, BgColorOverride)
-END_METADATA()
+ADD_PROPERTY_METADATA(base::Optional<gfx::Insets>, CustomPadding)
+END_METADATA
 
 }  // namespace views

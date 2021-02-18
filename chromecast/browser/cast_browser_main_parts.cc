@@ -37,6 +37,7 @@
 #include "chromecast/browser/cast_browser_context.h"
 #include "chromecast/browser/cast_browser_process.h"
 #include "chromecast/browser/cast_content_browser_client.h"
+#include "chromecast/browser/cast_extension_url_loader_factory.h"
 #include "chromecast/browser/cast_feature_list_creator.h"
 #include "chromecast/browser/cast_system_memory_pressure_evaluator.h"
 #include "chromecast/browser/cast_system_memory_pressure_evaluator_adjuster.h"
@@ -44,12 +45,14 @@
 #include "chromecast/browser/media/media_caps_impl.h"
 #include "chromecast/browser/metrics/cast_browser_metrics.h"
 #include "chromecast/browser/service_connector.h"
+#include "chromecast/browser/service_manager_connection.h"
+#include "chromecast/browser/service_manager_context.h"
 #include "chromecast/chromecast_buildflags.h"
 #include "chromecast/graphics/cast_window_manager.h"
 #include "chromecast/media/base/key_systems_common.h"
-#include "chromecast/media/base/media_resource_tracker.h"
 #include "chromecast/media/base/video_plane_controller.h"
-#include "chromecast/media/cma/backend/media_pipeline_backend_manager.h"
+#include "chromecast/media/common/media_pipeline_backend_manager.h"
+#include "chromecast/media/common/media_resource_tracker.h"
 #include "chromecast/metrics/cast_metrics_service_client.h"
 #include "chromecast/net/connectivity_checker.h"
 #include "chromecast/public/cast_media_shlib.h"
@@ -137,7 +140,7 @@
 #endif  // !defined(OS_ANDROID) && !defined(OS_FUCHSIA)
 
 #if !defined(OS_FUCHSIA)
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "chromecast/base/cast_sys_info_util.h"
 #include "chromecast/public/cast_sys_info.h"
 #include "components/heap_profiling/multi_process/client_connection_manager.h"
@@ -384,6 +387,7 @@ void EnsureBrowserContextKeyedServiceFactoriesBuilt() {
   extensions::EnsureBrowserContextKeyedServiceFactoriesBuilt();
 
   extensions::CastExtensionSystemFactory::GetInstance();
+  CastExtensionURLLoaderFactory::EnsureShutdownNotifierFactoryBuilt();
 }
 #endif
 
@@ -402,6 +406,10 @@ CastBrowserMainParts::CastBrowserMainParts(
   DCHECK(cast_content_browser_client);
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   AddDefaultCommandLineSwitches(command_line);
+
+  service_manager_context_ = std::make_unique<ServiceManagerContext>(
+      cast_content_browser_client_, content::GetIOThreadTaskRunner({}));
+  ServiceManagerConnection::GetForProcess()->Start();
 }
 
 CastBrowserMainParts::~CastBrowserMainParts() {
@@ -600,8 +608,11 @@ void CastBrowserMainParts::PreMainMessageLoopRun() {
       CAST_IS_DEBUG_BUILD() ||
       GetSwitchValueBoolean(switches::kEnableInput, false));
   window_manager_->Setup();
-  rounded_window_corners_manager_ =
-      std::make_unique<RoundedWindowCornersManager>(window_manager_.get());
+
+  if (GetSwitchValueBoolean(switches::kEnableRoundedWindowCorners, false)) {
+    rounded_window_corners_manager_ =
+        std::make_unique<RoundedWindowCornersManager>(window_manager_.get());
+  }
 
 #if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
   cast_browser_process_->SetAccessibilityManager(
@@ -771,6 +782,8 @@ void CastBrowserMainParts::PostMainMessageLoopRun() {
   DeregisterKillOnAlarm();
 #endif  // !defined(OS_FUCHSIA)
 #endif
+
+  service_manager_context_.reset();
 }
 
 void CastBrowserMainParts::PostCreateThreads() {

@@ -18,6 +18,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
+#include "build/chromeos_buildflags.h"
 #include "components/services/app_service/public/cpp/file_handler_info.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -47,7 +48,7 @@
 #include "net/base/filename_util.h"
 #include "url/gurl.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "components/user_manager/user_manager.h"
 #endif
 
@@ -119,6 +120,8 @@ class PlatformAppPathLauncher
     if (!file_path.empty())
       entry_paths_.push_back(file_path);
   }
+  PlatformAppPathLauncher(const PlatformAppPathLauncher&) = delete;
+  PlatformAppPathLauncher& operator=(const PlatformAppPathLauncher&) = delete;
 
   void set_action_data(std::unique_ptr<app_runtime::ActionData> action_data) {
     action_data_ = std::move(action_data);
@@ -358,8 +361,6 @@ class PlatformAppPathLauncher
   extensions::app_file_handler_util::MimeTypeCollector mime_type_collector_;
   extensions::app_file_handler_util::IsDirectoryCollector
       is_directory_collector_;
-
-  DISALLOW_COPY_AND_ASSIGN(PlatformAppPathLauncher);
 };
 
 }  // namespace
@@ -385,7 +386,7 @@ void LaunchPlatformAppWithCommandLineAndLaunchId(
   // check in case this scenario does occur.
   if (extensions::KioskModeInfo::IsKioskOnly(app)) {
     bool in_kiosk_mode = false;
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     user_manager::UserManager* user_manager = user_manager::UserManager::Get();
     in_kiosk_mode = user_manager && user_manager->IsLoggedInAsKioskApp();
 #endif
@@ -399,7 +400,7 @@ void LaunchPlatformAppWithCommandLineAndLaunchId(
 
 #if defined(OS_WIN)
   base::CommandLine::StringType about_blank_url(
-      base::ASCIIToUTF16(url::kAboutBlankURL));
+      base::ASCIIToWide(url::kAboutBlankURL));
 #else
   base::CommandLine::StringType about_blank_url(url::kAboutBlankURL);
 #endif
@@ -428,8 +429,17 @@ void LaunchPlatformAppWithCommandLineAndLaunchId(
 void LaunchPlatformAppWithPath(content::BrowserContext* context,
                                const Extension* app,
                                const base::FilePath& file_path) {
-  scoped_refptr<PlatformAppPathLauncher> launcher =
-      new PlatformAppPathLauncher(context, app, file_path);
+  auto launcher =
+      base::MakeRefCounted<PlatformAppPathLauncher>(context, app, file_path);
+  launcher->Launch();
+}
+
+void LaunchPlatformAppWithFilePaths(
+    content::BrowserContext* context,
+    const extensions::Extension* app,
+    const std::vector<base::FilePath>& file_paths) {
+  auto launcher =
+      base::MakeRefCounted<PlatformAppPathLauncher>(context, app, file_paths);
   launcher->Launch();
 }
 

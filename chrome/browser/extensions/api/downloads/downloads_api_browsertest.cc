@@ -9,7 +9,7 @@
 #include <algorithm>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/containers/circular_deque.h"
 #include "base/files/file_util.h"
 #include "base/guid.h"
@@ -18,7 +18,7 @@
 #include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -53,10 +53,10 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/content_features.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/download_test_observer.h"
+#include "content/public/test/slow_download_http_response.h"
 #include "content/public/test/test_download_http_response.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "content/public/test/test_utils.h"
@@ -70,6 +70,7 @@
 #include "storage/browser/file_system/file_system_context.h"
 #include "storage/browser/file_system/file_system_operation_runner.h"
 #include "storage/browser/file_system/file_system_url.h"
+#include "third_party/blink/public/common/features.h"
 #include "ui/base/page_transition_types.h"
 #include "url/origin.h"
 
@@ -334,11 +335,13 @@ class DownloadExtensionTest : public ExtensionApiTest {
     download::DownloadDangerType danger_type;
   };
 
-  void LoadExtension(const char* name) {
+  void LoadExtension(const char* name, bool enable_file_access = false) {
     // Store the created Extension object so that we can attach it to
     // ExtensionFunctions.  Also load the extension in incognito profiles for
     // testing incognito.
-    extension_ = LoadExtensionIncognito(test_data_dir_.AppendASCII(name));
+    extension_ = ExtensionBrowserTest::LoadExtension(
+        test_data_dir_.AppendASCII(name),
+        {.allow_in_incognito = true, .allow_file_access = enable_file_access});
     CHECK(extension_);
     content::WebContents* tab = chrome::AddSelectedTabWithURL(
         current_browser(),
@@ -700,7 +703,7 @@ class MockIconExtractorImpl : public DownloadFileIconExtractor {
     EXPECT_EQ(expected_icon_size_, icon_size);
     if (expected_path_ == path &&
         expected_icon_size_ == icon_size) {
-      callback_ = callback;
+      callback_ = std::move(callback);
       content::GetUIThreadTaskRunner({})->PostTask(
           FROM_HERE, base::BindOnce(&MockIconExtractorImpl::RunCallback,
                                     base::Unretained(this)));
@@ -712,7 +715,8 @@ class MockIconExtractorImpl : public DownloadFileIconExtractor {
 
  private:
   void RunCallback() {
-    callback_.Run(response_);
+    DCHECK(callback_);
+    std::move(callback_).Run(response_);
     // Drop the reference on extension function to avoid memory leaks.
     callback_ = IconURLCallback();
   }
@@ -735,7 +739,7 @@ class ScopedCancellingItem {
   ~ScopedCancellingItem() {
     item_->Cancel(true);
     content::DownloadUpdatedObserver observer(
-        item_, base::Bind(&ItemNotInProgress));
+        item_, base::BindRepeating(&ItemNotInProgress));
     observer.WaitForEvent();
   }
   DownloadItem* get() { return item_; }
@@ -758,7 +762,7 @@ class ScopedItemVectorCanceller {
       if ((*item)->GetState() == DownloadItem::IN_PROGRESS)
         (*item)->Cancel(true);
       content::DownloadUpdatedObserver observer(
-          (*item), base::Bind(&ItemNotInProgress));
+          (*item), base::BindRepeating(&ItemNotInProgress));
       observer.WaitForEvent();
     }
   }
@@ -798,11 +802,12 @@ class HTML5FileWriter {
 
  private:
   static void CopyInCompletion(bool* result,
-                               const base::Closure& quit_closure,
+                               base::OnceClosure quit_closure,
                                base::File::Error error) {
     DCHECK_CURRENTLY_ON(BrowserThread::IO);
     *result = error == base::File::FILE_OK;
-    content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE, quit_closure);
+    content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE,
+                                                 std::move(quit_closure));
   }
 
   static void CreateFileForTestingOnIOThread(
@@ -810,12 +815,12 @@ class HTML5FileWriter {
       const storage::FileSystemURL& path,
       const base::FilePath& temp_file,
       bool* result,
-      const base::Closure& quit_closure) {
+      base::OnceClosure quit_closure) {
     DCHECK_CURRENTLY_ON(BrowserThread::IO);
     context->operation_runner()->CopyInForeignFile(
         temp_file, path,
         base::BindOnce(&CopyInCompletion, base::Unretained(result),
-                       quit_closure));
+                       std::move(quit_closure)));
   }
 };
 
@@ -1199,7 +1204,7 @@ IN_PROC_BROWSER_TEST_F(DownloadExtensionTest, FileExistenceCheckAfterSearch) {
       .WaitForEvent();
 }
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 IN_PROC_BROWSER_TEST_F(DownloadExtensionTest,
                        DownloadsShowFunction) {
   platform_util::internal::DisableShellOperationsForTesting();
@@ -1987,7 +1992,7 @@ class DownloadExtensionTestWithFtp : public DownloadExtensionTest {
   DownloadExtensionTestWithFtp() {
     // DownloadExtensionTest_Download_InvalidURLs2 requires FTP support.
     // TODO(https://crbug.com/333943): Remove FTP tests and FTP feature flags.
-    scoped_feature_list_.InitAndEnableFeature(features::kFtpProtocol);
+    scoped_feature_list_.InitAndEnableFeature(blink::features::kFtpProtocol);
   }
 
  private:
@@ -2240,7 +2245,7 @@ IN_PROC_BROWSER_TEST_F(DownloadExtensionTest,
 IN_PROC_BROWSER_TEST_F(DownloadExtensionTest,
                        MAYBE_DownloadExtensionTest_Download_File) {
   GoOnTheRecord();
-  LoadExtension("downloads_split");
+  LoadExtension("downloads_split", /*enable_file_access=*/true);
   std::string download_url = "file:///";
 #if defined(OS_WIN)
   download_url += "C:/";
@@ -2601,10 +2606,11 @@ IN_PROC_BROWSER_TEST_F(DownloadExtensionTest,
 IN_PROC_BROWSER_TEST_F(DownloadExtensionTest,
                        DownloadExtensionTest_Download_Cancel) {
   LoadExtension("downloads_split");
+  embedded_test_server()->RegisterRequestHandler(base::BindRepeating(
+      &content::SlowDownloadHttpResponse::HandleSlowDownloadRequest));
   ASSERT_TRUE(StartEmbeddedTestServer());
-  ASSERT_TRUE(spawned_test_server()->Start());
   std::string download_url =
-      spawned_test_server()->GetURL("download-known-size").spec();
+      embedded_test_server()->GetURL("/download-known-size").spec();
   GoOnTheRecord();
 
   std::unique_ptr<base::Value> result(RunFunctionAndReturnResult(
@@ -3521,9 +3527,10 @@ IN_PROC_BROWSER_TEST_F(
                           result_id)));
 }
 
+// Flaky. crbug.com/1147804
 IN_PROC_BROWSER_TEST_F(
     DownloadExtensionTest,
-    DownloadExtensionTest_OnDeterminingFilename_EmptyBasenameInvalid) {
+    DISABLED_DownloadExtensionTest_OnDeterminingFilename_EmptyBasenameInvalid) {
   GoOnTheRecord();
   LoadExtension("downloads_split");
   AddFilenameDeterminer();
@@ -4262,8 +4269,8 @@ IN_PROC_BROWSER_TEST_F(
                           item->GetId(),
                           GetFilename("42.txt").c_str())));
 
-  content::DownloadUpdatedObserver interrupted(item, base::Bind(
-      ItemIsInterrupted));
+  content::DownloadUpdatedObserver interrupted(
+      item, base::BindRepeating(ItemIsInterrupted));
   ASSERT_TRUE(interrupted.WaitForEvent());
   ASSERT_TRUE(WaitFor(downloads::OnChanged::kEventName,
                       base::StringPrintf(
@@ -4375,7 +4382,7 @@ IN_PROC_BROWSER_TEST_F(DownloadExtensionTest,
           GetCurrentManager(), 1,
           content::DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_IGNORE));
   DownloadsAcceptDangerFunction::OnPromptCreatedCallback callback =
-      base::Bind(&OnDangerPromptCreated);
+      base::BindOnce(&OnDangerPromptCreated);
   DownloadsAcceptDangerFunction::OnPromptCreatedForTesting(
       &callback);
   ExtensionActionTestHelper::Create(current_browser())->Press(0);
@@ -4451,6 +4458,7 @@ TEST(DownloadInterruptReasonEnumsSynced,
   EXPECT_EQ(                                                                   \
       InterruptReasonExtensionToComponent(downloads::INTERRUPT_REASON_##name), \
       download::DOWNLOAD_INTERRUPT_REASON_##name);
+#include "build/chromeos_buildflags.h"
 #include "components/download/public/common/download_interrupt_reason_values.h"
 #undef INTERRUPT_REASON
 }

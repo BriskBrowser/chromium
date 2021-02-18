@@ -8,13 +8,13 @@
 #include <vector>
 
 #include "base/check.h"
+#include "base/containers/contains.h"
 #include "base/files/file.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/files/important_file_writer.h"
 #include "base/no_destructor.h"
 #include "base/notreached.h"
-#include "base/stl_util.h"
 #include "base/synchronization/lock.h"
 #include "build/build_config.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
@@ -201,11 +201,6 @@ void FilesystemImpl::WriteFileAtomically(const base::FilePath& path,
       MakeAbsolute(path), std::move(contents)));
 }
 
-void FilesystemImpl::RemoveFile(const base::FilePath& path,
-                                RemoveFileCallback callback) {
-  std::move(callback).Run(base::DeleteFile(MakeAbsolute(path)));
-}
-
 void FilesystemImpl::CreateDirectory(const base::FilePath& path,
                                      CreateDirectoryCallback callback) {
   base::File::Error error = base::File::FILE_OK;
@@ -213,14 +208,14 @@ void FilesystemImpl::CreateDirectory(const base::FilePath& path,
   std::move(callback).Run(error);
 }
 
-void FilesystemImpl::RemoveDirectory(const base::FilePath& path,
-                                     RemoveDirectoryCallback callback) {
+void FilesystemImpl::DeleteFile(const base::FilePath& path,
+                                DeleteFileCallback callback) {
   std::move(callback).Run(base::DeleteFile(MakeAbsolute(path)));
 }
 
-void FilesystemImpl::RemoveDirectoryRecursively(
+void FilesystemImpl::DeletePathRecursively(
     const base::FilePath& path,
-    RemoveDirectoryRecursivelyCallback callback) {
+    DeletePathRecursivelyCallback callback) {
   std::move(callback).Run(base::DeletePathRecursively(MakeAbsolute(path)));
 }
 
@@ -290,7 +285,7 @@ FileErrorOr<base::File> FilesystemImpl::LockFileLocal(
     return base::File::FILE_ERROR_IN_USE;
 
 #if !defined(OS_FUCHSIA)
-  base::File::Error error = file.Lock();
+  base::File::Error error = file.Lock(base::File::LockMode::kExclusive);
   if (error != base::File::FILE_OK)
     return error;
 #endif

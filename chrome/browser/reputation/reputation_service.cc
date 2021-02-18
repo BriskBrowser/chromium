@@ -17,13 +17,15 @@
 #include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/reputation/local_heuristics.h"
-#include "chrome/browser/reputation/safety_tip_ui_helper.h"
-#include "chrome/browser/reputation/safety_tips_config.h"
+#include "chrome/browser/safe_browsing/user_interaction_observer.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 #include "components/lookalikes/core/lookalike_url_util.h"
+#include "components/reputation/core/safety_tips_config.h"
+#include "components/security_state/core/features.h"
 #include "components/security_state/core/security_state.h"
 #include "components/url_formatter/spoof_checks/top_domains/top500_domains.h"
+#include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "url/url_constants.h"
 
@@ -79,7 +81,7 @@ bool ShouldSuppressWarning(Profile* profile, const GURL& url) {
     return true;
   }
 
-  auto* proto = GetSafetyTipsRemoteConfigProto();
+  auto* proto = reputation::GetSafetyTipsRemoteConfigProto();
   if (!proto) {
     // This happens when the component hasn't downloaded yet. This should only
     // happen for a short time after initial upgrade to M79.
@@ -88,7 +90,14 @@ bool ShouldSuppressWarning(Profile* profile, const GURL& url) {
     // flag on any known false positives until the client received the update.
     return true;
   }
-  return IsUrlAllowlistedBySafetyTipsComponent(proto, url);
+  return reputation::IsUrlAllowlistedBySafetyTipsComponent(proto, url);
+}
+
+// Gets the eTLD+1 of the provided hostname, including private registries (e.g.
+// foo.blogspot.com returns blogspot.com.
+std::string GetETLDPlusOneWithPrivateRegistries(const std::string& hostname) {
+  return net::registry_controlled_domains::GetDomainAndRegistry(
+      hostname, net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES);
 }
 
 }  // namespace
@@ -106,41 +115,42 @@ ReputationService* ReputationService::Get(Profile* profile) {
 }
 
 void ReputationService::GetReputationStatus(const GURL& url,
+                                            content::WebContents* web_contents,
                                             ReputationCheckCallback callback) {
   DCHECK(url.SchemeIsHTTPOrHTTPS());
+
+  bool has_delayed_warning =
+      !!safe_browsing::SafeBrowsingUserInteractionObserver::FromWebContents(
+          web_contents);
 
   LookalikeUrlService* service = LookalikeUrlService::Get(profile_);
   if (service->EngagedSitesNeedUpdating()) {
     service->ForceUpdateEngagedSites(
         base::BindOnce(&ReputationService::GetReputationStatusWithEngagedSites,
-                       weak_factory_.GetWeakPtr(), url, std::move(callback)));
+                       weak_factory_.GetWeakPtr(), url, has_delayed_warning,
+                       std::move(callback)));
     // If the engaged sites need updating, there's nothing to do until callback.
     return;
   }
 
-  GetReputationStatusWithEngagedSites(url, std::move(callback),
+  GetReputationStatusWithEngagedSites(url, has_delayed_warning,
+                                      std::move(callback),
                                       service->GetLatestEngagedSites());
 }
 
-void ReputationService::SetUserIgnore(content::WebContents* web_contents,
-                                      const GURL& url,
-                                      SafetyTipInteraction interaction) {
-  // Record that the user dismissed the safety tip. kDismiss is the base case,
-  // which makes it easier to track overall dismissal metrics without having
-  // to re-constitute from separate histograms that record specifically how the
-  // user dismissed the safety tip. The way the user dismissed the dialog is
-  // also recorded to this interaction histogram, but with a more specific value
-  // (e.g. kDismissWithEsc) that is passed into this method.
-  RecordSafetyTipInteractionHistogram(web_contents,
-                                      SafetyTipInteraction::kDismiss);
-  // Record a histogram indicating how the user dismissed the safety tip
-  // (i.e. esc key, close button, or ignore button).
-  RecordSafetyTipInteractionHistogram(web_contents, interaction);
-  warning_dismissed_origins_.insert(url::Origin::Create(url));
+bool ReputationService::IsIgnored(const GURL& url) const {
+  return warning_dismissed_etld1s_.count(
+             GetETLDPlusOneWithPrivateRegistries(url.host())) > 0;
+}
+
+void ReputationService::SetUserIgnore(const GURL& url) {
+  warning_dismissed_etld1s_.insert(
+      GetETLDPlusOneWithPrivateRegistries(url.host()));
 }
 
 void ReputationService::OnUIDisabledFirstVisit(const GURL& url) {
-  warning_dismissed_origins_.insert(url::Origin::Create(url));
+  warning_dismissed_etld1s_.insert(
+      GetETLDPlusOneWithPrivateRegistries(url.host()));
 }
 
 void ReputationService::SetSensitiveKeywordsForTesting(
@@ -150,12 +160,9 @@ void ReputationService::SetSensitiveKeywordsForTesting(
   num_sensitive_keywords_ = num_new_keywords;
 }
 
-bool ReputationService::IsIgnored(const GURL& url) const {
-  return warning_dismissed_origins_.count(url::Origin::Create(url)) > 0;
-}
-
 void ReputationService::GetReputationStatusWithEngagedSites(
     const GURL& url,
+    bool has_delayed_warning,
     ReputationCheckCallback callback,
     const std::vector<DomainInfo>& engaged_sites) {
   const DomainInfo navigated_domain = GetDomainInfo(url);
@@ -190,7 +197,7 @@ void ReputationService::GetReputationStatusWithEngagedSites(
   }
 
   // 2. Server-side blocklist check.
-  SafetyTipStatus status = GetSafetyTipUrlBlockType(url);
+  SafetyTipStatus status = reputation::GetSafetyTipUrlBlockType(url);
   if (status != SafetyTipStatus::kNone) {
     if (!done_checking_reputation_status) {
       result.safety_tip_status = status;
@@ -233,19 +240,36 @@ void ReputationService::GetReputationStatusWithEngagedSites(
     done_checking_reputation_status = true;
   }
 
+  // 6. This case is an experimental variation on Safe Browsing delayed warnings
+  // (https://crbug.com/1057157) to measure the effect of simplified domain
+  // display (https://crbug.com/1090393). In this experiment, Chrome delays Safe
+  // Browsing warnings until user interaction to see if the simplified domain
+  // display UI treatment affects how people interact with the page. In this
+  // variation, Chrome shows a Safety Tip on such pages, to try to isolate the
+  // effect of the UI treatment to when people's attention is drawn to the
+  // omnibox.
+  if (has_delayed_warning &&
+      base::FeatureList::IsEnabled(
+          security_state::features::kSafetyTipUIOnDelayedWarning)) {
+    // Intentionally don't check |done_checking_reputation_status| here, as we
+    // want this Safety Tip to take precedence. In this case, where there is a
+    // delayed Safe Browsing warning, we know the page is actually suspicious.
+    result.safety_tip_status = SafetyTipStatus::kBadReputation;
+    result.triggered_heuristics.blocklist_heuristic_triggered = true;
+    done_checking_reputation_status = true;
+  }
+
   if (IsIgnored(url)) {
     if (result.safety_tip_status == SafetyTipStatus::kBadReputation) {
       result.safety_tip_status = SafetyTipStatus::kBadReputationIgnored;
     } else if (result.safety_tip_status == SafetyTipStatus::kLookalike) {
       result.safety_tip_status = SafetyTipStatus::kLookalikeIgnored;
-    } else if (result.safety_tip_status == SafetyTipStatus::kNone) {
-      // This happens when a domain is added to the server-side allowlist
-      // after it is ignored. There's nothing to do in this case.
-    } else {
-      // No other case should show a bubble, so nothing else should be
-      // ignorable.
-      NOTREACHED();
     }
+    // The local allowlist is used by both the interstitial and safety tips, so
+    // it's possible to hit this case even when we're not in the conditions
+    // above. It's also possible to get kNone here when a domain is added to
+    // the server-side allowlist after it has been ignored. In these cases,
+    // there's no additional action required.
   }
   result.url = url;
 

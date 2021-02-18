@@ -4,34 +4,40 @@
 
 package org.chromium.chrome.browser.privacy.settings;
 
+import android.os.Build;
 import android.os.Bundle;
+import android.text.SpannableString;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 
-import androidx.preference.CheckBoxPreference;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceFragmentCompat;
 import androidx.vectordrawable.graphics.drawable.VectorDrawableCompat;
 
-import org.chromium.base.BuildInfo;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncherImpl;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
-import org.chromium.chrome.browser.help.HelpAndFeedback;
 import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.privacy.secure_dns.SecureDnsSettings;
+import org.chromium.chrome.browser.privacy_sandbox.PrivacySandboxBridge;
+import org.chromium.chrome.browser.privacy_sandbox.PrivacySandboxSettingsFragment;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.safe_browsing.metrics.SettingsAccessPoint;
-import org.chromium.chrome.browser.safe_browsing.settings.SecuritySettingsFragment;
+import org.chromium.chrome.browser.safe_browsing.settings.SafeBrowsingSettingsFragment;
 import org.chromium.chrome.browser.settings.ChromeManagedPreferenceDelegate;
-import org.chromium.chrome.browser.settings.SettingsLauncher;
 import org.chromium.chrome.browser.settings.SettingsLauncherImpl;
+import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
+import org.chromium.chrome.browser.sync.settings.GoogleServicesSettings;
+import org.chromium.chrome.browser.sync.settings.ManageSyncSettings;
 import org.chromium.chrome.browser.sync.settings.SyncAndServicesSettings;
 import org.chromium.chrome.browser.usage_stats.UsageStatsConsentDialog;
-import org.chromium.components.browser_ui.settings.ChromeBaseCheckBoxPreference;
+import org.chromium.components.browser_ui.settings.ChromeSwitchPreference;
 import org.chromium.components.browser_ui.settings.ManagedPreferenceDelegate;
+import org.chromium.components.browser_ui.settings.SettingsLauncher;
 import org.chromium.components.browser_ui.settings.SettingsUtils;
 import org.chromium.components.prefs.PrefService;
+import org.chromium.components.signin.identitymanager.ConsentLevel;
 import org.chromium.components.user_prefs.UserPrefs;
 import org.chromium.ui.text.NoUnderlineClickableSpan;
 import org.chromium.ui.text.SpanApplier;
@@ -49,16 +55,17 @@ public class PrivacySettings
     private static final String PREF_SAFE_BROWSING = "safe_browsing";
     private static final String PREF_SYNC_AND_SERVICES_LINK = "sync_and_services_link";
     private static final String PREF_CLEAR_BROWSING_DATA = "clear_browsing_data";
+    private static final String PREF_PRIVACY_SANDBOX = "privacy_sandbox";
     private static final String[] NEW_PRIVACY_PREFERENCE_ORDER = {PREF_CLEAR_BROWSING_DATA,
             PREF_SAFE_BROWSING, PREF_CAN_MAKE_PAYMENT, PREF_NETWORK_PREDICTIONS, PREF_USAGE_STATS,
-            PREF_SECURE_DNS, PREF_DO_NOT_TRACK, PREF_SYNC_AND_SERVICES_LINK};
+            PREF_SECURE_DNS, PREF_DO_NOT_TRACK, PREF_PRIVACY_SANDBOX, PREF_SYNC_AND_SERVICES_LINK};
 
     private ManagedPreferenceDelegate mManagedPreferenceDelegate;
 
     @Override
     public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
-        PrivacyPreferencesManager privacyPrefManager = PrivacyPreferencesManager.getInstance();
-        privacyPrefManager.migrateNetworkPredictionPreferences();
+        PrivacyPreferencesManagerImpl privacyPrefManager =
+                PrivacyPreferencesManagerImpl.getInstance();
         SettingsUtils.addPreferencesFromResource(this, R.xml.privacy_preferences);
         assert NEW_PRIVACY_PREFERENCE_ORDER.length
                 == getPreferenceScreen().getPreferenceCount()
@@ -72,17 +79,25 @@ public class PrivacySettings
             }
         }
 
-        // If the flag for adding a "Security" section UI is enabled, a "Security" section will be
-        // added under this section and this section will be renamed to "Privacy and security".
-        // See (go/esb-clank-dd) for more context.
-        if (ChromeFeatureList.isEnabled(ChromeFeatureList.SAFE_BROWSING_SECURITY_SECTION_UI)) {
+        if (PrivacySandboxBridge.isPrivacySandboxSettingsFunctional()) {
+            findPreference(PREF_PRIVACY_SANDBOX)
+                    .setSummary(PrivacySandboxSettingsFragment.getStatusString(getContext()));
+        } else {
+            // Remove Privacy Sandbox settings if the corresponding flag is disabled.
+            getPreferenceScreen().removePreference(findPreference(PREF_PRIVACY_SANDBOX));
+        }
+
+        // If the flag for adding a "Safe Browsing" section UI is enabled, a "Safe Browsing" section
+        // will be added under this section and this section will be renamed to "Privacy and
+        // security". See (go/esb-clank-dd) for more context.
+        if (ChromeFeatureList.isEnabled(ChromeFeatureList.SAFE_BROWSING_SECTION_UI)) {
             getActivity().setTitle(R.string.prefs_privacy_security);
             Preference safeBrowsingPreference = findPreference(PREF_SAFE_BROWSING);
             safeBrowsingPreference.setSummary(
-                    SecuritySettingsFragment.getSafeBrowsingSummaryString(getContext()));
+                    SafeBrowsingSettingsFragment.getSafeBrowsingSummaryString(getContext()));
             safeBrowsingPreference.setOnPreferenceClickListener((preference) -> {
-                preference.getExtras().putInt(
-                        SecuritySettingsFragment.ACCESS_POINT, SettingsAccessPoint.PARENT_SETTINGS);
+                preference.getExtras().putInt(SafeBrowsingSettingsFragment.ACCESS_POINT,
+                        SettingsAccessPoint.PARENT_SETTINGS);
                 return false;
             });
         } else {
@@ -93,14 +108,14 @@ public class PrivacySettings
 
         mManagedPreferenceDelegate = createManagedPreferenceDelegate();
 
-        ChromeBaseCheckBoxPreference canMakePaymentPref =
-                (ChromeBaseCheckBoxPreference) findPreference(PREF_CAN_MAKE_PAYMENT);
+        ChromeSwitchPreference canMakePaymentPref =
+                (ChromeSwitchPreference) findPreference(PREF_CAN_MAKE_PAYMENT);
         canMakePaymentPref.setOnPreferenceChangeListener(this);
 
-        ChromeBaseCheckBoxPreference networkPredictionPref =
-                (ChromeBaseCheckBoxPreference) findPreference(PREF_NETWORK_PREDICTIONS);
+        ChromeSwitchPreference networkPredictionPref =
+                (ChromeSwitchPreference) findPreference(PREF_NETWORK_PREDICTIONS);
         networkPredictionPref.setChecked(
-                PrivacyPreferencesManager.getInstance().getNetworkPredictionEnabled());
+                PrivacyPreferencesManagerImpl.getInstance().getNetworkPredictionEnabled());
         networkPredictionPref.setOnPreferenceChangeListener(this);
         networkPredictionPref.setManagedPreferenceDelegate(mManagedPreferenceDelegate);
 
@@ -108,16 +123,44 @@ public class PrivacySettings
         secureDnsPref.setVisible(SecureDnsSettings.isUiEnabled());
 
         Preference syncAndServicesLink = findPreference(PREF_SYNC_AND_SERVICES_LINK);
-        NoUnderlineClickableSpan linkSpan = new NoUnderlineClickableSpan(getResources(), view -> {
-            SettingsLauncher settingsLauncher = new SettingsLauncherImpl();
-            settingsLauncher.launchSettingsActivity(getActivity(), SyncAndServicesSettings.class,
-                    SyncAndServicesSettings.createArguments(false));
-        });
-        syncAndServicesLink.setSummary(
-                SpanApplier.applySpans(getString(R.string.privacy_sync_and_services_link),
-                        new SpanApplier.SpanInfo("<link>", "</link>", linkSpan)));
+        syncAndServicesLink.setSummary(buildSyncAndServicesLink());
 
         updateSummaries();
+    }
+
+    private SpannableString buildSyncAndServicesLink() {
+        SettingsLauncher settingsLauncher = new SettingsLauncherImpl();
+        if (!ChromeFeatureList.isEnabled(ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY)) {
+            NoUnderlineClickableSpan syncAndServicesLink =
+                    new NoUnderlineClickableSpan(getResources(), v -> {
+                        settingsLauncher.launchSettingsActivity(getActivity(),
+                                SyncAndServicesSettings.class,
+                                SyncAndServicesSettings.createArguments(false));
+                    });
+            return SpanApplier.applySpans(getString(R.string.privacy_sync_and_services_link_legacy),
+                    new SpanApplier.SpanInfo("<link>", "</link>", syncAndServicesLink));
+        }
+
+        NoUnderlineClickableSpan servicesLink = new NoUnderlineClickableSpan(getResources(), v -> {
+            settingsLauncher.launchSettingsActivity(getActivity(), GoogleServicesSettings.class);
+        });
+        if (IdentityServicesProvider.get()
+                        .getIdentityManager(Profile.getLastUsedRegularProfile())
+                        .getPrimaryAccountInfo(ConsentLevel.SYNC)
+                == null) {
+            // Sync is off, show the string with one link to "Google Services".
+            return SpanApplier.applySpans(
+                    getString(R.string.privacy_sync_and_services_link_sync_off),
+                    new SpanApplier.SpanInfo("<link>", "</link>", servicesLink));
+        }
+        // Otherwise, show the string with both links to "Sync" and "Google Services".
+        NoUnderlineClickableSpan syncLink = new NoUnderlineClickableSpan(getResources(), v -> {
+            settingsLauncher.launchSettingsActivity(getActivity(), ManageSyncSettings.class,
+                    ManageSyncSettings.createArguments(false));
+        });
+        return SpanApplier.applySpans(getString(R.string.privacy_sync_and_services_link_sync_on),
+                new SpanApplier.SpanInfo("<link1>", "</link1>", syncLink),
+                new SpanApplier.SpanInfo("<link2>", "</link2>", servicesLink));
     }
 
     @Override
@@ -127,7 +170,8 @@ public class PrivacySettings
             UserPrefs.get(Profile.getLastUsedRegularProfile())
                     .setBoolean(Pref.CAN_MAKE_PAYMENT_ENABLED, (boolean) newValue);
         } else if (PREF_NETWORK_PREDICTIONS.equals(key)) {
-            PrivacyPreferencesManager.getInstance().setNetworkPredictionEnabled((boolean) newValue);
+            PrivacyPreferencesManagerImpl.getInstance().setNetworkPredictionEnabled(
+                    (boolean) newValue);
         }
 
         return true;
@@ -145,8 +189,8 @@ public class PrivacySettings
     public void updateSummaries() {
         PrefService prefService = UserPrefs.get(Profile.getLastUsedRegularProfile());
 
-        CheckBoxPreference canMakePaymentPref =
-                (CheckBoxPreference) findPreference(PREF_CAN_MAKE_PAYMENT);
+        ChromeSwitchPreference canMakePaymentPref =
+                (ChromeSwitchPreference) findPreference(PREF_CAN_MAKE_PAYMENT);
         if (canMakePaymentPref != null) {
             canMakePaymentPref.setChecked(prefService.getBoolean(Pref.CAN_MAKE_PAYMENT_ENABLED));
         }
@@ -166,12 +210,13 @@ public class PrivacySettings
         Preference safeBrowsingPreference = findPreference(PREF_SAFE_BROWSING);
         if (safeBrowsingPreference != null && safeBrowsingPreference.isVisible()) {
             safeBrowsingPreference.setSummary(
-                    SecuritySettingsFragment.getSafeBrowsingSummaryString(getContext()));
+                    SafeBrowsingSettingsFragment.getSafeBrowsingSummaryString(getContext()));
         }
 
         Preference usageStatsPref = findPreference(PREF_USAGE_STATS);
         if (usageStatsPref != null) {
-            if (BuildInfo.isAtLeastQ() && prefService.getBoolean(Pref.USAGE_STATS_ENABLED)) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                    && prefService.getBoolean(Pref.USAGE_STATS_ENABLED)) {
                 usageStatsPref.setOnPreferenceClickListener(preference -> {
                     UsageStatsConsentDialog
                             .create(getActivity(), true,
@@ -187,13 +232,19 @@ public class PrivacySettings
                 getPreferenceScreen().removePreference(usageStatsPref);
             }
         }
+
+        Preference privacySandboxPreference = findPreference(PREF_PRIVACY_SANDBOX);
+        if (privacySandboxPreference != null) {
+            privacySandboxPreference.setSummary(
+                    PrivacySandboxSettingsFragment.getStatusString(getContext()));
+        }
     }
 
     private ChromeManagedPreferenceDelegate createManagedPreferenceDelegate() {
         return preference -> {
             String key = preference.getKey();
             if (PREF_NETWORK_PREDICTIONS.equals(key)) {
-                return PrivacyPreferencesManager.getInstance().isNetworkPredictionManaged();
+                return PrivacyPreferencesManagerImpl.getInstance().isNetworkPredictionManaged();
             }
             return false;
         };
@@ -211,7 +262,7 @@ public class PrivacySettings
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         if (item.getItemId() == R.id.menu_id_targeted_help) {
-            HelpAndFeedback.getInstance().show(getActivity(),
+            HelpAndFeedbackLauncherImpl.getInstance().show(getActivity(),
                     getString(R.string.help_context_privacy), Profile.getLastUsedRegularProfile(),
                     null);
             return true;

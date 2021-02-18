@@ -13,14 +13,18 @@
 <translation id="1211441953136645838">巻末注</translation>
 <translation id="1281252709823657822">ダイアログ</translation>
 <translation id="1306460908038601864">オフ</translation>
+<translation id="1311894908970423688">値は <ph name="VALUE_DATE_OR_TIME" /> とする必要があります。</translation>
 <translation id="1335095011850992622">クレジット</translation>
 <translation id="1342835525016946179">記事</translation>
 <translation id="1359897965706325498">バナー</translation>
+<translation id="145015347812617860"><ph name="COUNT" />個のアイテム</translation>
 <translation id="1480676835519562650">複数の選択が可能です。<ph name="COUNT" /> 件中 <ph name="SELECTED" /> 件が選択されています。</translation>
 <translation id="1589122976691792535">地域</translation>
 <translation id="1591562245178063882">今月</translation>
 <translation id="1637811476055996098">ファイル選択</translation>
 <translation id="1650423536718072820">引用</translation>
+<translation id="1681022320378710418">現在の時刻</translation>
+<translation id="1727839386348365796">スポイト</translation>
 <translation id="1727886345390570319">字幕メニューを表示しない</translation>
 <translation id="1729654308190250600">メール アドレスを入力してください。</translation>
 <translation id="1758486001363313524">その他...</translation>
@@ -28,6 +32,7 @@
 <translation id="1806710327868736751">アラート ダイアログ</translation>
 <translation id="1821985195704844674">ツリーグリッド</translation>
 <translation id="1822429046913737220">AM/PM</translation>
+<translation id="1823704031293214298">ページフッター</translation>
 <translation id="1832974991323546415">リモート デバイスで再生</translation>
 <translation id="190587075670221089">削除</translation>
 <translation id="1907737156431278478">例</translation>
@@ -45,6 +50,7 @@
 <translation id="2247351761944213033"><ph name="YEAR" />年第<ph name="WEEKNUMBER" />週</translation>
 <translation id="2277199496770840904">トラック <ph name="NUMBER" /></translation>
 <translation id="2291999235780842123">チェックボックス</translation>
+<translation id="2307576640803031502">リスト内の <ph name="COUNT" /> 件中 <ph name="INDEX" /> 件目のアイテム</translation>
 <translation id="2311842470354187719">改ページ</translation>
 <translation id="2335594187091864976">日時選択ツール</translation>
 <translation id="2393030564806080191">16 進数色コード</translation>
@@ -53,7 +59,7 @@
 <translation id="2507943997699731163">このフィールドを入力してください。</translation>
 <translation id="2508569020611168319">タブリスト</translation>
 <translation id="2530182415807757784">複数の選択が可能です。項目が選択されていません。</translation>
-<translation id="2561842179657104141">その他のメディア コントロールを表示</translation>
+<translation id="2561842179657104141">その他のメディア操作ボタンを表示</translation>
 <translation id="2572483411312390101">再生</translation>
 <translation id="2613802280814924224">有効な値を入力してください。有効な値として最も近いのは <ph name="VALID_VALUE" /> です。</translation>
 <translation id="2634240155926812724">緑チャネル</translation>
@@ -77,6 +83,7 @@
 <translation id="310520048233152454">URL を入力してください。</translation>
 <translation id="3175736971608411871">タイマー</translation>
 <translation id="3199563858620722075">コンボボックス</translation>
+<translation id="3220661731597678625">現在のステップ</translation>
 <translation id="3329013043687509092">彩度</translation>
 <translation id="3450233048674729344">値は <ph name="MAXIMUM" /> 以下にする必要があります。</translation>
 <translation id="3486220673238053218">定義</translation>
@@ -102,11 +109,14 @@
 <translation id="4201051445878709314">前の月を表示</translation>
 <translation id="421884353938374759">カラー選択ツール</translation>
 <translation id="4248100235867064564">メニューバー</translation>
+<translation id="4293574643247337246">ページヘッダー</translation>
 <translation id="4360991593054037559">有効な値を入力してください。有効な値として最も近いのは <ph name="VALID_VALUE_LOW" /> と <ph name="VALID_VALUE_HIGHER" /> です。</translation>
+<translation id="4384249794467006333">この画像にはラベルがありません。画像の説明を取得するには、右上のその他のオプションメニューを開いてください。</translation>
 <translation id="4384583879834880242">Q＆A</translation>
 <translation id="4444765639179266822"><ph name="OCR_TEXT" /> というテキストのようです</translation>
 <translation id="4446524499724042288">用語参照</translation>
 <translation id="4522570452068850558">詳細</translation>
+<translation id="4576178047100686001">この画像にはラベルがありません。画像の説明を取得するには、左上のその他のオプションメニューを開いてください。</translation>
 <translation id="4597532268155981612">フォーム</translation>
 <translation id="4661075872484491155">ツリー</translation>
 <translation id="4664250907885839816">「<ph name="ATSIGN" />」に続く文字列に記号「<ph name="INVALIDCHARACTER" />」を使用しないでください。</translation>
@@ -119,6 +129,7 @@
 <translation id="4763480195061959176">動画</translation>
 <translation id="479989351350248267">検索</translation>
 <translation id="4812940957355064477">数字を入力してください。</translation>
+<translation id="4912200001568447310">現在のアイテム</translation>
 <translation id="4912536737030637138">文献情報</translation>
 <translation id="4915360478455618802">時間選択ツールを表示します</translation>
 <translation id="492244087561876220">コメント</translation>
@@ -140,7 +151,9 @@
 <translation id="5307600278924710095">「<ph name="ATSIGN" />」の前の文字列を入力してください。「<ph name="INVALIDADDRESS" />」は完全なメール アドレスではありません。</translation>
 <translation id="5334352251556557839">メディアを再生できません。</translation>
 <translation id="537648784377940524">最小の日付（<ph name="MIN_DATE_OR_TIME" />）には、最大の日付（<ph name="MAX_DATE_OR_TIME" />）より前の日付を指定してください。</translation>
+<translation id="5378437566635403538">展開表示されています。ダイアログが開いています。</translation>
 <translation id="5406322316791861025">図</translation>
+<translation id="5425179576310518467">現在の日付</translation>
 <translation id="5453733299334684579">ツリー項目</translation>
 <translation id="5466621249238537318">1 つ以上のファイルを選択してください。</translation>
 <translation id="5468998798572797635">全画面表示を終了</translation>
@@ -155,9 +168,12 @@
 <translation id="5677946354068040947">その他のオプション</translation>
 <translation id="576709008726043716">序論</translation>
 <translation id="57838592816432529">ミュート</translation>
+<translation id="5787939484346677755">展開表示されています。オートコンプリート候補があります。</translation>
+<translation id="5860033963881614850">オフ</translation>
 <translation id="588258955323874662">全画面表示</translation>
 <translation id="5888666972993069672">現在 <ph name="DEVICE_FRIENDLY_NAME" /> にキャストしています</translation>
 <translation id="591047860372322273">検索ボックス</translation>
+<translation id="5916664084637901428">オン</translation>
 <translation id="5939518447894949180">リセット</translation>
 <translation id="5966707198760109579">週</translation>
 <translation id="5987525920412732405">スピンボタン</translation>
@@ -166,8 +182,10 @@
 <translation id="6023896073578205740">リストボックス</translation>
 <translation id="6150588977291308318">参考文献</translation>
 <translation id="6164829606128959761">メーター</translation>
+<translation id="6165053282446038410">展開表示されています。<ph name="COUNT" /> 件のオートコンプリート候補があります。</translation>
 <translation id="6166809985690652833">後書き</translation>
 <translation id="6209276755895393898"><ph name="DESCRIPTION" /> の画像のようです</translation>
+<translation id="6212595056017402527">現在のページ</translation>
 <translation id="6213469881011901533">用語集</translation>
 <translation id="6281588256137006900">明度</translation>
 <translation id="6281763101136022427">URL</translation>
@@ -185,6 +203,7 @@
 <translation id="6643016212128521049">削除</translation>
 <translation id="668171684555832681">その他...</translation>
 <translation id="6692633176391053278">ステッパー</translation>
+<translation id="6709093583001123835">値は <ph name="VALUE" /> とする必要があります。</translation>
 <translation id="6709570249143506788">低再生画質</translation>
 <translation id="6755330956360078551">ツールチップ</translation>
 <translation id="6790428901817661496">再生</translation>
@@ -198,11 +217,14 @@
 <translation id="693476918119313863">ヘッダー</translation>
 <translation id="6941933287844615239">メディアをダウンロード</translation>
 <translation id="6981594929165378967">挿入</translation>
+<translation id="698788488269350478">展開表示されています。</translation>
 <translation id="6989848892321993519">このテキストは <ph name="MIN_CHARACTERS" /> 文字以上で指定してください（現在 1 文字で指定されています）。</translation>
 <translation id="7034405885550056553">提案</translation>
 <translation id="709897737746224366">指定されている形式で入力してください。</translation>
+<translation id="7102274145889307184">現在地</translation>
 <translation id="7118469954320184356">説明はありません。</translation>
 <translation id="7139483182332611405">序文</translation>
+<translation id="7198226213493847604">メニュー表示ボタン</translation>
 <translation id="7214187073215825913">コンテンツの情報</translation>
 <translation id="7238347055216017155">強調</translation>
 <translation id="7263440858009898357">リスト内の項目を選択してください。</translation>
@@ -264,11 +286,13 @@
 <translation id="8613126697340063924">リモート再生をコントロール</translation>
 <translation id="862370744433916922">副題</translation>
 <translation id="8634971699417195529">月選択ツールを表示します</translation>
+<translation id="8668988909814782445">行を折り返す</translation>
 <translation id="8711688047404765493">出力</translation>
 <translation id="8750798805984357768">これらのオプションから 1 つ選択してください。</translation>
 <translation id="8808573423886751634">章</translation>
 <translation id="8845239796550121995">テレビにキャストしています</translation>
 <translation id="8851136666856101339">本文</translation>
+<translation id="8861621546968757188">ダイアログ表示ボタン</translation>
 <translation id="8875657656876809964">動画再生エラー</translation>
 <translation id="8889402386540077796">色調</translation>
 <translation id="8901569739625249689"><ph name="QUANTITY" /> KB</translation>
@@ -285,6 +309,7 @@
 <translation id="9155987714137265666"><ph name="WEEK_START_DATE" /> から始まる <ph name="WEEK" /></translation>
 <translation id="916607977885256133">ピクチャー イン ピクチャー</translation>
 <translation id="9168329111483466115">脚注</translation>
+<translation id="945780513535800434">一部オン</translation>
 <translation id="954003015749068518">ピクチャー イン ピクチャーを開始します</translation>
 <translation id="966787709310836684">メニュー</translation>
 </translationbundle>

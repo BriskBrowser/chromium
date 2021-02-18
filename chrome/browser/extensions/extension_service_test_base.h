@@ -14,8 +14,12 @@
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
+#include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/test/base/scoped_testing_local_state.h"
+#include "components/policy/core/common/mock_configuration_policy_provider.h"
+#include "components/policy/core/common/policy_service.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_renderer_host.h"
 #include "content/public/test/test_utils.h"
@@ -23,7 +27,7 @@
 #include "extensions/common/extension.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/chromeos/login/users/scoped_test_user_manager.h"
 #include "chrome/browser/chromeos/settings/scoped_cros_settings_test_helper.h"
 #endif
@@ -33,6 +37,7 @@ class TestingProfile;
 
 namespace content {
 class BrowserContext;
+class BrowserTaskEnvironment;
 }
 
 namespace sync_preferences {
@@ -62,6 +67,8 @@ class ExtensionServiceTestBase : public testing::Test {
     bool profile_is_supervised = false;
     bool enable_bookmark_model = false;
 
+    policy::PolicyService* policy_service = nullptr;
+
     // Though you could use this constructor, you probably want to use
     // CreateDefaultInitParams(), and then make a change or two.
     ExtensionServiceInitParams();
@@ -74,6 +81,10 @@ class ExtensionServiceTestBase : public testing::Test {
 
  protected:
   ExtensionServiceTestBase();
+  // Alternatively, a subclass may pass a BrowserTaskEnvironment directly.
+  explicit ExtensionServiceTestBase(
+      std::unique_ptr<content::BrowserTaskEnvironment> task_environment);
+
   ~ExtensionServiceTestBase() override;
 
   // testing::Test implementation.
@@ -134,6 +145,19 @@ class ExtensionServiceTestBase : public testing::Test {
   }
   const base::FilePath& data_dir() const { return data_dir_; }
   const base::ScopedTempDir& temp_dir() const { return temp_dir_; }
+  content::BrowserTaskEnvironment* task_environment() {
+    return task_environment_.get();
+  }
+  policy::MockConfigurationPolicyProvider* policy_provider() {
+    return &policy_provider_;
+  }
+
+  // If a test uses a feature list, it should be destroyed after
+  // |task_environment_|, to avoid tsan data races between the ScopedFeatureList
+  // destructor, and any tasks running on different threads that check if a
+  // feature is enabled. ~BrowserTaskEnvironment will make sure those tasks
+  // finish before |feature_list_| is destroyed.
+  base::test::ScopedFeatureList feature_list_;
 
  private:
   // Must be declared before anything that may make use of the
@@ -146,10 +170,18 @@ class ExtensionServiceTestBase : public testing::Test {
 
   // The MessageLoop is used by RenderViewHostTestEnabler, so this must be
   // created before it.
-  content::BrowserTaskEnvironment task_environment_;
+  std::unique_ptr<content::BrowserTaskEnvironment> task_environment_;
 
   // Enable creation of WebContents without initializing a renderer.
   content::RenderViewHostTestEnabler rvh_test_enabler_;
+
+  // Provides policies for the PolicyService below, so this must be created
+  // before it.
+  testing::NiceMock<policy::MockConfigurationPolicyProvider> policy_provider_;
+
+  // PolicyService for the testing profile, so unit tests can use custom
+  // policies.
+  std::unique_ptr<policy::PolicyService> policy_service_;
 
  protected:
   // It's unfortunate that these are exposed to subclasses (rather than used
@@ -178,7 +210,7 @@ class ExtensionServiceTestBase : public testing::Test {
   // The associated ExtensionRegistry, for convenience.
   extensions::ExtensionRegistry* registry_;
 
-#if defined OS_CHROMEOS
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   chromeos::ScopedCrosSettingsTestHelper cros_settings_test_helper_;
   chromeos::ScopedTestUserManager test_user_manager_;
 #endif

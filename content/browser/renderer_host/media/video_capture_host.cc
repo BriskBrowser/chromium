@@ -7,7 +7,7 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "content/browser/browser_main_loop.h"
 #include "content/browser/renderer_host/media/media_stream_manager.h"
 #include "content/browser/renderer_host/media/video_capture_manager.h"
@@ -143,8 +143,8 @@ void VideoCaptureHost::OnBufferDestroyed(
 
 void VideoCaptureHost::OnBufferReady(
     const VideoCaptureControllerID& controller_id,
-    int buffer_id,
-    const media::mojom::VideoFrameInfoPtr& frame_info) {
+    const ReadyBuffer& buffer,
+    const std::vector<ReadyBuffer>& scaled_buffers) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (controllers_.find(controller_id) == controllers_.end())
     return;
@@ -152,8 +152,16 @@ void VideoCaptureHost::OnBufferReady(
   if (!base::Contains(device_id_to_observer_map_, controller_id))
     return;
 
-  device_id_to_observer_map_[controller_id]->OnBufferReady(buffer_id,
-                                                           frame_info.Clone());
+  media::mojom::ReadyBufferPtr mojom_buffer = media::mojom::ReadyBuffer::New(
+      buffer.buffer_id, buffer.frame_info->Clone());
+  std::vector<media::mojom::ReadyBufferPtr> mojom_scaled_buffers;
+  mojom_scaled_buffers.reserve(scaled_buffers.size());
+  for (const auto& scaled_buffer : scaled_buffers) {
+    mojom_scaled_buffers.push_back(media::mojom::ReadyBuffer::New(
+        scaled_buffer.buffer_id, scaled_buffer.frame_info->Clone()));
+  }
+  device_id_to_observer_map_[controller_id]->OnBufferReady(
+      std::move(mojom_buffer), std::move(mojom_scaled_buffers));
 }
 
 void VideoCaptureHost::OnEnded(const VideoCaptureControllerID& controller_id) {
@@ -190,6 +198,11 @@ void VideoCaptureHost::Start(
            << ", device_id=" << device_id << ", format="
            << media::VideoCaptureFormat::ToString(params.requested_format);
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
+
+  if (!params.IsValid()) {
+    mojo::ReportBadMessage("Invalid video capture params.");
+    return;
+  }
 
   DCHECK(!base::Contains(device_id_to_observer_map_, device_id));
   device_id_to_observer_map_[device_id].Bind(std::move(observer));
@@ -247,6 +260,11 @@ void VideoCaptureHost::Resume(const base::UnguessableToken& device_id,
                               const media::VideoCaptureParams& params) {
   DVLOG(1) << __func__ << " " << device_id;
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
+
+  if (!params.IsValid()) {
+    mojo::ReportBadMessage("Invalid video capture params.");
+    return;
+  }
 
   VideoCaptureControllerID controller_id(device_id);
   auto it = controllers_.find(controller_id);

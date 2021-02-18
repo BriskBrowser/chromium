@@ -21,8 +21,8 @@
 
 #include "base/base64.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/no_destructor.h"
 #include "base/strings/string16.h"
@@ -142,7 +142,7 @@ std::string BrowserDMTokenStorageWin::InitClientId() {
   if (status != ERROR_SUCCESS)
     return std::string();
 
-  base::string16 value;
+  std::wstring value;
   status = key.ReadValue(L"MachineGuid", &value);
   if (status != ERROR_SUCCESS)
     return std::string();
@@ -165,7 +165,7 @@ std::string BrowserDMTokenStorageWin::InitDMToken() {
   constexpr size_t kInitialDMTokenSize = 512;
 
   base::win::RegKey key;
-  base::string16 dm_token_value_name;
+  std::wstring dm_token_value_name;
   std::vector<char> raw_value(kInitialDMTokenSize);
 
   // Prefer the app-neutral location over the browser's to match Google Update's

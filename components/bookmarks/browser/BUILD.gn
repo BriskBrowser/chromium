@@ -41,7 +41,6 @@ static_library("browser") {
     "bookmark_model.cc",
     "bookmark_node.cc",
     "bookmark_node_data.cc",
-    "bookmark_node_data_ios.cc",
     "bookmark_storage.cc",
     "bookmark_utils.cc",
     "model_loader.cc",
@@ -95,6 +94,10 @@ static_library("browser") {
       "Foundation.framework",
     ]
   }
+
+  if (is_ios) {
+    sources += [ "bookmark_node_data_ios.cc" ]
+  }
 }
 
 static_library("test_support") {
@@ -126,23 +129,18 @@ source_set("unit_tests") {
   sources = [
     "bookmark_codec_unittest.cc",
     "bookmark_expanded_state_tracker_unittest.cc",
-    "bookmark_index_unittest.cc",
     "bookmark_model_unittest.cc",
     "bookmark_storage_unittest.cc",
     "bookmark_utils_unittest.cc",
+    "titled_url_index_unittest.cc",
     "titled_url_match_unittest.cc",
   ]
-
-  if (toolkit_views) {
-    sources += [ "bookmark_node_data_unittest.cc" ]
-  }
-
-  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 
   deps = [
     ":browser",
     ":unit_tests_bundle_data",
     "//base/test:test_support",
+    "//build:chromeos_buildflags",
     "//components/bookmarks/common",
     "//components/bookmarks/test",
     "//components/favicon_base",
@@ -156,6 +154,13 @@ source_set("unit_tests") {
     "//ui/base/clipboard",
     "//url",
   ]
+
+  if (toolkit_views) {
+    sources += [ "bookmark_node_data_unittest.cc" ]
+    deps += [ "//build:chromeos_buildflags" ]
+  }
+
+  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 }
 
 # The fuzzer depends on code that is not built on Mac.

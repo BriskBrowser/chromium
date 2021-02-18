@@ -803,8 +803,6 @@ void HTMLConstructionSite::InsertTextNode(const StringView& string,
   if (ShouldFosterParent())
     FindFosterSite(dummy_task);
 
-  // TODO(crbug.com/1070669): This can likely be removed, because it is already
-  // handled in Insert().
   if (auto* template_element =
           DynamicTo<HTMLTemplateElement>(*dummy_task.parent)) {
     // If the Document was detached in the middle of parsing, the template
@@ -989,8 +987,10 @@ Element* HTMLConstructionSite::CreateElement(
           document, tag_name, GetCreateElementFlags(), is);
     }
     // Definition for the created element does not exist here and it cannot be
-    // custom or failed.
+    // custom, precustomized, or failed.
     DCHECK_NE(element->GetCustomElementState(), CustomElementState::kCustom);
+    DCHECK_NE(element->GetCustomElementState(),
+              CustomElementState::kPreCustomized);
     DCHECK_NE(element->GetCustomElementState(), CustomElementState::kFailed);
 
     // TODO(dominicc): Move these steps so they happen for custom

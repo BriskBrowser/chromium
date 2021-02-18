@@ -14,6 +14,9 @@
 #include "base/time/time.h"
 #include "ui/accessibility/ax_enums.mojom-forward.h"
 #include "ui/base/ui_base_types.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/view_factory.h"
+#include "ui/views/view.h"
 #include "ui/views/views_export.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
@@ -64,17 +67,27 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
     // dialog. It's legal for a button to be marked enabled that isn't present
     // in |buttons| (see above).
     int enabled_buttons = ui::DIALOG_BUTTON_OK | ui::DIALOG_BUTTON_CANCEL;
-
-    // The view that should receive initial focus in the dialog. If not set, the
-    // default button will receive initial focus. If explicitly set to nullptr,
-    // no view will receive focus.
-    base::Optional<View*> initially_focused_view;
   };
 
   DialogDelegate();
+  DialogDelegate(const DialogDelegate&) = delete;
+  DialogDelegate& operator=(const DialogDelegate&) = delete;
   ~DialogDelegate() override;
 
   // Creates a widget at a default location.
+  // There are two variant of this method. The newer one is the unique_ptr
+  // method, which simply takes ownership of the WidgetDelegate and passes it to
+  // the created Widget. When using the unique_ptr version, it is required that
+  // delegate->owned_by_widget(). Unless you have a good reason, you should use
+  // this variant.
+  //
+  // If !delegate->owned_by_widget() *or* if your WidgetDelegate subclass has a
+  // custom override of WidgetDelegate::DeleteDelegate, use the raw pointer
+  // variant instead, and please talk to one of the //ui/views owners about
+  // your use case.
+  static Widget* CreateDialogWidget(std::unique_ptr<WidgetDelegate> delegate,
+                                    gfx::NativeWindow context,
+                                    gfx::NativeView parent);
   static Widget* CreateDialogWidget(WidgetDelegate* delegate,
                                     gfx::NativeWindow context,
                                     gfx::NativeView parent);
@@ -146,6 +159,10 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   const gfx::Insets& margins() const { return margins_; }
   void set_margins(const gfx::Insets& margins) { margins_ = margins; }
 
+  // Set a fixed width for the dialog. Used by DialogClientView.
+  void set_fixed_width(int fixed_width) { fixed_width_ = fixed_width; }
+  int fixed_width() const { return fixed_width_; }
+
   template <typename T>
   T* SetExtraView(std::unique_ptr<T> extra_view) {
     T* view = extra_view.get();
@@ -197,7 +214,6 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   void SetButtons(int buttons);
   void SetButtonLabel(ui::DialogButton button, base::string16 label);
   void SetButtonEnabled(ui::DialogButton button, bool enabled);
-  void SetInitiallyFocusedView(View* view);
 
   // Called when the user presses the dialog's "OK" button or presses the dialog
   // accept accelerator, if there is one.
@@ -310,6 +326,9 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   // margins.
   gfx::Insets margins_{0};
 
+  // Use a fixed dialog width for dialog. Used by DialogClientView.
+  int fixed_width_ = 0;
+
   // The time the dialog is created.
   base::TimeTicks creation_time_;
 
@@ -333,8 +352,6 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   // Whether any of the three callbacks just above has been delivered yet, *or*
   // one of the Accept/Cancel methods have been called and returned true.
   bool already_started_close_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(DialogDelegate);
 };
 
 // A DialogDelegate implementation that is-a View. Used to override GetWidget()
@@ -343,22 +360,23 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
 // view's hierarchy and is expected to be deleted on DeleteDelegate call.
 class VIEWS_EXPORT DialogDelegateView : public DialogDelegate, public View {
  public:
+  METADATA_HEADER(DialogDelegateView);
   DialogDelegateView();
+  DialogDelegateView(const DialogDelegateView&) = delete;
+  DialogDelegateView& operator=(const DialogDelegateView&) = delete;
   ~DialogDelegateView() override;
 
   // DialogDelegate:
   Widget* GetWidget() override;
   const Widget* GetWidget() const override;
   View* GetContentsView() override;
-
-  // View:
-  void ViewHierarchyChanged(
-      const ViewHierarchyChangedDetails& details) override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(DialogDelegateView);
 };
 
+BEGIN_VIEW_BUILDER(VIEWS_EXPORT, DialogDelegateView, View)
+END_VIEW_BUILDER
+
 }  // namespace views
+
+DEFINE_VIEW_BUILDER(VIEWS_EXPORT, DialogDelegateView)
 
 #endif  // UI_VIEWS_WINDOW_DIALOG_DELEGATE_H_

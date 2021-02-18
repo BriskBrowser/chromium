@@ -6,7 +6,10 @@
 
 #include <string>
 
+#include "base/callback_forward.h"
 #include "base/optional.h"
+#include "base/run_loop.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/test/mock_callback.h"
 #include "chrome/browser/nearby_sharing/mock_nearby_sharing_service.h"
 #include "chrome/browser/nearby_sharing/share_target.h"
@@ -30,10 +33,24 @@ MATCHER_P(MatchesTarget, target, "") {
 
 const char kTextAttachmentBody[] = "Test text payload";
 
-std::vector<std::unique_ptr<Attachment>> CreateAttachments() {
+std::vector<std::unique_ptr<Attachment>> CreateTextAttachments() {
   std::vector<std::unique_ptr<Attachment>> attachments;
   attachments.push_back(std::make_unique<TextAttachment>(
       TextAttachment::Type::kText, kTextAttachmentBody));
+  return attachments;
+}
+
+std::vector<std::unique_ptr<Attachment>> CreateFileAttachments(
+    size_t count,
+    std::string mime_type,
+    sharing::mojom::FileMetadata::Type type) {
+  std::vector<std::unique_ptr<Attachment>> attachments;
+  for (size_t i = 0; i < count; i++) {
+    std::string file_name("File-" + base::NumberToString(i));
+    attachments.push_back(
+        std::make_unique<FileAttachment>(i, i, file_name, mime_type, type));
+  }
+
   return attachments;
 }
 
@@ -56,6 +73,8 @@ class MockShareTargetListener
   mojo::PendingRemote<ShareTargetListener> Bind() {
     return receiver_.BindNewPipeAndPassRemote();
   }
+
+  void reset() { receiver_.reset(); }
 
   // nearby_share::mojom::ShareTargetListener:
   MOCK_METHOD(void, OnShareTargetDiscovered, (const ShareTarget&), (override));
@@ -92,6 +111,8 @@ class NearbyPerSessionDiscoveryManagerTest : public testing::Test {
       NearbyPerSessionDiscoveryManager::SelectShareTargetCallback>;
   using MockStartDiscoveryCallback = base::MockCallback<
       NearbyPerSessionDiscoveryManager::StartDiscoveryCallback>;
+  using MockGetPayloadPreviewCallback = base::MockCallback<
+      nearby_share::mojom::DiscoveryManager::GetPayloadPreviewCallback>;
 
   NearbyPerSessionDiscoveryManagerTest() = default;
   ~NearbyPerSessionDiscoveryManagerTest() override = default;
@@ -104,7 +125,7 @@ class NearbyPerSessionDiscoveryManagerTest : public testing::Test {
   content::BrowserTaskEnvironment task_environment_;
   MockNearbySharingService sharing_service_;
   NearbyPerSessionDiscoveryManager manager_{&sharing_service_,
-                                            CreateAttachments()};
+                                            CreateTextAttachments()};
 };
 
 }  // namespace
@@ -116,31 +137,71 @@ TEST_F(NearbyPerSessionDiscoveryManagerTest, CreateDestroyWithoutRegistering) {
       .Times(0);
   {
     NearbyPerSessionDiscoveryManager manager(&sharing_service(),
-                                             CreateAttachments());
+                                             CreateTextAttachments());
     // Creating and destroying an instance should not register itself with the
     // NearbySharingService.
   }
 }
 
 TEST_F(NearbyPerSessionDiscoveryManagerTest, StartDiscovery_Success) {
+  EXPECT_CALL(sharing_service(), IsTransferring()).Times(1);
   MockStartDiscoveryCallback callback;
-  EXPECT_CALL(callback, Run(/*success=*/true));
+  EXPECT_CALL(
+      callback,
+      Run(
+          /*result=*/nearby_share::mojom::StartDiscoveryResult::kSuccess));
 
   EXPECT_CALL(
       sharing_service(),
       RegisterSendSurface(&manager(), &manager(),
                           NearbySharingService::SendSurfaceState::kForeground))
       .WillOnce(testing::Return(NearbySharingService::StatusCodes::kOk));
+
+  EXPECT_CALL(sharing_service(), UnregisterSendSurface(&manager(), &manager()))
+      .Times(0);  // Should not be called!
+
+  MockShareTargetListener listener;
+  manager().StartDiscovery(listener.Bind(), callback.Get());
+
+  // Reset the listener here like the UI does when switching pages.
+  listener.reset();
+  // We have to run util idle to give the disconnect handler a chance to run.
+  // We no longer have a disconnect handler, but we want to very that once the
+  // mojo connection is torn down, that we don't unregister.
+  base::RunLoop run_loop;
+  run_loop.RunUntilIdle();
+  // Verify that UnregisterSendSurface was NOT called due to the disconnect.
+  // This previously failed when disconnect handler was being registered.
+  EXPECT_TRUE(::testing::Mock::VerifyAndClearExpectations(&sharing_service()));
+
+  // However, we do expect UnregisterSendSurface to be called from the
+  // destructor.
   EXPECT_CALL(sharing_service(), UnregisterSendSurface(&manager(), &manager()))
       .WillOnce(testing::Return(NearbySharingService::StatusCodes::kOk));
+}
+
+TEST_F(NearbyPerSessionDiscoveryManagerTest, StartDiscovery_ErrorInProgress) {
+  MockStartDiscoveryCallback callback;
+  EXPECT_CALL(callback,
+              Run(/*result=*/nearby_share::mojom::StartDiscoveryResult::
+                      kErrorInProgressTransferring));
+
+  // Expect that "IsTransfering()" gets called once but mock it to return true
+  // to simulate another file transfer is in progress.
+  EXPECT_CALL(sharing_service(), IsTransferring())
+      .WillOnce(testing::Return(/*is_transferring=*/true));
 
   MockShareTargetListener listener;
   manager().StartDiscovery(listener.Bind(), callback.Get());
 }
 
 TEST_F(NearbyPerSessionDiscoveryManagerTest, StartDiscovery_Error) {
+  EXPECT_CALL(sharing_service(), IsTransferring()).Times(1);
   MockStartDiscoveryCallback callback;
-  EXPECT_CALL(callback, Run(/*success=*/false));
+  EXPECT_CALL(
+      callback,
+      Run(
+          /*result=*/nearby_share::mojom::StartDiscoveryResult::kErrorGeneric));
 
   EXPECT_CALL(
       sharing_service(),
@@ -160,6 +221,7 @@ TEST_F(NearbyPerSessionDiscoveryManagerTest, OnShareTargetDiscovered) {
               RegisterSendSurface(testing::_, testing::_, testing::_))
       .WillOnce(testing::Return(NearbySharingService::StatusCodes::kOk));
 
+  EXPECT_CALL(sharing_service(), IsTransferring()).Times(1);
   manager().StartDiscovery(listener.Bind(), base::DoNothing());
 
   ShareTarget share_target;
@@ -171,6 +233,47 @@ TEST_F(NearbyPerSessionDiscoveryManagerTest, OnShareTargetDiscovered) {
   manager().OnShareTargetDiscovered(share_target);
 
   run_loop.Run();
+
+  EXPECT_CALL(sharing_service(), UnregisterSendSurface(&manager(), &manager()))
+      .WillOnce(testing::Return(NearbySharingService::StatusCodes::kOk));
+}
+
+TEST_F(NearbyPerSessionDiscoveryManagerTest,
+       OnShareTargetDiscovered_DuplicateDeviceId) {
+  MockShareTargetListener listener;
+  EXPECT_CALL(sharing_service(),
+              RegisterSendSurface(testing::_, testing::_, testing::_))
+      .WillOnce(testing::Return(NearbySharingService::StatusCodes::kOk));
+
+  manager().StartDiscovery(listener.Bind(), base::DoNothing());
+
+  ShareTarget share_target1;
+  share_target1.device_id = "device_id";
+  ShareTarget share_target2;
+  share_target2.device_id = "device_id";
+
+  {
+    base::RunLoop run_loop;
+    EXPECT_CALL(listener, OnShareTargetDiscovered(MatchesTarget(share_target1)))
+        .WillOnce(testing::InvokeWithoutArgs(&run_loop, &base::RunLoop::Quit));
+    manager().OnShareTargetDiscovered(share_target1);
+    run_loop.Run();
+  }
+
+  // If a newly discovered share target has the same device ID as a previously
+  // discovered share target, remove the old share target then add the new share
+  // target.
+  {
+    base::RunLoop run_loop;
+    EXPECT_CALL(listener, OnShareTargetLost(MatchesTarget(share_target1)));
+    EXPECT_CALL(listener, OnShareTargetDiscovered(MatchesTarget(share_target2)))
+        .WillOnce(testing::InvokeWithoutArgs(&run_loop, &base::RunLoop::Quit));
+    manager().OnShareTargetDiscovered(share_target2);
+    run_loop.Run();
+  }
+
+  EXPECT_CALL(sharing_service(), UnregisterSendSurface(&manager(), &manager()))
+      .WillOnce(testing::Return(NearbySharingService::StatusCodes::kOk));
 }
 
 TEST_F(NearbyPerSessionDiscoveryManagerTest, OnShareTargetLost) {
@@ -179,17 +282,34 @@ TEST_F(NearbyPerSessionDiscoveryManagerTest, OnShareTargetLost) {
               RegisterSendSurface(testing::_, testing::_, testing::_))
       .WillOnce(testing::Return(NearbySharingService::StatusCodes::kOk));
 
+  EXPECT_CALL(sharing_service(), IsTransferring()).Times(1);
   manager().StartDiscovery(listener.Bind(), base::DoNothing());
 
   ShareTarget share_target;
 
-  base::RunLoop run_loop;
+  // A share-target-lost notification should only be sent if the lost share
+  // target has already been discovered and has not already been removed from
+  // the list of discovered devices.
   EXPECT_CALL(listener, OnShareTargetLost(MatchesTarget(share_target)))
-      .WillOnce(testing::InvokeWithoutArgs(&run_loop, &base::RunLoop::Quit));
-
+      .Times(0);
   manager().OnShareTargetLost(share_target);
+  {
+    base::RunLoop run_loop;
+    EXPECT_CALL(listener, OnShareTargetDiscovered(MatchesTarget(share_target)))
+        .WillOnce(testing::InvokeWithoutArgs(&run_loop, &base::RunLoop::Quit));
+    manager().OnShareTargetDiscovered(share_target);
+    run_loop.Run();
+  }
+  {
+    base::RunLoop run_loop;
+    EXPECT_CALL(listener, OnShareTargetLost(MatchesTarget(share_target)))
+        .WillOnce(testing::InvokeWithoutArgs(&run_loop, &base::RunLoop::Quit));
+    manager().OnShareTargetLost(share_target);
+    run_loop.Run();
+  }
 
-  run_loop.Run();
+  EXPECT_CALL(sharing_service(), UnregisterSendSurface(&manager(), &manager()))
+      .WillOnce(testing::Return(NearbySharingService::StatusCodes::kOk));
 }
 
 TEST_F(NearbyPerSessionDiscoveryManagerTest, SelectShareTarget_Invalid) {
@@ -197,6 +317,8 @@ TEST_F(NearbyPerSessionDiscoveryManagerTest, SelectShareTarget_Invalid) {
   EXPECT_CALL(sharing_service(),
               RegisterSendSurface(testing::_, testing::_, testing::_))
       .WillOnce(testing::Return(NearbySharingService::StatusCodes::kOk));
+
+  EXPECT_CALL(sharing_service(), IsTransferring()).Times(1);
   manager().StartDiscovery(listener.Bind(), base::DoNothing());
 
   MockSelectShareTargetCallback callback;
@@ -206,6 +328,9 @@ TEST_F(NearbyPerSessionDiscoveryManagerTest, SelectShareTarget_Invalid) {
           testing::IsFalse(), testing::IsFalse()));
 
   manager().SelectShareTarget({}, callback.Get());
+
+  EXPECT_CALL(sharing_service(), UnregisterSendSurface(&manager(), &manager()))
+      .WillOnce(testing::Return(NearbySharingService::StatusCodes::kOk));
 }
 
 TEST_F(NearbyPerSessionDiscoveryManagerTest, SelectShareTarget_SendSuccess) {
@@ -215,6 +340,7 @@ TEST_F(NearbyPerSessionDiscoveryManagerTest, SelectShareTarget_SendSuccess) {
               RegisterSendSurface(testing::_, testing::_, testing::_))
       .WillOnce(testing::Return(NearbySharingService::StatusCodes::kOk));
 
+  EXPECT_CALL(sharing_service(), IsTransferring()).Times(1);
   manager().StartDiscovery(listener.Bind(), base::DoNothing());
   ShareTarget share_target;
   manager().OnShareTargetDiscovered(share_target);
@@ -234,6 +360,9 @@ TEST_F(NearbyPerSessionDiscoveryManagerTest, SelectShareTarget_SendSuccess) {
           }));
 
   manager().SelectShareTarget(share_target.id, callback.Get());
+
+  EXPECT_CALL(sharing_service(), UnregisterSendSurface(&manager(), &manager()))
+      .WillOnce(testing::Return(NearbySharingService::StatusCodes::kOk));
 }
 
 TEST_F(NearbyPerSessionDiscoveryManagerTest, SelectShareTarget_SendError) {
@@ -243,6 +372,7 @@ TEST_F(NearbyPerSessionDiscoveryManagerTest, SelectShareTarget_SendError) {
               RegisterSendSurface(testing::_, testing::_, testing::_))
       .WillOnce(testing::Return(NearbySharingService::StatusCodes::kOk));
 
+  EXPECT_CALL(sharing_service(), IsTransferring()).Times(1);
   manager().StartDiscovery(listener.Bind(), base::DoNothing());
   ShareTarget share_target;
   manager().OnShareTargetDiscovered(share_target);
@@ -264,6 +394,9 @@ TEST_F(NearbyPerSessionDiscoveryManagerTest, SelectShareTarget_SendError) {
           }));
 
   manager().SelectShareTarget(share_target.id, callback.Get());
+
+  EXPECT_CALL(sharing_service(), UnregisterSendSurface(&manager(), &manager()))
+      .WillOnce(testing::Return(NearbySharingService::StatusCodes::kOk));
 }
 
 TEST_F(NearbyPerSessionDiscoveryManagerTest, OnTransferUpdate_WaitRemote) {
@@ -275,7 +408,7 @@ TEST_F(NearbyPerSessionDiscoveryManagerTest, OnTransferUpdate_WaitRemote) {
       .WillOnce(testing::Return(NearbySharingService::StatusCodes::kOk));
 
   base::RunLoop run_loop;
-  EXPECT_CALL(transfer_listener, OnTransferUpdate)
+  EXPECT_CALL(transfer_listener, OnTransferUpdate(_, _))
       .WillOnce(testing::Invoke(
           [&run_loop](nearby_share::mojom::TransferStatus status,
                       const base::Optional<std::string>& token) {
@@ -286,8 +419,11 @@ TEST_F(NearbyPerSessionDiscoveryManagerTest, OnTransferUpdate_WaitRemote) {
             run_loop.Quit();
           }));
 
+  EXPECT_CALL(sharing_service(), IsTransferring()).Times(1);
   manager().StartDiscovery(listener.Bind(), base::DoNothing());
   ShareTarget share_target;
+  EXPECT_CALL(listener, OnShareTargetDiscovered(MatchesTarget(share_target)))
+      .Times(1);
   manager().OnShareTargetDiscovered(share_target);
 
   MockSelectShareTargetCallback callback;
@@ -313,6 +449,8 @@ TEST_F(NearbyPerSessionDiscoveryManagerTest, OnTransferUpdate_WaitRemote) {
   manager().OnTransferUpdate(share_target, metadata);
 
   run_loop.Run();
+  EXPECT_CALL(sharing_service(), UnregisterSendSurface(&manager(), &manager()))
+      .WillOnce(testing::Return(NearbySharingService::StatusCodes::kOk));
 }
 
 TEST_F(NearbyPerSessionDiscoveryManagerTest, OnTransferUpdate_WaitLocal) {
@@ -326,7 +464,7 @@ TEST_F(NearbyPerSessionDiscoveryManagerTest, OnTransferUpdate_WaitLocal) {
   const std::string expected_token = "Test Token";
 
   base::RunLoop run_loop;
-  EXPECT_CALL(transfer_listener, OnTransferUpdate)
+  EXPECT_CALL(transfer_listener, OnTransferUpdate(_, _))
       .WillOnce(testing::Invoke([&run_loop, &expected_token](
                                     nearby_share::mojom::TransferStatus status,
                                     const base::Optional<std::string>& token) {
@@ -337,8 +475,11 @@ TEST_F(NearbyPerSessionDiscoveryManagerTest, OnTransferUpdate_WaitLocal) {
         run_loop.Quit();
       }));
 
+  EXPECT_CALL(sharing_service(), IsTransferring()).Times(1);
   manager().StartDiscovery(listener.Bind(), base::DoNothing());
   ShareTarget share_target;
+  EXPECT_CALL(listener, OnShareTargetDiscovered(MatchesTarget(share_target)))
+      .Times(1);
   manager().OnShareTargetDiscovered(share_target);
 
   MockSelectShareTargetCallback callback;
@@ -365,4 +506,135 @@ TEST_F(NearbyPerSessionDiscoveryManagerTest, OnTransferUpdate_WaitLocal) {
   manager().OnTransferUpdate(share_target, metadata);
 
   run_loop.Run();
+
+  EXPECT_CALL(sharing_service(), UnregisterSendSurface(&manager(), &manager()))
+      .WillOnce(testing::Return(NearbySharingService::StatusCodes::kOk));
+}
+
+TEST_F(NearbyPerSessionDiscoveryManagerTest, TransferUpdateWithoutListener) {
+  MockStartDiscoveryCallback callback;
+  EXPECT_CALL(
+      callback,
+      Run(
+          /*result=*/nearby_share::mojom::StartDiscoveryResult::kSuccess));
+
+  EXPECT_CALL(
+      sharing_service(),
+      RegisterSendSurface(&manager(), &manager(),
+                          NearbySharingService::SendSurfaceState::kForeground))
+      .WillOnce(testing::Return(NearbySharingService::StatusCodes::kOk));
+
+  EXPECT_CALL(sharing_service(), UnregisterSendSurface(&manager(), &manager()))
+      .Times(0);  // Should not be called!
+
+  EXPECT_CALL(sharing_service(), IsTransferring()).Times(1);
+  MockShareTargetListener listener;
+  manager().StartDiscovery(listener.Bind(), callback.Get());
+
+  // It is possible that during registration if a transfer is in progress
+  // already we might get a transfer update before selecting the share target.
+  // This used to cause a crash due to transfer_update_listener_ not being
+  // bound.
+  ShareTarget share_target;
+  manager().OnTransferUpdate(
+      share_target, TransferMetadataBuilder()
+                        .set_status(TransferMetadata::Status::kComplete)
+                        .build());
+
+  // However, we do expect UnregisterSendSurface to be called from the
+  // destructor.
+  EXPECT_CALL(sharing_service(), UnregisterSendSurface(&manager(), &manager()))
+      .WillOnce(testing::Return(NearbySharingService::StatusCodes::kOk));
+}
+
+TEST_F(NearbyPerSessionDiscoveryManagerTest, PreviewText) {
+  NearbyPerSessionDiscoveryManager manager(&sharing_service(),
+                                           CreateTextAttachments());
+  MockGetPayloadPreviewCallback callback;
+  nearby_share::mojom::PayloadPreview payload_preview;
+  EXPECT_CALL(callback, Run(_))
+      .WillOnce(testing::SaveArgPointee<0>(&payload_preview));
+  manager.GetPayloadPreview(callback.Get());
+  EXPECT_EQ(payload_preview.description, kTextAttachmentBody);
+  EXPECT_EQ(payload_preview.file_count, 0);
+  EXPECT_EQ(payload_preview.share_type, nearby_share::mojom::ShareType::kText);
+}
+
+TEST_F(NearbyPerSessionDiscoveryManagerTest, PreviewSingleVideo) {
+  NearbyPerSessionDiscoveryManager manager(
+      &sharing_service(),
+      CreateFileAttachments(/*count=*/1, /*mime_type=*/"",
+                            /*type=*/FileAttachment::Type::kVideo));
+  MockGetPayloadPreviewCallback callback;
+  nearby_share::mojom::PayloadPreview payload_preview;
+  EXPECT_CALL(callback, Run(_))
+      .WillOnce(testing::SaveArgPointee<0>(&payload_preview));
+  manager.GetPayloadPreview(callback.Get());
+  EXPECT_EQ(payload_preview.description, "File-0");
+  EXPECT_EQ(payload_preview.file_count, 1);
+  EXPECT_EQ(payload_preview.share_type,
+            nearby_share::mojom::ShareType::kVideoFile);
+}
+
+TEST_F(NearbyPerSessionDiscoveryManagerTest, PreviewSinglePDF) {
+  NearbyPerSessionDiscoveryManager manager(
+      &sharing_service(),
+      CreateFileAttachments(/*count=*/1, /*mime_type=*/"application/pdf",
+                            /*type=*/FileAttachment::Type::kUnknown));
+  MockGetPayloadPreviewCallback callback;
+  nearby_share::mojom::PayloadPreview payload_preview;
+  EXPECT_CALL(callback, Run(_))
+      .WillOnce(testing::SaveArgPointee<0>(&payload_preview));
+  manager.GetPayloadPreview(callback.Get());
+  EXPECT_EQ(payload_preview.description, "File-0");
+  EXPECT_EQ(payload_preview.file_count, 1);
+  EXPECT_EQ(payload_preview.share_type,
+            nearby_share::mojom::ShareType::kPdfFile);
+}
+
+TEST_F(NearbyPerSessionDiscoveryManagerTest, PreviewSingleUnknownFile) {
+  NearbyPerSessionDiscoveryManager manager(
+      &sharing_service(),
+      CreateFileAttachments(/*count=*/1, /*mime_type=*/"",
+                            /*type=*/FileAttachment::Type::kUnknown));
+  MockGetPayloadPreviewCallback callback;
+  nearby_share::mojom::PayloadPreview payload_preview;
+  EXPECT_CALL(callback, Run(_))
+      .WillOnce(testing::SaveArgPointee<0>(&payload_preview));
+  manager.GetPayloadPreview(callback.Get());
+  EXPECT_EQ(payload_preview.description, "File-0");
+  EXPECT_EQ(payload_preview.file_count, 1);
+  EXPECT_EQ(payload_preview.share_type,
+            nearby_share::mojom::ShareType::kUnknownFile);
+}
+
+TEST_F(NearbyPerSessionDiscoveryManagerTest, PreviewMultipleFiles) {
+  NearbyPerSessionDiscoveryManager manager(
+      &sharing_service(),
+      CreateFileAttachments(/*count=*/2, /*mime_type=*/"",
+                            /*type=*/FileAttachment::Type::kUnknown));
+  MockGetPayloadPreviewCallback callback;
+  nearby_share::mojom::PayloadPreview payload_preview;
+  EXPECT_CALL(callback, Run(_))
+      .WillOnce(testing::SaveArgPointee<0>(&payload_preview));
+  manager.GetPayloadPreview(callback.Get());
+  EXPECT_EQ(payload_preview.description, "File-0");
+  EXPECT_EQ(payload_preview.file_count, 2);
+  EXPECT_EQ(payload_preview.share_type,
+            nearby_share::mojom::ShareType::kMultipleFiles);
+}
+
+TEST_F(NearbyPerSessionDiscoveryManagerTest, PreviewNoAttachments) {
+  NearbyPerSessionDiscoveryManager manager(
+      &sharing_service(),
+      CreateFileAttachments(/*count=*/0, /*mime_type=*/"",
+                            /*type=*/FileAttachment::Type::kUnknown));
+  MockGetPayloadPreviewCallback callback;
+  nearby_share::mojom::PayloadPreview payload_preview;
+  EXPECT_CALL(callback, Run(_))
+      .WillOnce(testing::SaveArgPointee<0>(&payload_preview));
+  manager.GetPayloadPreview(callback.Get());
+  EXPECT_EQ(payload_preview.description, "");
+  EXPECT_EQ(payload_preview.file_count, 0);
+  EXPECT_EQ(payload_preview.share_type, nearby_share::mojom::ShareType::kText);
 }

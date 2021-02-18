@@ -14,7 +14,9 @@
 #include "components/feed/core/proto/v2/store.pb.h"
 #include "components/feed/core/proto/v2/wire/data_operation.pb.h"
 #include "components/feed/core/proto/v2/wire/response.pb.h"
+#include "components/feed/core/v2/public/feed_stream_api.h"
 #include "components/feed/core/v2/scheduling.h"
+#include "components/feed/core/v2/types.h"
 
 namespace feed {
 
@@ -64,6 +66,12 @@ struct RefreshResponseData {
 
   // Server-defined request schedule, if provided.
   base::Optional<RequestSchedule> request_schedule;
+
+  // Server-defined session id token, if provided.
+  base::Optional<std::string> session_id;
+
+  // List of experiments from the server, if provided.
+  base::Optional<Experiments> experiments;
 };
 
 base::Optional<feedstore::DataOperation> TranslateDataOperation(
@@ -73,6 +81,7 @@ base::Optional<feedstore::DataOperation> TranslateDataOperation(
 RefreshResponseData TranslateWireResponse(
     feedwire::Response response,
     StreamModelUpdateRequest::Source source,
+    bool was_signed_in_request,
     base::Time current_time);
 
 std::vector<feedstore::DataOperation> TranslateDismissData(

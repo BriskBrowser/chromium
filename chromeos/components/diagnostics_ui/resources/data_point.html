@@ -1,0 +1,45 @@
+<style include="diagnostics-shared diagnostics-fonts">
+  .data-point {
+    display: flex;
+    flex-direction: column;
+    height: 40px;
+    justify-content: space-between;
+    margin: 12px 0;
+  }
+
+  .header {
+    @apply --diagnostics-data-point-title-font;
+    color: var(--diagnostics-data-point-title-color);
+  }
+
+  #infoIcon {
+    bottom: 1px;
+    fill: var(--google-grey-700);
+    height: 20px;
+    left: 4px;
+    width: 20px;
+  }
+
+  .value {
+    @apply --diagnostics-data-point-subtitle-font;
+    color: var(--diagnostics-data-point-subtitle-color);
+  }
+
+  .text-red {
+    color: var(--google-red-600);
+  }
+</style>
+<div class="data-point">
+  <div class="header">
+    <span id="headerText" aria-hidden="true"> [[header]]</span>
+    <iron-icon slot="icon" icon="cr:info-outline" id="infoIcon"
+        hidden$="[[!tooltipText]]">
+    </iron-icon>
+    <paper-tooltip for="infoIcon" aria-hidden="true">
+      <span id="tooltipText">[[tooltipText]]</span>
+    </paper-tooltip>
+  </div>
+  <div class$="[[getValueClass_(warningState)]]" aria-labelledby="headerText"
+      aria-describedby="tooltipText"> [[value]]
+  </div>
+</div>

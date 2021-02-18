@@ -18,8 +18,11 @@
 #include <limits.h>
 #include <stdint.h>
 
+#include <vector>
+
 #include "base/pending_task.h"
 #include "base/stl_util.h"
+#include "base/strings/string_piece.h"
 #include "base/task/common/task_annotator.h"
 #include "base/trace_event/base_tracing.h"
 #include "build/build_config.h"
@@ -119,6 +122,7 @@ typedef FILE* FileHandle;
 #include "base/test/scoped_logging_settings.h"
 #include "base/threading/platform_thread.h"
 #include "base/vlog.h"
+#include "build/chromeos_buildflags.h"
 
 #if defined(OS_WIN)
 #include "base/win/win_util.h"
@@ -128,7 +132,7 @@ typedef FILE* FileHandle;
 #include "base/posix/safe_strerror.h"
 #endif
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "base/files/scoped_file.h"
 #endif
 
@@ -140,11 +144,11 @@ VlogInfo* g_vlog_info = nullptr;
 VlogInfo* g_vlog_info_prev = nullptr;
 
 const char* const log_severity_names[] = {"INFO", "WARNING", "ERROR", "FATAL"};
-static_assert(LOG_NUM_SEVERITIES == base::size(log_severity_names),
+static_assert(LOGGING_NUM_SEVERITIES == base::size(log_severity_names),
               "Incorrect number of log_severity_names");
 
 const char* log_severity_name(int severity) {
-  if (severity >= 0 && severity < LOG_NUM_SEVERITIES)
+  if (severity >= 0 && severity < LOGGING_NUM_SEVERITIES)
     return log_severity_names[severity];
   return "UNKNOWN";
 }
@@ -155,14 +159,13 @@ int g_min_log_level = 0;
 // LoggingDestination values joined by bitwise OR.
 int g_logging_destination = LOG_DEFAULT;
 
-#if defined(OS_CHROMEOS)
-// Specifies the format of log header. If set to LOG_FORMAT_SYSLOG, each
-// LogMessage will generate a syslog-like log header.
-LogFormat g_log_format = LogFormat::LOG_FORMAT_CHROME;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+// Specifies the format of log header for chrome os.
+LogFormat g_log_format = LogFormat::LOG_FORMAT_SYSLOG;
 #endif
 
-// For LOG_ERROR and above, always print to stderr.
-const int kAlwaysPrintErrorLevel = LOG_ERROR;
+// For LOGGING_ERROR and above, always print to stderr.
+const int kAlwaysPrintErrorLevel = LOGGING_ERROR;
 
 // Which log file to use? This is initialized by InitLogging or
 // will be lazily initialized to the default value when it is
@@ -346,10 +349,10 @@ void CloseLogFileUnlocked() {
 }  // namespace
 
 #if defined(DCHECK_IS_CONFIGURABLE)
-// In DCHECK-enabled Chrome builds, allow the meaning of LOG_DCHECK to be
+// In DCHECK-enabled Chrome builds, allow the meaning of LOGGING_DCHECK to be
 // determined at run-time. We default it to INFO, to avoid it triggering
 // crashes before the run-time has explicitly chosen the behaviour.
-BASE_EXPORT logging::LogSeverity LOG_DCHECK = LOG_INFO;
+BASE_EXPORT logging::LogSeverity LOGGING_DCHECK = LOGGING_INFO;
 #endif  // defined(DCHECK_IS_CONFIGURABLE)
 
 // This is never instantiated, it's just used for EAT_STREAM_PARAMETERS to have
@@ -364,35 +367,45 @@ bool BaseInitLoggingImpl(const LoggingSettings& settings) {
            0u);
 #endif
 
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  // Don't bother initializing |g_vlog_info| unless we use one of the
-  // vlog switches.
-  if (command_line->HasSwitch(switches::kV) ||
-      command_line->HasSwitch(switches::kVModule)) {
-    // NOTE: If |g_vlog_info| has already been initialized, it might be in use
-    // by another thread. Don't delete the old VLogInfo, just create a second
-    // one. We keep track of both to avoid memory leak warnings.
-    CHECK(!g_vlog_info_prev);
-    g_vlog_info_prev = g_vlog_info;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  g_log_format = settings.log_format;
+#endif
 
-    g_vlog_info =
-        new VlogInfo(command_line->GetSwitchValueASCII(switches::kV),
-                     command_line->GetSwitchValueASCII(switches::kVModule),
-                     &g_min_log_level);
+  if (base::CommandLine::InitializedForCurrentProcess()) {
+    base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+    // Don't bother initializing |g_vlog_info| unless we use one of the
+    // vlog switches.
+    if (command_line->HasSwitch(switches::kV) ||
+        command_line->HasSwitch(switches::kVModule)) {
+      // NOTE: If |g_vlog_info| has already been initialized, it might be in use
+      // by another thread. Don't delete the old VLogInfo, just create a second
+      // one. We keep track of both to avoid memory leak warnings.
+      CHECK(!g_vlog_info_prev);
+      g_vlog_info_prev = g_vlog_info;
+
+      g_vlog_info =
+          new VlogInfo(command_line->GetSwitchValueASCII(switches::kV),
+                       command_line->GetSwitchValueASCII(switches::kVModule),
+                       &g_min_log_level);
+    }
   }
 
   g_logging_destination = settings.logging_dest;
 
 #if defined(OS_FUCHSIA)
   if (g_logging_destination & LOG_TO_SYSTEM_DEBUG_LOG) {
-    fx_logger_config_t config;
-    config.min_severity = FX_LOG_INFO;
-    config.console_fd = -1;
-    config.log_service_channel = ZX_HANDLE_INVALID;
-    std::string log_tag = command_line->GetProgram().BaseName().AsUTF8Unsafe();
+    std::string log_tag = base::CommandLine::ForCurrentProcess()
+                              ->GetProgram()
+                              .BaseName()
+                              .AsUTF8Unsafe();
     const char* log_tag_data = log_tag.data();
-    config.tags = &log_tag_data;
-    config.num_tags = 1;
+
+    fx_logger_config_t config = {
+        .min_severity = FX_LOG_INFO,
+        .console_fd = -1,
+        .tags = &log_tag_data,
+        .num_tags = 1,
+    };
     fx_log_reconfigure(&config);
   }
 #endif
@@ -409,14 +422,15 @@ bool BaseInitLoggingImpl(const LoggingSettings& settings) {
   // default log file will re-initialize to the new options.
   CloseLogFileUnlocked();
 
-#if defined(OS_CHROMEOS)
-  g_log_format = settings.log_format;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (settings.log_file) {
     DCHECK(!settings.log_file_path);
     g_log_file = settings.log_file;
     return true;
   }
 #endif
+
+  DCHECK(settings.log_file_path) << "LOG_TO_FILE set but no log_file_path!";
 
   if (!g_log_file_name)
     g_log_file_name = new PathString();
@@ -428,7 +442,7 @@ bool BaseInitLoggingImpl(const LoggingSettings& settings) {
 }
 
 void SetMinLogLevel(int level) {
-  g_min_log_level = std::min(LOG_FATAL, level);
+  g_min_log_level = std::min(LOGGING_FATAL, level);
 }
 
 int GetMinLogLevel() {
@@ -537,7 +551,7 @@ LogMessage::LogMessage(const char* file, int line, LogSeverity severity)
 }
 
 LogMessage::LogMessage(const char* file, int line, const char* condition)
-    : severity_(LOG_FATAL), file_(file), line_(line) {
+    : severity_(LOGGING_FATAL), file_(file), line_(line) {
   Init(file, line);
   stream_ << "Check failed: " << condition << ". ";
 }
@@ -546,7 +560,7 @@ LogMessage::~LogMessage() {
   size_t stack_start = stream_.tellp();
 #if !defined(OFFICIAL_BUILD) && !defined(OS_NACL) && !defined(__UCLIBC__) && \
     !defined(OS_AIX)
-  if (severity_ == LOG_FATAL && !base::debug::BeingDebugged()) {
+  if (severity_ == LOGGING_FATAL && !base::debug::BeingDebugged()) {
     // Include a stack trace on a fatal, unless a debugger is attached.
     base::debug::StackTrace stack_trace;
     stream_ << std::endl;  // Newline to separate from log message.
@@ -636,26 +650,28 @@ LogMessage::~LogMessage() {
        public:
         explicit ASLClient(const std::string& facility)
             : client_(asl_open(nullptr, facility.c_str(), ASL_OPT_NO_DELAY)) {}
+        ASLClient(const ASLClient&) = delete;
+        ASLClient& operator=(const ASLClient&) = delete;
         ~ASLClient() { asl_close(client_); }
 
         aslclient get() const { return client_; }
 
        private:
         aslclient client_;
-        DISALLOW_COPY_AND_ASSIGN(ASLClient);
       } asl_client(main_bundle_id.empty() ? main_bundle_id
                                           : "com.apple.console");
 
       const class ASLMessage {
        public:
         ASLMessage() : message_(asl_new(ASL_TYPE_MSG)) {}
+        ASLMessage(const ASLMessage&) = delete;
+        ASLMessage& operator=(const ASLMessage&) = delete;
         ~ASLMessage() { asl_free(message_); }
 
         aslmsg get() const { return message_; }
 
        private:
         aslmsg message_;
-        DISALLOW_COPY_AND_ASSIGN(ASLMessage);
       } asl_message;
 
       // By default, messages are only readable by the admin group. Explicitly
@@ -672,13 +688,13 @@ LogMessage::~LogMessage() {
 #define ASL_LEVEL_STR(level) ASL_LEVEL_STR_X(level)
 #define ASL_LEVEL_STR_X(level) #level
         switch (severity) {
-          case LOG_INFO:
+          case LOGGING_INFO:
             return ASL_LEVEL_STR(ASL_LEVEL_INFO);
-          case LOG_WARNING:
+          case LOGGING_WARNING:
             return ASL_LEVEL_STR(ASL_LEVEL_WARNING);
-          case LOG_ERROR:
+          case LOGGING_ERROR:
             return ASL_LEVEL_STR(ASL_LEVEL_ERR);
-          case LOG_FATAL:
+          case LOGGING_FATAL:
             return ASL_LEVEL_STR(ASL_LEVEL_CRIT);
           default:
             return severity < 0 ? ASL_LEVEL_STR(ASL_LEVEL_DEBUG)
@@ -698,6 +714,8 @@ LogMessage::~LogMessage() {
         explicit OSLog(const char* subsystem)
             : os_log_(subsystem ? os_log_create(subsystem, "chromium_logging")
                                 : OS_LOG_DEFAULT) {}
+        OSLog(const OSLog&) = delete;
+        OSLog& operator=(const OSLog&) = delete;
         ~OSLog() {
           if (os_log_ != OS_LOG_DEFAULT) {
             os_release(os_log_);
@@ -707,17 +725,16 @@ LogMessage::~LogMessage() {
 
        private:
         os_log_t os_log_;
-        DISALLOW_COPY_AND_ASSIGN(OSLog);
       } log(main_bundle_id.empty() ? nullptr : main_bundle_id.c_str());
       const os_log_type_t os_log_type = [](LogSeverity severity) {
         switch (severity) {
-          case LOG_INFO:
+          case LOGGING_INFO:
             return OS_LOG_TYPE_INFO;
-          case LOG_WARNING:
+          case LOGGING_WARNING:
             return OS_LOG_TYPE_DEFAULT;
-          case LOG_ERROR:
+          case LOGGING_ERROR:
             return OS_LOG_TYPE_ERROR;
-          case LOG_FATAL:
+          case LOGGING_FATAL:
             return OS_LOG_TYPE_FAULT;
           default:
             return severity < 0 ? OS_LOG_TYPE_DEBUG : OS_LOG_TYPE_DEFAULT;
@@ -731,16 +748,16 @@ LogMessage::~LogMessage() {
     android_LogPriority priority =
         (severity_ < 0) ? ANDROID_LOG_VERBOSE : ANDROID_LOG_UNKNOWN;
     switch (severity_) {
-      case LOG_INFO:
+      case LOGGING_INFO:
         priority = ANDROID_LOG_INFO;
         break;
-      case LOG_WARNING:
+      case LOGGING_WARNING:
         priority = ANDROID_LOG_WARN;
         break;
-      case LOG_ERROR:
+      case LOGGING_ERROR:
         priority = ANDROID_LOG_ERROR;
         break;
-      case LOG_FATAL:
+      case LOGGING_FATAL:
         priority = ANDROID_LOG_FATAL;
         break;
     }
@@ -763,16 +780,16 @@ LogMessage::~LogMessage() {
 #elif defined(OS_FUCHSIA)
     fx_log_severity_t severity = FX_LOG_INFO;
     switch (severity_) {
-      case LOG_INFO:
+      case LOGGING_INFO:
         severity = FX_LOG_INFO;
         break;
-      case LOG_WARNING:
+      case LOGGING_WARNING:
         severity = FX_LOG_WARNING;
         break;
-      case LOG_ERROR:
+      case LOGGING_ERROR:
         severity = FX_LOG_ERROR;
         break;
-      case LOG_FATAL:
+      case LOGGING_FATAL:
         // Don't use FX_LOG_FATAL, otherwise fx_logger_log() will abort().
         severity = FX_LOG_ERROR;
         break;
@@ -783,10 +800,8 @@ LogMessage::~LogMessage() {
       // Temporarily remove the trailing newline from |str_newline|'s C-string
       // representation, since fx_logger will add a newline of its own.
       str_newline.pop_back();
-      std::string message =
-          base::StringPrintf("%s(%d) %s", file_basename_, line_,
-                             str_newline.c_str() + message_start_);
-      fx_logger_log(logger, severity, nullptr, message.data());
+      fx_logger_log_with_source(logger, severity, nullptr, file_, line_,
+                                str_newline.c_str() + message_start_);
       str_newline.push_back('\n');
     }
 #endif  // OS_FUCHSIA
@@ -826,24 +841,15 @@ LogMessage::~LogMessage() {
     }
   }
 
-  if (severity_ == LOG_FATAL) {
+  if (severity_ == LOGGING_FATAL) {
     // Write the log message to the global activity tracker, if running.
     base::debug::GlobalActivityTracker* tracker =
         base::debug::GlobalActivityTracker::Get();
     if (tracker)
       tracker->RecordLogMessage(str_newline);
 
-    // Ensure the first characters of the string are on the stack so they
-    // are contained in minidumps for diagnostic purposes. We place start
-    // and end marker values at either end, so we can scan captured stacks
-    // for the data easily.
-    struct {
-      uint32_t start_marker = 0xbedead01;
-      char data[1024];
-      uint32_t end_marker = 0x5050dead;
-    } str_stack;
-    base::strlcpy(str_stack.data, str_newline.data(),
-                  base::size(str_stack.data));
+    char str_stack[1024];
+    base::strlcpy(str_stack, str_newline.data(), base::size(str_stack));
     base::debug::Alias(&str_stack);
 
     if (!GetLogAssertHandlerStack().empty()) {
@@ -890,13 +896,13 @@ void LogMessage::Init(const char* file, int line) {
   // Stores the base name as the null-terminated suffix substring of |filename|.
   file_basename_ = filename.data();
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (g_log_format == LogFormat::LOG_FORMAT_SYSLOG) {
     InitWithSyslogPrefix(
         filename, line, TickCount(), log_severity_name(severity_), g_log_prefix,
         g_log_process_id, g_log_thread_id, g_log_timestamp, g_log_tickcount);
   } else
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   {
     // TODO(darin): It might be nice if the columns were fixed width.
     stream_ << '[';
@@ -1026,7 +1032,7 @@ void CloseLogFile() {
   CloseLogFileUnlocked();
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 FILE* DuplicateLogFILE() {
   if ((g_logging_destination & LOG_TO_FILE) == 0 || !InitializeLogFileHandle())
     return nullptr;
@@ -1053,9 +1059,9 @@ ScopedLoggingSettings::ScopedLoggingSettings()
       enable_tickcount_(g_log_tickcount),
       min_log_level_(GetMinLogLevel()),
       message_handler_(GetLogMessageHandler()) {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   log_format_ = g_log_format;
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
 ScopedLoggingSettings::~ScopedLoggingSettings() {
@@ -1066,16 +1072,16 @@ ScopedLoggingSettings::~ScopedLoggingSettings() {
   SetMinLogLevel(min_log_level_);
   SetLogMessageHandler(message_handler_);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   g_log_format = log_format_;
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 void ScopedLoggingSettings::SetLogFormat(LogFormat log_format) const {
   g_log_format = log_format;
 }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 void RawLog(int level, const char* message) {
   if (level >= g_min_log_level && message) {
@@ -1104,7 +1110,7 @@ void RawLog(int level, const char* message) {
     }
   }
 
-  if (level == LOG_FATAL)
+  if (level == LOGGING_FATAL)
     base::debug::BreakDebugger();
 }
 
@@ -1126,5 +1132,22 @@ std::wstring GetLogFileFullPath() {
 }  // namespace logging
 
 std::ostream& std::operator<<(std::ostream& out, const wchar_t* wstr) {
-  return out << (wstr ? base::WideToUTF8(wstr) : std::string());
+  return out << (wstr ? base::WStringPiece(wstr) : base::WStringPiece());
+}
+
+std::ostream& std::operator<<(std::ostream& out, const std::wstring& wstr) {
+  return out << base::WStringPiece(wstr);
+}
+
+std::ostream& std::operator<<(std::ostream& out, const char16_t* str16) {
+  // TODO(crbug.com/911896): Drop cast once base::char16 is char16_t everywhere.
+  return out << (str16 ? base::StringPiece16(
+                             reinterpret_cast<const base::char16*>(str16))
+                       : base::StringPiece16());
+}
+
+std::ostream& std::operator<<(std::ostream& out, const std::u16string& str16) {
+  // TODO(crbug.com/911896): Drop cast once base::char16 is char16_t everywhere.
+  return out << base::StringPiece16(
+             reinterpret_cast<const base::char16*>(str16.data()), str16.size());
 }

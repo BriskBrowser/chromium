@@ -29,6 +29,7 @@
 
 #include "base/metrics/histogram_macros.h"
 #include "third_party/blink/public/common/feature_policy/document_policy_features.h"
+#include "third_party/blink/public/mojom/devtools/inspector_issue.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-blink.h"
 #include "third_party/blink/public/mojom/feature_policy/policy_disposition.mojom-blink.h"
 #include "third_party/blink/public/platform/task_type.h"
@@ -47,6 +48,7 @@
 #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
 #include "third_party/blink/renderer/core/workers/worker_thread.h"
 #include "third_party/blink/renderer/platform/bindings/dom_wrapper_world.h"
+#include "third_party/blink/renderer/platform/context_lifecycle_notifier.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_client_settings_object_snapshot.h"
@@ -72,7 +74,9 @@ ExecutionContext::ExecutionContext(v8::Isolate* isolate, Agent* agent)
   DCHECK(agent_);
 }
 
-ExecutionContext::~ExecutionContext() = default;
+ExecutionContext::~ExecutionContext() {
+  DCHECK(is_context_destroyed_);
+}
 
 // static
 ExecutionContext* ExecutionContext::From(const ScriptState* script_state) {
@@ -115,11 +119,15 @@ ExecutionContext* ExecutionContext::ForRelevantRealm(
   return ToExecutionContext(ctx);
 }
 
+void ExecutionContext::SetIsInBackForwardCache(bool value) {
+  is_in_back_forward_cache_ = value;
+}
+
 void ExecutionContext::SetLifecycleState(mojom::FrameLifecycleState state) {
   if (lifecycle_state_ == state)
     return;
   lifecycle_state_ = state;
-  context_lifecycle_observer_set_.ForEachObserver(
+  ContextLifecycleNotifier::observers().ForEachObserver(
       [&](ContextLifecycleObserver* observer) {
         if (!observer->IsExecutionContextLifecycleObserver())
           return;
@@ -141,30 +149,14 @@ void ExecutionContext::SetLifecycleState(mojom::FrameLifecycleState state) {
 
 void ExecutionContext::NotifyContextDestroyed() {
   is_context_destroyed_ = true;
-  context_lifecycle_observer_set_.ForEachObserver(
-      [](ContextLifecycleObserver* observer) {
-        observer->ContextDestroyed();
-        observer->ObserverSetWillBeCleared();
-      });
-  context_lifecycle_observer_set_.Clear();
-}
-
-void ExecutionContext::AddContextLifecycleObserver(
-    ContextLifecycleObserver* observer) {
-  context_lifecycle_observer_set_.AddObserver(observer);
-}
-
-void ExecutionContext::RemoveContextLifecycleObserver(
-    ContextLifecycleObserver* observer) {
-  DCHECK(context_lifecycle_observer_set_.HasObserver(observer));
-  context_lifecycle_observer_set_.RemoveObserver(observer);
+  ContextLifecycleNotifier::NotifyContextDestroyed();
 }
 
 unsigned ExecutionContext::ContextLifecycleStateObserverCountForTesting()
     const {
-  DCHECK(!context_lifecycle_observer_set_.IsIteratingOverObservers());
+  DCHECK(!ContextLifecycleNotifier::observers().IsIteratingOverObservers());
   unsigned lifecycle_state_observers = 0;
-  context_lifecycle_observer_set_.ForEachObserver(
+  ContextLifecycleNotifier::observers().ForEachObserver(
       [&](ContextLifecycleObserver* observer) {
         if (!observer->IsExecutionContextLifecycleObserver())
           return;
@@ -177,10 +169,61 @@ unsigned ExecutionContext::ContextLifecycleStateObserverCountForTesting()
   return lifecycle_state_observers;
 }
 
-bool ExecutionContext::IsCrossOriginIsolated() const {
-  return Agent::IsCrossOriginIsolated() &&
-         IsFeatureEnabled(
-             mojom::blink::FeaturePolicyFeature::kCrossOriginIsolated);
+bool ExecutionContext::SharedArrayBufferTransferAllowed() const {
+  return RuntimeEnabledFeatures::SharedArrayBufferEnabled(this) ||
+         CrossOriginIsolatedCapability();
+}
+
+namespace {
+mojom::blink::InspectorIssueInfoPtr CreateSharedArrayBufferIssue(
+    const SourceLocation* source_location) {
+  auto details = mojom::blink::InspectorIssueDetails::New();
+  auto issue_details = mojom::blink::SharedArrayBufferIssueDetails::New();
+  auto affected_location = mojom::blink::AffectedLocation::New();
+  affected_location->url = source_location->Url();
+  affected_location->line = source_location->LineNumber() - 1;
+  affected_location->column = source_location->ColumnNumber();
+  affected_location->script_id =
+      WTF::String::Number(source_location->ScriptId());
+  issue_details->affected_location = std::move(affected_location);
+  details->sab_issue_details = std::move(issue_details);
+  return mojom::blink::InspectorIssueInfo::New(
+      mojom::blink::InspectorIssueCode::kSharedArrayBufferIssue,
+      std::move(details));
+}
+}  // namespace
+
+bool ExecutionContext::CheckSharedArrayBufferTransferAllowedAndReport() {
+  const bool allowed = SharedArrayBufferTransferAllowed();
+  // File an issue if the transfer is prohibited, or if it will be prohibited
+  // in the future, and the problem is encountered for the first time in this
+  // execution context. This preserves postMessage performance during the
+  // transition period.
+  if (!allowed || (!has_filed_shared_array_buffer_transfer_issue_ &&
+                   !CrossOriginIsolatedCapability())) {
+    has_filed_shared_array_buffer_transfer_issue_ = true;
+    auto source_location = SourceLocation::Capture(this);
+    auto issue = CreateSharedArrayBufferIssue(source_location.get());
+    issue->details->sab_issue_details->is_warning = allowed;
+    issue->details->sab_issue_details->type =
+        mojom::blink::SharedArrayBufferIssueType::kTransferIssue;
+    AddInspectorIssue(std::move(issue));
+  }
+  return allowed;
+}
+
+void ExecutionContext::FileSharedArrayBufferCreationIssue() {
+  // This is performance critical, only do it once per context.
+  if (has_filed_shared_array_buffer_creation_issue_)
+    return;
+  has_filed_shared_array_buffer_creation_issue_ = true;
+  auto source_location = SourceLocation::Capture(this);
+  auto issue = CreateSharedArrayBufferIssue(source_location.get());
+  // In enforced mode, the SAB constructor isn't available.
+  issue->details->sab_issue_details->is_warning = true;
+  issue->details->sab_issue_details->type =
+      mojom::blink::SharedArrayBufferIssueType::kCreationIssue;
+  AddInspectorIssue(std::move(issue));
 }
 
 void ExecutionContext::AddConsoleMessageImpl(mojom::ConsoleMessageSource source,
@@ -232,6 +275,22 @@ bool ExecutionContext::DispatchErrorEventInternal(
 
 bool ExecutionContext::IsContextPaused() const {
   return lifecycle_state_ == mojom::blink::FrameLifecycleState::kPaused;
+}
+
+WebURLLoader::DeferType ExecutionContext::DeferType() const {
+  if (is_in_back_forward_cache_) {
+    DCHECK_EQ(lifecycle_state_, mojom::blink::FrameLifecycleState::kFrozen);
+    return WebURLLoader::DeferType::kDeferredWithBackForwardCache;
+  } else if (lifecycle_state_ == mojom::blink::FrameLifecycleState::kFrozen ||
+             lifecycle_state_ == mojom::blink::FrameLifecycleState::kPaused) {
+    return WebURLLoader::DeferType::kDeferred;
+  }
+  return WebURLLoader::DeferType::kNotDeferred;
+}
+
+bool ExecutionContext::IsLoadDeferred() const {
+  return lifecycle_state_ == mojom::blink::FrameLifecycleState::kPaused ||
+         lifecycle_state_ == mojom::blink::FrameLifecycleState::kFrozen;
 }
 
 int ExecutionContext::CircularSequentialID() {
@@ -336,46 +395,57 @@ String ExecutionContext::OutgoingReferrer() const {
 }
 
 void ExecutionContext::ParseAndSetReferrerPolicy(
-    const String& policies,
-    bool support_legacy_keywords,
-    bool from_meta_tag_with_list_of_policies) {
+    const String& policy,
+    const ReferrerPolicySource source) {
   network::mojom::ReferrerPolicy referrer_policy;
+  bool policy_is_valid = false;
 
-  if (!SecurityPolicy::ReferrerPolicyFromHeaderValue(
-          policies,
-          support_legacy_keywords ? kSupportReferrerPolicyLegacyKeywords
-                                  : kDoNotSupportReferrerPolicyLegacyKeywords,
-          &referrer_policy)) {
-    AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
-        mojom::ConsoleMessageSource::kRendering,
-        mojom::ConsoleMessageLevel::kError,
-        "Failed to set referrer policy: The value '" + policies +
-            "' is not one of " +
-            (support_legacy_keywords
-                 ? "'always', 'default', 'never', 'origin-when-crossorigin', "
-                 : "") +
-            "'no-referrer', 'no-referrer-when-downgrade', 'origin', "
-            "'origin-when-cross-origin', 'same-origin', 'strict-origin', "
-            "'strict-origin-when-cross-origin', or 'unsafe-url'. The referrer "
-            "policy "
-            "has been left unchanged."));
+  if (source == kPolicySourceHttpHeader) {
+    policy_is_valid = SecurityPolicy::ReferrerPolicyFromHeaderValue(
+        policy, kDoNotSupportReferrerPolicyLegacyKeywords, &referrer_policy);
+  } else if (source == kPolicySourceMetaTag) {
+    policy_is_valid = (SecurityPolicy::ReferrerPolicyFromString(
+        policy, kSupportReferrerPolicyLegacyKeywords, &referrer_policy));
+  } else {
+    NOTREACHED();
     return;
   }
 
-  SetReferrerPolicy(referrer_policy, from_meta_tag_with_list_of_policies);
+  if (policy_is_valid) {
+    SetReferrerPolicy(referrer_policy);
+  } else {
+    String error_reason;
+    if (source == kPolicySourceMetaTag && policy.Contains(',')) {
+      // Only a single token is permitted for Meta-specified policies
+      // (https://crbug.com/1093914).
+      error_reason =
+          "A policy specified by a meta element must contain only one token.";
+    } else {
+      error_reason =
+          "The value '" + policy + "' is not one of " +
+          ((source == kPolicySourceMetaTag)
+               ? "'always', 'default', 'never', 'origin-when-crossorigin', "
+               : "") +
+          "'no-referrer', 'no-referrer-when-downgrade', 'origin', "
+          "'origin-when-cross-origin', 'same-origin', 'strict-origin', "
+          "'strict-origin-when-cross-origin', or 'unsafe-url'.";
+    }
+
+    AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
+        mojom::ConsoleMessageSource::kRendering,
+        mojom::ConsoleMessageLevel::kError,
+        "Failed to set referrer policy: " + error_reason +
+            " The referrer policy has been left unchanged."));
+  }
 }
 
 void ExecutionContext::SetReferrerPolicy(
-    network::mojom::ReferrerPolicy referrer_policy,
-    bool from_meta_tag_with_list_of_policies) {
+    network::mojom::ReferrerPolicy referrer_policy) {
   // When a referrer policy has already been set, the latest value takes
   // precedence.
   UseCounter::Count(this, WebFeature::kSetReferrerPolicy);
   if (referrer_policy_ != network::mojom::ReferrerPolicy::kDefault)
     UseCounter::Count(this, WebFeature::kResetReferrerPolicy);
-
-  if (!from_meta_tag_with_list_of_policies)
-    referrer_policy_but_for_meta_tags_with_lists_of_policies_ = referrer_policy;
 
   referrer_policy_ = referrer_policy;
 }
@@ -391,7 +461,6 @@ void ExecutionContext::Trace(Visitor* visitor) const {
   visitor->Trace(pending_exceptions_);
   visitor->Trace(csp_delegate_);
   visitor->Trace(timers_);
-  visitor->Trace(context_lifecycle_observer_set_);
   visitor->Trace(origin_trial_context_);
   ContextLifecycleNotifier::Trace(visitor);
   ConsoleLogger::Trace(visitor);
@@ -418,20 +487,6 @@ bool ExecutionContext::FeatureEnabled(OriginTrialFeature feature) const {
   return origin_trial_context_->IsFeatureEnabled(feature);
 }
 
-void ExecutionContext::FeaturePolicyPotentialBehaviourChangeObserved(
-    mojom::blink::FeaturePolicyFeature feature) const {
-  size_t feature_index = static_cast<size_t>(feature);
-  if (feature_policy_behaviour_change_counted_.size() == 0) {
-    feature_policy_behaviour_change_counted_.resize(
-        static_cast<size_t>(mojom::blink::FeaturePolicyFeature::kMaxValue) + 1);
-  } else if (feature_policy_behaviour_change_counted_[feature_index]) {
-    return;
-  }
-  feature_policy_behaviour_change_counted_[feature_index] = true;
-  UMA_HISTOGRAM_ENUMERATION(
-      "Blink.UseCounter.FeaturePolicy.ProposalWouldChangeBehaviour", feature);
-}
-
 bool ExecutionContext::IsFeatureEnabled(
     mojom::blink::FeaturePolicyFeature feature,
     ReportOptions report_on_failure,
@@ -445,20 +500,6 @@ bool ExecutionContext::IsFeatureEnabled(
 
   bool should_report;
   bool enabled = security_context_.IsFeatureEnabled(feature, &should_report);
-
-  if (enabled) {
-    // Report if the proposed header semantics change would have affected the
-    // outcome. (https://crbug.com/937131)
-    const FeaturePolicy* policy = security_context_.GetFeaturePolicy();
-    url::Origin origin = GetSecurityOrigin()->ToUrlOrigin();
-    if (!policy->GetProposedFeatureValueForOrigin(feature, origin)) {
-      // Count that there was a change in this page load.
-      const_cast<ExecutionContext*>(this)->CountUse(
-          WebFeature::kFeaturePolicyProposalWouldChangeBehaviour);
-      // Record the specific feature whose behaviour was changed.
-      FeaturePolicyPotentialBehaviourChangeObserved(feature);
-    }
-  }
 
   if (should_report && report_on_failure == ReportOptions::kReportOnFailure) {
     mojom::blink::PolicyDisposition disposition =
@@ -488,7 +529,7 @@ bool ExecutionContext::IsFeatureEnabled(
     const String& source_file) const {
   // The default value for any feature should be true unless restricted by
   // document policy
-  if (!RuntimeEnabledFeatures::DocumentPolicyEnabled(this))
+  if (!RuntimeEnabledFeatures::DocumentPolicyEnabled())
     return true;
 
   SecurityContext::FeatureStatus status =

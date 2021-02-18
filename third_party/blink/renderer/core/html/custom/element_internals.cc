@@ -6,11 +6,11 @@
 
 #include "third_party/blink/renderer/bindings/core/v8/v8_validity_state_flags.h"
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache.h"
-#include "third_party/blink/renderer/core/dom/dom_token_list.h"
 #include "third_party/blink/renderer/core/dom/node_lists_node_data.h"
 #include "third_party/blink/renderer/core/fileapi/file.h"
 #include "third_party/blink/renderer/core/html/custom/custom_element.h"
 #include "third_party/blink/renderer/core/html/custom/custom_element_registry.h"
+#include "third_party/blink/renderer/core/html/custom/custom_state_set.h"
 #include "third_party/blink/renderer/core/html/forms/form_controller.h"
 #include "third_party/blink/renderer/core/html/forms/form_data.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_element.h"
@@ -31,20 +31,6 @@ bool IsValidityStateFlagsValid(const ValidityStateFlags* flags) {
   return true;
 }
 }  // anonymous namespace
-
-class CustomStatesTokenList : public DOMTokenList {
- public:
-  CustomStatesTokenList(Element& element)
-      : DOMTokenList(element, g_null_name) {}
-
-  AtomicString value() const override { return TokenSet().SerializeToString(); }
-
-  void setValue(const AtomicString& new_value) override {
-    DidUpdateAttributeValue(value(), new_value);
-    // Should we have invalidation set for each of state tokens?
-    GetElement().PseudoStateChanged(CSSSelector::kPseudoState);
-  }
-};
 
 ElementInternals::ElementInternals(HTMLElement& target) : target_(target) {
 }
@@ -228,18 +214,21 @@ LabelsNodeList* ElementInternals::labels(ExceptionState& exception_state) {
   return Target().labels();
 }
 
-DOMTokenList* ElementInternals::states() {
+CustomStateSet* ElementInternals::states() {
   if (!custom_states_)
-    custom_states_ = MakeGarbageCollected<CustomStatesTokenList>(Target());
+    custom_states_ = MakeGarbageCollected<CustomStateSet>(Target());
   return custom_states_;
 }
 
 bool ElementInternals::HasState(const AtomicString& state) const {
-  return custom_states_ && custom_states_->contains(state);
+  return custom_states_ && custom_states_->Has(state);
 }
 
 ShadowRoot* ElementInternals::shadowRoot() const {
-  return Target().AuthorShadowRoot();
+  if (ShadowRoot* shadow_root = Target().AuthorShadowRoot()) {
+    return shadow_root->IsAvailableToElementInternals() ? shadow_root : nullptr;
+  }
+  return nullptr;
 }
 
 const AtomicString& ElementInternals::FastGetAttribute(
@@ -329,10 +318,11 @@ bool ElementInternals::IsTargetFormAssociated() const {
   if (Target().IsFormAssociatedCustomElement())
     return true;
   // Custom element could be in the process of upgrading here, during which
-  // it will have state kFailed according to:
+  // it will have state kFailed or kPreCustomized according to:
   // https://html.spec.whatwg.org/multipage/custom-elements.html#upgrades
   if (Target().GetCustomElementState() != CustomElementState::kUndefined &&
-      Target().GetCustomElementState() != CustomElementState::kFailed) {
+      Target().GetCustomElementState() != CustomElementState::kFailed &&
+      Target().GetCustomElementState() != CustomElementState::kPreCustomized) {
     return false;
   }
   // An element is in "undefined" state in its constructor JavaScript code.

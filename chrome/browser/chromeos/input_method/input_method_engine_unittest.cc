@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/histogram_samples.h"
@@ -53,8 +53,7 @@ enum CallsBitmap {
 };
 
 void InitInputMethod() {
-  auto* comp_ime_manager = new ComponentExtensionIMEManager;
-  auto* delegate = new MockComponentExtIMEManagerDelegate;
+  auto* delegate = new MockComponentExtensionIMEManagerDelegate;
 
   ComponentExtensionIME ext1;
   ext1.id = kTestExtensionId;
@@ -62,13 +61,14 @@ void InitInputMethod() {
   ComponentExtensionEngine ext1_engine1;
   ext1_engine1.engine_id = kTestImeComponentId;
   ext1_engine1.language_codes.emplace_back("en-US");
-  ext1_engine1.layouts.emplace_back("us");
+  ext1_engine1.layout = "us";
   ext1.engines.push_back(ext1_engine1);
 
   std::vector<ComponentExtensionIME> ime_list;
   ime_list.push_back(ext1);
   delegate->set_ime_list(ime_list);
-  comp_ime_manager->Initialize(
+
+  auto* comp_ime_manager = new ComponentExtensionIMEManager(
       std::unique_ptr<ComponentExtensionIMEManagerDelegate>(delegate));
 
   auto* manager = new MockInputMethodManagerImpl;
@@ -77,6 +77,7 @@ void InitInputMethod() {
   InitializeForTesting(manager);
 }
 
+// TODO(crbug.com/1148157): Use StubInputMethodEngineObserver.
 class TestObserver : public InputMethodEngineBase::Observer {
  public:
   TestObserver() : calls_bitmap_(NONE) {}
@@ -97,12 +98,10 @@ class TestObserver : public InputMethodEngineBase::Observer {
   void OnBlur(int context_id) override { calls_bitmap_ |= ONBLUR; }
   void OnKeyEvent(
       const std::string& engine_id,
-      const InputMethodEngineBase::KeyboardEvent& event,
+      const ui::KeyEvent& event,
       ui::IMEEngineHandlerInterface::KeyEventDoneCallback callback) override {
     std::move(callback).Run(/* handled */ true);
   }
-  void OnInputContextUpdate(
-      const ui::IMEEngineHandlerInterface::InputContext& context) override {}
   void OnCandidateClicked(
       const std::string& engine_id,
       int candidate_id,
@@ -170,12 +169,12 @@ class InputMethodEngineTest : public testing::Test {
   }
 
  protected:
-  void CreateEngine(bool whitelisted) {
+  void CreateEngine(bool allowlisted) {
     engine_.reset(new InputMethodEngine());
     observer_ = new TestObserver();
     std::unique_ptr<InputMethodEngineBase::Observer> observer_ptr(observer_);
     engine_->Initialize(std::move(observer_ptr),
-                        whitelisted ? kTestExtensionId : kTestExtensionId2,
+                        allowlisted ? kTestExtensionId : kTestExtensionId2,
                         nullptr);
   }
 
@@ -268,7 +267,7 @@ TEST_F(InputMethodEngineTest, TestSwitching_Password_3rd_Party) {
   EXPECT_EQ(kTestImeComponentId, observer_->GetEngineIdAndReset());
 }
 
-TEST_F(InputMethodEngineTest, TestSwitching_Password_Whitelisted) {
+TEST_F(InputMethodEngineTest, TestSwitching_Password_Allowlisted) {
   CreateEngine(true);
   // Enable/disable with focus.
   FocusIn(ui::TEXT_INPUT_TYPE_PASSWORD);

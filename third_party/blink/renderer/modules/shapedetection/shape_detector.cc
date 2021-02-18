@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/numerics/checked_math.h"
+#include "skia/ext/skia_utils_base.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
@@ -90,7 +91,9 @@ ScriptPromise ShapeDetector::detect(
       image->PaintImageForCurrentFrame().GetSwSkImage();
 
   SkBitmap sk_bitmap;
-  if (!sk_image->asLegacyBitmap(&sk_bitmap)) {
+  SkBitmap n32_bitmap;
+  if (!sk_image->asLegacyBitmap(&sk_bitmap) ||
+      !skia::SkBitmapToN32OpaqueOrPremul(sk_bitmap, &n32_bitmap)) {
     // TODO(mcasas): retrieve the pixels from elsewhere.
     NOTREACHED();
     resolver->Reject(MakeGarbageCollected<DOMException>(
@@ -99,7 +102,7 @@ ScriptPromise ShapeDetector::detect(
     return promise;
   }
 
-  return DoDetect(resolver, std::move(sk_bitmap));
+  return DoDetect(resolver, std::move(n32_bitmap));
 }
 
 ScriptPromise ShapeDetector::DetectShapesOnImageData(
@@ -112,29 +115,29 @@ ScriptPromise ShapeDetector::DetectShapesOnImageData(
     return promise;
   }
 
-  if (image_data->BufferBase()->IsDetached()) {
+  if (image_data->IsBufferBaseDetached()) {
     resolver->Reject(MakeGarbageCollected<DOMException>(
         DOMExceptionCode::kInvalidStateError,
         "The image data has been detached."));
     return promise;
   }
 
+  SkPixmap image_data_pixmap = image_data->GetSkPixmap();
   SkBitmap sk_bitmap;
   if (!sk_bitmap.tryAllocPixels(
-          SkImageInfo::Make(image_data->width(), image_data->height(),
-                            kN32_SkColorType, kOpaque_SkAlphaType),
-          image_data->width() * 4 /* bytes per pixel */)) {
+          image_data_pixmap.info().makeColorType(kN32_SkColorType),
+          image_data_pixmap.rowBytes())) {
     resolver->Reject(MakeGarbageCollected<DOMException>(
         DOMExceptionCode::kInvalidStateError,
         "Failed to allocate pixels for current frame."));
     return promise;
   }
-
-  base::CheckedNumeric<int> allocation_size = image_data->Size().Area() * 4;
-  CHECK_EQ(allocation_size.ValueOrDefault(0), sk_bitmap.computeByteSize());
-
-  memcpy(sk_bitmap.getPixels(), image_data->data()->Data(),
-         sk_bitmap.computeByteSize());
+  if (!sk_bitmap.writePixels(image_data_pixmap, 0, 0)) {
+    resolver->Reject(MakeGarbageCollected<DOMException>(
+        DOMExceptionCode::kInvalidStateError,
+        "Failed to copy pixels for current frame."));
+    return promise;
+  }
 
   return DoDetect(resolver, std::move(sk_bitmap));
 }
@@ -144,24 +147,25 @@ ScriptPromise ShapeDetector::DetectShapesOnImageElement(
     const HTMLImageElement* img) {
   ScriptPromise promise = resolver->Promise();
 
-  if (img->BitmapSourceSize().IsZero()) {
-    resolver->Resolve(HeapVector<Member<DOMRect>>());
-    return promise;
-  }
-
   ImageResourceContent* const image_content = img->CachedImage();
-  if (!image_content || image_content->ErrorOccurred()) {
+  if (!image_content || !image_content->IsLoaded() ||
+      image_content->ErrorOccurred()) {
     resolver->Reject(MakeGarbageCollected<DOMException>(
         DOMExceptionCode::kInvalidStateError,
         "Failed to load or decode HTMLImageElement."));
     return promise;
   }
 
-  Image* const blink_image = image_content->GetImage();
-  if (!blink_image) {
+  if (!image_content->HasImage()) {
     resolver->Reject(MakeGarbageCollected<DOMException>(
         DOMExceptionCode::kInvalidStateError,
         "Failed to get image from resource."));
+    return promise;
+  }
+
+  Image* const blink_image = image_content->GetImage();
+  if (blink_image->Size().IsZero()) {
+    resolver->Resolve(HeapVector<Member<DOMRect>>());
     return promise;
   }
 
@@ -173,7 +177,6 @@ ScriptPromise ShapeDetector::DetectShapesOnImageElement(
   DCHECK_EQ(img->naturalHeight(), static_cast<unsigned>(sk_image->height()));
 
   SkBitmap sk_bitmap;
-
   if (!sk_image || !sk_image->asLegacyBitmap(&sk_bitmap)) {
     resolver->Reject(MakeGarbageCollected<DOMException>(
         DOMExceptionCode::kInvalidStateError,

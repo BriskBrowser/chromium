@@ -10,8 +10,9 @@
 #include "base/process/launch.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/content_browser_test.h"
@@ -24,6 +25,10 @@
 
 #if defined(USE_OZONE)
 #include "ui/ozone/public/ozone_switches.h"
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ui/gl/gl_switches.h"
 #endif
 
 namespace content {
@@ -79,6 +84,10 @@ class LaunchAsMojoClientBrowserTest : public ContentBrowserTest {
     const base::CommandLine& cmdline = *base::CommandLine::ForCurrentProcess();
     command_line.CopySwitchesFrom(cmdline, kSwitchesToCopy,
                                   base::size(kSwitchesToCopy));
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    command_line.AppendSwitchASCII(switches::kUseGL, "swiftshader");
+#endif
     return command_line;
   }
 

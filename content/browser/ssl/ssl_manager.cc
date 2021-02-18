@@ -10,13 +10,13 @@
 #include "base/bind.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/metrics/ukm_source_id.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/supports_user_data.h"
 #include "base/task/post_task.h"
+#include "base/trace_event/optional_trace_event.h"
 #include "content/browser/devtools/devtools_instrumentation.h"
-#include "content/browser/frame_host/navigation_entry_impl.h"
-#include "content/browser/frame_host/render_frame_host_impl.h"
+#include "content/browser/renderer_host/navigation_entry_impl.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/browser/ssl/ssl_error_handler.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_context.h"
@@ -30,6 +30,7 @@
 #include "content/public/common/content_client.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
+#include "services/metrics/public/cpp/ukm_source_id.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom.h"
 
 namespace content {
@@ -207,6 +208,7 @@ void SSLManager::DidCommitProvisionalLoad(const LoadCommittedDetails& details) {
 }
 
 void SSLManager::DidDisplayMixedContent() {
+  OPTIONAL_TRACE_EVENT0("content", "SSLManager::DidDisplayMixedContent");
   NavigationEntryImpl* entry = controller_->GetLastCommittedEntry();
   if (entry && entry->GetURL().SchemeIsCryptographic() &&
       entry->GetSSL().certificate) {
@@ -220,6 +222,7 @@ void SSLManager::DidDisplayMixedContent() {
 }
 
 void SSLManager::DidContainInsecureFormAction() {
+  OPTIONAL_TRACE_EVENT0("content", "SSLManager::DidContainInsecureFormAction");
   NavigationEntryImpl* entry = controller_->GetLastCommittedEntry();
   if (entry && entry->GetURL().SchemeIsCryptographic() &&
       entry->GetSSL().certificate) {

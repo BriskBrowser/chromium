@@ -11,7 +11,7 @@
 #include "ash/shell.h"
 #include "ash/system/accessibility/autoclick_scroll_bubble_controller.h"
 #include "ash/test/ash_test_base.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/i18n/rtl.h"
 
@@ -47,7 +47,7 @@ class AutoclickMenuBubbleControllerTest : public AshTestBase {
   // testing::Test:
   void SetUp() override {
     AshTestBase::SetUp();
-    Shell::Get()->accessibility_controller()->SetAutoclickEnabled(true);
+    Shell::Get()->accessibility_controller()->autoclick().SetEnabled(true);
   }
 
   AutoclickMenuBubbleController* GetBubbleController() {

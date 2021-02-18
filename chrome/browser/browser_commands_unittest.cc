@@ -5,6 +5,7 @@
 #include <stddef.h>
 
 #include "base/test/scoped_feature_list.h"
+#include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/ui/browser_command_controller.h"
@@ -29,7 +30,7 @@
 #include "content/public/test/test_renderer_host.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/page/page_zoom.h"
-#include "third_party/blink/public/mojom/renderer_preferences.mojom.h"
+#include "third_party/blink/public/common/renderer_preferences/renderer_preferences.h"
 
 namespace {
 
@@ -447,8 +448,17 @@ TEST_F(BrowserCommandsTest, ToggleCaretBrowsing) {
   pref_service->SetBoolean(prefs::kCaretBrowsingEnabled, false);
   pref_service->SetBoolean(prefs::kShowCaretBrowsingDialog, false);
 
+#if defined(OS_MAC)
+  // On Mac, caret browsing should be disabled unless focus is in web content.
+  // Make sure it's disabled initially and doesn't toggle if executed.
+  EXPECT_FALSE(chrome::IsCommandEnabled(browser(), IDC_CARET_BROWSING_TOGGLE));
+  chrome::ExecuteCommand(browser(), IDC_CARET_BROWSING_TOGGLE);
+  EXPECT_FALSE(pref_service->GetBoolean(prefs::kCaretBrowsingEnabled));
+#endif
+
   // Create multiple tabs to test if caret browsing mode gets broadcast to all
-  // tabs when toggled.
+  // tabs when toggled. (For the purposes of testing, this simulates
+  // putting focus in web contents as a side effect.)
   GURL about_blank(url::kAboutBlankURL);
   int tab_count = 3;
   for (int i = 0; i < tab_count; ++i) {
@@ -456,6 +466,7 @@ TEST_F(BrowserCommandsTest, ToggleCaretBrowsing) {
   }
 
   // Toggle on caret browsing.
+  EXPECT_TRUE(chrome::IsCommandEnabled(browser(), IDC_CARET_BROWSING_TOGGLE));
   chrome::ExecuteCommand(browser(), IDC_CARET_BROWSING_TOGGLE);
   EXPECT_TRUE(pref_service->GetBoolean(prefs::kCaretBrowsingEnabled));
 
@@ -468,7 +479,7 @@ TEST_F(BrowserCommandsTest, ToggleCaretBrowsing) {
   for (int i = 0; i < tab_count; ++i) {
     WebContents* web_contents =
         browser()->tab_strip_model()->GetWebContentsAt(i);
-    blink::mojom::RendererPreferences* renderer_preferences =
+    blink::RendererPreferences* renderer_preferences =
         web_contents->GetMutableRendererPrefs();
     EXPECT_TRUE(renderer_preferences->caret_browsing_enabled);
   }
@@ -486,22 +497,40 @@ TEST_F(BrowserCommandsTest, ToggleCaretBrowsing) {
   for (int i = 0; i < tab_count; ++i) {
     WebContents* web_contents =
         browser()->tab_strip_model()->GetWebContentsAt(i);
-    blink::mojom::RendererPreferences* renderer_preferences =
+    blink::RendererPreferences* renderer_preferences =
         web_contents->GetMutableRendererPrefs();
     EXPECT_FALSE(renderer_preferences->caret_browsing_enabled);
   }
 }
 
-TEST_F(BrowserCommandsTest, TabSearchDisabled) {
-  EXPECT_FALSE(chrome::IsCommandEnabled(browser(), IDC_TAB_SEARCH));
+class TabSearchCommandTest : public BrowserCommandsTest,
+                             public ::testing::WithParamInterface<bool> {
+ public:
+  void SetUp() override {
+    if (GetParam()) {
+      scoped_feature_list_.InitWithFeatures({features::kTabSearch}, {});
+    } else {
+      scoped_feature_list_.InitWithFeatures({}, {features::kTabSearch});
+    }
+    BrowserCommandsTest::SetUp();
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+TEST_P(TabSearchCommandTest, TabSearchCommandStatus) {
+  if (base::FeatureList::IsEnabled(features::kTabSearch)) {
+    EXPECT_TRUE(chrome::IsCommandEnabled(browser(), IDC_TAB_SEARCH));
+    EXPECT_TRUE(chrome::IsCommandEnabled(browser(), IDC_TAB_SEARCH_CLOSE));
+  } else {
+    EXPECT_FALSE(chrome::IsCommandEnabled(browser(), IDC_TAB_SEARCH));
+    EXPECT_FALSE(chrome::IsCommandEnabled(browser(), IDC_TAB_SEARCH_CLOSE));
+  }
 }
 
-TEST_F(BrowserCommandsTest, TabSearchEnabled) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(features::kTabSearch);
-  auto browser =
-      CreateBrowser(profile(), Browser::TYPE_NORMAL, false, window());
-  EXPECT_TRUE(chrome::IsCommandEnabled(browser.get(), IDC_TAB_SEARCH));
-}
+INSTANTIATE_TEST_SUITE_P(All,
+                         TabSearchCommandTest,
+                         ::testing::Values(true, false));
 
 }  // namespace

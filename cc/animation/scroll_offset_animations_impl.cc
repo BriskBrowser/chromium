@@ -4,6 +4,9 @@
 
 #include "cc/animation/scroll_offset_animations_impl.h"
 
+#include <memory>
+#include <utility>
+
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/traced_value.h"
 #include "cc/animation/animation.h"
@@ -76,7 +79,8 @@ void ScrollOffsetAnimationsImpl::ScrollAnimationCreateInternal(
 
   std::unique_ptr<KeyframeModel> keyframe_model = KeyframeModel::Create(
       std::move(curve), AnimationIdProvider::NextKeyframeModelId(),
-      AnimationIdProvider::NextGroupId(), TargetProperty::SCROLL_OFFSET);
+      AnimationIdProvider::NextGroupId(),
+      KeyframeModel::TargetPropertyId(TargetProperty::SCROLL_OFFSET));
   keyframe_model->set_time_offset(animation_start_offset);
   keyframe_model->SetIsImplOnly();
 
@@ -111,7 +115,8 @@ bool ScrollOffsetAnimationsImpl::ScrollAnimationUpdateTarget(
     return true;
 
   ScrollOffsetAnimationCurve* curve =
-      keyframe_model->curve()->ToScrollOffsetAnimationCurve();
+      ScrollOffsetAnimationCurve::ToScrollOffsetAnimationCurve(
+          keyframe_model->curve());
 
   gfx::ScrollOffset new_target =
       gfx::ScrollOffsetWithDelta(curve->target_value(), scroll_delta);
@@ -164,14 +169,15 @@ void ScrollOffsetAnimationsImpl::ScrollAnimationApplyAdjustment(
   }
 
   std::unique_ptr<ScrollOffsetAnimationCurve> new_curve =
-      keyframe_model->curve()
-          ->ToScrollOffsetAnimationCurve()
+      ScrollOffsetAnimationCurve::ToScrollOffsetAnimationCurve(
+          keyframe_model->curve())
           ->CloneToScrollOffsetAnimationCurve();
   new_curve->ApplyAdjustment(adjustment);
 
   std::unique_ptr<KeyframeModel> new_keyframe_model = KeyframeModel::Create(
       std::move(new_curve), AnimationIdProvider::NextKeyframeModelId(),
-      AnimationIdProvider::NextGroupId(), TargetProperty::SCROLL_OFFSET);
+      AnimationIdProvider::NextGroupId(),
+      KeyframeModel::TargetPropertyId(TargetProperty::SCROLL_OFFSET));
   new_keyframe_model->set_start_time(keyframe_model->start_time());
   new_keyframe_model->SetIsImplOnly();
   new_keyframe_model->set_affects_active_elements(false);

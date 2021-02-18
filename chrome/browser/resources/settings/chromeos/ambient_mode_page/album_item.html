@@ -5,6 +5,7 @@
 <link rel="import" href="chrome://resources/cr_elements/shared_vars_css.html">
 <link rel="import" href="chrome://resources/html/i18n_behavior.html">
 <link rel="import" href="constants.html">
+<link rel="import" href="text_with_tooltip.html">
 <link rel="import" href="../../settings_shared_css.html">
 
 <dom-module id="album-item">
@@ -16,6 +17,13 @@
         outline: none;
       }
 
+      #albumContainer {
+        /* For a grid iron-list the list template item must have both a fixed
+           width and height. */
+        height: 236px;
+        line-height: 20px;
+      }
+
       #albumContainer.personal-album {
         margin: 8px 0;
         width: 184px;
@@ -23,92 +31,105 @@
 
       #albumContainer.art-album {
         margin: 8px auto;
-        width: 512px;
+        width: 280px;
       }
 
       #imageContainer {
         background-color: rgba(var(--google-blue-50-rgb), .8);
-        border-radius: 4px;
+        border-radius: 8px;
         display: block;
+        margin: 0 12px;
+        position: relative;
       }
 
       #imageContainer.personal-album {
         height: 160px;
-        margin: 0 12px;
         width: 160px;
       }
 
       #imageContainer.art-album {
-        height: 320px;
-        width: 512px;
+        height: 160px;
+        width: 256px;
       }
 
-      #albumInfo.personal-album {
-        margin: 0 12px;
+      #albumInfo {
+        margin: 16px 12px 0 12px;
       }
 
       #image {
-        border-radius: 4px;
+        border-radius: 8px;
         display: block;
+        height: 160px;
+        object-fit: cover;
+        position: absolute;
         transform: scale(1.0);
         transition: transform 240ms;
       }
 
       #image.personal-album {
-        height: 160px;
         width: 160px;
       }
 
       #image.art-album {
-        height: 320px;
-        width: 512px;
+        width: 256px;
       }
 
-      .selected-circle {
-        background-color: rgba(var(--google-blue-700-rgb), 1.0);
-        border-radius: 50%;
-        box-shadow: 0 3px 6px 1px rgba(0, 0, 0, .16),
-            0 1px 2px 1px rgba(0, 0, 0, .23);
-        display: none;
-        height: 22px;
+      #rhImages {
+        border-radius: 8px;
+        display: block;
+        height: 160px;
         position: absolute;
-        top: 13px;
-        width: 22px;
-        z-index: 1;
+        transform: scale(1.0);
+        transition: transform 240ms;
+        width: 160px;
       }
 
-      .selected-circle.personal-album {
-        left: 144px;
+      .image-rh {
+        border-radius: 8px;
+        display: block;
+        height: 78px;
+        position: absolute;
+        width: 78px;
       }
 
-      .selected-circle.art-album {
-        left: 558px;
+      .top-left {
+        left: 0;
+        top: 0;
+      }
+
+      .top-right {
+        left: 82px;
+        top: 0;
+      }
+
+      .bottom-left {
+        left: 0;
+        top: 82px;
+      }
+
+      .bottom-right {
+        left: 82px;
+        top: 82px;
       }
 
       .check {
-        border-bottom: 2px solid #fff;
-        border-inline-end: 2px solid #fff;
-        display: none;
-        height: 10px;
+        display: block;
         position: absolute;
-        top: 17px;
-        transform: rotate(45deg);
-        width: 5px;
-        z-index: 2;
+        z-index: 1;
       }
 
       .check.personal-album {
-        left: 152px;
+        left: 134px;
+        top: 6px;
       }
 
       .check.art-album {
-        left: 566px;
+        left: 230px;
+        top: 0;
       }
 
       :host([checked]) #image {
-        border-radius: 6px;
         box-shadow: 0 4px 8px rgba(32, 33, 36, 0.17);
-        transform: scale(0.9);
         transition: transform 240ms;
       }
 
@@ -117,34 +138,61 @@
       }
 
       :host([checked]) #image.art-album {
-        transform: scale(0.9);
+        transform: scale(0.875);
       }
 
-      :host([checked]) .selected-circle {
-        display: block;
-        transition: transform 240ms;
-      }
-
-      :host([checked]) .check {
-        display: block;
-        transition: transform 240ms;
+      :host([checked]) #rhImages {
+        transform: scale(0.8);
       }
     </style>
-    <div id="albumContainer"
-        class$="layout vertical left flex [[computeClass_(topicSource)]]">
+    <div id="albumContainer" class$="[[computeClass_(topicSource)]]">
       <div id="imageContainer" class$="[[computeClass_(topicSource)]]"
           aria-hidden="true">
-        <img id="image" class$="[[computeClass_(topicSource)]]" actionable
-            src="[[album.url]]" on-click="onImageClick_">
-        </img>
-        <div class$="check [[computeClass_(topicSource)]]"></div>
-        <div class$="selected-circle [[computeClass_(topicSource)]]"></div>
+        <!-- Only shows the images and icon when the URLs are successfully
+             fetched -->
+        <template is="dom-if" if="[[album.recentHighlightsUrls]]">
+          <div id="rhImages" actionable on-click="onImageClick_">
+            <img class="image-rh top-left"
+                src="[[album.recentHighlightsUrls.0]]"
+                hidden="[[!album.recentHighlightsUrls.0]]">
+            </img>
+            <img class="image-rh top-right"
+                src="[[album.recentHighlightsUrls.1]]"
+                hidden="[[!album.recentHighlightsUrls.1]]">
+            </img>
+            <img class="image-rh bottom-left"
+                src="[[album.recentHighlightsUrls.2]]"
+                hidden="[[!album.recentHighlightsUrls.2]]">
+            </img>
+            <img class="image-rh bottom-right"
+                src="[[album.recentHighlightsUrls.3]]"
+                hidden="[[!album.recentHighlightsUrls.3]]">
+            </img>
+          </div>
+          <iron-icon icon="os-settings:ic-checked-filled"
+              class$="check [[computeClass_(topicSource)]]"
+              hidden="[[!album.checked]]">
+          </iron-icon>
+        </template>
+        <template is="dom-if" if="[[album.url]]">
+          <img id="image" class$="[[computeClass_(topicSource)]]" actionable
+              src="[[album.url]]" on-click="onImageClick_">
+          </img>
+          <iron-icon icon="os-settings:ic-checked-filled"
+              class$="check [[computeClass_(topicSource)]]"
+              hidden="[[!album.checked]]">
+          </iron-icon>
+        </template>
       </div>
 
       <div id="albumInfo" class$="[[computeClass_(topicSource)]]"
           aria-hidden="true">
-        <div>[[album.title]]</div>
-        <div class="cr-secondary-text">[[album.description]]</div>
+        <text-with-tooltip id="albumTitle" text="[[album.title]]"
+          tooltip-is-visible="{{titleTooltipIsVisible}}"></text-with-tooltip>
+        <text-with-tooltip id="albumDescription"
+          text="[[album.description]]" line-clamp="2"
+          tooltip-is-visible="{{descriptionTooltipIsVisible}}"
+          text-style="cr-secondary-text"></text-with-tooltip>
       </div>
     </div>
   </template>

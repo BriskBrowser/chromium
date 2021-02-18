@@ -20,16 +20,16 @@ constexpr base::TimeDelta kAnimationDuration =
 constexpr base::TimeDelta kTopicFetchInterval =
     base::TimeDelta::FromSeconds(30);
 
-// The default interval to refresh photos.
-constexpr base::TimeDelta kPhotoRefreshInterval =
-    base::TimeDelta::FromSeconds(60);
+// The default interval to fetch backup cache photos.
+constexpr base::TimeDelta kBackupPhotoRefreshDelay =
+    base::TimeDelta::FromMinutes(5);
 
-// The number of requests to fetch topics.
-constexpr int kNumberOfRequests = 50;
+// The default interval to refresh weather.
+constexpr base::TimeDelta kWeatherRefreshInterval =
+    base::TimeDelta::FromMinutes(5);
 
 // The batch size of topics to fetch in one request.
-// Magic number 2 is based on experiments that no curation on Google Photos.
-constexpr int kTopicsBatchSize = 2;
+constexpr int kTopicsBatchSize = 100;
 
 // Max cached images.
 constexpr int kMaxNumberOfCachedImages = 100;
@@ -38,15 +38,33 @@ constexpr int kMaxImageSizeInBytes = 5 * 1024 * 1024;
 
 constexpr int kMaxReservedAvailableDiskSpaceByte = 200 * 1024 * 1024;
 
+// The maximum number of consecutive failures in downloading or reading an image
+// from disk.
+constexpr int kMaxConsecutiveReadPhotoFailures = 3;
+
 constexpr char kPhotoFileExt[] = ".img";
 constexpr char kPhotoDetailsFileExt[] = ".txt";
+constexpr char kRelatedPhotoSuffix[] = "_r";
 
 // Directory name of ambient mode.
 constexpr char kAmbientModeDirectoryName[] = "ambient-mode";
 
+constexpr char kAmbientModeCacheDirectoryName[] = "cache";
+
+constexpr char kAmbientModeBackupCacheDirectoryName[] = "backup";
+
 // The buffer time to use the access token.
 constexpr base::TimeDelta kTokenUsageTimeBuffer =
     base::TimeDelta::FromMinutes(10);
+
+// PhotoView related constants.
+// Spacing between two portrait images.
+constexpr int kMarginLeftOfRelatedImageDip = 8;
+
+// Media string related.
+constexpr int kMediaStringMaxWidthDip = 280;
+
+constexpr int kMediaStringGradientWidthDip = 20;
 
 }  // namespace ash
 

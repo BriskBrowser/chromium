@@ -14,21 +14,22 @@
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/interstitials/enterprise_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ssl/stateful_ssl_host_state_delegate_factory.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/security_interstitials/content/content_metrics_helper.h"
+#include "components/security_interstitials/content/settings_page_helper.h"
 #include "components/security_interstitials/content/stateful_ssl_host_state_delegate.h"
 #include "components/security_interstitials/content/utils.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #include "chrome/browser/ui/webui/settings/chromeos/constants/routes.mojom.h"
@@ -78,14 +79,17 @@ SSLErrorControllerClient::SSLErrorControllerClient(
     const net::SSLInfo& ssl_info,
     int cert_error,
     const GURL& request_url,
-    std::unique_ptr<security_interstitials::MetricsHelper> metrics_helper)
+    std::unique_ptr<security_interstitials::MetricsHelper> metrics_helper,
+    std::unique_ptr<security_interstitials::SettingsPageHelper>
+        settings_page_helper)
     : SecurityInterstitialControllerClient(
           web_contents,
           std::move(metrics_helper),
           Profile::FromBrowserContext(web_contents->GetBrowserContext())
               ->GetPrefs(),
           g_browser_process->GetApplicationLocale(),
-          GURL(chrome::kChromeUINewTabURL)),
+          GURL(chrome::kChromeUINewTabURL),
+          std::move(settings_page_helper)),
       ssl_info_(ssl_info),
       request_url_(request_url),
       cert_error_(cert_error) {
@@ -112,7 +116,7 @@ void SSLErrorControllerClient::Proceed() {
   // certificate. So, when users click proceed on an interstitial, move the tab
   // to a regular Chrome window and proceed as usual there.
   Browser* browser = chrome::FindBrowserWithWebContents(web_contents_);
-  if (web_app::AppBrowserController::IsForWebAppBrowser(browser))
+  if (web_app::AppBrowserController::IsWebApp(browser))
     chrome::OpenInChrome(browser);
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
@@ -136,7 +140,7 @@ bool SSLErrorControllerClient::CanLaunchDateAndTimeSettings() {
 void SSLErrorControllerClient::LaunchDateAndTimeSettings() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   chrome::SettingsWindowManager::GetInstance()->ShowOSSettings(
       ProfileManager::GetActiveUserProfile(),
       chromeos::settings::mojom::kDateAndTimeSectionPath);

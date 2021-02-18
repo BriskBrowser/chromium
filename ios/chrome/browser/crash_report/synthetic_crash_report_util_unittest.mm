@@ -15,23 +15,52 @@
 #include "base/strings/string_split.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/system/sys_info.h"
+#import "components/previous_session_info/previous_session_info_private.h"
 #include "testing/platform_test.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
-typedef PlatformTest SyntheticCrashReportUtilTest;
+class SyntheticCrashReportUtilTest : public PlatformTest {
+ protected:
+  ~SyntheticCrashReportUtilTest() override {
+    [PreviousSessionInfo resetSharedInstanceForTesting];
+  }
+};
 
 // Tests that CreateSyntheticCrashReportForUte correctly generates config and
 // minidump files.
 TEST_F(SyntheticCrashReportUtilTest, CreateSyntheticCrashReportForUte) {
+  [PreviousSessionInfo resetSharedInstanceForTesting];
+  const NSInteger kAvailableStorage = 256;
+  PreviousSessionInfo* previous_session = [PreviousSessionInfo sharedInstance];
+  previous_session.availableDeviceStorage = kAvailableStorage;
+  previous_session.didSeeMemoryWarningShortlyBeforeTerminating = YES;
+  NSString* const kOSVersion = @"OSVersion";
+  previous_session.OSVersion = kOSVersion;
+  previous_session.terminatedDuringSessionRestoration = YES;
+  previous_session.applicationWillTerminateWasReceived = YES;
+  NSString* const kURL = @"URL";
+  previous_session.reportParameters = @{@"url" : kURL};
+  previous_session.sessionStartTime = [NSDate date];
+  const NSTimeInterval kUptimeMs = 5000;
+  previous_session.sessionEndTime = [previous_session.sessionStartTime
+      dateByAddingTimeInterval:kUptimeMs / 1000];
+  const NSInteger kMemoryFootprint = 1278759;
+  previous_session.memoryFootprint = kMemoryFootprint;
+
   // Create crash report.
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
   std::string product_display = std::string(255, 'a') + std::string(1, 'b');
+  const char kBreadcrumb1[] = "52:43 Tab1 Zoom";
+  const char kLastEvent[] = "Tab1 Scroll 1";
+  std::string kBreadcrumb2 = std::string("52:46 ") + kLastEvent;
+
   CreateSyntheticCrashReportForUte(temp_dir.GetPath(), product_display,
-                                   "Product", "Version", "URL");
+                                   "Product", "Version", "URL",
+                                   {kBreadcrumb1, kBreadcrumb2});
   // CreateSyntheticCrashReportForUte creates config and empty minidump file.
   // locate both files and ensure there are no other files in the directory.
   base::FileEnumerator traversal(temp_dir.GetPath(), /*recursive=*/false,
@@ -80,8 +109,8 @@ TEST_F(SyntheticCrashReportUtilTest, CreateSyntheticCrashReportForUte) {
       config_content, "\n", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
 
   // Verify config file content. Config file has the following format:
-  // Key1\nValue1Length\nValue1\n...KeyN\nValueNLength\nValueN
-  ASSERT_EQ(27U, config_lines.size())
+  // <Key1>\n<Value1Length>\n<Value1>\n...<KeyN>\n<ValueNLength>\n<ValueN>
+  ASSERT_EQ(61U, config_lines.size())
       << "<content>" << config_content << "</content>";
 
   EXPECT_EQ("MinidumpDir", config_lines[0]);
@@ -120,10 +149,65 @@ TEST_F(SyntheticCrashReportUtilTest, CreateSyntheticCrashReportForUte) {
             config_lines[22]);
   EXPECT_EQ(temp_dir.GetPath().value(), config_lines[23]);
 
-  EXPECT_EQ("BreakpadServerParameterPrefix_platform", config_lines[24]);
+  EXPECT_EQ("BreakpadServerParameterPrefix_free_disk_in_kb", config_lines[24]);
+  EXPECT_EQ(
+      base::NumberToString(base::NumberToString(kAvailableStorage).size()),
+      config_lines[25]);
+  EXPECT_EQ(base::NumberToString(kAvailableStorage), config_lines[26]);
+
+  EXPECT_EQ("BreakpadServerParameterPrefix_memory_warning_in_progress",
+            config_lines[27]);
+  const char kYesString[] = "yes";
+  EXPECT_EQ(base::NumberToString(strlen(kYesString)), config_lines[28]);
+  EXPECT_EQ(kYesString, config_lines[29]);
+
+  EXPECT_EQ("BreakpadServerParameterPrefix_crashed_during_session_restore",
+            config_lines[30]);
+  EXPECT_EQ(base::NumberToString(strlen(kYesString)), config_lines[31]);
+  EXPECT_EQ(kYesString, config_lines[32]);
+
+  EXPECT_EQ("BreakpadServerParameterPrefix_osVersion", config_lines[33]);
+  EXPECT_EQ(base::NumberToString(kOSVersion.length), config_lines[34]);
+  EXPECT_EQ(base::SysNSStringToUTF8(kOSVersion), config_lines[35]);
+
+  EXPECT_EQ("BreakpadServerParameterPrefix_osName", config_lines[36]);
+  EXPECT_EQ("3", config_lines[37]);
+  EXPECT_EQ("iOS", config_lines[38]);
+
+  EXPECT_EQ("BreakpadServerParameterPrefix_platform", config_lines[39]);
   EXPECT_EQ(base::NumberToString(base::SysInfo::HardwareModelName().size()),
-            config_lines[25]);
-  EXPECT_EQ(base::SysInfo::HardwareModelName(), config_lines[26]);
+            config_lines[40]);
+  EXPECT_EQ(base::SysInfo::HardwareModelName(), config_lines[41]);
+
+  EXPECT_EQ("BreakpadServerParameterPrefix_breadcrumbs", config_lines[42]);
+  EXPECT_EQ(
+      base::NumberToString(strlen(kBreadcrumb1) + kBreadcrumb2.size() + 1),
+      config_lines[43]);
+  EXPECT_EQ(kBreadcrumb1, config_lines[44]);
+  EXPECT_EQ(kBreadcrumb2, config_lines[45]);
+
+  EXPECT_EQ("BreakpadServerParameterPrefix_signature", config_lines[46]);
+  EXPECT_EQ(base::NumberToString(strlen(kLastEvent)), config_lines[47]);
+  EXPECT_EQ(kLastEvent, config_lines[48]);
+
+  EXPECT_EQ("BreakpadServerParameterPrefix_url", config_lines[49]);
+  EXPECT_EQ(base::NumberToString(kURL.length), config_lines[50]);
+  EXPECT_EQ(base::SysNSStringToUTF8(kURL), config_lines[51]);
+
+  EXPECT_EQ("BreakpadProcessUpTime", config_lines[52]);
+  EXPECT_EQ(base::NumberToString(base::NumberToString(kUptimeMs).size()),
+            config_lines[53]);
+  EXPECT_EQ(base::NumberToString(kUptimeMs), config_lines[54]);
+
+  EXPECT_EQ("BreakpadServerParameterPrefix_memory_footprint", config_lines[55]);
+  EXPECT_EQ(base::NumberToString(base::NumberToString(kMemoryFootprint).size()),
+            config_lines[56]);
+  EXPECT_EQ(base::NumberToString(kMemoryFootprint), config_lines[57]);
+
+  EXPECT_EQ("BreakpadServerParameterPrefix_crashed_after_app_will_terminate",
+            config_lines[58]);
+  EXPECT_EQ(base::NumberToString(strlen(kYesString)), config_lines[59]);
+  EXPECT_EQ(kYesString, config_lines[60]);
 
   // Read minidump file. It must be empty as there is no stack trace, but
   // Breakpad will not upload config without minidump file.

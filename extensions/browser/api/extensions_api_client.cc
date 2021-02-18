@@ -4,6 +4,7 @@
 
 #include "extensions/browser/api/extensions_api_client.h"
 
+#include "build/chromeos_buildflags.h"
 #include "extensions/browser/api/device_permissions_prompt.h"
 #include "extensions/browser/api/system_display/display_info_provider.h"
 #include "extensions/browser/api/virtual_keyboard_private/virtual_keyboard_delegate.h"
@@ -109,6 +110,12 @@ ExtensionsAPIClient::CreateDevicePermissionsPrompt(
   return nullptr;
 }
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+bool ExtensionsAPIClient::ShouldAllowDetachingUsb(int vid, int pid) const {
+  return false;
+}
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
 std::unique_ptr<VirtualKeyboardDelegate>
 ExtensionsAPIClient::CreateVirtualKeyboardDelegate(
     content::BrowserContext* context) const {
@@ -151,7 +158,7 @@ FeedbackPrivateDelegate* ExtensionsAPIClient::GetFeedbackPrivateDelegate() {
   return nullptr;
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 NonNativeFileSystemDelegate*
 ExtensionsAPIClient::GetNonNativeFileSystemDelegate() {
   return nullptr;

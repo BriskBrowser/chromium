@@ -11,6 +11,7 @@
 
 #include "base/callback_list.h"
 #include "base/macros.h"
+#include "base/scoped_observer.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 
 class ChromeBrowserState;
@@ -34,8 +35,8 @@ class SyncedSessionsObserverBridge : public signin::IdentityManager::Observer {
                                ChromeBrowserState* browserState);
   ~SyncedSessionsObserverBridge() override;
   // signin::IdentityManager::Observer implementation.
-  void OnPrimaryAccountCleared(
-      const CoreAccountInfo& previous_primary_account_info) override;
+  void OnPrimaryAccountChanged(
+      const signin::PrimaryAccountChangeEvent& event) override;
 
   // Returns true if user is signed in.
   bool IsSignedIn();
@@ -47,8 +48,7 @@ class SyncedSessionsObserverBridge : public signin::IdentityManager::Observer {
   signin::IdentityManager* identity_manager_ = nullptr;
   ScopedObserver<signin::IdentityManager, signin::IdentityManager::Observer>
       identity_manager_observer_;
-  std::unique_ptr<base::CallbackList<void()>::Subscription>
-      foreign_session_updated_subscription_;
+  base::CallbackListSubscription foreign_session_updated_subscription_;
 
   DISALLOW_COPY_AND_ASSIGN(SyncedSessionsObserverBridge);
 };

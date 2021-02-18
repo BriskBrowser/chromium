@@ -1,12 +1,14 @@
 include_rules = [
   "+chrome/browser/image_decoder",
   "-chrome/browser/ui/views",
+  "+chrome/updater",
   "+components/browser_ui/client_certificate",
   "+components/browser_ui/util/android/url_constants.h",
   "+components/country_codes",
   "+components/enterprise",
   "+components/infobars/android",
   "+components/page_load_metrics/browser",
+  "+components/qr_code_generator",
   "+components/safety_check",
   "+components/translate/content/android",
   "+services/content/public",
@@ -25,4 +27,7 @@ specific_include_rules = {
   "fullscreen_controller_interactive_browsertest\.cc": [
     "+ash/shell.h",
   ],
+  "sad_tab_helper.cc": [
+    "+content/common/content_navigation_policy.h",
+  ]
 }

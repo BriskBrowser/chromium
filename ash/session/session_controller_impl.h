@@ -94,19 +94,22 @@ class ASH_EXPORT SessionControllerImpl : public SessionController {
   // Gets the user sessions in LRU order with the active session being first.
   const UserSessions& GetUserSessions() const;
 
-  // Convenience helper to gets the user session at a given index. Returns
+  // Convenience helper to get the user session at a given index. Returns
   // nullptr if no user session is found for the index.
   const UserSession* GetUserSession(UserIndex index) const;
+
+  // Convenience helper to get the user session with the given account id.
+  // Returns nullptr if no user session is found for the account id.
+  const UserSession* GetUserSessionByAccountId(
+      const AccountId& account_id) const;
 
   // Gets the primary user session.
   const UserSession* GetPrimaryUserSession() const;
 
-  // Returns true if the current user is supervised: has legacy supervised
-  // account or kid account.
-  bool IsUserSupervised() const;
-
-  // Returns true if the current user is legacy supervised.
-  bool IsUserLegacySupervised() const;
+  // Returns true if the current user is supervised: has deprecated legacy
+  // supervised account or kid account.
+  // TODO(crbug/1155729): Remove and replace all calls with IsUserChild().
+  bool IsUserChildOrDeprecatedSupervised() const;
 
   // Returns true if the current user is a child account.
   bool IsUserChild() const;
@@ -137,6 +140,9 @@ class ASH_EXPORT SessionControllerImpl : public SessionController {
   // NOTE: This should only be called from LockStateController, other callers
   // should use LockStateController::RequestSignOut() instead.
   void RequestSignOut();
+
+  // Attempts to restart the chrome browser.
+  void AttemptRestartChrome();
 
   // Switches to another active user with |account_id| (if that user has
   // already signed in).

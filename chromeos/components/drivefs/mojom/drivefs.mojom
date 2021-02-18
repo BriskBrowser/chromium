@@ -100,6 +100,11 @@ interface DriveFs {
   CreateNativeHostSession(ExtensionConnectionParams params,
       pending_receiver<NativeMessagingHost> session,
       pending_remote<NativeMessagingPort> port);
+
+  // Find the files corresponding to Drive's item IDs provided.
+  // Paths returned are relative to the mount point.
+  LocateFilesByItemIds(array<string> item_ids) => (
+      array<FilePathOrError>? response);
 };
 
 // Implemented by Chrome, used from DriveFS.
@@ -153,6 +158,9 @@ interface DriveFsDelegate {
       pending_receiver<NativeMessagingPort> port,
       pending_remote<NativeMessagingHost> host) => (
           ExtensionConnectionStatus error);
+
+  // Invoked when Drive wants to display a confirmation dialog.
+  DisplayConfirmDialog(DialogReason reason) => (DialogResult result);
 };
 
 // Next MinVersion: 6
@@ -189,6 +197,17 @@ enum AccessTokenStatus {
   kAuthError,
 };
 
+enum DialogResult {
+  // The dialog was not displayed to the user.
+  kNotDisplayed,
+  // The user accepted the action proposed by the dialog.
+  kAccept,
+  // The user rejected the action proposed by the dialog.
+  kReject,
+  // The user closed the dialog without selecting an option.
+  kDismiss,
+};
+
 enum FileError {
   // These match the values of drive::FileError in
   // //components/drive/file_errors.h
@@ -223,6 +242,17 @@ struct DriveError {
   Type type;
 
   // The path to the file where an error was encountered, if there was one.
+  mojo_base.mojom.FilePath path;
+};
+
+struct DialogReason {
+  [Extensible] enum Type {
+    kEnableDocsOffline,
+  };
+
+  Type type;
+
+  // The path to the file associated with this dialog, if there was one.
   mojo_base.mojom.FilePath path;
 };
 
@@ -312,6 +342,18 @@ struct QuickAccess {
   double score;
 };
 
+// Reason why this event occurred.
+// TODO(crbug.com/896777): Put this inside ItemEvent once the fix for the linked
+// bug is in libchrome.
+[Extensible]
+enum ItemEventReason {
+  // Due to sync traffic from file transfers.
+  kTransfer,
+  // Due to the user pinning a file.
+  kPin,
+};
+
+// Next MinVersion: 2
 struct ItemEvent {
   enum State {
     kQueued,
@@ -334,6 +376,8 @@ struct ItemEvent {
   // as the sentinel value for unset.
   int64 bytes_transferred = -1;
   int64 bytes_to_transfer = -1;
+
+  [MinVersion=1] ItemEventReason reason = kTransfer;
 };
 
 struct SyncingStatus {
@@ -462,4 +506,10 @@ interface NativeMessagingHost {
 // Configuration of the connection between extension and DriveFS.
 struct ExtensionConnectionParams {
   string extension_id;
+};
+
+// A single file path resolution result.
+union FilePathOrError {
+  FileError error;
+  mojo_base.mojom.FilePath path;
 };

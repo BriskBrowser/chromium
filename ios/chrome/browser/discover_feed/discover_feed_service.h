@@ -9,6 +9,7 @@
 #include "components/signin/public/identity_manager/identity_manager.h"
 
 class ChromeBrowserState;
+@class DiscoverFeedMetricsRecorder;
 class DiscoverFeedProvider;
 
 // A browser-context keyed service that is used to keep the Discover Feed data
@@ -20,21 +21,26 @@ class DiscoverFeedService : public KeyedService,
   DiscoverFeedService(ChromeBrowserState* browser_state);
   ~DiscoverFeedService() override;
 
+  // Returns the FeedMetricsRecorder to be used by the Feed, a single instance
+  // of DiscoverFeedMetricsRecorder needs to be used per BrowserState.
+  DiscoverFeedMetricsRecorder* GetDiscoverFeedMetricsRecorder();
+
   // KeyedService:
   void Shutdown() override;
 
  private:
   // IdentityManager::Observer.
-  void OnPrimaryAccountSet(
-      const CoreAccountInfo& primary_account_info) override;
-  void OnPrimaryAccountCleared(
-      const CoreAccountInfo& previous_primary_account_info) override;
+  void OnPrimaryAccountChanged(
+      const signin::PrimaryAccountChangeEvent& event) override;
 
   // Identity manager to observe.
   signin::IdentityManager* identity_manager_;
 
   // Discover Feed provider to notify of changes.
   DiscoverFeedProvider* discover_feed_provider_;
+
+  // Metrics recorder for the DiscoverFeed.
+  DiscoverFeedMetricsRecorder* discover_feed_metrics_recorder_;
 
   DISALLOW_COPY_AND_ASSIGN(DiscoverFeedService);
 };

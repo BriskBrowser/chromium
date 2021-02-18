@@ -10,9 +10,9 @@
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "chrome/browser/chromeos/login/test/logged_in_user_mixin.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_key.h"
-#include "chrome/browser/supervised_user/logged_in_user_mixin.h"
 #include "chrome/browser/supervised_user/navigation_finished_waiter.h"
 #include "chrome/browser/supervised_user/permission_request_creator_mock.h"
 #include "chrome/browser/supervised_user/supervised_user_constants.h"
@@ -37,7 +37,6 @@
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
-#include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 
 using content::NavigationController;
@@ -47,6 +46,7 @@ namespace {
 
 static const char* kExampleHost = "www.example.com";
 static const char* kExampleHost2 = "www.example2.com";
+static const char* kFamiliesHost = "families.google.com";
 static const char* kIframeHost1 = "www.iframe1.com";
 static const char* kIframeHost2 = "www.iframe2.com";
 
@@ -198,8 +198,6 @@ void SupervisedUserNavigationThrottleTest::SetUp() {
 
 void SupervisedUserNavigationThrottleTest::SetUpOnMainThread() {
   MixinBasedInProcessBrowserTest::SetUpOnMainThread();
-  // Resolve everything to localhost.
-  host_resolver()->AddIPLiteralRule("*", "127.0.0.1", "localhost");
 
   ASSERT_TRUE(embedded_test_server()->Started());
 
@@ -270,39 +268,25 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserNavigationThrottleTest,
 }
 
 IN_PROC_BROWSER_TEST_F(SupervisedUserNavigationThrottleTest,
-                       AllowEDUCoexistenceInnerWebContents) {
-  BlockHost(kExampleHost2);
-  GURL manually_blocked_url = embedded_test_server()->GetURL(
-      kExampleHost2, "/supervised_user/with_iframes.html");
+                       AllowFamiliesDotGoogleDotComAccess) {
+  // Simulate families.google.com being set in the blocklist.
+  BlockHost(kFamiliesHost);
+  // TODO(https://crbug.com/1174695): This test is relying on a production
+  // service being available.  It should be probably be a TAST test instead of a
+  // browsertest.
+  const GURL kFamiliesDotGoogleDotComUrl =
+      GURL("https://families.google.com/families");
 
-  ui_test_utils::NavigateToURL(browser(),
-                               GURL(chrome::kChromeUIEDUCoexistenceLoginURL));
+  ui_test_utils::NavigateToURL(browser(), kFamiliesDotGoogleDotComUrl);
+
   // Get the top level WebContents.
   content::WebContents* contents =
       browser()->tab_strip_model()->GetActiveWebContents();
-  EXPECT_EQ(contents->GetURL(), GURL(chrome::kChromeUIEDUCoexistenceLoginURL));
 
-  InnerWebContentsAttachedWaiter web_contents_attached_waiter(
-      browser()->tab_strip_model()->GetActiveWebContents());
-  web_contents_attached_waiter.WaitForInnerWebContentsAttached();
+  EXPECT_EQ(contents->GetLastCommittedURL(), kFamiliesDotGoogleDotComUrl);
 
-  // Get the inner WebContents.
-  std::vector<content::WebContents*> inner_web_contents =
-      contents->GetInnerWebContents();
-
-  // There is only one inner web content in EDUCoexistence flow.
-  EXPECT_EQ(inner_web_contents.size(), 1u);
-
-  content::WebContents* webview_element = inner_web_contents[0];
-  NavigationFinishedWaiter waiter(webview_element, manually_blocked_url);
-  webview_element->GetController().LoadURLWithParams(
-      NavigationController::LoadURLParams(manually_blocked_url));
-  waiter.Wait();
-
-  // Make sure that there is no error page in the inner web content.
-  EXPECT_NE(
-      webview_element->GetController().GetLastCommittedEntry()->GetPageType(),
-      content::PAGE_TYPE_ERROR);
+  // families.google.com should not be blocked.
+  EXPECT_FALSE(IsInterstitialBeingShownInMainFrame(browser()));
 }
 
 class SupervisedUserIframeFilterTest
@@ -603,7 +587,7 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserIframeFilterTest,
   BlockHost(kExampleHost);
 
   GURL blocked_url = embedded_test_server()->GetURL(
-      kExampleHost, "/supervised_user/with_frames.html");
+      kExampleHost, "/supervised_user/with_iframes.html");
   ui_test_utils::NavigateToURL(browser(), blocked_url);
   EXPECT_TRUE(IsInterstitialBeingShownInMainFrame(browser()));
 
@@ -622,7 +606,7 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserIframeFilterTest,
 
   // Navigate to another allowed url.
   GURL allowed_url = embedded_test_server()->GetURL(
-      kExampleHost2, "/supervised_user/with_frames.html");
+      kExampleHost2, "/supervised_user/with_iframes.html");
   ui_test_utils::NavigateToURL(browser(), allowed_url);
   EXPECT_FALSE(IsInterstitialBeingShownInMainFrame(browser()));
 
@@ -654,6 +638,37 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserIframeFilterTest,
                               kExampleHost));
 
   EXPECT_FALSE(IsInterstitialBeingShownInMainFrame(browser()));
+}
+
+IN_PROC_BROWSER_TEST_F(SupervisedUserIframeFilterTest,
+                       IframesWithSameDomainAsMainFrameAllowed) {
+  SupervisedUserService* service =
+      SupervisedUserServiceFactory::GetForProfile(browser()->profile());
+  SupervisedUserURLFilter* filter = service->GetURLFilter();
+
+  // Set the default behavior to block.
+  filter->SetDefaultFilteringBehavior(SupervisedUserURLFilter::BLOCK);
+
+  // The async checker will make rpc calls to check if the url should be
+  // blocked or not. This may cause flakiness.
+  filter->ClearAsyncURLChecker();
+
+  base::RunLoop().RunUntilIdle();
+
+  // Allows |www.example.com|.
+  AllowlistHost(kExampleHost);
+
+  // |with_frames_same_domain.html| contains subframes with "a.example.com" and
+  // "b.example.com", and "c.example2.com" urls.
+  GURL allowed_url = embedded_test_server()->GetURL(
+      kExampleHost, "/supervised_user/with_iframes_same_domain.html");
+
+  ui_test_utils::NavigateToURL(browser(), allowed_url);
+  EXPECT_FALSE(IsInterstitialBeingShownInMainFrame(browser()));
+
+  auto blocked_frames = GetBlockedFrames();
+  EXPECT_EQ(blocked_frames.size(), 1u);
+  EXPECT_EQ(GetBlockedFrameURL(blocked_frames[0]).host(), "www.c.example2.com");
 }
 
 class SupervisedUserNavigationThrottleNotSupervisedTest

@@ -126,6 +126,10 @@ void CastDisplayConfigurator::OnConfigurationChanged() {
       false /* force_initial_configure */));
 }
 
+void CastDisplayConfigurator::OnDisplaySnapshotsInvalidated() {
+  display_ = nullptr;
+}
+
 void CastDisplayConfigurator::EnableDisplay(
     display::ConfigureCallback callback) {
   if (!delegate_ || !display_)
@@ -230,17 +234,15 @@ void CastDisplayConfigurator::OnDisplayConfigured(
     display::DisplaySnapshot* display,
     const display::DisplayMode* mode,
     const gfx::Point& origin,
-    const base::flat_map<int64_t, bool>& statuses) {
+    bool config_success) {
   DCHECK(display);
   DCHECK(mode);
   DCHECK_EQ(display, display_);
-  DCHECK_EQ(statuses.size(), 1UL);
 
   const gfx::Rect bounds(origin, mode->size());
-  bool success = statuses.at(display_->display_id());
-  DVLOG(1) << __func__ << " success=" << success
+  DVLOG(1) << __func__ << " success=" << config_success
            << " bounds=" << bounds.ToString();
-  if (success) {
+  if (config_success) {
     // Need to update the display state otherwise it becomes stale.
     display_->set_current_mode(mode);
     display_->set_origin(origin);

@@ -6,6 +6,7 @@ import("//build/config/android/rules.gni")
 
 android_library("java") {
   sources = [
+    "java/src/org/chromium/components/browser_ui/util/AvatarGenerator.java",
     "java/src/org/chromium/components/browser_ui/util/BitmapCache.java",
     "java/src/org/chromium/components/browser_ui/util/BrowserControlsVisibilityDelegate.java",
     "java/src/org/chromium/components/browser_ui/util/ComposedBrowserControlsVisibilityDelegate.java",
@@ -20,17 +21,16 @@ android_library("java") {
   deps = [
     ":java_resources",
     "//base:base_java",
+    "//cc:cc_java",
     "//components/embedder_support/android:util_java",
-    "//content/public/android:content_java",
-    "//third_party/android_deps:androidx_annotation_annotation_java",
-    "//third_party/android_deps:androidx_collection_collection_java",
-    "//third_party/android_deps:androidx_core_core_java",
+    "//third_party/androidx:androidx_annotation_annotation_java",
+    "//third_party/androidx:androidx_collection_collection_java",
+    "//third_party/androidx:androidx_core_core_java",
   ]
   resources_package = "org.chromium.components.browser_ui.util"
 }
 
 android_resources("java_resources") {
-  create_srcjar = false
   sources = []
   deps = [ "//components/browser_ui/strings/android:browser_ui_strings_grd" ]
 }
@@ -56,6 +56,7 @@ java_library("junit") {
     "//base:base_java_test_support",
     "//base:base_junit_test_support",
     "//base/test:test_support_java",
+    "//cc:cc_java",
     "//content/public/android:content_java",
     "//third_party/android_deps:robolectric_all_java",
     "//third_party/junit",

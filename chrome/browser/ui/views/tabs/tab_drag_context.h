@@ -68,10 +68,6 @@ class TabDragContext {
   // Returns the width of the active tab.
   virtual int GetActiveTabWidth() const = 0;
 
-  // Returns the width of the area that contains tabs. This does not include
-  // the width of the new tab button.
-  virtual int GetTabAreaWidth() const = 0;
-
   // Returns the width of the region in which dragged tabs are allowed to exist.
   virtual int GetTabDragAreaWidth() const = 0;
 
@@ -89,15 +85,16 @@ class TabDragContext {
   // this tabstrip given the DraggedTabView's bounds |dragged_bounds| in
   // coordinates relative to |attached_tabstrip_| and has had the mirroring
   // transformation applied.
+  // |dragged_views| are the view children of |attached_tabstrip_| that are
+  // part of the drag.
   // |mouse_has_ever_moved_left| and |mouse_has_ever_moved_right| are used
   // only in stacked tabs cases.
   // |group| is set if the drag is originating from a group header, in which
   // case the entire group is dragged and should not be dropped into other
   // groups.
-  // NOTE: this is invoked from Attach() before the tabs have been inserted.
   virtual int GetInsertionIndexForDraggedBounds(
       const gfx::Rect& dragged_bounds,
-      bool attaching,
+      std::vector<TabSlotView*> dragged_views,
       int num_dragged_tabs,
       bool mouse_has_ever_moved_left,
       bool mouse_has_ever_moved_right,

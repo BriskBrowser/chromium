@@ -19,11 +19,10 @@
 #include "third_party/blink/renderer/core/layout/ng/legacy_layout_tree_walking.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_fragment_child_iterator.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
-#include "third_party/blink/renderer/core/layout/svg/svg_layout_support.h"
+#include "third_party/blink/renderer/core/mobile_metrics/mobile_friendliness_checker.h"
 #include "third_party/blink/renderer/core/page/link_highlight.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/paint/clip_path_clipper.h"
-#include "third_party/blink/renderer/core/paint/ng/ng_paint_fragment.h"
 #include "third_party/blink/renderer/core/paint/object_paint_properties.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
@@ -31,6 +30,23 @@
 #include "third_party/blink/renderer/platform/graphics/paint/geometry_mapper.h"
 
 namespace blink {
+
+void PaintInvalidatorContext::ParentContextAccessor::Trace(
+    Visitor* visitor) const {
+  visitor->Trace(tree_walk_);
+}
+
+void PaintInvalidatorContext::Trace(Visitor* visitor) const {
+  visitor->Trace(parent_context_accessor_);
+  visitor->Trace(directly_composited_container);
+  visitor->Trace(directly_composited_container_for_stacked_contents);
+  visitor->Trace(painting_layer);
+  visitor->Trace(fragment_data);
+}
+
+void PaintInvalidator::Trace(Visitor* visitor) const {
+  visitor->Trace(pending_delayed_paint_invalidations_);
+}
 
 const PaintInvalidatorContext*
 PaintInvalidatorContext::ParentContextAccessor::ParentContext() const {
@@ -43,8 +59,8 @@ void PaintInvalidator::UpdatePaintingLayer(const LayoutObject& object,
                                            PaintInvalidatorContext& context,
                                            bool is_ng_painting) {
   if (object.HasLayer() &&
-      ToLayoutBoxModelObject(object).HasSelfPaintingLayer()) {
-    context.painting_layer = ToLayoutBoxModelObject(object).Layer();
+      To<LayoutBoxModelObject>(object).HasSelfPaintingLayer()) {
+    context.painting_layer = To<LayoutBoxModelObject>(object).Layer();
   } else if (!is_ng_painting &&
              (object.IsColumnSpanAll() ||
               object.IsFloatingWithNonContainingBlockParent())) {
@@ -65,8 +81,12 @@ void PaintInvalidator::UpdatePaintingLayer(const LayoutObject& object,
        IsLayoutNGContainingBlock(object.ContainingBlock())))
     context.painting_layer->SetNeedsPaintPhaseFloat();
 
-  if (object != context.painting_layer->GetLayoutObject() &&
-      object.StyleRef().HasOutline())
+  if (!context.painting_layer->NeedsPaintPhaseDescendantOutlines() &&
+      ((object != context.painting_layer->GetLayoutObject() &&
+        object.StyleRef().HasOutline()) ||
+       // If this is a block-in-inline, it may need to paint outline.
+       // See |StyleForContinuationOutline|.
+       (layout_block_flow && layout_block_flow->StyleForContinuationOutline())))
     context.painting_layer->SetNeedsPaintPhaseDescendantOutlines();
 }
 
@@ -78,10 +98,11 @@ void PaintInvalidator::UpdateDirectlyCompositedContainer(
     return;
 
   if (object.CanBeCompositedForDirectReasons()) {
-    context.directly_composited_container = ToLayoutBoxModelObject(&object);
-    if (object.IsStackingContext() || object.IsSVGRoot())
+    context.directly_composited_container = To<LayoutBoxModelObject>(&object);
+    if (object.IsStackingContext() || object.IsSVGRoot()) {
       context.directly_composited_container_for_stacked_contents =
-          ToLayoutBoxModelObject(&object);
+          To<LayoutBoxModelObject>(&object);
+    }
   } else if (IsA<LayoutView>(object)) {
     // paint_invalidation_container_for_stacked_contents is only for stacked
     // descendants in its own frame, because it doesn't establish stacking
@@ -104,20 +125,28 @@ void PaintInvalidator::UpdateDirectlyCompositedContainer(
              // This is to exclude some objects (e.g. LayoutText) inheriting
              // stacked style from parent but aren't actually stacked.
              object.HasLayer() &&
-             !ToLayoutBoxModelObject(object)
-                  .Layer()
-                  ->IsReplacedNormalFlowStacking() &&
              context.directly_composited_container !=
                  context.directly_composited_container_for_stacked_contents) {
-    // The current object is stacked, so we should use
-    // directly_composited_container_for_stacked_contents as its paint
-    // invalidation container on which the current object is painted.
-    context.directly_composited_container =
-        context.directly_composited_container_for_stacked_contents;
-    if (context.subtree_flags &
-        PaintInvalidatorContext::kSubtreeFullInvalidationForStackedContents) {
-      context.subtree_flags |=
-          PaintInvalidatorContext::kSubtreeFullInvalidation;
+    if (To<LayoutBoxModelObject>(object)
+            .Layer()
+            ->IsReplacedNormalFlowStacking()) {
+      DCHECK(object.IsStackingContext());
+      // A ReplacedNormalFlowStacking object doesn't stack into parent stacking
+      // context, while the stacked descendants are stacked into it and inherit
+      // its direct_composited_container.
+      context.directly_composited_container_for_stacked_contents =
+          context.directly_composited_container;
+    } else {
+      // The current object is stacked, so we should use
+      // directly_composited_container_for_stacked_contents as its paint
+      // invalidation container on which the current object is painted.
+      context.directly_composited_container =
+          context.directly_composited_container_for_stacked_contents;
+      if (context.subtree_flags &
+          PaintInvalidatorContext::kSubtreeFullInvalidationForStackedContents) {
+        context.subtree_flags |=
+            PaintInvalidatorContext::kSubtreeFullInvalidation;
+      }
     }
   }
 
@@ -137,9 +166,10 @@ void PaintInvalidator::UpdateDirectlyCompositedContainer(
     }
   }
 
-  DCHECK(context.directly_composited_container ==
-         object.DirectlyCompositableContainer());
-  DCHECK(context.painting_layer == object.PaintingLayer());
+  DCHECK_EQ(context.directly_composited_container,
+            object.DirectlyCompositableContainer())
+      << object;
+  DCHECK_EQ(context.painting_layer, object.PaintingLayer()) << object;
 }
 
 void PaintInvalidator::UpdateFromTreeBuilderContext(
@@ -151,10 +181,11 @@ void PaintInvalidator::UpdateFromTreeBuilderContext(
   // For performance, we ignore subpixel movement of composited layers for paint
   // invalidation. This will result in imperfect pixel-snapped painting.
   // See crbug.com/833083 for details.
-  if (tree_builder_context.current
-          .directly_composited_container_paint_offset_subpixel_delta ==
-      tree_builder_context.current.paint_offset -
-          tree_builder_context.old_paint_offset) {
+  if (!RuntimeEnabledFeatures::PaintUnderInvalidationCheckingEnabled() &&
+      tree_builder_context.current
+              .directly_composited_container_paint_offset_subpixel_delta ==
+          tree_builder_context.current.paint_offset -
+              tree_builder_context.old_paint_offset) {
     context.old_paint_offset = tree_builder_context.current.paint_offset;
   } else {
     context.old_paint_offset = tree_builder_context.old_paint_offset;
@@ -170,17 +201,37 @@ void PaintInvalidator::UpdateLayoutShiftTracking(
   if (!object.ShouldCheckGeometryForPaintInvalidation())
     return;
 
-  auto& layout_shift_tracker = object.GetFrameView()->GetLayoutShiftTracker();
-  if (!layout_shift_tracker.NeedsToTrack(object))
+  if (tree_builder_context.this_or_ancestor_opacity_is_zero) {
+    object.GetMutableForPainting().SetShouldSkipNextLayoutShiftTracking(true);
     return;
+  }
+
+  auto& layout_shift_tracker = object.GetFrameView()->GetLayoutShiftTracker();
+  if (!layout_shift_tracker.NeedsToTrack(object)) {
+    object.GetMutableForPainting().SetShouldSkipNextLayoutShiftTracking(true);
+    return;
+  }
 
   PropertyTreeStateOrAlias property_tree_state(
       *tree_builder_context.current.transform,
       *tree_builder_context.current.clip, *tree_builder_context.current_effect);
 
+  // Adjust old_paint_offset so that LayoutShiftTracker will see the change of
+  // offset caused by change of paint offset translations below the layout shift
+  // root.
+  PhysicalOffset adjusted_old_transform_indifferent_paint_offset =
+      context.old_paint_offset -
+      tree_builder_context.current.additional_offset_to_layout_shift_root_delta;
+  PhysicalOffset adjusted_old_paint_offset =
+      adjusted_old_transform_indifferent_paint_offset -
+      tree_builder_context.translation_2d_to_layout_shift_root_delta;
+  PhysicalOffset new_paint_offset = tree_builder_context.current.paint_offset;
+
   if (object.IsText()) {
-    const auto& text = ToLayoutText(object);
-    LogicalOffset new_starting_point = text.LogicalStartingPoint();
+    const auto& text = To<LayoutText>(object);
+    LogicalOffset new_starting_point;
+    LayoutUnit logical_height;
+    text.LogicalStartingPointAndHeight(new_starting_point, logical_height);
     LogicalOffset old_starting_point = text.PreviousLogicalStartingPoint();
     if (new_starting_point == old_starting_point)
       return;
@@ -194,33 +245,48 @@ void PaintInvalidator::UpdateLayoutShiftTracking(
 
     layout_shift_tracker.NotifyTextPrePaint(
         text, property_tree_state, old_starting_point, new_starting_point,
-        // Similar to the adjustment of old_paint_offset for LayoutBox.
-        context.old_paint_offset -
-            tree_builder_context.current
-                .additional_offset_to_layout_shift_root_delta,
-        tree_builder_context.current.paint_offset);
+        adjusted_old_paint_offset,
+        adjusted_old_transform_indifferent_paint_offset, new_paint_offset,
+        logical_height);
     return;
   }
 
   DCHECK(object.IsBox());
-  const auto& box = ToLayoutBox(object);
+  const auto& box = To<LayoutBox>(object);
 
-  PhysicalRect new_rect = box.PhysicalBorderBoxRect();
-  if (!box.HasNonVisibleOverflow())
-    new_rect.Unite(box.PhysicalLayoutOverflowRect());
-  PhysicalRect old_rect = PhysicalRect(PhysicalOffset(), box.PreviousSize());
-  if (!box.PreviouslyHadNonVisibleOverflow())
-    old_rect.Unite(box.PreviousPhysicalLayoutOverflowRect());
+  PhysicalRect new_rect = box.PhysicalVisualOverflowRect();
+  new_rect.Move(new_paint_offset);
+  PhysicalRect old_rect = box.PreviousPhysicalVisualOverflowRect();
+  old_rect.Move(adjusted_old_paint_offset);
+
+  bool should_create_containing_block_scope =
+      // TODO(crbug.com/1178618): Support multiple-fragments when switching to
+      // LayoutNGFragmentTraversal.
+      context.fragment_data == &box.FirstFragment() &&
+      box.IsLayoutBlockFlow() && box.ChildrenInline() && box.SlowFirstChild();
+  if (should_create_containing_block_scope) {
+    // For layout shift tracking of contained LayoutTexts.
+    context.containing_block_scope_ =
+        std::make_unique<LayoutShiftTracker::ContainingBlockScope>(
+            PhysicalSizeToBeNoop(box.PreviousSize()),
+            PhysicalSizeToBeNoop(box.Size()), old_rect, new_rect);
+  }
 
   bool should_report_layout_shift = [&]() -> bool {
+    if (box.ShouldSkipNextLayoutShiftTracking()) {
+      box.GetMutableForPainting().SetShouldSkipNextLayoutShiftTracking(false);
+      return false;
+    }
     // If the layout shift root has changed, LayoutShiftTracker can't use the
     // current paint property tree to map the old rect.
     if (tree_builder_context.current.layout_shift_root_changed)
       return false;
     if (new_rect.IsEmpty() || old_rect.IsEmpty())
       return false;
-    // The parent of out-of-flow-positioned object may not be its container.
-    if (object.IsOutOfFlowPositioned())
+    // Track self-painting layers separately because their ancestors'
+    // PhysicalVisualOverflowRect may not cover them.
+    if (object.HasLayer() &&
+        To<LayoutBoxModelObject>(object).HasSelfPaintingLayer())
       return true;
     // We don't report shift for anonymous objects but report for the children.
     if (object.Parent()->IsAnonymous())
@@ -234,41 +300,13 @@ void PaintInvalidator::UpdateLayoutShiftTracking(
     // different from that of the parent).
     return parent_context->fragment_data->PaintOffset() -
                parent_context->old_paint_offset !=
-           tree_builder_context.current.paint_offset - context.old_paint_offset;
+           new_paint_offset - context.old_paint_offset;
   }();
-
-  bool should_create_containing_block_scope =
-      // TODO(crbug.com/1104064): Support multiple-fragments when switching to
-      // LayoutNGFragmentTraversal.
-      context.fragment_data == &box.FirstFragment() &&
-      box.IsLayoutBlockFlow() && box.ChildrenInline() && box.SlowFirstChild();
-  if (!should_report_layout_shift && !should_create_containing_block_scope)
-    return;
-
-  new_rect.Move(tree_builder_context.current.paint_offset);
-  old_rect.Move(context.old_paint_offset);
-  // Adjust old_visual_rect so that LayoutShiftTracker can see the change of
-  // offset caused by change of transforms below the 2d translation root.
-  old_rect.Move(-tree_builder_context.current
-                     .additional_offset_to_layout_shift_root_delta);
-
-  if (should_create_containing_block_scope) {
-    // For layout shift tracking of contained LayoutTexts.
-    context.containing_block_scope_ =
-        std::make_unique<LayoutShiftTracker::ContainingBlockScope>(
-            PhysicalSizeToBeNoop(box.PreviousSize()),
-            PhysicalSizeToBeNoop(box.Size()), old_rect, new_rect);
-    if (!should_report_layout_shift)
-      return;
+  if (should_report_layout_shift) {
+    layout_shift_tracker.NotifyBoxPrePaint(
+        box, property_tree_state, old_rect, new_rect, adjusted_old_paint_offset,
+        adjusted_old_transform_indifferent_paint_offset, new_paint_offset);
   }
-
-  // Adjust old_paint_offset similarly.
-  PhysicalOffset old_paint_offset =
-      context.old_paint_offset -
-      tree_builder_context.current.additional_offset_to_layout_shift_root_delta;
-  layout_shift_tracker.NotifyBoxPrePaint(
-      box, property_tree_state, old_rect, new_rect, old_paint_offset,
-      tree_builder_context.current.paint_offset);
 }
 
 bool PaintInvalidator::InvalidatePaint(
@@ -295,14 +333,24 @@ bool PaintInvalidator::InvalidatePaint(
   if (!object.ShouldCheckForPaintInvalidation() && !context.NeedsSubtreeWalk())
     return false;
 
-  if (!RuntimeEnabledFeatures::CompositeAfterPaintEnabled() &&
-      object.GetFrame()->GetPage()->GetLinkHighlight().NeedsHighlightEffect(
-          object)) {
-    // We need to recollect the foreign layers for link highlight when the
-    // geometry of the highlights may change. CompositeAfterPaint doesn't
-    // need this because we collect foreign layers during
-    // LocalFrameView::PaintTree() which is not controlled by the flag.
-    object.GetFrameView()->SetForeignLayerListNeedsUpdate();
+  if (object.SubtreeShouldDoFullPaintInvalidation()) {
+    context.subtree_flags |=
+        PaintInvalidatorContext::kSubtreeFullInvalidation |
+        PaintInvalidatorContext::kSubtreeFullInvalidationForStackedContents;
+  }
+
+  if (object.SubtreeShouldCheckForPaintInvalidation()) {
+    context.subtree_flags |=
+        PaintInvalidatorContext::kSubtreeInvalidationChecking;
+  }
+
+  if (UNLIKELY(object.ContainsInlineWithOutlineAndContinuation()) &&
+      // Need this only if the subtree needs to check geometry change.
+      PrePaintTreeWalk::ObjectRequiresTreeBuilderContext(object)) {
+    // Force subtree invalidation checking to ensure invalidation of focus rings
+    // when continuation's geometry changes.
+    context.subtree_flags |=
+        PaintInvalidatorContext::kSubtreeInvalidationChecking;
   }
 
   if (pre_paint_info) {
@@ -337,6 +385,9 @@ bool PaintInvalidator::InvalidatePaint(
         UpdateFromTreeBuilderContext(fragment_tree_builder_context, context);
         UpdateLayoutShiftTracking(object, fragment_tree_builder_context,
                                   context);
+        object.GetFrameView()
+            ->GetMobileFriendlinessChecker()
+            .NotifyInvalidatePaint(object);
       } else {
         context.old_paint_offset = fragment_data->PaintOffset();
       }
@@ -353,24 +404,6 @@ bool PaintInvalidator::InvalidatePaint(
        reason == PaintInvalidationReason::kJustCreated))
     pending_delayed_paint_invalidations_.push_back(&object);
 
-  if (object.SubtreeShouldDoFullPaintInvalidation()) {
-    context.subtree_flags |=
-        PaintInvalidatorContext::kSubtreeFullInvalidation |
-        PaintInvalidatorContext::kSubtreeFullInvalidationForStackedContents;
-  }
-
-  if (object.SubtreeShouldCheckForPaintInvalidation()) {
-    context.subtree_flags |=
-        PaintInvalidatorContext::kSubtreeInvalidationChecking;
-  }
-
-  if (UNLIKELY(object.ContainsInlineWithOutlineAndContinuation())) {
-    // Force subtree invalidation checking to ensure invalidation of focus rings
-    // when continuation's geometry changes.
-    context.subtree_flags |=
-        PaintInvalidatorContext::kSubtreeInvalidationChecking;
-  }
-
   if (AXObjectCache* cache = object.GetDocument().ExistingAXObjectCache())
     cache->InvalidateBoundingBox(&object);
 
@@ -378,7 +411,7 @@ bool PaintInvalidator::InvalidatePaint(
 }
 
 void PaintInvalidator::ProcessPendingDelayedPaintInvalidations() {
-  for (auto* target : pending_delayed_paint_invalidations_)
+  for (const auto& target : pending_delayed_paint_invalidations_)
     target->GetMutableForPainting().SetShouldDelayFullPaintInvalidation();
 }
 

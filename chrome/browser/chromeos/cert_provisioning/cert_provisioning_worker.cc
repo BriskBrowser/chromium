@@ -6,7 +6,8 @@
 
 #include "base/base64.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_forward.h"
+#include "base/callback_helpers.h"
 #include "base/no_destructor.h"
 #include "base/optional.h"
 #include "base/time/time.h"
@@ -15,6 +16,7 @@
 #include "chrome/browser/chromeos/cert_provisioning/cert_provisioning_invalidator.h"
 #include "chrome/browser/chromeos/cert_provisioning/cert_provisioning_metrics.h"
 #include "chrome/browser/chromeos/cert_provisioning/cert_provisioning_serializer.h"
+#include "chrome/browser/chromeos/platform_keys/key_permissions/key_permissions_manager.h"
 #include "chrome/browser/chromeos/platform_keys/platform_keys.h"
 #include "chrome/browser/chromeos/platform_keys/platform_keys_service.h"
 #include "chrome/browser/chromeos/platform_keys/platform_keys_service_factory.h"
@@ -36,6 +38,23 @@ constexpr unsigned int kNonVaKeyModulusLengthBits = 2048;
 
 constexpr base::TimeDelta kMinumumTryAgainLaterDelay =
     base::TimeDelta::FromSeconds(10);
+
+// The delay after which a StartCsr request can be resent after a 412 Pending
+// Approval has been returned by the DM server.
+constexpr base::TimeDelta kRetryStartCsrRequestDelay =
+    base::TimeDelta::FromHours(1);
+// The delay after which a FinishCsr request can be resent after a 412 Pending
+// Approval has been returned by the DM server.
+constexpr base::TimeDelta kRetryFinishCsrRequestDelay =
+    base::TimeDelta::FromHours(1);
+// The delay after which a DownloadCsr request can be resent after a 412 Pending
+// Approval has been returned by the DM server.
+// Note: This request retry delay is more than other delays as a DownloadCsr
+// request may not only fail because of a DM server or a CES server problem but
+// also because of a problem with the Google Certificate Connecter which may
+// take more time to solve.
+constexpr base::TimeDelta kRetryDownloadCsrRequestDelay =
+    base::TimeDelta::FromHours(8);
 
 constexpr net::BackoffEntry::Policy kBackoffPolicy{
     /*num_errors_to_ignore=*/0,
@@ -67,6 +86,10 @@ bool ConvertHashingAlgorithm(
     case em::HashingAlgorithm::SHA256:
       *output_algo =
           chromeos::platform_keys::HashAlgorithm::HASH_ALGORITHM_SHA256;
+      return true;
+    case em::HashingAlgorithm::NO_HASH:
+      *output_algo =
+          chromeos::platform_keys::HashAlgorithm::HASH_ALGORITHM_NONE;
       return true;
     case em::HashingAlgorithm::HASHING_ALGORITHM_UNSPECIFIED:
       return false;
@@ -111,6 +134,37 @@ int GetStateOrderedIndex(CertProvisioningWorkerState state) {
   return res;
 }
 
+void OnAllowKeyForUsageDone(platform_keys::Status status) {
+  if (status != platform_keys::Status::kSuccess) {
+    LOG(ERROR) << "Cannot mark key corporate: "
+               << platform_keys::StatusToString(status);
+  }
+}
+// Marks the key |public_key_spki_der| as corporate. |profile| can be nullptr if
+// |scope| is CertScope::kDevice.
+void MarkKeyAsCorporate(CertScope scope,
+                        Profile* profile,
+                        const std::string& public_key_spki_der) {
+  CHECK(profile || scope == CertScope::kDevice);
+
+  GetKeyPermissionsManager(scope, profile)
+      ->AllowKeyForUsage(base::BindOnce(&OnAllowKeyForUsageDone),
+                         platform_keys::KeyUsage::kCorporate,
+                         public_key_spki_der);
+}
+
+base::TimeDelta GetTryLaterDelayForRequestType(
+    DeviceManagementServerRequestType request_type) {
+  switch (request_type) {
+    case DeviceManagementServerRequestType::kStartCsr:
+      return kRetryStartCsrRequestDelay;
+    case DeviceManagementServerRequestType::kFinishCsr:
+      return kRetryFinishCsrRequestDelay;
+    case DeviceManagementServerRequestType::kDownloadCert:
+      return kRetryDownloadCsrRequestDelay;
+  }
+}
+
 }  // namespace
 
 // ============= CertProvisioningWorkerFactory =================================
@@ -135,11 +189,13 @@ std::unique_ptr<CertProvisioningWorker> CertProvisioningWorkerFactory::Create(
     const CertProfile& cert_profile,
     policy::CloudPolicyClient* cloud_policy_client,
     std::unique_ptr<CertProvisioningInvalidator> invalidator,
-    CertProvisioningWorkerCallback callback) {
+    base::RepeatingClosure state_change_callback,
+    CertProvisioningWorkerCallback result_callback) {
   RecordEvent(cert_scope, CertProvisioningEvent::kWorkerCreated);
   return std::make_unique<CertProvisioningWorkerImpl>(
       cert_scope, profile, pref_service, cert_profile, cloud_policy_client,
-      std::move(invalidator), std::move(callback));
+      std::move(invalidator), std::move(state_change_callback),
+      std::move(result_callback));
 }
 
 std::unique_ptr<CertProvisioningWorker>
@@ -150,10 +206,12 @@ CertProvisioningWorkerFactory::Deserialize(
     const base::Value& saved_worker,
     policy::CloudPolicyClient* cloud_policy_client,
     std::unique_ptr<CertProvisioningInvalidator> invalidator,
-    CertProvisioningWorkerCallback callback) {
+    base::RepeatingClosure state_change_callback,
+    CertProvisioningWorkerCallback result_callback) {
   auto worker = std::make_unique<CertProvisioningWorkerImpl>(
       cert_scope, profile, pref_service, CertProfile(), cloud_policy_client,
-      std::move(invalidator), std::move(callback));
+      std::move(invalidator), std::move(state_change_callback),
+      std::move(result_callback));
   if (!CertProvisioningSerializer::DeserializeWorker(saved_worker,
                                                      worker.get())) {
     RecordEvent(cert_scope,
@@ -179,12 +237,14 @@ CertProvisioningWorkerImpl::CertProvisioningWorkerImpl(
     const CertProfile& cert_profile,
     policy::CloudPolicyClient* cloud_policy_client,
     std::unique_ptr<CertProvisioningInvalidator> invalidator,
-    CertProvisioningWorkerCallback callback)
+    base::RepeatingClosure state_change_callback,
+    CertProvisioningWorkerCallback result_callback)
     : cert_scope_(cert_scope),
       profile_(profile),
       pref_service_(pref_service),
       cert_profile_(cert_profile),
-      callback_(std::move(callback)),
+      state_change_callback_(std::move(state_change_callback)),
+      result_callback_(std::move(result_callback)),
       request_backoff_(&kBackoffPolicy),
       cloud_policy_client_(cloud_policy_client),
       invalidator_(std::move(invalidator)) {
@@ -311,6 +371,7 @@ void CertProvisioningWorkerImpl::UpdateState(
 
   HandleSerialization();
 
+  state_change_callback_.Run();
   if (IsFinalState(state_)) {
     CleanUpAndRunCallback();
   }
@@ -327,8 +388,8 @@ void CertProvisioningWorkerImpl::GenerateKey() {
 void CertProvisioningWorkerImpl::GenerateRegularKey() {
   platform_keys_service_->GenerateRSAKey(
       GetPlatformKeysTokenId(cert_scope_), kNonVaKeyModulusLengthBits,
-      base::Bind(&CertProvisioningWorkerImpl::OnGenerateRegularKeyDone,
-                 weak_factory_.GetWeakPtr()));
+      base::BindOnce(&CertProvisioningWorkerImpl::OnGenerateRegularKeyDone,
+                     weak_factory_.GetWeakPtr()));
 }
 
 void CertProvisioningWorkerImpl::OnGenerateRegularKeyDone(
@@ -407,7 +468,8 @@ void CertProvisioningWorkerImpl::OnStartCsrDone(
     const std::string& data_to_sign) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  if (!ProcessResponseErrors(status, error, try_later)) {
+  if (!ProcessResponseErrors(DeviceManagementServerRequestType::kStartCsr,
+                             status, error, try_later)) {
     return;
   }
 
@@ -505,6 +567,8 @@ void CertProvisioningWorkerImpl::OnRegisterKeyDone(
 void CertProvisioningWorkerImpl::MarkKey() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
+  MarkKeyAsCorporate(cert_scope_, profile_, public_key_);
+
   platform_keys_service_->SetAttributeForKey(
       GetPlatformKeysTokenId(cert_scope_), public_key_,
       platform_keys::KeyAttributeType::kCertificateProvisioningId,
@@ -536,6 +600,15 @@ void CertProvisioningWorkerImpl::SignCsr() {
     return;
   }
 
+  if (hashing_algorithm_ ==
+      chromeos::platform_keys::HashAlgorithm::HASH_ALGORITHM_NONE) {
+    platform_keys_service_->SignRSAPKCS1Raw(
+        GetPlatformKeysTokenId(cert_scope_), csr_, public_key_,
+        base::BindRepeating(&CertProvisioningWorkerImpl::OnSignCsrDone,
+                            weak_factory_.GetWeakPtr(),
+                            base::TimeTicks::Now()));
+    return;
+  }
   platform_keys_service_->SignRSAPKCS1Digest(
       GetPlatformKeysTokenId(cert_scope_), csr_, public_key_,
       hashing_algorithm_.value(),
@@ -579,7 +652,8 @@ void CertProvisioningWorkerImpl::OnFinishCsrDone(
     base::Optional<int64_t> try_later) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  if (!ProcessResponseErrors(status, error, try_later)) {
+  if (!ProcessResponseErrors(DeviceManagementServerRequestType::kFinishCsr,
+                             status, error, try_later)) {
     return;
   }
 
@@ -604,7 +678,8 @@ void CertProvisioningWorkerImpl::OnDownloadCertDone(
     const std::string& pem_encoded_certificate) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  if (!ProcessResponseErrors(status, error, try_later)) {
+  if (!ProcessResponseErrors(DeviceManagementServerRequestType::kDownloadCert,
+                             status, error, try_later)) {
     return;
   }
 
@@ -652,6 +727,7 @@ void CertProvisioningWorkerImpl::OnImportCertDone(
 }
 
 bool CertProvisioningWorkerImpl::ProcessResponseErrors(
+    DeviceManagementServerRequestType request_type,
     policy::DeviceManagementStatus status,
     base::Optional<CertProvisioningResponseErrorType> error,
     base::Optional<int64_t> try_later) {
@@ -664,6 +740,18 @@ bool CertProvisioningWorkerImpl::ProcessResponseErrors(
     LOG(WARNING) << "Connection to DM Server failed, error: " << status;
     request_backoff_.InformOfRequest(false);
     ScheduleNextStep(request_backoff_.GetTimeUntilRelease());
+    return false;
+  }
+
+  if (status ==
+      policy::DeviceManagementStatus::DM_STATUS_SERVICE_ACTIVATION_PENDING) {
+    const base::TimeDelta try_later_delay =
+        GetTryLaterDelayForRequestType(request_type);
+    LOG(ERROR) << "A device management server request of type: "
+               << static_cast<int>(request_type)
+               << " will be retried after: " << try_later_delay;
+
+    ScheduleNextStep(std::move(try_later_delay));
     return false;
   }
 
@@ -780,11 +868,10 @@ void CertProvisioningWorkerImpl::CleanUpAndRunCallback() {
   OnCleanUpDone();
 }
 
-void CertProvisioningWorkerImpl::OnDeleteVaKeyDone(
-    base::Optional<bool> delete_result) {
+void CertProvisioningWorkerImpl::OnDeleteVaKeyDone(bool delete_result) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  if (!delete_result.has_value() || !delete_result.value()) {
+  if (!delete_result) {
     LOG(ERROR) << "Failed to delete a va key";
   }
   OnCleanUpDone();
@@ -805,7 +892,7 @@ void CertProvisioningWorkerImpl::OnCleanUpDone() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   RecordResult(cert_scope_, state_, prev_state_);
-  std::move(callback_).Run(cert_profile_, state_);
+  std::move(result_callback_).Run(cert_profile_, state_);
 }
 
 void CertProvisioningWorkerImpl::HandleSerialization() {
@@ -852,7 +939,7 @@ void CertProvisioningWorkerImpl::InitAfterDeserialization() {
       attestation::TpmChallengeKeySubtleFactory::CreateForPreparedKey(
           GetVaKeyType(cert_scope_),
           /*will_register_key=*/true, GetKeyName(cert_profile_.profile_id),
-          profile_);
+          public_key_, profile_);
 }
 
 void CertProvisioningWorkerImpl::RegisterForInvalidationTopic() {
@@ -866,10 +953,13 @@ void CertProvisioningWorkerImpl::RegisterForInvalidationTopic() {
     return;
   }
 
+  // Registering the callback with base::Unretained is OK because this class
+  // owns |invalidator_|, and the callback will never be called after
+  // |invalidator_| is destroyed.
   invalidator_->Register(
       invalidation_topic_,
       base::BindRepeating(&CertProvisioningWorkerImpl::OnShouldContinue,
-                          weak_factory_.GetWeakPtr(),
+                          base::Unretained(this),
                           ContinueReason::kInvalidation));
 
   RecordEvent(cert_scope_,

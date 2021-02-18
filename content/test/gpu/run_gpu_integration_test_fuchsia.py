@@ -31,8 +31,9 @@ def main():
 
   # If output_dir is not set, assume the script is being launched
   # from the output directory.
-  if not args.output_dir:
-    args.output_dir = os.getcwd()
+  if not args.out_dir:
+    args.out_dir = os.getcwd()
+    additional_target_args['out_dir'] = args.out_dir
 
   # Create a temporary log file that Telemetry will look to use to build
   # an artifact when tests fail.
@@ -42,8 +43,8 @@ def main():
     temp_log_file = True
     additional_target_args['system_log_file'] = args.system_log_file
 
-  package_names = ['web_engine', 'web_engine_shell']
-  web_engine_dir = os.path.join(args.output_dir, 'gen', 'fuchsia', 'engine')
+  package_names = ['web_engine_with_webui', 'web_engine_shell']
+  web_engine_dir = os.path.join(args.out_dir, 'gen', 'fuchsia', 'engine')
   gpu_script = [
       os.path.join(path_util.GetChromiumSrcDir(), 'content', 'test', 'gpu',
                    'run_gpu_integration_test.py')
@@ -54,9 +55,12 @@ def main():
   try:
     with GetDeploymentTargetForArgs(additional_target_args) as target:
       target.Start()
-      _, fuchsia_ssh_port = target._GetEndpoint()
-      gpu_script.extend(['--fuchsia-ssh-config-dir', args.output_dir])
-      gpu_script.extend(['--fuchsia-ssh-port', str(fuchsia_ssh_port)])
+      fuchsia_device_address, fuchsia_ssh_port = target._GetEndpoint()
+      gpu_script.extend(['--chromium-output-directory', args.out_dir])
+      gpu_script.extend(['--fuchsia-device-address', fuchsia_device_address])
+      gpu_script.extend(['--fuchsia-ssh-config', target._GetSshConfigPath()])
+      if fuchsia_ssh_port:
+        gpu_script.extend(['--fuchsia-ssh-port', str(fuchsia_ssh_port)])
       gpu_script.extend(['--fuchsia-system-log-file', args.system_log_file])
       if args.verbose:
         gpu_script.append('-v')
@@ -69,8 +73,8 @@ def main():
           lambda package_name: os.path.join(
               web_engine_dir, package_name, 'ids.txt'),
           package_names)
-      symbolizer = RunSymbolizer(listener.stdout, open(args.system_log_file,
-                                                       'w'), build_ids_paths)
+      RunSymbolizer(listener.stdout, open(args.system_log_file, 'w'),
+                    build_ids_paths)
 
       # Keep the Amber repository live while the test runs.
       with target.GetAmberRepo():

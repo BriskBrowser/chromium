@@ -6,6 +6,7 @@
 
 #include "ash/public/cpp/login_constants.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "ash/style/ash_color_provider.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string16.h"
 #include "ui/accessibility/ax_enums.mojom.h"
@@ -30,14 +31,13 @@ constexpr int kObscuredGlyphSpacingDp = 6;
 
 constexpr int kAccessCodeInputFieldWidthDp = 24;
 constexpr int kAccessCodeBetweenInputFieldsGapDp = 8;
-
-constexpr SkColor kTextColor = SK_ColorWHITE;
 }  // namespace
 
 FlexCodeInput::FlexCodeInput(OnInputChange on_input_change,
                              OnEnter on_enter,
                              OnEscape on_escape,
-                             bool obscure_pin)
+                             bool obscure_pin,
+                             SkColor text_color)
     : on_input_change_(std::move(on_input_change)),
       on_enter_(std::move(on_enter)),
       on_escape_(std::move(on_escape)) {
@@ -49,12 +49,13 @@ FlexCodeInput::FlexCodeInput(OnInputChange on_input_change,
 
   code_field_ = AddChildView(std::make_unique<views::Textfield>());
   code_field_->set_controller(this);
-  code_field_->SetTextColor(login_constants::kAuthMethodsTextColor);
+  code_field_->SetTextColor(AshColorProvider::Get()->GetContentLayerColor(
+      AshColorProvider::ContentLayerType::kTextColorSecondary));
   code_field_->SetFontList(views::Textfield::GetDefaultFontList().Derive(
       kAccessCodeFontSizeDeltaDp, gfx::Font::FontStyle::NORMAL,
       gfx::Font::Weight::NORMAL));
   code_field_->SetBorder(views::CreateSolidSidedBorder(
-      0, 0, kAccessCodeFlexUnderlineThicknessDp, 0, kTextColor));
+      0, 0, kAccessCodeFlexUnderlineThicknessDp, 0, text_color));
   code_field_->SetBackgroundColor(SK_ColorTRANSPARENT);
   code_field_->SetFocusBehavior(FocusBehavior::ALWAYS);
   code_field_->SetPreferredSize(
@@ -113,6 +114,10 @@ void FlexCodeInput::SetInputEnabled(bool input_enabled) {
   code_field_->SetEnabled(input_enabled);
 }
 
+void FlexCodeInput::SetReadOnly(bool read_only) {
+  NOTIMPLEMENTED();
+}
+
 void FlexCodeInput::ClearInput() {
   code_field_->SetText(base::string16());
   on_input_change_.Run(false);
@@ -158,10 +163,6 @@ bool FlexCodeInput::HandleKeyEvent(views::Textfield* sender,
     return true;
   }
 
-  // We only expect digits in the PIN, so we swallow all letters.
-  if (key_code >= ui::VKEY_A && key_code <= ui::VKEY_Z)
-    return true;
-
   return false;
 }
 
@@ -186,10 +187,12 @@ FixedLengthCodeInput::FixedLengthCodeInput(int length,
                                            OnInputChange on_input_change,
                                            OnEnter on_enter,
                                            OnEscape on_escape,
-                                           bool obscure_pin)
+                                           bool obscure_pin,
+                                           SkColor text_color)
     : on_input_change_(std::move(on_input_change)),
       on_enter_(std::move(on_enter)),
-      on_escape_(std::move(on_escape)) {
+      on_escape_(std::move(on_escape)),
+      is_obscure_pin_(obscure_pin) {
   DCHECK_LT(0, length);
   DCHECK(on_input_change_);
 
@@ -207,17 +210,17 @@ FixedLengthCodeInput::FixedLengthCodeInput(int length,
         gfx::Size(kAccessCodeInputFieldWidthDp, kAccessCodeInputFieldHeightDp));
     field->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_CENTER);
     field->SetBackgroundColor(SK_ColorTRANSPARENT);
-    if (obscure_pin) {
+    if (is_obscure_pin_) {
       field->SetTextInputType(ui::TEXT_INPUT_TYPE_PASSWORD);
     } else {
       field->SetTextInputType(ui::TEXT_INPUT_TYPE_NUMBER);
     }
-    field->SetTextColor(kTextColor);
+    field->SetTextColor(text_color);
     field->SetFontList(views::Textfield::GetDefaultFontList().Derive(
         kAccessCodeFontSizeDeltaDp, gfx::Font::FontStyle::NORMAL,
         gfx::Font::Weight::NORMAL));
     field->SetBorder(views::CreateSolidSidedBorder(
-        0, 0, kAccessCodeInputFieldUnderlineThicknessDp, 0, kTextColor));
+        0, 0, kAccessCodeInputFieldUnderlineThicknessDp, 0, text_color));
     field->SetGroup(kFixedLengthInputGroup);
 
     // Ignores the a11y focus of |field| because the a11y needs to focus to the
@@ -228,7 +231,7 @@ FixedLengthCodeInput::FixedLengthCodeInput(int length,
     layout->SetFlexForView(field, 1);
   }
 
-  text_value_for_a11y_ = std::string(length, ' ');
+  text_value_for_a11y_ = base::string16(length, ' ');
 }
 
 FixedLengthCodeInput::~FixedLengthCodeInput() = default;
@@ -299,11 +302,16 @@ void FixedLengthCodeInput::RequestFocus() {
 }
 
 void FixedLengthCodeInput::ResetTextValueForA11y() {
-  std::string result = std::string(input_fields_.size(), ' ');
+  base::string16 result;
 
   for (size_t i = 0; i < input_fields_.size(); ++i) {
-    if (!input_fields_[i]->GetText().empty())
-      result[i] = base::UTF16ToUTF8(input_fields_[i]->GetText())[0];
+    if (input_fields_[i]->GetText().empty()) {
+      result.push_back(' ');
+    } else {
+      result.push_back(is_obscure_pin_ ?
+                       base::UTF8ToUTF16("\u2022" /*bullet*/)[0]
+                     : input_fields_[i]->GetText()[0]);
+    }
   }
 
   text_value_for_a11y_ = result;
@@ -329,6 +337,8 @@ void FixedLengthCodeInput::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   const gfx::Range& range = GetSelectedRangeOfTextValueForA11y();
   node_data->AddIntAttribute(ax::mojom::IntAttribute::kTextSelStart,
                              range.start());
+  if (is_obscure_pin_)
+    node_data->AddState(ax::mojom::State::kProtected);
   node_data->AddIntAttribute(ax::mojom::IntAttribute::kTextSelEnd, range.end());
 }
 
@@ -339,6 +349,13 @@ bool FixedLengthCodeInput::HandleKeyEvent(views::Textfield* sender,
 
   // Default handling for events with Alt modifier like spoken feedback.
   if (key_event.IsAltDown())
+    return false;
+
+  // Default handling for events with Control modifier like sign out.
+  if (key_event.IsControlDown())
+    return false;
+
+  if (sender->GetReadOnly())
     return false;
 
   // FixedLengthCodeInput class responds to limited subset of key press
@@ -414,6 +431,13 @@ bool FixedLengthCodeInput::HandleGestureEvent(
 void FixedLengthCodeInput::SetInputEnabled(bool input_enabled) {
   for (auto* field : input_fields_) {
     field->SetEnabled(input_enabled);
+  }
+}
+
+void FixedLengthCodeInput::SetReadOnly(bool read_only) {
+  for (auto* field : input_fields_) {
+    field->SetReadOnly(read_only);
+    field->SetCursorEnabled(!read_only);
   }
 }
 

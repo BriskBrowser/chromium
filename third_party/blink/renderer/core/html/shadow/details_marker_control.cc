@@ -38,13 +38,13 @@ namespace blink {
 
 DetailsMarkerControl::DetailsMarkerControl(Document& document)
     : HTMLDivElement(document) {
-  SetShadowPseudoId(shadow_element_names::WebKitDetailsMarker());
+  SetShadowPseudoId(shadow_element_names::kPseudoWebKitDetailsMarker);
 }
 
 LayoutObject* DetailsMarkerControl::CreateLayoutObject(const ComputedStyle&,
                                                        LegacyLayout) {
   UseCounter::Count(GetDocument(), WebFeature::kLegacyLayoutByDetailsMarker);
-  return new LayoutDetailsMarker(this);
+  return MakeGarbageCollected<LayoutDetailsMarker>(this);
 }
 
 bool DetailsMarkerControl::LayoutObjectIsNeeded(

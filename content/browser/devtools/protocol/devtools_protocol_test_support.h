@@ -16,7 +16,7 @@
 
 namespace content {
 
-class DevToolsProtocolTest : public ContentBrowserTest,
+class DevToolsProtocolTest : virtual public ContentBrowserTest,
                              public DevToolsAgentHostClient,
                              public WebContentsDelegate {
  public:
@@ -83,6 +83,7 @@ class DevToolsProtocolTest : public ContentBrowserTest,
 
   void TearDownOnMainThread() override;
 
+  bool HasExistingNotification(const std::string& notification) const;
   std::unique_ptr<base::DictionaryValue> WaitForNotification(
       const std::string& notification) {
     return WaitForNotification(notification, false);

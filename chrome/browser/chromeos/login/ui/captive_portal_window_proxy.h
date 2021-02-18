@@ -10,7 +10,7 @@
 #include "base/observer_list.h"
 #include "base/observer_list_types.h"
 #include "base/time/time.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "ui/views/widget/widget_observer.h"
 
 namespace content {
@@ -106,15 +106,15 @@ class CaptivePortalWindowProxy : public views::WidgetObserver {
     STATE_UNKNOWN
   };
 
-  // Initializes |captive_portal_view_| if it is not initialized and
+  // Initializes `captive_portal_view_` if it is not initialized and
   // starts loading Captive Portal redirect URL.
   void InitCaptivePortalView();
 
   // Returns symbolic state name based on internal state.
   State GetState() const;
 
-  // When |widget| is not NULL and the same as |widget_| stops to observe
-  // notifications from |widget_| and resets it.
+  // When `widget` is not NULL and the same as `widget_` stops to observe
+  // notifications from `widget_` and resets it.
   void DetachFromWidget(views::Widget* widget);
 
   CaptivePortalView* captive_portal_view_for_testing() {

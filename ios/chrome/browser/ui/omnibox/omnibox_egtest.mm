@@ -11,6 +11,7 @@
 #import "base/test/ios/wait_util.h"
 #import "ios/chrome/browser/ui/content_suggestions/ntp_home_constant.h"
 #import "ios/chrome/browser/ui/omnibox/omnibox_app_interface.h"
+#import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_accessibility_identifier_constants.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
@@ -27,7 +28,6 @@
 #error "This file requires ARC support."
 #endif
 
-#if defined(CHROME_EARL_GREY_2)
 // TODO(crbug.com/1015113) The EG2 macro is breaking indexing for some reason
 // without the trailing semicolon.  For now, disable the extra semi warning
 // so Xcode indexing works for the egtest.
@@ -35,7 +35,6 @@
 #pragma clang diagnostic ignored "-Wc++98-compat-extra-semi"
 GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(OmniboxAppInterface);
 #pragma clang diagnostic pop
-#endif  // defined(CHROME_EARL_GREY_2)
 
 using base::test::ios::kWaitForUIElementTimeout;
 
@@ -150,23 +149,13 @@ id<GREYMatcher> SearchCopiedTextButton() {
 
 // Tests that the XClientData header is sent when navigating to
 // https://google.com through the omnibox.
-#if defined(CHROME_EARL_GREY_1)
-//  Flaky on EG1.
-#define MAYBE_testXClientData DISABLED_testXClientData
-#else
-#define MAYBE_testXClientData testXClientData
-#endif
-- (void)MAYBE_testXClientData {
+- (void)testXClientData {
 // TODO(crbug.com/1067815): Test doesn't pass on iPad device.
 #if !TARGET_IPHONE_SIMULATOR
   if ([ChromeEarlGrey isIPadIdiom]) {
     EARL_GREY_TEST_SKIPPED(@"testXClientData doesn't pass on iPad device.");
   }
 #endif
-
-  // TODO(crbug.com/1121305): Test is failing due to clearing the variations on
-  // first run, causing tests to fail flakily on the bots.
-  EARL_GREY_TEST_SKIPPED(@"testXClientData fails on first simulator run.");
 
   // TODO(crbug.com/1120723) This test is flakily because of a DCHECK in
   // ios/web.  Clearing browser history first works around the problem, but
@@ -243,7 +232,7 @@ id<GREYMatcher> SearchCopiedTextButton() {
   [self openPage1];
 
   if ([ChromeEarlGrey isCompactWidth]) {
-    [[EarlGrey selectElementWithMatcher:chrome_test_util::ShareButton()]
+    [[EarlGrey selectElementWithMatcher:chrome_test_util::TabShareButton()]
         assertWithMatcher:grey_sufficientlyVisible()];
   }
 }
@@ -309,6 +298,13 @@ id<GREYMatcher> SearchCopiedTextButton() {
 }
 
 - (void)testFocusingOmniboxDismissesEditMenu {
+// TODO(crbug.com/1129095): Re-enable test for iOS 12 device.
+#if !TARGET_IPHONE_SIMULATOR
+  if (!base::ios::IsRunningOnIOS13OrLater()) {
+    EARL_GREY_TEST_DISABLED(@"Fails on iOS 12 devices.");
+  }
+#endif
+
   [self openPage1];
 
   // Long pressing should open edit menu.
@@ -424,6 +420,65 @@ id<GREYMatcher> SearchCopiedTextButton() {
   // Verify that paste happened.
   [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
       assertWithMatcher:chrome_test_util::OmniboxContainingText(kPage1URL)];
+}
+
+- (void)testOmniboxDefocusesOnTabSwitch {
+  [self openPage1];
+  [ChromeEarlGrey openNewTab];
+  [ChromeEarlGrey waitForMainTabCount:2];
+  [self openPage2];
+
+  [ChromeEarlGreyUI focusOmnibox];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+      performAction:grey_typeText(@"Obama")];
+
+  // The popup should open.
+  [[EarlGrey
+      selectElementWithMatcher:
+          grey_accessibilityID(kOmniboxPopupTableViewAccessibilityIdentifier)]
+      assertWithMatcher:grey_notNil()];
+
+  // Switch to the first tab.
+  [ChromeEarlGrey selectTabAtIndex:0];
+  [ChromeEarlGrey waitForWebStateContainingText:kPage1];
+
+  // The omnibox shouldn't be focused and the popup should be closed.
+  [self checkLocationBarSteadyState];
+  [[EarlGrey
+      selectElementWithMatcher:
+          grey_accessibilityID(kOmniboxPopupTableViewAccessibilityIdentifier)]
+      assertWithMatcher:grey_notVisible()];
+}
+
+- (void)testOmniboxDefocusesOnTabSwitchIncognito {
+  [ChromeEarlGrey openNewIncognitoTab];
+  [ChromeEarlGrey waitForIncognitoTabCount:1];
+  [self openPage1];
+
+  [ChromeEarlGrey openNewIncognitoTab];
+  [ChromeEarlGrey waitForIncognitoTabCount:2];
+  [self openPage2];
+
+  [ChromeEarlGreyUI focusOmnibox];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+      performAction:grey_typeText(@"Obama")];
+
+  // The popup should open.
+  [[EarlGrey
+      selectElementWithMatcher:
+          grey_accessibilityID(kOmniboxPopupTableViewAccessibilityIdentifier)]
+      assertWithMatcher:grey_notNil()];
+
+  // Switch to the first tab.
+  [ChromeEarlGrey selectTabAtIndex:0];
+  [ChromeEarlGrey waitForWebStateContainingText:kPage1];
+
+  // The omnibox shouldn't be focused and the popup should be closed.
+  [self checkLocationBarSteadyState];
+  [[EarlGrey
+      selectElementWithMatcher:
+          grey_accessibilityID(kOmniboxPopupTableViewAccessibilityIdentifier)]
+      assertWithMatcher:grey_notVisible()];
 }
 
 #pragma mark - Helpers

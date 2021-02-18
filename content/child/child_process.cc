@@ -16,9 +16,11 @@
 #include "base/threading/thread.h"
 #include "base/threading/thread_local.h"
 #include "build/build_config.h"
+#include "build/config/compiler/compiler_buildflags.h"
 #include "content/child/child_thread_impl.h"
 #include "content/common/android/cpu_time_metrics.h"
 #include "content/common/mojo_core_library_support.h"
+#include "content/public/common/content_switches.h"
 #include "mojo/public/cpp/system/dynamic_library_support.h"
 #include "sandbox/policy/sandbox_type.h"
 #include "services/tracing/public/cpp/trace_startup.h"
@@ -26,6 +28,10 @@
 
 #if BUILDFLAG(CLANG_PROFILING_INSIDE_SANDBOX)
 #include "base/test/clang_profiling.h"
+#endif
+
+#if defined(OS_ANDROID)
+#include "content/common/android/cpu_affinity.h"
 #endif
 
 namespace content {
@@ -49,7 +55,9 @@ ChildProcess::ChildProcess(base::ThreadPriority io_thread_priority,
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
-  if (IsMojoCoreSharedLibraryEnabled()) {
+  const bool is_embedded_in_browser_process =
+      !command_line.HasSwitch(switches::kProcessType);
+  if (IsMojoCoreSharedLibraryEnabled() && !is_embedded_in_browser_process) {
     // If we're in a child process on Linux and dynamic Mojo Core is in use, we
     // expect early process startup code (see ContentMainRunnerImpl::Run()) to
     // have already loaded the library via |mojo::LoadCoreLibrary()|, rendering
@@ -83,6 +91,10 @@ ChildProcess::ChildProcess(base::ThreadPriority io_thread_priority,
 
 #if defined(OS_ANDROID)
   SetupCpuTimeMetrics();
+  // For child processes, this requires allowing of the sched_setaffinity()
+  // syscall in the sandbox (baseline_policy_android.cc). When this call is
+  // removed, the sandbox allowlist should be updated too.
+  SetupCpuAffinityPollingOnce();
 #endif
 
   // We can't recover from failing to start the IO thread.
@@ -127,7 +139,7 @@ ChildProcess::~ChildProcess() {
     base::ThreadPoolInstance::Get()->Shutdown();
   }
 
-#if BUILDFLAG(CLANG_PROFILING_INSIDE_SANDBOX)
+#if BUILDFLAG(CLANG_PROFILING_INSIDE_SANDBOX) && BUILDFLAG(CLANG_PGO)
   // Flush the profiling data to disk. Doing this manually (vs relying on this
   // being done automatically when the process exits) will ensure that this data
   // doesn't get lost if the process is fast killed.

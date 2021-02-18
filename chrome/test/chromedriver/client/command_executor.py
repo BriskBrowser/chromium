@@ -79,6 +79,10 @@ class Command(object):
       _Method.GET, '/session/:sessionId/element/:id/attribute/:name')
   GET_ELEMENT_PROPERTY = (
       _Method.GET, '/session/:sessionId/element/:id/property/:name')
+  GET_ELEMENT_COMPUTED_LABEL = (
+      _Method.GET, '/session/:sessionId/element/:id/computedlabel')
+  GET_ELEMENT_COMPUTED_ROLE = (
+      _Method.GET, '/session/:sessionId/element/:id/computedrole')
   ELEMENT_EQUALS = (
       _Method.GET, '/session/:sessionId/element/:id/equals/:other')
   GET_COOKIES = (_Method.GET, '/session/:sessionId/cookie')
@@ -178,6 +182,7 @@ class Command(object):
       _Method.POST, '/session/:sessionId/chromium/send_command_and_get_result')
   GENERATE_TEST_REPORT = (
       _Method.POST, '/session/:sessionId/reporting/generate_test_report')
+  SET_TIME_ZONE = (_Method.POST, '/session/:sessionId/time_zone')
   ADD_VIRTUAL_AUTHENTICATOR = (
       _Method.POST, '/session/:sessionId/webauthn/authenticator')
   REMOVE_VIRTUAL_AUTHENTICATOR = (

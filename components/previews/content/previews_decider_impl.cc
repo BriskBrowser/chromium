@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
@@ -260,9 +260,7 @@ bool PreviewsDeciderImpl::ShouldCommitPreview(
     content::NavigationHandle* navigation_handle,
     PreviewsType type) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(PreviewsType::NOSCRIPT == type ||
-         PreviewsType::RESOURCE_LOADING_HINTS == type ||
-         PreviewsType::DEFER_ALL_SCRIPT == type);
+  DCHECK(PreviewsType::DEFER_ALL_SCRIPT == type);
 
   const GURL committed_url = navigation_handle->GetURL();
 
@@ -300,9 +298,7 @@ PreviewsDeciderImpl::ShouldCommitPreviewPerOptimizationHints(
     PreviewsType type,
     std::vector<PreviewsEligibilityReason>* passed_reasons) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(type == PreviewsType::NOSCRIPT ||
-         type == PreviewsType::RESOURCE_LOADING_HINTS ||
-         type == PreviewsType::DEFER_ALL_SCRIPT);
+  DCHECK(type == PreviewsType::DEFER_ALL_SCRIPT);
 
   // If kEnableDeferAllScriptWithoutOptimizationHints switch is provided, then
   // DEFER_ALL_SCRIPT is triggered on all pages irrespective of hints provided

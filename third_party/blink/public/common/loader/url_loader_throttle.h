@@ -19,11 +19,13 @@
 class GURL;
 
 namespace net {
+class HttpRequestHeaders;
 struct RedirectInfo;
 }
 
 namespace network {
 struct ResourceRequest;
+struct URLLoaderCompletionStatus;
 }  // namespace network
 
 namespace blink {
@@ -127,6 +129,11 @@ class BLINK_COMMON_EXPORT URLLoaderThrottle {
     // Restarting is only valid before BeforeWillProcessResponse() is called.
     virtual void RestartWithURLResetAndFlagsNow(int additional_load_flags);
 
+    // Restarts the URL loader immediately after adding the provided headers to
+    // the new request.
+    virtual void RestartWithModifiedHeadersNow(
+        const net::HttpRequestHeaders& modified_headers);
+
    protected:
     virtual ~Delegate();
   };
@@ -138,7 +145,8 @@ class BLINK_COMMON_EXPORT URLLoaderThrottle {
   // Will* methods below and may only be called once.
   virtual void DetachFromCurrentSequence();
 
-  // Called before the resource request is started.
+  // Called exactly once before the resource request is started.
+  //
   // |request| needs to be modified before the callback returns (i.e.
   // asynchronously touching the pointer in defer case is not valid)
   // When |request->url| is modified it will make an internal redirect, which

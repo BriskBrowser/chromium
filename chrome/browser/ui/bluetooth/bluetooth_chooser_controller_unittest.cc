@@ -19,13 +19,14 @@ class BluetoothChooserControllerTest : public testing::Test {
   BluetoothChooserControllerTest()
       : bluetooth_chooser_controller_(
             nullptr,
-            base::Bind(&BluetoothChooserControllerTest::OnBluetoothChooserEvent,
-                       base::Unretained(this))) {
+            base::BindRepeating(
+                &BluetoothChooserControllerTest::OnBluetoothChooserEvent,
+                base::Unretained(this))) {
     bluetooth_chooser_controller_.set_view(&mock_bluetooth_chooser_view_);
   }
 
  protected:
-  void OnBluetoothChooserEvent(content::BluetoothChooser::Event event,
+  void OnBluetoothChooserEvent(content::BluetoothChooserEvent event,
                                const std::string& device_id) {
     last_event_ = event;
     last_device_id_ = device_id;
@@ -33,7 +34,7 @@ class BluetoothChooserControllerTest : public testing::Test {
 
   BluetoothChooserController bluetooth_chooser_controller_;
   MockChooserControllerView mock_bluetooth_chooser_view_;
-  content::BluetoothChooser::Event last_event_;
+  content::BluetoothChooserEvent last_event_;
   std::string last_device_id_;
 
  private:
@@ -257,76 +258,53 @@ TEST_F(BluetoothChooserControllerTest, UpdatePairedStatus) {
 }
 
 TEST_F(BluetoothChooserControllerWithDevicesAddedTest,
-       InitialNoOptionsTextAndStatusText) {
-  EXPECT_EQ(l10n_util::GetStringUTF16(
-                IDS_BLUETOOTH_DEVICE_CHOOSER_NO_DEVICES_FOUND_PROMPT),
-            bluetooth_chooser_controller_.GetNoOptionsText());
-  EXPECT_EQ(base::string16(), bluetooth_chooser_controller_.GetStatus());
-}
-
-TEST_F(BluetoothChooserControllerWithDevicesAddedTest,
        BluetoothAdapterTurnedOff) {
-  EXPECT_CALL(
-      mock_bluetooth_chooser_view_,
-      OnAdapterEnabledChanged(false /* Bluetooth adapter is turned off */))
+  EXPECT_CALL(mock_bluetooth_chooser_view_,
+              OnAdapterEnabledChanged(/*enabled=*/false))
       .Times(1);
   bluetooth_chooser_controller_.OnAdapterPresenceChanged(
       content::BluetoothChooser::AdapterPresence::POWERED_OFF);
   EXPECT_EQ(0u, bluetooth_chooser_controller_.NumOptions());
-  EXPECT_EQ(base::string16(), bluetooth_chooser_controller_.GetStatus());
 }
 
 TEST_F(BluetoothChooserControllerWithDevicesAddedTest,
        BluetoothAdapterTurnedOn) {
-  EXPECT_CALL(
-      mock_bluetooth_chooser_view_,
-      OnAdapterEnabledChanged(true /* Bluetooth adapter is turned on */))
+  EXPECT_CALL(mock_bluetooth_chooser_view_,
+              OnAdapterEnabledChanged(/*enabled=*/true))
       .Times(1);
   bluetooth_chooser_controller_.OnAdapterPresenceChanged(
       content::BluetoothChooser::AdapterPresence::POWERED_ON);
   EXPECT_EQ(0u, bluetooth_chooser_controller_.NumOptions());
-  EXPECT_EQ(l10n_util::GetStringUTF16(
-                IDS_BLUETOOTH_DEVICE_CHOOSER_NO_DEVICES_FOUND_PROMPT),
-            bluetooth_chooser_controller_.GetNoOptionsText());
-  EXPECT_EQ(l10n_util::GetStringUTF16(IDS_BLUETOOTH_DEVICE_CHOOSER_RE_SCAN),
-            bluetooth_chooser_controller_.GetStatus());
 }
 
 TEST_F(BluetoothChooserControllerWithDevicesAddedTest, DiscoveringState) {
-  EXPECT_CALL(
-      mock_bluetooth_chooser_view_,
-      OnRefreshStateChanged(true /* Refreshing options is in progress */))
+  EXPECT_CALL(mock_bluetooth_chooser_view_,
+              OnRefreshStateChanged(/*refreshing=*/true))
       .Times(1);
   bluetooth_chooser_controller_.OnDiscoveryStateChanged(
       content::BluetoothChooser::DiscoveryState::DISCOVERING);
-  EXPECT_EQ(l10n_util::GetStringUTF16(IDS_BLUETOOTH_DEVICE_CHOOSER_SCANNING),
-            bluetooth_chooser_controller_.GetStatus());
 }
 
 TEST_F(BluetoothChooserControllerWithDevicesAddedTest, IdleState) {
   EXPECT_CALL(mock_bluetooth_chooser_view_,
-              OnRefreshStateChanged(false /* Refreshing options is complete */))
+              OnRefreshStateChanged(/*refreshing=*/false))
       .Times(1);
   bluetooth_chooser_controller_.OnDiscoveryStateChanged(
       content::BluetoothChooser::DiscoveryState::IDLE);
-  EXPECT_EQ(l10n_util::GetStringUTF16(IDS_BLUETOOTH_DEVICE_CHOOSER_RE_SCAN),
-            bluetooth_chooser_controller_.GetStatus());
 }
 
 TEST_F(BluetoothChooserControllerWithDevicesAddedTest, FailedToStartState) {
   EXPECT_CALL(mock_bluetooth_chooser_view_,
-              OnRefreshStateChanged(false /* Refreshing options is complete */))
+              OnRefreshStateChanged(/*refreshing=*/false))
       .Times(1);
   bluetooth_chooser_controller_.OnDiscoveryStateChanged(
       content::BluetoothChooser::DiscoveryState::FAILED_TO_START);
-  EXPECT_EQ(l10n_util::GetStringUTF16(IDS_BLUETOOTH_DEVICE_CHOOSER_RE_SCAN),
-            bluetooth_chooser_controller_.GetStatus());
 }
 
 TEST_F(BluetoothChooserControllerWithDevicesAddedTest, RefreshOptions) {
   bluetooth_chooser_controller_.RefreshOptions();
   EXPECT_EQ(0u, bluetooth_chooser_controller_.NumOptions());
-  EXPECT_EQ(content::BluetoothChooser::Event::RESCAN, last_event_);
+  EXPECT_EQ(content::BluetoothChooserEvent::RESCAN, last_event_);
   EXPECT_EQ(std::string(), last_device_id_);
 }
 
@@ -334,20 +312,20 @@ TEST_F(BluetoothChooserControllerWithDevicesAddedTest,
        SelectingOneDeviceShouldCallEventHandler) {
   std::vector<size_t> indices{0};
   bluetooth_chooser_controller_.Select(indices);
-  EXPECT_EQ(content::BluetoothChooser::Event::SELECTED, last_event_);
+  EXPECT_EQ(content::BluetoothChooserEvent::SELECTED, last_event_);
   EXPECT_EQ("id_a", last_device_id_);
 }
 
 TEST_F(BluetoothChooserControllerWithDevicesAddedTest,
        CancelShouldCallEventHandler) {
   bluetooth_chooser_controller_.Cancel();
-  EXPECT_EQ(content::BluetoothChooser::Event::CANCELLED, last_event_);
+  EXPECT_EQ(content::BluetoothChooserEvent::CANCELLED, last_event_);
   EXPECT_EQ(std::string(), last_device_id_);
 }
 
 TEST_F(BluetoothChooserControllerWithDevicesAddedTest,
        CloseShouldCallEventHandler) {
   bluetooth_chooser_controller_.Close();
-  EXPECT_EQ(content::BluetoothChooser::Event::CANCELLED, last_event_);
+  EXPECT_EQ(content::BluetoothChooserEvent::CANCELLED, last_event_);
   EXPECT_EQ(std::string(), last_device_id_);
 }

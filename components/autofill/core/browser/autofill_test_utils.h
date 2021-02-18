@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "components/autofill/core/browser/autofill_field.h"
+#include "components/autofill/core/browser/data_model/autofill_offer_data.h"
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "components/autofill/core/browser/data_model/credit_card.h"
 #include "components/autofill/core/browser/data_model/credit_card_cloud_token_data.h"
@@ -54,6 +55,29 @@ inline bool operator!=(const FormDataPredictions& a,
 
 // Common utilities shared amongst Autofill tests.
 namespace test {
+
+// A compound data type that contains the type, the value and the verification
+// status for a form group entry (an AutofillProfile).
+struct FormGroupValue {
+  ServerFieldType type;
+  std::string value;
+  structured_address::VerificationStatus verification_status =
+      structured_address::VerificationStatus::kNoStatus;
+};
+
+// Convenience declaration for multiple FormGroup values.
+using FormGroupValues = std::vector<FormGroupValue>;
+
+// Helper function to set values and verification statuses to a form group.
+void SetFormGroupValues(FormGroup& form_group,
+                        const std::vector<FormGroupValue>& values);
+
+// Helper function to verify the expectation of values and verification
+// statuses in a form group. If |ignore_status| is set, status checking is
+// omitted.
+void VerifyFormGroupValues(const FormGroup& form_group,
+                           const std::vector<FormGroupValue>& values,
+                           bool ignore_status = false);
 
 const char kEmptyOrigin[] = "";
 
@@ -182,6 +206,13 @@ CreditCardCloudTokenData GetCreditCardCloudTokenData1();
 // one above.
 CreditCardCloudTokenData GetCreditCardCloudTokenData2();
 
+// Returns an autofill card linked offer data full of dummy info.
+AutofillOfferData GetCardLinkedOfferData1();
+
+// Returns an autofill card linked offer data full of dummy info, different from
+// the one above.
+AutofillOfferData GetCardLinkedOfferData2();
+
 // A unit testing utility that is common to a number of the Autofill unit
 // tests.  |SetProfileInfo| provides a quick way to populate a profile with
 // c-strings.
@@ -294,26 +325,14 @@ void FillUploadField(AutofillUploadContents::Field* field,
                      unsigned autofill_type,
                      const std::vector<unsigned>& validity_states);
 
-// Fills the query form |field| with the information passed by parameter. If the
-// value of a const char* parameter is NULL, the corresponding attribute won't
-// be set at all, as opposed to being set to empty string.
-void FillQueryField(AutofillQueryContents::Form::Field* field,
-                    unsigned signature,
-                    const char* name,
-                    const char* control_type);
-void FillQueryField(AutofillPageQueryRequest_Form_Field* field,
-                    unsigned signature,
-                    const char* name,
-                    const char* control_type);
-
 // Creates the structure of signatures that would be encoded by
 // FormStructure::EncodeUploadRequest() and FormStructure::EncodeQueryRequest()
 // and consumed by FormStructure::ParseQueryResponse() and
 // FormStructure::ParseApiQueryResponse().
 //
 // Perhaps a neater way would be to move this to TestFormStructure.
-FormAndFieldSignatures GetEncodedSignatures(const FormStructure& form);
-FormAndFieldSignatures GetEncodedSignatures(
+std::vector<FormSignature> GetEncodedSignatures(const FormStructure& form);
+std::vector<FormSignature> GetEncodedSignatures(
     const std::vector<FormStructure*>& forms);
 
 // Calls the required functions on the given external delegate to cause the
@@ -328,6 +347,23 @@ std::string NextMonth();
 std::string LastYear();
 std::string NextYear();
 std::string TenYearsFromNow();
+
+void AddFieldSuggestionToForm(
+    const autofill::FormFieldData& field_data,
+    ServerFieldType field_type,
+    ::autofill::AutofillQueryResponse_FormSuggestion* form_suggestion);
+
+// Adds |field_types| predictions of |field_data| to |form_suggestion| query
+// response. Assumes int type can be cast to ServerFieldType.
+void AddFieldPredictionsToForm(
+    const autofill::FormFieldData& field_data,
+    const std::vector<int>& field_types,
+    ::autofill::AutofillQueryResponse_FormSuggestion* form_suggestion);
+
+void AddFieldPredictionsToForm(
+    const autofill::FormFieldData& field_data,
+    const std::vector<ServerFieldType>& field_types,
+    ::autofill::AutofillQueryResponse_FormSuggestion* form_suggestion);
 
 }  // namespace test
 }  // namespace autofill

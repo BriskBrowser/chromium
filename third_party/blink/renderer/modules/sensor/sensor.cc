@@ -52,7 +52,7 @@ Sensor::Sensor(ExecutionContext* execution_context,
 
   if (!AreFeaturesEnabled(execution_context, features)) {
     exception_state.ThrowSecurityError(
-        "Access to sensor features is disallowed by feature policy");
+        "Access to sensor features is disallowed by permissions policy");
     return;
   }
 
@@ -129,11 +129,6 @@ base::Optional<DOMHighResTimeStamp> Sensor::timestamp(
   WindowPerformance* performance = DOMWindowPerformance::performance(*window);
   DCHECK(performance);
   DCHECK(sensor_proxy_);
-
-  if (WebTestSupport::IsRunningWebTest()) {
-    // In web tests performance.now() * 0.001 is passed to the shared buffer.
-    return sensor_proxy_->GetReading().timestamp() * 1000;
-  }
 
   return performance->MonotonicTimeToDOMHighResTimeStamp(
       base::TimeTicks() +
@@ -263,11 +258,7 @@ void Sensor::Activate() {
   DCHECK_EQ(state_, SensorState::kActivating);
 
   InitSensorProxyIfNeeded();
-  if (!sensor_proxy_) {
-    HandleError(DOMExceptionCode::kInvalidStateError,
-                "The Sensor is no longer associated to a frame.");
-    return;
-  }
+  DCHECK(sensor_proxy_);
 
   if (sensor_proxy_->IsInitialized())
     RequestAddConfiguration();

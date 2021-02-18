@@ -25,6 +25,14 @@
 
 namespace blink {
 
+namespace {
+
+bool ShouldSkipFetchingUrl(const KURL& url) {
+  return !url.IsValid() || url.IsAboutBlankURL() || url.IsAboutSrcdocURL();
+}
+
+}  // namespace
+
 // NOTE: While this is a RawResourceClient, it loads both raw and css stylesheet
 // resources. Stylesheets can only safely use a RawResourceClient because it has
 // no custom interface and simply uses the base ResourceClient.
@@ -87,7 +95,8 @@ void InspectorResourceContentLoader::Start() {
       resource_request = ResourceRequest(document->Url());
       resource_request.SetCacheMode(mojom::FetchCacheMode::kOnlyIfCached);
     }
-    resource_request.SetRequestContext(mojom::RequestContextType::INTERNAL);
+    resource_request.SetRequestContext(
+        mojom::blink::RequestContextType::INTERNAL);
     if (document->Loader() &&
         document->Loader()->GetResponse().WasFetchedViaServiceWorker()) {
       resource_request.SetCacheMode(mojom::FetchCacheMode::kDefault);
@@ -104,7 +113,7 @@ void InspectorResourceContentLoader::Start() {
 
     scoped_refptr<const DOMWrapperWorld> world =
         document->GetExecutionContext()->GetCurrentWorld();
-    if (!resource_request.Url().GetString().IsEmpty()) {
+    if (!ShouldSkipFetchingUrl(resource_request.Url())) {
       urls_to_fetch.insert(resource_request.Url().GetString());
       ResourceLoaderOptions options(world);
       options.initiator_info.name = fetch_initiator_type_names::kInternal;
@@ -123,14 +132,15 @@ void InspectorResourceContentLoader::Start() {
       if (style_sheet->IsInline() || !style_sheet->Contents()->LoadCompleted())
         continue;
       String url = style_sheet->href();
-      if (url.IsEmpty() || urls_to_fetch.Contains(url))
+      if (ShouldSkipFetchingUrl(KURL(url)) || urls_to_fetch.Contains(url))
         continue;
       urls_to_fetch.insert(url);
-      ResourceRequest resource_request(url);
-      resource_request.SetRequestContext(mojom::RequestContextType::INTERNAL);
+      ResourceRequest style_sheet_resource_request(url);
+      style_sheet_resource_request.SetRequestContext(
+          mojom::blink::RequestContextType::INTERNAL);
       ResourceLoaderOptions options(world);
       options.initiator_info.name = fetch_initiator_type_names::kInternal;
-      FetchParameters params(std::move(resource_request), options);
+      FetchParameters params(std::move(style_sheet_resource_request), options);
       ResourceClient* resource_client =
           MakeGarbageCollected<ResourceClient>(this);
       // Prevent garbage collection by holding a reference to this resource.
@@ -146,8 +156,10 @@ void InspectorResourceContentLoader::Start() {
     // TODO (alexrudenko): This code duplicates the code in manifest_manager.cc
     // and manifest_fetcher.cc. Move it to a shared place.
     HTMLLinkElement* link_element = document->LinkManifest();
-    if (link_element) {
-      auto link = link_element->Href();
+    KURL link;
+    if (link_element)
+      link = link_element->Href();
+    if (!ShouldSkipFetchingUrl(link)) {
       auto use_credentials = EqualIgnoringASCIICase(
           link_element->FastGetAttribute(html_names::kCrossoriginAttr),
           "use-credentials");

@@ -614,10 +614,10 @@ public class AutofillAssistantCollectUserDataUiTest {
     @MediumTest
     public void testNonEmptyPaymentRequest() throws Exception {
         /* Add complete profile and credit card to the personal data manager. */
-        PersonalDataManager.AutofillProfile profile =
-                new PersonalDataManager.AutofillProfile("GUID", "https://www.example.com",
-                        "Maggie Simpson", "Acme Inc.", "123 Main", "California", "Los Angeles", "",
-                        "90210", "", "UZ", "555 123-4567", "maggie@simpson.com", "");
+        PersonalDataManager.AutofillProfile profile = new PersonalDataManager.AutofillProfile(
+                "GUID", "https://www.example.com", /* honorificPrefix= */ "", "Maggie Simpson",
+                "Acme Inc.", "123 Main", "California", "Los Angeles", "", "90210", "", "UZ",
+                "555 123-4567", "maggie@simpson.com", "");
         PersonalDataManager.CreditCard creditCard =
                 new PersonalDataManager.CreditCard("", "https://example.com", true, true, "Jon Doe",
                         "4111111111111111", "1111", "12", "2050", "visa", R.drawable.visa_card,
@@ -667,7 +667,7 @@ public class AutofillAssistantCollectUserDataUiTest {
             model.set(AssistantCollectUserDataModel.REQUEST_LOGIN_CHOICE, true);
             model.set(AssistantCollectUserDataModel.AVAILABLE_LOGINS,
                     Collections.singletonList(new AssistantLoginChoice(
-                            "id", "Guest", "Description of guest checkout", "", 0, null)));
+                            "id", "Guest", "Description of guest checkout", "", 0, null, "")));
         });
 
         /* Non-empty sections should not display the 'add' button in their title. */
@@ -741,21 +741,22 @@ public class AutofillAssistantCollectUserDataUiTest {
     @Test
     @MediumTest
     public void testContactDetailsCustomSummary() throws Exception {
-        AutofillContact contactFull = AssistantCollectUserDataModel.createAutofillContact(
-                mTestRule.getActivity(),
-                new PersonalDataManager.AutofillProfile("GUID", "https://www.example.com",
-                        "Maggie Simpson", "Acme Inc.", "123 Main", "California", "Los Angeles", "",
-                        "90210", "", "UZ", "555 123-4567", "maggie@simpson.com", ""),
-                /* requestName= */ true,
-                /* requestPhone= */ true, /* requestEmail= */ true);
-
-        AutofillContact contactWithoutEmail =
+        AutofillContact contactFull =
                 AssistantCollectUserDataModel.createAutofillContact(mTestRule.getActivity(),
                         new PersonalDataManager.AutofillProfile("GUID", "https://www.example.com",
-                                "John Simpson", "Acme Inc.", "123 Main", "California",
-                                "Los Angeles", "", "90210", "", "UZ", "555 123-4567", "", ""),
+                                /* honorificPrefix= */ "", "Maggie Simpson", "Acme Inc.",
+                                "123 Main", "California", "Los Angeles", "", "90210", "", "UZ",
+                                "555 123-4567", "maggie@simpson.com", ""),
                         /* requestName= */ true,
                         /* requestPhone= */ true, /* requestEmail= */ true);
+
+        AutofillContact contactWithoutEmail = AssistantCollectUserDataModel.createAutofillContact(
+                mTestRule.getActivity(),
+                new PersonalDataManager.AutofillProfile("GUID", "https://www.example.com",
+                        /* honorificPrefix= */ "", "John Simpson", "Acme Inc.", "123 Main",
+                        "California", "Los Angeles", "", "90210", "", "UZ", "555 123-4567", "", ""),
+                /* requestName= */ true,
+                /* requestPhone= */ true, /* requestEmail= */ true);
 
         AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
         AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(model);
@@ -1524,16 +1525,90 @@ public class AutofillAssistantCollectUserDataUiTest {
             model.set(AssistantCollectUserDataModel.LOGIN_SECTION_TITLE, "Login options");
             model.set(AssistantCollectUserDataModel.REQUEST_LOGIN_CHOICE, true);
             model.set(AssistantCollectUserDataModel.AVAILABLE_LOGINS,
+                    Collections.singletonList(new AssistantLoginChoice("id", "Guest checkout", "",
+                            "", 0, infoPopup, "Description of edit button")));
+        });
+
+        onView(withText("Login options")).perform(click());
+        onView(withContentDescription("Description of edit button")).perform(click());
+        onView(withText("Guest checkout")).check(matches(isDisplayed()));
+        onView(withText("Text explanation.")).check(matches(isDisplayed()));
+        onView(withText(mTestRule.getActivity().getString(R.string.close))).perform(click());
+        onView(withContentDescription("Description of edit button")).check(matches(isDisplayed()));
+    }
+
+    @Test
+    @MediumTest
+    public void testSuppliedNonEmptyEditContentDescriptionIsUsed() throws Exception {
+        String contentDescription = "Description of edit button";
+        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(model);
+        AutofillAssistantCollectUserDataTestHelper.MockDelegate delegate =
+                new AutofillAssistantCollectUserDataTestHelper.MockDelegate();
+
+        AssistantInfoPopup infoPopup = new AssistantInfoPopup("", "", null, null, null);
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            model.set(AssistantCollectUserDataModel.DELEGATE, delegate);
+            model.set(AssistantCollectUserDataModel.VISIBLE, true);
+            model.set(AssistantCollectUserDataModel.LOGIN_SECTION_TITLE, "Login options");
+            model.set(AssistantCollectUserDataModel.REQUEST_LOGIN_CHOICE, true);
+            model.set(AssistantCollectUserDataModel.AVAILABLE_LOGINS,
                     Collections.singletonList(new AssistantLoginChoice(
-                            "id", "Guest checkout", "", "", 0, infoPopup)));
+                            "id", "Guest checkout", "", "", 0, infoPopup, contentDescription)));
+        });
+
+        onView(withText("Login options")).perform(click());
+        onView(withContentDescription(contentDescription)).check(matches(isDisplayed()));
+    }
+
+    @Test
+    @MediumTest
+    public void testSuppliedEmptyEditContentDescriptionIsUsed() throws Exception {
+        String contentDescription = "";
+        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(model);
+        AutofillAssistantCollectUserDataTestHelper.MockDelegate delegate =
+                new AutofillAssistantCollectUserDataTestHelper.MockDelegate();
+
+        AssistantInfoPopup infoPopup = new AssistantInfoPopup("", "", null, null, null);
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            model.set(AssistantCollectUserDataModel.DELEGATE, delegate);
+            model.set(AssistantCollectUserDataModel.VISIBLE, true);
+            model.set(AssistantCollectUserDataModel.LOGIN_SECTION_TITLE, "Login options");
+            model.set(AssistantCollectUserDataModel.REQUEST_LOGIN_CHOICE, true);
+            model.set(AssistantCollectUserDataModel.AVAILABLE_LOGINS,
+                    Collections.singletonList(new AssistantLoginChoice(
+                            "id", "Guest checkout", "", "", 0, infoPopup, contentDescription)));
+        });
+
+        onView(withText("Login options")).perform(click());
+        onView(withContentDescription(contentDescription)).check(matches(isDisplayed()));
+    }
+
+    @Test
+    @MediumTest
+    public void testWhenNullEditContentDescriptionIsSuppliedIconDescriptionIsUsed()
+            throws Exception {
+        String contentDescription = null;
+        AssistantCollectUserDataModel model = new AssistantCollectUserDataModel();
+        AssistantCollectUserDataCoordinator coordinator = createCollectUserDataCoordinator(model);
+        AutofillAssistantCollectUserDataTestHelper.MockDelegate delegate =
+                new AutofillAssistantCollectUserDataTestHelper.MockDelegate();
+
+        AssistantInfoPopup infoPopup = new AssistantInfoPopup("", "", null, null, null);
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            model.set(AssistantCollectUserDataModel.DELEGATE, delegate);
+            model.set(AssistantCollectUserDataModel.VISIBLE, true);
+            model.set(AssistantCollectUserDataModel.LOGIN_SECTION_TITLE, "Login options");
+            model.set(AssistantCollectUserDataModel.REQUEST_LOGIN_CHOICE, true);
+            model.set(AssistantCollectUserDataModel.AVAILABLE_LOGINS,
+                    Collections.singletonList(new AssistantLoginChoice(
+                            "id", "Guest checkout", "", "", 0, infoPopup, contentDescription)));
         });
 
         onView(withText("Login options")).perform(click());
         onView(withContentDescription(mTestRule.getActivity().getString(R.string.learn_more)))
-                .perform(click());
-        onView(withText("Guest checkout")).check(matches(isDisplayed()));
-        onView(withText("Text explanation.")).check(matches(isDisplayed()));
-        onView(withText(mTestRule.getActivity().getString(R.string.close))).perform(click());
+                .check(matches(isDisplayed()));
     }
 
     private View getPaymentSummaryErrorView(ViewHolder viewHolder) {

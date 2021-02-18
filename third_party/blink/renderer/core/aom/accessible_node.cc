@@ -55,6 +55,8 @@ QualifiedName GetCorrespondingARIAAttribute(AOMStringProperty property) {
       return html_names::kAriaSortAttr;
     case AOMStringProperty::kValueText:
       return html_names::kAriaValuetextAttr;
+    case AOMStringProperty::kVirtualContent:
+      return html_names::kAriaVirtualcontentAttr;
   }
 
   NOTREACHED();
@@ -455,40 +457,25 @@ int32_t AccessibleNode::GetPropertyOrARIAAttribute(Element* element,
   return attr_value.ToInt();
 }
 
-void AccessibleNode::GetAllAOMProperties(
-    AOMPropertyClient* client,
-    HashSet<QualifiedName>& shadowed_aria_attributes) {
+void AccessibleNode::GetAllAOMProperties(AOMPropertyClient* client) {
   for (auto& item : string_properties_) {
     client->AddStringProperty(item.first, item.second);
-    shadowed_aria_attributes.insert(GetCorrespondingARIAAttribute(item.first));
   }
   for (auto& item : boolean_properties_) {
     client->AddBooleanProperty(item.first, item.second);
-    shadowed_aria_attributes.insert(GetCorrespondingARIAAttribute(item.first));
   }
   for (auto& item : float_properties_) {
     client->AddFloatProperty(item.first, item.second);
-    shadowed_aria_attributes.insert(GetCorrespondingARIAAttribute(item.first));
-  }
-  for (auto& item : int_properties_) {
-    client->AddIntProperty(item.first, item.second);
-    shadowed_aria_attributes.insert(GetCorrespondingARIAAttribute(item.first));
-  }
-  for (auto& item : uint_properties_) {
-    client->AddUIntProperty(item.first, item.second);
-    shadowed_aria_attributes.insert(GetCorrespondingARIAAttribute(item.first));
   }
   for (auto& item : relation_properties_) {
     if (!item.second)
       continue;
     client->AddRelationProperty(item.first, *item.second);
-    shadowed_aria_attributes.insert(GetCorrespondingARIAAttribute(item.first));
   }
   for (auto& item : relation_list_properties_) {
     if (!item.second)
       continue;
     client->AddRelationListProperty(item.first, *item.second);
-    shadowed_aria_attributes.insert(GetCorrespondingARIAAttribute(item.first));
   }
 }
 
@@ -925,6 +912,15 @@ void AccessibleNode::setValueText(const AtomicString& value_text) {
   NotifyAttributeChanged(html_names::kAriaValuetextAttr);
 }
 
+AtomicString AccessibleNode::virtualContent() const {
+  return GetProperty(AOMStringProperty::kVirtualContent);
+}
+
+void AccessibleNode::setVirtualContent(const AtomicString& virtual_content) {
+  SetStringProperty(AOMStringProperty::kVirtualContent, virtual_content);
+  NotifyAttributeChanged(html_names::kAriaVirtualcontentAttr);
+}
+
 AccessibleNodeList* AccessibleNode::childNodes() {
   return AccessibleNodeList::Create(children_);
 }
@@ -1006,6 +1002,7 @@ bool AccessibleNode::IsStringTokenProperty(AOMStringProperty property) {
                                     // supported.
     case AOMStringProperty::kRoleDescription:
     case AOMStringProperty::kValueText:
+    case AOMStringProperty::kVirtualContent:
       break;
   }
   return false;

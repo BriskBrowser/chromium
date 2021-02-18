@@ -4,18 +4,15 @@
 
 #include "ash/shelf/test/shelf_layout_manager_test_base.h"
 
-#include "ash/home_screen/home_launcher_gesture_handler.h"
-#include "ash/home_screen/home_screen_controller.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shelf/shelf_layout_manager.h"
 #include "ash/shelf/shelf_view.h"
 #include "ash/shell.h"
-#include "ash/window_factory.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller_test_api.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/workspace_controller.h"
-#include "chromeos/constants/chromeos_switches.h"
+#include "chromeos/ui/base/window_properties.h"
 #include "components/prefs/pref_service.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/window_parenting_client.h"
@@ -27,6 +24,9 @@
 
 namespace ash {
 namespace {
+
+using ::chromeos::kImmersiveIsActive;
+
 ShelfWidget* GetShelfWidget() {
   return AshTestBase::GetPrimaryShelf()->shelf_widget();
 }
@@ -177,7 +177,7 @@ void ShelfLayoutManagerTestBase::UpdateAutoHideStateNow() {
 }
 
 aura::Window* ShelfLayoutManagerTestBase::CreateTestWindow() {
-  aura::Window* window = window_factory::NewWindow().release();
+  aura::Window* window = new aura::Window(nullptr);
   window->SetProperty(aura::client::kShowStateKey, ui::SHOW_STATE_NORMAL);
   window->SetType(aura::client::WINDOW_TYPE_NORMAL);
   window->Init(ui::LAYER_TEXTURED);
@@ -187,7 +187,7 @@ aura::Window* ShelfLayoutManagerTestBase::CreateTestWindow() {
 
 aura::Window* ShelfLayoutManagerTestBase::CreateTestWindowInParent(
     aura::Window* root_window) {
-  aura::Window* window = window_factory::NewWindow().release();
+  aura::Window* window = new aura::Window(nullptr);
   window->SetProperty(aura::client::kShowStateKey, ui::SHOW_STATE_NORMAL);
   window->SetType(aura::client::WINDOW_TYPE_NORMAL);
   window->Init(ui::LAYER_TEXTURED);
@@ -742,91 +742,6 @@ void ShelfLayoutManagerTestBase::RunGestureDragTests(
   EXPECT_EQ(SHELF_AUTO_HIDE_SHOWN, shelf->GetAutoHideState());
   EXPECT_EQ(shelf_shown.ToString(),
             GetShelfWidget()->GetWindowBoundsInScreen().ToString());
-}
-
-void ShelfLayoutManagerTestBase::TestHomeLauncherGestureHandler(
-    bool autohide_shelf) {
-  // Home launcher is only available in tablet mode.
-  TabletModeControllerTestApi().EnterTabletMode();
-
-  Shelf* shelf = GetPrimaryShelf();
-  if (autohide_shelf)
-    shelf->SetAutoHideBehavior(ShelfAutoHideBehavior::kAlways);
-
-  // Create more than one window to prepare for the possibly window stacking
-  // change during drag.
-  std::unique_ptr<aura::Window> extra_window =
-      AshTestBase::CreateTestWindow(gfx::Rect(100, 10, 100, 100));
-  std::unique_ptr<aura::Window> window =
-      AshTestBase::CreateTestWindow(gfx::Rect(0, 0, 400, 400));
-  wm::ActivateWindow(window.get());
-
-  if (!chromeos::switches::ShouldShowShelfHotseat()) {
-    if (autohide_shelf) {
-      SwipeUpOnShelf();
-      EXPECT_EQ(SHELF_AUTO_HIDE_SHOWN, shelf->GetAutoHideState());
-    }
-  } else {
-    EXPECT_EQ(HotseatState::kHidden, GetShelfLayoutManager()->hotseat_state());
-
-    // Swipe up to show the hotseat.
-    SwipeUpOnShelf();
-    if (autohide_shelf)
-      EXPECT_EQ(SHELF_AUTO_HIDE_SHOWN, shelf->GetAutoHideState());
-    EXPECT_EQ(HotseatState::kExtended,
-              GetShelfLayoutManager()->hotseat_state());
-  }
-
-  const gfx::Point shelf_center =
-      GetVisibleShelfWidgetBoundsInScreen().CenterPoint();
-
-  // Helper to create a scroll event for this test.
-  auto create_scroll_event = [&shelf_center](ui::EventType type,
-                                             float scroll_y) {
-    ui::GestureEventDetails details =
-        type == ui::ET_GESTURE_SCROLL_END
-            ? ui::GestureEventDetails(type)
-            : ui::GestureEventDetails(type, 0, scroll_y);
-    return ui::GestureEvent(shelf_center.x(), shelf_center.y(), 0,
-                            base::TimeTicks(), details);
-  };
-
-  // The home launcher gesture handler should not be handling any window
-  // initially.
-  HomeLauncherGestureHandler* gesture_handler =
-      Shell::Get()->home_screen_controller()->home_launcher_gesture_handler();
-  ASSERT_TRUE(gesture_handler);
-  ASSERT_FALSE(gesture_handler->GetActiveWindow());
-
-  // Tests that the home launcher gesture handler does not handle the scroll up
-  // events any more.
-  ShelfLayoutManager* manager = GetShelfLayoutManager();
-  manager->ProcessGestureEvent(
-      create_scroll_event(ui::ET_GESTURE_SCROLL_BEGIN, -1.f));
-  EXPECT_FALSE(gesture_handler->GetActiveWindow());
-  if (autohide_shelf) {
-    // Auto-hide shelf should keep visible after scrolling up on it.
-    EXPECT_EQ(SHELF_AUTO_HIDE_SHOWN, shelf->GetAutoHideState());
-  }
-  manager->ProcessGestureEvent(
-      create_scroll_event(ui::ET_GESTURE_SCROLL_UPDATE, -1.f));
-  EXPECT_FALSE(gesture_handler->GetActiveWindow());
-  if (autohide_shelf)
-    EXPECT_EQ(SHELF_AUTO_HIDE_SHOWN, shelf->GetAutoHideState());
-  manager->ProcessGestureEvent(
-      create_scroll_event(ui::ET_GESTURE_SCROLL_END, 1.f));
-  ASSERT_FALSE(gesture_handler->GetActiveWindow());
-  if (autohide_shelf)
-    EXPECT_EQ(SHELF_AUTO_HIDE_SHOWN, shelf->GetAutoHideState());
-
-  // Tests that if the initial scroll event is directed downwards, the home
-  // launcher gesture handler will not act on |window|.
-  manager->ProcessGestureEvent(
-      create_scroll_event(ui::ET_GESTURE_SCROLL_BEGIN, 1.f));
-  EXPECT_FALSE(gesture_handler->GetActiveWindow());
-  manager->ProcessGestureEvent(
-      create_scroll_event(ui::ET_GESTURE_SCROLL_UPDATE, -1.f));
-  EXPECT_FALSE(gesture_handler->GetActiveWindow());
 }
 
 }  //  namespace ash

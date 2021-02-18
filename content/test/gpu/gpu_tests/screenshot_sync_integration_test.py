@@ -90,9 +90,9 @@ class ScreenshotSyncIntegrationTest(gpu_integration_test.GpuIntegrationTest):
     yield ('ScreenshotSync_SWRasterWithDivs', 'screenshot_sync_divs.html',
            ('--disable-gpu-rasterization'))
     yield ('ScreenshotSync_GPURasterWithCanvas', 'screenshot_sync_canvas.html',
-           (cba.FORCE_GPU_RASTERIZATION))
+           (cba.ENABLE_GPU_RASTERIZATION))
     yield ('ScreenshotSync_GPURasterWithDivs', 'screenshot_sync_divs.html',
-           (cba.FORCE_GPU_RASTERIZATION))
+           (cba.ENABLE_GPU_RASTERIZATION))
 
   def _Navigate(self, test_path):
     url = self.UrlOfStaticFilePath(test_path)
@@ -106,6 +106,10 @@ class ScreenshotSyncIntegrationTest(gpu_integration_test.GpuIntegrationTest):
     pixel_value = image_util.GetPixelColor(screenshot, x, y)
     # Allow for off-by-one errors due to color conversion.
     tolerance = 1
+    # Pixel 4 devices require a slightly higher tolerance. See
+    # crbug.com/1166379.
+    if self.tab.browser.platform.GetDeviceTypeName() == 'Pixel 4':
+      tolerance = 5
     if not expectedRGB.IsEqual(pixel_value, tolerance):
       error_message = ('Color mismatch at (%d, %d): expected (%d, %d, %d), ' +
                        'got (%d, %d, %d)') % (

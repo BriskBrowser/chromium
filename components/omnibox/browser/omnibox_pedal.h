@@ -22,6 +22,7 @@ struct VectorIcon;
 }
 #endif
 
+class AutocompleteInput;
 class AutocompleteProviderClient;
 class OmniboxEditController;
 class OmniboxClient;
@@ -77,6 +78,9 @@ class OmniboxPedal {
 
     // Increase acceptable input size range according to this group's content.
     void UpdateTokenSequenceSizeRange(size_t* out_min, size_t* out_max) const;
+
+    // Estimates RAM usage in bytes for this synonym group.
+    size_t EstimateMemoryUsage() const;
 
    protected:
     // If this is true, a synonym of the group must be present for triggering.
@@ -139,7 +143,8 @@ class OmniboxPedal {
   // Returns true if this Pedal is ready to be used now, or false if
   // it does not apply under current conditions. (Example: the UpdateChrome
   // Pedal may not be ready to trigger if no update is available.)
-  virtual bool IsReadyToTrigger(const AutocompleteProviderClient& client) const;
+  virtual bool IsReadyToTrigger(const AutocompleteInput& input,
+                                const AutocompleteProviderClient& client) const;
 
 #if (!defined(OS_ANDROID) || BUILDFLAG(ENABLE_VR)) && !defined(OS_IOS)
   // Returns the vector icon to represent this Pedal's action in suggestion.
@@ -153,6 +158,9 @@ class OmniboxPedal {
 
   // Move a synonym group into this Pedal's collection.
   void AddSynonymGroup(SynonymGroup&& group);
+
+  // Estimates RAM usage in bytes for this Pedal.
+  size_t EstimateMemoryUsage() const;
 
   OmniboxPedalId id() { return id_; }
 

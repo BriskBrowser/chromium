@@ -18,7 +18,9 @@ function addPrivacyChildRoutes(r) {
   r.COOKIES = r.PRIVACY.createChild('/cookies');
   r.SECURITY = r.PRIVACY.createChild('/security');
 
-  // <if expr="use_nss_certs">
+  // TODO(crbug.com/1147032): The certificates settings page is temporarily
+  // disabled for Lacros-Chrome until a better solution is found.
+  // <if expr="use_nss_certs and not lacros">
   r.CERTIFICATES = r.SECURITY.createChild('/certificates');
   // </if>
 
@@ -45,21 +47,16 @@ function addPrivacyChildRoutes(r) {
   r.SITE_SETTINGS_SITE_DATA = r.COOKIES.createChild('/siteData');
   r.SITE_SETTINGS_DATA_DETAILS =
       r.SITE_SETTINGS_SITE_DATA.createChild('/cookies/detail');
+  r.SITE_SETTINGS_IDLE_DETECTION = r.SITE_SETTINGS.createChild('idleDetection');
   r.SITE_SETTINGS_IMAGES = r.SITE_SETTINGS.createChild('images');
-  if (loadTimeData.getBoolean('enableInsecureContentContentSetting')) {
-    r.SITE_SETTINGS_MIXEDSCRIPT =
-        r.SITE_SETTINGS.createChild('insecureContent');
-  }
+  r.SITE_SETTINGS_MIXEDSCRIPT = r.SITE_SETTINGS.createChild('insecureContent');
   r.SITE_SETTINGS_JAVASCRIPT = r.SITE_SETTINGS.createChild('javascript');
   r.SITE_SETTINGS_SOUND = r.SITE_SETTINGS.createChild('sound');
   r.SITE_SETTINGS_SENSORS = r.SITE_SETTINGS.createChild('sensors');
   r.SITE_SETTINGS_LOCATION = r.SITE_SETTINGS.createChild('location');
   r.SITE_SETTINGS_MICROPHONE = r.SITE_SETTINGS.createChild('microphone');
   r.SITE_SETTINGS_NOTIFICATIONS = r.SITE_SETTINGS.createChild('notifications');
-  r.SITE_SETTINGS_FLASH = r.SITE_SETTINGS.createChild('flash');
   r.SITE_SETTINGS_POPUPS = r.SITE_SETTINGS.createChild('popups');
-  r.SITE_SETTINGS_UNSANDBOXED_PLUGINS =
-      r.SITE_SETTINGS.createChild('unsandboxedPlugins');
   r.SITE_SETTINGS_MIDI_DEVICES = r.SITE_SETTINGS.createChild('midiDevices');
   r.SITE_SETTINGS_USB_DEVICES = r.SITE_SETTINGS.createChild('usbDevices');
   r.SITE_SETTINGS_HID_DEVICES = r.SITE_SETTINGS.createChild('hidDevices');
@@ -83,10 +80,7 @@ function addPrivacyChildRoutes(r) {
     r.SITE_SETTINGS_WINDOW_PLACEMENT =
         r.SITE_SETTINGS.createChild('windowPlacement');
   }
-  if (loadTimeData.getBoolean('enableFileSystemWriteContentSetting')) {
-    r.SITE_SETTINGS_FILE_SYSTEM_WRITE =
-        r.SITE_SETTINGS.createChild('filesystem');
-  }
+  r.SITE_SETTINGS_FILE_SYSTEM_WRITE = r.SITE_SETTINGS.createChild('filesystem');
   if (loadTimeData.getBoolean('enableFontAccessContentSetting')) {
     r.SITE_SETTINGS_FONT_ACCESS = r.SITE_SETTINGS.createChild('fontAccess');
   }
@@ -132,13 +126,10 @@ function createBrowserSettingsRoutes() {
   if (visibility.autofill !== false) {
     r.AUTOFILL = r.BASIC.createSection('/autofill', 'autofill');
     r.PASSWORDS = r.AUTOFILL.createChild('/passwords');
+    r.CHECK_PASSWORDS = r.PASSWORDS.createChild('check');
 
     if (loadTimeData.getBoolean('enableAccountStorage')) {
       r.DEVICE_PASSWORDS = r.PASSWORDS.createChild('device');
-    }
-
-    if (loadTimeData.getBoolean('enablePasswordCheck')) {
-      r.CHECK_PASSWORDS = r.PASSWORDS.createChild('check');
     }
 
     r.PAYMENTS = r.AUTOFILL.createChild('/payments');
@@ -155,10 +146,12 @@ function createBrowserSettingsRoutes() {
     r.SAFETY_CHECK = r.BASIC.createSection('/safetyCheck', 'safetyCheck');
   }
 
+  // <if expr="not chromeos and not lacros">
   if (visibility.defaultBrowser !== false) {
     r.DEFAULT_BROWSER =
         r.BASIC.createSection('/defaultBrowser', 'defaultBrowser');
   }
+  // </if>
 
   r.SEARCH_ENGINES = r.SEARCH.createChild('/searchEngines');
 
@@ -180,9 +173,6 @@ function createBrowserSettingsRoutes() {
       r.DOWNLOADS = r.ADVANCED.createSection('/downloads', 'downloads');
     }
 
-    r.PRINTING = r.ADVANCED.createSection('/printing', 'printing');
-    r.CLOUD_PRINTERS = r.PRINTING.createChild('/cloudPrinters');
-
     r.ACCESSIBILITY = r.ADVANCED.createSection('/accessibility', 'a11y');
 
     // <if expr="chromeos or is_linux">
@@ -195,7 +185,7 @@ function createBrowserSettingsRoutes() {
     }
     // </if>
 
-    // <if expr="not chromeos">
+    // <if expr="not chromeos and not lacros">
     r.SYSTEM = r.ADVANCED.createSection('/system', 'system');
     // </if>
 

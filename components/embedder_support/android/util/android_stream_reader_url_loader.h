@@ -43,24 +43,39 @@ class AndroidStreamReaderURLLoader : public network::mojom::URLLoader {
     virtual std::unique_ptr<embedder_support::InputStream> OpenInputStream(
         JNIEnv* env) = 0;
 
-    // This method is called on the URLLoader thread (IO thread) if the
-    // result of calling OpenInputStream was null.
+    // All the methods below are called on the URLLoader thread (IO thread).
+
+    // This method is called if the result of calling OpenInputStream was null.
     // Returns true if the request was restarted with a new loader or
     // was completed, false otherwise.
     virtual bool OnInputStreamOpenFailed() = 0;
 
+    // Allows the delegate to update the mime type, by setting |mime_type| and
+    // returning true.
     virtual bool GetMimeType(JNIEnv* env,
                              const GURL& url,
                              embedder_support::InputStream* stream,
                              std::string* mime_type) = 0;
 
-    virtual bool GetCharset(JNIEnv* env,
+    // Allows the delegate to set the charset of the response by setting
+    // |charset|.
+    virtual void GetCharset(JNIEnv* env,
                             const GURL& url,
                             embedder_support::InputStream* stream,
                             std::string* charset) = 0;
 
+    // Allows the delegate to add extra response headers.
     virtual void AppendResponseHeaders(JNIEnv* env,
                                        net::HttpResponseHeaders* headers) = 0;
+
+    // Called right before URLLoaderClient::OnReceiveResponse is called. If this
+    // method returns true then a copy of the response is made and returned in
+    // OnResponseCache.
+    virtual bool ShouldCacheResponse(network::mojom::URLResponseHead* response);
+
+    // Called if ShouldCacheResponse returned true and the response was
+    // successful.
+    virtual void OnResponseCache(const std::string& data) {}
   };
 
   struct SecurityOptions {
@@ -129,6 +144,10 @@ class AndroidStreamReaderURLLoader : public network::mojom::URLLoader {
   const net::MutableNetworkTrafficAnnotationTag traffic_annotation_;
   std::unique_ptr<ResponseDelegate> response_delegate_;
   scoped_refptr<InputStreamReaderWrapper> input_stream_reader_wrapper_;
+
+  // If true, a copy of the response is made.
+  bool cache_response_ = false;
+  std::string cached_response_;
 
   mojo::ScopedDataPipeProducerHandle producer_handle_;
   scoped_refptr<network::NetToMojoPendingBuffer> pending_buffer_;

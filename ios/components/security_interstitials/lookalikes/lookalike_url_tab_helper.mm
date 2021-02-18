@@ -8,6 +8,7 @@
 #include "components/lookalikes/core/features.h"
 #include "components/lookalikes/core/lookalike_url_ui_util.h"
 #include "components/lookalikes/core/lookalike_url_util.h"
+#include "components/reputation/core/safety_tips_config.h"
 #include "components/ukm/ios/ukm_url_recorder.h"
 #include "components/url_formatter/spoof_checks/top_domains/top_domain_util.h"
 #include "ios/components/security_interstitials/lookalikes/lookalike_url_container.h"
@@ -71,6 +72,20 @@ void LookalikeUrlTabHelper::ShouldAllowResponse(
     return;
   }
 
+  // Fetch the component allowlist.
+  const auto* proto = reputation::GetSafetyTipsRemoteConfigProto();
+  // When there's no proto (like at browser start), fail-safe and don't block.
+  if (!proto) {
+    std::move(callback).Run(CreateAllowDecision());
+    return;
+  }
+  // If the URL is in the component updater allowlist, don't show any warning.
+  if (reputation::IsUrlAllowlistedBySafetyTipsComponent(
+          proto, response_url.GetWithEmptyPath())) {
+    std::move(callback).Run(CreateAllowDecision());
+    return;
+  }
+
   // TODO(crbug.com/1104386): If this is a reload and if the current
   // URL is the last URL of the stored redirect chain, the interstitial
   // was probably reloaded. Stop the reload and navigate back to the
@@ -114,7 +129,7 @@ void LookalikeUrlTabHelper::ShouldAllowResponse(
 
   RecordUMAFromMatchType(match_type);
 
-  if (ShouldBlockLookalikeUrlNavigation(match_type, navigated_domain)) {
+  if (ShouldBlockLookalikeUrlNavigation(match_type)) {
     const std::string suggested_domain = GetETLDPlusOne(matched_domain);
     DCHECK(!suggested_domain.empty());
     GURL::Replacements replace_host;

@@ -4,6 +4,7 @@
 
 #include "chromecast/graphics/rounded_window_corners_manager.h"
 
+#include "base/strings/string_number_conversions.h"
 #include "chromecast/graphics/cast_window_manager.h"
 #include "components/exo/surface.h"
 #include "ui/aura/env.h"
@@ -31,6 +32,17 @@ aura::Window* FindTopmostVisibleNonCornersWindow(
   }
 
   return window->id() != CastWindowManager::CORNERS_OVERLAY ? window : nullptr;
+}
+
+bool HasNonAppParent(const aura::Window* window) {
+  const aura::Window* parent = window->parent();
+  while (parent && parent->IsVisible()) {
+    if (parent->id() != CastWindowManager::APP)
+      return true;
+    else
+      parent = parent->parent();
+  }
+  return false;
 }
 
 }  // namespace
@@ -101,9 +113,12 @@ class RoundedCornersObserver : public aura::WindowObserver,
       return;
 
     int window_id = topmost_visible_window->id();
+    // The window may be a child to a visible non-app window that does not draw
+    // its own corners, so this needs to be checked for.
     bool set_rounded_corners =
         (window_id != CastWindowManager::APP) ||
-        base::Contains(observed_container_windows_, topmost_visible_window);
+        base::Contains(observed_container_windows_, topmost_visible_window) ||
+        HasNonAppParent(topmost_visible_window);
 
     if (rounded_corners_ == set_rounded_corners)
       return;
@@ -142,7 +157,17 @@ void RoundedWindowCornersManager::OnWindowPropertyChanged(aura::Window* window,
   if (key != exo::kClientSurfaceIdKey)
     return;
 
-  int app_id = window->GetProperty(exo::kClientSurfaceIdKey);
+  // Note: The property was originally an integer, and was switched to be a
+  // string. For compatibility integer values are converted to a string via
+  // base::NumberToString before being set as the property value.
+  std::string* app_id_str = window->GetProperty(exo::kClientSurfaceIdKey);
+  if (!app_id_str)
+    return;
+
+  int app_id = 0;
+  if (!base::StringToInt(*app_id_str, &app_id))
+    return;
+
   LOG(INFO) << "Found window for webview " << app_id;
   rounded_corners_observer_->OnNewWebviewContainerWindow(window, app_id);
 }

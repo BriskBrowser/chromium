@@ -13,7 +13,6 @@
 #include "base/strings/sys_string_conversions.h"
 #include "content/common/mac/font_loader.h"
 #include "content/public/child/child_thread.h"
-#include "content/public/common/service_names.mojom.h"
 #include "mojo/public/cpp/system/buffer.h"
 
 namespace content {
@@ -62,7 +61,7 @@ bool WebSandboxSupportMac::LoadFont(
 
 SkColor WebSandboxSupportMac::GetSystemColor(
     blink::MacSystemColorID color_id,
-    blink::WebColorScheme color_scheme) {
+    blink::mojom::ColorScheme color_scheme) {
   if (!color_map_.IsValid()) {
     DLOG(ERROR) << "GetSystemColor does not have a valid color_map_";
     return SK_ColorMAGENTA;
@@ -72,7 +71,7 @@ SkColor WebSandboxSupportMac::GetSystemColor(
   base::span<const SkColor> color_map = color_map_.GetMemoryAsSpan<SkColor>(
       blink::kMacSystemColorIDCount * blink::kMacSystemColorSchemeCount);
   base::span<const SkColor> color_map_for_scheme =
-      color_map.subspan(color_scheme == blink::WebColorScheme::kDark
+      color_map.subspan(color_scheme == blink::mojom::ColorScheme::kDark
                             ? blink::kMacSystemColorIDCount
                             : 0,
                         blink::kMacSystemColorIDCount);

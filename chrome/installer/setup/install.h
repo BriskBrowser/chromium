@@ -7,7 +7,6 @@
 #ifndef CHROME_INSTALLER_SETUP_INSTALL_H_
 #define CHROME_INSTALLER_SETUP_INSTALL_H_
 
-#include "base/strings/string16.h"
 #include "chrome/installer/util/util_constants.h"
 
 namespace base {
@@ -19,7 +18,7 @@ namespace installer {
 
 struct InstallParams;
 class InstallerState;
-class MasterPreferences;
+class InitialPreferences;
 
 enum InstallShortcutOperation {
   // Create all shortcuts (potentially skipping those explicitly stated not to
@@ -62,7 +61,7 @@ bool CreateVisualElementsManifest(const base::FilePath& src_path,
 // If creating the Start menu shortcut is successful, it is also pinned to the
 // taskbar.
 void CreateOrUpdateShortcuts(const base::FilePath& target,
-                             const MasterPreferences& prefs,
+                             const InitialPreferences& prefs,
                              InstallShortcutLevel install_level,
                              InstallShortcutOperation install_operation);
 
@@ -70,13 +69,14 @@ void CreateOrUpdateShortcuts(const base::FilePath& target,
 // install status (failed, new_install, updated etc).
 //
 // install_params: See install_params.h
-// prefs: master preferences. See chrome/installer/util/initial_preferences.h.
+// prefs: initial preferences. See chrome/installer/util/initial_preferences.h.
 //
 // Note: since caller unpacks Chrome to install_temp_path\source, the caller
 // is responsible for cleaning up install_temp_path.
-InstallStatus InstallOrUpdateProduct(const InstallParams& install_params,
-                                     const base::FilePath& prefs_path,
-                                     const installer::MasterPreferences& prefs);
+InstallStatus InstallOrUpdateProduct(
+    const InstallParams& install_params,
+    const base::FilePath& prefs_path,
+    const installer::InitialPreferences& prefs);
 
 // Launches a process that deletes files that belong to old versions of Chrome.
 // |setup_path| is the path to the setup.exe executable to use.

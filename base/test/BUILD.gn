@@ -3,15 +3,10 @@
 # found in the LICENSE file.
 
 import("//build/compiled_action.gni")
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/nacl/config.gni")
 import("//build/config/ui.gni")
 import("//build_overrides/build.gni")
-
-# Reset sources_assignment_filter for the BUILD.gn file to prevent
-# regression during the migration of Chromium away from the feature.
-# See docs/no_sources_assignment_filter.md for more information.
-# TODO(crbug.com/1018739): remove this when migration is done.
-set_sources_assignment_filter([])
 
 if (is_android) {
   import("//build/config/android/rules.gni")
@@ -28,12 +23,15 @@ static_library("test_config") {
   deps = [
     "//base",
     "//base:clang_profiling_buildflags",
+    "//build:chromeos_buildflags",
   ]
 }
 
 static_library("test_support") {
   testonly = true
   sources = [
+    "../power_monitor/test/fake_power_monitor_source.cc",
+    "../power_monitor/test/fake_power_monitor_source.h",
     "../task/sequence_manager/test/fake_task.cc",
     "../task/sequence_manager/test/fake_task.h",
     "../task/sequence_manager/test/mock_time_domain.cc",
@@ -47,8 +45,8 @@ static_library("test_support") {
     "../task/sequence_manager/test/test_task_time_observer.h",
     "../timer/mock_timer.cc",
     "../timer/mock_timer.h",
-    "bind_test_util.cc",
-    "bind_test_util.h",
+    "bind.cc",
+    "bind.h",
     "copy_only_int.cc",
     "copy_only_int.h",
     "gmock_callback_support.h",
@@ -165,6 +163,7 @@ static_library("test_support") {
 
   deps = [
     "//base/third_party/dynamic_annotations",
+    "//build:chromeos_buildflags",
     "//third_party/icu:icuuc",
     "//third_party/libxml:libxml_utils",
     "//third_party/libxml:xml_reader",
@@ -172,6 +171,7 @@ static_library("test_support") {
 
   if (is_win) {
     sources += [
+      "async_results_test_values_win.h",
       "fake_iasync_operation_win.h",
       "scoped_os_info_override_win.cc",
       "scoped_os_info_override_win.h",
@@ -180,6 +180,15 @@ static_library("test_support") {
       "test_reg_util_win.h",
       "test_shortcut_win.cc",
       "test_shortcut_win.h",
+    ]
+  }
+
+  if (is_chromeos_ash || is_chromeos_lacros) {
+    sources += [
+      "scoped_chromeos_version_info.cc",
+      "scoped_chromeos_version_info.h",
+      "scoped_running_on_chromeos.cc",
+      "scoped_running_on_chromeos.h",
     ]
   }
 
@@ -479,8 +488,8 @@ if (is_android) {
       "//base:base_java",
       "//base:base_java_test_support",
       "//testing/android/native_test:native_main_runner_java",
-      "//third_party/android_deps:androidx_annotation_annotation_java",
       "//third_party/android_deps:com_google_code_findbugs_jsr305_java",
+      "//third_party/androidx:androidx_annotation_annotation_java",
     ]
     srcjar_deps = [ ":test_support_java_aidl" ]
     sources = [

@@ -15,7 +15,6 @@
 #include "content/browser/renderer_host/pepper/pepper_file_ref_host.h"
 #include "content/browser/renderer_host/pepper/pepper_file_system_browser_host.h"
 #include "content/browser/renderer_host/pepper/pepper_security_helper.h"
-#include "content/common/view_messages.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
@@ -195,7 +194,7 @@ int32_t PepperFileIOHost::OnHostMsgOpen(
     // Whitelist the supported ones.
     if (file_system_url_.mount_type() == storage::kFileSystemTypeExternal) {
       switch (file_system_url_.type()) {
-        case storage::kFileSystemTypeNativeMedia:
+        case storage::kFileSystemTypeLocalMedia:
         case storage::kFileSystemTypeDeviceMedia:
           break;
         default:
@@ -248,7 +247,12 @@ void PepperFileIOHost::GotUIThreadStuffForInternalFileSystems(
     return;
   }
 
-  DCHECK(file_system_host_.get());
+  if (!file_system_host_.get()) {
+    reply_context.params.set_result(PP_ERROR_FAILED);
+    SendOpenErrorReply(reply_context);
+    return;
+  }
+
   DCHECK(file_system_host_->GetFileSystemOperationRunner());
 
   file_system_host_->GetFileSystemOperationRunner()->OpenFile(

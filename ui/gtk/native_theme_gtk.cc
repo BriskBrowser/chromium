@@ -9,9 +9,9 @@
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/geometry/rect.h"
-#include "ui/gfx/skbitmap_operations.h"
 #include "ui/gfx/skia_util.h"
 #include "ui/gtk/gtk_util.h"
+#include "ui/native_theme/native_theme_aura.h"
 
 namespace gtk {
 
@@ -77,9 +77,11 @@ base::Optional<SkColor> SkColorFromColorId(
     // Dialogs
     case ui::NativeTheme::kColorId_DialogBackground:
     case ui::NativeTheme::kColorId_BubbleBackground:
+    // Notifications
+    case ui::NativeTheme::kColorId_NotificationDefaultBackground:
       return GetBgColor("");
     case ui::NativeTheme::kColorId_DialogForeground:
-    case ui::NativeTheme::kColorId_BubbleForeground:
+    case ui::NativeTheme::kColorId_AvatarIconIncognito:
       return GetFgColor("GtkLabel");
     case ui::NativeTheme::kColorId_BubbleFooterBackground:
       return GetBgColor("#statusbar");
@@ -117,6 +119,7 @@ base::Optional<SkColor> SkColorFromColorId(
       return GetFgColor("GtkMenu#menu GtkMenuItem#menuitem:hover GtkLabel");
     case ui::NativeTheme::kColorId_DisabledMenuItemForegroundColor:
       return GetFgColor("GtkMenu#menu GtkMenuItem#menuitem:disabled GtkLabel");
+    case ui::NativeTheme::kColorId_AvatarIconGuest:
     case ui::NativeTheme::kColorId_MenuItemMinorTextColor:
       if (GtkCheckVersion(3, 20)) {
         return GetFgColor("GtkMenu#menu GtkMenuItem#menuitem #accelerator");
@@ -124,6 +127,7 @@ base::Optional<SkColor> SkColorFromColorId(
       return GetFgColor(
           "GtkMenu#menu GtkMenuItem#menuitem GtkLabel.accelerator");
     case ui::NativeTheme::kColorId_MenuSeparatorColor:
+    case ui::NativeTheme::kColorId_AvatarHeaderArt:
       if (GtkCheckVersion(3, 20)) {
         return GetSeparatorColor(
             "GtkMenu#menu GtkSeparator#separator.horizontal");
@@ -455,6 +459,19 @@ void NativeThemeGtk::SetThemeCssOverride(ScopedCssProvider provider) {
   }
 }
 
+void NativeThemeGtk::NotifyObservers() {
+  NativeTheme::NotifyObservers();
+
+  // Update the preferred contrast settings for the NativeThemeAura instance and
+  // notify its observers about the change.
+  ui::NativeTheme* native_theme = ui::NativeTheme::GetInstanceForNativeUi();
+  native_theme->set_preferred_contrast(
+      UserHasContrastPreference()
+          ? ui::NativeThemeBase::PreferredContrast::kMore
+          : ui::NativeThemeBase::PreferredContrast::kNoPreference);
+  native_theme->NotifyObservers();
+}
+
 void NativeThemeGtk::OnThemeChanged(GtkSettings* settings,
                                     GtkParamSpec* param) {
   SetThemeCssOverride(ScopedCssProvider());
@@ -492,8 +509,11 @@ void NativeThemeGtk::OnThemeChanged(GtkSettings* settings,
   // case-insensitive.
   std::transform(theme_name.begin(), theme_name.end(), theme_name.begin(),
                  ::tolower);
-  set_high_contrast(theme_name.find("high") != std::string::npos &&
-                    theme_name.find("contrast") != std::string::npos);
+  bool high_contrast = theme_name.find("high") != std::string::npos &&
+                       theme_name.find("contrast") != std::string::npos;
+  set_preferred_contrast(
+      high_contrast ? ui::NativeThemeBase::PreferredContrast::kMore
+                    : ui::NativeThemeBase::PreferredContrast::kNoPreference);
 
   NotifyObservers();
 }
@@ -704,13 +724,7 @@ void NativeThemeGtk::PaintFrameTopArea(
 
   SkBitmap bitmap =
       GetWidgetBitmap(rect.size(), context, BG_RENDER_RECURSIVE, false);
-
-  if (frame_top_area.incognito) {
-    bitmap = SkBitmapOperations::CreateHSLShiftedBitmap(
-        bitmap, kDefaultTintFrameIncognito);
-    bitmap.setImmutable();
-  }
-
+  bitmap.setImmutable();
   canvas->drawImage(cc::PaintImage::CreateFromBitmap(std::move(bitmap)),
                     rect.x(), rect.y());
 }

@@ -5,10 +5,10 @@
 #include "services/network/cors/cors_url_loader.h"
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/containers/flat_set.h"
 #include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/stl_util.h"
 #include "base/strings/string_split.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_status_code.h"
@@ -19,6 +19,7 @@
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/header_util.h"
 #include "services/network/public/cpp/request_mode.h"
+#include "services/network/trust_tokens/trust_token_operation_metrics_recorder.h"
 #include "services/network/url_loader.h"
 #include "url/url_util.h"
 
@@ -70,7 +71,6 @@ CorsURLLoader::CorsURLLoader(
     const net::MutableNetworkTrafficAnnotationTag& traffic_annotation,
     mojom::URLLoaderFactory* network_loader_factory,
     const OriginAccessList* origin_access_list,
-    const OriginAccessList* factory_bound_origin_access_list,
     PreflightController* preflight_controller,
     const base::flat_set<std::string>* allowed_exempt_headers,
     bool allow_any_cors_exempt_header,
@@ -86,7 +86,6 @@ CorsURLLoader::CorsURLLoader(
       forwarding_client_(std::move(client)),
       traffic_annotation_(traffic_annotation),
       origin_access_list_(origin_access_list),
-      factory_bound_origin_access_list_(factory_bound_origin_access_list),
       preflight_controller_(preflight_controller),
       allowed_exempt_headers_(allowed_exempt_headers),
       skip_cors_enabled_scheme_check_(skip_cors_enabled_scheme_check),
@@ -451,18 +450,6 @@ void CorsURLLoader::StartRequest() {
     if (tainted_) {
       request_.headers.SetHeader(net::HttpRequestHeaders::kOrigin,
                                  url::Origin().Serialize());
-    } else if (
-        base::FeatureList::IsEnabled(
-            features::
-                kDeriveOriginFromUrlForNeitherGetNorHeadRequestWhenHavingSpecialAccess) &&
-        !request_.isolated_world_origin && HasSpecialAccessToDestination()) {
-      DCHECK(!fetch_cors_flag_);
-      // When request's origin has an access to the destination URL (via
-      // |origin_access_list_| and |factory_bound_origin_access_list_|), we
-      // attach destination URL's origin instead of request's origin to the
-      // "origin" request header.
-      request_.headers.SetHeader(net::HttpRequestHeaders::kOrigin,
-                                 url::Origin::Create(request_.url).Serialize());
     } else {
       request_.headers.SetHeader(net::HttpRequestHeaders::kOrigin,
                                  request_.request_initiator->Serialize());
@@ -538,6 +525,19 @@ void CorsURLLoader::StartNetworkRequest(
 }
 
 void CorsURLLoader::HandleComplete(const URLLoaderCompletionStatus& status) {
+  if (request_.trust_token_params) {
+    HistogramTrustTokenOperationNetError(request_.trust_token_params->type,
+                                         status.trust_token_operation_status,
+                                         status.error_code);
+  }
+
+  // TODO(crbug.com/1152550): Remove this histogram after platform apps no
+  // longer require relaxing CORB/CORS in their content scripts.
+  if (status.error_code == net::OK) {
+    UMA_HISTOGRAM_BOOLEAN("NetworkService.CorsForcedOffForIsolatedWorldOrigin",
+                          has_cors_been_affected_by_isolated_world_origin_);
+  }
+
   forwarding_client_->OnComplete(status);
   std::move(delete_callback_).Run(this);
   // |this| is deleted here.
@@ -560,6 +560,8 @@ void CorsURLLoader::SetCorsFlagIfNeeded() {
   }
 
   if (HasSpecialAccessToDestination()) {
+    has_cors_been_affected_by_isolated_world_origin_ =
+        request_.isolated_world_origin.has_value();
     return;
   }
 
@@ -572,10 +574,8 @@ bool CorsURLLoader::HasSpecialAccessToDestination() const {
     case OriginAccessList::AccessState::kAllowed:
       return true;
     case OriginAccessList::AccessState::kBlocked:
-      return false;
     case OriginAccessList::AccessState::kNotListed:
-      return factory_bound_origin_access_list_->CheckAccessState(request_) ==
-             OriginAccessList::AccessState::kAllowed;
+      return false;
   }
 }
 

@@ -5,11 +5,12 @@
 import("//build/buildflag_header.gni")
 import("//build/config/chrome_build.gni")
 import("//build/config/chromecast_build.gni")
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/linux/pkg_config.gni")
+import("//build/config/ozone.gni")
 import("//build/config/ui.gni")
 import("//testing/test.gni")
 import("//ui/gl/features.gni")
-import("//ui/ozone/ozone.gni")
 
 declare_args() {
   # Whether service side logging (actual calls into the GL driver) is enabled
@@ -24,18 +25,13 @@ if (is_android) {
   import("//build/config/android/rules.gni")
 }
 
-# Reset sources_assignment_filter for the BUILD.gn file to prevent
-# regression during the migration of Chromium away from the feature.
-# See docs/no_sources_assignment_filter.md for more information.
-# TODO(crbug.com/1018739): remove this when migration is done.
-set_sources_assignment_filter([])
-
 buildflag_header("buildflags") {
   header = "buildflags.h"
   flags = [
     "ENABLE_SWIFTSHADER=$enable_swiftshader",
     "USE_DAWN=$use_dawn",
     "USE_STATIC_ANGLE=$use_static_angle",
+    "USE_OPENGL_APITRACE=$enable_opengl_apitrace",
   ]
 }
 
@@ -147,8 +143,6 @@ component("gl") {
 
   if (is_android) {
     sources += [
-      "android/android_surface_control_compat.cc",
-      "android/android_surface_control_compat.h",
       "android/scoped_java_surface.cc",
       "android/scoped_java_surface.h",
       "android/surface_texture.cc",
@@ -173,6 +167,7 @@ component("gl") {
   deps = [
     ":buildflags",
     "//base/third_party/dynamic_annotations",
+    "//build:chromeos_buildflags",
 
     # ANGLE includes are used cross-platform.
     "//third_party/angle:includes",
@@ -250,6 +245,10 @@ component("gl") {
     ]
   }
 
+  if (use_ozone) {
+    deps += [ "//ui/ozone:buildflags" ]
+  }
+
   if (use_x11 || ozone_platform_x11) {
     sources += [
       "gl_image_egl_pixmap.cc",
@@ -266,6 +265,7 @@ component("gl") {
       "//ui/base:features",
       "//ui/base/x",
       "//ui/events/platform/x11:x11",
+      "//ui/gfx/linux:gpu_memory_buffer_support_x11",
     ]
 
     assert(use_egl)
@@ -290,6 +290,8 @@ component("gl") {
       "gl_surface_glx.h",
       "gl_visual_picker_glx.cc",
       "gl_visual_picker_glx.h",
+      "glx_util.cc",
+      "glx_util.h",
     ]
 
     deps += [
@@ -309,18 +311,14 @@ component("gl") {
       "direct_composition_surface_win.h",
       "gl_angle_util_win.cc",
       "gl_angle_util_win.h",
-      "gl_bindings_autogen_wgl.cc",
-      "gl_bindings_autogen_wgl.h",
-      "gl_context_wgl.cc",
-      "gl_context_wgl.h",
+      "gl_fence_win.cc",
+      "gl_fence_win.h",
       "gl_image_d3d.cc",
       "gl_image_d3d.h",
       "gl_image_dxgi.cc",
       "gl_image_dxgi.h",
-      "gl_surface_wgl.cc",
-      "gl_surface_wgl.h",
-      "gl_wgl_api_implementation.cc",
-      "gl_wgl_api_implementation.h",
+      "hdr_metadata_helper_win.cc",
+      "hdr_metadata_helper_win.h",
       "swap_chain_presenter.cc",
       "swap_chain_presenter.h",
       "vsync_observer.h",
@@ -515,6 +513,14 @@ static_library("test_support") {
   if (use_ozone) {
     deps += [ "//ui/ozone" ]
   }
+
+  # If the run-time search path isn't set properly when we use ANGLE with its
+  # Vulkan backend, it may end up finding the system libvulkan.so rather than
+  # the one built in the output directory
+  if ((is_linux || is_chromeos) && !is_component_build) {
+    all_dependent_configs =
+        [ "//build/config/gcc:rpath_for_built_shared_libraries" ]
+  }
 }
 
 source_set("run_all_unittests") {
@@ -539,6 +545,8 @@ source_set("run_all_unittests") {
 }
 
 test("gl_unittests") {
+  use_xvfb = use_xvfb_in_this_config
+
   sources = [
     "gl_api_unittest.cc",
     "gl_image_ref_counted_memory_unittest.cc",
@@ -571,9 +579,10 @@ test("gl_unittests") {
   if (is_win) {
     sources += [
       "direct_composition_surface_win_unittest.cc",
+      "gl_fence_win_unittest.cc",
       "gl_image_d3d_unittest.cc",
       "gl_image_dxgi_unittest.cc",
-      "wgl_api_unittest.cc",
+      "hdr_metadata_helper_win_unittest.cc",
     ]
   }
 
@@ -581,7 +590,7 @@ test("gl_unittests") {
     sources += [ "gl_image_ahardwarebuffer_unittest.cc" ]
   }
 
-  if (is_desktop_linux) {
+  if (is_linux || is_chromeos_lacros) {
     sources += [ "gl_image_native_pixmap_unittest.cc" ]
   }
 
@@ -610,6 +619,11 @@ test("gl_unittests") {
   if (use_x11) {
     sources += [ "gl_context_glx_unittest.cc" ]
     deps += [ "//ui/gfx/x" ]
+  }
+
+  if (is_win) {
+    deps += [ "//media/base/win:test_support" ]
+    libs = [ "dxguid.lib" ]
   }
 }
 

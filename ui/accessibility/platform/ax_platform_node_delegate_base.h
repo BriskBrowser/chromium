@@ -36,6 +36,7 @@ class AX_EXPORT AXPlatformNodeDelegateBase : public AXPlatformNodeDelegate {
   const AXTreeData& GetTreeData() const override;
 
   base::string16 GetInnerText() const override;
+  base::string16 GetValueForControl() const override;
   const AXTree::Selection GetUnignoredSelection() const override;
 
   // Creates a text position rooted at this object.
@@ -71,10 +72,11 @@ class AX_EXPORT AXPlatformNodeDelegateBase : public AXPlatformNodeDelegate {
   gfx::NativeViewAccessible GetPreviousSibling() override;
 
   bool IsChildOfLeaf() const override;
-  bool IsChildOfPlainTextField() const override;
+  bool IsDescendantOfPlainTextField() const override;
   bool IsLeaf() const override;
+  bool IsFocused() const override;
   bool IsToplevelBrowserWindow() override;
-  gfx::NativeViewAccessible GetClosestPlatformObject() const override;
+  gfx::NativeViewAccessible GetLowestPlatformAncestor() const override;
 
   class ChildIteratorBase : public ChildIterator {
    public:
@@ -148,10 +150,13 @@ class AX_EXPORT AXPlatformNodeDelegateBase : public AXPlatformNodeDelegate {
 
   // Return the node within this node's subtree (inclusive) that currently
   // has focus.
-  gfx::NativeViewAccessible GetFocus() override;
+  gfx::NativeViewAccessible GetFocus() const override;
 
   // Get whether this node is offscreen.
   bool IsOffscreen() const override;
+
+  // Returns true if this node is invisible or ignored.
+  bool IsInvisibleOrIgnored() const override;
 
   // Get whether this node is a minimized window.
   bool IsMinimized() const override;

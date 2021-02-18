@@ -12,6 +12,7 @@
 #include "ash/public/cpp/login_types.h"
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/lazy_instance.h"
 #include "base/location.h"
 #include "base/macros.h"
@@ -19,13 +20,13 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/task/current_thread.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "chrome/browser/ash/accessibility/accessibility_manager.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/authpolicy/authpolicy_helper.h"
 #include "chrome/browser/chromeos/certificate_provider/certificate_provider_service.h"
 #include "chrome/browser/chromeos/certificate_provider/certificate_provider_service_factory.h"
@@ -40,11 +41,8 @@
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_factory.h"
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_storage.h"
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
-#include "chrome/browser/chromeos/login/supervised/supervised_user_authentication.h"
 #include "chrome/browser/chromeos/login/ui/user_adding_screen.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
-#include "chrome/browser/chromeos/login/users/supervised_user_manager.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/ash/login_screen_client.h"
@@ -82,7 +80,7 @@ namespace chromeos {
 
 namespace {
 
-// Returns true if fingerprint authentication is available for |user|.
+// Returns true if fingerprint authentication is available for `user`.
 bool IsFingerprintAvailableForUser(const user_manager::User* user) {
   quick_unlock::QuickUnlockStorage* quick_unlock_storage =
       quick_unlock::QuickUnlockFactory::GetForUser(user);
@@ -179,9 +177,9 @@ ScreenLocker::ScreenLocker(const user_manager::UserList& users)
 
   ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
   audio::SoundsManager* manager = audio::SoundsManager::Get();
-  manager->Initialize(SOUND_LOCK,
+  manager->Initialize(static_cast<int>(Sound::kLock),
                       bundle.GetRawDataResource(IDR_SOUND_LOCK_WAV));
-  manager->Initialize(SOUND_UNLOCK,
+  manager->Initialize(static_cast<int>(Sound::kUnlock),
                       bundle.GetRawDataResource(IDR_SOUND_UNLOCK_WAV));
   content::GetDeviceService().BindFingerprint(
       fp_service_.BindNewPipeAndPassReceiver());
@@ -199,6 +197,11 @@ void ScreenLocker::Init() {
       input_method::InputMethodManager::Get();
   saved_ime_state_ = imm->GetActiveIMEState();
   imm->SetState(saved_ime_state_->Clone());
+  input_method::InputMethodManager::Get()->GetActiveIMEState()->SetUIStyle(
+      input_method::InputMethodManager::UIStyle::kLock);
+  input_method::InputMethodManager::Get()
+      ->GetActiveIMEState()
+      ->EnableLockScreenLayouts();
 
   authenticator_ = UserSessionManager::GetInstance()->CreateAuthenticator(this);
   extended_authenticator_ = ExtendedAuthenticator::Create(this);
@@ -257,7 +260,7 @@ void ScreenLocker::OnAuthFailure(const AuthFailure& error) {
 }
 
 void ScreenLocker::OnAuthSuccess(const UserContext& user_context) {
-  CHECK(!base::Contains(users_with_disabled_auth_, user_context.GetAccountId()))
+  CHECK(!IsAuthTemporarilyDisabledForUser(user_context.GetAccountId()))
       << "Authentication is disabled for this user.";
 
   incorrect_passwords_count_ = 0;
@@ -326,21 +329,27 @@ void ScreenLocker::OnPasswordAuthSuccess(const UserContext& user_context) {
   SaveSyncPasswordHash(user_context);
 }
 
-void ScreenLocker::EnableAuthForUser(const AccountId& account_id) {
+void ScreenLocker::ReenableAuthForUser(const AccountId& account_id) {
+  if (!IsAuthTemporarilyDisabledForUser(account_id))
+    return;
+
   const user_manager::User* user = FindUnlockUser(account_id);
   CHECK(user) << "Invalid user - cannot enable authentication.";
 
-  users_with_disabled_auth_.erase(account_id);
+  users_with_temporarily_disabled_auth_.erase(account_id);
   ash::LoginScreen::Get()->GetModel()->EnableAuthForUser(account_id);
 }
 
-void ScreenLocker::DisableAuthForUser(
+void ScreenLocker::TemporarilyDisableAuthForUser(
     const AccountId& account_id,
     const ash::AuthDisabledData& auth_disabled_data) {
+  if (IsAuthTemporarilyDisabledForUser(account_id))
+    return;
+
   const user_manager::User* user = FindUnlockUser(account_id);
   CHECK(user) << "Invalid user - cannot disable authentication.";
 
-  users_with_disabled_auth_.insert(account_id);
+  users_with_temporarily_disabled_auth_.insert(account_id);
   ash::LoginScreen::Get()->GetModel()->DisableAuthForUser(account_id,
                                                           auth_disabled_data);
 }
@@ -351,7 +360,7 @@ void ScreenLocker::Authenticate(const UserContext& user_context,
       << "Invalid user trying to unlock.";
 
   // Do not attempt authentication if it is disabled for the user.
-  if (base::Contains(users_with_disabled_auth_, user_context.GetAccountId())) {
+  if (IsAuthTemporarilyDisabledForUser(user_context.GetAccountId())) {
     VLOG(1) << "Authentication disabled for user.";
     if (auth_status_consumer_) {
       auth_status_consumer_->OnAuthFailure(
@@ -393,7 +402,7 @@ void ScreenLocker::AuthenticateWithChallengeResponse(
   LOG_ASSERT(IsUserLoggedIn(account_id)) << "Invalid user trying to unlock.";
 
   // Do not attempt authentication if it is disabled for the user.
-  if (base::Contains(users_with_disabled_auth_, account_id)) {
+  if (IsAuthTemporarilyDisabledForUser(account_id)) {
     VLOG(1) << "Authentication disabled for user.";
     if (auth_status_consumer_) {
       auth_status_consumer_->OnAuthFailure(
@@ -467,25 +476,6 @@ void ScreenLocker::OnPinAttemptDone(const UserContext& user_context,
 
 void ScreenLocker::ContinueAuthenticate(
     const chromeos::UserContext& user_context) {
-  const user_manager::User* user = FindUnlockUser(user_context.GetAccountId());
-  if (user) {
-    // Special case: supervised users. Use special authenticator.
-    if (user->GetType() == user_manager::USER_TYPE_SUPERVISED) {
-      UserContext updated_context = ChromeUserManager::Get()
-                                        ->GetSupervisedUserManager()
-                                        ->GetAuthentication()
-                                        ->TransformKey(user_context);
-      content::GetUIThreadTaskRunner({})->PostTask(
-          FROM_HERE,
-          base::BindOnce(
-              &ExtendedAuthenticator::AuthenticateToCheck,
-              extended_authenticator_.get(), updated_context,
-              base::Bind(&ScreenLocker::OnPasswordAuthSuccess,
-                         weak_factory_.GetWeakPtr(), updated_context)));
-      return;
-    }
-  }
-
   if (user_context.GetAccountId().GetAccountType() ==
           AccountType::ACTIVE_DIRECTORY &&
       user_context.GetKey()->GetKeyType() == Key::KEY_TYPE_PASSWORD_PLAIN) {
@@ -503,8 +493,8 @@ void ScreenLocker::ContinueAuthenticate(
       FROM_HERE,
       base::BindOnce(&ExtendedAuthenticator::AuthenticateToCheck,
                      extended_authenticator_.get(), user_context,
-                     base::Bind(&ScreenLocker::OnPasswordAuthSuccess,
-                                weak_factory_.GetWeakPtr(), user_context)));
+                     base::BindOnce(&ScreenLocker::OnPasswordAuthSuccess,
+                                    weak_factory_.GetWeakPtr(), user_context)));
 }
 
 const user_manager::User* ScreenLocker::FindUnlockUser(
@@ -526,7 +516,7 @@ void ScreenLocker::OnStartLockCallback(bool locked) {
   delegate_->OnAshLockAnimationFinished();
 
   AccessibilityManager::Get()->PlayEarcon(
-      SOUND_LOCK, PlaySoundOption::ONLY_IF_SPOKEN_FEEDBACK_ENABLED);
+      Sound::kLock, PlaySoundOption::kOnlyIfSpokenFeedbackEnabled);
 }
 
 void ScreenLocker::ClearErrors() {
@@ -582,7 +572,7 @@ void ScreenLocker::ShutDownClass() {
   delete g_screen_lock_observer;
   g_screen_lock_observer = nullptr;
 
-  // Delete |screen_locker_| if it is being shown.
+  // Delete `screen_locker_` if it is being shown.
   ScheduleDeletion();
 }
 
@@ -668,7 +658,7 @@ void ScreenLocker::ScheduleDeletion() {
   VLOG(1) << "Deleting ScreenLocker " << screen_locker_;
 
   AccessibilityManager::Get()->PlayEarcon(
-      SOUND_UNLOCK, PlaySoundOption::ONLY_IF_SPOKEN_FEEDBACK_ENABLED);
+      Sound::kUnlock, PlaySoundOption::kOnlyIfSpokenFeedbackEnabled);
 
   delete screen_locker_;
   screen_locker_ = nullptr;
@@ -687,8 +677,9 @@ void ScreenLocker::SaveSyncPasswordHash(const UserContext& user_context) {
     login::SaveSyncPasswordDataToProfile(user_context, profile);
 }
 
-bool ScreenLocker::IsAuthEnabledForUser(const AccountId& account_id) {
-  return !base::Contains(users_with_disabled_auth_, account_id);
+bool ScreenLocker::IsAuthTemporarilyDisabledForUser(
+    const AccountId& account_id) {
+  return base::Contains(users_with_temporarily_disabled_auth_, account_id);
 }
 
 void ScreenLocker::SetAuthenticatorsForTesting(
@@ -756,10 +747,6 @@ void ScreenLocker::ScreenLockReady() {
   session_manager::SessionManager::Get()->SetSessionState(
       session_manager::SessionState::LOCKED);
 
-  input_method::InputMethodManager::Get()
-      ->GetActiveIMEState()
-      ->EnableLockScreenLayouts();
-
   // Start a fingerprint authentication session if fingerprint is available for
   // the primary user. Only the primary user can use fingerprint.
   if (IsFingerprintAvailableForUser(
@@ -803,8 +790,19 @@ void ScreenLocker::OnAuthScanDone(
   quick_unlock::QuickUnlockStorage* quick_unlock_storage =
       quick_unlock::QuickUnlockFactory::GetForUser(primary_user);
   if (!quick_unlock_storage ||
-      !quick_unlock_storage->IsFingerprintAuthenticationAvailable() ||
-      base::Contains(users_with_disabled_auth_, primary_user->GetAccountId())) {
+      !quick_unlock_storage->IsFingerprintAuthenticationAvailable()) {
+    // In theory this should be very rare. The auth session should be ended when
+    // fingerprint becomes unavaliable.
+    LoginScreenClient::Get()->auth_recorder()->RecordFingerprintUnlockResult(
+        LoginAuthRecorder::FingerprintUnlockResult::kFingerprintUnavailable,
+        base::nullopt);
+    return;
+  }
+
+  if (IsAuthTemporarilyDisabledForUser(primary_user->GetAccountId())) {
+    LoginScreenClient::Get()->auth_recorder()->RecordFingerprintUnlockResult(
+        LoginAuthRecorder::FingerprintUnlockResult::kAuthTemporarilyDisabled,
+        base::nullopt);
     return;
   }
 
@@ -815,6 +813,9 @@ void ScreenLocker::OnAuthScanDone(
     LOG(ERROR) << "Fingerprint unlock failed because scan_result="
                << scan_result;
     OnFingerprintAuthFailure(*primary_user);
+    LoginScreenClient::Get()->auth_recorder()->RecordFingerprintUnlockResult(
+        LoginAuthRecorder::FingerprintUnlockResult::kMatchFailed,
+        base::nullopt);
     return;
   }
 
@@ -823,14 +824,17 @@ void ScreenLocker::OnAuthScanDone(
     LOG(ERROR) << "Fingerprint unlock failed because it does not match primary"
                << " user's record";
     OnFingerprintAuthFailure(*primary_user);
+    LoginScreenClient::Get()->auth_recorder()->RecordFingerprintUnlockResult(
+        LoginAuthRecorder::FingerprintUnlockResult::kMatchNotForPrimaryUser,
+        base::nullopt);
     return;
   }
+  LoginScreenClient::Get()->auth_recorder()->RecordFingerprintUnlockResult(
+      LoginAuthRecorder::FingerprintUnlockResult::kSuccess,
+      quick_unlock_storage->fingerprint_storage()->unlock_attempt_count());
   ash::LoginScreen::Get()->GetModel()->NotifyFingerprintAuthResult(
       primary_user->GetAccountId(), true /*success*/);
   VLOG(1) << "Fingerprint unlock is successful.";
-  LoginScreenClient::Get()->auth_recorder()->RecordFingerprintAuthSuccess(
-      true /*success*/,
-      quick_unlock_storage->fingerprint_storage()->unlock_attempt_count());
   OnAuthSuccess(user_context);
 }
 
@@ -847,8 +851,6 @@ void ScreenLocker::ActiveUserChanged(user_manager::User* active_user) {
 void ScreenLocker::OnFingerprintAuthFailure(const user_manager::User& user) {
   UMA_HISTOGRAM_ENUMERATION("ScreenLocker.AuthenticationFailure",
                             unlock_attempt_type_, UnlockType::AUTH_COUNT);
-  LoginScreenClient::Get()->auth_recorder()->RecordFingerprintAuthSuccess(
-      false /*success*/, base::nullopt /*num_attempts*/);
   ash::LoginScreen::Get()->GetModel()->NotifyFingerprintAuthResult(
       user.GetAccountId(), false /*success*/);
 
@@ -909,6 +911,11 @@ void ScreenLocker::MaybeDisablePinAndFingerprintFromTimeout(
         VLOG(1) << "Require strong auth to make fingerprint unlock available.";
         ash::LoginScreen::Get()->GetModel()->SetFingerprintState(
             account_id, ash::FingerprintState::DISABLED_FROM_TIMEOUT);
+        fp_service_->EndCurrentAuthSession(base::BindOnce([](bool success) {
+          if (success)
+            return;
+          DLOG(ERROR) << "Failed to end fingerprint auth session";
+        }));
       }
     }
   }

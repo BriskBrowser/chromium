@@ -13,7 +13,7 @@
 #import "ios/chrome/common/ui/colors/dynamic_color_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/test/fakes/fake_overscroll_actions_controller_delegate.h"
-#import "ios/web/public/test/fakes/test_web_state.h"
+#import "ios/web/public/test/fakes/fake_web_state.h"
 #include "ios/web/public/test/web_task_environment.h"
 #import "ios/web/public/ui/crw_web_view_proxy.h"
 #import "ios/web/public/ui/crw_web_view_scroll_view_proxy.h"
@@ -62,6 +62,10 @@ class OverscrollActionsTabHelperTest : public PlatformTest {
     base::test::ios::SpinRunLoopWithMinDelay(base::TimeDelta::FromSecondsD(
         kMinimumPullDurationToTransitionToReadyInSeconds));
     [ui_scroll_view_.delegate scrollViewDidScroll:ui_scroll_view_];
+    // Scroll to content offset below action threshold to cancel bounce
+    // animation.
+    scroll_view_proxy_.contentOffset = CGPointMake(0, -56);
+    // Scroll past action threshold to trigger refresh action.
     scroll_view_proxy_.contentOffset = CGPointMake(0, -293);
     CGPoint target_offset = CGPointMake(0, -92);
     [ui_scroll_view_.delegate scrollViewWillEndDragging:ui_scroll_view_
@@ -74,7 +78,7 @@ class OverscrollActionsTabHelperTest : public PlatformTest {
 
   web::WebTaskEnvironment task_environment_;
   std::unique_ptr<ChromeBrowserState> browser_state_;
-  web::TestWebState web_state_;
+  web::FakeWebState web_state_;
   FakeOverscrollActionsControllerDelegate* overscroll_delegate_;
   CRWWebViewScrollViewProxy* scroll_view_proxy_;
   UIScrollView* ui_scroll_view_;
@@ -82,13 +86,7 @@ class OverscrollActionsTabHelperTest : public PlatformTest {
 
 // Tests that OverscrollActionsControllerDelegate is set correctly and triggered
 // When there is a view pull.
-// TODO(crbug.com/944599): Fails on device.
-#if TARGET_IPHONE_SIMULATOR
-#define MAYBE_TestDelegateTrigger TestDelegateTrigger
-#else
-#define MAYBE_TestDelegateTrigger DISABLED_TestDelegateTrigger
-#endif
-TEST_F(OverscrollActionsTabHelperTest, MAYBE_TestDelegateTrigger) {
+TEST_F(OverscrollActionsTabHelperTest, TestDelegateTrigger) {
   web_state_.SetBrowserState(browser_state_.get());
   overscroll_tab_helper()->SetDelegate(overscroll_delegate_);
   // Start pull for page refresh action.
@@ -104,13 +102,7 @@ TEST_F(OverscrollActionsTabHelperTest, MAYBE_TestDelegateTrigger) {
 
 // Tests that overscrolls actions view style is set correctly, for regular
 // browsing browser state.
-// TODO(crbug.com/944599): Fails on device.
-#if TARGET_IPHONE_SIMULATOR
-#define MAYBE_TestRegularBrowserStateStyle TestRegularBrowserStateStyle
-#else
-#define MAYBE_TestRegularBrowserStateStyle DISABLED_TestRegularBrowserStateStyle
-#endif
-TEST_F(OverscrollActionsTabHelperTest, MAYBE_TestRegularBrowserStateStyle) {
+TEST_F(OverscrollActionsTabHelperTest, TestRegularBrowserStateStyle) {
   web_state_.SetBrowserState(browser_state_.get());
   overscroll_tab_helper()->SetDelegate(overscroll_delegate_);
   SimulatePullForRefreshAction();
@@ -121,16 +113,7 @@ TEST_F(OverscrollActionsTabHelperTest, MAYBE_TestRegularBrowserStateStyle) {
 
 // Tests that overscrolls actions view style is set correctly, for off the
 // record browser state.
-// TODO(crbug.com/944599): Fails on device.
-#if TARGET_IPHONE_SIMULATOR
-#define MAYBE_TestOffTheRecordBrowserStateStyle \
-  TestOffTheRecordBrowserStateStyle
-#else
-#define MAYBE_TestOffTheRecordBrowserStateStyle \
-  DISABLED_TestOffTheRecordBrowserStateStyle
-#endif
-TEST_F(OverscrollActionsTabHelperTest,
-       MAYBE_TestOffTheRecordBrowserStateStyle) {
+TEST_F(OverscrollActionsTabHelperTest, TestOffTheRecordBrowserStateStyle) {
   web_state_.SetBrowserState(
       browser_state_->GetOffTheRecordChromeBrowserState());
   overscroll_tab_helper()->SetDelegate(overscroll_delegate_);

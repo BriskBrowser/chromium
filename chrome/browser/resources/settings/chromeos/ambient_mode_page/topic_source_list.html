@@ -18,7 +18,7 @@
 
       topic-source-item {
         align-items: center;
-        height: 48px;
+        height: 64px;
       }
 
       iron-list > *:not(:first-of-type) {
@@ -29,19 +29,16 @@
         background-color: var(--cr-focused-item-color);
       }
     </style>
-    <h2 id="topicSourceTitle">
+    <h2 id="topicSourceTitle" aria-hidden="true">
       $i18n{ambientModeTopicSourceTitle}
     </h2>
 
-    <iron-list id="topicSourceList" selection-enabled
-        items="[[topicSources]]"
-        selected-item="{{selectedItem}}"
-        on-selected-item-changed="onSelectedItemChanged_">
+    <iron-list id="topicSourceList" items="[[topicSources]]">
       <template>
-        <topic-source-item item="[[item]]"
-            checked="[[isItemSelected_(item, selectedItem)]]"
-            tabindex$="[[tabIndex]]"
-            disabled$="[[disabled]]">
+        <topic-source-item item="[[item]]" disabled$="[[disabled]]"
+            tabindex$="[[computeTabIndex_(tabIndex, disabled)]]"
+            has-google-photos-albums="[[hasGooglePhotosAlbums]]"
+            checked="[[isSelected_(item, selectedTopicSource)]]">
         </topic-source-item>
       </template>
     </iron-list>

@@ -22,7 +22,6 @@
 #include "base/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/optional.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/services/assistant/public/cpp/assistant_prefs.h"
 #include "chromeos/services/assistant/public/cpp/assistant_service.h"
 #include "chromeos/services/assistant/public/cpp/features.h"
@@ -67,9 +66,10 @@ AssistantUiControllerImpl::AssistantUiControllerImpl(
     AssistantControllerImpl* assistant_controller)
     : assistant_controller_(assistant_controller) {
   model_.AddObserver(this);
-  assistant_controller_observer_.Add(AssistantController::Get());
-  highlighter_controller_observer_.Add(Shell::Get()->highlighter_controller());
-  overview_controller_observer_.Add(Shell::Get()->overview_controller());
+  assistant_controller_observation_.Observe(AssistantController::Get());
+  highlighter_controller_observation_.Observe(
+      Shell::Get()->highlighter_controller());
+  overview_controller_observation_.Observe(Shell::Get()->overview_controller());
 }
 
 AssistantUiControllerImpl::~AssistantUiControllerImpl() {

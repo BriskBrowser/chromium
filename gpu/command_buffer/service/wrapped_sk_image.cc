@@ -56,7 +56,7 @@ class WrappedSkImage : public ClearTrackingSharedImageBacking {
     context_state_->EraseCachedSkSurface(this);
 
     if (backend_texture_.isValid())
-      DeleteGrBackendTexture(context_state_, &backend_texture_);
+      DeleteGrBackendTexture(context_state_.get(), &backend_texture_);
 
     DCHECK(context_state_->context_lost() ||
            context_state_->IsCurrent(nullptr));
@@ -138,11 +138,19 @@ class WrappedSkImage : public ClearTrackingSharedImageBacking {
 
   sk_sp<SkPromiseImageTexture> promise_texture() { return promise_texture_; }
 
+  const SharedMemoryRegionWrapper& shared_memory_wrapper() {
+    return shared_memory_wrapper_;
+  }
+
  protected:
   std::unique_ptr<SharedImageRepresentationSkia> ProduceSkia(
       SharedImageManager* manager,
       MemoryTypeTracker* tracker,
       scoped_refptr<SharedContextState> context_state) override;
+
+  std::unique_ptr<SharedImageRepresentationMemory> ProduceMemory(
+      SharedImageManager* manager,
+      MemoryTypeTracker* tracker) override;
 
  private:
   friend class gpu::raster::WrappedSkImageFactory;
@@ -155,7 +163,7 @@ class WrappedSkImage : public ClearTrackingSharedImageBacking {
                  SkAlphaType alpha_type,
                  uint32_t usage,
                  size_t estimated_size,
-                 SharedContextState* context_state)
+                 scoped_refptr<SharedContextState> context_state)
       : ClearTrackingSharedImageBacking(mailbox,
                                         format,
                                         size,
@@ -165,7 +173,7 @@ class WrappedSkImage : public ClearTrackingSharedImageBacking {
                                         usage,
                                         estimated_size,
                                         false /* is_thread_safe */),
-        context_state_(context_state) {
+        context_state_(std::move(context_state)) {
     DCHECK(!!context_state_);
   }
 
@@ -190,7 +198,9 @@ class WrappedSkImage : public ClearTrackingSharedImageBacking {
     if (context_state_->context_lost())
       return false;
 
-    DCHECK(context_state_->IsCurrent(nullptr));
+    // MakeCurrent to avoid destroying another client's state because Skia may
+    // change GL state to create and upload textures (crbug.com/1095679).
+    context_state_->MakeCurrent(nullptr);
     context_state_->set_need_context_state_reset(true);
 
 #if BUILDFLAG(ENABLE_VULKAN)
@@ -283,7 +293,7 @@ class WrappedSkImage : public ClearTrackingSharedImageBacking {
     return true;
   }
 
-  SharedContextState* const context_state_;
+  scoped_refptr<SharedContextState> context_state_;
 
   GrBackendTexture backend_texture_;
   sk_sp<SkPromiseImageTexture> promise_texture_;
@@ -297,14 +307,14 @@ class WrappedSkImage : public ClearTrackingSharedImageBacking {
   DISALLOW_COPY_AND_ASSIGN(WrappedSkImage);
 };
 
-class WrappedSkImageRepresentation : public SharedImageRepresentationSkia {
+class WrappedSkImageRepresentationSkia : public SharedImageRepresentationSkia {
  public:
-  WrappedSkImageRepresentation(SharedImageManager* manager,
-                               SharedImageBacking* backing,
-                               MemoryTypeTracker* tracker)
+  WrappedSkImageRepresentationSkia(SharedImageManager* manager,
+                                   SharedImageBacking* backing,
+                                   MemoryTypeTracker* tracker)
       : SharedImageRepresentationSkia(manager, backing, tracker) {}
 
-  ~WrappedSkImageRepresentation() override { DCHECK(!write_surface_); }
+  ~WrappedSkImageRepresentationSkia() override { DCHECK(!write_surface_); }
 
   sk_sp<SkSurface> BeginWriteAccess(
       int final_msaa_count,
@@ -322,13 +332,22 @@ class WrappedSkImageRepresentation : public SharedImageRepresentationSkia {
     return surface;
   }
 
-  void EndWriteAccess(sk_sp<SkSurface> surface) override {
-    DCHECK_EQ(surface.get(), write_surface_);
-    surface->getCanvas()->restoreToCount(1);
-    surface.reset();
-    write_surface_ = nullptr;
+  sk_sp<SkPromiseImageTexture> BeginWriteAccess(
+      std::vector<GrBackendSemaphore>* begin_semaphores,
+      std::vector<GrBackendSemaphore>* end_semaphores,
+      std::unique_ptr<GrBackendSurfaceMutableState>* end_state) override {
+    return wrapped_sk_image()->promise_texture();
+  }
 
-    DCHECK(wrapped_sk_image()->SkSurfaceUnique());
+  void EndWriteAccess(sk_sp<SkSurface> surface) override {
+    if (surface) {
+      DCHECK_EQ(surface.get(), write_surface_);
+      surface->getCanvas()->restoreToCount(1);
+      surface.reset();
+      write_surface_ = nullptr;
+
+      DCHECK(wrapped_sk_image()->SkSurfaceUnique());
+    }
   }
 
   sk_sp<SkPromiseImageTexture> BeginReadAccess(
@@ -353,10 +372,34 @@ class WrappedSkImageRepresentation : public SharedImageRepresentationSkia {
   SkSurface* write_surface_ = nullptr;
 };
 
+class WrappedSkImageRepresentationMemory
+    : public SharedImageRepresentationMemory {
+ public:
+  WrappedSkImageRepresentationMemory(SharedImageManager* manager,
+                                     SharedImageBacking* backing,
+                                     MemoryTypeTracker* tracker)
+      : SharedImageRepresentationMemory(manager, backing, tracker) {}
+
+ protected:
+  SkPixmap BeginReadAccess() override {
+    SkImageInfo info = MakeSkImageInfo(wrapped_sk_image()->size(),
+                                       wrapped_sk_image()->format());
+    return SkPixmap(info,
+                    wrapped_sk_image()->shared_memory_wrapper().GetMemory(),
+                    wrapped_sk_image()->shared_memory_wrapper().GetStride());
+  }
+
+ private:
+  WrappedSkImage* wrapped_sk_image() {
+    return static_cast<WrappedSkImage*>(backing());
+  }
+};
+
 }  // namespace
 
-WrappedSkImageFactory::WrappedSkImageFactory(SharedContextState* context_state)
-    : context_state_(context_state) {}
+WrappedSkImageFactory::WrappedSkImageFactory(
+    scoped_refptr<SharedContextState> context_state)
+    : context_state_(std::move(context_state)) {}
 
 WrappedSkImageFactory::~WrappedSkImageFactory() = default;
 
@@ -450,7 +493,18 @@ std::unique_ptr<SharedImageRepresentationSkia> WrappedSkImage::ProduceSkia(
     return nullptr;
 
   DCHECK_EQ(context_state_, context_state.get());
-  return std::make_unique<WrappedSkImageRepresentation>(manager, this, tracker);
+  return std::make_unique<WrappedSkImageRepresentationSkia>(manager, this,
+                                                            tracker);
+}
+
+std::unique_ptr<SharedImageRepresentationMemory> WrappedSkImage::ProduceMemory(
+    SharedImageManager* manager,
+    MemoryTypeTracker* tracker) {
+  if (!shared_memory_wrapper_.IsValid())
+    return nullptr;
+
+  return std::make_unique<WrappedSkImageRepresentationMemory>(manager, this,
+                                                              tracker);
 }
 
 }  // namespace raster

@@ -20,6 +20,7 @@
 #include "chrome/browser/chromeos/crostini/crostini_types.mojom-forward.h"
 #include "chrome/browser/chromeos/crostini/crostini_util.h"
 #include "chrome/browser/chromeos/crostini/termina_installer.h"
+#include "chrome/browser/chromeos/vm_shutdown_observer.h"
 #include "chrome/browser/chromeos/vm_starting_observer.h"
 #include "chrome/browser/component_updater/cros_component_installer_chromeos.h"
 #include "chrome/browser/ui/browser.h"
@@ -38,9 +39,14 @@
 
 class Profile;
 
+namespace guest_os {
+class GuestOsStabilityMonitor;
+}
+
 namespace crostini {
 
-class CrostiniStabilityMonitor;
+extern const char kCrostiniStabilityHistogram[];
+
 class CrostiniUpgradeAvailableNotification;
 
 class LinuxPackageOperationProgressObserver {
@@ -126,12 +132,6 @@ class CrostiniContainerPropertiesObserver : public base::CheckedObserver {
                                            bool can_upgrade) = 0;
 };
 
-class VmShutdownObserver : public base::CheckedObserver {
- public:
-  // Called when the given VM has shutdown.
-  virtual void OnVmShutdown(const std::string& vm_name) = 0;
-};
-
 class ContainerStartedObserver : public base::CheckedObserver {
  public:
   // Called when the container has started.
@@ -189,11 +189,11 @@ class CrostiniManager : public KeyedService,
     virtual ~RestartObserver() {}
     virtual void OnStageStarted(mojom::InstallerState stage) {}
     virtual void OnComponentLoaded(CrostiniResult result) {}
-    virtual void OnConciergeStarted(bool success) {}
     virtual void OnDiskImageCreated(bool success,
                                     vm_tools::concierge::DiskImageStatus status,
                                     int64_t disk_size_bytes) {}
     virtual void OnVmStarted(bool success) {}
+    virtual void OnLxdStarted(CrostiniResult result) {}
     virtual void OnContainerDownloading(int32_t download_percent) {}
     virtual void OnContainerCreated(CrostiniResult result) {}
     virtual void OnContainerSetup(bool success) {}
@@ -242,10 +242,6 @@ class CrostiniManager : public KeyedService,
 
   // Unloads and removes termina.
   void UninstallTermina(BoolCallback callback);
-
-  // Starts the Concierge service. |callback| is called after the method call
-  // finishes.
-  void StartConcierge(BoolCallback callback);
 
   // Checks the arguments for creating a new Termina VM disk image. Creates a
   // disk image for a Termina VM via ConciergeClient::CreateDiskImage.
@@ -428,22 +424,6 @@ class CrostiniManager : public KeyedService,
   void GetContainerSshKeys(const ContainerId& container_id,
                            GetContainerSshKeysCallback callback);
 
-  // Called when a USB device should be attached into the VM. Should only ever
-  // be called on user action. The guest_port is only valid on success.
-  using AttachUsbDeviceCallback =
-      base::OnceCallback<void(bool success, uint8_t guest_port)>;
-  void AttachUsbDevice(const std::string& vm_name,
-                       device::mojom::UsbDeviceInfoPtr device,
-                       base::ScopedFD fd,
-                       AttachUsbDeviceCallback callback);
-
-  // Called when a USB device should be detached from the VM.
-  // May be called on user action or on USB removal.
-  void DetachUsbDevice(const std::string& vm_name,
-                       device::mojom::UsbDeviceInfoPtr device,
-                       uint8_t guest_port,
-                       BoolCallback callback);
-
   // Add a relative path to watch within the container homedir. Register as a
   // CrostiniFileChangeObserver to be notified when changes occur. Used by
   // FilesApp.
@@ -523,8 +503,8 @@ class CrostiniManager : public KeyedService,
       UpgradeContainerProgressObserver* observer);
 
   // Add/remove vm shutdown observers.
-  void AddVmShutdownObserver(VmShutdownObserver* observer);
-  void RemoveVmShutdownObserver(VmShutdownObserver* observer);
+  void AddVmShutdownObserver(chromeos::VmShutdownObserver* observer);
+  void RemoveVmShutdownObserver(chromeos::VmShutdownObserver* observer);
 
   // Add/remove vm starting observers.
   void AddVmStartingObserver(chromeos::VmStartingObserver* observer);
@@ -588,7 +568,7 @@ class CrostiniManager : public KeyedService,
 
   // chromeos::PowerManagerClient::Observer overrides:
   void SuspendImminent(power_manager::SuspendImminent::Reason reason) override;
-  void SuspendDone(const base::TimeDelta& sleep_duration) override;
+  void SuspendDone(base::TimeDelta sleep_duration) override;
 
   // Callback for |RemoveSshfsCrostiniVolume| called from |SuspendImminent| when
   // the device is allowed to suspend. Removes metadata associated with the
@@ -667,6 +647,12 @@ class CrostiniManager : public KeyedService,
       CrostiniMicSharingEnabledObserver* observer);
   void RemoveCrostiniMicSharingEnabledObserver(
       CrostiniMicSharingEnabledObserver* observer);
+  void CallRestarterStartLxdContainerFinishedForTesting(
+      CrostiniManager::RestartId id,
+      CrostiniResult result);
+  void SetInstallTerminaNeverCompletesForTesting(bool never_completes) {
+    install_termina_never_completes_ = never_completes;
+  }
 
  private:
   class CrostiniRestarter;
@@ -718,14 +704,6 @@ class CrostiniManager : public KeyedService,
       GetTerminaVmKernelVersionCallback callback,
       base::Optional<vm_tools::concierge::GetVmEnterpriseReportingInfoResponse>
           response);
-
-  // Callback for CrostiniClient::StartConcierge. Called after the
-  // DebugDaemon service method finishes.
-  void OnStartConcierge(BoolCallback callback, bool success);
-
-  // Callback for CrostiniClient::StopConcierge. Called after the
-  // DebugDaemon service method finishes.
-  void OnStopConcierge(BoolCallback callback, bool success);
 
   // Callback for CiceroneClient::StartLxd. May indicate that LXD is still being
   // started in which case we will wait for OnStartLxdProgress events.
@@ -828,21 +806,6 @@ class CrostiniManager : public KeyedService,
       GetContainerSshKeysCallback callback,
       base::Optional<vm_tools::concierge::ContainerSshKeysResponse> response);
 
-  // Callback for CrostiniManager::OnAttachUsbDeviceOpen
-  void OnAttachUsbDevice(
-      const std::string& vm_name,
-      device::mojom::UsbDeviceInfoPtr device,
-      AttachUsbDeviceCallback callback,
-      base::Optional<vm_tools::concierge::AttachUsbDeviceResponse> response);
-
-  // Callback for CrostiniManager::DetachUsbDevice
-  void OnDetachUsbDevice(
-      const std::string& vm_name,
-      uint8_t guest_port,
-      device::mojom::UsbDeviceInfoPtr device,
-      BoolCallback callback,
-      base::Optional<vm_tools::concierge::DetachUsbDeviceResponse> response);
-
   // Callback for AnsibleManagementService::ConfigureDefaultContainer
   void OnDefaultContainerConfigured(bool success);
 
@@ -930,7 +893,7 @@ class CrostiniManager : public KeyedService,
   base::ObserverList<UpgradeContainerProgressObserver>::Unchecked
       upgrade_container_progress_observers_;
 
-  base::ObserverList<VmShutdownObserver> vm_shutdown_observers_;
+  base::ObserverList<chromeos::VmShutdownObserver> vm_shutdown_observers_;
   base::ObserverList<chromeos::VmStartingObserver> vm_starting_observers_;
 
   // Only one restarter flow is actually running for a given container, other
@@ -967,12 +930,15 @@ class CrostiniManager : public KeyedService,
 
   base::Time time_of_last_disk_type_metric_;
 
-  std::unique_ptr<CrostiniStabilityMonitor> crostini_stability_monitor_;
+  std::unique_ptr<guest_os::GuestOsStabilityMonitor>
+      guest_os_stability_monitor_;
 
   std::unique_ptr<CrostiniUpgradeAvailableNotification>
       upgrade_available_notification_;
 
   TerminaInstaller termina_installer_{};
+
+  bool install_termina_never_completes_ = false;
 
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate its weak pointers before any other members are destroyed.

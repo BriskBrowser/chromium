@@ -7,9 +7,6 @@
  * 'settings-display' is the settings subpage for display settings.
  */
 cr.define('settings.display', function() {
-  const systemDisplayApi =
-      /** @type {!SystemDisplay} */ (chrome.system.display);
-
   /**
    * @typedef {{
    *   value: (!{
@@ -318,7 +315,7 @@ cr.define('settings.display', function() {
     attached() {
       this.displayChangedListener_ =
           this.displayChangedListener_ || this.getDisplayInfo_.bind(this);
-      settings.display.systemDisplayApi.onDisplayChanged.addListener(
+      settings.getDisplayApi().onDisplayChanged.addListener(
           this.displayChangedListener_);
 
       this.getDisplayInfo_();
@@ -327,7 +324,7 @@ cr.define('settings.display', function() {
 
     /** @override */
     detached() {
-      settings.display.systemDisplayApi.onDisplayChanged.removeListener(
+      settings.getDisplayApi().onDisplayChanged.removeListener(
           assert(this.displayChangedListener_));
 
       this.currentSelectedModeIndex_ = -1;
@@ -363,8 +360,8 @@ cr.define('settings.display', function() {
       this.currentRoute_ = opt_newRoute;
 
       // When navigating away from the page, deselect any selected display.
-      if (opt_newRoute != settings.routes.DISPLAY &&
-          opt_oldRoute == settings.routes.DISPLAY) {
+      if (opt_newRoute !== settings.routes.DISPLAY &&
+          opt_oldRoute === settings.routes.DISPLAY) {
         this.browserProxy_.highlightDisplay(this.invalidDisplayId_);
         return;
       }
@@ -410,7 +407,7 @@ cr.define('settings.display', function() {
       /** @type {chrome.system.display.GetInfoFlags} */ const flags = {
         singleUnified: true
       };
-      settings.display.systemDisplayApi.getInfo(
+      settings.getDisplayApi().getInfo(
           flags, this.displayInfoFetched_.bind(this));
     },
 
@@ -422,7 +419,7 @@ cr.define('settings.display', function() {
       if (!displays.length) {
         return;
       }
-      settings.display.systemDisplayApi.getDisplayLayout(
+      settings.getDisplayApi().getDisplayLayout(
           this.displayLayoutFetched_.bind(this, displays));
       if (this.isMirrored_(displays)) {
         this.mirroringDestinationIds = displays[0].mirroringDestinationIds;
@@ -573,6 +570,15 @@ cr.define('settings.display', function() {
           modes.get(mode.width).set(mode.height, new Map());
         }
 
+        // Prefer the first native mode we find, for consistency.
+        if (modes.get(mode.width).get(mode.height).has(mode.refreshRate)) {
+          const existingModeIndex =
+              modes.get(mode.width).get(mode.height).get(mode.refreshRate);
+          const existingMode = selectedDisplay.modes[existingModeIndex];
+          if (existingMode.isNative || !mode.isNative) {
+            continue;
+          }
+        }
         modes.get(mode.width).get(mode.height).set(mode.refreshRate, i);
       }
       return modes;
@@ -612,8 +618,8 @@ cr.define('settings.display', function() {
           // (resolution) is the default and therefore the "parent" mode.
           const height = heightArr[j];
           const refreshRates = heightsMap.get(height);
-
-          this.addResolution_(width, height, refreshRates);
+          const parentModeIndex = this.getParentModeIndex_(refreshRates);
+          this.addResolution_(parentModeIndex, width, height);
 
           // For each of the refresh rates at a given resolution, add an entry
           // to |parentModeToRefreshRateMap_|. This allows us to retrieve a
@@ -621,7 +627,6 @@ cr.define('settings.display', function() {
           // parentModeIndex.
           const refreshRatesArr = Array.from(refreshRates.keys());
           for (let k = 0; k < refreshRatesArr.length; k++) {
-            const parentModeIndex = Array.from(refreshRates.values())[0];
             const rate = refreshRatesArr[k];
             const modeIndex = refreshRates.get(rate);
             const isInterlaced = selectedDisplay.modes[modeIndex].isInterlaced;
@@ -632,25 +637,44 @@ cr.define('settings.display', function() {
         }
       }
 
+      // Construct mode->parentMode map so we can get parent modes later.
+      for (let i = 0; i < selectedDisplay.modes.length; i++) {
+        const mode = selectedDisplay.modes[i];
+        const parentModeIndex =
+            this.getParentModeIndex_(modes.get(mode.width).get(mode.height));
+        this.modeToParentModeMap_.set(i, parentModeIndex);
+      }
+      assert(this.modeToParentModeMap_.size === selectedDisplay.modes.length);
+
       // Use the new sort order.
       this.sortResolutionList_();
     },
 
     /**
-     * Adds a an entry in |displayModeList_| for the resolution represented by
-     * |width| and |height| and possible |refreshRates|.
-     * @param {number} width
-     * @param {number} height
-     * @param {Map<number,number>} refreshRates each possible refresh rate for
-     *   the resolution mapped to the corresponding modeIndex.
+     * Picks the appropriate parent mode from a refresh rate -> mode index map.
+     * Currently this chooses the mode with the highest refresh rate.
+     * @param {Map<number,number>} refreshRates each possible refresh rate
+     *   mapped to the corresponding mode index.
      * @private
      */
-    addResolution_(width, height, refreshRates) {
+    getParentModeIndex_(refreshRates) {
+      const maxRefreshRate = Math.max(...refreshRates.keys());
+      return refreshRates.get(maxRefreshRate);
+    },
+
+    /**
+     * Adds a an entry in |displayModeList_| for the resolution represented by
+     * |width| and |height| and possible |refreshRates|.
+     * @param {number} parentModeIndex
+     * @param {number} width
+     * @param {number} height
+     * @private
+     */
+    addResolution_(parentModeIndex, width, height) {
       assert(this.listAllDisplayModes_);
-      const parentModeIndex = Array.from(refreshRates.values())[0];
 
       // Add an entry in the outer map for |parentModeIndex|. The inner
-      // array (the value at |parentModeIndex) will be populated with all
+      // array (the value at |parentModeIndex|) will be populated with all
       // possible refresh rates for the given resolution.
       this.parentModeToRefreshRateMap_.set(parentModeIndex, new Array());
 
@@ -676,9 +700,6 @@ cr.define('settings.display', function() {
      */
     addRefreshRate_(parentModeIndex, modeIndex, rate, isInterlaced) {
       assert(this.listAllDisplayModes_);
-      // Maintain a mapping from a given |modeIndex| back to the
-      // corresponding |parentModeIndex|.
-      this.modeToParentModeMap_.set(modeIndex, parentModeIndex);
 
       // Truncate at two decimal places for display. If the refresh rate
       // is a whole number, remove the mantissa.
@@ -791,7 +812,7 @@ cr.define('settings.display', function() {
       this.currentSelectedParentModeIndex_ = -1;
       const numModes = selectedDisplay.modes.length;
       this.modeValues_ =
-          numModes == 0 ? [] : Array.from(Array(numModes).keys());
+          numModes === 0 ? [] : Array.from(Array(numModes).keys());
 
       // Note that the display zoom values has the same number of ticks for all
       // displays, so the above problem doesn't apply here.
@@ -920,7 +941,7 @@ cr.define('settings.display', function() {
      * @private
      */
     getDisplaySelectMenuIndex_(selectedDisplay, primaryDisplayId) {
-      if (selectedDisplay && selectedDisplay.id == primaryDisplayId) {
+      if (selectedDisplay && selectedDisplay.id === primaryDisplayId) {
         return 0;
       }
       return 1;
@@ -996,7 +1017,7 @@ cr.define('settings.display', function() {
      * @private
      */
     isSelected_(display, selectedDisplay) {
-      return display.id == selectedDisplay.id;
+      return display.id === selectedDisplay.id;
     },
 
     /**
@@ -1032,12 +1053,12 @@ cr.define('settings.display', function() {
 
       // Things work differently for full HD devices(1080p). The best mode is
       // the one with 1.25 device scale factor and 0.8 ui scale.
-      if (mode.heightInNativePixels == 1080) {
+      if (mode.heightInNativePixels === 1080) {
         return Math.abs(mode.uiScale - 0.8) < 0.001 &&
             Math.abs(mode.deviceScaleFactor - 1.25) < 0.001;
       }
 
-      return mode.uiScale == 1.0;
+      return mode.uiScale === 1.0;
     },
 
     /**
@@ -1045,8 +1066,8 @@ cr.define('settings.display', function() {
      * @private
      */
     getResolutionText_() {
-      if (this.selectedDisplay.modes.length == 0 ||
-          this.currentSelectedModeIndex_ == -1) {
+      if (this.selectedDisplay.modes.length === 0 ||
+          this.currentSelectedModeIndex_ === -1) {
         // If currentSelectedModeIndex_ == -1, selectedDisplay and
         // |selectedModePref_.value| are not in sync.
         return this.i18n(
@@ -1116,7 +1137,7 @@ cr.define('settings.display', function() {
       const mode = this.selectedDisplay.modes[this.currentSelectedModeIndex_];
       const bounds = this.selectedDisplay.bounds;
 
-      return bounds.width > bounds.height !=
+      return bounds.width > bounds.height !==
           mode.widthInNativePixels > mode.heightInNativePixels;
     },
 
@@ -1146,8 +1167,8 @@ cr.define('settings.display', function() {
       const id = e.detail;
       for (let i = 0; i < this.displays.length; ++i) {
         const display = this.displays[i];
-        if (id == display.id) {
-          if (this.selectedDisplay != display) {
+        if (id === display.id) {
+          if (this.selectedDisplay !== display) {
             this.setSelectedDisplay_(display);
           }
           return;
@@ -1158,7 +1179,7 @@ cr.define('settings.display', function() {
     /** @private */
     onSelectDisplayTab_() {
       const {selected} = this.$$('cr-tabs');
-      if (this.selectedTab_ != selected) {
+      if (this.selectedTab_ !== selected) {
         this.setSelectedDisplay_(this.displays[selected]);
       }
     },
@@ -1169,7 +1190,7 @@ cr.define('settings.display', function() {
      * @private
      */
     onTouchCalibrationTap_(e) {
-      settings.display.systemDisplayApi.showNativeTouchCalibration(
+      settings.getDisplayApi().showNativeTouchCalibration(
           this.selectedDisplay.id);
     },
 
@@ -1183,16 +1204,16 @@ cr.define('settings.display', function() {
       if (!this.selectedDisplay) {
         return;
       }
-      if (this.selectedDisplay.id == this.primaryDisplayId) {
+      if (this.selectedDisplay.id === this.primaryDisplayId) {
         return;
       }
-      if (e.target.value != PRIMARY_DISP_IDX) {
+      if (!e.target.value) {
         return;
       }
 
       /** @type {!chrome.system.display.DisplayProperties} */ const properties =
           {isPrimary: true};
-      settings.display.systemDisplayApi.setDisplayProperties(
+      settings.getDisplayApi().setDisplayProperties(
           this.selectedDisplay.id, properties,
           this.setPropertiesCallback_.bind(this));
     },
@@ -1204,7 +1225,7 @@ cr.define('settings.display', function() {
      * @private
      */
     onSelectedParentModeChange_(newModeIndex) {
-      if (this.currentSelectedParentModeIndex_ == newModeIndex) {
+      if (this.currentSelectedParentModeIndex_ === newModeIndex) {
         return;
       }
 
@@ -1225,11 +1246,11 @@ cr.define('settings.display', function() {
      * @private
      */
     hasNewParentModeBeenSet() {
-      if (this.currentSelectedParentModeIndex_ == -1) {
+      if (this.currentSelectedParentModeIndex_ === -1) {
         return false;
       }
 
-      return this.currentSelectedParentModeIndex_ !=
+      return this.currentSelectedParentModeIndex_ !==
           this.selectedParentModePref_.value;
     },
 
@@ -1240,16 +1261,16 @@ cr.define('settings.display', function() {
      * @private
      */
     hasNewModeBeenSet() {
-      if (this.currentSelectedModeIndex_ == -1) {
+      if (this.currentSelectedModeIndex_ === -1) {
         return false;
       }
 
-      if (this.currentSelectedParentModeIndex_ !=
+      if (this.currentSelectedParentModeIndex_ !==
           this.selectedParentModePref_.value) {
         return true;
       }
 
-      return this.currentSelectedModeIndex_ != this.selectedModePref_.value;
+      return this.currentSelectedModeIndex_ !== this.selectedModePref_.value;
     },
 
     /**
@@ -1260,7 +1281,7 @@ cr.define('settings.display', function() {
     onSelectedModeChange_(newModeIndex) {
       // We want to ignore all value changes to the pref due to the slider being
       // dragged. See http://crbug/845712 for more info.
-      if (this.currentSelectedModeIndex_ == newModeIndex) {
+      if (this.currentSelectedModeIndex_ === newModeIndex) {
         return;
       }
 
@@ -1277,7 +1298,7 @@ cr.define('settings.display', function() {
 
       this.refreshRateList_ = this.parentModeToRefreshRateMap_.get(
           /** @type {number} */ (this.selectedParentModePref_.value));
-      settings.display.systemDisplayApi.setDisplayProperties(
+      settings.getDisplayApi().setDisplayProperties(
           this.selectedDisplay.id, properties,
           this.setPropertiesCallback_.bind(this));
     },
@@ -1289,7 +1310,7 @@ cr.define('settings.display', function() {
      * @private
      */
     onSelectedZoomChange_() {
-      if (this.currentSelectedModeIndex_ == -1 || !this.selectedDisplay) {
+      if (this.currentSelectedModeIndex_ === -1 || !this.selectedDisplay) {
         return;
       }
 
@@ -1299,7 +1320,7 @@ cr.define('settings.display', function() {
                 /** @type {number} */ (this.selectedZoomPref_.value)
           };
 
-      settings.display.systemDisplayApi.setDisplayProperties(
+      settings.getDisplayApi().setDisplayProperties(
           this.selectedDisplay.id, properties,
           this.setPropertiesCallback_.bind(this));
     },
@@ -1323,11 +1344,11 @@ cr.define('settings.display', function() {
       const target = /** @type {!HTMLSelectElement} */ (event.target);
       const value = /** @type {number} */ (parseInt(target.value, 10));
 
-      assert(value != -1 || this.selectedDisplay.isInTabletPhysicalState);
+      assert(value !== -1 || this.selectedDisplay.isInTabletPhysicalState);
 
       /** @type {!chrome.system.display.DisplayProperties} */ const properties =
           {rotation: value};
-      settings.display.systemDisplayApi.setDisplayProperties(
+      settings.getDisplayApi().setDisplayProperties(
           this.selectedDisplay.id, properties,
           this.setPropertiesCallback_.bind(this));
     },
@@ -1344,7 +1365,7 @@ cr.define('settings.display', function() {
             chrome.system.display.MirrorMode.OFF :
             chrome.system.display.MirrorMode.NORMAL
       };
-      settings.display.systemDisplayApi.setMirrorMode(mirrorModeInfo, () => {
+      settings.getDisplayApi().setMirrorMode(mirrorModeInfo, () => {
         const error = chrome.runtime.lastError;
         if (error) {
           console.error('setMirrorMode Error: ' + error.message);
@@ -1358,7 +1379,7 @@ cr.define('settings.display', function() {
           {
             isUnified: !this.unifiedDesktopMode_,
           };
-      settings.display.systemDisplayApi.setDisplayProperties(
+      settings.getDisplayApi().setDisplayProperties(
           this.primaryDisplayId, properties,
           this.setPropertiesCallback_.bind(this));
     },
@@ -1392,7 +1413,7 @@ cr.define('settings.display', function() {
         if (display.isPrimary && !primaryDisplay) {
           primaryDisplay = display;
         }
-        if (this.selectedDisplay && display.id == this.selectedDisplay.id) {
+        if (this.selectedDisplay && display.id === this.selectedDisplay.id) {
           selectedDisplay = display;
         }
       }
@@ -1433,9 +1454,9 @@ cr.define('settings.display', function() {
     updateNightLightScheduleSettings_() {
       const scheduleType = this.getPref('ash.night_light.schedule_type').value;
       this.shouldOpenCustomScheduleCollapse_ =
-          scheduleType == NightLightScheduleType.CUSTOM;
+          scheduleType === NightLightScheduleType.CUSTOM;
 
-      if (scheduleType == NightLightScheduleType.SUNSET_TO_SUNRISE) {
+      if (scheduleType === NightLightScheduleType.SUNSET_TO_SUNRISE) {
         const nightLightStatus = this.getPref('ash.night_light.enabled').value;
         this.nightLightScheduleSubLabel_ = nightLightStatus ?
             this.i18n('displayNightLightOffAtSunrise') :
@@ -1468,7 +1489,5 @@ cr.define('settings.display', function() {
   });
 
   // #cr_define_end
-  return {
-    systemDisplayApi: systemDisplayApi,
-  };
+  return {};
 });

@@ -9,7 +9,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/optional.h"
@@ -94,7 +94,7 @@ ServiceWorkerMainResourceLoader::ServiceWorkerMainResourceLoader(
 ServiceWorkerMainResourceLoader::~ServiceWorkerMainResourceLoader() {
   TRACE_EVENT_WITH_FLOW0(
       "ServiceWorker",
-      "ServiceWorkerMainResourceLoader::~ServiceWorkerNavigationloader", this,
+      "ServiceWorkerMainResourceLoader::~ServiceWorkerMainResourceLoader", this,
       TRACE_EVENT_FLAG_FLOW_IN);
 }
 
@@ -164,8 +164,8 @@ void ServiceWorkerMainResourceLoader::StartRequest(
   // Dispatch the fetch event.
   fetch_dispatcher_ = std::make_unique<ServiceWorkerFetchDispatcher>(
       blink::mojom::FetchAPIRequest::From(resource_request_),
-      static_cast<blink::mojom::ResourceType>(resource_request_.resource_type),
-      container_host_->client_uuid(), active_worker,
+      resource_request_.destination, container_host_->client_uuid(),
+      active_worker,
       base::BindOnce(&ServiceWorkerMainResourceLoader::DidPrepareFetchEvent,
                      weak_factory_.GetWeakPtr(), active_worker,
                      active_worker->running_status()),
@@ -246,13 +246,6 @@ void ServiceWorkerMainResourceLoader::DidPrepareFetchEvent(
       "initial_worker_status",
       EmbeddedWorkerInstance::StatusToString(initial_worker_status));
 
-  // At this point a service worker is running and the fetch event is about
-  // to dispatch. Record some load timings.
-  base::TimeTicks now = base::TimeTicks::Now();
-  response_head_->load_timing.service_worker_ready_time = now;
-  response_head_->load_timing.send_start = now;
-  response_head_->load_timing.send_end = now;
-
   devtools_attached_ = version->embedded_worker()->devtools_attached();
 }
 
@@ -295,6 +288,21 @@ void ServiceWorkerMainResourceLoader::DidDispatchFetchEvent(
     }
     return;
   }
+
+  // Record the timing of when the fetch event is dispatched on the worker
+  // thread. This is used for PerformanceResourceTiming#fetchStart and
+  // PerformanceResourceTiming#requestStart, but it's still under spec
+  // discussion.
+  // See https://github.com/w3c/resource-timing/issues/119 for more details.
+  // Exposed as PerformanceResourceTiming#fetchStart.
+  response_head_->load_timing.service_worker_ready_time =
+      fetch_event_timing_->dispatch_event_time;
+  // Exposed as PerformanceResourceTiming#requestStart.
+  response_head_->load_timing.send_start =
+      fetch_event_timing_->dispatch_event_time;
+  // Recorded for the DevTools.
+  response_head_->load_timing.send_end =
+      fetch_event_timing_->dispatch_event_time;
 
   if (fetch_result ==
       ServiceWorkerFetchDispatcher::FetchEventResult::kShouldFallback) {
@@ -480,8 +488,8 @@ void ServiceWorkerMainResourceLoader::RecordTimingMetrics(bool handled) {
   DCHECK(!completion_time_.is_null());
 
   // We only record these metrics for top-level navigation.
-  if (resource_request_.resource_type !=
-      static_cast<int>(blink::mojom::ResourceType::kMainFrame))
+  if (resource_request_.destination !=
+      network::mojom::RequestDestination::kDocument)
     return;
 
   // |fetch_event_timing_| is recorded in renderer so we can get reasonable

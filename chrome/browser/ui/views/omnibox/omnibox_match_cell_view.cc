@@ -23,11 +23,14 @@
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/image/canvas_image_source.h"
+#include "ui/gfx/image/image_skia_operations.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/render_text.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/layout/layout_provider.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace {
 
@@ -43,6 +46,8 @@ static constexpr int kEntityImageSize = 32;
 class PlaceholderImageSource : public gfx::CanvasImageSource {
  public:
   PlaceholderImageSource(const gfx::Size& canvas_size, SkColor color);
+  PlaceholderImageSource(const PlaceholderImageSource&) = delete;
+  PlaceholderImageSource& operator=(const PlaceholderImageSource&) = delete;
   ~PlaceholderImageSource() override = default;
 
   // gfx::CanvasImageSource:
@@ -50,8 +55,6 @@ class PlaceholderImageSource : public gfx::CanvasImageSource {
 
  private:
   const SkColor color_;
-
-  DISALLOW_COPY_AND_ASSIGN(PlaceholderImageSource);
 };
 
 PlaceholderImageSource::PlaceholderImageSource(const gfx::Size& canvas_size,
@@ -70,59 +73,21 @@ void PlaceholderImageSource::Draw(gfx::Canvas* canvas) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// EncircledImageSource:
-
-class EncircledImageSource : public gfx::CanvasImageSource {
- public:
-  EncircledImageSource(int radius, SkColor color, const gfx::ImageSkia& image);
-  ~EncircledImageSource() override = default;
-
-  // gfx::CanvasImageSource:
-  void Draw(gfx::Canvas* canvas) override;
-
- private:
-  const int radius_;
-  const SkColor color_;
-  const gfx::ImageSkia image_;
-
-  DISALLOW_COPY_AND_ASSIGN(EncircledImageSource);
-};
-
-EncircledImageSource::EncircledImageSource(int radius,
-                                           SkColor color,
-                                           const gfx::ImageSkia& image)
-    : gfx::CanvasImageSource(gfx::Size(radius * 2, radius * 2)),
-      radius_(radius),
-      color_(color),
-      image_(image) {}
-
-void EncircledImageSource::Draw(gfx::Canvas* canvas) {
-  cc::PaintFlags flags;
-  flags.setAntiAlias(true);
-  flags.setStyle(cc::PaintFlags::kFill_Style);
-  flags.setColor(color_);
-  canvas->DrawCircle(gfx::Point(radius_, radius_), radius_, flags);
-  const int x = radius_ - image_.width() / 2;
-  const int y = radius_ - image_.height() / 2;
-  canvas->DrawImageInt(image_, x, y);
-}
-
-////////////////////////////////////////////////////////////////////////////////
 // RoundedCornerImageView:
 
 class RoundedCornerImageView : public views::ImageView {
  public:
+  METADATA_HEADER(RoundedCornerImageView);
   RoundedCornerImageView() = default;
+  RoundedCornerImageView(const RoundedCornerImageView&) = delete;
+  RoundedCornerImageView& operator=(const RoundedCornerImageView&) = delete;
 
   // views::ImageView:
-  bool CanProcessEventsWithinSubtree() const override { return false; }
+  bool GetCanProcessEventsWithinSubtree() const override { return false; }
 
  protected:
   // views::ImageView:
   void OnPaint(gfx::Canvas* canvas) override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(RoundedCornerImageView);
 };
 
 void RoundedCornerImageView::OnPaint(gfx::Canvas* canvas) {
@@ -134,6 +99,9 @@ void RoundedCornerImageView::OnPaint(gfx::Canvas* canvas) {
   canvas->ClipPath(mask, true);
   ImageView::OnPaint(canvas);
 }
+
+BEGIN_METADATA(RoundedCornerImageView, views::ImageView)
+END_METADATA
 
 }  // namespace
 
@@ -184,7 +152,7 @@ void OmniboxMatchCellView::OnMatchUpdate(const OmniboxResultView* result_view,
     answer_image_view_->SetImageSize(
         gfx::Size(kAnswerImageSize, kAnswerImageSize));
     answer_image_view_->SetImage(
-        gfx::CanvasImageSource::MakeImageSkia<EncircledImageSource>(
+        gfx::ImageSkiaOperations::CreateImageWithCircleBackground(
             kAnswerImageSize / 2, gfx::kGoogleBlue600, icon));
   };
   if (match.type == AutocompleteMatchType::CALCULATOR) {
@@ -257,10 +225,6 @@ void OmniboxMatchCellView::SetImage(const gfx::ImageSkia& image) {
   answer_image_view_->SetImageSize(gfx::Size(width, height));
 }
 
-const char* OmniboxMatchCellView::GetClassName() const {
-  return "OmniboxMatchCellView";
-}
-
 gfx::Insets OmniboxMatchCellView::GetInsets() const {
   const bool single_line = layout_style_ == LayoutStyle::ONE_LINE_SUGGESTION;
   const int vertical_margin = ChromeLayoutProvider::Get()->GetDistanceMetric(
@@ -288,7 +252,7 @@ void OmniboxMatchCellView::Layout() {
   const int text_width = child_area.width() - text_indent;
 
   if (two_line) {
-    if (description_view_->text().empty()) {
+    if (description_view_->GetText().empty()) {
       // This vertically centers content in the rare case that no description is
       // provided.
       content_view_->SetBounds(x, y, text_width, row_height);
@@ -322,7 +286,7 @@ void OmniboxMatchCellView::Layout() {
   }
 }
 
-bool OmniboxMatchCellView::CanProcessEventsWithinSubtree() const {
+bool OmniboxMatchCellView::GetCanProcessEventsWithinSubtree() const {
   return false;
 }
 
@@ -352,3 +316,6 @@ void OmniboxMatchCellView::SetTailSuggestCommonPrefixWidth(
   // Indent text by prefix, but come back by width of ellipsis.
   tail_suggest_common_prefix_width_ -= ellipsis_width_;
 }
+
+BEGIN_METADATA(OmniboxMatchCellView, views::View)
+END_METADATA

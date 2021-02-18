@@ -32,12 +32,11 @@ var FingerprintResultType = {
  */
 const UIState = {
   START: 'start',
-  FINGER: 'finger',
   PROGRESS: 'progress',
 };
 
 Polymer({
-  is: 'fingerprint-setup',
+  is: 'fingerprint-setup-element',
 
   behaviors: [
     OobeI18nBehavior,
@@ -124,6 +123,10 @@ Polymer({
     return UIState.START;
   },
 
+  onBeforeShow() {
+    this.setAnimationState_(true);
+  },
+
   onBeforeHide() {
     this.setAnimationState_(false);
   },
@@ -159,42 +162,33 @@ Polymer({
   },
 
   /**
-   * This is 'on-tap' event handler for 'Skip' button.
+   * This is 'on-tap' event handler for 'Skip' button for 'START' step.
    * @private
    */
-  onSkip_(e) {
-    this.userActed('setup-skipped');
+  onSkipOnStart_(e) {
+    this.userActed('setup-skipped-on-start');
   },
 
   /**
-   * This is 'on-tap' event handler for 'Do it later' button.
+   * This is 'on-tap' event handler for 'Skip' button for 'PROGRESS' step.
    * @private
    */
-  onSetupLater_(e) {
-    this.userActed('do-it-later');
+  onSkipInProgress_(e) {
+    this.userActed('setup-skipped-in-flow');
   },
 
   /**
    * Enable/disable lottie animation.
    * @param {boolean} playing True if animation should be playing.
    */
-
   setAnimationState_(playing) {
     if (this.shouldUseLottieAnimation_) {
       const lottieElement = /** @type{CrLottieElement} */ (
-          this.$.placeFinger.querySelector('#scannerLocationLottie'));
+          this.$.setupFingerprint.querySelector('#scannerLocationLottie'));
       lottieElement.setPlay(playing);
+      /** @type {!CrFingerprintProgressArcElement} */ (this.$.arc)
+          .setPlay(playing);
     }
-  },
-
-  /**
-   * This is 'on-tap' event handler for 'showSensorLocationButton' button.
-   * @private
-   */
-  onNext_(e) {
-    this.userActed('show-sensor-location');
-    this.setUIStep(UIState.FINGER);
-    this.setAnimationState_(true);
   },
 
   /**

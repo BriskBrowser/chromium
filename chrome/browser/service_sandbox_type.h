@@ -6,12 +6,10 @@
 #define CHROME_BROWSER_SERVICE_SANDBOX_TYPE_H_
 
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "content/public/browser/service_process_host.h"
+#include "media/base/media_switches.h"
 #include "sandbox/policy/sandbox_type.h"
-
-#if !defined(OS_ANDROID)
-#include "chrome/services/speech/buildflags.h"
-#endif  // !defined(OS_ANDROID)
 
 // This file maps service classes to sandbox types.  Services which
 // require a non-utility sandbox can be added here.  See
@@ -79,7 +77,6 @@ content::GetServiceSandboxType<chrome::mojom::ProfileImport>() {
 
 // media::mojom::SpeechRecognitionService
 #if !defined(OS_ANDROID)
-#if BUILDFLAG(ENABLE_SODA)
 namespace media {
 namespace mojom {
 class SpeechRecognitionService;
@@ -89,9 +86,12 @@ class SpeechRecognitionService;
 template <>
 inline sandbox::policy::SandboxType
 content::GetServiceSandboxType<media::mojom::SpeechRecognitionService>() {
-  return sandbox::policy::SandboxType::kSpeechRecognition;
+  if (base::FeatureList::IsEnabled(media::kUseSodaForLiveCaption)) {
+    return sandbox::policy::SandboxType::kSpeechRecognition;
+  } else {
+    return sandbox::policy::SandboxType::kUtility;
+  }
 }
-#endif  // BUILDFLAG(ENABLE_SODA)
 #endif  // !defined(OS_ANDROID)
 
 // printing::mojom::PrintingService
@@ -153,5 +153,23 @@ content::GetServiceSandboxType<sharing::mojom::Sharing>() {
   return sandbox::policy::SandboxType::kSharingService;
 }
 #endif  // !defined(OS_MAC)
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+// recording::mojom::RecordingService
+namespace recording {
+namespace mojom {
+class RecordingService;
+}  // namespace mojom
+}  // namespace recording
+
+// This is needed to prevent the service from crashing on a sandbox seccomp-bpf
+// failure when the audio capturer tries to open a stream.
+// TODO(https://crbug.com/1147991): Explore alternatives if any.
+template <>
+inline sandbox::policy::SandboxType
+content::GetServiceSandboxType<recording::mojom::RecordingService>() {
+  return sandbox::policy::SandboxType::kVideoCapture;
+}
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #endif  // CHROME_BROWSER_SERVICE_SANDBOX_TYPE_H_

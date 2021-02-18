@@ -7,7 +7,7 @@
 #include <memory>
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/animation/animation_clock.h"
-#include "third_party/blink/renderer/core/animation/animation_test_helper.h"
+#include "third_party/blink/renderer/core/animation/animation_test_helpers.h"
 #include "third_party/blink/renderer/core/animation/document_timeline.h"
 #include "third_party/blink/renderer/core/animation/element_animations.h"
 #include "third_party/blink/renderer/core/animation/interpolable_length.h"
@@ -21,6 +21,8 @@
 
 namespace blink {
 
+using animation_test_helpers::EnsureInterpolatedValueCached;
+
 class AnimationEffectStackTest : public PageTestBase {
  protected:
   void SetUp() override {
@@ -32,14 +34,14 @@ class AnimationEffectStackTest : public PageTestBase {
 
   Animation* Play(KeyframeEffect* effect, double start_time) {
     Animation* animation = timeline->Play(effect);
-    animation->setStartTime(start_time * 1000);
+    animation->setStartTime(CSSNumberish::FromDouble(start_time * 1000));
     animation->Update(kTimingUpdateOnDemand);
     return animation;
   }
 
   void UpdateTimeline(base::TimeDelta time) {
     GetDocument().GetAnimationClock().UpdateTime(
-        GetDocument().Timeline().ZeroTime() + time);
+        GetDocument().Timeline().CalculateZeroTime() + time);
     timeline->ServiceAnimations(kTimingUpdateForAnimationFrame);
   }
 
@@ -66,8 +68,8 @@ class AnimationEffectStackTest : public PageTestBase {
   InertEffect* MakeInertEffect(KeyframeEffectModelBase* effect) {
     Timing timing;
     timing.fill_mode = Timing::FillMode::BOTH;
-    return MakeGarbageCollected<InertEffect>(effect, timing, false, 0,
-                                             base::nullopt);
+    return MakeGarbageCollected<InertEffect>(
+        effect, timing, false, AnimationTimeDelta(), base::nullopt);
   }
 
   KeyframeEffect* MakeKeyframeEffect(KeyframeEffectModelBase* effect,

@@ -7,17 +7,18 @@
 #include <memory>
 #include <utility>
 
+#include "ash/components/account_manager/account_manager.h"
+#include "ash/components/account_manager/account_manager_factory.h"
 #include "ash/public/cpp/notification_utils.h"
-#include "ash/public/cpp/vector_icons/vector_icons.h"
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/memory/singleton.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/notifications/notification_common.h"
 #include "chrome/browser/notifications/notification_display_service.h"
@@ -26,12 +27,12 @@
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
-#include "chromeos/components/account_manager/account_manager.h"
-#include "chromeos/components/account_manager/account_manager_factory.h"
 #include "chromeos/dbus/authpolicy/authpolicy_client.h"
 #include "chromeos/network/network_handler.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
+#include "chromeos/ui/vector_icons/vector_icons.h"
+#include "components/account_manager_core/account.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "dbus/message.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -43,6 +44,8 @@ namespace chromeos {
 
 namespace {
 
+using ::ash::AccountManager;
+
 constexpr base::TimeDelta kGetUserStatusCallsInterval =
     base::TimeDelta::FromHours(1);
 constexpr char kProfileSigninNotificationId[] = "chrome://settings/signin/";
@@ -51,18 +54,18 @@ constexpr char kProfileSigninNotificationId[] = "chrome://settings/signin/";
 // |profile| is a non-owning pointer to |Profile|.
 // |account_id| is the |AccountId| for the Device Account.
 void SetupAccountManager(Profile* profile, const AccountId& account_id) {
-  AccountManagerFactory* factory =
+  auto* factory =
       g_browser_process->platform_part()->GetAccountManagerFactory();
   DCHECK(factory);
-  AccountManager* account_manager =
+  auto* account_manager =
       factory->GetAccountManager(profile->GetPath().value());
   DCHECK(account_manager);
   // |AccountManager::UpsertAccount| is idempotent and safe to call multiple
   // times.
   account_manager->UpsertAccount(
-      AccountManager::AccountKey{
+      ::account_manager::AccountKey{
           account_id.GetObjGuid(),
-          account_manager::AccountType::ACCOUNT_TYPE_ACTIVE_DIRECTORY},
+          account_manager::AccountType::kActiveDirectory},
       account_id.GetUserEmail(), AccountManager::kActiveDirectoryDummyToken);
 }
 
@@ -85,7 +88,7 @@ AuthPolicyCredentialsManager::AuthPolicyCredentialsManager(Profile* profile)
   // have changed.
   AuthPolicyClient::Get()->ConnectToSignal(
       authpolicy::kUserKerberosFilesChangedSignal,
-      base::Bind(
+      base::BindRepeating(
           &AuthPolicyCredentialsManager::OnUserKerberosFilesChangedCallback,
           weak_factory_.GetWeakPtr()),
       base::BindOnce(&AuthPolicyCredentialsManager::OnSignalConnectedCallback,
@@ -207,9 +210,9 @@ void AuthPolicyCredentialsManager::OnGetUserKerberosFilesCallback(
 }
 
 void AuthPolicyCredentialsManager::ScheduleGetUserStatus() {
-  // Unretained is safe here because it is a CancelableClosure and owned by this
-  // object.
-  scheduled_get_user_status_call_.Reset(base::Bind(
+  // Unretained is safe here because it is a CancelableOnceClosure and owned by
+  // this object.
+  scheduled_get_user_status_call_.Reset(base::BindOnce(
       &AuthPolicyCredentialsManager::GetUserStatus, base::Unretained(this)));
   // TODO(rsorokin): This does not re-schedule after wake from sleep
   // (and thus the maximal interval between two calls can be (sleep time +
@@ -282,7 +285,7 @@ void AuthPolicyCredentialsManager::ShowNotification(int message_id) {
           l10n_util::GetStringUTF16(message_id),
           l10n_util::GetStringUTF16(IDS_SIGNIN_ERROR_DISPLAY_SOURCE),
           GURL(notification_id), notifier_id, data, std::move(delegate),
-          ash::kNotificationWarningIcon,
+          chromeos::kNotificationWarningIcon,
           message_center::SystemNotificationWarningLevel::WARNING);
   notification->SetSystemPriority();
 

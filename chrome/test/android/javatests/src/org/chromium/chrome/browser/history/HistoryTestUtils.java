@@ -13,8 +13,8 @@ import org.junit.Assert;
 
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.chrome.browser.preferences.PrefChangeRegistrar.PrefObserver;
-import org.chromium.chrome.browser.signin.SigninManager.SignInStateObserver;
-import org.chromium.chrome.browser.widget.DateDividedAdapter.ItemViewType;
+import org.chromium.chrome.browser.signin.services.SigninManager.SignInStateObserver;
+import org.chromium.components.browser_ui.widget.DateDividedAdapter.ItemViewType;
 import org.chromium.components.browser_ui.widget.selectable_list.SelectionDelegate.SelectionObserver;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 

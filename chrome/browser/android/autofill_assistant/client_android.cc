@@ -18,6 +18,7 @@
 #include "base/time/default_tick_clock.h"
 #include "chrome/android/features/autofill_assistant/jni_headers/AutofillAssistantClient_jni.h"
 #include "chrome/android/features/autofill_assistant/jni_headers/AutofillAssistantDirectActionImpl_jni.h"
+#include "chrome/browser/android/autofill_assistant/ui_controller_android_utils.h"
 #include "chrome/browser/autofill/android/personal_data_manager_android.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/flags/android/chrome_feature_list.h"
@@ -26,13 +27,11 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/common/channel_info.h"
-#include "components/autofill_assistant/browser/access_token_fetcher.h"
 #include "components/autofill_assistant/browser/controller.h"
 #include "components/autofill_assistant/browser/features.h"
+#include "components/autofill_assistant/browser/service/access_token_fetcher.h"
 #include "components/autofill_assistant/browser/switches.h"
 #include "components/autofill_assistant/browser/website_login_manager_impl.h"
-#include "components/password_manager/content/browser/content_password_manager_driver.h"
-#include "components/password_manager/content/browser/content_password_manager_driver_factory.h"
 #include "components/password_manager/core/browser/password_manager_client.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
@@ -52,34 +51,6 @@ namespace {
 // A direct action that corresponds to pressing the close or cancel button on
 // the UI.
 const char* const kCancelActionName = "cancel";
-
-// Fills a map from two Java arrays of strings of the same length.
-void FillStringMapFromJava(JNIEnv* env,
-                           const JavaRef<jobjectArray>& names,
-                           const JavaRef<jobjectArray>& values,
-                           std::map<std::string, std::string>* parameters) {
-  std::vector<std::string> names_vector;
-  base::android::AppendJavaStringArrayToStringVector(env, names, &names_vector);
-  std::vector<std::string> values_vector;
-  base::android::AppendJavaStringArrayToStringVector(env, values,
-                                                     &values_vector);
-  DCHECK_EQ(names_vector.size(), values_vector.size());
-  for (size_t i = 0; i < names_vector.size(); ++i) {
-    parameters->insert(std::make_pair(names_vector[i], values_vector[i]));
-  }
-}
-
-std::unique_ptr<TriggerContextImpl> CreateTriggerContext(
-    JNIEnv* env,
-    const base::android::JavaParamRef<jstring>& jexperiment_ids,
-    const base::android::JavaParamRef<jobjectArray>& jparameter_names,
-    const base::android::JavaParamRef<jobjectArray>& jparameter_values) {
-  std::map<std::string, std::string> parameters;
-  FillStringMapFromJava(env, jparameter_names, jparameter_values, &parameters);
-  return std::make_unique<TriggerContextImpl>(
-      std::move(parameters),
-      base::android::ConvertJavaStringToUTF8(env, jexperiment_ids));
-}
 
 }  // namespace
 
@@ -106,14 +77,12 @@ ClientAndroid::~ClientAndroid() {
     Metrics::RecordDropOut(Metrics::DropOutReason::CONTENT_DESTROYED);
   }
 
-  auto* password_manager_client = GetPasswordManagerClient();
-  if (password_manager_client) {
-    password_manager_client->GetPasswordManager()->SetAutofillAssistantMode(
-        password_manager::AutofillAssistantMode::kUINotShown);
-  }
-
   Java_AutofillAssistantClient_clearNativePtr(AttachCurrentThread(),
                                               java_object_);
+}
+
+base::WeakPtr<ClientAndroid> ClientAndroid::GetWeakPtr() {
+  return weak_ptr_factory_.GetWeakPtr();
 }
 
 base::android::ScopedJavaLocalRef<jobject> ClientAndroid::GetJavaObject() {
@@ -148,21 +117,16 @@ bool ClientAndroid::Start(JNIEnv* env,
   }
 
   GURL initial_url(base::android::ConvertJavaStringToUTF8(env, jinitial_url));
-  auto trigger_context = CreateTriggerContext(
-      env, jexperiment_ids, jparameter_names, jparameter_values);
-  trigger_context->SetCCT(jis_cct);
-  trigger_context->SetOnboardingShown(jonboarding_shown);
-  if (jcaller_account) {
-    trigger_context->SetCallerAccountHash(
-        base::android::ConvertJavaStringToUTF8(env, jcaller_account));
-  }
+  auto trigger_context = ui_controller_android_utils::CreateTriggerContext(
+      env, jexperiment_ids, jparameter_names, jparameter_values, jis_cct,
+      jonboarding_shown, /* is_direct_action = */ false, jcaller_account);
 
   if (VLOG_IS_ON(2)) {
     std::string experiment_ids =
         base::android::ConvertJavaStringToUTF8(env, jexperiment_ids);
-    std::map<std::string, std::string> parameters;
-    FillStringMapFromJava(env, jparameter_names, jparameter_values,
-                          &parameters);
+    std::map<std::string, std::string> parameters =
+        ui_controller_android_utils::CreateStringMapFromJava(
+            env, jparameter_names, jparameter_values);
 
     DVLOG(2) << "Starting autofill assistant with parameters:";
     DVLOG(2) << "\tinitial_url: " << initial_url;
@@ -175,7 +139,28 @@ bool ClientAndroid::Start(JNIEnv* env,
   return controller_->Start(initial_url, std::move(trigger_context));
 }
 
-void ClientAndroid::DestroyUI(
+void ClientAndroid::StartTriggerScript(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& jcaller,
+    const base::android::JavaParamRef<jobject>& jdelegate,
+    const base::android::JavaParamRef<jstring>& jinitial_url,
+    const base::android::JavaParamRef<jstring>& jexperiment_ids,
+    const base::android::JavaParamRef<jobjectArray>& jparameter_names,
+    const base::android::JavaParamRef<jobjectArray>& jparameter_values,
+    jlong jservice_request_sender) {
+  // TODO(arbesser): populate is_cct field correctly for trigger scripts.
+  trigger_script_bridge_.StartTriggerScript(
+      web_contents_, jdelegate,
+      GURL(base::android::ConvertJavaStringToUTF8(env, jinitial_url)),
+      ui_controller_android_utils::CreateTriggerContext(
+          env, jexperiment_ids, jparameter_names, jparameter_values,
+          /* is_cct = */ false, /* onboarding_shown = */ false,
+          /* is_direct_action = */ false,
+          /* caller_account_hash = */ nullptr),
+      jservice_request_sender);
+}
+
+void ClientAndroid::OnJavaDestroyUI(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& jcaller) {
   DestroyUI();
@@ -191,12 +176,6 @@ void ClientAndroid::TransferUITo(
   auto ui_ptr = std::move(ui_controller_android_);
   // From this point on, the UIController, in ui_ptr, is either transferred or
   // deleted.
-
-  auto* password_manager_client = GetPasswordManagerClient();
-  if (password_manager_client) {
-    password_manager_client->GetPasswordManager()->SetAutofillAssistantMode(
-        password_manager::AutofillAssistantMode::kUINotShown);
-  }
 
   if (!jother_web_contents)
     return;
@@ -243,8 +222,11 @@ void ClientAndroid::FetchWebsiteActions(
 
   base::android::ScopedJavaGlobalRef<jobject> scoped_jcallback(env, jcallback);
   controller_->Track(
-      CreateTriggerContext(env, jexperiment_ids, jparameter_names,
-                           jparameter_values),
+      ui_controller_android_utils::CreateTriggerContext(
+          env, jexperiment_ids, jparameter_names, jparameter_values,
+          /* is_cct = */ false, /* onboarding_shown = */ false,
+          /* is_direct_action = */ true,
+          /* caller_account_hash = */ nullptr),
       base::BindOnce(&ClientAndroid::OnFetchWebsiteActions,
                      weak_ptr_factory_.GetWeakPtr(), scoped_jcallback));
 }
@@ -359,14 +341,15 @@ bool ClientAndroid::PerformDirectAction(
   std::string action_name =
       base::android::ConvertJavaStringToUTF8(env, jaction_name);
 
-  int action_index = FindDirectAction(action_name);
-
-  auto trigger_context = CreateTriggerContext(
-      env, jexperiment_ids, jparameter_names, jparameter_values);
-  trigger_context->SetDirectAction(true);
+  auto trigger_context = ui_controller_android_utils::CreateTriggerContext(
+      env, jexperiment_ids, jparameter_names, jparameter_values,
+      /* is_cct = */ false, /* onboarding_shown = */ false,
+      /* is_direct_action = */ true,
+      /* caller_account_hash = */ nullptr);
 
   // Cancel through the UI if it is up. This allows the user to undo. This is
   // always available, even if no action was found and action_index == -1.
+  int action_index = FindDirectAction(action_name);
   if (action_name == kCancelActionName && ui_controller_android_) {
     ui_controller_android_->CloseOrCancel(action_index,
                                           std::move(trigger_context),
@@ -431,13 +414,6 @@ void ClientAndroid::AttachUI(
     if (!controller_)
       CreateController(nullptr);
     ui_controller_android_->Attach(web_contents_, this, controller_.get());
-
-    // Suppress password manager's prompts.
-    auto* password_manager_client = GetPasswordManagerClient();
-    if (password_manager_client) {
-      password_manager_client->GetPasswordManager()->SetAutofillAssistantMode(
-          password_manager::AutofillAssistantMode::kUIShown);
-    }
   }
 }
 
@@ -460,7 +436,7 @@ std::string ClientAndroid::GetChromeSignedInEmailAddress() const {
   CoreAccountInfo account_info =
       IdentityManagerFactory::GetForProfile(
           Profile::FromBrowserContext(web_contents_->GetBrowserContext()))
-          ->GetPrimaryAccountInfo();
+          ->GetPrimaryAccountInfo(signin::ConsentLevel::kSync);
   return account_info.email;
 }
 
@@ -473,27 +449,11 @@ autofill::PersonalDataManager* ClientAndroid::GetPersonalDataManager() const {
       ProfileManager::GetLastUsedProfile());
 }
 
-password_manager::PasswordManagerClient*
-ClientAndroid::GetPasswordManagerClient() const {
-  if (!password_manager_client_) {
-    password_manager_client_ =
-        ChromePasswordManagerClient::FromWebContents(web_contents_);
-  }
-  return password_manager_client_;
-}
-
 WebsiteLoginManager* ClientAndroid::GetWebsiteLoginManager() const {
   if (!website_login_manager_) {
-    auto* client = GetPasswordManagerClient();
-    auto* factory =
-        password_manager::ContentPasswordManagerDriverFactory::FromWebContents(
-            web_contents_);
-    // TODO(crbug.com/1043132): Add support for non-main frames. If another
-    // frame has a different origin than the main frame, passwords-related
-    // features may not work.
-    auto* driver = factory->GetDriverForFrame(web_contents_->GetMainFrame());
-    website_login_manager_ =
-        std::make_unique<WebsiteLoginManagerImpl>(client, driver);
+    website_login_manager_ = std::make_unique<WebsiteLoginManagerImpl>(
+        ChromePasswordManagerClient::FromWebContents(web_contents_),
+        web_contents_);
   }
   return website_login_manager_.get();
 }
@@ -551,23 +511,20 @@ void ClientAndroid::Shutdown(Metrics::DropOutReason reason) {
   if (!controller_)
     return;
 
-  auto* password_manager_client = GetPasswordManagerClient();
-  if (password_manager_client) {
-    password_manager_client->GetPasswordManager()->SetAutofillAssistantMode(
-        password_manager::AutofillAssistantMode::kUINotShown);
+  // Shutdown in a separate task. This avoids tricky ordering issues when
+  // Shutdown is called from the controller or the ui_controller.
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&ClientAndroid::SafeDestroyControllerAndUI,
+                                weak_ptr_factory_.GetWeakPtr(), reason));
+}
+
+void ClientAndroid::SafeDestroyControllerAndUI(Metrics::DropOutReason reason) {
+  if (started_) {
+    Metrics::RecordDropOut(reason);
   }
 
-  if (ui_controller_android_ && ui_controller_android_->IsAttached())
-    DestroyUI();
-
-  if (started_)
-    Metrics::RecordDropOut(reason);
-
-  // Delete the controller in a separate task. This avoids tricky ordering
-  // issues when Shutdown is called from the controller.
-  content::GetUIThreadTaskRunner({})->PostTask(
-      FROM_HERE, base::BindOnce(&ClientAndroid::DestroyController,
-                                weak_ptr_factory_.GetWeakPtr()));
+  DestroyUI();
+  DestroyController();
 }
 
 void ClientAndroid::FetchAccessToken(
@@ -587,16 +544,42 @@ void ClientAndroid::InvalidateAccessToken(const std::string& access_token) {
 }
 
 void ClientAndroid::CreateController(std::unique_ptr<Service> service) {
-  // Persist status message when hot-swapping controllers.
+  // Persist status message and progress bar when transitioning from trigger
+  // script.
   std::string status_message;
-  if (controller_) {
-    status_message = controller_->GetStatusMessage();
-    DestroyController();
+  base::Optional<ShowProgressBarProto::StepProgressBarConfiguration>
+      progress_bar_config;
+  base::Optional<int> progress_bar_active_step;
+  if (trigger_script_bridge_.GetLastShownTriggerScript().has_value()) {
+    auto last_shown_trigger_script =
+        trigger_script_bridge_.GetLastShownTriggerScript();
+    status_message =
+        last_shown_trigger_script->regular_script_loading_status_message();
+    if (last_shown_trigger_script->has_progress_bar()) {
+      progress_bar_config =
+          ShowProgressBarProto::StepProgressBarConfiguration();
+      progress_bar_config->set_use_step_progress_bar(true);
+      for (const auto& step_icon :
+           last_shown_trigger_script->progress_bar().step_icons()) {
+        *progress_bar_config->add_annotated_step_icons()->mutable_icon() =
+            step_icon;
+      }
+      progress_bar_active_step =
+          last_shown_trigger_script->progress_bar().active_step();
+    }
   }
+
+  DestroyController();
   controller_ = std::make_unique<Controller>(
       web_contents_, /* client= */ this, base::DefaultTickClock::GetInstance(),
+      RuntimeManagerImpl::GetForWebContents(web_contents_)->GetWeakPtr(),
       std::move(service));
   controller_->SetStatusMessage(status_message);
+  if (progress_bar_config) {
+    controller_->SetStepProgressBarConfiguration(*progress_bar_config);
+    controller_->SetProgressActiveStep(*progress_bar_active_step);
+  }
+  trigger_script_bridge_.ClearLastShownTriggerScript();
 }
 
 void ClientAndroid::DestroyController() {

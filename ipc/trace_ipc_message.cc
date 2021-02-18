@@ -25,15 +25,6 @@ void WriteIpcMessageIdAsProtozero(uint32_t message_id,
     case FrameMsgStart:
       message_class = ChromeLegacyIpc::CLASS_FRAME;
       break;
-    case PageMsgStart:
-      message_class = ChromeLegacyIpc::CLASS_PAGE;
-      break;
-    case ViewMsgStart:
-      message_class = ChromeLegacyIpc::CLASS_VIEW;
-      break;
-    case WidgetMsgStart:
-      message_class = ChromeLegacyIpc::CLASS_WIDGET;
-      break;
     case TestMsgStart:
       message_class = ChromeLegacyIpc::CLASS_TEST;
       break;
@@ -52,15 +43,6 @@ void WriteIpcMessageIdAsProtozero(uint32_t message_id,
     case PpapiMsgStart:
       message_class = ChromeLegacyIpc::CLASS_PPAPI;
       break;
-    case ChromeMsgStart:
-      message_class = ChromeLegacyIpc::CLASS_CHROME;
-      break;
-    case DragMsgStart:
-      message_class = ChromeLegacyIpc::CLASS_DRAG;
-      break;
-    case PrintMsgStart:
-      message_class = ChromeLegacyIpc::CLASS_PRINT;
-      break;
     case ExtensionMsgStart:
       message_class = ChromeLegacyIpc::CLASS_EXTENSION;
       break;
@@ -68,29 +50,17 @@ void WriteIpcMessageIdAsProtozero(uint32_t message_id,
     case ChromotingMsgStart:
       message_class = ChromeLegacyIpc::CLASS_CHROMOTING;
       break;
-    case AndroidWebViewMsgStart:
-      message_class = ChromeLegacyIpc::CLASS_ANDROID_WEB_VIEW;
-      break;
     case NaClHostMsgStart:
       message_class = ChromeLegacyIpc::CLASS_NACL_HOST;
       break;
     case EncryptedMediaMsgStart:
       message_class = ChromeLegacyIpc::CLASS_ENCRYPTED_MEDIA;
       break;
-    case CastMsgStart:
-      message_class = ChromeLegacyIpc::CLASS_CAST;
-      break;
     case GinJavaBridgeMsgStart:
       message_class = ChromeLegacyIpc::CLASS_GIN_JAVA_BRIDGE;
       break;
     case ChromeUtilityPrintingMsgStart:
       message_class = ChromeLegacyIpc::CLASS_CHROME_UTILITY_PRINTING;
-      break;
-    case OzoneGpuMsgStart:
-      message_class = ChromeLegacyIpc::CLASS_OZONE_GPU;
-      break;
-    case WebTestMsgStart:
-      message_class = ChromeLegacyIpc::CLASS_WEB_TEST;
       break;
     case ExtensionsGuestViewMsgStart:
       message_class = ChromeLegacyIpc::CLASS_EXTENSIONS_GUEST_VIEW;
@@ -103,9 +73,6 @@ void WriteIpcMessageIdAsProtozero(uint32_t message_id,
       break;
     case ExtensionWorkerMsgStart:
       message_class = ChromeLegacyIpc::CLASS_EXTENSION_WORKER;
-      break;
-    case UnfreezableFrameMsgStart:
-      message_class = ChromeLegacyIpc::CLASS_UNFREEZABLE_FRAME;
       break;
   }
   legacy_ipc->set_message_class(message_class);

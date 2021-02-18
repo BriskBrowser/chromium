@@ -78,10 +78,9 @@ std::unique_ptr<views::Widget> CreateMenuWidget() {
       display::Screen::GetScreen()->GetPrimaryDisplay().bounds();
   menu_widget->SetBounds(widget_bounds);
 
-  // Enable arrow key in FocusManager. Arrow right/left and down/up triggers
-  // the same focus movement as tab/shift+tab.
-  menu_widget->GetFocusManager()->set_arrow_key_traversal_enabled_for_widget(
-      true);
+  // Enable arrow key - arrow right/left and down/up triggers the same focus
+  // movement as tab/shift+tab.
+  menu_widget->widget_delegate()->SetEnableArrowKeyTraversal(true);
   return menu_widget;
 }
 
@@ -104,8 +103,7 @@ PowerButtonController::PowerButtonController(
     BacklightsForcedOffSetter* backlights_forced_off_setter)
     : backlights_forced_off_setter_(backlights_forced_off_setter),
       lock_state_controller_(Shell::Get()->lock_state_controller()),
-      tick_clock_(base::DefaultTickClock::GetInstance()),
-      backlights_forced_off_observer_(this) {
+      tick_clock_(base::DefaultTickClock::GetInstance()) {
   ProcessCommandLine();
   display_controller_ = std::make_unique<PowerButtonDisplayController>(
       backlights_forced_off_setter_, tick_clock_);
@@ -114,10 +112,15 @@ PowerButtonController::PowerButtonController(
   power_manager_client->AddObserver(this);
   power_manager_client->GetSwitchStates(base::BindOnce(
       &PowerButtonController::OnGetSwitchStates, weak_factory_.GetWeakPtr()));
-  AccelerometerReader::GetInstance()->AddObserver(this);
+
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshEnableTabletMode)) {
+    AccelerometerReader::GetInstance()->AddObserver(this);
+  }
+
   auto* shell = Shell::Get();
   shell->display_configurator()->AddObserver(this);
-  backlights_forced_off_observer_.Add(backlights_forced_off_setter);
+  backlights_forced_off_observation_.Observe(backlights_forced_off_setter);
   shell->tablet_mode_controller()->AddObserver(this);
   shell->lock_state_controller()->AddObserver(this);
   shell->session_controller()->AddObserver(this);
@@ -136,7 +139,10 @@ PowerButtonController::~PowerButtonController() {
 
 void PowerButtonController::OnPreShutdownTimeout() {
   lock_state_controller_->StartShutdownAnimation(ShutdownReason::POWER_BUTTON);
-  DCHECK(menu_widget_);
+  // |menu_widget_| might be reset on login status change while shutting down.
+  if (!menu_widget_)
+    return;
+
   static_cast<PowerButtonMenuScreenView*>(menu_widget_->GetContentsView())
       ->power_button_menu_view()
       ->FocusPowerOffButton();
@@ -340,7 +346,7 @@ void PowerButtonController::ScreenBrightnessChanged(
 
 void PowerButtonController::PowerButtonEventReceived(
     bool down,
-    const base::TimeTicks& timestamp) {
+    base::TimeTicks timestamp) {
   if (lock_state_controller_->ShutdownRequested())
     return;
 
@@ -364,7 +370,7 @@ void PowerButtonController::SuspendImminent(
   DismissMenu();
 }
 
-void PowerButtonController::SuspendDone(const base::TimeDelta& sleep_duration) {
+void PowerButtonController::SuspendDone(base::TimeDelta sleep_duration) {
   last_resume_time_ = tick_clock_->NowTicks();
 }
 
@@ -381,24 +387,20 @@ void PowerButtonController::OnGetSwitchStates(
 
   if (result->tablet_mode !=
       chromeos::PowerManagerClient::TabletMode::UNSUPPORTED) {
-    has_tablet_mode_switch_ = true;
+    AccelerometerReader::GetInstance()->RemoveObserver(this);
     InitTabletPowerButtonMembers();
   }
 }
 
 void PowerButtonController::OnAccelerometerUpdated(
-    scoped_refptr<const AccelerometerUpdate> update) {
-  // When ChromeOS EC lid angle driver is present, there's always tablet mode
-  // switch in device, so PowerButtonController doesn't need to listens to
-  // accelerometer events.
-  if (update->HasLidAngleDriver(ACCELEROMETER_SOURCE_SCREEN) ||
-      update->HasLidAngleDriver(ACCELEROMETER_SOURCE_ATTACHED_KEYBOARD)) {
-    AccelerometerReader::GetInstance()->RemoveObserver(this);
-    return;
-  }
+    const AccelerometerUpdate& update) {
+  DCHECK(base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kAshEnableTabletMode));
 
-  if (!has_tablet_mode_switch_ && observe_accelerometer_events_)
-    InitTabletPowerButtonMembers();
+  // This device has at least an accelerometer, therefore it is a tablet or
+  // convertible.
+  AccelerometerReader::GetInstance()->RemoveObserver(this);
+  InitTabletPowerButtonMembers();
 }
 
 void PowerButtonController::OnBacklightsForcedOffChanged(bool forced_off) {
@@ -476,7 +478,6 @@ void PowerButtonController::ProcessCommandLine() {
   button_type_ = cl->HasSwitch(switches::kAuraLegacyPowerButton)
                      ? ButtonType::LEGACY
                      : ButtonType::NORMAL;
-  observe_accelerometer_events_ = cl->HasSwitch(switches::kAshEnableTabletMode);
   force_tablet_power_button_ = cl->HasSwitch(switches::kForceTabletPowerButton);
 
   ParsePowerButtonPositionSwitch();

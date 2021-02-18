@@ -108,8 +108,8 @@ void NGOffsetMappingUnit::AssertValid() const {
   SECURITY_DCHECK(text_content_start_ <= text_content_end_)
       << text_content_start_ << " vs. " << text_content_end_;
   if (layout_object_->IsText() &&
-      !ToLayoutText(*layout_object_).IsWordBreak()) {
-    const LayoutText& layout_text = ToLayoutText(*layout_object_);
+      !To<LayoutText>(*layout_object_).IsWordBreak()) {
+    const auto& layout_text = To<LayoutText>(*layout_object_);
     const unsigned text_start =
         AssociatedNode() ? layout_text.TextStartOffset() : 0;
     const unsigned text_end = text_start + layout_text.TextLength();
@@ -124,7 +124,8 @@ void NGOffsetMappingUnit::AssertValid() const {
 }
 
 const Node* NGOffsetMappingUnit::AssociatedNode() const {
-  if (const auto* text_fragment = ToLayoutTextFragmentOrNull(layout_object_))
+  if (const auto* text_fragment =
+          DynamicTo<LayoutTextFragment>(layout_object_.Get()))
     return text_fragment->AssociatedTextNode();
   return layout_object_->GetNode();
 }
@@ -145,8 +146,8 @@ bool NGOffsetMappingUnit::Concatenate(const NGOffsetMappingUnit& other) {
   if (text_content_end_ != other.text_content_start_)
     return false;
   // Don't merge first letter and remaining text
-  if (const LayoutTextFragment* text_fragment =
-          ToLayoutTextFragmentOrNull(layout_object_)) {
+  if (const auto* text_fragment =
+          DynamicTo<LayoutTextFragment>(layout_object_.Get())) {
     // TODO(layout-dev): Fix offset calculation for text-transform
     if (text_fragment->IsRemainingTextLayoutObject() &&
         other.dom_start_ == text_fragment->TextStartOffset())
@@ -332,6 +333,7 @@ NGOffsetMapping::UnitVector NGOffsetMapping::GetMappingUnitsForDOMRange(
                        });
 
   UnitVector result;
+  result.ReserveCapacity(result_end - result_begin);
   for (const auto& unit : base::make_span(result_begin, result_end)) {
     // If the unit isn't fully within the range, create a new unit that's
     // within the range.
@@ -368,7 +370,7 @@ NGOffsetMapping::GetMappingUnitsForLayoutObject(
                    [&layout_object](const NGOffsetMappingUnit& unit) {
                      return unit.GetLayoutObject() == layout_object;
                    });
-  DCHECK_NE(begin, units_.end());
+  CHECK_NE(begin, units_.end());
   const auto* end =
       std::find_if(std::next(begin), units_.end(),
                    [&layout_object](const NGOffsetMappingUnit& unit) {
@@ -500,7 +502,7 @@ Position NGOffsetMapping::GetFirstPosition(unsigned offset) const {
                        [](const NGOffsetMappingUnit& unit, unsigned offset) {
                          return unit.TextContentEnd() < offset;
                        });
-  DCHECK_NE(result, units_.end());
+  CHECK_NE(result, units_.end());
   // Skip CSS generated content, e.g. "content" property in ::before/::after.
   while (!result->AssociatedNode()) {
     result = std::next(result);
@@ -552,7 +554,7 @@ const NGOffsetMappingUnit* NGOffsetMapping::GetLastMappingUnit(
                        [](unsigned offset, const NGOffsetMappingUnit& unit) {
                          return offset < unit.TextContentStart();
                        });
-  DCHECK_NE(result, units_.begin());
+  CHECK_NE(result, units_.begin());
   result = std::prev(result);
   if (result->TextContentEnd() < offset)
     return nullptr;
@@ -585,6 +587,10 @@ bool NGOffsetMapping::HasBidiControlCharactersOnly(unsigned start,
       return false;
   }
   return true;
+}
+
+void NGOffsetMappingUnit::Trace(Visitor* visitor) const {
+  visitor->Trace(layout_object_);
 }
 
 }  // namespace blink

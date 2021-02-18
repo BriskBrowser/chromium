@@ -17,8 +17,8 @@
 #include "chrome/browser/ui/browser_command_controller.h"
 #include "chrome/common/chrome_render_frame.mojom.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/render_messages.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/lens/lens_features.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/strings/grit/components_strings.h"
@@ -84,9 +84,28 @@ void CoreTabHelper::UpdateContentRestrictions(int content_restrictions) {
 #endif
 }
 
+void CoreTabHelper::SearchWithLensInNewTab(
+    content::RenderFrameHost* render_frame_host,
+    const GURL& src_url) {
+  SearchByImageInNewTabImpl(
+      render_frame_host, src_url, kImageSearchThumbnailMinSize,
+      lens::features::GetMaxPixels(), lens::features::GetMaxPixels());
+}
+
 void CoreTabHelper::SearchByImageInNewTab(
     content::RenderFrameHost* render_frame_host,
     const GURL& src_url) {
+  SearchByImageInNewTabImpl(
+      render_frame_host, src_url, kImageSearchThumbnailMinSize,
+      kImageSearchThumbnailMaxWidth, kImageSearchThumbnailMaxHeight);
+}
+
+void CoreTabHelper::SearchByImageInNewTabImpl(
+    content::RenderFrameHost* render_frame_host,
+    const GURL& src_url,
+    int thumbnail_min_size,
+    int thumbnail_max_width,
+    int thumbnail_max_height) {
   mojo::AssociatedRemote<chrome::mojom::ChromeRenderFrame> chrome_render_frame;
   render_frame_host->GetRemoteAssociatedInterfaces()->GetInterface(
       &chrome_render_frame);
@@ -94,8 +113,7 @@ void CoreTabHelper::SearchByImageInNewTab(
   // there's either a connection error or a response.
   auto* thumbnail_capturer_proxy = chrome_render_frame.get();
   thumbnail_capturer_proxy->RequestImageForContextNode(
-      kImageSearchThumbnailMinSize,
-      gfx::Size(kImageSearchThumbnailMaxWidth, kImageSearchThumbnailMaxHeight),
+      thumbnail_min_size, gfx::Size(thumbnail_max_width, thumbnail_max_height),
       chrome::mojom::ImageFormat::JPEG,
       base::BindOnce(&CoreTabHelper::DoSearchByImageInNewTab,
                      weak_factory_.GetWeakPtr(),
@@ -213,8 +231,8 @@ bool CoreTabHelper::GetStatusTextForWebContents(
     return false;
 
   return guest_manager->ForEachGuest(
-      source, base::Bind(&CoreTabHelper::GetStatusTextForWebContents,
-                         status_text));
+      source, base::BindRepeating(&CoreTabHelper::GetStatusTextForWebContents,
+                                  status_text));
 #else  // !BUILDFLAG(ENABLE_EXTENSIONS)
   return false;
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
@@ -243,6 +261,26 @@ void CoreTabHelper::NavigationEntriesDeleted() {
       browser->command_controller()->TabStateChanged();
   }
 #endif
+}
+
+// Notify browser commands that depend on whether focus is in the
+// web contents or not.
+void CoreTabHelper::OnWebContentsFocused(
+    content::RenderWidgetHost* render_widget_host) {
+#if !defined(OS_ANDROID)
+  Browser* browser = chrome::FindBrowserWithWebContents(web_contents());
+  if (browser)
+    browser->command_controller()->WebContentsFocusChanged();
+#endif  // defined(OS_ANDROID)
+}
+
+void CoreTabHelper::OnWebContentsLostFocus(
+    content::RenderWidgetHost* render_widget_host) {
+#if !defined(OS_ANDROID)
+  Browser* browser = chrome::FindBrowserWithWebContents(web_contents());
+  if (browser)
+    browser->command_controller()->WebContentsFocusChanged();
+#endif  // defined(OS_ANDROID)
 }
 
 // Handles the image thumbnail for the context node, composes a image search

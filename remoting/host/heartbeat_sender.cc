@@ -16,6 +16,7 @@
 #include "base/system/sys_info.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "net/base/network_interfaces.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "remoting/base/constants.h"
@@ -31,6 +32,10 @@
 #include "remoting/signaling/ftl_signal_strategy.h"
 #include "remoting/signaling/signaling_address.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
+
+#if defined(OS_WIN)
+#include "base/strings/utf_string_conversions.h"
+#endif
 
 namespace remoting {
 
@@ -104,6 +109,29 @@ const net::BackoffEntry::Policy kBackoffPolicy = {
     false,
 };
 
+std::string GetHostname() {
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag
+// switch of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+  return net::GetHostName();
+#elif defined(OS_WIN)
+  wchar_t buffer[MAX_PATH] = {0};
+  DWORD size = MAX_PATH;
+  if (!::GetComputerNameExW(ComputerNameDnsFullyQualified, buffer, &size)) {
+    PLOG(ERROR) << "GetComputerNameExW failed";
+    return std::string();
+  }
+  std::string hostname;
+  if (!base::UTF16ToUTF8(buffer, size, &hostname)) {
+    LOG(ERROR) << "Failed to convert from UTF16 to UTF8";
+    return std::string();
+  }
+  return hostname;
+#else
+  return std::string();
+#endif
+}
+
 }  // namespace
 
 class HeartbeatSender::HeartbeatClientImpl final
@@ -135,12 +163,11 @@ HeartbeatSender::HeartbeatClientImpl::~HeartbeatClientImpl() = default;
 void HeartbeatSender::HeartbeatClientImpl::Heartbeat(
     std::unique_ptr<apis::v1::HeartbeatRequest> request,
     HeartbeatResponseCallback callback) {
-  std::string host_offline_reason_or_empty_log =
+  std::string host_offline_reason =
       request->has_host_offline_reason()
-          ? (", host_offline_reason: " + request->host_offline_reason())
+          ? (" host_offline_reason: " + request->host_offline_reason())
           : "";
-  HOST_LOG << "Sending outgoing heartbeat. tachyon_id: "
-           << request->tachyon_id() << host_offline_reason_or_empty_log;
+  HOST_LOG << "Sending outgoing heartbeat." << host_offline_reason;
 
   auto request_config =
       std::make_unique<ProtobufHttpRequestConfig>(kTrafficAnnotation);
@@ -164,6 +191,7 @@ HeartbeatSender::HeartbeatSender(
     const std::string& host_id,
     SignalStrategy* signal_strategy,
     OAuthTokenGetter* oauth_token_getter,
+    Observer* observer,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     bool is_googler)
     : delegate_(delegate),
@@ -172,9 +200,11 @@ HeartbeatSender::HeartbeatSender(
       client_(std::make_unique<HeartbeatClientImpl>(oauth_token_getter,
                                                     url_loader_factory)),
       oauth_token_getter_(oauth_token_getter),
+      observer_(observer),
       backoff_(&kBackoffPolicy) {
   DCHECK(delegate_);
   DCHECK(signal_strategy_);
+  DCHECK(observer_);
 
   signal_strategy_->AddListener(this);
   OnSignalStrategyStateChange(signal_strategy_->GetState());
@@ -252,20 +282,7 @@ void HeartbeatSender::SendHeartbeat() {
     return;
   }
 
-  base::TimeDelta last_reported_active_duration =
-      signal_strategy_->signaling_tracker()
-          .GetLastReportedChannelActiveDuration();
-  if (!signal_strategy_->signaling_tracker().IsChannelActive()) {
-    LOG(ERROR) << "Signaling channel appears to be inactive but it claims it's "
-                  "connected. Last reported active "
-               << last_reported_active_duration << " ago.";
-    signal_strategy_->Disconnect();
-    return;
-  } else {
-    VLOG(1)
-        << "About to send heartbeat. Signaling channel last reported active "
-        << last_reported_active_duration << " ago.";
-  }
+  VLOG(1) << "About to send heartbeat.";
 
   // Drop previous heartbeat and timer so that it doesn't interfere with the
   // current one.
@@ -275,6 +292,7 @@ void HeartbeatSender::SendHeartbeat() {
   client_->Heartbeat(
       CreateHeartbeatRequest(),
       base::BindOnce(&HeartbeatSender::OnResponse, base::Unretained(this)));
+  observer_->OnHeartbeatSent();
 }
 
 void HeartbeatSender::OnResponse(
@@ -299,7 +317,7 @@ void HeartbeatSender::OnResponse(
     }
 
     if (response->has_remote_command()) {
-      OnRemoteCommand(response->remote_command());
+      LOG(WARNING) << "Remote command ignored: " << response->remote_command();
     }
   } else {
     LOG(ERROR) << "Heartbeat failed. Error code: "
@@ -334,7 +352,6 @@ void HeartbeatSender::OnResponse(
 
   // Calculate delay before sending the next message.
   base::TimeDelta delay;
-  // See CoreErrorDomainTranslator.java for the mapping
   switch (status.error_code()) {
     case ProtobufHttpStatus::Code::OK:
       delay = base::TimeDelta::FromSeconds(response->set_interval_seconds());
@@ -362,21 +379,6 @@ void HeartbeatSender::OnResponse(
                          &HeartbeatSender::SendHeartbeat);
 }
 
-void HeartbeatSender::OnRemoteCommand(
-    apis::v1::HeartbeatResponse::RemoteCommand remote_command) {
-  HOST_LOG << "Received remote command: "
-           << apis::v1::HeartbeatResponse::RemoteCommand_Name(remote_command)
-           << "(" << remote_command << ")";
-  switch (remote_command) {
-    case apis::v1::HeartbeatResponse::RESTART_HOST:
-      delegate_->OnRemoteRestartHost();
-      break;
-    default:
-      LOG(WARNING) << "Unknown remote command: " << remote_command;
-      break;
-  }
-}
-
 std::unique_ptr<apis::v1::HeartbeatRequest>
 HeartbeatSender::CreateHeartbeatRequest() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -392,13 +394,15 @@ HeartbeatSender::CreateHeartbeatRequest() {
   heartbeat->set_host_os_version(GetHostOperatingSystemVersion());
   heartbeat->set_host_cpu_type(base::SysInfo::OperatingSystemArchitecture());
   heartbeat->set_is_initial_heartbeat(!initial_heartbeat_sent_);
-  // Only set the hostname if the user's email is @google.com and they are using
-  // a Linux OS.
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+
+  // Only set the hostname if the user's email is @google.com.
   if (is_googler_) {
-    heartbeat->set_hostname(net::GetHostName());
+    std::string hostname = GetHostname();
+    if (!hostname.empty()) {
+      heartbeat->set_hostname(hostname);
+    }
   }
-#endif
+
   return heartbeat;
 }
 

@@ -16,7 +16,7 @@ namespace {
 using MathConstants = OpenTypeMathSupport::MathConstants;
 
 static bool IsPrescriptDelimiter(const NGBlockNode& blockNode) {
-  auto* node = blockNode.GetLayoutBox()->GetNode();
+  auto* node = blockNode.GetDOMNode();
   return node && IsA<MathMLElement>(node) &&
          node->HasTagName(mathml_names::kMprescriptsTag);
 }
@@ -50,7 +50,10 @@ struct ScriptsVerticalParameters {
 ScriptsVerticalParameters GetScriptsVerticalParameters(
     const ComputedStyle& style) {
   ScriptsVerticalParameters parameters;
-  auto x_height = style.GetFont().PrimaryFont()->GetFontMetrics().XHeight();
+  const SimpleFontData* font_data = style.GetFont().PrimaryFont();
+  if (!font_data)
+    return parameters;
+  auto x_height = font_data->GetFontMetrics().XHeight();
   parameters.subscript_shift_down =
       LayoutUnit(MathConstant(style, MathConstants::kSubscriptShiftDown)
                      .value_or(x_height / 3));
@@ -87,13 +90,11 @@ NGMathScriptsLayoutAlgorithm::NGMathScriptsLayoutAlgorithm(
     const NGLayoutAlgorithmParams& params)
     : NGLayoutAlgorithm(params) {
   DCHECK(params.space.IsNewFormattingContext());
-  container_builder_.SetIsNewFormattingContext(
-      params.space.IsNewFormattingContext());
 }
 
 void NGMathScriptsLayoutAlgorithm::GatherChildren(
     NGBlockNode* base,
-    Vector<SubSupPair>* sub_sup_pairs,
+    HeapVector<SubSupPair>* sub_sup_pairs,
     NGBlockNode* prescripts,
     unsigned* first_prescript_index,
     NGBoxFragmentBuilder* container_builder) const {
@@ -118,6 +119,7 @@ void NGMathScriptsLayoutAlgorithm::GatherChildren(
     }
     switch (script_type) {
       case MathScriptType::kSub:
+      case MathScriptType::kUnder:
         // These elements must have exactly two children.
         // The second child is a postscript and there are no prescripts.
         // <msub> base subscript </msub>
@@ -126,9 +128,11 @@ void NGMathScriptsLayoutAlgorithm::GatherChildren(
         sub_sup_pairs->at(0).sub = block_child;
         continue;
       case MathScriptType::kSuper:
+      case MathScriptType::kOver:
         DCHECK(!sub_sup_pairs->at(0).sup);
         sub_sup_pairs->at(0).sup = block_child;
         continue;
+      case MathScriptType::kUnderOver:
       case MathScriptType::kSubSup:
         // These elements must have exactly three children.
         // The second and third children are postscripts and there are no
@@ -144,7 +148,7 @@ void NGMathScriptsLayoutAlgorithm::GatherChildren(
         // The structure of mmultiscripts is specified here:
         // https://mathml-refresh.github.io/mathml-core/#prescripts-and-tensor-indices-mmultiscripts
         if (IsPrescriptDelimiter(block_child)) {
-          if (!number_of_scripts_is_even || *first_prescript_index > 0) {
+          if (!number_of_scripts_is_even || *prescripts) {
             NOTREACHED();
             return;
           }
@@ -181,6 +185,7 @@ NGMathScriptsLayoutAlgorithm::GetVerticalMetrics(
 
   MathScriptType type = Node().ScriptType();
   if (type == MathScriptType::kSub || type == MathScriptType::kSubSup ||
+      type == MathScriptType::kMultiscripts || type == MathScriptType::kUnder ||
       type == MathScriptType::kMultiscripts) {
     metrics.sub_shift =
         std::max(parameters.subscript_shift_down,
@@ -188,9 +193,9 @@ NGMathScriptsLayoutAlgorithm::GetVerticalMetrics(
   }
   LayoutUnit shift_up = parameters.superscript_shift_up;
   if (type == MathScriptType::kSuper || type == MathScriptType::kSubSup ||
+      type == MathScriptType::kMultiscripts || type == MathScriptType::kOver ||
       type == MathScriptType::kMultiscripts) {
-    if (Style().MathSuperscriptShiftStyle() ==
-        EMathSuperscriptShiftStyle::kInline)
+    if (Style().MathShift() == EMathShift::kCompact)
       shift_up = parameters.superscript_shift_up_cramped;
     metrics.sup_shift =
         std::max(shift_up, base_metrics.ascent -
@@ -198,19 +203,22 @@ NGMathScriptsLayoutAlgorithm::GetVerticalMetrics(
   }
 
   switch (type) {
-    case MathScriptType::kSub: {
+    case MathScriptType::kSub:
+    case MathScriptType::kUnder: {
       metrics.descent = sub_metrics[0].descent;
       metrics.sub_shift =
           std::max(metrics.sub_shift,
                    sub_metrics[0].ascent - parameters.subscript_top_max);
     } break;
-    case MathScriptType::kSuper: {
+    case MathScriptType::kSuper:
+    case MathScriptType::kOver: {
       metrics.ascent = sup_metrics[0].ascent;
       metrics.sup_shift =
           std::max(metrics.sup_shift,
                    parameters.superscript_bottom_min + sup_metrics[0].descent);
     } break;
     case MathScriptType::kMultiscripts:
+    case MathScriptType::kUnderOver:
     case MathScriptType::kSubSup: {
       for (wtf_size_t idx = 0; idx < sub_metrics.size(); ++idx) {
         metrics.ascent = std::max(metrics.ascent, sup_metrics[idx].ascent);
@@ -252,12 +260,6 @@ NGMathScriptsLayoutAlgorithm::GetVerticalMetrics(
         metrics.sup_shift = std::max(metrics.sup_shift, sup_script_shift);
       }
     } break;
-    case MathScriptType::kOver:
-    case MathScriptType::kUnder:
-    case MathScriptType::kUnderOver:
-      // TODO(rbuis): implement movablelimits.
-      NOTREACHED();
-      break;
   }
 
   return metrics;
@@ -271,7 +273,7 @@ NGMathScriptsLayoutAlgorithm::LayoutAndGetMetrics(NGBlockNode child) const {
   child_and_metrics.result =
       child.Layout(constraint_space, nullptr /*break_token*/);
   NGBoxFragment fragment(
-      ConstraintSpace().GetWritingMode(), ConstraintSpace().Direction(),
+      ConstraintSpace().GetWritingDirection(),
       To<NGPhysicalBoxFragment>(child_and_metrics.result->PhysicalFragment()));
   child_and_metrics.inline_size = fragment.InlineSize();
   child_and_metrics.margins =
@@ -284,12 +286,12 @@ NGMathScriptsLayoutAlgorithm::LayoutAndGetMetrics(NGBlockNode child) const {
   return child_and_metrics;
 }
 
-scoped_refptr<const NGLayoutResult> NGMathScriptsLayoutAlgorithm::Layout() {
+const NGLayoutResult* NGMathScriptsLayoutAlgorithm::Layout() {
   DCHECK(!BreakToken());
 
   NGBlockNode base = nullptr;
   NGBlockNode prescripts = nullptr;
-  Vector<SubSupPair> sub_sup_pairs;
+  HeapVector<SubSupPair> sub_sup_pairs;
   wtf_size_t first_prescript_index = 0;
   GatherChildren(&base, &sub_sup_pairs, &prescripts, &first_prescript_index,
                  &container_builder_);
@@ -315,7 +317,8 @@ scoped_refptr<const NGLayoutResult> NGMathScriptsLayoutAlgorithm::Layout() {
       content_start_offset.block_offset;
   LayoutUnit descent =
       std::max(base_metrics.descent, metrics.descent + metrics.sub_shift);
-  // TODO(rbuis): take into account italic correction.
+  LayoutUnit base_italic_correction = std::min(
+      base_metrics.inline_size, base_metrics.result->MathItalicCorrection());
   LayoutUnit inline_offset = content_start_offset.inline_offset;
 
   LayoutUnit space = GetSpaceAfterScript(Style());
@@ -364,9 +367,12 @@ scoped_refptr<const NGLayoutResult> NGMathScriptsLayoutAlgorithm::Layout() {
       sup_metric = sup_metrics[idx];
 
     if (sub_metric.node) {
-      LogicalOffset sub_offset(inline_offset + sub_metric.margins.inline_start,
-                               ascent + metrics.sub_shift - sub_metric.ascent +
-                                   sub_metric.margins.block_start);
+      LogicalOffset sub_offset(
+          LayoutUnit(inline_offset + sub_metric.margins.inline_start -
+                     base_italic_correction)
+              .ClampNegativeToZero(),
+          ascent + metrics.sub_shift - sub_metric.ascent +
+              sub_metric.margins.block_start);
       container_builder_.AddChild(sub_metric.result->PhysicalFragment(),
                                   sub_offset);
       sub_metric.node.StoreMargins(ConstraintSpace(), sub_metric.margins);
@@ -409,7 +415,7 @@ MinMaxSizesResult NGMathScriptsLayoutAlgorithm::ComputeMinMaxSizes(
 
   NGBlockNode base = nullptr;
   NGBlockNode prescripts = nullptr;
-  Vector<SubSupPair> sub_sup_pairs;
+  HeapVector<SubSupPair> sub_sup_pairs;
   unsigned first_prescript_index = 0;
   GatherChildren(&base, &sub_sup_pairs, &prescripts, &first_prescript_index);
   DCHECK_GE(sub_sup_pairs.size(), 1ul);
@@ -417,6 +423,9 @@ MinMaxSizesResult NGMathScriptsLayoutAlgorithm::ComputeMinMaxSizes(
   MinMaxSizes sizes;
   bool depends_on_percentage_block_size = false;
 
+  // TODO(layout-dev): Determine the italic-correction without calling layout
+  // within ComputeMinMaxSizes, (or setup in an interoperable constraint-space).
+  LayoutUnit base_italic_correction;
   MinMaxSizesResult base_result =
       ComputeMinAndMaxContentContribution(Style(), base, child_input);
   base_result.sizes += ComputeMinMaxMargins(Style(), base).InlineSum();
@@ -428,8 +437,9 @@ MinMaxSizesResult NGMathScriptsLayoutAlgorithm::ComputeMinMaxSizes(
   LayoutUnit space = GetSpaceAfterScript(Style());
   switch (Node().ScriptType()) {
     case MathScriptType::kSub:
+    case MathScriptType::kUnder:
+    case MathScriptType::kOver:
     case MathScriptType::kSuper: {
-      // TODO(fwang): Take italic correction into account.
       NGBlockNode sub = sub_sup_pairs[0].sub;
       NGBlockNode sup = sub_sup_pairs[0].sup;
       auto first_post_script = sub ? sub : sup;
@@ -439,14 +449,16 @@ MinMaxSizesResult NGMathScriptsLayoutAlgorithm::ComputeMinMaxSizes(
           ComputeMinMaxMargins(Style(), first_post_script).InlineSum();
 
       sizes += first_post_script_result.sizes;
+      if (sub)
+        sizes -= base_italic_correction;
       sizes += space;
       depends_on_percentage_block_size |=
           first_post_script_result.depends_on_percentage_block_size;
       break;
     }
     case MathScriptType::kSubSup:
+    case MathScriptType::kUnderOver:
     case MathScriptType::kMultiscripts: {
-      // TODO(fwang): Take italic correction into account.
       MinMaxSizes sub_sup_pair_size;
       unsigned index = 0;
       do {
@@ -456,6 +468,7 @@ MinMaxSizesResult NGMathScriptsLayoutAlgorithm::ComputeMinMaxSizes(
         auto sub_result =
             ComputeMinAndMaxContentContribution(Style(), sub, child_input);
         sub_result.sizes += ComputeMinMaxMargins(Style(), sub).InlineSum();
+        sub_result.sizes -= base_italic_correction;
         sub_sup_pair_size.Encompass(sub_result.sizes);
 
         auto sup = sub_sup_pairs[index].sup;
@@ -475,16 +488,10 @@ MinMaxSizesResult NGMathScriptsLayoutAlgorithm::ComputeMinMaxSizes(
       } while (++index < sub_sup_pairs.size());
       break;
     }
-    case MathScriptType::kUnder:
-    case MathScriptType::kOver:
-    case MathScriptType::kUnderOver:
-      // TODO(rbuis): implement movablelimits.
-      NOTREACHED();
-      break;
   }
-  sizes += BorderScrollbarPadding().InlineSum();
 
-  return {sizes, depends_on_percentage_block_size};
+  sizes += BorderScrollbarPadding().InlineSum();
+  return MinMaxSizesResult(sizes, depends_on_percentage_block_size);
 }
 
 }  // namespace blink

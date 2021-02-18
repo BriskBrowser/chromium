@@ -74,13 +74,6 @@ constexpr int kPinRequestViewMinimumHeightDp =
     kAccessCodeToPinKeyboardDistanceDp + kPinKeyboardToFooterDistanceDp +
     kArrowButtonSizeDp + kPinRequestViewMainHorizontalInsetDp;  // = 266
 
-constexpr int kAlpha70Percent = 178;
-constexpr int kAlpha74Percent = 189;
-
-constexpr SkColor kTextColor = SK_ColorWHITE;
-constexpr SkColor kErrorColor = gfx::kGoogleRed300;
-constexpr SkColor kArrowButtonColor = SkColorSetARGB(0x2B, 0xFF, 0xFF, 0xFF);
-
 bool IsTabletMode() {
   return Shell::Get()->tablet_mode_controller()->InTabletMode();
 }
@@ -95,11 +88,11 @@ PinRequest::~PinRequest() = default;
 // Label button that displays focus ring.
 class PinRequestView::FocusableLabelButton : public views::LabelButton {
  public:
-  FocusableLabelButton(views::ButtonListener* listener,
-                       const base::string16& text)
-      : views::LabelButton(listener, text) {
+  FocusableLabelButton(PressedCallback callback, const base::string16& text)
+      : views::LabelButton(std::move(callback), text) {
     SetInstallFocusRingOnFocus(true);
     focus_ring()->SetColor(ShelfConfig::Get()->shelf_focus_border_color());
+    SetFocusBehavior(FocusBehavior::ALWAYS);
   }
 
   FocusableLabelButton(const FocusableLabelButton&) = delete;
@@ -153,22 +146,9 @@ PinRequestViewState PinRequestView::TestApi::state() const {
 
 // static
 SkColor PinRequestView::GetChildUserDialogColor(bool using_blur) {
-  SkColor color = AshColorProvider::Get()->GetBaseLayerColor(
-      AshColorProvider::BaseLayerType::kOpaque,
-      AshColorProvider::AshColorMode::kDark);
-
-  SkColor extracted_color =
-      Shell::Get()->wallpaper_controller()->GetProminentColor(
-          color_utils::ColorProfile(color_utils::LumaRange::DARK,
-                                    color_utils::SaturationRange::MUTED));
-
-  if (extracted_color != kInvalidWallpaperColor &&
-      extracted_color != SK_ColorTRANSPARENT) {
-    color = color_utils::GetResultingPaintColor(
-        SkColorSetA(SK_ColorBLACK, kAlpha70Percent), extracted_color);
-  }
-
-  return using_blur ? SkColorSetA(color, kAlpha74Percent) : color;
+  return AshColorProvider::Get()->GetBaseLayerColor(
+      using_blur ? AshColorProvider::BaseLayerType::kTransparent80
+                 : AshColorProvider::BaseLayerType::kOpaque);
 }
 
 // TODO(crbug.com/1061008): Make dialog look good on small screens with high
@@ -232,7 +212,10 @@ PinRequestView::PinRequestView(PinRequest request, Delegate* delegate)
 
   views::ImageView* icon = new views::ImageView();
   icon->SetPreferredSize(gfx::Size(kLockIconSizeDp, kLockIconSizeDp));
-  icon->SetImage(gfx::CreateVectorIcon(kPinRequestLockIcon, SK_ColorWHITE));
+  icon->SetImage(gfx::CreateVectorIcon(
+      kPinRequestLockIcon,
+      AshColorProvider::Get()->GetContentLayerColor(
+          AshColorProvider::ContentLayerType::kIconColorPrimary)));
   icon_view->AddChildView(icon);
 
   // Back button. Note that it should be the last view added to |header| in
@@ -251,14 +234,18 @@ PinRequestView::PinRequestView(PinRequest request, Delegate* delegate)
   back_button_view->SetLayoutManager(std::move(back_button_layout));
   header->AddChildView(back_button_view);
 
-  back_button_ = new LoginButton(this);
+  back_button_ = new LoginButton(
+      base::BindRepeating(&PinRequestView::OnBack, base::Unretained(this)));
   back_button_->SetPreferredSize(
       gfx::Size(kBackButtonSizeDp, kBackButtonSizeDp));
   back_button_->SetBackground(
       views::CreateSolidBackground(SK_ColorTRANSPARENT));
   back_button_->SetImage(
       views::Button::STATE_NORMAL,
-      gfx::CreateVectorIcon(views::kIcCloseIcon, kCrossSizeDp, SK_ColorWHITE));
+      gfx::CreateVectorIcon(
+          views::kIcCloseIcon, kCrossSizeDp,
+          AshColorProvider::Get()->GetContentLayerColor(
+              AshColorProvider::ContentLayerType::kIconColorPrimary)));
   back_button_->SetImageHorizontalAlignment(views::ImageButton::ALIGN_CENTER);
   back_button_->SetImageVerticalAlignment(views::ImageButton::ALIGN_MIDDLE);
   back_button_->SetAccessibleName(
@@ -277,7 +264,8 @@ PinRequestView::PinRequestView(PinRequest request, Delegate* delegate)
   auto decorate_label = [](views::Label* label) {
     label->SetSubpixelRenderingEnabled(false);
     label->SetAutoColorReadabilityEnabled(false);
-    label->SetEnabledColor(kTextColor);
+    label->SetEnabledColor(AshColorProvider::Get()->GetContentLayerColor(
+        AshColorProvider::ContentLayerType::kTextColorPrimary));
     label->SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
   };
 
@@ -311,6 +299,8 @@ PinRequestView::PinRequestView(PinRequest request, Delegate* delegate)
 
   add_spacer(kDescriptionToAccessCodeDistanceDp);
 
+  LoginPalette palette = CreateDefaultLoginPalette();
+
   // Access code input view.
   if (request.pin_length.has_value()) {
     CHECK_GT(request.pin_length.value(), 0);
@@ -321,7 +311,7 @@ PinRequestView::PinRequestView(PinRequest request, Delegate* delegate)
         base::BindRepeating(&PinRequestView::SubmitCode,
                             base::Unretained(this)),
         base::BindRepeating(&PinRequestView::OnBack, base::Unretained(this)),
-        request.obscure_pin));
+        request.obscure_pin, palette.pin_input_text_color));
     access_code_view_->SetFocusBehavior(FocusBehavior::ALWAYS);
   } else {
     auto flex_code_input = std::make_unique<FlexCodeInput>(
@@ -330,7 +320,7 @@ PinRequestView::PinRequestView(PinRequest request, Delegate* delegate)
         base::BindRepeating(&PinRequestView::SubmitCode,
                             base::Unretained(this)),
         base::BindRepeating(&PinRequestView::OnBack, base::Unretained(this)),
-        request.obscure_pin);
+        request.obscure_pin, palette.pin_input_text_color);
     flex_code_input->SetAccessibleName(default_accessible_title_);
     access_code_view_ = AddChildView(std::move(flex_code_input));
   }
@@ -362,12 +352,18 @@ PinRequestView::PinRequestView(PinRequest request, Delegate* delegate)
   AddChildView(footer);
 
   help_button_ = new FocusableLabelButton(
-      this, l10n_util::GetStringUTF16(IDS_ASH_LOGIN_PIN_REQUEST_HELP));
+      base::BindRepeating(
+          [](PinRequestView* view) {
+            view->delegate_->OnHelp(view->GetWidget()->GetNativeWindow());
+          },
+          this),
+      l10n_util::GetStringUTF16(IDS_ASH_LOGIN_PIN_REQUEST_HELP));
   help_button_->SetPaintToLayer();
   help_button_->layer()->SetFillsBoundsOpaquely(false);
   help_button_->SetTextSubpixelRenderingEnabled(false);
-  help_button_->SetEnabledTextColors(kTextColor);
-  help_button_->SetFocusBehavior(FocusBehavior::ALWAYS);
+  help_button_->SetEnabledTextColors(
+      AshColorProvider::Get()->GetContentLayerColor(
+          AshColorProvider::ContentLayerType::kTextColorPrimary));
   help_button_->SetVisible(request.help_button_enabled);
   footer->AddChildView(help_button_);
 
@@ -375,8 +371,9 @@ PinRequestView::PinRequestView(PinRequest request, Delegate* delegate)
   footer->AddChildView(horizontal_spacer);
   bottom_layout->SetFlexForView(horizontal_spacer, 1);
 
-  submit_button_ = new ArrowButtonView(this, kArrowButtonSizeDp);
-  submit_button_->SetBackgroundColor(kArrowButtonColor);
+  submit_button_ = new ArrowButtonView(
+      base::BindRepeating(&PinRequestView::SubmitCode, base::Unretained(this)),
+      kArrowButtonSizeDp);
   submit_button_->SetPreferredSize(
       gfx::Size(kArrowButtonSizeDp, kArrowButtonSizeDp));
   submit_button_->SetEnabled(false);
@@ -388,7 +385,7 @@ PinRequestView::PinRequestView(PinRequest request, Delegate* delegate)
 
   pin_keyboard_view_->SetVisible(PinKeyboardVisible());
 
-  tablet_mode_observer_.Add(Shell::Get()->tablet_mode_controller());
+  tablet_mode_observation_.Observe(Shell::Get()->tablet_mode_controller());
 
   SetPreferredSize(GetPinRequestViewSize());
 }
@@ -421,17 +418,6 @@ base::string16 PinRequestView::GetAccessibleWindowTitle() const {
   return default_accessible_title_;
 }
 
-void PinRequestView::ButtonPressed(views::Button* sender,
-                                   const ui::Event& event) {
-  if (sender == back_button_) {
-    OnBack();
-  } else if (sender == help_button_) {
-    delegate_->OnHelp(GetWidget()->GetNativeWindow());
-  } else if (sender == submit_button_) {
-    SubmitCode();
-  }
-}
-
 void PinRequestView::OnTabletModeStarted() {
   if (!pin_keyboard_always_enabled_) {
     VLOG(1) << "Showing PIN keyboard in PinRequestView";
@@ -454,7 +440,7 @@ void PinRequestView::OnTabletModeEnded() {
 }
 
 void PinRequestView::OnTabletControllerDestroyed() {
-  tablet_mode_observer_.RemoveAll();
+  tablet_mode_observation_.Reset();
 }
 
 void PinRequestView::SubmitCode() {
@@ -495,11 +481,15 @@ void PinRequestView::UpdateState(PinRequestViewState state,
   UpdatePreferredSize();
   switch (state_) {
     case PinRequestViewState::kNormal: {
+      const SkColor kTextColor = AshColorProvider::Get()->GetContentLayerColor(
+          AshColorProvider::ContentLayerType::kTextColorPrimary);
       access_code_view_->SetInputColor(kTextColor);
       title_label_->SetEnabledColor(kTextColor);
       return;
     }
     case PinRequestViewState::kError: {
+      const SkColor kErrorColor = AshColorProvider::Get()->GetContentLayerColor(
+          AshColorProvider::ContentLayerType::kTextColorAlert);
       access_code_view_->SetInputColor(kErrorColor);
       title_label_->SetEnabledColor(kErrorColor);
       // Read out the error.

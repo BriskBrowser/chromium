@@ -26,15 +26,18 @@ void RenderFrameMetadataProviderImpl::RemoveObserver(Observer* observer) {
 }
 
 void RenderFrameMetadataProviderImpl::Bind(
-    mojo::PendingReceiver<mojom::RenderFrameMetadataObserverClient>
+    mojo::PendingReceiver<cc::mojom::RenderFrameMetadataObserverClient>
         client_receiver,
-    mojo::PendingRemote<mojom::RenderFrameMetadataObserver> observer) {
+    mojo::PendingRemote<cc::mojom::RenderFrameMetadataObserver> observer) {
   render_frame_metadata_observer_remote_.reset();
   render_frame_metadata_observer_remote_.Bind(std::move(observer));
   render_frame_metadata_observer_client_receiver_.reset();
   render_frame_metadata_observer_client_receiver_.Bind(
       std::move(client_receiver), task_runner_);
 
+  // Reset on disconnect so that pending state will be correctly stored and
+  // later forwarded in the case of a renderer crash.
+  render_frame_metadata_observer_remote_.reset_on_disconnect();
 #if defined(OS_ANDROID)
   if (pending_report_all_root_scrolls_.has_value()) {
     ReportAllRootScrolls(*pending_report_all_root_scrolls_);
@@ -99,9 +102,8 @@ void RenderFrameMetadataProviderImpl::OnRenderFrameMetadataChanged(
   for (Observer& observer : observers_)
     observer.OnRenderFrameMetadataChangedBeforeActivation(metadata);
 
-  if (metadata.local_surface_id_allocation !=
-      last_local_surface_id_allocation_) {
-    last_local_surface_id_allocation_ = metadata.local_surface_id_allocation;
+  if (metadata.local_surface_id != last_local_surface_id_) {
+    last_local_surface_id_ = metadata.local_surface_id;
     for (Observer& observer : observers_)
       observer.OnLocalSurfaceIdChanged(metadata);
   }

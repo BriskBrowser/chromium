@@ -31,11 +31,10 @@
 #include "gpu/vulkan/fuchsia/vulkan_fuchsia_ext.h"
 #endif
 
-#if defined(USE_VULKAN_XLIB)
-typedef struct _XDisplay Display;
-typedef unsigned long Window;
-typedef unsigned long VisualID;
-#include <vulkan/vulkan_xlib.h>
+#if defined(USE_VULKAN_XCB)
+#include <xcb/xcb.h>
+// <vulkan/vulkan_xcb.h> must be included after <xcb/xcb.h>
+#include <vulkan/vulkan_xcb.h>
 #endif
 
 #if defined(OS_WIN)
@@ -116,6 +115,8 @@ struct COMPONENT_EXPORT(VULKAN) VulkanFunctionPointers {
   VulkanFunction<PFN_vkGetPhysicalDeviceFeatures2> vkGetPhysicalDeviceFeatures2;
   VulkanFunction<PFN_vkGetPhysicalDeviceFormatProperties>
       vkGetPhysicalDeviceFormatProperties;
+  VulkanFunction<PFN_vkGetPhysicalDeviceFormatProperties2>
+      vkGetPhysicalDeviceFormatProperties2;
   VulkanFunction<PFN_vkGetPhysicalDeviceImageFormatProperties2>
       vkGetPhysicalDeviceImageFormatProperties2;
   VulkanFunction<PFN_vkGetPhysicalDeviceMemoryProperties>
@@ -124,6 +125,8 @@ struct COMPONENT_EXPORT(VULKAN) VulkanFunctionPointers {
       vkGetPhysicalDeviceMemoryProperties2;
   VulkanFunction<PFN_vkGetPhysicalDeviceProperties>
       vkGetPhysicalDeviceProperties;
+  VulkanFunction<PFN_vkGetPhysicalDeviceProperties2>
+      vkGetPhysicalDeviceProperties2;
   VulkanFunction<PFN_vkGetPhysicalDeviceQueueFamilyProperties>
       vkGetPhysicalDeviceQueueFamilyProperties;
 
@@ -142,11 +145,11 @@ struct COMPONENT_EXPORT(VULKAN) VulkanFunctionPointers {
   VulkanFunction<PFN_vkGetPhysicalDeviceSurfaceSupportKHR>
       vkGetPhysicalDeviceSurfaceSupportKHR;
 
-#if defined(USE_VULKAN_XLIB)
-  VulkanFunction<PFN_vkCreateXlibSurfaceKHR> vkCreateXlibSurfaceKHR;
-  VulkanFunction<PFN_vkGetPhysicalDeviceXlibPresentationSupportKHR>
-      vkGetPhysicalDeviceXlibPresentationSupportKHR;
-#endif  // defined(USE_VULKAN_XLIB)
+#if defined(USE_VULKAN_XCB)
+  VulkanFunction<PFN_vkCreateXcbSurfaceKHR> vkCreateXcbSurfaceKHR;
+  VulkanFunction<PFN_vkGetPhysicalDeviceXcbPresentationSupportKHR>
+      vkGetPhysicalDeviceXcbPresentationSupportKHR;
+#endif  // defined(USE_VULKAN_XCB)
 
 #if defined(OS_WIN)
   VulkanFunction<PFN_vkCreateWin32SurfaceKHR> vkCreateWin32SurfaceKHR;
@@ -185,6 +188,7 @@ struct COMPONENT_EXPORT(VULKAN) VulkanFunctionPointers {
   VulkanFunction<PFN_vkCreateDescriptorSetLayout> vkCreateDescriptorSetLayout;
   VulkanFunction<PFN_vkCreateFence> vkCreateFence;
   VulkanFunction<PFN_vkCreateFramebuffer> vkCreateFramebuffer;
+  VulkanFunction<PFN_vkCreateGraphicsPipelines> vkCreateGraphicsPipelines;
   VulkanFunction<PFN_vkCreateImage> vkCreateImage;
   VulkanFunction<PFN_vkCreateImageView> vkCreateImageView;
   VulkanFunction<PFN_vkCreateRenderPass> vkCreateRenderPass;
@@ -222,6 +226,7 @@ struct COMPONENT_EXPORT(VULKAN) VulkanFunctionPointers {
   VulkanFunction<PFN_vkGetImageMemoryRequirements> vkGetImageMemoryRequirements;
   VulkanFunction<PFN_vkGetImageMemoryRequirements2>
       vkGetImageMemoryRequirements2;
+  VulkanFunction<PFN_vkGetImageSubresourceLayout> vkGetImageSubresourceLayout;
   VulkanFunction<PFN_vkMapMemory> vkMapMemory;
   VulkanFunction<PFN_vkQueueSubmit> vkQueueSubmit;
   VulkanFunction<PFN_vkQueueWaitIdle> vkQueueWaitIdle;
@@ -286,6 +291,11 @@ struct COMPONENT_EXPORT(VULKAN) VulkanFunctionPointers {
   VulkanFunction<PFN_vkDestroySwapchainKHR> vkDestroySwapchainKHR;
   VulkanFunction<PFN_vkGetSwapchainImagesKHR> vkGetSwapchainImagesKHR;
   VulkanFunction<PFN_vkQueuePresentKHR> vkQueuePresentKHR;
+
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+  VulkanFunction<PFN_vkGetImageDrmFormatModifierPropertiesEXT>
+      vkGetImageDrmFormatModifierPropertiesEXT;
+#endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
 };
 
 }  // namespace gpu
@@ -374,6 +384,13 @@ ALWAYS_INLINE void vkGetPhysicalDeviceFormatProperties(
   return gpu::GetVulkanFunctionPointers()->vkGetPhysicalDeviceFormatProperties(
       physicalDevice, format, pFormatProperties);
 }
+ALWAYS_INLINE void vkGetPhysicalDeviceFormatProperties2(
+    VkPhysicalDevice physicalDevice,
+    VkFormat format,
+    VkFormatProperties2* pFormatProperties) {
+  return gpu::GetVulkanFunctionPointers()->vkGetPhysicalDeviceFormatProperties2(
+      physicalDevice, format, pFormatProperties);
+}
 ALWAYS_INLINE VkResult vkGetPhysicalDeviceImageFormatProperties2(
     VkPhysicalDevice physicalDevice,
     const VkPhysicalDeviceImageFormatInfo2* pImageFormatInfo,
@@ -398,6 +415,12 @@ ALWAYS_INLINE void vkGetPhysicalDeviceProperties(
     VkPhysicalDevice physicalDevice,
     VkPhysicalDeviceProperties* pProperties) {
   return gpu::GetVulkanFunctionPointers()->vkGetPhysicalDeviceProperties(
+      physicalDevice, pProperties);
+}
+ALWAYS_INLINE void vkGetPhysicalDeviceProperties2(
+    VkPhysicalDevice physicalDevice,
+    VkPhysicalDeviceProperties2* pProperties) {
+  return gpu::GetVulkanFunctionPointers()->vkGetPhysicalDeviceProperties2(
       physicalDevice, pProperties);
 }
 ALWAYS_INLINE void vkGetPhysicalDeviceQueueFamilyProperties(
@@ -459,25 +482,25 @@ vkGetPhysicalDeviceSurfaceSupportKHR(VkPhysicalDevice physicalDevice,
       physicalDevice, queueFamilyIndex, surface, pSupported);
 }
 
-#if defined(USE_VULKAN_XLIB)
+#if defined(USE_VULKAN_XCB)
 ALWAYS_INLINE VkResult
-vkCreateXlibSurfaceKHR(VkInstance instance,
-                       const VkXlibSurfaceCreateInfoKHR* pCreateInfo,
-                       const VkAllocationCallbacks* pAllocator,
-                       VkSurfaceKHR* pSurface) {
-  return gpu::GetVulkanFunctionPointers()->vkCreateXlibSurfaceKHR(
+vkCreateXcbSurfaceKHR(VkInstance instance,
+                      const VkXcbSurfaceCreateInfoKHR* pCreateInfo,
+                      const VkAllocationCallbacks* pAllocator,
+                      VkSurfaceKHR* pSurface) {
+  return gpu::GetVulkanFunctionPointers()->vkCreateXcbSurfaceKHR(
       instance, pCreateInfo, pAllocator, pSurface);
 }
 ALWAYS_INLINE VkBool32
-vkGetPhysicalDeviceXlibPresentationSupportKHR(VkPhysicalDevice physicalDevice,
-                                              uint32_t queueFamilyIndex,
-                                              Display* dpy,
-                                              VisualID visualID) {
+vkGetPhysicalDeviceXcbPresentationSupportKHR(VkPhysicalDevice physicalDevice,
+                                             uint32_t queueFamilyIndex,
+                                             xcb_connection_t* connection,
+                                             xcb_visualid_t visual_id) {
   return gpu::GetVulkanFunctionPointers()
-      ->vkGetPhysicalDeviceXlibPresentationSupportKHR(
-          physicalDevice, queueFamilyIndex, dpy, visualID);
+      ->vkGetPhysicalDeviceXcbPresentationSupportKHR(
+          physicalDevice, queueFamilyIndex, connection, visual_id);
 }
-#endif  // defined(USE_VULKAN_XLIB)
+#endif  // defined(USE_VULKAN_XCB)
 
 #if defined(OS_WIN)
 ALWAYS_INLINE VkResult
@@ -677,6 +700,17 @@ vkCreateFramebuffer(VkDevice device,
                     VkFramebuffer* pFramebuffer) {
   return gpu::GetVulkanFunctionPointers()->vkCreateFramebuffer(
       device, pCreateInfo, pAllocator, pFramebuffer);
+}
+ALWAYS_INLINE VkResult
+vkCreateGraphicsPipelines(VkDevice device,
+                          VkPipelineCache pipelineCache,
+                          uint32_t createInfoCount,
+                          const VkGraphicsPipelineCreateInfo* pCreateInfos,
+                          const VkAllocationCallbacks* pAllocator,
+                          VkPipeline* pPipelines) {
+  return gpu::GetVulkanFunctionPointers()->vkCreateGraphicsPipelines(
+      device, pipelineCache, createInfoCount, pCreateInfos, pAllocator,
+      pPipelines);
 }
 ALWAYS_INLINE VkResult vkCreateImage(VkDevice device,
                                      const VkImageCreateInfo* pCreateInfo,
@@ -892,6 +926,14 @@ ALWAYS_INLINE void vkGetImageMemoryRequirements2(
   return gpu::GetVulkanFunctionPointers()->vkGetImageMemoryRequirements2(
       device, pInfo, pMemoryRequirements);
 }
+ALWAYS_INLINE void vkGetImageSubresourceLayout(
+    VkDevice device,
+    VkImage image,
+    const VkImageSubresource* pSubresource,
+    VkSubresourceLayout* pLayout) {
+  return gpu::GetVulkanFunctionPointers()->vkGetImageSubresourceLayout(
+      device, image, pSubresource, pLayout);
+}
 ALWAYS_INLINE VkResult vkMapMemory(VkDevice device,
                                    VkDeviceMemory memory,
                                    VkDeviceSize offset,
@@ -1082,5 +1124,15 @@ ALWAYS_INLINE VkResult vkQueuePresentKHR(VkQueue queue,
   return gpu::GetVulkanFunctionPointers()->vkQueuePresentKHR(queue,
                                                              pPresentInfo);
 }
+
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+ALWAYS_INLINE VkResult vkGetImageDrmFormatModifierPropertiesEXT(
+    VkDevice device,
+    VkImage image,
+    VkImageDrmFormatModifierPropertiesEXT* pProperties) {
+  return gpu::GetVulkanFunctionPointers()
+      ->vkGetImageDrmFormatModifierPropertiesEXT(device, image, pProperties);
+}
+#endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
 
 #endif  // GPU_VULKAN_VULKAN_FUNCTION_POINTERS_H_

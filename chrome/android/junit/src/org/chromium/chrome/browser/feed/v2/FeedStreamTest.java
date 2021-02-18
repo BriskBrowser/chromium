@@ -33,11 +33,14 @@ import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowLog;
 
 import org.chromium.base.Callback;
+import org.chromium.base.supplier.Supplier;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.browser.native_page.NativePageNavigationDelegate;
+import org.chromium.chrome.browser.share.ShareDelegate;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
+import org.chromium.ui.base.WindowAndroid;
 
 /** Unit tests for {@link FeedStream}. */
 @RunWith(BaseRobolectricTestRunner.class)
@@ -59,6 +62,10 @@ public class FeedStreamTest {
     private FeedStreamSurface.Natives mFeedStreamSurfaceJniMock;
     @Mock
     private FeedServiceBridge.Natives mFeedServiceBridgeJniMock;
+    @Mock
+    private WindowAndroid mWindowAndroid;
+    @Mock
+    private Supplier<ShareDelegate> mShareDelegateSupplier;
 
     @Rule
     public JniMocker mocker = new JniMocker();
@@ -75,7 +82,8 @@ public class FeedStreamTest {
         // Surfaces won't open until after startup.
         FeedStreamSurface.startup();
         mFeedStream = new FeedStream(mActivity, false, mSnackbarManager, mPageNavigationDelegate,
-                mBottomSheetController);
+                mBottomSheetController, /* isPlaceholderShown= */ false, mWindowAndroid,
+                mShareDelegateSupplier);
         mFeedStream.onCreate(null);
         mRecyclerView = (RecyclerView) mFeedStream.getView();
         mLayoutManager = new FakeLinearLayoutManager(mActivity);
@@ -222,6 +230,32 @@ public class FeedStreamTest {
         mLayoutManager.setLastVisiblePosition(itemCount - LOAD_MORE_TRIGGER_LOOKAHEAD + 1);
         mLayoutManager.setItemCount(itemCount);
         mFeedStream.checkScrollingForLoadMore(triggerDistance / 2);
+        verify(mFeedStreamSurfaceJniMock)
+                .loadMore(anyLong(), any(FeedStreamSurface.class), any(Callback.class));
+    }
+
+    @Test
+    public void testCheckScrollingForLoadMore_LoadMoreAfterHide() {
+        mFeedStream.onShow();
+        mFeedStream.setStreamContentVisibility(true);
+        final int triggerDistance = getLoadMoreTriggerScrollDistance();
+        final int itemCount = 10;
+
+        // loadMore triggered.
+        mLayoutManager.setLastVisiblePosition(itemCount - LOAD_MORE_TRIGGER_LOOKAHEAD + 1);
+        mLayoutManager.setItemCount(itemCount);
+        mFeedStream.checkScrollingForLoadMore(triggerDistance);
+        verify(mFeedStreamSurfaceJniMock)
+                .loadMore(anyLong(), any(FeedStreamSurface.class), any(Callback.class));
+
+        // loadMore triggered again after hide&show.
+        mFeedStream.checkScrollingForLoadMore(-triggerDistance);
+        mFeedStream.onHide();
+        mFeedStream.onShow();
+
+        mLayoutManager.setLastVisiblePosition(itemCount - LOAD_MORE_TRIGGER_LOOKAHEAD + 1);
+        mLayoutManager.setItemCount(itemCount);
+        mFeedStream.checkScrollingForLoadMore(triggerDistance);
         verify(mFeedStreamSurfaceJniMock)
                 .loadMore(anyLong(), any(FeedStreamSurface.class), any(Callback.class));
     }

@@ -10,8 +10,6 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
-#include "base/test/scoped_feature_list.h"
-#include "components/infobars/core/infobar_feature.h"
 #include "components/translate/core/browser/translate_pref_names.h"
 #include "components/translate/core/common/translate_constants.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
@@ -19,7 +17,6 @@
 #import "ios/chrome/browser/ui/badges/badge_constants.h"
 #import "ios/chrome/browser/ui/infobars/banners/infobar_banner_constants.h"
 #import "ios/chrome/browser/ui/infobars/infobar_constants.h"
-#import "ios/chrome/browser/ui/infobars/infobar_feature.h"
 #import "ios/chrome/browser/ui/infobars/modals/infobar_modal_constants.h"
 #import "ios/chrome/browser/ui/infobars/modals/infobar_translate_modal_constants.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
@@ -28,7 +25,7 @@
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_app_interface.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
-#import "ios/chrome/test/earl_grey/chrome_test_case.h"
+#import "ios/chrome/test/earl_grey/web_http_server_chrome_test_case.h"
 #include "ios/components/webui/web_ui_url_constants.h"
 #import "ios/testing/earl_grey/app_launch_manager.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
@@ -244,23 +241,13 @@ void TestResponseProvider::GetLanguageResponse(
 #pragma mark - TranslateInfobarTestCase
 
 // Tests for translate.
-@interface TranslateInfobarTestCase : ChromeTestCase
+@interface TranslateInfobarTestCase : WebHttpServerChromeTestCase
 @end
 
-@implementation TranslateInfobarTestCase {
-#if defined(CHROME_EARL_GREY_1)
-  base::test::ScopedFeatureList _featureList;
-#endif
-}
+@implementation TranslateInfobarTestCase
 
 - (void)setUp {
   [super setUp];
-
-#if defined(CHROME_EARL_GREY_1)
-  _featureList.InitWithFeatures(
-      /*enabled_features=*/{kIOSInfobarUIReboot},
-      /*disabled_features=*/{kInfobarUIRebootOnlyiOS13});
-#endif
 
   // Set up the fake URL for the translate script to hit the mock HTTP server.
   GURL translateScriptURL = web::test::HttpServer::MakeUrl(
@@ -273,13 +260,6 @@ void TestResponseProvider::GetLanguageResponse(
 - (void)tearDown {
   [TranslateAppInterface tearDown];
   [super tearDown];
-}
-
-- (AppLaunchConfiguration)appConfigurationForTestCase {
-  AppLaunchConfiguration config;
-  config.features_enabled.push_back(kIOSInfobarUIReboot);
-  config.features_disabled.push_back(kInfobarUIRebootOnlyiOS13);
-  return config;
 }
 
 #pragma mark - Test Cases

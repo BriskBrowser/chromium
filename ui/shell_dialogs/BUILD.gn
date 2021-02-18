@@ -12,12 +12,6 @@ if (is_mac) {
   import("//build/config/mac/rules.gni")
 }
 
-# Reset sources_assignment_filter for the BUILD.gn file to prevent
-# regression during the migration of Chromium away from the feature.
-# See docs/no_sources_assignment_filter.md for more information.
-# TODO(crbug.com/1018739): remove this when migration is done.
-set_sources_assignment_filter([])
-
 component("shell_dialogs") {
   sources = [
     "base_shell_dialog.cc",
@@ -63,6 +57,7 @@ component("shell_dialogs") {
   deps = [
     "//base",
     "//base:i18n",
+    "//build:chromeos_buildflags",
     "//skia",
     "//ui/base",
     "//ui/strings",
@@ -107,8 +102,8 @@ component("shell_dialogs") {
     sources += [ "select_file_dialog_fuchsia.cc" ]
   }
 
-  # TODO(crbug.com/1052397): Rename chromeos_is_browser_only.
-  if (chromeos_is_browser_only) {
+  # TODO(crbug.com/1052397): Rename is_chromeos_lacros.
+  if (is_chromeos_lacros) {
     sources += [
       "select_file_dialog_lacros.cc",
       "select_file_dialog_lacros.h",

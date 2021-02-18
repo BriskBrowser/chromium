@@ -6,7 +6,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/test/gmock_callback_support.h"
 #include "base/test/task_environment.h"
@@ -110,8 +110,7 @@ class AudioDecoderStreamTest : public testing::Test {
   }
 
   void OnAudioBufferReadDone(base::OnceClosure closure,
-                             AudioDecoderStream::ReadStatus status,
-                             scoped_refptr<AudioBuffer> audio_buffer) {
+                             AudioDecoderStream::ReadResult result) {
     std::move(closure).Run();
   }
 

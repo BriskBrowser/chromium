@@ -183,8 +183,8 @@ void DeviceCloudPolicyStoreChromeOS::OnPolicyToStoreValidated(
 
   device_settings_service_->Store(
       std::move(validator->policy()),
-      base::Bind(&DeviceCloudPolicyStoreChromeOS::OnPolicyStored,
-                 weak_factory_.GetWeakPtr()));
+      base::BindOnce(&DeviceCloudPolicyStoreChromeOS::OnPolicyStored,
+                     weak_factory_.GetWeakPtr()));
 }
 
 void DeviceCloudPolicyStoreChromeOS::OnPolicyStored() {
@@ -206,8 +206,13 @@ void DeviceCloudPolicyStoreChromeOS::UpdateFromService() {
   if (service_status == chromeos::DeviceSettingsService::STORE_SUCCESS) {
     policy_ = std::make_unique<em::PolicyData>();
     const em::PolicyData* policy_data = device_settings_service_->policy_data();
-    if (policy_data)
+    if (policy_data) {
       policy_->MergeFrom(*policy_data);
+
+      RecordDeviceIdValidityMetric(
+          "Enterprise.CachedDevicePolicyDeviceIdValidity", *policy_data,
+          *install_attributes_);
+    }
 
     PolicyMap new_policy_map;
     if (is_managed()) {

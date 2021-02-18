@@ -10,10 +10,9 @@
 #include "base/unguessable_token.h"
 #include "services/network/public/mojom/fetch_api.mojom-blink-forward.h"
 #include "services/network/public/mojom/web_sandbox_flags.mojom-blink-forward.h"
-#include "third_party/blink/public/mojom/loader/resource_load_info_notifier.mojom-shared.h"
+#include "third_party/blink/public/mojom/v8_cache_options.mojom-blink.h"
 #include "third_party/blink/public/platform/cross_variant_mojo_util.h"
 #include "third_party/blink/public/platform/web_url_request.h"
-#include "third_party/blink/renderer/bindings/core/v8/v8_cache_options.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
@@ -52,7 +51,7 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
       Agent* agent,
       const String& name,
       const base::UnguessableToken& parent_devtools_token,
-      V8CacheOptions,
+      mojom::blink::V8CacheOptions,
       WorkerClients*,
       std::unique_ptr<WebContentSettingsClient>,
       scoped_refptr<WebWorkerFetchContext>,
@@ -65,6 +64,7 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
   // ScriptWrappable
   v8::Local<v8::Value> Wrap(v8::Isolate*,
                             v8::Local<v8::Object> creation_context) final;
+  v8::MaybeLocal<v8::Value> WrapV2(ScriptState*) final;
   v8::Local<v8::Object> AssociateWithWrapper(
       v8::Isolate*,
       const WrapperTypeInfo*,
@@ -89,12 +89,8 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
 
   void SetModulator(Modulator*);
 
-  // Called from UseCounter to record API use in this execution context.
-  // TODO(yhirano): Unify this with CountUse.
-  void CountFeature(WebFeature);
-
   // UseCounter
-  void CountUse(WebFeature feature) final { CountFeature(feature); }
+  void CountUse(WebFeature feature) final;
 
   // May return nullptr if this global scope is not threaded (i.e.,
   // WorkletGlobalScope for the main thread) or after Dispose() is called.
@@ -145,7 +141,9 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
   WorkerOrWorkletScriptController* ScriptController() {
     return script_controller_.Get();
   }
-  V8CacheOptions GetV8CacheOptions() const { return v8_cache_options_; }
+  mojom::blink::V8CacheOptions GetV8CacheOptions() const override {
+    return v8_cache_options_;
+  }
 
   WorkerReportingProxy& ReportingProxy() { return reporting_proxy_; }
 
@@ -153,37 +151,41 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
 
   scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner(TaskType) override;
 
-  void ApplySandboxFlags(network::mojom::blink::WebSandboxFlags mask);
+  void SetSandboxFlags(network::mojom::blink::WebSandboxFlags mask);
 
-  void SetDefersLoadingForResourceFetchers(bool defers);
+  void SetDefersLoadingForResourceFetchers(WebURLLoader::DeferType defers);
 
   virtual int GetOutstandingThrottledLimit() const;
 
-  Deprecation& GetDeprecation() { return deprecation_; }
+  // TODO(crbug.com/1146824): Remove this once PlzDedicatedWorker and
+  // PlzServiceWorker ship.
+  virtual bool IsInitialized() const = 0;
 
-  CrossVariantMojoRemote<mojom::ResourceLoadInfoNotifierInterfaceBase>
-  CloneResourceLoadInfoNotifier();
+  Deprecation& GetDeprecation() { return deprecation_; }
 
  protected:
   // Sets outside's CSP used for off-main-thread top-level worker script
   // fetch.
-  void SetOutsideContentSecurityPolicyHeaders(const Vector<CSPHeaderAndType>&);
+  void SetOutsideContentSecurityPolicies(
+      Vector<network::mojom::blink::ContentSecurityPolicyPtr>);
 
   // Initializes inside's CSP used for subresource fetch etc.
-  void InitContentSecurityPolicyFromVector(const Vector<CSPHeaderAndType>&);
+  void InitContentSecurityPolicyFromVector(
+      Vector<network::mojom::blink::ContentSecurityPolicyPtr> policies);
   virtual void BindContentSecurityPolicyToExecutionContext();
 
   void FetchModuleScript(const KURL& module_url_record,
                          const FetchClientSettingsObjectSnapshot&,
                          WorkerResourceTimingNotifier&,
-                         mojom::RequestContextType context_type,
+                         mojom::blink::RequestContextType context_type,
                          network::mojom::RequestDestination destination,
                          network::mojom::CredentialsMode,
                          ModuleScriptCustomFetchType,
                          ModuleTreeClient*);
 
-  const Vector<CSPHeaderAndType>& OutsideContentSecurityPolicyHeaders() const {
-    return outside_content_security_policy_headers_;
+  const Vector<network::mojom::blink::ContentSecurityPolicyPtr>&
+  OutsideContentSecurityPolicies() const {
+    return outside_content_security_policies_;
   }
 
   void SetIsOfflineMode(bool is_offline_mode) {
@@ -238,11 +240,12 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
   Member<SubresourceFilter> subresource_filter_;
 
   Member<WorkerOrWorkletScriptController> script_controller_;
-  const V8CacheOptions v8_cache_options_;
+  const mojom::blink::V8CacheOptions v8_cache_options_;
 
   // TODO(hiroshige): Pass outsideSettings-CSP via
   // outsideSettings-FetchClientSettingsObject.
-  Vector<CSPHeaderAndType> outside_content_security_policy_headers_;
+  Vector<network::mojom::blink::ContentSecurityPolicyPtr>
+      outside_content_security_policies_;
 
   WorkerReportingProxy& reporting_proxy_;
 

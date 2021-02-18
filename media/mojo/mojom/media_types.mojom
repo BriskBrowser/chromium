@@ -12,6 +12,7 @@ import "mojo/public/mojom/base/unguessable_token.mojom";
 import "ui/gfx/geometry/mojom/geometry.mojom";
 import "ui/gfx/mojom/buffer_types.mojom";
 import "ui/gfx/mojom/color_space.mojom";
+import "ui/gfx/mojom/hdr_metadata.mojom";
 
 // See media/base/audio_codecs.h for descriptions.
 [Native]
@@ -36,6 +37,10 @@ enum DecodeStatus;
 // See media/base/status_codes.h for descriptions.
 [Native]
 enum StatusCode;
+
+// See media/base/media_content_type.h for descriptions.
+[Native]
+enum MediaContentType;
 
 // See media/base/media_log_record.h for description.
 [Native]
@@ -65,6 +70,14 @@ enum VideoCodecProfile;
 [Native]
 enum VideoPixelFormat;
 
+// See media/base/decoder.h for descriptions.
+[Native]
+enum VideoDecoderType;
+
+// See media/base/decoder.h for descriptions.
+[Native]
+enum AudioDecoderType;
+
 // See media/base/video_transformation.h for descriptions.
 enum VideoRotation {
   kVideoRotation0,
@@ -78,6 +91,11 @@ enum CopyMode {
   kCopyToNewTexture,
   kCopyMailboxesOnly,
 };
+
+// see third_party/blink/public/platform/web_fullscreen_video_status.h for
+// descriptions.
+[Native]
+enum FullscreenVideoStatus;
 
 // See media/base/video_transformation.h for descriptions.
 struct VideoTransformation {
@@ -133,22 +151,6 @@ struct VideoColorSpace {
   RangeID range;
 };
 
-// This defines a mojo transport format for media::HDRMetadata.
-// See media/base/hdr_metadata.h for description.
-struct MasteringMetadata {
-  gfx.mojom.PointF primary_r;
-  gfx.mojom.PointF primary_g;
-  gfx.mojom.PointF primary_b;
-  gfx.mojom.PointF white_point;
-  float luminance_max;
-  float luminance_min;
-};
-
-struct HDRMetadata {
-  MasteringMetadata mastering_metadata;
-  uint32 max_content_light_level;
-  uint32 max_frame_average_light_level;
-};
 
 // This defines a mojo transport format for media::AudioDecoderConfig.
 // See media/base/audio_decoder_config.h for descriptions.
@@ -178,7 +180,7 @@ struct VideoDecoderConfig {
   array<uint8> extra_data;
   EncryptionScheme encryption_scheme;
   VideoColorSpace color_space_info;
-  HDRMetadata? hdr_metadata;
+  gfx.mojom.HDRMetadata? hdr_metadata;
 };
 
 // Native struct media::SubsampleEntry;
@@ -295,8 +297,7 @@ struct VideoFrameMetadata {
 
   bool read_lock_fences_enabled;
 
-  bool has_rotation;
-  VideoRotation rotation;
+  VideoTransformation? transformation;
 
   bool texture_owner;
 
@@ -336,6 +337,8 @@ struct VideoFrameMetadata {
   mojo_base.mojom.TimeTicks? receive_time;
 
   mojo_base.mojom.TimeDelta? wallclock_frame_duration;
+
+  uint32 hw_protected_validation_id;
 };
 
 // This defines a mojo transport format for media::VideoFrame.
@@ -362,7 +365,7 @@ struct VideoFrame {
   VideoFrameMetadata metadata;
 
   gfx.mojom.ColorSpace color_space;
-  HDRMetadata? hdr_metadata;
+  gfx.mojom.HDRMetadata? hdr_metadata;
 };
 
 // Possible choices for storing VideoFrame data.
@@ -441,9 +444,16 @@ struct PredictionTargets {
   uint32 frames_power_efficient = 0;
 };
 
-// See media/base/pipeline/status.h for descriptions.
-struct PipelineDecoderInfo {
-  string decoder_name;
+// See media/base/pipeline_status.h for descriptions.
+struct AudioDecoderInfo {
+  AudioDecoderType decoder_type;
+  bool is_platform_decoder = false;
+  bool has_decrypting_demuxer_stream = false;
+};
+
+// See media/base/pipeline_status.h for descriptions.
+struct VideoDecoderInfo {
+  VideoDecoderType decoder_type;
   bool is_platform_decoder = false;
   bool has_decrypting_demuxer_stream = false;
 };

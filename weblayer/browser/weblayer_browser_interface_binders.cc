@@ -6,9 +6,9 @@
 
 #include "base/bind.h"
 #include "build/build_config.h"
-#include "components/prerender/browser/prerender_contents.h"
-#include "components/prerender/browser/prerender_processor_impl.h"
-#include "components/prerender/common/prerender_canceler.mojom.h"
+#include "components/no_state_prefetch/browser/no_state_prefetch_contents.h"
+#include "components/no_state_prefetch/browser/no_state_prefetch_processor_impl.h"
+#include "components/no_state_prefetch/common/prerender_canceler.mojom.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
@@ -16,8 +16,9 @@
 #include "content/public/browser/web_ui_controller.h"
 #include "third_party/blink/public/mojom/installedapp/installed_app_provider.mojom.h"
 #include "third_party/blink/public/mojom/installedapp/related_application.mojom.h"
+#include "third_party/blink/public/mojom/payments/payment_request.mojom.h"
 #include "third_party/blink/public/mojom/prerender/prerender.mojom.h"
-#include "weblayer/browser/no_state_prefetch/prerender_processor_impl_delegate_impl.h"
+#include "weblayer/browser/no_state_prefetch/no_state_prefetch_processor_impl_delegate_impl.h"
 #include "weblayer/browser/no_state_prefetch/prerender_utils.h"
 #include "weblayer/browser/translate_client_impl.h"
 #include "weblayer/browser/webui/weblayer_internals.mojom.h"
@@ -71,12 +72,12 @@ void BindPageHandler(
   concrete_controller->BindInterface(std::move(receiver));
 }
 
-void BindPrerenderProcessor(
+void BindNoStatePrefetchProcessor(
     content::RenderFrameHost* frame_host,
-    mojo::PendingReceiver<blink::mojom::PrerenderProcessor> receiver) {
-  prerender::PrerenderProcessorImpl::Create(
+    mojo::PendingReceiver<blink::mojom::NoStatePrefetchProcessor> receiver) {
+  prerender::NoStatePrefetchProcessorImpl::Create(
       frame_host, std::move(receiver),
-      std::make_unique<PrerenderProcessorImplDelegateImpl>());
+      std::make_unique<NoStatePrefetchProcessorImplDelegateImpl>());
 }
 
 void BindPrerenderCanceler(
@@ -86,10 +87,11 @@ void BindPrerenderCanceler(
   if (!web_contents)
     return;
 
-  auto* prerender_contents = PrerenderContentsFromWebContents(web_contents);
-  if (!prerender_contents)
+  auto* no_state_prefetch_contents =
+      NoStatePrefetchContentsFromWebContents(web_contents);
+  if (!no_state_prefetch_contents)
     return;
-  prerender_contents->AddPrerenderCancelerReceiver(std::move(receiver));
+  no_state_prefetch_contents->AddPrerenderCancelerReceiver(std::move(receiver));
 }
 
 #if defined(OS_ANDROID)
@@ -123,6 +125,12 @@ void ForwardToJavaWebContents(content::RenderFrameHost* frame_host,
   if (contents)
     contents->GetJavaInterfaces()->GetInterface(std::move(receiver));
 }
+
+template <typename Interface>
+void ForwardToJavaFrame(content::RenderFrameHost* render_frame_host,
+                        mojo::PendingReceiver<Interface> receiver) {
+  render_frame_host->GetJavaInterfaces()->GetInterface(std::move(receiver));
+}
 #endif
 
 }  // namespace
@@ -136,8 +144,9 @@ void PopulateWebLayerFrameBinders(
   map->Add<translate::mojom::ContentTranslateDriver>(
       base::BindRepeating(&BindContentTranslateDriver));
 
-  map->Add<blink::mojom::PrerenderProcessor>(
-      base::BindRepeating(&BindPrerenderProcessor));
+  map->Add<blink::mojom::NoStatePrefetchProcessor>(
+      base::BindRepeating(&BindNoStatePrefetchProcessor));
+
   map->Add<prerender::mojom::PrerenderCanceler>(
       base::BindRepeating(&BindPrerenderCanceler));
 
@@ -147,6 +156,8 @@ void PopulateWebLayerFrameBinders(
       base::BindRepeating(&StubInstalledAppProvider::Create));
   map->Add<blink::mojom::ShareService>(base::BindRepeating(
       &ForwardToJavaWebContents<blink::mojom::ShareService>));
+  map->Add<payments::mojom::PaymentRequest>(base::BindRepeating(
+      &ForwardToJavaFrame<payments::mojom::PaymentRequest>));
 #endif
 }
 

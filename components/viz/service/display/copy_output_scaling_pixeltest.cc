@@ -16,7 +16,7 @@
 #include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "components/viz/common/frame_sinks/copy_output_result.h"
 #include "components/viz/common/frame_sinks/copy_output_util.h"
-#include "components/viz/common/quads/render_pass.h"
+#include "components/viz/common/quads/compositor_render_pass.h"
 #include "components/viz/service/display/viz_pixel_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/libyuv/include/libyuv.h"
@@ -175,8 +175,10 @@ class CopyOutputScalingPixelTest
       list.back()->copy_requests.push_back(std::move(request));
 
       renderer()->DecideRenderPassAllocationsForFrame(list);
+      SurfaceDamageRectList surface_damage_rect_list;
       renderer()->DrawFrame(&list, 1.0f, viewport_size,
-                            gfx::DisplayColorSpaces());
+                            gfx::DisplayColorSpaces(),
+                            std::move(surface_damage_rect_list));
       // Call SwapBuffersSkipped(), so the renderer can release related
       // resources.
       renderer()->SwapBuffersSkipped();

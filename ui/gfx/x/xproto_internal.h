@@ -16,13 +16,13 @@
 #include "base/logging.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/optional.h"
-#include "ui/gfx/x/connection.h"
+#include "ui/gfx/x/future.h"
+#include "ui/gfx/x/xproto.h"
 #include "ui/gfx/x/xproto_types.h"
 
 namespace x11 {
 
-template <class Reply>
-class Future;
+class Connection;
 
 template <typename T, typename Enable = void>
 struct EnumBase {
@@ -36,6 +36,9 @@ struct EnumBase<T, typename std::enable_if_t<std::is_enum<T>::value>> {
 
 template <typename T>
 using EnumBaseType = typename EnumBase<T>::type;
+
+template <typename T>
+void ReadError(T* error, ReadBuffer* buf);
 
 // Calls free() on the underlying data when the count drops to 0.
 class COMPONENT_EXPORT(X11) MallocedRefCountedMemory
@@ -127,20 +130,6 @@ inline void Align(WriteBuffer* buf, size_t align) {
 
 inline void Align(ReadBuffer* buf, size_t align) {
   Pad(buf, (align - (buf->offset % align)) % align);
-}
-
-base::Optional<unsigned int> SendRequestImpl(x11::Connection* connection,
-                                             WriteBuffer* buf,
-                                             bool is_void,
-                                             bool reply_has_fds);
-
-template <typename Reply>
-Future<Reply> SendRequest(x11::Connection* connection,
-                          WriteBuffer* buf,
-                          bool reply_has_fds) {
-  auto sequence = SendRequestImpl(connection, buf, std::is_void<Reply>::value,
-                                  reply_has_fds);
-  return {sequence ? connection : nullptr, sequence};
 }
 
 // Helper function for xcbproto popcount.  Given an integral type, returns the

@@ -29,10 +29,6 @@ class GURL;
 class HostContentSettingsMap;
 class Profile;
 
-namespace component_updater {
-struct ComponentInfo;
-}
-
 namespace content {
 struct WebPluginInfo;
 }  // namespace content
@@ -117,26 +113,13 @@ class PluginInfoHostImpl : public chrome::mojom::PluginInfoHost {
                      GetPluginInfoCallback callback,
                      const std::vector<content::WebPluginInfo>& plugins);
 
-  void ComponentPluginLookupDone(
-      const GetPluginInfo_Params& params,
-      chrome::mojom::PluginInfoPtr output,
-      GetPluginInfoCallback callback,
-      std::unique_ptr<PluginMetadata> plugin_metadata,
-      std::unique_ptr<component_updater::ComponentInfo> cus_plugin_info);
-
   void GetPluginInfoFinish(const GetPluginInfo_Params& params,
                            chrome::mojom::PluginInfoPtr output,
                            GetPluginInfoCallback callback,
                            std::unique_ptr<PluginMetadata> plugin_metadata);
 
-  // Reports usage metrics to UKM.
-  void ReportMetrics(int render_frame_id,
-                     const base::StringPiece& mime_type,
-                     const url::Origin& main_frame_origin);
-
   Context context_;
-  std::unique_ptr<KeyedServiceShutdownNotifier::Subscription>
-      shutdown_notifier_;
+  base::CallbackListSubscription shutdown_subscription_;
 
   base::WeakPtrFactory<PluginInfoHostImpl> weak_factory_{this};
 

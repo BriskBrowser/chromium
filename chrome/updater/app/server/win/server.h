@@ -5,8 +5,7 @@
 #ifndef CHROME_UPDATER_APP_SERVER_WIN_SERVER_H_
 #define CHROME_UPDATER_APP_SERVER_WIN_SERVER_H_
 
-#include <wrl/implements.h>
-#include <wrl/module.h>
+#include <windows.h>
 
 #include <string>
 
@@ -15,8 +14,8 @@
 #include "base/win/scoped_com_initializer.h"
 #include "chrome/updater/app/app.h"
 #include "chrome/updater/app/app_server.h"
-#include "chrome/updater/control_service.h"
 #include "chrome/updater/update_service.h"
+#include "chrome/updater/update_service_internal.h"
 
 namespace updater {
 
@@ -24,9 +23,9 @@ class Configurator;
 
 // The COM objects involved in this server are free threaded. Incoming COM calls
 // arrive on COM RPC threads. Outgoing COM calls are posted from a blocking
-// sequenced task runner in the thread pool. Calls to the update service and
-// control service occur in the main sequence, which is bound to the main
-// thread.
+// sequenced task runner in the thread pool. Calls to the services hosted
+// in this server occur in the main sequence, which is bound to the main
+// thread of the process.
 //
 // If such a COM object has state which is visible to multiple threads, then the
 // access to the shared state of the object must be synchronized. This is done
@@ -47,7 +46,9 @@ class ComServerApp : public AppServer {
     return main_task_runner_;
   }
   scoped_refptr<UpdateService> update_service() { return update_service_; }
-  scoped_refptr<ControlService> control_service() { return control_service_; }
+  scoped_refptr<UpdateServiceInternal> update_service_internal() {
+    return update_service_internal_;
+  }
 
  private:
   ~ComServerApp() override;
@@ -56,7 +57,9 @@ class ComServerApp : public AppServer {
   void InitializeThreadPool() override;
 
   // Overrides for AppServer
-  void ActiveDuty() override;
+  void ActiveDuty(
+      scoped_refptr<UpdateService> update_service,
+      scoped_refptr<UpdateServiceInternal> update_service_internal) override;
   bool SwapRPCInterfaces() override;
   void UninstallSelf() override;
 
@@ -89,7 +92,7 @@ class ComServerApp : public AppServer {
   // These services run the in-process code, which is delegating to the
   // |update_client| component.
   scoped_refptr<UpdateService> update_service_;
-  scoped_refptr<ControlService> control_service_;
+  scoped_refptr<UpdateServiceInternal> update_service_internal_;
 };
 
 // Returns a singleton application object bound to this COM server.

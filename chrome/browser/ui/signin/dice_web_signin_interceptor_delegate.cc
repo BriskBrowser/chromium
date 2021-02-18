@@ -13,15 +13,21 @@ DiceWebSigninInterceptorDelegate::DiceWebSigninInterceptorDelegate() = default;
 
 DiceWebSigninInterceptorDelegate::~DiceWebSigninInterceptorDelegate() = default;
 
-void DiceWebSigninInterceptorDelegate::ShowSigninInterceptionBubble(
+std::unique_ptr<ScopedDiceWebSigninInterceptionBubbleHandle>
+DiceWebSigninInterceptorDelegate::ShowSigninInterceptionBubble(
     content::WebContents* web_contents,
     const BubbleParameters& bubble_parameters,
-    base::OnceCallback<void(bool)> callback) {
+    base::OnceCallback<void(SigninInterceptionResult)> callback) {
   if (!web_contents) {
-    std::move(callback).Run(false);
-    return;
+    std::move(callback).Run(SigninInterceptionResult::kNotDisplayed);
+    return nullptr;
   }
-  ShowSigninInterceptionBubbleInternal(
+  return ShowSigninInterceptionBubbleInternal(
       chrome::FindBrowserWithWebContents(web_contents), bubble_parameters,
       std::move(callback));
+}
+
+void DiceWebSigninInterceptorDelegate::ShowProfileCustomizationBubble(
+    Browser* browser) {
+  ShowProfileCustomizationBubbleInternal(browser);
 }

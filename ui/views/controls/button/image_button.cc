@@ -13,6 +13,7 @@
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/image/image_skia_operations.h"
 #include "ui/gfx/scoped_canvas.h"
+#include "ui/views/background.h"
 #include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/painter.h"
 #include "ui/views/widget/widget.h"
@@ -28,11 +29,12 @@ static constexpr int kDefaultHeight = 14;
 ////////////////////////////////////////////////////////////////////////////////
 // ImageButton, public:
 
-ImageButton::ImageButton(ButtonListener* listener) : Button(listener) {
+ImageButton::ImageButton(PressedCallback callback)
+    : Button(std::move(callback)) {
   // By default, we request that the gfx::Canvas passed to our View::OnPaint()
   // implementation is flipped horizontally so that the button's images are
   // mirrored when the UI directionality is right-to-left.
-  EnableCanvasFlippingForRTLUI(true);
+  SetFlipCanvasOnPaintForRTLUI(true);
 }
 
 ImageButton::~ImageButton() = default;
@@ -47,7 +49,7 @@ void ImageButton::SetImage(ButtonState for_state, const gfx::ImageSkia* image) {
 
 void ImageButton::SetImage(ButtonState for_state, const gfx::ImageSkia& image) {
   if (for_state == STATE_HOVERED)
-    set_animate_on_state_change(!image.isNull());
+    SetAnimateOnStateChange(!image.isNull());
   const gfx::Size old_preferred_size = GetPreferredSize();
   images_[for_state] = image;
 
@@ -212,10 +214,15 @@ const gfx::Point ImageButton::ComputeImagePaintPosition(
 ////////////////////////////////////////////////////////////////////////////////
 // ToggleImageButton, public:
 
-ToggleImageButton::ToggleImageButton(ButtonListener* listener)
-    : ImageButton(listener), toggled_(false) {}
+ToggleImageButton::ToggleImageButton(PressedCallback callback)
+    : ImageButton(std::move(callback)) {
+}
 
 ToggleImageButton::~ToggleImageButton() = default;
+
+bool ToggleImageButton::GetToggled() const {
+  return toggled_;
+}
 
 void ToggleImageButton::SetToggled(bool toggled) {
   if (toggled == toggled_)
@@ -224,8 +231,8 @@ void ToggleImageButton::SetToggled(bool toggled) {
   for (int i = 0; i < STATE_COUNT; ++i)
     std::swap(images_[i], alternate_images_[i]);
   toggled_ = toggled;
-  SchedulePaint();
 
+  OnPropertyChanged(&toggled_, kPropertyEffectsPaint);
   NotifyAccessibilityEvent(ax::mojom::Event::kCheckedStateChanged, true);
 }
 
@@ -240,12 +247,31 @@ void ToggleImageButton::SetToggledImage(ButtonState image_state,
   }
 }
 
+void ToggleImageButton::SetToggledBackground(std::unique_ptr<Background> b) {
+  toggled_background_ = std::move(b);
+  SchedulePaint();
+}
+
+base::string16 ToggleImageButton::GetToggledTooltipText() const {
+  return toggled_tooltip_text_;
+}
+
 void ToggleImageButton::SetToggledTooltipText(const base::string16& tooltip) {
+  if (tooltip == toggled_tooltip_text_)
+    return;
   toggled_tooltip_text_ = tooltip;
+  OnPropertyChanged(&toggled_tooltip_text_, kPropertyEffectsNone);
+}
+
+base::string16 ToggleImageButton::GetToggledAccessibleName() const {
+  return toggled_accessible_name_;
 }
 
 void ToggleImageButton::SetToggledAccessibleName(const base::string16& name) {
+  if (name == toggled_accessible_name_)
+    return;
   toggled_accessible_name_ = name;
+  OnPropertyChanged(&toggled_accessible_name_, kPropertyEffectsNone);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -268,6 +294,15 @@ void ToggleImageButton::SetImage(ButtonState image_state,
       SchedulePaint();
   }
   PreferredSizeChanged();
+}
+
+void ToggleImageButton::OnPaintBackground(gfx::Canvas* canvas) {
+  if (toggled_ && toggled_background_) {
+    TRACE_EVENT0("views", "View::OnPaintBackground");
+    toggled_background_->Paint(canvas, this);
+  } else {
+    ImageButton::OnPaintBackground(canvas);
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -318,6 +353,13 @@ BEGIN_METADATA(ImageButton, Button)
 ADD_PROPERTY_METADATA(HorizontalAlignment, ImageHorizontalAlignment)
 ADD_PROPERTY_METADATA(VerticalAlignment, ImageVerticalAlignment)
 ADD_PROPERTY_METADATA(gfx::Size, MinimumImageSize)
-END_METADATA()
+END_METADATA
+
+BEGIN_METADATA(ToggleImageButton, ImageButton)
+ADD_PROPERTY_METADATA(bool, Toggled)
+ADD_PROPERTY_METADATA(std::unique_ptr<Background>, ToggledBackground)
+ADD_PROPERTY_METADATA(base::string16, ToggledTooltipText)
+ADD_PROPERTY_METADATA(base::string16, ToggledAccessibleName)
+END_METADATA
 
 }  // namespace views

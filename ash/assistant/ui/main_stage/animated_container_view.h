@@ -13,8 +13,9 @@
 #include "ash/assistant/ui/base/assistant_scroll_view.h"
 #include "ash/public/cpp/assistant/controller/assistant_controller.h"
 #include "ash/public/cpp/assistant/controller/assistant_controller_observer.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "chromeos/services/assistant/public/cpp/assistant_service.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 
 namespace ui {
 class CallbackLayerAnimationObserver;
@@ -62,7 +63,11 @@ class COMPONENT_EXPORT(ASSISTANT_UI) AnimatedContainerView
  public:
   using AssistantSuggestion = chromeos::assistant::AssistantSuggestion;
 
+  METADATA_HEADER(AnimatedContainerView);
+
   explicit AnimatedContainerView(AssistantViewDelegate* delegate);
+  AnimatedContainerView(const AnimatedContainerView&) = delete;
+  AnimatedContainerView& operator=(const AnimatedContainerView&) = delete;
   ~AnimatedContainerView() override;
 
   // AssistantScrollView:
@@ -164,12 +169,10 @@ class COMPONENT_EXPORT(ASSISTANT_UI) AnimatedContainerView
   scoped_refptr<const AssistantResponse> response_;
   scoped_refptr<const AssistantResponse> queued_response_;
 
-  ScopedObserver<AssistantController, AssistantControllerObserver>
-      assistant_controller_observer_{this};
+  base::ScopedObservation<AssistantController, AssistantControllerObserver>
+      assistant_controller_observation_{this};
 
   base::WeakPtrFactory<AnimatedContainerView> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(AnimatedContainerView);
 };
 
 }  // namespace ash

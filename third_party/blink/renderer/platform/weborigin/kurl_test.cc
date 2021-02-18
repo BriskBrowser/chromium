@@ -41,6 +41,7 @@
 #include "third_party/blink/renderer/platform/weborigin/scheme_registry.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+#include "url/gurl_abstract_tests.h"
 #include "url/url_util.h"
 
 namespace blink {
@@ -1067,3 +1068,29 @@ INSTANTIATE_TEST_SUITE_P(All,
                          ::testing::ValuesIn(port_test_cases));
 
 }  // namespace blink
+
+// Apparently INSTANTIATE_TYPED_TEST_SUITE_P needs to be used in the same
+// namespace as where the typed test suite was defined.
+namespace url {
+
+class KURLTestTraits {
+ public:
+  using UrlType = blink::KURL;
+
+  static UrlType CreateUrlFromString(base::StringPiece s) {
+    return blink::KURL(String::FromUTF8(s));
+  }
+
+  static bool IsAboutBlank(const UrlType& url) { return url.IsAboutBlankURL(); }
+
+  static bool IsAboutSrcdoc(const UrlType& url) {
+    return url.IsAboutSrcdocURL();
+  }
+
+  // Only static members.
+  KURLTestTraits() = delete;
+};
+
+INSTANTIATE_TYPED_TEST_SUITE_P(KURL, AbstractUrlTest, KURLTestTraits);
+
+}  // namespace url

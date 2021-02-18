@@ -16,6 +16,7 @@
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/scoped_canvas.h"
 #include "ui/gfx/transform.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace {
 
@@ -31,7 +32,10 @@ class StatusIconWidget : public views::Widget {
 
 }  // namespace
 
-StatusIconButtonLinux::StatusIconButtonLinux() : Button(this) {}
+StatusIconButtonLinux::StatusIconButtonLinux()
+    : Button(base::BindRepeating(
+          [](StatusIconButtonLinux* button) { button->delegate_->OnClick(); },
+          base::Unretained(this))) {}
 
 StatusIconButtonLinux::~StatusIconButtonLinux() = default;
 
@@ -103,11 +107,6 @@ void StatusIconButtonLinux::ShowContextMenuForViewImpl(
                           views::MenuAnchorPosition::kTopLeft, source_type);
 }
 
-void StatusIconButtonLinux::ButtonPressed(Button* sender,
-                                          const ui::Event& event) {
-  delegate_->OnClick();
-}
-
 void StatusIconButtonLinux::PaintButtonContents(gfx::Canvas* canvas) {
   gfx::ScopedCanvas scoped_canvas(canvas);
   canvas->UndoDeviceScaleFactor();
@@ -133,3 +132,6 @@ void StatusIconButtonLinux::PaintButtonContents(gfx::Canvas* canvas) {
   canvas->DrawImageInt(image, 0, 0, image.width(), image.height(), 0, 0,
                        image.width(), image.height(), true, flags);
 }
+
+BEGIN_METADATA(StatusIconButtonLinux, views::Button)
+END_METADATA

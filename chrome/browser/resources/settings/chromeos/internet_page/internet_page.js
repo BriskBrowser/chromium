@@ -81,10 +81,10 @@ Polymer({
     },
 
     /**
-     * False if VPN is disabled by policy.
+     * True if VPN is prohibited by policy.
      * @private {boolean}
      */
-    vpnIsEnabled_: {
+    vpnIsProhibited_: {
       type: Boolean,
       value: false,
     },
@@ -125,6 +125,39 @@ Polymer({
       value: false,
     },
 
+    /**
+     * Name of cellular setup dialog page.
+     * @private {!cellularSetup.CellularSetupPageName|null}
+     */
+    cellularSetupDialogPageName_: String,
+
+    /** @private {boolean} */
+    hasActivePSimNetwork_: {
+      type: Boolean,
+      value: false,
+    },
+
+    /** @private {boolean} */
+    showESimProfileRenameDialog_: {
+      type: Boolean,
+      value: false,
+    },
+
+    /** @private {boolean} */
+    showESimRemoveProfileDialog_: {
+      type: Boolean,
+      value: false,
+    },
+
+    /**
+     * Iccid of an esim profile, used in internet detail menu.
+     * @private {string}
+     */
+    esimProfileIccid_: {
+      type: String,
+      value: '',
+    },
+
     /** @private {!Map<string, Element>} */
     focusConfig_: {
       type: Object,
@@ -161,6 +194,8 @@ Polymer({
     'show-detail': 'onShowDetail_',
     'show-known-networks': 'onShowKnownNetworks_',
     'show-networks': 'onShowNetworks_',
+    'show-esim-profile-rename-dialog': 'onShowESimProfileRenameDialog_',
+    'show-esim-remove-profile-dialog': 'onShowESimRemoveProfileDialog_'
   },
 
   /** @private  {?settings.InternetPageBrowserProxy} */
@@ -182,6 +217,7 @@ Polymer({
       this.globalPolicy_ = response.result;
     });
     this.onVpnProvidersChanged();
+    this.onNetworkStateListChanged();
   },
 
   /**
@@ -217,7 +253,7 @@ Polymer({
    * @protected
    */
   currentRouteChanged(route, oldRoute) {
-    if (route == settings.routes.INTERNET_NETWORKS) {
+    if (route === settings.routes.INTERNET_NETWORKS) {
       // Handle direct navigation to the networks page,
       // e.g. chrome://settings/internet/networks?type=WiFi
       const queryParams = settings.Router.getInstance().getQueryParameters();
@@ -225,7 +261,15 @@ Polymer({
       if (type) {
         this.subpageType_ = OncMojo.getNetworkTypeFromString(type);
       }
-    } else if (route == settings.routes.KNOWN_NETWORKS) {
+
+      this.showCellularSetupDialog_ =
+          queryParams.get('showCellularSetup') === 'true';
+      const showPSimFlow = queryParams.get('showPsimFlow') === 'true';
+      if (showPSimFlow && this.showCellularSetupDialog_) {
+        this.cellularSetupDialogPageName_ =
+            cellularSetup.CellularSetupPageName.PSIM_FLOW_UI;
+      }
+    } else if (route === settings.routes.KNOWN_NETWORKS) {
       // Handle direct navigation to the known networks page,
       // e.g. chrome://settings/internet/knownNetworks?type=WiFi
       const queryParams = settings.Router.getInstance().getQueryParameters();
@@ -233,10 +277,10 @@ Polymer({
       if (type) {
         this.knownNetworksType_ = OncMojo.getNetworkTypeFromString(type);
       }
-    } else if (route == settings.routes.INTERNET) {
+    } else if (route === settings.routes.INTERNET) {
       // Show deep links for the internet page.
       this.attemptDeepLink();
-    } else if (route != settings.routes.BASIC) {
+    } else if (route !== settings.routes.BASIC) {
       // If we are navigating to a non internet section, do not set focus.
       return;
     }
@@ -248,7 +292,7 @@ Polymer({
 
     // Focus the subpage arrow where appropriate.
     let element;
-    if (route == settings.routes.INTERNET_NETWORKS) {
+    if (route === settings.routes.INTERNET_NETWORKS) {
       // iron-list makes the correct timing to focus an item in the list
       // very complicated, and the item may not exist, so just focus the
       // entire list for now.
@@ -275,6 +319,12 @@ Polymer({
   },
 
   /** NetworkListenerBehavior override */
+  onNetworkStateListChanged() {
+    hasActivePSimNetwork().then((hasActive) => {
+      this.hasActivePSimNetwork_ = hasActive;
+    });
+  },
+
   onVpnProvidersChanged() {
     this.networkConfig_.getVpnProviders().then(response => {
       const providers = response.providers;
@@ -313,9 +363,13 @@ Polymer({
     }
   },
 
-  /** @private */
-  onShowCellularSetupDialog_() {
+  /**
+   * @param {Event} event
+   * @private
+   */
+  onShowCellularSetupDialog_(event) {
     this.showCellularSetupDialog_ = true;
+    this.cellularSetupDialogPageName_ = event.detail.pageName;
   },
 
   /** @private */
@@ -332,8 +386,8 @@ Polymer({
    */
   showConfig_(configAndConnect, type, opt_guid, opt_name) {
     assert(
-        type != chromeos.networkConfig.mojom.NetworkType.kCellular &&
-        type != chromeos.networkConfig.mojom.NetworkType.kTether);
+        type !== chromeos.networkConfig.mojom.NetworkType.kCellular &&
+        type !== chromeos.networkConfig.mojom.NetworkType.kTether);
     if (this.showInternetConfig_) {
       return;
     }
@@ -372,6 +426,34 @@ Polymer({
   },
 
   /**
+   * @param {!CustomEvent<!{iccid: string}>} event
+   * @private
+   */
+  onShowESimProfileRenameDialog_(event) {
+    this.esimProfileIccid_ = event.detail.iccid;
+    this.showESimProfileRenameDialog_ = true;
+  },
+
+  /** @private */
+  onCloseESimProfileRenameDialog_() {
+    this.showESimProfileRenameDialog_ = false;
+  },
+
+  /**
+   * @param {!CustomEvent<!{iccid: string}>} event
+   * @private
+   */
+  onShowESimRemoveProfileDialog_(event) {
+    this.esimProfileIccid_ = event.detail.iccid;
+    this.showESimRemoveProfileDialog_ = true;
+  },
+
+  /** @private */
+  onCloseESimRemoveProfileDialog_() {
+    this.showESimRemoveProfileDialog_ = false;
+  },
+
+  /**
    * @param {!CustomEvent<chromeos.networkConfig.mojom.NetworkType>} event
    * @private
    */
@@ -387,8 +469,8 @@ Polymer({
     // The shared Cellular/Tether subpage is referred to as "Mobile".
     // TODO(khorimoto): Remove once Cellular/Tether are split into their own
     // sections.
-    if (this.subpageType_ == mojom.NetworkType.kCellular ||
-        this.subpageType_ == mojom.NetworkType.kTether) {
+    if (this.subpageType_ === mojom.NetworkType.kCellular ||
+        this.subpageType_ === mojom.NetworkType.kTether) {
       return this.i18n('OncTypeMobile');
     }
     return this.i18n(
@@ -407,7 +489,7 @@ Polymer({
     }
     // If both Tether and Cellular are enabled, use the Cellular device state
     // when directly navigating to the Tether page.
-    if (subpageType == mojom.NetworkType.kTether &&
+    if (subpageType === mojom.NetworkType.kTether &&
         this.deviceStates[mojom.NetworkType.kCellular]) {
       subpageType = mojom.NetworkType.kCellular;
     }
@@ -436,14 +518,14 @@ Polymer({
       managedNetworkAvailable = !!wifiDeviceState.managedNetworkAvailable;
     }
 
-    if (this.managedNetworkAvailable != managedNetworkAvailable) {
+    if (this.managedNetworkAvailable !== managedNetworkAvailable) {
       this.managedNetworkAvailable = managedNetworkAvailable;
     }
 
     const vpn = this.deviceStates[mojom.NetworkType.kVPN];
-    this.vpnIsEnabled_ = !!vpn &&
+    this.vpnIsProhibited_ = !!vpn &&
         vpn.deviceState ===
-            chromeos.networkConfig.mojom.DeviceStateType.kEnabled;
+            chromeos.networkConfig.mojom.DeviceStateType.kProhibited;
 
     if (this.detailType_ && !this.deviceStates[this.detailType_]) {
       // If the device type associated with the current network has been
@@ -480,7 +562,7 @@ Polymer({
 
   /** @private */
   onAddVPNTap_() {
-    if (this.vpnIsEnabled_) {
+    if (!this.vpnIsProhibited_) {
       this.showConfig_(
           true /* configAndConnect */,
           chromeos.networkConfig.mojom.NetworkType.kVPN);
@@ -543,7 +625,7 @@ Polymer({
   wifiIsEnabled_(deviceStates) {
     const wifi = deviceStates[mojom.NetworkType.kWiFi];
     return !!wifi &&
-        wifi.deviceState ==
+        wifi.deviceState ===
         chromeos.networkConfig.mojom.DeviceStateType.kEnabled;
   },
 
@@ -585,7 +667,7 @@ Polymer({
     const displayName = OncMojo.getNetworkStateDisplayName(networkState);
 
     if (!event.detail.bypassConnectionDialog &&
-        type == mojom.NetworkType.kTether &&
+        type === mojom.NetworkType.kTether &&
         !networkState.typeState.tether.hasConnectedToHost) {
       const params = new URLSearchParams;
       params.append('guid', networkState.guid);

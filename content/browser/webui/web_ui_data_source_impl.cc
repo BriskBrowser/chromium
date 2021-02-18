@@ -24,6 +24,7 @@
 #include "services/network/public/mojom/content_security_policy.mojom.h"
 #include "ui/base/template_expressions.h"
 #include "ui/base/webui/jstemplate_builder.h"
+#include "ui/base/webui/resource_path.h"
 #include "ui/base/webui/web_ui_util.h"
 
 namespace content {
@@ -51,7 +52,11 @@ namespace {
 
 std::string CleanUpPath(const std::string& path) {
   // Remove the query string for named resource lookups.
-  return path.substr(0, path.find_first_of('?'));
+  std::string clean_path = path.substr(0, path.find_first_of('?'));
+  // Remove a URL fragment (for example #foo) if it exists.
+  clean_path = clean_path.substr(0, path.find_first_of('#'));
+
+  return clean_path;
 }
 
 const int kNonExistentResource = -1;
@@ -141,6 +146,12 @@ void WebUIDataSourceImpl::AddLocalizedString(base::StringPiece name, int ids) {
 }
 
 void WebUIDataSourceImpl::AddLocalizedStrings(
+    base::span<const webui::LocalizedString> strings) {
+  for (const auto& str : strings)
+    AddLocalizedString(str.name, str.id);
+}
+
+void WebUIDataSourceImpl::AddLocalizedStrings(
     const base::DictionaryValue& localized_strings) {
   localized_strings_.MergeDictionary(&localized_strings);
   ui::TemplateReplacementsFromDictionaryValue(localized_strings,
@@ -160,6 +171,10 @@ void WebUIDataSourceImpl::AddInteger(base::StringPiece name, int32_t value) {
   localized_strings_.SetInteger(name, value);
 }
 
+void WebUIDataSourceImpl::AddDouble(base::StringPiece name, double value) {
+  localized_strings_.SetDouble(name, value);
+}
+
 void WebUIDataSourceImpl::UseStringsJs() {
   use_strings_js_ = true;
 }
@@ -167,6 +182,12 @@ void WebUIDataSourceImpl::UseStringsJs() {
 void WebUIDataSourceImpl::AddResourcePath(base::StringPiece path,
                                           int resource_id) {
   path_to_idr_map_[path.as_string()] = resource_id;
+}
+
+void WebUIDataSourceImpl::AddResourcePaths(
+    base::span<const webui::ResourcePath> paths) {
+  for (const auto& path : paths)
+    AddResourcePath(path.path, path.id);
 }
 
 void WebUIDataSourceImpl::SetDefaultResource(int resource_id) {
@@ -268,6 +289,9 @@ std::string WebUIDataSourceImpl::GetMimeType(const std::string& path) const {
 
   if (base::EndsWith(file_path, ".mp4", base::CompareCase::INSENSITIVE_ASCII))
     return "video/mp4";
+
+  if (base::EndsWith(file_path, ".wasm", base::CompareCase::INSENSITIVE_ASCII))
+    return "application/wasm";
 
   return "text/html";
 }

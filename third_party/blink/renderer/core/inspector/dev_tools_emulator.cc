@@ -71,7 +71,7 @@ DevToolsEmulator::DevToolsEmulator(WebViewImpl* web_view)
       original_default_minimum_page_scale_factor_(0),
       original_default_maximum_page_scale_factor_(0),
       embedder_text_autosizing_enabled_(
-          web_view->GetPage()->GetSettings().TextAutosizingEnabled()),
+          web_view->GetPage()->GetSettings().GetTextAutosizingEnabled()),
       embedder_device_scale_adjustment_(
           web_view->GetPage()->GetSettings().GetDeviceScaleAdjustment()),
       embedder_prefer_compositing_to_lcd_text_enabled_(
@@ -140,7 +140,7 @@ void DevToolsEmulator::SetPreferCompositingToLCDTextEnabled(bool enabled) {
   }
 }
 
-void DevToolsEmulator::SetViewportStyle(WebViewportStyle style) {
+void DevToolsEmulator::SetViewportStyle(mojom::blink::ViewportStyle style) {
   embedder_viewport_style_ = style;
   bool emulate_mobile_enabled =
       device_metrics_enabled_ && emulate_mobile_enabled_;
@@ -199,7 +199,8 @@ void DevToolsEmulator::SetAvailablePointerTypes(int types) {
     web_view_->GetPage()->GetSettings().SetAvailablePointerTypes(types);
 }
 
-void DevToolsEmulator::SetPrimaryPointerType(PointerType pointer_type) {
+void DevToolsEmulator::SetPrimaryPointerType(
+    mojom::blink::PointerType pointer_type) {
   embedder_primary_pointer_type_ = pointer_type;
   if (!touch_event_emulation_enabled_)
     web_view_->GetPage()->GetSettings().SetPrimaryPointerType(pointer_type);
@@ -211,7 +212,7 @@ void DevToolsEmulator::SetAvailableHoverTypes(int types) {
     web_view_->GetPage()->GetSettings().SetAvailableHoverTypes(types);
 }
 
-void DevToolsEmulator::SetPrimaryHoverType(HoverType hover_type) {
+void DevToolsEmulator::SetPrimaryHoverType(mojom::blink::HoverType hover_type) {
   embedder_primary_hover_type_ = hover_type;
   if (!touch_event_emulation_enabled_)
     web_view_->GetPage()->GetSettings().SetPrimaryHoverType(hover_type);
@@ -302,7 +303,7 @@ void DevToolsEmulator::EnableMobileEmulation() {
   Page::PlatformColorsChanged();
   web_view_->GetPage()->GetSettings().SetForceAndroidOverlayScrollbar(true);
   web_view_->GetPage()->GetSettings().SetViewportStyle(
-      WebViewportStyle::kMobile);
+      mojom::blink::ViewportStyle::kMobile);
   web_view_->GetPage()->GetSettings().SetViewportEnabled(true);
   web_view_->GetPage()->GetSettings().SetViewportMetaEnabled(true);
   web_view_->GetPage()->GetVisualViewport().InitializeScrollbars();
@@ -431,10 +432,10 @@ void DevToolsEmulator::OverrideVisibleRect(
   if (!viewport_override_ || !frame)
     return;
 
-  FloatSize scaled_viewport_size(viewport_size);
-  scaled_viewport_size.Scale(1. / viewport_override_->scale);
+  // Don't apply viewport_override_->scale because all coordinates here are
+  // under the same scale.
   IntRect visible_rect_in_document = EnclosingIntRect(
-      FloatRect(viewport_override_->position, scaled_viewport_size));
+      FloatRect(viewport_override_->position, FloatSize(viewport_size)));
   *visible_rect_in_frame =
       frame->GetFrameView()->DocumentToFrame(visible_rect_in_document);
 }
@@ -456,13 +457,17 @@ void DevToolsEmulator::SetTouchEventEmulationEnabled(bool enabled,
   web_view_->GetPage()->GetSettings().SetMaxTouchPoints(
       enabled ? max_touch_points : original_max_touch_points_);
   web_view_->GetPage()->GetSettings().SetAvailablePointerTypes(
-      enabled ? kPointerTypeCoarse : embedder_available_pointer_types_);
+      enabled ? static_cast<int>(mojom::blink::PointerType::kPointerCoarseType)
+              : embedder_available_pointer_types_);
   web_view_->GetPage()->GetSettings().SetPrimaryPointerType(
-      enabled ? kPointerTypeCoarse : embedder_primary_pointer_type_);
+      enabled ? mojom::blink::PointerType::kPointerCoarseType
+              : embedder_primary_pointer_type_);
   web_view_->GetPage()->GetSettings().SetAvailableHoverTypes(
-      enabled ? kHoverTypeNone : embedder_available_hover_types_);
+      enabled ? static_cast<int>(mojom::blink::HoverType::kHoverNone)
+              : embedder_available_hover_types_);
   web_view_->GetPage()->GetSettings().SetPrimaryHoverType(
-      enabled ? kHoverTypeNone : embedder_primary_hover_type_);
+      enabled ? mojom::blink::HoverType::kHoverNone
+              : embedder_primary_hover_type_);
   WebLocalFrameImpl* frame = web_view_->MainFrameImpl();
   if (enabled && frame)
     frame->GetFrame()->GetEventHandler().ClearMouseEventManager();

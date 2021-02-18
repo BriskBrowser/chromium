@@ -6,16 +6,16 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_FONT_MATCHING_METRICS_H_
 
 #include "services/metrics/public/cpp/ukm_source_id.h"
-#include "third_party/blink/public/common/privacy_budget/identifiability_metric_builder.h"
-#include "third_party/blink/public/common/privacy_budget/identifiability_metrics.h"
-#include "third_party/blink/public/common/privacy_budget/identifiable_surface.h"
+#include "third_party/blink/public/common/privacy_budget/identifiable_token.h"
+#include "third_party/blink/public/common/privacy_budget/identifiable_token_builder.h"
 #include "third_party/blink/renderer/platform/fonts/font_description.h"
+#include "third_party/blink/renderer/platform/fonts/font_fallback_priority.h"
 #include "third_party/blink/renderer/platform/fonts/simple_font_data.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/timer.h"
+#include "third_party/blink/renderer/platform/wtf/hash_functions.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
-#include "third_party/blink/renderer/platform/wtf/text/atomic_string_hash.h"
 
 namespace ukm {
 class UkmRecorder;
@@ -23,125 +23,56 @@ class UkmRecorder;
 
 namespace blink {
 
-struct LocalFontLookupKey {
-  unsigned name_hash{0};
-  UChar32 fallback_character{-1};
-  unsigned font_selection_request_hash{0};
-  bool is_deleted_value_{false};
+// A (generic) wrapper around IdentifiableToken to enable its use as a HashMap
+// key. The |token| represents the parameters by which a font was looked up.
+// However, if |is_deleted_value| or |is_empty_value|, this key represents an
+// object for HashMap's internal use only. In that case, |token| is left as a
+// default value.
+struct IdentifiableTokenKey {
+  IdentifiableToken token;
+  bool is_deleted_value = false;
+  bool is_empty_value = false;
 
-  LocalFontLookupKey() = default;
-  LocalFontLookupKey(const AtomicString& name,
-                     FontSelectionRequest font_selection_request)
-      : name_hash(AtomicStringHash::GetHash(name)),
-        font_selection_request_hash(font_selection_request.GetHash()) {}
+  IdentifiableTokenKey() : is_empty_value(true) {}
+  explicit IdentifiableTokenKey(const IdentifiableToken& token)
+      : token(token) {}
+  explicit IdentifiableTokenKey(WTF::HashTableDeletedValueType)
+      : is_deleted_value(true) {}
 
-  LocalFontLookupKey(UChar32 fallback_character,
-                     FontSelectionRequest font_selection_request)
-      : fallback_character(fallback_character),
-        font_selection_request_hash(font_selection_request.GetHash()) {}
+  bool IsHashTableDeletedValue() const { return is_deleted_value; }
 
-  explicit LocalFontLookupKey(FontSelectionRequest font_selection_request)
-      : font_selection_request_hash(font_selection_request.GetHash()) {}
-
-  explicit LocalFontLookupKey(WTF::HashTableDeletedValueType)
-      : is_deleted_value_(true) {}
-
-  bool IsHashTableDeletedValue() const { return is_deleted_value_; }
-
-  bool operator==(const LocalFontLookupKey& other) const {
-    return name_hash == other.name_hash &&
-           fallback_character == other.fallback_character &&
-           font_selection_request_hash == other.font_selection_request_hash &&
-           is_deleted_value_ == other.is_deleted_value_;
+  bool operator==(const IdentifiableTokenKey& other) const {
+    return token == other.token && is_deleted_value == other.is_deleted_value &&
+           is_empty_value == other.is_empty_value;
+  }
+  bool operator!=(const IdentifiableTokenKey& other) const {
+    return !(*this == other);
   }
 };
 
-struct LocalFontLookupKeyHash {
-  STATIC_ONLY(LocalFontLookupKeyHash);
-  static unsigned GetHash(const LocalFontLookupKey& key) {
-    unsigned hash_codes[4] = {key.name_hash, key.fallback_character,
-                              key.font_selection_request_hash,
-                              key.is_deleted_value_};
-    return StringHasher::HashMemory<sizeof(hash_codes)>(hash_codes);
+// A helper that defines the hash and equality functions that HashMap should use
+// internally for comparing IdentifiableTokenKeys.
+struct IdentifiableTokenKeyHash {
+  STATIC_ONLY(IdentifiableTokenKeyHash);
+  static unsigned GetHash(const IdentifiableTokenKey& key) {
+    IntHash<int64_t> hasher;
+    return hasher.GetHash(key.token.ToUkmMetricValue()) ^
+           hasher.GetHash((key.is_deleted_value << 1) + key.is_empty_value);
   }
-  static bool Equal(const LocalFontLookupKey& a, const LocalFontLookupKey& b) {
+  static bool Equal(const IdentifiableTokenKey& a,
+                    const IdentifiableTokenKey& b) {
     return a == b;
   }
-
   static const bool safe_to_compare_to_empty_or_deleted = true;
 };
 
-struct LocalFontLookupKeyHashTraits
-    : WTF::SimpleClassHashTraits<LocalFontLookupKey> {
-  STATIC_ONLY(LocalFontLookupKeyHashTraits);
+// A helper that defines the invalid 'empty value' that HashMap should use
+// internally.
+struct IdentifiableTokenKeyHashTraits
+    : WTF::SimpleClassHashTraits<IdentifiableTokenKey> {
+  STATIC_ONLY(IdentifiableTokenKeyHashTraits);
   static const bool kEmptyValueIsZero = false;
-};
-
-enum class LocalFontLookupType {
-  kAtFontFaceLocalSrc,
-  kGenericFontFamilyName,
-  kLocalFontFamilyName,
-  kPreferredStandardFont,
-  kLastResortInFontFallbackList,
-  kFallbackPriorityFont,
-  kSystemFallbackFont,
-  kLastResortInFontFallbackIterator,
-};
-
-struct LocalFontLookupResult {
-  int64_t hash;  // 0 if font was not found
-  LocalFontLookupType check_type;
-  bool is_loading_fallback;
-};
-
-struct GenericFontLookupKey {
-  unsigned generic_font_family_name_hash;
-  UScriptCode script{UScriptCode::USCRIPT_INVALID_CODE};
-  FontDescription::GenericFamilyType generic_family_type;
-  bool is_deleted_value_{false};
-
-  GenericFontLookupKey() = default;
-  GenericFontLookupKey(const AtomicString& generic_font_family_name,
-                       UScriptCode script,
-                       FontDescription::GenericFamilyType generic_family_type)
-      : generic_font_family_name_hash(
-            AtomicStringHash::GetHash(generic_font_family_name)),
-        script(script),
-        generic_family_type(generic_family_type) {}
-
-  explicit GenericFontLookupKey(WTF::HashTableDeletedValueType)
-      : is_deleted_value_(true) {}
-
-  bool IsHashTableDeletedValue() const { return is_deleted_value_; }
-
-  bool operator==(const GenericFontLookupKey& other) const {
-    return generic_font_family_name_hash ==
-               other.generic_font_family_name_hash &&
-           script == other.script &&
-           generic_family_type == other.generic_family_type &&
-           is_deleted_value_ == other.is_deleted_value_;
-  }
-};
-
-struct GenericFontLookupKeyHash {
-  STATIC_ONLY(GenericFontLookupKeyHash);
-  static unsigned GetHash(const GenericFontLookupKey& key) {
-    unsigned hash_codes[4] = {key.generic_font_family_name_hash, key.script,
-                              key.generic_family_type, key.is_deleted_value_};
-    return StringHasher::HashMemory<sizeof(hash_codes)>(hash_codes);
-  }
-  static bool Equal(const GenericFontLookupKey& a,
-                    const GenericFontLookupKey& b) {
-    return a == b;
-  }
-
-  static const bool safe_to_compare_to_empty_or_deleted = true;
-};
-
-struct GenericFontLookupKeyHashTraits
-    : WTF::SimpleClassHashTraits<GenericFontLookupKey> {
-  STATIC_ONLY(GenericFontLookupKeyHashTraits);
-  static const bool kEmptyValueIsZero = false;
+  static IdentifiableTokenKey EmptyValue() { return IdentifiableTokenKey(); }
 };
 
 // Tracks and reports UKM metrics of attempted font family match attempts (both
@@ -160,8 +91,17 @@ struct GenericFontLookupKeyHashTraits
 // regularly.
 class PLATFORM_EXPORT FontMatchingMetrics {
  public:
+  enum FontLoadContext { kTopLevelFrame = 0, kSubframe, kWorker };
+
+  // Create a FontMatchingMetrics objects for a frame, with |top_level|
+  // indicating whether it is a mainframe.
   FontMatchingMetrics(bool top_level,
                       ukm::UkmRecorder* ukm_recorder,
+                      ukm::SourceId source_id,
+                      scoped_refptr<base::SingleThreadTaskRunner> task_runner);
+
+  // Create a FontMatchingMetrics objects for a worker.
+  FontMatchingMetrics(ukm::UkmRecorder* ukm_recorder,
                       ukm::SourceId source_id,
                       scoped_refptr<base::SingleThreadTaskRunner> task_runner);
 
@@ -188,26 +128,32 @@ class PLATFORM_EXPORT FontMatchingMetrics {
   void ReportFailedLocalFontMatch(const AtomicString& font_name);
 
   // Reports a local font was looked up by a name and font description. This
-  // includes lookups by a family name, by a PostScript name and by a full font
-  // name.
+  // only includes lookups where the name is allowed to match family names,
+  // PostScript names and full font names.
   void ReportFontLookupByUniqueOrFamilyName(
       const AtomicString& name,
       const FontDescription& font_description,
-      LocalFontLookupType check_type,
-      SimpleFontData* resulting_font_data,
-      bool is_loading_fallback = false);
+      SimpleFontData* resulting_font_data);
 
-  // Reports a font was looked up by a fallback character and font description.
+  // Reports a local font was looked up by a name and font description. This
+  // only includes lookups where the name is allowed to match PostScript names
+  // and full font names, but not family names.
+  void ReportFontLookupByUniqueNameOnly(const AtomicString& name,
+                                        const FontDescription& font_description,
+                                        SimpleFontData* resulting_font_data,
+                                        bool is_loading_fallback = false);
+
+  // Reports a font was looked up by a fallback character, fallback priority,
+  // and a font description.
   void ReportFontLookupByFallbackCharacter(
       UChar32 fallback_character,
+      FontFallbackPriority fallback_priority,
       const FontDescription& font_description,
-      LocalFontLookupType check_type,
       SimpleFontData* resulting_font_data);
 
   // Reports a last-resort fallback font was looked up by a font description.
   void ReportLastResortFallbackFontLookup(
       const FontDescription& font_description,
-      LocalFontLookupType check_type,
       SimpleFontData* resulting_font_data);
 
   // Reports a generic font family name was matched according to the script and
@@ -225,8 +171,8 @@ class PLATFORM_EXPORT FontMatchingMetrics {
   // |user_font_preference_mapping| occurs.
   void OnFontLookup();
 
-  // Publishes the font lookup events. Recorded on page unload and every minute,
-  // as long as additional lookups are occurring.
+  // Publishes the font lookup events. Recorded on document shutdown/worker
+  // destruction and every minute, as long as additional lookups are occurring.
   void PublishIdentifiabilityMetrics();
 
   // Publishes the number of font family matches attempted (both successful
@@ -236,9 +182,45 @@ class PLATFORM_EXPORT FontMatchingMetrics {
  private:
   void IdentifiabilityMetricsTimerFired(TimerBase*);
 
+  // This HashMap generically stores details of font lookups, i.e. what was used
+  // to search for the font, and what the resulting font was. The key is an
+  // IdentifiableTokenKey representing a wrapper around a digest of the lookup
+  // parameters. The value is an IdentifiableToken representing either a digest
+  // of the returned typeface or 0, if no valid typeface was found.
+  using TokenToTokenHashMap = HashMap<IdentifiableTokenKey,
+                                      IdentifiableToken,
+                                      IdentifiableTokenKeyHash,
+                                      IdentifiableTokenKeyHashTraits>;
+
+  // Adds a digest of the |font_data|'s typeface to |hash_map| using the key
+  // |input_key|, unless that key is already present. If |font_data| is not
+  // nullptr, then the typeface digest will also be saved with its PostScript
+  // name in |font_load_postscript_name_|.
+  void InsertFontHashIntoMap(IdentifiableTokenKey input_key,
+                             SimpleFontData* font_data,
+                             TokenToTokenHashMap& hash_map);
+
+  // Reports a local font's existence was looked up by a name, but its actual
+  // font data may or may not have been loaded. This only includes lookups where
+  // the name is allowed to match PostScript names and full font names, but not
+  // family names.
+  void ReportLocalFontExistenceByUniqueNameOnly(const AtomicString& font_name,
+                                                bool font_exists);
+
+  // Constructs a builder with a hash of the FontSelectionRequest already added.
+  IdentifiableTokenBuilder GetTokenBuilderWithFontSelectionRequest(
+      const FontDescription& font_description);
+
   // Get a hash that uniquely represents the font data. Returns 0 if |font_data|
   // is nullptr.
   int64_t GetHashForFontData(SimpleFontData* font_data);
+
+  void Initialize();
+
+  // Get a token that uniquely represents the typeface's PostScript name. May
+  // represent the empty string if no PostScript name was found.
+  IdentifiableToken GetPostScriptNameTokenForFontData(
+      SimpleFontData* font_data);
 
   // Font family names successfully matched.
   HashSet<AtomicString> successful_font_families_;
@@ -258,27 +240,22 @@ class PLATFORM_EXPORT FontMatchingMetrics {
   // @font-face src:local fonts that didn't successfully match.
   HashSet<AtomicString> local_fonts_failed_;
 
-  // True if this FontMatchingMetrics instance is for a top-level frame, false
-  // otherwise.
-  const bool top_level_ = false;
+  // Indicates whether this FontMatchingMetrics instance is for a top-level
+  // frame, a subframe or a worker.
+  const FontLoadContext load_context_;
 
-  HashMap<LocalFontLookupKey,
-          LocalFontLookupResult,
-          LocalFontLookupKeyHash,
-          LocalFontLookupKeyHashTraits>
-      font_lookups_;
-  HashMap<GenericFontLookupKey,
-          unsigned,
-          GenericFontLookupKeyHash,
-          GenericFontLookupKeyHashTraits>
-      generic_font_lookups_;
+  TokenToTokenHashMap font_lookups_by_unique_or_family_name_;
+  TokenToTokenHashMap font_lookups_by_unique_name_only_;
+  TokenToTokenHashMap font_lookups_by_fallback_character_;
+  TokenToTokenHashMap font_lookups_as_last_resort_;
+  TokenToTokenHashMap generic_font_lookups_;
+  TokenToTokenHashMap font_load_postscript_name_;
+  TokenToTokenHashMap local_font_existence_by_unique_name_only_;
 
   ukm::UkmRecorder* const ukm_recorder_;
   const ukm::SourceId source_id_;
 
   TaskRunnerTimer<FontMatchingMetrics> identifiability_metrics_timer_;
-
-  const bool identifiability_study_enabled_;
 };
 
 }  // namespace blink

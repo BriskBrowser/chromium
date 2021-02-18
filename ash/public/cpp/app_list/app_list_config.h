@@ -78,6 +78,12 @@ class ASH_PUBLIC_EXPORT AppListConfig {
     return search_tile_badge_icon_offset_;
   }
   int search_list_icon_dimension() const { return search_list_icon_dimension_; }
+  int search_list_answer_icon_dimension() const {
+    return search_list_answer_icon_dimension_;
+  }
+  int search_list_image_icon_dimension() const {
+    return search_list_image_icon_dimension_;
+  }
   int search_list_icon_vertical_bar_dimension() const {
     return search_list_icon_vertical_bar_dimension_;
   }
@@ -116,13 +122,22 @@ class ASH_PUBLIC_EXPORT AppListConfig {
   int folder_bubble_radius() const { return folder_bubble_radius_; }
   int folder_bubble_y_offset() const { return folder_bubble_y_offset_; }
   int folder_header_height() const { return folder_header_height_; }
+  int folder_header_min_width() const { return folder_header_min_width_; }
+  int folder_header_max_width() const { return folder_header_max_width_; }
+  int folder_header_min_tap_width() const {
+    return folder_header_min_tap_width_;
+  }
+  int folder_name_border_radius() const { return folder_name_border_radius_; }
+  int folder_name_border_thickness() const {
+    return folder_name_border_thickness_;
+  }
+  int folder_name_padding() const { return folder_name_padding_; }
   int folder_icon_dimension() const { return folder_icon_dimension_; }
   int folder_unclipped_icon_dimension() const {
     return folder_unclipped_icon_dimension_;
   }
   int folder_icon_radius() const { return folder_icon_radius_; }
   int folder_background_radius() const { return folder_background_radius_; }
-  int folder_bubble_color() const { return folder_bubble_color_; }
   int item_icon_in_folder_icon_dimension() const {
     return item_icon_in_folder_icon_dimension_;
   }
@@ -139,11 +154,6 @@ class ASH_PUBLIC_EXPORT AppListConfig {
     return grid_tile_spacing_in_folder_;
   }
   int blur_radius() const { return blur_radius_; }
-  SkColor contents_background_color() const {
-    return contents_background_color_;
-  }
-  SkColor grid_selected_color() const { return grid_selected_color_; }
-  SkColor card_background_color() const { return card_background_color_; }
   base::TimeDelta page_transition_duration() const {
     return page_transition_duration_;
   }
@@ -176,15 +186,16 @@ class ASH_PUBLIC_EXPORT AppListConfig {
     return max_search_result_list_items_;
   }
 
+  size_t max_assistant_search_result_list_items() const {
+    return max_assistant_search_result_list_items_;
+  }
+
   double privacy_container_score() const { return privacy_container_score_; }
   double app_tiles_container_score() const {
     return app_tiles_container_score_;
   }
   double results_list_container_score() const {
     return results_list_container_score_;
-  }
-  double answer_card_container_score() const {
-    return answer_card_container_score_;
   }
 
   gfx::Size grid_icon_size() const {
@@ -206,6 +217,16 @@ class ASH_PUBLIC_EXPORT AppListConfig {
 
   gfx::Size search_list_icon_size() const {
     return gfx::Size(search_list_icon_dimension_, search_list_icon_dimension_);
+  }
+
+  gfx::Size search_list_answer_icon_size() const {
+    return gfx::Size(search_list_answer_icon_dimension_,
+                     search_list_answer_icon_dimension_);
+  }
+
+  gfx::Size search_list_image_icon_size() const {
+    return gfx::Size(search_list_image_icon_dimension_,
+                     search_list_image_icon_dimension_);
   }
 
   gfx::Size search_list_badge_icon_size() const {
@@ -314,6 +335,12 @@ class ASH_PUBLIC_EXPORT AppListConfig {
   // The icon dimension of list views in search result page view.
   const int search_list_icon_dimension_;
 
+  // The icon dimension of answer list views in search result page view.
+  const int search_list_answer_icon_dimension_;
+
+  // The dimension of image icons for list views in search result page view.
+  const int search_list_image_icon_dimension_;
+
   // The vertical bar icon dimension of list views in search result page view.
   const int search_list_icon_vertical_bar_dimension_;
 
@@ -374,6 +401,22 @@ class ASH_PUBLIC_EXPORT AppListConfig {
   // The height of the in folder name and pagination buttons.
   const int folder_header_height_;
 
+  // The min and max widths of the folder name.
+  const int folder_header_min_width_;
+  const int folder_header_max_width_;
+
+  // The min width of folder name for tap events.
+  const int folder_header_min_tap_width_;
+
+  // The border radius for folder name.
+  const int folder_name_border_radius_;
+
+  // The border thickness for folder name.
+  const int folder_name_border_thickness_;
+
+  // The inner padding for folder name.
+  const int folder_name_padding_;
+
   // The icon dimension of folder.
   const int folder_icon_dimension_;
 
@@ -385,9 +428,6 @@ class ASH_PUBLIC_EXPORT AppListConfig {
 
   // The corner radius of folder background.
   const int folder_background_radius_;
-
-  // The color of folder bubble.
-  const int folder_bubble_color_;
 
   // The dimension of the item icon in folder icon.
   const int item_icon_in_folder_icon_dimension_;
@@ -413,16 +453,6 @@ class ASH_PUBLIC_EXPORT AppListConfig {
 
   // The blur radius used in the app list.
   const int blur_radius_;
-
-  // The background color of app list overlay.
-  const SkColor contents_background_color_;
-
-  // The keyboard select color for grid views, which are on top of a black
-  // shield view for new design (12% white).
-  const SkColor grid_selected_color_;
-
-  // The background color for views in search results page.
-  const SkColor card_background_color_;
 
   // Duration for page transition.
   const base::TimeDelta page_transition_duration_;
@@ -473,13 +503,16 @@ class ASH_PUBLIC_EXPORT AppListConfig {
   // Max number of search result list items in the launcher suggestion window.
   const size_t max_search_result_list_items_ = 5;
 
+  // Max number of Assistant search result list items in the launcher suggestion
+  // window. Appears in the list after normal search results.
+  const size_t max_assistant_search_result_list_items_ = 1;
+
   // Scores for the containers within the search box view. These are displayed
   // in high-to-low order.
   // The privacy container is not always visible, but when available it should
   // always be the first item underneath the search box.
   const double privacy_container_score_ = 4.0;
   const double app_tiles_container_score_ = 3.0;
-  const double answer_card_container_score_ = 2.0;
   const double results_list_container_score_ = 1.0;
 
   // Cardified app list background properties

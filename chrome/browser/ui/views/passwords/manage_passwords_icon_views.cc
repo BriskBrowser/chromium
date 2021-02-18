@@ -13,8 +13,7 @@
 #include "content/public/browser/web_contents.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
-
-const char ManagePasswordsIconViews::kClassName[] = "ManagePasswordsIconViews";
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 ManagePasswordsIconViews::ManagePasswordsIconViews(
     CommandUpdater* updater,
@@ -25,7 +24,7 @@ ManagePasswordsIconViews::ManagePasswordsIconViews(
                          icon_label_bubble_delegate,
                          page_action_icon_delegate) {
   // Password icon should not be mirrored in RTL.
-  image()->EnableCanvasFlippingForRTLUI(false);
+  image()->SetFlipCanvasOnPaintForRTLUI(false);
 }
 
 ManagePasswordsIconViews::~ManagePasswordsIconViews() = default;
@@ -108,6 +107,5 @@ void ManagePasswordsIconViews::AboutToRequestFocusFromTabTraversal(
     PasswordBubbleViewBase::ActivateBubble();
 }
 
-const char* ManagePasswordsIconViews::GetClassName() const {
-  return kClassName;
-}
+BEGIN_METADATA(ManagePasswordsIconViews, PageActionIconView)
+END_METADATA

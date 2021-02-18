@@ -10,9 +10,9 @@
 #include <memory>
 #include <queue>
 #include <set>
+#include <utility>
 
 #include "base/callback.h"
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/pending_task.h"
@@ -74,6 +74,8 @@ class BASE_EXPORT TaskQueueImpl {
                 TimeDomain* time_domain,
                 const TaskQueue::Spec& spec);
 
+  TaskQueueImpl(const TaskQueueImpl&) = delete;
+  TaskQueueImpl& operator=(const TaskQueueImpl&) = delete;
   ~TaskQueueImpl();
 
   // Types of queues TaskQueueImpl is maintaining internally.
@@ -110,7 +112,6 @@ class BASE_EXPORT TaskQueueImpl {
   size_t GetNumberOfPendingTasks() const;
   bool HasTaskToRunImmediately() const;
   Optional<TimeTicks> GetNextScheduledWakeUp();
-  Optional<DelayedWakeUp> GetNextScheduledWakeUpImpl();
   void SetQueuePriority(TaskQueue::QueuePriority priority);
   TaskQueue::QueuePriority GetQueuePriority() const;
   void AddTaskObserver(TaskObserver* task_observer);
@@ -280,7 +281,7 @@ class BASE_EXPORT TaskQueueImpl {
     TaskQueueImpl* const outer_;
   };
 
-  class TaskRunner : public SingleThreadTaskRunner {
+  class TaskRunner final : public SingleThreadTaskRunner {
    public:
     explicit TaskRunner(scoped_refptr<GuardedTaskPoster> task_poster,
                         scoped_refptr<AssociatedThreadId> associated_thread,
@@ -308,6 +309,8 @@ class BASE_EXPORT TaskQueueImpl {
   struct DelayedIncomingQueue {
    public:
     DelayedIncomingQueue();
+    DelayedIncomingQueue(const DelayedIncomingQueue&) = delete;
+    DelayedIncomingQueue& operator=(const DelayedIncomingQueue&) = delete;
     ~DelayedIncomingQueue();
 
     void push(Task&& task);
@@ -321,23 +324,28 @@ class BASE_EXPORT TaskQueueImpl {
       return pending_high_res_tasks_;
     }
 
-    void SweepCancelledTasks();
+    // TODO(crbug.com/1155905): we pass SequenceManager to be able to record
+    // crash keys. Remove this parameter after chasing down this crash.
+    void SweepCancelledTasks(SequenceManagerImpl* sequence_manager);
     std::priority_queue<Task> TakeTasks() { return std::move(queue_); }
     Value AsValue(TimeTicks now) const;
 
    private:
     struct PQueue : public std::priority_queue<Task> {
-      // Expose the container and comparator.
-      using std::priority_queue<Task>::c;
-      using std::priority_queue<Task>::comp;
+      // Removes all cancelled tasks from the queue. Returns the number of
+      // removed high resolution tasks (which could be lower than the total
+      // number of removed tasks).
+      //
+      // TODO(crbug.com/1155905): we pass SequenceManager to be able to record
+      // crash keys. Remove this parameter after chasing down this crash.
+      size_t SweepCancelledTasks(SequenceManagerImpl* sequence_manager);
+      Value AsValue(TimeTicks now) const;
     };
 
     PQueue queue_;
 
     // Number of pending tasks in the queue that need high resolution timing.
     int pending_high_res_tasks_ = 0;
-
-    DISALLOW_COPY_AND_ASSIGN(DelayedIncomingQueue);
   };
 
   struct MainThreadOnly {
@@ -411,6 +419,8 @@ class BASE_EXPORT TaskQueueImpl {
   // Push the task onto the |delayed_incoming_queue|.  Slow path from other
   // threads.
   void PushOntoDelayedIncomingQueue(Task pending_task);
+
+  Optional<DelayedWakeUp> GetNextScheduledWakeUpImpl();
 
   void ScheduleDelayedWorkTask(Task pending_task);
 
@@ -540,8 +550,6 @@ class BASE_EXPORT TaskQueueImpl {
   const bool should_monitor_quiescence_;
   const bool should_notify_observers_;
   const bool delayed_fence_allowed_;
-
-  DISALLOW_COPY_AND_ASSIGN(TaskQueueImpl);
 };
 
 }  // namespace internal

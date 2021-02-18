@@ -8,7 +8,10 @@
 #include "base/run_loop.h"
 #include "base/scoped_observer.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
+#include "build/build_config.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
+#include "chrome/browser/serial/serial_blocklist.h"
 #include "chrome/browser/serial/serial_chooser_context_factory.h"
 #include "chrome/browser/serial/serial_chooser_histograms.h"
 #include "chrome/test/base/testing_profile.h"
@@ -36,6 +39,27 @@ class MockPortObserver : public SerialChooserContext::PortObserver {
   MOCK_METHOD0(OnPortManagerConnectionError, void());
 };
 
+device::mojom::SerialPortInfoPtr CreatePersistentPort(
+    base::Optional<std::string> name,
+    const std::string& persistent_id) {
+  auto port = device::mojom::SerialPortInfo::New();
+  port->token = base::UnguessableToken::Create();
+  port->display_name = std::move(name);
+#if defined(OS_WIN)
+  port->device_instance_id = persistent_id;
+#else
+  port->has_vendor_id = true;
+  port->vendor_id = 0;
+  port->has_product_id = true;
+  port->product_id = 0;
+  port->serial_number = persistent_id;
+#if defined(OS_MAC)
+  port->usb_driver_name = "AppleUSBCDC";
+#endif
+#endif  // defined(OS_WIN)
+  return port;
+}
+
 class SerialChooserContextTest : public testing::Test {
  public:
   SerialChooserContextTest() {
@@ -57,6 +81,24 @@ class SerialChooserContextTest : public testing::Test {
   SerialChooserContextTest(SerialChooserContextTest&) = delete;
   SerialChooserContextTest& operator=(SerialChooserContextTest&) = delete;
 
+  void TearDown() override {
+    // Because SerialBlocklist is a singleton it must be cleared after tests run
+    // to prevent leakage between tests.
+    feature_list_.Reset();
+    SerialBlocklist::Get().ResetToDefaultValuesForTesting();
+  }
+
+  void SetDynamicBlocklist(base::StringPiece value) {
+    feature_list_.Reset();
+
+    std::map<std::string, std::string> parameters;
+    parameters[kWebSerialBlocklistAdditions.name] = std::string(value);
+    feature_list_.InitWithFeaturesAndParameters(
+        {{kWebSerialBlocklist, parameters}}, {});
+
+    SerialBlocklist::Get().ResetToDefaultValuesForTesting();
+  }
+
   device::FakeSerialPortManager& port_manager() { return port_manager_; }
   TestingProfile* profile() { return &profile_; }
   SerialChooserContext* context() { return context_; }
@@ -67,6 +109,7 @@ class SerialChooserContextTest : public testing::Test {
 
  private:
   content::BrowserTaskEnvironment task_environment_;
+  base::test::ScopedFeatureList feature_list_;
   device::FakeSerialPortManager port_manager_;
   TestingProfile profile_;
   SerialChooserContext* context_;
@@ -139,10 +182,8 @@ TEST_F(SerialChooserContextTest, GrantAndRevokePersistentPermission) {
 
   const auto origin = url::Origin::Create(GURL("https://google.com"));
 
-  auto port = device::mojom::SerialPortInfo::New();
-  port->token = base::UnguessableToken::Create();
-  port->display_name = "Persistent Port";
-  port->persistent_id = "ABC123";
+  device::mojom::SerialPortInfoPtr port =
+      CreatePersistentPort("Persistent Port", "ABC123");
 
   EXPECT_FALSE(context()->HasPortPermission(origin, origin, *port));
 
@@ -229,10 +270,8 @@ TEST_F(SerialChooserContextTest, EphemeralPermissionRevokedOnDisconnect) {
 TEST_F(SerialChooserContextTest, PersistenceRequiresDisplayName) {
   const auto origin = url::Origin::Create(GURL("https://google.com"));
 
-  auto port = device::mojom::SerialPortInfo::New();
-  port->token = base::UnguessableToken::Create();
-  // port->display_name is left unset.
-  port->persistent_id = "ABC123";
+  device::mojom::SerialPortInfoPtr port =
+      CreatePersistentPort(/*name=*/base::nullopt, "ABC123");
   port_manager().AddPort(port.Clone());
 
   context()->GrantPortPermission(origin, origin, *port);
@@ -269,10 +308,8 @@ TEST_F(SerialChooserContextTest, PersistentPermissionNotRevokedOnDisconnect) {
   const auto origin = url::Origin::Create(GURL("https://google.com"));
   const char persistent_id[] = "ABC123";
 
-  auto port = device::mojom::SerialPortInfo::New();
-  port->token = base::UnguessableToken::Create();
-  port->display_name = "Persistent Port";
-  port->persistent_id = persistent_id;
+  device::mojom::SerialPortInfoPtr port =
+      CreatePersistentPort("Persistent Port", persistent_id);
   port_manager().AddPort(port.Clone());
 
   context()->GrantPortPermission(origin, origin, *port);
@@ -307,9 +344,7 @@ TEST_F(SerialChooserContextTest, PersistentPermissionNotRevokedOnDisconnect) {
 
   // Simulate reconnection of the port. It gets a new token but the same
   // persistent ID. This SerialPortInfo should still match the old permission.
-  port = device::mojom::SerialPortInfo::New();
-  port->token = base::UnguessableToken::Create();
-  port->persistent_id = persistent_id;
+  port = CreatePersistentPort("Persistent Port", persistent_id);
   port_manager().AddPort(port.Clone());
 
   EXPECT_TRUE(context()->HasPortPermission(origin, origin, *port));
@@ -327,7 +362,7 @@ TEST_F(SerialChooserContextTest, GuardPermission) {
   auto* map = HostContentSettingsMapFactory::GetForProfile(profile());
   map->SetContentSettingDefaultScope(origin.GetURL(), origin.GetURL(),
                                      ContentSettingsType::SERIAL_GUARD,
-                                     std::string(), CONTENT_SETTING_BLOCK);
+                                     CONTENT_SETTING_BLOCK);
   EXPECT_FALSE(context()->HasPortPermission(origin, origin, *port));
 
   std::vector<std::unique_ptr<permissions::ChooserContextBase::Object>>
@@ -419,6 +454,36 @@ TEST_F(SerialChooserContextTest, PolicyBlockedForUrls) {
       objects = context()->GetGrantedObjects(kFooOrigin, kFooOrigin);
   EXPECT_EQ(0u, objects.size());
   objects = context()->GetGrantedObjects(kBarOrigin, kBarOrigin);
+  EXPECT_EQ(1u, objects.size());
+
+  std::vector<std::unique_ptr<permissions::ChooserContextBase::Object>>
+      all_origin_objects = context()->GetAllGrantedObjects();
+  EXPECT_EQ(1u, all_origin_objects.size());
+}
+
+TEST_F(SerialChooserContextTest, Blocklist) {
+  const auto origin = url::Origin::Create(GURL("https://google.com"));
+
+  auto port = device::mojom::SerialPortInfo::New();
+  port->token = base::UnguessableToken::Create();
+  port->has_vendor_id = true;
+  port->vendor_id = 0x18D1;
+  port->has_product_id = true;
+  port->product_id = 0x58F0;
+  context()->GrantPortPermission(origin, origin, *port);
+  EXPECT_TRUE(context()->HasPortPermission(origin, origin, *port));
+
+  // Adding a USB device to the blocklist overrides any previously granted
+  // permissions.
+  SetDynamicBlocklist("usb:18D1:58F0");
+  EXPECT_FALSE(context()->HasPortPermission(origin, origin, *port));
+
+  // The lists of granted permissions will still include the entry because
+  // permission storage does not include the USB vendor and product IDs on all
+  // platforms and users should still be made aware of permissions they've
+  // granted even if they are being blocked from taking effect.
+  std::vector<std::unique_ptr<permissions::ChooserContextBase::Object>>
+      objects = context()->GetGrantedObjects(origin, origin);
   EXPECT_EQ(1u, objects.size());
 
   std::vector<std::unique_ptr<permissions::ChooserContextBase::Object>>

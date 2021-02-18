@@ -12,10 +12,12 @@ std::unique_ptr<NearbyShareContactManager>
 FakeNearbyShareContactManager::Factory::CreateInstance(
     PrefService* pref_service,
     NearbyShareClientFactory* http_client_factory,
-    NearbyShareLocalDeviceDataManager* local_device_data_manager) {
+    NearbyShareLocalDeviceDataManager* local_device_data_manager,
+    const std::string& profile_user_name) {
   latest_pref_service_ = pref_service;
   latest_http_client_factory_ = http_client_factory;
   latest_local_device_data_manager_ = local_device_data_manager;
+  latest_profile_user_name_ = profile_user_name;
 
   auto instance = std::make_unique<FakeNearbyShareContactManager>();
   instances_.push_back(instance.get());
@@ -27,9 +29,8 @@ FakeNearbyShareContactManager::FakeNearbyShareContactManager() = default;
 
 FakeNearbyShareContactManager::~FakeNearbyShareContactManager() = default;
 
-void FakeNearbyShareContactManager::DownloadContacts(
-    bool only_download_if_changed) {
-  download_contacts_calls_.push_back(only_download_if_changed);
+void FakeNearbyShareContactManager::DownloadContacts() {
+  ++num_download_contacts_calls_;
 }
 
 void FakeNearbyShareContactManager::SetAllowedContacts(
@@ -40,3 +41,10 @@ void FakeNearbyShareContactManager::SetAllowedContacts(
 void FakeNearbyShareContactManager::OnStart() {}
 
 void FakeNearbyShareContactManager::OnStop() {}
+
+void FakeNearbyShareContactManager::Bind(
+    mojo::PendingReceiver<nearby_share::mojom::ContactManager> receiver) {}
+
+void FakeNearbyShareContactManager::AddDownloadContactsObserver(
+    ::mojo::PendingRemote<nearby_share::mojom::DownloadContactsObserver>
+        observer) {}

@@ -12,8 +12,8 @@
 #include <string>
 #include <vector>
 
+#include "ash/public/cpp/tablet_mode_observer.h"
 #include "base/compiler_specific.h"
-#include "base/files/file_path_watcher.h"
 #include "base/macros.h"
 #include "base/optional.h"
 #include "chrome/browser/chromeos/drive/drive_integration_service.h"
@@ -30,6 +30,7 @@
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/intent_helper/arc_intent_helper_observer.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "extensions/browser/extension_registry_observer.h"
 #include "services/network/public/cpp/network_connection_tracker.h"
 #include "storage/browser/file_system/file_system_operation.h"
 
@@ -45,16 +46,18 @@ namespace file_manager {
 class EventRouter
     : public KeyedService,
       public network::NetworkConnectionTracker::NetworkConnectionObserver,
+      public extensions::ExtensionRegistryObserver,
       public chromeos::system::TimezoneSettings::Observer,
       public VolumeManagerObserver,
       public arc::ArcIntentHelperObserver,
       public drive::DriveIntegrationServiceObserver,
-      public guest_os::GuestOsSharePath::Observer {
+      public guest_os::GuestOsSharePath::Observer,
+      public ash::TabletModeObserver {
  public:
-  typedef base::Callback<void(const base::FilePath& virtual_path,
-                              bool got_error,
-                              const std::vector<std::string>& extension_ids)>
-      DispatchDirectoryChangeEventImplCallback;
+  using DispatchDirectoryChangeEventImplCallback = base::RepeatingCallback<void(
+      const base::FilePath& virtual_path,
+      bool got_error,
+      const std::vector<std::string>& extension_ids)>;
 
   explicit EventRouter(Profile* profile);
   ~EventRouter() override;
@@ -109,6 +112,13 @@ class EventRouter
   // network::NetworkConnectionTracker::NetworkConnectionObserver overrides.
   void OnConnectionChanged(network::mojom::ConnectionType type) override;
 
+  // extensions::ExtensionRegistryObserver overrides
+  void OnExtensionLoaded(content::BrowserContext* browser_context,
+                         const extensions::Extension* extension) override;
+  void OnExtensionUnloaded(content::BrowserContext* browser_context,
+                           const extensions::Extension* extension,
+                           extensions::UnloadedExtensionReason reason) override;
+
   // chromeos::system::TimezoneSettings::Observer overrides.
   void TimezoneChanged(const icu::TimeZone& timezone) override;
 
@@ -127,6 +137,12 @@ class EventRouter
   void OnFormatCompleted(const std::string& device_path,
                          const std::string& device_label,
                          bool success) override;
+  void OnPartitionStarted(const std::string& device_path,
+                          const std::string& device_label,
+                          bool success) override;
+  void OnPartitionCompleted(const std::string& device_path,
+                            const std::string& device_label,
+                            bool success) override;
   void OnRenameStarted(const std::string& device_path,
                        const std::string& device_label,
                        bool success) override;
@@ -140,9 +156,20 @@ class EventRouter
   // DriveIntegrationServiceObserver override.
   void OnFileSystemMountFailed() override;
 
-  // guest_os::GuestOsSharePath::Observer overrides
+  // guest_os::GuestOsSharePath::Observer overrides.
   void OnUnshare(const std::string& vm_name,
                  const base::FilePath& path) override;
+
+  // ash:TabletModeObserver overrides.
+  void OnTabletModeStarted() override;
+  void OnTabletModeEnded() override;
+
+  // Notifies FilesApp that file drop to Plugin VM was not in a shared directory
+  // and failed FilesApp will show the "Move to Windows files" dialog.
+  void DropFailedPluginVmDirectoryNotShared();
+
+  // Called by the UI to notify the result of a displayed dialog.
+  void OnDriveDialogResult(drivefs::mojom::DialogResult result);
 
   // Returns a weak pointer for the event router.
   base::WeakPtr<EventRouter> GetWeakPtr();
@@ -199,6 +226,12 @@ class EventRouter
       const std::string& pref_name,
       extensions::api::file_manager_private::CrostiniEventType pref_true,
       extensions::api::file_manager_private::CrostiniEventType pref_false);
+
+  void NotifyDriveConnectionStatusChanged();
+
+  void DisplayDriveConfirmDialog(
+      const drivefs::mojom::DialogReason& reason,
+      base::OnceCallback<void(drivefs::mojom::DialogResult)> callback);
 
   base::Time last_copy_progress_event_;
 

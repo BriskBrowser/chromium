@@ -22,7 +22,7 @@ void FakeRemoteFrame::Init(blink::AssociatedInterfaceProvider* provider) {
 void FakeRemoteFrame::WillEnterFullscreen(blink::mojom::FullscreenOptionsPtr) {}
 
 void FakeRemoteFrame::AddReplicatedContentSecurityPolicies(
-    std::vector<network::mojom::ContentSecurityPolicyHeaderPtr> headers) {}
+    std::vector<network::mojom::ContentSecurityPolicyPtr> csps) {}
 
 void FakeRemoteFrame::ResetReplicatedContentSecurityPolicy() {}
 
@@ -92,5 +92,17 @@ void FakeRemoteFrame::FakeRemoteFrame::BindFrameHostReceiver(
   receiver_.Bind(mojo::PendingAssociatedReceiver<blink::mojom::RemoteFrame>(
       std::move(handle)));
 }
+
+void FakeRemoteFrame::DetachAndDispose() {}
+
+void FakeRemoteFrame::EnableAutoResize(const gfx::Size& min_size,
+                                       const gfx::Size& max_size) {}
+
+void FakeRemoteFrame::DisableAutoResize() {}
+
+void FakeRemoteFrame::DidUpdateVisualProperties(
+    const cc::RenderFrameMetadata& metadata) {}
+
+void FakeRemoteFrame::SetFrameSinkId(const viz::FrameSinkId& frame_sink_id) {}
 
 }  // namespace content

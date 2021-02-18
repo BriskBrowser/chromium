@@ -8,14 +8,16 @@
 #include "base/metrics/metrics_hashes.h"
 #include "base/metrics/statistics_recorder.h"
 #include "base/no_destructor.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "components/metrics/log_decoder.h"
 #include "components/metrics/metrics_log_uploader.h"
+#include "components/metrics/metrics_service.h"
 #include "components/metrics/metrics_switches.h"
 #include "content/public/test/browser_test_utils.h"
 #include "third_party/metrics_proto/chrome_user_metrics_extension.pb.h"
 #include "weblayer/browser/android/metrics/metrics_test_helper.h"
 #include "weblayer/browser/android/metrics/weblayer_metrics_service_client.h"
+#include "weblayer/browser/browser_list.h"
 #include "weblayer/browser/profile_impl.h"
 #include "weblayer/public/navigation_controller.h"
 #include "weblayer/public/profile.h"
@@ -46,7 +48,7 @@ class MetricsBrowserTest : public WebLayerBrowserTest {
     base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
     command_line->AppendSwitch(metrics::switches::kForceEnableMetricsReporting);
 
-    InstallTestGmsBridge(HasUserConsent(),
+    InstallTestGmsBridge(GetConsentType(),
                          base::BindRepeating(&MetricsBrowserTest::OnLogMetrics,
                                              base::Unretained(this)));
     WebLayerMetricsServiceClient::GetInstance()->SetFastStartupForTesting(true);
@@ -80,7 +82,7 @@ class MetricsBrowserTest : public WebLayerBrowserTest {
 
   size_t GetNumLogs() const { return metrics_logs_.size(); }
 
-  virtual bool HasUserConsent() { return true; }
+  virtual ConsentType GetConsentType() { return ConsentType::kConsent; }
 
  private:
   std::unique_ptr<Profile> profile_;
@@ -101,6 +103,8 @@ IN_PROC_BROWSER_TEST_F(MetricsBrowserTest, ProtoHasExpectedFields) {
   EXPECT_TRUE(system_profile.has_channel());
   EXPECT_TRUE(system_profile.has_install_date());
   EXPECT_TRUE(system_profile.has_application_locale());
+  EXPECT_TRUE(system_profile.has_low_entropy_source());
+  EXPECT_TRUE(system_profile.has_old_low_entropy_source());
   EXPECT_EQ("Android", system_profile.os().name());
   EXPECT_TRUE(system_profile.os().has_version());
   EXPECT_TRUE(system_profile.hardware().has_system_ram_mb());
@@ -197,12 +201,30 @@ IN_PROC_BROWSER_TEST_F(MetricsBrowserTest, RendererHistograms) {
 }
 
 class MetricsBrowserTestWithUserOptOut : public MetricsBrowserTest {
-  bool HasUserConsent() override { return false; }
+  ConsentType GetConsentType() override { return ConsentType::kNoConsent; }
 };
 
 IN_PROC_BROWSER_TEST_F(MetricsBrowserTestWithUserOptOut, MetricsNotRecorded) {
   base::RunLoop().RunUntilIdle();
   ASSERT_EQ(0u, GetNumLogs());
+}
+
+class MetricsBrowserTestWithConfigurableConsent : public MetricsBrowserTest {
+  ConsentType GetConsentType() override { return ConsentType::kDelayConsent; }
+};
+
+IN_PROC_BROWSER_TEST_F(MetricsBrowserTestWithConfigurableConsent,
+                       IsInForegroundWhenConsentGiven) {
+  // There should be at least one browser which is resumed. This is the trigger
+  // for whether the MetricsService is considered in the foreground.
+  EXPECT_TRUE(BrowserList::GetInstance()->HasAtLeastOneResumedBrowser());
+  RunConsentCallback(true);
+  // RunConsentCallback() should trigger the MetricsService to start.
+  EXPECT_TRUE(WebLayerMetricsServiceClient::GetInstance()
+                  ->GetMetricsServiceIfStarted());
+  EXPECT_TRUE(WebLayerMetricsServiceClient::GetInstance()
+                  ->GetMetricsService()
+                  ->IsInForegroundForTesting());
 }
 
 }  // namespace weblayer

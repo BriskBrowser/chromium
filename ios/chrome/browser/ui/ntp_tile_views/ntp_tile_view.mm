@@ -23,6 +23,13 @@ const CGFloat kPreferredMaxWidth = 73;
 
 }  // namespace
 
+@interface NTPTileView ()
+// Hold onto the created interaction for pointer support so it can be removed
+// when the view goes away.
+@property(nonatomic, strong)
+    UIPointerInteraction* pointerInteraction API_AVAILABLE(ios(13.4));
+@end
+
 @implementation NTPTileView
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -68,8 +75,21 @@ const CGFloat kPreferredMaxWidth = 73;
         @{ @"space" : @(kSpaceIconTitle) });
 
     _imageBackgroundView = backgroundView;
+
+    if (@available(iOS 13.4, *)) {
+      _pointerInteraction =
+          [[UIPointerInteraction alloc] initWithDelegate:self];
+      [self addInteraction:self.pointerInteraction];
+    }
   }
   return self;
+}
+
+- (void)dealloc {
+  if (@available(iOS 13.4, *)) {
+    [self removeInteraction:self.pointerInteraction];
+    self.pointerInteraction = nil;
+  }
 }
 
 // Returns the font size for the location label.
@@ -88,6 +108,33 @@ const CGFloat kPreferredMaxWidth = 73;
       self.traitCollection.preferredContentSizeCategory) {
     self.titleLabel.font = [self titleLabelFont];
   }
+}
+
+#pragma mark - UIPointerInteractionDelegate
+
+- (UIPointerRegion*)pointerInteraction:(UIPointerInteraction*)interaction
+                      regionForRequest:(UIPointerRegionRequest*)request
+                         defaultRegion:(UIPointerRegion*)defaultRegion
+    API_AVAILABLE(ios(13.4)) {
+  return defaultRegion;
+}
+
+- (UIPointerStyle*)pointerInteraction:(UIPointerInteraction*)interaction
+                       styleForRegion:(UIPointerRegion*)region
+    API_AVAILABLE(ios(13.4)) {
+  // The preview APIs require the view to be in a window. Ensure they are before
+  // proceeding.
+  if (!self.window)
+    return nil;
+
+  UITargetedPreview* preview =
+      [[UITargetedPreview alloc] initWithView:_imageContainerView];
+  UIPointerHighlightEffect* effect =
+      [UIPointerHighlightEffect effectWithPreview:preview];
+  UIPointerShape* shape =
+      [UIPointerShape shapeWithRoundedRect:_imageContainerView.frame
+                              cornerRadius:8.0];
+  return [UIPointerStyle styleWithEffect:effect shape:shape];
 }
 
 @end

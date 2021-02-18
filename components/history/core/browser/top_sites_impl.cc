@@ -10,7 +10,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/check.h"
 #include "base/hash/md5.h"
 #include "base/location.h"
@@ -214,7 +214,7 @@ void TopSitesImpl::OnNavigationCommitted(const GURL& url) {
 
 void TopSitesImpl::ShutdownOnUIThread() {
   history_service_ = nullptr;
-  history_service_observer_.RemoveAll();
+  history_service_observation_.Reset();
   // Cancel all requests so that the service doesn't callback to us after we've
   // invoked Shutdown (this could happen if we have a pending request and
   // Shutdown is invoked).
@@ -398,7 +398,7 @@ void TopSitesImpl::MoveStateToLoaded() {
     std::move(callback).Run(urls);
 
   if (history_service_)
-    history_service_observer_.Add(history_service_);
+    history_service_observation_.Observe(history_service_);
 
   NotifyTopSitesLoaded();
 }

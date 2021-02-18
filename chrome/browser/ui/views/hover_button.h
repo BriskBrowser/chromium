@@ -7,10 +7,11 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/optional.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/strings/string16.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/menu_button.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 
 namespace gfx {
 class ImageSkia;
@@ -22,7 +23,6 @@ FORWARD_DECLARE_TEST(CastDialogSinkButtonTest, SetStatusLabel);
 }  // namespace media_router
 
 namespace views {
-class ButtonListener;
 class Label;
 class StyledLabel;
 class View;
@@ -34,14 +34,15 @@ class PageInfoBubbleViewBrowserTest;
 // when hovered over.
 class HoverButton : public views::LabelButton {
  public:
+  METADATA_HEADER(HoverButton);
+
   enum Style { STYLE_PROMINENT, STYLE_ERROR };
 
   // Creates a single line hover button with no icon.
-  HoverButton(views::ButtonListener* button_listener,
-              const base::string16& text);
+  HoverButton(PressedCallback callback, const base::string16& text);
 
   // Creates a single line hover button with an icon.
-  HoverButton(views::ButtonListener* button_listener,
+  HoverButton(PressedCallback callback,
               const gfx::ImageSkia& icon,
               const base::string16& text);
 
@@ -52,7 +53,7 @@ class HoverButton : public views::LabelButton {
   // When |resize_row_for_secondary_icon| is false, the button tries to
   // accommodate the view's preferred size by reducing the top and bottom
   // insets appropriately up to a value of 0.
-  HoverButton(views::ButtonListener* button_listener,
+  HoverButton(PressedCallback callback,
               std::unique_ptr<views::View> icon_view,
               const base::string16& title,
               const base::string16& subtitle = base::string16(),
@@ -60,6 +61,8 @@ class HoverButton : public views::LabelButton {
               bool resize_row_for_secondary_view = true,
               bool secondary_view_can_process_events = false);
 
+  HoverButton(const HoverButton&) = delete;
+  HoverButton& operator=(const HoverButton&) = delete;
   ~HoverButton() override;
 
   static SkColor GetInkDropColor(const views::View* view);
@@ -109,9 +112,8 @@ class HoverButton : public views::LabelButton {
   views::View* icon_view_ = nullptr;
   views::View* secondary_view_ = nullptr;
 
-  ScopedObserver<views::View, views::ViewObserver> observed_label_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(HoverButton);
+  base::ScopedObservation<views::View, views::ViewObserver> label_observation_{
+      this};
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_HOVER_BUTTON_H_

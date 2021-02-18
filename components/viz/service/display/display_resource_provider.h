@@ -67,12 +67,6 @@ class VIZ_SERVICE_EXPORT DisplayResourceProvider
     kGpu,
     kSoftware,
   };
-  // TODO(cblume, crbug.com/900973): |enable_shared_images| is a temporary
-  // solution that unblocks us until SharedImages are threadsafe in WebView.
-  DisplayResourceProvider(Mode mode,
-                          ContextProvider* compositor_context_provider,
-                          SharedBitmapManager* shared_bitmap_manager,
-                          bool enable_shared_images = true);
   ~DisplayResourceProvider() override;
 
   DisplayResourceProvider(const DisplayResourceProvider&) = delete;
@@ -105,7 +99,6 @@ class VIZ_SERVICE_EXPORT DisplayResourceProvider
   bool DoAnyResourcesWantPromotionHints() const;
 
   bool IsResourceSoftwareBacked(ResourceId id);
-  GLenum GetResourceTextureTarget(ResourceId id);
   // Return the format of the underlying buffer that can be used for scanout.
   gfx::BufferFormat GetBufferFormat(ResourceId id);
   ResourceFormat GetResourceFormat(ResourceId id);
@@ -113,105 +106,14 @@ class VIZ_SERVICE_EXPORT DisplayResourceProvider
   // Indicates if this resource may be used for a hardware overlay plane.
   bool IsOverlayCandidate(ResourceId id);
 
-  void WaitSyncToken(ResourceId id);
-
   // Checks whether a resource is in use.
   bool InUse(ResourceId id);
 
   // The following lock classes are part of the DisplayResourceProvider API and
   // are needed to read the resource contents. The user must ensure that they
   // only use GL locks on GL resources, etc, and this is enforced by assertions.
-  class VIZ_SERVICE_EXPORT ScopedReadLockGL {
-   public:
-    ScopedReadLockGL(DisplayResourceProvider* resource_provider,
-                     ResourceId resource_id);
-    ~ScopedReadLockGL();
 
-    ScopedReadLockGL(const ScopedReadLockGL&) = delete;
-    ScopedReadLockGL& operator=(const ScopedReadLockGL&) = delete;
-
-    GLuint texture_id() const { return texture_id_; }
-    GLenum target() const { return target_; }
-    const gfx::Size& size() const { return size_; }
-    const gfx::ColorSpace& color_space() const { return color_space_; }
-
-   private:
-    DisplayResourceProvider* const resource_provider_;
-    const ResourceId resource_id_;
-
-    GLuint texture_id_ = 0;
-    GLenum target_ = GL_TEXTURE_2D;
-    gfx::Size size_;
-    gfx::ColorSpace color_space_;
-  };
-
-  class VIZ_SERVICE_EXPORT ScopedOverlayLockGL {
-   public:
-    ScopedOverlayLockGL(DisplayResourceProvider* resource_provider,
-                        ResourceId resource_id);
-    ~ScopedOverlayLockGL();
-
-    ScopedOverlayLockGL(const ScopedOverlayLockGL&) = delete;
-    ScopedOverlayLockGL& operator=(const ScopedOverlayLockGL&) = delete;
-
-    GLuint texture_id() const { return texture_id_; }
-
-   private:
-    DisplayResourceProvider* const resource_provider_;
-    const ResourceId resource_id_;
-    GLuint texture_id_ = 0;
-  };
-
-  class VIZ_SERVICE_EXPORT ScopedSamplerGL {
-   public:
-    ScopedSamplerGL(DisplayResourceProvider* resource_provider,
-                    ResourceId resource_id,
-                    GLenum filter);
-    ScopedSamplerGL(DisplayResourceProvider* resource_provider,
-                    ResourceId resource_id,
-                    GLenum unit,
-                    GLenum filter);
-    ~ScopedSamplerGL();
-
-    ScopedSamplerGL(const ScopedSamplerGL&) = delete;
-    ScopedSamplerGL& operator=(const ScopedSamplerGL&) = delete;
-
-    GLuint texture_id() const { return resource_lock_.texture_id(); }
-    GLenum target() const { return target_; }
-    const gfx::ColorSpace& color_space() const {
-      return resource_lock_.color_space();
-    }
-
-   private:
-    const ScopedReadLockGL resource_lock_;
-    const GLenum unit_;
-    const GLenum target_;
-  };
-
-  class VIZ_SERVICE_EXPORT ScopedReadLockSkImage {
-   public:
-    ScopedReadLockSkImage(DisplayResourceProvider* resource_provider,
-                          ResourceId resource_id,
-                          SkAlphaType alpha_type = kPremul_SkAlphaType,
-                          GrSurfaceOrigin origin = kTopLeft_GrSurfaceOrigin);
-    ~ScopedReadLockSkImage();
-
-    ScopedReadLockSkImage(const ScopedReadLockSkImage&) = delete;
-    ScopedReadLockSkImage& operator=(const ScopedReadLockSkImage& other) =
-        delete;
-
-    const SkImage* sk_image() const { return sk_image_.get(); }
-    sk_sp<SkImage> TakeSkImage() { return std::move(sk_image_); }
-
-    bool valid() const { return !!sk_image_; }
-
-   private:
-    DisplayResourceProvider* const resource_provider_;
-    const ResourceId resource_id_;
-    sk_sp<SkImage> sk_image_;
-  };
-
- private:
+ protected:
   // Forward declared for LockSetForExternalUse below.
   struct ChildResource;
 
@@ -237,41 +139,11 @@ class VIZ_SERVICE_EXPORT DisplayResourceProvider
     }
 
    private:
-    DisplayResourceProvider* resource_provider_;
-    ResourceId resource_id_;
-    ChildResource* resource_;
-  };
+    void Reset();
 
-  // Maintains set of resources locked for external use by SkiaRenderer.
-  class VIZ_SERVICE_EXPORT LockSetForExternalUse {
-   public:
-    // There should be at most one instance of this class per
-    // |resource_provider|. Both |resource_provider| and |client| outlive this
-    // class.
-    LockSetForExternalUse(DisplayResourceProvider* resource_provider,
-                          ExternalUseClient* client);
-    ~LockSetForExternalUse();
-
-    LockSetForExternalUse(const LockSetForExternalUse&) = delete;
-    LockSetForExternalUse& operator=(const LockSetForExternalUse& other) =
-        delete;
-
-    // Lock a resource for external use. The return value was created by
-    // |client| at some point in the past. The resource color space will be set
-    // on the SkImage if |use_skia_color_conversion| is true.
-    ExternalUseClient::ImageContext* LockResource(
-        ResourceId resource_id,
-        bool use_skia_color_conversion);
-
-    // Unlock all locked resources with a |sync_token|.  The |sync_token| should
-    // be waited on before reusing the resource's backing to ensure that any
-    // external use of it is completed. This |sync_token| should have been
-    // verified.  All resources must be unlocked before destroying this class.
-    void UnlockResources(const gpu::SyncToken& sync_token);
-
-   private:
-    DisplayResourceProvider* const resource_provider_;
-    std::vector<std::pair<ResourceId, ChildResource*>> resources_;
+    DisplayResourceProvider* resource_provider_ = nullptr;
+    ResourceId resource_id_ = kInvalidResourceId;
+    ChildResource* resource_ = nullptr;
   };
 
   // All resources that are returned to children while an instance of this
@@ -319,7 +191,7 @@ class VIZ_SERVICE_EXPORT DisplayResourceProvider
   }
 
   // Creates accounting for a child. Returns a child ID.
-  int CreateChild(const ReturnCallback& return_callback);
+  int CreateChild(ReturnCallback return_callback);
 
   // Destroys accounting for the child, deleting all accounted resources.
   void DestroyChild(int child);
@@ -354,8 +226,11 @@ class VIZ_SERVICE_EXPORT DisplayResourceProvider
   // WebView it happens only when Android calls us on RenderThread.
   void SetAllowAccessToGPUThread(bool allow);
 
- private:
+ protected:
   friend class ScopedAllowGpuAccessForDisplayResourceProvider;
+
+  enum class CanDeleteNowResult { kYes, kYesButLoseResource, kNo };
+
   enum DeleteStyle {
     NORMAL,
     FOR_SHUTDOWN,
@@ -392,7 +267,8 @@ class VIZ_SERVICE_EXPORT DisplayResourceProvider
 
   struct Child {
     Child();
-    Child(const Child& other);
+    Child(Child&& other);
+    Child& operator=(Child&& other);
     ~Child();
 
     std::unordered_map<ResourceId, ResourceId> child_to_parent_map;
@@ -497,7 +373,13 @@ class VIZ_SERVICE_EXPORT DisplayResourceProvider
   using ChildMap = std::unordered_map<int, Child>;
   using ResourceMap = std::unordered_map<ResourceId, ChildResource>;
 
-  ChildResource* InsertResource(ResourceId id, ChildResource resource);
+  // TODO(cblume, crbug.com/900973): |enable_shared_images| is a temporary
+  // solution that unblocks us until SharedImages are threadsafe in WebView.
+  DisplayResourceProvider(Mode mode,
+                          ContextProvider* compositor_context_provider,
+                          SharedBitmapManager* shared_bitmap_manager,
+                          bool enable_shared_images = true);
+
   ChildResource* GetResource(ResourceId id);
 
   // TODO(ericrk): TryGetResource is part of a temporary workaround for cases
@@ -505,33 +387,32 @@ class VIZ_SERVICE_EXPORT DisplayResourceProvider
   // return nullptr if a resource is not found. https://crbug.com/811858
   ChildResource* TryGetResource(ResourceId id);
 
-  void PopulateSkBitmapWithResource(SkBitmap* sk_bitmap,
-                                    const ChildResource* resource);
-
-  void DeleteResourceInternal(ResourceMap::iterator it, DeleteStyle style);
-
-  void WaitSyncTokenInternal(ChildResource* resource);
+  void DeleteResourceInternal(ResourceMap::iterator it);
 
   // Returns null if we do not have a ContextProvider.
   gpu::gles2::GLES2Interface* ContextGL() const;
-
-  const ChildResource* LockForRead(ResourceId id, bool overlay_only);
-  void UnlockForRead(ResourceId id, bool overlay_only);
 
   void TryReleaseResource(ResourceId id, ChildResource* resource);
   // Binds the given GL resource to a texture target for sampling using the
   // specified filter for both minification and magnification. Returns the
   // texture target used. The resource must be locked for reading.
-  GLenum BindForSampling(ResourceId resource_id, GLenum unit, GLenum filter);
   bool ReadLockFenceHasPassed(const ChildResource* resource);
 #if defined(OS_ANDROID)
-  void DeletePromotionHint(ResourceMap::iterator it, DeleteStyle style);
+  void DeletePromotionHint(ResourceMap::iterator it);
 #endif
 
   void DeleteAndReturnUnusedResourcesToChild(
       ChildMap::iterator child_it,
       DeleteStyle style,
       const std::vector<ResourceId>& unused);
+  std::vector<ReturnedResource> DeleteAndReturnUnusedResourcesToChildImpl(
+      Child& child_info,
+      DeleteStyle style,
+      const std::vector<ResourceId>& unused);
+  CanDeleteNowResult CanDeleteNow(const Child& child_info,
+                                  const ChildResource& resource,
+                                  DeleteStyle style);
+
   void DestroyChildInternal(ChildMap::iterator it, DeleteStyle style);
 
   void SetBatchReturnResources(bool aggregate);

@@ -98,7 +98,7 @@ bool BuildResizedImageFamily(const gfx::ImageFamily& image_family,
 // |bitmaps| must be an empty vector, and not NULL.
 // Returns true on success, false on failure. This fails if any image in
 // |image_family| is not a 32-bit ARGB image, or is otherwise invalid.
-bool ConvertImageFamilyToBitmaps(
+void ConvertImageFamilyToBitmaps(
     const gfx::ImageFamily& image_family,
     std::vector<SkBitmap>* bitmaps,
     scoped_refptr<base::RefCountedMemory>* png_bytes) {
@@ -116,13 +116,8 @@ bool ConvertImageFamilyToBitmaps(
     DCHECK_LE(image.Height(), IconUtil::kLargeIconSize);
 
     SkBitmap bitmap = image.AsBitmap();
-
-    // Only 32 bit ARGB bitmaps are supported. We also make sure the bitmap has
-    // been properly initialized.
-    if ((bitmap.colorType() != kN32_SkColorType) ||
-        (bitmap.getPixels() == NULL)) {
-      return false;
-    }
+    CHECK_EQ(bitmap.colorType(), kN32_SkColorType);
+    CHECK(!bitmap.isNull());
 
     // Special case: Icons exactly 256x256 are stored in PNG format.
     if (image.Width() == IconUtil::kLargeIconSize &&
@@ -132,8 +127,6 @@ bool ConvertImageFamilyToBitmaps(
       bitmaps->push_back(bitmap);
     }
   }
-
-  return true;
 }
 
 }  // namespace
@@ -329,9 +322,8 @@ base::win::ScopedHICON IconUtil::CreateCursorFromSkBitmap(
   }
 
   BITMAPINFO icon_bitmap_info = {};
-  skia::CreateBitmapHeader(
-      bitmap.width(), bitmap.height(),
-      reinterpret_cast<BITMAPINFOHEADER*>(&icon_bitmap_info));
+  skia::CreateBitmapHeaderForN32SkBitmap(
+      bitmap, reinterpret_cast<BITMAPINFOHEADER*>(&icon_bitmap_info));
 
   base::win::ScopedGetDC dc(NULL);
   base::win::ScopedCreateDC working_dc(CreateCompatibleDC(dc));
@@ -466,8 +458,7 @@ bool IconUtil::CreateIconFileFromImageFamily(
 
   std::vector<SkBitmap> bitmaps;
   scoped_refptr<base::RefCountedMemory> png_bytes;
-  if (!ConvertImageFamilyToBitmaps(resized_image_family, &bitmaps, &png_bytes))
-    return false;
+  ConvertImageFamilyToBitmaps(resized_image_family, &bitmaps, &png_bytes);
 
   // Guaranteed true because BuildResizedImageFamily will provide at least one
   // image < 256x256.

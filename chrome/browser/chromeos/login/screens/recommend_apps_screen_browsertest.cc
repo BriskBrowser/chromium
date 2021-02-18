@@ -32,7 +32,6 @@
 #include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
 #include "chrome/browser/ui/webui/chromeos/login/recommend_apps_screen_handler.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "components/account_id/account_id.h"
 #include "components/arc/arc_prefs.h"
 #include "components/prefs/pref_service.h"
@@ -64,11 +63,11 @@ struct FakeAppInfo {
   const std::string name;
 };
 
-class FakeRecommendAppsFetcher : public RecommendAppsFetcher {
+class StubRecommendAppsFetcher : public RecommendAppsFetcher {
  public:
-  explicit FakeRecommendAppsFetcher(RecommendAppsFetcherDelegate* delegate)
+  explicit StubRecommendAppsFetcher(RecommendAppsFetcherDelegate* delegate)
       : delegate_(delegate) {}
-  ~FakeRecommendAppsFetcher() override = default;
+  ~StubRecommendAppsFetcher() override = default;
 
   bool started() const { return started_; }
   int retries() const { return retries_; }
@@ -112,11 +111,7 @@ class FakeRecommendAppsFetcher : public RecommendAppsFetcher {
 
 class RecommendAppsScreenTest : public OobeBaseTest {
  public:
-  RecommendAppsScreenTest() {
-    // To reuse existing wizard controller in the flow.
-    feature_list_.InitAndEnableFeature(
-        chromeos::features::kOobeScreensPriority);
-  }
+  RecommendAppsScreenTest() = default;
   ~RecommendAppsScreenTest() override = default;
 
   // OobeBaseTest:
@@ -128,8 +123,8 @@ class RecommendAppsScreenTest : public OobeBaseTest {
                 &RecommendAppsScreenTest::CreateRecommendAppsFetcher,
                 base::Unretained(this)));
 
-    recommend_apps_screen_ = RecommendAppsScreen::Get(
-        WizardController::default_controller()->screen_manager());
+    recommend_apps_screen_ = WizardController::default_controller()
+                                 ->GetScreen<RecommendAppsScreen>();
     recommend_apps_screen_->set_exit_callback_for_testing(base::BindRepeating(
         &RecommendAppsScreenTest::HandleScreenExit, base::Unretained(this)));
   }
@@ -228,7 +223,7 @@ class RecommendAppsScreenTest : public OobeBaseTest {
 
   RecommendAppsScreen* recommend_apps_screen_;
   base::Optional<RecommendAppsScreen::Result> screen_result_;
-  FakeRecommendAppsFetcher* recommend_apps_fetcher_ = nullptr;
+  StubRecommendAppsFetcher* recommend_apps_fetcher_ = nullptr;
 
   LoginManagerMixin login_manager_{&mixin_host_};
 
@@ -245,7 +240,7 @@ class RecommendAppsScreenTest : public OobeBaseTest {
     EXPECT_EQ(delegate, recommend_apps_screen_);
     EXPECT_FALSE(recommend_apps_fetcher_);
 
-    auto fetcher = std::make_unique<FakeRecommendAppsFetcher>(delegate);
+    auto fetcher = std::make_unique<StubRecommendAppsFetcher>(delegate);
     recommend_apps_fetcher_ = fetcher.get();
     return fetcher;
   }
@@ -254,8 +249,6 @@ class RecommendAppsScreenTest : public OobeBaseTest {
       recommend_apps_fetcher_factory_;
 
   base::OnceClosure screen_exit_callback_;
-
-  base::test::ScopedFeatureList feature_list_;
 };
 
 IN_PROC_BROWSER_TEST_F(RecommendAppsScreenTest, BasicSelection) {
@@ -558,6 +551,10 @@ class RecommendAppsScreenManagedTest : public RecommendAppsScreenTest {
 };
 
 IN_PROC_BROWSER_TEST_F(RecommendAppsScreenManagedTest, SkipDueToManagedUser) {
+  // Force the sync screen to be shown so that OOBE isn't destroyed
+  // right after login due to all screens being skipped.
+  auto autoreset = WizardController::ForceBrandedBuildForTesting(true);
+
   // Mark user as managed.
   user_policy_mixin_.RequestPolicyUpdate();
 

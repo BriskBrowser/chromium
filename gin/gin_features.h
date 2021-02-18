@@ -19,6 +19,11 @@ GIN_EXPORT extern const base::Feature kV8PerContextMarkingWorklist;
 GIN_EXPORT extern const base::Feature kV8FlushEmbeddedBlobICache;
 GIN_EXPORT extern const base::Feature kV8ReduceConcurrentMarkingTasks;
 GIN_EXPORT extern const base::Feature kV8NoReclaimUnmodifiedWrappers;
+GIN_EXPORT extern const base::Feature kV8LocalHeaps;
+GIN_EXPORT extern const base::Feature kV8TurboDirectHeapAccess;
+GIN_EXPORT extern const base::Feature kV8ExperimentalRegexpEngine;
+GIN_EXPORT extern const base::Feature kV8TurboFastApiCalls;
+GIN_EXPORT extern const base::Feature kV8Turboprop;
 
 }  // namespace features
 

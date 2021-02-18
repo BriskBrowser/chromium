@@ -30,8 +30,6 @@
 #include "third_party/blink/public/web/web_print_params.h"
 #include "ui/gfx/geometry/size.h"
 
-struct PrintMsg_PrintPages_Params;
-
 // RenderViewTest-based tests crash on Android
 // http://crbug.com/187500
 #if defined(OS_ANDROID)
@@ -50,7 +48,6 @@ class DictionaryValue;
 
 namespace blink {
 class WebLocalFrame;
-class WebScopedPagePauser;
 class WebView;
 }  // namespace blink
 
@@ -190,6 +187,7 @@ class PrintRenderFrameHelper
     PREVIEW_ERROR_PAGE_RENDERED_WITHOUT_METAFILE_DEPRECATED = 6,
     PREVIEW_ERROR_INVALID_PRINTER_SETTINGS = 7,
     PREVIEW_ERROR_METAFILE_CAPTURE_FAILED_DEPRECATED = 8,
+    PREVIEW_ERROR_EMPTY_PRINTER_SETTINGS = 9,
     PREVIEW_ERROR_LAST_ENUM  // Always last.
   };
 
@@ -272,7 +270,7 @@ class PrintRenderFrameHelper
 
   // Renders a print preview page. |page_number| is 0-based.
   // Returns true if print preview should continue, false on failure.
-  bool RenderPreviewPage(int page_number);
+  bool RenderPreviewPage(uint32_t page_number);
 
   // Finalize the print ready preview document.
   bool FinalizePrintReadyDocument();
@@ -300,8 +298,7 @@ class PrintRenderFrameHelper
   // WARNING: |this| may be gone after this method returns.
   void Print(blink::WebLocalFrame* frame,
              const blink::WebNode& node,
-             PrintRequestType print_request_type,
-             std::unique_ptr<blink::WebScopedPagePauser> pauser);
+             PrintRequestType print_request_type);
 
   // Notification when printing is done - signal tear-down/free resources.
   void DidFinishPrinting(PrintingResult result);
@@ -315,7 +312,7 @@ class PrintRenderFrameHelper
   // Calculate number of pages in source document.
   bool CalculateNumberOfPages(blink::WebLocalFrame* frame,
                               const blink::WebNode& node,
-                              int* number_of_pages);
+                              uint32_t* number_of_pages);
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW)
   // Set options for print preset from source PDF document.
@@ -329,20 +326,20 @@ class PrintRenderFrameHelper
                            const base::DictionaryValue& passed_job_settings);
 #endif  // BUILDFLAG(ENABLE_PRINT_PREVIEW)
 
-  // Get final print settings from the user.
+  // Returns final print settings from the user.
   // WARNING: |this| may be gone after this method returns.
-  void GetPrintSettingsFromUser(blink::WebLocalFrame* frame,
-                                const blink::WebNode& node,
-                                int expected_pages_count,
-                                PrintRequestType print_request_type,
-                                PrintMsg_PrintPages_Params* print_settings);
+  mojom::PrintPagesParamsPtr GetPrintSettingsFromUser(
+      blink::WebLocalFrame* frame,
+      const blink::WebNode& node,
+      uint32_t expected_pages_count,
+      PrintRequestType print_request_type);
 
   // Page Printing / Rendering ------------------------------------------------
 
   void OnFramePreparedForPrintPages();
   void PrintPages();
   bool PrintPagesNative(blink::WebLocalFrame* frame,
-                        int page_count,
+                        uint32_t page_count,
                         bool is_pdf);
   void FinishFramePrinting();
   // Render the frame for printing.
@@ -351,8 +348,8 @@ class PrintRenderFrameHelper
 
   // Platform-specific helper function for rendering page(s) to |metafile|.
   void PrintPageInternal(const mojom::PrintParams& params,
-                         int page_number,
-                         int page_count,
+                         uint32_t page_number,
+                         uint32_t page_count,
                          double scale_factor,
                          blink::WebLocalFrame* frame,
                          MetafileSkia* metafile,
@@ -364,7 +361,7 @@ class PrintRenderFrameHelper
   // When method is called, canvas should be setup to draw to |canvas_area|
   // with |scale_factor|.
   static float RenderPageContent(blink::WebLocalFrame* frame,
-                                 int page_number,
+                                 uint32_t page_number,
                                  const gfx::Rect& canvas_area,
                                  const gfx::Rect& content_area,
                                  double scale_factor,
@@ -379,26 +376,25 @@ class PrintRenderFrameHelper
   void IPCProcessed();
 
   // Helper method to get page layout in points and fit to page if needed.
-  static void ComputePageLayoutInPointsForCss(
+  static mojom::PageSizeMarginsPtr ComputePageLayoutInPointsForCss(
       blink::WebLocalFrame* frame,
-      int page_index,
+      uint32_t page_index,
       const mojom::PrintParams& default_params,
       bool ignore_css_margins,
-      double* scale_factor,
-      mojom::PageSizeMargins* page_layout_in_points);
+      double* scale_factor);
 
   // Return an array of pages to print given the print |params| and an expected
   // |page_count|. Page numbers are zero-based.
-  static std::vector<int> GetPrintedPages(
-      const PrintMsg_PrintPages_Params& params,
-      int page_count);
+  static std::vector<uint32_t> GetPrintedPages(
+      const mojom::PrintPagesParams& params,
+      uint32_t page_count);
 
   // Given the |device| and |canvas| to draw on, prints the appropriate headers
   // and footers using strings from |header_footer_info| on to the canvas.
   static void PrintHeaderAndFooter(
       cc::PaintCanvas* canvas,
-      int page_number,
-      int total_pages,
+      uint32_t page_number,
+      uint32_t total_pages,
       const blink::WebLocalFrame& source_frame,
       float webkit_scale_factor,
       const mojom::PageSizeMargins& page_layout_in_points,
@@ -429,20 +425,20 @@ class PrintRenderFrameHelper
   // |page_number| is 0-based.
   // |metafile| is the rendered page and should be valid.
   // Returns true if print preview should continue, false on failure.
-  bool PreviewPageRendered(int page_number,
+  bool PreviewPageRendered(uint32_t page_number,
                            std::unique_ptr<MetafileSkia> metafile);
 
   // Called when the connection with the |preview_ui_| goes away.
   void OnPreviewDisconnect();
 #endif  // BUILDFLAG(ENABLE_PRINT_PREVIEW)
 
-  void SetPrintPagesParams(const PrintMsg_PrintPages_Params& settings);
+  void SetPrintPagesParams(const mojom::PrintPagesParams& settings);
 
   // WebView used only to print the selection.
   std::unique_ptr<PrepareFrameAndViewForPrint> prep_frame_view_;
   bool reset_prep_frame_view_ = false;
 
-  std::unique_ptr<PrintMsg_PrintPages_Params> print_pages_params_;
+  mojom::PrintPagesParamsPtr print_pages_params_;
   gfx::Rect printer_printable_area_;
   bool is_print_ready_metafile_sent_ = false;
   bool ignore_css_margins_ = false;
@@ -485,11 +481,6 @@ class PrintRenderFrameHelper
     void InitWithFrame(blink::WebLocalFrame* web_frame);
     void InitWithNode(const blink::WebNode& web_node);
 
-    // Manual control of pausing/unpausing for special situations.
-    bool IsPaused() const;
-    void Pause();
-    std::unique_ptr<blink::WebScopedPagePauser> TakePauser();
-
     // Dispatchs onbeforeprint/onafterprint events. Use these instead of calling
     // the WebLocalFrame version on source_frame().
     void DispatchBeforePrintEvent(
@@ -502,7 +493,7 @@ class PrintRenderFrameHelper
     // Create the print preview document. |pages| is empty to print all pages.
     bool CreatePreviewDocument(
         std::unique_ptr<PrepareFrameAndViewForPrint> prepared_frame,
-        const std::vector<int>& pages,
+        const std::vector<uint32_t>& pages,
         mojom::SkiaDocumentType doc_type,
         int document_cookie,
         bool require_document_metafile);
@@ -528,7 +519,7 @@ class PrintRenderFrameHelper
     void Failed(bool report_error);
 
     // Helper functions
-    int GetNextPageNumber();
+    uint32_t GetNextPageNumber();
     bool IsRendering() const;
     bool IsForArc() const;
     bool IsPlugin() const;
@@ -555,8 +546,8 @@ class PrintRenderFrameHelper
     // generated from it, e.g. copy of selected block.
     const blink::WebNode& prepared_node() const;
 
-    int total_page_count() const;
-    const std::vector<int>& pages_to_render() const;
+    uint32_t total_page_count() const;
+    const std::vector<uint32_t>& pages_to_render() const;
     size_t pages_rendered_count() const;
     MetafileSkia* metafile();
     ContentProxySet* typeface_content_info();
@@ -581,10 +572,6 @@ class PrintRenderFrameHelper
 
     std::unique_ptr<PrepareFrameAndViewForPrint> prep_frame_view_;
 
-    // Manages when to pause between onbeforeprint and onafterprint events.
-    // https://html.spec.whatwg.org/C/#printing-steps
-    std::unique_ptr<blink::WebScopedPagePauser> pauser_;
-
     // The typefaces encountered in the content during document serialization.
     ContentProxySet typeface_content_info_;
 
@@ -592,13 +579,13 @@ class PrintRenderFrameHelper
     std::unique_ptr<MetafileSkia> metafile_;
 
     // Total page count in the renderer.
-    int total_page_count_ = 0;
+    uint32_t total_page_count_ = 0;
 
     // The current page to render.
     int current_page_index_ = 0;
 
     // List of page indices that need to be rendered.
-    std::vector<int> pages_to_render_;
+    std::vector<uint32_t> pages_to_render_;
 
     // True, if the document source is a plugin.
     bool is_plugin_ = false;
@@ -650,6 +637,7 @@ class PrintRenderFrameHelper
   bool is_scripted_preview_delayed_ = false;
   int ipc_nesting_level_ = 0;
   bool render_frame_gone_ = false;
+  bool delete_pending_ = false;
 
   // If tagged PDF exporting is enabled, we also need to capture an
   // accessibility tree and store it in the metafile. AXTreeSnapshotter should

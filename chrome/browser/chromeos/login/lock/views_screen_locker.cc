@@ -12,13 +12,14 @@
 #include "ash/public/cpp/login_screen.h"
 #include "ash/public/cpp/login_screen_model.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/i18n/time_formatting.h"
 #include "base/location.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "chrome/browser/ash/system/system_clock.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/authpolicy/authpolicy_helper.h"
@@ -30,7 +31,6 @@
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_factory.h"
 #include "chrome/browser/chromeos/login/screens/chrome_user_selection_screen.h"
 #include "chrome/browser/chromeos/login/user_board_view_mojo.h"
-#include "chrome/browser/chromeos/system/system_clock.h"
 #include "chrome/browser/ui/ash/session_controller_client_impl.h"
 #include "chrome/browser/ui/ash/wallpaper_controller_client.h"
 #include "chrome/common/pref_names.h"
@@ -42,17 +42,13 @@
 
 namespace chromeos {
 
-namespace {
-constexpr char kLockDisplay[] = "lock";
-}  // namespace
-
 ViewsScreenLocker::ViewsScreenLocker(ScreenLocker* screen_locker)
     : screen_locker_(screen_locker),
       system_info_updater_(std::make_unique<MojoSystemInfoDispatcher>()) {
   LoginScreenClient::Get()->SetDelegate(this);
   user_board_view_mojo_ = std::make_unique<UserBoardViewMojo>();
   user_selection_screen_ =
-      std::make_unique<ChromeUserSelectionScreen>(kLockDisplay);
+      std::make_unique<ChromeUserSelectionScreen>(DisplayedScreen::LOCK_SCREEN);
   user_selection_screen_->SetView(user_board_view_mojo_.get());
 }
 
@@ -180,7 +176,7 @@ void ViewsScreenLocker::HandleLaunchPublicSession(
   NOTREACHED();
 }
 
-void ViewsScreenLocker::SuspendDone(const base::TimeDelta& sleep_duration) {
+void ViewsScreenLocker::SuspendDone(base::TimeDelta sleep_duration) {
   for (user_manager::User* user :
        user_manager::UserManager::Get()->GetUnlockUsers()) {
     UpdatePinKeyboardState(user->GetAccountId());

@@ -17,11 +17,12 @@
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "net/base/escape.h"
 #include "net/base/ip_address.h"
 #include "net/base/ip_endpoint.h"
@@ -186,7 +187,7 @@ TEST_F(NetworkServiceTest, AuthDefaultParams) {
 
 #if BUILDFLAG(USE_KERBEROS) && !defined(OS_ANDROID)
   ASSERT_TRUE(GetNegotiateFactory(&network_context));
-#if defined(OS_POSIX) && !defined(OS_CHROMEOS)
+#if defined(OS_POSIX) && !BUILDFLAG(IS_CHROMEOS_ASH)
   EXPECT_EQ("",
             GetNegotiateFactory(&network_context)->GetLibraryNameForTesting());
 #endif
@@ -470,27 +471,24 @@ TEST_F(NetworkServiceTest, DnsClientEnableDisable) {
       std::move(dns_client));
 
   service()->ConfigureStubHostResolver(
-      true /* insecure_dns_client_enabled */,
-      net::DnsConfig::SecureDnsMode::OFF,
+      true /* insecure_dns_client_enabled */, net::SecureDnsMode::kOff,
       base::nullopt /* dns_over_https_servers */);
   EXPECT_TRUE(dns_client_ptr->CanUseInsecureDnsTransactions());
-  EXPECT_EQ(net::DnsConfig::SecureDnsMode::OFF,
+  EXPECT_EQ(net::SecureDnsMode::kOff,
             dns_client_ptr->GetEffectiveConfig()->secure_dns_mode);
 
   service()->ConfigureStubHostResolver(
-      false /* insecure_dns_client_enabled */,
-      net::DnsConfig::SecureDnsMode::OFF,
+      false /* insecure_dns_client_enabled */, net::SecureDnsMode::kOff,
       base::nullopt /* dns_over_https_servers */);
   EXPECT_FALSE(dns_client_ptr->CanUseInsecureDnsTransactions());
-  EXPECT_EQ(net::DnsConfig::SecureDnsMode::OFF,
+  EXPECT_EQ(net::SecureDnsMode::kOff,
             dns_client_ptr->GetEffectiveConfig()->secure_dns_mode);
 
   service()->ConfigureStubHostResolver(
-      false /* insecure_dns_client_enabled */,
-      net::DnsConfig::SecureDnsMode::AUTOMATIC,
+      false /* insecure_dns_client_enabled */, net::SecureDnsMode::kAutomatic,
       base::nullopt /* dns_over_https_servers */);
   EXPECT_FALSE(dns_client_ptr->CanUseInsecureDnsTransactions());
-  EXPECT_EQ(net::DnsConfig::SecureDnsMode::AUTOMATIC,
+  EXPECT_EQ(net::SecureDnsMode::kAutomatic,
             dns_client_ptr->GetEffectiveConfig()->secure_dns_mode);
 
   std::vector<mojom::DnsOverHttpsServerPtr> dns_over_https_servers_ptr;
@@ -500,10 +498,10 @@ TEST_F(NetworkServiceTest, DnsClientEnableDisable) {
   dns_over_https_server->use_post = true;
   dns_over_https_servers_ptr.emplace_back(std::move(dns_over_https_server));
   service()->ConfigureStubHostResolver(false /* insecure_dns_client_enabled */,
-                                       net::DnsConfig::SecureDnsMode::AUTOMATIC,
+                                       net::SecureDnsMode::kAutomatic,
                                        std::move(dns_over_https_servers_ptr));
   EXPECT_FALSE(dns_client_ptr->CanUseInsecureDnsTransactions());
-  EXPECT_EQ(net::DnsConfig::SecureDnsMode::AUTOMATIC,
+  EXPECT_EQ(net::SecureDnsMode::kAutomatic,
             dns_client_ptr->GetEffectiveConfig()->secure_dns_mode);
 }
 
@@ -536,9 +534,10 @@ TEST_F(NetworkServiceTest, DnsOverHttpsEnableDisable) {
   dns_over_https_servers_ptr.emplace_back(std::move(dns_over_https_server));
 
   service()->ConfigureStubHostResolver(false /* insecure_dns_client_enabled */,
-                                       net::DnsConfig::SecureDnsMode::AUTOMATIC,
+                                       net::SecureDnsMode::kAutomatic,
                                        std::move(dns_over_https_servers_ptr));
-  EXPECT_TRUE(service()->host_resolver_manager()->GetDnsConfigAsValue());
+  EXPECT_TRUE(
+      service()->host_resolver_manager()->GetDnsConfigAsValue().is_dict());
   std::vector<net::DnsOverHttpsServerConfig> dns_over_https_servers =
       dns_client_ptr->GetEffectiveConfig()->dns_over_https_servers;
   ASSERT_EQ(1u, dns_over_https_servers.size());
@@ -559,9 +558,10 @@ TEST_F(NetworkServiceTest, DnsOverHttpsEnableDisable) {
   dns_over_https_servers_ptr.emplace_back(std::move(dns_over_https_server));
 
   service()->ConfigureStubHostResolver(true /* insecure_dns_client_enabled */,
-                                       net::DnsConfig::SecureDnsMode::SECURE,
+                                       net::SecureDnsMode::kSecure,
                                        std::move(dns_over_https_servers_ptr));
-  EXPECT_TRUE(service()->host_resolver_manager()->GetDnsConfigAsValue());
+  EXPECT_TRUE(
+      service()->host_resolver_manager()->GetDnsConfigAsValue().is_dict());
   dns_over_https_servers =
       dns_client_ptr->GetEffectiveConfig()->dns_over_https_servers;
   ASSERT_EQ(2u, dns_over_https_servers.size());
@@ -577,8 +577,7 @@ TEST_F(NetworkServiceTest, DisableDohUpgradeProviders) {
       features::kDnsOverHttpsUpgrade,
       {{"DisabledProviders", "CleanBrowsingSecure, , Cloudflare,Unexpected"}});
   service()->ConfigureStubHostResolver(
-      true /* insecure_dns_client_enabled */,
-      net::DnsConfig::SecureDnsMode::AUTOMATIC,
+      true /* insecure_dns_client_enabled */, net::SecureDnsMode::kAutomatic,
       base::nullopt /* dns_over_https_servers */);
 
   // Set valid DnsConfig.
@@ -1174,6 +1173,8 @@ TEST_F(NetworkServiceTestWithService, SetNetworkConditions) {
 
   ResourceRequest request;
   request.url = test_server()->GetURL("/nocache.html");
+  request.request_initiator =
+      url::Origin::Create(GURL("https://initiator.example.com"));
   request.method = "GET";
 
   StartLoadingURL(request, 0);
@@ -1215,13 +1216,14 @@ TEST_F(NetworkServiceTestWithService, SetsTrustTokenKeyCommitments) {
   ASSERT_TRUE(service_->trust_token_key_commitments());
 
   auto expectation = mojom::TrustTokenKeyCommitmentResult::New();
-  ASSERT_TRUE(base::Base64Decode(
-      "aaaa", &expectation->signed_redemption_record_verification_key));
+  expectation->protocol_version =
+      mojom::TrustTokenProtocolVersion::kTrustTokenV2Pmb;
+  expectation->id = 1;
   expectation->batch_size = 5;
 
   base::RunLoop run_loop;
   network_service_->SetTrustTokenKeyCommitments(
-      R"( { "https://issuer.example": { "batchsize": 5, "srrkey": "aaaa" } } )",
+      R"( { "https://issuer.example": { "protocol_version": "TrustTokenV2PMB", "id": 1, "batchsize": 5 } } )",
       run_loop.QuitClosure());
   run_loop.Run();
 

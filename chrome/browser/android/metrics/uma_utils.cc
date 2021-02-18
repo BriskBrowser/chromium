@@ -24,6 +24,12 @@ base::TimeTicks GetApplicationStartTime() {
       Java_UmaUtils_getApplicationStartTime(env));
 }
 
+base::TimeTicks GetProcessStartTime() {
+  JNIEnv* env = base::android::AttachCurrentThread();
+  return base::TimeTicks::FromUptimeMillis(
+      Java_UmaUtils_getProcessStartTime(env));
+}
+
 static jboolean JNI_UmaUtils_IsClientInMetricsReportingSample(JNIEnv* env) {
   return ChromeMetricsServicesManagerClient::IsClientInSample();
 }
@@ -36,11 +42,6 @@ static void JNI_UmaUtils_RecordMetricsReportingDefaultOptIn(
   metrics::RecordMetricsReportingDefaultState(
       local_state, opt_in ? metrics::EnableMetricsDefault::OPT_IN
                           : metrics::EnableMetricsDefault::OPT_OUT);
-}
-
-void SetUsageAndCrashReporting(bool enabled) {
-  JNIEnv* env = base::android::AttachCurrentThread();
-  Java_UmaUtils_setUsageAndCrashReportingFromNative(env, enabled);
 }
 
 }  // namespace android

@@ -12,6 +12,7 @@
 #include "base/callback.h"
 #include "base/optional.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/signin/public/base/account_consistency_method.h"
 #include "components/signin/public/base/signin_client.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
@@ -23,7 +24,7 @@ class IdentityTestEnvironmentProfileAdaptor;
 class PrefService;
 class TestSigninClient;
 
-namespace chromeos {
+namespace ash {
 class AccountManagerFactory;
 }
 
@@ -50,6 +51,19 @@ class TestIdentityManagerObserver;
 // requirement.
 class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
  public:
+  struct PendingRequest {
+    PendingRequest(CoreAccountId account_id,
+                   std::string client_id,
+                   std::string client_secret,
+                   OAuth2AccessTokenManager::ScopeSet scopes);
+    PendingRequest(const PendingRequest&);
+    ~PendingRequest();
+    CoreAccountId account_id;
+    std::string client_id;
+    std::string client_secret;
+    OAuth2AccessTokenManager::ScopeSet scopes;
+  };
+
   // Preferred constructor: constructs an IdentityManager object and its
   // dependencies internally. Cannot be used if the client of this class
   // is still interacting directly with those dependencies (e.g., if
@@ -142,12 +156,13 @@ class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
   AccountInfo MakeAccountAvailableWithCookies(const std::string& email,
                                               const std::string& gaia_id);
 
-  // Clears the primary account if present, with |policy| used to determine
-  // whether to keep or remove all accounts. On non-ChromeOS, results in the
-  // firing of the IdentityManager and PrimaryAccountManager callbacks for
-  // signout. Blocks until the primary account is cleared.
-  void ClearPrimaryAccount(
-      ClearPrimaryAccountPolicy policy = ClearPrimaryAccountPolicy::DEFAULT);
+  // Revokes sync consent from the primary account: the primary account is left
+  // at ConsentLevel::kNotRequired.
+  void RevokeSyncConsent();
+
+  // Clears the primary account, removes all accounts and revokes the sync
+  // consent. Blocks until the primary account is cleared.
+  void ClearPrimaryAccount();
 
   // Makes an account available for the given email address, generating a GAIA
   // ID and refresh token that correspond uniquely to that email address. Blocks
@@ -280,6 +295,9 @@ class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
   // Returns whether there is a access token request pending.
   bool IsAccessTokenRequestPending();
 
+  // Returns the pending access token requests.
+  std::vector<PendingRequest> GetPendingAccessTokenRequests();
+
   // Sets whether the list of accounts in Gaia cookie jar is fresh and does not
   // need to be updated.
   void SetFreshnessOfAccountsInGaiaCookie(bool accounts_are_fresh);
@@ -350,12 +368,12 @@ class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
   void Initialize();
 
   // Create an IdentityManager instance for tests.
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   static std::unique_ptr<IdentityManager> BuildIdentityManagerForTests(
       SigninClient* signin_client,
       PrefService* pref_service,
       base::FilePath user_data_dir,
-      chromeos::AccountManagerFactory* chromeos_account_manager_factory,
+      ash::AccountManagerFactory* account_manager_factory,
       AccountConsistencyMethod account_consistency =
           AccountConsistencyMethod::kDisabled);
 #else

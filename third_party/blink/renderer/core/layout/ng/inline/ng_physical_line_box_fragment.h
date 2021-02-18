@@ -28,16 +28,14 @@ class CORE_EXPORT NGPhysicalLineBoxFragment final
     kEmptyLineBox
   };
 
-  static scoped_refptr<const NGPhysicalLineBoxFragment> Create(
+  static const NGPhysicalLineBoxFragment* Create(
       NGLineBoxFragmentBuilder* builder);
 
-  using PassKey = util::PassKey<NGPhysicalLineBoxFragment>;
+  using PassKey = base::PassKey<NGPhysicalLineBoxFragment>;
   NGPhysicalLineBoxFragment(PassKey, NGLineBoxFragmentBuilder* builder);
+  ~NGPhysicalLineBoxFragment() = default;
 
-  ~NGPhysicalLineBoxFragment() {
-    for (const NGLink& child : Children())
-      child.fragment->Release();
-  }
+  void Trace(Visitor*) const final;
 
   NGLineBoxType LineBoxType() const {
     return static_cast<NGLineBoxType>(sub_type_);
@@ -46,6 +44,9 @@ class CORE_EXPORT NGPhysicalLineBoxFragment final
 
   // True if descendants were propagated to outside of this fragment.
   bool HasPropagatedDescendants() const { return has_propagated_descendants_; }
+
+  // True if there is any hanging white-space or similar.
+  bool HasHanging() const { return has_hanging_; }
 
   const FontHeight& Metrics() const { return metrics_; }
 

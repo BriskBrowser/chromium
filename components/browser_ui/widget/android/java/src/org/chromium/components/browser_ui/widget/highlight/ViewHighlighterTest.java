@@ -19,11 +19,13 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.BaseJUnit4ClassRunner;
+import org.chromium.base.test.util.Batch;
 
 /**
  * Tests the utility methods for highlighting of a view.
  */
 @RunWith(BaseJUnit4ClassRunner.class)
+@Batch(Batch.UNIT_TESTS)
 public class ViewHighlighterTest {
     private Context mContext;
 
@@ -42,15 +44,15 @@ public class ViewHighlighterTest {
         ViewHighlighter.turnOffHighlight(tintedImageButton);
         checkHighlightOff(tintedImageButton);
 
-        ViewHighlighter.turnOnHighlight(tintedImageButton, true);
-        ViewHighlighter.turnOnHighlight(tintedImageButton, true);
+        ViewHighlighter.turnOnCircularHighlight(tintedImageButton);
+        ViewHighlighter.turnOnCircularHighlight(tintedImageButton);
         checkHighlightOn(tintedImageButton);
 
         ViewHighlighter.turnOffHighlight(tintedImageButton);
         ViewHighlighter.turnOffHighlight(tintedImageButton);
         checkHighlightOff(tintedImageButton);
 
-        ViewHighlighter.turnOnHighlight(tintedImageButton, false);
+        ViewHighlighter.turnOnRectangularHighlight(tintedImageButton);
         checkHighlightOn(tintedImageButton);
     }
 
@@ -63,13 +65,13 @@ public class ViewHighlighterTest {
         ViewHighlighter.turnOffHighlight(tintedImageButton);
         checkHighlightOff(tintedImageButton);
 
-        ViewHighlighter.turnOnHighlight(tintedImageButton, true);
+        ViewHighlighter.turnOnCircularHighlight(tintedImageButton);
         checkHighlightOn(tintedImageButton);
 
         ViewHighlighter.turnOffHighlight(tintedImageButton);
         checkHighlightOff(tintedImageButton);
 
-        ViewHighlighter.turnOnHighlight(tintedImageButton, false);
+        ViewHighlighter.turnOnRectangularHighlight(tintedImageButton);
         checkHighlightOn(tintedImageButton);
     }
 

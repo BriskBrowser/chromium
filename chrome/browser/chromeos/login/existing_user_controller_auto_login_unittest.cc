@@ -7,7 +7,7 @@
 
 #include "base/memory/ptr_util.h"
 #include "base/values.h"
-#include "chrome/browser/chromeos/app_mode/arc/arc_kiosk_app_manager.h"
+#include "chrome/browser/ash/app_mode/arc/arc_kiosk_app_manager.h"
 #include "chrome/browser/chromeos/login/existing_user_controller.h"
 #include "chrome/browser/chromeos/login/ui/mock_login_display.h"
 #include "chrome/browser/chromeos/login/ui/mock_login_display_host.h"
@@ -82,10 +82,9 @@ class ExistingUserControllerAutoLoginTest : public ::testing::Test {
     settings_helper_.Set(kAccountsPrefDeviceLocalAccounts, accounts);
 
     // Prevent settings changes from auto-starting the timer.
-    existing_user_controller_->local_account_auto_login_id_subscription_
-        .reset();
-    existing_user_controller_->local_account_auto_login_delay_subscription_
-        .reset();
+    existing_user_controller_->local_account_auto_login_id_subscription_ = {};
+    existing_user_controller_
+        ->local_account_auto_login_delay_subscription_ = {};
   }
 
   ExistingUserController* existing_user_controller() const {
@@ -151,8 +150,8 @@ class ExistingUserControllerAutoLoginTest : public ::testing::Test {
   user_manager::ScopedUserManager scoped_user_manager_;
   std::unique_ptr<ArcKioskAppManager> arc_kiosk_app_manager_;
 
-  // |existing_user_controller_| must be destroyed before
-  // |device_settings_test_helper_|.
+  // `existing_user_controller_` must be destroyed before
+  // `device_settings_test_helper_`.
   std::unique_ptr<ExistingUserController> existing_user_controller_;
 };
 

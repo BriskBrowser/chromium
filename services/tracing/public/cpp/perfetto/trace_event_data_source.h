@@ -27,11 +27,15 @@
 #include "third_party/perfetto/protos/perfetto/trace/chrome/chrome_trace_event.pbzero.h"
 
 namespace base {
+
+class HistogramSamples;
+
 namespace trace_event {
 class ThreadInstructionCount;
 class TraceEvent;
 struct TraceEventHandle;
 }  // namespace trace_event
+
 }  // namespace base
 
 namespace perfetto {
@@ -71,12 +75,17 @@ class COMPONENT_EXPORT(TRACING_CPP) TraceEventMetadataSource
       perfetto::protos::pbzero::ChromeMetadataPacket*,
       bool /* privacy_filtering_enabled */)>;
 
+  using PacketGeneratorFunction =
+      base::RepeatingCallback<void(perfetto::protos::pbzero::TracePacket*,
+                                   bool /* privacy_filtering_enabled */)>;
+
   // Any callbacks passed here will be called when tracing. Note that if tracing
   // is enabled while calling this method, the callback may be invoked
   // directly.
   void AddGeneratorFunction(JsonMetadataGeneratorFunction generator);
   // Same as above, but for filling in proto format.
   void AddGeneratorFunction(MetadataGeneratorFunction generator);
+  void AddGeneratorFunction(PacketGeneratorFunction generator);
   // For background tracing, the legacy crash uploader needs
   // metadata fields to be uploaded as POST args in addition to being
   // embedded in the trace. TODO(oysteine): Remove when only the
@@ -102,26 +111,35 @@ class COMPONENT_EXPORT(TRACING_CPP) TraceEventMetadataSource
   void GenerateMetadata(
       std::unique_ptr<std::vector<JsonMetadataGeneratorFunction>>
           json_generators,
-      std::unique_ptr<std::vector<MetadataGeneratorFunction>> proto_generators);
+      std::unique_ptr<std::vector<MetadataGeneratorFunction>> proto_generators,
+      std::unique_ptr<std::vector<PacketGeneratorFunction>> packet_generators);
   void GenerateMetadataFromGenerator(
       const MetadataGeneratorFunction& generator);
   void GenerateJsonMetadataFromGenerator(
       const JsonMetadataGeneratorFunction& generator,
       perfetto::protos::pbzero::ChromeEventBundle* event_bundle);
+  void GenerateMetadataPacket(
+      const TraceEventMetadataSource::PacketGeneratorFunction& generator);
   std::unique_ptr<base::DictionaryValue> GenerateTraceConfigMetadataDict();
 
   // All members are protected by |lock_|.
+  // TODO(crbug.com/1138893): Change annotations to GUARDED_BY
   base::Lock lock_;
-  std::vector<JsonMetadataGeneratorFunction> json_generator_functions_;
-  std::vector<MetadataGeneratorFunction> generator_functions_;
+  std::vector<JsonMetadataGeneratorFunction> json_generator_functions_
+      GUARDED_BY(lock_);
+  std::vector<MetadataGeneratorFunction> generator_functions_ GUARDED_BY(lock_);
+  std::vector<PacketGeneratorFunction> packet_generator_functions_
+      GUARDED_BY(lock_);
 
-  const scoped_refptr<base::SequencedTaskRunner> origin_task_runner_;
+  const scoped_refptr<base::SequencedTaskRunner> origin_task_runner_
+      GUARDED_BY_FIXME(lock_);
 
-  std::unique_ptr<perfetto::TraceWriter> trace_writer_;
-  bool privacy_filtering_enabled_ = false;
-  std::string chrome_config_;
-  std::unique_ptr<base::trace_event::TraceConfig> parsed_chrome_config_;
-  bool emit_metadata_at_start_ = false;
+  std::unique_ptr<perfetto::TraceWriter> trace_writer_ GUARDED_BY_FIXME(lock_);
+  bool privacy_filtering_enabled_ GUARDED_BY_FIXME(lock_) = false;
+  std::string chrome_config_ GUARDED_BY(lock_);
+  std::unique_ptr<base::trace_event::TraceConfig> parsed_chrome_config_
+      GUARDED_BY(lock_);
+  bool emit_metadata_at_start_ GUARDED_BY(lock_) = false;
 
   DISALLOW_COPY_AND_ASSIGN(TraceEventMetadataSource);
 };
@@ -230,6 +248,7 @@ class COMPONENT_EXPORT(TRACING_CPP) TraceEventDataSource
       const base::TimeTicks& now,
       const base::ThreadTicks& thread_now,
       base::trace_event::ThreadInstructionCount thread_instruction_now);
+  static base::trace_event::TracePacketHandle OnAddTracePacket();
 
   // Extracts UMA histogram names that should be logged in traces and logs their
   // starting values.
@@ -247,6 +266,7 @@ class COMPONENT_EXPORT(TRACING_CPP) TraceEventDataSource
 
   bool disable_interning_ = false;
   base::OnceClosure stop_complete_callback_;
+  base::TimeTicks process_creation_time_ticks_;
 
   // Incremented and accessed atomically but without memory order guarantees.
   static constexpr uint32_t kInvalidSessionID = 0;
@@ -265,6 +285,11 @@ class COMPONENT_EXPORT(TRACING_CPP) TraceEventDataSource
   bool flushing_trace_log_ = false;
   base::OnceClosure flush_complete_task_;
   std::vector<std::string> histograms_;
+  // For each of the Histogram that we are tracking, cache the snapshot of their
+  // HistogramSamples from before tracing began. So that we can calculate the
+  // delta when we go to LogHistograms.
+  std::map<std::string, std::unique_ptr<base::HistogramSamples>>
+      startup_histogram_samples_;
   // Stores all histogram names for which OnMetricsSampleCallback was set as an
   // OnSampleCallback. This is done in order to avoid clearing callbacks for the
   // other histograms.

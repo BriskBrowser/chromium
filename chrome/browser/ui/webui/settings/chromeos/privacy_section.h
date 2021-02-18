@@ -5,7 +5,11 @@
 #ifndef CHROME_BROWSER_UI_WEBUI_SETTINGS_CHROMEOS_PRIVACY_SECTION_H_
 #define CHROME_BROWSER_UI_WEBUI_SETTINGS_CHROMEOS_PRIVACY_SECTION_H_
 
+#include "base/values.h"
 #include "chrome/browser/ui/webui/settings/chromeos/os_settings_section.h"
+#include "components/prefs/pref_change_registrar.h"
+
+class PrefService;
 
 namespace content {
 class WebUIDataSource;
@@ -20,7 +24,9 @@ class SearchTagRegistry;
 // search tags are added only for official Google Chrome OS builds.
 class PrivacySection : public OsSettingsSection {
  public:
-  PrivacySection(Profile* profile, SearchTagRegistry* search_tag_registry);
+  PrivacySection(Profile* profile,
+                 SearchTagRegistry* search_tag_registry,
+                 PrefService* pref_service);
   ~PrivacySection() override;
 
  private:
@@ -30,7 +36,14 @@ class PrivacySection : public OsSettingsSection {
   mojom::Section GetSection() const override;
   mojom::SearchResultIcon GetSectionIcon() const override;
   std::string GetSectionPath() const override;
+  bool LogMetric(mojom::Setting setting, base::Value& value) const override;
   void RegisterHierarchy(HierarchyGenerator* generator) const override;
+
+  bool AreFingerprintSettingsAllowed();
+  void UpdateRemoveFingerprintSearchTags();
+
+  PrefService* pref_service_;
+  PrefChangeRegistrar fingerprint_pref_change_registrar_;
 };
 
 }  // namespace settings

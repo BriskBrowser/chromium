@@ -12,6 +12,7 @@ import models
 
 _OBSOLETE_TYPE = models.TextNodeType('obsolete')
 _OWNER_TYPE = models.TextNodeType('owner', single_line=True)
+_COMPONENT_TYPE = models.TextNodeType('component', single_line=True)
 _SUMMARY_TYPE = models.TextNodeType('summary', single_line=True)
 _DETAILS_TYPE = models.TextNodeType('details')
 
@@ -85,9 +86,9 @@ _VARIANT_TYPE = models.ObjectNodeType(
     'variant',
     attributes=[
         ('name', str, None),
-        ('label', str, None),
+        ('summary', str, None),
     ],
-    required_attributes=['name', 'label'],
+    required_attributes=['name'],
     alphabetization=[
         (_OBSOLETE_TYPE.tag, _KEEP_ORDER),
         (_OWNER_TYPE.tag, _KEEP_ORDER),
@@ -95,7 +96,8 @@ _VARIANT_TYPE = models.ObjectNodeType(
     children=[
         models.ChildType(_OBSOLETE_TYPE.tag, _OBSOLETE_TYPE, multiple=False),
         models.ChildType(_OWNER_TYPE.tag, _OWNER_TYPE, multiple=True),
-    ])
+    ],
+)
 
 _VARIANTS_TYPE = models.ObjectNodeType(
     'variants',
@@ -141,6 +143,7 @@ _HISTOGRAM_TYPE = models.ObjectNodeType(
     alphabetization=[
         (_OBSOLETE_TYPE.tag, _KEEP_ORDER),
         (_OWNER_TYPE.tag, _KEEP_ORDER),
+        (_COMPONENT_TYPE.tag, _KEEP_ORDER),
         (_SUMMARY_TYPE.tag, _KEEP_ORDER),
         (_DETAILS_TYPE.tag, _KEEP_ORDER),
         (_TOKEN_TYPE.tag, _KEEP_ORDER),
@@ -149,6 +152,7 @@ _HISTOGRAM_TYPE = models.ObjectNodeType(
     children=[
         models.ChildType(_OBSOLETE_TYPE.tag, _OBSOLETE_TYPE, multiple=False),
         models.ChildType(_OWNER_TYPE.tag, _OWNER_TYPE, multiple=True),
+        models.ChildType(_COMPONENT_TYPE.tag, _COMPONENT_TYPE, multiple=True),
         models.ChildType(_SUMMARY_TYPE.tag, _SUMMARY_TYPE, multiple=False),
         models.ChildType(_DETAILS_TYPE.tag, _DETAILS_TYPE, multiple=False),
         models.ChildType(_TOKEN_TYPE.tag, _TOKEN_TYPE, multiple=True),

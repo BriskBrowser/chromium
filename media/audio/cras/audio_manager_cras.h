@@ -33,9 +33,14 @@ class MEDIA_EXPORT AudioManagerCras : public AudioManagerCrasBase {
       const std::string& device_id) override;
   std::string GetDefaultInputDeviceID() override;
   std::string GetDefaultOutputDeviceID() override;
+  std::string GetGroupIDInput(const std::string& device_id) override;
+  std::string GetGroupIDOutput(const std::string& device_id) override;
+  std::string GetAssociatedOutputDeviceID(
+      const std::string& input_device_id) override;
 
-  // AudioManagerCras implementation.
+  // AudioManagerCrasBase implementation.
   bool IsDefault(const std::string& device_id, bool is_input) override;
+  enum CRAS_CLIENT_TYPE GetClientType() override;
 
  protected:
   AudioParameters GetPreferredOutputStreamParameters(

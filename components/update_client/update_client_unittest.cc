@@ -1879,9 +1879,7 @@ TEST_F(UpdateClientTest, OneCrxInstallError) {
   class MockInstaller : public CrxInstaller {
    public:
     MOCK_METHOD1(OnUpdateError, void(int error));
-    MOCK_METHOD2(DoInstall,
-                 void(const base::FilePath& unpack_path,
-                      const Callback& callback));
+    MOCK_METHOD1(DoInstall, void(const base::FilePath& unpack_path));
     MOCK_METHOD2(GetInstalledFile,
                  bool(const std::string& file, base::FilePath* installed_file));
     MOCK_METHOD0(Uninstall, bool());
@@ -1891,7 +1889,7 @@ TEST_F(UpdateClientTest, OneCrxInstallError) {
                  std::unique_ptr<InstallParams> /*install_params*/,
                  ProgressCallback progress_callback,
                  Callback callback) override {
-      DoInstall(unpack_path, std::move(callback));
+      DoInstall(unpack_path);
 
       unpack_path_ = unpack_path;
       EXPECT_TRUE(base::DirectoryExists(unpack_path_));
@@ -1923,7 +1921,7 @@ TEST_F(UpdateClientTest, OneCrxInstallError) {
           base::MakeRefCounted<MockInstaller>();
 
       EXPECT_CALL(*installer, OnUpdateError(_)).Times(0);
-      EXPECT_CALL(*installer, DoInstall(_, _)).Times(1);
+      EXPECT_CALL(*installer, DoInstall(_)).Times(1);
       EXPECT_CALL(*installer, GetInstalledFile(_, _)).Times(0);
       EXPECT_CALL(*installer, Uninstall()).Times(0);
 
@@ -4589,4 +4587,60 @@ TEST_F(UpdateClientTest, CustomAttributeNoUpdate) {
 
   EXPECT_EQ(1, observer.calls);
 }
+
+// Tests the scenario where `CrxDataCallback` returns a vector whose elements
+// don't include a value for one of the component ids specified by the `ids`
+// parameter of the `UpdateClient::Update` function. Expects the completion
+// callback to include a specific error, and no other events and pings be
+// generated, since the update engine rejects the UpdateClient::Update call.
+TEST_F(UpdateClientTest, BadCrxDataCallback) {
+  class CompletionCallbackMock {
+   public:
+    static void Callback(base::OnceClosure quit_closure, Error error) {
+      EXPECT_EQ(Error::BAD_CRX_DATA_CALLBACK, error);
+      std::move(quit_closure).Run();
+    }
+  };
+
+  class MockPingManager : public MockPingManagerImpl {
+   public:
+    explicit MockPingManager(scoped_refptr<Configurator> config)
+        : MockPingManagerImpl(config) {}
+
+   protected:
+    ~MockPingManager() override { EXPECT_TRUE(ping_data().empty()); }
+  };
+
+  scoped_refptr<UpdateClient> update_client =
+      base::MakeRefCounted<UpdateClientImpl>(
+          config(), base::MakeRefCounted<MockPingManager>(config()),
+          UpdateChecker::Factory{});
+
+  MockObserver observer;
+
+  std::vector<CrxUpdateItem> items;
+  auto receiver = base::MakeRefCounted<MockCrxStateChangeReceiver>();
+  EXPECT_CALL(*receiver, Receive(_))
+      .WillRepeatedly(
+          [&items](const CrxUpdateItem& item) { items.push_back(item); });
+
+  update_client->AddObserver(&observer);
+  const std::vector<std::string> ids = {"jebgalgnebhfojomionfpkfelancnnkf",
+                                        "gjpmebpgbhcamgdgjcmnjfhggjpgcimm"};
+  // The `CrxDataCallback` argument only returns a value for the first
+  // component id. This means that its result is ill formed, and the `Update`
+  // call completes with an error.
+  update_client->Update(
+      ids, base::BindOnce([](const std::vector<std::string>& ids) {
+        EXPECT_EQ(ids.size(), size_t{2});
+        return std::vector<base::Optional<CrxComponent>>{base::nullopt};
+      }),
+      base::BindRepeating(&MockCrxStateChangeReceiver::Receive, receiver), true,
+      base::BindOnce(&CompletionCallbackMock::Callback, quit_closure()));
+  RunThreads();
+
+  EXPECT_TRUE(items.empty());
+  update_client->RemoveObserver(&observer);
+}
+
 }  // namespace update_client

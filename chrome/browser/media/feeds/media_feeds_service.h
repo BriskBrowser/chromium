@@ -43,6 +43,7 @@ class CookieChangeListener;
 
 class MediaFeedsService : public KeyedService {
  public:
+  static const char kAggregateWatchtimeHistogramName[];
   static const char kSafeSearchResultHistogramName[];
 
   // Time to wait between background fetch delayed tasks.
@@ -99,6 +100,7 @@ class MediaFeedsService : public KeyedService {
 
   // Saves a newly discovered media feed.
   void DiscoverMediaFeed(const GURL& url);
+  void DiscoverMediaFeed(const GURL& url, const base::Optional<GURL>& favicon);
 
   // Resets a Media Feed by deleting any items and resetting it to defaults. If
   // |include_subdomains| is true then this will reset any feeds on any
@@ -113,6 +115,8 @@ class MediaFeedsService : public KeyedService {
   bool HasCookieObserverForTest() const;
 
   void EnsureCookieObserver();
+
+  void RecordFeedWatchtimes();
 
  private:
   friend class MediaFeedsServiceTest;
@@ -169,6 +173,9 @@ class MediaFeedsService : public KeyedService {
                                const net::CookieChangeCause& cause);
 
   void OnDiscoveredFeed();
+
+  void OnGotFeedsForMetrics(
+      std::vector<media_feeds::mojom::MediaFeedPtr> feeds);
 
   // Settings related to fetching a feed in the background.
   struct BackgroundFetchFeedSettings {

@@ -21,7 +21,6 @@
 #include "content/common/content_export.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
-#include "services/content/public/mojom/navigable_contents_factory.mojom-forward.h"
 #include "services/network/public/mojom/cors_origin_pattern.mojom-forward.h"
 #include "services/network/public/mojom/network_context.mojom-forward.h"
 #include "third_party/blink/public/mojom/blob/blob.mojom-forward.h"
@@ -78,7 +77,7 @@ class DownloadManager;
 class ClientHintsControllerDelegate;
 class ContentIndexProvider;
 class DownloadManagerDelegate;
-class NativeFileSystemPermissionContext;
+class FileSystemAccessPermissionContext;
 class PermissionController;
 class PermissionControllerDelegate;
 class PushMessagingService;
@@ -313,7 +312,16 @@ class CONTENT_EXPORT BrowserContext : public base::SupportsUserData {
   virtual BrowsingDataRemoverDelegate* GetBrowsingDataRemoverDelegate() = 0;
 
   // Sets CORS origin access lists.
+  enum class TargetBrowserContexts {
+    // Only modify |this| BrowserContext.
+    kSingleContext,
+
+    // Modify |this| BrowserContext and all related regular/OffTheRecord
+    // BrowserContexts.
+    kAllRelatedContexts,
+  };
   virtual void SetCorsOriginAccessListForOrigin(
+      TargetBrowserContexts target_mode,
       const url::Origin& source_origin,
       std::vector<network::mojom::CorsOriginPatternPtr> allow_patterns,
       std::vector<network::mojom::CorsOriginPatternPtr> block_patterns,
@@ -321,14 +329,6 @@ class CONTENT_EXPORT BrowserContext : public base::SupportsUserData {
 
   // Returns a SharedCorsOriginAccessList instance.
   virtual SharedCorsOriginAccessList* GetSharedCorsOriginAccessList();
-
-  // Returns true if OOR-CORS should be enabled.
-  virtual bool ShouldEnableOutOfBlinkCors();
-
-  // Binds a NavigableContentsFactory interface receiver to this browser
-  // context.
-  virtual void BindNavigableContentsFactory(
-      mojo::PendingReceiver<content::mojom::NavigableContentsFactory> receiver);
 
   // Returns a unique string associated with this browser context.
   virtual const std::string& UniqueId();
@@ -361,10 +361,10 @@ class CONTENT_EXPORT BrowserContext : public base::SupportsUserData {
   virtual download::InProgressDownloadManager*
   RetriveInProgressDownloadManager();
 
-  // Returns the NativeFileSystemPermissionContext associated with this context
+  // Returns the FileSystemAccessPermissionContext associated with this context
   // if any, nullptr otherwise.
-  virtual NativeFileSystemPermissionContext*
-  GetNativeFileSystemPermissionContext();
+  virtual FileSystemAccessPermissionContext*
+  GetFileSystemAccessPermissionContext();
 
   // Returns the ContentIndexProvider associated with that context if any,
   // nullptr otherwise.

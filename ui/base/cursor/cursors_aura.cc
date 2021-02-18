@@ -19,6 +19,7 @@
 
 #if defined(OS_WIN)
 #include "ui/base/cursor/cursor_loader_win.h"
+#include "ui/base/cursor/win/win_cursor.h"
 #include "ui/gfx/icon_util.h"
 #endif
 
@@ -42,8 +43,6 @@ struct CursorSizeData {
   const CursorSize id;
   const CursorData* cursors;
   const int length;
-  const CursorData* animated_cursors;
-  const int animated_length;
 };
 
 const CursorData kNormalCursors[] = {
@@ -127,6 +126,8 @@ const CursorData kNormalCursors[] = {
      {24, 23}},
     {mojom::CursorType::kGrab, IDR_AURA_CURSOR_GRAB, {8, 5}, {16, 10}},
     {mojom::CursorType::kGrabbing, IDR_AURA_CURSOR_GRABBING, {9, 9}, {18, 18}},
+    {mojom::CursorType::kWait, IDR_AURA_CURSOR_THROBBER, {7, 7}, {14, 14}},
+    {mojom::CursorType::kProgress, IDR_AURA_CURSOR_THROBBER, {7, 7}, {14, 14}},
 };
 
 const CursorData kLargeCursors[] = {
@@ -233,20 +234,12 @@ const CursorData kLargeCursors[] = {
      IDR_AURA_CURSOR_BIG_GRABBING,
      {20, 12},
      {40, 24}},
-};
-
-const CursorData kAnimatedCursors[] = {
-    {mojom::CursorType::kWait, IDR_AURA_CURSOR_THROBBER, {7, 7}, {14, 14}},
-    {mojom::CursorType::kProgress, IDR_AURA_CURSOR_THROBBER, {7, 7}, {14, 14}},
+    // TODO(https://crbug.com/336867): create IDR_AURA_CURSOR_BIG_THROBBER.
 };
 
 const CursorSizeData kCursorSizes[] = {
-    {CursorSize::kNormal, kNormalCursors, base::size(kNormalCursors),
-     kAnimatedCursors, base::size(kAnimatedCursors)},
-    {CursorSize::kLarge, kLargeCursors, base::size(kLargeCursors),
-     // TODO(yoshiki): Replace animated cursors with big assets.
-     // crbug.com/247254
-     kAnimatedCursors, base::size(kAnimatedCursors)},
+    {CursorSize::kNormal, kNormalCursors, base::size(kNormalCursors)},
+    {CursorSize::kLarge, kLargeCursors, base::size(kLargeCursors)},
 };
 
 const CursorSizeData* GetCursorSizeByType(CursorSize cursor_size) {
@@ -302,31 +295,13 @@ bool GetCursorDataFor(CursorSize cursor_size,
                      resource_id, point);
 }
 
-bool GetAnimatedCursorDataFor(CursorSize cursor_size,
-                              mojom::CursorType id,
-                              float scale_factor,
-                              int* resource_id,
-                              gfx::Point* point) {
-  const CursorSizeData* cursor_set = GetCursorSizeByType(cursor_size);
-  if (cursor_set &&
-      SearchTable(cursor_set->animated_cursors, cursor_set->animated_length, id,
-                  scale_factor, resource_id, point)) {
-    return true;
-  }
-
-  // Falls back to the default cursor set.
-  cursor_set = GetCursorSizeByType(ui::CursorSize::kNormal);
-  DCHECK(cursor_set);
-  return SearchTable(cursor_set->animated_cursors, cursor_set->animated_length,
-                     id, scale_factor, resource_id, point);
-}
-
 SkBitmap GetDefaultBitmap(const Cursor& cursor) {
 #if defined(OS_WIN)
   Cursor cursor_copy = cursor;
   ui::CursorLoaderWin cursor_loader;
   cursor_loader.SetPlatformCursor(&cursor_copy);
-  return IconUtil::CreateSkBitmapFromHICON(cursor_copy.platform());
+  return IconUtil::CreateSkBitmapFromHICON(
+      static_cast<WinCursor*>(cursor_copy.platform())->hcursor());
 #else
   int resource_id;
   gfx::Point hotspot;
@@ -345,7 +320,8 @@ gfx::Point GetDefaultHotspot(const Cursor& cursor) {
   Cursor cursor_copy = cursor;
   ui::CursorLoaderWin cursor_loader;
   cursor_loader.SetPlatformCursor(&cursor_copy);
-  return IconUtil::GetHotSpotFromHICON(cursor_copy.platform());
+  return IconUtil::GetHotSpotFromHICON(
+      static_cast<WinCursor*>(cursor_copy.platform())->hcursor());
 #else
   int resource_id;
   gfx::Point hotspot;

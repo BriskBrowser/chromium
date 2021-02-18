@@ -36,7 +36,7 @@ class FakeServiceWorkerContext : public ServiceWorkerContext {
   void RegisterServiceWorker(
       const GURL& script_url,
       const blink::mojom::ServiceWorkerRegistrationOptions& options,
-      ResultCallback callback) override;
+      StatusCodeCallback callback) override;
   void UnregisterServiceWorker(const GURL& scope,
                                ResultCallback callback) override;
   ServiceWorkerExternalRequestResult StartingExternalRequest(
@@ -45,17 +45,11 @@ class FakeServiceWorkerContext : public ServiceWorkerContext {
   ServiceWorkerExternalRequestResult FinishedExternalRequest(
       int64_t service_worker_version_id,
       const std::string& request_uuid) override;
-  void CountExternalRequestsForTest(
-      const GURL& url,
-      CountExternalRequestsCallback callback) override;
+  size_t CountExternalRequestsForTest(const url::Origin& origin) override;
   bool MaybeHasRegistrationForOrigin(const url::Origin& origin) override;
-  void GetInstalledRegistrationOrigins(
-      base::Optional<std::string> host_filter,
-      GetInstalledRegistrationOriginsCallback callback) override;
   void GetAllOriginsInfo(GetUsageInfoCallback callback) override;
   void DeleteForOrigin(const url::Origin& origin,
                        ResultCallback callback) override;
-  void PerformStorageCleanup(base::OnceClosure callback) override;
   void CheckHasServiceWorker(const GURL& url,
                              CheckHasServiceWorkerCallback callback) override;
   void CheckOfflineCapability(
@@ -66,7 +60,7 @@ class FakeServiceWorkerContext : public ServiceWorkerContext {
   void StartWorkerForScope(
       const GURL& scope,
       ServiceWorkerContext::StartWorkerCallback info_callback,
-      base::OnceClosure failure_callback) override;
+      ServiceWorkerContext::StatusCodeCallback failure_callback) override;
   void StartServiceWorkerAndDispatchMessage(
       const GURL& scope,
       blink::TransferableMessage message,
@@ -74,7 +68,7 @@ class FakeServiceWorkerContext : public ServiceWorkerContext {
   void StartServiceWorkerForNavigationHint(
       const GURL& document_url,
       StartServiceWorkerForNavigationHintCallback callback) override;
-  void StopAllServiceWorkersForOrigin(const GURL& origin) override;
+  void StopAllServiceWorkersForOrigin(const url::Origin& origin) override;
   void StopAllServiceWorkers(base::OnceClosure callback) override;
   const base::flat_map<int64_t, ServiceWorkerRunningInfo>&
   GetRunningServiceWorkerInfos() override;
@@ -101,7 +95,7 @@ class FakeServiceWorkerContext : public ServiceWorkerContext {
     return start_service_worker_and_dispatch_long_running_message_calls_;
   }
 
-  const std::vector<GURL>& stop_all_service_workers_for_origin_calls() {
+  const std::vector<url::Origin>& stop_all_service_workers_for_origin_calls() {
     return stop_all_service_workers_for_origin_calls_;
   }
 
@@ -114,7 +108,7 @@ class FakeServiceWorkerContext : public ServiceWorkerContext {
   std::vector<StartServiceWorkerAndDispatchMessageArgs>
       start_service_worker_and_dispatch_long_running_message_calls_;
 
-  std::vector<GURL> stop_all_service_workers_for_origin_calls_;
+  std::vector<url::Origin> stop_all_service_workers_for_origin_calls_;
 
   base::ObserverList<ServiceWorkerContextObserver, true>::Unchecked observers_;
 

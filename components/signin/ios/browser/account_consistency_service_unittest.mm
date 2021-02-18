@@ -9,15 +9,21 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
-#include "base/test/bind_test_util.h"
+#include "base/callback_helpers.h"
+#include "base/ios/ios_util.h"
+#include "base/test/bind.h"
 #import "base/test/ios/wait_util.h"
+#include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/values.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/account_reconcilor.h"
 #include "components/signin/core/browser/account_reconcilor_delegate.h"
+#include "components/signin/core/browser/chrome_connected_header_helper.h"
+#include "components/signin/ios/browser/features.h"
+#import "components/signin/ios/browser/manage_accounts_delegate.h"
 #include "components/signin/public/base/list_accounts_test_utils.h"
 #include "components/signin/public/base/test_signin_client.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
@@ -25,9 +31,10 @@
 #include "components/signin/public/identity_manager/test_identity_manager_observer.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "ios/web/public/navigation/web_state_policy_decider.h"
-#include "ios/web/public/test/fakes/test_browser_state.h"
-#import "ios/web/public/test/fakes/test_web_state.h"
+#include "ios/web/public/test/fakes/fake_browser_state.h"
+#import "ios/web/public/test/fakes/fake_web_state.h"
 #include "ios/web/public/test/web_task_environment.h"
+#include "net/base/mac/url_conversions.h"
 #include "net/cookies/cookie_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -40,20 +47,19 @@
 #endif
 
 namespace {
-// URL of the Google domain where the CHROME_CONNECTED cookie is set/removed.
-NSURL* const kGoogleUrl = [NSURL URLWithString:@"https://google.com/"];
-// URL of the Youtube domain where the CHROME_CONNECTED cookie is set/removed.
-NSURL* const kYoutubeUrl = [NSURL URLWithString:@"https://youtube.com/"];
-// URL of a country Google domain where the CHROME_CONNECTED cookie is
-// set/removed.
-NSURL* const kCountryGoogleUrl = [NSURL URLWithString:@"https://google.de/"];
-
+// Fake identity email.
+const char* kFakeEmail = "janedoe@gmail.com";
 // Google domain.
 const char* kGoogleDomain = "google.com";
 // Youtube domain.
 const char* kYoutubeDomain = "youtube.com";
 // Google domain where the CHROME_CONNECTED cookie is set/removed.
 const char* kCountryGoogleDomain = "google.de";
+
+// Name of the histogram to record the state of the GAIA cookie for the
+// navigation.
+const char* kGAIACookieOnNavigationHistogram =
+    "Signin.IOSGaiaCookieStateOnSignedInNavigation";
 
 // Returns a cookie domain that applies for all origins on |host_domain|.
 std::string GetCookieDomain(const std::string& host_domain) {
@@ -71,33 +77,13 @@ bool ContainsCookie(const std::vector<net::CanonicalCookie>& cookies,
                     const std::string& name,
                     const std::string& domain) {
   for (const auto& cookie : cookies) {
-    if (cookie.Name() ==
-        AccountConsistencyService::kChromeConnectedCookieName) {
+    if (cookie.Name() == name) {
       if (domain.empty() || cookie.Domain() == domain)
         return true;
     }
   }
   return false;
 }
-
-// AccountConsistencyService specialization that fakes the creation of the
-// WKWebView in order to mock it. This allows tests to intercept the calls to
-// the Web view and control they are correct.
-class FakeAccountConsistencyService : public AccountConsistencyService {
- public:
-  FakeAccountConsistencyService(
-      web::BrowserState* browser_state,
-      PrefService* prefs,
-      AccountReconcilor* account_reconcilor,
-      scoped_refptr<content_settings::CookieSettings> cookie_settings,
-      signin::IdentityManager* identity_manager)
-      : AccountConsistencyService(browser_state,
-                                  prefs,
-                                  account_reconcilor,
-                                  cookie_settings,
-                                  identity_manager) {}
-
-};
 
 // Mock AccountReconcilor to catch call to OnReceivedManageAccountsResponse.
 class MockAccountReconcilor : public AccountReconcilor {
@@ -110,10 +96,10 @@ class MockAccountReconcilor : public AccountReconcilor {
   MOCK_METHOD1(OnReceivedManageAccountsResponse, void(signin::GAIAServiceType));
 };
 
-// TestWebState that allows control over its policy decider.
-class TestWebState : public web::TestWebState {
+// FakeWebState that allows control over its policy decider.
+class FakeWebState : public web::FakeWebState {
  public:
-  TestWebState() : web::TestWebState(), decider_(nullptr) {}
+  FakeWebState() : web::FakeWebState(), decider_(nullptr) {}
   void AddPolicyDecider(web::WebStatePolicyDecider* decider) override {
     EXPECT_FALSE(decider_);
     decider_ = decider;
@@ -129,7 +115,7 @@ class TestWebState : public web::TestWebState {
     __block web::WebStatePolicyDecider::PolicyDecision policyDecision =
         web::WebStatePolicyDecider::PolicyDecision::Allow();
     auto callback =
-        base::Bind(^(web::WebStatePolicyDecider::PolicyDecision decision) {
+        base::BindOnce(^(web::WebStatePolicyDecider::PolicyDecision decision) {
           policyDecision = decision;
         });
     decider_->ShouldAllowResponse(response, for_main_frame,
@@ -154,15 +140,10 @@ class AccountConsistencyServiceTest : public PlatformTest {
       : task_environment_(web::WebTaskEnvironment::Options::DEFAULT,
                           base::test::TaskEnvironment::TimeSource::MOCK_TIME) {}
 
-  void OnRemoveChromeConnectedCookieFinished() {
-    EXPECT_FALSE(remove_cookie_callback_called_);
-    remove_cookie_callback_called_ = true;
-  }
-
  protected:
   void SetUp() override {
     PlatformTest::SetUp();
-    AccountConsistencyService::RegisterPrefs(prefs_.registry());
+
     content_settings::CookieSettings::RegisterProfilePrefs(prefs_.registry());
     HostContentSettingsMap::RegisterProfilePrefs(prefs_.registry());
 
@@ -173,7 +154,6 @@ class AccountConsistencyServiceTest : public PlatformTest {
         signin::AccountConsistencyMethod::kDisabled, signin_client_.get()));
     settings_map_ = new HostContentSettingsMap(
         &prefs_, false /* is_off_the_record */, false /* store_last_modified */,
-        false /* migrate_requesting_and_top_level_origin_settings */,
         false /* restore_session */);
     cookie_settings_ = new content_settings::CookieSettings(settings_map_.get(),
                                                             &prefs_, false, "");
@@ -183,41 +163,167 @@ class AccountConsistencyServiceTest : public PlatformTest {
   }
 
   void TearDown() override {
+    if (has_set_web_state_handler_) {
+      account_consistency_service_->RemoveWebStateHandler(&web_state_);
+      has_set_web_state_handler_ = false;
+    }
+
+    // Destroy the web state before shutting down
+    // |account_consistency_service_|.
+    web_state_.WebStateDestroyed();
+
     account_consistency_service_->Shutdown();
     settings_map_->ShutdownOnUIThread();
+    account_reconcilor_->Shutdown();
     identity_test_env_.reset();
     PlatformTest::TearDown();
   }
 
   void ResetAccountConsistencyService() {
     if (account_consistency_service_) {
+      if (has_set_web_state_handler_) {
+        account_consistency_service_->RemoveWebStateHandler(&web_state_);
+        has_set_web_state_handler_ = false;
+      }
       account_consistency_service_->Shutdown();
     }
-    account_consistency_service_.reset(new FakeAccountConsistencyService(
-        &browser_state_, &prefs_, account_reconcilor_.get(), cookie_settings_,
-        identity_test_env_->identity_manager()));
+    account_consistency_service_ = std::make_unique<AccountConsistencyService>(
+        &browser_state_, account_reconcilor_.get(), cookie_settings_,
+        identity_test_env_->identity_manager());
   }
 
+  // Identity APIs.
+  void SignIn() {
+    signin::MakePrimaryAccountAvailable(identity_test_env_->identity_manager(),
+                                        kFakeEmail);
+    WaitUntilAllCookieRequestsAreApplied();
+  }
+
+  void SignOut() {
+    signin::ClearPrimaryAccount(identity_test_env_->identity_manager());
+    WaitUntilAllCookieRequestsAreApplied();
+  }
+
+  // Cookie verification APIs.
+  void CheckDomainHasChromeConnectedCookie(const std::string& domain) {
+    EXPECT_TRUE(ContainsCookie(GetCookiesInCookieJar(),
+                               signin::kChromeConnectedCookieName,
+                               GetCookieDomain(domain)));
+  }
+
+  void CheckNoChromeConnectedCookieForDomain(const std::string& domain) {
+    EXPECT_FALSE(ContainsCookie(GetCookiesInCookieJar(),
+                                signin::kChromeConnectedCookieName,
+                                GetCookieDomain(domain)));
+  }
+
+  void CheckNoChromeConnectedCookies() {
+    EXPECT_FALSE(ContainsCookie(GetCookiesInCookieJar(),
+                                signin::kChromeConnectedCookieName,
+                                /*domain=*/std::string()));
+  }
+
+  // Verifies the time that the Gaia cookie was last updated for google.com.
+  void CheckGaiaCookieWithUpdateTime(base::Time time) {
+    EXPECT_EQ(
+        time,
+        account_consistency_service_->last_gaia_cookie_verification_time_);
+  }
+
+  // Navigation APIs.
+  void SimulateNavigateToURL(NSURLResponse* response,
+                             id<ManageAccountsDelegate> delegate) {
+    SimulateNavigateToURL(response, delegate,
+                          web::PageLoadCompletionStatus::SUCCESS,
+                          /* expected_allowed_response=*/true);
+  }
+
+  void SimulateNavigateToURLWithPageLoadFailure(
+      NSURLResponse* response,
+      id<ManageAccountsDelegate> delegate) {
+    SimulateNavigateToURL(response, delegate,
+                          web::PageLoadCompletionStatus::FAILURE,
+                          /* expected_allowed_response=*/true);
+  }
+
+  void SimulateNavigateToURLWithInterruption(
+      NSURLResponse* response,
+      id<ManageAccountsDelegate> delegate) {
+    SimulateNavigateToURL(response, delegate,
+                          web::PageLoadCompletionStatus::SUCCESS,
+                          /* expected_allowed_response=*/false);
+  }
+
+  // Cookie APIs.
   void WaitUntilAllCookieRequestsAreApplied() {
     // Spinning the runloop is needed to ensure that the cookie manager requests
     // are executed.
     base::RunLoop().RunUntilIdle();
-    EXPECT_TRUE(account_consistency_service_->cookie_requests_.empty());
+    EXPECT_EQ(0, account_consistency_service_
+                     ->active_cookie_manager_requests_for_testing_);
   }
 
-  void SignIn() {
-    signin::MakePrimaryAccountAvailable(identity_test_env_->identity_manager(),
-                                        "user@gmail.com");
-    WaitUntilAllCookieRequestsAreApplied();
+  // Simulate the action of GaiaCookieManagerService to cleanup the cookies
+  // once the sign-out is done.
+  void RemoveAllChromeConnectedCookies() {
+    base::RunLoop run_loop;
+    account_consistency_service_->RemoveAllChromeConnectedCookies(
+        run_loop.QuitClosure());
+    run_loop.Run();
   }
 
-  void SignOutAndSimulateGaiaCookieManagerServiceLogout() {
-    signin::ClearPrimaryAccount(identity_test_env_->identity_manager(),
-                                signin::ClearPrimaryAccountPolicy::DEFAULT);
-    SimulateGaiaCookieManagerServiceLogout();
-    WaitUntilAllCookieRequestsAreApplied();
+  // Simulate removing all cookies associated with the google.com domain through
+  // an external source.
+  void SimulateExternalSourceRemovesAllGoogleDomainCookies() {
+    network::mojom::CookieManager* cookie_manager =
+        browser_state_.GetCookieManager();
+    network::mojom::CookieDeletionFilterPtr filter =
+        network::mojom::CookieDeletionFilter::New();
+    filter->including_domains =
+        base::Optional<std::vector<std::string>>({kGoogleDomain});
+    cookie_manager->DeleteCookies(std::move(filter),
+                                  base::OnceCallback<void(uint)>());
   }
 
+  void SetWebStateHandler(id<ManageAccountsDelegate> delegate) {
+    // If we have already added the |web_state_| with a previous |delegate|,
+    // remove it to enforce a one-to-one mapping between web state handler and
+    // web state.
+    if (has_set_web_state_handler_)
+      account_consistency_service_->RemoveWebStateHandler(&web_state_);
+
+    account_consistency_service_->SetWebStateHandler(&web_state_, delegate);
+    has_set_web_state_handler_ = true;
+  }
+
+  // Properties available for tests.
+  // Creates test threads, necessary for ActiveStateManager that needs a UI
+  // thread.
+  web::WebTaskEnvironment task_environment_;
+  web::FakeBrowserState browser_state_;
+  sync_preferences::TestingPrefServiceSyncable prefs_;
+  FakeWebState web_state_;
+  network::TestURLLoaderFactory test_url_loader_factory_;
+
+  std::unique_ptr<signin::IdentityTestEnvironment> identity_test_env_;
+  std::unique_ptr<AccountConsistencyService> account_consistency_service_;
+  std::unique_ptr<MockAccountReconcilor> account_reconcilor_;
+
+ private:
+  void SimulateNavigateToURL(NSURLResponse* response,
+                             id<ManageAccountsDelegate> delegate,
+                             web::PageLoadCompletionStatus page_status,
+                             bool expect_allowed_response) {
+    SetWebStateHandler(delegate);
+    EXPECT_EQ(
+        expect_allowed_response,
+        web_state_.ShouldAllowResponse(response, /* for_main_frame = */ true));
+
+    web_state_.SetCurrentURL(net::GURLWithNSURL(response.URL));
+    web_state_.OnPageLoaded(page_status);
+  }
+
+  // Returns set of cookies available to the cookie manager.
   std::vector<net::CanonicalCookie> GetCookiesInCookieJar() {
     std::vector<net::CanonicalCookie> cookies_out;
     base::RunLoop run_loop;
@@ -234,83 +340,11 @@ class AccountConsistencyServiceTest : public PlatformTest {
     return cookies_out;
   }
 
-  void CheckDomainHasChromeConnectedCookie(const std::string& domain) {
-    EXPECT_TRUE(
-        ContainsCookie(GetCookiesInCookieJar(),
-                       AccountConsistencyService::kChromeConnectedCookieName,
-                       GetCookieDomain(domain)));
-    EXPECT_GE(
-        account_consistency_service_->last_cookie_update_map_.count(domain),
-        1u);
-  }
-
-  void CheckNoChromeConnectedCookieForDomain(const std::string& domain) {
-    EXPECT_FALSE(
-        ContainsCookie(GetCookiesInCookieJar(),
-                       AccountConsistencyService::kChromeConnectedCookieName,
-                       GetCookieDomain(domain)));
-    EXPECT_EQ(0U, account_consistency_service_->last_cookie_update_map_.count(
-                      domain));
-  }
-
-  void CheckNoChromeConnectedCookies() {
-    EXPECT_FALSE(
-        ContainsCookie(GetCookiesInCookieJar(),
-                       AccountConsistencyService::kChromeConnectedCookieName,
-                       /*domain=*/std::string()));
-  }
-
-  // Simulate the action of the action GaiaCookieManagerService to cleanup
-  // the cookies once the sign-out is done.
-  void SimulateGaiaCookieManagerServiceLogout() {
-    base::RunLoop run_loop;
-    account_consistency_service_->RemoveChromeConnectedCookies(
-        run_loop.QuitClosure());
-    run_loop.Run();
-  }
-
-  // Simulates setting the CHROME_CONNECTED cookie for the Google domain at the
-  // designated time interval. Returns the time at which the cookie was updated.
-  base::Time SimulateSetChromeConnectedCookie() {
-    account_consistency_service_->SetChromeConnectedCookieWithDomain(
-        kGoogleDomain);
-    WaitUntilAllCookieRequestsAreApplied();
-
-    return account_consistency_service_->last_cookie_update_map_[kGoogleDomain];
-  }
-
-  // Simulates updating the Gaia cookie on the Google domain at the designated
-  // time interval. Returns the time at which the cookie was updated.
-  base::Time SimulateUpdateGaiaCookie() {
-    account_consistency_service_->SetGaiaCookiesIfDeleted();
-    WaitUntilAllCookieRequestsAreApplied();
-
-    return account_consistency_service_->last_gaia_cookie_verification_time_;
-  }
-
-  void CheckGoogleDomainHasGaiaCookie() {
-    EXPECT_TRUE(ContainsCookie(GetCookiesInCookieJar(),
-                               AccountConsistencyService::kGaiaCookieName,
-                               ".google.com"));
-  }
-
-  // Creates test threads, necessary for ActiveStateManager that needs a UI
-  // thread.
-  web::WebTaskEnvironment task_environment_;
-  web::TestBrowserState browser_state_;
-  sync_preferences::TestingPrefServiceSyncable prefs_;
-  TestWebState web_state_;
-  network::TestURLLoaderFactory test_url_loader_factory_;
-
-  std::unique_ptr<signin::IdentityTestEnvironment> identity_test_env_;
-  // AccountConsistencyService being tested. Actually a
-  // FakeAccountConsistencyService to be able to use a mock web view.
-  std::unique_ptr<AccountConsistencyService> account_consistency_service_;
+  // Private properties.
   std::unique_ptr<TestSigninClient> signin_client_;
-  std::unique_ptr<MockAccountReconcilor> account_reconcilor_;
   scoped_refptr<HostContentSettingsMap> settings_map_;
   scoped_refptr<content_settings::CookieSettings> cookie_settings_;
-  bool remove_cookie_callback_called_;
+  bool has_set_web_state_handler_ = false;
 };
 
 // Tests that main domains are added to the internal map when cookies are set in
@@ -319,12 +353,6 @@ TEST_F(AccountConsistencyServiceTest, SigninAddCookieOnMainDomains) {
   SignIn();
   CheckDomainHasChromeConnectedCookie(kGoogleDomain);
   CheckDomainHasChromeConnectedCookie(kYoutubeDomain);
-
-  const base::DictionaryValue* dict =
-      prefs_.GetDictionary(AccountConsistencyService::kDomainsWithCookiePref);
-  EXPECT_EQ(2u, dict->size());
-  EXPECT_TRUE(dict->GetBooleanWithoutPathExpansion("google.com", nullptr));
-  EXPECT_TRUE(dict->GetBooleanWithoutPathExpansion("youtube.com", nullptr));
 }
 
 // Tests that cookies that are added during SignIn and subsequent navigations
@@ -338,22 +366,21 @@ TEST_F(AccountConsistencyServiceTest, SignInSignOut) {
   id delegate =
       [OCMockObject mockForProtocol:@protocol(ManageAccountsDelegate)];
   NSDictionary* headers = [NSDictionary dictionary];
-  NSHTTPURLResponse* response =
-      [[NSHTTPURLResponse alloc] initWithURL:kCountryGoogleUrl
-                                  statusCode:200
-                                 HTTPVersion:@"HTTP/1.1"
-                                headerFields:headers];
-  account_consistency_service_->SetWebStateHandler(&web_state_, delegate);
-  EXPECT_TRUE(
-      web_state_.ShouldAllowResponse(response, /* for_main_frame = */ true));
-  web_state_.WebStateDestroyed();
+
+  NSHTTPURLResponse* response = [[NSHTTPURLResponse alloc]
+       initWithURL:[NSURL URLWithString:@"https://google.de/"]
+        statusCode:200
+       HTTPVersion:@"HTTP/1.1"
+      headerFields:headers];
+
+  SimulateNavigateToURL(response, delegate);
 
   // Check that cookies was also added for |kCountryGoogleDomain|.
   CheckDomainHasChromeConnectedCookie(kGoogleDomain);
   CheckDomainHasChromeConnectedCookie(kYoutubeDomain);
   CheckDomainHasChromeConnectedCookie(kCountryGoogleDomain);
 
-  SignOutAndSimulateGaiaCookieManagerServiceLogout();
+  SignOut();
   CheckNoChromeConnectedCookies();
 }
 
@@ -361,7 +388,7 @@ TEST_F(AccountConsistencyServiceTest, SignInSignOut) {
 TEST_F(AccountConsistencyServiceTest, SignOutWithoutDomains) {
   CheckNoChromeConnectedCookies();
 
-  SignOutAndSimulateGaiaCookieManagerServiceLogout();
+  SignOut();
   CheckNoChromeConnectedCookies();
 }
 
@@ -370,7 +397,6 @@ TEST_F(AccountConsistencyServiceTest, SignOutWithoutDomains) {
 TEST_F(AccountConsistencyServiceTest, ChromeManageAccountsNotOnGaia) {
   id delegate =
       [OCMockObject mockForProtocol:@protocol(ManageAccountsDelegate)];
-
   NSDictionary* headers =
       [NSDictionary dictionaryWithObject:@"action=DEFAULT"
                                   forKey:@"X-Chrome-Manage-Accounts"];
@@ -379,10 +405,8 @@ TEST_F(AccountConsistencyServiceTest, ChromeManageAccountsNotOnGaia) {
         statusCode:200
        HTTPVersion:@"HTTP/1.1"
       headerFields:headers];
-  account_consistency_service_->SetWebStateHandler(&web_state_, delegate);
-  EXPECT_TRUE(
-      web_state_.ShouldAllowResponse(response, /* for_main_frame = */ true));
-  web_state_.WebStateDestroyed();
+
+  SimulateNavigateToURL(response, delegate);
 
   EXPECT_OCMOCK_VERIFY(delegate);
 }
@@ -399,10 +423,8 @@ TEST_F(AccountConsistencyServiceTest, ChromeManageAccountsNoHeader) {
         statusCode:200
        HTTPVersion:@"HTTP/1.1"
       headerFields:headers];
-  account_consistency_service_->SetWebStateHandler(&web_state_, delegate);
-  EXPECT_TRUE(
-      web_state_.ShouldAllowResponse(response, /* for_main_frame = */ true));
-  web_state_.WebStateDestroyed();
+
+  SimulateNavigateToURL(response, delegate);
 
   EXPECT_OCMOCK_VERIFY(delegate);
 }
@@ -424,13 +446,146 @@ TEST_F(AccountConsistencyServiceTest, ChromeManageAccountsDefault) {
         statusCode:200
        HTTPVersion:@"HTTP/1.1"
       headerFields:headers];
-  account_consistency_service_->SetWebStateHandler(&web_state_, delegate);
   EXPECT_CALL(*account_reconcilor_, OnReceivedManageAccountsResponse(
                                         signin::GAIA_SERVICE_TYPE_DEFAULT))
       .Times(1);
-  EXPECT_FALSE(
-      web_state_.ShouldAllowResponse(response, /* for_main_frame = */ true));
-  web_state_.WebStateDestroyed();
+
+  SimulateNavigateToURLWithInterruption(response, delegate);
+
+  EXPECT_OCMOCK_VERIFY(delegate);
+}
+
+// Tests that the ManageAccountsDelegate is notified when a navigation on Gaia
+// signon realm returns with a X-Chrome-Manage-Accounts header with show
+// consistency promo and ADDSESSION action.
+TEST_F(AccountConsistencyServiceTest,
+       ChromeManageAccountsShowConsistencyPromo) {
+  id delegate =
+      [OCMockObject mockForProtocol:@protocol(ManageAccountsDelegate)];
+  [[delegate expect] onShowConsistencyPromo];
+
+  NSDictionary* headers = [NSDictionary
+      dictionaryWithObject:@"action=ADDSESSION,show_consistency_promo=true"
+                    forKey:@"X-Chrome-Manage-Accounts"];
+  NSHTTPURLResponse* response = [[NSHTTPURLResponse alloc]
+       initWithURL:[NSURL URLWithString:@"https://accounts.google.com/"]
+        statusCode:200
+       HTTPVersion:@"HTTP/1.1"
+      headerFields:headers];
+  EXPECT_CALL(*account_reconcilor_, OnReceivedManageAccountsResponse(
+                                        signin::GAIA_SERVICE_TYPE_ADDSESSION))
+      .Times(1);
+
+  SimulateNavigateToURL(response, delegate);
+
+  EXPECT_OCMOCK_VERIFY(delegate);
+}
+
+// Tests that the consistency promo is not displayed when a page fails to load.
+TEST_F(AccountConsistencyServiceTest,
+       ChromeManageAccountsNotShowConsistencyPromoOnPageLoadFailure) {
+  id delegate =
+      [OCMockObject mockForProtocol:@protocol(ManageAccountsDelegate)];
+  [[delegate reject] onShowConsistencyPromo];
+
+  NSDictionary* headers = [NSDictionary
+      dictionaryWithObject:@"action=ADDSESSION,show_consistency_promo=true"
+                    forKey:@"X-Chrome-Manage-Accounts"];
+  NSHTTPURLResponse* response = [[NSHTTPURLResponse alloc]
+       initWithURL:[NSURL URLWithString:@"https://accounts.google.com/"]
+        statusCode:200
+       HTTPVersion:@"HTTP/1.1"
+      headerFields:headers];
+  EXPECT_CALL(*account_reconcilor_, OnReceivedManageAccountsResponse(
+                                        signin::GAIA_SERVICE_TYPE_ADDSESSION))
+      .Times(1);
+
+  SimulateNavigateToURLWithPageLoadFailure(response, delegate);
+
+  EXPECT_OCMOCK_VERIFY(delegate);
+}
+
+// Tests that the consistency promo is not displayed when a page fails to load
+// and user chooses another action.
+TEST_F(AccountConsistencyServiceTest,
+       ChromeManageAccountsNotShowConsistencyPromoOnPageLoadFailureRedirect) {
+  id delegate =
+      [OCMockObject mockForProtocol:@protocol(ManageAccountsDelegate)];
+  [[delegate expect] onAddAccount];
+  [[delegate reject] onShowConsistencyPromo];
+
+  EXPECT_CALL(*account_reconcilor_, OnReceivedManageAccountsResponse(
+                                        signin::GAIA_SERVICE_TYPE_ADDSESSION))
+      .Times(2);
+
+  NSDictionary* headers = [NSDictionary
+      dictionaryWithObject:@"action=ADDSESSION,show_consistency_promo=true"
+                    forKey:@"X-Chrome-Manage-Accounts"];
+  NSHTTPURLResponse* responseSignin = [[NSHTTPURLResponse alloc]
+       initWithURL:[NSURL URLWithString:@"https://accounts.google.com/"]
+        statusCode:200
+       HTTPVersion:@"HTTP/1.1"
+      headerFields:headers];
+
+  SimulateNavigateToURLWithPageLoadFailure(responseSignin, delegate);
+
+  NSDictionary* headersAddAccount =
+      [NSDictionary dictionaryWithObject:@"action=ADDSESSION"
+                                  forKey:@"X-Chrome-Manage-Accounts"];
+  NSHTTPURLResponse* responseAddAccount = [[NSHTTPURLResponse alloc]
+       initWithURL:[NSURL URLWithString:@"https://accounts.google.com/"]
+        statusCode:200
+       HTTPVersion:@"HTTP/1.1"
+      headerFields:headersAddAccount];
+
+  SimulateNavigateToURLWithInterruption(responseAddAccount, delegate);
+
+  EXPECT_OCMOCK_VERIFY(delegate);
+}
+
+// Tests that the consistency promo is not displayed when a non GAIA URL is
+// committed.
+TEST_F(AccountConsistencyServiceTest,
+       ChromeManageAccountsNotShowConsistencyPromoOnNonGaiaURL) {
+  id delegate =
+      [OCMockObject mockForProtocol:@protocol(ManageAccountsDelegate)];
+  [[delegate reject] onShowConsistencyPromo];
+
+  NSDictionary* headers = [NSDictionary
+      dictionaryWithObject:@"action=ADDSESSION,show_consistency_promo=true"
+                    forKey:@"X-Chrome-Manage-Accounts"];
+  NSHTTPURLResponse* response = [[NSHTTPURLResponse alloc]
+       initWithURL:[NSURL URLWithString:@"https://youtube.com//"]
+        statusCode:200
+       HTTPVersion:@"HTTP/1.1"
+      headerFields:headers];
+
+  SimulateNavigateToURL(response, delegate);
+
+  EXPECT_OCMOCK_VERIFY(delegate);
+}
+
+// Tests that the ManageAccountsDelegate is notified when a navigation on Gaia
+// signon realm returns with a X-Chrome-Manage-Accounts header with ADDSESSION
+// action.
+TEST_F(AccountConsistencyServiceTest, ChromeManageAccountsShowAddAccount) {
+  id delegate =
+      [OCMockObject mockForProtocol:@protocol(ManageAccountsDelegate)];
+  [[delegate expect] onAddAccount];
+
+  NSDictionary* headers =
+      [NSDictionary dictionaryWithObject:@"action=ADDSESSION"
+                                  forKey:@"X-Chrome-Manage-Accounts"];
+  NSHTTPURLResponse* response = [[NSHTTPURLResponse alloc]
+       initWithURL:[NSURL URLWithString:@"https://accounts.google.com/"]
+        statusCode:200
+       HTTPVersion:@"HTTP/1.1"
+      headerFields:headers];
+  EXPECT_CALL(*account_reconcilor_, OnReceivedManageAccountsResponse(
+                                        signin::GAIA_SERVICE_TYPE_ADDSESSION))
+      .Times(1);
+
+  SimulateNavigateToURLWithInterruption(response, delegate);
 
   EXPECT_OCMOCK_VERIFY(delegate);
 }
@@ -446,7 +601,7 @@ TEST_F(AccountConsistencyServiceTest, DomainsWithCookieLoadedFromPrefs) {
   CheckDomainHasChromeConnectedCookie(kGoogleDomain);
   CheckDomainHasChromeConnectedCookie(kYoutubeDomain);
 
-  SignOutAndSimulateGaiaCookieManagerServiceLogout();
+  SignOut();
   CheckNoChromeConnectedCookies();
 }
 
@@ -455,10 +610,6 @@ TEST_F(AccountConsistencyServiceTest, DomainsClearedOnBrowsingDataRemoved) {
   SignIn();
   CheckDomainHasChromeConnectedCookie(kGoogleDomain);
   CheckDomainHasChromeConnectedCookie(kYoutubeDomain);
-  EXPECT_EQ(
-      2u,
-      prefs_.GetDictionary(AccountConsistencyService::kDomainsWithCookiePref)
-          ->size());
 
   // Sets Response to get IdentityManager::Observer::OnAccountsInCookieUpdated
   // through GaiaCookieManagerService::OnCookieChange.
@@ -471,62 +622,254 @@ TEST_F(AccountConsistencyServiceTest, DomainsClearedOnBrowsingDataRemoved) {
   // AccountsCookieMutator::ForceTriggerOnCookieChange and finally
   // IdentityManager::Observer::OnAccountsInCookieUpdated is called.
   account_consistency_service_->OnBrowsingDataRemoved();
-  EXPECT_EQ(
-      0u,
-      prefs_.GetDictionary(AccountConsistencyService::kDomainsWithCookiePref)
-          ->size());
+
   run_loop.Run();
 
   // AccountConsistency service is supposed to rebuild the CHROME_CONNECTED
   // cookies when browsing data is removed.
   CheckDomainHasChromeConnectedCookie(kGoogleDomain);
   CheckDomainHasChromeConnectedCookie(kYoutubeDomain);
-  EXPECT_EQ(
-      2u,
-      prefs_.GetDictionary(AccountConsistencyService::kDomainsWithCookiePref)
-          ->size());
 }
 
-TEST_F(AccountConsistencyServiceTest, SetChromeConnectedCookieNotUpdateTime) {
+// Tests that google.com domain cookies can be regenerated after an external
+// source removes these cookies.
+TEST_F(AccountConsistencyServiceTest,
+       AddChromeConnectedCookiesOnCookiesRemoved) {
   SignIn();
-  base::Time first_cookie_update = SimulateSetChromeConnectedCookie();
+  CheckDomainHasChromeConnectedCookie(kGoogleDomain);
 
-  // The second update will not send a cookie request, since this call is made
-  // before update time.
-  base::Time second_cookie_update = SimulateSetChromeConnectedCookie();
-  EXPECT_EQ(first_cookie_update, second_cookie_update);
+  SimulateExternalSourceRemovesAllGoogleDomainCookies();
+  CheckNoChromeConnectedCookieForDomain(kGoogleDomain);
+
+  // Forcibly rebuild the CHROME_CONNECTED cookies.
+  account_consistency_service_->AddChromeConnectedCookies();
+
+  CheckDomainHasChromeConnectedCookie(kGoogleDomain);
 }
 
-TEST_F(AccountConsistencyServiceTest, SetChromeConnectedCookieAtUpdateTime) {
+// Tests that the CHROME_CONNECTED cookie is set on Google and Google-associated
+// domains when the account consistency service runs.
+TEST_F(AccountConsistencyServiceTest, SetChromeConnectedCookie) {
   SignIn();
-  base::Time first_cookie_update = SimulateSetChromeConnectedCookie();
 
-  // Advance clock past 24-hour CHROME_CONNECTED update time.
-  task_environment_.FastForwardBy(base::TimeDelta::FromDays(2));
+  id delegate =
+      [OCMockObject mockForProtocol:@protocol(ManageAccountsDelegate)];
+  NSDictionary* headers = [NSDictionary dictionary];
 
-  // The second update will not send a cookie request, since CHROME_CONNECTED
-  // has already been set.
-  base::Time second_cookie_update = SimulateSetChromeConnectedCookie();
-  EXPECT_GT(second_cookie_update, first_cookie_update);
+  // HTTP response URL is eligible for Mirror (the test does not use google.com
+  // since the CHROME_CONNECTED cookie is generated for it by default.
+  NSHTTPURLResponse* response = [[NSHTTPURLResponse alloc]
+       initWithURL:[NSURL URLWithString:@"https://youtube.com"]
+        statusCode:200
+       HTTPVersion:@"HTTP/1.1"
+      headerFields:headers];
+
+  SimulateNavigateToURL(response, delegate);
+  SimulateExternalSourceRemovesAllGoogleDomainCookies();
+
+  SimulateNavigateToURL(response, delegate);
+
+  CheckDomainHasChromeConnectedCookie(kGoogleDomain);
+  CheckDomainHasChromeConnectedCookie(kYoutubeDomain);
 }
 
+// Tests that the GAIA cookie update time is not updated before the scheduled
+// interval.
 TEST_F(AccountConsistencyServiceTest, SetGaiaCookieUpdateNotUpdateTime) {
-  base::Time first_gaia_cookie_update = SimulateUpdateGaiaCookie();
+  SignIn();
 
-  // The second update will not send a cookie request, since this call is made
-  // before update time.
-  base::Time second_gaia_cookie_update = SimulateUpdateGaiaCookie();
-  EXPECT_EQ(first_gaia_cookie_update, second_gaia_cookie_update);
+  // HTTP response URL is eligible for Mirror (the test does not use google.com
+  // since the CHROME_CONNECTED cookie is generated for it by default.
+  NSHTTPURLResponse* response = [[NSHTTPURLResponse alloc]
+       initWithURL:[NSURL URLWithString:@"https://youtube.com"]
+        statusCode:200
+       HTTPVersion:@"HTTP/1.1"
+      headerFields:@{}];
+
+  SimulateNavigateToURL(response, nil);
+
+  // Advance clock, but stay within the one-hour Gaia update time.
+  base::TimeDelta oneMinuteDelta = base::TimeDelta::FromMinutes(1);
+  task_environment_.FastForwardBy(oneMinuteDelta);
+  SimulateNavigateToURL(response, nil);
+
+  CheckGaiaCookieWithUpdateTime(base::Time::Now() - oneMinuteDelta);
 }
 
+// Tests that the GAIA cookie update time is updated at the scheduled interval.
 TEST_F(AccountConsistencyServiceTest, SetGaiaCookieUpdateAtUpdateTime) {
-  base::Time first_gaia_cookie_update = SimulateUpdateGaiaCookie();
+  SignIn();
+
+  // HTTP response URL is eligible for Mirror (the test does not use google.com
+  // since the CHROME_CONNECTED cookie is generated for it by default.
+  NSHTTPURLResponse* response = [[NSHTTPURLResponse alloc]
+       initWithURL:[NSURL URLWithString:@"https://youtube.com"]
+        statusCode:200
+       HTTPVersion:@"HTTP/1.1"
+      headerFields:@{}];
+
+  SimulateNavigateToURL(response, nil);
 
   // Advance clock past one-hour Gaia update time.
   task_environment_.FastForwardBy(base::TimeDelta::FromHours(2));
+  SimulateNavigateToURL(response, nil);
 
-  // The second update will send a cookie request, since update time is not
-  // considered for the call.
-  base::Time second_gaia_cookie_update = SimulateUpdateGaiaCookie();
-  EXPECT_GT(second_gaia_cookie_update, first_gaia_cookie_update);
+  CheckGaiaCookieWithUpdateTime(base::Time::Now());
+}
+
+// Ensures that the presence or absence of GAIA cookies is logged even if the
+// |kRestoreGAIACookiesIfDeleted| experiment is disabled.
+TEST_F(AccountConsistencyServiceTest, GAIACookieStatusLoggedProperly) {
+  // HTTP response URL is eligible for Mirror (the test does not use google.com
+  // since the CHROME_CONNECTED cookie is generated for it by default.
+  NSHTTPURLResponse* response = [[NSHTTPURLResponse alloc]
+       initWithURL:[NSURL URLWithString:@"https://youtube.com"]
+        statusCode:200
+       HTTPVersion:@"HTTP/1.1"
+      headerFields:@{}];
+
+  base::HistogramTester histogram_tester;
+  histogram_tester.ExpectTotalCount(kGAIACookieOnNavigationHistogram, 0);
+
+  SimulateNavigateToURL(response, nil);
+  base::RunLoop().RunUntilIdle();
+  histogram_tester.ExpectTotalCount(kGAIACookieOnNavigationHistogram, 0);
+
+  SignIn();
+  SimulateNavigateToURL(response, nil);
+  base::RunLoop().RunUntilIdle();
+  histogram_tester.ExpectTotalCount(kGAIACookieOnNavigationHistogram, 1);
+}
+
+// Tests that navigating to accounts.google.com without a GAIA cookie is logged
+// by the navigation histogram.
+TEST_F(AccountConsistencyServiceTest, GAIACookieMissingOnSignin) {
+  SignIn();
+
+  id delegate =
+      [OCMockObject mockForProtocol:@protocol(ManageAccountsDelegate)];
+  [[delegate expect] onAddAccount];
+
+  NSDictionary* headers =
+      [NSDictionary dictionaryWithObject:@"action=ADDSESSION"
+                                  forKey:@"X-Chrome-Manage-Accounts"];
+  NSHTTPURLResponse* response = [[NSHTTPURLResponse alloc]
+       initWithURL:[NSURL URLWithString:@"https://accounts.google.com/"]
+        statusCode:200
+       HTTPVersion:@"HTTP/1.1"
+      headerFields:headers];
+  EXPECT_CALL(*account_reconcilor_, OnReceivedManageAccountsResponse(
+                                        signin::GAIA_SERVICE_TYPE_ADDSESSION))
+      .Times(2);
+
+  SimulateNavigateToURLWithInterruption(response, delegate);
+  base::HistogramTester histogram_tester;
+  histogram_tester.ExpectTotalCount(kGAIACookieOnNavigationHistogram, 0);
+
+  SimulateExternalSourceRemovesAllGoogleDomainCookies();
+
+  [[delegate expect] onAddAccount];
+  SimulateNavigateToURLWithInterruption(response, delegate);
+  histogram_tester.ExpectTotalCount(kGAIACookieOnNavigationHistogram, 1);
+
+  EXPECT_OCMOCK_VERIFY(delegate);
+}
+
+// Ensures that set and remove cookie operations are handled in the order
+// they are called resulting in no cookies.
+TEST_F(AccountConsistencyServiceTest, DeleteChromeConnectedCookiesAfterSet) {
+  SignIn();
+
+  // URLs must pass IsGoogleDomainURL and not duplicate sign-in domains
+  // |kGoogleDomain| or |kYouTubeDomain| otherwise they will not be reset since
+  // it is before the update time. Add multiple URLs to test for race conditions
+  // with remove call.
+  account_consistency_service_->SetChromeConnectedCookieWithUrls(
+      {GURL("https://google.ca"), GURL("https://google.fr"),
+       GURL("https://google.de")});
+  RemoveAllChromeConnectedCookies();
+
+  WaitUntilAllCookieRequestsAreApplied();
+  CheckNoChromeConnectedCookies();
+}
+
+// Ensures that set and remove cookie operations are handled in the order
+// they are called resulting in one cookie.
+TEST_F(AccountConsistencyServiceTest, SetChromeConnectedCookiesAfterDelete) {
+  SignIn();
+
+  // URLs must pass IsGoogleDomainURL and not duplicate sign-in domains
+  // |kGoogleDomain| or |kYouTubeDomain| otherwise they will not be reset since
+  // it is before the update time. Add multiple URLs to test for race conditions
+  // with remove call.
+  account_consistency_service_->SetChromeConnectedCookieWithUrls(
+      {GURL("https://google.ca"), GURL("https://google.fr"),
+       GURL("https://google.de")});
+  RemoveAllChromeConnectedCookies();
+  account_consistency_service_->SetChromeConnectedCookieWithUrls(
+      {GURL("https://google.ca")});
+
+  WaitUntilAllCookieRequestsAreApplied();
+  CheckDomainHasChromeConnectedCookie("google.ca");
+}
+
+// Ensures that CHROME_CONNECTED cookies are not set on google.com when the user
+// is signed out and navigating to google.com for |kMobileIdentityConsistency|
+// experiment.
+TEST_F(AccountConsistencyServiceTest,
+       SetMiceChromeConnectedCookiesSignedOutGoogleVisitor) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(signin::kMobileIdentityConsistency);
+  id delegate =
+      [OCMockObject mockForProtocol:@protocol(ManageAccountsDelegate)];
+
+  NSDictionary* headers =
+      [NSDictionary dictionaryWithObject:@"action=ADDSESSION"
+                                  forKey:@"X-Chrome-Manage-Accounts"];
+  NSHTTPURLResponse* response = [[NSHTTPURLResponse alloc]
+       initWithURL:[NSURL URLWithString:@"https://google.com/"]
+        statusCode:200
+       HTTPVersion:@"HTTP/1.1"
+      headerFields:headers];
+
+  CheckNoChromeConnectedCookies();
+
+  SimulateNavigateToURL(response, delegate);
+
+  CheckNoChromeConnectedCookies();
+  EXPECT_OCMOCK_VERIFY(delegate);
+}
+
+// Ensures that CHROME_CONNECTED cookies are only set on GAIA urls when the user
+// is signed out and taps sign-in button for |kMobileIdentityConsistency|
+// experiment. These cookies are immediately removed after the sign-in promo is
+// shown.
+TEST_F(AccountConsistencyServiceTest,
+       SetMiceChromeConnectedCookiesSignedOutGaiaVisitor) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(signin::kMobileIdentityConsistency);
+  id delegate =
+      [OCMockObject mockForProtocol:@protocol(ManageAccountsDelegate)];
+  [[delegate expect] onShowConsistencyPromo];
+
+  NSDictionary* headers = [NSDictionary
+      dictionaryWithObject:@"action=ADDSESSION,show_consistency_promo=true"
+                    forKey:@"X-Chrome-Manage-Accounts"];
+  NSHTTPURLResponse* response = [[NSHTTPURLResponse alloc]
+       initWithURL:[NSURL URLWithString:@"https://accounts.google.com/"]
+        statusCode:200
+       HTTPVersion:@"HTTP/1.1"
+      headerFields:headers];
+
+  SetWebStateHandler(delegate);
+  EXPECT_TRUE(web_state_.ShouldAllowResponse(response,
+                                             /* for_main_frame = */ true));
+
+  CheckDomainHasChromeConnectedCookie("accounts.google.com");
+
+  web_state_.SetCurrentURL(net::GURLWithNSURL(response.URL));
+  web_state_.OnPageLoaded(web::PageLoadCompletionStatus::SUCCESS);
+
+  CheckNoChromeConnectedCookies();
+  EXPECT_OCMOCK_VERIFY(delegate);
 }

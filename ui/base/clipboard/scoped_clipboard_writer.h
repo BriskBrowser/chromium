@@ -12,7 +12,7 @@
 #include "base/strings/string16.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/clipboard/clipboard.h"
-#include "ui/base/clipboard/clipboard_data_endpoint.h"
+#include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
 
 namespace base {
 class Pickle;
@@ -33,10 +33,10 @@ class COMPONENT_EXPORT(UI_BASE_CLIPBOARD) ScopedClipboardWriter {
   // Create an instance that is a simple wrapper around the clipboard of the
   // given buffer with an optional parameter indicating the source of the data.
   // TODO(crbug.com/1103193): change its references to use
-  // ClipboardDataEndpoint, if possible.
+  // DataTransferEndpoint, if possible.
   explicit ScopedClipboardWriter(
       ClipboardBuffer buffer,
-      std::unique_ptr<ClipboardDataEndpoint> src = nullptr);
+      std::unique_ptr<DataTransferEndpoint> src = nullptr);
 
   ~ScopedClipboardWriter();
 
@@ -52,6 +52,12 @@ class COMPONENT_EXPORT(UI_BASE_CLIPBOARD) ScopedClipboardWriter {
 
   // Adds RTF to the clipboard.
   void WriteRTF(const std::string& rtf_data);
+
+  // Adds text/uri-list filenames to the clipboard.
+  // Security Note: This function is expected to be called only by exo in
+  // Chrome OS. It should not be called by renderers or any other untrusted
+  // party since any paths written to the clipboard can be read by renderers.
+  void WriteFilenames(const std::string& uri_list);
 
   // Adds a bookmark to the clipboard.
   void WriteBookmark(const base::string16& bookmark_title,
@@ -98,8 +104,8 @@ class COMPONENT_EXPORT(UI_BASE_CLIPBOARD) ScopedClipboardWriter {
 
   // The source of the data written in ScopedClipboardWriter, nullptr means it's
   // not set, or the source of the data can't be represented by
-  // ClipboardDataEndpoint.
-  std::unique_ptr<ClipboardDataEndpoint> data_src_ = nullptr;
+  // DataTransferEndpoint.
+  std::unique_ptr<DataTransferEndpoint> data_src_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(ScopedClipboardWriter);
 };

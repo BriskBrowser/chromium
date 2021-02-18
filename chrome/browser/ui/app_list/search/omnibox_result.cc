@@ -7,10 +7,13 @@
 #include <stddef.h>
 
 #include "ash/public/cpp/app_list/app_list_config.h"
+#include "ash/public/cpp/app_list/app_list_features.h"
 #include "ash/public/cpp/app_list/vector_icons/vector_icons.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/strings/string_split.h"
+#include "base/optional.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/bitmap_fetcher/bitmap_fetcher.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
@@ -21,8 +24,11 @@
 #include "components/omnibox/browser/autocomplete_match_type.h"
 #include "components/omnibox/browser/vector_icons.h"
 #include "components/search_engines/util.h"
+#include "extensions/common/image_util.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/color_palette.h"
+#include "ui/gfx/image/image_skia_operations.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "url/gurl.h"
 #include "url/url_canon.h"
@@ -34,6 +40,32 @@ namespace app_list {
 namespace {
 
 constexpr SkColor kListIconColor = gfx::kGoogleGrey700;
+
+constexpr net::NetworkTrafficAnnotationTag kTrafficAnnotation =
+    net::DefineNetworkTrafficAnnotation("cros_launcher_omnibox", R"(
+        semantics {
+          sender: "Chrome OS Launcher"
+          description:
+            "Chrome OS provides search suggestions when a user types a query "
+            "into the launcher. This request downloads an image icon for a "
+            "suggested result in order to provide more information."
+          trigger:
+            "Change of results for the query typed by the user into the "
+            "launcher."
+          data:
+            "URL of the image to be downloaded. This URL corresponds to "
+            "search suggestions for the user's query."
+          destination: GOOGLE_OWNED_SERVICE
+        }
+        policy {
+          cookies_allowed: NO
+          setting:
+            "Search autocomplete and suggestions can be disabled in Chrome OS "
+            "settings. Image icons cannot be disabled separately to this."
+          policy_exception_justification:
+            "No content is uploaded or saved, this request downloads a "
+            "publicly available image."
+        })");
 
 int ACMatchStyleToTagStyle(int styles) {
   int tag_styles = 0;
@@ -116,12 +148,65 @@ const gfx::VectorIcon& TypeToVectorIcon(AutocompleteMatchType::Type type) {
 
     case AutocompleteMatchType::EXTENSION_APP_DEPRECATED:
     case AutocompleteMatchType::TILE_SUGGESTION:
+    case AutocompleteMatchType::TILE_NAVSUGGEST:
     case AutocompleteMatchType::NUM_TYPES:
       NOTREACHED();
       break;
   }
   NOTREACHED();
   return ash::kDomainIcon;
+}
+
+// Converts AutocompleteMatchType::Type to an answer vector icon.
+const gfx::VectorIcon& TypeToAnswerIcon(int type) {
+  switch (static_cast<SuggestionAnswer::AnswerType>(type)) {
+    case SuggestionAnswer::ANSWER_TYPE_CURRENCY:
+      return omnibox::kAnswerCurrencyIcon;
+    case SuggestionAnswer::ANSWER_TYPE_DICTIONARY:
+      return omnibox::kAnswerDictionaryIcon;
+    case SuggestionAnswer::ANSWER_TYPE_FINANCE:
+      return omnibox::kAnswerFinanceIcon;
+    case SuggestionAnswer::ANSWER_TYPE_SUNRISE:
+      return omnibox::kAnswerSunriseIcon;
+    case SuggestionAnswer::ANSWER_TYPE_TRANSLATION:
+      return omnibox::kAnswerTranslationIcon;
+    case SuggestionAnswer::ANSWER_TYPE_WHEN_IS:
+      return omnibox::kAnswerWhenIsIcon;
+    default:
+      return omnibox::kAnswerDefaultIcon;
+  }
+}
+
+gfx::ImageSkia CreateAnswerIcon(const gfx::VectorIcon& vector_icon) {
+  const auto& icon = gfx::CreateVectorIcon(vector_icon, SK_ColorWHITE);
+  const int dimension =
+      ash::AppListConfig::instance().search_list_answer_icon_dimension();
+  return gfx::ImageSkiaOperations::CreateImageWithCircleBackground(
+      dimension / 2, gfx::kGoogleBlue600, icon);
+}
+
+base::Optional<base::string16> GetAdditionalText(
+    const SuggestionAnswer::ImageLine& line) {
+  if (line.additional_text()) {
+    const auto additional_text = line.additional_text()->text();
+    if (!additional_text.empty())
+      return additional_text;
+  }
+  return base::nullopt;
+}
+
+base::string16 ImageLineToString16(const SuggestionAnswer::ImageLine& line) {
+  std::vector<base::string16> text;
+  for (const auto& text_field : line.text_fields()) {
+    text.push_back(text_field.text());
+  }
+  const auto& additional_text = GetAdditionalText(line);
+  if (additional_text) {
+    text.push_back(additional_text.value());
+  }
+  // TODO(crbug.com/1130372): Use placeholders or a l10n-friendly way to
+  // construct this string instead of concatenation.
+  return base::JoinString(text, base::ASCIIToUTF16(" "));
 }
 
 }  // namespace
@@ -137,7 +222,7 @@ OmniboxResult::OmniboxResult(Profile* profile,
       match_(match),
       is_zero_suggestion_(is_zero_suggestion) {
   if (match_.search_terms_args && autocomplete_controller_) {
-    match_.search_terms_args->from_app_list = true;
+    match_.search_terms_args->request_source = TemplateURLRef::CROS_APP_LIST;
     autocomplete_controller_->UpdateMatchDestinationURL(
         *match_.search_terms_args, &match_);
   }
@@ -145,6 +230,16 @@ OmniboxResult::OmniboxResult(Profile* profile,
   SetResultType(ash::AppListSearchResultType::kOmnibox);
   set_result_subtype(static_cast<int>(match_.type));
   SetMetricsType(GetSearchResultType());
+
+  if (app_list_features::IsOmniboxRichEntitiesEnabled()) {
+    if (match_.answer.has_value()) {
+      SetOmniboxType(OmniboxType::kAnswer);
+      // The answer subtype overrides the match subtype.
+      set_result_subtype(static_cast<int>(match_.answer->type()));
+    } else if (!match_.image_url.is_empty()) {
+      SetOmniboxType(OmniboxType::kRichImage);
+    }
+  }
 
   // Derive relevance from omnibox relevance and normalize it to [0, 1].
   // The magic number 1500 is the highest score of an omnibox result.
@@ -173,7 +268,7 @@ void OmniboxResult::Remove() {
   autocomplete_controller_->DeleteMatch(match_);
 }
 
-void OmniboxResult::InvokeAction(int action_index, int event_flags) {
+void OmniboxResult::InvokeAction(int action_index) {
   DCHECK(is_zero_suggestion_);
   switch (ash::GetOmniBoxZeroStateAction(action_index)) {
     case ash::OmniBoxZeroStateAction::kRemoveSuggestion:
@@ -182,6 +277,11 @@ void OmniboxResult::InvokeAction(int action_index, int event_flags) {
     default:
       NOTREACHED();
   }
+}
+
+void OmniboxResult::OnFetchComplete(const GURL& url, const SkBitmap* bitmap) {
+  if (bitmap)
+    SetIcon(gfx::ImageSkia::CreateFrom1xBitmap(*bitmap));
 }
 
 ash::SearchResultType OmniboxResult::GetSearchResultType() const {
@@ -209,10 +309,12 @@ ash::SearchResultType OmniboxResult::GetSearchResultType() const {
       return ash::OMNIBOX_SUGGEST_PERSONALIZED;
     case AutocompleteMatchType::BOOKMARK_TITLE:
       return ash::OMNIBOX_BOOKMARK;
+    case AutocompleteMatchType::SEARCH_SUGGEST_ENTITY:
+      return ash::OMNIBOX_SEARCH_SUGGEST_ENTITY;
+    case AutocompleteMatchType::NAVSUGGEST:
+      return ash::OMNIBOX_NAVSUGGEST;
 
     case AutocompleteMatchType::HISTORY_KEYWORD:
-    case AutocompleteMatchType::NAVSUGGEST:
-    case AutocompleteMatchType::SEARCH_SUGGEST_ENTITY:
     case AutocompleteMatchType::SEARCH_SUGGEST_TAIL:
     case AutocompleteMatchType::SEARCH_SUGGEST_PROFILE:
     case AutocompleteMatchType::SEARCH_OTHER_ENGINE:
@@ -231,9 +333,8 @@ ash::SearchResultType OmniboxResult::GetSearchResultType() const {
     case AutocompleteMatchType::CLIPBOARD_IMAGE:
     case AutocompleteMatchType::HISTORY_BODY:
     case AutocompleteMatchType::TILE_SUGGESTION:
+    case AutocompleteMatchType::TILE_NAVSUGGEST:
     case AutocompleteMatchType::NUM_TYPES:
-      // TODO(crbug.com/1028447): Add a NOTREACHED here once we are confident we
-      // know all possible types for this result.
       return ash::SEARCH_RESULT_TYPE_BOUNDARY;
   }
 }
@@ -243,57 +344,116 @@ GURL OmniboxResult::DestinationURL() const {
 }
 
 void OmniboxResult::UpdateIcon() {
-  BookmarkModel* bookmark_model =
-      BookmarkModelFactory::GetForBrowserContext(profile_);
-  bool is_bookmarked =
-      bookmark_model && bookmark_model->IsBookmarked(match_.destination_url);
+  if (app_list_features::IsOmniboxRichEntitiesEnabled() &&
+      IsRichEntityResult()) {
+    // Determine if we have a local icon. Calculator and non-weather answer
+    // results have local icons.
+    if (match_.type == AutocompleteMatchType::CALCULATOR) {
+      SetIcon(CreateAnswerIcon(omnibox::kCalculatorIcon));
+    } else if (match_.answer) {
+      if (match_.answer->type() == SuggestionAnswer::ANSWER_TYPE_WEATHER &&
+          !match_.answer->image_url().is_empty()) {
+        // Weather icons are downloaded. Check this first so that the local
+        // default answer icon can be used as a fallback if the URL is missing.
+        FetchRichEntityImage(match_.answer->image_url());
+      } else {
+        SetIcon(CreateAnswerIcon(TypeToAnswerIcon(match_.answer->type())));
+      }
+    } else if (!match_.image_url.is_empty()) {
+      // All remaining rich entity icons will have their image downloaded.
+      FetchRichEntityImage(match_.image_url);
+    }
+  } else {
+    BookmarkModel* bookmark_model =
+        BookmarkModelFactory::GetForBrowserContext(profile_);
+    bool is_bookmarked =
+        bookmark_model && bookmark_model->IsBookmarked(match_.destination_url);
 
-  const gfx::VectorIcon& icon =
-      is_bookmarked ? omnibox::kBookmarkIcon : TypeToVectorIcon(match_.type);
-  SetIcon(gfx::CreateVectorIcon(
-      icon, ash::AppListConfig::instance().search_list_icon_dimension(),
-      kListIconColor));
+    const gfx::VectorIcon& icon =
+        is_bookmarked ? omnibox::kBookmarkIcon : TypeToVectorIcon(match_.type);
+    SetIcon(gfx::CreateVectorIcon(
+        icon, ash::AppListConfig::instance().search_list_icon_dimension(),
+        kListIconColor));
+  }
 }
 
 void OmniboxResult::UpdateTitleAndDetails() {
-  // For url result with non-empty description, swap title and details. Thus,
-  // the url description is presented as title, and url itself is presented as
-  // details.
-  const bool use_directly = !IsUrlResultWithDescription();
-  ChromeSearchResult::Tags title_tags;
-  if (use_directly) {
-    SetTitle(match_.contents);
-    ACMatchClassificationsToTags(match_.contents, match_.contents_class,
-                                 &title_tags);
-  } else {
-    SetTitle(match_.description);
-    ACMatchClassificationsToTags(match_.description, match_.description_class,
-                                 &title_tags);
-  }
-  SetTitleTags(title_tags);
+  if (app_list_features::IsOmniboxRichEntitiesEnabled()) {
+    if (match_.answer.has_value()) {
+      const auto& additional_text =
+          GetAdditionalText(match_.answer->first_line());
+      // TODO(crbug.com/1130372): Use placeholders or a l10n-friendly way to
+      // construct this string instead of concatenation.
+      SetTitle(additional_text ? base::JoinString(
+                                     {match_.contents, additional_text.value()},
+                                     base::ASCIIToUTF16(" "))
+                               : match_.contents);
+      SetDetails(ImageLineToString16(match_.answer->second_line()));
+    } else {
+      ChromeSearchResult::Tags title_tags;
+      ACMatchClassificationsToTags(match_.contents, match_.contents_class,
+                                   &title_tags);
+      SetTitle(match_.contents);
+      SetTitleTags(title_tags);
 
-  ChromeSearchResult::Tags details_tags;
-  if (use_directly) {
-    if (AutocompleteMatch::IsSearchType(match_.type)) {
-      SetAccessibleName(l10n_util::GetStringFUTF16(
-          IDS_APP_LIST_QUERY_SEARCH_ACCESSIBILITY_NAME, title(),
-          GetDefaultSearchEngineName(
-              TemplateURLServiceFactory::GetForProfile(profile_))));
+      ChromeSearchResult::Tags details_tags;
+      ACMatchClassificationsToTags(match_.description, match_.description_class,
+                                   &details_tags);
+      SetDetails(match_.description);
+      SetDetailsTags(details_tags);
     }
-    SetDetails(match_.description);
-    ACMatchClassificationsToTags(match_.description, match_.description_class,
-                                 &details_tags);
   } else {
-    SetDetails(match_.contents);
-    ACMatchClassificationsToTags(match_.contents, match_.contents_class,
-                                 &details_tags);
+    // For url result with non-empty description, swap title and details. Thus,
+    // the url description is presented as title, and url itself is presented as
+    // details.
+    const bool use_directly = !IsUrlResultWithDescription();
+    ChromeSearchResult::Tags title_tags;
+    ChromeSearchResult::Tags details_tags;
+    if (use_directly) {
+      SetTitle(match_.contents);
+      ACMatchClassificationsToTags(match_.contents, match_.contents_class,
+                                   &title_tags);
+      SetDetails(match_.description);
+      ACMatchClassificationsToTags(match_.description, match_.description_class,
+                                   &details_tags);
+      if (AutocompleteMatch::IsSearchType(match_.type)) {
+        SetAccessibleName(l10n_util::GetStringFUTF16(
+            IDS_APP_LIST_QUERY_SEARCH_ACCESSIBILITY_NAME, title(),
+            GetDefaultSearchEngineName(
+                TemplateURLServiceFactory::GetForProfile(profile_))));
+      }
+    } else {
+      SetTitle(match_.description);
+      ACMatchClassificationsToTags(match_.description, match_.description_class,
+                                   &title_tags);
+      SetDetails(match_.contents);
+      ACMatchClassificationsToTags(match_.contents, match_.contents_class,
+                                   &details_tags);
+    }
+    SetTitleTags(title_tags);
+    SetDetailsTags(details_tags);
   }
-  SetDetailsTags(details_tags);
 }
 
 bool OmniboxResult::IsUrlResultWithDescription() const {
   return !AutocompleteMatch::IsSearchType(match_.type) &&
          !match_.description.empty();
+}
+
+bool OmniboxResult::IsRichEntityResult() const {
+  return match_.type == AutocompleteMatchType::CALCULATOR || match_.answer ||
+         !match_.image_url.is_empty();
+}
+
+void OmniboxResult::FetchRichEntityImage(const GURL& url) {
+  if (!bitmap_fetcher_) {
+    bitmap_fetcher_ =
+        std::make_unique<BitmapFetcher>(url, this, kTrafficAnnotation);
+  }
+  bitmap_fetcher_->Init(/*referrer=*/std::string(),
+                        net::ReferrerPolicy::NEVER_CLEAR,
+                        network::mojom::CredentialsMode::kOmit);
+  bitmap_fetcher_->Start(profile_->GetURLLoaderFactory().get());
 }
 
 void OmniboxResult::SetZeroSuggestionActions() {

@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "ash/capture_mode/capture_mode_controller.h"
 #include "ash/display/screen_orientation_controller.h"
 #include "ash/login/login_screen_controller.h"
 #include "ash/public/cpp/ash_features.h"
@@ -15,7 +16,7 @@
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
-#include "ash/style/default_color_constants.h"
+#include "ash/style/scoped_light_mode_as_default.h"
 #include "ash/system/power/power_button_menu_item_view.h"
 #include "ash/system/power/power_button_menu_metrics_type.h"
 #include "ash/system/user/login_status.h"
@@ -24,9 +25,9 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/layer_animator.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
-#include "ui/gfx/canvas.h"
 #include "ui/gfx/vector_icon_types.h"
 #include "ui/views/accessibility/view_accessibility.h"
+#include "ui/views/background.h"
 
 namespace ash {
 
@@ -37,18 +38,10 @@ constexpr int kMenuItemHorizontalPadding = 16;
 constexpr int kMenuItemVerticalPadding = 16;
 
 // The amount of rounding applied to the corners of the menu view.
-constexpr int kMenuViewRoundRectRadiusDp = 16;
+constexpr gfx::RoundedCornersF kMenuViewRoundRectRadiusDp{16.f};
 
 // Horizontal padding between two menu items.
 constexpr int kPaddingBetweenMenuItems = 8;
-
-SkColor GetMenuBackgroundColor() {
-  return AshColorProvider::Get()->DeprecatedGetBaseLayerColor(
-      features::IsBackgroundBlurEnabled()
-          ? AshColorProvider::BaseLayerType::kTransparent80
-          : AshColorProvider::BaseLayerType::kTransparent90,
-      kPowerButtonMenuBackgroundColor);
-}
 
 }  // namespace
 
@@ -62,7 +55,9 @@ PowerButtonMenuView::PowerButtonMenuView(
   SetFocusBehavior(FocusBehavior::ALWAYS);
   SetPaintToLayer();
   layer()->SetFillsBoundsOpaquely(false);
-  layer()->SetOpacity(0.f);
+  layer()->SetRoundedCornerRadius(kMenuViewRoundRectRadiusDp);
+  layer()->SetBackgroundBlur(
+      static_cast<float>(AshColorProvider::LayerBlurSigma::kBlurDefault));
   GetViewAccessibility().OverrideRole(ax::mojom::Role::kMenu);
   GetViewAccessibility().OverrideName(
       l10n_util::GetStringUTF16(IDS_ASH_POWER_BUTTON_MENU_ACCESSIBLE));
@@ -151,10 +146,11 @@ PowerButtonMenuView::GetTransformDisplacement() const {
 void PowerButtonMenuView::RecreateItems() {
   // Helper to add or remove a menu item from |this|. Stores weak pointer to
   // |out_item_ptr|.
-  auto add_remove_item = [this](
-                             bool create, const gfx::VectorIcon& icon,
-                             const base::string16& string,
-                             PowerButtonMenuItemView** out_item_ptr) -> void {
+  auto add_remove_item =
+      [this](bool create, PowerButtonMenuActionType action,
+             base::RepeatingClosure callback, const gfx::VectorIcon& icon,
+             const base::string16& string,
+             PowerButtonMenuItemView** out_item_ptr) -> void {
     // If an item needs to be created and exists, or needs to be destroyed but
     // does not exist, there is nothing to be done.
     if (create && *out_item_ptr)
@@ -163,8 +159,11 @@ void PowerButtonMenuView::RecreateItems() {
       return;
 
     if (create) {
-      *out_item_ptr = AddChildView(
-          std::make_unique<PowerButtonMenuItemView>(this, icon, string));
+      *out_item_ptr = AddChildView(std::make_unique<PowerButtonMenuItemView>(
+          base::BindRepeating(&PowerButtonMenuView::ButtonPressed,
+                              base::Unretained(this), action,
+                              std::move(callback)),
+          icon, string));
     } else {
       std::unique_ptr<PowerButtonMenuItemView> to_delete =
           RemoveChildViewT(*out_item_ptr);
@@ -178,22 +177,65 @@ void PowerButtonMenuView::RecreateItems() {
   const bool create_sign_out = login_status != LoginStatus::NOT_LOGGED_IN;
   const bool create_lock_screen = login_status != LoginStatus::LOCKED &&
                                   session_controller->CanLockScreen();
+  const bool capture_mode_enabled = features::IsCaptureModeEnabled();
+  const bool create_capture_mode =
+      capture_mode_enabled &&
+      Shell::Get()->tablet_mode_controller()->InTabletMode() &&
+      !session_controller->IsUserSessionBlocked();
   const bool create_feedback = login_status != LoginStatus::LOCKED &&
                                login_status != LoginStatus::KIOSK_APP;
 
   add_remove_item(
-      true, kSystemPowerButtonMenuPowerOffIcon,
+      true, PowerButtonMenuActionType::kPowerOff,
+      base::BindRepeating(
+          &LockStateController::StartShutdownAnimation,
+          base::Unretained(Shell::Get()->lock_state_controller()),
+          ShutdownReason::POWER_BUTTON),
+      kSystemPowerButtonMenuPowerOffIcon,
       l10n_util::GetStringUTF16(IDS_ASH_POWER_BUTTON_MENU_POWER_OFF_BUTTON),
       &power_off_item_);
-  add_remove_item(create_sign_out, kSystemPowerButtonMenuSignOutIcon,
-                  user::GetLocalizedSignOutStringForStatus(login_status, false),
-                  &sign_out_item_);
   add_remove_item(
-      create_lock_screen, kSystemPowerButtonMenuLockScreenIcon,
+      create_sign_out, PowerButtonMenuActionType::kSignOut,
+      base::BindRepeating(&SessionControllerImpl::RequestSignOut,
+                          base::Unretained(Shell::Get()->session_controller())),
+      kSystemPowerButtonMenuSignOutIcon,
+      user::GetLocalizedSignOutStringForStatus(login_status, false),
+      &sign_out_item_);
+  add_remove_item(
+      create_lock_screen, PowerButtonMenuActionType::kLockScreen,
+      base::BindRepeating(&SessionControllerImpl::LockScreen,
+                          base::Unretained(Shell::Get()->session_controller())),
+      kSystemPowerButtonMenuLockScreenIcon,
       l10n_util::GetStringUTF16(IDS_ASH_POWER_BUTTON_MENU_LOCK_SCREEN_BUTTON),
       &lock_screen_item_);
   add_remove_item(
-      create_feedback, kSystemPowerButtonMenuFeedbackIcon,
+      create_capture_mode, PowerButtonMenuActionType::kCaptureMode,
+      capture_mode_enabled
+          ? base::BindRepeating(&CaptureModeController::Start,
+                                base::Unretained(CaptureModeController::Get()),
+                                CaptureModeEntryType::kPowerMenu)
+          : base::DoNothing(),
+      kCaptureModeIcon,
+      l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_CAPTURE_MODE_BUTTON_LABEL),
+      &capture_mode_item_);
+  add_remove_item(
+      create_feedback, PowerButtonMenuActionType::kFeedback,
+      base::BindRepeating(
+          [](Shell* shell) {
+            if (shell->session_controller()->login_status() ==
+                LoginStatus::NOT_LOGGED_IN) {
+              // There is a special flow for feedback while in login screen,
+              // therefore we trigger the same handler associated with the
+              // feedback accelerator from the login screen to bring up the
+              // feedback dialog.
+              shell->login_screen_controller()->HandleAccelerator(
+                  LoginAcceleratorAction::kShowFeedback);
+            } else {
+              NewWindowDelegate::GetInstance()->OpenFeedbackPage();
+            }
+          },
+          Shell::Get()),
+      kSystemPowerButtonMenuFeedbackIcon,
       l10n_util::GetStringUTF16(IDS_ASH_POWER_BUTTON_MENU_FEEDBACK_BUTTON),
       &feedback_item_);
 }
@@ -226,23 +268,14 @@ void PowerButtonMenuView::Layout() {
       lock_screen_item_->SetBoundsRect(rect);
     }
   }
+  if (capture_mode_item_) {
+    rect.Offset(x_offset, 0);
+    capture_mode_item_->SetBoundsRect(rect);
+  }
   if (feedback_item_) {
     rect.Offset(x_offset, 0);
     feedback_item_->SetBoundsRect(rect);
   }
-}
-
-void PowerButtonMenuView::OnPaint(gfx::Canvas* canvas) {
-  views::View::OnPaint(canvas);
-
-  // Clip into a rounded rectangle.
-  constexpr SkScalar radius = SkIntToScalar(kMenuViewRoundRectRadiusDp);
-  constexpr SkScalar kRadius[8] = {radius, radius, radius, radius,
-                                   radius, radius, radius, radius};
-  SkPath path;
-  path.addRoundRect(gfx::RectToSkRect(gfx::Rect(size())), kRadius);
-  canvas->ClipPath(path, true);
-  canvas->DrawColor(GetMenuBackgroundColor());
 }
 
 gfx::Size PowerButtonMenuView::CalculatePreferredSize() const {
@@ -260,42 +293,20 @@ gfx::Size PowerButtonMenuView::CalculatePreferredSize() const {
       if (lock_screen_item_)
         width += one_item_x_offset;
   }
+  if (capture_mode_item_)
+    width += one_item_x_offset;
   if (feedback_item_)
     width += one_item_x_offset;
   menu_size.set_width(width);
   return menu_size;
 }
 
-void PowerButtonMenuView::ButtonPressed(views::Button* sender,
-                                        const ui::Event& event) {
-  DCHECK(sender);
-  Shell* shell = Shell::Get();
-  if (sender == power_off_item_) {
-    RecordMenuActionHistogram(PowerButtonMenuActionType::kPowerOff);
-    shell->lock_state_controller()->StartShutdownAnimation(
-        ShutdownReason::POWER_BUTTON);
-  } else if (sender == sign_out_item_) {
-    RecordMenuActionHistogram(PowerButtonMenuActionType::kSignOut);
-    shell->session_controller()->RequestSignOut();
-  } else if (sender == lock_screen_item_) {
-    RecordMenuActionHistogram(PowerButtonMenuActionType::kLockScreen);
-    shell->session_controller()->LockScreen();
-  } else if (sender == feedback_item_) {
-    RecordMenuActionHistogram(PowerButtonMenuActionType::kFeedback);
-    if (shell->session_controller()->login_status() ==
-        LoginStatus::NOT_LOGGED_IN) {
-      // There is a special flow for feedback while in login screen, therefore
-      // we trigger the same handler associated with the feedback accelerator
-      // from the login screen to bring up the feedback dialog.
-      shell->login_screen_controller()->HandleAccelerator(
-          LoginAcceleratorAction::kShowFeedback);
-    } else {
-      NewWindowDelegate::GetInstance()->OpenFeedbackPage();
-    }
-  } else {
-    NOTREACHED() << "Invalid sender";
-  }
-  shell->power_button_controller()->DismissMenu();
+void PowerButtonMenuView::OnThemeChanged() {
+  views::View::OnThemeChanged();
+  ScopedLightModeAsDefault scoped_light_mode_as_default;
+  SetBackground(
+      views::CreateSolidBackground(AshColorProvider::Get()->GetBaseLayerColor(
+          AshColorProvider::BaseLayerType::kTransparent80)));
 }
 
 void PowerButtonMenuView::OnImplicitAnimationsCompleted() {
@@ -304,6 +315,13 @@ void PowerButtonMenuView::OnImplicitAnimationsCompleted() {
 
   if (layer()->opacity() == 1.0f)
     RequestFocus();
+}
+
+void PowerButtonMenuView::ButtonPressed(PowerButtonMenuActionType action,
+                                        base::RepeatingClosure callback) {
+  RecordMenuActionHistogram(action);
+  std::move(callback).Run();
+  Shell::Get()->power_button_controller()->DismissMenu();
 }
 
 }  // namespace ash

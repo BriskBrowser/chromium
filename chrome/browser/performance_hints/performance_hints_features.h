@@ -45,12 +45,11 @@ std::string GetRewriteConfigString();
 // Returns true if FAST_HOST_HINTS should be checked if available.
 bool AreFastHostHintsEnabled();
 
+// Returns true if LINK_PERFORMANCE hints should be requested and used.
+bool AreLinkPerformanceHintsEnabled();
+
 // Returns true if performance info should be shown in the context menu.
 bool IsContextMenuPerformanceInfoEnabled();
-
-// Returns true if a feature that explicitly allows remote fetching has been
-// enabled.
-bool IsRemoteFetchingExplicitlyAllowedForPerformanceInfo();
 
 }  // namespace features
 }  // namespace performance_hints

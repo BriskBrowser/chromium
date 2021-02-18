@@ -12,7 +12,6 @@ static_library("test_support") {
     "mojo_test_base.cc",
     "mojo_test_base.h",
     "test_utils.h",
-    "test_utils_win.cc",
   ]
 
   if (!is_ios) {
@@ -20,6 +19,10 @@ static_library("test_support") {
       "multiprocess_test_helper.cc",
       "multiprocess_test_helper.h",
     ]
+  }
+
+  if (is_win) {
+    sources += [ "test_utils_win.cc" ]
   }
 
   if (is_fuchsia || is_posix) {

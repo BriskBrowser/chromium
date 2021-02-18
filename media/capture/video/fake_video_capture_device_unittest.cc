@@ -13,7 +13,7 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/run_loop.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread.h"
@@ -506,7 +506,7 @@ INSTANTIATE_TEST_SUITE_P(
                                1u,
                                FakeVideoCaptureDevice::DisplayMediaType::ANY,
                                {PIXEL_FORMAT_I420},
-                               {true, false, false, false}},
+                               {{true, true, true}, false, false, false}},
            CommandLineTestData{"fps=29.97,device-count=1",
                                29.97f,
                                1u,
@@ -544,13 +544,19 @@ INSTANTIATE_TEST_SUITE_P(
                                1u,
                                FakeVideoCaptureDevice::DisplayMediaType::ANY,
                                {PIXEL_FORMAT_I420},
-                               {false}},
+                               {{false, false, false}}},
+           CommandLineTestData{"hardware-support=zoom,fps=60",
+                               60,
+                               1u,
+                               FakeVideoCaptureDevice::DisplayMediaType::ANY,
+                               {PIXEL_FORMAT_I420},
+                               {{false, false, true}}},
            CommandLineTestData{"hardware-support=pan-tilt-zoom,fps=60",
                                60,
                                1u,
                                FakeVideoCaptureDevice::DisplayMediaType::ANY,
                                {PIXEL_FORMAT_I420},
-                               {true}},
+                               {{true, true, true}}},
            CommandLineTestData{"display-media-type=window",
                                20,
                                1u,

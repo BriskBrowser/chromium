@@ -19,6 +19,7 @@
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/sync/model/string_ordinal.h"
+#include "extensions/browser/allowlist_state.h"
 #include "extensions/browser/api/declarative_net_request/ruleset_install_pref.h"
 #include "extensions/browser/blocklist_state.h"
 #include "extensions/browser/disable_reason.h"
@@ -382,6 +383,14 @@ class ExtensionPrefs : public KeyedService {
   // to use Blocklist::GetBlocklistedIDs rather than this method.
   bool IsExtensionBlocklisted(const std::string& id) const;
 
+  // Gets the Safe Browsing allowlist state.
+  AllowlistState GetExtensionAllowlistState(
+      const std::string& extension_id) const;
+
+  // Sets the Safe Browsing allowlist state.
+  void SetExtensionAllowlistState(const std::string& extension_id,
+                                  AllowlistState state);
+
   // Increment the count of how many times we prompted the user to acknowledge
   // the given extension, and return the new count.
   int IncrementAcknowledgePromptCount(const std::string& extension_id);
@@ -671,7 +680,7 @@ class ExtensionPrefs : public KeyedService {
 
   // Whether the extension with the given |extension_id| is using its ruleset's
   // matched action count for the badge text. This is set via the
-  // setActionCountAsBadgeText API call.
+  // setExtensionActionOptions API call.
   bool GetDNRUseActionCountAsBadgeText(const ExtensionId& extension_id) const;
   void SetDNRUseActionCountAsBadgeText(const ExtensionId& extension_id,
                                        bool use_action_count_as_badge_text);
@@ -681,6 +690,19 @@ class ExtensionPrefs : public KeyedService {
   bool ShouldIgnoreDNRRuleset(
       const ExtensionId& extension_id,
       declarative_net_request::RulesetID ruleset_id) const;
+
+  // Returns the global rule allocation for the given |extension_id|. If no
+  // rules are allocated to the extension, false is returned.
+  bool GetDNRAllocatedGlobalRuleCount(const ExtensionId& extension_id,
+                                      size_t* rule_count) const;
+  void SetDNRAllocatedGlobalRuleCount(const ExtensionId& extension_id,
+                                      size_t rule_count);
+
+  // Whether the extension with the given |extension_id| should have its excess
+  // global rules allocation kept during its next load.
+  bool GetDNRKeepExcessAllocation(const ExtensionId& extension_id) const;
+  void SetDNRKeepExcessAllocation(const ExtensionId& extension_id,
+                                  bool keep_excess_allocation);
 
   // Migrates the disable reasons extension pref for extensions that were
   // disabled due to a deprecated reason.

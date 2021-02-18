@@ -38,10 +38,10 @@ struct CORE_EXPORT StructTraits<blink::mojom::TransferableMessageDataView,
   static Vector<blink::MessagePortDescriptor> stream_channels(
       blink::BlinkTransferableMessage& input) {
     Vector<blink::MessagePortDescriptor> result;
-    auto& stream_channels = input.message->GetStreamChannels();
-    result.ReserveInitialCapacity(stream_channels.size());
-    for (const auto& port : stream_channels)
-      result.push_back(port.ReleaseHandle());
+    auto& streams = input.message->GetStreams();
+    result.ReserveInitialCapacity(streams.size());
+    for (const auto& stream : streams)
+      result.push_back(stream.channel.ReleaseHandle());
     return result;
   }
 
@@ -56,6 +56,11 @@ struct CORE_EXPORT StructTraits<blink::mojom::TransferableMessageDataView,
   static const blink::mojom::blink::UserActivationSnapshotPtr& user_activation(
       const blink::BlinkTransferableMessage& input) {
     return input.user_activation;
+  }
+
+  static bool delegate_payment_request(
+      const blink::BlinkTransferableMessage& input) {
+    return input.delegate_payment_request;
   }
 
   static bool Read(blink::mojom::TransferableMessageDataView,

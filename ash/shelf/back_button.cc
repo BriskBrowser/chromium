@@ -28,7 +28,7 @@ const char BackButton::kViewClassName[] = "ash/BackButton";
 
 BackButton::BackButton(Shelf* shelf) : ShelfControlButton(shelf, this) {
   SetAccessibleName(l10n_util::GetStringUTF16(IDS_ASH_SHELF_BACK_BUTTON_TITLE));
-  EnableCanvasFlippingForRTLUI(true);
+  SetFlipCanvasOnPaintForRTLUI(true);
 }
 
 BackButton::~BackButton() {}
@@ -42,9 +42,9 @@ void BackButton::PaintButtonContents(gfx::Canvas* canvas) {
   // Use PaintButtonContents instead of SetImage so the icon gets drawn at
   // |GetCenterPoint| coordinates instead of always in the center.
   gfx::ImageSkia img = CreateVectorIcon(
-      kShelfBackIcon, AshColorProvider::Get()->GetContentLayerColor(
-                          AshColorProvider::ContentLayerType::kButtonIconColor,
-                          AshColorProvider::AshColorMode::kDark));
+      kShelfBackIcon,
+      AshColorProvider::Get()->GetContentLayerColor(
+          AshColorProvider::ContentLayerType::kButtonIconColor));
   canvas->DrawImageInt(img, GetCenterPoint().x() - img.width() / 2,
                        GetCenterPoint().y() - img.height() / 2);
 }
@@ -86,6 +86,11 @@ void BackButton::ButtonPressed(views::Button* sender,
 
   window_util::SendBackKeyEvent(
       GetWidget()->GetNativeWindow()->GetRootWindow());
+}
+
+void BackButton::OnThemeChanged() {
+  ShelfControlButton::OnThemeChanged();
+  SchedulePaint();
 }
 
 }  // namespace ash

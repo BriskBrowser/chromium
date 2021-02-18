@@ -18,6 +18,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "cc/metrics/frame_sequence_tracker.h"
 #include "cc/paint/element_id.h"
 #include "cc/trees/layer_tree_host.h"
@@ -25,6 +26,7 @@
 #include "cc/trees/layer_tree_host_single_thread_client.h"
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
+#include "components/viz/common/surfaces/subtree_capture_id.h"
 #include "components/viz/host/host_frame_sink_client.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/viz/privileged/mojom/compositing/vsync_parameter_observer.mojom-forward.h"
@@ -76,7 +78,7 @@ class DelegatedInkPointRenderer;
 }  // namespace mojom
 class ContextProvider;
 class HostFrameSinkManager;
-class LocalSurfaceIdAllocation;
+class LocalSurfaceId;
 class RasterContextProvider;
 }
 
@@ -124,6 +126,9 @@ class COMPOSITOR_EXPORT ContextFactory {
   // Allocate a new client ID for the display compositor.
   virtual viz::FrameSinkId AllocateFrameSinkId() = 0;
 
+  // Allocates a new capture ID for a layer subtree within a frame sink.
+  virtual viz::SubtreeCaptureId AllocateSubtreeCaptureId() = 0;
+
   // Gets the frame sink manager host instance.
   virtual viz::HostFrameSinkManager* GetHostFrameSinkManager() = 0;
 };
@@ -143,7 +148,8 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
              scoped_refptr<base::SingleThreadTaskRunner> task_runner,
              bool enable_pixel_canvas,
              bool use_external_begin_frame_control = false,
-             bool force_software_compositor = false);
+             bool force_software_compositor = false,
+             bool enable_compositing_based_throttling = false);
   ~Compositor() override;
 
   ui::ContextFactory* context_factory() { return context_factory_; }
@@ -205,10 +211,9 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
 #endif
 
   // Sets the compositor's device scale factor and size.
-  void SetScaleAndSize(
-      float scale,
-      const gfx::Size& size_in_pixel,
-      const viz::LocalSurfaceIdAllocation& local_surface_id_allocation);
+  void SetScaleAndSize(float scale,
+                       const gfx::Size& size_in_pixel,
+                       const viz::LocalSurfaceId& local_surface_id);
 
   // Set the output color profile into which this compositor should render. Also
   // sets the SDR white level (in nits) used to scale HDR color space primaries.
@@ -322,12 +327,8 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
   void UpdateLayerTreeHost() override;
   void ApplyViewportChanges(const cc::ApplyViewportChangesArgs& args) override {
   }
-  void RecordManipulationTypeCounts(cc::ManipulationInfo info) override {}
-  void SendOverscrollEventFromImplSide(
-      const gfx::Vector2dF& overscroll_delta,
-      cc::ElementId scroll_latched_element_id) override {}
-  void SendScrollEndEventFromImplSide(
-      cc::ElementId scroll_latched_element_id) override {}
+  void UpdateCompositorScrollState(
+      const cc::CompositorCommitData& commit_data) override {}
   void RequestNewLayerTreeFrameSink() override;
   void DidInitializeLayerTreeFrameSink() override {}
   void DidFailToInitializeLayerTreeFrameSink() override;
@@ -345,12 +346,9 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
       cc::ActiveFrameSequenceTrackers trackers) override {}
   std::unique_ptr<cc::BeginMainFrameMetrics> GetBeginMainFrameMetrics()
       override;
+  std::unique_ptr<cc::WebVitalMetrics> GetWebVitalMetrics() override;
   void NotifyThroughputTrackerResults(
       cc::CustomTrackerResults results) override;
-  void SubmitThroughputData(ukm::SourceId source_id,
-                            int aggregated_percent,
-                            int impl_percent,
-                            base::Optional<int> main_percent) override {}
   void DidObserveFirstScrollDelay(
       base::TimeDelta first_scroll_delay,
       base::TimeTicks first_scroll_timestamp) override {}
@@ -371,7 +369,9 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
   void StopThroughtputTracker(TrackerId tracker_id) override;
   void CancelThroughtputTracker(TrackerId tracker_id) override;
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   void OnCompleteSwapWithNewSize(const gfx::Size& size);
 #endif
 
@@ -410,11 +410,12 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
 
  private:
   friend class base::RefCounted<Compositor>;
+  friend class TotalAnimationThroughputReporter;
 
-  // Called when throughput data for the tracker of |tracker_id| is ready.
-  void ReportThroughputForTracker(
+  // Called when collected metrics for the tracker of |tracker_id| is ready.
+  void ReportMetricsForTracker(
       int tracker_id,
-      cc::FrameSequenceMetrics::ThroughputData throughput);
+      const cc::FrameSequenceMetrics::CustomReportData& data);
 
   gfx::Size size_;
 
@@ -458,6 +459,7 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
   scoped_refptr<cc::Layer> root_web_layer_;
   std::unique_ptr<cc::AnimationHost> animation_host_;
   std::unique_ptr<cc::LayerTreeHost> host_;
+  base::WeakPtr<cc::InputHandler> input_handler_weak_;
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
   // Snapshot of last set vsync parameters, to avoid redundant IPCs.

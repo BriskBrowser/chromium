@@ -149,11 +149,38 @@ std::unique_ptr<base::DictionaryValue> GenerateTouchPoint(
   point->SetDouble("radiusY", event.radiusY);
   point->SetDouble("rotationAngle", event.rotationAngle);
   point->SetDouble("force", event.force);
+  point->SetDouble("tangentialPressure", event.tangentialPressure);
+  point->SetInteger("tiltX", event.tiltX);
+  point->SetInteger("tiltY", event.tiltY);
+  point->SetInteger("twist", event.twist);
   point->SetInteger("id", event.id);
   return point;
 }
 
 }  // namespace
+
+WebViewImpl::WebViewImpl(const std::string& id,
+                         const bool w3c_compliant,
+                         const WebViewImpl* parent,
+                         const BrowserInfo* browser_info,
+                         std::unique_ptr<DevToolsClient> client)
+    : id_(id),
+      w3c_compliant_(w3c_compliant),
+      browser_info_(browser_info),
+      is_locked_(false),
+      is_detached_(false),
+      parent_(parent),
+      client_(std::move(client)),
+      dom_tracker_(nullptr),
+      frame_tracker_(nullptr),
+      dialog_manager_(nullptr),
+      mobile_emulation_override_manager_(nullptr),
+      geolocation_override_manager_(nullptr),
+      network_conditions_override_manager_(nullptr),
+      heap_snapshot_taker_(nullptr),
+      is_service_worker_(true) {
+  client_->SetOwner(this);
+}
 
 WebViewImpl::WebViewImpl(const std::string& id,
                          const bool w3c_compliant,
@@ -178,7 +205,8 @@ WebViewImpl::WebViewImpl(const std::string& id,
           new GeolocationOverrideManager(client_.get())),
       network_conditions_override_manager_(
           new NetworkConditionsOverrideManager(client_.get())),
-      heap_snapshot_taker_(new HeapSnapshotTaker(client_.get())) {
+      heap_snapshot_taker_(new HeapSnapshotTaker(client_.get())),
+      is_service_worker_(false) {
   // Downloading in headless mode requires the setting of
   // Browser.setDownloadBehavior. This is handled by the
   // DownloadDirectoryOverrideManager, which is only instantiated
@@ -198,6 +226,10 @@ WebViewImpl::WebViewImpl(const std::string& id,
 
 WebViewImpl::~WebViewImpl() {}
 
+bool WebViewImpl::IsServiceWorker() const {
+  return is_service_worker_;
+}
+
 WebViewImpl* WebViewImpl::CreateChild(const std::string& session_id,
                                       const std::string& target_id) const {
   // While there may be a deep hierarchy of WebViewImpl instances, the
@@ -205,7 +237,7 @@ WebViewImpl* WebViewImpl::CreateChild(const std::string& session_id,
   // sends/receives over the socket, and all child sessions are considered
   // its children (one level deep at most).
   DevToolsClientImpl* root_client =
-      static_cast<DevToolsClientImpl*>(client_.get())->GetRootClient();
+      static_cast<DevToolsClientImpl*>(client_.get()->GetRootClient());
   std::unique_ptr<DevToolsClient> child_client(
       std::make_unique<DevToolsClientImpl>(root_client, session_id));
   WebViewImpl* child = new WebViewImpl(
@@ -571,6 +603,11 @@ Status WebViewImpl::DispatchMouseEvents(const std::vector<MouseEvent>& events,
     params.SetString("button", GetAsString(it->button));
     params.SetInteger("buttons", it->buttons);
     params.SetInteger("clickCount", it->click_count);
+    params.SetDouble("force", it->force);
+    params.SetDouble("tangentialPressure", it->tangentialPressure);
+    params.SetInteger("tiltX", it->tiltX);
+    params.SetInteger("tiltY", it->tiltY);
+    params.SetInteger("twist", it->twist);
     params.SetString("pointerType", GetAsString(it->pointer_type));
     if (type == "mouseWheel") {
       params.SetInteger("deltaX", it->delta_x);
@@ -816,6 +853,8 @@ Status WebViewImpl::AddCookie(const std::string& name,
   std::unique_ptr<base::DictionaryValue> result;
   Status status =
       client_->SendCommandAndGetResult("Network.setCookie", params, &result);
+  if (status.IsError())
+    return Status(kUnableToSetCookie);
   bool success;
   if (!result->GetBoolean("success", &success) || !success)
     return Status(kUnableToSetCookie);
@@ -925,6 +964,26 @@ Status WebViewImpl::PrintToPDF(const base::DictionaryValue& params,
   return Status(kOk);
 }
 
+Status WebViewImpl::GetNodeIdByElement(const std::string& frame,
+                                       const base::DictionaryValue& element,
+                                       int* node_id) {
+  int context_id;
+  Status status = GetContextIdForFrame(this, frame, &context_id);
+  if (status.IsError())
+    return status;
+  base::ListValue args;
+  args.Append(element.CreateDeepCopy());
+  bool found_node;
+  status = internal::GetNodeIdFromFunction(
+      client_.get(), context_id, "function(element) { return element; }", args,
+      &found_node, node_id, w3c_compliant_);
+  if (status.IsError())
+    return status;
+  if (!found_node)
+    return Status(kNoSuchElement, "no node ID for given element");
+  return Status(kOk);
+}
+
 Status WebViewImpl::SetFileInputFiles(const std::string& frame,
                                       const base::DictionaryValue& element,
                                       const std::vector<base::FilePath>& files,
@@ -937,21 +996,10 @@ Status WebViewImpl::SetFileInputFiles(const std::string& frame,
     return target->SetFileInputFiles(frame, element, files, append);
   }
 
-  int context_id;
-  Status status = GetContextIdForFrame(this, frame, &context_id);
-  if (status.IsError())
-    return status;
-  base::ListValue args;
-  args.Append(element.CreateDeepCopy());
-  bool found_node;
   int node_id;
-  status = internal::GetNodeIdFromFunction(
-      client_.get(), context_id, "function(element) { return element; }",
-      args, &found_node, &node_id, w3c_compliant_);
+  Status status = GetNodeIdByElement(frame, element, &node_id);
   if (status.IsError())
     return status;
-  if (!found_node)
-    return Status(kUnknownError, "no node ID for file input");
 
   base::ListValue file_list;
   // if the append flag is true, we need to retrieve the files that
@@ -1199,7 +1247,8 @@ Status WebViewImpl::CallAsyncFunctionInternal(
 }
 
 void WebViewImpl::SetFrame(const std::string& new_frame_id) {
-  navigation_tracker_->SetFrame(new_frame_id);
+  if (!is_service_worker_)
+    navigation_tracker_->SetFrame(new_frame_id);
 }
 
 Status WebViewImpl::IsNotPendingNavigation(const std::string& frame_id,

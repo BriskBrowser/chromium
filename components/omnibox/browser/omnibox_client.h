@@ -84,6 +84,14 @@ class OmniboxClient {
   virtual TemplateURLService* GetTemplateURLService();
   virtual const AutocompleteSchemeClassifier& GetSchemeClassifier() const = 0;
   virtual AutocompleteClassifier* GetAutocompleteClassifier();
+  virtual bool ShouldDefaultTypedNavigationsToHttps() const = 0;
+  // Returns the port used by the embedded https server in tests. This is used
+  // to determine the correct port while upgrading typed URLs to https if the
+  // original URL has a non-default port. Only meaningful if
+  // ShouldDefaultTypedNavigationsToHttps() returns true.
+  // TODO(crbug.com/1168371): Remove when URLLoaderInterceptor can simulate
+  // redirects.
+  virtual int GetHttpsPortForTesting() const = 0;
 
   // Returns the icon corresponding to |match| if match is an extension match
   // and an empty icon otherwise.
@@ -136,9 +144,6 @@ class OmniboxClient {
   virtual gfx::Image GetFaviconForKeywordSearchProvider(
       const TemplateURL* template_url,
       FaviconFetchedCallback on_favicon_fetched);
-
-  // Called when the current autocomplete match has changed.
-  virtual void OnCurrentMatchChanged(const AutocompleteMatch& match) {}
 
   // Called when the text may have changed in the edit.
   virtual void OnTextChanged(const AutocompleteMatch& current_match,

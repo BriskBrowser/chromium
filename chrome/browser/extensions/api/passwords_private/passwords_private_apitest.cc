@@ -102,8 +102,8 @@ class PasswordsPrivateApiTest : public ExtensionApiTest {
     s_test_delegate_->AddCompromisedCredential(id);
   }
 
-  base::Optional<int> last_moved_password() const {
-    return s_test_delegate_->last_moved_password();
+  const std::vector<int>& last_moved_passwords() const {
+    return s_test_delegate_->last_moved_passwords();
   }
 
  private:
@@ -219,36 +219,36 @@ IN_PROC_BROWSER_TEST_F(PasswordsPrivateApiTest, GetCompromisedCredentials) {
   EXPECT_TRUE(RunPasswordsSubtest("getCompromisedCredentials")) << message_;
 }
 
-IN_PROC_BROWSER_TEST_F(PasswordsPrivateApiTest,
-                       GetPlaintextCompromisedPassword) {
-  EXPECT_TRUE(RunPasswordsSubtest("getPlaintextCompromisedPassword"))
-      << message_;
+IN_PROC_BROWSER_TEST_F(PasswordsPrivateApiTest, GetWeakCredentials) {
+  EXPECT_TRUE(RunPasswordsSubtest("getWeakCredentials")) << message_;
+}
+
+IN_PROC_BROWSER_TEST_F(PasswordsPrivateApiTest, GetPlaintextInsecurePassword) {
+  EXPECT_TRUE(RunPasswordsSubtest("getPlaintextInsecurePassword")) << message_;
 }
 
 IN_PROC_BROWSER_TEST_F(PasswordsPrivateApiTest,
-                       GetPlaintextCompromisedPasswordFails) {
+                       GetPlaintextInsecurePasswordFails) {
   ResetPlaintextPassword();
-  EXPECT_TRUE(RunPasswordsSubtest("getPlaintextCompromisedPasswordFails"))
+  EXPECT_TRUE(RunPasswordsSubtest("getPlaintextInsecurePasswordFails"))
       << message_;
 }
 
 IN_PROC_BROWSER_TEST_F(PasswordsPrivateApiTest,
-                       ChangeCompromisedCredentialWithEmptyPasswordFails) {
+                       ChangeInsecureCredentialWithEmptyPasswordFails) {
   EXPECT_TRUE(
-      RunPasswordsSubtest("changeCompromisedCredentialWithEmptyPasswordFails"))
+      RunPasswordsSubtest("changeInsecureCredentialWithEmptyPasswordFails"))
       << message_;
 }
 
-IN_PROC_BROWSER_TEST_F(PasswordsPrivateApiTest,
-                       ChangeCompromisedCredentialFails) {
-  EXPECT_TRUE(RunPasswordsSubtest("changeCompromisedCredentialFails"))
-      << message_;
+IN_PROC_BROWSER_TEST_F(PasswordsPrivateApiTest, ChangeInsecureCredentialFails) {
+  EXPECT_TRUE(RunPasswordsSubtest("changeInsecureCredentialFails")) << message_;
 }
 
 IN_PROC_BROWSER_TEST_F(PasswordsPrivateApiTest,
-                       ChangeCompromisedCredentialSucceeds) {
+                       ChangeInsecureCredentialSucceeds) {
   AddCompromisedCredential(0);
-  EXPECT_TRUE(RunPasswordsSubtest("changeCompromisedCredentialSucceeds"))
+  EXPECT_TRUE(RunPasswordsSubtest("changeInsecureCredentialSucceeds"))
       << message_;
 }
 
@@ -262,16 +262,14 @@ IN_PROC_BROWSER_TEST_F(PasswordsPrivateApiTest, OptOutForAccountStorage) {
   EXPECT_TRUE(RunPasswordsSubtest("optOutForAccountStorage")) << message_;
 }
 
-IN_PROC_BROWSER_TEST_F(PasswordsPrivateApiTest,
-                       RemoveCompromisedCredentialFails) {
-  EXPECT_TRUE(RunPasswordsSubtest("removeCompromisedCredentialFails"))
-      << message_;
+IN_PROC_BROWSER_TEST_F(PasswordsPrivateApiTest, RemoveInsecureCredentialFails) {
+  EXPECT_TRUE(RunPasswordsSubtest("removeInsecureCredentialFails")) << message_;
 }
 
 IN_PROC_BROWSER_TEST_F(PasswordsPrivateApiTest,
-                       RemoveCompromisedCredentialSucceeds) {
+                       RemoveInsecureCredentialSucceeds) {
   AddCompromisedCredential(0);
-  EXPECT_TRUE(RunPasswordsSubtest("removeCompromisedCredentialSucceeds"))
+  EXPECT_TRUE(RunPasswordsSubtest("removeInsecureCredentialSucceeds"))
       << message_;
 }
 
@@ -301,10 +299,10 @@ IN_PROC_BROWSER_TEST_F(PasswordsPrivateApiTest, GetPasswordCheckStatus) {
   EXPECT_TRUE(RunPasswordsSubtest("getPasswordCheckStatus")) << message_;
 }
 
-IN_PROC_BROWSER_TEST_F(PasswordsPrivateApiTest, MovePasswordToAccount) {
-  EXPECT_FALSE(last_moved_password().has_value());
-  EXPECT_TRUE(RunPasswordsSubtest("movePasswordToAccount")) << message_;
-  EXPECT_EQ(42, last_moved_password());
+IN_PROC_BROWSER_TEST_F(PasswordsPrivateApiTest, MovePasswordsToAccount) {
+  EXPECT_TRUE(last_moved_passwords().empty());
+  EXPECT_TRUE(RunPasswordsSubtest("movePasswordsToAccount")) << message_;
+  EXPECT_EQ(42, last_moved_passwords()[0]);
 }
 
 }  // namespace extensions

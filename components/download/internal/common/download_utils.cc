@@ -51,6 +51,9 @@ const int64_t kInvalidFileWriteOffset = -1;
 // downloads will be deleted after expiration.
 const int kDefaultDownloadExpiredTimeInDays = 90;
 
+// Default time for an overwritten download to be removed from the history.
+const int kDefaultOverwrittenDownloadExpiredTimeInDays = 90;
+
 #if defined(OS_ANDROID)
 // Default maximum length of a downloaded file name on Android.
 const int kDefaultMaxFileNameLengthOnAndroid = 127;
@@ -273,7 +276,7 @@ std::unique_ptr<network::ResourceRequest> CreateResourceRequest(
   // been visited before.
   url::Origin origin = url::Origin::Create(params->url());
   request->trusted_params->isolation_info = net::IsolationInfo::Create(
-      net::IsolationInfo::RedirectMode::kUpdateTopFrame, origin, origin,
+      net::IsolationInfo::RequestType::kMainFrame, origin, origin,
       net::SiteForCookies::FromOrigin(origin));
 
   request->do_not_prompt_for_login = params->do_not_prompt_for_login();
@@ -281,6 +284,7 @@ std::unique_ptr<network::ResourceRequest> CreateResourceRequest(
   request->referrer = params->referrer();
   request->referrer_policy = params->referrer_policy();
   request->is_main_frame = true;
+  request->update_first_party_url_on_redirect = true;
 
   // Downloads should be treated as navigations from Fetch spec perspective.
   // See also:
@@ -635,6 +639,14 @@ base::TimeDelta GetExpiredDownloadDeleteTime() {
   int expired_days = base::GetFieldTrialParamByFeatureAsInt(
       features::kDeleteExpiredDownloads, kExpiredDownloadDeleteTimeFinchKey,
       kDefaultDownloadExpiredTimeInDays);
+  return base::TimeDelta::FromDays(expired_days);
+}
+
+base::TimeDelta GetOverwrittenDownloadDeleteTime() {
+  int expired_days = base::GetFieldTrialParamByFeatureAsInt(
+      features::kDeleteOverwrittenDownloads,
+      kOverwrittenDownloadDeleteTimeFinchKey,
+      kDefaultOverwrittenDownloadExpiredTimeInDays);
   return base::TimeDelta::FromDays(expired_days);
 }
 

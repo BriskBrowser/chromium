@@ -36,7 +36,6 @@
 #import "ios/chrome/common/ui/reauthentication/reauthentication_module.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/web/common/url_scheme_util.h"
-#import "ios/web/public/deprecated/crw_js_injection_receiver.h"
 #include "ios/web/public/js_messaging/web_frame.h"
 #include "ios/web/public/js_messaging/web_frames_manager.h"
 #import "ios/web/public/web_state.h"
@@ -72,9 +71,6 @@ using base::UmaHistogramEnumeration;
 // The form input handler. This is in charge of form navigation.
 @property(nonatomic, strong)
     FormInputAccessoryViewHandler* formInputAccessoryHandler;
-
-// The JS manager for interacting with the underlying form.
-@property(nonatomic, weak) JsSuggestionManager* JSSuggestionManager;
 
 // The observer to determine when the keyboard dissapears and when it stays.
 @property(nonatomic, strong) KeyboardObserverHelper* keyboardObserver;
@@ -164,12 +160,6 @@ using base::UmaHistogramEnumeration;
       web::WebState* webState = webStateList->GetActiveWebState();
       if (webState) {
         _webState = webState;
-        CRWJSInjectionReceiver* injectionReceiver =
-            webState->GetJSInjectionReceiver();
-        _JSSuggestionManager = base::mac::ObjCCastStrict<JsSuggestionManager>(
-            [injectionReceiver instanceOfClass:[JsSuggestionManager class]]);
-        [_JSSuggestionManager
-            setWebFramesManager:webState->GetWebFramesManager()];
         FormSuggestionTabHelper* tabHelper =
             FormSuggestionTabHelper::FromWebState(webState);
         if (tabHelper) {
@@ -184,7 +174,10 @@ using base::UmaHistogramEnumeration;
       }
     }
     _formInputAccessoryHandler = [[FormInputAccessoryViewHandler alloc] init];
-    _formInputAccessoryHandler.JSSuggestionManager = _JSSuggestionManager;
+    _formInputAccessoryHandler.JSSuggestionManager =
+        _webState
+            ? autofill::JsSuggestionManager::GetOrCreateForWebState(_webState)
+            : nullptr;
 
     NSNotificationCenter* defaultCenter = [NSNotificationCenter defaultCenter];
     [defaultCenter addObserver:self
@@ -288,9 +281,8 @@ using base::UmaHistogramEnumeration;
 - (void)keyboardWillChangeToState:(KeyboardState)keyboardState {
   if (keyboardState.isVisible) {
     [self verifyFirstResponderAndUpdateCustomKeyboardView];
+    [self updateSuggestionsIfNeeded];
   }
-
-  [self updateSuggestionsIfNeeded];
   [self.consumer keyboardWillChangeToState:keyboardState];
   if (!keyboardState.isVisible) {
     [self.delegate mediatorDidDetectKeyboardHide:self];
@@ -465,7 +457,7 @@ using base::UmaHistogramEnumeration;
   __weak __typeof(self) weakSelf = self;
   [self.formInputAccessoryHandler
       fetchPreviousAndNextElementsPresenceWithCompletionHandler:^(
-          BOOL previousButtonEnabled, BOOL nextButtonEnabled) {
+          bool previousButtonEnabled, bool nextButtonEnabled) {
         weakSelf.consumer.formInputNextButtonEnabled = nextButtonEnabled;
         weakSelf.consumer.formInputPreviousButtonEnabled =
             previousButtonEnabled;
@@ -484,21 +476,15 @@ using base::UmaHistogramEnumeration;
     webState->AddObserver(_webStateObserverBridge.get());
     _formActivityObserverBridge =
         std::make_unique<autofill::FormActivityObserverBridge>(webState, self);
-    CRWJSInjectionReceiver* injectionReceiver =
-        webState->GetJSInjectionReceiver();
-    self.JSSuggestionManager = base::mac::ObjCCastStrict<JsSuggestionManager>(
-        [injectionReceiver instanceOfClass:[JsSuggestionManager class]]);
-    [self.JSSuggestionManager
-        setWebFramesManager:webState->GetWebFramesManager()];
     FormSuggestionTabHelper* tabHelper =
         FormSuggestionTabHelper::FromWebState(webState);
     if (tabHelper) {
       self.provider = tabHelper->GetAccessoryViewProvider();
     }
-    _formInputAccessoryHandler.JSSuggestionManager = self.JSSuggestionManager;
+    _formInputAccessoryHandler.JSSuggestionManager =
+        autofill::JsSuggestionManager::GetOrCreateForWebState(webState);
   } else {
     self.webState = nullptr;
-    self.JSSuggestionManager = nil;
     self.provider = nil;
   }
 }
@@ -633,8 +619,7 @@ using base::UmaHistogramEnumeration;
   UmaHistogramEnumeration("IOS.Reauth.Password.Autofill",
                           ReauthenticationEvent::kAttempt);
 
-  if (!base::FeatureList::IsEnabled(kEnableAutofillPasswordReauthIOS) ||
-      !formSuggestion.requiresReauth) {
+  if (!formSuggestion.requiresReauth) {
     UmaHistogramEnumeration("IOS.Reauth.Password.Autofill",
                             ReauthenticationEvent::kSuccess);
     [self.currentProvider didSelectSuggestion:formSuggestion];
@@ -669,7 +654,8 @@ using base::UmaHistogramEnumeration;
 
 - (void)passwordFetcher:(PasswordFetcher*)passwordFetcher
       didFetchPasswords:
-          (std::vector<std::unique_ptr<autofill::PasswordForm>>)passwords {
+          (std::vector<std::unique_ptr<password_manager::PasswordForm>>)
+              passwords {
   self.consumer.passwordButtonHidden = passwords.empty();
 }
 
@@ -702,11 +688,6 @@ using base::UmaHistogramEnumeration;
   _webState->AddObserver(_webStateObserverBridge.get());
   _formActivityObserverBridge =
       std::make_unique<autofill::FormActivityObserverBridge>(_webState, self);
-}
-
-- (void)injectSuggestionManager:(JsSuggestionManager*)JSSuggestionManager {
-  _JSSuggestionManager = JSSuggestionManager;
-  _formInputAccessoryHandler.JSSuggestionManager = _JSSuggestionManager;
 }
 
 - (void)injectProvider:(id<FormInputSuggestionsProvider>)provider {

@@ -2,10 +2,23 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-class GearMenuController {
+// clang-format off
+// #import {ProvidersModel} from './providers_model.m.js';
+// #import {CommandHandler} from './file_manager_commands.m.js';
+// #import {DirectoryModel} from './directory_model.m.js';
+// #import {ProvidersMenu} from './ui/providers_menu.m.js';
+// #import {GearMenu} from './ui/gear_menu.m.js';
+// #import {MultiMenuButton} from './ui/multi_menu_button.m.js';
+// #import {VolumeManagerCommon} from '../../../base/js/volume_manager_types.m.js';
+// #import {DirectoryChangeEvent} from '../../../externs/directory_change_event.m.js';
+// #import {str, util} from '../../common/js/util.m.js';
+// clang-format on
+
+
+/* #export */ class GearMenuController {
   /**
    * @param {!cr.ui.MultiMenuButton} gearButton
-   * @param {!FilesToggleRipple} toggleRipple
+   * @param {!FilesToggleRippleElement} toggleRipple
    * @param {!GearMenu} gearMenu
    * @param {!ProvidersMenu} providersMenu
    * @param {!DirectoryModel} directoryModel
@@ -18,7 +31,7 @@ class GearMenuController {
     /** @private @const {!cr.ui.MultiMenuButton} */
     this.gearButton_ = gearButton;
 
-    /** @private @const {!FilesToggleRipple} */
+    /** @private @const {!FilesToggleRippleElement} */
     this.toggleRipple_ = toggleRipple;
 
     /** @private @const {!GearMenu} */
@@ -132,8 +145,7 @@ class GearMenuController {
         currentVolumeInfo.volumeType ==
             VolumeManagerCommon.VolumeType.DOCUMENTS_PROVIDER ||
         currentVolumeInfo.volumeType ==
-            VolumeManagerCommon.VolumeType.ARCHIVE ||
-        currentVolumeInfo.volumeType == VolumeManagerCommon.VolumeType.SMB) {
+            VolumeManagerCommon.VolumeType.ARCHIVE) {
       this.gearMenu_.setSpaceInfo(null, false);
       return;
     }

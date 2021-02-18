@@ -21,11 +21,11 @@
 #include "ash/public/cpp/assistant/assistant_state.h"
 #include "ash/public/cpp/assistant/controller/assistant_ui_controller.h"
 #include "ash/public/cpp/view_shadow.h"
+#include "ash/search_box/search_box_constants.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/chromeos/search_box/search_box_constants.h"
 #include "ui/compositor/animation_throughput_reporter.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/compositor_extra/shadow.h"
@@ -138,7 +138,7 @@ AssistantPageView::AssistantPageView(
   InitLayout();
 
   if (AssistantController::Get())  // May be |nullptr| in tests.
-    assistant_controller_observer_.Add(AssistantController::Get());
+    assistant_controller_observation_.Observe(AssistantController::Get());
 
   if (AssistantUiController::Get())  // May be |nullptr| in tests.
     AssistantUiController::Get()->GetModel()->AddObserver(this);
@@ -288,7 +288,7 @@ void AssistantPageView::OnAnimationStarted(AppListState from_state,
     ui::AnimationThroughputReporter reporter(
         settings->GetAnimator(),
         metrics_util::ForSmoothness(base::BindRepeating([](int value) {
-          base::UmaHistogramPercentage(
+          base::UmaHistogramPercentageObsoleteDoNotUse(
               assistant::ui::kAssistantResizePageViewHistogram, value);
         })));
 
@@ -354,8 +354,8 @@ void AssistantPageView::AnimateYPosition(AppListViewState target_view_state,
   if (needs_layout())
     Layout();
 
-  animator.Run(default_offset, layer(), this);
-  animator.Run(default_offset, view_shadow_->shadow()->shadow_layer(), nullptr);
+  animator.Run(default_offset, layer());
+  animator.Run(default_offset, view_shadow_->shadow()->shadow_layer());
 }
 
 void AssistantPageView::UpdatePageOpacityForState(AppListState state,
@@ -392,8 +392,12 @@ void AssistantPageView::OnAssistantControllerDestroying() {
   if (AssistantUiController::Get())  // May be |nullptr| in tests.
     AssistantUiController::Get()->GetModel()->RemoveObserver(this);
 
-  if (AssistantController::Get())  // May be |nullptr| in tests.
-    assistant_controller_observer_.Remove(AssistantController::Get());
+  if (AssistantController::Get()) {
+    // May be |nullptr| in tests.
+    DCHECK(assistant_controller_observation_.IsObservingSource(
+        AssistantController::Get()));
+    assistant_controller_observation_.Reset();
+  }
 }
 
 void AssistantPageView::OnUiVisibilityChanged(
@@ -427,7 +431,7 @@ void AssistantPageView::InitLayout() {
 
   view_shadow_ = std::make_unique<ViewShadow>(this, kShadowElevation);
   view_shadow_->SetRoundedCornerRadius(
-      search_box::kSearchBoxBorderCornerRadiusSearchResult);
+      kSearchBoxBorderCornerRadiusSearchResult);
 
   SetBackground(views::CreateSolidBackground(SK_ColorWHITE));
   SetLayoutManager(std::make_unique<AssistantPageViewLayout>(this));

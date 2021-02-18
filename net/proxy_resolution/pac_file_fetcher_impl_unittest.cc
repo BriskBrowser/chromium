@@ -48,7 +48,7 @@
 #include "net/test/test_with_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/url_request_context_storage.h"
-#include "net/url_request/url_request_job_factory_impl.h"
+#include "net/url_request/url_request_job_factory.h"
 #include "net/url_request/url_request_test_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -84,8 +84,6 @@ class RequestContext : public URLRequestContext {
     storage_.set_cert_verifier(std::make_unique<MockCertVerifier>());
     storage_.set_transport_security_state(
         std::make_unique<TransportSecurityState>());
-    storage_.set_cert_transparency_verifier(
-        std::make_unique<MultiLogCTVerifier>());
     storage_.set_ct_policy_enforcer(
         std::make_unique<DefaultCTPolicyEnforcer>());
     storage_.set_proxy_resolution_service(
@@ -101,7 +99,6 @@ class RequestContext : public URLRequestContext {
     session_context.host_resolver = host_resolver();
     session_context.cert_verifier = cert_verifier();
     session_context.transport_security_state = transport_security_state();
-    session_context.cert_transparency_verifier = cert_transparency_verifier();
     session_context.ct_policy_enforcer = ct_policy_enforcer();
     session_context.proxy_resolution_service = proxy_resolution_service();
     session_context.ssl_config_service = ssl_config_service();
@@ -112,9 +109,7 @@ class RequestContext : public URLRequestContext {
     storage_.set_http_transaction_factory(std::make_unique<HttpCache>(
         storage_.http_network_session(), HttpCache::DefaultBackend::InMemory(0),
         false));
-    std::unique_ptr<URLRequestJobFactoryImpl> job_factory =
-        std::make_unique<URLRequestJobFactoryImpl>();
-    storage_.set_job_factory(std::move(job_factory));
+    storage_.set_job_factory(std::make_unique<URLRequestJobFactory>());
   }
 
   ~RequestContext() override { AssertNoURLRequests(); }

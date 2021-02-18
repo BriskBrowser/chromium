@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_WEB_APPLICATIONS_COMPONENTS_WEB_APP_CONSTANTS_H_
 #define CHROME_BROWSER_WEB_APPLICATIONS_COMPONENTS_WEB_APP_CONSTANTS_H_
 
+#include <iosfwd>
 #include <vector>
 
 #include "components/services/app_service/public/mojom/types.mojom-forward.h"
@@ -29,7 +30,7 @@ enum Type {
   // set.
   kSync,
   kDefault,
-  kMaxValue = kDefault
+  kMaxValue = kDefault,
 };
 }  // namespace Source
 
@@ -43,10 +44,12 @@ enum Type {
   kShortcuts = 0,
   kRunOnOsLogin,
   kShortcutsMenu,
+  kUninstallationViaOsSettings,
   kFileHandlers,
-  kMaxValue = kFileHandlers,
+  kProtocolHandlers,
+  kMaxValue = kProtocolHandlers,
 };
-}
+}  // namespace OsHookType
 
 // The result of an attempted web app installation, uninstallation or update.
 //
@@ -61,6 +64,7 @@ enum class InstallResultCode {
   // Success category:
   kSuccessNewInstall = 0,
   kSuccessAlreadyInstalled = 1,
+
   // Failure category:
   // An inter-process request to blink renderer failed.
   kGetWebApplicationInfoFailed = 3,
@@ -104,11 +108,20 @@ enum class InstallResultCode {
   // closed.
   kWebAppProviderNotReady = 22,
 
-  kMaxValue = kWebAppProviderNotReady
+  // Success category for background installs:
+  kSuccessOfflineOnlyInstall = 23,
+  kSuccessOfflineFallbackInstall = 24,
+
+  kMaxValue = kSuccessOfflineFallbackInstall,
 };
 
 // Checks if InstallResultCode is not a failure.
 bool IsSuccess(InstallResultCode code);
+
+// Checks if InstallResultCode indicates a new app was installed.
+bool IsNewInstall(InstallResultCode code);
+
+std::ostream& operator<<(std::ostream& os, InstallResultCode code);
 
 // PendingAppManager: Where an app was installed from. This affects what flags
 // will be used when installing the app.
@@ -192,17 +205,53 @@ apps::mojom::LaunchContainer ConvertDisplayModeToAppLaunchContainer(
 
 // The operation mode for Run on OS Login.
 enum class RunOnOsLoginMode {
-  // kUndefined: The web app is not registered with the OS.
-  kUndefined = 0,
-  // kWindowed: The web app is registered with the OS and will be launched as
+  // kNotRun: The web app will not run during OS login.
+  kNotRun = 0,
+  // kWindowed: The web app will run during OS login and will be launched as
   // normal window. This is also the default launch mode for web apps.
   kWindowed = 1,
-  // kMinimized: The web app is registered with the OS and will be launched as a
+  // kMinimized: The web app will run during OS login and will be launched as a
   // minimized window.
-  kMinimized = 2
+  kMinimized = 2,
+};
+
+enum class RunOnOsLoginPolicy {
+  // kAllowed: User can configure an app to run on OS Login.
+  kAllowed = 0,
+  // kDisallow: Policy prevents users from configuring an app to run on OS
+  // Login.
+  kBlocked = 1,
+  // kRunWindowed: Policy requires an app to to run on OS Login as a normal
+  // window.
+  kRunWindowed = 2,
 };
 
 std::string RunOnOsLoginModeToString(RunOnOsLoginMode mode);
+
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+// Records result of user reaction to install in-product help promo.
+enum class InstallIphResult {
+  // Installed the web app after IPH was shown.
+  kInstalled = 0,
+  // Clicked the install icon but canceled install after IPH was shown.
+  kCanceled = 1,
+  // Ignored IPH, didn't click install.
+  kIgnored = 2,
+  kMaxValue = kIgnored,
+};
+
+// Number of times IPH can be ignored for this app before it's muted.
+constexpr int kIphMuteAfterConsecutiveAppSpecificIgnores = 3;
+// Number of times IPH can be ignored for any app before it's muted.
+constexpr int kIphMuteAfterConsecutiveAppAgnosticIgnores = 4;
+// Number of days to mute IPH after it's ignored for this app.
+constexpr int kIphAppSpecificMuteTimeSpanDays = 90;
+// Number of days to mute IPH after it's ignored for any app.
+constexpr int kIphAppAgnosticMuteTimeSpanDays = 14;
+// Default threshold for site engagement score if it's not set by field trial
+// param.
+constexpr int kIphFieldTrialParamDefaultSiteEngagementThreshold = 10;
 
 }  // namespace web_app
 

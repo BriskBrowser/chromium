@@ -9,6 +9,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/test/integration/bookmarks_helper.h"
 #include "chrome/browser/sync/test/integration/profile_sync_service_harness.h"
@@ -17,9 +18,10 @@
 #include "chrome/browser/sync/test/integration/updated_progress_marker_checker.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/url_and_title.h"
+#include "components/sync/base/client_tag_hash.h"
 #include "components/sync/driver/profile_sync_service.h"
-#include "components/sync/engine_impl/bookmark_update_preprocessing.h"
-#include "components/sync/engine_impl/loopback_server/loopback_server_entity.h"
+#include "components/sync/engine/bookmark_update_preprocessing.h"
+#include "components/sync/engine/loopback_server/loopback_server_entity.h"
 #include "components/sync/test/fake_server/bookmark_entity_builder.h"
 #include "components/sync/test/fake_server/entity_builder_factory.h"
 #include "components/sync/test/fake_server/fake_server_verifier.h"
@@ -39,8 +41,8 @@ using bookmarks::UrlAndTitle;
 using bookmarks_helper::AddFolder;
 using bookmarks_helper::AddURL;
 using bookmarks_helper::BookmarkFaviconLoadedChecker;
+using bookmarks_helper::BookmarkModelMatchesFakeServerChecker;
 using bookmarks_helper::BookmarksGUIDChecker;
-using bookmarks_helper::BookmarksMatchVerifierChecker;
 using bookmarks_helper::BookmarksTitleChecker;
 using bookmarks_helper::BookmarksUrlChecker;
 using bookmarks_helper::CheckHasNoFavicon;
@@ -55,12 +57,15 @@ using bookmarks_helper::GetBookmarkModel;
 using bookmarks_helper::GetBookmarkUndoService;
 using bookmarks_helper::GetOtherNode;
 using bookmarks_helper::GetUniqueNodeByURL;
-using bookmarks_helper::ModelMatchesVerifier;
+using bookmarks_helper::IsFolderWithTitle;
+using bookmarks_helper::IsFolderWithTitleAndChildrenAre;
+using bookmarks_helper::IsUrlBookmarkWithTitleAndUrl;
 using bookmarks_helper::Move;
 using bookmarks_helper::Remove;
 using bookmarks_helper::RemoveAll;
 using bookmarks_helper::SetFavicon;
 using bookmarks_helper::SetTitle;
+using testing::ElementsAre;
 
 // All tests in this file utilize a single profile.
 // TODO(pvalenzuela): Standardize this pattern by moving this constant to
@@ -71,54 +76,29 @@ const int kSingleProfileIndex = 0;
 // fake server across PRE_MyTest and MyTest.
 const char kBookmarkGuid[] = "e397ed62-9532-4dbf-ae55-200236eba15c";
 
+// A title and a URL which are used across PRE_MyTest and MyTest.
+const char kBookmarkTitle[] = "Title";
+const char kBookmarkPageUrl[] = "http://www.foo.com/";
+
 class SingleClientBookmarksSyncTest : public SyncTest {
  public:
   SingleClientBookmarksSyncTest() : SyncTest(SINGLE_CLIENT) {}
   ~SingleClientBookmarksSyncTest() override = default;
 
-  // Verify that the local bookmark model (for the Profile corresponding to
-  // |index|) matches the data on the FakeServer. It is assumed that FakeServer
-  // is being used and each bookmark has a unique title. Folders are not
-  // verified.
-  void VerifyBookmarkModelMatchesFakeServer(int index);
-
  private:
   DISALLOW_COPY_AND_ASSIGN(SingleClientBookmarksSyncTest);
-};
-
-void SingleClientBookmarksSyncTest::VerifyBookmarkModelMatchesFakeServer(
-    int index) {
-  fake_server::FakeServerVerifier fake_server_verifier(GetFakeServer());
-  std::vector<UrlAndTitle> local_bookmarks;
-  GetBookmarkModel(index)->GetBookmarks(&local_bookmarks);
-
-  // Verify that all local bookmark titles exist once on the server.
-  std::vector<UrlAndTitle>::const_iterator it;
-  for (it = local_bookmarks.begin(); it != local_bookmarks.end(); ++it) {
-    ASSERT_TRUE(fake_server_verifier.VerifyEntityCountByTypeAndName(
-        1,
-        syncer::BOOKMARKS,
-        base::UTF16ToUTF8(it->title)));
-  }
-}
-
-class SingleClientBookmarksSyncTestWithDisabledCommitWithoutFavicon
-    : public SyncTest {
- public:
-  SingleClientBookmarksSyncTestWithDisabledCommitWithoutFavicon()
-      : SyncTest(SINGLE_CLIENT) {
-    feature_list_.InitAndEnableFeature(
-        switches::kSyncDoNotCommitBookmarksWithoutFavicon);
-  }
 };
 
 class SingleClientBookmarksSyncTestWithEnabledReuploadRemoteBookmarks
     : public SingleClientBookmarksSyncTest {
  public:
   SingleClientBookmarksSyncTestWithEnabledReuploadRemoteBookmarks() {
-    feature_list_.InitAndEnableFeature(
+    features_override_.InitAndEnableFeature(
         switches::kSyncReuploadBookmarkFullTitles);
   }
+
+ private:
+  base::test::ScopedFeatureList features_override_;
 };
 
 class SingleClientBookmarksSyncTestWithDisabledReuploadBookmarks
@@ -126,18 +106,36 @@ class SingleClientBookmarksSyncTestWithDisabledReuploadBookmarks
  public:
   SingleClientBookmarksSyncTestWithDisabledReuploadBookmarks()
       : SyncTest(SINGLE_CLIENT) {
-    feature_list_.InitAndDisableFeature(
+    features_override_.InitAndDisableFeature(
         switches::kSyncReuploadBookmarkFullTitles);
   }
+
+ private:
+  base::test::ScopedFeatureList features_override_;
 };
 
 class SingleClientBookmarksSyncTestWithEnabledReuploadPreexistingBookmarks
     : public SingleClientBookmarksSyncTest {
  public:
   SingleClientBookmarksSyncTestWithEnabledReuploadPreexistingBookmarks() {
-    feature_list_.InitWithFeatureState(
+    features_override_.InitWithFeatureState(
         switches::kSyncReuploadBookmarkFullTitles, !content::IsPreTest());
   }
+
+ private:
+  base::test::ScopedFeatureList features_override_;
+};
+
+class SingleClientBookmarksSyncTestWithEnabledClientTags : public SyncTest {
+ public:
+  SingleClientBookmarksSyncTestWithEnabledClientTags()
+      : SyncTest(SINGLE_CLIENT) {
+    features_override_.InitAndEnableFeature(
+        switches::kSyncUseClientTagForBookmarkCommits);
+  }
+
+ private:
+  base::test::ScopedFeatureList features_override_;
 };
 
 IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest, Sanity) {
@@ -152,8 +150,9 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest, Sanity) {
   //        -> http://www.facebook.com "tier1_a_url2"
   //      -> tier1_b
   //        -> http://www.nhl.com "tier1_b_url0"
-  const BookmarkNode* top = AddFolder(
-      kSingleProfileIndex, GetOtherNode(kSingleProfileIndex), 0, "top");
+  const BookmarkNode* other_node = GetOtherNode(kSingleProfileIndex);
+  const BookmarkNode* top =
+      AddFolder(kSingleProfileIndex, other_node, 0, "top");
   const BookmarkNode* tier1_a = AddFolder(
       kSingleProfileIndex, top, 0, "tier1_a");
   const BookmarkNode* tier1_b = AddFolder(
@@ -173,9 +172,25 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest, Sanity) {
 
   // Setup sync, wait for its completion, and make sure changes were synced.
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-  ASSERT_TRUE(
-      UpdatedProgressMarkerChecker(GetSyncService(kSingleProfileIndex)).Wait());
-  ASSERT_TRUE(BookmarksMatchVerifierChecker().Wait());
+  ASSERT_TRUE(BookmarkModelMatchesFakeServerChecker(
+                  kSingleProfileIndex, GetSyncService(kSingleProfileIndex),
+                  GetFakeServer())
+                  .Wait());
+  EXPECT_THAT(
+      other_node->children(),
+      ElementsAre(IsFolderWithTitleAndChildrenAre(
+          "top",
+          IsFolderWithTitleAndChildrenAre(
+              "tier1_a",
+              IsUrlBookmarkWithTitleAndUrl("tier1_a_url0",
+                                           GURL("http://mail.google.com")),
+              IsUrlBookmarkWithTitleAndUrl("tier1_a_url1",
+                                           GURL("http://www.pandora.com")),
+              IsUrlBookmarkWithTitleAndUrl("tier1_a_url2",
+                                           GURL("http://www.facebook.com"))),
+          IsFolderWithTitleAndChildrenAre(
+              "tier1_b", IsUrlBookmarkWithTitleAndUrl(
+                             "tier1_b_url0", GURL("http://www.nhl.com"))))));
 
   //  Ultimately we want to end up with the following model; but this test is
   //  more about the journey than the destination.
@@ -205,9 +220,15 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest, Sanity) {
   Move(kSingleProfileIndex, tier1_a, bar, 1);
 
   // Wait for the bookmark position change to sync.
-  ASSERT_TRUE(
-      UpdatedProgressMarkerChecker(GetSyncService(kSingleProfileIndex)).Wait());
-  ASSERT_TRUE(BookmarksMatchVerifierChecker().Wait());
+  ASSERT_TRUE(BookmarkModelMatchesFakeServerChecker(
+                  kSingleProfileIndex, GetSyncService(kSingleProfileIndex),
+                  GetFakeServer())
+                  .Wait());
+  EXPECT_THAT(bar->children(),
+              ElementsAre(IsUrlBookmarkWithTitleAndUrl(
+                              "CNN", GURL("http://www.cnn.com")),
+                          IsFolderWithTitle("tier1_a")));
+  EXPECT_THAT(top->children(), ElementsAre(IsFolderWithTitle("tier1_b")));
 
   const BookmarkNode* porsche = AddURL(
       kSingleProfileIndex, bar, 2, "Porsche", GURL("http://www.porsche.com"));
@@ -218,9 +239,24 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest, Sanity) {
   Move(kSingleProfileIndex, tier1_a_url1, tier1_a, 2);
 
   // Wait for the rearranged hierarchy to sync.
-  ASSERT_TRUE(
-      UpdatedProgressMarkerChecker(GetSyncService(kSingleProfileIndex)).Wait());
-  ASSERT_TRUE(BookmarksMatchVerifierChecker().Wait());
+  ASSERT_TRUE(BookmarkModelMatchesFakeServerChecker(
+                  kSingleProfileIndex, GetSyncService(kSingleProfileIndex),
+                  GetFakeServer())
+                  .Wait());
+  EXPECT_THAT(
+      bar->children(),
+      ElementsAre(
+          IsUrlBookmarkWithTitleAndUrl("CNN", GURL("http://www.cnn.com")),
+          IsFolderWithTitleAndChildrenAre(
+              "tier1_a",
+              IsUrlBookmarkWithTitleAndUrl("tier1_a_url2",
+                                           GURL("http://www.facebook.com")),
+              IsUrlBookmarkWithTitleAndUrl("tier1_a_url0",
+                                           GURL("http://mail.google.com")),
+              IsUrlBookmarkWithTitleAndUrl("tier1_a_url1",
+                                           GURL("http://www.pandora.com"))),
+          IsUrlBookmarkWithTitleAndUrl("Porsche",
+                                       GURL("http://www.porsche.com"))));
 
   ASSERT_EQ(1, tier1_a_url0->parent()->GetIndexOf(tier1_a_url0));
   Move(kSingleProfileIndex, tier1_a_url0, bar, bar->children().size());
@@ -243,9 +279,38 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest, Sanity) {
   SetTitle(kSingleProfileIndex, porsche, "ICanHazPorsche?");
 
   // Wait for the title change to sync.
-  ASSERT_TRUE(
-      UpdatedProgressMarkerChecker(GetSyncService(kSingleProfileIndex)).Wait());
-  ASSERT_TRUE(BookmarksMatchVerifierChecker().Wait());
+  ASSERT_TRUE(BookmarkModelMatchesFakeServerChecker(
+                  kSingleProfileIndex, GetSyncService(kSingleProfileIndex),
+                  GetFakeServer())
+                  .Wait());
+  EXPECT_THAT(
+      bar->children(),
+      ElementsAre(
+          IsUrlBookmarkWithTitleAndUrl("ICanHazPorsche?",
+                                       GURL("http://www.porsche.com")),
+          IsUrlBookmarkWithTitleAndUrl("CNN", GURL("http://www.cnn.com")),
+          IsFolderWithTitle("tier1_a"),
+          IsUrlBookmarkWithTitleAndUrl("News Wired",
+                                       GURL("http://www.wired.com")),
+          IsUrlBookmarkWithTitleAndUrl("Bank of America",
+                                       GURL("https://www.bankofamerica.com")),
+          IsUrlBookmarkWithTitleAndUrl("Seattle Bubble",
+                                       GURL("http://seattlebubble.com"))));
+  EXPECT_THAT(tier1_a->children(),
+              ElementsAre(IsUrlBookmarkWithTitleAndUrl(
+                              "tier1_a_url2", GURL("http://www.facebook.com")),
+                          IsUrlBookmarkWithTitleAndUrl(
+                              "tier1_a_url1", GURL("http://www.pandora.com"))));
+  EXPECT_THAT(
+      top->children(),
+      ElementsAre(
+          IsFolderWithTitleAndChildrenAre(
+              "tier1_b",
+              IsFolderWithTitleAndChildrenAre(
+                  "tier2_b", IsUrlBookmarkWithTitleAndUrl(
+                                 "tier1_b_url0", GURL("http://www.nhl.com")))),
+          IsUrlBookmarkWithTitleAndUrl("tier1_a_url0",
+                                       GURL("http://mail.google.com"))));
 
   ASSERT_EQ(tier1_a_url0->id(), top->children().back()->id());
   Remove(kSingleProfileIndex, top, top->children().size() - 1);
@@ -263,15 +328,43 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest, Sanity) {
   Move(kSingleProfileIndex, leafs, tier3_b, 0);
 
   // Wait for newly added bookmarks to sync.
-  ASSERT_TRUE(
-      UpdatedProgressMarkerChecker(GetSyncService(kSingleProfileIndex)).Wait());
-  ASSERT_TRUE(BookmarksMatchVerifierChecker().Wait());
+  ASSERT_TRUE(BookmarkModelMatchesFakeServerChecker(
+                  kSingleProfileIndex, GetSyncService(kSingleProfileIndex),
+                  GetFakeServer())
+                  .Wait());
 
-  // Only verify FakeServer data if FakeServer is being used.
-  // TODO(pvalenzuela): Use this style of verification in more tests once it is
-  // proven stable.
-  if (GetFakeServer())
-    VerifyBookmarkModelMatchesFakeServer(kSingleProfileIndex);
+  EXPECT_THAT(
+      bar->children(),
+      ElementsAre(
+          IsUrlBookmarkWithTitleAndUrl("CNN", GURL("http://www.cnn.com")),
+          IsFolderWithTitleAndChildrenAre(
+              "tier1_a",
+              IsUrlBookmarkWithTitleAndUrl("tier1_a_url2",
+                                           GURL("http://www.facebook.com")),
+              IsUrlBookmarkWithTitleAndUrl("tier1_a_url1",
+                                           GURL("http://www.pandora.com"))),
+          IsUrlBookmarkWithTitleAndUrl("ICanHazPorsche?",
+                                       GURL("http://www.porsche.com")),
+          IsUrlBookmarkWithTitleAndUrl("Bank of America",
+                                       GURL("https://www.bankofamerica.com")),
+          IsUrlBookmarkWithTitleAndUrl("Seattle Bubble",
+                                       GURL("http://seattlebubble.com"))));
+  EXPECT_THAT(
+      top->children(),
+      ElementsAre(IsFolderWithTitleAndChildrenAre(
+          "tier1_b",
+          IsUrlBookmarkWithTitleAndUrl("News Wired",
+                                       GURL("http://www.wired.com")),
+          IsFolderWithTitleAndChildrenAre(
+              "tier2_b",
+              IsUrlBookmarkWithTitleAndUrl("tier1_b_url0",
+                                           GURL("http://www.nhl.com")),
+              IsFolderWithTitleAndChildrenAre(
+                  "tier3_b",
+                  IsUrlBookmarkWithTitleAndUrl(
+                      "Toronto Maple Leafs", GURL("http://mapleleafs.nhl.com")),
+                  IsUrlBookmarkWithTitleAndUrl(
+                      "Wynn", GURL("http://www.wynnlasvegas.com")))))));
 }
 
 IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest, CommitLocalCreations) {
@@ -286,8 +379,9 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest, CommitLocalCreations) {
   //        -> http://www.facebook.com "tier1_a_url2"
   //      -> tier1_b
   //        -> http://www.nhl.com "tier1_b_url0"
-  const BookmarkNode* top = AddFolder(
-      kSingleProfileIndex, GetOtherNode(kSingleProfileIndex), 0, "top");
+  const BookmarkNode* other_node = GetOtherNode(kSingleProfileIndex);
+  const BookmarkNode* top =
+      AddFolder(kSingleProfileIndex, other_node, 0, "top");
   const BookmarkNode* tier1_a =
       AddFolder(kSingleProfileIndex, top, 0, "tier1_a");
   const BookmarkNode* tier1_b =
@@ -310,9 +404,24 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest, CommitLocalCreations) {
   EXPECT_TRUE(tier1_b_url0);
   // Setup sync, wait for its completion, and make sure changes were synced.
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-  ASSERT_TRUE(
-      UpdatedProgressMarkerChecker(GetSyncService(kSingleProfileIndex)).Wait());
-  EXPECT_TRUE(BookmarksMatchVerifierChecker().Wait());
+  EXPECT_TRUE(BookmarkModelMatchesFakeServerChecker(
+                  kSingleProfileIndex, GetSyncService(kSingleProfileIndex),
+                  GetFakeServer())
+                  .Wait());
+  EXPECT_THAT(other_node->children(),
+              ElementsAre(IsFolderWithTitleAndChildrenAre(
+                  "top",
+                  IsFolderWithTitleAndChildrenAre(
+                      "tier1_a",
+                      IsUrlBookmarkWithTitleAndUrl("tier1_a_url0",
+                                                   "http://mail.google.com"),
+                      IsUrlBookmarkWithTitleAndUrl("tier1_a_url1",
+                                                   "http://www.pandora.com"),
+                      IsUrlBookmarkWithTitleAndUrl("tier1_a_url2",
+                                                   "http://www.facebook.com")),
+                  IsFolderWithTitleAndChildrenAre(
+                      "tier1_b", IsUrlBookmarkWithTitleAndUrl(
+                                     "tier1_b_url0", "http://www.nhl.com")))));
 }
 
 IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest, InjectedBookmark) {
@@ -323,8 +432,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest, InjectedBookmark) {
   fake_server_->InjectEntity(bookmark_builder.BuildBookmark(
       GURL("http://canadiens.nhl.com")));
 
-  DisableVerifier();
-  ASSERT_TRUE(SetupClients());
   ASSERT_TRUE(SetupSync());
 
   EXPECT_EQ(1u, CountBookmarksWithTitlesMatching(kSingleProfileIndex, title));
@@ -349,7 +456,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
   fake_server_->InjectEntity(bookmark_builder2.BuildBookmark(
       GURL("http://page2.com"), /*is_legacy=*/true));
 
-  DisableVerifier();
   ASSERT_TRUE(SetupSync());
 
   EXPECT_EQ(1u, CountBookmarksWithTitlesMatching(kSingleProfileIndex, title1));
@@ -358,10 +464,9 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
 
 IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
                        DownloadLegacyUppercaseGuid2016BookmarksAndCommit) {
-  const std::string lowercase_guid = base::GenerateGUID();
-  ASSERT_EQ(lowercase_guid, base::ToLowerASCII(lowercase_guid));
-
-  const std::string uppercase_guid = base::ToUpperASCII(lowercase_guid);
+  const base::GUID guid = base::GUID::GenerateRandomV4();
+  const std::string uppercase_guid_str =
+      base::ToUpperASCII(guid.AsLowercaseString());
   const std::string title1 = "Title1";
   const std::string title2 = "Title2";
 
@@ -369,20 +474,16 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
   // originator client item ID.
   fake_server::BookmarkEntityBuilder bookmark_builder(
       title1, /*originator_cache_guid=*/base::GenerateGUID(),
-      /*originator_client_item_id=*/uppercase_guid);
+      /*originator_client_item_id=*/uppercase_guid_str);
 
   fake_server_->InjectEntity(bookmark_builder.BuildBookmark(
       GURL("http://page1.com"), /*is_legacy=*/true));
 
-  DisableVerifier();
   ASSERT_TRUE(SetupSync());
   ASSERT_EQ(1u, CountBookmarksWithTitlesMatching(kSingleProfileIndex, title1));
 
   // The GUID should have been canonicalized (lowercased) in BookmarkModel.
-  EXPECT_TRUE(
-      ContainsBookmarkNodeWithGUID(kSingleProfileIndex, lowercase_guid));
-  EXPECT_FALSE(
-      ContainsBookmarkNodeWithGUID(kSingleProfileIndex, uppercase_guid));
+  EXPECT_TRUE(ContainsBookmarkNodeWithGUID(kSingleProfileIndex, guid));
 
   // Changing the title should populate the server-side GUID in specifics in
   // lowercase form.
@@ -391,8 +492,10 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
             GetBookmarkBarNode(0)->children()[0]->GetTitle());
   SetTitle(kSingleProfileIndex, GetBookmarkBarNode(0)->children().front().get(),
            title2);
-  ASSERT_TRUE(
-      UpdatedProgressMarkerChecker(GetSyncService(kSingleProfileIndex)).Wait());
+  ASSERT_TRUE(BookmarkModelMatchesFakeServerChecker(
+                  kSingleProfileIndex, GetSyncService(kSingleProfileIndex),
+                  GetFakeServer())
+                  .Wait());
 
   // Verify the GUID that was committed to the server.
   std::vector<sync_pb::SyncEntity> server_bookmarks =
@@ -401,7 +504,8 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
   ASSERT_EQ(
       title2,
       server_bookmarks[0].specifics().bookmark().legacy_canonicalized_title());
-  EXPECT_EQ(lowercase_guid, server_bookmarks[0].specifics().bookmark().guid());
+  EXPECT_EQ(guid.AsLowercaseString(),
+            server_bookmarks[0].specifics().bookmark().guid());
 }
 
 IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
@@ -430,7 +534,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
   fake_server_->InjectEntity(bookmark_builder2.BuildBookmark(
       GURL("http://page2.com"), /*is_legacy=*/true));
 
-  DisableVerifier();
   ASSERT_TRUE(SetupSync());
 
   const BookmarkNode* bookmark_bar_node =
@@ -454,7 +557,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
   ui::SetSupportedScaleFactors(supported_scale_factors);
 
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-  ASSERT_TRUE(BookmarksMatchVerifierChecker().Wait());
 
   const GURL page_url("http://www.google.com");
   const GURL icon_url("http://www.google.com/favicon.ico");
@@ -472,7 +574,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
 
   ASSERT_TRUE(
       UpdatedProgressMarkerChecker(GetSyncService(kSingleProfileIndex)).Wait());
-  ASSERT_TRUE(BookmarksMatchVerifierChecker().Wait());
 
   scoped_refptr<base::RefCountedMemory> original_favicon_bytes =
       original_favicon.As1xPNGBytes();
@@ -490,7 +591,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
 // from the local database.
 IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest, DeleteFaviconFromSync) {
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-  ASSERT_TRUE(BookmarksMatchVerifierChecker().Wait());
 
   const GURL page_url("http://www.google.com");
   const GURL icon_url("http://www.google.com/favicon.ico");
@@ -499,7 +599,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest, DeleteFaviconFromSync) {
              bookmarks_helper::FROM_UI);
   ASSERT_TRUE(
       UpdatedProgressMarkerChecker(GetSyncService(kSingleProfileIndex)).Wait());
-  ASSERT_TRUE(BookmarksMatchVerifierChecker().Wait());
 
   // Simulate receiving a favicon deletion from sync.
   DeleteFaviconMappings(kSingleProfileIndex, bookmark,
@@ -507,7 +606,8 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest, DeleteFaviconFromSync) {
 
   ASSERT_TRUE(
       UpdatedProgressMarkerChecker(GetSyncService(kSingleProfileIndex)).Wait());
-  ASSERT_TRUE(BookmarksMatchVerifierChecker().Wait());
+  ASSERT_THAT(GetBookmarkBarNode(kSingleProfileIndex)->children(),
+              ElementsAre(IsUrlBookmarkWithTitleAndUrl("title", page_url)));
 
   CheckHasNoFavicon(kSingleProfileIndex, page_url);
   EXPECT_TRUE(
@@ -560,19 +660,19 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
 
   // Set up sync, wait for its completion and verify that changes propagated.
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-  ASSERT_TRUE(
-      UpdatedProgressMarkerChecker(GetSyncService(kSingleProfileIndex)).Wait());
-  ASSERT_TRUE(BookmarksMatchVerifierChecker().Wait());
+  ASSERT_EQ(2u, GetOtherNode(kSingleProfileIndex)->children().size());
+  ASSERT_EQ(3u, GetBookmarkBarNode(kSingleProfileIndex)->children().size());
 
   // Remove all bookmarks and wait for sync completion.
   RemoveAll(kSingleProfileIndex);
-  ASSERT_TRUE(
-      UpdatedProgressMarkerChecker(GetSyncService(kSingleProfileIndex)).Wait());
+  ASSERT_TRUE(BookmarkModelMatchesFakeServerChecker(
+                  kSingleProfileIndex, GetSyncService(kSingleProfileIndex),
+                  GetFakeServer())
+                  .Wait());
+
   // Verify other node has no children now.
   EXPECT_TRUE(GetOtherNode(kSingleProfileIndex)->children().empty());
   EXPECT_TRUE(GetBookmarkBarNode(kSingleProfileIndex)->children().empty());
-  // Verify model matches verifier.
-  ASSERT_TRUE(BookmarksMatchVerifierChecker().Wait());
 }
 
 IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest, DownloadDeletedBookmark) {
@@ -583,7 +683,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest, DownloadDeletedBookmark) {
   fake_server_->InjectEntity(bookmark_builder.BuildBookmark(
       GURL("http://en.wikipedia.org/wiki/Patrick_Star")));
 
-  DisableVerifier();
   ASSERT_TRUE(SetupSync());
 
   ASSERT_EQ(1u, CountBookmarksWithTitlesMatching(kSingleProfileIndex, title));
@@ -613,7 +712,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
       entity_builder_factory.NewBookmarkEntityBuilder(title);
   fake_server_->InjectEntity(bookmark_builder.BuildBookmark(original_url));
 
-  DisableVerifier();
   ASSERT_TRUE(SetupSync());
 
   ASSERT_EQ(1u, CountBookmarksWithTitlesMatching(kSingleProfileIndex, title));
@@ -645,7 +743,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest, DownloadBookmarkFolder) {
       entity_builder_factory.NewBookmarkEntityBuilder(title);
   fake_server_->InjectEntity(bookmark_builder.BuildFolder());
 
-  DisableVerifier();
   ASSERT_TRUE(SetupClients());
   ASSERT_EQ(0u, CountFoldersWithTitlesMatching(kSingleProfileIndex, title));
 
@@ -662,7 +759,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
       entity_builder_factory.NewBookmarkEntityBuilder(title);
   fake_server_->InjectEntity(bookmark_builder.BuildFolder(/*is_legacy=*/true));
 
-  DisableVerifier();
   ASSERT_TRUE(SetupClients());
   ASSERT_EQ(0u, CountFoldersWithTitlesMatching(kSingleProfileIndex, title));
 
@@ -677,7 +773,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
 // compatibility with legacy clients.
 IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
                        ShouldCommitBookmarksWithIllegalServerNames) {
-  ASSERT_TRUE(SetupClients()) << "SetupClients() failed.";
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
 
   const std::vector<std::string> illegal_titles = {"", ".", ".."};
@@ -688,8 +783,10 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
   }
 
   // Wait till all entities are committed.
-  ASSERT_TRUE(
-      UpdatedProgressMarkerChecker(GetSyncService(kSingleProfileIndex)).Wait());
+  ASSERT_TRUE(BookmarkModelMatchesFakeServerChecker(
+                  kSingleProfileIndex, GetSyncService(kSingleProfileIndex),
+                  GetFakeServer())
+                  .Wait());
 
   // Collect the titles committed on the server.
   std::vector<sync_pb::SyncEntity> entities =
@@ -726,8 +823,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
         GURL("http://www.google.com")));
   }
 
-  ASSERT_TRUE(SetupClients()) << "SetupClients() failed.";
-  DisableVerifier();
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
 
   // There should be bookmark with illegal title (without the appended space).
@@ -751,7 +846,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
       entity_builder_factory.NewBookmarkEntityBuilder(remote_blank_title);
   fake_server_->InjectEntity(bookmark_builder.BuildFolderWithoutFullTitle());
 
-  DisableVerifier();
   ASSERT_TRUE(SetupClients()) << "SetupClients() failed.";
 
   // Create a folder on the client under BookmarkBar with an empty title.
@@ -794,7 +888,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
       entity_builder_factory.NewBookmarkEntityBuilder(remote_truncated_title);
   fake_server_->InjectEntity(bookmark_builder.BuildFolder());
 
-  DisableVerifier();
   ASSERT_TRUE(SetupClients()) << "SetupClients() failed.";
   // Create a folder on the client under BookmarkBar with a long title.
   const BookmarkNode* node =
@@ -838,9 +931,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
   fake_server_->InjectEntity(bookmark2_builder.BuildFolder());
   fake_server_->InjectEntity(bookmark1_builder.BuildFolder());
 
-  DisableVerifier();
-  ASSERT_TRUE(SetupClients());
-
   ASSERT_TRUE(SetupSync());
 
   EXPECT_EQ(1u, CountFoldersWithTitlesMatching(kSingleProfileIndex, title0));
@@ -876,8 +966,10 @@ IN_PROC_BROWSER_TEST_F(
   ASSERT_NE(nullptr, AddURL(kSingleProfileIndex,
                             /*parent=*/GetOtherNode(kSingleProfileIndex),
                             /*index=*/0, "title", GURL("http://www.url.com")));
-  ASSERT_TRUE(
-      UpdatedProgressMarkerChecker(GetSyncService(kSingleProfileIndex)).Wait());
+  ASSERT_TRUE(BookmarkModelMatchesFakeServerChecker(
+                  kSingleProfileIndex, GetSyncService(kSingleProfileIndex),
+                  GetFakeServer())
+                  .Wait());
 
   // There should have been one creation and no deletions.
   EXPECT_EQ(
@@ -893,7 +985,7 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
   const std::string title = "Seattle Sounders FC";
   fake_server::EntityBuilderFactory entity_builder_factory;
   fake_server::BookmarkEntityBuilder bookmark_builder =
-      entity_builder_factory.NewBookmarkEntityBuilder(title);
+      entity_builder_factory.NewBookmarkEntityBuilder(title, kBookmarkGuid);
   bookmark_builder.SetId(
       syncer::LoopbackServerEntity::CreateId(syncer::BOOKMARKS, kBookmarkGuid));
   fake_server_->InjectEntity(bookmark_builder.BuildFolder());
@@ -912,7 +1004,7 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
   const std::string title = "Seattle Sounders FC";
   fake_server::EntityBuilderFactory entity_builder_factory;
   fake_server::BookmarkEntityBuilder bookmark_builder =
-      entity_builder_factory.NewBookmarkEntityBuilder(title);
+      entity_builder_factory.NewBookmarkEntityBuilder(title, kBookmarkGuid);
   bookmark_builder.SetId(
       syncer::LoopbackServerEntity::CreateId(syncer::BOOKMARKS, kBookmarkGuid));
   fake_server_->InjectEntity(bookmark_builder.BuildFolder());
@@ -921,11 +1013,11 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
   ASSERT_TRUE(SetupClients()) << "SetupClients() failed.";
   ASSERT_EQ(1u, GetBookmarkBarNode(kSingleProfileIndex)->children().size());
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // signin::SetRefreshTokenForPrimaryAccount() is needed on ChromeOS in order
   // to get a non-empty refresh token on startup.
   GetClient(0)->SignInPrimaryAccount();
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   ASSERT_TRUE(GetClient(kSingleProfileIndex)->AwaitEngineInitialization());
 
   // After restart, the last sync cycle snapshot should be empty.
@@ -942,7 +1034,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
 IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
                        ApplyRemoteCreationWithValidGUID) {
   // Start syncing.
-  DisableVerifier();
   ASSERT_TRUE(SetupSync());
   ASSERT_EQ(0u, GetBookmarkBarNode(kSingleProfileIndex)->children().size());
 
@@ -955,8 +1046,9 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
   base::HistogramTester histogram_tester;
   std::unique_ptr<syncer::LoopbackServerEntity> folder =
       bookmark_builder.BuildFolder(/*is_legacy=*/false);
-  const std::string guid = folder.get()->GetSpecifics().bookmark().guid();
-  ASSERT_TRUE(base::IsValidGUID(guid));
+  const base::GUID guid = base::GUID::ParseCaseInsensitive(
+      folder.get()->GetSpecifics().bookmark().guid());
+  ASSERT_TRUE(guid.is_valid());
   ASSERT_FALSE(ContainsBookmarkNodeWithGUID(kSingleProfileIndex, guid));
   fake_server_->InjectEntity(std::move(folder));
 
@@ -973,18 +1065,17 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
 IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
                        ApplyRemoteCreationWithoutValidGUID) {
   // Start syncing.
-  DisableVerifier();
   ASSERT_TRUE(SetupSync());
   ASSERT_EQ(0u, GetBookmarkBarNode(kSingleProfileIndex)->children().size());
 
-  const std::string originator_client_item_id = base::GenerateGUID();
+  const base::GUID originator_client_item_id = base::GUID::GenerateRandomV4();
   ASSERT_FALSE(ContainsBookmarkNodeWithGUID(kSingleProfileIndex,
                                             originator_client_item_id));
 
   fake_server::EntityBuilderFactory entity_builder_factory;
   fake_server::BookmarkEntityBuilder bookmark_builder =
       entity_builder_factory.NewBookmarkEntityBuilder(
-          "Seattle Sounders FC", originator_client_item_id);
+          "Seattle Sounders FC", originator_client_item_id.AsLowercaseString());
 
   // Issue remote creation without a valid GUID but with a valid
   // originator_client_item_id.
@@ -1011,7 +1102,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
 IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
                        ApplyRemoteCreationWithoutValidGUIDOrOCII) {
   // Start syncing.
-  DisableVerifier();
   ASSERT_TRUE(SetupSync());
   ASSERT_EQ(0u, GetBookmarkBarNode(kSingleProfileIndex)->children().size());
 
@@ -1034,10 +1124,9 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
   // A bookmark should have been added with a newly assigned valid GUID.
   EXPECT_TRUE(BookmarksUrlChecker(kSingleProfileIndex, url, 1).Wait());
   EXPECT_EQ(1u, GetBookmarkBarNode(kSingleProfileIndex)->children().size());
-  EXPECT_TRUE(base::IsValidGUID(
-      GetBookmarkBarNode(kSingleProfileIndex)->children()[0].get()->guid()));
-  EXPECT_FALSE(ContainsBookmarkNodeWithGUID(kSingleProfileIndex,
-                                            originator_client_item_id));
+  EXPECT_FALSE(ContainsBookmarkNodeWithGUID(
+      kSingleProfileIndex,
+      base::GUID::ParseCaseInsensitive(originator_client_item_id)));
 
   EXPECT_EQ(1, histogram_tester.GetBucketCount("Sync.BookmarkGUIDSource2",
                                                /*kInferred=*/3));
@@ -1053,13 +1142,13 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
   // Create bookmark in server with a valid GUID.
   std::unique_ptr<syncer::LoopbackServerEntity> bookmark =
       bookmark_builder.BuildBookmark(url, /*is_legacy=*/false);
-  const std::string guid = bookmark.get()->GetSpecifics().bookmark().guid();
-  ASSERT_TRUE(base::IsValidGUID(guid));
+  const base::GUID guid = base::GUID::ParseCaseInsensitive(
+      bookmark.get()->GetSpecifics().bookmark().guid());
+  ASSERT_TRUE(guid.is_valid());
   fake_server_->InjectEntity(std::move(bookmark));
 
   // Start syncing.
   base::HistogramTester histogram_tester;
-  DisableVerifier();
   ASSERT_TRUE(SetupClients());
   ASSERT_EQ(0u, GetBookmarkBarNode(kSingleProfileIndex)->children().size());
   ASSERT_TRUE(SetupSync());
@@ -1081,8 +1170,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
 
 IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
                        ShouldStartTrackingRestoredBookmark) {
-  ASSERT_TRUE(SetupClients());
-  DisableVerifier();
   ASSERT_TRUE(SetupSync());
 
   BookmarkModel* bookmark_model = GetBookmarkModel(kSingleProfileIndex);
@@ -1093,8 +1180,10 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
   const std::string title = "Title";
   const BookmarkNode* node = bookmark_model->AddFolder(
       bookmark_bar_node, /*index=*/0, base::UTF8ToUTF16(title));
-  ASSERT_TRUE(
-      UpdatedProgressMarkerChecker(GetSyncService(kSingleProfileIndex)).Wait());
+  ASSERT_TRUE(BookmarkModelMatchesFakeServerChecker(
+                  kSingleProfileIndex, GetSyncService(kSingleProfileIndex),
+                  GetFakeServer())
+                  .Wait());
   const std::vector<sync_pb::SyncEntity> server_bookmarks_before =
       fake_server_->GetSyncEntitiesByModelType(syncer::BOOKMARKS);
   ASSERT_EQ(1u, server_bookmarks_before.size());
@@ -1104,6 +1193,10 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
   BookmarkUndoService* undo_service =
       GetBookmarkUndoService(kSingleProfileIndex);
   undo_service->undo_manager()->Undo();
+
+  // Do not use BookmarkModelMatchesFakeServerChecker because the structure and
+  // bookmarks actually don't change. The only change is the version of the
+  // entity.
   ASSERT_TRUE(
       UpdatedProgressMarkerChecker(GetSyncService(kSingleProfileIndex)).Wait());
 
@@ -1120,11 +1213,11 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
 IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
                        MergeRemoteCreationWithoutValidGUID) {
   const GURL url = GURL("http://www.foo.com");
-  const std::string originator_client_item_id = base::GenerateGUID();
+  const base::GUID originator_client_item_id = base::GUID::GenerateRandomV4();
   fake_server::EntityBuilderFactory entity_builder_factory;
   fake_server::BookmarkEntityBuilder bookmark_builder =
       entity_builder_factory.NewBookmarkEntityBuilder(
-          "Seattle Sounders FC", originator_client_item_id);
+          "Seattle Sounders FC", originator_client_item_id.AsLowercaseString());
 
   // Create bookmark in server without a valid GUID but with a valid
   // originator_client_item_id.
@@ -1135,7 +1228,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
 
   // Start syncing.
   base::HistogramTester histogram_tester;
-  DisableVerifier();
   ASSERT_TRUE(SetupClients());
   ASSERT_EQ(0u, GetBookmarkBarNode(kSingleProfileIndex)->children().size());
   ASSERT_TRUE(SetupSync());
@@ -1176,7 +1268,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
 
   // Start syncing.
   base::HistogramTester histogram_tester;
-  DisableVerifier();
   ASSERT_TRUE(SetupClients());
   ASSERT_EQ(0u, GetBookmarkBarNode(kSingleProfileIndex)->children().size());
   ASSERT_TRUE(SetupSync());
@@ -1184,10 +1275,9 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
   // A bookmark should have been added with a newly assigned valid GUID.
   EXPECT_TRUE(BookmarksUrlChecker(kSingleProfileIndex, url, 1).Wait());
   EXPECT_EQ(1u, GetBookmarkBarNode(kSingleProfileIndex)->children().size());
-  EXPECT_TRUE(base::IsValidGUID(
-      GetBookmarkBarNode(kSingleProfileIndex)->children()[0].get()->guid()));
-  EXPECT_FALSE(ContainsBookmarkNodeWithGUID(kSingleProfileIndex,
-                                            originator_client_item_id));
+  EXPECT_FALSE(ContainsBookmarkNodeWithGUID(
+      kSingleProfileIndex,
+      base::GUID::ParseCaseInsensitive(originator_client_item_id)));
 
   // Do not check for kSpecifics bucket because it may be 0 or 1. It depends on
   // reupload of bookmark (legacy bookmark will be reuploaded and may return
@@ -1202,15 +1292,14 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
 
 IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
                        MergeRemoteUpdateWithValidGUID) {
-  DisableVerifier();
   ASSERT_TRUE(SetupClients());
 
   // Create a local bookmark folder.
   const std::string title = "Seattle Sounders FC";
   const BookmarkNode* local_folder = AddFolder(
       kSingleProfileIndex, GetBookmarkBarNode(kSingleProfileIndex), 0, title);
-  const std::string old_guid = local_folder->guid();
-  SCOPED_TRACE(std::string("old_guid=") + old_guid);
+  const base::GUID old_guid = local_folder->guid();
+  SCOPED_TRACE(std::string("old_guid=") + old_guid.AsLowercaseString());
 
   ASSERT_TRUE(local_folder);
   ASSERT_TRUE(BookmarksGUIDChecker(kSingleProfileIndex, old_guid).Wait());
@@ -1222,7 +1311,8 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
       entity_builder_factory.NewBookmarkEntityBuilder(title);
   std::unique_ptr<syncer::LoopbackServerEntity> remote_folder =
       bookmark_builder.BuildFolder(/*is_legacy=*/false);
-  const std::string new_guid = remote_folder->GetSpecifics().bookmark().guid();
+  const base::GUID new_guid = base::GUID::ParseCaseInsensitive(
+      remote_folder->GetSpecifics().bookmark().guid());
   fake_server_->InjectEntity(std::move(remote_folder));
 
   // Start syncing.
@@ -1238,7 +1328,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
 IN_PROC_BROWSER_TEST_F(
     SingleClientBookmarksSyncTestWithDisabledReuploadBookmarks,
     PRE_ShouldNotReploadUponFaviconLoad) {
-  const GURL url = GURL("http://www.foo.com");
   fake_server::EntityBuilderFactory entity_builder_factory;
   fake_server::BookmarkEntityBuilder bookmark_builder =
       entity_builder_factory.NewBookmarkEntityBuilder("Foo Title");
@@ -1247,27 +1336,28 @@ IN_PROC_BROWSER_TEST_F(
   // that it's a legacy bookmark means any locally-produced specifics would be
   // different for this bookmark (new fields like GUID would be populated).
   std::unique_ptr<syncer::LoopbackServerEntity> bookmark =
-      bookmark_builder.BuildBookmark(url, /*is_legacy=*/true);
+      bookmark_builder.BuildBookmark(GURL(kBookmarkPageUrl),
+                                     /*is_legacy=*/true);
   ASSERT_TRUE(bookmark.get()->GetSpecifics().bookmark().guid().empty());
   fake_server_->InjectEntity(std::move(bookmark));
 
   // Start syncing.
-  DisableVerifier();
   ASSERT_TRUE(SetupSync());
-  ASSERT_TRUE(BookmarksUrlChecker(kSingleProfileIndex, url, 1).Wait());
+  ASSERT_TRUE(
+      BookmarksUrlChecker(kSingleProfileIndex, GURL(kBookmarkPageUrl), 1)
+          .Wait());
 }
 
-IN_PROC_BROWSER_TEST_F(
-    SingleClientBookmarksSyncTestWithDisabledCommitWithoutFavicon,
-    PRE_ShouldUploadUnsyncedEntityAfterRestart) {
+IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
+                       PRE_ShouldUploadUnsyncedEntityAfterRestart) {
   ASSERT_TRUE(SetupSync());
 
   const std::string title = "Title";
   const std::string new_title = "New Title";
-  const GURL page_url = GURL("http://www.foo.com");
   const GURL icon_url("http://www.google.com/favicon.ico");
 
-  const BookmarkNode* bookmark = AddURL(kSingleProfileIndex, title, page_url);
+  const BookmarkNode* bookmark =
+      AddURL(kSingleProfileIndex, title, GURL(kBookmarkPageUrl));
   SetFavicon(0, bookmark, icon_url, CreateFavicon(SK_ColorWHITE),
              bookmarks_helper::FROM_UI);
 
@@ -1275,19 +1365,18 @@ IN_PROC_BROWSER_TEST_F(
       UpdatedProgressMarkerChecker(GetSyncService(kSingleProfileIndex)).Wait());
   ASSERT_TRUE(bookmarks_helper::ServerBookmarksEqualityChecker(
                   GetSyncService(kSingleProfileIndex), GetFakeServer(),
-                  {{title, page_url}}, /*cryptographer=*/nullptr)
+                  {{title, GURL(kBookmarkPageUrl)}},
+                  /*cryptographer=*/nullptr)
                   .Wait());
 
   // Stop Sync and update local entity to enter in unsynced state.
-  DisableVerifier();
   GetClient(kSingleProfileIndex)->StopSyncServiceWithoutClearingData();
 
   SetTitle(kSingleProfileIndex, bookmark, new_title);
 }
 
-IN_PROC_BROWSER_TEST_F(
-    SingleClientBookmarksSyncTestWithDisabledCommitWithoutFavicon,
-    ShouldUploadUnsyncedEntityAfterRestart) {
+IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest,
+                       ShouldUploadUnsyncedEntityAfterRestart) {
   ASSERT_TRUE(SetupClients());
 
   const std::string title = "Title";
@@ -1315,16 +1404,17 @@ IN_PROC_BROWSER_TEST_F(
   ASSERT_FALSE(node->is_favicon_loading());
   ASSERT_FALSE(node->is_favicon_loaded());
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // signin::SetRefreshTokenForPrimaryAccount() is needed on ChromeOS in order
   // to get a non-empty refresh token on startup.
   GetClient(0)->SignInPrimaryAccount();
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   ASSERT_TRUE(GetClient(kSingleProfileIndex)->StartSyncService());
   ASSERT_TRUE(GetClient(kSingleProfileIndex)->AwaitEngineInitialization());
   ASSERT_TRUE(bookmarks_helper::ServerBookmarksEqualityChecker(
                   GetSyncService(kSingleProfileIndex), GetFakeServer(),
-                  {{new_title, url}}, /*cryptographer=*/nullptr)
+                  {{new_title, url}},
+                  /*cryptographer=*/nullptr)
                   .Wait());
 
   // Last commit should initiate favicon loading.
@@ -1347,13 +1437,12 @@ IN_PROC_BROWSER_TEST_F(
   const GURL url = GURL("http://www.foo.com");
 
   base::HistogramTester histogram_tester;
-  DisableVerifier();
   ASSERT_TRUE(SetupClients());
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // signin::SetRefreshTokenForPrimaryAccount() is needed on ChromeOS in order
   // to get a non-empty refresh token on startup.
   GetClient(0)->SignInPrimaryAccount();
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   ASSERT_TRUE(GetClient(kSingleProfileIndex)->AwaitEngineInitialization());
 
   // Make sure the favicon gets loaded.
@@ -1392,15 +1481,11 @@ IN_PROC_BROWSER_TEST_F(
   fake_server_->InjectEntity(std::move(remote_folder));
 
   ASSERT_TRUE(SetupSync());
-  ASSERT_TRUE(
-      UpdatedProgressMarkerChecker(GetSyncService(kSingleProfileIndex)).Wait());
-
-  const std::vector<sync_pb::SyncEntity> server_bookmarks =
-      GetFakeServer()->GetSyncEntitiesByModelType(syncer::BOOKMARKS);
-  ASSERT_EQ(1u, CountFoldersWithTitlesMatching(kSingleProfileIndex, title));
-  ASSERT_EQ(1u, server_bookmarks.size());
-
-  EXPECT_TRUE(server_bookmarks.front().specifics().bookmark().has_full_title());
+  ASSERT_TRUE(bookmarks_helper::ServerBookmarksEqualityChecker(
+                  GetSyncService(kSingleProfileIndex), GetFakeServer(),
+                  {{title, /*url=*/GURL()}},
+                  /*cryptographer=*/nullptr)
+                  .Wait());
 }
 
 // This test looks similar to
@@ -1414,22 +1499,16 @@ IN_PROC_BROWSER_TEST_F(
   // locally.
   ASSERT_TRUE(SetupSync());
 
-  const std::string title = "Title";
-  const GURL url = GURL("http://www.foo.com");
-
   // Make an incremental remote creation of bookmark without full_title.
   fake_server::EntityBuilderFactory entity_builder_factory;
   fake_server::BookmarkEntityBuilder bookmark_builder =
-      entity_builder_factory.NewBookmarkEntityBuilder(title);
+      entity_builder_factory.NewBookmarkEntityBuilder(kBookmarkTitle);
   std::unique_ptr<syncer::LoopbackServerEntity> remote_folder =
-      bookmark_builder.BuildBookmark(url, /*is_legacy=*/false);
-  const std::string new_guid = remote_folder->GetSpecifics().bookmark().guid();
+      bookmark_builder.BuildBookmarkWithoutFullTitle(GURL(kBookmarkPageUrl));
 
-  // Makr sure that server-side specifics doesn't have full title.
-  remote_folder->GetSpecifics().mutable_bookmark()->clear_full_title();
   fake_server_->InjectEntity(std::move(remote_folder));
 
-  ASSERT_TRUE(BookmarksTitleChecker(kSingleProfileIndex, title,
+  ASSERT_TRUE(BookmarksTitleChecker(kSingleProfileIndex, kBookmarkTitle,
                                     /*expected_count=*/1)
                   .Wait());
 }
@@ -1439,37 +1518,30 @@ IN_PROC_BROWSER_TEST_F(
     ShouldReuploadFullTitleForOldClients) {
   // This test checks that the legacy bookmark which was stored locally will
   // imply reupload to the server when reupload feature is enabled.
-  const GURL url = GURL("http://www.foo.com");
-
   ASSERT_EQ(
       1u,
       GetFakeServer()->GetSyncEntitiesByModelType(syncer::BOOKMARKS).size());
-  const int64_t old_server_version =
-      GetFakeServer()
-          ->GetSyncEntitiesByModelType(syncer::BOOKMARKS)
-          .front()
-          .version();
+  ASSERT_FALSE(GetFakeServer()
+                   ->GetSyncEntitiesByModelType(syncer::BOOKMARKS)
+                   .front()
+                   .specifics()
+                   .bookmark()
+                   .has_full_title());
   ASSERT_TRUE(SetupClients());
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // signin::SetRefreshTokenForPrimaryAccount() is needed on ChromeOS in order
   // to get a non-empty refresh token on startup.
   GetClient(0)->SignInPrimaryAccount();
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   ASSERT_TRUE(GetClient(kSingleProfileIndex)->AwaitEngineInitialization());
-  ASSERT_TRUE(BookmarkFaviconLoadedChecker(kSingleProfileIndex, url).Wait());
   ASSERT_TRUE(
-      UpdatedProgressMarkerChecker(GetSyncService(kSingleProfileIndex)).Wait());
-  ASSERT_GT(GetFakeServer()
-                ->GetSyncEntitiesByModelType(syncer::BOOKMARKS)
-                .front()
-                .version(),
-            old_server_version);
-
-  const std::string title = "Title";
-  const std::vector<sync_pb::SyncEntity> server_bookmarks =
-      GetFakeServer()->GetSyncEntitiesByModelType(syncer::BOOKMARKS);
-  ASSERT_EQ(1u, server_bookmarks.size());
-  EXPECT_TRUE(server_bookmarks.front().specifics().bookmark().has_full_title());
+      BookmarkFaviconLoadedChecker(kSingleProfileIndex, GURL(kBookmarkPageUrl))
+          .Wait());
+  ASSERT_TRUE(bookmarks_helper::ServerBookmarksEqualityChecker(
+                  GetSyncService(kSingleProfileIndex), GetFakeServer(),
+                  {{kBookmarkTitle, GURL(kBookmarkPageUrl)}},
+                  /*cryptographer=*/nullptr)
+                  .Wait());
 }
 
 // TODO(rushans): add the same test as before with favicons.
@@ -1479,52 +1551,74 @@ IN_PROC_BROWSER_TEST_F(
     PRE_ShouldReuploadFullTitleAfterRestartOnIncrementalChange) {
   ASSERT_TRUE(SetupSync());
 
-  const std::string title = "Title";
-  const GURL url = GURL("http://www.foo.com");
-
   // Make an incremental remote creation of bookmark.
   fake_server::EntityBuilderFactory entity_builder_factory;
   fake_server::BookmarkEntityBuilder bookmark_builder =
-      entity_builder_factory.NewBookmarkEntityBuilder(title);
+      entity_builder_factory.NewBookmarkEntityBuilder(kBookmarkTitle);
   std::unique_ptr<syncer::LoopbackServerEntity> remote_folder =
-      bookmark_builder.BuildBookmarkWithoutFullTitle(url);
+      bookmark_builder.BuildBookmarkWithoutFullTitle(GURL(kBookmarkPageUrl));
   ASSERT_FALSE(remote_folder->GetSpecifics().bookmark().has_full_title());
   fake_server_->InjectEntity(std::move(remote_folder));
 
-  ASSERT_TRUE(BookmarksTitleChecker(kSingleProfileIndex, title,
+  ASSERT_TRUE(BookmarksTitleChecker(kSingleProfileIndex, kBookmarkTitle,
                                     /*expected_count=*/1)
                   .Wait());
-
-  // Check that the full title was not uploaded to the server yet.
-  const std::vector<sync_pb::SyncEntity> server_bookmarks =
-      GetFakeServer()->GetSyncEntitiesByModelType(syncer::BOOKMARKS);
-  ASSERT_EQ(1u, server_bookmarks.size());
-  EXPECT_FALSE(
-      server_bookmarks.front().specifics().bookmark().has_full_title());
 }
 
 IN_PROC_BROWSER_TEST_F(
     SingleClientBookmarksSyncTestWithEnabledReuploadRemoteBookmarks,
     ShouldReuploadFullTitleAfterRestartOnIncrementalChange) {
+  // Check that the full title was not uploaded to the server yet.
+  ASSERT_EQ(
+      1u,
+      GetFakeServer()->GetSyncEntitiesByModelType(syncer::BOOKMARKS).size());
+  ASSERT_FALSE(GetFakeServer()
+                   ->GetSyncEntitiesByModelType(syncer::BOOKMARKS)
+                   .front()
+                   .specifics()
+                   .bookmark()
+                   .has_full_title());
+
   ASSERT_TRUE(SetupClients());
-
-  const GURL url = GURL("http://www.foo.com");
-
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // signin::SetRefreshTokenForPrimaryAccount() is needed on ChromeOS in order
   // to get a non-empty refresh token on startup.
   GetClient(0)->SignInPrimaryAccount();
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   ASSERT_TRUE(GetClient(kSingleProfileIndex)->AwaitEngineInitialization());
-  ASSERT_TRUE(BookmarkFaviconLoadedChecker(kSingleProfileIndex, url).Wait());
   ASSERT_TRUE(
-      UpdatedProgressMarkerChecker(GetSyncService(kSingleProfileIndex)).Wait());
+      BookmarkFaviconLoadedChecker(kSingleProfileIndex, GURL(kBookmarkPageUrl))
+          .Wait());
+  ASSERT_TRUE(bookmarks_helper::ServerBookmarksEqualityChecker(
+                  GetSyncService(kSingleProfileIndex), GetFakeServer(),
+                  {{kBookmarkTitle, GURL(kBookmarkPageUrl)}},
+                  /*cryptographer=*/nullptr)
+                  .Wait());
+}
 
-  const std::string title = "Title";
-  const std::vector<sync_pb::SyncEntity> server_bookmarks =
+IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTestWithEnabledClientTags,
+                       CommitLocalCreationWithClientTag) {
+  ASSERT_TRUE(SetupSync());
+
+  const std::string kTitle = "Title";
+  const BookmarkNode* folder = AddFolder(
+      kSingleProfileIndex, GetOtherNode(kSingleProfileIndex), 0, kTitle);
+
+  // Wait until the local bookmark gets committed.
+  ASSERT_TRUE(bookmarks_helper::ServerBookmarksEqualityChecker(
+                  GetSyncService(kSingleProfileIndex), GetFakeServer(),
+                  {{kTitle, /*url=*/GURL()}},
+                  /*cryptographer=*/nullptr)
+                  .Wait());
+
+  // Verify the client tag hash was committed to the server.
+  std::vector<sync_pb::SyncEntity> server_bookmarks =
       GetFakeServer()->GetSyncEntitiesByModelType(syncer::BOOKMARKS);
   ASSERT_EQ(1u, server_bookmarks.size());
-  EXPECT_TRUE(server_bookmarks.front().specifics().bookmark().has_full_title());
+  EXPECT_EQ(server_bookmarks[0].client_defined_unique_tag(),
+            syncer::ClientTagHash::FromUnhashed(
+                syncer::BOOKMARKS, folder->guid().AsLowercaseString())
+                .value());
 }
 
 }  // namespace

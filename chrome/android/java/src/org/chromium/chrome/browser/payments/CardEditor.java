@@ -30,8 +30,9 @@ import org.chromium.chrome.browser.autofill.prefeditor.EditorFieldModel.EditorVa
 import org.chromium.chrome.browser.autofill.prefeditor.EditorModel;
 import org.chromium.chrome.browser.autofill.settings.AutofillProfileBridge.DropdownKeyValue;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
-import org.chromium.components.payments.ComponentPaymentRequestImpl;
+import org.chromium.components.payments.BasicCardUtils;
 import org.chromium.components.payments.MethodStrings;
+import org.chromium.components.payments.PaymentRequestService;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.payments.mojom.PaymentMethodData;
 
@@ -51,9 +52,13 @@ import java.util.concurrent.ExecutionException;
 /**
  * A credit card editor. Can be used for editing both local and server credit cards. Everything in
  * local cards can be edited. For server cards, only the billing address is editable.
+ *
+ * Note that this class is used by PaymentRequest only and will be removed when not needed any more.
+ * Please use {@link org.chromium.chrome.browser.autofill.settings.CardEditor} instead.
  */
-public class CardEditor extends EditorBase<AutofillPaymentInstrument>
-        implements CreditCardScanner.Delegate {
+@Deprecated
+public class CardEditor
+        extends EditorBase<AutofillPaymentInstrument> implements CreditCardScanner.Delegate {
     /** Description of a card network. */
     private static class CardIssuerNetwork {
         /**
@@ -351,19 +356,24 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument>
             final Callback<AutofillPaymentInstrument> cancelCallback) {
         super.edit(toEdit, doneCallback, cancelCallback);
 
-        // If |toEdit| is null, we're creating a new credit card.
-        final boolean isNewCard = toEdit == null;
+        final boolean isNewCard;
+        final AutofillPaymentInstrument instrument;
+        final EditorModel editor;
 
-        // Ensure that |instrument| and |card| are never null.
-        final AutofillPaymentInstrument instrument = isNewCard
-                ? new AutofillPaymentInstrument(mWebContents, new CreditCard(),
-                        null /* billingAddress */, null /* methodName */)
-                : toEdit;
+        if (toEdit == null) {
+            // We're creating a new credit card.
+            isNewCard = true;
+            // Ensure that |instrument| is never null.
+            instrument = new AutofillPaymentInstrument(mWebContents, new CreditCard(),
+                    null /* billingAddress */, null /* methodName */);
+            editor = new EditorModel(mContext.getString(R.string.payments_add_card));
+        } else {
+            isNewCard = false;
+            instrument = toEdit;
+            editor = new EditorModel(toEdit.getEditTitle());
+        }
+
         final CreditCard card = instrument.getCard();
-
-        final EditorModel editor = new EditorModel(
-                isNewCard ? mContext.getString(R.string.payments_add_card) : toEdit.getEditTitle());
-
         if (card.getIsLocal()) {
             Calendar calendar = null;
             try {
@@ -539,11 +549,11 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument>
                           R.string.payments_card_expiration_invalid_validation_message));
             mMonthField.setIsFullLine(false);
 
-            if (ComponentPaymentRequestImpl.getObserverForTest() != null) {
+            if (PaymentRequestService.getObserverForTest() != null) {
                 mMonthField.setDropdownCallback(new Callback<Pair<String, Runnable>>() {
                     @Override
                     public void onResult(final Pair<String, Runnable> eventData) {
-                        ComponentPaymentRequestImpl.getObserverForTest()
+                        PaymentRequestService.getObserverForTest()
                                 .onPaymentRequestServiceExpirationMonthChange();
                     }
                 });
@@ -671,8 +681,8 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument>
                 final boolean isSelectingIncompleteAddress =
                         mIncompleteProfilesForBillingAddress.containsKey(eventData.first);
                 if (!isAddingNewAddress && !isSelectingIncompleteAddress) {
-                    if (ComponentPaymentRequestImpl.getObserverForTest() != null) {
-                        ComponentPaymentRequestImpl.getObserverForTest()
+                    if (PaymentRequestService.getObserverForTest() != null) {
+                        PaymentRequestService.getObserverForTest()
                                 .onPaymentRequestServiceBillingAddressChangeProcessed();
                     }
                     return;

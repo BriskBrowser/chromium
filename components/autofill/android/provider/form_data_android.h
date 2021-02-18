@@ -52,9 +52,10 @@ class FormDataAndroid {
   // |value|.
   void OnFormFieldDidChange(size_t index, const base::string16& value);
 
-  void ApplyHeuristicFieldType(const FormStructure& form);
+  // Updates the field types from the |form|.
+  void UpdateFieldTypes(const FormStructure& form);
 
-  const FormData& form_for_testing() { return form_; }
+  const FormData& form() { return form_; }
 
  private:
   // Same as the form passed in from constructor, but FormFieldData's bounds is

@@ -6,6 +6,9 @@
 
 #include "base/bind.h"
 #include "base/values.h"
+#include "chrome/browser/apps/app_service/app_service_proxy.h"
+#include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
+#include "chrome/browser/apps/app_service/launch_utils.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"  // kSettingsAppId
@@ -17,10 +20,7 @@
 namespace chromeos {
 namespace settings {
 
-AndroidAppsHandler::AndroidAppsHandler(Profile* profile)
-    : arc_prefs_observer_(this),
-      arc_session_manager_observer_(this),
-      profile_(profile) {}
+AndroidAppsHandler::AndroidAppsHandler(Profile* profile) : profile_(profile) {}
 
 AndroidAppsHandler::~AndroidAppsHandler() {}
 
@@ -43,15 +43,15 @@ void AndroidAppsHandler::RegisterMessages() {
 void AndroidAppsHandler::OnJavascriptAllowed() {
   ArcAppListPrefs* arc_prefs = ArcAppListPrefs::Get(profile_);
   if (arc_prefs) {
-    arc_prefs_observer_.Add(arc_prefs);
+    arc_prefs_observation_.Observe(arc_prefs);
     // arc::ArcSessionManager is associated with primary profile.
-    arc_session_manager_observer_.Add(arc::ArcSessionManager::Get());
+    arc_session_manager_observation_.Observe(arc::ArcSessionManager::Get());
   }
 }
 
 void AndroidAppsHandler::OnJavascriptDisallowed() {
-  arc_prefs_observer_.RemoveAll();
-  arc_session_manager_observer_.RemoveAll();
+  arc_prefs_observation_.Reset();
+  arc_session_manager_observation_.Reset();
 }
 
 void AndroidAppsHandler::OnAppRegistered(
@@ -111,8 +111,12 @@ void AndroidAppsHandler::ShowAndroidAppsSettings(const base::ListValue* args) {
   args->GetBoolean(0, &activated_from_keyboard);
   int flags = activated_from_keyboard ? ui::EF_NONE : ui::EF_LEFT_MOUSE_BUTTON;
 
-  arc::LaunchAndroidSettingsApp(profile_, flags,
-                                GetDisplayIdForCurrentProfile());
+  DCHECK(
+      apps::AppServiceProxyFactory::IsAppServiceAvailableForProfile(profile_));
+  apps::AppServiceProxyFactory::GetForProfile(profile_)->Launch(
+      arc::kSettingsAppId, flags,
+      apps::mojom::LaunchSource::kFromParentalControls,
+      apps::MakeWindowInfo(GetDisplayIdForCurrentProfile()));
 }
 
 void AndroidAppsHandler::ShowAndroidManageAppLinks(

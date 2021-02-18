@@ -55,7 +55,7 @@ TEST(FilterOperationsTest, MapRectDropShadowReferenceFilter) {
       FilterOperation::CreateReferenceFilter(sk_make_sp<DropShadowPaintFilter>(
           SkIntToScalar(3), SkIntToScalar(8), SkIntToScalar(4),
           SkIntToScalar(9), SK_ColorBLACK,
-          SkDropShadowImageFilter::kDrawShadowAndForeground_ShadowMode,
+          DropShadowPaintFilter::ShadowMode::kDrawShadowAndForeground,
           nullptr)));
   EXPECT_EQ(gfx::Rect(-9, -19, 34, 64),
             ops.MapRect(gfx::Rect(0, 0, 10, 10), SkMatrix::I()));
@@ -71,7 +71,7 @@ TEST(FilterOperationsTest, MapRectReverseDropShadowReferenceFilter) {
       FilterOperation::CreateReferenceFilter(sk_make_sp<DropShadowPaintFilter>(
           SkIntToScalar(3), SkIntToScalar(8), SkIntToScalar(4),
           SkIntToScalar(9), SK_ColorBLACK,
-          SkDropShadowImageFilter::kDrawShadowAndForeground_ShadowMode,
+          DropShadowPaintFilter::ShadowMode::kDrawShadowAndForeground,
           nullptr)));
   EXPECT_EQ(gfx::Rect(-15, -35, 34, 64),
             ops.MapRectReverse(gfx::Rect(0, 0, 10, 10), SkMatrix::I()));
@@ -222,8 +222,7 @@ TEST(FilterOperationsTest, MapRectTypeConversionDoesNotOverflow) {
       FilterOperation::CreateReferenceFilter(sk_make_sp<XfermodePaintFilter>(
           SkBlendMode::kSrcOver,
           sk_make_sp<OffsetPaintFilter>(-big_offset, -big_offset, nullptr),
-          sk_make_sp<OffsetPaintFilter>(big_offset, big_offset, nullptr),
-          nullptr)));
+          sk_make_sp<OffsetPaintFilter>(big_offset, big_offset, nullptr))));
   gfx::Rect rect = ops.MapRect(gfx::Rect(-10, -10, 20, 20), SkMatrix::I());
   EXPECT_GT(rect.width(), 0);
   EXPECT_GT(rect.height(), 0);
@@ -699,10 +698,10 @@ TEST(FilterOperationsTest, BlendSaturatingBrightnessWithNull) {
 }
 
 TEST(FilterOperationsTest, BlendReferenceFilters) {
-  sk_sp<PaintFilter> from_filter(sk_make_sp<BlurPaintFilter>(
-      1.f, 1.f, BlurPaintFilter::TileMode::kClampToBlack_TileMode, nullptr));
-  sk_sp<PaintFilter> to_filter(sk_make_sp<BlurPaintFilter>(
-      2.f, 2.f, BlurPaintFilter::TileMode::kClampToBlack_TileMode, nullptr));
+  sk_sp<PaintFilter> from_filter(
+      sk_make_sp<BlurPaintFilter>(1.f, 1.f, SkTileMode::kDecal, nullptr));
+  sk_sp<PaintFilter> to_filter(
+      sk_make_sp<BlurPaintFilter>(2.f, 2.f, SkTileMode::kDecal, nullptr));
   FilterOperation from =
       FilterOperation::CreateReferenceFilter(std::move(from_filter));
   FilterOperation to =
@@ -722,8 +721,8 @@ TEST(FilterOperationsTest, BlendReferenceFilters) {
 }
 
 TEST(FilterOperationsTest, BlendReferenceWithNull) {
-  sk_sp<PaintFilter> image_filter(sk_make_sp<BlurPaintFilter>(
-      1.f, 1.f, BlurPaintFilter::TileMode::kClampToBlack_TileMode, nullptr));
+  sk_sp<PaintFilter> image_filter(
+      sk_make_sp<BlurPaintFilter>(1.f, 1.f, SkTileMode::kDecal, nullptr));
   FilterOperation filter =
       FilterOperation::CreateReferenceFilter(std::move(image_filter));
   FilterOperation null_filter = FilterOperation::CreateReferenceFilter(nullptr);
@@ -917,8 +916,8 @@ TEST(FilterOperationsTest, HasFilterOfType) {
 
   filters.Append(FilterOperation::CreateGrayscaleFilter(0.5f));
   filters.Append(FilterOperation::CreateBlurFilter(20));
-  sk_sp<PaintFilter> filter(sk_make_sp<BlurPaintFilter>(
-      1.f, 1.f, BlurPaintFilter::TileMode::kClampToBlack_TileMode, nullptr));
+  sk_sp<PaintFilter> filter(
+      sk_make_sp<BlurPaintFilter>(1.f, 1.f, SkTileMode::kDecal, nullptr));
   filters.Append(FilterOperation::CreateReferenceFilter(std::move(filter)));
 
   EXPECT_TRUE(filters.HasFilterOfType(FilterOperation::GRAYSCALE));
@@ -926,6 +925,47 @@ TEST(FilterOperationsTest, HasFilterOfType) {
   EXPECT_TRUE(filters.HasReferenceFilter());
   EXPECT_FALSE(filters.HasFilterOfType(FilterOperation::OPACITY));
   EXPECT_FALSE(filters.HasFilterOfType(FilterOperation::ZOOM));
+}
+
+TEST(FilterOperationsTest, MaximumPixelMovement) {
+  FilterOperations filters;
+
+  filters.Append(FilterOperation::CreateBlurFilter(20));
+  EXPECT_FLOAT_EQ(20.f * 3, filters.MaximumPixelMovement());
+
+  filters.Clear();
+  filters.Append(
+      FilterOperation::CreateDropShadowFilter(gfx::Point(3, -8), 20, 0));
+  float max_movement = fmax(std::abs(3), std::abs(-8)) + 20.f * 3;
+  EXPECT_FLOAT_EQ(max_movement, filters.MaximumPixelMovement());
+
+  filters.Clear();
+  filters.Append(FilterOperation::CreateZoomFilter(2, 3));
+  // max movement = zoom_inset = 3
+  EXPECT_FLOAT_EQ(3.f, filters.MaximumPixelMovement());
+
+  filters.Clear();
+  filters.Append(FilterOperation::CreateReferenceFilter(
+      sk_make_sp<OffsetPaintFilter>(10, 10, nullptr)));
+  // max movement = 100.
+  EXPECT_FLOAT_EQ(100.f, filters.MaximumPixelMovement());
+
+  // For filters that don't move pixels. HasFilterThatMovesPixels() = false.
+  filters.Clear();
+  filters.Append(FilterOperation::CreateOpacityFilter(0.25f));
+  SkScalar matrix[20] = {1,  2,  3,  4,  5,  6,  7,  8,  9,  10,
+                         11, 12, 13, 14, 15, 16, 17, 18, 19, 20};
+  filters.Append(FilterOperation::CreateColorMatrixFilter(matrix));
+  filters.Append(FilterOperation::CreateGrayscaleFilter(0.75f));
+  filters.Append(FilterOperation::CreateSepiaFilter(0.625f));
+  filters.Append(FilterOperation::CreateSaturateFilter(1.25f));
+  filters.Append(FilterOperation::CreateHueRotateFilter(6.f));
+  filters.Append(FilterOperation::CreateInvertFilter(0.75f));
+  filters.Append(FilterOperation::CreateBrightnessFilter(9.f));
+  filters.Append(FilterOperation::CreateContrastFilter(3.f));
+  filters.Append(FilterOperation::CreateSaturatingBrightnessFilter(7.f));
+
+  EXPECT_FLOAT_EQ(0.f, filters.MaximumPixelMovement());
 }
 
 }  // namespace

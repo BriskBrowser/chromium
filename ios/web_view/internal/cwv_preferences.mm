@@ -38,9 +38,7 @@
 }
 
 - (void)resetTranslationSettings {
-  translate::TranslatePrefs translatePrefs(
-      _prefService, language::prefs::kAcceptLanguages,
-      /*preferred_languages_pref=*/nullptr);
+  translate::TranslatePrefs translatePrefs(_prefService);
   translatePrefs.ResetToDefaults();
 }
 
@@ -70,6 +68,16 @@
 - (BOOL)isPasswordAutofillEnabled {
   return _prefService->GetBoolean(
       password_manager::prefs::kCredentialsEnableService);
+}
+
+- (void)setPasswordLeakCheckEnabled:(BOOL)enabled {
+  _prefService->SetBoolean(
+      password_manager::prefs::kPasswordLeakDetectionEnabled, enabled);
+}
+
+- (BOOL)isPasswordLeakCheckEnabled {
+  return _prefService->GetBoolean(
+      password_manager::prefs::kPasswordLeakDetectionEnabled);
 }
 
 @end

@@ -5,10 +5,10 @@
 #ifndef CHROME_BROWSER_APPS_APP_SERVICE_CROSTINI_APPS_H_
 #define CHROME_BROWSER_APPS_APP_SERVICE_CROSTINI_APPS_H_
 
+#include <memory>
 #include <string>
 #include <vector>
 
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/apps/app_service/app_icon_factory.h"
 #include "chrome/browser/apps/app_service/icon_key_util.h"
@@ -35,6 +35,8 @@ class CrostiniApps : public KeyedService,
  public:
   CrostiniApps(const mojo::Remote<apps::mojom::AppService>& app_service,
                Profile* profile);
+  CrostiniApps(const CrostiniApps&) = delete;
+  CrostiniApps& operator=(const CrostiniApps&) = delete;
   ~CrostiniApps() override;
 
   void ReInitializeForTesting(
@@ -42,12 +44,6 @@ class CrostiniApps : public KeyedService,
       Profile* profile);
 
  private:
-  enum class PublishAppIDType {
-    kInstall,
-    kUninstall,
-    kUpdate,
-  };
-
   void Initialize(const mojo::Remote<apps::mojom::AppService>& app_service);
 
   // apps::mojom::Publisher overrides.
@@ -62,7 +58,7 @@ class CrostiniApps : public KeyedService,
   void Launch(const std::string& app_id,
               int32_t event_flags,
               apps::mojom::LaunchSource launch_source,
-              int64_t display_id) override;
+              apps::mojom::WindowInfoPtr window_info) override;
   void Uninstall(const std::string& app_id,
                  apps::mojom::UninstallSource uninstall_source,
                  bool clear_site_data,
@@ -75,6 +71,7 @@ class CrostiniApps : public KeyedService,
   // GuestOsRegistryService::Observer overrides.
   void OnRegistryUpdated(
       guest_os::GuestOsRegistryService* registry_service,
+      guest_os::GuestOsRegistryService::VmType vm_type,
       const std::vector<std::string>& updated_apps,
       const std::vector<std::string>& removed_apps,
       const std::vector<std::string>& inserted_apps) override;
@@ -84,26 +81,10 @@ class CrostiniApps : public KeyedService,
   // once it can support hiding apps.
   void OnCrostiniEnabledChanged();
 
-  void LoadIconFromVM(const std::string app_id,
-                      apps::mojom::IconType icon_type,
-                      int32_t size_hint_in_dip,
-                      ui::ScaleFactor scale_factor,
-                      IconEffects icon_effects,
-                      LoadIconCallback callback);
-
-  void OnLoadIconFromVM(const std::string app_id,
-                        apps::mojom::IconType icon_type,
-                        int32_t size_hint_in_dip,
-                        IconEffects icon_effects,
-                        LoadIconCallback callback,
-                        std::string compressed_icon_data);
-
   apps::mojom::AppPtr Convert(
-      const std::string& app_id,
       const guest_os::GuestOsRegistryService::Registration& registration,
       bool new_icon_key);
   apps::mojom::IconKeyPtr NewIconKey(const std::string& app_id);
-  void PublishAppID(const std::string& app_id, PublishAppIDType type);
 
   mojo::RemoteSet<apps::mojom::Subscriber> subscribers_;
 
@@ -117,8 +98,6 @@ class CrostiniApps : public KeyedService,
   bool crostini_enabled_;
 
   base::WeakPtrFactory<CrostiniApps> weak_ptr_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(CrostiniApps);
 };
 
 }  // namespace apps

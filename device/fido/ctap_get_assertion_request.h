@@ -17,8 +17,8 @@
 #include "base/optional.h"
 #include "crypto/sha2.h"
 #include "device/fido/cable/cable_discovery_data.h"
-#include "device/fido/client_data.h"
 #include "device/fido/fido_constants.h"
+#include "device/fido/large_blob.h"
 #include "device/fido/pin.h"
 #include "device/fido/public_key_credential_descriptor.h"
 
@@ -51,7 +51,7 @@ struct COMPONENT_EXPORT(DEVICE_FIDO) CtapGetAssertionOptions {
     base::Optional<std::array<uint8_t, 32>> salt2;
   };
 
-  base::Optional<pin::KeyAgreementResponse> key;
+  base::Optional<pin::KeyAgreementResponse> pin_key_agreement;
 
   // prf_inputs may contain a default PRFInput without a |credential_id|. If so,
   // it will be the first element and all others will have |credential_id|s.
@@ -115,18 +115,22 @@ struct COMPONENT_EXPORT(DEVICE_FIDO) CtapGetAssertionRequest {
 
   std::vector<PublicKeyCredentialDescriptor> allow_list;
   base::Optional<std::vector<uint8_t>> pin_auth;
-  base::Optional<uint8_t> pin_protocol;
+  base::Optional<PINUVAuthProtocol> pin_protocol;
   base::Optional<std::vector<CableDiscoveryData>> cable_extension;
   base::Optional<std::string> app_id;
   base::Optional<std::array<uint8_t, crypto::kSHA256Length>>
       alternative_application_parameter;
   base::Optional<HMACSecret> hmac_secret;
   bool large_blob_key = false;
+  bool large_blob_read = false;
+  base::Optional<std::vector<uint8_t>> large_blob_write;
 
-  bool is_incognito_mode = false;
+  // Instructs the request handler only to dispatch this request via U2F.
   bool is_u2f_only = false;
 
-  base::Optional<AndroidClientDataExtensionInput> android_client_data_ext;
+  // Indicates whether the request was created in an off-the-record
+  // BrowserContext (e.g. Incognito or Guest mode in Chrome).
+  bool is_off_the_record_context = false;
 };
 
 struct CtapGetNextAssertionRequest {};

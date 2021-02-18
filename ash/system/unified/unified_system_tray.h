@@ -29,6 +29,7 @@ class CurrentLocaleView;
 class ImeModeView;
 class ManagedDeviceTrayItemView;
 class NotificationCounterView;
+class NotificationIconsController;
 class QuietModeView;
 class PrivacyScreenToastController;
 class TrayItemView;
@@ -36,6 +37,7 @@ class UnifiedSliderBubbleController;
 class UnifiedSystemTrayBubble;
 class UnifiedSystemTrayModel;
 class UnifiedMessageCenterBubble;
+class CameraMicTrayItemView;
 
 // The UnifiedSystemTray is the system menu of Chromium OS, which is a clickable
 // rounded rectangle typically located on the bottom right corner of the screen,
@@ -203,9 +205,15 @@ class ASH_EXPORT UnifiedSystemTray : public TrayBackgroundView,
   const std::unique_ptr<PrivacyScreenToastController>
       privacy_screen_toast_controller_;
 
+  // Manages showing notification icons in the tray.
+  const std::unique_ptr<NotificationIconsController>
+      notification_icons_controller_;
+
   CurrentLocaleView* const current_locale_view_;
   ImeModeView* const ime_mode_view_;
   ManagedDeviceTrayItemView* const managed_device_view_;
+  CameraMicTrayItemView* const camera_view_;
+  CameraMicTrayItemView* const mic_view_;
   NotificationCounterView* const notification_counter_item_;
   QuietModeView* const quiet_mode_view_;
   tray::TimeTrayItemView* const time_view_;

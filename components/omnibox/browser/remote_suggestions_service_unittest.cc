@@ -9,7 +9,7 @@
 
 #include "base/bind.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/test_mock_time_task_runner.h"
 #include "components/omnibox/common/omnibox_features.h"
 #include "components/search_engines/template_url_service.h"
@@ -64,7 +64,6 @@ TEST_F(RemoteSuggestionsServiceTest, EnsureAttachCookies) {
                      base::Unretained(this)));
 
   RunAndWait();
-  EXPECT_TRUE(resource_request.force_ignore_site_for_cookies);
   EXPECT_EQ(net::LOAD_DO_NOT_SAVE_COOKIES, resource_request.load_flags);
   EXPECT_TRUE(resource_request.site_for_cookies.IsEquivalent(
       net::SiteForCookies::FromUrl(resource_request.url)));

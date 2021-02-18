@@ -7,13 +7,18 @@
 
 #include <string>
 
+#include "base/scoped_observer.h"
 #include "chrome/browser/chromeos/login/screens/base_screen.h"
+#include "chrome/browser/chromeos/login/screens/error_screen.h"
+#include "chrome/browser/ui/webui/chromeos/login/network_state_informer.h"
 
 namespace chromeos {
 
 class UserCreationView;
 // Controller for the user creation screen.
-class UserCreationScreen : public BaseScreen {
+class UserCreationScreen
+    : public BaseScreen,
+      public NetworkStateInformer::NetworkStateInformerObserver {
  public:
   enum class Result {
     SIGNIN,
@@ -28,6 +33,7 @@ class UserCreationScreen : public BaseScreen {
 
   using ScreenExitCallback = base::RepeatingCallback<void(Result result)>;
   explicit UserCreationScreen(UserCreationView* view,
+                              ErrorScreen* error_screen,
                               const ScreenExitCallback& exit_callback);
   ~UserCreationScreen() override;
 
@@ -46,6 +52,9 @@ class UserCreationScreen : public BaseScreen {
     return exit_callback_;
   }
 
+  // NetworkStateInformer::NetworkStateInformerObserver implementation:
+  void UpdateState(NetworkError::ErrorReason reason) override;
+
  private:
   // BaseScreen:
   bool MaybeSkip(WizardContext* context) override;
@@ -55,6 +64,17 @@ class UserCreationScreen : public BaseScreen {
   bool HandleAccelerator(ash::LoginAcceleratorAction action) override;
 
   UserCreationView* view_ = nullptr;
+
+  scoped_refptr<NetworkStateInformer> network_state_informer_;
+
+  std::unique_ptr<
+      ScopedObserver<NetworkStateInformer, NetworkStateInformerObserver>>
+      scoped_observer_;
+
+  ErrorScreen* error_screen_ = nullptr;
+
+  // TODO(crbug.com/1154669) Refactor error screen usage
+  bool error_screen_visible_ = false;
 
   ScreenExitCallback exit_callback_;
 };

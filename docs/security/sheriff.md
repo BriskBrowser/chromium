@@ -86,6 +86,12 @@ various important responsibilities:
   * When triaging an email to be handled off of the list, make sure to bcc: the
     list that it arrived on, so that other people including future marshals can
     see that it has been handled.
+  * Some of these emails are requests for inclusion of third party code.
+    By the time you hand over to the next Marshal, please
+    ensure these are either completed or have been acknowledged by some other
+    owner. If not, you may need to do them yourself. Please see
+    [How to do Chrome Third-Party Security Reviews](https://goto.google.com/how-to-do-chrome-third-party-security-reviews)
+    for hints.
 * Change bugs status to **Fixed** for those that the developer forgets to close.
   Make sure to read bug comments where developer might point out that it needs
   more CLs, et c. Wait 24 hours before closing ClusterFuzz bugs, to give
@@ -186,24 +192,25 @@ assigning it to someone else.
 A few components have their own triage processes or points of contact who can
 help.
 
-* V8 ClusterFuzz bugs can be assigned to the [V8 ClusterFuzz
+* **V8 ClusterFuzz bugs** can be assigned to the [V8 ClusterFuzz
   Sheriff](https://rotation.googleplex.com/status?id=5714662985302016) for
   triage. Note that V8 CHECK failure crashes can have security implications, so
   don't triage it yourself and instead assign it to V8 ClusterFuzz Sheriff. They
   can make an informed decision on whether it is a security vulnerability or not
   and whether it is safe to strip the security tags (**Type=Bug-Security**,
   **Restrict-View-SecurityTeam**).
-* V8 non-ClusterFuzz bugs shouldn't be assigned to the V8 ClusterFuzz sheriff.
+* **V8 non-ClusterFuzz bugs** shouldn't be assigned to the V8 ClusterFuzz sheriff.
   Instead, Googlers should refer to [the V8 security bug triage instructions](http://go/v8-security-issue-triage-how-to)
   for lists of component owners.
-* Skia bugs can be assigned to hcm@chromium.org. Be careful while triaging
+* **Skia bugs** can be assigned to hcm@chromium.org. Be careful while triaging
   these! The place where we're crashing isn't necessarily the place where the
   bug was introduced, so blame may be misleading. Skia fuzzing bugs can be
   assigned to kjlubick@chromium.org, as Skia is heavily fuzzed on OSS-Fuzz and
   some issues reported in Chromium are already known or even fixed upstream.
-* URL spoofing issues, especially related to RTL or IDNs? See
+* **URL spoofing issues**, especially related to RTL or IDNs? See
   [go/url-spoofs](http://go/url-spoofs) for a guide to triaging these.
-
+* **SQLite bugs** can be assigned to huangdarwin@. CC drhsqlite@ for upstream
+  issues.
 
 Tips for reproducing bugs:
 
@@ -283,6 +290,8 @@ was filed using the Security template):
   comments contain PII**, add **Restrict-View-SecurityEmbargo**.
 * **Security_Severity** - your responsibility as Sheriff.
 * **Security_Impact** - your responsibility as Sheriff.
+* **reward_to** - if the bug was filed internally on behalf of somebody
+  external. This is also very important; please check.
 
 You can expect Sheriffbot to fill in lots of other labels; for example,
 the `M-` label to indicate the target milestone. It's best to allow

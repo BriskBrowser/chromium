@@ -14,6 +14,11 @@
 #include "base/sequence_checker.h"
 #include "base/sequenced_task_runner.h"
 #include "base/synchronization/lock.h"
+#include "build/chromeos_buildflags.h"
+
+namespace data_decoder {
+class DataDecoder;
+}  // namespace data_decoder
 
 namespace gfx {
 class Size;
@@ -49,14 +54,18 @@ class ImageDecoder {
       return task_runner_.get();
     }
 
+    data_decoder::DataDecoder* data_decoder() { return data_decoder_; }
+
    protected:
     // Creates an ImageRequest that runs on the thread which created it.
     ImageRequest();
-
     // Explicitly pass in |task_runner| if the current thread is part of a
     // thread pool.
     explicit ImageRequest(
         const scoped_refptr<base::SequencedTaskRunner>& task_runner);
+    // Explicitly pass in |data_decoder| if there's a specific decoder that
+    // should be used; otherwise, an isolated decoder will created and used.
+    explicit ImageRequest(data_decoder::DataDecoder* data_decoder);
     virtual ~ImageRequest();
 
    private:
@@ -64,14 +73,17 @@ class ImageDecoder {
     // the image has been decoded.
     const scoped_refptr<base::SequencedTaskRunner> task_runner_;
 
+    // If null, will use a new decoder via DecodeImageIsolated() instead.
+    data_decoder::DataDecoder* const data_decoder_ = nullptr;
+
     SEQUENCE_CHECKER(sequence_checker_);
   };
 
   enum ImageCodec {
     DEFAULT_CODEC = 0,  // Uses WebKit image decoding (via WebImage).
-#if defined(OS_CHROMEOS)
-    ROBUST_PNG_CODEC,   // Restrict decoding to robust PNG codec.
-#endif                  // defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    ROBUST_PNG_CODEC,  // Restrict decoding to robust PNG codec.
+#endif                 // BUILDFLAG(IS_CHROMEOS_ASH)
   };
 
   static ImageDecoder* GetInstance();

@@ -13,7 +13,8 @@
 #include "base/command_line.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
-#include "base/test/bind_test_util.h"
+#include "base/strings/utf_string_conversions.h"
+#include "base/test/bind.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -28,7 +29,6 @@
 #include "chrome/browser/ui/ash/login_screen_client.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/settings/cros_settings_names.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
 #include "components/policy/proto/chrome_device_policy.pb.h"
@@ -40,6 +40,7 @@
 #include "ui/base/ime/chromeos/input_method_manager.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/chromeos/devicetype_utils.h"
 
 namespace em = enterprise_management;
 
@@ -104,16 +105,16 @@ IN_PROC_BROWSER_TEST_F(LoginScreenGuestButtonPolicyTest, NoUsers) {
   EXPECT_TRUE(ash::LoginScreenTestApi::IsGuestButtonShown());
 
   // When there are no users - should be the same as OOBE.
-  test::ExecuteOobeJS("chrome.send('showGuestInOobe', [false]);");
+  test::ExecuteOobeJS("chrome.send('setIsFirstSigninStep', [false]);");
   EXPECT_FALSE(ash::LoginScreenTestApi::IsGuestButtonShown());
 
-  test::ExecuteOobeJS("chrome.send('showGuestInOobe', [true]);");
+  test::ExecuteOobeJS("chrome.send('setIsFirstSigninStep', [true]);");
   EXPECT_TRUE(ash::LoginScreenTestApi::IsGuestButtonShown());
 
   SetGuestModePolicy(false);
   EXPECT_FALSE(ash::LoginScreenTestApi::IsGuestButtonShown());
 
-  test::ExecuteOobeJS("chrome.send('showGuestInOobe', [true]);");
+  test::ExecuteOobeJS("chrome.send('setIsFirstSigninStep', [true]);");
   // Should not affect.
   EXPECT_FALSE(ash::LoginScreenTestApi::IsGuestButtonShown());
 
@@ -131,13 +132,13 @@ IN_PROC_BROWSER_TEST_F(LoginScreenGuestButtonPolicyTest, HasUsers) {
   EXPECT_FALSE(ash::LoginScreenTestApi::IsGuestButtonShown());
 
   // Should not affect.
-  test::ExecuteOobeJS("chrome.send('showGuestInOobe', [true]);");
+  test::ExecuteOobeJS("chrome.send('setIsFirstSigninStep', [true]);");
   EXPECT_FALSE(ash::LoginScreenTestApi::IsGuestButtonShown());
 
   ash::LoginScreen::Get()->GetModel()->SetUserList({});
   EXPECT_TRUE(ash::LoginScreenTestApi::IsGuestButtonShown());
 
-  test::ExecuteOobeJS("chrome.send('showGuestInOobe', [false]);");
+  test::ExecuteOobeJS("chrome.send('setIsFirstSigninStep', [false]);");
   EXPECT_FALSE(ash::LoginScreenTestApi::IsGuestButtonShown());
 }
 
@@ -230,17 +231,21 @@ IN_PROC_BROWSER_TEST_F(LoginScreenButtonsLocalePolicy, UnifiedTrayLabelsText) {
     // Actual text on UnifiedManagedDeviceView text.
     actual_text = unified_tray_test_api->GetBubbleViewText(
         ash::VIEW_ID_TRAY_ENTERPRISE_LABEL);
+    // Text on EnterpriseManagedView tooltip in current locale.
+    base::string16 expected_text = l10n_util::GetStringFUTF16(
+        IDS_ASH_SHORT_MANAGED_BY, base::UTF8ToUTF16(kDomain));
+    EXPECT_EQ(expected_text, actual_text);
+
   } else {
     // Actual text on EnterpriseManagedView tooltip.
     actual_text = unified_tray_test_api->GetBubbleViewTooltip(
         ash::VIEW_ID_TRAY_ENTERPRISE);
+    // Text on EnterpriseManagedView tooltip in current locale.
+    base::string16 expected_text = l10n_util::GetStringFUTF16(
+        IDS_ASH_ENTERPRISE_DEVICE_MANAGED_BY, ui::GetChromeOSDeviceName(),
+        base::UTF8ToUTF16(kDomain));
+    EXPECT_EQ(expected_text, actual_text);
   }
-
-  // Text on EnterpriseManagedView tooltip in current locale.
-  base::string16 expected_text = l10n_util::GetStringFUTF16(
-      IDS_ASH_ENTERPRISE_DEVICE_MANAGED_BY, base::UTF8ToUTF16(kDomain));
-
-  EXPECT_EQ(expected_text, actual_text);
 }
 
 }  // namespace chromeos

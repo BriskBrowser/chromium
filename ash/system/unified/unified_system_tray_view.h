@@ -18,6 +18,7 @@ namespace ash {
 class FeaturePodButton;
 class FeaturePodsContainerView;
 class TopShortcutsView;
+class UnifiedMediaControlsContainer;
 class NotificationHiddenView;
 class PageIndicatorView;
 class UnifiedManagedDeviceView;
@@ -64,15 +65,6 @@ class ASH_EXPORT UnifiedSystemTrayView : public views::View,
                                          public views::FocusTraversable,
                                          public views::FocusChangeListener {
  public:
-  // Get the background color of unified system tray.
-  static SkColor GetBackgroundColor();
-
-  // Get focus ring color for system tray elements.
-  static SkColor GetFocusRingColor();
-
-  // Create background of UnifiedSystemTray with rounded corners.
-  static std::unique_ptr<views::Background> CreateBackground();
-
   UnifiedSystemTrayView(UnifiedSystemTrayController* controller,
                         bool initially_expanded);
   ~UnifiedSystemTrayView() override;
@@ -85,6 +77,9 @@ class ASH_EXPORT UnifiedSystemTrayView : public views::View,
 
   // Add slider view.
   void AddSliderView(views::View* slider_view);
+
+  // Add media controls view to |media_controls_container_|;
+  void AddMediaControlsView(views::View* media_controls);
 
   // Hide the main view and show the given |detailed_view|.
   void SetDetailedView(views::View* detailed_view);
@@ -132,6 +127,9 @@ class ASH_EXPORT UnifiedSystemTrayView : public views::View,
   // Settings).
   bool IsDetailedViewShown() const;
 
+  // Show media controls view.
+  void ShowMediaControls();
+
   // views::View:
   gfx::Size CalculatePreferredSize() const override;
   void OnGestureEvent(ui::GestureEvent* event) override;
@@ -164,6 +162,9 @@ class ASH_EXPORT UnifiedSystemTrayView : public views::View,
   PageIndicatorView* page_indicator_view_for_test() {
     return page_indicator_view_;
   }
+  UnifiedMediaControlsContainer* media_controls_container_for_testing() {
+    return media_controls_container_;
+  }
 
  private:
   class SystemTrayContainer;
@@ -189,6 +190,9 @@ class ASH_EXPORT UnifiedSystemTrayView : public views::View,
   UnifiedSystemInfoView* const system_info_view_;
   SystemTrayContainer* const system_tray_container_;
   views::View* const detailed_view_container_;
+
+  // Null if media::kGlobalMediaControlsForChromeOS is disabled.
+  UnifiedMediaControlsContainer* media_controls_container_ = nullptr;
 
   // Null if kManagedDeviceUIRedesign is disabled.
   UnifiedManagedDeviceView* managed_device_view_ = nullptr;

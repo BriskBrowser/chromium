@@ -12,20 +12,18 @@
 #include "chrome/browser/ui/views/frame/windows_10_caption_button.h"
 #include "chrome/browser/ui/views/tab_icon_view.h"
 #include "chrome/browser/ui/views/tab_icon_view_model.h"
-#include "ui/views/controls/button/button.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/window/non_client_view.h"
 
 class BrowserView;
 
 class GlassBrowserFrameView : public BrowserNonClientFrameView,
-                              public views::ButtonListener,
                               public TabIconViewModel {
  public:
+  METADATA_HEADER(GlassBrowserFrameView);
   // Alpha to use for features in the titlebar (the window title and caption
   // buttons) when the window is inactive. They are opaque when active.
   static constexpr SkAlpha kInactiveTitlebarFeatureAlpha = 0x66;
-
-  static constexpr char kClassName[] = "GlassBrowserFrameView";
 
   static SkColor GetReadableFeatureColor(SkColor background_color);
 
@@ -59,9 +57,6 @@ class GlassBrowserFrameView : public BrowserNonClientFrameView,
   void ResetWindowControls() override;
   void SizeConstraintsChanged() override {}
 
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
-
   // TabIconViewModel:
   bool ShouldTabIconViewAnimate() const override;
   gfx::ImageSkia GetFaviconForTabIconView() override;
@@ -79,7 +74,6 @@ class GlassBrowserFrameView : public BrowserNonClientFrameView,
 
  protected:
   // views::View:
-  const char* GetClassName() const override;
   void OnPaint(gfx::Canvas* canvas) override;
   void Layout() override;
 

@@ -9,15 +9,17 @@ import static org.junit.Assert.assertEquals;
 import static org.chromium.chrome.browser.browserservices.TestTrustedWebActivityService.COMMAND_SET_RESPONSE;
 import static org.chromium.chrome.browser.browserservices.TestTrustedWebActivityService.SET_RESPONSE_BUNDLE;
 import static org.chromium.chrome.browser.browserservices.TestTrustedWebActivityService.SET_RESPONSE_NAME;
-import static org.chromium.chrome.browser.browserservices.digitalgoods.DigitalGoodsConverter.RESPONSE_ACKNOWLEDGE;
-import static org.chromium.chrome.browser.browserservices.digitalgoods.DigitalGoodsConverter.RESPONSE_GET_DETAILS;
-import static org.chromium.chrome.browser.browserservices.digitalgoods.DigitalGoodsConverter.createAcknowledgeResponseBundle;
-import static org.chromium.chrome.browser.browserservices.digitalgoods.DigitalGoodsConverter.createGetDetailsResponseBundle;
-import static org.chromium.chrome.browser.browserservices.digitalgoods.DigitalGoodsConverter.createItemDetailsBundle;
+import static org.chromium.chrome.browser.browserservices.digitalgoods.AcknowledgeConverter.RESPONSE_ACKNOWLEDGE;
 
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.support.test.InstrumentationRegistry;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.browser.trusted.TrustedWebActivityCallback;
+import androidx.test.filters.MediumTest;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -28,6 +30,8 @@ import org.junit.runner.RunWith;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.DisableIf;
 import org.chromium.chrome.browser.ChromeApplication;
 import org.chromium.chrome.browser.browserservices.TrustedWebActivityClient;
 import org.chromium.chrome.browser.customtabs.CustomTabActivityTestRule;
@@ -37,18 +41,14 @@ import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.payments.PaymentRequestTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.components.embedder_support.util.Origin;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.net.test.ServerCertificate;
 import org.chromium.payments.mojom.DigitalGoods.GetDetailsResponse;
 import org.chromium.payments.mojom.ItemDetails;
+import org.chromium.ui.test.util.UiDisableIf;
+import org.chromium.url.GURL;
 
 import java.util.concurrent.TimeoutException;
-
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-import androidx.browser.trusted.TrustedWebActivityCallback;
-import androidx.test.filters.MediumTest;
 
 /**
  * Tests for the Digital Goods flow.
@@ -91,13 +91,14 @@ public class DigitalGoodsTest {
 
     /**
      * Test that calling methods in JavaScript in the page gets correctly plumbed through to
-     * DigitalGoodsFactory.
+     * DigitalGoodsFactoryImpl.
      */
     @Test
     @MediumTest
+    @DisableIf.Device(type = {UiDisableIf.TABLET})
     public void javaImplConnected() throws TimeoutException {
         FakeDigitalGoods fake = new FakeDigitalGoods();
-        DigitalGoodsFactory.setDigitalGoodsForTesting(fake);
+        DigitalGoodsFactoryImpl.setDigitalGoodsForTesting(fake);
 
         fake.addItem("id1", "Item 1", "desc", "GBP", "10");
 
@@ -118,9 +119,10 @@ public class DigitalGoodsTest {
     public void twaServiceConnected() throws TimeoutException {
         DigitalGoodsImpl impl = createFixedDigitalGoods();
 
-        setTwaServiceResponse(RESPONSE_GET_DETAILS, createGetDetailsResponseBundle(0,
-                createItemDetailsBundle("id1", "Item 1", "Desc 1", "GBP", "10")
-        ));
+        setTwaServiceResponse(GetDetailsConverter.RESPONSE_COMMAND,
+                GetDetailsConverter.createResponseBundle(0,
+                        GetDetailsConverter.createItemDetailsBundle(
+                                "id1", "Item 1", "Desc 1", "GBP", "10")));
 
         CallbackHelper helper = new CallbackHelper();
         impl.getDetails(new String[] { "id1" }, new GetDetailsResponse() {
@@ -143,14 +145,19 @@ public class DigitalGoodsTest {
      */
     @Test
     @MediumTest
-    public void jsToTwaConnected() throws TimeoutException {
-        DigitalGoodsFactory.setDigitalGoodsForTesting(createFixedDigitalGoods());
+    @DisableIf.Build(sdk_is_greater_than = Build.VERSION_CODES.LOLLIPOP_MR1,
+            sdk_is_less_than = Build.VERSION_CODES.N)
+    @DisableIf.Device(type = {UiDisableIf.TABLET})
+    public void
+    jsToTwaConnected() throws TimeoutException {
+        DigitalGoodsFactoryImpl.setDigitalGoodsForTesting(createFixedDigitalGoods());
 
         // Note: The response code much be 0 for success otherwise it doesn't propagate through to
         // JS.
-        setTwaServiceResponse(RESPONSE_GET_DETAILS, createGetDetailsResponseBundle(0,
-                createItemDetailsBundle("id1", "Item 1", "Desc 1", "GBP", "10")
-        ));
+        setTwaServiceResponse(GetDetailsConverter.RESPONSE_COMMAND,
+                GetDetailsConverter.createResponseBundle(0,
+                        GetDetailsConverter.createItemDetailsBundle(
+                                "id1", "Item 1", "Desc 1", "GBP", "10")));
 
         exec("populateDigitalGoodsService()");
         waitForNonNull("digitalGoodsService");
@@ -166,9 +173,9 @@ public class DigitalGoodsTest {
     @Test
     @MediumTest
     public void acknowledge() throws TimeoutException {
-        DigitalGoodsFactory.setDigitalGoodsForTesting(createFixedDigitalGoods());
+        DigitalGoodsFactoryImpl.setDigitalGoodsForTesting(createFixedDigitalGoods());
 
-        setTwaServiceResponse(RESPONSE_ACKNOWLEDGE, createAcknowledgeResponseBundle(0));
+        setTwaServiceResponse(RESPONSE_ACKNOWLEDGE, AcknowledgeConverter.createResponseBundle(0));
 
         exec("populateDigitalGoodsService()");
         waitForNonNull("digitalGoodsService");
@@ -182,9 +189,9 @@ public class DigitalGoodsTest {
     @Test
     @MediumTest
     public void acknowledge_failsOnNonZeroResponse() throws TimeoutException {
-        DigitalGoodsFactory.setDigitalGoodsForTesting(createFixedDigitalGoods());
+        DigitalGoodsFactoryImpl.setDigitalGoodsForTesting(createFixedDigitalGoods());
 
-        setTwaServiceResponse(RESPONSE_ACKNOWLEDGE, createAcknowledgeResponseBundle(1));
+        setTwaServiceResponse(RESPONSE_ACKNOWLEDGE, AcknowledgeConverter.createResponseBundle(1));
 
         exec("populateDigitalGoodsService()");
         waitForNonNull("digitalGoodsService");
@@ -200,7 +207,7 @@ public class DigitalGoodsTest {
 
         // To work around this, we create our own DigitalGoodsImpl with a custom Delegate that
         // provides the URL we want to see.
-        DigitalGoodsImpl.Delegate delegate = () -> TWA_SERVICE_SCOPE;
+        DigitalGoodsImpl.Delegate delegate = () -> new GURL(TWA_SERVICE_SCOPE);
         DigitalGoodsAdapter adapter = new DigitalGoodsAdapter(mClient);
         return new DigitalGoodsImpl(adapter, delegate);
     }

@@ -23,6 +23,11 @@ TOOLS_SRC_ROOT = os.environ.get(
 
 _SAMPLE_TOOL_SUFFIX = 'readelf'
 
+ANDROID_ARM_NDK_TOOL_PREFIX = os.path.join(TOOLS_SRC_ROOT, 'third_party',
+                                           'android_ndk', 'toolchains', 'llvm',
+                                           'prebuilt', 'linux-x86_64', 'bin',
+                                           'arm-linux-androideabi-')
+
 
 class _PathFinder(object):
   def __init__(self, name, value):
@@ -78,30 +83,31 @@ class OutputDirectoryFinder(_PathFinder):
 
   def Verify(self):
     if not self._value or not os.path.isdir(self._value):
-      raise Exception('Bad --%s. Path not found: %s' %
-                      (self._name, self._value))
+      raise Exception(
+          'Invalid --output-directory. Path not found: {}\n'
+          'Use --no-output-directory to disable features that rely on it.'.
+          format(self._value))
 
 
 class ToolPrefixFinder(_PathFinder):
-  def __init__(self, value=None, output_directory_finder=None,
-               linker_name=None):
+  def __init__(self, value=None, output_directory=None, linker_name=None):
     super(ToolPrefixFinder, self).__init__(
         name='tool-prefix', value=value)
-    self._output_directory_finder = output_directory_finder
+    self._output_directory = output_directory
     self._linker_name = linker_name;
 
   def IsLld(self):
     return self._linker_name.startswith('lld') if self._linker_name else True
 
   def Detect(self):
-    output_directory = self._output_directory_finder.Tentative()
+    output_directory = self._output_directory
     if output_directory:
       ret = None
       if self.IsLld():
         ret = os.path.join(TOOLS_SRC_ROOT, 'third_party', 'llvm-build',
                            'Release+Asserts', 'bin', 'llvm-')
       else:
-        # Auto-detect from build_vars.txt
+        # Auto-detect from build_vars.json
         build_vars = _LoadBuildVars(output_directory)
         tool_prefix = build_vars.get('android_tool_prefix')
         if tool_prefix:
@@ -110,7 +116,7 @@ class ToolPrefixFinder(_PathFinder):
           if tool_prefix.endswith(os.path.sep):
             ret += os.path.sep
       if ret:
-        # Check for output directories that have a stale build_vars.txt.
+        # Check for output directories that have a stale build_vars.json
         if os.path.isfile(ret + _SAMPLE_TOOL_SUFFIX):
           return ret
         else:
@@ -190,6 +196,16 @@ def GetCppFiltPath(tool_prefix):
   return tool_prefix + 'c++filt'
 
 
+def GetStripPath(tool_prefix):
+  # Chromium's toolchain uses //buildtools/third_party/eu-strip, but first
+  # look for the test-only "fakestrip" for the sake of tests.
+  fake_strip = tool_prefix + 'fakestrip'
+  if os.path.exists(fake_strip):
+    return fake_strip
+  return FromToolsSrcRootRelative(
+      os.path.join('buildtools', 'third_party', 'eu-strip', 'bin', 'eu-strip'))
+
+
 def GetNmPath(tool_prefix):
   return tool_prefix + 'nm'
 
@@ -199,6 +215,12 @@ def GetApkAnalyzerPath():
       os.path.join('third_party', 'android_sdk', 'public', 'cmdline-tools',
                    'latest', 'bin', 'apkanalyzer'))
   return os.environ.get('APK_ANALYZER', default_path)
+
+
+def GetAapt2Path():
+  default_path = FromToolsSrcRootRelative(
+      os.path.join('third_party', 'android_build_tools', 'aapt2', 'aapt2'))
+  return os.environ.get('AAPT2', default_path)
 
 
 def GetJavaHome():

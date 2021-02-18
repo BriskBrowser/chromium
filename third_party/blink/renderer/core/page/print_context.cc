@@ -25,7 +25,9 @@
 #include "third_party/blink/public/web/web_print_page_description.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
+#include "third_party/blink/renderer/core/frame/page_scale_constraints_set.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
+#include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
 
@@ -36,9 +38,7 @@ namespace {
 LayoutBoxModelObject* EnclosingBoxModelObject(LayoutObject* object) {
   while (object && !object->IsBoxModelObject())
     object = object->Parent();
-  if (!object)
-    return nullptr;
-  return ToLayoutBoxModelObject(object);
+  return To<LayoutBoxModelObject>(object);
 }
 
 bool IsCoordinateInPage(int top, int left, const IntRect& page) {
@@ -131,13 +131,12 @@ void PrintContext::ComputePageRectsWithPageSizeInternal(
                                 : inline_direction_start - page_logical_width;
 
     auto* scrollable_area = GetFrame()->View()->LayoutViewport();
-    IntSize frame_scroll = scrollable_area->ScrollOffsetInt();
-    page_logical_left -= frame_scroll.Width();
-    page_logical_top -= frame_scroll.Height();
     IntRect page_rect(page_logical_left, page_logical_top, page_logical_width,
                       page_logical_height);
     if (!is_horizontal)
       page_rect = page_rect.TransposedRect();
+    IntSize frame_scroll = scrollable_area->ScrollOffsetInt();
+    page_rect.Move(-frame_scroll.Width(), -frame_scroll.Height());
     page_rects_.push_back(page_rect);
   }
 }
@@ -165,8 +164,14 @@ void PrintContext::BeginPrintMode(float width, float height) {
 void PrintContext::EndPrintMode() {
   DCHECK(is_printing_);
   is_printing_ = false;
-  if (IsFrameValid())
+  if (IsFrameValid()) {
     frame_->EndPrinting();
+
+    // Printing changes the viewport and content size which may result in
+    // changing the page scale factor. Call SetNeedsReset() so that we reset
+    // back to the initial page scale factor when we exit printing mode.
+    frame_->GetPage()->GetPageScaleConstraintsSet().SetNeedsReset(true);
+  }
   linked_destinations_.clear();
   linked_destinations_valid_ = false;
 }
@@ -246,15 +251,14 @@ void PrintContext::OutputLinkedDestinations(GraphicsContext& context,
 // static
 String PrintContext::PageProperty(LocalFrame* frame,
                                   const char* property_name,
-                                  int page_number) {
+                                  uint32_t page_number) {
   Document* document = frame->GetDocument();
   ScopedPrintContext print_context(frame);
   // Any non-zero size is OK here. We don't care about actual layout. We just
   // want to collect @page rules and figure out what declarations apply on a
   // given page (that may or may not exist).
   print_context->BeginPrintMode(800, 1000);
-  scoped_refptr<const ComputedStyle> style =
-      document->StyleForPage(page_number);
+  const ComputedStyle* style = document->StyleForPage(page_number);
 
   // Implement formatters for properties we care about.
   if (!strcmp(property_name, "margin-left")) {
@@ -275,12 +279,12 @@ String PrintContext::PageProperty(LocalFrame* frame,
   return String("pageProperty() unimplemented for: ") + property_name;
 }
 
-bool PrintContext::IsPageBoxVisible(LocalFrame* frame, int page_number) {
+bool PrintContext::IsPageBoxVisible(LocalFrame* frame, uint32_t page_number) {
   return frame->GetDocument()->IsPageBoxVisible(page_number);
 }
 
 String PrintContext::PageSizeAndMarginsInPixels(LocalFrame* frame,
-                                                int page_number,
+                                                uint32_t page_number,
                                                 int width,
                                                 int height,
                                                 int margin_top,

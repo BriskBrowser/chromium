@@ -7,6 +7,8 @@
 #import "components/signin/public/identity_manager/identity_manager.h"
 #import "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #import "ios/chrome/browser/main/browser.h"
+#import "ios/chrome/browser/signin/authentication_service.h"
+#import "ios/chrome/browser/signin/authentication_service_factory.h"
 #import "ios/chrome/browser/signin/identity_manager_factory.h"
 #import "ios/chrome/browser/ui/alert_coordinator/alert_coordinator.h"
 #import "ios/chrome/browser/ui/authentication/authentication_ui_util.h"
@@ -191,6 +193,9 @@ using signin_metrics::PromoAction;
                               identity:(ChromeIdentity*)identity {
   DCHECK(!self.alertCoordinator);
   DCHECK(!self.userSigninCoordinator);
+  // |identity| is set, only and only if the sign-in is successful.
+  DCHECK(((signinResult == SigninCoordinatorResultSuccess) && identity) ||
+         ((signinResult != SigninCoordinatorResultSuccess) && !identity));
   self.identityInteractionManager = nil;
   [self runCompletionCallbackWithSigninResult:signinResult
                                      identity:identity

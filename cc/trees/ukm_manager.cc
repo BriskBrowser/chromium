@@ -114,9 +114,10 @@ void UkmManager::RecordThroughputUKM(
         CASE_FOR_MAIN_THREAD_TRACKER(RAF);
         CASE_FOR_MAIN_THREAD_TRACKER(ScrollbarScroll);
         CASE_FOR_MAIN_THREAD_TRACKER(TouchScroll);
-        CASE_FOR_MAIN_THREAD_TRACKER(Universal);
         CASE_FOR_MAIN_THREAD_TRACKER(Video);
         CASE_FOR_MAIN_THREAD_TRACKER(WheelScroll);
+        CASE_FOR_MAIN_THREAD_TRACKER(CanvasAnimation);
+        CASE_FOR_MAIN_THREAD_TRACKER(JSAnimation);
 #undef CASE_FOR_MAIN_THREAD_TRACKER
         default:
           NOTREACHED();
@@ -138,7 +139,6 @@ void UkmManager::RecordThroughputUKM(
         CASE_FOR_COMPOSITOR_THREAD_TRACKER(RAF);
         CASE_FOR_COMPOSITOR_THREAD_TRACKER(ScrollbarScroll);
         CASE_FOR_COMPOSITOR_THREAD_TRACKER(TouchScroll);
-        CASE_FOR_COMPOSITOR_THREAD_TRACKER(Universal);
         CASE_FOR_COMPOSITOR_THREAD_TRACKER(Video);
         CASE_FOR_COMPOSITOR_THREAD_TRACKER(WheelScroll);
 #undef CASE_FOR_COMPOSITOR_THREAD_TRACKER
@@ -149,29 +149,7 @@ void UkmManager::RecordThroughputUKM(
       break;
     }
 
-    case FrameSequenceMetrics::ThreadType::kSlower: {
-      switch (tracker_type) {
-#define CASE_FOR_SLOWER_THREAD_TRACKER(name)    \
-  case FrameSequenceTrackerType::k##name:       \
-    builder.SetSlowerThread_##name(throughput); \
-    break;
-        CASE_FOR_SLOWER_THREAD_TRACKER(CompositorAnimation);
-        CASE_FOR_SLOWER_THREAD_TRACKER(MainThreadAnimation);
-        CASE_FOR_SLOWER_THREAD_TRACKER(PinchZoom);
-        CASE_FOR_SLOWER_THREAD_TRACKER(RAF);
-        CASE_FOR_SLOWER_THREAD_TRACKER(ScrollbarScroll);
-        CASE_FOR_SLOWER_THREAD_TRACKER(TouchScroll);
-        CASE_FOR_SLOWER_THREAD_TRACKER(Universal);
-        CASE_FOR_SLOWER_THREAD_TRACKER(Video);
-        CASE_FOR_SLOWER_THREAD_TRACKER(WheelScroll);
-#undef CASE_FOR_SLOWER_THREAD_TRACKER
-        default:
-          NOTREACHED();
-          break;
-      }
-      break;
-    }
-    default:
+    case FrameSequenceMetrics::ThreadType::kUnknown:
       NOTREACHED();
       break;
   }
@@ -199,7 +177,10 @@ void UkmManager::RecordCompositorLatencyUKM(
     CompositorFrameReporter::FrameReportType report_type,
     const std::vector<CompositorFrameReporter::StageData>& stage_history,
     const CompositorFrameReporter::ActiveTrackers& active_trackers,
-    const viz::FrameTimingDetails& viz_breakdown) const {
+    const CompositorFrameReporter::ProcessedBlinkBreakdown&
+        processed_blink_breakdown,
+    const CompositorFrameReporter::ProcessedVizBreakdown&
+        processed_viz_breakdown) const {
   using StageType = CompositorFrameReporter::StageType;
 
   ukm::builders::Graphics_Smoothness_Latency builder(source_id_);
@@ -208,7 +189,7 @@ void UkmManager::RecordCompositorLatencyUKM(
     builder.SetMissedFrame(true);
   }
 
-  // Record each stage
+  // Record each stage.
   for (const CompositorFrameReporter::StageData& stage : stage_history) {
     switch (stage.stage_type) {
 #define CASE_FOR_STAGE(name)                                                 \
@@ -221,59 +202,73 @@ void UkmManager::RecordCompositorLatencyUKM(
       CASE_FOR_STAGE(EndCommitToActivation);
       CASE_FOR_STAGE(Activation);
       CASE_FOR_STAGE(EndActivateToSubmitCompositorFrame);
+      CASE_FOR_STAGE(SubmitCompositorFrameToPresentationCompositorFrame);
       CASE_FOR_STAGE(TotalLatency);
 #undef CASE_FOR_STAGE
-      // Break out kSubmitCompositorFrameToPresentationCompositorFrame to report
-      // the viz breakdown.
-      case StageType::kSubmitCompositorFrameToPresentationCompositorFrame:
-        builder.SetSubmitCompositorFrameToPresentationCompositorFrame(
-            (stage.end_time - stage.start_time).InMicroseconds());
-        if (viz_breakdown.received_compositor_frame_timestamp.is_null())
-          break;
-        builder
-            .SetSubmitCompositorFrameToPresentationCompositorFrame_SubmitToReceiveCompositorFrame(
-                (viz_breakdown.received_compositor_frame_timestamp -
-                 stage.start_time)
-                    .InMicroseconds());
-        if (viz_breakdown.draw_start_timestamp.is_null())
-          break;
-        builder
-            .SetSubmitCompositorFrameToPresentationCompositorFrame_ReceivedCompositorFrameToStartDraw(
-                (viz_breakdown.draw_start_timestamp -
-                 viz_breakdown.received_compositor_frame_timestamp)
-                    .InMicroseconds());
-        if (viz_breakdown.swap_timings.is_null())
-          break;
-        builder
-            .SetSubmitCompositorFrameToPresentationCompositorFrame_StartDrawToSwapStart(
-                (viz_breakdown.swap_timings.swap_start -
-                 viz_breakdown.draw_start_timestamp)
-                    .InMicroseconds());
-        builder
-            .SetSubmitCompositorFrameToPresentationCompositorFrame_SwapStartToSwapEnd(
-                (viz_breakdown.swap_timings.swap_end -
-                 viz_breakdown.swap_timings.swap_start)
-                    .InMicroseconds());
-        builder
-            .SetSubmitCompositorFrameToPresentationCompositorFrame_SwapEndToPresentationCompositorFrame(
-                (viz_breakdown.presentation_feedback.timestamp -
-                 viz_breakdown.swap_timings.swap_end)
-                    .InMicroseconds());
-        break;
       default:
         NOTREACHED();
         break;
     }
   }
 
-  // Record the active trackers
+  // Record Blink breakdowns.
+  for (auto it = processed_blink_breakdown.CreateIterator(); it.IsValid();
+       it.Advance()) {
+    switch (it.GetBreakdown()) {
+#define CASE_FOR_BLINK_BREAKDOWN(name)                   \
+  case CompositorFrameReporter::BlinkBreakdown::k##name: \
+    builder.SetSendBeginMainFrameToCommit_##name(        \
+        it.GetLatency().InMicroseconds());               \
+    break;
+      CASE_FOR_BLINK_BREAKDOWN(HandleInputEvents);
+      CASE_FOR_BLINK_BREAKDOWN(Animate);
+      CASE_FOR_BLINK_BREAKDOWN(StyleUpdate);
+      CASE_FOR_BLINK_BREAKDOWN(LayoutUpdate);
+      CASE_FOR_BLINK_BREAKDOWN(Prepaint);
+      CASE_FOR_BLINK_BREAKDOWN(CompositingInputs);
+      CASE_FOR_BLINK_BREAKDOWN(CompositingAssignments);
+      CASE_FOR_BLINK_BREAKDOWN(Paint);
+      CASE_FOR_BLINK_BREAKDOWN(CompositeCommit);
+      CASE_FOR_BLINK_BREAKDOWN(UpdateLayers);
+      CASE_FOR_BLINK_BREAKDOWN(BeginMainSentToStarted);
+#undef CASE_FOR_BLINK_BREAKDOWN
+      default:
+        NOTREACHED();
+        break;
+    }
+  }
+
+  // Record Viz breakdowns.
+  for (auto it = processed_viz_breakdown.CreateIterator(false); it.IsValid();
+       it.Advance()) {
+    switch (it.GetBreakdown()) {
+#define CASE_FOR_VIZ_BREAKDOWN(name)                                      \
+  case CompositorFrameReporter::VizBreakdown::k##name:                    \
+    builder.SetSubmitCompositorFrameToPresentationCompositorFrame_##name( \
+        it.GetDuration().InMicroseconds());                               \
+    break;
+      CASE_FOR_VIZ_BREAKDOWN(SubmitToReceiveCompositorFrame);
+      CASE_FOR_VIZ_BREAKDOWN(ReceivedCompositorFrameToStartDraw);
+      CASE_FOR_VIZ_BREAKDOWN(StartDrawToSwapStart);
+      CASE_FOR_VIZ_BREAKDOWN(SwapStartToSwapEnd);
+      CASE_FOR_VIZ_BREAKDOWN(SwapEndToPresentationCompositorFrame);
+      CASE_FOR_VIZ_BREAKDOWN(SwapStartToBufferAvailable);
+      CASE_FOR_VIZ_BREAKDOWN(BufferAvailableToBufferReady);
+      CASE_FOR_VIZ_BREAKDOWN(BufferReadyToLatch);
+      CASE_FOR_VIZ_BREAKDOWN(LatchToSwapEnd);
+#undef CASE_FOR_VIZ_BREAKDOWN
+      default:
+        NOTREACHED();
+        break;
+    }
+  }
+
+  // Record the active trackers.
   for (size_t type = 0; type < active_trackers.size(); ++type) {
     if (!active_trackers.test(type))
       continue;
     const auto frame_sequence_tracker_type =
         static_cast<FrameSequenceTrackerType>(type);
-    if (frame_sequence_tracker_type == FrameSequenceTrackerType::kUniversal)
-      continue;
     switch (frame_sequence_tracker_type) {
 #define CASE_FOR_TRACKER(name)            \
   case FrameSequenceTrackerType::k##name: \
@@ -287,6 +282,8 @@ void UkmManager::RecordCompositorLatencyUKM(
       CASE_FOR_TRACKER(TouchScroll);
       CASE_FOR_TRACKER(Video);
       CASE_FOR_TRACKER(WheelScroll);
+      CASE_FOR_TRACKER(CanvasAnimation);
+      CASE_FOR_TRACKER(JSAnimation);
 #undef CASE_FOR_TRACKER
       default:
         NOTREACHED();
@@ -298,55 +295,174 @@ void UkmManager::RecordCompositorLatencyUKM(
 }
 
 void UkmManager::RecordEventLatencyUKM(
-    const std::vector<EventMetrics>& events_metrics,
+    const EventMetrics::List& events_metrics,
     const std::vector<CompositorFrameReporter::StageData>& stage_history,
-    const viz::FrameTimingDetails& viz_breakdown) const {
+    const CompositorFrameReporter::ProcessedBlinkBreakdown&
+        processed_blink_breakdown,
+    const CompositorFrameReporter::ProcessedVizBreakdown&
+        processed_viz_breakdown) const {
   using StageType = CompositorFrameReporter::StageType;
 
-  for (const EventMetrics& event_metrics : events_metrics) {
+  for (const auto& event_metrics : events_metrics) {
     ukm::builders::Graphics_Smoothness_EventLatency builder(source_id_);
 
-    builder.SetEventType(static_cast<int64_t>(event_metrics.type()));
+    builder.SetEventType(static_cast<int64_t>(event_metrics->type()));
 
-    if (event_metrics.scroll_type()) {
+    base::TimeTicks generated_timestamp =
+        event_metrics->GetDispatchStageTimestamp(
+            EventMetrics::DispatchStage::kGenerated);
+
+    if (event_metrics->scroll_type()) {
       builder.SetScrollInputType(
-          static_cast<int64_t>(*event_metrics.scroll_type()));
+          static_cast<int64_t>(*event_metrics->scroll_type()));
 
-      if (!viz_breakdown.swap_timings.is_null()) {
+      if (!processed_viz_breakdown.swap_start().is_null()) {
         builder.SetTotalLatencyToSwapBegin(
-            (viz_breakdown.swap_timings.swap_start - event_metrics.time_stamp())
+            (processed_viz_breakdown.swap_start() - generated_timestamp)
                 .InMicroseconds());
       }
     }
 
-    // It is possible for an event to arrive in the compositor in the middle of
-    // a frame (e.g. the browser received the event *after* renderer received a
-    // begin-impl, and the event reached the compositor before that frame
+    // Record event dispatch metrics.
+    EventMetrics::DispatchStage dispatch_stage =
+        EventMetrics::DispatchStage::kGenerated;
+    base::TimeTicks dispatch_timestamp = generated_timestamp;
+    while (dispatch_stage != EventMetrics::DispatchStage::kMaxValue) {
+      DCHECK(!dispatch_timestamp.is_null());
+      int dispatch_index = static_cast<int>(dispatch_stage);
+
+      // Find the end dispatch stage.
+      auto end_stage =
+          static_cast<EventMetrics::DispatchStage>(dispatch_index + 1);
+      base::TimeTicks end_timestamp =
+          event_metrics->GetDispatchStageTimestamp(end_stage);
+      while (end_timestamp.is_null() &&
+             end_stage != EventMetrics::DispatchStage::kMaxValue) {
+        end_stage = static_cast<EventMetrics::DispatchStage>(
+            static_cast<int>(end_stage) + 1);
+        end_timestamp = event_metrics->GetDispatchStageTimestamp(end_stage);
+      }
+      if (end_timestamp.is_null())
+        break;
+
+      const int64_t dispatch_latency =
+          (end_timestamp - dispatch_timestamp).InMicroseconds();
+      switch (dispatch_stage) {
+        case EventMetrics::DispatchStage::kGenerated:
+          DCHECK_EQ(end_stage,
+                    EventMetrics::DispatchStage::kArrivedInRendererCompositor);
+          builder.SetGenerationToRendererCompositor(dispatch_latency);
+          break;
+        case EventMetrics::DispatchStage::kArrivedInRendererCompositor:
+          switch (end_stage) {
+            case EventMetrics::DispatchStage::kRendererCompositorStarted:
+              builder.SetRendererCompositorQueueingDelay(dispatch_latency);
+              break;
+            case EventMetrics::DispatchStage::kRendererMainStarted:
+              builder.SetRendererCompositorToMain(dispatch_latency);
+              break;
+            default:
+              NOTREACHED();
+              break;
+          }
+          break;
+        case EventMetrics::DispatchStage::kRendererCompositorStarted:
+          DCHECK_EQ(end_stage,
+                    EventMetrics::DispatchStage::kRendererCompositorFinished);
+          builder.SetRendererCompositorProcessing(dispatch_latency);
+          break;
+        case EventMetrics::DispatchStage::kRendererCompositorFinished:
+          DCHECK_EQ(end_stage,
+                    EventMetrics::DispatchStage::kRendererMainStarted);
+          builder.SetRendererCompositorToMain(dispatch_latency);
+          break;
+        case EventMetrics::DispatchStage::kRendererMainStarted:
+          DCHECK_EQ(end_stage,
+                    EventMetrics::DispatchStage::kRendererMainFinished);
+          builder.SetRendererMainProcessing(dispatch_latency);
+          break;
+        case EventMetrics::DispatchStage::kRendererMainFinished:
+          NOTREACHED();
+          break;
+      }
+
+      dispatch_stage = end_stage;
+      dispatch_timestamp = end_timestamp;
+    }
+
+    // It is possible for an event to be handled on the renderer in the middle
+    // of a frame (e.g. the browser received the event *after* renderer received
+    // a begin-impl, and the event was handled on the renderer before that frame
     // ended). To handle such cases, find the first stage that happens after the
-    // event's arrival in the browser.
+    // event's processing finished on the renderer.
     auto stage_it = std::find_if(
         stage_history.begin(), stage_history.end(),
-        [&event_metrics](const CompositorFrameReporter::StageData& stage) {
-          return stage.start_time > event_metrics.time_stamp();
+        [dispatch_timestamp](const CompositorFrameReporter::StageData& stage) {
+          return stage.start_time > dispatch_timestamp;
         });
     // TODO(crbug.com/1079116): Ideally, at least the start time of
     // SubmitCompositorFrameToPresentationCompositorFrame stage should be
-    // greater than the event time stamp, but apparently, this is not always the
-    // case (see crbug.com/1093698). For now, skip to the next event in such
-    // cases. Hopefully, the work to reduce discrepancies between the new
-    // EventLatency and the old Event.Latency metrics would fix this issue. If
-    // not, we need to reconsider investigating this issue.
+    // greater than the final event dispatch timestamp, but apparently, this is
+    // not always the case (see crbug.com/1093698). For now, skip to the next
+    // event in such cases. Hopefully, the work to reduce discrepancies between
+    // the new EventLatency and the old Event.Latency metrics would fix this
+    // issue. If not, we need to reconsider investigating this issue.
     if (stage_it == stage_history.end())
       continue;
 
-    builder.SetBrowserToRendererCompositor(
-        (stage_it->start_time - event_metrics.time_stamp()).InMicroseconds());
+    switch (dispatch_stage) {
+      case EventMetrics::DispatchStage::kRendererCompositorFinished:
+        switch (stage_it->stage_type) {
+#define CASE_FOR_STAGE(stage_name, metrics_suffix)                     \
+  case StageType::k##stage_name:                                       \
+    builder.SetRendererCompositorFinishedTo##metrics_suffix(           \
+        (stage_it->start_time - dispatch_timestamp).InMicroseconds()); \
+    break;
+          CASE_FOR_STAGE(BeginImplFrameToSendBeginMainFrame, BeginImplFrame);
+          CASE_FOR_STAGE(SendBeginMainFrameToCommit, SendBeginMainFrame);
+          CASE_FOR_STAGE(Commit, Commit);
+          CASE_FOR_STAGE(EndCommitToActivation, EndCommit);
+          CASE_FOR_STAGE(Activation, Activation);
+          CASE_FOR_STAGE(EndActivateToSubmitCompositorFrame, EndActivate);
+          CASE_FOR_STAGE(SubmitCompositorFrameToPresentationCompositorFrame,
+                         SubmitCompositorFrame);
+#undef CASE_FOR_STAGE
+          default:
+            NOTREACHED();
+            break;
+        }
+        break;
+      case EventMetrics::DispatchStage::kRendererMainFinished:
+        switch (stage_it->stage_type) {
+#define CASE_FOR_STAGE(stage_name, metrics_suffix)                     \
+  case StageType::k##stage_name:                                       \
+    builder.SetRendererMainFinishedTo##metrics_suffix(                 \
+        (stage_it->start_time - dispatch_timestamp).InMicroseconds()); \
+    break;
+          CASE_FOR_STAGE(BeginImplFrameToSendBeginMainFrame, BeginImplFrame);
+          CASE_FOR_STAGE(SendBeginMainFrameToCommit, SendBeginMainFrame);
+          CASE_FOR_STAGE(Commit, Commit);
+          CASE_FOR_STAGE(EndCommitToActivation, EndCommit);
+          CASE_FOR_STAGE(Activation, Activation);
+          CASE_FOR_STAGE(EndActivateToSubmitCompositorFrame, EndActivate);
+          CASE_FOR_STAGE(SubmitCompositorFrameToPresentationCompositorFrame,
+                         SubmitCompositorFrame);
+#undef CASE_FOR_STAGE
+          default:
+            NOTREACHED();
+            break;
+        }
+        break;
+      default:
+        NOTREACHED();
+        break;
+    }
 
     for (; stage_it != stage_history.end(); ++stage_it) {
       // Total latency is calculated since the event timestamp.
       const base::TimeTicks start_time =
           stage_it->stage_type == StageType::kTotalLatency
-              ? event_metrics.time_stamp()
+              ? generated_timestamp
               : stage_it->start_time;
 
       switch (stage_it->stage_type) {
@@ -363,6 +479,58 @@ void UkmManager::RecordEventLatencyUKM(
         CASE_FOR_STAGE(SubmitCompositorFrameToPresentationCompositorFrame);
         CASE_FOR_STAGE(TotalLatency);
 #undef CASE_FOR_STAGE
+        default:
+          NOTREACHED();
+          break;
+      }
+    }
+
+    // Record Blink breakdowns.
+    for (auto it = processed_blink_breakdown.CreateIterator(); it.IsValid();
+         it.Advance()) {
+      switch (it.GetBreakdown()) {
+#define CASE_FOR_BLINK_BREAKDOWN(name)                   \
+  case CompositorFrameReporter::BlinkBreakdown::k##name: \
+    builder.SetSendBeginMainFrameToCommit_##name(        \
+        it.GetLatency().InMicroseconds());               \
+    break;
+        CASE_FOR_BLINK_BREAKDOWN(HandleInputEvents);
+        CASE_FOR_BLINK_BREAKDOWN(Animate);
+        CASE_FOR_BLINK_BREAKDOWN(StyleUpdate);
+        CASE_FOR_BLINK_BREAKDOWN(LayoutUpdate);
+        CASE_FOR_BLINK_BREAKDOWN(Prepaint);
+        CASE_FOR_BLINK_BREAKDOWN(CompositingInputs);
+        CASE_FOR_BLINK_BREAKDOWN(CompositingAssignments);
+        CASE_FOR_BLINK_BREAKDOWN(Paint);
+        CASE_FOR_BLINK_BREAKDOWN(CompositeCommit);
+        CASE_FOR_BLINK_BREAKDOWN(UpdateLayers);
+        CASE_FOR_BLINK_BREAKDOWN(BeginMainSentToStarted);
+#undef CASE_FOR_BLINK_BREAKDOWN
+        default:
+          NOTREACHED();
+          break;
+      }
+    }
+
+    // Record Viz breakdowns.
+    for (auto it = processed_viz_breakdown.CreateIterator(false); it.IsValid();
+         it.Advance()) {
+      switch (it.GetBreakdown()) {
+#define CASE_FOR_VIZ_BREAKDOWN(name)                                      \
+  case CompositorFrameReporter::VizBreakdown::k##name:                    \
+    builder.SetSubmitCompositorFrameToPresentationCompositorFrame_##name( \
+        it.GetDuration().InMicroseconds());                               \
+    break;
+        CASE_FOR_VIZ_BREAKDOWN(SubmitToReceiveCompositorFrame);
+        CASE_FOR_VIZ_BREAKDOWN(ReceivedCompositorFrameToStartDraw);
+        CASE_FOR_VIZ_BREAKDOWN(StartDrawToSwapStart);
+        CASE_FOR_VIZ_BREAKDOWN(SwapStartToSwapEnd);
+        CASE_FOR_VIZ_BREAKDOWN(SwapEndToPresentationCompositorFrame);
+        CASE_FOR_VIZ_BREAKDOWN(SwapStartToBufferAvailable);
+        CASE_FOR_VIZ_BREAKDOWN(BufferAvailableToBufferReady);
+        CASE_FOR_VIZ_BREAKDOWN(BufferReadyToLatch);
+        CASE_FOR_VIZ_BREAKDOWN(LatchToSwapEnd);
+#undef CASE_FOR_VIZ_BREAKDOWN
         default:
           NOTREACHED();
           break;

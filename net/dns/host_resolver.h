@@ -19,12 +19,12 @@
 #include "net/base/completion_once_callback.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/request_priority.h"
-#include "net/dns/dns_config.h"
-#include "net/dns/dns_config_overrides.h"
 #include "net/dns/host_cache.h"
 #include "net/dns/host_resolver_source.h"
+#include "net/dns/public/dns_config_overrides.h"
 #include "net/dns/public/dns_query_type.h"
 #include "net/dns/public/resolve_error_info.h"
+#include "net/dns/public/secure_dns_mode.h"
 
 namespace base {
 class Value;
@@ -98,10 +98,22 @@ class NET_EXPORT HostResolver {
     virtual const base::Optional<std::vector<HostPortPair>>&
     GetHostnameResults() const = 0;
 
-    // INTEGRITY results for an initial experiment related to HTTPSSVC. Each
-    // boolean value indicates the intactness of an INTEGRITY record.
+    // Any DNS record aliases, such as CNAME aliases, found as a result of an
+    // address query. The alias chain order is preserved in reverse, from
+    // canonical name (i.e. address record name) through to query name. Should
+    // only be called after Start() signals completion, either by invoking the
+    // callback or by returning a result other than `ERR_IO_PENDING`. Returns a
+    // list of aliases that has been sanitized and canonicalized (as URL
+    // hostnames), and thus may differ from the results stored directly in the
+    // AddressList.
+    virtual const base::Optional<std::vector<std::string>>& GetDnsAliasResults()
+        const = 0;
+
+    // Result of an experimental query. Meaning depends on the specific query
+    // type, but each boolean value generally refers to a valid or invalid
+    // record of the experimental type.
     NET_EXPORT virtual const base::Optional<std::vector<bool>>&
-    GetIntegrityResultsForTesting() const;
+    GetExperimentalResultsForTesting() const;
 
     // Error info for the request.
     //
@@ -245,8 +257,7 @@ class NET_EXPORT HostResolver {
     bool is_speculative = false;
 
     // Set to override the resolver's default secure dns mode for this request.
-    base::Optional<DnsConfig::SecureDnsMode> secure_dns_mode_override =
-        base::nullopt;
+    base::Optional<SecureDnsMode> secure_dns_mode_override = base::nullopt;
   };
 
   // Handler for an ongoing MDNS listening operation. Created by
@@ -323,9 +334,8 @@ class NET_EXPORT HostResolver {
   // Used primarily to clear the cache and for getting debug information.
   virtual HostCache* GetHostCache();
 
-  // Returns the current DNS configuration |this| is using, as a Value, or
-  // nullptr if it's configured to always use the system host resolver.
-  virtual std::unique_ptr<base::Value> GetDnsConfigAsValue() const;
+  // Returns the current DNS configuration |this| is using, as a Value.
+  virtual base::Value GetDnsConfigAsValue() const;
 
   // Set the associated URLRequestContext, generally expected to be called by
   // URLRequestContextBuilder on passing ownership of |this| to a context. May

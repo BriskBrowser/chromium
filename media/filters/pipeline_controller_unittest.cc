@@ -7,7 +7,7 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/notreached.h"
@@ -152,8 +152,8 @@ class PipelineControllerTest : public ::testing::Test, public Pipeline::Client {
   void OnVideoOpacityChange(bool opaque) override {}
   void OnVideoFrameRateChange(base::Optional<int>) override {}
   void OnVideoAverageKeyframeDistanceUpdate() override {}
-  void OnAudioDecoderChange(const PipelineDecoderInfo& info) override {}
-  void OnVideoDecoderChange(const PipelineDecoderInfo& info) override {}
+  void OnAudioDecoderChange(const AudioDecoderInfo& info) override {}
+  void OnVideoDecoderChange(const VideoDecoderInfo& info) override {}
 
   base::test::SingleThreadTaskEnvironment task_environment_;
 

@@ -24,8 +24,6 @@ using autofill::FieldRendererId;
 using autofill::FormData;
 using autofill::FormFieldData;
 using autofill::FormStructure;
-using autofill::PasswordForm;
-using autofill::ValueElementPair;
 
 namespace password_manager {
 
@@ -190,8 +188,6 @@ void PasswordSaveManagerImpl::SetVotesAndRecordMetricsForPendingCredentials(
               form_fetcher_->GetAllRelevantMatches(),
               parsed_submitted_form.username_value,
               parsed_submitted_form.password_value);
-      UMA_HISTOGRAM_BOOLEAN("PasswordManager.UsernameCorrectionFound",
-                            username_correction_found);
       if (username_correction_found) {
         metrics_recorder_->RecordDetailedUserAction(
             password_manager::PasswordFormMetricsRecorder::DetailedUserAction::
@@ -256,15 +252,15 @@ void PasswordSaveManagerImpl::Update(
   SavePendingToStore(observed_form, parsed_submitted_form);
 }
 
-void PasswordSaveManagerImpl::PermanentlyBlacklist(
+void PasswordSaveManagerImpl::Blocklist(
     const PasswordStore::FormDigest& form_digest) {
   DCHECK(!client_->IsIncognito());
-  form_saver_->PermanentlyBlacklist(form_digest);
+  form_saver_->Blocklist(form_digest);
 }
 
-void PasswordSaveManagerImpl::Unblacklist(
+void PasswordSaveManagerImpl::Unblocklist(
     const PasswordStore::FormDigest& form_digest) {
-  form_saver_->Unblacklist(form_digest);
+  form_saver_->Unblocklist(form_digest);
 }
 
 void PasswordSaveManagerImpl::PresaveGeneratedPassword(
@@ -447,7 +443,7 @@ PasswordForm PasswordSaveManagerImpl::BuildPendingCredentials(
   return pending_credentials;
 }
 
-std::pair<const autofill::PasswordForm*, PendingCredentialsState>
+std::pair<const PasswordForm*, PendingCredentialsState>
 PasswordSaveManagerImpl::FindSimilarSavedFormAndComputeState(
     const PasswordForm& parsed_submitted_form) const {
   const PasswordForm* similar_saved_form =
@@ -497,6 +493,11 @@ base::string16 PasswordSaveManagerImpl::GetOldPassword(
 void PasswordSaveManagerImpl::UploadVotesAndMetrics(
     const FormData* observed_form,
     const PasswordForm& parsed_submitted_form) {
+  metrics_util::LogPasswordAcceptedSaveUpdateSubmissionIndicatorEvent(
+      parsed_submitted_form.submission_event);
+  metrics_recorder_->SetSubmissionIndicatorEvent(
+      parsed_submitted_form.submission_event);
+
   if (IsNewLogin()) {
     metrics_util::LogNewlySavedPasswordIsGenerated(
         pending_credentials_.type == PasswordForm::Type::kGenerated,
@@ -550,9 +551,9 @@ FormSaver* PasswordSaveManagerImpl::GetFormSaverForGeneration() {
   return form_saver_.get();
 }
 
-std::vector<const autofill::PasswordForm*>
+std::vector<const PasswordForm*>
 PasswordSaveManagerImpl::GetRelevantMatchesForGeneration(
-    const std::vector<const autofill::PasswordForm*>& matches) {
+    const std::vector<const PasswordForm*>& matches) {
   return matches;
 }
 

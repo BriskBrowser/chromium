@@ -4,14 +4,6 @@
 
 cr.define('settings', function() {
   /**
-   * Enumeration for device state about remaining space.
-   * These values must be kept in sync with
-   * StorageManagerHandler::StorageSpaceState in C++ code.
-   * @enum {number}
-   */
-  const StorageSpaceState = {NORMAL: 0, LOW: 1, CRITICALLY_LOW: 2};
-
-  /**
    * @typedef {{
    *   availableSize: string,
    *   usedSize: string,
@@ -74,6 +66,9 @@ cr.define('settings', function() {
      */
     updateTimerId_: -1,
 
+    /** @private {?settings.DevicePageBrowserProxy} */
+    browserProxy_: null,
+
     /** @override */
     attached() {
       this.addWebUIListener(
@@ -105,6 +100,7 @@ cr.define('settings', function() {
       this.addFocusConfig_(r.ACCOUNTS, '#otherUsersSize');
       this.addFocusConfig_(
           r.EXTERNAL_STORAGE_PREFERENCES, '#externalStoragePreferences');
+      this.browserProxy_ = settings.DevicePageBrowserProxyImpl.getInstance();
     },
 
     /**
@@ -117,7 +113,7 @@ cr.define('settings', function() {
       settings.RouteOriginBehaviorImpl.currentRouteChanged.call(
           this, newRoute, oldRoute);
 
-      if (settings.Router.getInstance().getCurrentRoute() !=
+      if (settings.Router.getInstance().getCurrentRoute() !==
           settings.routes.STORAGE) {
         return;
       }
@@ -128,7 +124,7 @@ cr.define('settings', function() {
     onPageShown_() {
       // Updating storage information can be expensive (e.g. computing directory
       // sizes recursively), so we delay this operation until the page is shown.
-      chrome.send('updateStorageInfo');
+      this.browserProxy_.updateStorageInfo();
       // We update the storage usage periodically when the overlay is visible.
       this.startPeriodicUpdate_();
     },
@@ -138,7 +134,7 @@ cr.define('settings', function() {
      * @private
      */
     onMyFilesTap_() {
-      chrome.send('openMyFiles');
+      this.browserProxy_.openMyFiles();
     },
 
     /**
@@ -272,14 +268,14 @@ cr.define('settings', function() {
      */
     startPeriodicUpdate_() {
       // We update the storage usage every 5 seconds.
-      if (this.updateTimerId_ == -1) {
+      if (this.updateTimerId_ === -1) {
         this.updateTimerId_ = window.setInterval(() => {
-          if (settings.Router.getInstance().getCurrentRoute() !=
+          if (settings.Router.getInstance().getCurrentRoute() !==
               settings.routes.STORAGE) {
             this.stopPeriodicUpdate_();
             return;
           }
-          chrome.send('updateStorageInfo');
+          this.browserProxy_.updateStorageInfo();
         }, 5000);
       }
     },
@@ -289,7 +285,7 @@ cr.define('settings', function() {
      * @private
      */
     stopPeriodicUpdate_() {
-      if (this.updateTimerId_ != -1) {
+      if (this.updateTimerId_ !== -1) {
         window.clearInterval(this.updateTimerId_);
         this.updateTimerId_ = -1;
       }
@@ -302,7 +298,7 @@ cr.define('settings', function() {
      * @private
      */
     isSpaceLow_(spaceState) {
-      return spaceState == settings.StorageSpaceState.LOW;
+      return spaceState === settings.StorageSpaceState.LOW;
     },
 
     /**
@@ -312,7 +308,7 @@ cr.define('settings', function() {
      * @private
      */
     isSpaceCriticallyLow_(spaceState) {
-      return spaceState == settings.StorageSpaceState.CRITICALLY_LOW;
+      return spaceState === settings.StorageSpaceState.CRITICALLY_LOW;
     },
 
     /**
@@ -334,5 +330,5 @@ cr.define('settings', function() {
   });
 
   // #cr_define_end
-  return {StorageSpaceState, StorageSizeStat};
+  return {StorageSizeStat};
 });

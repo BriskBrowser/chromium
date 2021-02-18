@@ -26,20 +26,73 @@
 namespace autofill {
 
 namespace structured_address {
-AddressComponent::AddressComponent(ServerFieldType storage_type)
-    : AddressComponent(storage_type, nullptr, {}) {}
 
-AddressComponent::AddressComponent(ServerFieldType storage_type,
-                                   AddressComponent* parent)
-    : AddressComponent(storage_type, parent, {}) {}
+bool IsLessSignificantVerificationStatus(VerificationStatus left,
+                                         VerificationStatus right) {
+  // Both the KUserVerified and kObserved are larger then kServerParsed although
+  // the underlying integer suggests differently.
+  if (left == VerificationStatus::kServerParsed &&
+      (right == VerificationStatus::kObserved ||
+       right == VerificationStatus::kUserVerified)) {
+    return true;
+  }
+
+  if (right == VerificationStatus::kServerParsed &&
+      (left == VerificationStatus::kObserved ||
+       left == VerificationStatus::kUserVerified)) {
+    return false;
+  }
+
+  // In all other cases, it is sufficient to compare the underlying integer
+  // values.
+  return static_cast<std::underlying_type_t<VerificationStatus>>(left) <
+         static_cast<std::underlying_type_t<VerificationStatus>>(right);
+}
+
+VerificationStatus GetMoreSignificantVerificationStatus(
+    VerificationStatus left,
+    VerificationStatus right) {
+  if (IsLessSignificantVerificationStatus(left, right))
+    return right;
+
+  return left;
+}
+
+std::ostream& operator<<(std::ostream& os, VerificationStatus status) {
+  switch (status) {
+    case VerificationStatus::kNoStatus:
+      os << "NoStatus";
+      break;
+    case VerificationStatus::kParsed:
+      os << "Parsed";
+      break;
+    case VerificationStatus::kFormatted:
+      os << "Formatted";
+      break;
+    case VerificationStatus::kObserved:
+      os << "Observed";
+      break;
+    case VerificationStatus::kServerParsed:
+      os << "ServerParsed";
+      break;
+    case VerificationStatus::kUserVerified:
+      os << "UserVerified";
+      break;
+  }
+  return os;
+}
 
 AddressComponent::AddressComponent(ServerFieldType storage_type,
                                    AddressComponent* parent,
-                                   std::vector<AddressComponent*> subcomponents)
+                                   unsigned int merge_mode)
     : value_verification_status_(VerificationStatus::kNoStatus),
       storage_type_(storage_type),
-      subcomponents_(subcomponents),
-      parent_(parent) {}
+      parent_(parent),
+      merge_mode_(merge_mode) {
+  if (parent) {
+    parent->RegisterChildNode(this);
+  }
+}
 
 AddressComponent::~AddressComponent() = default;
 
@@ -48,54 +101,95 @@ ServerFieldType AddressComponent::GetStorageType() const {
 }
 
 std::string AddressComponent::GetStorageTypeName() const {
-  return AutofillType(storage_type_).ToString();
+  return AutofillType::ServerFieldTypeToString(storage_type_);
 }
 
-AddressComponent& AddressComponent::operator=(const AddressComponent& right) {
-  DCHECK(GetStorageType() == right.GetStorageType());
-  if (this == &right)
-    return *this;
+void AddressComponent::CopyFrom(const AddressComponent& other) {
+  DCHECK(GetStorageType() == other.GetStorageType());
+  if (this == &other)
+    return;
 
-  if (right.IsValueAssigned()) {
-    value_ = right.value_;
-    value_verification_status_ = right.value_verification_status_;
-    sorted_normalized_tokens_ = right.sorted_normalized_tokens_;
+  if (other.IsValueAssigned()) {
+    value_ = other.value_;
+    value_verification_status_ = other.value_verification_status_;
+    sorted_normalized_tokens_ = other.sorted_normalized_tokens_;
   } else {
     UnsetValue();
   }
 
-  DCHECK(right.subcomponents_.size() == subcomponents_.size());
+  CHECK(other.subcomponents_.size() == subcomponents_.size());
 
-  for (size_t i = 0; i < right.subcomponents_.size(); i++)
-    *subcomponents_[i] = *right.subcomponents_[i];
+  for (size_t i = 0; i < other.subcomponents_.size(); i++)
+    subcomponents_[i]->CopyFrom(*other.subcomponents_[i]);
 
-  return *this;
+  PostAssignSanitization();
 }
 
-bool AddressComponent::operator==(const AddressComponent& right) const {
-  if (this == &right)
+bool AddressComponent::SameAs(const AddressComponent& other) const {
+  if (this == &other)
     return true;
 
-  if (GetStorageType() != right.GetStorageType())
+  if (GetStorageType() != other.GetStorageType())
     return false;
 
-  if (value_ != right.value_ ||
-      value_verification_status_ != right.value_verification_status_)
+  if (GetValue() != other.GetValue() ||
+      value_verification_status_ != other.value_verification_status_) {
     return false;
+  }
 
-  DCHECK(right.subcomponents_.size() == subcomponents_.size());
-  for (size_t i = 0; i < right.subcomponents_.size(); i++)
-    if (!(*subcomponents_[i] == *right.subcomponents_[i]))
+  DCHECK(other.subcomponents_.size() == subcomponents_.size());
+  for (size_t i = 0; i < other.subcomponents_.size(); i++) {
+    if (!(subcomponents_[i]->SameAs(*other.subcomponents_[i]))) {
       return false;
+    }
+  }
   return true;
-}
-
-bool AddressComponent::operator!=(const AddressComponent& right) const {
-  return !(*this == right);
 }
 
 bool AddressComponent::IsAtomic() const {
   return subcomponents_.empty();
+}
+
+bool AddressComponent::IsValueValid() const {
+  return true;
+}
+
+bool AddressComponent::IsValueForTypeValid(const std::string& field_type_name,
+                                           bool wipe_if_not) {
+  bool validity_status;
+  if (GetIsValueForTypeValidIfPossible(field_type_name, &validity_status,
+                                       wipe_if_not))
+    return validity_status;
+  return false;
+}
+
+bool AddressComponent::IsValueForTypeValid(ServerFieldType field_type,
+                                           bool wipe_if_not) {
+  return IsValueForTypeValid(AutofillType::ServerFieldTypeToString(field_type),
+                             wipe_if_not);
+}
+
+void AddressComponent::RegisterChildNode(AddressComponent* child) {
+  subcomponents_.push_back(child);
+}
+
+bool AddressComponent::GetIsValueForTypeValidIfPossible(
+    const std::string& field_type_name,
+    bool* validity_status,
+    bool wipe_if_not) {
+  if (field_type_name == GetStorageTypeName()) {
+    *validity_status = IsValueValid();
+    if (!(*validity_status) && wipe_if_not)
+      UnsetValue();
+    return true;
+  }
+
+  for (auto* subcomponent : subcomponents_) {
+    if (subcomponent->GetIsValueForTypeValidIfPossible(
+            field_type_name, validity_status, wipe_if_not))
+      return true;
+  }
+  return false;
 }
 
 VerificationStatus AddressComponent::GetVerificationStatus() const {
@@ -116,13 +210,12 @@ void AddressComponent::SetValue(base::string16 value,
                                 VerificationStatus status) {
   value_ = std::move(value);
   value_verification_status_ = status;
-  sorted_normalized_tokens_ = TokenizeValue(value_.value());
 }
 
 void AddressComponent::UnsetValue() {
   value_.reset();
   value_verification_status_ = VerificationStatus::kNoStatus;
-  sorted_normalized_tokens_.clear();
+  sorted_normalized_tokens_.reset();
 }
 
 void AddressComponent::GetSupportedTypes(
@@ -134,8 +227,9 @@ void AddressComponent::GetSupportedTypes(
       << storage_type_;
   supported_types->insert(storage_type_);
   GetAdditionalSupportedFieldTypes(supported_types);
-  for (auto* subcomponent : subcomponents_)
+  for (auto* subcomponent : subcomponents_) {
     subcomponent->GetSupportedTypes(supported_types);
+  }
 }
 
 bool AddressComponent::ConvertAndSetValueForAdditionalFieldTypeName(
@@ -182,7 +276,18 @@ bool AddressComponent::SetValueForTypeIfPossible(
     const VerificationStatus& verification_status,
     bool invalidate_child_nodes,
     bool invalidate_parent_nodes) {
-  return SetValueForTypeIfPossible(AutofillType(type).ToString(), value,
+  return SetValueForTypeIfPossible(
+      AutofillType::ServerFieldTypeToString(type), value, verification_status,
+      invalidate_child_nodes, invalidate_parent_nodes);
+}
+
+bool AddressComponent::SetValueForTypeIfPossible(
+    const ServerFieldType& type,
+    const std::string& value,
+    const VerificationStatus& verification_status,
+    bool invalidate_child_nodes,
+    bool invalidate_parent_nodes) {
+  return SetValueForTypeIfPossible(type, base::UTF8ToUTF16(value),
                                    verification_status, invalidate_child_nodes,
                                    invalidate_parent_nodes);
 }
@@ -225,6 +330,17 @@ bool AddressComponent::SetValueForTypeIfPossible(
   return false;
 }
 
+bool AddressComponent::SetValueForTypeIfPossible(
+    const std::string& type_name,
+    const std::string& value,
+    const VerificationStatus& verification_status,
+    bool invalidate_child_nodes,
+    bool invalidate_parent_nodes) {
+  return SetValueForTypeIfPossible(type_name, base::UTF8ToUTF16(value),
+                                   verification_status, invalidate_child_nodes,
+                                   invalidate_parent_nodes);
+}
+
 void AddressComponent::UnsetAddressComponentAndItsSubcomponents() {
   UnsetValue();
   UnsetSubcomponents();
@@ -239,8 +355,8 @@ bool AddressComponent::GetValueAndStatusForTypeIfPossible(
     const ServerFieldType& type,
     base::string16* value,
     VerificationStatus* status) const {
-  return GetValueAndStatusForTypeIfPossible(AutofillType(type).ToString(),
-                                            value, status);
+  return GetValueAndStatusForTypeIfPossible(
+      AutofillType::ServerFieldTypeToString(type), value, status);
 }
 
 bool AddressComponent::GetValueAndStatusForTypeIfPossible(
@@ -274,22 +390,21 @@ bool AddressComponent::GetValueAndStatusForTypeIfPossible(
 
 base::string16 AddressComponent::GetValueForType(
     const ServerFieldType& type) const {
-  return GetValueForType(AutofillType(type).ToString());
+  return GetValueForType(AutofillType::ServerFieldTypeToString(type));
 }
 
 base::string16 AddressComponent::GetValueForType(
     const std::string& type_name) const {
   base::string16 value;
   bool success = GetValueAndStatusForTypeIfPossible(type_name, &value, nullptr);
-  // TODO(crbug.com/1113617): Honorifics are temporally disabled.
-  DCHECK(success ||
-         type_name == AutofillType(NAME_HONORIFIC_PREFIX).ToString());
+  DCHECK(success) << type_name;
   return value;
 }
 
 VerificationStatus AddressComponent::GetVerificationStatusForType(
     const ServerFieldType& type) const {
-  return GetVerificationStatusForType(AutofillType(type).ToString());
+  return GetVerificationStatusForType(
+      AutofillType::ServerFieldTypeToString(type));
 }
 
 VerificationStatus AddressComponent::GetVerificationStatusForType(
@@ -297,9 +412,7 @@ VerificationStatus AddressComponent::GetVerificationStatusForType(
   VerificationStatus status = VerificationStatus::kNoStatus;
   bool success =
       GetValueAndStatusForTypeIfPossible(type_name, nullptr, &status);
-  // TODO(crbug.com/1113617): Honorifics are temporally disabled.
-  DCHECK(success ||
-         type_name == AutofillType(NAME_HONORIFIC_PREFIX).ToString());
+  DCHECK(success) << type_name;
   return status;
 }
 
@@ -349,28 +462,35 @@ bool AddressComponent::ParseValueAndAssignSubcomponentsByRegularExpressions() {
   for (const auto* parse_expression : GetParseRegularExpressionsByRelevance()) {
     if (!parse_expression)
       continue;
-    std::map<std::string, std::string> result_map;
-    if (ParseValueByRegularExpression(base::UTF16ToUTF8(GetValue()),
-                                      parse_expression, &result_map)) {
-      // Parsing was successful and results from the result map can be written
-      // to the structure.
-      for (const auto& result_entry : result_map) {
-        std::string field_type = result_entry.first;
-        base::string16 field_value = base::UTF8ToUTF16(result_entry.second);
-        // Do not reassign the value of this node.
-        if (field_type == GetStorageTypeName())
-          continue;
-        // crbug.com(1113617): Honorifics are temporally disabled.
-        if (field_type == AutofillType(NAME_HONORIFIC_PREFIX).ToString())
-          continue;
-        bool success = SetValueForTypeIfPossible(field_type, field_value,
-                                                 VerificationStatus::kParsed);
-        // Setting the value should always work unless the regular expression is
-        // invalid.
-        DCHECK(success);
-      }
+    if (ParseValueAndAssignSubcomponentsByRegularExpression(GetValue(),
+                                                            parse_expression))
       return true;
+  }
+  return false;
+}
+
+bool AddressComponent::ParseValueAndAssignSubcomponentsByRegularExpression(
+    const base::string16& value,
+    const RE2* parse_expression) {
+  std::map<std::string, std::string> result_map;
+  if (ParseValueByRegularExpression(base::UTF16ToUTF8(value), parse_expression,
+                                    &result_map)) {
+    // Parsing was successful and results from the result map can be written
+    // to the structure.
+    for (const auto& result_entry : result_map) {
+      const std::string& field_type = result_entry.first;
+      base::string16 field_value = base::UTF8ToUTF16(result_entry.second);
+      // Do not reassign the value of this node.
+      if (field_type == GetStorageTypeName()) {
+        continue;
+      }
+      bool success = SetValueForTypeIfPossible(field_type, field_value,
+                                               VerificationStatus::kParsed);
+      // Setting the value should always work unless the regular expression is
+      // invalid.
+      DCHECK(success);
     }
+    return true;
   }
   return false;
 }
@@ -416,7 +536,28 @@ void AddressComponent::ParseValueAndAssignSubcomponentsByFallbackMethod() {
   DCHECK(success);
 }
 
-void AddressComponent::FormatValueFromSubcomponents() {
+bool AddressComponent::WipeInvalidStructure() {
+  if (IsAtomic()) {
+    return false;
+  }
+
+  // Test that each structured token is part of the subcomponent.
+  // This is not perfect, because different components can match with an
+  // overlapping portion of the unstructured string, but it guarantees that all
+  // information in the components is contained in the unstructured
+  // representation.
+  for (const auto* component : Subcomponents()) {
+    if (GetValue().find(component->GetValue()) == base::string16::npos) {
+      // If the value of one component could not have been found, wipe the full
+      // structure.
+      RecursivelyUnsetSubcomponents();
+      return true;
+    }
+  }
+  return false;
+}
+
+base::string16 AddressComponent::GetFormattedValueFromSubcomponents() {
   // Get the most suited format string.
   base::string16 format_string = GetBestFormatString();
 
@@ -427,8 +568,13 @@ void AddressComponent::FormatValueFromSubcomponents() {
   // with an empty value.
 
   base::string16 result = ReplacePlaceholderTypesWithValues(format_string);
-  result = base::CollapseWhitespace(result, /*trim_line_breaks=*/false);
-  SetValue(result, VerificationStatus::kFormatted);
+  return base::CollapseWhitespace(result,
+                                  /*trim_sequences_with_line_breaks=*/false);
+}
+
+void AddressComponent::FormatValueFromSubcomponents() {
+  SetValue(GetFormattedValueFromSubcomponents(),
+           VerificationStatus::kFormatted);
 }
 
 base::string16 AddressComponent::ReplacePlaceholderTypesWithValues(
@@ -437,6 +583,10 @@ base::string16 AddressComponent::ReplacePlaceholderTypesWithValues(
   // Assumptions: Placeholder values are not nested.
   //
   // * Search for a substring of the form "{$[^}]*}".
+  // The substring can contain semicolon-separated tokens. The first token is
+  // always the type name. If present, the second token is a prefix that is only
+  // inserted if the corresponding value is not empty. Accordingly, the third
+  // token is a suffix.
   //
   // * Check if this substring is a supported type of this component.
   //
@@ -450,12 +600,10 @@ base::string16 AddressComponent::ReplacePlaceholderTypesWithValues(
 
   // Create a result vector for the tokens that are joined in the end.
   std::vector<base::StringPiece16> result_pieces;
-  // Reserve space for 10 tokens. This should be sufficient for most cases.
-  result_pieces.reserve(10);
 
-  // Store the inserted values to allow the used StringPieces to stay valid.
+  // Store the token pieces that are joined in the end.
   std::vector<base::string16> inserted_values;
-  inserted_values.reserve(4);
+  inserted_values.reserve(20);
 
   // Use a StringPiece rather than the string since this allows for getting
   // cheap views onto substrings.
@@ -473,7 +621,7 @@ base::string16 AddressComponent::ReplacePlaceholderTypesWithValues(
       started_control_sequence = true;
       // Append the preceding string since it can't be a valid placeholder.
       if (i > 0) {
-        result_pieces.emplace_back(format_piece.substr(
+        inserted_values.emplace_back(format_piece.substr(
             processed_until_index, i - processed_until_index));
       }
       processed_until_index = i;
@@ -483,29 +631,55 @@ base::string16 AddressComponent::ReplacePlaceholderTypesWithValues(
       // The control sequence came to an end.
       started_control_sequence = false;
       size_t placeholder_start = processed_until_index + 2;
-      base::string16 type_name(
+      base::string16 placeholder(
           format_piece.substr(placeholder_start, i - placeholder_start));
+
+      std::vector<base::string16> placeholder_tokens =
+          base::SplitString(placeholder, base::ASCIIToUTF16(";"),
+                            base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL);
+      DCHECK(placeholder_tokens.size() > 0);
+
+      // By convention, the first token is the type of the placeholder.
+      base::string16 type_name = placeholder_tokens.at(0);
+      // If present, the second token is the prefix.
+      base::string16 prefix = placeholder_tokens.size() > 1
+                                  ? placeholder_tokens.at(1)
+                                  : base::string16();
+      // And the third token the suffix.
+      base::string16 suffix = placeholder_tokens.size() > 2
+                                  ? placeholder_tokens.at(2)
+                                  : base::string16();
+
       base::string16 value;
       if (GetValueAndStatusForTypeIfPossible(base::UTF16ToASCII(type_name),
                                              &value, nullptr)) {
         // The type is valid and should be substituted.
-        inserted_values.emplace_back(std::move(value));
-        result_pieces.emplace_back(base::StringPiece16(inserted_values.back()));
+        if (!value.empty()) {
+          // Add the prefix if present.
+          if (!prefix.empty())
+            inserted_values.emplace_back(std::move(prefix));
+
+          // Add the substituted value.
+          inserted_values.emplace_back(std::move(value));
+          // Add the suffix if present.
+          if (!suffix.empty())
+            inserted_values.emplace_back(std::move(suffix));
+        }
       } else {
         // Append the control sequence as it is, because the type is not
         // supported by the component tree.
-        result_pieces.emplace_back(format_piece.substr(
+        inserted_values.emplace_back(format_piece.substr(
             processed_until_index, i - processed_until_index + 1));
       }
       processed_until_index = i + 1;
     }
   }
   // Append the rest of the string.
-  result_pieces.emplace_back(
+  inserted_values.emplace_back(
       format_piece.substr(processed_until_index, base::string16::npos));
 
   // Build the final result.
-  return base::JoinString(result_pieces, base::ASCIIToUTF16(""));
+  return base::JoinString(inserted_values, base::ASCIIToUTF16(""));
 }
 
 bool AddressComponent::CompleteFullTree() {
@@ -531,7 +705,8 @@ void AddressComponent::RecursivelyCompleteTree() {
     return;
 
   // If the value is assigned, parse the subcomponents from the value.
-  if (!GetValue().empty())
+  if (!GetValue().empty() &&
+      MaximumNumberOfAssignedAddressComponentsOnNodeToLeafPaths() == 1)
     ParseValueAndAssignSubcomponents();
 
   // First call completion on all subcomponents.
@@ -602,7 +777,7 @@ void AddressComponent::UnsetParsedAndFormattedValuesInEntireTree() {
 void AddressComponent::MergeVerificationStatuses(
     const AddressComponent& newer_component) {
   if (IsValueAssigned() && (GetValue() == newer_component.GetValue()) &&
-      (GetVerificationStatus() < newer_component.GetVerificationStatus())) {
+      HasNewerValuePrecendenceInMerging(newer_component)) {
     value_verification_status_ = newer_component.GetVerificationStatus();
   }
 
@@ -613,58 +788,259 @@ void AddressComponent::MergeVerificationStatuses(
   }
 }
 
+const std::vector<AddressToken> AddressComponent::GetSortedTokens() const {
+  return TokenizeValue(GetValue());
+}
+
 bool AddressComponent::IsMergeableWithComponent(
     const AddressComponent& newer_component) const {
+  const base::string16 value = ValueForComparison();
+  const base::string16 value_newer = newer_component.ValueForComparison();
+
   // If both components are the same, there is nothing to do.
-  if (*this == newer_component)
+  if (SameAs(newer_component))
     return true;
 
-  SortedTokenComparisonResult token_comparison_result =
-      CompareSortedTokens(GetSortedTokens(), newer_component.GetSortedTokens());
-
-  if (token_comparison_result.status == MATCH)
+  if (merge_mode_ & kUseNewerIfDifferent ||
+      merge_mode_ & kUseBetterOrMostRecentIfDifferent) {
     return true;
-
-  if (base::FeatureList::IsEnabled(
-          features::kAutofillEnableSupportForMergingSubsetNames)) {
-    if (token_comparison_result.status == SINGLE_TOKEN_SUPERSET)
-      return true;
   }
 
+  if ((merge_mode_ & kReplaceEmpty) && (value.empty() || value_newer.empty())) {
+    return true;
+  }
+
+  if (merge_mode_ & kUseBetterOrNewerForSameValue) {
+    if (base::ToUpperASCII(value) == base::ToUpperASCII(value_newer)) {
+      return true;
+    }
+  }
+
+  SortedTokenComparisonResult token_comparison_result =
+      CompareSortedTokens(value, value_newer);
+
+  if ((merge_mode_ & (kRecursivelyMergeTokenEquivalentValues |
+                      kRecursivelyMergeSingleTokenSubset)) &&
+      token_comparison_result.status == MATCH) {
+    return true;
+  }
+
+  if ((merge_mode_ & (kReplaceSubset | kReplaceSuperset)) &&
+      (token_comparison_result.OneIsSubset() ||
+       token_comparison_result.status == MATCH)) {
+    return true;
+  }
+
+  if ((merge_mode_ & kRecursivelyMergeSingleTokenSubset) &&
+      token_comparison_result.IsSingleTokenSuperset()) {
+    // This strategy is only applicable if also the unnormalized values have a
+    // single-token-superset relation.
+    SortedTokenComparisonResult unnormalized_token_comparison_result =
+        CompareSortedTokens(GetValue(), newer_component.GetValue());
+    if (unnormalized_token_comparison_result.IsSingleTokenSuperset()) {
+      return true;
+    }
+  }
+
+  // If the one value is a substring of the other, use the substring of the
+  // corresponding mode is active.
+  if ((merge_mode_ & kUseMostRecentSubstring) &&
+      (value.find(value_newer) != base::string16::npos ||
+       value_newer.find(value) != base::string16::npos)) {
+    return true;
+  }
+
+  if ((merge_mode_ & kPickShorterIfOneContainsTheOther) &&
+      token_comparison_result.ContainEachOther()) {
+    return true;
+  }
+
+  // Checks if all child nodes are mergeable.
+  if (merge_mode_ & kMergeChildrenAndReformatIfNeeded) {
+    bool is_mergeable = true;
+    DCHECK(newer_component.subcomponents_.size() == subcomponents_.size());
+    for (size_t i = 0; i < newer_component.subcomponents_.size(); i++) {
+      if (!subcomponents_[i]->IsMergeableWithComponent(
+              *newer_component.subcomponents_[i])) {
+        is_mergeable = false;
+        break;
+      }
+    }
+    if (is_mergeable)
+      return true;
+  }
   return false;
 }
 
 bool AddressComponent::MergeWithComponent(
-    const AddressComponent& newer_component) {
+    const AddressComponent& newer_component,
+    bool newer_was_more_recently_used) {
   // If both components are the same, there is nothing to do.
-  if (*this == newer_component)
+
+  const base::string16 value = ValueForComparison();
+  const base::string16 value_newer = newer_component.ValueForComparison();
+
+  if (SameAs(newer_component))
     return true;
 
-  SortedTokenComparisonResult token_comparison_result =
-      CompareSortedTokens(GetSortedTokens(), newer_component.GetSortedTokens());
-
-  switch (token_comparison_result.status) {
-    case MATCH:
-      return MergeTokenEquivalentComponent(newer_component);
-
-    case SINGLE_TOKEN_SUPERSET:
-      if (base::FeatureList::IsEnabled(
-              features::kAutofillEnableSupportForMergingSubsetNames)) {
-        return MergeSubsetComponent(newer_component, token_comparison_result);
-      }
-      break;
-
-    default:
-      return false;
+  // Now, it is guaranteed that both values are not identical.
+  // Use the non empty one if the corresponding mode is active.
+  if (merge_mode_ & kReplaceEmpty) {
+    if (value.empty()) {
+      CopyFrom(newer_component);
+      return true;
+    }
+    if (value_newer.empty())
+      return true;
   }
+
+  // If the normalized values are the same, optimize the verification status.
+  if ((merge_mode_ & kUseBetterOrNewerForSameValue) && (value == value_newer)) {
+    if (HasNewerValuePrecendenceInMerging(newer_component)) {
+      CopyFrom(newer_component);
+    }
+    return true;
+  }
+
+  // Compare the tokens of both values.
+  SortedTokenComparisonResult token_comparison_result =
+      CompareSortedTokens(value, value_newer);
+
+  // Use the recursive merge strategy for token equivalent values if the
+  // corresponding mode is active.
+  if ((merge_mode_ & kRecursivelyMergeTokenEquivalentValues) &&
+      (token_comparison_result.status == MATCH)) {
+    return MergeTokenEquivalentComponent(newer_component);
+  }
+
+  // Replace the subset with the superset if the corresponding mode is active.
+  if ((merge_mode_ & kReplaceSubset) && token_comparison_result.OneIsSubset()) {
+    if (token_comparison_result.status == SUBSET)
+      CopyFrom(newer_component);
+    return true;
+  }
+
+  // Replace the superset with the subset if the corresponding mode is active.
+  if ((merge_mode_ & kReplaceSuperset) &&
+      token_comparison_result.OneIsSubset()) {
+    if (token_comparison_result.status == SUPERSET)
+      CopyFrom(newer_component);
+    return true;
+  }
+
+  // If the tokens are already equivalent, use the more recently used one.
+  if ((merge_mode_ & (kReplaceSuperset | kReplaceSubset)) &&
+      token_comparison_result.status == MATCH) {
+    if (newer_was_more_recently_used)
+      CopyFrom(newer_component);
+    return true;
+  }
+
+  // Recursively merge a single-token subset if the corresponding mode is
+  // active.
+  if ((merge_mode_ & kRecursivelyMergeSingleTokenSubset) &&
+      token_comparison_result.IsSingleTokenSuperset()) {
+    // For the merging of subset token, the tokenization must be done without
+    // prior normalization of the values.
+    SortedTokenComparisonResult unnormalized_token_comparison_result =
+        CompareSortedTokens(GetValue(), newer_component.GetValue());
+    // The merging strategy can only be applied when the comparison of the
+    // unnormalized tokens still yields a single token superset.
+    if (unnormalized_token_comparison_result.IsSingleTokenSuperset()) {
+      return MergeSubsetComponent(newer_component,
+                                  unnormalized_token_comparison_result);
+    }
+  }
+
+  // Replace the older value with the newer one if the corresponding mode is
+  // active.
+  if (merge_mode_ & kUseNewerIfDifferent) {
+    CopyFrom(newer_component);
+    return true;
+  }
+
+  // If the one value is a substring of the other, use the substring of the
+  // corresponding mode is active.
+  if ((merge_mode_ & kUseMostRecentSubstring) &&
+      (value.find(value_newer) != base::string16::npos ||
+       value_newer.find(value) != base::string16::npos)) {
+    if (newer_was_more_recently_used)
+      CopyFrom(newer_component);
+    return true;
+  }
+
+  if ((merge_mode_ & kPickShorterIfOneContainsTheOther) &&
+      token_comparison_result.ContainEachOther()) {
+    if (newer_component.GetValue().size() <= GetValue().size())
+      CopyFrom(newer_component);
+    return true;
+  }
+
+  if (merge_mode_ & kUseBetterOrMostRecentIfDifferent) {
+    if (HasNewerValuePrecendenceInMerging(newer_component)) {
+      SetValue(newer_component.GetValue(),
+               newer_component.GetVerificationStatus());
+    }
+    return true;
+  }
+
+  // If the corresponding mode is active, ignore this mode and pair-wise merge
+  // the child tokens. Reformat this nodes from its children after the merge.
+  if (merge_mode_ & kMergeChildrenAndReformatIfNeeded) {
+    DCHECK(newer_component.subcomponents_.size() == subcomponents_.size());
+    for (size_t i = 0; i < newer_component.subcomponents_.size(); i++) {
+      bool success = subcomponents_[i]->MergeWithComponent(
+          *newer_component.subcomponents_[i], newer_was_more_recently_used);
+      if (!success)
+        return false;
+    }
+    // If the two values are already token equivalent, use the value of the
+    // component with the better verification status, or if both are the same,
+    // use the newer one.
+    if (token_comparison_result.TokensMatch()) {
+      if (HasNewerValuePrecendenceInMerging(newer_component)) {
+        SetValue(newer_component.GetValue(),
+                 newer_component.GetVerificationStatus());
+      }
+    } else {
+      // Otherwise do a reformat from the subcomponents.
+      base::string16 formatted_value = GetFormattedValueFromSubcomponents();
+      // If the current value is maintained, keep the more significant
+      // verification status.
+      if (formatted_value == GetValue()) {
+        SetValue(formatted_value,
+                 GetMoreSignificantVerificationStatus(
+                     VerificationStatus::kFormatted, GetVerificationStatus()));
+      } else if (formatted_value == newer_component.GetValue()) {
+        // Otherwise test if the value is the same as the one of
+        // |newer_component|. If yes, maintain the better verification status.
+        SetValue(formatted_value, GetMoreSignificantVerificationStatus(
+                                      VerificationStatus::kFormatted,
+                                      newer_component.GetVerificationStatus()));
+      } else {
+        // In all other cases, set the formatted_value.
+        SetValue(formatted_value, VerificationStatus::kFormatted);
+      }
+    }
+    return true;
+  }
+
   return false;
+}
+
+bool AddressComponent::HasNewerValuePrecendenceInMerging(
+    const AddressComponent& newer_component) const {
+  return !IsLessSignificantVerificationStatus(
+      newer_component.GetVerificationStatus(), GetVerificationStatus());
 }
 
 bool AddressComponent::MergeTokenEquivalentComponent(
     const AddressComponent& newer_component) {
-  if (!AreSortedTokensEqual(GetSortedTokens(),
-                            newer_component.GetSortedTokens()))
+  if (!AreSortedTokensEqual(
+          TokenizeValue(ValueForComparison()),
+          TokenizeValue(newer_component.ValueForComparison()))) {
     return false;
+  }
 
   // Assumption:
   // The values of both components are a permutation of the same tokens.
@@ -683,7 +1059,7 @@ bool AddressComponent::MergeTokenEquivalentComponent(
   // this component or the other depending on which substructure is better in
   // terms of the number of validated tokens.
 
-  if (newer_component.GetVerificationStatus() >= GetVerificationStatus()) {
+  if (HasNewerValuePrecendenceInMerging(newer_component)) {
     SetValue(newer_component.GetValue(),
              newer_component.GetVerificationStatus());
   }
@@ -745,7 +1121,7 @@ bool AddressComponent::MergeTokenEquivalentComponent(
   // subcomponents including their substructure for all unmerged components.
   if (newer_component_verification_score >= this_component_verification_score) {
     for (size_t i : unmerged_indices)
-      *subcomponents_[i] = *other_subcomponents[i];
+      subcomponents_[i]->CopyFrom(*other_subcomponents[i]);
   }
 
   return true;
@@ -780,7 +1156,7 @@ void AddressComponent::ConsumeAdditionalToken(
 bool AddressComponent::MergeSubsetComponent(
     const AddressComponent& subset_component,
     const SortedTokenComparisonResult& token_comparison_result) {
-  DCHECK(token_comparison_result.status == SINGLE_TOKEN_SUPERSET);
+  DCHECK(token_comparison_result.IsSingleTokenSuperset());
   DCHECK(token_comparison_result.additional_tokens.size() == 1);
 
   base::string16 token_to_consume =
@@ -821,7 +1197,7 @@ bool AddressComponent::MergeSubsetComponent(
 
     // Recursive case.
     if (!found_subset_component &&
-        subtoken_comparison_result.status == SINGLE_TOKEN_SUPERSET) {
+        subtoken_comparison_result.IsSingleTokenSuperset()) {
       found_subset_component = true;
       subcomponent->MergeSubsetComponent(*subset_subcomponent,
                                          subtoken_comparison_result);
@@ -847,7 +1223,7 @@ bool AddressComponent::MergeSubsetComponent(
   // subcomponents including their substructure for all unmerged components.
   if (newer_component_verification_score >= this_component_verification_score) {
     for (size_t i : unmerged_indices)
-      *subcomponents_[i] = *subset_subcomponents[i];
+      subcomponents_[i]->CopyFrom(*subset_subcomponents[i]);
 
     if (!found_subset_component)
       this->ConsumeAdditionalToken(token_to_consume);
@@ -864,6 +1240,7 @@ int AddressComponent::GetStructureVerificationScore() const {
     case VerificationStatus::kNoStatus:
     case VerificationStatus::kParsed:
     case VerificationStatus::kFormatted:
+    case VerificationStatus::kServerParsed:
       break;
     case VerificationStatus::kObserved:
       result += 1;
@@ -878,6 +1255,14 @@ int AddressComponent::GetStructureVerificationScore() const {
     result += component->GetStructureVerificationScore();
 
   return result;
+}
+
+base::string16 AddressComponent::NormalizedValue() const {
+  return NormalizeValue(GetValue());
+}
+
+base::string16 AddressComponent::ValueForComparison() const {
+  return NormalizedValue();
 }
 
 }  // namespace structured_address

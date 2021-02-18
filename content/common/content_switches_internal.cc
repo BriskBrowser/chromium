@@ -18,6 +18,7 @@
 #include "build/build_config.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/use_zoom_for_dsf_policy.h"
+#include "third_party/blink/public/mojom/v8_cache_options.mojom.h"
 
 #if defined(OS_ANDROID)
 #include "base/debug/debugger.h"
@@ -39,12 +40,12 @@ namespace {
 
 #if defined(OS_WIN)
 
-base::string16 ToNativeString(base::StringPiece string) {
-  return base::ASCIIToUTF16(string);
+std::wstring ToNativeString(base::StringPiece string) {
+  return base::ASCIIToWide(string);
 }
 
-std::string FromNativeString(base::StringPiece16 string) {
-  return base::UTF16ToASCII(string);
+std::string FromNativeString(base::WStringPiece string) {
+  return base::WideToASCII(string);
 }
 
 #else  // defined(OS_WIN)

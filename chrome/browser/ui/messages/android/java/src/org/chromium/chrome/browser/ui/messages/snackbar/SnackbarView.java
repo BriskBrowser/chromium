@@ -12,6 +12,7 @@ import android.app.Activity;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.SurfaceView;
@@ -205,9 +206,25 @@ public class SnackbarView {
      * the mMessageView content description is read aloud if accessibility is enabled.
      */
     public void announceforAccessibility() {
-        mMessageView.announceForAccessibility(mMessageView.getContentDescription() + ". "
-                + mActionButtonView.getContentDescription() + ". "
-                + mContainerView.getResources().getString(R.string.bottom_bar_screen_position));
+        StringBuilder accessibilityText = new StringBuilder(mMessageView.getContentDescription());
+        if (mActionButtonView.getContentDescription() != null) {
+            accessibilityText.append(". ")
+                    .append(mActionButtonView.getContentDescription())
+                    .append(". ")
+                    .append(mContainerView.getResources().getString(
+                            R.string.bottom_bar_screen_position));
+        }
+
+        mMessageView.announceForAccessibility(accessibilityText);
+    }
+
+    /**
+     * Sends an accessibility event to mContainerView announcing that an action was taken based on
+     * the action button being pressed.  May do nothing if no announcement was specified.
+     */
+    public void announceActionForAccessibility() {
+        if (TextUtils.isEmpty(mSnackbar.getActionAccessibilityAnnouncement())) return;
+        mContainerView.announceForAccessibility(mSnackbar.getActionAccessibilityAnnouncement());
     }
 
     /**

@@ -22,7 +22,6 @@
 #include "components/services/storage/test_api/test_api.h"
 #include "content/public/child/child_thread.h"
 #include "content/public/common/content_switches.h"
-#include "content/public/test/test_service.h"
 #include "content/public/test/test_service.mojom.h"
 #include "content/public/utility/utility_thread.h"
 #include "content/shell/common/power_monitor_test_impl.h"
@@ -35,7 +34,7 @@
 #include "services/test/echo/echo_service.h"
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
-#include "services/service_manager/tests/sandbox_status_service.h"
+#include "content/test/sandbox_status_service.h"
 #endif
 
 namespace content {
@@ -145,38 +144,17 @@ void ShellContentUtilityClient::ExposeInterfacesToBrowser(
       base::ThreadTaskRunnerHandle::Get());
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
   if (register_sandbox_status_helper_) {
-    binders->Add<service_manager::mojom::SandboxStatusService>(
+    binders->Add<content::mojom::SandboxStatusService>(
         base::BindRepeating(
-            &service_manager::SandboxStatusService::MakeSelfOwnedReceiver),
+            &content::SandboxStatusService::MakeSelfOwnedReceiver),
         base::ThreadTaskRunnerHandle::Get());
   }
 #endif
 }
 
-bool ShellContentUtilityClient::HandleServiceRequest(
-    const std::string& service_name,
-    mojo::PendingReceiver<service_manager::mojom::Service> receiver) {
-  std::unique_ptr<service_manager::Service> service;
-  if (service_name == kTestServiceUrl) {
-    service = std::make_unique<TestService>(std::move(receiver));
-  }
-
-  if (service) {
-    service_manager::Service::RunAsyncUntilTermination(
-        std::move(service), base::BindOnce([] {
-          content::UtilityThread::Get()->ReleaseProcess();
-        }));
-    return true;
-  }
-
-  return false;
-}
-
-mojo::ServiceFactory* ShellContentUtilityClient::GetIOThreadServiceFactory() {
-  static base::NoDestructor<mojo::ServiceFactory> factory{
-      RunEchoService,
-  };
-  return factory.get();
+void ShellContentUtilityClient::RegisterIOThreadServices(
+    mojo::ServiceFactory& services) {
+  services.Add(RunEchoService);
 }
 
 void ShellContentUtilityClient::RegisterNetworkBinders(

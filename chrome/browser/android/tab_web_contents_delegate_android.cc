@@ -21,7 +21,6 @@
 #include "chrome/android/chrome_jni_headers/TabWebContentsDelegateAndroidImpl_jni.h"
 #include "chrome/browser/android/hung_renderer_infobar_delegate.h"
 #include "chrome/browser/android/tab_android.h"
-#include "chrome/browser/banners/app_banner_manager_android.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/content_settings/sound_content_setting_observer.h"
@@ -37,13 +36,10 @@
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "chrome/browser/picture_in_picture/picture_in_picture_window_manager.h"
-#include "chrome/browser/prerender/prerender_manager_factory.h"
+#include "chrome/browser/prefetch/no_state_prefetch/no_state_prefetch_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/safe_browsing_navigation_observer.h"
 #include "chrome/browser/ssl/security_state_tab_helper.h"
-#include "chrome/browser/ui/android/device_dialog/bluetooth_chooser_android.h"
-#include "chrome/browser/ui/android/device_dialog/bluetooth_scanning_prompt_android.h"
-#include "chrome/browser/ui/android/infobars/chrome_confirm_infobar.h"
 #include "chrome/browser/ui/android/infobars/framebust_block_infobar.h"
 #include "chrome/browser/ui/android/tab_model/tab_model_list.h"
 #include "chrome/browser/ui/autofill/chrome_autofill_client.h"
@@ -66,8 +62,8 @@
 #include "components/javascript_dialogs/app_modal_dialog_manager.h"
 #include "components/javascript_dialogs/tab_modal_dialog_manager.h"
 #include "components/navigation_interception/intercept_navigation_delegate.h"
+#include "components/no_state_prefetch/browser/no_state_prefetch_manager.h"
 #include "components/paint_preview/buildflags/buildflags.h"
-#include "components/prerender/browser/prerender_manager.h"
 #include "components/security_state/content/content_utils.h"
 #include "content/public/browser/file_select_listener.h"
 #include "content/public/browser/navigation_entry.h"
@@ -96,7 +92,6 @@ using base::android::JavaParamRef;
 using base::android::JavaRef;
 using base::android::ScopedJavaLocalRef;
 using blink::mojom::FileChooserParams;
-using content::BluetoothChooser;
 using content::WebContents;
 
 namespace {
@@ -194,36 +189,16 @@ void TabWebContentsDelegateAndroid::RunFileChooser(
                                    params);
 }
 
-std::unique_ptr<BluetoothChooser>
-TabWebContentsDelegateAndroid::RunBluetoothChooser(
-    content::RenderFrameHost* frame,
-    const BluetoothChooser::EventHandler& event_handler) {
-  if (vr::VrTabHelper::IsUiSuppressedInVr(
-          WebContents::FromRenderFrameHost(frame),
-          vr::UiSuppressedElement::kBluetoothChooser)) {
-    return nullptr;
-  }
-  return std::make_unique<BluetoothChooserAndroid>(frame, event_handler);
-}
-
 void TabWebContentsDelegateAndroid::CreateSmsPrompt(
     content::RenderFrameHost* host,
-    const url::Origin& origin,
+    const std::vector<url::Origin>& origin_list,
     const std::string& one_time_code,
     base::OnceClosure on_confirm,
     base::OnceClosure on_cancel) {
   auto* web_contents = content::WebContents::FromRenderFrameHost(host);
   sms::SmsInfoBar::Create(
-      web_contents, InfoBarService::FromWebContents(web_contents),
-      ChromeConfirmInfoBar::GetResourceIdMapper(), origin, one_time_code,
-      std::move(on_confirm), std::move(on_cancel));
-}
-
-std::unique_ptr<content::BluetoothScanningPrompt>
-TabWebContentsDelegateAndroid::ShowBluetoothScanningPrompt(
-    content::RenderFrameHost* frame,
-    const content::BluetoothScanningPrompt::EventHandler& event_handler) {
-  return std::make_unique<BluetoothScanningPromptAndroid>(frame, event_handler);
+      web_contents, InfoBarService::FromWebContents(web_contents), origin_list,
+      one_time_code, std::move(on_confirm), std::move(on_cancel));
 }
 
 bool TabWebContentsDelegateAndroid::ShouldFocusLocationBarByDefault(
@@ -240,18 +215,6 @@ bool TabWebContentsDelegateAndroid::ShouldFocusLocationBarByDefault(
     }
   }
   return false;
-}
-
-blink::mojom::DisplayMode TabWebContentsDelegateAndroid::GetDisplayMode(
-    const WebContents* web_contents) {
-  JNIEnv* env = base::android::AttachCurrentThread();
-
-  ScopedJavaLocalRef<jobject> obj = GetJavaDelegate(env);
-  if (obj.is_null())
-    return blink::mojom::DisplayMode::kUndefined;
-
-  return static_cast<blink::mojom::DisplayMode>(
-      Java_TabWebContentsDelegateAndroidImpl_getDisplayMode(env, obj));
 }
 
 void TabWebContentsDelegateAndroid::FindReply(
@@ -536,8 +499,8 @@ void TabWebContentsDelegateAndroid::CapturePaintPreviewOfSubframe(
     content::RenderFrameHost* render_frame_host) {
   auto* client =
       paint_preview::PaintPreviewClient::FromWebContents(web_contents);
-  DCHECK(client);
-  client->CaptureSubframePaintPreview(guid, rect, render_frame_host);
+  if (client)
+    client->CaptureSubframePaintPreview(guid, rect, render_frame_host);
 }
 #endif
 

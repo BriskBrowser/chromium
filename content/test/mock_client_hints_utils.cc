@@ -4,6 +4,8 @@
 
 #include "content/test/mock_client_hints_utils.h"
 
+#include "services/network/public/cpp/is_potentially_trustworthy.h"
+
 namespace content {
 
 bool PersistClientHintsHelper(const GURL& url,
@@ -11,7 +13,7 @@ bool PersistClientHintsHelper(const GURL& url,
                               base::TimeDelta expiration_duration,
                               ClientHintsContainer* container) {
   DCHECK(container);
-  if (!content::IsOriginSecure(url) ||
+  if (!network::IsUrlPotentiallyTrustworthy(url) ||
       expiration_duration <= base::TimeDelta()) {
     return false;
   }

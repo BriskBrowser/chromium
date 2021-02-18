@@ -7,10 +7,12 @@
 #include <algorithm>
 #include <utility>
 
+#include "base/numerics/safe_conversions.h"
 #include "build/build_config.h"
 #include "third_party/blink/public/mojom/webauthn/authenticator.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/array_buffer_or_array_buffer_view.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_authentication_extensions_client_inputs.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_authentication_extensions_large_blob_inputs.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_authenticator_selection_criteria.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_cable_authentication_data.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_cable_registration_data.h"
@@ -25,6 +27,7 @@
 #include "third_party/blink/renderer/modules/credentialmanager/password_credential.h"
 #include "third_party/blink/renderer/modules/credentialmanager/public_key_credential.h"
 #include "third_party/blink/renderer/platform/bindings/enumeration_base.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 
 namespace mojo {
 
@@ -40,19 +43,21 @@ using blink::mojom::blink::CableRegistration;
 using blink::mojom::blink::CableRegistrationPtr;
 using blink::mojom::blink::CredentialInfo;
 using blink::mojom::blink::CredentialInfoPtr;
-using blink::mojom::blink::CredentialType;
 using blink::mojom::blink::CredentialManagerError;
+using blink::mojom::blink::CredentialType;
+using blink::mojom::blink::LargeBlobSupport;
 using blink::mojom::blink::PublicKeyCredentialCreationOptionsPtr;
 using blink::mojom::blink::PublicKeyCredentialDescriptor;
 using blink::mojom::blink::PublicKeyCredentialDescriptorPtr;
-using blink::mojom::blink::PublicKeyCredentialRpEntity;
-using blink::mojom::blink::PublicKeyCredentialRpEntityPtr;
-using blink::mojom::blink::PublicKeyCredentialUserEntity;
-using blink::mojom::blink::PublicKeyCredentialUserEntityPtr;
 using blink::mojom::blink::PublicKeyCredentialParameters;
 using blink::mojom::blink::PublicKeyCredentialParametersPtr;
 using blink::mojom::blink::PublicKeyCredentialRequestOptionsPtr;
+using blink::mojom::blink::PublicKeyCredentialRpEntity;
+using blink::mojom::blink::PublicKeyCredentialRpEntityPtr;
 using blink::mojom::blink::PublicKeyCredentialType;
+using blink::mojom::blink::PublicKeyCredentialUserEntity;
+using blink::mojom::blink::PublicKeyCredentialUserEntityPtr;
+using blink::mojom::blink::ResidentKeyRequirement;
 using blink::mojom::blink::UserVerificationRequirement;
 
 namespace {
@@ -145,8 +150,7 @@ TypeConverter<CredentialManagerError, AuthenticatorStatus>::Convert(
       return CredentialManagerError::ANDROID_ALGORITHM_UNSUPPORTED;
     case blink::mojom::blink::AuthenticatorStatus::EMPTY_ALLOW_CREDENTIALS:
       return CredentialManagerError::ANDROID_EMPTY_ALLOW_CREDENTIALS;
-    case blink::mojom::blink::AuthenticatorStatus::
-        ANDROID_NOT_SUPPORTED_ERROR:
+    case blink::mojom::blink::AuthenticatorStatus::ANDROID_NOT_SUPPORTED_ERROR:
       return CredentialManagerError::ANDROID_NOT_SUPPORTED_ERROR;
     case blink::mojom::blink::AuthenticatorStatus::
         USER_VERIFICATION_UNSUPPORTED:
@@ -160,6 +164,12 @@ TypeConverter<CredentialManagerError, AuthenticatorStatus>::Convert(
       return CredentialManagerError::INVALID_PROTOCOL;
     case blink::mojom::blink::AuthenticatorStatus::BAD_RELYING_PARTY_ID:
       return CredentialManagerError::BAD_RELYING_PARTY_ID;
+    case blink::mojom::blink::AuthenticatorStatus::
+        CANNOT_READ_AND_WRITE_LARGE_BLOB:
+      return CredentialManagerError::CANNOT_READ_AND_WRITE_LARGE_BLOB;
+    case blink::mojom::blink::AuthenticatorStatus::
+        INVALID_ALLOW_CREDENTIALS_FOR_LARGE_BLOB:
+      return CredentialManagerError::INVALID_ALLOW_CREDENTIALS_FOR_LARGE_BLOB;
     case blink::mojom::blink::AuthenticatorStatus::SUCCESS:
       NOTREACHED();
       break;
@@ -174,12 +184,12 @@ Vector<uint8_t> ConvertFixedSizeArray(
     const blink::ArrayBufferOrArrayBufferView& buffer,
     unsigned length) {
   if (buffer.IsArrayBuffer() &&
-      (buffer.GetAsArrayBuffer()->ByteLengthAsSizeT() != length)) {
+      (buffer.GetAsArrayBuffer()->ByteLength() != length)) {
     return Vector<uint8_t>();
   }
 
   if (buffer.IsArrayBufferView() &&
-      buffer.GetAsArrayBufferView().View()->byteLengthAsSizeT() != length) {
+      buffer.GetAsArrayBufferView()->byteLength() != length) {
     return Vector<uint8_t>();
   }
 
@@ -194,13 +204,14 @@ TypeConverter<Vector<uint8_t>, blink::ArrayBufferOrArrayBufferView>::Convert(
   Vector<uint8_t> vector;
   if (buffer.IsArrayBuffer()) {
     vector.Append(static_cast<uint8_t*>(buffer.GetAsArrayBuffer()->Data()),
-                  buffer.GetAsArrayBuffer()->DeprecatedByteLengthAsUnsigned());
+                  base::checked_cast<wtf_size_t>(
+                      buffer.GetAsArrayBuffer()->ByteLength()));
   } else {
     DCHECK(buffer.IsArrayBufferView());
     vector.Append(
-        static_cast<uint8_t*>(
-            buffer.GetAsArrayBufferView().View()->BaseAddress()),
-        buffer.GetAsArrayBufferView().View()->deprecatedByteLengthAsUnsigned());
+        static_cast<uint8_t*>(buffer.GetAsArrayBufferView()->BaseAddress()),
+        base::checked_cast<wtf_size_t>(
+            buffer.GetAsArrayBufferView()->byteLength()));
   }
   return vector;
 }
@@ -249,6 +260,23 @@ String TypeConverter<String, AuthenticatorTransport>::Convert(
 }
 
 // static
+base::Optional<blink::mojom::blink::ResidentKeyRequirement>
+TypeConverter<base::Optional<blink::mojom::blink::ResidentKeyRequirement>,
+              String>::Convert(const String& requirement) {
+  if (requirement == "discouraged")
+    return ResidentKeyRequirement::DISCOURAGED;
+  if (requirement == "preferred")
+    return ResidentKeyRequirement::PREFERRED;
+  if (requirement == "required")
+    return ResidentKeyRequirement::REQUIRED;
+
+  // AuthenticatorSelection.resident_key is defined as DOMString expressing a
+  // ResidentKeyRequirement and unknown values must be treated as if the
+  // property were unset.
+  return base::nullopt;
+}
+
+// static
 UserVerificationRequirement
 TypeConverter<UserVerificationRequirement, String>::Convert(
     const String& requirement) {
@@ -293,6 +321,21 @@ TypeConverter<AuthenticatorAttachment, base::Optional<String>>::Convert(
 }
 
 // static
+LargeBlobSupport
+TypeConverter<LargeBlobSupport, base::Optional<String>>::Convert(
+    const base::Optional<String>& large_blob_support) {
+  if (large_blob_support) {
+    if (*large_blob_support == "required")
+      return LargeBlobSupport::REQUIRED;
+    if (*large_blob_support == "preferred")
+      return LargeBlobSupport::PREFERRED;
+  }
+
+  // Unknown values are treated as preferred.
+  return LargeBlobSupport::PREFERRED;
+}
+
+// static
 AuthenticatorSelectionCriteriaPtr
 TypeConverter<AuthenticatorSelectionCriteriaPtr,
               blink::AuthenticatorSelectionCriteria>::
@@ -304,7 +347,18 @@ TypeConverter<AuthenticatorSelectionCriteriaPtr,
     attachment = criteria.authenticatorAttachment();
   mojo_criteria->authenticator_attachment =
       ConvertTo<AuthenticatorAttachment>(attachment);
-  mojo_criteria->require_resident_key = criteria.requireResidentKey();
+  base::Optional<ResidentKeyRequirement> resident_key;
+  if (criteria.hasResidentKey()) {
+    resident_key = ConvertTo<base::Optional<ResidentKeyRequirement>>(
+        criteria.residentKey());
+  }
+  if (resident_key) {
+    mojo_criteria->resident_key = *resident_key;
+  } else {
+    mojo_criteria->resident_key = criteria.requireResidentKey()
+                                      ? ResidentKeyRequirement::REQUIRED
+                                      : ResidentKeyRequirement::DISCOURAGED;
+  }
   mojo_criteria->user_verification = UserVerificationRequirement::PREFERRED;
   if (criteria.hasUserVerification()) {
     mojo_criteria->user_verification = ConvertTo<UserVerificationRequirement>(
@@ -514,6 +568,18 @@ TypeConverter<PublicKeyCredentialCreationOptionsPtr,
         extensions->enforceCredentialProtectionPolicy()) {
       mojo_options->enforce_protection_policy = true;
     }
+    if (extensions->credProps()) {
+      DCHECK(blink::RuntimeEnabledFeatures::
+                 WebAuthenticationResidentKeyRequirementEnabled());
+      mojo_options->cred_props = true;
+    }
+    if (extensions->hasLargeBlob()) {
+      base::Optional<WTF::String> support;
+      if (extensions->largeBlob()->hasSupport()) {
+        support = extensions->largeBlob()->support();
+      }
+      mojo_options->large_blob_enable = ConvertTo<LargeBlobSupport>(support);
+    }
   }
 
   return mojo_options;
@@ -525,14 +591,31 @@ TypeConverter<CableAuthenticationPtr, blink::CableAuthenticationData>::Convert(
     const blink::CableAuthenticationData& data) {
   auto entity = CableAuthentication::New();
   entity->version = data.version();
-  entity->client_eid = ConvertFixedSizeArray(data.clientEid(), 16);
-  entity->authenticator_eid =
-      ConvertFixedSizeArray(data.authenticatorEid(), 16);
-  entity->session_pre_key = ConvertFixedSizeArray(data.sessionPreKey(), 32);
-  if (entity->client_eid.IsEmpty() || entity->authenticator_eid.IsEmpty() ||
-      entity->session_pre_key.IsEmpty()) {
-    return nullptr;
+  switch (entity->version) {
+    case 1:
+      entity->client_eid = ConvertFixedSizeArray(data.clientEid(), 16);
+      entity->authenticator_eid =
+          ConvertFixedSizeArray(data.authenticatorEid(), 16);
+      entity->session_pre_key = ConvertFixedSizeArray(data.sessionPreKey(), 32);
+      if (entity->client_eid->IsEmpty() ||
+          entity->authenticator_eid->IsEmpty() ||
+          entity->session_pre_key->IsEmpty()) {
+        return nullptr;
+      }
+      break;
+
+    case 2:
+      entity->server_link_data =
+          ConvertTo<Vector<uint8_t>>(data.sessionPreKey());
+      if (entity->server_link_data->IsEmpty()) {
+        return nullptr;
+      }
+      break;
+
+    default:
+      return nullptr;
   }
+
   return entity;
 }
 
@@ -591,7 +674,7 @@ TypeConverter<PublicKeyCredentialRequestOptionsPtr,
     if (extensions->hasCableAuthentication()) {
       Vector<CableAuthenticationPtr> mojo_data;
       for (auto& data : extensions->cableAuthentication()) {
-        if (data->version() != 1) {
+        if (data->version() < 1 || data->version() > 2) {
           continue;
         }
         CableAuthenticationPtr mojo_cable = CableAuthentication::From(*data);
@@ -608,6 +691,15 @@ TypeConverter<PublicKeyCredentialRequestOptionsPtr,
       mojo_options->user_verification_methods = extensions->uvm();
     }
 #endif
+    if (extensions->hasLargeBlob()) {
+      if (extensions->largeBlob()->hasRead()) {
+        mojo_options->large_blob_read = extensions->largeBlob()->read();
+      }
+      if (extensions->largeBlob()->hasWrite()) {
+        mojo_options->large_blob_write =
+            ConvertTo<Vector<uint8_t>>(extensions->largeBlob()->write());
+      }
+    }
   }
 
   return mojo_options;

@@ -15,7 +15,7 @@
 #include "base/time/time.h"
 #include "chrome/browser/vr/input_event.h"
 #include "chrome/browser/vr/model/camera_model.h"
-#include "chrome/browser/vr/vr_gl_util.h"
+#include "device/vr/vr_gl_util.h"
 #include "third_party/skia/include/core/SkRRect.h"
 #include "third_party/skia/include/core/SkRect.h"
 #include "ui/gfx/geometry/angle_conversions.h"
@@ -55,7 +55,7 @@ constexpr char kCyan[] = "\x1b[36m";
 constexpr char kYellow[] = "\x1b[33m";
 constexpr char kReset[] = "\x1b[0m";
 
-void DumpTransformOperations(const cc::TransformOperations& ops,
+void DumpTransformOperations(const gfx::TransformOperations& ops,
                              std::ostringstream* os) {
   if (!ops.at(0).IsIdentity()) {
     const auto& translate = ops.at(0).translate;
@@ -92,16 +92,13 @@ EventHandlers::~EventHandlers() = default;
 EventHandlers::EventHandlers(const EventHandlers& other) = default;
 
 UiElement::UiElement() : id_(AllocateId()) {
-  animation_.set_target(this);
   layout_offset_.AppendTranslate(0, 0, 0);
   transform_operations_.AppendTranslate(0, 0, 0);
   transform_operations_.AppendRotate(1, 0, 0, 0);
   transform_operations_.AppendScale(1, 1, 1);
 }
 
-UiElement::~UiElement() {
-  animation_.set_target(nullptr);
-}
+UiElement::~UiElement() = default;
 
 void UiElement::SetName(UiElementName name) {
   name_ = name;
@@ -309,7 +306,7 @@ bool UiElement::IsHitTestable() const {
 }
 
 void UiElement::SetSize(float width, float height) {
-  animation_.TransitionSizeTo(last_frame_time_, BOUNDS, size_,
+  animation_.TransitionSizeTo(this, last_frame_time_, BOUNDS, size_,
                               gfx::SizeF(width, height));
   OnSetSize(gfx::SizeF(width, height));
 }
@@ -380,12 +377,12 @@ void UiElement::SetLayoutOffset(float x, float y) {
     return;
   }
 
-  cc::TransformOperations operations = layout_offset_;
-  cc::TransformOperation& op = operations.at(0);
+  gfx::TransformOperations operations = layout_offset_;
+  gfx::TransformOperation& op = operations.at(0);
   op.translate = {x, y, 0};
   op.Bake();
-  animation_.TransitionTransformOperationsTo(last_frame_time_, LAYOUT_OFFSET,
-                                             layout_offset_, operations);
+  animation_.TransitionTransformOperationsTo(
+      this, last_frame_time_, LAYOUT_OFFSET, layout_offset_, operations);
 }
 
 void UiElement::SetTranslate(float x, float y, float z) {
@@ -396,11 +393,11 @@ void UiElement::SetTranslate(float x, float y, float z) {
     return;
   }
 
-  cc::TransformOperations operations = transform_operations_;
-  cc::TransformOperation& op = operations.at(kTranslateIndex);
+  gfx::TransformOperations operations = transform_operations_;
+  gfx::TransformOperation& op = operations.at(kTranslateIndex);
   op.translate = {x, y, z};
   op.Bake();
-  animation_.TransitionTransformOperationsTo(last_frame_time_, TRANSFORM,
+  animation_.TransitionTransformOperationsTo(this, last_frame_time_, TRANSFORM,
                                              transform_operations_, operations);
 }
 
@@ -415,12 +412,12 @@ void UiElement::SetRotate(float x, float y, float z, float radians) {
     return;
   }
 
-  cc::TransformOperations operations = transform_operations_;
-  cc::TransformOperation& op = operations.at(kRotateIndex);
+  gfx::TransformOperations operations = transform_operations_;
+  gfx::TransformOperation& op = operations.at(kRotateIndex);
   op.rotate.axis = {x, y, z};
   op.rotate.angle = degrees;
   op.Bake();
-  animation_.TransitionTransformOperationsTo(last_frame_time_, TRANSFORM,
+  animation_.TransitionTransformOperationsTo(this, last_frame_time_, TRANSFORM,
                                              transform_operations_, operations);
 }
 
@@ -432,16 +429,17 @@ void UiElement::SetScale(float x, float y, float z) {
     return;
   }
 
-  cc::TransformOperations operations = transform_operations_;
-  cc::TransformOperation& op = operations.at(kScaleIndex);
+  gfx::TransformOperations operations = transform_operations_;
+  gfx::TransformOperation& op = operations.at(kScaleIndex);
   op.scale = {x, y, z};
   op.Bake();
-  animation_.TransitionTransformOperationsTo(last_frame_time_, TRANSFORM,
+  animation_.TransitionTransformOperationsTo(this, last_frame_time_, TRANSFORM,
                                              transform_operations_, operations);
 }
 
 void UiElement::SetOpacity(float opacity) {
-  animation_.TransitionFloatTo(last_frame_time_, OPACITY, opacity_, opacity);
+  animation_.TransitionFloatTo(this, last_frame_time_, OPACITY, opacity_,
+                               opacity);
 }
 
 void UiElement::SetCornerRadii(const CornerRadii& radii) {
@@ -455,7 +453,7 @@ gfx::SizeF UiElement::GetTargetSize() const {
   return animation_.GetTargetSizeValue(TargetProperty::BOUNDS, size_);
 }
 
-cc::TransformOperations UiElement::GetTargetTransform() const {
+gfx::TransformOperations UiElement::GetTargetTransform() const {
   return animation_.GetTargetTransformOperationsValue(TargetProperty::TRANSFORM,
                                                       transform_operations_);
 }
@@ -765,16 +763,15 @@ bool UiElement::GetRayDistance(const gfx::Point3F& ray_origin,
                              distance);
 }
 
-void UiElement::NotifyClientFloatAnimated(float value,
-                                          int target_property_id,
-                                          cc::KeyframeModel* keyframe_model) {
+void UiElement::OnFloatAnimated(const float& value,
+                                int target_property_id,
+                                cc::KeyframeModel* keyframe_model) {
   opacity_ = base::ClampToRange(value, 0.0f, 1.0f);
 }
 
-void UiElement::NotifyClientTransformOperationsAnimated(
-    const cc::TransformOperations& operations,
-    int target_property_id,
-    cc::KeyframeModel* keyframe_model) {
+void UiElement::OnTransformAnimated(const gfx::TransformOperations& operations,
+                                    int target_property_id,
+                                    cc::KeyframeModel* keyframe_model) {
   if (target_property_id == TRANSFORM) {
     transform_operations_ = operations;
   } else if (target_property_id == LAYOUT_OFFSET) {
@@ -786,14 +783,18 @@ void UiElement::NotifyClientTransformOperationsAnimated(
   world_space_transform_dirty_ = true;
 }
 
-void UiElement::NotifyClientSizeAnimated(const gfx::SizeF& size,
-                                         int target_property_id,
-                                         cc::KeyframeModel* keyframe_model) {
+void UiElement::OnSizeAnimated(const gfx::SizeF& size,
+                               int target_property_id,
+                               cc::KeyframeModel* keyframe_model) {
   if (size_ == size)
     return;
   size_ = size;
   world_space_transform_dirty_ = true;
 }
+
+void UiElement::OnColorAnimated(const SkColor& size,
+                                int target_property_id,
+                                cc::KeyframeModel* keyframe_model) {}
 
 void UiElement::SetTransitionedProperties(
     const std::set<TargetProperty>& properties) {

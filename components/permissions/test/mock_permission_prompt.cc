@@ -7,6 +7,8 @@
 #include "base/bind.h"
 #include "base/run_loop.h"
 #include "build/build_config.h"
+#include "components/permissions/permission_uma_util.h"
+#include "components/permissions/request_type.h"
 #include "components/permissions/test/mock_permission_prompt_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -21,7 +23,7 @@ MockPermissionPrompt::~MockPermissionPrompt() {
     factory_->HideView(this);
 }
 
-void MockPermissionPrompt::UpdateAnchorPosition() {}
+void MockPermissionPrompt::UpdateAnchor() {}
 
 PermissionPrompt::TabSwitchingBehavior
 MockPermissionPrompt::GetTabSwitchingBehavior() {
@@ -32,17 +34,28 @@ MockPermissionPrompt::GetTabSwitchingBehavior() {
 #endif
 }
 
+PermissionPromptDisposition MockPermissionPrompt::GetPromptDisposition() const {
+#if defined(OS_ANDROID)
+  return PermissionPromptDisposition::MODAL_DIALOG;
+#else
+  return PermissionPromptDisposition::ANCHORED_BUBBLE;
+#endif
+}
+
 MockPermissionPrompt::MockPermissionPrompt(MockPermissionPromptFactory* factory,
                                            Delegate* delegate)
     : factory_(factory), delegate_(delegate) {
   for (const PermissionRequest* request : delegate_->Requests()) {
     // The actual prompt will call these, so test they're sane.
     EXPECT_FALSE(request->GetMessageTextFragment().empty());
+    RequestType request_type = request->GetRequestType();
 #if defined(OS_ANDROID)
-    EXPECT_FALSE(request->GetMessageText().empty());
-    EXPECT_NE(0, request->GetIconId());
+    // For kStorageAccess, the prompt itself calculates the message text.
+    if (request_type != permissions::RequestType::kStorageAccess)
+      EXPECT_FALSE(request->GetMessageText().empty());
+    EXPECT_NE(0, permissions::GetIconId(request_type));
 #else
-    EXPECT_FALSE(request->GetIconId().is_empty());
+    EXPECT_FALSE(permissions::GetIconId(request_type).is_empty());
 #endif
   }
 }

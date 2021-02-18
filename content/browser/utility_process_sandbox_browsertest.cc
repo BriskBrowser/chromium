@@ -8,17 +8,19 @@
 #include "base/bind.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
+#include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "content/browser/utility_process_host.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/test_service.mojom.h"
+#include "content/test/sandbox_status.test-mojom.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "sandbox/policy/linux/sandbox_linux.h"
 #include "sandbox/policy/switches.h"
-#include "services/service_manager/tests/sandbox_status.test-mojom.h"
 
 using sandbox::policy::SandboxLinux;
 using sandbox::policy::SandboxType;
@@ -119,7 +121,7 @@ class UtilityProcessSandboxBrowserTest
       }
 
       case SandboxType::kAudio:
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
       case SandboxType::kIme:
       case SandboxType::kTts:
 #endif
@@ -148,10 +150,8 @@ class UtilityProcessSandboxBrowserTest
     std::move(quit_closure).Run();
   }
 
-  mojo::Remote<service_manager::mojom::SandboxStatusService> service_;
+  mojo::Remote<mojom::SandboxStatusService> service_;
   base::OnceClosure done_closure_;
-
-  DISALLOW_COPY_AND_ASSIGN(UtilityProcessSandboxBrowserTest);
 };
 
 IN_PROC_BROWSER_TEST_P(UtilityProcessSandboxBrowserTest, VerifySandboxType) {

@@ -51,7 +51,6 @@
 #include "third_party/blink/renderer/core/events/composition_event.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
-#include "third_party/blink/renderer/core/frame/visual_viewport.h"
 #include "third_party/blink/renderer/core/geometry/dom_rect.h"
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
 #include "third_party/blink/renderer/core/html/forms/html_text_area_element.h"
@@ -581,7 +580,14 @@ bool InputMethodController::FinishComposingText(
     // eventually move back to the old selection offsets.
     const bool is_handle_visible = GetFrame().Selection().IsHandleVisible();
 
+    // Maintain to direction of the original selection as it affects how the
+    // selection can be extended.
     const PlainTextRange& old_offsets = GetSelectionOffsets();
+    const bool is_forward_selection =
+        GetFrame()
+            .Selection()
+            .ComputeVisibleSelectionInDOMTreeDeprecated()
+            .IsBaseFirst();
     RevealSelectionScope reveal_selection_scope(GetFrame());
 
     if (is_too_long) {
@@ -600,9 +606,12 @@ bool InputMethodController::FinishComposingText(
     if (old_selection_range.IsNull())
       return false;
     const SelectionInDOMTree& selection =
-        SelectionInDOMTree::Builder()
-            .SetBaseAndExtent(old_selection_range)
-            .Build();
+        is_forward_selection ? SelectionInDOMTree::Builder()
+                                   .SetAsForwardSelection(old_selection_range)
+                                   .Build()
+                             : SelectionInDOMTree::Builder()
+                                   .SetAsBackwardSelection(old_selection_range)
+                                   .Build();
     GetFrame().Selection().SetSelection(
         selection, SetSelectionOptions::Builder()
                        .SetShouldCloseTyping(true)
@@ -724,18 +733,14 @@ void InputMethodController::AddImeTextSpans(
 
     switch (ime_text_span.GetType()) {
       case ImeTextSpan::Type::kComposition: {
-        Color background_color =
-            GetDocument().GetPage() && ime_text_span.InterimCharSelection()
-                ? LayoutTheme::GetTheme().ActiveSelectionBackgroundColor(
-                      GetDocument()
-                          .GetPage()
-                          ->GetVisualViewport()
-                          .UsedColorScheme())
-                : ime_text_span.BackgroundColor();
+        ImeTextSpanUnderlineStyle underline_style =
+            ime_text_span.InterimCharSelection()
+                ? ImeTextSpanUnderlineStyle::kSolid
+                : ime_text_span.UnderlineStyle();
         GetDocument().Markers().AddCompositionMarker(
             ephemeral_line_range, ime_text_span.UnderlineColor(),
-            ime_text_span.Thickness(), ime_text_span.UnderlineStyle(),
-            ime_text_span.TextColor(), background_color);
+            ime_text_span.Thickness(), underline_style,
+            ime_text_span.TextColor(), ime_text_span.BackgroundColor());
         break;
       }
       case ImeTextSpan::Type::kAutocorrect:
@@ -941,7 +946,7 @@ void InputMethodController::SetComposition(
     // to the new position.
     EventQueueScope scope;
     if (HasComposition()) {
-      RevealSelectionScope reveal_selection_scope(GetFrame());
+      RevealSelectionScope inner_reveal_selection_scope(GetFrame());
       // Do not attempt to apply IME selection offsets if ReplaceComposition()
       // fails (we compute the new range assuming the replacement will succeed).
       if (!ReplaceComposition(g_empty_string))
@@ -1169,9 +1174,14 @@ String InputMethodController::ComposingText() const {
 }
 
 PlainTextRange InputMethodController::GetSelectionOffsets() const {
-  EphemeralRange range = FirstEphemeralRangeOf(
+  const EphemeralRange range = FirstEphemeralRangeOf(
       GetFrame().Selection().ComputeVisibleSelectionInDOMTreeDeprecated());
-  return PlainTextRangeForEphemeralRange(range).second;
+  if (range.IsNull())
+    return PlainTextRange();
+  const ContainerNode& element =
+      *RootEditableElementOrTreeScopeRootNodeOf(range.StartPosition());
+  cached_text_input_info_.EnsureCached(element);
+  return cached_text_input_info_.GetSelection(range);
 }
 
 EphemeralRange InputMethodController::EphemeralRangeForOffsets(
@@ -1485,8 +1495,8 @@ void InputMethodController::DeleteSurroundingTextInCodePoints(int before,
   return DeleteSurroundingText(before_length, after_length);
 }
 
-void InputMethodController::GetLayoutBounds(WebRect* control_bounds,
-                                            WebRect* selection_bounds) {
+void InputMethodController::GetLayoutBounds(gfx::Rect* control_bounds,
+                                            gfx::Rect* selection_bounds) {
   if (!IsAvailable())
     return;
 
@@ -1509,6 +1519,20 @@ void InputMethodController::GetLayoutBounds(WebRect* control_bounds,
                                         editable_rect->height());
   // Return the IntRect containing the given DOMRect.
   *control_bounds = EnclosingIntRect(editable_rect_double);
+}
+
+void InputMethodController::DidLayoutSubtree(
+    const LayoutObject& layout_object) {
+  cached_text_input_info_.DidLayoutSubtree(layout_object);
+}
+
+void InputMethodController::DidUpdateLayout(const LayoutObject& layout_object) {
+  cached_text_input_info_.DidUpdateLayout(layout_object);
+}
+
+void InputMethodController::LayoutObjectWillBeDestroyed(
+    const LayoutObject& layout_object) {
+  cached_text_input_info_.LayoutObjectWillBeDestroyed(layout_object);
 }
 
 WebTextInputInfo InputMethodController::TextInputInfo() const {
@@ -1542,35 +1566,28 @@ WebTextInputInfo InputMethodController::TextInputInfo() const {
   DocumentLifecycle::DisallowTransitionScope disallow_transition(
       GetDocument().Lifecycle());
 
+  cached_text_input_info_.EnsureCached(*element);
+
   // Emits an object replacement character for each replaced element so that
   // it is exposed to IME and thus could be deleted by IME on android.
-  info.value = PlainText(EphemeralRange::RangeOfContents(*element),
-                         TextIteratorBehavior::Builder()
-                             .SetEmitsObjectReplacementCharacter(true)
-                             .SetEmitsSpaceForNbsp(true)
-                             .Build());
-
+  info.value = cached_text_input_info_.GetText();
   if (info.value.IsEmpty())
     return info;
 
-  EphemeralRange first_range = FirstEphemeralRangeOf(
+  const EphemeralRange& first_range = FirstEphemeralRangeOf(
       GetFrame().Selection().ComputeVisibleSelectionInDOMTreeDeprecated());
-  PlainTextRange selection_plain_text_range =
-      PlainTextRangeForEphemeralRange(first_range).second;
+  const PlainTextRange& selection_plain_text_range =
+      cached_text_input_info_.GetSelection(first_range);
   if (selection_plain_text_range.IsNotNull()) {
     info.selection_start = selection_plain_text_range.Start();
     info.selection_end = selection_plain_text_range.End();
   }
 
-  // Only gets ime text spans when there is no selection range.
-  // ie. the selection range is just a cursor position.
-  if (info.selection_start == info.selection_end) {
-    info.ime_text_spans = GetImeTextSpansAroundPosition(info.selection_start);
-  }
+  info.ime_text_spans = GetImeTextSpans();
 
-  EphemeralRange range = CompositionEphemeralRange();
-  PlainTextRange composition_plain_text_range =
-      PlainTextRangeForEphemeralRange(range).second;
+  const EphemeralRange& range = CompositionEphemeralRange();
+  const PlainTextRange& composition_plain_text_range =
+      cached_text_input_info_.GetComposition(range);
   if (composition_plain_text_range.IsNotNull()) {
     info.composition_start = composition_plain_text_range.Start();
     info.composition_end = composition_plain_text_range.End();
@@ -1789,14 +1806,14 @@ void InputMethodController::WillChangeFocus() {
 }
 
 void InputMethodController::Trace(Visitor* visitor) const {
+  visitor->Trace(cached_text_input_info_);
   visitor->Trace(frame_);
   visitor->Trace(composition_range_);
   visitor->Trace(active_edit_context_);
   ExecutionContextLifecycleObserver::Trace(visitor);
 }
 
-WebVector<ui::ImeTextSpan> InputMethodController::GetImeTextSpansAroundPosition(
-    unsigned position) const {
+WebVector<ui::ImeTextSpan> InputMethodController::GetImeTextSpans() const {
   DCHECK(!GetDocument().NeedsLayoutTreeUpdate());
   Element* target = GetDocument().FocusedElement();
   if (!target)
@@ -1810,14 +1827,16 @@ WebVector<ui::ImeTextSpan> InputMethodController::GetImeTextSpansAroundPosition(
     return WebVector<ui::ImeTextSpan>();
 
   WebVector<ui::ImeTextSpan> ime_text_spans;
-  const EphemeralRange range =
-      PlainTextRange(position, position).CreateRange(*editable);
-  // Only queries Suggestion markers for now.
-  // This can be expanded when browser needs information for
-  // other types of markers.
+
+  const EphemeralRange range = EphemeralRange::RangeOfContents(*editable);
+  if (range.IsNull())
+    return WebVector<ui::ImeTextSpan>();
+
+  // MarkersIntersectingRange() might be expensive. In practice, we hope we will
+  // only check one node for the range.
   const HeapVector<std::pair<Member<const Text>, Member<DocumentMarker>>>&
-      node_marker_pairs = GetDocument().Markers().MarkersAroundPosition(
-          ToPositionInFlatTree(range.StartPosition()),
+      node_marker_pairs = GetDocument().Markers().MarkersIntersectingRange(
+          ToEphemeralRangeInFlatTree(range),
           DocumentMarker::MarkerTypes::Suggestion());
 
   for (const std::pair<Member<const Text>, Member<DocumentMarker>>&
@@ -1831,8 +1850,8 @@ WebVector<ui::ImeTextSpan> InputMethodController::GetImeTextSpansAroundPosition(
       const EphemeralRange& marker_ephemeral_range =
           EphemeralRange(Position(node, marker->StartOffset()),
                          Position(node, marker->EndOffset()));
-      PlainTextRange marker_plain_text_range =
-          PlainTextRangeForEphemeralRange(marker_ephemeral_range).second;
+      const PlainTextRange& marker_plain_text_range =
+          cached_text_input_info_.GetPlainTextRange(marker_ephemeral_range);
 
       ime_text_spans.emplace_back(
           ImeTextSpan(type, marker_plain_text_range.Start(),

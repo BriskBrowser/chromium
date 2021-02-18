@@ -72,18 +72,21 @@ class PLATFORM_EXPORT ImagePlanes final {
   //
   // TODO(crbug/910276): To support YUVA, ImagePlanes needs to support a
   // variable number of planes.
-  ImagePlanes(void* planes[3],
-              const size_t row_bytes[3],
+  ImagePlanes(void* planes[cc::kNumYUVPlanes],
+              const size_t row_bytes[cc::kNumYUVPlanes],
               SkColorType color_type);
 
-  void* Plane(int);
-  size_t RowBytes(int) const;
+  void* Plane(cc::YUVIndex);
+  size_t RowBytes(cc::YUVIndex) const;
   SkColorType color_type() const { return color_type_; }
+  void SetHasCompleteScan() { has_complete_scan_ = true; }
+  bool HasCompleteScan() const { return has_complete_scan_; }
 
  private:
-  void* planes_[3];
-  size_t row_bytes_[3];
+  void* planes_[cc::kNumYUVPlanes];
+  size_t row_bytes_[cc::kNumYUVPlanes];
   SkColorType color_type_;
+  bool has_complete_scan_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(ImagePlanes);
 };
@@ -148,13 +151,6 @@ class PLATFORM_EXPORT ImageDecoder {
     kMaxValue = kWebPAnimationFormat,
   };
 
-  // Enforces YUV decoding to be disallowed in the image decoder. The default
-  // value defers the YUV decoding decision to the decoder.
-  enum class OverrideAllowDecodeToYuv {
-    kDefault,
-    kDeny,
-  };
-
   // For images which contain both animations and still images, indicates which
   // is preferred. When unspecified the decoder will use hints from the data
   // stream to make a decision.
@@ -183,8 +179,6 @@ class PLATFORM_EXPORT ImageDecoder {
       AlphaOption,
       HighBitDepthDecodingOption,
       const ColorBehavior&,
-      const OverrideAllowDecodeToYuv allow_decode_to_yuv =
-          OverrideAllowDecodeToYuv::kDefault,
       const SkISize& desired_size = SkISize::MakeEmpty(),
       AnimationOption animation_option = AnimationOption::kUnspecified);
   static std::unique_ptr<ImageDecoder> Create(
@@ -193,14 +187,11 @@ class PLATFORM_EXPORT ImageDecoder {
       AlphaOption alpha_option,
       HighBitDepthDecodingOption high_bit_depth_decoding_option,
       const ColorBehavior& color_behavior,
-      const OverrideAllowDecodeToYuv allow_decode_to_yuv =
-          OverrideAllowDecodeToYuv::kDefault,
       const SkISize& desired_size = SkISize::MakeEmpty(),
       AnimationOption animation_option = AnimationOption::kUnspecified) {
     return Create(SegmentReader::CreateFromSharedBuffer(std::move(data)),
                   data_complete, alpha_option, high_bit_depth_decoding_option,
-                  color_behavior, allow_decode_to_yuv, desired_size,
-                  animation_option);
+                  color_behavior, desired_size, animation_option);
   }
 
   // Similar to above, but does not allow mime sniffing. Creates explicitly
@@ -212,8 +203,6 @@ class PLATFORM_EXPORT ImageDecoder {
       AlphaOption alpha_option,
       HighBitDepthDecodingOption high_bit_depth_decoding_option,
       const ColorBehavior& color_behavior,
-      const OverrideAllowDecodeToYuv allow_decode_to_yuv =
-          OverrideAllowDecodeToYuv::kDefault,
       const SkISize& desired_size = SkISize::MakeEmpty(),
       AnimationOption animation_option = AnimationOption::kUnspecified);
 
@@ -266,16 +255,21 @@ class PLATFORM_EXPORT ImageDecoder {
   // return the actual decoded size.
   virtual IntSize DecodedSize() const { return Size(); }
 
+  // The YUV subsampling of the image.
+  virtual cc::YUVSubsampling GetYUVSubsampling() const {
+    return cc::YUVSubsampling::kUnknown;
+  }
+
   // Image decoders that support YUV decoding must override this to
   // provide the size of each component.
-  virtual IntSize DecodedYUVSize(int component) const {
+  virtual IntSize DecodedYUVSize(cc::YUVIndex) const {
     NOTREACHED();
     return IntSize();
   }
 
   // Image decoders that support YUV decoding must override this to
   // return the width of each row of the memory allocation.
-  virtual size_t DecodedYUVWidthBytes(int component) const {
+  virtual size_t DecodedYUVWidthBytes(cc::YUVIndex) const {
     NOTREACHED();
     return 0;
   }
@@ -322,9 +316,12 @@ class PLATFORM_EXPORT ImageDecoder {
     return true;
   }
 
-  // Calls DecodeFrameCount() to get the frame count (if possible), without
-  // decoding the individual frames.  Resizes |frame_buffer_cache_| to the
-  // correct size and returns its size.
+  // Calls DecodeFrameCount() to get the current frame count (if possible),
+  // without decoding the individual frames.  Resizes |frame_buffer_cache_| to
+  // the new size and returns that size.
+  //
+  // Note: FrameCount() returns the return value of DecodeFrameCount(). For more
+  // information on the return value, see the comment for DecodeFrameCount().
   size_t FrameCount();
 
   virtual int RepetitionCount() const { return kAnimationNone; }
@@ -429,6 +426,9 @@ class PLATFORM_EXPORT ImageDecoder {
   void SetImagePlanes(std::unique_ptr<ImagePlanes> image_planes) {
     image_planes_ = std::move(image_planes);
   }
+  bool HasDisplayableYUVData() const {
+    return image_planes_ && image_planes_->HasCompleteScan();
+  }
 
   // Indicates if the data contains both an animation and still image.
   virtual bool ImageHasBothStillAndAnimatedSubImages() const { return false; }
@@ -437,13 +437,12 @@ class PLATFORM_EXPORT ImageDecoder {
   ImageDecoder(AlphaOption alpha_option,
                HighBitDepthDecodingOption high_bit_depth_decoding_option,
                const ColorBehavior& color_behavior,
-               size_t max_decoded_bytes,
-               const bool allow_decode_to_yuv = false)
+               size_t max_decoded_bytes)
       : premultiply_alpha_(alpha_option == kAlphaPremultiplied),
         high_bit_depth_decoding_option_(high_bit_depth_decoding_option),
         color_behavior_(color_behavior),
         max_decoded_bytes_(max_decoded_bytes),
-        allow_decode_to_yuv_(allow_decode_to_yuv),
+        allow_decode_to_yuv_(false),
         purge_aggressively_(false) {}
 
   // Calculates the most recent frame whose image data may be needed in
@@ -476,6 +475,18 @@ class PLATFORM_EXPORT ImageDecoder {
 
   // Decodes the image sufficiently to determine the number of frames and
   // returns that number.
+  //
+  // If an image format supports images with multiple frames, the decoder must
+  // override this method. FrameCount() calls this method and resizes
+  // |frame_buffer_cache_| to the return value of this method. Therefore, on
+  // failure this method should return |frame_buffer_cache_.size()| (the
+  // existing number of frames) instead of 0 to leave |frame_buffer_cache_|
+  // unchanged.
+  //
+  // This method may return an increasing frame count as frames are received and
+  // parsed. Alternatively, if the total frame count is available in the image
+  // header, this method may return the total frame count without checking how
+  // many frames are received.
   virtual size_t DecodeFrameCount() { return 1; }
 
   // Called to initialize the frame buffer with the given index, based on the
@@ -569,11 +580,6 @@ class PLATFORM_EXPORT ImageDecoder {
   std::unique_ptr<ImagePlanes> image_planes_;
 
  private:
-  // The YUV subsampling of the image.
-  virtual cc::YUVSubsampling GetYUVSubsampling() const {
-    return cc::YUVSubsampling::kUnknown;
-  }
-
   // Some code paths compute the size of the image as "width * height * 4 or 8"
   // and return it as a (signed) int.  Avoid overflow.
   inline bool SizeCalculationMayOverflow(unsigned width,

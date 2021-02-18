@@ -148,6 +148,10 @@ class ASH_EXPORT ScopedOverviewTransformWindow
   void OnWindowPropertyChanged(aura::Window* window,
                                const void* key,
                                intptr_t old) override;
+  void OnWindowBoundsChanged(aura::Window* window,
+                             const gfx::Rect& old_bounds,
+                             const gfx::Rect& new_bounds,
+                             ui::PropertyChangeReason reason) override;
 
   aura::Window* window() const { return window_; }
 
@@ -202,6 +206,9 @@ class ASH_EXPORT ScopedOverviewTransformWindow
   gfx::Rect original_clip_rect_;
 
   std::unique_ptr<ScopedOverviewHideWindows> hidden_transient_children_;
+
+  base::ScopedMultiSourceObservation<aura::Window, aura::WindowObserver>
+      window_observations_{this};
 
   base::WeakPtrFactory<ScopedOverviewTransformWindow> weak_ptr_factory_{this};
 };

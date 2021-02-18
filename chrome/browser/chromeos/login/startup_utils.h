@@ -54,14 +54,21 @@ class StartupUtils {
   // Mark a device as requiring enrollment recovery.
   static void MarkEnrollmentRecoveryRequired();
 
+  static void DisableHIDDetectionScreenForTests();
+
+  static bool IsHIDDetectionScreenDisabledForTests();
+
   // Returns initial locale from local settings.
   static std::string GetInitialLocale();
 
   // Sets initial locale in local settings.
   static void SetInitialLocale(const std::string& locale);
 
-  // Registers OOBE preferences.
+  // Registers OOBE local state preferences .
   static void RegisterPrefs(PrefRegistrySimple* registry);
+
+  // Registers OOBE preferences that are associated with a profile.
+  static void RegisterOobeProfilePrefs(PrefRegistrySimple* registry);
 };
 
 }  // namespace chromeos

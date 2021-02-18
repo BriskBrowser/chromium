@@ -99,8 +99,8 @@ XmlDownloader::XmlDownloader(Profile* profile,
                              base::TimeDelta first_fetch_delay,
                              base::RepeatingCallback<void()> all_done_callback)
     : service_(service), all_done_callback_(std::move(all_done_callback)) {
-  file_url_factory_ =
-      content::CreateFileURLLoaderFactory(base::FilePath(), nullptr);
+  file_url_factory_.Bind(
+      content::CreateFileURLLoaderFactory(base::FilePath(), nullptr));
   other_url_factory_ =
       content::BrowserContext::GetDefaultStoragePartition(profile)
           ->GetURLLoaderFactoryForBrowserProcess();
@@ -331,7 +331,7 @@ void BrowserSwitcherService::OnAllRulesetsParsed() {
     std::move(all_rulesets_loaded_callback_for_testing_).Run();
 }
 
-std::unique_ptr<BrowserSwitcherService::CallbackSubscription>
+base::CallbackListSubscription
 BrowserSwitcherService::RegisterAllRulesetsParsedCallback(
     AllRulesetsParsedCallback callback) {
   return callback_list_.Add(callback);

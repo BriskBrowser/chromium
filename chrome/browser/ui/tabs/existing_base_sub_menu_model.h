@@ -40,7 +40,7 @@ class ExistingBaseSubMenuModel : public ui::SimpleMenuModel,
 
   // Command IDs for various submenus.
   static constexpr int kMinExistingWindowCommandId = 1001;
-  static constexpr int kMinExistingTabGroupCommandId = 2001;
+  static constexpr int kMinExistingTabGroupCommandId = 1301;
 
   ~ExistingBaseSubMenuModel() override;
 
@@ -56,6 +56,8 @@ class ExistingBaseSubMenuModel : public ui::SimpleMenuModel,
 
     // The optional image for an entry in the sub menu.
     base::Optional<ui::ImageModel> image;
+
+    bool may_have_mnemonics = true;
   };
 
   // Helper method to create consistent submenus.|new_text| is the label to add

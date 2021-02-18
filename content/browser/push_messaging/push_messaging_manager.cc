@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/check_op.h"
 #include "base/command_line.h"
 #include "base/macros.h"
@@ -23,7 +23,6 @@
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
-#include "content/browser/service_worker/service_worker_storage.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/permission_type.h"
@@ -463,10 +462,12 @@ void PushMessagingManager::Core::RegisterOnUI(
           // Request notifications permission (which will fail, since
           // notifications aren't supported in incognito), so the website can't
           // detect whether incognito is active.
+          GURL requesting_origin = data.requesting_origin;
+          bool user_gesture = data.user_gesture;
           PermissionControllerImpl::FromBrowserContext(browser_context)
               ->RequestPermission(
                   PermissionType::NOTIFICATIONS, render_frame_host,
-                  data.requesting_origin, data.user_gesture,
+                  requesting_origin, user_gesture,
                   base::BindOnce(&PushMessagingManager::Core::
                                      DidRequestPermissionInIncognito,
                                  weak_factory_ui_to_ui_.GetWeakPtr(),
@@ -479,12 +480,13 @@ void PushMessagingManager::Core::RegisterOnUI(
 
   int64_t registration_id = data.service_worker_registration_id;
   GURL requesting_origin = data.requesting_origin;
+  bool user_gesture = data.user_gesture;
 
   auto options = data.options->Clone();
   if (IsRequestFromDocument(render_frame_id_)) {
     push_service->SubscribeFromDocument(
         requesting_origin, registration_id, render_process_id_,
-        render_frame_id_, std::move(options), data.user_gesture,
+        render_frame_id_, std::move(options), user_gesture,
         base::BindOnce(&Core::DidRegister, weak_factory_ui_to_ui_.GetWeakPtr(),
                        std::move(data)));
   } else {
@@ -560,7 +562,7 @@ void PushMessagingManager::PersistRegistrationOnSW(
     const std::vector<uint8_t>& auth,
     blink::mojom::PushRegistrationStatus status) {
   DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
-  GURL requesting_origin = data.requesting_origin;
+  url::Origin requesting_origin = url::Origin::Create(data.requesting_origin);
   int64_t registration_id = data.service_worker_registration_id;
   std::string application_server_key(
       std::string(data.options->application_server_key.begin(),
@@ -838,7 +840,8 @@ void PushMessagingManager::DidGetSubscription(
     case blink::ServiceWorkerStatusCode::kErrorDiskCache:
     case blink::ServiceWorkerStatusCode::kErrorRedundant:
     case blink::ServiceWorkerStatusCode::kErrorDisallowed:
-    case blink::ServiceWorkerStatusCode::kErrorInvalidArguments: {
+    case blink::ServiceWorkerStatusCode::kErrorInvalidArguments:
+    case blink::ServiceWorkerStatusCode::kErrorStorageDisconnected: {
       NOTREACHED() << "Got unexpected error code: "
                    << static_cast<uint32_t>(service_worker_status) << " "
                    << blink::ServiceWorkerStatusToString(service_worker_status);

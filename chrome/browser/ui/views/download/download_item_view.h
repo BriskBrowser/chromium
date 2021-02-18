@@ -12,7 +12,7 @@
 #include "base/files/file_path.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/strings/string16.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "base/time/time.h"
@@ -32,6 +32,7 @@
 #include "ui/views/animation/animation_delegate_views.h"
 #include "ui/views/context_menu_controller.h"
 #include "ui/views/controls/button/button.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 
 class DownloadShelfView;
@@ -63,11 +64,12 @@ class StyledLabel;
 // The DownloadItemView lives in the Browser, and has a corresponding
 // DownloadController that receives / writes data which lives in the Renderer.
 class DownloadItemView : public views::View,
-                         public views::ButtonListener,
                          public views::ContextMenuController,
                          public DownloadUIModel::Observer,
                          public views::AnimationDelegateViews {
  public:
+  METADATA_HEADER(DownloadItemView);
+
   enum class Mode;
 
   DownloadItemView(DownloadUIModel::DownloadUIModelPtr model,
@@ -83,9 +85,6 @@ class DownloadItemView : public views::View,
   void OnMouseCaptureLost() override;
   base::string16 GetTooltipText(const gfx::Point& p) const override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
-
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
   // views::ContextMenuController:
   void ShowContextMenuForViewImpl(View* source,
@@ -122,7 +121,8 @@ class DownloadItemView : public views::View,
   Mode GetDesiredMode() const;
 
   // Sets the current mode to |mode| and updates UI appropriately.
-  void UpdateMode(Mode mode);
+  void SetMode(Mode mode);
+  Mode GetMode() const;
 
   // Updates the file path, and if necessary, begins loading the file icon in
   // various sizes. This may eventually result in a callback to
@@ -135,8 +135,8 @@ class DownloadItemView : public views::View,
   // Updates the visible and enabled state of all buttons.
   void UpdateButtons();
 
-  // Updates the accessible alert and timers for normal mode.
-  void UpdateAccessibleAlertAndTimersForNormalMode();
+  // Updates the accessible alert and animation-related state for normal mode.
+  void UpdateAccessibleAlertAndAnimationsForNormalMode();
 
   // Update accessible status text, and announce it if desired.
   void UpdateAccessibleAlert(const base::string16& alert);
@@ -179,6 +179,7 @@ class DownloadItemView : public views::View,
 
   // Returns the file name to report to the user. It might be elided to fit into
   // the text width. |label| dictates the default text style.
+  base::string16 ElidedFilename(const views::Label& label) const;
   base::string16 ElidedFilename(const views::StyledLabel& label) const;
 
   // Returns the Y coordinate that centers |element_height| within the current
@@ -192,9 +193,15 @@ class DownloadItemView : public views::View,
 
   // Sets the state and triggers a repaint.
   void SetDropdownPressed(bool pressed);
+  bool GetDropdownPressed() const;
 
   // Sets |dropdown_button_| to have the correct image for the current state.
   void UpdateDropdownButtonImage();
+
+  // Called when various buttons are pressed.
+  void OpenButtonPressed();
+  void SaveOrDiscardButtonPressed(DownloadCommands::Command command);
+  void DropdownButtonPressed(const ui::Event& event);
 
   // Shows an appropriate prompt dialog when the user hits the "open" button
   // when not in normal mode.
@@ -251,7 +258,7 @@ class DownloadItemView : public views::View,
   // used, so that we can detect a change in the path and reload the icon.
   base::FilePath file_path_;
 
-  views::StyledLabel* file_name_label_;
+  views::Label* file_name_label_;
   views::Label* status_label_;
   views::StyledLabel* warning_label_;
   views::StyledLabel* deep_scanning_label_;
@@ -296,7 +303,8 @@ class DownloadItemView : public views::View,
   // Forces reading the current alert text the next time it updates.
   bool announce_accessible_alert_soon_ = false;
 
-  ScopedObserver<DownloadUIModel, DownloadUIModel::Observer> observer_{this};
+  base::ScopedObservation<DownloadUIModel, DownloadUIModel::Observer>
+      observation_{this};
 
   // Method factory used to delay reenabling of the item when opening the
   // downloaded file.

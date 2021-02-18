@@ -132,14 +132,9 @@ public class Navigation extends IClientNavigation.Stub {
      * status is determined for a navigation when processing final (post redirect) HTTP response
      * headers. This means the only time the embedder can know if it's a download is in
      * NavigationCallback.onNavigationFailed.
-     *
-     * @since 84
      */
     public boolean isDownload() {
         ThreadCheck.ensureOnUiThread();
-        if (WebLayer.getSupportedMajorVersionInternal() < 84) {
-            throw new UnsupportedOperationException();
-        }
         try {
             return mNavigationImpl.isDownload();
         } catch (RemoteException e) {
@@ -148,16 +143,80 @@ public class Navigation extends IClientNavigation.Stub {
     }
 
     /**
+     * Whether the target URL can be handled by the browser's internal protocol handlers, i.e., has
+     * a scheme that the browser knows how to process internally. Examples of such URLs are
+     * http(s) URLs, data URLs, and file URLs. A typical example of a URL for which there is no
+     * internal protocol handler (and for which this method would return also) is an intent:// URL.
+     *
+     * @return Whether the target URL of the navigation has a known protocol.
+     *
+     * @since 89
+     */
+    public boolean isKnownProtocol() {
+        ThreadCheck.ensureOnUiThread();
+        if (WebLayer.getSupportedMajorVersionInternal() < 89) {
+            throw new UnsupportedOperationException();
+        }
+        try {
+            return mNavigationImpl.isKnownProtocol();
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
+    }
+
+    /**
+     * Whether this navigation resulted in an external intent being launched. Returns false if this
+     * navigation did not do so, or if that status is not yet known for this navigation.  This
+     * status is determined for a navigation when processing final (post redirect) HTTP response
+     * headers. This means the only time the embedder can know if the navigation resulted in an
+     * external intent being launched is in NavigationCallback.onNavigationFailed.
+     *
+     * @return Whether an intent was launched for the navigation.
+     *
+     * @since 89
+     */
+    public boolean wasIntentLaunched() {
+        ThreadCheck.ensureOnUiThread();
+        if (WebLayer.getSupportedMajorVersionInternal() < 89) {
+            throw new UnsupportedOperationException();
+        }
+        try {
+            return mNavigationImpl.wasIntentLaunched();
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
+    }
+
+    /**
+     * Whether this navigation resulted in the user deciding whether an external intent should be
+     * launched (e.g., via a dialog). Returns false if this navigation did not resolve to such a
+     * user decision, or if that status is not yet known for this navigation.  This status is
+     * determined for a navigation when processing final (post redirect) HTTP response headers. This
+     * means the only time the embedder can know this status definitively is in
+     * NavigationCallback.onNavigationFailed.
+     *
+     * @return Whether this navigation resulted in a user decision guarding external intent launch.
+     *
+     * @since 89
+     */
+    public boolean isUserDecidingIntentLaunch() {
+        ThreadCheck.ensureOnUiThread();
+        if (WebLayer.getSupportedMajorVersionInternal() < 89) {
+            throw new UnsupportedOperationException();
+        }
+        try {
+            return mNavigationImpl.isUserDecidingIntentLaunch();
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
+    }
+
+    /**
      * Whether this navigation was stopped before it could complete because
      * NavigationController.stop() was called.
-     *
-     * @since 84
      */
     public boolean wasStopCalled() {
         ThreadCheck.ensureOnUiThread();
-        if (WebLayer.getSupportedMajorVersionInternal() < 84) {
-            throw new UnsupportedOperationException();
-        }
         try {
             return mNavigationImpl.wasStopCalled();
         } catch (RemoteException e) {
@@ -176,21 +235,42 @@ public class Navigation extends IClientNavigation.Stub {
      * reset during the redirect. In other words, if you need to set a referer that applies to
      * redirects, then this must be called from {@link onNavigationRedirected}.
      *
+     * Note that any headers that are set here won't be sent again if the frame html is fetched
+     * again due to a user reloading the page, navigating back and forth etc... when this fetch
+     * couldn't be cached (either in the disk cache or in the back-forward cache).
+     *
      * @param name The name of the header. The name must be rfc 2616 compliant.
      * @param value The value of the header. The value must not contain '\0', '\n' or '\r'.
      *
      * @throws IllegalArgumentException If supplied invalid values.
      * @throws IllegalStateException If not called during start or a redirect.
-     *
-     * @since 83
      */
     public void setRequestHeader(@NonNull String name, @NonNull String value) {
         ThreadCheck.ensureOnUiThread();
-        if (WebLayer.getSupportedMajorVersionInternal() < 83) {
+        try {
+            mNavigationImpl.setRequestHeader(name, value);
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
+    }
+
+    /**
+     * Disables auto-reload for this navigation if the network is down and comes back later.
+     * Auto-reload is enabled by default. This method may only be called from
+     * {@link NavigationCallback.onNavigationStarted}.
+     *
+     * @throws IllegalStateException If not called during start.
+     *
+     * @since 88
+     */
+    public void disableNetworkErrorAutoReload() {
+        ThreadCheck.ensureOnUiThread();
+        if (WebLayer.shouldPerformVersionChecks()
+                && WebLayer.getSupportedMajorVersionInternal() < 88) {
             throw new UnsupportedOperationException();
         }
         try {
-            mNavigationImpl.setRequestHeader(name, value);
+            mNavigationImpl.disableNetworkErrorAutoReload();
         } catch (RemoteException e) {
             throw new APICallException(e);
         }
@@ -201,19 +281,19 @@ public class Navigation extends IClientNavigation.Stub {
      * sticky, it applies to this navigation only (and any redirects or resources that are loaded).
      * This method may only be called from {@link NavigationCallback.onNavigationStarted}.
      *
+     * Note that this user agent won't be sent again if the frame html is fetched again due to a
+     * user reloading the page, navigating back and forth etc... when this fetch couldn't be cached
+     * (either in the disk cache or in the back-forward cache).
+     *
      * @param value The user-agent string. The value must not contain '\0', '\n' or '\r'. An empty
      * string results in the default user-agent string.
      *
      * @throws IllegalArgumentException If supplied an invalid value.
-     * @throws IllegalStateException If not called during start.
-     *
-     * @since 84
+     * @throws IllegalStateException If not called during start or if {@link
+     *         Tab.setDesktopUserAgent} was called with a value of true.
      */
     public void setUserAgentString(@NonNull String value) {
         ThreadCheck.ensureOnUiThread();
-        if (WebLayer.getSupportedMajorVersionInternal() < 84) {
-            throw new UnsupportedOperationException();
-        }
         try {
             mNavigationImpl.setUserAgentString(value);
         } catch (RemoteException e) {
@@ -233,14 +313,9 @@ public class Navigation extends IClientNavigation.Stub {
      *  window.history.forward() or window.history.back().
      *
      * @return Whether the navigation was initiated by the page.
-     *
-     * @since 86
      */
     public boolean isPageInitiated() {
         ThreadCheck.ensureOnUiThread();
-        if (WebLayer.getSupportedMajorVersionInternal() < 86) {
-            throw new UnsupportedOperationException();
-        }
         try {
             return mNavigationImpl.isPageInitiated();
         } catch (RemoteException e) {
@@ -253,16 +328,32 @@ public class Navigation extends IClientNavigation.Stub {
      * * embedder-specified through NavigationController::Reload
      * * page-initiated reloads, e.g. location.reload()
      * * reloads when the network interface is reconnected
-     *
-     * @since 86
      */
     public boolean isReload() {
         ThreadCheck.ensureOnUiThread();
-        if (WebLayer.getSupportedMajorVersionInternal() < 86) {
+        try {
+            return mNavigationImpl.isReload();
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
+    }
+
+    /**
+     * Whether the navigation is restoring a page from back-forward cache (see
+     * https://web.dev/bfcache/). Since a previously loaded page is being reused, there are some
+     * things embedders have to keep in mind such as:
+     *   * there will be no NavigationObserver::onFirstContentfulPaint callbacks
+     *   * if an embedder injects code using Tab::ExecuteScript there is no need to reinject scripts
+     *
+     * @since 89
+     */
+    public boolean isServedFromBackForwardCache() {
+        ThreadCheck.ensureOnUiThread();
+        if (WebLayer.getSupportedMajorVersionInternal() < 89) {
             throw new UnsupportedOperationException();
         }
         try {
-            return mNavigationImpl.isReload();
+            return mNavigationImpl.isServedFromBackForwardCache();
         } catch (RemoteException e) {
             throw new APICallException(e);
         }

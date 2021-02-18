@@ -118,6 +118,10 @@ sk_sp<PaintFilter> PaintRenderingContext2D::StateGetFilter() {
                                                 this);
 }
 
+CanvasColorParams PaintRenderingContext2D::GetCanvas2DColorParams() const {
+  return CanvasColorParams();
+}
+
 void PaintRenderingContext2D::WillOverwriteCanvas() {
   previous_frame_.reset();
   if (did_record_draw_commands_in_paint_recorder_) {
@@ -128,7 +132,7 @@ void PaintRenderingContext2D::WillOverwriteCanvas() {
 }
 
 DOMMatrix* PaintRenderingContext2D::getTransform() {
-  const AffineTransform& t = GetState().Transform();
+  const TransformationMatrix& t = GetState().GetTransform();
   DOMMatrix* m = DOMMatrix::Create();
   m->setA(t.A() / effective_zoom_);
   m->setB(t.B() / effective_zoom_);

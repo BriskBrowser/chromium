@@ -132,13 +132,13 @@ struct URLResponseHead {
   array<url.mojom.Url> url_list_via_service_worker;
 
   // https://fetch.spec.whatwg.org/#concept-response-type
-  //
-  // TODO(falken): Initialize to kDefault per spec, if that doesn't
-  // break things. Previously this field was not being initialized
-  // explicitly, so it was zero-initializing which happens to be the
-  // kBasic type. So changing it to kDefault could potentially change
-  // behavior.
-  FetchResponseType response_type = FetchResponseType.kBasic;
+  FetchResponseType response_type = FetchResponseType.kDefault;
+
+  // Pre-computed padding.  This should only be non-zero when |response_type|
+  // is set to kOpaque.  Note, this is not set by network service, but will be
+  // populated if the response was provided by a service worker FetchEvent
+  // handler.
+  int64 padding = 0;
 
   // The cache name of the CacheStorage from where the response is served via
   // the ServiceWorker. Empty if the response isn't from the CacheStorage.
@@ -183,6 +183,9 @@ struct URLResponseHead {
   // True if this resource is served from the prefetch cache.
   bool was_in_prefetch_cache = false;
 
+  // True if the request included a cookie.
+  bool was_cookie_in_request = false;
+
   // True if the response was intercepted by a plugin.
   bool intercepted_by_plugin = false;
 
@@ -222,4 +225,14 @@ struct URLResponseHead {
   // is propagated to the renderer and set on recursive prefetch requests
   // (see corresponding documentation in url_loader.mojom).
   mojo_base.mojom.UnguessableToken? recursive_prefetch_token;
+
+  // Aliases, if any, for the destination URL, as read from DNS CNAME records.
+  // The first entry of `dns_aliases`, if it exists, is the canonical name.
+  // The alias chain is preserved in reverse order, from canonical name (i.e.
+  // address record name) through to query name.
+  array<string> dns_aliases;
+
+  // The URL of WebBundle this response was loaded from. This value is only
+  // populated for resources loaded from a WebBundle.
+  url.mojom.Url web_bundle_url;
 };

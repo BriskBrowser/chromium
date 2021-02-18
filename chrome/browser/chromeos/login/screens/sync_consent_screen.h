@@ -79,7 +79,7 @@ class SyncConsentScreen : public BaseScreen,
                     const ScreenExitCallback& exit_callback);
   ~SyncConsentScreen() override;
 
-  // Inits |user_|, its |profile_| and |behavior_| before using the screen.
+  // Inits `user_`, its `profile_` and `behavior_` before using the screen.
   void Init();
 
   // syncer::SyncServiceObserver:
@@ -104,9 +104,6 @@ class SyncConsentScreen : public BaseScreen,
   // Enables sync if required when skipping the dialog.
   void MaybeEnableSyncForSkip();
 
-  static std::unique_ptr<base::AutoReset<bool>> ForceBrandedBuildForTesting(
-      bool value);
-
   // Sets internal condition "Sync disabled by policy" for tests.
   void SetProfileSyncDisabledByPolicyForTesting(bool value);
 
@@ -127,7 +124,7 @@ class SyncConsentScreen : public BaseScreen,
   }
 
  private:
-  // Marks the dialog complete and runs |exit_callback_|.
+  // Marks the dialog complete and runs `exit_callback_`.
   void Finish(Result result);
 
   // BaseScreen:
@@ -138,7 +135,7 @@ class SyncConsentScreen : public BaseScreen,
   // Returns new SyncScreenBehavior value.
   SyncScreenBehavior GetSyncScreenBehavior() const;
 
-  // Calculates updated |behavior_| and performs required update actions.
+  // Calculates updated `behavior_` and performs required update actions.
   void UpdateScreen();
 
   // Records user Sync consent.
@@ -178,5 +175,9 @@ class SyncConsentScreen : public BaseScreen,
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after //chrome/browser/chromeos
+// source migration is finished.
+using ::chromeos::SyncConsentScreen;
 
 #endif  // CHROME_BROWSER_CHROMEOS_LOGIN_SCREENS_SYNC_CONSENT_SCREEN_H_

@@ -17,6 +17,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
+#include "base/strings/abseil_string_conversions.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -128,11 +129,11 @@ const char kStar[] = "*";
 const char kAcceptEncoding[] = "accept-encoding";
 
 enum PushedStreamVaryResponseHeaderValues ParseVaryInPushedResponse(
-    const spdy::SpdyHeaderBlock& headers) {
-  spdy::SpdyHeaderBlock::iterator it = headers.find(kVary);
+    const spdy::Http2HeaderBlock& headers) {
+  spdy::Http2HeaderBlock::iterator it = headers.find(kVary);
   if (it == headers.end())
     return kNoVaryHeader;
-  base::StringPiece value(it->second);
+  base::StringPiece value = base::StringViewToStringPiece(it->second);
   if (value.empty())
     return kVaryIsEmpty;
   if (value == kStar)
@@ -222,7 +223,7 @@ bool IsPushEnabled(const spdy::SettingsMap& initial_settings) {
   return it->second == 1;
 }
 
-base::Value NetLogSpdyHeadersSentParams(const spdy::SpdyHeaderBlock* headers,
+base::Value NetLogSpdyHeadersSentParams(const spdy::Http2HeaderBlock* headers,
                                         bool fin,
                                         spdy::SpdyStreamId stream_id,
                                         bool has_priority,
@@ -232,7 +233,8 @@ base::Value NetLogSpdyHeadersSentParams(const spdy::SpdyHeaderBlock* headers,
                                         NetLogSource source_dependency,
                                         NetLogCaptureMode capture_mode) {
   base::Value dict(base::Value::Type::DICTIONARY);
-  dict.SetKey("headers", ElideSpdyHeaderBlockForNetLog(*headers, capture_mode));
+  dict.SetKey("headers",
+              ElideHttp2HeaderBlockForNetLog(*headers, capture_mode));
   dict.SetBoolKey("fin", fin);
   dict.SetIntKey("stream_id", stream_id);
   dict.SetBoolKey("has_priority", has_priority);
@@ -248,12 +250,13 @@ base::Value NetLogSpdyHeadersSentParams(const spdy::SpdyHeaderBlock* headers,
 }
 
 base::Value NetLogSpdyHeadersReceivedParams(
-    const spdy::SpdyHeaderBlock* headers,
+    const spdy::Http2HeaderBlock* headers,
     bool fin,
     spdy::SpdyStreamId stream_id,
     NetLogCaptureMode capture_mode) {
   base::Value dict(base::Value::Type::DICTIONARY);
-  dict.SetKey("headers", ElideSpdyHeaderBlockForNetLog(*headers, capture_mode));
+  dict.SetKey("headers",
+              ElideHttp2HeaderBlockForNetLog(*headers, capture_mode));
   dict.SetBoolKey("fin", fin);
   dict.SetIntKey("stream_id", stream_id);
   return dict;
@@ -384,12 +387,13 @@ base::Value NetLogSpdyRecvGoAwayParams(spdy::SpdyStreamId last_stream_id,
 }
 
 base::Value NetLogSpdyPushPromiseReceivedParams(
-    const spdy::SpdyHeaderBlock* headers,
+    const spdy::Http2HeaderBlock* headers,
     spdy::SpdyStreamId stream_id,
     spdy::SpdyStreamId promised_stream_id,
     NetLogCaptureMode capture_mode) {
   base::Value dict(base::Value::Type::DICTIONARY);
-  dict.SetKey("headers", ElideSpdyHeaderBlockForNetLog(*headers, capture_mode));
+  dict.SetKey("headers",
+              ElideHttp2HeaderBlockForNetLog(*headers, capture_mode));
   dict.SetIntKey("id", stream_id);
   dict.SetIntKey("promised_stream_id", promised_stream_id);
   return dict;
@@ -881,7 +885,7 @@ bool SpdySession::CanPool(
           HostPortPair(new_hostname, 0), ssl_info.is_issued_by_known_root,
           ssl_info.public_key_hashes, ssl_info.unverified_cert.get(),
           ssl_info.cert.get(), TransportSecurityState::DISABLE_PIN_REPORTS,
-          &pinning_failure_log) ==
+          network_isolation_key, &pinning_failure_log) ==
       TransportSecurityState::PKPStatus::VIOLATED) {
     return false;
   }
@@ -922,6 +926,7 @@ SpdySession::SpdySession(
     const base::Optional<SpdySessionPool::GreasedHttp2Frame>&
         greased_http2_frame,
     bool http2_end_stream_with_data_frame,
+    bool enable_priority_update,
     TimeFunc time_func,
     ServerPushDelegate* push_delegate,
     NetworkQualityEstimator* network_quality_estimator,
@@ -949,6 +954,9 @@ SpdySession::SpdySession(
       initial_settings_(initial_settings),
       greased_http2_frame_(greased_http2_frame),
       http2_end_stream_with_data_frame_(http2_end_stream_with_data_frame),
+      enable_priority_update_(enable_priority_update),
+      deprecate_http2_priorities_(false),
+      settings_frame_received_(false),
       in_confirm_handshake_(false),
       max_concurrent_streams_(kInitialMaxConcurrentStreams),
       max_concurrent_pushed_streams_(
@@ -1154,6 +1162,18 @@ void SpdySession::EnqueueGreasedFrame(const base::WeakPtr<SpdyStream>& stream) {
       stream, stream->traffic_annotation());
 }
 
+bool SpdySession::ShouldSendHttp2Priority() const {
+  return !enable_priority_update_ || !deprecate_http2_priorities_;
+}
+
+bool SpdySession::ShouldSendPriorityUpdate() const {
+  if (!enable_priority_update_) {
+    return false;
+  }
+
+  return settings_frame_received_ ? deprecate_http2_priorities_ : true;
+}
+
 int SpdySession::ConfirmHandshake(CompletionOnceCallback callback) {
   int rv = ERR_IO_PENDING;
   if (!in_confirm_handshake_) {
@@ -1172,7 +1192,7 @@ std::unique_ptr<spdy::SpdySerializedFrame> SpdySession::CreateHeaders(
     spdy::SpdyStreamId stream_id,
     RequestPriority priority,
     spdy::SpdyControlFlags flags,
-    spdy::SpdyHeaderBlock block,
+    spdy::Http2HeaderBlock block,
     NetLogSource source_dependency) {
   ActiveStreamMap::const_iterator it = active_streams_.find(stream_id);
   CHECK(it != active_streams_.end());
@@ -1646,9 +1666,9 @@ bool SpdySession::ValidatePushedStream(spdy::SpdyStreamId stream_id,
     NOTREACHED();
     return false;
   }
-  const spdy::SpdyHeaderBlock& request_headers =
+  const spdy::Http2HeaderBlock& request_headers =
       stream_it->second->request_headers();
-  spdy::SpdyHeaderBlock::const_iterator method_it =
+  spdy::Http2HeaderBlock::const_iterator method_it =
       request_headers.find(spdy::kHttp2MethodHeader);
   if (method_it == request_headers.end()) {
     // TryCreatePushStream() would have reset the stream if it had no method.
@@ -1900,7 +1920,7 @@ void SpdySession::ProcessPendingStreamRequests() {
 
 void SpdySession::TryCreatePushStream(spdy::SpdyStreamId stream_id,
                                       spdy::SpdyStreamId associated_stream_id,
-                                      spdy::SpdyHeaderBlock headers) {
+                                      spdy::Http2HeaderBlock headers) {
   // Pushed streams are speculative, so they start at an IDLE priority.
   // TODO(bnc): Send pushed stream cancellation with higher priority to avoid
   // wasting bandwidth.
@@ -1979,7 +1999,7 @@ void SpdySession::TryCreatePushStream(spdy::SpdyStreamId stream_id,
   // "Promised requests MUST be cacheable and MUST be safe [...]" (RFC7540
   // Section 8.2).  Only cacheable safe request methods are GET and HEAD.
   // GetPromisedUrlFromHeaders() guarantees that the method is GET or HEAD.
-  spdy::SpdyHeaderBlock::const_iterator it =
+  spdy::Http2HeaderBlock::const_iterator it =
       headers.find(spdy::kHttp2MethodHeader);
   DCHECK(it != headers.end() && (it->second == "GET" || it->second == "HEAD"));
 
@@ -2659,6 +2679,26 @@ void SpdySession::HandleSetting(uint32_t id, uint32_t value) {
         support_websocket_ = true;
       }
       break;
+    case spdy::SETTINGS_DEPRECATE_HTTP2_PRIORITIES:
+      if (value != 0 && value != 1) {
+        DoDrainSession(
+            ERR_HTTP2_PROTOCOL_ERROR,
+            "Invalid value for spdy::SETTINGS_DEPRECATE_HTTP2_PRIORITIES.");
+        return;
+      }
+      if (settings_frame_received_) {
+        if (value != (deprecate_http2_priorities_ ? 1 : 0)) {
+          DoDrainSession(ERR_HTTP2_PROTOCOL_ERROR,
+                         "spdy::SETTINGS_DEPRECATE_HTTP2_PRIORITIES value "
+                         "changed after first SETTINGS frame.");
+          return;
+        }
+      } else {
+        if (value == 1) {
+          deprecate_http2_priorities_ = true;
+        }
+      }
+      break;
   }
 }
 
@@ -2918,7 +2958,7 @@ void SpdySession::RecordProtocolErrorHistogram(
 
 // static
 void SpdySession::RecordPushedStreamVaryResponseHeaderHistogram(
-    const spdy::SpdyHeaderBlock& headers) {
+    const spdy::Http2HeaderBlock& headers) {
   UMA_HISTOGRAM_ENUMERATION("Net.PushedStreamVaryResponseHeader",
                             ParseVaryInPushedResponse(headers),
                             kNumberOfVaryEntries);
@@ -3305,6 +3345,10 @@ void SpdySession::OnSetting(spdy::SpdySettingsId id, uint32_t value) {
                     [&] { return NetLogSpdyRecvSettingParams(id, value); });
 }
 
+void SpdySession::OnSettingsEnd() {
+  settings_frame_received_ = true;
+}
+
 void SpdySession::OnWindowUpdate(spdy::SpdyStreamId stream_id,
                                  int delta_window_size) {
   CHECK(in_io_loop_);
@@ -3352,7 +3396,7 @@ void SpdySession::OnWindowUpdate(spdy::SpdyStreamId stream_id,
 
 void SpdySession::OnPushPromise(spdy::SpdyStreamId stream_id,
                                 spdy::SpdyStreamId promised_stream_id,
-                                spdy::SpdyHeaderBlock headers) {
+                                spdy::Http2HeaderBlock headers) {
   CHECK(in_io_loop_);
 
   net_log_.AddEvent(NetLogEventType::HTTP2_SESSION_RECV_PUSH_PROMISE,
@@ -3371,7 +3415,7 @@ void SpdySession::OnHeaders(spdy::SpdyStreamId stream_id,
                             spdy::SpdyStreamId parent_stream_id,
                             bool exclusive,
                             bool fin,
-                            spdy::SpdyHeaderBlock headers,
+                            spdy::Http2HeaderBlock headers,
                             base::TimeTicks recv_first_byte_time) {
   CHECK(in_io_loop_);
 

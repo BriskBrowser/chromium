@@ -45,13 +45,14 @@ jlong JNI_PaymentRequestSpec_Create(
 }
 
 // static
-payments::PaymentRequestSpec* PaymentRequestSpec::FromJavaPaymentRequestSpec(
+base::WeakPtr<payments::PaymentRequestSpec>
+PaymentRequestSpec::FromJavaPaymentRequestSpec(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& jpayment_request_spec) {
   return reinterpret_cast<PaymentRequestSpec*>(
              Java_PaymentRequestSpec_getNativePointer(env,
                                                       jpayment_request_spec))
-      ->spec_.get();
+      ->spec_->AsWeakPtr();
 }
 
 PaymentRequestSpec::PaymentRequestSpec(
@@ -88,6 +89,23 @@ base::android::ScopedJavaLocalRef<jstring>
 PaymentRequestSpec::SelectedShippingOptionError(JNIEnv* env) {
   return base::android::ConvertUTF16ToJavaString(
       env, spec_->selected_shipping_option_error());
+}
+
+base::android::ScopedJavaLocalRef<jbyteArray>
+PaymentRequestSpec::GetPaymentDetails(JNIEnv* env) {
+  return base::android::ToJavaByteArray(
+      env, mojom::PaymentDetails::Serialize(&spec_->details_ptr()));
+}
+
+base::android::ScopedJavaLocalRef<jbyteArray>
+PaymentRequestSpec::GetPaymentOptions(JNIEnv* env) {
+  return base::android::ToJavaByteArray(
+      env, mojom::PaymentOptions::Serialize(&spec_->payment_options()));
+}
+
+base::android::ScopedJavaLocalRef<jobjectArray>
+PaymentRequestSpec::GetMethodData(JNIEnv* env) {
+  return SerializeToJavaArrayOfByteArrays(env, spec_->method_data());
 }
 
 void PaymentRequestSpec::Destroy(JNIEnv* env) {

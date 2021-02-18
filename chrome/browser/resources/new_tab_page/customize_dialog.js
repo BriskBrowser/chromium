@@ -8,35 +8,18 @@ import 'chrome://resources/cr_elements/cr_toggle/cr_toggle.m.js';
 import 'chrome://resources/cr_elements/hidden_style_css.m.js';
 import 'chrome://resources/polymer/v3_0/iron-pages/iron-pages.js';
 import 'chrome://resources/polymer/v3_0/iron-selector/iron-selector.js';
+import 'chrome://resources/cr_components/customize_themes/customize_themes.js';
 import './customize_backgrounds.js';
 import './customize_shortcuts.js';
-import './customize_themes.js';
+import './customize_modules.js';
 
 import {assert} from 'chrome://resources/js/assert.m.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {BrowserProxy} from './browser_proxy.js';
+import {BackgroundSelection, BackgroundSelectionType} from './customize_dialog_types.js';
 import {createScrollBorders} from './utils.js';
-
-/** @enum {number} */
-export const BackgroundSelectionType = {
-  NO_SELECTION: 0,
-  NO_BACKGROUND: 1,
-  IMAGE: 2,
-  DAILY_REFRESH: 3,
-};
-
-/**
- * A user can make three types of background selections: no background, image
- * or daily refresh for a selected collection. The selection is tracked an
- * object of this type.
- * @typedef {{
- *   type: !BackgroundSelectionType,
- *   image: (!newTabPage.mojom.CollectionImage|undefined),
- *   dailyRefreshCollectionId: (string|undefined),
- * }}
- */
-export let BackgroundSelection;
 
 /**
  * Dialog that lets the user customize the NTP such as the background color or
@@ -91,6 +74,18 @@ class CustomizeDialogElement extends PolymerElement {
         computed: `computeIsRefreshToggleChecked_(theme, selectedCollection_,
             backgroundSelection)`,
       },
+
+      /** @private */
+      shortcutsEnabled_: {
+        type: Boolean,
+        value: () => loadTimeData.getBoolean('shortcutsEnabled'),
+      },
+
+      /** @private */
+      modulesEnabled_: {
+        type: Boolean,
+        value: () => loadTimeData.getBoolean('modulesEnabled'),
+      },
     };
   }
 
@@ -129,7 +124,7 @@ class CustomizeDialogElement extends PolymerElement {
 
   /** @private */
   onCancel_() {
-    this.pageHandler_.revertThemeChanges();
+    this.$.customizeThemes.revertThemeChanges();
     this.backgroundSelection = {type: BackgroundSelectionType.NO_SELECTION};
   }
 
@@ -151,8 +146,11 @@ class CustomizeDialogElement extends PolymerElement {
    * @private
    */
   onDoneClick_() {
-    this.pageHandler_.confirmThemeChanges();
+    this.$.customizeThemes.confirmThemeChanges();
     this.shadowRoot.querySelector('ntp-customize-shortcuts').apply();
+    if (this.modulesEnabled_) {
+      this.shadowRoot.querySelector('ntp-customize-modules').apply();
+    }
     switch (this.backgroundSelection.type) {
       case BackgroundSelectionType.NO_BACKGROUND:
         this.pageHandler_.setNoBackgroundImage();

@@ -20,12 +20,10 @@
 #error "This file requires ARC support."
 #endif
 
-#if defined(CHROME_EARL_GREY_2)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wc++98-compat-extra-semi"
 GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(SigninSettingsAppInterface);
 #pragma clang diagnostic pop
-#endif  // defined(CHROME_EARL_GREY_2)
 
 using chrome_test_util::PrimarySignInButton;
 using chrome_test_util::SecondarySignInButton;
@@ -38,11 +36,11 @@ using chrome_test_util::ButtonWithAccessibilityLabelId;
 
 @implementation SigninSettingsTestCase
 
-// Tests the primary button with a cold state.
-- (void)testSignInPromoWithColdStateUsingPrimaryButton {
+// Tests the primary button with no accounts on the device.
+- (void)testSignInPromoWithNoAccountsOnDeviceUsingPrimaryButton {
   [ChromeEarlGreyUI openSettingsMenu];
   [SigninEarlGreyUI
-      verifySigninPromoVisibleWithMode:SigninPromoViewModeColdState];
+      verifySigninPromoVisibleWithMode:SigninPromoViewModeNoAccounts];
   [ChromeEarlGreyUI tapSettingsMenuButton:PrimarySignInButton()];
 
   // Cancel the sign-in operation.
@@ -50,17 +48,17 @@ using chrome_test_util::ButtonWithAccessibilityLabelId;
                                           kSkipSigninAccessibilityIdentifier)]
       performAction:grey_tap()];
   [SigninEarlGreyUI
-      verifySigninPromoVisibleWithMode:SigninPromoViewModeColdState];
+      verifySigninPromoVisibleWithMode:SigninPromoViewModeNoAccounts];
 }
 
-// Tests signing in, using the primary button with a warm state.
-- (void)testSignInPromoWithWarmStateUsingPrimaryButton {
+// Tests signing in, using the primary button with one account on the device.
+- (void)testSignInPromoWithAccountUsingPrimaryButton {
   FakeChromeIdentity* fakeIdentity = [SigninEarlGrey fakeIdentity1];
   [SigninEarlGrey addFakeIdentity:fakeIdentity];
 
   [ChromeEarlGreyUI openSettingsMenu];
   [SigninEarlGreyUI
-      verifySigninPromoVisibleWithMode:SigninPromoViewModeWarmState];
+      verifySigninPromoVisibleWithMode:SigninPromoViewModeSigninWithAccount];
   [ChromeEarlGreyUI tapSettingsMenuButton:PrimarySignInButton()];
   [SigninEarlGreyUI tapSigninConfirmationDialog];
 
@@ -71,14 +69,14 @@ using chrome_test_util::ButtonWithAccessibilityLabelId;
       assertWithMatcher:grey_interactable()];
 }
 
-// Tests signing in, using the secondary button with a warm state.
+// Tests signing in, using the secondary button with one account on the device.
 - (void)testSignInPromoWithWarmStateUsingSecondaryButton {
   FakeChromeIdentity* fakeIdentity = [SigninEarlGrey fakeIdentity1];
   [SigninEarlGrey addFakeIdentity:fakeIdentity];
 
   [ChromeEarlGreyUI openSettingsMenu];
   [SigninEarlGreyUI
-      verifySigninPromoVisibleWithMode:SigninPromoViewModeWarmState];
+      verifySigninPromoVisibleWithMode:SigninPromoViewModeSigninWithAccount];
   [ChromeEarlGreyUI tapSettingsMenuButton:SecondarySignInButton()];
   [SigninEarlGreyUI selectIdentityWithEmail:fakeIdentity.userEmail];
   [SigninEarlGreyUI tapSigninConfirmationDialog];
@@ -98,7 +96,7 @@ using chrome_test_util::ButtonWithAccessibilityLabelId;
   [ChromeEarlGreyUI openSettingsMenu];
   // Check the sign-in promo view is visible.
   [SigninEarlGreyUI
-      verifySigninPromoVisibleWithMode:SigninPromoViewModeColdState];
+      verifySigninPromoVisibleWithMode:SigninPromoViewModeNoAccounts];
   // Check the sign-in promo will not be shown anymore.
   int newDisplayedCount =
       [SigninSettingsAppInterface settingsSigninPromoDisplayedCount];
@@ -121,7 +119,7 @@ using chrome_test_util::ButtonWithAccessibilityLabelId;
   [ChromeEarlGreyUI openSettingsMenu];
   // Check the sign-in promo view is visible.
   [SigninEarlGreyUI
-      verifySigninPromoVisibleWithMode:SigninPromoViewModeColdState];
+      verifySigninPromoVisibleWithMode:SigninPromoViewModeNoAccounts];
   // Tap on dismiss button.
   [[EarlGrey
       selectElementWithMatcher:grey_allOf(grey_accessibilityID(

@@ -45,16 +45,16 @@ GENERATED = 'Generated at %s by: %s' % (time.ctime(), sys.path[0])
 GENERATED_HTML = '<!-- %s -->\n\n' % GENERATED
 
 
-def read(path):
-  with open(os.path.join(SRC, path)) as f:
+def read(path, mode='r'):
+  with open(os.path.join(SRC, path), mode) as f:
     return f.read()
 
 
-def write(path, content):
+def write(path, content, mode='w'):
   fullpath = os.path.join(GEN, path)
   if not os.path.exists(os.path.dirname(fullpath)):
     os.makedirs(os.path.dirname(fullpath))
-  with open(fullpath, 'w') as f:
+  with open(fullpath, mode) as f:
     f.write(content)
 
 
@@ -123,23 +123,29 @@ def i18n(template):
   return re.sub(r'\$i18n(?:Raw)?\{(.*?)\}', repl, template)
 
 
-# Copy tree from src_dir to dst_dir with substitutions.
-def copytree(src_dir, dst_dir):
+# Copy from src_dir to R_GEN/dst_dir with substitutions.
+def copyresources(src_dir, dst_dir):
   for root, _, files in os.walk(SRC + src_dir):
     for f in files:
       srcf = os.path.join(root[len(SRC):], f)
-      dstf = dst_dir + srcf[len(src_dir):]
-      write(dstf, i18n(read(srcf).replace('chrome://resources/', GEN + R_GEN)))
+      dstf = R_GEN + dst_dir + srcf[len(src_dir):]
+      relpath = os.path.relpath(R_GEN, os.path.dirname(dstf)) + '/'
+      try:
+        write(dstf, i18n(read(srcf).replace('chrome://resources/', relpath)))
+      except UnicodeDecodeError:
+        # Binary files get utf-8 codec errors in py3, copy them as binary.
+        write(dstf, read(srcf, 'rb'), 'wb')
 
 # Copy any files required in chrome://resources/... into test/gen/resources.
-copytree('ui/webui/resources/', R_GEN)
-copytree('third_party/polymer/v1_0/components-chromium/',
-         R_GEN + 'polymer/v1_0/')
+copyresources('ui/webui/resources/', '')
+copyresources('third_party/polymer/v1_0/components-chromium/', 'polymer/v1_0/')
 shutil.rmtree(GEN + R_GEN + 'polymer/v1_0/polymer', ignore_errors=True)
 os.rename(GEN + R_GEN + 'polymer/v1_0/polymer2',
           GEN + R_GEN + 'polymer/v1_0/polymer')
 for css in glob.glob(GEN + '../../webui/resources/css/*.css'):
   shutil.copy(css, GEN + R_GEN + 'css/')
+colors = 'chromeos/colors/cros_colors.generated.css'
+write(GEN + R_GEN + colors, open(GEN + '../../' + colors).read())
 
 # Substitute $i18n{}.
 # Update relative paths, and paths to chrome://resources/.
@@ -254,5 +260,5 @@ for filename, substitutions in (
   main_html = replaceline(main_html, filename,
                           ['<script src="test/gen/%s"></script>' % filename])
 
-test_html = GENERATED_HTML + '\n'.join(main_html).encode('utf-8')
-write('test.html', test_html)
+test_html = (GENERATED_HTML + '\n'.join(main_html)).encode('utf-8')
+write('test.html', test_html, 'wb')

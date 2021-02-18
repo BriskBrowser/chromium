@@ -15,12 +15,14 @@ bool GoogleTtsInit(const char* pipeline_path, const char* path_prefix);
 void GoogleTtsShutdown();
 
 bool GoogleTtsInstallVoice(const char* voice_name,
-                           const char* voice_bytes,
+                           const uint8_t* voice_bytes,
                            int size);
 
-bool GoogleTtsInitBuffered(const char* text_jspb, int text_jspb_len);
+bool GoogleTtsInitBuffered(const uint8_t* text_jspb,
+                           const char* speaker_name,
+                           int text_jspb_len);
 
-int GoogleTtsReadBuffered();
+int GoogleTtsReadBuffered(float* audio_channel_buffer, size_t* frames_written);
 
 void GoogleTtsFinalizeBuffered();
 
@@ -33,4 +35,7 @@ int GoogleTtsGetTimepointsCharIndexAtIndex(size_t index);
 char* GoogleTtsGetEventBufferPtr();
 
 size_t GoogleTtsGetEventBufferLen();
+
+size_t GoogleTtsGetFramesInAudioBuffer();
+
 #endif  // CHROMEOS_SERVICES_TTS_CHROME_TTS_H_

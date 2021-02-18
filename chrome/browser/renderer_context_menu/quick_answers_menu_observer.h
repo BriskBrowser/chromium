@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 
+#include "base/time/time.h"
 #include "chromeos/components/quick_answers/quick_answers_client.h"
 #include "components/renderer_context_menu/render_view_context_menu_observer.h"
 #include "ui/gfx/geometry/rect.h"
@@ -30,11 +31,6 @@ class QuickAnswersMenuObserver
   ~QuickAnswersMenuObserver() override;
 
   // RenderViewContextMenuObserver implementation.
-  void InitMenu(const content::ContextMenuParams& params) override;
-  bool IsCommandIdSupported(int command_id) override;
-  bool IsCommandIdChecked(int command_id) override;
-  bool IsCommandIdEnabled(int command_id) override;
-  void ExecuteCommand(int command_id) override;
   void CommandWillBeExecuted(int command_id) override;
   void OnContextMenuShown(const content::ContextMenuParams& params,
                           const gfx::Rect& bounds_in_screen) override;
@@ -44,17 +40,16 @@ class QuickAnswersMenuObserver
 
   // QuickAnswersDelegate implementation.
   void OnQuickAnswerReceived(
-      std::unique_ptr<chromeos::quick_answers::QuickAnswer> answer) override;
+      std::unique_ptr<chromeos::quick_answers::QuickAnswer> answer) override {}
   void OnEligibilityChanged(bool eligible) override;
-  void OnNetworkError() override;
+  void OnNetworkError() override {}
 
-  void SetQuickAnswerClientForTesting(
-      std::unique_ptr<chromeos::quick_answers::QuickAnswersClient>
-          quick_answers_client);
+  void SetQuickAnswerControllerForTesting(
+      ash::QuickAnswersController* controller) {
+    quick_answers_controller_ = controller;
+  }
 
  private:
-  bool IsRichUiEnabled();
-  void SendAssistantQuery(const std::string& query);
   std::string GetDeviceLanguage();
   void OnTextSurroundingSelectionAvailable(
       const std::string& selected_text,
@@ -72,17 +67,15 @@ class QuickAnswersMenuObserver
   // locale, consents, etc).
   bool is_eligible_ = false;
 
-  // Query used to retrieve quick answer.
-  std::string query_;
-
   gfx::Rect bounds_in_screen_;
-
-  std::unique_ptr<chromeos::quick_answers::QuickAnswer> quick_answer_;
 
   ash::QuickAnswersController* quick_answers_controller_ = nullptr;
 
   // Whether commands other than quick answers is executed.
   bool is_other_command_executed_ = false;
+
+  // Time that the context menu is shown.
+  base::TimeTicks menu_shown_time_;
 
   base::WeakPtrFactory<QuickAnswersMenuObserver> weak_factory_{this};
 };

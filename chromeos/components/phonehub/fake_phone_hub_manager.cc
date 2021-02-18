@@ -4,12 +4,18 @@
 
 #include "chromeos/components/phonehub/fake_phone_hub_manager.h"
 
+#include "ash/constants/ash_features.h"
+
 namespace chromeos {
 namespace phonehub {
 
 FakePhoneHubManager::FakePhoneHubManager() = default;
 
 FakePhoneHubManager::~FakePhoneHubManager() = default;
+
+BrowserTabsModelProvider* FakePhoneHubManager::GetBrowserTabsModelProvider() {
+  return &fake_browser_tabs_model_provider_;
+}
 
 DoNotDisturbController* FakePhoneHubManager::GetDoNotDisturbController() {
   return &fake_do_not_disturb_controller_;
@@ -19,12 +25,26 @@ FeatureStatusProvider* FakePhoneHubManager::GetFeatureStatusProvider() {
   return &fake_feature_status_provider_;
 }
 
+FindMyDeviceController* FakePhoneHubManager::GetFindMyDeviceController() {
+  return &fake_find_my_device_controller_;
+}
+
 NotificationAccessManager* FakePhoneHubManager::GetNotificationAccessManager() {
   return &fake_notification_access_manager_;
 }
 
+NotificationInteractionHandler*
+FakePhoneHubManager::GetNotificationInteractionHandler() {
+  return features::IsEcheSWAEnabled() ? &fake_notification_interaction_handler_
+                                      : nullptr;
+}
+
 NotificationManager* FakePhoneHubManager::GetNotificationManager() {
   return &fake_notification_manager_;
+}
+
+OnboardingUiTracker* FakePhoneHubManager::GetOnboardingUiTracker() {
+  return &fake_onboarding_ui_tracker_;
 }
 
 PhoneModel* FakePhoneHubManager::GetPhoneModel() {
@@ -33,6 +53,14 @@ PhoneModel* FakePhoneHubManager::GetPhoneModel() {
 
 TetherController* FakePhoneHubManager::GetTetherController() {
   return &fake_tether_controller_;
+}
+
+ConnectionScheduler* FakePhoneHubManager::GetConnectionScheduler() {
+  return &fake_connection_scheduler_;
+}
+
+UserActionRecorder* FakePhoneHubManager::GetUserActionRecorder() {
+  return &fake_user_action_recorder_;
 }
 
 }  // namespace phonehub

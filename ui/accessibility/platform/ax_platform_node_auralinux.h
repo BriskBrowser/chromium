@@ -218,6 +218,7 @@ class AX_EXPORT AXPlatformNodeAuraLinux : public AXPlatformNodeBase {
   void OnDescriptionChanged();
   void OnSortDirectionChanged();
   void OnInvalidStatusChanged();
+  void OnAriaCurrentChanged();
   void OnDocumentTitleChanged();
   void OnSubtreeCreated();
   void OnSubtreeWillBeDeleted();
@@ -241,6 +242,7 @@ class AX_EXPORT AXPlatformNodeAuraLinux : public AXPlatformNodeBase {
   // AXPlatformNodeBase overrides.
   void Init(AXPlatformNodeDelegate* delegate) override;
   bool IsPlatformCheckable() const override;
+  base::Optional<int> GetIndexInParent() override;
 
   bool IsNameExposed();
 

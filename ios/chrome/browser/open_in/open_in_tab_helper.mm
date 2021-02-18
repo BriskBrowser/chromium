@@ -5,6 +5,9 @@
 #import "ios/chrome/browser/open_in/open_in_tab_helper.h"
 
 #include "base/memory/ptr_util.h"
+#include "base/metrics/histogram_functions.h"
+#include "base/metrics/user_metrics.h"
+#include "base/metrics/user_metrics_action.h"
 #include "base/strings/sys_string_conversions.h"
 #import "ios/chrome/browser/open_in/features.h"
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
@@ -22,48 +25,34 @@
 #error "This file requires ARC support."
 #endif
 
-namespace {
+namespace content_type {
 
-// .pptx extension.
 const char kMimeTypeMicrosoftPowerPointOpenXML[] =
     "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
-// .docx extension.
 const char kMimeTypeMicrosoftWordOpenXML[] =
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
-// .xlsx extension.
 const char kMimeTypeMicrosoftExcelOpenXML[] =
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-// .pdf extension.
 const char kMimeTypePDF[] = "application/pdf";
 
-// .doc extension.
 const char kMimeTypeMicrosoftWord[] = "application/msword";
 
-// .jpeg or .jpg extension.
 const char kMimeTypeJPEG[] = "image/jpeg";
 
-// .png extension.
 const char kMimeTypePNG[] = "image/png";
 
-// .ppt extension.
 const char kMimeTypeMicrosoftPowerPoint[] = "application/vnd.ms-powerpoint";
 
-// .rtf extension.
 const char kMimeTypeRTF[] = "application/rtf";
 
-// .svg extension.
 const char kMimeTypeSVG[] = "image/svg+xml";
 
-// .xls extension.
 const char kMimeTypeMicrosoftExcel[] = "application/vnd.ms-excel";
 
-// .usdz extension.
-const char kMimeTypeUSDZ[] = "model/vnd.usdz+zip";
-
-}  // namespace
+}  // namespace content_type
 
 // static
 void OpenInTabHelper::CreateForWebState(web::WebState* web_state) {
@@ -87,42 +76,45 @@ OpenInTabHelper::~OpenInTabHelper() {
   }
 }
 
-bool OpenInTabHelper::isExportableFile() const {
-  if (web_state_->GetContentsMimeType() == kMimeTypePDF)
-    return true;
-  if (web_state_->GetContentsMimeType() == kMimeTypeMicrosoftWord)
-    return true;
-  if (web_state_->GetContentsMimeType() == kMimeTypeMicrosoftWordOpenXML)
-    return true;
-  if (web_state_->GetContentsMimeType() == kMimeTypeJPEG)
-    return true;
-  if (web_state_->GetContentsMimeType() == kMimeTypePNG)
-    return true;
-  if (web_state_->GetContentsMimeType() == kMimeTypeMicrosoftPowerPoint)
-    return true;
-  if (web_state_->GetContentsMimeType() == kMimeTypeMicrosoftPowerPointOpenXML)
-    return true;
-  if (web_state_->GetContentsMimeType() == kMimeTypeRTF)
-    return true;
-  if (web_state_->GetContentsMimeType() == kMimeTypeSVG)
-    return true;
-  if (web_state_->GetContentsMimeType() == kMimeTypeMicrosoftExcel)
-    return true;
-  if (web_state_->GetContentsMimeType() == kMimeTypeMicrosoftExcelOpenXML)
-    return true;
-  if (web_state_->GetContentsMimeType() == kMimeTypeUSDZ)
-    return true;
-
-  return false;
+OpenInMimeType OpenInTabHelper::GetUmaResult(
+    const std::string& mime_type) const {
+  if (mime_type == content_type::kMimeTypePDF)
+    return OpenInMimeType::kMimeTypePDF;
+  if (mime_type == content_type::kMimeTypeMicrosoftWord)
+    return OpenInMimeType::kMimeTypeMicrosoftWord;
+  if (mime_type == content_type::kMimeTypeMicrosoftWordOpenXML)
+    return OpenInMimeType::kMimeTypeMicrosoftWordOpenXML;
+  if (mime_type == content_type::kMimeTypeJPEG)
+    return OpenInMimeType::kMimeTypeJPEG;
+  if (mime_type == content_type::kMimeTypePNG)
+    return OpenInMimeType::kMimeTypePNG;
+  if (mime_type == content_type::kMimeTypeMicrosoftPowerPoint)
+    return OpenInMimeType::kMimeTypeMicrosoftPowerPoint;
+  if (mime_type == content_type::kMimeTypeMicrosoftPowerPointOpenXML)
+    return OpenInMimeType::kMimeTypeMicrosoftPowerPointOpenXML;
+  if (mime_type == content_type::kMimeTypeRTF)
+    return OpenInMimeType::kMimeTypeRTF;
+  if (mime_type == content_type::kMimeTypeSVG)
+    return OpenInMimeType::kMimeTypeSVG;
+  if (mime_type == content_type::kMimeTypeMicrosoftExcel)
+    return OpenInMimeType::kMimeTypeMicrosoftExcel;
+  if (mime_type == content_type::kMimeTypeMicrosoftExcelOpenXML)
+    return OpenInMimeType::kMimeTypeMicrosoftExcelOpenXML;
+  return OpenInMimeType::kMimeTypeNotHandled;
 }
 
 void OpenInTabHelper::HandleExportableFile() {
+  OpenInMimeType mime_type = GetUmaResult(web_state_->GetContentsMimeType());
   if (base::FeatureList::IsEnabled(kExtendOpenInFilesSupport)) {
-    if (!isExportableFile())
+    if (mime_type == OpenInMimeType::kMimeTypeNotHandled)
       return;
   } else if (web_state_->GetContentsMimeType() != "application/pdf") {
     return;
   }
+
+  DCHECK_NE(mime_type, OpenInMimeType::kMimeTypeNotHandled);
+  base::UmaHistogramEnumeration("IOS.OpenIn.MimeType", mime_type);
+  base::RecordAction(base::UserMetricsAction("IOS.OpenIn.Presented"));
 
   // Try to generate a filename by first looking at |content_disposition_|, then
   // at the last component of WebState's last committed URL and if both of these

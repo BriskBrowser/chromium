@@ -1,0 +1,78 @@
+// Copyright 2021 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+module mac_notifications.mojom;
+
+// Represents a profile being used to display notifications. A profile with a
+// given |id| might have another child profile with the same |id| but with
+// incognito set to true. This tuple uniquely identifies a profile.
+struct ProfileIdentifier {
+  // Identifies a profile. Usually the name of a profile but should be treated
+  // as an opaque string.
+  string id;
+  // Whether this profile is the incognito profile for |id|.
+  bool incognito;
+};
+
+// Represents a unique identifier for a notification. Notifications might have
+// the same |id| if they belong to different |profile|s but the tuple of both
+// uniquely identifies a notification.
+struct NotificationIdentifier {
+  // Notification id that might contain some developer controlled parts. Should
+  // always be treated as an opaque string.
+  string id;
+  // Profile for which this notification is being shown for.
+  ProfileIdentifier profile;
+};
+
+// Represents a notification and the action taken on it by the user.
+struct NotificationActionInfo {
+  // TODO(knollr): Fill struct.
+};
+
+// Represents a notification to be shown to the user via the helper app.
+struct Notification {
+  NotificationIdentifier id;
+  // TODO(knollr): Fill struct.
+};
+
+// Interface to control notifications shown by the helper app. Implemented by
+// the helper app and called from the browser process.
+interface MacNotificationService {
+  // Display the |notification| via the system notification center.
+  DisplayNotification(Notification notification);
+
+  // Gets a list of notification ids that are currently shown in the system
+  // notification center. If a |profile| is passed, the list is filtered to only
+  // include notification ids for that profile. Otherwise this will return all
+  // displayed notification ids for all profiles.
+  GetDisplayedNotifications(ProfileIdentifier? profile) =>
+      (array<NotificationIdentifier> notifications);
+
+  // Closes the notification identified by |identifier|.
+  CloseNotification(NotificationIdentifier identifier);
+
+  // Closes all notifications shown by the helper app in the system notification
+  // center for all profiles.
+  CloseAllNotifications();
+};
+
+// Handles notification actions such as click or close. Implemented in the
+// browser process and called from the helper app.
+interface MacNotificationActionHandler {
+  // Called when there has been an action on a notification. An example is a
+  // user clicking on a notification or when a notification got closed.
+  OnNotificationAction(NotificationActionInfo info);
+};
+
+// Main entrypoint for the system notification service. Implemented in a helper
+// app so we can set a custom alert style different from the main app. This
+// allows us to show both banner and alert style notifications on macOS.
+interface MacNotificationProvider {
+  // Called from the browser process to connect to the helper app. Further calls
+  // are made on the |service| interface and actions will be handled by the
+  // passed |handler|.
+  BindNotificationService(pending_receiver<MacNotificationService> service,
+                          pending_remote<MacNotificationActionHandler> handler);
+};

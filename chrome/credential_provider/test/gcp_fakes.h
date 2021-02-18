@@ -13,11 +13,12 @@
 #include <thread>
 #include <vector>
 
-#include "base/strings/string16.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/test/test_reg_util_win.h"
 #include "base/win/scoped_handle.h"
+#include "chrome/credential_provider/extension/extension_utils.h"
 #include "chrome/credential_provider/extension/os_service_manager.h"
+#include "chrome/credential_provider/extension/task_manager.h"
 #include "chrome/credential_provider/gaiacp/associated_user_validator.h"
 #include "chrome/credential_provider/gaiacp/chrome_availability_checker.h"
 #include "chrome/credential_provider/gaiacp/device_policies_manager.h"
@@ -30,6 +31,7 @@
 #include "chrome/credential_provider/gaiacp/password_recovery_manager.h"
 #include "chrome/credential_provider/gaiacp/scoped_lsa_policy.h"
 #include "chrome/credential_provider/gaiacp/scoped_user_profile.h"
+#include "chrome/credential_provider/gaiacp/token_generator.h"
 #include "chrome/credential_provider/gaiacp/user_policies_manager.h"
 #include "chrome/credential_provider/gaiacp/win_http_url_fetcher.h"
 #include "chrome/credential_provider/setup/gcpw_files.h"
@@ -128,7 +130,7 @@ class FakeOSUserManager : public OSUserManager {
 
   HRESULT GetUserFullname(const wchar_t* domain,
                           const wchar_t* username,
-                          base::string16* fullname) override;
+                          std::wstring* fullname) override;
 
   HRESULT ModifyUserAccessWithLogonHours(const wchar_t* domain,
                                          const wchar_t* username,
@@ -155,11 +157,11 @@ class FakeOSUserManager : public OSUserManager {
 
     bool operator==(const UserInfo& other) const;
 
-    base::string16 domain;
-    base::string16 password;
-    base::string16 fullname;
-    base::string16 comment;
-    base::string16 sid;
+    std::wstring domain;
+    std::wstring password;
+    std::wstring fullname;
+    std::wstring comment;
+    std::wstring sid;
   };
   const UserInfo GetUserInfo(const wchar_t* username);
 
@@ -171,12 +173,12 @@ class FakeOSUserManager : public OSUserManager {
   // the given gaia id. If |email| is non-empty, sets the email to use for
   // reauth to be this one.
   // |sid| is allocated and filled with the SID of the new user.
-  HRESULT CreateTestOSUser(const base::string16& username,
-                           const base::string16& password,
-                           const base::string16& fullname,
-                           const base::string16& comment,
-                           const base::string16& gaia_id,
-                           const base::string16& email,
+  HRESULT CreateTestOSUser(const std::wstring& username,
+                           const std::wstring& password,
+                           const std::wstring& fullname,
+                           const std::wstring& comment,
+                           const std::wstring& gaia_id,
+                           const std::wstring& email,
                            BSTR* sid);
 
   // Creates a fake user with the given |username|, |password|, |fullname|,
@@ -184,17 +186,17 @@ class FakeOSUserManager : public OSUserManager {
   // user with the given gaia id. If |email| is non-empty, sets the email to
   // use for reauth to be this one.
   // |sid| is allocated and filled with the SID of the new user.
-  HRESULT CreateTestOSUser(const base::string16& username,
-                           const base::string16& password,
-                           const base::string16& fullname,
-                           const base::string16& comment,
-                           const base::string16& gaia_id,
-                           const base::string16& email,
-                           const base::string16& domain,
+  HRESULT CreateTestOSUser(const std::wstring& username,
+                           const std::wstring& password,
+                           const std::wstring& fullname,
+                           const std::wstring& comment,
+                           const std::wstring& gaia_id,
+                           const std::wstring& email,
+                           const std::wstring& domain,
                            BSTR* sid);
 
   size_t GetUserCount() const { return username_to_info_.size(); }
-  std::vector<std::pair<base::string16, base::string16>> GetUsers() const;
+  std::vector<std::pair<std::wstring, std::wstring>> GetUsers() const;
 
   void SetFailureReason(FAILEDOPERATIONS failed_operaetion,
                         HRESULT failure_reason) {
@@ -210,7 +212,7 @@ class FakeOSUserManager : public OSUserManager {
  private:
   OSUserManager* original_manager_;
   DWORD next_rid_ = 0;
-  std::map<base::string16, UserInfo> username_to_info_;
+  std::map<std::wstring, UserInfo> username_to_info_;
   bool is_device_domain_joined_ = false;
   std::map<FAILEDOPERATIONS, HRESULT> failure_reasons_;
 };
@@ -228,7 +230,7 @@ class FakeScopedLsaPolicyFactory {
   // names to their corresponding data strings.  The term "private" here is
   // used to reflect the name of the underlying OS calls.  This data is meant
   // to be shared by all ScopedLsaPolicy instances created by this factory.
-  using PrivateDataMap = std::map<base::string16, base::string16>;
+  using PrivateDataMap = std::map<std::wstring, std::wstring>;
   PrivateDataMap& private_data() { return private_data_; }
 
  private:
@@ -250,10 +252,9 @@ class FakeScopedLsaPolicy : public ScopedLsaPolicy {
                               size_t length) override;
   bool PrivateDataExists(const wchar_t* key) override;
   HRESULT AddAccountRights(PSID sid,
-                           const std::vector<base::string16>& rights) override;
-  HRESULT RemoveAccountRights(
-      PSID sid,
-      const std::vector<base::string16>& rights) override;
+                           const std::vector<std::wstring>& rights) override;
+  HRESULT RemoveAccountRights(PSID sid,
+                              const std::vector<std::wstring>& rights) override;
   HRESULT RemoveAccount(PSID sid) override;
 
  private:
@@ -278,10 +279,10 @@ class FakeScopedUserProfileFactory {
   virtual ~FakeScopedUserProfileFactory();
 
  private:
-  std::unique_ptr<ScopedUserProfile> Create(const base::string16& sid,
-                                            const base::string16& domain,
-                                            const base::string16& username,
-                                            const base::string16& password);
+  std::unique_ptr<ScopedUserProfile> Create(const std::wstring& sid,
+                                            const std::wstring& domain,
+                                            const std::wstring& username,
+                                            const std::wstring& password);
 
   ScopedUserProfile::CreatorCallback original_creator_;
 };
@@ -293,10 +294,10 @@ class FakeScopedUserProfile : public ScopedUserProfile {
  private:
   friend class FakeScopedUserProfileFactory;
 
-  FakeScopedUserProfile(const base::string16& sid,
-                        const base::string16& domain,
-                        const base::string16& username,
-                        const base::string16& password);
+  FakeScopedUserProfile(const std::wstring& sid,
+                        const std::wstring& domain,
+                        const std::wstring& username,
+                        const std::wstring& password);
   ~FakeScopedUserProfile() override;
 
   bool is_valid_ = false;
@@ -310,6 +311,12 @@ class FakeWinHttpUrlFetcherFactory {
  public:
   FakeWinHttpUrlFetcherFactory();
   ~FakeWinHttpUrlFetcherFactory();
+
+  // Returns the fetcher callback function being used. This can be used to
+  // install the same fake explicitly in all the components being used. Those
+  // components would otherwise have different fakes created automatically when
+  // they get initialized.
+  WinHttpUrlFetcher::CreatorCallback GetCreatorCallback();
 
   // Sets the given |response| for any number of HTTP requests made for |url|.
   void SetFakeResponse(
@@ -356,6 +363,7 @@ class FakeWinHttpUrlFetcherFactory {
   std::unique_ptr<WinHttpUrlFetcher> Create(const GURL& url);
 
   WinHttpUrlFetcher::CreatorCallback original_creator_;
+  WinHttpUrlFetcher::CreatorCallback fake_creator_;
 
   struct Response {
     Response();
@@ -598,18 +606,24 @@ class FakeEventLogsUploadManager : public EventLogsUploadManager {
 
 class FakeUserPoliciesManager : public UserPoliciesManager {
  public:
+  FakeUserPoliciesManager();
   explicit FakeUserPoliciesManager(bool cloud_policies_enabled);
   ~FakeUserPoliciesManager() override;
 
   HRESULT FetchAndStoreCloudUserPolicies(
-      const base::string16& sid,
+      const std::wstring& sid,
       const std::string& access_token) override;
 
   // Specify the policy to use for a user.
-  void SetUserPolicies(const base::string16& sid, const UserPolicies& policies);
+  void SetUserPolicies(const std::wstring& sid, const UserPolicies& policies);
 
-  bool GetUserPolicies(const base::string16& sid,
-                       UserPolicies* policies) override;
+  bool GetUserPolicies(const std::wstring& sid,
+                       UserPolicies* policies) const override;
+
+  // Specify whether user policy is valid for a user.
+  void SetUserPolicyStaleOrMissing(const std::wstring& sid, bool status);
+
+  bool IsUserPolicyStaleOrMissing(const std::wstring& sid) const override;
 
   // Returns the number of times FetchAndStoreCloudUserPolicies method was
   // called.
@@ -617,8 +631,9 @@ class FakeUserPoliciesManager : public UserPoliciesManager {
 
  private:
   UserPoliciesManager* original_manager_ = nullptr;
-  std::map<base::string16, UserPolicies> user_policies_;
+  std::map<std::wstring, UserPolicies> user_policies_;
   int num_times_fetch_called_ = 0;
+  std::map<std::wstring, bool> user_policies_stale_;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -681,6 +696,10 @@ class FakeOSServiceManager : public extension::OSServiceManager {
 
   DWORD DeleteService() override;
 
+  DWORD ChangeServiceConfig(DWORD dwServiceType,
+                            DWORD dwStartType,
+                            DWORD dwErrorControl) override;
+
  private:
   DWORD GetControlRequestForTesting() {
     std::unique_lock<std::mutex> lock(m);
@@ -703,7 +722,45 @@ class FakeOSServiceManager : public extension::OSServiceManager {
 
   // Original instance of OSServiceManager.
   extension::OSServiceManager* os_service_manager_ = nullptr;
-  std::map<base::string16, ServiceInfo> service_lookup_from_name_;
+  std::map<std::wstring, ServiceInfo> service_lookup_from_name_;
+};
+
+///////////////////////////////////////////////////////////////////////////////
+
+class FakeTaskManager : public extension::TaskManager {
+ public:
+  FakeTaskManager();
+  ~FakeTaskManager() override;
+
+  int NumOfTimesExecuted(const std::string& task_name) {
+    return num_of_times_executed_[task_name];
+  }
+
+ private:
+  void ExecuteTask(scoped_refptr<base::SingleThreadTaskRunner> task_runner,
+                   const std::string& task_name) override;
+
+  // Original instance of TaskManager.
+  extension::TaskManager* task_manager_ = nullptr;
+
+  // Counts the number of execution per task.
+  std::map<std::string, int> num_of_times_executed_;
+};
+
+///////////////////////////////////////////////////////////////////////////////
+
+class FakeTokenGenerator : public TokenGenerator {
+ public:
+  FakeTokenGenerator();
+  ~FakeTokenGenerator() override;
+
+  std::string GenerateToken() override;
+
+  void SetTokensForTesting(const std::vector<std::string>& test_tokens);
+
+ private:
+  TokenGenerator* token_generator_ = nullptr;
+  std::vector<std::string> test_tokens_;
 };
 
 ///////////////////////////////////////////////////////////////////////////////

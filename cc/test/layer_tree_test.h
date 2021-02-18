@@ -67,15 +67,15 @@ class LayerTreeTest : public testing::Test, public TestHooks {
  public:
   std::string TestTypeToString() {
     switch (renderer_type_) {
-      case TestRendererType::kGL:
+      case viz::RendererType::kGL:
         return "GL";
-      case TestRendererType::kSkiaGL:
+      case viz::RendererType::kSkiaGL:
         return "Skia GL";
-      case TestRendererType::kSkiaVk:
+      case viz::RendererType::kSkiaVk:
         return "Skia Vulkan";
-      case TestRendererType::kSkiaDawn:
+      case viz::RendererType::kSkiaDawn:
         return "Skia Dawn";
-      case TestRendererType::kSoftware:
+      case viz::RendererType::kSoftware:
         return "Software";
     }
   }
@@ -93,8 +93,8 @@ class LayerTreeTest : public testing::Test, public TestHooks {
       Animation* animation_to_receive_animation);
   void PostAddOpacityAnimationToMainThreadDelayed(
       Animation* animation_to_receive_animation);
-  void PostSetLocalSurfaceIdAllocationToMainThread(
-      const viz::LocalSurfaceIdAllocation& local_surface_id_allocation);
+  void PostSetLocalSurfaceIdToMainThread(
+      const viz::LocalSurfaceId& local_surface_id);
   void PostRequestNewLocalSurfaceIdToMainThread();
   void PostGetDeferMainFrameUpdateToMainThread(
       std::unique_ptr<ScopedDeferMainFrameUpdate>*
@@ -120,11 +120,10 @@ class LayerTreeTest : public testing::Test, public TestHooks {
 
  protected:
   explicit LayerTreeTest(
-      TestRendererType renderer_type = TestRendererType::kGL);
+      viz::RendererType renderer_type = viz::RendererType::kGL);
 
   void SkipAllocateInitialLocalSurfaceId();
-  const viz::LocalSurfaceIdAllocation& GetCurrentLocalSurfaceIdAllocation()
-      const;
+  const viz::LocalSurfaceId& GetCurrentLocalSurfaceId() const;
   void GenerateNewLocalSurfaceId();
 
   virtual void InitializeSettings(LayerTreeSettings* settings) {}
@@ -191,8 +190,11 @@ class LayerTreeTest : public testing::Test, public TestHooks {
       double refresh_rate,
       scoped_refptr<viz::ContextProvider> compositor_context_provider,
       scoped_refptr<viz::RasterContextProvider> worker_context_provider);
+  std::unique_ptr<viz::DisplayCompositorMemoryAndTaskController>
+  CreateDisplayControllerOnThread() override;
   std::unique_ptr<viz::SkiaOutputSurface>
-  CreateDisplaySkiaOutputSurfaceOnThread() override;
+  CreateDisplaySkiaOutputSurfaceOnThread(
+      viz::DisplayCompositorMemoryAndTaskController*) override;
   // Override this and call the base class to change what viz::ContextProvider
   // will be used, such as to prevent sharing the context with the
   // LayerTreeFrameSink. Or override it and create your own OutputSurface to
@@ -210,25 +212,26 @@ class LayerTreeTest : public testing::Test, public TestHooks {
   }
 
   bool use_skia_renderer() const {
-    return renderer_type_ == TestRendererType::kSkiaGL ||
-           renderer_type_ == TestRendererType::kSkiaVk ||
-           renderer_type_ == TestRendererType::kSkiaDawn;
+    return renderer_type_ == viz::RendererType::kSkiaGL ||
+           renderer_type_ == viz::RendererType::kSkiaVk ||
+           renderer_type_ == viz::RendererType::kSkiaDawn;
   }
   bool use_software_renderer() const {
-    return renderer_type_ == TestRendererType::kSoftware;
+    return renderer_type_ == viz::RendererType::kSoftware;
   }
   bool use_skia_vulkan() const {
-    return renderer_type_ == TestRendererType::kSkiaVk;
+    return renderer_type_ == viz::RendererType::kSkiaVk;
   }
   bool use_d3d12() const {
 #if defined(OS_WIN)
-    return renderer_type_ == TestRendererType::kSkiaDawn;
+    return renderer_type_ == viz::RendererType::kSkiaDawn;
 #else
     return false;
 #endif
   }
+  bool use_swangle() const;
 
-  const TestRendererType renderer_type_;
+  const viz::RendererType renderer_type_;
 
   const viz::DebugRendererSettings debug_settings_;
 
@@ -239,8 +242,7 @@ class LayerTreeTest : public testing::Test, public TestHooks {
   virtual void DispatchAddOpacityAnimation(
       Animation* animation_to_receive_animation,
       double animation_duration);
-  void DispatchSetLocalSurfaceIdAllocation(
-      const viz::LocalSurfaceIdAllocation& local_surface_id_allocation);
+  void DispatchSetLocalSurfaceId(const viz::LocalSurfaceId& local_surface_id);
   void DispatchRequestNewLocalSurfaceId();
   void DispatchGetDeferMainFrameUpdate(
       std::unique_ptr<ScopedDeferMainFrameUpdate>*

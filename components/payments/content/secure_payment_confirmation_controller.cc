@@ -11,6 +11,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "components/payments/content/content_payment_request_delegate.h"
 #include "components/payments/content/payment_request.h"
 #include "components/payments/core/currency_formatter.h"
 #include "components/payments/core/method_strings.h"
@@ -34,7 +35,7 @@ void SecurePaymentConfirmationController::ShowDialog() {
   NOTREACHED();
 #endif  // OS_ANDROID
 
-  if (!request_)
+  if (!request_ || !request_->spec())
     return;
 
   if (!request_->state()->IsInitialized()) {
@@ -54,8 +55,15 @@ void SecurePaymentConfirmationController::ShowDialog() {
 void SecurePaymentConfirmationController::
     SetupModelAndShowDialogIfApplicable() {
   DCHECK(!view_);
-  if (!request_ || !request_->web_contents() || !request_->state() ||
-      !request_->state()->selected_app() ||
+  // If no apps are available then don't show any UI. The payment_request.cc
+  // code will reject the PaymentRequest.show() call with appropriate error
+  // message on its own.
+  if (!request_ || !request_->state() || !request_->spec() ||
+      request_->state()->available_apps().empty()) {
+    return;
+  }
+
+  if (!request_->web_contents() || !request_->state()->selected_app() ||
       request_->state()->selected_app()->type() != PaymentApp::Type::INTERNAL ||
       request_->state()->selected_app()->GetAppMethodNames().size() != 1 ||
       *request_->state()->selected_app()->GetAppMethodNames().begin() !=
@@ -100,7 +108,8 @@ void SecurePaymentConfirmationController::
                          request_->state()->GetApplicationLocale())
            .Format(total->amount->value)}));
 
-  view_ = SecurePaymentConfirmationView::Create();
+  view_ = SecurePaymentConfirmationView::Create(
+      request_->state()->GetPaymentRequestDelegate()->GetPaymentUIObserver());
   view_->ShowDialog(
       request_->web_contents(), model_.GetWeakPtr(),
       base::BindOnce(&SecurePaymentConfirmationController::OnConfirm,
@@ -154,6 +163,10 @@ void SecurePaymentConfirmationController::ShowPaymentHandlerScreen(
   NOTREACHED();
 }
 
+void SecurePaymentConfirmationController::ConfirmPaymentForTesting() {
+  OnConfirm();
+}
+
 void SecurePaymentConfirmationController::OnInitialized(
     InitializationTask* initialization_task) {
   if (--number_of_initialization_tasks_ == 0)
@@ -171,7 +184,7 @@ void SecurePaymentConfirmationController::OnCancel() {
     return;
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(&PaymentRequest::UserCancelled, request_));
+      FROM_HERE, base::BindOnce(&PaymentRequest::OnUserCancelled, request_));
 }
 
 void SecurePaymentConfirmationController::OnConfirm() {

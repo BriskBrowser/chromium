@@ -4,6 +4,7 @@
 
 package org.chromium.content_public.browser;
 
+import org.chromium.base.FeatureList;
 import org.chromium.content.browser.ContentFeatureListImpl;
 
 /**
@@ -19,12 +20,19 @@ public class ContentFeatureList {
      * @return Whether the feature is enabled or not.
      */
     public static boolean isEnabled(String featureName) {
+        Boolean testValue = FeatureList.getTestValueForFeature(featureName);
+        if (testValue != null) return testValue;
         return ContentFeatureListImpl.isEnabled(featureName);
     }
 
     // Alphabetical:
     public static final String BACKGROUND_MEDIA_RENDERER_HAS_MODERATE_BINDING =
             "BackgroundMediaRendererHasModerateBinding";
+
+    public static final String BINDING_MANAGEMENT_WAIVE_CPU = "BindingManagementWaiveCpu";
+
+    public static final String EXPERIMENTAL_ACCESSIBILITY_LABELS =
+            "ExperimentalAccessibilityLabels";
 
     public static final String WEB_BLUETOOTH_NEW_PERMISSIONS_BACKEND =
             "WebBluetoothNewPermissionsBackend";

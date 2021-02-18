@@ -14,8 +14,14 @@
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/non_client_view.h"
+
+namespace chromeos {
+class FrameCaptionButtonContainerView;
+class ImmersiveFullscreenController;
+}
 
 namespace views {
 class Widget;
@@ -23,8 +29,6 @@ class Widget;
 
 namespace ash {
 
-class FrameCaptionButtonContainerView;
-class ImmersiveFullscreenController;
 class NonClientFrameViewAshImmersiveHelper;
 
 // A NonClientFrameView used for packaged apps, dialogs and other non-browser
@@ -35,27 +39,29 @@ class NonClientFrameViewAshImmersiveHelper;
 // BrowserNonClientFrameViewAsh.
 class ASH_EXPORT NonClientFrameViewAsh : public views::NonClientFrameView {
  public:
-  // Internal class name.
-  static const char kViewClassName[];
+  METADATA_HEADER(NonClientFrameViewAsh);
 
   // |control_immersive| controls whether ImmersiveFullscreenController is
   // created for the NonClientFrameViewAsh; if true and a WindowStateDelegate
   // has not been set on the WindowState associated with |frame|, then an
   // ImmersiveFullscreenController is created.
   explicit NonClientFrameViewAsh(views::Widget* frame);
+  NonClientFrameViewAsh(const NonClientFrameViewAsh&) = delete;
+  NonClientFrameViewAsh& operator=(const NonClientFrameViewAsh&) = delete;
   ~NonClientFrameViewAsh() override;
 
   static NonClientFrameViewAsh* Get(aura::Window* window);
 
   // Sets the caption button modeland updates the caption buttons.
-  void SetCaptionButtonModel(std::unique_ptr<CaptionButtonModel> model);
+  void SetCaptionButtonModel(
+      std::unique_ptr<chromeos::CaptionButtonModel> model);
 
   // Inits |immersive_fullscreen_controller| so that the controller reveals
   // and hides |header_view_| in immersive fullscreen.
   // NonClientFrameViewAsh does not take ownership of
   // |immersive_fullscreen_controller|.
   void InitImmersiveFullscreenControllerForView(
-      ImmersiveFullscreenController* immersive_fullscreen_controller);
+      chromeos::ImmersiveFullscreenController* immersive_fullscreen_controller);
 
   // Sets the active and inactive frame colors. Note the inactive frame color
   // will have some transparency added when the frame is drawn.
@@ -82,7 +88,6 @@ class ASH_EXPORT NonClientFrameViewAsh : public views::NonClientFrameView {
   // views::View:
   gfx::Size CalculatePreferredSize() const override;
   void Layout() override;
-  const char* GetClassName() const override;
   gfx::Size GetMinimumSize() const override;
   gfx::Size GetMaximumSize() const override;
   void SetVisible(bool visible) override;
@@ -94,6 +99,10 @@ class ASH_EXPORT NonClientFrameViewAsh : public views::NonClientFrameView {
 
   // Height from top of window to top of client area.
   int NonClientTopBorderHeight() const;
+
+  // Expected height from top of window to top of client area when non client
+  // view is visible.
+  int NonClientTopBorderPreferredHeight() const;
 
   const views::View* GetAvatarIconViewForTest() const;
 
@@ -118,7 +127,8 @@ class ASH_EXPORT NonClientFrameViewAsh : public views::NonClientFrameView {
 
   // Returns the container for the minimize/maximize/close buttons that is
   // held by the HeaderView. Used in testing.
-  FrameCaptionButtonContainerView* GetFrameCaptionButtonContainerViewForTest();
+  chromeos::FrameCaptionButtonContainerView*
+  GetFrameCaptionButtonContainerViewForTest();
 
   // Called when |frame_|'s "paint as active" state has changed.
   void PaintAsActiveChanged();
@@ -133,15 +143,12 @@ class ASH_EXPORT NonClientFrameViewAsh : public views::NonClientFrameView {
 
   std::unique_ptr<NonClientFrameViewAshImmersiveHelper> immersive_helper_;
 
-  std::unique_ptr<views::Widget::PaintAsActiveCallbackList::Subscription>
-      paint_as_active_subscription_ =
-          frame_->RegisterPaintAsActiveChangedCallback(
-              base::BindRepeating(&NonClientFrameViewAsh::PaintAsActiveChanged,
-                                  base::Unretained(this)));
+  base::CallbackListSubscription paint_as_active_subscription_ =
+      frame_->RegisterPaintAsActiveChangedCallback(
+          base::BindRepeating(&NonClientFrameViewAsh::PaintAsActiveChanged,
+                              base::Unretained(this)));
 
   base::WeakPtrFactory<NonClientFrameViewAsh> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(NonClientFrameViewAsh);
 };
 
 }  // namespace ash

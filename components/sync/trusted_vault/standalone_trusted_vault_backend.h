@@ -19,6 +19,10 @@
 #include "components/sync/protocol/local_trusted_vault.pb.h"
 #include "components/sync/trusted_vault/trusted_vault_connection.h"
 
+namespace base {
+class Clock;
+}  // namespace base
+
 namespace syncer {
 
 // Provides interfaces to store/remove keys to/from file storage.
@@ -31,8 +35,23 @@ class StandaloneTrustedVaultBackend
   using FetchKeysCallback = base::OnceCallback<void(
       const std::vector<std::vector<uint8_t>>& vault_keys)>;
 
+  class Delegate {
+   public:
+    Delegate() = default;
+    Delegate(const Delegate&) = delete;
+    virtual ~Delegate() = default;
+
+    Delegate& operator=(const Delegate&) = delete;
+
+    virtual void NotifyRecoverabilityDegradedChanged() = 0;
+  };
+
+  // |connection| can be null, in this case functionality that involves
+  // interaction with vault service (such as device registration, keys
+  // downloading, etc.) will be disabled.
   StandaloneTrustedVaultBackend(
       const base::FilePath& file_path,
+      std::unique_ptr<Delegate> delegate,
       std::unique_ptr<TrustedVaultConnection> connection);
   StandaloneTrustedVaultBackend(const StandaloneTrustedVaultBackend& other) =
       delete;
@@ -68,10 +87,24 @@ class StandaloneTrustedVaultBackend
   void SetPrimaryAccount(
       const base::Optional<CoreAccountInfo>& primary_account);
 
+  // Returns whether recoverability of the keys is degraded and user action is
+  // required to add a new method.
+  void GetIsRecoverabilityDegraded(const CoreAccountInfo& account_info,
+                                   base::OnceCallback<void(bool)> cb);
+
+  // Registers a new trusted recovery method that can be used to retrieve keys.
+  void AddTrustedRecoveryMethod(const std::string& gaia_id,
+                                const std::vector<uint8_t>& public_key,
+                                base::OnceClosure cb);
+
   base::Optional<CoreAccountInfo> GetPrimaryAccountForTesting() const;
 
   sync_pb::LocalDeviceRegistrationInfo GetDeviceRegistrationInfoForTesting(
       const std::string& gaia_id);
+
+  void SetRecoverabilityDegradedForTesting();
+
+  void SetClockForTesting(base::Clock* clock);
 
  private:
   friend class base::RefCountedThreadSafe<StandaloneTrustedVaultBackend>;
@@ -87,7 +120,8 @@ class StandaloneTrustedVaultBackend
   void MaybeRegisterDevice(const std::string& gaia_id);
 
   // Called when device registration for |gaia_id| is completed (either
-  // successfully or not).
+  // successfully or not). |data_| must contain LocalTrustedVaultPerUser for
+  // given |gaia_id|.
   void OnDeviceRegistered(const std::string& gaia_id,
                           TrustedVaultRequestStatus status);
 
@@ -100,7 +134,26 @@ class StandaloneTrustedVaultBackend
 
   void FulfillOngoingFetchKeys();
 
+  // Returns true if the last failed request time imply that upcoming requests
+  // should be throttled now (certain amount of time should pass since the last
+  // failed request). Handles the situation, when last failed request time is
+  // set to the future.
+  bool AreConnectionRequestsThrottled(const std::string& gaia_id);
+
+  // Records request failure time, that will be used to determine whether new
+  // requests should be throttled.
+  void RecordFailedConnectionRequestForThrottling(const std::string& gaia_id);
+
   const base::FilePath file_path_;
+
+  const std::unique_ptr<Delegate> delegate_;
+
+  // Used for communication with trusted vault server. Can be null, in this case
+  // functionality that involves interaction with vault service (such as device
+  // registration, keys downloading, etc.) will be disabled.
+  // TODO(crbug.com/1113598): clean up logic around nullable |connection_|, once
+  // kFollowTrustedVaultKeyRotation feature flag is removed.
+  const std::unique_ptr<TrustedVaultConnection> connection_;
 
   sync_pb::LocalTrustedVault data_;
 
@@ -108,18 +161,20 @@ class StandaloneTrustedVaultBackend
   // vault server.
   base::Optional<CoreAccountInfo> primary_account_;
 
-  // Used for communication with trusted vault server.
-  std::unique_ptr<TrustedVaultConnection> connection_;
-
   // Used to plumb FetchKeys() result to the caller.
   FetchKeysCallback ongoing_fetch_keys_callback_;
 
   // Account used in last FetchKeys() call.
   base::Optional<std::string> ongoing_fetch_keys_gaia_id_;
 
-  // Used for cancellation of callbacks passed to |connection_|.
-  base::WeakPtrFactory<StandaloneTrustedVaultBackend>
-      weak_factory_for_connection_{this};
+  // Destroying this will cancel the ongoing request.
+  std::unique_ptr<TrustedVaultConnection::Request> ongoing_connection_request_;
+
+  // Used to determine current time, set to base::DefaultClock in prod and can
+  // be overridden in tests.
+  base::Clock* clock_;
+
+  bool is_recoverability_degraded_for_testing_ = false;
 };
 
 }  // namespace syncer

@@ -640,19 +640,20 @@ void SetSurfaceDrawTransform(const PropertyTrees* property_trees,
 gfx::Rect LayerVisibleRect(PropertyTrees* property_trees, LayerImpl* layer) {
   const EffectNode* effect_node =
       property_trees->effect_tree.Node(layer->effect_tree_index());
-  int effect_ancestor_with_cache_render_surface =
-      effect_node->closest_ancestor_with_cached_render_surface_id;
-  int effect_ancestor_with_copy_request =
-      effect_node->closest_ancestor_with_copy_request_id;
   int lower_effect_closest_ancestor =
-      std::max(effect_ancestor_with_cache_render_surface,
-               effect_ancestor_with_copy_request);
-  bool non_root_copy_request_or_cache_render_surface =
+      effect_node->closest_ancestor_with_cached_render_surface_id;
+  lower_effect_closest_ancestor =
+      std::max(lower_effect_closest_ancestor,
+               effect_node->closest_ancestor_with_copy_request_id);
+  lower_effect_closest_ancestor =
+      std::max(lower_effect_closest_ancestor,
+               effect_node->closest_ancestor_being_captured_id);
+  const bool non_root_with_render_surface =
       lower_effect_closest_ancestor > EffectTree::kContentsRootNodeId;
   gfx::Rect layer_content_rect = gfx::Rect(layer->bounds());
 
   gfx::RectF accumulated_clip_in_root_space;
-  if (non_root_copy_request_or_cache_render_surface) {
+  if (non_root_with_render_surface) {
     bool include_expanding_clips = true;
     ConditionalClip accumulated_clip = ComputeAccumulatedClip(
         property_trees, include_expanding_clips, layer->clip_tree_index(),
@@ -668,7 +669,7 @@ gfx::Rect LayerVisibleRect(PropertyTrees* property_trees, LayerImpl* layer) {
   }
 
   const EffectNode* root_effect_node =
-      non_root_copy_request_or_cache_render_surface
+      non_root_with_render_surface
           ? property_trees->effect_tree.Node(lower_effect_closest_ancestor)
           : property_trees->effect_tree.Node(EffectTree::kContentsRootNodeId);
   ConditionalClip accumulated_clip_in_layer_space =
@@ -706,27 +707,28 @@ ConditionalClip LayerClipRect(PropertyTrees* property_trees, LayerImpl* layer) {
                                 layer->clip_tree_index(), target_node->id);
 }
 
-std::pair<gfx::RRectF, bool> GetRoundedCornerRRect(
+std::pair<gfx::MaskFilterInfo, bool> GetMaskFilterInfoPair(
     const PropertyTrees* property_trees,
     int effect_tree_index,
     bool for_render_surface) {
-  static const std::pair<gfx::RRectF, bool> kEmptyRoundedCornerInfo(
-      gfx::RRectF(), false);
+  static const std::pair<gfx::MaskFilterInfo, bool> kEmptyMaskFilterInfoPair =
+      std::make_pair(gfx::MaskFilterInfo(), false);
+
   const EffectTree* effect_tree = &property_trees->effect_tree;
   const EffectNode* effect_node = effect_tree->Node(effect_tree_index);
   const int target_id = effect_node->target_id;
 
-  // Return empty rrect if this node has a render surface but the function call
-  // was made for a non render surface.
+  // Return empty mask info if this node has a render surface but the function
+  // call was made for a non render surface.
   if (effect_node->HasRenderSurface() && !for_render_surface)
-    return kEmptyRoundedCornerInfo;
+    return kEmptyMaskFilterInfoPair;
 
   // Traverse the parent chain up to the render target to find a node which has
   // a rounded corner bounds set.
   const EffectNode* node = effect_node;
   bool found_rounded_corner = false;
   while (node) {
-    if (!node->rounded_corner_bounds.IsEmpty()) {
+    if (node->mask_filter_info.HasRoundedCorners()) {
       found_rounded_corner = true;
       break;
     }
@@ -749,22 +751,23 @@ std::pair<gfx::RRectF, bool> GetRoundedCornerRRect(
   // While traversing up the parent chain we did not find any node with a
   // rounded corner.
   if (!node || !found_rounded_corner)
-    return kEmptyRoundedCornerInfo;
+    return kEmptyMaskFilterInfoPair;
 
   gfx::Transform to_target;
   if (!property_trees->GetToTarget(node->transform_id, target_id, &to_target))
-    return kEmptyRoundedCornerInfo;
+    return kEmptyMaskFilterInfoPair;
 
   auto result =
-      std::make_pair(node->rounded_corner_bounds, node->is_fast_rounded_corner);
+      std::make_pair(node->mask_filter_info, node->is_fast_rounded_corner);
 
-  if (!to_target.TransformRRectF(&result.first))
-    return kEmptyRoundedCornerInfo;
+  if (!result.first.Transform(to_target))
+    return kEmptyMaskFilterInfoPair;
 
   return result;
 }
 
 void UpdateRenderTarget(EffectTree* effect_tree) {
+  int last_backdrop_filter = kInvalidNodeId;
   for (int i = EffectTree::kContentsRootNodeId;
        i < static_cast<int>(effect_tree->size()); ++i) {
     EffectNode* node = effect_tree->Node(i);
@@ -776,6 +779,29 @@ void UpdateRenderTarget(EffectTree* effect_tree) {
     } else {
       node->target_id = effect_tree->parent(node)->target_id;
     }
+    if (!node->backdrop_filters.IsEmpty() ||
+        node->has_potential_backdrop_filter_animation)
+      last_backdrop_filter = node->id;
+    node->affected_by_backdrop_filter = false;
+  }
+
+  if (last_backdrop_filter == kInvalidNodeId)
+    return;
+
+  // Update effect nodes for the backdrop filter due to the target id change.
+  int current_target_id = effect_tree->Node(last_backdrop_filter)->target_id;
+  for (int i = last_backdrop_filter - 1; EffectTree::kContentsRootNodeId <= i;
+       --i) {
+    EffectNode* node = effect_tree->Node(i);
+    node->affected_by_backdrop_filter = current_target_id <= i ? true : false;
+    if (node->id == current_target_id)
+      current_target_id = kInvalidNodeId;
+    // While down to kContentsRootNodeId, move |current_target_id| forward if
+    // |node| has backdrop filter.
+    if ((!node->backdrop_filters.IsEmpty() ||
+         node->has_potential_backdrop_filter_animation) &&
+        current_target_id == kInvalidNodeId)
+      current_target_id = node->target_id;
   }
 }
 
@@ -815,9 +841,9 @@ void ComputeSurfaceDrawProperties(PropertyTrees* property_trees,
   SetSurfaceDrawOpacity(property_trees->effect_tree, render_surface);
   SetSurfaceDrawTransform(property_trees, render_surface);
 
-  render_surface->SetRoundedCornerRRect(
-      GetRoundedCornerRRect(property_trees, render_surface->EffectTreeIndex(),
-                            /*for_render_surface*/ true)
+  render_surface->SetMaskFilterInfo(
+      GetMaskFilterInfoPair(property_trees, render_surface->EffectTreeIndex(),
+                            /*for_render_surface=*/true)
           .first);
   render_surface->SetScreenSpaceTransform(
       property_trees->ToScreenSpaceTransformWithoutSurfaceContentsScale(
@@ -865,8 +891,7 @@ void AddSurfaceToRenderSurfaceList(RenderSurfaceImpl* render_surface,
   // TODO(senorblanco): make this smarter for the SkImageFilter case (check for
   // pixel-moving filters)
   const FilterOperations& filters = render_surface->Filters();
-  bool is_occlusion_immune = render_surface->HasCopyRequest() ||
-                             render_surface->ShouldCacheRenderSurface() ||
+  bool is_occlusion_immune = render_surface->CopyOfOutputRequired() ||
                              filters.HasReferenceFilter() ||
                              filters.HasFilterThatMovesPixels();
   if (is_occlusion_immune) {
@@ -1118,12 +1143,12 @@ void ComputeDrawPropertiesOfVisibleLayers(const LayerImplList* layer_list,
         layer, property_trees->transform_tree, property_trees->effect_tree);
     layer->draw_properties().screen_space_transform_is_animating =
         transform_node->to_screen_is_potentially_animated;
-    auto rounded_corner_info =
-        GetRoundedCornerRRect(property_trees, layer->effect_tree_index(),
-                              /*from_render_surface*/ false);
-    layer->draw_properties().rounded_corner_bounds = rounded_corner_info.first;
+    auto mask_filter_info_pair =
+        GetMaskFilterInfoPair(property_trees, layer->effect_tree_index(),
+                              /*from_render_surface=*/false);
+    layer->draw_properties().mask_filter_info = mask_filter_info_pair.first;
     layer->draw_properties().is_fast_rounded_corner =
-        rounded_corner_info.second;
+        mask_filter_info_pair.second;
   }
 
   // Compute effects and determine if render surfaces have contributing layers
@@ -1200,9 +1225,11 @@ bool CC_EXPORT LayerShouldBeSkippedForDrawPropertiesComputation(
   if (effect_node->HasRenderSurface() && effect_node->subtree_has_copy_request)
     return false;
 
-  // Skip if the node's subtree is hidden and no need to cache.
-  if (effect_node->subtree_hidden && !effect_node->cache_render_surface)
+  // Skip if the node's subtree is hidden and no need to cache, or capture.
+  if (effect_node->subtree_hidden && !effect_node->cache_render_surface &&
+      !effect_node->subtree_capture_id.is_valid()) {
     return true;
+  }
 
   // If the layer transform is not invertible, it should be skipped. In case the
   // transform is animating and singular, we should not skip it.

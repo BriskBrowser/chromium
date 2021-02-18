@@ -13,11 +13,12 @@
 #include "components/vector_icons/vector_icons.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/views/accessibility/view_accessibility.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 BackForwardButton::BackForwardButton(Direction direction,
-                                     views::ButtonListener* listener,
+                                     PressedCallback callback,
                                      Browser* browser)
-    : ToolbarButton(listener,
+    : ToolbarButton(std::move(callback),
                     std::make_unique<BackForwardMenuModel>(
                         browser,
                         direction == Direction::kBack
@@ -25,9 +26,9 @@ BackForwardButton::BackForwardButton(Direction direction,
                             : BackForwardMenuModel::ModelType::kForward),
                     browser->tab_strip_model()),
       direction_(direction) {
-  set_hide_ink_drop_when_showing_context_menu(false);
-  set_triggerable_event_flags(ui::EF_LEFT_MOUSE_BUTTON |
-                              ui::EF_MIDDLE_MOUSE_BUTTON);
+  SetHideInkDropWhenShowingContextMenu(false);
+  SetTriggerableEventFlags(ui::EF_LEFT_MOUSE_BUTTON |
+                           ui::EF_MIDDLE_MOUSE_BUTTON);
   if (direction_ == Direction::kBack) {
     SetTooltipText(l10n_util::GetStringUTF16(IDS_TOOLTIP_BACK));
     SetAccessibleName(l10n_util::GetStringUTF16(IDS_ACCNAME_BACK));
@@ -56,3 +57,6 @@ void BackForwardButton::UpdateIcon() {
   }
   UpdateIconsWithStandardColors(*image);
 }
+
+BEGIN_METADATA(BackForwardButton, ToolbarButton)
+END_METADATA

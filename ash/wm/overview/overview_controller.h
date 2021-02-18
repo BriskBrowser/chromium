@@ -19,6 +19,7 @@
 #include "base/observer_list.h"
 #include "base/time/time.h"
 #include "ui/aura/window_occlusion_tracker.h"
+#include "ui/views/widget/widget.h"
 
 namespace ash {
 
@@ -101,7 +102,6 @@ class ASH_EXPORT OverviewController : public OverviewDelegate,
   // Gets the windows list that are shown in the overview windows grids if the
   // overview mode is active for testing.
   std::vector<aura::Window*> GetWindowsListInOverviewGridsForTest();
-  std::vector<aura::Window*> GetItemWindowListInOverviewGridsForTest();
 
  private:
   friend class OverviewSessionTest;
@@ -156,6 +156,8 @@ class ASH_EXPORT OverviewController : public OverviewDelegate,
   base::TimeDelta delayed_animation_task_delay_;
 
   base::ObserverList<OverviewObserver> observers_;
+
+  std::unique_ptr<views::Widget::PaintAsActiveLock> paint_as_active_lock_;
 
   base::WeakPtrFactory<OverviewController> weak_ptr_factory_{this};
 

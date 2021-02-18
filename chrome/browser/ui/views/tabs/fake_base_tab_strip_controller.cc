@@ -13,6 +13,7 @@
 #include "components/tab_groups/tab_group_visual_data.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
+#include "ui/gfx/range/range.h"
 
 FakeBaseTabStripController::FakeBaseTabStripController() {}
 
@@ -21,6 +22,8 @@ FakeBaseTabStripController::~FakeBaseTabStripController() {
 
 void FakeBaseTabStripController::AddTab(int index, bool is_active) {
   num_tabs_++;
+  tab_groups_.insert(tab_groups_.begin() + index, base::nullopt);
+
   tab_strip_->AddTabAt(index, TabRendererData(), is_active);
   if (is_active) {
     SelectTab(index,
@@ -30,22 +33,19 @@ void FakeBaseTabStripController::AddTab(int index, bool is_active) {
 }
 
 void FakeBaseTabStripController::AddPinnedTab(int index, bool is_active) {
+  num_tabs_++;
+  tab_groups_.insert(tab_groups_.begin() + index, base::nullopt);
+
   TabRendererData data;
   data.pinned = true;
-  num_tabs_++;
   tab_strip_->AddTabAt(index, std::move(data), is_active);
   if (is_active)
     active_index_ = index;
 }
 
 void FakeBaseTabStripController::MoveTab(int from_index, int to_index) {
-  base::Optional<tab_groups::TabGroupId> prev_group;
-  if (from_index < int{tab_groups_.size()}) {
-    prev_group = tab_groups_[from_index];
-    tab_groups_.erase(tab_groups_.begin() + from_index);
-  }
-  if (to_index >= int{tab_groups_.size()})
-    tab_groups_.resize(to_index + 1);
+  base::Optional<tab_groups::TabGroupId> prev_group = tab_groups_[from_index];
+  tab_groups_.erase(tab_groups_.begin() + from_index);
   tab_groups_.insert(tab_groups_.begin() + to_index, prev_group);
   tab_strip_->MoveTab(from_index, to_index, TabRendererData());
 }
@@ -54,7 +54,7 @@ void FakeBaseTabStripController::MoveGroup(const tab_groups::TabGroupId& group,
 
 bool FakeBaseTabStripController::ToggleTabGroupCollapsedState(
     const tab_groups::TabGroupId group,
-    bool record_user_action) {
+    ToggleTabGroupCollapsedStateOrigin origin) {
   fake_group_data_ = tab_groups::TabGroupVisualData(
       fake_group_data_.title(), fake_group_data_.color(),
       !fake_group_data_.is_collapsed());
@@ -63,6 +63,8 @@ bool FakeBaseTabStripController::ToggleTabGroupCollapsedState(
 
 void FakeBaseTabStripController::RemoveTab(int index) {
   num_tabs_--;
+  tab_groups_.erase(tab_groups_.begin() + index);
+
   // RemoveTabAt() expects the controller state to have been updated already.
   const bool was_active = index == active_index_;
   if (was_active) {
@@ -116,11 +118,7 @@ void FakeBaseTabStripController::MoveTabIntoGroup(
     int index,
     base::Optional<tab_groups::TabGroupId> new_group) {
   bool group_exists = base::Contains(tab_groups_, new_group);
-  base::Optional<tab_groups::TabGroupId> old_group;
-  if (index >= int{tab_groups_.size()})
-    tab_groups_.resize(index + 1);
-  else
-    old_group = tab_groups_[index];
+  base::Optional<tab_groups::TabGroupId> old_group = tab_groups_[index];
 
   tab_groups_[index] = new_group;
 
@@ -139,14 +137,45 @@ void FakeBaseTabStripController::MoveTabIntoGroup(
   }
 }
 
-std::vector<int> FakeBaseTabStripController::ListTabsInGroup(
+base::Optional<int> FakeBaseTabStripController::GetFirstTabInGroup(
     const tab_groups::TabGroupId& group) const {
-  std::vector<int> result;
-  for (size_t i = 0; i < tab_groups_.size(); i++) {
+  for (size_t i = 0; i < tab_groups_.size(); ++i) {
     if (tab_groups_[i] == group)
-      result.push_back(i);
+      return i;
   }
-  return result;
+
+  return base::nullopt;
+}
+
+base::Optional<int> FakeBaseTabStripController::GetLastTabInGroup(
+    const tab_groups::TabGroupId& group) const {
+  for (size_t i = tab_groups_.size(); i > 0; --i) {
+    if (tab_groups_[i - 1] == group)
+      return i - 1;
+  }
+
+  return base::nullopt;
+}
+
+gfx::Range FakeBaseTabStripController::ListTabsInGroup(
+    const tab_groups::TabGroupId& group) const {
+  int first_tab = -1;
+  int last_tab = -1;
+  for (size_t i = 0; i < tab_groups_.size(); i++) {
+    if (tab_groups_[i] != group)
+      continue;
+
+    if (first_tab == -1) {
+      first_tab = i;
+      last_tab = i + 1;
+      continue;
+    }
+
+    DCHECK_EQ(static_cast<int>(i), last_tab) << "group is not contiguous";
+    last_tab = i + 1;
+  }
+
+  return first_tab > -1 ? gfx::Range(first_tab, last_tab) : gfx::Range();
 }
 
 const ui::ListSelectionModel&

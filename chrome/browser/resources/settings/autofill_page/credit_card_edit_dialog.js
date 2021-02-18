@@ -71,18 +71,6 @@ Polymer({
     expirationMonth_: String,
 
     /**
-     * True if nickname management is enabled.
-     * @private
-     */
-    nicknameManagementEnabled_: {
-      type: Boolean,
-      reflectToAttribute: true,
-      value() {
-        return loadTimeData.getBoolean('nicknameManagementEnabled');
-      }
-    },
-
-    /**
      * Whether the current nickname input is invalid.
      * @private
      */
@@ -96,6 +84,7 @@ Polymer({
       type: Boolean,
       computed: 'computeExpired_(expirationMonth_, expirationYear_)',
       reflectToAttribute: true,
+      observer: 'onExpiredChanged_',
     },
   },
 
@@ -211,14 +200,22 @@ Polymer({
   },
 
   /**
-   * @return {boolean} True iff the card is expired and nickname management is
-   *     disabled.
+   * Handles a11y error announcement the same way as in cr-input.
    * @private
    */
-  // TODO(crbug.com/1082013): Remove legacy expired error message when nickname
-  // management is fully enabled.
-  showLegacyExpiredError_() {
-    return !this.nicknameManagementEnabled_ && this.expired_;
+  onExpiredChanged_() {
+    const ERROR_ID = 'expired-error';
+    const errorElement = this.$$(`#${ERROR_ID}`);
+    // Readding attributes is needed for consistent announcement by VoiceOver
+    if (this.expired_) {
+      errorElement.setAttribute('role', 'alert');
+      this.$$(`#month`).setAttribute('aria-errormessage', ERROR_ID);
+      this.$$(`#year`).setAttribute('aria-errormessage', ERROR_ID);
+    } else {
+      errorElement.removeAttribute('role');
+      this.$$(`#month`).removeAttribute('aria-errormessage');
+      this.$$(`#year`).removeAttribute('aria-errormessage');
+    }
   },
 
   /**
@@ -241,12 +238,12 @@ Polymer({
   },
 
   /**
-   * @return {string} 'true' or 'false', indicating whether the expired error
-   *     message should be aria-hidden.
+   * @return {string} 'true' or 'false' for the aria-invalid attribute
+   *     of expiration selectors.
    * @private
    */
-  getAriaHidden_() {
-    return this.expired_ ? 'false' : 'true';
+  getExpirationAriaInvalid_() {
+    return this.expired_ ? 'true' : 'false';
   },
 
   /**

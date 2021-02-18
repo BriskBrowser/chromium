@@ -20,7 +20,7 @@ NGUnpositionedListMarker::NGUnpositionedListMarker(
 
 NGUnpositionedListMarker::NGUnpositionedListMarker(const NGBlockNode& node)
     : NGUnpositionedListMarker(
-          ToLayoutNGOutsideListMarker(node.GetLayoutBox())) {}
+          To<LayoutNGOutsideListMarker>(node.GetLayoutBox())) {}
 
 // Compute the inline offset of the marker, relative to the list item.
 // The marker is relative to the border box of the list item and has nothing
@@ -32,12 +32,12 @@ LayoutUnit NGUnpositionedListMarker::InlineOffset(
   LayoutObject* list_item =
       marker_layout_object_->Marker().ListItem(*marker_layout_object_);
   auto margins = ListMarker::InlineMarginsForOutside(
-      marker_layout_object_->StyleRef(), list_item->StyleRef(),
-      marker_inline_size);
+      list_item->GetDocument(), marker_layout_object_->StyleRef(),
+      list_item->StyleRef(), marker_inline_size);
   return margins.first;
 }
 
-scoped_refptr<const NGLayoutResult> NGUnpositionedListMarker::Layout(
+const NGLayoutResult* NGUnpositionedListMarker::Layout(
     const NGConstraintSpace& parent_space,
     const ComputedStyle& parent_style,
     FontBaseline baseline_type) const {
@@ -46,10 +46,9 @@ scoped_refptr<const NGLayoutResult> NGUnpositionedListMarker::Layout(
 
   // We need the first-line baseline from the list-marker, instead of the
   // typical atomic-inline baseline.
-  scoped_refptr<const NGLayoutResult> marker_layout_result =
-      marker_node.LayoutAtomicInline(parent_space, parent_style,
-                                     parent_space.UseFirstLineStyle(),
-                                     NGBaselineAlgorithmType::kFirstLine);
+  const NGLayoutResult* marker_layout_result = marker_node.LayoutAtomicInline(
+      parent_space, parent_style, parent_space.UseFirstLineStyle(),
+      NGBaselineAlgorithmType::kFirstLine);
   DCHECK(marker_layout_result);
   return marker_layout_result;
 }
@@ -65,7 +64,7 @@ base::Optional<LayoutUnit> NGUnpositionedListMarker::ContentAlignmentBaseline(
     // If this child is an empty line-box, the list marker should be aligned
     // with the next non-empty line box produced. (This can occur with floats
     // producing empty line-boxes).
-    if (line_box.IsEmptyLineBox() && !line_box.BreakToken()->IsFinished())
+    if (line_box.IsEmptyLineBox() && line_box.BreakToken())
       return base::nullopt;
 
     return line_box.Metrics().ascent;
@@ -74,7 +73,7 @@ base::Optional<LayoutUnit> NGUnpositionedListMarker::ContentAlignmentBaseline(
   // If this child content does not have any line boxes, the list marker
   // should be aligned to the first line box of next child.
   // https://github.com/w3c/csswg-drafts/issues/2417
-  return NGBoxFragment(space.GetWritingMode(), space.Direction(),
+  return NGBoxFragment(space.GetWritingDirection(),
                        To<NGPhysicalBoxFragment>(content))
       .FirstBaseline();
 }
@@ -92,7 +91,7 @@ void NGUnpositionedListMarker::AddToBox(
       To<NGPhysicalBoxFragment>(marker_layout_result.PhysicalFragment());
 
   // Compute the inline offset of the marker.
-  NGBoxFragment marker_fragment(space.GetWritingMode(), space.Direction(),
+  NGBoxFragment marker_fragment(space.GetWritingDirection(),
                                 marker_physical_fragment);
   LogicalOffset marker_offset(InlineOffset(marker_fragment.Size().inline_size),
                               content_offset->block_offset);

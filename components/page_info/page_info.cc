@@ -12,7 +12,6 @@
 #include <utility>
 #include <vector>
 
-#include "base/command_line.h"
 #include "base/i18n/time_formatting.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_functions.h"
@@ -44,12 +43,12 @@
 #if defined(OS_ANDROID)
 #include "components/resources/android/theme_resources.h"
 #endif
+#include "build/chromeos_buildflags.h"
 #include "components/safe_browsing/buildflags.h"
-#include "components/safe_browsing/content/password_protection/metrics_util.h"
 #include "components/safe_browsing/content/password_protection/password_protection_service.h"
+#include "components/safe_browsing/core/password_protection/metrics_util.h"
 #include "components/safe_browsing/core/proto/csd.pb.h"
 #include "components/security_interstitials/content/stateful_ssl_host_state_delegate.h"
-#include "components/security_state/core/features.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/ssl_errors/error_info.h"
 #include "components/strings/grit/components_chromium_strings.h"
@@ -61,7 +60,6 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_features.h"
-#include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
 #include "net/cert/cert_status_flags.h"
 #include "net/cert/x509_certificate.h"
@@ -94,7 +92,6 @@ ContentSettingsType kPermissionType[] = {
     ContentSettingsType::NOTIFICATIONS,
     ContentSettingsType::JAVASCRIPT,
 #if !defined(OS_ANDROID)
-    ContentSettingsType::PLUGINS,
     ContentSettingsType::IMAGES,
 #endif
     ContentSettingsType::POPUPS,
@@ -103,7 +100,7 @@ ContentSettingsType kPermissionType[] = {
     ContentSettingsType::BACKGROUND_SYNC,
     ContentSettingsType::SOUND,
     ContentSettingsType::AUTOMATIC_DOWNLOADS,
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
+#if defined(OS_ANDROID) || BUILDFLAG(IS_CHROMEOS_ASH)
     ContentSettingsType::PROTECTED_MEDIA_IDENTIFIER,
 #endif
     ContentSettingsType::MIDI_SYSEX,
@@ -122,36 +119,12 @@ ContentSettingsType kPermissionType[] = {
     ContentSettingsType::BLUETOOTH_SCANNING,
     ContentSettingsType::VR,
     ContentSettingsType::AR,
+    ContentSettingsType::IDLE_DETECTION,
 };
-
-// Checks whether this permission is currently the factory default, as set by
-// Chrome. Specifically, that the following three conditions are true:
-//   - The current active setting comes from the default or pref provider.
-//   - The setting is the factory default setting (as opposed to a global
-//     default setting set by the user).
-//   - The setting is a wildcard setting applying to all origins (which can only
-//     be set from the default provider).
-bool IsPermissionFactoryDefault(HostContentSettingsMap* content_settings,
-                                const PageInfoUI::PermissionInfo& info) {
-  const ContentSetting factory_default_setting =
-      content_settings::ContentSettingsRegistry::GetInstance()
-          ->Get(info.type)
-          ->GetInitialDefaultSetting();
-
-  // Settings that are granted in regular mode get reduced to ASK in incognito
-  // mode. These settings should not be displayed either.
-  const bool is_incognito_default =
-      info.is_incognito && info.setting == CONTENT_SETTING_ASK &&
-      factory_default_setting == CONTENT_SETTING_ASK;
-
-  return info.source == content_settings::SETTING_SOURCE_USER &&
-         factory_default_setting == info.default_setting &&
-         (info.setting == CONTENT_SETTING_DEFAULT || is_incognito_default);
-}
 
 // Determines whether to show permission |type| in the Page Info UI. Only
 // applies to permissions listed in |kPermissionType|.
-bool ShouldShowPermission(const PageInfoUI::PermissionInfo& info,
+bool ShouldShowPermission(const PageInfo::PermissionInfo& info,
                           const GURL& site_url,
                           HostContentSettingsMap* content_settings,
                           content::WebContents* web_contents,
@@ -186,38 +159,21 @@ bool ShouldShowPermission(const PageInfoUI::PermissionInfo& info,
   if (info.type == ContentSettingsType::FILE_SYSTEM_WRITE_GUARD)
     return false;
 #else
-  // Flash is shown if the user has ever changed its setting for |site_url|.
-  if (info.type == ContentSettingsType::PLUGINS &&
-      content_settings->GetWebsiteSetting(site_url, site_url,
-                                          ContentSettingsType::PLUGINS_DATA,
-                                          std::string(), nullptr) != nullptr) {
-    return true;
-  }
-
   // NFC is Android-only at the moment.
   if (info.type == ContentSettingsType::NFC)
     return false;
 
-  // Display the File System write permission if the File System API is
-  // currently being used.
+  // Display the File System Access write permission if the File System Access
+  // API is currently being used.
   if (info.type == ContentSettingsType::FILE_SYSTEM_WRITE_GUARD &&
-      web_contents->HasNativeFileSystemHandles()) {
+      web_contents->HasFileSystemAccessHandles()) {
     return true;
   }
 
-  // Camera PTZ is shown only if Experimental Web Platform features are enabled.
-  base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
-  if (info.type == ContentSettingsType::CAMERA_PAN_TILT_ZOOM &&
-      !cmd->HasSwitch(switches::kEnableExperimentalWebPlatformFeatures)) {
-    return false;
-  }
-
   // Hide camera if camera PTZ is granted or blocked.
-  if (info.type == ContentSettingsType::MEDIASTREAM_CAMERA &&
-      cmd->HasSwitch(switches::kEnableExperimentalWebPlatformFeatures)) {
+  if (info.type == ContentSettingsType::MEDIASTREAM_CAMERA) {
     std::unique_ptr<base::Value> value = content_settings->GetWebsiteSetting(
-        site_url, site_url, ContentSettingsType::CAMERA_PAN_TILT_ZOOM,
-        std::string(), nullptr);
+        site_url, site_url, ContentSettingsType::CAMERA_PAN_TILT_ZOOM, nullptr);
     DCHECK(value.get());
     ContentSetting camera_ptz_setting =
         content_settings::ValueToContentSetting(value.get());
@@ -239,12 +195,12 @@ bool ShouldShowPermission(const PageInfoUI::PermissionInfo& info,
   if (info.type == ContentSettingsType::BLUETOOTH_GUARD &&
       base::FeatureList::IsEnabled(
           features::kWebBluetoothNewPermissionsBackend) &&
-      !IsPermissionFactoryDefault(content_settings, info)) {
+      !PageInfo::IsPermissionFactoryDefault(info)) {
     return true;
   }
 
   // Show the content setting when it has a non-default value.
-  if (!IsPermissionFactoryDefault(content_settings, info))
+  if (!PageInfo::IsPermissionFactoryDefault(info))
     return true;
 
   return false;
@@ -428,6 +384,32 @@ PageInfo::~PageInfo() {
   }
 }
 
+// static
+bool PageInfo::IsPermissionFactoryDefault(const PermissionInfo& info) {
+  const ContentSetting factory_default_setting =
+      content_settings::ContentSettingsRegistry::GetInstance()
+          ->Get(info.type)
+          ->GetInitialDefaultSetting();
+
+  // Settings that are granted in regular mode get reduced to ASK in incognito
+  // mode. These settings should not be displayed either.
+  const bool is_incognito_default =
+      info.is_incognito && info.setting == CONTENT_SETTING_ASK &&
+      factory_default_setting == CONTENT_SETTING_ASK;
+
+  return info.source == content_settings::SETTING_SOURCE_USER &&
+         factory_default_setting == info.default_setting &&
+         (info.setting == CONTENT_SETTING_DEFAULT || is_incognito_default);
+}
+
+// static
+bool PageInfo::IsFileOrInternalPage(const GURL& url) {
+  return url.SchemeIs(content::kChromeUIScheme) ||
+         url.SchemeIs(content::kChromeDevToolsScheme) ||
+         url.SchemeIs(content::kViewSourceScheme) ||
+         url.SchemeIs(url::kFileScheme);
+}
+
 void PageInfo::InitializeUiState(PageInfoUI* ui) {
   ui_ = ui;
   DCHECK(ui_);
@@ -511,8 +493,14 @@ void PageInfo::RecordPageInfoAction(PageInfoAction action) {
   }
 }
 
+void PageInfo::UpdatePermissions() {
+  // Refresh the UI to reflect the new setting.
+  PresentSitePermissions();
+}
+
 void PageInfo::OnSitePermissionChanged(ContentSettingsType type,
-                                       ContentSetting setting) {
+                                       ContentSetting setting,
+                                       bool is_one_time) {
   ContentSettingChangedViaPageInfo(type);
 
   // Count how often a permission for a specific content type is changed using
@@ -563,8 +551,12 @@ void PageInfo::OnSitePermissionChanged(ContentSettingsType type,
     delegate_->GetPermissionDecisionAutoblocker()->RemoveEmbargoAndResetCounts(
         site_url_, type);
   }
-  content_settings->SetNarrowestContentSetting(site_url_, site_url_, type,
-                                               setting);
+  using Constraints = content_settings::ContentSettingConstraints;
+  content_settings->SetNarrowestContentSetting(
+      site_url_, site_url_, type, setting,
+      is_one_time
+          ? Constraints{base::Time(), content_settings::SessionModel::OneTime}
+          : Constraints{});
 
   // When the sound setting is changed, no reload is necessary.
   if (type != ContentSettingsType::SOUND)
@@ -693,7 +685,7 @@ void PageInfo::ComputeUIInputs(const GURL& url) {
                                ~net::CERT_STATUS_LEGACY_TLS))) {
     // HTTPS with no or minor errors.
     if (security_level == security_state::SECURE_WITH_POLICY_INSTALLED_CERT) {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
       site_identity_status_ = SITE_IDENTITY_STATUS_ADMIN_PROVIDED_CERT;
 #else
       DCHECK(false) << "Policy certificates exist only on ChromeOS";
@@ -798,7 +790,7 @@ void PageInfo::ComputeUIInputs(const GURL& url) {
 
   safety_tip_info_ = visible_security_state.safety_tip_info;
 #if defined(OS_ANDROID)
-  if (base::FeatureList::IsEnabled(security_state::features::kSafetyTipUI)) {
+  if (security_state::IsSafetyTipUIFeatureEnabled()) {
     // identity_status_description_android_ is only displayed on Android when
     // the user taps "Details" link on the page info. Reuse the description from
     // page info UI.
@@ -915,7 +907,7 @@ void PageInfo::PresentSitePermissions() {
   PermissionInfoList permission_info_list;
   ChosenObjectInfoList chosen_object_info_list;
 
-  PageInfoUI::PermissionInfo permission_info;
+  PermissionInfo permission_info;
   HostContentSettingsMap* content_settings = GetContentSettings();
   for (const ContentSettingsType type : kPermissionType) {
     permission_info.type = type;
@@ -925,7 +917,7 @@ void PageInfo::PresentSitePermissions() {
     // TODO(crbug.com/1030245) Investigate why the value is queried from the low
     // level routine GetWebsiteSettings.
     std::unique_ptr<base::Value> value = content_settings->GetWebsiteSetting(
-        site_url_, site_url_, permission_info.type, std::string(), &info);
+        site_url_, site_url_, permission_info.type, &info);
     DCHECK(value.get());
     if (value->type() == base::Value::Type::INTEGER) {
       permission_info.setting =
@@ -937,6 +929,8 @@ void PageInfo::PresentSitePermissions() {
     permission_info.source = info.source;
     permission_info.is_incognito =
         web_contents()->GetBrowserContext()->IsOffTheRecord();
+    permission_info.is_one_time =
+        (info.session_model == content_settings::SessionModel::OneTime);
 
     if (info.primary_pattern == ContentSettingsPattern::Wildcard() &&
         info.secondary_pattern == ContentSettingsPattern::Wildcard()) {
@@ -1027,7 +1021,7 @@ void PageInfo::PresentSiteIdentity() {
   info.connection_status_description = UTF16ToUTF8(site_connection_details_);
   info.identity_status = site_identity_status_;
   info.safe_browsing_status = safe_browsing_status_;
-  if (base::FeatureList::IsEnabled(security_state::features::kSafetyTipUI)) {
+  if (security_state::IsSafetyTipUIFeatureEnabled()) {
     info.safety_tip_info = safety_tip_info_;
   }
 #if defined(OS_ANDROID)

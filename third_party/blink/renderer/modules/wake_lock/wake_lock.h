@@ -18,6 +18,7 @@
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_wrapper_mode.h"
+#include "third_party/blink/renderer/platform/supplementable.h"
 
 namespace WTF {
 
@@ -28,18 +29,23 @@ class String;
 namespace blink {
 
 class ExceptionState;
-class LocalDOMWindow;
+class NavigatorBase;
 class ScriptState;
 class WakeLockManager;
 
 class MODULES_EXPORT WakeLock final : public ScriptWrappable,
+                                      public Supplement<NavigatorBase>,
                                       public ExecutionContextLifecycleObserver,
                                       public PageVisibilityObserver {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  explicit WakeLock(LocalDOMWindow&);
-  explicit WakeLock(DedicatedWorkerGlobalScope&);
+  static const char kSupplementName[];
+
+  // Getter for navigator.wakelock
+  static WakeLock* wakeLock(NavigatorBase&);
+
+  explicit WakeLock(NavigatorBase&);
 
   ScriptPromise request(ScriptState*,
                         const WTF::String& type,
@@ -73,7 +79,7 @@ class MODULES_EXPORT WakeLock final : public ScriptWrappable,
                  HeapMojoWrapperMode::kWithoutContextObserver>
       permission_service_;
 
-  // https://w3c.github.io/wake-lock/#concepts-and-state-record
+  // https://w3c.github.io/screen-wake-lock/#concepts-and-state-record
   // Each platform wake lock (one per wake lock type) has an associated state
   // record per responsible document [...] internal slots.
   Member<WakeLockManager> managers_[kWakeLockTypeCount];

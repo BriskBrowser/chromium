@@ -44,7 +44,12 @@
         --cr-icon-button-margin-start: 0;
       }
 
-      :host-context([dir=rtl]):host(:not([dir=ltr])) {
+      :host-context([dir=rtl]):host(:not([dir=ltr]):not([multiple-icons_])) {
+        transform: scaleX(-1);  /* Invert X: flip on the Y axis (aka mirror). */
+      }
+
+      :host-context([dir=rtl]):host(:not([dir=ltr])[multiple-icons_])
+          iron-icon {
         transform: scaleX(-1);  /* Invert X: flip on the Y axis (aka mirror). */
       }
 
@@ -53,11 +58,11 @@
         -webkit-mask-position: center;
         -webkit-mask-repeat: no-repeat;
         -webkit-mask-size: var(--cr-icon-button-icon-size);
+        -webkit-transform: var(--cr-icon-image-transform, none);
         background-color: var(--cr-icon-button-fill-color);
         height: 100%;
         transition: background-color var(--cr-icon-button-transition);
         width: 100%;
-        z-index: 1;
       }
 
       #icon {
@@ -79,7 +84,6 @@
         --iron-icon-width: var(--cr-icon-button-icon-size);
         transition: fill var(--cr-icon-button-transition),
             stroke var(--cr-icon-button-transition);
-        z-index: 1;
       }
 
       paper-ripple {

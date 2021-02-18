@@ -196,9 +196,7 @@ void OcclusionTracker::FinishedRenderTarget(
   // Readbacks always happen on render targets so we only need to check
   // for readbacks here.
   bool target_is_only_for_copy_request_or_force_render_surface =
-      (finished_target_surface->HasCopyRequest() ||
-       finished_target_surface->ShouldCacheRenderSurface()) &&
-      is_hidden;
+      is_hidden && finished_target_surface->CopyOfOutputRequired();
 
   // If the occlusion within the surface can not be applied to things outside of
   // the surface's subtree, then clear the occlusion here so it won't be used.
@@ -350,7 +348,7 @@ void OcclusionTracker::MarkOccludedBehindLayer(const LayerImpl* layer) {
   if (layer->Is3dSorted())
     return;
 
-  if (!layer->draw_properties().rounded_corner_bounds.IsEmpty())
+  if (!layer->draw_properties().mask_filter_info.IsEmpty())
     return;
 
   SimpleEnclosedRegion opaque_layer_region = layer->VisibleOpaqueRegion();

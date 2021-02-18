@@ -24,41 +24,36 @@
 namespace net {
 
 // Prefix to prepend to get a file URL.
-static const base::FilePath::CharType kFileURLPrefix[] =
-    FILE_PATH_LITERAL("file:///");
+static const char kFileURLPrefix[] = "file:///";
 
 GURL FilePathToFileURL(const base::FilePath& path) {
   // Produce a URL like "file:///C:/foo" for a regular file, or
   // "file://///server/path" for UNC. The URL canonicalizer will fix up the
   // latter case to be the canonical UNC form: "file://server/path"
-  base::FilePath::StringType url_string(kFileURLPrefix);
-  url_string.append(path.value());
+  std::string url_string(kFileURLPrefix);
 
-  // Now do replacement of some characters. Since we assume the input is a
-  // literal filename, anything the URL parser might consider special should
-  // be escaped here.
+  // GURL() strips some whitespace and trailing control chars which are valid
+  // in file paths. It also interprets chars such as `%;#?` and maybe `\`, so we
+  // must percent encode these first. Reserve max possible length up front.
+  std::string utf8_path = path.AsUTF8Unsafe();
+  url_string.reserve(url_string.size() + (3 * utf8_path.size()));
 
-  // must be the first substitution since others will introduce percents as the
-  // escape character
-  base::ReplaceSubstringsAfterOffset(
-      &url_string, 0, FILE_PATH_LITERAL("%"), FILE_PATH_LITERAL("%25"));
-
-  // semicolon is supposed to be some kind of separator according to RFC 2396
-  base::ReplaceSubstringsAfterOffset(
-      &url_string, 0, FILE_PATH_LITERAL(";"), FILE_PATH_LITERAL("%3B"));
-
-  base::ReplaceSubstringsAfterOffset(
-      &url_string, 0, FILE_PATH_LITERAL("#"), FILE_PATH_LITERAL("%23"));
-
-  base::ReplaceSubstringsAfterOffset(
-      &url_string, 0, FILE_PATH_LITERAL("?"), FILE_PATH_LITERAL("%3F"));
-
+  for (auto c : utf8_path) {
+    if (c == '%' || c == ';' || c == '#' || c == '?' ||
 #if defined(OS_POSIX) || defined(OS_FUCHSIA)
-  base::ReplaceSubstringsAfterOffset(
-      &url_string, 0, FILE_PATH_LITERAL("\\"), FILE_PATH_LITERAL("%5C"));
+        c == '\\' ||
 #endif
+        c <= ' ') {
+      static const char kHexChars[] = "0123456789ABCDEF";
+      url_string += '%';
+      url_string += kHexChars[(c >> 4) & 0xf];
+      url_string += kHexChars[c & 0xf];
+    } else {
+      url_string += c;
+    }
+  }
 
-  return GURL(base::AsCrossPlatformPiece(url_string));
+  return GURL(url_string);
 }
 
 bool FileURLToFilePath(const GURL& url, base::FilePath* file_path) {

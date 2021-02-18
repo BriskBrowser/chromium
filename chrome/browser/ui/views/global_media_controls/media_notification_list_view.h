@@ -8,7 +8,9 @@
 #include <map>
 #include <memory>
 
+#include "base/optional.h"
 #include "ui/views/controls/scroll_view.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 
 class MediaNotificationContainerImplView;
 class OverlayMediaNotification;
@@ -17,7 +19,20 @@ class OverlayMediaNotification;
 // sessions.
 class MediaNotificationListView : public views::ScrollView {
  public:
+  METADATA_HEADER(MediaNotificationListView);
+  struct SeparatorStyle {
+    SeparatorStyle(SkColor separator_color, int separator_thickness);
+
+    const SkColor separator_color;
+    const int separator_thickness;
+  };
+
+  explicit MediaNotificationListView(
+      const base::Optional<SeparatorStyle>& separator_style);
   MediaNotificationListView();
+  MediaNotificationListView(const MediaNotificationListView&) = delete;
+  MediaNotificationListView& operator=(const MediaNotificationListView&) =
+      delete;
   ~MediaNotificationListView() override;
 
   // Adds the given notification into the list.
@@ -47,7 +62,7 @@ class MediaNotificationListView : public views::ScrollView {
   std::map<const std::string, MediaNotificationContainerImplView*>
       notifications_;
 
-  DISALLOW_COPY_AND_ASSIGN(MediaNotificationListView);
+  base::Optional<SeparatorStyle> separator_style_;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_GLOBAL_MEDIA_CONTROLS_MEDIA_NOTIFICATION_LIST_VIEW_H_

@@ -8,9 +8,11 @@
 
 #include "base/json/json_writer.h"
 #include "base/logging.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/cast_channel/cast_auth_util.h"
 #include "components/cast_channel/enum_table.h"
 #include "third_party/openscreen/src/cast/common/channel/proto/cast_channel.pb.h"
@@ -18,6 +20,7 @@
 using base::Value;
 using cast_util::EnumToString;
 using cast_util::StringToEnum;
+
 namespace cast_util {
 
 using ::cast::channel::AuthChallenge;
@@ -26,78 +29,105 @@ using cast_channel::CastMessageType;
 using cast_channel::GetAppAvailabilityResult;
 
 template <>
-const EnumTable<CastMessageType> EnumTable<CastMessageType>::instance(
-    {
-        {CastMessageType::kPing, "PING"},
-        {CastMessageType::kPong, "PONG"},
-        {CastMessageType::kRpc, "RPC"},
-        {CastMessageType::kGetAppAvailability, "GET_APP_AVAILABILITY"},
-        {CastMessageType::kGetStatus, "GET_STATUS"},
-        {CastMessageType::kConnect, "CONNECT"},
-        {CastMessageType::kCloseConnection, "CLOSE"},
-        {CastMessageType::kBroadcast, "APPLICATION_BROADCAST"},
-        {CastMessageType::kLaunch, "LAUNCH"},
-        {CastMessageType::kStop, "STOP"},
-        {CastMessageType::kReceiverStatus, "RECEIVER_STATUS"},
-        {CastMessageType::kMediaStatus, "MEDIA_STATUS"},
-        {CastMessageType::kLaunchError, "LAUNCH_ERROR"},
-        {CastMessageType::kOffer, "OFFER"},
-        {CastMessageType::kAnswer, "ANSWER"},
-        {CastMessageType::kCapabilitiesResponse, "CAPABILITIES_RESPONSE"},
-        {CastMessageType::kStatusResponse, "STATUS_RESPONSE"},
-        {CastMessageType::kMultizoneStatus, "MULTIZONE_STATUS"},
-        {CastMessageType::kInvalidPlayerState, "INVALID_PLAYER_STATE"},
-        {CastMessageType::kLoadFailed, "LOAD_FAILED"},
-        {CastMessageType::kLoadCancelled, "LOAD_CANCELLED"},
-        {CastMessageType::kInvalidRequest, "INVALID_REQUEST"},
-        {CastMessageType::kPresentation, "PRESENTATION"},
-        {CastMessageType::kGetCapabilities, "GET_CAPABILITIES"},
-        {CastMessageType::kOther},
-    },
-    CastMessageType::kMaxValue);
+const EnumTable<CastMessageType>& EnumTable<CastMessageType>::GetInstance() {
+  static const EnumTable<CastMessageType> kInstance(
+      {
+          {CastMessageType::kPing, "PING"},
+          {CastMessageType::kPong, "PONG"},
+          {CastMessageType::kRpc, "RPC"},
+          {CastMessageType::kGetAppAvailability, "GET_APP_AVAILABILITY"},
+          {CastMessageType::kGetStatus, "GET_STATUS"},
+          {CastMessageType::kConnect, "CONNECT"},
+          {CastMessageType::kCloseConnection, "CLOSE"},
+          {CastMessageType::kBroadcast, "APPLICATION_BROADCAST"},
+          {CastMessageType::kLaunch, "LAUNCH"},
+          {CastMessageType::kStop, "STOP"},
+          {CastMessageType::kReceiverStatus, "RECEIVER_STATUS"},
+          {CastMessageType::kMediaStatus, "MEDIA_STATUS"},
+          {CastMessageType::kLaunchError, "LAUNCH_ERROR"},
+          {CastMessageType::kOffer, "OFFER"},
+          {CastMessageType::kAnswer, "ANSWER"},
+          {CastMessageType::kCapabilitiesResponse, "CAPABILITIES_RESPONSE"},
+          {CastMessageType::kStatusResponse, "STATUS_RESPONSE"},
+          {CastMessageType::kMultizoneStatus, "MULTIZONE_STATUS"},
+          {CastMessageType::kInvalidPlayerState, "INVALID_PLAYER_STATE"},
+          {CastMessageType::kLoadFailed, "LOAD_FAILED"},
+          {CastMessageType::kLoadCancelled, "LOAD_CANCELLED"},
+          {CastMessageType::kInvalidRequest, "INVALID_REQUEST"},
+          {CastMessageType::kPresentation, "PRESENTATION"},
+          {CastMessageType::kGetCapabilities, "GET_CAPABILITIES"},
+          {CastMessageType::kOther},
+      },
+      CastMessageType::kMaxValue);
+  return kInstance;
+}
 
 template <>
-const EnumTable<cast_channel::V2MessageType>
-    EnumTable<cast_channel::V2MessageType>::instance(
-        {
-            {cast_channel::V2MessageType::kEditTracksInfo, "EDIT_TRACKS_INFO"},
-            {cast_channel::V2MessageType::kGetStatus, "GET_STATUS"},
-            {cast_channel::V2MessageType::kLoad, "LOAD"},
-            {cast_channel::V2MessageType::kMediaGetStatus, "MEDIA_GET_STATUS"},
-            {cast_channel::V2MessageType::kMediaSetVolume, "MEDIA_SET_VOLUME"},
-            {cast_channel::V2MessageType::kPause, "PAUSE"},
-            {cast_channel::V2MessageType::kPlay, "PLAY"},
-            {cast_channel::V2MessageType::kPrecache, "PRECACHE"},
-            {cast_channel::V2MessageType::kQueueInsert, "QUEUE_INSERT"},
-            {cast_channel::V2MessageType::kQueueLoad, "QUEUE_LOAD"},
-            {cast_channel::V2MessageType::kQueueRemove, "QUEUE_REMOVE"},
-            {cast_channel::V2MessageType::kQueueReorder, "QUEUE_REORDER"},
-            {cast_channel::V2MessageType::kQueueUpdate, "QUEUE_UPDATE"},
-            {cast_channel::V2MessageType::kQueueNext, "QUEUE_NEXT"},
-            {cast_channel::V2MessageType::kQueuePrev, "QUEUE_PREV"},
-            {cast_channel::V2MessageType::kSeek, "SEEK"},
-            {cast_channel::V2MessageType::kSetVolume, "SET_VOLUME"},
-            {cast_channel::V2MessageType::kStop, "STOP"},
-            {cast_channel::V2MessageType::kStopMedia, "STOP_MEDIA"},
-            {cast_channel::V2MessageType::kOther},
-        },
-        cast_channel::V2MessageType::kMaxValue);
+const EnumTable<cast_channel::V2MessageType>&
+EnumTable<cast_channel::V2MessageType>::GetInstance() {
+  static const EnumTable<cast_channel::V2MessageType> kInstance(
+      {
+          {cast_channel::V2MessageType::kEditTracksInfo, "EDIT_TRACKS_INFO"},
+          {cast_channel::V2MessageType::kGetStatus, "GET_STATUS"},
+          {cast_channel::V2MessageType::kLoad, "LOAD"},
+          {cast_channel::V2MessageType::kMediaGetStatus, "MEDIA_GET_STATUS"},
+          {cast_channel::V2MessageType::kMediaSetVolume, "MEDIA_SET_VOLUME"},
+          {cast_channel::V2MessageType::kPause, "PAUSE"},
+          {cast_channel::V2MessageType::kPlay, "PLAY"},
+          {cast_channel::V2MessageType::kPrecache, "PRECACHE"},
+          {cast_channel::V2MessageType::kQueueInsert, "QUEUE_INSERT"},
+          {cast_channel::V2MessageType::kQueueLoad, "QUEUE_LOAD"},
+          {cast_channel::V2MessageType::kQueueRemove, "QUEUE_REMOVE"},
+          {cast_channel::V2MessageType::kQueueReorder, "QUEUE_REORDER"},
+          {cast_channel::V2MessageType::kQueueUpdate, "QUEUE_UPDATE"},
+          {cast_channel::V2MessageType::kQueueNext, "QUEUE_NEXT"},
+          {cast_channel::V2MessageType::kQueuePrev, "QUEUE_PREV"},
+          {cast_channel::V2MessageType::kSeek, "SEEK"},
+          {cast_channel::V2MessageType::kSetVolume, "SET_VOLUME"},
+          {cast_channel::V2MessageType::kStop, "STOP"},
+          {cast_channel::V2MessageType::kStopMedia, "STOP_MEDIA"},
+          {cast_channel::V2MessageType::kOther},
+      },
+      cast_channel::V2MessageType::kMaxValue);
+  return kInstance;
+}
 
 template <>
-const EnumTable<GetAppAvailabilityResult>
-    EnumTable<GetAppAvailabilityResult>::instance(
-        {
-            {GetAppAvailabilityResult::kAvailable, "APP_AVAILABLE"},
-            {GetAppAvailabilityResult::kUnavailable, "APP_UNAVAILABLE"},
-            {GetAppAvailabilityResult::kUnknown},
-        },
-        GetAppAvailabilityResult::kMaxValue);
+const EnumTable<GetAppAvailabilityResult>&
+EnumTable<GetAppAvailabilityResult>::GetInstance() {
+  static const EnumTable<GetAppAvailabilityResult> kInstance(
+      {
+          {GetAppAvailabilityResult::kAvailable, "APP_AVAILABLE"},
+          {GetAppAvailabilityResult::kUnavailable, "APP_UNAVAILABLE"},
+          {GetAppAvailabilityResult::kUnknown},
+      },
+      GetAppAvailabilityResult::kMaxValue);
+  return kInstance;
+}
 
 }  // namespace cast_util
 
 namespace cast_channel {
 
 namespace {
+
+constexpr base::StringPiece kCastReservedNamespacePrefix =
+    "urn:x-cast:com.google.cast.";
+
+constexpr const char* kReservedNamespaces[] = {
+    kAuthNamespace,
+    kHeartbeatNamespace,
+    kConnectionNamespace,
+    kReceiverNamespace,
+    kBroadcastNamespace,
+    kMediaNamespace,
+
+    // mirroring::mojom::kRemotingNamespace
+    "urn:x-cast:com.google.cast.remoting",
+
+    // mirroring::mojom::kWebRtcNamespace
+    "urn:x-cast:com.google.cast.webrtc",
+};
 
 // The value used for "sdkType" in a virtual connect request. Historically, this
 // value is used in the Media Router extension, but here it is reused in Chrome.
@@ -136,9 +166,9 @@ int GetVirtualConnectPlatformValue() {
   return 3;
 #elif defined(OS_APPLE)
   return 4;
-#elif defined(OS_CHROMEOS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH)
   return 5;
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   return 6;
 #else
   return 0;
@@ -209,11 +239,31 @@ bool IsCastMessageValid(const CastMessage& message_proto) {
           message_proto.has_payload_binary());
 }
 
-bool IsCastInternalNamespace(const std::string& message_namespace) {
-  // Note: any namespace with the prefix is assumed to be reserved for internal
-  // messages.
-  return base::StartsWith(message_namespace, kCastInternalNamespacePrefix,
-                          base::CompareCase::SENSITIVE);
+bool IsCastReservedNamespace(base::StringPiece message_namespace) {
+  // Note: Any namespace with the prefix is theoretically reserved for internal
+  // messages, but there is at least one namespace in widespread use that uses
+  // the "reserved" prefix for app-level messages, so after matching the main
+  // prefix, we look for longer prefixes that really need to be reserved.
+  if (!base::StartsWith(message_namespace, kCastReservedNamespacePrefix))
+    return false;
+
+  const auto prefix_length = kCastReservedNamespacePrefix.length();
+  for (base::StringPiece reserved_namespace : kReservedNamespaces) {
+    DCHECK(base::StartsWith(reserved_namespace, kCastReservedNamespacePrefix));
+    // This comparison skips the first |prefix_length| characters
+    // because we already know they match.
+    if (base::StartsWith(message_namespace.substr(prefix_length),
+                         reserved_namespace.substr(prefix_length)) &&
+        // This condition allows |reserved_namespace| to be equal
+        // |message_namespace| or be a prefix of it, but if it's a
+        // prefix, it must be followed by a dot.  The subscript is
+        // never out of bounds because |message_namespace| must be
+        // at least as long as |reserved_namespace|.
+        (message_namespace.length() == reserved_namespace.length() ||
+         message_namespace[reserved_namespace.length()] == '.'))
+      return true;
+  }
+  return false;
 }
 
 CastMessageType ParseMessageTypeFromPayload(const base::Value& payload) {
@@ -315,8 +365,6 @@ CastMessage CreateVirtualConnectionRequest(
     VirtualConnectionType connection_type,
     const std::string& user_agent,
     const std::string& browser_version) {
-  DCHECK(destination_id == kPlatformReceiverId || connection_type == kStrong);
-
   // Parse system_version from user agent string. It contains platform, OS and
   // CPU info and is contained in the first set of parentheses of the user
   // agent string (e.g., X11; Linux x86_64).
@@ -599,6 +647,15 @@ LaunchSessionResponse GetLaunchSessionResponse(const base::Value& payload) {
   response.result = LaunchSessionResponse::Result::kOk;
   response.receiver_status = receiver_status->Clone();
   return response;
+}
+
+VirtualConnectionType GetConnectionType(const std::string& destination_id) {
+  // VCs to recevier-0 are invisible to the receiver application by design.
+  // We create a strong connection because some commands (e.g. LAUNCH) are
+  // not accepted from invisible connections.
+  return destination_id == kPlatformReceiverId
+             ? VirtualConnectionType::kStrong
+             : VirtualConnectionType::kInvisible;
 }
 
 }  // namespace cast_channel

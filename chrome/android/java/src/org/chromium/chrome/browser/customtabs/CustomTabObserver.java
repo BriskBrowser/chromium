@@ -28,6 +28,7 @@ import org.chromium.chrome.browser.tab.TabUtils;
 import org.chromium.components.browser_ui.share.ShareImageFileUtils;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.NavigationHandle;
+import org.chromium.url.GURL;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -113,7 +114,7 @@ public class CustomTabObserver extends EmptyTabObserver {
     }
 
     @Override
-    public void onPageLoadStarted(Tab tab, String url) {
+    public void onPageLoadStarted(Tab tab, GURL url) {
         if (mCurrentState == State.WAITING_LOAD_START) {
             mPageLoadStartedTimestamp = SystemClock.elapsedRealtime();
             mCurrentState = State.WAITING_LOAD_FINISH;
@@ -136,7 +137,7 @@ public class CustomTabObserver extends EmptyTabObserver {
     }
 
     @Override
-    public void onPageLoadFinished(Tab tab, String url) {
+    public void onPageLoadFinished(Tab tab, GURL url) {
         long pageLoadFinishedTimestamp = SystemClock.elapsedRealtime();
 
         if (mCurrentState == State.WAITING_LOAD_FINISH && mIntentReceivedTimestamp > 0) {
@@ -203,12 +204,15 @@ public class CustomTabObserver extends EmptyTabObserver {
         if (mCustomTabsConnection == null) return;
         if (!mCustomTabsConnection.shouldSendNavigationInfoForSession(mSession)) return;
         if (tab.getWebContents() == null) return;
+        String title = tab.getTitle();
+        if (TextUtils.isEmpty(title)) return;
+        String urlString = tab.getUrlString();
 
         ShareImageFileUtils.captureScreenshotForContents(tab.getWebContents(), mContentBitmapWidth,
                 mContentBitmapHeight, (Uri snapshotPath) -> {
-                    if (TextUtils.isEmpty(tab.getTitle()) && snapshotPath == null) return;
+                    if (snapshotPath == null) return;
                     mCustomTabsConnection.sendNavigationInfo(
-                            mSession, tab.getUrlString(), tab.getTitle(), snapshotPath);
+                            mSession, urlString, title, snapshotPath);
                 });
     }
 }

@@ -40,6 +40,7 @@
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/deprecation.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/modules/imagecapture/image_capture.h"
 #include "third_party/blink/renderer/modules/mediastream/apply_constraints_request.h"
 #include "third_party/blink/renderer/modules/mediastream/media_constraints_impl.h"
@@ -88,12 +89,9 @@ bool ConstraintSetHasImageCapture(
          constraint_set->hasColorTemperature() || constraint_set->hasIso() ||
          constraint_set->hasBrightness() || constraint_set->hasContrast() ||
          constraint_set->hasSaturation() || constraint_set->hasSharpness() ||
-         constraint_set->hasFocusDistance() ||
-         (RuntimeEnabledFeatures::MediaCapturePanTiltEnabled() &&
-          constraint_set->hasPan()) ||
-         (RuntimeEnabledFeatures::MediaCapturePanTiltEnabled() &&
-          constraint_set->hasTilt()) ||
-         constraint_set->hasZoom() || constraint_set->hasTorch();
+         constraint_set->hasFocusDistance() || constraint_set->hasPan() ||
+         constraint_set->hasTilt() || constraint_set->hasZoom() ||
+         constraint_set->hasTorch();
 }
 
 bool ConstraintSetHasNonImageCapture(
@@ -178,8 +176,7 @@ void CloneNativeVideoMediaStreamTrack(MediaStreamComponent* original,
   MediaStreamVideoSource* native_source =
       MediaStreamVideoSource::GetVideoSource(source);
   DCHECK(native_source);
-  MediaStreamVideoTrack* original_track =
-      MediaStreamVideoTrack::GetVideoTrack(WebMediaStreamTrack(original));
+  MediaStreamVideoTrack* original_track = MediaStreamVideoTrack::From(original);
   DCHECK(original_track);
   clone->SetPlatformTrack(std::make_unique<MediaStreamVideoTrack>(
       native_source, original_track->adapter_settings(),
@@ -247,7 +244,7 @@ MediaStreamTrack::MediaStreamTrack(ExecutionContext* context,
   component_->SetMuted(ready_state_ == MediaStreamSource::kReadyStateMuted);
 
   MediaStreamVideoTrack* const video_track =
-      MediaStreamVideoTrack::GetVideoTrack(WebMediaStreamTrack(Component()));
+      MediaStreamVideoTrack::From(Component());
   if (video_track && component_->Source() &&
       component_->Source()->GetType() == MediaStreamSource::kTypeVideo) {
     bool pan_tilt_zoom_allowed =
@@ -256,9 +253,18 @@ MediaStreamTrack::MediaStreamTrack(ExecutionContext* context,
     image_capture_ = MakeGarbageCollected<ImageCapture>(
         context, this, pan_tilt_zoom_allowed, std::move(callback));
   } else {
-    execution_context_->GetTaskRunner(TaskType::kInternalMedia)
-        ->PostTask(FROM_HERE, std::move(callback));
+    if (execution_context_) {
+      execution_context_->GetTaskRunner(TaskType::kInternalMedia)
+          ->PostTask(FROM_HERE, std::move(callback));
+    } else {
+      std::move(callback).Run();
+    }
   }
+
+  // Note that both 'live' and 'muted' correspond to a 'live' ready state in the
+  // web API.
+  if (ready_state_ != MediaStreamSource::kReadyStateEnded)
+    EnsureFeatureHandleForScheduler();
 }
 
 MediaStreamTrack::~MediaStreamTrack() = default;
@@ -396,12 +402,28 @@ String MediaStreamTrack::readyState() const {
   return String();
 }
 
+void MediaStreamTrack::setReadyState(
+    MediaStreamSource::ReadyState ready_state) {
+  if (ready_state_ != MediaStreamSource::kReadyStateEnded &&
+      ready_state_ != ready_state) {
+    ready_state_ = ready_state;
+
+    // Observers may dispatch events which create and add new Observers;
+    // take a snapshot so as to safely iterate.
+    HeapVector<Member<Observer>> observers;
+    CopyToVector(observers_, observers);
+    for (auto observer : observers)
+      observer->TrackChangedState();
+  }
+}
+
 void MediaStreamTrack::stopTrack(ExecutionContext* execution_context) {
   SendLogMessage(base::StringPrintf("stopTrack([id=%s])", id().Utf8().c_str()));
   if (Ended())
     return;
 
-  ready_state_ = MediaStreamSource::kReadyStateEnded;
+  setReadyState(MediaStreamSource::kReadyStateEnded);
+  feature_handle_for_scheduler_.reset();
   UserMediaController* user_media =
       UserMediaController::From(To<LocalDOMWindow>(execution_context));
   if (user_media)
@@ -416,6 +438,9 @@ MediaStreamTrack* MediaStreamTrack::clone(ScriptState* script_state) {
       ExecutionContext::From(script_state), cloned_component, ready_state_,
       base::DoNothing());
   DidCloneMediaStreamTrack(Component(), cloned_component);
+  if (image_capture_) {
+    cloned_track->image_capture_ = image_capture_->Clone();
+  }
   return cloned_track;
 }
 
@@ -730,19 +755,25 @@ void MediaStreamTrack::SourceChangedState() {
   if (Ended())
     return;
 
-  ready_state_ = component_->Source()->GetReadyState();
+  // Note that both 'live' and 'muted' correspond to a 'live' ready state in the
+  // web API, hence the following logic around |feature_handle_for_scheduler_|.
+
+  setReadyState(component_->Source()->GetReadyState());
   switch (ready_state_) {
     case MediaStreamSource::kReadyStateLive:
       component_->SetMuted(false);
       DispatchEvent(*Event::Create(event_type_names::kUnmute));
+      EnsureFeatureHandleForScheduler();
       break;
     case MediaStreamSource::kReadyStateMuted:
       component_->SetMuted(true);
       DispatchEvent(*Event::Create(event_type_names::kMute));
+      EnsureFeatureHandleForScheduler();
       break;
     case MediaStreamSource::kReadyStateEnded:
       DispatchEvent(*Event::Create(event_type_names::kEnded));
       PropagateTrackEnded();
+      feature_handle_for_scheduler_.reset();
       break;
   }
   SendLogMessage(
@@ -810,7 +841,29 @@ void MediaStreamTrack::Trace(Visitor* visitor) const {
   visitor->Trace(component_);
   visitor->Trace(image_capture_);
   visitor->Trace(execution_context_);
+  visitor->Trace(observers_);
   EventTargetWithInlineData::Trace(visitor);
+}
+
+void MediaStreamTrack::EnsureFeatureHandleForScheduler() {
+  if (feature_handle_for_scheduler_)
+    return;
+  LocalDOMWindow* window = DynamicTo<LocalDOMWindow>(GetExecutionContext());
+  // Ideally we'd use To<LocalDOMWindow>, but in unittests the ExecutionContext
+  // may not be a LocalDOMWindow.
+  if (!window)
+    return;
+  // This can happen for detached frames.
+  if (!window->GetFrame())
+    return;
+  feature_handle_for_scheduler_ =
+      window->GetFrame()->GetFrameScheduler()->RegisterFeature(
+          SchedulingPolicy::Feature::kWebRTC,
+          SchedulingPolicy::DisableAggressiveThrottling());
+}
+
+void MediaStreamTrack::AddObserver(MediaStreamTrack::Observer* observer) {
+  observers_.insert(observer);
 }
 
 }  // namespace blink

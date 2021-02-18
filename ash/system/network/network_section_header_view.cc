@@ -4,6 +4,7 @@
 
 #include "ash/system/network/network_section_header_view.h"
 
+#include "ash/constants/ash_features.h"
 #include "ash/metrics/user_metrics_recorder.h"
 #include "ash/public/cpp/system_tray_client.h"
 #include "ash/session/session_controller_impl.h"
@@ -67,6 +68,21 @@ bool IsSecondaryUser() {
          !session_controller->IsUserPrimary();
 }
 
+bool IsESimSupported() {
+  const DeviceStateProperties* cellular_device =
+      Shell::Get()->system_tray_model()->network_state_model()->GetDevice(
+          NetworkType::kCellular);
+
+  if (!cellular_device || !cellular_device->sim_infos)
+    return false;
+
+  for (const auto& sim_info : *cellular_device->sim_infos) {
+    if (!sim_info->eid.empty())
+      return true;
+  }
+  return false;
+}
+
 }  // namespace
 
 NetworkSectionHeaderView::NetworkSectionHeaderView(int title_id)
@@ -99,17 +115,7 @@ int NetworkSectionHeaderView::GetHeightForWidth(int width) const {
   // Make row height fixed avoiding layout manager adjustments.
   return GetPreferredSize().height();
 }
-void NetworkSectionHeaderView::ButtonPressed(views::Button* sender,
-                                             const ui::Event& event) {
-  DCHECK_EQ(toggle_, sender);
-  // In the event of frequent clicks, helps to prevent a toggle button state
-  // from becoming inconsistent with the async operation of enabling /
-  // disabling of mobile radio. The toggle will get unlocked in the next
-  // call to NetworkListView::Update(). Note that we don't disable/enable
-  // because that would clear focus.
-  toggle_->SetAcceptsEvents(false);
-  OnToggleToggled(toggle_->GetIsOn());
-}
+
 void NetworkSectionHeaderView::InitializeLayout() {
   TrayPopupUtils::ConfigureAsStickyHeader(this);
   SetLayoutManager(std::make_unique<views::FillLayout>());
@@ -123,9 +129,22 @@ void NetworkSectionHeaderView::InitializeLayout() {
 }
 
 void NetworkSectionHeaderView::AddToggleButton(bool enabled) {
-  toggle_ = TrayPopupUtils::CreateToggleButton(this, title_id_);
+  toggle_ = TrayPopupUtils::CreateToggleButton(
+      base::BindRepeating(&NetworkSectionHeaderView::ToggleButtonPressed,
+                          base::Unretained(this)),
+      title_id_);
   toggle_->SetIsOn(enabled);
   container_->AddView(TriView::Container::END, toggle_);
+}
+
+void NetworkSectionHeaderView::ToggleButtonPressed() {
+  // In the event of frequent clicks, helps to prevent a toggle button state
+  // from becoming inconsistent with the async operation of enabling /
+  // disabling of mobile radio. The toggle will get unlocked in the next
+  // call to NetworkListView::Update(). Note that we don't disable/enable
+  // because that would clear focus.
+  toggle_->SetAcceptsEvents(false);
+  OnToggleToggled(toggle_->GetIsOn());
 }
 
 MobileSectionHeaderView::MobileSectionHeaderView()
@@ -271,6 +290,60 @@ void MobileSectionHeaderView::OnToggleToggled(bool is_on) {
   model()->SetNetworkTypeEnabledState(NetworkType::kTether, is_on);
 }
 
+void MobileSectionHeaderView::AddExtraButtons(bool enabled) {
+  if (!chromeos::features::IsCellularActivationUiEnabled())
+    return;
+
+  if (IsESimSupported()) {
+    PerformAddExtraButtons(enabled);
+    return;
+  }
+
+  // Fetch the available networks, all of which should be PSIM networks.
+  // If any are unactivated, PerformAddExtraButtons() should be called.
+  Shell::Get()
+      ->system_tray_model()
+      ->network_state_model()
+      ->cros_network_config()
+      ->GetNetworkStateList(
+          NetworkFilter::New(
+              FilterType::kVisible, NetworkType::kCellular,
+              /*limit=*/chromeos::network_config::mojom::kNoLimit),
+          base::BindOnce(&MobileSectionHeaderView::OnCellularNetworksFetched,
+                         weak_ptr_factory_.GetWeakPtr(), enabled));
+}
+
+void MobileSectionHeaderView::PerformAddExtraButtons(bool enabled) {
+  TopShortcutButton* add_cellular_button = new TopShortcutButton(
+      base::BindRepeating(&MobileSectionHeaderView::AddCellularButtonPressed,
+                          base::Unretained(this)),
+      vector_icons::kAddCellularNetworkIcon,
+      IDS_ASH_STATUS_TRAY_ADD_CELLULAR_LABEL);
+  add_cellular_button->SetEnabled(enabled);
+  container()->AddView(TriView::Container::END, add_cellular_button);
+}
+
+void MobileSectionHeaderView::OnCellularNetworksFetched(
+    bool enabled,
+    std::vector<chromeos::network_config::mojom::NetworkStatePropertiesPtr>
+        networks) {
+  if (networks.empty())
+    return;
+
+  for (const auto& network : networks) {
+    if (network->type_state->get_cellular()->activation_state !=
+        chromeos::network_config::mojom::ActivationStateType::kActivated) {
+      PerformAddExtraButtons(enabled);
+      return;
+    }
+  }
+}
+
+void MobileSectionHeaderView::AddCellularButtonPressed() {
+  Shell::Get()->system_tray_model()->client()->ShowNetworkCreate(
+      ::onc::network_type::kCellular);
+}
+
 void MobileSectionHeaderView::EnableBluetooth() {
   DCHECK(!waiting_for_tether_initialize_);
 
@@ -313,23 +386,20 @@ void WifiSectionHeaderView::OnToggleToggled(bool is_on) {
 }
 
 void WifiSectionHeaderView::AddExtraButtons(bool enabled) {
-  auto* join_button = new TopShortcutButton(this, vector_icons::kWifiAddIcon,
-                                            IDS_ASH_STATUS_TRAY_OTHER_WIFI);
+  auto* join_button = new TopShortcutButton(
+      base::BindRepeating(&WifiSectionHeaderView::JoinButtonPressed,
+                          base::Unretained(this)),
+      vector_icons::kWifiAddIcon, IDS_ASH_STATUS_TRAY_OTHER_WIFI);
   join_button->SetEnabled(enabled);
   container()->AddView(TriView::Container::END, join_button);
   join_button_ = join_button;
 }
 
-void WifiSectionHeaderView::ButtonPressed(views::Button* sender,
-                                          const ui::Event& event) {
-  if (sender == join_button_) {
-    Shell::Get()->metrics()->RecordUserMetricsAction(
-        UMA_STATUS_AREA_NETWORK_JOIN_OTHER_CLICKED);
-    Shell::Get()->system_tray_model()->client()->ShowNetworkCreate(
-        ::onc::network_type::kWiFi);
-    return;
-  }
-  NetworkSectionHeaderView::ButtonPressed(sender, event);
+void WifiSectionHeaderView::JoinButtonPressed() {
+  Shell::Get()->metrics()->RecordUserMetricsAction(
+      UMA_STATUS_AREA_NETWORK_JOIN_OTHER_CLICKED);
+  Shell::Get()->system_tray_model()->client()->ShowNetworkCreate(
+      ::onc::network_type::kWiFi);
 }
 
 }  // namespace tray

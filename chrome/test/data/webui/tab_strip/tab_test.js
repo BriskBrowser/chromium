@@ -283,11 +283,10 @@ suite('Tab', function() {
         assertEquals(crashedIconStyle.opacity, '0');
       });
 
-  test('clicking on the element activates the tab', () => {
+  test('clicking on the element activates the tab', async () => {
     tabElement.shadowRoot.querySelector('#tab').click();
-    return testTabsApiProxy.whenCalled('activateTab').then(tabId => {
-      assertEquals(tabId, tab.id);
-    });
+    const tabId = await testTabsApiProxy.whenCalled('activateTab');
+    assertEquals(tabId, tab.id);
   });
 
   test('sets the title', () => {
@@ -312,24 +311,20 @@ suite('Tab', function() {
     assertEquals('1001', tabElement.getAttribute('data-tab-id'));
   });
 
-  test('closes the tab when clicking close button', () => {
+  test('closes the tab when clicking close button', async () => {
     tabElement.shadowRoot.querySelector('#close').click();
-    return testTabsApiProxy.whenCalled('closeTab').then(([
-                                                          tabId, closeTabAction
-                                                        ]) => {
-      assertEquals(tabId, tab.id);
-      assertEquals(closeTabAction, CloseTabAction.CLOSE_BUTTON);
-    });
+    const [tabId, closeTabAction] =
+        await testTabsApiProxy.whenCalled('closeTab');
+    assertEquals(tabId, tab.id);
+    assertEquals(closeTabAction, CloseTabAction.CLOSE_BUTTON);
   });
 
-  test('closes the tab on swipe', () => {
+  test('closes the tab on swipe', async () => {
     tabElement.dispatchEvent(new CustomEvent('swipe'));
-    return testTabsApiProxy.whenCalled('closeTab').then(([
-                                                          tabId, closeTabAction
-                                                        ]) => {
-      assertEquals(tabId, tab.id);
-      assertEquals(closeTabAction, CloseTabAction.SWIPED_TO_CLOSE);
-    });
+    const [tabId, closeTabAction] =
+        await testTabsApiProxy.whenCalled('closeTab');
+    assertEquals(tabId, tab.id);
+    assertEquals(closeTabAction, CloseTabAction.SWIPED_TO_CLOSE);
   });
 
   test('sets the favicon to the favicon URL', () => {
@@ -456,5 +451,19 @@ suite('Tab', function() {
     // flakiness caused by comparing float values.
     assertEquals(
         Math.floor(originalAspectRatio), Math.floor(dragImageAspectRatio));
+  });
+
+  test('RightClickOpensContextMenu', async () => {
+    tabElement.$('#tab').dispatchEvent(new PointerEvent('pointerup', {
+      pointerType: 'mouse',
+      button: 2,
+      clientX: 50,
+      clientY: 100,
+    }));
+    const [id, x, y] =
+        await testTabStripEmbedderProxy.whenCalled('showTabContextMenu');
+    assertEquals(tab.id, id);
+    assertEquals(50, x);
+    assertEquals(100, y);
   });
 });

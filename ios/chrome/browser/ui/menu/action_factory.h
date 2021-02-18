@@ -72,11 +72,10 @@ API_AVAILABLE(ios(13.0))
 - (UIAction*)actionToOpenInNewIncognitoTabWithBlock:(ProceduralBlock)block;
 
 // Creates a UIAction instance configured for opening the |URL| in a new window
-// from |activityOrigin|, and which will invoke the given |completion| block
-// after execution.
+// from |activityOrigin|.
 - (UIAction*)actionToOpenInNewWindowWithURL:(const GURL)URL
-                             activityOrigin:(WindowActivityOrigin)activityOrigin
-                                 completion:(ProceduralBlock)completion;
+                             activityOrigin:
+                                 (WindowActivityOrigin)activityOrigin;
 
 // Creates a UIAction instance configured for suppression which will invoke
 // the given delete |block| when executed.
@@ -93,6 +92,23 @@ API_AVAILABLE(ios(13.0))
 // Creates a UIAction instance configured for moving a folder which will invoke
 // the given |block| when executed.
 - (UIAction*)actionToMoveFolderWithBlock:(ProceduralBlock)block;
+
+// Creates a UIAction instance configured for marking an entry from the
+// ReadingList as read, which will invoke the given |block| when executed.
+- (UIAction*)actionToMarkAsReadWithBlock:(ProceduralBlock)block;
+
+// Creates a UIAction instance configured for marking an entry from the
+// ReadingList as unread, which will invoke the given |block| when executed.
+- (UIAction*)actionToMarkAsUnreadWithBlock:(ProceduralBlock)block;
+
+// Creates a UIAction instance whose title and icon are configured for viewing
+// an offline version of an URL in a new tab. When triggered, the action will
+// invoke the |block| when executed.
+- (UIAction*)actionToOpenOfflineVersionInNewTabWithBlock:(ProceduralBlock)block;
+
+// Creates a UIAction instance configured for executing JavaScript evalutation
+// The action will invoke the |block| when executed.
+- (UIAction*)actionToOpenJavascriptWithBlock:(ProceduralBlock)block;
 
 @end
 

@@ -8,11 +8,10 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "base/test/scoped_feature_list.h"
 #include "content/browser/loader/navigation_loader_interceptor.h"
 #include "content/browser/loader/single_request_url_loader_factory.h"
 #include "content/browser/service_worker/embedded_worker_test_helper.h"
@@ -105,10 +104,18 @@ class FetchEventServiceWorker : public FakeServiceWorker {
  public:
   FetchEventServiceWorker(
       EmbeddedWorkerTestHelper* helper,
-      FakeEmbeddedWorkerInstanceClient* embedded_worker_instance_client)
+      FakeEmbeddedWorkerInstanceClient* embedded_worker_instance_client,
+      BrowserTaskEnvironment* task_environment)
       : FakeServiceWorker(helper),
+        task_environment_(task_environment),
         embedded_worker_instance_client_(embedded_worker_instance_client) {}
   ~FetchEventServiceWorker() override = default;
+
+  // Tells this worker to dispatch a fetch event 1s after the fetch event is
+  // received.
+  void DispatchAfter1sDelay() {
+    response_mode_ = ResponseMode::kDispatchAfter1sDelay;
+  }
 
   // Tells this worker to respond to fetch events with the specified blob.
   void RespondWithBlob(blink::mojom::SerializedBlobPtr blob) {
@@ -145,9 +152,9 @@ class FetchEventServiceWorker : public FakeServiceWorker {
   }
 
   // Tells this worker to respond to fetch events with the redirect response.
-  void RespondWithRedirectResponse(const GURL& new_url) {
+  void RespondWithRedirectResponse(const std::string& location_header) {
     response_mode_ = ResponseMode::kRedirect;
-    redirected_url_ = new_url;
+    location_header_ = location_header;
   }
 
   // Tells this worker to simulate failure to dispatch the fetch event to the
@@ -190,8 +197,9 @@ class FetchEventServiceWorker : public FakeServiceWorker {
     // So far this test expects a single bytes element.
     ASSERT_EQ(1u, elements->size());
     const network::DataElement& element = elements->front();
-    ASSERT_EQ(network::mojom::DataElementType::kBytes, element.type());
-    *out_string = std::string(element.bytes(), element.length());
+    ASSERT_EQ(network::DataElement::Tag::kBytes, element.type());
+    *out_string =
+        std::string(element.As<network::DataElementBytes>().AsStringPiece());
   }
 
   void RunUntilFetchEvent() {
@@ -239,6 +247,12 @@ class FetchEventServiceWorker : public FakeServiceWorker {
         response_callback(std::move(pending_response_callback));
     switch (response_mode_) {
       case ResponseMode::kDefault:
+        FakeServiceWorker::DispatchFetchEventForMainResource(
+            std::move(params), response_callback.Unbind(),
+            std::move(finish_callback));
+        break;
+      case ResponseMode::kDispatchAfter1sDelay:
+        task_environment_->AdvanceClock(base::TimeDelta::FromSeconds(1));
         FakeServiceWorker::DispatchFetchEventForMainResource(
             std::move(params), response_callback.Unbind(),
             std::move(finish_callback));
@@ -300,7 +314,7 @@ class FetchEventServiceWorker : public FakeServiceWorker {
         // Now the caller must call FinishWaitUntil() to finish the event.
         break;
       case ResponseMode::kRedirect:
-        response_callback->OnResponse(RedirectResponse(redirected_url_.spec()),
+        response_callback->OnResponse(RedirectResponse(location_header_),
                                       std::move(timing));
         std::move(finish_callback)
             .Run(blink::mojom::ServiceWorkerEventStatus::COMPLETED);
@@ -320,6 +334,7 @@ class FetchEventServiceWorker : public FakeServiceWorker {
  private:
   enum class ResponseMode {
     kDefault,
+    kDispatchAfter1sDelay,
     kBlob,
     kStream,
     kFallbackResponse,
@@ -330,6 +345,8 @@ class FetchEventServiceWorker : public FakeServiceWorker {
     kRedirect,
     kHeaders
   };
+
+  BrowserTaskEnvironment* const task_environment_;
 
   ResponseMode response_mode_ = ResponseMode::kDefault;
   scoped_refptr<network::ResourceRequestBody> request_body_;
@@ -347,7 +364,7 @@ class FetchEventServiceWorker : public FakeServiceWorker {
       response_callback_;
 
   // For ResponseMode::kRedirect.
-  GURL redirected_url_;
+  std::string location_header_;
 
   // For ResponseMode::kHeaders
   base::flat_map<std::string, std::string> headers_;
@@ -391,7 +408,8 @@ const char kHistogramMainResourceFetchEvent[] =
 class ServiceWorkerMainResourceLoaderTest : public testing::Test {
  public:
   ServiceWorkerMainResourceLoaderTest()
-      : task_environment_(BrowserTaskEnvironment::IO_MAINLOOP) {}
+      : task_environment_(BrowserTaskEnvironment::IO_MAINLOOP,
+                          base::test::TaskEnvironment::TimeSource::MOCK_TIME) {}
   ~ServiceWorkerMainResourceLoaderTest() override = default;
 
   void SetUp() override {
@@ -433,7 +451,7 @@ class ServiceWorkerMainResourceLoaderTest : public testing::Test {
             helper_.get());
     service_worker_ =
         helper_->AddNewPendingServiceWorker<FetchEventServiceWorker>(
-            helper_.get(), client);
+            helper_.get(), client, &task_environment_);
 
     // Wait for main script response is set to |version| because
     // ServiceWorkerMainResourceLoader needs the main script response to
@@ -743,10 +761,12 @@ TEST_F(ServiceWorkerMainResourceLoaderTest, StreamResponse) {
   // Construct the Stream to respond with.
   const char kResponseBody[] = "Here is sample text for the Stream.";
   mojo::Remote<blink::mojom::ServiceWorkerStreamCallback> stream_callback;
-  mojo::DataPipe data_pipe;
+  mojo::ScopedDataPipeProducerHandle producer_handle;
+  mojo::ScopedDataPipeConsumerHandle consumer_handle;
+  ASSERT_EQ(mojo::CreateDataPipe(nullptr, producer_handle, consumer_handle),
+            MOJO_RESULT_OK);
   service_worker_->RespondWithStream(
-      stream_callback.BindNewPipeAndPassReceiver(),
-      std::move(data_pipe.consumer_handle));
+      stream_callback.BindNewPipeAndPassReceiver(), std::move(consumer_handle));
 
   // Perform the request.
   StartRequest(CreateRequest());
@@ -760,12 +780,12 @@ TEST_F(ServiceWorkerMainResourceLoaderTest, StreamResponse) {
 
   // Write the body stream.
   uint32_t written_bytes = sizeof(kResponseBody) - 1;
-  MojoResult mojo_result = data_pipe.producer_handle->WriteData(
+  MojoResult mojo_result = producer_handle->WriteData(
       kResponseBody, &written_bytes, MOJO_WRITE_DATA_FLAG_NONE);
   ASSERT_EQ(MOJO_RESULT_OK, mojo_result);
   EXPECT_EQ(sizeof(kResponseBody) - 1, written_bytes);
   stream_callback->OnCompleted();
-  data_pipe.producer_handle.reset();
+  producer_handle.reset();
 
   client_.RunUntilComplete();
   EXPECT_EQ(net::OK, client_.completion_status().error_code);
@@ -791,10 +811,12 @@ TEST_F(ServiceWorkerMainResourceLoaderTest, StreamResponse_Abort) {
   // Construct the Stream to respond with.
   const char kResponseBody[] = "Here is sample text for the Stream.";
   mojo::Remote<blink::mojom::ServiceWorkerStreamCallback> stream_callback;
-  mojo::DataPipe data_pipe;
+  mojo::ScopedDataPipeProducerHandle producer_handle;
+  mojo::ScopedDataPipeConsumerHandle consumer_handle;
+  ASSERT_EQ(mojo::CreateDataPipe(nullptr, producer_handle, consumer_handle),
+            MOJO_RESULT_OK);
   service_worker_->RespondWithStream(
-      stream_callback.BindNewPipeAndPassReceiver(),
-      std::move(data_pipe.consumer_handle));
+      stream_callback.BindNewPipeAndPassReceiver(), std::move(consumer_handle));
 
   // Perform the request.
   StartRequest(CreateRequest());
@@ -806,12 +828,12 @@ TEST_F(ServiceWorkerMainResourceLoaderTest, StreamResponse_Abort) {
 
   // Start writing the body stream, then abort before finishing.
   uint32_t written_bytes = sizeof(kResponseBody) - 1;
-  MojoResult mojo_result = data_pipe.producer_handle->WriteData(
+  MojoResult mojo_result = producer_handle->WriteData(
       kResponseBody, &written_bytes, MOJO_WRITE_DATA_FLAG_NONE);
   ASSERT_EQ(MOJO_RESULT_OK, mojo_result);
   EXPECT_EQ(sizeof(kResponseBody) - 1, written_bytes);
   stream_callback->OnAborted();
-  data_pipe.producer_handle.reset();
+  producer_handle.reset();
 
   client_.RunUntilComplete();
   EXPECT_EQ(net::ERR_ABORTED, client_.completion_status().error_code);
@@ -841,10 +863,12 @@ TEST_F(ServiceWorkerMainResourceLoaderTest, StreamResponseAndCancel) {
   // Construct the Stream to respond with.
   const char kResponseBody[] = "Here is sample text for the Stream.";
   mojo::Remote<blink::mojom::ServiceWorkerStreamCallback> stream_callback;
-  mojo::DataPipe data_pipe;
+  mojo::ScopedDataPipeProducerHandle producer_handle;
+  mojo::ScopedDataPipeConsumerHandle consumer_handle;
+  ASSERT_EQ(mojo::CreateDataPipe(nullptr, producer_handle, consumer_handle),
+            MOJO_RESULT_OK);
   service_worker_->RespondWithStream(
-      stream_callback.BindNewPipeAndPassReceiver(),
-      std::move(data_pipe.consumer_handle));
+      stream_callback.BindNewPipeAndPassReceiver(), std::move(consumer_handle));
 
   // Perform the request.
   StartRequest(CreateRequest());
@@ -857,11 +881,11 @@ TEST_F(ServiceWorkerMainResourceLoaderTest, StreamResponseAndCancel) {
   // Start writing the body stream, then break the Mojo connection to the loader
   // before finishing.
   uint32_t written_bytes = sizeof(kResponseBody) - 1;
-  MojoResult mojo_result = data_pipe.producer_handle->WriteData(
+  MojoResult mojo_result = producer_handle->WriteData(
       kResponseBody, &written_bytes, MOJO_WRITE_DATA_FLAG_NONE);
   ASSERT_EQ(MOJO_RESULT_OK, mojo_result);
   EXPECT_EQ(sizeof(kResponseBody) - 1, written_bytes);
-  EXPECT_TRUE(data_pipe.producer_handle.is_valid());
+  EXPECT_TRUE(producer_handle.is_valid());
   loader_remote_.reset();
   base::RunLoop().RunUntilIdle();
 
@@ -869,13 +893,12 @@ TEST_F(ServiceWorkerMainResourceLoaderTest, StreamResponseAndCancel) {
   // on connection error, the URLLoaderClient still exists. In this test, it is
   // |client_| which owns the data pipe, so it's still valid to write data to
   // it.
-  mojo_result = data_pipe.producer_handle->WriteData(
-      kResponseBody, &written_bytes, MOJO_WRITE_DATA_FLAG_NONE);
+  mojo_result = producer_handle->WriteData(kResponseBody, &written_bytes,
+                                           MOJO_WRITE_DATA_FLAG_NONE);
   // TODO(falken): This should probably be an error.
   EXPECT_EQ(MOJO_RESULT_OK, mojo_result);
 
   client_.RunUntilComplete();
-  EXPECT_FALSE(data_pipe.consumer_handle.is_valid());
   EXPECT_EQ(net::ERR_ABORTED, client_.completion_status().error_code);
 
   // Timing histograms shouldn't be recorded on cancel.
@@ -982,7 +1005,7 @@ TEST_F(ServiceWorkerMainResourceLoaderTest, EarlyResponse) {
 TEST_F(ServiceWorkerMainResourceLoaderTest, Redirect) {
   base::HistogramTester histogram_tester;
   GURL new_url("https://example.com/redirected");
-  service_worker_->RespondWithRedirectResponse(new_url);
+  service_worker_->RespondWithRedirectResponse(new_url.spec());
 
   // Perform the request.
   StartRequest(CreateRequest());
@@ -996,6 +1019,29 @@ TEST_F(ServiceWorkerMainResourceLoaderTest, Redirect) {
   EXPECT_EQ(301, redirect_info.status_code);
   EXPECT_EQ("GET", redirect_info.new_method);
   EXPECT_EQ(new_url, redirect_info.new_url);
+
+  histogram_tester.ExpectUniqueSample(kHistogramMainResourceFetchEvent,
+                                      blink::ServiceWorkerStatusCode::kOk, 1);
+}
+
+// Synthetic response lack a base URL, so relative redirects turn into a
+// redirect to an invalid URL. See https://crbug.com/1170379.
+TEST_F(ServiceWorkerMainResourceLoaderTest, RedirectRelativeNoBaseURL) {
+  base::HistogramTester histogram_tester;
+  service_worker_->RespondWithRedirectResponse("/foo.html");
+
+  // Perform the request.
+  StartRequest(CreateRequest());
+  client_.RunUntilRedirectReceived();
+
+  auto& info = client_.response_head();
+  EXPECT_EQ(301, info->headers->response_code());
+  ExpectResponseInfo(*info, *CreateResponseInfoFromServiceWorker());
+
+  const net::RedirectInfo& redirect_info = client_.redirect_info();
+  EXPECT_EQ(301, redirect_info.status_code);
+  EXPECT_EQ("GET", redirect_info.new_method);
+  EXPECT_FALSE(redirect_info.new_url.is_valid());
 
   histogram_tester.ExpectUniqueSample(kHistogramMainResourceFetchEvent,
                                       blink::ServiceWorkerStatusCode::kOk, 1);
@@ -1055,6 +1101,28 @@ TEST_F(ServiceWorkerMainResourceLoaderTest, CancelNavigationDuringFetchEvent) {
 
   client_.RunUntilComplete();
   EXPECT_EQ(net::ERR_ABORTED, client_.completion_status().error_code);
+}
+
+TEST_F(ServiceWorkerMainResourceLoaderTest, TimingInfo) {
+  service_worker_->DispatchAfter1sDelay();
+
+  // Perform the request.
+  StartRequest(CreateRequest());
+  client_.RunUntilComplete();
+
+  // The response header's timing is recorded appropriately.
+  auto& info = client_.response_head();
+  EXPECT_EQ(200, info->headers->response_code());
+  ExpectResponseInfo(*info, *CreateResponseInfoFromServiceWorker());
+  EXPECT_EQ(base::TimeDelta::FromSeconds(1),
+            info->load_timing.service_worker_ready_time -
+                info->load_timing.service_worker_start_time);
+  EXPECT_EQ(base::TimeDelta::FromSeconds(1),
+            info->load_timing.service_worker_fetch_start -
+                info->load_timing.service_worker_start_time);
+  EXPECT_EQ(base::TimeDelta::FromSeconds(1),
+            info->load_timing.service_worker_respond_with_settled -
+                info->load_timing.service_worker_start_time);
 }
 
 }  // namespace service_worker_main_resource_loader_unittest

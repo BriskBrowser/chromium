@@ -13,36 +13,65 @@
 
   // Possible events fired on an $(ref:automation.AutomationNode).
   enum EventType {
-    activedescendantchanged,
+    accessKeyChanged,
+    activeDescendantChanged,
     alert,
     ariaAttributeChanged,
+    ariaCurrentChanged,
+    atomicChanged,
+    autoCompleteChanged,
     autocorrectionOccured,
     blur,
+    busyChanged,
     checkedStateChanged,
     childrenChanged,
+    classNameChanged,
     clicked,
+    collapsed,
     controlsChanged,
+    describedByChanged,
+    descriptionChanged,
     documentSelectionChanged,
     documentTitleChanged,
+    dropeffectChanged,
+    editableTextChanged,
+    enabledChanged,
     endOfTest,
+    expanded,
     expandedChanged,
+    flowFromChanged,
+    flowToChanged,
     focus,
     focusAfterMenuClose,
+    focusChanged,
     focusContext,
+    grabbedChanged,
+    haspopupChanged,
     hide,
+    hierarchicalLevelChanged,
     hitTestResult,
     hover,
+    ignoredChanged,
+    imageAnnotationChanged,
     imageFrameUpdated,
     invalidStatusChanged,
+    keyShortcutsChanged,
+    labeledByChanged,
+    languageChanged,
     layoutComplete,
+    layoutInvalidated,   // fired when aria-busy goes false
     liveRegionChanged,
     liveRegionCreated,
+    liveRegionNodeChanged,  // fired on a node within a live region.
+    liveRelevantChanged,
+    liveStatusChanged,
     loadComplete,
     loadStart,
     locationChanged,
     mediaStartedPlaying,
     mediaStoppedPlaying,
     menuEnd,
+    menuItemSelected,
     menuListItemSelected,
     menuListValueChanged,
     menuPopupEnd,
@@ -53,26 +82,53 @@
     mouseMoved,
     mousePressed,
     mouseReleased,
+    multilineStateChanged,
+    multiselectableStateChanged,
+    nameChanged,
+    objectAttributeChanged,
+    otherAttributeChanged,
+    parentChanged,
+    placeholderChanged,
+    portalActivated,
+    positionInSetChanged,
+    rangeValueChanged,
+    rangeValueMaxChanged,
+    rangeValueMinChanged,
+    rangeValueStepChanged,
+    readonlyChanged,
+    relatedNodeChanged,
+    requiredStateChanged,
+    roleChanged,
     rowCollapsed,
     rowCountChanged,
     rowExpanded,
+    scrollHorizontalPositionChanged,
     scrollPositionChanged,
+    scrollVerticalPositionChanged,
     scrolledToAnchor,
+    selectedChanged,
     selectedChildrenChanged,
+    selectedValueChanged,
     selection,
     selectionAdd,
+    selectionInTextFieldChanged,
     selectionRemove,
+    setSizeChanged,
     show,
+    sortChanged,
     stateChanged,
+    subtreeCreated,
+    textAttributeChanged,
+    textSelectionChanged,  // Deprecated.
     textChanged,
-    textSelectionChanged,
     tooltipClosed,
     tooltipOpened,
+    treeChanged,
+    valueInTextFieldChanged,
+    valueChanged,  // Deprecated.
     windowActivated,
     windowDeactivated,
-    windowVisibilityChanged,
-    treeChanged,
-    valueChanged
+    windowVisibilityChanged
   };
 
   // Describes the purpose of an $(ref:automation.AutomationNode).
@@ -148,6 +204,8 @@
     docNoteRef,
     docNotice,
     docPageBreak,
+    docPageFooter,
+    docPageHeader,
     docPageList,
     docPart,
     docPreface,
@@ -221,7 +279,8 @@
     note,
     pane,
     paragraph,
-    pdfActionableHighlight, // PDF specific highlight role.
+    pdfActionableHighlight,
+    pdfRoot,
     pluginObject,
     popUpButton,
     portal,
@@ -243,7 +302,6 @@
     searchBox,
     section,
     slider,
-    sliderThumb,
     spinButton,
     splitter,
     staticText,
@@ -271,7 +329,6 @@
     treeItem,
     unknown,
     video,
-    webArea,
     webView,
     window
   };
@@ -340,7 +397,6 @@
   // Possible changes to the automation tree. For any given atomic change
   // to the tree, each node that's added, removed, or changed, will appear
   // in exactly one TreeChange, with one of these types.
-  //
   //
   // nodeCreated means that this node was added to the tree and its parent is
   // new as well, so it's just one node in a new subtree that was added.
@@ -437,27 +493,71 @@ enum MarkerType {
   suggestion
 };
 
-// The following three enums are associated with an AutomationEvent.
+// The following three enums are associated with an $(ref:automation.AutomationIntent).
 
-// A command associated with an AutomationEvent.
-enum EventCommandType {
+// A command associated with an $(ref:automation.AutomationIntent).
+enum IntentCommandType {
   clearSelection,
-  cut,
   delete,
   dictate,
   extendSelection,
   format,
+  history,
   insert,
   marker,
   moveSelection,
-  paste,
-  replace,
-  setSelection,
-  type
+  setSelection
 };
 
-// A text boundary associated with an AutomationEvent.
-enum EventTextBoundaryType {
+// The type of an input event associated with an $(ref:automation.AutomationIntent). It describes an edit
+// command, e.g. IntentCommandType.insert, in more detail.
+enum IntentInputEventType {
+  // Insertion.
+  insertText,
+  insertLineBreak,
+  insertParagraph,
+  insertOrderedList,
+  insertUnorderedList,
+  insertHorizontalRule,
+  insertFromPaste,
+  insertFromDrop,
+  insertFromYank,
+  insertTranspose,
+  insertReplacementText,
+  insertCompositionText,
+  // Deletion.
+  deleteWordBackward,
+  deleteWordForward,
+  deleteSoftLineBackward,
+  deleteSoftLineForward,
+  deleteHardLineBackward,
+  deleteHardLineForward,
+  deleteContentBackward,
+  deleteContentForward,
+  deleteByCut,
+  deleteByDrag,
+  // History.
+  historyUndo,
+  historyRedo,
+  // Formatting.
+  formatBold,
+  formatItalic,
+  formatUnderline,
+  formatStrikeThrough,
+  formatSuperscript,
+  formatSubscript,
+  formatJustifyCenter,
+  formatJustifyFull,
+  formatJustifyRight,
+  formatJustifyLeft,
+  formatIndent,
+  formatOutdent,
+  formatRemove,
+  formatSetBlockTextDirection
+};
+
+// A text boundary associated with an $(ref:automation.AutomationIntent).
+enum IntentTextBoundaryType {
   character,
   format,
   lineEnd,
@@ -479,10 +579,10 @@ enum EventTextBoundaryType {
   wordStartOrEnd
 };
 
-// A move direction associated with an AutomationEvent.
-enum EventMoveDirectionType {
-  forward,
-  backward
+// A move direction associated with an $(ref:automation.AutomationIntent).
+enum IntentMoveDirectionType {
+  backward,
+  forward
 };
 
 // A sort applied to a table row or column header.
@@ -491,59 +591,6 @@ enum SortDirectionType {
   ascending,
   descending,
   other
-};
-
-// A set of events inferred by Chrome based upon the tree and node data.
-enum GeneratedEventType {
-  accessKeyChanged,
-  atomicChanged,
-  autoCompleteChanged,
-  busyChanged,
-  classNameChanged,
-  collapsed,
-  describedByChanged,
-  descriptionChanged,
-  dropeffectChanged,
-  enabledChanged,
-  expanded,
-  focusChanged,
-  flowFromChanged,
-  flowToChanged,
-  grabbedChanged,
-  haspopupChanged,
-  hierarchicalLevelChanged,
-  ignoredChanged,
-  imageAnnotationChanged,
-  keyShortcutsChanged,
-  labeledByChanged,
-  languageChanged,
-  layoutInvalidated,   // fired when aria-busy goes false
-  liveRegionNodeChanged,  // fired on a node within a live region.
-  liveRelevantChanged,
-  liveStatusChanged,
-  menuItemSelected,
-  multilineStateChanged,
-  multiselectableStateChanged,
-  nameChanged,
-  objectAttributeChanged,
-  otherAttributeChanged,
-  placeholderChanged,
-  portalActivated,
-  positionInSetChanged,
-  relatedNodeChanged,
-  readonlyChanged,
-  requiredStateChanged,
-  roleChanged,
-  scrollHorizontalPositionChanged,
-  scrollVerticalPositionChanged,
-  selectedChanged,
-  setSizeChanged,
-  sortChanged,
-  subtreeCreated,
-  textAttributeChanged,
-  valueMaxChanged,
-  valueMinChanged,
-  valueStepChanged
 };
 
   dictionary Rect {
@@ -599,14 +646,14 @@ enum GeneratedEventType {
   callback QueryCallback = void(AutomationNode node);
 
   [nocompile, noinline_doc] dictionary AutomationIntent {
-    // A command associated with this AutomationEvent.
-    EventCommandType command;
+    // A command associated with this AutomationIntent.
+    IntentCommandType command;
 
-    // A text boundary associated with this AutomationEvent.
-    EventTextBoundaryType textBoundary;
+    // A text boundary associated with this AutomationIntent.
+    IntentTextBoundaryType textBoundary;
 
-    // A move direction associated with this AutomationEvent.
-    EventMoveDirectionType moveDirection;
+    // A move direction associated with this AutomationIntent.
+    IntentMoveDirectionType moveDirection;
   };
 
   // An event in the Automation tree.
@@ -617,20 +664,18 @@ enum GeneratedEventType {
     // The type of the event.
     EventType type;
 
-    // The type of the generated event, if any.
-    GeneratedEventType? generatedType;
-
     // The source of this event.
     DOMString eventFrom;
 
+    // Any mouse coordinates associated with this event.
     long mouseX;
     long mouseY;
 
-    // Intents associated with this event.
+    // A list of $(ref:automation.AutomationIntent)s associated with this event.
     AutomationIntent[] intents;
 
     // Stops this event from further processing except for any remaining
-    // listeners on $(ref:AutomationEvent.target).
+    // listeners on $(ref:automation.AutomationEvent.target).
     static void stopPropagation();
   };
 
@@ -812,6 +857,10 @@ enum GeneratedEventType {
     // The purpose of the node, other than the role, if any.
     DOMString? description;
 
+    // Description of the state of the checkbox.
+    // Used only when the node is checkable.
+    DOMString? checkedStateDescription;
+
     // The placeholder for this text field, if any.
     DOMString? placeholder;
 
@@ -847,6 +896,20 @@ enum GeneratedEventType {
     // The start and end index of each word in an inline text box.
     long[]? wordStarts;
     long[]? wordEnds;
+
+    // The start indexes of each sentence within the node's name.
+    long[]? sentenceStarts;
+
+    // The end indexes of each sentence within the node's name. For most nodes,
+    // the size of sentenceStarts array should be equal to the size of
+    // sentenceEnds array. Two exceptions are (1) node at the begining of a
+    // paragraph but the end of the node's sentences is in its following node.
+    // Such a node has one more start index. (2) Node at the end of a paragraph
+    // but the start of the node's sentences is in its previous node. Such a
+    // node has one more end index. For example, <p><b>Hello</b> world.</p> has
+    // two nodes. The first one has one start index (i.e., 0) but no end index.
+    // The second node has one end index (i.e., 7) but no start index.
+    long[]? sentenceEnds;
 
     // The start index of each word within the node's name. This is different
     // from wordStarts because it is not restricted to inline text boxes and can
@@ -1013,6 +1076,9 @@ enum GeneratedEventType {
     long? selectionEndOffset;
     // The affinity of the tree selection end, if any.
     DOMString? selectionEndAffinity;
+
+    // Indicates that the node is marked user-select:none
+    boolean? notUserSelectableStyle;
 
     //
     // Range attributes.

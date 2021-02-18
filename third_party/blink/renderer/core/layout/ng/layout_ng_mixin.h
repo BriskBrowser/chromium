@@ -33,6 +33,7 @@ class LayoutNGMixin : public Base {
                    const HitTestLocation&,
                    const PhysicalOffset& accumulated_offset,
                    HitTestAction) override;
+  RecalcLayoutOverflowResult RecalcLayoutOverflow() override;
 
   bool IsLayoutNGObject() const final { return true; }
 
@@ -45,7 +46,7 @@ class LayoutNGMixin : public Base {
   NGConstraintSpace ConstraintSpaceForMinMaxSizes() const;
 
   void UpdateOutOfFlowBlockLayout();
-  scoped_refptr<const NGLayoutResult> UpdateInFlowBlockLayout();
+  const NGLayoutResult* UpdateInFlowBlockLayout();
 };
 
 extern template class CORE_EXTERN_TEMPLATE_EXPORT LayoutNGMixin<LayoutBlock>;

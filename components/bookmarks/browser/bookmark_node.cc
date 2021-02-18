@@ -7,8 +7,11 @@
 #include <map>
 #include <string>
 
+#include "base/check.h"
+#include "base/check_op.h"
 #include "base/guid.h"
 #include "base/memory/ptr_util.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/strings/grit/components_strings.h"
@@ -42,7 +45,7 @@ const char BookmarkNode::kMobileBookmarksNodeGuid[] =
 const char BookmarkNode::kManagedNodeGuid[] =
     "00000000-0000-4000-a000-000000000005";
 
-BookmarkNode::BookmarkNode(int64_t id, const std::string& guid, const GURL& url)
+BookmarkNode::BookmarkNode(int64_t id, const base::GUID& guid, const GURL& url)
     : BookmarkNode(id, guid, url, url.is_empty() ? FOLDER : URL, false) {}
 
 BookmarkNode::~BookmarkNode() = default;
@@ -118,8 +121,16 @@ const GURL& BookmarkNode::GetTitledUrlNodeUrl() const {
   return url_;
 }
 
+std::vector<base::StringPiece16> BookmarkNode::GetTitledUrlNodeAncestorTitles()
+    const {
+  std::vector<base::StringPiece16> paths;
+  for (const BookmarkNode* n = this; n->parent(); n = n->parent())
+    paths.push_back(n->parent()->GetTitle());
+  return paths;
+}
+
 BookmarkNode::BookmarkNode(int64_t id,
-                           const std::string& guid,
+                           const base::GUID& guid,
                            const GURL& url,
                            Type type,
                            bool is_permanent_node)
@@ -129,8 +140,8 @@ BookmarkNode::BookmarkNode(int64_t id,
       type_(type),
       date_added_(base::Time::Now()),
       is_permanent_node_(is_permanent_node) {
-  DCHECK((type == URL) != url.is_empty());
-  DCHECK(base::IsValidGUIDOutputString(guid));
+  DCHECK_NE(type == URL, url.is_empty());
+  DCHECK(guid.is_valid());
 }
 
 void BookmarkNode::InvalidateFavicon() {
@@ -145,9 +156,10 @@ void BookmarkNode::InvalidateFavicon() {
 std::unique_ptr<BookmarkPermanentNode>
 BookmarkPermanentNode::CreateManagedBookmarks(int64_t id) {
   // base::WrapUnique() used because the constructor is private.
-  return base::WrapUnique(
-      new BookmarkPermanentNode(id, FOLDER, kManagedNodeGuid, base::string16(),
-                                /*visible_when_empty=*/false));
+  return base::WrapUnique(new BookmarkPermanentNode(
+      id, FOLDER, base::GUID::ParseLowercase(kManagedNodeGuid),
+      base::string16(),
+      /*visible_when_empty=*/false));
 }
 
 BookmarkPermanentNode::~BookmarkPermanentNode() = default;
@@ -162,7 +174,7 @@ std::unique_ptr<BookmarkPermanentNode> BookmarkPermanentNode::CreateBookmarkBar(
     bool visible_when_empty) {
   // base::WrapUnique() used because the constructor is private.
   return base::WrapUnique(new BookmarkPermanentNode(
-      id, BOOKMARK_BAR, kBookmarkBarNodeGuid,
+      id, BOOKMARK_BAR, base::GUID::ParseLowercase(kBookmarkBarNodeGuid),
       l10n_util::GetStringUTF16(IDS_BOOKMARK_BAR_FOLDER_NAME),
       visible_when_empty));
 }
@@ -173,7 +185,7 @@ BookmarkPermanentNode::CreateOtherBookmarks(int64_t id,
                                             bool visible_when_empty) {
   // base::WrapUnique() used because the constructor is private.
   return base::WrapUnique(new BookmarkPermanentNode(
-      id, OTHER_NODE, kOtherBookmarksNodeGuid,
+      id, OTHER_NODE, base::GUID::ParseLowercase(kOtherBookmarksNodeGuid),
       l10n_util::GetStringUTF16(IDS_BOOKMARK_BAR_OTHER_FOLDER_NAME),
       visible_when_empty));
 }
@@ -184,14 +196,14 @@ BookmarkPermanentNode::CreateMobileBookmarks(int64_t id,
                                              bool visible_when_empty) {
   // base::WrapUnique() used because the constructor is private.
   return base::WrapUnique(new BookmarkPermanentNode(
-      id, MOBILE, kMobileBookmarksNodeGuid,
+      id, MOBILE, base::GUID::ParseLowercase(kMobileBookmarksNodeGuid),
       l10n_util::GetStringUTF16(IDS_BOOKMARK_BAR_MOBILE_FOLDER_NAME),
       visible_when_empty));
 }
 
 BookmarkPermanentNode::BookmarkPermanentNode(int64_t id,
                                              Type type,
-                                             const std::string& guid,
+                                             const base::GUID& guid,
                                              const base::string16& title,
                                              bool visible_when_empty)
     : BookmarkNode(id, guid, GURL(), type, /*is_permanent_node=*/true),

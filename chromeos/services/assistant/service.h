@@ -81,6 +81,7 @@ class COMPONENT_EXPORT(ASSISTANT_SERVICE) Service
   // itself is created, so we do not have time in our tests to grab a handle
   // to |Service| and set this before it is too late.
   static void OverrideS3ServerUriForTesting(const char* uri);
+  static void OverrideDeviceIdForTesting(const char* device_id);
 
   void SetAssistantManagerServiceForTesting(
       std::unique_ptr<AssistantManagerService> assistant_manager_service);
@@ -97,7 +98,7 @@ class COMPONENT_EXPORT(ASSISTANT_SERVICE) Service
 
   // chromeos::PowerManagerClient::Observer overrides:
   void PowerChanged(const power_manager::PowerSupplyProperties& prop) override;
-  void SuspendDone(const base::TimeDelta& sleep_duration) override;
+  void SuspendDone(base::TimeDelta sleep_duration) override;
 
   // ash::SessionActivationObserver overrides:
   void OnSessionActivated(bool activated) override;
@@ -153,6 +154,12 @@ class COMPONENT_EXPORT(ASSISTANT_SERVICE) Service
   // for the device.
   bool ShouldEnableHotword();
 
+  // |ServiceContext| object passed to child classes so they can access some of
+  // our functionality without depending on us.
+  // Note: this is used by the other members here, so it must be defined first
+  // so it is destroyed last.
+  std::unique_ptr<ServiceContext> context_;
+
   signin::IdentityManager* const identity_manager_;
   std::unique_ptr<ScopedAshSessionObserver> scoped_ash_session_observer_;
   ScopedObserver<ash::AmbientUiModel, ash::AmbientUiModelObserver>
@@ -181,10 +188,6 @@ class COMPONENT_EXPORT(ASSISTANT_SERVICE) Service
       assistant_manager_service_for_testing_ = nullptr;
 
   base::Optional<std::string> access_token_;
-
-  // |ServiceContext| object passed to child classes so they can access some of
-  // our functionality without depending on us.
-  std::unique_ptr<ServiceContext> context_;
 
   // non-null until |assistant_manager_service_| is created.
   std::unique_ptr<network::PendingSharedURLLoaderFactory>

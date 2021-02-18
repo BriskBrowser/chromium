@@ -3,12 +3,17 @@
 <link rel="import" href="chrome://resources/cr_elements/cr_link_row/cr_link_row.html">
 <link rel="import" href="chrome://resources/html/cr.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-collapse/iron-collapse.html">
+<link rel="import" href="chrome://resources/html/cr/ui/focus_without_ink.html">
+<link rel="import" href="chrome://resources/html/assert.html">
+<link rel="import" href="device_page_browser_proxy.html">
+<link rel="import" href="../os_route.html">
 <link rel="import" href="../../controls/settings_dropdown_menu.html">
 <link rel="import" href="../../controls/settings_slider.html">
 <link rel="import" href="../../controls/settings_toggle_button.html">
 <link rel="import" href="../../i18n_setup.html">
 <link rel="import" href="../deep_linking_behavior.html">
 <link rel="import" href="../../settings_shared_css.html">
+<link rel="import" href="../../router.html">
 
 <dom-module id="settings-keyboard">
   <template>
@@ -141,9 +146,20 @@
         on-click="onShowKeyboardShortcutViewerTap_"
         label="$i18n{showKeyboardShortcutViewer}" external
         deep-link-focus-id$="[[Setting.kKeyboardShortcuts]]"></cr-link-row>
-    <cr-link-row class="hr" on-click="onShowLanguageInputTap_"
-        label="$i18n{keyboardShowLanguageAndInput}"
-        role-description="$i18n{subpageArrowRoleDescription}"></cr-link-row>
+    <template is="dom-if" if="[[!languageSettingsV2Enabled_]]">
+      <cr-link-row id="showLanguagesDetails"
+          class="hr" on-click="onShowLanguageInputTap_"
+          label="$i18n{keyboardShowLanguageAndInput}"
+          role-description="$i18n{subpageArrowRoleDescription}">
+      </cr-link-row>
+    </template>
+    <template is="dom-if" if="[[languageSettingsV2Enabled_]]">
+      <cr-link-row id="showLanguagesInput"
+          class="hr" on-click="onShowInputSettingsTap_"
+          label="$i18n{keyboardShowInputSettings}"
+          role-description="$i18n{subpageArrowRoleDescription}">
+      </cr-link-row>
+    </template>
   </template>
   <script src="keyboard.js"></script>
 </dom-module>

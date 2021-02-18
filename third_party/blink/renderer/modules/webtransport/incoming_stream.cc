@@ -16,7 +16,7 @@
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/streams/readable_stream.h"
 #include "third_party/blink/renderer/core/streams/readable_stream_default_controller_with_script_scope.h"
-#include "third_party/blink/renderer/core/streams/readable_stream_reader.h"
+#include "third_party/blink/renderer/core/streams/readable_stream_generic_reader.h"
 #include "third_party/blink/renderer/core/streams/stream_promise_resolver.h"
 #include "third_party/blink/renderer/core/streams/underlying_source_base.h"
 #include "third_party/blink/renderer/core/typed_arrays/array_buffer/array_buffer_contents.h"
@@ -28,7 +28,6 @@
 #include "third_party/blink/renderer/platform/bindings/trace_wrapper_v8_reference.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
-#include "third_party/blink/renderer/platform/heap/visitor.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "v8/include/v8.h"
@@ -104,6 +103,9 @@ void IncomingStream::Init() {
 void IncomingStream::OnIncomingStreamClosed(bool fin_received) {
   DVLOG(1) << "IncomingStream::OnIncomingStreamClosed(" << fin_received
            << ") this=" << this;
+
+  DCHECK_NE(state_, State::kClosed);
+  state_ = State::kClosed;
 
   DCHECK(!fin_received_.has_value());
 
@@ -313,6 +315,8 @@ void IncomingStream::AbortAndReset() {
     reading_aborted_resolver_->Resolve(StreamAbortInfo::Create());
     reading_aborted_resolver_ = nullptr;
   }
+
+  state_ = State::kAborted;
 
   if (on_abort_) {
     // Cause QuicTransport to drop its reference to us.

@@ -6,13 +6,13 @@
 
 #include "cc/animation/keyframed_animation_curve.h"
 #include "cc/animation/timing_function.h"
-#include "cc/animation/transform_operations.h"
 #include "cc/paint/skia_paint_canvas.h"
 #include "chrome/browser/vr/animation.h"
 #include "chrome/browser/vr/elements/ui_texture.h"
 #include "chrome/browser/vr/target_property.h"
 #include "third_party/skia/include/core/SkPaint.h"
 #include "ui/gfx/canvas.h"
+#include "ui/gfx/transform_operations.h"
 
 namespace vr {
 
@@ -73,10 +73,12 @@ Spinner::Spinner(int texture_width)
       cc::FloatKeyframe::Create(base::TimeDelta(), 0.0f, nullptr));
   curve->AddKeyframe(
       cc::FloatKeyframe::Create(kRotationDuration, 360.0f, nullptr));
+  curve->set_target(this);
 
   std::unique_ptr<cc::KeyframeModel> keyframe_model(cc::KeyframeModel::Create(
       std::move(curve), Animation::GetNextKeyframeModelId(),
-      Animation::GetNextGroupId(), SPINNER_ROTATION));
+      Animation::GetNextGroupId(),
+      cc::KeyframeModel::TargetPropertyId(SPINNER_ROTATION)));
 
   keyframe_model->set_iterations(std::numeric_limits<double>::infinity());
   AddKeyframeModel(std::move(keyframe_model));
@@ -89,9 +91,12 @@ Spinner::Spinner(int texture_width)
                                                  CreateTimingFunction()));
   }
 
+  curve->set_target(this);
+
   keyframe_model = cc::KeyframeModel::Create(
       std::move(curve), Animation::GetNextKeyframeModelId(),
-      Animation::GetNextGroupId(), SPINNER_ANGLE_SWEEP);
+      Animation::GetNextGroupId(),
+      cc::KeyframeModel::TargetPropertyId(SPINNER_ANGLE_SWEEP));
 
   keyframe_model->set_iterations(std::numeric_limits<double>::infinity());
   AddKeyframeModel(std::move(keyframe_model));
@@ -103,9 +108,12 @@ Spinner::Spinner(int texture_width)
         kSweepDuration * i, kMaxAngle * i, CreateTimingFunction()));
   }
 
+  curve->set_target(this);
+
   keyframe_model = cc::KeyframeModel::Create(
       std::move(curve), Animation::GetNextKeyframeModelId(),
-      Animation::GetNextGroupId(), SPINNER_ANGLE_START);
+      Animation::GetNextGroupId(),
+      cc::KeyframeModel::TargetPropertyId(SPINNER_ANGLE_START));
 
   keyframe_model->set_iterations(std::numeric_limits<double>::infinity());
   AddKeyframeModel(std::move(keyframe_model));
@@ -129,9 +137,9 @@ gfx::Size Spinner::MeasureTextureSize() {
   return gfx::Size(texture_width_, texture_width_);
 }
 
-void Spinner::NotifyClientFloatAnimated(float value,
-                                        int target_property_id,
-                                        cc::KeyframeModel* keyframe_model) {
+void Spinner::OnFloatAnimated(const float& value,
+                              int target_property_id,
+                              cc::KeyframeModel* keyframe_model) {
   switch (target_property_id) {
     case SPINNER_ANGLE_SWEEP:
       texture_->SetAngleSweep(value);
@@ -143,8 +151,8 @@ void Spinner::NotifyClientFloatAnimated(float value,
       texture_->SetRotation(value);
       break;
     default:
-      TexturedElement::NotifyClientFloatAnimated(value, target_property_id,
-                                                 keyframe_model);
+      TexturedElement::OnFloatAnimated(value, target_property_id,
+                                       keyframe_model);
   }
 }
 

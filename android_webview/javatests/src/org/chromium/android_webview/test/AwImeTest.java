@@ -28,12 +28,12 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CallbackHelper;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.content_public.browser.ImeAdapter;
 import org.chromium.content_public.browser.WebContents;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.DOMUtils;
 import org.chromium.content_public.browser.test.util.TestInputMethodManagerWrapper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -177,10 +177,9 @@ public class AwImeTest {
      * keydown event.
      */
     // https://crbug.com/787651
-    // Flaky! - https://crbug.com/795423
     @Test
-    // @SmallTest
-    @DisabledTest
+    @SmallTest
+    @DisabledTest(message = "https://crbug.com/795423")
     public void testImeDpadMovesFocusOutOfWebView() throws Throwable {
         loadContentEditableBody();
         focusOnEditTextAndShowKeyboard();
@@ -208,6 +207,7 @@ public class AwImeTest {
      */
     @Test
     @SmallTest
+    @DisabledTest(message = "https://crbug.com/795423")
     public void testDpadDispatchKeyEventMovesFocusOutOfWebView() throws Throwable {
         loadContentEditableBody();
         focusOnEditTextAndShowKeyboard();
@@ -242,10 +242,9 @@ public class AwImeTest {
     }
 
     // https://crbug.com/920061
-    // Flaky! - https://crbug.com/1061218
     @Test
-    // @SmallTest
-    @DisabledTest
+    @SmallTest
+    @DisabledTest(message = "https://crbug.com/1061218")
     public void testFocusAndViewSizeChangeCausesScroll() throws Throwable {
         loadBottomInputHtml();
         Rect currentRect = new Rect();

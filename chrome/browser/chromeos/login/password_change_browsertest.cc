@@ -34,6 +34,7 @@
 #include "chrome/browser/profiles/profile_manager_observer.h"
 #include "chrome/browser/ui/webui/chromeos/login/gaia_password_changed_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
+#include "chrome/test/base/interactive_test_utils.h"
 #include "chromeos/login/auth/stub_authenticator.h"
 #include "chromeos/login/auth/stub_authenticator_builder.h"
 #include "chromeos/login/auth/user_context.h"
@@ -83,7 +84,7 @@ class PasswordChangeTestBase : public LoginManagerTest {
   // Sets up UserSessionManager to use stub authenticator that reports a
   // password change, and attempts login.
   // Password changed OOBE dialog is expected to show up after calling this.
-  void SetUpStubAuthentcatorAndAttemptLogin(const std::string& old_password) {
+  void SetUpStubAuthenticatorAndAttemptLogin(const std::string& old_password) {
     EXPECT_TRUE(ash::LoginScreenTestApi::IsOobeDialogVisible());
     UserContext user_context = GetTestUserContext();
 
@@ -132,7 +133,7 @@ IN_PROC_BROWSER_TEST_F(PasswordChangeTest, MigrateOldCryptohome) {
   OpenGaiaDialog(test_account_id_);
 
   base::HistogramTester histogram_tester;
-  SetUpStubAuthentcatorAndAttemptLogin("old user password");
+  SetUpStubAuthenticatorAndAttemptLogin("old user password");
   WaitForPasswordChangeScreen();
   histogram_tester.ExpectBucketCount("Login.PasswordChanged.ReauthReason",
                                      ReauthReason::OTHER, 1);
@@ -151,9 +152,34 @@ IN_PROC_BROWSER_TEST_F(PasswordChangeTest, MigrateOldCryptohome) {
   login_mixin_.WaitForActiveSession();
 }
 
+IN_PROC_BROWSER_TEST_F(PasswordChangeTest, SubmitOnEnterKeyPressed) {
+  OpenGaiaDialog(test_account_id_);
+
+  base::HistogramTester histogram_tester;
+  SetUpStubAuthenticatorAndAttemptLogin("old user password");
+  WaitForPasswordChangeScreen();
+  histogram_tester.ExpectBucketCount("Login.PasswordChanged.ReauthReason",
+                                     ReauthReason::OTHER, 1);
+
+  test::OobeJS().CreateVisibilityWaiter(true, kPasswordStep)->Wait();
+
+  // Fill out and submit the old password passed to the stub authenticator.
+  test::OobeJS().TypeIntoPath("old user password", kOldPasswordInput);
+  ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
+      nullptr, ui::VKEY_RETURN, false /* control */, false /* shift */,
+      false /* alt */, false /* command */));
+
+  // User session should start, and whole OOBE screen is expected to be hidden,
+  OobeWindowVisibilityWaiter(false).Wait();
+  EXPECT_EQ(StubAuthenticator::DataRecoveryStatus::kRecovered,
+            data_recovery_status_);
+
+  login_mixin_.WaitForActiveSession();
+}
+
 IN_PROC_BROWSER_TEST_F(PasswordChangeTest, RetryOnWrongPassword) {
   OpenGaiaDialog(test_account_id_);
-  SetUpStubAuthentcatorAndAttemptLogin("old user password");
+  SetUpStubAuthenticatorAndAttemptLogin("old user password");
   WaitForPasswordChangeScreen();
   test::OobeJS().CreateVisibilityWaiter(true, kPasswordStep)->Wait();
 
@@ -185,7 +211,7 @@ IN_PROC_BROWSER_TEST_F(PasswordChangeTest, RetryOnWrongPassword) {
 
 IN_PROC_BROWSER_TEST_F(PasswordChangeTest, SkipDataRecovery) {
   OpenGaiaDialog(test_account_id_);
-  SetUpStubAuthentcatorAndAttemptLogin("old user password");
+  SetUpStubAuthenticatorAndAttemptLogin("old user password");
   WaitForPasswordChangeScreen();
   test::OobeJS().CreateVisibilityWaiter(true, kPasswordStep)->Wait();
 
@@ -210,7 +236,7 @@ IN_PROC_BROWSER_TEST_F(PasswordChangeTest, SkipDataRecovery) {
 
 IN_PROC_BROWSER_TEST_F(PasswordChangeTest, TryAgainAfterForgetLinkClick) {
   OpenGaiaDialog(test_account_id_);
-  SetUpStubAuthentcatorAndAttemptLogin("old user password");
+  SetUpStubAuthenticatorAndAttemptLogin("old user password");
   WaitForPasswordChangeScreen();
   test::OobeJS().CreateDisplayedWaiter(true, kPasswordStep)->Wait();
 
@@ -241,7 +267,7 @@ IN_PROC_BROWSER_TEST_F(PasswordChangeTest, TryAgainAfterForgetLinkClick) {
 
 IN_PROC_BROWSER_TEST_F(PasswordChangeTest, ClosePasswordChangedDialog) {
   OpenGaiaDialog(test_account_id_);
-  SetUpStubAuthentcatorAndAttemptLogin("old user password");
+  SetUpStubAuthenticatorAndAttemptLogin("old user password");
   WaitForPasswordChangeScreen();
   test::OobeJS().CreateVisibilityWaiter(true, kPasswordStep)->Wait();
 
@@ -297,7 +323,7 @@ IN_PROC_BROWSER_TEST_F(PasswordChangeTokenCheck, LoginScreenPasswordChange) {
 
   OpenGaiaDialog(user_with_invalid_token_);
   base::HistogramTester histogram_tester;
-  SetUpStubAuthentcatorAndAttemptLogin("old user password");
+  SetUpStubAuthenticatorAndAttemptLogin("old user password");
   WaitForPasswordChangeScreen();
   histogram_tester.ExpectBucketCount("Login.PasswordChanged.ReauthReason",
                                      ReauthReason::INVALID_TOKEN_HANDLE, 1);
@@ -383,7 +409,7 @@ IN_PROC_BROWSER_TEST_F(PasswordChangeTokenCheck, Session) {
   OpenGaiaDialog(user_with_invalid_token_);
 
   base::HistogramTester histogram_tester;
-  SetUpStubAuthentcatorAndAttemptLogin("old user password");
+  SetUpStubAuthenticatorAndAttemptLogin("old user password");
   WaitForPasswordChangeScreen();
   histogram_tester.ExpectBucketCount("Login.PasswordChanged.ReauthReason",
                                      ReauthReason::INVALID_TOKEN_HANDLE, 1);

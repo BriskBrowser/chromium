@@ -33,6 +33,7 @@
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/layout/grid_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 
 namespace chrome {
@@ -70,6 +71,13 @@ ExtensionInstallBlockedDialogView::ExtensionInstallBlockedDialogView(
   SetTitle(
       l10n_util::GetStringFUTF16(IDS_EXTENSION_BLOCKED_BY_POLICY_PROMPT_TITLE,
                                  base::UTF8ToUTF16(extension_name)));
+
+  // Make sure user know the installation is blocked before taking further
+  // action.
+  SetModalType(ui::MODAL_TYPE_CHILD);
+  set_fixed_width(views::LayoutProvider::Get()->GetDistanceMetric(
+      views::DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH));
+
   set_draggable(true);
   set_close_on_deactivate(false);
   SetLayoutManager(std::make_unique<views::FillLayout>());
@@ -80,19 +88,6 @@ ExtensionInstallBlockedDialogView::ExtensionInstallBlockedDialogView(
 ExtensionInstallBlockedDialogView::~ExtensionInstallBlockedDialogView() {
   if (done_callback_)
     std::move(done_callback_).Run();
-}
-
-gfx::Size ExtensionInstallBlockedDialogView::CalculatePreferredSize() const {
-  const int width = ChromeLayoutProvider::Get()->GetDistanceMetric(
-                        DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH) -
-                    margins().width();
-  return gfx::Size(width, GetHeightForWidth(width));
-}
-
-ui::ModalType ExtensionInstallBlockedDialogView::GetModalType() const {
-  // Make sure user know the installation is blocked before taking further
-  // action.
-  return ui::MODAL_TYPE_CHILD;
 }
 
 void ExtensionInstallBlockedDialogView::AddCustomMessageContents(
@@ -115,15 +110,20 @@ void ExtensionInstallBlockedDialogView::AddCustomMessageContents(
 
   auto* header_label =
       extension_info_container->AddChildView(std::make_unique<views::Label>(
-          custom_error_message, CONTEXT_BODY_TEXT_LARGE));
+          custom_error_message, views::style::CONTEXT_DIALOG_BODY_TEXT));
   header_label->SetMultiLine(true);
   header_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   header_label->SizeToFit(content_width);
 
   auto* scroll_view = AddChildView(std::make_unique<views::ScrollView>());
-  scroll_view->SetHideHorizontalScrollBar(true);
+  scroll_view->SetHorizontalScrollBarMode(
+      views::ScrollView::ScrollBarMode::kDisabled);
   scroll_view->SetContents(std::move(extension_info_container));
   scroll_view->ClipHeightTo(
       0, provider->GetDistanceMetric(
              views::DISTANCE_DIALOG_SCROLLABLE_AREA_MAX_HEIGHT));
 }
+
+BEGIN_METADATA(ExtensionInstallBlockedDialogView,
+               views::BubbleDialogDelegateView)
+END_METADATA

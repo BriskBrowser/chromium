@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/memory/shared_memory_mapping.h"
@@ -29,7 +29,9 @@
 #include "components/viz/common/quads/compositor_frame_metadata.h"
 #include "components/viz/common/resources/bitmap_allocation.h"
 #include "components/viz/common/resources/shared_bitmap.h"
-#include "components/viz/service/display/display_resource_provider.h"
+#include "components/viz/service/display/display_resource_provider_gl.h"
+#include "components/viz/service/display/display_resource_provider_skia.h"
+#include "components/viz/service/display/display_resource_provider_software.h"
 #include "components/viz/service/display/gl_renderer.h"
 #include "components/viz/service/display/output_surface_client.h"
 #include "components/viz/service/display/software_output_device.h"
@@ -131,7 +133,8 @@ bool PixelTest::RunPixelTestWithReadbackTargetAndArea(
   renderer_->DecideRenderPassAllocationsForFrame(*pass_list);
   float device_scale_factor = 1.f;
   renderer_->DrawFrame(pass_list, device_scale_factor, device_viewport_size_,
-                       display_color_spaces_);
+                       display_color_spaces_,
+                       std::move(surface_damage_rect_list_));
 
   // Call SwapBuffersSkipped(), so the renderer can have a chance to release
   // resources.
@@ -166,7 +169,8 @@ bool PixelTest::RunPixelTest(viz::AggregatedRenderPassList* pass_list,
   renderer_->DecideRenderPassAllocationsForFrame(*pass_list);
   float device_scale_factor = 1.f;
   renderer_->DrawFrame(pass_list, device_scale_factor, device_viewport_size_,
-                       display_color_spaces_);
+                       display_color_spaces_,
+                       std::move(surface_damage_rect_list_));
 
   // Call SwapBuffersSkipped(), so the renderer can have a chance to release
   // resources.
@@ -264,10 +268,6 @@ void PixelTest::SetUpGLWithoutRenderer(
   output_surface_->BindToClient(output_surface_client_.get());
 
   shared_bitmap_manager_ = std::make_unique<viz::TestSharedBitmapManager>();
-  resource_provider_ = std::make_unique<viz::DisplayResourceProvider>(
-      viz::DisplayResourceProvider::kGpu, output_surface_->context_provider(),
-      shared_bitmap_manager_.get());
-
   child_context_provider_ =
       base::MakeRefCounted<viz::TestInProcessContextProvider>(
           /*enable_gpu_rasterization=*/false,
@@ -279,9 +279,12 @@ void PixelTest::SetUpGLWithoutRenderer(
 
 void PixelTest::SetUpGLRenderer(gfx::SurfaceOrigin output_surface_origin) {
   SetUpGLWithoutRenderer(output_surface_origin);
+  auto resource_provider = std::make_unique<viz::DisplayResourceProviderGL>(
+      output_surface_->context_provider(), shared_bitmap_manager_.get());
   renderer_ = std::make_unique<viz::GLRenderer>(
       &renderer_settings_, &debug_settings_, output_surface_.get(),
-      resource_provider_.get(), nullptr, base::ThreadTaskRunnerHandle::Get());
+      resource_provider.get(), nullptr, base::ThreadTaskRunnerHandle::Get());
+  resource_provider_ = std::move(resource_provider);
   renderer_->Initialize();
   renderer_->SetVisible(true);
 }
@@ -291,23 +294,23 @@ void PixelTest::SetUpSkiaRenderer(gfx::SurfaceOrigin output_surface_origin) {
   // Set up the GPU service.
   gpu_service_holder_ = viz::TestGpuServiceHolder::GetInstance();
 
-  // Set up the skia renderer.
+  auto skia_deps = std::make_unique<viz::SkiaOutputSurfaceDependencyImpl>(
+      gpu_service(), gpu::kNullSurfaceHandle);
+  display_controller_ =
+      std::make_unique<viz::DisplayCompositorMemoryAndTaskController>(
+          std::move(skia_deps));
   output_surface_ = viz::SkiaOutputSurfaceImpl::Create(
-      std::make_unique<viz::SkiaOutputSurfaceDependencyImpl>(
-          gpu_service(), gpu::kNullSurfaceHandle),
-      renderer_settings_, &debug_settings_);
+      display_controller_.get(), renderer_settings_, &debug_settings_);
   output_surface_->BindToClient(output_surface_client_.get());
   static_cast<viz::SkiaOutputSurfaceImpl*>(output_surface_.get())
       ->SetCapabilitiesForTesting(output_surface_origin);
-  resource_provider_ = std::make_unique<viz::DisplayResourceProvider>(
-      viz::DisplayResourceProvider::kGpu,
-      /*compositor_context_provider=*/nullptr,
+  auto resource_provider = std::make_unique<viz::DisplayResourceProviderSkia>(
       /*shared_bitmap_manager=*/nullptr);
   renderer_ = std::make_unique<viz::SkiaRenderer>(
       &renderer_settings_, &debug_settings_, output_surface_.get(),
-      resource_provider_.get(), nullptr,
-      static_cast<viz::SkiaOutputSurface*>(output_surface_.get()),
-      viz::SkiaRenderer::DrawMode::DDL);
+      resource_provider.get(), nullptr,
+      static_cast<viz::SkiaOutputSurface*>(output_surface_.get()));
+  resource_provider_ = std::move(resource_provider);
   renderer_->Initialize();
   renderer_->SetVisible(true);
 
@@ -343,14 +346,15 @@ void PixelTest::SetUpSoftwareRenderer() {
       std::make_unique<viz::SoftwareOutputDevice>()));
   output_surface_->BindToClient(output_surface_client_.get());
   shared_bitmap_manager_ = std::make_unique<viz::TestSharedBitmapManager>();
-  resource_provider_ = std::make_unique<viz::DisplayResourceProvider>(
-      viz::DisplayResourceProvider::kSoftware, nullptr,
-      shared_bitmap_manager_.get());
+  auto resource_provider =
+      std::make_unique<viz::DisplayResourceProviderSoftware>(
+          shared_bitmap_manager_.get());
   child_resource_provider_ = std::make_unique<viz::ClientResourceProvider>();
 
   auto renderer = std::make_unique<viz::SoftwareRenderer>(
       &renderer_settings_, &debug_settings_, output_surface_.get(),
-      resource_provider_.get(), nullptr);
+      resource_provider.get(), nullptr);
+  resource_provider_ = std::move(resource_provider);
   software_renderer_ = renderer.get();
   renderer_ = std::move(renderer);
   renderer_->Initialize();

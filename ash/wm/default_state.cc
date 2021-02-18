@@ -7,11 +7,11 @@
 #include "ash/public/cpp/metrics_util.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/window_animation_types.h"
-#include "ash/public/cpp/window_state_type.h"
 #include "ash/root_window_controller.h"
 #include "ash/screen_util.h"
 #include "ash/shell.h"
 #include "ash/wm/screen_pinning_controller.h"
+#include "ash/wm/splitview/split_view_controller.h"
 #include "ash/wm/window_positioning_utils.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_state_delegate.h"
@@ -20,6 +20,7 @@
 #include "ash/wm/workspace_controller.h"
 #include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
+#include "chromeos/ui/base/window_state_type.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_delegate.h"
@@ -31,6 +32,8 @@
 
 namespace ash {
 namespace {
+
+using ::chromeos::WindowStateType;
 
 // This specifies how much percent (30%) of a window rect
 // must be visible when the window is added to the workspace.
@@ -92,8 +95,8 @@ void DefaultState::AttachState(WindowState* window_state,
 
   // If previous state is unminimized but window state is minimized, sync window
   // state to unminimized.
-  if (window_state->IsMinimized() &&
-      !IsMinimizedWindowStateType(state_in_previous_mode->GetType())) {
+  if (window_state->IsMinimized() && !chromeos::IsMinimizedWindowStateType(
+                                         state_in_previous_mode->GetType())) {
     aura::Window* window = window_state->window();
     window->SetProperty(
         aura::client::kShowStateKey,
@@ -150,9 +153,13 @@ void DefaultState::HandleWorkspaceEvents(WindowState* window_state,
       gfx::Rect bounds = window->bounds();
       // When window is added to a workspace, |bounds| may be not the original
       // not-changed-by-user bounds, for example a resized bounds truncated by
-      // available workarea.
-      if (window_state->pre_added_to_workspace_window_bounds())
+      // available workarea. If the window is visible on all desks, its
+      // bounds are global across workspaces so don't restore to pre-added
+      // bounds.
+      if (window_state->pre_added_to_workspace_window_bounds() &&
+          !window->GetProperty(aura::client::kVisibleOnAllWorkspacesKey)) {
         bounds = *window_state->pre_added_to_workspace_window_bounds();
+      }
 
       // Don't adjust window bounds if the bounds are empty as this
       // happens when a new views::Widget is created.
@@ -342,6 +349,10 @@ void DefaultState::HandleTransitionEvents(WindowState* window_state,
     }
   }
 
+  const WMEventType type = event->type();
+  if (type == WM_EVENT_SNAP_LEFT || type == WM_EVENT_SNAP_RIGHT)
+    HandleWindowSnapping(window_state, type);
+
   if (next_state_type == current_state_type && window_state->IsSnapped()) {
     gfx::Rect snapped_bounds = GetSnappedWindowBoundsInParent(
         window_state->window(), event->type() == WM_EVENT_SNAP_LEFT
@@ -349,11 +360,6 @@ void DefaultState::HandleTransitionEvents(WindowState* window_state,
                                     : WindowStateType::kRightSnapped);
     window_state->SetBoundsDirectAnimated(snapped_bounds);
     return;
-  }
-
-  if (event->type() == WM_EVENT_SNAP_LEFT ||
-      event->type() == WM_EVENT_SNAP_RIGHT) {
-    window_state->set_bounds_changed_by_user(true);
   }
 
   EnterToNextState(window_state, next_state_type);

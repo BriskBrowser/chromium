@@ -7,11 +7,15 @@ package org.chromium.chrome.browser.tab;
 import android.os.SystemClock;
 import android.text.format.DateUtils;
 
+import androidx.annotation.Nullable;
+
 import org.chromium.base.UserData;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.browser.tab.state.CriticalPersistedTabData;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.net.NetError;
+import org.chromium.ui.base.WindowAndroid;
+import org.chromium.url.GURL;
 
 /**
  * Centralizes UMA data collection for Tab management.
@@ -98,14 +102,12 @@ public class TabUma extends EmptyTabObserver implements UserData {
 
     /**
      * Records the tab restore result into several UMA histograms.
-     * @param succeeded Whether or not the tab restore succeeded.
      * @param time The time taken to perform the tab restore.
      * @param perceivedTime The perceived time taken to perform the tab restore.
-     * @param errorCode The error code, on failure (as denoted by the |succeeded| parameter).
+     * @param errorCode The error code, NetError.OK on success.
      */
-    private void recordTabRestoreResult(
-            boolean succeeded, long time, long perceivedTime, @NetError int errorCode) {
-        if (succeeded) {
+    private void recordTabRestoreResult(long time, long perceivedTime, @NetError int errorCode) {
+        if (errorCode == NetError.OK) {
             RecordHistogram.recordEnumeratedHistogram(
                     "Tab.RestoreResult", TAB_RESTORE_RESULT_SUCCESS, TAB_RESTORE_RESULT_COUNT);
             RecordHistogram.recordCountHistogram("Tab.RestoreTime", (int) time);
@@ -262,7 +264,7 @@ public class TabUma extends EmptyTabObserver implements UserData {
 
     /** Called when the corresponding tab completes a page load. */
     @Override
-    public void onPageLoadFinished(Tab tab, String url) {
+    public void onPageLoadFinished(Tab tab, GURL url) {
         // Record only tab restores that the user became aware of. If the restore is triggered
         // speculatively and completes before the user switches to the tab, then this case is
         // reflected in Tab.StatusWhenSwitchedBackToForeground metric.
@@ -270,17 +272,18 @@ public class TabUma extends EmptyTabObserver implements UserData {
             long now = SystemClock.elapsedRealtime();
             long restoreTime = now - mRestoreStartedAtMillis;
             long perceivedRestoreTime = now - mLastShownTimestamp;
-            recordTabRestoreResult(true, restoreTime, perceivedRestoreTime, -1);
+            recordTabRestoreResult(restoreTime, perceivedRestoreTime, NetError.OK);
         }
         mRestoreStartedAtMillis = -1;
     }
 
     /** Called when the corresponding tab fails a page load. */
     @Override
-    public void onPageLoadFailed(Tab tab, int errorCode) {
+    public void onPageLoadFailed(Tab tab, @NetError int errorCode) {
         if (mRestoreStartedAtMillis != -1 && mLastShownTimestamp >= mRestoreStartedAtMillis) {
             // Load time is ignored for failed loads.
-            recordTabRestoreResult(false, -1, -1, errorCode);
+            assert errorCode != NetError.OK;
+            recordTabRestoreResult(-1, -1, errorCode);
         }
         mRestoreStartedAtMillis = -1;
     }
@@ -293,6 +296,11 @@ public class TabUma extends EmptyTabObserver implements UserData {
             //            renderer crashes and start to track that.
             mRestoreStartedAtMillis = -1;
         }
+    }
+
+    @Override
+    public void onActivityAttachmentChanged(Tab tab, @Nullable WindowAndroid window) {
+        // Intentionally do nothing to prevent automatic observer removal on detachment.
     }
 
     private static void increaseTabShowCount() {

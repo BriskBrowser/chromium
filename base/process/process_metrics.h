@@ -26,7 +26,7 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "build/build_config.h"
-#include "build/lacros_buildflags.h"
+#include "build/chromeos_buildflags.h"
 
 #if defined(OS_APPLE)
 #include <mach/mach.h>
@@ -249,9 +249,6 @@ class BASE_EXPORT ProcessMetrics {
 #if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID) || \
     defined(OS_AIX)
   CPU::CoreType GetCoreType(int core_index);
-
-  // Initialized on the first call to GetCoreType().
-  base::Optional<std::vector<CPU::CoreType>> core_index_to_type_;
 #endif  // defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID) ||
         // defined(OS_AIX)
 
@@ -336,7 +333,7 @@ BASE_EXPORT void IncreaseFdLimitTo(unsigned int max_descriptors);
 // GetSystemMemoryInfo(). Total/free swap memory are available on all platforms
 // except on Mac. Buffers/cached/active_anon/inactive_anon/active_file/
 // inactive_file/dirty/reclaimable/pswpin/pswpout/pgmajfault are available on
-// Linux/Android/Chrome OS. Shmem/slab/gem_objects/gem_size are Chrome OS only.
+// Linux/Android/Chrome OS. Shmem/slab are Chrome OS only.
 // Speculative/file_backed/purgeable are Mac and iOS only.
 // Free is absent on Windows (see "avail_phys" below).
 struct BASE_EXPORT SystemMemoryInfoKB {
@@ -389,13 +386,10 @@ struct BASE_EXPORT SystemMemoryInfoKB {
 #endif  // defined(OS_ANDROID) || defined(OS_LINUX) || defined(OS_CHROMEOS) ||
         // defined(OS_AIX) defined(OS_FUCHSIA)
 
-#if defined(OS_CHROMEOS) || BUILDFLAG(IS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   int shmem = 0;
   int slab = 0;
-  // Gem data will be -1 if not supported.
-  int gem_objects = -1;
-  long long gem_size = -1;
-#endif  // defined(OS_CHROMEOS) || BUILDFLAG(IS_LACROS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
 
 #if defined(OS_APPLE)
   int speculative = 0;
@@ -446,6 +440,7 @@ struct BASE_EXPORT VmStatInfo {
   unsigned long pswpin = 0;
   unsigned long pswpout = 0;
   unsigned long pgmajfault = 0;
+  unsigned long oom_kill = 0;
 };
 
 // Retrieves data from /proc/vmstat about system-wide vm operations.
@@ -493,7 +488,7 @@ BASE_EXPORT TimeDelta GetUserCpuTimeSinceBoot();
 #endif  // defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID) ||
         // defined(OS_AIX)
 
-#if defined(OS_CHROMEOS) || BUILDFLAG(IS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
 // Data from files in directory /sys/block/zram0 about ZRAM usage.
 struct BASE_EXPORT SwapInfo {
   SwapInfo()
@@ -530,7 +525,23 @@ BASE_EXPORT bool ParseZramStat(StringPiece stat_data, SwapInfo* swap_info);
 // Fills in the provided |swap_data| structure.
 // Returns true on success or false for a parsing error.
 BASE_EXPORT bool GetSwapInfo(SwapInfo* swap_info);
-#endif  // defined(OS_CHROMEOS) || BUILDFLAG(IS_LACROS)
+
+// Data about GPU memory usage. These fields will be -1 if not supported.
+struct BASE_EXPORT GraphicsMemoryInfoKB {
+  // Serializes the platform specific fields to value.
+  std::unique_ptr<Value> ToValue() const;
+
+  int gpu_objects = -1;
+  int64_t gpu_memory_size = -1;
+};
+
+// Report on Chrome OS graphics memory. Returns true on success.
+// /run/debugfs_gpu is a bind mount into /sys/kernel/debug and synchronously
+// reading the in-memory files in /sys is fast in most cases. On platform that
+// reading the graphics memory info is slow, this function returns false.
+BASE_EXPORT bool GetGraphicsMemoryInfo(GraphicsMemoryInfoKB* gpu_meminfo);
+
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
 
 struct BASE_EXPORT SystemPerformanceInfo {
   SystemPerformanceInfo();
@@ -591,8 +602,9 @@ class BASE_EXPORT SystemMetrics {
   VmStatInfo vmstat_info_;
   SystemDiskInfo disk_info_;
 #endif
-#if defined(OS_CHROMEOS) || BUILDFLAG(IS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   SwapInfo swap_info_;
+  GraphicsMemoryInfoKB gpu_memory_info_;
 #endif
 #if defined(OS_WIN)
   SystemPerformanceInfo performance_;

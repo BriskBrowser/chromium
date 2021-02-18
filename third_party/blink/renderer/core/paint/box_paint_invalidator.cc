@@ -160,7 +160,8 @@ PaintInvalidationReason BoxPaintInvalidator::ComputePaintInvalidationReason() {
     return PaintInvalidationReason::kGeometry;
 
   if (style.HasVisualOverflowingEffect() || style.HasEffectiveAppearance() ||
-      style.HasFilterInducingProperty() || style.HasMask() || style.ClipPath())
+      style.HasFilterInducingProperty() || style.HasMask() ||
+      style.HasClipPath())
     return PaintInvalidationReason::kGeometry;
 
   if (style.HasBorderRadius() || style.CanRenderBorderImage())
@@ -232,19 +233,22 @@ BoxPaintInvalidator::ComputeViewBackgroundInvalidation() {
   bool background_size_changed =
       new_background_rect.size != old_background_rect.size;
   if (background_location_changed || background_size_changed) {
-    for (auto* object :
+    for (const auto& object :
          layout_view.GetFrameView()->BackgroundAttachmentFixedObjects())
       object->SetBackgroundNeedsFullPaintInvalidation();
   }
 
   if (background_location_changed ||
-      layout_view.BackgroundNeedsFullPaintInvalidation())
+      layout_view.BackgroundNeedsFullPaintInvalidation() ||
+      (context_.subtree_flags &
+       PaintInvalidatorContext::kSubtreeFullInvalidation)) {
     return BackgroundInvalidationType::kFull;
+  }
 
   if (Element* root_element = box_.GetDocument().documentElement()) {
     if (const auto* root_object = root_element->GetLayoutObject()) {
       if (root_object->IsBox()) {
-        const auto* root_box = ToLayoutBox(root_object);
+        const auto* root_box = To<LayoutBox>(root_object);
         // LayoutView's non-fixed-attachment background is positioned in the
         // root element and needs to invalidate if the size changes.
         // See: https://drafts.csswg.org/css-backgrounds-3/#root-background.
@@ -287,7 +291,9 @@ BoxPaintInvalidator::ComputeBackgroundInvalidation(
     bool& should_invalidate_all_layers) {
   // If background changed, we may paint the background on different graphics
   // layer, so we need to fully invalidate the background on all layers.
-  if (box_.BackgroundNeedsFullPaintInvalidation()) {
+  if (box_.BackgroundNeedsFullPaintInvalidation() ||
+      (context_.subtree_flags &
+       PaintInvalidatorContext::kSubtreeFullInvalidation)) {
     should_invalidate_all_layers = true;
     return BackgroundInvalidationType::kFull;
   }

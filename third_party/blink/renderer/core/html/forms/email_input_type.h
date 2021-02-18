@@ -44,7 +44,7 @@ class EmailInputType final : public BaseTextInputType {
                                                        const String&);
   CORE_EXPORT static bool IsValidEmailAddress(const ScriptRegexp&,
                                               const String&);
-  CORE_EXPORT static std::unique_ptr<ScriptRegexp> CreateEmailRegexp();
+  CORE_EXPORT static ScriptRegexp* CreateEmailRegexp();
 
  private:
   void CountUsage() override;
@@ -57,7 +57,6 @@ class EmailInputType final : public BaseTextInputType {
   String ConvertFromVisibleValue(const String&) const override;
   String VisibleValue() const override;
 
-  ScriptRegexp& EnsureEmailRegexp() const;
   String ConvertEmailAddressToUnicode(const String&) const;
   String FindInvalidAddress(const String&) const;
 };

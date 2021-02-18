@@ -11,10 +11,7 @@
 #include "content/public/browser/native_web_keyboard_event.h"
 #include "ui/views/controls/webview/unhandled_keyboard_event_handler.h"
 #include "ui/views/controls/webview/webview.h"
-
-namespace content {
-class RenderViewHost;
-}
+#include "ui/views/metadata/metadata_header_macros.h"
 
 namespace extensions {
 class ExtensionViewHost;
@@ -24,6 +21,7 @@ class ExtensionViewHost;
 class ExtensionViewViews : public views::WebView,
                            public extensions::ExtensionView {
  public:
+  METADATA_HEADER(ExtensionViewViews);
   // A class that represents the container that this view is in.
   // (bottom shelf, side bar, etc.)
   class Container {
@@ -31,6 +29,8 @@ class ExtensionViewViews : public views::WebView,
     virtual ~Container() = default;
 
     virtual void OnExtensionSizeChanged(ExtensionViewViews* view) {}
+    virtual gfx::Size GetMinBounds() = 0;
+    virtual gfx::Size GetMaxBounds() = 0;
   };
 
   explicit ExtensionViewViews(extensions::ExtensionViewHost* host);
@@ -38,20 +38,23 @@ class ExtensionViewViews : public views::WebView,
   ExtensionViewViews& operator=(const ExtensionViewViews&) = delete;
   ~ExtensionViewViews() override;
 
+  void Init();
+
   // views::WebView:
   void VisibilityChanged(View* starting_from, bool is_visible) override;
+  gfx::Size GetMinimumSize() const override;
 
-  void set_minimum_size(const gfx::Size& minimum_size) {
-    minimum_size_ = minimum_size;
-  }
-  void set_container(Container* container) { container_ = container; }
+  void SetMinimumSize(const gfx::Size& minimum_size);
+
+  void SetContainer(ExtensionViewViews::Container* container);
+  ExtensionViewViews::Container* GetContainer() const;
 
  private:
   // extensions::ExtensionView:
   gfx::NativeView GetNativeView() override;
   void ResizeDueToAutoResize(content::WebContents* web_contents,
                              const gfx::Size& new_size) override;
-  void RenderViewCreated(content::RenderViewHost* render_view_host) override;
+  void RenderFrameCreated(content::RenderFrameHost* render_frame_host) override;
   bool HandleKeyboardEvent(
       content::WebContents* source,
       const content::NativeWebKeyboardEvent& event) override;
@@ -59,7 +62,6 @@ class ExtensionViewViews : public views::WebView,
 
   // views::WebView:
   gfx::NativeCursor GetCursor(const ui::MouseEvent& event) override;
-  gfx::Size GetMinimumSize() const override;
   void PreferredSizeChanged() override;
   void OnWebContentsAttached() override;
 

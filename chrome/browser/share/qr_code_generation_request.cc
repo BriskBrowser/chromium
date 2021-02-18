@@ -73,7 +73,7 @@ void QRCodeGenerationRequest::OnGenerateCodeResponse(
 
   // Convert the result to a Java Bitmap.
   ScopedJavaLocalRef<jobject> java_bitmap =
-      gfx::ConvertToJavaBitmap(&service_response->bitmap);
+      gfx::ConvertToJavaBitmap(service_response->bitmap);
   Java_QRCodeGenerationRequest_onQRCodeAvailable(
       env, java_qr_code_generation_request_, java_bitmap);
 }

@@ -29,7 +29,7 @@ class LoginDisplay {
  public:
   class Delegate {
    public:
-    // Sign in using |username| and |password| specified.
+    // Sign in using `username` and `password` specified.
     // Used for known users only.
     virtual void Login(const UserContext& user_context,
                        const SigninSpecifics& specifics) = 0;
@@ -79,24 +79,16 @@ class LoginDisplay {
   // Changes enabled state of the UI.
   virtual void SetUIEnabled(bool is_enabled) = 0;
 
-  // Displays simple error bubble with |error_msg_id| specified.
-  // |login_attempts| shows number of login attempts made by current user.
-  // |help_topic_id| is additional help topic that is presented as link.
+  // Displays simple error bubble with `error_msg_id` specified.
+  // `login_attempts` shows number of login attempts made by current user.
+  // `help_topic_id` is additional help topic that is presented as link.
   virtual void ShowError(int error_msg_id,
                          int login_attempts,
                          HelpAppLauncher::HelpTopic help_topic_id) = 0;
 
-  // Show password changed dialog. If |show_password_error| is not null
-  // user already tried to enter old password but it turned out to be incorrect.
-  virtual void ShowPasswordChangedDialog(bool show_password_error,
-                                         const AccountId& account_id) = 0;
-
-  // Shows signin UI with specified email.
-  virtual void ShowSigninUI(const std::string& email) = 0;
-
-  // Show whitelist check failed error. Happens after user completes online
-  // signin but whitelist check fails.
-  virtual void ShowWhitelistCheckFailedError() = 0;
+  // Show allowlist check failed error. Happens after user completes online
+  // signin but allowlist check fails.
+  virtual void ShowAllowlistCheckFailedError() = 0;
 
   Delegate* delegate() { return delegate_; }
   void set_delegate(Delegate* delegate) { delegate_ = delegate; }

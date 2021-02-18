@@ -16,6 +16,7 @@
 
 #include "base/base64.h"
 #include "base/command_line.h"
+#include "base/containers/fixed_flat_map.h"
 #include "base/feature_list.h"
 #include "base/i18n/case_conversion.h"
 #include "base/logging.h"
@@ -32,12 +33,15 @@
 #include "base/time/time.h"
 #include "components/autofill/core/browser/autofill_data_util.h"
 #include "components/autofill/core/browser/autofill_metrics.h"
+#include "components/autofill/core/browser/autofill_regex_constants.h"
+#include "components/autofill/core/browser/autofill_regexes.h"
 #include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/field_types.h"
 #include "components/autofill/core/browser/form_parsing/field_candidates.h"
 #include "components/autofill/core/browser/form_parsing/form_field.h"
+#include "components/autofill/core/browser/form_processing/label_processing_util.h"
+#include "components/autofill/core/browser/form_processing/name_processing_util.h"
 #include "components/autofill/core/browser/logging/log_manager.h"
-#include "components/autofill/core/browser/proto/legacy_proto_bridge.h"
 #include "components/autofill/core/browser/randomized_encoder.h"
 #include "components/autofill/core/browser/rationalization_util.h"
 #include "components/autofill/core/browser/validation.h"
@@ -46,10 +50,9 @@
 #include "components/autofill/core/common/autofill_internals/log_message.h"
 #include "components/autofill/core/common/autofill_internals/logging_scope.h"
 #include "components/autofill/core/common/autofill_payments_features.h"
-#include "components/autofill/core/common/autofill_regex_constants.h"
-#include "components/autofill/core/common/autofill_regexes.h"
 #include "components/autofill/core/common/autofill_tick_clock.h"
 #include "components/autofill/core/common/autofill_util.h"
+#include "components/autofill/core/common/dense_set.h"
 #include "components/autofill/core/common/form_data.h"
 #include "components/autofill/core/common/form_data_predictions.h"
 #include "components/autofill/core/common/form_field_data.h"
@@ -57,6 +60,7 @@
 #include "components/autofill/core/common/logging/log_buffer.h"
 #include "components/autofill/core/common/signatures.h"
 #include "components/security_state/core/security_state.h"
+#include "components/version_info/version_info.h"
 #include "url/origin.h"
 
 namespace autofill {
@@ -65,36 +69,11 @@ using mojom::SubmissionIndicatorEvent;
 
 namespace {
 
-// Version of the client sent to the server.
-constexpr char kClientVersion[] = "6.1.1715.1442/en (GGLL)";
 constexpr char kBillingMode[] = "billing";
 constexpr char kShippingMode[] = "shipping";
 
 // Default section name for the fields.
 constexpr char kDefaultSection[] = "-default";
-
-// Only removing common name prefixes if we have a minimum number of fields and
-// a minimum prefix length. These values are chosen to avoid cases such as two
-// fields with "address1" and "address2" and be effective against web frameworks
-// which prepend prefixes such as "ctl01$ctl00$MainContentRegion$" on all
-// fields.
-constexpr int kCommonNamePrefixRemovalFieldThreshold = 3;
-constexpr int kMinCommonNamePrefixLength = 16;
-
-// Affix removal configuration. Only remove short affixes if they are common
-// to all field names and there is at least the minimum number of fields.
-// If no affix common to all field names is found, search for a long
-// prefix common to a subset of the fields. This case helps include cases of
-// prefixes prepended by web frameworks.
-//
-// Minimum required number of available fields for trying to remove affixes.
-constexpr int kCommonNameAffixRemovalFieldNumberThreshold = 3;
-// Minimum required length for affixes common to all field names.
-constexpr int kMinCommonNameAffixLength = 3;
-// Minimum required length for prefixes common to a subset of the field names.
-constexpr int kMinCommonNameLongPrefixLength = 16;
-// Regex for checking if |parseable_name| is valid after stripping affixes.
-constexpr char kParseableNameValidationRe[] = "\\D";
 
 // Returns true if the scheme given by |url| is one for which autofill is
 // allowed to activate. By default this only returns true for HTTP and HTTPS.
@@ -379,15 +358,6 @@ HtmlFieldType FieldTypeFromAutocompleteAttributeValue(
   return HTML_TYPE_UNRECOGNIZED;
 }
 
-std::ostream& operator<<(
-    std::ostream& out,
-    const autofill::AutofillQueryResponseContents& response) {
-  for (const auto& field : response.field()) {
-    out << "\nautofill_type: " << field.overall_type_prediction();
-  }
-  return out;
-}
-
 std::ostream& operator<<(std::ostream& out,
                          const autofill::AutofillQueryResponse& response) {
   for (const auto& form : response.form_suggestions()) {
@@ -591,17 +561,64 @@ void EncodeFieldMetadataForQuery(const FormFieldData& field,
 // For example, for Autofill to support fields of type
 // "PHONE_HOME_COUNTRY_CODE", there would need to be at least one other field
 // of type "PHONE_HOME_NUMBER" or "PHONE_HOME_CITY_AND_NUMBER".
-const std::unordered_map<ServerFieldType, ServerFieldTypeSet>&
-GetTypeRelationshipMap() {
-  // Initialized and cached on first use.
-  static const auto* const rules =
-      new std::unordered_map<ServerFieldType, ServerFieldTypeSet>(
+const auto& GetTypeRelationshipMap() {
+  static const auto rules =
+      base::MakeFixedFlatMap<ServerFieldType, ServerFieldTypeSet>(
           {{PHONE_HOME_COUNTRY_CODE,
             {PHONE_HOME_NUMBER, PHONE_HOME_CITY_AND_NUMBER}}});
-  return *rules;
+  return rules;
 }
 
 }  // namespace
+
+class FormStructure::SectionedFieldsIndexes {
+ public:
+  SectionedFieldsIndexes() = default;
+  ~SectionedFieldsIndexes() = default;
+
+  size_t LastFieldIndex() const {
+    if (sectioned_indexes_.empty())
+      return std::numeric_limits<size_t>::max();  // Shouldn't happen.
+    return sectioned_indexes_.back().back();
+  }
+
+  void AddFieldIndex(const size_t index, bool is_new_section) {
+    if (is_new_section || Empty()) {
+      sectioned_indexes_.emplace_back();
+    }
+    sectioned_indexes_.back().push_back(index);
+  }
+
+  void WalkForwardToTheNextSection() { current_section_ptr_++; }
+
+  bool IsFinished() const {
+    return current_section_ptr_ >= sectioned_indexes_.size();
+  }
+
+  size_t CurrentIndex() const {
+    return current_section_ptr_ < sectioned_indexes_.size()
+               ? sectioned_indexes_[current_section_ptr_].front()
+               : std::numeric_limits<size_t>::max();
+  }
+
+  const std::vector<size_t>* CurrentSection() const {
+    return current_section_ptr_ < sectioned_indexes_.size()
+               ? &sectioned_indexes_[current_section_ptr_]
+               : nullptr;
+  }
+
+  void Reset() { current_section_ptr_ = 0; }
+
+  bool Empty() const { return sectioned_indexes_.empty(); }
+
+ private:
+  // A vector of sections. Each section is a vector of some of the indexes
+  // that belong to the same section. The sections and indexes are sorted by
+  // their order of appearance on the form.
+  std::vector<std::vector<size_t>> sectioned_indexes_;
+  // Points to a vector of indexes that belong to the same section.
+  size_t current_section_ptr_ = 0;
+};
 
 FormStructure::FormStructure(const FormData& form)
     : id_attribute_(form.id_attribute),
@@ -655,23 +672,24 @@ FormStructure::FormStructure(
 
 FormStructure::~FormStructure() = default;
 
-void FormStructure::DetermineHeuristicTypes(LogManager* log_manager) {
+void FormStructure::DetermineHeuristicTypes(
+    AutofillMetrics::FormInteractionsUkmLogger* form_interactions_ukm_logger,
+    LogManager* log_manager) {
   const auto determine_heuristic_types_start_time =
       AutofillTickClock::NowTicks();
 
   // First, try to detect field types based on each field's |autocomplete|
   // attribute value.
-  if (!was_parsed_for_autocomplete_attributes_)
-    ParseFieldTypesFromAutocompleteAttributes();
+  ParseFieldTypesFromAutocompleteAttributes();
 
   // Then if there are enough active fields, and if we are dealing with either a
   // proper <form> or a <form>-less checkout, run the heuristics and server
   // prediction routines.
   if (ShouldRunHeuristics()) {
-    const FieldCandidatesMap field_type_map =
-        FormField::ParseFormFields(fields_, is_form_tag_, log_manager);
+    const FieldCandidatesMap field_type_map = FormField::ParseFormFields(
+        fields_, current_page_language_, is_form_tag_, log_manager);
     for (const auto& field : fields_) {
-      const auto iter = field_type_map.find(field->unique_name());
+      const auto iter = field_type_map.find(field->unique_renderer_id);
       if (iter != field_type_map.end()) {
         field->set_heuristic_type(iter->second.BestHeuristicType());
       }
@@ -698,6 +716,10 @@ void FormStructure::DetermineHeuristicTypes(LogManager* log_manager) {
         1 << AutofillMetrics::FORM_CONTAINS_UPI_VPA_HINT;
   }
 
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillParsingPatternsLanguageDetection)) {
+    RationalizeRepeatedFields(form_interactions_ukm_logger);
+  }
   RationalizeFieldTypePredictions();
 
   AutofillMetrics::LogDetermineHeuristicTypesTiming(
@@ -709,20 +731,22 @@ bool FormStructure::EncodeUploadRequest(
     bool form_was_autofilled,
     const std::string& login_form_signature,
     bool observed_submission,
+    bool is_raw_metadata_uploading_enabled,
     AutofillUploadContents* upload,
-    FormAndFieldSignatures* encoded_signatures) const {
+    std::vector<FormSignature>* encoded_signatures) const {
   DCHECK(AllTypesCaptured(*this, available_field_types));
   encoded_signatures->clear();
 
   upload->set_submission(observed_submission);
-  upload->set_client_version(kClientVersion);
+  upload->set_client_version(
+      version_info::GetProductNameAndVersionForUserAgent());
   upload->set_form_signature(form_signature().value());
   upload->set_autofill_used(form_was_autofilled);
   upload->set_data_present(EncodeFieldTypes(available_field_types));
   upload->set_passwords_revealed(passwords_were_revealed_);
   upload->set_has_form_tag(is_form_tag_);
-  if (!page_language_.empty() && randomized_encoder_ != nullptr) {
-    upload->set_language(page_language_);
+  if (!current_page_language_->empty() && randomized_encoder_ != nullptr) {
+    upload->set_language(current_page_language_.value());
   }
 
   auto triggering_event = (submission_event_ != SubmissionIndicatorEvent::NONE)
@@ -740,7 +764,7 @@ bool FormStructure::EncodeUploadRequest(
                                  upload);
   }
 
-  if (IsAutofillFieldMetadataEnabled()) {
+  if (is_raw_metadata_uploading_enabled) {
     upload->set_action_signature(StrToHash64Bit(target_url_.host()));
     if (!form_name().empty())
       upload->set_form_name(base::UTF16ToUTF8(form_name()));
@@ -760,20 +784,22 @@ bool FormStructure::EncodeUploadRequest(
   if (IsMalformed())
     return false;  // Malformed form, skip it.
 
-  EncodeFormForUpload(upload, encoded_signatures);
+  EncodeFormForUpload(is_raw_metadata_uploading_enabled, upload,
+                      encoded_signatures);
   return true;
 }
 
 // static
 bool FormStructure::EncodeQueryRequest(
     const std::vector<FormStructure*>& forms,
-    AutofillQueryContents* query,
-    FormAndFieldSignatures* encoded_signatures) {
-  DCHECK(encoded_signatures);
-  encoded_signatures->clear();
-  encoded_signatures->reserve(forms.size());
+    AutofillPageQueryRequest* query,
+    std::vector<FormSignature>* queried_form_signatures) {
+  DCHECK(queried_form_signatures);
+  queried_form_signatures->clear();
+  queried_form_signatures->reserve(forms.size());
 
-  query->set_client_version(kClientVersion);
+  query->set_client_version(
+      version_info::GetProductNameAndVersionForUserAgent());
 
   // If a page contains repeated forms, detect that and encode only one form as
   // the returned data would be the same for all the repeated forms.
@@ -791,36 +817,17 @@ bool FormStructure::EncodeQueryRequest(
     if (form->IsMalformed())
       continue;
 
-    form->EncodeFormForQuery(query->add_form(), encoded_signatures);
+    form->EncodeFormForQuery(query->add_forms(), queried_form_signatures);
   }
 
-  return !encoded_signatures->empty();
+  return !queried_form_signatures->empty();
 }
 
 // static
-void FormStructure::ParseQueryResponse(
-    std::string payload,
-    const std::vector<FormStructure*>& forms,
-    const FormAndFieldSignatures& encoded_signatures,
-    AutofillMetrics::FormInteractionsUkmLogger* form_interactions_ukm_logger) {
-  AutofillMetrics::LogServerQueryMetric(
-      AutofillMetrics::QUERY_RESPONSE_RECEIVED);
-
-  // Parse the response.
-  AutofillQueryResponseContents response;
-  if (!response.ParseFromString(payload))
-    return;
-
-  VLOG(1) << "Autofill query response was successfully parsed:\n" << response;
-
-  ProcessQueryResponse(response, forms, encoded_signatures,
-                       form_interactions_ukm_logger);
-}
-
 void FormStructure::ParseApiQueryResponse(
     base::StringPiece payload,
     const std::vector<FormStructure*>& forms,
-    const FormAndFieldSignatures& encoded_signatures,
+    const std::vector<FormSignature>& queried_form_signatures,
     AutofillMetrics::FormInteractionsUkmLogger* form_interactions_ukm_logger) {
   AutofillMetrics::LogServerQueryMetric(
       AutofillMetrics::QUERY_RESPONSE_RECEIVED);
@@ -839,39 +846,35 @@ void FormStructure::ParseApiQueryResponse(
   VLOG(1) << "Autofill query response from API was successfully parsed: "
           << response;
 
-  ProcessQueryResponse(CreateLegacyResponseFromApiResponse(response), forms,
-                       encoded_signatures, form_interactions_ukm_logger);
+  ProcessQueryResponse(response, forms, queried_form_signatures,
+                       form_interactions_ukm_logger);
 }
 
 // static
 void FormStructure::ProcessQueryResponse(
-    const AutofillQueryResponseContents& response,
+    const AutofillQueryResponse& response,
     const std::vector<FormStructure*>& forms,
-    const FormAndFieldSignatures& encoded_signatures,
+    const std::vector<FormSignature>& queried_form_signatures,
     AutofillMetrics::FormInteractionsUkmLogger* form_interactions_ukm_logger) {
   AutofillMetrics::LogServerQueryMetric(AutofillMetrics::QUERY_RESPONSE_PARSED);
 
   bool heuristics_detected_fillable_field = false;
   bool query_response_overrode_heuristics = false;
 
-  // Align the server response to the |encoded_signatures|.
-  auto field_types = [&response, &encoded_signatures] {
-    std::map<std::pair<FormSignature, FieldSignature>,
-             ::autofill::AutofillQueryResponseContents_Field>
-        field_types;
-    auto current_field = response.field().begin();
-    for (const auto& form_and_fields : encoded_signatures) {
-      FormSignature form = form_and_fields.first;
-      for (const auto& field : form_and_fields.second) {
-        // In some cases *successful* response does not return all the
-        // fields.
-        if (current_field == response.field().end())
-          return field_types;
-        field_types[std::make_pair(form, field)] = *current_field++;
-      }
+  std::map<std::pair<FormSignature, FieldSignature>,
+           AutofillQueryResponse::FormSuggestion::FieldSuggestion>
+      field_types;
+  for (int form_idx = 0;
+       form_idx < std::min(response.form_suggestions_size(),
+                           static_cast<int>(queried_form_signatures.size()));
+       ++form_idx) {
+    FormSignature form_sig = queried_form_signatures.at(form_idx);
+    for (const auto& field :
+         response.form_suggestions(form_idx).field_suggestions()) {
+      FieldSignature field_sig(field.field_signature());
+      field_types[std::make_pair(form_sig, field_sig)] = field;
     }
-    return field_types;
-  }();
+  }
 
   // Copy the field types into the actual form.
   for (FormStructure* form : forms) {
@@ -885,7 +888,7 @@ void FormStructure::ProcessQueryResponse(
       const auto& current_field = it->second;
 
       ServerFieldType field_type =
-          static_cast<ServerFieldType>(current_field.overall_type_prediction());
+          static_cast<ServerFieldType>(current_field.primary_type_prediction());
       query_response_has_no_server_data &= field_type == NO_SERVER_DATA;
 
       ServerFieldType heuristic_type = field->heuristic_type();
@@ -893,10 +896,18 @@ void FormStructure::ProcessQueryResponse(
         heuristics_detected_fillable_field = true;
 
       field->set_server_type(field_type);
-      std::vector<AutofillQueryResponseContents::Field::FieldPrediction>
+      std::vector<AutofillQueryResponse::FormSuggestion::FieldSuggestion::
+                      FieldPrediction>
           server_predictions;
+
+      if (current_field.has_primary_type_prediction()) {
+        field->set_server_type_prediction_is_override(
+            current_field.primary_type_prediction_is_override());
+      }
+
       if (current_field.predictions_size() == 0) {
-        AutofillQueryResponseContents::Field::FieldPrediction field_prediction;
+        AutofillQueryResponse::FormSuggestion::FieldSuggestion::FieldPrediction
+            field_prediction;
         field_prediction.set_type(field_type);
         server_predictions.push_back(field_prediction);
       } else {
@@ -904,6 +915,8 @@ void FormStructure::ProcessQueryResponse(
                                   current_field.predictions().end());
       }
       field->set_server_predictions(std::move(server_predictions));
+      field->set_may_use_prefilled_placeholder(
+          current_field.may_use_prefilled_placeholder());
 
       if (heuristic_type != field->Type().GetStorableType())
         query_response_overrode_heuristics = true;
@@ -918,7 +931,8 @@ void FormStructure::ProcessQueryResponse(
     form->UpdateAutofillCount();
     form->RationalizeRepeatedFields(form_interactions_ukm_logger);
     form->RationalizeFieldTypePredictions();
-    form->OverrideServerPredictionsWithHeuristics();
+    // TODO(crbug.com/1154080): By calling this with false, autocomplete section
+    // attributes will be ignored.
     form->IdentifySections(false);
   }
 
@@ -964,13 +978,6 @@ std::vector<FormDataPredictions> FormStructure::GetFieldTypePredictions(
   return forms;
 }
 
-// static
-bool FormStructure::IsAutofillFieldMetadataEnabled() {
-  const std::string group_name =
-      base::FieldTrialList::FindFullName("AutofillFieldMetadata");
-  return base::StartsWith(group_name, "Enabled", base::CompareCase::SENSITIVE);
-}
-
 std::unique_ptr<FormStructure> FormStructure::CreateForPasswordManagerUpload(
     FormSignature form_signature,
     const std::vector<FieldSignature>& field_signatures) {
@@ -985,8 +992,8 @@ std::string FormStructure::FormSignatureAsStr() const {
 
 bool FormStructure::IsAutofillable() const {
   size_t min_required_fields =
-      std::min({MinRequiredFieldsForHeuristics(), MinRequiredFieldsForQuery(),
-                MinRequiredFieldsForUpload()});
+      std::min({kMinRequiredFieldsForHeuristics, kMinRequiredFieldsForQuery,
+                kMinRequiredFieldsForUpload});
   if (autofill_count() < min_required_fields)
     return false;
 
@@ -1028,8 +1035,8 @@ bool FormStructure::ShouldBeParsed(LogManager* log_manager) const {
   }
 
   size_t min_required_fields =
-      std::min({MinRequiredFieldsForHeuristics(), MinRequiredFieldsForQuery(),
-                MinRequiredFieldsForUpload()});
+      std::min({kMinRequiredFieldsForHeuristics, kMinRequiredFieldsForQuery,
+                kMinRequiredFieldsForUpload});
   if (active_field_count() < min_required_fields &&
       (!all_fields_are_passwords() ||
        active_field_count() < kRequiredFieldsForFormsWithOnlyPasswordFields) &&
@@ -1069,7 +1076,7 @@ bool FormStructure::ShouldBeParsed(LogManager* log_manager) const {
 }
 
 bool FormStructure::ShouldRunHeuristics() const {
-  return active_field_count() >= MinRequiredFieldsForHeuristics() &&
+  return active_field_count() >= kMinRequiredFieldsForHeuristics &&
          HasAllowedScheme(source_url_) &&
          (is_form_tag_ || is_formless_checkout_ ||
           !base::FeatureList::IsEnabled(
@@ -1078,12 +1085,12 @@ bool FormStructure::ShouldRunHeuristics() const {
 
 bool FormStructure::ShouldBeQueried() const {
   return (has_password_field_ ||
-          active_field_count() >= MinRequiredFieldsForQuery()) &&
+          active_field_count() >= kMinRequiredFieldsForQuery) &&
          ShouldBeParsed();
 }
 
 bool FormStructure::ShouldBeUploaded() const {
-  return active_field_count() >= MinRequiredFieldsForUpload() &&
+  return active_field_count() >= kMinRequiredFieldsForUpload &&
          ShouldBeParsed();
 }
 
@@ -1091,28 +1098,36 @@ void FormStructure::RetrieveFromCache(
     const FormStructure& cached_form,
     const bool should_keep_cached_value,
     const bool only_server_and_autofill_state) {
-  // TODO(crbug/1101631) Clean up once the experiment is over.
-  const bool kUseRendererIds = base::FeatureList::IsEnabled(
-      features::kAutofillRetrieveFromCacheWithRendererIds);
-  std::map<base::string16, const AutofillField*> cached_fields_by_name;
   std::map<FieldRendererId, const AutofillField*> cached_fields_by_id;
   for (size_t i = 0; i < cached_form.field_count(); ++i) {
     auto* const field = cached_form.field(i);
-    if (kUseRendererIds)
-      cached_fields_by_id[field->unique_renderer_id] = field;
-    else
-      cached_fields_by_name[field->unique_name()] = field;
+    cached_fields_by_id[field->unique_renderer_id] = field;
   }
   for (auto& field : *this) {
     const AutofillField* cached_field = nullptr;
-    if (kUseRendererIds) {
-      const auto& it = cached_fields_by_id.find(field->unique_renderer_id);
-      if (it != cached_fields_by_id.end())
-        cached_field = it->second;
-    } else {
-      const auto& it = cached_fields_by_name.find(field->unique_name());
-      if (it != cached_fields_by_name.end())
-        cached_field = it->second;
+    const auto& it = cached_fields_by_id.find(field->unique_renderer_id);
+    if (it != cached_fields_by_id.end())
+      cached_field = it->second;
+
+    // If the unique renderer id (or the name) is not stable due to some Java
+    // Script magic in the website, use the field signature as a fallback
+    // solution to find the field in the cached form.
+    if (!cached_field) {
+      // Iterates over the fields to find the field with the same form
+      // signature.
+      for (size_t i = 0; i < cached_form.field_count(); ++i) {
+        auto* const cfield = cached_form.field(i);
+        if (field->GetFieldSignature() == cfield->GetFieldSignature()) {
+          // If there are multiple matches, do not retrieve the field and stop
+          // the process.
+          if (cached_field) {
+            cached_field = nullptr;
+            break;
+          } else {
+            cached_field = cfield;
+          }
+        }
+      }
     }
 
     if (cached_field) {
@@ -1130,29 +1145,31 @@ void FormStructure::RetrieveFromCache(
         field->is_autofilled = cached_field->is_autofilled;
       }
       if (field->form_control_type != "select-one") {
-        bool is_credit_card_field =
-            AutofillType(cached_field->Type().GetStorableType()).group() ==
-            CREDIT_CARD;
-        if (should_keep_cached_value &&
-            (is_credit_card_field ||
-             base::FeatureList::IsEnabled(
-                 features::kAutofillKeepInitialFormValuesInCache))) {
+        if (should_keep_cached_value) {
           field->value = cached_field->value;
           value_from_dynamic_change_form_ = true;
         } else if (field->value == cached_field->value &&
-                   (!base::FeatureList::IsEnabled(
-                        features::
-                            kAutofillImportPrefilledCountryAndStateValues) ||
-                    (field->server_type() != ADDRESS_HOME_COUNTRY &&
-                     field->server_type() != ADDRESS_HOME_STATE))) {
-          // TODO(crbug.com/1100231): Remove feature check once launched.
+                   (field->server_type() != ADDRESS_HOME_COUNTRY &&
+                    field->server_type() != ADDRESS_HOME_STATE)) {
           // From the perspective of learning user data, text fields containing
           // default values are equivalent to empty fields.
+          // Since a website can prefill country and state values basedw on
+          // GeoIp, the mechanism is deactivated for state and country fields.
           field->value = base::string16();
         }
       }
       field->set_server_type(cached_field->server_type());
+      field->set_server_type_prediction_is_override(
+          cached_field->server_type_prediction_is_override());
       field->set_previously_autofilled(cached_field->previously_autofilled());
+
+      // Only retrieve an overall prediction from cache if a server prediction
+      // is set.
+      if (base::FeatureList::IsEnabled(
+              features::kAutofillRetrieveOverallPredictionsFromCache) &&
+          field->server_type() != NO_SERVER_DATA) {
+        field->SetTypeTo(cached_field->Type());
+      }
     }
   }
 
@@ -1182,6 +1199,8 @@ void FormStructure::LogQualityMetrics(
 
   size_t num_detected_field_types = 0;
   size_t num_edited_autofilled_fields = 0;
+  size_t num_of_accepted_autofilled_fields = 0;
+  size_t num_of_corrected_autofilled_fields = 0;
   bool did_autofill_all_possible_fields = true;
   bool did_autofill_some_possible_fields = false;
   bool is_for_credit_card = IsCompleteCreditCardForm();
@@ -1225,6 +1244,13 @@ void FormStructure::LogQualityMetrics(
     }
 
     ++num_detected_field_types;
+
+    // Count the number of autofilled and corrected fields.
+    if (field->is_autofilled)
+      ++num_of_accepted_autofilled_fields;
+    else if (field->previously_autofilled())
+      ++num_of_corrected_autofilled_fields;
+
     if (field->is_autofilled)
       did_autofill_some_possible_fields = true;
     else if (!field->only_fill_when_focused())
@@ -1247,8 +1273,8 @@ void FormStructure::LogQualityMetrics(
   // submission event.
   if (observed_submission) {
     AutofillMetrics::AutofillFormSubmittedState state;
-    if (num_detected_field_types < MinRequiredFieldsForHeuristics() &&
-        num_detected_field_types < MinRequiredFieldsForQuery()) {
+    if (num_detected_field_types < kMinRequiredFieldsForHeuristics &&
+        num_detected_field_types < kMinRequiredFieldsForQuery) {
       state = AutofillMetrics::NON_FILLABLE_FORM_OR_NEW_DATA;
     } else {
       if (did_autofill_all_possible_fields) {
@@ -1262,6 +1288,11 @@ void FormStructure::LogQualityMetrics(
         state =
             AutofillMetrics::FILLABLE_FORM_AUTOFILLED_NONE_DID_SHOW_SUGGESTIONS;
       }
+
+      // Log the number of autofilled fields at submission time.
+      AutofillMetrics::LogNumberOfAutofilledFieldsAtSubmission(
+          num_of_accepted_autofilled_fields,
+          num_of_corrected_autofilled_fields);
 
       // Unlike the other times, the |submission_time| should always be
       // available.
@@ -1313,6 +1344,9 @@ void FormStructure::LogQualityMetricsBasedOnAutocomplete(
 }
 
 void FormStructure::ParseFieldTypesFromAutocompleteAttributes() {
+  if (was_parsed_for_autocomplete_attributes_)
+    return;
+
   has_author_specified_types_ = false;
   has_author_specified_sections_ = false;
   has_author_specified_upi_vpa_hint_ = false;
@@ -1485,16 +1519,12 @@ FormData FormStructure::ToFormData() const {
   data.is_formless_checkout = is_formless_checkout_;
   data.unique_renderer_id = unique_renderer_id_;
 
-  for (size_t i = 0; i < fields_.size(); ++i) {
-    data.fields.push_back(FormFieldData(*fields_[i]));
+  for (const auto& field : fields_) {
+    data.fields.push_back(*field);
   }
 
   return data;
 }
-
-FormStructure::SectionedFieldsIndexes::SectionedFieldsIndexes() {}
-
-FormStructure::SectionedFieldsIndexes::~SectionedFieldsIndexes() {}
 
 void FormStructure::RationalizeCreditCardFieldPredictions() {
   bool cc_first_name_found = false;
@@ -1673,16 +1703,17 @@ void FormStructure::RationalizeAddressLineFields(
   for (sections_of_address_indexes->Reset();
        !sections_of_address_indexes->IsFinished();
        sections_of_address_indexes->WalkForwardToTheNextSection()) {
-    auto current_section = sections_of_address_indexes->CurrentSection();
+    auto* current_section = sections_of_address_indexes->CurrentSection();
 
     // The rationalization only applies to sections that have 2 or 3 visible
     // street address predictions.
-    if (current_section.size() != 2 && current_section.size() != 3) {
+    if (!current_section ||
+        (current_section->size() != 2 && current_section->size() != 3)) {
       continue;
     }
 
     int nb_address_rationalized = 0;
-    for (auto field_index : current_section) {
+    for (auto field_index : *current_section) {
       switch (nb_address_rationalized) {
         case 0:
           ApplyRationalizationsToFieldAndLog(field_index, ADDRESS_HOME_LINE1,
@@ -1787,7 +1818,7 @@ bool FormStructure::FieldShouldBeRationalizedToCountry(size_t upper_index) {
   for (int field_index = upper_index - 1; field_index >= 0; --field_index) {
     if (fields_[field_index]->IsVisible() &&
         AutofillType(fields_[field_index]->Type().GetStorableType()).group() ==
-            ADDRESS_HOME &&
+            FieldTypeGroup::kAddressHome &&
         fields_[field_index]->section == fields_[upper_index]->section) {
       return false;
     }
@@ -1813,10 +1844,6 @@ void FormStructure::RationalizeAddressStateCountry(
 
   while (!sections_of_state_indexes->IsFinished() ||
          !sections_of_country_indexes->IsFinished()) {
-    auto current_section_of_state_indexes =
-        sections_of_state_indexes->CurrentSection();
-    auto current_section_of_country_indexes =
-        sections_of_country_indexes->CurrentSection();
     // If there are still sections left with both country and state type, and
     // state and country current sections are equal, then that section has both
     // state and country. No rationalization needed.
@@ -1829,22 +1856,33 @@ void FormStructure::RationalizeAddressStateCountry(
       continue;
     }
 
-    size_t upper_index = 0, lower_index = 0;
+    size_t upper_index = 0;
+    size_t lower_index = 0;
+
+    auto* current_section_of_state_indexes =
+        sections_of_state_indexes->CurrentSection();
+    auto* current_section_of_country_indexes =
+        sections_of_country_indexes->CurrentSection();
+    DCHECK(current_section_of_state_indexes ||
+           current_section_of_country_indexes);
 
     // If country section is before the state ones, it means that that section
     // misses states, and the other way around.
-    if (current_section_of_state_indexes < current_section_of_country_indexes) {
+    if (!current_section_of_country_indexes ||
+        (current_section_of_state_indexes &&
+         *current_section_of_state_indexes <
+             *current_section_of_country_indexes)) {
       // We only rationalize when we have exactly two visible fields of a kind.
-      if (current_section_of_state_indexes.size() == 2) {
-        upper_index = current_section_of_state_indexes[0];
-        lower_index = current_section_of_state_indexes[1];
+      if (current_section_of_state_indexes->size() == 2) {
+        upper_index = (*current_section_of_state_indexes)[0];
+        lower_index = (*current_section_of_state_indexes)[1];
       }
       sections_of_state_indexes->WalkForwardToTheNextSection();
     } else {
       // We only rationalize when we have exactly two visible fields of a kind.
-      if (current_section_of_country_indexes.size() == 2) {
-        upper_index = current_section_of_country_indexes[0];
-        lower_index = current_section_of_country_indexes[1];
+      if (current_section_of_country_indexes->size() == 2) {
+        upper_index = (*current_section_of_country_indexes)[0];
+        lower_index = (*current_section_of_country_indexes)[1];
       }
       sections_of_country_indexes->WalkForwardToTheNextSection();
     }
@@ -1876,25 +1914,6 @@ void FormStructure::RationalizeAddressStateCountry(
   }
 }
 
-void FormStructure::OverrideServerPredictionsWithHeuristics() {
-  if (!base::FeatureList::IsEnabled(
-          features::kAutofillEnableSupportForMoreStructureInNames)) {
-    return;
-  }
-  for (const auto& field : fields_) {
-    // If the heuristic type is |LAST_NAME_SECOND| or |LAST_NAME_FIRST|
-    // unconditionally use this prediction.
-    switch (field->heuristic_type()) {
-      case NAME_LAST_SECOND:
-      case NAME_LAST_FIRST:
-        field->SetTypeTo(AutofillType(field->heuristic_type()));
-        break;
-      default: {
-      };
-    }
-  }
-}
-
 void FormStructure::RationalizeRepeatedFields(
     AutofillMetrics::FormInteractionsUkmLogger* form_interactions_ukm_logger) {
   // The type of every field whose index is in
@@ -1903,24 +1922,25 @@ void FormStructure::RationalizeRepeatedFields(
   // indexes of fields whose types are predicted as FULL_NAME by the server.
   SectionedFieldsIndexes sectioned_field_indexes_by_type[MAX_VALID_FIELD_TYPE];
 
-  for (const auto& field : fields_) {
+  for (size_t i = 0; i < fields_.size(); ++i) {
+    const AutofillField& field = *fields_[i];
     // The hidden fields are not considered when rationalizing.
-    if (!field->IsVisible())
+    if (!field.IsVisible())
       continue;
     // The billing and non-billing types are aggregated.
-    auto current_type = field->Type().GetStorableType();
+    auto current_type = field.Type().GetStorableType();
 
     if (current_type != UNKNOWN_TYPE && current_type < MAX_VALID_FIELD_TYPE) {
       // Look at the sectioned field indexes for the current type, if the
       // current field belongs to that section, then the field index should be
       // added to that same section, otherwise, start a new section.
       sectioned_field_indexes_by_type[current_type].AddFieldIndex(
-          &field - &fields_[0],
+          i,
           /*is_new_section*/ sectioned_field_indexes_by_type[current_type]
                   .Empty() ||
               fields_[sectioned_field_indexes_by_type[current_type]
                           .LastFieldIndex()]
-                      ->section != field->section);
+                      ->section != field.section);
     }
   }
 
@@ -1938,65 +1958,44 @@ void FormStructure::RationalizeRepeatedFields(
 void FormStructure::RationalizeFieldTypePredictions() {
   RationalizeCreditCardFieldPredictions();
   for (const auto& field : fields_) {
-    if (base::FeatureList::IsEnabled(features::kAutofillOffNoServerData) &&
-        !field->should_autocomplete && field->server_type() == NO_SERVER_DATA &&
-        field->heuristic_type() != CREDIT_CARD_VERIFICATION_CODE) {
-      // When the field has autocomplete off, and the server returned no
-      // prediction, then assume Autofill is not useful for the current field.
-      // Special case for CVC (crbug.com/968036). We never send votes for CVC
-      // fields, but we still fill them when the user inputs them via the CVC
-      // prompt. Since Autofill doesn't trigger from a CVC field, we can keep
-      // the client-side predictions for this type.
-      field->SetTypeTo(AutofillType(UNKNOWN_TYPE));
-    } else {
-      field->SetTypeTo(field->Type());
-    }
+    field->SetTypeTo(field->Type());
   }
   RationalizeTypeRelationships();
 }
 
 void FormStructure::EncodeFormForQuery(
-    AutofillQueryContents::Form* query_form,
-    FormAndFieldSignatures* encoded_signatures) const {
+    AutofillPageQueryRequest::Form* query_form,
+    std::vector<FormSignature>* queried_form_signatures) const {
   DCHECK(!IsMalformed());
 
   query_form->set_signature(form_signature().value());
-  encoded_signatures->emplace_back();
-  encoded_signatures->back().first = form_signature();
+  queried_form_signatures->push_back(form_signature());
 
   if (is_rich_query_enabled_) {
-    EncodeFormMetadataForQuery(*this, query_form->mutable_form_metadata());
+    EncodeFormMetadataForQuery(*this, query_form->mutable_metadata());
   }
 
   for (const auto& field : fields_) {
     if (ShouldSkipField(*field))
       continue;
 
-    AutofillQueryContents::Form::Field* added_field = query_form->add_field();
+    AutofillPageQueryRequest::Form::Field* added_field =
+        query_form->add_fields();
     added_field->set_signature(field->GetFieldSignature().value());
-    encoded_signatures->back().second.push_back(field->GetFieldSignature());
 
     if (is_rich_query_enabled_) {
-      EncodeFieldMetadataForQuery(*field,
-                                  added_field->mutable_field_metadata());
-    }
-
-    if (IsAutofillFieldMetadataEnabled()) {
-      added_field->set_type(field->form_control_type);
-
-      if (!field->name.empty())
-        added_field->set_name(base::UTF16ToUTF8(field->name));
+      EncodeFieldMetadataForQuery(*field, added_field->mutable_metadata());
     }
   }
 }
 
 void FormStructure::EncodeFormForUpload(
+    bool is_raw_metadata_uploading_enabled,
     AutofillUploadContents* upload,
-    FormAndFieldSignatures* encoded_signatures) const {
+    std::vector<FormSignature>* encoded_signatures) const {
   DCHECK(!IsMalformed());
 
-  encoded_signatures->emplace_back();
-  encoded_signatures->back().first = form_signature();
+  encoded_signatures->push_back(form_signature());
 
   if (randomized_encoder_) {
     PopulateRandomizedFormMetadata(*randomized_encoder_, *this,
@@ -2013,7 +2012,6 @@ void FormStructure::EncodeFormForUpload(
       continue;
 
     auto* added_field = upload->add_field();
-    encoded_signatures->back().second.push_back(field->GetFieldSignature());
 
     for (const auto& field_type : field->possible_types()) {
       added_field->add_autofill_type(field_type);
@@ -2055,7 +2053,7 @@ void FormStructure::EncodeFormForUpload(
           added_field->mutable_randomized_field_metadata());
     }
 
-    if (IsAutofillFieldMetadataEnabled()) {
+    if (is_raw_metadata_uploading_enabled) {
       added_field->set_type(field->form_control_type);
 
       if (!field->name.empty())
@@ -2087,24 +2085,215 @@ bool FormStructure::IsMalformed() const {
   return false;
 }
 
+void FormStructure::IdentifySectionsWithNewMethod() {
+  if (fields_.empty())
+    return;
+
+  const bool is_enabled_autofill_redundant_name_sectioning =
+      base::FeatureList::IsEnabled(
+          features::kAutofillSectionUponRedundantNameInfo);
+
+  // Creates a unique name for the section that starts with |field|.
+  // TODO(crbug/896689): Cleanup once experiment is launched.
+  auto get_section_name = [](const AutofillField& field) {
+    if (base::FeatureList::IsEnabled(
+            features::kAutofillNameSectionsWithRendererIds)) {
+      return base::StrCat(
+          {field.name, base::ASCIIToUTF16("_"),
+           base::NumberToString16(field.unique_renderer_id.value())});
+    } else {
+      return field.unique_name();
+    }
+  };
+
+  base::string16 current_section = get_section_name(*fields_.front());
+
+  // Keep track of the types we've seen in this section.
+  ServerFieldTypeSet seen_types;
+  ServerFieldType previous_type = UNKNOWN_TYPE;
+
+  // Boolean flag that is set to true when a field in the current section
+  // has the autocomplete-section attribute defined.
+  bool previous_autocomplete_section_present = false;
+
+  bool is_hidden_section = false;
+  base::string16 last_visible_section;
+  for (const auto& field : fields_) {
+    const ServerFieldType current_type = field->Type().GetStorableType();
+    // All credit card fields belong to the same section that's different
+    // from address sections.
+    if (AutofillType(current_type).group() == FieldTypeGroup::kCreditCard) {
+      field->section = "credit-card";
+      continue;
+    }
+
+    bool already_saw_current_type = seen_types.count(current_type) > 0;
+
+    // Forms often ask for multiple phone numbers -- e.g. both a daytime and
+    // evening phone number.  Our phone number detection is also generally a
+    // little off.  Hence, ignore this field type as a signal here.
+    if (AutofillType(current_type).group() == FieldTypeGroup::kPhoneHome)
+      already_saw_current_type = false;
+
+    if (is_enabled_autofill_redundant_name_sectioning) {
+      // Forms sometimes have a different format of inputting names in
+      // different sections. If we believe a new name is being entered, assume
+      // it is a new section (unless there are two identical inputs in a row).
+      if (current_type == NAME_FULL)
+        already_saw_current_type |= (seen_types.count(NAME_LAST) > 0);
+    }
+
+    bool ignored_field = !field->IsVisible();
+
+    // This is the first visible field after a hidden section. Consider it as
+    // the continuation of the last visible section.
+    if (!ignored_field && is_hidden_section) {
+      current_section = last_visible_section;
+    }
+
+    // Start a new section by an ignored field, only if the next field is also
+    // already seen.
+    size_t field_index = &field - &fields_[0];
+    if (ignored_field &&
+        (is_hidden_section ||
+         !((field_index + 1) < fields_.size() &&
+           seen_types.count(
+               fields_[field_index + 1]->Type().GetStorableType()) > 0))) {
+      already_saw_current_type = false;
+    }
+
+    // Some forms have adjacent fields of the same type.  Two common examples:
+    //  * Forms with two email fields, where the second is meant to "confirm"
+    //    the first.
+    //  * Forms with a <select> menu for states in some countries, and a
+    //    freeform <input> field for states in other countries.  (Usually,
+    //    only one of these two will be visible for any given choice of
+    //    country.)
+    // Generally, adjacent fields of the same type belong in the same logical
+    // section.
+    if (current_type == previous_type)
+      already_saw_current_type = false;
+
+    // Boolean flag that is set to true when the |field| has
+    // autocomplete-section attribute defined.
+    bool autocomplete_section_attribute_present =
+        (field->section != kDefaultSection);
+
+    // Boolean flag that is set to true when the |field| has
+    // autocomplete-section attribute defined and is different that the
+    // previous field.
+    bool different_autocomplete_section_than_previous =
+        (autocomplete_section_attribute_present &&
+         (!field_index || fields_[field_index - 1]->section != field->section));
+
+    // Start a new section if the |current_type| was already seen or the
+    // autocomplete-section attribute is defined for the |field| which is
+    // different than the previous field.
+    if (current_type != UNKNOWN_TYPE &&
+        (already_saw_current_type ||
+         different_autocomplete_section_than_previous)) {
+      // Keep track of seen_types if the new section is hidden. The next
+      // visible section might be the continuation of the previous visible
+      // section.
+      if (ignored_field) {
+        is_hidden_section = true;
+        last_visible_section = current_section;
+      }
+
+      if (!is_hidden_section && (!autocomplete_section_attribute_present ||
+                                 different_autocomplete_section_than_previous))
+        seen_types.clear();
+
+      if (autocomplete_section_attribute_present &&
+          !previous_autocomplete_section_present) {
+        // If this field is the first field within the section with a defined
+        // autocomplete section, then change the section attribute of all the
+        // parsed fields in the current section to |field->section|.
+        int i = static_cast<int>(field_index - 1);
+        while (i >= 0 &&
+               base::UTF8ToUTF16(fields_[i]->section) == current_section) {
+          fields_[i]->section = field->section;
+          i--;
+        }
+      }
+
+      // The end of a section, so start a new section.
+      current_section = get_section_name(*field);
+
+      // The section described in the autocomplete section attribute
+      // overrides the value determined by the heuristic.
+      if (autocomplete_section_attribute_present)
+        current_section = base::UTF8ToUTF16(field->section);
+
+      previous_autocomplete_section_present =
+          autocomplete_section_attribute_present;
+    }
+
+    // Only consider a type "seen" if it was not ignored. Some forms have
+    // sections for different locales, only one of which is enabled at a
+    // time. Each section may duplicate some information (e.g. postal code)
+    // and we don't want that to cause section splits.
+    // Also only set |previous_type| when the field was not ignored. This
+    // prevents ignored fields from breaking up fields that are otherwise
+    // adjacent.
+    if (!ignored_field) {
+      seen_types.insert(current_type);
+      previous_type = current_type;
+      is_hidden_section = false;
+    }
+
+    field->section = base::UTF16ToUTF8(current_section);
+  }
+
+  // Ensure that credit card and address fields are in separate sections.
+  // This simplifies the section-aware logic in autofill_manager.cc.
+  for (const auto& field : fields_) {
+    FieldTypeGroup field_type_group = field->Type().group();
+    if (field_type_group == FieldTypeGroup::kCreditCard)
+      field->section = field->section + "-cc";
+    else
+      field->section = field->section + "-default";
+  }
+
+  // Since this function has changed the sections, subsequent calls to
+  // ParseFieldTypesFromAutocompleteAttributes(), which modifies the
+  // sections, too, should not be no-ops.
+  was_parsed_for_autocomplete_attributes_ = false;
+}
+
+// TODO(crbug/1153539): Make sectioning less stateful, less std::string-based.
 void FormStructure::IdentifySections(bool has_author_specified_sections) {
   if (fields_.empty())
     return;
 
-  const bool is_enabled_autofill_new_sectioning =
-      base::FeatureList::IsEnabled(features::kAutofillUseNewSectioningMethod);
+  if (base::FeatureList::IsEnabled(features::kAutofillUseNewSectioningMethod)) {
+    IdentifySectionsWithNewMethod();
+    return;
+  }
 
-  if (!has_author_specified_sections || is_enabled_autofill_new_sectioning) {
-    // Name sections after the first field in the section.
-    base::string16 current_section = fields_.front()->unique_name();
+  const bool is_enabled_autofill_redundant_name_sectioning =
+      base::FeatureList::IsEnabled(
+          features::kAutofillSectionUponRedundantNameInfo);
+
+  // Creates a unique name for the section that starts with |field|.
+  // TODO(crbug/896689): Cleanup once experiment is launched.
+  auto get_section_name = [](const AutofillField& field) {
+    if (base::FeatureList::IsEnabled(
+            features::kAutofillNameSectionsWithRendererIds)) {
+      return base::StrCat(
+          {field.name, base::ASCIIToUTF16("_"),
+           base::NumberToString16(field.unique_renderer_id.value())});
+    } else {
+      return field.unique_name();
+    }
+  };
+
+  if (!has_author_specified_sections) {
+    base::string16 current_section = get_section_name(*fields_.front());
 
     // Keep track of the types we've seen in this section.
-    std::set<ServerFieldType> seen_types;
+    ServerFieldTypeSet seen_types;
     ServerFieldType previous_type = UNKNOWN_TYPE;
-
-    // Boolean flag that is set to true when a field in the current section
-    // has the autocomplete-section attribute defined.
-    bool previous_autocomplete_section_present = false;
 
     bool is_hidden_section = false;
     base::string16 last_visible_section;
@@ -2112,7 +2301,7 @@ void FormStructure::IdentifySections(bool has_author_specified_sections) {
       const ServerFieldType current_type = field->Type().GetStorableType();
       // All credit card fields belong to the same section that's different
       // from address sections.
-      if (AutofillType(current_type).group() == CREDIT_CARD) {
+      if (AutofillType(current_type).group() == FieldTypeGroup::kCreditCard) {
         field->section = "credit-card";
         continue;
       }
@@ -2122,8 +2311,16 @@ void FormStructure::IdentifySections(bool has_author_specified_sections) {
       // Forms often ask for multiple phone numbers -- e.g. both a daytime and
       // evening phone number.  Our phone number detection is also generally a
       // little off.  Hence, ignore this field type as a signal here.
-      if (AutofillType(current_type).group() == PHONE_HOME)
+      if (AutofillType(current_type).group() == FieldTypeGroup::kPhoneHome)
         already_saw_current_type = false;
+
+      if (is_enabled_autofill_redundant_name_sectioning) {
+        // Forms sometimes have a different format of inputting names in
+        // different sections. If we believe a new name is being entered, assume
+        // it is a new section (unless there are two identical inputs in a row).
+        if (current_type == NAME_FULL)
+          already_saw_current_type |= (seen_types.count(NAME_LAST) > 0);
+      }
 
       bool ignored_field = !field->IsVisible();
 
@@ -2156,31 +2353,10 @@ void FormStructure::IdentifySections(bool has_author_specified_sections) {
       if (current_type == previous_type)
         already_saw_current_type = false;
 
-      // Boolean flag that is set to true when the |field| has
-      // autocomplete-section attribute defined.
-      bool autocomplete_section_attribute_present = false;
-      if (is_enabled_autofill_new_sectioning)
-        autocomplete_section_attribute_present =
-            (field->section != kDefaultSection);
-
-      // Boolean flag that is set to true when the |field| has
-      // autocomplete-section attribute defined and is different that the
-      // previous field.
-      bool different_autocomplete_section_than_previous = false;
-      if (is_enabled_autofill_new_sectioning) {
-        different_autocomplete_section_than_previous =
-            (autocomplete_section_attribute_present &&
-             (!field_index ||
-              fields_[field_index - 1]->section != field->section));
-      }
-
       // Start a new section if the |current_type| was already seen or the
       // autocomplete-section attribute is defined for the |field| which is
       // different than the previous field.
-      if (current_type != UNKNOWN_TYPE &&
-          (already_saw_current_type ||
-           (is_enabled_autofill_new_sectioning &&
-            different_autocomplete_section_than_previous))) {
+      if (current_type != UNKNOWN_TYPE && already_saw_current_type) {
         // Keep track of seen_types if the new section is hidden. The next
         // visible section might be the continuation of the previous visible
         // section.
@@ -2189,38 +2365,11 @@ void FormStructure::IdentifySections(bool has_author_specified_sections) {
           last_visible_section = current_section;
         }
 
-        if (!is_hidden_section &&
-            (!is_enabled_autofill_new_sectioning ||
-             !autocomplete_section_attribute_present ||
-             different_autocomplete_section_than_previous))
+        if (!is_hidden_section)
           seen_types.clear();
 
-        if (is_enabled_autofill_new_sectioning &&
-            autocomplete_section_attribute_present &&
-            !previous_autocomplete_section_present) {
-          // If this field is the first field within the section with a defined
-          // autocomplete section, then change the section attribute of all the
-          // parsed fields in the current section to |field->section|.
-          int i = static_cast<int>(field_index - 1);
-          while (i >= 0 &&
-                 base::UTF8ToUTF16(fields_[i]->section) == current_section) {
-            fields_[i]->section = field->section;
-            i--;
-          }
-        }
-
         // The end of a section, so start a new section.
-        current_section = field->unique_name();
-
-        if (is_enabled_autofill_new_sectioning) {
-          // The section described in the autocomplete section attribute
-          // overrides the value determined by the heuristic.
-          if (autocomplete_section_attribute_present)
-            current_section = base::UTF8ToUTF16(field->section);
-
-          previous_autocomplete_section_present =
-              autocomplete_section_attribute_present;
-        }
+        current_section = get_section_name(*field);
       }
 
       // Only consider a type "seen" if it was not ignored. Some forms have
@@ -2244,11 +2393,16 @@ void FormStructure::IdentifySections(bool has_author_specified_sections) {
   // This simplifies the section-aware logic in autofill_manager.cc.
   for (const auto& field : fields_) {
     FieldTypeGroup field_type_group = field->Type().group();
-    if (field_type_group == CREDIT_CARD)
+    if (field_type_group == FieldTypeGroup::kCreditCard)
       field->section = field->section + "-cc";
     else
       field->section = field->section + "-default";
   }
+
+  // Since this function has changed the sections, subsequent calls to
+  // ParseFieldTypesFromAutocompleteAttributes(), which modifies the
+  // sections, too, should not be no-ops.
+  was_parsed_for_autocomplete_attributes_ = false;
 }
 
 bool FormStructure::ShouldSkipField(const FormFieldData& field) const {
@@ -2256,183 +2410,71 @@ bool FormStructure::ShouldSkipField(const FormFieldData& field) const {
 }
 
 void FormStructure::ProcessExtractedFields() {
+  // Extracts the |parseable_name_| by removing common affixes from the
+  // field names.
+  ExtractParseableFieldNames();
+
+  // TODO(crbug/1165780): Remove once shared labels are launched.
   if (base::FeatureList::IsEnabled(
-          autofill::features::kAutofillLabelAffixRemoval)) {
-    // Updates the field name parsed by heuristics if several criteria are met.
-    // Several fields must be present in the form.
-    if (field_count() < kCommonNameAffixRemovalFieldNumberThreshold)
-      return;
+          features::kAutofillEnableSupportForParsingWithSharedLabels)) {
+    // Extracts the |parsable_label_| for each field.
+    ExtractParseableFieldLabels();
+  }
+}
 
-    std::vector<base::StringPiece16> names;
-    names.reserve(field_count());
-    for (const auto& field : *this)
-      names.push_back(field->name);
+void FormStructure::ExtractParseableFieldLabels() {
+  std::vector<base::StringPiece16> field_labels;
+  field_labels.reserve(field_count());
+  for (const auto& field : *this) {
+    // Skip fields that are not a text input or not visible.
+    if (!field->IsTextInputElement() || !field->IsVisible()) {
+      continue;
+    }
+    field_labels.push_back(field->label);
+  }
 
-    int longest_prefix_length = FindLongestCommonAffixLength(names, false);
-    int longest_suffix_length = FindLongestCommonAffixLength(names, true);
-
-    // Don't remove the common affix if it's not long enough.
-    if (longest_prefix_length < kMinCommonNameAffixLength)
-      longest_prefix_length = 0;
-
-    if (longest_suffix_length < kMinCommonNameAffixLength)
-      longest_suffix_length = 0;
-
-    bool success =
-        SetStrippedParseableNames(longest_prefix_length, longest_suffix_length);
-
-    // Don't search for inconsistent prefix if valid affixes are found.
-    if (success && longest_prefix_length + longest_suffix_length > 0)
-      return;
-
-    // Functionality for stripping a prefix only common to a subset
-    // of field names.
-    // This is needed because an exceptional field may be missing a prefix
-    // which is otherwise consistently applied--for instance, a framework
-    // may only apply a prefix to those fields which are bound when POSTing.
-    names.clear();
-    for (const auto& field : *this)
-      if (field->name.size() > kMinCommonNameLongPrefixLength)
-        names.push_back(field->name);
-
-    if (names.size() < kCommonNamePrefixRemovalFieldThreshold)
-      return;
-
-    const int longest_long_prefix_length =
-        FindLongestCommonAffixLength(names, false);
-
-    if (longest_long_prefix_length >= kMinCommonNameLongPrefixLength)
-      SetStrippedParseableNames(longest_long_prefix_length, 0);
-
+  // Determine the parsable labels and write them back.
+  base::Optional<std::vector<base::string16>> parsable_labels =
+      GetParseableLabels(field_labels);
+  // If not single label was split, the function can return, because the
+  // |parsable_label_| is assigned to |label| by default.
+  if (!parsable_labels.has_value()) {
     return;
   }
 
-  // Update the field name parsed by heuristics if several criteria are met.
-  // Several fields must be present in the form.
-  if (field_count() < kCommonNamePrefixRemovalFieldThreshold)
-    return;
+  size_t idx = 0;
+  for (auto& field : *this) {
+    if (!field->IsTextInputElement() || !field->IsVisible()) {
+      // For those fields, set the original label.
+      field->set_parseable_label(field->label);
+      continue;
+    }
+    DCHECK(idx < parsable_labels->size());
+    field->set_parseable_label(parsable_labels->at(idx++));
+  }
+}
 
-  // Find the longest common prefix within all the field names.
-  std::vector<base::string16> names;
+void FormStructure::ExtractParseableFieldNames() {
+  // Create a vector of string pieces containing the field names.
+  std::vector<base::StringPiece16> names;
   names.reserve(field_count());
-  for (const auto& field : *this)
-    names.push_back(field->name);
+  for (const auto& field : *this) {
+    names.push_back(base::StringPiece16(field->name));
+  }
 
-  const base::string16 longest_prefix = FindLongestCommonPrefix(names);
-  if (longest_prefix.size() < kMinCommonNamePrefixLength)
-    return;
-
-  // The name without the prefix will be used for heuristics parsing.
+  // Determine the parseable names and write them into the corresponding field.
+  std::vector<base::string16> parseable_names = GetParseableNames(names);
+  DCHECK_EQ(parseable_names.size(), field_count());
+  size_t idx = 0;
   for (auto& field : *this) {
-    if (field->name.size() > longest_prefix.size()) {
-      field->set_parseable_name(
-          field->name.substr(longest_prefix.size(), field->name.size()));
-    }
+    field->set_parseable_name(parseable_names.at(idx++));
   }
 }
 
-bool FormStructure::SetStrippedParseableNames(size_t offset_left,
-                                              size_t offset_right) {
-  // Keeps track if all stripped strings are valid according to
-  // |IsValidParseableName()|. If at least one string is invalid,
-  // all |parseable_name| are reset to |name|.
-  bool should_keep = true;
-  for (auto& field : *this) {
-    // This check allows to only strip affixes from long enough strings.
-    if (field->name.size() > offset_right + offset_left) {
-      field->set_parseable_name(field->name.substr(
-          offset_left, field->name.size() - offset_right - offset_left));
-    } else {
-      field->set_parseable_name(field->name);
-    }
-
-    should_keep &= IsValidParseableName(field->parseable_name());
-    if (!should_keep)
-      break;
-  }
-
-  // Reset if some stripped string was invalid.
-  if (!should_keep) {
-    for (auto& field : *this)
-      field->set_parseable_name(field->name);
-  }
-
-  return should_keep;
-}
-
-bool FormStructure::IsValidParseableName(
-    base::string16 candidateParseableName) {
-  static const base::string16 kParseableNameValidationPattern =
-      base::UTF8ToUTF16(kParseableNameValidationRe);
-  if (MatchesPattern(candidateParseableName, kParseableNameValidationPattern))
-    return true;
-
-  return false;
-}
-
-// static
-size_t FormStructure::FindLongestCommonAffixLength(
-    const std::vector<base::StringPiece16>& strings,
-    bool findCommonSuffix) {
-  if (strings.empty())
-    return 0;
-
-  // Go through each character of the first string until there is a mismatch at
-  // the same position in any other string. Adapted from http://goo.gl/YGukMM.
-  for (size_t affix_len = 0; affix_len < strings[0].size(); affix_len++) {
-    size_t base_string_index =
-        findCommonSuffix ? strings[0].size() - affix_len - 1 : affix_len;
-    for (size_t i = 1; i < strings.size(); i++) {
-      size_t compared_string_index =
-          findCommonSuffix ? strings[i].size() - affix_len - 1 : affix_len;
-      if (affix_len >= strings[i].size() ||
-          strings[i][compared_string_index] != strings[0][base_string_index]) {
-        // Mismatch found.
-        return affix_len;
-      }
-    }
-  }
-  return strings[0].size();
-}
-
-// static
-base::string16 FormStructure::FindLongestCommonPrefix(
-    const std::vector<base::string16>& strings) {
-  if (strings.empty())
-    return base::string16();
-
-  std::vector<base::string16> filtered_strings;
-
-  // Any strings less than kMinCommonNamePrefixLength are neither modified
-  // nor considered when processing for a common prefix.
-  std::copy_if(
-      strings.begin(), strings.end(), std::back_inserter(filtered_strings),
-      [](base::string16 s) { return s.size() >= kMinCommonNamePrefixLength; });
-
-  if (filtered_strings.empty())
-    return base::string16();
-
-  // Go through each character of the first string until there is a mismatch at
-  // the same position in any other string. Adapted from http://goo.gl/YGukMM.
-  for (size_t prefix_len = 0; prefix_len < filtered_strings[0].size();
-       prefix_len++) {
-    for (size_t i = 1; i < filtered_strings.size(); i++) {
-      if (prefix_len >= filtered_strings[i].size() ||
-          filtered_strings[i].at(prefix_len) !=
-              filtered_strings[0].at(prefix_len)) {
-        // Mismatch found.
-        return filtered_strings[i].substr(0, prefix_len);
-      }
-    }
-  }
-  return filtered_strings[0];
-}
-
-std::set<FormType> FormStructure::GetFormTypes() const {
-  std::set<FormType> form_types;
+DenseSet<FormType> FormStructure::GetFormTypes() const {
+  DenseSet<FormType> form_types;
   for (const auto& field : fields_) {
-    form_types.insert(
-        FormTypes::FieldTypeGroupToFormType(field->Type().group()));
+    form_types.insert(FieldTypeGroupToFormType(field->Type().group()));
   }
   return form_types;
 }
@@ -2454,7 +2496,7 @@ void FormStructure::set_randomized_encoder(
 
 void FormStructure::RationalizeTypeRelationships() {
   // Create a local set of all the types for faster lookup.
-  std::unordered_set<ServerFieldType> types;
+  ServerFieldTypeSet types;
   for (const auto& field : fields_) {
     types.insert(field->Type().GetStorableType());
   }
@@ -2463,21 +2505,11 @@ void FormStructure::RationalizeTypeRelationships() {
 
   for (const auto& field : fields_) {
     ServerFieldType field_type = field->Type().GetStorableType();
-    const auto& ruleset_iterator = type_relationship_rules.find(field_type);
+    const auto* ruleset_iterator = type_relationship_rules.find(field_type);
     if (ruleset_iterator != type_relationship_rules.end()) {
       // We have relationship rules for this type. Verify that at least one of
       // the required related type is present.
-      bool found = false;
-      for (ServerFieldType required_type : ruleset_iterator->second) {
-        if (types.find(required_type) != types.end()) {
-          // Found a required type, we can break as we only need one required
-          // type to respect the rule.
-          found = true;
-          break;
-        }
-      }
-
-      if (!found) {
+      if (!types.contains_any(ruleset_iterator->second)) {
         // No required type was found, the current field failed the relationship
         // requirements for its type. Disabling Autofill for this field.
         field->SetTypeTo(AutofillType(UNKNOWN_TYPE));

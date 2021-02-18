@@ -20,8 +20,8 @@ void WaitForUpdateScreen();
 void ExitUpdateScreenNoUpdate();
 void WaitForFingerprintScreen();
 void ExitFingerprintPinSetupScreen();
-void WaitForDiscoverScreen();
-void ExitDiscoverPinSetupScreen();
+void WaitForPinSetupScreen();
+void ExitPinSetupScreen();
 void SkipToEnrollmentOnRecovery();
 void WaitForEnrollmentScreen();
 void WaitForUserCreationScreen();
@@ -31,7 +31,6 @@ void WaitForEulaScreen();
 void TapEulaAccept();
 void WaitForSyncConsentScreen();
 void ExitScreenSyncConsent();
-void WaitForLastScreenAndTapGetStarted();
 
 class LanguageReloadObserver : public WelcomeScreen::Observer {
  public:

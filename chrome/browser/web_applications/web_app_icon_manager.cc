@@ -14,7 +14,7 @@
 #include "base/logging.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/stl_util.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/task_traits.h"
@@ -23,7 +23,6 @@
 #include "chrome/browser/web_applications/file_utils_wrapper.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/browser/web_applications/web_app_registrar.h"
-#include "chrome/common/web_application_info.h"
 #include "content/public/browser/browser_thread.h"
 #include "skia/ext/image_operations.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -556,17 +555,16 @@ void WebAppIconManager::Start() {
 
 void WebAppIconManager::Shutdown() {}
 
-bool WebAppIconManager::HasIcons(
-    const AppId& app_id,
-    IconPurpose purpose,
-    const std::vector<SquareSizePx>& icon_sizes_in_px) const {
+bool WebAppIconManager::HasIcons(const AppId& app_id,
+                                 IconPurpose purpose,
+                                 const SortedSizesPx& icon_sizes) const {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   const WebApp* web_app = registrar_.GetAppById(app_id);
   if (!web_app)
     return false;
 
-  return base::STLIncludes(web_app->downloaded_icon_sizes(purpose),
-                           icon_sizes_in_px);
+  return base::ranges::includes(web_app->downloaded_icon_sizes(purpose),
+                                icon_sizes);
 }
 
 base::Optional<AppIconManager::IconSizeAndPurpose>
@@ -580,9 +578,8 @@ WebAppIconManager::FindIconMatchBigger(const AppId& app_id,
 
   // Must iterate through purposes in order given.
   for (IconPurpose purpose : purposes) {
-    const std::vector<SquareSizePx>& sizes =
-        web_app->downloaded_icon_sizes(purpose);
-    DCHECK(base::STLIsSorted(sizes));
+    // Must iterate sizes from smallest to largest.
+    const SortedSizesPx& sizes = web_app->downloaded_icon_sizes(purpose);
     for (SquareSizePx size : sizes) {
       if (size >= min_size)
         return IconSizeAndPurpose{size, purpose};
@@ -601,15 +598,17 @@ bool WebAppIconManager::HasSmallestIcon(
 
 void WebAppIconManager::ReadIcons(const AppId& app_id,
                                   IconPurpose purpose,
-                                  const std::vector<SquareSizePx>& icon_sizes,
+                                  const SortedSizesPx& icon_sizes,
                                   ReadIconsCallback callback) const {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(HasIcons(app_id, purpose, icon_sizes));
 
   base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE, kTaskTraits,
-      base::BindOnce(ReadIconsBlocking, utils_->Clone(), web_apps_directory_,
-                     app_id, purpose, icon_sizes),
+      base::BindOnce(
+          ReadIconsBlocking, utils_->Clone(), web_apps_directory_, app_id,
+          purpose,
+          std::vector<SquareSizePx>(icon_sizes.begin(), icon_sizes.end())),
       std::move(callback));
 }
 
@@ -623,10 +622,14 @@ void WebAppIconManager::ReadAllIcons(const AppId& app_id,
   }
 
   std::map<IconPurpose, std::vector<SquareSizePx>> icon_purposes_to_sizes;
-  icon_purposes_to_sizes[IconPurpose::ANY] =
+  const SortedSizesPx& sizes_any =
       web_app->downloaded_icon_sizes(IconPurpose::ANY);
-  icon_purposes_to_sizes[IconPurpose::MASKABLE] =
+  icon_purposes_to_sizes[IconPurpose::ANY] =
+      std::vector<SquareSizePx>(sizes_any.begin(), sizes_any.end());
+  const SortedSizesPx& sizes_maskable =
       web_app->downloaded_icon_sizes(IconPurpose::MASKABLE);
+  icon_purposes_to_sizes[IconPurpose::MASKABLE] =
+      std::vector<SquareSizePx>(sizes_maskable.begin(), sizes_maskable.end());
 
   base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE, kTaskTraits,
@@ -752,9 +755,8 @@ WebAppIconManager::FindIconMatchSmaller(
 
   // Must check purposes in the order given.
   for (IconPurpose purpose : purposes) {
-    const std::vector<SquareSizePx>& sizes =
-        web_app->downloaded_icon_sizes(purpose);
-    DCHECK(base::STLIsSorted(sizes));
+    // Must iterate sizes from largest to smallest.
+    const SortedSizesPx& sizes = web_app->downloaded_icon_sizes(purpose);
     for (SquareSizePx size : base::Reversed(sizes)) {
       if (size <= max_size)
         return IconSizeAndPurpose{size, purpose};
@@ -768,14 +770,17 @@ void WebAppIconManager::ReadFavicon(const AppId& app_id) {
   if (!HasSmallestIcon(app_id, {IconPurpose::ANY}, gfx::kFaviconSize))
     return;
 
-  ReadSmallestIconAny(app_id, gfx::kFaviconSize,
-                      base::BindOnce(&WebAppIconManager::OnReadFavicon,
-                                     weak_ptr_factory_.GetWeakPtr(), app_id));
+  ReadIconAndResize(app_id, IconPurpose::ANY, gfx::kFaviconSize,
+                    base::BindOnce(&WebAppIconManager::OnReadFavicon,
+                                   weak_ptr_factory_.GetWeakPtr(), app_id));
 }
 
-void WebAppIconManager::OnReadFavicon(const AppId& app_id,
-                                      const SkBitmap& bitmap) {
-  favicon_cache_[app_id] = bitmap;
+void WebAppIconManager::OnReadFavicon(
+    const AppId& app_id,
+    const std::map<SquareSizePx, SkBitmap> icons) {
+  const auto it = icons.find(gfx::kFaviconSize);
+  if (it != icons.end())
+    favicon_cache_[app_id] = it->second;
   if (favicon_read_callback_)
     favicon_read_callback_.Run(app_id);
 }

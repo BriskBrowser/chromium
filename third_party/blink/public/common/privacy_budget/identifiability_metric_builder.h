@@ -8,7 +8,6 @@
 #include <cstdint>
 #include <vector>
 
-#include "base/metrics/ukm_source_id.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "third_party/blink/public/common/common_export.h"
@@ -85,14 +84,14 @@ namespace blink {
 //    constant. Values are defined in
 //    blink/public/mojom/web_feature/web_feature.mojom.
 //
-//        identifiable_surface = IdentifiableSurface::FromTypeAndInput(
+//        identifiable_surface = IdentifiableSurface::FromTypeAndToken(
 //            IdentifiableSurface::Type::kWebFeature,
 //            blink::mojom::WebFeature::kDeviceOrientationSecureOrigin);
 //        output = IdentifiabilityDigestOfBytes(result_as_binary_blob);
 //
 // 2. A surface that takes a non-trivial input represented as a binary blob:
 //
-//        identifiable_surface = IdentifiableSurface::FromTypeAndInput(
+//        identifiable_surface = IdentifiableSurface::FromTypeAndToken(
 //            IdentifiableSurface::Type::kFancySurface,
 //            IdentifiabilityDigestOfBytes(input_as_binary_blob));
 //        output = IdentifiabilityDigestOfBytes(result_as_binary_blob);
@@ -100,15 +99,15 @@ class BLINK_COMMON_EXPORT IdentifiabilityMetricBuilder {
  public:
   // Construct a metrics builder for the given |source_id|. The source must be
   // known to UKM.
-  explicit IdentifiabilityMetricBuilder(base::UkmSourceId source_id);
+  explicit IdentifiabilityMetricBuilder(ukm::SourceIdObj source_id);
 
   // This has the same effect as the previous constructor but takes the
   // deprecated ukm::SourceId for convenience. Doing so allows callsites to use
   // methods like Document::GetUkmSourceId() without an extra conversion. In
   // addition, when Document::GetUkmSourceId() migrates to returning a
-  // base::UkmSourceId, callsites won't need to change.
+  // ukm::SourceIdObj, callsites won't need to change.
   explicit IdentifiabilityMetricBuilder(ukm::SourceId source_id)
-      : IdentifiabilityMetricBuilder(base::UkmSourceId::FromInt64(source_id)) {}
+      : IdentifiabilityMetricBuilder(ukm::SourceIdObj::FromInt64(source_id)) {}
 
   ~IdentifiabilityMetricBuilder();
 
@@ -116,18 +115,12 @@ class BLINK_COMMON_EXPORT IdentifiabilityMetricBuilder {
   IdentifiabilityMetricBuilder& Set(IdentifiableSurface surface,
                                     IdentifiableToken sample);
 
-  // Set the metric using and IdentifiableSurface::Type and an |input|.
-  IdentifiabilityMetricBuilder& Set(IdentifiableSurface::Type type,
-                                    uint64_t input,
-                                    IdentifiableToken sample);
-
   // Convenience method for recording the result of invoking a simple API
   // surface with a |UseCounter|.
   IdentifiabilityMetricBuilder& SetWebfeature(mojom::WebFeature feature,
                                               IdentifiableToken sample) {
-    return Set(IdentifiableSurface::FromTypeAndInput(
-                   IdentifiableSurface::Type::kWebFeature,
-                   static_cast<uint64_t>(feature)),
+    return Set(IdentifiableSurface::FromTypeAndToken(
+                   IdentifiableSurface::Type::kWebFeature, feature),
                sample);
   }
 
@@ -136,7 +129,7 @@ class BLINK_COMMON_EXPORT IdentifiabilityMetricBuilder {
 
  private:
   std::vector<IdentifiableSample> metrics_;
-  const base::UkmSourceId source_id_;
+  const ukm::SourceIdObj source_id_;
 };
 
 }  // namespace blink

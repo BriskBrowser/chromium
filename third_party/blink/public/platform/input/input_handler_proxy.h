@@ -20,6 +20,10 @@ namespace base {
 class TickClock;
 }
 
+namespace cc {
+class EventMetrics;
+}
+
 namespace ui {
 class LatencyInfo;
 }
@@ -49,22 +53,22 @@ class ScrollPredictor;
 class SynchronousInputHandler;
 class SynchronousInputHandlerProxy;
 class MomentumScrollJankTracker;
+class CursorControlHandler;
 
 // This class is a proxy between the blink web input events for a WebWidget and
 // the compositor's input handling logic. InputHandlerProxy instances live
-// entirely on the compositor thread. Each InputHandler instance handles input
-// events intended for a specific WebWidget.
+// entirely on the compositor thread if one exists; however, it can exist on
+// the main thread in web tests where only a single thread is used.
+// Each InputHandler instance handles input events intended for a specific
+// WebWidget.
 class BLINK_PLATFORM_EXPORT InputHandlerProxy
     : public cc::InputHandlerClient,
       public SynchronousInputHandlerProxy,
       public cc::SnapFlingClient {
  public:
-  InputHandlerProxy(cc::InputHandler* input_handler,
-                    InputHandlerProxyClient* client,
-                    bool force_input_to_main_thread);
+  InputHandlerProxy(cc::InputHandler& input_handler,
+                    InputHandlerProxyClient* client);
   ~InputHandlerProxy() override;
-
-  using WebScopedInputEvent = std::unique_ptr<blink::WebInputEvent>;
 
   ElasticOverscrollController* elastic_overscroll_controller() {
     return elastic_overscroll_controller_.get();
@@ -98,7 +102,7 @@ class BLINK_PLATFORM_EXPORT InputHandlerProxy
     // will be ACK'ed to the browser before being dispatched to the main
     // thread.
     // TODO(bokan): It's not clear that we need a separate status for this
-    // case, why can't we just use the DID_HANDLE_NON_BLOCKING below?
+    // case, why can't we just use the DID_NOT_HANDLE_NON_BLOCKING below?
     DID_NOT_HANDLE_NON_BLOCKING_DUE_TO_FLING,
 
     // Set to indicate that the event needs to be sent to the main thread (e.g.
@@ -107,10 +111,7 @@ class BLINK_PLATFORM_EXPORT InputHandlerProxy
     // passive). Because it isn't cancellable, the event (and future events)
     // will be sent non-blocking and be acked to the browser before being
     // dispatchehd to the main thread.
-    // TODO(bokan): The semantics of DID/DID_NOT HANDLE are whether the main
-    // thread needs to know about the event. In this case, we expect the event
-    // to be forwarded to the main thread so this should be DID_NOT_HANDLE.
-    DID_HANDLE_NON_BLOCKING,
+    DID_NOT_HANDLE_NON_BLOCKING,
 
     // The compositor didn't handle the event but has determined the main
     // thread doesn't care about the event either (e.g. it's a touch event and
@@ -122,12 +123,6 @@ class BLINK_PLATFORM_EXPORT InputHandlerProxy
     // isn't a consumer for them (and send only the scroll events).
     DROP_EVENT,
 
-    // The compositor did handle the scroll event (so it wouldn't forward the
-    // event to the main thread.) but it didn't consume the scroll so it should
-    // pass it to the next consumer (either overscrolling or bubbling the event
-    // to the next renderer).
-    DID_HANDLE_SHOULD_BUBBLE,
-
     // Used only in scroll unification; the compositor couldn't determine the
     // scroll node to handle the event and requires a second try with an
     // ElementId provided by a hit test in Blink.
@@ -137,9 +132,11 @@ class BLINK_PLATFORM_EXPORT InputHandlerProxy
       EventDisposition,
       std::unique_ptr<blink::WebCoalescedInputEvent> event,
       std::unique_ptr<DidOverscrollParams>,
-      const blink::WebInputEventAttribution&)>;
+      const blink::WebInputEventAttribution&,
+      std::unique_ptr<cc::EventMetrics> metrics)>;
   void HandleInputEventWithLatencyInfo(
       std::unique_ptr<blink::WebCoalescedInputEvent> event,
+      std::unique_ptr<cc::EventMetrics> metrics,
       EventDispositionCallback callback);
 
   // In scroll unification, a scroll begin event may initially return unhandled
@@ -149,15 +146,21 @@ class BLINK_PLATFORM_EXPORT InputHandlerProxy
   // method.
   void ContinueScrollBeginAfterMainThreadHitTest(
       std::unique_ptr<blink::WebCoalescedInputEvent> event,
+      std::unique_ptr<cc::EventMetrics> metrics,
       EventDispositionCallback callback,
       cc::ElementIdType hit_tests_result);
 
+  // Handles creating synthetic gesture events. It is currently used for
+  // creating gesture event equivalents for mouse events on a composited
+  // scrollbar. `original_metrics` contains metrics for the original mouse event
+  // and is used to generated metrics for the new gesture event.
   void InjectScrollbarGestureScroll(
       const blink::WebInputEvent::Type type,
       const gfx::PointF& position_in_widget,
       const cc::InputHandlerPointerResult& pointer_result,
       const ui::LatencyInfo& latency_info,
-      const base::TimeTicks now);
+      const base::TimeTicks now,
+      const cc::EventMetrics* original_metrics);
 
   // Attempts to perform attribution of the given WebInputEvent to a target
   // frame. Intended for simple impl-side hit testing.
@@ -227,33 +230,22 @@ class BLINK_PLATFORM_EXPORT InputHandlerProxy
       const blink::WebGestureEvent& event);
   EventDisposition HandleGestureScrollUpdate(
       const blink::WebGestureEvent& event,
-      const blink::WebInputEventAttribution& original_attribution);
+      const blink::WebInputEventAttribution& original_attribution,
+      const cc::EventMetrics* original_metrics);
   EventDisposition HandleGestureScrollEnd(const blink::WebGestureEvent& event);
-  EventDisposition HandleTouchStart(
-      EventWithCallback* event_with_callback,
-      const ui::LatencyInfo& original_latency_info);
-  EventDisposition HandleTouchMove(
-      EventWithCallback* event_with_callback,
-      const ui::LatencyInfo& original_latency_info);
-  EventDisposition HandleTouchEnd(EventWithCallback* event_with_callback,
-                                  const ui::LatencyInfo& original_latency_info);
+  EventDisposition HandleTouchStart(EventWithCallback* event_with_callback);
+  EventDisposition HandleTouchMove(EventWithCallback* event_with_callback);
+  EventDisposition HandleTouchEnd(EventWithCallback* event_with_callback);
 
   const cc::InputHandlerPointerResult HandlePointerDown(
-      const gfx::PointF& position,
-      const ui::LatencyInfo&,
-      bool has_modifier,
-      base::TimeTicks timestamp,
-      EventWithCallback* event_with_callback);
+      EventWithCallback* event_with_callback,
+      const gfx::PointF& position);
   const cc::InputHandlerPointerResult HandlePointerMove(
-      const gfx::PointF& position,
-      const ui::LatencyInfo&,
-      base::TimeTicks timestamp,
-      EventWithCallback* event_with_callback);
+      EventWithCallback* event_with_callback,
+      const gfx::PointF& position);
   const cc::InputHandlerPointerResult HandlePointerUp(
-      const gfx::PointF& position,
-      const ui::LatencyInfo&,
-      base::TimeTicks timestamp,
-      EventWithCallback* event_with_callback);
+      EventWithCallback* event_with_callback,
+      const gfx::PointF& position);
 
   void InputHandlerScrollEnd();
 
@@ -285,7 +277,6 @@ class BLINK_PLATFORM_EXPORT InputHandlerProxy
 
   EventDisposition RouteToTypeSpecificHandler(
       EventWithCallback* event_with_callback,
-      const ui::LatencyInfo& original_latency_info,
       const blink::WebInputEventAttribution& original_attribution);
 
   void set_event_attribution_enabled(bool enabled) {
@@ -293,6 +284,10 @@ class BLINK_PLATFORM_EXPORT InputHandlerProxy
   }
 
   InputHandlerProxyClient* client_;
+
+  // The input handler object is owned by the compositor delegate. The input
+  // handler must call WillShutdown() on this class before it is deleted at
+  // which point this pointer will be cleared.
   cc::InputHandler* input_handler_;
 
   SynchronousInputHandler* synchronous_input_handler_;
@@ -349,11 +344,6 @@ class BLINK_PLATFORM_EXPORT InputHandlerProxy
 
   std::unique_ptr<ScrollPredictor> scroll_predictor_;
 
-  // This flag can be used to force all input to be forwarded to Blink. It's
-  // used in LayoutTests to preserve existing behavior for non-threaded layout
-  // tests and to allow testing both Blink and CC input handling paths.
-  bool force_input_to_main_thread_;
-
   // These flags are set for the SkipTouchEventFilter experiment. The
   // experiment either skips filtering discrete (touch start/end) events to the
   // main thread, or all events (touch start/end/move).
@@ -374,6 +364,9 @@ class BLINK_PLATFORM_EXPORT InputHandlerProxy
 
   // Helpers for the momentum scroll jank UMAs.
   std::unique_ptr<MomentumScrollJankTracker> momentum_scroll_jank_tracker_;
+
+  // Swipe to move cursor feature.
+  std::unique_ptr<CursorControlHandler> cursor_control_handler_;
 
   DISALLOW_COPY_AND_ASSIGN(InputHandlerProxy);
 };

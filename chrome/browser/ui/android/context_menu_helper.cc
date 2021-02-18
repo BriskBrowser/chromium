@@ -10,8 +10,8 @@
 
 #include "base/android/jni_string.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/strings/string_util.h"
 #include "chrome/android/chrome_jni_headers/ContextMenuHelper_jni.h"
 #include "chrome/browser/performance_hints/performance_hints_observer.h"
@@ -21,7 +21,7 @@
 #include "content/public/browser/context_menu_params.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
-#include "third_party/blink/public/common/context_menu_data/media_type.h"
+#include "third_party/blink/public/mojom/context_menu/context_menu.mojom.h"
 #include "ui/android/view_android.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/size.h"
@@ -52,7 +52,7 @@ void ContextMenuHelper::ShowContextMenu(
   // TODO(crbug.com/851495): support context menu in VR.
   if (vr::VrTabHelper::IsUiSuppressedInVr(
           web_contents_, vr::UiSuppressedElement::kContextMenu)) {
-    web_contents_->NotifyContextMenuClosed(params.custom_context);
+    web_contents_->NotifyContextMenuClosed(params.link_followed);
     return;
   }
   JNIEnv* env = base::android::AttachCurrentThread();
@@ -72,12 +72,14 @@ void ContextMenuHelper::ShowContextMenu(
 void ContextMenuHelper::OnContextMenuClosed(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& obj) {
-  web_contents_->NotifyContextMenuClosed(context_menu_params_.custom_context);
+  web_contents_->NotifyContextMenuClosed(context_menu_params_.link_followed);
 }
 
-void ContextMenuHelper::SetPopulator(const JavaRef<jobject>& jpopulator) {
+void ContextMenuHelper::SetPopulatorFactory(
+    const JavaRef<jobject>& jpopulator_factory) {
   JNIEnv* env = base::android::AttachCurrentThread();
-  Java_ContextMenuHelper_setPopulator(env, java_obj_, jpopulator);
+  Java_ContextMenuHelper_setPopulatorFactory(env, java_obj_,
+                                             jpopulator_factory);
 }
 
 WEB_CONTENTS_USER_DATA_KEY_IMPL(ContextMenuHelper)

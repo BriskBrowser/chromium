@@ -9,15 +9,19 @@
 #include "ui/chromeos/ui_chromeos_export.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/controls/button/label_button.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/view_factory.h"
 
 namespace ui {
 namespace ime {
 
 // Pop up UI for users to undo an autocorrected word.
-class UI_CHROMEOS_EXPORT UndoWindow : public views::BubbleDialogDelegateView,
-                                      public views::ButtonListener {
+class UI_CHROMEOS_EXPORT UndoWindow : public views::BubbleDialogDelegateView {
  public:
+  METADATA_HEADER(UndoWindow);
   explicit UndoWindow(gfx::NativeView parent, AssistiveDelegate* delegate);
+  UndoWindow(const UndoWindow&) = delete;
+  UndoWindow& operator=(const UndoWindow&) = delete;
   ~UndoWindow() override;
 
   views::Widget* InitWidget();
@@ -36,22 +40,21 @@ class UI_CHROMEOS_EXPORT UndoWindow : public views::BubbleDialogDelegateView,
   void OnThemeChanged() override;
 
  private:
-  // views::BubbleDialogDelegateView:
-  const char* GetClassName() const override;
 
-  // Overridden from views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
-
-  void AddUndoButton();
+  void UndoButtonPressed();
 
   AssistiveDelegate* delegate_;
   views::LabelButton* undo_button_;
-  views::Button* button_pressed_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(UndoWindow);
 };
+
+BEGIN_VIEW_BUILDER(UI_CHROMEOS_EXPORT,
+                   UndoWindow,
+                   views::BubbleDialogDelegateView)
+END_VIEW_BUILDER
 
 }  // namespace ime
 }  // namespace ui
+
+DEFINE_VIEW_BUILDER(UI_CHROMEOS_EXPORT, ui::ime::UndoWindow)
 
 #endif  // CHROME_BROWSER_CHROMEOS_INPUT_METHOD_UI_UNDO_WINDOW_H_

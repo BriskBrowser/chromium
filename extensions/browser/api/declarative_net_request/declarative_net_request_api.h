@@ -50,6 +50,36 @@ class DeclarativeNetRequestGetDynamicRulesFunction : public ExtensionFunction {
       declarative_net_request::ReadJSONRulesResult read_json_result);
 };
 
+class DeclarativeNetRequestUpdateSessionRulesFunction
+    : public ExtensionFunction {
+ public:
+  DeclarativeNetRequestUpdateSessionRulesFunction();
+  DECLARE_EXTENSION_FUNCTION("declarativeNetRequest.updateSessionRules",
+                             DECLARATIVENETREQUEST_UPDATESESSIONRULES)
+
+ protected:
+  ~DeclarativeNetRequestUpdateSessionRulesFunction() override;
+
+  // ExtensionFunction override:
+  ExtensionFunction::ResponseAction Run() override;
+
+ private:
+  void OnSessionRulesUpdated(base::Optional<std::string> error);
+};
+
+class DeclarativeNetRequestGetSessionRulesFunction : public ExtensionFunction {
+ public:
+  DeclarativeNetRequestGetSessionRulesFunction();
+  DECLARE_EXTENSION_FUNCTION("declarativeNetRequest.getSessionRules",
+                             DECLARATIVENETREQUEST_GETSESSIONRULES)
+
+ protected:
+  ~DeclarativeNetRequestGetSessionRulesFunction() override;
+
+  // ExtensionFunction override:
+  ExtensionFunction::ResponseAction Run() override;
+};
+
 class DeclarativeNetRequestUpdateEnabledRulesetsFunction
     : public ExtensionFunction {
  public:
@@ -105,16 +135,44 @@ class DeclarativeNetRequestGetMatchedRulesFunction : public ExtensionFunction {
   static bool disable_throttling_for_test_;
 };
 
-class DeclarativeNetRequestSetActionCountAsBadgeTextFunction
+class DeclarativeNetRequestSetExtensionActionOptionsFunction
     : public ExtensionFunction {
  public:
-  DeclarativeNetRequestSetActionCountAsBadgeTextFunction();
-  DECLARE_EXTENSION_FUNCTION("declarativeNetRequest.setActionCountAsBadgeText",
+  DeclarativeNetRequestSetExtensionActionOptionsFunction();
+  DECLARE_EXTENSION_FUNCTION("declarativeNetRequest.setExtensionActionOptions",
                              DECLARATIVENETREQUEST_SETACTIONCOUNTASBADGETEXT)
 
  protected:
-  ~DeclarativeNetRequestSetActionCountAsBadgeTextFunction() override;
+  ~DeclarativeNetRequestSetExtensionActionOptionsFunction() override;
 
+  ExtensionFunction::ResponseAction Run() override;
+};
+
+class DeclarativeNetRequestIsRegexSupportedFunction : public ExtensionFunction {
+ public:
+  DeclarativeNetRequestIsRegexSupportedFunction();
+  DECLARE_EXTENSION_FUNCTION("declarativeNetRequest.isRegexSupported",
+                             DECLARATIVENETREQUEST_ISREGEXSUPPORTED)
+
+ protected:
+  ~DeclarativeNetRequestIsRegexSupportedFunction() override;
+
+  // ExtensionFunction override:
+  ExtensionFunction::ResponseAction Run() override;
+};
+
+class DeclarativeNetRequestGetAvailableStaticRuleCountFunction
+    : public ExtensionFunction {
+ public:
+  DeclarativeNetRequestGetAvailableStaticRuleCountFunction();
+  DECLARE_EXTENSION_FUNCTION(
+      "declarativeNetRequest.getAvailableStaticRuleCount",
+      DECLARATIVENETREQUEST_GETAVAILABLESTATICRULECOUNT)
+
+ protected:
+  ~DeclarativeNetRequestGetAvailableStaticRuleCountFunction() override;
+
+  // ExtensionFunction override:
   ExtensionFunction::ResponseAction Run() override;
 };
 

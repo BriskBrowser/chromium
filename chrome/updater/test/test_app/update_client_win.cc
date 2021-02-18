@@ -2,20 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// This macro is used in <wrl/module.h>. Since only the COM functionality is
-// used here (while WinRT is not being used), define this macro to optimize
-// compilation of <wrl/module.h> for COM-only.
-#ifndef __WRL_CLASSIC_COM_STRICT__
-#define __WRL_CLASSIC_COM_STRICT__
-#endif  // __WRL_CLASSIC_COM_STRICT__
-
 #include "chrome/updater/test/test_app/update_client_win.h"
 
 #include <atlsecurity.h>
 #include <sddl.h>
-#include <windows.h>
 #include <wrl/implements.h>
-#include <wrl/module.h>
 
 #include <memory>
 #include <utility>
@@ -32,16 +23,16 @@
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/win/scoped_bstr.h"
 #include "base/win/win_util.h"
+#include "chrome/updater/app/server/win/updater_idl.h"
 #include "chrome/updater/test/test_app/constants.h"
 #include "chrome/updater/update_service.h"
 
 namespace updater {
-
 namespace {
 
 HRESULT CreateUpdaterInterface(Microsoft::WRL::ComPtr<IUpdater>* updater) {
   Microsoft::WRL::ComPtr<IUnknown> server;
-  HRESULT hr = ::CoCreateInstance(CLSID_UpdaterClass, nullptr,
+  HRESULT hr = ::CoCreateInstance(__uuidof(UpdaterClass), nullptr,
                                   CLSCTX_LOCAL_SERVER, IID_PPV_ARGS(&server));
 
   if (FAILED(hr)) {
@@ -184,7 +175,8 @@ void UpdateClientWin::UpdateCheckInternal(
 
   auto observer =
       Microsoft::WRL::Make<UpdaterObserver>(updater_, std::move(callback));
-  HRESULT hr = updater_->Update(kAppId, observer.Get());
+  HRESULT hr =
+      updater_->Update(base::ASCIIToWide(kTestAppId).c_str(), observer.Get());
   if (FAILED(hr)) {
     LOG(ERROR) << "Failed to call IUpdater::UpdateAll " << std::hex << hr;
     UpdateService::UpdateState state;

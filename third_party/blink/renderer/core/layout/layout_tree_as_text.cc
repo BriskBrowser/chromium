@@ -50,7 +50,6 @@
 #include "third_party/blink/renderer/core/layout/list_marker.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_fragment_item.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_cursor.h"
-#include "third_party/blink/renderer/core/layout/ng/inline/ng_text_fragment.h"
 #include "third_party/blink/renderer/core/layout/ng/list/layout_ng_list_item.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_image.h"
@@ -134,10 +133,11 @@ void LayoutTreeAsText::WriteLayoutObject(WTF::TextStream& ts,
   ts << " " << rect;
 
   if (!(o.IsText() && !o.IsBR())) {
-    if (o.IsFileUploadControl())
+    if (o.IsFileUploadControl()) {
       ts << " "
          << QuoteAndEscapeNonPrintables(
-                ToLayoutFileUploadControl(&o)->FileTextValue());
+                To<LayoutFileUploadControl>(o).FileTextValue());
+    }
 
     if (o.Parent()) {
       Color color = o.ResolveColor(GetCSSPropertyColor());
@@ -175,7 +175,7 @@ void LayoutTreeAsText::WriteLayoutObject(WTF::TextStream& ts,
     if (!o.IsBoxModelObject())
       return;
 
-    const LayoutBoxModelObject& box = ToLayoutBoxModelObject(o);
+    const auto& box = To<LayoutBoxModelObject>(o);
     if (box.BorderTop() || box.BorderRight() || box.BorderBottom() ||
         box.BorderLeft()) {
       ts << " [border:";
@@ -235,7 +235,8 @@ void LayoutTreeAsText::WriteLayoutObject(WTF::TextStream& ts,
 
   if (o.IsDetailsMarker()) {
     ts << ": ";
-    switch (ToLayoutDetailsMarker(&o)->GetOrientation()) {
+    const auto& marker = To<LayoutDetailsMarker>(o);
+    switch (marker.GetOrientation(marker.StyleRef(), marker.IsOpen())) {
       case LayoutDetailsMarker::kLeft:
         ts << "left";
         break;
@@ -252,7 +253,7 @@ void LayoutTreeAsText::WriteLayoutObject(WTF::TextStream& ts,
   }
 
   if (o.IsListMarkerForNormalContent()) {
-    String text = ToLayoutListMarker(o).GetText();
+    String text = To<LayoutListMarker>(o).GetText();
     if (!text.IsEmpty()) {
       if (text.length() != 1) {
         text = QuoteAndEscapeNonPrintables(text);
@@ -329,7 +330,7 @@ void LayoutTreeAsText::WriteLayoutObject(WTF::TextStream& ts,
       ts << ")";
   }
 
-  if (o.LayoutBlockedByDisplayLock(DisplayLockLifecycleTarget::kChildren))
+  if (o.ChildLayoutBlockedByDisplayLock())
     ts << " (display-locked)";
 }
 
@@ -447,27 +448,13 @@ static void WriteTextFragment(WTF::TextStream& ts,
 
 static void WriteTextFragment(WTF::TextStream& ts,
                               const NGInlineCursor& cursor) {
-  if (const NGPaintFragment* const paint_fragment =
-          cursor.CurrentPaintFragment()) {
-    const auto* physical_text_fragment =
-        DynamicTo<NGPhysicalTextFragment>(paint_fragment->PhysicalFragment());
-    if (!physical_text_fragment)
-      return;
-    const NGTextFragment fragment(paint_fragment->Style().GetWritingMode(),
-                                  *physical_text_fragment);
-    WriteTextFragment(ts, paint_fragment->GetLayoutObject(),
-                      paint_fragment->RectInContainerBlock(),
-                      paint_fragment->Style(), physical_text_fragment->Text(),
-                      fragment.InlineSize());
-    return;
-  }
   DCHECK(cursor.CurrentItem());
   const NGFragmentItem& item = *cursor.CurrentItem();
   DCHECK(item.Type() == NGFragmentItem::kText ||
          item.Type() == NGFragmentItem::kGeneratedText);
   const LayoutUnit inline_size =
       item.IsHorizontal() ? item.Size().width : item.Size().height;
-  WriteTextFragment(ts, item.GetLayoutObject(), item.RectInContainerBlock(),
+  WriteTextFragment(ts, item.GetLayoutObject(), item.RectInContainerFragment(),
                     item.Style(), item.Text(cursor.Items()), inline_size);
 }
 
@@ -492,6 +479,11 @@ static void WritePaintProperties(WTF::TextStream& ts,
       ts << " state=(" << fragment->LocalBorderBoxProperties().ToString()
          << ")";
     }
+    if (RuntimeEnabledFeatures::CullRectUpdateEnabled()) {
+      ts << " cull_rect=(" << fragment->GetCullRect().ToString()
+         << ") contents_cull_rect=("
+         << fragment->GetContentsCullRect().ToString() << ")";
+    }
     ts << "\n";
   }
 }
@@ -501,7 +493,7 @@ void Write(WTF::TextStream& ts,
            int indent,
            LayoutAsTextBehavior behavior) {
   if (o.IsSVGShape()) {
-    Write(ts, ToLayoutSVGShape(o), indent);
+    Write(ts, To<LayoutSVGShape>(o), indent);
     return;
   }
   if (o.IsSVGResourceContainer()) {
@@ -513,23 +505,23 @@ void Write(WTF::TextStream& ts,
     return;
   }
   if (o.IsSVGRoot()) {
-    Write(ts, ToLayoutSVGRoot(o), indent);
+    Write(ts, To<LayoutSVGRoot>(o), indent);
     return;
   }
   if (o.IsSVGText()) {
-    WriteSVGText(ts, ToLayoutSVGText(o), indent);
+    WriteSVGText(ts, To<LayoutSVGText>(o), indent);
     return;
   }
   if (o.IsSVGInline()) {
-    WriteSVGInline(ts, ToLayoutSVGInline(o), indent);
+    WriteSVGInline(ts, To<LayoutSVGInline>(o), indent);
     return;
   }
   if (o.IsSVGInlineText()) {
-    WriteSVGInlineText(ts, ToLayoutSVGInlineText(o), indent);
+    WriteSVGInlineText(ts, To<LayoutSVGInlineText>(o), indent);
     return;
   }
   if (o.IsSVGImage()) {
-    WriteSVGImage(ts, ToLayoutSVGImage(o), indent);
+    WriteSVGImage(ts, To<LayoutSVGImage>(o), indent);
     return;
   }
 
@@ -548,7 +540,7 @@ void Write(WTF::TextStream& ts,
   }
 
   if (o.IsText() && !o.IsBR()) {
-    const LayoutText& text = ToLayoutText(o);
+    const auto& text = To<LayoutText>(o);
     if (const LayoutBlockFlow* block_flow = text.ContainingNGBlockFlow()) {
       NGInlineCursor cursor(*block_flow);
       cursor.MoveTo(text);
@@ -564,23 +556,24 @@ void Write(WTF::TextStream& ts,
     }
   }
 
-  if (!o.LayoutBlockedByDisplayLock(DisplayLockLifecycleTarget::kChildren)) {
+  if (!o.ChildLayoutBlockedByDisplayLock()) {
     for (LayoutObject* child = o.SlowFirstChild(); child;
          child = child->NextSibling()) {
       if (child->HasLayer())
         continue;
       Write(ts, *child, indent + 1, behavior);
     }
-  }
 
-  if (o.IsLayoutEmbeddedContent()) {
-    FrameView* frame_view = ToLayoutEmbeddedContent(o).ChildFrameView();
-    if (auto* local_frame_view = DynamicTo<LocalFrameView>(frame_view)) {
-      if (auto* layout_view = local_frame_view->GetLayoutView()) {
-        layout_view->GetDocument().UpdateStyleAndLayout(
-            DocumentUpdateReason::kTest);
-        if (auto* layer = layout_view->Layer()) {
-          LayoutTreeAsText::WriteLayers(ts, layer, layer, indent + 1, behavior);
+    if (o.IsLayoutEmbeddedContent()) {
+      FrameView* frame_view = To<LayoutEmbeddedContent>(o).ChildFrameView();
+      if (auto* local_frame_view = DynamicTo<LocalFrameView>(frame_view)) {
+        if (auto* layout_view = local_frame_view->GetLayoutView()) {
+          layout_view->GetDocument().UpdateStyleAndLayout(
+              DocumentUpdateReason::kTest);
+          if (auto* layer = layout_view->Layer()) {
+            LayoutTreeAsText::WriteLayers(ts, layer, layer, indent + 1,
+                                          behavior);
+          }
         }
       }
     }
@@ -631,7 +624,7 @@ static void Write(WTF::TextStream& ts,
   if (layer.IsTransparent())
     ts << " transparent";
 
-  if (layer.GetLayoutObject().HasNonVisibleOverflow()) {
+  if (layer.GetLayoutObject().IsScrollContainer()) {
     PaintLayerScrollableArea* scrollable_area = layer.GetScrollableArea();
     ScrollOffset adjusted_scroll_offset =
         scrollable_area->GetScrollOffset() +
@@ -687,10 +680,11 @@ static void Write(WTF::TextStream& ts,
     Write(ts, layer.GetLayoutObject(), indent + 1, behavior);
 }
 
-static Vector<PaintLayer*> ChildLayers(const PaintLayer* layer,
-                                       PaintLayerIteration which_children) {
-  Vector<PaintLayer*> vector;
-  PaintLayerPaintOrderIterator it(*layer, which_children);
+static HeapVector<Member<PaintLayer>> ChildLayers(
+    const PaintLayer* layer,
+    PaintLayerIteration which_children) {
+  HeapVector<Member<PaintLayer>> vector;
+  PaintLayerPaintOrderIterator it(layer, which_children);
   while (PaintLayer* child = it.Next())
     vector.push_back(child);
   return vector;
@@ -728,8 +722,8 @@ void LayoutTreeAsText::WriteLayers(WTF::TextStream& ts,
           : layer->IntersectsDamageRect(layer_bounds, damage_rect.Rect(),
                                         offset_from_root);
 
-  if (layer->GetLayoutObject().IsLayoutEmbeddedContent() &&
-      ToLayoutEmbeddedContent(layer->GetLayoutObject()).IsThrottledFrameView())
+  auto* embedded = DynamicTo<LayoutEmbeddedContent>(layer->GetLayoutObject());
+  if (embedded && embedded->IsThrottledFrameView())
     should_paint = false;
 
 #if DCHECK_IS_ON()
@@ -739,6 +733,9 @@ void LayoutTreeAsText::WriteLayers(WTF::TextStream& ts,
   }
 #endif
 
+  bool should_paint_children =
+      !layer->GetLayoutObject().ChildLayoutBlockedByDisplayLock();
+
   const auto& neg_list = ChildLayers(layer, kNegativeZOrderChildren);
   bool paints_background_separately = !neg_list.IsEmpty();
   if (should_paint && paints_background_separately) {
@@ -747,15 +744,17 @@ void LayoutTreeAsText::WriteLayers(WTF::TextStream& ts,
           behavior, marked_layer);
   }
 
-  if (!neg_list.IsEmpty()) {
+  if (should_paint_children && !neg_list.IsEmpty()) {
     int curr_indent = indent;
     if (behavior & kLayoutAsTextShowLayerNesting) {
       WriteIndent(ts, indent);
       ts << " negative z-order list(" << neg_list.size() << ")\n";
       ++curr_indent;
     }
-    for (auto* layer : neg_list)
-      WriteLayers(ts, root_layer, layer, curr_indent, behavior, marked_layer);
+    for (auto& child_layer : neg_list) {
+      WriteLayers(ts, root_layer, child_layer, curr_indent, behavior,
+                  marked_layer);
+    }
   }
 
   if (should_paint) {
@@ -767,27 +766,31 @@ void LayoutTreeAsText::WriteLayers(WTF::TextStream& ts,
   }
 
   const auto& normal_flow_list = ChildLayers(layer, kNormalFlowChildren);
-  if (!normal_flow_list.IsEmpty()) {
+  if (should_paint_children && !normal_flow_list.IsEmpty()) {
     int curr_indent = indent;
     if (behavior & kLayoutAsTextShowLayerNesting) {
       WriteIndent(ts, indent);
       ts << " normal flow list(" << normal_flow_list.size() << ")\n";
       ++curr_indent;
     }
-    for (auto* layer : normal_flow_list)
-      WriteLayers(ts, root_layer, layer, curr_indent, behavior, marked_layer);
+    for (auto& child_layer : normal_flow_list) {
+      WriteLayers(ts, root_layer, child_layer, curr_indent, behavior,
+                  marked_layer);
+    }
   }
 
   const auto& pos_list = ChildLayers(layer, kPositiveZOrderChildren);
-  if (!pos_list.IsEmpty()) {
+  if (should_paint_children && !pos_list.IsEmpty()) {
     int curr_indent = indent;
     if (behavior & kLayoutAsTextShowLayerNesting) {
       WriteIndent(ts, indent);
       ts << " positive z-order list(" << pos_list.size() << ")\n";
       ++curr_indent;
     }
-    for (auto* layer : pos_list)
-      WriteLayers(ts, root_layer, layer, curr_indent, behavior, marked_layer);
+    for (auto& child_layer : pos_list) {
+      WriteLayers(ts, root_layer, child_layer, curr_indent, behavior,
+                  marked_layer);
+    }
   }
 }
 
@@ -876,7 +879,7 @@ String ExternalRepresentation(LocalFrame* frame,
   LayoutObject* layout_object = frame->ContentLayoutObject();
   if (!layout_object || !layout_object->IsBox())
     return String();
-  LayoutBox* layout_box = ToLayoutBox(layout_object);
+  auto* layout_box = To<LayoutBox>(layout_object);
 
   PrintContext print_context(frame, /*use_printing_layout=*/true);
   bool is_text_printing_mode = !!(behavior & kLayoutAsTextPrintingMode);
@@ -890,8 +893,8 @@ String ExternalRepresentation(LocalFrame* frame,
       frame->View()->UpdateLifecyclePhasesForPrinting();
   }
 
-  String representation = ExternalRepresentation(ToLayoutBox(layout_object),
-                                                 behavior, marked_layer);
+  String representation =
+      ExternalRepresentation(layout_box, behavior, marked_layer);
   if (is_text_printing_mode)
     print_context.EndPrintMode();
   return representation;
@@ -908,7 +911,7 @@ String ExternalRepresentation(Element* element, LayoutAsTextBehavior behavior) {
   if (!layout_object || !layout_object->IsBox())
     return String();
 
-  return ExternalRepresentation(ToLayoutBox(layout_object),
+  return ExternalRepresentation(To<LayoutBox>(layout_object),
                                 behavior | kLayoutAsTextShowAllLayers);
 }
 
@@ -921,7 +924,7 @@ static void WriteCounterValuesFromChildren(WTF::TextStream& stream,
       if (!is_first_counter)
         stream << " ";
       is_first_counter = false;
-      String str(ToLayoutText(child)->GetText());
+      String str(To<LayoutText>(child)->GetText());
       stream << str;
     }
   }
@@ -952,7 +955,7 @@ String MarkerTextForListItem(Element* element) {
   if (ListMarker* list_marker = ListMarker::Get(marker))
     return list_marker->MarkerTextWithoutSuffix(*marker);
   if (marker && marker->IsListMarkerForNormalContent())
-    return ToLayoutListMarker(marker)->GetText();
+    return To<LayoutListMarker>(marker)->GetText();
   return String();
 }
 

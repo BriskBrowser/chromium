@@ -4,9 +4,11 @@
 
 // clang-format off
 // #import {afterNextRender, beforeNextRender, flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-// #import {assertEquals} from './chai_assert.js';
 // #import {NativeEventTarget as EventTarget} from 'chrome://resources/js/cr/event_target.m.js';
 // clang-format on
+
+// Do not depend on the Chai Assertion Library in this file. Some consumers of
+// the following test utils are not configured to use Chai.
 
 cr.define('test_util', function() {
   /**
@@ -26,8 +28,8 @@ cr.define('test_util', function() {
     return isDone() ? Promise.resolve() : new Promise(function(resolve) {
       new MutationObserver(function(mutations, observer) {
         for (const mutation of mutations) {
-          assertEquals('attributes', mutation.type);
-          if (mutation.attributeName === attributeName && isDone()) {
+          if (mutation.type === 'attributes' &&
+              mutation.attributeName === attributeName && isDone()) {
             observer.disconnect();
             resolve();
             return;
@@ -39,6 +41,28 @@ cr.define('test_util', function() {
         characterData: false
       });
     });
+  }
+
+  /**
+   * Observes an HTML element and fires a promise when the check function is
+   * satisfied.
+   * @param {!HTMLElement} target
+   * @param {Function} check
+   * @return {!Promise}
+   */
+  /* #export */ function whenCheck(target, check) {
+    return check() ?
+        Promise.resolve() :
+        new Promise(resolve => new MutationObserver((list, observer) => {
+                                 if (check()) {
+                                   observer.disconnect();
+                                   resolve();
+                                 }
+                               }).observe(target, {
+          attributes: true,
+          childList: true,
+          subtree: true
+        }));
   }
 
   /**

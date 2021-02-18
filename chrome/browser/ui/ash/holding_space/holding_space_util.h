@@ -8,33 +8,73 @@
 #include <memory>
 #include <vector>
 
+#include "ash/public/cpp/holding_space/holding_space_item.h"
 #include "base/callback_forward.h"
+#include "base/time/time.h"
 
+class GURL;
 class Profile;
+
+namespace base {
+class FilePath;
+}  // namespace base
 
 namespace ash {
 
-class HoldingSpaceItem;
-using HoldingSpaceItemPtr = std::unique_ptr<HoldingSpaceItem>;
-using HoldingSpaceItemPtrList = std::vector<HoldingSpaceItemPtr>;
+class HoldingSpaceImage;
+class HoldingSpaceThumbnailLoader;
 
 // A utility for holding space.
 namespace holding_space_util {
 
-// Checks `item` existence, returning the result via `callback`.
-using ItemExistsCallback = base::OnceCallback<void(bool)>;
-void ItemExists(Profile* profile,
-                const HoldingSpaceItem* item,
-                ItemExistsCallback callback);
+struct ValidityRequirement {
+  ValidityRequirement();
+  ValidityRequirement(const ValidityRequirement& other);
+  ValidityRequirement(ValidityRequirement&& other);
+  bool must_exist = true;
+  base::Optional<base::TimeDelta> must_be_newer_than = base::nullopt;
+};
 
-// Partitions `items` into `existing_items` and `non_existing_items`, returning
-// the result via `callback`.
-using PartitionItemsByExistenceCallback =
-    base::OnceCallback<void(HoldingSpaceItemPtrList existing_items,
-                            HoldingSpaceItemPtrList non_existing_items)>;
-void PartitionItemsByExistence(Profile* profile,
-                               HoldingSpaceItemPtrList items,
-                               PartitionItemsByExistenceCallback callback);
+using FilePathList = std::vector<base::FilePath>;
+using FilePathWithValidityRequirement =
+    std::pair<base::FilePath, ValidityRequirement>;
+using FilePathsWithValidityRequirements =
+    std::vector<FilePathWithValidityRequirement>;
+
+// Checks `file_path` validity, returning the result via `callback`.
+using FilePathValidCallback = base::OnceCallback<void(bool)>;
+void FilePathValid(Profile*,
+                   FilePathWithValidityRequirement,
+                   FilePathValidCallback);
+
+// Partitions `file_paths` into `existing_file_paths` and
+// `non_existing_file_paths`, returning the result via `callback`.
+using PartitionFilePathsByExistenceCallback =
+    base::OnceCallback<void(FilePathList existing_file_paths,
+                            FilePathList invalid_file_paths)>;
+void PartitionFilePathsByExistence(Profile*,
+                                   FilePathList,
+                                   PartitionFilePathsByExistenceCallback);
+
+// Partitions `file_paths` into `valid_file_paths` and
+// `invalid_file_paths`, returning the result via `callback`.
+using PartitionFilePathsByValidityCallback =
+    base::OnceCallback<void(FilePathList valid_file_paths,
+                            FilePathList invalid_file_paths)>;
+void PartitionFilePathsByValidity(Profile*,
+                                  FilePathsWithValidityRequirements,
+                                  PartitionFilePathsByValidityCallback);
+
+// Resolves the file system URL associated with the specified `file_path`.
+GURL ResolveFileSystemUrl(Profile* profile, const base::FilePath& file_path);
+
+// Resolves the image associated with the specified `file_path`.
+std::unique_ptr<HoldingSpaceImage> ResolveImage(
+    HoldingSpaceThumbnailLoader* thumbnail_loader,
+    HoldingSpaceItem::Type type,
+    const base::FilePath& file_path);
+
+void SetNowForTesting(base::Optional<base::Time> now);
 
 }  // namespace holding_space_util
 }  // namespace ash

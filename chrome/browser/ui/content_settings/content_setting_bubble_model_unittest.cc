@@ -10,6 +10,7 @@
 #include "base/command_line.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
+#include "build/build_config.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/content_settings/page_specific_content_settings_delegate.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
@@ -28,6 +29,8 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
+#include "chrome/test/base/testing_browser_process.h"
+#include "chrome/test/base/testing_browser_process_platform_part.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/blocked_content/popup_blocker.h"
 #include "components/blocked_content/popup_blocker_tab_helper.h"
@@ -46,8 +49,32 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
 
+#if defined(OS_MAC)
+#include "chrome/browser/geolocation/geolocation_system_permission_mac.h"
+#endif
+
 using content::WebContentsTester;
 using content_settings::PageSpecificContentSettings;
+
+namespace {
+
+#if defined(OS_MAC)
+class FakeSystemGeolocationPermissionsManager
+    : public GeolocationSystemPermissionManager {
+ public:
+  FakeSystemGeolocationPermissionsManager() = default;
+
+  ~FakeSystemGeolocationPermissionsManager() override = default;
+
+  SystemPermissionStatus GetSystemPermission() override { return status_; }
+  void set_status(SystemPermissionStatus status) { status_ = status; }
+
+ private:
+  SystemPermissionStatus status_ = SystemPermissionStatus::kDenied;
+};
+#endif  // defined(OS_MAC)
+
+}  // namespace
 
 class ContentSettingBubbleModelTest : public ChromeRenderViewHostTestHarness {
  protected:
@@ -191,11 +218,9 @@ TEST_F(ContentSettingBubbleModelTest, BlockedMediastreamMicAndCamera) {
       HostContentSettingsMapFactory::GetForProfile(profile());
   ContentSetting setting = CONTENT_SETTING_BLOCK;
   host_content_settings_map->SetContentSettingDefaultScope(
-      url, GURL(), ContentSettingsType::MEDIASTREAM_MIC, std::string(),
-      setting);
+      url, GURL(), ContentSettingsType::MEDIASTREAM_MIC, setting);
   host_content_settings_map->SetContentSettingDefaultScope(
-      url, GURL(), ContentSettingsType::MEDIASTREAM_CAMERA, std::string(),
-      setting);
+      url, GURL(), ContentSettingsType::MEDIASTREAM_CAMERA, setting);
 
   PageSpecificContentSettings* content_settings =
       PageSpecificContentSettings::GetForFrame(web_contents()->GetMainFrame());
@@ -226,22 +251,20 @@ TEST_F(ContentSettingBubbleModelTest, BlockedMediastreamMicAndCamera) {
   // Test that the media settings where not changed.
   EXPECT_EQ(CONTENT_SETTING_BLOCK,
             host_content_settings_map->GetContentSetting(
-                url, url, ContentSettingsType::MEDIASTREAM_MIC, std::string()));
-  EXPECT_EQ(
-      CONTENT_SETTING_BLOCK,
-      host_content_settings_map->GetContentSetting(
-          url, url, ContentSettingsType::MEDIASTREAM_CAMERA, std::string()));
+                url, url, ContentSettingsType::MEDIASTREAM_MIC));
+  EXPECT_EQ(CONTENT_SETTING_BLOCK,
+            host_content_settings_map->GetContentSetting(
+                url, url, ContentSettingsType::MEDIASTREAM_CAMERA));
 
   owner->SetSelectedRadioOptionAndCommit(0);
 
   // Test that the media setting were change correctly.
   EXPECT_EQ(CONTENT_SETTING_ALLOW,
             host_content_settings_map->GetContentSetting(
-                url, url, ContentSettingsType::MEDIASTREAM_MIC, std::string()));
-  EXPECT_EQ(
-      CONTENT_SETTING_ALLOW,
-      host_content_settings_map->GetContentSetting(
-          url, url, ContentSettingsType::MEDIASTREAM_CAMERA, std::string()));
+                url, url, ContentSettingsType::MEDIASTREAM_MIC));
+  EXPECT_EQ(CONTENT_SETTING_ALLOW,
+            host_content_settings_map->GetContentSetting(
+                url, url, ContentSettingsType::MEDIASTREAM_CAMERA));
 }
 
 // Tests whether a changed setting in the setting bubble is displayed again when
@@ -261,8 +284,7 @@ TEST_F(ContentSettingBubbleModelTest, MediastreamContentBubble) {
       HostContentSettingsMapFactory::GetForProfile(profile());
   ContentSetting setting = CONTENT_SETTING_BLOCK;
   host_content_settings_map->SetContentSettingDefaultScope(
-      url, GURL(), ContentSettingsType::MEDIASTREAM_MIC, std::string(),
-      setting);
+      url, GURL(), ContentSettingsType::MEDIASTREAM_MIC, setting);
 
   PageSpecificContentSettings* content_settings =
       PageSpecificContentSettings::GetForFrame(web_contents()->GetMainFrame());
@@ -292,7 +314,7 @@ TEST_F(ContentSettingBubbleModelTest, MediastreamContentBubble) {
   // Test that the setting was changed.
   EXPECT_EQ(CONTENT_SETTING_ALLOW,
             host_content_settings_map->GetContentSetting(
-                url, url, ContentSettingsType::MEDIASTREAM_MIC, std::string()));
+                url, url, ContentSettingsType::MEDIASTREAM_MIC));
 
   {
     std::unique_ptr<ContentSettingBubbleModel> content_setting_bubble_model(
@@ -315,7 +337,7 @@ TEST_F(ContentSettingBubbleModelTest, MediastreamContentBubble) {
   // Test that the media settings were changed again.
   EXPECT_EQ(CONTENT_SETTING_BLOCK,
             host_content_settings_map->GetContentSetting(
-                url, url, ContentSettingsType::MEDIASTREAM_MIC, std::string()));
+                url, url, ContentSettingsType::MEDIASTREAM_MIC));
 
   {
     std::unique_ptr<ContentSettingBubbleModel> content_setting_bubble_model(
@@ -418,7 +440,9 @@ TEST_F(ContentSettingBubbleModelTest, MediastreamContentBubbleMediaMenus) {
   std::unique_ptr<content::MediaStreamUI> media_stream_ui =
       indicator->RegisterMediaStream(web_contents(), audio_devices);
   media_stream_ui->OnStarted(base::OnceClosure(),
-                             content::MediaStreamUI::SourceCallback());
+                             content::MediaStreamUI::SourceCallback(),
+                             /*label=*/std::string(), /*screen_capture_ids=*/{},
+                             content::MediaStreamUI::StateChangeCallback());
   microphone_camera_state &= ~PageSpecificContentSettings::MICROPHONE_BLOCKED;
   content_settings->OnMediaStreamPermissionSet(url,
                                                microphone_camera_state,
@@ -713,29 +737,6 @@ TEST_F(ContentSettingBubbleModelTest, AccumulateMediastreamMicAndCamera) {
   EXPECT_EQ(2U, new_bubble_content.media_menus.size());
 }
 
-TEST_F(ContentSettingBubbleModelTest, Plugins) {
-  WebContentsTester::For(web_contents())->
-      NavigateAndCommit(GURL("https://www.example.com"));
-  PageSpecificContentSettings* content_settings =
-      PageSpecificContentSettings::GetForFrame(web_contents()->GetMainFrame());
-  const base::string16 plugin_name = base::ASCIIToUTF16("plugin_name");
-
-  content_settings->OnContentBlocked(ContentSettingsType::PLUGINS);
-
-  std::unique_ptr<ContentSettingBubbleModel> content_setting_bubble_model(
-      ContentSettingBubbleModel::CreateContentSettingBubbleModel(
-          NULL, web_contents(), ContentSettingsType::PLUGINS));
-  const ContentSettingBubbleModel::BubbleContent& bubble_content =
-      content_setting_bubble_model->bubble_content();
-  EXPECT_FALSE(bubble_content.title.empty());
-  ASSERT_EQ(0U, bubble_content.list_items.size());
-  EXPECT_EQ(0U, bubble_content.radio_group.radio_items.size());
-  EXPECT_FALSE(bubble_content.custom_link_enabled);
-  EXPECT_TRUE(bubble_content.custom_link.empty());
-  EXPECT_FALSE(bubble_content.manage_text.empty());
-  EXPECT_TRUE(bubble_content.show_learn_more);
-}
-
 TEST_F(ContentSettingBubbleModelTest, PepperBroker) {
   WebContentsTester::For(web_contents())->
       NavigateAndCommit(GURL("https://www.example.com"));
@@ -778,6 +779,20 @@ TEST_F(ContentSettingBubbleModelTest, PepperBroker) {
 }
 
 TEST_F(ContentSettingBubbleModelTest, Geolocation) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(features::kMacCoreLocationImplementation);
+
+#if defined(OS_MAC)
+  auto fake_geolocation_permission_manager =
+      std::make_unique<FakeSystemGeolocationPermissionsManager>();
+  FakeSystemGeolocationPermissionsManager* geolocation_permission_manager =
+      fake_geolocation_permission_manager.get();
+  TestingBrowserProcess::GetGlobal()
+      ->GetTestPlatformPart()
+      ->SetLocationPermissionManager(
+          std::move(fake_geolocation_permission_manager));
+#endif  // defined(OS_MAC)
+
   WebContentsTester::For(web_contents())
       ->NavigateAndCommit(GURL("https://www.example.com"));
   PageSpecificContentSettings* content_settings =
@@ -785,11 +800,55 @@ TEST_F(ContentSettingBubbleModelTest, Geolocation) {
   HostContentSettingsMap* settings_map =
       HostContentSettingsMapFactory::GetForProfile(profile());
 
+  // Set geolocation to allow.
+  settings_map->SetDefaultContentSetting(ContentSettingsType::GEOLOCATION,
+                                         CONTENT_SETTING_ALLOW);
+  content_settings->OnContentAllowed(ContentSettingsType::GEOLOCATION);
+
+#if defined(OS_MAC)
+  // System-level geolocation permission is blocked.
+  {
+    auto content_setting_bubble_model =
+        std::make_unique<ContentSettingGeolocationBubbleModel>(nullptr,
+                                                               web_contents());
+    std::unique_ptr<FakeOwner> owner =
+        FakeOwner::Create(*content_setting_bubble_model, 0);
+    const auto& bubble_content = content_setting_bubble_model->bubble_content();
+
+    EXPECT_EQ(bubble_content.title,
+              l10n_util::GetStringUTF16(IDS_GEOLOCATION_TURNED_OFF_IN_MACOS));
+    EXPECT_TRUE(bubble_content.message.empty());
+    EXPECT_EQ(bubble_content.radio_group.radio_items.size(), 0U);
+
+    // This should be a no-op.
+    content_setting_bubble_model->CommitChanges();
+  }
+
+  // System-level geolocation permission is blocked, but allowed while the
+  // bubble is visible. The displayed message should not change.
+  {
+    auto content_setting_bubble_model =
+        std::make_unique<ContentSettingGeolocationBubbleModel>(nullptr,
+                                                               web_contents());
+    std::unique_ptr<FakeOwner> owner =
+        FakeOwner::Create(*content_setting_bubble_model, 0);
+    const auto& bubble_content = content_setting_bubble_model->bubble_content();
+
+    geolocation_permission_manager->set_status(
+        SystemPermissionStatus::kAllowed);
+
+    EXPECT_EQ(bubble_content.title,
+              l10n_util::GetStringUTF16(IDS_GEOLOCATION_TURNED_OFF_IN_MACOS));
+    EXPECT_TRUE(bubble_content.message.empty());
+    EXPECT_EQ(bubble_content.radio_group.radio_items.size(), 0U);
+
+    // This should be a no-op.
+    content_setting_bubble_model->CommitChanges();
+  }
+#endif  // defined(OS_MAC)
+
   // Go from allow by default to block by default to allow by default.
   {
-    settings_map->SetDefaultContentSetting(ContentSettingsType::GEOLOCATION,
-                                           CONTENT_SETTING_ALLOW);
-    content_settings->OnContentAllowed(ContentSettingsType::GEOLOCATION);
     std::unique_ptr<ContentSettingBubbleModel> content_setting_bubble_model(
         std::make_unique<ContentSettingGeolocationBubbleModel>(nullptr,
                                                                web_contents()));
@@ -945,7 +1004,7 @@ TEST_F(ContentSettingBubbleModelTest, Geolocation) {
                                            CONTENT_SETTING_ALLOW);
     settings_map->SetContentSettingDefaultScope(
         web_contents()->GetURL(), web_contents()->GetURL(),
-        ContentSettingsType::GEOLOCATION, std::string(), CONTENT_SETTING_BLOCK);
+        ContentSettingsType::GEOLOCATION, CONTENT_SETTING_BLOCK);
     content_settings->OnContentBlocked(ContentSettingsType::GEOLOCATION);
     std::unique_ptr<ContentSettingBubbleModel> content_setting_bubble_model(
         std::make_unique<ContentSettingGeolocationBubbleModel>(nullptr,
@@ -964,6 +1023,41 @@ TEST_F(ContentSettingBubbleModelTest, Geolocation) {
                                        web_contents()->GetURL())));
     EXPECT_EQ(bubble_content.radio_group.radio_items[1],
               l10n_util::GetStringUTF16(IDS_BLOCKED_GEOLOCATION_NO_ACTION));
+    EXPECT_EQ(bubble_content.radio_group.default_item, 1);
+  }
+  // Ensure the selecting and committing of a radio button successfully commits
+  // and becomes the default selection next time a bubble is created.
+  {
+    auto content_setting_bubble_model =
+        std::make_unique<ContentSettingGeolocationBubbleModel>(nullptr,
+                                                               web_contents());
+    std::unique_ptr<FakeOwner> owner =
+        FakeOwner::Create(*content_setting_bubble_model, 0);
+    const auto& bubble_content = content_setting_bubble_model->bubble_content();
+    ASSERT_EQ(bubble_content.radio_group.radio_items.size(), 2U);
+    EXPECT_EQ(bubble_content.radio_group.default_item, 1);
+
+    owner->SetSelectedRadioOptionAndCommit(0);
+  }
+  {
+    auto content_setting_bubble_model =
+        std::make_unique<ContentSettingGeolocationBubbleModel>(nullptr,
+                                                               web_contents());
+    std::unique_ptr<FakeOwner> owner =
+        FakeOwner::Create(*content_setting_bubble_model, 0);
+    const auto& bubble_content = content_setting_bubble_model->bubble_content();
+    ASSERT_EQ(bubble_content.radio_group.radio_items.size(), 2U);
+    EXPECT_EQ(bubble_content.radio_group.default_item, 0);
+    owner->SetSelectedRadioOptionAndCommit(1);
+  }
+  {
+    auto content_setting_bubble_model =
+        std::make_unique<ContentSettingGeolocationBubbleModel>(nullptr,
+                                                               web_contents());
+    std::unique_ptr<FakeOwner> owner =
+        FakeOwner::Create(*content_setting_bubble_model, 0);
+    const auto& bubble_content = content_setting_bubble_model->bubble_content();
+    ASSERT_EQ(bubble_content.radio_group.radio_items.size(), 2U);
     EXPECT_EQ(bubble_content.radio_group.default_item, 1);
   }
 }
@@ -1294,7 +1388,7 @@ TEST_F(ContentSettingBubbleModelTest, SensorAccessPermissionsChanged) {
                                            CONTENT_SETTING_BLOCK);
     settings_map->SetContentSettingDefaultScope(
         web_contents()->GetURL(), web_contents()->GetURL(),
-        ContentSettingsType::SENSORS, std::string(), CONTENT_SETTING_ALLOW);
+        ContentSettingsType::SENSORS, CONTENT_SETTING_ALLOW);
     content_settings->OnContentAllowed(ContentSettingsType::SENSORS);
     std::unique_ptr<ContentSettingBubbleModel> content_setting_bubble_model(
         ContentSettingBubbleModel::CreateContentSettingBubbleModel(
@@ -1329,7 +1423,7 @@ TEST_F(ContentSettingBubbleModelTest, SensorAccessPermissionsChanged) {
                                            CONTENT_SETTING_ALLOW);
     settings_map->SetContentSettingDefaultScope(
         web_contents()->GetURL(), web_contents()->GetURL(),
-        ContentSettingsType::SENSORS, std::string(), CONTENT_SETTING_BLOCK);
+        ContentSettingsType::SENSORS, CONTENT_SETTING_BLOCK);
     content_settings->OnContentBlocked(ContentSettingsType::SENSORS);
     std::unique_ptr<ContentSettingBubbleModel> content_setting_bubble_model(
         ContentSettingBubbleModel::CreateContentSettingBubbleModel(

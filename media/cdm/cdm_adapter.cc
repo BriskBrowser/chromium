@@ -226,14 +226,14 @@ CdmAdapter::CdmAdapter(
   DCHECK(session_expiration_update_cb_);
 
   helper_->SetFileReadCB(
-      base::Bind(&CdmAdapter::OnFileRead, weak_factory_.GetWeakPtr()));
+      base::BindRepeating(&CdmAdapter::OnFileRead, weak_factory_.GetWeakPtr()));
 }
 
 CdmAdapter::~CdmAdapter() {
   DVLOG(1) << __func__;
 
   // Reject any outstanding promises and close all the existing sessions.
-  cdm_promise_adapter_.Clear();
+  cdm_promise_adapter_.Clear(CdmPromiseAdapter::ClearReason::kDestruction);
 
   if (audio_init_cb_)
     std::move(audio_init_cb_).Run(false);
@@ -617,7 +617,7 @@ void CdmAdapter::DecryptAndDecodeVideo(scoped_refptr<DecoderBuffer> encrypted,
     return;
   }
 
-  decoded_frame->metadata()->protected_video = is_video_encrypted_;
+  decoded_frame->metadata().protected_video = is_video_encrypted_;
 
   video_decode_cb.Run(Decryptor::kSuccess, decoded_frame);
 }

@@ -14,15 +14,16 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/path_service.h"
 #include "base/process/process_metrics.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
+#include "base/test/task_environment.h"
 #include "base/test/test_file_util.h"
 #include "base/test/test_switches.h"
 #include "base/time/time.h"
-#include "chrome/app/chrome_main_delegate.h"
+#include "build/chromeos_buildflags.h"
+#include "chrome/browser/chrome_content_browser_client.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/profiler/main_thread_stack_sampling_profiler.h"
@@ -60,15 +61,14 @@
 #include "chrome/installer/util/firewall_manager_win.h"
 #endif
 
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
 #if defined(OS_WIN) || defined(OS_MAC) || \
-    (defined(OS_LINUX) && !defined(OS_CHROMEOS))
+    (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
 #include "chrome/browser/first_run/scoped_relaunch_chrome_browser_override.h"
 #include "chrome/browser/upgrade_detector/installed_version_poller.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #endif
-
-ChromeTestSuiteRunner::ChromeTestSuiteRunner() {}
-ChromeTestSuiteRunner::~ChromeTestSuiteRunner() {}
 
 int ChromeTestSuiteRunner::RunTestSuite(int argc, char** argv) {
   ChromeTestSuite test_suite(argc, argv);
@@ -78,8 +78,10 @@ int ChromeTestSuiteRunner::RunTestSuite(int argc, char** argv) {
   // Android browser tests run child processes as threads instead.
   content::ContentTestSuiteBase::RegisterInProcessThreads();
 #endif
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
 #if defined(OS_WIN) || defined(OS_MAC) || \
-    (defined(OS_LINUX) && !defined(OS_CHROMEOS))
+    (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
   InstalledVersionPoller::ScopedDisableForTesting disable_polling(
       InstalledVersionPoller::MakeScopedDisableForTesting());
 #endif
@@ -102,6 +104,8 @@ class ChromeTestLauncherDelegate::ScopedFirewallRules {
         << "Failed to add Windows firewall rules -- Windows firewall dialogs "
            "may appear.";
   }
+  ScopedFirewallRules(const ScopedFirewallRules&) = delete;
+  ScopedFirewallRules& operator=(const ScopedFirewallRules&) = delete;
 
   ~ScopedFirewallRules() {
     if (rules_added_)
@@ -112,7 +116,6 @@ class ChromeTestLauncherDelegate::ScopedFirewallRules {
   base::win::ScopedCOMInitializer com_initializer_;
   std::unique_ptr<installer::FirewallManager> firewall_manager_;
   bool rules_added_ = false;
-  DISALLOW_COPY_AND_ASSIGN(ScopedFirewallRules);
 };
 
 #endif  // defined(OS_WIN)
@@ -131,10 +134,29 @@ ChromeTestLauncherDelegate::GetUserDataDirectoryCommandLineSwitch() {
   return switches::kUserDataDir;
 }
 
+// Acts like normal ChromeContentBrowserClient but injects a test TaskTracker to
+// watch for long-running tasks and produce a useful timeout message in order to
+// find the cause of flaky timeout tests.
+class BrowserTestChromeContentBrowserClient
+    : public ChromeContentBrowserClient {
+ public:
+  bool CreateThreadPool(base::StringPiece name) override {
+    base::test::TaskEnvironment::CreateThreadPool();
+    return true;
+  }
+};
+
+content::ContentBrowserClient*
+ChromeTestChromeMainDelegate::CreateContentBrowserClient() {
+  chrome_content_browser_client_ =
+      std::make_unique<BrowserTestChromeContentBrowserClient>();
+  return chrome_content_browser_client_.get();
+}
+
 #if !defined(OS_ANDROID)
 content::ContentMainDelegate*
 ChromeTestLauncherDelegate::CreateContentMainDelegate() {
-  return new ChromeMainDelegate(base::TimeTicks::Now());
+  return new ChromeTestChromeMainDelegate(base::TimeTicks::Now());
 }
 #endif
 
@@ -228,8 +250,10 @@ int LaunchChromeTests(size_t parallel_jobs,
         network_service_test_helper.get()));
   }
 
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
 #if defined(OS_WIN) || defined(OS_MAC) || \
-    (defined(OS_LINUX) && !defined(OS_CHROMEOS))
+    (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
   // Cause a test failure for any test that triggers an unexpected relaunch.
   // Tests that fail here should likely be restructured to put the "before
   // relaunch" code into a PRE_ test with its own

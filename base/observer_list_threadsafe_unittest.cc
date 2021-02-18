@@ -19,7 +19,7 @@
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread_restrictions.h"
@@ -304,6 +304,9 @@ class SequenceVerificationObserver : public Foo {
   explicit SequenceVerificationObserver(
       scoped_refptr<SequencedTaskRunner> task_runner)
       : task_runner_(std::move(task_runner)) {}
+  SequenceVerificationObserver(const SequenceVerificationObserver&) = delete;
+  SequenceVerificationObserver& operator=(const SequenceVerificationObserver&) =
+      delete;
   ~SequenceVerificationObserver() override = default;
 
   void Observe(int x) override {
@@ -315,8 +318,6 @@ class SequenceVerificationObserver : public Foo {
  private:
   const scoped_refptr<SequencedTaskRunner> task_runner_;
   bool called_on_valid_sequence_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(SequenceVerificationObserver);
 };
 
 }  // namespace
@@ -378,6 +379,10 @@ class RemoveWhileNotificationIsRunningObserver : public Foo {
                               WaitableEvent::InitialState::NOT_SIGNALED),
         barrier_(WaitableEvent::ResetPolicy::AUTOMATIC,
                  WaitableEvent::InitialState::NOT_SIGNALED) {}
+  RemoveWhileNotificationIsRunningObserver(
+      const RemoveWhileNotificationIsRunningObserver&) = delete;
+  RemoveWhileNotificationIsRunningObserver& operator=(
+      const RemoveWhileNotificationIsRunningObserver&) = delete;
   ~RemoveWhileNotificationIsRunningObserver() override = default;
 
   void Observe(int x) override {
@@ -392,8 +397,6 @@ class RemoveWhileNotificationIsRunningObserver : public Foo {
  private:
   WaitableEvent notification_running_;
   WaitableEvent barrier_;
-
-  DISALLOW_COPY_AND_ASSIGN(RemoveWhileNotificationIsRunningObserver);
 };
 
 }  // namespace

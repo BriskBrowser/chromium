@@ -33,6 +33,7 @@
 
 #include "base/macros.h"
 #include "build/build_config.h"
+#include "mojo/public/cpp/bindings/associated_remote.h"
 #include "third_party/blink/public/mojom/input/pointer_lock_context.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/input/pointer_lock_result.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/page/widget.mojom-blink.h"
@@ -53,6 +54,7 @@ class Layer;
 
 namespace blink {
 class Element;
+class Node;
 class Page;
 class PagePopupChromeClient;
 class PagePopupClient;
@@ -99,13 +101,10 @@ class CORE_EXPORT WebPagePopupImpl final : public WebPagePopup,
     return other && popup_client_ == other->popup_client_;
   }
 
-  WebWidgetClient* WidgetClient() const { return web_page_popup_client_; }
-
   LocalDOMWindow* Window();
 
   // WebPagePopup implementation.
   WebDocument GetDocument() override;
-  WebPagePopupClient* GetClientForTesting() const override;
   void InitializeForTesting(WebView* view) override;
 
   // PagePopup implementation.
@@ -115,16 +114,16 @@ class CORE_EXPORT WebPagePopupImpl final : public WebPagePopup,
   // PageWidgetEventHandler implementation.
   WebInputEventResult HandleKeyEvent(const WebKeyboardEvent&) override;
 
+  // Return the LayerTreeHost backing this popup widget.
+  cc::LayerTreeHost* LayerTreeHostForTesting();
+
  private:
   // WidgetBaseClient overrides:
   void BeginMainFrame(base::TimeTicks last_frame_time) override;
-  void RequestNewLayerTreeFrameSink(
-      LayerTreeFrameSinkCallback callback) override;
-  void RecordTimeToFirstActivePaint(base::TimeDelta duration) override;
   void SetSuppressFrameRequestsWorkaroundFor704763Only(bool) final;
   WebInputEventResult DispatchBufferedTouchEvents() override;
   bool WillHandleGestureEvent(const WebGestureEvent& event) override;
-  bool WillHandleMouseEvent(const WebMouseEvent& event) override;
+  void WillHandleMouseEvent(const WebMouseEvent& event) override;
   void ObserveGestureEventAndResult(
       const WebGestureEvent& gesture_event,
       const gfx::Vector2dF& unused_delta,
@@ -139,6 +138,9 @@ class CORE_EXPORT WebPagePopupImpl final : public WebPagePopup,
   gfx::Rect ViewportVisibleRect() override;
   void ScreenRectToEmulated(gfx::Rect& screen_rect) override;
   void EmulatedToScreenRect(gfx::Rect& screen_rect) override;
+  KURL GetURLForDebugTrace() override;
+  std::unique_ptr<cc::LayerTreeFrameSink> AllocateNewLayerTreeFrameSink()
+      override;
 
   // WebWidget implementation.
   // NOTE: The WebWidget may still be used after requesting the popup to be
@@ -149,19 +151,15 @@ class CORE_EXPORT WebPagePopupImpl final : public WebPagePopup,
   void SetCompositorVisible(bool visible) override;
   void UpdateLifecycle(WebLifecycleUpdate requested_update,
                        DocumentUpdateReason reason) override;
-  void Resize(const WebSize&) override;
-  void Close(
-      scoped_refptr<base::SingleThreadTaskRunner> cleanup_runner) override;
+  void Resize(const gfx::Size&) override;
+  void Close() override;
   WebInputEventResult HandleInputEvent(const WebCoalescedInputEvent&) override;
   void SetFocus(bool) override;
   bool HasFocus() override;
-  WebURL GetURLForDebugTrace() override;
   WebHitTestResult HitTestResultAt(const gfx::PointF&) override { return {}; }
-  cc::LayerTreeHost* InitializeCompositing(
-      bool never_composited,
-      scheduler::WebThreadScheduler* main_thread_scheduler,
+  void InitializeCompositing(
+      scheduler::WebAgentGroupScheduler& agent_group_scheduler,
       cc::TaskGraphRunner* task_graph_runner,
-      bool for_child_local_root_frame,
       const ScreenInfo& screen_info,
       std::unique_ptr<cc::UkmRecorderFactory> ukm_recorder_factory,
       const cc::LayerTreeSettings* settings) override;
@@ -170,24 +168,13 @@ class CORE_EXPORT WebPagePopupImpl final : public WebPagePopup,
   void SetCursor(const ui::Cursor& cursor) override;
   bool HandlingInputEvent() override;
   void SetHandlingInputEvent(bool handling) override;
-  void ProcessInputEventSynchronously(const WebCoalescedInputEvent&,
-                                      HandledEventCallback) override;
+  void ProcessInputEventSynchronouslyForTesting(const WebCoalescedInputEvent&,
+                                                HandledEventCallback) override;
   void UpdateTextInputState() override;
   void UpdateSelectionBounds() override;
   void ShowVirtualKeyboard() override;
   void FlushInputProcessedCallback() override;
   void CancelCompositionForPepper() override;
-  void RequestMouseLock(
-      bool has_transient_user_activation,
-      bool priviledged,
-      bool request_unadjusted_movement,
-      base::OnceCallback<
-          void(mojom::blink::PointerLockResult,
-               CrossVariantMojoRemote<
-                   mojom::blink::PointerLockContextInterfaceBase>)>) override;
-#if defined(OS_ANDROID)
-  SynchronousCompositorRegistry* GetSynchronousCompositorRegistry() override;
-#endif
 
   // PageWidgetEventHandler functions
   WebInputEventResult HandleCharEvent(const WebKeyboardEvent&) override;
@@ -197,24 +184,13 @@ class CORE_EXPORT WebPagePopupImpl final : public WebPagePopup,
                                        const WebMouseWheelEvent&) override;
   void ApplyVisualProperties(
       const VisualProperties& visual_properties) override;
-  void UpdateSurfaceAndScreenInfo(
-      const viz::LocalSurfaceIdAllocation& new_local_surface_id_allocation,
-      const gfx::Rect& compositor_viewport_pixel_rect,
-      const ScreenInfo& new_screen_info) override;
-  void UpdateScreenInfo(const ScreenInfo& new_screen_info) override;
-  void UpdateCompositorViewportAndScreenInfo(
-      const gfx::Rect& compositor_viewport_pixel_rect,
-      const ScreenInfo& new_screen_info) override;
-  void UpdateCompositorViewportRect(
-      const gfx::Rect& compositor_viewport_pixel_rect) override;
   const ScreenInfo& GetScreenInfo() override;
   gfx::Rect WindowRect() override;
   gfx::Rect ViewRect() override;
   void SetScreenRects(const gfx::Rect& widget_screen_rect,
                       const gfx::Rect& window_screen_rect) override;
-  void SetVisibleViewportSize(const gfx::Size& visible_viewport_size) override;
-  const gfx::Size& VisibleViewportSize() override;
-  void SetPendingWindowRect(const gfx::Rect* window_screen_rect) override;
+  gfx::Size VisibleViewportSizeInDIPs() override;
+  bool IsHidden() const override;
 
   // This may only be called if page_ is non-null.
   LocalFrame& MainFrame() const;
@@ -231,11 +207,13 @@ class CORE_EXPORT WebPagePopupImpl final : public WebPagePopup,
   void SetWindowRect(const IntRect&) override;
 
   WebPagePopupImpl(
-      WebPagePopupClient*,
+      CrossVariantMojoAssociatedRemote<
+          mojom::blink::PopupWidgetHostInterfaceBase> popup_widget_host,
       CrossVariantMojoAssociatedRemote<mojom::blink::WidgetHostInterfaceBase>
           widget_host,
       CrossVariantMojoAssociatedReceiver<mojom::blink::WidgetInterfaceBase>
-          widget);
+          widget,
+      scoped_refptr<base::SingleThreadTaskRunner> task_runner);
   void DestroyPage();
   void SetRootLayer(scoped_refptr<cc::Layer>);
   void SetWebView(WebViewImpl* web_view);
@@ -248,8 +226,12 @@ class CORE_EXPORT WebPagePopupImpl final : public WebPagePopup,
                                 cc::ElementId scrollable_area_element_id,
                                 WebInputEvent::Type injected_type);
 
-  WebPagePopupClient* web_page_popup_client_;
-  WebViewImpl* web_view_ = nullptr;
+  void WidgetHostDisconnected();
+  void DidShowPopup();
+  void DidSetBounds();
+
+  // This is the WebView that opened the popup.
+  WebViewImpl* opener_web_view_ = nullptr;
   // WebPagePopupImpl wraps its own Page that renders the content in the popup.
   // This member is non-null between the call to Initialize() and the call to
   // ClosePopup(). If page_ is non-null, it is guaranteed to have an attached
@@ -274,9 +256,23 @@ class CORE_EXPORT WebPagePopupImpl final : public WebPagePopup,
   gfx::Point opener_original_widget_screen_origin_;
   float opener_emulator_scale_ = 0;
 
+  // The channel associated with the browser. When this is closed the popup will
+  // be destroyed.
+  mojo::AssociatedRemote<mojom::blink::PopupWidgetHost> popup_widget_host_;
+
+  // The rect before the widget is shown.
+  gfx::Rect initial_rect_;
+
+  // Defer setting the window rect until the widget is shown.
+  bool should_defer_setting_window_rect_ = true;
+
   // Base functionality all widgets have. This is a member as to avoid
   // complicated inheritance structures.
   std::unique_ptr<WidgetBase> widget_base_;
+
+  // Only used for Scroll Unification.
+  // Will be set in GestureScrollBegin
+  WeakPersistent<Node> scrollable_node_;
 
   friend class WebPagePopup;
   friend class PagePopupChromeClient;

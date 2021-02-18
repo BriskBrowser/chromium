@@ -7,6 +7,7 @@
 #include "base/check.h"
 #include "base/notreached.h"
 #include "base/strings/string_util.h"
+#include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -58,10 +59,10 @@ std::vector<base::string16> GenerateMessage(
     int id = 0;
     if (disable_remotely_for_malware ||
         (blocklist_state == BlocklistState::BLOCKLISTED_MALWARE)) {
-      id = IDS_EXTENSION_ALERT_ITEM_BLACKLISTED_MALWARE;
+      id = IDS_EXTENSION_ALERT_ITEM_BLOCKLISTED_MALWARE;
     } else {
-      id = extension->is_app() ? IDS_APP_ALERT_ITEM_BLACKLISTED_OTHER
-                               : IDS_EXTENSION_ALERT_ITEM_BLACKLISTED_OTHER;
+      id = extension->is_app() ? IDS_APP_ALERT_ITEM_BLOCKLISTED_OTHER
+                               : IDS_EXTENSION_ALERT_ITEM_BLOCKLISTED_OTHER;
     }
     message.push_back(
         l10n_util::GetStringFUTF16(id, base::UTF8ToUTF16(extension->name())));

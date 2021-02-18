@@ -10,22 +10,21 @@ namespace blink {
 namespace scheduler {
 
 IdleTimeEstimator::IdleTimeEstimator(
-    const scoped_refptr<base::sequence_manager::TaskQueue>&
-        compositor_task_runner,
+    const scoped_refptr<MainThreadTaskQueue>& compositor_task_queue,
     const base::TickClock* time_source,
     int sample_count,
     double estimation_percentile)
-    : compositor_task_queue_(compositor_task_runner),
+    : compositor_task_queue_(compositor_task_queue),
       per_frame_compositor_task_runtime_(sample_count),
       time_source_(time_source),
       estimation_percentile_(estimation_percentile),
       nesting_level_(0),
       did_commit_(false) {
-  compositor_task_queue_->AddTaskObserver(this);
+  compositor_task_queue_->GetTaskQueue()->AddTaskObserver(this);
 }
 
 IdleTimeEstimator::~IdleTimeEstimator() {
-  compositor_task_queue_->RemoveTaskObserver(this);
+  compositor_task_queue_->GetTaskQueue()->RemoveTaskObserver(this);
 }
 
 base::TimeDelta IdleTimeEstimator::GetExpectedIdleDuration(

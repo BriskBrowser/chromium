@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
-// Unit tests for master preferences related methods.
+// Unit tests for initial preferences related methods.
 
 #include "chrome/installer/util/initial_preferences.h"
 
@@ -38,7 +38,7 @@ class ScopedGoogleUpdateIsMachine {
   std::unique_ptr<base::Environment> env_;
 };
 
-class MasterPreferencesTest : public testing::Test {
+class InitialPreferencesTest : public testing::Test {
  protected:
   void SetUp() override {
     ASSERT_TRUE(base::CreateTemporaryFile(&prefs_file_));
@@ -60,13 +60,13 @@ struct ExpectedBooleans {
 
 }  // namespace
 
-TEST_F(MasterPreferencesTest, NoFileToParse) {
+TEST_F(InitialPreferencesTest, NoFileToParse) {
   EXPECT_TRUE(base::DeleteFile(prefs_file()));
-  installer::MasterPreferences prefs(prefs_file());
+  installer::InitialPreferences prefs(prefs_file());
   EXPECT_FALSE(prefs.read_from_file());
 }
 
-TEST_F(MasterPreferencesTest, ParseDistroParams) {
+TEST_F(InitialPreferencesTest, ParseDistroParams) {
   const char text[] =
       "{ \n"
       "  \"distribution\": { \n"
@@ -79,6 +79,7 @@ TEST_F(MasterPreferencesTest, ParseDistroParams) {
       "     \"do_not_launch_chrome\": true,\n"
       "     \"make_chrome_default\": true,\n"
       "     \"make_chrome_default_for_user\": true,\n"
+      "     \"program_files_dir\": \"c:\\\\bar\",\n"
       "     \"system_level\": true,\n"
       "     \"verbose_logging\": true,\n"
       "     \"require_eula\": true\n"
@@ -90,20 +91,20 @@ TEST_F(MasterPreferencesTest, ParseDistroParams) {
 
   EXPECT_TRUE(
       base::WriteFile(prefs_file(), text, static_cast<int>(strlen(text))));
-  installer::MasterPreferences prefs(prefs_file());
+  installer::InitialPreferences prefs(prefs_file());
   EXPECT_TRUE(prefs.read_from_file());
 
   const char* const expected_true[] = {
-      installer::master_preferences::kDoNotCreateAnyShortcuts,
-      installer::master_preferences::kDoNotCreateDesktopShortcut,
-      installer::master_preferences::kDoNotCreateQuickLaunchShortcut,
-      installer::master_preferences::kDoNotCreateTaskbarShortcut,
-      installer::master_preferences::kDoNotLaunchChrome,
-      installer::master_preferences::kMakeChromeDefault,
-      installer::master_preferences::kMakeChromeDefaultForUser,
-      installer::master_preferences::kSystemLevel,
-      installer::master_preferences::kVerboseLogging,
-      installer::master_preferences::kRequireEula,
+      installer::initial_preferences::kDoNotCreateAnyShortcuts,
+      installer::initial_preferences::kDoNotCreateDesktopShortcut,
+      installer::initial_preferences::kDoNotCreateQuickLaunchShortcut,
+      installer::initial_preferences::kDoNotCreateTaskbarShortcut,
+      installer::initial_preferences::kDoNotLaunchChrome,
+      installer::initial_preferences::kMakeChromeDefault,
+      installer::initial_preferences::kMakeChromeDefaultForUser,
+      installer::initial_preferences::kSystemLevel,
+      installer::initial_preferences::kVerboseLogging,
+      installer::initial_preferences::kRequireEula,
   };
 
   for (size_t i = 0; i < base::size(expected_true); ++i) {
@@ -114,12 +115,17 @@ TEST_F(MasterPreferencesTest, ParseDistroParams) {
 
   std::string str_value;
   EXPECT_TRUE(prefs.GetString(
-      installer::master_preferences::kDistroImportBookmarksFromFilePref,
+      installer::initial_preferences::kDistroImportBookmarksFromFilePref,
       &str_value));
   EXPECT_STREQ("c:\\foo", str_value.c_str());
+
+  base::FilePath path;
+  EXPECT_TRUE(
+      prefs.GetPath(installer::initial_preferences::kProgramFilesDir, &path));
+  EXPECT_EQ(base::FilePath(FILE_PATH_LITERAL("c:\\bar")), path);
 }
 
-TEST_F(MasterPreferencesTest, ParseMissingDistroParams) {
+TEST_F(InitialPreferencesTest, ParseMissingDistroParams) {
   const char text[] =
       "{ \n"
       "  \"distribution\": { \n"
@@ -132,13 +138,13 @@ TEST_F(MasterPreferencesTest, ParseMissingDistroParams) {
 
   EXPECT_TRUE(
       base::WriteFile(prefs_file(), text, static_cast<int>(strlen(text))));
-  installer::MasterPreferences prefs(prefs_file());
+  installer::InitialPreferences prefs(prefs_file());
   EXPECT_TRUE(prefs.read_from_file());
 
   ExpectedBooleans expected_bool[] = {
-      {installer::master_preferences::kDoNotCreateDesktopShortcut, true},
-      {installer::master_preferences::kDoNotCreateQuickLaunchShortcut, true},
-      {installer::master_preferences::kDoNotLaunchChrome, false},
+      {installer::initial_preferences::kDoNotCreateDesktopShortcut, true},
+      {installer::initial_preferences::kDoNotCreateQuickLaunchShortcut, true},
+      {installer::initial_preferences::kDoNotLaunchChrome, false},
   };
 
   bool value = false;
@@ -148,9 +154,9 @@ TEST_F(MasterPreferencesTest, ParseMissingDistroParams) {
   }
 
   const char* const missing_bools[] = {
-      installer::master_preferences::kDoNotRegisterForUpdateLaunch,
-      installer::master_preferences::kMakeChromeDefault,
-      installer::master_preferences::kMakeChromeDefaultForUser,
+      installer::initial_preferences::kDoNotRegisterForUpdateLaunch,
+      installer::initial_preferences::kMakeChromeDefault,
+      installer::initial_preferences::kMakeChromeDefaultForUser,
   };
 
   for (size_t i = 0; i < base::size(missing_bools); ++i) {
@@ -159,11 +165,11 @@ TEST_F(MasterPreferencesTest, ParseMissingDistroParams) {
 
   std::string str_value;
   EXPECT_FALSE(prefs.GetString(
-      installer::master_preferences::kDistroImportBookmarksFromFilePref,
+      installer::initial_preferences::kDistroImportBookmarksFromFilePref,
       &str_value));
 }
 
-TEST_F(MasterPreferencesTest, FirstRunTabs) {
+TEST_F(InitialPreferencesTest, FirstRunTabs) {
   const char text[] =
       "{ \n"
       "  \"distribution\": { \n"
@@ -178,7 +184,7 @@ TEST_F(MasterPreferencesTest, FirstRunTabs) {
 
   EXPECT_TRUE(
       base::WriteFile(prefs_file(), text, static_cast<int>(strlen(text))));
-  installer::MasterPreferences prefs(prefs_file());
+  installer::InitialPreferences prefs(prefs_file());
   typedef std::vector<std::string> TabsVector;
   TabsVector tabs = prefs.GetFirstRunTabs();
   ASSERT_EQ(3u, tabs.size());
@@ -198,7 +204,7 @@ TEST(MasterPrefsExtension, ValidateExtensionJSON) {
                    .AppendASCII("good")
                    .AppendASCII("Preferences");
 
-  installer::MasterPreferences prefs(prefs_path);
+  installer::InitialPreferences prefs(prefs_path);
   base::DictionaryValue* extensions = nullptr;
   EXPECT_TRUE(prefs.GetExtensionsBlock(&extensions));
   int location = 0;
@@ -221,8 +227,8 @@ TEST(MasterPrefsExtension, ValidateExtensionJSON) {
       "behllobkkfkfnphdnhnkndlbkcpglgmj.manifest.version", &version));
 }
 
-// Test that we are parsing master preferences correctly.
-TEST_F(MasterPreferencesTest, GetInstallPreferencesTest) {
+// Test that we are parsing initial preferences correctly.
+TEST_F(InitialPreferencesTest, GetInstallPreferencesTest) {
   // Create a temporary prefs file.
   base::FilePath prefs_file;
   ASSERT_TRUE(base::CreateTemporaryFile(&prefs_file));
@@ -239,18 +245,18 @@ TEST_F(MasterPreferencesTest, GetInstallPreferencesTest) {
   EXPECT_TRUE(
       base::WriteFile(prefs_file, text, static_cast<int>(strlen(text))));
 
-  // Make sure command line values override the values in master preferences.
+  // Make sure command line values override the values in initial preferences.
   std::wstring cmd_str(L"setup.exe --installerdata=\"" + prefs_file.value() +
                        L"\"");
   cmd_str.append(L" --do-not-launch-chrome");
   base::CommandLine cmd_line = base::CommandLine::FromString(cmd_str);
-  installer::MasterPreferences prefs(cmd_line);
+  installer::InitialPreferences prefs(cmd_line);
 
   // Check prefs that do not have any equivalent command line option.
   ExpectedBooleans expected_bool[] = {
-      {installer::master_preferences::kDoNotLaunchChrome, true},
-      {installer::master_preferences::kSystemLevel, true},
-      {installer::master_preferences::kVerboseLogging, false},
+      {installer::initial_preferences::kDoNotLaunchChrome, true},
+      {installer::initial_preferences::kSystemLevel, true},
+      {installer::initial_preferences::kVerboseLogging, false},
   };
 
   // Now check that prefs got merged correctly.
@@ -263,13 +269,13 @@ TEST_F(MasterPreferencesTest, GetInstallPreferencesTest) {
   // Delete temporary prefs file.
   EXPECT_TRUE(base::DeleteFile(prefs_file));
 
-  // Check that if master prefs doesn't exist, we can still parse the common
+  // Check that if initial prefs doesn't exist, we can still parse the common
   // prefs.
   cmd_str = L"setup.exe --do-not-launch-chrome";
   cmd_line.ParseFromString(cmd_str);
-  installer::MasterPreferences prefs2(cmd_line);
+  installer::InitialPreferences prefs2(cmd_line);
   ExpectedBooleans expected_bool2[] = {
-      {installer::master_preferences::kDoNotLaunchChrome, true},
+      {installer::initial_preferences::kDoNotLaunchChrome, true},
   };
 
   for (size_t i = 0; i < base::size(expected_bool2); ++i) {
@@ -279,22 +285,22 @@ TEST_F(MasterPreferencesTest, GetInstallPreferencesTest) {
   }
 
   EXPECT_FALSE(
-      prefs2.GetBool(installer::master_preferences::kSystemLevel, &value));
+      prefs2.GetBool(installer::initial_preferences::kSystemLevel, &value));
   EXPECT_FALSE(
-      prefs2.GetBool(installer::master_preferences::kVerboseLogging, &value));
+      prefs2.GetBool(installer::initial_preferences::kVerboseLogging, &value));
 }
 
-TEST_F(MasterPreferencesTest, TestDefaultInstallConfig) {
+TEST_F(InitialPreferencesTest, TestDefaultInstallConfig) {
   std::wstringstream chrome_cmd;
   chrome_cmd << "setup.exe";
 
   base::CommandLine chrome_install(
       base::CommandLine::FromString(chrome_cmd.str()));
 
-  installer::MasterPreferences pref_chrome(chrome_install);
+  installer::InitialPreferences pref_chrome(chrome_install);
 }
 
-TEST_F(MasterPreferencesTest, EnforceLegacyPreferences) {
+TEST_F(InitialPreferencesTest, EnforceLegacyPreferences) {
   static const char kLegacyPrefs[] =
       "{"
       "  \"distribution\": {"
@@ -307,16 +313,16 @@ TEST_F(MasterPreferencesTest, EnforceLegacyPreferences) {
       "  }"
       "}";
 
-  installer::MasterPreferences prefs(kLegacyPrefs);
+  installer::InitialPreferences prefs(kLegacyPrefs);
 
   bool do_not_create_desktop_shortcut = false;
   bool do_not_create_quick_launch_shortcut = false;
   bool do_not_create_taskbar_shortcut = false;
-  prefs.GetBool(installer::master_preferences::kDoNotCreateDesktopShortcut,
+  prefs.GetBool(installer::initial_preferences::kDoNotCreateDesktopShortcut,
                 &do_not_create_desktop_shortcut);
-  prefs.GetBool(installer::master_preferences::kDoNotCreateQuickLaunchShortcut,
+  prefs.GetBool(installer::initial_preferences::kDoNotCreateQuickLaunchShortcut,
                 &do_not_create_quick_launch_shortcut);
-  prefs.GetBool(installer::master_preferences::kDoNotCreateTaskbarShortcut,
+  prefs.GetBool(installer::initial_preferences::kDoNotCreateTaskbarShortcut,
                 &do_not_create_taskbar_shortcut);
   // create_all_shortcuts is a legacy preference that should only enforce
   // do_not_create_desktop_shortcut and do_not_create_quick_launch_shortcut
@@ -326,28 +332,28 @@ TEST_F(MasterPreferencesTest, EnforceLegacyPreferences) {
   EXPECT_FALSE(do_not_create_taskbar_shortcut);
 
   bool actual_value = false;
-  EXPECT_TRUE(prefs.master_dictionary().GetBoolean(prefs::kImportBookmarks,
-                                                   &actual_value));
+  EXPECT_TRUE(prefs.initial_dictionary().GetBoolean(prefs::kImportBookmarks,
+                                                    &actual_value));
   EXPECT_TRUE(actual_value);
-  EXPECT_TRUE(prefs.master_dictionary().GetBoolean(prefs::kImportHistory,
-                                                   &actual_value));
+  EXPECT_TRUE(prefs.initial_dictionary().GetBoolean(prefs::kImportHistory,
+                                                    &actual_value));
   EXPECT_TRUE(actual_value);
-  EXPECT_TRUE(prefs.master_dictionary().GetBoolean(prefs::kImportHomepage,
-                                                   &actual_value));
+  EXPECT_TRUE(prefs.initial_dictionary().GetBoolean(prefs::kImportHomepage,
+                                                    &actual_value));
   EXPECT_TRUE(actual_value);
-  EXPECT_TRUE(prefs.master_dictionary().GetBoolean(prefs::kImportSearchEngine,
-                                                   &actual_value));
+  EXPECT_TRUE(prefs.initial_dictionary().GetBoolean(prefs::kImportSearchEngine,
+                                                    &actual_value));
   EXPECT_TRUE(actual_value);
 
 #if BUILDFLAG(ENABLE_RLZ)
   int rlz_ping_delay = 0;
-  EXPECT_TRUE(prefs.master_dictionary().GetInteger(prefs::kRlzPingDelaySeconds,
-                                                   &rlz_ping_delay));
+  EXPECT_TRUE(prefs.initial_dictionary().GetInteger(prefs::kRlzPingDelaySeconds,
+                                                    &rlz_ping_delay));
   EXPECT_EQ(40, rlz_ping_delay);
 #endif  // BUILDFLAG(ENABLE_RLZ)
 }
 
-TEST_F(MasterPreferencesTest, DontEnforceLegacyCreateAllShortcutsTrue) {
+TEST_F(InitialPreferencesTest, DontEnforceLegacyCreateAllShortcutsTrue) {
   static const char kCreateAllShortcutsFalsePrefs[] =
       "{"
       "  \"distribution\": {"
@@ -355,23 +361,24 @@ TEST_F(MasterPreferencesTest, DontEnforceLegacyCreateAllShortcutsTrue) {
       "  }"
       "}";
 
-  installer::MasterPreferences prefs(kCreateAllShortcutsFalsePrefs);
+  installer::InitialPreferences prefs(kCreateAllShortcutsFalsePrefs);
 
   bool do_not_create_desktop_shortcut = false;
   bool do_not_create_quick_launch_shortcut = false;
   bool do_not_create_taskbar_shortcut = false;
-  prefs.GetBool(installer::master_preferences::kDoNotCreateDesktopShortcut,
+  prefs.GetBool(installer::initial_preferences::kDoNotCreateDesktopShortcut,
                 &do_not_create_desktop_shortcut);
-  prefs.GetBool(installer::master_preferences::kDoNotCreateQuickLaunchShortcut,
+  prefs.GetBool(installer::initial_preferences::kDoNotCreateQuickLaunchShortcut,
                 &do_not_create_quick_launch_shortcut);
-  prefs.GetBool(installer::master_preferences::kDoNotCreateTaskbarShortcut,
+  prefs.GetBool(installer::initial_preferences::kDoNotCreateTaskbarShortcut,
                 &do_not_create_taskbar_shortcut);
   EXPECT_FALSE(do_not_create_desktop_shortcut);
   EXPECT_FALSE(do_not_create_quick_launch_shortcut);
   EXPECT_FALSE(do_not_create_taskbar_shortcut);
 }
 
-TEST_F(MasterPreferencesTest, DontEnforceLegacyCreateAllShortcutsNotSpecified) {
+TEST_F(InitialPreferencesTest,
+       DontEnforceLegacyCreateAllShortcutsNotSpecified) {
   static const char kCreateAllShortcutsFalsePrefs[] =
       "{"
       "  \"distribution\": {"
@@ -379,53 +386,53 @@ TEST_F(MasterPreferencesTest, DontEnforceLegacyCreateAllShortcutsNotSpecified) {
       "  }"
       "}";
 
-  installer::MasterPreferences prefs(kCreateAllShortcutsFalsePrefs);
+  installer::InitialPreferences prefs(kCreateAllShortcutsFalsePrefs);
 
   bool do_not_create_desktop_shortcut = false;
   bool do_not_create_quick_launch_shortcut = false;
   bool do_not_create_taskbar_shortcut = false;
-  prefs.GetBool(installer::master_preferences::kDoNotCreateDesktopShortcut,
+  prefs.GetBool(installer::initial_preferences::kDoNotCreateDesktopShortcut,
                 &do_not_create_desktop_shortcut);
-  prefs.GetBool(installer::master_preferences::kDoNotCreateQuickLaunchShortcut,
+  prefs.GetBool(installer::initial_preferences::kDoNotCreateQuickLaunchShortcut,
                 &do_not_create_quick_launch_shortcut);
-  prefs.GetBool(installer::master_preferences::kDoNotCreateTaskbarShortcut,
+  prefs.GetBool(installer::initial_preferences::kDoNotCreateTaskbarShortcut,
                 &do_not_create_taskbar_shortcut);
   EXPECT_FALSE(do_not_create_desktop_shortcut);
   EXPECT_FALSE(do_not_create_quick_launch_shortcut);
   EXPECT_FALSE(do_not_create_taskbar_shortcut);
 }
 
-TEST_F(MasterPreferencesTest, GoogleUpdateIsMachine) {
+TEST_F(InitialPreferencesTest, GoogleUpdateIsMachine) {
   {
     ScopedGoogleUpdateIsMachine env_setter("0");
-    installer::MasterPreferences prefs(
+    installer::InitialPreferences prefs(
         base::CommandLine(base::FilePath(FILE_PATH_LITERAL("setup.exe"))));
     bool value = false;
-    prefs.GetBool(installer::master_preferences::kSystemLevel, &value);
+    prefs.GetBool(installer::initial_preferences::kSystemLevel, &value);
     EXPECT_FALSE(value);
   }
   {
     ScopedGoogleUpdateIsMachine env_setter("1");
-    installer::MasterPreferences prefs(
+    installer::InitialPreferences prefs(
         base::CommandLine(base::FilePath(FILE_PATH_LITERAL("setup.exe"))));
     bool value = false;
-    prefs.GetBool(installer::master_preferences::kSystemLevel, &value);
+    prefs.GetBool(installer::initial_preferences::kSystemLevel, &value);
     EXPECT_TRUE(value);
   }
   {
     ScopedGoogleUpdateIsMachine env_setter("1bridgetoofar");
-    installer::MasterPreferences prefs(
+    installer::InitialPreferences prefs(
         base::CommandLine(base::FilePath(FILE_PATH_LITERAL("setup.exe"))));
     bool value = false;
-    prefs.GetBool(installer::master_preferences::kSystemLevel, &value);
+    prefs.GetBool(installer::initial_preferences::kSystemLevel, &value);
     EXPECT_FALSE(value);
   }
   {
     ScopedGoogleUpdateIsMachine env_setter("2");
-    installer::MasterPreferences prefs(
+    installer::InitialPreferences prefs(
         base::CommandLine(base::FilePath(FILE_PATH_LITERAL("setup.exe"))));
     bool value = false;
-    prefs.GetBool(installer::master_preferences::kSystemLevel, &value);
+    prefs.GetBool(installer::initial_preferences::kSystemLevel, &value);
     EXPECT_FALSE(value);
   }
 }

@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "third_party/blink/renderer/core/css/counter_style_map.h"
 #include "third_party/blink/renderer/core/css/css_axis_value.h"
 #include "third_party/blink/renderer/core/css/css_basic_shape_values.h"
 #include "third_party/blink/renderer/core/css/css_border_image.h"
@@ -14,6 +15,7 @@
 #include "third_party/blink/renderer/core/css/css_content_distribution_value.h"
 #include "third_party/blink/renderer/core/css/css_crossfade_value.h"
 #include "third_party/blink/renderer/core/css/css_custom_ident_value.h"
+#include "third_party/blink/renderer/core/css/css_element_offset_value.h"
 #include "third_party/blink/renderer/core/css/css_font_family_value.h"
 #include "third_party/blink/renderer/core/css/css_font_feature_value.h"
 #include "third_party/blink/renderer/core/css/css_font_style_range_value.h"
@@ -68,6 +70,7 @@
 #include "third_party/blink/renderer/platform/geometry/length.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
+#include "third_party/blink/renderer/platform/loader/fetch/fetch_initiator_type_names.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
@@ -419,9 +422,10 @@ bool AddCSSPaintArgument(
     const CSSParserContext& context) {
   CSSParserTokenRange token_range(tokens);
   if (!token_range.AtEnd()) {
+    // TODO(crbug.com/661854): Pass through the original string when we have it.
     scoped_refptr<CSSVariableData> unparsed_css_variable_data =
-        CSSVariableData::Create(token_range, false, false, context.BaseURL(),
-                                context.Charset());
+        CSSVariableData::Create({token_range, StringView()}, false, false,
+                                context.BaseURL(), context.Charset());
     if (unparsed_css_variable_data.get()) {
       variable_data->push_back(std::move(unparsed_css_variable_data));
       return true;
@@ -1093,6 +1097,21 @@ cssvalue::CSSURIValue* ConsumeUrl(CSSParserTokenRange& range,
       url_string, context.CompleteURL(url_string));
 }
 
+CSSValue* ConsumeSelectorFunction(CSSParserTokenRange& range) {
+  if (range.Peek().FunctionId() != CSSValueID::kSelector)
+    return nullptr;
+  auto block = ConsumeFunction(range);
+  if (auto* id_value = ConsumeIdSelector(block)) {
+    if (!block.AtEnd())
+      return nullptr;
+    auto* selector_function =
+        MakeGarbageCollected<CSSFunctionValue>(CSSValueID::kSelector);
+    selector_function->Append(*id_value);
+    return selector_function;
+  }
+  return nullptr;
+}
+
 CSSValue* ConsumeIdSelector(CSSParserTokenRange& range) {
   if (!IsHashIdentifier(range.Peek()))
     return nullptr;
@@ -1293,15 +1312,6 @@ CSSValue* ConsumeColor(CSSParserTokenRange& range,
                                     accept_quirky_colors);
   }
   return cssvalue::CSSColorValue::Create(color);
-}
-
-CSSValue* ConsumeInternalForcedBackgroundColor(
-    CSSParserTokenRange& range,
-    const CSSParserContext& context) {
-  CSSValueID id = range.Peek().Id();
-  if (!StyleColor::IsColorKeyword(id))
-    return nullptr;
-  return ConsumeIdent(range);
 }
 
 CSSValue* ConsumeLineWidth(CSSParserTokenRange& range,
@@ -2155,28 +2165,29 @@ static CSSValue* ConsumeGeneratedImage(CSSParserTokenRange& range,
   return result;
 }
 
-static CSSValue* CreateCSSImageValueWithReferrer(
+static CSSImageValue* CreateCSSImageValueWithReferrer(
     const AtomicString& raw_value,
     const CSSParserContext& context) {
-  CSSValue* image_value = MakeGarbageCollected<CSSImageValue>(
+  return MakeGarbageCollected<CSSImageValue>(
       raw_value, context.CompleteURL(raw_value), context.GetReferrer(),
       context.IsOriginClean() ? OriginClean::kTrue : OriginClean::kFalse,
       context.IsAdRelated());
-  return image_value;
 }
 
 static CSSValue* ConsumeImageSet(CSSParserTokenRange& range,
                                  const CSSParserContext& context) {
   CSSParserTokenRange range_copy = range;
   CSSParserTokenRange args = ConsumeFunction(range_copy);
-  auto* image_set = MakeGarbageCollected<CSSImageSetValue>(context.Mode());
+  auto* image_set = MakeGarbageCollected<CSSImageSetValue>();
   do {
     AtomicString url_value =
         ConsumeUrlAsStringView(args, context).ToAtomicString();
     if (url_value.IsNull())
       return nullptr;
 
-    CSSValue* image = CreateCSSImageValueWithReferrer(url_value, context);
+    CSSImageValue* image = CreateCSSImageValueWithReferrer(url_value, context);
+    if (context.Mode() == kUASheetMode)
+      image->SetInitiator(fetch_initiator_type_names::kUacss);
     image_set->Append(*image);
 
     const CSSParserToken& token = args.ConsumeIncludingWhitespace();
@@ -2243,14 +2254,14 @@ void AddProperty(CSSPropertyID resolved_property,
                  bool important,
                  IsImplicitProperty implicit,
                  HeapVector<CSSPropertyValue, 256>& properties) {
-  DCHECK(!isPropertyAlias(resolved_property));
+  DCHECK(!IsPropertyAlias(resolved_property));
   DCHECK(implicit == IsImplicitProperty::kNotImplicit ||
          implicit == IsImplicitProperty::kImplicit);
 
   int shorthand_index = 0;
   bool set_from_shorthand = false;
 
-  if (isValidCSSPropertyID(current_shorthand)) {
+  if (IsValidCSSPropertyID(current_shorthand)) {
     Vector<StylePropertyShorthand, 4> shorthands;
     getMatchingShorthandsForLonghand(resolved_property, &shorthands);
     set_from_shorthand = true;
@@ -2400,7 +2411,7 @@ const CSSValue* ParseLonghand(CSSPropertyID unresolved_property,
                               CSSPropertyID current_shorthand,
                               const CSSParserContext& context,
                               CSSParserTokenRange& range) {
-  CSSPropertyID property_id = resolveCSSPropertyID(unresolved_property);
+  CSSPropertyID property_id = ResolveCSSPropertyID(unresolved_property);
   DCHECK(!CSSProperty::Get(property_id).IsShorthand());
   if (CSSParserFastPaths::IsKeywordPropertyID(property_id)) {
     if (CSSParserFastPaths::IsValidKeywordPropertyAndValue(
@@ -2409,14 +2420,12 @@ const CSSValue* ParseLonghand(CSSPropertyID unresolved_property,
       return ConsumeIdent(range);
     }
 
-    // Some properties need to fallback onto the regular parser.
-    if (!CSSParserFastPaths::IsPartialKeywordPropertyID(property_id))
-      return nullptr;
+    return nullptr;
   }
 
   const auto local_context =
       CSSParserLocalContext()
-          .WithAliasParsing(isPropertyAlias(unresolved_property))
+          .WithAliasParsing(IsPropertyAlias(unresolved_property))
           .WithCurrentShorthand(current_shorthand);
 
   const CSSValue* result = To<Longhand>(CSSProperty::Get(property_id))
@@ -2584,9 +2593,7 @@ bool IsContentPositionOrLeftOrRightKeyword(CSSValueID id) {
 
 bool IsCSSWideKeyword(CSSValueID id) {
   return id == CSSValueID::kInherit || id == CSSValueID::kInitial ||
-         id == CSSValueID::kUnset ||
-         (RuntimeEnabledFeatures::CSSRevertEnabled() &&
-          (id == CSSValueID::kRevert));
+         id == CSSValueID::kUnset || id == CSSValueID::kRevert;
 }
 
 // https://drafts.csswg.org/css-values-4/#css-wide-keywords
@@ -2594,8 +2601,7 @@ bool IsCSSWideKeyword(StringView keyword) {
   return EqualIgnoringASCIICase(keyword, "initial") ||
          EqualIgnoringASCIICase(keyword, "inherit") ||
          EqualIgnoringASCIICase(keyword, "unset") ||
-         (RuntimeEnabledFeatures::CSSRevertEnabled() &&
-          EqualIgnoringASCIICase(keyword, "revert"));
+         EqualIgnoringASCIICase(keyword, "revert");
 }
 
 // https://drafts.csswg.org/css-cascade/#default
@@ -2623,15 +2629,41 @@ bool IsTimelineName(const CSSParserToken& token) {
 
 CSSValue* ConsumeScrollOffset(CSSParserTokenRange& range,
                               const CSSParserContext& context) {
-  range.ConsumeWhitespace();
   if (IdentMatches<CSSValueID::kAuto>(range.Peek().Id()))
     return ConsumeIdent(range);
   CSSParserContext::ParserModeOverridingScope scope(context, kHTMLStandardMode);
+  if (auto* element_offset = ConsumeElementOffset(range, context))
+    return element_offset;
   CSSValue* value =
       ConsumeLengthOrPercent(range, context, kValueRangeNonNegative);
   if (!range.AtEnd())
     return nullptr;
   return value;
+}
+
+namespace {
+
+// https://drafts.csswg.org/scroll-animations-1/#typedef-element-offset-edge
+CSSValue* ConsumeElementOffsetEdge(CSSParserTokenRange& range) {
+  return ConsumeIdent<CSSValueID::kStart, CSSValueID::kEnd>(range);
+}
+
+}  // namespace
+
+// https://drafts.csswg.org/scroll-animations-1/#typedef-element-offset
+CSSValue* ConsumeElementOffset(CSSParserTokenRange& range,
+                               const CSSParserContext& context) {
+  CSSValue* target = ConsumeSelectorFunction(range);
+  if (!target)
+    return nullptr;
+  CSSValue* edge = ConsumeElementOffsetEdge(range);
+  CSSValue* threshold = ConsumeNumber(range, context, kValueRangeNonNegative);
+  // Edge and threshold may appear in any order.
+  edge = edge ? edge : ConsumeElementOffsetEdge(range);
+  if (!range.AtEnd())
+    return nullptr;
+  return MakeGarbageCollected<cssvalue::CSSElementOffsetValue>(target, edge,
+                                                               threshold);
 }
 
 CSSValue* ConsumeSelfPositionOverflowPosition(
@@ -3466,33 +3498,26 @@ CSSValue* ConsumeCounter(CSSParserTokenRange& range,
   return list;
 }
 
-CSSValue* ConsumeScriptLevel(CSSParserTokenRange& range,
-                             const CSSParserContext& context) {
+CSSValue* ConsumeMathDepth(CSSParserTokenRange& range,
+                           const CSSParserContext& context) {
+  if (range.Peek().Id() == CSSValueID::kAutoAdd)
+    return ConsumeIdent(range);
+
+  if (CSSPrimitiveValue* integer_value = ConsumeInteger(range, context))
+    return integer_value;
+
   CSSValueID function_id = range.Peek().FunctionId();
-  DCHECK(function_id == CSSValueID::kScriptlevel);
-  CSSParserTokenRange args = ConsumeFunction(range);
-  if (args.AtEnd())
-    return nullptr;
-  CSSValue* parsed_value = ConsumeIdent<CSSValueID::kAuto>(args);
-  if (!parsed_value)
-    parsed_value = ConsumeInteger(args, context);
-  if (!parsed_value) {
-    function_id = args.Peek().FunctionId();
-    if (function_id == CSSValueID::kAdd) {
+  if (function_id == CSSValueID::kAdd) {
+    CSSParserTokenRange add_args = ConsumeFunction(range);
+    CSSValue* value = ConsumeInteger(add_args, context);
+    if (value && add_args.AtEnd()) {
       auto* add_value = MakeGarbageCollected<CSSFunctionValue>(function_id);
-      CSSParserTokenRange add_args = ConsumeFunction(args);
-      if ((parsed_value = ConsumeInteger(add_args, context))) {
-        add_value->Append(*parsed_value);
-        parsed_value = add_value;
-      }
+      add_value->Append(*value);
+      return add_value;
     }
   }
-  if (!parsed_value || !args.AtEnd())
-    return nullptr;
-  auto* script_level_value =
-      MakeGarbageCollected<CSSFunctionValue>(CSSValueID::kScriptlevel);
-  script_level_value->Append(*parsed_value);
-  return script_level_value;
+
+  return nullptr;
 }
 
 CSSValue* ConsumeFontSize(CSSParserTokenRange& range,
@@ -3500,12 +3525,11 @@ CSSValue* ConsumeFontSize(CSSParserTokenRange& range,
                           UnitlessQuirk unitless) {
   if (range.Peek().Id() == CSSValueID::kWebkitXxxLarge)
     context.Count(WebFeature::kFontSizeWebkitXxxLarge);
-  if (range.Peek().Id() >= CSSValueID::kXxSmall &&
-      range.Peek().Id() <= CSSValueID::kWebkitXxxLarge)
+  if ((range.Peek().Id() >= CSSValueID::kXxSmall &&
+       range.Peek().Id() <= CSSValueID::kWebkitXxxLarge) ||
+      (RuntimeEnabledFeatures::CSSMathDepthEnabled() &&
+       range.Peek().Id() == CSSValueID::kMath))
     return ConsumeIdent(range);
-  if (RuntimeEnabledFeatures::CSSMathStyleEnabled() &&
-      range.Peek().FunctionId() == CSSValueID::kScriptlevel)
-    return ConsumeScriptLevel(range, context);
   return ConsumeLengthOrPercent(range, context, kValueRangeNonNegative,
                                 unitless);
 }
@@ -4361,7 +4385,43 @@ bool ValidWidthOrHeightKeyword(CSSValueID id, const CSSParserContext& context) {
   return false;
 }
 
-CSSValue* ConsumePath(CSSParserTokenRange& range) {
+std::unique_ptr<SVGPathByteStream> ConsumePathStringArg(
+    CSSParserTokenRange& args) {
+  if (args.Peek().GetType() != kStringToken)
+    return nullptr;
+
+  StringView path_string = args.ConsumeIncludingWhitespace().Value();
+  std::unique_ptr<SVGPathByteStream> byte_stream =
+      std::make_unique<SVGPathByteStream>();
+  if (BuildByteStreamFromString(path_string, *byte_stream) !=
+      SVGParseStatus::kNoError) {
+    return nullptr;
+  }
+
+  return byte_stream;
+}
+
+cssvalue::CSSPathValue* ConsumeBasicShapePath(CSSParserTokenRange& args) {
+  auto wind_rule = RULE_NONZERO;
+
+  if (IdentMatches<CSSValueID::kEvenodd, CSSValueID::kNonzero>(
+          args.Peek().Id())) {
+    wind_rule = args.ConsumeIncludingWhitespace().Id() == CSSValueID::kEvenodd
+                    ? RULE_EVENODD
+                    : RULE_NONZERO;
+    if (!ConsumeCommaIncludingWhitespace(args))
+      return nullptr;
+  }
+
+  auto byte_stream = ConsumePathStringArg(args);
+  if (!byte_stream || !args.AtEnd())
+    return nullptr;
+
+  return MakeGarbageCollected<cssvalue::CSSPathValue>(std::move(byte_stream),
+                                                      wind_rule);
+}
+
+CSSValue* ConsumePathFunction(CSSParserTokenRange& range) {
   // FIXME: Add support for <url>, <basic-shape>, <geometry-box>.
   if (range.Peek().FunctionId() != CSSValueID::kPath)
     return nullptr;
@@ -4369,16 +4429,9 @@ CSSValue* ConsumePath(CSSParserTokenRange& range) {
   CSSParserTokenRange function_range = range;
   CSSParserTokenRange function_args = ConsumeFunction(function_range);
 
-  if (function_args.Peek().GetType() != kStringToken)
+  auto byte_stream = ConsumePathStringArg(function_args);
+  if (!byte_stream || !function_args.AtEnd())
     return nullptr;
-  StringView path_string = function_args.ConsumeIncludingWhitespace().Value();
-  std::unique_ptr<SVGPathByteStream> byte_stream =
-      std::make_unique<SVGPathByteStream>();
-  if (BuildByteStreamFromString(path_string, *byte_stream) !=
-          SVGParseStatus::kNoError ||
-      !function_args.AtEnd()) {
-    return nullptr;
-  }
 
   range = function_range;
   if (byte_stream->IsEmpty())
@@ -4480,7 +4533,7 @@ CSSValue* ConsumePathOrNone(CSSParserTokenRange& range) {
   if (id == CSSValueID::kNone)
     return ConsumeIdent(range);
 
-  return ConsumePath(range);
+  return ConsumePathFunction(range);
 }
 
 CSSValue* ConsumeOffsetRotate(CSSParserTokenRange& range,
@@ -4549,7 +4602,8 @@ bool ConsumeRadii(CSSValue* horizontal_radii[4],
 }
 
 CSSValue* ConsumeBasicShape(CSSParserTokenRange& range,
-                            const CSSParserContext& context) {
+                            const CSSParserContext& context,
+                            AllowPathValue allow_path) {
   CSSValue* shape = nullptr;
   if (range.Peek().GetType() != kFunctionToken)
     return nullptr;
@@ -4564,6 +4618,8 @@ CSSValue* ConsumeBasicShape(CSSParserTokenRange& range,
     shape = ConsumeBasicShapePolygon(args, context);
   else if (id == CSSValueID::kInset)
     shape = ConsumeBasicShapeInset(args, context);
+  else if (id == CSSValueID::kPath && allow_path == AllowPathValue::kAllow)
+    shape = ConsumeBasicShapePath(args);
   if (!shape || !args.AtEnd())
     return nullptr;
 
@@ -4748,7 +4804,7 @@ CSSValue* ConsumeTransitionProperty(CSSParserTokenRange& range,
   if (unresolved_property != CSSPropertyID::kInvalid &&
       unresolved_property != CSSPropertyID::kVariable) {
 #if DCHECK_IS_ON()
-    DCHECK(CSSProperty::Get(resolveCSSPropertyID(unresolved_property))
+    DCHECK(CSSProperty::Get(ResolveCSSPropertyID(unresolved_property))
                .IsWebExposed(execution_context));
 #endif
     range.ConsumeIncludingWhitespace();
@@ -4792,8 +4848,8 @@ CSSValue* ParseSpacing(CSSParserTokenRange& range,
   return ConsumeLength(range, context, kValueRangeAll, UnitlessQuirk::kAllow);
 }
 
-CSSValue* ParsePaintStroke(CSSParserTokenRange& range,
-                           const CSSParserContext& context) {
+CSSValue* ConsumeSVGPaint(CSSParserTokenRange& range,
+                          const CSSParserContext& context) {
   if (range.Peek().Id() == CSSValueID::kNone)
     return ConsumeIdent(range);
   cssvalue::CSSURIValue* url = ConsumeUrl(range, context);
@@ -4820,6 +4876,62 @@ UnitlessQuirk UnitlessUnlessShorthand(
   return local_context.CurrentShorthand() == CSSPropertyID::kInvalid
              ? UnitlessQuirk::kAllow
              : UnitlessQuirk::kForbid;
+}
+
+bool ShouldLowerCaseCounterStyleNameOnParse(const AtomicString& name,
+                                            const CSSParserContext& context) {
+  DCHECK(RuntimeEnabledFeatures::CSSAtRuleCounterStyleEnabled());
+
+  if (context.Mode() == kUASheetMode) {
+    // Names in UA sheet should be already in lower case.
+    DCHECK_EQ(name, name.LowerASCII());
+    return false;
+  }
+  return CounterStyleMap::GetUACounterStyleMap()->FindCounterStyleAcrossScopes(
+      name.LowerASCII());
+}
+
+CSSCustomIdentValue* ConsumeCounterStyleName(CSSParserTokenRange& range,
+                                             const CSSParserContext& context) {
+  DCHECK(RuntimeEnabledFeatures::CSSAtRuleCounterStyleEnabled());
+
+  CSSParserTokenRange original_range = range;
+
+  // <counter-style-name> is a <custom-ident> that is not an ASCII
+  // case-insensitive match for "none".
+  const CSSParserToken& name_token = range.ConsumeIncludingWhitespace();
+  if (name_token.GetType() != kIdentToken ||
+      !css_parsing_utils::IsCustomIdent<CSSValueID::kNone>(name_token.Id())) {
+    range = original_range;
+    return nullptr;
+  }
+
+  AtomicString name(name_token.Value().ToString());
+  if (ShouldLowerCaseCounterStyleNameOnParse(name, context))
+    name = name.LowerASCII();
+  return MakeGarbageCollected<CSSCustomIdentValue>(name);
+}
+
+AtomicString ConsumeCounterStyleNameInPrelude(CSSParserTokenRange& prelude,
+                                              const CSSParserContext& context) {
+  const CSSParserToken& name_token = prelude.ConsumeIncludingWhitespace();
+  if (!prelude.AtEnd())
+    return g_null_atom;
+
+  if (name_token.GetType() != kIdentToken ||
+      !IsCustomIdent<CSSValueID::kNone>(name_token.Id()))
+    return g_null_atom;
+
+  if (context.Mode() != kUASheetMode) {
+    if (name_token.Id() == CSSValueID::kDecimal ||
+        name_token.Id() == CSSValueID::kDisc)
+      return g_null_atom;
+  }
+
+  AtomicString name(name_token.Value().ToString());
+  if (ShouldLowerCaseCounterStyleNameOnParse(name, context))
+    name = name.LowerASCII();
+  return name;
 }
 
 }  // namespace css_parsing_utils

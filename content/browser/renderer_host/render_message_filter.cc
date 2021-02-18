@@ -11,7 +11,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/debug/alias.h"
 #include "base/numerics/safe_math.h"
@@ -37,7 +37,6 @@
 #include "content/browser/resource_context_impl.h"
 #include "content/common/content_constants_internal.h"
 #include "content/common/render_message_filter.mojom.h"
-#include "content/common/view_messages.h"
 #include "content/public/browser/browser_child_process_host.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -78,7 +77,7 @@
 namespace content {
 namespace {
 
-const uint32_t kRenderFilteredMessageClasses[] = {ViewMsgStart};
+const uint32_t kRenderFilteredMessageClasses[] = {FrameMsgStart};
 
 }  // namespace
 
@@ -89,7 +88,7 @@ RenderMessageFilter::RenderMessageFilter(
     MediaInternals* media_internals)
     : BrowserMessageFilter(kRenderFilteredMessageClasses,
                            base::size(kRenderFilteredMessageClasses)),
-      BrowserAssociatedInterface<mojom::RenderMessageFilter>(this, this),
+      BrowserAssociatedInterface<mojom::RenderMessageFilter>(this),
       resource_context_(browser_context->GetResourceContext()),
       render_widget_helper_(render_widget_helper),
       render_process_id_(render_process_id),
@@ -117,6 +116,16 @@ void RenderMessageFilter::GenerateRoutingID(
   std::move(callback).Run(render_widget_helper_->GetNextRoutingID());
 }
 
+void RenderMessageFilter::GenerateFrameRoutingID(
+    GenerateFrameRoutingIDCallback callback) {
+  int32_t routing_id = render_widget_helper_->GetNextRoutingID();
+  auto frame_token = base::UnguessableToken::Create();
+  auto devtools_frame_token = base::UnguessableToken::Create();
+  render_widget_helper_->StoreNextFrameRoutingID(routing_id, frame_token,
+                                                 devtools_frame_token);
+  std::move(callback).Run(routing_id, frame_token, devtools_frame_token);
+}
+
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
 void RenderMessageFilter::SetThreadPriorityOnFileThread(
     base::PlatformThreadId ns_tid,
@@ -134,7 +143,7 @@ void RenderMessageFilter::SetThreadPriorityOnFileThread(
     return;
   }
 
-  base::PlatformThread::SetThreadPriority(peer_tid, priority);
+  base::PlatformThread::SetThreadPriority(peer_pid(), peer_tid, priority);
 }
 #endif
 

@@ -45,7 +45,11 @@ _GSUTIL = os.path.join(_DIR_SOURCE_ROOT, 'third_party', 'depot_tools',
 _PUSH_URL = 'gs://chrome-supersize/milestones/'
 
 _DESIRED_CPUS = ['arm', 'arm_64']
-_DESIRED_APKS = ['Monochrome.apk', 'AndroidWebview.apk']
+_DESIRED_APKS = [
+    'ChromeModern.apk', 'Monochrome.apk', 'AndroidWebview.apk',
+    'TrichromeGoogle'
+]
+
 # Versions are manually gathered from
 # https://omahaproxy.appspot.com/history?os=android&channel=stable
 _DESIRED_VERSIONS = [
@@ -73,27 +77,37 @@ _DESIRED_VERSIONS = [
     '81.0.4044.138',
     '83.0.4103.60',
     '84.0.4147.89',
-    '85.0.4183.25',  # Canary
+    '85.0.4183.81',
+    '86.0.4240.198',
+    '87.0.4280.66',
+    '88.0.4324.93',
+    '89.0.4389.48',  # Beta
 ]
 
 
-def _VersionTuple(version):
-  return tuple(int(x) for x in version.split('.'))
+def _VersionMajor(version):
+  return tuple(int(x) for x in version.split('.'))[0]
 
 
 def _IsBundle(apk, version):
-  return apk == 'Monochrome.apk' and _VersionTuple(version) >= (73,)
+  version = _VersionMajor(version)
+  if apk == 'ChromeModern.apk' and version >= 73:
+    return True
+  if apk == 'Monochrome.apk' and version >= 73:
+    return True
+  if apk == 'AndroidWebview.apk' and version >= 89:
+    return True
+  return False
 
 
 def _EnumerateReports():
   for cpu, apk in itertools.product(_DESIRED_CPUS, _DESIRED_APKS):
-    # KitKat doesn't support arm64.
-    if cpu == 'arm_64' and apk == 'Chrome.apk':
-      continue
     versions = _DESIRED_VERSIONS
     # Webview .size files do not exist before M71.
     if apk == 'AndroidWebview.apk':
-      versions = [v for v in versions if _VersionTuple(v) >= (71,)]
+      versions = [v for v in versions if _VersionMajor(v) >= 71]
+    elif apk == 'TrichromeGoogle':
+      versions = [v for v in versions if _VersionMajor(v) >= 88]
 
     for version in versions:
       yield Report(cpu, apk, version)
@@ -101,11 +115,17 @@ def _EnumerateReports():
 
 class Report(collections.namedtuple('Report', 'cpu,apk,version')):
 
-  @property
-  def size_file_subpath(self):
-    ret = '{version}/{cpu}/{apk}.size'.format(**self._asdict())
-    if _IsBundle(self.apk, self.version):
+  def GetSizeFileSubpath(self, local):
+    if not local and self.apk == 'TrichromeGoogle':
+      template = '{version}/{cpu}/for-signing-only/{apk}.size'
+    else:
+      template = '{version}/{cpu}/{apk}.size'
+
+    ret = template.format(**self._asdict())
+
+    if not local and _IsBundle(self.apk, self.version):
       ret = ret.replace('.apk', '.minimal.apks')
+
     return ret
 
 
@@ -139,7 +159,7 @@ def _DownloadOneSizeFile(arg_tuples):
 def _DownloadSizeFiles(base_url, reports):
   temp_dir = tempfile.mkdtemp()
   try:
-    subpaths = set(x.size_file_subpath for x in reports)
+    subpaths = set(x.GetSizeFileSubpath(local=False) for x in reports)
     arg_tuples = ((p, temp_dir, base_url) for p in subpaths)
     for _ in _Shard(_DownloadOneSizeFile, arg_tuples):
       pass
@@ -166,12 +186,11 @@ def _BuildOneReport(report, output_directory, size_file_directory):
   # Newer Monochrome builds are minimal builds, with names like
   # "Monochrome.minimal.apks.size". Standardize to "Monochrome.apk.size".
   local_size_path = os.path.join(output_directory,
-                                 report.size_file_subpath).replace(
-                                     'minimal.apks', 'apk')
-
+                                 report.GetSizeFileSubpath(local=True))
   _MakeDirectory(os.path.dirname(local_size_path))
 
-  size_file = os.path.join(size_file_directory, report.size_file_subpath)
+  size_file = os.path.join(size_file_directory,
+                           report.GetSizeFileSubpath(local=False))
   shutil.copyfile(size_file, local_size_path)
 
 
@@ -205,14 +224,15 @@ def main():
     _WriteMilestonesJson(os.path.join(staging_dir, 'milestones.json'))
 
     if args.sync:
-      subprocess.check_call([
-          _GSUTIL, '-m', 'rsync', '-J', '-a', 'public-read', '-r', staging_dir,
-          _PUSH_URL
-      ])
-      subprocess.check_call([
-          _GSUTIL, 'setmeta', '-h', 'Cache-Control:no-cache',
-          _PUSH_URL + 'milestones.json'
-      ])
+      subprocess.check_call(
+          [_GSUTIL, '-m', 'rsync', '-J', '-r', staging_dir, _PUSH_URL])
+      milestones_json = _PUSH_URL + 'milestones.json'
+      # The main index.html page has no authentication code, so make .json file
+      # world-readable.
+      subprocess.check_call(
+          [_GSUTIL, 'acl', 'set', '-a', 'public-read', milestones_json])
+      subprocess.check_call(
+          [_GSUTIL, 'setmeta', '-h', 'Cache-Control:no-cache', milestones_json])
     else:
       logging.warning('Finished dry run. Run with --sync to upload.')
 

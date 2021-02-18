@@ -21,6 +21,7 @@
 #include "chromeos/services/assistant/public/cpp/assistant_prefs.h"
 #include "chromeos/services/assistant/public/cpp/assistant_service.h"
 #include "chromeos/services/assistant/public/cpp/features.h"
+#include "chromeos/services/libassistant/public/cpp/assistant_feedback.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "url/gurl.h"
@@ -88,7 +89,8 @@ void AssistantControllerImpl::SendAssistantFeedback(
   assistant_feedback.assistant_debug_info_allowed =
       assistant_debug_info_allowed;
   assistant_feedback.description = feedback_description;
-  assistant_feedback.screenshot_png = screenshot_png;
+  assistant_feedback.screenshot_png =
+      std::vector<uint8_t>(screenshot_png.begin(), screenshot_png.end());
   assistant_->SendAssistantFeedback(std::move(assistant_feedback));
 }
 
@@ -267,7 +269,7 @@ void AssistantControllerImpl::OnAccessibilityStatusChanged() {
   // The Assistant service needs to be informed of changes to accessibility
   // state so that it can turn on/off A11Y features appropriately.
   assistant_->OnAccessibilityStatusChanged(
-      Shell::Get()->accessibility_controller()->spoken_feedback_enabled());
+      Shell::Get()->accessibility_controller()->spoken_feedback().enabled());
 }
 
 bool AssistantControllerImpl::IsAssistantReady() const {

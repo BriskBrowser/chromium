@@ -16,7 +16,7 @@
 #include "gpu/command_buffer/common/buffer.h"
 #include "gpu/command_buffer/service/service_font_manager.h"
 #include "third_party/skia/include/core/SkSurface.h"
-#include "third_party/skia/include/gpu/GrContext.h"
+#include "third_party/skia/include/gpu/GrDirectContext.h"
 
 struct Environment {
   Environment() {
@@ -79,7 +79,7 @@ void Raster(scoped_refptr<viz::TestContextProvider> context_provider,
       context_provider->GrContext(), SkBudgeted::kYes, image_info);
   SkCanvas* canvas = surface->getCanvas();
 
-  cc::PlaybackParams params(nullptr, canvas->getTotalMatrix());
+  cc::PlaybackParams params(nullptr, canvas->getLocalToDevice());
   cc::TransferCacheTestHelper transfer_cache_helper;
   std::vector<uint8_t> scratch_buffer;
   cc::PaintOp::DeserializeOptions deserialize_options(

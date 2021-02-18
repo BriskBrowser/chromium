@@ -11,6 +11,7 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/logging.h"
 #include "base/mac/bundle_locations.h"
 #import "base/mac/foundation_util.h"
 #include "base/process/launch.h"
@@ -63,9 +64,7 @@ int InstallUpdater() {
   }
 
   base::CommandLine command(updater_executable_path);
-  command.AppendSwitch(kRegisterSwitch);
-  command.AppendSwitchASCII(kAppIdSwitch, TEST_APP_FULLNAME_STRING);
-  command.AppendSwitchASCII(kAppVersionSwitch, TEST_APP_VERSION_STRING);
+  command.AppendSwitch(kInstallSwitch);
   command.AppendSwitchASCII("--vmodule", "*/updater/*=2");
 
   std::string output;

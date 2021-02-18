@@ -11,22 +11,32 @@
 #include "media/base/decode_status.h"
 #include "media/base/media_log.h"
 #include "media/base/status.h"
+#include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_codec_state.h"
-#include "third_party/blink/renderer/bindings/modules/v8/v8_web_codecs_error_callback.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_webcodecs_error_callback.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/modules/webcodecs/codec_config_eval.h"
+#include "third_party/blink/renderer/modules/webcodecs/codec_logger.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/heap/heap_allocator.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
 
+namespace media {
+class GpuVideoAcceleratorFactories;
+}
+
 namespace blink {
 
 template <typename Traits>
-class MODULES_EXPORT DecoderTemplate : public ScriptWrappable {
+class MODULES_EXPORT DecoderTemplate
+    : public ScriptWrappable,
+      public ActiveScriptWrappable<DecoderTemplate<Traits>>,
+      public ExecutionContextLifecycleObserver {
  public:
   typedef typename Traits::ConfigType ConfigType;
   typedef typename Traits::MediaConfigType MediaConfigType;
@@ -48,13 +58,16 @@ class MODULES_EXPORT DecoderTemplate : public ScriptWrappable {
   void close(ExceptionState&);
   String state() const { return state_; }
 
+  // ExecutionContextLifecycleObserver override.
+  void ContextDestroyed() override;
+
+  // ScriptWrappable override.
+  bool HasPendingActivity() const override;
+
   // GarbageCollected override.
   void Trace(Visitor*) const override;
 
  protected:
-  // TODO(sandersd): Consider moving these to the Traits class, and creating an
-  // instance of the traits.
-
   // Convert a configuration to a DecoderConfig.
   virtual CodecConfigEval MakeMediaConfig(const ConfigType& config,
                                           MediaConfigType* out_media_config,
@@ -62,9 +75,11 @@ class MODULES_EXPORT DecoderTemplate : public ScriptWrappable {
 
   // Convert a chunk to a DecoderBuffer. You can assume that the last
   // configuration sent to MakeMediaConfig() is the active configuration for
-  // |chunk|.
-  virtual scoped_refptr<media::DecoderBuffer> MakeDecoderBuffer(
-      const InputType& chunk) = 0;
+  // |chunk|. If there is an error in the conversion process, the resulting
+  // DecoderBuffer will be null, and |out_status| will contain a description of
+  // the error.
+  virtual media::StatusOr<scoped_refptr<media::DecoderBuffer>>
+  MakeDecoderBuffer(const InputType& chunk) = 0;
 
  private:
   struct Request final : public GarbageCollected<Request> {
@@ -87,6 +102,13 @@ class MODULES_EXPORT DecoderTemplate : public ScriptWrappable {
 
     // For kFlush Requests.
     Member<ScriptPromiseResolver> resolver;
+
+    // For reporting an error at the time when a request is processed.
+    media::Status status;
+
+    // The value of |reset_generation_| at the time of this request. Used to
+    // abort pending requests following a reset().
+    uint32_t reset_generation = 0;
   };
 
   void ProcessRequests();
@@ -94,16 +116,16 @@ class MODULES_EXPORT DecoderTemplate : public ScriptWrappable {
   bool ProcessDecodeRequest(Request* request);
   bool ProcessFlushRequest(Request* request);
   bool ProcessResetRequest(Request* request);
-  void HandleError();
-  void Shutdown(bool is_error);
+  void ResetAlgorithm();
+  void Shutdown(DOMException* ex = nullptr);
 
   // Called by |decoder_|.
   void OnInitializeDone(media::Status status);
-  void OnDecodeDone(uint32_t id, media::DecodeStatus);
-  void OnFlushDone(media::DecodeStatus);
-  void OnConfigureFlushDone(media::DecodeStatus);
+  void OnDecodeDone(uint32_t id, media::Status);
+  void OnFlushDone(media::Status);
+  void OnConfigureFlushDone(media::Status);
   void OnResetDone();
-  void OnOutput(scoped_refptr<MediaOutputType>);
+  void OnOutput(uint32_t reset_generation, scoped_refptr<MediaOutputType>);
 
   // Helper function making it easier to check |state_|.
   bool IsClosed();
@@ -113,8 +135,10 @@ class MODULES_EXPORT DecoderTemplate : public ScriptWrappable {
   Member<V8WebCodecsErrorCallback> error_cb_;
 
   HeapDeque<Member<Request>> requests_;
-  int32_t requested_decodes_ = 0;
-  int32_t requested_resets_ = 0;
+  int32_t num_pending_decodes_ = 0;
+
+  // Monotonic increasing generation counter for calls to ResetAlgorithm().
+  uint32_t reset_generation_ = 0;
 
   // Which state the codec is in, determining which calls we can receive.
   V8CodecState state_;
@@ -123,7 +147,9 @@ class MODULES_EXPORT DecoderTemplate : public ScriptWrappable {
   // Could be a configure, flush, or reset. Decodes go in |pending_decodes_|.
   Member<Request> pending_request_;
 
-  std::unique_ptr<media::MediaLog> media_log_;
+  std::unique_ptr<CodecLogger> logger_;
+
+  media::GpuVideoAcceleratorFactories* gpu_factories_ = nullptr;
 
   // TODO(sandersd): Store the last config, flush, and reset so that
   // duplicates can be elided.

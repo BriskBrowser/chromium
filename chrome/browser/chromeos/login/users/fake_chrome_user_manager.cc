@@ -7,21 +7,21 @@
 #include <set>
 #include <utility>
 
+#include "ash/constants/ash_switches.h"
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/single_thread_task_runner.h"
 #include "base/system/sys_info.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager_util.h"
 #include "chrome/browser/chromeos/login/users/fake_supervised_user_manager.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/ui/ash/wallpaper_controller_client.h"
 #include "chrome/test/base/testing_profile.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/login/login_state/login_state.h"
 #include "components/user_manager/known_user.h"
 #include "components/user_manager/user_image/user_image.h"
@@ -141,16 +141,6 @@ user_manager::User* FakeChromeUserManager::AddWebKioskAppUser(
     const AccountId& account_id) {
   user_manager::User* user =
       user_manager::User::CreateWebKioskAppUser(account_id);
-  user->set_username_hash(ProfileHelper::GetUserIdHashByUserIdForTesting(
-      account_id.GetUserEmail()));
-  users_.push_back(user);
-  return user;
-}
-
-user_manager::User* FakeChromeUserManager::AddSupervisedUser(
-    const AccountId& account_id) {
-  user_manager::User* user =
-      user_manager::User::CreateSupervisedUser(account_id);
   user->set_username_hash(ProfileHelper::GetUserIdHashByUserIdForTesting(
       account_id.GetUserEmail()));
   users_.push_back(user);
@@ -279,7 +269,7 @@ void FakeChromeUserManager::RemoveUser(
 void FakeChromeUserManager::RemoveUserFromList(const AccountId& account_id) {
   WallpaperControllerClient* const wallpaper_client =
       WallpaperControllerClient::Get();
-  // |wallpaper_client| could be nullptr in tests.
+  // `wallpaper_client` could be nullptr in tests.
   if (wallpaper_client)
     wallpaper_client->RemoveUserWallpaper(account_id);
   chromeos::ProfileHelper::Get()->RemoveUserFromListForTesting(account_id);
@@ -351,7 +341,7 @@ bool FakeChromeUserManager::IsStubAccountId(const AccountId& account_id) const {
   return account_id == user_manager::StubAccountId();
 }
 
-bool FakeChromeUserManager::IsSupervisedAccountId(
+bool FakeChromeUserManager::IsDeprecatedSupervisedAccountId(
     const AccountId& account_id) const {
   const policy::BrowserPolicyConnectorChromeOS* connector =
       g_browser_process->platform_part()->browser_policy_connector_chromeos();
@@ -570,10 +560,6 @@ bool FakeChromeUserManager::IsLoggedInAsGuest() const {
   return false;
 }
 
-bool FakeChromeUserManager::IsLoggedInAsSupervisedUser() const {
-  return false;
-}
-
 bool FakeChromeUserManager::IsLoggedInAsKioskApp() const {
   const user_manager::User* active_user = GetActiveUser();
   return active_user
@@ -609,10 +595,6 @@ bool FakeChromeUserManager::IsUserNonCryptohomeDataEphemeral(
   return current_user_ephemeral_;
 }
 
-bool FakeChromeUserManager::AreSupervisedUsersAllowed() const {
-  return true;
-}
-
 bool FakeChromeUserManager::IsGuestSessionAllowed() const {
   bool is_guest_allowed = false;
   CrosSettings::Get()->GetBoolean(kAccountsPrefAllowGuest, &is_guest_allowed);
@@ -623,21 +605,20 @@ bool FakeChromeUserManager::IsGaiaUserAllowed(
     const user_manager::User& user) const {
   DCHECK(user.HasGaiaAccount());
   return CrosSettings::Get()->IsUserAllowlisted(
-      user.GetAccountId().GetUserEmail(), nullptr);
+      user.GetAccountId().GetUserEmail(), nullptr, user.GetType());
 }
 
 bool FakeChromeUserManager::IsUserAllowed(
     const user_manager::User& user) const {
   DCHECK(user.GetType() == user_manager::USER_TYPE_REGULAR ||
          user.GetType() == user_manager::USER_TYPE_GUEST ||
-         user.GetType() == user_manager::USER_TYPE_SUPERVISED ||
+         user.GetType() == user_manager::USER_TYPE_SUPERVISED_DEPRECATED ||
          user.GetType() == user_manager::USER_TYPE_CHILD);
 
   if (user.GetType() == user_manager::USER_TYPE_GUEST &&
       !IsGuestSessionAllowed())
     return false;
-  if (user.GetType() == user_manager::USER_TYPE_SUPERVISED &&
-      !AreSupervisedUsersAllowed())
+  if (user.GetType() == user_manager::USER_TYPE_SUPERVISED_DEPRECATED)
     return false;
   if (user.HasGaiaAccount() && !IsGaiaUserAllowed(user))
     return false;
@@ -672,12 +653,6 @@ const std::string& FakeChromeUserManager::GetApplicationLocale() const {
   return default_locale;
 }
 
-void FakeChromeUserManager::HandleUserOAuthTokenStatusChange(
-    const AccountId& account_id,
-    user_manager::User::OAuthTokenStatus status) const {
-  NOTREACHED();
-}
-
 void FakeChromeUserManager::LoadDeviceLocalAccounts(
     std::set<AccountId>* users_set) {
   NOTREACHED();
@@ -685,10 +660,6 @@ void FakeChromeUserManager::LoadDeviceLocalAccounts(
 
 bool FakeChromeUserManager::IsEnterpriseManaged() const {
   return is_enterprise_managed_;
-}
-
-void FakeChromeUserManager::PerformPreUserListLoadingActions() {
-  NOTREACHED();
 }
 
 void FakeChromeUserManager::PerformPostUserListLoadingActions() {
@@ -717,11 +688,6 @@ void FakeChromeUserManager::KioskAppLoggedIn(user_manager::User* user) {}
 
 void FakeChromeUserManager::PublicAccountUserLoggedIn(
     user_manager::User* user) {
-  NOTREACHED();
-}
-
-void FakeChromeUserManager::SupervisedUserLoggedIn(
-    const AccountId& account_id) {
   NOTREACHED();
 }
 

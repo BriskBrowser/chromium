@@ -30,6 +30,8 @@ import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.embedder_support.contextmenu.ContextMenuParams;
 import org.chromium.ui.modelutil.PropertyModel;
+import org.chromium.url.GURL;
+import org.chromium.url.JUnitTestGURLs;
 
 /**
  * Unit tests for the Revamped context menu header mediator.
@@ -43,6 +45,8 @@ public class RevampedContextMenuHeaderMediatorTest {
 
     @Mock
     PerformanceHintsObserver.Natives mNativeMock;
+    @Mock
+    ContextMenuNativeDelegate mNativeDelegate;
 
     private Activity mActivity;
     private final Profile mProfile = Mockito.mock(Profile.class);
@@ -56,40 +60,7 @@ public class RevampedContextMenuHeaderMediatorTest {
 
     @Test
     public void testPerformanceInfoEnabled() {
-        when(mNativeMock.isContextMenuPerformanceInfoEnabled()).thenReturn(true);
-        PropertyModel model =
-                new PropertyModel.Builder(RevampedContextMenuHeaderProperties.ALL_KEYS)
-                        .with(RevampedContextMenuHeaderProperties.URL_PERFORMANCE_CLASS,
-                                PerformanceClass.PERFORMANCE_UNKNOWN)
-                        .build();
-        final ContextMenuParams params =
-                new ContextMenuParams(0, ContextMenuDataMediaType.IMAGE, "https://example.org",
-                        "https://example.org/sitemap", "", "", "", "", null, false, 0, 0, 0);
-        final RevampedContextMenuHeaderMediator mediator = new RevampedContextMenuHeaderMediator(
-                mActivity, model, PerformanceClass.PERFORMANCE_FAST, params, mProfile);
-        assertThat(model.get(RevampedContextMenuHeaderProperties.URL_PERFORMANCE_CLASS),
-                equalTo(PerformanceClass.PERFORMANCE_FAST));
-    }
-
-    @Test
-    public void testPerformanceInfoDisabled() {
-        when(mNativeMock.isContextMenuPerformanceInfoEnabled()).thenReturn(false);
-        PropertyModel model =
-                new PropertyModel.Builder(RevampedContextMenuHeaderProperties.ALL_KEYS)
-                        .with(RevampedContextMenuHeaderProperties.URL_PERFORMANCE_CLASS,
-                                PerformanceClass.PERFORMANCE_UNKNOWN)
-                        .build();
-        final ContextMenuParams params =
-                new ContextMenuParams(0, ContextMenuDataMediaType.IMAGE, "https://example.org",
-                        "https://example.org/sitemap", "", "", "", "", null, false, 0, 0, 0);
-        final RevampedContextMenuHeaderMediator mediator = new RevampedContextMenuHeaderMediator(
-                mActivity, model, PerformanceClass.PERFORMANCE_FAST, params, mProfile);
-        assertThat(model.get(RevampedContextMenuHeaderProperties.URL_PERFORMANCE_CLASS),
-                equalTo(PerformanceClass.PERFORMANCE_UNKNOWN));
-    }
-
-    @Test
-    public void testNoPerformanceInfoOnNonAnchor() {
+        final GURL url = JUnitTestGURLs.getGURL(JUnitTestGURLs.URL_1);
         when(mNativeMock.isContextMenuPerformanceInfoEnabled()).thenReturn(true);
         PropertyModel model =
                 new PropertyModel.Builder(RevampedContextMenuHeaderProperties.ALL_KEYS)
@@ -97,9 +68,49 @@ public class RevampedContextMenuHeaderMediatorTest {
                                 PerformanceClass.PERFORMANCE_UNKNOWN)
                         .build();
         final ContextMenuParams params = new ContextMenuParams(0, ContextMenuDataMediaType.IMAGE,
-                "https://example.org", "", "", "", "", "", null, false, 0, 0, 0);
-        final RevampedContextMenuHeaderMediator mediator = new RevampedContextMenuHeaderMediator(
-                mActivity, model, PerformanceClass.PERFORMANCE_FAST, params, mProfile);
+                url, JUnitTestGURLs.getGURL(JUnitTestGURLs.URL_1_WITH_PATH), "", GURL.emptyGURL(),
+                GURL.emptyGURL(), "", null, false, 0, 0, 0);
+        final RevampedContextMenuHeaderMediator mediator =
+                new RevampedContextMenuHeaderMediator(mActivity, model,
+                        PerformanceClass.PERFORMANCE_FAST, params, mProfile, mNativeDelegate);
+        assertThat(model.get(RevampedContextMenuHeaderProperties.URL_PERFORMANCE_CLASS),
+                equalTo(PerformanceClass.PERFORMANCE_FAST));
+    }
+
+    @Test
+    public void testPerformanceInfoDisabled() {
+        final GURL url = JUnitTestGURLs.getGURL(JUnitTestGURLs.URL_1);
+        when(mNativeMock.isContextMenuPerformanceInfoEnabled()).thenReturn(false);
+        PropertyModel model =
+                new PropertyModel.Builder(RevampedContextMenuHeaderProperties.ALL_KEYS)
+                        .with(RevampedContextMenuHeaderProperties.URL_PERFORMANCE_CLASS,
+                                PerformanceClass.PERFORMANCE_UNKNOWN)
+                        .build();
+        final ContextMenuParams params = new ContextMenuParams(0, ContextMenuDataMediaType.IMAGE,
+                url, JUnitTestGURLs.getGURL(JUnitTestGURLs.URL_1_WITH_PATH), "", GURL.emptyGURL(),
+                GURL.emptyGURL(), "", null, false, 0, 0, 0);
+        final RevampedContextMenuHeaderMediator mediator =
+                new RevampedContextMenuHeaderMediator(mActivity, model,
+                        PerformanceClass.PERFORMANCE_FAST, params, mProfile, mNativeDelegate);
+        assertThat(model.get(RevampedContextMenuHeaderProperties.URL_PERFORMANCE_CLASS),
+                equalTo(PerformanceClass.PERFORMANCE_UNKNOWN));
+    }
+
+    @Test
+    public void testNoPerformanceInfoOnNonAnchor() {
+        final GURL url = JUnitTestGURLs.getGURL(JUnitTestGURLs.EXAMPLE_URL);
+        when(mNativeMock.isContextMenuPerformanceInfoEnabled()).thenReturn(true);
+        PropertyModel model =
+                new PropertyModel.Builder(RevampedContextMenuHeaderProperties.ALL_KEYS)
+                        .with(RevampedContextMenuHeaderProperties.URL_PERFORMANCE_CLASS,
+                                PerformanceClass.PERFORMANCE_UNKNOWN)
+                        .build();
+        final ContextMenuParams params =
+                new ContextMenuParams(0, ContextMenuDataMediaType.IMAGE, url, GURL.emptyGURL(), "",
+                        GURL.emptyGURL(), GURL.emptyGURL(), "", null, false, 0, 0, 0);
+        final RevampedContextMenuHeaderMediator mediator =
+                new RevampedContextMenuHeaderMediator(mActivity, model,
+                        PerformanceClass.PERFORMANCE_FAST, params, mProfile, mNativeDelegate);
         assertThat(model.get(RevampedContextMenuHeaderProperties.URL_PERFORMANCE_CLASS),
                 equalTo(PerformanceClass.PERFORMANCE_UNKNOWN));
     }

@@ -39,7 +39,7 @@ BOOL WaitForKeyboardToAppear() {
   GREYCondition* waitForKeyboard = [GREYCondition
       conditionWithName:@"Wait for keyboard"
                   block:^BOOL {
-                    return [ChromeEarlGrey isKeyboardShownWithError:nil];
+                    return [EarlGrey isKeyboardShownWithError:nil];
                   }];
   return [waitForKeyboard waitWithTimeout:kWaitForActionTimeout];
 }
@@ -205,6 +205,10 @@ BOOL WaitForKeyboardToAppear() {
 // Tests that the Address View Controller is dismissed when tapping the
 // keyboard icon.
 - (void)testKeyboardIconDismissAddressController {
+#if TARGET_IPHONE_SIMULATOR
+  // See crbug.com/1163133.
+  EARL_GREY_TEST_DISABLED(@"Test is not applicable for simulator.");
+#endif
   if ([ChromeEarlGrey isIPadIdiom]) {
     // The keyboard icon is never present in iPads.
     EARL_GREY_TEST_SKIPPED(@"Test is not applicable for iPad");

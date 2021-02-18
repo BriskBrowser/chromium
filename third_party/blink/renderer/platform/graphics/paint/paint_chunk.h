@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/platform/geometry/int_rect.h"
 #include "third_party/blink/renderer/platform/graphics/paint/display_item.h"
 #include "third_party/blink/renderer/platform/graphics/paint/hit_test_data.h"
+#include "third_party/blink/renderer/platform/graphics/paint/layer_selection_data.h"
 #include "third_party/blink/renderer/platform/graphics/paint/raster_invalidation_tracking.h"
 #include "third_party/blink/renderer/platform/graphics/paint/ref_counted_property_tree_state.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
@@ -18,6 +19,8 @@
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
+
+constexpr float kMinBackgroundColorCoverageRatio = 0.5;
 
 // A contiguous sequence of drawings with common paint properties.
 //
@@ -52,6 +55,7 @@ struct PLATFORM_EXPORT PaintChunk {
         id(other.id),
         properties(other.properties),
         hit_test_data(std::move(other.hit_test_data)),
+        layer_selection_data(std::move(other.layer_selection_data)),
         bounds(other.bounds),
         drawable_bounds(other.drawable_bounds),
         raster_effect_outset(other.raster_effect_outset),
@@ -97,6 +101,12 @@ struct PLATFORM_EXPORT PaintChunk {
     return *hit_test_data;
   }
 
+  LayerSelectionData& EnsureLayerSelectionData() {
+    if (!layer_selection_data)
+      layer_selection_data = std::make_unique<LayerSelectionData>();
+    return *layer_selection_data;
+  }
+
   size_t MemoryUsageInBytes() const;
 
   String ToString() const;
@@ -113,7 +123,7 @@ struct PLATFORM_EXPORT PaintChunk {
   Color background_color;
 
   // The area that is painted by the paint op that defines background_color.
-  uint64_t background_color_area;
+  float background_color_area;
 
   // Identifier of this chunk. It should be unique if |is_cacheable| is true.
   // This is used to match a new chunk to a cached old chunk to track changes
@@ -124,6 +134,7 @@ struct PLATFORM_EXPORT PaintChunk {
   RefCountedPropertyTreeState properties;
 
   std::unique_ptr<HitTestData> hit_test_data;
+  std::unique_ptr<LayerSelectionData> layer_selection_data;
 
   // The following fields depend on the display items in this chunk.
   // They are updated when a display item is added into the chunk.

@@ -29,12 +29,21 @@ class DesksBarView;
 // supports desk activation and removal.
 class ASH_EXPORT DeskMiniView
     : public views::View,
-      public views::ButtonListener,
       public Desk::Observer,
       public OverviewHighlightController::OverviewHighlightableView,
       public views::TextfieldController,
       public views::ViewObserver {
  public:
+  // Returns the width of the desk preview based on its |preview_height| and the
+  // aspect ratio of the root window taken from |root_window_size|.
+  static int GetPreviewWidth(const gfx::Size& root_window_size,
+                             int preview_height);
+
+  // The desk preview bounds are proportional to the bounds of the display on
+  // which it resides, and whether the |compact| layout is used.
+  static gfx::Rect GetDeskPreviewBounds(aura::Window* root_window,
+                                        bool compact);
+
   DeskMiniView(DesksBarView* owner_bar, aura::Window* root_window, Desk* desk);
   ~DeskMiniView() override;
 
@@ -48,6 +57,10 @@ class ASH_EXPORT DeskMiniView
     return close_desk_button_;
   }
 
+  DesksBarView* owner_bar() { return owner_bar_; }
+
+  gfx::Rect GetPreviewBoundsInScreen() const;
+
   // Returns the associated desk's container window on the display this
   // mini_view resides on.
   aura::Window* GetDeskContainer() const;
@@ -57,8 +70,8 @@ class ASH_EXPORT DeskMiniView
   bool IsDeskNameBeingModified() const;
 
   // Updates the visibility state of the close button depending on whether this
-  // view is mouse hovered.
-  void OnHoverStateMayHaveChanged();
+  // view is mouse hovered, or if switch access is enabled.
+  void UpdateCloseButtonVisibility();
 
   // Gesture tapping may affect the visibility of the close button. There's only
   // one mini_view that shows the close button on long press at any time.
@@ -69,14 +82,15 @@ class ASH_EXPORT DeskMiniView
   // state of the corresponding desk.
   void UpdateBorderColor();
 
-  // views::Button:
+  // Gets the preview border's insets.
+  gfx::Insets GetPreviewBorderInsets() const;
+
+  // views::View:
   const char* GetClassName() const override;
   void Layout() override;
   gfx::Size CalculatePreferredSize() const override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
-
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
+  void OnThemeChanged() override;
 
   // Desk::Observer:
   void OnContentChanged() override;
@@ -87,6 +101,7 @@ class ASH_EXPORT DeskMiniView
   views::View* GetView() override;
   void MaybeActivateHighlightedView() override;
   void MaybeCloseHighlightedView() override;
+  void MaybeSwapHighlightedView(bool right) override;
   void OnViewHighlighted() override;
   void OnViewUnhighlighted() override;
 
@@ -119,6 +134,9 @@ class ASH_EXPORT DeskMiniView
   void OnCloseButtonPressed();
 
   void OnDeskPreviewPressed();
+
+  // Layout |desk_name_view_| given the current bounds of the desk preview.
+  void LayoutDeskNameView(const gfx::Rect& preview_bounds);
 
   DesksBarView* const owner_bar_;
 

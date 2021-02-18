@@ -6,13 +6,15 @@
 
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
+#include "build/build_config.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/system/data_pipe_utils.h"
 #include "net/http/http_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/features.h"
-#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-shared.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
+#include "third_party/blink/public/mojom/loader/resource_load_info_notifier.mojom.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_load_observer.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader_options.h"
 #include "third_party/blink/renderer/platform/loader/fetch/url_loader/worker_main_script_loader_client.h"
@@ -39,6 +41,11 @@ class WorkerMainScriptLoaderTest : public testing::Test {
         client_(MakeGarbageCollected<TestClient>()) {
     scoped_feature_list_.InitWithFeatureState(
         blink::features::kPlzDedicatedWorker, true);
+  }
+  ~WorkerMainScriptLoaderTest() override {
+    // Forced GC in order to finalize objects depending on MockResourceObserver,
+    // see details https://crbug.com/1132634.
+    ThreadState::Current()->CollectAllGarbageForTesting();
   }
 
  protected:
@@ -113,31 +120,34 @@ class WorkerMainScriptLoaderTest : public testing::Test {
   class FakeResourceLoadInfoNotifier final
       : public blink::mojom::ResourceLoadInfoNotifier {
    public:
-    explicit FakeResourceLoadInfoNotifier(
-        mojo::PendingReceiver<blink::mojom::ResourceLoadInfoNotifier> receiver)
-        : receiver_(this, std::move(receiver)) {}
+    FakeResourceLoadInfoNotifier() = default;
 
     FakeResourceLoadInfoNotifier(const FakeResourceLoadInfoNotifier&) = delete;
     FakeResourceLoadInfoNotifier& operator=(
         const FakeResourceLoadInfoNotifier&) = delete;
 
     // blink::mojom::ResourceLoadInfoNotifier overrides.
+#if defined(OS_ANDROID)
+    void NotifyUpdateUserGestureCarryoverInfo() override {}
+#endif
     void NotifyResourceRedirectReceived(
         const net::RedirectInfo& redirect_info,
         network::mojom::URLResponseHeadPtr redirect_response) override {}
     void NotifyResourceResponseReceived(
-        blink::mojom::ResourceLoadInfoPtr resource_load_info,
+        int64_t request_id,
+        const GURL& final_url,
         network::mojom::URLResponseHeadPtr head,
-        int32_t previews_state) override {
-      resource_load_info_ = std::move(resource_load_info);
-    }
+        network::mojom::RequestDestination request_destination,
+        int32_t previews_state) override {}
     void NotifyResourceTransferSizeUpdated(
-        int32_t request_id,
+        int64_t request_id,
         int32_t transfer_size_diff) override {}
     void NotifyResourceLoadCompleted(
         blink::mojom::ResourceLoadInfoPtr resource_load_info,
-        const ::network::URLLoaderCompletionStatus& status) override {}
-    void NotifyResourceLoadCanceled(int32_t request_id) override {}
+        const ::network::URLLoaderCompletionStatus& status) override {
+      resource_load_info_ = std::move(resource_load_info);
+    }
+    void NotifyResourceLoadCanceled(int64_t request_id) override {}
     void Clone(mojo::PendingReceiver<blink::mojom::ResourceLoadInfoNotifier>
                    pending_resource_load_info_notifier) override {}
 
@@ -145,18 +155,18 @@ class WorkerMainScriptLoaderTest : public testing::Test {
 
    private:
     blink::mojom::ResourceLoadInfoPtr resource_load_info_;
-    mojo::Receiver<blink::mojom::ResourceLoadInfoNotifier> receiver_;
   };
 
   class MockResourceLoadObserver : public ResourceLoadObserver {
    public:
     MOCK_METHOD2(DidStartRequest, void(const FetchParameters&, ResourceType));
-    MOCK_METHOD5(WillSendRequest,
+    MOCK_METHOD6(WillSendRequest,
                  void(uint64_t identifier,
                       const ResourceRequest&,
                       const ResourceResponse& redirect_response,
                       ResourceType,
-                      const FetchInitiatorInfo&));
+                      const FetchInitiatorInfo&,
+                      RenderBlockingBehavior));
     MOCK_METHOD3(DidChangePriority,
                  void(uint64_t identifier,
                       ResourceLoadPriority,
@@ -184,6 +194,8 @@ class WorkerMainScriptLoaderTest : public testing::Test {
                       const ResourceError&,
                       int64_t encoded_data_length,
                       IsInternalRequest));
+    MOCK_METHOD1(EvictFromBackForwardCache,
+                 void(blink::mojom::RendererEvictionReason));
   };
 
   MojoCreateDataPipeOptions CreateDataPipeOptions() {
@@ -226,23 +238,20 @@ class WorkerMainScriptLoaderTest : public testing::Test {
       std::unique_ptr<WorkerMainScriptLoadParameters>
           worker_main_script_load_params,
       ResourceLoadObserver* observer,
-      mojo::PendingRemote<blink::mojom::ResourceLoadInfoNotifier>
-          pending_remote) {
+      mojom::ResourceLoadInfoNotifier* resource_load_info_notifier) {
     ResourceRequest request(kTopLevelScriptURL);
-    request.SetRequestContext(mojom::RequestContextType::SHARED_WORKER);
+    request.SetRequestContext(mojom::blink::RequestContextType::SHARED_WORKER);
     request.SetRequestDestination(
         network::mojom::RequestDestination::kSharedWorker);
     FetchParameters fetch_params(std::move(request),
                                  ResourceLoaderOptions(nullptr /* world */));
     WorkerMainScriptLoader* worker_main_script_loader =
         MakeGarbageCollected<WorkerMainScriptLoader>();
-    worker_main_script_loader->Start(
-        fetch_params, std::move(worker_main_script_load_params),
-        MakeGarbageCollected<MockFetchContext>(), observer,
-        blink::CrossVariantMojoRemote<
-            blink::mojom::ResourceLoadInfoNotifierInterfaceBase>(
-            std::move(pending_remote)),
-        client_);
+    MockFetchContext* fetch_context = MakeGarbageCollected<MockFetchContext>();
+    fetch_context->SetResourceLoadInfoNotifier(resource_load_info_notifier);
+    worker_main_script_loader->Start(fetch_params,
+                                     std::move(worker_main_script_load_params),
+                                     fetch_context, observer, client_);
     return worker_main_script_loader;
   }
 
@@ -265,16 +274,13 @@ class WorkerMainScriptLoaderTest : public testing::Test {
 
 TEST_F(WorkerMainScriptLoaderTest, ResponseWithSucessThenOnComplete) {
   mojo::ScopedDataPipeProducerHandle body_producer;
-  mojo::PendingRemote<blink::mojom::ResourceLoadInfoNotifier>
-      pending_resource_load_info_notifier;
-  FakeResourceLoadInfoNotifier fake_resource_load_info_notifier(
-      pending_resource_load_info_notifier.InitWithNewPipeAndPassReceiver());
   std::unique_ptr<WorkerMainScriptLoadParameters>
       worker_main_script_load_params =
           CreateMainScriptLoaderParams(kHeader, &body_producer);
   MockResourceLoadObserver* mock_observer =
       MakeGarbageCollected<MockResourceLoadObserver>();
-  EXPECT_CALL(*mock_observer, WillSendRequest(_, _, _, _, _));
+  FakeResourceLoadInfoNotifier fake_resource_load_info_notifier;
+  EXPECT_CALL(*mock_observer, WillSendRequest(_, _, _, _, _, _));
   EXPECT_CALL(*mock_observer, DidReceiveResponse(_, _, _, _, _));
   EXPECT_CALL(*mock_observer, DidReceiveData(_, _));
   EXPECT_CALL(*mock_observer, DidFinishLoading(_, _, _, _, _));
@@ -282,7 +288,7 @@ TEST_F(WorkerMainScriptLoaderTest, ResponseWithSucessThenOnComplete) {
   Persistent<WorkerMainScriptLoader> worker_main_script_loader =
       CreateWorkerMainScriptLoaderAndStartLoading(
           std::move(worker_main_script_load_params), mock_observer,
-          std::move(pending_resource_load_info_notifier));
+          &fake_resource_load_info_notifier);
   mojo::BlockingCopyFromString(kTopLevelScript, body_producer);
   body_producer.reset();
   Complete(net::OK);
@@ -299,23 +305,20 @@ TEST_F(WorkerMainScriptLoaderTest, ResponseWithSucessThenOnComplete) {
 
 TEST_F(WorkerMainScriptLoaderTest, ResponseWithFailureThenOnComplete) {
   mojo::ScopedDataPipeProducerHandle body_producer;
-  mojo::PendingRemote<blink::mojom::ResourceLoadInfoNotifier>
-      pending_resource_load_info_notifier;
-  FakeResourceLoadInfoNotifier fake_resource_load_info_notifier(
-      pending_resource_load_info_notifier.InitWithNewPipeAndPassReceiver());
   std::unique_ptr<WorkerMainScriptLoadParameters>
       worker_main_script_load_params =
           CreateMainScriptLoaderParams(kFailHeader, &body_producer);
   MockResourceLoadObserver* mock_observer =
       MakeGarbageCollected<MockResourceLoadObserver>();
-  EXPECT_CALL(*mock_observer, WillSendRequest(_, _, _, _, _));
+  FakeResourceLoadInfoNotifier fake_resource_load_info_notifier;
+  EXPECT_CALL(*mock_observer, WillSendRequest(_, _, _, _, _, _));
   EXPECT_CALL(*mock_observer, DidReceiveResponse(_, _, _, _, _));
   EXPECT_CALL(*mock_observer, DidFinishLoading(_, _, _, _, _)).Times(0);
   EXPECT_CALL(*mock_observer, DidFailLoading(_, _, _, _, _));
   Persistent<WorkerMainScriptLoader> worker_main_script_loader =
       CreateWorkerMainScriptLoaderAndStartLoading(
           std::move(worker_main_script_load_params), mock_observer,
-          std::move(pending_resource_load_info_notifier));
+          &fake_resource_load_info_notifier);
   mojo::BlockingCopyFromString("PAGE NOT FOUND\n", body_producer);
   Complete(net::OK);
   body_producer.reset();
@@ -326,23 +329,20 @@ TEST_F(WorkerMainScriptLoaderTest, ResponseWithFailureThenOnComplete) {
 
 TEST_F(WorkerMainScriptLoaderTest, DisconnectBeforeOnComplete) {
   mojo::ScopedDataPipeProducerHandle body_producer;
-  mojo::PendingRemote<blink::mojom::ResourceLoadInfoNotifier>
-      pending_resource_load_info_notifier;
-  FakeResourceLoadInfoNotifier fake_resource_load_info_notifier(
-      pending_resource_load_info_notifier.InitWithNewPipeAndPassReceiver());
   std::unique_ptr<WorkerMainScriptLoadParameters>
       worker_main_script_load_params =
           CreateMainScriptLoaderParams(kHeader, &body_producer);
   MockResourceLoadObserver* mock_observer =
       MakeGarbageCollected<MockResourceLoadObserver>();
-  EXPECT_CALL(*mock_observer, WillSendRequest(_, _, _, _, _));
+  FakeResourceLoadInfoNotifier fake_resource_load_info_notifier;
+  EXPECT_CALL(*mock_observer, WillSendRequest(_, _, _, _, _, _));
   EXPECT_CALL(*mock_observer, DidReceiveResponse(_, _, _, _, _));
   EXPECT_CALL(*mock_observer, DidFinishLoading(_, _, _, _, _)).Times(0);
   EXPECT_CALL(*mock_observer, DidFailLoading(_, _, _, _, _));
   Persistent<WorkerMainScriptLoader> worker_main_script_loader =
       CreateWorkerMainScriptLoaderAndStartLoading(
           std::move(worker_main_script_load_params), mock_observer,
-          std::move(pending_resource_load_info_notifier));
+          &fake_resource_load_info_notifier);
   loader_client_.reset();
   body_producer.reset();
   base::RunLoop().RunUntilIdle();
@@ -353,16 +353,13 @@ TEST_F(WorkerMainScriptLoaderTest, DisconnectBeforeOnComplete) {
 
 TEST_F(WorkerMainScriptLoaderTest, OnCompleteWithError) {
   mojo::ScopedDataPipeProducerHandle body_producer;
-  mojo::PendingRemote<blink::mojom::ResourceLoadInfoNotifier>
-      pending_resource_load_info_notifier;
-  FakeResourceLoadInfoNotifier fake_resource_load_info_notifier(
-      pending_resource_load_info_notifier.InitWithNewPipeAndPassReceiver());
   std::unique_ptr<WorkerMainScriptLoadParameters>
       worker_main_script_load_params =
           CreateMainScriptLoaderParams(kHeader, &body_producer);
   MockResourceLoadObserver* mock_observer =
       MakeGarbageCollected<MockResourceLoadObserver>();
-  EXPECT_CALL(*mock_observer, WillSendRequest(_, _, _, _, _));
+  FakeResourceLoadInfoNotifier fake_resource_load_info_notifier;
+  EXPECT_CALL(*mock_observer, WillSendRequest(_, _, _, _, _, _));
   EXPECT_CALL(*mock_observer, DidReceiveResponse(_, _, _, _, _));
   EXPECT_CALL(*mock_observer, DidReceiveData(_, _));
   EXPECT_CALL(*mock_observer, DidFinishLoading(_, _, _, _, _)).Times(0);
@@ -370,7 +367,7 @@ TEST_F(WorkerMainScriptLoaderTest, OnCompleteWithError) {
   Persistent<WorkerMainScriptLoader> worker_main_script_loader =
       CreateWorkerMainScriptLoaderAndStartLoading(
           std::move(worker_main_script_load_params), mock_observer,
-          std::move(pending_resource_load_info_notifier));
+          &fake_resource_load_info_notifier);
   mojo::BlockingCopyFromString(kTopLevelScript, body_producer);
   Complete(net::ERR_FAILED);
   body_producer.reset();

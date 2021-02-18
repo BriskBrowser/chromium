@@ -19,36 +19,65 @@ chrome.automation = {};
  * @see https://developer.chrome.com/extensions/automation#type-EventType
  */
 chrome.automation.EventType = {
-  ACTIVEDESCENDANTCHANGED: 'activedescendantchanged',
+  ACCESS_KEY_CHANGED: 'accessKeyChanged',
+  ACTIVE_DESCENDANT_CHANGED: 'activeDescendantChanged',
   ALERT: 'alert',
   ARIA_ATTRIBUTE_CHANGED: 'ariaAttributeChanged',
+  ARIA_CURRENT_CHANGED: 'ariaCurrentChanged',
+  ATOMIC_CHANGED: 'atomicChanged',
+  AUTO_COMPLETE_CHANGED: 'autoCompleteChanged',
   AUTOCORRECTION_OCCURED: 'autocorrectionOccured',
   BLUR: 'blur',
+  BUSY_CHANGED: 'busyChanged',
   CHECKED_STATE_CHANGED: 'checkedStateChanged',
   CHILDREN_CHANGED: 'childrenChanged',
+  CLASS_NAME_CHANGED: 'classNameChanged',
   CLICKED: 'clicked',
+  COLLAPSED: 'collapsed',
   CONTROLS_CHANGED: 'controlsChanged',
+  DESCRIBED_BY_CHANGED: 'describedByChanged',
+  DESCRIPTION_CHANGED: 'descriptionChanged',
   DOCUMENT_SELECTION_CHANGED: 'documentSelectionChanged',
   DOCUMENT_TITLE_CHANGED: 'documentTitleChanged',
+  DROPEFFECT_CHANGED: 'dropeffectChanged',
+  EDITABLE_TEXT_CHANGED: 'editableTextChanged',
+  ENABLED_CHANGED: 'enabledChanged',
   END_OF_TEST: 'endOfTest',
+  EXPANDED: 'expanded',
   EXPANDED_CHANGED: 'expandedChanged',
+  FLOW_FROM_CHANGED: 'flowFromChanged',
+  FLOW_TO_CHANGED: 'flowToChanged',
   FOCUS: 'focus',
   FOCUS_AFTER_MENU_CLOSE: 'focusAfterMenuClose',
+  FOCUS_CHANGED: 'focusChanged',
   FOCUS_CONTEXT: 'focusContext',
+  GRABBED_CHANGED: 'grabbedChanged',
+  HASPOPUP_CHANGED: 'haspopupChanged',
   HIDE: 'hide',
+  HIERARCHICAL_LEVEL_CHANGED: 'hierarchicalLevelChanged',
   HIT_TEST_RESULT: 'hitTestResult',
   HOVER: 'hover',
+  IGNORED_CHANGED: 'ignoredChanged',
+  IMAGE_ANNOTATION_CHANGED: 'imageAnnotationChanged',
   IMAGE_FRAME_UPDATED: 'imageFrameUpdated',
   INVALID_STATUS_CHANGED: 'invalidStatusChanged',
+  KEY_SHORTCUTS_CHANGED: 'keyShortcutsChanged',
+  LABELED_BY_CHANGED: 'labeledByChanged',
+  LANGUAGE_CHANGED: 'languageChanged',
   LAYOUT_COMPLETE: 'layoutComplete',
+  LAYOUT_INVALIDATED: 'layoutInvalidated',
   LIVE_REGION_CHANGED: 'liveRegionChanged',
   LIVE_REGION_CREATED: 'liveRegionCreated',
+  LIVE_REGION_NODE_CHANGED: 'liveRegionNodeChanged',
+  LIVE_RELEVANT_CHANGED: 'liveRelevantChanged',
+  LIVE_STATUS_CHANGED: 'liveStatusChanged',
   LOAD_COMPLETE: 'loadComplete',
   LOAD_START: 'loadStart',
   LOCATION_CHANGED: 'locationChanged',
   MEDIA_STARTED_PLAYING: 'mediaStartedPlaying',
   MEDIA_STOPPED_PLAYING: 'mediaStoppedPlaying',
   MENU_END: 'menuEnd',
+  MENU_ITEM_SELECTED: 'menuItemSelected',
   MENU_LIST_ITEM_SELECTED: 'menuListItemSelected',
   MENU_LIST_VALUE_CHANGED: 'menuListValueChanged',
   MENU_POPUP_END: 'menuPopupEnd',
@@ -59,26 +88,53 @@ chrome.automation.EventType = {
   MOUSE_MOVED: 'mouseMoved',
   MOUSE_PRESSED: 'mousePressed',
   MOUSE_RELEASED: 'mouseReleased',
+  MULTILINE_STATE_CHANGED: 'multilineStateChanged',
+  MULTISELECTABLE_STATE_CHANGED: 'multiselectableStateChanged',
+  NAME_CHANGED: 'nameChanged',
+  OBJECT_ATTRIBUTE_CHANGED: 'objectAttributeChanged',
+  OTHER_ATTRIBUTE_CHANGED: 'otherAttributeChanged',
+  PARENT_CHANGED: 'parentChanged',
+  PLACEHOLDER_CHANGED: 'placeholderChanged',
+  PORTAL_ACTIVATED: 'portalActivated',
+  POSITION_IN_SET_CHANGED: 'positionInSetChanged',
+  RANGE_VALUE_CHANGED: 'rangeValueChanged',
+  RANGE_VALUE_MAX_CHANGED: 'rangeValueMaxChanged',
+  RANGE_VALUE_MIN_CHANGED: 'rangeValueMinChanged',
+  RANGE_VALUE_STEP_CHANGED: 'rangeValueStepChanged',
+  READONLY_CHANGED: 'readonlyChanged',
+  RELATED_NODE_CHANGED: 'relatedNodeChanged',
+  REQUIRED_STATE_CHANGED: 'requiredStateChanged',
+  ROLE_CHANGED: 'roleChanged',
   ROW_COLLAPSED: 'rowCollapsed',
   ROW_COUNT_CHANGED: 'rowCountChanged',
   ROW_EXPANDED: 'rowExpanded',
+  SCROLL_HORIZONTAL_POSITION_CHANGED: 'scrollHorizontalPositionChanged',
   SCROLL_POSITION_CHANGED: 'scrollPositionChanged',
+  SCROLL_VERTICAL_POSITION_CHANGED: 'scrollVerticalPositionChanged',
   SCROLLED_TO_ANCHOR: 'scrolledToAnchor',
+  SELECTED_CHANGED: 'selectedChanged',
   SELECTED_CHILDREN_CHANGED: 'selectedChildrenChanged',
+  SELECTED_VALUE_CHANGED: 'selectedValueChanged',
   SELECTION: 'selection',
   SELECTION_ADD: 'selectionAdd',
+  SELECTION_IN_TEXT_FIELD_CHANGED: 'selectionInTextFieldChanged',
   SELECTION_REMOVE: 'selectionRemove',
+  SET_SIZE_CHANGED: 'setSizeChanged',
   SHOW: 'show',
+  SORT_CHANGED: 'sortChanged',
   STATE_CHANGED: 'stateChanged',
-  TEXT_CHANGED: 'textChanged',
+  SUBTREE_CREATED: 'subtreeCreated',
+  TEXT_ATTRIBUTE_CHANGED: 'textAttributeChanged',
   TEXT_SELECTION_CHANGED: 'textSelectionChanged',
+  TEXT_CHANGED: 'textChanged',
   TOOLTIP_CLOSED: 'tooltipClosed',
   TOOLTIP_OPENED: 'tooltipOpened',
+  TREE_CHANGED: 'treeChanged',
+  VALUE_IN_TEXT_FIELD_CHANGED: 'valueInTextFieldChanged',
+  VALUE_CHANGED: 'valueChanged',
   WINDOW_ACTIVATED: 'windowActivated',
   WINDOW_DEACTIVATED: 'windowDeactivated',
   WINDOW_VISIBILITY_CHANGED: 'windowVisibilityChanged',
-  TREE_CHANGED: 'treeChanged',
-  VALUE_CHANGED: 'valueChanged',
 };
 
 /**
@@ -154,6 +210,8 @@ chrome.automation.RoleType = {
   DOC_NOTE_REF: 'docNoteRef',
   DOC_NOTICE: 'docNotice',
   DOC_PAGE_BREAK: 'docPageBreak',
+  DOC_PAGE_FOOTER: 'docPageFooter',
+  DOC_PAGE_HEADER: 'docPageHeader',
   DOC_PAGE_LIST: 'docPageList',
   DOC_PART: 'docPart',
   DOC_PREFACE: 'docPreface',
@@ -221,6 +279,7 @@ chrome.automation.RoleType = {
   PANE: 'pane',
   PARAGRAPH: 'paragraph',
   PDF_ACTIONABLE_HIGHLIGHT: 'pdfActionableHighlight',
+  PDF_ROOT: 'pdfRoot',
   PLUGIN_OBJECT: 'pluginObject',
   POP_UP_BUTTON: 'popUpButton',
   PORTAL: 'portal',
@@ -242,7 +301,6 @@ chrome.automation.RoleType = {
   SEARCH_BOX: 'searchBox',
   SECTION: 'section',
   SLIDER: 'slider',
-  SLIDER_THUMB: 'sliderThumb',
   SPIN_BUTTON: 'spinButton',
   SPLITTER: 'splitter',
   STATIC_TEXT: 'staticText',
@@ -270,7 +328,6 @@ chrome.automation.RoleType = {
   TREE_ITEM: 'treeItem',
   UNKNOWN: 'unknown',
   VIDEO: 'video',
-  WEB_AREA: 'webArea',
   WEB_VIEW: 'webView',
   WINDOW: 'window',
 };
@@ -435,29 +492,71 @@ chrome.automation.MarkerType = {
 
 /**
  * @enum {string}
- * @see https://developer.chrome.com/extensions/automation#type-EventCommandType
+ * @see https://developer.chrome.com/extensions/automation#type-IntentCommandType
  */
-chrome.automation.EventCommandType = {
+chrome.automation.IntentCommandType = {
   CLEAR_SELECTION: 'clearSelection',
-  CUT: 'cut',
   DELETE: 'delete',
   DICTATE: 'dictate',
   EXTEND_SELECTION: 'extendSelection',
   FORMAT: 'format',
+  HISTORY: 'history',
   INSERT: 'insert',
   MARKER: 'marker',
   MOVE_SELECTION: 'moveSelection',
-  PASTE: 'paste',
-  REPLACE: 'replace',
   SET_SELECTION: 'setSelection',
-  TYPE: 'type',
 };
 
 /**
  * @enum {string}
- * @see https://developer.chrome.com/extensions/automation#type-EventTextBoundaryType
+ * @see https://developer.chrome.com/extensions/automation#type-IntentInputEventType
  */
-chrome.automation.EventTextBoundaryType = {
+chrome.automation.IntentInputEventType = {
+  INSERT_TEXT: 'insertText',
+  INSERT_LINE_BREAK: 'insertLineBreak',
+  INSERT_PARAGRAPH: 'insertParagraph',
+  INSERT_ORDERED_LIST: 'insertOrderedList',
+  INSERT_UNORDERED_LIST: 'insertUnorderedList',
+  INSERT_HORIZONTAL_RULE: 'insertHorizontalRule',
+  INSERT_FROM_PASTE: 'insertFromPaste',
+  INSERT_FROM_DROP: 'insertFromDrop',
+  INSERT_FROM_YANK: 'insertFromYank',
+  INSERT_TRANSPOSE: 'insertTranspose',
+  INSERT_REPLACEMENT_TEXT: 'insertReplacementText',
+  INSERT_COMPOSITION_TEXT: 'insertCompositionText',
+  DELETE_WORD_BACKWARD: 'deleteWordBackward',
+  DELETE_WORD_FORWARD: 'deleteWordForward',
+  DELETE_SOFT_LINE_BACKWARD: 'deleteSoftLineBackward',
+  DELETE_SOFT_LINE_FORWARD: 'deleteSoftLineForward',
+  DELETE_HARD_LINE_BACKWARD: 'deleteHardLineBackward',
+  DELETE_HARD_LINE_FORWARD: 'deleteHardLineForward',
+  DELETE_CONTENT_BACKWARD: 'deleteContentBackward',
+  DELETE_CONTENT_FORWARD: 'deleteContentForward',
+  DELETE_BY_CUT: 'deleteByCut',
+  DELETE_BY_DRAG: 'deleteByDrag',
+  HISTORY_UNDO: 'historyUndo',
+  HISTORY_REDO: 'historyRedo',
+  FORMAT_BOLD: 'formatBold',
+  FORMAT_ITALIC: 'formatItalic',
+  FORMAT_UNDERLINE: 'formatUnderline',
+  FORMAT_STRIKE_THROUGH: 'formatStrikeThrough',
+  FORMAT_SUPERSCRIPT: 'formatSuperscript',
+  FORMAT_SUBSCRIPT: 'formatSubscript',
+  FORMAT_JUSTIFY_CENTER: 'formatJustifyCenter',
+  FORMAT_JUSTIFY_FULL: 'formatJustifyFull',
+  FORMAT_JUSTIFY_RIGHT: 'formatJustifyRight',
+  FORMAT_JUSTIFY_LEFT: 'formatJustifyLeft',
+  FORMAT_INDENT: 'formatIndent',
+  FORMAT_OUTDENT: 'formatOutdent',
+  FORMAT_REMOVE: 'formatRemove',
+  FORMAT_SET_BLOCK_TEXT_DIRECTION: 'formatSetBlockTextDirection',
+};
+
+/**
+ * @enum {string}
+ * @see https://developer.chrome.com/extensions/automation#type-IntentTextBoundaryType
+ */
+chrome.automation.IntentTextBoundaryType = {
   CHARACTER: 'character',
   FORMAT: 'format',
   LINE_END: 'lineEnd',
@@ -481,11 +580,11 @@ chrome.automation.EventTextBoundaryType = {
 
 /**
  * @enum {string}
- * @see https://developer.chrome.com/extensions/automation#type-EventMoveDirectionType
+ * @see https://developer.chrome.com/extensions/automation#type-IntentMoveDirectionType
  */
-chrome.automation.EventMoveDirectionType = {
-  FORWARD: 'forward',
+chrome.automation.IntentMoveDirectionType = {
   BACKWARD: 'backward',
+  FORWARD: 'forward',
 };
 
 /**
@@ -497,62 +596,6 @@ chrome.automation.SortDirectionType = {
   ASCENDING: 'ascending',
   DESCENDING: 'descending',
   OTHER: 'other',
-};
-
-/**
- * @enum {string}
- * @see https://developer.chrome.com/extensions/automation#type-GeneratedEventType
- */
-chrome.automation.GeneratedEventType = {
-  ACCESS_KEY_CHANGED: 'accessKeyChanged',
-  ATOMIC_CHANGED: 'atomicChanged',
-  AUTO_COMPLETE_CHANGED: 'autoCompleteChanged',
-  BUSY_CHANGED: 'busyChanged',
-  CLASS_NAME_CHANGED: 'classNameChanged',
-  COLLAPSED: 'collapsed',
-  DESCRIBED_BY_CHANGED: 'describedByChanged',
-  DESCRIPTION_CHANGED: 'descriptionChanged',
-  DROPEFFECT_CHANGED: 'dropeffectChanged',
-  ENABLED_CHANGED: 'enabledChanged',
-  EXPANDED: 'expanded',
-  FOCUS_CHANGED: 'focusChanged',
-  FLOW_FROM_CHANGED: 'flowFromChanged',
-  FLOW_TO_CHANGED: 'flowToChanged',
-  GRABBED_CHANGED: 'grabbedChanged',
-  HASPOPUP_CHANGED: 'haspopupChanged',
-  HIERARCHICAL_LEVEL_CHANGED: 'hierarchicalLevelChanged',
-  IGNORED_CHANGED: 'ignoredChanged',
-  IMAGE_ANNOTATION_CHANGED: 'imageAnnotationChanged',
-  KEY_SHORTCUTS_CHANGED: 'keyShortcutsChanged',
-  LABELED_BY_CHANGED: 'labeledByChanged',
-  LANGUAGE_CHANGED: 'languageChanged',
-  LAYOUT_INVALIDATED: 'layoutInvalidated',
-  LIVE_REGION_NODE_CHANGED: 'liveRegionNodeChanged',
-  LIVE_RELEVANT_CHANGED: 'liveRelevantChanged',
-  LIVE_STATUS_CHANGED: 'liveStatusChanged',
-  MENU_ITEM_SELECTED: 'menuItemSelected',
-  MULTILINE_STATE_CHANGED: 'multilineStateChanged',
-  MULTISELECTABLE_STATE_CHANGED: 'multiselectableStateChanged',
-  NAME_CHANGED: 'nameChanged',
-  OBJECT_ATTRIBUTE_CHANGED: 'objectAttributeChanged',
-  OTHER_ATTRIBUTE_CHANGED: 'otherAttributeChanged',
-  PLACEHOLDER_CHANGED: 'placeholderChanged',
-  PORTAL_ACTIVATED: 'portalActivated',
-  POSITION_IN_SET_CHANGED: 'positionInSetChanged',
-  RELATED_NODE_CHANGED: 'relatedNodeChanged',
-  READONLY_CHANGED: 'readonlyChanged',
-  REQUIRED_STATE_CHANGED: 'requiredStateChanged',
-  ROLE_CHANGED: 'roleChanged',
-  SCROLL_HORIZONTAL_POSITION_CHANGED: 'scrollHorizontalPositionChanged',
-  SCROLL_VERTICAL_POSITION_CHANGED: 'scrollVerticalPositionChanged',
-  SELECTED_CHANGED: 'selectedChanged',
-  SET_SIZE_CHANGED: 'setSizeChanged',
-  SORT_CHANGED: 'sortChanged',
-  SUBTREE_CREATED: 'subtreeCreated',
-  TEXT_ATTRIBUTE_CHANGED: 'textAttributeChanged',
-  VALUE_MAX_CHANGED: 'valueMaxChanged',
-  VALUE_MIN_CHANGED: 'valueMinChanged',
-  VALUE_STEP_CHANGED: 'valueStepChanged',
 };
 
 /**
@@ -589,9 +632,9 @@ chrome.automation.SetDocumentSelectionParams;
 
 /**
  * @typedef {{
- *   command: !chrome.automation.EventCommandType,
- *   textBoundary: !chrome.automation.EventTextBoundaryType,
- *   moveDirection: !chrome.automation.EventMoveDirectionType
+ *   command: !chrome.automation.IntentCommandType,
+ *   textBoundary: !chrome.automation.IntentTextBoundaryType,
+ *   moveDirection: !chrome.automation.IntentMoveDirectionType
  * }}
  * @see https://developer.chrome.com/extensions/automation#type-AutomationIntent
  */
@@ -619,13 +662,6 @@ chrome.automation.AutomationEvent.prototype.target;
 chrome.automation.AutomationEvent.prototype.type;
 
 /**
- * The type of the generated event, if any.
- * @type {(!chrome.automation.GeneratedEventType|undefined)}
- * @see https://developer.chrome.com/extensions/automation#type-generatedType
- */
-chrome.automation.AutomationEvent.prototype.generatedType;
-
-/**
  * The source of this event.
  * @type {string}
  * @see https://developer.chrome.com/extensions/automation#type-eventFrom
@@ -633,6 +669,7 @@ chrome.automation.AutomationEvent.prototype.generatedType;
 chrome.automation.AutomationEvent.prototype.eventFrom;
 
 /**
+ * Any mouse coordinates associated with this event.
  * @type {number}
  * @see https://developer.chrome.com/extensions/automation#type-mouseX
  */
@@ -645,7 +682,7 @@ chrome.automation.AutomationEvent.prototype.mouseX;
 chrome.automation.AutomationEvent.prototype.mouseY;
 
 /**
- * Intents associated with this event.
+ * A list of $(ref:automation.AutomationIntent)s associated with this event.
  * @type {!Array<!chrome.automation.AutomationIntent>}
  * @see https://developer.chrome.com/extensions/automation#type-intents
  */
@@ -653,7 +690,7 @@ chrome.automation.AutomationEvent.prototype.intents;
 
 /**
  * Stops this event from further processing except for any remaining listeners
- * on $(ref:AutomationEvent.target).
+ * on $(ref:automation.AutomationEvent.target).
  * @see https://developer.chrome.com/extensions/automation#method-stopPropagation
  */
 chrome.automation.AutomationEvent.prototype.stopPropagation = function() {};
@@ -1136,6 +1173,13 @@ chrome.automation.AutomationNode.prototype.unclippedLocation;
 chrome.automation.AutomationNode.prototype.description;
 
 /**
+ * Description of the state of the checkbox. Used only when the node is checkable.
+ * @type {(string|undefined)}
+ * @see https://developer.chrome.com/extensions/automation#type-checkedStateDescription
+ */
+chrome.automation.AutomationNode.prototype.checkedStateDescription;
+
+/**
  * The placeholder for this text field, if any.
  * @type {(string|undefined)}
  * @see https://developer.chrome.com/extensions/automation#type-placeholder
@@ -1210,6 +1254,28 @@ chrome.automation.AutomationNode.prototype.wordStarts;
  * @see https://developer.chrome.com/extensions/automation#type-wordEnds
  */
 chrome.automation.AutomationNode.prototype.wordEnds;
+
+/**
+ * The start indexes of each sentence within the node's name.
+ * @type {(!Array<number>|undefined)}
+ * @see https://developer.chrome.com/extensions/automation#type-sentenceStarts
+ */
+chrome.automation.AutomationNode.prototype.sentenceStarts;
+
+/**
+ * The end indexes of each sentence within the node's name. For most nodes, the
+ * size of sentenceStarts array should be equal to the size of sentenceEnds
+ * array. Two exceptions are (1) node at the begining of a paragraph but the end
+ * of the node's sentences is in its following node. Such a node has one more
+ * start index. (2) Node at the end of a paragraph but the start of the node's
+ * sentences is in its previous node. Such a node has one more end index. For
+ * example, <p><b>Hello</b> world.</p> has two nodes. The first one has one
+ * start index (i.e., 0) but no end index. The second node has one end index
+ * (i.e., 7) but no start index.
+ * @type {(!Array<number>|undefined)}
+ * @see https://developer.chrome.com/extensions/automation#type-sentenceEnds
+ */
+chrome.automation.AutomationNode.prototype.sentenceEnds;
 
 /**
  * The start index of each word within the node's name. This is different from wordStarts because it is not restricted to inline text boxes and can be used for any type of element.
@@ -1562,6 +1628,13 @@ chrome.automation.AutomationNode.prototype.selectionEndOffset;
  * @see https://developer.chrome.com/extensions/automation#type-selectionEndAffinity
  */
 chrome.automation.AutomationNode.prototype.selectionEndAffinity;
+
+/**
+ * Indicates that the node is marked user-select:none
+ * @type {(boolean|undefined)}
+ * @see https://developer.chrome.com/extensions/automation#type-notUserSelectableStyle
+ */
+chrome.automation.AutomationNode.prototype.notUserSelectableStyle;
 
 /**
  * The current value for this range.

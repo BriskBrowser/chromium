@@ -9,13 +9,15 @@
 #include <string>
 #include <utility>
 
+#include "ash/constants/ash_features.h"
+#include "ash/constants/ash_switches.h"
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/containers/flat_set.h"
 #include "base/files/file_util.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/sequenced_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
@@ -36,8 +38,6 @@
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "components/arc/arc_prefs.h"
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/arc_util.h"
@@ -556,41 +556,17 @@ void ArcAppListPrefs::SendIconRequest(const std::string& app_id,
   if (app_info.icon_resource_id.empty()) {
     auto* app_instance =
         ARC_GET_INSTANCE_FOR_METHOD(app_connection_holder(), GetAppIcon);
-    if (!app_instance) {
-      // TODO(crbug.com/1083331): Remove the RequestAppIcon related change, when
-      // the ARC change is rolled in Chrome OS.
-      app_instance =
-          ARC_GET_INSTANCE_FOR_METHOD(app_connection_holder(), RequestAppIcon);
-      if (app_instance) {
-        auto callback =
-            base::BindOnce(&ArcAppListPrefs::OnGetIcon,
-                           weak_ptr_factory_.GetWeakPtr(), app_id, descriptor);
-        app_instance->RequestAppIcon(app_info.package_name, app_info.activity,
-                                     descriptor.GetSizeInPixels(),
-                                     std::move(callback));
-      }
+    if (!app_instance)
       return;  // Error is logged in macro.
-    }
+
     app_instance->GetAppIcon(app_info.package_name, app_info.activity,
                              descriptor.GetSizeInPixels(), std::move(callback));
   } else {
     auto* app_instance = ARC_GET_INSTANCE_FOR_METHOD(app_connection_holder(),
                                                      GetAppShortcutIcon);
-    if (!app_instance) {
-      // TODO(crbug.com/1083331): Remove the RequestAppIcon related change, when
-      // the ARC change is rolled in Chrome OS.
-      app_instance = ARC_GET_INSTANCE_FOR_METHOD(app_connection_holder(),
-                                                 RequestShortcutIcon);
-      if (app_instance) {
-        auto callback =
-            base::BindOnce(&ArcAppListPrefs::OnGetIcon,
-                           weak_ptr_factory_.GetWeakPtr(), app_id, descriptor);
-        app_instance->RequestAppIcon(app_info.package_name, app_info.activity,
-                                     descriptor.GetSizeInPixels(),
-                                     std::move(callback));
-      }
+    if (!app_instance)
       return;  // Error is logged in macro.
-    }
+
     app_instance->GetAppShortcutIcon(app_info.icon_resource_id,
                                      descriptor.GetSizeInPixels(),
                                      std::move(callback));
@@ -720,6 +696,11 @@ std::unique_ptr<ArcAppListPrefs::PackageInfo> ArcAppListPrefs::GetPackage(
       std::move(permissions));
 }
 
+bool ArcAppListPrefs::IsPackageInstalled(
+    const std::string& package_name) const {
+  return GetPackage(package_name) != nullptr;
+}
+
 std::vector<std::string> ArcAppListPrefs::GetAppIds() const {
   if (arc::ShouldArcAlwaysStart())
     return GetAppIdsNoArcEnabledCheck();
@@ -847,12 +828,31 @@ bool ArcAppListPrefs::IsControlledByPolicy(
   return packages_by_policy_.count(package_name);
 }
 
+base::Time ArcAppListPrefs::PollLaunchRequestTime(const std::string& app_id) {
+  if (!launch_request_times_.count(app_id))
+    return base::Time();
+
+  const base::Time last_launch_time = launch_request_times_[app_id];
+  // This value should only be used once per launch.
+  launch_request_times_.erase(app_id);
+  return last_launch_time;
+}
+
+void ArcAppListPrefs::SetLaunchRequestTimeForTesting(const std::string& app_id,
+                                                     base::Time timestamp) {
+  launch_request_times_[app_id] = timestamp;
+}
 void ArcAppListPrefs::SetLastLaunchTime(const std::string& app_id) {
   if (!IsRegistered(app_id)) {
     NOTREACHED();
     return;
   }
 
+  launch_request_times_[app_id] = base::Time::Now();
+  SetLastLaunchTimeInternal(app_id);
+}
+
+void ArcAppListPrefs::SetLastLaunchTimeInternal(const std::string& app_id) {
   // Usage time on hidden should not be tracked.
   if (!arc::ShouldShowInLauncher(app_id))
     return;
@@ -1108,7 +1108,7 @@ void ArcAppListPrefs::HandleTaskCreated(const base::Optional<std::string>& name,
   DCHECK(IsArcAndroidEnabledForProfile(profile_));
   const std::string app_id = GetAppId(package_name, activity);
   if (IsRegistered(app_id)) {
-    SetLastLaunchTime(app_id);
+    SetLastLaunchTimeInternal(app_id);
   } else {
     // Create runtime app entry that is valid for the current user session. This
     // entry is not shown in App Launcher and only required for shelf
@@ -1155,12 +1155,14 @@ void ArcAppListPrefs::AddAppAndShortcut(const std::string& name,
   if (app_id == arc::kPlayStoreAppId)
     updated_name = l10n_util::GetStringUTF8(IDS_ARC_PLAYSTORE_ICON_TITLE_BETA);
 
+  base::Time last_launch_time;
   const bool was_tracked = tracked_apps_.count(app_id);
   std::unique_ptr<ArcAppListPrefs::AppInfo> app_old_info;
   if (was_tracked) {
     app_old_info = GetApp(app_id);
     DCHECK(app_old_info);
     DCHECK(launchable);
+    last_launch_time = app_old_info->last_launch_time;
     if (updated_name != app_old_info->name) {
       for (auto& observer : observer_list_)
         observer.OnAppNameUpdated(app_id, updated_name);
@@ -1194,7 +1196,7 @@ void ArcAppListPrefs::AddAppAndShortcut(const std::string& name,
     ready_apps_.insert(app_id);
 
   AppInfo app_info(updated_name, package_name, activity, intent_uri,
-                   icon_resource_id, base::Time(), GetInstallTime(app_id),
+                   icon_resource_id, last_launch_time, GetInstallTime(app_id),
                    sticky, notifications_enabled, app_ready, suspended,
                    launchable && arc::ShouldShowInLauncher(app_id), shortcut,
                    launchable);
@@ -1669,18 +1671,6 @@ void ArcAppListPrefs::OnPackageRemoved(const std::string& package_name) {
 
   for (auto& observer : observer_list_)
     observer.OnPackageRemoved(package_name, true);
-}
-
-void ArcAppListPrefs::OnGetIcon(const std::string& app_id,
-                                const ArcAppIconDescriptor& descriptor,
-                                const std::vector<uint8_t>& icon_png_data) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-
-  arc::mojom::RawIconPngDataPtr icon = arc::mojom::RawIconPngData::New();
-  icon->is_adaptive_icon = false;
-  icon->icon_png_data =
-      std::vector<uint8_t>(icon_png_data.begin(), icon_png_data.end());
-  OnIcon(app_id, descriptor, std::move(icon));
 }
 
 void ArcAppListPrefs::OnIcon(const std::string& app_id,

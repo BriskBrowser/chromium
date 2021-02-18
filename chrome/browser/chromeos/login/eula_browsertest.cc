@@ -14,7 +14,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/login/test/dialog_window_waiter.h"
@@ -32,7 +32,7 @@
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/installer/util/google_update_settings.h"
-#include "chromeos/constants/chromeos_switches.h"
+#include "chrome/test/base/interactive_test_utils.h"
 #include "chromeos/dbus/cryptohome/fake_cryptohome_client.h"
 #include "components/guest_view/browser/guest_view_manager.h"
 #include "components/metrics/metrics_pref_names.h"
@@ -54,15 +54,9 @@ namespace {
 
 const test::UIPath kEulaWebview = {"oobe-eula-md", "crosEulaFrame"};
 const test::UIPath kAcceptEulaButton = {"oobe-eula-md", "acceptButton"};
-const test::UIPath kEulaTPMPassword = {"oobe-eula-md", "eula-password"};
 const test::UIPath kUsageStats = {"oobe-eula-md", "usageStats"};
 const test::UIPath kAdditionalTermsLink = {"oobe-eula-md", "additionalTerms"};
 const test::UIPath kAdditionalTermsDialog = {"oobe-eula-md", "additionalToS"};
-const test::UIPath kAdditionalTermsClose = {"oobe-eula-md",
-                                            "close-additional-tos"};
-const test::UIPath kSecuritySettingsLink = {"oobe-eula-md", "securitySettings"};
-const test::UIPath kSecuritySettingsDialog = {"oobe-eula-md",
-                                              "securitySettingsDialog"};
 const test::UIPath kLearnMoreLink = {"oobe-eula-md", "learnMore"};
 
 // Helper class to wait until the WebCotnents finishes loading.
@@ -95,7 +89,7 @@ class WebContentsLoadFinishedWaiter : public content::WebContentsObserver {
 };
 
 // Helper invoked by GuestViewManager::ForEachGuest to collect WebContents of
-// Webview named as |web_view_name,|.
+// Webview named as `web_view_name`.
 bool AddNamedWebContentsToSet(std::set<content::WebContents*>* frame_set,
                               const std::string& web_view_name,
                               content::WebContents* web_contents) {
@@ -151,21 +145,13 @@ class EulaTest : public OobeBaseTest {
     }
   }
 
-  // Returns an Oobe JSChecker that sends 'click' events instead of 'tap'
-  // events when interacting with UI elements.
-  test::JSChecker NonPolymerOobeJS() {
-    test::JSChecker js = test::OobeJS();
-    js.set_polymer_ui(false);
-    return js;
-  }
-
   base::OnceClosure SetCollectStatsConsentClosure(bool consented) {
     return base::BindOnce(
         base::IgnoreResult(&GoogleUpdateSettings::SetCollectStatsConsent),
         consented);
   }
 
-  // Calls |GoogleUpdateSettings::SetCollectStatsConsent| asynchronously on its
+  // Calls `GoogleUpdateSettings::SetCollectStatsConsent` asynchronously on its
   // task runner. Blocks until task is executed.
   void SetGoogleCollectStatsConsent(bool consented) {
     base::RunLoop runloop;
@@ -175,13 +161,13 @@ class EulaTest : public OobeBaseTest {
     runloop.Run();
   }
 
-  // Calls |GoogleUpdateSettings::GetCollectStatsConsent| asynchronously on its
+  // Calls `GoogleUpdateSettings::GetCollectStatsConsent` asynchronously on its
   // task runner. Blocks until task is executed and returns the result.
   bool GetGoogleCollectStatsConsent() {
     bool consented = false;
 
     // Callback runs after GetCollectStatsConsent is executed. Sets the local
-    // variable |consented| to the result of GetCollectStatsConsent.
+    // variable `consented` to the result of GetCollectStatsConsent.
     auto on_get_collect_stats_consent_callback =
         [](base::OnceClosure quit_closure, bool* consented_out,
            bool consented_result) {
@@ -243,27 +229,6 @@ IN_PROC_BROWSER_TEST_F(EulaTest, LoadOnline) {
               std::string::npos);
 }
 
-// Tests that clicking on "System security settings" button opens a dialog
-// showing the TPM password.
-IN_PROC_BROWSER_TEST_F(EulaTest, DisplaysTpmPassword) {
-  base::HistogramTester histogram_tester;
-  ShowEulaScreen();
-
-  test::OobeJS().TapLinkOnPath(kSecuritySettingsLink);
-  test::OobeJS().CreateVisibilityWaiter(true, kSecuritySettingsDialog)->Wait();
-
-  test::OobeJS()
-      .CreateWaiter(
-          "$('oobe-eula-md').$$('#eula-password').textContent.trim() !== ''")
-      ->Wait();
-  test::OobeJS().ExpectElementText(FakeCryptohomeClient::kStubTpmPassword,
-                                   kEulaTPMPassword);
-  EXPECT_THAT(
-      histogram_tester.GetAllSamples("OOBE.EulaScreen.UserActions"),
-      ElementsAre(base::Bucket(
-          static_cast<int>(EulaScreen::UserAction::kShowSecuritySettings), 1)));
-}
-
 // Verifies statistic collection accepted flow.
 // Advaces to the next screen and verifies stats collection is enabled.
 IN_PROC_BROWSER_TEST_F(EulaTest, EnableUsageStats) {
@@ -288,8 +253,8 @@ IN_PROC_BROWSER_TEST_F(EulaTest, EnableUsageStats) {
       StatsReportingController::Get()->AddObserver(runloop.QuitClosure());
 
   // Enable and disable usageStats that to see that metrics are recorded.
-  NonPolymerOobeJS().TapOnPath(kUsageStats);
-  NonPolymerOobeJS().TapOnPath(kUsageStats);
+  test::OobeJS().TapOnPath(kUsageStats);
+  test::OobeJS().TapOnPath(kUsageStats);
   // Advance to the next screen for changes to take effect.
   test::OobeJS().TapOnPath(kAcceptEulaButton);
 
@@ -338,7 +303,7 @@ IN_PROC_BROWSER_TEST_F(EulaTest, DisableUsageStats) {
 
   // Click on the toggle to disable stats collection and advance to the next
   // screen for changes to take effect.
-  NonPolymerOobeJS().TapOnPath(kUsageStats);
+  test::OobeJS().TapOnPath(kUsageStats);
   test::OobeJS().TapOnPath(kAcceptEulaButton);
 
   // Wait for StartReportingController update.
@@ -384,7 +349,13 @@ IN_PROC_BROWSER_TEST_F(EulaTest, LearnMore) {
 }
 
 // Tests that "Additional ToS" dialog could be opened and closed.
-IN_PROC_BROWSER_TEST_F(EulaTest, AdditionalToS) {
+// TODO(crbug.com/1175244): Flaky on linux-chromeos-rel.
+#ifdef NDEBUG
+#define MAYBE_AdditionalToS DISABLED_AdditionalToS
+#else
+#define MAYBE_AdditionalToS AdditionalToS
+#endif
+IN_PROC_BROWSER_TEST_F(EulaTest, MAYBE_AdditionalToS) {
   base::HistogramTester histogram_tester;
   ShowEulaScreen();
 
@@ -394,12 +365,15 @@ IN_PROC_BROWSER_TEST_F(EulaTest, AdditionalToS) {
       .CreateWaiter(test::GetOobeElementPath(kAdditionalTermsDialog) + ".open")
       ->Wait();
 
-  NonPolymerOobeJS().TapOnPath(kAdditionalTermsClose);
+  ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
+      nullptr, ui::VKEY_RETURN, false /* control */, false /* shift */,
+      false /* alt */, false /* command */));
 
   test::OobeJS()
       .CreateWaiter(test::GetOobeElementPath(kAdditionalTermsDialog) +
                     ".open === false")
       ->Wait();
+  test::OobeJS().ExpectFocused(kAdditionalTermsLink);
 
   EXPECT_THAT(
       histogram_tester.GetAllSamples("OOBE.EulaScreen.UserActions"),

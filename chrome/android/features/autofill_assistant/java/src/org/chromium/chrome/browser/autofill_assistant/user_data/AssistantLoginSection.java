@@ -13,6 +13,7 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 
 import androidx.annotation.DrawableRes;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import org.chromium.chrome.autofill_assistant.R;
@@ -32,7 +33,7 @@ public class AssistantLoginSection extends AssistantCollectUserDataSection<Assis
     }
 
     @Override
-    protected void createOrEditItem(@Nullable AssistantLoginChoice oldItem) {
+    protected void createOrEditItem(@NonNull AssistantLoginChoice oldItem) {
         assert oldItem != null;
         assert oldItem.getInfoPopup() != null;
 
@@ -69,8 +70,11 @@ public class AssistantLoginSection extends AssistantCollectUserDataSection<Assis
 
     @Override
     protected String getEditButtonContentDescription(AssistantLoginChoice choice) {
-        // TODO(b/143862732): Send this a11y string from the backend.
-        return mContext.getString(R.string.learn_more);
+        if (choice.getEditButtonContentDescription() != null) {
+            return choice.getEditButtonContentDescription();
+        } else {
+            return mContext.getString(R.string.learn_more);
+        }
     }
 
     @Override

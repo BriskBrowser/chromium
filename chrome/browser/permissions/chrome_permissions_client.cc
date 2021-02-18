@@ -4,24 +4,28 @@
 
 #include "chrome/browser/permissions/chrome_permissions_client.h"
 
+#include <vector>
+
 #include "base/feature_list.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/bluetooth/bluetooth_chooser_context.h"
 #include "chrome/browser/bluetooth/bluetooth_chooser_context_factory.h"
 #include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/engagement/important_sites_util.h"
-#include "chrome/browser/engagement/site_engagement_service.h"
 #include "chrome/browser/metrics/ukm_background_recorder_service.h"
+#include "chrome/browser/permissions/abusive_origin_permission_revocation_request.h"
 #include "chrome/browser/permissions/adaptive_quiet_notification_permission_ui_enabler.h"
 #include "chrome/browser/permissions/contextual_notification_permission_ui_selector.h"
+#include "chrome/browser/permissions/permission_actions_history.h"
 #include "chrome/browser/permissions/permission_decision_auto_blocker_factory.h"
 #include "chrome/browser/permissions/permission_manager_factory.h"
+#include "chrome/browser/permissions/prediction_based_permission_ui_selector.h"
+#include "chrome/browser/permissions/pref_notification_permission_ui_selector.h"
 #include "chrome/browser/permissions/quiet_notification_permission_ui_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/ui_thread_search_terms_data.h"
-#include "chrome/browser/subresource_filter/subresource_filter_content_settings_manager.h"
-#include "chrome/browser/subresource_filter/subresource_filter_profile_context.h"
 #include "chrome/browser/subresource_filter/subresource_filter_profile_context_factory.h"
 #include "chrome/browser/usb/usb_chooser_context.h"
 #include "chrome/browser/usb/usb_chooser_context_factory.h"
@@ -30,7 +34,11 @@
 #include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/google/core/common/google_util.h"
 #include "components/permissions/features.h"
+#include "components/permissions/request_type.h"
 #include "components/prefs/pref_service.h"
+#include "components/site_engagement/content/site_engagement_service.h"
+#include "components/subresource_filter/content/browser/subresource_filter_content_settings_manager.h"
+#include "components/subresource_filter/content/browser/subresource_filter_profile_context.h"
 #include "components/ukm/content/source_url_recorder.h"
 #include "extensions/common/constants.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
@@ -47,9 +55,9 @@
 #include "chrome/browser/ui/permission_bubble/permission_prompt.h"
 #endif
 
-#if defined(OS_CHROMEOS)
-#include "chrome/browser/chromeos/app_mode/web_app/web_kiosk_app_data.h"
-#include "chrome/browser/chromeos/app_mode/web_app/web_kiosk_app_manager.h"
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/ash/app_mode/web_app/web_kiosk_app_data.h"
+#include "chrome/browser/ash/app_mode/web_app/web_kiosk_app_manager.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #endif
@@ -114,7 +122,7 @@ permissions::PermissionManager* ChromePermissionsClient::GetPermissionManager(
 double ChromePermissionsClient::GetSiteEngagementScore(
     content::BrowserContext* browser_context,
     const GURL& origin) {
-  return SiteEngagementService::Get(
+  return site_engagement::SiteEngagementService::Get(
              Profile::FromBrowserContext(browser_context))
       ->GetScore(origin);
 }
@@ -127,9 +135,10 @@ void ChromePermissionsClient::AreSitesImportant(
   // these sites to the user, we're just using them for our 'clear
   // unimportant' feature in ManageSpaceActivity.java.
   const int kMaxImportantSites = 10;
-  std::vector<ImportantSitesUtil::ImportantDomainInfo> important_domains =
-      ImportantSitesUtil::GetImportantRegisterableDomains(
-          Profile::FromBrowserContext(browser_context), kMaxImportantSites);
+  std::vector<site_engagement::ImportantSitesUtil::ImportantDomainInfo>
+      important_domains =
+          site_engagement::ImportantSitesUtil::GetImportantRegisterableDomains(
+              Profile::FromBrowserContext(browser_context), kMaxImportantSites);
 
   for (auto& entry : *origins) {
     const url::Origin& origin = entry.first;
@@ -142,7 +151,8 @@ void ChromePermissionsClient::AreSitesImportant(
       registerable_domain = host;  // IP address or internal hostname.
     auto important_domain_search =
         [&registerable_domain](
-            const ImportantSitesUtil::ImportantDomainInfo& item) {
+            const site_engagement::ImportantSitesUtil::ImportantDomainInfo&
+                item) {
           return item.registerable_domain == registerable_domain;
         };
     entry.second =
@@ -151,7 +161,7 @@ void ChromePermissionsClient::AreSitesImportant(
   }
 }
 
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
+#if defined(OS_ANDROID) || BUILDFLAG(IS_CHROMEOS_ASH)
 // Some Google-affiliated domains are not allowed to delete cookies for
 // supervised accounts.
 bool ChromePermissionsClient::IsCookieDeletionDisabled(
@@ -184,32 +194,54 @@ void ChromePermissionsClient::GetUkmSourceId(
   }
 }
 
-permissions::PermissionRequest::IconId
-ChromePermissionsClient::GetOverrideIconId(ContentSettingsType type) {
-#if defined(OS_CHROMEOS)
+permissions::IconId ChromePermissionsClient::GetOverrideIconId(
+    permissions::RequestType request_type) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // TODO(xhwang): fix this icon, see crbug.com/446263.
-  if (type == ContentSettingsType::PROTECTED_MEDIA_IDENTIFIER)
+  if (request_type == permissions::RequestType::kProtectedMediaIdentifier)
     return kProductIcon;
 #endif
-  return PermissionsClient::GetOverrideIconId(type);
+  return PermissionsClient::GetOverrideIconId(request_type);
 }
 
-std::unique_ptr<permissions::NotificationPermissionUiSelector>
-ChromePermissionsClient::CreateNotificationPermissionUiSelector(
+std::vector<std::unique_ptr<permissions::NotificationPermissionUiSelector>>
+ChromePermissionsClient::CreateNotificationPermissionUiSelectors(
     content::BrowserContext* browser_context) {
-  return std::make_unique<ContextualNotificationPermissionUiSelector>(
-      Profile::FromBrowserContext(browser_context));
+  std::vector<std::unique_ptr<permissions::NotificationPermissionUiSelector>>
+      selectors;
+  selectors.emplace_back(
+      std::make_unique<ContextualNotificationPermissionUiSelector>());
+  selectors.emplace_back(std::make_unique<PrefNotificationPermissionUiSelector>(
+      Profile::FromBrowserContext(browser_context)));
+  selectors.emplace_back(std::make_unique<PredictionBasedPermissionUiSelector>(
+      Profile::FromBrowserContext(browser_context)));
+  return selectors;
 }
 
 void ChromePermissionsClient::OnPromptResolved(
     content::BrowserContext* browser_context,
-    permissions::PermissionRequestType request_type,
-    permissions::PermissionAction action) {
-  if (request_type ==
-      permissions::PermissionRequestType::PERMISSION_NOTIFICATIONS) {
-    AdaptiveQuietNotificationPermissionUiEnabler::GetForProfile(
-        Profile::FromBrowserContext(browser_context))
-        ->RecordPermissionPromptOutcome(action);
+    permissions::RequestType request_type,
+    permissions::PermissionAction action,
+    const GURL& origin,
+    base::Optional<QuietUiReason> quiet_ui_reason) {
+  Profile* profile = Profile::FromBrowserContext(browser_context);
+
+  PermissionActionsHistory::GetForProfile(profile)->RecordAction(action,
+                                                                 request_type);
+
+  if (request_type == permissions::RequestType::kNotifications) {
+    AdaptiveQuietNotificationPermissionUiEnabler::GetForProfile(profile)
+        ->PermissionPromptResolved();
+
+    if (action == permissions::PermissionAction::GRANTED &&
+        quiet_ui_reason.has_value() &&
+        (quiet_ui_reason.value() ==
+             QuietUiReason::kTriggeredDueToAbusiveRequests ||
+         quiet_ui_reason.value() ==
+             QuietUiReason::kTriggeredDueToAbusiveContent)) {
+      AbusiveOriginPermissionRevocationRequest::
+          ExemptOriginFromFutureRevocations(profile, origin);
+    }
   }
 }
 
@@ -223,17 +255,31 @@ ChromePermissionsClient::HadThreeConsecutiveNotificationPermissionDenies(
       ->GetBoolean(prefs::kHadThreeConsecutiveNotificationPermissionDenies);
 }
 
+base::Optional<bool>
+ChromePermissionsClient::HasPreviouslyAutoRevokedPermission(
+    content::BrowserContext* browser_context,
+    const GURL& origin,
+    ContentSettingsType permission) {
+  if (permission != ContentSettingsType::NOTIFICATIONS) {
+    return base::nullopt;
+  }
+
+  Profile* profile = Profile::FromBrowserContext(browser_context);
+  return AbusiveOriginPermissionRevocationRequest::
+      HasPreviouslyRevokedPermission(profile, origin);
+}
+
 base::Optional<url::Origin> ChromePermissionsClient::GetAutoApprovalOrigin() {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // In web kiosk mode, all permission requests are auto-approved for the origin
   // of the main app.
   if (user_manager::UserManager::IsInitialized() &&
       user_manager::UserManager::Get()->IsLoggedInAsWebKioskApp()) {
     const AccountId& account_id =
         user_manager::UserManager::Get()->GetPrimaryUser()->GetAccountId();
-    DCHECK(chromeos::WebKioskAppManager::IsInitialized());
-    const chromeos::WebKioskAppData* app_data =
-        chromeos::WebKioskAppManager::Get()->GetAppByAccountId(account_id);
+    DCHECK(ash::WebKioskAppManager::IsInitialized());
+    const ash::WebKioskAppData* app_data =
+        ash::WebKioskAppManager::Get()->GetAppByAccountId(account_id);
     DCHECK(app_data);
     return url::Origin::Create(app_data->install_url());
   }

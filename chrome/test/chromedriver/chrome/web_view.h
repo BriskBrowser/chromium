@@ -33,6 +33,8 @@ class WebView {
  public:
   virtual ~WebView() {}
 
+  virtual bool IsServiceWorker() const = 0;
+
   // Return the id for this WebView.
   virtual std::string GetId() = 0;
 
@@ -270,6 +272,10 @@ class WebView {
   virtual std::unique_ptr<base::Value> GetCastIssueMessage() = 0;
 
   virtual void SetFrame(const std::string& new_frame_id) = 0;
+
+  virtual Status GetNodeIdByElement(const std::string& frame,
+                                    const base::DictionaryValue& element,
+                                    int* node_id) = 0;
 };
 
 #endif  // CHROME_TEST_CHROMEDRIVER_CHROME_WEB_VIEW_H_

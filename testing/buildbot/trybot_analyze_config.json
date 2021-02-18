@@ -8,10 +8,8 @@
     "exclusions": [
       ".*isolate",
       ".vpython",
-      "build/.*gyp[i]?",
       "build/check_gn_headers.py",
       "build/check_gn_headers_whitelist.txt",
-      "build/cipd/android/android.ensure",
       "build/fuchsia/.*py",
       "build/get_landmines.py",
       "build/gn_helpers.py",
@@ -20,9 +18,8 @@
       "build/toolchain/mac/.*py",
       "build/util/lib/common/unittest_util.py",
       "build/vs_toolchain.py",
-      "infra/scripts/.*",
       "DEPS",
-      "testing/buildbot/.*json",
+      "infra/scripts/.*",
       "testing/buildbot/gn_isolate_map.pyl",
       "testing/merge_scripts/.*",
       "testing/scripts/.*",
@@ -37,6 +34,7 @@
   },
   "chromium": {
     "exclusions": [
+      "chrome/android/profiles/newest.txt",
       "chrome/browser/resources/.*(css|html|js)",
       "chrome/browser/ui/webui/.*browsertest.*js",
       "chrome/test/data/.*",

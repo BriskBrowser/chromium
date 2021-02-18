@@ -39,23 +39,20 @@ class LayoutObject;
 
 struct SameSizeAsInlineBox : DisplayItemClient {
   ~SameSizeAsInlineBox() override = default;
-  void* a[4];
+  UntracedMember<void*> untraced_members[1];
+  Member<void*> members[3];
   LayoutPoint b;
   LayoutUnit c;
   uint32_t bitfields;
-#if DCHECK_IS_ON()
-  bool f;
-#endif
 };
 
 ASSERT_SIZE(InlineBox, SameSizeAsInlineBox);
 
-#if DCHECK_IS_ON()
-InlineBox::~InlineBox() {
-  if (!has_bad_parent_ && parent_)
-    parent_->SetHasBadChildList();
+void InlineBox::Trace(Visitor* visitor) const {
+  visitor->Trace(next_);
+  visitor->Trace(prev_);
+  visitor->Trace(parent_);
 }
-#endif
 
 DISABLE_CFI_PERF
 void InlineBox::Destroy() {
@@ -67,22 +64,11 @@ void InlineBox::Destroy() {
     // TODO(crbug.com/619630): Make this fast.
     line_layout_item_.SlowSetPaintingLayerNeedsRepaint();
   }
-
-  delete this;
 }
 
 void InlineBox::Remove(MarkLineBoxes mark_line_boxes) {
   if (Parent())
     Parent()->RemoveChild(this, mark_line_boxes);
-}
-
-void* InlineBox::operator new(size_t sz) {
-  return WTF::Partitions::LayoutPartition()->Alloc(
-      sz, WTF_HEAP_PROFILER_TYPE_NAME(InlineBox));
-}
-
-void InlineBox::operator delete(void* ptr) {
-  WTF::Partitions::LayoutPartition()->Free(ptr);
 }
 
 const char* InlineBox::BoxName() const {
@@ -191,7 +177,7 @@ LayoutUnit InlineBox::LineHeight() const {
 }
 
 int InlineBox::CaretMinOffset() const {
-  return GetLineLayoutItem().CaretMinOffset();
+  return 0;
 }
 
 int InlineBox::CaretMaxOffset() const {
@@ -273,7 +259,7 @@ RootInlineBox& InlineBox::Root() {
 InlineBox* InlineBox::NextLeafChild() const {
   InlineBox* leaf = nullptr;
   for (InlineBox* box = NextOnLine(); box && !leaf; box = box->NextOnLine())
-    leaf = box->IsLeaf() ? box : ToInlineFlowBox(box)->FirstLeafChild();
+    leaf = box->IsLeaf() ? box : To<InlineFlowBox>(box)->FirstLeafChild();
   if (!leaf && Parent())
     leaf = Parent()->NextLeafChild();
   return leaf;
@@ -282,7 +268,7 @@ InlineBox* InlineBox::NextLeafChild() const {
 InlineBox* InlineBox::PrevLeafChild() const {
   InlineBox* leaf = nullptr;
   for (InlineBox* box = PrevOnLine(); box && !leaf; box = box->PrevOnLine())
-    leaf = box->IsLeaf() ? box : ToInlineFlowBox(box)->LastLeafChild();
+    leaf = box->IsLeaf() ? box : To<InlineFlowBox>(box)->LastLeafChild();
   if (!leaf && Parent())
     leaf = Parent()->PrevLeafChild();
   return leaf;
@@ -358,7 +344,7 @@ void InlineBox::SetShouldDoFullPaintInvalidationForFirstLine() {
   GetLineLayoutItem().SetShouldDoFullPaintInvalidation();
   if (!IsInlineFlowBox())
     return;
-  for (InlineBox* child = ToInlineFlowBox(this)->FirstChild(); child;
+  for (InlineBox* child = To<InlineFlowBox>(this)->FirstChild(); child;
        child = child->NextOnLine())
     child->SetShouldDoFullPaintInvalidationForFirstLine();
 }

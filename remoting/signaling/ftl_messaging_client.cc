@@ -6,8 +6,8 @@
 
 #include <utility>
 
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/guid.h"
 #include "base/logging.h"
 #include "base/time/time.h"
@@ -151,8 +151,8 @@ FtlMessagingClient::FtlMessagingClient(
 
 FtlMessagingClient::~FtlMessagingClient() = default;
 
-std::unique_ptr<FtlMessagingClient::MessageCallbackSubscription>
-FtlMessagingClient::RegisterMessageCallback(const MessageCallback& callback) {
+base::CallbackListSubscription FtlMessagingClient::RegisterMessageCallback(
+    const MessageCallback& callback) {
   return callback_list_.Add(callback);
 }
 

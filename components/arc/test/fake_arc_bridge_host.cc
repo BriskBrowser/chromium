@@ -5,6 +5,7 @@
 #include "components/arc/test/fake_arc_bridge_host.h"
 
 #include "components/arc/mojom/accessibility_helper.mojom.h"
+#include "components/arc/mojom/adbd.mojom.h"
 #include "components/arc/mojom/app.mojom.h"
 #include "components/arc/mojom/app_permissions.mojom.h"
 #include "components/arc/mojom/appfuse.mojom.h"
@@ -44,6 +45,7 @@
 #include "components/arc/mojom/rotation_lock.mojom.h"
 #include "components/arc/mojom/screen_capture.mojom.h"
 #include "components/arc/mojom/sensor.mojom.h"
+#include "components/arc/mojom/sharesheet.mojom.h"
 #include "components/arc/mojom/storage_manager.mojom.h"
 #include "components/arc/mojom/timer.mojom.h"
 #include "components/arc/mojom/tracing.mojom.h"
@@ -65,6 +67,9 @@ FakeArcBridgeHost::~FakeArcBridgeHost() = default;
 void FakeArcBridgeHost::OnAccessibilityHelperInstanceReady(
     mojo::PendingRemote<mojom::AccessibilityHelperInstance>
         accessibility_helper_remote) {}
+
+void FakeArcBridgeHost::OnAdbdMonitorInstanceReady(
+    mojo::PendingRemote<mojom::AdbdMonitorInstance> adbd_monitor_remote) {}
 
 void FakeArcBridgeHost::OnAppInstanceReady(
     mojo::PendingRemote<mojom::AppInstance> app_ptr) {}
@@ -109,6 +114,9 @@ void FakeArcBridgeHost::OnCrashCollectorInstanceReady(
     mojo::PendingRemote<mojom::CrashCollectorInstance> crash_collector_remote) {
 }
 
+void FakeArcBridgeHost::OnDigitalGoodsInstanceReady(
+    mojo::PendingRemote<mojom::DigitalGoodsInstance> digital_goods_remote) {}
+
 void FakeArcBridgeHost::OnDiskQuotaInstanceReady(
     mojo::PendingRemote<mojom::DiskQuotaInstance> disk_quota_remote) {}
 
@@ -118,6 +126,9 @@ void FakeArcBridgeHost::OnEnterpriseReportingInstanceReady(
 
 void FakeArcBridgeHost::OnFileSystemInstanceReady(
     mojo::PendingRemote<mojom::FileSystemInstance> file_system_remote) {}
+
+void FakeArcBridgeHost::OnIioSensorInstanceReady(
+    mojo::PendingRemote<mojom::IioSensorInstance> iio_sensor_remote) {}
 
 void FakeArcBridgeHost::OnImeInstanceReady(
     mojo::PendingRemote<mojom::ImeInstance> ime_remote) {}
@@ -188,6 +199,9 @@ void FakeArcBridgeHost::OnScreenCaptureInstanceReady(
 
 void FakeArcBridgeHost::OnSensorInstanceReady(
     mojo::PendingRemote<mojom::SensorInstance> sensor_remote) {}
+
+void FakeArcBridgeHost::OnSharesheetInstanceReady(
+    mojo::PendingRemote<mojom::SharesheetInstance> sharesheet_remote) {}
 
 void FakeArcBridgeHost::OnSmartCardManagerInstanceReady(
     mojo::PendingRemote<mojom::SmartCardManagerInstance>

@@ -29,7 +29,7 @@ constexpr int kAlphaScales[] = {0, 30, 47, 62, 75, 85, 93, kDefaultAlphaScale};
 
 uint8_t AlphaScaleToAlphaValue(int alpha_scale) {
   DCHECK(alpha_scale >= 0 && alpha_scale <= 100);
-  return static_cast<uint8_t>(alpha_scale * 255 / 100);
+  return uint8_t{alpha_scale * 255 / 100};
 }
 
 }  // namespace
@@ -98,7 +98,7 @@ HRESULT SplashScreen::Initialize() {
 
   EnableSystemButtons(false);
 
-  base::string16 text;
+  std::wstring text;
   LoadString(IDS_SPLASH_SCREEN_MESSAGE, &text);
   CWindow text_wnd = GetDlgItem(IDC_INSTALLER_STATE_TEXT);
   text_wnd.SetWindowText(text.c_str());

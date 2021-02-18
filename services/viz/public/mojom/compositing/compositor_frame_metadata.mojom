@@ -6,6 +6,7 @@ module viz.mojom;
 
 import "mojo/public/mojom/base/time.mojom";
 import "services/viz/public/mojom/compositing/begin_frame_args.mojom";
+import "services/viz/public/mojom/compositing/compositor_frame_transition_directive.mojom";
 import "services/viz/public/mojom/compositing/delegated_ink_metadata.mojom";
 import "services/viz/public/mojom/compositing/frame_deadline.mojom";
 import "services/viz/public/mojom/compositing/selection.mojom";
@@ -41,8 +42,6 @@ struct CompositorFrameMetadata {
 
   float min_page_scale_factor;
 
-  mojo_base.mojom.TimeTicks local_surface_id_allocation_time;
-
   // Specifies the interval at which the client's content is updated. This can
   // be used to configure the display to the optimal vsync interval available.
   // If unspecified, or set to BeginFrameArgs::MinInterval, it is assumed that
@@ -63,4 +62,8 @@ struct CompositorFrameMetadata {
   // before it disappears, regardless of whether or not the next frame contains
   // delegated ink metadata.
   DelegatedInkMetadata? delegated_ink_metadata;
+
+  // Transition directives represent a list of directives for animating a
+  // transition between different compositor frames / render passes.
+  array<CompositorFrameTransitionDirective> transition_directives;
 };

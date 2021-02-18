@@ -13,8 +13,6 @@ source_set("audio") {
     "audio_playback_stream.h",
     "audio_player.cc",
     "audio_player.h",
-    "audio_player_android.cc",
-    "audio_player_android.h",
     "audio_stream_format.cc",
     "audio_stream_format.h",
   ]
@@ -30,6 +28,10 @@ source_set("audio") {
   libs = []
 
   if (is_android) {
+    sources += [
+      "audio_player_android.cc",
+      "audio_player_android.h",
+    ]
     libs += [
       "android",
       "OpenSLES",

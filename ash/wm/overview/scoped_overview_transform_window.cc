@@ -27,6 +27,7 @@
 #include "base/macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "chromeos/ui/base/window_properties.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/transient_window_client.h"
 #include "ui/aura/scoped_window_event_targeting_blocker.h"
@@ -166,11 +167,11 @@ ScopedOverviewTransformWindow::ScopedOverviewTransformWindow(
     event_targeting_blocker_map_[transient] =
         std::make_unique<aura::ScopedWindowEventTargetingBlocker>(transient);
 
-    transient->SetProperty(kIsShowingInOverviewKey, true);
+    transient->SetProperty(chromeos::kIsShowingInOverviewKey, true);
 
     // Add this as |aura::WindowObserver| for observing |kHideInOverviewKey|
     // property changes.
-    transient->AddObserver(this);
+    window_observations_.AddObservation(transient);
 
     // Hide transient children which have been specified to be hidden in
     // overview mode.
@@ -214,16 +215,22 @@ ScopedOverviewTransformWindow::ScopedOverviewTransformWindow(
 }
 
 ScopedOverviewTransformWindow::~ScopedOverviewTransformWindow() {
+  // Reset clipping in the case RestoreWindow() is not called, such as when
+  // |this| is dragged to another display. This is a no-op if SetClipping() was
+  // called in RestoreWindow().
+  // See crbug.com/1140639.
+  SetClipping({ClippingType::kExit, gfx::SizeF()});
+
   for (auto* transient : GetTransientTreeIterator(window_)) {
-    transient->ClearProperty(kIsShowingInOverviewKey);
+    transient->ClearProperty(chromeos::kIsShowingInOverviewKey);
     DCHECK(event_targeting_blocker_map_.contains(transient));
     event_targeting_blocker_map_.erase(transient);
-    transient->RemoveObserver(this);
   }
 
-  if (!IsMinimized())
-    UpdateRoundedCorners(/*show=*/false);
+  UpdateRoundedCorners(/*show=*/false);
   aura::client::GetTransientWindowClient()->RemoveObserver(this);
+
+  window_observations_.RemoveAllObservations();
 }
 
 // static
@@ -298,7 +305,7 @@ void ScopedOverviewTransformWindow::BeginScopedAnimation(
   if (animation_type == OVERVIEW_ANIMATION_NONE)
     return;
 
-  for (auto* window : GetVisibleTransientTreeIterator(window_)) {
+  for (auto* window : window_util::GetVisibleTransientTreeIterator(window_)) {
     auto settings = std::make_unique<ScopedOverviewAnimationSettings>(
         animation_type, window);
     settings->DeferPaint();
@@ -334,14 +341,14 @@ bool ScopedOverviewTransformWindow::Contains(const aura::Window* target) const {
 }
 
 gfx::RectF ScopedOverviewTransformWindow::GetTransformedBounds() const {
-  return ::ash::GetTransformedBounds(window_, GetTopInset());
+  return window_util::GetTransformedBounds(window_, GetTopInset());
 }
 
 int ScopedOverviewTransformWindow::GetTopInset() const {
   // Mirror window doesn't have insets.
   if (IsMinimized())
     return 0;
-  for (auto* window : GetVisibleTransientTreeIterator(window_)) {
+  for (auto* window : window_util::GetVisibleTransientTreeIterator(window_)) {
     // If there are regular windows in the transient ancestor tree, all those
     // windows are shown in the same overview item and the header is not masked.
     if (window != window_ &&
@@ -353,7 +360,8 @@ int ScopedOverviewTransformWindow::GetTopInset() const {
 }
 
 void ScopedOverviewTransformWindow::SetOpacity(float opacity) {
-  for (auto* window : GetVisibleTransientTreeIterator(GetOverviewWindow()))
+  for (auto* window :
+       window_util::GetVisibleTransientTreeIterator(GetOverviewWindow()))
     window->layer()->SetOpacity(opacity);
 }
 
@@ -476,7 +484,8 @@ void ScopedOverviewTransformWindow::PrepareForOverview() {
   // enter animation and the whole time during overview mode. For the exit
   // animation of overview mode, we need to add those requests again.
   if (features::IsTrilinearFilteringEnabled()) {
-    for (auto* window : GetVisibleTransientTreeIterator(GetOverviewWindow())) {
+    for (auto* window :
+         window_util::GetVisibleTransientTreeIterator(GetOverviewWindow())) {
       cached_and_filtered_layer_observers_.push_back(
           std::make_unique<LayerCachingAndFilteringObserver>(window->layer()));
     }
@@ -494,7 +503,8 @@ void ScopedOverviewTransformWindow::UpdateWindowDimensionsType() {
 void ScopedOverviewTransformWindow::UpdateRoundedCorners(bool show) {
   // Hide the corners if minimized, OverviewItemView will handle showing the
   // rounded corners on the UI.
-  DCHECK(!IsMinimized());
+  if (IsMinimized())
+    DCHECK(!show);
 
   ui::Layer* layer = window_->layer();
   const float scale = layer->transform().Scale2d().x();
@@ -515,7 +525,7 @@ void ScopedOverviewTransformWindow::OnTransientChildWindowAdded(
   event_targeting_blocker_map_[transient_child] =
       std::make_unique<aura::ScopedWindowEventTargetingBlocker>(
           transient_child);
-  transient_child->SetProperty(kIsShowingInOverviewKey, true);
+  transient_child->SetProperty(chromeos::kIsShowingInOverviewKey, true);
 
   // Hide transient children which have been specified to be hidden in
   // overview mode.
@@ -525,7 +535,21 @@ void ScopedOverviewTransformWindow::OnTransientChildWindowAdded(
 
   // Add this as |aura::WindowObserver| for observing |kHideInOverviewKey|
   // property changes.
-  transient_child->AddObserver(this);
+  window_observations_.AddObservation(transient_child);
+}
+
+void ScopedOverviewTransformWindow::OnTransientChildWindowRemoved(
+    aura::Window* parent,
+    aura::Window* transient_child) {
+  if (parent != window_ && !::wm::HasTransientAncestor(parent, window_))
+    return;
+
+  transient_child->ClearProperty(chromeos::kIsShowingInOverviewKey);
+  DCHECK(event_targeting_blocker_map_.contains(transient_child));
+  event_targeting_blocker_map_.erase(transient_child);
+
+  if (window_observations_.IsObservingSource(transient_child))
+    window_observations_.RemoveObservation(transient_child);
 }
 
 void ScopedOverviewTransformWindow::OnWindowPropertyChanged(
@@ -546,27 +570,23 @@ void ScopedOverviewTransformWindow::OnWindowPropertyChanged(
   }
 }
 
-void ScopedOverviewTransformWindow::AddHiddenTransientWindows(
-    const std::vector<aura::Window*>& transient_windows) {
-  if (!hidden_transient_children_) {
-    hidden_transient_children_ = std::make_unique<ScopedOverviewHideWindows>(
-        std::move(transient_windows), /*forced_hidden=*/true);
-  } else {
-    for (auto* window : transient_windows)
-      hidden_transient_children_->AddWindow(window);
-  }
-}
-
-void ScopedOverviewTransformWindow::OnTransientChildWindowRemoved(
-    aura::Window* parent,
-    aura::Window* transient_child) {
-  if (parent != window_ && !::wm::HasTransientAncestor(parent, window_))
+void ScopedOverviewTransformWindow::OnWindowBoundsChanged(
+    aura::Window* window,
+    const gfx::Rect& old_bounds,
+    const gfx::Rect& new_bounds,
+    ui::PropertyChangeReason reason) {
+  if (window == window_)
     return;
 
-  transient_child->ClearProperty(kIsShowingInOverviewKey);
-  DCHECK(event_targeting_blocker_map_.contains(transient_child));
-  event_targeting_blocker_map_.erase(transient_child);
-  transient_child->RemoveObserver(this);
+  // Transient window is repositioned. The new position within the
+  // overview item needs to be recomputed. No need to recompute if the
+  // transient is invisible. It will get placed properly when it reshows on
+  // overview end.
+  if (!window->IsVisible())
+    return;
+
+  overview_item_->SetBounds(overview_item_->target_bounds(),
+                            OVERVIEW_ANIMATION_NONE);
 }
 
 // static
@@ -578,6 +598,17 @@ void ScopedOverviewTransformWindow::CloseWidget() {
   aura::Window* parent_window = ::wm::GetTransientRoot(window_);
   if (parent_window)
     window_util::CloseWidgetForWindow(parent_window);
+}
+
+void ScopedOverviewTransformWindow::AddHiddenTransientWindows(
+    const std::vector<aura::Window*>& transient_windows) {
+  if (!hidden_transient_children_) {
+    hidden_transient_children_ = std::make_unique<ScopedOverviewHideWindows>(
+        std::move(transient_windows), /*forced_hidden=*/true);
+  } else {
+    for (auto* window : transient_windows)
+      hidden_transient_children_->AddWindow(window);
+  }
 }
 
 }  // namespace ash

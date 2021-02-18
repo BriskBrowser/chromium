@@ -2,7 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-GEN_INCLUDE(['assert_additions.js', 'callback_helper.js', 'doc_utils.js']);
+GEN_INCLUDE(
+    ['assert_additions.js', 'callback_helper.js', 'common.js', 'doc_utils.js']);
 
 /**
  * Base test fixture for end to end tests (tests that need a full extension
@@ -14,6 +15,60 @@ E2ETestBase = class extends testing.Test {
     super();
     this.callbackHelper_ = new CallbackHelper(this);
     this.desktop_;
+  }
+
+  /** @override */
+  testGenCppIncludes() {
+    GEN(`
+  #include "chrome/browser/speech/extension_api/tts_engine_extension_api.h"
+  #include "chrome/browser/ui/browser.h"
+  #include "content/public/test/browser_test_utils.h"
+  #include "extensions/browser/extension_host.h"
+  #include "extensions/browser/process_manager.h"
+      `);
+  }
+
+  /** @override */
+  testGenPreamble() {
+    GEN(`
+    TtsExtensionEngine::GetInstance()->DisableBuiltInTTSEngineForTesting();
+      `);
+  }
+
+  /** @override */
+  testGenPostamble() {
+    GEN(`
+    if (fail_on_console_error) {
+      EXPECT_EQ(0u, console_observer.messages().size())
+          << "Found console.log or console.warn with message: "
+          << console_observer.GetMessageAt(0);
+    }
+    `);
+  }
+
+  testGenPreambleCommon(extensionIdName, failOnConsoleError = true) {
+    GEN(`
+    WaitForExtension(extension_misc::${extensionIdName}, std::move(load_cb));
+
+    extensions::ExtensionHost* host =
+        extensions::ProcessManager::Get(browser()->profile())
+            ->GetBackgroundHostForExtension(
+                extension_misc::${extensionIdName});
+
+    bool fail_on_console_error = ${failOnConsoleError};
+    content::WebContentsConsoleObserver console_observer(host->host_contents());
+    // A11y extensions should not log warnings or errors: these should cause
+    // test failures.
+    auto filter =
+        [](const content::WebContentsConsoleObserver::Message& message) {
+          return message.log_level ==
+              blink::mojom::ConsoleMessageLevel::kWarning ||
+              message.log_level == blink::mojom::ConsoleMessageLevel::kError;
+        };
+    if (fail_on_console_error) {
+      console_observer.SetFilter(base::BindRepeating(filter));
+    }
+    `);
   }
 
   /**
@@ -70,21 +125,32 @@ E2ETestBase = class extends testing.Test {
   }
 
   /**
+   * Gets the desktop from the automation API and runs |callback|.
+   * Arranges to call |testDone()| after |callback| returns.
+   * NOTE: Callbacks created inside |opt_callback| must be wrapped with
+   * |this.newCallback| if passed to asynchronous calls.  Otherwise, the test
+   * will be finished prematurely.
+   * @param {function(chrome.automation.AutomationNode)} callback
+   *     Called with the desktop node once it's retrieved.
+   */
+  runWithLoadedDesktop(callback) {
+    chrome.automation.getDesktop(this.newCallback(callback));
+  }
+
+  /**
    * Gets the desktop from the automation API and Launches a new tab with
    * the given document, and runs |callback| when a load complete fires.
    * Arranges to call |testDone()| after |callback| returns.
-   * NOTE: Callbacks created inside |opt_callback| must be wrapped with
+   * NOTE: Callbacks created inside |callback| must be wrapped with
    * |this.newCallback| if passed to asynchronous calls.  Otherwise, the test
    * will be finished prematurely.
    * @param {string|function(): string} doc An HTML snippet, optionally wrapped
    *     inside of a function.
    * @param {function(chrome.automation.AutomationNode)} callback
-   *     Called once the document is ready.
-   * @param {{url: (string=), returnPage: (boolean=)}}
+   *     Called with the root web area node once the document is ready.
+   * @param {{url: (string=), returnDesktop: (boolean=)}}
    *     opt_params
    *           url Optional url to wait for. Defaults to undefined.
-   *           returnPage True if the node for the root web area should be
-   *               returned; otherwise the desktop will be returned.
    */
   runWithLoadedTree(doc, callback, opt_params = {}) {
     callback = this.newCallback(callback);
@@ -97,15 +163,43 @@ E2ETestBase = class extends testing.Test {
 
         desktop.removeEventListener('focus', listener, true);
         desktop.removeEventListener('loadComplete', listener, true);
-        callback && callback(opt_params.returnPage ? event.target : desktop);
+        callback && callback(event.target);
         callback = null;
       };
+
       this.desktop_ = desktop;
       desktop.addEventListener('focus', listener, true);
       desktop.addEventListener('loadComplete', listener, true);
 
       const createParams = {active: true, url};
       chrome.tabs.create(createParams);
+    });
+  }
+
+  /**
+   * Opens the options page for the running extension and calls |callback| with
+   * the options page root once ready.
+   * @param {function(chrome.automation.AutomationNode)} callback
+   * @param {!RegExp} matchUrlRegExp The url pattern of the options page if
+   *     different than the supplied default pattern below.
+   */
+  runWithLoadedOptionsPage(callback, matchUrlRegExp = /options.html/) {
+    callback = this.newCallback(callback);
+    chrome.automation.getDesktop((desktop) => {
+      const listener = (event) => {
+        if (!matchUrlRegExp.test(event.target.docUrl) ||
+            !event.target.docLoaded) {
+          return;
+        }
+
+        desktop.removeEventListener(
+            chrome.automation.EventType.LOAD_COMPLETE, listener);
+
+        callback(event.target);
+      };
+      desktop.addEventListener(
+          chrome.automation.EventType.LOAD_COMPLETE, listener);
+      chrome.runtime.openOptionsPage();
     });
   }
 

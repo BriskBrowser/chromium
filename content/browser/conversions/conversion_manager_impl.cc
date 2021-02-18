@@ -10,7 +10,6 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/memory/ptr_util.h"
-#include "base/task_runner_util.h"
 #include "base/time/default_clock.h"
 #include "content/browser/conversions/conversion_reporter_impl.h"
 #include "content/browser/conversions/conversion_storage_delegate_impl.h"
@@ -22,6 +21,25 @@
 #include "content/public/common/content_switches.h"
 
 namespace content {
+
+namespace {
+
+bool IsOriginSessionOnly(
+    scoped_refptr<storage::SpecialStoragePolicy> storage_policy,
+    const url::Origin& origin) {
+  // TODO(johnidel): This conversion is unfortunate but necessary. Storage
+  // partition clear data logic uses Origin keyed deletion, while the storage
+  // policy uses GURLs. Ideally these would be coalesced.
+  const GURL& url = origin.GetURL();
+  if (storage_policy->IsStorageProtected(url))
+    return false;
+
+  if (storage_policy->IsStorageSessionOnly(url))
+    return true;
+  return false;
+}
+
+}  // namespace
 
 const constexpr base::TimeDelta kConversionManagerQueueReportsInterval =
     base::TimeDelta::FromMinutes(30);
@@ -45,16 +63,16 @@ std::unique_ptr<ConversionManagerImpl> ConversionManagerImpl::CreateForTesting(
     std::unique_ptr<ConversionPolicy> policy,
     const base::Clock* clock,
     const base::FilePath& user_data_directory,
-    scoped_refptr<base::SequencedTaskRunner> storage_task_runner) {
+    scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy) {
   return base::WrapUnique<ConversionManagerImpl>(new ConversionManagerImpl(
       std::move(reporter), std::move(policy), clock, user_data_directory,
-      std::move(storage_task_runner)));
+      std::move(special_storage_policy)));
 }
 
 ConversionManagerImpl::ConversionManagerImpl(
     StoragePartition* storage_partition,
     const base::FilePath& user_data_directory,
-    scoped_refptr<base::SequencedTaskRunner> task_runner)
+    scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy)
     : ConversionManagerImpl(
           std::make_unique<ConversionReporterImpl>(
               storage_partition,
@@ -64,25 +82,25 @@ ConversionManagerImpl::ConversionManagerImpl(
                   switches::kConversionsDebugMode)),
           base::DefaultClock::GetInstance(),
           user_data_directory,
-          std::move(task_runner)) {}
+          std::move(special_storage_policy)) {}
 
 ConversionManagerImpl::ConversionManagerImpl(
     std::unique_ptr<ConversionReporter> reporter,
     std::unique_ptr<ConversionPolicy> policy,
     const base::Clock* clock,
     const base::FilePath& user_data_directory,
-    scoped_refptr<base::SequencedTaskRunner> storage_task_runner)
+    scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy)
     : debug_mode_(base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kConversionsDebugMode)),
       clock_(clock),
       reporter_(std::move(reporter)),
       conversion_storage_context_(
           base::MakeRefCounted<ConversionStorageContext>(
-              std::move(storage_task_runner),
               user_data_directory,
               std::make_unique<ConversionStorageDelegateImpl>(debug_mode_),
               clock_)),
       conversion_policy_(std::move(policy)),
+      special_storage_policy_(std::move(special_storage_policy)),
       weak_factory_(this) {
   // Once the database is loaded, get all reports that may have expired while
   // Chrome was not running and handle these specially. It is safe to post tasks
@@ -99,7 +117,22 @@ ConversionManagerImpl::ConversionManagerImpl(
       &ConversionManagerImpl::GetAndQueueReportsForNextInterval);
 }
 
-ConversionManagerImpl::~ConversionManagerImpl() = default;
+ConversionManagerImpl::~ConversionManagerImpl() {
+  // Browser contexts are not required to have a special storage policy.
+  if (!special_storage_policy_ ||
+      !special_storage_policy_->HasSessionOnlyOrigins()) {
+    return;
+  }
+
+  // Delete stored data for all session only origins given by
+  // |special_storage_policy|.
+  base::RepeatingCallback<bool(const url::Origin&)>
+      session_only_origin_predicate = base::BindRepeating(
+          &IsOriginSessionOnly, std::move(special_storage_policy_));
+  conversion_storage_context_->ClearData(base::Time::Min(), base::Time::Max(),
+                                         session_only_origin_predicate,
+                                         base::DoNothing());
+}
 
 void ConversionManagerImpl::HandleImpression(
     const StorableImpression& impression) {
@@ -122,8 +155,6 @@ void ConversionManagerImpl::HandleConversion(
 
 void ConversionManagerImpl::GetActiveImpressionsForWebUI(
     base::OnceCallback<void(std::vector<StorableImpression>)> callback) {
-  // Unretained is safe because any task to delete |storage_| will be posted
-  // after this one because |storage_| uses base::OnTaskRunnerDeleter.
   conversion_storage_context_->GetActiveImpressions(std::move(callback));
 }
 

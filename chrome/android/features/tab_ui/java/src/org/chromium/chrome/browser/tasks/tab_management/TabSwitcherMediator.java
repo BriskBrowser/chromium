@@ -6,6 +6,7 @@ package org.chromium.chrome.browser.tasks.tab_management;
 
 import static org.chromium.chrome.browser.tasks.tab_management.TabListContainerProperties.ANIMATE_VISIBILITY_CHANGES;
 import static org.chromium.chrome.browser.tasks.tab_management.TabListContainerProperties.BOTTOM_CONTROLS_HEIGHT;
+import static org.chromium.chrome.browser.tasks.tab_management.TabListContainerProperties.BOTTOM_PADDING;
 import static org.chromium.chrome.browser.tasks.tab_management.TabListContainerProperties.INITIAL_SCROLL_INDEX;
 import static org.chromium.chrome.browser.tasks.tab_management.TabListContainerProperties.IS_INCOGNITO;
 import static org.chromium.chrome.browser.tasks.tab_management.TabListContainerProperties.IS_VISIBLE;
@@ -13,6 +14,7 @@ import static org.chromium.chrome.browser.tasks.tab_management.TabListContainerP
 import static org.chromium.chrome.browser.tasks.tab_management.TabListContainerProperties.TOP_MARGIN;
 import static org.chromium.chrome.browser.tasks.tab_management.TabListContainerProperties.VISIBILITY_LISTENER;
 
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.os.Handler;
 import android.os.SystemClock;
@@ -30,7 +32,7 @@ import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.task.PostTask;
 import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
-import org.chromium.chrome.browser.compositor.layouts.LayoutManager;
+import org.chromium.chrome.browser.compositor.layouts.LayoutManagerImpl;
 import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
 import org.chromium.chrome.browser.flags.CachedFeatureFlags;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
@@ -51,7 +53,10 @@ import org.chromium.chrome.browser.tabmodel.TabModelUtils;
 import org.chromium.chrome.browser.tasks.ReturnToChromeExperimentsUtil;
 import org.chromium.chrome.browser.tasks.pseudotab.PseudoTab;
 import org.chromium.chrome.browser.tasks.tab_groups.TabGroupModelFilter;
+import org.chromium.chrome.browser.tasks.tab_management.TabListCoordinator.TabListMode;
 import org.chromium.chrome.features.start_surface.StartSurfaceConfiguration;
+import org.chromium.chrome.features.start_surface.StartSurfaceUserData;
+import org.chromium.chrome.tab_ui.R;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.ui.modelutil.PropertyModel;
 
@@ -61,8 +66,10 @@ import java.util.List;
  * The Mediator that is responsible for resetting the tab grid or carousel based on visibility and
  * model changes.
  */
-class TabSwitcherMediator implements TabSwitcher.Controller, TabListRecyclerView.VisibilityListener,
-                                     TabListMediator.GridCardOnClickListenerProvider {
+class TabSwitcherMediator
+        implements TabSwitcher.Controller, TabListRecyclerView.VisibilityListener,
+                   TabListMediator.GridCardOnClickListenerProvider,
+                   PriceWelcomeMessageService.PriceWelcomeMessageReviewActionProvider {
     private static final String TAG = "TabSwitcherMediator";
 
     // This should be the same as TabListCoordinator.GRID_LAYOUT_SPAN_COUNT for the selected tab
@@ -104,6 +111,7 @@ class TabSwitcherMediator implements TabSwitcher.Controller, TabListRecyclerView
     private TabSelectionEditorCoordinator
             .TabSelectionEditorController mTabSelectionEditorController;
     private TabSwitcher.OnTabSelectingListener mOnTabSelectingListener;
+    private PriceWelcomeMessageService mPriceWelcomeMessageService;
 
     /**
      * In cases where a didSelectTab was due to switching models with a toggle,
@@ -184,7 +192,31 @@ class TabSwitcherMediator implements TabSwitcher.Controller, TabListRecyclerView
     }
 
     /**
+     * An interface to control price welcome message in grid tab switcher.
+     */
+    interface PriceWelcomeMessageController {
+        /**
+         * Remove the price welcome message item in the model list. Right now this is used when
+         * its binding tab is closed in the grid tab switcher.
+         */
+        void removePriceWelcomeMessage();
+
+        /**
+         * Restore the price welcome message item that should show. Right now this is only used
+         * when the closure of the binding tab in tab switcher is undone.
+         */
+        void restorePriceWelcomeMessage();
+
+        /**
+         * Show the price welcome message in tab switcher. This is used when any open tab in tab
+         * switcher has a price drop.
+         */
+        void showPriceWelcomeMessage(PriceWelcomeMessageService.PriceTabData priceTabData);
+    }
+
+    /**
      * Basic constructor for the Mediator.
+     * @param context The context to use for accessing {@link android.content.res.Resources}.
      * @param resetHandler The {@link ResetHandler} that handles reset for this Mediator.
      * @param containerViewModel The {@link PropertyModel} to keep state on the View containing the
      *         grid or carousel.
@@ -196,10 +228,11 @@ class TabSwitcherMediator implements TabSwitcher.Controller, TabListRecyclerView
      *         for multi-window related changes.
      * @param mode One of the {@link TabListCoordinator.TabListMode}.
      */
-    TabSwitcherMediator(ResetHandler resetHandler, PropertyModel containerViewModel,
-            TabModelSelector tabModelSelector,
+    TabSwitcherMediator(Context context, ResetHandler resetHandler,
+            PropertyModel containerViewModel, TabModelSelector tabModelSelector,
             BrowserControlsStateProvider browserControlsStateProvider, ViewGroup containerView,
             TabContentManager tabContentManager, MessageItemsController messageItemsController,
+            PriceWelcomeMessageController priceWelcomeMessageController,
             MultiWindowModeStateDispatcher multiWindowModeStateDispatcher,
             @TabListCoordinator.TabListMode int mode) {
         mResetHandler = resetHandler;
@@ -267,7 +300,7 @@ class TabSwitcherMediator implements TabSwitcher.Controller, TabListRecyclerView
                 }
 
                 if (mContainerViewModel.get(IS_VISIBLE)) {
-                    onTabSelecting(tab.getId());
+                    onTabSelecting(tab.getId(), false);
                 }
             }
 
@@ -286,6 +319,9 @@ class TabSwitcherMediator implements TabSwitcher.Controller, TabListRecyclerView
             public void willCloseTab(Tab tab, boolean animate) {
                 if (mTabModelSelector.getCurrentModel().getCount() == 1) {
                     messageItemsController.removeAllAppendedMessage();
+                } else if (mPriceWelcomeMessageService != null
+                        && mPriceWelcomeMessageService.getBindingTabId() == tab.getId()) {
+                    priceWelcomeMessageController.removePriceWelcomeMessage();
                 }
             }
 
@@ -293,6 +329,20 @@ class TabSwitcherMediator implements TabSwitcher.Controller, TabListRecyclerView
             public void tabClosureUndone(Tab tab) {
                 if (mTabModelSelector.getCurrentModel().getCount() == 1) {
                     messageItemsController.restoreAllAppendedMessage();
+                }
+                if (mPriceWelcomeMessageService != null
+                        && mPriceWelcomeMessageService.getBindingTabId() == tab.getId()) {
+                    priceWelcomeMessageController.restorePriceWelcomeMessage();
+                }
+            }
+
+            @Override
+            public void tabClosureCommitted(Tab tab) {
+                // TODO(crbug.com/1157578): Auto update the PriceWelcomeMessageService instead of
+                // updating it based on the client caller.
+                if (mPriceWelcomeMessageService != null
+                        && mPriceWelcomeMessageService.getBindingTabId() == tab.getId()) {
+                    mPriceWelcomeMessageService.invalidateMessage();
                 }
             }
         };
@@ -355,6 +405,11 @@ class TabSwitcherMediator implements TabSwitcher.Controller, TabListRecyclerView
             updateTopControlsProperties();
             mContainerViewModel.set(
                     BOTTOM_CONTROLS_HEIGHT, browserControlsStateProvider.getBottomControlsHeight());
+        }
+
+        if (mMode == TabListMode.GRID) {
+            mContainerViewModel.set(BOTTOM_PADDING,
+                    (int) context.getResources().getDimension(R.dimen.tab_grid_bottom_padding));
         }
 
         mContainerView = containerView;
@@ -667,8 +722,16 @@ class TabSwitcherMediator implements TabSwitcher.Controller, TabListRecyclerView
     }
 
     @Override
-    public boolean onBackPressed() {
+    public boolean onBackPressed(boolean isOnHomepage) {
         if (!mContainerViewModel.get(IS_VISIBLE)) return false;
+
+        // When the Start surface is showing, we check if the tab group dialog is showing from the
+        // carousel tab switcher, and delegates to mTabGridDialogController to close the dialog.
+        // See https://crbug.com/1171799.
+        if (isOnHomepage && mMode == TabListCoordinator.TabListMode.CAROUSEL) {
+            return mTabGridDialogController != null && mTabGridDialogController.handleBackPressed();
+        }
+
         if (mTabSelectionEditorController != null
                 && mTabSelectionEditorController.handleBackPressed()) {
             return true;
@@ -678,7 +741,7 @@ class TabSwitcherMediator implements TabSwitcher.Controller, TabListRecyclerView
         }
         if (mTabModelSelector.getCurrentTab() == null) return false;
 
-        onTabSelecting(mTabModelSelector.getCurrentTabId());
+        onTabSelecting(mTabModelSelector.getCurrentTabId(), false);
 
         return true;
     }
@@ -743,6 +806,10 @@ class TabSwitcherMediator implements TabSwitcher.Controller, TabListRecyclerView
         mOnTabSelectingListener = listener;
     }
 
+    void setPriceWelcomeMessageService(PriceWelcomeMessageService priceWelcomeMessageService) {
+        mPriceWelcomeMessageService = priceWelcomeMessageService;
+    }
+
     // GridCardOnClickListenerProvider implementation.
     @Override
     @Nullable
@@ -761,11 +828,21 @@ class TabSwitcherMediator implements TabSwitcher.Controller, TabListRecyclerView
     }
 
     @Override
-    public void onTabSelecting(int tabId) {
+    public void onTabSelecting(int tabId, boolean fromActionButton) {
+        if (fromActionButton && (mMode == TabListMode.CAROUSEL || mMode == TabListMode.GRID)) {
+            Tab newlySelectedTab =
+                    TabModelUtils.getTabById(mTabModelSelector.getCurrentModel(), tabId);
+            StartSurfaceUserData.setKeepTab(newlySelectedTab, true);
+        }
         mIsSelectingInTabSwitcher = true;
         if (mOnTabSelectingListener != null) {
-            mOnTabSelectingListener.onTabSelecting(LayoutManager.time(), tabId);
+            mOnTabSelectingListener.onTabSelecting(LayoutManagerImpl.time(), tabId);
         }
+    }
+
+    @Override
+    public void scrollToTab(int tabIndex) {
+        mContainerViewModel.set(TabListContainerProperties.INITIAL_SCROLL_INDEX, tabIndex);
     }
 
     private boolean ableToOpenDialog(Tab tab) {

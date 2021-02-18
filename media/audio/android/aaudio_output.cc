@@ -42,10 +42,17 @@ AAudioOutputStream::AAudioOutputStream(AudioManagerAndroid* manager,
   DCHECK(params.IsValid());
 
   if (AudioManagerAndroid::SupportsPerformanceModeForOutput()) {
-    if (params.latency_tag() == AudioLatency::LATENCY_PLAYBACK)
-      performance_mode_ = AAUDIO_PERFORMANCE_MODE_POWER_SAVING;
-    else if (params.latency_tag() == AudioLatency::LATENCY_RTC)
-      performance_mode_ = AAUDIO_PERFORMANCE_MODE_LOW_LATENCY;
+    switch (params.latency_tag()) {
+      case AudioLatency::LATENCY_INTERACTIVE:
+      case AudioLatency::LATENCY_RTC:
+        performance_mode_ = AAUDIO_PERFORMANCE_MODE_LOW_LATENCY;
+        break;
+      case AudioLatency::LATENCY_PLAYBACK:
+        performance_mode_ = AAUDIO_PERFORMANCE_MODE_POWER_SAVING;
+        break;
+      default:
+        performance_mode_ = AAUDIO_PERFORMANCE_MODE_NONE;
+    }
   }
 }
 
@@ -70,8 +77,6 @@ bool AAudioOutputStream::Open() {
   AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_FLOAT);
   AAudioStreamBuilder_setUsage(builder, usage_);
   AAudioStreamBuilder_setPerformanceMode(builder, performance_mode_);
-  AAudioStreamBuilder_setBufferCapacityInFrames(builder,
-                                                params_.frames_per_buffer());
   AAudioStreamBuilder_setFramesPerDataCallback(builder,
                                                params_.frames_per_buffer());
 
@@ -86,6 +91,13 @@ bool AAudioOutputStream::Open() {
 
   if (AAUDIO_OK != result)
     return false;
+
+  // After opening the stream, sets the effective buffer size to 3X the burst
+  // size to prevent glitching if the burst is small (e.g. < 128). On some
+  // devices you can get by with 1X or 2X, but 3X is safer.
+  int32_t framesPerBurst = AAudioStream_getFramesPerBurst(aaudio_stream_);
+  int32_t sizeRequested = framesPerBurst * (framesPerBurst < 128 ? 3 : 2);
+  AAudioStream_setBufferSizeInFrames(aaudio_stream_, sizeRequested);
 
   audio_bus_ = AudioBus::Create(params_);
 
@@ -114,6 +126,13 @@ void AAudioOutputStream::Start(AudioSourceCallback* callback) {
 
   {
     base::AutoLock al(lock_);
+
+    // The device might have been disconnected between Open() and Start().
+    if (device_changed_) {
+      callback->OnError(AudioSourceCallback::ErrorType::kDeviceChange);
+      return;
+    }
+
     DCHECK(!callback_);
     callback_ = callback;
   }
@@ -217,9 +236,20 @@ aaudio_data_callback_result_t AAudioOutputStream::OnAudioDataRequested(
 
 void AAudioOutputStream::OnStreamError(aaudio_result_t error) {
   base::AutoLock al(lock_);
+
+  if (error == AAUDIO_ERROR_DISCONNECTED)
+    device_changed_ = true;
+
+  if (!callback_)
+    return;
+
+  if (device_changed_) {
+    callback_->OnError(AudioSourceCallback::ErrorType::kDeviceChange);
+    return;
+  }
+
   // TODO(dalecurtis): Consider sending a translated |error| code.
-  if (callback_)
-    callback_->OnError(AudioSourceCallback::ErrorType::kUnknown);
+  callback_->OnError(AudioSourceCallback::ErrorType::kUnknown);
 }
 
 void AAudioOutputStream::SetVolume(double volume) {

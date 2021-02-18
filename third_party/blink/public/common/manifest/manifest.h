@@ -11,14 +11,15 @@
 #include <vector>
 
 #include "base/optional.h"
-#include "base/strings/nullable_string16.h"
 #include "base/strings/string16.h"
 #include "services/device/public/mojom/screen_orientation_lock_types.mojom-shared.h"
 #include "third_party/blink/public/common/common_export.h"
 #include "third_party/blink/public/mojom/manifest/display_mode.mojom.h"
+#include "third_party/blink/public/mojom/manifest/manifest.mojom-shared.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/geometry/size.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 namespace blink {
 
@@ -29,13 +30,6 @@ struct BLINK_COMMON_EXPORT Manifest {
   // Structure representing an icon as per the Manifest specification, see:
   // https://w3c.github.io/manifest/#dom-imageresource
   struct BLINK_COMMON_EXPORT ImageResource {
-    enum class Purpose {
-      ANY = 0,
-      MONOCHROME,
-      MASKABLE,
-      IMAGE_RESOURCE_PURPOSE_LAST = MASKABLE,
-    };
-
     ImageResource();
     ImageResource(const ImageResource& other);
     ~ImageResource();
@@ -58,7 +52,7 @@ struct BLINK_COMMON_EXPORT Manifest {
 
     // Never empty. Defaults to a vector with a single value, IconPurpose::ANY,
     // if not explicitly specified in the manifest.
-    std::vector<Purpose> purpose;
+    std::vector<mojom::ManifestImageResource_Purpose> purpose;
   };
 
   // Structure representing a shortcut as per the Manifest specification, see:
@@ -68,8 +62,8 @@ struct BLINK_COMMON_EXPORT Manifest {
     ~ShortcutItem();
 
     base::string16 name;
-    base::NullableString16 short_name;
-    base::NullableString16 description;
+    base::Optional<base::string16> short_name;
+    base::Optional<base::string16> description;
     GURL url;
     std::vector<ImageResource> icons;
   };
@@ -84,24 +78,14 @@ struct BLINK_COMMON_EXPORT Manifest {
     ShareTargetParams();
     ~ShareTargetParams();
 
-    base::NullableString16 title;
-    base::NullableString16 text;
-    base::NullableString16 url;
+    base::Optional<base::string16> title;
+    base::Optional<base::string16> text;
+    base::Optional<base::string16> url;
     std::vector<FileFilter> files;
   };
 
   // Structure representing how a Web Share target handles an incoming share.
   struct BLINK_COMMON_EXPORT ShareTarget {
-    enum class Method {
-      kGet,
-      kPost,
-    };
-
-    enum class Enctype {
-      kFormUrlEncoded,
-      kMultipartFormData,
-    };
-
     ShareTarget();
     ~ShareTarget();
 
@@ -110,10 +94,10 @@ struct BLINK_COMMON_EXPORT Manifest {
     GURL action;
 
     // The HTTP request method for the web share target.
-    Method method;
+    blink::mojom::ManifestShareTarget_Method method;
 
     // The way that share data is encoded in "POST" request.
-    Enctype enctype;
+    blink::mojom::ManifestShareTarget_Enctype enctype;
 
     ShareTargetParams params;
   };
@@ -132,6 +116,10 @@ struct BLINK_COMMON_EXPORT Manifest {
     GURL url;
   };
 
+  struct BLINK_COMMON_EXPORT UrlHandler {
+    url::Origin origin;
+  };
+
   // Structure representing a related application.
   struct BLINK_COMMON_EXPORT RelatedApplication {
     RelatedApplication();
@@ -140,7 +128,7 @@ struct BLINK_COMMON_EXPORT Manifest {
     // The platform on which the application can be found. This can be any
     // string, and is interpreted by the consumer of the object. Empty if the
     // parsing failed.
-    base::NullableString16 platform;
+    base::Optional<base::string16> platform;
 
     // URL at which the application can be found. One of |url| and |id| must be
     // present. Empty if the parsing failed or the field was not present.
@@ -149,7 +137,7 @@ struct BLINK_COMMON_EXPORT Manifest {
     // An id which is used to represent the application on the platform. One of
     // |url| and |id| must be present. Empty if the parsing failed or the field
     // was not present.
-    base::NullableString16 id;
+    base::Optional<base::string16> id;
   };
 
   Manifest();
@@ -161,10 +149,13 @@ struct BLINK_COMMON_EXPORT Manifest {
   bool IsEmpty() const;
 
   // Null if the parsing failed or the field was not present.
-  base::NullableString16 name;
+  base::Optional<base::string16> name;
 
   // Null if the parsing failed or the field was not present.
-  base::NullableString16 short_name;
+  base::Optional<base::string16> short_name;
+
+  // Null if the parsing failed or the field was not present.
+  base::Optional<base::string16> description;
 
   // Empty if the parsing failed or the field was not present.
   GURL start_url;
@@ -187,6 +178,10 @@ struct BLINK_COMMON_EXPORT Manifest {
   std::vector<ImageResource> icons;
 
   // Empty if the parsing failed, the field was not present, or all the
+  // screenshots inside the JSON array were invalid.
+  std::vector<ImageResource> screenshots;
+
+  // Empty if the parsing failed, the field was not present, or all the
   // icons inside the JSON array were invalid.
   std::vector<ShortcutItem> shortcuts;
 
@@ -205,6 +200,13 @@ struct BLINK_COMMON_EXPORT Manifest {
   // The URLProtocolHandler explainer can be found here:
   // https://github.com/MicrosoftEdge/MSEdgeExplainers/blob/master/URLProtocolHandler/explainer.md
   std::vector<ProtocolHandler> protocol_handlers;
+
+  // TODO(crbug.com/1072058): This field is non-standard and part of an
+  // experiment. See:
+  // https://github.com/WICG/pwa-url-handler/blob/master/explainer.md
+  // Empty if the parsing failed, the field was not present, empty or all the
+  // entries inside the array were invalid.
+  std::vector<UrlHandler> url_handlers;
 
   // Empty if the parsing failed, the field was not present, empty or all the
   // applications inside the array were invalid. The order of the array
@@ -225,12 +227,14 @@ struct BLINK_COMMON_EXPORT Manifest {
   // This is a proprietary extension of the web Manifest, double-check that it
   // is okay to use this entry.
   // Null if parsing failed or the field was not present.
-  base::NullableString16 gcm_sender_id;
+  base::Optional<base::string16> gcm_sender_id;
 
   // Empty if the parsing failed. Otherwise defaults to the start URL (or
   // document URL if start URL isn't present) with filename, query, and fragment
   // removed.
   GURL scope;
+
+  mojom::CaptureLinks capture_links = mojom::CaptureLinks::kUndefined;
 };
 
 }  // namespace blink

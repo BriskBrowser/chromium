@@ -17,6 +17,7 @@
 #include "base/optional.h"
 #include "base/time/time.h"
 #include "ui/aura/client/drag_drop_client.h"
+#include "ui/aura/client/drag_drop_delegate.h"
 #include "ui/aura/window_observer.h"
 #include "ui/base/dragdrop/mojom/drag_drop_types.mojom-shared.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
@@ -37,6 +38,7 @@ class LocatedEvent;
 namespace ash {
 class DragDropTracker;
 class DragDropTrackerDelegate;
+class ToplevelWindowDragDelegate;
 
 class ASH_EXPORT DragDropController : public aura::client::DragDropClient,
                                       public ui::EventHandler,
@@ -52,6 +54,10 @@ class ASH_EXPORT DragDropController : public aura::client::DragDropClient,
   }
 
   void set_enabled(bool enabled) { enabled_ = enabled; }
+
+  void set_toplevel_window_drag_delegate(ToplevelWindowDragDelegate* delegate) {
+    toplevel_window_drag_delegate_ = delegate;
+  }
 
   // Overridden from aura::client::DragDropClient:
   int StartDragAndDrop(std::unique_ptr<ui::OSExchangeData> data,
@@ -119,7 +125,7 @@ class ASH_EXPORT DragDropController : public aura::client::DragDropClient,
   gfx::Vector2d drag_image_offset_;
   std::unique_ptr<ui::OSExchangeData> drag_data_;
   int drag_operation_ = 0;
-  int current_drag_actions_ = 0;
+  aura::client::DragUpdateInfo current_drag_info_;
 
   // Used when processing a Chrome tab drag from a WebUI tab strip.
   base::Optional<TabDragDropDelegate> tab_drag_drop_delegate_;
@@ -159,6 +165,8 @@ class ASH_EXPORT DragDropController : public aura::client::DragDropClient,
 
   base::ObserverList<aura::client::DragDropClientObserver>::Unchecked
       observers_;
+
+  ToplevelWindowDragDelegate* toplevel_window_drag_delegate_ = nullptr;
 
   base::WeakPtrFactory<DragDropController> weak_factory_{this};
 

@@ -24,6 +24,7 @@
 #include "third_party/blink/renderer/core/css/css_property_value_set.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
+#include "third_party/blink/renderer/core/svg/svg_animated_string.h"
 #include "third_party/blink/renderer/core/svg/svg_filter_element.h"
 #include "third_party/blink/renderer/core/svg/svg_filter_primitive_standard_attributes.h"
 #include "third_party/blink/renderer/platform/graphics/filters/filter.h"
@@ -136,7 +137,7 @@ static EColorInterpolation ColorInterpolationForElement(
     SVGElement& element,
     EColorInterpolation parent_color_interpolation) {
   if (const LayoutObject* layout_object = element.GetLayoutObject())
-    return layout_object->StyleRef().SvgStyle().ColorInterpolationFilters();
+    return layout_object->StyleRef().ColorInterpolationFilters();
 
   // No layout has been performed, try to determine the property value
   // "manually" (used by external SVG files.)

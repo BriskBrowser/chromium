@@ -130,6 +130,8 @@ class MockQuicTransport : public network::mojom::blink::QuicTransport {
                void(base::OnceCallback<
                     void(uint32_t, mojo::ScopedDataPipeConsumerHandle)>));
 
+  MOCK_METHOD1(SetOutgoingDatagramExpirationDuration, void(base::TimeDelta));
+
   void SendFin(uint32_t stream_id) override {}
   void AbortStream(uint32_t stream_id, uint64_t code) override {}
 
@@ -160,9 +162,11 @@ class QuicTransportTest : public ::testing::Test {
   }
 
   // Creates a QuicTransport object with the given |url|.
-  QuicTransport* Create(const V8TestingScope& scope, const String& url) {
+  QuicTransport* Create(const V8TestingScope& scope,
+                        const String& url,
+                        QuicTransportOptions* options) {
     AddBinder(scope);
-    return QuicTransport::Create(scope.GetScriptState(), url, EmptyOptions(),
+    return QuicTransport::Create(scope.GetScriptState(), url, options,
                                  ASSERT_NO_EXCEPTION);
   }
 
@@ -212,9 +216,11 @@ class QuicTransportTest : public ::testing::Test {
 
   // Creates, connects and returns a QuicTransport object with the given |url|.
   // Runs the event loop.
-  QuicTransport* CreateAndConnectSuccessfully(const V8TestingScope& scope,
-                                              const String& url) {
-    auto* quic_transport = Create(scope, url);
+  QuicTransport* CreateAndConnectSuccessfully(
+      const V8TestingScope& scope,
+      const String& url,
+      QuicTransportOptions* options = EmptyOptions()) {
+    auto* quic_transport = Create(scope, url, options);
     ConnectSuccessfully(quic_transport);
     return quic_transport;
   }
@@ -282,7 +288,7 @@ class QuicTransportTest : public ::testing::Test {
         mojom::blink::QuicTransportConnector::Name_, {});
   }
 
-  BrowserInterfaceBrokerProxy* interface_broker_ = nullptr;
+  const BrowserInterfaceBrokerProxy* interface_broker_ = nullptr;
   WTF::Deque<AcceptUnidirectionalStreamCallback>
       pending_unidirectional_accept_callbacks_;
   WTF::Deque<AcceptBidirectionalStreamCallback>
@@ -374,6 +380,7 @@ TEST_F(QuicTransportTest, FailByCSP) {
   scope.GetExecutionContext()
       ->GetContentSecurityPolicyForCurrentWorld()
       ->DidReceiveHeader("connect-src 'none'",
+                         *(scope.GetExecutionContext()->GetSecurityOrigin()),
                          network::mojom::ContentSecurityPolicyType::kEnforce,
                          network::mojom::ContentSecurityPolicySource::kHTTP);
   QuicTransport::Create(scope.GetScriptState(),
@@ -395,6 +402,7 @@ TEST_F(QuicTransportTest, PassCSP) {
   scope.GetExecutionContext()
       ->GetContentSecurityPolicyForCurrentWorld()
       ->DidReceiveHeader("connect-src quic-transport://example.com",
+                         *(scope.GetExecutionContext()->GetSecurityOrigin()),
                          network::mojom::ContentSecurityPolicyType::kEnforce,
                          network::mojom::ContentSecurityPolicySource::kHTTP);
   QuicTransport::Create(scope.GetScriptState(),
@@ -617,9 +625,77 @@ TEST_F(QuicTransportTest, SendDatagram) {
   EXPECT_TRUE(tester.Value().IsUndefined());
 }
 
+TEST_F(QuicTransportTest, BackpressureForOutgoingDatagrams) {
+  V8TestingScope scope;
+  auto* const options = MakeGarbageCollected<QuicTransportOptions>();
+  options->setDatagramWritableHighWaterMark(3);
+  auto* quic_transport = CreateAndConnectSuccessfully(
+      scope, "quic-transport://example.com", options);
+
+  EXPECT_CALL(*mock_quic_transport_, SendDatagram(_, _))
+      .Times(4)
+      .WillRepeatedly(
+          Invoke([](base::span<const uint8_t>,
+                    MockQuicTransport::SendDatagramCallback callback) {
+            std::move(callback).Run(true);
+          }));
+
+  auto* writable = quic_transport->sendDatagrams();
+  auto* script_state = scope.GetScriptState();
+  auto* writer = writable->getWriter(script_state, ASSERT_NO_EXCEPTION);
+
+  ScriptPromise promise1;
+  ScriptPromise promise2;
+  ScriptPromise promise3;
+  ScriptPromise promise4;
+
+  {
+    auto* chunk = DOMUint8Array::Create(1);
+    *chunk->Data() = 'A';
+    promise1 =
+        writer->write(script_state, ScriptValue::From(script_state, chunk),
+                      ASSERT_NO_EXCEPTION);
+  }
+  {
+    auto* chunk = DOMUint8Array::Create(1);
+    *chunk->Data() = 'B';
+    promise2 =
+        writer->write(script_state, ScriptValue::From(script_state, chunk),
+                      ASSERT_NO_EXCEPTION);
+  }
+  {
+    auto* chunk = DOMUint8Array::Create(1);
+    *chunk->Data() = 'C';
+    promise3 =
+        writer->write(script_state, ScriptValue::From(script_state, chunk),
+                      ASSERT_NO_EXCEPTION);
+  }
+  {
+    auto* chunk = DOMUint8Array::Create(1);
+    *chunk->Data() = 'D';
+    promise4 =
+        writer->write(script_state, ScriptValue::From(script_state, chunk),
+                      ASSERT_NO_EXCEPTION);
+  }
+
+  // The first two promises are resolved immediately.
+  v8::MicrotasksScope::PerformCheckpoint(scope.GetIsolate());
+  EXPECT_EQ(promise1.V8Promise()->State(), v8::Promise::kFulfilled);
+  EXPECT_EQ(promise2.V8Promise()->State(), v8::Promise::kFulfilled);
+  EXPECT_EQ(promise3.V8Promise()->State(), v8::Promise::kPending);
+  EXPECT_EQ(promise4.V8Promise()->State(), v8::Promise::kPending);
+
+  // The rest are resolved by the callback.
+  test::RunPendingTasks();
+  v8::MicrotasksScope::PerformCheckpoint(scope.GetIsolate());
+  EXPECT_EQ(promise3.V8Promise()->State(), v8::Promise::kFulfilled);
+  EXPECT_EQ(promise4.V8Promise()->State(), v8::Promise::kFulfilled);
+}
+
 TEST_F(QuicTransportTest, SendDatagramBeforeConnect) {
   V8TestingScope scope;
-  auto* quic_transport = Create(scope, "quic-transport://example.com");
+  auto* quic_transport =
+      Create(scope, "quic-transport://example.com", EmptyOptions());
 
   auto* writable = quic_transport->sendDatagrams();
   auto* script_state = scope.GetScriptState();
@@ -685,7 +761,7 @@ Vector<uint8_t> GetValueAsVector(ScriptState* script_state,
   }
 
   Vector<uint8_t> result;
-  result.Append(array->Data(), array->lengthAsSizeT());
+  result.Append(array->Data(), array->length());
   return result;
 }
 
@@ -701,7 +777,8 @@ TEST_F(QuicTransportTest, ReceiveDatagramBeforeRead) {
 
   auto* readable = quic_transport->receiveDatagrams();
   auto* script_state = scope.GetScriptState();
-  auto* reader = readable->getReader(script_state, ASSERT_NO_EXCEPTION);
+  auto* reader =
+      readable->GetDefaultReaderForTesting(script_state, ASSERT_NO_EXCEPTION);
   ScriptPromise result = reader->read(script_state, ASSERT_NO_EXCEPTION);
   ScriptPromiseTester tester(script_state, result);
   tester.WaitUntilSettled();
@@ -716,7 +793,8 @@ TEST_F(QuicTransportTest, ReceiveDatagramDuringRead) {
       CreateAndConnectSuccessfully(scope, "quic-transport://example.com");
   auto* readable = quic_transport->receiveDatagrams();
   auto* script_state = scope.GetScriptState();
-  auto* reader = readable->getReader(script_state, ASSERT_NO_EXCEPTION);
+  auto* reader =
+      readable->GetDefaultReaderForTesting(script_state, ASSERT_NO_EXCEPTION);
   ScriptPromise result = reader->read(script_state, ASSERT_NO_EXCEPTION);
 
   const std::array<uint8_t, 1> chunk = {'A'};
@@ -749,7 +827,8 @@ TEST_F(QuicTransportTest, DatagramsAreDropped) {
 
   auto* readable = quic_transport->receiveDatagrams();
   auto* script_state = scope.GetScriptState();
-  auto* reader = readable->getReader(script_state, ASSERT_NO_EXCEPTION);
+  auto* reader =
+      readable->GetDefaultReaderForTesting(script_state, ASSERT_NO_EXCEPTION);
   ScriptPromise result1 = reader->read(script_state, ASSERT_NO_EXCEPTION);
   ScriptPromise result2 = reader->read(script_state, ASSERT_NO_EXCEPTION);
 
@@ -1123,8 +1202,8 @@ TEST_F(QuicTransportTest, CreateReceiveStream) {
   producer.reset();
   quic_transport->OnIncomingStreamClosed(/*stream_id=*/0, true);
 
-  auto* reader =
-      receive_stream->readable()->getReader(script_state, ASSERT_NO_EXCEPTION);
+  auto* reader = receive_stream->readable()->GetDefaultReaderForTesting(
+      script_state, ASSERT_NO_EXCEPTION);
   ScriptPromise read_promise = reader->read(script_state, ASSERT_NO_EXCEPTION);
   ScriptPromiseTester read_tester(script_state, read_promise);
   read_tester.WaitUntilSettled();
@@ -1140,7 +1219,7 @@ TEST_F(QuicTransportTest, CreateReceiveStream) {
       V8Uint8Array::ToImplWithTypeCheck(scope.GetIsolate(), value);
   ASSERT_TRUE(u8array);
   EXPECT_THAT(base::make_span(static_cast<uint8_t*>(u8array->Data()),
-                              u8array->byteLengthAsSizeT()),
+                              u8array->byteLength()),
               ElementsAre('w', 'h', 'a', 't'));
 }
 
@@ -1155,8 +1234,8 @@ TEST_F(QuicTransportTest, CreateReceiveStreamThenClose) {
 
   ReceiveStream* receive_stream = ReadReceiveStream(scope, quic_transport);
 
-  auto* reader =
-      receive_stream->readable()->getReader(script_state, ASSERT_NO_EXCEPTION);
+  auto* reader = receive_stream->readable()->GetDefaultReaderForTesting(
+      script_state, ASSERT_NO_EXCEPTION);
   ScriptPromise read_promise = reader->read(script_state, ASSERT_NO_EXCEPTION);
   ScriptPromiseTester read_tester(script_state, read_promise);
 
@@ -1186,8 +1265,8 @@ TEST_F(QuicTransportTest, CreateReceiveStreamThenRemoteClose) {
 
   ReceiveStream* receive_stream = ReadReceiveStream(scope, quic_transport);
 
-  auto* reader =
-      receive_stream->readable()->getReader(script_state, ASSERT_NO_EXCEPTION);
+  auto* reader = receive_stream->readable()->GetDefaultReaderForTesting(
+      script_state, ASSERT_NO_EXCEPTION);
   ScriptPromise read_promise = reader->read(script_state, ASSERT_NO_EXCEPTION);
   ScriptPromiseTester read_tester(script_state, read_promise);
 
@@ -1263,6 +1342,21 @@ TEST_F(QuicTransportTest, ReceiveBidirectionalStream) {
   BidirectionalStream* bidirectional_stream =
       V8BidirectionalStream::ToImplWithTypeCheck(scope.GetIsolate(), v8value);
   EXPECT_TRUE(bidirectional_stream);
+}
+
+TEST_F(QuicTransportTest, SetDatagramWritableQueueExpirationDuration) {
+  V8TestingScope scope;
+
+  auto* quic_transport =
+      CreateAndConnectSuccessfully(scope, "quic-transport://example.com");
+
+  constexpr base::TimeDelta duration = base::TimeDelta::FromMilliseconds(40);
+  EXPECT_CALL(*mock_quic_transport_,
+              SetOutgoingDatagramExpirationDuration(duration));
+
+  quic_transport->SetDatagramWritableQueueExpirationDuration(duration);
+
+  test::RunPendingTasks();
 }
 
 }  // namespace

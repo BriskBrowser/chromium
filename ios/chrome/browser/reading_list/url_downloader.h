@@ -55,7 +55,7 @@ class URLDownloader : reading_list::ReadingListDistillerPageDelegate {
 
   // A completion callback that takes a GURL and a bool indicating the
   // outcome and returns void.
-  using SuccessCompletion = base::Callback<void(const GURL&, bool)>;
+  using SuccessCompletion = base::RepeatingCallback<void(const GURL&, bool)>;
 
   // A download completion callback that takes, in order, the GURL that was
   // downloaded, the GURL of the page that was downloaded after redirections, a
@@ -64,12 +64,12 @@ class URLDownloader : reading_list::ReadingListDistillerPageDelegate {
   // the url, and returns void.
   // The path to downloaded file and title should not be used in case of
   // failure.
-  using DownloadCompletion = base::Callback<void(const GURL&,
-                                                 const GURL&,
-                                                 SuccessState,
-                                                 const base::FilePath&,
-                                                 int64_t size,
-                                                 const std::string&)>;
+  using DownloadCompletion = base::RepeatingCallback<void(const GURL&,
+                                                          const GURL&,
+                                                          SuccessState,
+                                                          const base::FilePath&,
+                                                          int64_t size,
+                                                          const std::string&)>;
 
   // Create a URL downloader with completion callbacks for downloads and
   // deletions. The completion callbacks will be called with the original url
@@ -136,17 +136,10 @@ class URLDownloader : reading_list::ReadingListDistillerPageDelegate {
 
   // HTML processing methods.
 
-  // Saves the |data| for image at |imageURL| to disk, for main URL |url|;
-  // puts path of saved file in |path| and returns whether save was successful.
-  bool SaveImage(const GURL& url,
-                 const GURL& imageURL,
-                 const std::string& data,
-                 std::string* image_name);
-  // Saves images in |images| array to disk and replaces references in |html| to
-  // local path. Returns updated html.
-  // If some images could not be saved, returns an empty string. It is the
-  // responsibility of the caller to clean the partial processing.
-  std::string SaveAndReplaceImagesInHTML(
+  // Injects script to replace images in |images| array with a data-uri
+  // of their contents. If the data does not represent an image, it is
+  // skipped.
+  std::string ReplaceImagesInHTML(
       const GURL& url,
       const std::string& html,
       const std::vector<dom_distiller::DistillerViewerInterface::ImageInfo>&

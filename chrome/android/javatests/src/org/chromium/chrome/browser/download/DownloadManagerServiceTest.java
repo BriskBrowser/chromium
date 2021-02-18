@@ -15,10 +15,12 @@ import androidx.test.filters.MediumTest;
 
 import org.junit.After;
 import org.junit.Assert;
-import org.junit.Rule;
+import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.test.util.Batch;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.UrlUtils;
@@ -31,7 +33,6 @@ import org.chromium.components.offline_items_collection.ContentId;
 import org.chromium.components.offline_items_collection.OfflineItem.Progress;
 import org.chromium.components.offline_items_collection.OfflineItemProgressUnit;
 import org.chromium.components.offline_items_collection.PendingState;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.ConnectionType;
 
@@ -47,9 +48,10 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * Test for DownloadManagerService.
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
+@Batch(Batch.PER_CLASS)
 public class DownloadManagerServiceTest {
-    @Rule
-    public final ChromeBrowserTestRule mBrowserTestRule = new ChromeBrowserTestRule();
+    @ClassRule
+    public static final ChromeBrowserTestRule sBrowserTestRule = new ChromeBrowserTestRule();
     private static final int UPDATE_DELAY_FOR_TEST = 1;
     private static final int DELAY_BETWEEN_CALLS = 10;
     private static final int LONG_UPDATE_DELAY_FOR_TEST = 500;
@@ -343,7 +345,8 @@ public class DownloadManagerServiceTest {
         createDownloadManagerService(notifier, UPDATE_DELAY_FOR_TEST);
         TestThreadUtils.runOnUiThreadBlocking(
                 (Runnable) () -> DownloadManagerService.setDownloadManagerService(mService));
-        DownloadInfoBarController infoBarController = mService.getInfoBarController(false);
+        DownloadInfoBarController infoBarController =
+                mService.getInfoBarController(/*otrProfileID=*/null);
         // Try calling download completed directly.
         DownloadInfo successful = getDownloadInfo();
         notifier.expect(MethodID.DOWNLOAD_SUCCESSFUL, successful);

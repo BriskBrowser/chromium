@@ -22,6 +22,7 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/layout_provider.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace {
 
@@ -36,38 +37,34 @@ void crostini::ShowCrostiniRecoveryView(
     crostini::CrostiniUISurface ui_surface,
     const std::string& app_id,
     int64_t display_id,
-    const std::vector<storage::FileSystemURL>& files,
+    const std::vector<crostini::LaunchArg>& args,
     crostini::CrostiniSuccessCallback callback) {
-  CrostiniRecoveryView::Show(profile, app_id, display_id, files,
+  CrostiniRecoveryView::Show(profile, app_id, display_id, args,
                              std::move(callback));
   base::UmaHistogramEnumeration(kCrostiniRecoverySourceHistogram, ui_surface,
                                 crostini::CrostiniUISurface::kCount);
 }
 
-void CrostiniRecoveryView::Show(
-    Profile* profile,
-    const std::string& app_id,
-    int64_t display_id,
-    const std::vector<storage::FileSystemURL>& files,
-    crostini::CrostiniSuccessCallback callback) {
-  DCHECK(crostini::CrostiniFeatures::Get()->IsUIAllowed(profile));
+void CrostiniRecoveryView::Show(Profile* profile,
+                                const std::string& app_id,
+                                int64_t display_id,
+                                const std::vector<crostini::LaunchArg>& args,
+                                crostini::CrostiniSuccessCallback callback) {
+  if (!crostini::CrostiniFeatures::Get()->IsAllowedNow(profile)) {
+    std::move(callback).Run(false, "crostini is not allowed");
+    return;
+  }
+
   // Any new apps launched during recovery are immediately cancelled.
   if (g_crostini_recovery_view) {
     std::move(callback).Run(false, "recovery in progress");
   } else {
     g_crostini_recovery_view = new CrostiniRecoveryView(
-        profile, app_id, display_id, files, std::move(callback));
+        profile, app_id, display_id, args, std::move(callback));
     CreateDialogWidget(g_crostini_recovery_view, nullptr, nullptr);
   }
   // Always call Show to bring the dialog to the front of the screen.
   g_crostini_recovery_view->GetWidget()->Show();
-}
-
-gfx::Size CrostiniRecoveryView::CalculatePreferredSize() const {
-  const int dialog_width = ChromeLayoutProvider::Get()->GetDistanceMetric(
-                               DISTANCE_STANDALONE_BUBBLE_PREFERRED_WIDTH) -
-                           margins().width();
-  return gfx::Size(dialog_width, GetHeightForWidth(dialog_width));
 }
 
 bool CrostiniRecoveryView::Accept() {
@@ -88,7 +85,7 @@ void CrostiniRecoveryView::OnStopVm(crostini::CrostiniResult result) {
   }
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::BindOnce(&crostini::LaunchCrostiniApp, profile_, app_id_,
-                                display_id_, files_, std::move(callback_)));
+                                display_id_, args_, std::move(callback_)));
   GetWidget()->CloseWithReason(
       views::Widget::ClosedReason::kAcceptButtonClicked);
 }
@@ -110,12 +107,12 @@ CrostiniRecoveryView::CrostiniRecoveryView(
     Profile* profile,
     const std::string& app_id,
     int64_t display_id,
-    const std::vector<storage::FileSystemURL>& files,
+    const std::vector<crostini::LaunchArg>& args,
     crostini::CrostiniSuccessCallback callback)
     : profile_(profile),
       app_id_(app_id),
       display_id_(display_id),
-      files_(files),
+      args_(args),
       callback_(std::move(callback)),
       weak_ptr_factory_(this) {
   SetButtons(ui::DIALOG_BUTTON_OK | ui::DIALOG_BUTTON_CANCEL);
@@ -127,6 +124,8 @@ CrostiniRecoveryView::CrostiniRecoveryView(
       l10n_util::GetStringUTF16(IDS_CROSTINI_RECOVERY_TERMINAL_BUTTON));
   SetShowCloseButton(false);
   SetTitle(IDS_CROSTINI_RECOVERY_TITLE);
+  set_fixed_width(ChromeLayoutProvider::Get()->GetDistanceMetric(
+      DISTANCE_STANDALONE_BUBBLE_PREFERRED_WIDTH));
 
   views::LayoutProvider* provider = views::LayoutProvider::Get();
   SetLayoutManager(std::make_unique<views::BoxLayout>(
@@ -147,3 +146,6 @@ CrostiniRecoveryView::CrostiniRecoveryView(
 CrostiniRecoveryView::~CrostiniRecoveryView() {
   g_crostini_recovery_view = nullptr;
 }
+
+BEGIN_METADATA(CrostiniRecoveryView, views::BubbleDialogDelegateView)
+END_METADATA

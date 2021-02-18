@@ -31,7 +31,7 @@ class UserScript {
   // The file extension for standalone user scripts.
   static const char kFileExtension[];
 
-  static int GenerateUserScriptID();
+  static std::string GenerateUserScriptID();
 
   // Check if a URL should be treated as a user script and converted to an
   // extension.
@@ -53,6 +53,16 @@ class UserScript {
   // The last type of injected script; used for enum verification in IPC.
   // Update this if you add more injected script types!
   static const InjectionType INJECTION_TYPE_LAST = PROGRAMMATIC_SCRIPT;
+
+  // The type of the content being added or removed by the extension.
+  enum ActionType {
+    ADD_JAVASCRIPT,
+    ADD_CSS,
+    REMOVE_CSS,
+  };
+  // The last type of action taken; used for enum verification in IPC.
+  // Update this if you add more injected script types!
+  static const ActionType ACTION_TYPE_LAST = REMOVE_CSS;
 
   // Locations that user scripts can be run inside the document.
   // The three run locations must strictly follow each other in both load order
@@ -223,8 +233,8 @@ class UserScript {
     consumer_instance_type_ = consumer_instance_type;
   }
 
-  int id() const { return user_script_id_; }
-  void set_id(int id) { user_script_id_ = id; }
+  const std::string& id() const { return user_script_id_; }
+  void set_id(std::string id) { user_script_id_ = std::move(id); }
 
   // TODO(lazyboy): Incognito information is extension specific, it doesn't
   // belong here. We should be able to determine this in the renderer/ where it
@@ -315,9 +325,9 @@ class UserScript {
   // The type of the consumer instance that the script will be injected.
   ConsumerInstanceType consumer_instance_type_ = TAB;
 
-  // The globally-unique id associated with this user script. -1 indicates
-  // "invalid".
-  int user_script_id_ = -1;
+  // The globally-unique id associated with this user script. An empty string
+  // indicates an invalid id.
+  std::string user_script_id_;
 
   // Whether we should try to emulate Greasemonkey's APIs when running this
   // script.
@@ -341,10 +351,10 @@ class UserScript {
 
 // Information we need while removing scripts from a UserScriptLoader.
 struct UserScriptIDPair {
-  UserScriptIDPair(int id, const HostID& host_id);
-  explicit UserScriptIDPair(int id);
+  UserScriptIDPair(std::string id, const HostID& host_id);
+  explicit UserScriptIDPair(std::string id);
 
-  int id;
+  std::string id;
   HostID host_id;
 };
 

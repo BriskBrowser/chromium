@@ -53,32 +53,7 @@ class AXImageAnnotator;
 class RenderFrameImpl;
 class RenderAccessibilityManager;
 
-using BlinkAXTreeSerializer =
-    ui::AXTreeSerializer<blink::WebAXObject, ui::AXNodeData, ui::AXTreeData>;
-
-class AXTreeSnapshotterImpl : public AXTreeSnapshotter {
- public:
-  explicit AXTreeSnapshotterImpl(RenderFrameImpl* render_frame);
-  ~AXTreeSnapshotterImpl() override;
-
-  // AXTreeSnapshotter implementation.
-  void Snapshot(ui::AXMode ax_mode,
-                size_t max_node_count,
-                ui::AXTreeUpdate* accessibility_tree) override;
-
-  // Same as above, but returns in |accessibility_tree| a ui::AXTreeUpdate
-  // with content-specific metadata, instead of an AXTreeUpdate.
-  void SnapshotContentTree(ui::AXMode ax_mode,
-                           size_t max_node_count,
-                           ui::AXTreeUpdate* accessibility_tree);
-
- private:
-  RenderFrameImpl* render_frame_;
-  std::unique_ptr<blink::WebAXContext> context_;
-
-  AXTreeSnapshotterImpl(const AXTreeSnapshotterImpl&) = delete;
-  AXTreeSnapshotterImpl& operator=(const AXTreeSnapshotterImpl&) = delete;
-};
+using BlinkAXTreeSerializer = ui::AXTreeSerializer<blink::WebAXObject>;
 
 // The browser process implements native accessibility APIs, allowing assistive
 // technology (e.g., screen readers, magnifiers) to access and control the web
@@ -105,12 +80,6 @@ class AXTreeSnapshotterImpl : public AXTreeSnapshotter {
 class CONTENT_EXPORT RenderAccessibilityImpl : public RenderAccessibility,
                                                public RenderFrameObserver {
  public:
-  // Request a one-time snapshot of the accessibility tree without
-  // enabling accessibility if it wasn't already enabled.
-  static void SnapshotAccessibilityTree(RenderFrameImpl* render_frame,
-                                        ui::AXTreeUpdate* response,
-                                        ui::AXMode ax_mode);
-
   RenderAccessibilityImpl(
       RenderAccessibilityManager* const render_accessibility_manager,
       RenderFrameImpl* const render_frame,
@@ -163,6 +132,15 @@ class CONTENT_EXPORT RenderAccessibilityImpl : public RenderAccessibility,
   // changed location, by comparing their locations to the cached
   // versions. If any have moved, send an IPC with the new locations.
   void SendLocationChanges();
+
+  // Return true if the event indicates that the current batch of changes
+  // should be processed immediately in order for the user to get fast
+  // feedback, e.g. for navigation or data entry activities.
+  bool IsImmediateProcessingRequiredForEvent(const ui::AXEvent&) const;
+
+  // Get the amount of time, in ms, that event processing should be deferred
+  // in order to more efficiently batch changes.
+  int GetDeferredEventsDelay();
 
  private:
   struct DirtyObject {
@@ -247,6 +225,10 @@ class CONTENT_EXPORT RenderAccessibilityImpl : public RenderAccessibility,
   // longer be valid.
   void ResetUKMData();
 
+  // The initial accessibility tree root still needs to be created. Like other
+  // accessible objects, it must be created when layout is clean.
+  bool needs_initial_ax_tree_root_ = true;
+
   // The RenderAccessibilityManager that owns us.
   RenderAccessibilityManager* render_accessibility_manager_;
 
@@ -274,9 +256,7 @@ class CONTENT_EXPORT RenderAccessibilityImpl : public RenderAccessibility,
   // The serializer that sends accessibility messages to the browser process.
   std::unique_ptr<BlinkAXTreeSerializer> serializer_;
 
-  using PluginAXTreeSerializer = ui::AXTreeSerializer<const ui::AXNode*,
-                                                      ui::AXNodeData,
-                                                      ui::AXTreeData>;
+  using PluginAXTreeSerializer = ui::AXTreeSerializer<const ui::AXNode*>;
   std::unique_ptr<PluginAXTreeSerializer> plugin_serializer_;
   PluginAXTreeSource* plugin_tree_source_;
   blink::WebAXObject plugin_host_node_;

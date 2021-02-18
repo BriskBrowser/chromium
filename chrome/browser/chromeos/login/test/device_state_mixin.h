@@ -66,7 +66,7 @@ class DeviceStateMixin : public InProcessBrowserTestMixin,
   std::unique_ptr<ScopedDevicePolicyUpdate> RequestDevicePolicyUpdate();
 
   // Returns ScopedUserPolicyUpdate instance that can be used to set, or update
-  // local account policy blob for |account_id| (kept in fake session manager
+  // local account policy blob for `account_id` (kept in fake session manager
   // client).
   //
   // The cached policy value will be updated as the returned
@@ -91,7 +91,7 @@ class DeviceStateMixin : public InProcessBrowserTestMixin,
   void WriteInstallAttrFile();
   void WriteOwnerKey();
 
-  // Whether |state_| value indicates enrolled state.
+  // Whether `state_` value indicates enrolled state.
   bool IsEnrolledState() const;
 
   // Updates device policy blob stored by fake session manager client.
@@ -124,5 +124,9 @@ class DeviceStateMixin : public InProcessBrowserTestMixin,
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after //chrome/browser/chromeos
+// source migration is finished.
+using chromeos::DeviceStateMixin;
 
 #endif  // CHROME_BROWSER_CHROMEOS_LOGIN_TEST_DEVICE_STATE_MIXIN_H_

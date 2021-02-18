@@ -7,10 +7,10 @@
 
 #include <stddef.h>
 
+#include <memory>
 #include <string>
 
 #include "base/base_export.h"
-#include "base/macros.h"
 #include "base/strings/string_piece.h"
 #include "base/trace_event/common/trace_event_common.h"
 #include "base/trace_event/memory_allocator_dump_guid.h"
@@ -69,8 +69,8 @@ struct IgnoredValue {
   INTERNAL_TRACE_IGNORE(category, name)
 #define TRACE_EVENT_END(category, ...) INTERNAL_TRACE_IGNORE(category)
 #define TRACE_EVENT(category, name, ...) INTERNAL_TRACE_IGNORE(category, name)
-#define TRACE_EVENT_INSTANT(category, name, scope, ...) \
-  INTERNAL_TRACE_IGNORE(category, name, scope)
+#define TRACE_EVENT_INSTANT(category, name, ...) \
+  INTERNAL_TRACE_IGNORE(category, name)
 
 namespace base {
 namespace trace_event {
@@ -78,6 +78,8 @@ namespace trace_event {
 class BASE_EXPORT ConvertableToTraceFormat {
  public:
   ConvertableToTraceFormat() = default;
+  ConvertableToTraceFormat(const ConvertableToTraceFormat&) = delete;
+  ConvertableToTraceFormat& operator=(const ConvertableToTraceFormat&) = delete;
   virtual ~ConvertableToTraceFormat();
 
   // Append the class info to the provided |out| string. The appended
@@ -85,9 +87,6 @@ class BASE_EXPORT ConvertableToTraceFormat {
   // escaped. There is no processing applied to the content after it is
   // appended.
   virtual void AppendAsTraceFormat(std::string* out) const = 0;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ConvertableToTraceFormat);
 };
 
 class BASE_EXPORT TracedValue : public ConvertableToTraceFormat {
@@ -159,6 +158,8 @@ class ProcessMemoryDump;
 
 class BASE_EXPORT MemoryDumpProvider {
  public:
+  MemoryDumpProvider(const MemoryDumpProvider&) = delete;
+  MemoryDumpProvider& operator=(const MemoryDumpProvider&) = delete;
   virtual ~MemoryDumpProvider();
 
   virtual bool OnMemoryDump(const MemoryDumpArgs& args,
@@ -166,8 +167,6 @@ class BASE_EXPORT MemoryDumpProvider {
 
  protected:
   MemoryDumpProvider() = default;
-
-  DISALLOW_COPY_AND_ASSIGN(MemoryDumpProvider);
 };
 
 }  // namespace trace_event

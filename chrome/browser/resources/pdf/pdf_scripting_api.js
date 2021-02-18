@@ -73,6 +73,9 @@ export class PDFScriptingAPI {
     this.selectedTextCallback_;
 
     /** @private {Function} */
+    this.thumbnailCallback_;
+
+    /** @private {Function} */
     this.keyEventCallback_;
 
     /** @private {Object} */
@@ -117,6 +120,19 @@ export class PDFScriptingAPI {
           if (this.selectedTextCallback_) {
             this.selectedTextCallback_(data.selectedText);
             this.selectedTextCallback_ = null;
+          }
+          break;
+        }
+        case 'getThumbnailReply': {
+          const data =
+              /**
+               * @type {{imageData: !ArrayBuffer, width: number,
+               *         height: number}}
+               */
+              (event.data);
+          if (this.thumbnailCallback_) {
+            this.thumbnailCallback_(data);
+            this.thumbnailCallback_ = null;
           }
           break;
         }
@@ -210,9 +226,9 @@ export class PDFScriptingAPI {
     });
   }
 
-  /** Hide the toolbars after a delay. */
-  hideToolbars() {
-    this.sendMessage_({type: 'hideToolbars'});
+  /** Hide the toolbar after a delay. */
+  hideToolbar() {
+    this.sendMessage_({type: 'hideToolbar'});
   }
 
   /**
@@ -250,6 +266,26 @@ export class PDFScriptingAPI {
     }
     this.selectedTextCallback_ = callback;
     this.sendMessage_({type: 'getSelectedText'});
+    return true;
+  }
+
+  /**
+   * Get the thumbnail data for a page. The data will be passed to a callback.
+   * May only be called after document loaded.
+   * @param {number} page the page number.
+   * @param {Function} callback a callback to be called with the thumbnail data.
+   * @return {boolean} true if the function is successful, false if there is an
+   *     outstanding request for thumbnail data that has not been answered.
+   */
+  getThumbnail(page, callback) {
+    if (this.thumbnailCallback_) {
+      return false;
+    }
+    this.thumbnailCallback_ = callback;
+    this.sendMessage_({
+      type: 'getThumbnail',
+      page: page,
+    });
     return true;
   }
 
@@ -297,7 +333,7 @@ export function PDFCreateOutOfProcessPlugin(src, baseUrl) {
 
   // Add the functions to the iframe so that they can be called directly.
   iframe.darkModeChanged = client.darkModeChanged.bind(client);
-  iframe.hideToolbars = client.hideToolbars.bind(client);
+  iframe.hideToolbar = client.hideToolbar.bind(client);
   iframe.loadPreviewPage = client.loadPreviewPage.bind(client);
   iframe.resetPrintPreviewMode = client.resetPrintPreviewMode.bind(client);
   iframe.scrollPosition = client.scrollPosition.bind(client);

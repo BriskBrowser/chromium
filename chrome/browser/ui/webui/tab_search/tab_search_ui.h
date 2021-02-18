@@ -8,18 +8,16 @@
 #include <memory>
 
 #include "base/macros.h"
+#include "base/timer/elapsed_timer.h"
 #include "chrome/browser/ui/webui/tab_search/tab_search.mojom.h"
+#include "chrome/browser/ui/webui/tab_search/tab_search_page_handler.h"
 #include "chrome/browser/ui/webui/webui_load_timer.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
-#include "ui/webui/mojo_web_ui_controller.h"
+#include "ui/webui/mojo_bubble_web_ui_controller.h"
 
-class Browser;
-class TabSearchUIEmbedder;
-class TabSearchPageHandler;
-
-class TabSearchUI : public ui::MojoWebUIController,
+class TabSearchUI : public ui::MojoBubbleWebUIController,
                     public tab_search::mojom::PageHandlerFactory {
  public:
   explicit TabSearchUI(content::WebUI* web_ui);
@@ -27,14 +25,14 @@ class TabSearchUI : public ui::MojoWebUIController,
   TabSearchUI& operator=(const TabSearchUI&) = delete;
   ~TabSearchUI() override;
 
-  // Initialize TabSearchUI by passing in the current browser and the
-  // current embedder, the WebUI won't work until this is called.
-  void Initialize(Browser* browser, TabSearchUIEmbedder* embedder);
-
   // Instantiates the implementor of the mojom::PageHandlerFactory mojo
   // interface passing the pending receiver that will be internally bound.
   void BindInterface(
       mojo::PendingReceiver<tab_search::mojom::PageHandlerFactory> receiver);
+
+  TabSearchPageHandler* page_handler_for_testing() {
+    return page_handler_.get();
+  }
 
  private:
   // tab_search::mojom::PageHandlerFactory
@@ -48,6 +46,10 @@ class TabSearchUI : public ui::MojoWebUIController,
       this};
 
   WebuiLoadTimer webui_load_timer_;
+
+  // A timer used to track the duration between when the WebUI is constructed
+  // and when the TabSearchPageHandler is constructed.
+  base::Optional<base::ElapsedTimer> page_handler_timer_;
 
   WEB_UI_CONTROLLER_TYPE_DECL();
 };

@@ -38,8 +38,7 @@ CustomProperty::CustomProperty(const AtomicString& name,
 
 CustomProperty::CustomProperty(const AtomicString& name,
                                const PropertyRegistration* registration)
-    : Variable(InheritedFlag(registration) |
-               CSSProperty::kComputedValueComparable),
+    : Variable(InheritedFlag(registration)),
       name_(name),
       registration_(registration) {}
 
@@ -156,23 +155,8 @@ const CSSValue* CustomProperty::ParseSingleValue(
   }
 }
 
-bool CustomProperty::ComputedValuesEqual(const ComputedStyle& a,
-                                         const ComputedStyle& b) const {
-  if (registration_) {
-    const CSSValue* a_value = a.GetVariableValue(name_, IsInherited());
-    const CSSValue* b_value = b.GetVariableValue(name_, IsInherited());
-    if (!DataEquivalent(a_value, b_value))
-      return false;
-  }
-
-  CSSVariableData* a_data = a.GetVariableData(name_, IsInherited());
-  CSSVariableData* b_data = b.GetVariableData(name_, IsInherited());
-  return DataEquivalent(a_data, b_data);
-}
-
 const CSSValue* CustomProperty::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
-    const SVGComputedStyle&,
     const LayoutObject*,
     bool allow_visited_style) const {
   if (registration_) {
@@ -196,8 +180,10 @@ const CSSValue* CustomProperty::ParseUntyped(
     CSSParserTokenRange range,
     const CSSParserContext& context,
     const CSSParserLocalContext& local_context) const {
+  // TODO(crbug.com/661854): Pass through the original string when we have it.
   return CSSVariableParser::ParseDeclarationValue(
-      name_, range, local_context.IsAnimationTainted(), context);
+      name_, {range, StringView()}, local_context.IsAnimationTainted(),
+      context);
 }
 
 const CSSValue* CustomProperty::ParseTyped(

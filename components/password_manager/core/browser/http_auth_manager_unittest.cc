@@ -13,7 +13,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/metrics/user_action_tester.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_mock_time_task_runner.h"
 #include "build/build_config.h"
@@ -30,8 +29,6 @@
 #include "components/password_manager/core/common/password_manager_features.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-
-using autofill::PasswordForm;
 
 using base::ASCIIToUTF16;
 using base::TestMockTimeTaskRunner;
@@ -53,8 +50,7 @@ class MockPasswordManagerClient : public StubPasswordManagerClient {
   MOCK_CONST_METHOD1(IsSavingAndFillingEnabled, bool(const GURL&));
   MOCK_CONST_METHOD1(IsFillingEnabled, bool(const GURL&));
   MOCK_METHOD2(AutofillHttpAuth,
-               void(const autofill::PasswordForm&,
-                    const PasswordFormManagerForUI*));
+               void(const PasswordForm&, const PasswordFormManagerForUI*));
   MOCK_CONST_METHOD0(GetProfilePasswordStore, PasswordStore*());
   MOCK_CONST_METHOD0(GetAccountPasswordStore, PasswordStore*());
   MOCK_METHOD0(PromptUserToSaveOrUpdatePasswordPtr, void());
@@ -211,6 +207,35 @@ TEST_F(HttpAuthManagerTest, HttpAuthSaving) {
     testing::Mock::VerifyAndClearExpectations(&client_);
     httpauth_manager()->DetachObserver(&observer);
   }
+}
+
+TEST_F(HttpAuthManagerTest, DontSaveEmptyPasswords) {
+  EXPECT_CALL(client_, IsSavingAndFillingEnabled).WillRepeatedly(Return(true));
+  PasswordForm observed_form;
+  observed_form.scheme = PasswordForm::Scheme::kBasic;
+  observed_form.url = GURL("http://proxy.com/");
+  observed_form.signon_realm = "proxy.com/realm";
+
+  MockHttpAuthObserver observer;
+  EXPECT_CALL(*store_, GetLogins)
+      .WillOnce(WithArg<1>(InvokeEmptyConsumerWithForms(store_.get())));
+
+  // Initiate creating a form manager.
+  httpauth_manager()->SetObserverAndDeliverCredentials(&observer,
+                                                       observed_form);
+  // Emulate that http auth credentials submitted with an empty password.
+  PasswordForm submitted_form = observed_form;
+  submitted_form.username_value = ASCIIToUTF16("user");
+  submitted_form.password_value = base::string16();
+  httpauth_manager()->OnPasswordFormSubmitted(submitted_form);
+  httpauth_manager()->OnPasswordFormDismissed();
+
+  // Expect no save prompt on successful submission.
+  std::unique_ptr<PasswordFormManagerForUI> form_manager_to_save;
+  EXPECT_CALL(client_, PromptUserToSaveOrUpdatePasswordPtr()).Times(0);
+  httpauth_manager()->OnDidFinishMainFrameNavigation();
+  testing::Mock::VerifyAndClearExpectations(&client_);
+  httpauth_manager()->DetachObserver(&observer);
 }
 
 TEST_F(HttpAuthManagerTest, NavigationWithoutSubmission) {

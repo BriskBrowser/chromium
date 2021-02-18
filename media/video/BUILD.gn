@@ -31,8 +31,6 @@ source_set("video") {
     "half_float_maker.h",
     "picture.cc",
     "picture.h",
-    "supported_video_decoder_config.cc",
-    "supported_video_decoder_config.h",
     "trace_util.cc",
     "trace_util.h",
     "video_decode_accelerator.cc",
@@ -55,6 +53,7 @@ source_set("video") {
   public_deps = [ "//gpu/command_buffer/client:gles2_interface" ]
 
   deps = [
+    "//build:chromeos_buildflags",
     "//gpu/command_buffer/client",
     "//gpu/command_buffer/common",
     "//media/base",
@@ -75,6 +74,14 @@ source_set("video") {
       "vpx_video_encoder.h",
     ]
     deps += [ "//third_party/libvpx" ]
+  }
+
+  if (proprietary_codecs && media_use_openh264) {
+    sources += [
+      "openh264_video_encoder.cc",
+      "openh264_video_encoder.h",
+    ]
+    deps += [ "//third_party/openh264:encoder" ]
   }
 }
 
@@ -117,7 +124,7 @@ source_set("unit_tests") {
     "h264_parser_unittest.cc",
     "h264_poc_unittest.cc",
     "half_float_maker_unittest.cc",
-    "supported_video_decoder_config_unittest.cc",
+    "video_encode_accelerator_adapter_test.cc",
   ]
   if (enable_platform_hevc) {
     sources += [ "h265_parser_unittest.cc" ]
@@ -134,6 +141,7 @@ source_set("unit_tests") {
     "//media:test_support",
     "//testing/gmock",
     "//testing/gtest",
+    "//third_party/libyuv:libyuv",
     "//ui/gfx",
   ]
 }
@@ -145,4 +153,14 @@ fuzzer_test("media_h264_parser_fuzzer") {
     "//media",
     "//ui/gfx/geometry",
   ]
+}
+
+if (proprietary_codecs && enable_platform_hevc) {
+  fuzzer_test("media_h265_parser_fuzzer") {
+    sources = [ "h265_parser_fuzzertest.cc" ]
+    deps = [
+      "//base",
+      "//media",
+    ]
+  }
 }

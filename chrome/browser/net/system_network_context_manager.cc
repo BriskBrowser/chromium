@@ -19,12 +19,14 @@
 #include "base/task/post_task.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_content_browser_client.h"
 #include "chrome/browser/component_updater/crl_set_component_installer.h"
+#include "chrome/browser/component_updater/first_party_sets_component_installer.h"
 #include "chrome/browser/component_updater/tls_deprecation_config_component_installer.h"
 #include "chrome/browser/net/chrome_mojo_proxy_resolver_factory.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
+#include "chrome/browser/ssl/sct_reporting_service.h"
 #include "chrome/browser/ssl/ssl_config_service_manager.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_features.h"
@@ -32,6 +34,7 @@
 #include "chrome/common/google_url_loader_throttle.h"
 #include "chrome/common/pref_names.h"
 #include "components/certificate_transparency/ct_known_logs.h"
+#include "components/embedder_support/user_agent_utils.h"
 #include "components/net_log/net_export_file_writer.h"
 #include "components/net_log/net_log_proxy_source.h"
 #include "components/network_session_configurator/common/network_features.h"
@@ -48,16 +51,15 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/network_context_client_base.h"
 #include "content/public/browser/network_service_instance.h"
-#include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/network_service_util.h"
-#include "content/public/common/service_names.mojom.h"
 #include "content/public/common/user_agent.h"
 #include "crypto/sha2.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "net/base/features.h"
+#include "net/cookies/cookie_util.h"
 #include "net/net_buildflags.h"
 #include "net/third_party/uri_template/uri_template.h"
 #include "services/cert_verifier/public/mojom/cert_verifier_service_factory.mojom.h"
@@ -71,17 +73,19 @@
 #include "third_party/blink/public/common/features.h"
 #include "url/gurl.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/net/dhcp_wpad_url_client.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 #include "chrome/common/chrome_paths_internal.h"
 #include "chrome/grit/chromium_strings.h"
 #include "ui/base/l10n/l10n_util.h"
-#endif  // defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#endif  // defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "extensions/common/constants.h"
@@ -117,7 +121,7 @@ network::mojom::HttpAuthStaticParamsPtr CreateHttpAuthStaticParams(
       base::SplitString(local_state->GetString(prefs::kAuthSchemes), ",",
                         base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
 
-#if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+#if defined(OS_POSIX) && !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
   auth_static_params->gssapi_library_name =
       local_state->GetString(prefs::kGSSAPILibraryName);
 #endif
@@ -139,6 +143,8 @@ network::mojom::HttpAuthDynamicParamsPtr CreateHttpAuthDynamicParams(
       local_state->GetBoolean(prefs::kDisableAuthNegotiateCnameLookup);
   auth_dynamic_params->enable_negotiate_port =
       local_state->GetBoolean(prefs::kEnableAuthNegotiatePort);
+  auth_dynamic_params->basic_over_http_enabled =
+      local_state->GetBoolean(prefs::kBasicAuthOverHttpEnabled);
 
 #if defined(OS_LINUX) || defined(OS_MAC) || defined(OS_CHROMEOS)
   auth_dynamic_params->delegate_by_kdc_policy =
@@ -155,7 +161,7 @@ network::mojom::HttpAuthDynamicParamsPtr CreateHttpAuthDynamicParams(
       local_state->GetString(prefs::kAuthAndroidNegotiateAccountType);
 #endif  // defined(OS_ANDROID)
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // TODO: Use KerberosCredentialsManager to determine whether Kerberos is
   // enabled instead of relying directly on the preference.
   policy::BrowserPolicyConnectorChromeOS* connector =
@@ -355,6 +361,8 @@ SystemNetworkContextManager::SystemNetworkContextManager(
                              auth_pref_callback);
   pref_change_registrar_.Add(prefs::kEnableAuthNegotiatePort,
                              auth_pref_callback);
+  pref_change_registrar_.Add(prefs::kBasicAuthOverHttpEnabled,
+                             auth_pref_callback);
 
 #if defined(OS_LINUX) || defined(OS_MAC) || defined(OS_CHROMEOS)
   pref_change_registrar_.Add(prefs::kAuthNegotiateDelegateByKdcPolicy,
@@ -370,11 +378,11 @@ SystemNetworkContextManager::SystemNetworkContextManager(
                              auth_pref_callback);
 #endif  // defined(OS_ANDROID)
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // TODO: Use KerberosCredentialsManager::Observer to be notified of when the
   // enabled state changes instead of relying directly on the preference.
   pref_change_registrar_.Add(prefs::kKerberosEnabled, auth_pref_callback);
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   local_state_->SetDefaultPrefValue(
       prefs::kEnableReferrers,
@@ -396,13 +404,15 @@ void SystemNetworkContextManager::RegisterPrefs(PrefRegistrySimple* registry) {
   // Static auth params
   registry->RegisterStringPref(prefs::kAuthSchemes,
                                "basic,digest,ntlm,negotiate");
-#if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+#if defined(OS_POSIX) && !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
   registry->RegisterStringPref(prefs::kGSSAPILibraryName, std::string());
-#endif  // defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+#endif  // defined(OS_POSIX) && !defined(OS_ANDROID) &&
+        // !BUILDFLAG(IS_CHROMEOS_ASH)
 
   // Dynamic auth params.
   registry->RegisterBooleanPref(prefs::kDisableAuthNegotiateCnameLookup, false);
   registry->RegisterBooleanPref(prefs::kEnableAuthNegotiatePort, false);
+  registry->RegisterBooleanPref(prefs::kBasicAuthOverHttpEnabled, true);
   registry->RegisterStringPref(prefs::kAuthServerAllowlist, std::string());
   registry->RegisterStringPref(prefs::kAuthNegotiateDelegateAllowlist,
                                std::string());
@@ -449,6 +459,15 @@ SystemNetworkContextManager::GetStubResolverConfigReader() {
 
 void SystemNetworkContextManager::OnNetworkServiceCreated(
     network::mojom::NetworkService* network_service) {
+  // On network service restart, it's possible for |url_loader_factory_| to not
+  // be disconnected yet (so any consumers of GetURLLoaderFactory() in network
+  // service restart handling code could end up getting the old factory, which
+  // will then get disconnected later). Resetting the Remote is a no-op for the
+  // initial creation of the network service, but for restarts this guarantees
+  // that GetURLLoaderFactory() works as expected.
+  // (See crbug.com/1131803 for a motivating example and investigation.)
+  url_loader_factory_.reset();
+
   // Disable QUIC globally, if needed.
   if (!is_quic_allowed_)
     network_service->DisableQuic();
@@ -492,7 +511,9 @@ void SystemNetworkContextManager::OnNetworkServiceCreated(
   // NetworkContext is created, but before anything has the chance to use it.
   stub_resolver_config_reader_.UpdateNetworkService(true /* record_metrics */);
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
 
@@ -521,6 +542,23 @@ void SystemNetworkContextManager::OnNetworkServiceCreated(
   // Asynchronously reapply the most recently received TLS deprecation config.
   component_updater::TLSDeprecationConfigComponentInstallerPolicy::
       ReconfigureAfterNetworkRestart();
+
+  // Configure SCT Auditing in the NetworkService.
+  SCTReportingService::ReconfigureAfterNetworkRestart();
+
+  if (net::cookie_util::IsFirstPartySetsEnabled()) {
+    component_updater::FirstPartySetsComponentInstallerPolicy::
+        ReconfigureAfterNetworkRestart(
+            base::BindRepeating([](const std::string& raw_sets) {
+              // We use a fresh pointer here (instead of using `network_service`
+              // from the enclosing scope) to avoid use-after-free bugs, since
+              // `network_service` is not guaranteed to live until the
+              // invocation of this callback.
+              network::mojom::NetworkService* network_service =
+                  content::GetNetworkService();
+              network_service->SetPreloadedFirstPartySets(raw_sets);
+            }));
+  }
 }
 
 void SystemNetworkContextManager::DisableQuic() {
@@ -540,13 +578,14 @@ void SystemNetworkContextManager::AddSSLConfigToNetworkContextParams(
 
 void SystemNetworkContextManager::ConfigureDefaultNetworkContextParams(
     network::mojom::NetworkContextParams* network_context_params,
-    network::mojom::CertVerifierCreationParams* cert_verifier_creation_params) {
+    cert_verifier::mojom::CertVerifierCreationParams*
+        cert_verifier_creation_params) {
   variations::UpdateCorsExemptHeaderForVariations(network_context_params);
   GoogleURLLoaderThrottle::UpdateCorsExemptHeader(network_context_params);
 
   network_context_params->enable_brotli = true;
 
-  network_context_params->user_agent = GetUserAgent();
+  network_context_params->user_agent = embedder_support::GetUserAgent();
 
   // Disable referrers by default. Any consumer that enables referrers should
   // respect prefs::kEnableReferrers from the appropriate pref store.
@@ -582,10 +621,10 @@ void SystemNetworkContextManager::ConfigureDefaultNetworkContextParams(
     } else {
       network_context_params->proxy_resolver_factory =
           ChromeMojoProxyResolverFactory::CreateWithSelfOwnedReceiver();
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
       network_context_params->dhcp_wpad_url_client =
           chromeos::DhcpWpadUrlClient::CreateWithSelfOwnedReceiver();
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
     }
   }
 
@@ -634,9 +673,9 @@ void SystemNetworkContextManager::ConfigureDefaultNetworkContextParams(
 #if BUILDFLAG(BUILTIN_CERT_VERIFIER_FEATURE_SUPPORTED)
   cert_verifier_creation_params->use_builtin_cert_verifier =
       ShouldUseBuiltinCertVerifier(local_state_)
-          ? network::mojom::CertVerifierCreationParams::CertVerifierImpl::
+          ? cert_verifier::mojom::CertVerifierCreationParams::CertVerifierImpl::
                 kBuiltin
-          : network::mojom::CertVerifierCreationParams::CertVerifierImpl::
+          : cert_verifier::mojom::CertVerifierCreationParams::CertVerifierImpl::
                 kSystem;
 #endif
 }
@@ -645,8 +684,9 @@ network::mojom::NetworkContextParamsPtr
 SystemNetworkContextManager::CreateDefaultNetworkContextParams() {
   network::mojom::NetworkContextParamsPtr network_context_params =
       network::mojom::NetworkContextParams::New();
-  network::mojom::CertVerifierCreationParamsPtr cert_verifier_creation_params =
-      network::mojom::CertVerifierCreationParams::New();
+  cert_verifier::mojom::CertVerifierCreationParamsPtr
+      cert_verifier_creation_params =
+          cert_verifier::mojom::CertVerifierCreationParams::New();
   ConfigureDefaultNetworkContextParams(network_context_params.get(),
                                        cert_verifier_creation_params.get());
   network_context_params->cert_verifier_params =
@@ -708,7 +748,7 @@ SystemNetworkContextManager::CreateNetworkContextParams() {
   // These are needed for PAC scripts that use FTP URLs.
 #if !BUILDFLAG(DISABLE_FTP_SUPPORT)
   network_context_params->enable_ftp_url_support =
-      base::FeatureList::IsEnabled(features::kFtpProtocol);
+      base::FeatureList::IsEnabled(blink::features::kFtpProtocol);
 #endif
 
   proxy_config_monitor_.AddToNetworkContextParams(network_context_params.get());

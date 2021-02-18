@@ -5,7 +5,7 @@
 #include "device/fido/bio/enrollment_handler.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "components/device_event_log/device_event_log.h"
 #include "device/fido/fido_authenticator.h"
 #include "device/fido/fido_constants.h"
@@ -165,6 +165,11 @@ void BioEnrollmentHandler::OnTouch(FidoAuthenticator* authenticator) {
     return;
   }
 
+  if (authenticator->ForcePINChange()) {
+    Finish(BioEnrollmentStatus::kForcePINChange);
+    return;
+  }
+
   authenticator_ = authenticator;
   state_ = State::kGettingRetries;
   authenticator_->GetPinRetries(base::BindOnce(
@@ -187,7 +192,8 @@ void BioEnrollmentHandler::OnRetriesResponse(
   }
 
   state_ = State::kWaitingForPIN;
-  get_pin_callback_.Run(response->retries,
+  get_pin_callback_.Run(authenticator_->CurrentMinPINLength(),
+                        response->retries,
                         base::BindOnce(&BioEnrollmentHandler::OnHavePIN,
                                        weak_factory_.GetWeakPtr()));
 }

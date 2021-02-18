@@ -180,8 +180,13 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkStateHandler
   // is connecting before the state is set in Shill. If |connect_requested| is
   // true, NetworkState::IsConnectingState() will return true. This will cause
   // the network to be sorted first and it will be part of the active list.
+  // Also clears shill_connect_error_ for the NetworkState.
   void SetNetworkConnectRequested(const std::string& service_path,
                                   bool connect_requested);
+
+  // Calls NetworkState::set_shill_connect_error_ for |service_path|.
+  void SetShillConnectError(const std::string& service_path,
+                            const std::string& shill_connect_error);
 
   // Called from Chrome's network portal detector to indicate whether Chrome has
   // detected that the network is in a captive portal state. This may or may
@@ -340,12 +345,6 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkStateHandler
   // Sets the list of devices on which portal check is enabled.
   void SetCheckPortalList(const std::string& check_portal_list);
 
-  // Sets a provider id (e.g. extension id) for a hex encoded SSID. If
-  // |provider_id| is empty the entry will be erased.
-  void SetCaptivePortalProviderForHexSsid(const std::string& hex_ssid,
-                                          const std::string& provider_id,
-                                          const std::string& provider_name);
-
   // Sets the Manager.WakeOnLan property. Note: we do not track this state, we
   // only set it.
   void SetWakeOnLanEnabled(bool enabled);
@@ -403,6 +402,10 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkStateHandler
   // available.
   const NetworkState* GetAvailableManagedWifiNetwork() const;
 
+  // Returns true if a user is logged in and the networks for the logged in user
+  // have been loaded.
+  bool IsProfileNetworksLoaded();
+
   // Returns true if the AllowOnlyPolicyNetworksToConnect policy is enabled or
   // if the AllowOnlyPolicyNetworksToConnectIfAvailable policy is enabled and
   // there is a managed wifi network available.
@@ -432,7 +435,7 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkStateHandler
 
   // The list of profiles changed (i.e. a user has logged in). Re-request
   // properties for all services since they may have changed.
-  void ProfileListChanged() override;
+  void ProfileListChanged(const base::Value& profile_list) override;
 
   // Parses the properties for the network service or device. Mostly calls
   // managed->PropertyChanged(key, value) for each dictionary entry.
@@ -514,10 +517,6 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkStateHandler
   // Ensure a valid GUID for NetworkState.
   void UpdateGuid(NetworkState* network);
 
-  // Look for a matching captive portal provider in
-  // |hex_ssid_to_captive_portal_provider_map_|.
-  void UpdateCaptivePortalProvider(NetworkState* network);
-
   // Update networkState properties from the associated DeviceState.
   void UpdateCellularStateFromDevice(NetworkState* network);
 
@@ -581,6 +580,9 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkStateHandler
   // Called to ask observers to scan for networks.
   void NotifyScanRequested(const NetworkTypePattern& type);
 
+  // Called whenever Device.Scanning state transitions to true.
+  void NotifyScanStarted(const DeviceState* device);
+
   // Called whenever Device.Scanning state transitions to false.
   void NotifyScanCompleted(const DeviceState* device);
 
@@ -636,6 +638,9 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkStateHandler
   // Metered.
   void SetDefaultNetworkValues(const std::string& path, bool metered);
 
+  // Determines whether the user is logged in and sets |is_user_logged_in_|.
+  void ProcessIsUserLoggedIn(const base::Value& profile_list);
+
   // Shill property handler instance, owned by this class.
   std::unique_ptr<internal::ShillPropertyHandler> shill_property_handler_;
 
@@ -671,17 +676,19 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkStateHandler
   // List of interfaces on which portal check is enabled.
   std::string check_portal_list_;
 
+  // Tracks the default network portal state for triggering PortalStateChanged.
+  NetworkState::PortalState default_network_portal_state_ =
+      NetworkState::PortalState::kUnknown;
+
+  // Tracks the default network proxy config for triggering PortalStateChanged.
+  base::Value default_network_proxy_config_;
+
   // DHCP Hostname.
   std::string hostname_;
 
   // Map of network specifiers to guids. Contains an entry for each
   // NetworkState that is not saved in a profile.
   SpecifierGuidMap specifier_guid_map_;
-
-  // Map of hex SSIDs to captive portal provider info.
-  // Used to set NetworkState::captive_portal_provider_.
-  std::map<std::string, NetworkState::CaptivePortalProviderInfo>
-      hex_ssid_to_captive_portal_provider_map_;
 
   // The state corresponding to the Tether device type. This value is managed by
   // the Tether component.
@@ -703,11 +710,22 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkStateHandler
   bool allow_only_policy_networks_to_connect_if_available_ = false;
   std::vector<std::string> blocked_hex_ssids_;
 
+  // After login the user's saved networks get updated asynchronously from
+  // shill. These variables indicate whether a user is logged in, and if the
+  // user's saved networks are done updating.
+  bool is_profile_networks_loaded_ = false;
+  bool is_user_logged_in_ = false;
+
   SEQUENCE_CHECKER(sequence_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(NetworkStateHandler);
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove when moved to ash.
+namespace ash {
+using ::chromeos::NetworkStateHandler;
+}
 
 #endif  // CHROMEOS_NETWORK_NETWORK_STATE_HANDLER_H_

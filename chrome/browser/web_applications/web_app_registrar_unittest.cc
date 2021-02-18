@@ -9,12 +9,14 @@
 #include <string>
 #include <utility>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
+#include "base/containers/contains.h"
+#include "base/logging.h"
+#include "base/notreached.h"
 #include "base/optional.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
@@ -41,7 +43,7 @@ Registry CreateRegistryForTesting(const std::string& base_url, int num_apps) {
 
     auto web_app = std::make_unique<WebApp>(app_id);
     web_app->AddSource(Source::kSync);
-    web_app->SetLaunchUrl(GURL(url));
+    web_app->SetStartUrl(GURL(url));
     web_app->SetName("Name" + base::NumberToString(i));
     web_app->SetDisplayMode(DisplayMode::kBrowser);
     web_app->SetUserDisplayMode(DisplayMode::kBrowser);
@@ -73,6 +75,9 @@ class WebAppRegistrarTest : public WebAppTest {
     return controller().database_factory();
   }
   WebAppRegistrar& registrar() { return controller().registrar(); }
+  WebAppRegistrarMutable& mutable_registrar() {
+    return controller().mutable_registrar();
+  }
   WebAppSyncBridge& sync_bridge() { return controller().sync_bridge(); }
 
   std::set<AppId> RegisterAppsForTesting(Registry registry) {
@@ -130,8 +135,8 @@ class WebAppRegistrarTest : public WebAppTest {
 
   std::unique_ptr<WebApp> CreateWebAppWithSource(const std::string& url,
                                                  Source::Type source) {
-    const GURL launch_url(url);
-    const AppId app_id = GenerateAppIdFromURL(launch_url);
+    const GURL start_url(url);
+    const AppId app_id = GenerateAppIdFromURL(start_url);
 
     auto web_app = std::make_unique<WebApp>(app_id);
 
@@ -139,7 +144,7 @@ class WebAppRegistrarTest : public WebAppTest {
     web_app->SetDisplayMode(DisplayMode::kStandalone);
     web_app->SetUserDisplayMode(DisplayMode::kStandalone);
     web_app->SetName("Name");
-    web_app->SetLaunchUrl(launch_url);
+    web_app->SetStartUrl(start_url);
     return web_app;
   }
 
@@ -179,15 +184,15 @@ TEST_F(WebAppRegistrarTest, CreateRegisterUnregister) {
   EXPECT_EQ(nullptr, registrar().GetAppById(AppId()));
   EXPECT_FALSE(registrar().GetAppById(AppId()));
 
-  const GURL launch_url = GURL("https://example.com/path");
-  const AppId app_id = GenerateAppIdFromURL(launch_url);
+  const GURL start_url = GURL("https://example.com/path");
+  const AppId app_id = GenerateAppIdFromURL(start_url);
   const std::string name = "Name";
   const std::string description = "Description";
   const GURL scope = GURL("https://example.com/scope");
   const base::Optional<SkColor> theme_color = 0xAABBCCDD;
 
-  const GURL launch_url2 = GURL("https://example.com/path2");
-  const AppId app_id2 = GenerateAppIdFromURL(launch_url2);
+  const GURL start_url2 = GURL("https://example.com/path2");
+  const AppId app_id2 = GenerateAppIdFromURL(start_url2);
 
   auto web_app = std::make_unique<WebApp>(app_id);
   auto web_app2 = std::make_unique<WebApp>(app_id2);
@@ -197,14 +202,14 @@ TEST_F(WebAppRegistrarTest, CreateRegisterUnregister) {
   web_app->SetUserDisplayMode(DisplayMode::kStandalone);
   web_app->SetName(name);
   web_app->SetDescription(description);
-  web_app->SetLaunchUrl(launch_url);
+  web_app->SetStartUrl(start_url);
   web_app->SetScope(scope);
   web_app->SetThemeColor(theme_color);
 
   web_app2->AddSource(Source::kDefault);
   web_app2->SetDisplayMode(DisplayMode::kBrowser);
   web_app2->SetUserDisplayMode(DisplayMode::kBrowser);
-  web_app2->SetLaunchUrl(launch_url2);
+  web_app2->SetStartUrl(start_url2);
   web_app2->SetName(name);
 
   EXPECT_EQ(nullptr, registrar().GetAppById(app_id));
@@ -218,7 +223,7 @@ TEST_F(WebAppRegistrarTest, CreateRegisterUnregister) {
   EXPECT_EQ(app_id, app->app_id());
   EXPECT_EQ(name, app->name());
   EXPECT_EQ(description, app->description());
-  EXPECT_EQ(launch_url, app->launch_url());
+  EXPECT_EQ(start_url, app->start_url());
   EXPECT_EQ(scope, app->scope());
   EXPECT_EQ(theme_color, app->theme_color());
 
@@ -262,7 +267,7 @@ TEST_F(WebAppRegistrarTest, DestroyRegistrarOwningRegisteredApps) {
 TEST_F(WebAppRegistrarTest, InitRegistrarAndDoForEachApp) {
   std::set<AppId> ids = InitRegistrarWithApps("https://example.com/path", 100);
 
-  for (const WebApp& web_app : registrar().AllApps()) {
+  for (const WebApp& web_app : registrar().GetAppsIncludingStubs()) {
     const size_t num_removed = ids.erase(web_app.app_id());
     EXPECT_EQ(1U, num_removed);
   }
@@ -270,10 +275,10 @@ TEST_F(WebAppRegistrarTest, InitRegistrarAndDoForEachApp) {
   EXPECT_TRUE(ids.empty());
 }
 
-TEST_F(WebAppRegistrarTest, AllAppsMutable) {
+TEST_F(WebAppRegistrarTest, GetAppsIncludingStubsMutable) {
   std::set<AppId> ids = InitRegistrarWithApps("https://example.com/path", 10);
 
-  for (WebApp& web_app : controller().mutable_registrar().AllAppsMutable()) {
+  for (WebApp& web_app : mutable_registrar().GetAppsIncludingStubsMutable()) {
     web_app.SetDisplayMode(DisplayMode::kStandalone);
     const size_t num_removed = ids.erase(web_app.app_id());
     EXPECT_EQ(1U, num_removed);
@@ -289,7 +294,7 @@ TEST_F(WebAppRegistrarTest, DoForEachAndUnregisterAllApps) {
   auto ids = RegisterAppsForTesting(std::move(registry));
   EXPECT_EQ(100UL, ids.size());
 
-  for (const WebApp& web_app : registrar().AllApps()) {
+  for (const WebApp& web_app : registrar().GetAppsIncludingStubs()) {
     const size_t num_removed = ids.erase(web_app.app_id());
     EXPECT_EQ(1U, num_removed);
   }
@@ -298,6 +303,73 @@ TEST_F(WebAppRegistrarTest, DoForEachAndUnregisterAllApps) {
   EXPECT_FALSE(registrar().is_empty());
   UnregisterAll();
   EXPECT_TRUE(registrar().is_empty());
+}
+
+TEST_F(WebAppRegistrarTest, FilterApps) {
+  controller().Init();
+
+  Registry registry = CreateRegistryForTesting("https://example.com/path", 100);
+  auto ids = RegisterAppsForTesting(std::move(registry));
+
+  for (const WebApp& web_app : mutable_registrar().FilterAppsMutable(
+           [](const WebApp& web_app) { return false; })) {
+    NOTREACHED();
+    ALLOW_UNUSED_LOCAL(web_app);
+  }
+
+  for (const WebApp& web_app : mutable_registrar().FilterAppsMutable(
+           [](const WebApp& web_app) { return true; })) {
+    const size_t num_removed = ids.erase(web_app.app_id());
+    EXPECT_EQ(1U, num_removed);
+  }
+  EXPECT_TRUE(ids.empty());
+}
+
+TEST_F(WebAppRegistrarTest, GetApps) {
+  std::set<AppId> ids = InitRegistrarWithApps("https://example.com/path", 10);
+
+  int not_in_sync_install_count = 0;
+  for (const WebApp& web_app : registrar().GetApps()) {
+    ++not_in_sync_install_count;
+    EXPECT_TRUE(base::Contains(ids, web_app.app_id()));
+  }
+  EXPECT_EQ(10, not_in_sync_install_count);
+
+  auto web_app_in_sync1 = CreateWebApp("https://example.org/sync1");
+  web_app_in_sync1->SetIsInSyncInstall(true);
+  const AppId web_app_id_in_sync1 = web_app_in_sync1->app_id();
+  RegisterApp(std::move(web_app_in_sync1));
+
+  auto web_app_in_sync2 = CreateWebApp("https://example.org/sync2");
+  web_app_in_sync2->SetIsInSyncInstall(true);
+  const AppId web_app_id_in_sync2 = web_app_in_sync2->app_id();
+  RegisterApp(std::move(web_app_in_sync2));
+
+  int all_apps_count = 0;
+  for (const WebApp& web_app : registrar().GetAppsIncludingStubs()) {
+    ALLOW_UNUSED_LOCAL(web_app);
+    ++all_apps_count;
+  }
+  EXPECT_EQ(12, all_apps_count);
+
+  for (const WebApp& web_app : registrar().GetApps()) {
+    EXPECT_NE(web_app_id_in_sync1, web_app.app_id());
+    EXPECT_NE(web_app_id_in_sync2, web_app.app_id());
+
+    const size_t num_removed = ids.erase(web_app.app_id());
+    EXPECT_EQ(1U, num_removed);
+  }
+  EXPECT_TRUE(ids.empty());
+
+  UnregisterApp(web_app_id_in_sync1);
+  UnregisterApp(web_app_id_in_sync2);
+
+  not_in_sync_install_count = 0;
+  for (const WebApp& web_app : registrar().GetApps()) {
+    ALLOW_UNUSED_LOCAL(web_app);
+    ++not_in_sync_install_count;
+  }
+  EXPECT_EQ(10, not_in_sync_install_count);
 }
 
 TEST_F(WebAppRegistrarTest, WebAppSyncBridge) {
@@ -326,8 +398,8 @@ TEST_F(WebAppRegistrarTest, WebAppSyncBridge) {
 TEST_F(WebAppRegistrarTest, GetAppDataFields) {
   controller().Init();
 
-  const GURL launch_url = GURL("https://example.com/path");
-  const AppId app_id = GenerateAppIdFromURL(launch_url);
+  const GURL start_url = GURL("https://example.com/path");
+  const AppId app_id = GenerateAppIdFromURL(start_url);
   const std::string name = "Name";
   const std::string description = "Description";
   const base::Optional<SkColor> theme_color = 0xAABBCCDD;
@@ -336,7 +408,7 @@ TEST_F(WebAppRegistrarTest, GetAppDataFields) {
   std::vector<DisplayMode> display_mode_override;
 
   EXPECT_EQ(std::string(), registrar().GetAppShortName(app_id));
-  EXPECT_EQ(GURL(), registrar().GetAppLaunchURL(app_id));
+  EXPECT_EQ(GURL(), registrar().GetAppStartUrl(app_id));
 
   auto web_app = std::make_unique<WebApp>(app_id);
   WebApp* web_app_ptr = web_app.get();
@@ -348,7 +420,7 @@ TEST_F(WebAppRegistrarTest, GetAppDataFields) {
   web_app->SetName(name);
   web_app->SetDescription(description);
   web_app->SetThemeColor(theme_color);
-  web_app->SetLaunchUrl(launch_url);
+  web_app->SetStartUrl(start_url);
   web_app->SetDisplayMode(display_mode);
   web_app->SetUserDisplayMode(user_display_mode);
   web_app->SetDisplayModeOverride(display_mode_override);
@@ -359,7 +431,7 @@ TEST_F(WebAppRegistrarTest, GetAppDataFields) {
   EXPECT_EQ(name, registrar().GetAppShortName(app_id));
   EXPECT_EQ(description, registrar().GetAppDescription(app_id));
   EXPECT_EQ(theme_color, registrar().GetAppThemeColor(app_id));
-  EXPECT_EQ(launch_url, registrar().GetAppLaunchURL(app_id));
+  EXPECT_EQ(start_url, registrar().GetAppStartUrl(app_id));
   EXPECT_EQ(DisplayMode::kStandalone,
             registrar().GetAppUserDisplayMode(app_id));
 
@@ -386,7 +458,8 @@ TEST_F(WebAppRegistrarTest, GetAppDataFields) {
     web_app_ptr->SetUserDisplayMode(DisplayMode::kBrowser);
     EXPECT_EQ(DisplayMode::kBrowser, registrar().GetAppUserDisplayMode(app_id));
 
-    sync_bridge().SetAppUserDisplayMode(app_id, DisplayMode::kStandalone);
+    sync_bridge().SetAppUserDisplayMode(app_id, DisplayMode::kStandalone,
+                                        /*is_user_action=*/false);
     EXPECT_EQ(DisplayMode::kStandalone, web_app_ptr->user_display_mode());
     EXPECT_EQ(DisplayMode::kMinimalUi, web_app_ptr->display_mode());
 
@@ -684,11 +757,11 @@ TEST_F(WebAppRegistrarTest, ScopedRegistryUpdate) {
 TEST_F(WebAppRegistrarTest, CopyOnWrite) {
   controller().Init();
 
-  const GURL launch_url("https://example.com");
-  const AppId app_id = GenerateAppIdFromURL(launch_url);
+  const GURL start_url("https://example.com");
+  const AppId app_id = GenerateAppIdFromURL(start_url);
   const WebApp* app = nullptr;
   {
-    auto new_app = CreateWebApp(launch_url.spec());
+    auto new_app = CreateWebApp(start_url.spec());
     app = new_app.get();
     RegisterApp(std::move(new_app));
   }
@@ -757,10 +830,10 @@ TEST_F(WebAppRegistrarTest, AppsInSyncInstallExcludedFromGetAppIds) {
   for (const AppId& app_id : ids)
     EXPECT_NE(app_id, web_app_in_sync_install_id);
 
-  // Tests that AllApps() returns a web app which is either in GetAppIds() set
-  // or it is the web app in sync install:
+  // Tests that GetAppsIncludingStubs() returns a web app which is either in
+  // GetAppIds() set or it is the web app in sync install:
   bool web_app_in_sync_install_found = false;
-  for (const WebApp& web_app : registrar().AllApps()) {
+  for (const WebApp& web_app : registrar().GetAppsIncludingStubs()) {
     if (web_app.app_id() == web_app_in_sync_install_id)
       web_app_in_sync_install_found = true;
     else
@@ -844,7 +917,7 @@ TEST_F(WebAppRegistrarTest, RunOnOsLoginModes) {
   const AppId app_id = web_app->app_id();
   RegisterApp(std::move(web_app));
 
-  EXPECT_EQ(RunOnOsLoginMode::kUndefined,
+  EXPECT_EQ(RunOnOsLoginMode::kNotRun,
             registrar().GetAppRunOnOsLoginMode(app_id));
 
   sync_bridge().SetAppRunOnOsLoginMode(app_id, RunOnOsLoginMode::kWindowed);

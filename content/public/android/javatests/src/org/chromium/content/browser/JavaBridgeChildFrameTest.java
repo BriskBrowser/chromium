@@ -5,6 +5,7 @@
 package org.chromium.content.browser;
 
 import android.support.test.InstrumentationRegistry;
+import android.webkit.JavascriptInterface;
 
 import androidx.test.filters.SmallTest;
 
@@ -18,6 +19,7 @@ import org.chromium.base.test.params.ParameterAnnotations.UseMethodParameter;
 import org.chromium.base.test.params.ParameterAnnotations.UseMethodParameterBefore;
 import org.chromium.base.test.params.ParameterAnnotations.UseRunnerDelegate;
 import org.chromium.base.test.params.ParameterizedRunner;
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
@@ -41,15 +43,16 @@ import java.util.concurrent.TimeoutException;
  */
 @RunWith(ParameterizedRunner.class)
 @UseRunnerDelegate(ContentJUnit4RunnerDelegate.class)
+@Batch(JavaBridgeActivityTestRule.BATCH)
 public class JavaBridgeChildFrameTest {
     @Rule
-    public JavaBridgeActivityTestRule mActivityTestRule =
-            new JavaBridgeActivityTestRule().shouldSetUp(true);
+    public JavaBridgeActivityTestRule mActivityTestRule = new JavaBridgeActivityTestRule();
 
     private static class TestController extends Controller {
         private String mStringValue;
 
         @SuppressWarnings("unused") // Called via reflection
+        @JavascriptInterface
         public synchronized void setStringValue(String x) {
             mStringValue = x;
             notifyResultIsReady();
@@ -74,6 +77,7 @@ public class JavaBridgeChildFrameTest {
         mActivityTestRule.injectObjectAndReload(mTestController, "testController");
     }
 
+    // TODO(crbug.com/1116744): Fix flakiness when using MojoTestParams.
     @Test
     @SmallTest
     @Feature({"AndroidWebView", "Android-JavaBridge"})
@@ -117,6 +121,7 @@ public class JavaBridgeChildFrameTest {
 
     // Verify that parent page and child frame each has own JS wrapper object.
     // Failing to do so exposes parent's context to the child.
+    // TODO(crbug.com/1116744): Fix flakiness when using MojoTestParams.
     @Test
     @SmallTest
     @Feature({"AndroidWebView", "Android-JavaBridge"})

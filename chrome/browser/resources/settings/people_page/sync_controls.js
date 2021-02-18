@@ -17,6 +17,7 @@ const SyncPrefsIndividualDataTypes = [
   'typedUrlsSynced',
   'themesSynced',
   'bookmarksSynced',
+  'readingListSynced',
   'passwordsSynced',
   'tabsSynced',
   'paymentsIntegrationEnabled',
@@ -64,17 +65,6 @@ Polymer({
     syncStatus: {
       type: Object,
       observer: 'syncStatusChanged_',
-    },
-
-    /**
-     * If sync page friendly settings is enabled.
-     * @private
-     */
-    syncSetupFriendlySettings_: {
-      type: Boolean,
-      value: function() {
-        return loadTimeData.getBoolean('syncSetupFriendlySettings');
-      }
     },
   },
 

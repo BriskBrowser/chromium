@@ -12,7 +12,6 @@
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
@@ -145,12 +144,12 @@ TEST_F(PreviewsUITabHelperUnitTest, DidFinishNavigationDisplaysOmniboxBadge) {
 #endif
 
 TEST_F(PreviewsUITabHelperUnitTest,
-       DidFinishNavigationCreatesNoScriptPreviewsUI) {
+       DidFinishNavigationCreateDeferAllScriptPreviewsUI) {
   PreviewsUITabHelper* ui_tab_helper =
       PreviewsUITabHelper::FromWebContents(web_contents());
   EXPECT_FALSE(ui_tab_helper->displayed_preview_ui());
 
-  SetCommittedPreviewsType(previews::PreviewsType::NOSCRIPT);
+  SetCommittedPreviewsType(previews::PreviewsType::DEFER_ALL_SCRIPT);
   SimulateWillProcessResponse();
   CallDidFinishNavigation();
   base::RunLoop().RunUntilIdle();

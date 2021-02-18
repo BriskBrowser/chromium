@@ -8,7 +8,7 @@
 #include "base/test/simple_test_tick_clock.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_simple_task_runner.h"
-#include "chrome/browser/media/router/test/test_helper.h"
+#include "chrome/browser/media/router/test/provider_test_helpers.h"
 #include "components/cast_channel/cast_test_util.h"
 #include "components/media_router/common/discovery/media_sink_service_base.h"
 #include "components/media_router/common/providers/cast/cast_media_source.h"
@@ -59,7 +59,7 @@ class CastAppDiscoveryServiceTest : public testing::Test {
     media_sink_service_.RemoveSink(sink);
   }
 
-  CastAppDiscoveryService::Subscription StartObservingMediaSinksInitially(
+  base::CallbackListSubscription StartObservingMediaSinksInitially(
       const CastMediaSource& source) {
     auto subscription = app_discovery_service_->StartObservingMediaSinks(
         source,
@@ -114,7 +114,7 @@ TEST_F(CastAppDiscoveryServiceTest, StartObservingMediaSinks) {
   std::move(cb).Run("AAAAAAAA", GetAppAvailabilityResult::kAvailable);
 
   // No more updates for |source_a_1_|.
-  subscription1.reset();
+  subscription1 = {};
   EXPECT_CALL(*this, OnSinkQueryUpdated(source_a_1_.source_id(), _)).Times(0);
   EXPECT_CALL(*this,
               OnSinkQueryUpdated(source_a_2_.source_id(), testing::IsEmpty()));
@@ -140,7 +140,7 @@ TEST_F(CastAppDiscoveryServiceTest, ReAddSinkQueryUsesCachedValue) {
   EXPECT_CALL(*this, OnSinkQueryUpdated(source_a_1_.source_id(), sinks_1));
   std::move(cb).Run("AAAAAAAA", GetAppAvailabilityResult::kAvailable);
 
-  subscription1.reset();
+  subscription1 = {};
 
   // Request not re-sent; cached kAvailable value is used.
   EXPECT_CALL(message_handler_, RequestAppAvailability(_, _, _)).Times(0);

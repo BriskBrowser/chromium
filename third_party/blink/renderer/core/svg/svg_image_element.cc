@@ -28,6 +28,8 @@
 #include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/layout/layout_image_resource.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_image.h"
+#include "third_party/blink/renderer/core/svg/svg_animated_length.h"
+#include "third_party/blink/renderer/core/svg/svg_animated_preserve_aspect_ratio.h"
 #include "third_party/blink/renderer/core/svg_names.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
@@ -89,7 +91,7 @@ void SVGImageElement::Trace(Visitor* visitor) const {
 }
 
 bool SVGImageElement::CurrentFrameHasSingleSecurityOrigin() const {
-  if (LayoutSVGImage* layout_svg_image = ToLayoutSVGImage(GetLayoutObject())) {
+  if (auto* layout_svg_image = To<LayoutSVGImage>(GetLayoutObject())) {
     LayoutImageResource* layout_image_resource =
         layout_svg_image->ImageResource();
     ImageResourceContent* image_content = layout_image_resource->CachedImage();
@@ -129,7 +131,9 @@ void SVGImageElement::CollectStyleForPresentationAttribute(
   }
 }
 
-void SVGImageElement::SvgAttributeChanged(const QualifiedName& attr_name) {
+void SVGImageElement::SvgAttributeChanged(
+    const SvgAttributeChangedParams& params) {
+  const QualifiedName& attr_name = params.name;
   bool is_length_attribute =
       attr_name == svg_names::kXAttr || attr_name == svg_names::kYAttr ||
       attr_name == svg_names::kWidthAttr || attr_name == svg_names::kHeightAttr;
@@ -163,7 +167,7 @@ void SVGImageElement::SvgAttributeChanged(const QualifiedName& attr_name) {
     return;
   }
 
-  SVGGraphicsElement::SvgAttributeChanged(attr_name);
+  SVGGraphicsElement::SvgAttributeChanged(params);
 }
 
 void SVGImageElement::ParseAttribute(
@@ -184,7 +188,7 @@ bool SVGImageElement::SelfHasRelativeLengths() const {
 
 LayoutObject* SVGImageElement::CreateLayoutObject(const ComputedStyle&,
                                                   LegacyLayout) {
-  return new LayoutSVGImage(this);
+  return MakeGarbageCollected<LayoutSVGImage>(this);
 }
 
 bool SVGImageElement::HaveLoadedRequiredResources() {
@@ -194,7 +198,7 @@ bool SVGImageElement::HaveLoadedRequiredResources() {
 void SVGImageElement::AttachLayoutTree(AttachContext& context) {
   SVGGraphicsElement::AttachLayoutTree(context);
 
-  if (LayoutSVGImage* image_obj = ToLayoutSVGImage(GetLayoutObject())) {
+  if (auto* image_obj = To<LayoutSVGImage>(GetLayoutObject())) {
     LayoutImageResource* layout_image_resource = image_obj->ImageResource();
     if (layout_image_resource->HasImage())
       return;

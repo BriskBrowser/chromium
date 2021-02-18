@@ -42,9 +42,10 @@ message WebAppSpecifics {
     // MINIMAL_UI is never serialized.
     STANDALONE = 3;
     // FULLSCREEN is never serialized.
+    // WINDOW_CONTROLS_OVERLAY is never serialized.
   }
 
-  optional string launch_url = 1;
+  optional string start_url = 1;
   optional string name = 2;
   optional UserDisplayMode user_display_mode = 3;
   optional uint32 theme_color = 4;

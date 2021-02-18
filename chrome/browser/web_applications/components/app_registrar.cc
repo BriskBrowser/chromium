@@ -24,6 +24,10 @@ AppRegistrar::~AppRegistrar() {
     observer.OnAppRegistrarDestroyed();
 }
 
+void AppRegistrar::SetSubsystems(OsIntegrationManager* os_integration_manager) {
+  os_integration_manager_ = os_integration_manager;
+}
+
 bool AppRegistrar::IsLocallyInstalled(const GURL& start_url) const {
   return IsLocallyInstalled(GenerateAppIdFromURL(start_url));
 }
@@ -45,7 +49,7 @@ void AppRegistrar::NotifyWebAppInstalled(const AppId& app_id) {
   for (AppRegistrarObserver& observer : observers_)
     observer.OnWebAppInstalled(app_id);
   // TODO(alancutter): Call RecordWebAppInstallation here when we get access to
-  // the WebappInstallSource in this event.
+  // the webapps::WebappInstallSource in this event.
 }
 
 void AppRegistrar::NotifyWebAppManifestUpdated(const AppId& app_id,
@@ -63,6 +67,11 @@ void AppRegistrar::NotifyWebAppsWillBeUpdatedFromSync(
 void AppRegistrar::NotifyWebAppUninstalled(const AppId& app_id) {
   for (AppRegistrarObserver& observer : observers_)
     observer.OnWebAppUninstalled(app_id);
+}
+
+void AppRegistrar::NotifyWebAppWillBeUninstalled(const AppId& app_id) {
+  for (AppRegistrarObserver& observer : observers_)
+    observer.OnWebAppWillBeUninstalled(app_id);
   RecordWebAppUninstallation(profile()->GetPrefs(), app_id);
 }
 
@@ -94,6 +103,11 @@ void AppRegistrar::NotifyWebAppInstallTimeChanged(const AppId& app_id,
 void AppRegistrar::NotifyWebAppProfileWillBeDeleted(const AppId& app_id) {
   for (AppRegistrarObserver& observer : observers_)
     observer.OnWebAppProfileWillBeDeleted(app_id);
+}
+
+void AppRegistrar::NotifyWebAppInstalledWithOsHooks(const AppId& app_id) {
+  for (AppRegistrarObserver& observer : observers_)
+    observer.OnWebAppInstalledWithOsHooks(app_id);
 }
 
 void AppRegistrar::NotifyAppRegistrarShutdown() {
@@ -131,6 +145,28 @@ bool AppRegistrar::HasExternalAppWithInstallSource(
       profile()->GetPrefs(), app_id, install_source);
 }
 
+GURL AppRegistrar::GetAppLaunchUrl(const AppId& app_id) const {
+  const GURL& start_url = GetAppStartUrl(app_id);
+  const std::string* launch_query_params = GetAppLaunchQueryParams(app_id);
+  if (!start_url.is_valid() || !launch_query_params)
+    return start_url;
+
+  GURL::Replacements replacements;
+  if (start_url.query_piece().empty()) {
+    replacements.SetQueryStr(*launch_query_params);
+    return start_url.ReplaceComponents(replacements);
+  }
+
+  if (start_url.query_piece().find(*launch_query_params) !=
+      base::StringPiece::npos) {
+    return start_url;
+  }
+
+  std::string query_params = start_url.query() + "&" + *launch_query_params;
+  replacements.SetQueryStr(query_params);
+  return start_url.ReplaceComponents(replacements);
+}
+
 extensions::BookmarkAppRegistrar* AppRegistrar::AsBookmarkAppRegistrar() {
   return nullptr;
 }
@@ -142,9 +178,9 @@ GURL AppRegistrar::GetAppScope(const AppId& app_id) const {
   if (base::FeatureList::IsEnabled(
           features::kDesktopPWAsTabStripLinkCapturing) &&
       IsInExperimentalTabbedWindowMode(app_id)) {
-    return GetAppLaunchURL(app_id).GetOrigin();
+    return GetAppStartUrl(app_id).GetOrigin();
   }
-  return GetAppLaunchURL(app_id).GetWithoutFilename();
+  return GetAppStartUrl(app_id).GetWithoutFilename();
 }
 
 base::Optional<AppId> AppRegistrar::FindAppWithUrlInScope(

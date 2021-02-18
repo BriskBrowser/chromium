@@ -9,14 +9,14 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/stl_util.h"
+#include "base/containers/contains.h"
 #include "base/task/post_task.h"
-#include "chrome/browser/media/router/logger_impl.h"
 #include "chrome/browser/media/router/media_router_feature.h"
 #include "chrome/browser/media/router/providers/cast/cast_activity_manager.h"
 #include "chrome/browser/media/router/providers/cast/cast_internal_message_util.h"
 #include "chrome/browser/media/router/providers/cast/cast_session_tracker.h"
 #include "components/cast_channel/cast_message_handler.h"
+#include "components/media_router/browser/logger_impl.h"
 #include "components/media_router/common/media_source.h"
 #include "components/media_router/common/mojom/media_router.mojom.h"
 #include "components/media_router/common/providers/cast/cast_media_source.h"
@@ -289,12 +289,6 @@ void CastMediaRouteProvider::UpdateMediaSinks(const std::string& media_source) {
   app_discovery_service_->Refresh();
 }
 
-void CastMediaRouteProvider::ProvideSinks(
-    const std::string& provider_name,
-    const std::vector<media_router::MediaSinkInternal>& sinks) {
-  NOTIMPLEMENTED();
-}
-
 void CastMediaRouteProvider::CreateMediaRouteController(
     const std::string& route_id,
     mojo::PendingReceiver<mojom::MediaController> media_controller,
@@ -307,6 +301,7 @@ void CastMediaRouteProvider::CreateMediaRouteController(
 void CastMediaRouteProvider::GetState(GetStateCallback callback) {
   if (!activity_manager_) {
     std::move(callback).Run(mojom::ProviderState::New());
+    return;
   }
   const CastSessionTracker::SessionMap& sessions =
       activity_manager_->GetCastSessionTracker()->GetSessions();

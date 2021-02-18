@@ -4,7 +4,7 @@
 
 #include "components/password_manager/core/browser/ui/post_save_compromised_helper.h"
 
-#include "base/stl_util.h"
+#include "base/containers/contains.h"
 #include "components/password_manager/core/browser/password_store.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/prefs/pref_service.h"
@@ -16,9 +16,9 @@ namespace password_manager {
 constexpr auto kMaxTimeSinceLastCheck = base::TimeDelta::FromMinutes(30);
 
 PostSaveCompromisedHelper::PostSaveCompromisedHelper(
-    base::span<const CompromisedCredentials> compromised,
+    base::span<const InsecureCredential> compromised,
     const base::string16& current_username) {
-  for (const CompromisedCredentials& credential : compromised) {
+  for (const InsecureCredential& credential : compromised) {
     if (credential.username == current_username)
       current_leak_ = credential;
   }
@@ -27,22 +27,29 @@ PostSaveCompromisedHelper::PostSaveCompromisedHelper(
 PostSaveCompromisedHelper::~PostSaveCompromisedHelper() = default;
 
 void PostSaveCompromisedHelper::AnalyzeLeakedCredentials(
-    PasswordStore* store,
+    PasswordStore* profile_store,
+    PasswordStore* account_store,
     PrefService* prefs,
     BubbleCallback callback) {
-  DCHECK(store);
+  DCHECK(profile_store);
   DCHECK(prefs);
   callback_ = std::move(callback);
   prefs_ = prefs;
-  store->GetAllCompromisedCredentials(this);
+  insecure_credentials_reader_ =
+      std::make_unique<InsecureCredentialsReader>(profile_store, account_store);
+  // Unretained(this) is safe here since `this` outlives
+  // `insecure_credentials_reader_`.
+  insecure_credentials_reader_->GetAllInsecureCredentials(
+      base::BindOnce(&PostSaveCompromisedHelper::OnGetAllInsecureCredentials,
+                     base::Unretained(this)));
 }
 
-void PostSaveCompromisedHelper::OnGetCompromisedCredentials(
-    std::vector<CompromisedCredentials> compromised_credentials) {
+void PostSaveCompromisedHelper::OnGetAllInsecureCredentials(
+    std::vector<InsecureCredential> insecure_credentials) {
   const bool compromised_password_changed =
-      current_leak_ && !base::Contains(compromised_credentials, *current_leak_);
+      current_leak_ && !base::Contains(insecure_credentials, *current_leak_);
   bubble_type_ = BubbleType::kNoBubble;
-  if (compromised_credentials.empty()) {
+  if (insecure_credentials.empty()) {
     if (compromised_password_changed) {
       // Obtain the timestamp of the last completed check. This is 0.0 in case
       // the check never completely ran before.
@@ -59,7 +66,7 @@ void PostSaveCompromisedHelper::OnGetCompromisedCredentials(
                        ? BubbleType::kPasswordUpdatedWithMoreToFix
                        : BubbleType::kUnsafeState;
   }
-  compromised_count_ = compromised_credentials.size();
+  compromised_count_ = insecure_credentials.size();
   std::move(callback_).Run(bubble_type_, compromised_count_);
 }
 

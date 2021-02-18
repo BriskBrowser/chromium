@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
@@ -497,17 +497,17 @@ void PaymentRequestBrowserTestBase::WaitForOnPersonalDataChanged() {
 void PaymentRequestBrowserTestBase::CreatePaymentRequestForTest(
     mojo::PendingReceiver<payments::mojom::PaymentRequest> receiver,
     content::RenderFrameHost* render_frame_host) {
-  content::WebContents* web_contents =
-      content::WebContents::FromRenderFrameHost(render_frame_host);
-  DCHECK(web_contents);
+  DCHECK(render_frame_host);
+  DCHECK(render_frame_host->IsCurrent());
   std::unique_ptr<TestChromePaymentRequestDelegate> delegate =
       std::make_unique<TestChromePaymentRequestDelegate>(
-          web_contents, this /* observer */, &prefs_, is_incognito_,
+          render_frame_host, /*observer=*/this, &prefs_, is_incognito_,
           is_valid_ssl_, is_browser_window_active_, skip_ui_for_basic_card_);
   delegate_ = delegate.get();
-  PaymentRequestWebContentsManager::GetOrCreateForWebContents(web_contents)
-      ->CreatePaymentRequest(web_contents->GetMainFrame(), web_contents,
-                             std::move(delegate), std::move(receiver), this);
+  PaymentRequestWebContentsManager::GetOrCreateForWebContents(
+      content::WebContents::FromRenderFrameHost(render_frame_host))
+      ->CreatePaymentRequest(render_frame_host, std::move(delegate),
+                             std::move(receiver), this);
 }
 
 void PaymentRequestBrowserTestBase::ClickOnDialogViewAndWait(
@@ -657,7 +657,7 @@ void PaymentRequestBrowserTestBase::PayWithCreditCard(
 void PaymentRequestBrowserTestBase::RetryPaymentRequest(
     const std::string& validation_errors,
     PaymentRequestDialogView* dialog_view) {
-  EXPECT_EQ(2U, dialog_view->view_stack_for_testing()->size());
+  EXPECT_EQ(2U, dialog_view->view_stack_for_testing()->GetSize());
   ResetEventWaiterForSequence({DialogEvent::PROCESSING_SPINNER_HIDDEN,
                                DialogEvent::SPEC_DONE_UPDATING,
                                DialogEvent::PROCESSING_SPINNER_HIDDEN,
@@ -673,7 +673,7 @@ void PaymentRequestBrowserTestBase::RetryPaymentRequest(
     const std::string& validation_errors,
     const DialogEvent& dialog_event,
     PaymentRequestDialogView* dialog_view) {
-  EXPECT_EQ(2U, dialog_view->view_stack_for_testing()->size());
+  EXPECT_EQ(2U, dialog_view->view_stack_for_testing()->GetSize());
   ResetEventWaiterForSequence(
       {DialogEvent::PROCESSING_SPINNER_HIDDEN, DialogEvent::SPEC_DONE_UPDATING,
        DialogEvent::PROCESSING_SPINNER_HIDDEN,
@@ -708,7 +708,9 @@ void PaymentRequestBrowserTestBase::SetEditorTextfieldValue(
           EditorViewController::GetInputFieldViewId(type)));
   DCHECK(textfield);
   textfield->SetText(base::string16());
-  textfield->InsertText(value);
+  textfield->InsertText(
+      value,
+      ui::TextInputClient::InsertTextCursorBehavior::kMoveCursorAfterText);
   textfield->OnBlur();
 }
 
@@ -718,7 +720,7 @@ base::string16 PaymentRequestBrowserTestBase::GetComboboxValue(
       static_cast<ValidatingCombobox*>(delegate_->dialog_view()->GetViewByID(
           EditorViewController::GetInputFieldViewId(type)));
   DCHECK(combobox);
-  return combobox->model()->GetItemAt(combobox->GetSelectedIndex());
+  return combobox->GetModel()->GetItemAt(combobox->GetSelectedIndex());
 }
 
 void PaymentRequestBrowserTestBase::SetComboboxValue(
@@ -739,7 +741,8 @@ void PaymentRequestBrowserTestBase::SelectBillingAddress(
           EditorViewController::GetInputFieldViewId(kBillingAddressType))));
   ASSERT_NE(address_combobox, nullptr);
   autofill::AddressComboboxModel* address_combobox_model(
-      static_cast<autofill::AddressComboboxModel*>(address_combobox->model()));
+      static_cast<autofill::AddressComboboxModel*>(
+          address_combobox->GetModel()));
   address_combobox->SetSelectedRow(
       address_combobox_model->GetIndexOfIdentifier(billing_address_id));
   address_combobox->OnBlur();

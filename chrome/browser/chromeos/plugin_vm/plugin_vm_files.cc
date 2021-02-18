@@ -13,15 +13,17 @@
 #include "base/strings/string_util.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/file_manager/path_util.h"
 #include "chrome/browser/chromeos/guest_os/guest_os_registry_service.h"
 #include "chrome/browser/chromeos/guest_os/guest_os_registry_service_factory.h"
 #include "chrome/browser/chromeos/guest_os/guest_os_share_path.h"
+#include "chrome/browser/chromeos/plugin_vm/plugin_vm_features.h"
 #include "chrome/browser/chromeos/plugin_vm/plugin_vm_manager.h"
 #include "chrome/browser/chromeos/plugin_vm/plugin_vm_manager_factory.h"
 #include "chrome/browser/chromeos/plugin_vm/plugin_vm_util.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/ash/launcher/app_window_base.h"
 #include "chrome/browser/ui/ash/launcher/app_window_launcher_item_controller.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #include "chromeos/dbus/cicerone/cicerone_service.pb.h"
@@ -29,7 +31,6 @@
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
-#include "ui/base/base_window.h"
 
 namespace plugin_vm {
 
@@ -72,7 +73,7 @@ void FocusAllPluginVmWindows() {
   if (!launcher_item_controller) {
     return;
   }
-  for (ui::BaseWindow* app_window : launcher_item_controller->windows()) {
+  for (auto* app_window : launcher_item_controller->windows()) {
     app_window->Activate();
   }
 }
@@ -135,6 +136,11 @@ void LaunchPluginVmAppImpl(Profile* profile,
 
 }  // namespace
 
+base::FilePath ChromeOSBaseDirectory() {
+  // Forward slashes are converted to backslash during path conversion.
+  return base::FilePath("//ChromeOS");
+}
+
 void EnsureDefaultSharedDirExists(
     Profile* profile,
     base::OnceCallback<void(const base::FilePath&, bool)> callback) {
@@ -146,9 +152,9 @@ void EnsureDefaultSharedDirExists(
 
 void LaunchPluginVmApp(Profile* profile,
                        std::string app_id,
-                       const std::vector<storage::FileSystemURL>& files,
+                       const std::vector<LaunchArg>& args,
                        LaunchPluginVmAppCallback callback) {
-  if (!plugin_vm::IsPluginVmEnabled(profile)) {
+  if (!plugin_vm::PluginVmFeatures::Get()->IsEnabled(profile)) {
     return std::move(callback).Run(LaunchPluginVmAppResult::FAILED,
                                    "Plugin VM is not enabled for this profile");
   }
@@ -160,34 +166,36 @@ void LaunchPluginVmApp(Profile* profile,
                                    "Could not get PluginVmManager");
   }
   auto* share_path = guest_os::GuestOsSharePath::GetForProfile(profile);
-  // Forward slashes are converted to backslash during path conversion.
-  base::FilePath vm_mount("//ChromeOS");
+  base::FilePath vm_mount = ChromeOSBaseDirectory();
 
-  std::vector<std::string> file_paths;
-  file_paths.reserve(files.size());
-  for (const auto& file : files) {
+  std::vector<std::string> launch_args;
+  launch_args.reserve(args.size());
+  for (const auto& arg : args) {
+    if (absl::holds_alternative<std::string>(arg)) {
+      launch_args.push_back(absl::get<std::string>(arg));
+      continue;
+    }
+    const storage::FileSystemURL& url = absl::get<storage::FileSystemURL>(arg);
     base::FilePath file_path;
-    // Validate paths are already shared, and convert file paths.
-    if (!share_path->IsPathShared(kPluginVmName, file.path()) ||
+    // Validate paths in MyFiles/PvmDefault, or are already shared, and convert.
+    bool shared = GetDefaultSharedDir(profile).IsParent(url.path()) ||
+                  share_path->IsPathShared(kPluginVmName, url.path());
+    if (!shared ||
         !file_manager::util::ConvertFileSystemURLToPathInsideVM(
-            profile, file, vm_mount, &file_path)) {
+            profile, url, vm_mount, /*map_crostini_home=*/false, &file_path)) {
       return std::move(callback).Run(
-          file_manager::util::GetMyFilesFolderForProfile(profile).IsParent(
-              file.path())
-              ? LaunchPluginVmAppResult::FAILED_DIRECTORY_NOT_SHARED
-              : LaunchPluginVmAppResult::FAILED_FILE_ON_EXTERNAL_DRIVE,
-          "Only files in shared dirs are supported. Got: " +
-              file.DebugString());
+          LaunchPluginVmAppResult::FAILED_DIRECTORY_NOT_SHARED,
+          "Only files in shared dirs are supported. Got: " + url.DebugString());
     }
     // Convert slashes: '/' => '\'.
     std::string result;
     base::ReplaceChars(file_path.value(), "/", "\\", &result);
-    file_paths.push_back(std::move(result));
+    launch_args.push_back(std::move(result));
   }
 
   manager->LaunchPluginVm(
       base::BindOnce(&LaunchPluginVmAppImpl, profile, std::move(app_id),
-                     std::move(file_paths), std::move(callback)));
+                     std::move(launch_args), std::move(callback)));
 }
 
 }  // namespace plugin_vm

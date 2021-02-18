@@ -22,7 +22,6 @@
 #import "ios/web/js_messaging/web_frames_manager_impl.h"
 #import "ios/web/navigation/navigation_manager_delegate.h"
 #import "ios/web/navigation/navigation_manager_impl.h"
-#include "ios/web/public/js_messaging/web_frame.h"
 #import "ios/web/public/navigation/web_state_policy_decider.h"
 #import "ios/web/public/ui/java_script_dialog_callback.h"
 #include "ios/web/public/ui/java_script_dialog_type.h"
@@ -46,6 +45,7 @@ struct FaviconURL;
 class NavigationContextImpl;
 class NavigationManager;
 class SessionCertificatePolicyCacheImpl;
+class WebFrame;
 class WebInterstitialImpl;
 class WebUIIOS;
 
@@ -185,6 +185,8 @@ class WebStateImpl : public WebState,
   bool IsWebUsageEnabled() const override;
   void SetWebUsageEnabled(bool enabled) override;
   UIView* GetView() override;
+  void DidCoverWebContent() override;
+  void DidRevealWebContent() override;
   void WasShown() override;
   void WasHidden() override;
   void SetKeepRenderProcessAlive(bool keep_alive) override;
@@ -219,7 +221,7 @@ class WebStateImpl : public WebState,
   GURL GetCurrentURL(URLVerificationTrustLevel* trust_level) const override;
   bool IsShowingWebInterstitial() const override;
   WebInterstitial* GetWebInterstitial() const override;
-  std::unique_ptr<ScriptCommandSubscription> AddScriptCommandCallback(
+  base::CallbackListSubscription AddScriptCommandCallback(
       const ScriptCommandCallback& callback,
       const std::string& command_prefix) override;
   id<CRWWebViewProxy> GetWebViewProxy() const override;
@@ -277,7 +279,7 @@ class WebStateImpl : public WebState,
   // and is unable to respond using cached credentials.
   void OnAuthRequired(NSURLProtectionSpace* protection_space,
                       NSURLCredential* proposed_credential,
-                      const WebStateDelegate::AuthCallback& callback);
+                      WebStateDelegate::AuthCallback callback);
 
   // Cancels all dialogs associated with this web_state.
   void CancelDialogs();
@@ -380,7 +382,8 @@ class WebStateImpl : public WebState,
   base::string16 empty_string16_;
 
   // Callbacks associated to command prefixes.
-  std::map<std::string, base::CallbackList<ScriptCommandCallbackSignature>>
+  std::map<std::string,
+           base::RepeatingCallbackList<ScriptCommandCallbackSignature>>
       script_command_callbacks_;
 
   // Whether this WebState has an opener.  See

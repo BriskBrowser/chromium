@@ -31,6 +31,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_regexp.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/create_element_flags.h"
+#include "third_party/blink/renderer/core/dom/events/simulated_click_options.h"
 #include "third_party/blink/renderer/core/html/forms/file_chooser.h"
 #include "third_party/blink/renderer/core/html/forms/step_range.h"
 #include "third_party/blink/renderer/core/html/forms/text_control_element.h"
@@ -155,8 +156,6 @@ class CORE_EXPORT HTMLInputElement
   bool IsValidValue(const String&) const;
   bool HasDirtyValue() const;
 
-  String rawValue() const;
-
   String SanitizeValue(const String&) const;
 
   String LocalizeValue(const String&) const;
@@ -175,6 +174,11 @@ class CORE_EXPORT HTMLInputElement
       double,
       ExceptionState&,
       TextFieldEventBehavior = TextFieldEventBehavior::kDispatchNoEvent);
+
+  // For type=range, returns a ratio of the current value in the range between
+  // min and max.  i.e. (value - min) / (max - min)
+  // For other types, this function fails with DCHECK().
+  Decimal RatioValue() const;
 
   String ValueOrDefaultLabel() const;
 
@@ -313,6 +317,8 @@ class CORE_EXPORT HTMLInputElement
 
   bool SupportsInputModeAttribute() const;
 
+  void CapsLockStateMayHaveChanged();
+  bool ShouldDrawCapsLockIndicator() const;
   void SetShouldRevealPassword(bool value);
   bool ShouldRevealPassword() const { return should_reveal_password_; }
   AXObject* PopupRootAXObject();
@@ -347,8 +353,6 @@ class CORE_EXPORT HTMLInputElement
     form_element_pii_type_ = form_element_pii_type;
   }
 
-  ScriptRegexp& EnsureEmailRegexp() const;
-
  protected:
   void DefaultEventHandler(Event&) override;
   void CreateShadowSubtree();
@@ -371,8 +375,9 @@ class CORE_EXPORT HTMLInputElement
   bool IsInteractiveContent() const final;
   bool IsLabelable() const final;
   bool MatchesDefaultPseudoClass() const override;
-
   bool IsTextControl() const final { return IsTextField(); }
+  int scrollWidth() override;
+  int scrollHeight() override;
 
   bool CanTriggerImplicitSubmission() const final { return IsTextField(); }
 
@@ -384,7 +389,7 @@ class CORE_EXPORT HTMLInputElement
 
   bool CanStartSelection() const final;
 
-  void AccessKeyAction(bool send_mouse_events) final;
+  void AccessKeyAction(SimulatedClickCreationScope creation_scope) final;
 
   void ParseAttribute(const AttributeModificationParams&) override;
   bool IsPresentationAttribute(const QualifiedName&) const final;
@@ -442,7 +447,7 @@ class CORE_EXPORT HTMLInputElement
 
   void AddToRadioButtonGroup();
   void RemoveFromRadioButtonGroup();
-  scoped_refptr<ComputedStyle> CustomStyleForLayoutObject() override;
+  ComputedStyle* CustomStyleForLayoutObject(const StyleRecalcContext&) override;
   void DidRecalcStyle(const StyleRecalcChange) override;
 
   void MaybeReportPiiMetrics();
@@ -478,7 +483,6 @@ class CORE_EXPORT HTMLInputElement
   Member<ListAttributeTargetObserver> list_attribute_target_observer_;
 
   FormElementPiiType form_element_pii_type_ = FormElementPiiType::kUnknown;
-  mutable std::unique_ptr<ScriptRegexp> email_regexp_;
 
   FRIEND_TEST_ALL_PREFIXES(HTMLInputElementTest, RadioKeyDownDCHECKFailure);
 };

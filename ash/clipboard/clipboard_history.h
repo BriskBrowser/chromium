@@ -6,12 +6,9 @@
 #define ASH_CLIPBOARD_CLIPBOARD_HISTORY_H_
 
 #include <list>
-#include <map>
 
 #include "ash/ash_export.h"
 #include "ash/clipboard/clipboard_history_item.h"
-#include "ash/public/cpp/session/session_observer.h"
-#include "ash/shell_observer.h"
 #include "base/component_export.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
@@ -20,32 +17,26 @@
 
 namespace ash {
 
+class ScopedClipboardHistoryPauseImpl;
+
 // Keeps track of the last few things saved in the clipboard.
 class ASH_EXPORT ClipboardHistory : public ui::ClipboardObserver {
  public:
   class ASH_EXPORT Observer : public base::CheckedObserver {
    public:
     // Called when a ClipboardHistoryItem has been added.
-    virtual void OnClipboardHistoryItemAdded(const ClipboardHistoryItem& item) {
-    }
+    virtual void OnClipboardHistoryItemAdded(const ClipboardHistoryItem& item,
+                                             bool is_duplicate) {}
+
     // Called when a ClipboardHistoryItem has been removed.
     virtual void OnClipboardHistoryItemRemoved(
         const ClipboardHistoryItem& item) {}
+
     // Called when ClipboardHistory is Clear()-ed.
     virtual void OnClipboardHistoryCleared() {}
-  };
 
-  // Prevents clipboard history from being recorded within its scope. If
-  // anything is copied within its scope, history will not be recorded.
-  class ASH_EXPORT ScopedPause {
-   public:
-    explicit ScopedPause(ClipboardHistory* clipboard_history);
-    ScopedPause(const ScopedPause&) = delete;
-    ScopedPause& operator=(const ScopedPause&) = delete;
-    ~ScopedPause();
-
-   private:
-    ClipboardHistory* const clipboard_history_;
+    // Called when the operation on clipboard data is confirmed.
+    virtual void OnOperationConfirmed(bool copy) {}
   };
 
   ClipboardHistory();
@@ -66,11 +57,21 @@ class ASH_EXPORT ClipboardHistory : public ui::ClipboardObserver {
   // Returns whether the clipboard history of the active account is empty.
   bool IsEmpty() const;
 
-  // ClipboardMonitor:
+  // Remove the item specified by `id`. If the target item does not exist,
+  // do nothing.
+  void RemoveItemForId(const base::UnguessableToken& id);
+
+  // ui::ClipboardObserver:
   void OnClipboardDataChanged() override;
   void OnClipboardDataRead() override;
 
+  base::WeakPtr<ClipboardHistory> GetWeakPtr();
+
  private:
+  // Friended to allow ScopedClipboardHistoryPauseImpl to `Pause()` and
+  // `Resume()`.
+  friend class ScopedClipboardHistoryPauseImpl;
+
   // Adds `data` to the `history_list_` if it's supported. If `data` is not
   // supported by clipboard history, this method no-ops.
   void MaybeCommitData(ui::ClipboardData data);
@@ -78,8 +79,17 @@ class ASH_EXPORT ClipboardHistory : public ui::ClipboardObserver {
   void Pause();
   void Resume();
 
+  // Keeps track of consecutive clipboard operations and records metrics.
+  void OnClipboardOperation(bool copy);
+
   // The count of pauses.
   size_t num_pause_ = 0;
+
+  // The number of consecutive copies, reset after a paste.
+  int consecutive_copies_ = 0;
+
+  // The number of consecutive pastes, reset after a copy.
+  int consecutive_pastes_ = 0;
 
   // The history of data copied to the Clipboard. Items of the list are sorted
   // by recency.
@@ -89,8 +99,16 @@ class ASH_EXPORT ClipboardHistory : public ui::ClipboardObserver {
   // ClipboardHistory.
   mutable base::ObserverList<Observer> observers_;
 
-  // Factory to create WeakPtrs used to debounce calls to CommitData().
+  // Factory to create WeakPtrs used to debounce calls to `CommitData()`.
   base::WeakPtrFactory<ClipboardHistory> commit_data_weak_factory_{this};
+
+  // Factory to create WeakPtrs used to debounce calls to
+  // `OnClipboardOperation()`.
+  base::WeakPtrFactory<ClipboardHistory> clipboard_histogram_weak_factory_{
+      this};
+
+  // Factory to create WeakPtrs for ClipboardHistory.
+  base::WeakPtrFactory<ClipboardHistory> weak_factory_{this};
 };
 
 }  // namespace ash

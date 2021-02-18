@@ -14,7 +14,6 @@
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
 #include "base/values.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/chromeos/resources/grit/ui_chromeos_resources.h"
@@ -292,7 +291,7 @@ const int kDefaultImageDescriptionsMaxID =
     base::size(kDefaultImageDescriptions);
 
 // Returns true if the string specified consists of the prefix and one of
-// the default images indices. Returns the index of the image in |image_id|
+// the default images indices. Returns the index of the image in `image_id`
 // variable.
 bool IsDefaultImageString(const std::string& s,
                           const std::string& prefix,
@@ -302,8 +301,9 @@ bool IsDefaultImageString(const std::string& s,
     return false;
 
   int image_index = -1;
-  if (base::StringToInt(base::StringPiece(s.begin() + prefix.length(), s.end()),
-                        &image_index)) {
+  if (base::StringToInt(
+          base::MakeStringPiece(s.begin() + prefix.length(), s.end()),
+          &image_index)) {
     if (image_index < 0 || image_index >= kDefaultImagesCount)
       return false;
     *image_id = image_index;

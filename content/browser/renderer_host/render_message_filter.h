@@ -52,8 +52,7 @@ class ResourceContext;
 // IPC thread.
 class CONTENT_EXPORT RenderMessageFilter
     : public BrowserMessageFilter,
-      public BrowserAssociatedInterface<mojom::RenderMessageFilter>,
-      public mojom::RenderMessageFilter {
+      public BrowserAssociatedInterface<mojom::RenderMessageFilter> {
  public:
   // Create the filter.
   RenderMessageFilter(int render_process_id,
@@ -78,6 +77,7 @@ class CONTENT_EXPORT RenderMessageFilter
 
   // mojom::RenderMessageFilter:
   void GenerateRoutingID(GenerateRoutingIDCallback routing_id) override;
+  void GenerateFrameRoutingID(GenerateFrameRoutingIDCallback callback) override;
   void HasGpuProcess(HasGpuProcessCallback callback) override;
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
   void SetThreadPriority(int32_t ns_tid,

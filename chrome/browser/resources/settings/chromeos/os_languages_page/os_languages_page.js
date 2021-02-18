@@ -17,8 +17,10 @@ cr.define('settings', function() {
     is: 'os-settings-languages-page',
 
     behaviors: [
+      DeepLinkingBehavior,
       I18nBehavior,
       PrefsBehavior,
+      settings.RouteObserverBehavior,
     ],
 
     properties: {
@@ -66,6 +68,18 @@ cr.define('settings', function() {
           return loadTimeData.getBoolean('isGuest');
         },
       },
+
+      /**
+       * Used by DeepLinkingBehavior to focus this page's deep links.
+       * @type {!Set<!chromeos.settings.mojom.Setting>}
+       */
+      supportedSettingIds: {
+        type: Object,
+        value: () => new Set([
+          chromeos.settings.mojom.Setting.kAddLanguage,
+          chromeos.settings.mojom.Setting.kShowInputOptionsInShelf,
+        ]),
+      },
     },
 
     /** @private {?settings.LanguagesMetricsProxy} */
@@ -75,6 +89,19 @@ cr.define('settings', function() {
     created() {
       this.languagesMetricsProxy_ =
           settings.LanguagesMetricsProxyImpl.getInstance();
+    },
+
+    /**
+     * @param {!settings.Route} route
+     * @param {!settings.Route} oldRoute
+     */
+    currentRouteChanged(route, oldRoute) {
+      // Does not apply to this page.
+      if (route !== settings.routes.OS_LANGUAGES_DETAILS) {
+        return;
+      }
+
+      this.attemptDeepLink();
     },
 
     /** @private {boolean} */
@@ -129,7 +156,7 @@ cr.define('settings', function() {
      * @private
      */
     canEnableSomeSupportedLanguage_(languages) {
-      return languages == undefined || languages.supported.some(language => {
+      return languages === undefined || languages.supported.some(language => {
         return this.languageHelper.canEnableLanguage(language);
       });
     },
@@ -142,8 +169,8 @@ cr.define('settings', function() {
      * @private
      */
     shouldShowDialogSeparator_() {
-      return this.languages != undefined && this.languages.enabled.length > 1 &&
-          !this.isGuest_;
+      return this.languages !== undefined &&
+          this.languages.enabled.length > 1 && !this.isGuest_;
     },
 
     /**
@@ -155,7 +182,7 @@ cr.define('settings', function() {
      * @private
      */
     isNthLanguage_(n) {
-      if (this.languages == undefined || this.detailLanguage_ == undefined) {
+      if (this.languages === undefined || this.detailLanguage_ === undefined) {
         return false;
       }
 
@@ -164,7 +191,7 @@ cr.define('settings', function() {
       }
 
       const compareLanguage = assert(this.languages.enabled[n]);
-      return this.detailLanguage_.language == compareLanguage.language;
+      return this.detailLanguage_.language === compareLanguage.language;
     },
 
     /**
@@ -184,7 +211,7 @@ cr.define('settings', function() {
      * @private
      */
     showMoveDown_() {
-      return this.languages != undefined &&
+      return this.languages !== undefined &&
           !this.isNthLanguage_(this.languages.enabled.length - 1);
     },
 
@@ -193,7 +220,7 @@ cr.define('settings', function() {
      * @return {boolean} True if there are less than 2 languages.
      */
     isHelpTextHidden_(change) {
-      return this.languages != undefined && this.languages.enabled.length <= 1;
+      return this.languages !== undefined && this.languages.enabled.length <= 1;
     },
 
     /**
@@ -218,12 +245,12 @@ cr.define('settings', function() {
       // Taps on the button are handled in onInputMethodOptionsTap_.
       // TODO(dschuyler): The row has two operations that are not clearly
       // delineated. crbug.com/740691
-      if (e.target.tagName == 'CR-ICON-BUTTON') {
+      if (e.target.tagName === 'CR-ICON-BUTTON') {
         return;
       }
 
       // Ignore key presses other than <Enter>.
-      if (e.type == 'keypress' && e.key != 'Enter') {
+      if (e.type === 'keypress' && e.key !== 'Enter') {
         return;
       }
 
@@ -281,7 +308,7 @@ cr.define('settings', function() {
      * @private
      */
     isRestartRequired_(languageCode, prospectiveUILanguage) {
-      return prospectiveUILanguage == languageCode &&
+      return prospectiveUILanguage === languageCode &&
           this.languageHelper.requiresRestart();
     },
 
@@ -323,7 +350,7 @@ cr.define('settings', function() {
       }
 
       // Unchecking the currently chosen language doesn't make much sense.
-      if (languageState.language.code == prospectiveUILanguage) {
+      if (languageState.language.code === prospectiveUILanguage) {
         return true;
       }
 
@@ -410,7 +437,7 @@ cr.define('settings', function() {
      * @private
      */
     isProspectiveUILanguage_(languageCode, prospectiveUILanguage) {
-      return languageCode == prospectiveUILanguage;
+      return languageCode === prospectiveUILanguage;
     },
 
     /**
@@ -422,7 +449,7 @@ cr.define('settings', function() {
      * @private
      */
     getLanguageItemClass_(languageCode, prospectiveUILanguage) {
-      if (languageCode == prospectiveUILanguage) {
+      if (languageCode === prospectiveUILanguage) {
         return 'selected';
       }
       return '';
@@ -435,7 +462,7 @@ cr.define('settings', function() {
      * @private
      */
     isCurrentInputMethod_(id, currentId) {
-      return id == currentId;
+      return id === currentId;
     },
 
     /**
@@ -510,7 +537,7 @@ cr.define('settings', function() {
     toggleExpandButton_(e) {
       // The expand button handles toggling itself.
       const expandButtonTag = 'CR-EXPAND-BUTTON';
-      if (e.target.tagName == expandButtonTag) {
+      if (e.target.tagName === expandButtonTag) {
         return;
       }
 
@@ -534,7 +561,7 @@ cr.define('settings', function() {
      * @private
      */
     getInputMethodTabIndex_(id, currentId) {
-      return id == currentId ? '' : '0';
+      return id === currentId ? '' : '0';
     },
 
     /**

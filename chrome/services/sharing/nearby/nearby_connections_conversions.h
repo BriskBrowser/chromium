@@ -9,10 +9,10 @@
 #include <vector>
 
 #include "base/callback_forward.h"
-#include "chrome/services/sharing/public/mojom/nearby_connections.mojom-forward.h"
-#include "chrome/services/sharing/public/mojom/nearby_connections_types.mojom-forward.h"
-#include "third_party/nearby/src/cpp/core_v2/options.h"
-#include "third_party/nearby/src/cpp/core_v2/params.h"
+#include "chromeos/services/nearby/public/mojom/nearby_connections.mojom-forward.h"
+#include "chromeos/services/nearby/public/mojom/nearby_connections_types.mojom-forward.h"
+#include "third_party/nearby/src/cpp/core/options.h"
+#include "third_party/nearby/src/cpp/core/params.h"
 
 namespace location {
 namespace nearby {
@@ -31,6 +31,11 @@ std::vector<uint8_t> ByteArrayToMojom(const ByteArray& byte_array);
 ByteArray ByteArrayFromMojom(const std::vector<uint8_t>& byte_array);
 
 mojom::PayloadStatus PayloadStatusToMojom(PayloadProgressInfo::Status status);
+
+mojom::Medium MediumToMojom(Medium medium);
+
+BooleanMediumSelector MediumSelectorFromMojom(
+    mojom::MediumSelection* allowed_mediums);
 
 }  // namespace connections
 }  // namespace nearby

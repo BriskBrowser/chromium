@@ -7,6 +7,7 @@
 #include <stddef.h>
 
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -20,7 +21,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
 #include "base/version.h"
@@ -69,6 +70,7 @@ std::unique_ptr<metrics::ClientInfo> StubLoadClientInfo() {
   return std::unique_ptr<metrics::ClientInfo>();
 }
 
+// TODO(crbug.com/1167566): Remove when fake VariationsServiceClient created.
 class TestVariationsServiceClient : public VariationsServiceClient {
  public:
   TestVariationsServiceClient() {
@@ -314,7 +316,7 @@ class VariationsServiceTest : public ::testing::Test {
     // stability state from prefs after tests have a chance to initialize it.
     if (!metrics_state_manager_) {
       metrics_state_manager_ = metrics::MetricsStateManager::Create(
-          &prefs_, enabled_state_provider_.get(), base::string16(),
+          &prefs_, enabled_state_provider_.get(), std::wstring(),
           base::BindRepeating(&StubStoreClientInfo),
           base::BindRepeating(&StubLoadClientInfo));
     }
@@ -658,7 +660,7 @@ TEST_F(VariationsServiceTest, LoadPermanentConsistencyCountry) {
        LOAD_COUNTRY_HAS_PERMANENT_OVERRIDDEN_COUNTRY},
       {"us", "20.0.0.0,us", "20.0.0.0", "us", "20.0.0.0,us", "us",
        LOAD_COUNTRY_HAS_PERMANENT_OVERRIDDEN_COUNTRY},
-      {"ca", nullptr, "20.0.0.0", nullptr, nullptr, "ca",
+      {"ca", "", "20.0.0.0", "", "", "ca",
        LOAD_COUNTRY_HAS_PERMANENT_OVERRIDDEN_COUNTRY},
 
       // Existing pref value present for this version.
@@ -666,7 +668,7 @@ TEST_F(VariationsServiceTest, LoadPermanentConsistencyCountry) {
        LOAD_COUNTRY_HAS_BOTH_VERSION_EQ_COUNTRY_NEQ},
       {"", "20.0.0.0,us", "20.0.0.0", "us", "20.0.0.0,us", "us",
        LOAD_COUNTRY_HAS_BOTH_VERSION_EQ_COUNTRY_EQ},
-      {"", "20.0.0.0,us", "20.0.0.0", nullptr, "20.0.0.0,us", "us",
+      {"", "20.0.0.0,us", "20.0.0.0", "", "20.0.0.0,us", "us",
        LOAD_COUNTRY_HAS_PREF_NO_SEED_VERSION_EQ},
 
       // Existing pref value present for a different version.
@@ -674,29 +676,29 @@ TEST_F(VariationsServiceTest, LoadPermanentConsistencyCountry) {
        LOAD_COUNTRY_HAS_BOTH_VERSION_NEQ_COUNTRY_NEQ},
       {"", "19.0.0.0,us", "20.0.0.0", "us", "20.0.0.0,us", "us",
        LOAD_COUNTRY_HAS_BOTH_VERSION_NEQ_COUNTRY_EQ},
-      {"", "19.0.0.0,ca", "20.0.0.0", nullptr, "19.0.0.0,ca", "",
+      {"", "19.0.0.0,ca", "20.0.0.0", "", "19.0.0.0,ca", "",
        LOAD_COUNTRY_HAS_PREF_NO_SEED_VERSION_NEQ},
 
       // No existing pref value present.
-      {"", nullptr, "20.0.0.0", "us", "20.0.0.0,us", "us",
-       LOAD_COUNTRY_NO_PREF_HAS_SEED},
-      {"", nullptr, "20.0.0.0", nullptr, "", "", LOAD_COUNTRY_NO_PREF_NO_SEED},
       {"", "", "20.0.0.0", "us", "20.0.0.0,us", "us",
        LOAD_COUNTRY_NO_PREF_HAS_SEED},
-      {"", "", "20.0.0.0", nullptr, "", "", LOAD_COUNTRY_NO_PREF_NO_SEED},
+      {"", "", "20.0.0.0", "", "", "", LOAD_COUNTRY_NO_PREF_NO_SEED},
+      {"", "", "20.0.0.0", "us", "20.0.0.0,us", "us",
+       LOAD_COUNTRY_NO_PREF_HAS_SEED},
+      {"", "", "20.0.0.0", "", "", "", LOAD_COUNTRY_NO_PREF_NO_SEED},
 
       // Invalid existing pref value.
       {"", "20.0.0.0", "20.0.0.0", "us", "20.0.0.0,us", "us",
        LOAD_COUNTRY_INVALID_PREF_HAS_SEED},
-      {"", "20.0.0.0", "20.0.0.0", nullptr, "", "",
+      {"", "20.0.0.0", "20.0.0.0", "", "", "",
        LOAD_COUNTRY_INVALID_PREF_NO_SEED},
       {"", "20.0.0.0,us,element3", "20.0.0.0", "us", "20.0.0.0,us", "us",
        LOAD_COUNTRY_INVALID_PREF_HAS_SEED},
-      {"", "20.0.0.0,us,element3", "20.0.0.0", nullptr, "", "",
+      {"", "20.0.0.0,us,element3", "20.0.0.0", "", "", "",
        LOAD_COUNTRY_INVALID_PREF_NO_SEED},
       {"", "badversion,ca", "20.0.0.0", "us", "20.0.0.0,us", "us",
        LOAD_COUNTRY_INVALID_PREF_HAS_SEED},
-      {"", "badversion,ca", "20.0.0.0", nullptr, "", "",
+      {"", "badversion,ca", "20.0.0.0", "", "", "",
        LOAD_COUNTRY_INVALID_PREF_NO_SEED},
   };
 

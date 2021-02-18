@@ -131,9 +131,6 @@ class ASH_EXPORT ShelfConfig : public TabletModeObserver,
   // if the shelf visibility should change during a drag.
   float drag_hide_ratio_threshold() const;
 
-  SkColor shelf_control_permanent_highlight_background() const {
-    return shelf_control_permanent_highlight_background_;
-  }
   SkColor shelf_focus_border_color() const { return shelf_focus_border_color_; }
   int workspace_area_visible_inset() const {
     return workspace_area_visible_inset_;
@@ -144,13 +141,6 @@ class ASH_EXPORT ShelfConfig : public TabletModeObserver,
   int hidden_shelf_in_screen_portion() const {
     return hidden_shelf_in_screen_portion_;
   }
-  SkColor shelf_ink_drop_base_color() const {
-    return shelf_ink_drop_base_color_;
-  }
-  float shelf_ink_drop_visible_opacity() const {
-    return shelf_ink_drop_visible_opacity_;
-  }
-  SkColor shelf_icon_color() const { return shelf_icon_color_; }
   int status_indicator_offset_from_shelf_edge() const {
     return status_indicator_offset_from_shelf_edge_;
   }
@@ -185,6 +175,8 @@ class ASH_EXPORT ShelfConfig : public TabletModeObserver,
 
   bool in_tablet_mode() const { return in_tablet_mode_; }
 
+  bool in_overview_mode() const { return overview_mode_; }
+
   // Gets the current color for the shelf control buttons.
   SkColor GetShelfControlButtonColor() const;
 
@@ -193,11 +185,6 @@ class ASH_EXPORT ShelfConfig : public TabletModeObserver,
 
   // Gets the shelf color when a window is maximized.
   SkColor GetMaximizedShelfColor() const;
-
-  // Calculates a themed color for shelf and system menu based on the wallpaper.
-  // Uses alpha value from the provided base_color, returns base_color unchanged
-  // if the wallpaper can not be used to generate a themed color.
-  SkColor GetThemedColorFromWallpaper(SkColor base_color) const;
 
   // Gets the base layer type for shelf color.
   AshColorProvider::BaseLayerType GetShelfBaseLayerType() const;
@@ -291,8 +278,6 @@ class ASH_EXPORT ShelfConfig : public TabletModeObserver,
   const int app_icon_group_margin_tablet_;
   const int app_icon_group_margin_clamshell_;
 
-  const SkColor shelf_control_permanent_highlight_background_;
-
   const SkColor shelf_focus_border_color_;
 
   // We reserve a small area on the edge of the workspace area to ensure that
@@ -305,16 +290,6 @@ class ASH_EXPORT ShelfConfig : public TabletModeObserver,
 
   // Portion of the shelf that's within the screen bounds when auto-hidden.
   const int hidden_shelf_in_screen_portion_;
-
-  // Ink drop color for shelf items.
-  const SkColor shelf_ink_drop_base_color_;
-
-  // Opacity of the ink drop ripple for shelf items when the ripple is visible.
-  const float shelf_ink_drop_visible_opacity_;
-
-  // The foreground color of the icons used in the shelf (launcher,
-  // notifications, etc).
-  const SkColor shelf_icon_color_;
 
   // The distance between the edge of the shelf and the status indicators.
   const int status_indicator_offset_from_shelf_edge_;

@@ -39,7 +39,7 @@ std::unique_ptr<views::TooltipIcon> CreateInfoIcon() {
       l10n_util::GetStringUTF16(IDS_COOKIE_CONTROLS_HELP));
   explanation_tooltip->set_bubble_width(
       ChromeLayoutProvider::Get()->GetDistanceMetric(
-          DISTANCE_BUBBLE_PREFERRED_WIDTH));
+          views::DISTANCE_BUBBLE_PREFERRED_WIDTH));
   explanation_tooltip->set_anchor_point_arrow(
       views::BubbleBorder::Arrow::TOP_RIGHT);
   return explanation_tooltip;
@@ -107,7 +107,9 @@ CookieControlsBubbleView::CookieControlsBubbleView(
     content_settings::CookieControlsController* controller)
     : LocationBarBubbleDelegateView(anchor_view, web_contents),
       controller_(controller) {
-  controller_observer_.Add(controller);
+  SetShowTitle(true);
+  SetShowCloseButton(true);
+  controller_observation_.Observe(controller);
   SetButtons(ui::DIALOG_BUTTON_NONE);
 }
 
@@ -129,7 +131,7 @@ void CookieControlsBubbleView::UpdateUi() {
     text_->SetText(
         l10n_util::GetStringUTF16(IDS_COOKIE_CONTROLS_NOT_WORKING_DESCRIPTION));
     auto tooltip_icon = CreateInfoIcon();
-    tooltip_observer_.Add(tooltip_icon.get());
+    tooltip_observation_.Observe(tooltip_icon.get());
     extra_view_ = SetExtraView(std::move(tooltip_icon));
     show_cookies_link_->SetVisible(true);
   } else if (status_ == CookieControlsStatus::kEnabled) {
@@ -142,7 +144,7 @@ void CookieControlsBubbleView::UpdateUi() {
         l10n_util::GetStringUTF16(IDS_COOKIE_CONTROLS_BLOCKED_MESSAGE));
     auto link = std::make_unique<views::Link>(
         l10n_util::GetStringUTF16(IDS_COOKIE_CONTROLS_NOT_WORKING_TITLE));
-    link->set_callback(
+    link->SetCallback(
         base::BindRepeating(&CookieControlsBubbleView::NotWorkingLinkClicked,
                             base::Unretained(this)));
     extra_view_ = SetExtraView(std::move(link));
@@ -203,7 +205,7 @@ void CookieControlsBubbleView::Init() {
   auto cookie_link = std::make_unique<views::Link>(
       l10n_util::GetStringUTF16(IDS_BLOCKED_COOKIES_INFO));
   cookie_link->SetMultiLine(true);
-  cookie_link->set_callback(
+  cookie_link->SetCallback(
       base::BindRepeating(&CookieControlsBubbleView::ShowCookiesLinkClicked,
                           base::Unretained(this)));
   cookie_link->SetHorizontalAlignment(gfx::ALIGN_LEFT);
@@ -243,8 +245,11 @@ base::string16 CookieControlsBubbleView::GetWindowTitle() const {
   }
   switch (status_) {
     case CookieControlsStatus::kEnabled:
-      return l10n_util::GetPluralStringFUTF16(IDS_COOKIE_CONTROLS_DIALOG_TITLE,
-                                              blocked_cookies_.value_or(0));
+      return l10n_util::GetPluralStringFUTF16(
+          (controller_->FirstPartyCookiesBlocked()
+               ? IDS_COOKIE_CONTROLS_DIALOG_TITLE_ALL_BLOCKED
+               : IDS_COOKIE_CONTROLS_DIALOG_TITLE),
+          blocked_cookies_.value_or(0));
     case CookieControlsStatus::kDisabledForSite:
       return l10n_util::GetStringUTF16(IDS_COOKIE_CONTROLS_DIALOG_TITLE_OFF);
     case CookieControlsStatus::kUninitialized:
@@ -253,14 +258,6 @@ base::string16 CookieControlsBubbleView::GetWindowTitle() const {
       NOTREACHED();
       return base::string16();
   }
-}
-
-bool CookieControlsBubbleView::ShouldShowWindowTitle() const {
-  return true;
-}
-
-bool CookieControlsBubbleView::ShouldShowCloseButton() const {
-  return true;
 }
 
 void CookieControlsBubbleView::WindowClosing() {
@@ -304,5 +301,6 @@ void CookieControlsBubbleView::OnTooltipBubbleShown(views::TooltipIcon* icon) {
 
 void CookieControlsBubbleView::OnTooltipIconDestroying(
     views::TooltipIcon* icon) {
-  tooltip_observer_.Remove(icon);
+  DCHECK(tooltip_observation_.IsObservingSource(icon));
+  tooltip_observation_.Reset();
 }

@@ -4,7 +4,10 @@
 
 #include "cc/animation/keyframe_effect.h"
 
+#include <algorithm>
 #include <memory>
+#include <string>
+#include <utility>
 
 #include "base/stl_util.h"
 #include "base/time/time.h"
@@ -14,8 +17,8 @@
 #include "cc/animation/animation_timeline.h"
 #include "cc/animation/keyframe_model.h"
 #include "cc/animation/scroll_offset_animation_curve.h"
-#include "cc/animation/transform_operations.h"
 #include "cc/trees/property_animation_state.h"
+#include "ui/gfx//transform_operations.h"
 
 namespace cc {
 
@@ -108,8 +111,7 @@ void KeyframeEffect::Tick(base::TimeTicks monotonic_time) {
     StartKeyframeModels(monotonic_time);
 
   for (auto& keyframe_model : keyframe_models_) {
-    TickKeyframeModel(monotonic_time, keyframe_model.get(),
-                      element_animations_.get());
+    TickKeyframeModel(monotonic_time, keyframe_model.get());
   }
 
   last_tick_time_ = monotonic_time;
@@ -117,8 +119,7 @@ void KeyframeEffect::Tick(base::TimeTicks monotonic_time) {
 }
 
 void KeyframeEffect::TickKeyframeModel(base::TimeTicks monotonic_time,
-                                       KeyframeModel* keyframe_model,
-                                       AnimationTarget* target) {
+                                       KeyframeModel* keyframe_model) {
   if ((keyframe_model->run_state() != KeyframeModel::STARTING &&
        keyframe_model->run_state() != KeyframeModel::RUNNING &&
        keyframe_model->run_state() != KeyframeModel::PAUSED) ||
@@ -129,39 +130,7 @@ void KeyframeEffect::TickKeyframeModel(base::TimeTicks monotonic_time,
   AnimationCurve* curve = keyframe_model->curve();
   base::TimeDelta trimmed =
       keyframe_model->TrimTimeToCurrentIteration(monotonic_time);
-
-  switch (curve->Type()) {
-    case AnimationCurve::TRANSFORM:
-      target->NotifyClientTransformOperationsAnimated(
-          curve->ToTransformAnimationCurve()->GetValue(trimmed),
-          keyframe_model->target_property_id(), keyframe_model);
-      break;
-    case AnimationCurve::FLOAT:
-      target->NotifyClientFloatAnimated(
-          curve->ToFloatAnimationCurve()->GetValue(trimmed),
-          keyframe_model->target_property_id(), keyframe_model);
-      break;
-    case AnimationCurve::FILTER:
-      target->NotifyClientFilterAnimated(
-          curve->ToFilterAnimationCurve()->GetValue(trimmed),
-          keyframe_model->target_property_id(), keyframe_model);
-      break;
-    case AnimationCurve::COLOR:
-      target->NotifyClientColorAnimated(
-          curve->ToColorAnimationCurve()->GetValue(trimmed),
-          keyframe_model->target_property_id(), keyframe_model);
-      break;
-    case AnimationCurve::SCROLL_OFFSET:
-      target->NotifyClientScrollOffsetAnimated(
-          curve->ToScrollOffsetAnimationCurve()->GetValue(trimmed),
-          keyframe_model->target_property_id(), keyframe_model);
-      break;
-    case AnimationCurve::SIZE:
-      target->NotifyClientSizeAnimated(
-          curve->ToSizeAnimationCurve()->GetValue(trimmed),
-          keyframe_model->target_property_id(), keyframe_model);
-      break;
-  }
+  curve->Tick(trimmed, keyframe_model->target_property_type(), keyframe_model);
 }
 
 void KeyframeEffect::RemoveFromTicking() {
@@ -240,29 +209,27 @@ void KeyframeEffect::Pause(base::TimeDelta pause_offset,
 
 void KeyframeEffect::AddKeyframeModel(
     std::unique_ptr<KeyframeModel> keyframe_model) {
-  DCHECK(keyframe_model->target_property_id() !=
-             TargetProperty::SCROLL_OFFSET ||
-         (animation_->animation_host()->SupportsScrollAnimations()));
   DCHECK(!keyframe_model->is_impl_only() ||
-         keyframe_model->target_property_id() == TargetProperty::SCROLL_OFFSET);
+         keyframe_model->target_property_type() ==
+             TargetProperty::SCROLL_OFFSET);
   // This is to make sure that keyframe models in the same group, i.e., start
   // together, don't animate the same property.
   DCHECK(std::none_of(
       keyframe_models_.begin(), keyframe_models_.end(),
       [&](const auto& existing_keyframe_model) {
-        return keyframe_model->target_property_id() ==
-                   existing_keyframe_model->target_property_id() &&
+        return keyframe_model->target_property_type() ==
+                   existing_keyframe_model->target_property_type() &&
                keyframe_model->group() == existing_keyframe_model->group();
       }));
 
-  if (keyframe_model->target_property_id() == TargetProperty::SCROLL_OFFSET) {
+  if (keyframe_model->target_property_type() == TargetProperty::SCROLL_OFFSET) {
     // We should never have more than one scroll offset animation queued on the
     // same scrolling element as this would result in multiple automated
     // scrolls.
     DCHECK(std::none_of(
         keyframe_models_.begin(), keyframe_models_.end(),
         [&](const auto& existing_keyframe_model) {
-          return existing_keyframe_model->target_property_id() ==
+          return existing_keyframe_model->target_property_type() ==
                      TargetProperty::SCROLL_OFFSET &&
                  !existing_keyframe_model->is_finished() &&
                  (!existing_keyframe_model->is_controlling_instance() ||
@@ -306,7 +273,7 @@ void KeyframeEffect::RemoveKeyframeModel(int keyframe_model_id) {
       });
   for (auto it = keyframe_models_to_remove; it != keyframe_models_.end();
        ++it) {
-    if ((*it)->target_property_id() == TargetProperty::SCROLL_OFFSET) {
+    if ((*it)->target_property_type() == TargetProperty::SCROLL_OFFSET) {
       if (has_bound_element_animations())
         scroll_offset_animation_was_interrupted_ = true;
     } else if (!(*it)->is_finished()) {
@@ -349,7 +316,7 @@ void KeyframeEffect::AbortKeyframeModelsWithProperty(
 
   bool aborted_keyframe_model = false;
   for (auto& keyframe_model : keyframe_models_) {
-    if (keyframe_model->target_property_id() == target_property &&
+    if (keyframe_model->target_property_type() == target_property &&
         !keyframe_model->is_finished()) {
       // Currently only impl-only scroll offset KeyframeModels can be completed
       // on the main thread.
@@ -400,6 +367,9 @@ void KeyframeEffect::KeyframeModelAdded() {
   needs_to_start_keyframe_models_ = true;
 
   UpdateTickingState();
+  for (auto& keyframe_model : keyframe_models_) {
+    element_animations_->AttachToCurve(keyframe_model->curve());
+  }
   element_animations_->UpdateClientAnimationState();
 }
 
@@ -474,7 +444,7 @@ bool KeyframeEffect::HasTickingKeyframeModel() const {
 
 bool KeyframeEffect::AffectsCustomProperty() const {
   for (const auto& it : keyframe_models_)
-    if (it->target_property_id() == TargetProperty::CSS_CUSTOM_PROPERTY)
+    if (it->target_property_type() == TargetProperty::CSS_CUSTOM_PROPERTY)
       return true;
   return false;
 }
@@ -489,28 +459,19 @@ bool KeyframeEffect::HasNonDeletedKeyframeModel() const {
 
 bool KeyframeEffect::AnimationsPreserveAxisAlignment() const {
   for (const auto& keyframe_model : keyframe_models_) {
-    if (keyframe_model->is_finished() ||
-        keyframe_model->target_property_id() != TargetProperty::TRANSFORM)
+    if (keyframe_model->is_finished())
       continue;
 
-    const TransformAnimationCurve* transform_animation_curve =
-        keyframe_model->curve()->ToTransformAnimationCurve();
-    if (!transform_animation_curve->PreservesAxisAlignment())
+    if (!keyframe_model->curve()->PreservesAxisAlignment())
       return false;
   }
   return true;
 }
 
-bool KeyframeEffect::GetAnimationScales(ElementListType list_type,
-                                        float* maximum_scale,
-                                        float* starting_scale) const {
-  *maximum_scale = kNotScaled;
-  *starting_scale = kNotScaled;
-  bool maximum_scale_valid = true;
-  bool starting_scale_valid = true;
+float KeyframeEffect::MaximumScale(ElementListType list_type) const {
+  float maximum_scale = kInvalidScale;
   for (const auto& keyframe_model : keyframe_models_) {
-    if (keyframe_model->is_finished() ||
-        keyframe_model->target_property_id() != TargetProperty::TRANSFORM)
+    if (keyframe_model->is_finished())
       continue;
 
     if ((list_type == ElementListType::ACTIVE &&
@@ -519,50 +480,11 @@ bool KeyframeEffect::GetAnimationScales(ElementListType list_type,
          !keyframe_model->affects_pending_elements()))
       continue;
 
-    const TransformAnimationCurve* transform_animation_curve =
-        keyframe_model->curve()->ToTransformAnimationCurve();
-    if (transform_animation_curve->IsTranslation())
-      continue;
-
-    bool forward_direction = true;
-    switch (keyframe_model->direction()) {
-      case KeyframeModel::Direction::NORMAL:
-      case KeyframeModel::Direction::ALTERNATE_NORMAL:
-        forward_direction = keyframe_model->playback_rate() >= 0.0;
-        break;
-      case KeyframeModel::Direction::REVERSE:
-      case KeyframeModel::Direction::ALTERNATE_REVERSE:
-        forward_direction = keyframe_model->playback_rate() < 0.0;
-        break;
-    }
-
-    if (maximum_scale_valid) {
-      float keyframe_model_maximum_scale = kNotScaled;
-      if (transform_animation_curve->MaximumTargetScale(
-              forward_direction, &keyframe_model_maximum_scale)) {
-        *maximum_scale = std::max(*maximum_scale, keyframe_model_maximum_scale);
-      } else {
-        maximum_scale_valid = false;
-        *maximum_scale = kNotScaled;
-      }
-    }
-
-    if (starting_scale_valid) {
-      float keyframe_model_starting_scale = kNotScaled;
-      if (transform_animation_curve->AnimationStartScale(
-              forward_direction, &keyframe_model_starting_scale)) {
-        *starting_scale =
-            std::max(*starting_scale, keyframe_model_starting_scale);
-      } else {
-        starting_scale_valid = false;
-        *starting_scale = kNotScaled;
-      }
-    }
-
-    if (!maximum_scale_valid && !starting_scale_valid)
-      return false;
+    float curve_maximum_scale = kInvalidScale;
+    if (keyframe_model->curve()->MaximumScale(&curve_maximum_scale))
+      maximum_scale = std::max(maximum_scale, curve_maximum_scale);
   }
-  return true;
+  return maximum_scale;
 }
 
 bool KeyframeEffect::IsPotentiallyAnimatingProperty(
@@ -570,7 +492,7 @@ bool KeyframeEffect::IsPotentiallyAnimatingProperty(
     ElementListType list_type) const {
   for (const auto& keyframe_model : keyframe_models_) {
     if (!keyframe_model->is_finished() &&
-        keyframe_model->target_property_id() == target_property) {
+        keyframe_model->target_property_type() == target_property) {
       if ((list_type == ElementListType::ACTIVE &&
            keyframe_model->affects_active_elements()) ||
           (list_type == ElementListType::PENDING &&
@@ -587,7 +509,7 @@ bool KeyframeEffect::IsCurrentlyAnimatingProperty(
   for (const auto& keyframe_model : keyframe_models_) {
     if (!keyframe_model->is_finished() &&
         keyframe_model->InEffect(last_tick_time_.value_or(base::TimeTicks())) &&
-        keyframe_model->target_property_id() == target_property) {
+        keyframe_model->target_property_type() == target_property) {
       if ((list_type == ElementListType::ACTIVE &&
            keyframe_model->affects_active_elements()) ||
           (list_type == ElementListType::PENDING &&
@@ -602,7 +524,7 @@ KeyframeModel* KeyframeEffect::GetKeyframeModel(
     TargetProperty::Type target_property) const {
   for (size_t i = 0; i < keyframe_models_.size(); ++i) {
     size_t index = keyframe_models_.size() - i - 1;
-    if (keyframe_models_[index]->target_property_id() == target_property)
+    if (keyframe_models_[index]->target_property_type() == target_property)
       return keyframe_models_[index].get();
   }
   return nullptr;
@@ -628,7 +550,7 @@ void KeyframeEffect::GetPropertyAnimationState(
           keyframe_model->InEffect(last_tick_time_.value_or(base::TimeTicks()));
       bool active = keyframe_model->affects_active_elements();
       bool pending = keyframe_model->affects_pending_elements();
-      int property = keyframe_model->target_property_id();
+      int property = keyframe_model->target_property_type();
 
       if (pending)
         pending_state->potentially_animating[property] = true;
@@ -703,9 +625,10 @@ void KeyframeEffect::PushNewKeyframeModelsToImplThread(
     if (keyframe_effect_impl->GetKeyframeModelById(keyframe_model->id()))
       continue;
 
-    if (keyframe_model->target_property_id() == TargetProperty::SCROLL_OFFSET &&
-        !keyframe_model->curve()
-             ->ToScrollOffsetAnimationCurve()
+    if (keyframe_model->target_property_type() ==
+            TargetProperty::SCROLL_OFFSET &&
+        !ScrollOffsetAnimationCurve::ToScrollOffsetAnimationCurve(
+             keyframe_model->curve())
              ->HasSetInitialValue()) {
       gfx::ScrollOffset current_scroll_offset;
       if (keyframe_effect_impl->HasElementInActiveList()) {
@@ -716,8 +639,10 @@ void KeyframeEffect::PushNewKeyframeModelsToImplThread(
         // scroll offset will be up to date.
         current_scroll_offset = ScrollOffsetForAnimation();
       }
-      keyframe_model->curve()->ToScrollOffsetAnimationCurve()->SetInitialValue(
-          current_scroll_offset);
+      ScrollOffsetAnimationCurve* curve =
+          ScrollOffsetAnimationCurve::ToScrollOffsetAnimationCurve(
+              keyframe_model->curve());
+      curve->SetInitialValue(current_scroll_offset);
     }
 
     // The new keyframe_model should be set to run as soon as possible.
@@ -777,8 +702,12 @@ void KeyframeEffect::PushPropertiesTo(KeyframeEffect* keyframe_effect_impl) {
     // the host as well.
     if (keyframe_effect_impl->has_attached_element())
       keyframe_effect_impl->animation_->DetachElement();
-    if (element_id_)
-      keyframe_effect_impl->animation_->AttachElement(element_id_);
+    if (element_id_) {
+      if (element_id_.GetStableId() == ElementId::kReservedElementId)
+        keyframe_effect_impl->animation_->AttachNoElement();
+      else
+        keyframe_effect_impl->animation_->AttachElement(element_id_);
+    }
   }
 
   keyframe_effect_impl->scroll_offset_animation_was_interrupted_ =
@@ -834,7 +763,7 @@ void KeyframeEffect::StartKeyframeModels(base::TimeTicks monotonic_time) {
     auto& keyframe_model = keyframe_models_[i];
     if (keyframe_model->run_state() == KeyframeModel::STARTING ||
         keyframe_model->run_state() == KeyframeModel::RUNNING) {
-      int property = keyframe_model->target_property_id();
+      int property = keyframe_model->target_property_type();
       if (keyframe_model->affects_active_elements()) {
         blocked_properties_for_active_elements[property] = true;
       }
@@ -864,12 +793,13 @@ void KeyframeEffect::StartKeyframeModels(base::TimeTicks monotonic_time) {
       bool affects_pending_elements =
           keyframe_model_waiting_for_target->affects_pending_elements();
       enqueued_properties[keyframe_model_waiting_for_target
-                              ->target_property_id()] = true;
+                              ->target_property_type()] = true;
       for (size_t j = keyframe_model_index + 1; j < keyframe_models_.size();
            ++j) {
         if (keyframe_model_waiting_for_target->group() ==
             keyframe_models_[j]->group()) {
-          enqueued_properties[keyframe_models_[j]->target_property_id()] = true;
+          enqueued_properties[keyframe_models_[j]->target_property_type()] =
+              true;
           affects_active_elements |=
               keyframe_models_[j]->affects_active_elements();
           affects_pending_elements |=
@@ -1088,7 +1018,7 @@ void KeyframeEffect::GenerateEvent(AnimationEvents* events,
                        {animation_->animation_timeline()->id(),
                         animation_->id(), keyframe_model.id()},
                        keyframe_model.group(),
-                       keyframe_model.target_property_id(), monotonic_time);
+                       keyframe_model.target_property_type(), monotonic_time);
   event.is_impl_only = keyframe_model.is_impl_only();
   if (!event.is_impl_only) {
     events->events_.push_back(event);
@@ -1102,7 +1032,8 @@ void KeyframeEffect::GenerateTakeoverEventForScrollAnimation(
     AnimationEvents* events,
     const KeyframeModel& keyframe_model,
     base::TimeTicks monotonic_time) {
-  DCHECK_EQ(keyframe_model.target_property_id(), TargetProperty::SCROLL_OFFSET);
+  DCHECK_EQ(keyframe_model.target_property_type(),
+            TargetProperty::SCROLL_OFFSET);
   if (!events)
     return;
 
@@ -1110,11 +1041,12 @@ void KeyframeEffect::GenerateTakeoverEventForScrollAnimation(
                                 {animation_->animation_timeline()->id(),
                                  animation_->id(), keyframe_model.id()},
                                 keyframe_model.group(),
-                                keyframe_model.target_property_id(),
+                                keyframe_model.target_property_type(),
                                 monotonic_time);
   takeover_event.animation_start_time = keyframe_model.start_time();
   const ScrollOffsetAnimationCurve* scroll_offset_animation_curve =
-      keyframe_model.curve()->ToScrollOffsetAnimationCurve();
+      ScrollOffsetAnimationCurve::ToScrollOffsetAnimationCurve(
+          keyframe_model.curve());
   takeover_event.curve = scroll_offset_animation_curve->Clone();
   // Notify main thread.
   events->events_.push_back(takeover_event);
@@ -1123,7 +1055,7 @@ void KeyframeEffect::GenerateTakeoverEventForScrollAnimation(
                                 {animation_->animation_timeline()->id(),
                                  animation_->id(), keyframe_model.id()},
                                 keyframe_model.group(),
-                                keyframe_model.target_property_id(),
+                                keyframe_model.target_property_type(),
                                 monotonic_time);
   // Notify the compositor that the animation is finished.
   finished_event.is_impl_only = true;

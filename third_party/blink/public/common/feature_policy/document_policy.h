@@ -27,7 +27,7 @@ namespace blink {
 // which embeds the document.
 //
 // See
-// https://github.com/w3c/webappsec-feature-policy/blob/master/document-policy-explainer.md
+// https://github.com/w3c/webappsec-permissions-policy/blob/master/document-policy-explainer.md
 //
 // Key concepts:
 //
@@ -75,6 +75,8 @@ class BLINK_COMMON_EXPORT DocumentPolicy {
 
   static std::unique_ptr<DocumentPolicy> CreateWithHeaderPolicy(
       const ParsedDocumentPolicy& header_policy);
+
+  static std::unique_ptr<DocumentPolicy> CopyStateFrom(const DocumentPolicy*);
 
   // Returns true if the feature is unrestricted (has its default value for the
   // platform)
@@ -131,9 +133,10 @@ class BLINK_COMMON_EXPORT DocumentPolicy {
   void UpdateFeatureState(const DocumentPolicyFeatureState& feature_state);
 
   // Internal feature state is represented as an array to avoid overhead
-  // in using container classes.
-  PolicyValue internal_feature_state_
-      [static_cast<size_t>(mojom::DocumentPolicyFeature::kMaxValue) + 1];
+  // of indexing into map like structure.
+  std::array<PolicyValue,
+             static_cast<size_t>(mojom::DocumentPolicyFeature::kMaxValue) + 1>
+      internal_feature_state_;
 
   FeatureEndpointMap endpoint_map_;
 

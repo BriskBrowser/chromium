@@ -8,14 +8,15 @@ import android.content.Context;
 import android.view.View;
 
 import org.chromium.base.supplier.ObservableSupplier;
+import org.chromium.base.supplier.OneshotSupplier;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ActivityTabProvider;
-import org.chromium.chrome.browser.app.appmenu.AppMenuIconRowFooter;
 import org.chromium.chrome.browser.app.appmenu.AppMenuPropertiesDelegateImpl;
 import org.chromium.chrome.browser.bookmarks.BookmarkBridge;
 import org.chromium.chrome.browser.compositor.layouts.OverviewModeBehavior;
 import org.chromium.chrome.browser.datareduction.DataReductionMainMenuItem;
 import org.chromium.chrome.browser.enterprise.util.ManagedBrowserUtils;
+import org.chromium.chrome.browser.feed.webfeed.WebFeedBridge;
 import org.chromium.chrome.browser.flags.CachedFeatureFlags;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.multiwindow.MultiWindowModeStateDispatcher;
@@ -26,6 +27,7 @@ import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.toolbar.ToolbarManager;
 import org.chromium.chrome.browser.ui.appmenu.AppMenuDelegate;
 import org.chromium.chrome.browser.ui.appmenu.AppMenuHandler;
+import org.chromium.ui.modaldialog.ModalDialogManager;
 
 /**
  * An {@link AppMenuPropertiesDelegateImpl} for ChromeTabbedActivity.
@@ -37,15 +39,13 @@ public class TabbedAppMenuPropertiesDelegate extends AppMenuPropertiesDelegateIm
             MultiWindowModeStateDispatcher multiWindowModeStateDispatcher,
             TabModelSelector tabModelSelector, ToolbarManager toolbarManager, View decorView,
             AppMenuDelegate appMenuDelegate,
-            ObservableSupplier<OverviewModeBehavior> overviewModeBehaviorSupplier,
-            ObservableSupplier<BookmarkBridge> bookmarkBridgeSupplier) {
+            OneshotSupplier<OverviewModeBehavior> overviewModeBehaviorSupplier,
+            ObservableSupplier<BookmarkBridge> bookmarkBridgeSupplier,
+            ModalDialogManager modalDialogManager, WebFeedBridge webFeedBridge) {
         super(context, activityTabProvider, multiWindowModeStateDispatcher, tabModelSelector,
-                toolbarManager, decorView, overviewModeBehaviorSupplier, bookmarkBridgeSupplier);
+                toolbarManager, decorView, overviewModeBehaviorSupplier, bookmarkBridgeSupplier,
+                modalDialogManager, webFeedBridge);
         mAppMenuDelegate = appMenuDelegate;
-    }
-
-    private boolean isMenuButtonInBottomToolbar() {
-        return mToolbarManager != null && mToolbarManager.isMenuFromBottom();
     }
 
     private boolean shouldShowDataSaverMenuItem() {
@@ -55,26 +55,14 @@ public class TabbedAppMenuPropertiesDelegate extends AppMenuPropertiesDelegateIm
 
     @Override
     public int getFooterResourceId() {
-        if (isMenuButtonInBottomToolbar()) {
-            return this.shouldShowPageMenu() ? R.layout.icon_row_menu_footer : 0;
-        }
         return shouldShowDataSaverMenuItem() ? R.layout.data_reduction_main_menu_item : 0;
     }
 
     @Override
-    public void onFooterViewInflated(AppMenuHandler appMenuHandler, View view) {
-        if (view instanceof AppMenuIconRowFooter) {
-            ((AppMenuIconRowFooter) view)
-                    .initialize(appMenuHandler, mBookmarkBridge, mActivityTabProvider.get(),
-                            mAppMenuDelegate);
-        }
-    }
+    public void onFooterViewInflated(AppMenuHandler appMenuHandler, View view) {}
 
     @Override
     public int getHeaderResourceId() {
-        if (isMenuButtonInBottomToolbar()) {
-            return shouldShowDataSaverMenuItem() ? R.layout.data_reduction_main_menu_item : 0;
-        }
         return 0;
     }
 
@@ -87,24 +75,10 @@ public class TabbedAppMenuPropertiesDelegate extends AppMenuPropertiesDelegateIm
 
     @Override
     public boolean shouldShowFooter(int maxMenuHeight) {
-        if (isMenuButtonInBottomToolbar()) return true;
         if (shouldShowDataSaverMenuItem()) {
             return canShowDataReductionItem(maxMenuHeight);
         }
         return super.shouldShowFooter(maxMenuHeight);
-    }
-
-    @Override
-    public boolean shouldShowHeader(int maxMenuHeight) {
-        if (!isMenuButtonInBottomToolbar()) {
-            return super.shouldShowHeader(maxMenuHeight);
-        }
-
-        if (DataReductionProxySettings.getInstance().shouldUseDataReductionMainMenuItem()) {
-            return canShowDataReductionItem(maxMenuHeight);
-        }
-
-        return super.shouldShowHeader(maxMenuHeight);
     }
 
     @Override
@@ -116,7 +90,9 @@ public class TabbedAppMenuPropertiesDelegate extends AppMenuPropertiesDelegateIm
 
     @Override
     public boolean shouldShowIconBeforeItem() {
-        return CachedFeatureFlags.isEnabled(ChromeFeatureList.TABBED_APP_OVERFLOW_MENU_ICONS);
+        return CachedFeatureFlags.isEnabled(ChromeFeatureList.TABBED_APP_OVERFLOW_MENU_ICONS)
+                || CachedFeatureFlags.isEnabled(
+                        ChromeFeatureList.TABBED_APP_OVERFLOW_MENU_THREE_BUTTON_ACTIONBAR);
     }
 
     private boolean canShowDataReductionItem(int maxMenuHeight) {

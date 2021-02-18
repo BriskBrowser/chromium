@@ -21,7 +21,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_SVG_SVG_TRANSFORM_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_SVG_SVG_TRANSFORM_H_
 
-#include "third_party/blink/renderer/core/svg/properties/svg_property.h"
+#include "third_party/blink/renderer/core/svg/properties/svg_listable_property.h"
 #include "third_party/blink/renderer/platform/geometry/float_point.h"
 #include "third_party/blink/renderer/platform/transforms/affine_transform.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
@@ -42,7 +42,7 @@ enum class SVGTransformType {
   kSkewy = 6
 };
 
-class SVGTransform final : public SVGPropertyBase {
+class SVGTransform final : public SVGListablePropertyBase {
  public:
   typedef SVGTransformTearOff TearOffType;
 
@@ -88,16 +88,17 @@ class SVGTransform final : public SVGPropertyBase {
 
   String ValueAsString() const override;
 
-  void Add(SVGPropertyBase*, SVGElement*) override;
-  void CalculateAnimatedValue(const SVGAnimateElement&,
-                              float percentage,
-                              unsigned repeat_count,
-                              SVGPropertyBase* from,
-                              SVGPropertyBase* to,
-                              SVGPropertyBase* to_at_end_of_duration_value,
-                              SVGElement* context_element) override;
-  float CalculateDistance(SVGPropertyBase* to,
-                          SVGElement* context_element) override;
+  void Add(const SVGPropertyBase*, const SVGElement*) override;
+  void CalculateAnimatedValue(
+      const SMILAnimationEffectParameters&,
+      float percentage,
+      unsigned repeat_count,
+      const SVGPropertyBase* from,
+      const SVGPropertyBase* to,
+      const SVGPropertyBase* to_at_end_of_duration_value,
+      const SVGElement* context_element) override;
+  float CalculateDistance(const SVGPropertyBase* to,
+                          const SVGElement* context_element) const override;
 
   static AnimatedPropertyType ClassType() { return kAnimatedTransform; }
   AnimatedPropertyType GetType() const override { return ClassType(); }

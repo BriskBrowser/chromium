@@ -60,6 +60,11 @@ public class RenderCoordinatesImpl implements RenderCoordinates {
     }
 
     @Override
+    public int getContentOffsetYPixInt() {
+        return (int) Math.floor(getContentOffsetYPix());
+    }
+
+    @Override
     public int getContentWidthPixInt() {
         return (int) Math.ceil(getContentWidthPix());
     }
@@ -168,8 +173,17 @@ public class RenderCoordinatesImpl implements RenderCoordinates {
     /**
      * @return Current page scale factor (maps CSS pixels to DIP pixels).
      */
+    @Override
     public float getPageScaleFactor() {
         return mPageScaleFactor;
+    }
+
+    /**
+     * @return Current page scale factor (approx, integer).
+     */
+    @Override
+    public int getPageScaleFactorInt() {
+        return (int) Math.floor(mPageScaleFactor);
     }
 
     /**

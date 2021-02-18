@@ -9,7 +9,6 @@
 
 #include "ash/system/accessibility/tray_accessibility.h"
 #include "ash/system/tray/actionable_view.h"
-#include "ash/system/tray/tray_popup_item_style.h"
 #include "base/bind.h"
 #include "base/macros.h"
 #include "ui/gfx/font.h"
@@ -40,9 +39,7 @@ class HoverHighlightView : public ActionableView {
   };
 
   // If |listener| is null then no action is taken on click.
-  // The former uses default for |use_unified_theme|.
   explicit HoverHighlightView(ViewClickListener* listener);
-  HoverHighlightView(ViewClickListener* listener, bool use_unified_theme);
   ~HoverHighlightView() override;
 
   // Convenience function for populating the view with an icon and a label. This
@@ -53,6 +50,9 @@ class HoverHighlightView : public ActionableView {
   // Populates the view with a text label, inset on the left by the horizontal
   // space that would normally be occupied by an icon.
   void AddLabelRow(const base::string16& text);
+
+  // Populates the view with a text label with custom start inset.
+  void AddLabelRow(const base::string16& text, int start_inset);
 
   // Adds an optional right icon to an already populated view. |icon_size| is
   // the size of the icon in DP.
@@ -101,12 +101,6 @@ class HoverHighlightView : public ActionableView {
  private:
   friend class TrayAccessibilityTest;
 
-  // Adds the image and label to the row with the label being styled using
-  // |font_style|.
-  void DoAddIconAndLabel(const gfx::ImageSkia& image,
-                         const base::string16& text,
-                         TrayPopupItemStyle::FontStyle font_style);
-
   // ActionableView:
   bool PerformAction(const ui::Event& event) override;
 
@@ -128,9 +122,8 @@ class HoverHighlightView : public ActionableView {
   views::View* right_view_ = nullptr;
   TriView* tri_view_ = nullptr;
   bool expandable_ = false;
-  const bool use_unified_theme_;
   AccessibilityState accessibility_state_ = AccessibilityState::DEFAULT;
-  views::PropertyChangedSubscription enabled_changed_subscription_ =
+  base::CallbackListSubscription enabled_changed_subscription_ =
       AddEnabledChangedCallback(
           base::BindRepeating(&HoverHighlightView::OnEnabledChanged,
                               base::Unretained(this)));

@@ -166,8 +166,9 @@ public class NotificationWrapperStandardBuilder implements NotificationWrapperBu
     @Override
     public NotificationWrapperBuilder addAction(
             Notification.Action action, int flags, int actionType) {
+        // TODO(xingliu): Plumb requestCode from action intent.
         action.actionIntent =
-                new PendingIntentProvider(action.actionIntent, flags).getPendingIntent();
+                new PendingIntentProvider(action.actionIntent, flags, 0).getPendingIntent();
         addAction(action);
         return this;
     }
@@ -282,8 +283,7 @@ public class NotificationWrapperStandardBuilder implements NotificationWrapperBu
     }
 
     @Override
-    public NotificationWrapperBuilder setMediaStyle(MediaSessionCompat session, int[] actions,
-            PendingIntent intent, boolean showCancelButton) {
+    public NotificationWrapperBuilder setMediaStyle(MediaSessionCompat session, int[] actions) {
         Notification.MediaStyle style = new Notification.MediaStyle();
         style.setMediaSession(((MediaSession) session.getMediaSession()).getSessionToken());
         style.setShowActionsInCompactView(actions);

@@ -56,6 +56,8 @@
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/layout/grid_layout.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace {
 constexpr int kPermissionSectionPaddingTop = 20;
@@ -67,6 +69,8 @@ constexpr int kInvalidCredentialLabelTopPadding = 3;
 // Override is needed to configure accessibility node for an empty name.
 class MaybeEmptyLabel : public views::Label {
  public:
+  METADATA_HEADER(MaybeEmptyLabel);
+
   MaybeEmptyLabel(const std::string& text, const CustomFont& font)
       : views::Label(base::UTF8ToUTF16(text), font) {}
 
@@ -83,6 +87,9 @@ class MaybeEmptyLabel : public views::Label {
       node_data->SetNameExplicitlyEmpty();
   }
 };
+
+BEGIN_METADATA(MaybeEmptyLabel, views::Label)
+END_METADATA
 
 // Returns bitmap for the default icon with size equal to the default icon's
 // pixel size under maximal supported scale factor.
@@ -118,7 +125,7 @@ class ParentPermissionInputSection : public views::TextfieldController {
       auto select_parent_label = std::make_unique<views::Label>(
           l10n_util::GetStringUTF16(
               IDS_PARENT_PERMISSION_PROMPT_SELECT_PARENT_LABEL),
-          CONTEXT_BODY_TEXT_LARGE, views::style::STYLE_PRIMARY);
+          views::style::CONTEXT_DIALOG_BODY_TEXT, views::style::STYLE_PRIMARY);
       select_parent_label->SetHorizontalAlignment(
           gfx::HorizontalAlignment::ALIGN_LEFT);
       view->AddChildView(std::move(select_parent_label));
@@ -132,8 +139,7 @@ class ParentPermissionInputSection : public views::TextfieldController {
           parent_0_radio_button->AddCheckedChangedCallback(base::BindRepeating(
               [](ParentPermissionDialogView* main_view,
                  const base::string16& parent_email) {
-                main_view->set_selected_parent_permission_email_address(
-                    parent_email);
+                main_view->SetSelectedParentPermissionEmail(parent_email);
               },
               main_view, parent_permission_email_addresses[0]));
 
@@ -149,36 +155,36 @@ class ParentPermissionInputSection : public views::TextfieldController {
           parent_1_radio_button->AddCheckedChangedCallback(base::BindRepeating(
               [](ParentPermissionDialogView* main_view,
                  const base::string16& parent_email) {
-                main_view->set_selected_parent_permission_email_address(
-                    parent_email);
+                main_view->SetSelectedParentPermissionEmail(parent_email);
               },
               main_view, parent_permission_email_addresses[1]));
 
       view->AddChildView(std::move(parent_1_radio_button));
 
       // Default to first parent in the response.
-      main_view_->set_selected_parent_permission_email_address(
+      main_view_->SetSelectedParentPermissionEmail(
           parent_permission_email_addresses[0]);
     } else {
       // If there is just one parent, show a label with that parent's email.
       auto parent_account_label = std::make_unique<views::Label>(
           l10n_util::GetStringUTF16(
               IDS_PARENT_PERMISSION_PROMPT_PARENT_ACCOUNT_LABEL),
-          CONTEXT_BODY_TEXT_LARGE, views::style::STYLE_PRIMARY);
+          views::style::CONTEXT_DIALOG_BODY_TEXT, views::style::STYLE_PRIMARY);
       parent_account_label->SetHorizontalAlignment(
           gfx::HorizontalAlignment::ALIGN_LEFT);
       view->AddChildView(std::move(parent_account_label));
 
-      auto parent_email_label = std::make_unique<views::Label>(
-          parent_permission_email_addresses[0], CONTEXT_BODY_TEXT_LARGE,
-          views::style::STYLE_SECONDARY);
+      auto parent_email_label =
+          std::make_unique<views::Label>(parent_permission_email_addresses[0],
+                                         views::style::CONTEXT_DIALOG_BODY_TEXT,
+                                         views::style::STYLE_SECONDARY);
       parent_email_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
       parent_email_label->SetMultiLine(true);
       parent_email_label->SizeToFit(available_width);
       view->AddChildView(std::move(parent_email_label));
       // Since there is only one parent, just set the output value of selected
       // parent email address here..
-      main_view->set_selected_parent_permission_email_address(
+      main_view->SetSelectedParentPermissionEmail(
           parent_permission_email_addresses[0]);
     }
 
@@ -186,7 +192,7 @@ class ParentPermissionInputSection : public views::TextfieldController {
     base::string16 enter_password_string = l10n_util::GetStringUTF16(
         IDS_PARENT_PERMISSION_PROMPT_ENTER_PASSWORD_LABEL);
     auto enter_password_label = std::make_unique<views::Label>(
-        enter_password_string, CONTEXT_BODY_TEXT_LARGE,
+        enter_password_string, views::style::CONTEXT_DIALOG_BODY_TEXT,
         views::style::STYLE_SECONDARY);
     enter_password_label->SetHorizontalAlignment(
         gfx::HorizontalAlignment::ALIGN_LEFT);
@@ -216,7 +222,7 @@ class ParentPermissionInputSection : public views::TextfieldController {
   // views::TextfieldController
   void ContentsChanged(views::Textfield* sender,
                        const base::string16& new_contents) override {
-    main_view_->set_parent_permission_credential(new_contents);
+    main_view_->SetParentPermissionCredential(new_contents);
   }
 
   void ClearCredentialInputField() {
@@ -227,11 +233,11 @@ class ParentPermissionInputSection : public views::TextfieldController {
  private:
   void OnParentRadioButtonSelected(ParentPermissionDialogView* main_view,
                                    const base::string16& parent_email) {
-    main_view->set_selected_parent_permission_email_address(parent_email);
+    main_view->SetSelectedParentPermissionEmail(parent_email);
   }
 
-  views::PropertyChangedSubscription parent_0_subscription_;
-  views::PropertyChangedSubscription parent_1_subscription_;
+  base::CallbackListSubscription parent_0_subscription_;
+  base::CallbackListSubscription parent_1_subscription_;
 
   // The credential input field.
   views::Textfield* credential_input_field_ = nullptr;
@@ -280,6 +286,11 @@ ParentPermissionDialogView::ParentPermissionDialogView(
       ui::DIALOG_BUTTON_CANCEL,
       l10n_util::GetStringUTF16(IDS_PARENT_PERMISSION_PROMPT_CANCEL_BUTTON));
 
+  SetModalType(ui::MODAL_TYPE_WINDOW);
+  SetShowCloseButton(true);
+  set_fixed_width(views::LayoutProvider::Get()->GetDistanceMetric(
+      views::DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH));
+
   identity_manager_ = IdentityManagerFactory::GetForProfile(params_->profile);
 }
 
@@ -303,20 +314,21 @@ void ParentPermissionDialogView::SetIdentityManagerForTesting(
 
 void ParentPermissionDialogView::SetRepromptAfterIncorrectCredential(
     bool reprompt) {
+  if (reprompt_after_incorrect_credential_ == reprompt)
+    return;
   reprompt_after_incorrect_credential_ = reprompt;
+  OnPropertyChanged(&reprompt_after_incorrect_credential_,
+                    views::kPropertyEffectsNone);
+}
+
+bool ParentPermissionDialogView::GetRepromptAfterIncorrectCredential() const {
+  return reprompt_after_incorrect_credential_;
 }
 
 base::string16 ParentPermissionDialogView::GetActiveUserFirstName() const {
   user_manager::UserManager* manager = user_manager::UserManager::Get();
   const user_manager::User* user = manager->GetActiveUser();
   return user->GetGivenName();
-}
-
-gfx::Size ParentPermissionDialogView::CalculatePreferredSize() const {
-  const int width = ChromeLayoutProvider::Get()->GetDistanceMetric(
-                        DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH) -
-                    margins().width();
-  return gfx::Size(width, GetHeightForWidth(width));
 }
 
 void ParentPermissionDialogView::AddedToWidget() {
@@ -387,16 +399,8 @@ bool ParentPermissionDialogView::Accept() {
   return false;
 }
 
-bool ParentPermissionDialogView::ShouldShowCloseButton() const {
-  return true;
-}
-
 base::string16 ParentPermissionDialogView::GetAccessibleWindowTitle() const {
   return params_->message;
-}
-
-ui::ModalType ParentPermissionDialogView::GetModalType() const {
-  return ui::MODAL_TYPE_WINDOW;
 }
 
 void ParentPermissionDialogView::CreateContents() {
@@ -435,8 +439,8 @@ void ParentPermissionDialogView::CreateContents() {
         IDS_PARENT_PERMISSION_PROMPT_CHILD_WANTS_TO_INSTALL_LABEL,
         GetActiveUserFirstName(), extension_type);
 
-    views::Label* permissions_header =
-        new views::Label(permission_header_label, CONTEXT_BODY_TEXT_LARGE);
+    views::Label* permissions_header = new views::Label(
+        permission_header_label, views::style::CONTEXT_DIALOG_BODY_TEXT);
     permissions_header->SetMultiLine(true);
     permissions_header->SetHorizontalAlignment(gfx::ALIGN_LEFT);
     permissions_header->SizeToFit(content_width);
@@ -459,7 +463,8 @@ void ParentPermissionDialogView::CreateContents() {
 
     // Add section container to an enclosing scroll view.
     auto scroll_view = std::make_unique<views::ScrollView>();
-    scroll_view->SetHideHorizontalScrollBar(true);
+    scroll_view->SetHorizontalScrollBarMode(
+        views::ScrollView::ScrollBarMode::kDisabled);
     scroll_view->SetContents(std::move(install_permissions_section_container));
     scroll_view->ClipHeightTo(
         0, provider->GetDistanceMetric(
@@ -518,6 +523,38 @@ void ParentPermissionDialogView::CloseDialog() {
 
 void ParentPermissionDialogView::RemoveObserver() {
   observer_ = nullptr;
+}
+
+void ParentPermissionDialogView::SetSelectedParentPermissionEmail(
+    const base::string16& email_address) {
+  if (selected_parent_permission_email_ == email_address)
+    return;
+  selected_parent_permission_email_ = email_address;
+  OnPropertyChanged(&selected_parent_permission_email_,
+                    views::kPropertyEffectsNone);
+}
+
+base::string16 ParentPermissionDialogView::GetSelectedParentPermissionEmail()
+    const {
+  return selected_parent_permission_email_;
+}
+
+void ParentPermissionDialogView::SetParentPermissionCredential(
+    const base::string16& credential) {
+  if (parent_permission_credential_ == credential)
+    return;
+  parent_permission_credential_ = credential;
+  OnPropertyChanged(&parent_permission_credential_,
+                    views::kPropertyEffectsNone);
+}
+
+base::string16 ParentPermissionDialogView::GetParentPermissionCredential()
+    const {
+  return parent_permission_credential_;
+}
+
+bool ParentPermissionDialogView::GetInvalidCredentialReceived() const {
+  return invalid_credential_received_;
 }
 
 void ParentPermissionDialogView::ShowDialogInternal() {
@@ -632,7 +669,7 @@ void ParentPermissionDialogView::StartReauthAccessTokenFetch(
   scopes.insert(GaiaConstants::kAccountsReauthOAuth2Scope);
   oauth2_access_token_fetcher_ =
       identity_manager_->CreateAccessTokenFetcherForAccount(
-          identity_manager_->GetPrimaryAccountId(),
+          identity_manager_->GetPrimaryAccountId(signin::ConsentLevel::kSync),
           "chrome_webstore_private_api", scopes,
           base::BindOnce(
               &ParentPermissionDialogView::OnAccessTokenFetchComplete,
@@ -747,6 +784,14 @@ void ParentPermissionDialogView::InitializeExtensionData(
 
   LoadExtensionIcon();
 }
+
+BEGIN_METADATA(ParentPermissionDialogView, views::DialogDelegateView)
+ADD_PROPERTY_METADATA(base::string16, SelectedParentPermissionEmail)
+ADD_PROPERTY_METADATA(base::string16, ParentPermissionCredential)
+ADD_READONLY_PROPERTY_METADATA(bool, InvalidCredentialReceived)
+ADD_PROPERTY_METADATA(bool, RepromptAfterIncorrectCredential)
+ADD_READONLY_PROPERTY_METADATA(base::string16, ActiveUserFirstName)
+END_METADATA
 
 class ParentPermissionDialogImpl : public ParentPermissionDialog,
                                    public ParentPermissionDialogView::Observer {

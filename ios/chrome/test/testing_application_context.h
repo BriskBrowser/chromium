@@ -52,7 +52,6 @@ class TestingApplicationContext : public ApplicationContext {
   metrics::MetricsService* GetMetricsService() override;
   ukm::UkmRecorder* GetUkmRecorder() override;
   variations::VariationsService* GetVariationsService() override;
-  rappor::RapporServiceImpl* GetRapporServiceImpl() override;
   net::NetLog* GetNetLog() override;
   net_log::NetExportFileWriter* GetNetExportFileWriter() override;
   network_time::NetworkTimeTracker* GetNetworkTimeTracker() override;
@@ -63,11 +62,20 @@ class TestingApplicationContext : public ApplicationContext {
   SafeBrowsingService* GetSafeBrowsingService() override;
   network::NetworkConnectionTracker* GetNetworkConnectionTracker() override;
   BrowserPolicyConnectorIOS* GetBrowserPolicyConnector() override;
+  BreadcrumbPersistentStorageManager* GetBreadcrumbPersistentStorageManager()
+      override;
 
  private:
   base::ThreadChecker thread_checker_;
   std::string application_locale_;
   PrefService* local_state_;
+
+  // Must be destroyed after |local_state_|. BrowserStatePolicyConnector isn't a
+  // keyed service because the pref service, which isn't a keyed service, has a
+  // hard dependency on the policy infrastructure. In order to outlive the pref
+  // service, the policy connector must live outside the keyed services.
+  std::unique_ptr<BrowserPolicyConnectorIOS> browser_policy_connector_;
+
   ios::ChromeBrowserStateManager* chrome_browser_state_manager_;
   std::unique_ptr<network_time::NetworkTimeTracker> network_time_tracker_;
   bool was_last_shutdown_clean_;

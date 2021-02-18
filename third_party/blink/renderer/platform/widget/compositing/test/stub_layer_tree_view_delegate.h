@@ -23,12 +23,8 @@ class StubLayerTreeViewDelegate : public LayerTreeViewDelegate {
       LayerTreeFrameSinkCallback callback) override {}
   void ApplyViewportChanges(const cc::ApplyViewportChangesArgs& args) override {
   }
-  void RecordManipulationTypeCounts(cc::ManipulationInfo info) override {}
-  void SendOverscrollEventFromImplSide(
-      const gfx::Vector2dF& overscroll_delta,
-      cc::ElementId scroll_latched_element_id) override {}
-  void SendScrollEndEventFromImplSide(
-      cc::ElementId scroll_latched_element_id) override {}
+  void UpdateCompositorScrollState(
+      const cc::CompositorCommitData& commit_data) override {}
   void BeginMainFrame(base::TimeTicks frame_time) override {}
   void OnDeferMainFrameUpdatesChanged(bool) override {}
   void OnDeferCommitsChanged(bool) override {}
@@ -48,14 +44,13 @@ class StubLayerTreeViewDelegate : public LayerTreeViewDelegate {
       override {
     return nullptr;
   }
+  std::unique_ptr<cc::WebVitalMetrics> GetWebVitalMetrics() override {
+    return nullptr;
+  }
   void BeginUpdateLayers() override {}
   void EndUpdateLayers() override {}
   void UpdateVisualState() override {}
   void WillBeginMainFrame() override {}
-  void SubmitThroughputData(ukm::SourceId source_id,
-                            int aggregated_percent,
-                            int impl_percent,
-                            base::Optional<int> main_percent) override {}
 };
 
 }  // namespace blink

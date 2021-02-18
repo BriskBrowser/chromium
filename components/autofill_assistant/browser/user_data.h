@@ -52,12 +52,14 @@ enum AutofillContactField {
 // Represents a concrete login choice in the UI, e.g., 'Guest checkout' or
 // a particular Chrome PWM login account.
 struct LoginChoice {
-  LoginChoice(const std::string& id,
-              const std::string& label,
-              const std::string& sublabel,
-              const base::Optional<std::string>& sublabel_accessibility_hint,
-              int priority,
-              const base::Optional<InfoPopupProto>& info_popup);
+  LoginChoice(
+      const std::string& id,
+      const std::string& label,
+      const std::string& sublabel,
+      const base::Optional<std::string>& sublabel_accessibility_hint,
+      int priority,
+      const base::Optional<InfoPopupProto>& info_popup,
+      const base::Optional<std::string>& edit_button_content_description);
   LoginChoice(const LoginChoice& another);
   ~LoginChoice();
 
@@ -73,6 +75,8 @@ struct LoginChoice {
   int preselect_priority = -1;
   // The popup to show to provide more information about this login choice.
   base::Optional<InfoPopupProto> info_popup;
+  // The a11y hint for the edit button.
+  base::Optional<std::string> edit_button_content_description;
 };
 
 // Tuple for holding credit card and billing address;
@@ -108,7 +112,6 @@ class UserData {
     AVAILABLE_PAYMENT_INSTRUMENTS,
   };
 
-  bool succeed_ = false;
   std::unique_ptr<autofill::CreditCard> selected_card_;
   std::string login_choice_identifier_;
   TermsAndConditionsState terms_and_conditions_ = NOT_SELECTED;

@@ -14,6 +14,7 @@
 #include "chrome/updater/constants.h"
 #include "chrome/updater/device_management/dm_cached_policy_info.h"
 #include "chrome/updater/device_management/dm_storage.h"
+#include "chrome/updater/updater_branding.h"
 #include "chrome/updater/updater_version.h"
 #include "chrome/updater/util.h"
 #include "components/policy/core/common/cloud/cloud_policy_util.h"
@@ -61,7 +62,7 @@ class DefaultConfigurator : public DMClient::Configurator {
   ~DefaultConfigurator() override = default;
 
   std::string GetDMServerUrl() const override {
-    return kDeviceManagementServerURL;
+    return DEVICE_MANAGEMENT_SERVER_URL;
   }
 
   std::string GetAgentParameter() const override {
@@ -148,8 +149,7 @@ void DMClient::PostRegisterRequest(DMRequestCallback request_callback) {
   }
 
   if (result != RequestResult::kSuccess) {
-    VLOG(1) << "Device registration skipped with DM error: "
-            << static_cast<int>(result);
+    VLOG(1) << "Device registration skipped with DM error: " << result;
     base::SequencedTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::BindOnce(std::move(request_callback_), result));
     return;
@@ -241,8 +241,7 @@ void DMClient::PostPolicyFetchRequest(DMRequestCallback request_callback) {
   }
 
   if (result != RequestResult::kSuccess) {
-    VLOG(1) << "Policy fetch skipped with DM error: "
-            << static_cast<int>(result);
+    VLOG(1) << "Policy fetch skipped with DM error: " << result;
     base::SequencedTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::BindOnce(std::move(request_callback_), result));
     return;

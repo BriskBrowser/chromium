@@ -64,28 +64,31 @@ FinishedRecording FinishRecording(
   TRACE_EVENT_BEGIN0("paint_preview", "ParseGlyphsAndLinks");
   ParseGlyphsAndLinks(recording.get(), tracker.get());
   TRACE_EVENT_END0("paint_preview", "ParseGlyphsAndLinks");
-  size_t serialized_size = 0;
 
   TRACE_EVENT0("paint_preview", "SerializeAsSkPicture");
 
-  auto skp = PaintRecordToSkPicture(recording, tracker.get(), bounds);
-  if (!skp) {
-    out.status = mojom::PaintPreviewStatus::kCaptureFailed;
-    return out;
-  }
-
   bool success = false;
-  switch (persistence) {
-    case RecordingPersistence::kFileSystem:
-      success = RecordToFile(std::move(skp_file), skp, tracker.get(),
-                             max_capture_size, &serialized_size);
-      break;
-    case RecordingPersistence::kMemoryBuffer:
-      base::Optional<mojo_base::BigBuffer> buffer = RecordToBuffer(
-          skp, tracker.get(), max_capture_size, &serialized_size);
-      success = buffer.has_value();
-      out.response->skp.emplace(std::move(buffer.value()));
-      break;
+  size_t serialized_size = 0;
+  {
+    auto skp = PaintRecordToSkPicture(recording, tracker.get(), bounds);
+    recording.reset();
+    if (!skp) {
+      out.status = mojom::PaintPreviewStatus::kCaptureFailed;
+      return out;
+    }
+
+    switch (persistence) {
+      case RecordingPersistence::kFileSystem:
+        success = RecordToFile(std::move(skp_file), skp, tracker.get(),
+                               max_capture_size, &serialized_size);
+        break;
+      case RecordingPersistence::kMemoryBuffer:
+        base::Optional<mojo_base::BigBuffer> buffer = RecordToBuffer(
+            skp, tracker.get(), max_capture_size, &serialized_size);
+        success = buffer.has_value();
+        out.response->skp.emplace(std::move(buffer.value()));
+        break;
+    }
   }
 
   if (!success) {
@@ -93,7 +96,7 @@ FinishedRecording FinishRecording(
     return out;
   }
 
-  BuildResponse(tracker.get(), out.response.get());
+  BuildResponse(tracker.get(), out.response.get(), /*log=*/true);
   out.response->serialized_size = serialized_size;
   return out;
 }
@@ -142,6 +145,9 @@ void PaintPreviewRecorderImpl::OnDestruct() {
 
 void PaintPreviewRecorderImpl::BindPaintPreviewRecorder(
     mojo::PendingAssociatedReceiver<mojom::PaintPreviewRecorder> receiver) {
+  // Capture requests can occur multiple times on the same frame. If the browser
+  // has released its endpoint and creates a new one this needs to be reset.
+  paint_preview_recorder_receiver_.reset();
   paint_preview_recorder_receiver_.Bind(std::move(receiver));
 }
 
@@ -158,16 +164,14 @@ void PaintPreviewRecorderImpl::CapturePaintPreviewInternal(
     return;
   }
 
-  // Warm up paint for an out-of-lifecycle paint phase.
-  frame->DispatchBeforePrintEvent(/*print_client=*/nullptr);
-
   DCHECK_EQ(is_main_frame_, params->is_main_frame);
   // Default to using the clip rect.
-  gfx::Rect bounds = gfx::Rect(params->clip_rect.size());
+  gfx::Rect bounds = params->clip_rect;
+  auto document_size = frame->DocumentSize();
+  gfx::Rect document_rect =
+      gfx::Rect(0, 0, document_size.width, document_size.height);
   if (bounds.IsEmpty() || params->clip_rect_is_hint) {
     // If the clip rect is empty or only a hint try to use the document size.
-    auto size = frame->DocumentSize();
-    gfx::Rect document_rect = gfx::Rect(0, 0, size.width, size.height);
     if (!document_rect.IsEmpty())
       bounds = document_rect;
 
@@ -182,6 +186,30 @@ void PaintPreviewRecorderImpl::CapturePaintPreviewInternal(
                               std::move(response));
       return;
     }
+  } else {
+    // Overflow check and confirm that that the document has a size.
+    if (document_rect.IsEmpty() || bounds.x() >= document_rect.width() ||
+        bounds.y() >= document_rect.height() || bounds.x() < 0 ||
+        bounds.y() < 0) {
+      std::move(callback).Run(mojom::PaintPreviewStatus::kCaptureFailed,
+                              std::move(response));
+      return;
+    }
+
+    // If either width or height is 0 capture the full extent in that dimension
+    // while still respecting the provided x and y.
+    if (bounds.width() == 0) {
+      bounds.set_width(document_rect.width());
+    }
+    if (bounds.height() == 0) {
+      bounds.set_height(document_rect.height());
+    }
+
+    // Clamp width and height to be the document size.
+    bounds.set_width(
+        std::min(document_rect.width() - bounds.x(), bounds.width()));
+    bounds.set_height(
+        std::min(document_rect.height() - bounds.y(), bounds.height()));
   }
 
   auto tracker = std::make_unique<PaintPreviewTracker>(
@@ -192,6 +220,8 @@ void PaintPreviewRecorderImpl::CapturePaintPreviewInternal(
   cc::PaintRecorder recorder;
   cc::PaintCanvas* canvas =
       recorder.beginRecording(bounds.width(), bounds.height());
+  canvas->save();
+  canvas->concat(SkMatrix::Translate(-bounds.x(), -bounds.y()));
   canvas->SetPaintPreviewTracker(tracker.get());
 
   // Use time ticks manually rather than a histogram macro so as to;
@@ -204,6 +234,7 @@ void PaintPreviewRecorderImpl::CapturePaintPreviewInternal(
   bool success = frame->CapturePaintPreview(
       bounds, canvas, /*include_linked_destinations=*/params->capture_links);
   TRACE_EVENT_END0("paint_preview", "WebLocalFrame::CapturePaintPreview");
+  canvas->restore();
   base::TimeDelta capture_time = base::TimeTicks::Now() - start_time;
   response->blink_recording_time = capture_time;
 
@@ -228,7 +259,6 @@ void PaintPreviewRecorderImpl::CapturePaintPreviewInternal(
   }
 
   // Restore to before out-of-lifecycle paint phase.
-  frame->DispatchAfterPrintEvent();
   if (!success) {
     std::move(callback).Run(mojom::PaintPreviewStatus::kCaptureFailed,
                             std::move(response));
@@ -241,6 +271,9 @@ void PaintPreviewRecorderImpl::CapturePaintPreviewInternal(
     max_capture_size = base::nullopt;
   } else {
     max_capture_size = params->max_capture_size;
+    auto* image_ctx = tracker->GetImageSerializationContext();
+    image_ctx->remaining_image_size = params->max_capture_size;
+    image_ctx->max_representation_size = params->max_capture_size;
   }
 
   // This cannot be done async if the recording contains a GPU accelerated

@@ -57,7 +57,8 @@ WindowTreeHostPlatform::WindowTreeHostPlatform(
     std::unique_ptr<Window> window)
     : WindowTreeHost(std::move(window)) {
   bounds_in_pixels_ = properties.bounds;
-  CreateCompositor();
+  CreateCompositor(viz::FrameSinkId(), false, false,
+                   properties.enable_compositing_based_throttling);
   CreateAndSetPlatformWindow(std::move(properties));
 }
 
@@ -68,6 +69,11 @@ WindowTreeHostPlatform::WindowTreeHostPlatform(std::unique_ptr<Window> window)
 
 void WindowTreeHostPlatform::CreateAndSetPlatformWindow(
     ui::PlatformWindowInitProperties properties) {
+  // Cache initial bounds used to create |platform_window_| so that it does not
+  // end up propagating unneeded bounds change event when it is first notified
+  // through OnBoundsChanged, which may lead to unneeded re-layouts, etc.
+  bounds_in_pixels_ = properties.bounds;
+
 #if defined(USE_OZONE) || defined(USE_X11)
 #if defined(USE_OZONE)
   if (features::IsUsingOzonePlatform()) {

@@ -8,7 +8,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/cancelable_task_tracker.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
@@ -39,7 +39,7 @@ class HistoryTabHelperTest : public ChromeRenderViewHostTestHarness {
         /*nav_entry_id=*/0,
         /*referrer=*/GURL(), history::RedirectList(), ui::PAGE_TRANSITION_TYPED,
         history::SOURCE_BROWSED, /*did_replace_entry=*/false,
-        /*publicly_routable=*/true);
+        /*floc_allowed=*/true);
     HistoryTabHelper::CreateForWebContents(web_contents());
   }
 

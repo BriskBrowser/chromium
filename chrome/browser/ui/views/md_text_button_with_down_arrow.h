@@ -8,17 +8,21 @@
 #include "base/macros.h"
 #include "base/strings/string16.h"
 #include "ui/views/controls/button/md_text_button.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 
 namespace views {
-
-class ButtonListener;
 
 // The material design themed text button with a drop arrow displayed on the
 // right side.
 class MdTextButtonWithDownArrow : public MdTextButton {
  public:
-  MdTextButtonWithDownArrow(ButtonListener* listener,
+  METADATA_HEADER(MdTextButtonWithDownArrow);
+
+  MdTextButtonWithDownArrow(PressedCallback callback,
                             const base::string16& text);
+  MdTextButtonWithDownArrow(const MdTextButtonWithDownArrow&) = delete;
+  MdTextButtonWithDownArrow& operator=(const MdTextButtonWithDownArrow&) =
+      delete;
   ~MdTextButtonWithDownArrow() override;
 
  protected:
@@ -27,8 +31,6 @@ class MdTextButtonWithDownArrow : public MdTextButton {
 
  private:
   void SetDropArrowImage();
-
-  DISALLOW_COPY_AND_ASSIGN(MdTextButtonWithDownArrow);
 };
 
 }  // namespace views

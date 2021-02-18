@@ -10,16 +10,26 @@
 namespace blink {
 
 Color StyleColor::Resolve(Color current_color,
-                          WebColorScheme color_scheme) const {
+                          mojom::blink::ColorScheme color_scheme,
+                          bool is_forced_color) const {
   if (IsCurrentColor())
     return current_color;
-  if (EffectiveColorKeyword() != CSSValueID::kInvalid)
+  if (EffectiveColorKeyword() != CSSValueID::kInvalid ||
+      (is_forced_color && IsSystemColor()))
     return ColorFromKeyword(color_keyword_, color_scheme);
   return color_;
 }
 
+Color StyleColor::ResolveWithAlpha(Color current_color,
+                                   mojom::blink::ColorScheme color_scheme,
+                                   int alpha,
+                                   bool is_forced_color) const {
+  Color color = Resolve(current_color, color_scheme, is_forced_color);
+  return Color(color.Red(), color.Green(), color.Blue(), alpha);
+}
+
 Color StyleColor::ColorFromKeyword(CSSValueID keyword,
-                                   WebColorScheme color_scheme) {
+                                   mojom::blink::ColorScheme color_scheme) {
   if (const char* value_name = getValueName(keyword)) {
     if (const NamedColor* named_color =
             FindColor(value_name, static_cast<wtf_size_t>(strlen(value_name))))

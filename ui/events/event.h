@@ -312,15 +312,15 @@ class EVENTS_EXPORT Event {
   LatencyInfo latency_;
   int flags_;
   PlatformEvent native_event_;
-  bool delete_native_event_;
-  bool cancelable_;
-  EventTarget* target_;
-  EventPhase phase_;
-  EventResult result_;
+  bool delete_native_event_ = false;
+  bool cancelable_ = true;
+  EventTarget* target_ = nullptr;
+  EventPhase phase_ = EP_PREDISPATCH;
+  EventResult result_ = ER_UNHANDLED;
 
   // The device id the event came from, or ED_UNKNOWN_DEVICE if the information
   // is not available.
-  int source_device_id_;
+  int source_device_id_ = ED_UNKNOWN_DEVICE;
 
   std::unique_ptr<Properties> properties_;
 };
@@ -377,7 +377,7 @@ class EVENTS_EXPORT LocatedEvent : public Event {
     location_ = location_ - diff;
   }
 
-  // Event:
+  // Event overrides.
   std::string ToString() const override;
 
  protected:
@@ -433,6 +433,7 @@ class EVENTS_EXPORT MouseEvent : public LocatedEvent {
   MouseEvent(const MouseEvent& model, T* source, T* target)
       : LocatedEvent(model, source, target),
         changed_button_flags_(model.changed_button_flags_),
+        movement_(model.movement_),
         pointer_details_(model.pointer_details_) {}
 
   template <class T>
@@ -443,6 +444,7 @@ class EVENTS_EXPORT MouseEvent : public LocatedEvent {
              int flags)
       : LocatedEvent(model, source, target),
         changed_button_flags_(model.changed_button_flags_),
+        movement_(model.movement_),
         pointer_details_(model.pointer_details_) {
     SetType(type);
     set_flags(flags);
@@ -548,6 +550,9 @@ class EVENTS_EXPORT MouseEvent : public LocatedEvent {
 
   const PointerDetails& pointer_details() const { return pointer_details_; }
 
+  // Event overides.
+  std::string ToString() const override;
+
  private:
   FRIEND_TEST_ALL_PREFIXES(EventTest, DoubleClickRequiresUniqueTimestamp);
   FRIEND_TEST_ALL_PREFIXES(EventTest, SingleClickRightLeft);
@@ -565,7 +570,10 @@ class EVENTS_EXPORT MouseEvent : public LocatedEvent {
   // Raw mouse movement value reported from mouse hardware. The value of this is
   // platform dependent and may change depending upon the hardware connected to
   // the device. This field is only set if the flag EF_UNADJUSTED_MOUSE is
-  // present.
+  // present (which is the case on windows platforms, and CrOS if the
+  // kEnableOrdinalMotion flag is set).
+  //
+  // TODO(b/171249701): always enable on CrOS.
   gfx::Vector2dF movement_;
 
   // The most recent user-generated MouseEvent, used to detect double clicks.
@@ -698,11 +706,11 @@ class EVENTS_EXPORT TouchEvent : public LocatedEvent {
   // Whether the (unhandled) touch event will produce a scroll event (e.g., a
   // touchmove that exceeds the platform slop region, or a touchend that
   // causes a fling). Defaults to false.
-  bool may_cause_scrolling_;
+  bool may_cause_scrolling_ = false;
 
   // True for devices like some pens when they support hovering over
   // digitizer and they send events while hovering.
-  bool hovering_;
+  bool hovering_ = false;
 
   // Structure for holding pointer details for implementing PointerEvents API.
   PointerDetails pointer_details_;
@@ -868,6 +876,9 @@ class EVENTS_EXPORT KeyEvent : public Event {
   // (Native X11 event flags describe the state before the event.)
   void NormalizeFlags();
 
+  // Event overrides.
+  std::string ToString() const override;
+
  protected:
   friend class KeyEventTestApi;
 
@@ -979,7 +990,7 @@ class EVENTS_EXPORT ScrollEvent : public MouseEvent {
   EventMomentumPhase momentum_phase() const { return momentum_phase_; }
   ScrollEventPhase scroll_event_phase() const { return scroll_event_phase_; }
 
-  // Event:
+  // Event overrides.
   std::string ToString() const override;
 
  private:
@@ -1023,6 +1034,9 @@ class EVENTS_EXPORT GestureEvent : public LocatedEvent {
   const GestureEventDetails& details() const { return details_; }
 
   uint32_t unique_touch_event_id() const { return unique_touch_event_id_; }
+
+  // Event overrides.
+  std::string ToString() const override;
 
  private:
   GestureEventDetails details_;

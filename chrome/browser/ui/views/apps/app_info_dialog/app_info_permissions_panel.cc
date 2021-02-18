@@ -28,11 +28,11 @@
 #include "ui/gfx/text_constants.h"
 #include "ui/resources/grit/ui_resources.h"
 #include "ui/views/border.h"
-#include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/grid_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view.h"
 
 namespace {
@@ -49,11 +49,12 @@ const int kIndentationBeforeNestedBullet = 13;
 // Creates a close button that calls |callback| on click and can be placed to
 // the right of a bullet in the permissions list. The alt-text is set to a
 // revoke message containing the given |permission_message|.
-class RevokeButton : public views::ImageButton, public views::ButtonListener {
+class RevokeButton : public views::ImageButton {
  public:
-  explicit RevokeButton(const base::Closure& callback,
+  METADATA_HEADER(RevokeButton);
+  explicit RevokeButton(PressedCallback callback,
                         base::string16 permission_message)
-      : views::ImageButton(this), callback_(callback) {
+      : views::ImageButton(std::move(callback)) {
     ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
     SetImage(views::Button::STATE_NORMAL,
              rb.GetImageNamed(IDR_DISABLE).ToImageSkia());
@@ -66,31 +67,24 @@ class RevokeButton : public views::ImageButton, public views::ButtonListener {
 
     // Make the button focusable & give it alt-text so permissions can be
     // revoked using only the keyboard.
-    SetFocusForPlatform();
-    set_request_focus_on_press(true);
+    SetRequestFocusOnPress(true);
     SetTooltipText(l10n_util::GetStringFUTF16(
         IDS_APPLICATION_INFO_REVOKE_PERMISSION_ALT_TEXT, permission_message));
   }
-  ~RevokeButton() override {}
-
- private:
-  // Overridden from views::ButtonListener.
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override {
-    DCHECK_EQ(this, sender);
-    if (!callback_.is_null())
-      callback_.Run();
-  }
-
-  const base::Closure callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(RevokeButton);
+  RevokeButton(const RevokeButton&) = delete;
+  RevokeButton& operator=(const RevokeButton&) = delete;
+  ~RevokeButton() override = default;
 };
+
+BEGIN_METADATA(RevokeButton, views::ImageButton)
+END_METADATA
 
 // A bulleted list of permissions.
 // TODO(sashab): Fix BoxLayout to correctly display multi-line strings and then
 // remove this class (since the GridLayout will no longer be needed).
 class BulletedPermissionsList : public views::View {
  public:
+  METADATA_HEADER(BulletedPermissionsList);
   BulletedPermissionsList() {
     layout_ = SetLayoutManager(std::make_unique<views::GridLayout>());
 
@@ -129,7 +123,9 @@ class BulletedPermissionsList : public views::View {
         views::GridLayout::FILL, views::GridLayout::LEADING,
         views::GridLayout::kFixedSize, ColumnSize::kUsePreferred, 0, 0);
   }
-  ~BulletedPermissionsList() override {}
+  BulletedPermissionsList(const BulletedPermissionsList&) = delete;
+  BulletedPermissionsList& operator=(const BulletedPermissionsList&) = delete;
+  ~BulletedPermissionsList() override = default;
 
   // Given a set of strings for a given permission (|message| for the topmost
   // bullet and a potentially-empty |submessages| for sub-bullets), adds these
@@ -139,7 +135,7 @@ class BulletedPermissionsList : public views::View {
   void AddPermissionBullets(base::string16 message,
                             std::vector<base::string16> submessages,
                             gfx::ElideBehavior elide_behavior_for_submessages,
-                            const base::Closure& revoke_callback) {
+                            base::RepeatingClosure revoke_callback) {
     std::unique_ptr<RevokeButton> revoke_button;
     if (!revoke_callback.is_null())
       revoke_button = std::make_unique<RevokeButton>(revoke_callback, message);
@@ -183,9 +179,10 @@ class BulletedPermissionsList : public views::View {
   }
 
   views::GridLayout* layout_;
-
-  DISALLOW_COPY_AND_ASSIGN(BulletedPermissionsList);
 };
+
+BEGIN_METADATA(BulletedPermissionsList, views::View)
+END_METADATA
 
 }  // namespace
 
@@ -224,29 +221,25 @@ void AppInfoPermissionsPanel::CreatePermissionsList() {
 
   // Add regular and host permission messages.
   for (const auto& message : GetActivePermissionMessages()) {
-    permissions_list->AddPermissionBullets(message.message(),
-                                           message.submessages(),
-                                           gfx::ELIDE_MIDDLE, base::Closure());
+    permissions_list->AddPermissionBullets(
+        message.message(), message.submessages(), gfx::ELIDE_MIDDLE,
+        base::RepeatingClosure());
   }
 
   // Add USB devices, if the app has any.
   if (GetRetainedDeviceCount() > 0) {
     permissions_list->AddPermissionBullets(
-        GetRetainedDeviceHeading(),
-        GetRetainedDevices(),
-        gfx::ELIDE_TAIL,
-        base::Bind(&AppInfoPermissionsPanel::RevokeDevicePermissions,
-                   base::Unretained(this)));
+        GetRetainedDeviceHeading(), GetRetainedDevices(), gfx::ELIDE_TAIL,
+        base::BindRepeating(&AppInfoPermissionsPanel::RevokeDevicePermissions,
+                            base::Unretained(this)));
   }
 
   // Add retained files, if the app has any.
   if (GetRetainedFileCount() > 0) {
     permissions_list->AddPermissionBullets(
-        GetRetainedFileHeading(),
-        GetRetainedFilePaths(),
-        gfx::ELIDE_MIDDLE,
-        base::Bind(&AppInfoPermissionsPanel::RevokeFilePermissions,
-                   base::Unretained(this)));
+        GetRetainedFileHeading(), GetRetainedFilePaths(), gfx::ELIDE_MIDDLE,
+        base::BindRepeating(&AppInfoPermissionsPanel::RevokeFilePermissions,
+                            base::Unretained(this)));
   }
 
   AddChildView(std::move(permissions_list));
@@ -331,3 +324,6 @@ void AppInfoPermissionsPanel::RevokeDevicePermissions() {
 
   Close();
 }
+
+BEGIN_METADATA(AppInfoPermissionsPanel, AppInfoPanel)
+END_METADATA

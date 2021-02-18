@@ -96,7 +96,7 @@ constexpr char kId2[] = "id2";
 constexpr char kId3[] = "id3";
 constexpr char kName[] = "name";
 constexpr char kDescription[] = "description";
-constexpr char kUri[] = "ipp://1.2.3.4/";
+constexpr char kUri[] = "ipp://1.2.3.4";
 
 constexpr int kHorizontalDpi = 300;
 constexpr int kVerticalDpi = 400;
@@ -199,7 +199,7 @@ ConstructPrinterCapabilities() {
       std::make_unique<printing::PrinterSemanticCapsAndDefaults>();
   capabilities->color_model = printing::mojom::ColorModel::kColor;
   capabilities->duplex_modes.push_back(printing::mojom::DuplexMode::kSimplex);
-  capabilities->copies_max = 2;
+  capabilities->copies_max = 5;
   capabilities->dpis.push_back(gfx::Size(kHorizontalDpi, kVerticalDpi));
   printing::PrinterSemanticCapsAndDefaults::Paper paper;
   paper.vendor_id = kMediaSizeVendorId;
@@ -301,7 +301,9 @@ class PrintingAPIHandlerUnittest : public testing::Test {
     AddUnavailablePrinter(printer_id);
 
     // Add printer capabilities to |test_backend_|.
-    test_backend_->AddValidPrinter(printer_id, std::move(capabilities));
+    test_backend_->AddValidPrinter(
+        printer_id, std::move(capabilities),
+        std::make_unique<printing::PrinterBasicInfo>());
   }
 
   void OnJobSubmitted(base::RepeatingClosure run_loop_closure,
@@ -541,7 +543,7 @@ TEST_F(PrintingAPIHandlerUnittest, GetPrinterInfo) {
 
   // Mock CUPS wrapper to return predefined status for given printer.
   printing::PrinterStatus::PrinterReason reason;
-  reason.reason = printing::PrinterStatus::PrinterReason::MEDIA_EMPTY;
+  reason.reason = printing::PrinterStatus::PrinterReason::Reason::kMediaEmpty;
   cups_wrapper_->SetPrinterStatus(kPrinterId, reason);
 
   base::RunLoop run_loop;

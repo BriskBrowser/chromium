@@ -2,15 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <gdk/gdkx.h>
-#include <gtk/gtk.h>
-#include <stddef.h>
-
+#include <cstddef>
 #include <memory>
 #include <set>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/macros.h"
@@ -28,7 +25,6 @@
 #include "base/version.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/gfx/x/x11.h"
 #include "ui/gtk/select_file_dialog_impl.h"
 #include "ui/strings/grit/ui_strings.h"
 

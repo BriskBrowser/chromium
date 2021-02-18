@@ -9,13 +9,11 @@
 #include "third_party/blink/renderer/core/layout/layout_block_flow.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_node_data.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_layout_input_node.h"
-#include "third_party/blink/renderer/core/paint/ng/ng_paint_fragment.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
 
-class NGBlockBreakToken;
 class NGConstraintSpace;
 class NGInlineChildLayoutContext;
 class NGInlineNodeLegacy;
@@ -31,21 +29,13 @@ class CORE_EXPORT NGInlineNode : public NGLayoutInputNode {
   explicit NGInlineNode(std::nullptr_t) : NGLayoutInputNode(nullptr) {}
 
   LayoutBlockFlow* GetLayoutBlockFlow() const {
-    return To<LayoutBlockFlow>(box_);
+    return To<LayoutBlockFlow>(box_.Get());
   }
   NGLayoutInputNode NextSibling() const { return nullptr; }
 
-  // True in quirks mode or limited-quirks mode, which require line-height
-  // quirks.
-  // https://quirks.spec.whatwg.org/#the-line-height-calculation-quirk
-  bool InLineHeightQuirksMode() const {
-    return GetDocument().InLineHeightQuirksMode();
-  }
-
-  scoped_refptr<const NGLayoutResult> Layout(
-      const NGConstraintSpace&,
-      const NGBreakToken*,
-      NGInlineChildLayoutContext* context) const;
+  const NGLayoutResult* Layout(const NGConstraintSpace&,
+                               const NGBreakToken*,
+                               NGInlineChildLayoutContext* context) const;
 
   // Computes the value of min-content and max-content for this anonymous block
   // box. min-content is the inline size when lines wrap at every break
@@ -60,8 +50,6 @@ class CORE_EXPORT NGInlineNode : public NGLayoutInputNode {
     LayoutBlockFlow* block_flow = GetLayoutBlockFlow();
     block_flow->ResetNGInlineNodeData();
     DCHECK(!IsPrepareLayoutFinished());
-    // There shouldn't be paint fragment if NGInlineNodeData does not exist.
-    block_flow->SetPaintFragment(nullptr, nullptr);
   }
 
   const NGInlineItemsData& ItemsData(bool is_first_line) const {
@@ -81,12 +69,6 @@ class CORE_EXPORT NGInlineNode : public NGLayoutInputNode {
   // same as |items_data.text_content|, except when sticky images quirk is
   // needed.
   static String TextContentForStickyImagesQuirk(const NGInlineItemsData&);
-
-  // Clear associated fragments for LayoutObjects.
-  // They are associated when NGPaintFragment is constructed, but when clearing,
-  // NGInlineItem provides easier and faster logic.
-  static void ClearAssociatedFragments(const NGPhysicalFragment& fragment,
-                                       const NGBlockBreakToken* break_token);
 
   // Returns true if we don't need to collect inline items after replacing
   // |layout_text| after deleting replacing subtext from |offset| to |length|
@@ -137,20 +119,24 @@ class CORE_EXPORT NGInlineNode : public NGLayoutInputNode {
   struct FloatingObject {
     DISALLOW_NEW();
 
-    void Trace(Visitor* visitor) const {}
+    void Trace(Visitor* visitor) const;
 
-    const ComputedStyle& float_style;
-    const ComputedStyle& style;
+    Member<const ComputedStyle> const float_style;
+    Member<const ComputedStyle> const style;
     LayoutUnit float_inline_max_size_with_margin;
   };
 
+  static bool NeedsShapingForTesting(const NGInlineItem& item);
+
  protected:
+  FRIEND_TEST_ALL_PREFIXES(NGInlineNodeTest, SegmentBidiChangeSetsNeedsLayout);
+
   bool IsPrepareLayoutFinished() const;
 
   // Prepare inline and text content for layout. Must be called before
   // calling the Layout method.
   void PrepareLayoutIfNeeded() const;
-  void PrepareLayout(std::unique_ptr<NGInlineNodeData> previous_data) const;
+  void PrepareLayout(NGInlineNodeData* previous_data) const;
 
   void CollectInlines(NGInlineNodeData*,
                       NGInlineNodeData* previous_data = nullptr) const;
@@ -158,24 +144,25 @@ class CORE_EXPORT NGInlineNode : public NGLayoutInputNode {
   void SegmentScriptRuns(NGInlineNodeData*) const;
   void SegmentFontOrientation(NGInlineNodeData*) const;
   void SegmentBidiRuns(NGInlineNodeData*) const;
-  void ShapeText(NGInlineItemsData*,
-                 const String* previous_text = nullptr,
-                 const Vector<NGInlineItem>* previous_items = nullptr) const;
+  void ShapeText(
+      NGInlineItemsData*,
+      const String* previous_text = nullptr,
+      const HeapVector<NGInlineItem>* previous_items = nullptr) const;
   void ShapeTextForFirstLineIfNeeded(NGInlineNodeData*) const;
   void AssociateItemsWithInlines(NGInlineNodeData*) const;
 
   NGInlineNodeData* MutableData() const {
-    return To<LayoutBlockFlow>(box_)->GetNGInlineNodeData();
+    return To<LayoutBlockFlow>(box_.Get())->GetNGInlineNodeData();
   }
   const NGInlineNodeData& Data() const {
     DCHECK(IsPrepareLayoutFinished() &&
            !GetLayoutBlockFlow()->NeedsCollectInlines());
-    return *To<LayoutBlockFlow>(box_)->GetNGInlineNodeData();
+    return *To<LayoutBlockFlow>(box_.Get())->GetNGInlineNodeData();
   }
   // Same as |Data()| but can access even when |NeedsCollectInlines()| is set.
   const NGInlineNodeData& MaybeDirtyData() const {
     DCHECK(IsPrepareLayoutFinished());
-    return *To<LayoutBlockFlow>(box_)->GetNGInlineNodeData();
+    return *To<LayoutBlockFlow>(box_.Get())->GetNGInlineNodeData();
   }
   const NGInlineNodeData& EnsureData() const;
 
@@ -190,7 +177,7 @@ inline bool NGInlineNode::IsStickyImagesQuirkForContentSize() const {
   if (UNLIKELY(GetDocument().InQuirksMode())) {
     const ComputedStyle& style = Style();
     if (UNLIKELY(style.Display() == EDisplay::kTableCell &&
-                 style.LogicalWidth().IsIntrinsicOrAuto()))
+                 !style.LogicalWidth().IsSpecified()))
       return true;
   }
   return false;

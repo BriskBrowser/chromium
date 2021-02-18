@@ -138,7 +138,7 @@ class DeveloperPrivateApiUnitTest : public ExtensionServiceTestWithInstall {
   const Extension* LoadSimpleExtension();
 
   // Tests modifying the extension's configuration.
-  void TestExtensionPrefSetting(const base::Callback<bool()>& has_pref,
+  void TestExtensionPrefSetting(const base::RepeatingCallback<bool()>& has_pref,
                                 const std::string& key,
                                 const std::string& extension_id);
 
@@ -231,7 +231,7 @@ const Extension* DeveloperPrivateApiUnitTest::LoadSimpleExtension() {
 }
 
 void DeveloperPrivateApiUnitTest::TestExtensionPrefSetting(
-    const base::Callback<bool()>& has_pref,
+    const base::RepeatingCallback<bool()>& has_pref,
     const std::string& key,
     const std::string& extension_id) {
   scoped_refptr<ExtensionFunction> function(
@@ -361,7 +361,7 @@ void DeveloperPrivateApiUnitTest::SetUp() {
   Browser::CreateParams params(profile(), true);
   params.type = Browser::TYPE_NORMAL;
   params.window = browser_window_.get();
-  browser_.reset(new Browser(params));
+  browser_.reset(Browser::Create(params));
 
   // Allow the API to be created.
   EventRouterFactory::GetInstance()->SetTestingFactory(
@@ -394,10 +394,12 @@ TEST_F(DeveloperPrivateApiUnitTest,
       .SetWithholdHostPermissions(true);
 
   TestExtensionPrefSetting(
-      base::Bind(&HasPrefsPermission, &util::IsIncognitoEnabled, profile(), id),
+      base::BindRepeating(&HasPrefsPermission, &util::IsIncognitoEnabled,
+                          profile(), id),
       "incognitoAccess", id);
   TestExtensionPrefSetting(
-      base::Bind(&HasPrefsPermission, &util::AllowFileAccess, profile(), id),
+      base::BindRepeating(&HasPrefsPermission, &util::AllowFileAccess,
+                          profile(), id),
       "fileAccess", id);
 }
 
@@ -1247,7 +1249,7 @@ TEST_F(DeveloperPrivateApiUnitTest, LoadUnpackedFailsWithBlocklistingPolicy) {
 
   EXPECT_FALSE(
       ExtensionManagementFactory::GetForBrowserContext(browser_context())
-          ->HasWhitelistedExtension());
+          ->HasAllowlistedExtension());
 
   auto info = DeveloperPrivateAPI::CreateProfileInfo(testing_profile());
 
@@ -1262,7 +1264,7 @@ TEST_F(DeveloperPrivateApiUnitTest, LoadUnpackedFailsWithBlocklistingPolicy) {
 }
 
 TEST_F(DeveloperPrivateApiUnitTest,
-       LoadUnpackedWorksWithBlocklistingPolicyAlongWhitelistingPolicy) {
+       LoadUnpackedWorksWithBlocklistingPolicyAlongAllowlistingPolicy) {
   std::unique_ptr<content::WebContents> web_contents(
       content::WebContentsTester::CreateTestWebContents(profile(), nullptr));
 
@@ -1282,7 +1284,7 @@ TEST_F(DeveloperPrivateApiUnitTest,
 
   EXPECT_TRUE(
       ExtensionManagementFactory::GetForBrowserContext(browser_context())
-          ->HasWhitelistedExtension());
+          ->HasAllowlistedExtension());
 
   auto info = DeveloperPrivateAPI::CreateProfileInfo(testing_profile());
 

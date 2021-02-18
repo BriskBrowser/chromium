@@ -11,8 +11,15 @@ AppWindowBase::AppWindowBase(const ash::ShelfID& shelf_id,
                              views::Widget* widget)
     : shelf_id_(shelf_id), widget_(widget) {}
 
+AppWindowBase::~AppWindowBase() {
+  if (controller_)
+    controller_->RemoveWindow(this);
+}
+
 void AppWindowBase::SetController(AppWindowLauncherItemController* controller) {
   DCHECK(!controller_ || !controller);
+  if (!controller && controller_)
+    controller_->RemoveWindow(this);
   controller_ = controller;
 }
 
@@ -36,7 +43,7 @@ bool AppWindowBase::IsFullscreen() const {
 }
 
 gfx::NativeWindow AppWindowBase::GetNativeWindow() const {
-  return widget_->GetNativeWindow();
+  return widget_ ? widget_->GetNativeWindow() : nullptr;
 }
 
 gfx::Rect AppWindowBase::GetRestoredBounds() const {

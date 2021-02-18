@@ -37,6 +37,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/node.h"
 #include "third_party/blink/renderer/core/frame/deprecation.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/html/html_link_element.h"
 #include "third_party/blink/renderer/core/html/html_style_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
@@ -137,9 +138,15 @@ CSSStyleSheet* CSSStyleSheet::CreateInline(Node& owner_node,
                                            const KURL& base_url,
                                            const TextPosition& start_position,
                                            const WTF::TextEncoding& encoding) {
+  Document& owner_node_document = owner_node.GetDocument();
   auto* parser_context = MakeGarbageCollected<CSSParserContext>(
-      owner_node.GetDocument(), owner_node.GetDocument().BaseURL(),
-      true /* origin_clean */, owner_node.GetDocument().GetReferrerPolicy(),
+      owner_node_document, owner_node_document.BaseURL(),
+      true /* origin_clean */,
+      Referrer(
+          owner_node_document.GetExecutionContext()
+              ? owner_node_document.GetExecutionContext()->OutgoingReferrer()
+              : String(),  // GetExecutionContext() only returns null in tests.
+          owner_node.GetDocument().GetReferrerPolicy()),
       encoding);
   if (AdTracker::IsAdScriptExecutingInDocument(&owner_node.GetDocument()))
     parser_context->SetIsAdRelated();
@@ -325,14 +332,6 @@ unsigned CSSStyleSheet::insertRule(const String& rule_string,
     return 0;
   }
 
-  if (IsConstructed() && resolver_) {
-    // We can't access rules on a constructed stylesheet if it's still waiting
-    // for some imports to load (|resolver_| is still set).
-    exception_state.ThrowDOMException(
-        DOMExceptionCode::kNotAllowedError,
-        "Can't modify rules while the sheet is waiting for some @imports.");
-    return 0;
-  }
   DCHECK(child_rule_cssom_wrappers_.IsEmpty() ||
          child_rule_cssom_wrappers_.size() == contents_->RuleCount());
 
@@ -384,15 +383,6 @@ void CSSStyleSheet::deleteRule(unsigned index,
   if (!CanAccessRules()) {
     exception_state.ThrowSecurityError(
         "Cannot access StyleSheet to deleteRule");
-    return;
-  }
-
-  if (IsConstructed() && resolver_) {
-    // We can't access rules on a constructed stylesheet if it's still waiting
-    // for some imports to load (|resolver_| is still set).
-    exception_state.ThrowDOMException(
-        DOMExceptionCode::kNotAllowedError,
-        "Can't modify rules while the sheet is waiting for some @imports.");
     return;
   }
 
@@ -475,19 +465,6 @@ void CSSStyleSheet::replaceSync(const String& text,
         "Can't call replaceSync on non-constructed CSSStyleSheets.");
   }
   SetText(text, CSSImportRules::kIgnoreWithWarning);
-}
-
-void CSSStyleSheet::ResolveReplacePromiseIfNeeded(bool load_error_occured) {
-  if (!resolver_)
-    return;
-  if (load_error_occured) {
-    resolver_->Reject(MakeGarbageCollected<DOMException>(
-        DOMExceptionCode::kNotAllowedError, "Loading @imports failed."));
-  } else {
-    resolver_->Resolve(this);
-  }
-  resolver_ = nullptr;
-  DidMutate(Mutation::kRules);
 }
 
 CSSRuleList* CSSStyleSheet::cssRules(ExceptionState& exception_state) {
@@ -636,7 +613,6 @@ void CSSStyleSheet::Trace(Visitor* visitor) const {
   visitor->Trace(rule_list_cssom_wrapper_);
   visitor->Trace(adopted_tree_scopes_);
   visitor->Trace(constructor_document_);
-  visitor->Trace(resolver_);
   StyleSheet::Trace(visitor);
 }
 

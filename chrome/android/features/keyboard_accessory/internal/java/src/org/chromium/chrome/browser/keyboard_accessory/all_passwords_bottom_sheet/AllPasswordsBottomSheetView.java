@@ -5,10 +5,17 @@
 package org.chromium.chrome.browser.keyboard_accessory.all_passwords_bottom_sheet;
 
 import android.content.Context;
+import android.text.Spannable;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.widget.LinearLayout;
+import android.widget.SearchView;
+import android.widget.SearchView.OnQueryTextListener;
+import android.widget.TextView;
 
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
+import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import org.chromium.base.Callback;
@@ -26,7 +33,8 @@ import org.chromium.components.browser_ui.bottomsheet.EmptyBottomSheetObserver;
 class AllPasswordsBottomSheetView implements BottomSheetContent {
     private final BottomSheetController mBottomSheetController;
     private Callback<Integer> mDismissHandler;
-    private final RecyclerView mContentView;
+    private final RecyclerView mSheetItemListView;
+    private final LinearLayout mContentView;
 
     private final BottomSheetObserver mBottomSheetObserver = new EmptyBottomSheetObserver() {
         @Override
@@ -56,8 +64,12 @@ class AllPasswordsBottomSheetView implements BottomSheetContent {
     public AllPasswordsBottomSheetView(
             Context context, BottomSheetController bottomSheetController) {
         mBottomSheetController = bottomSheetController;
-        mContentView = (RecyclerView) LayoutInflater.from(context).inflate(
+        mContentView = (LinearLayout) LayoutInflater.from(context).inflate(
                 R.layout.all_passwords_bottom_sheet, null);
+        mSheetItemListView = mContentView.findViewById(R.id.sheet_item_list);
+        mSheetItemListView.setLayoutManager(new LinearLayoutManager(
+                mSheetItemListView.getContext(), LinearLayoutManager.VERTICAL, false));
+        mSheetItemListView.setItemAnimator(null);
     }
 
     /**
@@ -85,6 +97,34 @@ class AllPasswordsBottomSheetView implements BottomSheetContent {
         }
     }
 
+    void setWarning(Spannable spannableWarningMessage) {
+        final TextView warningTextView = mContentView.findViewById(R.id.sheet_warning);
+        warningTextView.setText(spannableWarningMessage);
+    }
+
+    void setSheetItemListAdapter(RecyclerView.Adapter adapter) {
+        mSheetItemListView.setAdapter(adapter);
+    }
+
+    void setSearchQueryChangeHandler(Callback<String> callback) {
+        SearchView searchView = getSearchView();
+        searchView.setOnQueryTextListener(new OnQueryTextListener() {
+            @Override
+            public boolean onQueryTextSubmit(String s) {
+                return false;
+            }
+
+            @Override
+            public boolean onQueryTextChange(String newString) {
+                callback.onResult(newString);
+                return true;
+            }
+        });
+    }
+
+    public SearchView getSearchView() {
+        return mContentView.findViewById(R.id.all_passwords_search_view);
+    }
     @Override
     public View getContentView() {
         return mContentView;
@@ -98,7 +138,7 @@ class AllPasswordsBottomSheetView implements BottomSheetContent {
 
     @Override
     public int getVerticalScrollOffset() {
-        return 0;
+        return mSheetItemListView.computeVerticalScrollOffset();
     }
 
     @Override
@@ -159,5 +199,11 @@ class AllPasswordsBottomSheetView implements BottomSheetContent {
     @Override
     public int getSheetClosedAccessibilityStringId() {
         return R.string.all_passwords_bottom_sheet_closed;
+    }
+
+    @VisibleForTesting
+    CharSequence getWarningText() {
+        final TextView warningTextView = mContentView.findViewById(R.id.sheet_warning);
+        return warningTextView.getText();
     }
 }

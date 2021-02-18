@@ -20,6 +20,8 @@
 #include "chrome/browser/chromeos/input_method/candidate_window_controller.h"
 #include "chrome/browser/chromeos/input_method/ime_service_connector.h"
 #include "chrome/browser/profiles/profile.h"
+#include "content/public/browser/notification_observer.h"
+#include "content/public/browser/notification_registrar.h"
 #include "ui/base/ime/chromeos/ime_engine_handler_interface.h"
 #include "ui/base/ime/chromeos/input_method_manager.h"
 #include "ui/base/ime/chromeos/input_method_util.h"
@@ -38,7 +40,8 @@ class ImeKeyboard;
 // The implementation of InputMethodManager.
 class InputMethodManagerImpl : public InputMethodManager,
                                public CandidateWindowController::Observer,
-                               public AssistiveWindowControllerDelegate {
+                               public AssistiveWindowControllerDelegate,
+                               public content::NotificationObserver {
  public:
   class StateImpl : public InputMethodManager::State {
    public:
@@ -117,17 +120,14 @@ class InputMethodManagerImpl : public InputMethodManager,
     void EnableInputView() override;
     void DisableInputView() override;
     const GURL& GetInputViewUrl() const override;
+    InputMethodManager::UIStyle GetUIStyle() const override;
+    void SetUIStyle(InputMethodManager::UIStyle ui_style) override;
 
     // Override the input view URL used to explicitly display some keyset.
     void OverrideInputViewUrl(const GURL& url);
 
     // Reset the input view URL to the default url of the current input method.
     void ResetInputViewUrl();
-
-    // Connect to an InputEngineManager instance in an IME Mojo service.
-    void ConnectMojoManager(
-        mojo::PendingReceiver<chromeos::ime::mojom::InputEngineManager>
-            receiver);
 
     // ------------------------- Data members.
     Profile* const profile;
@@ -148,14 +148,14 @@ class InputMethodManagerImpl : public InputMethodManager,
     // The list of enabled extension IMEs.
     std::vector<std::string> enabled_extension_imes;
 
-    // Extra input methods that have been explicitly added to the menu, such as
-    // those created by extension.
-    std::map<std::string, InputMethodDescriptor> extra_input_methods;
+    // All input methods that have been registered by InputMethodEngines.
+    // The key is the input method ID.
+    std::map<std::string, InputMethodDescriptor> available_input_methods;
 
     InputMethodManagerImpl* const manager_;
 
     // True if the opt-in IME menu is activated.
-    bool menu_activated;
+    bool menu_activated = false;
 
    protected:
     friend base::RefCounted<chromeos::input_method::InputMethodManager::State>;
@@ -180,21 +180,23 @@ class InputMethodManagerImpl : public InputMethodManager,
     // specific keyset.
     bool input_view_url_overridden = false;
 
-    std::unique_ptr<ImeServiceConnector> ime_service_connector_;
+    InputMethodManager::UIStyle ui_style_ =
+        InputMethodManager::UIStyle::kNormal;
+
+    // Do not forget to update StateImpl::InitFrom(const StateImpl& other) and
+    // StateImpl::Dump() when adding new data members!!!
   };
 
   // Constructs an InputMethodManager instance. The client is responsible for
   // calling |SetUISessionState| in response to relevant changes in browser
   // state.
   InputMethodManagerImpl(std::unique_ptr<InputMethodDelegate> delegate,
+                         std::unique_ptr<ComponentExtensionIMEManagerDelegate>
+                             component_extension_ime_manager_delegate,
                          bool enable_extension_loading);
   ~InputMethodManagerImpl() override;
 
-  // Receives notification of an InputMethodManager::UISessionState transition.
-  void SetUISessionState(UISessionState new_ui_session);
-
   // InputMethodManager override:
-  UISessionState GetUISessionState() override;
   void AddObserver(InputMethodManager::Observer* observer) override;
   void AddCandidateWindowObserver(
       InputMethodManager::CandidateWindowObserver* observer) override;
@@ -205,8 +207,6 @@ class InputMethodManagerImpl : public InputMethodManager,
       InputMethodManager::CandidateWindowObserver* observer) override;
   void RemoveImeMenuObserver(
       InputMethodManager::ImeMenuObserver* observer) override;
-  std::unique_ptr<InputMethodDescriptors> GetSupportedInputMethods()
-      const override;
   void ActivateInputMethodMenuItem(const std::string& key) override;
   void ConnectInputEngineManager(
       mojo::PendingReceiver<chromeos::ime::mojom::InputEngineManager> receiver)
@@ -222,8 +222,7 @@ class InputMethodManagerImpl : public InputMethodManager,
   void SetImeMenuFeatureEnabled(ImeMenuFeature feature, bool enabled) override;
   bool GetImeMenuFeatureEnabled(ImeMenuFeature feature) const override;
   void NotifyObserversImeExtraInputStateChange() override;
-  ui::InputMethodKeyboardController* GetInputMethodKeyboardController()
-      override;
+  ui::VirtualKeyboardController* GetVirtualKeyboardController() override;
   void NotifyInputMethodExtensionAdded(
       const std::string& extension_id) override;
   void NotifyInputMethodExtensionRemoved(
@@ -249,13 +248,13 @@ class InputMethodManagerImpl : public InputMethodManager,
       CandidateWindowController* candidate_window_controller);
   // Sets |keyboard_|.
   void SetImeKeyboardForTesting(ImeKeyboard* keyboard);
-  // Initialize |component_extension_manager_|.
-  void InitializeComponentExtensionForTesting(
-      std::unique_ptr<ComponentExtensionIMEManagerDelegate> delegate);
+
+  // content::NotificationObserver overrides:
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override;
 
  private:
-  friend class InputMethodManagerImplTest;
-
   // CandidateWindowController::Observer overrides:
   void CandidateClicked(int index) override;
   void CandidateWindowOpened() override;
@@ -277,11 +276,9 @@ class InputMethodManagerImpl : public InputMethodManager,
       const std::string& input_method_id,
       StateImpl* state);
 
-  // Change system input method.
-  void ChangeInputMethodInternal(const InputMethodDescriptor& descriptor,
-                                 Profile* profile,
-                                 bool show_message,
-                                 bool notify_menu);
+  // Change system input method to the one specified in the active state.
+  void ChangeInputMethodInternalFromActiveState(bool show_message,
+                                                bool notify_menu);
 
   // Loads necessary component extensions.
   // TODO(nona): Support dynamical unloading.
@@ -303,9 +300,6 @@ class InputMethodManagerImpl : public InputMethodManager,
   void ReloadKeyboard();
 
   std::unique_ptr<InputMethodDelegate> delegate_;
-
-  // The current UI session status.
-  UISessionState ui_session_;
 
   // A list of objects that monitor the manager.
   base::ObserverList<InputMethodManager::Observer>::Unchecked observers_;
@@ -344,9 +338,17 @@ class InputMethodManagerImpl : public InputMethodManager,
   uint32_t features_enabled_state_;
 
   // The engine map from extension_id to an engine.
-  typedef std::map<std::string, ui::IMEEngineHandlerInterface*> EngineMap;
-  typedef std::map<Profile*, EngineMap, ProfileCompare> ProfileEngineMap;
+  using EngineMap = std::map<std::string, ui::IMEEngineHandlerInterface*>;
+  using ProfileEngineMap = std::map<Profile*, EngineMap, ProfileCompare>;
   ProfileEngineMap engine_map_;
+
+  // Map a profile to the IME service connector.
+  typedef std::
+      map<Profile*, std::unique_ptr<ImeServiceConnector>, ProfileCompare>
+          ImeServiceConnectorMap;
+  ImeServiceConnectorMap ime_service_connectors_;
+
+  content::NotificationRegistrar notification_registrar_;
 
   DISALLOW_COPY_AND_ASSIGN(InputMethodManagerImpl);
 };

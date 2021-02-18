@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,14 +10,17 @@
 #include <utility>
 #include <vector>
 
-#include "base/metrics/histogram_macros.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/strings/string16.h"
+#include "base/time/default_tick_clock.h"
+#include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/accessibility/caption_controller.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/vector_icons/vector_icons.h"
+#include "content/public/browser/browser_accessibility_state.h"
 #include "third_party/re2/src/re2/re2.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
@@ -28,6 +31,7 @@
 #include "ui/gfx/geometry/vector2d.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/strings/grit/ui_strings.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/bubble/bubble_frame_view.h"
 #include "ui/views/controls/button/button.h"
@@ -41,6 +45,7 @@
 #include "ui/views/layout/flex_layout.h"
 #include "ui/views/layout/flex_layout_types.h"
 #include "ui/views/layout/layout_types.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view_class_properties.h"
 
 namespace {
@@ -69,6 +74,24 @@ static constexpr int kErrorImageSizeDip = 20;
 static constexpr int kErrorMessageBetweenChildSpacingDip = 16;
 static constexpr int kFocusRingInnerInsetDip = 3;
 static constexpr int kWidgetDisplacementWithArrowKeyDip = 16;
+static constexpr int kNoActivityIntervalSeconds = 5;
+
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused. These should be the same as
+// LiveCaptionSessionEvent in enums.xml.
+enum class SessionEvent {
+  // We began showing captions for an audio stream.
+  kStreamStarted = 0,
+  // The audio stream ended and the caption bubble closes.
+  kStreamEnded = 1,
+  // The close button was clicked, so we stopped listening to an audio stream.
+  kCloseButtonClicked = 2,
+  kMaxValue = kCloseButtonClicked,
+};
+
+void LogSessionEvent(SessionEvent event) {
+  base::UmaHistogramEnumeration("Accessibility.LiveCaption.Session", event);
+}
 
 }  // namespace
 
@@ -78,6 +101,7 @@ namespace captions {
 // Caption Bubble is focused.
 class CaptionBubbleFrameView : public views::BubbleFrameView {
  public:
+  METADATA_HEADER(CaptionBubbleFrameView);
   explicit CaptionBubbleFrameView(views::View* close_button,
                                   views::View* expand_button,
                                   views::View* collapse_button)
@@ -158,8 +182,6 @@ class CaptionBubbleFrameView : public views::BubbleFrameView {
     focus_ring_->Layout();
   }
 
-  const char* GetClassName() const override { return "CaptionBubbleFrameView"; }
-
  private:
   views::View* close_button_;
   views::View* expand_button_;
@@ -167,6 +189,88 @@ class CaptionBubbleFrameView : public views::BubbleFrameView {
   views::FocusRing* focus_ring_ = nullptr;
   bool contents_focused_ = false;
 };
+
+BEGIN_METADATA(CaptionBubbleFrameView, views::BubbleFrameView)
+END_METADATA
+
+class CaptionBubbleLabel : public views::Label {
+ public:
+  METADATA_HEADER(CaptionBubbleLabel);
+  CaptionBubbleLabel() = default;
+  ~CaptionBubbleLabel() override = default;
+  CaptionBubbleLabel(const CaptionBubbleLabel&) = delete;
+  CaptionBubbleLabel& operator=(const CaptionBubbleLabel&) = delete;
+
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override {
+    node_data->role = ax::mojom::Role::kParagraph;
+  }
+
+  void SetText(const base::string16& text) override {
+    views::Label::SetText(text);
+
+    // Only update ViewAccessibility if accessibility is enabled.
+    if (content::BrowserAccessibilityState::GetInstance()
+            ->GetAccessibilityMode()
+            .is_mode_off()) {
+      return;
+    }
+
+    auto& ax_lines = GetViewAccessibility().virtual_children();
+    if (text.empty() && !ax_lines.empty()) {
+      GetViewAccessibility().RemoveAllVirtualChildViews();
+      return;
+    }
+
+    const size_t num_lines = GetRequiredLines();
+    size_t start = 0;
+    for (size_t i = 0; i < num_lines - 1; ++i) {
+      size_t end = GetTextIndexOfLine(i + 1);
+      base::string16 substring = text.substr(start, end - start);
+      UpdateAXLine(substring, i, gfx::Range(start, end));
+      start = end;
+    }
+    base::string16 substring = text.substr(start, text.size() - start);
+    if (!substring.empty()) {
+      UpdateAXLine(substring, num_lines - 1, gfx::Range(start, text.size()));
+    }
+
+    // Remove all ax_lines that don't have a corresponding line.
+    size_t num_ax_lines = ax_lines.size();
+    for (size_t i = num_lines; i < num_ax_lines; ++i) {
+      GetViewAccessibility().RemoveVirtualChildView(ax_lines.back().get());
+    }
+
+    NotifyAccessibilityEvent(ax::mojom::Event::kTextChanged, true);
+  }
+
+ private:
+  void UpdateAXLine(const base::string16& line_text,
+                    const size_t line_index,
+                    const gfx::Range& text_range) {
+    auto& ax_lines = GetViewAccessibility().virtual_children();
+
+    // Add a new virtual child for a new line of text.
+    DCHECK(line_index <= ax_lines.size());
+    if (line_index == ax_lines.size()) {
+      auto ax_line = std::make_unique<views::AXVirtualView>();
+      ax_line->GetCustomData().role = ax::mojom::Role::kStaticText;
+      GetViewAccessibility().AddVirtualChildView(std::move(ax_line));
+    }
+
+    // Set the virtual child's name as line text.
+    ui::AXNodeData& ax_node_data = ax_lines[line_index]->GetCustomData();
+    if (base::UTF8ToUTF16(ax_node_data.GetStringAttribute(
+            ax::mojom::StringAttribute::kName)) != line_text) {
+      ax_node_data.SetName(line_text);
+      std::vector<gfx::Rect> bounds = GetSubstringBounds(text_range);
+      DCHECK_EQ(bounds.size(), 1u);
+      ax_node_data.relative_bounds.bounds = gfx::RectF(bounds[0]);
+    }
+  }
+};
+
+BEGIN_METADATA(CaptionBubbleLabel, views::Label)
+END_METADATA
 
 CaptionBubble::CaptionBubble(views::View* anchor,
                              BrowserView* browser_view,
@@ -177,7 +281,8 @@ CaptionBubble::CaptionBubble(views::View* anchor,
       destroyed_callback_(std::move(destroyed_callback)),
       ratio_in_parent_x_(kDefaultRatioInParentX),
       ratio_in_parent_y_(kDefaultRatioInParentY),
-      browser_view_(browser_view) {
+      browser_view_(browser_view),
+      tick_clock_(base::DefaultTickClock::GetInstance()) {
   // Bubbles that use transparent colors should not paint their ClientViews to a
   // layer as doing so could result in visual artifacts.
   SetPaintClientToLayer(false);
@@ -192,6 +297,12 @@ CaptionBubble::CaptionBubble(views::View* anchor,
   // View::FocusBehavior::ACCESSIBLE_ONLY. However, that does not seem to get
   // OnFocus() and OnBlur() called so we never draw the custom focus ring.
   SetFocusBehavior(View::FocusBehavior::ALWAYS);
+  inactivity_timer_ = std::make_unique<base::RetainingOneShotTimer>(
+      FROM_HERE, base::TimeDelta::FromSeconds(kNoActivityIntervalSeconds),
+      base::BindRepeating(&CaptionBubble::OnInactivityTimeout,
+                          base::Unretained(this)),
+      tick_clock_);
+  inactivity_timer_->Stop();
 }
 
 CaptionBubble::~CaptionBubble() {
@@ -242,7 +353,7 @@ gfx::Rect CaptionBubble::GetBubbleBounds() {
 
 void CaptionBubble::OnWidgetBoundsChanged(views::Widget* widget,
                                           const gfx::Rect& new_bounds) {
-  DCHECK(GetWidget());
+  DCHECK_EQ(widget, GetWidget());
   gfx::Rect widget_bounds = GetWidget()->GetWindowBoundsInScreen();
   gfx::Rect anchor_rect = GetAnchorView()->GetBoundsInScreen();
   if (latest_bounds_ == widget_bounds && latest_anchor_bounds_ == anchor_rect) {
@@ -255,12 +366,10 @@ void CaptionBubble::OnWidgetBoundsChanged(views::Widget* widget,
     return;
   }
 
-  // Check that the widget which changed size is our widget. It's possible for
-  // this to be called when another widget resizes.
-  // Also check that our widget is visible. If it is not visible then
+  // Check that our widget is visible. If it is not visible then
   // the user has not explicitly moved it (because the user can't see it),
   // so we should take no action.
-  if (widget != GetWidget() || !GetWidget()->IsVisible())
+  if (!GetWidget()->IsVisible())
     return;
 
   // The widget has moved within the window. Recalculate the desired ratio
@@ -281,6 +390,11 @@ void CaptionBubble::OnWidgetBoundsChanged(views::Widget* widget,
 
   if (out_of_bounds)
     SizeToContents();
+
+  // If the widget is visible and unfocused, probably due to a mouse drag, reset
+  // the inactivity timer.
+  if (GetWidget()->IsVisible() && !HasFocus())
+    inactivity_timer_->Reset();
 }
 
 void CaptionBubble::Init() {
@@ -307,8 +421,10 @@ void CaptionBubble::Init() {
       SkColorSetA(gfx::kGoogleGrey900, kCaptionBubbleAlpha);
   set_color(caption_bubble_color_);
   set_close_on_deactivate(false);
+  // The caption bubble starts out hidden and unable to be activated.
+  SetCanActivate(false);
 
-  auto label = std::make_unique<views::Label>();
+  auto label = std::make_unique<CaptionBubbleLabel>();
   label->SetMultiLine(true);
   label->SetMaximumWidth(kMaxWidthDip - kSidePaddingDip * 2);
   label->SetEnabledColor(SK_ColorWHITE);
@@ -323,6 +439,13 @@ void CaptionBubble::Init() {
   // in order to ensure that caption_bubble_->GetTextIndexOfLine() is correct,
   // set the truncate_length to 0 to ensure that it never truncates.
   label->SetTruncateLength(0);
+
+  auto title = std::make_unique<views::Label>();
+  title->SetEnabledColor(gfx::kGoogleGrey500);
+  title->SetBackgroundColor(SK_ColorTRANSPARENT);
+  title->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT);
+  title->SetText(l10n_util::GetStringUTF16(IDS_LIVE_CAPTION_BUBBLE_TITLE));
+  title->GetViewAccessibility().OverrideIsIgnored(true);
 
   auto error_text = std::make_unique<views::Label>();
   error_text->SetEnabledColor(SK_ColorWHITE);
@@ -342,17 +465,25 @@ void CaptionBubble::Init() {
       ->set_cross_axis_alignment(views::BoxLayout::CrossAxisAlignment::kCenter);
   error_message->SetVisible(false);
 
+  views::Button::PressedCallback expand_or_collapse_callback =
+      base::BindRepeating(&CaptionBubble::ExpandOrCollapseButtonPressed,
+                          base::Unretained(this));
   auto expand_button =
-      BuildImageButton(kCaretDownIcon, IDS_LIVE_CAPTION_BUBBLE_EXPAND);
+      BuildImageButton(expand_or_collapse_callback, kCaretDownIcon,
+                       IDS_LIVE_CAPTION_BUBBLE_EXPAND);
   expand_button->SetVisible(!is_expanded_);
 
   auto collapse_button =
-      BuildImageButton(kCaretUpIcon, IDS_LIVE_CAPTION_BUBBLE_COLLAPSE);
+      BuildImageButton(std::move(expand_or_collapse_callback), kCaretUpIcon,
+                       IDS_LIVE_CAPTION_BUBBLE_COLLAPSE);
   collapse_button->SetVisible(is_expanded_);
 
-  auto close_button = BuildImageButton(vector_icons::kCloseRoundedIcon,
-                                       IDS_LIVE_CAPTION_BUBBLE_CLOSE);
+  auto close_button = BuildImageButton(
+      base::BindRepeating(&CaptionBubble::CloseButtonPressed,
+                          base::Unretained(this)),
+      vector_icons::kCloseRoundedIcon, IDS_LIVE_CAPTION_BUBBLE_CLOSE);
 
+  title_ = content_container->AddChildView(std::move(title));
   label_ = content_container->AddChildView(std::move(label));
 
   error_icon_ = error_message->AddChildView(std::move(error_icon));
@@ -371,14 +502,14 @@ void CaptionBubble::Init() {
 }
 
 std::unique_ptr<views::ImageButton> CaptionBubble::BuildImageButton(
+    views::Button::PressedCallback callback,
     const gfx::VectorIcon& icon,
     const int tooltip_text_id) {
-  auto button = views::CreateVectorImageButton(this);
+  auto button = views::CreateVectorImageButton(std::move(callback));
   views::SetImageFromVectorIcon(button.get(), icon, kButtonDip, SK_ColorWHITE);
   button->SetTooltipText(l10n_util::GetStringUTF16(tooltip_text_id));
-  button->set_ink_drop_base_color(SkColor(gfx::kGoogleGrey600));
+  button->SetInkDropBaseColor(SkColor(gfx::kGoogleGrey600));
   button->SizeToPreferredSize();
-  button->SetFocusForPlatform();
   views::InstallCircleHighlightPathGenerator(
       button.get(), gfx::Insets(kButtonCircleHighlightPaddingDip));
   return button;
@@ -402,23 +533,24 @@ void CaptionBubble::OnKeyEvent(ui::KeyEvent* event) {
   // Use the arrow keys to move.
   if (event->type() == ui::ET_KEY_PRESSED) {
     gfx::Vector2d offset;
-    if (event->key_code() == ui::VKEY_UP) {
+    if (event->key_code() == ui::VKEY_UP)
       offset.set_y(-kWidgetDisplacementWithArrowKeyDip);
-    }
-    if (event->key_code() == ui::VKEY_DOWN) {
+    if (event->key_code() == ui::VKEY_DOWN)
       offset.set_y(kWidgetDisplacementWithArrowKeyDip);
-    }
-    if (event->key_code() == ui::VKEY_LEFT) {
+    if (event->key_code() == ui::VKEY_LEFT)
       offset.set_x(-kWidgetDisplacementWithArrowKeyDip);
-    }
-    if (event->key_code() == ui::VKEY_RIGHT) {
+    if (event->key_code() == ui::VKEY_RIGHT)
       offset.set_x(kWidgetDisplacementWithArrowKeyDip);
-    }
     if (offset != gfx::Vector2d()) {
       DCHECK(GetWidget());
       gfx::Rect bounds = GetWidget()->GetWindowBoundsInScreen();
       bounds.Offset(offset);
       GetWidget()->SetBounds(bounds);
+      int x = 100 * base::ClampToRange(ratio_in_parent_x_, 0.0, 1.0);
+      int y = 100 * base::ClampToRange(ratio_in_parent_y_, 0.0, 1.0);
+      GetViewAccessibility().AnnounceText(l10n_util::GetStringFUTF16(
+          IDS_LIVE_CAPTION_BUBBLE_MOVE_SCREENREADER_ANNOUNCEMENT,
+          base::NumberToString16(x), base::NumberToString16(y)));
       return;
     }
   }
@@ -449,30 +581,21 @@ bool CaptionBubble::AcceleratorPressed(const ui::Accelerator& accelerator) {
 
 void CaptionBubble::OnFocus() {
   frame_->UpdateFocusRing(true);
+  inactivity_timer_->Stop();
 }
 
 void CaptionBubble::OnBlur() {
   frame_->UpdateFocusRing(false);
+  inactivity_timer_->Reset();
 }
 
-// TODO(crbug.com/1055150): Determine how this should be best exposed for screen
-// readers without over-verbalizing. Currently it reads the full text when
-// focused and does not announce when text changes.
 void CaptionBubble::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  if (model_ && model_->HasError()) {
-    node_data->SetName(error_text_->GetText());
-    node_data->SetNameFrom(ax::mojom::NameFrom::kContents);
-  } else if (model_ && !model_->GetFullText().empty()) {
-    node_data->SetName(model_->GetFullText());
-    node_data->SetNameFrom(ax::mojom::NameFrom::kContents);
-  } else {
-    node_data->SetName(
-        l10n_util::GetStringUTF16(IDS_LIVE_CAPTION_BUBBLE_ACCESSIBLE_NAME));
-    node_data->SetNameFrom(ax::mojom::NameFrom::kContents);
-  }
-  node_data->SetDescription(
-      l10n_util::GetStringUTF16(IDS_LIVE_CAPTION_BUBBLE_ACCESSIBLE_NAME));
-  node_data->role = ax::mojom::Role::kCaption;
+  node_data->role = ax::mojom::Role::kDialog;
+  node_data->SetName(title_->GetText());
+}
+
+base::string16 CaptionBubble::GetAccessibleWindowTitle() const {
+  return title_->GetText();
 }
 
 void CaptionBubble::AddedToWidget() {
@@ -483,30 +606,28 @@ void CaptionBubble::AddedToWidget() {
       anchor_widget()->GetFocusTraversable());
   GetWidget()->SetFocusTraversableParentView(GetAnchorView());
   GetAnchorView()->SetProperty(views::kAnchoredDialogKey,
-                               static_cast<BubbleDialogDelegate*>(this));
+                               static_cast<DialogDelegate*>(this));
 }
 
-void CaptionBubble::ButtonPressed(views::Button* sender,
-                                  const ui::Event& event) {
-  if (sender == close_button_) {
-    // TODO(crbug.com/1055150): This histogram currently only reports a single
-    // bucket, but it will eventually be extended to report session starts and
-    // natural session ends (when the audio stream ends).
-    UMA_HISTOGRAM_ENUMERATION(
-        "Accessibility.LiveCaptions.Session",
-        CaptionController::SessionEvent::kCloseButtonClicked);
-    if (model_)
-      model_->Close();
-  } else if (sender == expand_button_ || sender == collapse_button_) {
-    is_expanded_ = !is_expanded_;
-    bool button_had_focus = sender->HasFocus();
-    views::Button* new_button =
-        is_expanded_ ? collapse_button_ : expand_button_;
-    OnIsExpandedChanged();
-    // TODO(crbug.com/1055150): Ensure that the button keeps focus on mac.
-    if (button_had_focus)
-      new_button->RequestFocus();
-  }
+void CaptionBubble::CloseButtonPressed() {
+  LogSessionEvent(SessionEvent::kCloseButtonClicked);
+  if (model_)
+    model_->Close();
+}
+
+void CaptionBubble::ExpandOrCollapseButtonPressed() {
+  is_expanded_ = !is_expanded_;
+  base::UmaHistogramBoolean("Accessibility.LiveCaption.ExpandBubble",
+                            is_expanded_);
+  views::Button *old_button = collapse_button_, *new_button = expand_button_;
+  if (is_expanded_)
+    std::swap(old_button, new_button);
+  bool button_had_focus = old_button->HasFocus();
+  OnIsExpandedChanged();
+  // TODO(crbug.com/1055150): Ensure that the button keeps focus on mac.
+  if (button_had_focus)
+    new_button->RequestFocus();
+  inactivity_timer_->Reset();
 }
 
 void CaptionBubble::SetModel(CaptionBubbleModel* model) {
@@ -519,8 +640,11 @@ void CaptionBubble::SetModel(CaptionBubbleModel* model) {
 
 void CaptionBubble::OnTextChanged() {
   DCHECK(model_);
-  label_->SetText(base::UTF8ToUTF16(model_->GetFullText()));
-  UpdateBubbleVisibility();
+  std::string text = model_->GetFullText();
+  label_->SetText(base::UTF8ToUTF16(text));
+  UpdateBubbleAndTitleVisibility();
+  if (GetWidget()->IsVisible())
+    inactivity_timer_->Reset();
 }
 
 void CaptionBubble::OnErrorChanged() {
@@ -528,6 +652,8 @@ void CaptionBubble::OnErrorChanged() {
   bool has_error = model_->HasError();
   label_->SetVisible(!has_error);
   error_message_->SetVisible(has_error);
+  expand_button_->SetVisible(!has_error && !is_expanded_);
+  collapse_button_->SetVisible(!has_error && is_expanded_);
 
   // The error is only 1 line, so redraw the bubble.
   Redraw();
@@ -542,26 +668,60 @@ void CaptionBubble::OnIsExpandedChanged() {
   Redraw();
 }
 
+void CaptionBubble::UpdateBubbleAndTitleVisibility() {
+  // Show the title if there is room for it and no error.
+  title_->SetVisible(model_ && !model_->HasError() &&
+                     GetNumLinesInLabel() <
+                         static_cast<size_t>(GetNumLinesVisible()));
+  UpdateBubbleVisibility();
+}
+
 void CaptionBubble::UpdateBubbleVisibility() {
   DCHECK(GetWidget());
+  // If there is no model set, do not show the bubble.
   if (!model_) {
-    // If there is no model set, do not show the bubble.
     if (GetWidget()->IsVisible())
       GetWidget()->Hide();
-  } else if (!can_layout_ || model_->IsClosed()) {
-    // Hide the widget if there is no room for it or the model is closed.
-    if (GetWidget()->IsVisible())
-      GetWidget()->Hide();
-  } else if (!model_->GetFullText().empty() || model_->HasError()) {
-    // Show the widget if it has text or an error to display. Only show the
-    // widget if it isn't already visible. Always calling Widget::Show() will
-    // mean the widget gets focus each time.
-    if (!GetWidget()->IsVisible())
-      GetWidget()->Show();
-  } else if (GetWidget()->IsVisible()) {
-    // No text and no error. Hide it.
-    GetWidget()->Hide();
+    return;
   }
+
+  // Hide the widget if there is no room for it, the model is closed. or the
+  // bubble has no activity. Activity is defined as transcription received from
+  // the speech service or user interacting with the bubble through focus,
+  // pressing buttons, or dragging.
+  if (!can_layout_ || model_->IsClosed() || !HasActivity()) {
+    if (GetWidget()->IsVisible())
+      GetWidget()->Hide();
+    return;
+  }
+
+  // Show the widget if it has text or an error to display.
+  if (!model_->GetFullText().empty() || model_->HasError()) {
+    if (!GetWidget()->IsVisible()) {
+      GetWidget()->ShowInactive();
+      GetViewAccessibility().AnnounceText(l10n_util::GetStringUTF16(
+          IDS_LIVE_CAPTION_BUBBLE_APPEAR_SCREENREADER_ANNOUNCEMENT));
+      LogSessionEvent(SessionEvent::kStreamStarted);
+    }
+    return;
+  }
+
+  // No text and no error. Hide it.
+  if (GetWidget()->IsVisible())
+    GetWidget()->Hide();
+}
+
+void CaptionBubble::OnWidgetVisibilityChanged(views::Widget* widget,
+                                              bool visible) {
+  DCHECK_EQ(widget, GetWidget());
+  // The caption bubble can only be activated when it is visible. Nothing else,
+  // including the focus manager, can activate the caption bubble.
+  SetCanActivate(visible);
+  // Ensure that the widget is deactivated when it is hidden.
+  // TODO(crbug.com/1144201): Investigate whether Hide() should always
+  // deactivate widgets, and if so, remove this.
+  if (!visible)
+    widget->Deactivate();
 }
 
 void CaptionBubble::UpdateCaptionStyle(
@@ -603,9 +763,11 @@ void CaptionBubble::UpdateTextSize() {
                     gfx::Font::FontStyle::NORMAL, kFontSizePx * textScaleFactor,
                     gfx::Font::Weight::NORMAL);
   label_->SetFontList(font_list);
+  title_->SetFontList(font_list);
   error_text_->SetFontList(font_list);
 
   label_->SetLineHeight(kLineHeightDip * textScaleFactor);
+  title_->SetLineHeight(kLineHeightDip * textScaleFactor);
   error_text_->SetLineHeight(kLineHeightDip * textScaleFactor);
   error_icon_->SetImageSize(gfx::Size(kErrorImageSizeDip * textScaleFactor,
                                       kErrorImageSizeDip * textScaleFactor));
@@ -617,8 +779,12 @@ void CaptionBubble::UpdateContentSize() {
       (model_ && model_->HasError())
           ? kLineHeightDip * text_scale_factor
           : kLineHeightDip * GetNumLinesVisible() * text_scale_factor;
+  // The title takes up 1 line.
+  int label_height = title_->GetVisible()
+                         ? content_height - kLineHeightDip * text_scale_factor
+                         : content_height;
   label_->SetPreferredSize(
-      gfx::Size(kMaxWidthDip - kSidePaddingDip, content_height));
+      gfx::Size(kMaxWidthDip - kSidePaddingDip, label_height));
   content_container_->SetPreferredSize(gfx::Size(kMaxWidthDip, content_height));
   SetPreferredSize(
       gfx::Size(kMaxWidthDip, content_height +
@@ -627,17 +793,50 @@ void CaptionBubble::UpdateContentSize() {
 }
 
 void CaptionBubble::Redraw() {
-  UpdateBubbleVisibility();
+  UpdateBubbleAndTitleVisibility();
   UpdateContentSize();
   SizeToContents();
 }
 
-const char* CaptionBubble::GetClassName() const {
-  return "CaptionBubble";
+void CaptionBubble::OnInactivityTimeout() {
+  LogSessionEvent(SessionEvent::kStreamEnded);
+  if (GetWidget()->IsVisible())
+    GetWidget()->Hide();
+
+  // Clear the partial and final text in the caption bubble model and the label.
+  // Does not affect the speech service. The speech service will emit a final
+  // result after ~10-15 seconds of no audio which the caption bubble will
+  // receive but will not display. If the speech service is in the middle of a
+  // recognition phrase, and the caption bubble regains activity (such as if the
+  // audio stream restarts), the speech service will emit partial results that
+  // contain text cleared by the UI.
+  model_->ClearText();
 }
 
-std::string CaptionBubble::GetLabelTextForTesting() {
-  return base::UTF16ToUTF8(label_->GetText());
+bool CaptionBubble::HasActivity() {
+  return model_ && (inactivity_timer_->IsRunning() || HasFocus() ||
+                    !model_->GetFullText().empty() || model_->HasError());
 }
+
+views::Label* CaptionBubble::GetLabelForTesting() {
+  return static_cast<views::Label*>(label_);
+}
+
+std::vector<std::string> CaptionBubble::GetAXLineTextForTesting() {
+  auto& ax_lines = label_->GetViewAccessibility().virtual_children();
+  std::vector<std::string> line_texts;
+  for (auto& ax_line : ax_lines) {
+    line_texts.push_back(ax_line->GetCustomData().GetStringAttribute(
+        ax::mojom::StringAttribute::kName));
+  }
+  return line_texts;
+}
+
+base::RetainingOneShotTimer* CaptionBubble::GetInactivityTimerForTesting() {
+  return inactivity_timer_.get();
+}
+
+BEGIN_METADATA(CaptionBubble, views::BubbleDialogDelegateView)
+END_METADATA
 
 }  // namespace captions

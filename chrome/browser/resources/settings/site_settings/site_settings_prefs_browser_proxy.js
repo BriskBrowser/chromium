@@ -70,7 +70,6 @@ export let SiteGroup;
  * @typedef {{embeddingOrigin: string,
  *            incognito: boolean,
  *            isEmbargoed: boolean,
- *            isDiscarded: boolean,
  *            origin: string,
  *            displayName: string,
  *            type: string,
@@ -86,7 +85,6 @@ export let RawSiteException;
  *            embeddingOrigin: string,
  *            incognito: boolean,
  *            isEmbargoed: boolean,
- *            isDiscarded: boolean,
  *            origin: string,
  *            displayName: string,
  *            setting: !ContentSetting,
@@ -243,13 +241,6 @@ export class SiteSettingsPrefsBrowserProxy {
    *     permissions listed in |contentTypes| to.
    */
   setOriginPermissions(origin, contentTypes, blanketSetting) {}
-
-  /**
-   * Clears the flag that's set when the user has changed the Flash permission
-   * for this particular origin.
-   * @param {string} origin The origin to clear the Flash preference for.
-   */
-  clearFlashPref(origin) {}
 
   /**
    * Resets the category permission for a given origin (expressed as primary
@@ -466,11 +457,6 @@ export class SiteSettingsPrefsBrowserProxyImpl {
   /** @override */
   setOriginPermissions(origin, contentTypes, blanketSetting) {
     chrome.send('setOriginPermissions', [origin, contentTypes, blanketSetting]);
-  }
-
-  /** @override */
-  clearFlashPref(origin) {
-    chrome.send('clearFlashPref', [origin]);
   }
 
   /** @override */

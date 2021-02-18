@@ -8,8 +8,9 @@
 
 #include "android_webview/browser/aw_content_browser_client.h"
 #include "android_webview/browser/aw_media_url_interceptor.h"
+#include "android_webview/browser/gfx/aw_draw_fn_impl.h"
 #include "android_webview/browser/gfx/browser_view_renderer.h"
-#include "android_webview/browser/gfx/gpu_service_web_view.h"
+#include "android_webview/browser/gfx/gpu_service_webview.h"
 #include "android_webview/browser/gfx/viz_compositor_thread_runner_webview.h"
 #include "android_webview/browser/scoped_add_feature_flags.h"
 #include "android_webview/browser/tracing/aw_trace_event_args_allowlist.h"
@@ -28,6 +29,7 @@
 #include "base/check_op.h"
 #include "base/command_line.h"
 #include "base/cpu.h"
+#include "base/cpu_affinity_posix.h"
 #include "base/i18n/icu_util.h"
 #include "base/i18n/rtl.h"
 #include "base/posix/global_descriptors.h"
@@ -50,6 +52,7 @@
 #include "content/public/common/content_descriptor_keys.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/common/cpu_affinity.h"
 #include "gin/public/isolate_holder.h"
 #include "gin/v8_initializer.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
@@ -61,6 +64,7 @@
 #include "ui/base/ui_base_paths.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/events/gesture_detection/gesture_configuration.h"
+#include "ui/gl/gl_switches.h"
 
 #if BUILDFLAG(ENABLE_SPELLCHECK)
 #include "components/spellcheck/common/spellcheck_features.h"
@@ -139,7 +143,6 @@ bool AwMainDelegate::BasicStartupComplete(int* exit_code) {
   // isn't much point in having the crash dumps there.
   cl->AppendSwitch(switches::kDisableOoprDebugCrashDump);
 
-#if defined(V8_USE_EXTERNAL_STARTUP_DATA)
   if (cl->GetSwitchValueASCII(switches::kProcessType).empty()) {
     // Browser process (no type specified).
 
@@ -151,6 +154,9 @@ bool AwMainDelegate::BasicStartupComplete(int* exit_code) {
     // confusing the tap suppression controller. Simply disable it for WebView
     ui::GestureConfiguration::GetInstance()
         ->set_fling_touchscreen_tap_suppression_enabled(false);
+
+    if (AwDrawFnImpl::IsUsingVulkan())
+      cl->AppendSwitch(switches::kWebViewDrawFunctorUsesVulkan);
 
 #if defined(USE_V8_CONTEXT_SNAPSHOT)
     gin::V8Initializer::V8SnapshotFileType file_type =
@@ -166,7 +172,6 @@ bool AwMainDelegate::BasicStartupComplete(int* exit_code) {
         content::kV8Snapshot64DataDescriptor,
         gin::V8Initializer::GetSnapshotFilePath(false, file_type));
   }
-#endif  // V8_USE_EXTERNAL_STARTUP_DATA
 
   if (cl->HasSwitch(switches::kWebViewSandboxedRenderer)) {
     content::RenderProcessHost::SetMaxRendererProcessCount(1u);
@@ -192,7 +197,22 @@ bool AwMainDelegate::BasicStartupComplete(int* exit_code) {
       features.EnableIfNotSet(::features::kLogJsConsoleMessages);
     }
 
+    if (cl->HasSwitch(switches::kWebViewDrawFunctorUsesVulkan)) {
+      // When draw functor uses vulkan, assume that it is safe to enable viz
+      // which depends on shared images.
+      features.EnableIfNotSet(::features::kEnableSharedImageForWebview);
+    } else {
+      // Not use ANGLE's Vulkan backend, if the draw functor is not using
+      // Vulkan.
+      features.DisableIfNotSet(::features::kDefaultANGLEVulkan);
+    }
+
+    // WebView uses kWebViewVulkan to control vulkan. Pre-emptively disable
+    // kVulkan in case it becomes enabled by default.
+    features.DisableIfNotSet(::features::kVulkan);
+
     features.DisableIfNotSet(::features::kWebPayments);
+    features.DisableIfNotSet(::features::kServiceWorkerPaymentApps);
 
     // WebView does not and should not support WebAuthN.
     features.DisableIfNotSet(::features::kWebAuth);
@@ -206,6 +226,9 @@ bool AwMainDelegate::BasicStartupComplete(int* exit_code) {
       // which is needed for UseSurfaceLayerForVideo feature.
       // https://crbug.com/853832
       features.EnableIfNotSet(media::kDisableSurfaceLayerForVideo);
+
+      // UseSkiaRenderer requires VizForWebView.
+      features.DisableIfNotSet(::features::kUseSkiaRenderer);
     }
 
     // WebView does not support overlay fullscreen yet for video overlays.
@@ -223,9 +246,9 @@ bool AwMainDelegate::BasicStartupComplete(int* exit_code) {
     // SurfaceControl is not supported on webview.
     features.DisableIfNotSet(::features::kAndroidSurfaceControl);
 
-    // TODO(https://crbug.com/963653): SmsReceiver is not yet supported on
+    // TODO(https://crbug.com/963653): WebOTP is not yet supported on
     // WebView.
-    features.DisableIfNotSet(::features::kSmsReceiver);
+    features.DisableIfNotSet(::features::kWebOTP);
 
     // TODO(https://crbug.com/1012899): WebXR is not yet supported on WebView.
     features.DisableIfNotSet(::features::kWebXr);
@@ -239,10 +262,9 @@ bool AwMainDelegate::BasicStartupComplete(int* exit_code) {
     // De-jelly is never supported on WebView.
     features.EnableIfNotSet(::features::kDisableDeJelly);
 
-    // COOP/COEP is not supported on WebView. See:
+    // COOP is not supported on WebView yet. See:
     // https://groups.google.com/a/chromium.org/forum/#!topic/blink-dev/XBKAGb2_7uAi.
     features.DisableIfNotSet(network::features::kCrossOriginOpenerPolicy);
-    features.DisableIfNotSet(network::features::kCrossOriginEmbedderPolicy);
 
     features.DisableIfNotSet(::features::kInstalledApp);
 
@@ -368,13 +390,23 @@ void AwMainDelegate::PostFieldTrialInitialization() {
   ALLOW_UNUSED_LOCAL(is_canary_dev);
   ALLOW_UNUSED_LOCAL(is_browser_process);
 
+  // Enable LITTLE-cores only mode if the feature is enabled, but only for child
+  // processes, as the browser process is shared with the hosting app.
+  if (!is_browser_process &&
+      base::FeatureList::IsEnabled(
+          android_webview::features::
+              kWebViewCpuAffinityRestrictToLittleCores)) {
+    content::EnforceProcessCpuAffinity(base::CpuAffinityMode::kLittleCoresOnly);
+  }
+
 #if BUILDFLAG(ENABLE_GWP_ASAN_MALLOC)
   gwp_asan::EnableForMalloc(is_canary_dev || is_browser_process,
                             process_type.c_str());
 #endif
 
 #if BUILDFLAG(ENABLE_GWP_ASAN_PARTITIONALLOC)
-  gwp_asan::EnableForPartitionAlloc(is_canary_dev, process_type.c_str());
+  gwp_asan::EnableForPartitionAlloc(is_canary_dev || is_browser_process,
+                                    process_type.c_str());
 #endif
 }
 

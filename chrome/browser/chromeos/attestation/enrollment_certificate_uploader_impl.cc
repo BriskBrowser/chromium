@@ -11,7 +11,7 @@
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/attestation/attestation_ca_client.h"
 #include "chromeos/attestation/attestation_flow.h"
-#include "chromeos/attestation/attestation_flow_integrated.h"
+#include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "chromeos/dbus/dbus_method_call_status.h"
 #include "components/account_id/account_id.h"
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
@@ -35,8 +35,8 @@ void DBusPrivacyCACallback(
     on_success.Run(data);
     return;
   }
-  LOG(ERROR) << "Attestation DBus method failed with status: " << status << ": "
-             << from_here.ToString();
+  LOG(ERROR) << "Attestation DBus method or server called failed with status: "
+             << status << ": " << from_here.ToString();
   if (!on_failure.is_null())
     on_failure.Run(status);
 }
@@ -77,23 +77,32 @@ void EnrollmentCertificateUploaderImpl::ObtainAndUploadCertificate(
 void EnrollmentCertificateUploaderImpl::Start() {
   num_retries_ = 0;
 
+  if (has_already_uploaded_) {
+    // Certificate was successfully uploaded earlier. Do not upload second time.
+    RunCallbacks(Status::kSuccess);
+    return;
+  }
+
   // We expect a registered CloudPolicyClient.
   if (!policy_client_->is_registered()) {
     LOG(ERROR)
         << "EnrollmentCertificateUploaderImpl: Invalid CloudPolicyClient.";
-    RunCallbacks(false);
+    RunCallbacks(Status::kFailedToFetch);
     return;
   }
 
   if (!attestation_flow_) {
-    default_attestation_flow_ = std::make_unique<AttestationFlowIntegrated>();
+    std::unique_ptr<ServerProxy> attestation_ca_client(
+        new AttestationCAClient());
+    default_attestation_flow_.reset(
+        new AttestationFlow(std::move(attestation_ca_client)));
     attestation_flow_ = default_attestation_flow_.get();
   }
 
   GetCertificate();
 }
 
-void EnrollmentCertificateUploaderImpl::RunCallbacks(bool status) {
+void EnrollmentCertificateUploaderImpl::RunCallbacks(Status status) {
   for (; !callbacks_.empty(); callbacks_.pop())
     std::move(callbacks_.front()).Run(status);
 }
@@ -133,13 +142,14 @@ void EnrollmentCertificateUploaderImpl::UploadCertificate(
 
 void EnrollmentCertificateUploaderImpl::OnUploadComplete(bool status) {
   if (status) {
+    has_already_uploaded_ = true;
     VLOG(1) << "Enterprise Enrollment Certificate uploaded to DMServer.";
+    RunCallbacks(Status::kSuccess);
   } else {
     LOG(ERROR)
         << "Failed to upload Enterprise Enrollment Certificate to DMServer.";
+    RunCallbacks(Status::kFailedToUpload);
   }
-
-  RunCallbacks(status);
 }
 
 void EnrollmentCertificateUploaderImpl::HandleGetCertificateFailure(
@@ -147,7 +157,7 @@ void EnrollmentCertificateUploaderImpl::HandleGetCertificateFailure(
   if (status != ATTESTATION_SERVER_BAD_REQUEST_FAILURE)
     Reschedule();
   else
-    RunCallbacks(false);
+    RunCallbacks(Status::kFailedToFetch);
 }
 
 void EnrollmentCertificateUploaderImpl::Reschedule() {
@@ -159,7 +169,7 @@ void EnrollmentCertificateUploaderImpl::Reschedule() {
         retry_delay_);
   } else {
     LOG(WARNING) << "EnrollmentCertificateUploaderImpl: Retry limit exceeded.";
-    RunCallbacks(false);
+    RunCallbacks(Status::kFailedToFetch);
   }
 }
 

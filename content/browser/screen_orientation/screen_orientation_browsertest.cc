@@ -8,12 +8,11 @@
 #include "base/macros.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
-#include "content/browser/frame_host/frame_tree.h"
-#include "content/browser/frame_host/render_frame_host_impl.h"
+#include "build/chromeos_buildflags.h"
+#include "content/browser/renderer_host/frame_tree.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
-#include "content/common/page_messages.h"
-#include "content/common/view_messages.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
@@ -143,7 +142,7 @@ class ScreenOrientationOOPIFBrowserTest : public ScreenOrientationBrowserTest {
 // actually support MacOS X if and when it switches to Aura.
 #if defined(USE_AURA) || defined(OS_ANDROID)
 // Flaky on Chrome OS: http://crbug.com/468259
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #define MAYBE_ScreenOrientationChange DISABLED_ScreenOrientationChange
 #else
 #define MAYBE_ScreenOrientationChange ScreenOrientationChange
@@ -177,7 +176,7 @@ IN_PROC_BROWSER_TEST_F(ScreenOrientationBrowserTest,
 #endif // defined(USE_AURA) || defined(OS_ANDROID)
 
 // Flaky on Chrome OS: http://crbug.com/468259
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #define MAYBE_WindowOrientationChange DISABLED_WindowOrientationChange
 #else
 #define MAYBE_WindowOrientationChange WindowOrientationChange
@@ -344,8 +343,15 @@ IN_PROC_BROWSER_TEST_F(ScreenOrientationOOPIFBrowserTest, ScreenOrientation) {
 // blink::mojom::FrameWidget::EnableDeviceEmulation, which calls
 // RenderWidget::Resize on the renderer side.  The test fakes this by directly
 // sending the resize message to the widget.
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#define MAYBE_ScreenOrientationInPendingMainFrame \
+  DISABLED_ScreenOrientationInPendingMainFrame
+#else
+#define MAYBE_ScreenOrientationInPendingMainFrame \
+  ScreenOrientationInPendingMainFrame
+#endif
 IN_PROC_BROWSER_TEST_F(ScreenOrientationOOPIFBrowserTest,
-                       ScreenOrientationInPendingMainFrame) {
+                       MAYBE_ScreenOrientationInPendingMainFrame) {
   GURL main_url(embedded_test_server()->GetURL("a.com", "/title1.html"));
   EXPECT_TRUE(NavigateToURL(shell(), main_url));
 #if USE_AURA || defined(OS_ANDROID)

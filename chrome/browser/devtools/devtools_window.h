@@ -33,6 +33,27 @@ namespace user_prefs {
 class PrefRegistrySyncable;
 }
 
+// Values that represent different actions to open DevTools window.
+// These values are written to logs. New enum values can be added, but existing
+// enums must never be renumbered or deleted and reused.
+enum class DevToolsOpenedByAction {
+  kUnknown = 0,
+  // Main menu -> More Tools -> Developer Tools
+  // or Ctrl+Shift+I shortcut
+  kMainMenuOrMainShortcut = 1,
+  // Ctrl+Shift+J shortcut to jump to Console
+  kConsoleShortcut = 2,
+  // Context menu -> Inspect
+  kContextMenuInspect = 3,
+  // Ctrl+Shift+C shortcut to turn on inspect mode
+  kInspectorModeShortcut = 4,
+  // Toggle-open via F12
+  kToggleShortcut = 5,
+  // Add values above this line with a corresponding label in
+  // tools/metrics/histograms/enums.xml
+  kMaxValue = kToggleShortcut,
+};
+
 class DevToolsWindow : public DevToolsUIBindings::Delegate,
                        public content::WebContentsDelegate {
  public:
@@ -75,6 +96,7 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
 
   static bool IsDevToolsWindow(content::WebContents* web_contents);
   static DevToolsWindow* AsDevToolsWindow(content::WebContents* web_contents);
+  static DevToolsWindow* AsDevToolsWindow(Browser* browser);
   static DevToolsWindow* FindDevToolsWindow(content::DevToolsAgentHost*);
 
   // Open or reveal DevTools window, and perform the specified action.
@@ -113,7 +135,8 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
   //
   static void ToggleDevToolsWindow(
       Browser* browser,
-      const DevToolsToggleAction& action);
+      const DevToolsToggleAction& action,
+      DevToolsOpenedByAction opened_by = DevToolsOpenedByAction::kUnknown);
 
   // Node frontend is always undocked.
   static DevToolsWindow* OpenNodeFrontendWindow(Profile* profile);
@@ -121,6 +144,8 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
   static void InspectElement(content::RenderFrameHost* inspected_frame_host,
                              int x,
                              int y);
+
+  static void LogDevToolsOpenedByAction(DevToolsOpenedByAction opened_by);
 
   static std::unique_ptr<content::NavigationThrottle>
   MaybeCreateNavigationThrottle(content::NavigationHandle* handle);
@@ -146,6 +171,9 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
   content::WebContents* OpenURLFromTab(
       content::WebContents* source,
       const content::OpenURLParams& params) override;
+
+  content::WebContents* OpenURLFromInspectedTab(
+      const content::OpenURLParams& params);
 
   // BeforeUnload interception ////////////////////////////////////////////////
 
@@ -226,8 +254,9 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
  private:
   friend class DevToolsWindowTesting;
   friend class DevToolsWindowCreationObserver;
+  friend class HatsNextWebDialogBrowserTest;
 
-  using CreationCallback = base::Callback<void(DevToolsWindow*)>;
+  using CreationCallback = base::RepeatingCallback<void(DevToolsWindow*)>;
   static void AddCreationCallbackForTest(const CreationCallback& callback);
   static void RemoveCreationCallbackForTest(const CreationCallback& callback);
 
@@ -304,7 +333,8 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
       content::WebContents* web_contents,
       bool force_open,
       const DevToolsToggleAction& action,
-      const std::string& settings);
+      const std::string& settings,
+      DevToolsOpenedByAction opened_by = DevToolsOpenedByAction::kUnknown);
 
   // content::WebContentsDelegate:
   void ActivateContents(content::WebContents* contents) override;
@@ -367,8 +397,8 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
 
   void ColorPickedInEyeDropper(int r, int g, int b, int a);
 
-  // This method create a new Browser object, and passes ownership of
-  // owned_main_web_contents_ to the tab strip of the Browser.
+  // This method creates a new Browser object (if possible), and passes
+  // ownership of owned_main_web_contents_ to the tab strip of the Browser.
   void CreateDevToolsBrowser();
   BrowserWindow* GetInspectedBrowserWindow();
   void ScheduleShow(const DevToolsToggleAction& action);
@@ -383,6 +413,15 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
   void RegisterModalDialogManager(Browser* browser);
 
   void OnReattachMainTargetComplete(base::Value);
+
+  // Called when the accepted language changes. |navigator.language| of the
+  // DevTools window should match the application language. When the user
+  // changes the accepted language then this listener flips the language back
+  // to the application language for the DevTools renderer process.
+  // Please note that |navigator.language| will have the wrong language for
+  // a very short period of time (until this handler has reset it again).
+  void OnLocaleChanged();
+  void OverrideAndSyncDevToolsRendererPrefs();
 
   std::unique_ptr<ObserverWithAccessor> inspected_contents_observer_;
 
@@ -406,7 +445,8 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
   // When DevToolsWindow is docked, it owns main_web_contents_. When it isn't
   // docked, the tab strip model owns the main_web_contents_.
   bool is_docked_;
-  std::unique_ptr<content::WebContents> owned_main_web_contents_;
+  class OwnedMainWebContents;
+  std::unique_ptr<OwnedMainWebContents> owned_main_web_contents_;
 
   const bool can_dock_;
   bool close_on_detach_;
@@ -430,6 +470,8 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
   bool open_new_window_for_popups_ = false;
 
   base::OnceCallback<void()> reattach_complete_callback_;
+
+  PrefChangeRegistrar pref_change_registrar_;
 
   friend class DevToolsEventForwarder;
   DISALLOW_COPY_AND_ASSIGN(DevToolsWindow);

@@ -10,10 +10,10 @@
 namespace policy {
 namespace android {
 
-// PolicyServiceAndroid
-
 PolicyServiceAndroid::PolicyServiceAndroid(PolicyService* policy_service)
-    : policy_service_(policy_service) {}
+    : policy_service_(policy_service),
+      policy_map_(policy_service->GetPolicies(
+          PolicyNamespace(POLICY_DOMAIN_CHROME, std::string()))) {}
 PolicyServiceAndroid::~PolicyServiceAndroid() = default;
 
 void PolicyServiceAndroid::AddObserver(
@@ -36,10 +36,29 @@ void PolicyServiceAndroid::OnPolicyServiceInitialized(PolicyDomain domain) {
       base::android::ScopedJavaLocalRef<jobject>(java_ref_));
 }
 
+void PolicyServiceAndroid::OnPolicyUpdated(const PolicyNamespace& ns,
+                                           const PolicyMap& previous,
+                                           const PolicyMap& current) {
+  DCHECK_EQ(POLICY_DOMAIN_CHROME, ns.domain);
+  DCHECK(java_ref_);
+  PolicyMapAndroid previous_android(previous);
+  PolicyMapAndroid current_android(current);
+  Java_PolicyService_onPolicyUpdated(
+      base::android::AttachCurrentThread(),
+      base::android::ScopedJavaLocalRef<jobject>(java_ref_),
+      previous_android.GetJavaObject(), current_android.GetJavaObject());
+}
+
 bool PolicyServiceAndroid::IsInitializationComplete(
     JNIEnv* env,
-    const base::android::JavaParamRef<jobject>& caller) {
+    const base::android::JavaParamRef<jobject>& caller) const {
   return policy_service_->IsInitializationComplete(POLICY_DOMAIN_CHROME);
+}
+
+base::android::ScopedJavaLocalRef<jobject> PolicyServiceAndroid::GetPolicies(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& caller) {
+  return policy_map_.GetJavaObject();
 }
 
 base::android::ScopedJavaLocalRef<jobject>

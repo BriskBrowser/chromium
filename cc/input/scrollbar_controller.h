@@ -143,12 +143,19 @@ class CC_EXPORT ScrollbarController {
     return cancelable_autoscroll_task_ != nullptr;
   }
   bool ScrollbarScrollIsActive() const { return scrollbar_scroll_is_active_; }
-  void DidUnregisterScrollbar(ElementId element_id);
+  void DidUnregisterScrollbar(ElementId element_id,
+                              ScrollbarOrientation orientation);
   ScrollbarLayerImplBase* ScrollbarLayer() const;
   void WillBeginImplFrame();
   void ResetState();
+  PointerResultType HitTest(const gfx::PointF position_in_widget) const;
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(ScrollUnifiedLayerTreeHostImplTest,
+                           ThumbDragAfterJumpClick);
+  FRIEND_TEST_ALL_PREFIXES(ScrollUnifiedLayerTreeHostImplTest,
+                           AbortAnimatedScrollBeforeStartingAutoscroll);
+
   // "Autoscroll" here means the continuous scrolling that occurs when the
   // pointer is held down on a hit-testable area of the scrollbar such as an
   // arrows of the track itself.
@@ -228,8 +235,8 @@ class CC_EXPORT ScrollbarController {
   gfx::Rect GetRectForScrollbarPart(const ScrollbarPart scrollbar_part) const;
 
   LayerImpl* GetLayerHitByPoint(const gfx::PointF position_in_widget) const;
-  int GetScrollDeltaForScrollbarPart(const ScrollbarPart scrollbar_part,
-                                     const bool jump_key_modifier) const;
+  float GetScrollDeltaForScrollbarPart(const ScrollbarPart scrollbar_part,
+                                       const bool jump_key_modifier) const;
 
   // Makes position_in_widget relative to the scrollbar.
   gfx::PointF GetScrollbarRelativePosition(const gfx::PointF position_in_widget,
@@ -253,17 +260,17 @@ class CC_EXPORT ScrollbarController {
                                     bool jump_key_modifier) const;
 
   // Calculates the delta based on position_in_widget and drag_origin.
-  int GetScrollDeltaForDragPosition(
+  float GetScrollDeltaForDragPosition(
       const gfx::PointF pointer_position_in_widget) const;
 
   // Returns the ratio of the scroller length to the scrollbar length. This is
   // needed to scale the scroll delta for thumb drag.
   float GetScrollerToScrollbarRatio() const;
 
-  int GetViewportLength() const;
+  float GetViewportLength() const;
 
   // Returns the pixel delta for a percent-based scroll of the scrollbar
-  int GetScrollDeltaForPercentBasedScroll() const;
+  float GetScrollDeltaForPercentBasedScroll() const;
 
   // Returns the page scale factor (i.e. pinch zoom factor). This is relevant
   // for root viewport scrollbar scrolling.

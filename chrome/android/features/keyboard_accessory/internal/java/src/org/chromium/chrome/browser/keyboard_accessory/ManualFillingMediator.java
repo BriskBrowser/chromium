@@ -6,7 +6,6 @@ package org.chromium.chrome.browser.keyboard_accessory;
 
 import static org.chromium.chrome.browser.flags.ChromeFeatureList.AUTOFILL_KEYBOARD_ACCESSORY;
 import static org.chromium.chrome.browser.flags.ChromeFeatureList.AUTOFILL_MANUAL_FALLBACK_ANDROID;
-import static org.chromium.chrome.browser.flags.ChromeFeatureList.TOUCH_TO_FILL_ANDROID;
 import static org.chromium.chrome.browser.keyboard_accessory.ManualFillingProperties.KEYBOARD_EXTENSION_STATE;
 import static org.chromium.chrome.browser.keyboard_accessory.ManualFillingProperties.KeyboardExtensionState.EXTENDING_KEYBOARD;
 import static org.chromium.chrome.browser.keyboard_accessory.ManualFillingProperties.KeyboardExtensionState.FLOATING_BAR;
@@ -26,6 +25,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.Px;
 import androidx.annotation.VisibleForTesting;
 
+import org.chromium.base.TraceEvent;
 import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.ChromeKeyboardVisibilityDelegate;
@@ -326,6 +326,8 @@ class ManualFillingMediator extends EmptyTabObserver
             onOrientationChange();
             return;
         } else if (property == KEYBOARD_EXTENSION_STATE) {
+            TraceEvent.instant("ManualFillingMediator$KeyboardExtensionState",
+                    getNameForState(mModel.get(KEYBOARD_EXTENSION_STATE)));
             transitionIntoState(mModel.get(KEYBOARD_EXTENSION_STATE));
             return;
         } else if (property == SUPPRESSED_BY_BOTTOM_SHEET) {
@@ -343,9 +345,11 @@ class ManualFillingMediator extends EmptyTabObserver
      */
     private void transitionIntoState(@KeyboardExtensionState int extensionState) {
         if (!meetsStatePreconditions(extensionState)) return;
+        TraceEvent.begin("ManualFillingMediator#transitionIntoState");
         enforceStateProperties(extensionState);
         changeBottomControlSpaceForState(extensionState);
         updateKeyboard(extensionState);
+        TraceEvent.end("ManualFillingMediator#transitionIntoState");
     }
 
     /**
@@ -626,7 +630,7 @@ class ManualFillingMediator extends EmptyTabObserver
             case AccessoryTabType.PASSWORDS:
                 return true;
             case AccessoryTabType.TOUCH_TO_FILL:
-                return ChromeFeatureList.isEnabled(TOUCH_TO_FILL_ANDROID);
+                return true;
         }
         return true;
     }
@@ -669,6 +673,24 @@ class ManualFillingMediator extends EmptyTabObserver
 
     private boolean is(@KeyboardExtensionState int state) {
         return mModel.get(KEYBOARD_EXTENSION_STATE) == state;
+    }
+
+    private static String getNameForState(@KeyboardExtensionState int state) {
+        switch (state) {
+            case HIDDEN:
+                return "HIDDEN";
+            case EXTENDING_KEYBOARD:
+                return "EXTENDING_KEYBOARD";
+            case REPLACING_KEYBOARD:
+                return "REPLACING_KEYBOARD";
+            case WAITING_TO_REPLACE:
+                return "WAITING_TO_REPLACE";
+            case FLOATING_BAR:
+                return "FLOATING_BAR";
+            case FLOATING_SHEET:
+                return "FLOATING_SHEET";
+        }
+        return null;
     }
 
     @VisibleForTesting

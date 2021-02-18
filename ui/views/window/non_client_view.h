@@ -9,6 +9,8 @@
 
 #include "base/macros.h"
 #include "build/build_config.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/view_factory.h"
 #include "ui/views/view.h"
 #include "ui/views/view_targeter_delegate.h"
 
@@ -39,6 +41,9 @@ class VIEWS_EXPORT NonClientFrameView : public View,
     kClientEdgeThickness = 1,
   };
 
+  NonClientFrameView();
+  NonClientFrameView(const NonClientFrameView&) = delete;
+  NonClientFrameView& operator=(const NonClientFrameView&) = delete;
   ~NonClientFrameView() override;
 
   // Used to determine if the frame should be painted as active. Keyed off the
@@ -59,10 +64,10 @@ class VIEWS_EXPORT NonClientFrameView : public View,
 
   // Returns the bounds (in this View's parent's coordinates) that the client
   // view should be laid out within.
-  virtual gfx::Rect GetBoundsForClientView() const = 0;
+  virtual gfx::Rect GetBoundsForClientView() const;
 
   virtual gfx::Rect GetWindowBoundsForClientBounds(
-      const gfx::Rect& client_bounds) const = 0;
+      const gfx::Rect& client_bounds) const;
 
   // Gets the clip mask (in this View's parent's coordinates) that should be
   // applied to the client view. Returns false if no special clip should be
@@ -80,26 +85,24 @@ class VIEWS_EXPORT NonClientFrameView : public View,
   // hittests for regions that are partially obscured by the ClientView, e.g.
   // HTSYSMENU.
   // Return value is one of the windows HT constants (see ui/base/hit_test.h).
-  virtual int NonClientHitTest(const gfx::Point& point) = 0;
+  virtual int NonClientHitTest(const gfx::Point& point);
 
   // Used to make the hosting widget shaped (non-rectangular). For a
   // rectangular window do nothing. For a shaped window update |window_mask|
   // accordingly. |size| is the size of the widget.
-  virtual void GetWindowMask(const gfx::Size& size, SkPath* window_mask) = 0;
-  virtual void ResetWindowControls() = 0;
-  virtual void UpdateWindowIcon() = 0;
-  virtual void UpdateWindowTitle() = 0;
+  virtual void GetWindowMask(const gfx::Size& size, SkPath* window_mask) {}
+  virtual void ResetWindowControls() {}
+  virtual void UpdateWindowIcon() {}
+  virtual void UpdateWindowTitle() {}
 
   // Whether the widget can be resized or maximized has changed.
-  virtual void SizeConstraintsChanged() = 0;
+  virtual void SizeConstraintsChanged() {}
 
   // View:
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   void OnThemeChanged() override;
 
  protected:
-  NonClientFrameView();
-
   // ViewTargeterDelegate:
   bool DoesIntersectRect(const View* target,
                          const gfx::Rect& rect) const override;
@@ -111,8 +114,6 @@ class VIEWS_EXPORT NonClientFrameView : public View,
   // offset into the caption area; the caller will take care of this.
   virtual int GetSystemMenuY() const;
 #endif
-
-  DISALLOW_COPY_AND_ASSIGN(NonClientFrameView);
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -156,6 +157,8 @@ class VIEWS_EXPORT NonClientView : public View, public ViewTargeterDelegate {
   METADATA_HEADER(NonClientView);
 
   explicit NonClientView(ClientView* client_view);
+  NonClientView(const NonClientView&) = delete;
+  NonClientView& operator=(const NonClientView&) = delete;
   ~NonClientView() override;
 
   // Returns the current NonClientFrameView instance, or NULL if
@@ -246,10 +249,18 @@ class VIEWS_EXPORT NonClientView : public View, public ViewTargeterDelegate {
 
   // The accessible name of this view.
   base::string16 accessible_name_;
-
-  DISALLOW_COPY_AND_ASSIGN(NonClientView);
 };
 
+BEGIN_VIEW_BUILDER(VIEWS_EXPORT, NonClientFrameView, View)
+END_VIEW_BUILDER
+
+BEGIN_VIEW_BUILDER(VIEWS_EXPORT, NonClientView, View)
+VIEW_BUILDER_VIEW_PROPERTY(NonClientFrameView, FrameView)
+END_VIEW_BUILDER
+
 }  // namespace views
+
+DEFINE_VIEW_BUILDER(VIEWS_EXPORT, NonClientFrameView)
+DEFINE_VIEW_BUILDER(VIEWS_EXPORT, NonClientView)
 
 #endif  // UI_VIEWS_WINDOW_NON_CLIENT_VIEW_H_

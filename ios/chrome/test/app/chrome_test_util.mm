@@ -5,10 +5,13 @@
 #import "ios/chrome/test/app/chrome_test_util.h"
 
 #include "base/check.h"
+#import "base/ios/ios_util.h"
 #include "base/mac/foundation_util.h"
 #import "base/test/ios/wait_util.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/metrics_service.h"
+#import "components/previous_session_info/previous_session_info.h"
+#import "components/previous_session_info/previous_session_info_private.h"
 #import "ios/chrome/app/application_delegate/app_state.h"
 #import "ios/chrome/app/application_delegate/metrics_mediator.h"
 #import "ios/chrome/app/application_delegate/metrics_mediator_testing.h"
@@ -23,19 +26,17 @@
 #import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/main/browser_list.h"
 #import "ios/chrome/browser/main/browser_list_factory.h"
-#import "ios/chrome/browser/metrics/previous_session_info.h"
-#import "ios/chrome/browser/metrics/previous_session_info_private.h"
 #import "ios/chrome/browser/ui/browser_view/browser_view_controller.h"
 #import "ios/chrome/browser/ui/main/bvc_container_view_controller.h"
 #import "ios/chrome/browser/ui/main/scene_controller.h"
 #import "ios/chrome/browser/ui/main/scene_controller_testing.h"
 #import "ios/chrome/browser/ui/main/scene_state.h"
-#import "ios/chrome/browser/ui/util/multi_window_support.h"
 #include "ios/chrome/browser/ui/util/ui_util.h"
+#include "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/test/app/tab_test_util.h"
 #import "ios/web/public/navigation/navigation_context.h"
 #import "ios/web/public/navigation/navigation_manager.h"
-#include "ios/web/public/test/fakes/test_web_state_observer.h"
+#include "ios/web/public/test/fakes/fake_web_state_observer.h"
 #include "net/base/mac/url_conversions.h"
 #import "third_party/breakpad/breakpad/src/client/ios/BreakpadController.h"
 
@@ -124,14 +125,12 @@ ChromeBrowserState* GetCurrentIncognitoBrowserState() {
   return GetBrowserState(true);
 }
 
-id<BrowserCommands> BrowserCommandDispatcherForMainBVC() {
-  Browser* mainBrowser =
-      GetMainController().interfaceProvider.mainInterface.browser;
-  return static_cast<id<BrowserCommands>>(mainBrowser->GetCommandDispatcher());
+Browser* GetMainBrowser() {
+  return GetMainController().interfaceProvider.mainInterface.browser;
 }
 
 UIViewController* GetActiveViewController() {
-  UIWindow* main_window = [[UIApplication sharedApplication] keyWindow];
+  UIWindow* main_window = GetAnyKeyWindow();
   DCHECK([main_window isKindOfClass:[ChromeOverlayWindow class]]);
   UIViewController* main_view_controller = main_window.rootViewController;
 
@@ -154,8 +153,7 @@ UIViewController* GetActiveViewController() {
 
 id<ApplicationCommands, BrowserCommands> HandlerForActiveBrowser() {
   return static_cast<id<ApplicationCommands, BrowserCommands>>(
-      GetMainController()
-          .interfaceProvider.currentInterface.browser->GetCommandDispatcher());
+      GetMainBrowser()->GetCommandDispatcher());
 }
 
 void RemoveAllInfoBars() {
@@ -169,9 +167,10 @@ void RemoveAllInfoBars() {
   }
 }
 
-void ClearPresentedState() {
-  [GetForegroundActiveSceneController() dismissModalDialogsWithCompletion:nil
-                                                           dismissOmnibox:YES];
+void ClearPresentedState(ProceduralBlock completion) {
+  [GetForegroundActiveSceneController()
+      dismissModalDialogsWithCompletion:completion
+                         dismissOmnibox:YES];
 }
 
 void SetBooleanLocalStatePref(const char* pref_name, bool value) {
@@ -235,7 +234,7 @@ void WaitForBreakpadQueue() {
 }
 
 void OpenChromeFromExternalApp(const GURL& url) {
-  if (IsMultiwindowSupported()) {
+  if (base::ios::IsMultiwindowSupported()) {
     if (@available(iOS 13, *)) {
       UIScene* scene =
           [[UIApplication sharedApplication].connectedScenes anyObject];
@@ -269,8 +268,8 @@ bool PurgeCachedWebViewPages() {
   web_state->SetWebUsageEnabled(false);
   web_state->SetWebUsageEnabled(true);
 
-  auto observer = std::make_unique<web::TestWebStateObserver>(web_state);
-  web::TestWebStateObserver* observer_ptr = observer.get();
+  auto observer = std::make_unique<web::FakeWebStateObserver>(web_state);
+  web::FakeWebStateObserver* observer_ptr = observer.get();
 
   web_state->GetNavigationManager()->LoadIfNecessary();
 

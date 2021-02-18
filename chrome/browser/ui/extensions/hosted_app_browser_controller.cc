@@ -5,11 +5,11 @@
 #include "chrome/browser/ui/extensions/hosted_app_browser_controller.h"
 
 #include "base/strings/utf_string_conversions.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/tab_helper.h"
-#include "chrome/browser/installable/installable_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ssl/security_state_tab_helper.h"
 #include "chrome/browser/ui/browser.h"
@@ -29,14 +29,13 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/url_constants.h"
-#include "content/public/common/web_preferences.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/management_policy.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
+#include "third_party/blink/public/common/web_preferences/web_preferences.h"
 #include "third_party/blink/public/mojom/manifest/display_mode.mojom.h"
-#include "third_party/blink/public/mojom/renderer_preferences.mojom.h"
 #include "ui/gfx/image/image_skia.h"
 #include "url/gurl.h"
 
@@ -72,7 +71,7 @@ bool HostedAppBrowserController::HasMinimalUiButtons() const {
 gfx::ImageSkia HostedAppBrowserController::GetWindowAppIcon() const {
   // TODO(calamity): Use the app name to retrieve the app icon without using the
   // extensions tab helper to make icon load more immediate.
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (base::FeatureList::IsEnabled(features::kAppServiceAdaptiveIcon) &&
       apps::AppServiceProxyFactory::IsAppServiceAvailableForProfile(
           browser()->profile())) {
@@ -109,7 +108,7 @@ gfx::ImageSkia HostedAppBrowserController::GetWindowAppIcon() const {
 }
 
 gfx::ImageSkia HostedAppBrowserController::GetWindowIcon() const {
-  if (IsForWebAppBrowser(browser()))
+  if (IsWebApp(browser()))
     return GetWindowAppIcon();
 
   return browser()->GetCurrentPageIcon().AsImageSkia();
@@ -144,7 +143,7 @@ base::string16 HostedAppBrowserController::GetTitle() const {
   return AppBrowserController::GetTitle();
 }
 
-GURL HostedAppBrowserController::GetAppLaunchURL() const {
+GURL HostedAppBrowserController::GetAppStartUrl() const {
   const Extension* extension = GetExtension();
   if (!extension)
     return GURL();
@@ -163,7 +162,7 @@ bool HostedAppBrowserController::IsUrlInAppScope(const GURL& url) const {
 
   // We don't have a scope, fall back to same origin check.
   if (!url_handlers)
-    return IsSameHostAndPort(GetAppLaunchURL(), url);
+    return IsSameHostAndPort(GetAppStartUrl(), url);
 
   return UrlHandlers::CanBookmarkAppHandleUrl(extension, url);
 }

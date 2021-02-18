@@ -13,7 +13,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/current_thread.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "ui/accessibility/ax_action_data.h"
@@ -51,14 +51,17 @@
 #include "ui/views/controls/menu/menu_pre_target_handler.h"
 #endif
 
-#if defined(USE_X11)
-#include "ui/events/test/events_test_utils_x11.h"
-#include "ui/gfx/x/x11.h"  // nogncheck
-#endif
-
 #if defined(USE_OZONE)
 #include "ui/base/ui_base_features.h"
+#include "ui/ozone/buildflags.h"
 #include "ui/ozone/public/ozone_platform.h"
+#if BUILDFLAG(OZONE_PLATFORM_X11)
+#define USE_OZONE_PLATFORM_X11
+#endif
+#endif
+
+#if defined(USE_X11) || defined(USE_OZONE_PLATFORM_X11)
+#include "ui/events/test/events_test_utils_x11.h"
 #endif
 
 namespace views {
@@ -760,18 +763,22 @@ class MenuControllerTest : public ViewsTestBase,
     return menu_controller_->exit_type_;
   }
 
-  void AddButtonMenuItems() {
+  // Adds a menu item having buttons as children and returns it. If
+  // `single_child` is true, the hosting menu item has only one child button.
+  MenuItemView* AddButtonMenuItems(bool single_child) {
     menu_item()->SetBounds(0, 0, 200, 300);
     MenuItemView* item_view =
         menu_item()->AppendMenuItem(5, base::ASCIIToUTF16("Five"));
-    for (size_t i = 0; i < 3; ++i) {
-      LabelButton* button =
-          new LabelButton(nullptr, base::ASCIIToUTF16("Label"));
+    const size_t children_count = single_child ? 1 : 3;
+    for (size_t i = 0; i < children_count; ++i) {
+      LabelButton* button = new LabelButton(Button::PressedCallback(),
+                                            base::ASCIIToUTF16("Label"));
       // This is an in-menu button. Hence it must be always focusable.
       button->SetFocusBehavior(View::FocusBehavior::ALWAYS);
       item_view->AddChildView(button);
     }
     menu_item()->GetSubmenu()->ShowAt(owner(), menu_item()->bounds(), false);
+    return item_view;
   }
 
   void DestroyMenuItem() { menu_item_.reset(); }
@@ -879,12 +886,16 @@ TEST_F(MenuControllerTest, EventTargeter) {
 }
 #endif  // defined(USE_AURA)
 
-#if defined(USE_X11)
+#if defined(USE_X11) || defined(USE_OZONE_PLATFORM_X11)
 // Tests that touch event ids are released correctly. See crbug.com/439051 for
 // details. When the ids aren't managed correctly, we get stuck down touches.
 TEST_F(MenuControllerTest, TouchIdsReleasedCorrectly) {
-  if (features::IsUsingOzonePlatform())
-    return;
+  // Run this test only for X11 (either Ozone or non-Ozone).
+  if (features::IsUsingOzonePlatform() &&
+      ui::OzonePlatform::GetPlatformNameForTest() != "x11") {
+    GTEST_SKIP();
+  }
+
   TestEventHandler test_event_handler;
   GetRootWindow(owner())->AddPreTargetHandler(&test_event_handler);
 
@@ -907,7 +918,7 @@ TEST_F(MenuControllerTest, TouchIdsReleasedCorrectly) {
 
   GetRootWindow(owner())->RemovePreTargetHandler(&test_event_handler);
 }
-#endif  // defined(USE_X11)
+#endif  // defined(USE_X11) || defined(USE_OZONE_PLATFORM_X11)
 
 // Tests that initial selected menu items are correct when items are enabled or
 // disabled.
@@ -986,6 +997,134 @@ TEST_F(MenuControllerTest, InitialSelectedItem) {
 
   // Clear references in menu controller to the menu item that is going away.
   ResetSelection();
+}
+
+// Verifies that the context menu bubble should prioritize its cached menu
+// position (above or below the anchor) after its size updates
+// (https://crbug.com/1126244).
+TEST_F(MenuControllerTest, VerifyMenuBubblePositionAfterSizeChanges) {
+  constexpr gfx::Rect monitor_bounds(0, 0, 500, 500);
+  constexpr gfx::Size menu_size(100, 200);
+  const gfx::Insets border_and_shadow_insets =
+      BubbleBorder::GetBorderAndShadowInsets(
+          MenuConfig::instance().touchable_menu_shadow_elevation);
+
+  // Calculate the suitable anchor point to ensure that if the menu shows below
+  // the anchor point, the bottom of the menu should be one pixel off the
+  // bottom of the display. It means that there is insufficient space for the
+  // menu below the anchor.
+  const gfx::Point anchor_point(monitor_bounds.width() / 2,
+                                monitor_bounds.bottom() + 1 -
+                                    menu_size.height() +
+                                    border_and_shadow_insets.top());
+
+  MenuBoundsOptions options;
+  options.menu_anchor = MenuAnchorPosition::kBubbleRight;
+  options.monitor_bounds = monitor_bounds;
+  options.anchor_bounds = gfx::Rect(anchor_point, gfx::Size());
+
+  // Case 1: There is insufficient space for the menu below `anchor_point` and
+  // there is no cached menu position. The menu should show above the anchor.
+  {
+    options.menu_size = menu_size;
+    ASSERT_GT(options.anchor_bounds.y() - border_and_shadow_insets.top() +
+                  menu_size.height(),
+              monitor_bounds.bottom());
+    CalculateBubbleMenuBounds(options);
+    EXPECT_EQ(MenuItemView::MenuPosition::kAboveBounds,
+              menu_item()->ActualMenuPosition());
+  }
+
+  // Case 2: There is insufficient space for the menu below `anchor_point`. The
+  // cached position is below the anchor. The menu should show above the anchor.
+  {
+    options.menu_size = menu_size;
+    options.menu_position = MenuItemView::MenuPosition::kBelowBounds;
+    CalculateBubbleMenuBounds(options);
+    EXPECT_EQ(MenuItemView::MenuPosition::kAboveBounds,
+              menu_item()->ActualMenuPosition());
+  }
+
+  // Case 3: There is enough space for the menu below `anchor_point`. The cached
+  // menu position is above the anchor. The menu should show above the anchor.
+  {
+    // Shrink the menu size. Verify that there is enough space below the anchor
+    // point now.
+    constexpr gfx::Size updated_size(menu_size.width(), menu_size.height() / 2);
+    options.menu_size = updated_size;
+    EXPECT_LE(options.anchor_bounds.y() - border_and_shadow_insets.top() +
+                  updated_size.height(),
+              monitor_bounds.bottom());
+
+    options.menu_position = MenuItemView::MenuPosition::kAboveBounds;
+    CalculateBubbleMenuBounds(options);
+    EXPECT_EQ(MenuItemView::MenuPosition::kAboveBounds,
+              menu_item()->ActualMenuPosition());
+  }
+}
+
+// Verifies that the context menu bubble position, MenuPosition::kBubbleBelow,
+// does not shift as items are removed. The menu position will shift it items
+// are added and the menu no longer fits in its previous position.
+TEST_F(MenuControllerTest, VerifyMenuBubbleBelowPositionAfterSizeChanges) {
+  constexpr gfx::Rect kMonitorBounds(0, 0, 500, 500);
+  constexpr gfx::Size kMenuSize(100, 200);
+  const gfx::Insets border_and_shadow_insets =
+      BubbleBorder::GetBorderAndShadowInsets(
+          MenuConfig::instance().touchable_menu_shadow_elevation);
+
+  // Calculate the suitable anchor point to ensure that if the menu shows below
+  // the anchor point, the bottom of the menu should be one pixel off the
+  // bottom of the display. It means that there is insufficient space for the
+  // menu below the anchor.
+  const gfx::Point anchor_point(kMonitorBounds.width() / 2,
+                                kMonitorBounds.bottom() + 1 -
+                                    kMenuSize.height() +
+                                    border_and_shadow_insets.top());
+
+  MenuBoundsOptions options;
+  options.menu_anchor = MenuAnchorPosition::kBubbleBelow;
+  options.monitor_bounds = kMonitorBounds;
+  options.anchor_bounds = gfx::Rect(anchor_point, gfx::Size());
+
+  // Case 1: There is insufficient space for the menu below `anchor_point` and
+  // there is no cached menu position. The menu should show above the anchor.
+  {
+    options.menu_size = kMenuSize;
+    ASSERT_GT(options.anchor_bounds.y() - border_and_shadow_insets.top() +
+                  kMenuSize.height(),
+              kMonitorBounds.bottom());
+    CalculateBubbleMenuBounds(options);
+    EXPECT_EQ(MenuItemView::MenuPosition::kAboveBounds,
+              menu_item()->ActualMenuPosition());
+  }
+
+  // Case 2: There is insufficient space for the menu below `anchor_point`. The
+  // cached position is below the anchor. The menu should show above the anchor
+  // point.
+  {
+    options.menu_position = MenuItemView::MenuPosition::kBelowBounds;
+    CalculateBubbleMenuBounds(options);
+    EXPECT_EQ(MenuItemView::MenuPosition::kAboveBounds,
+              menu_item()->ActualMenuPosition());
+  }
+
+  // Case 3: There is enough space for the menu below `anchor_point`. The cached
+  // menu position is above the anchor. The menu should show above the anchor.
+  {
+    // Shrink the menu size. Verify that there is enough space below the anchor
+    // point now.
+    constexpr gfx::Size kUpdatedSize(kMenuSize.width(), kMenuSize.height() / 2);
+    options.menu_size = kUpdatedSize;
+    EXPECT_LE(options.anchor_bounds.y() - border_and_shadow_insets.top() +
+                  kUpdatedSize.height(),
+              kMonitorBounds.bottom());
+
+    options.menu_position = MenuItemView::MenuPosition::kAboveBounds;
+    CalculateBubbleMenuBounds(options);
+    EXPECT_EQ(MenuItemView::MenuPosition::kAboveBounds,
+              menu_item()->ActualMenuPosition());
+  }
 }
 
 // Tests that opening the menu and pressing 'Home' selects the first menu item.
@@ -1197,7 +1336,7 @@ TEST_F(MenuControllerTest, SelectByChar) {
 }
 
 TEST_F(MenuControllerTest, SelectChildButtonView) {
-  AddButtonMenuItems();
+  AddButtonMenuItems(/*single_child=*/false);
   View* buttons_view = menu_item()->GetSubmenu()->children()[4];
   ASSERT_NE(nullptr, buttons_view);
   Button* button1 = Button::AsButton(buttons_view->children()[0]);
@@ -1267,7 +1406,7 @@ TEST_F(MenuControllerTest, SelectChildButtonView) {
 }
 
 TEST_F(MenuControllerTest, DeleteChildButtonView) {
-  AddButtonMenuItems();
+  AddButtonMenuItems(/*single_child=*/false);
 
   // Handle searching for 'f'; should find "Four".
   SelectByChar('f');
@@ -1306,10 +1445,44 @@ TEST_F(MenuControllerTest, DeleteChildButtonView) {
   EXPECT_FALSE(button3->IsHotTracked());
 }
 
+// Verifies that the child button is hot tracked after the host menu item is
+// selected by `MenuController::SelectItemAndOpenSubmenu()`.
+TEST_F(MenuControllerTest, ChildButtonHotTrackedAfterMenuItemSelection) {
+  // Add a menu item which owns a button as child.
+  MenuItemView* hosting_menu_item = AddButtonMenuItems(/*single_child=*/true);
+  ASSERT_FALSE(hosting_menu_item->IsSelected());
+  const Button* button = Button::AsButton(hosting_menu_item->children()[0]);
+  EXPECT_FALSE(button->IsHotTracked());
+
+  menu_controller()->SelectItemAndOpenSubmenu(hosting_menu_item);
+  EXPECT_TRUE(hosting_menu_item->IsSelected());
+  EXPECT_TRUE(button->IsHotTracked());
+}
+
+// Verifies that the child button of the menu item which is under mouse hovering
+// is hot tracked (https://crbug.com/1135000).
+TEST_F(MenuControllerTest, ChildButtonHotTrackedAfterMouseMove) {
+  // Add a menu item which owns a button as child.
+  MenuItemView* hosting_menu_item = AddButtonMenuItems(/*single_child=*/true);
+  const Button* button = Button::AsButton(hosting_menu_item->children()[0]);
+  EXPECT_FALSE(button->IsHotTracked());
+
+  SubmenuView* sub_menu = menu_item()->GetSubmenu();
+  gfx::Point location(button->GetBoundsInScreen().CenterPoint());
+  View::ConvertPointFromScreen(sub_menu->GetScrollViewContainer(), &location);
+  ui::MouseEvent event(ui::ET_MOUSE_MOVED, location, location,
+                       ui::EventTimeForNow(), 0, 0);
+  ProcessMouseMoved(sub_menu, event);
+
+  // After the mouse moves to `button`, `button` should be hot tracked.
+  EXPECT_EQ(button, GetHotButton());
+  EXPECT_TRUE(button->IsHotTracked());
+}
+
 // Creates a menu with Button child views, simulates running a nested
 // menu and tests that existing the nested run restores hot-tracked child view.
 TEST_F(MenuControllerTest, ChildButtonHotTrackedWhenNested) {
-  AddButtonMenuItems();
+  AddButtonMenuItems(/*single_child=*/false);
 
   // Handle searching for 'f'; should find "Four".
   SelectByChar('f');
@@ -1991,7 +2164,7 @@ TEST_P(MenuControllerTest, TestSubmenuFitsOnScreen) {
   MenuItemView* sub_item = menu_item()->GetSubmenu()->GetMenuItemAt(0);
   sub_item->AppendMenuItem(11, base::ASCIIToUTF16("Subitem.One"));
 
-  const int menu_width = MenuConfig::instance().touchable_menu_width;
+  const int menu_width = MenuConfig::instance().touchable_menu_min_width;
   const gfx::Size parent_size(menu_width, menu_width);
   const gfx::Size parent_size_wide(menu_width * 2, menu_width);
 
@@ -2134,7 +2307,7 @@ TEST_F(MenuControllerTest, RunWithoutWidgetDoesntCrash) {
 TEST_F(MenuControllerTest, MenuControllerReplacedDuringDrag) {
   // Build the menu so that the appropriate root window is available to set the
   // drag drop client on.
-  AddButtonMenuItems();
+  AddButtonMenuItems(/*single_child=*/false);
   TestDragDropClient drag_drop_client(base::BindRepeating(
       &MenuControllerTest::TestMenuControllerReplacementDuringDrag,
       base::Unretained(this)));
@@ -2149,7 +2322,7 @@ TEST_F(MenuControllerTest, MenuControllerReplacedDuringDrag) {
 TEST_F(MenuControllerTest, CancelAllDuringDrag) {
   // Build the menu so that the appropriate root window is available to set the
   // drag drop client on.
-  AddButtonMenuItems();
+  AddButtonMenuItems(/*single_child=*/false);
   TestDragDropClient drag_drop_client(base::BindRepeating(
       &MenuControllerTest::TestCancelAllDuringDrag, base::Unretained(this)));
   aura::client::SetDragDropClient(
@@ -2395,7 +2568,7 @@ TEST_F(MenuControllerTest,
 }
 
 TEST_F(MenuControllerTest, SetSelectionIndices_Buttons) {
-  AddButtonMenuItems();
+  AddButtonMenuItems(/*single_child=*/false);
   MenuItemView* const item1 = menu_item()->GetSubmenu()->GetMenuItemAt(0);
   MenuItemView* const item2 = menu_item()->GetSubmenu()->GetMenuItemAt(1);
   MenuItemView* const item3 = menu_item()->GetSubmenu()->GetMenuItemAt(2);
@@ -2437,7 +2610,7 @@ TEST_F(MenuControllerTest, SetSelectionIndices_Buttons) {
 }
 
 TEST_F(MenuControllerTest, SetSelectionIndices_Buttons_SkipHiddenAndDisabled) {
-  AddButtonMenuItems();
+  AddButtonMenuItems(/*single_child=*/false);
   MenuItemView* const item1 = menu_item()->GetSubmenu()->GetMenuItemAt(0);
   MenuItemView* const item2 = menu_item()->GetSubmenu()->GetMenuItemAt(1);
   MenuItemView* const item3 = menu_item()->GetSubmenu()->GetMenuItemAt(2);

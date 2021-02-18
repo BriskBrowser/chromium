@@ -25,6 +25,7 @@
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/element.h"
+#include "third_party/blink/renderer/core/dom/events/simulated_click_options.h"
 #include "third_party/blink/renderer/core/html/forms/labels_node_list.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
@@ -96,11 +97,11 @@ class CORE_EXPORT HTMLElement : public Element {
 
   void click();
 
-  void AccessKeyAction(bool send_mouse_events) override;
+  void AccessKeyAction(SimulatedClickCreationScope creation_scope) override;
 
   bool ShouldSerializeEndTag() const;
 
-  virtual HTMLFormElement* formOwner() const { return nullptr; }
+  virtual HTMLFormElement* formOwner() const;
 
   HTMLFormElement* FindFormAncestor() const;
 
@@ -153,16 +154,27 @@ class CORE_EXPORT HTMLElement : public Element {
   virtual FormAssociated* ToFormAssociatedOrNull() { return nullptr; }
   bool IsFormAssociatedCustomElement() const;
 
+  TextDirection ComputeInheritedDirectionality() const;
+  void AddCandidateDirectionalityForSlot();
+  static void AdjustCandidateDirectionalityForSlot(
+      HeapHashSet<Member<HTMLElement>> candidate_set);
+  void UpdateDescendantHasDirAutoAttribute(bool has_dir_auto);
+
  protected:
   enum AllowPercentage { kDontAllowPercentageValues, kAllowPercentageValues };
+  enum AllowZero { kDontAllowZeroValues, kAllowZeroValues };
   void AddHTMLLengthToStyle(MutableCSSPropertyValueSet*,
                             CSSPropertyID,
                             const String& value,
-                            AllowPercentage = kAllowPercentageValues);
+                            AllowPercentage = kAllowPercentageValues,
+                            AllowZero = kAllowZeroValues);
   void AddHTMLColorToStyle(MutableCSSPropertyValueSet*,
                            CSSPropertyID,
                            const String& color);
 
+  void ApplyAspectRatioToStyle(const AtomicString& width,
+                               const AtomicString& height,
+                               MutableCSSPropertyValueSet*);
   void ApplyAlignmentAttributeToStyle(const AtomicString&,
                                       MutableCSSPropertyValueSet*);
   void ApplyBorderAttributeToStyle(const AtomicString&,
@@ -180,7 +192,7 @@ class CORE_EXPORT HTMLElement : public Element {
   unsigned ParseBorderWidthAttribute(const AtomicString&) const;
 
   void ChildrenChanged(const ChildrenChange&) override;
-  void CalculateAndAdjustDirectionality();
+  bool CalculateAndAdjustAutoDirectionality();
 
   InsertionNotificationRequest InsertedInto(ContainerNode&) override;
   void RemovedFrom(ContainerNode& insertion_point) override;
@@ -201,10 +213,9 @@ class CORE_EXPORT HTMLElement : public Element {
 
   DocumentFragment* TextToFragment(const String&, ExceptionState&);
 
-  bool SelfOrAncestorHasDirAutoAttribute() const;
   void AdjustDirectionalityIfNeededAfterChildAttributeChanged(Element* child);
-  void AdjustDirectionalityIfNeededAfterChildrenChanged(const ChildrenChange&);
-  TextDirection Directionality() const;
+  void AdjustDirectionalityIfNeededAfterChildrenChanged();
+  TextDirection ResolveAutoDirectionality(bool& is_deferred) const;
 
   TranslateAttributeMode GetTranslateAttributeMode() const;
 

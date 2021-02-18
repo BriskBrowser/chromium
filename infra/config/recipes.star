@@ -28,6 +28,10 @@ build_recipe = _recipe_for_package(
 )
 
 build_recipe(
+    name = "recipe:android/androidx_packager",
+)
+
+build_recipe(
     name = "recipe:android/avd_packager",
 )
 
@@ -52,11 +56,19 @@ build_recipe(
 )
 
 build_recipe(
+    name = "recipe:binary_size_cast_trybot",
+)
+
+build_recipe(
     name = "recipe:celab",
 )
 
 build_recipe(
     name = "recipe:chromium",
+)
+
+build_recipe(
+    name = "recipe:chromium_3pp",
 )
 
 build_recipe(
@@ -86,15 +98,16 @@ build_recipe(
 )
 
 build_recipe(
+    name = "recipe:chromium_rts/create_model",
+    use_bbagent = True,
+)
+
+build_recipe(
     name = "recipe:chromium_trybot",
 )
 
 build_recipe(
     name = "recipe:chromium_upload_clang",
-)
-
-build_recipe(
-    name = "recipe:closure_compilation",
 )
 
 build_recipe(
@@ -118,14 +131,6 @@ build_recipe(
 )
 
 build_recipe(
-    name = "recipe:ios/try",
-)
-
-build_recipe(
-    name = "recipe:ios/unified_builder_tester",
-)
-
-build_recipe(
     name = "recipe:presubmit",
 )
 
@@ -139,6 +144,14 @@ build_recipe(
 
 build_recipe(
     name = "recipe:tricium_metrics",
+)
+
+build_recipe(
+    name = "recipe:tricium_oilpan",
+)
+
+build_recipe(
+    name = "recipe:tricium_simple",
 )
 
 build_recipe(

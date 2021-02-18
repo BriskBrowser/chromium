@@ -13,13 +13,12 @@
 #include "content/public/browser/web_contents.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/color_palette.h"
-#include "ui/views/controls/styled_label_listener.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 #include "url/gurl.h"
 
 namespace views {
-class StyledLabel;
 class Textfield;
 }  // namespace views
 
@@ -30,6 +29,7 @@ namespace autofill {
 // custom horizontal padding.
 class TitleWithIconAndSeparatorView : public views::View {
  public:
+  METADATA_HEADER(TitleWithIconAndSeparatorView);
   explicit TitleWithIconAndSeparatorView(const base::string16& window_title);
   ~TitleWithIconAndSeparatorView() override;
 
@@ -45,18 +45,13 @@ std::unique_ptr<views::Textfield> CreateCvcTextfield();
 // parsing and the links clicking events.
 class LegalMessageView : public views::View {
  public:
+  METADATA_HEADER(LegalMessageView);
+
+  using LinkClickedCallback = base::RepeatingCallback<void(const GURL&)>;
+
   explicit LegalMessageView(const LegalMessageLines& legal_message_lines,
-                            views::StyledLabelListener* listener);
+                            LinkClickedCallback callback);
   ~LegalMessageView() override;
-
-  const GURL GetUrlForLink(views::StyledLabel* label, const gfx::Range& range);
-
- private:
-  std::unique_ptr<views::StyledLabel> CreateLegalMessageLineLabel(
-      const LegalMessageLine& line,
-      views::StyledLabelListener* listener);
-
-  LegalMessageLines legal_message_lines_;
 };
 
 PaymentsBubbleClosedReason GetPaymentsBubbleClosedReasonFromWidgetClosedReason(

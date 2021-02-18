@@ -32,17 +32,19 @@ CreateAnimationAndPaintWorkletThread(
       std::make_unique<GlobalScopeCreationParams>(
           window->Url(), mojom::blink::ScriptType::kModule, "Worklet",
           window->UserAgent(), window->GetFrame()->Loader().UserAgentMetadata(),
-          nullptr /* web_worker_fetch_context */, Vector<CSPHeaderAndType>(),
+          nullptr /* web_worker_fetch_context */,
+          Vector<network::mojom::blink::ContentSecurityPolicyPtr>(),
           window->GetReferrerPolicy(), window->GetSecurityOrigin(),
           window->IsSecureContext(), window->GetHttpsState(), clients,
           nullptr /* content_settings_client */, window->AddressSpace(),
           OriginTrialContext::GetTokens(window).get(),
           base::UnguessableToken::Create(), nullptr /* worker_settings */,
-          kV8CacheOptionsDefault,
+          mojom::blink::V8CacheOptions::kDefault,
           MakeGarbageCollected<WorkletModuleResponsesMap>(),
           mojo::NullRemote() /* browser_interface_broker */,
           BeginFrameProviderParams(), nullptr /* parent_feature_policy */,
-          window->GetAgentClusterID(), window->GetExecutionContextToken()),
+          window->GetAgentClusterID(), ukm::kInvalidSourceId,
+          window->GetExecutionContextToken()),
       base::nullopt, std::make_unique<WorkerDevToolsParams>());
   return thread;
 }

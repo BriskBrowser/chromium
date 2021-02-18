@@ -18,6 +18,7 @@ import org.json.JSONObject;
 
 import org.chromium.weblayer_private.interfaces.APICallException;
 import org.chromium.weblayer_private.interfaces.IClientNavigation;
+import org.chromium.weblayer_private.interfaces.IContextMenuParams;
 import org.chromium.weblayer_private.interfaces.IErrorPageCallbackClient;
 import org.chromium.weblayer_private.interfaces.IFullscreenCallbackClient;
 import org.chromium.weblayer_private.interfaces.IGoogleAccountsCallbackClient;
@@ -47,14 +48,17 @@ public class Tab {
     private static final Map<Integer, Tab> sTabMap = new HashMap<Integer, Tab>();
 
     private ITab mImpl;
+    // Remember the stack of Tab destruction.
+    private Throwable mDestroyStack;
     private final NavigationController mNavigationController;
     private final FindInPageController mFindInPageController;
     private final MediaCaptureController mMediaCaptureController;
     private final ObserverList<TabCallback> mCallbacks;
     private Browser mBrowser;
-    private Profile.DownloadCallbackClientImpl mDownloadCallbackClient;
     private FullscreenCallbackClientImpl mFullscreenCallbackClient;
     private NewTabCallback mNewTabCallback;
+    private final ObserverList<ScrollOffsetCallback> mScrollOffsetCallbacks;
+    private @Nullable ActionModeCallback mActionModeCallback;
     // Id from the remote side.
     private final int mId;
 
@@ -65,6 +69,7 @@ public class Tab {
         mFindInPageController = null;
         mMediaCaptureController = null;
         mCallbacks = null;
+        mScrollOffsetCallbacks = null;
         mId = 0;
     }
 
@@ -79,6 +84,7 @@ public class Tab {
         }
 
         mCallbacks = new ObserverList<TabCallback>();
+        mScrollOffsetCallbacks = new ObserverList<ScrollOffsetCallback>();
         mNavigationController = NavigationController.create(mImpl);
         mFindInPageController = new FindInPageController(mImpl);
         mMediaCaptureController = new MediaCaptureController(mImpl);
@@ -107,6 +113,12 @@ public class Tab {
         return tabs;
     }
 
+    private void throwIfDestroyed() {
+        if (mImpl == null) {
+            throw new IllegalStateException("Tab can not be used once destroyed", mDestroyStack);
+        }
+    }
+
     int getId() {
         return mId;
     }
@@ -115,32 +127,42 @@ public class Tab {
         mBrowser = browser;
     }
 
-    @NonNull
-    public Browser getBrowser() {
+    /**
+     * Returns true if this Tab has been destroyed.
+     */
+    public boolean isDestroyed() {
         ThreadCheck.ensureOnUiThread();
-        return mBrowser;
+        return mImpl == null;
     }
 
     /**
-     * Deprecated. Use Profile.setDownloadCallback instead.
+     * Returns whether the tab will automatically reload after its renderer process is lost.
+     *
+     * This returns true if the tab is known not to be visible, specifically if the tab is not
+     * active in its browser or its Fragment is not started. When a tab in this state loses its
+     * renderer process to a crash (or due to system memory reclamation), it will automatically
+     * reload next the time it becomes possibly visible.
      */
-    public void setDownloadCallback(@Nullable DownloadCallback callback) {
+    public boolean willAutomaticallyReloadAfterCrash() {
         ThreadCheck.ensureOnUiThread();
+        throwIfDestroyed();
         try {
-            if (callback != null) {
-                mDownloadCallbackClient = new Profile.DownloadCallbackClientImpl(callback);
-                mImpl.setDownloadCallbackClient(mDownloadCallbackClient);
-            } else {
-                mDownloadCallbackClient = null;
-                mImpl.setDownloadCallbackClient(null);
-            }
+            return mImpl.willAutomaticallyReloadAfterCrash();
         } catch (RemoteException e) {
             throw new APICallException(e);
         }
     }
 
+    @NonNull
+    public Browser getBrowser() {
+        ThreadCheck.ensureOnUiThread();
+        throwIfDestroyed();
+        return mBrowser;
+    }
+
     public void setErrorPageCallback(@Nullable ErrorPageCallback callback) {
         ThreadCheck.ensureOnUiThread();
+        throwIfDestroyed();
         try {
             mImpl.setErrorPageCallbackClient(
                     callback == null ? null : new ErrorPageCallbackClientImpl(callback));
@@ -151,6 +173,7 @@ public class Tab {
 
     public void setFullscreenCallback(@Nullable FullscreenCallback callback) {
         ThreadCheck.ensureOnUiThread();
+        throwIfDestroyed();
         try {
             if (callback != null) {
                 mFullscreenCallbackClient = new FullscreenCallbackClientImpl(callback);
@@ -178,15 +201,29 @@ public class Tab {
      * page dynamically updates the favicon.
      *
      * @param callback The callback to notify of changes.
-     *
-     * @since 86
      */
     public @NonNull FaviconFetcher createFaviconFetcher(@NonNull FaviconCallback callback) {
         ThreadCheck.ensureOnUiThread();
-        if (WebLayer.getSupportedMajorVersionInternal() < 86) {
-            throw new UnsupportedOperationException();
-        }
+        throwIfDestroyed();
         return new FaviconFetcher(mImpl, callback);
+    }
+
+    /**
+     * Sets the target language for translation such that whenever the translate UI shows in this
+     * Tab, the target language will be |targetLanguage|. Notes:
+     * - |targetLanguage| should be specified as the language code (e.g., "de" for German).
+     * - Passing an empty string causes behavior to revert to default.
+     * - Even with the target language specified, the translate UI will not trigger for pages in the
+     *   user's locale.
+     */
+    public void setTranslateTargetLanguage(@NonNull String targetLanguage) {
+        ThreadCheck.ensureOnUiThread();
+        throwIfDestroyed();
+        try {
+            mImpl.setTranslateTargetLanguage(targetLanguage);
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
     }
 
     /**
@@ -202,6 +239,7 @@ public class Tab {
     public void executeScript(@NonNull String script, boolean useSeparateIsolate,
             @Nullable ValueCallback<JSONObject> callback) {
         ThreadCheck.ensureOnUiThread();
+        throwIfDestroyed();
         try {
             ValueCallback<String> stringCallback = (String result) -> {
                 if (callback == null) {
@@ -227,22 +265,16 @@ public class Tab {
      * asynchronously closes the tab.
      *
      * If there is a beforeunload handler a dialog is shown to the user which will allow them to
-     * choose whether to proceed with closing the tab. If the WebLayer implementation is < 84 the
-     * closure will be notified via {@link NewTabCallback#onCloseTab}; on 84 and above, WebLayer
-     * closes the tab internally and the embedder will be notified via
-     * TabListCallback#onTabRemoved(). The tab will not close if the user chooses to cancel the
-     * action. If there is no beforeunload handler, the tab closure will be asynchronous (but
-     * immediate) and will be notified in the same way.
+     * choose whether to proceed with closing the tab. WebLayer closes the tab internally and the
+     * embedder will be notified via TabListCallback#onTabRemoved(). The tab will not close if the
+     * user chooses to cancel the action. If there is no beforeunload handler, the tab closure will
+     * be asynchronous (but immediate) and will be notified in the same way.
      *
      * To close the tab synchronously without running beforeunload, use {@link Browser#destroyTab}.
-     *
-     * @since 82
      */
     public void dispatchBeforeUnloadAndClose() {
         ThreadCheck.ensureOnUiThread();
-        if (WebLayer.getSupportedMajorVersionInternal() < 82) {
-            throw new UnsupportedOperationException();
-        }
+        throwIfDestroyed();
         try {
             mImpl.dispatchBeforeUnloadAndClose();
         } catch (RemoteException e) {
@@ -259,14 +291,10 @@ public class Tab {
      * such kind of UI would tend to be active at a time.
      *
      * @return true if some piece of UI was dismissed, or false if nothing happened.
-     *
-     * @since 82
      */
     public boolean dismissTransientUi() {
         ThreadCheck.ensureOnUiThread();
-        if (WebLayer.getSupportedMajorVersionInternal() < 82) {
-            throw new UnsupportedOperationException();
-        }
+        throwIfDestroyed();
         try {
             return mImpl.dismissTransientUi();
         } catch (RemoteException e) {
@@ -276,6 +304,7 @@ public class Tab {
 
     public void setNewTabCallback(@Nullable NewTabCallback callback) {
         ThreadCheck.ensureOnUiThread();
+        throwIfDestroyed();
         mNewTabCallback = callback;
         try {
             mImpl.setNewTabsEnabled(mNewTabCallback != null);
@@ -287,59 +316,96 @@ public class Tab {
     @Nullable
     public FullscreenCallback getFullscreenCallback() {
         ThreadCheck.ensureOnUiThread();
+        throwIfDestroyed();
         return mFullscreenCallbackClient != null ? mFullscreenCallbackClient.getCallback() : null;
     }
 
     @NonNull
     public NavigationController getNavigationController() {
         ThreadCheck.ensureOnUiThread();
+        throwIfDestroyed();
         return mNavigationController;
     }
 
     @NonNull
     public FindInPageController getFindInPageController() {
         ThreadCheck.ensureOnUiThread();
+        throwIfDestroyed();
         return mFindInPageController;
     }
 
     @NonNull
     public MediaCaptureController getMediaCaptureController() {
         ThreadCheck.ensureOnUiThread();
+        throwIfDestroyed();
         return mMediaCaptureController;
     }
 
     public void registerTabCallback(@NonNull TabCallback callback) {
         ThreadCheck.ensureOnUiThread();
+        throwIfDestroyed();
         mCallbacks.addObserver(callback);
     }
 
     public void unregisterTabCallback(@NonNull TabCallback callback) {
         ThreadCheck.ensureOnUiThread();
+        throwIfDestroyed();
         mCallbacks.removeObserver(callback);
     }
 
     /**
-     * Take a screenshot of this tab and return it as a Bitmap.
-     * This API captures only the web content, not any Java Views, including the
-     * view in Browser.setTopView. The browser top view shrinks the height of
-     * the screenshot if it is not completely hidden.
-     * This method will fail if
-     * * the Fragment of this Tab is not started during the operation
-     * * this tab is not the active tab in its Browser
-     * * if scale is not in the range (0, 1]
-     * * Bitmap allocation fails
-     * The API is asynchronous when successful, but can be synchronous on
-     * failure. So embedder must take care when implementing resultCallback to
-     * allow reentrancy.
+     * Registers {@link callback} to be notified when the scroll offset changes. <b>WARNING:</b>
+     * adding a {@link ScrollOffsetCallback} impacts performance, ensure
+     * {@link ScrollOffsetCallback} are only installed when needed. See {@link ScrollOffsetCallback}
+     * for more details.
+     *
+     * @param callback The ScrollOffsetCallback to notify
+     */
+    public void registerScrollOffsetCallback(@NonNull ScrollOffsetCallback callback) {
+        ThreadCheck.ensureOnUiThread();
+        throwIfDestroyed();
+        if (mScrollOffsetCallbacks.isEmpty()) {
+            try {
+                mImpl.setScrollOffsetsEnabled(true);
+            } catch (RemoteException e) {
+                throw new APICallException(e);
+            }
+        }
+        mScrollOffsetCallbacks.addObserver(callback);
+    }
+
+    public void unregisterScrollOffsetCallback(@NonNull ScrollOffsetCallback callback) {
+        ThreadCheck.ensureOnUiThread();
+        throwIfDestroyed();
+        mScrollOffsetCallbacks.removeObserver(callback);
+        if (mScrollOffsetCallbacks.isEmpty()) {
+            try {
+                mImpl.setScrollOffsetsEnabled(false);
+            } catch (RemoteException e) {
+                throw new APICallException(e);
+            }
+        }
+    }
+
+    /**
+     * Take a screenshot of this tab and return it as a Bitmap.
+     * This API captures only the web content, not any Java Views, including the
+     * view in Browser.setTopView. The browser top view shrinks the height of
+     * the screenshot if it is not completely hidden.
+     * This method will fail if
+     * * the Fragment of this Tab is not started during the operation
+     * * this tab is not the active tab in its Browser
+     * * if scale is not in the range (0, 1]
+     * * Bitmap allocation fails
+     * The API is asynchronous when successful, but can be synchronous on
+     * failure. So embedder must take care when implementing resultCallback to
+     * allow reentrancy.
      * @param scale Scale applied to the Bitmap.
-     * @param resultCallback Called when operation is complete.
-     * @since 84
+     * @param resultCallback Called when operation is complete.
      */
     public void captureScreenShot(float scale, @NonNull CaptureScreenShotCallback callback) {
         ThreadCheck.ensureOnUiThread();
-        if (WebLayer.getSupportedMajorVersionInternal() < 84) {
-            throw new UnsupportedOperationException();
-        }
+        throwIfDestroyed();
         try {
             mImpl.captureScreenShot(scale,
                     ObjectWrapper.wrap(
@@ -359,14 +425,11 @@ public class Tab {
      * Returns a unique id that persists across restarts.
      *
      * @return the unique id.
-     * @since 82
      */
     @NonNull
     public String getGuid() {
         ThreadCheck.ensureOnUiThread();
-        if (WebLayer.getSupportedMajorVersionInternal() < 82) {
-            throw new UnsupportedOperationException();
-        }
+        throwIfDestroyed();
         try {
             return mImpl.getGuid();
         } catch (RemoteException e) {
@@ -382,14 +445,10 @@ public class Tab {
      *   is taken, so any changes to the passed in object after this call will not be reflected.
      *
      * @throws IllegalArgumentException if the serialzed size of the data exceeds 4K.
-     *
-     * @since 85
      */
     public void setData(@NonNull Map<String, String> data) {
         ThreadCheck.ensureOnUiThread();
-        if (WebLayer.getSupportedMajorVersionInternal() < 85) {
-            throw new UnsupportedOperationException();
-        }
+        throwIfDestroyed();
         try {
             if (!mImpl.setData(data)) {
                 throw new IllegalArgumentException("Data given to Tab.setData() was too large.");
@@ -403,14 +462,11 @@ public class Tab {
      * Get arbitrary data set on the tab with setData().
      *
      * @return the data or an empty map if no data was set.
-     * @since 85
      */
     @NonNull
     public Map<String, String> getData() {
         ThreadCheck.ensureOnUiThread();
-        if (WebLayer.getSupportedMajorVersionInternal() < 85) {
-            throw new UnsupportedOperationException();
-        }
+        throwIfDestroyed();
         try {
             return (Map<String, String>) mImpl.getData();
         } catch (RemoteException e) {
@@ -422,14 +478,10 @@ public class Tab {
      * Sets a callback to intercept interaction with GAIA accounts. If this callback is set, any
      * link that would result in a change to a user's GAIA account state will trigger a call to
      * {@link GoogleAccountsCallback#onGoogleAccountsRequest}.
-     *
-     * @since 86
      */
     public void setGoogleAccountsCallback(@Nullable GoogleAccountsCallback callback) {
         ThreadCheck.ensureOnUiThread();
-        if (WebLayer.getSupportedMajorVersionInternal() < 86) {
-            throw new UnsupportedOperationException();
-        }
+        throwIfDestroyed();
         try {
             mImpl.setGoogleAccountsCallbackClient(
                     callback == null ? null : new GoogleAccountsCallbackClientImpl(callback));
@@ -575,15 +627,11 @@ public class Tab {
      * @param allowedOrigins The set of allowed origins.
      *
      * @throws IllegalArgumentException if jsObjectName or allowedOrigins is invalid.
-     *
-     * @since 85
      */
     public void registerWebMessageCallback(@NonNull WebMessageCallback callback,
             @NonNull String jsObjectName, @NonNull List<String> allowedOrigins) {
         ThreadCheck.ensureOnUiThread();
-        if (WebLayer.getSupportedMajorVersionInternal() < 85) {
-            throw new UnsupportedOperationException();
-        }
+        throwIfDestroyed();
         try {
             mImpl.registerWebMessageCallback(
                     jsObjectName, allowedOrigins, new WebMessageCallbackClientImpl(callback));
@@ -597,13 +645,10 @@ public class Tab {
      * This impacts future navigations (not any already loaded navigations).
      *
      * @param jsObjectName Name of the JavaScript object.
-     * @since 85
      */
     public void unregisterWebMessageCallback(@NonNull String jsObjectName) {
         ThreadCheck.ensureOnUiThread();
-        if (WebLayer.getSupportedMajorVersionInternal() < 85) {
-            throw new UnsupportedOperationException();
-        }
+        throwIfDestroyed();
         try {
             mImpl.unregisterWebMessageCallback(jsObjectName);
         } catch (RemoteException e) {
@@ -613,14 +658,10 @@ public class Tab {
 
     /**
      * Returns true if the content displayed in this tab can be translated.
-     *
-     * @since 85
      */
     public boolean canTranslate() {
         ThreadCheck.ensureOnUiThread();
-        if (WebLayer.getSupportedMajorVersionInternal() < 85) {
-            throw new UnsupportedOperationException();
-        }
+        throwIfDestroyed();
         try {
             return mImpl.canTranslate();
         } catch (RemoteException e) {
@@ -630,16 +671,115 @@ public class Tab {
 
     /**
      * Shows the UI which allows the user to translate the content displayed in this tab.
-     *
-     * @since 85
      */
     public void showTranslateUi() {
         ThreadCheck.ensureOnUiThread();
-        if (WebLayer.getSupportedMajorVersionInternal() < 85) {
+        throwIfDestroyed();
+        try {
+            mImpl.showTranslateUi();
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
+    }
+
+    /**
+     * Allow controlling and overriding custom items in the floating seleciton menu.
+     * Note floating action mode is available on M and up.
+     * @param actionModeItemTypes a bit field of values in ActionModeItemType.
+     * @param callback can be null if actionModeItemTypes is 0.
+     *
+     * @since 88
+     */
+    public void setFloatingActionModeOverride(
+            int actionModeItemTypes, @Nullable ActionModeCallback callback) {
+        ThreadCheck.ensureOnUiThread();
+        throwIfDestroyed();
+        if (WebLayer.getSupportedMajorVersionInternal() < 88) {
+            throw new UnsupportedOperationException();
+        }
+        mActionModeCallback = callback;
+        try {
+            mImpl.setFloatingActionModeOverride(actionModeItemTypes);
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
+    }
+
+    /**
+     * Turns on desktop user agent if enable is true, otherwise reverts back to mobile user agent.
+     * The selected user agent will be used for future navigations until this method is called
+     * again. Each navigation saves the user agent mode it was navigated with and will reuse that on
+     * back/forward navigations. The tab will be reloaded with the new user agent.
+     * @param enable if true requests desktop site, otherwise mobile site.
+     *
+     * @since 88
+     */
+    public void setDesktopUserAgentEnabled(boolean enable) {
+        if (WebLayer.getSupportedMajorVersionInternal() < 88) {
             throw new UnsupportedOperationException();
         }
         try {
-            mImpl.showTranslateUi();
+            mImpl.setDesktopUserAgentEnabled(enable);
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
+    }
+
+    /**
+     * Returns true if the currently loaded page used a desktop user agent.
+     *
+     * @since 88
+     */
+    public boolean isDesktopUserAgentEnabled() {
+        if (WebLayer.getSupportedMajorVersionInternal() < 88) {
+            throw new UnsupportedOperationException();
+        }
+        try {
+            return mImpl.isDesktopUserAgentEnabled();
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
+    }
+
+    /**
+     * Downloads the item linked to from the context menu. This could be an image/video or link.
+     * This will request the WRITE_EXTERNAL_STORAGE permission if it's not granted to the app.
+     *
+     * @throws IllegalArgumentException if {@link ContextMenuParams.canDownload} is false or if
+     *         the ContextMenuParams object parameter wasn't constructed by WebLayer.
+     *
+     * @since 88
+     */
+    public void download(ContextMenuParams contextMenuParams) {
+        if (WebLayer.getSupportedMajorVersionInternal() < 88) {
+            throw new UnsupportedOperationException();
+        }
+        if (!contextMenuParams.canDownload) {
+            throw new IllegalArgumentException("ContextMenuParams not downloadable.");
+        }
+        if (contextMenuParams.mContextMenuParams == null) {
+            throw new IllegalArgumentException("ContextMenuParams not constructed by WebLayer.");
+        }
+
+        try {
+            mImpl.download(contextMenuParams.mContextMenuParams);
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
+    }
+
+    /**
+     * Experimental (for now) API to trigger the AddToHomescreen dialog for the page in the tab.
+     * This adds a homescreen shortcut for it, or installs as a PWA or WebAPK.
+     *
+     * @since 90
+     */
+    private void addToHomescreen() {
+        if (WebLayer.getSupportedMajorVersionInternal() < 90) {
+            throw new UnsupportedOperationException();
+        }
+        try {
+            mImpl.addToHomescreen();
         } catch (RemoteException e) {
             throw new APICallException(e);
         }
@@ -675,8 +815,19 @@ public class Tab {
         @Override
         public void onReplyProxyDestroyed(int proxyId) {
             StrictModeWorkaround.apply();
-            assert mProxyIdToProxy.get(proxyId) != null;
+            WebMessageReplyProxy proxy = mProxyIdToProxy.get(proxyId);
+            assert proxy != null;
+            proxy.markClosed();
             mProxyIdToProxy.remove(proxyId);
+            mCallback.onWebMessageReplyProxyClosed(proxy);
+        }
+
+        @Override
+        public void onReplyProxyActiveStateChanged(int proxyId) {
+            StrictModeWorkaround.apply();
+            WebMessageReplyProxy proxy = mProxyIdToProxy.get(proxyId);
+            assert proxy != null;
+            mCallback.onWebMessageReplyProxyActiveStateChanged(proxy);
         }
     }
 
@@ -704,24 +855,12 @@ public class Tab {
         }
 
         @Override
-        public void onCloseTab() {
-            StrictModeWorkaround.apply();
-
-            // Prior to 84 this method was used to signify that the embedder should take action to
-            // close the Tab; 84+ it's deprecated and no longer sent..
-            assert WebLayer.getSupportedMajorVersionInternal() < 84;
-
-            // This should only be hit if setNewTabCallback() has been called with a non-null
-            // value.
-            assert mNewTabCallback != null;
-            mNewTabCallback.onCloseTab();
-        }
-
-        @Override
         public void onTabDestroyed() {
+            unregisterTab(Tab.this);
             // Ensure that the app will fail fast if the embedder mistakenly tries to call back
             // into the implementation via this Tab.
             mImpl = null;
+            mDestroyStack = new RuntimeException("onTabDestroyed");
         }
 
         @Override
@@ -735,6 +874,15 @@ public class Tab {
         @Override
         public void showContextMenu(IObjectWrapper pageUrl, IObjectWrapper linkUrl,
                 IObjectWrapper linkText, IObjectWrapper titleOrAltText, IObjectWrapper srcUrl) {
+            showContextMenu2(
+                    pageUrl, linkUrl, linkText, titleOrAltText, srcUrl, false, false, false, null);
+        }
+
+        @Override
+        public void showContextMenu2(IObjectWrapper pageUrl, IObjectWrapper linkUrl,
+                IObjectWrapper linkText, IObjectWrapper titleOrAltText, IObjectWrapper srcUrl,
+                boolean isImage, boolean isVideo, boolean canDownload,
+                IContextMenuParams contextMenuParams) {
             StrictModeWorkaround.apply();
             String pageUrlString = ObjectWrapper.unwrap(pageUrl, String.class);
             String linkUrlString = ObjectWrapper.unwrap(linkUrl, String.class);
@@ -743,7 +891,8 @@ public class Tab {
                     linkUrlString != null ? Uri.parse(linkUrlString) : null,
                     ObjectWrapper.unwrap(linkText, String.class),
                     ObjectWrapper.unwrap(titleOrAltText, String.class),
-                    srcUrlString != null ? Uri.parse(srcUrlString) : null);
+                    srcUrlString != null ? Uri.parse(srcUrlString) : null, isImage, isVideo,
+                    canDownload, contextMenuParams);
             for (TabCallback callback : mCallbacks) {
                 callback.showContextMenu(params);
             }
@@ -788,6 +937,24 @@ public class Tab {
             StrictModeWorkaround.apply();
             for (TabCallback callback : mCallbacks) {
                 callback.onScrollNotification(notificationType, currentScrollRatio);
+            }
+        }
+
+        @Override
+        public void onVerticalScrollOffsetChanged(int value) {
+            StrictModeWorkaround.apply();
+            for (ScrollOffsetCallback callback : mScrollOffsetCallbacks) {
+                callback.onVerticalScrollOffsetChanged(value);
+            }
+        }
+
+        @Override
+        public void onActionItemClicked(
+                int actionModeItemType, IObjectWrapper selectedStringWrapper) {
+            StrictModeWorkaround.apply();
+            String selectedString = ObjectWrapper.unwrap(selectedStringWrapper, String.class);
+            if (mActionModeCallback != null) {
+                mActionModeCallback.onActionItemClicked(actionModeItemType, selectedString);
             }
         }
     }
@@ -853,12 +1020,14 @@ public class Tab {
         @Override
         public void onGoogleAccountsRequest(
                 int serviceType, String email, String continueUrl, boolean isSameTab) {
+            StrictModeWorkaround.apply();
             mCallback.onGoogleAccountsRequest(new GoogleAccountsParams(
                     serviceType, email, Uri.parse(continueUrl), isSameTab));
         }
 
         @Override
         public String getGaiaId() {
+            StrictModeWorkaround.apply();
             return mCallback.getGaiaId();
         }
     }

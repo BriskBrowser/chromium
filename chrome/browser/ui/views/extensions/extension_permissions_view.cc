@@ -10,6 +10,7 @@
 #include "chrome/browser/ui/views/extensions/expandable_container_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 ExtensionPermissionsView::ExtensionPermissionsView(int available_width)
     : available_width_(available_width) {
@@ -23,7 +24,8 @@ void ExtensionPermissionsView::AddItem(
     const base::string16& permission_text,
     const base::string16& permission_details) {
   auto permission_label = std::make_unique<views::Label>(
-      permission_text, CONTEXT_BODY_TEXT_LARGE, views::style::STYLE_SECONDARY);
+      permission_text, views::style::CONTEXT_DIALOG_BODY_TEXT,
+      views::style::STYLE_SECONDARY);
   permission_label->SetMultiLine(true);
   permission_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   permission_label->SizeToFit(available_width_);
@@ -47,3 +49,6 @@ void ExtensionPermissionsView::AddPermissions(
 void ExtensionPermissionsView::ChildPreferredSizeChanged(views::View* child) {
   PreferredSizeChanged();
 }
+
+BEGIN_METADATA(ExtensionPermissionsView, views::View)
+END_METADATA

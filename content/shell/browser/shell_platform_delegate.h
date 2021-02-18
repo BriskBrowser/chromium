@@ -10,7 +10,6 @@
 #include "base/containers/flat_map.h"
 #include "base/strings/string16.h"
 #include "build/build_config.h"
-#include "content/public/browser/bluetooth_chooser.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/native_widget_types.h"
 
@@ -22,7 +21,6 @@ class GURL;
 
 namespace content {
 class JavaScriptDialogManager;
-class RenderFrameHost;
 class Shell;
 class ShellPlatformDataAura;
 class WebContents;
@@ -70,21 +68,22 @@ class ShellPlatformDelegate {
   // Set the title of shell window
   virtual void SetTitle(Shell* shell, const base::string16& title);
 
-  // Called when a RenderView is created for a renderer process; forwarded from
-  // WebContentsObserver.
-  virtual void RenderViewReady(Shell* shell);
+  // Called when the main frame is created in the renderer process; forwarded
+  // from WebContentsObserver. If navigation creates a new main frame, this may
+  // occur more than once.
+  virtual void MainFrameCreated(Shell* shell);
 
   // Allows platforms to override the JavascriptDialogManager. By default
   // returns null, which signals that the Shell should use its own instance.
   virtual std::unique_ptr<JavaScriptDialogManager>
   CreateJavaScriptDialogManager(Shell* shell);
 
-  // Allows platforms to create and run a BluetoothChoose. By default returns
-  // null, which means no chooser is run at all.
-  virtual std::unique_ptr<BluetoothChooser> RunBluetoothChooser(
-      Shell* shell,
-      RenderFrameHost* frame,
-      const BluetoothChooser::EventHandler& event_handler);
+  // Requests handling of locking the mouse. This returns true if the request
+  // has been handled, otherwise false.
+  virtual bool HandleRequestToLockMouse(Shell* shell,
+                                        WebContents* web_contents,
+                                        bool user_gesture,
+                                        bool last_unlocked_by_target);
 
   // Allows platforms to prevent running insecure content. By default returns
   // false, only allowing what Shell allows on its own.

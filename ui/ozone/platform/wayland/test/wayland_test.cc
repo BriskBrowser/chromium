@@ -4,9 +4,13 @@
 
 #include "ui/ozone/platform/wayland/test/wayland_test.h"
 
+#include <memory>
+
 #include "base/run_loop.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
 #include "ui/events/ozone/layout/scoped_keyboard_layout_engine.h"
+#include "ui/ozone/common/features.h"
 #include "ui/ozone/platform/wayland/host/wayland_output_manager.h"
 #include "ui/ozone/platform/wayland/host/wayland_screen.h"
 #include "ui/ozone/platform/wayland/test/mock_surface.h"
@@ -25,7 +29,8 @@ using ::testing::SaveArg;
 namespace ui {
 
 WaylandTest::WaylandTest()
-    : task_environment_(base::test::TaskEnvironment::MainThreadType::UI) {
+    : task_environment_(base::test::TaskEnvironment::MainThreadType::UI,
+                        base::test::TaskEnvironment::TimeSource::MOCK_TIME) {
 #if BUILDFLAG(USE_XKBCOMMON)
   auto keyboard_layout_engine =
       std::make_unique<XkbKeyboardLayoutEngine>(xkb_evdev_code_converter_);
@@ -43,6 +48,16 @@ WaylandTest::WaylandTest()
 WaylandTest::~WaylandTest() {}
 
 void WaylandTest::SetUp() {
+  // TODO(1096425): remove this once Ozone is default on Linux. This is required
+  // to be able to run ozone_unittests locally without passing
+  // --enable-features=UseOzonePlatform explicitly. linux-ozone-rel bot does
+  // that automatically through changes done to "variants", which is also
+  // convenient to have locally so that we don't need to worry about that (it's
+  // the Wayland DragAndDrop that relies on the feature).
+  feature_list_.InitWithFeatures(
+      {features::kUseOzonePlatform, ui::kWaylandOverlayDelegation}, {});
+  ASSERT_TRUE(features::IsUsingOzonePlatform());
+
   ASSERT_TRUE(server_.Start(GetParam()));
   ASSERT_TRUE(connection_->Initialize());
   screen_ = connection_->wayland_output_manager()->CreateWaylandScreen(
@@ -54,6 +69,7 @@ void WaylandTest::SetUp() {
   properties.type = PlatformWindowType::kWindow;
   window_ = WaylandWindow::Create(&delegate_, connection_.get(),
                                   std::move(properties));
+  window_->set_update_visual_size_immediately(true);
   ASSERT_NE(widget_, gfx::kNullAcceleratedWidget);
 
   window_->Show(false);
@@ -103,17 +119,17 @@ void WaylandTest::SendConfigureEvent(wl::MockXdgSurface* xdg_surface,
   // Please note that toplevel surfaces may not exist if the surface was created
   // for the popup role.
   if (GetParam() == kXdgShellV6) {
-    zxdg_surface_v6_send_configure(xdg_surface->resource(), serial);
     if (xdg_surface->xdg_toplevel()) {
       zxdg_toplevel_v6_send_configure(xdg_surface->xdg_toplevel()->resource(),
                                       width, height, states);
     }
+    zxdg_surface_v6_send_configure(xdg_surface->resource(), serial);
   } else {
-    xdg_surface_send_configure(xdg_surface->resource(), serial);
     if (xdg_surface->xdg_toplevel()) {
       xdg_toplevel_send_configure(xdg_surface->xdg_toplevel()->resource(),
                                   width, height, states);
     }
+    xdg_surface_send_configure(xdg_surface->resource(), serial);
   }
 }
 

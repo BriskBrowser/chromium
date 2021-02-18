@@ -11,8 +11,11 @@
 #include "ash/app_list/views/app_list_view.h"
 #include "ash/app_list/views/contents_view.h"
 #include "ash/app_list/views/search_box_view.h"
+#include "ash/capture_mode/capture_mode_controller.h"
+#include "ash/constants/ash_switches.h"
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
 #include "ash/public/cpp/app_list/app_list_switches.h"
+#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/shelf_types.h"
 #include "ash/public/cpp/shell_window_ids.h"
@@ -28,7 +31,6 @@
 #include "ash/wm/container_finder.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/command_line.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "ui/aura/window.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/events/event.h"
@@ -79,7 +81,7 @@ bool IsShelfBackgroundTypeWithRoundedCorners(
 AppListPresenterDelegateImpl::AppListPresenterDelegateImpl(
     AppListControllerImpl* controller)
     : controller_(controller) {
-  display_observer_.Add(display::Screen::GetScreen());
+  display_observation_.Observe(display::Screen::GetScreen());
 }
 
 AppListPresenterDelegateImpl::~AppListPresenterDelegateImpl() {
@@ -102,7 +104,9 @@ void AppListPresenterDelegateImpl::Init(AppListView* view, int64_t display_id) {
       shelf->shelf_widget()->GetDragAndDropHostForAppList());
 }
 
-void AppListPresenterDelegateImpl::ShowForDisplay(int64_t display_id) {
+void AppListPresenterDelegateImpl::ShowForDisplay(
+    AppListViewState preferred_state,
+    int64_t display_id) {
   is_visible_ = true;
 
   controller_->UpdateLauncherContainer(display_id);
@@ -115,12 +119,12 @@ void AppListPresenterDelegateImpl::ShowForDisplay(int64_t display_id) {
 
   Shelf* shelf =
       Shelf::ForWindow(view_->GetWidget()->GetNativeView()->GetRootWindow());
-  if (!shelf_observer_.IsObserving(shelf))
-    shelf_observer_.Add(shelf);
+  if (!shelf_observation_.IsObservingSource(shelf))
+    shelf_observation_.AddObservation(shelf);
 
   view_->SetShelfHasRoundedCorners(
       IsShelfBackgroundTypeWithRoundedCorners(shelf->GetBackgroundType()));
-  view_->Show(IsSideShelf(shelf));
+  view_->Show(preferred_state, IsSideShelf(shelf));
 
   SnapAppListBoundsToDisplayEdge();
 
@@ -138,7 +142,7 @@ void AppListPresenterDelegateImpl::OnClosing() {
 
 void AppListPresenterDelegateImpl::OnClosed() {
   if (!is_visible_)
-    shelf_observer_.RemoveAll();
+    shelf_observation_.RemoveAllObservations();
   controller_->ViewClosed();
 }
 
@@ -204,9 +208,16 @@ void AppListPresenterDelegateImpl::ProcessLocatedEvent(
   if (!view_ || !is_visible_)
     return;
 
+  // Users in a capture session may be trying to capture the app list.
+  if (features::IsCaptureModeEnabled() &&
+      CaptureModeController::Get()->IsActive()) {
+    return;
+  }
+
   aura::Window* target = static_cast<aura::Window*>(event->target());
   if (!target)
     return;
+
   // If the event happened on a menu, then the event should not close the app
   // list.
   RootWindowController* root_controller =
@@ -308,6 +319,10 @@ void AppListPresenterDelegateImpl::OnKeyEvent(ui::KeyEvent* event) {
 
   // Don't absorb the first event when showing Assistant.
   if (view_->IsShowingEmbeddedAssistantUI())
+    return;
+
+  // Don't absorb the first event when renaming folder.
+  if (view_->IsFolderBeingRenamed())
     return;
 
   // Arrow keys or Tab will engage the traversal mode.

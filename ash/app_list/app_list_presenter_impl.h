@@ -58,7 +58,9 @@ class APP_LIST_EXPORT AppListPresenterImpl
   // Show the app list window on the display with the given id. If
   // |event_time_stamp| is not 0, it means |Show()| was triggered by one of the
   // AppListShowSources: kSearchKey, kShelfButton, or kSwipeFromShelf.
-  void Show(int64_t display_id, base::TimeTicks event_time_stamp);
+  void Show(AppListViewState preferred_state,
+            int64_t display_id,
+            base::TimeTicks event_time_stamp);
 
   // Hide the open app list window. This may leave the view open but hidden.
   // If |event_time_stamp| is not 0, it means |Dismiss()| was triggered by
@@ -100,20 +102,8 @@ class APP_LIST_EXPORT AppListPresenterImpl
   void EndDragFromShelf(AppListViewState app_list_state);
 
   // Passes a MouseWheelEvent from the shelf to the AppListView.
-  void ProcessMouseWheelOffset(const gfx::Vector2d& scroll_offset_vector);
-
-  // Updates the y position and opacity of the full screen app list. The changes
-  // are slightly different than UpdateYPositionAndOpacity. If |callback| is non
-  // null the this will animate using the animation settings in |callback|.
-  // |transition| - The tablet mode animation type. Used to report animation
-  // metrics if the home launcher change is animated. Should be set only if
-  // |callback| is non-null. If not set, the animation smoothness metrics will
-  // not be reported.
-  void UpdateYPositionAndOpacityForHomeLauncher(
-      float y_position_in_screen,
-      float opacity,
-      base::Optional<TabletModeAnimationTransition> transition,
-      UpdateHomeLauncherAnimationSettingsCallback callback);
+  void ProcessMouseWheelOffset(const gfx::Point& location,
+                               const gfx::Vector2d& scroll_offset_vector);
 
   // Scales the home launcher view maintaining the view center point, and
   // updates its opacity. If |callback| is non-null, the update should be

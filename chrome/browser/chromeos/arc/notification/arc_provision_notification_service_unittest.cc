@@ -12,6 +12,7 @@
 #include "base/values.h"
 #include "chrome/browser/chromeos/arc/arc_optin_uma.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
+#include "chrome/browser/chromeos/arc/session/arc_provisioning_result.h"
 #include "chrome/browser/chromeos/arc/session/arc_session_manager.h"
 #include "chrome/browser/chromeos/arc/test/test_arc_session_manager.h"
 #include "chrome/browser/chromeos/login/ui/fake_login_display_host.h"
@@ -125,8 +126,11 @@ TEST_F(ArcProvisionNotificationServiceTest,
   EXPECT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager_->state());
 
   // Emulate successful provisioning. The notification gets removed.
-  arc_session_manager_->OnProvisioningFinished(ProvisioningResult::SUCCESS,
-                                               nullptr);
+  arc::mojom::ArcSignInResultPtr result =
+      arc::mojom::ArcSignInResult::NewSuccess(
+          arc::mojom::ArcSignInSuccess::SUCCESS);
+  arc_session_manager_->OnProvisioningFinished(
+      ArcProvisioningResult(std::move(result)));
   EXPECT_FALSE(
       display_service_->GetNotification(kArcManagedProvisionNotificationId));
 }
@@ -157,8 +161,11 @@ TEST_F(ArcProvisionNotificationServiceTest,
   EXPECT_FALSE(
       display_service_->GetNotification(kArcManagedProvisionNotificationId));
   EXPECT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager_->state());
-  arc_session_manager_->OnProvisioningFinished(ProvisioningResult::SUCCESS,
-                                               nullptr);
+  arc::mojom::ArcSignInResultPtr result =
+      arc::mojom::ArcSignInResult::NewSuccess(
+          arc::mojom::ArcSignInSuccess::SUCCESS);
+  arc_session_manager_->OnProvisioningFinished(
+      ArcProvisioningResult(std::move(result)));
   EXPECT_FALSE(
       display_service_->GetNotification(kArcManagedProvisionNotificationId));
 }
@@ -189,8 +196,11 @@ TEST_F(ArcProvisionNotificationServiceTest,
 
   // Emulate provisioning failure that leads to stopping ARC. The notification
   // gets removed.
+  arc::mojom::ArcSignInResultPtr result = arc::mojom::ArcSignInResult::NewError(
+      arc::mojom::ArcSignInError::NewGeneralError(
+          arc::mojom::GeneralSignInError::CHROME_SERVER_COMMUNICATION_ERROR));
   arc_session_manager_->OnProvisioningFinished(
-      ProvisioningResult::CHROME_SERVER_COMMUNICATION_ERROR, nullptr);
+      ArcProvisioningResult(std::move(result)));
   EXPECT_FALSE(
       display_service_->GetNotification(kArcManagedProvisionNotificationId));
 }
@@ -221,8 +231,11 @@ TEST_F(ArcProvisionNotificationServiceTest,
 
   // Emulate provisioning failure that leads to showing an error screen without
   // shutting ARC down. The notification gets removed.
+  arc::mojom::ArcSignInResultPtr result = arc::mojom::ArcSignInResult::NewError(
+      arc::mojom::ArcSignInError::NewGeneralError(
+          arc::mojom::GeneralSignInError::NO_NETWORK_CONNECTION));
   arc_session_manager_->OnProvisioningFinished(
-      ProvisioningResult::NO_NETWORK_CONNECTION, nullptr);
+      ArcProvisioningResult(std::move(result)));
   EXPECT_FALSE(
       display_service_->GetNotification(kArcManagedProvisionNotificationId));
 }
@@ -253,8 +266,11 @@ TEST_F(ArcProvisionNotificationServiceTest,
   // Emulate successful provisioning.
   EXPECT_FALSE(
       display_service_->GetNotification(kArcManagedProvisionNotificationId));
-  arc_session_manager_->OnProvisioningFinished(ProvisioningResult::SUCCESS,
-                                               nullptr);
+  arc::mojom::ArcSignInResultPtr result =
+      arc::mojom::ArcSignInResult::NewSuccess(
+          arc::mojom::ArcSignInSuccess::SUCCESS);
+  arc_session_manager_->OnProvisioningFinished(
+      ArcProvisioningResult(std::move(result)));
   EXPECT_FALSE(
       display_service_->GetNotification(kArcManagedProvisionNotificationId));
 }
@@ -317,8 +333,11 @@ TEST_F(ArcProvisionNotificationServiceOobeTest,
   // Emulate successful provisioning.
   EXPECT_FALSE(
       display_service_->GetNotification(kArcManagedProvisionNotificationId));
-  arc_session_manager_->OnProvisioningFinished(ProvisioningResult::SUCCESS,
-                                               nullptr);
+  arc::mojom::ArcSignInResultPtr result =
+      arc::mojom::ArcSignInResult::NewSuccess(
+          arc::mojom::ArcSignInSuccess::SUCCESS);
+  arc_session_manager_->OnProvisioningFinished(
+      ArcProvisioningResult(std::move(result)));
   EXPECT_FALSE(
       display_service_->GetNotification(kArcManagedProvisionNotificationId));
 }

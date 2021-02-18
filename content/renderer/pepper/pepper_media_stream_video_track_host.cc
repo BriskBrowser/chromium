@@ -205,7 +205,7 @@ void PepperMediaStreamVideoTrackHost::FrameDeliverer::DeliverFrameOnIO(
   DCHECK(io_task_runner_->BelongsToCurrentThread());
   // The time when this frame is generated is unknown so give a null value to
   // |estimated_capture_time|.
-  new_frame_callback_.Run(std::move(frame), base::TimeTicks());
+  new_frame_callback_.Run(std::move(frame), {}, base::TimeTicks());
 }
 
 PepperMediaStreamVideoTrackHost::PepperMediaStreamVideoTrackHost(
@@ -349,13 +349,15 @@ int32_t PepperMediaStreamVideoTrackHost::SendFrameToTrack(int32_t index) {
 
 void PepperMediaStreamVideoTrackHost::OnVideoFrame(
     scoped_refptr<VideoFrame> video_frame,
+    std::vector<scoped_refptr<media::VideoFrame>> scaled_video_frames,
     base::TimeTicks estimated_capture_time) {
   DCHECK(video_frame);
   // TODO(penghuang): Check |frame->end_of_stream()| and close the track.
+  // Scaled video frames are currently ignored.
   scoped_refptr<media::VideoFrame> frame = video_frame;
   // Drop alpha channel since we do not support it yet.
   if (frame->format() == media::PIXEL_FORMAT_I420A)
-    frame = media::WrapAsI420VideoFrame(std::move(video_frame));
+    frame = media::WrapAsI420VideoFrame(video_frame);
   PP_VideoFrame_Format ppformat = ToPpapiFormat(frame->format());
   if (frame->storage_type() == media::VideoFrame::STORAGE_GPU_MEMORY_BUFFER) {
     // NV12 is the only supported GMB pixel format at the moment, and there is
@@ -444,6 +446,10 @@ class PepperMediaStreamVideoTrackHost::VideoSource final
       host_->frame_deliverer_ = nullptr;
   }
 
+  base::WeakPtr<MediaStreamVideoSource> GetWeakPtr() const final {
+    return weak_factory_.GetWeakPtr();
+  }
+
  private:
   base::Optional<media::VideoCaptureFormat> GetCurrentFormat() const override {
     if (host_) {
@@ -456,6 +462,7 @@ class PepperMediaStreamVideoTrackHost::VideoSource final
   }
 
   const base::WeakPtr<PepperMediaStreamVideoTrackHost> host_;
+  base::WeakPtrFactory<MediaStreamVideoSource> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(VideoSource);
 };

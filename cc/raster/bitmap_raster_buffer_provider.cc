@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <utility>
 
 #include "base/memory/shared_memory_mapping.h"
 #include "base/strings/stringprintf.h"
@@ -158,9 +159,5 @@ uint64_t BitmapRasterBufferProvider::SetReadyToDrawCallback(
 }
 
 void BitmapRasterBufferProvider::Shutdown() {}
-
-bool BitmapRasterBufferProvider::CheckRasterFinishedQueries() {
-  return false;
-}
 
 }  // namespace cc

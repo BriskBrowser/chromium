@@ -8,12 +8,8 @@
 #include "base/system/sys_info.h"
 #include "content/child/webthemeengine_impl_conversions.h"
 #include "skia/ext/platform_canvas.h"
-#include "third_party/blink/public/platform/web_rect.h"
-#include "third_party/blink/public/platform/web_size.h"
 #include "ui/native_theme/native_theme.h"
 
-using blink::WebColorScheme;
-using blink::WebRect;
 using blink::WebThemeEngine;
 
 namespace content {
@@ -63,6 +59,8 @@ static void GetNativeThemeExtraParams(
           extra_params->text_field.is_listbox;
       native_theme_extra_params->text_field.background_color =
           extra_params->text_field.background_color;
+      native_theme_extra_params->text_field.has_border =
+          extra_params->text_field.has_border;
       break;
     case WebThemeEngine::kPartMenuList:
       native_theme_extra_params->menu_list.has_border =
@@ -117,7 +115,7 @@ static void GetNativeThemeExtraParams(
 
 WebThemeEngineAndroid::~WebThemeEngineAndroid() = default;
 
-blink::WebSize WebThemeEngineAndroid::GetSize(WebThemeEngine::Part part) {
+gfx::Size WebThemeEngineAndroid::GetSize(WebThemeEngine::Part part) {
   switch (part) {
     case WebThemeEngine::kPartScrollbarHorizontalThumb:
     case WebThemeEngine::kPartScrollbarVerticalThumb: {
@@ -157,26 +155,26 @@ void WebThemeEngineAndroid::Paint(
     cc::PaintCanvas* canvas,
     WebThemeEngine::Part part,
     WebThemeEngine::State state,
-    const blink::WebRect& rect,
+    const gfx::Rect& rect,
     const WebThemeEngine::ExtraParams* extra_params,
-    blink::WebColorScheme color_scheme) {
+    blink::mojom::ColorScheme color_scheme) {
   ui::NativeTheme::ExtraParams native_theme_extra_params;
   GetNativeThemeExtraParams(
       part, state, extra_params, &native_theme_extra_params);
   ui::NativeTheme::GetInstanceForWeb()->Paint(
-      canvas, NativeThemePart(part), NativeThemeState(state), gfx::Rect(rect),
+      canvas, NativeThemePart(part), NativeThemeState(state), rect,
       native_theme_extra_params, NativeColorScheme(color_scheme));
 }
 
 blink::ForcedColors WebThemeEngineAndroid::GetForcedColors() const {
-  return ui::NativeTheme::GetInstanceForWeb()->UsesHighContrastColors()
+  return ui::NativeTheme::GetInstanceForWeb()->InForcedColorsMode()
              ? blink::ForcedColors::kActive
              : blink::ForcedColors::kNone;
 }
 
 void WebThemeEngineAndroid::SetForcedColors(
     const blink::ForcedColors forced_colors) {
-  ui::NativeTheme::GetInstanceForWeb()->set_high_contrast(
+  ui::NativeTheme::GetInstanceForWeb()->set_forced_colors(
       forced_colors == blink::ForcedColors::kActive);
 }
 }  // namespace content

@@ -15,36 +15,73 @@ LayoutNGTableColumn::LayoutNGTableColumn(Element* element)
   UpdateFromElement();
 }
 
+void LayoutNGTableColumn::Trace(Visitor* visitor) const {
+  visitor->Trace(children_);
+  LayoutBox::Trace(visitor);
+}
+
 void LayoutNGTableColumn::StyleDidChange(StyleDifference diff,
                                          const ComputedStyle* old_style) {
-  if (diff.NeedsPaintInvalidation() && old_style) {
+  NOT_DESTROYED();
+  if (diff.HasDifference()) {
     if (LayoutNGTable* table = Table()) {
-      if (NGTableBorders::HasBorder(old_style) ||
-          NGTableBorders::HasBorder(Style()))
-        table->GridBordersChanged();
+      if (old_style && diff.NeedsPaintInvalidation()) {
+        // Regenerate table borders if needed
+        if (!old_style->BorderVisuallyEqual(StyleRef()) ||
+            (diff.TextDecorationOrColorChanged() &&
+             StyleRef().HasBorderColorReferencingCurrentColor())) {
+          table->GridBordersChanged();
+        }
+        // Table paints column background. Tell table to repaint.
+        if (StyleRef().HasBackground() || old_style->HasBackground())
+          table->SetBackgroundNeedsFullPaintInvalidation();
+      }
+      if (diff.NeedsLayout()) {
+        table->SetIntrinsicLogicalWidthsDirty();
+      }
     }
   }
-  LayoutBoxModelObject::StyleDidChange(diff, old_style);
+  LayoutBox::StyleDidChange(diff, old_style);
 }
 
 void LayoutNGTableColumn::ImageChanged(WrappedImagePtr, CanDeferInvalidation) {
+  NOT_DESTROYED();
   if (LayoutNGTable* table = Table()) {
     table->SetShouldDoFullPaintInvalidationWithoutGeometryChange(
         PaintInvalidationReason::kImage);
   }
 }
 
+void LayoutNGTableColumn::InsertedIntoTree() {
+  NOT_DESTROYED();
+  LayoutBox::InsertedIntoTree();
+  DCHECK(Table());
+  if (StyleRef().HasBackground())
+    Table()->SetBackgroundNeedsFullPaintInvalidation();
+}
+
+void LayoutNGTableColumn::WillBeRemovedFromTree() {
+  NOT_DESTROYED();
+  LayoutBox::WillBeRemovedFromTree();
+  DCHECK(Table());
+  if (StyleRef().HasBackground())
+    Table()->SetBackgroundNeedsFullPaintInvalidation();
+}
+
 bool LayoutNGTableColumn::IsChildAllowed(LayoutObject* child,
                                          const ComputedStyle& style) const {
+  NOT_DESTROYED();
   return child->IsLayoutTableCol() && style.Display() == EDisplay::kTableColumn;
 }
 
 bool LayoutNGTableColumn::CanHaveChildren() const {
+  NOT_DESTROYED();
   // <col> cannot have children.
   return IsColumnGroup();
 }
 
 void LayoutNGTableColumn::ClearNeedsLayoutForChildren() const {
+  NOT_DESTROYED();
   LayoutObject* child = children_.FirstChild();
   while (child) {
     child->ClearNeedsLayout();
@@ -53,6 +90,7 @@ void LayoutNGTableColumn::ClearNeedsLayoutForChildren() const {
 }
 
 LayoutNGTable* LayoutNGTableColumn::Table() const {
+  NOT_DESTROYED();
   LayoutObject* table = Parent();
   if (table && !table->IsTable())
     table = table->Parent();
@@ -64,6 +102,7 @@ LayoutNGTable* LayoutNGTableColumn::Table() const {
 }
 
 void LayoutNGTableColumn::UpdateFromElement() {
+  NOT_DESTROYED();
   unsigned old_span = span_;
   if (const auto* tc = DynamicTo<HTMLTableColElement>(GetNode())) {
     span_ = tc->span();

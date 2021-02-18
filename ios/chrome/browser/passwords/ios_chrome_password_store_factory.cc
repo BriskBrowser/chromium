@@ -7,7 +7,7 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/no_destructor.h"
 #include "base/sequenced_task_runner.h"
@@ -18,12 +18,13 @@
 #include "components/keyed_service/ios/browser_state_dependency_manager.h"
 #include "components/password_manager/core/browser/login_database.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
-#include "components/password_manager/core/browser/password_store_default.h"
 #include "components/password_manager/core/browser/password_store_factory_util.h"
+#include "components/password_manager/core/browser/password_store_impl.h"
 #include "components/sync/driver/sync_service.h"
 #include "ios/chrome/browser/application_context.h"
 #include "ios/chrome/browser/browser_state/browser_state_otr_helper.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#include "ios/chrome/browser/passwords/credentials_cleaner_runner_factory.h"
 #include "ios/chrome/browser/sync/profile_sync_service_factory.h"
 #include "ios/chrome/browser/webdata_services/web_data_service_factory.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -91,16 +92,18 @@ IOSChromePasswordStoreFactory::BuildServiceInstanceFor(
           {base::MayBlock(), base::TaskPriority::USER_VISIBLE}));
 
   scoped_refptr<password_manager::PasswordStore> store =
-      new password_manager::PasswordStoreDefault(std::move(login_db));
+      new password_manager::PasswordStoreImpl(std::move(login_db));
   if (!store->Init(nullptr)) {
     // TODO(crbug.com/479725): Remove the LOG once this error is visible in the
     // UI.
     LOG(WARNING) << "Could not initialize password store.";
     return nullptr;
   }
+
   password_manager_util::RemoveUselessCredentials(
-      store, ChromeBrowserState::FromBrowserState(context)->GetPrefs(), 60,
-      base::NullCallback());
+      CredentialsCleanerRunnerFactory::GetForBrowserState(context), store,
+      ChromeBrowserState::FromBrowserState(context)->GetPrefs(),
+      base::TimeDelta::FromSeconds(60), base::NullCallback());
   return store;
 }
 

@@ -4,6 +4,7 @@
 
 #include "chrome/browser/chromeos/crostini/termina_installer.h"
 
+#include "ash/constants/ash_features.h"
 #include "base/bind.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_feature_list.h"
@@ -12,7 +13,6 @@
 #include "chrome/browser/chromeos/crostini/crostini_util.h"
 #include "chrome/browser/component_updater/fake_cros_component_manager.h"
 #include "chrome/test/base/browser_process_platform_part_test_api_chromeos.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/dbus/dlcservice/dlcservice_client.h"
 #include "chromeos/dbus/dlcservice/fake_dlcservice_client.h"
 #include "services/network/test/test_network_connection_tracker.h"
@@ -25,7 +25,7 @@ class TerminaInstallTest : public testing::Test {
  public:
   TerminaInstallTest() : browser_part_(g_browser_process->platform_part()) {}
 
-  void SetUp() override {
+  void CommonSetUp() {
     component_manager_ =
         base::MakeRefCounted<component_updater::FakeCrOSComponentManager>();
     browser_part_.InitializeCrosComponentManager(component_manager_);
@@ -33,6 +33,13 @@ class TerminaInstallTest : public testing::Test {
     fake_dlc_client_ = static_cast<chromeos::FakeDlcserviceClient*>(
         chromeos::DlcserviceClient::Get());
     fake_dlc_client_->set_install_root_path(dlc_root_path_);
+  }
+
+  void SetUp() override {
+    this->CommonSetUp();
+    feature_list_.InitWithFeatures(
+        /*enabled_features=*/{chromeos::features::kCrostiniEnableDlc},
+        /*disabled_features=*/{});
   }
 
   void TearDown() override {
@@ -85,6 +92,9 @@ class TerminaInstallTest : public testing::Test {
   using ComponentInfo =
       component_updater::FakeCrOSComponentManager::ComponentInfo;
 
+ protected:
+  base::test::ScopedFeatureList feature_list_;
+
   void PrepareComponentForLoad() {
     component_manager_->set_supported_components(
         {imageloader::kTerminaComponentName});
@@ -110,6 +120,7 @@ class TerminaInstallTest : public testing::Test {
 
     EXPECT_EQ(termina_installer_.GetInstallLocation(),
               base::FilePath(dlc_root_path_));
+    EXPECT_EQ(termina_installer_.GetDlcId(), "termina-dlc");
 
     run_loop.Run();
   }
@@ -142,27 +153,42 @@ class TerminaInstallTest : public testing::Test {
 // Specialization of TerminaInstallTest that force-enables installing via DLC
 class TerminaDlcInstallTest : public TerminaInstallTest {
  public:
-  TerminaDlcInstallTest() {
+  TerminaDlcInstallTest() = default;
+
+  void SetUp() override {
+    this->CommonSetUp();
     feature_list_.InitWithFeatures(
-        /*enabled_features=*/{chromeos::features::kCrostiniUseDlc},
+        /*enabled_features=*/{chromeos::features::kCrostiniUseDlc,
+                              chromeos::features::kCrostiniEnableDlc},
         /*disabled_features=*/{});
   }
-
- private:
-  base::test::ScopedFeatureList feature_list_;
 };
 
 // Specialization of TerminaInstallTest that force-disables installing via DLC
 class TerminaComponentInstallTest : public TerminaInstallTest {
  public:
-  TerminaComponentInstallTest() {
+  TerminaComponentInstallTest() = default;
+
+  void SetUp() override {
+    this->CommonSetUp();
     feature_list_.InitWithFeatures(
-        /*enabled_features=*/{},
+        /*enabled_features=*/{chromeos::features::kCrostiniEnableDlc},
         /*disabled_features=*/{chromeos::features::kCrostiniUseDlc});
   }
+};
 
- private:
-  base::test::ScopedFeatureList feature_list_;
+// Specialization of TerminaInstallTest that enables installing via DLC but DLC
+// isn't enabled
+class TerminaDlcDisabledInstallTest : public TerminaInstallTest {
+ public:
+  TerminaDlcDisabledInstallTest() = default;
+
+  void SetUp() override {
+    this->CommonSetUp();
+    feature_list_.InitWithFeatures(
+        /*enabled_features=*/{chromeos::features::kCrostiniUseDlc},
+        /*disabled_features=*/{chromeos::features::kCrostiniEnableDlc});
+  }
 };
 
 TEST_F(TerminaInstallTest, UninstallWithNothingInstalled) {
@@ -227,6 +253,16 @@ TEST_F(TerminaInstallTest, UninstallWithDlcInstalledUninstallError) {
 
   termina_installer_.Uninstall(
       base::BindOnce(&TerminaInstallTest::ExpectFalse, base::Unretained(this)));
+  run_loop_.Run();
+}
+
+TEST_F(TerminaDlcDisabledInstallTest,
+       UninstallWithDlcDisabledUninstallErrorDoesntFail) {
+  InjectDlc();
+  fake_dlc_client_->set_uninstall_error("An error");
+
+  termina_installer_.Uninstall(
+      base::BindOnce(&TerminaInstallTest::ExpectTrue, base::Unretained(this)));
   run_loop_.Run();
 }
 
@@ -310,6 +346,7 @@ TEST_F(TerminaComponentInstallTest, InstallComponent) {
   EXPECT_TRUE(component_manager_->IsRegisteredMayBlock(
       imageloader::kTerminaComponentName));
   EXPECT_EQ(termina_installer_.GetInstallLocation(), component_mount_path_);
+  EXPECT_EQ(termina_installer_.GetDlcId(), base::nullopt);
 }
 
 TEST_F(TerminaComponentInstallTest, InstallComponentOffline) {
@@ -336,6 +373,7 @@ TEST_F(TerminaComponentInstallTest, InstallComponentWithDlcInstalled) {
       imageloader::kTerminaComponentName));
   CheckDlcNotInstalled();
   EXPECT_EQ(termina_installer_.GetInstallLocation(), component_mount_path_);
+  EXPECT_EQ(termina_installer_.GetDlcId(), base::nullopt);
 }
 
 TEST_F(TerminaComponentInstallTest, InstallComponentWithDlcInstalledError) {
@@ -350,6 +388,7 @@ TEST_F(TerminaComponentInstallTest, InstallComponentWithDlcInstalledError) {
   EXPECT_TRUE(component_manager_->IsRegisteredMayBlock(
       imageloader::kTerminaComponentName));
   EXPECT_EQ(termina_installer_.GetInstallLocation(), component_mount_path_);
+  EXPECT_EQ(termina_installer_.GetDlcId(), base::nullopt);
 }
 
 TEST_F(TerminaComponentInstallTest, LoadComponentAlreadyInstalled) {

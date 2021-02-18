@@ -7,13 +7,14 @@
 #include "ash/public/cpp/app_list/app_list_config.h"
 #include "ash/public/cpp/app_list/app_list_types.h"
 #include "ash/public/cpp/app_list/internal_app_id_constants.h"
+#include "ash/strings/grit/ash_strings.h"
 #include "base/bind.h"
 #include "base/metrics/user_metrics.h"
+#include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/apps/app_service/app_service_metrics.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
-#include "chrome/browser/chromeos/release_notes/release_notes_storage.h"
-#include "chrome/browser/chromeos/web_applications/default_web_app_ids.h"
+#include "chrome/browser/apps/app_service/launch_utils.h"
 #include "chrome/browser/favicon/large_icon_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/app_list_client_impl.h"
@@ -28,6 +29,7 @@
 #include "components/services/app_service/public/cpp/app_update.h"
 #include "components/services/app_service/public/mojom/types.mojom.h"
 #include "extensions/common/extension.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace app_list {
 
@@ -51,6 +53,16 @@ AppServiceAppResult::AppServiceAppResult(Profile* profile,
             update.IsPlatformApp() == apps::mojom::OptionalBool::kTrue;
         show_in_launcher_ =
             update.ShowInLauncher() == apps::mojom::OptionalBool::kTrue;
+
+        if (update.Readiness() == apps::mojom::Readiness::kDisabledByPolicy) {
+          SetAccessibleName(l10n_util::GetStringFUTF16(
+              IDS_APP_ACCESSIBILITY_BLOCKED_INSTALLED_APP_ANNOUNCEMENT,
+              base::UTF8ToUTF16(update.ShortName())));
+        } else if (update.Paused() == apps::mojom::OptionalBool::kTrue) {
+          SetAccessibleName(l10n_util::GetStringFUTF16(
+              IDS_APP_ACCESSIBILITY_PAUSED_INSTALLED_APP_ANNOUNCEMENT,
+              base::UTF8ToUTF16(update.ShortName())));
+        }
       });
 
   constexpr bool allow_placeholder_icon = true;
@@ -80,7 +92,7 @@ AppServiceAppResult::AppServiceAppResult(Profile* profile,
       break;
   }
 
-  if (IsSuggestionChip(id(), profile))
+  if (IsSuggestionChip(id()))
     HandleSuggestionChip(profile);
 }
 
@@ -106,14 +118,6 @@ void AppServiceAppResult::GetContextMenuModel(GetMenuModelCallback callback) {
   context_menu_->GetMenuModel(std::move(callback));
 }
 
-void AppServiceAppResult::OnVisibilityChanged(bool visibility) {
-  if (id() == ash::kReleaseNotesAppId && visibility) {
-    DCHECK(chromeos::ReleaseNotesStorage(profile()).ShouldShowSuggestionChip());
-    chromeos::ReleaseNotesStorage(profile())
-        .DecreaseTimesLeftToShowSuggestionChip();
-  }
-}
-
 ash::SearchResultType AppServiceAppResult::GetSearchResultType() const {
   switch (app_type_) {
     case apps::mojom::AppType::kArc:
@@ -133,7 +137,7 @@ ash::SearchResultType AppServiceAppResult::GetSearchResultType() const {
       return ash::REMOTE_APP;
     case apps::mojom::AppType::kBorealis:
       return ash::BOREALIS_APP;
-    case apps::mojom::AppType::kMacNative:
+    case apps::mojom::AppType::kMacOs:
     case apps::mojom::AppType::kUnknown:
       NOTREACHED();
       return ash::SEARCH_RESULT_TYPE_BOUNDARY;
@@ -162,19 +166,6 @@ void AppServiceAppResult::Launch(int event_flags,
   apps::AppServiceProxy* proxy =
       apps::AppServiceProxyFactory::GetForProfile(profile());
 
-  if (id() == chromeos::default_web_apps::kHelpAppId &&
-      query_url().has_value()) {
-    // This matches the logging of the release notes app in
-    // chrome/browser/apps/app_service/built_in_chromeos_apps.cc.
-    // TODO(carpenterr): Have more consistent logging of the places Help App can
-    // be opened to/from.
-    base::RecordAction(
-        base::UserMetricsAction("ReleaseNotes.SuggestionChipLaunched"));
-    proxy->LaunchAppWithUrl(app_id(), event_flags, query_url().value(),
-                            launch_source, controller()->GetAppListDisplayId());
-    return;
-  }
-
   // For Chrome apps or Web apps, if it is non-platform app, it could be
   // selecting an existing delegate for the app, so call
   // ChromeLauncherController's ActivateApp interface. Platform apps or ARC
@@ -199,7 +190,7 @@ void AppServiceAppResult::Launch(int event_flags,
         controller()->GetAppListDisplayId());
   } else {
     proxy->Launch(app_id(), event_flags, launch_source,
-                  controller()->GetAppListDisplayId());
+                  apps::MakeWindowInfo(controller()->GetAppListDisplayId()));
   }
 }
 
@@ -256,15 +247,6 @@ void AppServiceAppResult::HandleSuggestionChip(Profile* profile) {
   // in the proper position.
   SetDisplayIndex(ash::SearchResultDisplayIndex::kFirstIndex);
   SetDisplayType(ash::SearchResultDisplayType::kChip);
-
-  // Either of these apps could be shown as the release notes suggestion chip.
-  if (id() == ash::kReleaseNotesAppId ||
-      id() == chromeos::default_web_apps::kHelpAppId) {
-    SetNotifyVisibilityChange(true);
-    // Make sure that if both Continue Reading and Release Notes are available,
-    // Release Notes shows up first in the suggestion chip container.
-    SetPositionPriority(1.0f);
-  }
 }
 
 void AppServiceAppResult::UpdateContinueReadingFavicon(

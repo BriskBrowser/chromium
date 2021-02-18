@@ -8,6 +8,7 @@
 
 #include "base/check.h"
 #include "ui/base/clipboard/clipboard_constants.h"
+#include "ui/base/data_transfer_policy/data_transfer_policy_controller.h"
 #include "ui/base/x/selection_utils.h"
 #include "ui/events/platform/platform_event_source.h"
 #include "ui/gfx/x/x11_atom_cache.h"
@@ -21,12 +22,12 @@ OSExchangeDataProviderX11::OSExchangeDataProviderX11(
     : XOSExchangeDataProvider(x_window, selection) {}
 
 OSExchangeDataProviderX11::OSExchangeDataProviderX11() {
-  X11EventSource::GetInstance()->AddXEventDispatcher(this);
+  x11::Connection::Get()->AddEventObserver(this);
 }
 
 OSExchangeDataProviderX11::~OSExchangeDataProviderX11() {
   if (own_window())
-    X11EventSource::GetInstance()->RemoveXEventDispatcher(this);
+    x11::Connection::Get()->RemoveEventObserver(this);
 }
 
 std::unique_ptr<OSExchangeDataProvider> OSExchangeDataProviderX11::Clone()
@@ -37,13 +38,17 @@ std::unique_ptr<OSExchangeDataProvider> OSExchangeDataProviderX11::Clone()
   return std::move(ret);
 }
 
-bool OSExchangeDataProviderX11::DispatchXEvent(x11::Event* xev) {
-  auto* selection = xev->As<x11::SelectionRequestEvent>();
-  if (selection && selection->owner == x_window()) {
-    selection_owner().OnSelectionRequest(*xev);
-    return true;
-  }
-  return false;
+void OSExchangeDataProviderX11::OnEvent(const x11::Event& xev) {
+  auto* selection = xev.As<x11::SelectionRequestEvent>();
+  if (selection && selection->owner == x_window())
+    selection_owner().OnSelectionRequest(*selection);
+}
+
+void OSExchangeDataProviderX11::SetSource(
+    std::unique_ptr<DataTransferEndpoint> data_source) {}
+
+DataTransferEndpoint* OSExchangeDataProviderX11::GetSource() const {
+  return nullptr;
 }
 
 }  // namespace ui

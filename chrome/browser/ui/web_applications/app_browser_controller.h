@@ -9,7 +9,6 @@
 #include <string>
 
 #include "base/callback_forward.h"
-#include "base/macros.h"
 #include "base/optional.h"
 #include "base/strings/string16.h"
 #include "chrome/browser/themes/theme_service.h"
@@ -46,16 +45,17 @@ class AppBrowserController : public TabStripModelObserver,
                              public content::WebContentsObserver,
                              public BrowserThemeProviderDelegate {
  public:
+  AppBrowserController(const AppBrowserController&) = delete;
+  AppBrowserController& operator=(const AppBrowserController&) = delete;
   ~AppBrowserController() override;
 
   static std::unique_ptr<AppBrowserController> MaybeCreateWebAppController(
       Browser* browser);
 
-  // Returns whether |browser| uses the experimental hosted app experience.
-  // Convenience wrapper for checking IsForExperimentalWebAppBrowser() on
-  // |browser|'s HostedAppBrowserController if it exists.
-  static bool IsForWebAppBrowser(const Browser* browser);
-  static bool IsForWebAppBrowser(const Browser* browser, const AppId& app_id);
+  // Returns whether |browser| is a web app window/pop-up.
+  static bool IsWebApp(const Browser* browser);
+  // Returns whether |browser| is a web app window/pop-up for |app_id|.
+  static bool IsForWebApp(const Browser* browser, const AppId& app_id);
 
   // Renders |url|'s origin as Unicode.
   static base::string16 FormatUrlOrigin(
@@ -72,6 +72,9 @@ class AppBrowserController : public TabStripModelObserver,
 
   // Returns a theme built from the current page or app's theme color.
   const ui::ThemeProvider* GetThemeProvider() const;
+
+  // Returns the text to flash in the title bar on app launch.
+  base::string16 GetLaunchFlashText() const;
 
   // Returns whether this controller was created for an installed PWA.
   virtual bool IsHostedApp() const;
@@ -119,8 +122,8 @@ class AppBrowserController : public TabStripModelObserver,
   // example.com.au).
   virtual base::string16 GetFormattedUrlOrigin() const = 0;
 
-  // Gets the launch url for the app.
-  virtual GURL GetAppLaunchURL() const = 0;
+  // Gets the start_url for the app.
+  virtual GURL GetAppStartUrl() const = 0;
 
   // Determines whether the specified url is 'inside' the app |this| controls.
   virtual bool IsUrlInAppScope(const GURL& url) const = 0;
@@ -137,6 +140,8 @@ class AppBrowserController : public TabStripModelObserver,
   virtual bool IsInstalled() const;
 
   virtual std::unique_ptr<TabMenuModelFactory> GetTabMenuModelFactory() const;
+
+  virtual bool IsWindowControlsOverlayEnabled() const;
 
   // Updates the custom tab bar's visibility based on whether it should be
   // currently visible or not. If |animate| is set, the change will be
@@ -218,7 +223,6 @@ class AppBrowserController : public TabStripModelObserver,
 
   const bool has_tab_strip_;
 
-  DISALLOW_COPY_AND_ASSIGN(AppBrowserController);
 };
 
 }  // namespace web_app

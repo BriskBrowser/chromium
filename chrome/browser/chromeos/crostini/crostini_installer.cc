@@ -5,7 +5,7 @@
 #include "chrome/browser/chromeos/crostini/crostini_installer.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
@@ -23,7 +23,6 @@
 #include "chrome/browser/chromeos/crostini/crostini_types.mojom.h"
 #include "chrome/browser/chromeos/crostini/crostini_util.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/chromeos/crostini_installer/crostini_installer_dialog.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
@@ -113,12 +112,12 @@ SetupResult ErrorToSetupResult(InstallerError error) {
       return SetupResult::kSuccess;
     case InstallerError::kErrorLoadingTermina:
       return SetupResult::kErrorLoadingTermina;
-    case InstallerError::kErrorStartingConcierge:
-      return SetupResult::kErrorStartingConcierge;
     case InstallerError::kErrorCreatingDiskImage:
       return SetupResult::kErrorCreatingDiskImage;
     case InstallerError::kErrorStartingTermina:
       return SetupResult::kErrorStartingTermina;
+    case InstallerError::kErrorStartingLxd:
+      return SetupResult::kErrorStartingLxd;
     case InstallerError::kErrorStartingContainer:
       return SetupResult::kErrorStartingContainer;
     case InstallerError::kErrorConfiguringContainer:
@@ -149,12 +148,12 @@ SetupResult InstallStateToCancelledSetupResult(
       return SetupResult::kUserCancelledStart;
     case InstallerState::kInstallImageLoader:
       return SetupResult::kUserCancelledInstallImageLoader;
-    case InstallerState::kStartConcierge:
-      return SetupResult::kUserCancelledStartConcierge;
     case InstallerState::kCreateDiskImage:
       return SetupResult::kUserCancelledCreateDiskImage;
     case InstallerState::kStartTerminaVm:
       return SetupResult::kUserCancelledStartTerminaVm;
+    case InstallerState::kStartLxd:
+      return SetupResult::kUserCancelledStartLxd;
     case InstallerState::kCreateContainer:
       return SetupResult::kUserCancelledCreateContainer;
     case InstallerState::kSetupContainer:
@@ -196,7 +195,7 @@ void CrostiniInstaller::Shutdown() {
 void CrostiniInstaller::ShowDialog(CrostiniUISurface ui_surface) {
   // Defensive check to prevent showing the installer when crostini is not
   // allowed.
-  if (!CrostiniFeatures::Get()->IsUIAllowed(profile_)) {
+  if (!CrostiniFeatures::Get()->IsAllowedNow(profile_)) {
     return;
   }
   base::UmaHistogramEnumeration(kCrostiniSetupSourceHistogram, ui_surface,
@@ -326,15 +325,6 @@ void CrostiniInstaller::OnComponentLoaded(CrostiniResult result) {
     }
     return;
   }
-  UpdateInstallingState(InstallerState::kStartConcierge);
-}
-
-void CrostiniInstaller::OnConciergeStarted(bool success) {
-  DCHECK_EQ(installing_state_, InstallerState::kStartConcierge);
-  if (!success) {
-    HandleError(InstallerError::kErrorStartingConcierge);
-    return;
-  }
   UpdateInstallingState(InstallerState::kCreateDiskImage);
 }
 
@@ -357,6 +347,15 @@ void CrostiniInstaller::OnVmStarted(bool success) {
   DCHECK_EQ(installing_state_, InstallerState::kStartTerminaVm);
   if (!success) {
     HandleError(InstallerError::kErrorStartingTermina);
+    return;
+  }
+  UpdateInstallingState(InstallerState::kStartLxd);
+}
+
+void CrostiniInstaller::OnLxdStarted(CrostiniResult result) {
+  DCHECK_EQ(installing_state_, InstallerState::kStartLxd);
+  if (result != CrostiniResult::SUCCESS) {
+    HandleError(InstallerError::kErrorStartingLxd);
     return;
   }
   UpdateInstallingState(InstallerState::kCreateContainer);
@@ -499,12 +498,8 @@ void CrostiniInstaller::RunProgressCallback() {
       state_end_mark = 0.20;
       state_max_time = base::TimeDelta::FromSeconds(30);
       break;
-    case InstallerState::kStartConcierge:
-      state_start_mark = 0.20;
-      state_end_mark = 0.21;
-      break;
     case InstallerState::kCreateDiskImage:
-      state_start_mark = 0.21;
+      state_start_mark = 0.20;
       state_end_mark = 0.22;
       break;
     case InstallerState::kStartTerminaVm:
@@ -512,8 +507,13 @@ void CrostiniInstaller::RunProgressCallback() {
       state_end_mark = 0.28;
       state_max_time = base::TimeDelta::FromSeconds(8);
       break;
-    case InstallerState::kCreateContainer:
+    case InstallerState::kStartLxd:
       state_start_mark = 0.28;
+      state_end_mark = 0.30;
+      state_max_time = base::TimeDelta::FromSeconds(2);
+      break;
+    case InstallerState::kCreateContainer:
+      state_start_mark = 0.30;
       state_end_mark = 0.72;
       state_max_time = base::TimeDelta::FromSeconds(180);
       break;

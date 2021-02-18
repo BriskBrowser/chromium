@@ -45,11 +45,9 @@ TabStripUI::TabStripUI(content::WebUI* web_ui)
   Profile* profile = Profile::FromWebUI(web_ui);
   content::WebUIDataSource* html_source =
       content::WebUIDataSource::Create(chrome::kChromeUITabStripHost);
-  std::string generated_path =
-      "@out_folder@/gen/chrome/browser/resources/tab_strip/";
   webui::SetupWebUIDataSource(
       html_source, base::make_span(kTabStripResources, kTabStripResourcesSize),
-      generated_path, IDR_TAB_STRIP_HTML);
+      IDR_TAB_STRIP_TAB_STRIP_HTML);
 
   html_source->AddString("tabIdDataType", kWebUITabIdDataType);
   html_source->AddString("tabGroupIdDataType", kWebUITabGroupIdDataType);
@@ -84,7 +82,7 @@ TabStripUI::TabStripUI(content::WebUI* web_ui)
       {"unnamedGroupLabel", IDS_GROUP_AX_LABEL_UNNAMED_GROUP_FORMAT},
       {"namedGroupLabel", IDS_GROUP_AX_LABEL_NAMED_GROUP_FORMAT},
   };
-  AddLocalizedStringsBulk(html_source, kStrings);
+  html_source->AddLocalizedStrings(kStrings);
   content::WebUIDataSource::Add(profile, html_source);
 
   content::URLDataSource::Add(

@@ -11,7 +11,13 @@
 Polymer({
   is: 'settings-date-time-page',
 
-  behaviors: [I18nBehavior, PrefsBehavior, WebUIListenerBehavior],
+  behaviors: [
+    DeepLinkingBehavior,
+    I18nBehavior,
+    PrefsBehavior,
+    settings.RouteObserverBehavior,
+    WebUIListenerBehavior,
+  ],
 
   properties: {
     /**
@@ -63,16 +69,48 @@ Polymer({
      */
     displayManagedByParentIcon_: {
       type: Boolean,
-      value: loadTimeData.getBoolean('isChild') &&
-          loadTimeData.getBoolean('timeActionsProtectedForChild')
+      value: loadTimeData.getBoolean('isChild'),
     },
+
+    /**
+     * Used by DeepLinkingBehavior to focus this page's deep links.
+     * @type {!Set<!chromeos.settings.mojom.Setting>}
+     */
+    supportedSettingIds: {
+      type: Object,
+      value: () => new Set([
+        chromeos.settings.mojom.Setting.k24HourClock,
+        chromeos.settings.mojom.Setting.kChangeTimeZone,
+      ]),
+    },
+  },
+
+  /** @private {?settings.TimeZoneBrowserProxy} */
+  browserProxy_: null,
+
+  /** @override */
+  created() {
+    this.browserProxy_ = settings.TimeZoneBrowserProxyImpl.getInstance();
   },
 
   /** @override */
   attached() {
     this.addWebUIListener(
         'can-set-date-time-changed', this.onCanSetDateTimeChanged_.bind(this));
-    chrome.send('dateTimePageReady');
+    this.browserProxy_.dateTimePageReady();
+  },
+
+  /**
+   * @param {!settings.Route} route
+   * @param {!settings.Route} oldRoute
+   */
+  currentRouteChanged(route, oldRoute) {
+    // Does not apply to this page.
+    if (route !== settings.routes.DATETIME) {
+      return;
+    }
+
+    this.attemptDeepLink();
   },
 
   /**
@@ -85,7 +123,7 @@ Polymer({
 
   /** @private */
   onSetDateTimeTap_() {
-    chrome.send('showSetDateTimeUI');
+    this.browserProxy_.showSetDateTimeUI();
   },
 
   /**

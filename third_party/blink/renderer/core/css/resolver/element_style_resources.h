@@ -43,8 +43,6 @@ class Element;
 class PseudoElement;
 class SVGResource;
 class StyleImage;
-class StylePendingImage;
-class TreeScope;
 
 namespace cssvalue {
 
@@ -68,29 +66,27 @@ class ElementStyleResources {
   StyleImage* CachedOrPendingFromValue(CSSPropertyID, const CSSImageValue&);
   StyleImage* SetOrPendingFromValue(CSSPropertyID, const CSSImageSetValue&);
 
-  enum AllowExternal { kDontAllowExternalResource, kAllowExternalResource };
-  SVGResource* GetSVGResourceFromValue(
-      TreeScope&,
-      const cssvalue::CSSURIValue&,
-      AllowExternal = kDontAllowExternalResource) const;
+  SVGResource* GetSVGResourceFromValue(CSSPropertyID,
+                                       const cssvalue::CSSURIValue&);
 
-  void LoadPendingResources(ComputedStyle*);
+  void LoadPendingResources(ComputedStyle&);
 
  private:
   StyleImage* GeneratedOrPendingFromValue(CSSPropertyID,
                                           const CSSImageGeneratorValue&);
 
-  void LoadPendingSVGResources(ComputedStyle*);
-  void LoadPendingImages(ComputedStyle*);
+  void LoadPendingSVGResources(ComputedStyle&);
+  void LoadPendingImages(ComputedStyle&);
 
   StyleImage* LoadPendingImage(
-      ComputedStyle*,
-      StylePendingImage*,
-      FetchParameters::ImageRequestBehavior,
+      ComputedStyle&,
+      CSSValue&,
+      FetchParameters::ImageRequestBehavior = FetchParameters::kNone,
       CrossOriginAttributeValue = kCrossOriginAttributeNotSet);
 
-  Element* element_;
+  Element& element_;
   HashSet<CSSPropertyID> pending_image_properties_;
+  HashSet<CSSPropertyID> pending_svg_resource_properties_;
   float device_scale_factor_;
   PseudoElement* pseudo_element_;
 };

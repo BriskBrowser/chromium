@@ -5,6 +5,7 @@
 package org.chromium.components.browser_ui.photo_picker;
 
 import android.content.ContentResolver;
+import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
 import android.os.StrictMode;
@@ -43,8 +44,6 @@ import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.test.util.DisableAnimationsTestRule;
 import org.chromium.ui.test.util.DummyUiActivityTestCase;
 import org.chromium.ui.test.util.RenderTestRule;
-import org.chromium.ui.vr.VrModeObserver;
-import org.chromium.ui.vr.VrModeProvider;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -99,6 +98,9 @@ public class PhotoPickerDialogTest extends DummyUiActivityTestCase
     // The list of currently selected photos (built piecemeal).
     private List<PickerBitmap> mCurrentPhotoSelection;
 
+    // True when {@link onPhotoPickerDismissed} has been called.
+    private boolean mDismissed;
+
     // A callback that fires when something is selected in the dialog.
     public final CallbackHelper mOnSelectionCallback = new CallbackHelper();
 
@@ -127,6 +129,10 @@ public class PhotoPickerDialogTest extends DummyUiActivityTestCase
     public void setUp() throws Exception {
         mWindowAndroid = TestThreadUtils.runOnUiThreadBlocking(
                 () -> { return new ActivityWindowAndroid(getActivity()); });
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            DecoderServiceHost.setIntentSupplier(
+                    () -> { return new Intent(getActivity(), TestImageDecoderService.class); });
+        });
         PickerVideoPlayer.setProgressCallback(this);
         PickerBitmapView.setAnimationListenerForTest(this);
         DecoderServiceHost.setStatusCallback(this);
@@ -134,6 +140,7 @@ public class PhotoPickerDialogTest extends DummyUiActivityTestCase
 
     @After
     public void tearDown() throws Exception {
+        Assert.assertTrue(TestThreadUtils.runOnUiThreadBlocking(() -> { return mDismissed; }));
         TestThreadUtils.runOnUiThreadBlocking(() -> { mWindowAndroid.destroy(); });
     }
 
@@ -183,6 +190,12 @@ public class PhotoPickerDialogTest extends DummyUiActivityTestCase
         mLastSelectedPhotos = photos != null ? photos.clone() : null;
         if (mLastSelectedPhotos != null) Arrays.sort(mLastSelectedPhotos);
         mOnActionCallback.notifyCalled();
+    }
+
+    @Override
+    public void onPhotoPickerDismissed() {
+        Assert.assertFalse(mDismissed);
+        mDismissed = true;
     }
 
     // DecoderServiceHost.DecoderStatusCallback:
@@ -250,7 +263,7 @@ public class PhotoPickerDialogTest extends DummyUiActivityTestCase
     public void onAnimationRepeat(Animation animation) {}
 
     private RecyclerView getRecyclerView() {
-        return (RecyclerView) mDialog.findViewById(R.id.recycler_view);
+        return (RecyclerView) mDialog.findViewById(R.id.selectable_list_recycler_view);
     }
 
     private PhotoPickerDialog createDialogWithContentResolver(final ContentResolver contentResolver,
@@ -260,17 +273,8 @@ public class PhotoPickerDialogTest extends DummyUiActivityTestCase
                     @Override
                     public PhotoPickerDialog call() {
                         final PhotoPickerDialog dialog = new PhotoPickerDialog(mWindowAndroid,
-                                contentResolver, PhotoPickerDialogTest.this, multiselect, mimeTypes,
-                                new VrModeProvider() {
-                                    @Override
-                                    public boolean isInVr() {
-                                        return false;
-                                    }
-                                    @Override
-                                    public void registerVrModeObserver(VrModeObserver observer) {}
-                                    @Override
-                                    public void unregisterVrModeObserver(VrModeObserver observer) {}
-                                });
+                                contentResolver, PhotoPickerDialogTest.this, multiselect,
+                                /* animatedThumbnailsSupported = */ true, mimeTypes);
                         dialog.show();
                         return dialog;
                     }
@@ -388,8 +392,6 @@ public class PhotoPickerDialogTest extends DummyUiActivityTestCase
 
         Assert.assertNull(mLastSelectedPhotos);
         Assert.assertEquals(PhotoPickerAction.CANCEL, mLastActionRecorded);
-
-        dismissDialog();
     }
 
     @Test
@@ -418,8 +420,6 @@ public class PhotoPickerDialogTest extends DummyUiActivityTestCase
         Assert.assertEquals(1, mLastSelectedPhotos.length);
         Assert.assertEquals(PhotoPickerAction.PHOTOS_SELECTED, mLastActionRecorded);
         Assert.assertEquals(mTestFiles.get(1).getUri().getPath(), mLastSelectedPhotos[0].getPath());
-
-        dismissDialog();
     }
 
     @Test
@@ -455,8 +455,6 @@ public class PhotoPickerDialogTest extends DummyUiActivityTestCase
         Assert.assertEquals(mTestFiles.get(0).getUri().getPath(), mLastSelectedPhotos[0].getPath());
         Assert.assertEquals(mTestFiles.get(2).getUri().getPath(), mLastSelectedPhotos[1].getPath());
         Assert.assertEquals(mTestFiles.get(4).getUri().getPath(), mLastSelectedPhotos[2].getPath());
-
-        dismissDialog();
     }
 
     @Test

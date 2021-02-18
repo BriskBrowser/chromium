@@ -18,7 +18,9 @@
     void setStencilReference(GPUStencilValue reference);
 
     void executeBundles(sequence<GPURenderBundle> bundles);
+    void writeTimestamp(GPUQuerySet querySet, GPUSize32 queryIndex);
     void endPass();
 };
+GPURenderPassEncoder includes GPUObjectBase;
 GPURenderPassEncoder includes GPUProgrammablePassEncoder;
 GPURenderPassEncoder includes GPURenderEncoderBase;

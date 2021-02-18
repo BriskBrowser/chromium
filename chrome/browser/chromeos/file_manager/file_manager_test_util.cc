@@ -4,13 +4,16 @@
 
 #include "chrome/browser/chromeos/file_manager/file_manager_test_util.h"
 
+#include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/path_service.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
+#include "chrome/browser/apps/app_service/app_service_proxy.h"
+#include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/file_manager/app_id.h"
 #include "chrome/browser/chromeos/file_manager/path_util.h"
 #include "chrome/browser/chromeos/file_manager/volume_manager_observer.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/extensions/chrome_test_extension_loader.h"
 #include "chrome/browser/extensions/component_loader.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -21,9 +24,21 @@
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/notification_types.h"
 #include "net/base/mime_util.h"
+#include "testing/gtest/include/gtest/gtest.h"
+
+using platform_util::OpenOperationResult;
 
 namespace file_manager {
 namespace test {
+
+FolderInMyFiles::FolderInMyFiles(Profile* profile) : profile_(profile) {
+  const base::FilePath root = util::GetMyFilesFolderForProfile(profile);
+  VolumeManager::Get(profile)->RegisterDownloadsDirectoryForTesting(root);
+
+  base::ScopedAllowBlockingForTesting allow_blocking;
+  constexpr base::FilePath::CharType kPrefix[] = FILE_PATH_LITERAL("a_folder");
+  CHECK(CreateTemporaryDirInDir(root, kPrefix, &folder_));
+}
 
 FolderInMyFiles::~FolderInMyFiles() = default;
 
@@ -35,13 +50,57 @@ void FolderInMyFiles::Add(const std::vector<base::FilePath>& files) {
   }
 }
 
-FolderInMyFiles::FolderInMyFiles(Profile* profile) {
-  const base::FilePath root = util::GetMyFilesFolderForProfile(profile);
-  VolumeManager::Get(profile)->RegisterDownloadsDirectoryForTesting(root);
+OpenOperationResult FolderInMyFiles::Open(const base::FilePath& file) {
+  const auto& it = std::find_if(files_.begin(), files_.end(),
+                                [file](const base::FilePath& i) {
+                                  return i.BaseName() == file.BaseName();
+                                });
+  EXPECT_FALSE(it == files_.end());
+  if (it == files_.end())
+    return platform_util::OPEN_FAILED_PATH_NOT_FOUND;
+
+  const base::FilePath& path = *it;
+  base::RunLoop run_loop;
+  OpenOperationResult open_result;
+  platform_util::OpenItem(
+      profile_, path, platform_util::OPEN_FILE,
+      base::BindLambdaForTesting([&](OpenOperationResult result) {
+        open_result = result;
+        run_loop.Quit();
+      }));
+  run_loop.Run();
+
+  // On ChromeOS, the OpenOperationResult is determined in
+  // OpenFileMimeTypeAfterTasksListed() which also invokes
+  // ExecuteFileTaskForUrl(). For WebApps like chrome://media-app, that invokes
+  // WebApps::LaunchAppWithFiles() via AppServiceProxy.
+  // Depending how the mime type of |path| is determined (e.g. extension,
+  // metadata sniffing), there may be a number of asynchronous steps involved
+  // before the call to ExecuteFileTaskForUrl(). After that, the OpenItem
+  // callback is invoked, which exits the RunLoop above.
+  // That used to be enough to also launch a Browser for the WebApp. However,
+  // since https://crrev.com/c/2121860, ExecuteFileTaskForUrl() goes through the
+  // mojoAppService, so it's necessary to flush those calls for WebApps to open.
+  apps::AppServiceProxyFactory::GetForProfileRedirectInIncognito(profile_)
+      ->FlushMojoCallsForTesting();
+
+  return open_result;
+}
+
+void FolderInMyFiles::Refresh() {
+  constexpr bool kRecursive = false;
+  files_.clear();
 
   base::ScopedAllowBlockingForTesting allow_blocking;
-  constexpr base::FilePath::CharType kPrefix[] = FILE_PATH_LITERAL("a_folder");
-  CHECK(CreateTemporaryDirInDir(root, kPrefix, &folder_));
+  base::FileEnumerator e(folder_, kRecursive, base::FileEnumerator::FILES);
+  for (base::FilePath path = e.Next(); !path.empty(); path = e.Next()) {
+    files_.push_back(path);
+  }
+
+  std::sort(files_.begin(), files_.end(),
+            [](const base::FilePath& l, const base::FilePath& r) {
+              return l.BaseName() < r.BaseName();
+            });
 }
 
 void AddDefaultComponentExtensionsOnMainThread(Profile* profile) {
@@ -69,7 +128,7 @@ namespace {
 // Helper to exit a RunLoop the next time OnVolumeMounted() is invoked.
 class VolumeWaiter : public VolumeManagerObserver {
  public:
-  VolumeWaiter(Profile* profile, const base::Closure& on_mount)
+  VolumeWaiter(Profile* profile, const base::RepeatingClosure& on_mount)
       : profile_(profile), on_mount_(on_mount) {
     VolumeManager::Get(profile_)->AddObserver(this);
   }
@@ -85,7 +144,7 @@ class VolumeWaiter : public VolumeManagerObserver {
 
  private:
   Profile* profile_;
-  base::Closure on_mount_;
+  base::RepeatingClosure on_mount_;
 };
 }  // namespace
 

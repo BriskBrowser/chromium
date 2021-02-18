@@ -35,8 +35,8 @@ class MockEnrollmentScreenView : public EnrollmentScreenView {
               SetEnrollmentConfig,
               (Controller*, const policy::EnrollmentConfig& config));
   MOCK_METHOD(void,
-              SetEnterpriseDomainAndDeviceType,
-              (const std::string& domain, const base::string16& device_type));
+              SetEnterpriseDomainInfo,
+              (const std::string& manager, const base::string16& device_type));
   MOCK_METHOD(void, Show, ());
   MOCK_METHOD(void, Hide, ());
   MOCK_METHOD(void, ShowSigninScreen, ());
@@ -57,6 +57,7 @@ class MockEnrollmentScreenView : public EnrollmentScreenView {
   MOCK_METHOD(void, ShowAuthError, (const GoogleServiceAuthError&));
   MOCK_METHOD(void, ShowOtherError, (EnterpriseEnrollmentHelper::OtherError));
   MOCK_METHOD(void, ShowEnrollmentStatus, (policy::EnrollmentStatus status));
+  MOCK_METHOD(void, Shutdown, ());
 };
 
 }  // namespace chromeos

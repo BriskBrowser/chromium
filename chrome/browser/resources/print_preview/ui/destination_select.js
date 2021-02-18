@@ -105,9 +105,6 @@ Polymer({
     // Check for the Docs or Save as PDF ids first.
     const keyParams = this.selectedValue.split('/');
     if (keyParams[0] === Destination.GooglePromotedId.DOCS) {
-      if (!loadTimeData.getBoolean('cloudPrintDeprecationWarningsSuppressed')) {
-        return 'print-preview:save-to-drive-not-supported';
-      }
       return 'print-preview:save-to-drive';
     }
     if (keyParams[0] === Destination.GooglePromotedId.SAVE_AS_PDF) {
@@ -167,17 +164,9 @@ Polymer({
       return this.i18n('noLongerSupportedFragment');
     }
 
-    if (this.destination.shouldShowSaveToDriveWarning) {
-      return this.i18nAdvanced('saveToDriveNotSupportedWarning');
-    }
-
     // Give preference to connection status.
     if (this.destination.connectionStatusText) {
       return this.destination.connectionStatusText;
-    }
-
-    if (this.destination.shouldShowDeprecatedPrinterWarning) {
-      return this.i18nAdvanced('printerNotSupportedWarning');
     }
 
     return '';

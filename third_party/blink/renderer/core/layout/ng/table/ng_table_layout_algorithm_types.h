@@ -5,11 +5,15 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_TABLE_NG_TABLE_LAYOUT_ALGORITHM_TYPES_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_TABLE_NG_TABLE_LAYOUT_ALGORITHM_TYPES_H_
 
+#include "base/memory/scoped_refptr.h"
 #include "base/optional.h"
 #include "third_party/blink/renderer/core/layout/min_max_sizes.h"
 #include "third_party/blink/renderer/core/layout/ng/geometry/ng_box_strut.h"
+#include "third_party/blink/renderer/core/layout/ng/ng_block_node.h"
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
 #include "third_party/blink/renderer/platform/geometry/length.h"
+#include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/wtf/ref_counted.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
@@ -30,6 +34,8 @@ class CORE_EXPORT NGTableTypes {
     LayoutUnit min_inline_size;
     LayoutUnit max_inline_size;
     base::Optional<float> percent;  // 100% is stored as 100.0f
+    LayoutUnit percent_border_padding;  // Border/padding used for percentage
+                                        // size resolution.
     bool is_constrained;  // True if this cell has a specified inline-size.
 
     void Encompass(const CellInlineConstraint&);
@@ -47,36 +53,48 @@ class CORE_EXPORT NGTableTypes {
         : cell_inline_constraint(cell_inline_constraint),
           start_column(start_column),
           span(span) {}
-    // ColspanCells are distributed in column order.
-    bool operator<(const NGTableTypes::ColspanCell& rhs) const {
-      // '<' means left to right sort.
-      // Legacy sorts right-to-left, FF, Edge left-to-right.
-      if (span == rhs.span)
-        return start_column < rhs.start_column;
-      return span < rhs.span;
-    }
   };
 
   // Constraint for a column.
   struct Column {
     DISALLOW_NEW();
+    Column(const base::Optional<LayoutUnit>& min_inline_size,
+           const base::Optional<LayoutUnit>& max_inline_size,
+           const base::Optional<float>& percent,
+           LayoutUnit percent_border_padding,
+           bool is_constrained,
+           bool is_collapsed,
+           bool is_table_fixed,
+           bool is_mergeable)
+        : min_inline_size(min_inline_size),
+          max_inline_size(max_inline_size),
+          percent(percent),
+          percent_border_padding(percent_border_padding),
+          is_constrained(is_constrained),
+          is_collapsed(is_collapsed),
+          is_table_fixed(is_table_fixed),
+          is_mergeable(is_mergeable) {}
+    Column() = default;
     // These members are initialized from <col> and <colgroup>, then they
     // accumulate data from |CellInlineConstraint|s.
     base::Optional<LayoutUnit> min_inline_size;
     base::Optional<LayoutUnit> max_inline_size;
     base::Optional<float> percent;  // 100% is stored as 100.0f
+    LayoutUnit percent_border_padding;  // Border/padding used for percentage
+                                        // size resolution.
     // True if any cell for this column is constrained.
     bool is_constrained = false;
     bool is_collapsed = false;
-    // The final inline-size of the column after all constraints have been
-    // applied.
-    LayoutUnit computed_inline_size;
+    bool is_table_fixed = false;
+    bool is_mergeable = false;
+
     void Encompass(const base::Optional<NGTableTypes::CellInlineConstraint>&);
     LayoutUnit ResolvePercentInlineSize(
-        LayoutUnit percentage_resolution_inline_size) {
+        LayoutUnit percentage_resolution_inline_size) const {
       return std::max(
           min_inline_size.value_or(LayoutUnit()),
-          LayoutUnit(*percent * percentage_resolution_inline_size / 100));
+          LayoutUnit(*percent * percentage_resolution_inline_size / 100) +
+              percent_border_padding);
     }
     bool IsFixed() const {
       return is_constrained && !percent && max_inline_size;
@@ -183,7 +201,8 @@ class CORE_EXPORT NGTableTypes {
   };
 
   static Column CreateColumn(const ComputedStyle&,
-                             base::Optional<LayoutUnit> default_inline_size);
+                             base::Optional<LayoutUnit> default_inline_size,
+                             bool is_table_fixed);
 
   static CellInlineConstraint CreateCellInlineConstraint(
       const NGBlockNode&,
@@ -191,12 +210,13 @@ class CORE_EXPORT NGTableTypes {
       bool is_fixed_layout,
       const NGBoxStrut& cell_border,
       const NGBoxStrut& cell_padding,
-      bool is_collapsed);
+      bool has_collapsed_borders);
 
   static Section CreateSection(const NGLayoutInputNode&,
                                wtf_size_t start_row,
                                wtf_size_t rowspan,
-                               LayoutUnit block_size);
+                               LayoutUnit block_size,
+                               bool treat_as_tbody);
 
   static CellBlockConstraint CreateCellBlockConstraint(
       const NGLayoutInputNode&,
@@ -213,7 +233,8 @@ class CORE_EXPORT NGTableTypes {
       CellBlockConstraint*,
       base::Optional<LayoutUnit> css_block_size);
 
-  using Columns = Vector<Column>;
+  // Columns are cached by LayoutNGTable, and need to be RefCounted.
+  typedef base::RefCountedData<WTF::Vector<Column>> Columns;
   // Inline constraints are optional because we need to distinguish between an
   // empty cell, and a non-existent cell.
   using CellInlineConstraints = Vector<base::Optional<CellInlineConstraint>>;
@@ -235,13 +256,18 @@ struct NGTableGroupedChildren {
 
  public:
   explicit NGTableGroupedChildren(const NGBlockNode& table);
+  void Trace(Visitor*) const;
 
-  Vector<NGBlockNode> captions;  // CAPTION
-  Vector<NGBlockNode> columns;   // COLGROUP, COL
+  HeapVector<NGBlockNode> captions;  // CAPTION
+  HeapVector<NGBlockNode> columns;   // COLGROUP, COL
 
-  Vector<NGBlockNode> headers;  // THEAD
-  Vector<NGBlockNode> bodies;   // TBODY
-  Vector<NGBlockNode> footers;  // TFOOT
+  NGBlockNode header;          // first THEAD
+
+  // These cannot be modified except in ctor to ensure
+  // NGTableGroupedChildrenIterator works correctly.
+  HeapVector<NGBlockNode> bodies;  // TBODY/multiple THEAD/TFOOT
+
+  NGBlockNode footer;          // first TFOOT
 
   // Default iterators iterate over tbody-like (THEAD/TBODY/TFOOT) elements.
   NGTableGroupedChildrenIterator begin() const;
@@ -251,6 +277,10 @@ struct NGTableGroupedChildren {
 // Iterates table's sections in order:
 // thead, tbody, tfoot
 class NGTableGroupedChildrenIterator {
+  STACK_ALLOCATED();
+
+  enum CurrentSection { kNone, kHead, kBody, kFoot, kEnd };
+
  public:
   explicit NGTableGroupedChildrenIterator(
       const NGTableGroupedChildren& grouped_children,
@@ -260,12 +290,18 @@ class NGTableGroupedChildrenIterator {
   NGBlockNode operator*() const;
   bool operator==(const NGTableGroupedChildrenIterator& rhs) const;
   bool operator!=(const NGTableGroupedChildrenIterator& rhs) const;
+  // True if section should be treated as tbody
+  bool TreatAsTBody() const { return current_section_ == kBody; }
 
  private:
   void AdvanceToNonEmptySection();
   const NGTableGroupedChildren& grouped_children_;
-  const Vector<NGBlockNode>* current_vector_;
-  Vector<NGBlockNode>::const_iterator current_iterator_;
+  CurrentSection current_section_{kNone};
+
+  // |body_vector_| can be modified only in ctor and
+  // |AdvanceToNonEmptySection()|.
+  const HeapVector<NGBlockNode>* body_vector_ = nullptr;
+  wtf_size_t position_ = 0;
 };
 
 }  // namespace blink

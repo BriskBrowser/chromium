@@ -10,8 +10,8 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/check_op.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
@@ -47,7 +47,6 @@
 #include "ios/web/public/thread/web_task_traits.h"
 #include "ios/web/public/thread/web_thread.h"
 #include "net/cert/cert_verifier.h"
-#include "net/cert/multi_log_ct_verifier.h"
 #include "net/cookies/canonical_cookie.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_transaction_factory.h"
@@ -62,7 +61,7 @@
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_builder.h"
-#include "net/url_request/url_request_job_factory_impl.h"
+#include "net/url_request/url_request_job_factory.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -209,7 +208,7 @@ ChromeBrowserStateIOData::~ChromeBrowserStateIOData() {
 
 // static
 void ChromeBrowserStateIOData::InstallProtocolHandlers(
-    net::URLRequestJobFactoryImpl* job_factory,
+    net::URLRequestJobFactory* job_factory,
     ProtocolHandlerMap* protocol_handlers) {
   for (ProtocolHandlerMap::iterator it = protocol_handlers->begin();
        it != protocol_handlers->end(); ++it) {
@@ -356,8 +355,6 @@ void ChromeBrowserStateIOData::Init(
       io_thread_globals->cert_verifier.get());
   main_request_context_->set_ct_policy_enforcer(
       io_thread_globals->ct_policy_enforcer.get());
-  main_request_context_->set_cert_transparency_verifier(
-      io_thread_globals->cert_transparency_verifier.get());
   main_request_context_->set_quic_context(
       io_thread_globals->quic_context.get());
 

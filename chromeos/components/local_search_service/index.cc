@@ -1,13 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chromeos/components/local_search_service/index.h"
 
-#include <utility>
-
 #include "base/metrics/histogram_functions.h"
-#include "components/prefs/pref_service.h"
+#include "base/optional.h"
 
 namespace chromeos {
 namespace local_search_service {
@@ -29,29 +27,36 @@ std::string IndexIdBasedHistogramPrefix(IndexId index_id) {
   }
 }
 
+void OnSearchPerformedDone() {
+  // TODO(thanhdng): add a histogram to log this.
+}
+
 }  // namespace
-Index::Index(IndexId index_id, Backend backend, PrefService* local_state) {
+
+Index::Index(IndexId index_id, Backend backend) : index_id_(index_id) {
   histogram_prefix_ = IndexIdBasedHistogramPrefix(index_id);
   DCHECK(!histogram_prefix_.empty());
   LogIndexIdAndBackendType(histogram_prefix_, backend);
-
-  // TODO(jiameng): consider enforcing this to be non-nullable.
-  if (!local_state) {
-    return;
-  }
-
-  reporter_ = std::make_unique<SearchMetricsReporter>(local_state);
-  DCHECK(reporter_);
-  reporter_->SetIndexId(index_id);
 }
 
 Index::~Index() = default;
 
+void Index::BindReceiver(mojo::PendingReceiver<mojom::Index> receiver) {
+  receivers_.Add(this, std::move(receiver));
+}
+
+void Index::SetReporterRemote(
+    mojo::PendingRemote<mojom::SearchMetricsReporter> reporter_remote) {
+  DCHECK(!reporter_remote_.is_bound());
+  reporter_remote_.Bind(std::move(reporter_remote));
+}
+
 void Index::MaybeLogSearchResultsStats(ResponseStatus status,
                                        size_t num_results,
                                        base::TimeDelta latency) {
-  if (reporter_)
-    reporter_->OnSearchPerformed();
+  if (reporter_remote_.is_bound())
+    reporter_remote_->OnSearchPerformed(index_id_,
+                                        base::BindOnce(&OnSearchPerformedDone));
 
   base::UmaHistogramEnumeration(histogram_prefix_ + ".ResponseStatus", status);
   if (status == ResponseStatus::kSuccess) {
@@ -62,20 +67,11 @@ void Index::MaybeLogSearchResultsStats(ResponseStatus status,
   }
 }
 
-void Index::MaybeLogIndexSize() {
-  const uint64_t index_size = GetSize();
+void Index::MaybeLogIndexSize(uint64_t index_size) {
   if (index_size != 0u) {
     base::UmaHistogramCounts10000(histogram_prefix_ + ".NumberDocuments",
                                   index_size);
   }
-}
-
-void Index::SetSearchParams(const SearchParams& search_params) {
-  search_params_ = search_params;
-}
-
-SearchParams Index::GetSearchParamsForTesting() {
-  return search_params_;
 }
 
 }  // namespace local_search_service

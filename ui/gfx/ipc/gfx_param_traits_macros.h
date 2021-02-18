@@ -32,9 +32,6 @@ IPC_ENUM_TRAITS_MAX_VALUE(gfx::SwapResult, gfx::SwapResult::SWAP_RESULT_LAST)
 
 IPC_ENUM_TRAITS_MAX_VALUE(gfx::SelectionBound::Type, gfx::SelectionBound::LAST)
 
-IPC_ENUM_TRAITS_MAX_VALUE(gfx::GpuFenceHandleType,
-                          gfx::GpuFenceHandleType::kLast)
-
 IPC_STRUCT_TRAITS_BEGIN(gfx::CALayerParams)
   IPC_STRUCT_TRAITS_MEMBER(is_empty)
 #if defined(OS_MAC)
@@ -54,7 +51,7 @@ IPC_STRUCT_TRAITS_BEGIN(gfx::GpuMemoryBufferHandle)
 #if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_FUCHSIA)
   IPC_STRUCT_TRAITS_MEMBER(native_pixmap_handle)
 #elif defined(OS_APPLE)
-  IPC_STRUCT_TRAITS_MEMBER(mach_port)
+  IPC_STRUCT_TRAITS_MEMBER(io_surface)
 #elif defined(OS_WIN)
   IPC_STRUCT_TRAITS_MEMBER(dxgi_handle)
 #elif defined(OS_ANDROID)
@@ -109,9 +106,11 @@ IPC_STRUCT_TRAITS_BEGIN(gfx::PresentationFeedback)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(gfx::GpuFenceHandle)
-  IPC_STRUCT_TRAITS_MEMBER(type)
 #if defined(OS_POSIX)
-  IPC_STRUCT_TRAITS_MEMBER(native_fd)
+  IPC_STRUCT_TRAITS_MEMBER(owned_fd)
+#endif
+#if defined(OS_WIN)
+  IPC_STRUCT_TRAITS_MEMBER(owned_handle)
 #endif
 IPC_STRUCT_TRAITS_END()
 

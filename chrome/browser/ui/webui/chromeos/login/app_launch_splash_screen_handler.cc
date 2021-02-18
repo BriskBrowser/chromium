@@ -7,8 +7,9 @@
 #include <memory>
 #include <utility>
 
+#include "ash/public/cpp/login_screen.h"
 #include "base/values.h"
-#include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
+#include "chrome/browser/ash/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/chromeos/login/oobe_screen.h"
 #include "chrome/browser/chromeos/login/screens/network_error.h"
 #include "chrome/browser/ui/webui/chromeos/login/error_screen_handler.h"
@@ -67,9 +68,6 @@ void AppLaunchSplashScreenHandler::DeclareLocalizedValues(
   builder->Add("shortcutInfo",
                l10n_util::GetStringFUTF16(IDS_APP_START_BAILOUT_SHORTCUT_FORMAT,
                                           product_os_name));
-
-  builder->Add("productName",
-               l10n_util::GetStringUTF16(IDS_SHORT_PRODUCT_OS_NAME));
 }
 
 void AppLaunchSplashScreenHandler::Initialize() {
@@ -184,6 +182,12 @@ void AppLaunchSplashScreenHandler::ShowNetworkConfigureUI() {
   error_screen_->Show(nullptr);
 }
 
+void AppLaunchSplashScreenHandler::ShowErrorMessage(
+    KioskAppLaunchError::Error error) {
+  ash::LoginScreen::Get()->ShowKioskAppError(
+      KioskAppLaunchError::GetErrorMessage(error));
+}
+
 bool AppLaunchSplashScreenHandler::IsNetworkReady() {
   return network_state_informer_->state() == NetworkStateInformer::ONLINE;
 }
@@ -243,6 +247,8 @@ int AppLaunchSplashScreenHandler::GetProgressMessageFromState(
       return IDS_APP_START_NETWORK_WAIT_MESSAGE;
     case APP_LAUNCH_STATE_INSTALLING_APPLICATION:
       return IDS_APP_START_APP_WAIT_MESSAGE;
+    case APP_LAUNCH_STATE_INSTALLING_EXTENSION:
+      return IDS_APP_START_EXTENSION_WAIT_MESSAGE;
     case APP_LAUNCH_STATE_WAITING_APP_WINDOW:
       return IDS_APP_START_WAIT_FOR_APP_WINDOW_MESSAGE;
     case APP_LAUNCH_STATE_WAITING_APP_WINDOW_INSTALL_FAILED:

@@ -36,7 +36,7 @@ NavigationEvent::NavigationEvent()
       original_request_url(),
       source_tab_id(SessionID::InvalidValue()),
       target_tab_id(SessionID::InvalidValue()),
-      frame_id(-1),
+      frame_id(content::RenderFrameHost::kNoFrameTreeNodeId),
       last_updated(base::Time::Now()),
       navigation_initiation(ReferrerChainEntry::UNDEFINED),
       has_committed(false),
@@ -134,6 +134,30 @@ void SafeBrowsingNavigationObserver::DidStartNavigation(
     return;
   }
 
+  // When navigating a newly created portal contents, establish an association
+  // with its creator, so we can track the referrer chain across portal
+  // activations.
+  if (web_contents()->IsPortal() &&
+      !web_contents()->GetController().GetLastCommittedEntry()) {
+    content::RenderFrameHost* initiator_frame_host =
+        navigation_handle->GetInitiatorFrameToken().has_value()
+            ? content::RenderFrameHost::FromFrameToken(
+                  navigation_handle->GetInitiatorProcessID(),
+                  navigation_handle->GetInitiatorFrameToken().value())
+            : nullptr;
+    // TODO(https://crbug.com/1074422): Handle the case where the initiator
+    // RenderFrameHost is gone.
+    if (initiator_frame_host) {
+      content::WebContents* initiator_contents =
+          content::WebContents::FromRenderFrameHost(initiator_frame_host);
+      manager_->RecordNewWebContents(
+          initiator_contents, initiator_frame_host->GetProcess()->GetID(),
+          initiator_frame_host->GetRoutingID(), navigation_handle->GetURL(),
+          navigation_handle->GetPageTransition(), web_contents(),
+          navigation_handle->IsRendererInitiated());
+    }
+  }
+
   std::unique_ptr<NavigationEvent> nav_event =
       std::make_unique<NavigationEvent>();
   auto it = navigation_handle_map_.find(navigation_handle);
@@ -164,8 +188,7 @@ void SafeBrowsingNavigationObserver::DidStartNavigation(
 
   // If there was a URL previously committed in the current RenderFrameHost,
   // set it as the source url of this navigation. Otherwise, this is the
-  // first url going to commit in this frame. We set navigation_handle's URL as
-  // the source url.
+  // first url going to commit in this frame.
   int current_process_id =
       navigation_handle->GetStartingSiteInstance()->GetProcess()->GetID();
   content::RenderFrameHost* current_frame_host =
@@ -270,49 +293,10 @@ void SafeBrowsingNavigationObserver::DidOpenRequestedURL(
       renderer_initiated);
 }
 
-void SafeBrowsingNavigationObserver::DidActivatePortal(
-    content::WebContents* predecessor_web_contents,
-    base::TimeTicks activation_time) {
-  content::RenderFrameHost* predecessor_frame =
-      predecessor_web_contents->GetMainFrame();
-  content::RenderFrameHost* successor_frame = web_contents()->GetMainFrame();
-
-  // Portal activation swaps contents in a tab, so to the user it looks like a
-  // navigation, so we treat activation as navigation event, with the
-  // predecessor as the source and the successor as the "navigation."
-  std::unique_ptr<NavigationEvent> nav_event =
-      std::make_unique<NavigationEvent>();
-  nav_event->navigation_initiation =
-      predecessor_frame->HasTransientUserActivation()
-          ? ReferrerChainEntry::RENDERER_INITIATED_WITH_USER_GESTURE
-          : ReferrerChainEntry::RENDERER_INITIATED_WITHOUT_USER_GESTURE;
-  nav_event->frame_id = successor_frame->GetFrameTreeNodeId();
-  DCHECK(predecessor_frame->GetLastCommittedURL().is_valid());
-  DCHECK(successor_frame->GetLastCommittedURL().is_valid());
-  nav_event->source_url = SafeBrowsingNavigationObserverManager::ClearURLRef(
-      predecessor_frame->GetLastCommittedURL());
-  nav_event->source_main_frame_url = nav_event->source_url;
-  // TODO(mcnee): Ensure that redirects within a portal before it is activated
-  // are reflected in the referrer chain. See https://crbug.com/1096115
-  nav_event->original_request_url =
-      SafeBrowsingNavigationObserverManager::ClearURLRef(
-          successor_frame->GetLastCommittedURL());
-  nav_event->source_tab_id =
-      sessions::SessionTabHelper::IdForTab(predecessor_web_contents);
-  nav_event->target_tab_id =
-      sessions::SessionTabHelper::IdForTab(web_contents());
-  nav_event->maybe_launched_by_external_application = false;
-  nav_event->has_committed = true;
-  nav_event->last_updated = base::Time::Now();
-
-  manager_->RecordNavigationEvent(std::move(nav_event));
-}
-
 void SafeBrowsingNavigationObserver::OnContentSettingChanged(
     const ContentSettingsPattern& primary_pattern,
     const ContentSettingsPattern& secondary_pattern,
-    ContentSettingsType content_type,
-    const std::string& resource_identifier) {
+    ContentSettingsType content_type) {
   // For all the content settings that can be changed via page info UI, we
   // assume there is a user gesture associated with the content setting change.
   if (web_contents() &&

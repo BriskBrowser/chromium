@@ -48,6 +48,7 @@
 #include "sandbox/policy/mac/ppapi.sb.h"
 #include "sandbox/policy/mac/print_compositor.sb.h"
 #include "sandbox/policy/mac/renderer.sb.h"
+#include "sandbox/policy/mac/speech_recognition.sb.h"
 #include "sandbox/policy/mac/utility.sb.h"
 #include "sandbox/policy/sandbox_type.h"
 #include "sandbox/policy/switches.h"
@@ -59,6 +60,9 @@ namespace policy {
 const char* SandboxMac::kSandboxBrowserPID = "BROWSER_PID";
 const char* SandboxMac::kSandboxBundlePath = "BUNDLE_PATH";
 const char* SandboxMac::kSandboxChromeBundleId = "BUNDLE_ID";
+const char* SandboxMac::kSandboxSodaComponentPath = "SODA_COMPONENT_PATH";
+const char* SandboxMac::kSandboxSodaLanguagePackPath =
+    "SODA_LANGUAGE_PACK_PATH";
 const char* SandboxMac::kSandboxComponentPath = "COMPONENT_PATH";
 const char* SandboxMac::kSandboxDisableDenialLogging =
     "DISABLE_SANDBOX_DENIAL_LOGGING";
@@ -66,10 +70,11 @@ const char* SandboxMac::kSandboxEnableLogging = "ENABLE_LOGGING";
 const char* SandboxMac::kSandboxHomedirAsLiteral = "USER_HOMEDIR_AS_LITERAL";
 const char* SandboxMac::kSandboxLoggingPathAsLiteral = "LOG_FILE_PATH";
 const char* SandboxMac::kSandboxOSVersion = "OS_VERSION";
-const char* SandboxMac::kSandboxElCapOrLater = "ELCAP_OR_LATER";
 const char* SandboxMac::kSandboxMacOS1013 = "MACOS_1013";
 const char* SandboxMac::kSandboxFieldTrialSeverName = "FIELD_TRIAL_SERVER_NAME";
 const char* SandboxMac::kSandboxBundleVersionPath = "BUNDLE_VERSION_PATH";
+const char* SandboxMac::kSandboxDisableMetalShaderCache =
+    "DISABLE_METAL_SHADER_CACHE";
 
 // Warm up System APIs that empirically need to be accessed before the Sandbox
 // is turned on.
@@ -188,10 +193,6 @@ bool SandboxMac::Enable(SandboxType sandbox_type) {
     return false;
   }
 
-  bool elcap_or_later = base::mac::IsAtLeastOS10_11();
-  if (!compiler.InsertBooleanParam(kSandboxElCapOrLater, elcap_or_later))
-    return false;
-
   bool macos_1013 = base::mac::IsOS10_13();
   if (!compiler.InsertBooleanParam(kSandboxMacOS1013, macos_1013))
     return false;
@@ -254,6 +255,9 @@ std::string SandboxMac::GetSandboxProfile(SandboxType sandbox_type) {
     case SandboxType::kPrintCompositor:
       profile += kSeatbeltPolicyString_print_compositor;
       break;
+    case SandboxType::kSpeechRecognition:
+      profile += kSeatbeltPolicyString_speech_recognition;
+      break;
     case SandboxType::kUtility:
       profile += kSeatbeltPolicyString_utility;
       break;
@@ -262,7 +266,6 @@ std::string SandboxMac::GetSandboxProfile(SandboxType sandbox_type) {
       break;
     case SandboxType::kNoSandbox:
     case SandboxType::kVideoCapture:
-    case SandboxType::kSpeechRecognition:
       CHECK(false);
       break;
   }

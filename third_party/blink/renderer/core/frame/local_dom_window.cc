@@ -32,8 +32,10 @@
 #include "base/metrics/histogram_macros.h"
 #include "cc/input/snap_selection_strategy.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
+#include "services/metrics/public/cpp/ukm_builders.h"
 #include "third_party/blink/public/common/action_after_pagehide.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/widget/screen_info.h"
 #include "third_party/blink/public/mojom/feature_policy/policy_disposition.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
@@ -44,6 +46,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/source_location.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_impression_params.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_scroll_to_options.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_void_function.h"
 #include "third_party/blink/renderer/bindings/core/v8/window_proxy.h"
@@ -71,7 +74,6 @@
 #include "third_party/blink/renderer/core/events/hash_change_event.h"
 #include "third_party/blink/renderer/core/events/message_event.h"
 #include "third_party/blink/renderer/core/events/pop_state_event.h"
-#include "third_party/blink/renderer/core/execution_context/agent_metrics_collector.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/execution_context/window_agent.h"
 #include "third_party/blink/renderer/core/frame/bar_prop.h"
@@ -93,6 +95,7 @@
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/frame/viewport_data.h"
 #include "third_party/blink/renderer/core/frame/visual_viewport.h"
+#include "third_party/blink/renderer/core/html/conversion_measurement_parsing.h"
 #include "third_party/blink/renderer/core/html/custom/custom_element_registry.h"
 #include "third_party/blink/renderer/core/html/forms/form_controller.h"
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
@@ -134,9 +137,38 @@
 
 namespace blink {
 
+namespace {
+
+constexpr size_t kMaxPostMessageUkmRecordedSourceIdsSize = 20;
+
+bool ShouldRecordPostMessageIncomingFrameUkmEvent(
+    ukm::SourceId source_frame_ukm_source_id,
+    Deque<ukm::SourceId>& already_recorded_source_frame_ids) {
+  DCHECK_LE(already_recorded_source_frame_ids.size(),
+            kMaxPostMessageUkmRecordedSourceIdsSize);
+
+  if (base::Contains(already_recorded_source_frame_ids,
+                     source_frame_ukm_source_id)) {
+    return false;
+  }
+
+  if (already_recorded_source_frame_ids.size() ==
+      kMaxPostMessageUkmRecordedSourceIdsSize) {
+    already_recorded_source_frame_ids.pop_back();
+  }
+  already_recorded_source_frame_ids.push_front(source_frame_ukm_source_id);
+  return true;
+}
+
+}  // namespace
+
 LocalDOMWindow::LocalDOMWindow(LocalFrame& frame, WindowAgent* agent)
     : DOMWindow(frame),
       ExecutionContext(V8PerIsolateData::MainThreadIsolate(), agent),
+      script_controller_(MakeGarbageCollected<ScriptController>(
+          *this,
+          *static_cast<LocalWindowProxyManager*>(
+              frame.GetWindowProxyManager()))),
       visualViewport_(MakeGarbageCollected<DOMVisualViewport>(this)),
       should_print_when_finished_loading_(false),
       input_method_controller_(
@@ -157,18 +189,12 @@ void LocalDOMWindow::BindContentSecurityPolicy() {
 
 void LocalDOMWindow::Initialize() {
   GetAgent()->AttachContext(this);
-  if (auto* agent_metrics = GetFrame()->GetPage()->GetAgentMetricsCollector())
-    agent_metrics->DidAttachWindow(*this);
 }
 
 void LocalDOMWindow::ResetWindowAgent(WindowAgent* agent) {
   GetAgent()->DetachContext(this);
-  if (auto* agent_metrics = GetFrame()->GetPage()->GetAgentMetricsCollector())
-    agent_metrics->DidDetachWindow(*this);
   ResetAgent(agent);
   GetAgent()->AttachContext(this);
-  if (auto* agent_metrics = GetFrame()->GetPage()->GetAgentMetricsCollector())
-    agent_metrics->DidAttachWindow(*this);
 }
 
 void LocalDOMWindow::AcceptLanguagesChanged() {
@@ -178,20 +204,11 @@ void LocalDOMWindow::AcceptLanguagesChanged() {
   DispatchEvent(*Event::Create(event_type_names::kLanguagechange));
 }
 
-ScriptValue LocalDOMWindow::event(ScriptState* script_state) const {
+ScriptValue LocalDOMWindow::event(ScriptState* script_state) {
   // If current event is null, return undefined.
   if (!current_event_) {
     return ScriptValue(script_state->GetIsolate(),
                        ToV8(ToV8UndefinedGenerator(), script_state));
-  }
-
-  // Track usage of window.event when the event's target is inside V0 shadow
-  // tree.
-  if (current_event_->target()) {
-    Node* target_node = current_event_->target()->ToNode();
-    if (target_node && target_node->IsInV0ShadowTree()) {
-      UseCounter::Count(document(), WebFeature::kWindowEventInV0ShadowTree);
-    }
   }
 
   return ScriptValue(script_state->GetIsolate(),
@@ -206,12 +223,22 @@ void LocalDOMWindow::SetCurrentEvent(Event* new_event) {
   current_event_ = new_event;
 }
 
-TrustedTypePolicyFactory* LocalDOMWindow::trustedTypes() const {
-  if (!trusted_types_) {
-    trusted_types_ =
-        MakeGarbageCollected<TrustedTypePolicyFactory>(GetExecutionContext());
-  }
-  return trusted_types_.Get();
+TrustedTypePolicyFactory* LocalDOMWindow::GetTrustedTypesForWorld(
+    const DOMWrapperWorld& world) const {
+  DCHECK(world.IsMainWorld() || world.IsIsolatedWorld());
+  DCHECK(IsMainThread());
+  auto iter = trusted_types_map_.find(&world);
+  if (iter != trusted_types_map_.end())
+    return iter->value;
+  return trusted_types_map_
+      .insert(&world, MakeGarbageCollected<TrustedTypePolicyFactory>(
+                          GetExecutionContext()))
+      .stored_value->value;
+}
+
+TrustedTypePolicyFactory* LocalDOMWindow::trustedTypes(
+    ScriptState* script_state) const {
+  return GetTrustedTypesForWorld(script_state->World());
 }
 
 bool LocalDOMWindow::IsCrossSiteSubframe() const {
@@ -231,6 +258,15 @@ bool LocalDOMWindow::IsCrossSiteSubframe() const {
 LocalDOMWindow* LocalDOMWindow::From(const ScriptState* script_state) {
   v8::HandleScope scope(script_state->GetIsolate());
   return blink::ToLocalDOMWindow(script_state->GetContext());
+}
+
+mojom::blink::V8CacheOptions LocalDOMWindow::GetV8CacheOptions() const {
+  if (LocalFrame* frame = GetFrame()) {
+    if (const Settings* settings = frame->GetSettings())
+      return settings->GetV8CacheOptions();
+  }
+
+  return mojom::blink::V8CacheOptions::kDefault;
 }
 
 bool LocalDOMWindow::IsContextThread() const {
@@ -273,12 +309,16 @@ KURL LocalDOMWindow::CompleteURL(const String& url) const {
 }
 
 void LocalDOMWindow::DisableEval(const String& error_message) {
-  if (GetFrame())
-    GetFrame()->GetScriptController().DisableEval(error_message);
+  GetScriptController().DisableEval(error_message);
 }
 
 String LocalDOMWindow::UserAgent() const {
   return GetFrame() ? GetFrame()->Loader().UserAgent() : String();
+}
+
+UserAgentMetadata LocalDOMWindow::GetUserAgentMetadata() const {
+  return GetFrame()->Loader().UserAgentMetadata().value_or(
+      blink::UserAgentMetadata());
 }
 
 HttpsState LocalDOMWindow::GetHttpsState() const {
@@ -359,6 +399,11 @@ String LocalDOMWindow::OutgoingReferrer() const {
 
 network::mojom::ReferrerPolicy LocalDOMWindow::GetReferrerPolicy() const {
   network::mojom::ReferrerPolicy policy = ExecutionContext::GetReferrerPolicy();
+
+  // PolicyContainer took care already of policy inheritance.
+  if (base::FeatureList::IsEnabled(blink::features::kPolicyContainer)) {
+    return policy;
+  }
   // For srcdoc documents without their own policy, walk up the frame
   // tree to find the document that is either not a srcdoc or doesn't
   // have its own policy. This algorithm is defined in
@@ -371,25 +416,12 @@ network::mojom::ReferrerPolicy LocalDOMWindow::GetReferrerPolicy() const {
   return frame->DomWindow()->GetReferrerPolicy();
 }
 
-network::mojom::blink::ReferrerPolicy
-LocalDOMWindow::ReferrerPolicyButForMetaTagsWithListsOfPolicies() const {
-  network::mojom::ReferrerPolicy policy =
-      ExecutionContext::ReferrerPolicyButForMetaTagsWithListsOfPolicies();
-  // For srcdoc documents without their own policy, walk up the frame tree
-  // analogously to when getting the referrer policy.
-  if (!GetFrame() || policy != network::mojom::ReferrerPolicy::kDefault ||
-      !document()->IsSrcdocDocument()) {
-    return policy;
-  }
-  LocalFrame* frame = To<LocalFrame>(GetFrame()->Tree().Parent());
-  return frame->DomWindow()->ReferrerPolicyButForMetaTagsWithListsOfPolicies();
-}
-
 CoreProbeSink* LocalDOMWindow::GetProbeSink() {
   return probe::ToCoreProbeSink(GetFrame());
 }
 
-BrowserInterfaceBrokerProxy& LocalDOMWindow::GetBrowserInterfaceBroker() {
+const BrowserInterfaceBrokerProxy& LocalDOMWindow::GetBrowserInterfaceBroker()
+    const {
   if (!GetFrame())
     return GetEmptyBrowserInterfaceBroker();
 
@@ -486,6 +518,20 @@ void LocalDOMWindow::ReportDocumentPolicyViolation(
 
   Report* report = MakeGarbageCollected<Report>(
       ReportType::kDocumentPolicyViolation, Url().GetString(), body);
+
+  // Avoids sending duplicate reports, by comparing the generated MatchId.
+  // The match ids are not guaranteed to be unique.
+  // There are trade offs on storing full objects and storing match ids. Storing
+  // full objects takes more memory. Storing match id has the potential of hash
+  // collision. Since reporting is not a part critical system or have security
+  // concern, dropping a valid report due to hash collision seems a reasonable
+  // price to pay for the memory saving.
+  unsigned report_id = report->MatchId();
+  DCHECK(report_id);
+
+  if (document_policy_violation_reports_sent_.Contains(report_id))
+    return;
+  document_policy_violation_reports_sent_.insert(report_id);
 
   // Send the document policy violation report to any ReportingObservers.
   const base::Optional<std::string> endpoint =
@@ -588,25 +634,29 @@ bool LocalDOMWindow::HasInsecureContextInAncestors() {
 }
 
 Document* LocalDOMWindow::InstallNewDocument(const DocumentInit& init) {
-  DCHECK_EQ(init.GetWindow(), this);
+  // Blink should never attempt to install a new Document to a LocalDOMWindow
+  // that's not attached to a LocalFrame.
+  DCHECK(GetFrame());
+  // Either:
+  // - `this` should be a new LocalDOMWindow, that has never had a Document
+  //   associated with it or
+  // - `this` is being reused, and the previous Document has been disassociated
+  //   via `ClearForReuse()`.
   DCHECK(!document_);
+  DCHECK_EQ(init.GetWindow(), this);
+
   document_ = init.CreateDocument();
   document_->Initialize();
 
-  if (!GetFrame())
-    return document_;
-
-  GetFrame()->GetScriptController().UpdateDocument();
+  GetScriptController().UpdateDocument();
   document_->GetViewportData().UpdateViewportDescription();
-  if (FrameScheduler* frame_scheduler = GetFrame()->GetFrameScheduler()) {
-    frame_scheduler->TraceUrlChange(document_->Url().GetString());
-    frame_scheduler->SetCrossOriginToMainFrame(
-        GetFrame()->IsCrossOriginToMainFrame());
-  }
 
-  if (GetFrame()->GetPage() && GetFrame()->View()) {
-    GetFrame()->GetPage()->GetChromeClient().InstallSupplements(*GetFrame());
-  }
+  auto* frame_scheduler = GetFrame()->GetFrameScheduler();
+  frame_scheduler->TraceUrlChange(document_->Url().GetString());
+  frame_scheduler->SetCrossOriginToMainFrame(
+      GetFrame()->IsCrossOriginToMainFrame());
+
+  GetFrame()->GetPage()->GetChromeClient().InstallSupplements(*GetFrame());
 
   return document_;
 }
@@ -754,8 +804,7 @@ LocalDOMWindow* LocalDOMWindow::ToLocalDOMWindow() {
 }
 
 MediaQueryList* LocalDOMWindow::matchMedia(const String& media) {
-  return document() ? document()->GetMediaQueryMatcher().MatchMedia(media)
-                    : nullptr;
+  return document()->GetMediaQueryMatcher().MatchMedia(media);
 }
 
 void LocalDOMWindow::FrameDestroyed() {
@@ -770,10 +819,9 @@ void LocalDOMWindow::FrameDestroyed() {
   document()->Shutdown();
   document()->RemoveAllEventListenersRecursively();
   GetAgent()->DetachContext(this);
-  if (auto* agent_metrics = GetFrame()->GetPage()->GetAgentMetricsCollector())
-    agent_metrics->DidDetachWindow(*this);
   NotifyContextDestroyed();
   RemoveAllEventListeners();
+  MainThreadDebugger::Instance()->DidClearContextsForFrame(GetFrame());
   DisconnectFromFrame();
 }
 
@@ -798,7 +846,7 @@ void LocalDOMWindow::Reset() {
   media_ = nullptr;
   custom_elements_ = nullptr;
   application_cache_ = nullptr;
-  trusted_types_ = nullptr;
+  trusted_types_map_.clear();
 }
 
 void LocalDOMWindow::SendOrientationChangeEvent() {
@@ -841,57 +889,54 @@ int LocalDOMWindow::orientation() const {
   return orientation;
 }
 
-Screen* LocalDOMWindow::screen() const {
+Screen* LocalDOMWindow::screen() {
   if (!screen_)
-    screen_ = MakeGarbageCollected<Screen>(GetFrame());
+    screen_ = MakeGarbageCollected<Screen>(this);
   return screen_.Get();
 }
 
-History* LocalDOMWindow::history() const {
+History* LocalDOMWindow::history() {
   if (!history_)
-    history_ = MakeGarbageCollected<History>(GetFrame());
+    history_ = MakeGarbageCollected<History>(this);
   return history_.Get();
 }
 
-BarProp* LocalDOMWindow::locationbar() const {
+BarProp* LocalDOMWindow::locationbar() {
   if (!locationbar_) {
-    locationbar_ =
-        MakeGarbageCollected<BarProp>(GetFrame(), BarProp::kLocationbar);
+    locationbar_ = MakeGarbageCollected<BarProp>(this, BarProp::kLocationbar);
   }
   return locationbar_.Get();
 }
 
-BarProp* LocalDOMWindow::menubar() const {
+BarProp* LocalDOMWindow::menubar() {
   if (!menubar_)
-    menubar_ = MakeGarbageCollected<BarProp>(GetFrame(), BarProp::kMenubar);
+    menubar_ = MakeGarbageCollected<BarProp>(this, BarProp::kMenubar);
   return menubar_.Get();
 }
 
-BarProp* LocalDOMWindow::personalbar() const {
+BarProp* LocalDOMWindow::personalbar() {
   if (!personalbar_) {
-    personalbar_ =
-        MakeGarbageCollected<BarProp>(GetFrame(), BarProp::kPersonalbar);
+    personalbar_ = MakeGarbageCollected<BarProp>(this, BarProp::kPersonalbar);
   }
   return personalbar_.Get();
 }
 
-BarProp* LocalDOMWindow::scrollbars() const {
+BarProp* LocalDOMWindow::scrollbars() {
   if (!scrollbars_) {
-    scrollbars_ =
-        MakeGarbageCollected<BarProp>(GetFrame(), BarProp::kScrollbars);
+    scrollbars_ = MakeGarbageCollected<BarProp>(this, BarProp::kScrollbars);
   }
   return scrollbars_.Get();
 }
 
-BarProp* LocalDOMWindow::statusbar() const {
+BarProp* LocalDOMWindow::statusbar() {
   if (!statusbar_)
-    statusbar_ = MakeGarbageCollected<BarProp>(GetFrame(), BarProp::kStatusbar);
+    statusbar_ = MakeGarbageCollected<BarProp>(this, BarProp::kStatusbar);
   return statusbar_.Get();
 }
 
-BarProp* LocalDOMWindow::toolbar() const {
+BarProp* LocalDOMWindow::toolbar() {
   if (!toolbar_)
-    toolbar_ = MakeGarbageCollected<BarProp>(GetFrame(), BarProp::kToolbar);
+    toolbar_ = MakeGarbageCollected<BarProp>(this, BarProp::kToolbar);
   return toolbar_.Get();
 }
 
@@ -910,13 +955,13 @@ ApplicationCache* LocalDOMWindow::applicationCache() {
         this, WebFeature::kApplicationCacheAPIInsecureOrigin);
   }
   if (!application_cache_)
-    application_cache_ = MakeGarbageCollected<ApplicationCache>(GetFrame());
+    application_cache_ = MakeGarbageCollected<ApplicationCache>(this);
   return application_cache_.Get();
 }
 
-Navigator* LocalDOMWindow::navigator() const {
+Navigator* LocalDOMWindow::navigator() {
   if (!navigator_)
-    navigator_ = MakeGarbageCollected<Navigator>(GetFrame());
+    navigator_ = MakeGarbageCollected<Navigator>(this);
   return navigator_.Get();
 }
 
@@ -924,6 +969,15 @@ void LocalDOMWindow::SchedulePostMessage(
     MessageEvent* event,
     scoped_refptr<const SecurityOrigin> target,
     LocalDOMWindow* source) {
+  // Record UKM metrics for postMessage event.
+  ukm::SourceId source_frame_ukm_source_id = source->UkmSourceID();
+  if (ShouldRecordPostMessageIncomingFrameUkmEvent(
+          source_frame_ukm_source_id, post_message_ukm_recorded_source_ids_)) {
+    ukm::builders::PostMessage_Incoming_Frame(UkmSourceID())
+        .SetSourceFrameSourceId(source_frame_ukm_source_id)
+        .Record(UkmRecorder());
+  }
+
   // Allowing unbounded amounts of messages to build up for a suspended context
   // is problematic; consider imposing a limit or other restriction if this
   // surfaces often as a problem (see crbug.com/587012).
@@ -942,7 +996,11 @@ void LocalDOMWindow::DispatchPostMessage(
     scoped_refptr<const SecurityOrigin> intended_target_origin,
     std::unique_ptr<SourceLocation> location,
     const base::UnguessableToken& source_agent_cluster_id) {
-  probe::AsyncTask async_task(this, event->async_task_id());
+  // Do not report postMessage tasks to the ad tracker. This allows non-ad
+  // script to perform operations in response to events created by ad frames.
+  probe::AsyncTask async_task(this, event->async_task_id(), nullptr /* step */,
+                              true /* enabled */,
+                              probe::AsyncTask::AdTrackingType::kIgnore);
   if (!IsCurrentlyDisplayedInFrame())
     return;
 
@@ -958,6 +1016,7 @@ void LocalDOMWindow::DispatchMessageEventWithOriginCheck(
     MessageEvent* event,
     std::unique_ptr<SourceLocation> location,
     const base::UnguessableToken& source_agent_cluster_id) {
+  TRACE_EVENT0("blink", "LocalDOMWindow::DispatchMessageEventWithOriginCheck");
   if (intended_target_origin) {
     bool valid_target =
         intended_target_origin->IsSameOriginWith(GetSecurityOrigin());
@@ -994,7 +1053,7 @@ void LocalDOMWindow::DispatchMessageEventWithOriginCheck(
   if (event->IsLockedToAgentCluster()) {
     if (!IsSameAgentCluster(source_agent_cluster_id)) {
       UseCounter::Count(
-          document(),
+          this,
           WebFeature::kMessageEventSharedArrayBufferDifferentAgentCluster);
       event = MessageEvent::CreateError(event->origin(), event->source());
     } else {
@@ -1002,24 +1061,26 @@ void LocalDOMWindow::DispatchMessageEventWithOriginCheck(
           SecurityOrigin::Create(sender);
       if (!sender_origin->IsSameOriginWith(GetSecurityOrigin())) {
         UseCounter::Count(
-            document(),
-            WebFeature::kMessageEventSharedArrayBufferSameAgentCluster);
+            this, WebFeature::kMessageEventSharedArrayBufferSameAgentCluster);
       } else {
-        UseCounter::Count(document(),
+        UseCounter::Count(this,
                           WebFeature::kMessageEventSharedArrayBufferSameOrigin);
       }
     }
   }
 
   if (GetFrame() && GetFrame()->GetPage() &&
-      GetFrame()->GetPage()->DispatchedPagehideAndStillHidden()) {
+      GetFrame()->GetPage()->DispatchedPagehideAndStillHidden() &&
+      !document()->UnloadEventInProgress()) {
     // The message arrived after the pagehide event got dispatched and the page
     // is still hidden, which is not normally possible (this  might happen if
     // we're doing a same-site cross-RenderFrame navigation where we dispatch
     // pagehide during the new RenderFrame's commit but won't unload/freeze the
     // page after the new RenderFrame finished committing). We should track
-    // this case to measure how often this is happening.
-    UMA_HISTOGRAM_ENUMERATION("BackForwardCache.SameSite.ActionAfterPagehide",
+    // this case to measure how often this is happening, except for when the
+    // unload event is currently in progress, which means the page is not
+    // actually stored in the back-forward cache and this behavior is ok.
+    UMA_HISTOGRAM_ENUMERATION("BackForwardCache.SameSite.ActionAfterPagehide2",
                               ActionAfterPagehide::kReceivedPostMessage);
   }
   DispatchEvent(*event);
@@ -1042,19 +1103,13 @@ Element* LocalDOMWindow::frameElement() const {
 void LocalDOMWindow::blur() {}
 
 void LocalDOMWindow::print(ScriptState* script_state) {
-  // Don't print after detach begins, even if GetFrame() hasn't been nulled out
-  // yet.
-  // TODO(crbug.com/1063150): When a frame is being detached for a swap, the
-  // document has already been Shutdown() and is no longer in a consistent
-  // state, even though GetFrame() is not yet nulled out. This is an ordering
-  // violation, and checking whether we're in the middle of detach here is
-  // probably not the right long-term fix.
-  if (!GetFrame() || !GetFrame()->IsAttached())
+  // Don't try to print if there's no frame attached anymore.
+  if (!GetFrame())
     return;
 
   if (script_state &&
       v8::MicrotasksScope::IsRunningMicrotasks(script_state->GetIsolate())) {
-    UseCounter::Count(document(), WebFeature::kDuring_Microtask_Print);
+    UseCounter::Count(this, WebFeature::kDuring_Microtask_Print);
   }
 
   if (GetFrame()->IsLoading()) {
@@ -1082,7 +1137,7 @@ void LocalDOMWindow::alert(ScriptState* script_state, const String& message) {
     return;
 
   if (IsSandboxed(network::mojom::blink::WebSandboxFlags::kModals)) {
-    UseCounter::Count(document(), WebFeature::kDialogInSandboxedContext);
+    UseCounter::Count(this, WebFeature::kDialogInSandboxedContext);
     GetFrameConsole()->AddMessage(MakeGarbageCollected<ConsoleMessage>(
         mojom::ConsoleMessageSource::kSecurity,
         mojom::ConsoleMessageLevel::kError,
@@ -1092,7 +1147,7 @@ void LocalDOMWindow::alert(ScriptState* script_state, const String& message) {
   }
 
   if (v8::MicrotasksScope::IsRunningMicrotasks(script_state->GetIsolate())) {
-    UseCounter::Count(document(), WebFeature::kDuring_Microtask_Alert);
+    UseCounter::Count(this, WebFeature::kDuring_Microtask_Alert);
   }
 
   document()->UpdateStyleAndLayoutTree();
@@ -1114,7 +1169,7 @@ bool LocalDOMWindow::confirm(ScriptState* script_state, const String& message) {
     return false;
 
   if (IsSandboxed(network::mojom::blink::WebSandboxFlags::kModals)) {
-    UseCounter::Count(document(), WebFeature::kDialogInSandboxedContext);
+    UseCounter::Count(this, WebFeature::kDialogInSandboxedContext);
     GetFrameConsole()->AddMessage(MakeGarbageCollected<ConsoleMessage>(
         mojom::ConsoleMessageSource::kSecurity,
         mojom::ConsoleMessageLevel::kError,
@@ -1124,7 +1179,7 @@ bool LocalDOMWindow::confirm(ScriptState* script_state, const String& message) {
   }
 
   if (v8::MicrotasksScope::IsRunningMicrotasks(script_state->GetIsolate())) {
-    UseCounter::Count(document(), WebFeature::kDuring_Microtask_Confirm);
+    UseCounter::Count(this, WebFeature::kDuring_Microtask_Confirm);
   }
 
   document()->UpdateStyleAndLayoutTree();
@@ -1148,7 +1203,7 @@ String LocalDOMWindow::prompt(ScriptState* script_state,
     return String();
 
   if (IsSandboxed(network::mojom::blink::WebSandboxFlags::kModals)) {
-    UseCounter::Count(document(), WebFeature::kDialogInSandboxedContext);
+    UseCounter::Count(this, WebFeature::kDialogInSandboxedContext);
     GetFrameConsole()->AddMessage(MakeGarbageCollected<ConsoleMessage>(
         mojom::ConsoleMessageSource::kSecurity,
         mojom::ConsoleMessageLevel::kError,
@@ -1158,7 +1213,7 @@ String LocalDOMWindow::prompt(ScriptState* script_state,
   }
 
   if (v8::MicrotasksScope::IsRunningMicrotasks(script_state->GetIsolate())) {
-    UseCounter::Count(document(), WebFeature::kDuring_Microtask_Prompt);
+    UseCounter::Count(this, WebFeature::kDuring_Microtask_Prompt);
   }
 
   document()->UpdateStyleAndLayoutTree();
@@ -1366,7 +1421,7 @@ HeapVector<Member<DOMRect>> LocalDOMWindow::getWindowSegments() const {
   if (!page)
     return window_segments;
 
-  WebVector<WebRect> web_segments =
+  WebVector<gfx::Rect> web_segments =
       frame->GetWidgetForLocalRoot()->WindowSegments();
 
   // The rect passed to us from content is in DIP, relative to the main
@@ -1382,7 +1437,7 @@ HeapVector<Member<DOMRect>> LocalDOMWindow::getWindowSegments() const {
   const float page_zoom_factor = frame->PageZoomFactor();
   const float scale_factor = window_to_viewport_factor / page_zoom_factor;
   for (auto const& web_segment : web_segments) {
-    blink::FloatQuad quad = blink::FloatQuad(web_segment);
+    blink::FloatQuad quad = blink::FloatQuad(IntRect(web_segment));
     quad.Scale(scale_factor, scale_factor);
     window_segments.push_back(DOMRect::FromFloatRect(quad.BoundingBox()));
   }
@@ -1424,9 +1479,9 @@ Document* LocalDOMWindow::document() const {
   return document_.Get();
 }
 
-StyleMedia* LocalDOMWindow::styleMedia() const {
+StyleMedia* LocalDOMWindow::styleMedia() {
   if (!media_)
-    media_ = MakeGarbageCollected<StyleMedia>(GetFrame());
+    media_ = MakeGarbageCollected<StyleMedia>(this);
   return media_.Get();
 }
 
@@ -1639,31 +1694,20 @@ void LocalDOMWindow::resizeTo(int width, int height) const {
 }
 
 int LocalDOMWindow::requestAnimationFrame(V8FrameRequestCallback* callback) {
-  if (Document* doc = document()) {
-    auto* frame_callback =
-        MakeGarbageCollected<FrameRequestCallbackCollection::V8FrameCallback>(
-            callback);
-    frame_callback->SetUseLegacyTimeBase(false);
-    return doc->RequestAnimationFrame(frame_callback);
-  }
-  return 0;
+  auto* frame_callback = MakeGarbageCollected<V8FrameCallback>(callback);
+  frame_callback->SetUseLegacyTimeBase(false);
+  return document()->RequestAnimationFrame(frame_callback);
 }
 
 int LocalDOMWindow::webkitRequestAnimationFrame(
     V8FrameRequestCallback* callback) {
-  if (Document* doc = document()) {
-    auto* frame_callback =
-        MakeGarbageCollected<FrameRequestCallbackCollection::V8FrameCallback>(
-            callback);
-    frame_callback->SetUseLegacyTimeBase(true);
-    return doc->RequestAnimationFrame(frame_callback);
-  }
-  return 0;
+  auto* frame_callback = MakeGarbageCollected<V8FrameCallback>(callback);
+  frame_callback->SetUseLegacyTimeBase(true);
+  return document()->RequestAnimationFrame(frame_callback);
 }
 
 void LocalDOMWindow::cancelAnimationFrame(int id) {
-  if (Document* document = this->document())
-    document->CancelAnimationFrame(id);
+  document()->CancelAnimationFrame(id);
 }
 
 void LocalDOMWindow::queueMicrotask(V8VoidFunction* callback) {
@@ -1680,21 +1724,19 @@ void LocalDOMWindow::SetOriginPolicyIds(const Vector<String>& ids) {
   origin_policy_ids_ = ids;
 }
 
-bool LocalDOMWindow::originIsolated() const {
-  return GetAgent()->IsOriginIsolated();
+bool LocalDOMWindow::originAgentCluster() const {
+  return GetAgent()->IsOriginKeyed();
 }
 
 int LocalDOMWindow::requestIdleCallback(V8IdleRequestCallback* callback,
                                         const IdleRequestOptions* options) {
   if (!GetFrame())
     return 0;
-  return document_->RequestIdleCallback(
-      ScriptedIdleTaskController::V8IdleTask::Create(callback), options);
+  return document_->RequestIdleCallback(V8IdleTask::Create(callback), options);
 }
 
 void LocalDOMWindow::cancelIdleCallback(int id) {
-  if (Document* document = this->document())
-    document->CancelIdleCallback(id);
+  document()->CancelIdleCallback(id);
 }
 
 CustomElementRegistry* LocalDOMWindow::customElements(
@@ -1733,6 +1775,13 @@ void LocalDOMWindow::ClearIsolatedWorldCSPForTesting(int32_t world_id) {
   isolated_world_csp_map_->erase(world_id);
 }
 
+bool IsSuddenTerminationDisablerEvent(const AtomicString& event_type) {
+  return event_type == event_type_names::kUnload ||
+         event_type == event_type_names::kBeforeunload ||
+         event_type == event_type_names::kPagehide ||
+         event_type == event_type_names::kVisibilitychange;
+}
+
 void LocalDOMWindow::AddedEventListener(
     const AtomicString& event_type,
     RegisteredEventListener& registered_listener) {
@@ -1742,33 +1791,26 @@ void LocalDOMWindow::AddedEventListener(
         *this, event_type, registered_listener.Options());
   }
 
-  if (Document* document = this->document())
-    document->AddListenerTypeIfNeeded(event_type, *this);
+  document()->AddListenerTypeIfNeeded(event_type, *this);
 
   for (auto& it : event_listener_observers_) {
     it->DidAddEventListener(this, event_type);
   }
 
   if (event_type == event_type_names::kUnload) {
-    UseCounter::Count(document(), WebFeature::kDocumentUnloadRegistered);
+    UseCounter::Count(this, WebFeature::kDocumentUnloadRegistered);
   } else if (event_type == event_type_names::kBeforeunload) {
-    UseCounter::Count(document(), WebFeature::kDocumentBeforeUnloadRegistered);
-    if (GetFrame() && !GetFrame()->IsMainFrame()) {
-      UseCounter::Count(document(),
-                        WebFeature::kSubFrameBeforeUnloadRegistered);
-    }
+    UseCounter::Count(this, WebFeature::kDocumentBeforeUnloadRegistered);
+    if (GetFrame() && !GetFrame()->IsMainFrame())
+      UseCounter::Count(this, WebFeature::kSubFrameBeforeUnloadRegistered);
   } else if (event_type == event_type_names::kPagehide) {
-    UseCounter::Count(document(), WebFeature::kDocumentPageHideRegistered);
+    UseCounter::Count(this, WebFeature::kDocumentPageHideRegistered);
   } else if (event_type == event_type_names::kPageshow) {
-    UseCounter::Count(document(), WebFeature::kDocumentPageShowRegistered);
+    UseCounter::Count(this, WebFeature::kDocumentPageShowRegistered);
   }
 
-  if (!GetFrame() || (event_type != event_type_names::kUnload &&
-                      event_type != event_type_names::kBeforeunload &&
-                      event_type != event_type_names::kPagehide)) {
-    return;
-  }
-  GetFrame()->AddedSuddenTerminationDisablerListener(*this, event_type);
+  if (GetFrame() && IsSuddenTerminationDisablerEvent(event_type))
+    GetFrame()->AddedSuddenTerminationDisablerListener(*this, event_type);
 }
 
 void LocalDOMWindow::RemovedEventListener(
@@ -1785,13 +1827,9 @@ void LocalDOMWindow::RemovedEventListener(
   }
 
   // Update sudden termination disabler state if we removed a listener for
-  // unload/beforeunload/pagehide.
-  if (!GetFrame() || (event_type != event_type_names::kUnload &&
-                      event_type != event_type_names::kBeforeunload &&
-                      event_type != event_type_names::kPagehide)) {
-    return;
-  }
-  GetFrame()->RemovedSuddenTerminationDisablerListener(*this, event_type);
+  // unload/beforeunload/pagehide/visibilitychange.
+  if (GetFrame() && IsSuddenTerminationDisablerEvent(event_type))
+    GetFrame()->RemovedSuddenTerminationDisablerListener(*this, event_type);
 }
 
 void LocalDOMWindow::DispatchLoadEvent() {
@@ -1850,6 +1888,8 @@ void LocalDOMWindow::RemoveAllEventListeners() {
       NumberOfEventListeners(event_type_names::kBeforeunload);
   int previous_page_hide_handlers_count =
       NumberOfEventListeners(event_type_names::kPagehide);
+  int previous_visibility_change_handlers_count =
+      NumberOfEventListeners(event_type_names::kVisibilitychange);
   EventTarget::RemoveAllEventListeners();
 
   for (auto& it : event_listener_observers_) {
@@ -1860,7 +1900,7 @@ void LocalDOMWindow::RemoveAllEventListeners() {
     GetFrame()->GetEventHandlerRegistry().DidRemoveAllEventHandlers(*this);
 
   // Update sudden termination disabler state if we previously have listeners
-  // for unload/beforeunload/pagehide.
+  // for unload/beforeunload/pagehide/visibilitychange.
   if (GetFrame() && previous_unload_handlers_count) {
     GetFrame()->RemovedSuddenTerminationDisablerListener(
         *this, event_type_names::kUnload);
@@ -1872,6 +1912,10 @@ void LocalDOMWindow::RemoveAllEventListeners() {
   if (GetFrame() && previous_page_hide_handlers_count) {
     GetFrame()->RemovedSuddenTerminationDisablerListener(
         *this, event_type_names::kPagehide);
+  }
+  if (GetFrame() && previous_visibility_change_handlers_count) {
+    GetFrame()->RemovedSuddenTerminationDisablerListener(
+        *this, event_type_names::kVisibilitychange);
   }
 }
 
@@ -1903,6 +1947,42 @@ DOMWindow* LocalDOMWindow::open(v8::Isolate* isolate,
                                 const AtomicString& target,
                                 const String& features,
                                 ExceptionState& exception_state) {
+  return open(isolate, url_string, target, features,
+              nullptr /* impression_params */, exception_state);
+}
+
+DOMWindow* LocalDOMWindow::open(v8::Isolate* isolate,
+                                const String& url_string,
+                                const AtomicString& target,
+                                const String& features,
+                                bool unused,
+                                ExceptionState& exception_state) {
+  UseCounter::Count(this, WebFeature::kWindowOpenWithAdditionalBoolParameter);
+
+  PrintErrorMessage(
+      "A boolean is being passed as a fourth parameter to "
+      "window.open. This is not used and may cause an "
+      "exception in a future release.");
+
+  // Ignore the unused bool argument.
+  return open(isolate, url_string, target, features,
+              nullptr /* impression_params */, exception_state);
+}
+
+DOMWindow* LocalDOMWindow::open(v8::Isolate* isolate,
+                                const String& url_string,
+                                const AtomicString& target,
+                                const String& features,
+                                const ImpressionParams* impression_params,
+                                ExceptionState& exception_state) {
+  if (!RuntimeEnabledFeatures::ConversionMeasurementEnabled(this)) {
+    // The usage of `impression_params` is gated on a runtime enabled feature
+    // in the implementation rather than in the IDL definition, because the
+    // RuntimeEnabled extended attribute cannot be used with an operation
+    // overload.
+    impression_params = nullptr;
+  }
+
   LocalDOMWindow* incumbent_window = IncumbentDOMWindow(isolate);
   LocalDOMWindow* entered_window = EnteredDOMWindow(isolate);
 
@@ -1919,20 +1999,16 @@ DOMWindow* LocalDOMWindow::open(v8::Isolate* isolate,
 
   if (!IsCurrentlyDisplayedInFrame())
     return nullptr;
-  if (!incumbent_window->GetFrame())
-    return nullptr;
-  LocalFrame* entered_window_frame = entered_window->GetFrame();
-  if (!entered_window_frame)
+  if (!incumbent_window->GetFrame() || !entered_window->GetFrame())
     return nullptr;
 
   UseCounter::Count(*incumbent_window, WebFeature::kDOMWindowOpen);
   if (!features.IsEmpty())
     UseCounter::Count(*incumbent_window, WebFeature::kDOMWindowOpenFeatures);
 
-  KURL completed_url =
-      url_string.IsEmpty()
-          ? KURL(g_empty_string)
-          : entered_window_frame->GetDocument()->CompleteURL(url_string);
+  KURL completed_url = url_string.IsEmpty()
+                           ? KURL(g_empty_string)
+                           : entered_window->CompleteURL(url_string);
   if (!completed_url.IsEmpty() && !completed_url.IsValid()) {
     UseCounter::Count(incumbent_window, WebFeature::kWindowOpenWithInvalidURL);
     exception_state.ThrowDOMException(
@@ -1962,9 +2038,16 @@ DOMWindow* LocalDOMWindow::open(v8::Isolate* isolate,
   frame_request.GetResourceRequest().SetReferrerPolicy(
       referrer.referrer_policy);
 
-  frame_request.GetResourceRequest().SetHasUserGesture(
-      LocalFrame::HasTransientUserActivation(GetFrame()));
+  bool has_user_gesture = LocalFrame::HasTransientUserActivation(GetFrame());
+  frame_request.GetResourceRequest().SetHasUserGesture(has_user_gesture);
   GetFrame()->MaybeLogAdClickNavigation();
+
+  if (has_user_gesture && impression_params) {
+    base::Optional<WebImpression> impression =
+        GetImpressionForParams(incumbent_window, impression_params);
+    if (impression)
+      frame_request.SetImpression(*impression);
+  }
 
   FrameTree::FindResult result =
       GetFrame()->Tree().FindOrCreateFrameForNavigation(
@@ -2012,6 +2095,7 @@ DOMWindow* LocalDOMWindow::open(v8::Isolate* isolate,
 }
 
 void LocalDOMWindow::Trace(Visitor* visitor) const {
+  visitor->Trace(script_controller_);
   visitor->Trace(document_);
   visitor->Trace(screen_);
   visitor->Trace(history_);
@@ -2030,7 +2114,7 @@ void LocalDOMWindow::Trace(Visitor* visitor) const {
   visitor->Trace(visualViewport_);
   visitor->Trace(event_listener_observers_);
   visitor->Trace(current_event_);
-  visitor->Trace(trusted_types_);
+  visitor->Trace(trusted_types_map_);
   visitor->Trace(input_method_controller_);
   visitor->Trace(spell_checker_);
   visitor->Trace(text_suggestion_controller_);
@@ -2038,6 +2122,12 @@ void LocalDOMWindow::Trace(Visitor* visitor) const {
   DOMWindow::Trace(visitor);
   ExecutionContext::Trace(visitor);
   Supplementable<LocalDOMWindow>::Trace(visitor);
+}
+
+bool LocalDOMWindow::CrossOriginIsolatedCapability() const {
+  return Agent::IsCrossOriginIsolated() &&
+         IsFeatureEnabled(
+             mojom::blink::FeaturePolicyFeature::kCrossOriginIsolated);
 }
 
 ukm::UkmRecorder* LocalDOMWindow::UkmRecorder() {

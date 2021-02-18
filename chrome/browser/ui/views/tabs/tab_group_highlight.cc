@@ -10,6 +10,7 @@
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/canvas.h"
 #include "ui/views/background.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view.h"
 
 TabGroupHighlight::TabGroupHighlight(TabGroupViews* tab_group_views,
@@ -33,7 +34,7 @@ void TabGroupHighlight::OnPaint(gfx::Canvas* canvas) {
   canvas->DrawPath(path, flags);
 }
 
-bool TabGroupHighlight::CanProcessEventsWithinSubtree() const {
+bool TabGroupHighlight::GetCanProcessEventsWithinSubtree() const {
   // Don't accept any mouse events, otherwise this will prevent tabs and group
   // headers from getting clicked.
   return false;
@@ -68,3 +69,6 @@ SkPath TabGroupHighlight::GetPath() const {
 
   return path;
 }
+
+BEGIN_METADATA(TabGroupHighlight, views::View)
+END_METADATA

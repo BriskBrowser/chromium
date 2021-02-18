@@ -592,6 +592,16 @@ def _Enum(module, parsed_enum, parent_kind):
         map(lambda field: _EnumField(module, enum, field),
             parsed_enum.enum_value_list))
     _ResolveNumericEnumValues(enum)
+    # TODO(https://crbug.com/731893): Require a default value to be
+    # specified.
+    for field in enum.fields:
+      if field.default:
+        if not enum.extensible:
+          raise Exception('Non-extensible enums may not specify a default')
+        if enum.default_field is not None:
+          raise Exception(
+              'Only one enumerator value may be specified as the default')
+        enum.default_field = field
 
   module.kinds[enum.spec] = enum
 
@@ -650,7 +660,9 @@ def _CollectReferencedKinds(module, all_defined_kinds):
     if mojom.IsMapKind(kind):
       return (extract_referenced_user_kinds(kind.key_kind) +
               extract_referenced_user_kinds(kind.value_kind))
-    if mojom.IsInterfaceRequestKind(kind) or mojom.IsAssociatedKind(kind):
+    if (mojom.IsInterfaceRequestKind(kind) or mojom.IsAssociatedKind(kind)
+        or mojom.IsPendingRemoteKind(kind)
+        or mojom.IsPendingReceiverKind(kind)):
       return [kind.kind]
     if mojom.IsStructKind(kind):
       return [kind]
@@ -678,12 +690,9 @@ def _CollectReferencedKinds(module, all_defined_kinds):
     for method in interface.methods:
       for param in itertools.chain(method.parameters or [],
                                    method.response_parameters or []):
-        if (mojom.IsStructKind(param.kind) or mojom.IsUnionKind(param.kind)
-            or mojom.IsEnumKind(param.kind)
-            or mojom.IsAnyInterfaceKind(param.kind)):
-          for referenced_kind in extract_referenced_user_kinds(param.kind):
-            sanitized_kind = sanitize_kind(referenced_kind)
-            referenced_user_kinds[sanitized_kind.spec] = sanitized_kind
+        for referenced_kind in extract_referenced_user_kinds(param.kind):
+          sanitized_kind = sanitize_kind(referenced_kind)
+          referenced_user_kinds[sanitized_kind.spec] = sanitized_kind
 
   return referenced_user_kinds
 

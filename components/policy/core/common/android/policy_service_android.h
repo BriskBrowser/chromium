@@ -11,6 +11,7 @@
 
 #include "base/android/jni_weak_ref.h"
 #include "base/android/scoped_java_ref.h"
+#include "components/policy/core/common/android/policy_map_android.h"
 #include "components/policy/core/common/policy_service.h"
 #include "components/policy/policy_export.h"
 
@@ -23,7 +24,7 @@ namespace android {
 // policy.
 class POLICY_EXPORT PolicyServiceAndroid : public PolicyService::Observer {
  public:
-  PolicyServiceAndroid(PolicyService* policy_service);
+  explicit PolicyServiceAndroid(PolicyService* policy_service);
   PolicyServiceAndroid(const PolicyServiceAndroid&) = delete;
   PolicyServiceAndroid& operator=(const PolicyServiceAndroid&) = delete;
 
@@ -37,16 +38,28 @@ class POLICY_EXPORT PolicyServiceAndroid : public PolicyService::Observer {
 
   bool IsInitializationComplete(
       JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& caller) const;
+
+  base::android::ScopedJavaLocalRef<jobject> GetPolicies(
+      JNIEnv* env,
       const base::android::JavaParamRef<jobject>& caller);
 
   // PolicyService::Observer implementation.
   // Pass the event to the Java observers.
   void OnPolicyServiceInitialized(PolicyDomain domain) override;
+  void OnPolicyUpdated(const PolicyNamespace& ns,
+                       const PolicyMap& previous,
+                       const PolicyMap& current) override;
 
   base::android::ScopedJavaLocalRef<jobject> GetJavaObject();
 
  private:
   PolicyService* policy_service_;
+
+  // Contains all Chrome policies. The PolicyBundle is not used as there is only
+  // one policy namespace supported on Android.
+  PolicyMapAndroid policy_map_;
+
   base::android::ScopedJavaGlobalRef<jobject> java_ref_;
 };
 

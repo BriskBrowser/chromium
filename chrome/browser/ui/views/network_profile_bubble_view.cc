@@ -20,14 +20,20 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/link.h"
 #include "ui/views/layout/fill_layout.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace {
 
 class NetworkProfileBubbleView : public views::BubbleDialogDelegateView {
  public:
+  METADATA_HEADER(NetworkProfileBubbleView);
   NetworkProfileBubbleView(views::View* anchor,
                            content::PageNavigator* navigator,
                            Profile* profile);
+  NetworkProfileBubbleView(const NetworkProfileBubbleView&) = delete;
+  NetworkProfileBubbleView& operator=(const NetworkProfileBubbleView&) = delete;
+
  private:
   ~NetworkProfileBubbleView() override;
 
@@ -35,13 +41,11 @@ class NetworkProfileBubbleView : public views::BubbleDialogDelegateView {
   void Init() override;
   bool Accept() override;
 
-  void LinkClicked(views::Link* source, int event_flags);
+  void LinkClicked(const ui::Event&);
 
   // Used for loading pages.
   content::PageNavigator* navigator_;
   Profile* profile_;
-
-  DISALLOW_COPY_AND_ASSIGN(NetworkProfileBubbleView);
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -57,7 +61,7 @@ NetworkProfileBubbleView::NetworkProfileBubbleView(
   SetButtons(ui::DIALOG_BUTTON_OK);
   auto* learn_more = SetExtraView(
       std::make_unique<views::Link>(l10n_util::GetStringUTF16(IDS_LEARN_MORE)));
-  learn_more->set_callback(base::BindRepeating(
+  learn_more->SetCallback(base::BindRepeating(
       &NetworkProfileBubbleView::LinkClicked, base::Unretained(this)));
   chrome::RecordDialogCreation(
       chrome::DialogIdentifier::NETWORK_SHARE_PROFILE_WARNING);
@@ -87,12 +91,11 @@ bool NetworkProfileBubbleView::Accept() {
   return true;
 }
 
-void NetworkProfileBubbleView::LinkClicked(views::Link* source,
-                                           int event_flags) {
+void NetworkProfileBubbleView::LinkClicked(const ui::Event& event) {
   NetworkProfileBubble::RecordUmaEvent(
       NetworkProfileBubble::METRIC_LEARN_MORE_CLICKED);
   WindowOpenDisposition disposition = ui::DispositionFromEventFlags(
-      event_flags, WindowOpenDisposition::NEW_FOREGROUND_TAB);
+      event.flags(), WindowOpenDisposition::NEW_FOREGROUND_TAB);
   content::OpenURLParams params(
       GURL("https://sites.google.com/a/chromium.org/dev/administrators/"
            "common-problems-and-solutions#network_profile"),
@@ -106,6 +109,9 @@ void NetworkProfileBubbleView::LinkClicked(views::Link* source,
   prefs->SetInteger(prefs::kNetworkProfileWarningsLeft, ++left_warnings);
   GetWidget()->Close();
 }
+
+BEGIN_METADATA(NetworkProfileBubbleView, views::BubbleDialogDelegateView)
+END_METADATA
 
 }  // namespace
 

@@ -83,7 +83,7 @@ AppMenuIconController::AppMenuIconController(UpgradeDetector* upgrade_detector,
   DCHECK(profile_);
   DCHECK(delegate_);
 
-  global_error_observer_.Add(
+  global_error_observation_.Observe(
       GlobalErrorServiceFactory::GetForProfile(profile_));
 
   upgrade_detector_->AddObserver(this);
@@ -119,27 +119,6 @@ AppMenuIconController::GetTypeAndSeverity() const {
   }
 
   return {IconType::NONE, Severity::NONE};
-}
-
-ui::ImageModel AppMenuIconController::GetIconImage(
-    bool touch_ui,
-    const base::Optional<SkColor>& severity_none_color) const {
-  const gfx::VectorIcon* icon_id =
-      touch_ui ? &kBrowserToolsTouchIcon : &kBrowserToolsIcon;
-  switch (GetTypeAndSeverity().type) {
-    case AppMenuIconController::IconType::NONE:
-      break;
-    case AppMenuIconController::IconType::UPGRADE_NOTIFICATION:
-      icon_id =
-          touch_ui ? &kBrowserToolsUpdateTouchIcon : &kBrowserToolsUpdateIcon;
-      break;
-    case AppMenuIconController::IconType::GLOBAL_ERROR:
-      icon_id =
-          touch_ui ? &kBrowserToolsErrorTouchIcon : &kBrowserToolsErrorIcon;
-      break;
-  }
-  return ui::ImageModel::FromVectorIcon(*icon_id,
-                                        GetIconColor(severity_none_color));
 }
 
 SkColor AppMenuIconController::GetIconColor(

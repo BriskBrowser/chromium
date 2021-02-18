@@ -4,6 +4,7 @@ Tests property access on a cached DOMWindow after the associated frame is no lon
 On success, you will see a series of "PASS" messages, followed by "TEST COMPLETE".
 
 PASS childWindow.closed is true
+PASS childWindow.crossOriginIsolated is false
 PASS childWindow.defaultStatus is ''
 PASS childWindow.defaultstatus is ''
 PASS childWindow.devicePixelRatio is 0
@@ -32,6 +33,7 @@ PASS childWindow.navigator.userActivation.isActive is false
 PASS childWindow.navigator.userAgent is ''
 PASS childWindow.navigator.vendor is window.navigator.vendor
 PASS childWindow.navigator.vendorSub is ''
+PASS childWindow.navigator.webdriver is false
 PASS childWindow.onabort is null
 PASS childWindow.onafterprint is null
 PASS childWindow.onanimationend is null
@@ -42,6 +44,7 @@ PASS childWindow.onauxclick is null
 PASS childWindow.onbeforeinstallprompt is null
 PASS childWindow.onbeforeprint is null
 PASS childWindow.onbeforeunload is null
+PASS childWindow.onbeforexrselect is null
 PASS childWindow.onblur is null
 PASS childWindow.oncancel is null
 PASS childWindow.oncanplay is null
@@ -145,6 +148,7 @@ PASS childWindow.onwebkittransitionend is null
 PASS childWindow.onwheel is null
 PASS childWindow.opener is null
 PASS childWindow.origin is 'file://'
+PASS childWindow.originAgentCluster is false
 PASS childWindow.outerHeight is 0
 PASS childWindow.outerWidth is 0
 PASS childWindow.pageXOffset is 0

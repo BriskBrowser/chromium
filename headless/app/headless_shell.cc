@@ -104,7 +104,11 @@ bool ParseFontRenderHinting(
 }
 
 GURL ConvertArgumentToURL(const base::CommandLine::StringType& arg) {
+#if defined(OS_WIN)
+  GURL url(base::WideToUTF8(arg));
+#else
   GURL url(arg);
+#endif
   if (url.is_valid() && url.has_scheme())
     return url;
 
@@ -137,7 +141,7 @@ base::FilePath GetSSLKeyLogFile(const base::CommandLine* command_line) {
   env->GetVar("SSLKEYLOGFILE", &path_str);
 #if defined(OS_WIN)
   // base::Environment returns environment variables in UTF-8 on Windows.
-  return base::FilePath(base::UTF8ToUTF16(path_str));
+  return base::FilePath(base::UTF8ToWide(path_str));
 #else
   return base::FilePath(path_str);
 #endif
@@ -692,7 +696,7 @@ int HeadlessShellMain(int argc, const char** argv) {
 
     // Renderer flags
     command_line.AppendSwitch(cc::switches::kDisableThreadedAnimation);
-    command_line.AppendSwitch(::switches::kDisableThreadedScrolling);
+    command_line.AppendSwitch(blink::switches::kDisableThreadedScrolling);
     command_line.AppendSwitch(cc::switches::kDisableCheckerImaging);
   }
 
@@ -715,7 +719,7 @@ int HeadlessShellMain(int argc, const char** argv) {
       address =
           command_line.GetSwitchValueASCII(switches::kRemoteDebuggingAddress);
       net::IPAddress parsed_address;
-      if (!net::ParseURLHostnameToAddress(address, &parsed_address)) {
+      if (!parsed_address.AssignFromIPLiteral(address)) {
         LOG(ERROR) << "Invalid devtools server address";
         return EXIT_FAILURE;
       }
@@ -772,7 +776,7 @@ int HeadlessShellMain(int argc, const char** argv) {
 
   if (command_line.HasSwitch(switches::kHideScrollbars)) {
     builder.SetOverrideWebPreferencesCallback(
-        base::BindRepeating([](WebPreferences* preferences) {
+        base::BindRepeating([](blink::web_pref::WebPreferences* preferences) {
           preferences->hide_scrollbars = true;
         }));
   }
@@ -836,8 +840,14 @@ void RunChildProcessIfNeeded(int argc, const char** argv) {
       builder.SetUserAgent(ua);
   }
 
-  exit(RunContentMain(builder.Build(),
-                      base::OnceCallback<void(HeadlessBrowser*)>()));
+  int rc = RunContentMain(builder.Build(),
+                          base::OnceCallback<void(HeadlessBrowser*)>());
+
+  // Note that exiting from here means that base::AtExitManager objects will not
+  // have a chance to be destroyed (typically in main/WinMain).
+  // Use TerminateCurrentProcessImmediately instead of exit to avoid shutdown
+  // crashes and slowdowns on shutdown.
+  base::Process::TerminateCurrentProcessImmediately(rc);
 }
 
 int HeadlessBrowserMain(

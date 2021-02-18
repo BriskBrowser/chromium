@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include "base/base64.h"
 #include "base/strings/sys_string_conversions.h"
 
 @interface WebMenuRunner (PrivateAPI)
@@ -44,6 +45,16 @@
   }
 
   NSString* title = base::SysUTF8ToNSString(item->label.value_or(""));
+  // https://crbug.com/1140620: SysUTF8ToNSString will return nil if the bits
+  // that it is passed cannot be turned into a CFString. If this nil value is
+  // passed to -[NSMenuItem addItemWithTitle:action:keyEquivalent], Chromium
+  // will crash. Therefore, for debugging, if the result is nil, substitute in
+  // the raw bytes, encoded for safety in base64, to allow for investigation.
+  if (!title) {
+    std::string base64;
+    base::Base64Encode(*item->label, &base64);
+    title = base::SysUTF8ToNSString(base64);
+  }
   NSMenuItem* menuItem = [_menu addItemWithTitle:title
                                           action:@selector(menuItemSelected:)
                                    keyEquivalent:@""];
@@ -55,8 +66,7 @@
                         item->type != blink::mojom::MenuItem::Type::kGroup)];
   [menuItem setTarget:self];
 
-  // Set various alignment/language attributes. Note that many (if not most) of
-  // these attributes are functional only on 10.6 and above.
+  // Set various alignment/language attributes.
   base::scoped_nsobject<NSMutableDictionary> attrs(
       [[NSMutableDictionary alloc] initWithCapacity:3]);
   base::scoped_nsobject<NSMutableParagraphStyle> paragraphStyle(
@@ -71,12 +81,8 @@
   [attrs setObject:paragraphStyle forKey:NSParagraphStyleAttributeName];
 
   if (item->has_text_direction_override) {
-    base::scoped_nsobject<NSNumber> directionValue(
-        [[NSNumber alloc] initWithInteger:
-            writingDirection + NSTextWritingDirectionOverride]);
-    base::scoped_nsobject<NSArray> directionArray(
-        [[NSArray alloc] initWithObjects:directionValue.get(), nil]);
-    [attrs setObject:directionArray forKey:NSWritingDirectionAttributeName];
+    [attrs setObject:@[ @(writingDirection | NSWritingDirectionOverride) ]
+              forKey:NSWritingDirectionAttributeName];
   }
 
   [attrs setObject:[NSFont menuFontOfSize:_fontSize]

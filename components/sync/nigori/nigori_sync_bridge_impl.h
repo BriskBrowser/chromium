@@ -16,11 +16,11 @@
 #include "base/optional.h"
 #include "base/sequence_checker.h"
 #include "base/time/time.h"
+#include "components/sync/engine/nigori/keystore_keys_handler.h"
 #include "components/sync/engine/sync_encryption_handler.h"
 #include "components/sync/model/conflict_resolution.h"
 #include "components/sync/model/model_error.h"
 #include "components/sync/nigori/cryptographer_impl.h"
-#include "components/sync/nigori/keystore_keys_handler.h"
 #include "components/sync/nigori/nigori_local_change_processor.h"
 #include "components/sync/nigori/nigori_state.h"
 #include "components/sync/nigori/nigori_sync_bridge.h"
@@ -66,8 +66,6 @@ class NigoriSyncBridgeImpl : public KeystoreKeysHandler,
   void SetDecryptionPassphrase(const std::string& passphrase) override;
   void AddTrustedVaultDecryptionKeys(
       const std::vector<std::vector<uint8_t>>& keys) override;
-  void EnableEncryptEverything() override;
-  bool IsEncryptEverythingEnabled() const override;
   base::Time GetKeystoreMigrationTime() const override;
   KeystoreKeysHandler* GetKeystoreKeysHandler() override;
 

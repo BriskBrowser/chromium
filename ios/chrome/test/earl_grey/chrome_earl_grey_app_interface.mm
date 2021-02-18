@@ -6,14 +6,16 @@
 #import "base/test/ios/wait_util.h"
 
 #include "base/command_line.h"
+#import "base/ios/ios_util.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/strings/sys_string_conversions.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/values.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/browsing_data/core/pref_names.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
-#include "components/metrics/demographic_metrics_provider.h"
+#include "components/metrics/demographics/demographic_metrics_provider.h"
 #include "components/prefs/pref_service.h"
 #import "components/ukm/ios/features.h"
 #include "components/unified_consent/unified_consent_service.h"
@@ -26,13 +28,16 @@
 #include "ios/chrome/browser/content_settings/host_content_settings_map_factory.h"
 #import "ios/chrome/browser/ntp/features.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
-#import "ios/chrome/browser/ui/settings/autofill/features.h"
+#import "ios/chrome/browser/ui/main/scene_state.h"
+#import "ios/chrome/browser/ui/tab_switcher/tab_grid/features.h"
 #import "ios/chrome/browser/ui/table_view/feature_flags.h"
-#import "ios/chrome/browser/ui/toolbar/public/features.h"
 #import "ios/chrome/browser/ui/ui_feature_flags.h"
+#import "ios/chrome/browser/ui/util/menu_util.h"
 #import "ios/chrome/browser/ui/util/named_guide.h"
 #import "ios/chrome/browser/unified_consent/unified_consent_service_factory.h"
 #import "ios/chrome/browser/web/tab_id_tab_helper.h"
+#import "ios/chrome/browser/web/web_navigation_browser_agent.h"
+#import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/test/app/bookmarks_test_util.h"
 #import "ios/chrome/test/app/browsing_data_test_util.h"
 #import "ios/chrome/test/app/chrome_test_util.h"
@@ -41,6 +46,7 @@
 #import "ios/chrome/test/app/signin_test_util.h"
 #import "ios/chrome/test/app/sync_test_util.h"
 #import "ios/chrome/test/app/tab_test_util.h"
+#import "ios/chrome/test/app/window_test_util.h"
 #import "ios/chrome/test/earl_grey/accessibility_util.h"
 #import "ios/testing/hardware_keyboard_util.h"
 #import "ios/testing/nserror_util.h"
@@ -67,7 +73,6 @@ using base::test::ios::kWaitForActionTimeout;
 using base::test::ios::kWaitForJSCompletionTimeout;
 using base::test::ios::kWaitForPageLoadTimeout;
 using base::test::ios::WaitUntilConditionOrTimeout;
-using chrome_test_util::BrowserCommandDispatcherForMainBVC;
 
 namespace {
 
@@ -85,6 +90,10 @@ NSString* SerializedPref(const PrefService::Preference* pref) {
   return base::SysUTF8ToNSString(serialized_value);
 }
 
+// ScopedFeatureList used to disable the kEnableCloseAllTabsConfirmation
+// feature. It's kept alive to preserve the state of
+// kEnableCloseAllTabsConfirmation feature during testing.
+base::test::ScopedFeatureList closeAllTabsScopedFeatureList;
 }
 
 @implementation ChromeEarlGreyAppInterface
@@ -98,15 +107,18 @@ NSString* SerializedPref(const PrefService::Preference* pref) {
       @"Clearing browser history timed out");
 }
 
-+ (NSInteger)getBrowsingHistoryEntryCount {
-  NSError* error = nil;
-  NSInteger count = chrome_test_util::GetBrowsingHistoryEntryCount(&error);
++ (NSInteger)browsingHistoryEntryCountWithError:
+    (NSError* __autoreleasing*)error {
+  return chrome_test_util::GetBrowsingHistoryEntryCount(error);
+}
 
-  if (error != nil) {
++ (NSInteger)navigationBackListItemsCount {
+  web::WebState* webState = chrome_test_util::GetCurrentWebState();
+
+  if (!webState)
     return -1;
-  }
 
-  return count;
+  return webState->GetNavigationManager()->GetBackwardItems().size();
 }
 
 + (NSError*)removeBrowsingCache {
@@ -144,7 +156,8 @@ NSString* SerializedPref(const PrefService::Preference* pref) {
 }
 
 + (void)startReloading {
-  [BrowserCommandDispatcherForMainBVC() reload];
+  WebNavigationBrowserAgent::FromBrowser(chrome_test_util::GetMainBrowser())
+      ->Reload();
 }
 
 + (NamedGuide*)guideWithName:(GuideName*)name view:(UIView*)view {
@@ -277,11 +290,13 @@ NSString* SerializedPref(const PrefService::Preference* pref) {
 }
 
 + (void)startGoingBack {
-  [BrowserCommandDispatcherForMainBVC() goBack];
+  WebNavigationBrowserAgent::FromBrowser(chrome_test_util::GetMainBrowser())
+      ->GoBack();
 }
 
 + (void)startGoingForward {
-  [BrowserCommandDispatcherForMainBVC() goForward];
+  WebNavigationBrowserAgent::FromBrowser(chrome_test_util::GetMainBrowser())
+      ->GoForward();
 }
 
 + (NSString*)currentTabID {
@@ -296,6 +311,181 @@ NSString* SerializedPref(const PrefService::Preference* pref) {
 
 + (NSUInteger)indexOfActiveNormalTab {
   return chrome_test_util::GetIndexOfActiveNormalTab();
+}
+
++ (void)resetCloseAllTabsConfirmation {
+  closeAllTabsScopedFeatureList.Reset();
+}
+
++ (void)disableCloseAllTabsConfirmation {
+  closeAllTabsScopedFeatureList.InitAndDisableFeature(
+      kEnableCloseAllTabsConfirmation);
+}
+
+#pragma mark - Window utilities (EG2)
+
++ (NSUInteger)windowCount WARN_UNUSED_RESULT {
+  // If the scene API is in use, return the count of open sessions.
+  if (@available(iOS 13, *)) {
+    return UIApplication.sharedApplication.openSessions.count;
+  }
+
+  // Otherwise, there's always exectly one window;
+  return 1;
+}
+
++ (NSUInteger)foregroundWindowCount WARN_UNUSED_RESULT {
+  // If the scene API is in use, look at all the connected scenes and count
+  // those in the foreground.
+  if (@available(iOS 13, *)) {
+    NSUInteger count = 0;
+    for (UIScene* scene in UIApplication.sharedApplication.connectedScenes) {
+      if (scene.activationState == UISceneActivationStateForegroundActive ||
+          scene.activationState == UISceneActivationStateForegroundInactive) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  // Otherwise, there's always exectly one window;
+  return 1;
+}
+
++ (NSError*)openNewWindow {
+  if (!base::ios::IsMultipleScenesSupported()) {
+    return testing::NSErrorWithLocalizedDescription(
+        @"Multiwindow not supported");
+  }
+
+  if (@available(iOS 13, *)) {
+    NSUserActivity* activity =
+        [[NSUserActivity alloc] initWithActivityType:@"EG2NewWindow"];
+    UISceneActivationRequestOptions* options =
+        [[UISceneActivationRequestOptions alloc] init];
+    [UIApplication.sharedApplication
+        requestSceneSessionActivation:nil /* make a new scene */
+                         userActivity:activity
+                              options:options
+                         errorHandler:nil];
+    return nil;
+  }
+
+  return testing::NSErrorWithLocalizedDescription(
+      @"Multiwindow supported on iOS13+ only");
+}
+
++ (void)openNewTabInWindowWithNumber:(int)windowNumber {
+  chrome_test_util::OpenNewTabInWindowWithNumber(windowNumber);
+}
+
++ (void)changeWindowWithNumber:(int)windowNumber
+                   toNewNumber:(int)newWindowNumber {
+  NSArray<SceneState*>* connectedScenes =
+      chrome_test_util::GetMainController().appState.connectedScenes;
+  NSString* accessibilityIdentifier =
+      [NSString stringWithFormat:@"%ld", (long)windowNumber];
+  NSString* newAccessibilityIdentifier =
+      [NSString stringWithFormat:@"%ld", (long)newWindowNumber];
+  for (SceneState* state in connectedScenes) {
+    if ([state.window.accessibilityIdentifier
+            isEqualToString:accessibilityIdentifier]) {
+      state.window.accessibilityIdentifier = newAccessibilityIdentifier;
+      break;
+    }
+  }
+}
+
++ (void)closeWindowWithNumber:(int)windowNumber {
+  if (@available(iOS 13, *)) {
+    NSArray<SceneState*>* connectedScenes =
+        chrome_test_util::GetMainController().appState.connectedScenes;
+    NSString* accessibilityIdentifier =
+        [NSString stringWithFormat:@"%ld", (long)windowNumber];
+    for (SceneState* state in connectedScenes) {
+      if ([state.window.accessibilityIdentifier
+              isEqualToString:accessibilityIdentifier]) {
+        UIWindowSceneDestructionRequestOptions* options =
+            [[UIWindowSceneDestructionRequestOptions alloc] init];
+        options.windowDismissalAnimation =
+            UIWindowSceneDismissalAnimationStandard;
+        [UIApplication.sharedApplication
+            requestSceneSessionDestruction:state.scene.session
+                                   options:options
+                              errorHandler:nil];
+      }
+    }
+  }
+}
+
++ (void)closeAllExtraWindows {
+  if (!base::ios::IsMultipleScenesSupported())
+    return;
+
+  if (@available(iOS 13, *)) {
+    NSSet<UISceneSession*>* sessions =
+        UIApplication.sharedApplication.openSessions;
+    if (sessions.count <= 1)
+      return;
+    BOOL foundForegroundScene = NO;
+    for (UISceneSession* session in sessions) {
+      UIScene* scene = session.scene;
+      if (!foundForegroundScene && scene &&
+          (scene.activationState == UISceneActivationStateForegroundActive ||
+           scene.activationState == UISceneActivationStateForegroundInactive)) {
+        foundForegroundScene = YES;
+        // Leave the first foreground scene connected, so there's one open
+        // window left.
+        continue;
+      }
+      // If this isn't the first foreground scene, destroy it.
+      UIWindowSceneDestructionRequestOptions* options =
+          [[UIWindowSceneDestructionRequestOptions alloc] init];
+      options.windowDismissalAnimation =
+          UIWindowSceneDismissalAnimationStandard;
+      [UIApplication.sharedApplication requestSceneSessionDestruction:session
+                                                              options:options
+                                                         errorHandler:nil];
+    }
+  }
+}
+
++ (void)startLoadingURL:(NSString*)spec inWindowWithNumber:(int)windowNumber {
+  chrome_test_util::LoadUrlInWindowWithNumber(
+      GURL(base::SysNSStringToUTF8(spec)), windowNumber);
+}
+
++ (BOOL)isLoadingInWindowWithNumber:(int)windowNumber {
+  return chrome_test_util::IsLoadingInWindowWithNumber(windowNumber);
+}
+
++ (BOOL)waitForWindowIDInjectionIfNeededInWindowWithNumber:(int)windowNumber {
+  web::WebState* webState =
+      chrome_test_util::GetCurrentWebStateForWindowWithNumber(windowNumber);
+
+  if (webState->ContentIsHTML()) {
+    return web::WaitUntilWindowIdInjected(webState);
+  }
+
+  return YES;
+}
+
++ (BOOL)webStateContainsText:(NSString*)text
+          inWindowWithNumber:(int)windowNumber {
+  web::WebState* webState =
+      chrome_test_util::GetCurrentWebStateForWindowWithNumber(windowNumber);
+  return webState ? web::test::IsWebViewContainingText(
+                        webState, base::SysNSStringToUTF8(text))
+                  : NO;
+}
+
++ (NSUInteger)mainTabCountInWindowWithNumber:(int)windowNumber {
+  return chrome_test_util::GetMainTabCountForWindowWithNumber(windowNumber);
+}
+
++ (NSUInteger)incognitoTabCountInWindowWithNumber:(int)windowNumber {
+  return chrome_test_util::GetIncognitoTabCountForWindowWithNumber(
+      windowNumber);
 }
 
 #pragma mark - WebState Utilities (EG2)
@@ -453,6 +643,18 @@ NSString* SerializedPref(const PrefService::Preference* pref) {
   return [web_state->GetWebViewProxy() bounds].size;
 }
 
++ (void)stopAllWebStatesLoading {
+  WebStateList* web_state_list =
+      chrome_test_util::GetMainController()
+          .interfaceProvider.currentInterface.browser->GetWebStateList();
+  for (int index = 0; index < web_state_list->count(); ++index) {
+    web::WebState* web_state = web_state_list->GetWebStateAt(index);
+    if (web_state->IsLoading()) {
+      web_state->Stop();
+    }
+  }
+}
+
 #pragma mark - Bookmarks Utilities (EG2)
 
 + (NSError*)waitForBookmarksToFinishinLoading {
@@ -589,6 +791,17 @@ NSString* SerializedPref(const PrefService::Preference* pref) {
   return base::SysUTF8ToNSString(chrome_test_util::GetSyncCacheGuid());
 }
 
++ (NSError*)waitForSyncInvalidationFields {
+  const bool success = WaitUntilConditionOrTimeout(kWaitForActionTimeout, ^{
+    return chrome_test_util::VerifySyncInvalidationFieldsPopulated();
+  });
+  if (!success) {
+    return testing::NSErrorWithLocalizedDescription(
+        @"The local DeviceInfo doesn't have invalidation fields");
+  }
+  return nil;
+}
+
 + (BOOL)isFakeSyncServerSetUp {
   return chrome_test_util::IsFakeSyncServerSetUp();
 }
@@ -702,7 +915,8 @@ NSString* SerializedPref(const PrefService::Preference* pref) {
   variations::VariationsIdsProvider* provider =
       variations::VariationsIdsProvider::GetInstance();
   std::vector<variations::VariationID> ids = provider->GetVariationsVector(
-      variations::GOOGLE_WEB_PROPERTIES_ANY_CONTEXT);
+      {variations::GOOGLE_WEB_PROPERTIES_ANY_CONTEXT,
+       variations::GOOGLE_WEB_PROPERTIES_FIRST_PARTY});
   return std::find(ids.begin(), ids.end(), variationID) != ids.end();
 }
 
@@ -710,7 +924,8 @@ NSString* SerializedPref(const PrefService::Preference* pref) {
   variations::VariationsIdsProvider* provider =
       variations::VariationsIdsProvider::GetInstance();
   std::vector<variations::VariationID> ids = provider->GetVariationsVector(
-      variations::GOOGLE_WEB_PROPERTIES_TRIGGER_ANY_CONTEXT);
+      {variations::GOOGLE_WEB_PROPERTIES_TRIGGER_ANY_CONTEXT,
+       variations::GOOGLE_WEB_PROPERTIES_TRIGGER_FIRST_PARTY});
   return std::find(ids.begin(), ids.end(), variationID) != ids.end();
 }
 
@@ -724,19 +939,6 @@ NSString* SerializedPref(const PrefService::Preference* pref) {
 
 + (BOOL)isTestFeatureEnabled {
   return base::FeatureList::IsEnabled(kTestFeature);
-}
-
-+ (BOOL)isCreditCardScannerEnabled {
-  return base::FeatureList::IsEnabled(kCreditCardScanner);
-}
-
-+ (BOOL)isAutofillCompanyNameEnabled {
-  return base::FeatureList::IsEnabled(
-      autofill::features::kAutofillEnableCompanyName);
-}
-
-+ (BOOL)isChangeTabSwitcherPositionEnabled {
-  return base::FeatureList::IsEnabled(kChangeTabSwitcherPosition);
 }
 
 + (BOOL)isDemographicMetricsReportingEnabled {
@@ -766,6 +968,22 @@ NSString* SerializedPref(const PrefService::Preference* pref) {
           chrome_test_util::GetCurrentWebState()->GetView(), GURL());
 
   return webClientUserAgent == web::UserAgentType::MOBILE;
+}
+
++ (BOOL)isIllustratedEmptyStatesEnabled {
+  return base::FeatureList::IsEnabled(kIllustratedEmptyStates);
+}
+
++ (BOOL)isNativeContextMenusEnabled {
+  return IsNativeContextMenuEnabled();
+}
+
++ (BOOL)areMultipleWindowsSupported {
+  return base::ios::IsMultipleScenesSupported();
+}
+
++ (BOOL)isCloseAllTabsConfirmationEnabled {
+  return IsCloseAllTabsConfirmationEnabled();
 }
 
 #pragma mark - ScopedBlockPopupsPref
@@ -835,6 +1053,20 @@ NSString* SerializedPref(const PrefService::Preference* pref) {
 + (void)simulatePhysicalKeyboardEvent:(NSString*)input
                                 flags:(UIKeyModifierFlags)flags {
   chrome_test_util::SimulatePhysicalKeyboardEvent(flags, input);
+}
+
+#pragma mark - Pasteboard utilities
+
++ (void)clearPasteboardURLs {
+  [[UIPasteboard generalPasteboard] setURLs:nil];
+}
+
++ (NSString*)pasteboardString {
+  return [UIPasteboard generalPasteboard].string;
+}
+
++ (NSString*)pasteboardURLSpec {
+  return [UIPasteboard generalPasteboard].URL.absoluteString;
 }
 
 @end

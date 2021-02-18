@@ -8,14 +8,16 @@
 #include <memory>
 #include <string>
 
+#include "ash/constants/ash_features.h"
 #include "base/bind.h"
 #include "base/memory/weak_ptr.h"
+#include "base/optional.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos.h"
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos_factory.h"
 #include "chrome/browser/chromeos/policy/device_policy_builder.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
 #include "chrome/test/base/scoped_testing_local_state.h"
 #include "chrome/test/base/testing_browser_process.h"
@@ -26,6 +28,7 @@
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/proto/chrome_device_policy.pb.h"
 #include "components/policy/proto/device_management_backend.pb.h"
+#include "components/user_manager/user_type.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_utils.h"
@@ -129,6 +132,11 @@ class CrosSettingsTest : public testing::Test {
   bool IsAllowlisted(const std::string& username) {
     return CrosSettings::Get()->FindEmailInList(kAccountsPrefUsers, username,
                                                 NULL);
+  }
+
+  bool IsUserAllowed(const std::string& username,
+                     const base::Optional<user_manager::UserType>& user_type) {
+    return CrosSettings::Get()->IsUserAllowlisted(username, nullptr, user_type);
   }
 
   content::BrowserTaskEnvironment task_environment_{
@@ -346,6 +354,85 @@ TEST_F(CrosSettingsTest, FindEmailInListWildcard) {
   EXPECT_TRUE(CrosSettings::Get()->FindEmailInList(
       kAccountsPrefUsers, "*@example.com", &wildcard_match));
   EXPECT_TRUE(wildcard_match);
+}
+
+// DeviceFamilyLinkAccountsAllowed should not have any effect if allowlist is
+// not set.
+TEST_F(CrosSettingsTest, AllowFamilyLinkAccountsWithEmptyAllowlist) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(
+      chromeos::features::kFamilyLinkOnSchoolDevice);
+
+  device_policy_.payload().mutable_allow_new_users()->set_allow_new_users(
+      false);
+  device_policy_.payload().mutable_user_allowlist()->clear_user_allowlist();
+  device_policy_.payload()
+      .mutable_family_link_accounts_allowed()
+      ->set_family_link_accounts_allowed(true);
+
+  StoreDevicePolicy();
+
+  ExpectPref(kAccountsPrefAllowNewUser, base::Value(false));
+  ExpectPref(kAccountsPrefUsers, base::ListValue());
+  ExpectPref(kAccountsPrefFamilyLinkAccountsAllowed, base::Value(false));
+
+  EXPECT_FALSE(IsUserAllowed(kUser1, base::nullopt));
+  EXPECT_FALSE(IsUserAllowed(kUser1, user_manager::USER_TYPE_CHILD));
+  EXPECT_FALSE(IsUserAllowed(kUser1, user_manager::USER_TYPE_REGULAR));
+}
+
+// DeviceFamilyLinkAccountsAllowed should not have any effect if the feature is
+// disabled.
+TEST_F(CrosSettingsTest, AllowFamilyLinkAccountsWithFeatureDisabled) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndDisableFeature(
+      chromeos::features::kFamilyLinkOnSchoolDevice);
+
+  device_policy_.payload().mutable_allow_new_users()->set_allow_new_users(
+      false);
+  device_policy_.payload().mutable_user_allowlist()->add_user_allowlist(kOwner);
+  device_policy_.payload()
+      .mutable_family_link_accounts_allowed()
+      ->set_family_link_accounts_allowed(true);
+
+  StoreDevicePolicy();
+
+  base::ListValue allowlist;
+  allowlist.AppendString(kOwner);
+  ExpectPref(kAccountsPrefAllowNewUser, base::Value(false));
+  ExpectPref(kAccountsPrefUsers, allowlist);
+  ExpectPref(kAccountsPrefFamilyLinkAccountsAllowed, base::Value(false));
+
+  EXPECT_TRUE(IsUserAllowed(kOwner, base::nullopt));
+  EXPECT_FALSE(IsUserAllowed(kUser1, base::nullopt));
+  EXPECT_FALSE(IsUserAllowed(kUser1, user_manager::USER_TYPE_CHILD));
+  EXPECT_FALSE(IsUserAllowed(kUser1, user_manager::USER_TYPE_REGULAR));
+}
+
+TEST_F(CrosSettingsTest, AllowFamilyLinkAccountsWithAllowlist) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(
+      chromeos::features::kFamilyLinkOnSchoolDevice);
+
+  device_policy_.payload().mutable_allow_new_users()->set_allow_new_users(
+      false);
+  device_policy_.payload().mutable_user_allowlist()->add_user_allowlist(kOwner);
+  device_policy_.payload()
+      .mutable_family_link_accounts_allowed()
+      ->set_family_link_accounts_allowed(true);
+
+  StoreDevicePolicy();
+
+  base::ListValue allowlist;
+  allowlist.AppendString(kOwner);
+  ExpectPref(kAccountsPrefAllowNewUser, base::Value(false));
+  ExpectPref(kAccountsPrefUsers, allowlist);
+  ExpectPref(kAccountsPrefFamilyLinkAccountsAllowed, base::Value(true));
+
+  EXPECT_TRUE(IsUserAllowed(kOwner, base::nullopt));
+  EXPECT_FALSE(IsUserAllowed(kUser1, base::nullopt));
+  EXPECT_TRUE(IsUserAllowed(kUser1, user_manager::USER_TYPE_CHILD));
+  EXPECT_FALSE(IsUserAllowed(kUser1, user_manager::USER_TYPE_REGULAR));
 }
 
 }  // namespace chromeos

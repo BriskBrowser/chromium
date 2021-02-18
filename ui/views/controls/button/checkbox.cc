@@ -44,15 +44,14 @@ class Checkbox::FocusRingHighlightPathGenerator
   }
 };
 
-Checkbox::Checkbox(const base::string16& label, ButtonListener* listener)
-    : LabelButton(listener, label), checked_(false), label_ax_id_(0) {
+Checkbox::Checkbox(const base::string16& label, PressedCallback callback)
+    : LabelButton(std::move(callback), label) {
   SetImageCentered(false);
   SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  SetFocusForPlatform();
 
-  set_request_focus_on_press(false);
+  SetRequestFocusOnPress(false);
   SetInkDropMode(InkDropMode::ON);
-  set_has_ink_drop_action_on_click(true);
+  SetHasInkDropActionOnClick(true);
 
   // Limit the checkbox height to match the legacy appearance.
   const gfx::Size preferred_size(LabelButton::CalculatePreferredSize());
@@ -84,7 +83,7 @@ bool Checkbox::GetChecked() const {
   return checked_;
 }
 
-PropertyChangedSubscription Checkbox::AddCheckedChangedCallback(
+base::CallbackListSubscription Checkbox::AddCheckedChangedCallback(
     PropertyChangedCallback callback) {
   return AddPropertyChangedCallback(&checked_, callback);
 }
@@ -164,8 +163,8 @@ std::unique_ptr<InkDrop> Checkbox::CreateInkDrop() {
 
 std::unique_ptr<InkDropRipple> Checkbox::CreateInkDropRipple() const {
   // The "small" size is 21dp, the large size is 1.33 * 21dp = 28dp.
-  return CreateSquareInkDropRipple(image()->GetMirroredBounds().CenterPoint(),
-                                   gfx::Size(21, 21));
+  return CreateSquareInkDropRipple(
+      image()->GetMirroredContentsBounds().CenterPoint(), gfx::Size(21, 21));
 }
 
 SkColor Checkbox::GetInkDropBaseColor() const {
@@ -176,7 +175,7 @@ SkColor Checkbox::GetInkDropBaseColor() const {
 
 SkPath Checkbox::GetFocusRingPath() const {
   SkPath path;
-  gfx::Rect bounds = image()->GetMirroredBounds();
+  gfx::Rect bounds = image()->GetMirroredContentsBounds();
   bounds.Inset(1, 1);
   path.addRect(RectToSkRect(bounds));
   return path;
@@ -214,6 +213,6 @@ void Checkbox::GetExtraParams(ui::NativeTheme::ExtraParams* params) const {
 BEGIN_METADATA(Checkbox, LabelButton)
 ADD_PROPERTY_METADATA(bool, Checked)
 ADD_PROPERTY_METADATA(bool, MultiLine)
-END_METADATA()
+END_METADATA
 
 }  // namespace views

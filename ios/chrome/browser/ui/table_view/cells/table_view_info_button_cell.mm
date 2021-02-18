@@ -6,6 +6,7 @@
 
 #import "ios/chrome/browser/ui/settings/cells/settings_cells_constants.h"
 #include "ios/chrome/browser/ui/table_view/cells/table_view_cells_constants.h"
+#import "ios/chrome/browser/ui/table_view/cells/table_view_cells_constants.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/colors/UIColor+cr_semantic_colors.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
@@ -18,12 +19,6 @@
 #endif
 
 namespace {
-
-// Padding used between the icon and the text labels.
-const CGFloat kIconTrailingPadding = 12;
-
-// Size of the icon image.
-const CGFloat kIconImageSize = 28;
 
 // Proportion of |textLayoutGuide| and |statusTextLabel|. This guarantees both
 // of them at least occupies 20% of the cell.
@@ -108,12 +103,13 @@ const CGFloat kCellLabelsWidthProportion = 0.2f;
         setContentCompressionResistancePriority:UILayoutPriorityDefaultHigh + 1
                                         forAxis:
                                             UILayoutConstraintAxisHorizontal];
+    _trailingButton.accessibilityIdentifier = kTableViewCellInfoButtonViewId;
     [self.contentView addSubview:_trailingButton];
 
     // Set up the constraints assuming that the icon image is hidden.
     _iconVisibleConstraint = [textLayoutGuide.leadingAnchor
         constraintEqualToAnchor:_iconImageView.trailingAnchor
-                       constant:kIconTrailingPadding];
+                       constant:kTableViewImagePadding];
     _iconHiddenConstraint = [textLayoutGuide.leadingAnchor
         constraintEqualToAnchor:self.contentView.leadingAnchor
                        constant:kTableViewHorizontalSpacing];
@@ -197,8 +193,10 @@ const CGFloat kCellLabelsWidthProportion = 0.2f;
       [_iconImageView.leadingAnchor
           constraintEqualToAnchor:self.contentView.leadingAnchor
                          constant:kTableViewHorizontalSpacing],
-      [_iconImageView.widthAnchor constraintEqualToConstant:kIconImageSize],
-      [_iconImageView.heightAnchor constraintEqualToConstant:kIconImageSize],
+      [_iconImageView.widthAnchor
+          constraintEqualToConstant:kTableViewIconImageSize],
+      [_iconImageView.heightAnchor
+          constraintEqualToAnchor:_iconImageView.widthAnchor],
 
       [_iconImageView.centerYAnchor
           constraintEqualToAnchor:textLayoutGuide.centerYAnchor],
@@ -305,15 +303,18 @@ const CGFloat kCellLabelsWidthProportion = 0.2f;
 #pragma mark - UIAccessibility
 
 - (CGPoint)accessibilityActivationPoint {
-  // Center the activation point over the button.
+  // Center the activation point over the info button, so that double-tapping
+  // triggers to show the popover.
   CGRect buttonFrame = UIAccessibilityConvertFrameToScreenCoordinates(
-      self.contentView.frame, self);
+      self.trailingButton.frame, self);
   return CGPointMake(CGRectGetMidX(buttonFrame), CGRectGetMidY(buttonFrame));
 }
 
 - (NSString*)accessibilityHint {
-  return l10n_util::GetNSString(
-      IDS_IOS_TOGGLE_SETTING_MANAGED_ACCESSIBILITY_HINT);
+  if (self.customizedAccessibilityHint.length) {
+    return self.customizedAccessibilityHint;
+  }
+  return l10n_util::GetNSString(IDS_IOS_INFO_BUTTON_ACCESSIBILITY_HINT);
 }
 
 - (NSString*)accessibilityLabel {

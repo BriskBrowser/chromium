@@ -7,6 +7,7 @@
 #include <map>
 
 #include "base/containers/adapters.h"
+#include "base/logging.h"
 #include "chrome/browser/ui/app_list/app_context_menu.h"
 #include "chromeos/components/string_matching/tokenized_string.h"
 #include "chromeos/components/string_matching/tokenized_string_match.h"
@@ -94,6 +95,11 @@ void ChromeSearchResult::SetDisplayIndex(DisplayIndex display_index) {
   SetSearchResultMetadata();
 }
 
+void ChromeSearchResult::SetOmniboxType(OmniboxType omnibox_type) {
+  metadata_->omnibox_type = omnibox_type;
+  SetSearchResultMetadata();
+}
+
 void ChromeSearchResult::SetPositionPriority(float position_priority) {
   metadata_->position_priority = position_priority;
   SetSearchResultMetadata();
@@ -153,7 +159,7 @@ void ChromeSearchResult::SetSearchResultMetadata() {
     updater->SetSearchResultMetadata(id(), CloneMetadata());
 }
 
-void ChromeSearchResult::InvokeAction(int action_index, int event_flags) {}
+void ChromeSearchResult::InvokeAction(int action_index) {}
 
 void ChromeSearchResult::OnVisibilityChanged(bool visibility) {
   VLOG(1) << " Visibility change to " << visibility << " and ID is " << id();

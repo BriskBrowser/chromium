@@ -34,16 +34,13 @@ struct Bounds {
 class COMPONENT_EXPORT(UI_BASE_IME_CHROMEOS)
     IMEAssistiveWindowHandlerInterface {
  public:
-  virtual ~IMEAssistiveWindowHandlerInterface() {}
+  virtual ~IMEAssistiveWindowHandlerInterface() = default;
 
   // Called when showing/hiding assistive window.
   virtual void SetAssistiveWindowProperties(
       const AssistiveWindowProperties& window) {}
 
   virtual void ShowSuggestion(const ui::ime::SuggestionDetails& details) {}
-
-  virtual void ShowMultipleSuggestions(
-      const std::vector<base::string16>& suggestions) {}
 
   // Highlights or unhighlights a given assistive button based on the given
   // parameters.
@@ -68,7 +65,7 @@ class COMPONENT_EXPORT(UI_BASE_IME_CHROMEOS)
   virtual void FocusStateChanged() {}
 
  protected:
-  IMEAssistiveWindowHandlerInterface() {}
+  IMEAssistiveWindowHandlerInterface() = default;
 };
 
 }  // namespace chromeos

@@ -15,6 +15,8 @@
 #include "base/files/file_util.h"
 #include "base/macros.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "content/browser/web_package/web_bundle_utils.h"
 #include "content/public/browser/content_browser_client.h"
@@ -175,9 +177,12 @@ class ContentURLLoader : public network::mojom::URLLoader {
                                  net::ERR_REQUEST_RANGE_NOT_SATISFIABLE);
     }
 
-    mojo::DataPipe pipe(kDefaultContentUrlPipeSize);
-    if (!pipe.consumer_handle.is_valid())
+    mojo::ScopedDataPipeProducerHandle producer_handle;
+    mojo::ScopedDataPipeConsumerHandle consumer_handle;
+    if (mojo::CreateDataPipe(kDefaultContentUrlPipeSize, producer_handle,
+                             consumer_handle) != MOJO_RESULT_OK) {
       return CompleteWithFailure(std::move(client), net::ERR_FAILED);
+    }
 
     base::File file = base::OpenContentUriForRead(path);
     if (!file.IsValid()) {
@@ -223,7 +228,7 @@ class ContentURLLoader : public network::mojom::URLLoader {
     }
 
     client->OnReceiveResponse(std::move(head));
-    client->OnStartLoadingResponseBody(std::move(pipe.consumer_handle));
+    client->OnStartLoadingResponseBody(std::move(consumer_handle));
     client_ = std::move(client);
 
     if (total_bytes_to_send == 0) {
@@ -239,8 +244,8 @@ class ContentURLLoader : public network::mojom::URLLoader {
     data_source->SetRange(first_byte_to_send,
                           first_byte_to_send + total_bytes_to_send);
 
-    data_producer_ = std::make_unique<mojo::DataPipeProducer>(
-        std::move(pipe.producer_handle));
+    data_producer_ =
+        std::make_unique<mojo::DataPipeProducer>(std::move(producer_handle));
     data_producer_->Write(std::move(data_source),
                           base::BindOnce(&ContentURLLoader::OnFileWritten,
                                          base::Unretained(this)));
@@ -295,8 +300,10 @@ class ContentURLLoader : public network::mojom::URLLoader {
 }  // namespace
 
 ContentURLLoaderFactory::ContentURLLoaderFactory(
-    scoped_refptr<base::SequencedTaskRunner> task_runner)
-    : task_runner_(std::move(task_runner)) {}
+    scoped_refptr<base::SequencedTaskRunner> task_runner,
+    mojo::PendingReceiver<network::mojom::URLLoaderFactory> factory_receiver)
+    : network::SelfDeletingURLLoaderFactory(std::move(factory_receiver)),
+      task_runner_(std::move(task_runner)) {}
 
 ContentURLLoaderFactory::~ContentURLLoaderFactory() = default;
 
@@ -313,9 +320,21 @@ void ContentURLLoaderFactory::CreateLoaderAndStart(
                                 std::move(loader), std::move(client)));
 }
 
-void ContentURLLoaderFactory::Clone(
-    mojo::PendingReceiver<network::mojom::URLLoaderFactory> loader) {
-  receivers_.Add(this, std::move(loader));
+// static
+mojo::PendingRemote<network::mojom::URLLoaderFactory>
+ContentURLLoaderFactory::Create() {
+  mojo::PendingRemote<network::mojom::URLLoaderFactory> pending_remote;
+
+  // The ContentURLLoaderFactory will delete itself when there are no more
+  // receivers - see the network::SelfDeletingURLLoaderFactory::OnDisconnect
+  // method.
+  new ContentURLLoaderFactory(
+      base::ThreadPool::CreateSequencedTaskRunner(
+          {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+           base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN}),
+      pending_remote.InitWithNewPipeAndPassReceiver());
+
+  return pending_remote;
 }
 
 }  // namespace content

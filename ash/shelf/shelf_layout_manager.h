@@ -30,7 +30,7 @@
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/optional.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/timer/timer.h"
 #include "ui/compositor/layer_animation_observer.h"
@@ -60,6 +60,7 @@ class Shelf;
 class ShelfLayoutManagerObserver;
 class ShelfLayoutManagerTestBase;
 class ShelfWidget;
+class SwipeHomeToOverviewController;
 
 // ShelfLayoutManager is the layout manager responsible for the shelf and
 // status widgets. The shelf is given the total available width and told the
@@ -250,6 +251,7 @@ class ASH_EXPORT ShelfLayoutManager
   // DesksController::Observer:
   void OnDeskAdded(const Desk* desk) override {}
   void OnDeskRemoved(const Desk* desk) override {}
+  void OnDeskReordered(int old_index, int new_index) override {}
   void OnDeskActivationChanged(const Desk* activated,
                                const Desk* deactivated) override {}
   void OnDeskSwitchAnimationLaunching() override;
@@ -282,6 +284,11 @@ class ASH_EXPORT ShelfLayoutManager
     return window_drag_controller_.get();
   }
 
+  SwipeHomeToOverviewController*
+  swipe_home_to_overview_controller_for_testing() {
+    return swipe_home_to_overview_controller_.get();
+  }
+
   HomeToOverviewNudgeController*
   home_to_overview_nudge_controller_for_testing() {
     return home_to_overview_nudge_controller_.get();
@@ -304,6 +311,7 @@ class ASH_EXPORT ShelfLayoutManager
   friend class ShelfLayoutManagerTestBase;
   friend class ShelfLayoutManagerWindowDraggingTest;
   friend class NotificationTrayTest;
+  friend class UnifiedSystemTrayTest;
   friend class Shelf;
 
   struct State {
@@ -458,6 +466,7 @@ class ASH_EXPORT ShelfLayoutManager
                   float scroll_y);
   void CompleteDrag(const ui::LocatedEvent& event_in_screen);
   void CompleteAppListDrag(const ui::LocatedEvent& event_in_screen);
+  void CompleteDragHomeToOverview(const ui::LocatedEvent& event_in_screen);
   void CancelDrag(base::Optional<ShelfWindowDragResult> window_drag_result);
   void CompleteDragWithChangedVisibility();
 
@@ -604,8 +613,8 @@ class ASH_EXPORT ShelfLayoutManager
       ShelfBackgroundType::kDefaultBg;
 
   ScopedSessionObserver scoped_session_observer_{this};
-  ScopedObserver<WallpaperController, WallpaperControllerObserver>
-      wallpaper_controller_observer_{this};
+  base::ScopedObservation<WallpaperController, WallpaperControllerObserver>
+      wallpaper_controller_observation_{this};
 
   // Location of the most recent mouse drag event in screen coordinate.
   gfx::Point last_mouse_drag_position_;
@@ -627,6 +636,11 @@ class ASH_EXPORT ShelfLayoutManager
   // The window drag controller that will be used when a window can be dragged
   // up from shelf to homescreen, overview or splitview.
   std::unique_ptr<DragWindowFromShelfController> window_drag_controller_;
+
+  // The gesture controller that switches from home screen to overview when it
+  // detects an upward swipe from the home launcher shelf area.
+  std::unique_ptr<SwipeHomeToOverviewController>
+      swipe_home_to_overview_controller_;
 
   std::unique_ptr<HomeToOverviewNudgeController>
       home_to_overview_nudge_controller_;

@@ -4,6 +4,7 @@
 
 #include <string>
 
+#include "base/files/file_util.h"
 #include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
@@ -18,7 +19,6 @@
 #include "chrome/browser/ui/search/instant_test_utils.h"
 #include "chrome/browser/ui/search/local_ntp_browsertest_base.h"
 #include "chrome/browser/ui/search/local_ntp_test_utils.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/search/instant_types.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -242,8 +242,10 @@ class LocalNTPCustomBackgroundsThemeTest
     : public extensions::ExtensionBrowserTest {
  public:
   void SetUp() override {
-    EXPECT_CALL(policy_provider_, IsInitializationComplete(testing::_))
-        .WillRepeatedly(testing::Return(true));
+    ON_CALL(policy_provider_, IsInitializationComplete(testing::_))
+        .WillByDefault(testing::Return(true));
+    ON_CALL(policy_provider_, IsFirstPolicyLoadComplete(testing::_))
+        .WillByDefault(testing::Return(true));
     policy::BrowserPolicyConnector::SetPolicyProviderForTesting(
         &policy_provider_);
 
@@ -283,7 +285,7 @@ class LocalNTPCustomBackgroundsThemeTest
     ASSERT_EQ(new_theme->name(), theme_name);
   }
 
-  policy::MockConfigurationPolicyProvider policy_provider_;
+  testing::NiceMock<policy::MockConfigurationPolicyProvider> policy_provider_;
 };
 
 IN_PROC_BROWSER_TEST_F(LocalNTPCustomBackgroundsThemeTest,

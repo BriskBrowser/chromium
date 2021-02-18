@@ -10,7 +10,7 @@
 #include "base/files/file_path.h"
 #include "base/optional.h"
 #include "chrome/browser/nearby_sharing/attachment.h"
-#include "chrome/services/sharing/public/mojom/nearby_decoder_types.mojom.h"
+#include "chromeos/services/nearby/public/mojom/nearby_decoder_types.mojom.h"
 
 // A single attachment to be sent by / received from a |ShareTarget|, can be
 // either a file or text.
@@ -37,6 +37,12 @@ class FileAttachment : public Attachment {
 
   // Attachment:
   void MoveToShareTarget(ShareTarget& share_target) override;
+  const std::string& GetDescription() const override;
+  nearby_share::mojom::ShareType GetShareType() const override;
+
+  void set_file_path(base::Optional<base::FilePath> path) {
+    file_path_ = std::move(path);
+  }
 
  private:
   std::string file_name_;

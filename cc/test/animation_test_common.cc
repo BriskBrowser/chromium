@@ -18,7 +18,6 @@
 #include "cc/animation/scroll_offset_animation_curve.h"
 #include "cc/animation/scroll_offset_animation_curve_factory.h"
 #include "cc/animation/timing_function.h"
-#include "cc/animation/transform_operations.h"
 #include "cc/layers/layer.h"
 #include "cc/layers/layer_impl.h"
 
@@ -54,7 +53,7 @@ int AddOpacityTransition(Animation* target,
 
   std::unique_ptr<KeyframeModel> keyframe_model(KeyframeModel::Create(
       std::move(curve), id, AnimationIdProvider::NextGroupId(),
-      TargetProperty::OPACITY));
+      KeyframeModel::TargetPropertyId(TargetProperty::OPACITY)));
   keyframe_model->set_needs_synchronized_start_time(true);
 
   target->AddKeyframeModel(std::move(keyframe_model));
@@ -63,8 +62,8 @@ int AddOpacityTransition(Animation* target,
 
 int AddAnimatedTransform(Animation* target,
                          double duration,
-                         TransformOperations start_operations,
-                         TransformOperations operations) {
+                         gfx::TransformOperations start_operations,
+                         gfx::TransformOperations operations) {
   std::unique_ptr<KeyframedTransformAnimationCurve> curve(
       KeyframedTransformAnimationCurve::Create());
 
@@ -80,7 +79,7 @@ int AddAnimatedTransform(Animation* target,
 
   std::unique_ptr<KeyframeModel> keyframe_model(KeyframeModel::Create(
       std::move(curve), id, AnimationIdProvider::NextGroupId(),
-      TargetProperty::TRANSFORM));
+      KeyframeModel::TargetPropertyId(TargetProperty::TRANSFORM)));
   keyframe_model->set_needs_synchronized_start_time(true);
 
   target->AddKeyframeModel(std::move(keyframe_model));
@@ -91,12 +90,12 @@ int AddAnimatedTransform(Animation* target,
                          double duration,
                          int delta_x,
                          int delta_y) {
-  TransformOperations start_operations;
+  gfx::TransformOperations start_operations;
   if (duration > 0.0) {
     start_operations.AppendTranslate(0, 0, 0.0);
   }
 
-  TransformOperations operations;
+  gfx::TransformOperations operations;
   operations.AppendTranslate(delta_x, delta_y, 0.0);
   return AddAnimatedTransform(target, duration, start_operations, operations);
 }
@@ -125,7 +124,7 @@ int AddAnimatedFilter(Animation* target,
 
   std::unique_ptr<KeyframeModel> keyframe_model(KeyframeModel::Create(
       std::move(curve), id, AnimationIdProvider::NextGroupId(),
-      TargetProperty::FILTER));
+      KeyframeModel::TargetPropertyId(TargetProperty::FILTER)));
   keyframe_model->set_needs_synchronized_start_time(true);
 
   target->AddKeyframeModel(std::move(keyframe_model));
@@ -155,7 +154,7 @@ int AddAnimatedBackdropFilter(Animation* target,
 
   std::unique_ptr<KeyframeModel> keyframe_model(KeyframeModel::Create(
       std::move(curve), id, AnimationIdProvider::NextGroupId(),
-      TargetProperty::BACKDROP_FILTER));
+      KeyframeModel::TargetPropertyId(TargetProperty::BACKDROP_FILTER)));
   keyframe_model->set_needs_synchronized_start_time(true);
 
   target->AddKeyframeModel(std::move(keyframe_model));
@@ -194,25 +193,16 @@ base::TimeDelta FakeTransformTransition::Duration() const {
   return duration_;
 }
 
-TransformOperations FakeTransformTransition::GetValue(
+gfx::TransformOperations FakeTransformTransition::GetValue(
     base::TimeDelta time) const {
-  return TransformOperations();
+  return gfx::TransformOperations();
 }
-
-bool FakeTransformTransition::IsTranslation() const { return true; }
 
 bool FakeTransformTransition::PreservesAxisAlignment() const {
   return true;
 }
 
-bool FakeTransformTransition::AnimationStartScale(bool forward_direction,
-                                                  float* start_scale) const {
-  *start_scale = 1.f;
-  return true;
-}
-
-bool FakeTransformTransition::MaximumTargetScale(bool forward_direction,
-                                                 float* max_scale) const {
+bool FakeTransformTransition::MaximumScale(float* max_scale) const {
   *max_scale = 1.f;
   return true;
 }
@@ -252,7 +242,7 @@ int AddScrollOffsetAnimationToAnimation(Animation* animation,
 
   std::unique_ptr<KeyframeModel> keyframe_model(KeyframeModel::Create(
       std::move(curve), id, AnimationIdProvider::NextGroupId(),
-      TargetProperty::SCROLL_OFFSET));
+      KeyframeModel::TargetPropertyId(TargetProperty::SCROLL_OFFSET)));
   keyframe_model->SetIsImplOnly();
 
   animation->AddKeyframeModel(std::move(keyframe_model));
@@ -269,8 +259,8 @@ int AddAnimatedTransformToAnimation(Animation* animation,
 
 int AddAnimatedTransformToAnimation(Animation* animation,
                                     double duration,
-                                    TransformOperations start_operations,
-                                    TransformOperations operations) {
+                                    gfx::TransformOperations start_operations,
+                                    gfx::TransformOperations operations) {
   return AddAnimatedTransform(animation, duration, start_operations,
                               operations);
 }
@@ -320,7 +310,7 @@ int AddOpacityStepsToAnimation(Animation* animation,
 
   std::unique_ptr<KeyframeModel> keyframe_model(KeyframeModel::Create(
       std::move(curve), id, AnimationIdProvider::NextGroupId(),
-      TargetProperty::OPACITY));
+      KeyframeModel::TargetPropertyId(TargetProperty::OPACITY)));
   keyframe_model->set_needs_synchronized_start_time(true);
 
   animation->AddKeyframeModel(std::move(keyframe_model));
@@ -412,8 +402,8 @@ int AddAnimatedTransformToElementWithAnimation(
     ElementId element_id,
     scoped_refptr<AnimationTimeline> timeline,
     double duration,
-    TransformOperations start_operations,
-    TransformOperations operations) {
+    gfx::TransformOperations start_operations,
+    gfx::TransformOperations operations) {
   scoped_refptr<Animation> animation =
       Animation::Create(AnimationIdProvider::NextAnimationId());
   timeline->AttachAnimation(animation);

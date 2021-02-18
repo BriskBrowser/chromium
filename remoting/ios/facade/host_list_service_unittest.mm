@@ -81,10 +81,8 @@ class HostListServiceTest : public PlatformTest {
   id remoting_service_mock_;
 
  private:
-  std::unique_ptr<HostListService::CallbackSubscription>
-      host_list_state_subscription_;
-  std::unique_ptr<HostListService::CallbackSubscription>
-      fetch_failure_subscription_;
+  base::CallbackListSubscription host_list_state_subscription_;
+  base::CallbackListSubscription fetch_failure_subscription_;
 };
 
 HostListServiceTest::HostListServiceTest()
@@ -157,7 +155,7 @@ TEST_F(HostListServiceTest, SuccessfullyFetchedOneHost) {
   EXPECT_HOST_LIST_STATE(HostListService::State::FETCHING);
   EXPECT_NO_FETCH_FAILURE();
 
-  BlockAndRespondGetHostList(ProtobufHttpStatus::OK,
+  BlockAndRespondGetHostList(ProtobufHttpStatus::OK(),
                              CreateFakeHostListResponse("fake_host_1"));
   EXPECT_HOST_LIST_STATE(HostListService::State::FETCHED);
   EXPECT_NO_FETCH_FAILURE();
@@ -180,7 +178,7 @@ TEST_F(HostListServiceTest, SuccessfullyFetchedTwoHosts_HostListSorted) {
   apis::v1::GetHostListResponse response;
   response.add_hosts()->set_host_name("Host 2");
   response.add_hosts()->set_host_name("Host 1");
-  BlockAndRespondGetHostList(ProtobufHttpStatus::OK, response);
+  BlockAndRespondGetHostList(ProtobufHttpStatus::OK(), response);
   EXPECT_HOST_LIST_STATE(HostListService::State::FETCHED);
   EXPECT_NO_FETCH_FAILURE();
 
@@ -276,7 +274,7 @@ TEST_F(HostListServiceTest, UserSwitchAccount_cancelThenRequestNewFetch) {
   ASSERT_TRUE(test_responder_.GetPendingRequest(1).client.is_connected());
   EXPECT_HOST_LIST_STATE(HostListService::State::FETCHING);
 
-  BlockAndRespondGetHostList(ProtobufHttpStatus::OK,
+  BlockAndRespondGetHostList(ProtobufHttpStatus::OK(),
                              CreateFakeHostListResponse("fake_host_id"));
   EXPECT_HOST_LIST_STATE(HostListService::State::FETCHED);
 

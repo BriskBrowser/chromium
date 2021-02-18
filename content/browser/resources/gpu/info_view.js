@@ -2,26 +2,27 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {define as crUiDefine} from 'chrome://resources/js/cr/ui.m.js';
+import {$} from 'chrome://resources/js/util.m.js';
+
+import {VulkanInfo} from './vulkan_info.js';
 
 /**
  * @fileoverview This view displays information on the current GPU
  * hardware.  Its primary usefulness is to allow users to copy-paste
  * their data in an easy to read format for bug reports.
  */
-cr.define('gpu', function() {
+export function makeInfoView(browserBridge) {
   /**
    * Provides information on the GPU process and underlying graphics hardware.
    * @constructor
-   * @extends {cr.ui.TabPanel}
    */
-  const InfoView = cr.ui.define(cr.ui.TabPanel);
+  const InfoView = crUiDefine('div');
 
   InfoView.prototype = {
-    __proto__: cr.ui.TabPanel.prototype,
+    __proto__: HTMLDivElement.prototype,
 
     decorate: function() {
-      cr.ui.TabPanel.prototype.decorate.apply(this);
-
       browserBridge.addEventListener('gpuInfoUpdate', this.refresh.bind(this));
       browserBridge.addEventListener(
           'logMessagesChange', this.refresh.bind(this));
@@ -188,8 +189,7 @@ cr.define('gpu', function() {
           if (gpuInfo.ANGLEFeatures.length) {
             ANGLEFeaturesDiv.hidden = false;
             ANGLEFeaturesList.textContent = '';
-            for (i = 0; i < gpuInfo.ANGLEFeatures.length; i++) {
-              const ANGLEFeature = gpuInfo.ANGLEFeatures[i];
+            for (const ANGLEFeature of gpuInfo.ANGLEFeatures) {
               const ANGLEFeatureEl = this.createANGLEFeatureEl_(ANGLEFeature);
               ANGLEFeaturesList.appendChild(ANGLEFeatureEl);
             }
@@ -213,7 +213,7 @@ cr.define('gpu', function() {
         }
 
         if (gpuInfo.vulkanInfo) {
-          const vulkanInfo = new gpu.VulkanInfo(gpuInfo.vulkanInfo);
+          const vulkanInfo = new VulkanInfo(gpuInfo.vulkanInfo);
           const data = [{
             'description': 'info',
             'value': vulkanInfo.toString(),
@@ -327,8 +327,7 @@ cr.define('gpu', function() {
       if (featureInfo.problems.length) {
         problemsDiv.hidden = false;
         problemsList.textContent = '';
-        for (i = 0; i < featureInfo.problems.length; i++) {
-          const problem = featureInfo.problems[i];
+        for (const problem of featureInfo.problems) {
           const problemEl = this.createProblemEl_(problem);
           problemsList.appendChild(problemEl);
         }
@@ -340,9 +339,9 @@ cr.define('gpu', function() {
       if (featureInfo.workarounds.length) {
         workaroundsDiv.hidden = false;
         workaroundsList.textContent = '';
-        for (i = 0; i < featureInfo.workarounds.length; i++) {
+        for (const workaround of featureInfo.workarounds) {
           const workaroundEl = document.createElement('li');
-          workaroundEl.textContent = featureInfo.workarounds[i];
+          workaroundEl.textContent = workaround;
           workaroundsList.appendChild(workaroundEl);
         }
       } else {
@@ -539,5 +538,5 @@ cr.define('gpu', function() {
     }
   };
 
-  return {InfoView: InfoView};
-});
+  return InfoView;
+}

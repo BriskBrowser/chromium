@@ -11,8 +11,8 @@
 #include "base/macros.h"
 #include "chrome/browser/webauthn/authenticator_request_dialog_model.h"
 #include "content/public/browser/web_contents_observer.h"
-#include "ui/views/controls/button/button.h"
 #include "ui/views/controls/menu/menu_runner.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/window/dialog_delegate.h"
 
 namespace content {
@@ -37,9 +37,13 @@ class AuthenticatorRequestSheetView;
 class AuthenticatorRequestDialogView
     : public views::DialogDelegateView,
       public AuthenticatorRequestDialogModel::Observer,
-      public content::WebContentsObserver,
-      public views::ButtonListener {
+      public content::WebContentsObserver {
  public:
+  METADATA_HEADER(AuthenticatorRequestDialogView);
+  AuthenticatorRequestDialogView(const AuthenticatorRequestDialogView&) =
+      delete;
+  AuthenticatorRequestDialogView& operator=(
+      const AuthenticatorRequestDialogView&) = delete;
   ~AuthenticatorRequestDialogView() override;
 
  protected:
@@ -65,23 +69,16 @@ class AuthenticatorRequestDialogView
   }
 
   // views::DialogDelegateView:
-  gfx::Size CalculatePreferredSize() const override;
   bool Accept() override;
   bool Cancel() override;
   bool IsDialogButtonEnabled(ui::DialogButton button) const override;
   View* GetInitiallyFocusedView() override;
-  ui::ModalType GetModalType() const override;
   base::string16 GetWindowTitle() const override;
-  bool ShouldShowWindowTitle() const override;
-  bool ShouldShowCloseButton() const override;
 
   // AuthenticatorRequestDialogModel::Observer:
   void OnModelDestroyed() override;
   void OnStepTransition() override;
   void OnSheetModelChanged() override;
-
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
   void OnVisibilityChanged(content::Visibility visibility) override;
 
@@ -99,6 +96,8 @@ class AuthenticatorRequestDialogView
   // Shows the dialog after creation or after being hidden.
   void Show();
 
+  void OtherTransportsButtonPressed();
+
   void OnDialogClosing();
 
   std::unique_ptr<AuthenticatorRequestDialogModel> model_;
@@ -112,8 +111,6 @@ class AuthenticatorRequestDialogView
   // attach to is currently hidden. In this case, the dialog won't be shown
   // when requested, but will wait until the WebContents is visible again.
   bool web_contents_hidden_;
-
-  DISALLOW_COPY_AND_ASSIGN(AuthenticatorRequestDialogView);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_WEBAUTHN_AUTHENTICATOR_REQUEST_DIALOG_VIEW_H_

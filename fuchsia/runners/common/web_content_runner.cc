@@ -35,6 +35,13 @@ fuchsia::web::ContextPtr CreateWebContext(
   return web_context;
 }
 
+bool IsChannelClosed(const zx::channel& channel) {
+  zx_signals_t observed = 0u;
+  zx_status_t status =
+      channel.wait_one(ZX_ERR_PEER_CLOSED, zx::time(), &observed);
+  return status == ZX_OK;
+}
+
 }  // namespace
 
 WebContentRunner::WebContentRunner(
@@ -51,22 +58,24 @@ WebContentRunner::WebContentRunner(
 
 WebContentRunner::~WebContentRunner() = default;
 
-fuchsia::web::FramePtr WebContentRunner::CreateFrame(
-    fuchsia::web::CreateFrameParams params) {
+void WebContentRunner::CreateFrameWithParams(
+    fuchsia::web::CreateFrameParams params,
+    fidl::InterfaceRequest<fuchsia::web::Frame> request) {
+  // Synchronously check whether the web.Context channel has closed, to reduce
+  // the chance of issuing CreateFrameWithParams() to an already-closed channel.
+  // This avoids potentially flaking a test - see crbug.com/1173418.
+  if (context_ && IsChannelClosed(context_.channel()))
+    context_.Unbind();
+
   if (!context_) {
     DCHECK(get_context_params_callback_);
     context_ = CreateWebContext(get_context_params_callback_.Run());
-    context_.set_error_handler([this](zx_status_t status) {
+    context_.set_error_handler([](zx_status_t status) {
       ZX_LOG(ERROR, status) << "Connection to Context lost.";
-      if (on_context_lost_callback_) {
-        std::move(on_context_lost_callback_).Run();
-      }
     });
   }
 
-  fuchsia::web::FramePtr frame;
-  context_->CreateFrameWithParams(std::move(params), frame.NewRequest());
-  return frame;
+  context_->CreateFrameWithParams(std::move(params), std::move(request));
 }
 
 void WebContentRunner::StartComponent(
@@ -81,8 +90,8 @@ void WebContentRunner::StartComponent(
   }
 
   std::unique_ptr<WebComponent> component = std::make_unique<WebComponent>(
-      this,
-      std::make_unique<base::fuchsia::StartupContext>(std::move(startup_info)),
+      std::string(), this,
+      std::make_unique<base::StartupContext>(std::move(startup_info)),
       std::move(controller_request));
 #if BUILDFLAG(WEB_RUNNER_REMOTE_DEBUGGING_PORT) != 0
   component->EnableRemoteDebugging();
@@ -112,9 +121,4 @@ void WebContentRunner::RegisterComponent(
 
 void WebContentRunner::SetOnEmptyCallback(base::OnceClosure on_empty) {
   on_empty_callback_ = std::move(on_empty);
-}
-
-void WebContentRunner::SetOnContextLostCallbackForTest(
-    base::OnceClosure callback) {
-  on_context_lost_callback_ = std::move(callback);
 }

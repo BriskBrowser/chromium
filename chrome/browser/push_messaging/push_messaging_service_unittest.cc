@@ -114,7 +114,7 @@ class PushMessagingServiceTest : public ::testing::Test {
                    base::Optional<base::Time>* expiration_time_out,
                    std::vector<uint8_t>* p256dh_out,
                    std::vector<uint8_t>* auth_out,
-                   base::Closure done_callback,
+                   base::OnceClosure done_callback,
                    const std::string& registration_id,
                    const GURL& endpoint,
                    const base::Optional<base::Time>& expiration_time,
@@ -130,7 +130,7 @@ class PushMessagingServiceTest : public ::testing::Test {
     *p256dh_out = p256dh;
     *auth_out = auth;
 
-    done_callback.Run();
+    std::move(done_callback).Run();
   }
 
   // Callback to use when observing messages dispatched by the push service.
@@ -230,7 +230,7 @@ TEST_F(PushMessagingServiceTest, PayloadEncryptionTest) {
 
   // (1) Make sure that |kExampleOrigin| has access to use Push Messaging.
   ASSERT_EQ(blink::mojom::PermissionStatus::GRANTED,
-            push_service->GetPermissionStatus(origin, true));
+            push_service->GetPermissionStatus(origin, true /* user_visible */));
 
   // (2) Subscribe for Push Messaging, and verify that we've got the required
   // information in order to be able to create encrypted messages.

@@ -5,7 +5,7 @@
 /**
  * A button used inside PanelItem with varying display characteristics.
  */
-class PanelButton extends HTMLElement {
+/* #export */ class PanelButton extends HTMLElement {
   constructor() {
     super();
     this.createElement_();
@@ -118,3 +118,5 @@ class PanelButton extends HTMLElement {
 }
 
 window.customElements.define('xf-button', PanelButton);
+
+//# sourceURL=//ui/file_manager/file_manager/foreground/elements/xf_button.js

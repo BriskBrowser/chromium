@@ -8,12 +8,13 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/task/post_task.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/printing/print_job_worker.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -87,7 +88,7 @@ int PrinterQuery::cookie() const {
 }
 
 void PrinterQuery::GetSettings(GetSettingsAskParam ask_user_for_settings,
-                               int expected_page_count,
+                               uint32_t expected_page_count,
                                bool has_selection,
                                mojom::MarginType margin_type,
                                bool is_scripted,
@@ -127,7 +128,7 @@ void PrinterQuery::SetSettings(base::Value new_settings,
                          base::Unretained(this), std::move(callback))));
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 void PrinterQuery::SetSettingsFromPOD(
     std::unique_ptr<printing::PrintSettings> new_settings,
     base::OnceClosure callback) {

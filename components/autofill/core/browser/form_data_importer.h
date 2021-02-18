@@ -24,6 +24,8 @@ class SaveCardOfferObserver;
 
 namespace autofill {
 
+class AddressProfileSaveManager;
+
 // Manages logic for importing address profiles and credit card information from
 // web forms into the user's Autofill profile via the PersonalDataManager.
 // Owned by AutofillManager.
@@ -110,7 +112,8 @@ class FormDataImporter {
   // Go through the |form| fields and attempt to extract and import valid
   // address profiles. Returns true on extraction success of at least one
   // profile. There are many reasons that extraction may fail (see
-  // implementation).
+  // implementation). The function returns true if at least one complete address
+  // profile was found.
   bool ImportAddressProfiles(const FormStructure& form);
 
   // Helper method for ImportAddressProfiles which only considers the fields for
@@ -150,6 +153,9 @@ class FormDataImporter {
 
   // Responsible for managing credit card save flows (local or upload).
   std::unique_ptr<CreditCardSaveManager> credit_card_save_manager_;
+
+  // Responsible for managing address profiles save flows.
+  std::unique_ptr<AddressProfileSaveManager> address_profile_save_manager_;
 
 #if !defined(OS_ANDROID) && !defined(OS_IOS)
   // Responsible for migrating locally saved credit cards to Google Pay.

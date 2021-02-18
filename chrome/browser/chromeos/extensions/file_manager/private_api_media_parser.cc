@@ -66,13 +66,12 @@ void FileManagerPrivateInternalGetContentMimeTypeFunction::SniffMimeType(
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   std::string mime_type;
-  if (!net::SniffMimeTypeFromLocalData(sniff_bytes->data(), sniff_bytes->size(),
-                                       &mime_type)) {
+  if (!net::SniffMimeTypeFromLocalData(*sniff_bytes, &mime_type)) {
     Respond(Error("Could not deduce the content mime type."));
     return;
   }
 
-  Respond(OneArgument(std::make_unique<base::Value>(mime_type)));
+  Respond(OneArgument(base::Value(mime_type)));
 }
 
 FileManagerPrivateInternalGetContentMetadataFunction::
@@ -196,7 +195,7 @@ void FileManagerPrivateInternalGetContentMetadataFunction::ParserDone(
     attached_images_list->Append(std::move(media_thumbnail_image));
   }
 
-  Respond(OneArgument(std::move(dictionary)));
+  Respond(OneArgument(base::Value::FromUniquePtrValue(std::move(dictionary))));
 }
 
 }  // namespace extensions

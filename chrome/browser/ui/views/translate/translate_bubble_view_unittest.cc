@@ -27,6 +27,7 @@
 #include "ui/views/controls/button/menu_button.h"
 #include "ui/views/controls/combobox/combobox.h"
 #include "ui/views/controls/styled_label.h"
+#include "ui/views/test/button_test_api.h"
 #include "ui/views/widget/widget.h"
 
 namespace {
@@ -36,8 +37,8 @@ class MockTranslateBubbleModel : public TranslateBubbleModel {
   explicit MockTranslateBubbleModel(TranslateBubbleModel::ViewState view_state)
       : view_state_transition_(view_state),
         error_type_(translate::TranslateErrors::NONE),
-        original_language_index_(0),
-        target_language_index_(1),
+        original_language_index_(1),
+        target_language_index_(2),
         never_translate_language_(false),
         never_translate_site_(false),
         should_show_always_translate_sortcut_(false),
@@ -67,10 +68,22 @@ class MockTranslateBubbleModel : public TranslateBubbleModel {
     view_state_transition_.GoBackFromAdvanced();
   }
 
-  int GetNumberOfLanguages() const override { return 1000; }
+  int GetNumberOfSourceLanguages() const override { return 1000; }
 
-  base::string16 GetLanguageNameAt(int index) const override {
+  int GetNumberOfTargetLanguages() const override { return 1000; }
+
+  base::string16 GetSourceLanguageNameAt(int index) const override {
     return base::ASCIIToUTF16("English");
+  }
+
+  base::string16 GetTargetLanguageNameAt(int index) const override {
+    return base::ASCIIToUTF16("English");
+  }
+
+  std::string GetOriginalLanguageCode() const override {
+    if (original_language_index_ == 0)
+      return "und";
+    return "eng-US";
   }
 
   int GetOriginalLanguageIndex() const override {
@@ -144,6 +157,8 @@ class MockTranslateBubbleModel : public TranslateBubbleModel {
 
   void SetCanBlocklistSite(bool value) { can_blocklist_site_ = value; }
 
+  void ReportUIInteraction(translate::UIInteraction ui_interaction) override {}
+
   TranslateBubbleViewStateTransition view_state_transition_;
   translate::TranslateErrors::Type error_type_;
   int original_language_index_;
@@ -189,12 +204,10 @@ class TranslateBubbleViewTest : public ChromeViewsTestBase {
   }
 
   void PressButton(TranslateBubbleView::ButtonID id) {
-    views::LabelButton button(nullptr, base::ASCIIToUTF16("hello"));
-    button.SetID(id);
-
-    bubble_->ButtonPressed(&button,
-                           ui::KeyEvent(ui::ET_KEY_PRESSED, ui::VKEY_RETURN,
-                                        ui::DomCode::ENTER, ui::EF_NONE));
+    views::Button* button =
+        static_cast<views::Button*>(bubble_->GetViewByID(id));
+    views::test::ButtonTestApi(button).NotifyClick(ui::KeyEvent(
+        ui::ET_KEY_PRESSED, ui::VKEY_RETURN, ui::DomCode::ENTER, ui::EF_NONE));
   }
 
   void TearDown() override {
@@ -207,12 +220,7 @@ class TranslateBubbleViewTest : public ChromeViewsTestBase {
   bool denial_button_clicked() { return mock_model_->translation_declined_; }
 
   void TriggerOptionsMenu() {
-    views::Button* button = static_cast<views::Button*>(
-        bubble_->GetViewByID(TranslateBubbleView::BUTTON_ID_OPTIONS_MENU));
-    LOG(INFO) << button->GetID();
-    bubble_->ButtonPressed(button,
-                           ui::KeyEvent(ui::ET_KEY_PRESSED, ui::VKEY_RETURN,
-                                        ui::DomCode::ENTER, ui::EF_NONE));
+    PressButton(TranslateBubbleView::BUTTON_ID_OPTIONS_MENU);
   }
 
   ui::SimpleMenuModel* options_menu_model() {
@@ -283,11 +291,15 @@ TEST_F(TranslateBubbleViewTest, AlwaysTranslateCheckboxShortcut) {
   EXPECT_FALSE(bubble_->always_translate_checkbox_->GetChecked());
 
   // Click the checkbox. The state is saved.
-  bubble_->always_translate_checkbox_->SetChecked(true);
   PressButton(TranslateBubbleView::BUTTON_ID_ALWAYS_TRANSLATE);
   EXPECT_TRUE(mock_model_->should_always_translate_);
   EXPECT_EQ(1, mock_model_->set_always_translate_called_count_);
   EXPECT_TRUE(bubble_->always_translate_checkbox_->GetChecked());
+  EXPECT_TRUE(mock_model_->translate_called_);
+  EXPECT_EQ(TranslateBubbleModel::VIEW_STATE_TRANSLATING,
+            bubble_->GetViewState());
+  EXPECT_EQ(bubble_->tabbed_pane_->GetSelectedTabIndex(),
+            static_cast<size_t>(1));
 }
 
 TEST_F(TranslateBubbleViewTest, AlwaysTranslateCheckboxAndCloseButton) {
@@ -327,7 +339,6 @@ TEST_F(TranslateBubbleViewTest, AlwaysTranslateCheckboxAndDoneButton) {
   EXPECT_FALSE(bubble_->advanced_always_translate_checkbox_->GetChecked());
 
   // Click the checkbox. The state is not saved yet.
-  bubble_->advanced_always_translate_checkbox_->SetChecked(true);
   PressButton(TranslateBubbleView::BUTTON_ID_ALWAYS_TRANSLATE);
   EXPECT_FALSE(mock_model_->should_always_translate_);
   EXPECT_EQ(0, mock_model_->set_always_translate_called_count_);
@@ -346,15 +357,12 @@ TEST_F(TranslateBubbleViewTest, SourceDoneButton) {
   // are applied.
   EXPECT_FALSE(mock_model_->translate_called_);
   bubble_->source_language_combobox_->SetSelectedIndex(10);
-  bubble_->HandleComboboxPerformAction(
-      TranslateBubbleView::COMBOBOX_ID_SOURCE_LANGUAGE);
+  bubble_->SourceLanguageChanged();
   bubble_->target_language_combobox_->SetSelectedIndex(20);
-  bubble_->HandleComboboxPerformAction(
-      TranslateBubbleView::COMBOBOX_ID_TARGET_LANGUAGE);
+  bubble_->TargetLanguageChanged();
   PressButton(TranslateBubbleView::BUTTON_ID_DONE);
   EXPECT_TRUE(mock_model_->translate_called_);
-  // Expected value is (set id - 1) because user selected id is actual id + 1
-  EXPECT_EQ(9, mock_model_->original_language_index_);
+  EXPECT_EQ(10, mock_model_->original_language_index_);
   EXPECT_EQ(20, mock_model_->target_language_index_);
 
   EXPECT_EQ(TranslateBubbleModel::VIEW_STATE_AFTER_TRANSLATE,
@@ -369,14 +377,12 @@ TEST_F(TranslateBubbleViewTest, TargetDoneButton) {
   // are applied.
   EXPECT_FALSE(mock_model_->translate_called_);
   bubble_->source_language_combobox_->SetSelectedIndex(10);
-  bubble_->HandleComboboxPerformAction(
-      TranslateBubbleView::COMBOBOX_ID_SOURCE_LANGUAGE);
+  bubble_->SourceLanguageChanged();
   bubble_->target_language_combobox_->SetSelectedIndex(20);
-  bubble_->HandleComboboxPerformAction(
-      TranslateBubbleView::COMBOBOX_ID_TARGET_LANGUAGE);
+  bubble_->TargetLanguageChanged();
   PressButton(TranslateBubbleView::BUTTON_ID_DONE);
   EXPECT_TRUE(mock_model_->translate_called_);
-  EXPECT_EQ(9, mock_model_->original_language_index_);
+  EXPECT_EQ(10, mock_model_->original_language_index_);
   EXPECT_EQ(20, mock_model_->target_language_index_);
 
   EXPECT_EQ(TranslateBubbleModel::VIEW_STATE_AFTER_TRANSLATE,
@@ -418,6 +424,24 @@ TEST_F(TranslateBubbleViewTest, OptionsMenuRespectsBlocklistSite) {
   // Verify that the menu is populated so previous check makes sense.
   EXPECT_GE(bubble_->options_menu_model_->GetIndexOfCommandId(
                 TranslateBubbleView::NEVER_TRANSLATE_LANGUAGE),
+            0);
+}
+
+TEST_F(TranslateBubbleViewTest, MenuOptionsHiddenOnUnknownSource) {
+  // Set source language to "Unknown".
+  mock_model_->UpdateOriginalLanguageIndex(0);
+  CreateAndShowBubble();
+
+  TriggerOptionsMenu();
+  // NEVER_TRANSLATE_LANGUAGE and ALWAYS_TRANSLATE_LANGUAGE shouldn't show when
+  // the source language is "Unknown".
+  EXPECT_EQ(-1, bubble_->options_menu_model_->GetIndexOfCommandId(
+                    TranslateBubbleView::NEVER_TRANSLATE_LANGUAGE));
+  EXPECT_EQ(-1, bubble_->options_menu_model_->GetIndexOfCommandId(
+                    TranslateBubbleView::ALWAYS_TRANSLATE_LANGUAGE));
+  // Verify that the menu is populated so previous checks make sense.
+  EXPECT_GE(bubble_->options_menu_model_->GetIndexOfCommandId(
+                TranslateBubbleView::CHANGE_TARGET_LANGUAGE),
             0);
 }
 

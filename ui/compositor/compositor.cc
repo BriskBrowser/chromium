@@ -11,14 +11,15 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/system/sys_info.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "cc/animation/animation_host.h"
 #include "cc/animation/animation_id_provider.h"
 #include "cc/animation/animation_timeline.h"
@@ -28,6 +29,7 @@
 #include "cc/layers/layer.h"
 #include "cc/metrics/begin_main_frame_metrics.h"
 #include "cc/metrics/frame_sequence_tracker.h"
+#include "cc/metrics/web_vital_metrics.h"
 #include "cc/trees/layer_tree_host.h"
 #include "cc/trees/layer_tree_settings.h"
 #include "components/viz/common/features.h"
@@ -47,7 +49,6 @@
 #include "ui/base/ui_base_switches.h"
 #include "ui/compositor/compositor_observer.h"
 #include "ui/compositor/compositor_switches.h"
-#include "ui/compositor/dip_util.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animator_collection.h"
 #include "ui/compositor/overscroll/scroll_input_handler.h"
@@ -82,7 +83,8 @@ Compositor::Compositor(const viz::FrameSinkId& frame_sink_id,
                        scoped_refptr<base::SingleThreadTaskRunner> task_runner,
                        bool enable_pixel_canvas,
                        bool use_external_begin_frame_control,
-                       bool force_software_compositor)
+                       bool force_software_compositor,
+                       bool enable_compositing_based_throttling)
     : context_factory_(context_factory),
       frame_sink_id_(frame_sink_id),
       task_runner_(task_runner),
@@ -221,6 +223,9 @@ Compositor::Compositor(const viz::FrameSinkId& frame_sink_id,
     settings.percent_based_scrolling = true;
   }
 
+  settings.enable_compositing_based_throttling =
+      enable_compositing_based_throttling;
+
 #if DCHECK_IS_ON()
   if (command_line->HasSwitch(cc::switches::kLogOnUIDoubleBackgroundBlur))
     settings.log_on_ui_double_background_blur = true;
@@ -236,10 +241,12 @@ Compositor::Compositor(const viz::FrameSinkId& frame_sink_id,
   params.mutator_host = animation_host_.get();
   host_ = cc::LayerTreeHost::CreateSingleThreaded(this, std::move(params));
 
+  const base::WeakPtr<cc::CompositorDelegateForInput>& compositor_delegate =
+      host_->GetDelegateForInput();
   if (base::FeatureList::IsEnabled(features::kUiCompositorScrollWithLayers) &&
-      host_->GetInputHandler()) {
-    scroll_input_handler_.reset(
-        new ScrollInputHandler(host_->GetInputHandler()));
+      compositor_delegate) {
+    input_handler_weak_ = cc::InputHandler::Create(*compositor_delegate);
+    scroll_input_handler_.reset(new ScrollInputHandler(input_handler_weak_));
   }
 
   animation_timeline_ =
@@ -407,22 +414,18 @@ void Compositor::ReenableSwap() {
 }
 #endif
 
-void Compositor::SetScaleAndSize(
-    float scale,
-    const gfx::Size& size_in_pixel,
-    const viz::LocalSurfaceIdAllocation& local_surface_id_allocation) {
+void Compositor::SetScaleAndSize(float scale,
+                                 const gfx::Size& size_in_pixel,
+                                 const viz::LocalSurfaceId& local_surface_id) {
   DCHECK_GT(scale, 0);
   bool device_scale_factor_changed = device_scale_factor_ != scale;
   device_scale_factor_ = scale;
 
 #if DCHECK_IS_ON()
-  if (size_ != size_in_pixel && local_surface_id_allocation.IsValid()) {
+  if (size_ != size_in_pixel && local_surface_id.is_valid()) {
     // A new LocalSurfaceId must be set when the compositor size changes.
-    DCHECK_NE(
-        local_surface_id_allocation.local_surface_id(),
-        host_->local_surface_id_allocation_from_parent().local_surface_id());
-    DCHECK_NE(local_surface_id_allocation,
-              host_->local_surface_id_allocation_from_parent());
+    DCHECK_NE(local_surface_id, host_->local_surface_id_from_parent());
+    DCHECK_NE(local_surface_id, host_->local_surface_id_from_parent());
   }
 #endif  // DECHECK_IS_ON()
 
@@ -430,7 +433,7 @@ void Compositor::SetScaleAndSize(
     bool size_changed = size_ != size_in_pixel;
     size_ = size_in_pixel;
     host_->SetViewportRectAndScale(gfx::Rect(size_in_pixel), scale,
-                                   local_surface_id_allocation);
+                                   local_surface_id);
     root_web_layer_->SetBounds(size_in_pixel);
     if (display_private_ && (size_changed || disabled_swap_until_resize_)) {
       display_private_->Resize(size_in_pixel);
@@ -486,17 +489,19 @@ bool Compositor::IsVisible() {
   return host_->IsVisible();
 }
 
+// TODO(bokan): These calls should be delegated through the
+// scroll_input_handler_ so that we don't have to keep a pointer to the
+// cc::InputHandler in this class.
 bool Compositor::ScrollLayerTo(cc::ElementId element_id,
                                const gfx::ScrollOffset& offset) {
-  auto input_handler = host_->GetInputHandler();
-  return input_handler && input_handler->ScrollLayerTo(element_id, offset);
+  return input_handler_weak_ &&
+         input_handler_weak_->ScrollLayerTo(element_id, offset);
 }
 
 bool Compositor::GetScrollOffsetForLayer(cc::ElementId element_id,
                                          gfx::ScrollOffset* offset) const {
-  auto input_handler = host_->GetInputHandler();
-  return input_handler &&
-         input_handler->GetScrollOffsetForLayer(element_id, offset);
+  return input_handler_weak_ &&
+         input_handler_weak_->GetScrollOffsetForLayer(element_id, offset);
 }
 
 void Compositor::SetDisplayVSyncParameters(base::TimeTicks timebase,
@@ -575,13 +580,23 @@ bool Compositor::HasObserver(const CompositorObserver* observer) const {
 }
 
 void Compositor::AddAnimationObserver(CompositorAnimationObserver* observer) {
+  if (animation_observer_list_.empty()) {
+    for (auto& obs : observer_list_)
+      obs.OnFirstAnimationStarted(this);
+  }
   animation_observer_list_.AddObserver(observer);
   host_->SetNeedsAnimate();
 }
 
 void Compositor::RemoveAnimationObserver(
     CompositorAnimationObserver* observer) {
+  if (!animation_observer_list_.HasObserver(observer))
+    return;
   animation_observer_list_.RemoveObserver(observer);
+  if (animation_observer_list_.empty()) {
+    for (auto& obs : observer_list_)
+      obs.OnLastAnimationEnded(this);
+  }
 }
 
 bool Compositor::HasAnimationObserver(
@@ -624,7 +639,7 @@ void Compositor::BeginMainFrame(const viz::BeginFrameArgs& args) {
   DCHECK(!IsLocked());
   for (auto& observer : animation_observer_list_)
     observer.OnAnimationStep(args.frame_time);
-  if (animation_observer_list_.might_have_observers())
+  if (!animation_observer_list_.empty())
     host_->SetNeedsAnimate();
 }
 
@@ -672,10 +687,14 @@ Compositor::GetBeginMainFrameMetrics() {
   return nullptr;
 }
 
+std::unique_ptr<cc::WebVitalMetrics> Compositor::GetWebVitalMetrics() {
+  return nullptr;
+}
+
 void Compositor::NotifyThroughputTrackerResults(
     cc::CustomTrackerResults results) {
   for (auto& pair : results)
-    ReportThroughputForTracker(pair.first, std::move(pair.second));
+    ReportMetricsForTracker(pair.first, std::move(pair.second));
 }
 
 void Compositor::DidReceiveCompositorFrameAck() {
@@ -690,6 +709,8 @@ void Compositor::DidPresentCompositorFrame(
   TRACE_EVENT_MARK_WITH_TIMESTAMP1("cc,benchmark", "FramePresented",
                                    feedback.timestamp, "environment",
                                    "browser");
+  for (auto& observer : observer_list_)
+    observer.OnDidPresentCompositorFrame(frame_token, feedback);
 }
 
 void Compositor::DidSubmitCompositorFrame() {
@@ -731,7 +752,9 @@ void Compositor::CancelThroughtputTracker(TrackerId tracker_id) {
   throughput_tracker_map_.erase(tracker_id);
 }
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 void Compositor::OnCompleteSwapWithNewSize(const gfx::Size& size) {
   for (auto& observer : observer_list_)
     observer.OnCompositingCompleteSwapWithNewSize(this, size);
@@ -758,14 +781,14 @@ void Compositor::RequestPresentationTimeForNextFrame(
   host_->RequestPresentationTimeForNextFrame(std::move(callback));
 }
 
-void Compositor::ReportThroughputForTracker(
+void Compositor::ReportMetricsForTracker(
     int tracker_id,
-    cc::FrameSequenceMetrics::ThroughputData throughput) {
+    const cc::FrameSequenceMetrics::CustomReportData& data) {
   auto it = throughput_tracker_map_.find(tracker_id);
   if (it == throughput_tracker_map_.end())
     return;
 
-  std::move(it->second).Run(std::move(throughput));
+  std::move(it->second).Run(data);
   throughput_tracker_map_.erase(it);
 }
 

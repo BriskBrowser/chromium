@@ -6,6 +6,7 @@
 
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "third_party/blink/public/platform/scheduler/web_agent_group_scheduler.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 
 namespace blink {
@@ -61,8 +62,12 @@ SimpleThreadScheduler::NonWakingTaskRunner() {
   return base::ThreadTaskRunnerHandle::Get();
 }
 
-std::unique_ptr<PageScheduler> SimpleThreadScheduler::CreatePageScheduler(
-    PageScheduler::Delegate* delegate) {
+std::unique_ptr<WebAgentGroupScheduler>
+SimpleThreadScheduler::CreateAgentGroupScheduler() {
+  return nullptr;
+}
+
+WebAgentGroupScheduler* SimpleThreadScheduler::GetCurrentAgentGroupScheduler() {
   return nullptr;
 }
 

@@ -8,7 +8,9 @@
 
 #include "base/bind.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/rand_util.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -55,7 +57,11 @@ void ReportUVPlatformAuthenticatorAvailabilityMainThreadMac() {
   }
   Profile* profile = profile_manager->GetProfileByPath(
       profile_manager->GetLastUsedProfileDir(profile_manager->user_data_dir()));
-  DCHECK(profile);
+  // Some tests have profiles but do not load the last profile before
+  // PostBrowserStart().
+  if (!profile) {
+    return;
+  }
 
   // Return to a low-priority thread for the actual check.
   base::ThreadPool::PostTask(
@@ -72,6 +78,12 @@ void ReportUVPlatformAuthenticatorAvailability() {
   // can be used.
 #if defined(OS_MAC)
   DCHECK(!content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  // IsUVPAA() is prone to crashes/hangs on macOS. Downsample metric collection
+  // to make occurrences less likely while we mitigate/fix the underlying issue.
+  // (See crbug.com/1169928).
+  if (base::RandGenerator(10'000) != 0u) {
+    return;
+  }
   // Getting the profile has to be done on the main thread to avoid race
   // conditions.
   content::GetUIThreadTaskRunner({base::TaskPriority::BEST_EFFORT})
@@ -86,7 +98,7 @@ void ReportUVPlatformAuthenticatorAvailability() {
   ReportAvailability(
       win_webauthn_api &&
       content::IsUVPlatformAuthenticatorAvailable(win_webauthn_api));
-#elif defined(OS_CHROMEOS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH)
   ReportAvailability(content::IsUVPlatformAuthenticatorAvailable());
 #endif
 }

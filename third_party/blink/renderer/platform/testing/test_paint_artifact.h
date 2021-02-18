@@ -45,14 +45,13 @@ class TransformPaintPropertyNodeOrAlias;
 // Usage:
 //   auto artifact = TestPaintArtifact().Chunk(0).Chunk(1).Build();
 //   DoSomethingWithArtifact(artifact);
+//  or
+//   DoSomethingWithArtifact(TestPaintArtifact().Chunk(0).Chunk(1).Build());
 //
 class TestPaintArtifact {
   STACK_ALLOCATED();
 
  public:
-  TestPaintArtifact();
-  ~TestPaintArtifact();
-
   // Add a chunk to the artifact. Each chunk will have a different automatically
   // created client.
   TestPaintArtifact& Chunk() { return Chunk(NewClient()); }
@@ -95,6 +94,7 @@ class TestPaintArtifact {
   // automatically created client.
   TestPaintArtifact& RectDrawing(const IntRect& bounds, Color color);
   TestPaintArtifact& ScrollHitTest(
+      const IntRect&,
       const TransformPaintPropertyNode* scroll_translation);
 
   TestPaintArtifact& ForeignLayer(scoped_refptr<cc::Layer> layer,
@@ -106,6 +106,7 @@ class TestPaintArtifact {
                                  Color color);
   TestPaintArtifact& ScrollHitTest(
       DisplayItemClient&,
+      const IntRect&,
       const TransformPaintPropertyNode* scroll_translation);
 
   // Sets fake bounds for the last paint chunk. Note that the bounds will be
@@ -133,9 +134,8 @@ class TestPaintArtifact {
   void DidAddDisplayItem();
 
   Vector<std::unique_ptr<FakeDisplayItemClient>> clients_;
-
-  DisplayItemList display_item_list_;
-  Vector<PaintChunk> paint_chunks_;
+  scoped_refptr<PaintArtifact> paint_artifact_ =
+      base::MakeRefCounted<PaintArtifact>();
 };
 
 }  // namespace blink

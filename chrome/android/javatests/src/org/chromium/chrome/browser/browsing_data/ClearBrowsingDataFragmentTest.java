@@ -25,10 +25,12 @@ import androidx.fragment.app.Fragment;
 import androidx.preference.CheckBoxPreference;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceScreen;
+import androidx.recyclerview.widget.RecyclerView;
 import androidx.test.filters.LargeTest;
 import androidx.test.filters.MediumTest;
-import androidx.viewpager.widget.PagerAdapter;
-import androidx.viewpager.widget.ViewPager;
+import androidx.viewpager2.widget.ViewPager2;
+
+import com.google.android.material.tabs.TabLayout;
 
 import org.hamcrest.Matchers;
 import org.junit.Assert;
@@ -40,22 +42,22 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.mockito.stubbing.Answer;
 
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.browsing_data.ClearBrowsingDataFragment.DialogOption;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.notifications.channels.SiteChannelsManager;
 import org.chromium.chrome.browser.settings.SettingsActivity;
 import org.chromium.chrome.browser.settings.SettingsActivityTestRule;
-import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
+import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.browser.signin.AccountManagerTestRule;
 import org.chromium.components.browser_ui.settings.SpinnerPreference;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 import java.util.Arrays;
@@ -66,10 +68,10 @@ import java.util.Set;
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
+@Batch(Batch.PER_CLASS)
 public class ClearBrowsingDataFragmentTest {
     @Rule
-    public ChromeActivityTestRule<ChromeActivity> mActivityTestRule =
-            new ChromeActivityTestRule<>(ChromeActivity.class);
+    public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
     @Rule
     public SettingsActivityTestRule<ClearBrowsingDataFragmentAdvanced> mSettingsActivityTestRule =
             new SettingsActivityTestRule<>(ClearBrowsingDataFragmentAdvanced.class);
@@ -167,17 +169,18 @@ public class ClearBrowsingDataFragmentTest {
         verify(mBrowsingDataBridgeMock).getLastClearBrowsingDataTab(any());
 
         TestThreadUtils.runOnUiThreadBlocking(() -> {
-            ViewPager viewPager = (ViewPager) preferences.getView().findViewById(
+            ViewPager2 viewPager = (ViewPager2) preferences.getView().findViewById(
                     R.id.clear_browsing_data_viewpager);
-            PagerAdapter adapter = viewPager.getAdapter();
-            Assert.assertEquals(2, adapter.getCount());
+            RecyclerView.Adapter adapter = viewPager.getAdapter();
+            Assert.assertEquals(2, adapter.getItemCount());
             Assert.assertEquals(1, viewPager.getCurrentItem());
+            TabLayout tabLayout = preferences.getView().findViewById(R.id.clear_browsing_data_tabs);
             Assert.assertEquals(InstrumentationRegistry.getTargetContext().getString(
                                         R.string.clear_browsing_data_basic_tab_title),
-                    adapter.getPageTitle(0));
+                    tabLayout.getTabAt(0).getText());
             Assert.assertEquals(InstrumentationRegistry.getTargetContext().getString(
                                         R.string.prefs_section_advanced),
-                    adapter.getPageTitle(1));
+                    tabLayout.getTabAt(1).getText());
             viewPager.setCurrentItem(0);
         });
         // Verify the tab preference is saved.
@@ -336,7 +339,7 @@ public class ClearBrowsingDataFragmentTest {
     @LargeTest
     public void testDialogAboutOtherFormsOfBrowsingHistory() {
         // Sign in.
-        mAccountManagerTestRule.addAndSignInTestAccount();
+        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync();
         OtherFormsOfHistoryDialogFragment.clearShownPreferenceForTesting();
 
         // History is not selected. We still need to select some other datatype, otherwise the
@@ -472,7 +475,7 @@ public class ClearBrowsingDataFragmentTest {
     @Feature({"SiteEngagement"})
     public void testImportantSitesDialogNoFiltering() throws Exception {
         // Sign in.
-        mAccountManagerTestRule.addAndSignInTestAccount();
+        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync();
 
         final String[] importantOrigins = {"http://www.facebook.com", "https://www.google.com"};
         // First mark our origins as important.
@@ -505,7 +508,7 @@ public class ClearBrowsingDataFragmentTest {
     @Feature({"SiteEngagement"})
     public void testImportantSitesDialogNoopOnCancel() throws Exception {
         // Sign in.
-        mAccountManagerTestRule.addAndSignInTestAccount();
+        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync();
 
         final String[] importantOrigins = {"http://www.facebook.com", "http://www.google.com"};
         // First mark our origins as important.
@@ -537,7 +540,7 @@ public class ClearBrowsingDataFragmentTest {
     @Feature({"SiteEngagement"})
     public void testImportantSitesDialog() throws Exception {
         // Sign in.
-        mAccountManagerTestRule.addAndSignInTestAccount();
+        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync();
 
         final String kKeepDomain = "https://www.chrome.com";
         final String kClearDomain = "https://www.google.com";

@@ -127,8 +127,9 @@ class NET_EXPORT HostCache {
         : Entry(error, std::forward<T>(results), source, base::nullopt) {}
 
     // For errors with no |results|.
-    Entry(int error, Source source, base::TimeDelta ttl);
-    Entry(int error, Source source);
+    Entry(int error,
+          Source source,
+          base::Optional<base::TimeDelta> ttl = base::nullopt);
 
     Entry(const Entry& entry);
     Entry(Entry&& entry);
@@ -160,11 +161,12 @@ class NET_EXPORT HostCache {
     void set_hostnames(base::Optional<std::vector<HostPortPair>> hostnames) {
       hostnames_ = std::move(hostnames);
     }
-    const base::Optional<std::vector<bool>>& integrity_data() const {
-      return integrity_data_;
+    const base::Optional<std::vector<bool>>& experimental_results() const {
+      return experimental_results_;
     }
-    void set_integrity_data(base::Optional<std::vector<bool>> integrity_data) {
-      integrity_data_ = std::move(integrity_data);
+    void set_experimental_results(
+        base::Optional<std::vector<bool>> experimental_results) {
+      experimental_results_ = std::move(experimental_results);
     }
 
     Source source() const { return source_; }
@@ -207,7 +209,7 @@ class NET_EXPORT HostCache {
           const base::Optional<AddressList>& addresses,
           base::Optional<std::vector<std::string>>&& text_results,
           base::Optional<std::vector<HostPortPair>>&& hostnames,
-          base::Optional<std::vector<bool>>&& integrity_data,
+          base::Optional<std::vector<bool>>&& experimental_results,
           Source source,
           base::TimeTicks expires,
           int network_changes);
@@ -221,8 +223,8 @@ class NET_EXPORT HostCache {
     void SetResult(std::vector<HostPortPair> hostnames) {
       hostnames_ = std::move(hostnames);
     }
-    void SetResult(std::vector<bool> integrity_data) {
-      integrity_data_ = std::move(integrity_data);
+    void SetResult(std::vector<bool> experimental_results) {
+      experimental_results_ = std::move(experimental_results);
     }
 
     int total_hits() const { return total_hits_; }
@@ -239,16 +241,26 @@ class NET_EXPORT HostCache {
     // method performs a stable sort to ensure IPv6 addresses precede IPv4
     // addresses. IP versions being equal, addresses from |*this| will precede
     // those from |source|.
+    //
+    // Only non-failure entries (`error_` is OK or ERR_NAME_NOT_RESOLVED) can be
+    // merged. Because an ERR_NAME_NOT_RESOLVED represents success without any
+    // results, merging an OK entry with an ERR_NAME_NOT_RESOLVED entry
+    // represents merging a non-empty entry with an empty entry, resulting in
+    // non-empty and therefore OK.
     void MergeAddressesFrom(const HostCache::Entry& source);
 
-    base::DictionaryValue GetAsValue(bool include_staleness) const;
+    // Merges DNS aliases from |source| into the stored list of DNS aliases and
+    // deduplicates.
+    void MergeDnsAliasesFrom(const HostCache::Entry& source);
+
+    base::Value GetAsValue(bool include_staleness) const;
 
     // The resolve results for this entry.
     int error_ = ERR_FAILED;
     base::Optional<AddressList> addresses_;
     base::Optional<std::vector<std::string>> text_records_;
     base::Optional<std::vector<HostPortPair>> hostnames_;
-    base::Optional<std::vector<bool>> integrity_data_;
+    base::Optional<std::vector<bool>> experimental_results_;
     // Where results were obtained (e.g. DNS lookup, hosts file, etc).
     Source source_ = SOURCE_UNKNOWN;
     // TTL obtained from the nameserver. Negative if unknown.

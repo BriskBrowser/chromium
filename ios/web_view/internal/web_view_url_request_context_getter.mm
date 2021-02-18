@@ -22,7 +22,6 @@
 #include "net/base/network_delegate_impl.h"
 #include "net/cert/cert_verifier.h"
 #include "net/cert/ct_policy_enforcer.h"
-#include "net/cert/multi_log_ct_verifier.h"
 #include "net/dns/host_resolver.h"
 #include "net/http/http_auth_handler_factory.h"
 #include "net/http/http_cache.h"
@@ -39,7 +38,7 @@
 #include "net/url_request/static_http_user_agent_settings.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_storage.h"
-#include "net/url_request/url_request_job_factory_impl.h"
+#include "net/url_request/url_request_job_factory.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -104,8 +103,6 @@ net::URLRequestContext* WebViewURLRequestContextGetter::GetURLRequestContext() {
 
     storage_->set_transport_security_state(
         std::make_unique<net::TransportSecurityState>());
-    storage_->set_cert_transparency_verifier(
-        base::WrapUnique(new net::MultiLogCTVerifier));
     storage_->set_ct_policy_enforcer(
         base::WrapUnique(new net::DefaultCTPolicyEnforcer));
     storage_->set_quic_context(std::make_unique<net::QuicContext>());
@@ -130,8 +127,6 @@ net::URLRequestContext* WebViewURLRequestContextGetter::GetURLRequestContext() {
         url_request_context_->cert_verifier();
     network_session_context.transport_security_state =
         url_request_context_->transport_security_state();
-    network_session_context.cert_transparency_verifier =
-        url_request_context_->cert_transparency_verifier();
     network_session_context.net_log = url_request_context_->net_log();
     network_session_context.proxy_resolution_service =
         url_request_context_->proxy_resolution_service();
@@ -161,8 +156,8 @@ net::URLRequestContext* WebViewURLRequestContextGetter::GetURLRequestContext() {
         storage_->http_network_session(), std::move(main_backend),
         true /* set_up_quic_server_info */));
 
-    std::unique_ptr<net::URLRequestJobFactoryImpl> job_factory(
-        new net::URLRequestJobFactoryImpl());
+    std::unique_ptr<net::URLRequestJobFactory> job_factory =
+        std::make_unique<net::URLRequestJobFactory>();
     job_factory->SetProtocolHandler(kChromeUIScheme,
                                     std::move(protocol_handler_));
 

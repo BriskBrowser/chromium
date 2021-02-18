@@ -6,9 +6,9 @@
 #define CHROME_BROWSER_ACCESSIBILITY_CAPTION_CONTROLLER_H_
 
 #include <memory>
-#include <string>
 #include <unordered_map>
 
+#include "chrome/browser/accessibility/soda_installer.h"
 #include "chrome/browser/ui/browser_list_observer.h"
 #include "chrome/common/caption.mojom.h"
 #include "components/keyed_service/core/keyed_service.h"
@@ -39,22 +39,10 @@ class CaptionBubbleController;
 //  per profile and it lasts for the duration of the session. The caption
 //  controller owns the live caption UI, which are caption bubble controllers.
 //
-class CaptionController : public BrowserListObserver, public KeyedService {
+class CaptionController : public BrowserListObserver,
+                          public KeyedService,
+                          public speech::SodaInstaller::Observer {
  public:
-  // These values are persisted to logs. Entries should not be renumbered and
-  // numeric values should never be reused. These should be the same as
-  // LiveCaptionsSessionEvent in enums.xml.
-  enum class SessionEvent {
-    // We began receiving captions for an audio stream.
-    kStreamStarted = 0,
-    // The audio stream ended, meaning no more captions will be received on that
-    // stream.
-    kStreamEnded = 1,
-    // The close button was clicked, so we stopped listening to an audio stream.
-    kCloseButtonClicked = 2,
-    kMaxValue = kCloseButtonClicked,
-  };
-
   explicit CaptionController(Profile* profile);
   ~CaptionController() override;
   CaptionController(const CaptionController&) = delete;
@@ -86,12 +74,18 @@ class CaptionController : public BrowserListObserver, public KeyedService {
   void OnBrowserAdded(Browser* browser) override;
   void OnBrowserRemoved(Browser* browser) override;
 
+  // SodaInstaller::Observer:
+  void OnSodaInstalled() override;
+  void OnSodaProgress(int progress) override {}
+  void OnSodaError() override {}
+
   void OnLiveCaptionEnabledChanged();
   void OnLiveCaptionLanguageChanged();
   bool IsLiveCaptionEnabled();
-  void UpdateSpeechRecognitionServiceEnabled();
-  void UpdateSpeechRecognitionLanguage();
-  void UpdateUIEnabled();
+  void StartLiveCaption();
+  void StopLiveCaption();
+  void CreateUI();
+  void DestroyUI();
   void UpdateCaptionStyle();
 
   void UpdateAccessibilityCaptionHistograms();
@@ -108,7 +102,13 @@ class CaptionController : public BrowserListObserver, public KeyedService {
 
   base::Optional<ui::CaptionStyle> caption_style_;
 
+  // Whether Live Caption is enabled.
   bool enabled_ = false;
+
+  // Whether the UI has been created. The UI is created asynchronously from the
+  // feature being enabled--we wait for SODA to download first. This flag
+  // ensures that the UI is not constructed or deconstructed twice.
+  bool is_ui_constructed_ = false;
 };
 
 }  // namespace captions

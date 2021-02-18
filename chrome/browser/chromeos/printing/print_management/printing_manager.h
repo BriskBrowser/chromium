@@ -6,9 +6,11 @@
 #define CHROME_BROWSER_CHROMEOS_PRINTING_PRINT_MANAGEMENT_PRINTING_MANAGER_H_
 
 #include "base/memory/weak_ptr.h"
+#include "base/scoped_observation.h"
 #include "chrome/browser/chromeos/printing/cups_print_job_manager.h"
 #include "chrome/browser/chromeos/printing/history/print_job_info.pb.h"
 #include "chromeos/components/print_management/mojom/printing_manager.mojom.h"
+#include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_service_observer.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/prefs/pref_member.h"
@@ -43,6 +45,8 @@ class PrintingManager
 
   // printing_manager::mojom::PrintingMetadataProvider:
   void GetPrintJobs(GetPrintJobsCallback callback) override;
+  void GetPrintJobHistoryExpirationPeriod(
+      GetPrintJobHistoryExpirationPeriodCallback callback) override;
   void DeleteAllPrintJobs(DeleteAllPrintJobsCallback callback) override;
   void ObservePrintJobs(
       mojo::PendingRemote<printing_manager::mojom::PrintJobsObserver> observer,
@@ -125,6 +129,12 @@ class PrintingManager
   // Not owned, this provides the necessary observers to observe when an
   // ongoing print job has been updated.
   CupsPrintJobManager* cups_print_job_manager_;
+
+  IntegerPrefMember print_job_history_expiration_period_;
+
+  base::ScopedObservation<history::HistoryService,
+                          history::HistoryServiceObserver>
+      history_service_observation_{this};
 
   base::WeakPtrFactory<PrintingManager> weak_ptr_factory_{this};
 };

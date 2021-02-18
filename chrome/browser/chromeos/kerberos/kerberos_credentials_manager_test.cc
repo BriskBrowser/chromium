@@ -10,11 +10,11 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/containers/contains.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "chrome/browser/chromeos/authpolicy/kerberos_files_handler.h"
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"

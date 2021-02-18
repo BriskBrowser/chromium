@@ -9,15 +9,16 @@ import org.junit.Assert;
 
 import org.chromium.base.task.PostTask;
 import org.chromium.base.test.util.CallbackHelper;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.test.util.Coordinates;
-import org.chromium.content_public.browser.test.util.Criteria;
-import org.chromium.content_public.browser.test.util.CriteriaHelper;
 import org.chromium.ui.base.PageTransition;
+import org.chromium.url.GURL;
 
 /**
  * Monitors that a Tab starts loading and stops loading a URL.
@@ -44,12 +45,12 @@ public class TabLoadObserver extends EmptyTabObserver {
     }
 
     @Override
-    public void onPageLoadStarted(Tab tab, String url) {
+    public void onPageLoadStarted(Tab tab, GURL url) {
         mTabLoadStartedCallback.notifyCalled();
     }
 
     @Override
-    public void onPageLoadFinished(Tab tab, String url) {
+    public void onPageLoadFinished(Tab tab, GURL url) {
         mTabLoadFinishedCallback.notifyCalled();
     }
 

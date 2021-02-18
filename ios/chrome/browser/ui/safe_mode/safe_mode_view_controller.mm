@@ -7,7 +7,7 @@
 #import <QuartzCore/QuartzCore.h>
 
 #include "base/strings/sys_string_conversions.h"
-#include "ios/chrome/browser/crash_report/breakpad_helper.h"
+#include "ios/chrome/browser/crash_report/crash_helper.h"
 #import "ios/chrome/browser/safe_mode/safe_mode_crashing_modules_config.h"
 #import "ios/chrome/browser/safe_mode/safe_mode_util.h"
 #import "ios/chrome/browser/ui/fancy_ui/primary_action_button.h"
@@ -80,8 +80,8 @@ const NSTimeInterval kUploadTotalTime = 5;
   // If uploading is enabled and more than one report has stacked up, then we
   // assume that the app may be in a state that is preventing crash report
   // uploads before crashing again.
-  return breakpad_helper::UserEnabledUploading() &&
-         breakpad_helper::GetCrashReportCount() > 1;
+  return crash_helper::UserEnabledUploading() &&
+         crash_helper::GetCrashReportCount() > 1;
 }
 
 // Return any jailbroken library that appears in SafeModeCrashingModulesConfig.
@@ -149,7 +149,7 @@ const NSTimeInterval kUploadTotalTime = 5;
   // bounds will still be landscape at this point. Swap the height and width
   // here so that the dimensions will be correct once the app rotates to
   // portrait.
-  if (IsLandscape()) {
+  if (IsLandscape(self.view.window)) {
     mainBounds.size = CGSizeMake(mainBounds.size.height, mainBounds.size.width);
   }
   UIScrollView* scrollView = [[UIScrollView alloc] initWithFrame:mainBounds];
@@ -219,9 +219,9 @@ const NSTimeInterval kUploadTotalTime = 5;
   [self centerView:_startButton afterView:description];
   [_innerView addSubview:_startButton];
 
+  crash_helper::StartUploadingReportsInRecoveryMode();
   UIView* lastView = _startButton;
   if ([SafeModeViewController hasReportToUpload]) {
-    breakpad_helper::StartUploadingReportsInRecoveryMode();
 
     // If there are no jailbreak modifications, then present the "Sending crash
     // report..." UI.
@@ -300,7 +300,7 @@ const NSTimeInterval kUploadTotalTime = 5;
 }
 
 - (void)startBrowserFromSafeMode {
-  breakpad_helper::RestoreDefaultConfiguration();
+  crash_helper::RestoreDefaultConfiguration();
   [_delegate startBrowserFromSafeMode];
 }
 

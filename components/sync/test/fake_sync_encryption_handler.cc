@@ -5,13 +5,13 @@
 #include "components/sync/test/fake_sync_encryption_handler.h"
 
 #include "base/base64.h"
+#include "base/logging.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/protocol/nigori_specifics.pb.h"
 
 namespace syncer {
 
-FakeSyncEncryptionHandler::FakeSyncEncryptionHandler()
-    : encrypt_everything_(false) {}
+FakeSyncEncryptionHandler::FakeSyncEncryptionHandler() = default;
 
 FakeSyncEncryptionHandler::~FakeSyncEncryptionHandler() = default;
 
@@ -61,20 +61,6 @@ void FakeSyncEncryptionHandler::SetDecryptionPassphrase(
 void FakeSyncEncryptionHandler::AddTrustedVaultDecryptionKeys(
     const std::vector<std::vector<uint8_t>>& encryption_keys) {
   // Do nothing.
-}
-
-void FakeSyncEncryptionHandler::EnableEncryptEverything() {
-  if (encrypt_everything_)
-    return;
-  encrypt_everything_ = true;
-  for (auto& observer : observers_) {
-    observer.OnEncryptedTypesChanged(/*encrypted_types=*/ModelTypeSet::All(),
-                                     encrypt_everything_);
-  }
-}
-
-bool FakeSyncEncryptionHandler::IsEncryptEverythingEnabled() const {
-  return encrypt_everything_;
 }
 
 base::Time FakeSyncEncryptionHandler::GetKeystoreMigrationTime() const {

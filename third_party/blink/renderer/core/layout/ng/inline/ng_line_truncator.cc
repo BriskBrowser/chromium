@@ -7,7 +7,6 @@
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_box_state.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_item_result.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_logical_line_item.h"
-#include "third_party/blink/renderer/core/layout/ng/inline/ng_text_fragment_builder.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
 #include "third_party/blink/renderer/platform/fonts/font_baseline.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/harfbuzz_shaper.h"
@@ -63,7 +62,7 @@ LayoutUnit NGLineTruncator::PlaceEllipsisNextTo(
     NGLogicalLineItem* ellipsized_child) {
   // Create the ellipsis, associating it with the ellipsized child.
   DCHECK(ellipsized_child->HasInFlowFragment());
-  LayoutObject* ellipsized_layout_object =
+  const LayoutObject* ellipsized_layout_object =
       ellipsized_child->GetMutableLayoutObject();
   DCHECK(ellipsized_layout_object);
   DCHECK(ellipsized_layout_object->IsInline());
@@ -85,14 +84,12 @@ LayoutUnit NGLineTruncator::PlaceEllipsisNextTo(
 
   DCHECK(ellipsis_text_);
   DCHECK(ellipsis_shape_result_.get());
-  NGTextFragmentBuilder builder(line_style_->GetWritingMode());
-  builder.SetText(ellipsized_layout_object, ellipsis_text_, &EllipsisStyle(),
-                  NGStyleVariant::kEllipsis, std::move(ellipsis_shape_result_),
-                  {ellipsis_width_, ellipsis_metrics.LineHeight()});
   line_box->AddChild(
-      builder.ToTextFragment(),
-      LogicalOffset{ellipsis_inline_offset, -ellipsis_metrics.ascent},
-      ellipsis_width_, 0);
+      *ellipsized_layout_object, NGStyleVariant::kEllipsis,
+      std::move(ellipsis_shape_result_), ellipsis_text_,
+      LogicalRect(ellipsis_inline_offset, -ellipsis_metrics.ascent,
+                  ellipsis_width_, ellipsis_metrics.LineHeight()),
+      /* bidi_level */ 0);
   return ellipsis_inline_offset;
 }
 
@@ -130,9 +127,6 @@ wtf_size_t NGLineTruncator::AddTruncatedChild(
 LayoutUnit NGLineTruncator::TruncateLine(LayoutUnit line_width,
                                          NGLogicalLineItems* line_box,
                                          NGInlineLayoutStateStack* box_states) {
-  DCHECK(std::all_of(line_box->begin(), line_box->end(),
-                     [](const auto& item) { return !item.fragment; }));
-
   // Shape the ellipsis and compute its inline size.
   SetupEllipsis();
 
@@ -245,8 +239,18 @@ LayoutUnit NGLineTruncator::TruncateLineInTheMiddle(
 
   const LayoutUnit static_width_left = line[initial_index_left].InlineOffset();
   LayoutUnit static_width_right = LayoutUnit(0);
-  for (wtf_size_t i = initial_index_right + 1; i < line.size(); ++i)
-    static_width_right += line[i].inline_size;
+  if (initial_index_right + 1 < line.size()) {
+    const NGLogicalLineItem& item = line[initial_index_right + 1];
+    // |line_width| and/or InlineOffset() might be saturated.
+    if (line_width <= item.InlineOffset())
+      return line_width;
+    // We can do nothing if the right-side static item sticks out to the both
+    // sides.
+    if (item.InlineOffset() < 0)
+      return line_width;
+    static_width_right =
+        line_width - item.InlineOffset() + item.margin_line_left;
+  }
   const LayoutUnit available_width =
       available_width_ - static_width_left - static_width_right;
   if (available_width <= ellipsis_width_)
@@ -263,8 +267,13 @@ LayoutUnit NGLineTruncator::TruncateLineInTheMiddle(
 
   if (IsLtr(line_direction_)) {
     // Find truncation point at the left, truncate, and add an ellipsis.
-    while (available_width_left >= line[index_left].inline_size)
+    while (available_width_left >= line[index_left].inline_size) {
       available_width_left -= line[index_left++].inline_size;
+      if (index_left >= line.size()) {
+        // We have a logic bug. Do nothing.
+        return line_width;
+      }
+    }
     DCHECK_LE(index_left, index_right);
     DCHECK(!line[index_left].IsPlaceholder());
     wtf_size_t new_index = AddTruncatedChild(
@@ -285,8 +294,15 @@ LayoutUnit NGLineTruncator::TruncateLineInTheMiddle(
     }
 
     // Find truncation point at the right.
-    while (available_width_right >= line[index_right].inline_size)
-      available_width_right -= line[index_right--].inline_size;
+    while (available_width_right >= line[index_right].inline_size) {
+      available_width_right -= line[index_right].inline_size;
+      if (index_right == 0) {
+        // We have a logic bug. We proceed anyway because |line| was already
+        // modified.
+        break;
+      }
+      --index_right;
+    }
     LayoutUnit new_modified_right_offset =
         line[line.size() - 1].InlineOffset() + ellipsis_width_;
     DCHECK_LE(index_left, index_right);
@@ -313,8 +329,14 @@ LayoutUnit NGLineTruncator::TruncateLineInTheMiddle(
 
   } else {
     // Find truncation point at the right, truncate, and add an ellipsis.
-    while (available_width_right >= line[index_right].inline_size)
-      available_width_right -= line[index_right--].inline_size;
+    while (available_width_right >= line[index_right].inline_size) {
+      available_width_right -= line[index_right].inline_size;
+      if (index_right == 0) {
+        // We have a logic bug. Do nothing.
+        return line_width;
+      }
+      --index_right;
+    }
     DCHECK_LE(index_left, index_right);
     DCHECK(!line[index_right].IsPlaceholder());
     wtf_size_t new_index =
@@ -338,8 +360,14 @@ LayoutUnit NGLineTruncator::TruncateLineInTheMiddle(
     LayoutUnit ellipsis_offset = line[line.size() - 1].InlineOffset();
 
     // Find truncation point at the left.
-    while (available_width_left >= line[index_left].inline_size)
+    while (available_width_left >= line[index_left].inline_size) {
       available_width_left -= line[index_left++].inline_size;
+      if (index_left >= line.size()) {
+        // We have a logic bug. We proceed anyway because |line| was already
+        // modified.
+        break;
+      }
+    }
     DCHECK_LE(index_left, index_right);
     DCHECK(!line[index_left].IsPlaceholder());
     if (available_width_left > 0) {
@@ -374,12 +402,7 @@ LayoutUnit NGLineTruncator::TruncateLineInTheMiddle(
 void NGLineTruncator::HideChild(NGLogicalLineItem* child) {
   DCHECK(child->HasInFlowFragment());
 
-  if (const NGPhysicalTextFragment* text = child->fragment.get()) {
-    child->fragment = text->CloneAsHiddenForPaint();
-    return;
-  }
-
-  if (const NGLayoutResult* layout_result = child->layout_result.get()) {
+  if (const NGLayoutResult* layout_result = child->layout_result) {
     // Need to propagate OOF descendants in this inline-block child.
     const auto& fragment =
         To<NGPhysicalBoxFragment>(layout_result->PhysicalFragment());
@@ -463,7 +486,6 @@ bool NGLineTruncator::TruncateChild(
     const NGLogicalLineItem& child,
     base::Optional<NGLogicalLineItem>* truncated_child) {
   DCHECK(truncated_child && !*truncated_child);
-  DCHECK(!child.fragment);
 
   // If the space is not enough, try the next child.
   if (space_for_child <= 0 && !is_first_child)

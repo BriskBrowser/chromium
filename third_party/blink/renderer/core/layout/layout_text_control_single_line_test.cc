@@ -23,8 +23,7 @@ TEST_F(LayoutTextControlSingleLineTest, VisualOverflowCleared) {
     </style>
     <input id=input type="text"></input.
   )HTML");
-  auto* input =
-      To<LayoutTextControlSingleLine>(GetLayoutObjectByElementId("input"));
+  auto* input = To<LayoutBox>(GetLayoutObjectByElementId("input"));
   if (::features::IsFormControlsRefreshEnabled()) {
     EXPECT_EQ(LayoutRect(-3, -3, 74, 72), input->SelfVisualOverflowRect());
   } else {
@@ -36,7 +35,7 @@ TEST_F(LayoutTextControlSingleLineTest, VisualOverflowCleared) {
   }
   To<Element>(input->GetNode())
       ->setAttribute(html_names::kStyleAttr, "box-shadow: initial");
-  GetDocument().View()->UpdateAllLifecyclePhases(DocumentUpdateReason::kTest);
+  UpdateAllLifecyclePhasesForTest();
   if (::features::IsFormControlsRefreshEnabled()) {
     EXPECT_EQ(LayoutRect(0, 0, 58, 56), input->SelfVisualOverflowRect());
   } else {

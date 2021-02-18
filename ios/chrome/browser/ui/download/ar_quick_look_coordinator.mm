@@ -4,6 +4,7 @@
 
 #import "ios/chrome/browser/ui/download/ar_quick_look_coordinator.h"
 
+#import <ARKit/ARKit.h>
 #import <QuickLook/QuickLook.h>
 
 #include <memory>
@@ -15,6 +16,7 @@
 #import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_state_list_observer_bridge.h"
+#import "ios/web/public/web_state_observer_bridge.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -49,12 +51,15 @@ PresentQLPreviewController GetHistogramEnum(
 
 @interface ARQuickLookCoordinator () <WebStateListObserving,
                                       ARQuickLookTabHelperDelegate,
+                                      CRWWebStateObserver,
                                       QLPreviewControllerDataSource,
                                       QLPreviewControllerDelegate> {
   // WebStateList observers.
   std::unique_ptr<WebStateListObserverBridge> _webStateListObserverBridge;
   std::unique_ptr<ScopedObserver<WebStateList, WebStateListObserver>>
       _scopedWebStateListObserver;
+  // Bridge to observe WebState from Objective-C.
+  std::unique_ptr<web::WebStateObserverBridge> _webStateObserverBridge;
 }
 
 // The WebStateList being observed.
@@ -70,6 +75,10 @@ PresentQLPreviewController GetHistogramEnum(
 // its being presented by baseViewController.
 @property(nonatomic, weak) QLPreviewController* viewController;
 
+@property(nonatomic, assign) web::WebState* webState;
+
+@property(nonatomic, assign) BOOL allowsContentScaling;
+
 @end
 
 @implementation ARQuickLookCoordinator
@@ -81,6 +90,8 @@ PresentQLPreviewController GetHistogramEnum(
 - (void)start {
   if (self.started)
     return;
+
+  _webStateObserverBridge = std::make_unique<web::WebStateObserverBridge>(self);
 
   // Install delegates for each WebState in WebStateList.
   for (int i = 0; i < self.webStateList->count(); i++) {
@@ -97,6 +108,7 @@ PresentQLPreviewController GetHistogramEnum(
     return;
 
   [self removeWebStateListObserver];
+  self.webState = nullptr;
 
   // Uninstall delegates for each WebState in WebStateList.
   for (int i = 0; i < self.webStateList->count(); i++) {
@@ -108,6 +120,12 @@ PresentQLPreviewController GetHistogramEnum(
   self.viewController = nil;
   self.fileURL = nil;
   self.started = NO;
+}
+
+- (void)dealloc {
+  if (_webState) {
+    _webState->RemoveObserver(_webStateObserverBridge.get());
+  }
 }
 
 #pragma mark - Private
@@ -142,6 +160,17 @@ PresentQLPreviewController GetHistogramEnum(
   }
 }
 
+#pragma mark - Properties
+
+- (void)setWebState:(web::WebState*)webState {
+  if (_webState)
+    _webState->RemoveObserver(_webStateObserverBridge.get());
+  _webState = webState;
+  if (_webState) {
+    _webState->AddObserver(_webStateObserverBridge.get());
+  }
+}
+
 #pragma mark - WebStateListObserving
 
 - (void)webStateList:(WebStateList*)webStateList
@@ -168,8 +197,10 @@ PresentQLPreviewController GetHistogramEnum(
 #pragma mark - ARQuickLookTabHelperDelegate
 
 - (void)ARQuickLookTabHelper:(ARQuickLookTabHelper*)tabHelper
-    didFinishDowloadingFileWithURL:(NSURL*)fileURL {
+    didFinishDowloadingFileWithURL:(NSURL*)fileURL
+              allowsContentScaling:(BOOL)allowsScaling {
   self.fileURL = fileURL;
+  self.allowsContentScaling = allowsScaling;
 
   base::UmaHistogramEnumeration(
       kIOSPresentQLPreviewControllerHistogram,
@@ -183,9 +214,15 @@ PresentQLPreviewController GetHistogramEnum(
   QLPreviewController* viewController = [[QLPreviewController alloc] init];
   viewController.dataSource = self;
   viewController.delegate = self;
-  [self.baseViewController presentViewController:viewController
-                                        animated:YES
-                                      completion:nil];
+  self.webState = tabHelper->web_state();
+  __weak __typeof(self) weakSelf = self;
+  [self.baseViewController
+      presentViewController:viewController
+                   animated:YES
+                 completion:^{
+                   if (weakSelf.webState)
+                     weakSelf.webState->DidCoverWebContent();
+                 }];
   self.viewController = viewController;
 }
 
@@ -198,14 +235,29 @@ PresentQLPreviewController GetHistogramEnum(
 
 - (id<QLPreviewItem>)previewController:(QLPreviewController*)controller
                     previewItemAtIndex:(NSInteger)index {
+  if (@available(iOS 13, *)) {
+    ARQuickLookPreviewItem* item =
+        [[ARQuickLookPreviewItem alloc] initWithFileAtURL:self.fileURL];
+    item.allowsContentScaling = self.allowsContentScaling;
+    return item;
+  }
   return self.fileURL;
 }
 
 #pragma mark - QLPreviewControllerDelegate
 
 - (void)previewControllerDidDismiss:(QLPreviewController*)controller {
+  if (self.webState)
+    self.webState->DidRevealWebContent();
+  self.webState = nullptr;
   self.viewController = nil;
   self.fileURL = nil;
+}
+
+#pragma mark - CRWWebStateObserver
+
+- (void)webStateDestroyed:(web::WebState*)webState {
+  self.webState = nullptr;
 }
 
 @end

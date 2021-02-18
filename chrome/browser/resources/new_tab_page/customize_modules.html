@@ -1,0 +1,51 @@
+<style>
+  :host {
+    line-height: 20px;
+  }
+
+  #show {
+    align-items: center;
+    border: 1px solid var(--ntp-border-color);
+    border-radius: 4px;
+    box-sizing: border-box;
+    display: flex;
+    height: 64px;
+    max-width: 544px;
+    width: 100%;
+  }
+
+  :host([selected_]) #show {
+    background-color: var(--ntp-selected-background-color);
+    border-color: var(--ntp-selected-border-color);
+    color: var(--ntp-selected-border-color);
+  }
+
+  #showTitleContainer {
+    flex-grow: 1;
+    margin-inline-start: 24px;
+  }
+
+  #showTitle {
+    font-weight: bold;
+  }
+
+  cr-policy-indicator {
+    margin-inline-end: 24px;
+  }
+
+  cr-toggle {
+    margin-inline-end: 20px;
+  }
+</style>
+
+<div id="show">
+  <div id="showTitleContainer">
+    <div id="showTitle">$i18n{showModules}</div>
+  </div>
+  <cr-policy-indicator indicator-type="devicePolicy"
+      hidden="[[!showManagedByPolicy_]]">
+  </cr-policy-indicator>
+  <cr-toggle id="showToggle" title="$i18n{showModules}" checked="{{show_}}"
+      disabled="[[showManagedByPolicy_]]">
+  </cr-toggle>
+</div>

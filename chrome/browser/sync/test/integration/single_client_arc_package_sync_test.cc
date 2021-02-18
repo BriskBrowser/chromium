@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "ash/constants/ash_features.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/test/integration/os_sync_test.h"
 #include "chrome/browser/sync/test/integration/profile_sync_service_harness.h"
@@ -9,7 +10,6 @@
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "chrome/browser/sync/test/integration/updated_progress_marker_checker.h"
 #include "chrome/browser/ui/app_list/arc/arc_package_syncable_service.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/driver/sync_service.h"
 #include "components/sync/test/fake_server/fake_server.h"
@@ -27,11 +27,12 @@ bool AllProfilesHaveSameArcPackageDetails() {
 class SingleClientArcPackageSyncTest : public SyncTest {
  public:
   SingleClientArcPackageSyncTest() : SyncTest(SINGLE_CLIENT) {}
+  ~SingleClientArcPackageSyncTest() override = default;
 
-  ~SingleClientArcPackageSyncTest() override {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SingleClientArcPackageSyncTest);
+  bool UseVerifier() override {
+    // TODO(crbug.com/1137774): rewrite tests to not use verifier.
+    return true;
+  }
 };
 
 IN_PROC_BROWSER_TEST_F(SingleClientArcPackageSyncTest, ArcPackageEmpty) {

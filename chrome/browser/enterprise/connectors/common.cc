@@ -15,10 +15,22 @@ AnalysisSettings& AnalysisSettings::operator=(AnalysisSettings&&) = default;
 AnalysisSettings::~AnalysisSettings() = default;
 
 ReportingSettings::ReportingSettings() = default;
-ReportingSettings::ReportingSettings(GURL url) : reporting_url(url) {}
+ReportingSettings::ReportingSettings(GURL url,
+                                     const std::string& dm_token,
+                                     bool per_profile)
+    : reporting_url(url), dm_token(dm_token), per_profile(per_profile) {}
 ReportingSettings::ReportingSettings(ReportingSettings&&) = default;
 ReportingSettings& ReportingSettings::operator=(ReportingSettings&&) = default;
 ReportingSettings::~ReportingSettings() = default;
+
+FileSystemSettings::FileSystemSettings() = default;
+FileSystemSettings::FileSystemSettings(const FileSystemSettings&) = default;
+FileSystemSettings::FileSystemSettings(FileSystemSettings&&) = default;
+FileSystemSettings& FileSystemSettings::operator=(const FileSystemSettings&) =
+    default;
+FileSystemSettings& FileSystemSettings::operator=(FileSystemSettings&&) =
+    default;
+FileSystemSettings::~FileSystemSettings() = default;
 
 const char* ConnectorPref(AnalysisConnector connector) {
   switch (connector) {
@@ -38,6 +50,34 @@ const char* ConnectorPref(ReportingConnector connector) {
   switch (connector) {
     case ReportingConnector::SECURITY_EVENT:
       return kOnSecurityEventPref;
+  }
+}
+
+const char* ConnectorPref(FileSystemConnector connector) {
+  switch (connector) {
+    case FileSystemConnector::SEND_DOWNLOAD_TO_CLOUD:
+      return kSendDownloadToCloudPref;
+  }
+}
+
+const char* ConnectorScopePref(AnalysisConnector connector) {
+  switch (connector) {
+    case AnalysisConnector::BULK_DATA_ENTRY:
+      return kOnBulkDataEntryScopePref;
+    case AnalysisConnector::FILE_DOWNLOADED:
+      return kOnFileDownloadedScopePref;
+    case AnalysisConnector::FILE_ATTACHED:
+      return kOnFileAttachedScopePref;
+    case AnalysisConnector::ANALYSIS_CONNECTOR_UNSPECIFIED:
+      NOTREACHED() << "Using unspecified analysis connector";
+      return "";
+  }
+}
+
+const char* ConnectorScopePref(ReportingConnector connector) {
+  switch (connector) {
+    case ReportingConnector::SECURITY_EVENT:
+      return kOnSecurityEventScopePref;
   }
 }
 
@@ -80,6 +120,18 @@ TriggeredRule::Action GetHighestPrecedenceAction(
   }
   NOTREACHED();
   return TriggeredRule::ACTION_UNSPECIFIED;
+}
+
+const char ScanResult::kKey[] = "enterprise_connectors.scan_result_key";
+ScanResult::ScanResult(const ContentAnalysisResponse& response)
+    : response(response) {}
+ScanResult::~ScanResult() = default;
+
+bool ContainsMalwareVerdict(const ContentAnalysisResponse& response) {
+  const auto& results = response.results();
+  return std::any_of(results.begin(), results.end(), [](const auto& result) {
+    return result.tag() == "malware" && !result.triggered_rules().empty();
+  });
 }
 
 }  // namespace enterprise_connectors

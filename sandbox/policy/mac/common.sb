@@ -30,9 +30,6 @@
 (define filter-syscalls "FILTER_SYSCALLS")
 (define filter-syscalls-debug "FILTER_SYSCALLS_DEBUG")
 
-; Backwards compatibility for 10.10.
-(if (not (defined? 'path))
-  (define path literal))
 ; Backwards compatibility for 10.11.
 (if (not (defined? 'iokit-registry-entry-class))
   (define iokit-registry-entry-class iokit-user-client-class))
@@ -152,7 +149,12 @@
 
 ; Reads from /Library.
 (allow file-read-data
+  (path "/Library/Managed Preferences/.GlobalPreferences.plist")
   (path "/Library/Preferences/.GlobalPreferences.plist")
+  (path (string-append "/Library/Managed Preferences/" (param bundle-id) ".plist"))
+  (path (string-append "/Library/Preferences/" (param bundle-id) ".plist"))
+  (regex #"/Library/Managed Preferences/.*/\.GlobalPreferences\.plist")
+  (regex (string-append #"/Library/Managed Preferences/.*/" (regex-quote (param bundle-id)) #"\.plist"))
 )
 
 ; Reads from /System.
@@ -199,10 +201,12 @@
   (sysctl-name "hw.vectorunit")
   (sysctl-name "kern.hostname")
   (sysctl-name "kern.maxfilesperproc")
+  (sysctl-name "kern.osproductversion")
   (sysctl-name "kern.osrelease")
   (sysctl-name "kern.ostype")
   (sysctl-name "kern.osvariant_status")
   (sysctl-name "kern.osversion")
+  (sysctl-name "kern.secure_kernel")
   (sysctl-name "kern.usrstack64")
   (sysctl-name "kern.version")
   (sysctl-name "sysctl.proc_cputype")

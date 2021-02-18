@@ -7,23 +7,11 @@
 // Polymer BrowserTest fixture.
 GEN_INCLUDE(['//chrome/test/data/webui/polymer_browser_test_base.js']);
 
-GEN('#include "chrome/browser/browser_features.h"');
+GEN('#include "chrome/browser/nearby_sharing/common/nearby_share_features.h"');
 GEN('#include "content/public/test/browser_test.h"');
 
 /** Test fixture for Polymer Nearby Share Shared elements. */
 const NearbySharedV3Test = class extends PolymerTest {
-  /**
-   * Override default |extraLibraries| since PolymerTest includes more than are
-   * needed in JS Module based tests.
-   * @override
-   */
-  get extraLibraries() {
-    return [
-      '//third_party/mocha/mocha.js',
-      '//chrome/test/data/webui/mocha_adapter.js',
-    ];
-  }
-
   /** @override */
   get webuiHost() {
     return 'nearby';
@@ -39,7 +27,12 @@ const NearbySharedV3Test = class extends PolymerTest {
   }
 };
 
-[['OnboardingPage', 'nearby_onboarding_page_test.m.js'],
+[['DeviceIcon', 'nearby_device_icon_test.m.js'],
+ ['Device', 'nearby_device_test.m.js'],
+ ['OnboardingPage', 'nearby_onboarding_page_test.m.js'],
+ ['PageTemplate', 'nearby_page_template_test.m.js'],
+ ['Preview', 'nearby_preview_test.m.js'],
+ ['Progress', 'nearby_progress_test.m.js'],
  ['VisibilityPage', 'nearby_visibility_page_test.m.js'],
  ['ContactVisibility', 'nearby_contact_visibility_test.m.js'],
 ].forEach(test => registerTest(...test));

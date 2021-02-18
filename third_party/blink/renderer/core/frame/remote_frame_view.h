@@ -7,7 +7,7 @@
 
 #include "cc/paint/paint_canvas.h"
 #include "third_party/blink/public/mojom/frame/lifecycle.mojom-blink-forward.h"
-#include "third_party/blink/public/platform/viewport_intersection_state.h"
+#include "third_party/blink/public/mojom/frame/viewport_intersection_state.mojom-blink.h"
 #include "third_party/blink/renderer/core/dom/document_lifecycle.h"
 #include "third_party/blink/renderer/core/frame/frame_view.h"
 #include "third_party/blink/renderer/core/layout/intrinsic_sizing_info.h"
@@ -73,6 +73,9 @@ class RemoteFrameView final : public GarbageCollected<RemoteFrameView>,
   void UpdateCompositingRect();
   IntRect GetCompositingRect() const { return compositing_rect_; }
 
+  void UpdateCompositingScaleFactor();
+  float GetCompositingScaleFactor() const { return compositing_scale_factor_; }
+
   uint32_t Print(const IntRect&, cc::PaintCanvas*) const;
   uint32_t CapturePaintPreview(const IntRect&, cc::PaintCanvas*) const;
 
@@ -81,8 +84,8 @@ class RemoteFrameView final : public GarbageCollected<RemoteFrameView>,
  protected:
   bool NeedsViewportOffset() const override { return true; }
   // This is used to service IntersectionObservers in an OOPIF child document.
-  void SetViewportIntersection(
-      const ViewportIntersectionState& intersection_state) override;
+  void SetViewportIntersection(const mojom::blink::ViewportIntersectionState&
+                                   intersection_state) override;
   void ParentVisibleChanged() override;
 
  private:
@@ -97,8 +100,9 @@ class RemoteFrameView final : public GarbageCollected<RemoteFrameView>,
   // and LocalFrameView. Please see the LocalFrameView::frame_ comment for
   // details.
   Member<RemoteFrame> remote_frame_;
-  ViewportIntersectionState last_intersection_state_;
+  mojom::blink::ViewportIntersectionState last_intersection_state_;
   IntRect compositing_rect_;
+  float compositing_scale_factor_ = 1.0f;
 
   IntrinsicSizingInfo intrinsic_sizing_info_;
   bool has_intrinsic_sizing_info_ = false;

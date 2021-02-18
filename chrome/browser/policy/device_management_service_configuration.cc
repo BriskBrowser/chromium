@@ -10,31 +10,36 @@
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/version_info/version_info.h"
+#include "content/public/browser/browser_context.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chromeos/system/statistics_provider.h"
 #endif
 
 #if defined(OS_WIN) || defined(OS_MAC) || \
     ((defined(OS_LINUX) || defined(OS_CHROMEOS)) && !defined(OS_ANDROID))
 #include "chrome/browser/enterprise/connectors/common.h"
-#include "chrome/browser/enterprise/connectors/connectors_manager.h"
+#include "chrome/browser/enterprise/connectors/connectors_service.h"
 #endif
 
 namespace policy {
 
 DeviceManagementServiceConfiguration::DeviceManagementServiceConfiguration(
-    const std::string& server_url,
-    const std::string& reporting_server_url)
-    : server_url_(server_url), reporting_server_url_(reporting_server_url) {}
+    const std::string& dm_server_url,
+    const std::string& realtime_reporting_server_url,
+    const std::string& encrypted_reporting_server_url)
+    : dm_server_url_(dm_server_url),
+      realtime_reporting_server_url_(realtime_reporting_server_url),
+      encrypted_reporting_server_url_(encrypted_reporting_server_url) {}
 
 DeviceManagementServiceConfiguration::~DeviceManagementServiceConfiguration() {
 }
 
 std::string DeviceManagementServiceConfiguration::GetDMServerUrl() {
-  return server_url_;
+  return dm_server_url_;
 }
 
 std::string DeviceManagementServiceConfiguration::GetAgentParameter() {
@@ -48,7 +53,7 @@ std::string DeviceManagementServiceConfiguration::GetPlatformParameter() {
   std::string os_name = base::SysInfo::OperatingSystemName();
   std::string os_hardware = base::SysInfo::OperatingSystemArchitecture();
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   chromeos::system::StatisticsProvider* provider =
       chromeos::system::StatisticsProvider::GetInstance();
 
@@ -62,7 +67,7 @@ std::string DeviceManagementServiceConfiguration::GetPlatformParameter() {
 #endif
 
   std::string os_version("-");
-#if defined(OS_WIN) || defined(OS_MAC) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || defined(OS_MAC) || BUILDFLAG(IS_CHROMEOS_ASH)
   int32_t os_major_version = 0;
   int32_t os_minor_version = 0;
   int32_t os_bugfix_version = 0;
@@ -79,18 +84,29 @@ std::string DeviceManagementServiceConfiguration::GetPlatformParameter() {
       "%s|%s|%s", os_name.c_str(), os_hardware.c_str(), os_version.c_str());
 }
 
-std::string DeviceManagementServiceConfiguration::GetReportingServerUrl() {
-  return reporting_server_url_;
+std::string
+DeviceManagementServiceConfiguration::GetRealtimeReportingServerUrl() {
+  return realtime_reporting_server_url_;
 }
 
 std::string
-DeviceManagementServiceConfiguration::GetReportingConnectorServerUrl() {
+DeviceManagementServiceConfiguration::GetEncryptedReportingServerUrl() {
+  return encrypted_reporting_server_url_;
+}
+
+std::string
+DeviceManagementServiceConfiguration::GetReportingConnectorServerUrl(
+    content::BrowserContext* context) {
 #if defined(OS_WIN) || defined(OS_MAC) || \
     ((defined(OS_LINUX) || defined(OS_CHROMEOS)) && !defined(OS_ANDROID))
-  auto settings =
-      enterprise_connectors::ConnectorsManager::GetInstance()
-          ->GetReportingSettings(
-              enterprise_connectors::ReportingConnector::SECURITY_EVENT);
+  auto* service =
+      enterprise_connectors::ConnectorsServiceFactory::GetForBrowserContext(
+          context);
+  if (!service)
+    return std::string();
+
+  auto settings = service->GetReportingSettings(
+      enterprise_connectors::ReportingConnector::SECURITY_EVENT);
   return settings ? settings->reporting_url.spec() : std::string();
 #else
   return std::string();

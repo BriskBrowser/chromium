@@ -13,6 +13,7 @@
 #include "base/system/sys_info.h"
 #include "base/threading/thread.h"
 #include "chromeos/dbus/anomaly_detector_client.h"
+#include "chromeos/dbus/arc/arc_data_snapshotd_client.h"
 #include "chromeos/dbus/arc/arc_keymaster_client.h"
 #include "chromeos/dbus/arc/arc_midis_client.h"
 #include "chromeos/dbus/arc/arc_obb_mounter_client.h"
@@ -29,7 +30,7 @@
 #include "chromeos/dbus/gnubby_client.h"
 #include "chromeos/dbus/image_burner_client.h"
 #include "chromeos/dbus/image_loader_client.h"
-#include "chromeos/dbus/lorgnette_manager_client.h"
+#include "chromeos/dbus/lorgnette_manager/lorgnette_manager_client.h"
 #include "chromeos/dbus/runtime_probe_client.h"
 #include "chromeos/dbus/seneschal_client.h"
 #include "chromeos/dbus/shill/modem_messaging_client.h"
@@ -116,6 +117,11 @@ AnomalyDetectorClient* DBusThreadManager::GetAnomalyDetectorClient() {
 
 ArcAppfuseProviderClient* DBusThreadManager::GetArcAppfuseProviderClient() {
   return clients_browser_ ? clients_browser_->arc_appfuse_provider_client_.get()
+                          : nullptr;
+}
+
+ArcDataSnapshotdClient* DBusThreadManager::GetArcDataSnapshotdClient() {
+  return clients_browser_ ? clients_browser_->arc_data_snapshotd_client_.get()
                           : nullptr;
 }
 

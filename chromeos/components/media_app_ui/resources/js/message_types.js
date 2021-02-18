@@ -67,7 +67,7 @@ let FileContext;
  * Message sent by the privileged context to the unprivileged context indicating
  * the files available to open.
  * @typedef {{
- *    writableFileIndex: number,
+ *    currentFileIndex: number,
  *    files: !Array<!FileContext>
  * }}
  */
@@ -140,7 +140,7 @@ let RequestSaveFileMessage;
  * Response message sent by the privileged context with a unique identifier for
  * the new writable file created on disk by the corresponding request save
  * file message.
- * @typedef {{token: number}}
+ * @typedef {{pickedFileContext: !FileContext}}
  */
 let RequestSaveFileResponse;
 

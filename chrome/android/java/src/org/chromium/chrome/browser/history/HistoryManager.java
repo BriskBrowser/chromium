@@ -16,6 +16,7 @@ import android.view.MenuItem;
 import android.view.ViewGroup;
 import android.widget.TextView;
 
+import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import androidx.appcompat.widget.Toolbar.OnMenuItemClickListener;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -26,10 +27,10 @@ import org.chromium.base.ContextUtils;
 import org.chromium.base.IntentUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
+import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.IntentHandler;
-import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.browsing_data.ClearBrowsingDataTabsFragment;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
@@ -38,23 +39,24 @@ import org.chromium.chrome.browser.preferences.PrefChangeRegistrar;
 import org.chromium.chrome.browser.preferences.PrefChangeRegistrar.PrefObserver;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.chrome.browser.settings.SettingsLauncher;
 import org.chromium.chrome.browser.settings.SettingsLauncherImpl;
-import org.chromium.chrome.browser.signin.IdentityServicesProvider;
-import org.chromium.chrome.browser.signin.SigninManager.SignInStateObserver;
+import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
+import org.chromium.chrome.browser.signin.services.SigninManager.SignInStateObserver;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabLaunchType;
 import org.chromium.chrome.browser.tabmodel.TabCreator;
-import org.chromium.chrome.browser.ui.favicon.LargeIconBridge;
+import org.chromium.chrome.browser.tabmodel.TabCreatorManager;
 import org.chromium.chrome.browser.ui.messages.snackbar.Snackbar;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager.SnackbarController;
 import org.chromium.chrome.browser.util.ChromeAccessibilityUtil;
-import org.chromium.chrome.browser.vr.VrModeProviderImpl;
+import org.chromium.components.browser_ui.settings.SettingsLauncher;
 import org.chromium.components.browser_ui.util.ConversionUtils;
 import org.chromium.components.browser_ui.widget.selectable_list.SelectableListLayout;
 import org.chromium.components.browser_ui.widget.selectable_list.SelectableListToolbar.SearchDelegate;
 import org.chromium.components.browser_ui.widget.selectable_list.SelectionDelegate;
 import org.chromium.components.browser_ui.widget.selectable_list.SelectionDelegate.SelectionObserver;
+import org.chromium.components.favicon.LargeIconBridge;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.ui.base.Clipboard;
 import org.chromium.ui.base.PageTransition;
@@ -99,6 +101,8 @@ public class HistoryManager implements OnMenuItemClickListener, SignInStateObser
     private final RecyclerView mRecyclerView;
     private final SnackbarManager mSnackbarManager;
     private final PrefChangeRegistrar mPrefChangeRegistrar;
+    private final TabCreatorManager mTabCreatorManager;
+    private final Supplier<Tab> mTabSupplier;
     private LargeIconBridge mLargeIconBridge;
 
     private boolean mIsSearching;
@@ -111,24 +115,33 @@ public class HistoryManager implements OnMenuItemClickListener, SignInStateObser
      *                           the main Chrome activity.
      * @param snackbarManager The {@link SnackbarManager} used to display snackbars.
      * @param isIncognito Whether the incognito tab model is currently selected.
+     * @param tabCreatorManager Allows creation of tabs in different models, null if the history UI
+     *                          will be shown in a separate activity.
+     * @param tabSupplier Supplies the current tab, null if the history UI will be shown in a
+     *                    separate activity.
      */
     @SuppressWarnings("unchecked") // mSelectableListLayout
     public HistoryManager(Activity activity, boolean isSeparateActivity,
-            SnackbarManager snackbarManager, boolean isIncognito) {
+            SnackbarManager snackbarManager, boolean isIncognito,
+            @Nullable TabCreatorManager tabCreatorManager, @Nullable Supplier<Tab> tabSupplier) {
         mShouldShowInfoHeader = SharedPreferencesManager.getInstance().readBoolean(
                 ChromePreferenceKeys.HISTORY_SHOW_HISTORY_INFO, true);
         mActivity = activity;
         mIsSeparateActivity = isSeparateActivity;
         mSnackbarManager = snackbarManager;
         mIsIncognito = isIncognito;
+        mTabCreatorManager = tabCreatorManager;
+        mTabSupplier = tabSupplier;
         mIsScrollToLoadDisabled = ChromeAccessibilityUtil.get().isAccessibilityEnabled()
                 || ChromeAccessibilityUtil.isHardwareKeyboardAttached(
                         mActivity.getResources().getConfiguration());
 
-        Profile profile = Profile.getLastUsedRegularProfile();
-        if (isIncognito) profile = profile.getOffTheRecordProfile();
         mSelectionDelegate = new SelectionDelegate<>();
         mSelectionDelegate.addObserver(this);
+
+        // History service is not keyed for Incognito profiles and {@link HistoryServiceFactory}
+        // explicitly redirects to use regular profile for Incognito case.
+        Profile profile = Profile.getLastUsedRegularProfile();
         mHistoryAdapter = new HistoryAdapter(mSelectionDelegate, this,
                 sProviderForTests != null ? sProviderForTests : new BrowsingHistoryBridge(profile));
 
@@ -144,7 +157,7 @@ public class HistoryManager implements OnMenuItemClickListener, SignInStateObser
         mToolbar = (HistoryManagerToolbar) mSelectableListLayout.initializeToolbar(
                 R.layout.history_toolbar, mSelectionDelegate, R.string.menu_history,
                 R.id.normal_menu_group, R.id.selection_mode_menu_group, this, true,
-                isSeparateActivity, new VrModeProviderImpl());
+                isSeparateActivity);
         mToolbar.setManager(this);
         mToolbar.initializeSearchView(this, R.string.history_manager_search, R.id.search_menu_id);
         mToolbar.setInfoMenuItem(R.id.info_menu_id);
@@ -343,14 +356,18 @@ public class HistoryManager implements OnMenuItemClickListener, SignInStateObser
             return;
         }
 
-        ChromeActivity activity = (ChromeActivity) mActivity;
+        assert mTabCreatorManager != null;
+        assert mTabSupplier != null;
+
+        Tab tab = mTabSupplier.get();
+        assert tab != null;
         if (createNewTab) {
-            TabCreator tabCreator = (isIncognito == null) ? activity.getCurrentTabCreator()
-                                                          : activity.getTabCreator(isIncognito);
-            tabCreator.createNewTab(new LoadUrlParams(url, PAGE_TRANSITION_TYPE),
-                    TabLaunchType.FROM_LINK, activity.getActivityTab());
+            TabCreator tabCreator =
+                    mTabCreatorManager.getTabCreator(isIncognito != null && isIncognito);
+            tabCreator.createNewTab(
+                    new LoadUrlParams(url, PAGE_TRANSITION_TYPE), TabLaunchType.FROM_LINK, tab);
         } else {
-            activity.getActivityTab().loadUrl(new LoadUrlParams(url, PAGE_TRANSITION_TYPE));
+            tab.loadUrl(new LoadUrlParams(url, PAGE_TRANSITION_TYPE));
         }
     }
 

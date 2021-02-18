@@ -13,17 +13,8 @@
         min-height: var(--settings-row-min-height);
       }
 
-      .bullet-line.three-line {
-        min-height: var(--settings-row-three-line-min-height);
-      }
-
       .bullet-line > div {
         padding-inline-start: var(--cr-radio-button-size);
-      }
-
-      settings-collapse-radio-button {
-        --settings-collapse-toggle-min-height:
-            var(--settings-row-three-line-min-height);
       }
 
       settings-collapse-radio-button:not(:first-of-type) {
@@ -38,14 +29,13 @@
         padding-bottom: 12px;
       }
 
-      settings-passwords-leak-detection-toggle,
-      settings-toggle-button:not([disabled]) {
-        pointer-events: all;
-      }
-
-      #safeBrowsingReportingToggle {
+      settings-toggle-button {
         padding-inline-end: 0;
         padding-inline-start: 0;
+      }
+
+      settings-toggle-button:not([disabled]) {
+        pointer-events: all;
       }
 
       #safeBrowsingEnhanced .bullet-line:last-of-type {
@@ -55,7 +45,7 @@
     <picture>
       <source
           srcset="chrome://settings/images/safe_browsing_banner_dark.svg"
-          media="(prefers-color-scheme: dark">
+          media="(prefers-color-scheme: dark)">
       <img id="banner" alt=""
           src="chrome://settings/images/safe_browsing_banner.svg">
     </picture>
@@ -70,7 +60,9 @@
             pref="[[prefs.generated.safe_browsing]]"
             label="$i18n{safeBrowsingEnhanced}"
             sub-label="$i18n{safeBrowsingEnhancedDesc}"
+            expand-aria-label="$i18n{safeBrowsingEnhancedExpandA11yLabel}"
             hidden="[[!safeBrowsingEnhancedEnabled_]]"
+            on-expand-clicked="onEnhancedProtectionExpandButtonClicked_"
             no-automatic-collapse>
           <div slot="collapse">
             <div class="bullet-line">
@@ -97,9 +89,9 @@
                 $i18n{safeBrowsingEnhancedBulFour}
               </div>
             </div>
-            <div class="bullet-line three-line last-collapse-item">
+            <div class="bullet-line last-collapse-item">
               <iron-icon icon="settings20:data"></iron-icon>
-              <div class="secondary">
+              <div class="secondary cr-padded-text">
                 $i18n{safeBrowsingEnhancedBulFive}
               </div>
             </div>
@@ -110,7 +102,9 @@
             pref="[[prefs.generated.safe_browsing]]"
             label="$i18n{safeBrowsingStandard}"
             sub-label="$i18n{safeBrowsingStandardDesc}"
+            expand-aria-label="$i18n{safeBrowsingStandardExpandA11yLabel}"
             info-opened="{{infoOpened_}}"
+            on-expand-clicked="onStandardProtectionExpandButtonClicked_"
             no-automatic-collapse>
           <div slot="collapse">
             <div class="bullet-line">
@@ -119,9 +113,9 @@
                   $i18n{safeBrowsingStandardBulOne}
               </div>
             </div>
-            <div class="bullet-line three-line">
+            <div class="bullet-line">
               <iron-icon icon="settings20:data"></iron-icon>
-              <div class="secondary">
+              <div class="secondary cr-padded-text">
                   $i18n{safeBrowsingStandardBulTwo}
               </div>
             </div>
@@ -135,11 +129,13 @@
                 disabled="[[getDisabledExtendedSafeBrowsing_(
                               prefs.generated.safe_browsing.*)]]">
             </settings-toggle-button>
-            <settings-passwords-leak-detection-toggle id="passwordsLeakToggle"
-                class="collapsable"
-                prefs="{{prefs}}"
-                sync-status="[[syncStatus]]">
-            </settings-passwords-leak-detection-toggle>
+            <settings-toggle-button id="passwordsLeakToggle"
+                label="$i18n{passwordsLeakDetectionLabel}"
+                pref="{{prefs.generated.password_leak_detection}}"
+                sub-label="[[getPasswordsLeakToggleSubLabel_(
+                              prefs.profile.password_manager_leak_detection.*,
+                              prefs.generated.password_leak_detection.*)]]">
+            </settings-toggle-button>
           </div>
         </settings-collapse-radio-button>
         <settings-collapse-radio-button id="safeBrowsingDisabled" no-collapse
@@ -161,13 +157,17 @@
           class="hr"
           label="$i18n{securityKeysTitle}"
           sub-label="$i18n{securityKeysDesc}"
-          on-click="onSecurityKeysClick_"></cr-link-row>
+          on-click="onSecurityKeysClick_"
+          role-description="$i18n{subpageArrowRoleDescription}"></cr-link-row>
     </template>
 <if expr="use_nss_certs or is_win or is_macosx">
     <cr-link-row id="manageCertificates"
         class="hr"
 <if expr="not use_nss_certs">
         external
+</if>
+<if expr="use_nss_certs">
+        role-description="$i18n{subpageArrowRoleDescription}"
 </if>
         label="$i18n{manageCertificates}"
         sub-label="$i18n{manageCertificatesDescription}"

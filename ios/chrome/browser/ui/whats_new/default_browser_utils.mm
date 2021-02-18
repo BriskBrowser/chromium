@@ -4,6 +4,11 @@
 
 #import "ios/chrome/browser/ui/whats_new/default_browser_utils.h"
 
+#include "base/feature_list.h"
+#include "base/ios/ios_util.h"
+#include "base/metrics/field_trial.h"
+#include "ios/chrome/browser/ui/ui_feature_flags.h"
+
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
@@ -16,12 +21,28 @@ NSString* const kLastSignificantUserEvent = @"lastSignificantUserEvent";
 NSString* const kUserHasInteractedWithFullscreenPromo =
     @"userHasInteractedWithFullscreenPromo";
 
+NSString* const kRemindMeLaterPromoActionInteraction =
+    @"remindMeLaterPromoActionInteraction";
+
+const char kDefaultBrowserFullscreenPromoExperimentRemindMeGroupName[] =
+    "RemindMeLater";
+
+const char kDefaultBrowserFullscreenPromoExperimentChangeStringsGroupName[] =
+    "ChangeStrings";
+
+const char kDefaultBrowserFullscreenPromoCTAExperimentOpenLinksArm[] =
+    "OpenLinks";
+const char kDefaultBrowserFullscreenPromoCTAExperimentSwitchArm[] = "Switch";
+
 // Time threshold before activity timestamps should be removed. Currently set to
 // seven days.
 const NSTimeInterval kUserActivityTimestampExpiration = 7 * 24 * 60 * 60;
 // Time threshold for the last URL open before no URL opens likely indicates
 // Chrome is no longer the default browser.
 const NSTimeInterval kLatestURLOpenForDefaultBrowser = 7 * 24 * 60 * 60;
+// Delay for the user to be reshown the fullscreen promo when the user taps on
+// the "Remind Me Later" button. 50 hours.
+const NSTimeInterval kRemindMeLaterPresentationDelay = 50 * 60 * 60;
 }
 
 NSString* const kLastHTTPURLOpenTime = @"lastHTTPURLOpenTime";
@@ -56,6 +77,63 @@ void LogLikelyInterestedDefaultBrowserUserActivity() {
                                             forKey:kLastSignificantUserEvent];
 }
 
+void LogRemindMeLaterPromoActionInteraction() {
+  DCHECK(IsInRemindMeLaterGroup());
+  [[NSUserDefaults standardUserDefaults]
+      setObject:[NSDate date]
+         forKey:kRemindMeLaterPromoActionInteraction];
+}
+
+bool ShouldShowRemindMeLaterDefaultBrowserFullscreenPromo() {
+  if (!IsInRemindMeLaterGroup()) {
+    return false;
+  }
+  NSDate* remindMeTimestamp = [[NSUserDefaults standardUserDefaults]
+      objectForKey:kRemindMeLaterPromoActionInteraction];
+  if (!remindMeTimestamp) {
+    return false;
+  }
+  NSDate* fiftyHoursAgoDate =
+      [NSDate dateWithTimeIntervalSinceNow:-kRemindMeLaterPresentationDelay];
+  return [remindMeTimestamp laterDate:fiftyHoursAgoDate] == fiftyHoursAgoDate;
+}
+
+bool IsInRemindMeLaterGroup() {
+  return base::FeatureList::IsEnabled(
+             kDefaultBrowserFullscreenPromoExperiment) &&
+         base::FeatureList::GetFieldTrial(
+             kDefaultBrowserFullscreenPromoExperiment)
+                 ->group_name() ==
+             kDefaultBrowserFullscreenPromoExperimentRemindMeGroupName;
+}
+
+bool IsInModifiedStringsGroup() {
+  return base::FeatureList::IsEnabled(
+             kDefaultBrowserFullscreenPromoExperiment) &&
+         base::FeatureList::GetFieldTrial(
+             kDefaultBrowserFullscreenPromoExperiment)
+                 ->group_name() ==
+             kDefaultBrowserFullscreenPromoExperimentChangeStringsGroupName;
+}
+
+bool IsInCTAOpenLinksGroup() {
+  return base::FeatureList::IsEnabled(
+             kDefaultBrowserFullscreenPromoCTAExperiment) &&
+         base::FeatureList::GetFieldTrial(
+             kDefaultBrowserFullscreenPromoCTAExperiment)
+                 ->group_name() ==
+             kDefaultBrowserFullscreenPromoCTAExperimentOpenLinksArm;
+}
+
+bool IsInCTASwitchGroup() {
+  return base::FeatureList::IsEnabled(
+             kDefaultBrowserFullscreenPromoCTAExperiment) &&
+         base::FeatureList::GetFieldTrial(
+             kDefaultBrowserFullscreenPromoCTAExperiment)
+                 ->group_name() ==
+             kDefaultBrowserFullscreenPromoCTAExperimentSwitchArm;
+}
+
 bool HasUserInteractedWithFullscreenPromoBefore() {
   return [[NSUserDefaults standardUserDefaults]
       boolForKey:kUserHasInteractedWithFullscreenPromo];
@@ -65,6 +143,12 @@ void LogUserInteractionWithFullscreenPromo() {
   [[NSUserDefaults standardUserDefaults]
       setBool:YES
        forKey:kUserHasInteractedWithFullscreenPromo];
+
+  if (IsInRemindMeLaterGroup()) {
+    // Clear any possible Remind Me Later timestamp saved.
+    [[NSUserDefaults standardUserDefaults]
+        removeObjectForKey:kRemindMeLaterPromoActionInteraction];
+  }
 }
 
 bool IsChromeLikelyDefaultBrowser() {
@@ -87,5 +171,5 @@ bool IsLikelyInterestedDefaultBrowserUser() {
       [[[NSUserDefaults standardUserDefaults]
           arrayForKey:kLastSignificantUserEvent] mutableCopy];
   pastUserEvents = SanitizePastUserEvents(pastUserEvents);
-  return [pastUserEvents count] > 1;
+  return [pastUserEvents count] > 1 && base::ios::IsRunningOnIOS14OrLater();
 }

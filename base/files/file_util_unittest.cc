@@ -18,7 +18,6 @@
 
 #include "base/base_paths.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/environment.h"
@@ -42,7 +41,7 @@
 #include "base/threading/thread.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
-#include "build/lacros_buildflags.h"
+#include "build/chromeos_buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/multiprocess_func_list.h"
 #include "testing/platform_test.h"
@@ -187,6 +186,8 @@ class ReparsePoint {
                      NULL));
     created_ = dir_.IsValid() && SetReparsePoint(dir_.Get(), target);
   }
+  ReparsePoint(const ReparsePoint&) = delete;
+  ReparsePoint& operator=(const ReparsePoint&) = delete;
 
   ~ReparsePoint() {
     if (created_)
@@ -198,7 +199,6 @@ class ReparsePoint {
  private:
   win::ScopedHandle dir_;
   bool created_;
-  DISALLOW_COPY_AND_ASSIGN(ReparsePoint);
 };
 
 #endif
@@ -914,6 +914,7 @@ TEST_F(FileUtilTest, ChangeFilePermissionsAndRead) {
   FilePath file_name =
       temp_dir_.GetPath().Append(FPL("Test Readable File.txt"));
   EXPECT_FALSE(PathExists(file_name));
+  EXPECT_FALSE(PathIsReadable(file_name));
 
   static constexpr char kData[] = "hello";
   static constexpr int kDataSize = sizeof(kData) - 1;
@@ -927,11 +928,13 @@ TEST_F(FileUtilTest, ChangeFilePermissionsAndRead) {
   int32_t mode = 0;
   EXPECT_TRUE(GetPosixFilePermissions(file_name, &mode));
   EXPECT_TRUE(mode & FILE_PERMISSION_READ_BY_USER);
+  EXPECT_TRUE(PathIsReadable(file_name));
 
   // Get rid of the read permission.
   EXPECT_TRUE(SetPosixFilePermissions(file_name, 0u));
   EXPECT_TRUE(GetPosixFilePermissions(file_name, &mode));
   EXPECT_FALSE(mode & FILE_PERMISSION_READ_BY_USER);
+  EXPECT_FALSE(PathIsReadable(file_name));
   // Make sure the file can't be read.
   EXPECT_EQ(-1, ReadFile(file_name, buffer, kDataSize));
 
@@ -939,6 +942,7 @@ TEST_F(FileUtilTest, ChangeFilePermissionsAndRead) {
   EXPECT_TRUE(SetPosixFilePermissions(file_name, FILE_PERMISSION_READ_BY_USER));
   EXPECT_TRUE(GetPosixFilePermissions(file_name, &mode));
   EXPECT_TRUE(mode & FILE_PERMISSION_READ_BY_USER);
+  EXPECT_TRUE(PathIsReadable(file_name));
   // Make sure the file can be read.
   EXPECT_EQ(kDataSize, ReadFile(file_name, buffer, kDataSize));
 
@@ -1117,7 +1121,7 @@ TEST_F(FileUtilTest, CopyDirectoryPermissions) {
   ASSERT_TRUE(GetPosixFilePermissions(file_name_to, &mode));
 #if defined(OS_APPLE)
   expected_mode = 0755;
-#elif defined(OS_CHROMEOS) || BUILDFLAG(IS_LACROS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   expected_mode = 0644;
 #else
   expected_mode = 0600;
@@ -1127,7 +1131,7 @@ TEST_F(FileUtilTest, CopyDirectoryPermissions) {
   ASSERT_TRUE(GetPosixFilePermissions(file2_name_to, &mode));
 #if defined(OS_APPLE)
   expected_mode = 0755;
-#elif defined(OS_CHROMEOS) || BUILDFLAG(IS_LACROS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   expected_mode = 0644;
 #else
   expected_mode = 0600;
@@ -1137,7 +1141,7 @@ TEST_F(FileUtilTest, CopyDirectoryPermissions) {
   ASSERT_TRUE(GetPosixFilePermissions(file3_name_to, &mode));
 #if defined(OS_APPLE)
   expected_mode = 0600;
-#elif defined(OS_CHROMEOS) || BUILDFLAG(IS_LACROS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   expected_mode = 0644;
 #else
   expected_mode = 0600;
@@ -1287,7 +1291,7 @@ TEST_F(FileUtilTest, CopyFileExecutablePermission) {
   int expected_mode;
 #if defined(OS_APPLE)
   expected_mode = 0755;
-#elif defined(OS_CHROMEOS) || BUILDFLAG(IS_LACROS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   expected_mode = 0644;
 #else
   expected_mode = 0600;
@@ -1305,7 +1309,7 @@ TEST_F(FileUtilTest, CopyFileExecutablePermission) {
   ASSERT_TRUE(GetPosixFilePermissions(dst, &mode));
 #if defined(OS_APPLE)
   expected_mode = 0755;
-#elif defined(OS_CHROMEOS) || BUILDFLAG(IS_LACROS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   expected_mode = 0644;
 #else
   expected_mode = 0600;
@@ -1323,7 +1327,7 @@ TEST_F(FileUtilTest, CopyFileExecutablePermission) {
   ASSERT_TRUE(GetPosixFilePermissions(dst, &mode));
 #if defined(OS_APPLE)
   expected_mode = 0600;
-#elif defined(OS_CHROMEOS) || BUILDFLAG(IS_LACROS)
+#elif BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   expected_mode = 0644;
 #else
   expected_mode = 0600;

@@ -7,13 +7,13 @@
 #include "base/feature_list.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "chrome/browser/web_applications/components/install_finalizer.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
 #include "chrome/browser/web_applications/components/web_app_provider_base.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "chrome/common/chrome_features.h"
-#include "chrome/common/web_application_info.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
@@ -21,19 +21,19 @@ namespace web_app {
 
 AppId InstallDummyWebApp(Profile* profile,
                          const std::string& app_name,
-                         const GURL& app_url) {
+                         const GURL& start_url) {
   DCHECK(base::FeatureList::IsEnabled(features::kDesktopPWAsWithoutExtensions));
-  const AppId app_id = GenerateAppIdFromURL(app_url);
+  const AppId app_id = GenerateAppIdFromURL(start_url);
   WebApplicationInfo web_app_info;
 
-  web_app_info.app_url = app_url;
-  web_app_info.scope = app_url;
+  web_app_info.start_url = start_url;
+  web_app_info.scope = start_url;
   web_app_info.title = base::UTF8ToUTF16(app_name);
   web_app_info.description = base::UTF8ToUTF16(app_name);
   web_app_info.open_as_window = true;
 
   InstallFinalizer::FinalizeOptions options;
-  options.install_source = WebappInstallSource::EXTERNAL_DEFAULT;
+  options.install_source = webapps::WebappInstallSource::EXTERNAL_DEFAULT;
 
   // In unit tests, we do not have Browser or WebContents instances.
   // Hence we use FinalizeInstall instead of InstallWebAppFromManifest

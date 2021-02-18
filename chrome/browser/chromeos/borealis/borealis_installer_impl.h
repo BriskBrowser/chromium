@@ -8,6 +8,8 @@
 #include "chrome/browser/chromeos/borealis/borealis_installer.h"
 #include "chromeos/dbus/dlcservice/dlcservice_client.h"
 
+class Profile;
+
 namespace borealis {
 
 // This class is responsible for installing the Borealis VM. Currently
@@ -16,7 +18,8 @@ namespace borealis {
 // chrome/browser/ui/views/borealis/borealis_installer_view.h.
 class BorealisInstallerImpl : public BorealisInstaller {
  public:
-  BorealisInstallerImpl();
+  explicit BorealisInstallerImpl(Profile* profile);
+  ~BorealisInstallerImpl() override;
 
   // Disallow copy and assign.
   BorealisInstallerImpl(const BorealisInstallerImpl&) = delete;
@@ -29,6 +32,9 @@ class BorealisInstallerImpl : public BorealisInstaller {
   // Cancels the installation process.
   void Cancel() override;
 
+  void AddObserver(Observer* observer) override;
+  void RemoveObserver(Observer* observer) override;
+
  private:
   enum class State {
     kIdle,
@@ -36,10 +42,8 @@ class BorealisInstallerImpl : public BorealisInstaller {
     kCancelling,
   };
 
-  ~BorealisInstallerImpl() override;
-
   void StartDlcInstallation();
-  void InstallationEnded(InstallationResult result);
+  void InstallationEnded(BorealisInstallResult result);
 
   void UpdateProgress(double state_progress);
   void UpdateInstallingState(InstallingState installing_state);
@@ -48,11 +52,14 @@ class BorealisInstallerImpl : public BorealisInstaller {
   void OnDlcInstallationCompleted(
       const chromeos::DlcserviceClient::InstallResult& install_result);
 
-  State state_ = State::kIdle;
-  InstallingState installing_state_ = InstallingState::kInactive;
-  double progress_ = 0;
+  State state_;
+  InstallingState installing_state_;
+  double progress_;
+  base::TimeTicks installation_start_tick_;
+  Profile* profile_;
+  base::ObserverList<Observer> observers_;
 
-  base::WeakPtrFactory<BorealisInstallerImpl> weak_ptr_factory_{this};
+  base::WeakPtrFactory<BorealisInstallerImpl> weak_ptr_factory_;
 };
 
 }  // namespace borealis

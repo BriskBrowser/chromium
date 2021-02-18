@@ -22,14 +22,14 @@ suite('cr-expand-button', function() {
     icon = /** @type {!CrIconButtonElement} */ (button.$$('#icon'));
   });
 
-  test('setting |alt| label', () => {
-    assertFalse(!!button.alt);
+  test('setting |aria-label| label', () => {
+    assertFalse(!!button.ariaLabel);
     assertEquals('label', icon.getAttribute('aria-labelledby'));
     assertEquals(null, icon.getAttribute('aria-label'));
-    const altLabel = 'alt label';
-    button.alt = altLabel;
+    const ariaLabel = 'aria-label label';
+    button.ariaLabel = ariaLabel;
     assertEquals(null, icon.getAttribute('aria-labelledby'));
-    assertEquals('alt label', icon.getAttribute('aria-label'));
+    assertEquals(ariaLabel, icon.getAttribute('aria-label'));
   });
 
   test('changing |expanded|', () => {
@@ -48,5 +48,13 @@ suite('cr-expand-button', function() {
     button.disabled = true;
     assertFalse(icon.hasAttribute('aria-expanded'));
     assertTrue(icon.disabled);
+  });
+
+  // Ensure that the label is marked with aria-hidden="true", so that screen
+  // reader focus goes straight to the cr-icon-button.
+  test('label aria-hidden', () => {
+    const labelId = 'label';
+    assertEquals('true', button.$$(`#${labelId}`).getAttribute('aria-hidden'));
+    assertEquals(labelId, icon.getAttribute('aria-labelledby'));
   });
 });

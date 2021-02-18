@@ -17,6 +17,7 @@
 #include "base/run_loop.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "build/chromeos_buildflags.h"
 #include "components/policy/policy_constants.h"
 #include "net/base/network_change_notifier.h"
 #include "remoting/base/auto_thread_task_runner.h"
@@ -445,7 +446,9 @@ TEST_F(It2MeHostTest, NatTraversalPolicy_Disabled) {
   ASSERT_EQ(It2MeHostState::kDisconnected, last_host_state_);
 }
 
-TEST_F(It2MeHostTest, NatTraversalPolicy_DisabledTransitionCausesDisconnect) {
+// TODO(crbug/1122155): flaky test.
+TEST_F(It2MeHostTest,
+       DISABLED_NatTraversalPolicy_DisabledTransitionCausesDisconnect) {
   StartHost();
   ASSERT_EQ(It2MeHostState::kReceivedAccessCode, last_host_state_);
 
@@ -489,7 +492,8 @@ TEST_F(It2MeHostTest, RelayPolicy_Disabled) {
   ASSERT_EQ(It2MeHostState::kDisconnected, last_host_state_);
 }
 
-TEST_F(It2MeHostTest, RelayPolicy_DisabledTransitionCausesDisconnect) {
+// TODO(crbug.com/1126973): Flaky test.
+TEST_F(It2MeHostTest, DISABLED_RelayPolicy_DisabledTransitionCausesDisconnect) {
   StartHost();
   ASSERT_EQ(It2MeHostState::kReceivedAccessCode, last_host_state_);
 
@@ -735,7 +739,7 @@ TEST_F(It2MeHostTest, MultipleConnectionsTriggerDisconnect) {
   ASSERT_EQ(It2MeHostState::kDisconnected, last_host_state_);
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 TEST_F(It2MeHostTest, ConnectRespectsSuppressDialogsParameter) {
   StartHost(false);
   EXPECT_FALSE(dialog_factory_->dialog_created());

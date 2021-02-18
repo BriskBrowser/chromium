@@ -4,12 +4,14 @@
 
 #include "components/autofill_assistant/browser/client_settings.h"
 #include "base/logging.h"
+#include "components/autofill_assistant/browser/view_layout.pb.h"
 
 namespace {
 
 bool IsValidOverlayImageProto(
     const autofill_assistant::OverlayImageProto& proto) {
-  if (!proto.image_url().empty() && !proto.has_image_size()) {
+  if ((proto.has_image_drawable() || !proto.image_url().empty()) &&
+      !proto.has_image_size()) {
     VLOG(1) << __func__ << ": Missing image_size in overlay_image, ignoring";
     return false;
   }
@@ -57,12 +59,9 @@ void ClientSettings::UpdateFromProto(const ClientSettingsProto& proto) {
   if (proto.has_box_model_check_count()) {
     box_model_check_count = proto.box_model_check_count();
   }
-  if (proto.has_document_ready_check_interval_ms()) {
-    document_ready_check_interval = base::TimeDelta::FromMilliseconds(
-        proto.document_ready_check_interval_ms());
-  }
-  if (proto.has_document_ready_check_count()) {
-    document_ready_check_count = proto.document_ready_check_count();
+  if (proto.has_document_ready_check_timeout_ms()) {
+    document_ready_check_timeout = base::TimeDelta::FromMilliseconds(
+        proto.document_ready_check_timeout_ms());
   }
   if (proto.has_cancel_delay_ms()) {
     cancel_delay = base::TimeDelta::FromMilliseconds(proto.cancel_delay_ms());
@@ -79,8 +78,18 @@ void ClientSettings::UpdateFromProto(const ClientSettingsProto& proto) {
         base::TimeDelta::FromMilliseconds(proto.tap_shutdown_delay_ms());
   }
   if (proto.has_overlay_image()) {
+    // TODO(b/170202574): Add integration test and remove legacy |image_url|.
     if (IsValidOverlayImageProto(proto.overlay_image())) {
       overlay_image = proto.overlay_image();
+      // Legacy treatment for |image_url|.
+      if (!overlay_image->image_url().empty()) {
+        std::string url = overlay_image->image_url();
+        auto* bitmap_proto =
+            overlay_image->mutable_image_drawable()->mutable_bitmap();
+        bitmap_proto->set_url(url);
+        *bitmap_proto->mutable_width() = overlay_image->image_size();
+        *bitmap_proto->mutable_height() = overlay_image->image_size();
+      }
     } else {
       overlay_image.reset();
     }
@@ -96,7 +105,57 @@ void ClientSettings::UpdateFromProto(const ClientSettingsProto& proto) {
       back_button_settings.reset();
     }
   }
-
+  if (proto.has_slow_warning_settings()) {
+    if (proto.slow_warning_settings().has_enable_slow_connection_warnings()) {
+      enable_slow_connection_warnings =
+          proto.slow_warning_settings().enable_slow_connection_warnings();
+    }
+    if (proto.slow_warning_settings().has_enable_slow_website_warnings()) {
+      enable_slow_website_warnings =
+          proto.slow_warning_settings().enable_slow_website_warnings();
+    }
+    if (proto.slow_warning_settings().has_only_show_warning_once()) {
+      only_show_warning_once =
+          proto.slow_warning_settings().only_show_warning_once();
+    }
+    if (proto.slow_warning_settings().has_only_show_connection_warning_once()) {
+      only_show_connection_warning_once =
+          proto.slow_warning_settings().only_show_connection_warning_once();
+    }
+    if (proto.slow_warning_settings().has_only_show_website_warning_once()) {
+      only_show_website_warning_once =
+          proto.slow_warning_settings().only_show_website_warning_once();
+    }
+    if (proto.slow_warning_settings().has_warning_delay_ms()) {
+      warning_delay = base::TimeDelta::FromMilliseconds(
+          proto.slow_warning_settings().warning_delay_ms());
+    }
+    if (proto.slow_warning_settings().has_slow_roundtrip_threshold_ms()) {
+      slow_roundtrip_threshold = base::TimeDelta::FromMilliseconds(
+          proto.slow_warning_settings().slow_roundtrip_threshold_ms());
+    }
+    if (proto.slow_warning_settings().has_max_consecutive_slow_roundtrips()) {
+      max_consecutive_slow_roundtrips =
+          proto.slow_warning_settings().max_consecutive_slow_roundtrips();
+    }
+    if (proto.slow_warning_settings().has_slow_connection_message()) {
+      slow_connection_message =
+          proto.slow_warning_settings().slow_connection_message();
+    }
+    if (proto.slow_warning_settings().has_slow_website_message()) {
+      slow_website_message =
+          proto.slow_warning_settings().slow_website_message();
+    }
+    if (proto.slow_warning_settings()
+            .has_minimum_warning_message_duration_ms()) {
+      minimum_warning_duration = base::TimeDelta::FromMilliseconds(
+          proto.slow_warning_settings().minimum_warning_message_duration_ms());
+    }
+    if (proto.slow_warning_settings().message_mode() !=
+        ClientSettingsProto::SlowWarningSettings::UNKNOWN) {
+      message_mode = proto.slow_warning_settings().message_mode();
+    }
+  }
   // Test only settings.
   if (proto.has_integration_test_settings()) {
     integration_test_settings = proto.integration_test_settings();

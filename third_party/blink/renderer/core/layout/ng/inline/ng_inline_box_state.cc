@@ -8,8 +8,6 @@
 #include "third_party/blink/renderer/core/layout/geometry/logical_size.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_item_result.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_line_box_fragment_builder.h"
-#include "third_party/blink/renderer/core/layout/ng/inline/ng_text_fragment_builder.h"
-#include "third_party/blink/renderer/core/layout/ng/ng_box_fragment_builder.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_layout_result.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_relative_utils.h"
@@ -35,19 +33,19 @@ FontHeight ComputeEmphasisMarkOutsets(const ComputedStyle& style) {
 
 }  // namespace
 
-void NGInlineBoxState::ComputeTextMetrics(const ComputedStyle& style,
+void NGInlineBoxState::ComputeTextMetrics(const ComputedStyle& styleref,
                                           FontBaseline baseline_type) {
-  text_metrics = style.GetFontHeight(baseline_type);
+  text_metrics = styleref.GetFontHeight(baseline_type);
   text_top = -text_metrics.ascent;
   text_height = text_metrics.LineHeight();
 
-  FontHeight emphasis_marks_outsets = ComputeEmphasisMarkOutsets(style);
+  FontHeight emphasis_marks_outsets = ComputeEmphasisMarkOutsets(styleref);
   if (emphasis_marks_outsets.IsEmpty()) {
-    text_metrics.AddLeading(style.ComputedLineHeightAsFixed());
+    text_metrics.AddLeading(styleref.ComputedLineHeightAsFixed());
   } else {
     FontHeight emphasis_marks_metrics = text_metrics;
     emphasis_marks_metrics += emphasis_marks_outsets;
-    text_metrics.AddLeading(style.ComputedLineHeightAsFixed());
+    text_metrics.AddLeading(styleref.ComputedLineHeightAsFixed());
     text_metrics.Unite(emphasis_marks_metrics);
     // TODO: Is this correct to include into text_metrics? How do we use
     // text_metrics after this point?
@@ -55,7 +53,7 @@ void NGInlineBoxState::ComputeTextMetrics(const ComputedStyle& style,
 
   metrics.Unite(text_metrics);
 
-  include_used_fonts = style.LineHeight().IsNegative();
+  include_used_fonts = styleref.LineHeight().IsNegative();
 }
 
 void NGInlineBoxState::ResetTextMetrics() {
@@ -63,10 +61,10 @@ void NGInlineBoxState::ResetTextMetrics() {
   text_top = text_height = LayoutUnit();
 }
 
-void NGInlineBoxState::EnsureTextMetrics(const ComputedStyle& style,
+void NGInlineBoxState::EnsureTextMetrics(const ComputedStyle& styleref,
                                          FontBaseline baseline_type) {
   if (text_metrics.IsEmpty())
-    ComputeTextMetrics(style, baseline_type);
+    ComputeTextMetrics(styleref, baseline_type);
 }
 
 void NGInlineBoxState::AccumulateUsedFonts(const ShapeResultView* shape_result,
@@ -613,8 +611,7 @@ void NGInlineLayoutStateStack::CreateBoxFragments(
     DCHECK_GT(end, start);
     NGLogicalLineItem* child = &(*line_box)[start];
     DCHECK(box_data.item->ShouldCreateBoxFragment());
-    scoped_refptr<const NGLayoutResult> box_fragment =
-        box_data.CreateBoxFragment(line_box);
+    const NGLayoutResult* box_fragment = box_data.CreateBoxFragment(line_box);
     if (child->IsPlaceholder()) {
       child->layout_result = std::move(box_fragment);
       child->rect = box_data.rect;
@@ -632,8 +629,7 @@ void NGInlineLayoutStateStack::CreateBoxFragments(
   box_data_list_.clear();
 }
 
-scoped_refptr<const NGLayoutResult>
-NGInlineLayoutStateStack::BoxData::CreateBoxFragment(
+const NGLayoutResult* NGInlineLayoutStateStack::BoxData::CreateBoxFragment(
     NGLogicalLineItems* line_box) {
   DCHECK(item);
   DCHECK(item->Style());
@@ -668,7 +664,8 @@ NGInlineLayoutStateStack::BoxData::CreateBoxFragment(
 
     if (child.out_of_flow_positioned_box) {
       DCHECK(item->GetLayoutObject()->IsLayoutInline());
-      NGBlockNode oof_box(ToLayoutBox(child.out_of_flow_positioned_box));
+      NGBlockNode oof_box(
+          To<LayoutBox>(child.out_of_flow_positioned_box.Get()));
 
       // child.offset is the static position wrt. the linebox. As we are adding
       // this as a child of an inline level fragment, we adjust the static
@@ -681,27 +678,15 @@ NGInlineLayoutStateStack::BoxData::CreateBoxFragment(
       continue;
     }
 
-    if (RuntimeEnabledFeatures::LayoutNGFragmentItemEnabled()) {
-      // Propagate any OOF-positioned descendants from any atomic-inlines, etc.
-      if (child.layout_result) {
-        box.PropagateChildData(child.layout_result->PhysicalFragment(),
-                               child.rect.offset - rect.offset);
-      }
-
-      // |NGFragmentItems| has a flat list of all descendants, except
-      // OOF-positioned descendants.
-      // We still create a |NGPhysicalBoxFragment|, but don't add children to
-      // it and keep them in the flat list.
-      continue;
-    }
-
+    // Propagate any OOF-positioned descendants from any atomic-inlines, etc.
     if (child.layout_result) {
-      box.AddChild(child.layout_result->PhysicalFragment(),
-                   child.rect.offset - rect.offset);
-      child.layout_result.reset();
-    } else if (child.fragment) {
-      box.AddChild(std::move(child.fragment), child.rect.offset - rect.offset);
+      box.PropagateChildData(child.layout_result->PhysicalFragment(),
+                             child.rect.offset - rect.offset);
     }
+
+    // |NGFragmentItems| has a flat list of all descendants, except
+    // OOF-positioned descendants. We still create a |NGPhysicalBoxFragment|,
+    // but don't add children to it and keep them in the flat list.
   }
 
   // Inline boxes that produce DisplayItemClient should do full paint

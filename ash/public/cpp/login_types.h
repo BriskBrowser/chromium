@@ -72,7 +72,6 @@ enum class OobeDialogState {
 };
 
 // Supported multi-profile user behavior values.
-// Keep in sync with the enum in chromeos_user_pod_row.js and user_pod_row.js
 // TODO(estade): change all the enums to use kCamelCase.
 enum class MultiProfileUserBehavior {
   UNRESTRICTED = 0,
@@ -209,9 +208,10 @@ struct ASH_PUBLIC_EXPORT PublicAccountInfo {
   PublicAccountInfo& operator=(const PublicAccountInfo& other);
   PublicAccountInfo& operator=(PublicAccountInfo&& other);
 
-  // The domain name displayed in the login screen UI for device-level
-  // management.
-  base::Optional<std::string> device_enterprise_domain;
+  // The name of the device manager displayed in the login screen UI for
+  // device-level management. May be either a domain (foo.com) or an email
+  // address (user@foo.com).
+  base::Optional<std::string> device_enterprise_manager;
 
   // A list of available user locales.
   std::vector<LocaleItem> available_locales;
@@ -279,9 +279,11 @@ struct ASH_PUBLIC_EXPORT LoginUserInfo {
   // screen for this user.
   bool show_display_password_button = false;
 
-  // The domain name displayed in the login screen UI for user-level
-  // management. This is only set if the relevant user is managed.
-  base::Optional<std::string> user_enterprise_domain;
+  // The name of the entity that manages this user's account displayed in the
+  // login screen UI for user-level management. Will be either a domain name
+  // (foo.com) or the email address of the admin (some_user@foo.com).
+  // This is only set if the relevant user is managed.
+  base::Optional<std::string> user_account_manager;
 
   // Contains the public account information if user type is PUBLIC_ACCOUNT.
   base::Optional<PublicAccountInfo> public_account_info;
@@ -329,22 +331,6 @@ struct ASH_PUBLIC_EXPORT AuthDisabledData {
   // If true media will be suspended and media controls will be unavailable on
   // lock screen.
   bool disable_lock_screen_media = false;
-};
-
-// Possible reasons why the parent access code is required. This corresponds to
-// actions that children can't perform on a Chromebook, but their parents can on
-// their behalf.
-enum class ParentAccessRequestReason {
-  // Unlock a Chromebook that is locked due to a Time Limit policy.
-  kUnlockTimeLimits,
-  // Update values on the date time dialog.
-  kChangeTime,
-  // Update values on the timezone settings page.
-  kChangeTimezone,
-  // Add user flow.
-  kAddUser,
-  // Re-authentication flow.
-  kReauth,
 };
 
 // Parameters and callbacks for a security token PIN request that is to be shown

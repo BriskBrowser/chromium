@@ -181,6 +181,15 @@ class ThrottlingURLLoader::ForwardingThrottleDelegate
     loader_->RestartWithURLResetAndFlagsNow(additional_load_flags);
   }
 
+  void RestartWithModifiedHeadersNow(
+      const net::HttpRequestHeaders& modified_headers) override {
+    if (!loader_)
+      return;
+
+    ScopedDelegateCall scoped_delegate_call(this);
+    loader_->RestartWithModifiedHeadersNow(modified_headers);
+  }
+
   void Detach() { loader_ = nullptr; }
 
  private:
@@ -510,23 +519,6 @@ void ThrottlingURLLoader::StartNow() {
         net::HTTP_TEMPORARY_REDIRECT,
         throttle_will_start_redirect_url_.spec().c_str());
 
-    // This is only needed when CORS is running in the renderer.
-    // TODO(crbug.com/1001450): Remove following code once OOR-CORS is fully
-    // enabled.
-    std::string http_origin;
-    if (start_info_->url_request.headers.GetHeader("Origin", &http_origin)) {
-      // If this redirect is used in a cross-origin request, add CORS headers
-      // to make sure that the redirect gets through. Note that the
-      // destination URL is still subject to the usual CORS policy, i.e. the
-      // resource will only be available to web pages if the server serves the
-      // response with the required CORS response headers.
-      header_string += base::StringPrintf(
-          "\n"
-          "Access-Control-Allow-Origin: %s\n"
-          "Access-Control-Allow-Credentials: true",
-          http_origin.c_str());
-    }
-
     response_head->headers = base::MakeRefCounted<net::HttpResponseHeaders>(
         net::HttpUtil::AssembleRawHeaders(header_string));
     response_head->encoded_data_length = header_string.size();
@@ -540,8 +532,9 @@ void ThrottlingURLLoader::StartNow() {
 
   DCHECK(start_info_->url_loader_factory);
   start_info_->url_loader_factory->CreateLoaderAndStart(
-      url_loader_.BindNewPipeAndPassReceiver(), start_info_->routing_id,
-      start_info_->request_id, start_info_->options, start_info_->url_request,
+      url_loader_.BindNewPipeAndPassReceiver(start_info_->task_runner),
+      start_info_->routing_id, start_info_->request_id, start_info_->options,
+      start_info_->url_request,
       client_receiver_.BindNewPipeAndPassRemote(start_info_->task_runner),
       net::MutableNetworkTrafficAnnotationTag(traffic_annotation_));
 
@@ -613,6 +606,14 @@ void ThrottlingURLLoader::RestartWithURLResetAndFlagsNow(
   RestartWithURLResetAndFlags(additional_load_flags);
   if (!did_receive_response_)
     RestartWithFlagsNow();
+}
+
+void ThrottlingURLLoader::RestartWithModifiedHeadersNow(
+    const net::HttpRequestHeaders& modified_headers) {
+  modified_headers_.MergeFrom(modified_headers);
+  // While not actually redirecting, the mechanism here is very similar to an
+  // internal redirect to the same url.
+  FollowRedirectForcingRestart();
 }
 
 void ThrottlingURLLoader::OnReceiveResponse(

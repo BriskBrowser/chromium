@@ -6,10 +6,10 @@
 
 #include "base/memory/ptr_util.h"
 #import "ios/web/common/web_view_creation_util.h"
-#include "ios/web/public/test/fakes/test_browser_state.h"
-#import "ios/web/public/test/fakes/test_web_client.h"
+#include "ios/web/public/test/fakes/fake_browser_state.h"
 #include "ios/web/public/test/scoped_testing_web_client.h"
 #include "ios/web/public/test/web_test.h"
+#import "ios/web/public/web_client.h"
 #include "third_party/ocmock/OCMock/OCMock.h"
 #include "third_party/ocmock/gtest_support.h"
 
@@ -89,16 +89,28 @@ class CRWWKScriptMessageRouterTest : public web::WebTest {
  private:
   // WebClient and BrowserState for testing.
   web::ScopedTestingWebClient web_client_;
-  web::TestBrowserState browser_state_;
+  web::FakeBrowserState browser_state_;
 };
 
 // Tests CRWWKScriptMessageRouter designated initializer.
-TEST_F(CRWWKScriptMessageRouterTest, Initialization) {
+// TODO(crbug.com/1178500): Re-enable this test.
+#if TARGET_OS_SIMULATOR
+#define MAYBE_Initialization Initialization
+#else
+#define MAYBE_Initialization DISABLED_Initialization
+#endif  // TARGET_OS_SIMULATOR
+TEST_F(CRWWKScriptMessageRouterTest, MAYBE_Initialization) {
   EXPECT_TRUE(router_);
 }
 
 // Tests registration/deregistation of message handlers.
-TEST_F(CRWWKScriptMessageRouterTest, HandlerRegistration) {
+// TODO(crbug.com/1178500): Re-enable this test.
+#if TARGET_OS_SIMULATOR
+#define MAYBE_HandlerRegistration HandlerRegistration
+#else
+#define MAYBE_HandlerRegistration DISABLED_HandlerRegistration
+#endif  // TARGET_OS_SIMULATOR
+TEST_F(CRWWKScriptMessageRouterTest, MAYBE_HandlerRegistration) {
   [[controller_mock_ expect] addScriptMessageHandler:router_ name:name1_];
   [[controller_mock_ expect] addScriptMessageHandler:router_ name:name2_];
 
@@ -117,7 +129,13 @@ TEST_F(CRWWKScriptMessageRouterTest, HandlerRegistration) {
 // Tests registration of message handlers. Test ensures that
 // WKScriptMessageHandler is not removed if CRWWKScriptMessageRouter has valid
 // message handlers.
-TEST_F(CRWWKScriptMessageRouterTest, HandlerRegistrationLeak) {
+// TODO(crbug.com/1178500): Re-enable this test.
+#if TARGET_OS_SIMULATOR
+#define MAYBE_HandlerRegistrationLeak HandlerRegistrationLeak
+#else
+#define MAYBE_HandlerRegistrationLeak DISABLED_HandlerRegistrationLeak
+#endif  // TARGET_OS_SIMULATOR
+TEST_F(CRWWKScriptMessageRouterTest, MAYBE_HandlerRegistrationLeak) {
   [[controller_mock_ expect] addScriptMessageHandler:router_ name:name1_];
 
   // -removeScriptMessageHandlerForName must not be called.
@@ -129,7 +147,13 @@ TEST_F(CRWWKScriptMessageRouterTest, HandlerRegistrationLeak) {
 }
 
 // Tests deregistation of all message handlers.
-TEST_F(CRWWKScriptMessageRouterTest, RemoveAllHandlers) {
+// TODO(crbug.com/1178500): Re-enable this test.
+#if TARGET_OS_SIMULATOR
+#define MAYBE_RemoveAllHandlers RemoveAllHandlers
+#else
+#define MAYBE_RemoveAllHandlers DISABLED_RemoveAllHandlers
+#endif  // TARGET_OS_SIMULATOR
+TEST_F(CRWWKScriptMessageRouterTest, MAYBE_RemoveAllHandlers) {
   [[controller_mock_ expect] addScriptMessageHandler:router_ name:name1_];
   [[controller_mock_ expect] addScriptMessageHandler:router_ name:name2_];
 
@@ -147,7 +171,13 @@ TEST_F(CRWWKScriptMessageRouterTest, RemoveAllHandlers) {
 // Tests deregistation of all message handlers. Test ensures that
 // WKScriptMessageHandler is not removed if CRWWKScriptMessageRouter has valid
 // message handlers.
-TEST_F(CRWWKScriptMessageRouterTest, RemoveAllHandlersLeak) {
+// TODO(crbug.com/1178500): Re-enable this test.
+#if TARGET_OS_SIMULATOR
+#define MAYBE_RemoveAllHandlersLeak RemoveAllHandlersLeak
+#else
+#define MAYBE_RemoveAllHandlersLeak DISABLED_RemoveAllHandlersLeak
+#endif  // TARGET_OS_SIMULATOR
+TEST_F(CRWWKScriptMessageRouterTest, MAYBE_RemoveAllHandlersLeak) {
   [[controller_mock_ expect] addScriptMessageHandler:router_ name:name1_];
   [[controller_mock_ expect] addScriptMessageHandler:router_ name:name2_];
   [[controller_mock_ expect] addScriptMessageHandler:router_ name:name3_];
@@ -165,7 +195,13 @@ TEST_F(CRWWKScriptMessageRouterTest, RemoveAllHandlersLeak) {
 
 // Tests proper routing of WKScriptMessage object depending on message name and
 // web view.
-TEST_F(CRWWKScriptMessageRouterTest, Routing) {
+// TODO(crbug.com/1178500): Re-enable this test.
+#if TARGET_OS_SIMULATOR
+#define MAYBE_Routing Routing
+#else
+#define MAYBE_Routing DISABLED_Routing
+#endif  // TARGET_OS_SIMULATOR
+TEST_F(CRWWKScriptMessageRouterTest, MAYBE_Routing) {
   // It's expected that messages handlers will be called once and in order.
   WKFrameInfo* frame_info = [[WKFrameInfo alloc] init];
   __block NSInteger last_called_handler = 0;

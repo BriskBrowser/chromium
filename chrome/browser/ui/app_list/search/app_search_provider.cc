@@ -18,13 +18,12 @@
 #include "ash/public/cpp/app_list/internal_app_id_constants.h"
 #include "base/bind.h"
 #include "base/callback_list.h"
-#include "base/containers/flat_set.h"
 #include "base/i18n/rtl.h"
 #include "base/macros.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/no_destructor.h"
 #include "base/single_thread_task_runner.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/clock.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
@@ -32,8 +31,6 @@
 #include "chrome/browser/chromeos/crostini/crostini_features.h"
 #include "chrome/browser/chromeos/crostini/crostini_manager.h"
 #include "chrome/browser/chromeos/extensions/gfx_utils.h"
-#include "chrome/browser/chromeos/release_notes/release_notes_storage.h"
-#include "chrome/browser/chromeos/web_applications/default_web_app_ids.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/session_sync_service_factory.h"
@@ -116,16 +113,15 @@ float ReRange(const float score, const float min, const float max) {
 }
 
 // Checks if current locale is non Latin locales.
-bool IsNonLatinLocale(const std::string& locale) {
+bool IsNonLatinLocale(base::StringPiece locale) {
   // A set of of non Latin locales. This set is used to select appropriate
   // algorithm for app search.
-  static const base::NoDestructor<base::flat_set<std::string>>
-      non_latin_locales({"am", "ar", "be", "bg",    "bn",    "el",   "fa",
-                         "gu", "hi", "hy", "iw",    "ja",    "ka",   "kk",
-                         "km", "kn", "ko", "ky",    "lo",    "mk",   "ml",
-                         "mn", "mr", "my", "pa",    "ru",    "sr",   "ta",
-                         "te", "th", "uk", "zh-CN", "zh-HK", "zh-TW"});
-  return base::Contains(*non_latin_locales, locale);
+  static constexpr char kNonLatinLocales[][6] = {
+      "am", "ar", "be", "bg", "bn",    "el",    "fa",   "gu", "hi",
+      "hy", "iw", "ja", "ka", "kk",    "km",    "kn",   "ko", "ky",
+      "lo", "mk", "ml", "mn", "mr",    "my",    "pa",   "ru", "sr",
+      "ta", "te", "th", "uk", "zh-CN", "zh-HK", "zh-TW"};
+  return base::Contains(kNonLatinLocales, locale);
 }
 
 }  // namespace
@@ -408,8 +404,7 @@ class AppServiceDataSource : public AppSearchProvider::DataSource,
   // comments for the apps::IconCache::GarbageCollectionPolicy enum.
   apps::IconCache icon_cache_;
 
-  std::unique_ptr<base::CallbackList<void()>::Subscription>
-      foreign_session_updated_subscription_;
+  base::CallbackListSubscription foreign_session_updated_subscription_;
 
   DISALLOW_COPY_AND_ASSIGN(AppServiceDataSource);
 };
@@ -481,7 +476,8 @@ void AppSearchProvider::RefreshAppsAndUpdateResultsDeferred() {
 void AppSearchProvider::UpdateRecommendedResults(
     const base::flat_map<std::string, uint16_t>& id_to_app_list_index) {
   SearchProvider::Results new_results;
-  std::set<std::string> seen_or_filtered_apps;
+  std::set<std::string> seen_or_filtered_tile_apps;
+  std::set<std::string> seen_or_filtered_chip_apps;
   const uint16_t apps_size = apps_.size();
   new_results.reserve(apps_size);
 
@@ -501,28 +497,11 @@ void AppSearchProvider::UpdateRecommendedResults(
         title = navigation_title;
         app->AddSearchableText(title);
       }
-    } else if (app->id() == ash::kReleaseNotesAppId) {
-      auto release_notes_storage =
-          std::make_unique<chromeos::ReleaseNotesStorage>(profile_);
-      if (!release_notes_storage->ShouldShowSuggestionChip())
-        continue;
     }
 
     std::unique_ptr<AppResult> result =
         app->data_source()->CreateResult(app->id(), list_controller_, true);
     result->SetTitle(title);
-
-    if (app->id() == chromeos::default_web_apps::kHelpAppId) {
-      auto release_notes_storage =
-          std::make_unique<chromeos::ReleaseNotesStorage>(profile_);
-      // If we should show the release notes suggestion chip, change the title
-      // and url of the Help App. Otherwise leave as normal.
-      if (release_notes_storage->ShouldShowSuggestionChip()) {
-        result->SetTitle(ui::SubstituteChromeOSDeviceType(
-            IDS_RELEASE_NOTES_DEVICE_SPECIFIC_NOTIFICATION_TITLE));
-        result->SetQueryUrl(GURL("chrome://help-app/updates"));
-      }
-    }
 
     const auto find_in_app_list = id_to_app_list_index.find(app->id());
     const base::Time time = app->GetLastActivityTime();
@@ -544,7 +523,18 @@ void AppSearchProvider::UpdateRecommendedResults(
       result->set_relevance(0.0f);
     }
 
-    MaybeAddResult(&new_results, std::move(result), &seen_or_filtered_apps);
+    // Create a second result to the display in the launcher chips, that is
+    // otherwise identical to |result|.
+    std::unique_ptr<AppResult> chip_result =
+        app->data_source()->CreateResult(app->id(), list_controller_, true);
+    chip_result->SetMetadata(result->CloneMetadata());
+    chip_result->SetDisplayType(ChromeSearchResult::DisplayType::kChip);
+    chip_result->set_relevance(result->relevance());
+
+    MaybeAddResult(&new_results, std::move(result),
+                   &seen_or_filtered_tile_apps);
+    MaybeAddResult(&new_results, std::move(chip_result),
+                   &seen_or_filtered_chip_apps);
   }
   PublishQueriedResultsOrRecommendation(false, &new_results);
 }

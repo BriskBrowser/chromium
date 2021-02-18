@@ -9,72 +9,48 @@ import android.graphics.Rect;
 import android.text.TextUtils;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import org.chromium.base.Callback;
+import org.chromium.base.SysUtils;
 import org.chromium.base.UnguessableToken;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
+import org.chromium.components.paint_preview.common.proto.PaintPreview.PaintPreviewProto;
 import org.chromium.components.paintpreview.browser.NativePaintPreviewServiceProvider;
 import org.chromium.url.GURL;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * This class and its native counterpart (player_compositor_delegate.cc) communicate with the Paint
  * Preview compositor.
  */
 @JNINamespace("paint_preview")
-class PlayerCompositorDelegateImpl implements PlayerCompositorDelegate {
-    interface CompositorListener {
-        void onCompositorReady(UnguessableToken rootFrameGuid, UnguessableToken[] frameGuids,
-                int[] frameContentSize, int[] scrollOffsets, int[] subFramesCount,
-                UnguessableToken[] subFrameGuids, int[] subFrameClipRects);
-    }
+public class PlayerCompositorDelegateImpl implements PlayerCompositorDelegate {
+    private static final int LOW_MEMORY_THRESHOLD_KB = 2048;
 
     private CompositorListener mCompositorListener;
-    private LinkClickHandler mLinkClickHandler;
     private long mNativePlayerCompositorDelegate;
+    private List<Runnable> mMemoryPressureListeners = new ArrayList<>();
 
-    PlayerCompositorDelegateImpl(NativePaintPreviewServiceProvider service, GURL url,
-            String directoryKey, @NonNull CompositorListener compositorListener,
+    public PlayerCompositorDelegateImpl(NativePaintPreviewServiceProvider service,
+            @Nullable PaintPreviewProto proto, GURL url, String directoryKey, boolean mainFrameMode,
+            @NonNull CompositorListener compositorListener,
             Callback<Integer> compositorErrorCallback) {
         mCompositorListener = compositorListener;
-        if (service != null && service.getNativeService() != 0) {
+        if (service != null && service.getNativeBaseService() != 0) {
             mNativePlayerCompositorDelegate = PlayerCompositorDelegateImplJni.get().initialize(this,
-                    service.getNativeService(), url.getSpec(), directoryKey,
-                    compositorErrorCallback);
+                    service.getNativeBaseService(), (proto != null) ? proto.toByteArray() : null,
+                    url.getSpec(), directoryKey, mainFrameMode, compositorErrorCallback,
+                    SysUtils.amountOfPhysicalMemoryKB() < LOW_MEMORY_THRESHOLD_KB);
         }
         // TODO(crbug.com/1021590): Handle initialization errors when
         // mNativePlayerCompositorDelegate == 0.
     }
 
-    /**
-     * Called by native when the Paint Preview compositor is ready.
-     *
-     * @param rootFrameGuid The GUID for the root frame.
-     * @param frameGuids Contains all frame GUIDs that are in this hierarchy.
-     * @param frameContentSize Contains the content size for each frame. In native, this is called
-     * scroll extent. The order corresponds to {@code frameGuids}. The content width and height for
-     * the ith frame in {@code frameGuids} are respectively in the {@code 2*i} and {@code 2*i+1}
-     * indices of {@code frameContentSize}.
-     * @param scrollOffsets Contains the initial scroll offsets for each frame. The order
-     * corresponds to {@code frameGuids}. The offset in x and y for the ith frame in
-     * {@code frameGuids} are respectively in the {@code 2*i} and {@code 2*i+1} indices of
-     * {@code scrollOffsets}.
-     * @param subFramesCount Contains the number of sub-frames for each frame. The order corresponds
-     * to {@code frameGuids}. The number of sub-frames for the {@code i}th frame in {@code
-     * frameGuids} is {@code subFramesCount[i]}.
-     * @param subFrameGuids Contains the GUIDs of all sub-frames. The GUID for the {@code j}th
-     * sub-frame of {@code frameGuids[i]} will be at {@code subFrameGuids[k]}, where {@code k} is:
-     * <pre>
-     *     int k = j;
-     *     for (int s = 0; s < i; s++) k += subFramesCount[s];
-     * </pre>
-     * @param subFrameClipRects Contains clip rect values for each sub-frame. Each clip rect value
-     * comes in a series of four consecutive integers that represent x, y, width, and height. The
-     * clip rect values for the {@code j}th sub-frame of {@code frameGuids[i]} will be at {@code
-     * subFrameGuids[4*k]}, {@code subFrameGuids[4*k+1]} , {@code subFrameGuids[4*k+2]}, and {@code
-     * subFrameGuids[4*k+3]}, where {@code k} has the same value as above.
-     */
     @CalledByNative
     void onCompositorReady(UnguessableToken rootFrameGuid, UnguessableToken[] frameGuids,
             int[] frameContentSize, int[] scrollOffsets, int[] subFramesCount,
@@ -83,16 +59,54 @@ class PlayerCompositorDelegateImpl implements PlayerCompositorDelegate {
                 scrollOffsets, subFramesCount, subFrameGuids, subFrameClipRects);
     }
 
+    @CalledByNative
+    void onModerateMemoryPressure() {
+        for (Runnable listener : mMemoryPressureListeners) {
+            listener.run();
+        }
+    }
+
     @Override
-    public void requestBitmap(UnguessableToken frameGuid, Rect clipRect, float scaleFactor,
+    public void addMemoryPressureListener(Runnable runnable) {
+        mMemoryPressureListeners.add(runnable);
+    }
+
+    @Override
+    public int requestBitmap(UnguessableToken frameGuid, Rect clipRect, float scaleFactor,
             Callback<Bitmap> bitmapCallback, Runnable errorCallback) {
+        if (mNativePlayerCompositorDelegate == 0) {
+            return -1;
+        }
+
+        return PlayerCompositorDelegateImplJni.get().requestBitmap(mNativePlayerCompositorDelegate,
+                frameGuid, bitmapCallback, errorCallback, scaleFactor, clipRect.left, clipRect.top,
+                clipRect.width(), clipRect.height());
+    }
+
+    @Override
+    public int requestBitmap(Rect clipRect, float scaleFactor, Callback<Bitmap> bitmapCallback,
+            Runnable errorCallback) {
+        return requestBitmap(null, clipRect, scaleFactor, bitmapCallback, errorCallback);
+    }
+
+    @Override
+    public boolean cancelBitmapRequest(int requestId) {
+        if (mNativePlayerCompositorDelegate == 0) {
+            return false;
+        }
+
+        return PlayerCompositorDelegateImplJni.get().cancelBitmapRequest(
+                mNativePlayerCompositorDelegate, requestId);
+    }
+
+    @Override
+    public void cancelAllBitmapRequests() {
         if (mNativePlayerCompositorDelegate == 0) {
             return;
         }
 
-        PlayerCompositorDelegateImplJni.get().requestBitmap(mNativePlayerCompositorDelegate,
-                frameGuid, bitmapCallback, errorCallback, scaleFactor, clipRect.left, clipRect.top,
-                clipRect.width(), clipRect.height());
+        PlayerCompositorDelegateImplJni.get().cancelAllBitmapRequests(
+                mNativePlayerCompositorDelegate);
     }
 
     @Override
@@ -118,7 +132,8 @@ class PlayerCompositorDelegateImpl implements PlayerCompositorDelegate {
                 mNativePlayerCompositorDelegate, compressOnClose);
     }
 
-    void destroy() {
+    @Override
+    public void destroy() {
         if (mNativePlayerCompositorDelegate == 0) {
             return;
         }
@@ -130,11 +145,14 @@ class PlayerCompositorDelegateImpl implements PlayerCompositorDelegate {
     @NativeMethods
     interface Natives {
         long initialize(PlayerCompositorDelegateImpl caller, long nativePaintPreviewBaseService,
-                String urlSpec, String directoryKey, Callback<Integer> compositorErrorCallback);
+                byte[] proto, String urlSpec, String directoryKey, boolean mainFrameMode,
+                Callback<Integer> compositorErrorCallback, boolean isLowMemory);
         void destroy(long nativePlayerCompositorDelegateAndroid);
-        void requestBitmap(long nativePlayerCompositorDelegateAndroid, UnguessableToken frameGuid,
+        int requestBitmap(long nativePlayerCompositorDelegateAndroid, UnguessableToken frameGuid,
                 Callback<Bitmap> bitmapCallback, Runnable errorCallback, float scaleFactor,
                 int clipX, int clipY, int clipWidth, int clipHeight);
+        boolean cancelBitmapRequest(long nativePlayerCompositorDelegateAndroid, int requestId);
+        void cancelAllBitmapRequests(long nativePlayerCompositorDelegateAndroid);
         String onClick(long nativePlayerCompositorDelegateAndroid, UnguessableToken frameGuid,
                 int x, int y);
         void setCompressOnClose(

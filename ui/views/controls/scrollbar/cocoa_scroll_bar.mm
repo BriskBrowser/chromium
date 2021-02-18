@@ -14,6 +14,7 @@
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/canvas.h"
 #include "ui/views/controls/scrollbar/base_scroll_bar_thumb.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace views {
 
@@ -221,11 +222,11 @@ void CocoaScrollBar::OnPaint(gfx::Canvas* canvas) {
                           ui::NativeTheme::kNormal, GetLocalBounds(), params);
 }
 
-bool CocoaScrollBar::CanProcessEventsWithinSubtree() const {
+bool CocoaScrollBar::GetCanProcessEventsWithinSubtree() const {
   // If using overlay scrollbars, do not process events when fully hidden.
   return scroller_style_ == NSScrollerStyleOverlay
              ? !IsScrollbarFullyHidden()
-             : ScrollBar::CanProcessEventsWithinSubtree();
+             : ScrollBar::GetCanProcessEventsWithinSubtree();
 }
 
 bool CocoaScrollBar::OnMousePressed(const ui::MouseEvent& event) {
@@ -509,6 +510,6 @@ base::RetainingOneShotTimer* ScrollBar::GetHideTimerForTesting(
 }
 
 BEGIN_METADATA(CocoaScrollBar, ScrollBar)
-END_METADATA()
+END_METADATA
 
 }  // namespace views

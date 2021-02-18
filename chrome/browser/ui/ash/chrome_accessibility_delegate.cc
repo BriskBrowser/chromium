@@ -6,11 +6,8 @@
 
 #include <limits>
 
-#include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
-#include "chrome/browser/chromeos/accessibility/magnification_manager.h"
-
-using chromeos::AccessibilityManager;
-using chromeos::MagnificationManager;
+#include "chrome/browser/ash/accessibility/accessibility_manager.h"
+#include "chrome/browser/ash/accessibility/magnification_manager.h"
 
 ChromeAccessibilityDelegate::ChromeAccessibilityDelegate() = default;
 

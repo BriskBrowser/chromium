@@ -6,7 +6,7 @@
 
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "build/build_config.h"
 #include "ui/base/hit_test.h"
 #include "ui/events/event_processor.h"
@@ -162,10 +162,10 @@ TEST_F(DialogTest, OkButtonAccepts) {
   EXPECT_TRUE(accepted_);
 }
 
-TEST_F(DialogTest, EscButtonCloses) {
-  EXPECT_FALSE(closed_);
+TEST_F(DialogTest, EscButtonCancels) {
+  EXPECT_FALSE(cancelled_);
   SimulateKeyPress(ui::VKEY_ESCAPE);
-  EXPECT_TRUE(closed_);
+  EXPECT_TRUE(cancelled_);
 }
 
 TEST_F(DialogTest, ReturnDirectedToOkButtonPlatformStyle) {

@@ -13,10 +13,10 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequence_checker.h"
+#include "components/services/storage/public/mojom/quota_client.mojom.h"
 #include "content/browser/appcache/appcache_storage.h"
 #include "content/common/content_export.h"
 #include "net/base/completion_repeating_callback.h"
-#include "storage/browser/quota/quota_client.h"
 #include "storage/browser/quota/quota_client_type.h"
 #include "storage/browser/quota/quota_task.h"
 #include "third_party/blink/public/mojom/quota/quota_types.mojom-forward.h"
@@ -32,15 +32,16 @@ class AppCacheStorageImpl;
 // used on the IO thread by the quota manager. This class deletes
 // itself when both the quota manager and the appcache service have
 // been destroyed.
-class AppCacheQuotaClient : public storage::QuotaClient {
+class AppCacheQuotaClient : public storage::mojom::QuotaClient {
  public:
   using RequestQueue = base::circular_deque<base::OnceClosure>;
 
   CONTENT_EXPORT
   explicit AppCacheQuotaClient(base::WeakPtr<AppCacheServiceImpl> service);
 
-  // QuotaClient method overrides
-  void OnQuotaManagerDestroyed() override;
+  ~AppCacheQuotaClient() override;
+
+  // mojom::QuotaClient method overrides
   void GetOriginUsage(const url::Origin& origin,
                       blink::mojom::StorageType type,
                       GetOriginUsageCallback callback) override;
@@ -55,12 +56,13 @@ class AppCacheQuotaClient : public storage::QuotaClient {
   void PerformStorageCleanup(blink::mojom::StorageType type,
                              PerformStorageCleanupCallback callback) override;
 
+  // The mojo pipe to this client was disconnected on the other side.
+  CONTENT_EXPORT void OnMojoDisconnect();
+
  private:
   friend class content::AppCacheQuotaClientTest;
-  friend class AppCacheServiceImpl;  // for NotifyAppCacheIsDestroyed
-  friend class AppCacheStorageImpl;  // for NotifyAppCacheIsReady
-
-  ~AppCacheQuotaClient() override;
+  friend class AppCacheServiceImpl;  // for NotifyServiceDestroyed
+  friend class AppCacheStorageImpl;  // for NotifyStorageReady
 
   void DidDeleteAppCachesForOrigin(int rv);
   void GetOriginsHelper(const std::string& opt_host,
@@ -70,8 +72,15 @@ class AppCacheQuotaClient : public storage::QuotaClient {
   net::CancelableCompletionRepeatingCallback* GetServiceDeleteCallback();
 
   // For use by appcache internals during initialization and shutdown.
-  CONTENT_EXPORT void NotifyAppCacheReady();
-  CONTENT_EXPORT void NotifyAppCacheDestroyed();
+
+  // Called when the AppCacheStorageImpl's storage is fully initialized.
+  //
+  // After this point, calling AppCacheServiceImpl::storage() is guaranteed to
+  // return a non-null value.
+  CONTENT_EXPORT void NotifyStorageReady();
+
+  // Called when the AppCacheServiceImpl passed to the constructor is destroyed.
+  CONTENT_EXPORT void NotifyServiceDestroyed();
 
   // Prior to appcache service being ready, we have to queue
   // up requests and defer acting on them until we're ready.

@@ -17,9 +17,7 @@ destination_select_test.suiteName = 'DestinationSelectTest';
 /** @enum {string} */
 destination_select_test.TestNames = {
   UpdateStatus: 'update status',
-  UpdateStatusDeprecationWarnings: 'update status deprecation warnings',
   ChangeIcon: 'change icon',
-  ChangeIconDeprecationWarnings: 'change icon deprecation warnings',
 };
 
 suite(destination_select_test.suiteName, function() {
@@ -73,6 +71,12 @@ suite(destination_select_test.suiteName, function() {
           'ID3', DestinationType.GOOGLE, cookieOrigin, 'Three',
           DestinationConnectionStatus.ONLINE,
           {account: account, isOwned: true}),
+      new Destination(
+          'ID4', DestinationType.LOCAL, DestinationOrigin.LOCAL, 'Four',
+          DestinationConnectionStatus.ONLINE, {isEnterprisePrinter: true}),
+      new Destination(
+          'ID5', DestinationType.MOBILE, cookieOrigin, 'Five',
+          DestinationConnectionStatus.ONLINE),
     ];
   }
 
@@ -87,11 +91,9 @@ suite(destination_select_test.suiteName, function() {
   /**
    * Test that changing different destinations results in the correct icon being
    * shown.
-   * @param {boolean} cloudPrintDeprecationWarningsSuppressed Whether cloud
-   *     print deprecation warnings should be suppressed.
    * @return {!Promise} Promise that resolves when the test finishes.
    */
-  function testChangeIcon(cloudPrintDeprecationWarningsSuppressed) {
+  function testChangeIcon() {
     const destination = recentDestinationList[0];
     destinationSelect.destination = destination;
     destinationSelect.updateDestination();
@@ -102,63 +104,71 @@ suite(destination_select_test.suiteName, function() {
 
     return selectOption(destinationSelect, driveKey)
         .then(() => {
-          const saveToDriveIcon = cloudPrintDeprecationWarningsSuppressed ?
-              'save-to-drive' :
-              'save-to-drive-not-supported';
-
           // Icon updates early based on the ID.
-          compareIcon(selectEl, saveToDriveIcon);
+          compareIcon(selectEl, 'save-to-drive');
 
           // Update the destination.
           destinationSelect.destination = getGoogleDriveDestination(account);
 
           // Still Save to Drive icon.
-          compareIcon(selectEl, saveToDriveIcon);
+          compareIcon(selectEl, 'save-to-drive');
 
           // Select a destination with the shared printer icon.
           return selectOption(
               destinationSelect, `ID2/${cookieOrigin}/${account}`);
         })
         .then(() => {
-          const dest2Icon = cloudPrintDeprecationWarningsSuppressed ?
-              'printer-shared' :
-              'printer-not-supported';
-
           // Should already be updated.
-          compareIcon(selectEl, dest2Icon);
+          compareIcon(selectEl, 'printer-shared');
 
           // Update destination.
           destinationSelect.destination = recentDestinationList[1];
-          compareIcon(selectEl, dest2Icon);
+          compareIcon(selectEl, 'printer-shared');
 
           // Select a destination with a standard printer icon.
           return selectOption(
               destinationSelect, `ID3/${cookieOrigin}/${account}`);
         })
         .then(() => {
-          const dest3Icon = cloudPrintDeprecationWarningsSuppressed ?
-              'print' :
-              'printer-not-supported';
-
-          compareIcon(selectEl, dest3Icon);
+          compareIcon(selectEl, 'print');
 
           // Update destination.
           destinationSelect.destination = recentDestinationList[2];
-          compareIcon(selectEl, dest3Icon);
+          compareIcon(selectEl, 'print');
+
+          // Select a destination with the enterprise printer icon.
+          return selectOption(destinationSelect, `ID4/local/`);
+        })
+        .then(() => {
+          const enterpriseIcon = 'business';
+
+          compareIcon(selectEl, enterpriseIcon);
+
+          // Update destination.
+          destinationSelect.destination = recentDestinationList[3];
+          compareIcon(selectEl, enterpriseIcon);
+
+          // Select a destination with the mobile printer icon.
+          return selectOption(destinationSelect, `ID5/${cookieOrigin}/`);
+        })
+        .then(() => {
+          const mobileIcon = 'smartphone';
+
+          compareIcon(selectEl, mobileIcon);
+
+          // Update destination.
+          destinationSelect.destination = recentDestinationList[4];
+          compareIcon(selectEl, mobileIcon);
         });
   }
 
   /**
    * Test that changing different destinations results in the correct status
    * being shown.
-   * @param {boolean} cloudPrintDeprecationWarningsSuppressed Whether cloud
-   *     print deprecation warnings should be suppressed.
    */
-  function testUpdateStatus(cloudPrintDeprecationWarningsSuppressed) {
+  function testUpdateStatus() {
     loadTimeData.overrideValues({
       offline: 'offline',
-      printerNotSupportedWarning: 'printerNotSupportedWarning',
-      saveToDriveNotSupportedWarning: 'saveToDriveNotSupportedWarning',
     });
 
     assertFalse(destinationSelect.$$('.throbber-container').hidden);
@@ -175,12 +185,8 @@ suite(destination_select_test.suiteName, function() {
     destinationSelect.driveDestinationKey = driveKey;
     destinationSelect.destination = getGoogleDriveDestination(account);
     destinationSelect.updateDestination();
-    const saveToDriveStatus = cloudPrintDeprecationWarningsSuppressed ?
-        '' :
-        'saveToDriveNotSupportedWarning';
-    assertEquals(
-        cloudPrintDeprecationWarningsSuppressed, additionalInfoEl.hidden);
-    assertEquals(saveToDriveStatus, statusEl.innerHTML);
+    assertTrue(additionalInfoEl.hidden);
+    assertEquals('', statusEl.innerHTML);
 
     destinationSelect.destination = recentDestinationList[0];
     destinationSelect.updateDestination();
@@ -194,47 +200,19 @@ suite(destination_select_test.suiteName, function() {
 
     destinationSelect.destination = recentDestinationList[2];
     destinationSelect.updateDestination();
-    assertEquals(
-        cloudPrintDeprecationWarningsSuppressed, additionalInfoEl.hidden);
-    const dest3Status = cloudPrintDeprecationWarningsSuppressed ?
-        '' :
-        'printerNotSupportedWarning';
-    assertEquals(dest3Status, statusEl.innerHTML);
+    assertTrue(additionalInfoEl.hidden);
+    assertEquals('', statusEl.innerHTML);
   }
 
   test(assert(destination_select_test.TestNames.UpdateStatus), function() {
-    loadTimeData.overrideValues(
-        {cloudPrintDeprecationWarningsSuppressed: true});
-
-    // Repopulate |recentDestinationList| to have
-    // |cloudPrintDeprecationWarningsSuppressed| take effect during creation of
-    // new Destinations.
     populateRecentDestinationList();
-    return testUpdateStatus(true);
+    return testUpdateStatus();
   });
 
-  test(
-      assert(destination_select_test.TestNames.UpdateStatusDeprecationWarnings),
-      function() {
-        return testUpdateStatus(false);
-      });
-
   test(assert(destination_select_test.TestNames.ChangeIcon), function() {
-    loadTimeData.overrideValues(
-        {cloudPrintDeprecationWarningsSuppressed: true});
-
-    // Repopulate |recentDestinationList| to have
-    // |cloudPrintDeprecationWarningsSuppressed| take effect during creation of
-    // new Destinations.
     populateRecentDestinationList();
     destinationSelect.recentDestinationList = recentDestinationList;
 
-    return testChangeIcon(true);
+    return testChangeIcon();
   });
-
-  test(
-      assert(destination_select_test.TestNames.ChangeIconDeprecationWarnings),
-      function() {
-        return testChangeIcon(false);
-      });
 });

@@ -40,27 +40,39 @@ class CORE_EXPORT LayoutListMarker final : public LayoutBox {
  public:
   explicit LayoutListMarker(Element*);
   ~LayoutListMarker() override;
+  void Trace(Visitor*) const override;
 
   // Marker text without suffix, e.g. "1".
-  const String& GetText() const { return text_; }
+  const String& GetText() const {
+    NOT_DESTROYED();
+    return text_;
+  }
 
   // Marker text with suffix, e.g. "1. ", for use in accessibility.
   String TextAlternative() const;
 
   ListMarker::ListStyleCategory GetListStyleCategory() const;
+  const CounterStyle& GetCounterStyle() const;
 
   bool IsInside() const;
 
   LayoutRect GetRelativeMarkerRect() const;
 
   bool IsImage() const override;
-  const StyleImage* GetImage() const { return image_.Get(); }
+  const StyleImage* GetImage() const {
+    NOT_DESTROYED();
+    return image_.Get();
+  }
   const LayoutListItem* ListItem() const;
   LayoutSize ImageBulletSize() const;
 
-  const char* GetName() const override { return "LayoutListMarker"; }
+  const char* GetName() const override {
+    NOT_DESTROYED();
+    return "LayoutListMarker";
+  }
 
   LayoutUnit ListItemInlineStartOffset() const {
+    NOT_DESTROYED();
     return list_item_inline_start_offset_;
   }
 
@@ -72,6 +84,7 @@ class CORE_EXPORT LayoutListMarker final : public LayoutBox {
   MinMaxSizes PreferredLogicalWidths() const override;
 
   bool IsOfType(LayoutObjectType type) const override {
+    NOT_DESTROYED();
     return type == kLayoutObjectListMarker || LayoutBox::IsOfType(type);
   }
 
@@ -93,7 +106,10 @@ class CORE_EXPORT LayoutListMarker final : public LayoutBox {
       LineDirectionMode,
       LinePositionMode = kPositionOnContainingLine) const override;
 
-  bool IsText() const { return !IsImage(); }
+  bool IsText() const {
+    NOT_DESTROYED();
+    return !IsImage();
+  }
 
   LayoutUnit GetWidthOfText(ListMarker::ListStyleCategory) const;
   void UpdateMargins(LayoutUnit marker_inline_size);
@@ -102,14 +118,19 @@ class CORE_EXPORT LayoutListMarker final : public LayoutBox {
 
   void UpdateMarkerImageIfNeeded(StyleImage* image);
   void ListStyleTypeChanged();
+  void CounterStyleChanged();
 
   String text_;
-  Persistent<StyleImage> image_;
+  Member<StyleImage> image_;
   LayoutUnit list_item_inline_start_offset_;
 };
 
-DEFINE_LAYOUT_OBJECT_TYPE_CASTS(LayoutListMarker,
-                                IsListMarkerForNormalContent());
+template <>
+struct DowncastTraits<LayoutListMarker> {
+  static bool AllowFrom(const LayoutObject& object) {
+    return object.IsListMarkerForNormalContent();
+  }
+};
 
 }  // namespace blink
 

@@ -4,17 +4,16 @@
 
 #include "chrome/browser/chromeos/crostini/crostini_features.h"
 
+#include "ash/constants/ash_features.h"
 #include "base/callback.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/chromeos/crostini/crostini_pref_names.h"
 #include "chrome/browser/chromeos/crostini/fake_crostini_features.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/test/base/testing_profile.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "components/policy/proto/chrome_device_policy.pb.h"
 #include "components/prefs/pref_service.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
@@ -41,7 +40,7 @@ TEST(CrostiniFeaturesTest, TestExportImportUIAllowed) {
   FakeCrostiniFeatures crostini_features;
 
   // Set up for success.
-  crostini_features.set_ui_allowed(true);
+  crostini_features.set_is_allowed_now(true);
   profile.GetPrefs()->SetBoolean(
       crostini::prefs::kUserCrostiniExportImportUIAllowedByPolicy, true);
 
@@ -49,9 +48,9 @@ TEST(CrostiniFeaturesTest, TestExportImportUIAllowed) {
   EXPECT_TRUE(crostini_features.IsExportImportUIAllowed(&profile));
 
   // Crostini UI not allowed.
-  crostini_features.set_ui_allowed(false);
+  crostini_features.set_is_allowed_now(false);
   EXPECT_FALSE(crostini_features.IsExportImportUIAllowed(&profile));
-  crostini_features.set_ui_allowed(true);
+  crostini_features.set_is_allowed_now(true);
 
   // Pref off.
   profile.GetPrefs()->SetBoolean(
@@ -66,7 +65,7 @@ TEST(CrostiniFeaturesTest, TestRootAccessAllowed) {
   base::test::ScopedFeatureList scoped_feature_list;
 
   // Set up for success.
-  crostini_features.set_ui_allowed(true);
+  crostini_features.set_is_allowed_now(true);
   scoped_feature_list.InitWithFeatures(
       {features::kCrostiniAdvancedAccessControls}, {});
   profile.GetPrefs()->SetBoolean(

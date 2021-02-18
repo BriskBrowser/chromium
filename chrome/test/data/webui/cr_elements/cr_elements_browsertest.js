@@ -8,6 +8,7 @@
 GEN_INCLUDE(['//chrome/test/data/webui/polymer_browser_test_base.js']);
 
 GEN('#include "content/public/test/browser_test.h"');
+GEN('#include "build/chromeos_buildflags.h"');
 
 /**
  * Test fixture for shared Polymer elements.
@@ -17,11 +18,11 @@ GEN('#include "content/public/test/browser_test.h"');
 function CrElementsBrowserTest() {}
 
 CrElementsBrowserTest.prototype = {
-  __proto__: PolymerTest.prototype,
+  __proto__: Polymer2DeprecatedTest.prototype,
 
   /** @override */
   extraLibraries: [
-    ...PolymerTest.prototype.extraLibraries,
+    ...Polymer2DeprecatedTest.prototype.extraLibraries,
     '//ui/webui/resources/js/assert.js',
   ],
 
@@ -78,29 +79,6 @@ CrElementsSearchFieldTest.prototype = {
 };
 
 TEST_F('CrElementsSearchFieldTest', 'All', function() {
-  mocha.run();
-});
-
-/**
- * @constructor
- * @extends {CrElementsBrowserTest}
- */
-function CrElementsToolbarTest() {}
-
-CrElementsToolbarTest.prototype = {
-  __proto__: CrElementsBrowserTest.prototype,
-
-  /** @override */
-  browsePreload: 'chrome://resources/cr_elements/cr_toolbar/cr_toolbar.html',
-
-  /** @override */
-  extraLibraries: CrElementsBrowserTest.prototype.extraLibraries.concat([
-    '../test_util.js',
-    'cr_toolbar_tests.js',
-  ]),
-};
-
-TEST_F('CrElementsToolbarTest', 'All', function() {
   mocha.run();
 });
 
@@ -543,7 +521,34 @@ TEST_F('CrElementsExpandButtonTest', 'All', function() {
   mocha.run();
 });
 
-GEN('#if defined(OS_CHROMEOS)');
+/**
+ * @constructor
+ * @extends {CrElementsBrowserTest}
+ */
+function CrElementsFindShortcutBehaviorTest() {}
+
+CrElementsFindShortcutBehaviorTest.prototype = {
+  __proto__: CrElementsBrowserTest.prototype,
+
+  /**
+   * Preload a module that depends on both cr-dialog and FindShortcutBehavior.
+   * cr-dialog is used in the tests.
+   * @override
+   */
+  browsePreload: 'chrome://resources/cr_elements/find_shortcut_behavior.html',
+
+  /** @override */
+  extraLibraries: CrElementsBrowserTest.prototype.extraLibraries.concat([
+    '../test_util.js',
+    'find_shortcut_behavior_test.js',
+  ]),
+};
+
+TEST_F('CrElementsFindShortcutBehaviorTest', 'All', function() {
+  mocha.run();
+});
+
+GEN('#if BUILDFLAG(IS_CHROMEOS_ASH)');
 /**
  * @constructor
  * @extends {CrElementsBrowserTest}

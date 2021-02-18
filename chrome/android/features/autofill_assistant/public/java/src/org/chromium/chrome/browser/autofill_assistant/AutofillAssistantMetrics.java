@@ -10,7 +10,6 @@ import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.browser.autofill_assistant.metrics.DropOutReason;
 import org.chromium.chrome.browser.autofill_assistant.metrics.FeatureModuleInstallation;
 import org.chromium.chrome.browser.autofill_assistant.metrics.LiteScriptFinishedState;
-import org.chromium.chrome.browser.autofill_assistant.metrics.LiteScriptOnboarding;
 import org.chromium.chrome.browser.autofill_assistant.metrics.LiteScriptStarted;
 import org.chromium.chrome.browser.autofill_assistant.metrics.OnBoarding;
 import org.chromium.chrome.browser.metrics.UkmRecorder;
@@ -22,11 +21,11 @@ import org.chromium.content_public.browser.WebContents;
  * All enums are auto generated from
  * components/autofill_assistant/browser/metrics.h.
  */
-/* package */ class AutofillAssistantMetrics {
+public class AutofillAssistantMetrics {
     /**
      * Records the reason for a drop out.
      */
-    /* package */ static void recordDropOut(@DropOutReason int reason) {
+    public static void recordDropOut(@DropOutReason int reason) {
         RecordHistogram.recordEnumeratedHistogram(
                 "Android.AutofillAssistant.DropOutReason", reason, DropOutReason.MAX_VALUE + 1);
     }
@@ -34,7 +33,7 @@ import org.chromium.content_public.browser.WebContents;
     /**
      * Records the onboarding related action.
      */
-    /* package */ static void recordOnBoarding(@OnBoarding int metric) {
+    public static void recordOnBoarding(@OnBoarding int metric) {
         RecordHistogram.recordEnumeratedHistogram(
                 "Android.AutofillAssistant.OnBoarding", metric, OnBoarding.MAX_VALUE + 1);
     }
@@ -42,8 +41,7 @@ import org.chromium.content_public.browser.WebContents;
     /**
      * Records the feature module installation action.
      */
-    /* package */ static void recordFeatureModuleInstallation(
-            @FeatureModuleInstallation int metric) {
+    public static void recordFeatureModuleInstallation(@FeatureModuleInstallation int metric) {
         RecordHistogram.recordEnumeratedHistogram(
                 "Android.AutofillAssistant.FeatureModuleInstallation", metric,
                 FeatureModuleInstallation.MAX_VALUE + 1);
@@ -51,8 +49,12 @@ import org.chromium.content_public.browser.WebContents;
 
     /**
      * UKM metric. Records the start of a lite script.
+     *
+     * The events recorded by this call lacks a trigger type. This is appropriate when the trigger
+     * type is not yet known, because the Trigger protos sent by the server have not been processed
+     * yet. If trigger protos are available, record the metric from C++.
      */
-    /* package */ static void recordLiteScriptStarted(
+    public static void recordLiteScriptStarted(
             WebContents webContents, @LiteScriptStarted int started) {
         if (!areWebContentsValid(webContents)) {
             return;
@@ -65,8 +67,12 @@ import org.chromium.content_public.browser.WebContents;
 
     /**
      * UKM metric. Records the finish of a lite script.
+     *
+     * The events recorded by this call lacks a trigger type. This is appropriate when the trigger
+     * type is not yet known, because the Trigger protos sent by the server have not been processed
+     * yet. If trigger protos are available, record the metric from C++.
      */
-    /* package */ static void recordLiteScriptFinished(
+    public static void recordLiteScriptFinished(
             WebContents webContents, @LiteScriptFinishedState int finishedState) {
         if (!areWebContentsValid(webContents)) {
             return;
@@ -75,20 +81,6 @@ import org.chromium.content_public.browser.WebContents;
                 /* eventName = */ "AutofillAssistant.LiteScriptFinished",
                 /* metricName = */ "LiteScriptFinished",
                 /* metricValue = */ finishedState);
-    }
-
-    /**
-     * UKM metric. Records the onboarding after a successful lite script.
-     */
-    /* package */ static void recordLiteScriptOnboarding(
-            WebContents webContents, @LiteScriptOnboarding int onboarding) {
-        if (!areWebContentsValid(webContents)) {
-            return;
-        }
-        new UkmRecorder.Bridge().recordEventWithIntegerMetric(webContents,
-                /* eventName = */ "AutofillAssistant.LiteScriptOnboarding",
-                /* metricName = */ "LiteScriptOnboarding",
-                /* metricValue = */ onboarding);
     }
 
     /**

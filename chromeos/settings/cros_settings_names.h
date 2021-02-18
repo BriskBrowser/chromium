@@ -57,6 +57,8 @@ COMPONENT_EXPORT(CHROMEOS_SETTINGS)
 extern const char kAccountsPrefTransferSAMLCookies[];
 COMPONENT_EXPORT(CHROMEOS_SETTINGS)
 extern const char kAccountsPrefLoginScreenDomainAutoComplete[];
+COMPONENT_EXPORT(CHROMEOS_SETTINGS)
+extern const char kAccountsPrefFamilyLinkAccountsAllowed[];
 
 COMPONENT_EXPORT(CHROMEOS_SETTINGS)
 extern const char kSignedDataRoamingEnabled[];
@@ -131,7 +133,7 @@ extern const char kPolicyMissingMitigationMode[];
 COMPONENT_EXPORT(CHROMEOS_SETTINGS)
 extern const char kAllowRedeemChromeOsRegistrationOffers[];
 
-COMPONENT_EXPORT(CHROMEOS_SETTINGS) extern const char kStartUpFlags[];
+COMPONENT_EXPORT(CHROMEOS_SETTINGS) extern const char kFeatureFlags[];
 
 COMPONENT_EXPORT(CHROMEOS_SETTINGS) extern const char kKioskAppSettingsPrefix[];
 COMPONENT_EXPORT(CHROMEOS_SETTINGS)
@@ -187,9 +189,6 @@ extern const char kDeviceQuirksDownloadEnabled[];
 
 COMPONENT_EXPORT(CHROMEOS_SETTINGS)
 extern const char kLoginVideoCaptureAllowedUrls[];
-
-COMPONENT_EXPORT(CHROMEOS_SETTINGS)
-extern const char kDeviceLoginScreenExtensions[];
 
 COMPONENT_EXPORT(CHROMEOS_SETTINGS)
 extern const char kDeviceLoginScreenLocales[];
@@ -271,12 +270,43 @@ COMPONENT_EXPORT(CHROMEOS_SETTINGS)
 extern const char kSystemProxySettingsKeySystemServicesUsername[];
 COMPONENT_EXPORT(CHROMEOS_SETTINGS)
 extern const char kSystemProxySettingsKeySystemServicesPassword[];
+COMPONENT_EXPORT(CHROMEOS_SETTINGS)
+extern const char kSystemProxySettingsKeyAuthSchemes[];
 
 COMPONENT_EXPORT(CHROMEOS_SETTINGS)
 extern const char kDeviceCrostiniArcAdbSideloadingAllowed[];
 
 COMPONENT_EXPORT(CHROMEOS_SETTINGS)
 extern const char kDeviceShowLowDiskSpaceNotification[];
+
+COMPONENT_EXPORT(CHROMEOS_SETTINGS) extern const char kUsbDetachableAllowlist[];
+COMPONENT_EXPORT(CHROMEOS_SETTINGS)
+extern const char kUsbDetachableAllowlistKeyVid[];
+COMPONENT_EXPORT(CHROMEOS_SETTINGS)
+extern const char kUsbDetachableAllowlistKeyPid[];
+
+COMPONENT_EXPORT(CHROMEOS_SETTINGS)
+extern const char kDevicePeripheralDataAccessEnabled[];
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove when migrated to ash/components/.
+namespace ash {
+using ::chromeos::kAccountsPrefDeviceLocalAccountAutoLoginBailoutEnabled;
+using ::chromeos::kAccountsPrefDeviceLocalAccountAutoLoginDelay;
+using ::chromeos::kAccountsPrefDeviceLocalAccountAutoLoginId;
+using ::chromeos::kAccountsPrefDeviceLocalAccounts;
+using ::chromeos::kAccountsPrefDeviceLocalAccountsKeyArcKioskAction;
+using ::chromeos::kAccountsPrefDeviceLocalAccountsKeyArcKioskClass;
+using ::chromeos::kAccountsPrefDeviceLocalAccountsKeyArcKioskDisplayName;
+using ::chromeos::kAccountsPrefDeviceLocalAccountsKeyArcKioskPackage;
+using ::chromeos::kAccountsPrefDeviceLocalAccountsKeyId;
+using ::chromeos::kAccountsPrefDeviceLocalAccountsKeyKioskAppId;
+using ::chromeos::kAccountsPrefDeviceLocalAccountsKeyType;
+using ::chromeos::kDeviceDisabled;
+using ::chromeos::kDeviceDisabledMessage;
+using ::chromeos::kSystemTimezone;
+using ::chromeos::kSystemTimezonePolicy;
+using ::chromeos::kSystemUse24HourClock;
+}  // namespace ash
 
 #endif  // CHROMEOS_SETTINGS_CROS_SETTINGS_NAMES_H_

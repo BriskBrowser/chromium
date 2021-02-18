@@ -9,15 +9,101 @@
 #include "third_party/blink/renderer/core/layout/layout_block_flow.h"
 #include "third_party/blink/renderer/core/layout/layout_text.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_fragment_items.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_item_span.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_physical_line_box_fragment.h"
+#include "third_party/blink/renderer/core/layout/ng/ng_block_break_token.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
-#include "third_party/blink/renderer/core/paint/ng/ng_paint_fragment.h"
-#include "third_party/blink/renderer/core/paint/ng/ng_paint_fragment_traversal.h"
 
 namespace blink {
+class HTMLBRElement;
+
+namespace {
+
+bool IsBidiControl(StringView string) {
+  return string.length() == 1 && Character::IsBidiControl(string[0]);
+}
+
+LogicalRect ExpandedSelectionRectForSoftLineBreakIfNeeded(
+    const LogicalRect& rect,
+    const NGInlineCursor& cursor,
+    const LayoutSelectionStatus& selection_status) {
+  // Expand paint rect if selection covers multiple lines and
+  // this fragment is at the end of line.
+  if (selection_status.line_break == SelectSoftLineBreak::kNotSelected)
+    return rect;
+  const LayoutBlockFlow* const layout_block_flow = cursor.GetLayoutBlockFlow();
+  if (layout_block_flow && layout_block_flow->ShouldTruncateOverflowingText())
+    return rect;
+  // Copy from InlineTextBoxPainter::PaintSelection.
+  const LayoutUnit space_width(cursor.Current().Style().GetFont().SpaceWidth());
+  return {rect.offset,
+          {rect.size.inline_size + space_width, rect.size.block_size}};
+}
+
+// Expands selection height so that the selection rect fills entire line.
+LogicalRect ExpandSelectionRectToLineHeight(
+    const LogicalRect& rect,
+    const LogicalRect& line_logical_rect) {
+  // Unite the rect only in the block direction.
+  const LayoutUnit selection_top =
+      std::min(rect.offset.block_offset, line_logical_rect.offset.block_offset);
+  const LayoutUnit selection_bottom =
+      std::max(rect.BlockEndOffset(), line_logical_rect.BlockEndOffset());
+  return {{rect.offset.inline_offset, selection_top},
+          {rect.size.inline_size, selection_bottom - selection_top}};
+}
+
+LogicalRect ExpandSelectionRectToLineHeight(const LogicalRect& rect,
+                                            const NGInlineCursor& cursor) {
+  NGInlineCursor line(cursor);
+  line.MoveToContainingLine();
+  const PhysicalRect line_physical_rect(
+      line.Current().OffsetInContainerFragment() -
+          cursor.Current().OffsetInContainerFragment(),
+      line.Current().Size());
+  return ExpandSelectionRectToLineHeight(
+      rect, cursor.Current().ConvertChildToLogical(line_physical_rect));
+}
+
+bool IsLastBRInPage(const LayoutObject& layout_object) {
+  return layout_object.IsBR() && !layout_object.NextInPreOrder();
+}
+
+bool ShouldIgnoreForPositionForPoint(const NGFragmentItem& item) {
+  switch (item.Type()) {
+    case NGFragmentItem::kBox:
+      if (auto* box_fragment = item.BoxFragment()) {
+        if (box_fragment->IsInlineBox()) {
+          // We ignore inline box to avoid to call |PositionForPointInChild()|
+          // with empty inline box, e.g. <div>ab<b></b></div>.
+          // // All/LayoutViewHitTestTest.EmptySpan needs this.
+          return true;
+        }
+        // Skip pseudo element ::before/::after
+        // All/LayoutViewHitTestTest.PseudoElementAfter* needs this.
+        return !item.GetLayoutObject()->NonPseudoNode();
+      }
+      // Skip virtually "culled" inline box, e.g. <span>foo</span>
+      // "editing/selection/shift-click.html" reaches here.
+      DCHECK(item.GetLayoutObject()->IsLayoutInline()) << item;
+      return true;
+    case NGFragmentItem::kGeneratedText:
+      return true;
+    case NGFragmentItem::kText:
+      // Returns true when |item.GetLayoutObject().IsStyleGenerated()|.
+      // All/LayoutViewHitTestTest.PseudoElementAfter* needs this.
+      return item.IsGeneratedText();
+    case NGFragmentItem::kLine:
+      NOTREACHED();
+      break;
+  }
+  return false;
+}
+
+}  // namespace
 
 inline void NGInlineCursor::MoveToItem(const ItemsSpan::iterator& iter) {
-  DCHECK(IsItemCursor());
+  DCHECK(HasRoot());
   DCHECK(iter >= items_.begin() && iter <= items_.end());
   if (iter != items_.end()) {
     current_.Set(iter);
@@ -26,35 +112,32 @@ inline void NGInlineCursor::MoveToItem(const ItemsSpan::iterator& iter) {
   MakeNull();
 }
 
-void NGInlineCursor::SetRoot(const NGFragmentItems& fragment_items,
+void NGInlineCursor::SetRoot(const NGPhysicalBoxFragment& box_fragment,
+                             const NGFragmentItems& fragment_items,
                              ItemsSpan items) {
+  DCHECK_EQ(box_fragment.Items(), &fragment_items);
   DCHECK(items.data() || !items.size());
+  root_box_fragment_ = &box_fragment;
   fragment_items_ = &fragment_items;
   items_ = items;
   DCHECK(fragment_items_->IsSubSpan(items_));
   MoveToItem(items_.begin());
 }
 
-void NGInlineCursor::SetRoot(const NGFragmentItems& items) {
-  SetRoot(items, items.Items());
-}
-
-void NGInlineCursor::SetRoot(const NGPaintFragment& root_paint_fragment) {
-  DCHECK(&root_paint_fragment);
-  DCHECK(!HasRoot());
-  root_paint_fragment_ = &root_paint_fragment;
-  current_.paint_fragment_ = root_paint_fragment.FirstChild();
+void NGInlineCursor::SetRoot(const NGPhysicalBoxFragment& box_fragment,
+                             const NGFragmentItems& items) {
+  SetRoot(box_fragment, items, items.Items());
 }
 
 bool NGInlineCursor::TrySetRootFragmentItems() {
   DCHECK(root_block_flow_);
   DCHECK(!fragment_items_ || fragment_items_->Equals(items_));
-  for (; fragment_index_ <= max_fragment_index_; ++fragment_index_) {
+  for (; fragment_index_ <= max_fragment_index_; AdvanceFragmentIndex()) {
     const NGPhysicalBoxFragment* fragment =
         root_block_flow_->GetPhysicalFragment(fragment_index_);
     DCHECK(fragment);
     if (const NGFragmentItems* items = fragment->Items()) {
-      SetRoot(*items);
+      SetRoot(*fragment, *items);
       return true;
     }
   }
@@ -68,14 +151,9 @@ void NGInlineCursor::SetRoot(const LayoutBlockFlow& block_flow) {
   if (const wtf_size_t fragment_count = block_flow.PhysicalFragmentCount()) {
     root_block_flow_ = &block_flow;
     max_fragment_index_ = fragment_count - 1;
-    fragment_index_ = 0;
+    ResetFragmentIndex();
     if (TrySetRootFragmentItems())
       return;
-  }
-
-  if (const NGPaintFragment* paint_fragment = block_flow.PaintFragment()) {
-    SetRoot(*paint_fragment);
-    return;
   }
 
   // We reach here in case of |ScrollANchor::NotifyBeforeLayout()| via
@@ -87,17 +165,20 @@ NGInlineCursor::NGInlineCursor(const LayoutBlockFlow& block_flow) {
   SetRoot(block_flow);
 }
 
-NGInlineCursor::NGInlineCursor(const NGFragmentItems& fragment_items,
+NGInlineCursor::NGInlineCursor(const NGPhysicalBoxFragment& box_fragment,
+                               const NGFragmentItems& fragment_items,
                                ItemsSpan items) {
-  SetRoot(fragment_items, items);
+  SetRoot(box_fragment, fragment_items, items);
 }
 
-NGInlineCursor::NGInlineCursor(const NGFragmentItems& items) {
-  SetRoot(items);
+NGInlineCursor::NGInlineCursor(const NGPhysicalBoxFragment& box_fragment,
+                               const NGFragmentItems& items) {
+  SetRoot(box_fragment, items);
 }
 
-NGInlineCursor::NGInlineCursor(const NGPaintFragment& root_paint_fragment) {
-  SetRoot(root_paint_fragment);
+NGInlineCursor::NGInlineCursor(const NGPhysicalBoxFragment& box_fragment) {
+  if (const NGFragmentItems* items = box_fragment.Items())
+    SetRoot(box_fragment, *items);
 }
 
 NGInlineCursor::NGInlineCursor(const NGInlineBackwardCursor& backward_cursor)
@@ -106,10 +187,6 @@ NGInlineCursor::NGInlineCursor(const NGInlineBackwardCursor& backward_cursor)
 }
 
 bool NGInlineCursor::operator==(const NGInlineCursor& other) const {
-  if (root_paint_fragment_) {
-    return root_paint_fragment_ == other.root_paint_fragment_ &&
-           current_.paint_fragment_ == other.current_.paint_fragment_;
-  }
   if (current_.item_ != other.current_.item_)
     return false;
   DCHECK_EQ(items_.data(), other.items_.data());
@@ -120,35 +197,19 @@ bool NGInlineCursor::operator==(const NGInlineCursor& other) const {
 }
 
 const LayoutBlockFlow* NGInlineCursor::GetLayoutBlockFlow() const {
-  if (IsPaintFragmentCursor()) {
-    // |root_paint_fragment_| is either |LayoutBlockFlow| or |LayoutInline|.
-    const NGPhysicalFragment& physical_fragment =
-        root_paint_fragment_->PhysicalFragment();
+  DCHECK_EQ(HasRoot(), !!root_box_fragment_);
+  if (root_box_fragment_) {
     const LayoutObject* layout_object =
-        physical_fragment.IsLineBox()
-            ? To<NGPhysicalLineBoxFragment>(physical_fragment)
-                  .ContainerLayoutObject()
-            : physical_fragment.GetLayoutObject();
-    if (const LayoutBlockFlow* block_flow =
-            DynamicTo<LayoutBlockFlow>(layout_object))
-      return block_flow;
-    DCHECK(layout_object->IsLayoutInline());
-    return layout_object->RootInlineFormattingContext();
-  }
-  if (IsItemCursor()) {
-    const NGFragmentItem& item = fragment_items_->front();
-    const LayoutObject* layout_object = item.GetLayoutObject();
-    if (item.Type() == NGFragmentItem::kLine)
-      return To<LayoutBlockFlow>(layout_object);
-    return layout_object->RootInlineFormattingContext();
+        root_box_fragment_->GetSelfOrContainerLayoutObject();
+    DCHECK(layout_object);
+    DCHECK(!layout_object->IsLayoutFlowThread());
+    return To<LayoutBlockFlow>(layout_object);
   }
   NOTREACHED();
   return nullptr;
 }
 
 bool NGInlineCursorPosition::HasChildren() const {
-  if (paint_fragment_)
-    return paint_fragment_->FirstChild();
   if (item_)
     return item_->HasChildren();
   NOTREACHED();
@@ -156,14 +217,13 @@ bool NGInlineCursorPosition::HasChildren() const {
 }
 
 NGInlineCursor NGInlineCursor::CursorForDescendants() const {
-  if (current_.paint_fragment_)
-    return NGInlineCursor(*current_.paint_fragment_);
   if (current_.item_) {
     unsigned descendants_count = current_.item_->DescendantsCount();
     if (descendants_count > 1) {
+      DCHECK(root_box_fragment_);
       DCHECK(fragment_items_);
       return NGInlineCursor(
-          *fragment_items_,
+          *root_box_fragment_, *fragment_items_,
           ItemsSpan(&*(current_.item_iter_ + 1), descendants_count - 1));
     }
     return NGInlineCursor();
@@ -173,10 +233,6 @@ NGInlineCursor NGInlineCursor::CursorForDescendants() const {
 }
 
 void NGInlineCursor::ExpandRootToContainingBlock() {
-  if (root_paint_fragment_) {
-    root_paint_fragment_ = root_paint_fragment_->Root();
-    return;
-  }
   if (fragment_items_) {
     const unsigned index_diff = items_.data() - fragment_items_->Items().data();
     DCHECK_LT(index_diff, fragment_items_->Items().size());
@@ -192,71 +248,7 @@ void NGInlineCursor::ExpandRootToContainingBlock() {
 bool NGInlineCursorPosition::HasSoftWrapToNextLine() const {
   DCHECK(IsLineBox());
   const NGInlineBreakToken* break_token = InlineBreakToken();
-  DCHECK(break_token);
-  return !break_token->IsFinished() && !break_token->IsForcedBreak();
-}
-
-bool NGInlineCursorPosition::IsInlineBox() const {
-  if (paint_fragment_)
-    return paint_fragment_->PhysicalFragment().IsInlineBox();
-  if (item_)
-    return item_->IsInlineBox();
-  NOTREACHED();
-  return false;
-}
-
-bool NGInlineCursorPosition::IsAtomicInline() const {
-  if (paint_fragment_)
-    return paint_fragment_->PhysicalFragment().IsAtomicInline();
-  if (item_)
-    return item_->IsAtomicInline();
-  NOTREACHED();
-  return false;
-}
-
-bool NGInlineCursorPosition::IsEllipsis() const {
-  if (paint_fragment_)
-    return paint_fragment_->IsEllipsis();
-  if (item_)
-    return item_->IsEllipsis();
-  NOTREACHED();
-  return false;
-}
-
-bool NGInlineCursorPosition::IsGeneratedText() const {
-  if (paint_fragment_) {
-    if (auto* text_fragment = DynamicTo<NGPhysicalTextFragment>(
-            paint_fragment_->PhysicalFragment()))
-      return text_fragment->IsGeneratedText();
-    return false;
-  }
-  if (item_)
-    return item_->IsGeneratedText();
-  NOTREACHED();
-  return false;
-}
-
-bool NGInlineCursorPosition::IsLayoutGeneratedText() const {
-  if (paint_fragment_) {
-    if (auto* text_fragment = DynamicTo<NGPhysicalTextFragment>(
-            paint_fragment_->PhysicalFragment())) {
-      return text_fragment->TextType() == NGTextType::kLayoutGenerated;
-    }
-    return false;
-  }
-  if (item_)
-    return item_->Type() == NGFragmentItem::kGeneratedText;
-  NOTREACHED();
-  return false;
-}
-
-bool NGInlineCursorPosition::IsHiddenForPaint() const {
-  if (paint_fragment_)
-    return paint_fragment_->PhysicalFragment().IsHiddenForPaint();
-  if (item_)
-    return item_->IsHiddenForPaint();
-  NOTREACHED();
-  return false;
+  return break_token && !break_token->IsForcedBreak();
 }
 
 bool NGInlineCursorPosition::IsInlineLeaf() const {
@@ -267,6 +259,32 @@ bool NGInlineCursorPosition::IsInlineLeaf() const {
   if (!IsAtomicInline())
     return false;
   return !IsListMarker();
+}
+
+bool NGInlineCursorPosition::IsPartOfCulledInlineBox(
+    const LayoutInline& layout_inline) const {
+  DCHECK(!layout_inline.ShouldCreateBoxFragment());
+  DCHECK(*this);
+  const LayoutObject* const layout_object = GetLayoutObject();
+  // We use |IsInline()| to exclude floating and out-of-flow objects.
+  if (!layout_object || !layout_object->IsInline() ||
+      layout_object->IsAtomicInlineLevel())
+    return false;
+  DCHECK(!layout_object->IsFloatingOrOutOfFlowPositioned());
+  DCHECK(!BoxFragment() || !BoxFragment()->IsFormattingContextRoot());
+  for (const LayoutObject* parent = layout_object->Parent(); parent;
+       parent = parent->Parent()) {
+    // Children of culled inline should be included.
+    if (parent == &layout_inline)
+      return true;
+    // Grand children should be included only if children are also culled.
+    if (const auto* parent_layout_inline = DynamicTo<LayoutInline>(parent)) {
+      if (!parent_layout_inline->ShouldCreateBoxFragment())
+        continue;
+    }
+    return false;
+  }
+  return false;
 }
 
 bool NGInlineCursor::IsLastLineInInlineBlock() const {
@@ -282,37 +300,6 @@ bool NGInlineCursor::IsLastLineInInlineBlock() const {
       return false;
     // There maybe other top-level objects such as floats, OOF, or list-markers.
   }
-}
-
-bool NGInlineCursorPosition::IsLineBreak() const {
-  if (paint_fragment_) {
-    if (auto* text_fragment = DynamicTo<NGPhysicalTextFragment>(
-            paint_fragment_->PhysicalFragment()))
-      return text_fragment->IsLineBreak();
-    return false;
-  }
-  if (item_)
-    return IsText() && item_->IsLineBreak();
-  NOTREACHED();
-  return false;
-}
-
-bool NGInlineCursorPosition::IsListMarker() const {
-  if (paint_fragment_)
-    return paint_fragment_->PhysicalFragment().IsListMarker();
-  if (item_)
-    return item_->IsListMarker();
-  NOTREACHED();
-  return false;
-}
-
-bool NGInlineCursorPosition::IsText() const {
-  if (paint_fragment_)
-    return paint_fragment_->PhysicalFragment().IsText();
-  if (item_)
-    return item_->IsText();
-  NOTREACHED();
-  return false;
 }
 
 bool NGInlineCursor::IsBeforeSoftLineBreak() const {
@@ -343,8 +330,6 @@ bool NGInlineCursor::IsBeforeSoftLineBreak() const {
 }
 
 bool NGInlineCursorPosition::CanHaveChildren() const {
-  if (paint_fragment_)
-    return paint_fragment_->PhysicalFragment().IsContainer();
   if (item_) {
     return item_->Type() == NGFragmentItem::kLine ||
            (item_->Type() == NGFragmentItem::kBox && !item_->IsAtomicInline());
@@ -353,33 +338,8 @@ bool NGInlineCursorPosition::CanHaveChildren() const {
   return false;
 }
 
-bool NGInlineCursorPosition::IsEmptyLineBox() const {
-  DCHECK(IsLineBox());
-  if (paint_fragment_) {
-    return To<NGPhysicalLineBoxFragment>(paint_fragment_->PhysicalFragment())
-        .IsEmptyLineBox();
-  }
-  if (item_)
-    return item_->IsEmptyLineBox();
-  NOTREACHED();
-  return false;
-}
-
-bool NGInlineCursorPosition::IsLineBox() const {
-  if (paint_fragment_)
-    return paint_fragment_->PhysicalFragment().IsLineBox();
-  if (item_)
-    return item_->Type() == NGFragmentItem::kLine;
-  NOTREACHED();
-  return false;
-}
-
 TextDirection NGInlineCursorPosition::BaseDirection() const {
   DCHECK(IsLineBox());
-  if (paint_fragment_) {
-    return To<NGPhysicalLineBoxFragment>(paint_fragment_->PhysicalFragment())
-        .BaseDirection();
-  }
   if (item_)
     return item_->BaseDirection();
   NOTREACHED();
@@ -394,7 +354,7 @@ UBiDiLevel NGInlineCursorPosition::BidiLevel() const {
       NOTREACHED() << this;
       return 0;
     }
-    const LayoutText& layout_text = *ToLayoutText(GetLayoutObject());
+    const auto& layout_text = *To<LayoutText>(GetLayoutObject());
     DCHECK(!layout_text.NeedsLayout()) << this;
     const auto* const items = layout_text.GetNGInlineItems();
     if (!items || items->size() == 0) {
@@ -402,7 +362,7 @@ UBiDiLevel NGInlineCursorPosition::BidiLevel() const {
       return 0;
     }
     const NGTextOffset offset = TextOffset();
-    const auto& item = std::find_if(
+    auto* const item = std::find_if(
         items->begin(), items->end(), [offset](const NGInlineItem& item) {
           return item.StartOffset() <= offset.start &&
                  item.EndOffset() >= offset.end;
@@ -412,12 +372,10 @@ UBiDiLevel NGInlineCursorPosition::BidiLevel() const {
   }
 
   if (IsAtomicInline()) {
-    const NGPhysicalBoxFragment* fragmentainer =
-        GetLayoutObject()->ContainingBlockFlowFragment();
-    DCHECK(fragmentainer);
+    DCHECK(GetLayoutObject()->ContainingNGBlockFlow());
     const LayoutBlockFlow& block_flow =
-        *To<LayoutBlockFlow>(fragmentainer->GetLayoutObject());
-    const Vector<NGInlineItem> items =
+        *GetLayoutObject()->ContainingNGBlockFlow();
+    const HeapVector<NGInlineItem> items =
         block_flow.GetNGInlineNodeData()->ItemsData(UsesFirstLineStyle()).items;
     const LayoutObject* const layout_object = GetLayoutObject();
     const auto* const item = std::find_if(
@@ -432,67 +390,11 @@ UBiDiLevel NGInlineCursorPosition::BidiLevel() const {
   return 0;
 }
 
-const NGPhysicalBoxFragment* NGInlineCursorPosition::BoxFragment() const {
-  if (paint_fragment_) {
-    return DynamicTo<NGPhysicalBoxFragment>(
-        &paint_fragment_->PhysicalFragment());
-  }
-  if (item_)
-    return item_->BoxFragment();
-  NOTREACHED();
-  return nullptr;
-}
-
-const DisplayItemClient* NGInlineCursorPosition::GetDisplayItemClient() const {
-  if (paint_fragment_)
-    return paint_fragment_;
-  if (item_)
-    return item_->GetDisplayItemClient();
-  NOTREACHED();
-  return nullptr;
-}
-
 const DisplayItemClient* NGInlineCursorPosition::GetSelectionDisplayItemClient()
     const {
   if (const auto* client = GetLayoutObject()->GetSelectionDisplayItemClient())
     return client;
   return GetDisplayItemClient();
-}
-
-wtf_size_t NGInlineCursorPosition::FragmentId() const {
-  if (paint_fragment_)
-    return 0;
-  DCHECK(item_);
-  return item_->FragmentId();
-}
-
-const NGInlineBreakToken* NGInlineCursorPosition::InlineBreakToken() const {
-  DCHECK(IsLineBox());
-  if (paint_fragment_) {
-    return To<NGInlineBreakToken>(
-        To<NGPhysicalLineBoxFragment>(paint_fragment_->PhysicalFragment())
-            .BreakToken());
-  }
-  DCHECK(item_);
-  return item_->InlineBreakToken();
-}
-
-const LayoutObject* NGInlineCursorPosition::GetLayoutObject() const {
-  if (paint_fragment_)
-    return paint_fragment_->GetLayoutObject();
-  if (item_)
-    return item_->GetLayoutObject();
-  NOTREACHED();
-  return nullptr;
-}
-
-LayoutObject* NGInlineCursorPosition::GetMutableLayoutObject() const {
-  if (paint_fragment_)
-    return paint_fragment_->GetMutableLayoutObject();
-  if (item_)
-    return item_->GetMutableLayoutObject();
-  NOTREACHED();
-  return nullptr;
 }
 
 const Node* NGInlineCursorPosition::GetNode() const {
@@ -501,122 +403,27 @@ const Node* NGInlineCursorPosition::GetNode() const {
   return nullptr;
 }
 
-const PhysicalRect NGInlineCursorPosition::InkOverflow() const {
-  if (paint_fragment_)
-    return paint_fragment_->InkOverflow();
-  if (item_)
-    return item_->InkOverflow();
-  NOTREACHED();
-  return PhysicalRect();
-}
-
-const PhysicalOffset NGInlineCursorPosition::OffsetInContainerBlock() const {
-  if (paint_fragment_)
-    return paint_fragment_->OffsetInContainerBlock();
-  if (item_)
-    return item_->OffsetInContainerBlock();
-  NOTREACHED();
-  return PhysicalOffset();
-}
-
-const PhysicalSize NGInlineCursorPosition::Size() const {
-  if (paint_fragment_)
-    return paint_fragment_->Size();
-  if (item_)
-    return item_->Size();
-  NOTREACHED();
-  return PhysicalSize();
-}
-
-const PhysicalRect NGInlineCursorPosition::RectInContainerBlock() const {
-  if (paint_fragment_) {
-    return {paint_fragment_->OffsetInContainerBlock(), paint_fragment_->Size()};
-  }
-  if (item_)
-    return item_->RectInContainerBlock();
-  NOTREACHED();
-  return PhysicalRect();
-}
-
-const PhysicalRect NGInlineCursorPosition::SelfInkOverflow() const {
-  if (paint_fragment_)
-    return paint_fragment_->SelfInkOverflow();
-  if (item_)
-    return item_->SelfInkOverflow();
-  NOTREACHED();
-  return PhysicalRect();
-}
-
-TextDirection NGInlineCursorPosition::ResolvedDirection() const {
-  if (paint_fragment_)
-    return paint_fragment_->PhysicalFragment().ResolvedDirection();
-  if (item_)
-    return item_->ResolvedDirection();
-  NOTREACHED();
-  return TextDirection::kLtr;
-}
-
-const ComputedStyle& NGInlineCursorPosition::Style() const {
-  if (paint_fragment_)
-    return paint_fragment_->Style();
-  return item_->Style();
-}
-
-NGStyleVariant NGInlineCursorPosition::StyleVariant() const {
-  if (paint_fragment_)
-    return paint_fragment_->PhysicalFragment().StyleVariant();
-  return item_->StyleVariant();
-}
-
-bool NGInlineCursorPosition::UsesFirstLineStyle() const {
-  return StyleVariant() == NGStyleVariant::kFirstLine;
-}
-
-NGTextOffset NGInlineCursorPosition::TextOffset() const {
-  if (paint_fragment_) {
-    const auto& text_fragment =
-        To<NGPhysicalTextFragment>(paint_fragment_->PhysicalFragment());
-    return text_fragment.TextOffset();
-  }
-  if (item_)
-    return item_->TextOffset();
-  NOTREACHED();
-  return {};
+void NGInlineCursorPosition::RecalcInkOverflow(
+    const NGInlineCursor& cursor) const {
+  DCHECK(item_);
+  DCHECK_EQ(item_, cursor.Current().Item());
+  PhysicalRect self_and_contents_rect;
+  item_->GetMutableForPainting().RecalcInkOverflow(cursor,
+                                                   &self_and_contents_rect);
 }
 
 StringView NGInlineCursorPosition::Text(const NGInlineCursor& cursor) const {
   DCHECK(IsText());
   cursor.CheckValid(*this);
-  if (paint_fragment_) {
-    return To<NGPhysicalTextFragment>(paint_fragment_->PhysicalFragment())
-        .Text();
-  }
   if (item_)
     return item_->Text(cursor.Items());
   NOTREACHED();
   return "";
 }
 
-const ShapeResultView* NGInlineCursorPosition::TextShapeResult() const {
-  DCHECK(IsText());
-  if (paint_fragment_) {
-    return To<NGPhysicalTextFragment>(paint_fragment_->PhysicalFragment())
-        .TextShapeResult();
-  }
-  if (item_)
-    return item_->TextShapeResult();
-  NOTREACHED();
-  return nullptr;
-}
-
 PhysicalRect NGInlineCursor::CurrentLocalRect(unsigned start_offset,
                                               unsigned end_offset) const {
   DCHECK(Current().IsText());
-  if (current_.paint_fragment_) {
-    return To<NGPhysicalTextFragment>(
-               current_.paint_fragment_->PhysicalFragment())
-        .LocalRect(start_offset, end_offset);
-  }
   if (current_.item_) {
     return current_.item_->LocalRect(current_.item_->Text(*fragment_items_),
                                      start_offset, end_offset);
@@ -625,38 +432,88 @@ PhysicalRect NGInlineCursor::CurrentLocalRect(unsigned start_offset,
   return PhysicalRect();
 }
 
+PhysicalRect NGInlineCursor::CurrentLocalSelectionRectForText(
+    const LayoutSelectionStatus& selection_status) const {
+  const PhysicalRect selection_rect =
+      CurrentLocalRect(selection_status.start, selection_status.end);
+  LogicalRect logical_rect = Current().ConvertChildToLogical(selection_rect);
+  // Let LocalRect for line break have a space width to paint line break
+  // when it is only character in a line or only selected in a line.
+  if (selection_status.start != selection_status.end &&
+      Current().IsLineBreak() &&
+      // This is for old compatible that old doesn't paint last br in a page.
+      !IsLastBRInPage(*Current().GetLayoutObject())) {
+    DCHECK(!logical_rect.size.inline_size);
+    logical_rect.size.inline_size =
+        LayoutUnit(Current().Style().GetFont().SpaceWidth());
+  }
+  const LogicalRect line_break_extended_rect =
+      Current().IsLineBreak() ? logical_rect
+                              : ExpandedSelectionRectForSoftLineBreakIfNeeded(
+                                    logical_rect, *this, selection_status);
+  const LogicalRect line_height_expanded_rect =
+      ExpandSelectionRectToLineHeight(line_break_extended_rect, *this);
+  const PhysicalRect physical_rect =
+      Current().ConvertChildToPhysical(line_height_expanded_rect);
+  return physical_rect;
+}
+
+PhysicalRect NGInlineCursor::CurrentLocalSelectionRectForReplaced() const {
+  DCHECK(Current().GetLayoutObject()->IsLayoutReplaced());
+  const PhysicalRect selection_rect = PhysicalRect({}, Current().Size());
+  LogicalRect logical_rect = Current().ConvertChildToLogical(selection_rect);
+  const LogicalRect line_height_expanded_rect =
+      ExpandSelectionRectToLineHeight(logical_rect, *this);
+  const PhysicalRect physical_rect =
+      Current().ConvertChildToPhysical(line_height_expanded_rect);
+  return physical_rect;
+}
+
+PhysicalRect NGInlineCursor::CurrentRectInBlockFlow() const {
+  PhysicalRect rect = Current().RectInContainerFragment();
+  // We'll now convert the offset from being relative to the containing fragment
+  // to being relative to the containing LayoutBlockFlow. For writing modes that
+  // don't flip the block direction, this is easy: just add the block-size
+  // consumed in previous fragments.
+  auto writing_direction = ContainerFragment().Style().GetWritingDirection();
+  switch (writing_direction.GetWritingMode()) {
+    default:
+      rect.offset.top += previously_consumed_block_size_;
+      break;
+    case WritingMode::kVerticalLr:
+      rect.offset.left += previously_consumed_block_size_;
+      break;
+    case WritingMode::kVerticalRl: {
+      // For vertical-rl writing-mode it's a bit more complicated. We need to
+      // convert to logical coordinates in the containing box fragment, in order
+      // to add the consumed block-size to make it relative to the
+      // LayoutBlockFlow ("flow thread coordinate space"), and then we convert
+      // back to physical coordinates.
+      const LayoutBlock* containing_block =
+          Current().GetLayoutObject()->ContainingBlock();
+      DCHECK_EQ(containing_block->StyleRef().GetWritingDirection(),
+                ContainerFragment().Style().GetWritingDirection());
+      LogicalOffset logical_offset = rect.offset.ConvertToLogical(
+          writing_direction, ContainerFragment().Size(), rect.size);
+      LogicalOffset logical_offset_in_flow_thread(
+          logical_offset.inline_offset,
+          logical_offset.block_offset + previously_consumed_block_size_);
+      rect.offset = logical_offset_in_flow_thread.ConvertToPhysical(
+          writing_direction, PhysicalSize(containing_block->Size()), rect.size);
+      break;
+    }
+  };
+  return rect;
+}
+
 LayoutUnit NGInlineCursor::InlinePositionForOffset(unsigned offset) const {
   DCHECK(Current().IsText());
-  if (current_.paint_fragment_) {
-    return To<NGPhysicalTextFragment>(
-               current_.paint_fragment_->PhysicalFragment())
-        .InlinePositionForOffset(offset);
-  }
   if (current_.item_) {
     return current_.item_->InlinePositionForOffset(
         current_.item_->Text(*fragment_items_), offset);
   }
   NOTREACHED();
   return LayoutUnit();
-}
-
-PhysicalOffset NGInlineCursorPosition::LineStartPoint() const {
-  DCHECK(IsLineBox()) << this;
-  const LogicalOffset logical_start;  // (0, 0)
-  const PhysicalSize pixel_size(LayoutUnit(1), LayoutUnit(1));
-  return logical_start.ConvertToPhysical(Style().GetWritingMode(),
-                                         BaseDirection(), Size(), pixel_size);
-}
-
-PhysicalOffset NGInlineCursorPosition::LineEndPoint() const {
-  DCHECK(IsLineBox()) << this;
-  const WritingMode writing_mode = Style().GetWritingMode();
-  const LayoutUnit inline_size =
-      IsHorizontalWritingMode(writing_mode) ? Size().width : Size().height;
-  const LogicalOffset logical_end(inline_size, LayoutUnit());
-  const PhysicalSize pixel_size(LayoutUnit(1), LayoutUnit(1));
-  return logical_end.ConvertToPhysical(writing_mode, BaseDirection(), Size(),
-                                       pixel_size);
 }
 
 LogicalRect NGInlineCursorPosition::ConvertChildToLogical(
@@ -676,14 +533,12 @@ PhysicalRect NGInlineCursorPosition::ConvertChildToPhysical(
 PositionWithAffinity NGInlineCursor::PositionForPointInInlineFormattingContext(
     const PhysicalOffset& point,
     const NGPhysicalBoxFragment& container) {
-  DCHECK(IsItemCursor());
-  const ComputedStyle& container_style = container.Style();
-  const WritingMode writing_mode = container_style.GetWritingMode();
-  const TextDirection direction = container_style.Direction();
+  DCHECK(HasRoot());
+  const auto writing_direction = container.Style().GetWritingDirection();
   const PhysicalSize& container_size = container.Size();
   const LayoutUnit point_block_offset =
       point
-          .ConvertToLogical(writing_mode, direction, container_size,
+          .ConvertToLogical(writing_direction, container_size,
                             // |point| is actually a pixel with size 1x1.
                             PhysicalSize(LayoutUnit(1), LayoutUnit(1)))
           .block_offset;
@@ -705,13 +560,13 @@ PositionWithAffinity NGInlineCursor::PositionForPointInInlineFormattingContext(
       if (!CursorForDescendants().TryToMoveToFirstInlineLeafChild()) {
         // editing/selection/last-empty-inline.html requires this to skip
         // empty <span> with padding.
-        MoveToNextItemSkippingChildren();
+        MoveToNextSkippingChildren();
         continue;
       }
       // Try to resolve if |point| falls in a line box in block direction.
       const LayoutUnit child_block_offset =
-          child_item->OffsetInContainerBlock()
-              .ConvertToLogical(writing_mode, direction, container_size,
+          child_item->OffsetInContainerFragment()
+              .ConvertToLogical(writing_direction, container_size,
                                 child_item->Size())
               .block_offset;
       if (point_block_offset < child_block_offset) {
@@ -719,31 +574,33 @@ PositionWithAffinity NGInlineCursor::PositionForPointInInlineFormattingContext(
           closest_line_before_block_offset = child_block_offset;
           closest_line_before = Current();
         }
-        MoveToNextItemSkippingChildren();
+        MoveToNextSkippingChildren();
         continue;
       }
 
       // Hitting on line bottom doesn't count, to match legacy behavior.
       const LayoutUnit child_block_end_offset =
           child_block_offset +
-          child_item->Size().ConvertToLogical(writing_mode).block_size;
+          child_item->Size()
+              .ConvertToLogical(writing_direction.GetWritingMode())
+              .block_size;
       if (point_block_offset >= child_block_end_offset) {
         if (child_block_end_offset > closest_line_after_block_offset) {
           closest_line_after_block_offset = child_block_end_offset;
           closest_line_after = Current();
         }
-        MoveToNextItemSkippingChildren();
+        MoveToNextSkippingChildren();
         continue;
       }
 
       if (const PositionWithAffinity child_position =
               PositionForPointInInlineBox(point))
         return child_position;
-      MoveToNextItemSkippingChildren();
+      MoveToNextSkippingChildren();
       continue;
     }
     DCHECK_NE(child_item->Type(), NGFragmentItem::kText);
-    MoveToNextItem();
+    MoveToNext();
   }
 
   // At here, |point| is not inside any line in |this|:
@@ -794,21 +651,15 @@ PositionWithAffinity NGInlineCursor::PositionForPointInInlineFormattingContext(
 
 PositionWithAffinity NGInlineCursor::PositionForPointInInlineBox(
     const PhysicalOffset& point) const {
-  if (const NGPaintFragment* paint_fragment = CurrentPaintFragment()) {
-    DCHECK(paint_fragment->PhysicalFragment().IsLineBox());
-    return paint_fragment->PositionForPoint(point);
-  }
   const NGFragmentItem* container = CurrentItem();
   DCHECK(container);
   DCHECK(container->Type() == NGFragmentItem::kLine ||
          container->Type() == NGFragmentItem::kBox);
-  const ComputedStyle& container_style = container->Style();
-  const WritingMode writing_mode = container_style.GetWritingMode();
-  const TextDirection direction = container_style.Direction();
+  const auto writing_direction = container->Style().GetWritingDirection();
   const PhysicalSize& container_size = container->Size();
   const LayoutUnit point_inline_offset =
       point
-          .ConvertToLogical(writing_mode, direction, container_size,
+          .ConvertToLogical(writing_direction, container_size,
                             // |point| is actually a pixel with size 1x1.
                             PhysicalSize(LayoutUnit(1), LayoutUnit(1)))
           .inline_offset;
@@ -827,19 +678,16 @@ PositionWithAffinity NGInlineCursor::PositionForPointInInlineBox(
   for (; descendants; descendants.MoveToNext()) {
     const NGFragmentItem* child_item = descendants.CurrentItem();
     DCHECK(child_item);
-    if (child_item->Type() == NGFragmentItem::kBox &&
-        !child_item->BoxFragment()) {
-      // Skip virtually "culled" inline box, e.g. <span>foo</span>
-      // "editing/selection/shift-click.html" reaches here.
-      DCHECK(child_item->GetLayoutObject()->IsLayoutInline()) << child_item;
+    if (ShouldIgnoreForPositionForPoint(*child_item))
       continue;
-    }
     const LayoutUnit child_inline_offset =
-        child_item->OffsetInContainerBlock()
-            .ConvertToLogical(writing_mode, direction, container_size,
+        child_item->OffsetInContainerFragment()
+            .ConvertToLogical(writing_direction, container_size,
                               child_item->Size())
             .inline_offset;
     if (point_inline_offset < child_inline_offset) {
+      if (child_item->IsFloating())
+        continue;
       if (child_inline_offset < closest_child_after_inline_offset) {
         closest_child_after_inline_offset = child_inline_offset;
         closest_child_after = descendants.Current();
@@ -848,8 +696,12 @@ PositionWithAffinity NGInlineCursor::PositionForPointInInlineBox(
     }
     const LayoutUnit child_inline_end_offset =
         child_inline_offset +
-        child_item->Size().ConvertToLogical(writing_mode).inline_size;
-    if (point_inline_offset > child_inline_end_offset) {
+        child_item->Size()
+            .ConvertToLogical(writing_direction.GetWritingMode())
+            .inline_size;
+    if (point_inline_offset >= child_inline_end_offset) {
+      if (child_item->IsFloating())
+        continue;
       if (child_inline_end_offset > closest_child_before_inline_offset) {
         closest_child_before_inline_offset = child_inline_end_offset;
         closest_child_before = descendants.Current();
@@ -857,17 +709,25 @@ PositionWithAffinity NGInlineCursor::PositionForPointInInlineBox(
       continue;
     }
 
+    // |point_inline_offset| is in |child_item|.
     if (const PositionWithAffinity child_position =
             descendants.PositionForPointInChild(point))
       return child_position;
   }
 
+  // Note: We don't snap a point before/after of "float" to "float",
+  // |closest_child_after| and |closest_child_before| can not be a box for
+  // "float".
+  // Note: Float boxes are appeared in |NGFragmentItems| as DOM order, so,
+  // "float:right" can be placed anywhere instead of at end of items.
+  // See LayoutViewHitTest.Float{Left,Right}*
   if (closest_child_after) {
     descendants.MoveTo(closest_child_after);
     if (const PositionWithAffinity child_position =
             descendants.PositionForPointInChild(point))
       return child_position;
     if (closest_child_after->BoxFragment()) {
+      DCHECK(!closest_child_after->IsFloating());
       // Hit test at left of "12"[1] and after "cd"[2] reache here.
       // "<span dir="rtl">12<b>&#x05E7;&#x05D0;43</b></span>ab"
       // [1] "editing/selection/caret-at-bidi-boundary.html"
@@ -884,6 +744,7 @@ PositionWithAffinity NGInlineCursor::PositionForPointInInlineBox(
             descendants.PositionForPointInChild(point))
       return child_position;
     if (closest_child_before->BoxFragment()) {
+      DCHECK(!closest_child_before->IsFloating());
       // LayoutViewHitTest.HitTestHorizontal "Top-right corner (outside) of div"
       // reach here.
       if (const PositionWithAffinity child_position =
@@ -897,17 +758,12 @@ PositionWithAffinity NGInlineCursor::PositionForPointInInlineBox(
 
 PositionWithAffinity NGInlineCursor::PositionForPointInChild(
     const PhysicalOffset& point_in_container) const {
-  if (auto* paint_fragment = CurrentPaintFragment()) {
-    const PhysicalOffset point_in_child =
-        point_in_container - paint_fragment->OffsetInContainerBlock();
-    return paint_fragment->PositionForPoint(point_in_child);
-  }
   DCHECK(CurrentItem());
   const NGFragmentItem& child_item = *CurrentItem();
   switch (child_item.Type()) {
     case NGFragmentItem::kText:
       return child_item.PositionForPointInText(
-          point_in_container - child_item.OffsetInContainerBlock(), *this);
+          point_in_container - child_item.OffsetInContainerFragment(), *this);
     case NGFragmentItem::kGeneratedText:
       break;
     case NGFragmentItem::kBox:
@@ -919,7 +775,7 @@ PositionWithAffinity NGInlineCursor::PositionForPointInChild(
           // Example: <b style="display:inline-block"><div>b</div></b>
           // [1] NGInlineCursorTest.PositionForPointInChildBlockChildren
           return child_item.GetLayoutObject()->PositionForPoint(
-              point_in_container - child_item.OffsetInContainerBlock());
+              point_in_container - child_item.OffsetInContainerFragment());
         }
       } else {
         // |LayoutInline| used to be culled.
@@ -933,24 +789,60 @@ PositionWithAffinity NGInlineCursor::PositionForPointInChild(
   return PositionWithAffinity();
 }
 
+PositionWithAffinity NGInlineCursor::PositionForPointInText(
+    unsigned text_offset) const {
+  DCHECK(Current().IsText()) << this;
+  if (HasRoot())
+    return Current()->PositionForPointInText(text_offset, *this);
+  return PositionWithAffinity();
+}
+
 PositionWithAffinity NGInlineCursor::PositionForStartOfLine() const {
   DCHECK(Current().IsLineBox());
-  const PhysicalOffset point_in_line = Current().LineStartPoint();
-  if (IsItemCursor()) {
-    return PositionForPointInInlineBox(point_in_line +
-                                       Current().OffsetInContainerBlock());
+  NGInlineCursor first_leaf = CursorForDescendants();
+  if (IsLtr(Current().BaseDirection()))
+    first_leaf.MoveToFirstNonPseudoLeaf();
+  else
+    first_leaf.MoveToLastNonPseudoLeaf();
+  if (!first_leaf)
+    return PositionWithAffinity();
+  Node* const node = first_leaf.Current().GetLayoutObject()->NonPseudoNode();
+  if (!node) {
+    NOTREACHED() << "MoveToFirstLeaf returns invalid node: " << first_leaf;
+    return PositionWithAffinity();
   }
-  return CurrentPaintFragment()->PositionForPoint(point_in_line);
+  if (!IsA<Text>(node))
+    return PositionWithAffinity(Position::BeforeNode(*node));
+  const unsigned text_offset =
+      Current().BaseDirection() == first_leaf.Current().ResolvedDirection()
+          ? first_leaf.Current().TextOffset().start
+          : first_leaf.Current().TextOffset().end;
+  return first_leaf.PositionForPointInText(text_offset);
 }
 
 PositionWithAffinity NGInlineCursor::PositionForEndOfLine() const {
   DCHECK(Current().IsLineBox());
-  const PhysicalOffset point_in_line = Current().LineEndPoint();
-  if (IsItemCursor()) {
-    return PositionForPointInInlineBox(point_in_line +
-                                       Current().OffsetInContainerBlock());
+  NGInlineCursor last_leaf = CursorForDescendants();
+  if (IsLtr(Current().BaseDirection()))
+    last_leaf.MoveToLastNonPseudoLeaf();
+  else
+    last_leaf.MoveToFirstNonPseudoLeaf();
+  if (!last_leaf)
+    return PositionWithAffinity();
+  Node* const node = last_leaf.Current().GetLayoutObject()->NonPseudoNode();
+  if (!node) {
+    NOTREACHED() << "MoveToLastLeaf returns invalid node: " << last_leaf;
+    return PositionWithAffinity();
   }
-  return CurrentPaintFragment()->PositionForPoint(point_in_line);
+  if (IsA<HTMLBRElement>(node))
+    return PositionWithAffinity(Position::BeforeNode(*node));
+  if (!IsA<Text>(node))
+    return PositionWithAffinity(Position::AfterNode(*node));
+  const unsigned text_offset =
+      Current().BaseDirection() == last_leaf.Current().ResolvedDirection()
+          ? last_leaf.Current().TextOffset().end
+          : last_leaf.Current().TextOffset().start;
+  return last_leaf.PositionForPointInText(text_offset);
 }
 
 void NGInlineCursor::MoveTo(const NGInlineCursorPosition& position) {
@@ -959,7 +851,7 @@ void NGInlineCursor::MoveTo(const NGInlineCursorPosition& position) {
 }
 
 inline wtf_size_t NGInlineCursor::SpanBeginItemIndex() const {
-  DCHECK(IsItemCursor());
+  DCHECK(HasRoot());
   DCHECK(!items_.empty());
   DCHECK(fragment_items_->IsSubSpan(items_));
   const wtf_size_t delta = items_.data() - fragment_items_->Items().data();
@@ -968,7 +860,7 @@ inline wtf_size_t NGInlineCursor::SpanBeginItemIndex() const {
 }
 
 inline wtf_size_t NGInlineCursor::SpanIndexFromItemIndex(unsigned index) const {
-  DCHECK(IsItemCursor());
+  DCHECK(HasRoot());
   DCHECK(!items_.empty());
   DCHECK(fragment_items_->IsSubSpan(items_));
   if (items_.data() == fragment_items_->Items().data())
@@ -980,7 +872,6 @@ inline wtf_size_t NGInlineCursor::SpanIndexFromItemIndex(unsigned index) const {
 }
 
 void NGInlineCursor::MoveTo(const NGFragmentItem& fragment_item) {
-  DCHECK(!root_paint_fragment_ && !current_.paint_fragment_);
   MoveTo(*fragment_item.GetLayoutObject());
   while (IsNotNull()) {
     if (CurrentItem() == &fragment_item)
@@ -991,14 +882,10 @@ void NGInlineCursor::MoveTo(const NGFragmentItem& fragment_item) {
 }
 
 void NGInlineCursor::MoveTo(const NGInlineCursor& cursor) {
-  if (const NGPaintFragment* paint_fragment = cursor.CurrentPaintFragment()) {
-    MoveTo(*paint_fragment);
-    return;
-  }
   if (cursor.current_.item_) {
     if (!fragment_items_)
-      SetRoot(*cursor.fragment_items_);
-    // Note: We use address instead of iterato because we can't compare
+      SetRoot(*cursor.root_box_fragment_, *cursor.fragment_items_);
+    // Note: We use address instead of iterator because we can't compare
     // iterators in different span. See |base::CheckedContiguousIterator<T>|.
     const ptrdiff_t index = &*cursor.current_.item_iter_ - &*items_.begin();
     DCHECK_GE(index, 0);
@@ -1009,52 +896,24 @@ void NGInlineCursor::MoveTo(const NGInlineCursor& cursor) {
   *this = cursor;
 }
 
-void NGInlineCursor::MoveTo(const NGPaintFragment& paint_fragment) {
-  DCHECK(!fragment_items_);
-  if (!root_paint_fragment_)
-    root_paint_fragment_ = paint_fragment.Root();
-  DCHECK(root_paint_fragment_);
-  DCHECK(paint_fragment.IsDescendantOfNotSelf(*root_paint_fragment_))
-      << paint_fragment << " " << root_paint_fragment_;
-  current_.paint_fragment_ = &paint_fragment;
-}
-
-void NGInlineCursor::MoveTo(const NGPaintFragment* paint_fragment) {
-  if (paint_fragment) {
-    MoveTo(*paint_fragment);
-    return;
-  }
-  MakeNull();
-}
-
 void NGInlineCursor::MoveToContainingLine() {
   DCHECK(!Current().IsLineBox());
-  if (current_.paint_fragment_) {
-    current_.paint_fragment_ = current_.paint_fragment_->ContainerLineBox();
-    return;
-  }
   if (current_.item_) {
     while (current_.item_ && !Current().IsLineBox())
-      MoveToPreviousItem();
+      MoveToPrevious();
     return;
   }
   NOTREACHED();
 }
 
 bool NGInlineCursor::IsAtFirst() const {
-  if (const NGPaintFragment* paint_fragment = Current().PaintFragment())
-    return paint_fragment == root_paint_fragment_->FirstChild();
   if (const NGFragmentItem* item = Current().Item())
     return item == &items_.front();
   return false;
 }
 
 void NGInlineCursor::MoveToFirst() {
-  if (root_paint_fragment_) {
-    current_.paint_fragment_ = root_paint_fragment_->FirstChild();
-    return;
-  }
-  if (IsItemCursor()) {
+  if (HasRoot()) {
     MoveToItem(items_.begin());
     return;
   }
@@ -1068,11 +927,7 @@ void NGInlineCursor::MoveToFirstChild() {
 }
 
 void NGInlineCursor::MoveToFirstLine() {
-  if (root_paint_fragment_) {
-    MoveTo(root_paint_fragment_->FirstLineBox());
-    return;
-  }
-  if (IsItemCursor()) {
+  if (HasRoot()) {
     auto iter = std::find_if(
         items_.begin(), items_.end(),
         [](const auto& item) { return item.Type() == NGFragmentItem::kLine; });
@@ -1101,6 +956,33 @@ void NGInlineCursor::MoveToFirstLogicalLeaf() {
     continue;
 }
 
+void NGInlineCursor::MoveToFirstNonPseudoLeaf() {
+  for (NGInlineCursor cursor = *this; cursor; cursor.MoveToNext()) {
+    if (!cursor.Current().GetLayoutObject()->NonPseudoNode())
+      continue;
+    if (cursor.Current().IsText()) {
+      // Note: We should not skip bidi control only text item to return
+      // position after bibi control character, e.g.
+      // <p dir=rtl>&#x202B;xyz ABC.&#x202C;</p>
+      // See "editing/selection/home-end.html".
+      DCHECK(!cursor.Current().IsLayoutGeneratedText()) << cursor;
+      if (cursor.Current().IsLineBreak()) {
+        // We ignore line break character, e.g. newline with white-space:pre,
+        // like |MoveToLastNonPseudoLeaf()| as consistency.
+        // See |ParameterizedVisibleUnitsLineTest.EndOfLineWithWhiteSpacePre|
+        continue;
+      }
+      *this = cursor;
+      return;
+    }
+    if (cursor.Current().IsInlineLeaf()) {
+      *this = cursor;
+      return;
+    }
+  }
+  MakeNull();
+}
+
 void NGInlineCursor::MoveToLastChild() {
   DCHECK(Current().CanHaveChildren());
   if (!TryToMoveToLastChild())
@@ -1108,7 +990,7 @@ void NGInlineCursor::MoveToLastChild() {
 }
 
 void NGInlineCursor::MoveToLastLine() {
-  DCHECK(IsItemCursor());
+  DCHECK(HasRoot());
   auto iter = std::find_if(
       items_.rbegin(), items_.rend(),
       [](const auto& item) { return item.Type() == NGFragmentItem::kLine; });
@@ -1133,10 +1015,43 @@ void NGInlineCursor::MoveToLastLogicalLeaf() {
     continue;
 }
 
-void NGInlineCursor::MoveToNext() {
-  if (root_paint_fragment_)
-    return MoveToNextPaintFragment();
-  MoveToNextItem();
+void NGInlineCursor::MoveToLastNonPseudoLeaf() {
+  // TODO(yosin): We should introduce |IsTruncated()| to avoid to use
+  // |in_hidden_for_paint|. See also |LayoutText::GetTextBoxInfo()|.
+  // When "text-overflow:ellipsis" specified, items are:
+  //  [i+0] original non-truncated text (IsHiddenForPaint()=true)
+  //  [i+1] truncated text
+  //  [i+2] ellipsis (IsLayoutGeneratedText())
+  NGInlineCursor last_leaf;
+  bool in_hidden_for_paint = false;
+  for (NGInlineCursor cursor = *this; cursor; cursor.MoveToNext()) {
+    if (!cursor.Current().GetLayoutObject()->NonPseudoNode())
+      continue;
+    if (cursor.Current().IsLineBreak() && last_leaf)
+      break;
+    if (cursor.Current().IsText()) {
+      DCHECK(!cursor.Current().IsLayoutGeneratedText());
+      if (in_hidden_for_paint && !cursor.Current().IsHiddenForPaint()) {
+        // |cursor| is at truncated text.
+        break;
+      }
+      in_hidden_for_paint = cursor.Current().IsHiddenForPaint();
+      // Exclude bidi control only fragment, e.g.
+      // <p dir=ltr>&#x202B;xyz ABC.&#x202C;</p> has
+      //  [0] "\u202Bxyz "
+      //  [1] "ABC"
+      //  [2] "."
+      //  [3] "\u202C"
+      // See "editing/selection/home-end.html"
+      if (IsBidiControl(cursor.Current().Text(cursor)))
+        continue;
+      last_leaf = cursor;
+      continue;
+    }
+    if (cursor.Current().IsInlineLeaf())
+      last_leaf = cursor;
+  }
+  *this = last_leaf;
 }
 
 void NGInlineCursor::MoveToNextInlineLeaf() {
@@ -1169,30 +1084,13 @@ void NGInlineCursor::MoveToNextInlineLeafOnLine() {
 
 void NGInlineCursor::MoveToNextLine() {
   DCHECK(Current().IsLineBox());
-  if (current_.paint_fragment_) {
-    if (auto* paint_fragment = current_.paint_fragment_->NextSibling())
-      return MoveTo(*paint_fragment);
-    return MakeNull();
-  }
   if (current_.item_) {
     do {
-      MoveToNextItem();
+      MoveToNext();
     } while (Current() && !Current().IsLineBox());
     return;
   }
   NOTREACHED();
-}
-
-void NGInlineCursor::MoveToNextSkippingChildren() {
-  if (root_paint_fragment_)
-    return MoveToNextPaintFragmentSkippingChildren();
-  MoveToNextItemSkippingChildren();
-}
-
-void NGInlineCursor::MoveToPrevious() {
-  if (root_paint_fragment_)
-    return MoveToPreviousPaintFragment();
-  MoveToPreviousItem();
 }
 
 void NGInlineCursor::MoveToPreviousInlineLeaf() {
@@ -1225,15 +1123,9 @@ void NGInlineCursor::MoveToPreviousInlineLeafOnLine() {
 void NGInlineCursor::MoveToPreviousLine() {
   // Note: List marker is sibling of line box.
   DCHECK(Current().IsLineBox());
-  if (current_.paint_fragment_) {
-    do {
-      MoveToPreviousSiblingPaintFragment();
-    } while (Current() && !Current().IsLineBox());
-    return;
-  }
   if (current_.item_) {
     do {
-      MoveToPreviousItem();
+      MoveToPrevious();
     } while (Current() && !Current().IsLineBox());
     return;
   }
@@ -1243,10 +1135,6 @@ void NGInlineCursor::MoveToPreviousLine() {
 bool NGInlineCursor::TryToMoveToFirstChild() {
   if (!Current().HasChildren())
     return false;
-  if (root_paint_fragment_) {
-    MoveTo(*current_.paint_fragment_->FirstChild());
-    return true;
-  }
   MoveToItem(current_.item_iter_ + 1);
   return true;
 }
@@ -1263,12 +1151,8 @@ bool NGInlineCursor::TryToMoveToFirstInlineLeafChild() {
 bool NGInlineCursor::TryToMoveToLastChild() {
   if (!Current().HasChildren())
     return false;
-  if (root_paint_fragment_) {
-    MoveTo(current_.paint_fragment_->Children().back());
-    return true;
-  }
   const auto end = current_.item_iter_ + CurrentItem()->DescendantsCount();
-  MoveToNextItem();  // Move to the first child.
+  MoveToNext();  // Move to the first child.
   DCHECK(!IsNull());
   while (true) {
     ItemsSpan::iterator previous = Current().item_iter_;
@@ -1282,8 +1166,8 @@ bool NGInlineCursor::TryToMoveToLastChild() {
   return true;
 }
 
-void NGInlineCursor::MoveToNextItem() {
-  DCHECK(IsItemCursor());
+void NGInlineCursor::MoveToNext() {
+  DCHECK(HasRoot());
   if (UNLIKELY(!current_.item_))
     return;
   DCHECK(current_.item_iter_ != items_.end());
@@ -1294,19 +1178,19 @@ void NGInlineCursor::MoveToNextItem() {
   MakeNull();
 }
 
-void NGInlineCursor::MoveToNextItemSkippingChildren() {
-  DCHECK(IsItemCursor());
+void NGInlineCursor::MoveToNextSkippingChildren() {
+  DCHECK(HasRoot());
   if (UNLIKELY(!current_.item_))
     return;
   // If the current item has |DescendantsCount|, add it to move to the next
   // sibling, skipping all children and their descendants.
   if (wtf_size_t descendants_count = current_.item_->DescendantsCount())
     return MoveToItem(current_.item_iter_ + descendants_count);
-  return MoveToNextItem();
+  return MoveToNext();
 }
 
-void NGInlineCursor::MoveToPreviousItem() {
-  DCHECK(IsItemCursor());
+void NGInlineCursor::MoveToPrevious() {
+  DCHECK(HasRoot());
   if (UNLIKELY(!current_.item_))
     return;
   if (current_.item_iter_ == items_.begin())
@@ -1315,76 +1199,13 @@ void NGInlineCursor::MoveToPreviousItem() {
   current_.item_ = &*current_.item_iter_;
 }
 
-void NGInlineCursor::MoveToParentPaintFragment() {
-  DCHECK(IsPaintFragmentCursor() && current_.paint_fragment_);
-  const NGPaintFragment* parent = current_.paint_fragment_->Parent();
-  if (parent && parent != root_paint_fragment_) {
-    current_.paint_fragment_ = parent;
-    return;
-  }
-  current_.paint_fragment_ = nullptr;
-}
-
-void NGInlineCursor::MoveToNextPaintFragment() {
-  DCHECK(IsPaintFragmentCursor() && current_.paint_fragment_);
-  if (const NGPaintFragment* child = current_.paint_fragment_->FirstChild()) {
-    current_.paint_fragment_ = child;
-    return;
-  }
-  MoveToNextPaintFragmentSkippingChildren();
-}
-
-void NGInlineCursor::MoveToNextSiblingPaintFragment() {
-  DCHECK(IsPaintFragmentCursor() && current_.paint_fragment_);
-  if (const NGPaintFragment* next = current_.paint_fragment_->NextSibling()) {
-    current_.paint_fragment_ = next;
-    return;
-  }
-  current_.paint_fragment_ = nullptr;
-}
-
-void NGInlineCursor::MoveToNextPaintFragmentSkippingChildren() {
-  DCHECK(IsPaintFragmentCursor() && current_.paint_fragment_);
-  while (current_.paint_fragment_) {
-    if (const NGPaintFragment* next = current_.paint_fragment_->NextSibling()) {
-      current_.paint_fragment_ = next;
-      return;
-    }
-    MoveToParentPaintFragment();
-  }
-}
-
-void NGInlineCursor::MoveToPreviousPaintFragment() {
-  DCHECK(IsPaintFragmentCursor() && current_.paint_fragment_);
-  const NGPaintFragment* const parent = current_.paint_fragment_->Parent();
-  MoveToPreviousSiblingPaintFragment();
-  if (current_.paint_fragment_) {
-    while (TryToMoveToLastChild())
-      continue;
-    return;
-  }
-  current_.paint_fragment_ = parent == root_paint_fragment_ ? nullptr : parent;
-}
-
-void NGInlineCursor::MoveToPreviousSiblingPaintFragment() {
-  DCHECK(IsPaintFragmentCursor() && current_.paint_fragment_);
-  const NGPaintFragment* const current = current_.paint_fragment_;
-  current_.paint_fragment_ = nullptr;
-  for (auto* sibling : current->Parent()->Children()) {
-    if (sibling == current)
-      return;
-    current_.paint_fragment_ = sibling;
-  }
-  NOTREACHED();
-}
-
 void NGInlineCursor::MoveToFirstIncludingFragmentainer() {
-  if (!fragment_index_ || IsPaintFragmentCursor()) {
+  if (!fragment_index_) {
     MoveToFirst();
     return;
   }
 
-  fragment_index_ = 0;
+  ResetFragmentIndex();
   if (!TrySetRootFragmentItems())
     MakeNull();
 }
@@ -1392,7 +1213,7 @@ void NGInlineCursor::MoveToFirstIncludingFragmentainer() {
 void NGInlineCursor::MoveToNextFragmentainer() {
   DCHECK(CanMoveAcrossFragmentainer());
   if (fragment_index_ < max_fragment_index_) {
-    ++fragment_index_;
+    AdvanceFragmentIndex();
     if (TrySetRootFragmentItems())
       return;
   }
@@ -1427,46 +1248,6 @@ void NGInlineCursor::MoveTo(const LayoutObject& layout_object) {
     NOTREACHED();
     MakeNull();
     return;
-  }
-
-  if (!RuntimeEnabledFeatures::LayoutNGFragmentItemEnabled()) {
-    // If this cursor is rootless, find the root of the inline formatting
-    // context.
-    if (!HasRoot()) {
-      const LayoutBlockFlow& root =
-          *layout_object.RootInlineFormattingContext();
-      DCHECK(&root);
-      SetRoot(root);
-      if (!HasRoot()) {
-        const auto fragments =
-            NGPaintFragment::InlineFragmentsFor(&layout_object);
-        if (!fragments.IsInLayoutNGInlineFormattingContext() ||
-            fragments.IsEmpty())
-          return MakeNull();
-        // external/wpt/css/css-scroll-anchoring/text-anchor-in-vertical-rl.html
-        // reaches here.
-        root_paint_fragment_ = fragments.front().Root();
-      }
-      DCHECK(HasRoot());
-    }
-
-    const auto fragments = NGPaintFragment::InlineFragmentsFor(&layout_object);
-    if (!fragments.IsEmpty()) {
-      // If |this| is IFC root, just move to the first fragment.
-      if (!root_paint_fragment_->Parent()) {
-        DCHECK(fragments.front().IsDescendantOfNotSelf(*root_paint_fragment_));
-        MoveTo(fragments.front());
-        return;
-      }
-      // If |this| is limited, find the first fragment in the range.
-      for (const auto* fragment : fragments) {
-        if (fragment->IsDescendantOfNotSelf(*root_paint_fragment_)) {
-          MoveTo(*fragment);
-          return;
-        }
-      }
-    }
-    return MakeNull();
   }
 
   // If this cursor is rootless, find the root of the inline formatting context.
@@ -1572,50 +1353,32 @@ void NGInlineCursor::MoveTo(const LayoutObject& layout_object) {
 }
 
 void NGInlineCursor::MoveToNextForSameLayoutObjectExceptCulledInline() {
-  if (current_.paint_fragment_) {
-    if (auto* paint_fragment =
-            current_.paint_fragment_->NextForSameLayoutObject()) {
-      if (!root_paint_fragment_->Parent()) {
-        // |paint_fragment| can be in another fragment tree rooted by
-        // |root_paint_fragment_|, e.g. "multicol-span-all-restyle-002.html"
-        root_paint_fragment_ = paint_fragment->Root();
-        MoveTo(*paint_fragment);
+  if (!Current())
+    return;
+  if (wtf_size_t delta = current_.item_->DeltaToNextForSameLayoutObject()) {
+    while (true) {
+      // Return if the next index is in the current range.
+      const wtf_size_t delta_to_end = items_.end() - current_.item_iter_;
+      if (delta < delta_to_end) {
+        MoveToItem(current_.item_iter_ + delta);
         return;
       }
-      // If |this| is limited, make sure the result is in the range.
-      if (paint_fragment->IsDescendantOfNotSelf(*root_paint_fragment_)) {
-        MoveTo(*paint_fragment);
-        return;
-      }
-    }
-    return MakeNull();
-  }
-  if (current_.item_) {
-    if (wtf_size_t delta = current_.item_->DeltaToNextForSameLayoutObject()) {
-      while (true) {
-        // Return if the next index is in the current range.
-        const wtf_size_t delta_to_end = items_.end() - current_.item_iter_;
-        if (delta < delta_to_end) {
-          MoveToItem(current_.item_iter_ + delta);
-          return;
-        }
 
-        // |this| is |IsDescendantsCursor| and the next item is out of the
-        // specified range, or the next item is in following fragmentainers.
-        if (!CanMoveAcrossFragmentainer())
-          break;
+      // |this| is |IsDescendantsCursor| and the next item is out of the
+      // specified range, or the next item is in following fragmentainers.
+      if (!CanMoveAcrossFragmentainer())
+        break;
 
-        MoveToNextFragmentainer();
-        if (!Current()) {
-          NOTREACHED();
-          break;
-        }
-        DCHECK_GE(delta, delta_to_end);
-        delta -= delta_to_end;
+      MoveToNextFragmentainer();
+      if (!Current()) {
+        NOTREACHED();
+        break;
       }
+      DCHECK_GE(delta, delta_to_end);
+      delta -= delta_to_end;
     }
-    MakeNull();
   }
+  MakeNull();
 }
 
 void NGInlineCursor::MoveToLastForSameLayoutObject() {
@@ -1648,7 +1411,7 @@ const LayoutObject* NGInlineCursor::CulledInlineTraversal::Find(
       continue;
     }
 
-    if (const LayoutInline* child_layout_inline = ToLayoutInlineOrNull(child)) {
+    if (const auto* child_layout_inline = DynamicTo<LayoutInline>(child)) {
       if (child_layout_inline->ShouldCreateBoxFragment())
         return child;
 
@@ -1665,14 +1428,23 @@ const LayoutObject* NGInlineCursor::CulledInlineTraversal::Find(
   return nullptr;
 }
 
+void NGInlineCursor::CulledInlineTraversal::SetUseFragmentTree(
+    const LayoutInline& layout_inline) {
+  layout_inline_ = &layout_inline;
+  use_fragment_tree_ = true;
+}
+
 const LayoutObject* NGInlineCursor::CulledInlineTraversal::MoveToFirstFor(
     const LayoutInline& layout_inline) {
   layout_inline_ = &layout_inline;
+  use_fragment_tree_ = false;
   current_object_ = Find(layout_inline.FirstChild());
   return current_object_;
 }
 
 const LayoutObject* NGInlineCursor::CulledInlineTraversal::MoveToNext() {
+  if (!current_object_)
+    return nullptr;
   current_object_ =
       Find(current_object_->NextInPreOrderAfterChildren(layout_inline_));
   return current_object_;
@@ -1680,6 +1452,19 @@ const LayoutObject* NGInlineCursor::CulledInlineTraversal::MoveToNext() {
 
 void NGInlineCursor::MoveToFirstForCulledInline(
     const LayoutInline& layout_inline) {
+  // When |this| is a descendant cursor, |this| may be limited to a very small
+  // subset of the |LayoutObject| descendants, and that traversing
+  // |LayoutObject| descendants is much more expensive. Prefer checking every
+  // fragment in that case.
+  if (IsDescendantsCursor()) {
+    culled_inline_.SetUseFragmentTree(layout_inline);
+    DCHECK(!CanMoveAcrossFragmentainer());
+    MoveToFirst();
+    while (Current() && !Current().IsPartOfCulledInlineBox(layout_inline))
+      MoveToNext();
+    return;
+  }
+
   if (const LayoutObject* layout_object =
           culled_inline_.MoveToFirstFor(layout_inline)) {
     MoveTo(*layout_object);
@@ -1691,6 +1476,16 @@ void NGInlineCursor::MoveToFirstForCulledInline(
 
 void NGInlineCursor::MoveToNextForCulledInline() {
   DCHECK(culled_inline_);
+  if (culled_inline_.UseFragmentTree()) {
+    const LayoutInline* layout_inline = culled_inline_.GetLayoutInline();
+    DCHECK(layout_inline);
+    DCHECK(!CanMoveAcrossFragmentainer());
+    do {
+      MoveToNext();
+    } while (Current() && !Current().IsPartOfCulledInlineBox(*layout_inline));
+    return;
+  }
+
   MoveToNextForSameLayoutObjectExceptCulledInline();
   // If we're at the end of fragments for the current |LayoutObject| that
   // contributes to the current culled inline, find the next |LayoutObject|.
@@ -1709,6 +1504,20 @@ void NGInlineCursor::MoveToNextCulledInlineDescendantIfNeeded() {
   }
 }
 
+void NGInlineCursor::ResetFragmentIndex() {
+  fragment_index_ = 0;
+  previously_consumed_block_size_ = LayoutUnit();
+}
+
+void NGInlineCursor::AdvanceFragmentIndex() {
+  fragment_index_++;
+  if (!root_box_fragment_)
+    return;
+  if (const auto* break_token =
+          To<NGBlockBreakToken>(root_box_fragment_->BreakToken()))
+    previously_consumed_block_size_ = break_token->ConsumedBlockSize();
+}
+
 void NGInlineCursor::MoveToIncludingCulledInline(
     const LayoutObject& layout_object) {
   DCHECK(layout_object.IsInLayoutNGInlineFormattingContext()) << layout_object;
@@ -1720,8 +1529,7 @@ void NGInlineCursor::MoveToIncludingCulledInline(
 
   // If this is a culled inline, find fragments for descendant |LayoutObject|s
   // that contribute to the culled inline.
-  if (const LayoutInline* layout_inline =
-          ToLayoutInlineOrNull(&layout_object)) {
+  if (const auto* layout_inline = DynamicTo<LayoutInline>(layout_object)) {
     if (!layout_inline->ShouldCreateBoxFragment())
       MoveToFirstForCulledInline(*layout_inline);
   }
@@ -1740,19 +1548,7 @@ void NGInlineCursor::MoveToNextForSameLayoutObject() {
 //
 NGInlineBackwardCursor::NGInlineBackwardCursor(const NGInlineCursor& cursor)
     : cursor_(cursor) {
-  if (cursor.root_paint_fragment_) {
-    DCHECK(!cursor.CurrentPaintFragment() ||
-           cursor.CurrentPaintFragment()->Parent()->FirstChild() ==
-               cursor.CurrentPaintFragment());
-    for (NGInlineCursor sibling(cursor); sibling;
-         sibling.MoveToNextSiblingPaintFragment())
-      sibling_paint_fragments_.push_back(sibling.CurrentPaintFragment());
-    current_index_ = sibling_paint_fragments_.size();
-    if (current_index_)
-      current_.paint_fragment_ = sibling_paint_fragments_[--current_index_];
-    return;
-  }
-  if (cursor.IsItemCursor()) {
+  if (cursor.HasRoot()) {
     DCHECK(!cursor || cursor.items_.begin() == cursor.Current().item_iter_);
     for (NGInlineCursor sibling(cursor); sibling;
          sibling.MoveToNextSkippingChildren())
@@ -1766,8 +1562,6 @@ NGInlineBackwardCursor::NGInlineBackwardCursor(const NGInlineCursor& cursor)
 }
 
 NGInlineCursor NGInlineBackwardCursor::CursorForDescendants() const {
-  if (const NGPaintFragment* current_paint_fragment = Current().PaintFragment())
-    return NGInlineCursor(*current_paint_fragment);
   if (current_.item_) {
     NGInlineCursor cursor(cursor_);
     cursor.MoveToItem(sibling_item_iterators_[current_index_]);
@@ -1779,28 +1573,19 @@ NGInlineCursor NGInlineBackwardCursor::CursorForDescendants() const {
 
 void NGInlineBackwardCursor::MoveToPreviousSibling() {
   if (current_index_) {
-    if (current_.paint_fragment_) {
-      current_.paint_fragment_ = sibling_paint_fragments_[--current_index_];
-      return;
-    }
     if (current_.item_) {
       current_.Set(sibling_item_iterators_[--current_index_]);
       return;
     }
     NOTREACHED();
   }
-  current_.paint_fragment_ = nullptr;
-  current_.item_ = nullptr;
+  current_.Clear();
 }
 
 std::ostream& operator<<(std::ostream& ostream, const NGInlineCursor& cursor) {
-  if (cursor.IsNull())
+  if (!cursor)
     return ostream << "NGInlineCursor()";
-  if (cursor.IsPaintFragmentCursor()) {
-    return ostream << "NGInlineCursor(" << *cursor.CurrentPaintFragment()
-                   << ")";
-  }
-  DCHECK(cursor.IsItemCursor());
+  DCHECK(cursor.HasRoot());
   return ostream << "NGInlineCursor(" << *cursor.CurrentItem() << ")";
 }
 
@@ -1812,12 +1597,9 @@ std::ostream& operator<<(std::ostream& ostream, const NGInlineCursor* cursor) {
 
 #if DCHECK_IS_ON()
 void NGInlineCursor::CheckValid(const NGInlineCursorPosition& position) const {
-  if (position.PaintFragment()) {
-    DCHECK(root_paint_fragment_);
-    DCHECK(
-        position.PaintFragment()->IsDescendantOfNotSelf(*root_paint_fragment_));
-  } else if (position.Item()) {
-    DCHECK(IsItemCursor());
+  if (position.Item()) {
+    DCHECK(HasRoot());
+    DCHECK_EQ(position.item_, &*position.item_iter_);
     const unsigned index = position.item_iter_ - items_.begin();
     DCHECK_LT(index, items_.size());
   }

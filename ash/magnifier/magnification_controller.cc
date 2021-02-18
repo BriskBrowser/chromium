@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "ash/accelerators/accelerator_controller_impl.h"
+#include "ash/accessibility/accessibility_controller_impl.h"
 #include "ash/accessibility/accessibility_delegate.h"
 #include "ash/display/root_window_transformers.h"
 #include "ash/host/ash_window_tree_host.h"
@@ -27,7 +28,6 @@
 #include "ui/base/ime/chromeos/ime_bridge.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/base/ime/text_input_client.h"
-#include "ui/compositor/dip_util.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/display/display.h"
@@ -35,6 +35,7 @@
 #include "ui/events/event.h"
 #include "ui/events/gestures/gesture_provider_aura.h"
 #include "ui/events/types/event_type.h"
+#include "ui/gfx/geometry/dip_util.h"
 #include "ui/gfx/geometry/point3_f.h"
 #include "ui/gfx/geometry/point_conversions.h"
 #include "ui/gfx/geometry/rect_conversions.h"
@@ -61,8 +62,8 @@ constexpr int kDefaultAnimationDurationInMs = 100;
 constexpr gfx::Tween::Type kCenterCaretAnimationTweenType = gfx::Tween::LINEAR;
 
 // The delay of the timer for moving magnifier window for centering the text
-// input focus.
-constexpr int kMoveMagnifierDelayInMs = 10;
+// input focus. Keep under one frame length (~16ms at 60hz).
+constexpr int kMoveMagnifierDelayInMs = 15;
 
 // Threshold of panning. If the cursor moves to within pixels (in DIP) of
 // |kCursorPanningMargin| from the edge, the view-port moves.
@@ -266,6 +267,16 @@ void MagnificationController::HandleFocusedNodeChanged(
   MoveMagnifierWindowFollowRect(node_bounds_in_root);
 }
 
+void MagnificationController::HandleMoveMagnifierToRect(
+    const gfx::Rect& rect_in_screen) {
+  gfx::Rect node_bounds_in_root = rect_in_screen;
+  ::wm::ConvertRectFromScreen(root_window_, &node_bounds_in_root);
+  if (GetViewportRect().Contains(node_bounds_in_root))
+    return;
+
+  MoveMagnifierWindowFollowRect(node_bounds_in_root);
+}
+
 void MagnificationController::SwitchTargetRootWindow(
     aura::Window* new_root_window,
     bool redraw_original_root_window) {
@@ -367,7 +378,6 @@ void MagnificationController::OnCaretBoundsChanged(
   // being moved back and forth with these two OnCaretBoundsChanged events, we
   // defer moving magnifier window until the |move_magnifier_timer_| fires,
   // when the caret settles eventually.
-  move_magnifier_timer_.Stop();
   move_magnifier_timer_.Start(
       FROM_HERE,
       base::TimeDelta::FromMilliseconds(
@@ -531,7 +541,7 @@ ui::EventDispatchDetails MagnificationController::RewriteEvent(
   if (gesture_provider_->OnTouchEvent(&touch_event_copy)) {
     gesture_provider_->OnTouchEventAck(
         touch_event_copy.unique_event_id(), false /* event_consumed */,
-        false /* is_source_touch_event_set_non_blocking */);
+        false /* is_source_touch_event_set_blocking */);
   } else {
     return DiscardEvent(continuation);
   }
@@ -593,13 +603,14 @@ ui::EventDispatchDetails MagnificationController::RewriteEvent(
   return SendEvent(continuation, &event);
 }
 
-bool MagnificationController::Redraw(const gfx::PointF& position,
-                                     float scale,
-                                     bool animate) {
-  const gfx::PointF position_in_dip =
-      ui::ConvertPointToDIP(root_window_->layer(), position);
-  return RedrawDIP(position_in_dip, scale,
-                   animate ? kDefaultAnimationDurationInMs : 0,
+bool MagnificationController::Redraw(
+    const gfx::PointF& position_in_physical_pixels,
+    float scale,
+    bool animate) {
+  gfx::PointF position =
+      gfx::ConvertPointToDips(position_in_physical_pixels,
+                              root_window_->layer()->device_scale_factor());
+  return RedrawDIP(position, scale, animate ? kDefaultAnimationDurationInMs : 0,
                    kDefaultAnimationTweenType);
 }
 
@@ -690,6 +701,9 @@ bool MagnificationController::RedrawDIP(const gfx::PointF& position_in_dip,
   if (duration_in_ms > 0)
     is_on_animation_ = true;
 
+  Shell::Get()->accessibility_controller()->MagnifierBoundsChanged(
+      GetViewportRect());
+
   return true;
 }
 
@@ -749,11 +763,22 @@ void MagnificationController::OnMouseMove(const gfx::Point& location) {
   gfx::Point mouse(location);
   int margin = kCursorPanningMargin / scale_;  // No need to consider DPI.
 
+  // Edge mouse following mode.
+  // TODO(https://crbug.com/1178027): Add continuous mouse following mode.
+  int x_margin = margin;
+  int y_margin = margin;
+
+  if (mouse_following_mode_ == MagnifierMouseFollowingMode::kCentered) {
+    const gfx::Rect window_rect = GetViewportRect();
+    x_margin = window_rect.width() / 2;
+    y_margin = window_rect.height() / 2;
+  }
+
   // Reduce the bottom margin if the keyboard is visible.
   bool reduce_bottom_margin =
       keyboard::KeyboardUIController::Get()->IsKeyboardVisible();
 
-  MoveMagnifierWindowFollowPoint(mouse, margin, margin, margin, margin,
+  MoveMagnifierWindowFollowPoint(mouse, x_margin, y_margin, x_margin, y_margin,
                                  reduce_bottom_margin);
 }
 
@@ -967,6 +992,7 @@ void MagnificationController::MoveMagnifierWindowCenterPoint(
 void MagnificationController::MoveMagnifierWindowFollowRect(
     const gfx::Rect& rect) {
   DCHECK(root_window_);
+  last_move_magnifier_to_rect_ = base::TimeTicks::Now();
   bool should_pan = false;
 
   const gfx::Rect viewport_rect = GetViewportRect();
@@ -991,6 +1017,11 @@ void MagnificationController::MoveMagnifierWindowFollowRect(
     should_pan = true;
   }
 
+  // If rect is too wide to fit in viewport, include as much as we can, starting
+  // with the left edge.
+  if (rect.width() > viewport_rect.width())
+    x = rect.x() - magnifier_utils::kLeftEdgeContextPadding;
+
   if (should_pan) {
     if (is_on_animation_) {
       root_window_->layer()->GetAnimator()->StopAnimating();
@@ -1003,6 +1034,12 @@ void MagnificationController::MoveMagnifierWindowFollowRect(
 }
 
 void MagnificationController::OnMoveMagnifierTimer() {
+  // Ignore caret changes while move magnifier to rect activity is occurring.
+  if (base::TimeTicks::Now() - last_move_magnifier_to_rect_ <
+      magnifier_utils::kPauseCaretUpdateDuration) {
+    return;
+  }
+
   MoveMagnifierWindowCenterPoint(caret_point_);
 }
 

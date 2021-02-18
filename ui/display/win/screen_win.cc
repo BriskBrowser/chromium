@@ -10,12 +10,12 @@
 #include <algorithm>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
+#include "base/containers/contains.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/numerics/ranges.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/optional.h"
-#include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
 #include "base/win/win_util.h"
 #include "base/win/windows_version.h"
@@ -662,6 +662,11 @@ gfx::NativeWindow ScreenWin::GetNativeWindowFromHWND(HWND hwnd) const {
   return nullptr;
 }
 
+bool ScreenWin::IsNativeWindowOccluded(gfx::NativeWindow window) const {
+  NOTREACHED();
+  return false;
+}
+
 ScreenWin::ScreenWin(bool initialize) {
   DCHECK(!g_instance);
   g_instance = this;
@@ -722,7 +727,8 @@ Display ScreenWin::GetDisplayNearestPoint(const gfx::Point& point) const {
 }
 
 Display ScreenWin::GetDisplayMatching(const gfx::Rect& match_rect) const {
-  return GetScreenWinDisplayNearestScreenRect(match_rect).display();
+  const gfx::Rect screen_rect = DIPToScreenRect(nullptr, match_rect);
+  return GetScreenWinDisplayNearestScreenRect(screen_rect).display();
 }
 
 Display ScreenWin::GetPrimaryDisplay() const {
@@ -774,7 +780,7 @@ void ScreenWin::Initialize() {
   // We want to remember that we've observed a screen metrics object so that we
   // can remove ourselves as an observer at some later point (either when the
   // metrics object notifies us it's going away or when we are destructed).
-  scale_factor_observer_.Add(UwpTextScaleFactor::Instance());
+  scale_factor_observation_.Observe(UwpTextScaleFactor::Instance());
 }
 
 MONITORINFOEX ScreenWin::MonitorInfoFromScreenPoint(
@@ -947,8 +953,7 @@ void ScreenWin::OnUwpTextScaleFactorChanged() {
 }
 
 void ScreenWin::OnUwpTextScaleFactorCleanup(UwpTextScaleFactor* source) {
-  if (scale_factor_observer_.IsObserving(source))
-    scale_factor_observer_.Remove(source);
+  scale_factor_observation_.Reset();
   UwpTextScaleFactor::Observer::OnUwpTextScaleFactorCleanup(source);
 }
 

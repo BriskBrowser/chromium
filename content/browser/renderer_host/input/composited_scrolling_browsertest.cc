@@ -79,8 +79,11 @@ class CompositedScrollingBrowserTest : public ContentBrowserTest {
   }
 
   RenderWidgetHostImpl* GetWidgetHost() {
-    return RenderWidgetHostImpl::From(
-        shell()->web_contents()->GetRenderViewHost()->GetWidget());
+    return RenderWidgetHostImpl::From(shell()
+                                          ->web_contents()
+                                          ->GetMainFrame()
+                                          ->GetRenderViewHost()
+                                          ->GetWidget());
   }
 
   void OnSyntheticGestureCompleted(SyntheticGesture::Result result) {
@@ -200,7 +203,7 @@ class CompositedScrollingMetricTest : public CompositedScrollingBrowserTest,
     if (enable_composited_scrolling)
       cmd->AppendSwitch(blink::switches::kEnablePreferCompositingToLCDText);
     else
-      cmd->AppendSwitch(switches::kDisableThreadedScrolling);
+      cmd->AppendSwitch(blink::switches::kDisableThreadedScrolling);
   }
 
   bool CompositingEnabled() { return GetParam(); }

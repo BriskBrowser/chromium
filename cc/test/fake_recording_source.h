@@ -81,13 +81,9 @@ class FakeRecordingSource : public RecordingSource {
     Region invalidation;
     gfx::Rect new_recorded_viewport = client_.PaintableRegion();
     scoped_refptr<DisplayItemList> display_list =
-        client_.PaintContentsToDisplayList(
-            ContentLayerClient::PAINTING_BEHAVIOR_NORMAL);
-    size_t painter_reported_memory_usage =
-        client_.GetApproximateUnsharedMemoryUsage();
+        client_.PaintContentsToDisplayList();
     UpdateAndExpandInvalidation(&invalidation, size_, new_recorded_viewport);
-    UpdateDisplayItemList(display_list, painter_reported_memory_usage,
-                          recording_scale_factor_);
+    UpdateDisplayItemList(display_list, recording_scale_factor_);
   }
 
   void add_draw_rect(const gfx::Rect& rect) {
@@ -109,29 +105,28 @@ class FakeRecordingSource : public RecordingSource {
   }
 
   void add_draw_image(sk_sp<SkImage> image, const gfx::Point& point) {
-    client_.add_draw_image(std::move(image), point, default_flags_);
+    client_.add_draw_image(std::move(image), point, SkSamplingOptions(),
+                           default_flags_);
   }
   void add_draw_image(PaintImage image, const gfx::Point& point) {
-    client_.add_draw_image(std::move(image), point, default_flags_);
+    client_.add_draw_image(std::move(image), point, SkSamplingOptions(),
+                           default_flags_);
   }
 
   void add_draw_image_with_transform(PaintImage image,
                                      const gfx::Transform& transform) {
     client_.add_draw_image_with_transform(std::move(image), transform,
-                                          default_flags_);
+                                          SkSamplingOptions(), default_flags_);
   }
 
   void add_draw_image_with_flags(sk_sp<SkImage> image,
                                  const gfx::Point& point,
+                                 const SkSamplingOptions& sampling,
                                  const PaintFlags& flags) {
-    client_.add_draw_image(std::move(image), point, flags);
+    client_.add_draw_image(std::move(image), point, sampling, flags);
   }
 
   void set_default_flags(const PaintFlags& flags) { default_flags_ = flags; }
-
-  void set_reported_memory_usage(size_t reported_memory_usage) {
-    client_.set_reported_memory_usage(reported_memory_usage);
-  }
 
   void reset_draws() {
     client_ = FakeContentLayerClient();

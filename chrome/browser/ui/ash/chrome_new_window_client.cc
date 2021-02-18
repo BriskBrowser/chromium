@@ -7,16 +7,19 @@
 #include <utility>
 
 #include "apps/launcher.h"
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/app_list/internal_app_id_constants.h"
 #include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/keyboard_shortcut_viewer.h"
 #include "ash/public/cpp/shelf_model.h"
 #include "ash/public/cpp/shelf_types.h"
+#include "base/feature_list.h"
 #include "base/macros.h"
 #include "chrome/browser/apps/app_service/app_service_metrics.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/apps/app_service/launch_utils.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/apps/apk_web_app_service.h"
 #include "chrome/browser/chromeos/apps/metrics/intent_handling_metrics.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
@@ -24,13 +27,13 @@
 #include "chrome/browser/chromeos/arc/fileapi/arc_content_file_system_url_util.h"
 #include "chrome/browser/chromeos/arc/intent_helper/custom_tab_session_impl.h"
 #include "chrome/browser/chromeos/file_manager/app_id.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/chromeos/file_manager/path_util.h"
 #include "chrome/browser/chromeos/web_applications/chrome_camera_app_ui_delegate.h"
-#include "chrome/browser/extensions/api/terminal/terminal_extension_helper.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
+#include "chrome/browser/ui/ash/launcher/app_window_base.h"
 #include "chrome/browser/ui/ash/launcher/app_window_launcher_item_controller.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_util.h"
@@ -68,10 +71,8 @@
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "ui/aura/window.h"
-#include "ui/base/base_window.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
-#include "ui/display/types/display_constants.h"
 #include "url/url_constants.h"
 
 using arc::mojom::ChromePage;
@@ -121,7 +122,7 @@ constexpr std::pair<arc::mojom::ChromePage, const char*> kOSSettingsMapping[] =
      {ChromePage::HELP, chromeos::settings::mojom::kAboutChromeOsSectionPath},
      {ChromePage::INTERNET, chromeos::settings::mojom::kNetworkSectionPath},
      {ChromePage::KERBEROSACCOUNTS,
-      chromeos::settings::mojom::kKerberosSubpagePath},
+      chromeos::settings::mojom::kKerberosAccountsSubpagePath},
      {ChromePage::KEYBOARDOVERLAY,
       chromeos::settings::mojom::kKeyboardSubpagePath},
      {ChromePage::KNOWNNETWORKS,
@@ -130,6 +131,8 @@ constexpr std::pair<arc::mojom::ChromePage, const char*> kOSSettingsMapping[] =
       chromeos::settings::mojom::kLanguagesAndInputSectionPath},
      {ChromePage::OSLANGUAGESDETAILS,
       chromeos::settings::mojom::kLanguagesAndInputDetailsSubpagePath},
+     {ChromePage::OSLANGUAGESEDITDICTIONARY,
+      chromeos::settings::mojom::kEditDictionarySubpagePath},
      {ChromePage::OSLANGUAGESINPUT,
       chromeos::settings::mojom::kInputSubpagePath},
      {ChromePage::OSLANGUAGESINPUTMETHODS,
@@ -171,7 +174,10 @@ constexpr std::pair<arc::mojom::ChromePage, const char*> kOSSettingsMapping[] =
       chromeos::settings::mojom::kSwitchAccessOptionsSubpagePath},
      {ChromePage::TETHERSETTINGS,
       chromeos::settings::mojom::kMobileDataNetworksSubpagePath},
-     {ChromePage::WIFI, chromeos::settings::mojom::kWifiNetworksSubpagePath}};
+     {ChromePage::WIFI, chromeos::settings::mojom::kWifiNetworksSubpagePath},
+     {ChromePage::KERBEROS, chromeos::settings::mojom::kKerberosSectionPath},
+     {ChromePage::KERBEROSACCOUNTSV2,
+      chromeos::settings::mojom::kKerberosAccountsV2SubpagePath}};
 
 constexpr std::pair<arc::mojom::ChromePage, const char*>
     kBrowserSettingsMapping[] = {
@@ -193,8 +199,8 @@ constexpr std::pair<arc::mojom::ChromePage, const char*>
 
 constexpr std::pair<arc::mojom::ChromePage, const char*> kAboutPagesMapping[] =
     {{ChromePage::ABOUTBLANK, url::kAboutBlankURL},
-     {ChromePage::ABOUTDOWNLOADS, "about:downloads"},
-     {ChromePage::ABOUTHISTORY, "about:history"}};
+     {ChromePage::ABOUTDOWNLOADS, "chrome://downloads/"},
+     {ChromePage::ABOUTHISTORY, "chrome://history/"}};
 
 constexpr arc::mojom::ChromePage kDeprecatedPages[] = {
     ChromePage::DEPRECATED_DOWNLOADEDCONTENT,
@@ -352,30 +358,70 @@ void ChromeNewWindowClient::OpenFileManager() {
   Profile* const profile = ProfileManager::GetActiveUserProfile();
   apps::AppServiceProxy* proxy =
       apps::AppServiceProxyFactory::GetForProfile(profile);
-  proxy->AppRegistryCache().ForOneApp(
-      file_manager::kFileManagerAppId, [proxy](const apps::AppUpdate& update) {
-        if (update.Readiness() == apps::mojom::Readiness::kReady) {
-          proxy->Launch(update.AppId(),
-                        apps::GetEventFlags(
-                            apps::mojom::LaunchContainer::kLaunchContainerNone,
+  DCHECK(proxy);
+
+  auto launch_files_app = [proxy](const apps::AppUpdate& update) {
+    if (update.Readiness() != apps::mojom::Readiness::kReady) {
+      LOG(WARNING)
+          << "Couldn't launch Files app because it isn't ready, readiness: "
+          << update.Readiness();
+      return;
+    }
+
+    proxy->Launch(
+        update.AppId(),
+        apps::GetEventFlags(apps::mojom::LaunchContainer::kLaunchContainerNone,
                             WindowOpenDisposition::NEW_FOREGROUND_TAB,
-                            true /* preferred_containner */),
-                        apps::mojom::LaunchSource::kFromKeyboard,
-                        display::kInvalidDisplayId);
-        }
-      });
+                            /*preferred_containner=*/true),
+        apps::mojom::LaunchSource::kFromKeyboard);
+  };
+
+  bool result = proxy->AppRegistryCache().ForOneApp(
+      file_manager::kFileManagerAppId, std::move(launch_files_app));
+  DCHECK(result);
+}
+
+void ChromeNewWindowClient::OpenDownloadsFolder() {
+  Profile* const profile = ProfileManager::GetActiveUserProfile();
+  apps::AppServiceProxy* proxy =
+      apps::AppServiceProxyFactory::GetForProfile(profile);
+  auto downloads_path =
+      file_manager::util::GetDownloadsFolderForProfile(profile);
+  DCHECK(proxy);
+
+  auto launch_files_app = [proxy,
+                           downloads_path](const apps::AppUpdate& update) {
+    if (update.Readiness() != apps::mojom::Readiness::kReady) {
+      LOG(WARNING)
+          << "Couldn't launch Files app because it isn't ready, readiness: "
+          << update.Readiness();
+      return;
+    }
+
+    apps::mojom::FilePathsPtr launch_files = apps::mojom::FilePaths::New();
+    launch_files->file_paths.push_back(downloads_path);
+
+    proxy->LaunchAppWithFiles(
+        update.AppId(), apps::mojom::LaunchContainer::kLaunchContainerNone,
+        apps::GetEventFlags(apps::mojom::LaunchContainer::kLaunchContainerNone,
+                            WindowOpenDisposition::NEW_FOREGROUND_TAB,
+                            /*preferred_containner=*/true),
+        apps::mojom::LaunchSource::kFromKeyboard, std::move(launch_files));
+  };
+
+  bool result = proxy->AppRegistryCache().ForOneApp(
+      file_manager::kFileManagerAppId, launch_files_app);
+  DCHECK(result);
 }
 
 void ChromeNewWindowClient::OpenCrosh() {
   Profile* profile = ProfileManager::GetActiveUserProfile();
-  GURL crosh_url = extensions::TerminalExtensionHelper::GetCroshURL(profile);
-  if (!crosh_url.is_valid())
-    return;
   chrome::ScopedTabbedBrowserDisplayer displayer(profile);
   Browser* browser = displayer.browser();
   content::WebContents* page = browser->OpenURL(content::OpenURLParams(
-      crosh_url, content::Referrer(), WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui::PAGE_TRANSITION_GENERATED, false));
+      GURL(chrome::kChromeUIUntrustedCroshURL), content::Referrer(),
+      WindowOpenDisposition::NEW_FOREGROUND_TAB, ui::PAGE_TRANSITION_GENERATED,
+      false));
   browser->window()->Show();
   browser->window()->Activate();
   page->Focus();
@@ -418,6 +464,11 @@ void ChromeNewWindowClient::ShowKeyboardShortcutViewer() {
 
 void ChromeNewWindowClient::ShowTaskManager() {
   chrome::OpenTaskManager(nullptr);
+}
+
+void ChromeNewWindowClient::OpenDiagnostics() {
+  if (base::FeatureList::IsEnabled(chromeos::features::kDiagnosticsApp))
+    chrome::ShowDiagnosticsApp(ProfileManager::GetActiveUserProfile());
 }
 
 void ChromeNewWindowClient::OpenFeedbackPage(bool from_assistant) {
@@ -486,8 +537,7 @@ void ChromeNewWindowClient::OpenWebAppFromArc(const GURL& url) {
   apps::AppServiceProxy* proxy =
       apps::AppServiceProxyFactory::GetForProfile(profile);
   proxy->LaunchAppWithUrl(*app_id, event_flags, url,
-                          apps::mojom::LaunchSource::kFromArc,
-                          display::kInvalidDisplayId);
+                          apps::mojom::LaunchSource::kFromArc);
 
   chromeos::ApkWebAppService* apk_web_app_service =
       chromeos::ApkWebAppService::Get(profile);
@@ -529,7 +579,7 @@ void ChromeNewWindowClient::OpenArcCustomTab(
   // |custom_tab_browser| will be destroyed when its tab strip becomes empty,
   // either due to the user opening the custom tab page in a tabbed browser or
   // because of the CustomTabSessionImpl object getting destroyed.
-  auto* custom_tab_browser = new Browser(Browser::CreateParams(
+  auto* custom_tab_browser = Browser::Create(Browser::CreateParams(
       Browser::TYPE_CUSTOM_TAB, profile, /* user_gesture= */ true));
 
   custom_tab_browser->tab_strip_model()->AppendWebContents(
@@ -653,6 +703,8 @@ void ChromeNewWindowClient::CloseCameraApp() {
 bool ChromeNewWindowClient::IsCameraAppEnabled() {
   return extensions::ExtensionRegistry::Get(
              ProfileManager::GetActiveUserProfile())
-             ->enabled_extensions()
-             .GetByID(extension_misc::kCameraAppId) != nullptr;
+                 ->enabled_extensions()
+                 .GetByID(extension_misc::kCameraAppId) != nullptr ||
+         web_app::SystemWebAppManager::IsAppEnabled(
+             web_app::SystemAppType::CAMERA);
 }

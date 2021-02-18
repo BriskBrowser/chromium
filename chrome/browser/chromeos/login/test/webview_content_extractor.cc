@@ -48,7 +48,7 @@ class WebContentsLoadFinishedWaiter : public content::WebContentsObserver {
 };
 
 // Helper invoked by GuestViewManager::ForEachGuest to collect WebContents of
-// Webview named as |web_view_name|.
+// Webview named as `web_view_name`.
 bool AddNamedWebContentsToSet(std::set<content::WebContents*>* frame_set,
                               const std::string& web_view_name,
                               content::WebContents* web_contents) {
@@ -85,7 +85,10 @@ content::WebContents* FindContents(std::string element_id) {
 
 std::string GetWebViewContents(
     std::initializer_list<base::StringPiece> element_ids) {
-  std::string element_id = test::GetOobeElementPath(element_ids);
+  return GetWebViewContentsById(test::GetOobeElementPath(element_ids));
+}
+
+std::string GetWebViewContentsById(const std::string& element_id) {
   // Wait the contents to load.
   WebContentsLoadFinishedWaiter(FindContents(element_id)).Wait();
 

@@ -6,15 +6,20 @@ package org.chromium.chrome.browser.compositor.layouts;
 
 import android.view.ViewGroup;
 
+import org.chromium.base.supplier.ObservableSupplier;
+import org.chromium.base.supplier.OneshotSupplierImpl;
+import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.compositor.LayerTitleCache;
 import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
 import org.chromium.chrome.browser.compositor.overlays.strip.StripLayoutHelperManager;
-import org.chromium.chrome.browser.contextualsearch.ContextualSearchManagementDelegate;
+import org.chromium.chrome.browser.layouts.LayoutStateProvider;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabLaunchType;
 import org.chromium.chrome.browser.tabmodel.TabCreatorManager;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
+import org.chromium.chrome.browser.theme.TopUiThemeColorProvider;
 import org.chromium.chrome.browser.toolbar.ControlContainer;
 import org.chromium.ui.resources.dynamics.DynamicResourceLoader;
 
@@ -32,21 +37,27 @@ public class LayoutManagerChromeTablet extends LayoutManagerChrome {
      * Creates an instance of a {@link LayoutManagerChromePhone}.
      * @param host                     A {@link LayoutManagerHost} instance.
      * @param contentContainer A {@link ViewGroup} for Android views to be bound to.
+     * @param tabContentManagerSupplier Supplier of the {@link TabContentManager} instance.
+     * @param layerTitleCacheSupplier Supplier of the {@link LayerTitleCache}.
+     * @param overviewModeBehaviorSupplier Supplier of the {@link OverviewModeBehavior}.
+     * @param layoutStateProviderOneshotSupplier Supplier of the {@link LayoutStateProvider}.
+     * @param topUiThemeColorProvider {@link ThemeColorProvider} for top UI.
      */
-    public LayoutManagerChromeTablet(LayoutManagerHost host, ViewGroup contentContainer) {
-        super(host, contentContainer, false, null);
+    public LayoutManagerChromeTablet(LayoutManagerHost host, ViewGroup contentContainer,
+            ObservableSupplier<TabContentManager> tabContentManagerSupplier,
+            Supplier<LayerTitleCache> layerTitleCacheSupplier,
+            OneshotSupplierImpl<OverviewModeBehavior> overviewModeBehaviorSupplier,
+            OneshotSupplierImpl<LayoutStateProvider> layoutStateProviderOneshotSupplier,
+            Supplier<TopUiThemeColorProvider> topUiThemeColorProvider) {
+        super(host, contentContainer, false, null, tabContentManagerSupplier,
+                layerTitleCacheSupplier, overviewModeBehaviorSupplier,
+                layoutStateProviderOneshotSupplier, topUiThemeColorProvider);
 
-        mTabStripLayoutHelperManager = new StripLayoutHelperManager(
-                host.getContext(), this, mHost.getLayoutRenderHost(), () -> mTitleCache);
+        mTabStripLayoutHelperManager = new StripLayoutHelperManager(host.getContext(), this,
+                mHost.getLayoutRenderHost(), () -> mTitleCache, layerTitleCacheSupplier);
+        addSceneOverlay(mTabStripLayoutHelperManager);
 
         setNextLayout(null);
-    }
-
-    @Override
-    protected void addAllSceneOverlays() {
-        // Add the tab strip overlay before any others.
-        addGlobalSceneOverlay(mTabStripLayoutHelperManager);
-        super.addAllSceneOverlays();
     }
 
     @Override
@@ -82,15 +93,13 @@ public class LayoutManagerChromeTablet extends LayoutManagerChrome {
 
     @Override
     public void init(TabModelSelector selector, TabCreatorManager creator,
-            TabContentManager content, ControlContainer controlContainer,
-            ContextualSearchManagementDelegate contextualSearchDelegate,
+            ControlContainer controlContainer,
             DynamicResourceLoader dynamicResourceLoader) {
         if (mTabStripLayoutHelperManager != null) {
             mTabStripLayoutHelperManager.setTabModelSelector(selector, creator);
         }
 
-        super.init(selector, creator, content, controlContainer, contextualSearchDelegate,
-                dynamicResourceLoader);
+        super.init(selector, creator, controlContainer, dynamicResourceLoader);
 
         // Make sure any tabs already restored get loaded into the title cache.
         List<TabModel> models = selector.getModels();

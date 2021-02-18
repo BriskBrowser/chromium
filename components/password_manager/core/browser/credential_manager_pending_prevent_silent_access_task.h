@@ -14,7 +14,7 @@ namespace password_manager {
 // Handles mediation completion and retrieves embedder-dependent services.
 class CredentialManagerPendingPreventSilentAccessTaskDelegate {
  public:
-  virtual ~CredentialManagerPendingPreventSilentAccessTaskDelegate() {}
+  virtual ~CredentialManagerPendingPreventSilentAccessTaskDelegate() = default;
 
   // Retrieves the profile PasswordStore.
   virtual PasswordStore* GetProfilePasswordStore() = 0;
@@ -38,10 +38,10 @@ class CredentialManagerPendingPreventSilentAccessTask
 
   // PasswordStoreConsumer implementation.
   void OnGetPasswordStoreResults(
-      std::vector<std::unique_ptr<autofill::PasswordForm>> results) override;
+      std::vector<std::unique_ptr<PasswordForm>> results) override;
   void OnGetPasswordStoreResultsFrom(
       PasswordStore* store,
-      std::vector<std::unique_ptr<autofill::PasswordForm>> results) override;
+      std::vector<std::unique_ptr<PasswordForm>> results) override;
 
  private:
   CredentialManagerPendingPreventSilentAccessTaskDelegate* const

@@ -10,7 +10,8 @@
 #include "base/no_destructor.h"
 #include "base/notreached.h"
 #include "base/time/time_override.h"
-#include "components/cast_certificate/cast_cert_validator_test_helpers.h"
+#include "components/cast_certificate/cast_cert_reader.h"
+#include "components/cast_certificate/cast_cert_test_helpers.h"
 #include "components/cast_channel/cast_auth_util.h"
 #include "components/cast_channel/fuzz_proto/fuzzer_inputs.pb.h"
 #include "net/cert/x509_certificate.h"
@@ -30,9 +31,11 @@ const char kCertData[] = {
 base::NoDestructor<std::vector<std::string>> certs;
 
 static bool InitializeOnce() {
-  *certs = cast_certificate::testing::ReadCertificateChainFromFile(
-      "certificates/chromecast_gen1.pem");
-  DCHECK(certs->size() >= 1);
+  *certs = cast_certificate::ReadCertificateChainFromFile(
+      cast_certificate::testing::GetCastCertificatesSubDirectory().AppendASCII(
+          "chromecast_gen1.pem"));
+  CHECK(certs->size() >= 1)
+      << "We should always have at least one certificate.";
   return true;
 }
 

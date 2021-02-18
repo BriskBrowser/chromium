@@ -199,7 +199,7 @@ void SupervisedUserNavigationObserver::OnRequestBlockedInternal(
       /*nav_entry_id=*/0, /*referrer=*/url, history::RedirectList(),
       ui::PAGE_TRANSITION_BLOCKED, /*hidden=*/false, history::SOURCE_BROWSED,
       /*did_replace_entry=*/false, /*consider_for_ntp_most_visited=*/true,
-      /*publicly_routable=*/false);
+      /*floc_allowed=*/false);
 
   // Add the entry to the history database.
   Profile* profile =
@@ -291,15 +291,12 @@ void SupervisedUserNavigationObserver::FilterRenderFrame(
     return;
 
   const GURL& last_committed_url = render_frame_host->GetLastCommittedURL();
-  bool skip_manual_parent_filter =
-      url_filter_->ShouldSkipParentManualAllowlistFiltering(web_contents());
-  url_filter_->GetFilteringBehaviorForURLWithAsyncChecks(
-      web_contents()->GetLastCommittedURL(),
+  url_filter_->GetFilteringBehaviorForSubFrameURLWithAsyncChecks(
+      last_committed_url, web_contents()->GetLastCommittedURL(),
       base::BindOnce(&SupervisedUserNavigationObserver::URLFilterCheckCallback,
                      weak_ptr_factory_.GetWeakPtr(), last_committed_url,
                      render_frame_host->GetProcess()->GetID(),
-                     render_frame_host->GetRoutingID()),
-      skip_manual_parent_filter);
+                     render_frame_host->GetRoutingID()));
 }
 
 void SupervisedUserNavigationObserver::GoBack() {

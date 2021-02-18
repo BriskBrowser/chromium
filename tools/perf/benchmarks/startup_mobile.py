@@ -67,8 +67,10 @@ from devil.android.sdk import intent # pylint: disable=import-error
 #            --output-dir=/tmp/maps_pwa_output --upload
 # Note: "startup_mobile_benchmark" instead of "startup.mobile".
 
-_NUMBER_OF_ITERATIONS = 10
-_NUMBER_OF_ITERATIONS_FOR_WEBLAYER = 20
+# Updated the number of iterations to reduce repeats on a single device, and
+# increase repeats across devices, with changes on cross_device_test_config.py.
+_NUMBER_OF_ITERATIONS = 1
+_NUMBER_OF_ITERATIONS_FOR_WEBLAYER = 5
 _MAX_BATTERY_TEMP = 32
 
 class _MobileStartupSharedState(story_module.SharedState):
@@ -276,8 +278,7 @@ class _MobileStartupStorySet(story_module.StorySet):
     self.AddStory(_MapsPwaStartupStory())
 
 
-@benchmark.Info(emails=['pasko@chromium.org',
-                        'chrome-android-perf-status@chromium.org'],
+@benchmark.Info(emails=['pasko@chromium.org', 'lizeb@chromium.org'],
                 component='Speed>Metrics>SystemHealthRegressions')
 class MobileStartupBenchmark(perf_benchmark.PerfBenchmark):
   """Startup benchmark for Chrome on Android."""
@@ -307,3 +308,10 @@ class MobileStartupBenchmark(perf_benchmark.PerfBenchmark):
   @classmethod
   def Name(cls):
     return 'startup.mobile'
+
+  def SetExtraBrowserOptions(self, options):
+    super(MobileStartupBenchmark, self).SetExtraBrowserOptions(options)
+    # Force online state for the offline indicator so it doesn't show and affect
+    # the benchmarks on bots, which are offline by default.
+    options.AppendExtraBrowserArgs(
+        '--force-online-connection-state-for-indicator')

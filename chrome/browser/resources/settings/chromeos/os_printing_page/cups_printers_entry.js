@@ -9,6 +9,9 @@
 Polymer({
   is: 'settings-cups-printers-entry',
 
+  behaviors: [
+    cr.ui.FocusRowBehavior,
+  ],
   properties: {
     /** @type {!PrinterListEntry} */
     printerEntry: Object,
@@ -20,6 +23,8 @@ Polymer({
      * @type {string}
      */
     subtext: {type: String, value: ''},
+
+    savingPrinter: Boolean,
   },
 
   /**
@@ -53,7 +58,7 @@ Polymer({
    * @private
    */
   isSavedPrinter_() {
-    return this.printerEntry.printerType == PrinterType.SAVED;
+    return this.printerEntry.printerType === PrinterType.SAVED;
   },
 
   /**
@@ -61,7 +66,7 @@ Polymer({
    * @private
    */
   isDiscoveredPrinter_() {
-    return this.printerEntry.printerType == PrinterType.DISCOVERED;
+    return this.printerEntry.printerType === PrinterType.DISCOVERED;
   },
 
   /**
@@ -69,7 +74,7 @@ Polymer({
    * @private
    */
   isAutomaticPrinter_() {
-    return this.printerEntry.printerType == PrinterType.AUTOMATIC;
+    return this.printerEntry.printerType === PrinterType.AUTOMATIC;
   },
 
   /**
@@ -77,7 +82,7 @@ Polymer({
    * @private
    */
   isPrintServerPrinter_() {
-    return this.printerEntry.printerType == PrinterType.PRINTSERVER;
+    return this.printerEntry.printerType === PrinterType.PRINTSERVER;
   },
 
   getSaveButtonAria_() {

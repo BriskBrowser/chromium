@@ -18,8 +18,6 @@ import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.task.AsyncTask;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeVersionInfo;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.infobar.InfoBarContainer;
 import org.chromium.chrome.browser.infobar.InfoBarIdentifier;
@@ -27,7 +25,7 @@ import org.chromium.chrome.browser.infobar.SurveyInfoBar;
 import org.chromium.chrome.browser.infobar.SurveyInfoBarDelegate;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
-import org.chromium.chrome.browser.privacy.settings.PrivacyPreferencesManager;
+import org.chromium.chrome.browser.privacy.settings.PrivacyPreferencesManagerImpl;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabHidingType;
@@ -35,9 +33,11 @@ import org.chromium.chrome.browser.tab.TabObserver;
 import org.chromium.chrome.browser.tabmodel.EmptyTabModelSelectorObserver;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorObserver;
+import org.chromium.chrome.browser.version.ChromeVersionInfo;
 import org.chromium.components.infobars.InfoBarAnimationListener;
 import org.chromium.components.infobars.InfoBarUiItem;
 import org.chromium.components.variations.VariationsAssociatedData;
+import org.chromium.url.GURL;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -139,10 +139,7 @@ public class ChromeSurveyController implements InfoBarAnimationListener {
             }
         };
 
-        String siteContext = ChromeVersionInfo.getProductVersion() + ","
-                + (ChromeFeatureList.isEnabled(ChromeFeatureList.HORIZONTAL_TAB_SWITCHER_ANDROID)
-                                  ? "HorizontalTabSwitcher"
-                                  : "NotHorizontalTabSwitcher");
+        String siteContext = ChromeVersionInfo.getProductVersion() + ",NotHorizontalTabSwitcher";
         surveyController.downloadSurvey(context, siteId, onSuccessRunnable, siteContext);
     }
 
@@ -229,7 +226,7 @@ public class ChromeSurveyController implements InfoBarAnimationListener {
             }
 
             @Override
-            public void onPageLoadFinished(Tab tab, String url) {
+            public void onPageLoadFinished(Tab tab, GURL url) {
                 showInfoBarIfApplicable(tab, siteId, this);
             }
 
@@ -257,7 +254,8 @@ public class ChromeSurveyController implements InfoBarAnimationListener {
 
     /** @return Whether the user has consented to reporting usage metrics and crash dumps. */
     private boolean isUMAEnabled() {
-        return PrivacyPreferencesManager.getInstance().isUsageAndCrashReportingPermittedByUser();
+        return PrivacyPreferencesManagerImpl.getInstance()
+                .isUsageAndCrashReportingPermittedByUser();
     }
 
     /** @return If the survey info bar for this survey was logged as seen before. */
@@ -320,20 +318,6 @@ public class ChromeSurveyController implements InfoBarAnimationListener {
         }
 
         int maxNumber = getMaxNumber();
-
-        int maxForHorizontalTabSwitcher = -1;
-        if (ChromeFeatureList.isEnabled(ChromeFeatureList.HORIZONTAL_TAB_SWITCHER_ANDROID)) {
-            maxForHorizontalTabSwitcher = ChromeFeatureList.getFieldTrialParamByFeatureAsInt(
-                    ChromeFeatureList.HORIZONTAL_TAB_SWITCHER_ANDROID, MAX_NUMBER, -1);
-        }
-        if (maxForHorizontalTabSwitcher != -1) {
-            if (maxNumber == -1) {
-                maxNumber = maxForHorizontalTabSwitcher;
-            } else {
-                maxNumber = Math.min(maxNumber, maxForHorizontalTabSwitcher);
-            }
-        }
-
         if (maxNumber == -1) {
             recordSurveyFilteringResult(FilteringResult.MAX_NUMBER_MISSING);
             return false;

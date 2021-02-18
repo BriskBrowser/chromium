@@ -6,12 +6,12 @@
 
 #include "base/check.h"
 #import "base/ios/ios_util.h"
+#import "ios/chrome/browser/ui/thumb_strip/thumb_strip_feature.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button_factory.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_configuration.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tab_grid_button.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tools_menu_button.h"
-#import "ios/chrome/browser/ui/toolbar/public/features.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_constants.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_utils.h"
 #import "ios/chrome/browser/ui/toolbar/toolbar_progress_bar.h"
@@ -54,9 +54,6 @@
 
 // Separator below the toolbar, redefined as readwrite.
 @property(nonatomic, strong, readwrite) UIView* separator;
-
-// HandleBar attached to the bottom of the toolbar, redefined as readwrite.
-@property(nonatomic, strong, readwrite) UIView* handleBar;
 
 #pragma mark** Buttons in the leading stack view. **
 // Button to navigate back, redefined as readwrite.
@@ -150,9 +147,6 @@
   [self setUpProgressBar];
   [self setUpCollapsedToolbarButton];
   [self setUpSeparator];
-  if (IsIPadIdiom() && base::FeatureList::IsEnabled(kExpandedTabStrip)) {
-    [self setUpHandleBar];
-  }
 
   [self setUpConstraints];
 }
@@ -186,12 +180,16 @@
   [super willMoveToWindow:newWindow];
   [NamedGuide guideWithName:kPrimaryToolbarGuide view:self].constrainedView =
       nil;
+  [NamedGuide guideWithName:kPrimaryToolbarLocationViewGuide view:self]
+      .constrainedView = nil;
 }
 
 - (void)didMoveToWindow {
   [super didMoveToWindow];
   [NamedGuide guideWithName:kPrimaryToolbarGuide view:self].constrainedView =
       self;
+  [NamedGuide guideWithName:kPrimaryToolbarLocationViewGuide view:self]
+      .constrainedView = self.locationBarContainer;
 }
 
 #pragma mark - Setup
@@ -258,15 +256,8 @@
   self.tabGridButton = [self.buttonFactory tabGridButton];
   self.toolsMenuButton = [self.buttonFactory toolsMenuButton];
 
-  if (base::FeatureList::IsEnabled(kChangeTabSwitcherPosition)) {
-    self.trailingStackViewButtons =
-        @[ self.shareButton, self.tabGridButton, self.toolsMenuButton ];
-  } else {
-    self.trailingStackViewButtons = @[
-      self.bookmarkButton, self.shareButton, self.tabGridButton,
-      self.toolsMenuButton
-    ];
-  }
+  self.trailingStackViewButtons =
+      @[ self.shareButton, self.tabGridButton, self.toolsMenuButton ];
 
   self.trailingStackView = [[UIStackView alloc]
       initWithArrangedSubviews:self.trailingStackViewButtons];
@@ -301,15 +292,6 @@
   self.separator.backgroundColor = [UIColor colorNamed:kToolbarShadowColor];
   self.separator.translatesAutoresizingMaskIntoConstraints = NO;
   [self addSubview:self.separator];
-}
-
-// Sets the handleBar up.
-- (void)setUpHandleBar {
-  self.handleBar = [[UIView alloc] init];
-  self.handleBar.backgroundColor = [UIColor colorNamed:kToolbarShadowColor];
-  self.handleBar.layer.cornerRadius = kHandleBarHeight / 2.0;
-  self.handleBar.translatesAutoresizingMaskIntoConstraints = NO;
-  [self addSubview:self.handleBar];
 }
 
 // Sets the constraints up.
@@ -421,18 +403,6 @@
 
   // CollapsedToolbarButton constraints.
   AddSameConstraints(self, self.collapsedToolbarButton);
-
-  // HandleBar Constraints.
-  if (self.handleBar) {
-    [NSLayoutConstraint activateConstraints:@[
-      [self.handleBar.bottomAnchor
-          constraintEqualToAnchor:self.bottomAnchor
-                         constant:-kHandleBarBottomAnchorConstant],
-      [self.handleBar.centerXAnchor constraintEqualToAnchor:self.centerXAnchor],
-      [self.handleBar.heightAnchor constraintEqualToConstant:kHandleBarHeight],
-      [self.handleBar.widthAnchor constraintEqualToConstant:kHandleBarWidth],
-    ]];
-  }
 }
 
 #pragma mark - Property accessors

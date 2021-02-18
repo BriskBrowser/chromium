@@ -36,10 +36,12 @@
 #include "base/optional.h"
 #include "base/unguessable_token.h"
 #include "mojo/public/cpp/base/big_buffer.h"
+#include "services/metrics/public/cpp/ukm_source_id.h"
 #include "third_party/blink/public/common/feature_policy/document_policy.h"
 #include "third_party/blink/public/common/loader/loading_behavior_flag.h"
 #include "third_party/blink/public/mojom/loader/content_security_notifier.mojom-blink.h"
 #include "third_party/blink/public/mojom/loader/mhtml_load_result.mojom-blink-forward.h"
+#include "third_party/blink/public/mojom/page_state/page_state.mojom-blink.h"
 #include "third_party/blink/public/mojom/timing/worker_timing_container.mojom-blink-forward.h"
 #include "third_party/blink/public/platform/scheduler/web_scoped_virtual_time_pauser.h"
 #include "third_party/blink/public/platform/web_navigation_body_loader.h"
@@ -61,7 +63,6 @@
 #include "third_party/blink/renderer/core/loader/frame_loader_types.h"
 #include "third_party/blink/renderer/core/loader/navigation_policy.h"
 #include "third_party/blink/renderer/core/loader/preload_helper.h"
-#include "third_party/blink/renderer/core/loader/previews_resource_loading_hints.h"
 #include "third_party/blink/renderer/core/page/viewport_description.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/loader/fetch/client_hints_preferences.h"
@@ -113,6 +114,12 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
                  std::unique_ptr<WebNavigationParams> navigation_params);
   ~DocumentLoader() override;
 
+  // Returns WebNavigationParams that can be used to clone DocumentLoader. Used
+  // for javascript: URL and XSLT commits, where we want to create a new
+  // Document but keep most of the property of the current DocumentLoader.
+  std::unique_ptr<WebNavigationParams>
+  CreateWebNavigationParamsToCloneDocument();
+
   static bool WillLoadUrlAsEmpty(const KURL&);
 
   LocalFrame* GetFrame() const { return frame_; }
@@ -134,15 +141,12 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
   SubresourceFilter* GetSubresourceFilter() const {
     return subresource_filter_.Get();
   }
-  void SetPreviewsResourceLoadingHints(
-      PreviewsResourceLoadingHints* resource_loading_hints) {
-    resource_loading_hints_ = resource_loading_hints;
-  }
-  PreviewsResourceLoadingHints* GetPreviewsResourceLoadingHints() const {
-    return resource_loading_hints_;
-  }
 
+  // TODO(dcheng, japhet): Some day, Document::Url() will always match
+  // DocumentLoader::Url(), and one of them will be removed. Today is not that
+  // day though.
   const KURL& Url() const;
+
   const KURL& UrlForHistory() const;
   const AtomicString& HttpMethod() const;
   const Referrer& GetReferrer() const;
@@ -153,12 +157,21 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
   void DidChangePerformanceTiming();
   void DidObserveInputDelay(base::TimeDelta input_delay);
   void DidObserveLoadingBehavior(LoadingBehaviorFlag);
+
+  // https://html.spec.whatwg.org/multipage/history.html#url-and-history-update-steps
+  void RunURLAndHistoryUpdateSteps(
+      const KURL&,
+      scoped_refptr<SerializedScriptValue>,
+      mojom::blink::ScrollRestorationType =
+          mojom::blink::ScrollRestorationType::kAuto,
+      WebFrameLoadType = WebFrameLoadType::kReplaceCurrentItem);
   void UpdateForSameDocumentNavigation(const KURL&,
                                        SameDocumentNavigationSource,
                                        scoped_refptr<SerializedScriptValue>,
-                                       HistoryScrollRestorationType,
+                                       mojom::blink::ScrollRestorationType,
                                        WebFrameLoadType,
                                        bool is_content_initiated);
+
   const ResourceResponse& GetResponse() const { return response_; }
   bool IsClientRedirect() const { return is_client_redirect_; }
   bool ReplacesCurrentHistoryItem() const {
@@ -168,8 +181,6 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
   bool IsCommittedButEmpty() const {
     return state_ >= kCommitted && !data_received_;
   }
-
-  void FillNavigationParamsForErrorPage(WebNavigationParams*);
 
   void SetSentDidFinishLoad() { state_ = kSentDidFinishLoad; }
   bool SentDidFinishLoad() const { return state_ == kSentDidFinishLoad; }
@@ -205,7 +216,7 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
       bool has_event,
       std::unique_ptr<WebDocumentLoader::ExtraData>);
 
-  void SetDefersLoading(bool defers);
+  void SetDefersLoading(WebURLLoader::DeferType defers);
 
   DocumentLoadTiming& GetTiming() { return document_load_timing_; }
 
@@ -224,6 +235,8 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
     bool did_restore_from_history;
   };
   InitialScrollState& GetInitialScrollState() { return initial_scroll_state_; }
+
+  enum State { kNotStarted, kProvisional, kCommitted, kSentDidFinishLoad };
 
   void DispatchLinkHeaderPreloads(const ViewportDescription*,
                                   PreloadHelper::MediaPreloadPolicy);
@@ -287,11 +300,6 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
 
   bool IsSameOriginNavigation() const { return is_same_origin_navigation_; }
 
-  // TODO(dcheng, japhet): Some day, Document::Url() will always match
-  // DocumentLoader::Url(), and one of them will be removed. Today is not that
-  // day though.
-  void UpdateUrlForDocumentOpen(const KURL& url) { url_ = url; }
-
   enum class HistoryNavigationType {
     kDifferentDocument,
     kFragment,
@@ -300,7 +308,8 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
 
   void SetHistoryItemStateForCommit(HistoryItem* old_item,
                                     WebFrameLoadType,
-                                    HistoryNavigationType);
+                                    HistoryNavigationType,
+                                    CommitReason commit_reason);
 
   mojo::PendingReceiver<mojom::blink::WorkerTimingContainer>
   TakePendingWorkerTimingReceiver(int request_id);
@@ -320,16 +329,37 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
   // to ensure the token can only be used to invoke a single text fragment.
   bool ConsumeTextFragmentToken();
 
+  // Returns whether the load request was initiated for prerendering.
+  bool IsPrerendering() const { return is_prerendering_; }
+
  protected:
   Vector<KURL> redirect_chain_;
 
-  // Archive used to load document and/or subresources. If one of the ancestor
-  // frames was loaded as an archive, we'll load the document resource from it.
-  // Otherwise, if the document resource is an archive itself (based on mime
-  // type), we'll create one and use it for subresources.
+  // Based on its MIME type, if the main document's response corresponds to an
+  // MHTML archive, then every resources will be loaded from this archive.
+  //
+  // This includes:
+  // - The main document.
+  // - Every nested document.
+  // - Every subresource.
+  //
+  // This excludes:
+  // - data-URLs documents and subresources.
+  // - about:srcdoc documents.
+  // - Error pages.
+  //
+  // Whether about:blank and derivative should be loaded from the archive is
+  // weird edge case: Please refer to the tests:
+  // - NavigationMhtmlBrowserTest.IframeAboutBlankNotFound
+  // - NavigationMhtmlBrowserTest.IframeAboutBlankFound
+  //
+  // Nested documents are loaded in the same process and grab a reference to the
+  // same `archive_` as their parent.
+  //
+  // Resources:
+  // - https://tools.ietf.org/html/rfc822
+  // - https://tools.ietf.org/html/rfc2387
   Member<MHTMLArchive> archive_;
-  mojom::MHTMLLoadResult archive_load_result_ =
-      mojom::MHTMLLoadResult::kSuccess;
 
  private:
   network::mojom::blink::WebSandboxFlags CalculateSandboxFlags();
@@ -372,8 +402,9 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
   void FinishedLoading(base::TimeTicks finish_time);
   void CancelLoadAfterCSPDenied(const ResourceResponse&);
 
-  void FinalizeMHTMLArchiveLoad();
-  void HandleRedirect(const KURL& current_request_url);
+  // Process a redirect to update the redirect chain, current URL, referrer,
+  // etc.
+  void HandleRedirect(WebNavigationParams::RedirectInfo& redirect);
   void HandleResponse();
 
   void InitializeEmptyResponse();
@@ -432,9 +463,8 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
   base::Optional<WebOriginPolicy> origin_policy_;
   const scoped_refptr<const SecurityOrigin> requestor_origin_;
   const KURL unreachable_url_;
+  const KURL pre_redirect_url_for_failed_navigations_;
   std::unique_ptr<WebNavigationBodyLoader> body_loader_;
-  const network::mojom::IPAddressSpace ip_address_space_ =
-      network::mojom::IPAddressSpace::kUnknown;
   const bool grant_load_local_resources_ = false;
   const base::Optional<blink::mojom::FetchCacheMode> force_fetch_cache_mode_;
   const FramePolicy frame_policy_;
@@ -450,9 +480,6 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
 
   Member<SubresourceFilter> subresource_filter_;
 
-  // Stores the resource loading hints for this document.
-  Member<PreviewsResourceLoadingHints> resource_loading_hints_;
-
   // A reference to actual request's url and referrer used to
   // inititate this load.
   KURL original_url_;
@@ -465,9 +492,9 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
   bool is_client_redirect_;
   bool replaces_current_history_item_;
   bool data_received_;
+  const bool is_error_page_for_failed_navigation_;
 
   const Member<ContentSecurityPolicy> content_security_policy_;
-  const bool was_blocked_by_csp_;
   mojo::Remote<mojom::blink::ContentSecurityNotifier>
       content_security_notifier_;
 
@@ -490,7 +517,6 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
   ClientHintsPreferences client_hints_preferences_;
   InitialScrollState initial_scroll_state_;
 
-  enum State { kNotStarted, kProvisional, kCommitted, kSentDidFinishLoad };
   State state_;
 
   // Used to block the parser.
@@ -502,7 +528,8 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
   scoped_refptr<SharedBuffer> data_buffer_;
   const base::UnguessableToken devtools_navigation_token_;
 
-  bool defers_loading_ = false;
+  WebURLLoader::DeferType defers_loading_ =
+      WebURLLoader::DeferType::kNotDeferred;
 
   // Whether this load request comes with a sitcky user activation.
   const bool had_sticky_activation_ = false;
@@ -511,6 +538,9 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
 
   // Whether this load request was initiated by the browser.
   const bool is_browser_initiated_ = false;
+
+  // Whether this load request was initiated for prerendering.
+  const bool is_prerendering_ = false;
 
   // Whether this load request was initiated by the same origin.
   bool is_same_origin_navigation_ = false;
@@ -524,7 +554,11 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
   const bool was_discarded_ = false;
 
   bool listing_ftp_directory_ = false;
-  bool loading_mhtml_archive_ = false;
+
+  // True when loading the main document from the MHTML archive. It implies an
+  // |archive_| to be created. Nested documents will also inherit from the same
+  // |archive_|, but won't have |loading_main_document_from_mhtml_archive_| set.
+  bool loading_main_document_from_mhtml_archive_ = false;
   const bool loading_srcdoc_ = false;
   const bool loading_url_as_empty_document_ = false;
   CommitReason commit_reason_ = CommitReason::kRegular;
@@ -536,6 +570,7 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
   Member<PrefetchedSignedExchangeManager> prefetched_signed_exchange_manager_;
   const KURL web_bundle_physical_url_;
   const KURL web_bundle_claimed_url_;
+  ukm::SourceId ukm_source_id_;
 
   // This UseCounterHelper tracks feature usage associated with the lifetime of
   // the document load. Features recorded prior to commit will be recorded
@@ -555,7 +590,7 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
   // Whether the document can be scrolled on load
   bool navigation_scroll_allowed_ = true;
 
-  bool origin_isolated_ = false;
+  bool origin_agent_cluster_ = false;
 
   // Whether this load request is cross browsing context group.
   bool is_cross_browsing_context_group_navigation_ = false;

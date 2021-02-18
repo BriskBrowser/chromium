@@ -170,7 +170,7 @@ ProxyConfigurationProtoFromMojo(
     if (proxy_settings->exclude_domains) {
       for (const std::string& domain :
            proxy_settings->exclude_domains->active_value) {
-        manual_settings->add_whitelisted_domains(domain);
+        manual_settings->add_excluded_domains(domain);
       }
     }
   }
@@ -235,7 +235,7 @@ network_config::mojom::ProxySettingsPtr MojoProxySettingsFromProto(
 
       std::vector<std::string> exclude_domains;
       for (const std::string& domain :
-           synced_manual_configuration.whitelisted_domains()) {
+           synced_manual_configuration.excluded_domains()) {
         exclude_domains.push_back(domain);
       }
       proxy_settings->exclude_domains = std::move(exclude_domains);
@@ -261,6 +261,7 @@ network_config::mojom::ConfigPropertiesPtr MojoNetworkConfigFromProto(
   wifi->ssid = DecodeHexString(specifics.hex_ssid());
   wifi->security = MojoSecurityTypeFromProto(specifics.security_type());
   wifi->passphrase = specifics.passphrase();
+  wifi->hidden_ssid = network_config::mojom::HiddenSsidMode::kDisabled;
 
   config->type_config =
       network_config::mojom::NetworkTypeConfigProperties::NewWifi(
@@ -276,17 +277,8 @@ network_config::mojom::ConfigPropertiesPtr MojoNetworkConfigFromProto(
           ? 1
           : 0);
 
-  if (specifics.has_metered() &&
-      specifics.metered() !=
-          sync_pb::
-              WifiConfigurationSpecifics_MeteredOption_METERED_OPTION_UNSPECIFIED &&
-      specifics.metered() !=
-          sync_pb::
-              WifiConfigurationSpecifics_MeteredOption_METERED_OPTION_AUTO) {
-    config->metered = network_config::mojom::MeteredConfig::New(
-        specifics.metered() ==
-        sync_pb::WifiConfigurationSpecifics_MeteredOption_METERED_OPTION_YES);
-  }
+  // TODO(crbug/1128692): Restore support for the metered property when mojo
+  // networks track the "Automatic" state.
 
   // For backwards compatibility, any available custom nameservers are still
   // applied when the dns_option is not set.

@@ -10,17 +10,16 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "chrome/browser/web_applications/components/web_app_icon_downloader.h"
 #include "chrome/browser/web_applications/components/web_app_install_utils.h"
-#include "chrome/common/chrome_render_frame.mojom-forward.h"
+#include "components/webapps/common/web_page_metadata.mojom-forward.h"
+#include "components/webapps/common/web_page_metadata_agent.mojom-forward.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
 
 class GURL;
-struct InstallableData;
 struct WebApplicationInfo;
 
 namespace blink {
@@ -29,6 +28,10 @@ struct Manifest;
 
 namespace content {
 class WebContents;
+}
+
+namespace webapps {
+struct InstallableData;
 }
 
 namespace web_app {
@@ -43,14 +46,18 @@ class WebAppDataRetriever : content::WebContentsObserver {
   // |is_installable| represents installability check result.
   // If |is_installable| then |valid_manifest_for_web_app| is true.
   // If manifest is present then it is non-empty.
+  // |manifest_url| is empty if manifest is empty.
   using CheckInstallabilityCallback =
       base::OnceCallback<void(base::Optional<blink::Manifest> manifest,
+                              const GURL& manifest_url,
                               bool valid_manifest_for_web_app,
                               bool is_installable)>;
   // Returns empty map if error.
   using GetIconsCallback = base::OnceCallback<void(IconsMap)>;
 
   WebAppDataRetriever();
+  WebAppDataRetriever(const WebAppDataRetriever&) = delete;
+  WebAppDataRetriever& operator=(const WebAppDataRetriever&) = delete;
   ~WebAppDataRetriever() override;
 
   // Runs |callback| with the result of retrieving the WebApplicationInfo from
@@ -77,12 +84,12 @@ class WebAppDataRetriever : content::WebContentsObserver {
   void RenderProcessGone(base::TerminationStatus status) override;
 
  private:
-  void OnGetWebApplicationInfo(
-      mojo::AssociatedRemote<chrome::mojom::ChromeRenderFrame>
-          chrome_render_frame,
+  void OnGetWebPageMetadata(
+      mojo::AssociatedRemote<webapps::mojom::WebPageMetadataAgent>
+          metadata_agent,
       int last_committed_nav_entry_unique_id,
-      const WebApplicationInfo& web_app_info);
-  void OnDidPerformInstallableCheck(const InstallableData& data);
+      webapps::mojom::WebPageMetadataPtr web_page_metadata);
+  void OnDidPerformInstallableCheck(const webapps::InstallableData& data);
   void OnIconsDownloaded(bool success, IconsMap icons_map);
 
   void CallCallbackOnError();
@@ -98,7 +105,6 @@ class WebAppDataRetriever : content::WebContentsObserver {
 
   base::WeakPtrFactory<WebAppDataRetriever> weak_ptr_factory_{this};
 
-  DISALLOW_COPY_AND_ASSIGN(WebAppDataRetriever);
 };
 
 }  // namespace web_app

@@ -89,6 +89,7 @@ class CORE_EXPORT NGFragmentItemsBuilder {
    public:
     const NGInlineBreakToken* inline_break_token = nullptr;
     LayoutUnit used_block_size;
+    wtf_size_t line_count = 0;
     bool succeeded = false;
   };
 
@@ -97,10 +98,11 @@ class CORE_EXPORT NGFragmentItemsBuilder {
   // When |stop_at_dirty| is true, this function checks reusability of previous
   // items and stops copying before the first dirty line.
   AddPreviousItemsResult AddPreviousItems(
+      const NGPhysicalBoxFragment& container,
       const NGFragmentItems& items,
-      const PhysicalSize& container_size,
       NGBoxFragmentBuilder* container_builder = nullptr,
-      const NGFragmentItem* end_item = nullptr);
+      const NGFragmentItem* end_item = nullptr,
+      wtf_size_t max_lines = 0);
 
   struct ItemWithOffset {
     DISALLOW_NEW();
@@ -113,16 +115,21 @@ class CORE_EXPORT NGFragmentItemsBuilder {
     const NGFragmentItem& operator*() const { return item; }
     const NGFragmentItem* operator->() const { return &item; }
 
+    void Trace(Visitor* visitor) const { visitor->Trace(item); }
+
     NGFragmentItem item;
     LogicalOffset offset;
   };
 
   // Give an inline size, the allocation of this vector is hot. "128" is
   // heuristic. Usually 10-40, some wikipedia pages have >64 items.
-  using ItemWithOffsetList = Vector<ItemWithOffset, 128>;
+  using ItemWithOffsetList = HeapVector<ItemWithOffset, 128>;
 
   // Find |LogicalOffset| of the first |NGFragmentItem| for |LayoutObject|.
   base::Optional<LogicalOffset> LogicalOffsetFor(const LayoutObject&) const;
+
+  // Moves all the |NGFragmentItem|s by |offset| in the block-direction.
+  void MoveChildrenInBlockDirection(LayoutUnit offset);
 
   // Converts the |NGFragmentItem| vector to the physical coordinate space and
   // returns the result. This should only be used for determining the inline
@@ -151,7 +158,8 @@ class CORE_EXPORT NGFragmentItemsBuilder {
   NGLogicalLineItems* current_line_items_ = nullptr;
   const NGPhysicalFragment* current_line_fragment_ = nullptr;
 
-  HashMap<const NGPhysicalFragment*, NGLogicalLineItems*> line_items_map_;
+  HeapHashMap<const NGPhysicalFragment*, Member<NGLogicalLineItems>>
+      line_items_map_;
   NGLogicalLineItems* line_items_pool_ = nullptr;
 
   NGInlineNode node_;
@@ -166,5 +174,8 @@ class CORE_EXPORT NGFragmentItemsBuilder {
 };
 
 }  // namespace blink
+
+WTF_ALLOW_CLEAR_UNUSED_SLOTS_WITH_MEM_FUNCTIONS(
+    blink::NGFragmentItemsBuilder::ItemWithOffset)
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_FRAGMENT_ITEMS_BUILDER_H_

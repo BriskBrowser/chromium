@@ -184,8 +184,11 @@ struct VIEWS_EXPORT MenuConfig {
   // Height of child MenuItemViews for touchable menus.
   int touchable_menu_height = 36;
 
-  // Width of touchable menus.
-  int touchable_menu_width = 256;
+  // Minimum width of touchable menus.
+  int touchable_menu_min_width = 256;
+
+  // Maximum width of touchable menus.
+  int touchable_menu_max_width = 352;
 
   // Shadow elevation of touchable menus.
   int touchable_menu_shadow_elevation = 12;
@@ -207,30 +210,6 @@ struct VIEWS_EXPORT MenuConfig {
 
   // Margins for footnotes (HIGHLIGHTED item at the end of a menu).
   int footnote_vertical_margin = 11;
-
-  // New Badge -----------------------------------------------------------------
-  // Note that there are a few differences between Views and Mac constants here
-  // that are due to the fact that the rendering is different and therefore
-  // tweaks to the spacing need to be made to achieve the same visual result.
-
-  // Difference in the font size (in pixels) between menu label font and "new"
-  // badge font size.
-  static constexpr int kNewBadgeFontSizeAdjustment = -1;
-
-  // Space between primary text and "new" badge.
-  static constexpr int kNewBadgeHorizontalMargin = 8;
-
-  // Highlight padding around "new" text.
-  static constexpr int kNewBadgeInternalPadding = 4;
-  static constexpr int kNewBadgeInternalPaddingTopMac = 1;
-
-  // The baseline offset of the "new" badge image to the menu text baseline.
-  static constexpr int kNewBadgeBaslineOffsetMac = -4;
-
-  // The corner radius of the rounded rect for the "new" badge.
-  static constexpr int kNewBadgeCornerRadius = 3;
-  static_assert(kNewBadgeCornerRadius <= kNewBadgeInternalPadding,
-                "New badge corner radius should not exceed padding.");
 
  private:
   // Configures a MenuConfig as appropriate for the current platform.

@@ -71,8 +71,16 @@ namespace base {
 //   // When `db` goes out of scope, the Database instance will also be
 //   // destroyed via a task posted to `GetDBTaskRunner()`.
 //
-// TODO(dcheng): SequenceBound should only be constructed, used, and destroyed
-// on a single sequence. This enforcement will gradually be enabled over time.
+// Sequence safety:
+//
+// Const-qualified methods may be used concurrently from multiple sequences,
+// e.g. `AsyncCall()` or `is_null()`. Calls that are forwarded to the
+// managed `T` will be posted to the bound sequence and executed serially
+// there.
+//
+// Mutable methods (e.g. `Reset()`, destruction, or move assignment) require
+// external synchronization if used concurrently with any other methods,
+// including const-qualified methods.
 template <typename T>
 class SequenceBound {
  public:
@@ -182,28 +190,14 @@ class SequenceBound {
   // to a const lvalue reference) is not allowed.
   template <typename R, typename... Args>
   auto AsyncCall(R (T::*method)(Args...),
-                 const Location& location = Location::Current()) {
-    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+                 const Location& location = Location::Current()) const {
     return AsyncCallBuilder<R (T::*)(Args...)>(this, &location, method);
   }
 
   template <typename R, typename... Args>
   auto AsyncCall(R (T::*method)(Args...) const,
-                 const Location& location = Location::Current()) {
-    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+                 const Location& location = Location::Current()) const {
     return AsyncCallBuilder<R (T::*)(Args...) const>(this, &location, method);
-  }
-
-  // Post a call to `method` to `impl_task_runner_`.
-  // TODO(dcheng): Deprecate this in favor of `AsyncCall()`.
-  template <typename... MethodArgs, typename... Args>
-  void Post(const base::Location& from_here,
-            void (T::*method)(MethodArgs...),
-            Args&&... args) const {
-    DCHECK(t_);
-    impl_task_runner_->PostTask(from_here,
-                                base::BindOnce(method, base::Unretained(t_),
-                                               std::forward<Args>(args)...));
   }
 
   // Posts `task` to `impl_task_runner_`, passing it a reference to the wrapped
@@ -329,14 +323,14 @@ class SequenceBound {
   template <typename MethodPtrType>
   class AsyncCallBuilderBase {
    protected:
-    AsyncCallBuilderBase(SequenceBound* sequence_bound,
+    AsyncCallBuilderBase(const SequenceBound* sequence_bound,
                          const Location* location,
                          MethodPtrType method)
         : sequence_bound_(sequence_bound),
           location_(location),
           method_(method) {
       // Common entry point for `AsyncCall()`, so check preconditions here.
-      DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_bound_->sequence_checker_);
+      DCHECK(sequence_bound_);
       DCHECK(sequence_bound_->t_);
     }
 
@@ -358,7 +352,7 @@ class SequenceBound {
     //   destructor will `CHECK()` if `sequence_bound_` is non-null, since that
     //   indicates `Then()` was not invoked. Similarly, note this branch should
     //   be eliminated by the optimizer if the code is free of bugs. :)
-    SequenceBound* sequence_bound_;
+    const SequenceBound* sequence_bound_;
     // Subtle: this typically points at a Location *temporary*. This is used to
     // try to detect errors resulting from lifetime extension of the async call
     // factory temporaries, since the factory destructors can perform work. If
@@ -455,7 +449,7 @@ class SequenceBound {
 
     template <typename... BoundArgs>
     auto WithArgs(BoundArgs&&... bound_args) {
-      SequenceBound* const sequence_bound =
+      const SequenceBound* const sequence_bound =
           std::exchange(this->sequence_bound_, nullptr);
       return AsyncCallWithBoundArgsBuilder<ReturnType>(
           sequence_bound, this->location_,
@@ -482,13 +476,13 @@ class SequenceBound {
   template <typename ReturnType>
   class AsyncCallWithBoundArgsBuilderBase {
    protected:
-    AsyncCallWithBoundArgsBuilderBase(SequenceBound* sequence_bound,
+    AsyncCallWithBoundArgsBuilderBase(const SequenceBound* sequence_bound,
                                       const Location* location,
                                       base::OnceCallback<ReturnType()> callback)
         : sequence_bound_(sequence_bound),
           location_(location),
           callback_(std::move(callback)) {
-      DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_bound_->sequence_checker_);
+      DCHECK(sequence_bound_);
       DCHECK(sequence_bound_->t_);
     }
 
@@ -501,7 +495,7 @@ class SequenceBound {
     AsyncCallWithBoundArgsBuilderBase& operator=(
         AsyncCallWithBoundArgsBuilderBase&&) noexcept = default;
 
-    SequenceBound* sequence_bound_;
+    const SequenceBound* sequence_bound_;
     const Location* const location_;
     base::OnceCallback<ReturnType()> callback_;
   };
@@ -509,10 +503,10 @@ class SequenceBound {
   // Note: this doesn't handle a void return type, which has an explicit
   // specialization below.
   template <typename ReturnType>
-  class AsyncCallWithBoundArgsBuilder
+  class AsyncCallWithBoundArgsBuilderDefault
       : public AsyncCallWithBoundArgsBuilderBase<ReturnType> {
    public:
-    ~AsyncCallWithBoundArgsBuilder() {
+    ~AsyncCallWithBoundArgsBuilderDefault() {
       // Must use Then() since the method's return type is not void.
       // Should be optimized out if the code is bug-free.
       CHECK(!this->sequence_bound_);
@@ -535,13 +529,13 @@ class SequenceBound {
    private:
     friend SequenceBound;
 
-    AsyncCallWithBoundArgsBuilder(AsyncCallWithBoundArgsBuilder&&) = default;
-    AsyncCallWithBoundArgsBuilder& operator=(AsyncCallWithBoundArgsBuilder&&) =
-        default;
+    AsyncCallWithBoundArgsBuilderDefault(
+        AsyncCallWithBoundArgsBuilderDefault&&) = default;
+    AsyncCallWithBoundArgsBuilderDefault& operator=(
+        AsyncCallWithBoundArgsBuilderDefault&&) = default;
   };
 
-  template <>
-  class AsyncCallWithBoundArgsBuilder<void>
+  class AsyncCallWithBoundArgsBuilderVoid
       : public AsyncCallWithBoundArgsBuilderBase<void> {
    public:
     // Note: despite being here, this is actually still protected, since it is
@@ -549,7 +543,7 @@ class SequenceBound {
     using AsyncCallWithBoundArgsBuilderBase<
         void>::AsyncCallWithBoundArgsBuilderBase;
 
-    ~AsyncCallWithBoundArgsBuilder() {
+    ~AsyncCallWithBoundArgsBuilderVoid() {
       if (this->sequence_bound_) {
         this->sequence_bound_->impl_task_runner_->PostTask(
             *this->location_, std::move(this->callback_));
@@ -566,15 +560,21 @@ class SequenceBound {
    private:
     friend SequenceBound;
 
-    AsyncCallWithBoundArgsBuilder(AsyncCallWithBoundArgsBuilder&&) = default;
-    AsyncCallWithBoundArgsBuilder& operator=(AsyncCallWithBoundArgsBuilder&&) =
+    AsyncCallWithBoundArgsBuilderVoid(AsyncCallWithBoundArgsBuilderVoid&&) =
         default;
+    AsyncCallWithBoundArgsBuilderVoid& operator=(
+        AsyncCallWithBoundArgsBuilderVoid&&) = default;
   };
+
+  template <typename ReturnType>
+  using AsyncCallWithBoundArgsBuilder = typename std::conditional<
+      std::is_void<ReturnType>::value,
+      AsyncCallWithBoundArgsBuilderVoid,
+      AsyncCallWithBoundArgsBuilderDefault<ReturnType>>::type;
 
   void PostTaskAndThenHelper(const Location& location,
                              OnceCallback<void()> callback,
-                             OnceClosure then_callback) {
-    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+                             OnceClosure then_callback) const {
     impl_task_runner_->PostTaskAndReply(location, std::move(callback),
                                         std::move(then_callback));
   }
@@ -586,8 +586,7 @@ class SequenceBound {
             typename = EnableIfIsBaseCallback<CallbackType>>
   void PostTaskAndThenHelper(const Location& location,
                              OnceCallback<ReturnType()> callback,
-                             CallbackType<void(ThenArg)> then_callback) {
-    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+                             CallbackType<void(ThenArg)> then_callback) const {
     OnceCallback<void(ThenArg)>&& once_then_callback = std::move(then_callback);
     impl_task_runner_->PostTaskAndReplyWithResult(
         location, std::move(callback), std::move(once_then_callback));
@@ -613,16 +612,13 @@ class SequenceBound {
     storage_ = std::exchange(other.storage_, nullptr);
   }
 
-  // Pointer to the managed `T`. This field is only read and written on
-  // the sequence associated with `sequence_checker_`.
+  // Pointer to the managed `T`.
   T* t_ = nullptr;
 
   // Storage originally allocated by `AlignedAlloc()`. Maintained separately
   // from  `t_` since the original, unadjusted pointer needs to be passed to
   // `AlignedFree()`.
   void* storage_ = nullptr;
-
-  SEQUENCE_CHECKER(sequence_checker_);
 
   // Task runner which manages `t_`. `t_` is constructed, destroyed, and
   // dereferenced only on this task runner.

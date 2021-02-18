@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
@@ -17,7 +17,6 @@
 #include "build/build_config.h"
 #include "components/viz/common/features.h"
 #include "gpu/config/gpu_driver_bug_workaround_type.h"
-#include "gpu/config/gpu_extra_info.h"
 #include "gpu/config/gpu_feature_info.h"
 #include "gpu/config/gpu_finch_features.h"
 #include "gpu/config/gpu_info.h"
@@ -277,12 +276,6 @@ void GpuHostImpl::BindInterface(const std::string& interface_name,
   delegate_->BindInterface(interface_name, std::move(interface_pipe));
 }
 
-void GpuHostImpl::RunService(
-    const std::string& service_name,
-    mojo::PendingReceiver<service_manager::mojom::Service> receiver) {
-  delegate_->RunService(service_name, std::move(receiver));
-}
-
 mojom::GpuService* GpuHostImpl::gpu_service() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(gpu_service_remote_.is_bound());
@@ -409,7 +402,7 @@ void GpuHostImpl::DidInitialize(
     const base::Optional<gpu::GPUInfo>& gpu_info_for_hardware_gpu,
     const base::Optional<gpu::GpuFeatureInfo>&
         gpu_feature_info_for_hardware_gpu,
-    const gpu::GpuExtraInfo& gpu_extra_info) {
+    const gfx::GpuExtraInfo& gpu_extra_info) {
   UMA_HISTOGRAM_BOOLEAN("GPU.GPUProcessInitialized", true);
 
   // Set GPU driver bug workaround flags that are checked on the browser side.
@@ -512,6 +505,10 @@ void GpuHostImpl::DidLoseContext(bool offscreen,
 
 void GpuHostImpl::DisableGpuCompositing() {
   delegate_->DisableGpuCompositing();
+}
+
+void GpuHostImpl::DidUpdateGPUInfo(const gpu::GPUInfo& gpu_info) {
+  delegate_->DidUpdateGPUInfo(gpu_info);
 }
 
 #if defined(OS_WIN)

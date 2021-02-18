@@ -68,7 +68,7 @@ class ToggleButton::ThumbView : public InkDropHostView {
 
  protected:
   // views::View:
-  bool CanProcessEventsWithinSubtree() const override {
+  bool GetCanProcessEventsWithinSubtree() const override {
     // Make the thumb behave as part of the parent for event handling.
     return false;
   }
@@ -120,18 +120,18 @@ class ToggleButton::ThumbView : public InkDropHostView {
   DISALLOW_COPY_AND_ASSIGN(ThumbView);
 };
 
-ToggleButton::ToggleButton(ButtonListener* listener) : Button(listener) {
+ToggleButton::ToggleButton(PressedCallback callback)
+    : Button(std::move(callback)) {
   slide_animation_.SetSlideDuration(base::TimeDelta::FromMilliseconds(80));
   slide_animation_.SetTweenType(gfx::Tween::LINEAR);
   thumb_view_ = AddChildView(std::make_unique<ThumbView>());
   SetInkDropMode(InkDropMode::ON);
-  SetFocusForPlatform();
   // TODO(pbos): Update the highlight-path shape so that a FocusRing can be used
   // on top of it to increase contrast. Disabling it for now addresses a
   // regression in crbug.com/1031983, but a matching FocusRing would probably be
   // desirable.
   SetInstallFocusRingOnFocus(false);
-  set_has_ink_drop_action_on_click(true);
+  SetHasInkDropActionOnClick(true);
 }
 
 ToggleButton::~ToggleButton() {
@@ -357,6 +357,6 @@ ADD_PROPERTY_METADATA(base::Optional<SkColor>, ThumbOnColor)
 ADD_PROPERTY_METADATA(base::Optional<SkColor>, ThumbOffColor)
 ADD_PROPERTY_METADATA(base::Optional<SkColor>, TrackOnColor)
 ADD_PROPERTY_METADATA(base::Optional<SkColor>, TrackOffColor)
-END_METADATA()
+END_METADATA
 
 }  // namespace views

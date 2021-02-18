@@ -10,9 +10,11 @@
 #include "base/callback.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "ipc/ipc_channel.h"
+#include "services/data_decoder/public/cpp/data_decoder.h"
 #include "services/data_decoder/public/cpp/decode_image.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/geometry/size.h"
@@ -48,14 +50,23 @@ void DecodeImage(
     bool shrink_to_fit,
     const gfx::Size& desired_image_frame_size,
     data_decoder::mojom::ImageDecoder::DecodeImageCallback callback,
-    scoped_refptr<base::SequencedTaskRunner> callback_task_runner) {
+    scoped_refptr<base::SequencedTaskRunner> callback_task_runner,
+    data_decoder::DataDecoder* data_decoder) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
-  data_decoder::DecodeImageIsolated(
-      image_data, codec, shrink_to_fit, kMaxImageSizeInBytes,
-      desired_image_frame_size,
-      base::BindOnce(&RunDecodeCallbackOnTaskRunner, std::move(callback),
-                     std::move(callback_task_runner)));
+  if (data_decoder) {
+    data_decoder::DecodeImage(
+        data_decoder, image_data, codec, shrink_to_fit, kMaxImageSizeInBytes,
+        desired_image_frame_size,
+        base::BindOnce(&RunDecodeCallbackOnTaskRunner, std::move(callback),
+                       std::move(callback_task_runner)));
+  } else {
+    data_decoder::DecodeImageIsolated(
+        image_data, codec, shrink_to_fit, kMaxImageSizeInBytes,
+        desired_image_frame_size,
+        base::BindOnce(&RunDecodeCallbackOnTaskRunner, std::move(callback),
+                       std::move(callback_task_runner)));
+  }
 }
 
 }  // namespace
@@ -68,6 +79,13 @@ ImageDecoder::ImageRequest::ImageRequest()
 ImageDecoder::ImageRequest::ImageRequest(
     const scoped_refptr<base::SequencedTaskRunner>& task_runner)
     : task_runner_(task_runner) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+}
+
+ImageDecoder::ImageRequest::ImageRequest(
+    data_decoder::DataDecoder* data_decoder)
+    : task_runner_(base::ThreadTaskRunnerHandle::Get()),
+      data_decoder_(data_decoder) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 }
 
@@ -137,10 +155,10 @@ void ImageDecoder::StartWithOptionsImpl(
 
   data_decoder::mojom::ImageCodec codec =
       data_decoder::mojom::ImageCodec::DEFAULT;
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (image_codec == ROBUST_PNG_CODEC)
     codec = data_decoder::mojom::ImageCodec::ROBUST_PNG;
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   auto callback =
       base::BindOnce(&OnDecodeImageDone,
@@ -158,7 +176,8 @@ void ImageDecoder::StartWithOptionsImpl(
       FROM_HERE,
       base::BindOnce(&DecodeImage, std::move(image_data), codec, shrink_to_fit,
                      desired_image_frame_size, std::move(callback),
-                     base::WrapRefCounted(image_request->task_runner())));
+                     base::WrapRefCounted(image_request->task_runner()),
+                     image_request->data_decoder()));
 }
 
 // static

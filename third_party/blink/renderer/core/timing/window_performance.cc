@@ -44,14 +44,17 @@
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
+#include "third_party/blink/renderer/core/loader/interactive_detector.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
+#include "third_party/blink/renderer/core/page/page.h"
+#include "third_party/blink/renderer/core/page/page_hidden_state.h"
 #include "third_party/blink/renderer/core/timing/largest_contentful_paint.h"
 #include "third_party/blink/renderer/core/timing/layout_shift.h"
-#include "third_party/blink/renderer/core/timing/measure_memory/measure_memory_delegate.h"
 #include "third_party/blink/renderer/core/timing/performance_element_timing.h"
 #include "third_party/blink/renderer/core/timing/performance_event_timing.h"
 #include "third_party/blink/renderer/core/timing/performance_observer.h"
 #include "third_party/blink/renderer/core/timing/performance_timing.h"
+#include "third_party/blink/renderer/core/timing/visibility_state_entry.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_timing_info.h"
@@ -140,6 +143,8 @@ AtomicString SameOriginAttribution(Frame* observer_frame,
 
 }  // namespace
 
+constexpr size_t kDefaultVisibilityStateEntrySize = 50;
+
 static base::TimeTicks ToTimeOrigin(LocalDOMWindow* window) {
   DocumentLoader* loader = window->GetFrame()->Loader().GetDocumentLoader();
   return loader->GetTiming().ReferenceMonotonicTime();
@@ -149,40 +154,33 @@ WindowPerformance::WindowPerformance(LocalDOMWindow* window)
     : Performance(ToTimeOrigin(window),
                   window->GetTaskRunner(TaskType::kPerformanceTimeline)),
       ExecutionContextClient(window),
-      measure_memory_experiment_timer_(
-          task_runner_,
-          this,
-          &WindowPerformance::MeasureMemoryExperimentTimerFired) {
-  DCHECK(GetFrame());
-  DCHECK(GetFrame()->GetPerformanceMonitor());
-  GetFrame()->GetPerformanceMonitor()->Subscribe(
+      PageVisibilityObserver(window->GetFrame()->GetPage()) {
+  DCHECK(window);
+  DCHECK(window->GetFrame()->GetPerformanceMonitor());
+  window->GetFrame()->GetPerformanceMonitor()->Subscribe(
       PerformanceMonitor::kLongTask, kLongTaskObserverThreshold, this);
-  if (MeasureMemoryDelegate::IsMeasureMemoryAvailable(window) &&
-      base::FeatureList::IsEnabled(blink::features::kMeasureMemoryExperiment)) {
-    int delay_in_ms = base::RandInt(0, kMaxMeasureMemoryExperimentDelayInMs);
-    measure_memory_experiment_timer_.StartOneShot(
-        base::TimeDelta::FromMilliseconds(delay_in_ms), FROM_HERE);
+  if (RuntimeEnabledFeatures::VisibilityStateEntryEnabled()) {
+    DCHECK(GetPage());
+    AddVisibilityStateEntry(GetPage()->IsPageVisible(), base::TimeTicks());
   }
 }
 
 WindowPerformance::~WindowPerformance() = default;
 
 ExecutionContext* WindowPerformance::GetExecutionContext() const {
-  if (!GetFrame())
-    return nullptr;
-  return GetFrame()->DomWindow();
+  return ExecutionContextClient::GetExecutionContext();
 }
 
 PerformanceTiming* WindowPerformance::timing() const {
   if (!timing_)
-    timing_ = MakeGarbageCollected<PerformanceTiming>(GetFrame());
+    timing_ = MakeGarbageCollected<PerformanceTiming>(DomWindow());
 
   return timing_.Get();
 }
 
 PerformanceNavigation* WindowPerformance::navigation() const {
   if (!navigation_)
-    navigation_ = MakeGarbageCollected<PerformanceNavigation>(GetFrame());
+    navigation_ = MakeGarbageCollected<PerformanceNavigation>(DomWindow());
 
   return navigation_.Get();
 }
@@ -201,9 +199,11 @@ MemoryInfo* WindowPerformance::memory() const {
 
 PerformanceNavigationTiming*
 WindowPerformance::CreateNavigationTimingInstance() {
-  if (!GetFrame())
+  if (!DomWindow())
     return nullptr;
-  DocumentLoader* document_loader = GetFrame()->Loader().GetDocumentLoader();
+  DocumentLoader* document_loader = DomWindow()->document()->Loader();
+  // TODO(npm): figure out when |document_loader| can be null and add tests.
+  DCHECK(document_loader);
   if (!document_loader)
     return nullptr;
   ResourceTimingInfo* info = document_loader->GetNavigationTimingInfo();
@@ -215,7 +215,7 @@ WindowPerformance::CreateNavigationTimingInstance() {
     document_loader->CountUse(WebFeature::kPerformanceServerTiming);
 
   return MakeGarbageCollected<PerformanceNavigationTiming>(
-      GetFrame(), info, time_origin_, std::move(server_timing));
+      DomWindow(), info, time_origin_, std::move(server_timing));
 }
 
 void WindowPerformance::BuildJSONValue(V8ObjectBuilder& builder) const {
@@ -233,6 +233,7 @@ void WindowPerformance::Trace(Visitor* visitor) const {
   Performance::Trace(visitor);
   PerformanceMonitor::Client::Trace(visitor);
   ExecutionContextClient::Trace(visitor);
+  PageVisibilityObserver::Trace(visitor);
 }
 
 static bool CanAccessOrigin(Frame* frame1, Frame* frame2) {
@@ -309,16 +310,16 @@ void WindowPerformance::ReportLongTask(base::TimeTicks start_time,
                                        base::TimeTicks end_time,
                                        ExecutionContext* task_context,
                                        bool has_multiple_contexts) {
-  if (!GetFrame())
+  if (!DomWindow())
     return;
   std::pair<AtomicString, DOMWindow*> attribution =
       WindowPerformance::SanitizedAttribution(
-          task_context, has_multiple_contexts, GetFrame());
+          task_context, has_multiple_contexts, DomWindow()->GetFrame());
   DOMWindow* culprit_dom_window = attribution.second;
   if (!culprit_dom_window || !culprit_dom_window->GetFrame() ||
       !culprit_dom_window->GetFrame()->DeprecatedLocalOwner()) {
     AddLongTaskTiming(start_time, end_time, attribution.first, "window",
-                      g_empty_string, g_empty_string, g_empty_string);
+                      g_empty_atom, g_empty_atom, g_empty_atom);
   } else {
     HTMLFrameOwnerElement* frame_owner =
         culprit_dom_window->GetFrame()->DeprecatedLocalOwner();
@@ -339,7 +340,7 @@ void WindowPerformance::RegisterEventTiming(const AtomicString& event_type,
   DCHECK(!processing_start.is_null());
   DCHECK(!processing_end.is_null());
   DCHECK_GE(processing_end, processing_start);
-  if (!GetFrame())
+  if (!DomWindow())
     return;
 
   if (!event_counts_)
@@ -350,36 +351,37 @@ void WindowPerformance::RegisterEventTiming(const AtomicString& event_type,
       MonotonicTimeToDOMHighResTimeStamp(processing_start),
       MonotonicTimeToDOMHighResTimeStamp(processing_end), cancelable, target);
   // Add |entry| to the end of the queue along with the frame index at which is
-  // is being queued to know when to queue a swap promise for it.
+  // is being queued to know when to queue a presentation promise for it.
   event_timings_.push_back(entry);
   event_frames_.push_back(frame_index_);
-  bool should_queue_swap_promise = false;
-  // If there are no pending swap promises, we should queue one. This ensures
-  // that |event_timings_| are processed even if the Blink lifecycle does not
-  // occur due to no DOM updates.
-  if (pending_swap_promise_count_ == 0u) {
-    should_queue_swap_promise = true;
+  bool should_queue_presentation_promise = false;
+  // If there are no pending presentation promises, we should queue one. This
+  // ensures that |event_timings_| are processed even if the Blink lifecycle
+  // does not occur due to no DOM updates.
+  if (pending_presentation_promise_count_ == 0u) {
+    should_queue_presentation_promise = true;
   } else {
-    // There are pending swap promises, so only queue one if the event
-    // corresponds to a later frame than the one of the latest queued swap
-    // promise.
-    should_queue_swap_promise = frame_index_ > last_registered_frame_index_;
+    // There are pending presentation promises, so only queue one if the event
+    // corresponds to a later frame than the one of the latest queued
+    // presentation promise.
+    should_queue_presentation_promise =
+        frame_index_ > last_registered_frame_index_;
   }
-  if (should_queue_swap_promise) {
-    GetFrame()->GetChromeClient().NotifySwapTime(
-        *GetFrame(),
+  if (should_queue_presentation_promise) {
+    DomWindow()->GetFrame()->GetChromeClient().NotifyPresentationTime(
+        *DomWindow()->GetFrame(),
         CrossThreadBindOnce(&WindowPerformance::ReportEventTimings,
                             WrapCrossThreadWeakPersistent(this), frame_index_));
     last_registered_frame_index_ = frame_index_;
-    ++pending_swap_promise_count_;
+    ++pending_presentation_promise_count_;
   }
 }
 
 void WindowPerformance::ReportEventTimings(uint64_t frame_index,
                                            WebSwapResult result,
                                            base::TimeTicks timestamp) {
-  DCHECK(pending_swap_promise_count_);
-  --pending_swap_promise_count_;
+  DCHECK(pending_presentation_promise_count_);
+  --pending_presentation_promise_count_;
   // |event_timings_| and |event_frames_| should always have the same size.
   DCHECK(event_timings_.size() == event_frames_.size());
   if (event_timings_.IsEmpty())
@@ -400,7 +402,35 @@ void WindowPerformance::ReportEventTimings(uint64_t frame_index,
     event_frames_.pop_front();
 
     int duration_in_ms = std::round((end_time - entry->startTime()) / 8) * 8;
+    base::TimeDelta input_delay = base::TimeDelta::FromMillisecondsD(
+        entry->processingStart() - entry->startTime());
+    base::TimeDelta processing_time = base::TimeDelta::FromMillisecondsD(
+        entry->processingEnd() - entry->processingStart());
+    base::TimeDelta time_to_next_paint =
+        base::TimeDelta::FromMillisecondsD(end_time - entry->processingEnd());
+    InteractiveDetector* interactive_detector =
+        DomWindow() ? InteractiveDetector::From(*(DomWindow()->document()))
+                    : nullptr;
     entry->SetDuration(duration_in_ms);
+    if (entry->name() == "pointerdown") {
+      pending_pointer_down_input_delay_ = input_delay;
+      pending_pointer_down_processing_time_ = processing_time;
+      pending_pointer_down_time_to_next_paint_ = time_to_next_paint;
+    } else if (entry->name() == "pointerup") {
+      if (pending_pointer_down_time_to_next_paint_.has_value() &&
+          interactive_detector) {
+        interactive_detector->RecordInputEventTimingUKM(
+            pending_pointer_down_input_delay_.value(),
+            pending_pointer_down_processing_time_.value(),
+            pending_pointer_down_time_to_next_paint_.value(), entry->name());
+      }
+    } else if ((entry->name() == "click" || entry->name() == "keydown" ||
+                entry->name() == "mousedown") &&
+               interactive_detector) {
+      interactive_detector->RecordInputEventTimingUKM(
+          input_delay, processing_time, time_to_next_paint, entry->name());
+    }
+
     if (!first_input_timing_) {
       if (entry->name() == "pointerdown") {
         first_pointer_down_event_timing_ =
@@ -474,6 +504,26 @@ void WindowPerformance::AddLayoutShiftEntry(LayoutShift* entry) {
   AddLayoutShiftBuffer(*entry);
 }
 
+void WindowPerformance::AddVisibilityStateEntry(bool is_visible,
+                                                base::TimeTicks timestamp) {
+  DCHECK(RuntimeEnabledFeatures::VisibilityStateEntryEnabled());
+  VisibilityStateEntry* entry = MakeGarbageCollected<VisibilityStateEntry>(
+      PageHiddenStateString(!is_visible),
+      MonotonicTimeToDOMHighResTimeStamp(timestamp));
+  if (HasObserverFor(PerformanceEntry::kVisibilityState))
+    NotifyObserversOfEntry(*entry);
+
+  if (visibility_state_buffer_.size() < kDefaultVisibilityStateEntrySize)
+    visibility_state_buffer_.push_back(entry);
+}
+
+void WindowPerformance::PageVisibilityChanged() {
+  if (!RuntimeEnabledFeatures::VisibilityStateEntryEnabled())
+    return;
+
+  AddVisibilityStateEntry(GetPage()->IsPageVisible(), base::TimeTicks::Now());
+}
+
 EventCounts* WindowPerformance::eventCounts() {
   DCHECK(RuntimeEnabledFeatures::EventTimingEnabled(GetExecutionContext()));
   if (!event_counts_)
@@ -502,22 +552,6 @@ void WindowPerformance::OnLargestContentfulPaintUpdated(
 
 void WindowPerformance::OnPaintFinished() {
   ++frame_index_;
-}
-
-void WindowPerformance::MeasureMemoryExperimentTimerFired(TimerBase*) {
-  if (!GetFrame() || !GetExecutionContext())
-    return;
-  v8::Isolate* isolate = GetExecutionContext()->GetIsolate();
-  v8::HandleScope handle_scope(isolate);
-  v8::Local<v8::Context> context =
-      ToV8Context(GetFrame(), DOMWrapperWorld::MainWorld());
-  if (context.IsEmpty()) {
-    // The frame has been detached in the meantime.
-    return;
-  }
-  isolate->MeasureMemory(
-      std::make_unique<MeasureMemoryDelegate>(isolate, context),
-      v8::MeasureMemoryExecution::kDefault);
 }
 
 }  // namespace blink

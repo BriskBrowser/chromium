@@ -19,6 +19,7 @@
 #include "media/base/video_types.h"
 #include "media/gpu/command_buffer_helper.h"
 #include "media/video/picture.h"
+#include "media/video/video_decode_accelerator.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 
@@ -62,6 +63,7 @@ class PictureBufferManager
   // |planes|: Number of image planes (textures) in the picture.
   // |texture_size|: Size of textures to create.
   // |texture_target|: Type of textures to create.
+  // |use_shared_image|: True if the created buffers should use shared images.
   //
   // Must be called on the GPU thread.
   //
@@ -77,7 +79,9 @@ class PictureBufferManager
       VideoPixelFormat pixel_format,
       uint32_t planes,
       gfx::Size texture_size,
-      uint32_t texture_target) = 0;
+      uint32_t texture_target,
+      bool use_shared_image,
+      VideoDecodeAccelerator::TextureAllocationMode mode) = 0;
 
   // Dismisses a picture buffer from the pool.
   //

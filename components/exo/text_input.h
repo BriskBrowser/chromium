@@ -8,7 +8,7 @@
 #include "ash/public/cpp/keyboard/keyboard_controller_observer.h"
 #include "base/macros.h"
 #include "base/optional.h"
-#include "base/strings/string_piece.h"
+#include "base/strings/string16.h"
 #include "ui/base/ime/text_input_client.h"
 #include "ui/base/ime/text_input_flags.h"
 #include "ui/base/ime/text_input_mode.h"
@@ -25,9 +25,6 @@ class KeyboardUIController;
 
 namespace exo {
 class Surface;
-
-size_t OffsetFromUTF8Offset(const base::StringPiece& text, uint32_t offset);
-size_t OffsetFromUTF16Offset(const base::StringPiece16& text, uint32_t offset);
 
 // This class bridges the ChromeOS input method and a text-input context.
 class TextInput : public ui::TextInputClient,
@@ -109,7 +106,8 @@ class TextInput : public ui::TextInputClient,
   void SetCompositionText(const ui::CompositionText& composition) override;
   uint32_t ConfirmCompositionText(bool keep_selection) override;
   void ClearCompositionText() override;
-  void InsertText(const base::string16& text) override;
+  void InsertText(const base::string16& text,
+                  InsertTextCursorBehavior cursor_behavior) override;
   void InsertChar(const ui::KeyEvent& event) override;
   ui::TextInputType GetTextInputType() const override;
   ui::TextInputMode GetTextInputMode() const override;
@@ -142,9 +140,7 @@ class TextInput : public ui::TextInputClient,
       const std::vector<ui::ImeTextSpan>& ui_ime_text_spans) override;
   gfx::Range GetAutocorrectRange() const override;
   gfx::Rect GetAutocorrectCharacterBounds() const override;
-  bool SetAutocorrectRange(const base::string16& autocorrect_text,
-                           const gfx::Range& range) override;
-  void ClearAutocorrectRange() override;
+  bool SetAutocorrectRange(const gfx::Range& range) override;
 
   // ash::KeyboardControllerObserver:
   void OnKeyboardVisibilityChanged(bool is_visible) override;

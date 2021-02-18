@@ -18,7 +18,6 @@
 #include "ash/system/status_area_widget_test_helper.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/test/ash_test_helper.h"
-#include "ash/window_factory.h"
 #include "ash/wm/overview/overview_controller.h"
 #include "ash/wm/splitview/split_view_controller.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
@@ -30,7 +29,6 @@
 #include "base/test/metrics/user_action_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/time/time.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/window_types.h"
 #include "ui/aura/window.h"
@@ -488,10 +486,8 @@ class OverviewButtonTrayWithShelfControlsHiddenTest
       public testing::WithParamInterface<TestAccessibilityFeature> {
  public:
   OverviewButtonTrayWithShelfControlsHiddenTest() {
-    scoped_features_.InitWithFeatures(
-        {chromeos::features::kShelfHotseat,
-         features::kHideShelfControlsInTabletMode},
-        {});
+    scoped_features_.InitAndEnableFeature(
+        features::kHideShelfControlsInTabletMode);
   }
   OverviewButtonTrayWithShelfControlsHiddenTest(
       const OverviewButtonTrayWithShelfControlsHiddenTest& other) = delete;
@@ -519,10 +515,11 @@ class OverviewButtonTrayWithShelfControlsHiddenTest
             enabled, A11Y_NOTIFICATION_NONE);
         break;
       case TestAccessibilityFeature::kAutoclick:
-        Shell::Get()->accessibility_controller()->SetAutoclickEnabled(enabled);
+        Shell::Get()->accessibility_controller()->autoclick().SetEnabled(
+            enabled);
         break;
       case TestAccessibilityFeature::kSwitchAccess:
-        Shell::Get()->accessibility_controller()->SetSwitchAccessEnabled(
+        Shell::Get()->accessibility_controller()->switch_access().SetEnabled(
             enabled);
         Shell::Get()
             ->accessibility_controller()

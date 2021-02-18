@@ -25,6 +25,9 @@ import org.chromium.chrome.browser.autofill.PersonalDataManager.AutofillProfile;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.CreditCard;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
+import org.chromium.components.payments.PaymentAppFactoryDelegate;
+import org.chromium.components.payments.PaymentAppFactoryInterface;
+import org.chromium.components.payments.PaymentAppService;
 import org.chromium.components.payments.PaymentFeatureList;
 import org.chromium.components.payments.SupportedDelegations;
 import org.chromium.content_public.browser.WebContents;
@@ -41,8 +44,7 @@ import java.util.concurrent.TimeoutException;
         // payment apps instead of showing payment request UI.
         "enable-features=" + PaymentFeatureList.STRICT_HAS_ENROLLED_AUTOFILL_INSTRUMENT,
         // Prevent crawling the web for real payment apps.
-        "disable-features=" + PaymentFeatureList.SERVICE_WORKER_PAYMENT_APPS + ","
-                + PaymentFeatureList.SCROLL_TO_EXPAND_PAYMENT_HANDLER})
+        "disable-features=" + PaymentFeatureList.SERVICE_WORKER_PAYMENT_APPS})
 public class PaymentRequestServiceWorkerPaymentAppTest {
     // Disable animations to reduce flakiness.
     @ClassRule
@@ -123,9 +125,10 @@ public class PaymentRequestServiceWorkerPaymentAppTest {
      */
     public void addCreditCard() throws TimeoutException {
         AutofillTestHelper helper = new AutofillTestHelper();
-        String billingAddressId = helper.setProfile(new AutofillProfile("", "https://example.com",
-                true, "John Smith", "Google", "340 Main St", "CA", "Los Angeles", "", "90291", "",
-                "US", "310-310-6000", "john.smith@gmail.com", "en-US"));
+        String billingAddressId = helper.setProfile(
+                new AutofillProfile("", "https://example.com", true, "" /* honorific prefix */,
+                        "John Smith", "Google", "340 Main St", "CA", "Los Angeles", "", "90291", "",
+                        "US", "310-310-6000", "john.smith@gmail.com", "en-US"));
         helper.setCreditCard(new CreditCard("", "https://example.com", true, true, "Jon Doe",
                 "4111111111111111", "1111", "12", "2050", "visa", R.drawable.visa_card,
                 billingAddressId, "" /* serverId */));

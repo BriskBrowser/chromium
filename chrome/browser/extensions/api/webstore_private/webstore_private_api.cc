@@ -671,8 +671,8 @@ void WebstorePrivateBeginInstallWithManifest3Function::
 
 void WebstorePrivateBeginInstallWithManifest3Function::HandleInstallProceed() {
   // This gets cleared in CrxInstaller::ConfirmInstall(). TODO(asargent) - in
-  // the future we may also want to add time-based expiration, where a whitelist
-  // entry is only valid for some number of minutes.
+  // the future we may also want to add time-based expiration, where an
+  // allowlist entry is only valid for some number of minutes.
   std::unique_ptr<WebstoreInstaller::Approval> approval(
       WebstoreInstaller::Approval::CreateWithNoInstallPrompt(
           chrome_details_.GetProfile(), details().id,
@@ -784,7 +784,10 @@ WebstorePrivateCompleteInstallFunction::Run() {
   std::unique_ptr<CompleteInstall::Params> params(
       CompleteInstall::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params);
+  // TODO(https://crbug.com/1125475): Enable Extensions for Ephemeral Guest
+  // profiles.
   if (chrome_details_.GetProfile()->IsGuestSession() ||
+      chrome_details_.GetProfile()->IsEphemeralGuestProfile() ||
       chrome_details_.GetProfile()->IsOffTheRecord()) {
     return RespondNow(Error(kIncognitoError));
   }
@@ -812,7 +815,7 @@ WebstorePrivateCompleteInstallFunction::Run() {
   AddRef();
 
   // The extension will install through the normal extension install flow, but
-  // the whitelist entry will bypass the normal permissions install dialog.
+  // the allowlist entry will bypass the normal permissions install dialog.
   scoped_refptr<WebstoreInstaller> installer = new WebstoreInstaller(
       chrome_details_.GetProfile(), this, web_contents, params->expected_id,
       std::move(approval_), WebstoreInstaller::INSTALL_SOURCE_OTHER);
@@ -881,7 +884,7 @@ WebstorePrivateGetBrowserLoginFunction::Run() {
   GetBrowserLogin::Results::Info info;
   info.login = IdentityManagerFactory::GetForProfile(
                    chrome_details_.GetProfile()->GetOriginalProfile())
-                   ->GetPrimaryAccountInfo()
+                   ->GetPrimaryAccountInfo(signin::ConsentLevel::kSync)
                    .email;
   return RespondNow(ArgumentList(GetBrowserLogin::Results::Create(info)));
 }
@@ -953,8 +956,11 @@ WebstorePrivateIsInIncognitoModeFunction::
 ExtensionFunction::ResponseAction
 WebstorePrivateIsInIncognitoModeFunction::Run() {
   Profile* profile = chrome_details_.GetProfile();
+  // TODO(https://crbug.com/1125475): Enable Extensions for Ephemeral Guest
+  // profiles.
   return RespondNow(ArgumentList(IsInIncognitoMode::Results::Create(
-      profile != profile->GetOriginalProfile())));
+      profile != profile->GetOriginalProfile() ||
+      profile->IsEphemeralGuestProfile())));
 }
 
 WebstorePrivateLaunchEphemeralAppFunction::
@@ -1023,7 +1029,7 @@ WebstorePrivateIsPendingCustodianApprovalFunction::Run() {
 
 ExtensionFunction::ResponseValue
 WebstorePrivateIsPendingCustodianApprovalFunction::BuildResponse(bool result) {
-  return OneArgument(std::make_unique<base::Value>(result));
+  return OneArgument(base::Value(result));
 }
 
 WebstorePrivateGetReferrerChainFunction::

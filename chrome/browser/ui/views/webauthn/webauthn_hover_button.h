@@ -9,9 +9,9 @@
 
 #include "base/strings/string16.h"
 #include "chrome/browser/ui/views/hover_button.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 
 namespace views {
-class ButtonListener;
 class ImageView;
 class Label;
 class View;
@@ -22,6 +22,7 @@ class View;
 // arrow). Icons and subtitle are optional.
 class WebAuthnHoverButton : public HoverButton {
  public:
+  METADATA_HEADER(WebAuthnHoverButton);
   // Creates a hoverable button with the given elements, like so:
   //
   // +-------------------------------------------------------------------+
@@ -36,7 +37,7 @@ class WebAuthnHoverButton : public HoverButton {
   //
   // |icon| and |secondary_icon| are also optional. If either is null, the
   // middle column resizes to fill the space.
-  WebAuthnHoverButton(views::ButtonListener* listener,
+  WebAuthnHoverButton(PressedCallback callback,
                       std::unique_ptr<views::ImageView> icon,
                       const base::string16& title,
                       const base::string16& subtitle,

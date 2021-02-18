@@ -4,35 +4,34 @@
 
 package org.chromium.chrome.browser.browserservices;
 
+import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 
-import androidx.annotation.IntDef;
 import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
 import androidx.browser.customtabs.CustomTabsSessionToken;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Promise;
+import org.chromium.base.annotations.NativeMethods;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.browserservices.ui.controller.Verifier;
 import org.chromium.chrome.browser.browserservices.ui.controller.trustedwebactivity.ClientPackageNameProvider;
+import org.chromium.chrome.browser.browserservices.verification.OriginVerifierStatics;
 import org.chromium.chrome.browser.customtabs.CustomTabsConnection;
 import org.chromium.chrome.browser.customtabs.content.TabObserverRegistrar;
 import org.chromium.chrome.browser.customtabs.content.TabObserverRegistrar.CustomTabTabObserver;
 import org.chromium.chrome.browser.dependency_injection.ActivityScope;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
-import org.chromium.chrome.browser.lifecycle.NativeInitObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.content_public.browser.NavigationHandle;
+import org.chromium.content_public.browser.RenderFrameHost;
 import org.chromium.net.NetError;
 import org.chromium.ui.widget.Toast;
-
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
+import org.chromium.url.GURL;
 
 import javax.inject.Inject;
 
@@ -46,14 +45,15 @@ import javax.inject.Inject;
  * will crash. We should hold web apps to the same standard.
  */
 @ActivityScope
-public class QualityEnforcer implements NativeInitObserver {
+public class QualityEnforcer {
     @VisibleForTesting
     static final String CRASH = "quality_enforcement.crash";
     @VisibleForTesting
     static final String KEY_CRASH_REASON = "crash_reason";
-    private static final String KEY_SUCCESS = "success";
+    @VisibleForTesting
+    static final String KEY_SUCCESS = "success";
 
-    private final ChromeActivity<?> mActivity;
+    private final Activity mActivity;
     private final Verifier mVerifier;
     private final CustomTabsConnection mConnection;
     private final CustomTabsSessionToken mSessionToken;
@@ -61,20 +61,8 @@ public class QualityEnforcer implements NativeInitObserver {
     private final BrowserServicesIntentDataProvider mIntentDataProvider;
     private final TrustedWebActivityUmaRecorder mUmaRecorder;
 
+    private boolean mFirstNavigationFinished;
     private boolean mOriginVerified;
-
-    // Do not modify or reuse existing entries, they are used in a UMA histogram. Please also edit
-    // TrustedWebActivityQualityEnforcementViolationType in enums.xml if new value added.
-    @IntDef({ViolationType.ERROR_404, ViolationType.ERROR_5XX, ViolationType.UNAVAILABLE_OFFLINE,
-            ViolationType.DIGITAL_ASSETLINKS})
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface ViolationType {
-        int ERROR_404 = 0;
-        int ERROR_5XX = 1;
-        int UNAVAILABLE_OFFLINE = 2;
-        int DIGITAL_ASSETLINKS = 3;
-        int NUM_ENTRIES = 4;
-    }
 
     private final CustomTabTabObserver mTabObserver = new CustomTabTabObserver() {
         @Override
@@ -84,15 +72,29 @@ public class QualityEnforcer implements NativeInitObserver {
                 return;
             }
 
-            String newUrl = tab.getOriginalUrl();
+            if (!mFirstNavigationFinished) {
+                String loadUrl = mIntentDataProvider.getUrlToLoad();
+                mFirstNavigationFinished = true;
+                mVerifier.verify(loadUrl).then((verified) -> {
+                    if (!verified) {
+                        trigger(tab, QualityEnforcementViolationType.DIGITAL_ASSET_LINK,
+                                mIntentDataProvider.getUrlToLoad(), 0);
+                    }
+                });
+            }
+
+            GURL newUrl = tab.getOriginalUrl();
             if (isNavigationInScope(newUrl)) {
                 if (navigation.httpStatusCode() == 404) {
-                    trigger(ViolationType.ERROR_404, newUrl, navigation.httpStatusCode());
+                    trigger(tab, QualityEnforcementViolationType.HTTP_ERROR404, newUrl.getSpec(),
+                            navigation.httpStatusCode());
                 } else if (navigation.httpStatusCode() >= 500
                         && navigation.httpStatusCode() <= 599) {
-                    trigger(ViolationType.ERROR_5XX, newUrl, navigation.httpStatusCode());
+                    trigger(tab, QualityEnforcementViolationType.HTTP_ERROR5XX, newUrl.getSpec(),
+                            navigation.httpStatusCode());
                 } else if (navigation.errorCode() == NetError.ERR_INTERNET_DISCONNECTED) {
-                    trigger(ViolationType.UNAVAILABLE_OFFLINE, newUrl, navigation.httpStatusCode());
+                    trigger(tab, QualityEnforcementViolationType.UNAVAILABLE_OFFLINE,
+                            newUrl.getSpec(), navigation.httpStatusCode());
                 }
             }
         }
@@ -105,8 +107,7 @@ public class QualityEnforcer implements NativeInitObserver {
     };
 
     @Inject
-    public QualityEnforcer(ChromeActivity<?> activity,
-            ActivityLifecycleDispatcher lifecycleDispatcher,
+    public QualityEnforcer(Activity activity, ActivityLifecycleDispatcher lifecycleDispatcher,
             TabObserverRegistrar tabObserverRegistrar,
             BrowserServicesIntentDataProvider intentDataProvider, CustomTabsConnection connection,
             Verifier verifier, ClientPackageNameProvider clientPackageNameProvider,
@@ -121,25 +122,35 @@ public class QualityEnforcer implements NativeInitObserver {
         // Initialize the value to true before the first navigation.
         mOriginVerified = true;
         tabObserverRegistrar.registerActivityTabObserver(mTabObserver);
-        lifecycleDispatcher.register(this);
     }
 
-    @Override
-    public void onFinishNativeInitialization() {
-        String url = mIntentDataProvider.getUrlToLoad();
-        mVerifier.verify(url).then((verified) -> {
-            if (!verified) {
-                trigger(ViolationType.DIGITAL_ASSETLINKS, mIntentDataProvider.getUrlToLoad(), 0);
+    private void trigger(
+            Tab tab, @QualityEnforcementViolationType int type, String url, int httpStatusCode) {
+        mUmaRecorder.recordQualityEnforcementViolation(tab, type);
+
+        if (ChromeFeatureList.isEnabled(
+                    ChromeFeatureList.TRUSTED_WEB_ACTIVITY_QUALITY_ENFORCEMENT_WARNING)) {
+            showErrorToast(getToastMessage(type, url, httpStatusCode));
+
+            if (tab.getWebContents() != null) {
+                String packageName = null;
+                String signature = null;
+                // Only get the package name and signature when violation type is
+                // DIGITAL_ASSET_LINK. This is because computing the fingerprint is expensive.
+                // We should figure out how to reuse the existing one in OriginVerifier.
+                if (type == QualityEnforcementViolationType.DIGITAL_ASSET_LINK) {
+                    packageName = mClientPackageNameProvider.get();
+                    signature = OriginVerifierStatics.getCertificateSHA256FingerprintForPackage(
+                            packageName);
+                }
+
+                QualityEnforcerJni.get().reportDevtoolsIssue(tab.getWebContents().getMainFrame(),
+                        type, url, httpStatusCode, packageName, signature);
             }
-        });
-    }
-
-    private void trigger(@ViolationType int type, String url, int httpStatusCode) {
-        mUmaRecorder.recordQualityEnforcementViolation(type);
+        }
 
         if (!ChromeFeatureList.isEnabled(
                     ChromeFeatureList.TRUSTED_WEB_ACTIVITY_QUALITY_ENFORCEMENT)) {
-            showErrorToast(getToastMessage(type, url, httpStatusCode));
             return;
         }
 
@@ -149,14 +160,16 @@ public class QualityEnforcer implements NativeInitObserver {
         Bundle result = mConnection.sendExtraCallbackWithResult(mSessionToken, CRASH, args);
         boolean success = result != null && result.getBoolean(KEY_SUCCESS);
 
-        // Show the Toast if client app does not enable quality enforcement.
-        if (!success) {
-            showErrorToast(getToastMessage(type, url, httpStatusCode));
+        // Do not crash on assetlink failures if the client app does not have installer package
+        // name.
+        if (type == QualityEnforcementViolationType.DIGITAL_ASSET_LINK && !isDebugInstall()) {
+            return;
         }
 
         if (ChromeFeatureList.isEnabled(
                     ChromeFeatureList.TRUSTED_WEB_ACTIVITY_QUALITY_ENFORCEMENT_FORCED)
                 || success) {
+            mUmaRecorder.recordQualityEnforcementViolationCrashed(type);
             mActivity.finish();
         }
     }
@@ -166,7 +179,7 @@ public class QualityEnforcer implements NativeInitObserver {
         PackageManager pm = context.getPackageManager();
         // Only shows the toast when the TWA client app does not have installer info, i.e. install
         // via adb instead of a store.
-        if (pm.getInstallerPackageName(mClientPackageNameProvider.get()) == null) {
+        if (!isDebugInstall()) {
             Toast.makeText(context, message, Toast.LENGTH_LONG).show();
         }
     }
@@ -175,25 +188,27 @@ public class QualityEnforcer implements NativeInitObserver {
      * Updates whether the current url is verified and returns whether the source and destination
      * are both on the verified origin.
      */
-    private boolean isNavigationInScope(String newUrl) {
-        if (newUrl.equals("")) return false;
+    private boolean isNavigationInScope(GURL newUrl) {
+        if (newUrl.isEmpty()) return false;
         boolean wasVerified = mOriginVerified;
-        Promise<Boolean> result = mVerifier.verify(newUrl);
+        // TODO(crbug/783819): Migrate Verifier to GURL.
+        Promise<Boolean> result = mVerifier.verify(newUrl.getSpec());
         mOriginVerified = !result.isFulfilled() || result.getResult();
         return wasVerified && mOriginVerified;
     }
 
     /* Get the localized string for toast message. */
-    private String getToastMessage(@ViolationType int type, String url, int httpStatusCode) {
+    private String getToastMessage(
+            @QualityEnforcementViolationType int type, String url, int httpStatusCode) {
         switch (type) {
-            case ViolationType.ERROR_404:
-            case ViolationType.ERROR_5XX:
+            case QualityEnforcementViolationType.HTTP_ERROR404:
+            case QualityEnforcementViolationType.HTTP_ERROR5XX:
                 return ContextUtils.getApplicationContext().getString(
                         R.string.twa_quality_enforcement_violation_error, httpStatusCode, url);
-            case ViolationType.UNAVAILABLE_OFFLINE:
+            case QualityEnforcementViolationType.UNAVAILABLE_OFFLINE:
                 return ContextUtils.getApplicationContext().getString(
                         R.string.twa_quality_enforcement_violation_offline, url);
-            case ViolationType.DIGITAL_ASSETLINKS:
+            case QualityEnforcementViolationType.DIGITAL_ASSET_LINK:
                 return ContextUtils.getApplicationContext().getString(
                         R.string.twa_quality_enforcement_violation_asset_link, url);
             default:
@@ -205,17 +220,33 @@ public class QualityEnforcer implements NativeInitObserver {
      * Get the string for sending message to TWA client app. We are not using the localized one as
      * the toast because this is used in TWA's crash message.
      */
-    private String toTwaCrashMessage(@ViolationType int type, String url, int httpStatusCode) {
+    private String toTwaCrashMessage(
+            @QualityEnforcementViolationType int type, String url, int httpStatusCode) {
         switch (type) {
-            case ViolationType.ERROR_404:
-            case ViolationType.ERROR_5XX:
+            case QualityEnforcementViolationType.HTTP_ERROR404:
+            case QualityEnforcementViolationType.HTTP_ERROR5XX:
                 return httpStatusCode + " on " + url;
-            case ViolationType.UNAVAILABLE_OFFLINE:
+            case QualityEnforcementViolationType.UNAVAILABLE_OFFLINE:
                 return "Page unavailable offline: " + url;
-            case ViolationType.DIGITAL_ASSETLINKS:
+            case QualityEnforcementViolationType.DIGITAL_ASSET_LINK:
                 return "Digital asset links verification failed on " + url;
             default:
                 return "";
         }
+    }
+
+    private boolean isDebugInstall() {
+        // TODO(crbug.com/1136153) Need to figure out why the client package name can be null.
+        if (mClientPackageNameProvider.get() == null) return false;
+
+        return ContextUtils.getApplicationContext().getPackageManager().getInstallerPackageName(
+                       mClientPackageNameProvider.get())
+                != null;
+    }
+
+    @NativeMethods
+    interface Natives {
+        void reportDevtoolsIssue(RenderFrameHost renderFrameHost, int type, String url,
+                int httpStatusCode, String packageName, String signature);
     }
 }

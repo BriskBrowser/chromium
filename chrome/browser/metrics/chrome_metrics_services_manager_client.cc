@@ -15,20 +15,19 @@
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
 #include "chrome/browser/metrics/chrome_metrics_service_client.h"
 #include "chrome/browser/metrics/variations/chrome_variations_service_client.h"
 #include "chrome/browser/metrics/variations/ui_string_overrider_factory.h"
 #include "chrome/browser/net/system_network_context_manager.h"
-#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_otr_state.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/installer/util/google_update_settings.h"
 #include "components/metrics/enabled_state_provider.h"
 #include "components/metrics/metrics_state_manager.h"
 #include "components/prefs/pref_service.h"
-#include "components/rappor/rappor_service_impl.h"
 #include "components/variations/service/variations_service.h"
 #include "components/variations/variations_associated_data.h"
 #include "components/version_info/version_info.h"
@@ -39,7 +38,9 @@
 #if defined(OS_ANDROID)
 #include "chrome/browser/ui/android/tab_model/tab_model.h"
 #include "chrome/browser/ui/android/tab_model/tab_model_list.h"
-#endif  // OS_ANDROID
+#else
+#include "chrome/browser/ui/browser_list.h"
+#endif  // defined(OS_ANDROID)
 
 #if defined(OS_WIN)
 #include "base/win/registry.h"
@@ -49,9 +50,9 @@
 #include "components/crash/core/app/crashpad.h"
 #endif  // OS_WIN
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/chromeos/settings/stats_reporting_controller.h"
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace metrics {
 
@@ -61,12 +62,6 @@ namespace internal {
 // consent is given, then there will be no recording or reporting.
 const base::Feature kMetricsReportingFeature{"MetricsReporting",
                                              base::FEATURE_ENABLED_BY_DEFAULT};
-
-// A feature controlling whether all clients in the OutOfReportingSample group
-// should discard their uploads, regardless of which user consent flow they
-// went through. When disabled, only opt-out users will discard uploads.
-const base::Feature kMetricsDownsampleConsistentlyFeature{
-    "MetricsDownsampleConsistently", base::FEATURE_DISABLED_BY_DEFAULT};
 
 }  // namespace internal
 }  // namespace metrics
@@ -96,29 +91,15 @@ void AppendSamplingTrialGroup(const std::string& group_name,
   trial->AppendGroup(group_name, rate);
 }
 
-// Unless the DownsampleConsistently feature is enabled, only clients that were
-// given an opt-out metrics-reporting consent flow are eligible for sampling.
-bool IsClientEligibleForSampling(PrefService* local_state) {
-  return base::FeatureList::IsEnabled(
-             metrics::internal::kMetricsDownsampleConsistentlyFeature) ||
-         metrics::GetMetricsReportingDefaultState(local_state) ==
-             metrics::EnableMetricsDefault::OPT_OUT;
-}
-
 // Implementation of IsClientInSample() that takes a PrefService param.
 bool IsClientInSampleImpl(PrefService* local_state) {
   // Test the MetricsReporting feature for all users to ensure that the trial
   // is reported.
-  bool is_in_sample_group =
-      base::FeatureList::IsEnabled(metrics::internal::kMetricsReportingFeature);
-  // Until the DownsampleConsistently feature is rolled out, only some clients
-  // are eligible for downsampling. Clients that aren't eligible should always
-  // send reports when they have opted to do so, but should still report their
-  // group assignment to the trial controlling downsampling.
-  return is_in_sample_group || !IsClientEligibleForSampling(local_state);
+  return base::FeatureList::IsEnabled(
+      metrics::internal::kMetricsReportingFeature);
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 // Callback to update the metrics reporting state when the Chrome OS metrics
 // reporting setting changes.
 void OnCrosMetricsReportingSettingChange() {
@@ -129,11 +110,11 @@ void OnCrosMetricsReportingSettingChange() {
 
 // Returns the name of a key under HKEY_CURRENT_USER that can be used to store
 // backups of metrics data. Unused except on Windows.
-base::string16 GetRegistryBackupKey() {
+std::wstring GetRegistryBackupKey() {
 #if defined(OS_WIN)
   return install_static::GetRegistryPath().append(L"\\StabilityMetrics");
 #else
-  return base::string16();
+  return std::wstring();
 #endif
 }
 
@@ -224,11 +205,6 @@ bool ChromeMetricsServicesManagerClient::IsClientInSample() {
 
 // static
 bool ChromeMetricsServicesManagerClient::GetSamplingRatePerMille(int* rate) {
-  // The population that is NOT eligible for sampling in considered "in sample",
-  // but does not have a defined sample rate.
-  if (!IsClientEligibleForSampling(g_browser_process->local_state()))
-    return false;
-
   std::string rate_str = variations::GetVariationParamValueByFeature(
       metrics::internal::kMetricsReportingFeature, kRateParamName);
   if (rate_str.empty())
@@ -240,11 +216,11 @@ bool ChromeMetricsServicesManagerClient::GetSamplingRatePerMille(int* rate) {
   return true;
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 void ChromeMetricsServicesManagerClient::OnCrosSettingsCreated() {
-  reporting_setting_observer_ =
+  reporting_setting_subscription_ =
       chromeos::StatsReportingController::Get()->AddObserver(
-          base::Bind(&OnCrosMetricsReportingSettingChange));
+          base::BindRepeating(&OnCrosMetricsReportingSettingChange));
   // Invoke the callback once initially to set the metrics reporting state.
   OnCrosMetricsReportingSettingChange();
 }
@@ -253,13 +229,6 @@ void ChromeMetricsServicesManagerClient::OnCrosSettingsCreated() {
 const metrics::EnabledStateProvider&
 ChromeMetricsServicesManagerClient::GetEnabledStateProviderForTesting() {
   return *enabled_state_provider_;
-}
-
-std::unique_ptr<rappor::RapporServiceImpl>
-ChromeMetricsServicesManagerClient::CreateRapporServiceImpl() {
-  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  return std::make_unique<rappor::RapporServiceImpl>(
-      local_state_, base::Bind(&chrome::IsOffTheRecordSessionActive));
 }
 
 std::unique_ptr<variations::VariationsService>
@@ -284,8 +253,8 @@ ChromeMetricsServicesManagerClient::GetMetricsStateManager() {
   if (!metrics_state_manager_) {
     metrics_state_manager_ = metrics::MetricsStateManager::Create(
         local_state_, enabled_state_provider_.get(), GetRegistryBackupKey(),
-        base::Bind(&PostStoreMetricsClientInfo),
-        base::Bind(&GoogleUpdateSettings::LoadMetricsClientInfo));
+        base::BindRepeating(&PostStoreMetricsClientInfo),
+        base::BindRepeating(&GoogleUpdateSettings::LoadMetricsClientInfo));
   }
   return metrics_state_manager_.get();
 }

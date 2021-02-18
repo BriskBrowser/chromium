@@ -2,13 +2,23 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-assert(is_linux || is_chromeos, "This file should only be referenced on Linux")
+assert(is_linux || is_chromeos_lacros || is_chromeos,
+       "This file should only be referenced on Linux")
 
+import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/features.gni")
 import("//build/config/linux/gtk/gtk.gni")
+import("//build/config/ozone.gni")
 import("//build/config/ui.gni")
 import("//printing/buildflags/buildflags.gni")
-import("//ui/ozone/ozone.gni")
+import("//tools/generate_stubs/rules.gni")
+
+generate_stubs("gdk_pixbuf") {
+  sigs = [ "gdk_pixbuf.sigs" ]
+  extra_header = "gdk_pixbuf.fragment"
+  output_name = "gdk_pixbuf"
+  deps = [ "//build/config/linux/gtk" ]
+}
 
 component("gtk_ui_delegate") {
   public = [ "gtk_ui_delegate.h" ]
@@ -62,6 +72,7 @@ component("gtk") {
   }
 
   deps = [
+    ":gdk_pixbuf",
     "//base",
     "//build/config/linux/gtk:gtkprint",
     "//printing",
@@ -96,11 +107,6 @@ component("gtk") {
   }
 
   public_deps = [ ":gtk_ui_delegate" ]
-
-  if (use_x11 || ozone_platform_x11) {
-    # select_file_dialog_impl_kde.cc still refers to XID
-    deps += [ "//ui/gfx/x" ]
-  }
 
   # TODO: This should be removed.
   if (use_ozone) {

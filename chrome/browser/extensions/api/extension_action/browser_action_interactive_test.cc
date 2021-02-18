@@ -7,6 +7,7 @@
 #include "base/run_loop.h"
 #include "base/test/test_timeouts.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/ui/browser.h"
@@ -16,7 +17,9 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/extensions/extension_action_test_helper.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/toolbar/toolbar_actions_bar.h"
 #include "chrome/browser/ui/toolbar/toolbar_actions_model.h"
+#include "chrome/browser/ui/ui_features.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/sessions/content/session_tab_helper.h"
@@ -45,6 +48,7 @@
 #include "third_party/blink/public/common/page/page_zoom.h"
 #include "ui/base/buildflags.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/scrollbar_size.h"
 #include "ui/views/widget/widget.h"
 
 #if defined(OS_WIN)
@@ -100,7 +104,7 @@ class PopupHostWatcher : public content::NotificationObserver {
 
  private:
   content::NotificationRegistrar registrar_;
-  base::Closure quit_closure_;
+  base::RepeatingClosure quit_closure_;
   int created_ = 0;
   int destroyed_ = 0;
 
@@ -240,7 +244,7 @@ IN_PROC_BROWSER_TEST_F(BrowserActionInteractiveTest, TestOpenPopup) {
         content::NotificationService::AllSources());
     // Open a new window.
     new_browser = chrome::FindBrowserWithWebContents(browser()->OpenURL(
-        content::OpenURLParams(GURL("about:"), content::Referrer(),
+        content::OpenURLParams(GURL("about:blank"), content::Referrer(),
                                WindowOpenDisposition::NEW_WINDOW,
                                ui::PAGE_TRANSITION_TYPED, false)));
     // Hide all the buttons to test that it opens even when the browser action
@@ -294,8 +298,9 @@ IN_PROC_BROWSER_TEST_F(BrowserActionInteractiveTest, TestOpenPopupIncognito) {
 IN_PROC_BROWSER_TEST_F(BrowserActionInteractiveTest,
                        TestOpenPopupIncognitoFromBackground) {
   const Extension* extension =
-      LoadExtensionIncognito(test_data_dir_.AppendASCII("browser_action").
-          AppendASCII("open_popup_background"));
+      LoadExtension(test_data_dir_.AppendASCII("browser_action")
+                        .AppendASCII("open_popup_background"),
+                    {.allow_in_incognito = true});
   ASSERT_TRUE(extension);
   ExtensionTestMessageListener listener(false);
   listener.set_extension_id(extension->id());
@@ -522,9 +527,9 @@ IN_PROC_BROWSER_TEST_F(BrowserActionInteractiveTest, DestroyHWNDDoesNotCrash) {
   EXPECT_EQ(TRUE, ::IsWindow(browser_hwnd));
 
   // Create a new browser window to prevent the message loop from terminating.
-  browser()->OpenURL(content::OpenURLParams(GURL("about:"), content::Referrer(),
-                                            WindowOpenDisposition::NEW_WINDOW,
-                                            ui::PAGE_TRANSITION_TYPED, false));
+  browser()->OpenURL(content::OpenURLParams(
+      GURL("chrome://version"), content::Referrer(),
+      WindowOpenDisposition::NEW_WINDOW, ui::PAGE_TRANSITION_TYPED, false));
 
   // Forcibly closing the browser HWND should not cause a crash.
   EXPECT_EQ(TRUE, ::CloseWindow(browser_hwnd));
@@ -561,6 +566,8 @@ class MainFrameSizeWaiter : public content::WebContentsObserver {
 };
 
 IN_PROC_BROWSER_TEST_F(BrowserActionInteractiveTest, BrowserActionPopup) {
+  base::AutoReset<bool> disable_toolbar_animations(
+      &ToolbarActionsBar::disable_animations_for_testing_, true);
   ASSERT_TRUE(
       LoadExtension(test_data_dir_.AppendASCII("browser_action/popup")));
   const Extension* extension = GetSingleLoadedExtension();
@@ -582,15 +589,50 @@ IN_PROC_BROWSER_TEST_F(BrowserActionInteractiveTest, BrowserActionPopup) {
   // popup.
   const gfx::Size kExpectedSizes[] = {minSize, middleSize, maxSize};
   for (size_t i = 0; i < base::size(kExpectedSizes); i++) {
-    const gfx::Size& kExpectedSize = kExpectedSizes[i];
-    SCOPED_TRACE(testing::Message()
-                 << "Test #" << i << ": size = " << kExpectedSize.ToString());
-
     content::WebContentsAddedObserver popup_observer;
     actions_bar->Press(0);
     content::WebContents* popup = popup_observer.GetWebContents();
-    MainFrameSizeWaiter(popup, kExpectedSize).Wait();
-    EXPECT_EQ(kExpectedSize, popup->GetContainerBounds().size());
+
+    if (base::FeatureList::IsEnabled(features::kExtensionsToolbarMenu)) {
+      actions_bar->WaitForExtensionsContainerLayout();
+    } else {
+      RunScheduledLayouts();
+    }
+
+    gfx::Size max_available_size =
+        actions_bar->GetMaxAvailableSizeToFitBubbleOnScreen(0);
+
+    // Take the screen boundaries into account for calculating the size of the
+    // displayed popup
+    gfx::Size expected_size = kExpectedSizes[i];
+    expected_size.SetToMin(max_available_size);
+
+    // Take the scrollbar thickness into account in the cases where one
+    // dimension is adjusted leading to a scrollbar being added to the expected
+    // size of the other dimension where there is space available. On Mac the
+    // scrollbars are overlaid, appear on hover and don't increase the height
+    // or width of the popup.
+    const int kScrollbarAdjustment =
+#if defined(OS_MAC)
+        0;
+#else
+        gfx::scrollbar_size();
+#endif
+
+    expected_size.Enlarge(expected_size.height() < kExpectedSizes[i].height()
+                              ? kScrollbarAdjustment
+                              : 0,
+                          expected_size.width() < kExpectedSizes[i].width()
+                              ? kScrollbarAdjustment
+                              : 0);
+    expected_size.SetToMin(max_available_size);
+    expected_size.SetToMin(maxSize);
+
+    SCOPED_TRACE(testing::Message()
+                 << "Test #" << i << ": size = " << expected_size.ToString());
+
+    MainFrameSizeWaiter(popup, expected_size).Wait();
+    EXPECT_EQ(expected_size, popup->GetContainerBounds().size());
     ASSERT_TRUE(actions_bar->HidePopup());
   }
 }
@@ -945,7 +987,7 @@ IN_PROC_BROWSER_TEST_F(NavigatingExtensionPopupInteractiveTest,
   // The test verification below is applicable only to scenarios where the
   // download shelf is supported - on ChromeOS, instead of the download shelf,
   // there is a download notification in the right-bottom corner of the screen.
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
   EXPECT_TRUE(browser()->window()->IsDownloadShelfVisible());
 #endif
 }
@@ -980,7 +1022,7 @@ IN_PROC_BROWSER_TEST_F(NavigatingExtensionPopupInteractiveTest,
   // The test verification below is applicable only to scenarios where the
   // download shelf is supported - on ChromeOS, instead of the download shelf,
   // there is a download notification in the right-bottom corner of the screen.
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
   EXPECT_TRUE(browser()->window()->IsDownloadShelfVisible());
 #endif
 }

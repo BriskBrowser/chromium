@@ -14,6 +14,7 @@ import 'chrome://resources/cr_elements/shared_style_css.m.js';
 import 'chrome://resources/polymer/v3_0/iron-flex-layout/iron-flex-layout-classes.js';
 import '../controls/settings_toggle_button.m.js';
 import '../prefs/prefs.m.js';
+import '../site_settings/settings_category_default_radio_group.js';
 import '../settings_page/settings_animated_pages.m.js';
 import '../settings_page/settings_subpage.m.js';
 import '../settings_shared_css.m.js';
@@ -27,11 +28,10 @@ import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bun
 import {HatsBrowserProxyImpl} from '../hats_browser_proxy.js';
 import {loadTimeData} from '../i18n_setup.js';
 import {MetricsBrowserProxy, MetricsBrowserProxyImpl, PrivacyElementInteractions} from '../metrics_browser_proxy.js';
-import {SyncBrowserProxyImpl, SyncStatus} from '../people_page/sync_browser_proxy.m.js';
 import {PrefsBehavior} from '../prefs/prefs_behavior.m.js';
 import {routes} from '../route.js';
 import {RouteObserverBehavior, Router} from '../router.m.js';
-import {ChooserType, ContentSettingsTypes, CookieControlsMode} from '../site_settings/constants.js';
+import {ChooserType, ContentSettingsTypes, CookieControlsMode, NotificationSetting} from '../site_settings/constants.js';
 import {SiteSettingsPrefsBrowserProxyImpl} from '../site_settings/site_settings_prefs_browser_proxy.js';
 
 import {PrivacyPageBrowserProxy, PrivacyPageBrowserProxyImpl} from './privacy_page_browser_proxy.m.js';
@@ -64,12 +64,6 @@ Polymer({
       type: Object,
       notify: true,
     },
-
-    /**
-     * The current sync status, supplied by SyncBrowserProxy.
-     * @type {?SyncStatus}
-     */
-    syncStatus: Object,
 
     /** @private */
     isGuest_: {
@@ -110,6 +104,14 @@ Polymer({
     },
 
     /** @private */
+    enableContentSettingsRedesign_: {
+      type: Boolean,
+      value() {
+        return loadTimeData.getBoolean('enableContentSettingsRedesign');
+      }
+    },
+
+    /** @private */
     enablePaymentHandlerContentSetting_: {
       type: Boolean,
       value() {
@@ -135,22 +137,6 @@ Polymer({
     },
 
     /** @private */
-    enableInsecureContentContentSetting_: {
-      type: Boolean,
-      value() {
-        return loadTimeData.getBoolean('enableInsecureContentContentSetting');
-      }
-    },
-
-    /** @private */
-    enableFileSystemWriteContentSetting_: {
-      type: Boolean,
-      value() {
-        return loadTimeData.getBoolean('enableFileSystemWriteContentSetting');
-      }
-    },
-
-    /** @private */
     enableFontAccessContentSetting_: {
       type: Boolean,
       value() {
@@ -170,6 +156,12 @@ Polymer({
       type: Boolean,
       value: () =>
           loadTimeData.getBoolean('enableWebBluetoothNewPermissionsBackend'),
+    },
+
+    /** @private */
+    enablePrivacySandboxSettings_: {
+      type: Boolean,
+      value: () => loadTimeData.getBoolean('privacySandboxSettingsEnabled'),
     },
 
     /** @private {!Map<string, string>} */
@@ -198,21 +190,20 @@ Polymer({
       },
     },
 
+    /**
+     * Expose NotificationSetting enum to HTML bindings.
+     * @private
+     */
+    notificationSettingEnum_: {
+      type: Object,
+      value: NotificationSetting,
+    },
+
     /** @private */
     searchFilter_: String,
 
     /** @private */
     siteDataFilter_: String,
-
-    /**
-     * Boolean which keeps a track if any of the displayed lists has discarded
-     * content setting patterns and hides the warning message accordingly.
-     * @private
-     */
-    pluginsHasDiscardedExceptions_: {
-      type: Boolean,
-      value: false,
-    },
   },
 
   /** @private {?PrivacyPageBrowserProxy} */
@@ -238,26 +229,12 @@ Polymer({
         'onBlockAutoplayStatusChanged',
         this.onBlockAutoplayStatusChanged_.bind(this));
 
-    SyncBrowserProxyImpl.getInstance().getSyncStatus().then(
-        this.handleSyncStatus_.bind(this));
-    this.addWebUIListener(
-        'sync-status-changed', this.handleSyncStatus_.bind(this));
-
     SiteSettingsPrefsBrowserProxyImpl.getInstance()
         .getCookieSettingDescription()
         .then(description => this.cookieSettingDescription_ = description);
     this.addWebUIListener(
         'cookieSettingDescriptionChanged',
         description => this.cookieSettingDescription_ = description);
-  },
-
-  /**
-   * Handler for when the sync state is pushed from the browser.
-   * @param {?SyncStatus} syncStatus
-   * @private
-   */
-  handleSyncStatus_(syncStatus) {
-    this.syncStatus = syncStatus;
   },
 
   /** @protected */
@@ -314,7 +291,11 @@ Polymer({
   /** @private */
   onDialogClosed_() {
     Router.getInstance().navigateTo(assert(routes.CLEAR_BROWSER_DATA.parent));
-    focusWithoutInk(assert(this.$$('#clearBrowsingData')));
+    setTimeout(() => {
+      // Focus after a timeout to ensure any a11y messages get read before
+      // screen readers read out the newly focused element.
+      focusWithoutInk(assert(this.$$('#clearBrowsingData')));
+    });
   },
 
   /** @private */
@@ -327,8 +308,17 @@ Polymer({
   /** @private */
   onSecurityPageClick_() {
     this.tryShowHatsSurvey_();
-
+    this.metricsBrowserProxy_.recordAction(
+        'SafeBrowsing.Settings.ShowedFromParentSettings');
     Router.getInstance().navigateTo(routes.SECURITY);
+  },
+
+  /** @private */
+  onPrivacySandboxClick_() {
+    this.metricsBrowserProxy_.recordAction(
+        'Settings.PrivacySandbox.OpenedFromSettingsParent');
+    // TODO(crbug/1159942): Replace this with an ordinary OpenWindowProxy call.
+    this.shadowRoot.getElementById('privacySandboxLink').click();
   },
 
   /** @private */
@@ -346,5 +336,15 @@ Polymer({
   /** @private */
   tryShowHatsSurvey_() {
     HatsBrowserProxyImpl.getInstance().tryShowSurvey();
+  },
+
+  /**
+   * @return {string}
+   * @private
+   */
+  computePrivacySandboxSublabel_() {
+    return this.getPref('privacy_sandbox.apis_enabled').value ?
+        this.i18n('privacySandboxTrialsEnabled') :
+        this.i18n('privacySandboxTrialsDisabled');
   },
 });

@@ -13,6 +13,7 @@
 #include "base/threading/hang_watcher.h"
 #include "build/build_config.h"
 #include "content/browser/startup_data_impl.h"
+#include "content/common/content_export.h"
 #include "content/public/app/content_main.h"
 #include "content/public/app/content_main_runner.h"
 #include "content/public/common/main_function_params.h"
@@ -33,13 +34,14 @@ class DiscardableSharedMemoryManager;
 }
 
 namespace content {
+class ContentClient;
 class ContentMainDelegate;
+class MojoIpcSupport;
 struct ContentMainParams;
-class ServiceManagerEnvironment;
 
 class ContentMainRunnerImpl : public ContentMainRunner {
  public:
-  static ContentMainRunnerImpl* Create();
+  static std::unique_ptr<ContentMainRunnerImpl> Create();
 
   ContentMainRunnerImpl();
   ~ContentMainRunnerImpl() override;
@@ -48,12 +50,12 @@ class ContentMainRunnerImpl : public ContentMainRunner {
 
   // ContentMainRunner:
   int Initialize(const ContentMainParams& params) override;
-  int Run(bool start_service_manager_only) override;
+  int Run(bool start_minimal_browser) override;
   void Shutdown() override;
 
  private:
-  int RunServiceManager(MainFunctionParams& main_function_params,
-                        bool start_service_manager_only);
+  int RunBrowser(MainFunctionParams& main_function_params,
+                 bool start_minimal_browser);
 
   bool is_browser_main_loop_started_ = false;
 
@@ -63,7 +65,7 @@ class ContentMainRunnerImpl : public ContentMainRunner {
   std::unique_ptr<discardable_memory::DiscardableSharedMemoryManager>
       discardable_shared_memory_manager_;
   std::unique_ptr<StartupDataImpl> startup_data_;
-  std::unique_ptr<ServiceManagerEnvironment> service_manager_environment_;
+  std::unique_ptr<MojoIpcSupport> mojo_ipc_support_;
 
   // True if the runner has been initialized.
   bool is_initialized_ = false;
@@ -91,6 +93,16 @@ class ContentMainRunnerImpl : public ContentMainRunner {
 
   DISALLOW_COPY_AND_ASSIGN(ContentMainRunnerImpl);
 };
+
+// The BrowserTestBase on Android does not call ContentMain(). It tries instead
+// to reproduce it more or less accurately. This requires to use
+// GetContentMainDelegateForTesting() and GetContentClientForTesting().
+// BrowserTestBase is implemented in content/public and GetContentClient() is
+// only available to the implementation of content. Hence these functions.
+CONTENT_EXPORT ContentClient* GetContentClientForTesting();
+#if defined(OS_ANDROID)
+CONTENT_EXPORT ContentMainDelegate* GetContentMainDelegateForTesting();
+#endif
 
 }  // namespace content
 

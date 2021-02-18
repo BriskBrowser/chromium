@@ -15,7 +15,6 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "components/policy/core/common/cloud/dm_auth.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
@@ -103,7 +102,7 @@ bool FailedWithProxy(const std::string& mime_type,
 
 // While these are declared as constexpr in the header file, they also need to
 // be defined here so that references can be retrieved when needed.  For
-// example, setting one of these constants as an argument to base::Bind()
+// example, setting one of these constants as an argument to base::BindOnce()
 // requires such a reference.
 const int DeviceManagementService::kSuccess;
 const int DeviceManagementService::kInvalidArgument;
@@ -118,6 +117,7 @@ const int DeviceManagementService::kDeviceNotFound;
 const int DeviceManagementService::kPendingApproval;
 const int DeviceManagementService::kRequestTooLarge;
 const int DeviceManagementService::kConsumerAccountWithPackagedLicense;
+const int DeviceManagementService::kTooManyRequests;
 const int DeviceManagementService::kInternalServerError;
 const int DeviceManagementService::kServiceUnavailable;
 const int DeviceManagementService::kPolicyNotFound;
@@ -125,6 +125,7 @@ const int DeviceManagementService::kDeprovisioned;
 const int DeviceManagementService::kArcDisabled;
 const int DeviceManagementService::kInvalidDomainlessCustomer;
 const int DeviceManagementService::kTosHasNotBeenAccepted;
+const int DeviceManagementService::kIllegalAccountForPackagedEDULicense;
 
 // static
 std::string DeviceManagementService::JobConfiguration::GetJobTypeAsString(
@@ -189,6 +190,12 @@ std::string DeviceManagementService::JobConfiguration::GetJobTypeAsString(
     case DeviceManagementService::JobConfiguration::
         TYPE_CERT_PROVISIONING_REQUEST:
       return "CertProvisioningRequest";
+    case DeviceManagementService::JobConfiguration::
+        TYPE_PSM_HAS_DEVICE_STATE_REQUEST:
+      return "PSMDeviceStateRequest";
+    case DeviceManagementService::JobConfiguration::
+        TYPE_UPLOAD_ENCRYPTED_REPORT:
+      return "UploadEncryptedReport";
   }
   NOTREACHED() << "Invalid job type " << type;
   return "";
@@ -196,15 +203,14 @@ std::string DeviceManagementService::JobConfiguration::GetJobTypeAsString(
 
 JobConfigurationBase::JobConfigurationBase(
     JobType type,
-    std::unique_ptr<DMAuth> auth_data,
+    DMAuth auth_data,
     base::Optional<std::string> oauth_token,
     scoped_refptr<network::SharedURLLoaderFactory> factory)
     : type_(type),
       factory_(factory),
       auth_data_(std::move(auth_data)),
       oauth_token_(std::move(oauth_token)) {
-  CHECK(auth_data_ || oauth_token_);
-  CHECK(!auth_data_->has_oauth_token()) << "Use |oauth_token| instead";
+  CHECK(!auth_data_.has_oauth_token()) << "Use |oauth_token| instead";
 
   if (oauth_token_)
     AddParameter(dm_protocol::kParamOAuthToken, *oauth_token_);
@@ -224,6 +230,10 @@ JobConfigurationBase::GetQueryParams() {
 void JobConfigurationBase::AddParameter(const std::string& name,
                                         const std::string& value) {
   query_params_[name] = value;
+}
+
+const DMAuth& JobConfigurationBase::GetAuth() const {
+  return auth_data_;
 }
 
 scoped_refptr<network::SharedURLLoaderFactory>
@@ -289,24 +299,29 @@ JobConfigurationBase::GetResourceRequest(bool bypass_proxy, int last_error) {
   rr->trusted_params->disable_secure_dns = true;
 
   // If auth data is specified, use it to build the request.
-  if (auth_data_) {
-    if (auth_data_->has_gaia_token()) {
+  switch (auth_data_.token_type()) {
+    case DMAuthTokenType::kNoAuth:
+      break;
+    case DMAuthTokenType::kGaia:
       rr->headers.SetHeader(
           dm_protocol::kAuthHeader,
           std::string(dm_protocol::kServiceTokenAuthHeaderPrefix) +
-              auth_data_->gaia_token());
-    }
-    if (auth_data_->has_dm_token()) {
+              auth_data_.gaia_token());
+      break;
+    case DMAuthTokenType::kDm:
       rr->headers.SetHeader(dm_protocol::kAuthHeader,
                             std::string(dm_protocol::kDMTokenAuthHeaderPrefix) +
-                                auth_data_->dm_token());
-    }
-    if (auth_data_->has_enrollment_token()) {
+                                auth_data_.dm_token());
+      break;
+    case DMAuthTokenType::kEnrollment:
       rr->headers.SetHeader(
           dm_protocol::kAuthHeader,
           std::string(dm_protocol::kEnrollmentTokenAuthHeaderPrefix) +
-              auth_data_->enrollment_token());
-    }
+              auth_data_.enrollment_token());
+      break;
+    case DMAuthTokenType::kOauth:
+      // OAuth token is transferred as a HTTP query parameter.
+      break;
   }
 
   return rr;

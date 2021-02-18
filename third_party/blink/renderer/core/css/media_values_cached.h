@@ -24,9 +24,9 @@ class CORE_EXPORT MediaValuesCached final : public MediaValues {
     float device_pixel_ratio;
     int color_bits_per_component;
     int monochrome_bits_per_component;
-    PointerType primary_pointer_type;
+    mojom::blink::PointerType primary_pointer_type;
     int available_pointer_types;
-    HoverType primary_hover_type;
+    mojom::blink::HoverType primary_hover_type;
     int available_hover_types;
     int default_font_size;
     bool three_d_enabled;
@@ -35,12 +35,14 @@ class CORE_EXPORT MediaValuesCached final : public MediaValues {
     String media_type;
     blink::mojom::DisplayMode display_mode;
     ColorSpaceGamut color_gamut;
-    PreferredColorScheme preferred_color_scheme;
+    mojom::blink::PreferredColorScheme preferred_color_scheme;
+    mojom::blink::PreferredContrast preferred_contrast;
     bool prefers_reduced_motion;
     bool prefers_reduced_data = false;
     ForcedColors forced_colors;
     NavigationControls navigation_controls;
     ScreenSpanning screen_spanning;
+    ScreenFoldPosture screen_fold_posture;
 
     MediaValuesCachedData();
     explicit MediaValuesCachedData(Document&);
@@ -66,11 +68,13 @@ class CORE_EXPORT MediaValuesCached final : public MediaValues {
       data.display_mode = display_mode;
       data.color_gamut = color_gamut;
       data.preferred_color_scheme = preferred_color_scheme;
+      data.preferred_contrast = preferred_contrast;
       data.prefers_reduced_motion = prefers_reduced_motion;
       data.prefers_reduced_data = prefers_reduced_data;
       data.forced_colors = forced_colors;
       data.navigation_controls = navigation_controls;
       data.screen_spanning = screen_spanning;
+      data.screen_fold_posture = screen_fold_posture;
       return data;
     }
   };
@@ -94,9 +98,9 @@ class CORE_EXPORT MediaValuesCached final : public MediaValues {
   float DevicePixelRatio() const override;
   int ColorBitsPerComponent() const override;
   int MonochromeBitsPerComponent() const override;
-  PointerType PrimaryPointerType() const override;
+  mojom::blink::PointerType PrimaryPointerType() const override;
   int AvailablePointerTypes() const override;
-  HoverType PrimaryHoverType() const override;
+  mojom::blink::HoverType PrimaryHoverType() const override;
   int AvailableHoverTypes() const override;
   bool ThreeDEnabled() const override;
   bool InImmersiveMode() const override;
@@ -106,12 +110,14 @@ class CORE_EXPORT MediaValuesCached final : public MediaValues {
   const String MediaType() const override;
   blink::mojom::DisplayMode DisplayMode() const override;
   ColorSpaceGamut ColorGamut() const override;
-  PreferredColorScheme GetPreferredColorScheme() const override;
+  mojom::blink::PreferredColorScheme GetPreferredColorScheme() const override;
+  mojom::blink::PreferredContrast GetPreferredContrast() const override;
   bool PrefersReducedMotion() const override;
   bool PrefersReducedData() const override;
   ForcedColors GetForcedColors() const override;
   NavigationControls GetNavigationControls() const override;
   ScreenSpanning GetScreenSpanning() const override;
+  ScreenFoldPosture GetScreenFoldPosture() const override;
 
   void OverrideViewportDimensions(double width, double height) override;
 

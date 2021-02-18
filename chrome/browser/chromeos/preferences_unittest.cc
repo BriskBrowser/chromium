@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "ash/constants/ash_features.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
@@ -20,25 +21,23 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "components/language/core/browser/pref_names.h"
 #include "components/prefs/pref_member.h"
 #include "components/sync/base/model_type.h"
-#include "components/sync/model/fake_sync_change_processor.h"
 #include "components/sync/model/sync_change.h"
 #include "components/sync/model/sync_data.h"
 #include "components/sync/model/sync_error_factory.h"
-#include "components/sync/model/sync_error_factory_mock.h"
 #include "components/sync/model/syncable_service.h"
 #include "components/sync/protocol/preference_specifics.pb.h"
 #include "components/sync/protocol/sync.pb.h"
+#include "components/sync/test/model/fake_sync_change_processor.h"
+#include "components/sync/test/model/sync_error_factory_mock.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "components/user_manager/scoped_user_manager.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/ime/chromeos/extension_ime_util.h"
-#include "ui/base/ime/chromeos/input_method_whitelist.h"
 #include "ui/base/ime/chromeos/mock_component_extension_ime_manager_delegate.h"
 #include "url/gurl.h"
 
@@ -86,7 +85,6 @@ class MyMockInputMethodManager : public MockInputMethodManagerImpl {
     void ChangeInputMethod(const std::string& input_method_id,
                            bool show_message) override {
       manager_->last_input_method_id_ = input_method_id;
-      // Do the same thing as BrowserStateMonitor::UpdateUserPreferences.
       const std::string current_input_method_on_pref =
           manager_->current_->GetValue();
       if (current_input_method_on_pref == input_method_id)
@@ -104,7 +102,7 @@ class MyMockInputMethodManager : public MockInputMethodManagerImpl {
         const InputMethodDescriptors& descriptors,
         ui::IMEEngineHandlerInterface* instance) override {
       InputMethodDescriptor descriptor(
-          id, std::string(), std::string(), std::vector<std::string>(),
+          id, std::string(), std::string(), std::string(),
           std::vector<std::string>(), false, GURL(), GURL());
       input_method_extensions_->push_back(descriptor);
     }
@@ -126,17 +124,11 @@ class MyMockInputMethodManager : public MockInputMethodManagerImpl {
 
   ~MyMockInputMethodManager() override {}
 
-  std::unique_ptr<InputMethodDescriptors> GetSupportedInputMethods()
-      const override {
-    return whitelist_.GetSupportedInputMethods();
-  }
-
   std::string last_input_method_id_;
 
  private:
   StringPrefMember* previous_;
   StringPrefMember* current_;
-  InputMethodWhitelist whitelist_;
 };
 
 }  // anonymous namespace
@@ -254,16 +246,16 @@ class InputMethodPreferencesTest : public PreferencesTest {
 
   void InitComponentExtensionIMEManager() {
     // Set our custom IME list on the mock delegate.
-    input_method::MockComponentExtIMEManagerDelegate* mock_delegate =
-        new input_method::MockComponentExtIMEManagerDelegate();
+    input_method::MockComponentExtensionIMEManagerDelegate* mock_delegate =
+        new input_method::MockComponentExtensionIMEManagerDelegate();
     mock_delegate->set_ime_list(CreateImeList());
 
     // Pass the mock delegate to a new ComponentExtensionIMEManager.
     std::unique_ptr<ComponentExtensionIMEManagerDelegate> delegate(
         mock_delegate);
     std::unique_ptr<ComponentExtensionIMEManager>
-        component_extension_ime_manager(new ComponentExtensionIMEManager);
-    component_extension_ime_manager->Initialize(std::move(delegate));
+        component_extension_ime_manager(
+            new ComponentExtensionIMEManager(std::move(delegate)));
 
     // Add the ComponentExtensionIMEManager to the mock InputMethodManager.
     mock_manager_->SetComponentExtensionIMEManager(
@@ -272,6 +264,34 @@ class InputMethodPreferencesTest : public PreferencesTest {
 
   std::vector<ComponentExtensionIME> CreateImeList() {
     std::vector<ComponentExtensionIME> ime_list;
+
+    ComponentExtensionIME ext_xkb;
+    ext_xkb.id = extension_ime_util::kXkbExtensionId;
+    ext_xkb.description = "ext_xkb_description";
+    ext_xkb.path = base::FilePath("ext_xkb_file_path");
+
+    ComponentExtensionEngine ext_xkb_engine_se;
+    ext_xkb_engine_se.engine_id = "xkb:se::swe";
+    ext_xkb_engine_se.display_name = "xkb:se::swe";
+    ext_xkb_engine_se.language_codes.push_back("sv");
+    ext_xkb_engine_se.layout = "se";
+    ext_xkb.engines.push_back(ext_xkb_engine_se);
+
+    ComponentExtensionEngine ext_xkb_engine_jp;
+    ext_xkb_engine_jp.engine_id = "xkb:jp::jpn";
+    ext_xkb_engine_jp.display_name = "xkb:jp::jpn";
+    ext_xkb_engine_jp.language_codes.push_back("ja");
+    ext_xkb_engine_jp.layout = "jp";
+    ext_xkb.engines.push_back(ext_xkb_engine_jp);
+
+    ComponentExtensionEngine ext_xkb_engine_ru;
+    ext_xkb_engine_ru.engine_id = "xkb:ru::rus";
+    ext_xkb_engine_ru.display_name = "xkb:ru::rus";
+    ext_xkb_engine_ru.language_codes.push_back("ru");
+    ext_xkb_engine_ru.layout = "ru";
+    ext_xkb.engines.push_back(ext_xkb_engine_ru);
+
+    ime_list.push_back(ext_xkb);
 
     ComponentExtensionIME ext;
     ext.id = extension_ime_util::kMozcExtensionId;
@@ -282,14 +302,14 @@ class InputMethodPreferencesTest : public PreferencesTest {
     ext_engine1.engine_id = "nacl_mozc_us";
     ext_engine1.display_name = "ext_engine_1_display_name";
     ext_engine1.language_codes.push_back("ja");
-    ext_engine1.layouts.push_back("us");
+    ext_engine1.layout = "us";
     ext.engines.push_back(ext_engine1);
 
     ComponentExtensionEngine ext_engine2;
     ext_engine2.engine_id = "nacl_mozc_jp";
     ext_engine2.display_name = "ext_engine_2_display_name";
     ext_engine2.language_codes.push_back("ja");
-    ext_engine2.layouts.push_back("jp");
+    ext_engine2.layout = "jp";
     ext.engines.push_back(ext_engine2);
 
     ime_list.push_back(ext);

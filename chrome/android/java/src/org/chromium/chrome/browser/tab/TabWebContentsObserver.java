@@ -21,13 +21,15 @@ import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.browser.AppHooks;
 import org.chromium.chrome.browser.SwipeRefreshHandler;
 import org.chromium.chrome.browser.display_cutout.DisplayCutoutTabHelper;
-import org.chromium.chrome.browser.media.MediaCaptureNotificationService;
+import org.chromium.chrome.browser.media.MediaCaptureNotificationServiceImpl;
 import org.chromium.chrome.browser.policy.PolicyAuditor;
 import org.chromium.chrome.browser.policy.PolicyAuditor.AuditEvent;
 import org.chromium.content_public.browser.NavigationHandle;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsAccessibility;
 import org.chromium.content_public.browser.WebContentsObserver;
+import org.chromium.net.NetError;
+import org.chromium.url.GURL;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -73,7 +75,7 @@ public class TabWebContentsObserver extends TabWebContentsUserData {
     private final ObserverList<Callback<WebContents>> mInitObservers = new ObserverList<>();
     private final Handler mHandler = new Handler();
     private WebContentsObserver mObserver;
-    private String mLastUrl;
+    private GURL mLastUrl;
 
     public static TabWebContentsObserver from(Tab tab) {
         TabWebContentsObserver observer = get(tab);
@@ -222,26 +224,28 @@ public class TabWebContentsObserver extends TabWebContentsUserData {
         }
 
         @Override
-        public void didFinishLoad(long frameId, String validatedUrl, boolean isMainFrame) {
+        public void didFinishLoad(
+                long frameId, GURL url, boolean isKnownValid, boolean isMainFrame) {
+            assert isKnownValid;
             if (mTab.getNativePage() != null) {
                 mTab.pushNativePageStateToNavigationEntry();
             }
-            if (isMainFrame) mTab.didFinishPageLoad(validatedUrl);
+            if (isMainFrame) mTab.didFinishPageLoad(url);
             PolicyAuditor auditor = AppHooks.get().getPolicyAuditor();
             auditor.notifyAuditEvent(ContextUtils.getApplicationContext(),
-                    AuditEvent.OPEN_URL_SUCCESS, validatedUrl, "");
+                    AuditEvent.OPEN_URL_SUCCESS, url.getSpec(), "");
         }
 
         @Override
-        public void didFailLoad(boolean isMainFrame, int errorCode, String failingUrl) {
+        public void didFailLoad(boolean isMainFrame, int errorCode, GURL failingGurl) {
             RewindableIterator<TabObserver> observers = mTab.getTabObservers();
             while (observers.hasNext()) {
-                observers.next().onDidFailLoad(mTab, isMainFrame, errorCode, failingUrl);
+                observers.next().onDidFailLoad(mTab, isMainFrame, errorCode, failingGurl);
             }
 
             if (isMainFrame) mTab.didFailPageLoad(errorCode);
 
-            recordErrorInPolicyAuditor(failingUrl, "net error: " + errorCode, errorCode);
+            recordErrorInPolicyAuditor(failingGurl.getSpec(), "net error: " + errorCode, errorCode);
         }
 
         private void recordErrorInPolicyAuditor(
@@ -289,11 +293,11 @@ public class TabWebContentsObserver extends TabWebContentsUserData {
                 observers.next().onDidFinishNavigation(mTab, navigation);
             }
 
-            if (navigation.errorCode() != 0) {
+            if (navigation.errorCode() != NetError.OK) {
                 if (navigation.isInMainFrame()) mTab.didFailPageLoad(navigation.errorCode());
 
-                recordErrorInPolicyAuditor(
-                        navigation.getUrl(), navigation.errorDescription(), navigation.errorCode());
+                recordErrorInPolicyAuditor(navigation.getUrl().getSpec(),
+                        navigation.errorDescription(), navigation.errorCode());
             }
             mLastUrl = navigation.getUrl();
 
@@ -334,7 +338,7 @@ public class TabWebContentsObserver extends TabWebContentsUserData {
 
         @Override
         public void didChangeThemeColor() {
-            TabThemeColorHelper.get(mTab).updateIfNeeded(true);
+            mTab.updateThemeColor(mTab.getWebContents().getThemeColor());
         }
 
         @Override
@@ -354,7 +358,7 @@ public class TabWebContentsObserver extends TabWebContentsUserData {
 
         @Override
         public void destroy() {
-            MediaCaptureNotificationService.updateMediaNotificationForTab(
+            MediaCaptureNotificationServiceImpl.updateMediaNotificationForTab(
                     ContextUtils.getApplicationContext(), mTab.getId(), null, mLastUrl);
             super.destroy();
         }

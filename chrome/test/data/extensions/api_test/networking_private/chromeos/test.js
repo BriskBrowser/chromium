@@ -275,7 +275,6 @@ var availableTests = [
             Security: 'WEP-PSK',
             SignalStrength: 40,
             SSID: "wifi1",
-            TetheringState: "NotDetected"
           }
         }, {
           GUID: 'stub_wifi2_guid',
@@ -289,7 +288,6 @@ var availableTests = [
             HexSSID: "77696669325F50534B",
             Security: 'WPA-PSK',
             SSID: "wifi2_PSK",
-            TetheringState: "NotDetected"
           }
         }], result);
 
@@ -313,7 +311,6 @@ var availableTests = [
                 Security: 'WEP-PSK',
                 SignalStrength: 40,
                 SSID: "wifi1",
-                TetheringState: "NotDetected"
               }
             }], result);
 
@@ -369,7 +366,6 @@ var availableTests = [
             Security: 'WEP-PSK',
             SignalStrength: 40,
             SSID: "wifi1",
-            TetheringState: "NotDetected"
           }
         }, {
           ConnectionState: ConnectionStateType.CONNECTED,
@@ -409,7 +405,6 @@ var availableTests = [
             Security: 'WPA-PSK',
             SignalStrength: 80,
             SSID: "wifi2_PSK",
-            TetheringState: "NotDetected"
           }
         }], result);
       }));
@@ -433,7 +428,6 @@ var availableTests = [
             Security: 'WEP-PSK',
             SignalStrength: 40,
             SSID: "wifi1",
-            TetheringState: "NotDetected"
           }
         }, {
           Connectable: true,
@@ -450,7 +444,6 @@ var availableTests = [
             Security: 'WPA-PSK',
             SignalStrength: 80,
             SSID: "wifi2_PSK",
-            TetheringState: "NotDetected"
           }
         }], result);
       }));
@@ -541,6 +534,7 @@ var availableTests = [
           }],
           MacAddress: '00:11:22:AA:BB:CC',
           Name: 'wifi1',
+          NameServersConfigType: chrome.networkingPrivate.IPConfigType.DHCP,
           Source: 'User',
           StaticIPConfig: {
             IPAddress: '1.2.3.4',
@@ -557,7 +551,6 @@ var availableTests = [
             SSID: 'wifi1',
             Security: 'WEP-PSK',
             SignalStrength: 40,
-            TetheringState: "NotDetected"
           }
         }, result);
       }));
@@ -591,8 +584,10 @@ var availableTests = [
           },
           ConnectionState: ConnectionStateType.NOT_CONNECTED,
           GUID: kCellularGuid,
+          IPAddressConfigType: chrome.networkingPrivate.IPConfigType.DHCP,
           Metered: true,
           Name: 'cellular1',
+          NameServersConfigType: chrome.networkingPrivate.IPConfigType.DHCP,
           Source: 'User',
           Type: NetworkType.CELLULAR,
         }, result);
@@ -633,7 +628,9 @@ var availableTests = [
               Connectable: false,
               ConnectionState: ConnectionStateType.NOT_CONNECTED,
               GUID: guid,
+              IPAddressConfigType: chrome.networkingPrivate.IPConfigType.DHCP,
               Name: '',
+              NameServersConfigType: chrome.networkingPrivate.IPConfigType.DHCP,
               Priority: 0,
               Source: 'None',
               Type: NetworkType.CELLULAR,
@@ -659,6 +656,14 @@ var availableTests = [
               UserPolicy: 'Direct'
             }
           },
+          IPAddressConfigType: {
+            Active: 'DHCP',
+            Effective: 'UserPolicy'
+          },
+          NameServersConfigType: {
+            Active: 'DHCP',
+            Effective: 'UserPolicy'
+          },
           Source: 'UserPolicy',
           Type: NetworkType.WI_FI,
           WiFi: {
@@ -669,6 +674,11 @@ var availableTests = [
               Active: '77696669325F50534B', // 'wifi2_PSK'
               Effective: 'UserPolicy',
               UserPolicy: '77696669325F50534B'
+            },
+            HiddenSSID: {
+              Active: false,
+              Effective: 'UserPolicy',
+              UserPolicy: false,
             },
             Frequency: 5000,
             FrequencyList: [2400, 5000],
@@ -688,7 +698,6 @@ var availableTests = [
               UserPolicy: 'WPA-PSK'
             },
             SignalStrength: 80,
-            TetheringState: "NotDetected"
           }
         }, result);
       }));
@@ -809,7 +818,6 @@ var availableTests = [
             Security: 'WPA-PSK',
             SignalStrength: 80,
             SSID: "wifi2_PSK",
-            TetheringState: "NotDetected"
           }
         }, result);
       }));
@@ -902,9 +910,7 @@ var availableTests = [
   function getCaptivePortalStatus() {
     var networks = [['stub_ethernet_guid', 'Online'],
                     ['stub_wifi1_guid', 'Offline'],
-                    ['stub_wifi2_guid', 'Portal'],
-                    ['stub_cellular1_guid', 'ProxyAuthRequired'],
-                    ['stub_vpn1_guid', 'Unknown']];
+                    ['stub_wifi2_guid', 'Portal']];
     networks.forEach(function(network) {
       var guid = network[0];
       var expectedStatus = network[1];
@@ -919,7 +925,7 @@ var availableTests = [
     var done = chrome.test.callbackAdded();
     var listener =
         new privateHelpers.watchForCaptivePortalState(
-            'wifi_guid', 'Online', done);
+            'stub_wifi1_guid', 'Portal', done);
     chrome.test.sendMessage('notifyPortalDetectorObservers');
   },
   function unlockCellularSim() {

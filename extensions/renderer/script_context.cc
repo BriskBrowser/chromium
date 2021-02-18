@@ -83,6 +83,12 @@ GURL GetEffectiveDocumentURL(
     return document_url;
   }
 
+  // Note: Just because the frame origin can theoretically access its
+  // precursor origin, there may be more restrictions in practice - such as
+  // if the frame has the disallowdocumentaccess attribute. It's okay to
+  // ignore this case for context classification because it's not meant as an
+  // origin boundary (unlike e.g. a sandboxed frame).
+
   // Looks like the initiator origin is an appropriate fallback!
 
   if (match_origin_as_fallback == MatchOriginAsFallbackBehavior::kAlways) {
@@ -154,6 +160,16 @@ GURL GetEffectiveDocumentURL(
       // example.com, but the parent tuple origin is a.com.
       // Note that usually, this would have bailed earlier with a remote frame,
       // but it may not if we're at the process limit.
+      return document_url;
+    }
+
+    // If we don't allow inaccessible parents, the security origin may still
+    // be restricted if the author has prevented same-origin access via the
+    // disallowdocumentaccess attribute on iframe.
+    if (!allow_inaccessible_parents &&
+        !web_frame_origin.CanAccess(
+            blink::WebSecurityOrigin(parent_document.GetSecurityOrigin()))) {
+      // The frame can't access its precursor. Bail.
       return document_url;
     }
 
@@ -339,7 +355,7 @@ void ScriptContext::SafeCallFunction(
     const v8::Local<v8::Function>& function,
     int argc,
     v8::Local<v8::Value> argv[],
-    const ScriptInjectionCallback::CompleteCallback& callback) {
+    ScriptInjectionCallback::CompleteCallback callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
   v8::HandleScope handle_scope(isolate());
   v8::Context::Scope scope(v8_context());
@@ -350,7 +366,7 @@ void ScriptContext::SafeCallFunction(
     ScriptInjectionCallback* wrapper_callback = nullptr;
     if (!callback.is_null()) {
       // ScriptInjectionCallback manages its own lifetime.
-      wrapper_callback = new ScriptInjectionCallback(callback);
+      wrapper_callback = new ScriptInjectionCallback(std::move(callback));
     }
     web_frame_->RequestExecuteV8Function(v8_context(), function, global, argc,
                                          argv, wrapper_callback);
@@ -360,7 +376,7 @@ void ScriptContext::SafeCallFunction(
     v8::Local<v8::Value> result;
     if (!callback.is_null() && maybe_result.ToLocal(&result)) {
       std::vector<v8::Local<v8::Value>> results(1, result);
-      callback.Run(results);
+      std::move(callback).Run(results);
     }
   }
 }
@@ -583,7 +599,7 @@ std::string ScriptContext::GetStackTraceAsString() const {
 v8::Local<v8::Value> ScriptContext::RunScript(
     v8::Local<v8::String> name,
     v8::Local<v8::String> code,
-    const RunScriptExceptionHandler& exception_handler,
+    RunScriptExceptionHandler exception_handler,
     v8::ScriptCompiler::NoCacheReason no_cache_reason) {
   DCHECK(thread_checker_.CalledOnValidThread());
   v8::EscapableHandleScope handle_scope(isolate());
@@ -611,13 +627,13 @@ v8::Local<v8::Value> ScriptContext::RunScript(
                                    v8::ScriptCompiler::kNoCompileOptions,
                                    no_cache_reason)
            .ToLocal(&script)) {
-    exception_handler.Run(try_catch);
+    std::move(exception_handler).Run(try_catch);
     return v8::Undefined(isolate());
   }
 
   v8::Local<v8::Value> result;
   if (!script->Run(v8_context()).ToLocal(&result)) {
-    exception_handler.Run(try_catch);
+    std::move(exception_handler).Run(try_catch);
     return v8::Undefined(isolate());
   }
 

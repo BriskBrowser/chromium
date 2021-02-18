@@ -24,7 +24,7 @@
 namespace content {
 class NavigationHandle;
 class NavigationThrottle;
-}
+}  // namespace content
 
 namespace weblayer {
 class NavigationImpl;
@@ -45,6 +45,24 @@ class NavigationControllerImpl : public NavigationController,
   NavigationImpl* GetNavigationImplFromHandle(
       content::NavigationHandle* handle);
 
+  // Returns the NavigationImpl for |navigation_id|, or null if there isn't one.
+  NavigationImpl* GetNavigationImplFromId(int64_t navigation_id);
+
+  // Called when the first contentful paint page load metric is available.
+  // |navigation_start| is the navigation start time.
+  // |first_contentful_paint_ms| is the duration to first contentful paint from
+  // navigation start.
+  void OnFirstContentfulPaint(const base::TimeTicks& navigation_start,
+                              const base::TimeDelta& first_contentful_paint);
+
+  // Called when the largest contentful paint page load metric is available.
+  // |navigation_start| is the navigation start time.
+  // |largest_contentful_paint| is the duration to largest contentful paint from
+  // navigation start.
+  void OnLargestContentfulPaint(
+      const base::TimeTicks& navigation_start,
+      const base::TimeDelta& largest_contentful_paint);
+
 #if defined(OS_ANDROID)
   void SetNavigationControllerImpl(
       JNIEnv* env,
@@ -52,7 +70,11 @@ class NavigationControllerImpl : public NavigationController,
   void Navigate(JNIEnv* env,
                 const base::android::JavaParamRef<jstring>& url,
                 jboolean should_replace_current_entry,
-                jboolean disableIntentProcessing);
+                jboolean disable_intent_processing,
+                jboolean allow_intent_launches_in_background,
+                jboolean disable_network_error_auto_reload,
+                jboolean enable_auto_play,
+                const base::android::JavaParamRef<jobject>& response);
   void GoBack(JNIEnv* env) { GoBack(); }
   void GoForward(JNIEnv* env) { GoForward(); }
   bool CanGoBack(JNIEnv* env) { return CanGoBack(); }
@@ -71,6 +93,9 @@ class NavigationControllerImpl : public NavigationController,
       JNIEnv* env,
       int index);
   bool IsNavigationEntrySkippable(JNIEnv* env, int index);
+  base::android::ScopedJavaGlobalRef<jobject> GetNavigationImplFromId(
+      JNIEnv* env,
+      int64_t id);
 #endif
 
   bool should_delay_web_contents_deletion() {

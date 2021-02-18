@@ -4,29 +4,24 @@
 
 #include "chrome/browser/subresource_redirect/subresource_redirect_observer.h"
 
-#include "build/build_config.h"
-#include "chrome/browser/data_reduction_proxy/data_reduction_proxy_chrome_settings.h"
-#include "chrome/browser/data_reduction_proxy/data_reduction_proxy_chrome_settings_factory.h"
+#include "chrome/browser/login_detection/login_detection_keyed_service.h"
+#include "chrome/browser/login_detection/login_detection_keyed_service_factory.h"
+#include "chrome/browser/login_detection/login_detection_type.h"
 #include "chrome/browser/optimization_guide/optimization_guide_keyed_service.h"
 #include "chrome/browser/optimization_guide/optimization_guide_keyed_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/subresource_redirect/https_image_compression_bypass_decider.h"
-#include "chrome/browser/subresource_redirect/https_image_compression_infobar_decider.h"
+#include "chrome/browser/subresource_redirect/origin_robots_rules_cache.h"
+#include "chrome/browser/subresource_redirect/subresource_redirect_util.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_settings.h"
-#include "components/optimization_guide/proto/performance_hints_metadata.pb.h"
+#include "components/optimization_guide/proto/public_image_metadata.pb.h"
+#include "components/subresource_redirect/common/subresource_redirect_features.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
-#include "third_party/blink/public/common/features.h"
-#include "third_party/blink/public/mojom/loader/previews_resource_loading_hints.mojom.h"
 #include "url/gurl.h"
-
-#if defined(OS_ANDROID)
-#include "chrome/browser/previews/android/previews_android_bridge.h"
-#endif
 
 namespace subresource_redirect {
 
@@ -36,7 +31,7 @@ namespace {
 // redirect feature are enabled.
 optimization_guide::OptimizationGuideDecider*
 GetOptimizationGuideDeciderFromWebContents(content::WebContents* web_contents) {
-  DCHECK(base::FeatureList::IsEnabled(blink::features::kSubresourceRedirect));
+  DCHECK(ShouldEnablePublicImageHintsBasedCompression());
   if (!web_contents)
     return nullptr;
 
@@ -51,86 +46,89 @@ GetOptimizationGuideDeciderFromWebContents(content::WebContents* web_contents) {
   return nullptr;
 }
 
-DataReductionProxyChromeSettings* GetDataReductionProxyChromeSettings(
-    content::WebContents* web_contents) {
-  DCHECK(base::FeatureList::IsEnabled(blink::features::kSubresourceRedirect));
-  if (!web_contents)
-    return nullptr;
-  return DataReductionProxyChromeSettingsFactory::GetForBrowserContext(
-      web_contents->GetBrowserContext());
-}
-
 // Pass down the |images_hints| to |render_frame_host|.
 void SetResourceLoadingImageHints(
     content::RenderFrameHost* render_frame_host,
-    blink::mojom::CompressPublicImagesHintsPtr images_hints) {
-  mojo::AssociatedRemote<blink::mojom::PreviewsResourceLoadingHintsReceiver>
-      loading_hints_agent;
+    mojom::CompressPublicImagesHintsPtr images_hints) {
+  mojo::AssociatedRemote<mojom::SubresourceRedirectHintsReceiver>
+      hints_receiver;
+  DCHECK(ShouldEnablePublicImageHintsBasedCompression());
 
   if (render_frame_host->GetRemoteAssociatedInterfaces()) {
     render_frame_host->GetRemoteAssociatedInterfaces()->GetInterface(
-        &loading_hints_agent);
-    loading_hints_agent->SetCompressPublicImagesHints(std::move(images_hints));
+        &hints_receiver);
+    hints_receiver->SetCompressPublicImagesHints(std::move(images_hints));
   }
 }
 
-// Should the subresource be redirected to its compressed version. This returns
-// false if only coverage metrics need to be recorded and actual redirection
-// should not happen.
-bool ShouldCompressionServerRedirectSubresource() {
-  return base::FeatureList::IsEnabled(blink::features::kSubresourceRedirect) &&
-         base::GetFieldTrialParamByFeatureAsBool(
-             blink::features::kSubresourceRedirect,
-             "enable_subresource_server_redirect", true);
-}
-
-bool ShowInfoBarOnAndroid(content::WebContents* web_contents) {
-#if defined(OS_ANDROID)
-  return PreviewsAndroidBridge::CreateHttpsImageCompressionInfoBar(
-      web_contents);
-#endif
-  return true;
+void UpdateRobotsRules(
+    mojom::SubresourceRedirectService::GetRobotsRulesCallback callback,
+    base::Optional<std::string> robots_rules_proto) {
+  std::move(callback).Run(robots_rules_proto);
 }
 
 }  // namespace
 
+ImageCompressionAppliedDocument::ImageCompressionAppliedDocument(
+    content::RenderFrameHost* render_frame_host)
+    : render_frame_host_(render_frame_host) {
+  DCHECK(
+      login_detection::LoginDetectionKeyedServiceFactory::GetForProfile(
+          Profile::FromBrowserContext(render_frame_host->GetBrowserContext()))
+          ->GetPersistentLoginDetection(
+              render_frame_host->GetLastCommittedURL()) ==
+      login_detection::LoginDetectionType::kNoLogin);
+}
+
+ImageCompressionAppliedDocument::~ImageCompressionAppliedDocument() = default;
+
+RENDER_DOCUMENT_HOST_USER_DATA_KEY_IMPL(ImageCompressionAppliedDocument)
+
+void ImageCompressionAppliedDocument::GetAndUpdateRobotsRules(
+    const url::Origin& origin,
+    OriginRobotsRulesCache* rules_cache,
+    mojom::SubresourceRedirectService::GetRobotsRulesCallback callback) {
+  if (!rules_cache) {
+    std::move(callback).Run(base::nullopt);
+    return;
+  }
+  rules_cache->GetRobotsRules(
+      origin, base::BindOnce(&UpdateRobotsRules, std::move(callback)));
+}
+
 // static
 void SubresourceRedirectObserver::MaybeCreateForWebContents(
     content::WebContents* web_contents) {
-  if (!web_contents ||
-      !base::FeatureList::IsEnabled(blink::features::kSubresourceRedirect)) {
-    return;
+  if ((ShouldEnablePublicImageHintsBasedCompression() ||
+       ShouldEnableLoginRobotsCheckedCompression()) &&
+      IsLiteModeEnabled(web_contents)) {
+    SubresourceRedirectObserver::CreateForWebContents(web_contents);
   }
-  const auto* data_reduction_proxy_settings =
-      GetDataReductionProxyChromeSettings(web_contents);
-  if (!data_reduction_proxy_settings ||
-      !data_reduction_proxy_settings->IsDataReductionProxyEnabled()) {
-    return;
-  }
-  return SubresourceRedirectObserver::CreateForWebContents(web_contents);
 }
 
 // static
 bool SubresourceRedirectObserver::IsHttpsImageCompressionApplied(
     content::WebContents* web_contents) {
-  if (!ShouldCompressionServerRedirectSubresource()) {
+  if (!ShouldCompressRedirectSubresource())
     return false;
-  }
+
   SubresourceRedirectObserver* observer =
       SubresourceRedirectObserver::FromWebContents(web_contents);
-  return observer && observer->is_https_image_compression_applied_;
+  return observer && observer->is_mainframe_https_image_compression_applied_;
 }
 
 SubresourceRedirectObserver::SubresourceRedirectObserver(
     content::WebContents* web_contents)
     : content::WebContentsObserver(web_contents),
       receivers_(web_contents, this) {
-  DCHECK(base::FeatureList::IsEnabled(blink::features::kSubresourceRedirect));
-  auto* optimization_guide_decider =
-      GetOptimizationGuideDeciderFromWebContents(web_contents);
-  if (optimization_guide_decider) {
-    optimization_guide_decider->RegisterOptimizationTypes(
-        {optimization_guide::proto::COMPRESS_PUBLIC_IMAGES});
+  DCHECK(ShouldEnablePublicImageHintsBasedCompression() ||
+         ShouldEnableLoginRobotsCheckedCompression());
+  if (ShouldEnablePublicImageHintsBasedCompression()) {
+    if (auto* optimization_guide_decider =
+            GetOptimizationGuideDeciderFromWebContents(web_contents)) {
+      optimization_guide_decider->RegisterOptimizationTypes(
+          {optimization_guide::proto::COMPRESS_PUBLIC_IMAGES});
+    }
   }
 }
 
@@ -139,50 +137,59 @@ SubresourceRedirectObserver::~SubresourceRedirectObserver() = default;
 void SubresourceRedirectObserver::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
   DCHECK(navigation_handle);
-  DCHECK(base::FeatureList::IsEnabled(blink::features::kSubresourceRedirect));
-  if (!navigation_handle->IsInMainFrame() ||
-      !navigation_handle->HasCommitted() ||
-      navigation_handle->IsSameDocument()) {
+  if (!navigation_handle->HasCommitted() ||
+      navigation_handle->IsSameDocument() ||
+      !navigation_handle->GetRenderFrameHost()) {
     return;
   }
-  if (!GetDataReductionProxyChromeSettings(web_contents())
-           ->IsDataReductionProxyEnabled()) {
+  if (!navigation_handle->IsInMainFrame() &&
+      !ShouldEnableLoginRobotsCheckedCompression()) {
     return;
   }
+  if (!IsLiteModeEnabled(web_contents()))
+    return;
 
-  auto* https_image_compression_infobar_decider =
-      GetDataReductionProxyChromeSettings(web_contents())
-          ->https_image_compression_infobar_decider();
-  if (!https_image_compression_infobar_decider ||
-      https_image_compression_infobar_decider->NeedToShowInfoBar()) {
-    if (https_image_compression_infobar_decider->CanShowInfoBar(
-            navigation_handle) &&
-        ShowInfoBarOnAndroid(web_contents())) {
-      https_image_compression_infobar_decider->SetUserHasSeenInfoBar();
-    }
-    // Do not enable image compression on this page.
-    return;
-  }
-
-  is_https_image_compression_applied_ = false;
+  // Set to disable compression by default for this navigation.
+  is_mainframe_https_image_compression_applied_ = false;
 
   if (!navigation_handle->GetURL().SchemeIsHTTPOrHTTPS())
     return;
 
-  if (GetDataReductionProxyChromeSettings(web_contents())
-          ->https_image_compression_bypass_decider()
-          ->ShouldBypassNow()) {
+  if (!ShowInfoBarAndGetImageCompressionState(web_contents(),
+                                              navigation_handle)) {
     return;
   }
+  content::RenderFrameHost* render_frame_host =
+      navigation_handle->GetRenderFrameHost();
+
+  // Handle login robots based compression mode.
+  if (ShouldEnableLoginRobotsCheckedCompression()) {
+    mojo::AssociatedRemote<mojom::SubresourceRedirectHintsReceiver>
+        hints_receiver;
+    render_frame_host->GetRemoteAssociatedInterfaces()->GetInterface(
+        &hints_receiver);
+    bool is_compression_allowed =
+        IsAllowedForCurrentLoginState(navigation_handle);
+    hints_receiver->SetLoggedInState(!is_compression_allowed);
+    if (navigation_handle->IsInMainFrame())
+      is_mainframe_https_image_compression_applied_ = is_compression_allowed;
+
+    if (!is_compression_allowed)
+      return;
+
+    // Create the ImageCompressionAppliedDocument only when compression is
+    // allowed.
+    ImageCompressionAppliedDocument::GetOrCreateForCurrentDocument(
+        navigation_handle->GetRenderFrameHost());
+    return;
+  }
+
+  // Handle public image hints based compression mode.
+  DCHECK(ShouldEnablePublicImageHintsBasedCompression());
 
   auto* optimization_guide_decider = GetOptimizationGuideDeciderFromWebContents(
       navigation_handle->GetWebContents());
   if (!optimization_guide_decider)
-    return;
-
-  content::RenderFrameHost* render_frame_host =
-      navigation_handle->GetRenderFrameHost();
-  if (!render_frame_host || !render_frame_host->GetProcess())
     return;
 
   optimization_guide_decider->CanApplyOptimizationAsync(
@@ -199,10 +206,12 @@ void SubresourceRedirectObserver::OnResourceLoadingImageHintsReceived(
     content::GlobalFrameRoutingId render_frame_host_routing_id,
     optimization_guide::OptimizationGuideDecision decision,
     const optimization_guide::OptimizationMetadata& optimization_metadata) {
-  // Clear |is_https_image_compression_applied_| since it may be set to true
-  // when multiple navigations are starting and image hints is received for the
-  // first one.
-  is_https_image_compression_applied_ = false;
+  DCHECK(ShouldEnablePublicImageHintsBasedCompression());
+
+  // Clear |is_mainframe_https_image_compression_applied_| since it may be set
+  // to true when multiple navigations are starting and image hints is received
+  // for the first one.
+  is_mainframe_https_image_compression_applied_ = false;
 
   content::RenderFrameHost* current_render_frame_host =
       content::RenderFrameHost::FromID(render_frame_host_routing_id);
@@ -227,16 +236,72 @@ void SubresourceRedirectObserver::OnResourceLoadingImageHintsReceived(
   // purposes.
   SetResourceLoadingImageHints(
       current_render_frame_host,
-      blink::mojom::CompressPublicImagesHints::New(public_image_urls));
+      mojom::CompressPublicImagesHints::New(public_image_urls));
   if (!public_image_urls.empty())
-    is_https_image_compression_applied_ = true;
+    is_mainframe_https_image_compression_applied_ = true;
 }
 
 void SubresourceRedirectObserver::NotifyCompressedImageFetchFailed(
     base::TimeDelta retry_after) {
-  GetDataReductionProxyChromeSettings(web_contents())
-      ->https_image_compression_bypass_decider()
-      ->NotifyCompressedImageFetchFailed(retry_after);
+  subresource_redirect::NotifyCompressedImageFetchFailed(web_contents(),
+                                                         retry_after);
+}
+
+void SubresourceRedirectObserver::GetRobotsRules(
+    const url::Origin& origin,
+    mojom::SubresourceRedirectService::GetRobotsRulesCallback callback) {
+  DCHECK(ShouldEnableLoginRobotsCheckedCompression());
+  DCHECK(!origin.opaque());
+  if (!web_contents()) {
+    std::move(callback).Run(base::nullopt);
+    return;
+  }
+
+  // ImageCompressionAppliedDocument could be null when suresource redirect is
+  // disabled for this document.
+  auto* subresource_redirect_document_host =
+      ImageCompressionAppliedDocument::GetForCurrentDocument(
+          web_contents()->GetMainFrame());
+  if (!subresource_redirect_document_host) {
+    std::move(callback).Run(base::nullopt);
+    return;
+  }
+
+  subresource_redirect_document_host->GetAndUpdateRobotsRules(
+      origin, GetOriginRobotsRulesCache(web_contents()), std::move(callback));
+}
+
+bool SubresourceRedirectObserver::IsAllowedForCurrentLoginState(
+    content::NavigationHandle* navigation_handle) {
+  DCHECK(ShouldEnableLoginRobotsCheckedCompression());
+
+  auto* login_detection_keyed_service =
+      login_detection::LoginDetectionKeyedServiceFactory::GetForProfile(
+          Profile::FromBrowserContext(web_contents()->GetBrowserContext()));
+  if (!login_detection_keyed_service)
+    return false;
+
+  if (login_detection_keyed_service->GetPersistentLoginDetection(
+          navigation_handle->GetURL()) !=
+      login_detection::LoginDetectionType::kNoLogin) {
+    return false;
+  }
+
+  // Check if any of the parent frames have disabled image compression.
+  content::RenderFrameHost* parent_render_frame_host =
+      navigation_handle->GetRenderFrameHost();
+  while ((parent_render_frame_host = parent_render_frame_host->GetParent())) {
+    if (!parent_render_frame_host->IsCurrent())
+      continue;
+    // Existence of ImageCompressionAppliedDocument for the parent render frame
+    // indicates the parent is not logged-in and allowed fo subresource
+    // redirect.
+    if (!ImageCompressionAppliedDocument::GetForCurrentDocument(
+            parent_render_frame_host)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 WEB_CONTENTS_USER_DATA_KEY_IMPL(SubresourceRedirectObserver)

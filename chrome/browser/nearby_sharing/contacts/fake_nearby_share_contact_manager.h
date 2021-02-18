@@ -22,9 +22,8 @@ class PrefService;
 // A fake implementation of NearbyShareContactManager, along with a fake
 // factory, to be used in tests. Stores parameters input into
 // NearbyShareContactManager method calls. Use the notification methods from the
-// base class--NotifyAllowlistChanged(), NotifyContactsDownloaded(),
-// NotifyContactsUploaded()--to alert observers of changes; these methods are
-// made public in this fake class.
+// base class--NotifyContactsDownloaded() and NotifyContactsUploaded()--to alert
+// observers of changes; these methods are made public in this fake class.
 class FakeNearbyShareContactManager : public NearbyShareContactManager {
  public:
   // Factory that creates FakeNearbyShareContactManager instances. Use in
@@ -52,26 +51,31 @@ class FakeNearbyShareContactManager : public NearbyShareContactManager {
       return latest_local_device_data_manager_;
     }
 
+    std::string latest_profile_user_name() const {
+      return latest_profile_user_name_;
+    }
+
    private:
     // NearbyShareContactManagerImpl::Factory:
     std::unique_ptr<NearbyShareContactManager> CreateInstance(
         PrefService* pref_service,
         NearbyShareClientFactory* http_client_factory,
-        NearbyShareLocalDeviceDataManager* local_device_data_manager) override;
+        NearbyShareLocalDeviceDataManager* local_device_data_manager,
+        const std::string& profile_user_name) override;
 
     std::vector<FakeNearbyShareContactManager*> instances_;
     PrefService* latest_pref_service_ = nullptr;
     NearbyShareClientFactory* latest_http_client_factory_ = nullptr;
     NearbyShareLocalDeviceDataManager* latest_local_device_data_manager_ =
         nullptr;
+    std::string latest_profile_user_name_;
   };
 
   FakeNearbyShareContactManager();
   ~FakeNearbyShareContactManager() override;
 
-  // Returns inputs of all DownloadContacts() calls.
-  const std::vector<bool>& download_contacts_calls() const {
-    return download_contacts_calls_;
+  size_t num_download_contacts_calls() const {
+    return num_download_contacts_calls_;
   }
 
   // Returns inputs of all SetAllowedContacts() calls.
@@ -80,19 +84,25 @@ class FakeNearbyShareContactManager : public NearbyShareContactManager {
   }
 
   // Make protected methods from base class public in this fake class.
-  using NearbyShareContactManager::NotifyAllowlistChanged;
   using NearbyShareContactManager::NotifyContactsDownloaded;
   using NearbyShareContactManager::NotifyContactsUploaded;
 
  private:
   // NearbyShareContactsManager:
-  void DownloadContacts(bool only_download_if_changed) override;
+  void DownloadContacts() override;
   void SetAllowedContacts(
       const std::set<std::string>& allowed_contact_ids) override;
   void OnStart() override;
   void OnStop() override;
+  void Bind(mojo::PendingReceiver<nearby_share::mojom::ContactManager> receiver)
+      override;
 
-  std::vector<bool> download_contacts_calls_;
+  // nearby_share::mojom::ContactsManager:
+  void AddDownloadContactsObserver(
+      ::mojo::PendingRemote<nearby_share::mojom::DownloadContactsObserver>
+          observer) override;
+
+  size_t num_download_contacts_calls_ = 0;
   std::vector<std::set<std::string>> set_allowed_contacts_calls_;
 };
 

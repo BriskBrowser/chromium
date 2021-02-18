@@ -11,8 +11,9 @@
 
 #include "base/callback_forward.h"
 #include "base/memory/weak_ptr.h"
-#include "chrome/browser/media/router/media_routes_observer.h"
 #include "chrome/browser/ui/global_media_controls/cast_media_notification_item.h"
+#include "chrome/browser/ui/global_media_controls/media_notification_producer.h"
+#include "components/media_router/browser/media_routes_observer.h"
 
 class Profile;
 
@@ -20,13 +21,10 @@ namespace media_message_center {
 class MediaNotificationController;
 }  // namespace media_message_center
 
-namespace media_router {
-class MediaRouter;
-}  // namespace media_router
-
 // Manages media notifications shown in the Global Media Controls dialog for
 // active Cast sessions.
-class CastMediaNotificationProvider : public media_router::MediaRoutesObserver {
+class CastMediaNotificationProvider : public MediaNotificationProducer,
+                                      public media_router::MediaRoutesObserver {
  public:
   CastMediaNotificationProvider(
       Profile* profile,
@@ -44,13 +42,15 @@ class CastMediaNotificationProvider : public media_router::MediaRoutesObserver {
       const CastMediaNotificationProvider&) = delete;
   ~CastMediaNotificationProvider() override;
 
+  // MediaNotificationProducer:
+  base::WeakPtr<media_message_center::MediaNotificationItem>
+  GetNotificationItem(const std::string& id) override;
+  std::set<std::string> GetActiveControllableNotificationIds() const override;
+
   // media_router::MediaRoutesObserver:
   void OnRoutesUpdated(const std::vector<media_router::MediaRoute>& routes,
                        const std::vector<media_router::MediaRoute::Id>&
                            joinable_route_ids) override;
-
-  base::WeakPtr<media_message_center::MediaNotificationItem>
-  GetNotificationItem(const std::string& id);
 
   virtual bool HasItems() const;
   size_t GetItemCount() const;

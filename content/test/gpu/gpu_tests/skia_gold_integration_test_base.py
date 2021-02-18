@@ -15,7 +15,6 @@ from gpu_tests import common_browser_args as cba
 from gpu_tests import gpu_integration_test
 from gpu_tests import path_util
 from gpu_tests.skia_gold import gpu_skia_gold_properties
-from gpu_tests.skia_gold import gpu_skia_gold_session
 from gpu_tests.skia_gold import gpu_skia_gold_session_manager
 
 from py_utils import cloud_storage
@@ -29,8 +28,7 @@ TEST_DATA_DIRS = [
     os.path.join(path_util.GetChromiumSrcDir(), 'media/test/data'),
 ]
 
-SKIA_GOLD_INSTANCE = 'chrome-gpu'
-SKIA_GOLD_CORPUS = SKIA_GOLD_INSTANCE
+SKIA_GOLD_CORPUS = 'chrome-gpu'
 
 
 class _ImageParameters(object):
@@ -314,6 +312,10 @@ class SkiaGoldIntegrationTestBase(gpu_integration_test.GpuIntegrationTest):
         _ToNonEmptyStrOrNone(img_params.driver_version),
         'driver_vendor':
         _ToNonEmptyStrOrNone(img_params.driver_vendor),
+        'combined_hardware_identifier':
+        _GetCombinedHardwareIdentifier(img_params),
+        'browser_type':
+        _ToNonEmptyStrOrNone(self.browser.browser_type),
     }
     # If we have a grace period active, then the test is potentially flaky.
     # Include a pair that will cause Gold to ignore any untriaged images, which
@@ -341,7 +343,8 @@ class SkiaGoldIntegrationTestBase(gpu_integration_test.GpuIntegrationTest):
     image_util.WritePngFile(screenshot, png_temp_file)
 
     gpu_keys = self.GetGoldJsonKeys(page)
-    gold_session = self.GetSkiaGoldSessionManager().GetSkiaGoldSession(gpu_keys)
+    gold_session = self.GetSkiaGoldSessionManager().GetSkiaGoldSession(
+        gpu_keys, corpus=SKIA_GOLD_CORPUS)
     gold_properties = self.GetSkiaGoldProperties()
     use_luci = not (gold_properties.local_pixel_tests
                     or gold_properties.no_luci_auth)
@@ -356,7 +359,8 @@ class SkiaGoldIntegrationTestBase(gpu_integration_test.GpuIntegrationTest):
     if not status:
       return
 
-    status_codes = gpu_skia_gold_session.GpuSkiaGoldSession.StatusCodes
+    status_codes =\
+        self.GetSkiaGoldSessionManager().GetSessionClass().StatusCodes
     if status == status_codes.AUTH_FAILURE:
       logging.error('Gold authentication failed with output %s', error)
     elif status == status_codes.INIT_FAILURE:
@@ -468,6 +472,23 @@ def _StripAngleRevisionFromDriver(img_params):
       break
     kept_parts.append(part)
   img_params.driver_version = '.'.join(kept_parts)
+
+
+def _GetCombinedHardwareIdentifier(img_params):
+  """Combine all relevant hardware identifiers into a single key.
+
+  This makes Gold forwarding more precise by allowing us to forward explicit
+  configurations instead of individual components.
+  """
+  vendor_id = _ToHexOrNone(img_params.vendor_id)
+  device_id = _ToHexOrNone(img_params.device_id)
+  device_string = _ToNonEmptyStrOrNone(img_params.device_string)
+  combined_hw_identifiers = ('vendor_id:{vendor_id}, '
+                             'device_id:{device_id}, '
+                             'device_string:{device_string}')
+  combined_hw_identifiers = combined_hw_identifiers.format(
+      vendor_id=vendor_id, device_id=device_id, device_string=device_string)
+  return combined_hw_identifiers
 
 
 def _OutputLocalDiffFiles(gold_session, image_name):

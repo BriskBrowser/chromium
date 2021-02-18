@@ -6,6 +6,7 @@
 #define COMPONENTS_SIGNIN_PUBLIC_BASE_SIGNIN_SWITCHES_H_
 
 #include "base/feature_list.h"
+#include "build/chromeos_buildflags.h"
 #include "components/signin/public/base/signin_buildflags.h"
 
 namespace switches {
@@ -19,8 +20,10 @@ namespace switches {
 extern const char kClearTokenService[];
 extern const char kDisableSigninScopedDeviceId[];
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 extern const base::Feature kAccountIdMigration;
+#else
+extern const base::Feature kForceAccountIdMigration;
 #endif
 
 }  // namespace switches

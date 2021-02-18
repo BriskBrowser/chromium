@@ -11,17 +11,19 @@
 
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
-#include "chrome/browser/media/router/media_router_factory.h"
-#include "chrome/browser/media/router/media_sinks_observer.h"
+#include "chrome/browser/media/router/chrome_media_router_factory.h"
 #include "chrome/browser/media/router/providers/wired_display/wired_display_media_route_provider.h"
-#include "chrome/browser/media/router/test/mock_media_router.h"
-#include "chrome/browser/media/router/test/test_helper.h"
 #include "chrome/browser/sessions/session_tab_helper_factory.h"
 #include "chrome/browser/ui/media_router/cast_dialog_controller.h"
 #include "chrome/browser/ui/media_router/media_cast_mode.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
+#include "components/media_router/browser/media_router_factory.h"
+#include "components/media_router/browser/media_sinks_observer.h"
+#include "components/media_router/browser/presentation/presentation_service_delegate_impl.h"
+#include "components/media_router/browser/test/mock_media_router.h"
+#include "components/media_router/browser/test/test_helper.h"
 #include "components/media_router/common/media_source.h"
 #include "components/media_router/common/route_request_result.h"
 #include "components/sessions/content/session_tab_helper.h"
@@ -153,7 +155,7 @@ class MediaRouterViewsUITest : public ChromeRenderViewHostTestHarness {
 
     CreateSessionServiceTabHelper(web_contents());
     ui_ = std::make_unique<MediaRouterUI>(web_contents());
-    ui_->InitWithDefaultMediaSource();
+    ui_->InitWithDefaultMediaSourceAndMirroring();
   }
 
   void TearDown() override {
@@ -162,7 +164,7 @@ class MediaRouterViewsUITest : public ChromeRenderViewHostTestHarness {
   }
 
   virtual void SetMediaRouterFactory() {
-    MediaRouterFactory::GetInstance()->SetTestingFactory(
+    ChromeMediaRouterFactory::GetInstance()->SetTestingFactory(
         GetBrowserContext(), base::BindRepeating(&MockMediaRouter::Create));
   }
 
@@ -173,7 +175,7 @@ class MediaRouterViewsUITest : public ChromeRenderViewHostTestHarness {
         &web_contents()->GetController());
     CreateSessionServiceTabHelper(web_contents());
     ui_ = std::make_unique<MediaRouterUI>(web_contents());
-    ui_->InitWithDefaultMediaSource();
+    ui_->InitWithDefaultMediaSourceAndMirroring();
   }
 
   // These methods are used so that we don't have to friend each test case that
@@ -236,14 +238,15 @@ class MediaRouterViewsUITest : public ChromeRenderViewHostTestHarness {
     blink::mojom::PresentationError expected_error(error_type, error_message);
     auto request_callbacks =
         std::make_unique<PresentationRequestCallbacks>(expected_error);
-    auto context = std::make_unique<StartPresentationContext>(
+    start_presentation_context_ = std::make_unique<StartPresentationContext>(
         presentation_request_,
-        base::Bind(&PresentationRequestCallbacks::Success,
-                   base::Unretained(request_callbacks.get())),
-        base::Bind(&PresentationRequestCallbacks::Error,
-                   base::Unretained(request_callbacks.get())));
-    StartPresentationContext* context_ptr = context.get();
-    ui_->set_start_presentation_context_for_test(std::move(context));
+        base::BindOnce(&PresentationRequestCallbacks::Success,
+                       base::Unretained(request_callbacks.get())),
+        base::BindOnce(&PresentationRequestCallbacks::Error,
+                       base::Unretained(request_callbacks.get())));
+    StartPresentationContext* context_ptr = start_presentation_context_.get();
+    ui_->set_start_presentation_context_for_test(
+        std::move(start_presentation_context_));
     ui_->OnDefaultPresentationChanged(&context_ptr->presentation_request());
     return request_callbacks;
   }

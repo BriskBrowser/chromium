@@ -4,13 +4,19 @@
 
 #include "components/password_manager/core/browser/well_known_change_password_state.h"
 
+#include <utility>
+
+#include "base/optional.h"
+#include "components/password_manager/core/browser/site_affiliation/affiliation_service.h"
 #include "components/password_manager/core/browser/well_known_change_password_util.h"
+#include "components/password_manager/core/common/password_manager_features.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_status_code.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/simple_url_loader.h"
+#include "url/origin.h"
 
 using password_manager::WellKnownChangePasswordState;
 using password_manager::WellKnownChangePasswordStateDelegate;
@@ -21,11 +27,16 @@ namespace {
 // Creates a SimpleURLLoader for a request to the non existing resource path for
 // a given |url|.
 std::unique_ptr<network::SimpleURLLoader>
-CreateResourceRequestToWellKnownNonExistingResourceFor(const GURL& url) {
+CreateResourceRequestToWellKnownNonExistingResourceFor(
+    const GURL& url,
+    base::Optional<url::Origin> request_initiator,
+    base::Optional<network::ResourceRequest::TrustedParams> trusted_params) {
   auto resource_request = std::make_unique<network::ResourceRequest>();
   resource_request->url = CreateWellKnownNonExistingResourceURL(url);
   resource_request->credentials_mode = network::mojom::CredentialsMode::kOmit;
   resource_request->load_flags = net::LOAD_DISABLE_CACHE;
+  resource_request->request_initiator = std::move(request_initiator);
+  resource_request->trusted_params = std::move(trusted_params);
   net::NetworkTrafficAnnotationTag traffic_annotation =
       net::DefineNetworkTrafficAnnotation(
           "well_known_path_that_should_not_exist",
@@ -59,6 +70,8 @@ CreateResourceRequestToWellKnownNonExistingResourceFor(const GURL& url) {
 }
 }  // namespace
 
+constexpr base::TimeDelta WellKnownChangePasswordState::kPrefetchTimeout;
+
 WellKnownChangePasswordState::WellKnownChangePasswordState(
     WellKnownChangePasswordStateDelegate* delegate)
     : delegate_(delegate) {}
@@ -67,8 +80,11 @@ WellKnownChangePasswordState::~WellKnownChangePasswordState() = default;
 
 void WellKnownChangePasswordState::FetchNonExistingResource(
     network::SharedURLLoaderFactory* url_loader_factory,
-    const GURL& url) {
-  url_loader_ = CreateResourceRequestToWellKnownNonExistingResourceFor(url);
+    const GURL& url,
+    base::Optional<url::Origin> request_initiator,
+    base::Optional<network::ResourceRequest::TrustedParams> trusted_params) {
+  url_loader_ = CreateResourceRequestToWellKnownNonExistingResourceFor(
+      url, std::move(request_initiator), std::move(trusted_params));
   // Binding the callback to |this| is safe, because the State exists until
   // OnProcessingFinished is called which can only be called after the response
   // arrives.
@@ -77,6 +93,18 @@ void WellKnownChangePasswordState::FetchNonExistingResource(
       base::BindOnce(
           &WellKnownChangePasswordState::FetchNonExistingResourceCallback,
           base::Unretained(this)));
+}
+
+void WellKnownChangePasswordState::PrefetchChangePasswordURLs(
+    AffiliationService* affiliation_service,
+    const std::vector<GURL>& urls) {
+  prefetch_timer_.Start(FROM_HERE, kPrefetchTimeout, this,
+                        &WellKnownChangePasswordState::ContinueProcessing);
+  affiliation_service->PrefetchChangePasswordURLs(
+      urls,
+      base::BindOnce(
+          &WellKnownChangePasswordState::PrefetchChangePasswordURLsCallback,
+          weak_factory_.GetWeakPtr()));
 }
 
 void WellKnownChangePasswordState::SetChangePasswordResponseCode(
@@ -92,10 +120,21 @@ void WellKnownChangePasswordState::FetchNonExistingResourceCallback(
   ContinueProcessing();
 }
 
+void WellKnownChangePasswordState::PrefetchChangePasswordURLsCallback() {
+  if (prefetch_timer_.IsRunning()) {
+    prefetch_timer_.Stop();
+    ContinueProcessing();
+  }
+}
+
 void WellKnownChangePasswordState::ContinueProcessing() {
-  if (!BothRequestsFinished())
-    return;
-  delegate_->OnProcessingFinished(SupportsChangePasswordUrl());
+  if (BothRequestsFinished()) {
+    bool is_well_known_supported = SupportsWellKnownChangePasswordUrl();
+    // Don't wait for change password URL from Affiliation Service if
+    // .well-known/change-password is supported.
+    if (is_well_known_supported || !prefetch_timer_.IsRunning())
+      delegate_->OnProcessingFinished(is_well_known_supported);
+  }
 }
 
 bool WellKnownChangePasswordState::BothRequestsFinished() const {
@@ -103,7 +142,7 @@ bool WellKnownChangePasswordState::BothRequestsFinished() const {
          change_password_response_code_ != 0;
 }
 
-bool WellKnownChangePasswordState::SupportsChangePasswordUrl() const {
+bool WellKnownChangePasswordState::SupportsWellKnownChangePasswordUrl() const {
   DCHECK(BothRequestsFinished());
   return 200 <= change_password_response_code_ &&
          change_password_response_code_ < 300 &&

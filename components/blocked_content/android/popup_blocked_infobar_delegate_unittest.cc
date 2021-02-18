@@ -5,7 +5,7 @@
 #include "components/blocked_content/android/popup_blocked_infobar_delegate.h"
 
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "components/blocked_content/popup_blocker_tab_helper.h"
 #include "components/blocked_content/safe_browsing_triggered_popup_blocker.h"
@@ -53,7 +53,8 @@ class PopupBlockedInfoBarDelegateTest
 
     HostContentSettingsMap::RegisterProfilePrefs(pref_service_.registry());
     settings_map_ = base::MakeRefCounted<HostContentSettingsMap>(
-        &pref_service_, false, false, false, false);
+        &pref_service_, false /* is_off_the_record */,
+        false /* store_last_modified */, false /* restore_session*/);
     content_settings::PageSpecificContentSettings::CreateForWebContents(
         web_contents(),
         std::make_unique<
@@ -108,7 +109,6 @@ TEST_F(PopupBlockedInfoBarDelegateTest, ReplacesInfobarOnSecondPopup) {
 TEST_F(PopupBlockedInfoBarDelegateTest, ShowsBlockedPopups) {
   TestPopupNavigationDelegate::ResultHolder result;
   helper()->AddBlockedPopup(
-      web_contents()->GetMainFrame(),
       std::make_unique<TestPopupNavigationDelegate>(GURL(kPopupUrl), &result),
       blink::mojom::WindowFeatures(), PopupBlockType::kNoGesture);
   bool on_accept_called = false;
@@ -126,8 +126,7 @@ TEST_F(PopupBlockedInfoBarDelegateTest, ShowsBlockedPopups) {
   EXPECT_TRUE(result.did_navigate);
   EXPECT_TRUE(on_accept_called);
   EXPECT_EQ(settings_map()->GetContentSetting(GURL(kPageUrl), GURL(kPageUrl),
-                                              ContentSettingsType::POPUPS,
-                                              std::string()),
+                                              ContentSettingsType::POPUPS),
             CONTENT_SETTING_ALLOW);
 }
 

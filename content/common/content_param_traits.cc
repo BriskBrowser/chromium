@@ -10,7 +10,6 @@
 #include "base/unguessable_token.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "components/viz/common/surfaces/local_surface_id.h"
-#include "components/viz/common/surfaces/local_surface_id_allocation.h"
 #include "components/viz/common/surfaces/surface_id.h"
 #include "components/viz/common/surfaces/surface_info.h"
 #include "ipc/ipc_mojo_message_helper.h"
@@ -23,53 +22,9 @@
 #include "third_party/blink/public/common/messaging/message_port_descriptor.h"
 #include "third_party/blink/public/common/messaging/transferable_message.h"
 #include "third_party/blink/public/mojom/feature_policy/policy_value.mojom.h"
-#include "third_party/blink/public/mojom/page/record_content_to_visible_time_request.mojom.h"
 #include "ui/accessibility/ax_mode.h"
-#include "ui/base/cursor/cursor.h"
-#include "ui/base/cursor/mojom/cursor_type.mojom-shared.h"
-#include "ui/gfx/ipc/skia/gfx_skia_param_traits.h"
 
 namespace IPC {
-
-void ParamTraits<content::WebCursor>::Write(base::Pickle* m,
-                                            const param_type& p) {
-  WriteParam(m, p.cursor().type());
-  if (p.cursor().type() == ui::mojom::CursorType::kCustom) {
-    WriteParam(m, p.cursor().custom_hotspot());
-    WriteParam(m, p.cursor().image_scale_factor());
-    WriteParam(m, p.cursor().custom_bitmap());
-  }
-}
-
-bool ParamTraits<content::WebCursor>::Read(const base::Pickle* m,
-                                           base::PickleIterator* iter,
-                                           param_type* r) {
-  ui::mojom::CursorType type;
-  if (!ReadParam(m, iter, &type))
-    return false;
-
-  ui::Cursor cursor(type);
-  if (cursor.type() == ui::mojom::CursorType::kCustom) {
-    gfx::Point hotspot;
-    float image_scale_factor;
-    SkBitmap bitmap;
-    if (!ReadParam(m, iter, &hotspot) ||
-        !ReadParam(m, iter, &image_scale_factor) ||
-        !ReadParam(m, iter, &bitmap)) {
-      return false;
-    }
-
-    cursor.set_custom_hotspot(hotspot);
-    cursor.set_image_scale_factor(image_scale_factor);
-    cursor.set_custom_bitmap(bitmap);
-  }
-
-  return r->SetCursor(cursor);
-}
-
-void ParamTraits<content::WebCursor>::Log(const param_type& p, std::string* l) {
-  l->append("<WebCursor>");
-}
 
 void ParamTraits<blink::MessagePortChannel>::Write(base::Pickle* m,
                                                    const param_type& p) {
@@ -223,12 +178,12 @@ struct ParamTraits<blink::mojom::SerializedBlobPtr> {
 
 template <>
 struct ParamTraits<
-    mojo::PendingRemote<blink::mojom::NativeFileSystemTransferToken>> {
+    mojo::PendingRemote<blink::mojom::FileSystemAccessTransferToken>> {
   using param_type =
-      mojo::PendingRemote<blink::mojom::NativeFileSystemTransferToken>;
+      mojo::PendingRemote<blink::mojom::FileSystemAccessTransferToken>;
   static void Write(base::Pickle* m, const param_type& p) {
     // Move the Mojo pipe to serialize the
-    // PendingRemote<NativeFileSystemTransferToken> for a postMessage() target.
+    // PendingRemote<FileSystemAccessTransferToken> for a postMessage() target.
     WriteParam(m, const_cast<param_type&>(p).PassPipe().release());
   }
 
@@ -239,9 +194,9 @@ struct ParamTraits<
     if (!ReadParam(m, iter, &handle)) {
       return false;
     }
-    *r = mojo::PendingRemote<blink::mojom::NativeFileSystemTransferToken>(
+    *r = mojo::PendingRemote<blink::mojom::FileSystemAccessTransferToken>(
         mojo::ScopedMessagePipeHandle(handle),
-        blink::mojom::NativeFileSystemTransferToken::Version_);
+        blink::mojom::FileSystemAccessTransferToken::Version_);
     return true;
   }
 };
@@ -312,38 +267,6 @@ void ParamTraits<viz::LocalSurfaceId>::Log(const param_type& p,
   LogParam(p.child_sequence_number(), l);
   l->append(", ");
   LogParam(p.embed_token(), l);
-  l->append(")");
-}
-
-void ParamTraits<viz::LocalSurfaceIdAllocation>::Write(base::Pickle* m,
-                                                       const param_type& p) {
-  DCHECK(p.IsValid());
-  WriteParam(m, p.local_surface_id());
-  WriteParam(m, p.allocation_time());
-}
-
-bool ParamTraits<viz::LocalSurfaceIdAllocation>::Read(
-    const base::Pickle* m,
-    base::PickleIterator* iter,
-    param_type* p) {
-  viz::LocalSurfaceId local_surface_id;
-  if (!ReadParam(m, iter, &local_surface_id))
-    return false;
-
-  base::TimeTicks allocation_time;
-  if (!ReadParam(m, iter, &allocation_time))
-    return false;
-
-  *p = viz::LocalSurfaceIdAllocation(local_surface_id, allocation_time);
-  return p->IsValid();
-}
-
-void ParamTraits<viz::LocalSurfaceIdAllocation>::Log(const param_type& p,
-                                                     std::string* l) {
-  l->append("viz::LocalSurfaceIdAllocation(");
-  LogParam(p.local_surface_id(), l);
-  l->append(", ");
-  LogParam(p.allocation_time(), l);
   l->append(")");
 }
 
@@ -436,54 +359,6 @@ bool ParamTraits<net::SHA256HashValue>::Read(const base::Pickle* m,
 void ParamTraits<net::SHA256HashValue>::Log(const param_type& p,
                                             std::string* l) {
   l->append("<SHA256HashValue>");
-}
-
-void ParamTraits<blink::mojom::RecordContentToVisibleTimeRequestPtr>::Write(
-    base::Pickle* m,
-    const param_type& p) {
-  const bool is_set = static_cast<bool>(p);
-  WriteParam(m, is_set);
-  if (p) {
-    WriteParam(m, p->event_start_time);
-    WriteParam(m, p->destination_is_loaded);
-    WriteParam(m, p->show_reason_tab_switching);
-    WriteParam(m, p->show_reason_unoccluded);
-    WriteParam(m, p->show_reason_bfcache_restore);
-  }
-}
-
-bool ParamTraits<blink::mojom::RecordContentToVisibleTimeRequestPtr>::Read(
-    const base::Pickle* m,
-    base::PickleIterator* iter,
-    param_type* r) {
-  bool is_set = false;
-  if (!iter->ReadBool(&is_set))
-    return false;
-
-  if (!is_set) {
-    *r = blink::mojom::RecordContentToVisibleTimeRequestPtr();
-    return true;
-  }
-
-  auto output = blink::mojom::RecordContentToVisibleTimeRequest::New();
-  if (!ReadParam(m, iter, &output->event_start_time))
-    return false;
-
-  if (!ReadParam(m, iter, &output->destination_is_loaded) ||
-      !ReadParam(m, iter, &output->show_reason_tab_switching) ||
-      !ReadParam(m, iter, &output->show_reason_unoccluded) ||
-      !ReadParam(m, iter, &output->show_reason_bfcache_restore)) {
-    return false;
-  }
-  *r = std::move(output);
-
-  return true;
-}
-
-void ParamTraits<blink::mojom::RecordContentToVisibleTimeRequestPtr>::Log(
-    const param_type& p,
-    std::string* l) {
-  l->append("<blink::mojom::RecordContentToVisibleTimeRequestPtr>");
 }
 
 }  // namespace IPC

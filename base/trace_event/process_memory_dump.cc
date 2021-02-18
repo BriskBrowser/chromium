@@ -18,6 +18,8 @@
 #include "base/trace_event/traced_value.h"
 #include "base/unguessable_token.h"
 #include "build/build_config.h"
+#include "third_party/perfetto/protos/perfetto/trace/memory_graph.pbzero.h"
+#include "third_party/perfetto/protos/perfetto/trace/trace_packet.pbzero.h"
 
 #if defined(OS_IOS)
 #include <mach/vm_page_size.h>
@@ -32,6 +34,9 @@
 
 #include <Psapi.h>
 #endif
+
+using ProcessSnapshot =
+    ::perfetto::protos::pbzero::MemoryTrackerSnapshot_ProcessSnapshot;
 
 namespace base {
 namespace trace_event {
@@ -76,8 +81,9 @@ size_t ProcessMemoryDump::GetSystemPageSize() {
 }
 
 // static
-size_t ProcessMemoryDump::CountResidentBytes(void* start_address,
-                                             size_t mapped_size) {
+base::Optional<size_t> ProcessMemoryDump::CountResidentBytes(
+    void* start_address,
+    size_t mapped_size) {
   const size_t page_size = GetSystemPageSize();
   const uintptr_t start_pointer = reinterpret_cast<uintptr_t>(start_address);
   DCHECK_EQ(0u, start_pointer % page_size);
@@ -155,8 +161,8 @@ size_t ProcessMemoryDump::CountResidentBytes(void* start_address,
 
   DCHECK(!failure);
   if (failure) {
-    total_resident_pages = 0;
     LOG(ERROR) << "CountResidentBytes failed. The resident size is invalid";
+    return base::nullopt;
   }
   return total_resident_pages;
 }
@@ -385,6 +391,30 @@ void ProcessMemoryDump::SerializeAllocatorDumpsInto(TracedValue* value) const {
     value->EndDictionary();
   }
   value->EndArray();
+}
+
+void ProcessMemoryDump::SerializeAllocatorDumpsInto(
+    perfetto::protos::pbzero::MemoryTrackerSnapshot* memory_snapshot,
+    const base::ProcessId pid) const {
+  ProcessSnapshot* process_snapshot =
+      memory_snapshot->add_process_memory_dumps();
+  process_snapshot->set_pid(static_cast<int>(pid));
+
+  for (const auto& allocator_dump_it : allocator_dumps_) {
+    ProcessSnapshot::MemoryNode* memory_node =
+        process_snapshot->add_allocator_dumps();
+    allocator_dump_it.second->AsProtoInto(memory_node);
+  }
+
+  for (const auto& it : allocator_dumps_edges_) {
+    const MemoryAllocatorDumpEdge& edge = it.second;
+    ProcessSnapshot::MemoryEdge* memory_edge =
+        process_snapshot->add_memory_edges();
+
+    memory_edge->set_source_id(edge.source.ToUint64());
+    memory_edge->set_target_id(edge.target.ToUint64());
+    memory_edge->set_importance(edge.importance);
+  }
 }
 
 void ProcessMemoryDump::AddOwnershipEdge(const MemoryAllocatorDumpGuid& source,

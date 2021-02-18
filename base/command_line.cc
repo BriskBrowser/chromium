@@ -4,15 +4,16 @@
 
 #include "base/command_line.h"
 
-#include <algorithm>
 #include <ostream>
 
 #include "base/containers/span.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/notreached.h"
+#include "base/ranges/algorithm.h"
 #include "base/stl_util.h"
 #include "base/strings/strcat.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_tokenizer.h"
 #include "base/strings/string_util.h"
@@ -368,17 +369,15 @@ void CommandLine::RemoveSwitch(base::StringPiece switch_key_without_prefix) {
 #if defined(OS_WIN)
   StringType switch_key_native = UTF8ToWide(switch_key_without_prefix);
 #elif defined(OS_POSIX) || defined(OS_FUCHSIA)
-  StringType switch_key_native = switch_key_without_prefix.as_string();
+  StringType switch_key_native(switch_key_without_prefix);
 #endif
 
   DCHECK_EQ(ToLowerASCII(switch_key_without_prefix), switch_key_without_prefix);
   DCHECK_EQ(0u, GetSwitchPrefixLength(switch_key_native));
-  size_t erased_from_switches =
-      switches_.erase(switch_key_without_prefix.as_string());
-  DCHECK(erased_from_switches <= 1);
-  if (!erased_from_switches)
+  auto it = switches_.find(switch_key_without_prefix);
+  if (it == switches_.end())
     return;
-
+  switches_.erase(it);
   // Also erase from the switches section of |argv_| and update |begin_args_|
   // accordingly.
   // Switches in |argv_| have indices [1, begin_args_).
@@ -411,8 +410,7 @@ CommandLine::StringVector CommandLine::GetArgs() const {
   // Gather all arguments after the last switch (may include kSwitchTerminator).
   StringVector args(argv_.begin() + begin_args_, argv_.end());
   // Erase only the first kSwitchTerminator (maybe "--" is a legitimate page?)
-  auto switch_terminator =
-      std::find(args.begin(), args.end(), kSwitchTerminator);
+  auto switch_terminator = ranges::find(args, kSwitchTerminator);
   if (switch_terminator != args.end())
     args.erase(switch_terminator);
   return args;

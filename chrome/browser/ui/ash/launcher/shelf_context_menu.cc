@@ -14,7 +14,7 @@
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
-#include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
+#include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/crostini/crostini_shelf_utils.h"
 #include "chrome/browser/chromeos/crostini/crostini_util.h"
 #include "chrome/browser/profiles/profile.h"
@@ -25,7 +25,6 @@
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller_util.h"
 #include "chrome/browser/ui/ash/launcher/extension_shelf_context_menu.h"
 #include "chrome/browser/ui/ash/launcher/extension_uninstaller.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/vector_icons/vector_icons.h"
 #include "ui/base/models/image_model.h"
@@ -119,8 +118,8 @@ bool ShelfContextMenu::IsCommandIdEnabled(int command_id) const {
   if (command_id == ash::SWAP_WITH_NEXT ||
       command_id == ash::SWAP_WITH_PREVIOUS) {
     // Only show commands to reorder shelf items when ChromeVox is enabled.
-    if (!chromeos::AccessibilityManager::Get() ||
-        !chromeos::AccessibilityManager::Get()->IsSpokenFeedbackEnabled()) {
+    if (!AccessibilityManager::Get() ||
+        !AccessibilityManager::Get()->IsSpokenFeedbackEnabled()) {
       return false;
     }
     const ash::ShelfModel* model = controller_->shelf_model();

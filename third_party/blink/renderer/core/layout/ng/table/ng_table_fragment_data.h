@@ -17,6 +17,20 @@ class NGTableFragmentData {
   // COLGROUP/COL geometry information. Used for painting column backgrounds.
   // Only present if column has a background.
   struct ColumnGeometry {
+    DISALLOW_NEW();
+
+   public:
+    ColumnGeometry(wtf_size_t start_column,
+                   wtf_size_t span,
+                   LayoutUnit inline_offset,
+                   LayoutUnit inline_size,
+                   NGLayoutInputNode node)
+        : start_column(start_column),
+          span(span),
+          inline_offset(inline_offset),
+          inline_size(inline_size),
+          node(node) {}
+    void Trace(Visitor* visitor) const { visitor->Trace(node); }
     wtf_size_t start_column;
     wtf_size_t span;
     LayoutUnit inline_offset;
@@ -24,13 +38,21 @@ class NGTableFragmentData {
     NGLayoutInputNode node;
   };
 
-  using ColumnGeometries = Vector<ColumnGeometry>;
+  using ColumnGeometries = HeapVector<ColumnGeometry>;
 
   // Column/row location is used for collapsed border painting.
   // Only present if borders are collapsed.
   struct CollapsedBordersGeometry {
     Vector<LayoutUnit> columns;  // Column offsets from table grid border.
     Vector<LayoutUnit> rows;     // Row offsets from table grid border.
+
+#if DCHECK_IS_ON()
+    void CheckSameForSimplifiedLayout(
+        const CollapsedBordersGeometry& other) const {
+      DCHECK(columns == other.columns);
+      DCHECK(rows == other.rows);
+    }
+#endif
   };
 };
 

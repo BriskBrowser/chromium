@@ -8,7 +8,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/optional.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/unguessable_token.h"
@@ -17,9 +17,10 @@
 #include "content/common/frame_messages.h"
 #include "content/common/navigation_params.h"
 #include "content/common/navigation_params.mojom.h"
-#include "content/public/common/navigation_policy.h"
 #include "content/public/common/url_constants.h"
+#include "content/public/test/mock_policy_container_host.h"
 #include "content/public/test/mock_render_thread.h"
+#include "content/public/test/policy_container_utils.h"
 #include "content/renderer/loader/web_url_loader_impl.h"
 #include "mojo/public/cpp/bindings/pending_associated_remote.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
@@ -35,19 +36,31 @@
 
 namespace content {
 
+// static
+mojo::PendingAssociatedReceiver<mojom::Frame>
+TestRenderFrame::CreateStubFrameReceiver() {
+  mojo::PendingAssociatedRemote<mojom::Frame> pending_remote;
+  mojo::PendingAssociatedReceiver<mojom::Frame> pending_receiver =
+      pending_remote.InitWithNewEndpointAndPassReceiver();
+  return pending_receiver;
+}
+
+// static
+mojo::PendingRemote<blink::mojom::BrowserInterfaceBroker>
+TestRenderFrame::CreateStubBrowserInterfaceBrokerRemote() {
+  mojo::PendingRemote<blink::mojom::BrowserInterfaceBroker> pending_remote;
+  mojo::PendingReceiver<blink::mojom::BrowserInterfaceBroker> pending_receiver =
+      pending_remote.InitWithNewPipeAndPassReceiver();
+  return pending_remote;
+}
+
 class MockFrameHost : public mojom::FrameHost {
  public:
   MockFrameHost() {}
   ~MockFrameHost() override = default;
 
-  std::unique_ptr<FrameHostMsg_DidCommitProvisionalLoad_Params>
-  TakeLastCommitParams() {
+  mojom::DidCommitProvisionalLoadParamsPtr TakeLastCommitParams() {
     return std::move(last_commit_params_);
-  }
-
-  mojo::PendingReceiver<service_manager::mojom::InterfaceProvider>
-  TakeLastInterfaceProviderReceiver() {
-    return std::move(last_interface_provider_receiver_);
   }
 
   mojo::PendingReceiver<blink::mojom::BrowserInterfaceBroker>
@@ -55,26 +68,11 @@ class MockFrameHost : public mojom::FrameHost {
     return std::move(last_browser_interface_broker_receiver_);
   }
 
-  void SetDidAddMessageToConsoleCallback(
-      base::OnceCallback<void(const base::string16& msg)> callback) {
-    did_add_message_to_console_callback_ = std::move(callback);
-  }
-
-  // Holds on to the receiver end of the InterfaceProvider interface whose
-  // client end is bound to the corresponding RenderFrame's |remote_interfaces_|
-  // to facilitate retrieving the most recent |interface_provider_receiver| in
-  // tests.
-  void PassLastInterfaceProviderReceiver(
-      mojo::PendingReceiver<service_manager::mojom::InterfaceProvider>
-          interface_provider_receiver) {
-    last_interface_provider_receiver_ = std::move(interface_provider_receiver);
-  }
-
-  // Holds on to the receiver end of the BrowserInterfaceBroker interface whose
-  // client end is bound to the corresponding RenderFrame's
-  // |browser_interface_broker_proxy_| to facilitate retrieving the most recent
-  // |browser_interface_broker_receiver| in tests.
-  void PassLastBrowserInterfaceBrokerReceiver(
+  // The frame in the renderer sends a BrowserInterfaceBroker Receiver to the
+  // browser process. The test harness (in MockRenderThread) will stash away
+  // those pending Receivers. This sets the pending Receiver that was sent for
+  // the browser process to bind when initially creating the frame.
+  void SetInitialBrowserInterfaceBrokerReceiver(
       mojo::PendingReceiver<blink::mojom::BrowserInterfaceBroker>
           browser_interface_broker_receiver) {
     last_browser_interface_broker_receiver_ =
@@ -82,22 +80,15 @@ class MockFrameHost : public mojom::FrameHost {
   }
 
   void DidCommitProvisionalLoad(
-      std::unique_ptr<FrameHostMsg_DidCommitProvisionalLoad_Params> params,
+      mojom::DidCommitProvisionalLoadParamsPtr params,
       mojom::DidCommitProvisionalLoadInterfaceParamsPtr interface_params)
       override {
     last_commit_params_ = std::move(params);
     if (interface_params) {
-      last_interface_provider_receiver_ =
-          std::move(interface_params->interface_provider_receiver);
       last_browser_interface_broker_receiver_ =
           std::move(interface_params->browser_interface_broker_receiver);
     }
   }
-
-  void ShowCreatedWindow(int32_t pending_widget_routing_id,
-                         WindowOpenDisposition disposition,
-                         const gfx::Rect& initial_rect,
-                         bool user_gesture) override {}
 
   void set_overlay_routing_token(const base::UnguessableToken& token) {
     overlay_routing_token_ = token;
@@ -129,53 +120,56 @@ class MockFrameHost : public mojom::FrameHost {
     return true;
   }
 
-  bool CreateNewWidget(
+  void CreateNewPopupWidget(
+      mojo::PendingAssociatedReceiver<blink::mojom::PopupWidgetHost>
+          blink_popup_widget_host,
       mojo::PendingAssociatedReceiver<blink::mojom::WidgetHost>
           blink_widget_host,
-      mojo::PendingAssociatedRemote<blink::mojom::Widget> blink_widget,
-      int32_t* out_routing_id) override {
+      mojo::PendingAssociatedRemote<blink::mojom::Widget> blink_widget)
+      override {}
+
+  void CreateChildFrame(
+      int new_routing_id,
+      mojo::PendingAssociatedRemote<mojom::Frame> frame_remote,
+      mojo::PendingReceiver<blink::mojom::BrowserInterfaceBroker>
+          browser_interface_broker_receiver,
+      blink::mojom::PolicyContainerBindParamsPtr policy_container_bind_params,
+      blink::mojom::TreeScopeType scope,
+      const std::string& frame_name,
+      const std::string& frame_unique_name,
+      bool is_created_by_script,
+      const blink::FramePolicy& frame_policy,
+      blink::mojom::FrameOwnerPropertiesPtr frame_owner_properties,
+      blink::mojom::FrameOwnerElementType owner_type) override {
+    MockPolicyContainerHost mock_policy_container_host;
+    mock_policy_container_host.BindWithNewEndpoint(
+        std::move(policy_container_bind_params->receiver));
     MockRenderThread* mock_render_thread =
         static_cast<MockRenderThread*>(RenderThread::Get());
-    *out_routing_id = mock_render_thread->GetNextRoutingID();
-    return true;
-  }
-
-  void CreateNewWidget(
-      mojo::PendingAssociatedReceiver<blink::mojom::WidgetHost>
-          blink_widget_host,
-      mojo::PendingAssociatedRemote<blink::mojom::Widget> blink_widget,
-      CreateNewWidgetCallback callback) override {
-    std::move(callback).Run(MSG_ROUTING_NONE);
-  }
-
-  void CreateNewFullscreenWidget(
-      mojo::PendingAssociatedReceiver<blink::mojom::WidgetHost>
-          blink_widget_host,
-      mojo::PendingAssociatedRemote<blink::mojom::Widget> blink_widget,
-      CreateNewFullscreenWidgetCallback callback) override {
-    std::move(callback).Run(MSG_ROUTING_NONE);
+    mock_render_thread->OnCreateChildFrame(
+        new_routing_id, std::move(frame_remote),
+        std::move(browser_interface_broker_receiver));
   }
 
   void CreatePortal(mojo::PendingAssociatedReceiver<blink::mojom::Portal>,
                     mojo::PendingAssociatedRemote<blink::mojom::PortalClient>,
                     CreatePortalCallback callback) override {
-    std::move(callback).Run(MSG_ROUTING_NONE, FrameReplicationState(),
+    std::move(callback).Run(MSG_ROUTING_NONE,
+                            mojom::FrameReplicationState::New(),
                             blink::PortalToken(), base::UnguessableToken(),
                             base::UnguessableToken());
   }
 
   void AdoptPortal(const blink::PortalToken&,
                    AdoptPortalCallback callback) override {
-    std::move(callback).Run(MSG_ROUTING_NONE, viz::FrameSinkId(),
-                            FrameReplicationState(), base::UnguessableToken(),
-                            base::UnguessableToken());
+    std::move(callback).Run(MSG_ROUTING_NONE,
+                            mojom::FrameReplicationState::New(),
+                            base::UnguessableToken(), base::UnguessableToken());
   }
 
-  void IssueKeepAliveHandle(
-      mojo::PendingReceiver<mojom::KeepAliveHandle> receiver) override {}
-
   void DidCommitSameDocumentNavigation(
-      std::unique_ptr<FrameHostMsg_DidCommitProvisionalLoad_Params> params)
+      mojom::DidCommitProvisionalLoadParamsPtr params,
+      mojom::DidCommitSameDocumentNavigationParamsPtr same_doc_params)
       override {
     last_commit_params_ = std::move(params);
   }
@@ -185,7 +179,9 @@ class MockFrameHost : public mojom::FrameHost {
       mojom::BeginNavigationParamsPtr begin_params,
       mojo::PendingRemote<blink::mojom::BlobURLToken> blob_url_token,
       mojo::PendingAssociatedRemote<mojom::NavigationClient>,
-      mojo::PendingRemote<blink::mojom::NavigationInitiator>) override {}
+      mojo::PendingRemote<blink::mojom::NavigationInitiator>,
+      mojo::PendingRemote<blink::mojom::PolicyContainerHostKeepAliveHandle>)
+      override {}
 
   void SubresourceResponseStarted(const GURL& url,
                                   net::CertStatus cert_status) override {}
@@ -196,19 +192,11 @@ class MockFrameHost : public mojom::FrameHost {
   void DidChangeName(const std::string& name,
                      const std::string& unique_name) override {}
 
-  void DidSetFramePolicyHeaders(
-      network::mojom::WebSandboxFlags sandbox_flags,
-      const blink::ParsedFeaturePolicy& feature_policy_header,
-      const blink::DocumentPolicyFeatureState& document_policy_header)
-      override {}
-
   void CancelInitialHistoryLoad() override {}
 
   void UpdateEncoding(const std::string& encoding_name) override {}
 
-  void FrameSizeChanged(const gfx::Size& frame_size) override {}
-
-  void UpdateState(const PageState& state) override {
+  void UpdateState(const blink::PageState& state) override {
     is_page_state_updated_ = true;
   }
 
@@ -218,29 +206,14 @@ class MockFrameHost : public mojom::FrameHost {
 
   void DidStopLoading() override {}
 
-  void DidAddMessageToConsole(blink::mojom::ConsoleMessageLevel log_level,
-                              const base::string16& msg,
-                              int32_t line_number,
-                              const base::string16& source_id) override {
-    if (did_add_message_to_console_callback_) {
-      std::move(did_add_message_to_console_callback_).Run(msg);
-    }
-  }
-
 #if defined(OS_ANDROID)
   void UpdateUserGestureCarryoverInfo() override {}
 #endif
 
  private:
-  std::unique_ptr<FrameHostMsg_DidCommitProvisionalLoad_Params>
-      last_commit_params_;
-  mojo::PendingReceiver<service_manager::mojom::InterfaceProvider>
-      last_interface_provider_receiver_;
+  mojom::DidCommitProvisionalLoadParamsPtr last_commit_params_;
   mojo::PendingReceiver<blink::mojom::BrowserInterfaceBroker>
       last_browser_interface_broker_receiver_;
-
-  base::OnceCallback<void(const base::string16& msg)>
-      did_add_message_to_console_callback_;
 
   size_t request_overlay_routing_token_called_ = 0;
   base::Optional<base::UnguessableToken> overlay_routing_token_;
@@ -263,10 +236,7 @@ TestRenderFrame::TestRenderFrame(RenderFrameImpl::CreateParams params)
       mock_frame_host_(std::make_unique<MockFrameHost>()) {
   MockRenderThread* mock_render_thread =
       static_cast<MockRenderThread*>(RenderThread::Get());
-  mock_frame_host_->PassLastInterfaceProviderReceiver(
-      mock_render_thread->TakeInitialInterfaceProviderRequestForFrame(
-          params.routing_id));
-  mock_frame_host_->PassLastBrowserInterfaceBrokerReceiver(
+  mock_frame_host_->SetInitialBrowserInterfaceBrokerReceiver(
       mock_render_thread->TakeInitialBrowserInterfaceBrokerReceiverForFrame(
           params.routing_id));
 }
@@ -283,11 +253,11 @@ void TestRenderFrame::Navigate(network::mojom::URLResponseHeadPtr head,
                                mojom::CommitNavigationParamsPtr commit_params) {
   mock_navigation_client_.reset();
   BindNavigationClient(
-      mock_navigation_client_
-          .BindNewEndpointAndPassDedicatedReceiverForTesting());
+      mock_navigation_client_.BindNewEndpointAndPassDedicatedReceiver());
   std::unique_ptr<blink::PendingURLLoaderFactoryBundle> pending_factory_bundle =
-      ChildPendingURLLoaderFactoryBundle::CreateFromDefaultFactoryImpl(
-          std::make_unique<network::NotImplementedURLLoaderFactory>());
+      blink::ChildPendingURLLoaderFactoryBundle::CreateFromDefaultFactoryImpl(
+          network::NotImplementedURLLoaderFactory::Create());
+
   CommitNavigation(std::move(common_params), std::move(commit_params),
                    std::move(head), mojo::ScopedDataPipeConsumerHandle(),
                    network::mojom::URLLoaderClientEndpointsPtr(),
@@ -296,6 +266,7 @@ void TestRenderFrame::Navigate(network::mojom::URLResponseHeadPtr head,
                    blink::mojom::ServiceWorkerContainerInfoForClientPtr(),
                    mojo::NullRemote() /* prefetch_loader_factory */,
                    base::UnguessableToken::Create(),
+                   CreateStubPolicyContainer(),
                    base::BindOnce(&MockFrameHost::DidCommitProvisionalLoad,
                                   base::Unretained(mock_frame_host_.get())));
 }
@@ -314,25 +285,17 @@ void TestRenderFrame::NavigateWithError(
     const base::Optional<std::string>& error_page_content) {
   mock_navigation_client_.reset();
   BindNavigationClient(
-      mock_navigation_client_
-          .BindNewEndpointAndPassDedicatedReceiverForTesting());
+      mock_navigation_client_.BindNewEndpointAndPassDedicatedReceiver());
   std::unique_ptr<blink::PendingURLLoaderFactoryBundle> pending_factory_bundle =
-      ChildPendingURLLoaderFactoryBundle::CreateFromDefaultFactoryImpl(
-          std::make_unique<network::NotImplementedURLLoaderFactory>());
+      blink::ChildPendingURLLoaderFactoryBundle::CreateFromDefaultFactoryImpl(
+          network::NotImplementedURLLoaderFactory::Create());
   mock_navigation_client_->CommitFailedNavigation(
       std::move(common_params), std::move(commit_params),
       false /* has_stale_copy_in_cache */, error_code, resolve_error_info,
       error_page_content, std::move(pending_factory_bundle),
+      CreateStubPolicyContainer(),
       base::BindOnce(&MockFrameHost::DidCommitProvisionalLoad,
                      base::Unretained(mock_frame_host_.get())));
-}
-
-void TestRenderFrame::Unload(
-    int proxy_routing_id,
-    bool is_loading,
-    const FrameReplicationState& replicated_frame_state,
-    const base::UnguessableToken& frame_token) {
-  OnUnload(proxy_routing_id, is_loading, replicated_frame_state, frame_token);
 }
 
 void TestRenderFrame::BeginNavigation(
@@ -340,8 +303,9 @@ void TestRenderFrame::BeginNavigation(
   if (next_navigation_html_override_.has_value()) {
     AssertNavigationCommits assert_navigation_commits(
         this, kMayReplaceInitialEmptyDocument);
-    auto navigation_params = blink::WebNavigationParams::CreateWithHTMLString(
-        next_navigation_html_override_.value(), info->url_request.Url());
+    auto navigation_params =
+        blink::WebNavigationParams::CreateWithHTMLStringForTesting(
+            next_navigation_html_override_.value(), info->url_request.Url());
     next_navigation_html_override_ = base::nullopt;
     frame_->CommitNavigation(std::move(navigation_params),
                              nullptr /* extra_data */);
@@ -377,19 +341,9 @@ void TestRenderFrame::BeginNavigation(
   RenderFrameImpl::BeginNavigation(std::move(info));
 }
 
-std::unique_ptr<FrameHostMsg_DidCommitProvisionalLoad_Params>
+mojom::DidCommitProvisionalLoadParamsPtr
 TestRenderFrame::TakeLastCommitParams() {
   return mock_frame_host_->TakeLastCommitParams();
-}
-
-void TestRenderFrame::SetDidAddMessageToConsoleCallback(
-    base::OnceCallback<void(const base::string16& msg)> callback) {
-  mock_frame_host_->SetDidAddMessageToConsoleCallback(std::move(callback));
-}
-
-mojo::PendingReceiver<service_manager::mojom::InterfaceProvider>
-TestRenderFrame::TakeLastInterfaceProviderReceiver() {
-  return mock_frame_host_->TakeLastInterfaceProviderReceiver();
 }
 
 mojo::PendingReceiver<blink::mojom::BrowserInterfaceBroker>

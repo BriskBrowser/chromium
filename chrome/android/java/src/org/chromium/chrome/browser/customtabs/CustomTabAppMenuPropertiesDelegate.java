@@ -26,6 +26,7 @@ import org.chromium.chrome.browser.app.appmenu.AppMenuPropertiesDelegateImpl;
 import org.chromium.chrome.browser.bookmarks.BookmarkBridge;
 import org.chromium.chrome.browser.browserservices.BrowserServicesIntentDataProvider.CustomTabsUiType;
 import org.chromium.chrome.browser.browserservices.ui.controller.Verifier;
+import org.chromium.chrome.browser.feed.webfeed.WebFeedBridge;
 import org.chromium.chrome.browser.firstrun.FirstRunStatus;
 import org.chromium.chrome.browser.multiwindow.MultiWindowModeStateDispatcher;
 import org.chromium.chrome.browser.share.ShareHelper;
@@ -35,6 +36,7 @@ import org.chromium.chrome.browser.toolbar.ToolbarManager;
 import org.chromium.chrome.browser.ui.appmenu.AppMenuHandler;
 import org.chromium.chrome.browser.ui.appmenu.CustomViewBinder;
 import org.chromium.components.embedder_support.util.UrlConstants;
+import org.chromium.ui.modaldialog.ModalDialogManager;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -54,6 +56,7 @@ public class CustomTabAppMenuPropertiesDelegate extends AppMenuPropertiesDelegat
     private final boolean mShowDownload;
     private final boolean mIsOpenedByChrome;
     private final boolean mIsIncognito;
+    private final boolean mShowOpenInChrome;
 
     private final List<String> mMenuEntries;
     private final Map<MenuItem, Integer> mItemToIndexMap = new HashMap<MenuItem, Integer>();
@@ -62,6 +65,8 @@ public class CustomTabAppMenuPropertiesDelegate extends AppMenuPropertiesDelegat
 
     /**
      * Creates an {@link CustomTabAppMenuPropertiesDelegate} instance.
+     *
+     * @param showOpenInChrome Whether 'open in chrome' is shown, depending upon other state.
      */
     public CustomTabAppMenuPropertiesDelegate(Context context,
             ActivityTabProvider activityTabProvider,
@@ -69,9 +74,12 @@ public class CustomTabAppMenuPropertiesDelegate extends AppMenuPropertiesDelegat
             TabModelSelector tabModelSelector, ToolbarManager toolbarManager, View decorView,
             ObservableSupplier<BookmarkBridge> bookmarkBridgeSupplier, Verifier verifier,
             @CustomTabsUiType final int uiType, List<String> menuEntries, boolean isOpenedByChrome,
-            boolean showShare, boolean showStar, boolean showDownload, boolean isIncognito) {
+            boolean showShare, boolean showStar, boolean showDownload, boolean isIncognito,
+            ModalDialogManager modalDialogManager, WebFeedBridge webFeedBridge,
+            boolean showOpenInChrome) {
         super(context, activityTabProvider, multiWindowModeStateDispatcher, tabModelSelector,
-                toolbarManager, decorView, null, bookmarkBridgeSupplier);
+                toolbarManager, decorView, null, bookmarkBridgeSupplier, modalDialogManager,
+                webFeedBridge);
         mVerifier = verifier;
         mUiType = uiType;
         mMenuEntries = menuEntries;
@@ -80,6 +88,7 @@ public class CustomTabAppMenuPropertiesDelegate extends AppMenuPropertiesDelegat
         mShowStar = showStar;
         mShowDownload = showDownload;
         mIsIncognito = isIncognito;
+        mShowOpenInChrome = showOpenInChrome;
     }
 
     @Override
@@ -132,14 +141,6 @@ public class CustomTabAppMenuPropertiesDelegate extends AppMenuPropertiesDelegat
                 openInChromeItemVisible = false;
                 requestDesktopSiteVisible = false;
                 addToHomeScreenVisible = false;
-            } else if (mUiType == CustomTabsUiType.PAYMENT_REQUEST) {
-                // Only the icon row and 'find in page' are shown for opening payment request UI
-                // from Chrome.
-                openInChromeItemVisible = false;
-                requestDesktopSiteVisible = false;
-                addToHomeScreenVisible = false;
-                downloadItemVisible = false;
-                bookmarkItemVisible = false;
             } else if (mUiType == CustomTabsUiType.READER_MODE) {
                 // Only 'find in page' and the reader mode preference are shown for Reader Mode UI.
                 menu.findItem(R.id.icon_row_menu_id).setVisible(false);
@@ -200,6 +201,9 @@ public class CustomTabAppMenuPropertiesDelegate extends AppMenuPropertiesDelegat
 
             prepareTranslateMenuItem(menu, currentTab);
 
+            if (!mShowOpenInChrome) {
+                openInChromeItemVisible = false;
+            }
             MenuItem openInChromeItem = menu.findItem(R.id.open_in_browser_id);
             if (openInChromeItemVisible) {
                 String title = mIsIncognito ?
@@ -222,7 +226,10 @@ public class CustomTabAppMenuPropertiesDelegate extends AppMenuPropertiesDelegat
             }
 
             updateRequestDesktopSiteMenuItem(menu, currentTab, requestDesktopSiteVisible);
-            prepareAddToHomescreenMenuItem(menu, currentTab, addToHomeScreenVisible);
+            MenuItem homescreenItem = menu.findItem(R.id.add_to_homescreen_id);
+            MenuItem openWebApkItem = menu.findItem(R.id.open_webapk_id);
+            prepareAddToHomescreenMenuItem(
+                    homescreenItem, null, openWebApkItem, menu, currentTab, addToHomeScreenVisible);
         }
     }
 
@@ -240,12 +247,13 @@ public class CustomTabAppMenuPropertiesDelegate extends AppMenuPropertiesDelegat
     }
 
     @Override
-    public @Nullable Bundle getBundleForMenuItem(MenuItem item) {
+    public Bundle getBundleForMenuItem(MenuItem item) {
+        Bundle itemBundle = super.getBundleForMenuItem(item);
+
         if (!mItemToIndexMap.containsKey(item)) {
-            return null;
+            return itemBundle;
         }
 
-        Bundle itemBundle = new Bundle();
         itemBundle.putInt(CUSTOM_MENU_ITEM_ID_KEY, mItemToIndexMap.get(item).intValue());
         return itemBundle;
     }

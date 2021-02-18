@@ -182,7 +182,7 @@ TEST_F(SessionRestorationBrowserAgentTest,
 }
 
 // TODO(crbug.com/888674): This test requires commiting item to
-// WKBasedNavigationManager which is not possible, migrate this to EG test so
+// NavigationManagerImpl which is not possible, migrate this to EG test so
 // it can be tested.
 TEST_F(SessionRestorationBrowserAgentTest, DISABLED_RestoreSessionOnNTPTest) {
   web::WebState* web_state =
@@ -223,10 +223,9 @@ TEST_F(SessionRestorationBrowserAgentTest, SaveAndRestoreEmptySession) {
   [test_session_service_ setPerformIO:NO];
 
   // Restore, expect that there are no sessions.
-  NSString* state_path = base::SysUTF8ToNSString(
-      chrome_browser_state_->GetStatePath().AsUTF8Unsafe());
+  const base::FilePath& state_path = chrome_browser_state_->GetStatePath();
   SessionIOS* session =
-      [test_session_service_ loadSessionFromDirectory:state_path];
+      [test_session_service_ loadSessionWithSessionID:nil directory:state_path];
   ASSERT_EQ(1u, session.sessionWindows.count);
   SessionWindowIOS* session_window = session.sessionWindows[0];
   session_restoration_agent_->RestoreSessionWindow(session_window);
@@ -253,10 +252,9 @@ TEST_F(SessionRestorationBrowserAgentTest, SaveAndRestoreSession) {
   // close all the webStates
   web_state_list_->CloseAllWebStates(WebStateList::CLOSE_NO_FLAGS);
 
-  NSString* state_path = base::SysUTF8ToNSString(
-      chrome_browser_state_->GetStatePath().AsUTF8Unsafe());
+  const base::FilePath& state_path = chrome_browser_state_->GetStatePath();
   SessionIOS* session =
-      [test_session_service_ loadSessionFromDirectory:state_path];
+      [test_session_service_ loadSessionWithSessionID:nil directory:state_path];
   ASSERT_EQ(1u, session.sessionWindows.count);
   SessionWindowIOS* session_window = session.sessionWindows[0];
 
@@ -317,12 +315,12 @@ TEST_F(SessionRestorationBrowserAgentTest,
   // Removing a non active webState.
   web_state_list_->CloseWebStateAt(/*index=*/1,
                                    WebStateList::CLOSE_USER_ACTION);
-  EXPECT_EQ(test_session_service_.saveSessionCallsCount, 3);
+  EXPECT_EQ(test_session_service_.saveSessionCallsCount, 4);
 
   // Removing the last active webState.
   web_state_list_->CloseWebStateAt(/*index=*/0,
                                    WebStateList::CLOSE_USER_ACTION);
-  EXPECT_EQ(test_session_service_.saveSessionCallsCount, 4);
+  EXPECT_EQ(test_session_service_.saveSessionCallsCount, 5);
 }
 
 }  // anonymous namespace

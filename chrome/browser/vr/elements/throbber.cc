@@ -6,8 +6,8 @@
 
 #include "cc/animation/keyframed_animation_curve.h"
 #include "cc/animation/timing_function.h"
-#include "cc/animation/transform_operations.h"
 #include "chrome/browser/vr/target_property.h"
+#include "ui/gfx/transform_operations.h"
 
 namespace vr {
 
@@ -20,9 +20,9 @@ constexpr int kCircleGrowAnimationTimeMs = 1000;
 Throbber::Throbber() = default;
 Throbber::~Throbber() = default;
 
-void Throbber::NotifyClientFloatAnimated(float value,
-                                         int target_property_id,
-                                         cc::KeyframeModel* animation) {
+void Throbber::OnFloatAnimated(const float& value,
+                               int target_property_id,
+                               cc::KeyframeModel* animation) {
   if (target_property_id == CIRCLE_GROW) {
     DCHECK(!IsAnimatingProperty(TRANSFORM));
     DCHECK(!IsAnimatingProperty(OPACITY));
@@ -35,7 +35,7 @@ void Throbber::NotifyClientFloatAnimated(float value,
     SetOpacity(opacity_before_animation_ * (1.0 - animation_progress));
     return;
   }
-  Rect::NotifyClientFloatAnimated(value, target_property_id, animation);
+  Rect::OnFloatAnimated(value, target_property_id, animation);
 }
 
 void Throbber::SetCircleGrowAnimationEnabled(bool enabled) {
@@ -62,10 +62,12 @@ void Throbber::SetCircleGrowAnimationEnabled(bool enabled) {
   curve->AddKeyframe(cc::FloatKeyframe::Create(
       base::TimeDelta::FromMilliseconds(kCircleGrowAnimationTimeMs), kEndScale,
       nullptr));
+  curve->set_target(this);
 
   std::unique_ptr<cc::KeyframeModel> keyframe_model(cc::KeyframeModel::Create(
       std::move(curve), Animation::GetNextKeyframeModelId(),
-      Animation::GetNextGroupId(), CIRCLE_GROW));
+      Animation::GetNextGroupId(),
+      cc::KeyframeModel::TargetPropertyId(CIRCLE_GROW)));
   keyframe_model->set_iterations(std::numeric_limits<double>::infinity());
   AddKeyframeModel(std::move(keyframe_model));
 }

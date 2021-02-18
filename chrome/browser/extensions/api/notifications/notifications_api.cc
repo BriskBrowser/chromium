@@ -18,6 +18,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/api/notifications/extension_notification_display_helper.h"
 #include "chrome/browser/extensions/api/notifications/extension_notification_display_helper_factory.h"
@@ -81,7 +82,7 @@ const char kExtraImageProvided[] =
 const char kNotificationIdTooLong[] =
     "The notification's ID should be %d characters or less";
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 const char kLowPriorityDeprecatedOnPlatform[] =
     "Low-priority notifications are deprecated on this platform.";
 #endif
@@ -184,7 +185,7 @@ bool NotificationBitmapToGfxImage(
 
   // TODO(dewittj): Handle HiDPI images with more than one scale factor
   // representation.
-  gfx::ImageSkia skia(gfx::ImageSkiaRep(bitmap, 1.0f));
+  gfx::ImageSkia skia = gfx::ImageSkia::CreateFromBitmap(bitmap, 1.0f);
   *return_image = gfx::Image(skia);
   return true;
 }
@@ -236,7 +237,7 @@ bool NotificationsApiFunction::CreateNotification(
     return false;
   }
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
   if (options->priority &&
       *options->priority < message_center::DEFAULT_PRIORITY) {
     *error = kLowPriorityDeprecatedOnPlatform;
@@ -390,7 +391,7 @@ bool NotificationsApiFunction::UpdateNotification(
     api::notifications::NotificationOptions* options,
     message_center::Notification* notification,
     std::string* error) {
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
   if (options->priority &&
       *options->priority < message_center::DEFAULT_PRIORITY) {
     *error = kLowPriorityDeprecatedOnPlatform;
@@ -605,8 +606,7 @@ NotificationsCreateFunction::RunNotificationsApi() {
         api::notifications::Create::Results::Create(notification_id), error));
   }
 
-  return RespondNow(
-      OneArgument(std::make_unique<base::Value>(notification_id)));
+  return RespondNow(OneArgument(base::Value(notification_id)));
 }
 
 NotificationsUpdateFunction::NotificationsUpdateFunction() {
@@ -627,7 +627,7 @@ NotificationsUpdateFunction::RunNotificationsApi() {
           CreateScopedIdentifier(extension_->id(), params_->notification_id));
 
   if (!matched_notification) {
-    return RespondNow(OneArgument(std::make_unique<base::Value>(false)));
+    return RespondNow(OneArgument(base::Value(false)));
   }
 
   // Copy the existing notification to get a writable version of it.
@@ -647,7 +647,7 @@ NotificationsUpdateFunction::RunNotificationsApi() {
 
   // No trouble, created the notification, send true to the callback and
   // succeed.
-  return RespondNow(OneArgument(std::make_unique<base::Value>(true)));
+  return RespondNow(OneArgument(base::Value(true)));
 }
 
 NotificationsClearFunction::NotificationsClearFunction() {
@@ -664,7 +664,7 @@ NotificationsClearFunction::RunNotificationsApi() {
   bool cancel_result = GetDisplayHelper()->Close(
       CreateScopedIdentifier(extension_->id(), params_->notification_id));
 
-  return RespondNow(OneArgument(std::make_unique<base::Value>(cancel_result)));
+  return RespondNow(OneArgument(base::Value(cancel_result)));
 }
 
 NotificationsGetAllFunction::NotificationsGetAllFunction() {}
@@ -684,7 +684,8 @@ NotificationsGetAllFunction::RunNotificationsApi() {
                    base::Value(true));
   }
 
-  return RespondNow(OneArgument(std::move(result)));
+  return RespondNow(
+      OneArgument(base::Value::FromUniquePtrValue(std::move(result))));
 }
 
 NotificationsGetPermissionLevelFunction::
@@ -704,8 +705,8 @@ NotificationsGetPermissionLevelFunction::RunNotificationsApi() {
           ? api::notifications::PERMISSION_LEVEL_GRANTED
           : api::notifications::PERMISSION_LEVEL_DENIED;
 
-  return RespondNow(OneArgument(
-      std::make_unique<base::Value>(api::notifications::ToString(result))));
+  return RespondNow(
+      OneArgument(base::Value(api::notifications::ToString(result))));
 }
 
 }  // namespace extensions

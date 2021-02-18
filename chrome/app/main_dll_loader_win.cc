@@ -68,7 +68,7 @@ bool ModuleCanBeRead(const base::FilePath& file_path) {
 // is in the current executable's directory) and proper installs (where
 // |module_name| is in a versioned sub-directory of the current executable's
 // directory) are suported. The identified file is not guaranteed to exist.
-base::FilePath GetModulePath(base::StringPiece16 module_name) {
+base::FilePath GetModulePath(base::WStringPiece module_name) {
   base::FilePath exe_dir;
   const bool has_path = base::PathService::Get(base::DIR_EXE, &exe_dir);
   DCHECK(has_path);
@@ -131,7 +131,7 @@ int MainDllLoader::Launch(HINSTANCE instance,
   process_type_ = cmd_line.GetSwitchValueASCII(switches::kProcessType);
 
   // Initialize the sandbox services.
-  sandbox::SandboxInterfaceInfo sandbox_info = {0};
+  sandbox::SandboxInterfaceInfo sandbox_info = {nullptr};
   const bool is_browser = process_type_.empty();
   const bool is_cloud_print_service =
       process_type_ == switches::kCloudPrintServiceProcess;

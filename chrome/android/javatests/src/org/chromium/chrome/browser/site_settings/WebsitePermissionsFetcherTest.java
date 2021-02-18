@@ -10,15 +10,20 @@ import android.util.Pair;
 
 import androidx.test.filters.SmallTest;
 
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.Callback;
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.DisabledTest;
+import org.chromium.chrome.browser.browsing_data.BrowsingDataBridge;
+import org.chromium.chrome.browser.browsing_data.BrowsingDataType;
+import org.chromium.chrome.browser.browsing_data.TimePeriod;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.test.ChromeBrowserTestRule;
@@ -45,6 +50,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Tests for WebsitePermissionsFetcher.
@@ -53,6 +59,7 @@ import java.util.concurrent.TimeUnit;
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE,
         WebsitePermissionsFetcherTest.ENABLE_EXPERIMENTAL_WEB_PLATFORM_FEATURES,
         WebsitePermissionsFetcherTest.ENABLE_WEB_BLUETOOTH_NEW_PERMISSIONS_BACKEND})
+@Batch(Batch.PER_CLASS)
 public class WebsitePermissionsFetcherTest {
     @Rule
     public final ChromeBrowserTestRule mBrowserTestRule = new ChromeBrowserTestRule();
@@ -273,6 +280,17 @@ public class WebsitePermissionsFetcherTest {
         }
     }
 
+    @After
+    public void tearDown() throws TimeoutException {
+        // Clean up permissions.
+        CallbackHelper helper = new CallbackHelper();
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            BrowsingDataBridge.getInstance().clearBrowsingData(helper::notifyCalled,
+                    new int[] {BrowsingDataType.SITE_SETTINGS}, TimePeriod.ALL_TIME);
+        });
+        helper.waitForCallback(0);
+    }
+
     @Test
     @SmallTest
     public void testNullsCanBeHandled() {
@@ -312,18 +330,20 @@ public class WebsitePermissionsFetcherTest {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             Profile profile = Profile.getLastUsedRegularProfile();
             for (String url : PERMISSION_URLS) {
-                WebsitePreferenceBridgeJni.get().setGeolocationSettingForOrigin(
-                        profile, url, url, ContentSettingValues.BLOCK);
-                WebsitePreferenceBridgeJni.get().setMidiSettingForOrigin(
-                        profile, url, url, ContentSettingValues.ALLOW);
-                WebsitePreferenceBridgeJni.get().setProtectedMediaIdentifierSettingForOrigin(
-                        profile, url, url, ContentSettingValues.BLOCK);
-                WebsitePreferenceBridgeJni.get().setNotificationSettingForOrigin(
-                        profile, url, ContentSettingValues.ALLOW);
-                WebsitePreferenceBridgeJni.get().setMicrophoneSettingForOrigin(
-                        profile, url, ContentSettingValues.ALLOW);
-                WebsitePreferenceBridgeJni.get().setCameraSettingForOrigin(
-                        profile, url, ContentSettingValues.BLOCK);
+                WebsitePreferenceBridgeJni.get().setSettingForOrigin(profile,
+                        ContentSettingsType.GEOLOCATION, url, url, ContentSettingValues.BLOCK);
+                WebsitePreferenceBridgeJni.get().setSettingForOrigin(profile,
+                        ContentSettingsType.MIDI_SYSEX, url, url, ContentSettingValues.ALLOW);
+                WebsitePreferenceBridgeJni.get().setSettingForOrigin(profile,
+                        ContentSettingsType.PROTECTED_MEDIA_IDENTIFIER, url, url,
+                        ContentSettingValues.BLOCK);
+                WebsitePreferenceBridgeJni.get().setSettingForOrigin(profile,
+                        ContentSettingsType.NOTIFICATIONS, url, url, ContentSettingValues.ALLOW);
+                WebsitePreferenceBridgeJni.get().setSettingForOrigin(profile,
+                        ContentSettingsType.MEDIASTREAM_MIC, url, url, ContentSettingValues.ALLOW);
+                WebsitePreferenceBridgeJni.get().setSettingForOrigin(profile,
+                        ContentSettingsType.MEDIASTREAM_CAMERA, url, url,
+                        ContentSettingValues.BLOCK);
             }
 
             // This should not time out. See crbug.com/732907.
@@ -352,10 +372,10 @@ public class WebsitePermissionsFetcherTest {
 
         @Override
         public List<PermissionInfo> getPermissionInfo(
-                BrowserContextHandle browserContextHandle, @PermissionInfo.Type int type) {
+                BrowserContextHandle browserContextHandle, @ContentSettingsType int type) {
             List<PermissionInfo> result = new ArrayList<>();
             for (PermissionInfo info : mPermissionInfos) {
-                if (info.getType() == type) {
+                if (info.getContentSettingsType() == type) {
                     result.add(info);
                 }
             }
@@ -440,40 +460,40 @@ public class WebsitePermissionsFetcherTest {
         FakeWebsitePreferenceBridge websitePreferenceBridge = new FakeWebsitePreferenceBridge();
         fetcher.setWebsitePreferenceBridgeForTesting(websitePreferenceBridge);
 
-        // Add permission info types.
-        Assert.assertEquals(11, PermissionInfo.Type.NUM_ENTRIES);
         String googleOrigin = "https://google.com";
 
-        websitePreferenceBridge.addPermissionInfo(new PermissionInfo(
-                PermissionInfo.Type.AUGMENTED_REALITY, googleOrigin, SITE_WILDCARD, false));
-        websitePreferenceBridge.addPermissionInfo(new PermissionInfo(
-                PermissionInfo.Type.GEOLOCATION, googleOrigin, SITE_WILDCARD, false));
         websitePreferenceBridge.addPermissionInfo(
-                new PermissionInfo(PermissionInfo.Type.MIDI, googleOrigin, SITE_WILDCARD, false));
+                new PermissionInfo(ContentSettingsType.AR, googleOrigin, SITE_WILDCARD, false));
+        websitePreferenceBridge.addPermissionInfo(new PermissionInfo(
+                ContentSettingsType.IDLE_DETECTION, googleOrigin, SITE_WILDCARD, false));
+        websitePreferenceBridge.addPermissionInfo(new PermissionInfo(
+                ContentSettingsType.GEOLOCATION, googleOrigin, SITE_WILDCARD, false));
+        websitePreferenceBridge.addPermissionInfo(new PermissionInfo(
+                ContentSettingsType.MIDI_SYSEX, googleOrigin, SITE_WILDCARD, false));
         websitePreferenceBridge.addPermissionInfo(
-                new PermissionInfo(PermissionInfo.Type.PROTECTED_MEDIA_IDENTIFIER, googleOrigin,
+                new PermissionInfo(ContentSettingsType.PROTECTED_MEDIA_IDENTIFIER, googleOrigin,
                         SITE_WILDCARD, false));
         websitePreferenceBridge.addPermissionInfo(
-                new PermissionInfo(PermissionInfo.Type.NFC, googleOrigin, SITE_WILDCARD, false));
+                new PermissionInfo(ContentSettingsType.NFC, googleOrigin, SITE_WILDCARD, false));
         websitePreferenceBridge.addPermissionInfo(new PermissionInfo(
-                PermissionInfo.Type.NOTIFICATION, googleOrigin, SITE_WILDCARD, false));
+                ContentSettingsType.NOTIFICATIONS, googleOrigin, SITE_WILDCARD, false));
+        websitePreferenceBridge.addPermissionInfo(new PermissionInfo(
+                ContentSettingsType.MEDIASTREAM_CAMERA, googleOrigin, SITE_WILDCARD, false));
+        websitePreferenceBridge.addPermissionInfo(new PermissionInfo(
+                ContentSettingsType.MEDIASTREAM_MIC, googleOrigin, SITE_WILDCARD, false));
+        websitePreferenceBridge.addPermissionInfo(new PermissionInfo(
+                ContentSettingsType.CLIPBOARD_READ_WRITE, googleOrigin, SITE_WILDCARD, false));
+        websitePreferenceBridge.addPermissionInfo(new PermissionInfo(
+                ContentSettingsType.SENSORS, googleOrigin, SITE_WILDCARD, false));
         websitePreferenceBridge.addPermissionInfo(
-                new PermissionInfo(PermissionInfo.Type.CAMERA, googleOrigin, SITE_WILDCARD, false));
-        websitePreferenceBridge.addPermissionInfo(new PermissionInfo(
-                PermissionInfo.Type.MICROPHONE, googleOrigin, SITE_WILDCARD, false));
-        websitePreferenceBridge.addPermissionInfo(new PermissionInfo(
-                PermissionInfo.Type.CLIPBOARD, googleOrigin, SITE_WILDCARD, false));
-        websitePreferenceBridge.addPermissionInfo(new PermissionInfo(
-                PermissionInfo.Type.SENSORS, googleOrigin, SITE_WILDCARD, false));
-        websitePreferenceBridge.addPermissionInfo(new PermissionInfo(
-                PermissionInfo.Type.VIRTUAL_REALITY, googleOrigin, SITE_WILDCARD, false));
+                new PermissionInfo(ContentSettingsType.VR, googleOrigin, SITE_WILDCARD, false));
 
         // Add content setting exception types.
         String preferenceSource = "preference";
         // If the ContentSettingsType.NUM_TYPES value changes *and* a new value has been exposed on
         // Android, then please update this code block to include a test for your new type.
         // Otherwise, just update count in the assert.
-        Assert.assertEquals(65, ContentSettingsType.NUM_TYPES);
+        Assert.assertEquals(67, ContentSettingsType.NUM_TYPES);
         websitePreferenceBridge.addContentSettingException(
                 new ContentSettingException(ContentSettingsType.COOKIES, googleOrigin,
                         ContentSettingValues.DEFAULT, preferenceSource));
@@ -522,33 +542,40 @@ public class WebsitePermissionsFetcherTest {
             Assert.assertTrue(site.getAddress().matches(googleOrigin));
 
             // Check permission info types for |site|.
-            Assert.assertNotNull(site.getPermissionInfo(PermissionInfo.Type.GEOLOCATION));
-            Assert.assertNotNull(site.getPermissionInfo(PermissionInfo.Type.MIDI));
+            Assert.assertNotNull(site.getPermissionInfo(ContentSettingsType.GEOLOCATION));
+            Assert.assertNotNull(site.getPermissionInfo(ContentSettingsType.IDLE_DETECTION));
+            Assert.assertNotNull(site.getPermissionInfo(ContentSettingsType.MIDI_SYSEX));
             Assert.assertNotNull(
-                    site.getPermissionInfo(PermissionInfo.Type.PROTECTED_MEDIA_IDENTIFIER));
-            Assert.assertNotNull(site.getPermissionInfo(PermissionInfo.Type.NOTIFICATION));
-            Assert.assertNotNull(site.getPermissionInfo(PermissionInfo.Type.CAMERA));
-            Assert.assertNotNull(site.getPermissionInfo(PermissionInfo.Type.MICROPHONE));
-            Assert.assertNotNull(site.getPermissionInfo(PermissionInfo.Type.CLIPBOARD));
-            Assert.assertNotNull(site.getPermissionInfo(PermissionInfo.Type.SENSORS));
-            Assert.assertNotNull(site.getPermissionInfo(PermissionInfo.Type.VIRTUAL_REALITY));
-            Assert.assertNotNull(site.getPermissionInfo(PermissionInfo.Type.AUGMENTED_REALITY));
+                    site.getPermissionInfo(ContentSettingsType.PROTECTED_MEDIA_IDENTIFIER));
+            Assert.assertNotNull(site.getPermissionInfo(ContentSettingsType.NOTIFICATIONS));
+            Assert.assertNotNull(site.getPermissionInfo(ContentSettingsType.MEDIASTREAM_CAMERA));
+            Assert.assertNotNull(site.getPermissionInfo(ContentSettingsType.MEDIASTREAM_MIC));
+            Assert.assertNotNull(site.getPermissionInfo(ContentSettingsType.CLIPBOARD_READ_WRITE));
+            Assert.assertNotNull(site.getPermissionInfo(ContentSettingsType.SENSORS));
+            Assert.assertNotNull(site.getPermissionInfo(ContentSettingsType.VR));
+            Assert.assertNotNull(site.getPermissionInfo(ContentSettingsType.AR));
 
             // Check content setting exception types.
             Assert.assertEquals(Integer.valueOf(ContentSettingValues.DEFAULT),
-                    site.getContentSettingPermission(ContentSettingsType.COOKIES));
+                    site.getContentSetting(
+                            UNUSED_BROWSER_CONTEXT_HANDLE, ContentSettingsType.COOKIES));
             Assert.assertEquals(Integer.valueOf(ContentSettingValues.DEFAULT),
-                    site.getContentSettingPermission(ContentSettingsType.POPUPS));
+                    site.getContentSetting(
+                            UNUSED_BROWSER_CONTEXT_HANDLE, ContentSettingsType.POPUPS));
             Assert.assertEquals(Integer.valueOf(ContentSettingValues.DEFAULT),
-                    site.getContentSettingPermission(ContentSettingsType.ADS));
+                    site.getContentSetting(UNUSED_BROWSER_CONTEXT_HANDLE, ContentSettingsType.ADS));
             Assert.assertEquals(Integer.valueOf(ContentSettingValues.DEFAULT),
-                    site.getContentSettingPermission(ContentSettingsType.JAVASCRIPT));
+                    site.getContentSetting(
+                            UNUSED_BROWSER_CONTEXT_HANDLE, ContentSettingsType.JAVASCRIPT));
             Assert.assertEquals(Integer.valueOf(ContentSettingValues.DEFAULT),
-                    site.getContentSettingPermission(ContentSettingsType.SOUND));
+                    site.getContentSetting(
+                            UNUSED_BROWSER_CONTEXT_HANDLE, ContentSettingsType.SOUND));
             Assert.assertEquals(Integer.valueOf(ContentSettingValues.DEFAULT),
-                    site.getContentSettingPermission(ContentSettingsType.BACKGROUND_SYNC));
+                    site.getContentSetting(
+                            UNUSED_BROWSER_CONTEXT_HANDLE, ContentSettingsType.BACKGROUND_SYNC));
             Assert.assertEquals(Integer.valueOf(ContentSettingValues.DEFAULT),
-                    site.getContentSettingPermission(ContentSettingsType.AUTOMATIC_DOWNLOADS));
+                    site.getContentSetting(UNUSED_BROWSER_CONTEXT_HANDLE,
+                            ContentSettingsType.AUTOMATIC_DOWNLOADS));
 
             // Check storage info.
             ArrayList<StorageInfo> storageInfos = new ArrayList<>(site.getStorageInfo());
@@ -568,9 +595,9 @@ public class WebsitePermissionsFetcherTest {
             ArrayList<ChosenObjectInfo> chosenObjectInfos =
                     new ArrayList<>(site.getChosenObjectInfo());
             Assert.assertEquals(2, chosenObjectInfos.size());
-            Assert.assertEquals(ContentSettingsType.USB_CHOOSER_DATA,
-                    chosenObjectInfos.get(0).getContentSettingsType());
             Assert.assertEquals(ContentSettingsType.BLUETOOTH_CHOOSER_DATA,
+                    chosenObjectInfos.get(0).getContentSettingsType());
+            Assert.assertEquals(ContentSettingsType.USB_CHOOSER_DATA,
                     chosenObjectInfos.get(1).getContentSettingsType());
         });
     }
@@ -588,9 +615,9 @@ public class WebsitePermissionsFetcherTest {
         String exampleOrigin = "https://example.com";
 
         websitePreferenceBridge.addPermissionInfo(new PermissionInfo(
-                PermissionInfo.Type.GEOLOCATION, googleOrigin, SITE_WILDCARD, false));
+                ContentSettingsType.GEOLOCATION, googleOrigin, SITE_WILDCARD, false));
         websitePreferenceBridge.addPermissionInfo(new PermissionInfo(
-                PermissionInfo.Type.GEOLOCATION, chromiumOrigin, SITE_WILDCARD, false));
+                ContentSettingsType.GEOLOCATION, chromiumOrigin, SITE_WILDCARD, false));
 
         Website expectedGoogleWebsite =
                 new Website(WebsiteAddress.create(googleOrigin), WebsiteAddress.create(null));
@@ -612,7 +639,7 @@ public class WebsitePermissionsFetcherTest {
                     containsChromiumOriginPermission = true;
                 }
 
-                Assert.assertNotNull(site.getPermissionInfo(PermissionInfo.Type.GEOLOCATION));
+                Assert.assertNotNull(site.getPermissionInfo(ContentSettingsType.GEOLOCATION));
             }
 
             Assert.assertTrue(containsGoogleOriginPermission);
@@ -620,7 +647,7 @@ public class WebsitePermissionsFetcherTest {
         });
 
         websitePreferenceBridge.addPermissionInfo(new PermissionInfo(
-                PermissionInfo.Type.GEOLOCATION, exampleOrigin, SITE_WILDCARD, false));
+                ContentSettingsType.GEOLOCATION, exampleOrigin, SITE_WILDCARD, false));
 
         Website expectedExampleWebsite =
                 new Website(WebsiteAddress.create(exampleOrigin), WebsiteAddress.create(null));
@@ -641,7 +668,7 @@ public class WebsitePermissionsFetcherTest {
                     containsExampleOriginPermission = true;
                 }
 
-                Assert.assertNotNull(site.getPermissionInfo(PermissionInfo.Type.GEOLOCATION));
+                Assert.assertNotNull(site.getPermissionInfo(ContentSettingsType.GEOLOCATION));
             }
 
             Assert.assertTrue(containsGoogleOriginPermission);
@@ -667,24 +694,22 @@ public class WebsitePermissionsFetcherTest {
         fetcher.setWebsitePreferenceBridgeForTesting(websitePreferenceBridge);
 
         String googleOrigin = "https://google.com";
-        ArrayList<Integer> permissionInfoTypes = new ArrayList<>(Arrays.asList(
-                PermissionInfo.Type.AUGMENTED_REALITY, PermissionInfo.Type.CAMERA,
-                PermissionInfo.Type.CLIPBOARD, PermissionInfo.Type.GEOLOCATION,
-                PermissionInfo.Type.MICROPHONE, PermissionInfo.Type.NFC,
-                PermissionInfo.Type.NOTIFICATION, PermissionInfo.Type.PROTECTED_MEDIA_IDENTIFIER,
-                PermissionInfo.Type.SENSORS, PermissionInfo.Type.VIRTUAL_REALITY));
-        // MIDI is excluded from the above list because it does not have a top level category.
-        Assert.assertEquals(11, PermissionInfo.Type.NUM_ENTRIES);
+        // MIDI is excluded from this list because it does not have a top level category.
+        ArrayList<Integer> permissionInfoTypes = new ArrayList<>(
+                Arrays.asList(ContentSettingsType.AR, ContentSettingsType.MEDIASTREAM_CAMERA,
+                        ContentSettingsType.CLIPBOARD_READ_WRITE, ContentSettingsType.GEOLOCATION,
+                        ContentSettingsType.IDLE_DETECTION, ContentSettingsType.MEDIASTREAM_MIC,
+                        ContentSettingsType.NFC, ContentSettingsType.NOTIFICATIONS,
+                        ContentSettingsType.PROTECTED_MEDIA_IDENTIFIER, ContentSettingsType.SENSORS,
+                        ContentSettingsType.VR));
 
-        for (@PermissionInfo.Type int type : permissionInfoTypes) {
+        for (@ContentSettingsType int type : permissionInfoTypes) {
             PermissionInfo fakePermissionInfo =
                     new PermissionInfo(type, googleOrigin, SITE_WILDCARD, false);
             websitePreferenceBridge.addPermissionInfo(fakePermissionInfo);
 
-            fetcher.fetchPreferencesForCategory(
-                    SiteSettingsCategory.createFromContentSettingsType(
-                            UNUSED_BROWSER_CONTEXT_HANDLE,
-                            PermissionInfo.getContentSettingsType(type)),
+            fetcher.fetchPreferencesForCategory(SiteSettingsCategory.createFromContentSettingsType(
+                                                        UNUSED_BROWSER_CONTEXT_HANDLE, type),
                     (sites) -> {
                         Assert.assertEquals(1, sites.size());
 

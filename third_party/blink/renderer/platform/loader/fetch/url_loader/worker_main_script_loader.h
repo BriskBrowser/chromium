@@ -17,7 +17,6 @@
 #include "third_party/blink/public/common/loader/worker_main_script_load_parameters.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-shared.h"
 #include "third_party/blink/public/mojom/loader/resource_load_info.mojom.h"
-#include "third_party/blink/public/mojom/loader/resource_load_info_notifier.mojom.h"
 #include "third_party/blink/public/platform/cross_variant_mojo_util.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_load_observer.h"
@@ -32,30 +31,29 @@ namespace blink {
 
 class FetchContext;
 class FetchParameters;
+class ResourceLoadInfoNotifierWrapper;
 class SingleCachedMetadataHandler;
 class WorkerMainScriptLoaderClient;
 struct ResourceLoaderOptions;
 
-// For dedicated workers (PlzDedicatedWorker) and shared workers, the main
-// script is pre-requested by the browser process. This class is used for
-// receiving the response in the renderer process.
+// For dedicated workers (PlzDedicatedWorker), service workers
+// (PlzServiceWorker), and shared workers, the main script is pre-requested by
+// the browser process. This class is used for receiving the response in the
+// renderer process.
 class PLATFORM_EXPORT WorkerMainScriptLoader final
     : public GarbageCollected<WorkerMainScriptLoader>,
       public network::mojom::URLLoaderClient {
  public:
-  WorkerMainScriptLoader() = default;
-  ~WorkerMainScriptLoader() override = default;
+  WorkerMainScriptLoader();
+  ~WorkerMainScriptLoader() override;
 
   // Starts to load the main script.
-  void Start(
-      FetchParameters& fetch_params,
-      std::unique_ptr<WorkerMainScriptLoadParameters>
-          worker_main_script_load_params,
-      FetchContext* fetch_context,
-      ResourceLoadObserver* resource_loade_observer,
-      CrossVariantMojoRemote<mojom::ResourceLoadInfoNotifierInterfaceBase>
-          resource_load_info_notifier,
-      WorkerMainScriptLoaderClient* client);
+  void Start(const FetchParameters& fetch_params,
+             std::unique_ptr<WorkerMainScriptLoadParameters>
+                 worker_main_script_load_params,
+             FetchContext* fetch_context,
+             ResourceLoadObserver* resource_load_observer,
+             WorkerMainScriptLoaderClient* client);
 
   // This will immediately cancel the ongoing loading of the main script and any
   // method of the WorkerMainScriptLoaderClient will not be invoked.
@@ -94,13 +92,6 @@ class PLATFORM_EXPORT WorkerMainScriptLoader final
       std::vector<net::RedirectInfo>& redirect_infos,
       std::vector<network::mojom::URLResponseHeadPtr>& redirect_responses);
 
-  // Methods used to notify the loading stats.
-  void NotifyResponseReceived(network::mojom::URLResponseHeadPtr response_head);
-  void NotifyRedirectionReceived(
-      network::mojom::URLResponseHeadPtr redirect_response,
-      const net::RedirectInfo& redirect_info);
-  void NotifyCompleteReceived(const network::URLLoaderCompletionStatus& status);
-
   std::unique_ptr<mojo::SimpleWatcher> watcher_;
   mojo::ScopedDataPipeConsumerHandle data_pipe_;
 
@@ -108,7 +99,7 @@ class PLATFORM_EXPORT WorkerMainScriptLoader final
   Member<WorkerMainScriptLoaderClient> client_;
   Member<ResourceLoadObserver> resource_load_observer_;
 
-  ResourceRequest initial_request_;
+  ResourceRequestHead initial_request_;
   ResourceLoaderOptions resource_loader_options_{nullptr /* world */};
   KURL initial_request_url_;
   KURL last_request_url_;
@@ -128,10 +119,9 @@ class PLATFORM_EXPORT WorkerMainScriptLoader final
   mojo::Remote<network::mojom::URLLoader> url_loader_remote_;
   mojo::Receiver<network::mojom::URLLoaderClient> receiver_{this};
 
-  // This struct holds stats to notify browser process.
-  blink::mojom::ResourceLoadInfoPtr resource_load_info_;
-  mojo::Remote<blink::mojom::ResourceLoadInfoNotifier>
-      resource_loader_info_notifier_;
+  // Used to notify the loading stats of main script when PlzDedicatedWorker.
+  std::unique_ptr<ResourceLoadInfoNotifierWrapper>
+      resource_load_info_notifier_wrapper_;
 };
 
 }  // namespace blink

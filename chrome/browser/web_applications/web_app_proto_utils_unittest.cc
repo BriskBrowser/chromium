@@ -17,9 +17,9 @@ namespace web_app {
 
 namespace {
 
-using Purpose = blink::Manifest::ImageResource::Purpose;
+using Purpose = blink::mojom::ManifestImageResource_Purpose;
 
-const char kLaunchUrl[] = "https://example.com/launchurl";
+const char kStartUrl[] = "https://example.com/launchurl";
 const char kAppName[] = "Test name";
 const char kScope[] = "https://example.com/scope";
 const char kUserPageOrdinal[] = "fake_user_page_ordinal";
@@ -32,7 +32,7 @@ const int kIconSizePx = 128;
 // Test that a M85 serialized proto parses correctly in the current version.
 TEST(WebAppProtoUtilsTest, M85SpecificsProtoParse) {
   // Serialized in branch 4183 (M85) using:
-  // sync_proto.set_launch_url(kLaunchUrl);
+  // sync_proto.set_launch_url(kStartUrl);
   // sync_proto.set_name(kAppName);
   // sync_proto.set_user_display_mode(sync_pb::WebAppSpecifics::BROWSER);
   // sync_pb::WebAppIconInfo* icon_info = sync_proto.add_icon_infos();
@@ -52,7 +52,7 @@ TEST(WebAppProtoUtilsTest, M85SpecificsProtoParse) {
 
   // Check the proto was parsed.
   ASSERT_TRUE(parsed);
-  EXPECT_EQ(kLaunchUrl, sync_proto.launch_url());
+  EXPECT_EQ(kStartUrl, sync_proto.start_url());
   EXPECT_EQ(kAppName, sync_proto.name());
   EXPECT_EQ(sync_pb::WebAppSpecifics::BROWSER, sync_proto.user_display_mode());
 
@@ -72,7 +72,7 @@ TEST(WebAppProtoUtilsTest, M85SpecificsProtoParse) {
 TEST(WebAppProtoUtilsTest, M85SpecificsProtoToWebApp_Minimal) {
   // Set the minimal proto fields.
   sync_pb::WebAppSpecifics sync_proto;
-  sync_proto.set_launch_url(kLaunchUrl);
+  sync_proto.set_start_url(kStartUrl);
   sync_proto.set_name(kAppName);
   sync_proto.set_user_display_mode(sync_pb::WebAppSpecifics::BROWSER);
 
@@ -91,7 +91,7 @@ TEST(WebAppProtoUtilsTest, M85SpecificsProtoToWebApp_Minimal) {
 TEST(WebAppProtoUtilsTest, M85SpecificsProtoToWebApp_FullyPopulated) {
   // Set all proto fields.
   sync_pb::WebAppSpecifics sync_proto;
-  sync_proto.set_launch_url(kLaunchUrl);
+  sync_proto.set_start_url(kStartUrl);
   sync_proto.set_name(kAppName);
   sync_proto.set_user_display_mode(sync_pb::WebAppSpecifics::STANDALONE);
   sync_proto.set_theme_color(SK_ColorRED);
@@ -132,9 +132,12 @@ TEST(WebAppProtoUtilsTest, RunOnOsLoginModes) {
   mode = ToRunOnOsLoginMode(WebAppProto::WINDOWED);
   EXPECT_EQ(RunOnOsLoginMode::kWindowed, mode);
 
-  // Any value other than Windowed and Minimized should return kUndefined,
+  mode = ToRunOnOsLoginMode(WebAppProto::NOT_RUN);
+  EXPECT_EQ(RunOnOsLoginMode::kNotRun, mode);
+
+  // Any other value should return kNotRun.
   mode = ToRunOnOsLoginMode(static_cast<WebAppProto::RunOnOsLoginMode>(0xCAFE));
-  EXPECT_EQ(RunOnOsLoginMode::kUndefined, mode);
+  EXPECT_EQ(RunOnOsLoginMode::kNotRun, mode);
 
   WebAppProto::RunOnOsLoginMode proto_mode =
       ToWebAppProtoRunOnOsLoginMode(RunOnOsLoginMode::kWindowed);
@@ -142,6 +145,9 @@ TEST(WebAppProtoUtilsTest, RunOnOsLoginModes) {
 
   proto_mode = ToWebAppProtoRunOnOsLoginMode(RunOnOsLoginMode::kMinimized);
   EXPECT_EQ(WebAppProto::MINIMIZED, proto_mode);
+
+  proto_mode = ToWebAppProtoRunOnOsLoginMode(RunOnOsLoginMode::kNotRun);
+  EXPECT_EQ(WebAppProto::NOT_RUN, proto_mode);
 }
 
 }  // namespace web_app

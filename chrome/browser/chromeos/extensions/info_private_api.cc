@@ -9,25 +9,25 @@
 #include <memory>
 #include <utility>
 
+#include "ash/constants/devicetype.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/public/cpp/stylus_utils.h"
+#include "ash/public/cpp/tablet_mode.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
 #include "base/values.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
+#include "chrome/browser/ash/system/timezone_util.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
-#include "chrome/browser/chromeos/system/timezone_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/devicetype.h"
 #include "chromeos/network/device_state.h"
 #include "chromeos/network/network_handler.h"
 #include "chromeos/network/network_state_handler.h"
@@ -115,6 +115,9 @@ const char kPropertySwitchAccessEnabled[] = "a11ySwitchAccessEnabled";
 
 // Key which corresponds to the cursor color A11Y property in JS.
 const char kPropertyCursorColorEnabled[] = "a11yCursorColorEnabled";
+
+// Key which corresponds to the docked magnifier property in JS.
+const char kPropertyDockedMagnifierEnabled[] = "a11yDockedMagnifierEnabled";
 
 // Key which corresponds to the send-function-keys property in JS.
 const char kPropertySendFunctionsKeys[] = "sendFunctionKeys";
@@ -225,6 +228,7 @@ const struct {
     {kPropertySwitchAccessEnabled,
      ash::prefs::kAccessibilitySwitchAccessEnabled},
     {kPropertyCursorColorEnabled, ash::prefs::kAccessibilityCursorColorEnabled},
+    {kPropertyDockedMagnifierEnabled, ash::prefs::kDockedMagnifierEnabled},
     {kPropertySendFunctionsKeys, prefs::kLanguageSendFunctionKeys}};
 
 const char* GetBoolPrefNameForApiProperty(const char* api_name) {
@@ -272,7 +276,8 @@ ExtensionFunction::ResponseAction ChromeosInfoPrivateGetFunction::Run() {
     if (value)
       result->Set(property_name, std::move(value));
   }
-  return RespondNow(OneArgument(std::move(result)));
+  return RespondNow(
+      OneArgument(base::Value::FromUniquePtrValue(std::move(result))));
 }
 
 std::unique_ptr<base::Value> ChromeosInfoPrivateGetFunction::GetValue(
@@ -395,7 +400,7 @@ std::unique_ptr<base::Value> ChromeosInfoPrivateGetFunction::GetValue(
   }
 
   if (property_name == kPropertyTimezone) {
-    if (chromeos::system::PerUserTimezoneEnabled()) {
+    if (ash::system::PerUserTimezoneEnabled()) {
       const PrefService::Preference* timezone =
           Profile::FromBrowserContext(browser_context())
               ->GetPrefs()
@@ -410,7 +415,7 @@ std::unique_ptr<base::Value> ChromeosInfoPrivateGetFunction::GetValue(
   }
 
   if (property_name == kPropertySupportedTimezones) {
-    return chromeos::system::GetTimezoneList();
+    return ash::system::GetTimezoneList();
   }
 
   const char* pref_name = GetBoolPrefNameForApiProperty(property_name.c_str());
@@ -437,7 +442,7 @@ ExtensionFunction::ResponseAction ChromeosInfoPrivateSetFunction::Run() {
   if (param_name == kPropertyTimezone) {
     std::string param_value;
     EXTENSION_FUNCTION_VALIDATE(args_->GetString(1, &param_value));
-    if (chromeos::system::PerUserTimezoneEnabled()) {
+    if (ash::system::PerUserTimezoneEnabled()) {
       Profile::FromBrowserContext(browser_context())
           ->GetPrefs()
           ->SetString(prefs::kUserTimezone, param_value);
@@ -446,7 +451,7 @@ ExtensionFunction::ResponseAction ChromeosInfoPrivateSetFunction::Run() {
           chromeos::ProfileHelper::Get()->GetUserByProfile(
               Profile::FromBrowserContext(browser_context()));
       if (user)
-        chromeos::system::SetSystemTimezone(user, param_value);
+        ash::system::SetSystemTimezone(user, param_value);
     }
 
   } else {
@@ -463,6 +468,18 @@ ExtensionFunction::ResponseAction ChromeosInfoPrivateSetFunction::Run() {
   }
 
   return RespondNow(NoArguments());
+}
+
+ChromeosInfoPrivateIsTabletModeEnabledFunction::
+    ChromeosInfoPrivateIsTabletModeEnabledFunction() {}
+
+ChromeosInfoPrivateIsTabletModeEnabledFunction::
+    ~ChromeosInfoPrivateIsTabletModeEnabledFunction() {}
+
+ExtensionFunction::ResponseAction
+ChromeosInfoPrivateIsTabletModeEnabledFunction::Run() {
+  return RespondNow(
+      OneArgument(base::Value(ash::TabletMode::Get()->InTabletMode())));
 }
 
 }  // namespace extensions

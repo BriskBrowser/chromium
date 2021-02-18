@@ -9,7 +9,7 @@
 
 #include "ash/keyboard/ui/resources/keyboard_resource_util.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/feature_list.h"
 #include "chrome/browser/extensions/chrome_extension_web_contents_observer.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
@@ -56,7 +56,7 @@ class ChromeKeyboardContentsDelegate : public content::WebContentsDelegate,
 
   bool CanDragEnter(content::WebContents* source,
                     const content::DropData& data,
-                    blink::WebDragOperationsMask operations_allowed) override {
+                    blink::DragOperationsMask operations_allowed) override {
     return false;
   }
 
@@ -209,14 +209,16 @@ void ChromeKeyboardWebContents::SetInitialContentsSize(const gfx::Size& size) {
   web_contents_->GetNativeView()->SetBounds(bounds);
 }
 
-void ChromeKeyboardWebContents::RenderViewCreated(
-    content::RenderViewHost* render_view_host) {
-  content::RenderProcessHost* render_process_host =
-      render_view_host->GetProcess();
-  content::HostZoomMap::GetDefaultForBrowserContext(
-      render_process_host->GetBrowserContext())
-      ->SetTemporaryZoomLevel(render_process_host->GetID(),
-                              render_view_host->GetRoutingID(), 0 /* level */);
+void ChromeKeyboardWebContents::RenderFrameCreated(
+    content::RenderFrameHost* frame_host) {
+  if (frame_host->GetParent())
+    return;
+  content::HostZoomMap* zoom_map =
+      content::HostZoomMap::GetDefaultForBrowserContext(
+          frame_host->GetBrowserContext());
+  zoom_map->SetTemporaryZoomLevel(
+      frame_host->GetProcess()->GetID(),
+      frame_host->GetRenderViewHost()->GetRoutingID(), 0 /* level */);
 }
 
 void ChromeKeyboardWebContents::DidStopLoading() {

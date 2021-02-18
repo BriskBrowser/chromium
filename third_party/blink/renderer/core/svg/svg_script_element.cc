@@ -21,7 +21,7 @@
 #include "third_party/blink/renderer/core/svg/svg_script_element.h"
 
 #include "third_party/blink/renderer/bindings/core/v8/html_script_element_or_svg_script_element.h"
-#include "third_party/blink/renderer/bindings/core/v8/script_event_listener.h"
+#include "third_party/blink/renderer/bindings/core/v8/js_event_handler_for_content_attribute.h"
 #include "third_party/blink/renderer/core/dom/attribute.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
@@ -45,22 +45,23 @@ void SVGScriptElement::ParseAttribute(
   if (params.name == html_names::kOnerrorAttr) {
     SetAttributeEventListener(
         event_type_names::kError,
-        CreateAttributeEventListener(
-            this, params.name, params.new_value,
+        JSEventHandlerForContentAttribute::Create(
+            GetExecutionContext(), params.name, params.new_value,
             JSEventHandler::HandlerType::kOnErrorEventHandler));
   } else {
     SVGElement::ParseAttribute(params);
   }
 }
 
-void SVGScriptElement::SvgAttributeChanged(const QualifiedName& attr_name) {
-  if (SVGURIReference::IsKnownAttribute(attr_name)) {
+void SVGScriptElement::SvgAttributeChanged(
+    const SvgAttributeChangedParams& params) {
+  if (SVGURIReference::IsKnownAttribute(params.name)) {
     SVGElement::InvalidationGuard invalidation_guard(this);
-    loader_->HandleSourceAttribute(HrefString());
+    loader_->HandleSourceAttribute(LegacyHrefString(*this));
     return;
   }
 
-  SVGElement::SvgAttributeChanged(attr_name);
+  SVGElement::SvgAttributeChanged(params);
 }
 
 Node::InsertionNotificationRequest SVGScriptElement::InsertedInto(
@@ -102,7 +103,7 @@ bool SVGScriptElement::HaveLoadedRequiredResources() {
 }
 
 String SVGScriptElement::SourceAttributeValue() const {
-  return HrefString();
+  return LegacyHrefString(*this);
 }
 
 String SVGScriptElement::TypeAttributeValue() const {
@@ -118,7 +119,7 @@ String SVGScriptElement::ScriptTextInternalSlot() const {
 }
 
 bool SVGScriptElement::HasSourceAttribute() const {
-  return href()->IsSpecified();
+  return !LegacyHrefString(*this).IsNull();
 }
 
 bool SVGScriptElement::IsConnected() const {
@@ -171,7 +172,7 @@ void SVGScriptElement::DispatchErrorEvent() {
 
 void SVGScriptElement::SetScriptElementForBinding(
     HTMLScriptElementOrSVGScriptElement& element) {
-  if (!IsInV1ShadowTree())
+  if (!IsInShadowTree())
     element.SetSVGScriptElement(this);
 }
 

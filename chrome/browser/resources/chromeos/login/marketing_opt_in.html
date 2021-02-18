@@ -6,6 +6,12 @@
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-iconset-svg/iron-iconset-svg.html">
 <link rel="import" href="chrome://resources/cr_elements/cr_lottie/cr_lottie.html">
 
+<link rel="import" href="/components/common_styles.html">
+<link rel="import" href="/components/hd_iron_icon.html">
+<link rel="import" href="/components/oobe_adaptive_dialog.html">
+<link rel="import" href="/components/oobe_i18n_behavior.html">
+<link rel="import" href="/components/oobe_dialog_host_behavior.html">
+
 <iron-iconset-svg name="marketing-opt-in-32" size="32">
     <svg>
         <defs>
@@ -26,70 +32,111 @@
       </svg>
 </iron-iconset-svg>
 
-<dom-module id="marketing-opt-in">
+<dom-module id="marketing-opt-in-element">
   <template>
-    <style include="oobe-dialog-host"></style>
+    <style include="oobe-dialog-host">
+      #bottom-unsubscribe-disclaimer {
+        margin-bottom: 15px;
+      }
+      #legalFooter {
+        margin-top: auto;
+      }
+      :host-context(html:not([new-layout])) #legalFooter {
+        margin-top: 20px;
+      }
+    </style>
     <link rel="stylesheet" href="marketing_opt_in.css">
-    <oobe-dialog id="marketingOptInOverviewDialog" role="dialog" has-buttons
+    <oobe-adaptive-dialog id="marketingOptInOverviewDialog" role="dialog"
         hidden="[[isAccessibilitySettingsShown_]]"
-        title-key="marketingOptInScreenTitle"
-        aria-label$="[[i18nDynamic(locale, 'marketingOptInScreenTitle')]]">
-      <hd-iron-icon slot="oobe-icon" icon1x="oobe-32:checkmark"
+        aria-label$="[[i18nDynamic(locale, 'marketingOptInScreenTitle')]]"
+        aria-describedby="marketing-opt-in-subtitle">
+      <hd-iron-icon slot="icon" icon1x="oobe-32:checkmark"
           icon2x="oobe-32:checkmark">
       </hd-iron-icon>
-      <div slot="subtitle" id="marketing-opt-in-subtitle"
-          hidden="[[!marketingOptInVisible_]]">
-        [[i18nDynamic(locale, 'marketingOptInScreenSubtitle')]]
-      </div>
-      <div slot="subtitle" id="marketing-opt-in-subtitle"
-          hidden="[[marketingOptInVisible_]]">
+      <h1 slot="title">
+        [[i18nDynamic(locale, 'marketingOptInScreenTitle')]]
+      </h1>
+      <!-- No marketing opt in -->
+      <div slot="subtitle" hidden="[[marketingOptInVisible_]]">
         [[i18nDynamic(locale, 'marketingOptInScreenSubtitleWithDeviceName')]]
       </div>
-      <div slot="footer" class="layout vertical flex">
+      <!-- Marketing opt in -->
+      <div slot="subtitle" hidden="[[!marketingOptInVisible_]]">
+        [[i18nDynamic(locale, 'marketingOptInScreenSubtitle')]]
+        <!-- Without legal footer: short unsubscribe sentence -->
+        <span hidden="[[hasLegalFooter_]]">
+          [[i18nDynamic(locale, 'marketingOptInScreenUnsubscribeShort')]]
+        </span>
+      </div>
+      <!-- Long unsubscribe disclaimer: shown here only in old layouts -->
+      <div slot="subtitle" hidden="[[!hasTopLongDisclaimer_]]">
+        [[i18nDynamic(locale, 'marketingOptInScreenUnsubscribeLong')]]
+      </div>
+      <!-- Animation -->
+      <div slot="subtitle" hidden="[[!newLayoutEnabled_]]">
+        <cr-lottie class="new-marketing-animation"
+          animation-url="all_set_new_noloop.json" singleLoop="true">
+        </cr-lottie>
+      </div>
+      <div slot="content" class="layout vertical flex">
         <div class="marketing-option layout horizontal center"
             hidden="[[!marketingOptInVisible_]]"
             id="marketing-opt-in-toggle">
           <hd-iron-icon icon1x="oobe-32:chromebook" icon2x="oobe-64:chromebook">
           </hd-iron-icon>
-          <div id="chromebookUpdatesOptionLabel" class="flex">
+          <div id="chromebookUpdatesOptionLabel" class="flex" aria-hidden="true">
             [[i18nDynamic(locale, 'marketingOptInGetChromebookUpdates')]]
           </div>
           <cr-toggle id="chromebookUpdatesOption" checked
-              aria-labelledby="chromebookUpdatesOption">
+              aria-labelledby="chromebookUpdatesOptionLabel">
           </cr-toggle>
         </div>
-        <div class="marketing-animation-container">
+        <!-- Animation: shown here only in old layouts -->
+        <div id="animation" class="marketing-animation-container"
+            hidden="[[!hasAnimationInContent_]]">
           <cr-lottie class="marketing-animation" animation-url="all_set.json">
           </cr-lottie>
         </div>
+        <div id="legalFooter" hidden="[[!hasLegalFooter_]]" class="legal-info">
+          <div id="bottom-unsubscribe-disclaimer"
+              hidden="[[!newLayoutEnabled_]]">
+            [[i18nDynamic(locale, 'marketingOptInScreenUnsubscribeLong')]]
+          </div>
+          <div>
+            Google LLC, 1600 Amphitheatre Parkway, Mountain View, CA 94043, USA
+          </div>
+          <div>www.google.com</div>
+        </div>
       </div>
-      <div slot="bottom-buttons" class="layout horizontal justified">
+      <div slot="bottom-buttons">
         <div>
           <oobe-welcome-secondary-button
               hidden="[[!isA11ySettingsButtonVisible_]]"
               id="marketing-opt-in-accessibility-button"
-              on-tap="onToggleAccessibilityPage_"
+              on-click="onToggleAccessibilityPage_"
               icon1x="marketing-opt-in-32:accessibility"
               icon2x="marketing-opt-in-64:accessibility"
               text-key="marketingOptInA11yButtonLabel">
           </oobe-welcome-secondary-button>
         </div>
-        <oobe-text-button on-tap="onGetStarted_" class="focus-on-show"
+        <oobe-text-button on-click="onGetStarted_" class="focus-on-show"
             inverse text-key="marketingOptInScreenAllSet"
             id="marketing-opt-in-next-button">
         </oobe-text-button>
       </div>
-    </oobe-dialog>
+    </oobe-adaptive-dialog>
 
-    <oobe-dialog id="finalAccessibilityPage" role="dialog" has-buttons
+    <oobe-adaptive-dialog id="finalAccessibilityPage" role="dialog"
         hidden="[[!isAccessibilitySettingsShown_]]"
-        title-key="finalA11yPageTitle"
         aria-label$="[[i18nDynamic(locale, 'finalA11yPageTitle')]]">
-      <hd-iron-icon slot="oobe-icon"
+      <hd-iron-icon slot="icon"
           icon1x="marketing-opt-in-32:accessibility"
           icon2x="marketing-opt-in-64:accessibility">
       </hd-iron-icon>
-      <div slot="footer" class="layout vertical">
+      <h1 slot="title">
+        [[i18nDynamic(locale, 'finalA11yPageTitle')]]
+      </h1>
+      <div slot="content" class="layout vertical">
         <oobe-a11y-option id="a11yNavButtonToggle"
             on-change="onA11yNavButtonsSettingChanged_">
           <span slot="title">
@@ -103,14 +150,16 @@
           </span>
         </oobe-a11y-option>
       </div>
-      <div slot="bottom-buttons" class="layout horizontal justified">
-        <oobe-back-button on-tap="onToggleAccessibilityPage_"
+      <div slot="back-navigation">
+        <oobe-back-button on-click="onToggleAccessibilityPage_"
             id="final-accessibility-back-button"></oobe-back-button>
-        <oobe-text-button on-tap="onGetStarted_" class="focus-on-show"
+      </div>
+      <div slot="bottom-buttons">
+        <oobe-text-button on-click="onGetStarted_" class="focus-on-show"
             id="final-accessibility-next-button" inverse
             text-key="finalA11yPageDoneButtonTitle">
         </oobe-text-button>
       </div>
-    </oobe-dialog>
+    </oobe-adaptive-dialog>
   </template>
 </dom-module>

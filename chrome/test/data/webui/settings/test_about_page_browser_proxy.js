@@ -64,12 +64,14 @@ export class TestAboutPageBrowserProxy extends TestBrowserProxy {
     this.methodCalled('openHelpPage');
   }
 
-
   /** @override */
   launchReleaseNotes() {}
 
   /** @override */
   openOsHelpPage() {}
+
+  /** @override */
+  openDiagnostics() {}
 
   /** @override */
   requestUpdate() {}
@@ -95,9 +97,6 @@ export class TestAboutPageBrowserProxy extends TestBrowserProxy {
 
   /** @override */
   getEndOfLifeInfo() {}
-
-  /** @override */
-  getEnabledReleaseNotes() {}
 
   /** @override */
   checkInternetConnection() {}

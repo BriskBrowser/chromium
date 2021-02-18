@@ -7,11 +7,12 @@
 #include "components/strings/grit/components_strings.h"
 #include "components/version_info/version_info.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
+#import "ios/chrome/browser/ui/tab_switcher/tab_grid/features.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
-#import "ios/chrome/test/earl_grey/chrome_test_case.h"
+#import "ios/chrome/test/earl_grey/web_http_server_chrome_test_case.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
 #include "ios/web/common/features.h"
 #include "ios/web/common/user_agent.h"
@@ -117,7 +118,7 @@ class UserAgentResponseProvider : public web::DataResponseProvider {
 }  // namespace
 
 // Tests for the tools popup menu.
-@interface RequestDesktopMobileSiteTestCase : ChromeTestCase
+@interface RequestDesktopMobileSiteTestCase : WebHttpServerChromeTestCase
 @end
 
 @implementation RequestDesktopMobileSiteTestCase
@@ -194,15 +195,7 @@ class UserAgentResponseProvider : public web::DataResponseProvider {
                                         timeout:kWaitForUserAgentChangeTimeout];
 
   // Close all tabs and undo, trigerring a restoration.
-  [[EarlGrey selectElementWithMatcher:chrome_test_util::ShowTabsButton()]
-      performAction:grey_tap()];
-  [[EarlGrey selectElementWithMatcher:chrome_test_util::TabGridCloseAllButton()]
-      performAction:grey_tap()];
-  [[EarlGrey
-      selectElementWithMatcher:chrome_test_util::TabGridUndoCloseAllButton()]
-      performAction:grey_tap()];
-  [[EarlGrey selectElementWithMatcher:chrome_test_util::TabGridCellAtIndex(0)]
-      performAction:grey_tap()];
+  [ChromeEarlGrey triggerRestoreViaTabGridRemoveAllUndo];
 
   // Verify that desktop user agent propagates.
   [ChromeEarlGreyUI openToolsMenu];
@@ -315,8 +308,11 @@ class UserAgentResponseProvider : public web::DataResponseProvider {
   [[self defaultRequestButton] performAction:grey_tap()];
   [ChromeEarlGrey waitForWebStateContainingText:[self nonDefaultLabel]];
 
-  // Go back to NTP to restore the session from there.
   [ChromeEarlGrey goBack];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::FakeOmnibox()]
+      assertWithMatcher:grey_sufficientlyVisible()];
+
+  // Go back to NTP to restore the session from there.
   [ChromeEarlGrey triggerRestoreViaTabGridRemoveAllUndo];
 
   // Make sure that the NTP is displayed.

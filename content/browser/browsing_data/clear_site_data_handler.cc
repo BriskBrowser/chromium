@@ -17,10 +17,10 @@
 #include "content/public/browser/clear_site_data_utils.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
-#include "content/public/common/origin_util.h"
 #include "net/base/load_flags.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/http/http_response_headers.h"
+#include "services/network/public/cpp/is_potentially_trustworthy.h"
 
 namespace content {
 
@@ -165,7 +165,7 @@ bool ClearSiteDataHandler::HandleHeaderAndOutputConsoleMessages() {
 
 bool ClearSiteDataHandler::Run() {
   // Only accept the header on secure non-unique origins.
-  if (!IsOriginSecure(url_)) {
+  if (!network::IsUrlPotentiallyTrustworthy(url_)) {
     delegate_->AddMessage(url_, "Not supported for insecure origins.",
                           blink::mojom::ConsoleMessageLevel::kError);
     return false;

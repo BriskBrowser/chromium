@@ -90,8 +90,11 @@ ExtensionViewHost::ExtensionViewHost(const Extension* extension,
     content::HostZoomMap* zoom_map =
         content::HostZoomMap::GetForWebContents(host_contents());
     zoom_map->SetTemporaryZoomLevel(
-        host_contents()->GetRenderViewHost()->GetProcess()->GetID(),
-        host_contents()->GetRenderViewHost()->GetRoutingID(),
+        host_contents()
+            ->GetMainFrame()
+            ->GetProcess()
+            ->GetID(),
+        host_contents()->GetMainFrame()->GetRenderViewHost()->GetRoutingID(),
         zoom_map->GetDefaultZoomLevel());
   }
 }
@@ -157,7 +160,7 @@ bool ExtensionViewHost::IsBackgroundPage() const {
 content::WebContents* ExtensionViewHost::OpenURLFromTab(
     content::WebContents* source,
     const content::OpenURLParams& params) {
-  // Whitelist the dispositions we will allow to be opened.
+  // Allowlist the dispositions we will allow to be opened.
   switch (params.disposition) {
     case WindowOpenDisposition::SINGLETON_TAB:
     case WindowOpenDisposition::NEW_FOREGROUND_TAB:
@@ -237,10 +240,10 @@ void ExtensionViewHost::ResizeDueToAutoResize(content::WebContents* source,
   view_->ResizeDueToAutoResize(source, new_size);
 }
 
-void ExtensionViewHost::RenderViewCreated(
-    content::RenderViewHost* render_view_host) {
-  ExtensionHost::RenderViewCreated(render_view_host);
-  view_->RenderViewCreated(render_view_host);
+void ExtensionViewHost::RenderFrameCreated(
+    content::RenderFrameHost* frame_host) {
+  ExtensionHost::RenderFrameCreated(frame_host);
+  view_->RenderFrameCreated(frame_host);
 }
 
 web_modal::WebContentsModalDialogHost*

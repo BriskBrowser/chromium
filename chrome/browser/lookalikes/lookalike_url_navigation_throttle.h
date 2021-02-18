@@ -11,8 +11,12 @@
 #include <vector>
 
 #include "base/memory/weak_ptr.h"
-#include "chrome/browser/engagement/site_engagement_details.mojom.h"
+#include "base/timer/elapsed_timer.h"
+#include "base/timer/timer.h"
+#include "chrome/browser/installable/digital_asset_links/digital_asset_links_handler.h"
+#include "chrome/browser/lookalikes/digital_asset_links_cross_validator.h"
 #include "chrome/browser/lookalikes/lookalike_url_blocking_page.h"
+#include "components/site_engagement/core/mojom/site_engagement_details.mojom.h"
 #include "components/url_formatter/url_formatter.h"
 #include "content/public/browser/navigation_throttle.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
@@ -38,6 +42,8 @@ bool IsSafeRedirect(const std::string& safe_url_host,
 //
 // Remember to update //docs/idn.md with the appropriate information if you
 // modify the lookalike heuristics.
+//
+// This throttle assumes that two navigations never share the same throttle.
 class LookalikeUrlNavigationThrottle : public content::NavigationThrottle {
  public:
   explicit LookalikeUrlNavigationThrottle(content::NavigationHandle* handle);
@@ -45,7 +51,6 @@ class LookalikeUrlNavigationThrottle : public content::NavigationThrottle {
 
   // content::NavigationThrottle:
   ThrottleCheckResult WillProcessResponse() override;
-  ThrottleCheckResult WillRedirectRequest() override;
   const char* GetNameForLogging() override;
 
   static std::unique_ptr<LookalikeUrlNavigationThrottle>
@@ -56,32 +61,59 @@ class LookalikeUrlNavigationThrottle : public content::NavigationThrottle {
   void SetUseTestProfileForTesting() { use_test_profile_ = true; }
 
  private:
-  // Checks whether the navigation to |url| can proceed. If
-  // |check_safe_redirect| is true, will check if a safe redirect led to |url|.
-  ThrottleCheckResult HandleThrottleRequest(const GURL& url,
-                                            bool check_safe_redirect);
-
   // Performs synchronous top domain and engaged site checks on the navigated
-  // |url|. Uses |engaged_sites| for the engaged site checks.
+  // and redirected urls. Uses |engaged_sites| for the engaged site checks.
+  // This function can also defer the check and schedule a
+  // cancellation/resumption if additional checks need to be done such as
+  // validating Digital Asset Links manifests.
   ThrottleCheckResult PerformChecks(
-      const GURL& url,
-      const DomainInfo& navigated_domain,
-      bool check_safe_redirect,
       const std::vector<DomainInfo>& engaged_sites);
 
-  // A void-returning variant, only used with deferred throttle results.
-  void PerformChecksDeferred(const GURL& url,
-                             const DomainInfo& navigated_domain,
-                             bool check_safe_redirect,
-                             const std::vector<DomainInfo>& engaged_sites);
+  // A void-returning variant, only used with deferred throttle results (e.g.
+  // when we need to fetch engaged sites list or digital asset link manifests).
+  void PerformChecksDeferred(const std::vector<DomainInfo>& engaged_sites);
 
+  // Returns whether |url| is a lookalike, setting |match_type| and
+  // |suggested_url| appropriately. Used in PerformChecks() on a per-URL basis.
+  bool IsLookalikeUrl(const GURL& url,
+                      const std::vector<DomainInfo>& engaged_sites,
+                      LookalikeUrlMatchType* match_type,
+                      GURL* suggested_url);
+
+  // Shows a full page interstitial. |safe_domain| is the domain suggested as
+  // safe by the interstitial. |lookalike_domain| is the domain that triggered
+  // the warning.
+  // This function can display two types of interstitials depending on the
+  // value of |safe_domain|:
+  // - If |safe_domain| is a valid URL, it displays a lookalike interstitial
+  // that suggests the user to go to |safe_domain| instead.
+  // - Otherwise, it displays the punycode interstitial which doesn't suggest a
+  // safe URL.
   ThrottleCheckResult ShowInterstitial(const GURL& safe_domain,
-                                       const GURL& url,
+                                       const GURL& lookalike_domain,
                                        ukm::SourceId source_id,
                                        LookalikeUrlMatchType match_type);
 
+  // Checks digital asset links of |lookalike_domain| and |safe_domain| and
+  // shows a full page interstitial if either manifest validation fails.
+  ThrottleCheckResult CheckManifestsAndMaybeShowInterstitial(
+      const GURL& safe_domain,
+      const GURL& lookalike_domain,
+      ukm::SourceId source_id,
+      LookalikeUrlMatchType match_type);
+
+  // Callback for digital asset link manifest validations.
+  void OnManifestValidationResult(const GURL& safe_domain,
+                                  const GURL& lookalike_domain,
+                                  ukm::SourceId source_id,
+                                  LookalikeUrlMatchType match_type,
+                                  bool validation_success);
+
   Profile* profile_;
   bool use_test_profile_ = false;
+
+  std::unique_ptr<DigitalAssetLinkCrossValidator> digital_asset_link_validator_;
+
   base::WeakPtrFactory<LookalikeUrlNavigationThrottle> weak_factory_{this};
 };
 

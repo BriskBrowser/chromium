@@ -26,7 +26,6 @@
 #include "mojo/core/handle_signals_state.h"
 #include "mojo/core/test/mojo_test_base.h"
 #include "mojo/core/test/test_utils.h"
-#include "mojo/core/test_utils.h"
 #include "mojo/public/c/system/buffer.h"
 #include "mojo/public/c/system/functions.h"
 #include "mojo/public/c/system/types.h"
@@ -438,6 +437,7 @@ DEFINE_TEST_CLIENT_WITH_PIPE(CheckPlatformHandleFile,
   return 0;
 }
 
+#if !defined(OS_ANDROID)
 class MultiprocessMessagePipeTestWithPipeCount
     : public MultiprocessMessagePipeTest,
       public testing::WithParamInterface<size_t> {};
@@ -483,7 +483,6 @@ TEST_P(MultiprocessMessagePipeTestWithPipeCount, PlatformHandlePassing) {
 }
 
 // Android multi-process tests are not executing the new process. This is flaky.
-#if !defined(OS_ANDROID)
 INSTANTIATE_TEST_SUITE_P(PipeCount,
                          MultiprocessMessagePipeTestWithPipeCount,
                          // TODO(rockot): Enable the 128 and 250 pipe cases when
@@ -1372,6 +1371,7 @@ INSTANTIATE_TEST_SUITE_P(
     All,
     MultiprocessMessagePipeTestWithPeerSupport,
     testing::Values(test::MojoTestBase::LaunchType::CHILD,
+                    test::MojoTestBase::LaunchType::CHILD_WITHOUT_CAPABILITIES,
                     test::MojoTestBase::LaunchType::PEER,
                     test::MojoTestBase::LaunchType::ASYNC
 #if !defined(OS_FUCHSIA)

@@ -5,17 +5,18 @@
 #include "components/autofill_assistant/browser/script_precondition.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
+#include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/test/gmock_callback_support.h"
 #include "base/test/mock_callback.h"
 #include "components/autofill_assistant/browser/batch_element_checker.h"
 #include "components/autofill_assistant/browser/service.pb.h"
+#include "components/autofill_assistant/browser/web/element.h"
 #include "components/autofill_assistant/browser/web/mock_web_controller.h"
 #include "testing/gmock/include/gmock/gmock.h"
-#include "third_party/re2/src/re2/re2.h"
 
 namespace autofill_assistant {
 namespace {
@@ -23,32 +24,41 @@ namespace {
 using ::base::test::RunOnceCallback;
 using ::testing::_;
 using ::testing::ElementsAre;
-using ::testing::Eq;
+using ::testing::Key;
 using ::testing::Property;
+using ::testing::UnorderedElementsAre;
+using ::testing::WithArgs;
 
 class ElementPreconditionTest : public testing::Test {
  public:
   void SetUp() override {
-    ON_CALL(mock_web_controller_, OnElementCheck(Eq(Selector({"exists"})), _))
-        .WillByDefault(RunOnceCallback<1>(OkClientStatus()));
+    ON_CALL(mock_web_controller_, OnFindElement(Selector({"exists"}), _))
+        .WillByDefault(WithArgs<1>([](auto&& callback) {
+          std::move(callback).Run(OkClientStatus(),
+                                  std::make_unique<ElementFinder::Result>());
+        }));
+    ON_CALL(mock_web_controller_, OnFindElement(Selector({"exists_too"}), _))
+        .WillByDefault(WithArgs<1>([](auto&& callback) {
+          std::move(callback).Run(OkClientStatus(),
+                                  std::make_unique<ElementFinder::Result>());
+        }));
     ON_CALL(mock_web_controller_,
-            OnElementCheck(Eq(Selector({"exists_too"})), _))
-        .WillByDefault(RunOnceCallback<1>(OkClientStatus()));
+            OnFindElement(Selector({"does_not_exist"}), _))
+        .WillByDefault(RunOnceCallback<1>(
+            ClientStatus(ELEMENT_RESOLUTION_FAILED), nullptr));
     ON_CALL(mock_web_controller_,
-            OnElementCheck(Eq(Selector({"does_not_exist"})), _))
-        .WillByDefault(
-            RunOnceCallback<1>(ClientStatus(ELEMENT_RESOLUTION_FAILED)));
-    ON_CALL(mock_web_controller_,
-            OnElementCheck(Eq(Selector({"does_not_exist_either"})), _))
-        .WillByDefault(
-            RunOnceCallback<1>(ClientStatus(ELEMENT_RESOLUTION_FAILED)));
+            OnFindElement(Selector({"does_not_exist_either"}), _))
+        .WillByDefault(RunOnceCallback<1>(
+            ClientStatus(ELEMENT_RESOLUTION_FAILED), nullptr));
   }
 
  protected:
   // Runs a precondition given |exists_| and |value_match_|.
   void Check(
-      base::OnceCallback<void(const ClientStatus&,
-                              const std::vector<std::string>&)> callback) {
+      base::OnceCallback<void(
+          const ClientStatus&,
+          const std::vector<std::string>&,
+          const base::flat_map<std::string, DomObjectFrameStack>&)> callback) {
     ElementPrecondition precondition(condition_);
     BatchElementChecker batch_checks;
     precondition.Check(&batch_checks, std::move(callback));
@@ -56,8 +66,10 @@ class ElementPreconditionTest : public testing::Test {
   }
 
   MockWebController mock_web_controller_;
-  base::MockCallback<base::OnceCallback<void(const ClientStatus&,
-                                             const std::vector<std::string>&)>>
+  base::MockCallback<base::OnceCallback<void(
+      const ClientStatus&,
+      const std::vector<std::string>&,
+      const base::flat_map<std::string, DomObjectFrameStack>&)>>
       mock_callback_;
   ElementConditionProto condition_;
 };
@@ -73,16 +85,16 @@ TEST_F(ElementPreconditionTest, NonEmpty) {
 
 TEST_F(ElementPreconditionTest, NoConditions) {
   EXPECT_CALL(mock_callback_,
-              Run(Property(&ClientStatus::proto_status, ACTION_APPLIED), _));
+              Run(Property(&ClientStatus::proto_status, ACTION_APPLIED), _, _));
   Check(mock_callback_.Get());
 }
 
 TEST_F(ElementPreconditionTest, EmptySelector) {
   condition_.mutable_match();
 
-  EXPECT_CALL(
-      mock_callback_,
-      Run(Property(&ClientStatus::proto_status, ELEMENT_RESOLUTION_FAILED), _));
+  EXPECT_CALL(mock_callback_, Run(Property(&ClientStatus::proto_status,
+                                           ELEMENT_RESOLUTION_FAILED),
+                                  _, _));
   Check(mock_callback_.Get());
 }
 
@@ -90,25 +102,25 @@ TEST_F(ElementPreconditionTest, ElementExists) {
   *condition_.mutable_match() = ToSelectorProto("exists");
 
   EXPECT_CALL(mock_callback_,
-              Run(Property(&ClientStatus::proto_status, ACTION_APPLIED), _));
+              Run(Property(&ClientStatus::proto_status, ACTION_APPLIED), _, _));
   Check(mock_callback_.Get());
 }
 
 TEST_F(ElementPreconditionTest, ElementDoes_Not_Exist) {
   *condition_.mutable_match() = ToSelectorProto("does_not_exist");
 
-  EXPECT_CALL(
-      mock_callback_,
-      Run(Property(&ClientStatus::proto_status, ELEMENT_RESOLUTION_FAILED), _));
+  EXPECT_CALL(mock_callback_, Run(Property(&ClientStatus::proto_status,
+                                           ELEMENT_RESOLUTION_FAILED),
+                                  _, _));
   Check(mock_callback_.Get());
 }
 
 TEST_F(ElementPreconditionTest, AnyOf_Empty) {
   condition_.mutable_any_of();
 
-  EXPECT_CALL(
-      mock_callback_,
-      Run(Property(&ClientStatus::proto_status, ELEMENT_RESOLUTION_FAILED), _));
+  EXPECT_CALL(mock_callback_, Run(Property(&ClientStatus::proto_status,
+                                           ELEMENT_RESOLUTION_FAILED),
+                                  _, _));
   Check(mock_callback_.Get());
 }
 
@@ -118,9 +130,9 @@ TEST_F(ElementPreconditionTest, AnyOf_NoneMatch) {
   *condition_.mutable_any_of()->add_conditions()->mutable_match() =
       ToSelectorProto("does_not_exist_either");
 
-  EXPECT_CALL(
-      mock_callback_,
-      Run(Property(&ClientStatus::proto_status, ELEMENT_RESOLUTION_FAILED), _));
+  EXPECT_CALL(mock_callback_, Run(Property(&ClientStatus::proto_status,
+                                           ELEMENT_RESOLUTION_FAILED),
+                                  _, _));
   Check(mock_callback_.Get());
 }
 
@@ -131,7 +143,7 @@ TEST_F(ElementPreconditionTest, AnyOf_SomeMatch) {
       ToSelectorProto("does_not_exist");
 
   EXPECT_CALL(mock_callback_,
-              Run(Property(&ClientStatus::proto_status, ACTION_APPLIED), _));
+              Run(Property(&ClientStatus::proto_status, ACTION_APPLIED), _, _));
   Check(mock_callback_.Get());
 }
 
@@ -142,7 +154,7 @@ TEST_F(ElementPreconditionTest, AnyOf_AllMatch) {
       ToSelectorProto("exists_too");
 
   EXPECT_CALL(mock_callback_,
-              Run(Property(&ClientStatus::proto_status, ACTION_APPLIED), _));
+              Run(Property(&ClientStatus::proto_status, ACTION_APPLIED), _, _));
   Check(mock_callback_.Get());
 }
 
@@ -150,7 +162,7 @@ TEST_F(ElementPreconditionTest, AllOf_Empty) {
   condition_.mutable_all_of();
 
   EXPECT_CALL(mock_callback_,
-              Run(Property(&ClientStatus::proto_status, ACTION_APPLIED), _));
+              Run(Property(&ClientStatus::proto_status, ACTION_APPLIED), _, _));
   Check(mock_callback_.Get());
 }
 
@@ -160,9 +172,9 @@ TEST_F(ElementPreconditionTest, AllOf_NoneMatch) {
   *condition_.mutable_all_of()->add_conditions()->mutable_match() =
       ToSelectorProto("does_not_exist_either");
 
-  EXPECT_CALL(
-      mock_callback_,
-      Run(Property(&ClientStatus::proto_status, ELEMENT_RESOLUTION_FAILED), _));
+  EXPECT_CALL(mock_callback_, Run(Property(&ClientStatus::proto_status,
+                                           ELEMENT_RESOLUTION_FAILED),
+                                  _, _));
   Check(mock_callback_.Get());
 }
 
@@ -172,9 +184,9 @@ TEST_F(ElementPreconditionTest, AllOf_SomeMatch) {
   *condition_.mutable_all_of()->add_conditions()->mutable_match() =
       ToSelectorProto("does_not_exist");
 
-  EXPECT_CALL(
-      mock_callback_,
-      Run(Property(&ClientStatus::proto_status, ELEMENT_RESOLUTION_FAILED), _));
+  EXPECT_CALL(mock_callback_, Run(Property(&ClientStatus::proto_status,
+                                           ELEMENT_RESOLUTION_FAILED),
+                                  _, _));
   Check(mock_callback_.Get());
 }
 
@@ -185,7 +197,7 @@ TEST_F(ElementPreconditionTest, AllOf_AllMatch) {
       ToSelectorProto("exists_too");
 
   EXPECT_CALL(mock_callback_,
-              Run(Property(&ClientStatus::proto_status, ACTION_APPLIED), _));
+              Run(Property(&ClientStatus::proto_status, ACTION_APPLIED), _, _));
   Check(mock_callback_.Get());
 }
 
@@ -193,7 +205,7 @@ TEST_F(ElementPreconditionTest, NoneOf_Empty) {
   condition_.mutable_none_of();
 
   EXPECT_CALL(mock_callback_,
-              Run(Property(&ClientStatus::proto_status, ACTION_APPLIED), _));
+              Run(Property(&ClientStatus::proto_status, ACTION_APPLIED), _, _));
   Check(mock_callback_.Get());
 }
 
@@ -204,7 +216,7 @@ TEST_F(ElementPreconditionTest, NoneOf_NoneMatch) {
       ToSelectorProto("does_not_exist_either");
 
   EXPECT_CALL(mock_callback_,
-              Run(Property(&ClientStatus::proto_status, ACTION_APPLIED), _));
+              Run(Property(&ClientStatus::proto_status, ACTION_APPLIED), _, _));
   Check(mock_callback_.Get());
 }
 
@@ -214,9 +226,9 @@ TEST_F(ElementPreconditionTest, NoneOf_SomeMatch) {
   *condition_.mutable_none_of()->add_conditions()->mutable_match() =
       ToSelectorProto("does_not_exist");
 
-  EXPECT_CALL(
-      mock_callback_,
-      Run(Property(&ClientStatus::proto_status, ELEMENT_RESOLUTION_FAILED), _));
+  EXPECT_CALL(mock_callback_, Run(Property(&ClientStatus::proto_status,
+                                           ELEMENT_RESOLUTION_FAILED),
+                                  _, _));
   Check(mock_callback_.Get());
 }
 
@@ -226,9 +238,9 @@ TEST_F(ElementPreconditionTest, NoneOf_AllMatch) {
   *condition_.mutable_none_of()->add_conditions()->mutable_match() =
       ToSelectorProto("exists_too");
 
-  EXPECT_CALL(
-      mock_callback_,
-      Run(Property(&ClientStatus::proto_status, ELEMENT_RESOLUTION_FAILED), _));
+  EXPECT_CALL(mock_callback_, Run(Property(&ClientStatus::proto_status,
+                                           ELEMENT_RESOLUTION_FAILED),
+                                  _, _));
   Check(mock_callback_.Get());
 }
 
@@ -245,7 +257,7 @@ TEST_F(ElementPreconditionTest, Payload_ConditionMet) {
 
   EXPECT_CALL(mock_callback_,
               Run(Property(&ClientStatus::proto_status, ACTION_APPLIED),
-                  ElementsAre("exists", "exists_too", "any_of")));
+                  ElementsAre("exists", "exists_too", "any_of"), _));
   Check(mock_callback_.Get());
 }
 
@@ -262,7 +274,7 @@ TEST_F(ElementPreconditionTest, Payload_ConditionNotMet) {
 
   EXPECT_CALL(mock_callback_, Run(Property(&ClientStatus::proto_status,
                                            ELEMENT_RESOLUTION_FAILED),
-                                  ElementsAre("exists", "exists_too")));
+                                  ElementsAre("exists", "exists_too"), _));
   Check(mock_callback_.Get());
 }
 
@@ -292,7 +304,25 @@ TEST_F(ElementPreconditionTest, Complex) {
 
   EXPECT_CALL(mock_callback_,
               Run(Property(&ClientStatus::proto_status, ACTION_APPLIED),
-                  ElementsAre("none_of", "exists in any_of", "any_of")));
+                  ElementsAre("none_of", "exists in any_of", "any_of"), _));
+  Check(mock_callback_.Get());
+}
+
+TEST_F(ElementPreconditionTest, ReturnsFoundElements) {
+  auto* exists = condition_.mutable_all_of()->add_conditions();
+  *exists->mutable_match() = ToSelectorProto("exists");
+  exists->set_payload("exists");
+  exists->mutable_client_id()->set_identifier("exists");
+
+  auto* exists_too = condition_.mutable_all_of()->add_conditions();
+  *exists_too->mutable_match() = ToSelectorProto("exists_too");
+  exists_too->set_payload("exists_too");
+  exists_too->mutable_client_id()->set_identifier("exists_too");
+
+  EXPECT_CALL(mock_callback_,
+              Run(Property(&ClientStatus::proto_status, ACTION_APPLIED),
+                  ElementsAre("exists", "exists_too"),
+                  UnorderedElementsAre(Key("exists"), Key("exists_too"))));
   Check(mock_callback_.Get());
 }
 

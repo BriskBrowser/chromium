@@ -23,9 +23,9 @@ namespace {
 // nullopt is returned in case the codec is not supported. nullptr is returned
 // for uncompressed PCM streams.
 base::Optional<std::unique_ptr<fuchsia::media::Compression>>
-GetFuchsiaCompressionFromAudioCodec(AudioCodec codec) {
+GetFuchsiaCompressionFromDecoderConfig(AudioDecoderConfig config) {
   auto compression = std::make_unique<fuchsia::media::Compression>();
-  switch (codec) {
+  switch (config.codec()) {
     case kCodecAAC:
       compression->type = fuchsia::media::AUDIO_ENCODING_AAC;
       break;
@@ -48,6 +48,11 @@ GetFuchsiaCompressionFromAudioCodec(AudioCodec codec) {
     default:
       return base::nullopt;
   }
+
+  if (!config.extra_data().empty()) {
+    compression->parameters = config.extra_data();
+  }
+
   return std::move(compression);
 }
 
@@ -108,6 +113,8 @@ void FuchsiaAudioRenderer::Initialize(DemuxerStream* stream,
     OnError(AUDIO_RENDERER_ERROR);
   });
 
+  UpdateVolume();
+
   audio_consumer_.events().OnEndOfStream = [this]() { OnEndOfStream(); };
   RequestAudioConsumerStatus();
 
@@ -138,6 +145,18 @@ void FuchsiaAudioRenderer::Initialize(DemuxerStream* stream,
   demuxer_stream_ = stream;
 
   std::move(init_cb_).Run(PIPELINE_OK);
+}
+
+void FuchsiaAudioRenderer::UpdateVolume() {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  DCHECK(audio_consumer_);
+  if (!volume_control_) {
+    audio_consumer_->BindVolumeControl(volume_control_.NewRequest());
+    volume_control_.set_error_handler([](zx_status_t status) {
+      ZX_LOG(ERROR, status) << "VolumeControl disconnected.";
+    });
+  }
+  volume_control_->SetVolume(volume_);
 }
 
 void FuchsiaAudioRenderer::InitializeStreamSink(
@@ -171,7 +190,7 @@ void FuchsiaAudioRenderer::InitializeStreamSink(
     vmos_for_stream_sink.push_back(std::move(readonly_vmo));
   }
 
-  auto compression = GetFuchsiaCompressionFromAudioCodec(config.codec());
+  auto compression = GetFuchsiaCompressionFromDecoderConfig(config);
   if (!compression) {
     LOG(ERROR) << "Unsupported audio codec: " << GetCodecName(config.codec());
     std::move(init_cb_).Run(AUDIO_RENDERER_ERROR);
@@ -223,22 +242,20 @@ void FuchsiaAudioRenderer::StartPlaying() {
 
 void FuchsiaAudioRenderer::SetVolume(float volume) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  if (!volume_control_) {
-    audio_consumer_->BindVolumeControl(volume_control_.NewRequest());
-    volume_control_.set_error_handler([](zx_status_t status) {
-      ZX_LOG(ERROR, status) << "VolumeControl disconnected.";
-    });
-  }
-  volume_control_->SetVolume(volume);
+  volume_ = volume;
+  if (audio_consumer_)
+    UpdateVolume();
 }
 
 void FuchsiaAudioRenderer::SetLatencyHint(
     base::Optional<base::TimeDelta> latency_hint) {
-  // TODO(chcunningham): Implement at some later date after we've vetted the API
-  // shape and usefulness outside of fuchsia.
+  // TODO(crbug.com/1131116): Implement at some later date after we've vetted
+  // the API shape and usefulness outside of fuchsia.
 }
 
 void FuchsiaAudioRenderer::SetPreservesPitch(bool preserves_pitch) {}
+
+void FuchsiaAudioRenderer::SetAutoplayInitiated(bool autoplay_initiated) {}
 
 void FuchsiaAudioRenderer::StartTicking() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
@@ -270,14 +287,19 @@ void FuchsiaAudioRenderer::StopTicking() {
   audio_consumer_->Stop();
 
   base::AutoLock lock(timeline_lock_);
+  UpdateTimelineAfterStop();
   SetPlaybackState(PlaybackState::kStopped);
-  media_pos_ = CurrentMediaTimeLocked();
 }
 
 void FuchsiaAudioRenderer::SetPlaybackRate(double playback_rate) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   audio_consumer_->SetRate(playback_rate);
+
+  if (playback_rate == 0.0) {
+    base::AutoLock lock(timeline_lock_);
+    UpdateTimelineAfterStop();
+  }
 }
 
 void FuchsiaAudioRenderer::SetMediaTime(base::TimeDelta time) {
@@ -287,6 +309,12 @@ void FuchsiaAudioRenderer::SetMediaTime(base::TimeDelta time) {
   {
     base::AutoLock lock(timeline_lock_);
     media_pos_ = time;
+
+    // Reset reference timestamp. This is necessary to ensure that the correct
+    // value is returned from GetWallClockTimes() until playback is resumed:
+    // the interface requires to return 0 wall clock between SetMediaTime() and
+    // StartTicking().
+    reference_time_ = base::TimeTicks();
   }
 
   FlushInternal();
@@ -295,10 +323,8 @@ void FuchsiaAudioRenderer::SetMediaTime(base::TimeDelta time) {
 
 base::TimeDelta FuchsiaAudioRenderer::CurrentMediaTime() {
   base::AutoLock lock(timeline_lock_);
-  if (state_ != PlaybackState::kPlaying &&
-      state_ != PlaybackState::kEndOfStream) {
+  if (!IsTimeMoving())
     return media_pos_;
-  }
 
   return CurrentMediaTimeLocked();
 }
@@ -311,12 +337,10 @@ bool FuchsiaAudioRenderer::GetWallClockTimes(
 
   base::AutoLock lock(timeline_lock_);
 
-  const bool is_time_moving = (state_ == PlaybackState::kPlaying ||
-                               state_ == PlaybackState::kEndOfStream) &&
-                              (media_delta_ > 0);
+  const bool is_time_moving = IsTimeMoving();
 
   if (media_timestamps.empty()) {
-    wall_clock_times->push_back(is_time_moving ? now : base::TimeTicks());
+    wall_clock_times->push_back(is_time_moving ? now : reference_time_);
     return is_time_moving;
   }
 
@@ -480,6 +504,12 @@ void FuchsiaAudioRenderer::OnDemuxerStreamReadDone(
 
   is_demuxer_read_pending_ = false;
 
+  if (drop_next_demuxer_read_result_) {
+    drop_next_demuxer_read_result_ = false;
+    ScheduleReadDemuxerStream();
+    return;
+  }
+
   if (read_status != DemuxerStream::kOk) {
     if (read_status == DemuxerStream::kError) {
       OnError(PIPELINE_ERROR_READ);
@@ -502,6 +532,12 @@ void FuchsiaAudioRenderer::OnDemuxerStreamReadDone(
       SetPlaybackState(PlaybackState::kEndOfStream);
     }
     stream_sink_->EndOfStream();
+
+    // No more data is going to be buffered. Update buffering state to ensure
+    // RendererImpl starts playback in case it was waiting for buffering to
+    // finish.
+    SetBufferState(BUFFERING_HAVE_ENOUGH);
+
     return;
   }
 
@@ -581,6 +617,10 @@ void FuchsiaAudioRenderer::FlushInternal() {
   SetBufferState(BUFFERING_HAVE_NOTHING);
   last_packet_timestamp_ = base::TimeDelta::Min();
   read_timer_.Stop();
+
+  if (is_demuxer_read_pending_) {
+    drop_next_demuxer_read_result_ = true;
+  }
 }
 
 void FuchsiaAudioRenderer::OnEndOfStream() {
@@ -588,7 +628,24 @@ void FuchsiaAudioRenderer::OnEndOfStream() {
   client_->OnEnded();
 }
 
+bool FuchsiaAudioRenderer::IsTimeMoving() {
+  return (state_ == PlaybackState::kPlaying ||
+          state_ == PlaybackState::kEndOfStream) &&
+         (media_delta_ > 0);
+}
+
+void FuchsiaAudioRenderer::UpdateTimelineAfterStop() {
+  if (!IsTimeMoving())
+    return;
+
+  media_pos_ = CurrentMediaTimeLocked();
+  reference_time_ = base::TimeTicks::Now();
+  media_delta_ = 0;
+}
+
 base::TimeDelta FuchsiaAudioRenderer::CurrentMediaTimeLocked() {
+  DCHECK(IsTimeMoving());
+
   // Calculate media position using formula specified by the TimelineFunction.
   // See https://fuchsia.dev/reference/fidl/fuchsia.media#formulas .
   return media_pos_ + (base::TimeTicks::Now() - reference_time_) *

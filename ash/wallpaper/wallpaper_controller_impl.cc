@@ -9,6 +9,7 @@
 #include <string>
 #include <utility>
 
+#include "ash/constants/ash_switches.h"
 #include "ash/display/window_tree_host_manager.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/public/cpp/ash_switches.h"
@@ -46,7 +47,6 @@
 #include "base/task/thread_pool.h"
 #include "base/task_runner_util.h"
 #include "base/values.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
@@ -714,10 +714,11 @@ void WallpaperControllerImpl::UpdateWallpaperBlurForLockState(bool blur) {
   // InstallDesktopController. Always try to update, then invoke observer
   // if something changed.
   for (auto* root_window_controller : Shell::GetAllRootWindowControllers()) {
-    changed |= root_window_controller->wallpaper_widget_controller()
-                   ->SetWallpaperProperty(blur ? wallpaper_constants::kLockState
-                                               : wallpaper_constants::kClear,
-                                          kLockAnimationBlurAnimationDuration);
+    changed |=
+        root_window_controller->wallpaper_widget_controller()->SetWallpaperBlur(
+            blur ? wallpaper_constants::kLockLoginBlur
+                 : wallpaper_constants::kClear,
+            kLockAnimationBlurAnimationDuration);
   }
 
   is_wallpaper_blurred_for_lock_state_ = blur;
@@ -727,8 +728,7 @@ void WallpaperControllerImpl::UpdateWallpaperBlurForLockState(bool blur) {
   }
 }
 
-void WallpaperControllerImpl::RestoreWallpaperPropertyForLockState(
-    const WallpaperProperty& property) {
+void WallpaperControllerImpl::RestoreWallpaperBlurForLockState(float blur) {
   if (!IsBlurAllowedForLockState())
     return;
 
@@ -736,8 +736,8 @@ void WallpaperControllerImpl::RestoreWallpaperPropertyForLockState(
   // InstallDesktopController. Always try to update, then invoke observer
   // if something changed.
   for (auto* root_window_controller : Shell::GetAllRootWindowControllers()) {
-    root_window_controller->wallpaper_widget_controller()->SetWallpaperProperty(
-        property, kLockAnimationBlurAnimationDuration);
+    root_window_controller->wallpaper_widget_controller()->SetWallpaperBlur(
+        blur, kLockAnimationBlurAnimationDuration);
   }
 
   DCHECK(is_wallpaper_blurred_for_lock_state_);
@@ -746,14 +746,15 @@ void WallpaperControllerImpl::RestoreWallpaperPropertyForLockState(
     observer.OnWallpaperBlurChanged();
 }
 
-bool WallpaperControllerImpl::ShouldApplyDimming() const {
-  // Dim the wallpaper in a blocked user session or in tablet mode unless during
-  // wallpaper preview.
-  const bool should_dim =
+bool WallpaperControllerImpl::ShouldApplyShield() const {
+  // Apply a shield on the wallpaper in a blocked user session or overview or in
+  // tablet mode unless during wallpaper preview.
+  const bool needs_shield =
       Shell::Get()->session_controller()->IsUserSessionBlocked() ||
+      Shell::Get()->overview_controller()->InOverviewSession() ||
       (Shell::Get()->tablet_mode_controller()->InTabletMode() &&
        !confirm_preview_wallpaper_callback_);
-  return should_dim && !IsOneShotWallpaper();
+  return needs_shield && !IsOneShotWallpaper();
 }
 
 bool WallpaperControllerImpl::IsBlurAllowedForLockState() const {
@@ -1077,8 +1078,8 @@ void WallpaperControllerImpl::ConfirmPreviewWallpaper() {
   std::move(confirm_preview_wallpaper_callback_).Run();
   reload_preview_wallpaper_callback_.Reset();
 
-  // Ensure dimming is applied after confirming the preview wallpaper.
-  if (ShouldApplyDimming())
+  // Ensure shield is applied after confirming the preview wallpaper.
+  if (ShouldApplyShield())
     RepaintWallpaper();
 
   for (auto& observer : observers_)
@@ -1343,10 +1344,13 @@ bool WallpaperControllerImpl::ShouldShowWallpaperSetting() {
   if (!active_user_session)
     return false;
 
+  // Since everything gets wiped at the end of the Public Session (and Managed
+  // Guest Session), users are disallowed to set wallpaper (and other
+  // personalization settings) to avoid unnecessary confusion and surprise when
+  // everything resets.
   user_manager::UserType active_user_type = active_user_session->user_info.type;
   return active_user_type == user_manager::USER_TYPE_REGULAR ||
-         active_user_type == user_manager::USER_TYPE_PUBLIC_ACCOUNT ||
-         active_user_type == user_manager::USER_TYPE_SUPERVISED ||
+         active_user_type == user_manager::USER_TYPE_SUPERVISED_DEPRECATED ||
          active_user_type == user_manager::USER_TYPE_CHILD;
 }
 
@@ -1379,7 +1383,8 @@ void WallpaperControllerImpl::OnRootWindowAdded(aura::Window* root_window) {
       ReloadWallpaper(/*clear_cache=*/true);
   }
 
-  UpdateWallpaperForRootWindow(root_window, /*lock_state_changed=*/false);
+  UpdateWallpaperForRootWindow(root_window, /*lock_state_changed=*/false,
+                               /*new_root=*/true);
 }
 
 void WallpaperControllerImpl::OnShellInitialized() {
@@ -1471,16 +1476,16 @@ void WallpaperControllerImpl::ReloadWallpaperForTesting(bool clear_cache) {
 
 void WallpaperControllerImpl::UpdateWallpaperForRootWindow(
     aura::Window* root_window,
-    bool lock_state_changed) {
+    bool lock_state_changed,
+    bool new_root) {
   DCHECK_EQ(WALLPAPER_IMAGE, wallpaper_mode_);
 
   auto* wallpaper_widget_controller =
       RootWindowController::ForWindow(root_window)
           ->wallpaper_widget_controller();
-  WallpaperProperty property =
-      wallpaper_widget_controller->GetWallpaperProperty();
+  float blur = wallpaper_widget_controller->GetWallpaperBlur();
 
-  if (lock_state_changed) {
+  if (lock_state_changed || new_root) {
     const bool is_wallpaper_blurred_for_lock_state =
         Shell::Get()->session_controller()->IsUserSessionBlocked() &&
         IsBlurAllowedForLockState();
@@ -1494,20 +1499,20 @@ void WallpaperControllerImpl::UpdateWallpaperForRootWindow(
     const int container_id = GetWallpaperContainerId(locked_);
     wallpaper_widget_controller->Reparent(container_id);
 
-    property = is_wallpaper_blurred_for_lock_state
-                   ? wallpaper_constants::kLockState
-                   : wallpaper_constants::kClear;
+    blur = is_wallpaper_blurred_for_lock_state
+               ? wallpaper_constants::kLockLoginBlur
+               : wallpaper_constants::kClear;
   }
 
   wallpaper_widget_controller->wallpaper_view()->ClearCachedImage();
-  wallpaper_widget_controller->SetWallpaperProperty(
-      property, kWallpaperLoadAnimationDuration);
+  wallpaper_widget_controller->SetWallpaperBlur(
+      blur, new_root ? base::TimeDelta() : kWallpaperLoadAnimationDuration);
 }
 
 void WallpaperControllerImpl::UpdateWallpaperForAllRootWindows(
     bool lock_state_changed) {
   for (aura::Window* root : Shell::GetAllRootWindows())
-    UpdateWallpaperForRootWindow(root, lock_state_changed);
+    UpdateWallpaperForRootWindow(root, lock_state_changed, /*new_root=*/false);
   current_max_display_size_ = GetMaxDisplaySizeInNative();
 }
 

@@ -15,6 +15,7 @@
 #include "components/exo/shell_surface.h"
 #include "components/exo/surface.h"
 #include "components/exo/test/exo_test_base.h"
+#include "components/exo/test/exo_test_data_exchange_delegate.h"
 #include "components/exo/test/exo_test_helper.h"
 #include "components/exo/touch_delegate.h"
 #include "components/exo/touch_stylus_delegate.h"
@@ -500,7 +501,8 @@ TEST_F(TouchTest, OnTouchTilt) {
 }
 
 TEST_F(TouchTest, DragDropAbort) {
-  Seat seat;
+  Seat seat(std::make_unique<TestDataExchangeDelegate>());
+
   MockTouchDelegate touch_delegate;
   std::unique_ptr<Touch> touch(new Touch(&touch_delegate, &seat));
   TestDataSourceDelegate data_source_delegate;
@@ -546,7 +548,7 @@ TEST_F(TouchTest, TouchMultipleSurfaces) {
 
   auto child_surface = std::make_unique<Surface>();
   auto child_shell_surface = std::make_unique<ShellSurface>(
-      child_surface.get(), gfx::Point(), true, false,
+      child_surface.get(), gfx::Point(), /*can_minimize=*/false,
       ash::desks_util::GetActiveDeskContainerId());
   child_shell_surface->DisableMovement();
   child_shell_surface->SetParent(shell_surface.get());

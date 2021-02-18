@@ -46,8 +46,7 @@ class ProtobufHttpStatus;
 // so that the signaling connector will try to reconnect signaling.
 //
 // The server sends a HeartbeatResponse in response to each successful
-// heartbeat, which may contain a remote command to be executed on the host,
-// e.g. restarting the host process upon reception of the response.
+// heartbeat.
 class HeartbeatSender final : public SignalStrategy::Listener {
  public:
   class Delegate {
@@ -64,11 +63,20 @@ class HeartbeatSender final : public SignalStrategy::Listener {
     // requests.
     virtual void OnAuthFailed() = 0;
 
-    // Invoked when the host has been asked to restart.
-    virtual void OnRemoteRestartHost() = 0;
-
    protected:
     Delegate() = default;
+  };
+
+  // Interface to track heartbeat events for diagnosis purpose.
+  class Observer {
+   public:
+    virtual ~Observer() = default;
+
+    // Invoked when the heartbeat sender has sent a heartbeat.
+    virtual void OnHeartbeatSent() = 0;
+
+   protected:
+    Observer() = default;
   };
 
   // All raw pointers must be non-null and outlive this object.
@@ -77,6 +85,7 @@ class HeartbeatSender final : public SignalStrategy::Listener {
       const std::string& host_id,
       SignalStrategy* signal_strategy,
       OAuthTokenGetter* oauth_token_getter,
+      Observer* observer,
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       bool is_googler);
   ~HeartbeatSender() override;
@@ -125,9 +134,6 @@ class HeartbeatSender final : public SignalStrategy::Listener {
   void OnHostOfflineReasonTimeout();
   void OnHostOfflineReasonAck();
 
-  void OnRemoteCommand(
-      apis::v1::HeartbeatResponse::RemoteCommand remote_command);
-
   // Helper methods used by DoSendStanza() to generate heartbeat stanzas.
   std::unique_ptr<apis::v1::HeartbeatRequest> CreateHeartbeatRequest();
 
@@ -136,6 +142,7 @@ class HeartbeatSender final : public SignalStrategy::Listener {
   SignalStrategy* const signal_strategy_;
   std::unique_ptr<HeartbeatClient> client_;
   OAuthTokenGetter* const oauth_token_getter_;
+  Observer* observer_;
 
   base::OneShotTimer heartbeat_timer_;
 

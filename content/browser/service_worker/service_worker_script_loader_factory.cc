@@ -8,6 +8,7 @@
 #include <string>
 #include <utility>
 
+#include "base/callback_helpers.h"
 #include "base/strings/string_number_conversions.h"
 #include "content/browser/service_worker/service_worker_cache_writer.h"
 #include "content/browser/service_worker/service_worker_consts.h"
@@ -21,7 +22,6 @@
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "services/network/public/cpp/request_destination.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
-#include "third_party/blink/public/common/service_worker/service_worker_utils.h"
 
 namespace content {
 
@@ -210,13 +210,15 @@ void ServiceWorkerScriptLoaderFactory::CopyScript(
   scoped_refptr<ServiceWorkerVersion> version = worker_host_->version();
   version->script_cache_map()->NotifyStartedCaching(url, new_resource_id);
 
+  auto repeating_callback =
+      base::AdaptCallbackForRepeating(std::move(callback));
   net::Error error = cache_writer_->StartCopy(
-      base::BindOnce(std::move(callback), new_resource_id));
+      base::BindOnce(repeating_callback, new_resource_id));
 
   // Run the callback directly if the operation completed or failed
   // synchronously.
   if (net::ERR_IO_PENDING != error) {
-    std::move(callback).Run(new_resource_id, error);
+    repeating_callback.Run(new_resource_id, error);
   }
 }
 
@@ -227,6 +229,12 @@ void ServiceWorkerScriptLoaderFactory::OnCopyScriptFinished(
     mojo::PendingRemote<network::mojom::URLLoaderClient> client,
     int64_t new_resource_id,
     net::Error error) {
+  if (!worker_host_) {
+    // Null |worker_host_| means the worker has been terminated unexpectedly.
+    // Nothing can do in this case.
+    return;
+  }
+
   int64_t resource_size = cache_writer_->bytes_written();
   cache_writer_.reset();
   scoped_refptr<ServiceWorkerVersion> version = worker_host_->version();
@@ -266,6 +274,12 @@ void ServiceWorkerScriptLoaderFactory::OnResourceIdAssignedForNewScriptLoader(
     mojo::PendingRemote<network::mojom::URLLoaderClient> client,
     const net::MutableNetworkTrafficAnnotationTag& traffic_annotation,
     int64_t resource_id) {
+  if (!worker_host_) {
+    // Null |worker_host_| means the worker has been terminated unexpectedly.
+    // Nothing can do in this case.
+    return;
+  }
+
   if (resource_id == blink::mojom::kInvalidServiceWorkerResourceId) {
     mojo::Remote<network::mojom::URLLoaderClient>(std::move(client))
         ->OnComplete(network::URLLoaderCompletionStatus(net::ERR_ABORTED));

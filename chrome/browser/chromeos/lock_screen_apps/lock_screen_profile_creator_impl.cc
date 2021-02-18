@@ -13,8 +13,8 @@
 #include "base/strings/string16.h"
 #include "base/time/tick_clock.h"
 #include "base/time/time.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/pref_names.h"
 #include "components/prefs/pref_service.h"
@@ -58,8 +58,9 @@ void LockScreenProfileCreatorImpl::OnPreferredNoteTakingAppUpdated(
 
   g_browser_process->profile_manager()->CreateProfileAsync(
       chromeos::ProfileHelper::GetLockScreenAppProfilePath(),
-      base::Bind(&LockScreenProfileCreatorImpl::OnProfileReady,
-                 weak_ptr_factory_.GetWeakPtr(), tick_clock_->NowTicks()),
+      base::BindRepeating(&LockScreenProfileCreatorImpl::OnProfileReady,
+                          weak_ptr_factory_.GetWeakPtr(),
+                          tick_clock_->NowTicks()),
       base::string16() /* name */, "" /* icon_url*/);
 }
 

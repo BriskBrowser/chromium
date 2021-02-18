@@ -19,9 +19,8 @@
 #include "content/public/browser/web_contents_delegate.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
-#include "ui/views/controls/button/button.h"
-#include "ui/views/controls/styled_label_listener.h"
 #include "ui/views/layout/box_layout.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/style/typography.h"
 
 class Browser;
@@ -37,9 +36,7 @@ class ImageModel;
 // This class provides the UI for different menus that are created by user
 // clicking the avatar button.
 class ProfileMenuViewBase : public content::WebContentsDelegate,
-                            public views::BubbleDialogDelegateView,
-                            public views::ButtonListener,
-                            public views::StyledLabelListener {
+                            public views::BubbleDialogDelegateView {
  public:
   // Enumeration of all actionable items in the profile menu.
   // These values are persisted to logs. Entries should not be renumbered and
@@ -94,8 +91,6 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
 
   // Size of the large identity image in the menu.
   static constexpr int kIdentityImageSize = 64;
-  // Size of the small identity images for other selectable profiles.
-  static constexpr int kSelectableProfileImageSize = 20;
 
   // Shows the bubble if one is not already showing.  This allows us to easily
   // make a button toggle the bubble on and off when clicked: we unconditionally
@@ -117,6 +112,9 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
                       Browser* browser);
   ~ProfileMenuViewBase() override;
 
+  ProfileMenuViewBase(const ProfileMenuViewBase&) = delete;
+  ProfileMenuViewBase& operator=(const ProfileMenuViewBase&) = delete;
+
   // This method is called once to add all menu items.
   virtual void BuildMenu() = 0;
 
@@ -130,7 +128,8 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
       base::Optional<EditButtonParams> edit_button_params,
       const ui::ImageModel& image_model,
       const base::string16& title,
-      const base::string16& subtitle = base::string16());
+      const base::string16& subtitle = base::string16(),
+      const ui::ThemedVectorIcon& avatar_header_art = ui::ThemedVectorIcon());
   void SetSyncInfo(const SyncInfo& sync_info,
                    const base::RepeatingClosure& action,
                    bool show_badge);
@@ -172,16 +171,18 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
   }
 
  private:
+  class AXMenuWidgetObserver;
+
   friend class ProfileMenuViewExtensionsTest;
 
   void Reset();
+  void OnWindowClosing();
 
   // Requests focus for a button when opened by keyboard.
   void FocusButtonOnKeyboardOpen();
 
   // views::BubbleDialogDelegateView:
   void Init() final;
-  void WindowClosing() override;
   void OnThemeChanged() override;
   ax::mojom::Role GetAccessibleWindowRole() override;
 
@@ -189,27 +190,13 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
   bool HandleContextMenu(content::RenderFrameHost* render_frame_host,
                          const content::ContextMenuParams& params) override;
 
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* button, const ui::Event& event) final;
-
-  // views::StyledLabelListener:
-  void StyledLabelLinkClicked(views::StyledLabel* link,
-                              const gfx::Range& range,
-                              int event_flags) final;
-
-  // Handles all click events.
-  void OnClick(views::View* clickable_view);
-
-  void RegisterClickAction(views::View* clickable_view,
-                           base::RepeatingClosure action);
+  void ButtonPressed(base::RepeatingClosure action);
 
   void UpdateSyncInfoContainerBackground();
 
   Browser* const browser_;
 
   views::Button* const anchor_button_;
-
-  std::map<views::View*, base::RepeatingClosure> click_actions_;
 
   // Component containers.
   views::View* heading_container_ = nullptr;
@@ -236,7 +223,10 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
   SyncInfoContainerBackgroundState sync_background_state_ =
       SyncInfoContainerBackgroundState::kNoError;
 
-  DISALLOW_COPY_AND_ASSIGN(ProfileMenuViewBase);
+  // Actual heading string would be set by children classes.
+  base::string16 profile_mgmt_heading_;
+
+  std::unique_ptr<AXMenuWidgetObserver> ax_widget_observer_;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_PROFILES_PROFILE_MENU_VIEW_BASE_H_

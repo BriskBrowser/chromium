@@ -34,14 +34,9 @@
 #include "ui/gfx/image/image_skia_operations.h"
 #include "ui/views/animation/bounds_animator.h"
 #include "ui/views/animation/bounds_animator_observer.h"
-#include "ui/views/controls/button/button.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/view.h"
 #include "ui/views/view_model.h"
-
-namespace views {
-class ButtonListener;
-}
 
 namespace ash {
 
@@ -52,6 +47,7 @@ class AppsGridViewTestApi;
 
 class ApplicationDragAndDropHost;
 class AppListConfig;
+class AppListItem;
 class AppListItemView;
 class AppsGridViewFolderDelegate;
 class ContentsView;
@@ -61,7 +57,7 @@ class GhostImageView;
 
 // Represents the index to an item view in the grid.
 struct APP_LIST_EXPORT GridIndex {
-  GridIndex() : page(-1), slot(-1) {}
+  GridIndex() = default;
   GridIndex(int page, int slot) : page(page), slot(slot) {}
 
   bool operator==(const GridIndex& other) const {
@@ -75,13 +71,12 @@ struct APP_LIST_EXPORT GridIndex {
   }
   std::string ToString() const;
 
-  int page;  // Which page an item view is on.
-  int slot;  // Which slot in the page an item view is in.
+  int page = -1;  // Which page an item view is on.
+  int slot = -1;  // Which slot in the page an item view is in.
 };
 
 // AppsGridView displays a grid for AppListItemList sub model.
 class APP_LIST_EXPORT AppsGridView : public views::View,
-                                     public views::ButtonListener,
                                      public AppListItemListObserver,
                                      public PaginationModelObserver,
                                      public AppListModelObserver,
@@ -266,7 +261,8 @@ class APP_LIST_EXPORT AppsGridView : public views::View,
 
   // Passes scroll information from AppListView to the PaginationController,
   // returns true if this scroll would change pages.
-  bool HandleScrollFromAppListView(const gfx::Vector2d& offset,
+  bool HandleScrollFromAppListView(const gfx::Point& location,
+                                   const gfx::Vector2d& offset,
                                    ui::EventType type);
 
   // Moves |reparented_item| from its folder to the root AppsGridView in the
@@ -384,6 +380,9 @@ class APP_LIST_EXPORT AppsGridView : public views::View,
   // Updates the number of pulsing block views based on AppListModel status and
   // number of apps.
   void UpdatePulsingBlockViews();
+
+  std::unique_ptr<AppListItemView> CreateViewForItem(AppListItem* item,
+                                                     bool is_in_folder = false);
 
   std::unique_ptr<AppListItemView> CreateViewForItemAtIndex(size_t index);
 
@@ -512,8 +511,9 @@ class APP_LIST_EXPORT AppsGridView : public views::View,
   // shelf.
   bool IsPointWithinBottomDragBuffer(const gfx::Point& point) const;
 
-  // Overridden from views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
+  // AppListItemView pressed callback binds here:
+  void OnAppListItemViewPressed(AppListItemView* pressed_item_view,
+                                const ui::Event& event);
 
   // Overridden from AppListItemListObserver:
   void OnListItemAdded(size_t index, AppListItem* item) override;
@@ -708,6 +708,10 @@ class APP_LIST_EXPORT AppsGridView : public views::View,
   // folder or creating a folder with two apps.
   void MaybeCreateFolderDroppingAccessibilityEvent();
 
+  // Modifies the announcement view to verbalize that the focused view has new
+  // updates, based on the item having a notification badge.
+  void AnnounceItemNotificationBadge(const base::string16& selected_view_title);
+
   // Modifies the announcement view to verbalize that the current drag will move
   // |moving_view_title| and create a folder or move it into an existing folder
   // with |target_view_title|.
@@ -870,7 +874,7 @@ class APP_LIST_EXPORT AppsGridView : public views::View,
   bool is_end_gesture_ = false;
 
   // view structure used only for non-folder.
-  PagedViewStructure view_structure_;
+  PagedViewStructure view_structure_{this};
 
   // True if an extra page is opened after the user drags an app to the bottom
   // of last page with intention to put it in a new page. This is only used for

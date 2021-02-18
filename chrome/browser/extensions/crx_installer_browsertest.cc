@@ -11,6 +11,7 @@
 #include "base/at_exit.h"
 #include "base/bind.h"
 #include "base/files/file_path.h"
+#include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
@@ -20,6 +21,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/download/download_crx_util.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_install_prompt.h"
@@ -34,7 +36,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/common/web_application_info.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/safe_browsing/buildflags.h"
@@ -66,10 +68,10 @@
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/l10n/l10n_util.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/ash_switches.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/extensions/extension_assets_manager_chromeos.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "components/user_manager/scoped_user_manager.h"
 #endif
 
@@ -138,14 +140,14 @@ SkBitmap CreateSquareBitmap(int size) {
 
 WebApplicationInfo CreateWebAppInfo(const char* title,
                                     const char* description,
-                                    const char* app_url,
+                                    const char* start_url,
                                     int size,
                                     bool create_with_shortcuts) {
   WebApplicationInfo web_app_info;
   web_app_info.title = base::UTF8ToUTF16(title);
   web_app_info.description = base::UTF8ToUTF16(description);
-  web_app_info.app_url = GURL(app_url);
-  web_app_info.scope = GURL(app_url);
+  web_app_info.start_url = GURL(start_url);
+  web_app_info.scope = GURL(start_url);
   web_app_info.icon_bitmaps_any[size] = CreateSquareBitmap(size);
   if (create_with_shortcuts) {
     WebApplicationShortcutsMenuItemInfo shortcut_item;
@@ -1031,10 +1033,10 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest,
             *installation_failure.install_error_detail);
 }
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest, KioskOnlyTest) {
   base::ScopedAllowBlockingForTesting allow_io;
-  // kiosk_only is whitelisted from non-chromeos.
+  // kiosk_only is allowlisted from non-chromeos.
   base::FilePath crx_path =
       test_data_dir_.AppendASCII("kiosk/kiosk_only.crx");
   EXPECT_FALSE(InstallExtension(crx_path, 0));

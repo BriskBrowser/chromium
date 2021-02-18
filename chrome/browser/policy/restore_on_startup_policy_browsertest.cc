@@ -7,12 +7,14 @@
 #include "base/command_line.h"
 #include "base/stl_util.h"
 #include "base/values.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/policy/policy_test_utils.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/resource_coordinator/tab_load_tracker_test_support.h"
 #include "chrome/browser/search/search.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
+#include "chrome/browser/ui/search/local_ntp_test_utils.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -54,7 +56,7 @@ class RestoreOnStartupPolicyTest : public PolicyTest,
   RestoreOnStartupPolicyTest() = default;
   ~RestoreOnStartupPolicyTest() override = default;
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   void SetUpCommandLine(base::CommandLine* command_line) override {
     // TODO(nkostylev): Investigate if we can remove this switch.
     command_line->AppendSwitch(switches::kCreateBrowserOnStartupForTests);
@@ -124,7 +126,7 @@ class RestoreOnStartupPolicyTest : public PolicyTest,
     base::Value urls(base::Value::Type::LIST);
     for (const auto* url_string : kRestoredURLs)
       urls.Append(url_string);
-    policies.Set(key::kURLBlacklist, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_USER,
+    policies.Set(key::kURLBlocklist, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_USER,
                  POLICY_SOURCE_CLOUD, std::move(urls), nullptr);
     provider_.UpdateChromePolicy(policies);
     // This should restore the tabs opened at PRE_RunTest below, yet all should
@@ -167,12 +169,14 @@ IN_PROC_BROWSER_TEST_P(RestoreOnStartupPolicyTest, RunTest) {
   resource_coordinator::WaitForTransitionToLoaded(model);
   for (int i = 0; i < size && i < model->count(); ++i) {
     content::WebContents* web_contents = model->GetWebContentsAt(i);
-    if (blocked_)
+    if (blocked_) {
       CheckURLIsBlockedInWebContents(web_contents, expected_urls_[i]);
-    else if (expected_urls_[i] == GURL(chrome::kChromeUINewTabURL))
-      EXPECT_TRUE(search::IsInstantNTP(web_contents));
-    else
+    } else if (expected_urls_[i] == GURL(chrome::kChromeUINewTabURL)) {
+      EXPECT_EQ(local_ntp_test_utils::GetFinalNtpUrl(browser()->profile()),
+                web_contents->GetURL());
+    } else {
       EXPECT_EQ(expected_urls_[i], web_contents->GetURL());
+    }
   }
 }
 

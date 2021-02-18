@@ -5,7 +5,7 @@
 #include "components/subresource_filter/content/browser/fake_safe_browsing_database_manager.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/check_op.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -101,8 +101,8 @@ void FakeSafeBrowsingDatabaseManager::CancelCheck(Client* client) {
   size_t erased = checks_.erase(client);
   DCHECK_EQ(erased, 1u);
 }
-bool FakeSafeBrowsingDatabaseManager::CanCheckResourceType(
-    blink::mojom::ResourceType /* resource_type */) const {
+bool FakeSafeBrowsingDatabaseManager::CanCheckRequestDestination(
+    network::mojom::RequestDestination /* request_destination */) const {
   return true;
 }
 

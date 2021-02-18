@@ -3,6 +3,29 @@
 // found in the LICENSE file.
 
 /**
+ * @fileoverview
+ * @suppress {uselessCode} Temporary suppress because of the line exporting.
+ */
+
+// clang-format off
+// #import {A11yAnnounce} from './a11y_announce.m.js';
+// #import {FileListSelectionModel, FileListSingleSelectionModel} from './file_list_selection_model.m.js';
+// #import {EntryLocation} from '../../../../externs/entry_location.m.js';
+// #import {MetadataModel} from '../metadata/metadata_model.m.js';
+// #import {FilesAppEntry} from '../../../../externs/files_app_entry_interfaces.m.js';
+// #import {ListItem} from 'chrome://resources/js/cr/ui/list_item.m.js';
+// #import {ListSelectionModel} from 'chrome://resources/js/cr/ui/list_selection_model.m.js';
+// #import {TableList} from './table/table_list.m.js';
+// #import {FileTapHandler} from './file_tap_handler.m.js';
+// #import {List} from 'chrome://resources/js/cr/ui/list.m.js';
+// #import {FileType} from '../../../common/js/file_type.m.js';
+// #import {util, str, strf} from '../../../common/js/util.m.js';
+// #import {ListSelectionController} from 'chrome://resources/js/cr/ui/list_selection_controller.m.js';
+// #import {isMac} from 'chrome://resources/js/cr.m.js';
+// #import {assert} from 'chrome://resources/js/assert.m.js';
+// clang-format on
+
+/**
  * Namespace for utility functions.
  */
 const filelist = {};
@@ -10,7 +33,7 @@ const filelist = {};
 /**
  * File table list.
  */
-class FileTableList extends cr.ui.table.TableList {
+/* #export */ class FileTableList extends cr.ui.table.TableList {
   constructor() {
     // To silence closure compiler.
     super();
@@ -111,7 +134,7 @@ class FileListSelectionController extends cr.ui.ListSelectionController {
   /** @override */
   handleTouchEvents(e, index) {
     if (this.tapHandler_.handleTouchEvents(
-            e, index, filelist.handleTap.bind(this))) {
+            assert(e), index, filelist.handleTap.bind(this))) {
       // If a tap event is processed, FileTapHandler cancels the event to
       // prevent triggering click events. Then it results not moving the focus
       // to the list. So we do that here explicitly.
@@ -144,7 +167,7 @@ filelist.decorateListItem = (li, entry, metadataModel) => {
   // not on an external backend, externalProps is not available.
   const externalProps = metadataModel.getCache([entry], [
     'hosted', 'availableOffline', 'customIconUrl', 'shared', 'isMachineRoot',
-    'isExternalMedia'
+    'isExternalMedia', 'pinned'
   ])[0];
   filelist.updateListItemExternalProps(
       li, externalProps, util.isTeamDriveRoot(entry));
@@ -213,27 +236,29 @@ filelist.renderFileNameLabel = (doc, entry, locationInfo) => {
 };
 
 /**
+ * Renders the Drive pinned marker in the detail table.
+ * @return {!HTMLDivElement} Created element.
+ */
+filelist.renderPinned = (doc) => {
+  const icon = /** @type {!HTMLDivElement} */ (doc.createElement('div'));
+  icon.className = 'detail-pinned';
+  icon.setAttribute('aria-label', str('OFFLINE_COLUMN_LABEL'));
+  return icon;
+};
+
+/**
  * Updates grid item or table row for the externalProps.
  * @param {cr.ui.ListItem} li List item.
  * @param {Object} externalProps Metadata.
  */
 filelist.updateListItemExternalProps = (li, externalProps, isTeamDriveRoot) => {
   if (li.classList.contains('file')) {
-    if (externalProps.availableOffline === false) {
-      li.classList.add('dim-offline');
-    } else {
-      li.classList.remove('dim-offline');
-    }
-    // TODO(mtomasz): Consider adding some vidual indication for files which
-    // are not cached on LTE. Currently we show them as normal files.
-    // crbug.com/246611.
-
-    if (externalProps.hosted === true) {
-      li.classList.add('dim-hosted');
-    } else {
-      li.classList.remove('dim-hosted');
-    }
+    li.classList.toggle(
+        'dim-offline', externalProps.availableOffline === false);
+    li.classList.toggle('dim-hosted', !!externalProps.hosted);
   }
+
+  li.classList.toggle('pinned', !!externalProps.pinned);
 
   const iconDiv = li.querySelector('.detail-icon');
   if (!iconDiv) {
@@ -673,3 +698,6 @@ filelist.focusParentList = event => {
     element.focus();
   }
 };
+
+// eslint-disable-next-line semi,no-extra-semi
+/* #export */ {filelist};

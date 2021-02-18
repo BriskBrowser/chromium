@@ -5,7 +5,14 @@
     position: fixed;
     top: 0;
     width: 100%;
-    z-index: 1;
+    z-index: 99;
   }
 </style>
-<cr-toolbar id="toolbar" show-menu show-search="[[showSearch]]" menu-label="[[menuLabel]]"></cr-toolbar>
+<cr-toolbar id="toolbar"
+            show-menu
+            on-search-changed="onSearchChanged_"
+            menu-label="[[menuLabel]]"
+            page-name="[[pageName]]"
+            search-prompt="[[searchPrompt]]">
+  <slot></slot>
+</cr-toolbar>

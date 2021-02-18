@@ -28,38 +28,42 @@ namespace blink {
 // This needs its static position [1] to be placed correctly in its containing
 // block. And in the case of fragmentation, this also needs the containing block
 // fragment to be placed correctly within the fragmentation context root. In
-// addition, the block size consumed by previous fragmentainers and the
-// containing block offset are needed to compute the start offset and the
-// initial fragmentainer of an out-of-flow positioned-node.
+// addition, the containing block offset is needed to compute the start offset
+// and the initial fragmentainer of an out-of-flow positioned-node.
 //
 // This is struct is allowed to be stored/persisted.
 //
 // [1] https://www.w3.org/TR/CSS2/visudet.html#abs-non-replaced-width
-struct CORE_EXPORT NGPhysicalOutOfFlowPositionedNode {
+struct CORE_EXPORT NGPhysicalOutOfFlowPositionedNode final {
+  DISALLOW_NEW();
+
+ public:
   NGBlockNode node;
   NGPhysicalStaticPosition static_position;
   // Continuation root of the optional inline container.
-  const LayoutInline* inline_container;
-  const LayoutUnit fragmentainer_consumed_block_size;
+  Member<const LayoutInline> inline_container;
   PhysicalOffset containing_block_offset;
-  scoped_refptr<const NGPhysicalContainerFragment> containing_block_fragment;
+  Member<const NGPhysicalContainerFragment> containing_block_fragment;
 
   NGPhysicalOutOfFlowPositionedNode(
       NGBlockNode node,
       NGPhysicalStaticPosition static_position,
       const LayoutInline* inline_container = nullptr,
-      LayoutUnit fragmentainer_consumed_block_size = LayoutUnit(),
       PhysicalOffset containing_block_offset = PhysicalOffset(),
-      scoped_refptr<const NGPhysicalContainerFragment>
-          containing_block_fragment = nullptr)
+      const NGPhysicalContainerFragment* containing_block_fragment = nullptr)
       : node(node),
         static_position(static_position),
         inline_container(inline_container),
-        fragmentainer_consumed_block_size(fragmentainer_consumed_block_size),
         containing_block_offset(containing_block_offset),
         containing_block_fragment(std::move(containing_block_fragment)) {
     DCHECK(!inline_container ||
            inline_container == inline_container->ContinuationRoot());
+  }
+
+  void Trace(Visitor* visitor) const {
+    visitor->Trace(node);
+    visitor->Trace(inline_container);
+    visitor->Trace(containing_block_fragment);
   }
 };
 
@@ -69,37 +73,51 @@ struct CORE_EXPORT NGPhysicalOutOfFlowPositionedNode {
 //
 // It is *only* used within an algorithm pass, (it is temporary, and should not
 // be stored/persisted).
-struct NGLogicalOutOfFlowPositionedNode {
+struct NGLogicalOutOfFlowPositionedNode final {
+  DISALLOW_NEW();
+
+ public:
   NGBlockNode node;
   NGLogicalStaticPosition static_position;
   // Continuation root of the optional inline container.
-  const LayoutInline* inline_container;
-  const LayoutUnit fragmentainer_consumed_block_size;
+  Member<const LayoutInline> inline_container;
   bool needs_block_offset_adjustment;
+  const LayoutUnit fragmentainer_consumed_block_size;
   LogicalOffset containing_block_offset;
-  scoped_refptr<const NGPhysicalContainerFragment> containing_block_fragment;
+  Member<const NGPhysicalContainerFragment> containing_block_fragment;
+  base::Optional<LogicalRect> containing_block_rect;
 
   NGLogicalOutOfFlowPositionedNode(
       NGBlockNode node,
       NGLogicalStaticPosition static_position,
       const LayoutInline* inline_container = nullptr,
       bool needs_block_offset_adjustment = false,
-      LayoutUnit fragmentainer_consumed_block_size = LayoutUnit(),
       LogicalOffset containing_block_offset = LogicalOffset(),
-      scoped_refptr<const NGPhysicalContainerFragment>
-          containing_block_fragment = nullptr)
+      const NGPhysicalContainerFragment* containing_block_fragment = nullptr,
+      const base::Optional<LogicalRect> containing_block_rect = base::nullopt)
       : node(node),
         static_position(static_position),
         inline_container(inline_container),
-        fragmentainer_consumed_block_size(fragmentainer_consumed_block_size),
         needs_block_offset_adjustment(needs_block_offset_adjustment),
         containing_block_offset(containing_block_offset),
-        containing_block_fragment(std::move(containing_block_fragment)) {
+        containing_block_fragment(std::move(containing_block_fragment)),
+        containing_block_rect(containing_block_rect) {
     DCHECK(!inline_container ||
            inline_container == inline_container->ContinuationRoot());
+  }
+
+  void Trace(Visitor* visitor) const {
+    visitor->Trace(node);
+    visitor->Trace(inline_container);
+    visitor->Trace(containing_block_fragment);
   }
 };
 
 }  // namespace blink
+
+WTF_ALLOW_CLEAR_UNUSED_SLOTS_WITH_MEM_FUNCTIONS(
+    blink::NGPhysicalOutOfFlowPositionedNode)
+WTF_ALLOW_CLEAR_UNUSED_SLOTS_WITH_MEM_FUNCTIONS(
+    blink::NGLogicalOutOfFlowPositionedNode)
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_NG_OUT_OF_FLOW_POSITIONED_NODE_H_

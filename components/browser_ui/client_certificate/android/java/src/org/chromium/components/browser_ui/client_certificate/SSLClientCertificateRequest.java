@@ -25,7 +25,6 @@ import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.task.AsyncTask;
 import org.chromium.base.task.PostTask;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
-import org.chromium.ui.UiUtils;
 import org.chromium.ui.base.WindowAndroid;
 
 import java.security.Principal;
@@ -205,7 +204,10 @@ public class SSLClientCertificateRequest {
 
         /**
          * Calls KeyChain#choosePrivateKeyAlias with the provided arguments.
+         *
          */
+        // WrongConstant: @KeyProperties.KeyAlgorithmEnum for mKeyTypes is hidden with @hide.
+        @SuppressWarnings("WrongConstant")
         public void choosePrivateKeyAlias() throws ActivityNotFoundException {
             KeyChain.choosePrivateKeyAlias(mActivity, mCallback, mKeyTypes, mPrincipalsForCallback,
                     mHostName, mPort, mAlias);
@@ -229,8 +231,8 @@ public class SSLClientCertificateRequest {
          * Builds and shows the dialog.
          */
         public void show() {
-            final AlertDialog.Builder builder = new UiUtils.CompatibleAlertDialogBuilder(
-                    mContext, R.style.Theme_Chromium_AlertDialog);
+            final AlertDialog.Builder builder =
+                    new AlertDialog.Builder(mContext, R.style.Theme_Chromium_AlertDialog);
             builder.setTitle(R.string.client_cert_unsupported_title)
                     .setMessage(R.string.client_cert_unsupported_message)
                     .setNegativeButton(R.string.close,

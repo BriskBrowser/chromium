@@ -17,7 +17,6 @@
 #include "ui/events/types/event_type.h"
 #include "ui/events/x/events_x_utils.h"
 #include "ui/gfx/geometry/point.h"
-#include "ui/gfx/x/x11.h"
 #include "ui/gfx/x/xproto.h"
 
 #if defined(USE_OZONE)
@@ -27,6 +26,10 @@
 namespace ui {
 
 namespace {
+
+int XkbGroupForCoreState(int state) {
+  return (state >> 13) & 0x3;
+}
 
 // In X11 touch events, a new tracking_id/slot mapping is set up for each new
 // event (see |ui::GetTouchIdFromXEvent| function), which needs to be cleared

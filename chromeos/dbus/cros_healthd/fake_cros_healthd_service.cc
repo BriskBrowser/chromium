@@ -12,6 +12,12 @@
 namespace chromeos {
 namespace cros_healthd {
 
+FakeCrosHealthdService::RoutineUpdateParams::RoutineUpdateParams(
+    int32_t id,
+    mojom::DiagnosticRoutineCommandEnum command,
+    bool include_output)
+    : id(id), command(command), include_output(include_output) {}
+
 FakeCrosHealthdService::FakeCrosHealthdService() = default;
 FakeCrosHealthdService::~FakeCrosHealthdService() = default;
 
@@ -55,6 +61,8 @@ void FakeCrosHealthdService::GetRoutineUpdate(
     mojom::DiagnosticRoutineCommandEnum command,
     bool include_output,
     GetRoutineUpdateCallback callback) {
+  routine_update_params_ =
+      FakeCrosHealthdService::RoutineUpdateParams(id, command, include_output);
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(
@@ -67,7 +75,7 @@ void FakeCrosHealthdService::GetRoutineUpdate(
 }
 
 void FakeCrosHealthdService::RunUrandomRoutine(
-    uint32_t length_seconds,
+    mojom::NullableUint32Ptr length_seconds,
     RunUrandomRoutineCallback callback) {
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
@@ -76,8 +84,6 @@ void FakeCrosHealthdService::RunUrandomRoutine(
 }
 
 void FakeCrosHealthdService::RunBatteryCapacityRoutine(
-    uint32_t low_mah,
-    uint32_t high_mah,
     RunBatteryCapacityRoutineCallback callback) {
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
@@ -86,8 +92,6 @@ void FakeCrosHealthdService::RunBatteryCapacityRoutine(
 }
 
 void FakeCrosHealthdService::RunBatteryHealthRoutine(
-    uint32_t maximum_cycle_count,
-    uint32_t percent_battery_wear_allowed,
     RunBatteryHealthRoutineCallback callback) {
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
@@ -114,7 +118,7 @@ void FakeCrosHealthdService::RunAcPowerRoutine(
 }
 
 void FakeCrosHealthdService::RunCpuCacheRoutine(
-    uint32_t length_seconds,
+    mojom::NullableUint32Ptr length_seconds,
     RunCpuCacheRoutineCallback callback) {
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
@@ -123,7 +127,7 @@ void FakeCrosHealthdService::RunCpuCacheRoutine(
 }
 
 void FakeCrosHealthdService::RunCpuStressRoutine(
-    uint32_t length_seconds,
+    mojom::NullableUint32Ptr length_seconds,
     RunCpuStressRoutineCallback callback) {
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
@@ -132,7 +136,7 @@ void FakeCrosHealthdService::RunCpuStressRoutine(
 }
 
 void FakeCrosHealthdService::RunFloatingPointAccuracyRoutine(
-    uint32_t length_seconds,
+    mojom::NullableUint32Ptr length_seconds,
     RunFloatingPointAccuracyRoutineCallback callback) {
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
@@ -170,8 +174,7 @@ void FakeCrosHealthdService::RunDiskReadRoutine(
 }
 
 void FakeCrosHealthdService::RunPrimeSearchRoutine(
-    uint32_t length_seconds,
-    uint64_t max_num,
+    mojom::NullableUint32Ptr length_seconds,
     RunPrimeSearchRoutineCallback callback) {
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
@@ -187,6 +190,85 @@ void FakeCrosHealthdService::RunBatteryDischargeRoutine(
       FROM_HERE,
       base::BindOnce(std::move(callback), run_routine_response_.Clone()),
       callback_delay_);
+}
+
+void FakeCrosHealthdService::RunBatteryChargeRoutine(
+    uint32_t length_seconds,
+    uint32_t minimum_charge_percent_required,
+    RunBatteryChargeRoutineCallback callback) {
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(std::move(callback), run_routine_response_.Clone()),
+      callback_delay_);
+}
+
+void FakeCrosHealthdService::RunMemoryRoutine(
+    RunMemoryRoutineCallback callback) {
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(std::move(callback), run_routine_response_.Clone()),
+      callback_delay_);
+}
+
+void FakeCrosHealthdService::RunLanConnectivityRoutine(
+    RunLanConnectivityRoutineCallback callback) {
+  std::move(callback).Run(run_routine_response_.Clone());
+}
+
+void FakeCrosHealthdService::RunSignalStrengthRoutine(
+    RunSignalStrengthRoutineCallback callback) {
+  std::move(callback).Run(run_routine_response_.Clone());
+}
+
+void FakeCrosHealthdService::RunGatewayCanBePingedRoutine(
+    RunGatewayCanBePingedRoutineCallback callback) {
+  std::move(callback).Run(run_routine_response_.Clone());
+}
+
+void FakeCrosHealthdService::RunHasSecureWiFiConnectionRoutine(
+    RunHasSecureWiFiConnectionRoutineCallback callback) {
+  std::move(callback).Run(run_routine_response_.Clone());
+}
+
+void FakeCrosHealthdService::RunDnsResolverPresentRoutine(
+    RunDnsResolverPresentRoutineCallback callback) {
+  std::move(callback).Run(run_routine_response_.Clone());
+}
+
+void FakeCrosHealthdService::RunDnsLatencyRoutine(
+    RunDnsLatencyRoutineCallback callback) {
+  std::move(callback).Run(run_routine_response_.Clone());
+}
+
+void FakeCrosHealthdService::RunDnsResolutionRoutine(
+    RunDnsResolutionRoutineCallback callback) {
+  std::move(callback).Run(run_routine_response_.Clone());
+}
+
+void FakeCrosHealthdService::RunCaptivePortalRoutine(
+    RunCaptivePortalRoutineCallback callback) {
+  std::move(callback).Run(run_routine_response_.Clone());
+}
+
+void FakeCrosHealthdService::RunHttpFirewallRoutine(
+    RunHttpFirewallRoutineCallback callback) {
+  std::move(callback).Run(run_routine_response_.Clone());
+}
+
+void FakeCrosHealthdService::RunHttpsFirewallRoutine(
+    RunHttpsFirewallRoutineCallback callback) {
+  std::move(callback).Run(run_routine_response_.Clone());
+}
+
+void FakeCrosHealthdService::RunHttpsLatencyRoutine(
+    RunHttpsLatencyRoutineCallback callback) {
+  std::move(callback).Run(run_routine_response_.Clone());
+}
+
+void FakeCrosHealthdService::RunVideoConferencingRoutine(
+    const base::Optional<std::string>& stun_server_hostname,
+    RunVideoConferencingRoutineCallback callback) {
+  std::move(callback).Run(run_routine_response_.Clone());
 }
 
 void FakeCrosHealthdService::AddBluetoothObserver(
@@ -255,14 +337,59 @@ void FakeCrosHealthdService::EmitAcInsertedEventForTesting() {
     observer->OnAcInserted();
 }
 
+void FakeCrosHealthdService::EmitAcRemovedEventForTesting() {
+  for (auto& observer : power_observers_)
+    observer->OnAcRemoved();
+}
+
+void FakeCrosHealthdService::EmitOsSuspendEventForTesting() {
+  for (auto& observer : power_observers_)
+    observer->OnOsSuspend();
+}
+
+void FakeCrosHealthdService::EmitOsResumeEventForTesting() {
+  for (auto& observer : power_observers_)
+    observer->OnOsResume();
+}
+
 void FakeCrosHealthdService::EmitAdapterAddedEventForTesting() {
   for (auto& observer : bluetooth_observers_)
     observer->OnAdapterAdded();
 }
 
+void FakeCrosHealthdService::EmitAdapterRemovedEventForTesting() {
+  for (auto& observer : bluetooth_observers_)
+    observer->OnAdapterRemoved();
+}
+
+void FakeCrosHealthdService::EmitAdapterPropertyChangedEventForTesting() {
+  for (auto& observer : bluetooth_observers_)
+    observer->OnAdapterPropertyChanged();
+}
+
+void FakeCrosHealthdService::EmitDeviceAddedEventForTesting() {
+  for (auto& observer : bluetooth_observers_)
+    observer->OnDeviceAdded();
+}
+
+void FakeCrosHealthdService::EmitDeviceRemovedEventForTesting() {
+  for (auto& observer : bluetooth_observers_)
+    observer->OnDeviceRemoved();
+}
+
+void FakeCrosHealthdService::EmitDevicePropertyChangedEventForTesting() {
+  for (auto& observer : bluetooth_observers_)
+    observer->OnDevicePropertyChanged();
+}
+
 void FakeCrosHealthdService::EmitLidClosedEventForTesting() {
   for (auto& observer : lid_observers_)
     observer->OnLidClosed();
+}
+
+void FakeCrosHealthdService::EmitLidOpenedEventForTesting() {
+  for (auto& observer : lid_observers_)
+    observer->OnLidOpened();
 }
 
 void FakeCrosHealthdService::RequestNetworkHealthForTesting(
@@ -275,6 +402,11 @@ void FakeCrosHealthdService::RunLanConnectivityRoutineForTesting(
     chromeos::network_diagnostics::mojom::NetworkDiagnosticsRoutines::
         LanConnectivityCallback callback) {
   network_diagnostics_routines_->LanConnectivity(std::move(callback));
+}
+
+base::Optional<FakeCrosHealthdService::RoutineUpdateParams>
+FakeCrosHealthdService::GetRoutineUpdateParams() const {
+  return routine_update_params_;
 }
 
 }  // namespace cros_healthd

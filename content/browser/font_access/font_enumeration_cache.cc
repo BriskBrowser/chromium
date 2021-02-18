@@ -4,37 +4,59 @@
 
 #include "content/browser/font_access/font_enumeration_cache.h"
 
+#include "base/feature_list.h"
+#include "base/memory/read_only_shared_memory_region.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
-#include "build/build_config.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
-
-#if defined(OS_WIN)
-#include "content/browser/font_access/font_enumeration_cache_win.h"
-#endif
+#include "third_party/blink/public/common/features.h"
 
 namespace content {
 
-FontEnumerationCache::FontEnumerationCache() = default;
+FontEnumerationCache::FontEnumerationCache() {
+  InitializeCacheState();
+}
+
 FontEnumerationCache::~FontEnumerationCache() = default;
 
-// static
+#if !defined(PLATFORM_HAS_LOCAL_FONT_ENUMERATION_IMPL)
+//  static
 FontEnumerationCache* FontEnumerationCache::GetInstance() {
-#if defined(OS_WIN)
-  return FontEnumerationCacheWin::GetInstance();
+  return nullptr;
+}
 #endif
 
-  return nullptr;
+void FontEnumerationCache::QueueShareMemoryRegionWhenReady(
+    scoped_refptr<base::TaskRunner> task_runner,
+    CacheTaskCallback callback) {
+  DCHECK(base::FeatureList::IsEnabled(blink::features::kFontAccess));
+
+  callbacks_task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          &FontEnumerationCache::RunPendingCallback,
+          // Safe because this is an initialized singleton.
+          base::Unretained(this),
+          CallbackOnTaskRunner(std::move(task_runner), std::move(callback))));
+
+  if (!enumeration_cache_build_started_->IsSet()) {
+    enumeration_cache_build_started_->Set();
+
+    SchedulePrepareFontEnumerationCache();
+  }
+}
+
+bool FontEnumerationCache::IsFontEnumerationCacheReady() {
+  DCHECK(base::FeatureList::IsEnabled(blink::features::kFontAccess));
+
+  return enumeration_cache_built_->IsSet() && IsFontEnumerationCacheValid();
 }
 
 void FontEnumerationCache::ResetStateForTesting() {
   callbacks_task_runner_ =
       base::MakeRefCounted<base::DeferredSequencedTaskRunner>();
-  enumeration_cache_memory_ = base::MappedReadOnlyRegion();
-  enumeration_cache_built_.UnsafeResetForTesting();
-  enumeration_cache_build_started_.UnsafeResetForTesting();
-  status_ = FontEnumerationStatus::kOk;
+  InitializeCacheState();
 }
 
 base::ReadOnlySharedMemoryRegion FontEnumerationCache::DuplicateMemoryRegion() {
@@ -44,8 +66,8 @@ base::ReadOnlySharedMemoryRegion FontEnumerationCache::DuplicateMemoryRegion() {
 
 FontEnumerationCache::CallbackOnTaskRunner::CallbackOnTaskRunner(
     scoped_refptr<base::TaskRunner> runner,
-    blink::mojom::FontAccessManager::EnumerateLocalFontsCallback callback)
-    : task_runner(std::move(runner)), mojo_callback(std::move(callback)) {}
+    CacheTaskCallback callback)
+    : task_runner(std::move(runner)), callback(std::move(callback)) {}
 
 FontEnumerationCache::CallbackOnTaskRunner::CallbackOnTaskRunner(
     CallbackOnTaskRunner&& other) = default;
@@ -57,8 +79,8 @@ void FontEnumerationCache::RunPendingCallback(
   DCHECK(callbacks_task_runner_->RunsTasksInCurrentSequence());
 
   pending_callback.task_runner->PostTask(
-      FROM_HERE, base::BindOnce(std::move(pending_callback.mojo_callback),
-                                status_, DuplicateMemoryRegion()));
+      FROM_HERE, base::BindOnce(std::move(pending_callback.callback), status_,
+                                DuplicateMemoryRegion()));
 }
 
 void FontEnumerationCache::StartCallbacksTaskQueue() {
@@ -70,6 +92,39 @@ void FontEnumerationCache::StartCallbacksTaskQueue() {
 bool FontEnumerationCache::IsFontEnumerationCacheValid() const {
   return enumeration_cache_memory_.IsValid() &&
          enumeration_cache_memory_.mapping.size();
+}
+
+void FontEnumerationCache::BuildEnumerationCache(
+    std::unique_ptr<blink::FontEnumerationTable> table) {
+  DCHECK(!enumeration_cache_built_->IsSet());
+
+  // Postscript names, according to spec, are expected to be encoded in a subset
+  // of ASCII. See:
+  // https://docs.microsoft.com/en-us/typography/opentype/spec/name This is why
+  // a "simple" byte-wise comparison is used.
+  std::sort(table->mutable_fonts()->begin(), table->mutable_fonts()->end(),
+            [](const blink::FontEnumerationTable_FontMetadata& a,
+               const blink::FontEnumerationTable_FontMetadata& b) {
+              return a.postscript_name() < b.postscript_name();
+            });
+
+  enumeration_cache_memory_ =
+      base::ReadOnlySharedMemoryRegion::Create(table->ByteSizeLong());
+
+  if (!IsFontEnumerationCacheValid() ||
+      !table->SerializeToArray(enumeration_cache_memory_.mapping.memory(),
+                               enumeration_cache_memory_.mapping.size())) {
+    enumeration_cache_memory_ = base::MappedReadOnlyRegion();
+  }
+
+  enumeration_cache_built_->Set();
+}
+
+void FontEnumerationCache::InitializeCacheState() {
+  enumeration_cache_memory_ = base::MappedReadOnlyRegion();
+  enumeration_cache_built_ = std::make_unique<base::AtomicFlag>();
+  enumeration_cache_build_started_ = std::make_unique<base::AtomicFlag>();
+  status_ = blink::mojom::FontEnumerationStatus::kOk;
 }
 
 }  // namespace content

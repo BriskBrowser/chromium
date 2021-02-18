@@ -107,9 +107,14 @@ class ExtensionDownloaderDelegate {
 
   // Passes as an argument to OnExtensionDownloadCacheStatusRetrieved to inform
   // delegate about cache status.
-  // Note: enum used for UMA. Do NOT reorder or remove entries. Don't forget to
-  // update enums.xml (name: ExtensionInstallationCacheStatus) when adding new
+  // Note: enum used for UMA. Do NOT reorder or remove entries.
+  // 1) Don't forget to update enums.xml (name:
+  // ExtensionInstallationDownloadingCacheStatus) when adding new entries.
+  // 2) Don't forget to update device_management_backend.proto (name:
+  // ExtensionInstallReportLogEvent::DownloadCacheStatus) when adding new
   // entries.
+  // 3) Don't forget to update ConvertDownloadCacheStatusToProto method in
+  // ExtensionInstallEventLogCollector.
   enum class CacheStatus {
     // No information about cache status. This is never reported by
     // ExtensionDownloader, but may be used later in statistics.
@@ -215,13 +220,6 @@ class ExtensionDownloaderDelegate {
       const ExtensionId& id,
       CacheStatus cache_status);
 
-  // Invoked after the fetched manifest update results are parsed successfully,
-  // |status| contains information about the status of update check as returned
-  // by the update server.
-  virtual void OnExtensionManifestUpdateCheckStatusReceived(
-      const ExtensionId& id,
-      const std::string& status);
-
   // Invoked if the extension couldn't be downloaded. |error| contains the
   // failure reason.
   virtual void OnExtensionDownloadFailed(const ExtensionId& id,
@@ -264,10 +262,6 @@ class ExtensionDownloaderDelegate {
   // (this is the default).
   virtual bool GetPingDataForExtension(const ExtensionId& id,
                                        ManifestFetchData::PingData* ping);
-
-  // Invoked to get the update url data for this extension's update url, if
-  // there is any. The default implementation returns an empty string.
-  virtual std::string GetUpdateUrlData(const ExtensionId& id);
 
   // Invoked to determine whether extension |id| is currently
   // pending installation.

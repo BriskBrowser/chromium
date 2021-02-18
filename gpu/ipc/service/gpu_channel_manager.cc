@@ -581,12 +581,14 @@ void GpuChannelManager::DoWakeUpGpu() {
   const CommandBufferStub* stub = nullptr;
   for (const auto& kv : gpu_channels_) {
     const GpuChannel* channel = kv.second.get();
-    stub = channel->GetOneStub();
-    if (stub) {
-      DCHECK(stub->decoder_context());
+    const CommandBufferStub* stub_candidate = channel->GetOneStub();
+    if (stub_candidate) {
+      DCHECK(stub_candidate->decoder_context());
       // With Vulkan, Dawn, etc, RasterDecoders don't use GL.
-      if (stub->decoder_context()->GetGLContext())
+      if (stub_candidate->decoder_context()->GetGLContext()) {
+        stub = stub_candidate;
         break;
+      }
     }
   }
   if (!stub || !stub->decoder_context()->MakeCurrent())
@@ -738,8 +740,13 @@ scoped_refptr<SharedContextState> GpuChannelManager::GetSharedContextState(
         ContextCreationAttribs(), use_passthrough_decoder);
 
     // Only skip validation if the GLContext will be used exclusively by the
-    // SharedContextState.
+    // SharedContextState and dcheck is off.
+#if DCHECK_IS_ON()
+    attribs.can_skip_validation = false;
+#else
     attribs.can_skip_validation = !use_virtualized_gl_contexts;
+#endif
+
     context =
         gl::init::CreateGLContext(share_group.get(), surface.get(), attribs);
     if (!context) {

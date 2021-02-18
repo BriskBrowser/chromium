@@ -9,6 +9,7 @@
 #include "mojo/public/cpp/bindings/struct_traits.h"
 #include "net/base/isolation_info.h"
 #include "net/cookies/site_for_cookies.h"
+#include "services/network/public/cpp/schemeful_site_mojom_traits.h"
 #include "services/network/public/mojom/isolation_info.mojom-shared.h"
 #include "url/mojom/origin_mojom_traits.h"
 #include "url/origin.h"
@@ -17,20 +18,20 @@ namespace mojo {
 
 template <>
 struct COMPONENT_EXPORT(NETWORK_CPP_BASE)
-    EnumTraits<network::mojom::IsolationInfoRedirectMode,
-               net::IsolationInfo::RedirectMode> {
-  static network::mojom::IsolationInfoRedirectMode ToMojom(
-      net::IsolationInfo::RedirectMode redirect_mode);
-  static bool FromMojom(network::mojom::IsolationInfoRedirectMode redirect_mode,
-                        net::IsolationInfo::RedirectMode* out);
+    EnumTraits<network::mojom::IsolationInfoRequestType,
+               net::IsolationInfo::RequestType> {
+  static network::mojom::IsolationInfoRequestType ToMojom(
+      net::IsolationInfo::RequestType request_type);
+  static bool FromMojom(network::mojom::IsolationInfoRequestType request_type,
+                        net::IsolationInfo::RequestType* out);
 };
 
 template <>
 struct COMPONENT_EXPORT(NETWORK_CPP_BASE)
     StructTraits<network::mojom::IsolationInfoDataView, net::IsolationInfo> {
-  static net::IsolationInfo::RedirectMode redirect_mode(
+  static net::IsolationInfo::RequestType request_type(
       const net::IsolationInfo& input) {
-    return input.redirect_mode();
+    return input.request_type();
   }
 
   static const base::Optional<url::Origin>& top_frame_origin(
@@ -50,6 +51,11 @@ struct COMPONENT_EXPORT(NETWORK_CPP_BASE)
   static const net::SiteForCookies& site_for_cookies(
       const net::IsolationInfo& input) {
     return input.site_for_cookies();
+  }
+
+  static const base::Optional<std::set<net::SchemefulSite>> party_context(
+      const net::IsolationInfo& input) {
+    return input.party_context_;
   }
 
   static bool Read(network::mojom::IsolationInfoDataView data,

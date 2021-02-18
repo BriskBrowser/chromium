@@ -32,8 +32,14 @@ class ASH_PUBLIC_EXPORT NewWindowDelegate {
   // Invoked when an accelerator is used to open the file manager.
   virtual void OpenFileManager() = 0;
 
+  // Opens File Manager in the My files/Downloads folder.
+  virtual void OpenDownloadsFolder() = 0;
+
   // Invoked when the user opens Crosh.
   virtual void OpenCrosh() = 0;
+
+  // Invoked when an accelerator is used to open diagnostics.
+  virtual void OpenDiagnostics() = 0;
 
   // Invoked when an accelerator is used to open help center.
   virtual void OpenGetHelp() = 0;

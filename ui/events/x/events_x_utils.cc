@@ -14,6 +14,7 @@
 #include "base/memory/singleton.h"
 #include "base/metrics/histogram_macros.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "ui/events/base_event_utils.h"
@@ -25,7 +26,6 @@
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/x/extension_manager.h"
-#include "ui/gfx/x/x11.h"
 #include "ui/gfx/x/x11_atom_cache.h"
 #include "ui/gfx/x/xproto.h"
 
@@ -46,25 +46,25 @@ class XModifierStateWatcher {
     return base::Singleton<XModifierStateWatcher>::get();
   }
 
-  int StateFromKeyboardCode(ui::KeyboardCode keyboard_code) {
+  x11::KeyButMask StateFromKeyboardCode(ui::KeyboardCode keyboard_code) {
     switch (keyboard_code) {
       case ui::VKEY_CONTROL:
-        return ControlMask;
+        return x11::KeyButMask::Control;
       case ui::VKEY_SHIFT:
-        return ShiftMask;
+        return x11::KeyButMask::Shift;
       case ui::VKEY_MENU:
-        return Mod1Mask;
+        return x11::KeyButMask::Mod1;
       case ui::VKEY_CAPITAL:
-        return LockMask;
+        return x11::KeyButMask::Lock;
       default:
-        return 0;
+        return {};
     }
   }
 
   void UpdateStateFromXEvent(const x11::Event& xev) {
     ui::KeyboardCode keyboard_code = ui::KeyboardCodeFromXKeyEvent(xev);
-    unsigned int mask = StateFromKeyboardCode(keyboard_code);
-    // Floating device can't access the modifer state from master device.
+    auto mask = static_cast<int>(StateFromKeyboardCode(keyboard_code));
+    // Floating device can't access the modifier state from master device.
     // We need to track the states of modifier keys in a singleton for
     // floating devices such as touch screen. Issue 106426 is one example
     // of why we need the modifier states for floating device.
@@ -81,7 +81,7 @@ class XModifierStateWatcher {
     }
   }
 
-  // Returns the current modifer state in master device. It only contains the
+  // Returns the current modifier state in master device. It only contains the
   // state of ctrl, shift, alt and caps lock keys.
   unsigned int state() { return state_; }
 
@@ -162,7 +162,7 @@ int GetEventFlagsFromXKeyEvent(const x11::Event& xev) {
   DCHECK(key);
   const auto state = static_cast<int>(key->state);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   const int ime_fabricated_flag = 0;
 #else
   // XIM fabricates key events for the character compositions by XK_Multi_key.
@@ -376,7 +376,7 @@ base::TimeTicks TimeTicksFromXEvent(const x11::Event& xev) {
 
 // This is ported from libxi's FP1616toDBL in XExtInt.c
 double Fp1616ToDouble(x11::Input::Fp1616 x) {
-  auto x32 = static_cast<uint32_t>(x);
+  auto x32 = static_cast<int32_t>(x);
   return x32 * 1.0 / (1 << 16);
 }
 
@@ -564,7 +564,7 @@ gfx::Point EventLocationFromXEvent(const x11::Event& xev) {
   if (auto* xievent = xev.As<x11::Input::DeviceEvent>()) {
     float x = Fp1616ToDouble(xievent->event_x);
     float y = Fp1616ToDouble(xievent->event_y);
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     switch (xievent->opcode) {
       case x11::Input::DeviceEvent::TouchBegin:
       case x11::Input::DeviceEvent::TouchUpdate:
@@ -575,7 +575,7 @@ gfx::Point EventLocationFromXEvent(const x11::Event& xev) {
       default:
         break;
     }
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
     return gfx::Point(static_cast<int>(x), static_cast<int>(y));
   }
   return gfx::Point();
@@ -785,7 +785,8 @@ bool GetFlingDataFromXEvent(const x11::Event& xev,
 }
 
 bool IsAltPressed() {
-  return XModifierStateWatcher::GetInstance()->state() & Mod1Mask;
+  return XModifierStateWatcher::GetInstance()->state() &
+         static_cast<int>(x11::KeyButMask::Mod1);
 }
 
 int GetModifierKeyState() {

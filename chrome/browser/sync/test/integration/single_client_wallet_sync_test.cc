@@ -7,6 +7,8 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
+#include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/sync/test/integration/autofill_helper.h"
 #include "chrome/browser/sync/test/integration/bookmarks_helper.h"
 #include "chrome/browser/sync/test/integration/profile_sync_service_harness.h"
@@ -14,6 +16,7 @@
 #include "chrome/browser/sync/test/integration/single_client_status_change_checker.h"
 #include "chrome/browser/sync/test/integration/sync_integration_test_util.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
+#include "chrome/browser/sync/test/integration/updated_progress_marker_checker.h"
 #include "chrome/browser/sync/test/integration/wallet_helper.h"
 #include "chrome/browser/web_data_service_factory.h"
 #include "components/autofill/core/browser/autofill_data_util.h"
@@ -31,8 +34,11 @@
 #include "components/autofill/core/common/autofill_prefs.h"
 #include "components/autofill/core/common/autofill_switches.h"
 #include "components/prefs/pref_service.h"
+#include "components/signin/public/identity_manager/identity_test_utils.h"
 #include "components/sync/base/model_type.h"
+#include "components/sync/driver/sync_auth_util.h"
 #include "components/sync/driver/sync_service.h"
+#include "components/sync/driver/sync_token_status.h"
 #include "components/sync/protocol/model_type_state.pb.h"
 #include "components/sync/test/fake_server/fake_server.h"
 #include "components/webdata/common/web_data_service_consumer.h"
@@ -63,7 +69,7 @@ using wallet_helper::GetPersonalDataManager;
 using wallet_helper::GetProfileWebDataService;
 using wallet_helper::GetServerAddressesMetadata;
 using wallet_helper::GetServerCardsMetadata;
-using wallet_helper::GetWalletDataModelTypeState;
+using wallet_helper::GetWalletModelTypeState;
 using wallet_helper::kDefaultBillingAddressID;
 using wallet_helper::kDefaultCardID;
 using wallet_helper::kDefaultCreditCardCloudTokenDataID;
@@ -85,6 +91,9 @@ const char kDifferentBillingAddressId[] = "another address entity ID";
 const base::Time kArbitraryDefaultTime = base::Time::FromDoubleT(25);
 const syncer::SyncFirstSetupCompleteSource kSetSourceFromTest =
     syncer::SyncFirstSetupCompleteSource::BASIC_FLOW;
+constexpr char kInvalidGrantOAuth2Token[] = R"({
+                                           "error": "invalid_grant"
+                                        })";
 
 template <class T>
 class AutofillWebDataServiceConsumer : public WebDataServiceConsumer {
@@ -110,62 +119,6 @@ class AutofillWebDataServiceConsumer : public WebDataServiceConsumer {
   DISALLOW_COPY_AND_ASSIGN(AutofillWebDataServiceConsumer);
 };
 
-class WaitForWalletUpdateChecker : public StatusChangeChecker,
-                                   public syncer::SyncServiceObserver {
- public:
-  WaitForWalletUpdateChecker(base::Time min_required_progress_marker_timestamp,
-                             syncer::SyncService* service)
-      : min_required_progress_marker_timestamp_(
-            min_required_progress_marker_timestamp),
-        service_(service) {
-    scoped_observer_.Add(service);
-  }
-
-  bool IsExitConditionSatisfied(std::ostream* os) override {
-    // GetLastCycleSnapshot() returns by value, so make sure to capture it for
-    // iterator use.
-    const syncer::SyncCycleSnapshot snap =
-        service_->GetLastCycleSnapshotForDebugging();
-    const syncer::ProgressMarkerMap& progress_markers =
-        snap.download_progress_markers();
-    auto marker_it = progress_markers.find(syncer::AUTOFILL_WALLET_DATA);
-    if (marker_it == progress_markers.end()) {
-      *os << "Waiting for an updated Wallet progress marker timestamp "
-          << min_required_progress_marker_timestamp_
-          << "; actual: no progress marker in last sync cycle";
-      return false;
-    }
-
-    sync_pb::DataTypeProgressMarker progress_marker;
-    bool success = progress_marker.ParseFromString(marker_it->second);
-    DCHECK(success);
-
-    const base::Time actual_timestamp =
-        fake_server::FakeServer::GetWalletProgressMarkerTimestamp(
-            progress_marker);
-
-    *os << "Waiting for an updated Wallet progress marker timestamp "
-        << min_required_progress_marker_timestamp_ << "; actual "
-        << actual_timestamp;
-
-    return actual_timestamp >= min_required_progress_marker_timestamp_;
-  }
-
-  // syncer::SyncServiceObserver implementation.
-  void OnSyncCycleCompleted(syncer::SyncService* sync) override {
-    CheckExitCondition();
-  }
-
- private:
-  const base::Time min_required_progress_marker_timestamp_;
-  const syncer::SyncService* const service_;
-
-  ScopedObserver<syncer::SyncService, syncer::SyncServiceObserver>
-      scoped_observer_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(WaitForWalletUpdateChecker);
-};
-
 std::vector<std::unique_ptr<CreditCard>> GetServerCards(
     scoped_refptr<autofill::AutofillWebDataService> service) {
   AutofillWebDataServiceConsumer<std::vector<std::unique_ptr<CreditCard>>>
@@ -184,7 +137,7 @@ std::vector<std::unique_ptr<AutofillProfile>> GetServerProfiles(
   return std::move(consumer.result());
 }
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 std::unique_ptr<autofill::PaymentsCustomerData> GetPaymentsCustomerData(
     scoped_refptr<autofill::AutofillWebDataService> service) {
   AutofillWebDataServiceConsumer<
@@ -206,6 +159,26 @@ GetCreditCardCloudTokenData(
   consumer.Wait();
   return std::move(consumer.result());
 }
+
+// Waits until local changes are committed or an auth error is encountered.
+class TestForAuthError : public UpdatedProgressMarkerChecker {
+ public:
+  explicit TestForAuthError(syncer::ProfileSyncService* service)
+      : UpdatedProgressMarkerChecker(service) {}
+
+  // StatusChangeChecker implementation.
+  bool IsExitConditionSatisfied(std::ostream* os) override {
+    *os << "Waiting for auth error";
+    // Note: This is quite fragile. It relies on Sync trying to fetch a new
+    // access token, even though it might already be in a persistent auth error
+    // state.
+    return (service()
+                ->GetSyncTokenStatusForDebugging()
+                .last_get_token_error.state() !=
+            GoogleServiceAuthError::NONE) ||
+           UpdatedProgressMarkerChecker::IsExitConditionSatisfied(os);
+  }
+};
 
 }  // namespace
 
@@ -264,7 +237,9 @@ class SingleClientWalletSyncTest : public SyncTest {
     // Trigger a sync and wait for the new data to arrive.
     TriggerSyncForModelTypes(
         0, syncer::ModelTypeSet(syncer::AUTOFILL_WALLET_DATA));
-    return WaitForWalletUpdateChecker(now, GetSyncService(0)).Wait();
+    return FullUpdateTypeProgressMarkerChecker(now, GetSyncService(0),
+                                               syncer::AUTOFILL_WALLET_DATA)
+        .Wait();
   }
 
   void AdvanceAutofillClockByOneDay() {
@@ -333,7 +308,7 @@ class SingleClientWalletWithAccountStorageSyncTest
 
 // ChromeOS does not support late signin after profile creation, so the test
 // below does not apply, at least in the current form.
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 IN_PROC_BROWSER_TEST_F(SingleClientWalletWithAccountStorageSyncTest,
                        DownloadAccountStorage_Card) {
   ASSERT_TRUE(SetupClients());
@@ -445,7 +420,7 @@ IN_PROC_BROWSER_TEST_F(SingleClientWalletWithAccountStorageSyncTest,
   ASSERT_EQ(1uL, pdm->GetCreditCardCloudTokenData().size());
   EXPECT_EQ("data-2", pdm->GetCreditCardCloudTokenData()[0]->instrument_token);
 }
-#endif  // !defined(OS_CHROMEOS)
+#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
 
 IN_PROC_BROWSER_TEST_F(SingleClientWalletSyncTest, EnabledByDefault) {
   ASSERT_TRUE(SetupSync());
@@ -549,7 +524,7 @@ IN_PROC_BROWSER_TEST_F(SingleClientWalletSyncTest, ClearOnStopSync) {
 }
 
 // ChromeOS does not sign out, so the test below does not apply.
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 // Wallet data should get cleared from the database when the user signs out.
 IN_PROC_BROWSER_TEST_F(SingleClientWalletSyncTest, ClearOnSignOut) {
   GetFakeServer()->SetWalletData({CreateDefaultSyncWalletAddress(),
@@ -580,7 +555,98 @@ IN_PROC_BROWSER_TEST_F(SingleClientWalletSyncTest, ClearOnSignOut) {
   EXPECT_EQ(0U, GetServerCardsMetadata(0).size());
   EXPECT_EQ(0U, GetServerAddressesMetadata(0).size());
 }
-#endif  // !defined(OS_CHROMEOS)
+#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
+
+// Wallet data should get cleared from the database when the user enters the
+// sync paused state.
+IN_PROC_BROWSER_TEST_F(SingleClientWalletSyncTest, ClearOnSyncPaused) {
+  GetFakeServer()->SetWalletData({CreateDefaultSyncWalletAddress(),
+                                  CreateDefaultSyncWalletCard(),
+                                  CreateDefaultSyncPaymentsCustomerData(),
+                                  CreateDefaultSyncCreditCardCloudTokenData()});
+  ASSERT_TRUE(SetupSync());
+
+  autofill::PersonalDataManager* pdm = GetPersonalDataManager(0);
+  ASSERT_NE(nullptr, pdm);
+
+  // Make sure the data & metadata is in the DB.
+  ASSERT_EQ(1uL, pdm->GetServerProfiles().size());
+  ASSERT_EQ(1uL, pdm->GetCreditCards().size());
+  ASSERT_EQ(kDefaultCustomerID, pdm->GetPaymentsCustomerData()->customer_id);
+  ASSERT_EQ(1uL, pdm->GetCreditCardCloudTokenData().size());
+  ASSERT_EQ(1U, GetServerCardsMetadata(0).size());
+  ASSERT_EQ(1U, GetServerAddressesMetadata(0).size());
+
+  // Enter sync paused state, the data & metadata should be gone.
+  GetClient(0)->EnterSyncPausedStateForPrimaryAccount();
+  WaitForNumberOfCards(0, pdm);
+
+  EXPECT_EQ(0uL, pdm->GetServerProfiles().size());
+  EXPECT_EQ(0uL, pdm->GetCreditCards().size());
+  EXPECT_EQ(nullptr, pdm->GetPaymentsCustomerData());
+  EXPECT_EQ(0uL, pdm->GetCreditCardCloudTokenData().size());
+  EXPECT_EQ(0U, GetServerCardsMetadata(0).size());
+  EXPECT_EQ(0U, GetServerAddressesMetadata(0).size());
+
+  GetClient(0)->ExitSyncPausedStateForPrimaryAccount();
+  WaitForNumberOfCards(1, pdm);
+  ASSERT_EQ(1uL, pdm->GetServerProfiles().size());
+  ASSERT_EQ(1uL, pdm->GetCreditCards().size());
+  ASSERT_EQ(kDefaultCustomerID, pdm->GetPaymentsCustomerData()->customer_id);
+  ASSERT_EQ(1uL, pdm->GetCreditCardCloudTokenData().size());
+  ASSERT_EQ(1U, GetServerCardsMetadata(0).size());
+  ASSERT_EQ(1U, GetServerAddressesMetadata(0).size());
+}
+
+// Wallet data should get cleared from the database when the user enters any
+// persistent error (other than getting signed-out which is covered in the
+// ClearOnSyncPaused test). One such case is when the account password was
+// changed in another device.
+IN_PROC_BROWSER_TEST_F(SingleClientWalletSyncTest, ClearOnPersistentError) {
+  GetFakeServer()->SetWalletData({CreateDefaultSyncWalletAddress(),
+                                  CreateDefaultSyncWalletCard(),
+                                  CreateDefaultSyncPaymentsCustomerData(),
+                                  CreateDefaultSyncCreditCardCloudTokenData()});
+  ASSERT_TRUE(SetupSync());
+
+  autofill::PersonalDataManager* pdm = GetPersonalDataManager(0);
+  ASSERT_NE(nullptr, pdm);
+
+  // Make sure the data & metadata is in the DB.
+  ASSERT_EQ(1uL, pdm->GetServerProfiles().size());
+  ASSERT_EQ(1uL, pdm->GetCreditCards().size());
+  ASSERT_EQ(kDefaultCustomerID, pdm->GetPaymentsCustomerData()->customer_id);
+  ASSERT_EQ(1uL, pdm->GetCreditCardCloudTokenData().size());
+  ASSERT_EQ(1U, GetServerCardsMetadata(0).size());
+  ASSERT_EQ(1U, GetServerAddressesMetadata(0).size());
+
+  // Enter an error state. First set up fake responses.
+  GetFakeServer()->SetHttpError(net::HTTP_UNAUTHORIZED);
+  SetOAuth2TokenResponse(kInvalidGrantOAuth2Token, net::HTTP_BAD_REQUEST,
+                         net::OK);
+  signin::DisableAccessTokenFetchRetries(
+      IdentityManagerFactory::GetForProfile(GetProfile(0)));
+
+  // Try to commit a bookmark which fails and triggers an auth token fetch.
+  EXPECT_NE(nullptr, bookmarks_helper::AddURL(0, "Bookmark",
+                                              GURL("http://www.foo.com")));
+
+  // Run until an auth error is encountered.
+  TestForAuthError(GetSyncService(0)).Wait();
+  GoogleServiceAuthError oauth_error =
+      GetSyncService(0)->GetSyncTokenStatusForDebugging().last_get_token_error;
+  ASSERT_TRUE(oauth_error.IsPersistentError());
+  ASSERT_FALSE(syncer::IsWebSignout(oauth_error));
+
+  // This should result in the data & metadata being gone.
+  WaitForNumberOfCards(0, pdm);
+  EXPECT_EQ(0uL, pdm->GetServerProfiles().size());
+  EXPECT_EQ(0uL, pdm->GetCreditCards().size());
+  EXPECT_EQ(nullptr, pdm->GetPaymentsCustomerData());
+  EXPECT_EQ(0uL, pdm->GetCreditCardCloudTokenData().size());
+  EXPECT_EQ(0U, GetServerCardsMetadata(0).size());
+  EXPECT_EQ(0U, GetServerAddressesMetadata(0).size());
+}
 
 // Wallet is not using incremental updates. Make sure existing data gets
 // replaced when synced down.
@@ -588,7 +654,8 @@ IN_PROC_BROWSER_TEST_F(SingleClientWalletSyncTest,
                        NewSyncDataShouldReplaceExistingData) {
   GetFakeServer()->SetWalletData(
       {CreateSyncWalletCard(/*name=*/"card-1", /*last_four=*/"0001",
-                            kDefaultBillingAddressID, /*nickname=*/""),
+                            kDefaultBillingAddressID, /*nickname=*/"",
+                            /*instrument_id=*/123),
        CreateSyncWalletAddress(/*name=*/"address-1", /*company=*/"Company-1"),
        CreateDefaultSyncPaymentsCustomerData(),
        CreateSyncCreditCardCloudTokenData(/*cloud_token_data_id=*/"data-1")});
@@ -600,6 +667,7 @@ IN_PROC_BROWSER_TEST_F(SingleClientWalletSyncTest,
   std::vector<CreditCard*> cards = pdm->GetCreditCards();
   ASSERT_EQ(1uL, cards.size());
   EXPECT_EQ(ASCIIToUTF16("0001"), cards[0]->LastFourDigits());
+  EXPECT_EQ(123, cards[0]->instrument_id());
   // When no nickname is returned from Sync server, credit card's nickname is
   // empty.
   EXPECT_TRUE(cards[0]->nickname().empty());
@@ -617,7 +685,7 @@ IN_PROC_BROWSER_TEST_F(SingleClientWalletSyncTest,
   GetFakeServer()->SetWalletData(
       {CreateSyncWalletCard(/*name=*/"new-card", /*last_four=*/"0002",
                             kDefaultBillingAddressID,
-                            /*nickname=*/"Grocery Card"),
+                            /*nickname=*/"Grocery Card", /*instrument_id=*/321),
        CreateSyncWalletAddress(/*name=*/"new-address", /*company=*/"Company-2"),
        CreateSyncPaymentsCustomerData(/*customer_id=*/"different"),
        CreateSyncCreditCardCloudTokenData(/*cloud_token_data_id=*/"data-2")});
@@ -628,6 +696,7 @@ IN_PROC_BROWSER_TEST_F(SingleClientWalletSyncTest,
   cards = pdm->GetCreditCards();
   ASSERT_EQ(1uL, cards.size());
   EXPECT_EQ(ASCIIToUTF16("0002"), cards[0]->LastFourDigits());
+  EXPECT_EQ(321, cards[0]->instrument_id());
   EXPECT_EQ(ASCIIToUTF16("Grocery Card"), cards[0]->nickname());
   profiles = pdm->GetServerProfiles();
   ASSERT_EQ(1uL, profiles.size());
@@ -667,12 +736,14 @@ IN_PROC_BROWSER_TEST_F(SingleClientWalletSyncTest, EmptyUpdatesAreIgnored) {
   EXPECT_EQ("data-1", cloud_token_data[0]->instrument_token);
 
   // Trigger a sync and wait for the new data to arrive.
-  sync_pb::ModelTypeState state_before = GetWalletDataModelTypeState(0);
+  sync_pb::ModelTypeState state_before =
+      GetWalletModelTypeState(syncer::AUTOFILL_WALLET_DATA, 0);
   ASSERT_TRUE(TriggerGetUpdatesAndWait());
 
   // Check that the new progress marker is stored for empty updates. This is a
   // regression check for crbug.com/924447.
-  sync_pb::ModelTypeState state_after = GetWalletDataModelTypeState(0);
+  sync_pb::ModelTypeState state_after =
+      GetWalletModelTypeState(syncer::AUTOFILL_WALLET_DATA, 0);
   EXPECT_NE(state_before.progress_marker().token(),
             state_after.progress_marker().token());
 
@@ -713,10 +784,11 @@ IN_PROC_BROWSER_TEST_F(SingleClientWalletSyncTest, SameUpdatesAreIgnored) {
   autofill::PersonalDataManager* pdm = GetPersonalDataManager(0);
   std::vector<CreditCard*> cards = pdm->GetCreditCards();
   ASSERT_EQ(1uL, cards.size());
-  pdm->RecordUseOf(*cards[0]);
+  pdm->RecordUseOf(cards[0]);
   std::vector<AutofillProfile*> profiles = pdm->GetServerProfiles();
   ASSERT_EQ(1uL, profiles.size());
-  pdm->RecordUseOf(*profiles[0]);
+  // TODO(crbug.com/941498): Server profiles are not recorded.
+  pdm->RecordUseOf(profiles[0]);
 
   // Keep the same data (only change the customer data and the cloud token to
   // force the FakeServer to send the full update).
@@ -770,10 +842,11 @@ IN_PROC_BROWSER_TEST_F(SingleClientWalletSyncTest, ChangedEntityGetsUpdated) {
   autofill::PersonalDataManager* pdm = GetPersonalDataManager(0);
   std::vector<CreditCard*> cards = pdm->GetCreditCards();
   ASSERT_EQ(1uL, cards.size());
-  pdm->RecordUseOf(*cards[0]);
+  pdm->RecordUseOf(cards[0]);
   std::vector<AutofillProfile*> profiles = pdm->GetServerProfiles();
   ASSERT_EQ(1uL, profiles.size());
-  pdm->RecordUseOf(*profiles[0]);
+  // TODO(crbug.com/941498): Server profiles are not recorded.
+  pdm->RecordUseOf(profiles[0]);
 
   // Update the data (also change the customer data to force the full update as
   // FakeServer computes the hash for progress markers only based on ids). For
@@ -820,11 +893,6 @@ IN_PROC_BROWSER_TEST_F(SingleClientWalletSyncTest, ChangedEntityGetsUpdated) {
 // client even if the cards on the client are unmasked.
 IN_PROC_BROWSER_TEST_F(SingleClientWalletSyncTest,
                        SameUpdatesAreIgnoredWhenLocalCardsUnmasked) {
-// We need to allow storing full server cards for this test to work properly.
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
-  base::CommandLine::ForCurrentProcess()->AppendSwitch(
-      autofill::switches::kEnableOfferStoreUnmaskedWalletCards);
-#endif
   GetFakeServer()->SetWalletData(
       {CreateSyncWalletCard(/*name=*/"card-1", /*last_four=*/"0001",
                             kDefaultBillingAddressID),
@@ -1257,14 +1325,14 @@ class SingleClientWalletSecondaryAccountSyncTest
   ~SingleClientWalletSecondaryAccountSyncTest() override {}
 
   void SetUpInProcessBrowserTestFixture() override {
-    test_signin_client_factory_ =
+    test_signin_client_subscription_ =
         secondary_account_helper::SetUpSigninClient(&test_url_loader_factory_);
   }
 
   void SetUpOnMainThread() override {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     secondary_account_helper::InitNetwork();
-#endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
     SyncTest::SetUpOnMainThread();
   }
 
@@ -1273,15 +1341,14 @@ class SingleClientWalletSecondaryAccountSyncTest
  private:
   base::test::ScopedFeatureList features_;
 
-  secondary_account_helper::ScopedSigninClientFactory
-      test_signin_client_factory_;
+  base::CallbackListSubscription test_signin_client_subscription_;
 
   DISALLOW_COPY_AND_ASSIGN(SingleClientWalletSecondaryAccountSyncTest);
 };
 
 // ChromeOS doesn't support changes to the primary account after startup, so
 // these secondary-account-related tests don't apply.
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 IN_PROC_BROWSER_TEST_F(SingleClientWalletSecondaryAccountSyncTest,
                        SwitchesFromAccountToProfileStorageOnSyncOptIn) {
   ASSERT_TRUE(SetupClients()) << "SetupClients() failed.";
@@ -1425,7 +1492,7 @@ IN_PROC_BROWSER_TEST_F(
   EXPECT_EQ(0U, GetCreditCardCloudTokenData(account_data).size());
   EXPECT_EQ(1U, GetCreditCardCloudTokenData(profile_data).size());
 }
-#endif  // !defined(OS_CHROMEOS)
+#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
 
 // This tests that switching between Sync-the-feature and
 // Sync-standalone-transport properly migrates server credit cards between the

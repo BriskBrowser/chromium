@@ -131,11 +131,17 @@ enum DeviceEventType {
   // Rename succeeded.
   rename_success,
   // Rename failed.
-  rename_fail
+  rename_fail,
+  // Partition started.
+  partition_start,
+  // Partition succeeded.
+  partition_success,
+  // Partition failed.
+  partition_fail
 };
 
 // Drive sync error type.
-// Keep it synced with DriveSyncErrorType in operation_observer.h.
+// Keep it synced with DriveError::Type in drivefs.mojom.
 enum DriveSyncErrorType {
   // Request to delete a file without permission.
   delete_without_permission,
@@ -149,22 +155,42 @@ enum DriveSyncErrorType {
   misc
 };
 
+// Drive confirm dialog type.
+// Keep it synced with DialogReason::Type in drivefs.mojom.
+enum DriveConfirmDialogType {
+  // Request to enable Docs Offline to allow saving hosted files offline.
+  enable_docs_offline
+};
+
+// Possible result of dialog displayed as a result of the onDriveConfirmDialog
+// event. Sent back to the browser via notifyDriveDialogResult().
+enum DriveDialogResult {
+  // The dialog was not displayed to the user.
+  not_displayed,
+  // The user accepted the action proposed by the dialog.
+  accept,
+  // The user rejected the action proposed by the dialog.
+  reject,
+  // The user closed the dialog without selecting an option.
+  dismiss
+};
+
 // Result of task execution. If changing, update the strings used in
 // ui/file_manager/file_manager/foreground/js/file_tasks.js
 enum TaskResult {
-  // The task execution succeeded and a new window/tab was opened.
+  // The task execution succeeded and a new window/tab was opened on the current
+  // desktop.
   opened,
   // The task execution succeeded and the message was sent to the proper
-  // extension.
+  // extension or app. This could result in a window being opened on a different
+  // desktop.
   message_sent,
   // The task execution failed.
   failed,
   // No URL is specified.
   empty,
-  // The task was a |plugin_vm| task, and the file was in a unshared directory
-  failed_plugin_vm_task_directory_not_shared,
-  // The task was a |plugin_vm| task, and the file was in an external drive.
-  failed_plugin_vm_task_external_drive
+  // The task was a |plugin_vm| task, and the file was in an unshared directory
+  failed_plugin_vm_directory_not_shared
 };
 
 // Drive share type.
@@ -246,7 +272,14 @@ enum CrostiniEventType {
   enable,
   disable,
   share,
-  unshare
+  unshare,
+  drop_failed_plugin_vm_directory_not_shared
+};
+
+enum ProviderSource {
+  file,
+  device,
+  network
 };
 
 // A file task represents an action that the file manager can perform over the
@@ -473,6 +506,10 @@ dictionary VolumeMetadata {
   // Drive label of the volume. Removable partitions that belong to the
   // same physical removable device share the same drive label.
   DOMString? driveLabel;
+
+  // The path on the remote host where this volume is mounted, for crostini this
+  // is the user's homedir (/home/<username>).
+  DOMString? remoteMountPath;
 };
 
 // Payload data for mount event.
@@ -506,7 +543,7 @@ dictionary FileTransferStatus {
   double total;
 
   // Total number of jobs.
-  long num_total_jobs;
+  long numTotalJobs;
 
   // If true, hide when a job is completed when there are zero jobs in
   // progress. Otherwise, hide when one job is in progress.
@@ -519,6 +556,16 @@ dictionary DriveSyncErrorEvent {
   DriveSyncErrorType type;
 
   // File URL of the entry that the error happens to.
+  DOMString fileUrl;
+};
+
+// Confirmation dialog from Drive asking the user to accept or reject an
+// action.
+dictionary DriveConfirmDialogEvent {
+  // Dialog type.
+  DriveConfirmDialogType type;
+
+  // File URL of the entry associated with the dialog.
   DOMString fileUrl;
 };
 
@@ -640,6 +687,9 @@ dictionary DriveConnectionState {
   // Whether the device has a cellular network access or not. i.e. the |type|
   // can be 'metered' or not.
   boolean hasCellularNetworkAccess;
+
+  // Whether or not hosted files can be pinned.
+  boolean canPinHostedFiles;
 };
 
 // Device event dispatched to listeners of onDeviceChaged.  See also
@@ -674,7 +724,7 @@ dictionary Provider {
   boolean multipleMounts;
 
   // Source of file systems' data.
-  manifestTypes.FileSystemProviderSource source;
+  ProviderSource source;
 };
 
 // Information about a Linux package in response to GetLinuxPackageInfo.
@@ -895,8 +945,8 @@ callback InstallLinuxPackageCallback = void(
 // |result| String representing the detected coding system.
 callback DetectCharacterEncodingCallback = void(DOMString result);
 
-// |thumbnailDataUrl| A data URL for the thumbnail as a PNG; |thumbnailDataUrl|
-// is empty if no thumbnail was available.
+// |thumbnailDataUrl| A data URL for the thumbnail; |thumbnailDataUrl| is empty
+// if no thumbnail was available.
 callback GetThumbnailCallback = void(DOMString thumbnailDataUrl);
 
 // |apps| List of Android picker apps.
@@ -1068,7 +1118,7 @@ interface Functions {
   // |entry| Entry of the image to copy to the system clipboard.
   [nocompile]
   static void copyImageToClipboard([instanceof=Entry] object entry,
-                                   SimpleCallback callback);
+                                   BooleanCallback callback);
 
   // Starts to copy an entry. If the source is a directory, the copy is done
   // recursively.
@@ -1097,6 +1147,15 @@ interface Functions {
   // |filesystem| Filesystem type to be formatted to.
   // |volumeLabel| Label of the drive after formatting.
   static void formatVolume(DOMString volumeId,
+                           FormatFileSystemType filesystem,
+                           DOMString volumeLabel);
+
+  // Deletes partitions of removable device, creates a new partition and format
+  // it.
+  // |deviceStoragePath| Storage path of the device to be formatted.
+  // |filesystem| Filesystem type to be formatted to.
+  // |volumeLabel| Label of the drive after formatting.
+  static void singlePartitionFormat(DOMString deviceStoragePath,
                            FormatFileSystemType filesystem,
                            DOMString volumeLabel);
 
@@ -1280,13 +1339,34 @@ interface Functions {
   [nocompile]
   static void importCrostiniImage([instanceof=Entry] object entry);
 
-  // For a given file entry, retrieves its thumbnail. If |cropToSquare| is true,
+  // For a file in DriveFS, retrieves its thumbnail. If |cropToSquare| is true,
   // returns a thumbnail appropriate for file list or grid views; otherwise,
   // returns a thumbnail appropriate for quickview.
   [nocompile]
-  static void getThumbnail([instanceOf=FileEntry] object entry,
-                           boolean cropToSquare,
-                           GetThumbnailCallback callback);
+  static void getDriveThumbnail([instanceof=FileEntry] object entry,
+                                boolean cropToSquare,
+                                GetThumbnailCallback callback);
+
+  // For a local PDF file, retrieves its thumbnail with a given |width| and
+  // |height|.
+  [nocompile]
+  static void getPdfThumbnail([instanceof=FileEntry] object entry,
+                              long width,
+                              long height,
+                              GetThumbnailCallback callback);
+
+  // Retrieves a thumbnail of an ARC DocumentsProvider file, closely matching
+  // the hinted size specified by |widthHint| and |heightHint|, but not
+  // necessarily the exact size. |callback| is called with thumbnail data
+  // encoded as a data URL. If the document does not support thumbnails,
+  // |callback| is called with an empty string.
+  // Note: The thumbnail data may originate from third-party application code,
+  // and is untrustworthy (Security).
+  [nocompile]
+  static void getArcDocumentsProviderThumbnail([instanceof=FileEntry] object entry,
+                                               long widthHint,
+                                               long heightHint,
+                                               GetThumbnailCallback callback);
 
   // Returns a guessed character encoding of a hex-encoded string. Every 2
   // characters of |bytes| represent one byte by 2-digit hexadecimal number.
@@ -1336,12 +1416,21 @@ interface Functions {
   // the holding space currently contains.
   // |callback| The result callback.
   static void getHoldingSpaceState(HoldingSpaceStateCallback callback);
+
+  // Returns true via `callback` if tablet mode is enabled, false otherwise.
+  static void isTabletModeEnabled(BooleanCallback callback);
+
+  // Notifies the browser of the result of a dialog displayed earlier as a
+  // result of the onDriveConfirmDialog event.
+  static void notifyDriveDialogResult(DriveDialogResult result);
 };
 
 interface Events {
   static void onMountCompleted(MountCompletedEvent event);
 
   static void onFileTransfersUpdated(FileTransferStatus event);
+
+  static void onPinTransfersUpdated(FileTransferStatus event);
 
   static void onCopyProgress(long copyId, CopyProgressStatus status);
 
@@ -1355,8 +1444,12 @@ interface Events {
 
   static void onDriveSyncError(DriveSyncErrorEvent event);
 
+  static void onDriveConfirmDialog(DriveConfirmDialogEvent event);
+
   static void onAppsUpdated();
 
   static void onCrostiniChanged(CrostiniEvent event);
+
+  static void onTabletModeChanged(boolean enabled);
 };
 };

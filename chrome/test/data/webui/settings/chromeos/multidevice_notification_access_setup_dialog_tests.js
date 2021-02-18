@@ -5,8 +5,12 @@
 // clang-format off
 // #import 'chrome://os-settings/chromeos/os_settings.js';
 
+// #import {assert} from 'chrome://resources/js/assert.m.js';
 // #import {assertEquals, assertFalse, assertNotEquals, assertTrue} from '../../chai_assert.js';
 // #import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+// #import {TestMultideviceBrowserProxy} from './test_multidevice_browser_proxy.m.js';
+// #import {MultiDeviceBrowserProxyImpl, NotificationAccessSetupOperationStatus} from 'chrome://os-settings/chromeos/os_settings.js';
+// clang-format on
 
 /**
  * @fileoverview
@@ -31,6 +35,11 @@ suite('Multidevice', () => {
     Polymer.dom.flush();
   }
 
+  /** @return {boolean} */
+  function isSetupInstructionsShownSeparately() {
+    return notificationAccessSetupDialog.shouldShowSetupInstructionsSeparately_;
+  }
+
   setup(() => {
     PolymerTest.clearBody();
     browserProxy = new multidevice.TestMultideviceBrowserProxy();
@@ -46,47 +55,69 @@ suite('Multidevice', () => {
   });
 
   test('Test success flow', async () => {
-    // The cancel and confirm buttons should be visible, and ok button hidden.
+    assertTrue(isSetupInstructionsShownSeparately());
     assertTrue(!!buttonContainer.querySelector('#cancelButton'));
-    assertTrue(!!buttonContainer.querySelector('#confirmButton'));
-    assertFalse(!!buttonContainer.querySelector('#okButton'));
-    buttonContainer.querySelector('#confirmButton').click();
+    assertTrue(!!buttonContainer.querySelector('#getStartedButton'));
+    assertFalse(!!buttonContainer.querySelector('#doneButton'));
+    assertFalse(!!buttonContainer.querySelector('#tryAgainButton'));
+    buttonContainer.querySelector('#getStartedButton').click();
     assertEquals(browserProxy.getCallCount('attemptNotificationSetup'), 1);
 
-    simulateStatusChanged(NotificationAccessSetupOperationStatus.CONNECTING);
-
-    // The ok and confirm buttons should be hidden, and cancel button visible.
+    simulateStatusChanged(
+      NotificationAccessSetupOperationStatus.CONNECTION_REQUESTED);
+    assertTrue(isSetupInstructionsShownSeparately());
     assertTrue(!!buttonContainer.querySelector('#cancelButton'));
-    assertFalse(!!buttonContainer.querySelector('#confirmButton'));
-    assertFalse(!!buttonContainer.querySelector('#okButton'));
+    assertFalse(!!buttonContainer.querySelector('#getStartedButton'));
+    assertFalse(!!buttonContainer.querySelector('#doneButton'));
+    assertFalse(!!buttonContainer.querySelector('#tryAgainButton'));
 
+    simulateStatusChanged(NotificationAccessSetupOperationStatus.CONNECTING);
+    assertTrue(isSetupInstructionsShownSeparately());
+    assertTrue(!!buttonContainer.querySelector('#cancelButton'));
+    assertFalse(!!buttonContainer.querySelector('#getStartedButton'));
+    assertFalse(!!buttonContainer.querySelector('#doneButton'));
+    assertFalse(!!buttonContainer.querySelector('#tryAgainButton'));
+
+    simulateStatusChanged(NotificationAccessSetupOperationStatus.
+        SENT_MESSAGE_TO_PHONE_AND_WAITING_FOR_RESPONSE);
+    assertTrue(isSetupInstructionsShownSeparately());
+    assertTrue(!!buttonContainer.querySelector('#cancelButton'));
+    assertFalse(!!buttonContainer.querySelector('#getStartedButton'));
+    assertFalse(!!buttonContainer.querySelector('#doneButton'));
+    assertFalse(!!buttonContainer.querySelector('#tryAgainButton'));
+
+    assertEquals(browserProxy.getCallCount('setFeatureEnabledState'), 0);
     simulateStatusChanged(
         NotificationAccessSetupOperationStatus.COMPLETED_SUCCESSFULLY);
-
-    // The cancel and confirm buttons should be hidden, and ok button visible.
+    assertFalse(isSetupInstructionsShownSeparately());
     assertFalse(!!buttonContainer.querySelector('#cancelButton'));
-    assertFalse(!!buttonContainer.querySelector('#confirmButton'));
-    assertTrue(!!buttonContainer.querySelector('#okButton'));
+    assertFalse(!!buttonContainer.querySelector('#getStartedButton'));
+    assertTrue(!!buttonContainer.querySelector('#doneButton'));
+    assertFalse(!!buttonContainer.querySelector('#tryAgainButton'));
+
+    // The feature becomes enabled when the status becomes
+    // NotificationAccessSetupOperationStatus.COMPLETED_SUCCESSFULLY.
+    assertEquals(browserProxy.getCallCount('setFeatureEnabledState'), 1);
 
     assertTrue(notificationAccessSetupDialog.$$('#dialog').open);
-    buttonContainer.querySelector('#okButton').click();
+    buttonContainer.querySelector('#doneButton').click();
     assertFalse(notificationAccessSetupDialog.$$('#dialog').open);
   });
 
   test('Test cancel during connecting flow', async () => {
-    // The cancel and confirm buttons should be visible, and ok button hidden.
     assertTrue(!!buttonContainer.querySelector('#cancelButton'));
-    assertTrue(!!buttonContainer.querySelector('#confirmButton'));
-    assertFalse(!!buttonContainer.querySelector('#okButton'));
-    buttonContainer.querySelector('#confirmButton').click();
+    assertTrue(!!buttonContainer.querySelector('#getStartedButton'));
+    assertFalse(!!buttonContainer.querySelector('#doneButton'));
+    assertFalse(!!buttonContainer.querySelector('#tryAgainButton'));
+    buttonContainer.querySelector('#getStartedButton').click();
     assertEquals(browserProxy.getCallCount('attemptNotificationSetup'), 1);
 
     simulateStatusChanged(NotificationAccessSetupOperationStatus.CONNECTING);
 
-    // The ok and confirm buttons should be hidden, and cancel button visible.
     assertTrue(!!buttonContainer.querySelector('#cancelButton'));
-    assertFalse(!!buttonContainer.querySelector('#confirmButton'));
-    assertFalse(!!buttonContainer.querySelector('#okButton'));
+    assertFalse(!!buttonContainer.querySelector('#getStartedButton'));
+    assertFalse(!!buttonContainer.querySelector('#doneButton'));
+    assertFalse(!!buttonContainer.querySelector('#tryAgainButton'));
 
     buttonContainer.querySelector('#cancelButton').click();
     assertEquals(browserProxy.getCallCount('cancelNotificationSetup'), 1);
@@ -94,4 +125,66 @@ suite('Multidevice', () => {
     assertFalse(notificationAccessSetupDialog.$$('#dialog').open);
   });
 
+  test('Test failure during connecting flow', async () => {
+    assertTrue(!!buttonContainer.querySelector('#cancelButton'));
+    assertTrue(!!buttonContainer.querySelector('#getStartedButton'));
+    assertFalse(!!buttonContainer.querySelector('#doneButton'));
+    assertFalse(!!buttonContainer.querySelector('#tryAgainButton'));
+    buttonContainer.querySelector('#getStartedButton').click();
+    assertEquals(browserProxy.getCallCount('attemptNotificationSetup'), 1);
+
+    simulateStatusChanged(
+        NotificationAccessSetupOperationStatus.TIMED_OUT_CONNECTING);
+
+    assertTrue(!!buttonContainer.querySelector('#cancelButton'));
+    assertFalse(!!buttonContainer.querySelector('#getStartedButton'));
+    assertFalse(!!buttonContainer.querySelector('#doneButton'));
+    assertTrue(!!buttonContainer.querySelector('#tryAgainButton'));
+
+    buttonContainer.querySelector('#tryAgainButton').click();
+    assertEquals(browserProxy.getCallCount('attemptNotificationSetup'), 2);
+
+    Polymer.dom.flush();
+
+    assertTrue(!!buttonContainer.querySelector('#cancelButton'));
+    assertFalse(!!buttonContainer.querySelector('#getStartedButton'));
+    assertFalse(!!buttonContainer.querySelector('#doneButton'));
+    assertFalse(!!buttonContainer.querySelector('#tryAgainButton'));
+
+    simulateStatusChanged(
+        NotificationAccessSetupOperationStatus.CONNECTION_DISCONNECTED);
+
+    assertTrue(!!buttonContainer.querySelector('#cancelButton'));
+    assertFalse(!!buttonContainer.querySelector('#getStartedButton'));
+    assertFalse(!!buttonContainer.querySelector('#doneButton'));
+    assertTrue(!!buttonContainer.querySelector('#tryAgainButton'));
+
+    buttonContainer.querySelector('#cancelButton').click();
+    assertEquals(browserProxy.getCallCount('cancelNotificationSetup'), 1);
+
+    assertFalse(notificationAccessSetupDialog.$$('#dialog').open);
+  });
+
+  test('Test notification access prohibited', async () => {
+    assertTrue(!!buttonContainer.querySelector('#cancelButton'));
+    assertTrue(!!buttonContainer.querySelector('#getStartedButton'));
+    assertFalse(!!buttonContainer.querySelector('#doneButton'));
+    assertFalse(!!buttonContainer.querySelector('#tryAgainButton'));
+    assertFalse(!!buttonContainer.querySelector('#closeButton'));
+    buttonContainer.querySelector('#getStartedButton').click();
+    assertEquals(browserProxy.getCallCount('attemptNotificationSetup'), 1);
+
+    simulateStatusChanged(
+        NotificationAccessSetupOperationStatus.NOTIFICATION_ACCESS_PROHIBITED);
+
+    assertFalse(!!buttonContainer.querySelector('#cancelButton'));
+    assertFalse(!!buttonContainer.querySelector('#getStartedButton'));
+    assertFalse(!!buttonContainer.querySelector('#doneButton'));
+    assertFalse(!!buttonContainer.querySelector('#tryAgainButton'));
+    assertTrue(!!buttonContainer.querySelector('#closeButton'));
+
+    buttonContainer.querySelector('#closeButton').click();
+
+    assertFalse(notificationAccessSetupDialog.$$('#dialog').open);
+  });
 });

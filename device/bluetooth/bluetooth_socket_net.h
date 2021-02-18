@@ -30,7 +30,6 @@ namespace device {
 class BluetoothSocketNet : public BluetoothSocket {
  public:
   // BluetoothSocket:
-  void Close() override;
   void Disconnect(base::OnceClosure callback) override;
   void Receive(int buffer_size,
                ReceiveCompletionCallback success_callback,
@@ -78,7 +77,6 @@ class BluetoothSocketNet : public BluetoothSocket {
     ErrorCompletionCallback error_callback;
   };
 
-  void DoClose();
   void DoDisconnect(base::OnceClosure callback);
   void DoReceive(int buffer_size,
                  ReceiveCompletionCallback success_callback,
@@ -109,6 +107,7 @@ class BluetoothSocketNet : public BluetoothSocket {
   std::unique_ptr<net::TCPSocket> tcp_socket_;
   scoped_refptr<net::IOBufferWithSize> read_buffer_;
   base::queue<std::unique_ptr<WriteRequest>> write_queue_;
+  std::unique_ptr<WriteRequest> pending_write_request_;
 
   DISALLOW_COPY_AND_ASSIGN(BluetoothSocketNet);
 };

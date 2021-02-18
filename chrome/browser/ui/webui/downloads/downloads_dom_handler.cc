@@ -11,7 +11,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/i18n/rtl.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
@@ -214,7 +214,6 @@ void DownloadsDOMHandler::RetryDownload(const std::string& id) {
   // |render_frame_host|.
   auto dl_params = std::make_unique<download::DownloadUrlParameters>(
       url, render_frame_host->GetProcess()->GetID(),
-      render_frame_host->GetRenderViewHost()->GetRoutingID(),
       render_frame_host->GetRoutingID(), traffic_annotation);
   dl_params->set_content_initiated(true);
   dl_params->set_initiator(url::Origin::Create(GURL("chrome://downloads")));
@@ -400,8 +399,8 @@ void DownloadsDOMHandler::ShowDangerPrompt(
     download::DownloadItem* dangerous_item) {
   DownloadDangerPrompt* danger_prompt = DownloadDangerPrompt::Create(
       dangerous_item, GetWebUIWebContents(), false,
-      base::Bind(&DownloadsDOMHandler::DangerPromptDone,
-                 weak_ptr_factory_.GetWeakPtr(), dangerous_item->GetId()));
+      base::BindOnce(&DownloadsDOMHandler::DangerPromptDone,
+                     weak_ptr_factory_.GetWeakPtr(), dangerous_item->GetId()));
   // danger_prompt will delete itself.
   DCHECK(danger_prompt);
 }

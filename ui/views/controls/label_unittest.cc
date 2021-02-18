@@ -14,7 +14,9 @@
 #include "base/command_line.h"
 #include "base/i18n/rtl.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/gtest_util.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
@@ -29,6 +31,7 @@
 #include "ui/gfx/text_constants.h"
 #include "ui/gfx/text_elider.h"
 #include "ui/strings/grit/ui_strings.h"
+#include "ui/views/background.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/base_control_test_widget.h"
 #include "ui/views/controls/link.h"
@@ -488,6 +491,45 @@ TEST_F(LabelTest, MultilinePreferredSizeTest) {
   EXPECT_LT(multi_line_size.height(), new_size.height());
 }
 
+TEST_F(LabelTest, SingleLineGetHeightForWidth) {
+  // Even an empty label should take one line worth of height.
+  const int line_height = label()->GetLineHeight();
+  EXPECT_EQ(line_height, label()->GetHeightForWidth(100));
+
+  // Given any amount of width, the label should take one line.
+  label()->SetText(ASCIIToUTF16("This is an example."));
+  const int width = label()->GetPreferredSize().width();
+  EXPECT_EQ(line_height, label()->GetHeightForWidth(width));
+  EXPECT_EQ(line_height, label()->GetHeightForWidth(width * 2));
+  EXPECT_EQ(line_height, label()->GetHeightForWidth(width / 2));
+  EXPECT_EQ(line_height, label()->GetHeightForWidth(0));
+}
+
+TEST_F(LabelTest, MultiLineGetHeightForWidth) {
+  // Even an empty label should take one line worth of height.
+  label()->SetMultiLine(true);
+  const int line_height = label()->GetLineHeight();
+  EXPECT_EQ(line_height, label()->GetHeightForWidth(100));
+
+  // Given its preferred width or more, the label should take one line.
+  label()->SetText(ASCIIToUTF16("This is an example."));
+  const int width = label()->GetPreferredSize().width();
+  EXPECT_EQ(line_height, label()->GetHeightForWidth(width));
+  EXPECT_EQ(line_height, label()->GetHeightForWidth(width * 2));
+
+  // Given too little width, the required number of lines should increase.
+  // Linebreaking will affect this, so sanity-checks are sufficient.
+  const int height_for_half_width = label()->GetHeightForWidth(width / 2);
+  EXPECT_GT(height_for_half_width, line_height);
+  EXPECT_GT(label()->GetHeightForWidth(width / 4), height_for_half_width);
+
+  // Given zero width, the label should take GetMaxLines(); if this is not set,
+  // default to one.
+  EXPECT_EQ(line_height, label()->GetHeightForWidth(0));
+  label()->SetMaxLines(10);
+  EXPECT_EQ(line_height * 10, label()->GetHeightForWidth(0));
+}
+
 TEST_F(LabelTest, TooltipProperty) {
   label()->SetText(ASCIIToUTF16("My cool string."));
 
@@ -563,7 +605,9 @@ TEST_F(LabelTest, TooltipProperty) {
 }
 
 TEST_F(LabelTest, Accessibility) {
-  label()->SetText(ASCIIToUTF16("My special text."));
+  const base::string16 accessible_name = ASCIIToUTF16("A11y text.");
+
+  label()->SetText(ASCIIToUTF16("Displayed text."));
 
   ui::AXNodeData node_data;
   label()->GetAccessibleNodeData(&node_data);
@@ -572,6 +616,33 @@ TEST_F(LabelTest, Accessibility) {
             node_data.GetString16Attribute(ax::mojom::StringAttribute::kName));
   EXPECT_FALSE(
       node_data.HasIntAttribute(ax::mojom::IntAttribute::kRestriction));
+
+  // Setting a custom accessible name overrides the displayed text in
+  // screen reader announcements.
+  label()->SetAccessibleName(accessible_name);
+
+  label()->GetAccessibleNodeData(&node_data);
+  EXPECT_EQ(accessible_name,
+            node_data.GetString16Attribute(ax::mojom::StringAttribute::kName));
+  EXPECT_NE(label()->GetText(),
+            node_data.GetString16Attribute(ax::mojom::StringAttribute::kName));
+
+  // Changing the displayed text will not impact the non-empty accessible name.
+  label()->SetText(ASCIIToUTF16("Different displayed Text."));
+
+  label()->GetAccessibleNodeData(&node_data);
+  EXPECT_EQ(accessible_name,
+            node_data.GetString16Attribute(ax::mojom::StringAttribute::kName));
+  EXPECT_NE(label()->GetText(),
+            node_data.GetString16Attribute(ax::mojom::StringAttribute::kName));
+
+  // Clearing the accessible name will cause the screen reader to default to
+  // verbalizing the displayed text.
+  label()->SetAccessibleName(ASCIIToUTF16(""));
+
+  label()->GetAccessibleNodeData(&node_data);
+  EXPECT_EQ(label()->GetText(),
+            node_data.GetString16Attribute(ax::mojom::StringAttribute::kName));
 }
 
 TEST_F(LabelTest, TextChangeWithoutLayout) {
@@ -1021,6 +1092,61 @@ TEST_F(LabelTest, TextChangedCallback) {
   EXPECT_TRUE(text_changed);
 }
 
+// Verify that GetSubstringBounds returns the correct bounds, accounting for
+// label insets.
+TEST_F(LabelTest, GetSubstringBounds) {
+  label()->SetText(ASCIIToUTF16("abc"));
+  auto substring_bounds = label()->GetSubstringBounds(gfx::Range(0, 3));
+  EXPECT_EQ(1u, substring_bounds.size());
+
+  gfx::Insets insets{2, 3, 4, 5};
+  label()->SetBorder(CreateEmptyBorder(insets));
+  auto substring_bounds_with_inset =
+      label()->GetSubstringBounds(gfx::Range(0, 3));
+  EXPECT_EQ(1u, substring_bounds_with_inset.size());
+  EXPECT_EQ(substring_bounds[0].x() + 3, substring_bounds_with_inset[0].x());
+  EXPECT_EQ(substring_bounds[0].y() + 2, substring_bounds_with_inset[0].y());
+  EXPECT_EQ(substring_bounds[0].width(),
+            substring_bounds_with_inset[0].width());
+  EXPECT_EQ(substring_bounds[0].height(),
+            substring_bounds_with_inset[0].height());
+}
+
+// TODO(crbug.com/1139395): Enable on ChromeOS along with the DCHECK in Label.
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
+// Ensures DCHECK for subpixel rendering on transparent layer is working.
+TEST_F(LabelTest, ChecksSubpixelRenderingOntoOpaqueSurface) {
+  View view;
+  Label* label = view.AddChildView(std::make_unique<TestLabel>());
+  EXPECT_TRUE(label->GetSubpixelRenderingEnabled());
+
+  gfx::Canvas canvas;
+
+  // Painting on a view not painted to a layer should be fine.
+  label->OnPaint(&canvas);
+
+  // Painting to an opaque layer should also be fine.
+  view.SetPaintToLayer();
+  label->OnPaint(&canvas);
+
+  // Set up a transparent layer for the parent view.
+  view.layer()->SetFillsBoundsOpaquely(false);
+
+  // Painting on a transparent layer should DCHECK.
+  EXPECT_DCHECK_DEATH(label->OnPaint(&canvas));
+
+  // We should not DCHECK if the check is skipped.
+  label->SetSkipSubpixelRenderingOpacityCheck(true);
+  label->OnPaint(&canvas);
+  label->SetSkipSubpixelRenderingOpacityCheck(false);
+
+  // Painting onto a transparent layer should not DCHECK if there's an opaque
+  // background in a parent of the Label.
+  view.SetBackground(CreateSolidBackground(SK_ColorWHITE));
+  label->OnPaint(&canvas);
+}
+#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
+
 TEST_F(LabelSelectionTest, Selectable) {
   // By default, labels don't support text selection.
   EXPECT_FALSE(label()->GetSelectable());
@@ -1317,7 +1443,9 @@ TEST_F(LabelSelectionTest, MouseDragWord) {
   EXPECT_STR_EQ("drag word", GetSelectedText());
 }
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 // Verify selection clipboard behavior on text selection.
 TEST_F(LabelSelectionTest, SelectionClipboard) {
   label()->SetText(ASCIIToUTF16("Label selection clipboard"));

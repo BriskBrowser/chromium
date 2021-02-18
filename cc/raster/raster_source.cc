@@ -26,7 +26,6 @@ namespace cc {
 
 RasterSource::RasterSource(const RecordingSource* other)
     : display_list_(other->display_list_),
-      painter_reported_memory_usage_(other->painter_reported_memory_usage_),
       background_color_(other->background_color_),
       requires_clear_(other->requires_clear_),
       is_solid_color_(other->is_solid_color_),
@@ -128,12 +127,6 @@ void RasterSource::PlaybackDisplayListToCanvas(
     display_list_->Raster(raster_canvas, image_provider);
 }
 
-size_t RasterSource::GetMemoryUsage() const {
-  if (!display_list_)
-    return 0;
-  return display_list_->BytesUsed() + painter_reported_memory_usage_;
-}
-
 bool RasterSource::PerformSolidColorAnalysis(gfx::Rect layer_rect,
                                              SkColor* color) const {
   TRACE_EVENT0("cc", "RasterSource::PerformSolidColorAnalysis");
@@ -156,8 +149,9 @@ RasterSource::TakeDecodingModeMap() {
   return display_list_->TakeDecodingModeMap();
 }
 
-bool RasterSource::CoversRect(const gfx::Rect& layer_rect,
-                              const PictureLayerTilingClient& client) const {
+bool RasterSource::IntersectsRect(
+    const gfx::Rect& layer_rect,
+    const PictureLayerTilingClient& client) const {
   if (size_.IsEmpty())
     return false;
 
@@ -170,7 +164,7 @@ bool RasterSource::CoversRect(const gfx::Rect& layer_rect,
 
   gfx::Rect bounded_rect = layer_rect;
   bounded_rect.Intersect(gfx::Rect(size_));
-  return recorded_viewport_.Contains(bounded_rect);
+  return recorded_viewport_.Intersects(bounded_rect);
 }
 
 gfx::Size RasterSource::GetSize() const {

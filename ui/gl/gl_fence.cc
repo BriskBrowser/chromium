@@ -24,6 +24,10 @@
 #include "ui/gl/gl_surface_egl.h"
 #endif
 
+#if defined(OS_WIN)
+#include "ui/gl/gl_fence_win.h"
+#endif
+
 namespace gl {
 
 GLFence::GLFence() {
@@ -95,6 +99,8 @@ void GLFence::Invalidate() {
 bool GLFence::IsGpuFenceSupported() {
 #if defined(USE_GL_FENCE_ANDROID_NATIVE_FENCE_SYNC)
   return gl::GLSurfaceEGL::IsAndroidNativeFenceSyncSupported();
+#elif defined(OS_WIN)
+  return gl::GLFenceWin::IsSupported();
 #else
   return false;
 #endif
@@ -104,18 +110,14 @@ bool GLFence::IsGpuFenceSupported() {
 std::unique_ptr<GLFence> GLFence::CreateFromGpuFence(
     const gfx::GpuFence& gpu_fence) {
   DCHECK(IsGpuFenceSupported());
-  switch (gpu_fence.GetGpuFenceHandle().type) {
-    case gfx::GpuFenceHandleType::kAndroidNativeFenceSync:
 #if defined(USE_GL_FENCE_ANDROID_NATIVE_FENCE_SYNC)
-      return GLFenceAndroidNativeFenceSync::CreateFromGpuFence(gpu_fence);
+  return GLFenceAndroidNativeFenceSync::CreateFromGpuFence(gpu_fence);
+#elif defined(OS_WIN)
+  return GLFenceWin::CreateFromGpuFence(gpu_fence);
 #else
-      NOTREACHED();
-      return nullptr;
+  NOTREACHED();
+  return nullptr;
 #endif
-    default:
-      NOTREACHED();
-      return nullptr;
-  }
 }
 
 // static
@@ -123,9 +125,12 @@ std::unique_ptr<GLFence> GLFence::CreateForGpuFence() {
   DCHECK(IsGpuFenceSupported());
 #if defined(USE_GL_FENCE_ANDROID_NATIVE_FENCE_SYNC)
   return GLFenceAndroidNativeFenceSync::CreateForGpuFence();
-#endif
+#elif defined(OS_WIN)
+  return GLFenceWin::CreateForGpuFence();
+#else
   NOTREACHED();
   return nullptr;
+#endif
 }
 
 std::unique_ptr<gfx::GpuFence> GLFence::GetGpuFence() {

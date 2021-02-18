@@ -24,7 +24,9 @@
 #include <vector>
 
 #include "base/check.h"
+#include "base/containers/contains.h"
 #include "base/optional.h"
+#include "base/ranges/algorithm.h"
 #include "base/template_util.h"
 
 namespace base {
@@ -49,38 +51,6 @@ template <typename Iter>
 constexpr bool IsRandomAccessIter =
     std::is_same<typename std::iterator_traits<Iter>::iterator_category,
                  std::random_access_iterator_tag>::value;
-
-// Utility type traits used for specializing base::Contains() below.
-template <typename Container, typename Element, typename = void>
-struct HasFindWithNpos : std::false_type {};
-
-template <typename Container, typename Element>
-struct HasFindWithNpos<
-    Container,
-    Element,
-    void_t<decltype(std::declval<const Container&>().find(
-                        std::declval<const Element&>()) != Container::npos)>>
-    : std::true_type {};
-
-template <typename Container, typename Element, typename = void>
-struct HasFindWithEnd : std::false_type {};
-
-template <typename Container, typename Element>
-struct HasFindWithEnd<Container,
-                      Element,
-                      void_t<decltype(std::declval<const Container&>().find(
-                                          std::declval<const Element&>()) !=
-                                      std::declval<const Container&>().end())>>
-    : std::true_type {};
-
-template <typename Container, typename Element, typename = void>
-struct HasContains : std::false_type {};
-
-template <typename Container, typename Element>
-struct HasContains<Container,
-                   Element,
-                   void_t<decltype(std::declval<const Container&>().contains(
-                       std::declval<const Element&>()))>> : std::true_type {};
 
 }  // namespace internal
 
@@ -171,6 +141,23 @@ constexpr std::add_const_t<T>& as_const(T& t) noexcept {
 template <typename T>
 void as_const(const T&& t) = delete;
 
+// Simplified C++14 implementation of  C++20's std::to_address.
+// Note: This does not consider specializations of pointer_traits<>::to_address,
+// since that member function may only be present in C++20 and later.
+//
+// Reference: https://wg21.link/pointer.conversion#lib:to_address
+template <typename T>
+constexpr T* to_address(T* p) noexcept {
+  static_assert(!std::is_function<T>::value,
+                "Error: T must not be a function type.");
+  return p;
+}
+
+template <typename Ptr>
+constexpr auto to_address(const Ptr& p) noexcept {
+  return to_address(p.operator->());
+}
+
 // Returns a const reference to the underlying container of a container adapter.
 // Works for std::priority_queue, std::queue, and std::stack.
 template <class A>
@@ -199,51 +186,6 @@ typename std::iterator_traits<
     typename Container::const_iterator>::difference_type
 STLCount(const Container& container, const T& val) {
   return std::count(container.begin(), container.end(), val);
-}
-
-// General purpose implementation to check if |container| contains |value|.
-template <typename Container,
-          typename Value,
-          std::enable_if_t<
-              !internal::HasFindWithNpos<Container, Value>::value &&
-              !internal::HasFindWithEnd<Container, Value>::value &&
-              !internal::HasContains<Container, Value>::value>* = nullptr>
-bool Contains(const Container& container, const Value& value) {
-  using std::begin;
-  using std::end;
-  return std::find(begin(container), end(container), value) != end(container);
-}
-
-// Specialized Contains() implementation for when |container| has a find()
-// member function and a static npos member, but no contains() member function.
-template <typename Container,
-          typename Value,
-          std::enable_if_t<internal::HasFindWithNpos<Container, Value>::value &&
-                           !internal::HasContains<Container, Value>::value>* =
-              nullptr>
-bool Contains(const Container& container, const Value& value) {
-  return container.find(value) != Container::npos;
-}
-
-// Specialized Contains() implementation for when |container| has a find()
-// and end() member function, but no contains() member function.
-template <typename Container,
-          typename Value,
-          std::enable_if_t<internal::HasFindWithEnd<Container, Value>::value &&
-                           !internal::HasContains<Container, Value>::value>* =
-              nullptr>
-bool Contains(const Container& container, const Value& value) {
-  return container.find(value) != container.end();
-}
-
-// Specialized Contains() implementation for when |container| has a contains()
-// member function.
-template <
-    typename Container,
-    typename Value,
-    std::enable_if_t<internal::HasContains<Container, Value>::value>* = nullptr>
-bool Contains(const Container& container, const Value& value) {
-  return container.contains(value);
 }
 
 // O(1) implementation of const casting an iterator for any sequence,
@@ -447,29 +389,11 @@ typename Map::iterator TryEmplace(Map& map,
                                   std::forward<Args>(args)...);
 }
 
-// Returns true if the container is sorted. Requires constexpr std::begin/end,
-// which exists for arrays in C++14.
-// Note that std::is_sorted is constexpr beginning C++20 and this should be
-// switched to use it when C++20 is supported.
-template <typename Container>
-constexpr bool STLIsSorted(const Container& cont) {
-  auto it = std::begin(cont);
-  const auto end = std::end(cont);
-  if (it == end)
-    return true;
-
-  for (auto prev = it++; it != end; prev = it++) {
-    if (*it < *prev)
-      return false;
-  }
-  return true;
-}
-
 // Returns a new ResultType containing the difference of two sorted containers.
 template <typename ResultType, typename Arg1, typename Arg2>
 ResultType STLSetDifference(const Arg1& a1, const Arg2& a2) {
-  DCHECK(STLIsSorted(a1));
-  DCHECK(STLIsSorted(a2));
+  DCHECK(ranges::is_sorted(a1));
+  DCHECK(ranges::is_sorted(a2));
   ResultType difference;
   std::set_difference(a1.begin(), a1.end(),
                       a2.begin(), a2.end(),
@@ -480,8 +404,8 @@ ResultType STLSetDifference(const Arg1& a1, const Arg2& a2) {
 // Returns a new ResultType containing the union of two sorted containers.
 template <typename ResultType, typename Arg1, typename Arg2>
 ResultType STLSetUnion(const Arg1& a1, const Arg2& a2) {
-  DCHECK(STLIsSorted(a1));
-  DCHECK(STLIsSorted(a2));
+  DCHECK(ranges::is_sorted(a1));
+  DCHECK(ranges::is_sorted(a2));
   ResultType result;
   std::set_union(a1.begin(), a1.end(),
                  a2.begin(), a2.end(),
@@ -493,23 +417,13 @@ ResultType STLSetUnion(const Arg1& a1, const Arg2& a2) {
 // containers.
 template <typename ResultType, typename Arg1, typename Arg2>
 ResultType STLSetIntersection(const Arg1& a1, const Arg2& a2) {
-  DCHECK(STLIsSorted(a1));
-  DCHECK(STLIsSorted(a2));
+  DCHECK(ranges::is_sorted(a1));
+  DCHECK(ranges::is_sorted(a2));
   ResultType result;
   std::set_intersection(a1.begin(), a1.end(),
                         a2.begin(), a2.end(),
                         std::inserter(result, result.end()));
   return result;
-}
-
-// Returns true if the sorted container |a1| contains all elements of the sorted
-// container |a2|.
-template <typename Arg1, typename Arg2>
-bool STLIncludes(const Arg1& a1, const Arg2& a2) {
-  DCHECK(STLIsSorted(a1));
-  DCHECK(STLIsSorted(a2));
-  return std::includes(a1.begin(), a1.end(),
-                       a2.begin(), a2.end());
 }
 
 // Erase/EraseIf are based on C++20's uniform container erasure API:

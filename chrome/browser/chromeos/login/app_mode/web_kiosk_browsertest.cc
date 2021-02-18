@@ -2,11 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "ash/public/cpp/keyboard/keyboard_controller.h"
 #include "ash/public/cpp/login_screen_test_api.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/public/cpp/shelf_test_api.h"
-#include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/chromeos/app_mode/web_app/web_kiosk_app_manager.h"
+#include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/ash/app_mode/web_app/web_kiosk_app_manager.h"
 #include "chrome/browser/chromeos/login/app_mode/kiosk_launch_controller.h"
 #include "chrome/browser/chromeos/login/test/device_state_mixin.h"
 #include "chrome/browser/chromeos/login/test/js_checker.h"
@@ -17,14 +18,17 @@
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/chromeos/ownership/fake_owner_settings_service.h"
 #include "chrome/browser/chromeos/policy/device_local_account.h"
+#include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/ash/keyboard/chrome_keyboard_controller_client_test_helper.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #include "chrome/browser/ui/webui/chromeos/login/error_screen_handler.h"
-#include "chrome/common/web_application_info.h"
+#include "chrome/browser/ui/webui/settings/chromeos/constants/routes.mojom-forward.h"
+#include "chrome/browser/web_applications/components/web_application_info.h"
 #include "components/account_id/account_id.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/browser_test.h"
-#include "content/public/test/test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/events/test/event_generator.h"
 
@@ -35,8 +39,8 @@ namespace {
 const char kAppInstallUrl[] = "https://app.com/install";
 const char kAppLaunchUrl[] = "https://app.com/launch";
 const char kAppTitle[] = "title.";
-const test::UIPath kNetworkConfigureScreenContinueButton = {
-    "error-message-md-continue-button"};
+const test::UIPath kNetworkConfigureScreenContinueButton = {"error-message",
+                                                            "continueButton"};
 
 }  // namespace
 
@@ -72,24 +76,22 @@ class WebKioskTest : public OobeBaseTest {
   const AccountId& account_id() { return account_id_; }
 
   void PrepareAppLaunch() {
-    // Wait for the Kiosk App configuration to reload.
-    content::WindowedNotificationObserver apps_loaded_signal(
-        chrome::NOTIFICATION_KIOSK_APPS_LOADED,
-        content::NotificationService::AllSources());
     std::vector<policy::DeviceLocalAccount> device_local_accounts = {
         policy::DeviceLocalAccount(
             policy::WebKioskAppBasicInfo(kAppInstallUrl, "", ""),
             kAppInstallUrl)};
 
     settings_ = std::make_unique<ScopedDeviceSettings>();
+    int ui_update_count = ash::LoginScreenTestApi::GetUiUpdateCount();
     policy::SetDeviceLocalAccounts(settings_->owner_settings_service(),
                                    device_local_accounts);
-    apps_loaded_signal.Wait();
+    // Wait for the Kiosk App configuration to reload.
+    ash::LoginScreenTestApi::WaitForUiUpdate(ui_update_count);
   }
 
   void MakeAppAlreadyInstalled() {
     auto info = std::make_unique<WebApplicationInfo>();
-    info->app_url = GURL(kAppLaunchUrl);
+    info->start_url = GURL(kAppLaunchUrl);
     info->title = base::UTF8ToUTF16(kAppTitle);
     WebKioskAppManager::Get()->UpdateAppByAccountId(account_id(),
                                                     std::move(info));
@@ -130,6 +132,23 @@ class WebKioskTest : public OobeBaseTest {
       // Click on continue button.
       test::OobeJS().TapOnPath(kNetworkConfigureScreenContinueButton);
     }
+  }
+
+  void ExpectKeyboardConfig() {
+    const keyboard::KeyboardConfig config =
+        ash::KeyboardController::Get()->GetKeyboardConfig();
+
+    // `auto_capitalize` is not controlled by the policy
+    // 'VirtualKeyboardFeatures', and its default value remains true.
+    EXPECT_TRUE(config.auto_capitalize);
+
+    // The other features are controlled by the policy
+    // 'VirtualKeyboardFeatures', and their default values should be false.
+    EXPECT_FALSE(config.auto_complete);
+    EXPECT_FALSE(config.auto_correct);
+    EXPECT_FALSE(config.handwriting);
+    EXPECT_FALSE(config.spell_check);
+    EXPECT_FALSE(config.voice_input);
   }
 
  private:
@@ -252,6 +271,31 @@ IN_PROC_BROWSER_TEST_F(WebKioskTest, HiddenShelf) {
 
   // The shelf should be still hidden after the gesture.
   EXPECT_FALSE(ash::ShelfTestApi().IsVisible());
+}
+
+IN_PROC_BROWSER_TEST_F(WebKioskTest, KeyboardConfigPolicy) {
+  SetOnline(true);
+  PrepareAppLaunch();
+  LaunchApp();
+  KioskSessionInitializedWaiter().Wait();
+
+  ExpectKeyboardConfig();
+}
+
+IN_PROC_BROWSER_TEST_F(WebKioskTest, OpenA11ySettings) {
+  SetOnline(true);
+  PrepareAppLaunch();
+  LaunchApp();
+  KioskSessionInitializedWaiter().Wait();
+
+  auto* settings_manager = chrome::SettingsWindowManager::GetInstance();
+  Profile* profile = ProfileManager::GetPrimaryUserProfile();
+
+  settings_manager->ShowOSSettings(
+      profile, chromeos::settings::mojom::kManageAccessibilitySubpagePath);
+
+  Browser* settings_browser = settings_manager->FindBrowserForProfile(profile);
+  ASSERT_TRUE(settings_browser);
 }
 
 }  // namespace chromeos

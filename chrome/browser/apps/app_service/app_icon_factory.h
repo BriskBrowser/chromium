@@ -5,26 +5,30 @@
 #ifndef CHROME_BROWSER_APPS_APP_SERVICE_APP_ICON_FACTORY_H_
 #define CHROME_BROWSER_APPS_APP_SERVICE_APP_ICON_FACTORY_H_
 
+#include <map>
 #include <string>
 #include <vector>
 
 #include "base/callback_forward.h"
 #include "base/files/file_path.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/web_applications/components/app_registrar.h"
 #include "components/services/app_service/public/mojom/app_service.mojom.h"
 #include "components/services/app_service/public/mojom/types.mojom.h"
 #include "ui/gfx/image/image_skia.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "components/arc/mojom/app.mojom.h"
 #include "components/arc/mojom/intent_helper.mojom.h"
-#endif  // OS_CHROMEOS
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace content {
 class BrowserContext;
 }
 
 namespace apps {
+
+using ScaleToSize = std::map<float, int>;
 
 // A bitwise-or of icon post-processing effects.
 //
@@ -87,7 +91,9 @@ CompressedDataToImageSkiaCallback(
 std::vector<uint8_t> EncodeImageToPngBytes(const gfx::ImageSkia image,
                                            float rep_icon_scale);
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+gfx::ImageSkia LoadMaskImage(const ScaleToSize& scale_to_size);
+
 gfx::ImageSkia ApplyBackgroundAndMask(const gfx::ImageSkia& image);
 
 gfx::ImageSkia CompositeImagesAndApplyMask(
@@ -103,7 +109,14 @@ void ArcActivityIconsToImageSkias(
     const std::vector<arc::mojom::ActivityIconPtr>& icons,
     base::OnceCallback<void(const std::vector<gfx::ImageSkia>& icons)>
         callback);
-#endif  // OS_CHROMEOS
+
+// TODO(crbug.com/1140356): Unify this function with IconLoadingPipeline class.
+// It's the same as IconLoadingPipeline::OnReadWebAppIcon().
+gfx::ImageSkia ConvertSquareBitmapsToImageSkia(
+    const std::map<SquareSizePx, SkBitmap>& icon_bitmaps,
+    IconEffects icon_effects,
+    int size_hint_in_dip);
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 // Modifies |image_skia| to apply icon post-processing effects like badging and
 // desaturation to gray.

@@ -11,7 +11,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/check.h"
 #include "base/compiler_specific.h"
 #include "base/i18n/case_conversion.h"
@@ -87,12 +87,12 @@ DefaultSearchManager::DefaultSearchManager(
     pref_change_registrar_.Init(pref_service_);
     pref_change_registrar_.Add(
         kDefaultSearchProviderDataPrefName,
-        base::Bind(&DefaultSearchManager::OnDefaultSearchPrefChanged,
-                   base::Unretained(this)));
+        base::BindRepeating(&DefaultSearchManager::OnDefaultSearchPrefChanged,
+                            base::Unretained(this)));
     pref_change_registrar_.Add(
         prefs::kSearchProviderOverrides,
-        base::Bind(&DefaultSearchManager::OnOverridesPrefChanged,
-                   base::Unretained(this)));
+        base::BindRepeating(&DefaultSearchManager::OnOverridesPrefChanged,
+                            base::Unretained(this)));
   }
   LoadPrepopulatedDefaultSearch();
   LoadDefaultSearchEngineFromPrefs();

@@ -11,8 +11,12 @@
 #include <memory>
 #include <utility>
 
+#include "base/feature_list.h"
 #include "base/metrics/field_trial.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/ranges/algorithm.h"
+#include "base/stl_util.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -23,6 +27,7 @@
 #include "components/autofill/core/browser/form_structure.h"
 #include "components/autofill/core/browser/logging/log_manager.h"
 #include "components/autofill/core/common/form_data_predictions.h"
+#include "components/autofill/core/common/password_generation_util.h"
 #include "components/autofill/core/common/save_password_progress_logger.h"
 #include "components/autofill/core/common/signatures.h"
 #include "components/password_manager/core/browser/browser_save_password_progress_logger.h"
@@ -35,7 +40,6 @@
 #include "components/password_manager/core/browser/password_manager_client.h"
 #include "components/password_manager/core/browser/password_manager_driver.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
-#include "components/password_manager/core/browser/password_manager_onboarding.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/browser/password_save_manager_impl.h"
 #include "components/password_manager/core/common/password_manager_features.h"
@@ -57,17 +61,14 @@ using autofill::FormRendererId;
 using autofill::FormStructure;
 using autofill::NEW_PASSWORD;
 using autofill::NOT_USERNAME;
-using autofill::PasswordForm;
 using autofill::SINGLE_USERNAME;
 using autofill::UNKNOWN_TYPE;
 using autofill::USERNAME;
-using autofill::mojom::PasswordFormFieldPredictionType;
+using autofill::mojom::SubmissionIndicatorEvent;
 using base::NumberToString;
-using BlacklistedStatus =
-    password_manager::OriginCredentialStore::BlacklistedStatus;
-#if defined(PASSWORD_REUSE_DETECTION_ENABLED)
+using BlocklistedStatus =
+    password_manager::OriginCredentialStore::BlocklistedStatus;
 using password_manager::metrics_util::GaiaPasswordHashChange;
-#endif  // PASSWORD_REUSE_DETECTION_ENABLED
 
 namespace password_manager {
 
@@ -223,10 +224,6 @@ void PasswordManager::RegisterProfilePrefs(
   registry->RegisterDoublePref(prefs::kLastTimeObsoleteHttpCredentialsRemoved,
                                0.0);
   registry->RegisterDoublePref(prefs::kLastTimePasswordCheckCompleted, 0.0);
-  registry->RegisterIntegerPref(prefs::kPasswordManagerOnboardingState,
-                                static_cast<int>(OnboardingState::kDoNotShow));
-  registry->RegisterBooleanPref(prefs::kWasOnboardingFeatureCheckedBefore,
-                                false);
 
   registry->RegisterDictionaryPref(prefs::kAccountStoragePerAccountSettings);
 
@@ -234,8 +231,8 @@ void PasswordManager::RegisterProfilePrefs(
                              base::Time());
   registry->RegisterTimePref(prefs::kAccountStoreDateLastUsedForFilling,
                              base::Time());
-
-  registry->RegisterIntegerPref(prefs::kSettingsLaunchedPasswordChecks, 0);
+  registry->RegisterBooleanPref(prefs::kWasPhishedCredentialsUploadedToSync,
+                                false);
 
 #if defined(OS_APPLE)
   registry->RegisterIntegerPref(prefs::kKeychainMigrationStatus,
@@ -304,29 +301,29 @@ void PasswordManager::OnPasswordNoLongerGenerated(PasswordManagerDriver* driver,
     form_manager->PasswordNoLongerGenerated();
 }
 
-void PasswordManager::SetGenerationElementAndReasonForForm(
+void PasswordManager::SetGenerationElementAndTypeForForm(
     password_manager::PasswordManagerDriver* driver,
     const FormData& form_data,
     FieldRendererId generation_element,
-    bool is_manually_triggered) {
+    autofill::password_generation::PasswordGenerationType type) {
   DCHECK(client_->IsSavingAndFillingEnabled(form_data.url));
 
   PasswordFormManager* form_manager = GetMatchedManager(driver, form_data);
   if (form_manager) {
     form_manager->SetGenerationElement(generation_element);
-    form_manager->SetGenerationPopupWasShown(is_manually_triggered);
+    form_manager->SetGenerationPopupWasShown(type);
   }
 }
 
-void PasswordManager::MarkWasUnblacklistedInFormManagers(
+void PasswordManager::MarkWasUnblocklistedInFormManagers(
     CredentialCache* credential_cache) {
   if (owned_submitted_form_manager_) {
     const OriginCredentialStore& credential_store =
         credential_cache->GetCredentialStore(
             url::Origin::Create(owned_submitted_form_manager_->GetURL()));
-    if (credential_store.GetBlacklistedStatus() ==
-        BlacklistedStatus::kWasBlacklisted) {
-      owned_submitted_form_manager_->MarkWasUnblacklisted();
+    if (credential_store.GetBlocklistedStatus() ==
+        BlocklistedStatus::kWasBlocklisted) {
+      owned_submitted_form_manager_->MarkWasUnblocklisted();
     }
   }
 
@@ -334,9 +331,9 @@ void PasswordManager::MarkWasUnblacklistedInFormManagers(
     const OriginCredentialStore& credential_store =
         credential_cache->GetCredentialStore(
             url::Origin::Create(form_manager->GetURL()));
-    if (credential_store.GetBlacklistedStatus() ==
-        BlacklistedStatus::kWasBlacklisted) {
-      form_manager->MarkWasUnblacklisted();
+    if (credential_store.GetBlocklistedStatus() ==
+        BlocklistedStatus::kWasBlocklisted) {
+      form_manager->MarkWasUnblocklisted();
     }
   }
 }
@@ -428,6 +425,9 @@ bool PasswordManager::IsPasswordFieldDetectedOnPage() {
 
 void PasswordManager::OnPasswordFormSubmitted(PasswordManagerDriver* driver,
                                               const FormData& form_data) {
+  // TODO(https://crbug.com/1167475): Add Test for this metric.
+  base::UmaHistogramEnumeration("PasswordManager.FormSubmission.PerProfileType",
+                                client_->GetProfileType());
   ProvisionallySaveForm(form_data, driver, false);
 }
 
@@ -462,6 +462,38 @@ void PasswordManager::OnPasswordFormSubmittedNoChecks(
     OnLoginSuccessful();
 }
 
+void PasswordManager::OnPasswordFormCleared(
+    PasswordManagerDriver* driver,
+    const autofill::FormData& form_data) {
+  PasswordFormManager* manager = GetMatchedManager(driver, form_data);
+  if (!manager || !manager->is_submitted() ||
+      !manager->GetSubmittedForm()->IsPossibleChangePasswordForm()) {
+    return;
+  }
+  // If a password form was cleared, login is successful.
+  if (form_data.is_form_tag &&
+      base::FeatureList::IsEnabled(
+          password_manager::features::kDetectFormSubmissionOnFormClear)) {
+    manager->UpdateSubmissionIndicatorEvent(
+        SubmissionIndicatorEvent::CHANGE_PASSWORD_FORM_CLEARED);
+    OnLoginSuccessful();
+    return;
+  }
+  // If password fields outside the <form> tag were cleared, it should be
+  // verified that fields are relevant.
+  FieldRendererId new_password_field_id =
+      manager->GetSubmittedForm()->new_password_element_renderer_id;
+  auto it = base::ranges::find(form_data.fields, new_password_field_id,
+                               &autofill::FormFieldData::unique_renderer_id);
+  if (it != form_data.fields.end() && it->value.empty() &&
+      base::FeatureList::IsEnabled(
+          features::kDetectFormSubmissionOnFormClear)) {
+    manager->UpdateSubmissionIndicatorEvent(
+        SubmissionIndicatorEvent::CHANGE_PASSWORD_FORM_CLEARED);
+    OnLoginSuccessful();
+  }
+}
+
 #if defined(OS_IOS)
 void PasswordManager::OnPasswordFormSubmittedNoChecksForiOS(
     PasswordManagerDriver* driver,
@@ -488,8 +520,8 @@ void PasswordManager::OnUserModifiedNonPasswordField(
                              renderer_id, value, base::Time::Now(), driver_id);
 }
 
-void PasswordManager::ShowManualFallbackForSaving(PasswordManagerDriver* driver,
-                                                  const FormData& form_data) {
+void PasswordManager::OnInformAboutUserInput(PasswordManagerDriver* driver,
+                                             const FormData& form_data) {
   PasswordFormManager* manager = ProvisionallySaveForm(form_data, driver, true);
 
   if (manager && form_data.is_gaia_with_skip_save_password_form) {
@@ -504,7 +536,7 @@ void PasswordManager::ShowManualFallbackForSaving(PasswordManagerDriver* driver,
   if (client_ && client_->GetMetricsRecorder())
     client_->GetMetricsRecorder()->RecordFormManagerAvailable(availability);
 
-  ShowManualFallbackForSavingImpl(manager, form_data);
+  ShowManualFallbackForSaving(manager, form_data);
 }
 
 void PasswordManager::HideManualFallbackForSaving() {
@@ -581,7 +613,7 @@ void PasswordManager::CreateFormManagers(
       // filled values.
       // TODO(https://crbug.com/831123): Implement more robust filling and
       // remove the next line.
-      manager->FillForm(form_data);
+      manager->FillForm(form_data, predictions_);
     } else {
       new_forms_data.push_back(&form_data);
     }
@@ -712,6 +744,9 @@ void PasswordManager::PresaveGeneratedPassword(
   if (form_manager) {
     form_manager->PresaveGeneratedPassword(driver, form, generated_password,
                                            generation_element);
+
+    form_manager->ProvisionallySave(
+        form, driver, base::OptionalOrNullptr(possible_username_));
   }
 }
 
@@ -722,10 +757,9 @@ void PasswordManager::UpdateStateOnUserInput(
     const base::string16& field_value) {
   for (std::unique_ptr<PasswordFormManager>& manager : form_managers_) {
     if (manager->UpdateStateOnUserInput(form_id, field_id, field_value)) {
-      ProvisionallySaveForm(manager->observed_form(), driver, true);
+      ProvisionallySaveForm(*manager->observed_form(), driver, true);
       if (manager->is_submitted() && !manager->HasGeneratedPassword()) {
-        ShowManualFallbackForSavingImpl(manager.get(),
-                                        manager->observed_form());
+        ShowManualFallbackForSaving(manager.get(), *manager->observed_form());
       } else {
         HideManualFallbackForSaving();
       }
@@ -749,7 +783,7 @@ void PasswordManager::OnPasswordFormRemoved(
       manager->SetDriver(driver->AsWeakPtr());
     // Find a form with corresponding renderer id.
     if (manager->DoesManageAccordingToRendererId(form_id, driver)) {
-      CheckForPotentialSubmission(manager.get(), field_data_manager, driver);
+      DetectPotentialSubmission(manager.get(), field_data_manager, driver);
       return;
     }
   }
@@ -760,9 +794,12 @@ void PasswordManager::OnIframeDetach(
     PasswordManagerDriver* driver,
     const FieldDataManager* field_data_manager) {
   for (auto& manager : form_managers_) {
-    // Find a form with corresponding frame id.
-    if (manager->observed_form().frame_id == frame_id) {
-      CheckForPotentialSubmission(manager.get(), field_data_manager, driver);
+    // Find a form with corresponding frame id. Stop iterating in case the
+    // target form manager was found to avoid crbug.com/1129758 and since only
+    // one password form is being submitted at a time.
+    if (manager->observed_form()->frame_id == frame_id &&
+        DetectPotentialSubmission(manager.get(), field_data_manager, driver)) {
+      return;
     }
   }
 }
@@ -894,8 +931,8 @@ void PasswordManager::OnPasswordFormsRendered(
 }
 
 void PasswordManager::OnLoginSuccessful() {
-  if (autofill_assistant_mode_ == AutofillAssistantMode::kUIShown) {
-    // Suppress prompts while Autofill Assistant is running.
+  if (client_->IsAutofillAssistantUIVisible()) {
+    // Suppress prompts while Autofill Assistant UI is shown.
     return;
   }
 
@@ -957,17 +994,8 @@ void PasswordManager::OnLoginSuccessful() {
     if (logger)
       logger->LogMessage(Logger::STRING_DECISION_ASK);
     bool update_password = submitted_manager->IsPasswordUpdate();
-    bool is_blacklisted = submitted_manager->IsBlacklisted();
-    SyncState password_sync_state = client_->GetPasswordSyncState();
-    if (ShouldShowOnboarding(
-            client_->GetPrefs(), PasswordUpdateBool(update_password),
-            BlacklistedBool(is_blacklisted), password_sync_state)) {
-      if (client_->ShowOnboarding(MoveOwnedSubmittedManager())) {
-        if (logger)
-          logger->LogMessage(Logger::STRING_SHOW_ONBOARDING);
-      }
-    } else if (client_->PromptUserToSaveOrUpdatePassword(
-                   MoveOwnedSubmittedManager(), update_password)) {
+    if (client_->PromptUserToSaveOrUpdatePassword(MoveOwnedSubmittedManager(),
+                                                  update_password)) {
       if (logger)
         logger->LogMessage(Logger::STRING_SHOW_PASSWORD_PROMPT);
     }
@@ -989,7 +1017,10 @@ void PasswordManager::OnLoginSuccessful() {
 
 void PasswordManager::MaybeSavePasswordHash(
     PasswordFormManager* submitted_manager) {
-#if defined(PASSWORD_REUSE_DETECTION_ENABLED)
+  if (!base::FeatureList::IsEnabled(features::kPasswordReuseDetectionEnabled)) {
+    return;
+  }
+
   const PasswordForm* submitted_form = submitted_manager->GetSubmittedForm();
   // When |username_value| is empty, it's not clear whether the submitted
   // credentials are really Gaia or enterprise credentials. Don't save
@@ -1048,7 +1079,6 @@ void PasswordManager::MaybeSavePasswordHash(
                  ? GaiaPasswordHashChange::NOT_SYNC_PASSWORD_CHANGE
                  : GaiaPasswordHashChange::SAVED_IN_CONTENT_AREA);
   store->SaveGaiaPasswordHash(username, password, is_sync_account_email, event);
-#endif
 }
 
 void PasswordManager::ProcessAutofillPredictions(
@@ -1197,10 +1227,19 @@ void PasswordManager::TryToFindPredictionsToPossibleUsernameData() {
   }
 }
 
-void PasswordManager::ShowManualFallbackForSavingImpl(
+void PasswordManager::ShowManualFallbackForSaving(
     PasswordFormManager* form_manager,
     const FormData& form_data) {
-  if (!form_manager || !form_manager->is_submitted())
+  // Where `form_manager` is nullptr, make sure the manual fallback isn't
+  // shown. One scenario where this is relevant is when the user inputs some
+  // password and then removes it. Upon removing the password, the
+  // `form_manager` will become nullptr.
+  if (!form_manager) {
+    HideManualFallbackForSaving();
+    return;
+  }
+
+  if (!form_manager->is_submitted())
     return;
 
   if (!client_->GetProfilePasswordStore()->IsAbleToSavePasswords() ||
@@ -1227,27 +1266,23 @@ void PasswordManager::ShowManualFallbackForSavingImpl(
   }
 }
 
-void PasswordManager::SetAutofillAssistantMode(AutofillAssistantMode mode) {
-  if (autofill_assistant_mode_ == mode) {
-    return;
-  }
-  autofill_assistant_mode_ = mode;
-
-  if (autofill_assistant_mode_ == AutofillAssistantMode::kUINotShown) {
-    // Reset pending credentials as Autofill Assistant has handled the pending
-    // submission.
-    for (auto& form_manager : form_managers_)
-      form_manager->ResetState();
-    owned_submitted_form_manager_.reset();
-  }
+void PasswordManager::ResetPendingCredentials() {
+  for (auto& form_manager : form_managers_)
+    form_manager->ResetState();
+  owned_submitted_form_manager_.reset();
 }
 
-AutofillAssistantMode PasswordManager::GetAutofillAssistantMode() const {
-  return autofill_assistant_mode_;
+bool PasswordManager::IsFormManagerPendingPasswordUpdate() const {
+  for (const auto& form_manager : form_managers_) {
+    if (form_manager->IsPasswordUpdate())
+      return true;
+  }
+  return owned_submitted_form_manager_ &&
+         owned_submitted_form_manager_->IsPasswordUpdate();
 }
 
 #if defined(OS_IOS)
-void PasswordManager::CheckForPotentialSubmission(
+bool PasswordManager::DetectPotentialSubmission(
     PasswordFormManager* form_manager,
     const FieldDataManager* field_data_manager,
     PasswordManagerDriver* driver) {
@@ -1257,11 +1292,16 @@ void PasswordManager::CheckForPotentialSubmission(
         field_data_manager);
     // Provisionally save form and set the manager to be submitted if valid
     // data was recovered.
-    form_manager->ProvisionallySave(form_manager->observed_form(), driver,
+    form_manager->ProvisionallySave(*form_manager->observed_form(), driver,
                                     nullptr);
   }
-  if (form_manager->is_submitted())
+  // If the manager was set to be submitted, either prior to this function call
+  // or on provisional save above, consider submission successful.
+  if (form_manager->is_submitted()) {
     OnLoginSuccessful();
+    return true;
+  }
+  return false;
 }
 #endif
 

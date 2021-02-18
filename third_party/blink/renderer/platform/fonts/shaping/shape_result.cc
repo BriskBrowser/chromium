@@ -63,6 +63,28 @@ struct SameSizeAsHarfBuzzRunGlyphData {
 
 ASSERT_SIZE(HarfBuzzRunGlyphData, SameSizeAsHarfBuzzRunGlyphData);
 
+struct SameSizeAsRunInfo : public RefCounted<SameSizeAsRunInfo> {
+  struct GlyphDataCollection {
+    void* pointers[2];
+    unsigned integer;
+  } glyph_data;
+  void* pointer;
+  Vector<int> vector;
+  int integers[6];
+};
+
+ASSERT_SIZE(ShapeResult::RunInfo, SameSizeAsRunInfo);
+
+struct SameSizeAsShapeResult : public RefCounted<SameSizeAsShapeResult> {
+  float floats[5];
+  Vector<int> vector;
+  void* pointers[2];
+  unsigned integers[2];
+  unsigned bitfields : 32;
+};
+
+ASSERT_SIZE(ShapeResult, SameSizeAsShapeResult);
+
 unsigned ShapeResult::RunInfo::NextSafeToBreakOffset(unsigned offset) const {
   DCHECK_LE(offset, num_characters_);
   if (!Rtl()) {
@@ -370,7 +392,8 @@ ShapeResult::ShapeResult(scoped_refptr<const SimpleFontData> font_data,
       num_characters_(num_characters),
       num_glyphs_(0),
       direction_(static_cast<unsigned>(direction)),
-      has_vertical_offsets_(0) {}
+      has_vertical_offsets_(false),
+      is_applied_spacing_(false) {}
 
 ShapeResult::ShapeResult(const Font* font,
                          unsigned start_index,
@@ -386,7 +409,8 @@ ShapeResult::ShapeResult(const ShapeResult& other)
       num_characters_(other.num_characters_),
       num_glyphs_(other.num_glyphs_),
       direction_(other.direction_),
-      has_vertical_offsets_(other.has_vertical_offsets_) {
+      has_vertical_offsets_(other.has_vertical_offsets_),
+      is_applied_spacing_(other.is_applied_spacing_) {
   runs_.ReserveCapacity(other.runs_.size());
   for (const auto& run : other.runs_)
     runs_.push_back(run->Create(*run.get()));
@@ -402,10 +426,16 @@ size_t ShapeResult::ByteSize() const {
   return self_byte_size;
 }
 
-scoped_refptr<ShapeResult> ShapeResult::MutableUnique() const {
-  if (HasOneRef())
-    return const_cast<ShapeResult*>(this);
-  return ShapeResult::Create(*this);
+bool ShapeResult::IsStartSafeToBreak() const {
+  CHECK(!runs_.IsEmpty());
+  if (!Rtl()) {
+    const scoped_refptr<RunInfo>& run = runs_.front();
+    const HarfBuzzRunGlyphData& glyph_data = run->glyph_data_.front();
+    return glyph_data.safe_to_break_before;
+  }
+  const scoped_refptr<RunInfo>& run = runs_.back();
+  const HarfBuzzRunGlyphData& glyph_data = run->glyph_data_.back();
+  return glyph_data.safe_to_break_before;
 }
 
 unsigned ShapeResult::NextSafeToBreakOffset(unsigned index) const {
@@ -744,6 +774,8 @@ unsigned ShapeResult::CountGraphemesInCluster(base::span<const UChar> str,
   uint16_t length = end_index - start_index;
   TextBreakIterator* cursor_pos_iterator =
       CursorMovementIterator(str.subspan(start_index, length));
+  if (!cursor_pos_iterator)
+    return 0;
 
   int cursor_pos = cursor_pos_iterator->current();
   int num_graphemes = -1;
@@ -853,9 +885,11 @@ void ShapeResult::ApplySpacingImpl(
         continue;
       }
 
-      space =
-          spacing.ComputeSpacing(run_start_index + glyph_data.character_index,
-                                 run->font_data_->GetAdvanceOverride(), offset);
+      typename ShapeResultSpacing<TextContainerType>::ComputeSpacingParameters
+          parameters{.index = run_start_index + glyph_data.character_index,
+                     .original_advance = glyph_data.advance,
+                     .advance_override = run->font_data_->GetAdvanceOverride()};
+      space = spacing.ComputeSpacing(parameters, offset);
       glyph_data.advance += space;
       total_space_for_run += space;
 
@@ -892,6 +926,10 @@ void ShapeResult::ApplySpacingImpl(
 
 void ShapeResult::ApplySpacing(ShapeResultSpacing<String>& spacing,
                                int text_start_offset) {
+  // For simplicity, we apply spacing once only. If you want to do multiple
+  // time, please get rid of below |DCHECK()|.
+  DCHECK(!is_applied_spacing_) << this;
+  is_applied_spacing_ = true;
   ApplySpacingImpl(spacing, text_start_offset);
 }
 
@@ -914,14 +952,27 @@ float HarfBuzzPositionToFloat(hb_position_t value) {
 
 // Checks whether it's safe to break without reshaping before the given glyph.
 bool IsSafeToBreakBefore(const hb_glyph_info_t* glyph_infos,
-                         unsigned i) {
-  // Before the first glyph is safe to break.
-  if (!i)
-    return true;
+                         unsigned i,
+                         unsigned num_glyph,
+                         TextDirection direction) {
+  if (direction == TextDirection::kLtr) {
+    // Before the first glyph is safe to break.
+    if (!i)
+      return true;
 
-  // Not at a cluster boundary.
-  if (glyph_infos[i].cluster == glyph_infos[i - 1].cluster)
-    return false;
+    // Not at a cluster boundary.
+    if (glyph_infos[i].cluster == glyph_infos[i - 1].cluster)
+      return false;
+  } else {
+    DCHECK_EQ(direction, TextDirection::kRtl);
+    // Before the first glyph is safe to break.
+    if (i == num_glyph - 1)
+      return true;
+
+    // Not at a cluster boundary.
+    if (glyph_infos[i].cluster == glyph_infos[i + 1].cluster)
+      return false;
+  }
 
   // The HB_GLYPH_FLAG_UNSAFE_TO_BREAK flag is set for all glyphs in a
   // given cluster so we only need to check the last one.
@@ -1077,7 +1128,8 @@ void ShapeResult::ComputeGlyphPositions(ShapeResult::RunInfo* run,
     uint16_t character_index = glyph.cluster - start_cluster;
     DCHECK_LE(character_index, HarfBuzzRunGlyphData::kMaxCharacterIndex);
     run->glyph_data_[i] = {glyph.codepoint, character_index,
-                           IsSafeToBreakBefore(glyph_infos + start_glyph, i),
+                           IsSafeToBreakBefore(glyph_infos + start_glyph, i,
+                                               num_glyphs, Direction()),
                            advance};
     run->glyph_data_.SetOffsetAt(i, offset);
 
@@ -1241,6 +1293,8 @@ unsigned ShapeResult::CopyRangeInternal(unsigned run_index,
 #if DCHECK_IS_ON()
   unsigned target_num_characters_before = target->num_characters_;
 #endif
+
+  target->is_applied_spacing_ |= is_applied_spacing_;
 
   // When |target| is empty, its character indexes are the specified sub range
   // of |this|. Otherwise the character indexes are renumbered to be continuous.

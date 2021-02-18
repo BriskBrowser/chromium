@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_UI_WEBUI_SETTINGS_CHROMEOS_MULTIDEVICE_SECTION_H_
 #define CHROME_BROWSER_UI_WEBUI_SETTINGS_CHROMEOS_MULTIDEVICE_SECTION_H_
 
+#include "base/values.h"
 #include "chrome/browser/ui/webui/settings/chromeos/os_settings_section.h"
 #include "chromeos/services/multidevice_setup/public/cpp/multidevice_setup_client.h"
 #include "components/prefs/pref_change_registrar.h"
@@ -53,15 +54,21 @@ class MultiDeviceSection
   mojom::Section GetSection() const override;
   mojom::SearchResultIcon GetSectionIcon() const override;
   std::string GetSectionPath() const override;
+  bool LogMetric(mojom::Setting setting, base::Value& value) const override;
   void RegisterHierarchy(HierarchyGenerator* generator) const override;
 
   // multidevice_setup::MultiDeviceSetupClient::Observer:
   void OnHostStatusChanged(
       const multidevice_setup::MultiDeviceSetupClient::HostStatusWithDevice&
           host_status_with_device) override;
+  void OnFeatureStatesChanged(
+      const multidevice_setup::MultiDeviceSetupClient::FeatureStatesMap&
+          feature_states_map) override;
 
   // Nearby Share enabled pref change observer.
   void OnNearbySharingEnabledChanged();
+
+  bool IsFeatureSupported(multidevice_setup::mojom::Feature feature);
 
   multidevice_setup::MultiDeviceSetupClient* multidevice_setup_client_;
   phonehub::PhoneHubManager* phone_hub_manager_;

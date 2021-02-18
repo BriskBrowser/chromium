@@ -12,6 +12,8 @@
 #include "base/macros.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/base/ui_base_types.h"
+#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/views/metadata/view_factory.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 
@@ -30,6 +32,18 @@ class View;
 // Handles events on Widgets in context-specific ways.
 class VIEWS_EXPORT WidgetDelegate {
  public:
+  using ClientViewFactory =
+      base::OnceCallback<std::unique_ptr<ClientView>(Widget*)>;
+  using OverlayViewFactory = base::OnceCallback<std::unique_ptr<View>()>;
+
+  // NonClientFrameViewFactory is a RepeatingCallback because the
+  // NonClientFrameView is rebuilt on Aura platforms when WindowTreeHost
+  // properties that might affect its appearance change. Rebuilding the entire
+  // NonClientFrameView is a pretty big hammer for that but it's the one we
+  // have.
+  using NonClientFrameViewFactory =
+      base::RepeatingCallback<std::unique_ptr<NonClientFrameView>(Widget*)>;
+
   struct Params {
     Params();
     ~Params();
@@ -61,8 +75,26 @@ class VIEWS_EXPORT WidgetDelegate {
     // Widget; if false, focus cycles within this Widget.
     bool focus_traverses_out = false;
 
+    // Controls whether the user can traverse a Widget's views using up/down
+    // and left/right arrow keys in addition to TAB. Applies only to the
+    // current widget so can be set independently even on widgets that share a
+    // focus manager.
+    bool enable_arrow_key_traversal = false;
+
     // The widget's icon, if any.
     gfx::ImageSkia icon;
+
+    // The widget's app icon, a larger icon used for task bar and Alt-Tab.
+    gfx::ImageSkia app_icon;
+
+    // The widget's initially focused view, if any. This can only be set before
+    // this WidgetDelegate is used to initialize a Widget.
+    base::Optional<View*> initially_focused_view;
+
+    // The widget's internal name, used to identify it in window-state
+    // restoration (if this widget participates in that) and in debugging
+    // contexts. Never displayed to the user, and not translated.
+    std::string internal_name;
 
     // The widget's modality type. Note that MODAL_TYPE_SYSTEM does not work at
     // all on Mac.
@@ -89,6 +121,8 @@ class VIEWS_EXPORT WidgetDelegate {
   };
 
   WidgetDelegate();
+  WidgetDelegate(const WidgetDelegate&) = delete;
+  WidgetDelegate& operator=(const WidgetDelegate&) = delete;
   virtual ~WidgetDelegate();
 
   // Sets the return value of CanActivate(). Default is true.
@@ -121,8 +155,9 @@ class VIEWS_EXPORT WidgetDelegate {
   virtual bool OnCloseRequested(Widget::ClosedReason close_reason);
 
   // Returns the view that should have the focus when the widget is shown.  If
-  // NULL no view is focused.
+  // nullptr no view is focused.
   virtual View* GetInitiallyFocusedView();
+  bool HasConfiguredInitiallyFocusedView() const;
 
   virtual BubbleDialogDelegate* AsBubbleDialogDelegate();
   virtual DialogDelegate* AsDialogDelegate();
@@ -165,7 +200,7 @@ class VIEWS_EXPORT WidgetDelegate {
   virtual gfx::ImageSkia GetWindowIcon();
 
   // Returns true if a window icon should be shown.
-  virtual bool ShouldShowWindowIcon() const;
+  bool ShouldShowWindowIcon() const;
 
   // Execute a command in the window's controller. Returns true if the command
   // was handled, false if it was not.
@@ -242,6 +277,21 @@ class VIEWS_EXPORT WidgetDelegate {
   // replace it.
   virtual View* GetContentsView();
 
+  // Returns ownership of the contents view, which means something similar to
+  // but not the same as C++ ownership in the unique_ptr sense. The caller
+  // takes on responsibility for either destroying the returned View (if it
+  // is !owned_by_client()) or not (if it is owned_by_client()). Since this
+  // returns a raw pointer, this method serves only as a declaration of intent
+  // by the caller.
+  //
+  // It is only legal to call this method one time on a given WidgetDelegate
+  // instance.
+  //
+  // In future, this method will begin returning a unique_ptr<View> instead,
+  // and will eventually be renamed to TakeContentsView() once WidgetDelegate
+  // no longer retains any reference to the contents view internally.
+  View* TransferOwnershipOfContentsView();
+
   // Called by the Widget to create the Client View used to host the contents
   // of the widget.
   virtual ClientView* CreateClientView(Widget* widget);
@@ -281,7 +331,10 @@ class VIEWS_EXPORT WidgetDelegate {
   void SetCanMinimize(bool can_minimize);
   void SetCanResize(bool can_resize);
   void SetFocusTraversesOut(bool focus_traverses_out);
+  void SetEnableArrowKeyTraversal(bool enable_arrow_key_traversal);
   void SetIcon(const gfx::ImageSkia& icon);
+  void SetAppIcon(const gfx::ImageSkia& icon);
+  void SetInitiallyFocusedView(View* initially_focused_view);
   void SetModalType(ui::ModalType modal_type);
   void SetOwnedByWidget(bool delete_self);
   void SetShowCloseButton(bool show_close_button);
@@ -293,13 +346,34 @@ class VIEWS_EXPORT WidgetDelegate {
   void SetCenterTitle(bool center_title);
 #endif
 
+  template <typename T>
+  T* SetContentsView(std::unique_ptr<T> contents) {
+    DCHECK(!contents->owned_by_client());
+    T* raw_contents = contents.get();
+    SetContentsViewImpl(contents.release());
+    return raw_contents;
+  }
+
+  template <typename T>
+  T* SetContentsView(T* contents) {
+    DCHECK(contents->owned_by_client());
+    SetContentsViewImpl(contents);
+    return contents;
+  }
+
   // A convenience wrapper that does all three of SetCanMaximize,
   // SetCanMinimize, and SetCanResize.
   void SetHasWindowSizeControls(bool has_controls);
 
+  void RegisterWidgetInitializingCallback(base::OnceClosure callback);
+  void RegisterWidgetInitializedCallback(base::OnceClosure callback);
   void RegisterWindowWillCloseCallback(base::OnceClosure callback);
   void RegisterWindowClosingCallback(base::OnceClosure callback);
   void RegisterDeleteDelegateCallback(base::OnceClosure callback);
+
+  void SetClientViewFactory(ClientViewFactory factory);
+  void SetNonClientFrameViewFactory(NonClientFrameViewFactory factory);
+  void SetOverlayViewFactory(OverlayViewFactory factory);
 
   // Called to notify the WidgetDelegate of changes to the state of its Widget.
   // It is not usually necessary to call these from client code.
@@ -312,9 +386,23 @@ class VIEWS_EXPORT WidgetDelegate {
   bool ShouldCenterWindowTitleText() const;
 
   bool focus_traverses_out() const { return params_.focus_traverses_out; }
+  bool enable_arrow_key_traversal() const {
+    return params_.enable_arrow_key_traversal;
+  }
+  bool owned_by_widget() const { return params_.owned_by_widget; }
+
+  void set_internal_name(std::string name) { params_.internal_name = name; }
+  std::string internal_name() const { return params_.internal_name; }
 
  private:
+  // We're using a vector of OnceClosures instead of a OnceCallbackList because
+  // most of the clients of WidgetDelegate don't have a convenient place to
+  // store the CallbackLists' subscription objects.
+  using ClosureVector = std::vector<base::OnceClosure>;
+
   friend class Widget;
+
+  void SetContentsViewImpl(View* contents);
 
   // The Widget that was initialized with this instance as its WidgetDelegate,
   // if any.
@@ -322,16 +410,27 @@ class VIEWS_EXPORT WidgetDelegate {
   Params params_;
 
   View* default_contents_view_ = nullptr;
+  bool contents_view_taken_ = false;
   bool can_activate_ = true;
+
+  View* unowned_contents_view_ = nullptr;
+  std::unique_ptr<View> owned_contents_view_;
 
   // Managed by Widget. Ensures |this| outlives its Widget.
   bool can_delete_this_ = true;
 
-  std::vector<base::OnceClosure> window_will_close_callbacks_;
-  std::vector<base::OnceClosure> window_closing_callbacks_;
-  std::vector<base::OnceClosure> delete_delegate_callbacks_;
+  // The first two are stored as unique_ptrs to make it easier to check in the
+  // registration methods whether a callback is being registered too late in the
+  // WidgetDelegate's lifecycle.
+  std::unique_ptr<ClosureVector> widget_initializing_callbacks_;
+  std::unique_ptr<ClosureVector> widget_initialized_callbacks_;
+  ClosureVector window_will_close_callbacks_;
+  ClosureVector window_closing_callbacks_;
+  ClosureVector delete_delegate_callbacks_;
 
-  DISALLOW_COPY_AND_ASSIGN(WidgetDelegate);
+  ClientViewFactory client_view_factory_;
+  NonClientFrameViewFactory non_client_frame_view_factory_;
+  OverlayViewFactory overlay_view_factory_;
 };
 
 // A WidgetDelegate implementation that is-a View. Used to override GetWidget()
@@ -343,17 +442,21 @@ class VIEWS_EXPORT WidgetDelegateView : public WidgetDelegate, public View {
   METADATA_HEADER(WidgetDelegateView);
 
   WidgetDelegateView();
+  WidgetDelegateView(const WidgetDelegateView&) = delete;
+  WidgetDelegateView& operator=(const WidgetDelegateView&) = delete;
   ~WidgetDelegateView() override;
 
   // WidgetDelegate:
   Widget* GetWidget() override;
   const Widget* GetWidget() const override;
   View* GetContentsView() override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(WidgetDelegateView);
 };
 
+BEGIN_VIEW_BUILDER(VIEWS_EXPORT, WidgetDelegateView, View)
+END_VIEW_BUILDER
+
 }  // namespace views
+
+DEFINE_VIEW_BUILDER(VIEWS_EXPORT, WidgetDelegateView)
 
 #endif  // UI_VIEWS_WIDGET_WIDGET_DELEGATE_H_

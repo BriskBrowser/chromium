@@ -6,7 +6,7 @@
 
 #include "base/android/jni_android.h"
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/test/gmock_callback_support.h"
 #include "base/test/mock_callback.h"
@@ -20,14 +20,15 @@
 #include "media/base/async_destroy_video_decoder.h"
 #include "media/base/decoder_buffer.h"
 #include "media/base/media_util.h"
+#include "media/base/supported_video_decoder_config.h"
 #include "media/base/test_helpers.h"
+#include "media/base/video_codecs.h"
 #include "media/base/video_frame.h"
 #include "media/gpu/android/android_video_surface_chooser_impl.h"
 #include "media/gpu/android/fake_codec_allocator.h"
 #include "media/gpu/android/mock_android_video_surface_chooser.h"
 #include "media/gpu/android/mock_device_info.h"
 #include "media/gpu/android/video_frame_factory.h"
-#include "media/video/supported_video_decoder_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::test::RunCallback;
@@ -396,7 +397,7 @@ TEST_P(MediaCodecVideoDecoderTest, FrameFactoryInitFailureIsAnError) {
   Initialize(TestVideoConfig::Large(codec_));
   ON_CALL(*video_frame_factory_, Initialize(ExpectedOverlayMode(), _))
       .WillByDefault(RunCallback<1>(nullptr));
-  EXPECT_CALL(decode_cb_, Run(DecodeStatus::DECODE_ERROR)).Times(1);
+  EXPECT_CALL(decode_cb_, Run(IsDecodeErrorStatus())).Times(1);
   EXPECT_CALL(*surface_chooser_, MockUpdateState()).Times(0);
   mcvd_->Decode(fake_decoder_buffer_, decode_cb_.Get());
 }
@@ -404,7 +405,7 @@ TEST_P(MediaCodecVideoDecoderTest, FrameFactoryInitFailureIsAnError) {
 TEST_P(MediaCodecVideoDecoderTest, CodecCreationFailureIsAnError) {
   InitializeWithTextureOwner_OneDecodePending(TestVideoConfig::Large(codec_));
   mcvd_->Decode(fake_decoder_buffer_, decode_cb_.Get());
-  EXPECT_CALL(decode_cb_, Run(DecodeStatus::DECODE_ERROR)).Times(2);
+  EXPECT_CALL(decode_cb_, Run(IsDecodeErrorStatus())).Times(2);
   // Failing to create a codec should put MCVD into an error state.
   codec_allocator_->ProvideNullCodecAsync();
 }
@@ -414,7 +415,7 @@ TEST_P(MediaCodecVideoDecoderTest, CodecFailuresAreAnError) {
       InitializeFully_OneDecodePending(TestVideoConfig::Large(codec_));
   EXPECT_CALL(*codec, DequeueInputBuffer(_, _))
       .WillOnce(Return(MEDIA_CODEC_ERROR));
-  EXPECT_CALL(decode_cb_, Run(DecodeStatus::DECODE_ERROR));
+  EXPECT_CALL(decode_cb_, Run(IsDecodeErrorStatus()));
   PumpCodec();
 }
 
@@ -553,7 +554,7 @@ TEST_P(MediaCodecVideoDecoderTest,
 
   surface_chooser_->ProvideTextureOwner();
   EXPECT_CALL(*codec, SetSurface(_)).WillOnce(Return(false));
-  EXPECT_CALL(decode_cb_, Run(DecodeStatus::DECODE_ERROR)).Times(2);
+  EXPECT_CALL(decode_cb_, Run(IsDecodeErrorStatus())).Times(2);
   EXPECT_CALL(*codec_allocator_, MockReleaseMediaCodec(codec));
   mcvd_->Decode(fake_decoder_buffer_, decode_cb_.Get());
   // Verify expectations before we delete the MCVD.
@@ -599,7 +600,7 @@ TEST_P(MediaCodecVideoDecoderTest,
 
 TEST_P(MediaCodecVideoDecoderTest, ResetAbortsPendingDecodes) {
   InitializeWithTextureOwner_OneDecodePending(TestVideoConfig::Large(codec_));
-  EXPECT_CALL(decode_cb_, Run(DecodeStatus::ABORTED));
+  EXPECT_CALL(decode_cb_, Run(HasStatusCode(StatusCode::kAborted)));
   DoReset();
   testing::Mock::VerifyAndClearExpectations(&decode_cb_);
 }
@@ -617,7 +618,7 @@ TEST_P(MediaCodecVideoDecoderTest, ResetAbortsPendingEosDecode) {
   codec->AcceptOneInput(MockMediaCodecBridge::kEos);
   PumpCodec();
 
-  EXPECT_CALL(eos_decode_cb, Run(DecodeStatus::ABORTED));
+  EXPECT_CALL(eos_decode_cb, Run(HasStatusCode(StatusCode::kAborted)));
   DoReset();
   // Should be run before |mcvd_| is destroyed.
   testing::Mock::VerifyAndClearExpectations(&eos_decode_cb);
@@ -766,7 +767,7 @@ TEST_P(MediaCodecVideoDecoderTest, EosDecodeCbIsRunAfterEosIsDequeued) {
   codec->ProduceOneOutput(MockMediaCodecBridge::kEos);
   PumpCodec();
 
-  EXPECT_CALL(eos_decode_cb, Run(DecodeStatus::OK));
+  EXPECT_CALL(eos_decode_cb, Run(IsOkStatus()));
   std::move(video_frame_factory_->last_closure_).Run();
 }
 
@@ -917,7 +918,7 @@ TEST_P(MediaCodecVideoDecoderTest, VideoFramesArePowerEfficient) {
   base::RunLoop().RunUntilIdle();
 
   EXPECT_TRUE(!!most_recent_frame_);
-  EXPECT_TRUE(most_recent_frame_->metadata()->power_efficient);
+  EXPECT_TRUE(most_recent_frame_->metadata().power_efficient);
 }
 
 TEST_P(MediaCodecVideoDecoderH264Test, CsdIsIncludedInCodecConfig) {
@@ -963,7 +964,7 @@ TEST_P(MediaCodecVideoDecoderVp9Test, ColorSpaceIsIncludedInCodecConfig) {
 
 TEST_P(MediaCodecVideoDecoderVp9Test, HdrMetadataIsIncludedInCodecConfig) {
   VideoDecoderConfig config = TestVideoConfig::Normal(kCodecVP9);
-  HDRMetadata hdr_metadata;
+  gfx::HDRMetadata hdr_metadata;
   hdr_metadata.max_frame_average_light_level = 123;
   hdr_metadata.max_content_light_level = 456;
   hdr_metadata.mastering_metadata.primary_r.set_x(0.1f);
@@ -996,6 +997,8 @@ static std::vector<VideoCodec> GetTestList() {
     test_codecs.push_back(kCodecVP8);
   if (MediaCodecUtil::IsVp9DecoderAvailable())
     test_codecs.push_back(kCodecVP9);
+  if (MediaCodecUtil::IsAv1DecoderAvailable())
+    test_codecs.push_back(kCodecAV1);
   return test_codecs;
 }
 
@@ -1013,6 +1016,12 @@ static std::vector<VideoCodec> GetVp8IfAvailable() {
              : std::vector<VideoCodec>();
 }
 
+static std::vector<VideoCodec> GetAv1IfAvailable() {
+  return MediaCodecUtil::IsAv1DecoderAvailable()
+             ? std::vector<VideoCodec>(1, kCodecAV1)
+             : std::vector<VideoCodec>();
+}
+
 INSTANTIATE_TEST_SUITE_P(MediaCodecVideoDecoderTest,
                          MediaCodecVideoDecoderTest,
                          testing::ValuesIn(GetTestList()));
@@ -1026,5 +1035,9 @@ INSTANTIATE_TEST_SUITE_P(MediaCodecVideoDecoderH264Test,
 INSTANTIATE_TEST_SUITE_P(MediaCodecVideoDecoderVp8Test,
                          MediaCodecVideoDecoderVp8Test,
                          testing::ValuesIn(GetVp8IfAvailable()));
+
+INSTANTIATE_TEST_SUITE_P(MediaCodecVideoDecoderAV1Test,
+                         MediaCodecVideoDecoderAV1Test,
+                         testing::ValuesIn(GetAv1IfAvailable()));
 
 }  // namespace media

@@ -6,7 +6,6 @@
 
 import {navigation, Page} from 'chrome://extensions/extensions.js';
 import {assert} from 'chrome://resources/js/assert.m.js';
-import {tap} from 'chrome://resources/polymer/v3_0/iron-test-helpers/mock-interactions.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {isChildVisible} from '../test_util.m.js';
@@ -177,14 +176,14 @@ suite(extension_item_tests.suiteName, function() {
       currentPage = newPage;
     });
 
-    tap(item.$$('#detailsButton'));
+    item.$$('#detailsButton').click();
     expectDeepEquals(
         currentPage, {page: Page.DETAILS, extensionId: item.data.id});
 
     // Reset current page and test inspect-view navigation.
     navigation.navigateTo({page: Page.LIST});
     currentPage = null;
-    tap(item.$$('#inspect-views a[is="action-link"]:nth-of-type(2)'));
+    item.$$('#inspect-views a[is="action-link"]:nth-of-type(2)').click();
     expectDeepEquals(
         currentPage, {page: Page.DETAILS, extensionId: item.data.id});
 
@@ -210,7 +209,7 @@ suite(extension_item_tests.suiteName, function() {
   /** Tests that the reload button properly fires the load-error event. */
   test(
       assert(extension_item_tests.TestNames.FailedReloadFiresLoadError),
-      function() {
+      async function() {
         item.set('inDevMode', true);
         item.set('data.location', chrome.developerPrivate.Location.UNPACKED);
         flush();
@@ -239,22 +238,16 @@ suite(extension_item_tests.suiteName, function() {
           });
         };
 
-        tap(item.$$('#dev-reload-button'));
-        return proxyDelegate.whenCalled('reloadItem')
-            .then(function(id) {
-              expectEquals(item.data.id, id);
-              return verifyEventPromise(false);
-            })
-            .then(function() {
-              proxyDelegate.resetResolver('reloadItem');
-              proxyDelegate.setForceReloadItemError(true);
-              tap(item.$$('#dev-reload-button'));
-              return proxyDelegate.whenCalled('reloadItem');
-            })
-            .then(function(id) {
-              expectEquals(item.data.id, id);
-              return verifyEventPromise(true);
-            });
+        item.$$('#dev-reload-button').click();
+        let id = await proxyDelegate.whenCalled('reloadItem');
+        expectEquals(item.data.id, id);
+        await verifyEventPromise(false);
+        proxyDelegate.resetResolver('reloadItem');
+        proxyDelegate.setForceReloadItemError(true);
+        item.$$('#dev-reload-button').click();
+        id = await proxyDelegate.whenCalled('reloadItem');
+        expectEquals(item.data.id, id);
+        return verifyEventPromise(true);
       });
 
   test(assert(extension_item_tests.TestNames.Warnings), function() {

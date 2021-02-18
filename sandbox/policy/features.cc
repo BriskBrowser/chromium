@@ -5,6 +5,7 @@
 #include "sandbox/policy/features.h"
 
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 
 namespace sandbox {
 namespace policy {
@@ -18,6 +19,11 @@ const base::Feature kNetworkServiceSandbox{"NetworkServiceSandbox",
 #endif  // !defined(OS_MAC)
 
 #if defined(OS_WIN)
+// Emergency "off switch" for new Windows KTM security mitigation,
+// sandbox::MITIGATION_KTM_COMPONENT.
+const base::Feature kWinSboxDisableKtmComponent{
+    "WinSboxDisableKtmComponent", base::FEATURE_ENABLED_BY_DEFAULT};
+
 // Emergency "off switch" for new Windows sandbox security mitigation,
 // sandbox::MITIGATION_EXTENSION_POINT_DISABLE.
 const base::Feature kWinSboxDisableExtensionPoints{
@@ -35,6 +41,20 @@ const base::Feature kGpuLPAC{"GpuLPAC", base::FEATURE_ENABLED_BY_DEFAULT};
 // Controls whether the isolated XR service is sandboxed.
 const base::Feature kXRSandbox{"XRSandbox", base::FEATURE_ENABLED_BY_DEFAULT};
 #endif  // !defined(OS_ANDROID)
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+// Controls whether the Spectre variant 2 mitigation is enabled. We use a USE
+// flag on some Chrome OS boards to disable the mitigation by disabling this
+// feature in exchange for system performance.
+const base::Feature kSpectreVariant2Mitigation{
+    "SpectreVariant2Mitigation", base::FEATURE_ENABLED_BY_DEFAULT};
+
+// An override for the Spectre variant 2 default behavior. Security sensitive
+// users can enable this feature to ensure that the mitigation is always
+// enabled.
+const base::Feature kForceSpectreVariant2Mitigation{
+    "ForceSpectreVariant2Mitigation", base::FEATURE_DISABLED_BY_DEFAULT};
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 }  // namespace features
 }  // namespace policy

@@ -14,6 +14,8 @@
 #include "base/callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
+#include "base/optional.h"
+#include "base/time/time.h"
 #include "ui/android/ui_android_export.h"
 #include "ui/android/view_android_observer.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -152,7 +154,11 @@ class UI_ANDROID_EXPORT ViewAndroid {
   gfx::Rect bounds() const { return bounds_; }
 
   void OnSizeChanged(int width, int height);
-  void OnPhysicalBackingSizeChanged(const gfx::Size& size);
+  // |deadline_override| if not nullopt will be used as the cc::DeadlinePolicy
+  // timeout for this resize.
+  void OnPhysicalBackingSizeChanged(
+      const gfx::Size& size,
+      base::Optional<base::TimeDelta> deadline_override = base::nullopt);
   void OnCursorChanged(const Cursor& cursor);
   void OnBackgroundColorChanged(unsigned int color);
   void OnTopControlsChanged(float top_controls_offset,
@@ -203,9 +209,15 @@ class UI_ANDROID_EXPORT ViewAndroid {
 
   ViewAndroid* parent() const { return parent_; }
 
+  base::Optional<gfx::Rect> GetDisplayFeature();
+
   bool OnTouchEventForTesting(const MotionEventAndroid& event) {
     return OnTouchEvent(event);
   }
+
+  void NotifyVirtualKeyboardOverlayRect(const gfx::Rect& keyboard_rect);
+
+  void SetLayoutForTesting(int x, int y, int width, int height);
 
  protected:
   void RemoveAllChildren(bool attached_to_window);
@@ -238,8 +250,6 @@ class UI_ANDROID_EXPORT ViewAndroid {
 
   void OnAttachedToWindow();
   void OnDetachedFromWindow();
-
-  void SetLayoutForTesting(int x, int y, int width, int height);
 
   template <typename E>
   using EventHandlerCallback =

@@ -7,8 +7,8 @@
 #include <utility>
 
 #include "base/callback.h"
-#include "base/stl_util.h"
-#include "base/test/bind_test_util.h"
+#include "base/containers/contains.h"
+#include "base/test/bind.h"
 #include "base/threading/thread_task_runner_handle.h"
 
 namespace web_app {
@@ -54,12 +54,13 @@ void TestWebAppUiManager::NotifyOnAllAppWindowsClosed(
                      }));
 }
 
-void TestWebAppUiManager::UninstallAndReplace(
+bool TestWebAppUiManager::UninstallAndReplaceIfExists(
     const std::vector<AppId>& from_apps,
     const AppId& to_app) {
   for (const AppId& from_app : from_apps) {
     uninstall_and_replace_map_[from_app] = to_app;
   }
+  return false;
 }
 
 bool TestWebAppUiManager::CanAddAppToQuickLaunchBar() const {

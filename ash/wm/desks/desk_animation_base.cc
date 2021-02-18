@@ -7,46 +7,39 @@
 #include "ash/shell.h"
 #include "ash/wm/desks/desk.h"
 #include "ash/wm/desks/desks_controller.h"
-#include "ash/wm/window_util.h"
+#include "ash/wm/desks/desks_util.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/compositor/compositor.h"
 
 namespace ash {
 
-namespace {
-
-// Selects and returns the compositor to measure the animation smoothness.
-ui::Compositor* GetSelectedCompositorForAnimationSmoothness() {
-  // Favor the compositor associated with the active window's root window (if
-  // any), or that of the primary root window.
-  auto* active_window = window_util::GetActiveWindow();
-  auto* selected_root = active_window && active_window->GetRootWindow()
-                            ? active_window->GetRootWindow()
-                            : Shell::GetPrimaryRootWindow();
-  DCHECK(selected_root);
-  return selected_root->layer()->GetCompositor();
-}
-
-}  // namespace
-
 DeskAnimationBase::DeskAnimationBase(DesksController* controller,
-                                     int ending_desk_index)
+                                     int ending_desk_index,
+                                     bool is_continuous_gesture_animation)
     : controller_(controller),
       ending_desk_index_(ending_desk_index),
-      throughput_tracker_(GetSelectedCompositorForAnimationSmoothness()
-                              ->RequestNewThroughputTracker()) {
+      is_continuous_gesture_animation_(is_continuous_gesture_animation),
+      throughput_tracker_(
+          desks_util::GetSelectedCompositorForPerformanceMetrics()
+              ->RequestNewThroughputTracker()) {
   DCHECK(controller_);
   DCHECK_LE(ending_desk_index_, int{controller_->desks().size()});
   DCHECK_GE(ending_desk_index_, 0);
 }
 
-DeskAnimationBase::~DeskAnimationBase() = default;
+DeskAnimationBase::~DeskAnimationBase() {
+  for (auto& observer : controller_->observers_)
+    observer.OnDeskSwitchAnimationFinished();
+}
 
 void DeskAnimationBase::Launch() {
   for (auto& observer : controller_->observers_)
     observer.OnDeskSwitchAnimationLaunching();
 
-  throughput_tracker_.Start(GetReportCallback());
+  // The throughput tracker measures the animation when the user lifts their
+  // fingers off the trackpad, which is done in EndSwipeAnimation.
+  if (!is_continuous_gesture_animation_)
+    throughput_tracker_.Start(GetReportCallback());
 
   // This step makes sure that the containers of the target desk are shown at
   // the beginning of the animation (but not actually visible to the user yet,
@@ -64,6 +57,14 @@ void DeskAnimationBase::Launch() {
 }
 
 bool DeskAnimationBase::Replace(bool moving_left, DesksSwitchSource source) {
+  return false;
+}
+
+bool DeskAnimationBase::UpdateSwipeAnimation(float scroll_delta_x) {
+  return false;
+}
+
+bool DeskAnimationBase::EndSwipeAnimation() {
   return false;
 }
 
@@ -104,6 +105,12 @@ void DeskAnimationBase::OnEndingDeskScreenshotTaken() {
       return;
   }
 
+  // Continuous gesture animations do not want to start an animation on
+  // creation/replacement (because they want to update). They will request an
+  // animation explicitly if they need (gesture end).
+  if (is_continuous_gesture_animation_)
+    return;
+
   for (auto& animator : desk_switch_animators_)
     animator->StartAnimation();
 }
@@ -124,11 +131,17 @@ void DeskAnimationBase::OnDeskSwitchAnimationFinished() {
 
   throughput_tracker_.Stop();
 
-  for (auto& observer : controller_->observers_)
-    observer.OnDeskSwitchAnimationFinished();
+  if (skip_notify_controller_on_animation_finished_for_testing_)
+    return;
 
   controller_->OnAnimationFinished(this);
   // `this` is now deleted.
+}
+
+RootWindowDeskSwitchAnimator*
+DeskAnimationBase::GetDeskSwitchAnimatorAtIndexForTesting(size_t index) const {
+  DCHECK_LT(index, desk_switch_animators_.size());
+  return desk_switch_animators_[index].get();
 }
 
 }  // namespace ash

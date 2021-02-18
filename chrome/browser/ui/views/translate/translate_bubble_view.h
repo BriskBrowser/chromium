@@ -24,8 +24,6 @@
 #include "components/translate/core/common/translate_errors.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "ui/base/models/simple_menu_model.h"
-#include "ui/views/controls/button/button.h"
-#include "ui/views/controls/combobox/combobox_listener.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/menu/menu_runner.h"
@@ -37,13 +35,12 @@ class Browser;
 
 namespace views {
 class Checkbox;
+class Combobox;
 class LabelButton;
 class View;
 }  // namespace views
 
 class TranslateBubbleView : public LocationBarBubbleDelegateView,
-                            public views::ButtonListener,
-                            public views::ComboboxListener,
                             public ui::SimpleMenuModel::Delegate,
                             public views::TabbedPaneListener {
  public:
@@ -91,12 +88,6 @@ class TranslateBubbleView : public LocationBarBubbleDelegateView,
   gfx::Size CalculatePreferredSize() const override;
   void OnWidgetClosing(views::Widget* widget) override;
 
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* source, const ui::Event& event) override;
-
-  // views::ComboboxListener:
-  void OnPerformAction(views::Combobox* combobox) override;
-
   // ui::SimpleMenuModel::Delegate:
   bool IsCommandIdChecked(int command_id) const override;
   bool IsCommandIdEnabled(int command_id) const override;
@@ -111,17 +102,12 @@ class TranslateBubbleView : public LocationBarBubbleDelegateView,
 
  private:
   enum ButtonID {
-    BUTTON_ID_DONE,
+    BUTTON_ID_DONE = 1,
     BUTTON_ID_TRY_AGAIN,
     BUTTON_ID_ALWAYS_TRANSLATE,
     BUTTON_ID_OPTIONS_MENU,
     BUTTON_ID_CLOSE,
     BUTTON_ID_RESET
-  };
-
-  enum ComboboxID {
-    COMBOBOX_ID_SOURCE_LANGUAGE,
-    COMBOBOX_ID_TARGET_LANGUAGE,
   };
 
   friend class TranslateBubbleViewTest;
@@ -145,6 +131,8 @@ class TranslateBubbleView : public LocationBarBubbleDelegateView,
                            OptionsMenuNeverTranslateLanguage);
   FRIEND_TEST_ALL_PREFIXES(TranslateBubbleViewTest,
                            OptionsMenuRespectsBlocklistSite);
+  FRIEND_TEST_ALL_PREFIXES(TranslateBubbleViewTest,
+                           MenuOptionsHiddenOnUnknownSource);
   FRIEND_TEST_ALL_PREFIXES(TranslateBubbleViewTest,
                            OptionsMenuNeverTranslateSite);
   FRIEND_TEST_ALL_PREFIXES(TranslateBubbleViewTest,
@@ -171,7 +159,10 @@ class TranslateBubbleView : public LocationBarBubbleDelegateView,
   void ShowOptionsMenu(views::Button* source);
 
   // Handles the event when the user changes an index of a combobox.
-  void HandleComboboxPerformAction(ComboboxID sender_id);
+  void SourceLanguageChanged();
+  void TargetLanguageChanged();
+
+  void AlwaysTranslatePressed();
 
   // Updates the visibilities of child views according to the current view type.
   void UpdateChildVisibilities();

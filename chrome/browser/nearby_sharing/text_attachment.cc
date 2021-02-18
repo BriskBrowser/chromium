@@ -121,3 +121,25 @@ TextAttachment::~TextAttachment() = default;
 void TextAttachment::MoveToShareTarget(ShareTarget& share_target) {
   share_target.text_attachments.push_back(std::move(*this));
 }
+
+const std::string& TextAttachment::GetDescription() const {
+  return text_title_;
+}
+
+nearby_share::mojom::ShareType TextAttachment::GetShareType() const {
+  switch (type()) {
+    case TextAttachment::Type::kUrl:
+      return nearby_share::mojom::ShareType::kUrl;
+    case TextAttachment::Type::kAddress:
+      return nearby_share::mojom::ShareType::kAddress;
+    case TextAttachment::Type::kPhoneNumber:
+      return nearby_share::mojom::ShareType::kPhone;
+    default:
+      return nearby_share::mojom::ShareType::kText;
+  }
+}
+
+void TextAttachment::set_text_body(std::string text_body) {
+  text_body_ = std::move(text_body);
+  text_title_ = GetTextTitle(text_body_, type_);
+}

@@ -131,9 +131,12 @@ void AutofillPopupControllerImpl::Show(
   }
 
   static_cast<ContentAutofillDriver*>(delegate_->GetAutofillDriver())
-      ->RegisterKeyPressHandler(
-          base::Bind(&AutofillPopupControllerImpl::HandleKeyPressEvent,
-                     base::Unretained(this)));
+      ->RegisterKeyPressHandler(base::BindRepeating(
+          [](base::WeakPtr<AutofillPopupControllerImpl> weak_this,
+             const content::NativeWebKeyboardEvent& event) {
+            return weak_this && weak_this->HandleKeyPressEvent(event);
+          },
+          GetWeakPtr()));
 
   delegate_->OnPopupShown();
 }
@@ -201,6 +204,10 @@ void AutofillPopupControllerImpl::Hide(PopupHidingReason reason) {
                           reason == PopupHidingReason::kEndEditing)) {
     return;  // Don't close the popup while waiting for an update.
   }
+  // For tests, keep open when hiding is due to external stimuli.
+  if (keep_popup_open_for_testing_ &&
+      reason == PopupHidingReason::kWidgetChanged)
+    return;  // Don't close the popup because the browser window is resized.
   if (delegate_) {
     delegate_->ClearPreviewedForm();
     delegate_->OnPopupHidden();

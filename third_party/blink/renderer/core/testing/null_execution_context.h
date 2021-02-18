@@ -46,13 +46,13 @@ class NullExecutionContext : public GarbageCollected<NullExecutionContext>,
   void SetUpSecurityContextForTesting();
 
   ResourceFetcher* Fetcher() const override { return nullptr; }
-
+  bool CrossOriginIsolatedCapability() const override { return false; }
   FrameOrWorkerScheduler* GetScheduler() override;
   scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner(TaskType) override;
 
   void CountUse(mojom::WebFeature) override {}
 
-  BrowserInterfaceBrokerProxy& GetBrowserInterfaceBroker() override;
+  const BrowserInterfaceBrokerProxy& GetBrowserInterfaceBroker() const override;
 
   ExecutionContextToken GetExecutionContextToken() const final {
     return token_;

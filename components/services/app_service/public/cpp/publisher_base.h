@@ -48,6 +48,13 @@ class PublisherBase : public apps::mojom::Publisher {
   void Publish(apps::mojom::AppPtr app,
                const mojo::RemoteSet<apps::mojom::Subscriber>& subscribers);
 
+  // Modifies CapabilityAccess to all subscribers in |subscribers|.
+  void ModifyCapabilityAccess(
+      const mojo::RemoteSet<apps::mojom::Subscriber>& subscribers,
+      const std::string& app_id,
+      base::Optional<bool> accessing_camera,
+      base::Optional<bool> accessing_microphone);
+
   mojo::Receiver<apps::mojom::Publisher>& receiver() { return receiver_; }
 
  private:
@@ -61,7 +68,7 @@ class PublisherBase : public apps::mojom::Publisher {
                            int32_t event_flags,
                            apps::mojom::IntentPtr intent,
                            apps::mojom::LaunchSource launch_source,
-                           int64_t display_id) override;
+                           apps::mojom::WindowInfoPtr window_info) override;
   void SetPermission(const std::string& app_id,
                      apps::mojom::PermissionPtr permission) override;
   void Uninstall(const std::string& app_id,
@@ -75,6 +82,10 @@ class PublisherBase : public apps::mojom::Publisher {
                     apps::mojom::MenuType menu_type,
                     int64_t display_id,
                     GetMenuModelCallback callback) override;
+  void ExecuteContextMenuCommand(const std::string& app_id,
+                                 int command_id,
+                                 const std::string& shortcut_id,
+                                 int64_t display_id) override;
   void OpenNativeSettings(const std::string& app_id) override;
   void OnPreferredAppSet(
       const std::string& app_id,

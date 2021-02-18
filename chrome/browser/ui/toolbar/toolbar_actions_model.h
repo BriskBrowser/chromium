@@ -11,8 +11,9 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "chrome/browser/extensions/api/extension_action/extension_action_api.h"
+#include "chrome/browser/extensions/extension_management.h"
 #include "chrome/browser/extensions/load_error_reporter.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/prefs/pref_change_registrar.h"
@@ -43,6 +44,7 @@ class ExtensionMessageBubbleController;
 class ToolbarActionsModel : public extensions::ExtensionActionAPI::Observer,
                             public extensions::LoadErrorReporter::Observer,
                             public extensions::ExtensionRegistryObserver,
+                            public extensions::ExtensionManagement::Observer,
                             public KeyedService {
  public:
   using ActionId = std::string;
@@ -187,6 +189,9 @@ class ToolbarActionsModel : public extensions::ExtensionActionAPI::Observer,
   // Returns true if the action is pinned to the toolbar.
   bool IsActionPinned(const ActionId& action_id) const;
 
+  // Returns true if the action is force-pinned to the toolbar.
+  bool IsActionForcePinned(const ActionId& action_id) const;
+
   // Move the pinned action for |action_id| to |target_index|.
   void MovePinnedAction(const ActionId& action_id, size_t target_index);
 
@@ -219,6 +224,9 @@ class ToolbarActionsModel : public extensions::ExtensionActionAPI::Observer,
   void OnLoadFailure(content::BrowserContext* browser_context,
                      const base::FilePath& extension_path,
                      const std::string& error) override;
+
+  // extensions::ExtensionManagement::Observer:
+  void OnExtensionManagementSettingsChanged() override;
 
   // To be called after the extension service is ready; gets loaded extensions
   // from the ExtensionRegistry, their saved order from the pref service, and
@@ -324,21 +332,26 @@ class ToolbarActionsModel : public extensions::ExtensionActionAPI::Observer,
   // associated with the profile. There should only be one at a time.
   bool has_active_bubble_;
 
-  ScopedObserver<extensions::ExtensionActionAPI,
-                 extensions::ExtensionActionAPI::Observer>
-      extension_action_observer_{this};
+  base::ScopedObservation<extensions::ExtensionActionAPI,
+                          extensions::ExtensionActionAPI::Observer>
+      extension_action_observation_{this};
 
   // Listen to extension load, unloaded notifications.
-  ScopedObserver<extensions::ExtensionRegistry, ExtensionRegistryObserver>
-      extension_registry_observer_{this};
+  base::ScopedObservation<extensions::ExtensionRegistry,
+                          ExtensionRegistryObserver>
+      extension_registry_observation_{this};
 
   // For observing change of toolbar order preference by external entity (sync).
   PrefChangeRegistrar pref_change_registrar_;
-  base::Closure pref_change_callback_;
+  base::RepeatingClosure pref_change_callback_;
 
-  ScopedObserver<extensions::LoadErrorReporter,
-                 extensions::LoadErrorReporter::Observer>
-      load_error_reporter_observer_{this};
+  base::ScopedObservation<extensions::LoadErrorReporter,
+                          extensions::LoadErrorReporter::Observer>
+      load_error_reporter_observation_{this};
+
+  base::ScopedObservation<extensions::ExtensionManagement,
+                          extensions::ExtensionManagement::Observer>
+      extension_management_observation_{this};
 
   base::WeakPtrFactory<ToolbarActionsModel> weak_ptr_factory_{this};
 

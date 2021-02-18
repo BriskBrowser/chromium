@@ -23,11 +23,13 @@ import java.util.Calendar;
  * {@link android.app.DatePickerDialog} and {@link android.app.TimePickerDialog} widgets. The user
  * will see the date picker and time picker in a sequence when trying to select a time.
  */
+// TODO(xingliu): Add instrumentation test for date/time pickers.
 public class DownloadDateTimePickerDialogImpl
         implements DownloadDateTimePickerDialog, DownloadTimePickerDialog.Controller {
     private static final String TAG = "DateTimeDialog";
     private static final long INVALID_TIMESTAMP = -1;
     private DatePickerDialog mDatePickerDialog;
+    private boolean mDatePickerButtonClicked;
     private DownloadTimePickerDialog mTimePickerDialog;
     private Controller mController;
     private final Calendar mCalendar = Calendar.getInstance();
@@ -65,9 +67,10 @@ public class DownloadDateTimePickerDialogImpl
                 this::onDatePickerClicked);
         mDatePickerDialog.setButton(DialogInterface.BUTTON_NEGATIVE,
                 context.getResources().getString(R.string.cancel), this::onDatePickerClicked);
+        mDatePickerDialog.setOnDismissListener(dialogInterface -> { onDatePickerDismissed(); });
 
         mTimePickerDialog = new DownloadTimePickerDialog(
-                context, this, mCalendar.get(Calendar.HOUR), mCalendar.get(Calendar.MINUTE));
+                context, this, mCalendar.get(Calendar.HOUR_OF_DAY), mCalendar.get(Calendar.MINUTE));
 
         // Start the flow.
         mDatePickerDialog.show();
@@ -80,6 +83,7 @@ public class DownloadDateTimePickerDialogImpl
     }
 
     private void onDatePickerClicked(DialogInterface dialogInterface, int which) {
+        mDatePickerButtonClicked = true;
         switch (which) {
             case DialogInterface.BUTTON_POSITIVE:
                 DatePicker datePicker = mDatePickerDialog.getDatePicker();
@@ -98,6 +102,12 @@ public class DownloadDateTimePickerDialogImpl
         }
     }
 
+    private void onDatePickerDismissed() {
+        if (mDatePickerButtonClicked) return;
+
+        onCancel();
+    }
+
     private void onCancel() {
         assert mController != null;
         mCalendar.clear();
@@ -112,8 +122,8 @@ public class DownloadDateTimePickerDialogImpl
 
     // DownloadTimePickerDialog.Controller overrides.
     @Override
-    public void onDownloadTimePicked(int hour, int minute) {
-        mCalendar.set(Calendar.HOUR, hour);
+    public void onDownloadTimePicked(int hourOfDay, int minute) {
+        mCalendar.set(Calendar.HOUR_OF_DAY, hourOfDay);
         mCalendar.set(Calendar.MINUTE, minute);
 
         onComplete();

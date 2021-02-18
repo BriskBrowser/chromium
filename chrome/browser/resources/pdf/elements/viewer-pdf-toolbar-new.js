@@ -14,13 +14,16 @@ import './viewer-annotations-bar.js';
 import './viewer-download-controls.js';
 import './viewer-page-selector.js';
 import './shared-css.js';
+import './shared-vars.js';
 
 import {AnchorAlignment} from 'chrome://resources/cr_elements/cr_action_menu/cr_action_menu.m.js';
+import {assert} from 'chrome://resources/js/assert.m.js';
 import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {FittingType} from '../constants.js';
+import {record, UserAction} from '../metrics.js';
 // <if expr="chromeos">
-import {InkController} from '../ink_controller.js';
+import {ViewerAnnotationsModeDialogElement} from './viewer-annotations-mode-dialog.js';
 // </if>
 
 export class ViewerPdfToolbarNewElement extends PolymerElement {
@@ -36,21 +39,17 @@ export class ViewerPdfToolbarNewElement extends PolymerElement {
     return {
       // <if expr="chromeos">
       annotationAvailable: Boolean,
-      // </if>
       annotationMode: {
         type: Boolean,
-        notify: true,
         value: false,
         reflectToAttribute: true,
       },
+      // </if>
       docTitle: String,
       docLength: Number,
+      documentPropertiesEnabled: Boolean,
       hasEdits: Boolean,
       hasEnteredAnnotationMode: Boolean,
-      // <if expr="chromeos">
-      /** @type {?InkController} */
-      inkController: Object,
-      // </if>
       isFormFieldFocused: Boolean,
 
       loadProgress: {
@@ -65,14 +64,20 @@ export class ViewerPdfToolbarNewElement extends PolymerElement {
 
       pageNo: Number,
       pdfAnnotationsEnabled: Boolean,
-      pdfFormSaveEnabled: Boolean,
+      presentationModeEnabled: Boolean,
       printingEnabled: Boolean,
-      viewportZoom: {
-        type: Number,
-        observer: 'viewportZoomChanged_',
-      },
+      rotated: Boolean,
+      viewportZoom: Number,
+      /** @type {!{min: number, max: number}} */
+      zoomBounds: Object,
 
-      twoUpViewEnabled_: Boolean,
+      sidenavCollapsed: Boolean,
+      twoUpViewEnabled: Boolean,
+
+      moreMenuOpen_: {
+        type: Boolean,
+        reflectToAttribute: true,
+      },
 
       fittingType_: Number,
 
@@ -82,7 +87,20 @@ export class ViewerPdfToolbarNewElement extends PolymerElement {
         computed: 'computeFitToButtonIcon_(fittingType_)',
       },
 
+      /** @private */
+      viewportZoomPercent_: {
+        type: Number,
+        computed: 'computeViewportZoomPercent_(viewportZoom)',
+        observer: 'viewportZoomPercentChanged_',
+      },
+
       // <if expr="chromeos">
+      /** @private */
+      showAnnotationsModeDialog_: {
+        type: Boolean,
+        value: false,
+      },
+
       /** @private */
       showAnnotationsBar_: {
         type: Boolean,
@@ -96,6 +114,9 @@ export class ViewerPdfToolbarNewElement extends PolymerElement {
   constructor() {
     super();
 
+    /** @type {boolean} */
+    this.sidenavCollapsed = false;
+
     /** @private {!FittingType} */
     this.fittingType_ = FittingType.FIT_TO_PAGE;
 
@@ -106,10 +127,7 @@ export class ViewerPdfToolbarNewElement extends PolymerElement {
     this.displayAnnotations_ = true;
 
     /** @private {boolean} */
-    this.twoUpViewEnabled_ = false;
-
-    /** @private {?number} */
-    this.zoomTimeout_ = null;
+    this.moreMenuOpen_ = false;
   }
 
   /**
@@ -123,6 +141,7 @@ export class ViewerPdfToolbarNewElement extends PolymerElement {
 
   /** @private */
   onSidenavToggleClick_() {
+    record(UserAction.TOGGLE_SIDENAV);
     this.dispatchEvent(new CustomEvent('sidenav-toggle-click'));
   }
 
@@ -133,6 +152,14 @@ export class ViewerPdfToolbarNewElement extends PolymerElement {
   computeFitToButtonIcon_() {
     return this.fittingType_ === FittingType.FIT_TO_PAGE ? 'pdf:fit-to-height' :
                                                            'pdf:fit-to-width';
+  }
+
+  /**
+   * @return {number}
+   * @private
+   */
+  computeViewportZoomPercent_() {
+    return Math.round(100 * this.viewportZoom);
   }
 
   /**
@@ -152,9 +179,8 @@ export class ViewerPdfToolbarNewElement extends PolymerElement {
   }
 
   /** @private */
-  viewportZoomChanged_() {
-    const zoom = Math.round(this.viewportZoom * 100);
-    this.getZoomInput_().value = `${zoom}%`;
+  viewportZoomPercentChanged_() {
+    this.getZoomInput_().value = `${this.viewportZoomPercent_}%`;
   }
 
   // <if expr="chromeos">
@@ -179,6 +205,7 @@ export class ViewerPdfToolbarNewElement extends PolymerElement {
 
   /** @private */
   toggleDisplayAnnotations_() {
+    record(UserAction.TOGGLE_DISPLAY_ANNOTATIONS);
     this.displayAnnotations_ = !this.displayAnnotations_;
     this.dispatchEvent(new CustomEvent(
         'display-annotations-changed', {detail: this.displayAnnotations_}));
@@ -189,6 +216,22 @@ export class ViewerPdfToolbarNewElement extends PolymerElement {
       this.toggleAnnotation();
     }
     // </if>
+  }
+
+  /** @private */
+  onPresentClick_() {
+    assert(this.presentationModeEnabled);
+    record(UserAction.PRESENT);
+    this.getMenu_().close();
+    this.dispatchEvent(new CustomEvent('present-click'));
+  }
+
+  /** @private */
+  onPropertiesClick_() {
+    assert(this.documentPropertiesEnabled);
+    record(UserAction.PROPERTIES);
+    this.getMenu_().close();
+    this.dispatchEvent(new CustomEvent('properties-click'));
   }
 
   /**
@@ -215,17 +258,16 @@ export class ViewerPdfToolbarNewElement extends PolymerElement {
     return checked ? 'true' : 'false';
   }
 
-  /** @private */
-  onSinglePageViewClick_() {
-    this.twoUpViewEnabled_ = false;
-    this.dispatchEvent(new CustomEvent('two-up-view-changed', {detail: false}));
-    this.getMenu_().close();
+  /** @return {string} */
+  getAriaExpanded_() {
+    return this.sidenavCollapsed ? 'false' : 'true';
   }
 
   /** @private */
-  onTwoPageViewClick_() {
-    this.twoUpViewEnabled_ = true;
-    this.dispatchEvent(new CustomEvent('two-up-view-changed', {detail: true}));
+  toggleTwoPageViewClick_() {
+    const newTwoUpViewEnabled = !this.twoUpViewEnabled;
+    this.dispatchEvent(
+        new CustomEvent('two-up-view-changed', {detail: newTwoUpViewEnabled}));
     this.getMenu_().close();
   }
 
@@ -272,40 +314,43 @@ export class ViewerPdfToolbarNewElement extends PolymerElement {
   }
 
   /** @private */
-  onZoomInput_() {
-    if (this.zoomTimeout_) {
-      clearTimeout(this.zoomTimeout_);
+  onZoomChange_() {
+    const input = this.getZoomInput_();
+    let value = Number.parseInt(input.value, 10);
+    value = Math.max(Math.min(value, this.zoomBounds.max), this.zoomBounds.min);
+    if (this.sendZoomChanged_(value)) {
+      return;
     }
-    this.zoomTimeout_ = setTimeout(() => this.sendZoomChanged_(), 250);
+
+    const zoomString = `${this.viewportZoomPercent_}%`;
+    input.value = zoomString;
   }
 
   /**
+   * @param {number} value The new zoom value
    * @return {boolean} Whether the zoom-changed event was sent.
    * @private
    */
-  sendZoomChanged_() {
-    this.zoomTimeout_ = null;
-    const value = Number.parseInt(this.getZoomInput_().value, 10);
+  sendZoomChanged_(value) {
     if (Number.isNaN(value)) {
       return false;
     }
+
+    // The viewport can have non-integer zoom values.
+    if (Math.abs(this.viewportZoom * 100 - value) < 0.5) {
+      return false;
+    }
+
     this.dispatchEvent(new CustomEvent('zoom-changed', {detail: value}));
     return true;
   }
 
-  /** @private */
-  onZoomInputBlur_() {
-    if (this.zoomTimeout_) {
-      clearTimeout(this.zoomTimeout_);
-    }
-
-    if (this.sendZoomChanged_()) {
-      return;
-    }
-
-    const zoom = Math.round(this.viewportZoom * 100);
-    const zoomString = `${zoom}%`;
-    this.getZoomInput_().value = zoomString;
+  /**
+   * @param {!Event} e
+   * @private
+   */
+  onZoomInputPointerup_(e) {
+    /* @type {!HTMLInputElement} */ (e.target).select();
   }
 
   /** @private */
@@ -319,13 +364,62 @@ export class ViewerPdfToolbarNewElement extends PolymerElement {
     });
   }
 
-  // <if expr="chromeos">
-  toggleAnnotation() {
-    this.annotationMode = !this.annotationMode;
-    this.dispatchEvent(new CustomEvent(
-        'annotation-mode-toggled', {detail: this.annotationMode}));
+  /**
+   * @param {!CustomEvent<!{value: boolean}>} e
+   * @private
+   */
+  onMoreOpenChanged_(e) {
+    this.moreMenuOpen_ = e.detail.value;
+  }
 
-    if (this.annotationMode && !this.displayAnnotations_) {
+  /**
+   * @return {boolean}
+   * @private
+   */
+  isAtMinimumZoom_() {
+    return this.zoomBounds !== undefined &&
+        this.viewportZoomPercent_ === this.zoomBounds.min;
+  }
+
+  /**
+   * @return {boolean}
+   * @private
+   */
+  isAtMaximumZoom_() {
+    return this.zoomBounds !== undefined &&
+        this.viewportZoomPercent_ === this.zoomBounds.max;
+  }
+
+  // <if expr="chromeos">
+  /** @private */
+  onDialogClose_() {
+    const confirmed =
+        /** @type {!ViewerAnnotationsModeDialogElement} */ (
+            this.shadowRoot.querySelector('viewer-annotations-mode-dialog'))
+            .wasConfirmed();
+    this.showAnnotationsModeDialog_ = false;
+    if (confirmed) {
+      this.dispatchEvent(new CustomEvent('annotation-mode-dialog-confirmed'));
+      this.toggleAnnotation();
+    }
+  }
+
+  /** @private */
+  onAnnotationClick_() {
+    if (!this.rotated && !this.twoUpViewEnabled) {
+      this.toggleAnnotation();
+      return;
+    }
+
+    this.showAnnotationsModeDialog_ = true;
+  }
+
+  toggleAnnotation() {
+    const newAnnotationMode = !this.annotationMode;
+    this.dispatchEvent(new CustomEvent(
+        'annotation-mode-toggled', {detail: newAnnotationMode}));
+
+    if (newAnnotationMode && !this.displayAnnotations_) {
       this.toggleDisplayAnnotations_();
     }
   }

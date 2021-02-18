@@ -3,11 +3,10 @@
 // found in the LICENSE file.
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/path_service.h"
 #include "base/strings/stringprintf.h"
-#include "base/test/scoped_feature_list.h"
 #include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/net/storage_test_utils.h"
 #include "chrome/browser/profiles/profile.h"
@@ -52,8 +51,6 @@ class CookiePolicyBrowserTest : public InProcessBrowserTest {
     // HTTPS server only serves a valid cert for localhost, so this is needed
     // to load pages from other hosts without an error.
     command_line->AppendSwitch(switches::kIgnoreCertificateErrors);
-    command_line->AppendSwitchASCII(switches::kEnableBlinkFeatures,
-                                    "CookieStoreDocument");
   }
 
   GURL GetURL(const std::string& host) {

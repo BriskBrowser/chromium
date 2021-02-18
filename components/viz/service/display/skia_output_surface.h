@@ -16,6 +16,7 @@
 #include "components/viz/service/display/output_surface.h"
 #include "components/viz/service/display/overlay_processor_interface.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
+#include "third_party/skia/include/core/SkYUVAInfo.h"
 
 #if defined(OS_WIN)
 #include "components/viz/service/display/dc_layer_overlay.h"
@@ -27,6 +28,10 @@
 
 class SkCanvas;
 class SkImage;
+
+#if defined(OS_APPLE)
+class SkDeferredDisplayList;
+#endif
 
 namespace gfx {
 class ColorSpace;
@@ -85,19 +90,16 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurface : public OutputSurface,
       ExternalUseClient::ImageContext* image_context) = 0;
 
   // Make a promise SkImage from the given |contexts| and |image_color_space|.
-  // For YUV format, at least three resource contexts should be provided.
-  // contexts[0] contains pixels from y panel, contexts[1] contains pixels
-  // from u panel, contexts[2] contains pixels from v panel. For NV12 format,
-  // at least two resource contexts should be provided. contexts[0] contains
-  // pixels from y panel, contexts[1] contains pixels from u and v panels. If
-  // has_alpha is true, the last item in contexts contains alpha panel.
+  // The number of contexts provided should match the number of planes indicated
+  // by plane_config.
   virtual sk_sp<SkImage> MakePromiseSkImageFromYUV(
       const std::vector<ExternalUseClient::ImageContext*>& contexts,
       sk_sp<SkColorSpace> image_color_space,
-      bool has_alpha) = 0;
+      SkYUVAInfo::PlaneConfig plane_config,
+      SkYUVAInfo::Subsampling subsampling) = 0;
 
   // Called if SwapBuffers() will be skipped.
-  virtual void SwapBuffersSkipped() = 0;
+  virtual void SwapBuffersSkipped(const gfx::Rect root_pass_damage_rect) = 0;
 
   // TODO(weiliangc): This API should move to OverlayProcessor.
   // Schedule |output_surface_plane| as an overlay plane to be displayed.
@@ -118,14 +120,11 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurface : public OutputSurface,
 
   // Finish painting the current frame or current render pass, depends on which
   // BeginPaint function is called last. This method will schedule a GPU task to
-  // play the DDL back on GPU thread on a cached SkSurface. This method returns
-  // a sync token which can be waited on in a command buffer to ensure the paint
-  // operation is completed. This token is released when the GPU ops from
-  // painting the render pass have been seen and processed by the GPU main.
+  // play the DDL back on GPU thread on a cached SkSurface.
   // Optionally the caller may specify |on_finished| callback to be called after
   // the GPU has finished processing all submitted commands. The callback may be
   // called on a different thread.
-  virtual gpu::SyncToken SubmitPaint(base::OnceClosure on_finished) = 0;
+  virtual void EndPaint(base::OnceClosure on_finished) = 0;
 
   // Make a promise SkImage from a render pass id. The render pass has been
   // painted with BeginPaintRenderPass and FinishPaintRenderPass. The format
@@ -152,8 +151,12 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurface : public OutputSurface,
 
   // Schedule drawing overlays at next SwapBuffers() call. Waits on
   // |sync_tokens| for the overlay textures to be ready before scheduling.
+  // Optionally the caller may specify |on_finished| callback to be called after
+  // the GPU has finished processing all submitted commands. The callback may be
+  // called on a different thread.
   virtual void ScheduleOverlays(OverlayList overlays,
-                                std::vector<gpu::SyncToken> sync_tokens) = 0;
+                                std::vector<gpu::SyncToken> sync_tokens,
+                                base::OnceClosure on_finished) = 0;
 
   // Add context lost observer.
   virtual void AddContextLostObserver(ContextLostObserver* observer) = 0;
@@ -165,6 +168,20 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurface : public OutputSurface,
   virtual void ScheduleGpuTaskForTesting(
       base::OnceClosure callback,
       std::vector<gpu::SyncToken> sync_tokens) = 0;
+
+  // Flush pending GPU tasks. This method returns a sync token which can be
+  // waited on in a command buffer to ensure all pending tasks are executed on
+  // the GPU main thread.
+  virtual gpu::SyncToken Flush() = 0;
+
+#if defined(OS_APPLE)
+  virtual SkCanvas* BeginPaintRenderPassOverlay(
+      const gfx::Size& size,
+      ResourceFormat format,
+      bool mipmap,
+      sk_sp<SkColorSpace> color_space) = 0;
+  virtual sk_sp<SkDeferredDisplayList> EndPaintRenderPassOverlay() = 0;
+#endif
 
  private:
   DISALLOW_COPY_AND_ASSIGN(SkiaOutputSurface);

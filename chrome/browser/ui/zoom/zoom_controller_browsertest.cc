@@ -7,6 +7,7 @@
 #include "base/macros.h"
 #include "base/process/kill.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -87,7 +88,8 @@ IN_PROC_BROWSER_TEST_F(ZoomControllerBrowserTest,
     host->Shutdown(0);
     crash_observer.Wait();
   }
-  EXPECT_FALSE(web_contents->GetRenderViewHost()->IsRenderViewLive());
+  EXPECT_FALSE(
+      web_contents->GetMainFrame()->GetRenderViewHost()->IsRenderViewLive());
 
   // The following attempt to change the zoom level for a crashed tab should
   // fail.
@@ -242,7 +244,7 @@ IN_PROC_BROWSER_TEST_F(ZoomControllerBrowserTest, NavigationResetsManualMode) {
   TestResetOnNavigation(ZoomController::ZOOM_MODE_MANUAL);
 }
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 // Regression test: crbug.com/438979.
 IN_PROC_BROWSER_TEST_F(ZoomControllerBrowserTest,
                        SettingsZoomAfterSigninWorks) {
@@ -296,4 +298,4 @@ IN_PROC_BROWSER_TEST_F(ZoomControllerBrowserTest,
   zoom_controller->SetZoomLevel(new_zoom_level);
   zoom_change_watcher.Wait();
 }
-#endif  // !defined(OS_CHROMEOS)
+#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)

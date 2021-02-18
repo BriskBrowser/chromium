@@ -10,7 +10,11 @@
 Polymer({
   is: 'settings-detailed-build-info',
 
-  behaviors: [I18nBehavior],
+  behaviors: [
+    DeepLinkingBehavior,
+    I18nBehavior,
+    settings.RouteObserverBehavior,
+  ],
 
   properties: {
     /** @private {!VersionInfo} */
@@ -23,7 +27,13 @@ Polymer({
     currentlyOnChannelText_: String,
 
     /** @private */
+    deviceNameText_: String,
+
+    /** @private */
     showChannelSwitcherDialog_: Boolean,
+
+    /** @private */
+    showEditHostnameDialog_: Boolean,
 
     /** @private */
     canChangeChannel_: Boolean,
@@ -31,6 +41,27 @@ Polymer({
     eolMessageWithMonthAndYear: {
       type: String,
       value: '',
+    },
+
+    /**
+     * Used by DeepLinkingBehavior to focus this page's deep links.
+     * @type {!Set<!chromeos.settings.mojom.Setting>}
+     */
+    supportedSettingIds: {
+      type: Object,
+      value: () => new Set([
+        chromeos.settings.mojom.Setting.kChangeChromeChannel,
+        chromeos.settings.mojom.Setting.kCopyDetailedBuildInfo,
+      ]),
+    },
+
+    /** @private */
+    isHostnameSettingEnabled_: {
+      type: Boolean,
+      value() {
+        return loadTimeData.getBoolean('isHostnameSettingEnabled');
+      },
+      readOnly: true,
     },
   },
 
@@ -44,6 +75,23 @@ Polymer({
     });
 
     this.updateChannelInfo_();
+
+    if (this.isHostnameSettingEnabled_) {
+      this.updateDeviceName_();
+    }
+  },
+
+  /**
+   * @param {!settings.Route} route
+   * @param {!settings.Route} oldRoute
+   */
+  currentRouteChanged(route, oldRoute) {
+    // Does not apply to this page.
+    if (route !== settings.routes.DETAILED_BUILD_INFO) {
+      return;
+    }
+
+    this.attemptDeepLink();
   },
 
   /** @private */
@@ -65,6 +113,14 @@ Polymer({
           'aboutCurrentlyOnChannel',
           this.i18n(
               settings.browserChannelToI18nId(info.targetChannel, info.isLts)));
+    });
+  },
+
+  /** @private */
+  updateDeviceName_() {
+    const browserProxy = DeviceNameBrowserProxyImpl.getInstance();
+    browserProxy.getDeviceNameMetadata().then(data => {
+      this.deviceNameText_ = data.deviceName;
     });
   },
 
@@ -100,6 +156,15 @@ Polymer({
   onChangeChannelTap_(e) {
     e.preventDefault();
     this.showChannelSwitcherDialog_ = true;
+  },
+
+  /**
+   * @param {!Event} e
+   * @private
+   */
+  onEditHostnameTap_(e) {
+    e.preventDefault();
+    this.showEditHostnameDialog_ = true;
   },
 
   /**
@@ -148,5 +213,12 @@ Polymer({
     this.showChannelSwitcherDialog_ = false;
     cr.ui.focusWithoutInk(assert(this.$$('cr-button')));
     this.updateChannelInfo_();
+  },
+
+  /** @private */
+  onEditHostnameDialogClosed_() {
+    this.showEditHostnameDialog_ = false;
+    cr.ui.focusWithoutInk(assert(this.$$('cr-button')));
+    // TODO(jhawkins): Verify hostname property updated at this point.
   },
 });

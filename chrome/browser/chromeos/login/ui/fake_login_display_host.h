@@ -9,7 +9,9 @@
 #include <string>
 
 #include "base/macros.h"
+#include "base/optional.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
+#include "components/user_manager/user_type.h"
 
 namespace session_manager {
 class SessionManager;
@@ -43,6 +45,7 @@ class FakeLoginDisplayHost : public LoginDisplayHost {
   void PrewarmAuthentication() override;
   void StartDemoAppLaunch() override;
   void StartKiosk(const KioskAppId& kiosk_app_id, bool is_auto_launch) override;
+  void AttemptShowEnableConsumerKioskScreen() override;
   void CompleteLogin(const chromeos::UserContext& user_context) override;
   void OnGaiaScreenReady() override;
   void SetDisplayEmail(const std::string& email) override;
@@ -50,9 +53,12 @@ class FakeLoginDisplayHost : public LoginDisplayHost {
                               const std::string& given_name) override;
   void LoadWallpaper(const AccountId& account_id) override;
   void LoadSigninWallpaper() override;
-  bool IsUserAllowlisted(const AccountId& account_id) override;
+  bool IsUserAllowlisted(
+      const AccountId& account_id,
+      const base::Optional<user_manager::UserType>& user_type) override;
   void ShowGaiaDialog(const AccountId& prefilled_account) override;
   void HideOobeDialog() override;
+  void SetShelfButtonsEnabled(bool enabled) override;
   void UpdateOobeDialogState(ash::OobeDialogState state) override;
   void CancelPasswordChangedFlow() override;
   void MigrateUserData(const std::string& old_password) override;
@@ -61,6 +67,11 @@ class FakeLoginDisplayHost : public LoginDisplayHost {
   void HandleDisplayCaptivePortal() override;
   void UpdateAddUserButtonStatus() override;
   void RequestSystemInfoUpdate() override;
+  bool HasUserPods() override;
+  void VerifyOwnerForKiosk(base::OnceClosure on_success) override;
+  void AddObserver(LoginDisplayHost::Observer* observer) override;
+  void RemoveObserver(LoginDisplayHost::Observer* observer) override;
+  SigninUI* GetSigninUI() override;
 
  private:
   class FakeBaseScreen;

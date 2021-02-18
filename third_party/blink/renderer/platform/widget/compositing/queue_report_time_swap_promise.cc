@@ -20,7 +20,8 @@ QueueReportTimeSwapPromise::QueueReportTimeSwapPromise(
       swap_callback_(std::move(swap_callback)),
 #if defined(OS_ANDROID)
       call_swap_on_activate_(
-          Platform::Current()->IsSynchronousCompositingEnabled()),
+          Platform::Current()
+              ->IsSynchronousCompositingEnabledForAndroidWebView()),
 #endif
       compositor_task_runner_(std::move(compositor_task_runner)) {
 }
@@ -53,6 +54,8 @@ cc::SwapPromise::DidNotSwapAction QueueReportTimeSwapPromise::DidNotSwap(
       std::move(drain_callback_).Run(source_frame_number_);
     if (swap_callback_)
       std::move(swap_callback_).Run();
+  } else if (reason == cc::SwapPromise::COMMIT_FAILS) {
+    return DidNotSwapAction::KEEP_ACTIVE;
   }
   return DidNotSwapAction::BREAK_PROMISE;
 }

@@ -13,12 +13,12 @@
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "content/browser/conversions/conversion_manager.h"
 #include "content/browser/conversions/conversion_policy.h"
 #include "content/browser/conversions/conversion_storage_context.h"
+#include "storage/browser/quota/special_storage_policy.h"
 
 namespace base {
 
@@ -34,7 +34,6 @@ namespace content {
 extern CONTENT_EXPORT const base::TimeDelta
     kConversionManagerQueueReportsInterval;
 
-class ConversionStorage;
 class StoragePartition;
 
 // Provides access to the manager owned by the default StoragePartition.
@@ -78,13 +77,12 @@ class CONTENT_EXPORT ConversionManagerImpl : public ConversionManager {
       std::unique_ptr<ConversionPolicy> policy,
       const base::Clock* clock,
       const base::FilePath& user_data_directory,
-      scoped_refptr<base::SequencedTaskRunner> storage_task_runner);
+      scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy);
 
-  // |storage_task_runner| should run with base::TaskPriority::BEST_EFFORT.
   ConversionManagerImpl(
       StoragePartition* storage_partition,
       const base::FilePath& user_data_directory,
-      scoped_refptr<base::SequencedTaskRunner> storage_task_runner);
+      scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy);
   ConversionManagerImpl(const ConversionManagerImpl& other) = delete;
   ConversionManagerImpl& operator=(const ConversionManagerImpl& other) = delete;
   ~ConversionManagerImpl() override;
@@ -111,7 +109,7 @@ class CONTENT_EXPORT ConversionManagerImpl : public ConversionManager {
       std::unique_ptr<ConversionPolicy> policy,
       const base::Clock* clock,
       const base::FilePath& user_data_directory,
-      scoped_refptr<base::SequencedTaskRunner> storage_task_runner);
+      scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy);
 
   // Retrieves reports from storage whose |report_time| <= |max_report_time|,
   // and calls |handler_function| on them.
@@ -142,8 +140,7 @@ class CONTENT_EXPORT ConversionManagerImpl : public ConversionManager {
   void OnReportSentFromWebUI(base::OnceClosure reports_sent_barrier,
                              int64_t conversion_id);
 
-  // Friend to expose the ConversionStorage and task runner, consider changing
-  // to just expose the storage if it moves to SequenceBound.
+  // Friend to expose the ConversionStorageContext for certain tests.
   friend std::vector<ConversionReport> GetConversionsToReportForTesting(
       ConversionManagerImpl* manager,
       base::Time max_report_time);
@@ -170,6 +167,9 @@ class CONTENT_EXPORT ConversionManagerImpl : public ConversionManager {
   // Policy used for controlling API configurations such as reporting and
   // attribution models. Unique ptr so it can be overridden for testing.
   std::unique_ptr<ConversionPolicy> conversion_policy_;
+
+  // Storage policy for the browser context |this| is in. May be nullptr.
+  scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy_;
 
   base::WeakPtrFactory<ConversionManagerImpl> weak_factory_;
 };

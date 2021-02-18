@@ -8,10 +8,10 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/callback_helpers.h"
+#include "base/containers/contains.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "cc/layers/recording_source.h"
@@ -26,6 +26,7 @@
 #include "cc/test/fake_paint_image_generator.h"
 #include "cc/test/fake_picture_layer_impl.h"
 #include "cc/test/fake_picture_layer_tiling_client.h"
+#include "cc/test/fake_raster_query_queue.h"
 #include "cc/test/fake_raster_source.h"
 #include "cc/test/fake_recording_source.h"
 #include "cc/test/fake_tile_manager.h"
@@ -843,7 +844,7 @@ TEST_F(TileManagerTilePriorityQueueTest,
   host_impl()->active_tree()->SetDeviceViewportRect(gfx::Rect(layer_bounds));
 
   scoped_refptr<FakeRasterSource> pending_raster_source =
-      FakeRasterSource::CreateFilled(layer_bounds);
+      FakeRasterSource::CreateFilledWithText(layer_bounds);
   SetupPendingTree(pending_raster_source);
 
   auto* pending_child_layer = AddLayer<FakePictureLayerImpl>(
@@ -3520,23 +3521,31 @@ TEST_F(HdrImageTileManagerTest, DecodeHdrImagesToSdrP3) {
 
 class TileManagerCheckRasterQueriesTest : public TileManagerTest {
  public:
+  TileManagerCheckRasterQueriesTest()
+      : pending_raster_queries_(viz::TestContextProvider::CreateWorker().get(),
+                                /*oop_rasterization_enabled=*/false) {}
   ~TileManagerCheckRasterQueriesTest() override {
     // Ensure that the host impl doesn't outlive |raster_buffer_provider_|.
     TakeHostImpl();
   }
   void SetUp() override {
     TileManagerTest::SetUp();
-    host_impl()->tile_manager()->SetRasterBufferProviderForTesting(
-        &raster_buffer_provider_);
+    host_impl()->tile_manager()->SetPendingRasterQueriesForTesting(
+        &pending_raster_queries_);
   }
 
  protected:
-  class MockRasterBufferProvider : public FakeRasterBufferProviderImpl {
+  class MockRasterQueryQueue : public FakeRasterQueryQueue {
    public:
+    MockRasterQueryQueue(
+        viz::RasterContextProvider* const worker_context_provider,
+        bool oop_rasterization_enabled)
+        : FakeRasterQueryQueue(worker_context_provider,
+                               oop_rasterization_enabled) {}
     MOCK_METHOD0(CheckRasterFinishedQueries, bool());
   };
 
-  MockRasterBufferProvider raster_buffer_provider_;
+  MockRasterQueryQueue pending_raster_queries_;
 };
 
 TEST_F(TileManagerCheckRasterQueriesTest,
@@ -3545,7 +3554,7 @@ TEST_F(TileManagerCheckRasterQueriesTest,
   EXPECT_FALSE(host_impl()->tile_manager()->HasScheduledTileTasksForTesting());
   EXPECT_CALL(MockHostImpl(), NotifyAllTileTasksCompleted())
       .WillOnce(testing::Invoke([&run_loop]() { run_loop.Quit(); }));
-  EXPECT_CALL(raster_buffer_provider_, CheckRasterFinishedQueries()).Times(1);
+  EXPECT_CALL(pending_raster_queries_, CheckRasterFinishedQueries()).Times(1);
   host_impl()->tile_manager()->PrepareTiles(host_impl()->global_tile_state());
   EXPECT_TRUE(host_impl()->tile_manager()->HasScheduledTileTasksForTesting());
   run_loop.Run();

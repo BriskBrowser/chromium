@@ -9,6 +9,7 @@
 
 #include "base/test/metrics/histogram_tester.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -36,20 +37,10 @@ void RetryForHistogramUntilCountReached(base::HistogramTester* histogram_tester,
 // Previews InfoBar (which these tests trigger) does not work on Mac.
 // See https://crbug.com/782322 for details. Also occasional flakes on win7
 // (https://crbug.com/789542).
-#if defined(OS_WIN) || defined(OS_MAC) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || defined(OS_MAC) || BUILDFLAG(IS_CHROMEOS_ASH)
 #define DISABLE_ON_WIN_MAC_CHROMEOS(x) DISABLED_##x
 #else
 #define DISABLE_ON_WIN_MAC_CHROMEOS(x) x
-#endif
-
-// Previews InfoBar (which these tests trigger) does not work on Mac.
-// See https://crbug.com/782322 for details. Also occasional flakes on win7
-// (https://crbug.com/789542) and linux (https://crbug.com/1095566).
-#if defined(OS_WIN) || defined(OS_MAC) || defined(OS_CHROMEOS) || \
-    defined(OS_LINUX)
-#define DISABLE_ON_WIN_MAC_CHROMEOS_LINUX(x) DISABLED_##x
-#else
-#define DISABLE_ON_WIN_MAC_CHROMEOS_LINUX(x) x
 #endif
 
 #endif  // CHROME_BROWSER_PREVIEWS_PREVIEWS_TEST_UTIL_H_

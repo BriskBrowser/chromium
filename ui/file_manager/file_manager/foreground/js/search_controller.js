@@ -2,10 +2,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import {EntryLocation} from '../../../externs/entry_location.m.js';
+// #import {VolumeManager} from '../../../externs/volume_manager.m.js';
+// #import {FileManagerUI} from './ui/file_manager_ui.m.js';
+// #import {TaskController} from './task_controller.m.js';
+// #import {DirectoryModel} from './directory_model.m.js';
+// #import {LocationLine} from './ui/location_line.m.js';
+// #import {str, strf} from '../../common/js/util.m.js';
+// #import {VolumeManagerCommon} from '../../../base/js/volume_manager_types.m.js';
+// #import {SearchBox} from './ui/search_box.m.js';
+// clang-format on
+
 /**
  * Controller for searching.
  */
-class SearchController {
+/* #export */ class SearchController {
   /**
    * @param {!SearchBox} searchBox Search box UI element.
    * @param {!LocationLine} locationLine Location line UI element.
@@ -84,6 +96,19 @@ class SearchController {
            opt_event.newDirEntry.rootType ===
                VolumeManagerCommon.RootType.MY_FILES);
       this.searchBox_.setHidden(isMyFiles);
+    }
+  }
+
+  /**
+   * Sets search query on the search box and performs a search.
+   * @param {string} searchQuery Search query string to be searched with.
+   */
+  setSearchQuery(searchQuery) {
+    this.searchBox_.inputElement.focus();
+    this.searchBox_.inputElement.value = searchQuery;
+    this.onTextChange_();
+    if (this.isOnDrive_) {
+      this.onItemSelect_();
     }
   }
 

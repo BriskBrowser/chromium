@@ -98,7 +98,9 @@ class PayloadTrackerTest : public testing::Test {
         location::nearby::connections::mojom::PayloadTransferUpdate::New(
             payload_id, status,
             /*total_bytes=*/kTotalSize, /*bytes_transferred=*/kTotalSize);
-    payload_tracker_->OnStatusUpdate(std::move(payload));
+    payload_tracker_->OnStatusUpdate(
+        std::move(payload),
+        location::nearby::connections::mojom::Medium::kWebRtc);
   }
 
   content::BrowserTaskEnvironment task_environment_;
@@ -136,6 +138,7 @@ TEST_F(PayloadTrackerTest, PayloadsComplete_Successful) {
       Run(testing::_,
           MetadataMatcher(TransferMetadataBuilder()
                               .set_status(TransferMetadata::Status::kComplete)
+                              .set_progress(100)
                               .build())));
 
   for (int payload_id = 0; payload_id < kAttachmentCount; payload_id++) {

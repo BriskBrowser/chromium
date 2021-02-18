@@ -3,9 +3,9 @@
 <head>
   <script src="../../../resources/testharness.js"></script>
   <script src="../../../resources/testharnessreport.js"></script>
-  <script src="../../../fast/forms/resources/common.js"></script>
-  <script src="../../../fast/forms/resources/picker-common.js"></script>
-  <script src="../../../fast/forms/calendar-picker/resources/calendar-picker-common.js"></script>
+  <script src="../resources/common.js"></script>
+  <script src="../resources/picker-common.js"></script>
+  <script src="../calendar-picker/resources/calendar-picker-common.js"></script>
 </head>
 <body>
 
@@ -40,7 +40,7 @@ promise_test(() => {
           markDirtyCounter++;
         }
 
-        if (focusCounter == 5 && markDirtyCounter == 10) {
+        if (focusCounter == 5 && markDirtyCounter >= 10) {
           assert_equals(date1.value, "2000-02-03", "Submitting month switcher should have udpated control value");
           resolve();
         }

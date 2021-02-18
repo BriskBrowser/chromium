@@ -3,8 +3,8 @@
 // found in the LICENSE file.
 
 #include "base/run_loop.h"
-#include "base/scoped_observer.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -12,7 +12,6 @@
 #include "chrome/browser/ui/views/frame/browser_non_client_frame_view.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/web_applications/web_app_controller_browsertest.h"
-#include "chrome/browser/web_applications/test/web_app_test.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/prefs/pref_service.h"
@@ -26,8 +25,6 @@
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/non_client_view.h"
 #include "url/gurl.h"
-
-using web_app::ProviderType;
 
 namespace {
 
@@ -59,7 +56,7 @@ class TextChangeWaiter {
 
   bool observed_change_ = false;
   base::RunLoop run_loop_;
-  views::PropertyChangedSubscription subscription_;
+  base::CallbackListSubscription subscription_;
 };
 
 }  // anonymous namespace
@@ -75,16 +72,16 @@ class BrowserNonClientFrameViewMacBrowserTest
   ~BrowserNonClientFrameViewMacBrowserTest() override = default;
 };
 
-IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewMacBrowserTest, TitleUpdates) {
+IN_PROC_BROWSER_TEST_F(BrowserNonClientFrameViewMacBrowserTest, TitleUpdates) {
   ui::test::ScopedFakeNSWindowFullscreen fake_fullscreen;
 
-  const GURL app_url = GetInstallableAppURL();
-  const web_app::AppId app_id = InstallPWA(app_url);
+  const GURL start_url = GetInstallableAppURL();
+  const web_app::AppId app_id = InstallPWA(start_url);
   Browser* const browser = LaunchWebAppBrowser(app_id);
   content::WebContents* const web_contents =
       browser->tab_strip_model()->GetActiveWebContents();
   // Ensure the main page has loaded and is ready for ExecJs DOM manipulation.
-  ASSERT_TRUE(content::NavigateToURL(web_contents, app_url));
+  ASSERT_TRUE(content::NavigateToURL(web_contents, start_url));
 
   BrowserView* const browser_view =
       BrowserView::GetBrowserViewForBrowser(browser);
@@ -120,12 +117,20 @@ IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewMacBrowserTest, TitleUpdates) {
 
 // Test to make sure the WebAppToolbarFrame triggers an InvalidateLayout() when
 // toggled in fullscreen mode.
-IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewMacBrowserTest,
-                       ToolbarLayoutFullscreenTransition) {
+// TODO(crbug.com/1156050): Flaky on Mac.
+#if defined(OS_MAC)
+#define MAYBE_ToolbarLayoutFullscreenTransition \
+  DISABLED_ToolbarLayoutFullscreenTransition
+#else
+#define MAYBE_ToolbarLayoutFullscreenTransition \
+  ToolbarLayoutFullscreenTransition
+#endif
+IN_PROC_BROWSER_TEST_F(BrowserNonClientFrameViewMacBrowserTest,
+                       MAYBE_ToolbarLayoutFullscreenTransition) {
   ui::test::ScopedFakeNSWindowFullscreen fake_fullscreen;
 
-  const GURL app_url = GetInstallableAppURL();
-  const web_app::AppId app_id = InstallPWA(app_url);
+  const GURL start_url = GetInstallableAppURL();
+  const web_app::AppId app_id = InstallPWA(start_url);
   Browser* const browser = LaunchWebAppBrowser(app_id);
 
   BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser);
@@ -154,9 +159,3 @@ IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewMacBrowserTest,
   // invalidation.
   EXPECT_TRUE(frame_view_test_api.needs_layout());
 }
-
-INSTANTIATE_TEST_SUITE_P(All,
-                         BrowserNonClientFrameViewMacBrowserTest,
-                         ::testing::Values(ProviderType::kBookmarkApps,
-                                           ProviderType::kWebApps),
-                         web_app::ProviderTypeParamToString);

@@ -4,32 +4,31 @@
 
 #include "chrome/browser/ui/webui/settings/chromeos/main_section.h"
 
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/resources/grit/ash_public_unscaled_resources.h"
 #include "base/feature_list.h"
 #include "base/i18n/message_formatter.h"
 #include "base/i18n/number_formatting.h"
 #include "base/no_destructor.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/policy/minimum_version_policy_handler.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/metrics_handler.h"
+#include "chrome/browser/ui/webui/plural_string_handler.h"
 #include "chrome/browser/ui/webui/policy_indicator_localized_strings_provider.h"
 #include "chrome/browser/ui/webui/settings/browser_lifetime_handler.h"
 #include "chrome/browser/ui/webui/settings/chromeos/os_settings_features_util.h"
 #include "chrome/browser/ui/webui/webui_util.h"
-#include "chrome/browser/web_applications/system_web_app_manager.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/browser_resources.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/os_settings_resources.h"
-#include "chromeos/components/web_applications/manifest_request_filter.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/web_ui_data_source.h"
@@ -49,7 +48,7 @@ void AddSearchInSettingsStrings(content::WebUIDataSource* html_source) {
       {"searchResultSelected", IDS_OS_SEARCH_RESULT_ROW_A11Y_RESULT_SELECTED},
       {"clearSearch", IDS_CLEAR_SEARCH},
   };
-  AddLocalizedStringsBulk(html_source, kLocalizedStrings);
+  html_source->AddLocalizedStrings(kLocalizedStrings);
 
   html_source->AddString(
       "searchNoOsResultsHelp",
@@ -57,9 +56,8 @@ void AddSearchInSettingsStrings(content::WebUIDataSource* html_source) {
           IDS_SETTINGS_SEARCH_NO_RESULTS_HELP,
           base::ASCIIToUTF16(chrome::kOsSettingsSearchHelpURL)));
 
-  html_source->AddBoolean(
-      "newOsSettingsSearch",
-      base::FeatureList::IsEnabled(::chromeos::features::kNewOsSettingsSearch));
+  // TODO(crbug/1080777): Remove this flag and JS codepaths effected.
+  html_source->AddBoolean("newOsSettingsSearch", true);
 }
 
 void AddUpdateRequiredEolStrings(content::WebUIDataSource* html_source) {
@@ -81,7 +79,7 @@ void AddUpdateRequiredEolStrings(content::WebUIDataSource* html_source) {
       // deadline.
       int days_remaining = days.value() ? days.value() : 1;
       base::string16 domain_name =
-          base::UTF8ToUTF16(connector->GetEnterpriseDisplayDomain());
+          base::UTF8ToUTF16(connector->GetEnterpriseDomainManager());
       base::string16 link_url =
           base::UTF8ToUTF16(chrome::kChromeUIManagementURL);
       if (days_remaining == 7) {
@@ -94,7 +92,7 @@ void AddUpdateRequiredEolStrings(content::WebUIDataSource* html_source) {
                 l10n_util::GetStringUTF16(
                     IDS_SETTINGS_UPDATE_REQUIRED_EOL_BANNER_DAYS),
                 days_remaining,
-                base::UTF8ToUTF16(connector->GetEnterpriseDisplayDomain()),
+                base::UTF8ToUTF16(connector->GetEnterpriseDomainManager()),
                 ui::GetChromeOSDeviceName(),
                 base::UTF8ToUTF16(chrome::kChromeUIManagementURL));
       }
@@ -159,7 +157,7 @@ void MainSection::AddLoadTimeData(content::WebUIDataSource* html_source) {
       {"large", IDS_SETTINGS_LARGE_FONT},
       {"veryLarge", IDS_SETTINGS_VERY_LARGE_FONT},
   };
-  AddLocalizedStringsBulk(html_source, kLocalizedStrings);
+  html_source->AddLocalizedStrings(kLocalizedStrings);
 
   // This handler is for chrome://os-settings.
   html_source->AddBoolean("isOSSettings", true);
@@ -174,26 +172,7 @@ void MainSection::AddLoadTimeData(content::WebUIDataSource* html_source) {
                           chromeos::features::IsDeepLinkingEnabled());
 
   // Add the System Web App resources for Settings.
-  if (web_app::SystemWebAppManager::IsEnabled()) {
-    html_source->AddResourcePath("icon-192.png", IDR_SETTINGS_LOGO_192);
-    html_source->AddResourcePath("pwa.html", IDR_PWA_HTML);
-    web_app::SetManifestRequestFilter(html_source, IDR_OS_SETTINGS_MANIFEST,
-                                      IDS_SETTINGS_SETTINGS);
-  }
-
-  html_source->AddResourcePath("constants/routes.mojom-lite.js",
-                               IDR_OS_SETTINGS_ROUTES_MOJOM_LITE_JS);
-  html_source->AddResourcePath("constants/setting.mojom-lite.js",
-                               IDR_OS_SETTINGS_SETTING_MOJOM_LITE_JS);
-
-  html_source->AddResourcePath(
-      "search/user_action_recorder.mojom-lite.js",
-      IDR_OS_SETTINGS_USER_ACTION_RECORDER_MOJOM_LITE_JS);
-  html_source->AddResourcePath(
-      "search/search_result_icon.mojom-lite.js",
-      IDR_OS_SETTINGS_SEARCH_RESULT_ICON_MOJOM_LITE_JS);
-  html_source->AddResourcePath("search/search.mojom-lite.js",
-                               IDR_OS_SETTINGS_SEARCH_MOJOM_LITE_JS);
+  html_source->AddResourcePath("icon-192.png", IDR_SETTINGS_LOGO_192);
 
   AddSearchInSettingsStrings(html_source);
   AddChromeOSUserStrings(html_source);
@@ -208,6 +187,8 @@ void MainSection::AddHandlers(content::WebUI* web_ui) {
 
   web_ui->AddMessageHandler(
       std::make_unique<::settings::BrowserLifetimeHandler>());
+
+  web_ui->AddMessageHandler(CreatePluralStringHandler());
 }
 
 int MainSection::GetSectionNameMessageId() const {
@@ -228,6 +209,11 @@ mojom::SearchResultIcon MainSection::GetSectionIcon() const {
 std::string MainSection::GetSectionPath() const {
   NOTIMPLEMENTED();
   return std::string();
+}
+
+bool MainSection::LogMetric(mojom::Setting setting, base::Value& value) const {
+  NOTIMPLEMENTED();
+  return false;
 }
 
 void MainSection::RegisterHierarchy(HierarchyGenerator* generator) const {
@@ -254,6 +240,21 @@ void MainSection::AddChromeOSUserStrings(
       "secondaryUserBannerText",
       l10n_util::GetStringFUTF16(IDS_SETTINGS_SECONDARY_USER_BANNER,
                                  base::ASCIIToUTF16(primary_user_email)));
+}
+
+std::unique_ptr<PluralStringHandler> MainSection::CreatePluralStringHandler() {
+  auto plural_string_handler = std::make_unique<PluralStringHandler>();
+  if (chromeos::features::IsAccountManagementFlowsV2Enabled()) {
+    plural_string_handler->AddLocalizedString("profileLabel",
+                                              IDS_OS_SETTINGS_PROFILE_LABEL_V2);
+  } else {
+    plural_string_handler->AddLocalizedString("profileLabel",
+                                              IDS_OS_SETTINGS_PROFILE_LABEL);
+  }
+  plural_string_handler->AddLocalizedString(
+      "nearbyShareContactVisibilityNumUnreachable",
+      IDS_NEARBY_CONTACT_VISIBILITY_NUM_UNREACHABLE);
+  return plural_string_handler;
 }
 
 }  // namespace settings

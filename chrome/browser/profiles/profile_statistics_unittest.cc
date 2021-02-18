@@ -60,8 +60,6 @@ bookmarks::BookmarkModel* CreateBookmarkModelWithoutLoad(Profile* profile) {
 
 class BookmarkStatHelper {
  public:
-  BookmarkStatHelper() : num_of_times_called_(0) {}
-
   void StatsCallback(profiles::ProfileCategoryStats stats) {
     if (stats.back().category == profiles::kProfileStatisticsBookmarks)
       ++num_of_times_called_;
@@ -70,15 +68,14 @@ class BookmarkStatHelper {
   int GetNumOfTimesCalled() { return num_of_times_called_; }
 
  private:
-  base::Closure quit_closure_;
-  int num_of_times_called_;
+  int num_of_times_called_ = 0;
 };
 }  // namespace
 
 class ProfileStatisticsTest : public testing::Test {
  public:
   ProfileStatisticsTest() : manager_(TestingBrowserProcess::GetGlobal()) {}
-  ~ProfileStatisticsTest() override {}
+  ~ProfileStatisticsTest() override = default;
 
  protected:
   void SetUp() override {
@@ -118,8 +115,8 @@ TEST_F(ProfileStatisticsTest, WaitOrCountBookmarks) {
   ProfileStatisticsAggregator aggregator(
       profile, run_loop_aggregator_done.QuitClosure());
   aggregator.AddCallbackAndStartAggregator(
-      base::Bind(&BookmarkStatHelper::StatsCallback,
-                 base::Unretained(&bookmark_stat_helper)));
+      base::BindRepeating(&BookmarkStatHelper::StatsCallback,
+                          base::Unretained(&bookmark_stat_helper)));
 
   // Wait until ProfileStatisticsAggregator::WaitOrCountBookmarks is run.
   base::RunLoop run_loop1;

@@ -5,13 +5,15 @@
 #include "content/browser/accessibility/hit_testing_browsertest.h"
 
 #include "base/check.h"
-#include "base/test/bind_test_util.h"
+#include "base/test/bind.h"
 #include "build/build_config.h"
 #include "build/chromecast_buildflags.h"
+#include "build/chromeos_buildflags.h"
 #include "content/browser/accessibility/accessibility_tree_formatter_blink.h"
 #include "content/browser/accessibility/browser_accessibility.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
 #include "content/browser/web_contents/web_contents_impl.h"
+#include "content/public/browser/ax_inspect_factory.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/use_zoom_for_dsf_policy.h"
@@ -29,6 +31,8 @@
 #include "ui/gfx/geometry/vector2d_conversions.h"
 
 namespace content {
+
+using ui::AXTreeFormatter;
 
 #define EXPECT_ACCESSIBILITY_HIT_TEST_RESULT(css_point, expected_node, \
                                              hit_node)                 \
@@ -262,19 +266,17 @@ void AccessibilityHitTestingBrowserTest::SimulatePinchZoom(
   accessibility_waiter.WaitForNotification();
 }
 
-base::string16
+std::string
 AccessibilityHitTestingBrowserTest::FormatHitTestAccessibilityTree() {
-  std::unique_ptr<AccessibilityTreeFormatter> accessibility_tree_formatter =
-      AccessibilityTreeFormatterBlink::CreateBlink();
+  std::unique_ptr<AXTreeFormatter> accessibility_tree_formatter =
+      AXInspectFactory::CreateBlinkFormatter();
   accessibility_tree_formatter->set_show_ids(true);
   accessibility_tree_formatter->SetPropertyFilters(
-      {{"name=*", AccessibilityTreeFormatter::PropertyFilter::ALLOW},
-       {"location=*", AccessibilityTreeFormatter::PropertyFilter::ALLOW},
-       {"size=*", AccessibilityTreeFormatter::PropertyFilter::ALLOW}});
-  base::string16 accessibility_tree;
-  accessibility_tree_formatter->FormatAccessibilityTreeForTesting(
-      GetRootAndAssertNonNull(), &accessibility_tree);
-  return accessibility_tree;
+      {{"name=*", ui::AXPropertyFilter::ALLOW},
+       {"location=*", ui::AXPropertyFilter::ALLOW},
+       {"size=*", ui::AXPropertyFilter::ALLOW}});
+  std::string accessibility_tree;
+  return accessibility_tree_formatter->Format(GetRootAndAssertNonNull());
 }
 
 std::string AccessibilityHitTestingBrowserTest::GetScopedTrace(
@@ -466,18 +468,17 @@ IN_PROC_BROWSER_TEST_P(AccessibilityHitTestingCrossProcessBrowserTest,
   ASSERT_EQ(1U, root->child_count());
 
   FrameTreeNode* child = root->child_at(0);
-  NavigateFrameToURL(child, url_b);
+  EXPECT_TRUE(NavigateToURLFromRenderer(child, url_b));
   EXPECT_EQ(url_b, child->current_url());
   WaitForAccessibilityTreeToContainNodeWithName(shell()->web_contents(),
                                                 "rectF");
 
-  FrameTreeVisualizer visualizer;
   EXPECT_EQ(
       " Site A ------------ proxies for B\n"
       "   +--Site B ------- proxies for A\n"
       "Where A = http://a.com/\n"
       "      B = http://b.com/",
-      visualizer.DepictFrameTree(root));
+      DepictFrameTree(*root));
 
   // Before scrolling.
   {
@@ -738,8 +739,9 @@ IN_PROC_BROWSER_TEST_P(AccessibilityHitTestingBrowserTest,
 
 // GetAXPlatformNode is currently only supported on windows and linux (excluding
 // Chrome OS or Chromecast)
-#if defined(OS_WIN) || \
-    (defined(OS_LINUX) && !defined(OS_CHROMEOS) && !BUILDFLAG(IS_CHROMECAST))
+#if defined(OS_WIN) ||                                       \
+    ((defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) && \
+     !BUILDFLAG(IS_CHROMECAST))
 IN_PROC_BROWSER_TEST_P(AccessibilityHitTestingBrowserTest,
                        NearestLeafInIframes) {
   ASSERT_TRUE(embedded_test_server()->Start());

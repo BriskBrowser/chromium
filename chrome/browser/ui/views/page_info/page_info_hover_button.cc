@@ -15,16 +15,18 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/styled_label.h"
 #include "ui/views/layout/grid_layout.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/style/typography.h"
 
-PageInfoHoverButton::PageInfoHoverButton(views::ButtonListener* listener,
-                                         const gfx::ImageSkia& image_icon,
-                                         int title_resource_id,
-                                         const base::string16& secondary_text,
-                                         int click_target_id,
-                                         const base::string16& tooltip_text,
-                                         const base::string16& subtitle_text)
-    : HoverButton(listener, base::string16()) {
+PageInfoHoverButton::PageInfoHoverButton(
+    views::Button::PressedCallback callback,
+    const gfx::ImageSkia& image_icon,
+    int title_resource_id,
+    const base::string16& secondary_text,
+    int click_target_id,
+    const base::string16& tooltip_text,
+    const base::string16& subtitle_text)
+    : HoverButton(std::move(callback), base::string16()) {
   label()->SetHandlesTooltips(false);
   auto icon = std::make_unique<NonAccessibleImageView>();
   icon->SetImage(image_icon);
@@ -46,7 +48,7 @@ PageInfoHoverButton::PageInfoHoverButton(views::ButtonListener* listener,
                      views::GridLayout::ColumnSize::kUsePreferred, 0, 0);
 
   // Make sure hovering over the icon also hovers the |PageInfoHoverButton|.
-  icon->set_can_process_events_within_subtree(false);
+  icon->SetCanProcessEventsWithinSubtree(false);
   // Don't cover |icon_view| when the ink drops are being painted.
   icon->SetPaintToLayer();
   icon->layer()->SetFillsBoundsOpaquely(false);
@@ -73,7 +75,7 @@ PageInfoHoverButton::PageInfoHoverButton(views::ButtonListener* listener,
 
   // Hover the whole button when hovering |title_|. This is OK because |title_|
   // will never have a link in it.
-  title_wrapper->set_can_process_events_within_subtree(false);
+  title_wrapper->SetCanProcessEventsWithinSubtree(false);
   grid_layout->AddView(std::move(title_wrapper));
 
   if (!subtitle_text.empty()) {
@@ -149,4 +151,4 @@ views::View* PageInfoHoverButton::GetTooltipHandlerForPoint(
 }
 
 BEGIN_METADATA(PageInfoHoverButton, HoverButton)
-END_METADATA()
+END_METADATA

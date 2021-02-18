@@ -50,6 +50,10 @@ let ShowAtConfig;
 /** @const {string} */
 const DROPDOWN_ITEM_CLASS = 'dropdown-item';
 
+/** @const {string} */
+const SELECTABLE_DROPDOWN_ITEM_QUERY =
+    `.${DROPDOWN_ITEM_CLASS}:not([hidden]):not([disabled])`;
+
 (function() {
 
 /** @const {number} */
@@ -162,6 +166,7 @@ Polymer({
 
     open: {
       type: Boolean,
+      notify: true,
       value: false,
     },
 
@@ -253,8 +258,8 @@ Polymer({
       return;
     }
 
-    const query = '.dropdown-item:not([disabled]):not([hidden])';
-    const options = Array.from(this.querySelectorAll(query));
+    const options =
+        Array.from(this.querySelectorAll(SELECTABLE_DROPDOWN_ITEM_QUERY));
     if (options.length === 0) {
       return;
     }
@@ -293,8 +298,8 @@ Polymer({
    * @private
    */
   onMouseover_(e) {
-    const query = '.dropdown-item:not([disabled])';
-    const item = e.composedPath().find(el => el.matches && el.matches(query));
+    const item = e.composedPath().find(
+        el => el.matches && el.matches(SELECTABLE_DROPDOWN_ITEM_QUERY));
     (item || this.$.wrapper).focus();
   },
 
@@ -423,6 +428,19 @@ Polymer({
     doc.scrollTop = scrollTop;
     doc.scrollLeft = scrollLeft;
     this.addListeners_();
+
+    // Focus the first selectable item.
+    const openedByKey = cr.ui.FocusOutlineManager.forDocument(document).visible;
+    if (openedByKey) {
+      const firstSelectableItem =
+          this.querySelector(SELECTABLE_DROPDOWN_ITEM_QUERY);
+      if (firstSelectableItem) {
+        requestAnimationFrame(() => {
+          // Wait for the next animation frame for the dialog to become visible.
+          firstSelectableItem.focus();
+        });
+      }
+    }
   },
 
   /** @private */

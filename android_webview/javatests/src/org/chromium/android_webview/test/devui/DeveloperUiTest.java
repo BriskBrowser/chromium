@@ -45,6 +45,7 @@ import org.junit.runner.RunWith;
 import org.chromium.android_webview.devui.MainActivity;
 import org.chromium.android_webview.devui.R;
 import org.chromium.android_webview.test.AwJUnit4ClassRunner;
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.Feature;
 
 /**
@@ -52,10 +53,12 @@ import org.chromium.base.test.util.Feature;
  * have their own test class.
  */
 @RunWith(AwJUnit4ClassRunner.class)
+@Batch(Batch.PER_CLASS)
 public class DeveloperUiTest {
     // The package name of the test shell. This is acting both as the client app and the WebView
     // provider.
-    private static final String TEST_WEBVIEW_PACKAGE_NAME = "org.chromium.android_webview.shell";
+    public static final String TEST_WEBVIEW_PACKAGE_NAME = "org.chromium.android_webview.shell";
+    public static final String TEST_WEBVIEW_APPLICATION_LABEL = "AwShellApplication";
 
     @Rule
     public IntentsTestRule mRule = new IntentsTestRule<MainActivity>(MainActivity.class);

@@ -20,12 +20,9 @@
 #include "components/content_settings/core/browser/website_settings_info.h"
 #include "components/content_settings/core/browser/website_settings_registry.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
-#include "components/content_settings/core/common/features.h"
 #include "components/content_settings/core/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
-
-namespace content_settings {
 
 namespace {
 
@@ -33,8 +30,6 @@ struct PrefsForManagedContentSettingsMapEntry {
   const char* pref_name;
   ContentSettingsType content_type;
   ContentSetting setting;
-  content_settings::WildcardsInPrimaryPattern wildcards_in_primary_pattern =
-      content_settings::WildcardsInPrimaryPattern::ALLOWED;
 };
 
 const PrefsForManagedContentSettingsMapEntry
@@ -61,12 +56,6 @@ const PrefsForManagedContentSettingsMapEntry
          ContentSettingsType::NOTIFICATIONS, CONTENT_SETTING_ALLOW},
         {prefs::kManagedNotificationsBlockedForUrls,
          ContentSettingsType::NOTIFICATIONS, CONTENT_SETTING_BLOCK},
-        {prefs::kManagedPluginsAllowedForUrls, ContentSettingsType::PLUGINS,
-         CONTENT_SETTING_ALLOW,
-         content_settings::WildcardsInPrimaryPattern::NOT_ALLOWED},
-        {prefs::kManagedPluginsBlockedForUrls, ContentSettingsType::PLUGINS,
-         CONTENT_SETTING_BLOCK,
-         content_settings::WildcardsInPrimaryPattern::NOT_ALLOWED},
         {prefs::kManagedPopupsAllowedForUrls, ContentSettingsType::POPUPS,
          CONTENT_SETTING_ALLOW},
         {prefs::kManagedPopupsBlockedForUrls, ContentSettingsType::POPUPS,
@@ -97,30 +86,9 @@ const PrefsForManagedContentSettingsMapEntry
          ContentSettingsType::INSECURE_PRIVATE_NETWORK, CONTENT_SETTING_ALLOW},
 };
 
-class VectorRuleIterator : public RuleIterator {
- public:
-  VectorRuleIterator(const std::vector<Rule>::const_iterator& begin,
-                     const std::vector<Rule>::const_iterator& end)
-      : current_rule(begin), end_rule(end) {}
-
-  ~VectorRuleIterator() override {}
-
-  bool HasNext() const override { return current_rule != end_rule; }
-
-  Rule Next() override {
-    Rule rule(current_rule->primary_pattern, current_rule->secondary_pattern,
-              current_rule->value.Clone(), current_rule->expiration,
-              current_rule->session_model);
-    current_rule++;
-    return rule;
-  }
-
- private:
-  std::vector<Rule>::const_iterator current_rule;
-  std::vector<Rule>::const_iterator end_rule;
-};
-
 }  // namespace
+
+namespace content_settings {
 
 // The preferences used to manage the default policy value for
 // ContentSettingsTypes.
@@ -147,7 +115,6 @@ const PolicyProvider::PrefsForManagedDefaultMapEntry
          prefs::kManagedDefaultInsecureContentSetting},
         {ContentSettingsType::NOTIFICATIONS,
          prefs::kManagedDefaultNotificationsSetting},
-        {ContentSettingsType::PLUGINS, prefs::kManagedDefaultPluginsSetting},
         {ContentSettingsType::POPUPS, prefs::kManagedDefaultPopupsSetting},
         {ContentSettingsType::BLUETOOTH_GUARD,
          prefs::kManagedDefaultWebBluetoothGuardSetting},
@@ -181,8 +148,6 @@ void PolicyProvider::RegisterProfilePrefs(
   registry->RegisterListPref(prefs::kManagedJavaScriptBlockedForUrls);
   registry->RegisterListPref(prefs::kManagedNotificationsAllowedForUrls);
   registry->RegisterListPref(prefs::kManagedNotificationsBlockedForUrls);
-  registry->RegisterListPref(prefs::kManagedPluginsAllowedForUrls);
-  registry->RegisterListPref(prefs::kManagedPluginsBlockedForUrls);
   registry->RegisterListPref(prefs::kManagedPopupsAllowedForUrls);
   registry->RegisterListPref(prefs::kManagedPopupsBlockedForUrls);
   registry->RegisterListPref(prefs::kManagedWebUsbAllowDevicesForUrls);
@@ -218,8 +183,6 @@ void PolicyProvider::RegisterProfilePrefs(
   registry->RegisterIntegerPref(prefs::kManagedDefaultNotificationsSetting,
                                 CONTENT_SETTING_DEFAULT);
   registry->RegisterIntegerPref(prefs::kManagedDefaultMediaStreamSetting,
-                                CONTENT_SETTING_DEFAULT);
-  registry->RegisterIntegerPref(prefs::kManagedDefaultPluginsSetting,
                                 CONTENT_SETTING_DEFAULT);
   registry->RegisterIntegerPref(prefs::kManagedDefaultPopupsSetting,
                                 CONTENT_SETTING_DEFAULT);
@@ -269,8 +232,6 @@ PolicyProvider::PolicyProvider(PrefService* prefs) : prefs_(prefs) {
       prefs::kManagedNotificationsAllowedForUrls, callback);
   pref_change_registrar_.Add(
       prefs::kManagedNotificationsBlockedForUrls, callback);
-  pref_change_registrar_.Add(prefs::kManagedPluginsAllowedForUrls, callback);
-  pref_change_registrar_.Add(prefs::kManagedPluginsBlockedForUrls, callback);
   pref_change_registrar_.Add(prefs::kManagedPopupsAllowedForUrls, callback);
   pref_change_registrar_.Add(prefs::kManagedPopupsBlockedForUrls, callback);
   pref_change_registrar_.Add(prefs::kManagedWebUsbAskForUrls, callback);
@@ -310,7 +271,6 @@ PolicyProvider::PolicyProvider(PrefService* prefs) : prefs_(prefs) {
       prefs::kManagedDefaultNotificationsSetting, callback);
   pref_change_registrar_.Add(
       prefs::kManagedDefaultMediaStreamSetting, callback);
-  pref_change_registrar_.Add(prefs::kManagedDefaultPluginsSetting, callback);
   pref_change_registrar_.Add(prefs::kManagedDefaultPopupsSetting, callback);
   pref_change_registrar_.Add(prefs::kManagedDefaultWebBluetoothGuardSetting,
                              callback);
@@ -335,21 +295,8 @@ PolicyProvider::~PolicyProvider() {
 
 std::unique_ptr<RuleIterator> PolicyProvider::GetRuleIterator(
     ContentSettingsType content_type,
-    const ResourceIdentifier& resource_identifier,
     bool incognito) const {
-  return value_map_.GetRuleIterator(content_type, resource_identifier, &lock_);
-}
-
-std::unique_ptr<RuleIterator> PolicyProvider::GetDiscardedRuleIterator(
-    ContentSettingsType content_type,
-    const ResourceIdentifier& resource_identifier,
-    bool incognito) const {
-  auto it = discarded_rules_value_map_.find(content_type);
-  if (it == discarded_rules_value_map_.end()) {
-    return std::make_unique<EmptyRuleIterator>(EmptyRuleIterator());
-  }
-  return std::make_unique<VectorRuleIterator>(it->second.begin(),
-                                              it->second.end());
+  return value_map_.GetRuleIterator(content_type, &lock_);
 }
 
 void PolicyProvider::GetContentSettingsFromPreferences(
@@ -402,32 +349,18 @@ void PolicyProvider::GetContentSettingsFromPreferences(
           << "Replacing invalid secondary pattern '"
           << pattern_pair.second.ToString() << "' with wildcard";
 
-      // Currently all settings that can set pattern pairs support embedded
-      // exceptions. However if a new content setting is added that doesn't,
-      // this DCHECK should be changed to an actual check which ignores such
-      // patterns for that type.
-      DCHECK(pattern_pair.first == pattern_pair.second ||
-             pattern_pair.second == ContentSettingsPattern::Wildcard() ||
-             content_settings::WebsiteSettingsRegistry::GetInstance()
-                 ->Get(content_type)
-                 ->SupportsEmbeddedExceptions());
-
-      if (base::FeatureList::IsEnabled(
-              content_settings::kDisallowWildcardsInPluginContentSettings) &&
-          kPrefsForManagedContentSettingsMap[i].wildcards_in_primary_pattern ==
-              WildcardsInPrimaryPattern::NOT_ALLOWED &&
-          pattern_pair.first.HasHostWildcards()) {
-        discarded_rules_value_map_[content_type].push_back(
-            Rule(pattern_pair.first, secondary_pattern,
-                 base::Value(kPrefsForManagedContentSettingsMap[i].setting),
-                 base::Time(), content_settings::SessionModel::Durable));
+      // All settings that can set pattern pairs support embedded exceptions.
+      if (pattern_pair.first != pattern_pair.second &&
+          pattern_pair.second != ContentSettingsPattern::Wildcard() &&
+          !content_settings::WebsiteSettingsRegistry::GetInstance()
+               ->Get(content_type)
+               ->SupportsSecondaryPattern()) {
         continue;
       }
 
       // Don't set a timestamp for policy settings.
       value_map->SetValue(
-          pattern_pair.first, secondary_pattern, content_type,
-          ResourceIdentifier(), base::Time(),
+          pattern_pair.first, secondary_pattern, content_type, base::Time(),
           base::Value(kPrefsForManagedContentSettingsMap[i].setting), {});
     }
   }
@@ -520,7 +453,7 @@ void PolicyProvider::GetAutoSelectCertificateSettingsFromPreferences(
 
     value_map->SetValue(pattern, ContentSettingsPattern::Wildcard(),
                         ContentSettingsType::AUTO_SELECT_CERTIFICATE,
-                        std::string(), base::Time(), setting.Clone(), {});
+                        base::Time(), setting.Clone(), {});
   }
 }
 
@@ -548,22 +481,15 @@ void PolicyProvider::UpdateManagedDefaultSetting(
          prefs_->IsManagedPreference(entry.pref_name));
   base::AutoLock auto_lock(lock_);
   int setting = prefs_->GetInteger(entry.pref_name);
-  // TODO(wfh): Remove once HDB is enabled by default.
-  if (entry.pref_name == prefs::kManagedDefaultPluginsSetting) {
-    static constexpr base::Feature kIgnoreDefaultPluginsSetting = {
-        "IgnoreDefaultPluginsSetting", base::FEATURE_DISABLED_BY_DEFAULT};
-    if (base::FeatureList::IsEnabled(kIgnoreDefaultPluginsSetting))
-      setting = CONTENT_SETTING_DEFAULT;
-  }
   if (setting == CONTENT_SETTING_DEFAULT) {
     value_map_.DeleteValue(ContentSettingsPattern::Wildcard(),
                            ContentSettingsPattern::Wildcard(),
-                           entry.content_type, std::string());
+                           entry.content_type);
   } else if (info->IsSettingValid(IntToContentSetting(setting))) {
     // Don't set a timestamp for policy settings.
     value_map_.SetValue(ContentSettingsPattern::Wildcard(),
                         ContentSettingsPattern::Wildcard(), entry.content_type,
-                        std::string(), base::Time(), base::Value(setting), {});
+                        base::Time(), base::Value(setting), {});
   }
 }
 
@@ -582,7 +508,6 @@ bool PolicyProvider::SetWebsiteSetting(
     const ContentSettingsPattern& primary_pattern,
     const ContentSettingsPattern& secondary_pattern,
     ContentSettingsType content_type,
-    const ResourceIdentifier& resource_identifier,
     std::unique_ptr<base::Value>&& value,
     const ContentSettingConstraints& constraints) {
   return false;
@@ -625,8 +550,6 @@ void PolicyProvider::OnPreferenceChanged(const std::string& name) {
       name == prefs::kManagedJavaScriptBlockedForUrls ||
       name == prefs::kManagedNotificationsAllowedForUrls ||
       name == prefs::kManagedNotificationsBlockedForUrls ||
-      name == prefs::kManagedPluginsAllowedForUrls ||
-      name == prefs::kManagedPluginsBlockedForUrls ||
       name == prefs::kManagedPopupsAllowedForUrls ||
       name == prefs::kManagedPopupsBlockedForUrls ||
       name == prefs::kManagedWebUsbAskForUrls ||
@@ -642,7 +565,7 @@ void PolicyProvider::OnPreferenceChanged(const std::string& name) {
   }
 
   NotifyObservers(ContentSettingsPattern(), ContentSettingsPattern(),
-                  ContentSettingsType::DEFAULT, std::string());
+                  ContentSettingsType::DEFAULT);
 }
 
 }  // namespace content_settings

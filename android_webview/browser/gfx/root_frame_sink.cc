@@ -197,6 +197,7 @@ void RootFrameSink::DettachClient() {
 
 void RootFrameSink::SubmitChildCompositorFrame(ChildFrame* child_frame) {
   DCHECK(child_frame->frame);
+  DCHECK(child_frame->local_surface_id.is_valid());
   if (!child_sink_support_ ||
       child_sink_support_->frame_sink_id() != child_frame->frame_sink_id ||
       child_sink_support_->layer_tree_frame_sink_id() !=

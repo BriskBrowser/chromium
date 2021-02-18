@@ -5,9 +5,11 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_SUBTLE_NOTIFICATION_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_SUBTLE_NOTIFICATION_VIEW_H_
 
-#include "base/macros.h"
+#include <memory>
+
 #include "base/strings/string16.h"
 #include "ui/gfx/native_widget_types.h"
+#include "ui/views/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 
 namespace views {
@@ -22,7 +24,10 @@ class Widget;
 // rounded rectangle).
 class SubtleNotificationView : public views::View {
  public:
+  METADATA_HEADER(SubtleNotificationView);
   SubtleNotificationView();
+  SubtleNotificationView(const SubtleNotificationView&) = delete;
+  SubtleNotificationView& operator=(const SubtleNotificationView&) = delete;
   ~SubtleNotificationView() override;
 
   // Display the |instruction_text| to the user. If |instruction_text| is
@@ -30,8 +35,9 @@ class SubtleNotificationView : public views::View {
   void UpdateContent(const base::string16& instruction_text);
 
   // Creates a Widget containing a SubtleNotificationView.
-  static views::Widget* CreatePopupWidget(gfx::NativeView parent_view,
-                                          SubtleNotificationView* view);
+  static views::Widget* CreatePopupWidget(
+      gfx::NativeView parent_view,
+      std::unique_ptr<SubtleNotificationView> view);
   // views::View
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
@@ -40,8 +46,6 @@ class SubtleNotificationView : public views::View {
 
   // Text displayed in the bubble, with optional keyboard keys.
   InstructionView* instruction_view_;
-
-  DISALLOW_COPY_AND_ASSIGN(SubtleNotificationView);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_SUBTLE_NOTIFICATION_VIEW_H_

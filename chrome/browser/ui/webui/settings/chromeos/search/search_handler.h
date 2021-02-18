@@ -11,7 +11,8 @@
 #include "base/optional.h"
 #include "chrome/browser/ui/webui/settings/chromeos/search/search.mojom.h"
 #include "chrome/browser/ui/webui/settings/chromeos/search/search_tag_registry.h"
-#include "chromeos/components/local_search_service/index.h"
+#include "chromeos/components/local_search_service/public/cpp/local_search_service_proxy.h"
+#include "chromeos/components/local_search_service/public/mojom/index.mojom.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
@@ -19,10 +20,6 @@
 #include "mojo/public/cpp/bindings/remote_set.h"
 
 namespace chromeos {
-
-namespace local_search_service {
-class LocalSearchService;
-}  // namespace local_search_service
 
 namespace settings {
 
@@ -43,7 +40,8 @@ class SearchHandler : public mojom::SearchHandler,
   SearchHandler(SearchTagRegistry* search_tag_registry,
                 OsSettingsSections* sections,
                 Hierarchy* hierarchy,
-                local_search_service::LocalSearchService* local_search_service);
+                local_search_service::LocalSearchServiceProxy*
+                    local_search_service_proxy);
   ~SearchHandler() override;
 
   SearchHandler(const SearchHandler& other) = delete;
@@ -51,12 +49,6 @@ class SearchHandler : public mojom::SearchHandler,
 
   void BindInterface(
       mojo::PendingReceiver<mojom::SearchHandler> pending_receiver);
-
-  // Synchronous search implementation (for in-process clients).
-  std::vector<mojom::SearchResultPtr> Search(
-      const base::string16& query,
-      uint32_t max_num_results,
-      mojom::ParentResultBehavior parent_result_behavior);
 
   // mojom::SearchHandler:
   void Search(const base::string16& query,
@@ -77,6 +69,14 @@ class SearchHandler : public mojom::SearchHandler,
           local_search_service_results,
       uint32_t max_num_results,
       mojom::ParentResultBehavior parent_result_behavior) const;
+
+  void OnFindComplete(
+      SearchCallback callback,
+      uint32_t max_num_results,
+      mojom::ParentResultBehavior parent_result_behavior,
+      local_search_service::ResponseStatus response_status,
+      const base::Optional<std::vector<local_search_service::Result>>&
+          local_search_service_results);
 
   void AddParentResults(
       uint32_t max_num_results,
@@ -107,11 +107,13 @@ class SearchHandler : public mojom::SearchHandler,
   SearchTagRegistry* search_tag_registry_;
   OsSettingsSections* sections_;
   Hierarchy* hierarchy_;
-  local_search_service::Index* index_;
+  mojo::Remote<local_search_service::mojom::Index> index_remote_;
 
   // Note: Expected to have multiple clients, so ReceiverSet/RemoteSet are used.
   mojo::ReceiverSet<mojom::SearchHandler> receivers_;
   mojo::RemoteSet<mojom::SearchResultsObserver> observers_;
+
+  base::WeakPtrFactory<SearchHandler> weak_ptr_factory_{this};
 };
 
 }  // namespace settings

@@ -18,6 +18,7 @@ let TestMessageResponseData;
  *     getFileErrors: (boolean|undefined),
  *     getLastFileName: (boolean|undefined),
  *     navigate: ({direction: string, token: number}|undefined),
+ *     openFile: (boolean|undefined),
  *     overwriteLastFile: (string|undefined),
  *     pathToRoot: (!Array<string>|undefined),
  *     property: (string|undefined),
@@ -25,7 +26,7 @@ let TestMessageResponseData;
  *     requestFullscreen: (boolean|undefined),
  *     requestSaveFile: (boolean|undefined),
  *     saveAs: (string|undefined),
- *     openFile: (boolean|undefined),
+ *     suppressCrashReports: (boolean|undefined),
  *     testQuery: string,
  * }}
  */

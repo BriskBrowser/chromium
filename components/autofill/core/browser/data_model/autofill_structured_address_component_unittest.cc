@@ -12,6 +12,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/gtest_util.h"
 #include "components/autofill/core/browser/autofill_type.h"
+#include "components/autofill/core/browser/data_model/autofill_structured_address_test_utils.h"
 #include "components/autofill/core/browser/data_model/autofill_structured_address_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -21,13 +22,15 @@ using base::UTF8ToUTF16;
 namespace autofill {
 namespace structured_address {
 
+using AddressComponentTestValues = std::vector<AddressComponentTestValue>;
+
 // Creates an atomic name component for testing purposes.
 class TestAtomicFirstNameAddressComponent : public AddressComponent {
  public:
   TestAtomicFirstNameAddressComponent()
       : TestAtomicFirstNameAddressComponent(nullptr) {}
   explicit TestAtomicFirstNameAddressComponent(AddressComponent* parent)
-      : AddressComponent(NAME_FIRST, parent) {}
+      : AddressComponent(NAME_FIRST, parent, MergeMode::kDefault) {}
 };
 
 class TestAtomicMiddleNameAddressComponent : public AddressComponent {
@@ -35,7 +38,7 @@ class TestAtomicMiddleNameAddressComponent : public AddressComponent {
   TestAtomicMiddleNameAddressComponent()
       : TestAtomicMiddleNameAddressComponent(nullptr) {}
   explicit TestAtomicMiddleNameAddressComponent(AddressComponent* parent)
-      : AddressComponent(NAME_MIDDLE, parent) {}
+      : AddressComponent(NAME_MIDDLE, parent, MergeMode::kDefault) {}
 
   void GetAdditionalSupportedFieldTypes(
       ServerFieldTypeSet* supported_types) const override {
@@ -48,7 +51,8 @@ class TestAtomicMiddleNameAddressComponent : public AddressComponent {
       const std::string& field_type_name,
       const base::string16& value,
       const VerificationStatus& status) override {
-    if (field_type_name == AutofillType(NAME_MIDDLE_INITIAL).ToString()) {
+    if (field_type_name ==
+        AutofillType::ServerFieldTypeToString(NAME_MIDDLE_INITIAL)) {
       SetValue(value, status);
       return true;
     }
@@ -58,7 +62,8 @@ class TestAtomicMiddleNameAddressComponent : public AddressComponent {
   bool ConvertAndGetTheValueForAdditionalFieldTypeName(
       const std::string& field_type_name,
       base::string16* value) const override {
-    if (field_type_name == AutofillType(NAME_MIDDLE_INITIAL).ToString()) {
+    if (field_type_name ==
+        AutofillType::ServerFieldTypeToString(NAME_MIDDLE_INITIAL)) {
       if (value) {
         *value = GetValue().substr(0, 1);
       }
@@ -73,7 +78,7 @@ class TestAtomicLastNameAddressComponent : public AddressComponent {
   TestAtomicLastNameAddressComponent()
       : TestAtomicLastNameAddressComponent(nullptr) {}
   explicit TestAtomicLastNameAddressComponent(AddressComponent* parent)
-      : AddressComponent(NAME_LAST, parent) {}
+      : AddressComponent(NAME_LAST, parent, MergeMode::kDefault) {}
 };
 
 // Creates a compound name for testing purposes.
@@ -84,7 +89,7 @@ class TestCompoundNameAddressComponent : public AddressComponent {
   explicit TestCompoundNameAddressComponent(AddressComponent* parent)
       : AddressComponent(NAME_FULL,
                          parent,
-                         {&first_name_, &middle_name_, &last_name_}) {}
+                         MergeMode::kDefault) {}
 
   AddressComponent* GetFirstNameSubComponentForTesting() {
     return &first_name_;
@@ -105,7 +110,7 @@ class TestCompoundNameMethodParsedAddressComponent : public AddressComponent {
       AddressComponent* parent)
       : AddressComponent(NAME_FULL,
                          parent,
-                         {&first_name_, &middle_name_, &last_name_}) {}
+                         MergeMode::kDefault) {}
 
   bool ParseValueAndAssignSubcomponentsByMethod() override {
     // Assigns everything to the first name.
@@ -132,7 +137,7 @@ class TestCompoundNameRegExParsedAddressComponent : public AddressComponent {
   explicit TestCompoundNameRegExParsedAddressComponent(AddressComponent* parent)
       : AddressComponent(NAME_FULL,
                          parent,
-                         {&first_name_, &middle_name_, &last_name_}) {}
+                         MergeMode::kDefault) {}
 
   std::vector<const RE2*> GetParseRegularExpressionsByRelevance()
       const override {
@@ -158,11 +163,34 @@ class TestCompoundNameCustomFormatAddressComponent : public AddressComponent {
       AddressComponent* parent)
       : AddressComponent(NAME_FULL,
                          parent,
-                         {&first_name, &middle_name, &last_name}) {}
+                         MergeMode::kDefault) {}
 
   // Introduces a custom format with a leading last name.
   base::string16 GetBestFormatString() const override {
     return ASCIIToUTF16("${NAME_LAST}, ${NAME_FIRST}");
+  }
+
+ private:
+  TestAtomicFirstNameAddressComponent first_name{this};
+  TestAtomicMiddleNameAddressComponent middle_name{this};
+  TestAtomicLastNameAddressComponent last_name{this};
+};
+
+// Creates a compound name with a custom format for testing purposes.
+class TestCompoundNameCustomAffixedFormatAddressComponent
+    : public AddressComponent {
+ public:
+  TestCompoundNameCustomAffixedFormatAddressComponent()
+      : TestCompoundNameCustomAffixedFormatAddressComponent(nullptr) {}
+  explicit TestCompoundNameCustomAffixedFormatAddressComponent(
+      AddressComponent* parent)
+      : AddressComponent(NAME_FULL,
+                         parent,
+                         MergeMode::kDefault) {}
+
+  // Introduces a custom format with a leading last name.
+  base::string16 GetBestFormatString() const override {
+    return ASCIIToUTF16("${NAME_LAST;Dr. ; MD}, ${NAME_FIRST}");
   }
 
  private:
@@ -182,7 +210,7 @@ class TestCompoundNameCustomFormatWithUnsupportedTokenAddressComponent
       AddressComponent* parent)
       : AddressComponent(NAME_FULL,
                          parent,
-                         {&first_name, &middle_name, &last_name}) {}
+                         MergeMode::kDefault) {}
 
   // Introduce a custom format with a leading last name.
   base::string16 GetBestFormatString() const override {
@@ -200,7 +228,9 @@ class TestAtomicTitleAddressComponent : public AddressComponent {
   TestAtomicTitleAddressComponent()
       : TestAtomicTitleAddressComponent(nullptr) {}
   explicit TestAtomicTitleAddressComponent(AddressComponent* parent)
-      : AddressComponent(NAME_HONORIFIC_PREFIX, parent) {}
+      : AddressComponent(NAME_HONORIFIC_PREFIX,
+                         parent,
+                         MergeMode::kDefault) {}
 };
 
 // Creates a fictional compound component with sub- and sub subcomponents.
@@ -209,7 +239,9 @@ class TestCompoundNameWithTitleAddressComponent : public AddressComponent {
   TestCompoundNameWithTitleAddressComponent()
       : TestCompoundNameWithTitleAddressComponent(nullptr) {}
   explicit TestCompoundNameWithTitleAddressComponent(AddressComponent* parent)
-      : AddressComponent(CREDIT_CARD_NAME_FULL, parent, {&title, &full_name}) {}
+      : AddressComponent(CREDIT_CARD_NAME_FULL,
+                         parent,
+                         MergeMode::kDefault) {}
 
  private:
   TestAtomicTitleAddressComponent title{this};
@@ -223,15 +255,56 @@ class TestNonProperFirstNameAddressComponent : public AddressComponent {
   TestNonProperFirstNameAddressComponent()
       : TestNonProperFirstNameAddressComponent(nullptr) {}
   explicit TestNonProperFirstNameAddressComponent(AddressComponent* parent)
-      : AddressComponent(NAME_FIRST, parent, {&second_name_first_node_}) {}
+      : AddressComponent(NAME_FIRST,
+                         parent,
+                         MergeMode::kDefault) {}
 
  private:
-  TestAtomicFirstNameAddressComponent second_name_first_node_;
+  TestAtomicFirstNameAddressComponent second_name_first_node_{this};
 };
+
+// Tests the merging of two atomic component with |type|, and vales
+// |older_values| and |newer_values| respectively, and |merge_modes|.
+// If |is_mergeable| it is expected that the two components are mergeable.
+// If |newer_was_more_recently_used| the newer component was also more recently
+// used which is true by default.
+void TestAtomMerging(ServerFieldType type,
+                     AddressComponentTestValues older_values,
+                     AddressComponentTestValues newer_values,
+                     AddressComponentTestValues merge_expectation,
+                     bool is_mergeable,
+                     int merge_modes,
+                     bool newer_was_more_recently_used = true) {
+  AddressComponent older(type, nullptr, merge_modes);
+  AddressComponent newer(type, nullptr, merge_modes);
+
+  SetTestValues(&older, older_values);
+  SetTestValues(&newer, newer_values);
+
+  TestMerging(&older, &newer, merge_expectation, is_mergeable, merge_modes,
+              newer_was_more_recently_used);
+}
+
+void TestCompoundNameMerging(AddressComponentTestValues older_values,
+                             AddressComponentTestValues newer_values,
+                             AddressComponentTestValues merge_expectation,
+                             bool is_mergeable,
+                             int merge_modes,
+                             bool newer_was_more_recently_used = true) {
+  TestCompoundNameAddressComponent older;
+  TestCompoundNameAddressComponent newer;
+
+  SetTestValues(&older, older_values);
+  SetTestValues(&newer, newer_values);
+
+  TestMerging(&older, &newer, merge_expectation, is_mergeable, merge_modes,
+              newer_was_more_recently_used);
+}
 
 // Tests that the destructor does not crash
 TEST(AutofillStructuredAddressAddressComponent, ConstructAndDestruct) {
-  AddressComponent* component = new AddressComponent(NAME_FULL, nullptr);
+  AddressComponent* component =
+      new AddressComponent(NAME_FULL, nullptr, MergeMode::kDefault);
   delete component;
   EXPECT_TRUE(true);
 }
@@ -325,9 +398,9 @@ TEST(AutofillStructuredAddressAddressComponent, TestGetSupportedTypes) {
 }
 
 // Tests the comparison of thw atoms of the same type.
-TEST(AutofillStructuredAddressAddressComponent, TestComparisonOperator_Atom) {
-  AddressComponent left(NAME_FIRST);
-  AddressComponent right(NAME_FIRST);
+TEST(AutofillStructuredAddressAddressComponent, TestComparison_Atom) {
+  AddressComponent left(NAME_FIRST, nullptr, MergeMode::kReplaceEmpty);
+  AddressComponent right(NAME_FIRST, nullptr, MergeMode::kReplaceEmpty);
 
   left.SetValue(UTF8ToUTF16("some value"), VerificationStatus::kParsed);
   right.SetValue(UTF8ToUTF16("some other value"),
@@ -335,37 +408,34 @@ TEST(AutofillStructuredAddressAddressComponent, TestComparisonOperator_Atom) {
   EXPECT_NE(left.GetValue(), right.GetValue());
   EXPECT_NE(left.GetVerificationStatus(), right.GetVerificationStatus());
 
-  EXPECT_FALSE(left == right);
-  EXPECT_TRUE(left != right);
+  EXPECT_FALSE(left.SameAs(right));
 
   right.SetValue(UTF8ToUTF16("some value"), VerificationStatus::kParsed);
 
-  EXPECT_TRUE(left == right);
-  EXPECT_FALSE(left != right);
+  EXPECT_TRUE(left.SameAs(right));
 }
 
 // Tests comparison of two different types.
 TEST(AutofillStructuredAddressAddressComponent,
      TestComparisonOperator_DifferentTypes) {
-  AddressComponent type_a1(NAME_FIRST);
-  AddressComponent type_a2(NAME_FIRST);
-  AddressComponent type_b(NAME_LAST);
+  AddressComponent type_a1(NAME_FIRST, nullptr, MergeMode::kReplaceEmpty);
+  AddressComponent type_a2(NAME_FIRST, nullptr, MergeMode::kReplaceEmpty);
+  AddressComponent type_b(NAME_LAST, nullptr, MergeMode::kReplaceEmpty);
 
-  EXPECT_TRUE(type_a1 == type_a2);
-  EXPECT_FALSE(type_a1 == type_b);
+  EXPECT_TRUE(type_a1.SameAs(type_a2));
+  EXPECT_FALSE(type_a1.SameAs(type_b));
 }
 
 // Tests the comparison with itself.
 TEST(AutofillStructuredAddressAddressComponent,
      TestComparisonOperator_SelfComparison) {
-  AddressComponent type_a(NAME_FIRST);
+  AddressComponent type_a(NAME_FIRST, nullptr, MergeMode::kReplaceEmpty);
 
-  EXPECT_TRUE(type_a == type_a);
+  EXPECT_TRUE(type_a.SameAs(type_a));
 }
 
 // Tests the comparison operator.
-TEST(AutofillStructuredAddressAddressComponent,
-     TestComparisonOperator_Compound) {
+TEST(AutofillStructuredAddressAddressComponent, TestComparison_Compound) {
   TestCompoundNameAddressComponent left;
   TestCompoundNameAddressComponent right;
 
@@ -403,8 +473,7 @@ TEST(AutofillStructuredAddressAddressComponent,
   EXPECT_EQ(right.GetVerificationStatusForType(NAME_MIDDLE),
             VerificationStatus::kParsed);
 
-  EXPECT_FALSE(left == right);
-  EXPECT_TRUE(left != right);
+  EXPECT_FALSE(left.SameAs(right));
 
   // Set left to the same values as right and verify that it is now equal.
   TestCompoundNameAddressComponent same_right;
@@ -413,29 +482,51 @@ TEST(AutofillStructuredAddressAddressComponent,
                                        VerificationStatus::kUserVerified);
   EXPECT_TRUE(same_right.CompleteFullTree());
 
-  EXPECT_TRUE(right == same_right);
-  EXPECT_FALSE(right != same_right);
+  EXPECT_TRUE(right.SameAs(same_right));
 
   // Change one subcomponent and verify that it is not equal anymore.
   same_right.SetValueForTypeIfPossible(NAME_LAST, UTF8ToUTF16("Joker"),
                                        VerificationStatus::kParsed);
-  EXPECT_TRUE(right != same_right);
-  EXPECT_FALSE(right == same_right);
+  EXPECT_FALSE(right.SameAs(same_right));
 }
 
 // Tests the assignment operator.
 TEST(AutofillStructuredAddressAddressComponent, TestAssignmentOperator_Atom) {
-  AddressComponent left(NAME_FIRST);
-  AddressComponent right(NAME_FIRST);
+  AddressComponent left(NAME_FIRST, nullptr, MergeMode::kReplaceEmpty);
+  AddressComponent right(NAME_FIRST, nullptr, MergeMode::kReplaceEmpty);
 
   left.SetValue(UTF8ToUTF16("some value"), VerificationStatus::kParsed);
   right.SetValue(UTF8ToUTF16("some other value"),
                  VerificationStatus::kFormatted);
-  EXPECT_FALSE(left == right);
+  EXPECT_FALSE(left.SameAs(right));
 
   left.SetValue(UTF8ToUTF16("some other value"),
                 VerificationStatus::kFormatted);
-  EXPECT_TRUE(left == right);
+  EXPECT_TRUE(left.SameAs(right));
+}
+
+// Tests the assignment operator when using the base class type.
+TEST(AutofillStructuredAddressAddressComponent,
+     TestAssignmentOperator_Compound_FromBase) {
+  TestCompoundNameAddressComponent left;
+  TestCompoundNameAddressComponent right;
+
+  left.SetValueForTypeIfPossible(NAME_FULL, UTF8ToUTF16("First Middle Last"),
+                                 VerificationStatus::kObserved);
+  left.RecursivelyCompleteTree();
+
+  right.SetValueForTypeIfPossible(NAME_FULL, UTF8ToUTF16("The Dark Knight"),
+                                  VerificationStatus::kParsed);
+  right.RecursivelyCompleteTree();
+
+  AddressComponent* left_base = &left;
+  AddressComponent* right_base = &right;
+  EXPECT_FALSE(left_base->SameAs(*right_base));
+
+  // Use the assignment operators defined in the base.
+  left_base->CopyFrom(*right_base);
+  // But verify that the higher level classes are assigned correctly.
+  EXPECT_TRUE(left.SameAs(right));
 }
 
 // Tests the assignment operator on a compound node.
@@ -452,10 +543,10 @@ TEST(AutofillStructuredAddressAddressComponent,
                                   VerificationStatus::kParsed);
   right.RecursivelyCompleteTree();
 
-  EXPECT_FALSE(left == right);
+  EXPECT_FALSE(left.SameAs(right));
 
-  left = right;
-  EXPECT_TRUE(left == right);
+  left.CopyFrom(right);
+  EXPECT_TRUE(left.SameAs(right));
 }
 
 // Tests that self-assignment does not break things.
@@ -464,7 +555,7 @@ TEST(AutofillStructuredAddressAddressComponent, SelfAssignment) {
 
   left.SetValueForTypeIfPossible(NAME_FULL, UTF8ToUTF16("First Middle Last"),
                                  VerificationStatus::kObserved);
-  left = *(&left);
+  left.CopyFrom(*(&left));
 
   EXPECT_EQ(left.GetValueForType(NAME_FULL), UTF8ToUTF16("First Middle Last"));
 }
@@ -720,6 +811,32 @@ TEST(AutofillStructuredAddressAddressComponent,
   // Format the compound and verify the expectation.
   compound_component.FormatValueFromSubcomponentsForTesting();
   base::string16 expected_value = ASCIIToUTF16("Smith, Winston");
+  base::string16 actual_value = compound_component.GetValue();
+
+  EXPECT_EQ(expected_value, actual_value);
+}
+
+// Tests the formatting of the unstructured value from the components with a
+// type-specific format string containing a prefix and a suffix.
+TEST(AutofillStructuredAddressAddressComponent,
+     FormatValueFromSubcomponentsWithTypeSpecificAffixedFormat) {
+  base::string16 first_name = ASCIIToUTF16("Winston");
+  base::string16 middle_name = ASCIIToUTF16("O'Brien");
+  base::string16 last_name = ASCIIToUTF16("Smith");
+  // Create a compound component.
+  TestCompoundNameCustomAffixedFormatAddressComponent compound_component;
+
+  // Set the values of the subcomponents.
+  compound_component.SetValueForTypeIfPossible(
+      NAME_FIRST, first_name, VerificationStatus::kUserVerified);
+  compound_component.SetValueForTypeIfPossible(
+      NAME_MIDDLE, middle_name, VerificationStatus::kUserVerified);
+  compound_component.SetValueForTypeIfPossible(
+      NAME_LAST, last_name, VerificationStatus::kUserVerified);
+
+  // Format the compound and verify the expectation.
+  compound_component.FormatValueFromSubcomponentsForTesting();
+  base::string16 expected_value = ASCIIToUTF16("Dr. Smith MD, Winston");
   base::string16 actual_value = compound_component.GetValue();
 
   EXPECT_EQ(expected_value, actual_value);
@@ -1314,7 +1431,7 @@ TEST(AutofillStructuredAddressAddressComponent, MergePermutatedComponent) {
                                             VerificationStatus::kObserved));
 
   TestCompoundNameAddressComponent copy_of_one;
-  copy_of_one = one;
+  copy_of_one.CopyFrom(one);
   EXPECT_TRUE(one.MergeWithComponent(two));
 
   // As a result of the merging, the unstructured representation should be
@@ -1346,6 +1463,315 @@ TEST(AutofillStructuredAddressAddressComponent, MergePermutatedComponent) {
   EXPECT_EQ(two.GetValueForType(NAME_LAST), ASCIIToUTF16("Last"));
   EXPECT_EQ(two.GetVerificationStatusForType(NAME_LAST),
             VerificationStatus::kObserved);
+}
+
+TEST(AutofillStructuredAddressAddressComponent,
+     SimpleReplacementBasedMergingStrategies) {
+  // Create values for a fully populated name that serve as a superset to other
+  // cases.
+  AddressComponentTestValues superset = {
+      {.type = NAME_FULL,
+       .value = "Thomas Neo Anderson",
+       .status = VerificationStatus::kFormatted},
+      {.type = NAME_FIRST,
+       .value = "Thomas",
+       .status = VerificationStatus::kObserved},
+      {.type = NAME_MIDDLE,
+       .value = "Neo",
+       .status = VerificationStatus::kObserved},
+      {.type = NAME_LAST,
+       .value = "Anderson",
+       .status = VerificationStatus::kObserved},
+  };
+
+  // Create values for a subset component of superset.
+  AddressComponentTestValues subset = {
+      {.type = NAME_FULL,
+       .value = "Thomas Anderson",
+       .status = VerificationStatus::kFormatted},
+      {.type = NAME_FIRST,
+       .value = "Thomas",
+       .status = VerificationStatus::kObserved},
+      {.type = NAME_LAST,
+       .value = "Anderson",
+       .status = VerificationStatus::kObserved},
+  };
+
+  // Create values for a component that is not a subset of superset.
+  AddressComponentTestValues not_a_subset = {
+      {.type = NAME_FULL,
+       .value = "Agent Anderson",
+       .status = VerificationStatus::kFormatted},
+      {.type = NAME_FIRST,
+       .value = "Agent",
+       .status = VerificationStatus::kObserved},
+      {.type = NAME_LAST,
+       .value = "Anderson",
+       .status = VerificationStatus::kObserved},
+  };
+
+  // Create values for a component that has a substring of the superset in its
+  // root.
+  AddressComponentTestValues superset_substring = {
+      {.type = NAME_FULL,
+       .value = "Anderson",
+       .status = VerificationStatus::kFormatted},
+      {.type = NAME_FIRST,
+       .value = "",
+       .status = VerificationStatus::kNoStatus},
+      {.type = NAME_MIDDLE,
+       .value = "",
+       .status = VerificationStatus::kNoStatus},
+      {.type = NAME_LAST,
+       .value = "Anderson",
+       .status = VerificationStatus::kObserved},
+  };
+
+  // Create values for a component that has a substring of the superset in its
+  // root.
+  AddressComponentTestValues not_superset_substring = {
+      {.type = NAME_FULL,
+       .value = "Smith",
+       .status = VerificationStatus::kFormatted},
+      {.type = NAME_FIRST,
+       .value = "",
+       .status = VerificationStatus::kNoStatus},
+      {.type = NAME_MIDDLE,
+       .value = "",
+       .status = VerificationStatus::kNoStatus},
+      {.type = NAME_LAST,
+       .value = "Smith",
+       .status = VerificationStatus::kObserved},
+  };
+
+  // Create a subset component.
+  AddressComponentTestValues empty = {
+      {.type = NAME_FULL, .value = "", .status = VerificationStatus::kNoStatus},
+  };
+
+  // Test the merging of subsets.
+  TestCompoundNameMerging(superset, subset, superset, true,
+                          MergeMode::kReplaceSubset);
+  TestCompoundNameMerging(subset, superset, superset, true,
+                          MergeMode::kReplaceSubset);
+
+  TestCompoundNameMerging(superset, not_a_subset, superset, false,
+                          MergeMode::kReplaceSubset);
+  TestCompoundNameMerging(not_a_subset, superset, not_a_subset, false,
+                          MergeMode::kReplaceSubset);
+
+  // Test the merging of supersets.
+  TestCompoundNameMerging(superset, subset, subset, true,
+                          MergeMode::kReplaceSuperset);
+  TestCompoundNameMerging(subset, superset, subset, true,
+                          MergeMode::kReplaceSuperset);
+
+  TestCompoundNameMerging(superset, not_a_subset, superset, false,
+                          MergeMode::kReplaceSuperset);
+  TestCompoundNameMerging(not_a_subset, superset, not_a_subset, false,
+                          MergeMode::kReplaceSuperset);
+
+  // Test the replacement of empty components.
+  TestCompoundNameMerging(superset, empty, superset, true,
+                          MergeMode::kReplaceEmpty);
+  TestCompoundNameMerging(empty, superset, superset, true,
+                          MergeMode::kReplaceEmpty);
+
+  // Test the merging of substrings.
+  TestCompoundNameMerging(superset, superset_substring, superset_substring,
+                          true, MergeMode::kUseMostRecentSubstring);
+  TestCompoundNameMerging(superset_substring, superset, superset, true,
+                          MergeMode::kUseMostRecentSubstring);
+
+  TestCompoundNameMerging(superset, superset_substring, superset, true,
+                          MergeMode::kUseMostRecentSubstring,
+                          /*newer_is_more_recently_used=*/false);
+  TestCompoundNameMerging(superset_substring, superset, superset_substring,
+                          true, MergeMode::kUseMostRecentSubstring,
+                          /*newer_is_more_recently_used=*/false);
+
+  TestCompoundNameMerging(superset, not_superset_substring, superset, false,
+                          MergeMode::kUseMostRecentSubstring);
+  TestCompoundNameMerging(not_superset_substring, superset,
+                          not_superset_substring, false,
+                          MergeMode::kUseMostRecentSubstring);
+
+  // Test taking the newer component.
+  TestCompoundNameMerging(superset, not_a_subset, not_a_subset, true,
+                          MergeMode::kUseNewerIfDifferent);
+  TestCompoundNameMerging(not_a_subset, superset, superset, true,
+                          MergeMode::kUseNewerIfDifferent);
+}
+
+TEST(AutofillStructuredAddressAddressComponent, MergeChildsAndReformatRoot) {
+  TestCompoundNameAddressComponent older;
+  TestCompoundNameAddressComponent newer;
+  TestCompoundNameAddressComponent unmergeable_newer;
+
+  // Set the root node to merging mode which only merges the children and gets
+  // reformatted afterwards.
+  older.SetMergeModeForTesting(MergeMode::kMergeChildrenAndReformatIfNeeded);
+  // Set the merge modes of the children to replace empty values and use
+  // supersets.
+  for (auto* subcomponent : older.Subcomponents()) {
+    subcomponent->SetMergeModeForTesting(kReplaceEmpty | kReplaceSubset);
+  }
+
+  AddressComponentTestValues older_values = {
+      {.type = NAME_FULL,
+       .value = "Thomas Anderson",
+       .status = VerificationStatus::kFormatted},
+      {.type = NAME_FIRST,
+       .value = "Thomas",
+       .status = VerificationStatus::kObserved},
+      {.type = NAME_MIDDLE,
+       .value = "",
+       .status = VerificationStatus::kNoStatus},
+      {.type = NAME_LAST,
+       .value = "The One Anderson",
+       .status = VerificationStatus::kObserved},
+  };
+
+  AddressComponentTestValues newer_values = {
+      {.type = NAME_FULL,
+       .value = "T Neo",
+       .status = VerificationStatus::kFormatted},
+      {.type = NAME_FIRST,
+       .value = "",
+       .status = VerificationStatus::kNoStatus},
+      {.type = NAME_MIDDLE,
+       .value = "Neo",
+       .status = VerificationStatus::kObserved},
+      {.type = NAME_LAST,
+       .value = "Anderson",
+       .status = VerificationStatus::kObserved},
+  };
+
+  AddressComponentTestValues unmergeable_values = {
+      {.type = NAME_FULL,
+       .value = "Agent Anderson",
+       .status = VerificationStatus::kFormatted},
+      {.type = NAME_FIRST,
+       .value = "Agent",
+       .status = VerificationStatus::kNoStatus},
+      {.type = NAME_MIDDLE,
+       .value = "",
+       .status = VerificationStatus::kObserved},
+      {.type = NAME_LAST,
+       .value = "Anderson",
+       .status = VerificationStatus::kObserved},
+  };
+
+  AddressComponentTestValues expectation = {
+      {.type = NAME_FULL,
+       .value = "Thomas Neo The One Anderson",
+       .status = VerificationStatus::kFormatted},
+      {.type = NAME_FIRST,
+       .value = "Thomas",
+       .status = VerificationStatus::kObserved},
+      {.type = NAME_MIDDLE,
+       .value = "Neo",
+       .status = VerificationStatus::kObserved},
+      {.type = NAME_LAST,
+       .value = "The One Anderson",
+       .status = VerificationStatus::kObserved},
+  };
+
+  SetTestValues(&older, older_values);
+  SetTestValues(&newer, newer_values);
+  SetTestValues(&unmergeable_newer, unmergeable_values);
+
+  EXPECT_TRUE(older.IsMergeableWithComponent(newer));
+  EXPECT_TRUE(older.MergeWithComponent(newer));
+
+  VerifyTestValues(&older, expectation);
+
+  // Reset the values of the older component.
+  SetTestValues(&older, older_values);
+  SetTestValues(&unmergeable_newer, unmergeable_values);
+  EXPECT_FALSE(older.IsMergeableWithComponent(unmergeable_newer));
+  EXPECT_FALSE(older.MergeWithComponent(unmergeable_newer));
+  VerifyTestValues(&older, older_values);
+}
+
+// Tests the comparison of different Verification statuses.
+TEST(AutofillStructuredAddressAddressComponent,
+     TestIsLessSignificantVerificationStatus) {
+  EXPECT_TRUE(IsLessSignificantVerificationStatus(
+      VerificationStatus::kParsed, VerificationStatus::kFormatted));
+  EXPECT_TRUE(IsLessSignificantVerificationStatus(
+      VerificationStatus::kParsed, VerificationStatus::kServerParsed));
+  EXPECT_TRUE(IsLessSignificantVerificationStatus(
+      VerificationStatus::kServerParsed, VerificationStatus::kObserved));
+  EXPECT_TRUE(IsLessSignificantVerificationStatus(
+      VerificationStatus::kServerParsed, VerificationStatus::kUserVerified));
+  EXPECT_FALSE(IsLessSignificantVerificationStatus(
+      VerificationStatus::kServerParsed, VerificationStatus::kFormatted));
+  EXPECT_FALSE(IsLessSignificantVerificationStatus(
+      VerificationStatus::kServerParsed, VerificationStatus::kParsed));
+  EXPECT_FALSE(IsLessSignificantVerificationStatus(
+      VerificationStatus::kObserved, VerificationStatus::kServerParsed));
+  EXPECT_FALSE(IsLessSignificantVerificationStatus(
+      VerificationStatus::kUserVerified, VerificationStatus::kServerParsed));
+}
+
+// Tests gettings the more significant VerificationStatus.
+TEST(AutofillStructuredAddressAddressComponent,
+     GetMoreSignificantVerificationStatus) {
+  EXPECT_EQ(VerificationStatus::kFormatted,
+            GetMoreSignificantVerificationStatus(VerificationStatus::kFormatted,
+                                                 VerificationStatus::kParsed));
+  EXPECT_EQ(VerificationStatus::kObserved,
+            GetMoreSignificantVerificationStatus(
+                VerificationStatus::kFormatted, VerificationStatus::kObserved));
+  EXPECT_EQ(
+      VerificationStatus::kUserVerified,
+      GetMoreSignificantVerificationStatus(VerificationStatus::kUserVerified,
+                                           VerificationStatus::kUserVerified));
+}
+
+// Tests merging using the Mermode::KUseBetterOrMoreRecentIfDifferent|
+TEST(AutofillStructuredAddressAddressComponent,
+     TestUseBetterOfMoreRecentIfDifferentMergeStrategy) {
+  AddressComponentTestValues old_values = {
+      {.type = NAME_FIRST,
+       .value = "first value",
+       .status = VerificationStatus::kObserved}};
+  AddressComponentTestValues newer_values = {
+      {.type = NAME_FIRST,
+       .value = "second value",
+       .status = VerificationStatus::kObserved}};
+  AddressComponentTestValues better_values = {
+      {.type = NAME_FIRST,
+       .value = "second value",
+       .status = VerificationStatus::kUserVerified}};
+  AddressComponentTestValues not_better_values = {
+      {.type = NAME_FIRST,
+       .value = "second value",
+       .status = VerificationStatus::kParsed}};
+
+  // Test that the newer values are used.
+  TestAtomMerging(NAME_FIRST, old_values, newer_values, newer_values,
+                  /*is_mergable=*/true,
+                  MergeMode::kUseBetterOrMostRecentIfDifferent);
+
+  // Test that the better values are used.
+  TestAtomMerging(NAME_FIRST, old_values, better_values, better_values,
+                  /*is_mergable=*/true,
+                  MergeMode::kUseBetterOrMostRecentIfDifferent);
+  // Should work equally in both directions.
+  TestAtomMerging(NAME_FIRST, better_values, old_values, better_values,
+                  /*is_mergable=*/true,
+                  MergeMode::kUseBetterOrMostRecentIfDifferent);
+
+  // Test that the not better values are not used.
+  TestAtomMerging(NAME_FIRST, old_values, not_better_values, old_values,
+                  /*is_mergable=*/true,
+                  MergeMode::kUseBetterOrMostRecentIfDifferent);
+  // Should work equally in both directions.
+  TestAtomMerging(NAME_FIRST, not_better_values, old_values, old_values,
+                  /*is_mergable=*/true,
+                  MergeMode::kUseBetterOrMostRecentIfDifferent);
 }
 
 }  // namespace structured_address

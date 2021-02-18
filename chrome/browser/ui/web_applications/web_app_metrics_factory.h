@@ -5,7 +5,6 @@
 #ifndef CHROME_BROWSER_UI_WEB_APPLICATIONS_WEB_APP_METRICS_FACTORY_H_
 #define CHROME_BROWSER_UI_WEB_APPLICATIONS_WEB_APP_METRICS_FACTORY_H_
 
-#include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 
@@ -23,6 +22,9 @@ class WebAppMetrics;
 // browser context (forces the creation of SiteEngagementService otherwise).
 class WebAppMetricsFactory : public BrowserContextKeyedServiceFactory {
  public:
+  WebAppMetricsFactory(const WebAppMetricsFactory&) = delete;
+  WebAppMetricsFactory& operator=(const WebAppMetricsFactory&) = delete;
+
   static WebAppMetrics* GetForProfile(Profile* profile);
 
   static WebAppMetricsFactory* GetInstance();
@@ -38,8 +40,7 @@ class WebAppMetricsFactory : public BrowserContextKeyedServiceFactory {
       content::BrowserContext* context) const override;
   content::BrowserContext* GetBrowserContextToUse(
       content::BrowserContext* context) const override;
-
-  DISALLOW_COPY_AND_ASSIGN(WebAppMetricsFactory);
+  bool ServiceIsCreatedWithBrowserContext() const override;
 };
 
 }  // namespace web_app

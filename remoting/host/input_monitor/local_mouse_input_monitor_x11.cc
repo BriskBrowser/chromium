@@ -21,7 +21,9 @@
 #include "third_party/webrtc/modules/desktop_capture/desktop_geometry.h"
 #include "ui/events/devices/x11/xinput_util.h"
 #include "ui/events/event.h"
-#include "ui/gfx/x/x11.h"
+#include "ui/gfx/x/connection.h"
+#include "ui/gfx/x/event.h"
+#include "ui/gfx/x/future.h"
 #include "ui/gfx/x/xinput.h"
 #include "ui/gfx/x/xproto.h"
 
@@ -41,7 +43,7 @@ class LocalMouseInputMonitorX11 : public LocalPointerInputMonitor {
  private:
   // The actual implementation resides in LocalMouseInputMonitorX11::Core class.
   class Core : public base::RefCountedThreadSafe<Core>,
-               public x11::Connection::Delegate {
+               public x11::EventObserver {
    public:
     Core(scoped_refptr<base::SingleThreadTaskRunner> caller_task_runner,
          scoped_refptr<base::SingleThreadTaskRunner> input_task_runner,
@@ -60,9 +62,8 @@ class LocalMouseInputMonitorX11 : public LocalPointerInputMonitor {
     // Called when there are pending X events.
     void OnConnectionData();
 
-    // x11::Connection::Delegate:
-    bool ShouldContinueStream() const override;
-    void DispatchXEvent(x11::Event* event) override;
+    // x11::EventObserver:
+    void OnEvent(const x11::Event& event) override;
 
     // Task runner on which public methods of this class must be called.
     scoped_refptr<base::SingleThreadTaskRunner> caller_task_runner_;
@@ -156,7 +157,7 @@ void LocalMouseInputMonitorX11::Core::StartOnInputThread() {
   // Register OnConnectionData() to be called every time there is
   // something to read from |connection_|.
   controller_ = base::FileDescriptorWatcher::WatchReadable(
-      ConnectionNumber(connection_->display()),
+      connection_->GetFd(),
       base::BindRepeating(&Core::OnConnectionData, base::Unretained(this)));
 
   // Fetch pending events if any.
@@ -171,17 +172,13 @@ void LocalMouseInputMonitorX11::Core::StopOnInputThread() {
 
 void LocalMouseInputMonitorX11::Core::OnConnectionData() {
   DCHECK(input_task_runner_->BelongsToCurrentThread());
-  connection_->Dispatch(this);
+  connection_->DispatchAll();
 }
 
-bool LocalMouseInputMonitorX11::Core::ShouldContinueStream() const {
-  return true;
-}
-
-void LocalMouseInputMonitorX11::Core::DispatchXEvent(x11::Event* event) {
+void LocalMouseInputMonitorX11::Core::OnEvent(const x11::Event& event) {
   DCHECK(input_task_runner_->BelongsToCurrentThread());
 
-  auto* raw = event->As<x11::Input::RawDeviceEvent>();
+  auto* raw = event.As<x11::Input::RawDeviceEvent>();
   DCHECK(raw);
   DCHECK(raw->opcode == x11::Input::RawDeviceEvent::RawMotion);
 

@@ -14,6 +14,7 @@
 #include "components/history/core/browser/keyword_id.h"
 #include "components/history/core/browser/top_sites.h"
 #include "components/omnibox/browser/keyword_extensions_delegate.h"
+#include "components/omnibox/browser/omnibox_triggered_feature_service.h"
 #include "components/omnibox/browser/shortcuts_backend.h"
 #include "third_party/metrics_proto/omnibox_event.pb.h"
 
@@ -47,6 +48,10 @@ namespace component_updater {
 class ComponentUpdateService;
 }
 
+namespace signin {
+class IdentityManager;
+}
+
 namespace query_tiles {
 class TileService;
 }
@@ -60,6 +65,7 @@ class AutocompleteProviderClient {
   virtual scoped_refptr<network::SharedURLLoaderFactory>
   GetURLLoaderFactory() = 0;
   virtual PrefService* GetPrefs() = 0;
+  virtual PrefService* GetLocalState() = 0;
   virtual const AutocompleteSchemeClassifier& GetSchemeClassifier() const = 0;
   virtual AutocompleteClassifier* GetAutocompleteClassifier() = 0;
   virtual history::HistoryService* GetHistoryService() = 0;
@@ -79,6 +85,8 @@ class AutocompleteProviderClient {
   virtual std::unique_ptr<KeywordExtensionsDelegate>
   GetKeywordExtensionsDelegate(KeywordProvider* keyword_provider) = 0;
   virtual query_tiles::TileService* GetQueryTileService() const = 0;
+  virtual OmniboxTriggeredFeatureService* GetOmniboxTriggeredFeatureService()
+      const = 0;
 
   // The value to use for Accept-Languages HTTP header when making an HTTP
   // request.
@@ -106,6 +114,9 @@ class AutocompleteProviderClient {
   // suggestion provider to observe the model update event.
   virtual component_updater::ComponentUpdateService*
   GetComponentUpdateService() = 0;
+
+  // Returns the signin::IdentityManager associated with the current profile.
+  virtual signin::IdentityManager* GetIdentityManager() const = 0;
 
   virtual bool IsOffTheRecord() const = 0;
   virtual bool SearchSuggestEnabled() const = 0;
@@ -150,8 +161,8 @@ class AutocompleteProviderClient {
   virtual void StartServiceWorker(const GURL& destination_url) {}
 
   // Called by |controller| when its results have changed and all providers are
-  // done processing the autocomplete request. Chrome ignores this. It's only
-  // used in components unit tests. TODO(blundell): remove it.
+  // done processing the autocomplete request. Used by chrome to inform the
+  // prefetch service of updated results.
   virtual void OnAutocompleteControllerResultReady(
       AutocompleteController* controller) {}
 
@@ -166,7 +177,7 @@ class AutocompleteProviderClient {
                                 const AutocompleteInput* input) = 0;
 
   // Returns whether any browser update is ready.
-  virtual bool IsBrowserUpdateAvailable() const;
+  virtual bool IsIncognitoModeAvailable() const;
 };
 
 #endif  // COMPONENTS_OMNIBOX_BROWSER_AUTOCOMPLETE_PROVIDER_CLIENT_H_

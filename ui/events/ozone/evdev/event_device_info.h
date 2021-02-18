@@ -37,6 +37,7 @@ namespace ui {
 enum COMPONENT_EXPORT(EVDEV) EventDeviceType {
   DT_KEYBOARD,
   DT_MOUSE,
+  DT_POINTING_STICK,
   DT_TOUCHPAD,
   DT_TOUCHSCREEN,
   DT_MULTITOUCH,
@@ -135,8 +136,12 @@ class COMPONENT_EXPORT(EVDEV) EventDeviceInfo {
   // Determine whether there's a keyboard on this device.
   bool HasKeyboard() const;
 
-  // Determine whether there's a mouse on this device.
+  // Determine whether there's a mouse on this device. Excludes pointing sticks.
   bool HasMouse() const;
+
+  // Determine whether there's a pointing stick (such as a TrackPoint) on this
+  // device.
+  bool HasPointingStick() const;
 
   // Determine whether there's a touchpad on this device.
   bool HasTouchpad() const;

@@ -44,6 +44,8 @@ const char kAccountsPrefDeviceLocalAccountAutoLoginBailoutEnabled[] =
     "cros.accounts.deviceLocalAccountAutoLoginBailoutEnabled";
 const char kAccountsPrefDeviceLocalAccountPromptForNetworkWhenOffline[] =
     "cros.accounts.deviceLocalAccountPromptForNetworkWhenOffline";
+// TODO(crbug/1155729): Check it is not used anymore for deprecated supervised
+// users and remove it.
 const char kAccountsPrefSupervisedUsersEnabled[] =
     "cros.accounts.supervisedUsersEnabled";
 const char kAccountsPrefTransferSAMLCookies[] =
@@ -53,6 +55,11 @@ const char kAccountsPrefTransferSAMLCookies[] =
 // user sign-in flow.
 const char kAccountsPrefLoginScreenDomainAutoComplete[] =
     "cros.accounts.login_screen_domain_auto_complete";
+
+// A boolean pref indicating whether all Family Link accounts are allowed on the
+// device additionally to the accounts listed in |kAccountsPrefUsers| pref.
+const char kAccountsPrefFamilyLinkAccountsAllowed[] =
+    "cros.accounts.family_link_allowed";
 
 // All cros.signed.* settings are stored in SignedSettings.
 const char kSignedDataRoamingEnabled[] = "cros.signed.data_roaming_enabled";
@@ -227,9 +234,9 @@ const char kPolicyMissingMitigationMode[] =
 const char kAllowRedeemChromeOsRegistrationOffers[] =
     "cros.echo.allow_redeem_chrome_os_registration_offers";
 
-// A list pref storing the flags that need to be applied to the browser upon
-// start-up.
-const char kStartUpFlags[] = "cros.startup_flags";
+// A list pref storing the feature flags (in the chrome://flags sense) that
+// should to be applied at the login screen.
+const char kFeatureFlags[] = "cros.feature_flags";
 
 // A string pref for the restrict parameter to be appended to the Variations URL
 // when pinging the Variations server.
@@ -320,12 +327,6 @@ const char kDeviceQuirksDownloadEnabled[] =
 // during SAML logins.
 const char kLoginVideoCaptureAllowedUrls[] =
     "cros.device.login_video_capture_allowed_urls";
-
-// A list pref storing the apps or extensions to install on the login page. It
-// is a list of strings, each string contains an extension ID and an update URL,
-// delimited by a semicolon. This preference is set by an admin policy.
-const char kDeviceLoginScreenExtensions[] =
-    "cros.device.login_screen_extensions";
 
 // A list pref specifying the locales allowed on the login screen. Currently
 // only the first value is used, as the single locale allowed on the login
@@ -477,6 +478,8 @@ const char kSystemProxySettingsKeySystemServicesUsername[] =
     "system_services_username";
 const char kSystemProxySettingsKeySystemServicesPassword[] =
     "system_services_password";
+const char kSystemProxySettingsKeyAuthSchemes[] =
+    "policy_credentials_auth_schemes";
 
 // An enum pref that indicates whether adb sideloading is allowed on this device
 const char kDeviceCrostiniArcAdbSideloadingAllowed[] =
@@ -485,4 +488,16 @@ const char kDeviceCrostiniArcAdbSideloadingAllowed[] =
 // A boolean pref controlling showing the low disk space notification.
 const char kDeviceShowLowDiskSpaceNotification[] =
     "cros.device.show_low_disk_space_notification";
+
+// Boolean pref indicating whether data access is enabled for
+// Thunderbolt/USB4 peripherals. Enabling this pref disables the data access
+// protection and will allow the aforementioned peripheral devices to be fully
+// connected via PCIe tunneling.
+const char kDevicePeripheralDataAccessEnabled[] =
+    "cros.device.peripheral_data_access_enabled";
+
+// A list of dictionaries indicating USB devices that may be used by chrome.usb.
+const char kUsbDetachableAllowlist[] = "cros.device.usb_detachable_allowlist";
+const char kUsbDetachableAllowlistKeyVid[] = "vid";
+const char kUsbDetachableAllowlistKeyPid[] = "pid";
 }  // namespace chromeos

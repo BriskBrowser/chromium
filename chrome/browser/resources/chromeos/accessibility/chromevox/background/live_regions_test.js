@@ -7,41 +7,10 @@ GEN_INCLUDE([
   '//chrome/browser/resources/chromeos/accessibility/chromevox/testing/chromevox_next_e2e_test_base.js',
 ]);
 
-GEN_INCLUDE([
-  '//chrome/browser/resources/chromeos/accessibility/chromevox/testing/mock_feedback.js'
-]);
-
 /**
  * Test fixture for Live Regions.
  */
 ChromeVoxLiveRegionsTest = class extends ChromeVoxNextE2ETest {
-  /** @override */
-  setUp() {
-    window.RoleType = chrome.automation.RoleType;
-    window.TreeChangeType = chrome.automation.TreeChangeType;
-  }
-
-  /**
-   * @return {!MockFeedback}
-   */
-  createMockFeedback() {
-    const mockFeedback =
-        new MockFeedback(this.newCallback(), this.newCallback.bind(this));
-    mockFeedback.install();
-    return mockFeedback;
-  }
-
-  /**
-   * Create a function which performs the command |cmd|.
-   * @param {string} cmd
-   * @return {function() : void}
-   */
-  doCmd(cmd) {
-    return function() {
-      CommandHandler.onCommand(cmd);
-    };
-  }
-
   /**
    * Simulates work done when users interact using keyboard, braille, or
    * touch.
@@ -194,12 +163,12 @@ TEST_F('ChromeVoxLiveRegionsTest', 'LiveRegionThenFocus', function() {
         let sawFocus = false;
         let sawLive = false;
         const focusOrLive = function(candidate) {
-          sawFocus = candidate.text == 'Focus' || sawFocus;
-          sawLive = candidate.text == 'Live' || sawLive;
+          sawFocus = candidate.text === 'Focus' || sawFocus;
+          sawLive = candidate.text === 'Live' || sawLive;
           if (sawFocus && sawLive) {
-            return candidate.queueMode != QueueMode.FLUSH;
+            return candidate.queueMode !== QueueMode.FLUSH;
           } else if (sawFocus || sawLive) {
-            return candidate.queueMode == QueueMode.FLUSH;
+            return candidate.queueMode === QueueMode.FLUSH;
           }
         };
         const go = rootNode.find({role: RoleType.BUTTON});

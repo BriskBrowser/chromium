@@ -21,6 +21,7 @@ bool IsFillableFieldType(ServerFieldType field_type) {
     case NAME_LAST_SECOND:
     case NAME_MIDDLE_INITIAL:
     case NAME_FULL:
+    case NAME_FULL_WITH_HONORIFIC_PREFIX:
     case NAME_SUFFIX:
     case EMAIL_ADDRESS:
     case USERNAME_AND_EMAIL_ADDRESS:
@@ -50,6 +51,7 @@ bool IsFillableFieldType(ServerFieldType field_type) {
     case ADDRESS_HOME_OTHER_SUBUNIT:
     case ADDRESS_HOME_ADDRESS:
     case ADDRESS_HOME_ADDRESS_WITH_NAME:
+    case ADDRESS_HOME_FLOOR:
       return true;
 
     // Billing address types that should not be returned by GetStorableType().
@@ -95,7 +97,7 @@ bool IsFillableFieldType(ServerFieldType field_type) {
       return base::FeatureList::IsEnabled(features::kAutofillSaveAndFillVPA);
 
     case COMPANY_NAME:
-      return base::FeatureList::IsEnabled(features::kAutofillEnableCompanyName);
+      return true;
 
     // Fillable credential fields.
     case USERNAME:
@@ -151,6 +153,8 @@ base::StringPiece FieldTypeToStringPiece(ServerFieldType type) {
       return "EMPTY_TYPE";
     case NAME_HONORIFIC_PREFIX:
       return "NAME_HONORIFIC_PREFIX";
+    case NAME_FULL_WITH_HONORIFIC_PREFIX:
+      return "NAME_FULL_WITH_HONORIFIC_PREFIX";
     case NAME_FIRST:
       return "NAME_FIRST";
     case NAME_MIDDLE:
@@ -209,6 +213,8 @@ base::StringPiece FieldTypeToStringPiece(ServerFieldType type) {
       return "ADDRESS_HOME_ADDRESS";
     case ADDRESS_HOME_ADDRESS_WITH_NAME:
       return "ADDRESS_HOME_ADDRESS_WITH_NAME";
+    case ADDRESS_HOME_FLOOR:
+      return "ADDRESS_HOME_FLOOR";
     case ADDRESS_HOME_LINE1:
       return "ADDRESS_HOME_LINE1";
     case ADDRESS_HOME_LINE2:

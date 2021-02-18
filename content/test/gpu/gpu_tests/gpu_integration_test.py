@@ -5,6 +5,7 @@
 import logging
 import re
 import sys
+import time
 
 from telemetry.testing import serially_executed_browser_test_case
 from telemetry.util import screenshot
@@ -21,9 +22,13 @@ ResultType = json_results.ResultType
 _SUPPORTED_WIN_VERSIONS = ['win7', 'win10']
 _SUPPORTED_WIN_VERSIONS_WITH_DIRECT_COMPOSITION = ['win10']
 _SUPPORTED_WIN_GPU_VENDORS = [0x8086, 0x10de, 0x1002]
+_SUPPORTED_WIN_AMD_GPUS = [0x6613, 0x699f, 0x7340]
+_SUPPORTED_WIN_AMD_GPUS_WITH_NV12_OVERLAYS = [0x7340]
 _SUPPORTED_WIN_INTEL_GPUS = [0x5912, 0x3e92]
 _SUPPORTED_WIN_INTEL_GPUS_WITH_YUY2_OVERLAYS = [0x5912, 0x3e92]
 _SUPPORTED_WIN_INTEL_GPUS_WITH_NV12_OVERLAYS = [0x5912, 0x3e92]
+# Hardware overlays are disabled in 26.20.100.8141 per crbug.com/1079393#c105
+_UNSUPPORTED_WIN_INTEL_GPU_DRIVERS_WITH_NV12_OVERLAYS = ['5912-26.20.100.8141']
 
 
 class GpuIntegrationTest(
@@ -242,6 +247,11 @@ class GpuIntegrationTest(
       if len(args) == 1 and isinstance(args[0], tuple):
         args = args[0]
       expected_crashes = self.GetExpectedCrashes(args)
+      os_name = self.browser.platform.GetOSName()
+      # The GPU tests don't function correctly if the screen is not on, so
+      # ensure that this is the case.
+      if os_name == 'android':
+        self.browser.platform.android_action_runner.TurnScreenOn()
       self.RunActualGpuTest(url, *args)
     except Exception:
       if ResultType.Failure in expected_results or should_retry_on_failure:
@@ -279,15 +289,43 @@ class GpuIntegrationTest(
         self._RestartBrowser('unexpected test failure')
       raise
     else:
+      # Fuchsia does not have minidump support, use system info to check
+      # for crash count.
+      if os_name == 'fuchsia':
+        total_expected_crashes = sum(expected_crashes.values())
+        actual_and_expected_crashes_match = self._CheckCrashCountMatch(
+            total_expected_crashes)
       # We always want to clear any expected crashes, but we don't bother
       # failing the test if it's expected to fail.
-      actual_and_expected_crashes_match = self._ClearExpectedCrashes(
-          expected_crashes)
+      else:
+        actual_and_expected_crashes_match = self._ClearExpectedCrashes(
+            expected_crashes)
       if ResultType.Failure in expected_results:
         logging.warning('%s was expected to fail, but passed.\n', test_name)
       else:
         if not actual_and_expected_crashes_match:
           raise RuntimeError('Actual and expected crashes did not match')
+
+  def _CheckCrashCountMatch(self, total_expected_crashes):
+    # We can't get crashes if we don't have a browser.
+    if self.browser is None:
+      return True
+
+    number_of_crashes = -1
+    system_info = self.browser.GetSystemInfo()
+    number_of_crashes = \
+        system_info.gpu.aux_attributes[u'process_crash_count']
+
+    retval = True
+    if number_of_crashes != total_expected_crashes:
+      retval = False
+      logging.warning('Expected %d gpu process crashes; got: %d' %
+                      (total_expected_crashes, number_of_crashes))
+    if number_of_crashes > 0:
+      # Restarting is necessary because the crash count includes all
+      # crashes since the browser started.
+      self._RestartBrowser('Restarting browser to clear process crash count.')
+    return retval
 
   @staticmethod
   def _IsIntel(vendor_id):
@@ -422,11 +460,18 @@ class GpuIntegrationTest(
       config['supports_overlays'] = True
       config['yuy2_overlay_support'] = 'SOFTWARE'
       config['nv12_overlay_support'] = 'SOFTWARE'
-      if gpu_vendor_id == 0x8086:
+      if gpu_vendor_id == 0x1002:
+        assert gpu_device_id in _SUPPORTED_WIN_AMD_GPUS
+        if gpu_device_id in _SUPPORTED_WIN_AMD_GPUS_WITH_NV12_OVERLAYS:
+          config['nv12_overlay_support'] = 'SCALING'
+      elif gpu_vendor_id == 0x8086:
         assert gpu_device_id in _SUPPORTED_WIN_INTEL_GPUS
+        gpu_device_and_driver = ('%x-' + gpu.driver_version) % gpu_device_id
         if gpu_device_id in _SUPPORTED_WIN_INTEL_GPUS_WITH_YUY2_OVERLAYS:
           config['yuy2_overlay_support'] = 'SCALING'
-        if gpu_device_id in _SUPPORTED_WIN_INTEL_GPUS_WITH_NV12_OVERLAYS:
+        if (gpu_device_id in _SUPPORTED_WIN_INTEL_GPUS_WITH_NV12_OVERLAYS
+            and gpu_device_and_driver not in
+            _UNSUPPORTED_WIN_INTEL_GPU_DRIVERS_WITH_NV12_OVERLAYS):
           config['nv12_overlay_support'] = 'SCALING'
     return config
 
@@ -504,19 +549,10 @@ class GpuIntegrationTest(
       tags.extend([re.sub('[ _]', '-', tag) for tag in gpu_tags])
 
       # Add tags based on GPU feature status.
-      skia_renderer = gpu_helper.GetSkiaRenderer(gpu_info.feature_status)
+      startup_args = getattr(browser, 'startup_args', None)
+      skia_renderer = gpu_helper.GetSkiaRenderer(gpu_info.feature_status,
+                                                 startup_args)
       tags.append(skia_renderer)
-      use_vulkan = gpu_helper.GetVulkan(gpu_info.feature_status)
-      tags.append(use_vulkan)
-
-    # If additional options have been set via '--extra-browser-args' check for
-    # those which map to expectation tags. The '_browser_backend' attribute may
-    # not exist in unit tests.
-    if hasattr(browser, 'startup_args'):
-      use_gl = gpu_helper.GetGL(browser.startup_args)
-      tags.append(use_gl)
-      use_skia_dawn = gpu_helper.GetSkiaDawn(browser.startup_args)
-      tags.append(use_skia_dawn)
     return tags
 
   @classmethod
@@ -550,6 +586,46 @@ class GpuIntegrationTest(
   @staticmethod
   def GetJSONResultsDelimiter():
     return '/'
+
+  @classmethod
+  def IgnoredTags(cls):
+    return [
+        # We only ever use android-webview-instrumentation if we want to specify
+        # that an expectation applies to Webview.
+        'android-webview',
+        'android-not-webview',
+        # These GPUs are analogous to a particular device, and specifying the
+        # device name is clearer.
+        'arm-mali-t860',  # chromeos-board-kevin
+        'qualcomm-adreno-(tm)-330',  # android-nexus-5
+        'qualcomm-adreno-(tm)-418',  # android-nexus-5x
+        'qualcomm-adreno-(tm)-420',  # android-nexus-6
+        'qualcomm-adreno-(tm)-540',  # android-pixel-2
+        'qualcomm-adreno-(tm)-640',  # android-pixel-4
+        'nvidia-nvidia-tegra',  # android-nexus-9 and android-shield-android-tv
+        'vmware,',  # VMs
+        'vmware,-0x1050',  # ChromeOS VMs
+        # Fuchsia VMs
+        ('google-angle-(vulkan-1.1.0(swiftshader-device-('
+         'llvm-7.0.1)-(0x0000c0de)))'),
+        ('google-angle-(vulkan-1.1.0(swiftshader-device-('
+         'llvm-10.0.0)-(0x0000c0de)))'),
+        # These browsers are analogous to a particular OS, and specifying the
+        # OS name is clearer.
+        'cros-chrome',  # ChromeOS
+        'web-engine-shell',  # Fuchsia
+        # WebGL version is already handled by having expectations in separate
+        # files.
+        # TODO(crbug.com/1140283): Consider merging the two files and using
+        # these tags once stale expectations are removed and the files are more
+        # reasonably sized.
+        'webgl-version-1',
+        'webgl-version-2',
+        # GPU tests are always run in remote mode on the bots, and it shouldn't
+        # make a difference to these tests anyways.
+        'chromeos-local',
+        'chromeos-remote',
+    ]
 
 
 def LoadAllTestsInModule(module):

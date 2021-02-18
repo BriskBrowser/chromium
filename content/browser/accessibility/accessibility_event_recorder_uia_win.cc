@@ -45,16 +45,6 @@ std::string UiaIdentifierToStringPretty(int32_t id) {
 volatile base::subtle::Atomic32 AccessibilityEventRecorderUia::instantiated_ =
     0;
 
-// static
-std::unique_ptr<AccessibilityEventRecorder>
-AccessibilityEventRecorderUia::CreateUia(
-    BrowserAccessibilityManager* manager,
-    base::ProcessId pid,
-    const base::StringPiece& application_name_match_pattern) {
-  return std::make_unique<AccessibilityEventRecorderUia>(
-      manager, pid, application_name_match_pattern);
-}
-
 AccessibilityEventRecorderUia::AccessibilityEventRecorderUia(
     BrowserAccessibilityManager* manager,
     base::ProcessId pid,
@@ -112,7 +102,7 @@ void AccessibilityEventRecorderUia::Thread::ThreadMain() {
 
   // Register the custom event to mark the end of the test.
   shutdown_sentinel_ =
-      ui::UiaRegistrarWin::GetInstance().GetUiaTestCompleteEventId();
+      ui::UiaRegistrarWin::GetInstance().GetTestCompleteEventId();
 
   // Find the IUIAutomationElement for the root content window
   uia_->ElementFromHandle(hwnd_, &root_);

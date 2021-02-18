@@ -19,6 +19,7 @@
 #include "components/viz/service/display/skia_output_surface.h"
 #include "components/viz/test/test_context_provider.h"
 #include "gpu/command_buffer/common/sync_token.h"
+#include "third_party/skia/include/core/SkDeferredDisplayList.h"
 
 namespace viz {
 
@@ -71,14 +72,15 @@ class FakeSkiaOutputSurface : public SkiaOutputSurface {
   sk_sp<SkImage> MakePromiseSkImageFromYUV(
       const std::vector<ImageContext*>& contexts,
       sk_sp<SkColorSpace> image_color_space,
-      bool has_alpha) override;
-  void SwapBuffersSkipped() override {}
+      SkYUVAInfo::PlaneConfig plane_config,
+      SkYUVAInfo::Subsampling subsampling) override;
+  void SwapBuffersSkipped(const gfx::Rect root_pass_damage_rect) override {}
   SkCanvas* BeginPaintRenderPass(const AggregatedRenderPassId& id,
                                  const gfx::Size& surface_size,
                                  ResourceFormat format,
                                  bool mipmap,
                                  sk_sp<SkColorSpace> color_space) override;
-  gpu::SyncToken SubmitPaint(base::OnceClosure on_finished) override;
+  void EndPaint(base::OnceClosure on_finished) override;
   void MakePromiseSkImage(ImageContext* image_context) override;
   sk_sp<SkImage> MakePromiseSkImageFromRenderPass(
       const AggregatedRenderPassId& id,
@@ -89,7 +91,8 @@ class FakeSkiaOutputSurface : public SkiaOutputSurface {
   void RemoveRenderPassResource(
       std::vector<AggregatedRenderPassId> ids) override;
   void ScheduleOverlays(OverlayList overlays,
-                        std::vector<gpu::SyncToken> sync_tokens) override {}
+                        std::vector<gpu::SyncToken> sync_tokens,
+                        base::OnceClosure on_finished) override {}
 #if defined(OS_WIN)
   void SetEnableDCLayers(bool enable) override {}
 #endif
@@ -99,6 +102,15 @@ class FakeSkiaOutputSurface : public SkiaOutputSurface {
                   std::unique_ptr<CopyOutputRequest> request) override;
   void AddContextLostObserver(ContextLostObserver* observer) override;
   void RemoveContextLostObserver(ContextLostObserver* observer) override;
+  gpu::SyncToken Flush() override;
+#if defined(OS_APPLE)
+  SkCanvas* BeginPaintRenderPassOverlay(
+      const gfx::Size& size,
+      ResourceFormat format,
+      bool mipmap,
+      sk_sp<SkColorSpace> color_space) override;
+  sk_sp<SkDeferredDisplayList> EndPaintRenderPassOverlay() override;
+#endif
 
   // ExternalUseClient implementation:
   gpu::SyncToken ReleaseImageContexts(
@@ -107,6 +119,7 @@ class FakeSkiaOutputSurface : public SkiaOutputSurface {
       const gpu::MailboxHolder& holder,
       const gfx::Size& size,
       ResourceFormat format,
+      bool concurrent_reads,
       const base::Optional<gpu::VulkanYCbCrInfo>& ycbcr_info,
       sk_sp<SkColorSpace> color_space) override;
 
@@ -117,10 +130,6 @@ class FakeSkiaOutputSurface : public SkiaOutputSurface {
   void ScheduleGpuTaskForTesting(
       base::OnceClosure callback,
       std::vector<gpu::SyncToken> sync_tokens) override;
-
-  scoped_refptr<gpu::GpuTaskSchedulerHelper> GetGpuTaskSchedulerHelper()
-      override;
-  gpu::MemoryTracker* GetMemoryTracker() override;
 
  private:
   explicit FakeSkiaOutputSurface(

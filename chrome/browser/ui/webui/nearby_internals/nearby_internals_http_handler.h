@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_UI_WEBUI_NEARBY_INTERNALS_NEARBY_INTERNALS_HTTP_HANDLER_H_
 
 #include "base/memory/weak_ptr.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "chrome/browser/nearby_sharing/client/nearby_share_http_notifier.h"
 #include "chrome/browser/nearby_sharing/proto/certificate_rpc.pb.h"
 #include "chrome/browser/nearby_sharing/proto/contact_rpc.pb.h"
@@ -52,12 +52,6 @@ class NearbyInternalsHttpHandler : public content::WebUIMessageHandler,
   void OnListPublicCertificatesResponse(
       const nearbyshare::proto::ListPublicCertificatesResponse& response)
       override;
-  void OnCheckContactsReachabilityRequest(
-      const nearbyshare::proto::CheckContactsReachabilityRequest& request)
-      override;
-  void OnCheckContactsReachabilityResponse(
-      const nearbyshare::proto::CheckContactsReachabilityResponse& response)
-      override;
 
  private:
   // Message handler callback that initializes JavaScript.
@@ -73,8 +67,9 @@ class NearbyInternalsHttpHandler : public content::WebUIMessageHandler,
   void ListContactPeople(const base::ListValue* args);
 
   content::BrowserContext* const context_;
-  ScopedObserver<NearbyShareHttpNotifier, NearbyShareHttpNotifier::Observer>
-      observer_{this};
+  base::ScopedObservation<NearbyShareHttpNotifier,
+                          NearbyShareHttpNotifier::Observer>
+      observation_{this};
   base::WeakPtrFactory<NearbyInternalsHttpHandler> weak_ptr_factory_{this};
 };
 

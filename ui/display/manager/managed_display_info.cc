@@ -20,6 +20,8 @@
 #include "ui/display/display_features.h"
 #include "ui/display/display_switches.h"
 #include "ui/display/manager/display_manager_utilities.h"
+#include "ui/gfx/geometry/dip_util.h"
+#include "ui/gfx/geometry/insets_conversions.h"
 #include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/geometry/size_f.h"
 
@@ -52,6 +54,17 @@ bool GetDisplayBounds(const std::string& spec,
       sscanf(spec.c_str(), "%d+%d-%dx%d*%f", &x, &y, &width, &height,
              device_scale_factor) >= 4) {
     bounds->SetRect(x, y, width, height);
+
+    auto equals_within_epsilon = [device_scale_factor](float dsf) {
+      return std::abs(*device_scale_factor - dsf) < 0.01f;
+    };
+    if (equals_within_epsilon(1.77f)) {
+      *device_scale_factor = kDsf_1_777;
+    } else if (equals_within_epsilon(2.25f)) {
+      *device_scale_factor = kDsf_2_252;
+    } else if (equals_within_epsilon(2.66)) {
+      *device_scale_factor = kDsf_2_666;
+    }
     return true;
   }
   return false;
@@ -394,12 +407,6 @@ void ManagedDisplayInfo::SetBounds(const gfx::Rect& new_bounds_in_native) {
   UpdateDisplaySize();
 }
 
-float ManagedDisplayInfo::GetDensityRatio() const {
-  if (Display::IsInternalDisplayId(id_) && device_scale_factor_ == 1.25f)
-    return 1.0f;
-  return device_scale_factor_;
-}
-
 float ManagedDisplayInfo::GetEffectiveDeviceScaleFactor() const {
   return device_scale_factor_ * zoom_factor_;
 }
@@ -434,7 +441,8 @@ void ManagedDisplayInfo::SetOverscanInsets(const gfx::Insets& insets_in_dip) {
 }
 
 gfx::Insets ManagedDisplayInfo::GetOverscanInsetsInPixel() const {
-  return overscan_insets_in_dip_.Scale(device_scale_factor_);
+  return gfx::ToFlooredInsets(gfx::ConvertInsetsToPixels(
+      overscan_insets_in_dip_, device_scale_factor_));
 }
 
 void ManagedDisplayInfo::SetManagedDisplayModes(

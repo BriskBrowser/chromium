@@ -387,8 +387,8 @@ TEST(CSSPropertyParserTest, GradientUseCount) {
 TEST(CSSPropertyParserTest, PaintUseCount) {
   auto dummy_page_holder = std::make_unique<DummyPageHolder>(IntSize(800, 600));
   dummy_page_holder->GetFrame().Loader().CommitNavigation(
-      WebNavigationParams::CreateWithHTMLBuffer(SharedBuffer::Create(),
-                                                KURL("https://example.com")),
+      WebNavigationParams::CreateWithHTMLBufferForTesting(
+          SharedBuffer::Create(), KURL("https://example.com")),
       nullptr /* extra_data */);
   Document& document = dummy_page_holder->GetDocument();
   Page::InsertOrdinaryPageForTesting(&dummy_page_holder->GetPage());
@@ -793,20 +793,10 @@ TEST(CSSPropertyParserTest, ParseRevert) {
   CSSTokenizer tokenizer(string);
   const auto tokens = tokenizer.TokenizeToEOF();
 
-  {
-    ScopedCSSRevertForTest scoped_revert(true);
-    const CSSValue* value = CSSPropertyParser::ParseSingleValue(
-        CSSPropertyID::kMarginLeft, CSSParserTokenRange(tokens), context);
-    ASSERT_TRUE(value);
-    EXPECT_TRUE(value->IsRevertValue());
-  }
-
-  {
-    ScopedCSSRevertForTest scoped_revert(false);
-    const CSSValue* value = CSSPropertyParser::ParseSingleValue(
-        CSSPropertyID::kMarginLeft, CSSParserTokenRange(tokens), context);
-    EXPECT_FALSE(value);
-  }
+  const CSSValue* value = CSSPropertyParser::ParseSingleValue(
+      CSSPropertyID::kMarginLeft, CSSParserTokenRange(tokens), context);
+  ASSERT_TRUE(value);
+  EXPECT_TRUE(value->IsRevertValue());
 }
 
 }  // namespace blink

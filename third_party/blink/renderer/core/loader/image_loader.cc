@@ -25,7 +25,6 @@
 #include <memory>
 #include <utility>
 
-#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/platform/web_client_hints_type.h"
 #include "third_party/blink/public/platform/web_url_request.h"
@@ -38,7 +37,6 @@
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/increment_load_event_delay_count.h"
-#include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/frame_owner.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
@@ -53,6 +51,7 @@
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_image.h"
 #include "third_party/blink/renderer/core/loader/importance_attribute.h"
 #include "third_party/blink/renderer/core/loader/lazy_image_helper.h"
+#include "third_party/blink/renderer/core/loader/subresource_redirect_util.h"
 #include "third_party/blink/renderer/core/probe/async_task_id.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/core/svg/graphics/svg_image.h"
@@ -66,7 +65,6 @@
 #include "third_party/blink/renderer/platform/loader/fetch/memory_cache.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loading_log.h"
-#include "third_party/blink/renderer/platform/network/network_state_notifier.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/weborigin/security_policy.h"
 
@@ -82,10 +80,7 @@ bool CheckForUnoptimizedImagePolicy(ExecutionContext* context,
   // Render the image as a placeholder image if the image is not sufficiently
   // well-compressed, according to the unoptimized image feature policies on
   // |document|.
-  // Note: UnoptimizedImagePolicies is currently part of DocumentPolicy.
-  // The original runtime feature UnoptimizedImagePolicies is no longer used,
-  // and are planned to be removed.
-  if (RuntimeEnabledFeatures::DocumentPolicyEnabled(context) &&
+  if (RuntimeEnabledFeatures::ExperimentalPoliciesEnabled() &&
       !new_image->IsAcceptableCompressionRatio(*context)) {
     return true;
   }
@@ -116,42 +111,6 @@ bool CanReuseFromListOfAvailableImages(
   }
 
   return true;
-}
-
-// Returns whether subresource redirect can be attempted for the image fetch.
-// Redirect to other origins could be disabled due to CSP or CORS restrictions.
-bool ShouldEnableSubresourceRedirect(HTMLImageElement* image_element,
-                                     const KURL& url) {
-  // Allow redirection only when DataSaver is enabled and subresource redirect
-  // feature is enabled which allows redirecting to better optimized versions.
-  if (!base::FeatureList::IsEnabled(blink::features::kSubresourceRedirect) ||
-      !GetNetworkStateNotifier().SaveDataEnabled()) {
-    return false;
-  }
-  // Enable subresource redirect only for <img> elements created by parser.
-  // Images created from javascript, fetched via XHR/Fetch API should not be
-  // subresource redirected due to the additional CORB/CORS handling needed for
-  // them.
-  if (!image_element || !image_element->ElementCreatedByParser()) {
-    return false;
-  }
-  // Create a cross origin URL by appending a string to the original host. This
-  // is used to find whether CSP is restricting image fetches from other
-  // origins.
-  KURL cross_origin_url = url;
-  cross_origin_url.SetHost(url.Host() + "crossorigin.com");
-  auto* content_security_policy =
-      image_element->GetExecutionContext()->GetContentSecurityPolicy();
-  if (content_security_policy &&
-      !content_security_policy->AllowImageFromSource(
-          cross_origin_url, cross_origin_url, RedirectStatus::kNoRedirect,
-          ReportingDisposition::kSuppressReporting)) {
-    return false;
-  }
-  // Allow subresource redirect only when cross-origin attribute is not set,
-  // which indicates CORS validation is not triggered for the image.
-  return (GetCrossOriginAttributeValue(image_element->FastGetAttribute(
-              html_names::kCrossoriginAttr)) == kCrossOriginAttributeNotSet);
 }
 
 }  // namespace
@@ -522,15 +481,18 @@ void ImageLoader::DoUpdateFromElement(
     // Correct the RequestContext if necessary.
     if (IsA<HTMLPictureElement>(GetElement()->parentNode()) ||
         !GetElement()->FastGetAttribute(html_names::kSrcsetAttr).IsNull()) {
-      resource_request.SetRequestContext(mojom::RequestContextType::IMAGE_SET);
+      resource_request.SetRequestContext(
+          mojom::blink::RequestContextType::IMAGE_SET);
       resource_request.SetRequestDestination(
           network::mojom::RequestDestination::kImage);
     } else if (IsA<HTMLObjectElement>(GetElement())) {
-      resource_request.SetRequestContext(mojom::RequestContextType::OBJECT);
+      resource_request.SetRequestContext(
+          mojom::blink::RequestContextType::OBJECT);
       resource_request.SetRequestDestination(
           network::mojom::RequestDestination::kObject);
     } else if (IsA<HTMLEmbedElement>(GetElement())) {
-      resource_request.SetRequestContext(mojom::RequestContextType::EMBED);
+      resource_request.SetRequestContext(
+          mojom::blink::RequestContextType::EMBED);
       resource_request.SetRequestDestination(
           network::mojom::RequestDestination::kEmbed);
     }
@@ -541,7 +503,8 @@ void ImageLoader::DoUpdateFromElement(
       resource_request.SetHttpHeaderField(http_names::kCacheControl,
                                           "max-age=0");
       resource_request.SetKeepalive(true);
-      resource_request.SetRequestContext(mojom::RequestContextType::PING);
+      resource_request.SetRequestContext(
+          mojom::blink::RequestContextType::PING);
     }
 
     // Plug-ins should not load via service workers as plug-ins may have their
@@ -554,14 +517,14 @@ void ImageLoader::DoUpdateFromElement(
     }
 
     DCHECK(document.GetFrame());
+    auto* frame = document.GetFrame();
+
     FetchParameters params(std::move(resource_request),
                            resource_loader_options);
-    ConfigureRequest(params, *element_,
-                     document.GetFrame()->GetClientHintsPreferences());
+    ConfigureRequest(params, *element_, frame->GetClientHintsPreferences());
 
     if (update_behavior != kUpdateForcedReload &&
         lazy_image_load_state_ != LazyImageLoadState::kFullImage) {
-      const auto* frame = document.GetFrame();
       if (auto* html_image = DynamicTo<HTMLImageElement>(GetElement())) {
         LoadingAttributeValue loading_attr = GetLoadingAttributeValue(
             html_image->FastGetAttribute(html_names::kLoadingAttr));
@@ -592,9 +555,10 @@ void ImageLoader::DoUpdateFromElement(
 
     if (ShouldEnableSubresourceRedirect(
             DynamicTo<HTMLImageElement>(GetElement()), params.Url())) {
-      auto& resource_request = params.MutableResourceRequest();
-      resource_request.SetPreviewsState(resource_request.GetPreviewsState() |
-                                        PreviewsTypes::kSubresourceRedirectOn);
+      auto& subresource_request = params.MutableResourceRequest();
+      subresource_request.SetPreviewsState(
+          subresource_request.GetPreviewsState() |
+          PreviewsTypes::kSubresourceRedirectOn);
     }
 
     new_image_content = ImageResourceContent::Fetch(params, document.Fetcher());
@@ -620,7 +584,7 @@ void ImageLoader::DoUpdateFromElement(
   if (update_behavior == kUpdateSizeChanged && element_->GetLayoutObject() &&
       element_->GetLayoutObject()->IsImage() &&
       new_image_content == old_image_content) {
-    ToLayoutImage(element_->GetLayoutObject())->IntrinsicSizeChanged();
+    To<LayoutImage>(element_->GetLayoutObject())->IntrinsicSizeChanged();
   } else {
     bool is_lazyload = lazy_image_load_state_ == LazyImageLoadState::kDeferred;
 
@@ -665,6 +629,10 @@ void ImageLoader::DoUpdateFromElement(
 void ImageLoader::UpdateFromElement(
     UpdateFromElementBehavior update_behavior,
     network::mojom::ReferrerPolicy referrer_policy) {
+  if (!element_->GetDocument().IsActive()) {
+    return;
+  }
+
   AtomicString image_source_url = element_->ImageSourceURL();
   suppress_error_events_ = (update_behavior == kUpdateSizeChanged);
   last_base_element_url_ =
@@ -699,6 +667,9 @@ void ImageLoader::UpdateFromElement(
     // a memory leak in case it's already created.
     delay_until_do_update_from_element_ = nullptr;
   }
+
+  // TODO(crbug.com/1175295): Remove this CHECK once the investigation is done.
+  CHECK(element_->GetDocument().GetExecutionContext());
 
   if (ShouldLoadImmediately(ImageSourceToKURL(image_source_url))) {
     DoUpdateFromElement(element_->GetExecutionContext()->GetCurrentWorld(),
@@ -860,6 +831,8 @@ void ImageLoader::ImageNotifyFinished(ImageResourceContent* content) {
     return;
   }
 
+  content->RecordDecodedImageType(&element_->GetDocument());
+
   CHECK(!pending_load_event_.IsActive());
   pending_load_event_ = PostCancellableTask(
       *GetElement()->GetDocument().GetTaskRunner(TaskType::kDOMManipulation),
@@ -878,11 +851,11 @@ LayoutImageResource* ImageLoader::GetLayoutImageResource() {
   // We don't return style generated image because it doesn't belong to the
   // ImageLoader. See <https://bugs.webkit.org/show_bug.cgi?id=42840>
   if (layout_object->IsImage() &&
-      !ToLayoutImage(layout_object)->IsGeneratedContent())
-    return ToLayoutImage(layout_object)->ImageResource();
+      !To<LayoutImage>(layout_object)->IsGeneratedContent())
+    return To<LayoutImage>(layout_object)->ImageResource();
 
   if (layout_object->IsSVGImage())
-    return ToLayoutSVGImage(layout_object)->ImageResource();
+    return To<LayoutSVGImage>(layout_object)->ImageResource();
 
   if (auto* layout_video = DynamicTo<LayoutVideo>(layout_object))
     return layout_video->ImageResource();
@@ -939,7 +912,8 @@ void ImageLoader::DispatchPendingErrorEvent(
   count->ClearAndCheckLoadEvent();
 }
 
-bool ImageLoader::GetImageAnimationPolicy(ImageAnimationPolicy& policy) {
+bool ImageLoader::GetImageAnimationPolicy(
+    mojom::blink::ImageAnimationPolicy& policy) {
   if (!GetElement()->GetDocument().GetSettings())
     return false;
 

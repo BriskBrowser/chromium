@@ -50,20 +50,18 @@ class CORE_EXPORT NGInlineLayoutAlgorithm final
                   NGLogicalLineItems* line_box,
                   NGExclusionSpace*);
 
-  scoped_refptr<const NGLayoutResult> Layout() override;
+  const NGLayoutResult* Layout() override;
 
   MinMaxSizesResult ComputeMinMaxSizes(const MinMaxSizesInput&) const override {
     NOTREACHED();
-    return {MinMaxSizes(), true};
+    return MinMaxSizesResult();
   }
 
  private:
   unsigned PositionLeadingFloats(NGExclusionSpace*, NGPositionedFloatVector*);
-  NGPositionedFloat PositionFloat(LayoutUnit origin_block_bfc_offset,
-                                  LayoutObject* floating_object,
-                                  NGExclusionSpace*) const;
-
-  bool IsHorizontalWritingMode() const { return is_horizontal_writing_mode_; }
+  NGPositionedFloat* PositionFloat(LayoutUnit origin_block_bfc_offset,
+                                   LayoutObject* floating_object,
+                                   NGExclusionSpace*) const;
 
   void PrepareBoxStates(const NGLineInfo&, const NGInlineBreakToken*);
   void RebuildBoxStates(const NGLineInfo&,
@@ -126,7 +124,8 @@ class CORE_EXPORT NGInlineLayoutAlgorithm final
 
   FontBaseline baseline_type_ = FontBaseline::kAlphabeticBaseline;
 
-  unsigned is_horizontal_writing_mode_ : 1;
+  // True if in quirks or limited-quirks mode, which require line-height quirks.
+  // https://quirks.spec.whatwg.org/#the-line-height-calculation-quirk
   unsigned quirks_mode_ : 1;
 
 #if DCHECK_IS_ON()

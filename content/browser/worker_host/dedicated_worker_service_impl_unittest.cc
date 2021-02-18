@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "base/run_loop.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/test/scoped_feature_list.h"
 #include "content/browser/site_instance_impl.h"
 #include "content/browser/worker_host/dedicated_worker_host.h"
@@ -19,6 +19,7 @@
 #include "content/test/test_web_contents.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
+#include "net/base/isolation_info.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/common/tokens/tokens_mojom_traits.h"
@@ -34,16 +35,17 @@ class MockDedicatedWorker
   MockDedicatedWorker(int worker_process_id,
                       GlobalFrameRoutingId render_frame_host_id) {
     // The COEP reporter is replaced by a dummy connection. Reports are ignored.
-    mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
-        coep_reporter_remote;
-    auto dummy_coep_reporter =
-        coep_reporter_remote.InitWithNewPipeAndPassReceiver();
+    CrossOriginEmbedderPolicyReporter coep_reporter(
+        RenderFrameHostImpl::FromID(render_frame_host_id)
+            ->GetStoragePartition(),
+        GURL(), base::nullopt, base::nullopt, net::NetworkIsolationKey());
 
     mojo::MakeSelfOwnedReceiver(
         std::make_unique<DedicatedWorkerHostFactoryImpl>(
-            worker_process_id, render_frame_host_id, render_frame_host_id,
-            url::Origin(), network::CrossOriginEmbedderPolicy(),
-            std::move(coep_reporter_remote)),
+            worker_process_id, render_frame_host_id,
+            /*creator_worker_token=*/base::nullopt, render_frame_host_id,
+            url::Origin(), net::IsolationInfo::CreateTransient(),
+            network::CrossOriginEmbedderPolicy(), &coep_reporter),
         factory_.BindNewPipeAndPassReceiver());
 
     if (base::FeatureList::IsEnabled(blink::features::kPlzDedicatedWorker)) {
@@ -57,6 +59,7 @@ class MockDedicatedWorker
       factory_->CreateWorkerHost(
           blink::DedicatedWorkerToken(),
           browser_interface_broker_.BindNewPipeAndPassReceiver(),
+          remote_host_.BindNewPipeAndPassReceiver(),
           base::BindOnce([](const network::CrossOriginEmbedderPolicy&) {}));
     }
   }
@@ -69,7 +72,8 @@ class MockDedicatedWorker
   // blink::mojom::DedicatedWorkerHostFactoryClient:
   void OnWorkerHostCreated(
       mojo::PendingRemote<blink::mojom::BrowserInterfaceBroker>
-          browser_interface_broker) override {
+          browser_interface_broker,
+      mojo::PendingRemote<blink::mojom::DedicatedWorkerHost>) override {
     browser_interface_broker_.Bind(std::move(browser_interface_broker));
   }
 
@@ -93,6 +97,7 @@ class MockDedicatedWorker
   mojo::Remote<blink::mojom::DedicatedWorkerHostFactory> factory_;
 
   mojo::Remote<blink::mojom::BrowserInterfaceBroker> browser_interface_broker_;
+  mojo::Remote<blink::mojom::DedicatedWorkerHost> remote_host_;
 };
 
 class DedicatedWorkerServiceImplTest
@@ -211,9 +216,11 @@ class TestDedicatedWorkerServiceObserver
 TEST_P(DedicatedWorkerServiceImplTest, DedicatedWorkerServiceObserver) {
   // Set up the observer.
   TestDedicatedWorkerServiceObserver observer;
-  ScopedObserver<DedicatedWorkerService, DedicatedWorkerService::Observer>
-      scoped_dedicated_worker_service_observer_(&observer);
-  scoped_dedicated_worker_service_observer_.Add(GetDedicatedWorkerService());
+  base::ScopedObservation<DedicatedWorkerService,
+                          DedicatedWorkerService::Observer>
+      scoped_dedicated_worker_service_observation_(&observer);
+  scoped_dedicated_worker_service_observation_.Observe(
+      GetDedicatedWorkerService());
 
   std::unique_ptr<TestWebContents> web_contents =
       CreateWebContents(GURL("http://example.com/"));

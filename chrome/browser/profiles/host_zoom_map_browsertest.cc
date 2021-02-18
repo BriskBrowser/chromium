@@ -19,6 +19,8 @@
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
+#include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_impl.h"
 #include "chrome/browser/signin/signin_promo.h"
@@ -76,7 +78,7 @@ class ZoomLevelChangeObserver {
 
   scoped_refptr<content::MessageLoopRunner> message_loop_runner_;
   std::vector<std::string> changed_hosts_;
-  std::unique_ptr<content::HostZoomMap::Subscription> subscription_;
+  base::CallbackListSubscription subscription_;
 
   DISALLOW_COPY_AND_ASSIGN(ZoomLevelChangeObserver);
 };
@@ -145,7 +147,7 @@ class HostZoomMapBrowserTest : public InProcessBrowserTest {
 
   // BrowserTestBase:
   void SetUpOnMainThread() override {
-    embedded_test_server()->RegisterRequestHandler(base::Bind(
+    embedded_test_server()->RegisterRequestHandler(base::BindRepeating(
         &HostZoomMapBrowserTest::HandleRequest, base::Unretained(this)));
     ASSERT_TRUE(embedded_test_server()->Start());
     host_resolver()->AddRule("*", "127.0.0.1");
@@ -244,7 +246,7 @@ IN_PROC_BROWSER_TEST_F(HostZoomMapBrowserTest, ZoomEventsWorkForOffTheRecord) {
                                 test_scheme, test_host));
 }
 
-#if !defined(OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 IN_PROC_BROWSER_TEST_F(
     HostZoomMapBrowserTest,
     WebviewBasedSigninUsesDefaultStoragePartitionForEmbedder) {
@@ -395,7 +397,13 @@ IN_PROC_BROWSER_TEST_F(HostZoomMapBrowserTest,
   EXPECT_EQ(new_default_zoom_level, child_host_zoom_map->GetDefaultZoomLevel());
 }
 
-IN_PROC_BROWSER_TEST_F(HostZoomMapBrowserTest, PageScaleIsOneChanged) {
+// TODO(1115597): Flaky on linux and cros.
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+#define MAYBE_PageScaleIsOneChanged DISABLED_PageScaleIsOneChanged
+#else
+#define MAYBE_PageScaleIsOneChanged PageScaleIsOneChanged
+#endif
+IN_PROC_BROWSER_TEST_F(HostZoomMapBrowserTest, MAYBE_PageScaleIsOneChanged) {
   GURL test_url(url::kAboutBlankURL);
   std::string test_host(test_url.host());
 

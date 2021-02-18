@@ -50,8 +50,7 @@ class StyleEnvironmentVariablesTest : public PageTestBase {
   void InitializeWithHTML(LocalFrame& frame, const String& html_content) {
     // Sets the inner html and runs the document lifecycle.
     frame.GetDocument()->body()->setInnerHTML(html_content);
-    frame.GetDocument()->View()->UpdateAllLifecyclePhases(
-        DocumentUpdateReason::kTest);
+    frame.GetDocument()->View()->UpdateAllLifecyclePhasesForTest();
   }
 
   void InitializeTestPageWithVariableNamed(LocalFrame& frame,
@@ -76,7 +75,8 @@ class StyleEnvironmentVariablesTest : public PageTestBase {
   void SimulateNavigation() {
     const KURL& url = KURL(NullURL(), "https://www.example.com");
     GetDocument().GetFrame()->Loader().CommitNavigation(
-        WebNavigationParams::CreateWithHTMLBuffer(SharedBuffer::Create(), url),
+        WebNavigationParams::CreateWithHTMLBufferForTesting(
+            SharedBuffer::Create(), url),
         nullptr /* extra_data */);
     blink::test::RunPendingTasks();
     ASSERT_EQ(url.GetString(), GetDocument().Url().GetString());
@@ -231,8 +231,7 @@ TEST_F(StyleEnvironmentVariablesTest, MultiDocumentInvalidation_FromRoot) {
 
   // Create an empty page that does not use the variable.
   auto empty_page = std::make_unique<DummyPageHolder>(IntSize(800, 600));
-  empty_page->GetDocument().View()->UpdateAllLifecyclePhases(
-      DocumentUpdateReason::kTest);
+  empty_page->GetDocument().View()->UpdateAllLifecyclePhasesForTest();
 
   StyleEnvironmentVariables::GetRootInstance().SetVariable(kVariableName,
                                                            kVariableTestColor);

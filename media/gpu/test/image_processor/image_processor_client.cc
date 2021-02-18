@@ -9,11 +9,12 @@
 
 #include "base/bind.h"
 
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/synchronization/waitable_event.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/video_frame.h"
 #include "media/base/video_frame_layout.h"
@@ -156,16 +157,16 @@ scoped_refptr<VideoFrame> ImageProcessorClient::CreateInputFrame(
                            CreateVideoFrameFromImage(input_image).get(),
                            *input_layout, VideoFrame::STORAGE_OWNED_MEMORY);
   } else {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     ASSERT_TRUE_OR_RETURN_NULLPTR(
         input_storage_type == VideoFrame::STORAGE_DMABUFS ||
         input_storage_type == VideoFrame::STORAGE_GPU_MEMORY_BUFFER);
     // NV12 and YV12 are the only formats that can be allocated with
-    // gfx::BufferUsage::SCANOUT_VEA_READ_CAMERA_AND_CPU_READ_WRITE. So
+    // gfx::BufferUsage::VEA_READ_CAMERA_AND_CPU_READ_WRITE. So
     // gfx::BufferUsage::GPU_READ_CPU_READ_WRITE is specified for RGB formats.
     gfx::BufferUsage dst_buffer_usage =
         IsYuvPlanar(input_image.PixelFormat())
-            ? gfx::BufferUsage::SCANOUT_VEA_READ_CAMERA_AND_CPU_READ_WRITE
+            ? gfx::BufferUsage::VEA_READ_CAMERA_AND_CPU_READ_WRITE
             : gfx::BufferUsage::GPU_READ_CPU_READ_WRITE;
     return CloneVideoFrame(gpu_memory_buffer_factory_.get(),
                            CreateVideoFrameFromImage(input_image).get(),

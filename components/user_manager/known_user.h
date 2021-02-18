@@ -221,10 +221,11 @@ void USER_MANAGER_EXPORT SetLastOnlineSignin(const AccountId& account_id,
 
 base::Time USER_MANAGER_EXPORT GetLastOnlineSignin(const AccountId& account_id);
 
-void USER_MANAGER_EXPORT SetOfflineSigninLimit(const AccountId& account_id,
-                                               base::TimeDelta time_limit);
+void USER_MANAGER_EXPORT
+SetOfflineSigninLimit(const AccountId& account_id,
+                      base::Optional<base::TimeDelta> time_limit);
 
-base::TimeDelta USER_MANAGER_EXPORT
+base::Optional<base::TimeDelta> USER_MANAGER_EXPORT
 GetOfflineSigninLimit(const AccountId& account_id);
 
 void USER_MANAGER_EXPORT SetIsEnterpriseManaged(const AccountId& account_id,
@@ -232,9 +233,13 @@ void USER_MANAGER_EXPORT SetIsEnterpriseManaged(const AccountId& account_id,
 
 bool USER_MANAGER_EXPORT GetIsEnterpriseManaged(const AccountId& account_id);
 
+void USER_MANAGER_EXPORT SetAccountManager(const AccountId& account_id,
+                                           const std::string& manager);
+bool USER_MANAGER_EXPORT GetAccountManager(const AccountId& account_id,
+                                           std::string* manager);
 void USER_MANAGER_EXPORT
-SetUserLastInputMethod(const AccountId& account_id,
-                       const std::string& input_method);
+SetUserLastLoginInputMethod(const AccountId& account_id,
+                            const std::string& input_method);
 
 bool USER_MANAGER_EXPORT GetUserLastInputMethod(const AccountId& account_id,
                                                 std::string* input_method);

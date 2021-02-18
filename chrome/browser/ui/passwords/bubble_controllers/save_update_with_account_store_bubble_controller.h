@@ -8,6 +8,7 @@
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ui/passwords/bubble_controllers/password_bubble_controller_base.h"
 #include "components/password_manager/core/browser/manage_passwords_referrer.h"
+#include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/statistics_table.h"
 #include "components/password_manager/core/common/password_manager_ui.h"
 
@@ -51,6 +52,12 @@ class SaveUpdateWithAccountStoreBubbleController
   // creation. This method returns true iff the current state is "update".
   bool IsCurrentStateUpdate() const;
 
+  // The password bubble header image can switch its state between "save" and
+  // "update" depending on the user input. |state_| only captures the correct
+  // state on creation. This method returns true iff the current state is
+  // "save" or "update" to a password in the account store.
+  bool IsCurrentStateAffectingTheAccountStore();
+
   // Returns true if passwords revealing is not locked or re-authentication is
   // not available on the given platform. Otherwise, the method schedules
   // re-authentication and bubble reopen (the current bubble will be destroyed),
@@ -90,7 +97,7 @@ class SaveUpdateWithAccountStoreBubbleController
 
   password_manager::ui::State state() const { return state_; }
 
-  const autofill::PasswordForm& pending_password() const {
+  const password_manager::PasswordForm& pending_password() const {
     return pending_password_;
   }
 
@@ -119,8 +126,8 @@ class SaveUpdateWithAccountStoreBubbleController
   // Origin of the page from where this bubble was triggered.
   url::Origin origin_;
   password_manager::ui::State state_;
-  autofill::PasswordForm pending_password_;
-  std::vector<autofill::PasswordForm> existing_credentials_;
+  password_manager::PasswordForm pending_password_;
+  std::vector<password_manager::PasswordForm> existing_credentials_;
   password_manager::InteractionsStats interaction_stats_;
   password_manager::metrics_util::UIDisplayDisposition display_disposition_;
 

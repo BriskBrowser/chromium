@@ -26,10 +26,7 @@ public class ShareParams {
     /** The title of the page to be shared. */
     private final String mTitle;
 
-    /**
-     * The text to be shared. If both |text| and |url| are supplied, they are concatenated with a
-     * space.
-     */
+    /** The text to be shared. */
     private final String mText;
 
     /** The URL of the page to be shared. */
@@ -47,6 +44,9 @@ public class ShareParams {
     /** The Uri of the screenshot of the page to be shared. */
     private final Uri mScreenshotUri;
 
+    /** The boolean result of link to text generation. */
+    private final Boolean mLinkToTextSuccessful;
+
     /**
      * Optional callback to be called when user makes a choice. Will not be called if receiving a
      * response when the user makes a choice is not supported (on older Android versions).
@@ -56,7 +56,7 @@ public class ShareParams {
     private ShareParams(WindowAndroid window, String title, String text, String url,
             @Nullable String fileContentType, @Nullable ArrayList<Uri> fileUris,
             @Nullable Uri offlineUri, @Nullable Uri screenshotUri,
-            @Nullable TargetChosenCallback callback) {
+            @Nullable TargetChosenCallback callback, @Nullable Boolean linkToTextSuccessful) {
         mWindow = window;
         mTitle = title;
         mText = text;
@@ -66,6 +66,7 @@ public class ShareParams {
         mOfflineUri = offlineUri;
         mScreenshotUri = screenshotUri;
         mCallback = callback;
+        mLinkToTextSuccessful = linkToTextSuccessful;
     }
 
     /**
@@ -80,6 +81,20 @@ public class ShareParams {
      */
     public String getTitle() {
         return mTitle;
+    }
+
+    /**
+     * @return The text concatenated with the url.
+     */
+    public String getTextAndUrl() {
+        if (TextUtils.isEmpty(mUrl)) {
+            return mText;
+        }
+        if (TextUtils.isEmpty(mText)) {
+            return mUrl;
+        }
+        // Concatenate text and URL with a space.
+        return mText + " " + mUrl;
     }
 
     /**
@@ -143,6 +158,14 @@ public class ShareParams {
         mCallback = callback;
     }
 
+    /**
+     * @return The boolean result of link to text generation.
+     */
+    @Nullable
+    public Boolean getLinkToTextSuccessful() {
+        return mLinkToTextSuccessful;
+    }
+
     /** The builder for {@link ShareParams} objects. */
     public static class Builder {
         private WindowAndroid mWindow;
@@ -154,6 +177,7 @@ public class ShareParams {
         private Uri mOfflineUri;
         private Uri mScreenshotUri;
         private TargetChosenCallback mCallback;
+        private Boolean mLinkToTextSuccessful;
 
         public Builder(@NonNull WindowAndroid window, @NonNull String title, @NonNull String url) {
             mWindow = window;
@@ -209,19 +233,21 @@ public class ShareParams {
             return this;
         }
 
+        /**
+         * Sets the boolean result of link to text generation.
+         */
+        public Builder setLinkToTextSuccessful(@Nullable Boolean linkToTextSuccessful) {
+            mLinkToTextSuccessful = linkToTextSuccessful;
+            return this;
+        }
+
         /** @return A fully constructed {@link ShareParams} object. */
         public ShareParams build() {
             if (!TextUtils.isEmpty(mUrl)) {
                 mUrl = DomDistillerUrlUtils.getOriginalUrlFromDistillerUrl(mUrl);
-                if (!TextUtils.isEmpty(mText)) {
-                    // Concatenate text and URL with a space.
-                    mText = mText + " " + mUrl;
-                } else {
-                    mText = mUrl;
-                }
             }
             return new ShareParams(mWindow, mTitle, mText, mUrl, mFileContentType, mFileUris,
-                    mOfflineUri, mScreenshotUri, mCallback);
+                    mOfflineUri, mScreenshotUri, mCallback, mLinkToTextSuccessful);
         }
     }
 

@@ -14,7 +14,7 @@
 #include "content/browser/compositor/surface_utils.h"
 #include "content/browser/compositor/test/test_image_transport_factory.h"
 #include "content/browser/renderer_host/agent_scheduling_group_host.h"
-#include "content/browser/renderer_host/frame_connector_delegate.h"
+#include "content/browser/renderer_host/cross_process_frame_connector.h"
 #include "content/browser/renderer_host/frame_token_message_queue.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_view_child_frame.h"
@@ -35,22 +35,24 @@ namespace content {
 
 namespace {
 
-class MockFrameConnectorDelegate : public FrameConnectorDelegate {
+class MockFrameConnector : public CrossProcessFrameConnector {
  public:
-  MockFrameConnectorDelegate(RenderWidgetHostViewChildFrame* view,
-                             RenderWidgetHostViewBase* parent_view,
-                             RenderWidgetHostViewBase* root_view,
-                             bool use_zoom_for_device_scale_factor)
-      : FrameConnectorDelegate(use_zoom_for_device_scale_factor),
+  MockFrameConnector(RenderWidgetHostViewChildFrame* view,
+                     RenderWidgetHostViewBase* parent_view,
+                     RenderWidgetHostViewBase* root_view,
+                     bool use_zoom_for_device_scale_factor)
+      : CrossProcessFrameConnector(nullptr),
         parent_view_(parent_view),
         root_view_(root_view) {
     view_ = view;
-    view_->SetFrameConnectorDelegate(this);
+    view_->SetFrameConnector(this);
+    set_use_zoom_for_device_scale_factor_for_testing(
+        use_zoom_for_device_scale_factor);
   }
 
-  ~MockFrameConnectorDelegate() override {
+  ~MockFrameConnector() override {
     if (view_) {
-      view_->SetFrameConnectorDelegate(nullptr);
+      view_->SetFrameConnector(nullptr);
       view_ = nullptr;
     }
   }
@@ -67,7 +69,7 @@ class MockFrameConnectorDelegate : public FrameConnectorDelegate {
   RenderWidgetHostViewBase* parent_view_;
   RenderWidgetHostViewBase* root_view_;
 
-  DISALLOW_COPY_AND_ASSIGN(MockFrameConnectorDelegate);
+  DISALLOW_COPY_AND_ASSIGN(MockFrameConnector);
 };
 
 // Used as a target for the RenderWidgetHostInputEventRouter. We record what
@@ -230,25 +232,26 @@ class RenderWidgetHostInputEventRouterTest : public testing::Test {
         std::make_unique<MockRenderProcessHost>(browser_context_.get());
     agent_scheduling_group_host_root_ =
         std::make_unique<AgentSchedulingGroupHost>(*process_host_root_);
-    widget_host_root_ = std::make_unique<RenderWidgetHostImpl>(
-        &delegate_, *agent_scheduling_group_host_root_,
+    widget_host_root_ = RenderWidgetHostImpl::Create(
+        /*frame_tree=*/nullptr, &delegate_, *agent_scheduling_group_host_root_,
         process_host_root_->GetNextRoutingID(),
-        /*hidden=*/false, std::make_unique<FrameTokenMessageQueue>());
+        /*hidden=*/false, /*renderer_initiated_creation=*/false,
+        std::make_unique<FrameTokenMessageQueue>());
 
     mojo::AssociatedRemote<blink::mojom::WidgetHost> blink_widget_host;
     mojo::AssociatedRemote<blink::mojom::Widget> blink_widget;
     auto blink_widget_receiver =
-        blink_widget.BindNewEndpointAndPassDedicatedReceiverForTesting();
+        blink_widget.BindNewEndpointAndPassDedicatedReceiver();
     widget_host_root_->BindWidgetInterfaces(
-        blink_widget_host.BindNewEndpointAndPassDedicatedReceiverForTesting(),
+        blink_widget_host.BindNewEndpointAndPassDedicatedReceiver(),
         blink_widget.Unbind());
 
     mojo::AssociatedRemote<blink::mojom::FrameWidgetHost> frame_widget_host;
     mojo::AssociatedRemote<blink::mojom::FrameWidget> frame_widget;
     auto frame_widget_receiver =
-        frame_widget.BindNewEndpointAndPassDedicatedReceiverForTesting();
+        frame_widget.BindNewEndpointAndPassDedicatedReceiver();
     widget_host_root_->BindFrameWidgetInterfaces(
-        frame_widget_host.BindNewEndpointAndPassDedicatedReceiverForTesting(),
+        frame_widget_host.BindNewEndpointAndPassDedicatedReceiver(),
         frame_widget.Unbind());
 
     view_root_ =
@@ -261,7 +264,8 @@ class RenderWidgetHostInputEventRouterTest : public testing::Test {
     mojo::Remote<viz::mojom::InputTargetClient> input_target_client;
     input_target_client_root_ = std::make_unique<MockInputTargetClient>(
         input_target_client.BindNewPipeAndPassReceiver());
-    widget_host_root_->SetInputTargetClient(std::move(input_target_client));
+    widget_host_root_->SetInputTargetClientForTesting(
+        std::move(input_target_client));
 
     EXPECT_EQ(view_root_.get(),
               rwhier()->FindViewFromFrameSinkId(view_root_->GetFrameSinkId()));
@@ -272,7 +276,11 @@ class RenderWidgetHostInputEventRouterTest : public testing::Test {
     std::unique_ptr<AgentSchedulingGroupHost> agent_scheduling_group_host;
     std::unique_ptr<RenderWidgetHostImpl> widget_host;
     std::unique_ptr<TestRenderWidgetHostViewChildFrame> view;
-    std::unique_ptr<MockFrameConnectorDelegate> frame_connector;
+    std::unique_ptr<MockFrameConnector> frame_connector;
+
+    ChildViewState() = default;
+    ChildViewState(ChildViewState&&) = default;
+    ~ChildViewState() { process_host->Cleanup(); }
   };
 
   ChildViewState MakeChildView(RenderWidgetHostViewBase* parent_view) {
@@ -282,13 +290,14 @@ class RenderWidgetHostInputEventRouterTest : public testing::Test {
         std::make_unique<MockRenderProcessHost>(browser_context_.get());
     child.agent_scheduling_group_host =
         std::make_unique<AgentSchedulingGroupHost>(*child.process_host);
-    child.widget_host = std::make_unique<RenderWidgetHostImpl>(
-        &delegate_, *child.agent_scheduling_group_host,
+    child.widget_host = RenderWidgetHostImpl::Create(
+        /*frame_tree=*/nullptr, &delegate_, *child.agent_scheduling_group_host,
         child.process_host->GetNextRoutingID(),
-        /*hidden=*/false, std::make_unique<FrameTokenMessageQueue>());
+        /*hidden=*/false, /*renderer_initiated_creation=*/false,
+        std::make_unique<FrameTokenMessageQueue>());
     child.view = std::make_unique<TestRenderWidgetHostViewChildFrame>(
         child.widget_host.get());
-    child.frame_connector = std::make_unique<MockFrameConnectorDelegate>(
+    child.frame_connector = std::make_unique<MockFrameConnector>(
         child.view.get(), parent_view, view_root_.get(),
         false /* use_zoom_for_device_scale_factor */);
 
@@ -301,6 +310,8 @@ class RenderWidgetHostInputEventRouterTest : public testing::Test {
   void TearDown() override {
     view_root_.reset();
     widget_host_root_.reset();
+    process_host_root_->Cleanup();
+    agent_scheduling_group_host_root_.reset();
     process_host_root_.reset();
     base::RunLoop().RunUntilIdle();
 

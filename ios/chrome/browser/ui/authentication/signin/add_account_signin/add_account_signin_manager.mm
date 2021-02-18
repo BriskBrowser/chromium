@@ -55,8 +55,8 @@
       break;
     }
     case AddAccountSigninIntentReauthPrimaryAccount: {
-      CoreAccountInfo accountInfo =
-          self.identityManager->GetPrimaryAccountInfo();
+      CoreAccountInfo accountInfo = self.identityManager->GetPrimaryAccountInfo(
+          signin::ConsentLevel::kSync);
       std::string userEmailString = accountInfo.email;
 
       if (userEmailString.empty()) {
@@ -95,7 +95,6 @@
                                  error:(NSError*)error {
   SigninCoordinatorResult signinResult;
   if (error) {
-    DCHECK(!identity);
     // Filter out errors handled internally by ChromeIdentity.
     if (ShouldHandleSigninError(error)) {
       [self.delegate addAccountSigninManagerFailedWithError:error];
@@ -103,7 +102,6 @@
     }
     signinResult = SigninCoordinatorResultCanceledByUser;
   } else {
-    DCHECK(identity);
     signinResult = self.signinInterrupted ? SigninCoordinatorResultInterrupted
                                           : SigninCoordinatorResultSuccess;
   }

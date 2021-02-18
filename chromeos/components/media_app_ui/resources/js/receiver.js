@@ -107,37 +107,33 @@ class ReceivedFile {
 }
 
 /**
- * Source of truth for what files are loaded in the app and writable. This can
+ * Source of truth for what files are loaded in the app. This can
  * be appended to via `ReceivedFileList.addFiles()`.
  * @type {?ReceivedFileList}
  */
 let lastLoadedReceivedFileList = null;
 
 /**
- * A file list consisting of all files received from the parent. Exposes the
- * currently writable file and all other readable files in the current
- * directory.
+ * A file list consisting of all files received from the parent. Exposes all
+ * readable files in the directory, some of which may be writable.
  * @implements mediaApp.AbstractFileList
  */
 class ReceivedFileList {
   /** @param {!LoadFilesMessage} filesMessage */
   constructor(filesMessage) {
-    // We make sure the 0th item in the list is the writable one so we
-    // don't break older versions of the media app which uses item(0) instead
-    // of getCurrentlyWritable()
-    // TODO(b/151880563): remove this.
-    let writableFileIndex = filesMessage.writableFileIndex;
-    const files = filesMessage.files;
-    while (writableFileIndex > 0) {
-      files.push(files.shift());
-      writableFileIndex--;
+    const {files, currentFileIndex} = filesMessage;
+    if (files.length) {
+      // If we were not provided with a currentFileIndex, default to making the
+      // first file the current file.
+      this.currentFileIndex = currentFileIndex >= 0 ? currentFileIndex : 0;
+    } else {
+      // If we are empty we have no current file.
+      this.currentFileIndex = -1;
     }
 
     this.length = files.length;
     /** @type {!Array<!ReceivedFile>} */
     this.files = files.map(f => new ReceivedFile(f));
-    /** @type {number} */
-    this.writableFileIndex = 0;
     /** @type {!Array<function(!mediaApp.AbstractFileList): void>} */
     this.observers = [];
   }
@@ -145,15 +141,6 @@ class ReceivedFileList {
   /** @override */
   item(index) {
     return this.files[index] || null;
-  }
-
-  /**
-   * Returns the file which is currently writable or null if there isn't one.
-   * @override
-   * @return {?mediaApp.AbstractFile}
-   */
-  getCurrentlyWritable() {
-    return this.item(this.writableFileIndex);
   }
 
   /** @override */
@@ -175,6 +162,10 @@ class ReceivedFileList {
   /** @override */
   addObserver(observer) {
     this.observers.push(observer);
+  }
+
+  async openFile() {
+    await parentMessagePipe.sendMessage(Message.OPEN_FILE);
   }
 
   /** @param {!Array<!ReceivedFile>} files */
@@ -223,7 +214,7 @@ const DELEGATE = {
   /**
    * @param {string} suggestedName
    * @param {string} mimeType
-   * @return {!Promise<number>}
+   * @return {!Promise<!mediaApp.AbstractFile>}
    */
   async requestSaveFile(suggestedName, mimeType) {
     /** @type {!RequestSaveFileMessage} */
@@ -232,13 +223,30 @@ const DELEGATE = {
         /** @type {!RequestSaveFileResponse} */ (
             await parentMessagePipe.sendMessage(
                 Message.REQUEST_SAVE_FILE, msg));
-    return response.token;
+    return new ReceivedFile(response.pickedFileContext);
   },
   /**
    * @return {!Promise<undefined>}
    */
   async openFile() {
     await parentMessagePipe.sendMessage(Message.OPEN_FILE);
+  },
+  /**
+   * @param {!Blob} file
+   * @return {!Promise<!File>}
+   */
+  async extractPreview(file) {
+    try {
+      const [buffer] = /** @type {!Array<!ArrayBuffer>} */ (
+          await Promise.all([file.arrayBuffer(), loadPiex()]));
+      return await extractFromRawImageBuffer(buffer);
+    } catch (/** @type {!Error} */ e) {
+      console.warn(e);
+      if (e.name === 'Error') {
+        e.name = 'JpegNotFound';
+      }
+      throw e;
+    }
   }
 };
 
@@ -262,7 +270,7 @@ async function loadFiles(fileList) {
     await app.loadFiles(fileList);
   } else {
     // Note we don't await in this case, which may affect b/152729704.
-    window.customLaunchData = {files: fileList};
+    window.customLaunchData.files = fileList;
   }
 }
 
@@ -301,6 +309,13 @@ window.addEventListener('DOMContentLoaded', () => {
   const observer = new MutationObserver(mutationCallback);
   observer.observe(document.body, {childList: true});
 });
+
+// Ensure that if no files are loaded into the media app there is a default
+// empty file list available.
+window.customLaunchData = {
+  delegate: DELEGATE,
+  files: new ReceivedFileList({files: [], currentFileIndex: -1})
+};
 
 // Attempting to show file pickers in the sandboxed <iframe> is guaranteed to
 // result in a SecurityError: hide them.

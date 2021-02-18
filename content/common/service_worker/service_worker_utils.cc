@@ -45,16 +45,6 @@ bool PathContainsDisallowedCharacter(const GURL& url) {
 }  // namespace
 
 // static
-bool ServiceWorkerUtils::IsMainResourceType(blink::mojom::ResourceType type) {
-  // When PlzDedicatedWorker is enabled, a dedicated worker script is considered
-  // to be a main resource.
-  if (type == blink::mojom::ResourceType::kWorker)
-    return base::FeatureList::IsEnabled(blink::features::kPlzDedicatedWorker);
-  return blink::IsResourceTypeFrame(type) ||
-         type == blink::mojom::ResourceType::kSharedWorker;
-}
-
-// static
 bool ServiceWorkerUtils::IsMainRequestDestination(
     network::mojom::RequestDestination destination) {
   // When PlzDedicatedWorker is enabled, a dedicated worker script is considered
@@ -63,13 +53,6 @@ bool ServiceWorkerUtils::IsMainRequestDestination(
     return base::FeatureList::IsEnabled(blink::features::kPlzDedicatedWorker);
   return blink::IsRequestDestinationFrame(destination) ||
          destination == network::mojom::RequestDestination::kSharedWorker;
-}
-
-// static
-bool ServiceWorkerUtils::ScopeMatches(const GURL& scope, const GURL& url) {
-  DCHECK(!scope.has_ref());
-  return base::StartsWith(url.spec(), scope.spec(),
-                          base::CompareCase::SENSITIVE);
 }
 
 // static
@@ -243,16 +226,6 @@ const char* ServiceWorkerUtils::FetchResponseSourceToSuffix(
   }
   NOTREACHED();
   return ".Unknown";
-}
-
-bool LongestScopeMatcher::MatchLongest(const GURL& scope) {
-  if (!ServiceWorkerUtils::ScopeMatches(scope, url_))
-    return false;
-  if (match_.is_empty() || match_.spec().size() < scope.spec().size()) {
-    match_ = scope;
-    return true;
-  }
-  return false;
 }
 
 }  // namespace content

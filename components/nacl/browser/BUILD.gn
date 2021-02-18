@@ -10,10 +10,6 @@ static_library("browser") {
   sources = [
     "bad_message.cc",
     "bad_message.h",
-    "nacl_broker_host_win.cc",
-    "nacl_broker_host_win.h",
-    "nacl_broker_service_win.cc",
-    "nacl_broker_service_win.h",
     "nacl_browser.cc",
     "nacl_browser.h",
     "nacl_file_host.cc",
@@ -33,6 +29,7 @@ static_library("browser") {
   deps = [
     "//base",
     "//base/third_party/dynamic_annotations",
+    "//build:chromeos_buildflags",
     "//components/nacl/common",
     "//components/nacl/common:buildflags",
     "//components/nacl/common:debug_exception_handler",
@@ -52,6 +49,15 @@ static_library("browser") {
   ]
 
   data_deps = []
+
+  if (is_win) {
+    sources += [
+      "nacl_broker_host_win.cc",
+      "nacl_broker_host_win.h",
+      "nacl_broker_service_win.cc",
+      "nacl_broker_service_win.h",
+    ]
+  }
 
   if (is_linux || is_chromeos) {
     sources += [

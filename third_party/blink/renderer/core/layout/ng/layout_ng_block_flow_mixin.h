@@ -21,8 +21,6 @@
 namespace blink {
 
 enum class NGBaselineAlgorithmType;
-class NGPaintFragment;
-class NGPhysicalFragment;
 struct NGInlineNodeData;
 
 // This mixin holds code shared between LayoutNG subclasses of LayoutBlockFlow.
@@ -36,31 +34,19 @@ class LayoutNGBlockFlowMixin : public LayoutNGMixin<Base> {
   NGInlineNodeData* GetNGInlineNodeData() const final;
   void ResetNGInlineNodeData() final;
   void ClearNGInlineNodeData() final;
-  bool HasNGInlineNodeData() const final { return ng_inline_node_data_.get(); }
+  bool HasNGInlineNodeData() const final { return ng_inline_node_data_; }
 
   LayoutUnit FirstLineBoxBaseline() const final;
   LayoutUnit InlineBlockBaseline(LineDirectionMode) const final;
 
-  void Paint(const PaintInfo&) const override;
-
   bool NodeAtPoint(HitTestResult&,
                    const HitTestLocation&,
                    const PhysicalOffset& accumulated_offset,
-                   HitTestAction) final;
+                   HitTestAction) override;
 
   PositionWithAffinity PositionForPoint(const PhysicalOffset&) const override;
 
-  const NGPaintFragment* PaintFragment() const final {
-    // TODO(layout-dev) crbug.com/963103
-    // Safer option here is to return nullptr only if
-    // Lifecycle > DocumentLifecycle::kAfterPerformLayout, but this breaks
-    // some layout tests.
-    if (Base::NeedsLayout())
-      return nullptr;
-    return paint_fragment_.get();
-  }
-  void SetPaintFragment(const NGBlockBreakToken*,
-                        scoped_refptr<const NGPhysicalFragment>) final;
+  void Trace(Visitor*) const override;
 
   using LayoutNGMixin<Base>::CurrentFragment;
 
@@ -73,8 +59,6 @@ class LayoutNGBlockFlowMixin : public LayoutNGMixin<Base> {
                        const PhysicalOffset& additional_offset,
                        NGOutlineType) const final;
 
-  base::Optional<LayoutUnit> FragmentBaseline() const;
-
   void DirtyLinesFromChangedChild(LayoutObject* child,
                                   MarkingBehavior marking_behavior) final;
 
@@ -82,8 +66,7 @@ class LayoutNGBlockFlowMixin : public LayoutNGMixin<Base> {
   // behavior as LayoutNGBlockFlow.
   void UpdateNGBlockLayout();
 
-  std::unique_ptr<NGInlineNodeData> ng_inline_node_data_;
-  scoped_refptr<NGPaintFragment> paint_fragment_;
+  Member<NGInlineNodeData> ng_inline_node_data_;
 
   friend class NGBaseLayoutAlgorithmTest;
 

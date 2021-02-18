@@ -14,12 +14,11 @@
 
 #include "ash/app_list/model/app_list_model_export.h"
 #include "ash/public/cpp/app_list/app_list_types.h"
+#include "ash/public/cpp/shelf_types.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "components/sync/model/string_ordinal.h"
 #include "ui/gfx/image/image_skia.h"
-
-class FastShowPickler;
 
 namespace ash {
 enum class AppListConfigType;
@@ -40,6 +39,8 @@ class APP_LIST_MODEL_EXPORT AppListItem {
 
   void SetIcon(AppListConfigType config_type, const gfx::ImageSkia& icon);
   const gfx::ImageSkia& GetIcon(AppListConfigType config_type) const;
+
+  void SetNotificationBadgeColor(const SkColor color);
 
   const std::string& GetDisplayName() const {
     return short_name_.empty() ? name() : short_name_;
@@ -86,11 +87,24 @@ class APP_LIST_MODEL_EXPORT AppListItem {
   }
   bool is_page_break() const { return metadata_->is_page_break; }
 
+  bool has_notification_badge() const { return has_notification_badge_; }
+
+  SkColor notification_badge_color() const { return notification_badge_color_; }
+
+  void UpdateNotificationBadgeForTesting(bool has_badge) {
+    UpdateNotificationBadge(has_badge);
+  }
+
+  AppStatus app_status() const { return metadata_->app_status; }
+
+  void UpdateAppStatusForTesting(AppStatus app_status) {
+    metadata_->app_status = app_status;
+  }
+
  protected:
   // Subclasses also have mutable access to the metadata ptr.
   AppListItemMetadata* metadata() { return metadata_.get(); }
 
-  friend class ::FastShowPickler;
   friend class AppListControllerImpl;
   friend class AppListItemList;
   friend class AppListItemListTest;
@@ -106,6 +120,9 @@ class APP_LIST_MODEL_EXPORT AppListItem {
   // if the full name is too long to fit in a view).
   void SetNameAndShortName(const std::string& name,
                            const std::string& short_name);
+
+  // Updates whether the notification badge is shown on the view.
+  void UpdateNotificationBadge(bool has_badge);
 
   void set_position(const syncer::StringOrdinal& new_position) {
     DCHECK(new_position.IsValid());
@@ -131,6 +148,12 @@ class APP_LIST_MODEL_EXPORT AppListItem {
 
   // A shortened name for the item, used for display.
   std::string short_name_;
+
+  // Whether this item currently has a notification badge that should be shown.
+  bool has_notification_badge_ = false;
+
+  // The color for the notification badge displayed over the app icon.
+  SkColor notification_badge_color_ = SK_ColorWHITE;
 
   base::ObserverList<AppListItemObserver>::Unchecked observers_;
 

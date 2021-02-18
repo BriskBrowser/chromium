@@ -35,6 +35,7 @@ ActiveScriptWrappable
 Affects=Nothing
 AllowShared
 CEReactions
+CSSProperty
 CachedAccessor=*
 CachedAttribute=*
 CallWith=ExecutionContext|Isolate|ScriptState|ThisValue
@@ -48,10 +49,8 @@ ContextEnabled=*
 CrossOrigin=|Getter|Setter
 Custom=|Getter|Setter|LegacyCallAsFunction|PropertyGetter|PropertyEnumerator|PropertyQuery
 CustomConstructor
-CustomElementCallbacks
 DefaultValue=Undefined
 DeprecateAs=*
-DisableInNewIDLCompiler
 DoNotCheckConstants
 DoNotTestNewObject
 EnforceRange
@@ -64,7 +63,11 @@ HighEntropy=|Direct
 HTMLConstructor
 ImmutablePrototype
 ImplementedAs=*
-LegacyOverrideBuiltins
+IsCodeLike
+LegacyLenientSetter
+LegacyLenientThis
+LegacyNoInterfaceObject
+LegacyOverrideBuiltIns
 LegacyTreatAsPartialInterface
 LegacyTreatNonObjectAsNull
 LegacyUnenumerableNamedProperties
@@ -72,8 +75,6 @@ LegacyUnforgeable
 LegacyWindowAlias=*
 LegacyWindowAlias_Measure=|*
 LegacyWindowAlias_RuntimeEnabled=*
-LenientSetter
-LenientThis
 LogActivity=|GetterOnly|SetterOnly
 LogAllWorlds
 NewObject
@@ -83,7 +84,6 @@ MeasureAs=*
 NamedConstructor=*
 NamedConstructor_CallWith=Document
 NamedConstructor_RaisesException
-NoInterfaceObject
 NotEnumerable
 PartialInterfaceImplementedAs=*
 PermissiveDictionaryConversion

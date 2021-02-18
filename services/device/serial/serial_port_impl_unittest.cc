@@ -4,7 +4,8 @@
 
 #include "services/device/serial/serial_port_impl.h"
 
-#include "base/test/bind_test_util.h"
+#include "base/stl_util.h"
+#include "base/test/bind.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
@@ -23,20 +24,38 @@ class FakeSerialIoHandler : public SerialIoHandler {
   FakeSerialIoHandler()
       : SerialIoHandler(base::FilePath(), /*ui_thread_task_runner=*/nullptr) {}
 
+  void SimulateOpenFailure(bool fail) { fail_open_ = fail; }
+
+  void SimulateGetControlSignalsFailure(bool fail) {
+    fail_get_control_signals_ = fail;
+  }
+
+  void SimulateSetControlSignalsFailure(bool fail) {
+    fail_set_control_signals_ = fail;
+  }
+
+  // SerialIoHandler implementation
   void Open(const mojom::SerialConnectionOptions& options,
             OpenCompleteCallback callback) override {
-    std::move(callback).Run(true);
+    std::move(callback).Run(!fail_open_);
   }
 
   void Flush(mojom::SerialPortFlushMode mode) const override {}
   void Drain() override {}
 
   mojom::SerialPortControlSignalsPtr GetControlSignals() const override {
-    return mojom::SerialPortControlSignals::New();
+    if (fail_get_control_signals_)
+      return nullptr;
+
+    return input_signals_.Clone();
   }
 
   bool SetControlSignals(
       const mojom::SerialHostControlSignals& control_signals) override {
+    if (fail_set_control_signals_)
+      return false;
+
+    output_signals_ = control_signals;
     return true;
   }
 
@@ -56,10 +75,20 @@ class FakeSerialIoHandler : public SerialIoHandler {
     QueueWriteCompleted(/*bytes_written=*/0, mojom::SerialSendError::NONE);
   }
 
-  bool ConfigurePortImpl() override { return true; }
+  bool ConfigurePortImpl() override {
+    // Open() is overridden so this should never be called.
+    ADD_FAILURE() << "ConfigurePortImpl() should not be reached.";
+    return false;
+  }
 
  private:
   ~FakeSerialIoHandler() override = default;
+
+  mojom::SerialPortControlSignals input_signals_;
+  mojom::SerialHostControlSignals output_signals_;
+  bool fail_open_ = false;
+  bool fail_get_control_signals_ = false;
+  bool fail_set_control_signals_ = false;
 };
 
 }  // namespace
@@ -71,16 +100,26 @@ class SerialPortImplTest : public DeviceServiceTestBase {
   void operator=(const SerialPortImplTest& other) = delete;
   ~SerialPortImplTest() override = default;
 
-  void CreatePort(
+  scoped_refptr<FakeSerialIoHandler> CreatePort(
       mojo::Remote<mojom::SerialPort>* port,
       mojo::SelfOwnedReceiverRef<mojom::SerialPortConnectionWatcher>* watcher) {
+    auto io_handler = base::MakeRefCounted<FakeSerialIoHandler>();
     mojo::PendingRemote<mojom::SerialPortConnectionWatcher> watcher_remote;
     *watcher = mojo::MakeSelfOwnedReceiver(
         std::make_unique<mojom::SerialPortConnectionWatcher>(),
         watcher_remote.InitWithNewPipeAndPassReceiver());
-    SerialPortImpl::CreateForTesting(
-        base::MakeRefCounted<FakeSerialIoHandler>(),
-        port->BindNewPipeAndPassReceiver(), std::move(watcher_remote));
+    base::RunLoop loop;
+    SerialPortImpl::OpenForTesting(
+        io_handler, mojom::SerialConnectionOptions::New(), mojo::NullRemote(),
+        std::move(watcher_remote),
+        base::BindLambdaForTesting(
+            [&](mojo::PendingRemote<mojom::SerialPort> pending_remote) {
+              EXPECT_TRUE(pending_remote.is_valid());
+              port->Bind(std::move(pending_remote));
+              loop.Quit();
+            }));
+    loop.Run();
+    return io_handler;
   }
 
   void CreateDataPipe(mojo::ScopedDataPipeProducerHandle* producer,
@@ -93,6 +132,24 @@ class SerialPortImplTest : public DeviceServiceTestBase {
 
     MojoResult result = mojo::CreateDataPipe(&options, producer, consumer);
     DCHECK_EQ(result, MOJO_RESULT_OK);
+  }
+
+  mojo::ScopedDataPipeConsumerHandle StartReading(
+      mojom::SerialPort* serial_port) {
+    mojo::ScopedDataPipeProducerHandle producer;
+    mojo::ScopedDataPipeConsumerHandle consumer;
+    CreateDataPipe(&producer, &consumer);
+    serial_port->StartReading(std::move(producer));
+    return consumer;
+  }
+
+  mojo::ScopedDataPipeProducerHandle StartWriting(
+      mojom::SerialPort* serial_port) {
+    mojo::ScopedDataPipeProducerHandle producer;
+    mojo::ScopedDataPipeConsumerHandle consumer;
+    CreateDataPipe(&producer, &consumer);
+    serial_port->StartWriting(std::move(consumer));
+    return producer;
   }
 };
 
@@ -139,10 +196,7 @@ TEST_F(SerialPortImplTest, FlushRead) {
   mojo::SelfOwnedReceiverRef<mojom::SerialPortConnectionWatcher> watcher;
   CreatePort(&serial_port, &watcher);
 
-  mojo::ScopedDataPipeProducerHandle producer;
-  mojo::ScopedDataPipeConsumerHandle consumer;
-  CreateDataPipe(&producer, &consumer);
-  serial_port->StartReading(std::move(producer));
+  mojo::ScopedDataPipeConsumerHandle consumer = StartReading(serial_port.get());
 
   // Calling Flush(kReceive) should cause the data pipe to close.
   base::RunLoop watcher_loop;
@@ -165,15 +219,67 @@ TEST_F(SerialPortImplTest, FlushRead) {
   watcher_loop.Run();
 }
 
+TEST_F(SerialPortImplTest, OpenFailure) {
+  auto io_handler = base::MakeRefCounted<FakeSerialIoHandler>();
+  io_handler->SimulateOpenFailure(true);
+
+  mojo::PendingRemote<mojom::SerialPortConnectionWatcher> watcher_remote;
+  mojo::MakeSelfOwnedReceiver(
+      std::make_unique<mojom::SerialPortConnectionWatcher>(),
+      watcher_remote.InitWithNewPipeAndPassReceiver());
+  base::RunLoop loop;
+  SerialPortImpl::OpenForTesting(
+      io_handler, mojom::SerialConnectionOptions::New(), mojo::NullRemote(),
+      std::move(watcher_remote),
+      base::BindLambdaForTesting(
+          [&](mojo::PendingRemote<mojom::SerialPort> pending_remote) {
+            EXPECT_FALSE(pending_remote.is_valid());
+            loop.Quit();
+          }));
+  loop.Run();
+}
+
+TEST_F(SerialPortImplTest, GetControlSignalsFailure) {
+  mojo::Remote<mojom::SerialPort> serial_port;
+  mojo::SelfOwnedReceiverRef<mojom::SerialPortConnectionWatcher> watcher;
+  scoped_refptr<FakeSerialIoHandler> io_handler =
+      CreatePort(&serial_port, &watcher);
+  io_handler->SimulateGetControlSignalsFailure(true);
+
+  base::RunLoop loop;
+  serial_port->GetControlSignals(base::BindLambdaForTesting(
+      [&](mojom::SerialPortControlSignalsPtr signals) {
+        EXPECT_FALSE(signals);
+        loop.Quit();
+      }));
+  loop.Run();
+}
+
+TEST_F(SerialPortImplTest, SetControlSignalsFailure) {
+  mojo::Remote<mojom::SerialPort> serial_port;
+  mojo::SelfOwnedReceiverRef<mojom::SerialPortConnectionWatcher> watcher;
+  scoped_refptr<FakeSerialIoHandler> io_handler =
+      CreatePort(&serial_port, &watcher);
+  io_handler->SimulateSetControlSignalsFailure(true);
+
+  base::RunLoop loop;
+  auto signals = mojom::SerialHostControlSignals::New();
+  signals->has_dtr = true;
+  signals->dtr = true;
+  serial_port->SetControlSignals(std::move(signals),
+                                 base::BindLambdaForTesting([&](bool success) {
+                                   EXPECT_FALSE(success);
+                                   loop.Quit();
+                                 }));
+  loop.Run();
+}
+
 TEST_F(SerialPortImplTest, FlushWrite) {
   mojo::Remote<mojom::SerialPort> serial_port;
   mojo::SelfOwnedReceiverRef<mojom::SerialPortConnectionWatcher> watcher;
   CreatePort(&serial_port, &watcher);
 
-  mojo::ScopedDataPipeProducerHandle producer;
-  mojo::ScopedDataPipeConsumerHandle consumer;
-  CreateDataPipe(&producer, &consumer);
-  serial_port->StartWriting(std::move(consumer));
+  mojo::ScopedDataPipeProducerHandle producer = StartWriting(serial_port.get());
 
   // Calling Flush(kTransmit) should cause the data pipe to close.
   base::RunLoop watcher_loop;
@@ -201,10 +307,7 @@ TEST_F(SerialPortImplTest, Drain) {
   mojo::SelfOwnedReceiverRef<mojom::SerialPortConnectionWatcher> watcher;
   CreatePort(&serial_port, &watcher);
 
-  mojo::ScopedDataPipeProducerHandle producer;
-  mojo::ScopedDataPipeConsumerHandle consumer;
-  CreateDataPipe(&producer, &consumer);
-  serial_port->StartWriting(std::move(consumer));
+  mojo::ScopedDataPipeProducerHandle producer = StartWriting(serial_port.get());
 
   // Drain() will wait for the data pipe to close before replying.
   producer.reset();

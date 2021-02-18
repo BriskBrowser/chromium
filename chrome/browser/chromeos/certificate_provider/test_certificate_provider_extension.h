@@ -18,7 +18,6 @@
 #include "extensions/common/extension_id.h"
 #include "net/cert/x509_certificate.h"
 #include "third_party/boringssl/src/include/openssl/base.h"
-#include "third_party/boringssl/src/include/openssl/evp.h"
 
 namespace base {
 class FilePath;
@@ -27,6 +26,10 @@ class Value;
 
 namespace content {
 class BrowserContext;
+}
+
+namespace crypto {
+class RSAPrivateKey;
 }
 
 // This class provides the C++ side of the test certificate provider extension's
@@ -52,6 +55,10 @@ class TestCertificateProviderExtension final
       content::BrowserContext* browser_context);
   ~TestCertificateProviderExtension() override;
 
+  // Causes the extension to call chrome.certificateProvider.setCertificates,
+  // providing the certificates that are currently available.
+  void TriggerSetCertificates();
+
   int certificate_request_count() const { return certificate_request_count_; }
 
   // Sets the PIN that will be required when doing every signature request.
@@ -66,11 +73,10 @@ class TestCertificateProviderExtension final
     remaining_pin_attempts_ = remaining_pin_attempts;
   }
 
-  // Sets whether the extension should respond with a failure to the
-  // onCertificatesRequested requests.
-  void set_should_fail_certificate_requests(
-      bool should_fail_certificate_requests) {
-    should_fail_certificate_requests_ = should_fail_certificate_requests;
+  // Sets whether the extension should return any certificates in response to a
+  // onCertificatesRequested request or a TriggerSetCertificates() call.
+  void set_should_provide_certificates(bool should_provide_certificates) {
+    should_provide_certificates_ = should_provide_certificates;
   }
 
   // Sets whether the extension should respond with a failure to the
@@ -97,7 +103,7 @@ class TestCertificateProviderExtension final
 
   content::BrowserContext* const browser_context_;
   const scoped_refptr<net::X509Certificate> certificate_;
-  const bssl::UniquePtr<EVP_PKEY> private_key_;
+  std::unique_ptr<crypto::RSAPrivateKey> private_key_;
   int certificate_request_count_ = 0;
   // When non-empty, contains the expected PIN; the implementation will request
   // the PIN on every signature request in this case.
@@ -106,7 +112,7 @@ class TestCertificateProviderExtension final
   // When equal to zero, signature requests will be failed immediately; when is
   // negative, infinite number of attempts is allowed.
   int remaining_pin_attempts_ = -1;
-  bool should_fail_certificate_requests_ = false;
+  bool should_provide_certificates_ = true;
   bool should_fail_sign_digest_requests_ = false;
   content::NotificationRegistrar notification_registrar_;
 

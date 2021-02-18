@@ -27,10 +27,10 @@ import org.chromium.chrome.browser.compositor.layouts.LayoutProvider;
 import org.chromium.chrome.browser.compositor.layouts.LayoutRenderHost;
 import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
 import org.chromium.chrome.browser.compositor.resources.StaticResourcePreloads;
-import org.chromium.chrome.browser.compositor.scene_layer.SceneLayer;
 import org.chromium.chrome.browser.externalnav.IntentWithRequestMetadataHandler;
+import org.chromium.chrome.browser.layouts.scene_layer.SceneLayer;
 import org.chromium.chrome.browser.multiwindow.MultiWindowUtils;
-import org.chromium.chrome.browser.tabmodel.TabModelImpl;
+import org.chromium.chrome.browser.tabmodel.TabSwitchMetrics;
 import org.chromium.components.browser_ui.styles.ChromeColors;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.base.WindowAndroid;
@@ -71,14 +71,15 @@ public class CompositorView
     // Lazily populated as it is needed.
     private View mRootActivityView;
     private WindowAndroid mWindowAndroid;
-    private LayerTitleCache mLayerTitleCache;
     private TabContentManager mTabContentManager;
 
     private View mRootView;
     private boolean mPreloadedResources;
     private List<Runnable> mDrawingFinishedCallbacks;
 
-    private boolean mIsInVr;
+    // True while the compositor view is in VR Browser mode (obsolescent), or in a WebXR
+    // "immersive-ar" session with DOM Overlay enabled. This disables SurfaceControl while active.
+    private boolean mIsInXr;
 
     private boolean mIsSurfaceControlEnabled;
     private boolean mSelectionHandlesActive;
@@ -99,7 +100,7 @@ public class CompositorView
         @Override
         public void onReceive(Context context, Intent intent) {
             if (intent.getAction().equals(Intent.ACTION_SCREEN_OFF)
-                    && mCompositorSurfaceManager != null && !mIsInVr
+                    && mCompositorSurfaceManager != null && !mIsInXr
                     && mNativeCompositorView != 0) {
                 mCompositorSurfaceManager.shutDown();
                 createCompositorSurfaceManager();
@@ -209,7 +210,7 @@ public class CompositorView
     public void onSelectionHandlesStateChanged(boolean active) {
         // If the feature is disabled or we're in Vr mode, we are already rendering directly to the
         // SurfaceView.
-        if (!mIsSurfaceControlEnabled || mIsInVr) return;
+        if (!mIsSurfaceControlEnabled || mIsInXr) return;
 
         if (mSelectionHandlesActive == active) return;
         mSelectionHandlesActive = active;
@@ -271,21 +272,19 @@ public class CompositorView
      * Initializes the {@link CompositorView}'s native parts (e.g. the rendering parts).
      * @param lowMemDevice         If this is a low memory device.
      * @param windowAndroid        A {@link WindowAndroid} instance.
-     * @param layerTitleCache      A {@link LayerTitleCache} instance.
      * @param tabContentManager    A {@link TabContentManager} instance.
      */
     public void initNativeCompositor(boolean lowMemDevice, WindowAndroid windowAndroid,
-            LayerTitleCache layerTitleCache, TabContentManager tabContentManager) {
+            TabContentManager tabContentManager) {
         // https://crbug.com/802160. We can't call setWindowAndroid here because updating the window
         // visibility here breaks exiting Reader Mode somehow.
         mWindowAndroid = windowAndroid;
         mWindowAndroid.addSelectionHandlesObserver(this);
 
-        mLayerTitleCache = layerTitleCache;
         mTabContentManager = tabContentManager;
 
-        mNativeCompositorView = CompositorViewJni.get().init(CompositorView.this, lowMemDevice,
-                windowAndroid, layerTitleCache, tabContentManager);
+        mNativeCompositorView = CompositorViewJni.get().init(
+                CompositorView.this, lowMemDevice, windowAndroid, tabContentManager);
 
         // compositor_impl_android.cc will use 565 EGL surfaces if and only if we're using a low
         // memory device, and no alpha channel is desired.  Otherwise, it will use 8888.  Since
@@ -343,19 +342,19 @@ public class CompositorView
      * @param enabled Whether to enter or leave overlay immersive ar mode.
      */
     public void setOverlayImmersiveArMode(boolean enabled) {
-        // In SurfaceControl mode, we don't need to switch surfaces for the compositor, we can
-        // continue using its already-translucent surface. (The ArImmersiveOverlay has its own
-        // separate opaque surface which is used for displaying the camera image and WebGL drawn
-        // content. The compositor surface appears on top of that as an overlay.)
-        // TODO(https://crbug.com/1122103): revisit once the stale-ChromeChildSurface issue is
-        // fixed.
-        if (!canUseSurfaceControl()) {
-            // If SurfaceControl is off, switch the compositor to a translucent surface, same as
-            // overlay video mode.
-            setOverlayVideoMode(enabled);
-        }
+        // Disable SurfaceControl for the duration of the session. This works around a black
+        // screen after activating the screen keyboard (IME), see https://crbug.com/1166248.
+        mIsInXr = enabled;
+
+        setOverlayVideoMode(enabled);
         CompositorViewJni.get().setOverlayImmersiveArMode(
                 mNativeCompositorView, CompositorView.this, enabled);
+        // Entering or exiting AR mode can leave SurfaceControl in a confused state, especially if
+        // the screen keyboard (IME) was activated, see https://crbug.com/1166248 and
+        // https://crbug.com/1169822. Reset the surface manager at session start and exit to work
+        // around this.
+        mCompositorSurfaceManager.shutDown();
+        createCompositorSurfaceManager();
     }
 
     private int getSurfacePixelFormat() {
@@ -378,7 +377,7 @@ public class CompositorView
     }
 
     private boolean canUseSurfaceControl() {
-        return !mIsInVr && !mSelectionHandlesActive;
+        return !mIsInXr && !mSelectionHandlesActive;
     }
 
     @Override
@@ -446,6 +445,20 @@ public class CompositorView
     void onControlsResizeViewChanged(WebContents webContents, boolean controlsResizeView) {
         CompositorViewJni.get().onControlsResizeViewChanged(
                 mNativeCompositorView, CompositorView.this, webContents, controlsResizeView);
+    }
+
+    /**
+     * Notifies geometrychange event to JS.
+     * @param webContents Active WebContent for which this event needs to be fired.
+     * @param x When the keyboard is shown, it has the left position of the app's rect, else, 0.
+     * @param y When the keyboard is shown, it has the top position of the app's rect, else, 0.
+     * @param width  When the keyboard is shown, it has the width of the view, else, 0.
+     * @param height When the keyboard is shown, it has the height of the keyboard, else, 0.
+     */
+    void notifyVirtualKeyboardOverlayRect(
+            WebContents webContents, int x, int y, int width, int height) {
+        CompositorViewJni.get().notifyVirtualKeyboardOverlayRect(
+                mNativeCompositorView, CompositorView.this, webContents, x, y, width, height);
     }
 
     @CalledByNative
@@ -534,13 +547,13 @@ public class CompositorView
 
         CompositorViewJni.get().setLayoutBounds(mNativeCompositorView, CompositorView.this);
 
-        SceneLayer sceneLayer = provider.getUpdatedActiveSceneLayer(mLayerTitleCache,
-                mTabContentManager, mResourceManager, provider.getBrowserControlsManager());
+        SceneLayer sceneLayer = provider.getUpdatedActiveSceneLayer(mTabContentManager,
+                mResourceManager, provider.getBrowserControlsManager());
 
         CompositorViewJni.get().setSceneLayer(
                 mNativeCompositorView, CompositorView.this, sceneLayer);
 
-        TabModelImpl.flushActualTabSwitchLatencyMetric();
+        TabSwitchMetrics.flushActualTabSwitchLatencyMetric();
         CompositorViewJni.get().finalizeLayers(mNativeCompositorView, CompositorView.this);
         TraceEvent.end("CompositorView:finalizeLayers");
     }
@@ -589,7 +602,7 @@ public class CompositorView
      */
     public void replaceSurfaceManagerForVr(
             CompositorSurfaceManager vrCompositorSurfaceManager, WindowAndroid window) {
-        mIsInVr = true;
+        mIsInXr = true;
 
         mCompositorSurfaceManager.shutDown();
         CompositorViewJni.get().setCompositorWindow(
@@ -607,7 +620,7 @@ public class CompositorView
      * @param windowToRestore The non-VR WindowAndroid to restore.
      */
     public void onExitVr(WindowAndroid windowToRestore) {
-        mIsInVr = false;
+        mIsInXr = false;
 
         if (mNativeCompositorView == 0) return;
         setWindowAndroid(windowToRestore);
@@ -635,7 +648,7 @@ public class CompositorView
     @NativeMethods
     interface Natives {
         long init(CompositorView caller, boolean lowMemDevice, WindowAndroid windowAndroid,
-                LayerTitleCache layerTitleCache, TabContentManager tabContentManager);
+                TabContentManager tabContentManager);
         void destroy(long nativeCompositorView, CompositorView caller);
         ResourceManager getResourceManager(long nativeCompositorView, CompositorView caller);
         void surfaceCreated(long nativeCompositorView, CompositorView caller);
@@ -646,6 +659,8 @@ public class CompositorView
                 WebContents webContents, int width, int height);
         void onControlsResizeViewChanged(long nativeCompositorView, CompositorView caller,
                 WebContents webContents, boolean controlsResizeView);
+        void notifyVirtualKeyboardOverlayRect(long nativeCompositorView, CompositorView caller,
+                WebContents webContents, int x, int y, int width, int height);
         void finalizeLayers(long nativeCompositorView, CompositorView caller);
         void setNeedsComposite(long nativeCompositorView, CompositorView caller);
         void setLayoutBounds(long nativeCompositorView, CompositorView caller);

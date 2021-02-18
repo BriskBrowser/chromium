@@ -5,8 +5,8 @@
 #include <memory>
 #include <string>
 
+#include "base/containers/contains.h"
 #include "base/macros.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
@@ -48,8 +48,10 @@ class TabUnderBlockerBrowserTest : public extensions::ExtensionBrowserTest {
     scoped_feature_list_.InitAndEnableFeature(
         TabUnderNavigationThrottle::kBlockTabUnders);
 
-    EXPECT_CALL(provider_, IsInitializationComplete(testing::_))
-        .WillRepeatedly(testing::Return(true));
+    ON_CALL(provider_, IsInitializationComplete(testing::_))
+        .WillByDefault(testing::Return(true));
+    ON_CALL(provider_, IsFirstPolicyLoadComplete(testing::_))
+        .WillByDefault(testing::Return(true));
     policy::BrowserPolicyConnector::SetPolicyProviderForTesting(&provider_);
   }
 
@@ -89,7 +91,7 @@ class TabUnderBlockerBrowserTest : public extensions::ExtensionBrowserTest {
 
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
-  policy::MockConfigurationPolicyProvider provider_;
+  testing::NiceMock<policy::MockConfigurationPolicyProvider> provider_;
 
   DISALLOW_COPY_AND_ASSIGN(TabUnderBlockerBrowserTest);
 };
@@ -308,9 +310,9 @@ IN_PROC_BROWSER_TEST_F(TabUnderBlockerBrowserTest, ControlledBySetting) {
   {
     HostContentSettingsMap* settings_map =
         HostContentSettingsMapFactory::GetForProfile(browser()->profile());
-    settings_map->SetContentSettingDefaultScope(
-        top_level_url, GURL(), ContentSettingsType::POPUPS, std::string(),
-        CONTENT_SETTING_ALLOW);
+    settings_map->SetContentSettingDefaultScope(top_level_url, GURL(),
+                                                ContentSettingsType::POPUPS,
+                                                CONTENT_SETTING_ALLOW);
     content::TestNavigationObserver tab_under_observer(opener, 1);
     const GURL cross_origin_url =
         embedded_test_server()->GetURL("a.com", "/title1.html");

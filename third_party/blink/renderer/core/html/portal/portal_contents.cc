@@ -5,7 +5,9 @@
 #include "third_party/blink/renderer/core/html/portal/portal_contents.h"
 
 #include "base/compiler_specific.h"
+#include "base/rand_util.h"
 #include "base/time/time.h"
+#include "base/trace_event/trace_id_helper.h"
 #include "third_party/blink/public/mojom/loader/referrer.mojom-blink.h"
 #include "third_party/blink/public/mojom/portal/portal.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/dom/increment_load_event_delay_count.h"
@@ -21,6 +23,7 @@
 #include "third_party/blink/renderer/core/messaging/blink_transferable_message.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 
 namespace blink {
 
@@ -58,11 +61,15 @@ void PortalContents::Activate(BlinkTransferableMessage data,
   document_portals.SetActivatingPortalContents(this);
   activation_delegate_ = delegate;
 
+  uint64_t trace_id = base::trace_event::GetNextGlobalTraceId();
+  TRACE_EVENT_WITH_FLOW0("navigation", "PortalContents::Activate",
+                         TRACE_ID_GLOBAL(trace_id), TRACE_EVENT_FLAG_FLOW_OUT);
+
   // Request activation from the browser process.
   // This object (and thus the Mojo connection it owns) remains alive while the
   // renderer awaits the response.
   remote_portal_->Activate(
-      std::move(data), base::TimeTicks::Now(),
+      std::move(data), base::TimeTicks::Now(), trace_id,
       WTF::Bind(&PortalContents::OnActivateResponse, WrapPersistent(this)));
 
   // Dissociate from the element. The element is expected to do the same.
@@ -119,10 +126,8 @@ void PortalContents::OnActivateResponse(
     Destroy();
 }
 
-void PortalContents::PostMessageToGuest(
-    BlinkTransferableMessage message,
-    const scoped_refptr<const SecurityOrigin>& target_origin) {
-  remote_portal_->PostMessageToGuest(std::move(message), target_origin);
+void PortalContents::PostMessageToGuest(BlinkTransferableMessage message) {
+  remote_portal_->PostMessageToGuest(std::move(message));
 }
 
 void PortalContents::Navigate(
@@ -183,13 +188,12 @@ void PortalContents::DisconnectHandler() {
 
 void PortalContents::ForwardMessageFromGuest(
     BlinkTransferableMessage message,
-    const scoped_refptr<const SecurityOrigin>& source_origin,
-    const scoped_refptr<const SecurityOrigin>& target_origin) {
+    const scoped_refptr<const SecurityOrigin>& source_origin) {
   if (!IsValid() || !portal_element_)
     return;
 
   PortalPostMessageHelper::CreateAndDispatchMessageEvent(
-      portal_element_, std::move(message), source_origin, target_origin);
+      portal_element_, std::move(message), source_origin);
 }
 
 void PortalContents::DispatchLoadEvent() {

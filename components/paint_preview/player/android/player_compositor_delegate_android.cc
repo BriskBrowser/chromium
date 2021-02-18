@@ -31,6 +31,10 @@ namespace paint_preview {
 
 namespace {
 
+// To minimize peak memory usage limit the number of concurrent bitmap requests.
+constexpr size_t kMaxParallelBitmapRequests = 3;
+constexpr size_t kMaxParallelBitmapRequestsLowMemory = 1;
+
 ScopedJavaLocalRef<jobjectArray> ToJavaUnguessableTokenArray(
     JNIEnv* env,
     const std::vector<base::UnguessableToken>& tokens) {
@@ -51,7 +55,7 @@ ScopedJavaLocalRef<jobjectArray> ToJavaUnguessableTokenArray(
 
 ScopedJavaGlobalRef<jobject> ConvertToJavaBitmap(const SkBitmap& sk_bitmap) {
   return ScopedJavaGlobalRef<jobject>(
-      gfx::ConvertToJavaBitmap(&sk_bitmap, gfx::OomBehavior::kReturnNullOnOom));
+      gfx::ConvertToJavaBitmap(sk_bitmap, gfx::OomBehavior::kReturnNullOnOom));
 }
 
 }  // namespace
@@ -60,14 +64,18 @@ jlong JNI_PlayerCompositorDelegateImpl_Initialize(
     JNIEnv* env,
     const JavaParamRef<jobject>& j_object,
     jlong paint_preview_service,
+    const JavaParamRef<jbyteArray>& j_proto,
     const JavaParamRef<jstring>& j_url_spec,
     const JavaParamRef<jstring>& j_directory_key,
-    const JavaParamRef<jobject>& j_compositor_error_callback) {
+    jboolean j_main_frame_mode,
+    const JavaParamRef<jobject>& j_compositor_error_callback,
+    jboolean j_is_low_mem) {
   PlayerCompositorDelegateAndroid* delegate =
       new PlayerCompositorDelegateAndroid(
           env, j_object,
           reinterpret_cast<PaintPreviewBaseService*>(paint_preview_service),
-          j_url_spec, j_directory_key, j_compositor_error_callback);
+          j_proto, j_url_spec, j_directory_key, j_main_frame_mode,
+          j_compositor_error_callback, j_is_low_mem);
   return reinterpret_cast<intptr_t>(delegate);
 }
 
@@ -75,19 +83,38 @@ PlayerCompositorDelegateAndroid::PlayerCompositorDelegateAndroid(
     JNIEnv* env,
     const JavaParamRef<jobject>& j_object,
     PaintPreviewBaseService* paint_preview_service,
+    const JavaParamRef<jbyteArray>& j_proto,
     const JavaParamRef<jstring>& j_url_spec,
     const JavaParamRef<jstring>& j_directory_key,
-    const JavaParamRef<jobject>& j_compositor_error_callback)
-    : PlayerCompositorDelegate(
-          paint_preview_service,
-          GURL(base::android::ConvertJavaStringToUTF8(env, j_url_spec)),
-          DirectoryKey{
-              base::android::ConvertJavaStringToUTF8(env, j_directory_key)},
-          base::BindOnce(
-              &base::android::RunIntCallbackAndroid,
-              ScopedJavaGlobalRef<jobject>(j_compositor_error_callback))),
+    jboolean j_main_frame_mode,
+    const JavaParamRef<jobject>& j_compositor_error_callback,
+    jboolean j_is_low_mem)
+    : PlayerCompositorDelegate(),
       request_id_(0),
       startup_timestamp_(base::TimeTicks::Now()) {
+  if (j_proto) {
+    std::string serialized_proto;
+    base::android::JavaByteArrayToString(env, j_proto, &serialized_proto);
+    auto proto = std::make_unique<PaintPreviewProto>();
+    if (!proto->ParseFromString(serialized_proto)) {
+      base::android::RunIntCallbackAndroid(
+          j_compositor_error_callback,
+          static_cast<int>(CompositorStatus::PROTOBUF_DESERIALIZATION_ERROR));
+      return;
+    }
+    PlayerCompositorDelegate::SetProto(std::move(proto));
+  }
+  PlayerCompositorDelegate::Initialize(
+      paint_preview_service,
+      GURL(base::android::ConvertJavaStringToUTF8(env, j_url_spec)),
+      DirectoryKey{
+          base::android::ConvertJavaStringToUTF8(env, j_directory_key)},
+      static_cast<bool>(j_main_frame_mode),
+      base::BindOnce(&base::android::RunIntCallbackAndroid,
+                     ScopedJavaGlobalRef<jobject>(j_compositor_error_callback)),
+      base::TimeDelta::FromSeconds(15),
+      (static_cast<bool>(j_is_low_mem) ? kMaxParallelBitmapRequestsLowMemory
+                                       : kMaxParallelBitmapRequests));
   java_ref_.Reset(env, j_object);
 }
 
@@ -98,16 +125,12 @@ void PlayerCompositorDelegateAndroid::OnCompositorReady(
   base::UmaHistogramBoolean(
       "Browser.PaintPreview.Player.CompositorProcessStartedCorrectly",
       compositor_started);
-  if (!compositor_started && compositor_error_) {
-    LOG(ERROR) << "Compositor process failed to begin with code: "
-               << static_cast<int>(compositor_status);
-    std::move(compositor_error_).Run(static_cast<int>(compositor_status));
+  if (!compositor_started) {
+    DLOG(ERROR) << "Compositor process failed to begin with code: "
+                << static_cast<int>(compositor_status);
+    if (compositor_error_)
+      std::move(compositor_error_).Run(static_cast<int>(compositor_status));
 
-    // If there was a problem, prevent it from happening again by deleting it.
-    auto file_manager = paint_preview_service_->GetFileManager();
-    file_manager->GetTaskRunner()->PostTask(
-        FROM_HERE,
-        base::BindOnce(&FileManager::DeleteArtifactSet, file_manager, key_));
     return;
   }
   auto delta = base::TimeTicks::Now() - startup_timestamp_;
@@ -157,6 +180,18 @@ void PlayerCompositorDelegateAndroid::OnCompositorReady(
       j_scroll_offsets, j_subframe_count, j_subframe_ids, j_subframe_rects);
 }
 
+void PlayerCompositorDelegateAndroid::OnMemoryPressure(
+    base::MemoryPressureListener::MemoryPressureLevel memory_pressure_level) {
+  // Don't handle the critical case leave that to the base class implementation
+  // which should kill the preview.
+  if (memory_pressure_level ==
+      base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_MODERATE) {
+    Java_PlayerCompositorDelegateImpl_onModerateMemoryPressure(
+        base::android::AttachCurrentThread(), java_ref_);
+  }
+  PlayerCompositorDelegate::OnMemoryPressure(memory_pressure_level);
+}
+
 // static
 void PlayerCompositorDelegateAndroid::CompositeResponseFramesToVectors(
     const base::flat_map<base::UnguessableToken, mojom::FrameDataPtr>& frames,
@@ -193,7 +228,7 @@ void PlayerCompositorDelegateAndroid::CompositeResponseFramesToVectors(
   }
 }
 
-void PlayerCompositorDelegateAndroid::RequestBitmap(
+jint PlayerCompositorDelegateAndroid::RequestBitmap(
     JNIEnv* env,
     const JavaParamRef<jobject>& j_frame_guid,
     const JavaParamRef<jobject>& j_bitmap_callback,
@@ -206,19 +241,34 @@ void PlayerCompositorDelegateAndroid::RequestBitmap(
   TRACE_EVENT_NESTABLE_ASYNC_BEGIN0(
       "paint_preview", "PlayerCompositorDelegateAndroid::RequestBitmap",
       TRACE_ID_LOCAL(request_id_));
-
-  gfx::Rect clip_rect =
-      gfx::Rect(j_clip_x, j_clip_y, j_clip_width, j_clip_height);
-  PlayerCompositorDelegate::RequestBitmap(
-      base::android::UnguessableTokenAndroid::FromJavaUnguessableToken(
-          env, j_frame_guid),
-      clip_rect, j_scale_factor,
-      base::BindOnce(&PlayerCompositorDelegateAndroid::OnBitmapCallback,
-                     weak_factory_.GetWeakPtr(),
-                     ScopedJavaGlobalRef<jobject>(j_bitmap_callback),
-                     ScopedJavaGlobalRef<jobject>(j_error_callback),
-                     request_id_));
+  gfx::Rect rect(j_clip_x, j_clip_y, j_clip_width, j_clip_height);
+  auto callback = base::BindOnce(
+      &PlayerCompositorDelegateAndroid::OnBitmapCallback,
+      weak_factory_.GetWeakPtr(),
+      ScopedJavaGlobalRef<jobject>(j_bitmap_callback),
+      ScopedJavaGlobalRef<jobject>(j_error_callback), request_id_);
   ++request_id_;
+
+  base::Optional<base::UnguessableToken> frame_guid;
+  if (j_frame_guid) {
+    frame_guid =
+        base::android::UnguessableTokenAndroid::FromJavaUnguessableToken(
+            env, j_frame_guid);
+  }
+
+  return static_cast<jint>(PlayerCompositorDelegate::RequestBitmap(
+      frame_guid, rect, j_scale_factor, std::move(callback)));
+}
+
+jboolean PlayerCompositorDelegateAndroid::CancelBitmapRequest(
+    JNIEnv* env,
+    jint j_request_id) {
+  return static_cast<jboolean>(PlayerCompositorDelegate::CancelBitmapRequest(
+      static_cast<int32_t>(j_request_id)));
+}
+
+void PlayerCompositorDelegateAndroid::CancelAllBitmapRequests(JNIEnv* env) {
+  PlayerCompositorDelegate::CancelAllBitmapRequests();
 }
 
 void PlayerCompositorDelegateAndroid::OnBitmapCallback(
@@ -232,32 +282,35 @@ void PlayerCompositorDelegateAndroid::OnBitmapCallback(
       TRACE_ID_LOCAL(request_id), "status", static_cast<int>(status), "bytes",
       sk_bitmap.computeByteSize());
 
-  if (status == mojom::PaintPreviewCompositor::BitmapStatus::kSuccess &&
-      !sk_bitmap.isNull()) {
-    base::ThreadPool::PostTaskAndReplyWithResult(
-        FROM_HERE, {base::TaskPriority::USER_VISIBLE},
-        base::BindOnce(&ConvertToJavaBitmap, sk_bitmap),
-        base::BindOnce(base::BindOnce(
-            [](const ScopedJavaGlobalRef<jobject>& j_bitmap_callback,
-               const ScopedJavaGlobalRef<jobject>& j_error_callback,
-               const ScopedJavaGlobalRef<jobject>& j_bitmap) {
-              if (!j_bitmap) {
-                base::android::RunRunnableAndroid(j_error_callback);
-                return;
-              }
-              base::android::RunObjectCallbackAndroid(j_bitmap_callback,
-                                                      j_bitmap);
-            },
-            j_bitmap_callback, j_error_callback)));
-    if (request_id == 0) {
-      auto delta = base::TimeTicks::Now() - startup_timestamp_;
-      if (delta.InMicroseconds() >= 0) {
-        base::UmaHistogramTimes("Browser.PaintPreview.Player.TimeToFirstBitmap",
-                                delta);
-      }
-    }
-  } else {
+  if (status != mojom::PaintPreviewCompositor::BitmapStatus::kSuccess ||
+      sk_bitmap.isNull() || sk_bitmap.info().width() <= 0 ||
+      sk_bitmap.info().height() <= 0) {
     base::android::RunRunnableAndroid(j_error_callback);
+    return;
+  }
+
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::TaskPriority::USER_VISIBLE},
+      base::BindOnce(&ConvertToJavaBitmap, sk_bitmap),
+      base::BindOnce(base::BindOnce(
+          [](const ScopedJavaGlobalRef<jobject>& j_bitmap_callback,
+             const ScopedJavaGlobalRef<jobject>& j_error_callback,
+             const ScopedJavaGlobalRef<jobject>& j_bitmap) {
+            if (!j_bitmap) {
+              base::android::RunRunnableAndroid(j_error_callback);
+              return;
+            }
+            base::android::RunObjectCallbackAndroid(j_bitmap_callback,
+                                                    j_bitmap);
+          },
+          j_bitmap_callback, j_error_callback)));
+
+  if (request_id == 0) {
+    auto delta = base::TimeTicks::Now() - startup_timestamp_;
+    if (delta.InMicroseconds() >= 0) {
+      base::UmaHistogramTimes("Browser.PaintPreview.Player.TimeToFirstBitmap",
+                              delta);
+    }
   }
 }
 
@@ -272,6 +325,7 @@ ScopedJavaLocalRef<jstring> PlayerCompositorDelegateAndroid::OnClick(
       gfx::Rect(static_cast<int>(j_x), static_cast<int>(j_y), 1U, 1U));
   if (res.empty())
     return base::android::ConvertUTF8ToJavaString(env, "");
+
   base::UmaHistogramBoolean("Browser.PaintPreview.Player.LinkClicked", true);
   // TODO(crbug/1061435): Resolve cases where there are multiple links.
   // For now just return the first in the list.

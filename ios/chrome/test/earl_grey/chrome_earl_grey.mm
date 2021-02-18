@@ -13,31 +13,24 @@
 #import "base/test/ios/wait_util.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_app_interface.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
+#import "ios/testing/earl_grey/app_launch_configuration.h"
+#import "ios/testing/earl_grey/app_launch_manager.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
 #import "ios/testing/nserror_util.h"
 #include "ios/web/public/test/element_selector.h"
 #include "net/base/mac/url_conversions.h"
-
-#if defined(CHROME_EARL_GREY_1)
-#import <WebKit/WebKit.h>
-
-#import "ios/chrome/test/app/browsing_data_test_util.h"          // nogncheck
-#import "ios/chrome/test/app/chrome_test_util.h"                 // nogncheck
-#include "ios/chrome/test/app/navigation_test_util.h"            // nogncheck
-#import "ios/chrome/test/app/sync_test_util.h"                   // nogncheck
-#import "ios/chrome/test/app/tab_test_util.h"                    // nogncheck
-#import "ios/web/public/deprecated/crw_js_injection_receiver.h"  // nogncheck
-#import "ios/web/public/test/earl_grey/js_test_util.h"           // nogncheck
-#import "ios/web/public/test/web_view_content_test_util.h"       // nogncheck
-#import "ios/web/public/test/web_view_interaction_test_util.h"   // nogncheck
-#import "ios/web/public/web_state.h"                             // nogncheck
-#endif
 
 using base::test::ios::kWaitForActionTimeout;
 using base::test::ios::kWaitForJSCompletionTimeout;
 using base::test::ios::kWaitForPageLoadTimeout;
 using base::test::ios::kWaitForUIElementTimeout;
 using base::test::ios::WaitUntilConditionOrTimeout;
+using chrome_test_util::ActivityViewHeader;
+using chrome_test_util::CopyLinkButton;
+using chrome_test_util::OpenLinkInNewTabButton;
+using chrome_test_util::OpenLinkInIncognitoButton;
+using chrome_test_util::OpenLinkInNewWindowButton;
+using chrome_test_util::ShareButton;
 
 namespace {
 NSString* const kWaitForPageToStartLoadingError = @"Page did not start to load";
@@ -53,9 +46,7 @@ NSString* const kWaitForRestoreSessionToFinishError =
 #error "This file requires ARC support."
 #endif
 
-#if defined(CHROME_EARL_GREY_2)
 GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
-#endif  // defined(CHROME_EARL_GREY_2)
 
 @interface ChromeEarlGreyImpl ()
 
@@ -91,64 +82,24 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
 
 #pragma mark - Device Utilities
 
-- (void)rotateDeviceToOrientation:(UIDeviceOrientation)deviceOrientation
-                            error:(NSError**)error {
-#if defined(CHROME_EARL_GREY_1)
-  NSError* strongErrorReference = nil;
-  [EarlGrey rotateDeviceToOrientation:deviceOrientation
-                           errorOrNil:&strongErrorReference];
-  if (error)
-    *error = strongErrorReference;
-#elif defined(CHROME_EARL_GREY_2)
-  [EarlGrey rotateDeviceToOrientation:deviceOrientation error:error];
-#else
-#error Neither CHROME_EARL_GREY_1 nor CHROME_EARL_GREY_2 are defined
-#endif
-}
-
-- (BOOL)isKeyboardShownWithError:(NSError**)error {
-  return
-#if defined(CHROME_EARL_GREY_1)
-      [GREYKeyboard isKeyboardShown];
-#elif defined(CHROME_EARL_GREY_2)
-      [EarlGrey isKeyboardShownWithError:error];
-#else
-#error Neither CHROME_EARL_GREY_1 nor CHROME_EARL_GREY_2 are defined
-#endif
-}
-
 - (BOOL)isIPadIdiom {
-#if defined(CHROME_EARL_GREY_1)
-  UIUserInterfaceIdiom idiom = [[UIDevice currentDevice] userInterfaceIdiom];
-#elif defined(CHROME_EARL_GREY_2)
   UIUserInterfaceIdiom idiom =
       [[GREY_REMOTE_CLASS_IN_APP(UIDevice) currentDevice] userInterfaceIdiom];
-#endif
 
   return idiom == UIUserInterfaceIdiomPad;
 }
 
 - (BOOL)isCompactWidth {
   UIUserInterfaceSizeClass horizontalSpace =
-#if defined(CHROME_EARL_GREY_1)
-      [[[[UIApplication sharedApplication] keyWindow] traitCollection]
-          horizontalSizeClass];
-#elif defined(CHROME_EARL_GREY_2)
       [[[[GREY_REMOTE_CLASS_IN_APP(UIApplication) sharedApplication] keyWindow]
           traitCollection] horizontalSizeClass];
-#endif
   return horizontalSpace == UIUserInterfaceSizeClassCompact;
 }
 
 - (BOOL)isCompactHeight {
   UIUserInterfaceSizeClass verticalSpace =
-#if defined(CHROME_EARL_GREY_1)
-      [[[[UIApplication sharedApplication] keyWindow] traitCollection]
-          verticalSizeClass];
-#elif defined(CHROME_EARL_GREY_2)
       [[[[GREY_REMOTE_CLASS_IN_APP(UIApplication) sharedApplication] keyWindow]
           traitCollection] verticalSizeClass];
-#endif
   return verticalSpace == UIUserInterfaceSizeClassCompact;
 }
 
@@ -158,12 +109,8 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
 
 - (BOOL)isRegularXRegularSizeClass {
   UITraitCollection* traitCollection =
-#if defined(CHROME_EARL_GREY_1)
-      [[[UIApplication sharedApplication] keyWindow] traitCollection];
-#elif defined(CHROME_EARL_GREY_2)
       [[[GREY_REMOTE_CLASS_IN_APP(UIApplication) sharedApplication] keyWindow]
           traitCollection];
-#endif
   return traitCollection.verticalSizeClass == UIUserInterfaceSizeClassRegular &&
          traitCollection.horizontalSizeClass == UIUserInterfaceSizeClassRegular;
 }
@@ -179,8 +126,16 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
   GREYWaitForAppToIdle(@"App failed to idle");
 }
 
-- (NSInteger)getBrowsingHistoryEntryCount {
-  return [ChromeEarlGreyAppInterface getBrowsingHistoryEntryCount];
+- (NSInteger)browsingHistoryEntryCount {
+  NSError* error = nil;
+  NSInteger result =
+      [ChromeEarlGreyAppInterface browsingHistoryEntryCountWithError:&error];
+  EG_TEST_HELPER_ASSERT_NO_ERROR(error);
+  return result;
+}
+
+- (NSInteger)navigationBackListItemsCount {
+  return [ChromeEarlGreyAppInterface navigationBackListItemsCount];
 }
 
 - (void)removeBrowsingCache {
@@ -355,7 +310,7 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
                     return ![ChromeEarlGreyAppInterface isLoading];
                   }];
 
-  bool pageLoaded = [finishedLoading waitWithTimeout:kWaitForPageLoadTimeout];
+  BOOL pageLoaded = [finishedLoading waitWithTimeout:kWaitForPageLoadTimeout];
   EG_TEST_HELPER_ASSERT_TRUE(pageLoaded, kWaitForPageToFinishLoadingError);
 }
 
@@ -402,6 +357,40 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
   bool matchedElement =
       [waitForElement waitWithTimeout:kWaitForUIElementTimeout];
   EG_TEST_HELPER_ASSERT_TRUE(matchedElement, errorDescription);
+}
+
+- (void)waitForUIElementToAppearWithMatcher:(id<GREYMatcher>)matcher {
+  NSString* errorDescription = [NSString
+      stringWithFormat:@"Failed waiting for element with matcher %@ to appear",
+                       matcher];
+
+  ConditionBlock condition = ^{
+    NSError* error = nil;
+    [[EarlGrey selectElementWithMatcher:matcher] assertWithMatcher:grey_notNil()
+                                                             error:&error];
+    return error == nil;
+  };
+
+  bool matched =
+      WaitUntilConditionOrTimeout(kWaitForUIElementTimeout, condition);
+  GREYAssert(matched, errorDescription);
+}
+
+- (void)waitForUIElementToDisappearWithMatcher:(id<GREYMatcher>)matcher {
+  NSString* errorDescription = [NSString
+      stringWithFormat:
+          @"Failed waiting for element with matcher %@ to disappear", matcher];
+
+  ConditionBlock condition = ^{
+    NSError* error = nil;
+    [[EarlGrey selectElementWithMatcher:matcher] assertWithMatcher:grey_nil()
+                                                             error:&error];
+    return error == nil;
+  };
+
+  bool matched =
+      WaitUntilConditionOrTimeout(kWaitForUIElementTimeout, condition);
+  GREYAssert(matched, errorDescription);
 }
 
 - (NSString*)currentTabTitle {
@@ -530,30 +519,6 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
   EG_TEST_HELPER_ASSERT_TRUE(tabCountEqual, errorString);
 }
 
-- (void)waitForBrowserCount:(NSUInteger)count {
-  __block NSUInteger actualCount = [ChromeEarlGreyAppInterface browserCount];
-  NSString* conditionName = [NSString
-      stringWithFormat:@"Waiting for window count to become %" PRIuNS, count];
-
-  // Allow the UI to become idle, in case any tabs are being opened or closed.
-  GREYWaitForAppToIdle(@"App failed to idle");
-
-  GREYCondition* browserCountCheck = [GREYCondition
-      conditionWithName:conditionName
-                  block:^{
-                    actualCount = [ChromeEarlGreyAppInterface browserCount];
-                    return actualCount == count;
-                  }];
-  bool browserCountEqual =
-      [browserCountCheck waitWithTimeout:kWaitForUIElementTimeout];
-
-  NSString* errorString = [NSString
-      stringWithFormat:@"Failed waiting for window count to become %" PRIuNS
-                        "; actual count: %" PRIuNS,
-                       count, actualCount];
-  EG_TEST_HELPER_ASSERT_TRUE(browserCountEqual, errorString);
-}
-
 - (NSUInteger)indexOfActiveNormalTab {
   return [ChromeEarlGreyAppInterface indexOfActiveNormalTab];
 }
@@ -649,6 +614,8 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
 }
 
 - (void)triggerRestoreViaTabGridRemoveAllUndo {
+  [ChromeEarlGreyAppInterface disableCloseAllTabsConfirmation];
+
   [ChromeEarlGrey showTabSwitcher];
   GREYWaitForAppToIdle(@"App failed to idle");
   [ChromeEarlGrey
@@ -658,6 +625,8 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
   [ChromeEarlGrey waitForAndTapButton:chrome_test_util::TabGridDoneButton()];
   [self waitForRestoreSessionToFinish];
   [self waitForPageToFinishLoading];
+
+  [ChromeEarlGreyAppInterface resetCloseAllTabsConfirmation];
 }
 
 - (BOOL)webStateWebViewUsesContentInset {
@@ -666,6 +635,13 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
 
 - (CGSize)webStateWebViewSize {
   return [ChromeEarlGreyAppInterface webStateWebViewSize];
+}
+
+- (void)stopAllWebStatesLoading {
+  [ChromeEarlGreyAppInterface stopAllWebStatesLoading];
+  // Wait for any UI change.
+  GREYWaitForAppToIdle(
+      @"Failed to wait app to idle after stopping all WebStates");
 }
 
 #pragma mark - Settings Utilities (EG2)
@@ -786,6 +762,11 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
   EG_TEST_HELPER_ASSERT_TRUE(success, kTypedURLError);
 }
 
+- (void)waitForSyncInvalidationFields {
+  EG_TEST_HELPER_ASSERT_NO_ERROR(
+      [ChromeEarlGreyAppInterface waitForSyncInvalidationFields]);
+}
+
 - (void)triggerSyncCycleForType:(syncer::ModelType)type {
   [ChromeEarlGreyAppInterface triggerSyncCycleForType:type];
 }
@@ -833,6 +814,205 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
 
   bool success = [verifyEntities waitWithTimeout:timeout];
   EG_TEST_HELPER_ASSERT_TRUE(success, errorString);
+}
+
+#pragma mark - Window utilities (EG2)
+
+// Returns the number of windows, including background and disconnected or
+// archived windows.
+- (NSUInteger)windowCount WARN_UNUSED_RESULT {
+  return [ChromeEarlGreyAppInterface windowCount];
+}
+
+// Returns the number of foreground (visible on screen) windows.
+- (NSUInteger)foregroundWindowCount WARN_UNUSED_RESULT {
+  return [ChromeEarlGreyAppInterface foregroundWindowCount];
+}
+
+// Closes all but one window, including all non-foreground windows. Then kills
+// and relaunches app with launch args specified in |appConfig|. No-op if only
+// one window presents.
+- (void)closeAllExtraWindows {
+  if ([self windowCount] <= 1) {
+    return;
+  }
+  [ChromeEarlGreyAppInterface closeAllExtraWindows];
+
+  // Tab changes are initiated through |WebStateList|. Need to wait its
+  // observers to complete UI changes at app. Wait until window count is
+  // officially 1 in the app, otherwise we may start a new test while the
+  // removed window is still partly registered.
+  [self waitForForegroundWindowCount:1];
+}
+
+- (void)waitForForegroundWindowCount:(NSUInteger)count {
+  __block NSUInteger actualCount =
+      [ChromeEarlGreyAppInterface foregroundWindowCount];
+  NSString* conditionName = [NSString
+      stringWithFormat:@"Waiting for window count to become %" PRIuNS, count];
+
+  // Allow the UI to become idle, in case any tabs are being opened or closed.
+  GREYWaitForAppToIdle(@"App failed to idle");
+
+  GREYCondition* browserCountCheck = [GREYCondition
+      conditionWithName:conditionName
+                  block:^{
+                    actualCount =
+                        [ChromeEarlGreyAppInterface foregroundWindowCount];
+                    return actualCount == count;
+                  }];
+  bool browserCountEqual =
+      [browserCountCheck waitWithTimeout:kWaitForUIElementTimeout];
+
+  NSString* errorString = [NSString
+      stringWithFormat:@"Failed waiting for window count to become %" PRIuNS
+                        "; actual count: %" PRIuNS,
+                       count, actualCount];
+  EG_TEST_HELPER_ASSERT_TRUE(browserCountEqual, errorString);
+}
+
+- (void)openNewWindow {
+  EG_TEST_HELPER_ASSERT_NO_ERROR([ChromeEarlGreyAppInterface openNewWindow]);
+}
+
+- (void)openNewTabInWindowWithNumber:(int)windowNumber {
+  [ChromeEarlGreyAppInterface openNewTabInWindowWithNumber:windowNumber];
+  [self waitForPageToFinishLoadingInWindowWithNumber:windowNumber];
+  GREYWaitForAppToIdle(@"App failed to idle");
+}
+
+- (void)closeWindowWithNumber:(int)windowNumber {
+  [ChromeEarlGreyAppInterface closeWindowWithNumber:windowNumber];
+}
+
+- (void)changeWindowWithNumber:(int)windowNumber
+                   toNewNumber:(int)newWindowNumber {
+  [ChromeEarlGreyAppInterface changeWindowWithNumber:windowNumber
+                                         toNewNumber:newWindowNumber];
+}
+
+- (void)waitForPageToFinishLoadingInWindowWithNumber:(int)windowNumber {
+  GREYCondition* finishedLoading = [GREYCondition
+      conditionWithName:kWaitForPageToFinishLoadingError
+                  block:^{
+                    return ![ChromeEarlGreyAppInterface
+                        isLoadingInWindowWithNumber:windowNumber];
+                  }];
+
+  BOOL pageLoaded = [finishedLoading waitWithTimeout:kWaitForPageLoadTimeout];
+  EG_TEST_HELPER_ASSERT_TRUE(pageLoaded, kWaitForPageToFinishLoadingError);
+}
+
+- (void)loadURL:(const GURL&)URL
+    inWindowWithNumber:(int)windowNumber
+     waitForCompletion:(BOOL)wait {
+  NSString* spec = base::SysUTF8ToNSString(URL.spec());
+  [ChromeEarlGreyAppInterface startLoadingURL:spec
+                           inWindowWithNumber:windowNumber];
+  if (wait) {
+    [self waitForPageToFinishLoadingInWindowWithNumber:windowNumber];
+    EG_TEST_HELPER_ASSERT_TRUE(
+        [ChromeEarlGreyAppInterface
+            waitForWindowIDInjectionIfNeededInWindowWithNumber:windowNumber],
+        @"WindowID failed to inject");
+  }
+}
+
+- (void)loadURL:(const GURL&)URL inWindowWithNumber:(int)windowNumber {
+  return [self loadURL:URL
+      inWindowWithNumber:windowNumber
+       waitForCompletion:YES];
+}
+
+- (BOOL)isLoadingInWindowWithNumber:(int)windowNumber {
+  return [ChromeEarlGreyAppInterface isLoadingInWindowWithNumber:windowNumber];
+}
+
+- (void)waitForWebStateContainingText:(const std::string&)UTF8Text
+                   inWindowWithNumber:(int)windowNumber {
+  [self waitForWebStateContainingText:UTF8Text
+                              timeout:kWaitForPageLoadTimeout
+                   inWindowWithNumber:windowNumber];
+}
+
+- (void)waitForWebStateContainingText:(const std::string&)UTF8Text
+                              timeout:(NSTimeInterval)timeout
+                   inWindowWithNumber:(int)windowNumber {
+  NSString* text = base::SysUTF8ToNSString(UTF8Text);
+  NSString* errorString =
+      [NSString stringWithFormat:@"Failed waiting for web state containing %@ "
+                                 @"in window with number %d",
+                                 text, windowNumber];
+
+  GREYCondition* waitForText =
+      [GREYCondition conditionWithName:errorString
+                                 block:^{
+                                   return [ChromeEarlGreyAppInterface
+                                       webStateContainsText:text
+                                         inWindowWithNumber:windowNumber];
+                                 }];
+  bool containsText = [waitForText waitWithTimeout:timeout];
+  EG_TEST_HELPER_ASSERT_TRUE(containsText, errorString);
+}
+
+- (void)waitForMainTabCount:(NSUInteger)count
+         inWindowWithNumber:(int)windowNumber {
+  __block NSUInteger actualCount =
+      [ChromeEarlGreyAppInterface mainTabCountInWindowWithNumber:windowNumber];
+  NSString* conditionName = [NSString
+      stringWithFormat:@"Waiting for main tab count to become %" PRIuNS
+                        " from %" PRIuNS " in window with number %d",
+                       count, actualCount, windowNumber];
+
+  // Allow the UI to become idle, in case any tabs are being opened or closed.
+  GREYWaitForAppToIdle(@"App failed to idle");
+
+  GREYCondition* tabCountCheck = [GREYCondition
+      conditionWithName:conditionName
+                  block:^{
+                    actualCount = [ChromeEarlGreyAppInterface
+                        mainTabCountInWindowWithNumber:windowNumber];
+                    return actualCount == count;
+                  }];
+  bool tabCountEqual = [tabCountCheck waitWithTimeout:kWaitForUIElementTimeout];
+
+  NSString* errorString = [NSString
+      stringWithFormat:@"Failed waiting for main tab count to become %" PRIuNS
+                        " in window with number %d"
+                        "; actual count: %" PRIuNS,
+                       count, windowNumber, actualCount];
+  EG_TEST_HELPER_ASSERT_TRUE(tabCountEqual, errorString);
+}
+
+- (void)waitForIncognitoTabCount:(NSUInteger)count
+              inWindowWithNumber:(int)windowNumber {
+  __block NSUInteger actualCount = [ChromeEarlGreyAppInterface
+      incognitoTabCountInWindowWithNumber:windowNumber];
+  NSString* conditionName =
+      [NSString stringWithFormat:
+                    @"Failed waiting for incognito tab count to become %" PRIuNS
+                     " from %" PRIuNS " in window with number %d",
+                    count, actualCount, windowNumber];
+
+  // Allow the UI to become idle, in case any tabs are being opened or closed.
+  GREYWaitForAppToIdle(@"App failed to idle");
+
+  GREYCondition* tabCountCheck = [GREYCondition
+      conditionWithName:conditionName
+                  block:^{
+                    actualCount = [ChromeEarlGreyAppInterface
+                        incognitoTabCountInWindowWithNumber:windowNumber];
+                    return actualCount == count;
+                  }];
+  bool tabCountEqual = [tabCountCheck waitWithTimeout:kWaitForUIElementTimeout];
+
+  NSString* errorString =
+      [NSString stringWithFormat:
+                    @"Failed waiting for incognito tab count to become %" PRIuNS
+                     " in window with number %d"
+                     "; actual count: %" PRIuNS,
+                    count, windowNumber, actualCount];
+  EG_TEST_HELPER_ASSERT_TRUE(tabCountEqual, errorString);
 }
 
 #pragma mark - SignIn Utilities (EG2)
@@ -916,18 +1096,6 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
   return [ChromeEarlGreyAppInterface isTestFeatureEnabled];
 }
 
-- (BOOL)isCreditCardScannerEnabled {
-  return [ChromeEarlGreyAppInterface isCreditCardScannerEnabled];
-}
-
-- (BOOL)isAutofillCompanyNameEnabled {
-  return [ChromeEarlGreyAppInterface isAutofillCompanyNameEnabled];
-}
-
-- (BOOL)isChangeTabSwitcherPositionEnabled {
-  return [ChromeEarlGreyAppInterface isChangeTabSwitcherPositionEnabled];
-}
-
 - (BOOL)isDemographicMetricsReportingEnabled {
   return [ChromeEarlGreyAppInterface isDemographicMetricsReportingEnabled];
 }
@@ -943,6 +1111,22 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
 
 - (BOOL)isMobileModeByDefault {
   return [ChromeEarlGreyAppInterface isMobileModeByDefault];
+}
+
+- (BOOL)isIllustratedEmptyStatesEnabled {
+  return [ChromeEarlGreyAppInterface isIllustratedEmptyStatesEnabled];
+}
+
+- (BOOL)isNativeContextMenusEnabled {
+  return [ChromeEarlGreyAppInterface isNativeContextMenusEnabled];
+}
+
+- (BOOL)areMultipleWindowsSupported {
+  return [ChromeEarlGreyAppInterface areMultipleWindowsSupported];
+}
+
+- (BOOL)isCloseAllTabsConfirmationEnabled {
+  return [ChromeEarlGreyAppInterface isCloseAllTabsConfirmationEnabled];
 }
 
 #pragma mark - ScopedBlockPopupsPref
@@ -1038,6 +1222,85 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
   return [ChromeEarlGreyAppInterface resetBrowsingDataPrefs];
 }
 
+#pragma mark - Pasteboard Utilities (EG2)
+
+- (void)verifyStringCopied:(NSString*)text {
+  ConditionBlock condition = ^{
+    return !![[ChromeEarlGreyAppInterface pasteboardString]
+        containsString:text];
+  };
+  GREYAssert(base::test::ios::WaitUntilConditionOrTimeout(kWaitForActionTimeout,
+                                                          condition),
+             @"Waiting for '%@' to be copied to pasteboard.", text);
+}
+
+- (GURL)pasteboardURL {
+  NSString* absoluteString = [ChromeEarlGreyAppInterface pasteboardURLSpec];
+  return absoluteString ? GURL(base::SysNSStringToUTF8(absoluteString))
+                        : GURL::EmptyGURL();
+}
+
+#pragma mark - Context Menus Utilities (EG2)
+
+- (void)verifyCopyLinkActionWithText:(NSString*)text
+                        useNewString:(BOOL)useNewString {
+  [ChromeEarlGreyAppInterface clearPasteboardURLs];
+  [[EarlGrey selectElementWithMatcher:CopyLinkButton(useNewString)]
+      performAction:grey_tap()];
+  [self verifyStringCopied:text];
+}
+
+- (void)verifyOpenInNewTabActionWithURL:(const std::string&)URL {
+  // Check tab count prior to execution.
+  NSUInteger oldRegularTabCount = [ChromeEarlGreyAppInterface mainTabCount];
+  NSUInteger oldIncognitoTabCount =
+      [ChromeEarlGreyAppInterface incognitoTabCount];
+
+  [[EarlGrey selectElementWithMatcher:OpenLinkInNewTabButton()]
+      performAction:grey_tap()];
+
+  [self waitForMainTabCount:oldRegularTabCount + 1];
+  [self waitForIncognitoTabCount:oldIncognitoTabCount];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::OmniboxText(URL)]
+      assertWithMatcher:grey_notNil()];
+}
+
+- (void)verifyOpenInNewWindowActionWithContent:(const std::string&)content {
+  [ChromeEarlGrey waitForForegroundWindowCount:1];
+  [[EarlGrey selectElementWithMatcher:OpenLinkInNewWindowButton()]
+      performAction:grey_tap()];
+  [ChromeEarlGrey waitForForegroundWindowCount:2];
+  [ChromeEarlGrey waitForWebStateContainingText:content inWindowWithNumber:1];
+}
+
+- (void)verifyOpenInIncognitoActionWithURL:(const std::string&)URL
+                              useNewString:(BOOL)useNewString {
+  // Check tab count prior to execution.
+  NSUInteger oldRegularTabCount = [ChromeEarlGreyAppInterface mainTabCount];
+  NSUInteger oldIncognitoTabCount =
+      [ChromeEarlGreyAppInterface incognitoTabCount];
+
+  [[EarlGrey selectElementWithMatcher:OpenLinkInIncognitoButton(useNewString)]
+      performAction:grey_tap()];
+
+  [self waitForIncognitoTabCount:oldIncognitoTabCount + 1];
+  [self waitForMainTabCount:oldRegularTabCount];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::OmniboxText(URL)]
+      assertWithMatcher:grey_notNil()];
+}
+
+- (void)verifyShareActionWithPageTitle:(NSString*)pageTitle {
+  [[EarlGrey selectElementWithMatcher:ShareButton()] performAction:grey_tap()];
+
+  // Page title is added asynchronously, so wait for its appearance.
+  [self waitForMatcher:grey_allOf(ActivityViewHeader(pageTitle),
+                                  grey_sufficientlyVisible(), nil)];
+
+  // Dismiss the Activity View by tapping outside its bounds.
+  [[EarlGrey selectElementWithMatcher:grey_keyWindow()]
+      performAction:grey_tap()];
+}
+
 #pragma mark - Unified consent utilities
 
 - (void)setURLKeyedAnonymizedDataCollectionEnabled:(BOOL)enabled {
@@ -1046,45 +1309,3 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
 }
 
 @end
-
-// The helpers below only compile under EarlGrey1.
-// TODO(crbug.com/922813): Update these helpers to compile under EG2 and move
-// them into the main class declaration as they are converted.
-#if defined(CHROME_EARL_GREY_1)
-
-namespace chrome_test_util {
-
-id ExecuteJavaScript(NSString* javascript,
-                     NSError* __autoreleasing* out_error) {
-  __block bool did_complete = false;
-  __block id result = nil;
-  __block NSError* temp_error = nil;
-  CRWJSInjectionReceiver* evaluator =
-      chrome_test_util::GetCurrentWebState()->GetJSInjectionReceiver();
-  [evaluator executeJavaScript:javascript
-             completionHandler:^(id value, NSError* error) {
-               did_complete = true;
-               result = [value copy];
-               temp_error = [error copy];
-             }];
-
-  bool success =
-      WaitUntilConditionOrTimeout(kWaitForJSCompletionTimeout, ^bool {
-        return did_complete;
-      });
-  if (!success)
-    return nil;
-  if (out_error) {
-    NSError* __autoreleasing auto_released_error = temp_error;
-    *out_error = auto_released_error;
-  }
-  return result;
-}
-
-}  // namespace chrome_test_util
-
-@implementation ChromeEarlGreyImpl (EG1)
-
-@end
-
-#endif  // defined(CHROME_EARL_GREY_1)

@@ -13,6 +13,7 @@
 #include "base/bind.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/test/values_test_util.h"
+#include "chrome/browser/chromeos/cert_provisioning/cert_provisioning_common.h"
 #include "chrome/browser/chromeos/cert_provisioning/cert_provisioning_scheduler.h"
 #include "chrome/browser/chromeos/cert_provisioning/cert_provisioning_test_helpers.h"
 #include "chrome/browser/chromeos/cert_provisioning/cert_provisioning_worker.h"
@@ -36,6 +37,8 @@ namespace {
 using ::testing::Return;
 using ::testing::ReturnPointee;
 using ::testing::ReturnRef;
+using ::testing::SaveArg;
+using ::testing::StrictMock;
 using ::testing::UnorderedElementsAre;
 
 // Extracted from a X.509 certificate using the command:
@@ -73,12 +76,23 @@ BA 48 53 4A E2 1C 42 24 EB E5 CD 46 E0 4E 9B 2B
   Public Exponent (24 bits):
   01 00 01)";
 
+// Test values for creating CertProfile for MockCertProvisioningWorker.
+constexpr char kCertProfileVersion[] = "cert_profile_version_1";
+constexpr base::TimeDelta kCertProfileRenewalPeriod =
+    base::TimeDelta::FromSeconds(0);
+constexpr char kDeviceCertProfileId[] = "device_cert_profile_1";
+constexpr char kDeviceCertProfileName[] = "Device Certificate Profile 1";
+constexpr char kUserCertProfileId[] = "user_cert_profile_1";
+constexpr char kUserCertProfileName[] = "User Certificate Profile 1";
+
 void SetupMockCertProvisioningWorker(MockCertProvisioningWorker* worker,
                                      CertProvisioningWorkerState state,
-                                     const std::string* public_key) {
+                                     const std::string* public_key,
+                                     CertProfile& cert_profile) {
   EXPECT_CALL(*worker, GetState).WillRepeatedly(Return(state));
   EXPECT_CALL(*worker, GetLastUpdateTime).WillRepeatedly(Return(base::Time()));
   EXPECT_CALL(*worker, GetPublicKey).WillRepeatedly(ReturnPointee(public_key));
+  ON_CALL(*worker, GetCertProfile).WillByDefault(ReturnRef(cert_profile));
 }
 
 // Recursively visits all strings in |value| and replaces placeholders such as
@@ -137,20 +151,28 @@ class CertificateProvisioningUiHandlerTestBase : public ::testing::Test {
             profile_helper_for_testing_.GetProfile()));
     web_ui_.set_web_contents(web_contents_.get());
 
-    auto handler = std::make_unique<CertificateProvisioningUiHandler>(
-        GetProfile(), &scheduler_for_user_, &scheduler_for_device_);
-    handler_ = handler.get();
-    web_ui_.AddMessageHandler(std::move(handler));
-
     EXPECT_CALL(scheduler_for_user_, GetWorkers)
         .WillRepeatedly(ReturnRef(user_workers_));
     EXPECT_CALL(scheduler_for_user_, GetFailedCertProfileIds)
         .WillRepeatedly(ReturnRef(user_failed_workers_));
+    EXPECT_CALL(scheduler_for_user_, AddObserver(_))
+        .WillOnce(SaveArg<0>(&scheduler_observer_for_user_));
+    EXPECT_CALL(scheduler_for_user_, RemoveObserver(_)).Times(1);
 
-    EXPECT_CALL(scheduler_for_device_, GetWorkers)
-        .WillRepeatedly(ReturnRef(device_workers_));
-    EXPECT_CALL(scheduler_for_device_, GetFailedCertProfileIds)
-        .WillRepeatedly(ReturnRef(device_failed_workers_));
+    if (user_is_affiliated) {
+      EXPECT_CALL(scheduler_for_device_, GetWorkers)
+          .WillRepeatedly(ReturnRef(device_workers_));
+      EXPECT_CALL(scheduler_for_device_, GetFailedCertProfileIds)
+          .WillRepeatedly(ReturnRef(device_failed_workers_));
+      EXPECT_CALL(scheduler_for_device_, AddObserver(_))
+          .WillOnce(SaveArg<0>(&scheduler_observer_for_device_));
+      EXPECT_CALL(scheduler_for_device_, RemoveObserver(_)).Times(1);
+    }
+
+    auto handler = std::make_unique<CertificateProvisioningUiHandler>(
+        GetProfile(), &scheduler_for_user_, &scheduler_for_device_);
+    handler_ = handler.get();
+    web_ui_.AddMessageHandler(std::move(handler));
   }
 
   ~CertificateProvisioningUiHandlerTestBase() override {}
@@ -166,20 +188,14 @@ class CertificateProvisioningUiHandlerTestBase : public ::testing::Test {
     crypto::EnsureNSSInit();
   }
 
-  void RefreshCertProvisioningProcesses(
+  // Use in ASSERT_NO_FATAL_FAILURE.
+  void ExtractCertProvisioningProcesses(
+      std::vector<base::Value>& args,
       base::Value* out_all_processes,
       std::vector<std::string>* out_profile_ids) {
-    content::TestWebUIListenerObserver result_waiter(
-        &web_ui_, "certificate-provisioning-processes-changed");
-
-    base::ListValue args;
-    web_ui_.HandleReceivedMessage("refreshCertificateProvisioningProcessses",
-                                  &args);
-
-    result_waiter.Wait();
-    ASSERT_EQ(1U, result_waiter.args().size());
-    ASSERT_TRUE(result_waiter.args()[0].is_list());
-    *out_all_processes = std::move(result_waiter.args()[0]);
+    ASSERT_EQ(1U, args.size());
+    ASSERT_TRUE(args[0].is_list());
+    *out_all_processes = std::move(args[0]);
 
     // Extract all profile ids for easier verification.
     if (!out_profile_ids)
@@ -192,21 +208,40 @@ class CertificateProvisioningUiHandlerTestBase : public ::testing::Test {
     }
   }
 
+  // Use in ASSERT_NO_FATAL_FAILURE.
+  void RefreshCertProvisioningProcesses(
+      base::Value* out_all_processes,
+      std::vector<std::string>* out_profile_ids) {
+    content::TestWebUIListenerObserver result_waiter(
+        &web_ui_, "certificate-provisioning-processes-changed");
+
+    base::ListValue args;
+    web_ui_.HandleReceivedMessage("refreshCertificateProvisioningProcessses",
+                                  &args);
+
+    result_waiter.Wait();
+    ASSERT_NO_FATAL_FAILURE(ExtractCertProvisioningProcesses(
+        result_waiter.args(), out_all_processes, out_profile_ids));
+  }
+
  protected:
   Profile* GetProfile() { return profile_helper_for_testing_.GetProfile(); }
 
   std::string der_encoded_spki_;
 
-  content::BrowserTaskEnvironment task_environment_;
+  content::BrowserTaskEnvironment task_environment_{
+      base::test::TaskEnvironment::TimeSource::MOCK_TIME};
   ProfileHelperForTesting profile_helper_for_testing_;
 
   WorkerMap user_workers_;
   base::flat_map<CertProfileId, FailedWorkerInfo> user_failed_workers_;
-  MockCertProvisioningScheduler scheduler_for_user_;
+  StrictMock<MockCertProvisioningScheduler> scheduler_for_user_;
+  CertProvisioningSchedulerObserver* scheduler_observer_for_user_ = nullptr;
 
   WorkerMap device_workers_;
   base::flat_map<CertProfileId, FailedWorkerInfo> device_failed_workers_;
-  MockCertProvisioningScheduler scheduler_for_device_;
+  StrictMock<MockCertProvisioningScheduler> scheduler_for_device_;
+  CertProvisioningSchedulerObserver* scheduler_observer_for_device_ = nullptr;
 
   content::TestWebUI web_ui_;
   std::unique_ptr<content::WebContents> web_contents_;
@@ -240,17 +275,23 @@ TEST_F(CertificateProvisioningUiHandlerTest, NoProcesses) {
 }
 
 TEST_F(CertificateProvisioningUiHandlerTest, HasProcesses) {
+  CertProfile user_cert_profile(
+      kUserCertProfileId, kUserCertProfileName, kCertProfileVersion,
+      /*is_va_enabled=*/true, kCertProfileRenewalPeriod);
   auto user_cert_worker = std::make_unique<MockCertProvisioningWorker>();
   SetupMockCertProvisioningWorker(
       user_cert_worker.get(), CertProvisioningWorkerState::kKeypairGenerated,
-      &der_encoded_spki_);
-  user_workers_["user_cert_profile_1"] = std::move(user_cert_worker);
+      &der_encoded_spki_, user_cert_profile);
+  user_workers_[kUserCertProfileId] = std::move(user_cert_worker);
 
+  CertProfile device_cert_profile(
+      kDeviceCertProfileId, kDeviceCertProfileName, kCertProfileVersion,
+      /*is_va_enabled=*/true, kCertProfileRenewalPeriod);
   auto device_cert_worker = std::make_unique<MockCertProvisioningWorker>();
   SetupMockCertProvisioningWorker(
       device_cert_worker.get(), CertProvisioningWorkerState::kKeypairGenerated,
-      &der_encoded_spki_);
-  device_workers_["device_cert_profile_1"] = std::move(device_cert_worker);
+      &der_encoded_spki_, device_cert_profile);
+  device_workers_[kDeviceCertProfileId] = std::move(device_cert_worker);
 
   // Only the user worker is expected to be displayed in the UI, because the
   // user is not affiliated.
@@ -258,36 +299,42 @@ TEST_F(CertificateProvisioningUiHandlerTest, HasProcesses) {
   std::vector<std::string> profile_ids;
   ASSERT_NO_FATAL_FAILURE(
       RefreshCertProvisioningProcesses(&all_processes, &profile_ids));
-  ASSERT_THAT(profile_ids, UnorderedElementsAre("user_cert_profile_1"));
-
+  ASSERT_THAT(profile_ids, UnorderedElementsAre(kUserCertProfileId));
   EXPECT_EQ(
-      GetByProfileId(all_processes, "user_cert_profile_1"),
+      GetByProfileId(all_processes, kUserCertProfileId),
       FormatJsonDict(
           R"({
-               "certProfileId": "user_cert_profile_1",
+               "certProfileId": "$0",
+               "certProfileName": "$1",
                "isDeviceWide": false,
-               "publicKey": "$1",
+               "publicKey": "$2",
                "stateId": 1,
-               "status": "$0",
+               "status": "$3",
                "timeSinceLastUpdate": ""
              })",
-          {l10n_util::GetStringUTF8(
-               IDS_SETTINGS_CERTIFICATE_MANAGER_PROVISIONING_STATUS_PREPARING_CSR_WAITING),
-           kFormattedPublicKey}));
+          {kUserCertProfileId, kUserCertProfileName, kFormattedPublicKey,
+           l10n_util::GetStringUTF8(
+               IDS_SETTINGS_CERTIFICATE_MANAGER_PROVISIONING_STATUS_PREPARING_CSR_WAITING)}));
 }
 
 TEST_F(CertificateProvisioningUiHandlerAffiliatedTest, HasProcessesAffiliated) {
+  CertProfile user_cert_profile(
+      kUserCertProfileId, kUserCertProfileName, kCertProfileVersion,
+      /*is_va_enabled=*/true, kCertProfileRenewalPeriod);
   auto user_cert_worker = std::make_unique<MockCertProvisioningWorker>();
   SetupMockCertProvisioningWorker(
       user_cert_worker.get(), CertProvisioningWorkerState::kKeypairGenerated,
-      &der_encoded_spki_);
-  user_workers_["user_cert_profile_1"] = std::move(user_cert_worker);
+      &der_encoded_spki_, user_cert_profile);
+  user_workers_[kUserCertProfileId] = std::move(user_cert_worker);
 
+  CertProfile device_cert_profile(
+      kDeviceCertProfileId, kDeviceCertProfileName, kCertProfileVersion,
+      /*is_va_enabled=*/true, kCertProfileRenewalPeriod);
   auto device_cert_worker = std::make_unique<MockCertProvisioningWorker>();
   SetupMockCertProvisioningWorker(device_cert_worker.get(),
                                   CertProvisioningWorkerState::kFailed,
-                                  &der_encoded_spki_);
-  device_workers_["device_cert_profile_1"] = std::move(device_cert_worker);
+                                  &der_encoded_spki_, device_cert_profile);
+  device_workers_[kDeviceCertProfileId] = std::move(device_cert_worker);
 
   // Both user and device-wide workers are expected to be displayed in the UI,
   // because the user is affiliated.
@@ -295,37 +342,108 @@ TEST_F(CertificateProvisioningUiHandlerAffiliatedTest, HasProcessesAffiliated) {
   std::vector<std::string> profile_ids;
   ASSERT_NO_FATAL_FAILURE(
       RefreshCertProvisioningProcesses(&all_processes, &profile_ids));
-  ASSERT_THAT(profile_ids, UnorderedElementsAre("user_cert_profile_1",
-                                                "device_cert_profile_1"));
+  ASSERT_THAT(profile_ids,
+              UnorderedElementsAre(kUserCertProfileId, kDeviceCertProfileId));
 
   EXPECT_EQ(
-      GetByProfileId(all_processes, "user_cert_profile_1"),
+      GetByProfileId(all_processes, kUserCertProfileId),
       FormatJsonDict(
           R"({
-               "certProfileId": "user_cert_profile_1",
+               "certProfileId": "$0",
+               "certProfileName": "$1",
                "isDeviceWide": false,
-               "publicKey": "$1",
+               "publicKey": "$2",
                "stateId": 1,
-               "status": "$0",
+               "status": "$3",
                "timeSinceLastUpdate": ""
              })",
-          {l10n_util::GetStringUTF8(
-               IDS_SETTINGS_CERTIFICATE_MANAGER_PROVISIONING_STATUS_PREPARING_CSR_WAITING),
-           kFormattedPublicKey}));
+          {kUserCertProfileId, kUserCertProfileName, kFormattedPublicKey,
+           l10n_util::GetStringUTF8(
+               IDS_SETTINGS_CERTIFICATE_MANAGER_PROVISIONING_STATUS_PREPARING_CSR_WAITING)}));
   EXPECT_EQ(
-      GetByProfileId(all_processes, "device_cert_profile_1"),
+      GetByProfileId(all_processes, kDeviceCertProfileId),
       FormatJsonDict(
           R"({
-               "certProfileId": "device_cert_profile_1",
+               "certProfileId": "$0",
+               "certProfileName": "$1",
                "isDeviceWide": true,
-               "publicKey": "$1",
+               "publicKey": "$2",
                "stateId": 10,
-               "status": "$0",
+               "status": "$3",
                "timeSinceLastUpdate": ""
              })",
-          {l10n_util::GetStringUTF8(
-               IDS_SETTINGS_CERTIFICATE_MANAGER_PROVISIONING_STATUS_FAILURE),
-           kFormattedPublicKey}));
+          {kDeviceCertProfileId, kDeviceCertProfileName, kFormattedPublicKey,
+           l10n_util::GetStringUTF8(
+               IDS_SETTINGS_CERTIFICATE_MANAGER_PROVISIONING_STATUS_FAILURE)}));
+}
+
+TEST_F(CertificateProvisioningUiHandlerTest, Updates) {
+  base::Value all_processes;
+  std::vector<std::string> profile_ids;
+
+  // Perform an initial JS-side initiated refresh so that javascript is
+  // considered allowed by the UI handler.
+  ASSERT_NO_FATAL_FAILURE(
+      RefreshCertProvisioningProcesses(&all_processes, &profile_ids));
+  ASSERT_THAT(profile_ids, UnorderedElementsAre());
+  EXPECT_EQ(1U, handler_->ReadAndResetUiRefreshCountForTesting());
+
+  CertProfile user_cert_profile(
+      kUserCertProfileId, kUserCertProfileName, kCertProfileVersion,
+      /*is_va_enabled=*/true, kCertProfileRenewalPeriod);
+  auto user_cert_worker = std::make_unique<MockCertProvisioningWorker>();
+  SetupMockCertProvisioningWorker(
+      user_cert_worker.get(), CertProvisioningWorkerState::kKeypairGenerated,
+      &der_encoded_spki_, user_cert_profile);
+  user_workers_[kUserCertProfileId] = std::move(user_cert_worker);
+
+  // The user worker triggers an update
+  content::TestWebUIListenerObserver result_waiter_1(
+      &web_ui_, "certificate-provisioning-processes-changed");
+
+  scheduler_observer_for_user_->OnVisibleStateChanged();
+
+  EXPECT_EQ(1U, handler_->ReadAndResetUiRefreshCountForTesting());
+  result_waiter_1.Wait();
+  ASSERT_NO_FATAL_FAILURE(ExtractCertProvisioningProcesses(
+      result_waiter_1.args(), &all_processes, &profile_ids));
+
+  // Only the user worker is expected to be displayed in the UI, because the
+  // user is not affiliated.
+  ASSERT_THAT(profile_ids, UnorderedElementsAre(kUserCertProfileId));
+
+  EXPECT_EQ(
+      GetByProfileId(all_processes, kUserCertProfileId),
+      FormatJsonDict(
+          R"({
+               "certProfileId": "$0",
+               "certProfileName": "$1",
+               "isDeviceWide": false,
+               "publicKey": "$2",
+               "stateId": 1,
+               "status": "$3",
+               "timeSinceLastUpdate": ""
+             })",
+          {kUserCertProfileId, kUserCertProfileName, kFormattedPublicKey,
+           l10n_util::GetStringUTF8(
+               IDS_SETTINGS_CERTIFICATE_MANAGER_PROVISIONING_STATUS_PREPARING_CSR_WAITING)}));
+
+  content::TestWebUIListenerObserver result_waiter_2(
+      &web_ui_, "certificate-provisioning-processes-changed");
+  scheduler_observer_for_user_->OnVisibleStateChanged();
+  // Another update does not trigger a UI update for the holdoff time.
+  task_environment_.FastForwardBy(base::TimeDelta::FromMilliseconds(299));
+  EXPECT_EQ(0U, handler_->ReadAndResetUiRefreshCountForTesting());
+
+  // When the holdoff time has elapsed, an UI update is triggered.
+  task_environment_.FastForwardBy(base::TimeDelta::FromMilliseconds(2));
+  EXPECT_EQ(1U, handler_->ReadAndResetUiRefreshCountForTesting());
+  result_waiter_2.Wait();
+
+  base::Value all_processes_2;
+  ASSERT_NO_FATAL_FAILURE(ExtractCertProvisioningProcesses(
+      result_waiter_2.args(), &all_processes_2, /*profile_ids=*/nullptr));
+  EXPECT_EQ(all_processes, all_processes_2);
 }
 
 }  // namespace

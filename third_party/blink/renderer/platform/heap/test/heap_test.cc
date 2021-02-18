@@ -50,7 +50,7 @@
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/heap/heap_stats_collector.h"
 #include "third_party/blink/renderer/platform/heap/heap_test_utilities.h"
-#include "third_party/blink/renderer/platform/heap/marking_visitor.h"
+#include "third_party/blink/renderer/platform/heap/impl/marking_visitor.h"
 #include "third_party/blink/renderer/platform/heap/self_keep_alive.h"
 #include "third_party/blink/renderer/platform/heap/thread_state.h"
 #include "third_party/blink/renderer/platform/heap/thread_state_scopes.h"
@@ -2191,7 +2191,7 @@ TEST_F(HeapTest, MAYBE_LargeHashMap) {
 
   // Try to allocate a HashTable larger than kMaxHeapObjectSize
   // (crbug.com/597953).
-  wtf_size_t size = kMaxHeapObjectSize /
+  wtf_size_t size = HeapAllocator::kMaxHeapObjectSize /
                     sizeof(HeapHashMap<int, Member<IntWrapper>>::ValueType);
   Persistent<HeapHashMap<int, Member<IntWrapper>>> map =
       MakeGarbageCollected<HeapHashMap<int, Member<IntWrapper>>>();
@@ -2204,7 +2204,8 @@ TEST_F(HeapTest, LargeVector) {
 
   // Try to allocate a HeapVectors larger than kMaxHeapObjectSize
   // (crbug.com/597953).
-  const wtf_size_t size = kMaxHeapObjectSize / sizeof(Member<IntWrapper>);
+  const wtf_size_t size =
+      HeapAllocator::kMaxHeapObjectSize / sizeof(Member<IntWrapper>);
   Persistent<HeapVector<Member<IntWrapper>>> vector =
       MakeGarbageCollected<HeapVector<Member<IntWrapper>>>(size);
   EXPECT_LE(size, vector->capacity());
@@ -2370,7 +2371,7 @@ TEST_F(HeapTest, HeapVectorOnStackLargeObjectPageSized) {
   using Container = HeapVector<Member<IntWrapper>>;
   Container vector;
   wtf_size_t size =
-      (kLargeObjectSizeThreshold + kBlinkGuardPageSize -
+      (kLargeObjectSizeThreshold + BlinkGuardPageSize() -
        static_cast<wtf_size_t>(LargeObjectPage::PageHeaderSize()) -
        sizeof(HeapObjectHeader)) /
       sizeof(Container::ValueType);
@@ -5071,7 +5072,7 @@ class ThreadedClearOnShutdownTester : public ThreadedTesterBase {
     Persistent<IntWrapper>& handle = *int_wrapper;
     if (!handle) {
       handle = MakeGarbageCollected<IntWrapper>(42);
-      handle.RegisterAsStaticReference();
+      LEAK_SANITIZER_IGNORE_OBJECT(&handle);
     }
     return *handle;
   }
@@ -5110,7 +5111,7 @@ ThreadedClearOnShutdownTester::GetWeakHeapObjectSet() {
   Persistent<WeakHeapObjectSet>& singleton_persistent = *singleton;
   if (!singleton_persistent) {
     singleton_persistent = MakeGarbageCollected<WeakHeapObjectSet>();
-    singleton_persistent.RegisterAsStaticReference();
+    LEAK_SANITIZER_IGNORE_OBJECT(&singleton_persistent);
   }
   return *singleton_persistent;
 }
@@ -5122,7 +5123,7 @@ ThreadedClearOnShutdownTester::GetHeapObjectSet() {
   Persistent<HeapObjectSet>& singleton_persistent = *singleton;
   if (!singleton_persistent) {
     singleton_persistent = MakeGarbageCollected<HeapObjectSet>();
-    singleton_persistent.RegisterAsStaticReference();
+    LEAK_SANITIZER_IGNORE_OBJECT(&singleton_persistent);
   }
   return *singleton_persistent;
 }
@@ -5370,5 +5371,13 @@ TEST_F(HeapTest, SuccessfulUnsanitizedAccessToObjectHeader) {
   internal::AsUnsanitizedAtomic(low)->store(half);
 }
 #endif  // ADDRESS_SANITIZER
+
+TEST_F(HeapTest, GetUsedSizeInBytes) {
+  PreciselyCollectGarbage();
+  size_t before = ThreadState::Current()->GetUsedSizeInBytes();
+  MakeGarbageCollected<LargeHeapObject>();
+  size_t after = ThreadState::Current()->GetUsedSizeInBytes();
+  EXPECT_LE(before + sizeof(LargeHeapObject), after);
+}
 
 }  // namespace blink

@@ -11,7 +11,7 @@
 #include "chrome/browser/nearby_sharing/instantmessaging/receive_messages_express.h"
 #include "chrome/browser/nearby_sharing/instantmessaging/send_message_express.h"
 #include "chrome/browser/nearby_sharing/instantmessaging/token_fetcher.h"
-#include "chrome/services/sharing/public/mojom/webrtc_signaling_messenger.mojom.h"
+#include "chromeos/services/nearby/public/mojom/webrtc_signaling_messenger.mojom.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
@@ -26,10 +26,12 @@ class WebRtcSignalingMessenger
   // sharing::mojom::WebRtcSignalingMessenger:
   void SendMessage(const std::string& self_id,
                    const std::string& peer_id,
+                   sharing::mojom::LocationHintPtr location_hint,
                    const std::string& message,
                    SendMessageCallback callback) override;
   void StartReceivingMessages(
       const std::string& self_id,
+      sharing::mojom::LocationHintPtr location_hint,
       mojo::PendingRemote<sharing::mojom::IncomingMessagesListener>
           incoming_messages_listener,
       StartReceivingMessagesCallback callback) override;
@@ -40,12 +42,12 @@ class WebRtcSignalingMessenger
                                   bool success);
   void OnMessageReceived(const std::string& message);
 
+  mojo::Remote<sharing::mojom::IncomingMessagesListener>
+      incoming_messages_listener_;
+
   TokenFetcher token_fetcher_;
   SendMessageExpress send_message_express_;
   ReceiveMessagesExpress receive_messages_express_;
-
-  mojo::Remote<sharing::mojom::IncomingMessagesListener>
-      incoming_messages_listener_;
 };
 
 #endif  // CHROME_BROWSER_NEARBY_SHARING_WEBRTC_SIGNALING_MESSENGER_H_

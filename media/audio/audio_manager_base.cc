@@ -7,7 +7,7 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
@@ -27,6 +27,7 @@
 #include "media/base/media_switches.h"
 
 #include "base/logging.h"
+#include "build/chromeos_buildflags.h"
 #include "media/audio/audio_input_stream_data_interceptor.h"
 
 namespace media {
@@ -269,8 +270,8 @@ AudioInputStream* AudioManagerBase::MakeAudioInputStream(
 
   if (!params.IsValid() || (params.channels() > kMaxInputChannels) ||
       device_id.empty()) {
-    DLOG(ERROR) << "Audio parameters are invalid for device " << device_id;
-    VLOG(1) << params.AsHumanReadableString();
+    DLOG(ERROR) << "Audio parameters are invalid for device " << device_id
+                << ", params: " << params.AsHumanReadableString();
     return nullptr;
   }
 
@@ -342,7 +343,7 @@ AudioOutputStream* AudioManagerBase::MakeAudioOutputStreamProxy(
   std::string output_device_id =
       AudioDeviceDescription::IsDefaultDevice(device_id)
           ?
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
           // On ChromeOS, it is expected that, if the default device is given,
           // no specific device ID should be used since the actual output device
           // should change dynamically if the system default device changes.

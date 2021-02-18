@@ -36,6 +36,8 @@ enum AuthenticatorStatus {
   OPAQUE_DOMAIN,
   INVALID_PROTOCOL,
   BAD_RELYING_PARTY_ID,
+  CANNOT_READ_AND_WRITE_LARGE_BLOB,
+  INVALID_ALLOW_CREDENTIALS_FOR_LARGE_BLOB,
   UNKNOWN_ERROR,
 };
 
@@ -117,6 +119,21 @@ struct MakeCredentialAuthenticatorResponse {
   bool echo_user_verification_methods;
   [EnableIf=is_android]
   array<UvmEntry>? user_verification_methods;
+
+  // True if getClientExtensionResults() called on the returned
+  // PublicKeyCredential instance should contain a `credProps` extension
+  // output. |has_cred_props_rk| indicates if the rk member in that extension
+  // output should be set to the value in |cred_props_rk|.
+  bool echo_cred_props;
+  bool has_cred_props_rk;
+  bool cred_props_rk;
+
+  // True if getClientExtensionResults() called on the returned
+  // PublicKeyCredential instance should contain a `largeBlob` extension output.
+  // |supports_large_blob| indicates the value the `supported` member in that
+  // extension output should be.
+  bool echo_large_blob;
+  bool supports_large_blob;
 };
 
 struct GetAssertionAuthenticatorResponse {
@@ -154,6 +171,19 @@ struct GetAssertionAuthenticatorResponse {
   // prf_not_evaluated indicates the the PRF inputs could not be processed
   // because of a lack of operating system support.
   bool prf_not_evaluated;
+
+  // True if getClientExtensionResults() called on the returned
+  // PublicKeyCredential instance should contain a `largeBlob` extension output.
+  bool echo_large_blob;
+  // Value that getClientExtensionResults() called on the returned
+  // PublicKeyCredential instance should contain for the `largeBlob`
+  // extension output `blob` parameter.
+  array<uint8>? large_blob;
+  // True if getClientExtensionResults() called on the returned
+  // PublicKeyCredential instance should contain a `largeBlob` extension output
+  // with a `written` parameter. The value is indicated by |large_blob_written|.
+  bool echo_large_blob_written;
+  bool large_blob_written;
 };
 
 // Information about the relying party. These fields take arbitrary input.
@@ -206,15 +236,23 @@ struct CableAuthentication {
   uint8 version;
 
   // A 16-byte ephemeral identifier that the browser will advertise.
-  array<uint8, 16> client_eid;
+  // (Present iff version == 1.)
+  array<uint8, 16>? client_eid;
 
   // A 16-byte ephemeral identifier that the browser expects to receive from a
   // responding authenticator.
-  array<uint8, 16> authenticator_eid;
+  // (Present iff version == 1.)
+  array<uint8, 16>? authenticator_eid;
 
   // A 32-byte pre-key used to compute a session key to encrypt messages between
   // a paired client and authenticator following a successful discovery.
-  array<uint8, 32> session_pre_key;
+  // (Present iff version == 1.)
+  array<uint8, 32>? session_pre_key;
+
+  // caBLEv2 server-link data, used to find and communicate with a caBLEv2
+  // device.
+  // (Present iff version == 2.)
+  array<uint8>? server_link_data;
 };
 
 // Cloud-assisted BLE extension data for makeCredential.
@@ -239,6 +277,11 @@ struct PRFValues {
 
 // Parameters passed into calls to GetAssertion.
 struct PublicKeyCredentialRequestOptions {
+  // If true, indicates that this request should prioritize showing a UI only if
+  // there are discoverable credentials available in this device's platform
+  // authenticator.
+  bool is_conditional;
+
   // An indefinite-length blob passed from the the relying party server,
   // to be sent to an authenticator for signing.
   array<uint8> challenge;
@@ -284,6 +327,14 @@ struct PublicKeyCredentialRequestOptions {
   // credential ID match. Otherwise all elements must have an |id| member and
   // must be sorted lexicographically by it.
   array<PRFValues> prf_inputs;
+
+  // If true, attempt to read the large blob associated to the credential.
+  // https://w3c.github.io/webauthn/#dom-authenticationextensionslargeblobinputs-read
+  bool large_blob_read;
+
+  // If present, large blob to be written on the credential.
+  // https://w3c.github.io/webauthn/#dom-authenticationextensionslargeblobinputs-write
+  array<uint8>? large_blob_write;
 };
 
 // See https://w3c.github.io/webauthn/#enumdef-attestationconveyancepreference
@@ -294,6 +345,13 @@ enum AttestationConveyancePreference {
   // A non-standard addition that we hope will become standard. This indicates
   // that the RP desires individual attestaion from the device.
   ENTERPRISE,
+};
+
+// https://w3c.github.io/webauthn/#enum-residentKeyRequirement
+enum ResidentKeyRequirement {
+  DISCOURAGED,
+  PREFERRED,
+  REQUIRED,
 };
 
 // https://w3c.github.io/webauthn/#enumdef-authenticatorattachment.
@@ -311,15 +369,21 @@ enum ProtectionPolicy {
     UV_REQUIRED,
 };
 
+// https://w3c.github.io/webauthn#enumdef-largeblobsupport
+enum LargeBlobSupport {
+    NOT_REQUESTED,
+    REQUIRED,
+    PREFERRED,
+};
+
 // See https://w3c.github.io/webauthn/#dictdef-authenticatorselectioncriteria.
 struct AuthenticatorSelectionCriteria {
   // Filter authenticators by attachment type.
   AuthenticatorAttachment authenticator_attachment;
 
-  // Whether the authenticator should store the created key so that the key
-  // can later be selected given only an RP ID (e.g. when |allow_credentials|
-  // is empty).
-  bool require_resident_key;
+  // Indicates a requirement or preference for creating a client-side
+  // discoverable credential. If set, overrides |require_resident_key|.
+  ResidentKeyRequirement resident_key;
 
   // Indicates the relying party's need for a user-verifying authenticator.
   UserVerificationRequirement user_verification;
@@ -389,6 +453,17 @@ struct PublicKeyCredentialCreationOptions {
   // The contents of the appidExclude extension, if any. See
   // https://w3c.github.io/webauthn/#sctn-appid-exclude-extension
   string? appid_exclude;
+
+  // Whether the credProps extension was requested.
+  // https://w3c.github.io/webauthn/#sctn-authenticator-credential-properties-extension
+  bool cred_props;
+
+  // The level of largeBlob support requested by the relying party.
+  // https://w3c.github.io/webauthn/#sctn-large-blob-extension
+  LargeBlobSupport large_blob_enable;
+
+  // Whether this request is for making a PaymentCredential.
+  bool is_payment_credential_creation;
 };
 
 enum PublicKeyCredentialType {

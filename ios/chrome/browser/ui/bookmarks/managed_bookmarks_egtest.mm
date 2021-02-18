@@ -38,10 +38,6 @@ AppLaunchConfiguration GenerateAppLaunchConfiguration(std::string policy_data) {
   AppLaunchConfiguration config;
   config.additional_args.push_back(std::string("--") +
                                    switches::kEnableEnterprisePolicy);
-  config.additional_args.push_back(std::string("--") +
-                                   switches::kInstallManagedBookmarksHandler);
-  config.additional_args.push_back(
-      std::string("--enable-features=ManagedBookmarksIOS"));
 
   // Remove whitespace from the policy data, because the XML parser does not
   // tolerate newlines.
@@ -75,8 +71,11 @@ void VerifyBookmarkContextBarEditButtonDisabled() {
 }
 
 void LongPressBookmarkNodeWithLabel(NSString* bookmark_node_label) {
-  [[EarlGrey selectElementWithMatcher:TappableBookmarkNodeWithLabel(
-                                          bookmark_node_label)]
+  id<GREYMatcher> nodeMatcher =
+      TappableBookmarkNodeWithLabel(bookmark_node_label);
+  [ChromeEarlGrey
+      waitForMatcher:grey_allOf(nodeMatcher, grey_interactable(), nil)];
+  [[EarlGrey selectElementWithMatcher:nodeMatcher]
       performAction:grey_longPress()];
 }
 
@@ -161,13 +160,11 @@ void SearchBookmarksForText(NSString* search_text) {
 
 // Tests that the managed bookmarks folder does not exist when the policy data
 // is empty.
-- (void)testEmptyManagedBookmarks {
+// Flaky. TODO(crbug.com/1132310): Re-enable.
+- (void)DISABLED_testEmptyManagedBookmarks {
   [BookmarkEarlGreyUI openBookmarks];
 
-  // Mobile bookmarks exists.
-  [[EarlGrey selectElementWithMatcher:TappableBookmarkNodeWithLabel(
-                                          @"Mobile Bookmarks")]
-      assertWithMatcher:grey_notNil()];
+  [BookmarkEarlGreyUI verifyEmptyState];
 
   // Managed bookmarks folder does not exist.
   [[EarlGrey selectElementWithMatcher:TappableBookmarkNodeWithLabel(
@@ -252,8 +249,11 @@ void SearchBookmarksForText(NSString* search_text) {
 }
 
 - (void)openCustomManagedSubFolder {
-  [[EarlGrey selectElementWithMatcher:TappableBookmarkNodeWithLabel(
-                                          @"Managed_Sub_Folder")]
+  id<GREYMatcher> subFolderMatcher =
+      TappableBookmarkNodeWithLabel(@"Managed_Sub_Folder");
+  [ChromeEarlGrey
+      waitForMatcher:grey_allOf(subFolderMatcher, grey_interactable(), nil)];
+  [[EarlGrey selectElementWithMatcher:subFolderMatcher]
       performAction:grey_tap()];
 }
 

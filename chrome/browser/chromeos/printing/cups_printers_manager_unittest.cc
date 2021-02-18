@@ -5,18 +5,18 @@
 #include "chrome/browser/chromeos/printing/cups_printers_manager.h"
 
 #include <algorithm>
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_set>
 #include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
 #include "base/sequenced_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "chrome/browser/chromeos/printing/enterprise_printers_provider.h"
@@ -28,10 +28,12 @@
 #include "chrome/browser/chromeos/printing/test_printer_configurer.h"
 #include "chrome/browser/chromeos/printing/usb_printer_detector.h"
 #include "chrome/browser/chromeos/printing/usb_printer_notification_controller.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/test/base/testing_browser_process.h"
 #include "components/prefs/pref_service.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
+#include "content/public/test/browser_task_environment.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace chromeos {
@@ -328,27 +330,34 @@ class FakeUsbPrinterNotificationController
   base::flat_set<std::string> configuration_notifications_;
 };
 
-class FakeServerPrintersProvider : public ServerPrintersProvider {
+class FakePrintServersManager : public PrintServersManager {
  public:
-  FakeServerPrintersProvider() = default;
-  ~FakeServerPrintersProvider() override = default;
+  FakePrintServersManager() = default;
+  ~FakePrintServersManager() override = default;
 
-  void RegisterPrintersFoundCallback(OnPrintersUpdateCallback cb) override {}
-
-  std::vector<PrinterDetector::DetectedPrinter> GetPrinters() override {
-    std::vector<PrinterDetector::DetectedPrinter> printers;
-    return printers;
+  void AddObserver(Observer* observer) override { observer_ = observer; }
+  void RemoveObserver(Observer* observer) override { observer_ = nullptr; }
+  void ChoosePrintServer(
+      const std::vector<std::string>& selected_print_server_ids) override {}
+  PrintServersConfig GetPrintServersConfig() const override {
+    return PrintServersConfig();
   }
+
+  void ServerPrintersChanged(
+      const std::vector<chromeos::PrinterDetector::DetectedPrinter>& printers) {
+    observer_->OnServerPrintersChanged(printers);
+  }
+
+ private:
+  Observer* observer_;
 };
 
 class CupsPrintersManagerTest : public testing::Test,
                                 public CupsPrintersManager::Observer {
  public:
   CupsPrintersManagerTest() : ppd_provider_(new FakePpdProvider) {
-    scoped_feature_list_.InitAndEnableFeature(
-        features::kStreamlinedUsbPrinterSetup);
-    // Zeroconf and usb detector ownerships are taken by the manager, so we have
-    // to keep raw pointers to them.
+    // Zeroconf and usb detector ownerships are taken by the manager, so we
+    // have to keep raw pointers to them.
     auto zeroconf_detector = std::make_unique<FakePrinterDetector>();
     zeroconf_detector_ = zeroconf_detector.get();
     auto usb_detector = std::make_unique<FakePrinterDetector>();
@@ -361,6 +370,8 @@ class CupsPrintersManagerTest : public testing::Test,
     auto enterprise_printers_provider =
         std::make_unique<FakeEnterprisePrintersProvider>();
     enterprise_printers_provider_ = enterprise_printers_provider.get();
+    auto print_servers_manager = std::make_unique<FakePrintServersManager>();
+    print_servers_manager_ = print_servers_manager.get();
 
     // Register the pref |UserPrintersAllowed|
     CupsPrintersManager::RegisterProfilePrefs(pref_service_.registry());
@@ -369,8 +380,9 @@ class CupsPrintersManagerTest : public testing::Test,
         &synced_printers_manager_, std::move(usb_detector),
         std::move(zeroconf_detector), ppd_provider_,
         std::move(printer_configurer), std::move(usb_notif_controller),
-        &server_printers_provider_, std::move(enterprise_printers_provider),
-        &event_tracker_, &pref_service_);
+        std::move(print_servers_manager),
+        std::move(enterprise_printers_provider), &event_tracker_,
+        &pref_service_);
     manager_->AddObserver(this);
   }
 
@@ -383,8 +395,8 @@ class CupsPrintersManagerTest : public testing::Test,
   }
 
   // Check that, for the given printer class, the printers we have from the
-  // observation callback and the printers we have when we query the manager are
-  // both the same and have the passed ids.
+  // observation callback and the printers we have when we query the manager
+  // are both the same and have the passed ids.
   void ExpectPrintersInClassAre(PrinterClass printer_class,
                                 const std::vector<std::string>& ids) {
     ExpectPrinterIdsAre(manager_->GetPrinters(printer_class), ids);
@@ -397,9 +409,17 @@ class CupsPrintersManagerTest : public testing::Test,
     pref_service_.SetManagedPref(name, std::move(value_ptr));
   }
 
+  static chromeos::PrintServer CreatePrintServer(std::string id,
+                                                 std::string server_url,
+                                                 std::string name) {
+    GURL url(server_url);
+    chromeos::PrintServer print_server(id, url, name);
+    return print_server;
+  }
+
  protected:
-  base::test::TaskEnvironment task_environment_;
-  base::test::ScopedFeatureList scoped_feature_list_;
+  // Everything from PrintServersProvider must be called on Chrome_UIThread
+  content::BrowserTaskEnvironment task_environment_;
 
   // Captured printer lists from observer callbacks.
   base::flat_map<PrinterClass, std::vector<Printer>> observed_printers_;
@@ -407,11 +427,11 @@ class CupsPrintersManagerTest : public testing::Test,
   // Backend fakes driving the CupsPrintersManager.
   FakeSyncedPrintersManager synced_printers_manager_;
   FakeEnterprisePrintersProvider* enterprise_printers_provider_;  // Not owned.
-  FakePrinterDetector* usb_detector_;          // Not owned.
-  FakePrinterDetector* zeroconf_detector_;     // Not owned.
-  TestPrinterConfigurer* printer_configurer_;  // Not owned.
-  FakeUsbPrinterNotificationController* usb_notif_controller_;  // Not owned.
-  FakeServerPrintersProvider server_printers_provider_;
+  FakePrinterDetector* usb_detector_;                             // Not owned.
+  FakePrinterDetector* zeroconf_detector_;                        // Not owned.
+  TestPrinterConfigurer* printer_configurer_;                     // Not owned.
+  FakeUsbPrinterNotificationController* usb_notif_controller_;    // Not owned.
+  FakePrintServersManager* print_servers_manager_;                // Not owned.
   scoped_refptr<FakePpdProvider> ppd_provider_;
 
   // This is unused, it's just here for memory ownership.
@@ -428,8 +448,8 @@ class CupsPrintersManagerTest : public testing::Test,
 
 // Pseudo-constructor for inline creation of a DetectedPrinter that should (in
 // this test) be handled as a Discovered printer (because it has no make and
-// model information, and that's now the FakePpdProvider is set up to determine
-// whether or not something has a Ppd available).
+// model information, and that's now the FakePpdProvider is set up to
+// determine whether or not something has a Ppd available).
 PrinterDetector::DetectedPrinter MakeDiscoveredPrinter(const std::string& id,
                                                        const std::string& uri) {
   PrinterDetector::DetectedPrinter ret;
@@ -476,9 +496,9 @@ TEST_F(CupsPrintersManagerTest, GetSavedPrinters) {
   ExpectPrintersInClassAre(PrinterClass::kSaved, {"Foo", "Bar"});
 }
 
-// Test that USB printers from the usb detector are converted to 'Printer's and
-// surfaced appropriately.  One printer should be "automatic" because it has
-// a findable Ppd, the other should be "discovered".
+// Test that USB printers from the usb detector are converted to 'Printer's
+// and surfaced appropriately.  One printer should be "automatic" because it
+// has a findable Ppd, the other should be "discovered".
 TEST_F(CupsPrintersManagerTest, GetUsbPrinters) {
   usb_detector_->AddDetections({MakeDiscoveredPrinter("DiscoveredPrinter"),
                                 MakeAutomaticPrinter("AutomaticPrinter")});
@@ -571,7 +591,8 @@ TEST_F(CupsPrintersManagerTest, SavePrinter) {
   ExpectPrintersInClassAre(PrinterClass::kSaved,
                            {"Automatic", "Saved", "Discovered"});
 
-  // Save a printer we haven't seen before, which should just add it to kSaved.
+  // Save a printer we haven't seen before, which should just add it to
+  // kSaved.
   manager_->SavePrinter(Printer("NewFangled"));
   task_environment_.RunUntilIdle();
   ExpectPrintersInClassAre(PrinterClass::kSaved,
@@ -675,8 +696,8 @@ TEST_F(CupsPrintersManagerTest, SavePrinterUserNativePrintersDisabled) {
   ExpectPrintersInClassAre(PrinterClass::kSaved, {"Saved"});
   UpdatePolicyValue(prefs::kUserPrintersAllowed, false);
 
-  // Attempt to update a printer that we haven't seen before, check that nothing
-  // changed.
+  // Attempt to update a printer that we haven't seen before, check that
+  // nothing changed.
   manager_->SavePrinter(Printer("NewFangled"));
   task_environment_.RunUntilIdle();
   UpdatePolicyValue(prefs::kUserPrintersAllowed, true);
@@ -886,8 +907,8 @@ TEST_F(CupsPrintersManagerTest,
       usb_notif_controller_->IsConfigurationNotification("Discovered"));
 }
 
-// Test that RecordNearbyNetworkPrinterCounts logs the total number of detected
-// network printers.
+// Test that RecordNearbyNetworkPrinterCounts logs the total number of
+// detected network printers.
 TEST_F(CupsPrintersManagerTest, RecordTotalNetworkPrinterCounts) {
   base::HistogramTester histogram_tester;
   manager_->SavePrinter(Printer("DiscoveredNetworkPrinter0"));
@@ -935,6 +956,15 @@ TEST_F(CupsPrintersManagerTest, RecordNearbyNetworkPrinterCounts) {
   task_environment_.RunUntilIdle();
   histogram_tester.ExpectBucketCount("Printing.CUPS.NearbyNetworkPrintersCount",
                                      2, 1);
+}
+
+TEST_F(CupsPrintersManagerTest, OnServerPrintersChanged) {
+  auto server_printer = MakeAutomaticPrinter("ServerPrinter");
+  server_printer.printer.mutable_ppd_reference()->autoconf = true;
+
+  print_servers_manager_->ServerPrintersChanged({server_printer});
+
+  ExpectPrintersInClassAre(PrinterClass::kAutomatic, {"ServerPrinter"});
 }
 
 }  // namespace

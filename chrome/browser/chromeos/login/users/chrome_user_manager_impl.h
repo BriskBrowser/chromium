@@ -96,7 +96,6 @@ class ChromeUserManagerImpl
   bool CanCurrentUserLock() const override;
   bool IsUserNonCryptohomeDataEphemeral(
       const AccountId& account_id) const override;
-  bool AreSupervisedUsersAllowed() const override;
   bool IsGuestSessionAllowed() const override;
   bool IsGaiaUserAllowed(const user_manager::User& user) const override;
   bool IsUserAllowed(const user_manager::User& user) const override;
@@ -105,7 +104,8 @@ class ChromeUserManagerImpl
   void AsyncRemoveCryptohome(const AccountId& account_id) const override;
   bool IsGuestAccountId(const AccountId& account_id) const override;
   bool IsStubAccountId(const AccountId& account_id) const override;
-  bool IsSupervisedAccountId(const AccountId& account_id) const override;
+  bool IsDeprecatedSupervisedAccountId(
+      const AccountId& account_id) const override;
   bool HasBrowserRestarted() const override;
   const gfx::ImageSkia& GetResourceImagekiaNamed(int id) const override;
   base::string16 GetResourceStringUTF16(int string_id) const override;
@@ -152,14 +152,10 @@ class ChromeUserManagerImpl
  protected:
   const std::string& GetApplicationLocale() const override;
   PrefService* GetLocalState() const override;
-  void HandleUserOAuthTokenStatusChange(
-      const AccountId& account_id,
-      user_manager::User::OAuthTokenStatus status) const override;
   void LoadDeviceLocalAccounts(std::set<AccountId>* users_set) override;
   void NotifyOnLogin() override;
   void NotifyUserAddedToSession(const user_manager::User* added_user,
                                 bool user_switch_pending) override;
-  void PerformPreUserListLoadingActions() override;
   void PerformPostUserListLoadingActions() override;
   void PerformPostUserLoggedInActions(bool browser_restart) override;
   void RemoveNonCryptohomeData(const AccountId& account_id) override;
@@ -177,7 +173,6 @@ class ChromeUserManagerImpl
   void RegularUserLoggedInAsEphemeral(
       const AccountId& account_id,
       const user_manager::UserType user_type) override;
-  void SupervisedUserLoggedIn(const AccountId& account_id) override;
 
  private:
   friend class SupervisedUserManagerImpl;
@@ -208,14 +203,14 @@ class ChromeUserManagerImpl
       const std::vector<std::string>& old_device_local_accounts);
 
   // Replaces the list of device local accounts with those found in
-  // |device_local_accounts|. Ensures that data belonging to accounts no longer
-  // on the list is removed. Returns |true| if the list has changed.
+  // `device_local_accounts`. Ensures that data belonging to accounts no longer
+  // on the list is removed. Returns `true` if the list has changed.
   // Device local accounts are defined by policy. This method is called whenever
   // an updated list of device local accounts is received from policy.
   bool UpdateAndCleanUpDeviceLocalAccounts(
       const std::vector<policy::DeviceLocalAccount>& device_local_accounts);
 
-  // Updates the display name for public account |username| from policy settings
+  // Updates the display name for public account `username` from policy settings
   // associated with that username.
   void UpdatePublicAccountDisplayName(const std::string& user_id);
 
@@ -270,13 +265,10 @@ class ChromeUserManagerImpl
   FlowMap specific_flows_;
 
   // Cros settings change subscriptions.
-  std::unique_ptr<CrosSettings::ObserverSubscription> allow_guest_subscription_;
-  std::unique_ptr<CrosSettings::ObserverSubscription>
-      allow_supervised_user_subscription_;
-  std::unique_ptr<CrosSettings::ObserverSubscription> users_subscription_;
+  base::CallbackListSubscription allow_guest_subscription_;
+  base::CallbackListSubscription users_subscription_;
 
-  std::unique_ptr<CrosSettings::ObserverSubscription>
-      local_accounts_subscription_;
+  base::CallbackListSubscription local_accounts_subscription_;
 
   std::unique_ptr<MultiProfileUserController> multi_profile_user_controller_;
 

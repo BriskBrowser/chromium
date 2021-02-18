@@ -61,6 +61,7 @@
 #include "third_party/khronos/GLES2/gl2.h"
 #include "third_party/khronos/GLES3/gl31.h"
 #include "third_party/skia/include/core/SkData.h"
+#include "v8/include/v8-fast-api-calls.h"
 
 namespace cc {
 class Layer;
@@ -86,6 +87,7 @@ class ImageBitmap;
 class ImageData;
 class IntSize;
 class OESVertexArrayObject;
+class VideoFrame;
 class WebGLActiveInfo;
 class WebGLBuffer;
 class WebGLCompressedTextureASTC;
@@ -107,6 +109,7 @@ class WebGLShader;
 class WebGLShaderPrecisionFormat;
 class WebGLUniformLocation;
 class WebGLVertexArrayObjectBase;
+class XRSystem;
 
 using GLenumHashSet = HashSet<GLenum,
                               WTF::AlreadyHashed,
@@ -140,7 +143,7 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
     return static_cast<HTMLCanvasElement*>(Host());
   }
 
-  const base::Optional<UkmParameters>& GetUkmParameters() const {
+  const UkmParameters GetUkmParameters() const {
     return Host()->GetUkmParameters();
   }
 
@@ -166,7 +169,7 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
   void activeTexture(GLenum texture);
   void attachShader(WebGLProgram*, WebGLShader*);
   void bindAttribLocation(WebGLProgram*, GLuint index, const String& name);
-  void bindBuffer(GLenum target, WebGLBuffer*);
+  void bindBuffer(GLenum target, WebGLBuffer* buffer);
   virtual void bindFramebuffer(GLenum target, WebGLFramebuffer*);
   void bindRenderbuffer(GLenum target, WebGLRenderbuffer*);
   void bindTexture(GLenum target, WebGLTexture*);
@@ -255,8 +258,40 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
   void detachShader(WebGLProgram*, WebGLShader*);
   void disable(GLenum cap);
   void disableVertexAttribArray(GLuint index);
-  void drawArrays(GLenum mode, GLint first, GLsizei count);
-  void drawElements(GLenum mode, GLsizei count, GLenum type, int64_t offset);
+
+  void drawArraysImpl(GLenum mode, GLint first, GLsizei count);
+  void drawArrays(GLenum mode, GLint first, GLsizei count) {
+    if (fast_call_.FlushDeferredEvents(this)) {
+      return;
+    }
+    drawArraysImpl(mode, first, count);
+  }
+  void drawArrays(GLenum mode,
+                  GLint first,
+                  GLsizei count,
+                  v8::FastApiCallbackOptions& options) {
+    auto scoped_call = fast_call_.EnterScoped(&options.fallback);
+    drawArraysImpl(mode, first, count);
+  }
+
+  void drawElementsImpl(GLenum mode,
+                        GLsizei count,
+                        GLenum type,
+                        int64_t offset);
+  void drawElements(GLenum mode, GLsizei count, GLenum type, int64_t offset) {
+    if (fast_call_.FlushDeferredEvents(this)) {
+      return;
+    }
+    drawElementsImpl(mode, count, type, offset);
+  }
+  void drawElements(GLenum mode,
+                    GLsizei count,
+                    GLenum type,
+                    int64_t offset,
+                    v8::FastApiCallbackOptions& options) {
+    auto scoped_call = fast_call_.EnterScoped(&options.fallback);
+    drawElementsImpl(mode, count, type, offset);
+  }
 
   void DrawArraysInstancedANGLE(GLenum mode,
                                 GLint first,
@@ -394,6 +429,14 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
                   GLenum type,
                   HTMLVideoElement*,
                   ExceptionState&);
+  void texImage2D(ExecutionContext*,
+                  GLenum target,
+                  GLint level,
+                  GLint internalformat,
+                  GLenum format,
+                  GLenum type,
+                  VideoFrame*,
+                  ExceptionState&);
   void texImage2D(GLenum target,
                   GLint level,
                   GLint internalformat,
@@ -447,6 +490,15 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
                      GLenum format,
                      GLenum type,
                      HTMLVideoElement*,
+                     ExceptionState&);
+  void texSubImage2D(ExecutionContext*,
+                     GLenum target,
+                     GLint level,
+                     GLint xoffset,
+                     GLint yoffset,
+                     GLenum format,
+                     GLenum type,
+                     VideoFrame*,
                      ExceptionState&);
   void texSubImage2D(GLenum target,
                      GLint level,
@@ -596,16 +648,15 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
     Member<WebGLTexture> texture3d_binding_;
     Member<WebGLTexture> texture2d_array_binding_;
     Member<WebGLTexture> texture_video_image_binding_;
+    Member<WebGLTexture> texture_external_oes_binding_;
+    Member<WebGLTexture> texture_rectangle_arb_binding_;
 
     void Trace(Visitor*) const;
   };
 
   scoped_refptr<StaticBitmapImage> GetImage() override;
   void SetFilterQuality(SkFilterQuality) override;
-  bool IsWebGL2OrHigher() {
-    return context_type_ == Platform::kWebGL2ContextType ||
-           context_type_ == Platform::kWebGL2ComputeContextType;
-  }
+  bool IsWebGL2() { return context_type_ == Platform::kWebGL2ContextType; }
 
   void getHTMLOrOffscreenCanvas(HTMLCanvasElementOrOffscreenCanvas&) const;
 
@@ -758,9 +809,10 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
   // real ones, it's likely that there's no JavaScript on the stack, but that
   // might be dependent on how exactly the platform discovers that the context
   // was lost. For better portability we always defer the dispatch of the event.
-  TaskRunnerTimer<WebGLRenderingContextBase> dispatch_context_lost_event_timer_;
+  HeapTaskRunnerTimer<WebGLRenderingContextBase>
+      dispatch_context_lost_event_timer_;
   bool restore_allowed_ = false;
-  TaskRunnerTimer<WebGLRenderingContextBase> restore_timer_;
+  HeapTaskRunnerTimer<WebGLRenderingContextBase> restore_timer_;
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
   bool destruction_in_progress_ = false;
@@ -796,10 +848,11 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
   static bool IsXrCompatibleFromResult(
       device::mojom::blink::XrCompatibleResult result);
   static bool DidGpuRestart(device::mojom::blink::XrCompatibleResult result);
+  static XRSystem* GetXrSystemFromHost(CanvasRenderingContextHost* host);
   void MakeXrCompatibleAsync();
   void OnMakeXrCompatibleFinished(
       device::mojom::blink::XrCompatibleResult xr_compatible_result);
-  void CompleteXrCompatiblePromiseIfPending();
+  void CompleteXrCompatiblePromiseIfPending(DOMExceptionCode exception_code);
   bool xr_compatible_;
   Member<ScriptPromiseResolver> make_xr_compatible_resolver_;
 
@@ -864,6 +917,9 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
       stencil_func_ref_back_;  // Note that these are the user specified values,
                                // not the internal clamped value.
   GLuint stencil_func_mask_, stencil_func_mask_back_;
+
+  // WebGL 2.0 only, but putting it here saves multiple virtual functions.
+  bool rasterizer_discard_enabled_;
 
   bool is_depth_stencil_supported_;
 
@@ -1018,6 +1074,7 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
   bool is_web_gl_depth_texture_formats_types_added_ = false;
   bool is_ext_srgb_formats_types_added_ = false;
   bool is_ext_color_buffer_float_formats_added_ = false;
+  bool is_ext_color_buffer_half_float_formats_added_ = false;
   bool is_ext_texture_norm16_added_ = false;
 
   GLenumHashSet supported_internal_formats_;
@@ -1051,7 +1108,15 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
     // doesn't have to call glClear() again.
     kCombinedClear
   };
-  HowToClear ClearIfComposited(GLbitfield clear_mask = 0);
+  enum ClearCaller {
+    // Caller of ClearIfComposited is a user-level draw or clear call.
+    kClearCallerDrawOrClear,
+    // Caller of ClearIfComposited is anything else, including
+    // readbacks or copies.
+    kClearCallerOther,
+  };
+
+  HowToClear ClearIfComposited(ClearCaller caller, GLbitfield clear_mask = 0);
 
   // Convert texture internal format.
   GLenum ConvertTexInternalFormat(GLenum internalformat, GLenum type);
@@ -1128,7 +1193,7 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
     // higher, since this should never happen for WebGL 1.0 (even though
     // the code could support it). If the image is null, that will be
     // signaled as an error later.
-    DCHECK(!*selecting_sub_rectangle || IsWebGL2OrHigher())
+    DCHECK(!*selecting_sub_rectangle || IsWebGL2())
         << "subRect = (" << sub_rect.Width() << " x " << sub_rect.Height()
         << ") @ (" << sub_rect.X() << ", " << sub_rect.Y() << "), image = ("
         << image_width << " x " << image_height << ")";
@@ -1306,6 +1371,7 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
     kSourceHTMLVideoElement,
     kSourceImageBitmap,
     kSourceUnpackBuffer,
+    kSourceVideoFrame,
   };
 
   // Helper function for tex{Sub}Image{2|3}D to check if the input
@@ -1471,7 +1537,7 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
       return false;
     }
     GLuint array_length;
-    if (!base::CheckedNumeric<GLuint>(v.lengthAsSizeT())
+    if (!base::CheckedNumeric<GLuint>(v.length())
              .AssignIfValid(&array_length)) {
       SynthesizeGLError(GL_INVALID_VALUE, function_name, "array is too big");
       return false;
@@ -1544,7 +1610,7 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
   bool ExtractDataLengthIfValid(const char* function_name,
                                 MaybeShared<DOMArrayBufferView> data,
                                 T* data_length) {
-    if (base::CheckedNumeric<T>(data.View()->byteLengthAsSizeT())
+    if (base::CheckedNumeric<T>(data->byteLength())
             .AssignIfValid(data_length)) {
       return true;
     }
@@ -1716,6 +1782,23 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
                                       GLsizei,
                                       GLint,
                                       ExceptionState&);
+
+  void TexImageHelperVideoFrame(const SecurityOrigin*,
+                                TexImageFunctionID,
+                                GLenum,
+                                GLint,
+                                GLint,
+                                GLenum,
+                                GLenum,
+                                GLint,
+                                GLint,
+                                GLint,
+                                VideoFrame*,
+                                const IntRect&,
+                                GLsizei,
+                                GLint,
+                                ExceptionState&);
+
   void TexImageHelperImageBitmap(TexImageFunctionID,
                                  GLenum,
                                  GLint,
@@ -1744,6 +1827,10 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
                         GLenum type,
                         DOMArrayBufferView* pixels,
                         int64_t offset);
+
+  // Record Canvas/OffscreenCanvas.RenderingContextDrawnTo at the first draw
+  // call.
+  void RecordUKMCanvasDrawnToAtFirstDrawCall();
 
  private:
   WebGLRenderingContextBase(CanvasRenderingContextHost*,
@@ -1790,6 +1877,17 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
   void RecordIdentifiableGLParameterDigest(GLenum pname,
                                            IdentifiableToken value);
 
+  void RecordShaderPrecisionFormatForStudy(GLenum shader_type,
+                                           GLenum precision_type,
+                                           WebGLShaderPrecisionFormat* format);
+
+  // PushFrameWithCopy will make a potential copy if the resource is accelerated
+  // or a drawImage if the resource is non accelerated.
+  bool PushFrameWithCopy();
+  // PushFrameNoCopy will try and export the content of the DrawingBuffer as a
+  // ExtenralCanvasResource.
+  bool PushFrameNoCopy();
+
   static bool webgl_context_limits_initialized_;
   static unsigned max_active_webgl_contexts_;
   static unsigned max_active_webgl_contexts_on_worker_;
@@ -1801,13 +1899,11 @@ class MODULES_EXPORT WebGLRenderingContextBase : public CanvasRenderingContext,
   static constexpr unsigned int kMaxProgramCompletionQueries = 128u;
   base::MRUCache<WebGLProgram*, GLuint> program_completion_queries_;
 
-  FrameOrWorkerScheduler::SchedulingAffectingFeatureHandle
-      feature_handle_for_scheduler_;
-
   int number_of_user_allocated_multisampled_renderbuffers_;
 
   friend class WebGLFastCallHelper;
   WebGLFastCallHelper fast_call_;
+  bool has_been_drawn_to_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(WebGLRenderingContextBase);
 };

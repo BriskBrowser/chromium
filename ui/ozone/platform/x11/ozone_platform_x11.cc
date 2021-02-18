@@ -9,29 +9,34 @@
 
 #include "base/message_loop/message_pump_type.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
+#include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/thread_pool.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/base/buildflags.h"
 #include "ui/base/cursor/cursor_factory.h"
 #include "ui/base/dragdrop/os_exchange_data_provider_factory.h"
 #include "ui/base/dragdrop/os_exchange_data_provider_factory_ozone.h"
+#include "ui/base/ime/linux/linux_input_method_context_factory.h"
 #include "ui/base/x/x11_cursor_factory.h"
-#include "ui/base/x/x11_error_handler.h"
 #include "ui/base/x/x11_util.h"
 #include "ui/display/fake/fake_display_delegate.h"
 #include "ui/events/devices/x11/touch_factory_x11.h"
 #include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
 #include "ui/events/ozone/layout/stub/stub_keyboard_layout_engine.h"
 #include "ui/events/platform/x11/x11_event_source.h"
-#include "ui/events/x/events_x_utils.h"
+#include "ui/gfx/linux/gpu_memory_buffer_support_x11.h"
 #include "ui/gfx/native_widget_types.h"
-#include "ui/gfx/x/x11_types.h"
 #include "ui/ozone/common/stub_overlay_manager.h"
 #include "ui/ozone/platform/x11/gl_egl_utility_x11.h"
 #include "ui/ozone/platform/x11/x11_clipboard_ozone.h"
+#include "ui/ozone/platform/x11/x11_menu_utils.h"
 #include "ui/ozone/platform/x11/x11_screen_ozone.h"
 #include "ui/ozone/platform/x11/x11_surface_factory.h"
+#include "ui/ozone/platform/x11/x11_user_input_monitor.h"
 #include "ui/ozone/public/gpu_platform_support_host.h"
 #include "ui/ozone/public/input_controller.h"
 #include "ui/ozone/public/ozone_platform.h"
@@ -40,12 +45,11 @@
 #include "ui/platform_window/platform_window_init_properties.h"
 #include "ui/platform_window/x11/x11_window.h"
 
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ui/base/dragdrop/os_exchange_data_provider_non_backed.h"
 #include "ui/base/ime/chromeos/input_method_chromeos.h"
 #else
-#include "ui/base/ime/linux/input_method_auralinux.h"              // nogncheck
-#include "ui/base/ime/linux/linux_input_method_context_factory.h"  // nogncheck
+#include "ui/base/ime/linux/input_method_auralinux.h"
 #include "ui/ozone/platform/x11/x11_os_exchange_data_provider_ozone.h"
 #endif
 
@@ -73,7 +77,7 @@ class OzonePlatformX11 : public OzonePlatform,
     SetInstance(this);
   }
 
-  ~OzonePlatformX11() override {}
+  ~OzonePlatformX11() override = default;
 
   // OzonePlatform:
   ui::SurfaceFactoryOzone* GetSurfaceFactoryOzone() override {
@@ -123,15 +127,15 @@ class OzonePlatformX11 : public OzonePlatform,
   }
 
   PlatformGLEGLUtility* GetPlatformGLEGLUtility() override {
+    if (!gl_egl_utility_)
+      gl_egl_utility_ = std::make_unique<GLEGLUtilityX11>();
     return gl_egl_utility_.get();
   }
-
-  int GetKeyModifiers() const override { return GetModifierKeyState(); }
 
   std::unique_ptr<InputMethod> CreateInputMethod(
       internal::InputMethodDelegate* delegate,
       gfx::AcceleratedWidget) override {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     return std::make_unique<InputMethodChromeOS>(delegate);
 #else
     // This method is used by upper layer components (e.g: GtkUi) to determine
@@ -144,8 +148,12 @@ class OzonePlatformX11 : public OzonePlatform,
 #endif
   }
 
+  PlatformMenuUtils* GetPlatformMenuUtils() override {
+    return menu_utils_.get();
+  }
+
   std::unique_ptr<OSExchangeDataProvider> CreateProvider() override {
-#if defined(OS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     return std::make_unique<OSExchangeDataProviderNonBacked>();
 #else
     return std::make_unique<X11OSExchangeDataProviderOzone>();
@@ -167,14 +175,24 @@ class OzonePlatformX11 : public OzonePlatform,
       properties->message_pump_type_for_viz_compositor =
           base::MessagePumpType::UI;
       properties->supports_vulkan_swap_chain = true;
+      properties->uses_external_vulkan_image_factory = true;
+      properties->skia_can_fall_back_to_x11 = true;
       properties->platform_shows_drag_image = false;
       properties->supports_global_application_menus = true;
       properties->app_modal_dialogs_use_event_blocker = true;
+      properties->fetch_buffer_formats_for_gmb_on_gpu = true;
 
       initialised = true;
     }
 
     return *properties;
+  }
+
+  bool IsNativePixmapConfigSupported(gfx::BufferFormat format,
+                                     gfx::BufferUsage usage) const override {
+    // Native pixmap support is determined on gpu process via gpu extra info
+    // that gets this information from GpuMemoryBufferSupportX11.
+    return false;
   }
 
   void InitializeUI(const InitParams& params) override {
@@ -206,12 +224,20 @@ class OzonePlatformX11 : public OzonePlatform,
     GtkUiDelegate::SetInstance(gtk_ui_delegate_.get());
 #endif
 
+    menu_utils_ = std::make_unique<X11MenuUtils>();
+
     base::UmaHistogramEnumeration("Linux.WindowManager", GetWindowManagerUMA());
   }
 
   void InitializeGPU(const InitParams& params) override {
     InitializeCommon(params);
-
+    if (params.enable_native_gpu_memory_buffers) {
+      base::ThreadPool::PostTask(
+          FROM_HERE, base::BindOnce([]() {
+            SCOPED_UMA_HISTOGRAM_TIMER("Linux.X11.GbmSupportX11CreationTime");
+            ui::GpuMemoryBufferSupportX11::GetInstance();
+          }));
+    }
     // In single process mode either the UI thread will create an event source
     // or it's a test and an event source isn't desired.
     if (!params.single_process)
@@ -223,7 +249,6 @@ class OzonePlatformX11 : public OzonePlatform,
     connection->DetachFromSequence();
     surface_factory_ozone_ =
         std::make_unique<X11SurfaceFactory>(std::move(connection));
-    gl_egl_utility_ = std::make_unique<GLEGLUtilityX11>();
   }
 
   void PostMainMessageLoopStart(
@@ -231,21 +256,13 @@ class OzonePlatformX11 : public OzonePlatform,
     // Installs the X11 error handlers for the UI process after the
     // main message loop has started. This will allow us to exit cleanly
     // if X exits before we do.
-    SetErrorHandlers(std::move(shutdown_cb));
+    x11::Connection::Get()->SetIOErrorHandler(std::move(shutdown_cb));
   }
 
-  void PostMainMessageLoopRun() override {
-    // Unset the X11 error handlers. The X11 error handlers log the errors using
-    // a |PostTask()| on the message-loop. But since the message-loop is in the
-    // process of terminating, this can cause errors.
-    SetEmptyErrorHandlers();
-  }
-
-  void PreEarlyInitialize() override {
-    // Installs the X11 error handlers for the browser process used during
-    // startup. They simply print error messages and exit because
-    // we can't shutdown properly while creating and initializing services.
-    SetNullErrorHandlers();
+  std::unique_ptr<PlatformUserInputMonitor> GetPlatformUserInputMonitor(
+      const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner)
+      override {
+    return std::make_unique<X11UserInputMonitor>(std::move(io_task_runner));
   }
 
  private:
@@ -257,9 +274,7 @@ class OzonePlatformX11 : public OzonePlatform,
     // If opening the connection failed there is nothing we can do. Crash here
     // instead of crashing later. If you are crashing here, make sure there is
     // an X server running and $DISPLAY is set.
-    CHECK(x11::Connection::Get()) << "Missing X server or $DISPLAY";
-
-    ui::SetDefaultX11ErrorHandlers();
+    CHECK(x11::Connection::Get()->Ready()) << "Missing X server or $DISPLAY";
 
     common_initialized_ = true;
   }
@@ -286,6 +301,7 @@ class OzonePlatformX11 : public OzonePlatform,
   std::unique_ptr<X11ClipboardOzone> clipboard_;
   std::unique_ptr<CursorFactory> cursor_factory_;
   std::unique_ptr<GpuPlatformSupportHost> gpu_platform_support_host_;
+  std::unique_ptr<X11MenuUtils> menu_utils_;
 
   // Objects in the GPU process.
   std::unique_ptr<X11SurfaceFactory> surface_factory_ozone_;

@@ -11,6 +11,7 @@
 #include "ash/display/window_tree_host_manager.h"
 #include "ash/host/ash_window_tree_host.h"
 #include "ash/magnifier/magnifier_test_utils.h"
+#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/shelf_config.h"
@@ -19,8 +20,10 @@
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/test/ash_test_helper.h"
+#include "ash/test/test_window_builder.h"
 #include "ash/wm/desks/desks_bar_view.h"
 #include "ash/wm/desks/new_desk_button.h"
+#include "ash/wm/desks/zero_state_button.h"
 #include "ash/wm/overview/overview_controller.h"
 #include "ash/wm/overview/overview_grid.h"
 #include "ash/wm/overview/overview_item.h"
@@ -32,12 +35,14 @@
 #include "base/command_line.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/session_manager_types.h"
+#include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/compositor/layer.h"
 #include "ui/display/display.h"
 #include "ui/display/manager/managed_display_info.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/views/widget/widget.h"
+#include "ui/views/widget/widget_delegate.h"
 #include "ui/wm/core/coordinate_conversion.h"
 
 namespace ash {
@@ -142,7 +147,145 @@ class DockedMagnifierTest : public NoSessionAshTestBase {
     auto* generator = GetEventGenerator();
     generator->GestureTapAt(touch_point_in_screen);
   }
+
+  std::unique_ptr<views::Widget> CreateLockSystemModalWindow(
+      const gfx::Rect& bounds) {
+    auto* widget_delegate_view = new views::WidgetDelegateView();
+    widget_delegate_view->SetModalType(ui::MODAL_TYPE_SYSTEM);
+    return CreateTestWidget(widget_delegate_view,
+                            kShellWindowId_LockSystemModalContainer, bounds);
+  }
+
+  // Test that display work area and a modal window is adjusted correctly
+  // after enabling and disabling a docked magnifier.
+  void TestDisplayWorkAreaAndLockSystemModalBoundsUpdated() {
+    // Start with the docked magnifier disabled.
+    EXPECT_FALSE(controller()->GetEnabled());
+
+    // Create a lock system modal window.
+    auto lock_system_modal_widget =
+        CreateLockSystemModalWindow(gfx::Rect(800, 600));
+
+    // Enable the docked magnifier.
+    controller()->SetEnabled(true);
+    EXPECT_TRUE(controller()->GetEnabled());
+
+    // Expect that the modal window fits inside the shrunk valid area.
+    const gfx::Rect modal_bounds =
+        lock_system_modal_widget->GetWindowBoundsInScreen();
+    const gfx::Rect valid_area =
+        display::Screen::GetScreen()
+            ->GetDisplayNearestWindow(Shell::GetPrimaryRootWindow())
+            .work_area();
+    const gfx::Rect docked_magnifier_bounds =
+        controller()->GetViewportWidgetForTesting()->GetWindowBoundsInScreen();
+    // Check that display work area does not overlap with a docked magnifier.
+    EXPECT_FALSE(docked_magnifier_bounds.Intersects(valid_area));
+    // Check that modal window fits inside the display work area, |valid_area|,
+    // to make sure the |modal_bounds| size does not overflow.
+    EXPECT_TRUE(valid_area.Contains(modal_bounds));
+
+    // Disable the docked magnifier.
+    controller()->SetEnabled(false);
+    EXPECT_FALSE(controller()->GetEnabled());
+
+    const gfx::Rect modal_bounds_no_magnifier =
+        lock_system_modal_widget->GetWindowBoundsInScreen();
+
+    // Expect that the window stays inside the valid area.
+    const gfx::Rect valid_area_no_magnifier =
+        display::Screen::GetScreen()
+            ->GetDisplayNearestWindow(Shell::GetPrimaryRootWindow())
+            .work_area();
+    EXPECT_TRUE(valid_area_no_magnifier.Contains(modal_bounds_no_magnifier));
+    // With larger work area, |modal_bounds_no_magnifier| size must not shrink.
+    // Even stricter, the size must remain the same as |modal_bounds| size
+    // because a centered system modal only shrinks but never expands according
+    // to SystemModalContainerLayoutManager::GetCenteredAndOrFittedBounds()
+    // ClampToCenteredSize.
+    EXPECT_EQ(modal_bounds.size(), modal_bounds_no_magnifier.size());
+    // Expect y offset of the modal window to be centered correctly.
+    EXPECT_EQ((valid_area_no_magnifier.height() -
+               modal_bounds_no_magnifier.height()) /
+                  2,
+              modal_bounds_no_magnifier.y());
+  }
+
+  // Test that bounds of a modal window are the same when initially created and
+  // updated. views::NativeWidgetAura::CenterWindow() sets the initial modal
+  // bounds, while
+  // SystemModalContainerLayoutManager::GetCenteredAndOrFittedBounds() updates
+  // the modal window bounds. Thus, this test makes sure the bounds are the same
+  // in both cases.
+  void TestLockSystemModalBoundUpdateAndCreationConsistency() {
+    // Start with the docked magnifier disabled.
+    EXPECT_FALSE(controller()->GetEnabled());
+
+    // Create a lock system modal window for an update case.
+    auto lock_system_modal_widget_update_case =
+        CreateLockSystemModalWindow(gfx::Rect(800, 600));
+
+    // Enable the docked magnifier.
+    controller()->SetEnabled(true);
+    EXPECT_TRUE(controller()->GetEnabled());
+
+    // Create a lock system modal window for a creation case.
+    auto lock_system_modal_widget =
+        CreateLockSystemModalWindow(gfx::Rect(800, 600));
+
+    // Expect that both modal windows fit inside the shrunk area
+    // and have the exact same bounds.
+    const gfx::Rect modal_bounds =
+        lock_system_modal_widget->GetWindowBoundsInScreen();
+    const gfx::Rect modal_bounds_update_case =
+        lock_system_modal_widget_update_case->GetWindowBoundsInScreen();
+    const gfx::Rect valid_area =
+        display::Screen::GetScreen()
+            ->GetDisplayNearestWindow(Shell::GetPrimaryRootWindow())
+            .work_area();
+    const gfx::Rect docked_magnifier_bounds =
+        controller()->GetViewportWidgetForTesting()->GetWindowBoundsInScreen();
+    EXPECT_FALSE(docked_magnifier_bounds.Intersects(valid_area));
+    EXPECT_TRUE(valid_area.Contains(modal_bounds));
+    EXPECT_EQ(modal_bounds, modal_bounds_update_case);
+
+    // Disable the docked magnifier.
+    controller()->SetEnabled(false);
+    EXPECT_FALSE(controller()->GetEnabled());
+  }
 };
+
+// If not signed in, test that display work area and window bounds
+// are updated correctly after enabling and disabling a docked magnifier.
+TEST_F(DockedMagnifierTest, WindowBoundsChangeInNonActiveState) {
+  UpdateDisplay("800x600");
+
+  struct {
+    std::string trace;
+    session_manager::SessionState state;
+  } kNonActiveStatesTestCases[] = {
+      {"oobe", session_manager::SessionState::OOBE},
+      {"login_primary", session_manager::SessionState::LOGIN_PRIMARY},
+      {"locked", session_manager::SessionState::LOCKED},
+      {"login_secondary", session_manager::SessionState::LOGIN_SECONDARY},
+  };
+
+  // For each of the states which is not ACTIVE, LOGGED_IN_NOT_ACTIVE, and
+  // UNKNOWN, set the session state and make sure that work area and window
+  // bounds are as expected after enabling and disabling the docked magnifier.
+  // In LOGGED_IN_NOT_ACTIVE state, no window can be added to
+  // LockSystemModalContainer.
+  for (auto test_case : kNonActiveStatesTestCases) {
+    SCOPED_TRACE(test_case.trace);
+    GetSessionControllerClient()->SetSessionState(test_case.state);
+    // Test that display work area and the modal window position is dynamically
+    // adjusted regarding the existence of a docked magnifier.
+    TestDisplayWorkAreaAndLockSystemModalBoundsUpdated();
+    // Test that bounds of a lock system modal window are
+    // the same during creation and update.
+    TestLockSystemModalBoundUpdateAndCreationConsistency();
+  }
+}
 
 // Tests that the Fullscreen and Docked Magnifiers are mutually exclusive.
 // TODO(afakhry): Update this test to use ash::MagnificationController once
@@ -328,8 +471,11 @@ TEST_F(DockedMagnifierTest, DisplaysWorkAreas) {
 
 // Test that we exit overview mode when enabling the docked magnifier.
 TEST_F(DockedMagnifierTest, DisplaysWorkAreasOverviewMode) {
-  std::unique_ptr<aura::Window> window(
-      CreateTestWindowInShell(SK_ColorWHITE, 100, gfx::Rect(0, 0, 200, 200)));
+  std::unique_ptr<aura::Window> window =
+      TestWindowBuilder()
+          .SetBounds(gfx::Rect(0, 0, 200, 200))
+          .AllowAllWindowStates()
+          .Build();
   WindowState::Get(window.get())->Maximize();
 
   // Enable overview mode followed by the magnifier.
@@ -364,13 +510,32 @@ TEST_F(DockedMagnifierTest, OverviewTabbing) {
   const auto* desk_bar_view = GetOverviewSession()
                                   ->GetGridWithRootWindow(root_window)
                                   ->desks_bar_view();
+  if (features::IsBentoEnabled()) {
+    ASSERT_TRUE(desk_bar_view->IsZeroState());
 
-  // Tab once. The viewport should be centered on the center of the new desk
-  // button.
-  SendKey(ui::VKEY_TAB);
-  TestMagnifierLayerTransform(
-      desk_bar_view->new_desk_button()->GetBoundsInScreen().CenterPoint(),
-      root_window);
+    // Tab once. The viewport should be centered on the center of the default
+    // desk button in the zero state desks bar.
+    SendKey(ui::VKEY_TAB);
+    TestMagnifierLayerTransform(desk_bar_view->zero_state_default_desk_button()
+                                    ->GetBoundsInScreen()
+                                    .CenterPoint(),
+                                root_window);
+
+    // Tab one more time. The viewport should be centered on the center of the
+    // new desk button in the zero state desks bar.
+    SendKey(ui::VKEY_TAB);
+    TestMagnifierLayerTransform(desk_bar_view->zero_state_new_desk_button()
+                                    ->GetBoundsInScreen()
+                                    .CenterPoint(),
+                                root_window);
+  } else {
+    // Tab once. The viewport should be centered on the center of the new desk
+    // button.
+    SendKey(ui::VKEY_TAB);
+    TestMagnifierLayerTransform(
+        desk_bar_view->new_desk_button()->GetBoundsInScreen().CenterPoint(),
+        root_window);
+  }
 
   // Tab one more time. The viewport should be centered on the beginning of the
   // overview item's title.
@@ -391,8 +556,11 @@ TEST_F(DockedMagnifierTest, DisplaysWorkAreasSingleSplitView) {
   Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
   EXPECT_TRUE(Shell::Get()->tablet_mode_controller()->InTabletMode());
 
-  std::unique_ptr<aura::Window> window(
-      CreateTestWindowInShell(SK_ColorWHITE, 100, gfx::Rect(0, 0, 200, 200)));
+  std::unique_ptr<aura::Window> window =
+      TestWindowBuilder()
+          .SetBounds(gfx::Rect(0, 0, 200, 200))
+          .AllowAllWindowStates()
+          .Build();
   WindowState::Get(window.get())->Maximize();
 
   EXPECT_EQ(split_view_controller()->state(),
@@ -435,10 +603,16 @@ TEST_F(DockedMagnifierTest, DisplaysWorkAreasDoubleSplitView) {
   Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
   EXPECT_TRUE(Shell::Get()->tablet_mode_controller()->InTabletMode());
 
-  std::unique_ptr<aura::Window> window1(
-      CreateTestWindowInShell(SK_ColorWHITE, 100, gfx::Rect(0, 0, 200, 200)));
-  std::unique_ptr<aura::Window> window2(
-      CreateTestWindowInShell(SK_ColorWHITE, 200, gfx::Rect(0, 0, 200, 200)));
+  std::unique_ptr<aura::Window> window1 =
+      TestWindowBuilder()
+          .SetBounds(gfx::Rect(0, 0, 200, 200))
+          .AllowAllWindowStates()
+          .Build();
+  std::unique_ptr<aura::Window> window2 =
+      TestWindowBuilder()
+          .SetBounds(gfx::Rect(0, 0, 200, 200))
+          .AllowAllWindowStates()
+          .Build();
 
   auto* overview_controller = Shell::Get()->overview_controller();
   overview_controller->StartOverview();
@@ -668,14 +842,18 @@ TEST_F(DockedMagnifierTest, TextInputFieldEvents) {
   // goes through the magnifier layer transform, it should end up being in the
   // center of the viewport.
   gfx::Point caret_center(text_input_helper.GetCaretBounds().CenterPoint());
-  TestMagnifierLayerTransform(caret_center, root_windows[0]);
+  gfx::Point caret_screen_point =
+      controller()->GetLastCaretScreenPointForTesting();
+  ASSERT_EQ(caret_center, caret_screen_point);
 
   // Simulate typing by pressing some keys while focus is in the text field. The
   // transformed caret center should always go to the viewport center.
   GetEventGenerator()->PressKey(ui::VKEY_A, 0);
   GetEventGenerator()->ReleaseKey(ui::VKEY_A, 0);
   gfx::Point new_caret_center(text_input_helper.GetCaretBounds().CenterPoint());
-  TestMagnifierLayerTransform(new_caret_center, root_windows[0]);
+  gfx::Point new_caret_screen_point =
+      controller()->GetLastCaretScreenPointForTesting();
+  ASSERT_EQ(new_caret_center, new_caret_screen_point);
 }
 
 // Tests that there are no crashes observed when the docked magnifier switches
@@ -703,7 +881,9 @@ TEST_F(DockedMagnifierTest, NoCrashDueToRecursion) {
   // Focus on the text input field.
   text_input_helper.FocusOnTextInputView();
   gfx::Point caret_center(text_input_helper.GetCaretBounds().CenterPoint());
-  TestMagnifierLayerTransform(caret_center, roots[0]);
+  gfx::Point caret_screen_point =
+      controller()->GetLastCaretScreenPointForTesting();
+  ASSERT_EQ(caret_center, caret_screen_point);
 
   // Move the mouse to the second display and expect no crashes.
   GetEventGenerator()->MoveMouseTo(1000, 300);

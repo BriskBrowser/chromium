@@ -12,77 +12,129 @@
 #include "ui/base/models/dialog_model.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/controls/button/button.h"
-#include "ui/views/controls/combobox/combobox_listener.h"
 
 namespace views {
-class Combobox;
-class GridLayout;
+
 class Label;
-class Textfield;
+class StyledLabel;
 
 // BubbleDialogModelHost is a views implementation of ui::DialogModelHost which
-// hosts a ui::DialogModel as a BubbleDialogDelegateView. This exposes
-// views-specific methods such as SetAnchorView(), SetArrow() and
-// SetHighlightedButton(). For methods that are reflected in ui::DialogModelHost
-// (such as ::Close()), prefer using the ui::DialogModelHost to avoid
-// platform-specific code (GetWidget()->Close()) where unnecessary. For those
-// methods, note that this can be retrieved as a ui::DialogModelHost through
-// DialogModel::host(). This helps minimize platform-specific code from
-// platform-agnostic model-delegate code.
+// hosts a ui::DialogModel as a BubbleDialogDelegateView. This exposes such as
+// SetAnchorView(), SetArrow() and SetHighlightedButton(). For methods that are
+// reflected in ui::DialogModelHost (such as ::Close()), prefer using the
+// ui::DialogModelHost to avoid platform-specific code (GetWidget()->Close())
+// where unnecessary. For those methods, note that this can be retrieved as a
+// ui::DialogModelHost through DialogModel::host(). This helps minimize
+// platform-specific code from platform-agnostic model-delegate code.
 class VIEWS_EXPORT BubbleDialogModelHost : public BubbleDialogDelegateView,
-                                           public ui::DialogModelHost,
-                                           public ButtonListener,
-                                           public ComboboxListener {
+                                           public ui::DialogModelHost {
  public:
+  METADATA_HEADER(BubbleDialogModelHost);
   // Constructs a BubbleDialogModelHost, which for most purposes is to used as a
   // BubbleDialogDelegateView. The BubbleDialogDelegateView is nominally handed
   // to BubbleDialogDelegateView::CreateBubble() which returns a Widget that has
   // taken ownership of the bubble. Widget::Show() finally shows the bubble.
-  explicit BubbleDialogModelHost(std::unique_ptr<ui::DialogModel> model);
+  BubbleDialogModelHost(std::unique_ptr<ui::DialogModel> model,
+                        View* anchor_view,
+                        BubbleBorder::Arrow arrow);
   ~BubbleDialogModelHost() override;
+
+  static std::unique_ptr<BubbleDialogModelHost> CreateModal(
+      std::unique_ptr<ui::DialogModel> model,
+      ui::ModalType modal_type);
 
   // BubbleDialogDelegateView:
   // TODO(pbos): Populate initparams with initial view instead of overriding
   // GetInitiallyFocusedView().
   View* GetInitiallyFocusedView() override;
   void OnDialogInitialized() override;
-  gfx::Size CalculatePreferredSize() const override;
 
   // ui::DialogModelHost:
   void Close() override;
-  void SelectAllText(int unique_id) override;
   void OnFieldAdded(ui::DialogModelField* field) override;
 
-  // ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
-
-  // ComboboxListener:
-  void OnPerformAction(views::Combobox* combobox) override;
-
  private:
+  // TODO(pbos): Consider externalizing this functionality into a different
+  // format that could feasibly be adopted by LayoutManagers. This is used for
+  // BoxLayouts (but could be others) to agree on columns' preferred width as a
+  // replacement for using GridLayout.
+  class LayoutConsensusView;
+  class LayoutConsensusGroup {
+   public:
+    LayoutConsensusGroup();
+    ~LayoutConsensusGroup();
+
+    void AddView(LayoutConsensusView* view);
+    void RemoveView(LayoutConsensusView* view);
+
+    void InvalidateChildren();
+
+    // Get the union of all preferred sizes within the group.
+    gfx::Size GetMaxPreferredSize() const;
+
+    // Get the union of all minimum sizes within the group.
+    gfx::Size GetMaxMinimumSize() const;
+
+   private:
+    base::flat_set<View*> children_;
+  };
+
+  struct DialogModelHostField {
+    ui::DialogModelField* dialog_model_field;
+
+    // View representing the entire field.
+    View* field_view;
+
+    // Child view to |field_view|, if any, that's used for focus. For instance,
+    // a textfield row would be a container that contains both a
+    // views::Textfield and a descriptive label. In this case |focusable_view|
+    // would refer to the views::Textfield which is also what would gain focus.
+    View* focusable_view;
+  };
+
   void OnWindowClosing();
 
-  GridLayout* GetGridLayout();
-  void ConfigureGridLayout();
-
   void AddInitialFields();
-  Label* AddOrUpdateBodyText(ui::DialogModelBodyText* field);
-  Combobox* AddOrUpdateCombobox(ui::DialogModelCombobox* field);
-  Textfield* AddOrUpdateTextfield(ui::DialogModelTextfield* field);
-  void AddLabelAndField(const base::string16& label_text,
-                        std::unique_ptr<views::View> field,
-                        const gfx::FontList& field_font);
+  void AddOrUpdateBodyText(ui::DialogModelBodyText* model_field);
+  void AddOrUpdateCheckbox(ui::DialogModelCheckbox* model_field);
+  void AddOrUpdateCombobox(ui::DialogModelCombobox* model_field);
+  void AddOrUpdateTextfield(ui::DialogModelTextfield* model_field);
 
-  void OnViewCreatedForField(View* view, ui::DialogModelField* field);
+  void UpdateSpacingAndMargins();
 
-  void NotifyTextfieldTextChanged(views::Textfield* textfield);
-  void NotifyComboboxSelectedIndexChanged(views::Combobox* combobox);
+  void AddViewForLabelAndField(ui::DialogModelField* model_field,
+                               const base::string16& label_text,
+                               std::unique_ptr<views::View> field,
+                               const gfx::FontList& field_font);
 
-  View* FieldToView(ui::DialogModelField* field);
+  static bool DialogModelLabelRequiresStyledLabel(
+      const ui::DialogModelLabel& dialog_label);
+  std::unique_ptr<View> CreateViewForLabel(
+      const ui::DialogModelLabel& dialog_label);
+  std::unique_ptr<StyledLabel> CreateStyledLabelForDialogModelLabel(
+      const ui::DialogModelLabel& dialog_label);
+  std::unique_ptr<Label> CreateLabelForDialogModelLabel(
+      const ui::DialogModelLabel& dialog_label);
+
+  void AddDialogModelHostField(std::unique_ptr<View> view,
+                               const DialogModelHostField& field_view_info);
+  void AddDialogModelHostFieldForExistingView(
+      const DialogModelHostField& field_view_info);
+
+  DialogModelHostField FindDialogModelHostField(
+      ui::DialogModelField* model_field);
+  DialogModelHostField FindDialogModelHostField(View* view);
+
+  static View* GetTargetView(const DialogModelHostField& field_view_info);
+
+  bool IsModalDialog() const;
 
   std::unique_ptr<ui::DialogModel> model_;
-  base::flat_map<View*, ui::DialogModelField*> view_to_field_;
-  std::vector<PropertyChangedSubscription> property_changed_subscriptions_;
+  std::vector<DialogModelHostField> fields_;
+  std::vector<base::CallbackListSubscription> property_changed_subscriptions_;
+
+  LayoutConsensusGroup textfield_first_column_group_;
+  LayoutConsensusGroup textfield_second_column_group_;
 };
 
 }  // namespace views

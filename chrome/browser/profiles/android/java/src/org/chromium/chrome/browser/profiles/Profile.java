@@ -47,7 +47,7 @@ public class Profile implements BrowserContextHandle {
         if (sLastUsedProfileForTesting != null) {
             return sLastUsedProfileForTesting;
         }
-        assert ThreadUtils.runningOnUiThread();
+        ThreadUtils.assertOnUiThread();
         // TODO(crbug.com/704025): turn this into an assert once the bug is fixed
         if (!ProfileManager.isInitialized()) {
             throw new IllegalStateException("Browser hasn't finished initialization yet!");
@@ -77,17 +77,6 @@ public class Profile implements BrowserContextHandle {
     }
 
     /**
-     * Returns the primary OffTheRecord profile.
-     *
-     * @deprecated use {@link #getOffTheRecordProfile(OTRProfileID)} or {@link
-     *         #getPrimaryOTRProfile()} instead.
-     */
-    @Deprecated
-    public Profile getOffTheRecordProfile() {
-        return getPrimaryOTRProfile();
-    }
-
-    /**
      * Returns the OffTheRecord profile with given OTRProfileiD.
      *
      * @param profileID {@link OTRProfileID} object.
@@ -111,17 +100,6 @@ public class Profile implements BrowserContextHandle {
     @Nullable
     public OTRProfileID getOTRProfileID() {
         return mOTRProfileID;
-    }
-
-    /**
-     * Returns if primary OffTheRecord profile exists.
-     *
-     * @deprecated use {@link #hasOffTheRecordProfile(OTRProfileID)} or {@link
-     *         #hasPrimaryOTRProfile()} instead.
-     */
-    @Deprecated
-    public boolean hasOffTheRecordProfile() {
-        return hasPrimaryOTRProfile();
     }
 
     /**

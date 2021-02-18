@@ -27,8 +27,6 @@ component("userspace_swap") {
     ":chromeos_implementation",
     "//build/config/linux/nss:system_nss_no_ssl_config",
   ]
-
-  public_deps = [ "//chromeos/constants" ]
   deps = [
     ":mojom",
     "//base",
@@ -43,6 +41,7 @@ component("userspace_swap") {
     "//third_party/zlib/google:compression_utils",
   ]
   sources = [
+    "region.cc",
     "region.h",
     "swap_storage.cc",
     "swap_storage.h",
@@ -50,6 +49,8 @@ component("userspace_swap") {
     "userfaultfd.h",
     "userspace_swap.cc",
     "userspace_swap.h",
+    "userspace_swap_renderer_initialization_impl.cc",
+    "userspace_swap_renderer_initialization_impl.h",
   ]
 }
 
@@ -60,13 +61,14 @@ source_set("unit_tests") {
     ":mojom",
     ":userspace_swap",
     "//base/test:test_support",
-    "//chromeos:chromeos_buildflags",
+    "//build:chromeos_buildflags",
     "//mojo/core/embedder",
     "//services/resource_coordinator/public/cpp/memory_instrumentation",
     "//testing/gmock",
     "//testing/gtest",
   ]
   sources = [
+    "region_unittest.cc",
     "swap_storage_unittest.cc",
     "userfaultfd_unittest.cc",
     "userspace_swap_unittest.cc",

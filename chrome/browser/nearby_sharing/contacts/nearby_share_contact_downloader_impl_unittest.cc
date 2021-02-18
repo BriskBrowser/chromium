@@ -4,14 +4,17 @@
 
 #include <memory>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "base/no_destructor.h"
 #include "base/optional.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "base/time/clock.h"
 #include "base/time/time.h"
 #include "chrome/browser/nearby_sharing/client/fake_nearby_share_client.h"
+#include "chrome/browser/nearby_sharing/common/nearby_share_features.h"
 #include "chrome/browser/nearby_sharing/common/nearby_share_http_result.h"
 #include "chrome/browser/nearby_sharing/contacts/nearby_share_contact_downloader_impl.h"
 #include "chrome/browser/nearby_sharing/proto/contact_rpc.pb.h"
@@ -24,6 +27,8 @@ const char kTestDeviceId[] = "test_device_id";
 const char kTestContactRecordId1[] = "contact_id_1";
 const char kTestContactRecordId2[] = "contact_id_2";
 const char kTestContactRecordId3[] = "contact_id_3";
+const char kTestContactRecordId4[] = "contact_id_4";
+const char kTestContactRecordId5[] = "contact_id_5";
 const char kTestPageToken[] = "token";
 
 constexpr base::TimeDelta kTestTimeout = base::TimeDelta::FromMinutes(123);
@@ -34,12 +39,26 @@ const std::vector<nearbyshare::proto::ContactRecord>& TestContactRecordList() {
       list([] {
         nearbyshare::proto::ContactRecord contact1;
         contact1.set_id(kTestContactRecordId1);
+        contact1.set_type(nearbyshare::proto::ContactRecord::GOOGLE_CONTACT);
+        contact1.set_is_reachable(true);
         nearbyshare::proto::ContactRecord contact2;
         contact2.set_id(kTestContactRecordId2);
+        contact2.set_type(nearbyshare::proto::ContactRecord::DEVICE_CONTACT);
+        contact2.set_is_reachable(true);
         nearbyshare::proto::ContactRecord contact3;
         contact3.set_id(kTestContactRecordId3);
+        contact3.set_type(nearbyshare::proto::ContactRecord::UNKNOWN);
+        contact3.set_is_reachable(true);
+        nearbyshare::proto::ContactRecord contact4;
+        contact4.set_id(kTestContactRecordId4);
+        contact4.set_type(nearbyshare::proto::ContactRecord::GOOGLE_CONTACT);
+        contact4.set_is_reachable(false);
+        nearbyshare::proto::ContactRecord contact5;
+        contact5.set_id(kTestContactRecordId5);
+        contact5.set_type(nearbyshare::proto::ContactRecord::GOOGLE_CONTACT);
+        contact5.set_is_reachable(false);
         return std::vector<nearbyshare::proto::ContactRecord>{
-            contact1, contact2, contact3};
+            contact1, contact2, contact3, contact4, contact5};
       }());
   return *list;
 }
@@ -58,22 +77,21 @@ nearbyshare::proto::ListContactPeopleResponse CreateListContactPeopleResponse(
 
 }  // namespace
 
-// TODO(nohle): Add more tests when the contact-change check RPC is implemented.
-class NearbyShareContactDownloaderImplTest : public ::testing::Test {
+class NearbyShareContactDownloaderImplTest
+    : public ::testing::TestWithParam<std::tuple<bool, bool>> {
  protected:
   struct Result {
     bool success;
-    base::Optional<bool> did_contacts_change_since_last_upload;
     base::Optional<std::vector<nearbyshare::proto::ContactRecord>> contacts;
+    base::Optional<uint32_t> num_unreachable_contacts_filtered_out;
   };
 
   NearbyShareContactDownloaderImplTest() = default;
   ~NearbyShareContactDownloaderImplTest() override = default;
 
-  void RunDownload(bool only_download_if_changed) {
+  void RunDownload() {
     downloader_ = NearbyShareContactDownloaderImpl::Factory::Create(
-        only_download_if_changed, kTestDeviceId, kTestTimeout,
-        &fake_client_factory_,
+        kTestDeviceId, kTestTimeout, &fake_client_factory_,
         base::BindOnce(&NearbyShareContactDownloaderImplTest::OnSuccess,
                        base::Unretained(this)),
         base::BindOnce(&NearbyShareContactDownloaderImplTest::OnFailure,
@@ -84,55 +102,52 @@ class NearbyShareContactDownloaderImplTest : public ::testing::Test {
   void SucceedListContactPeopleRequest(
       const base::Optional<std::string>& expected_page_token_in_request,
       const nearbyshare::proto::ListContactPeopleResponse& response) {
-    // Verify request.
     VerifyListContactPeopleRequest(expected_page_token_in_request);
 
-    // Send response.
     EXPECT_FALSE(result_);
     FakeNearbyShareClient* client = fake_client_factory_.instances().back();
     std::move(client->list_contact_people_requests()[0].callback).Run(response);
-
-    // ListContactPeople requests will continue to be made until the next page
-    // token is empty. Only then will a result be sent to the user.
-    if (!response.next_page_token().empty())
-      return;
-
-    // Verify result now that we are not expecting any more ListContactPeople
-    // calls. We expect the full contact list to have been sent.
-    // TODO(nohle): Change when the contact-change check RPC is implemented. For
-    // now, |did_contacts_change_since_last_upload| is always true.
-    VerifySuccess(/*expected_did_contacts_change_since_last_upload=*/true,
-                  /*expected_contacts=*/TestContactRecordList());
   }
 
   void FailListContactPeopleRequest(
       const base::Optional<std::string>& expected_page_token_in_request) {
-    // Verify request.
     VerifyListContactPeopleRequest(expected_page_token_in_request);
 
-    // Fail and verify result. A contact list should only be passed back on
-    // full success even if a partial list was retrieved.
-    // TODO(nohle): Change when the contact-change check RPC is implemented. For
-    // now, |did_contacts_change_since_last_upload| is always true.
     EXPECT_FALSE(result_);
     FakeNearbyShareClient* client = fake_client_factory_.instances().back();
     std::move(client->list_contact_people_requests()[0].error_callback)
         .Run(NearbyShareHttpError::kBadRequest);
-    VerifyFailure();
   }
 
   void TimeoutListContactPeopleRequest(
       const base::Optional<std::string>& expected_page_token_in_request) {
-    // Verify request.
     VerifyListContactPeopleRequest(expected_page_token_in_request);
 
-    // Time out and verify result. A contact list should only be passed back on
-    // full success even if a partial list was retrieved.
-    // TODO(nohle): Change when the contact-change check RPC is implemented. For
-    // now, |did_contacts_change_since_last_upload| is always true.
     EXPECT_FALSE(result_);
     FastForward(kTestTimeout);
-    VerifyFailure();
+  }
+
+  void VerifySuccess(
+      const std::vector<nearbyshare::proto::ContactRecord>& expected_contacts,
+      uint32_t expected_num_unreachable_contacts_filtered_out) {
+    ASSERT_TRUE(result_);
+    EXPECT_TRUE(result_->success);
+    ASSERT_TRUE(result_->contacts);
+    EXPECT_EQ(expected_num_unreachable_contacts_filtered_out,
+              result_->num_unreachable_contacts_filtered_out);
+
+    ASSERT_EQ(expected_contacts.size(), result_->contacts->size());
+    for (size_t i = 0; i < expected_contacts.size(); ++i) {
+      EXPECT_EQ(expected_contacts[i].SerializeAsString(),
+                result_->contacts->at(i).SerializeAsString());
+    }
+  }
+
+  void VerifyFailure() {
+    ASSERT_TRUE(result_);
+    EXPECT_FALSE(result_->success);
+    EXPECT_FALSE(result_->contacts);
+    EXPECT_FALSE(result_->num_unreachable_contacts_filtered_out);
   }
 
  private:
@@ -154,43 +169,19 @@ class NearbyShareContactDownloaderImplTest : public ::testing::Test {
   }
 
   // The callbacks passed into NearbyShareContactDownloader ctor.
-  void OnSuccess(
-      bool did_contacts_change_since_last_upload,
-      base::Optional<std::vector<nearbyshare::proto::ContactRecord>> contacts) {
+  void OnSuccess(std::vector<nearbyshare::proto::ContactRecord> contacts,
+                 uint32_t num_unreachable_contacts_filtered_out) {
     result_ = Result();
     result_->success = true;
-    result_->did_contacts_change_since_last_upload =
-        did_contacts_change_since_last_upload;
     result_->contacts = std::move(contacts);
+    result_->num_unreachable_contacts_filtered_out =
+        num_unreachable_contacts_filtered_out;
   }
   void OnFailure() {
     result_ = Result();
     result_->success = false;
-  }
-
-  void VerifySuccess(
-      bool expected_did_contacts_change_since_last_upload,
-      const base::Optional<std::vector<nearbyshare::proto::ContactRecord>>&
-          expected_contacts) {
-    ASSERT_TRUE(result_);
-    EXPECT_TRUE(result_->success);
-    EXPECT_EQ(expected_did_contacts_change_since_last_upload,
-              result_->did_contacts_change_since_last_upload);
-    ASSERT_EQ(expected_contacts.has_value(), result_->contacts.has_value());
-
-    if (!expected_contacts.has_value())
-      return;
-
-    ASSERT_EQ(expected_contacts->size(), result_->contacts->size());
-    for (size_t i = 0; i < expected_contacts->size(); ++i) {
-      EXPECT_EQ(expected_contacts->at(i).SerializeAsString(),
-                result_->contacts->at(i).SerializeAsString());
-    }
-  }
-
-  void VerifyFailure() {
-    ASSERT_TRUE(result_);
-    EXPECT_FALSE(result_->success);
+    result_->contacts.reset();
+    result_->num_unreachable_contacts_filtered_out.reset();
   }
 
   base::test::SingleThreadTaskEnvironment task_environment_{
@@ -201,7 +192,7 @@ class NearbyShareContactDownloaderImplTest : public ::testing::Test {
 };
 
 TEST_F(NearbyShareContactDownloaderImplTest, Success) {
-  RunDownload(/*only_download_if_changed=*/false);
+  RunDownload();
 
   // Contacts are sent in two ListContactPeople responses.
   SucceedListContactPeopleRequest(
@@ -218,10 +209,17 @@ TEST_F(NearbyShareContactDownloaderImplTest, Success) {
               TestContactRecordList().begin() + 1,
               TestContactRecordList().end()),
           /*next_page_token=*/base::nullopt));
+
+  // The last two records are filtered out because the are not reachable.
+  VerifySuccess(/*expected_contacts=*/
+                std::vector<nearbyshare::proto::ContactRecord>(
+                    TestContactRecordList().begin(),
+                    TestContactRecordList().begin() + 3),
+                /*expected_num_unreachable_contacts_filtered_out=*/2);
 }
 
 TEST_F(NearbyShareContactDownloaderImplTest, Failure_ListContactPeople) {
-  RunDownload(/*only_download_if_changed=*/false);
+  RunDownload();
 
   // Contacts should be sent in two ListContactPeople responses, but second
   // request fails.
@@ -234,10 +232,12 @@ TEST_F(NearbyShareContactDownloaderImplTest, Failure_ListContactPeople) {
           kTestPageToken));
   FailListContactPeopleRequest(
       /*expected_page_token=*/kTestPageToken);
+
+  VerifyFailure();
 }
 
 TEST_F(NearbyShareContactDownloaderImplTest, Timeout_ListContactPeople) {
-  RunDownload(/*only_download_if_changed=*/false);
+  RunDownload();
 
   // Contacts should be sent in two ListContactPeople responses. Timeout before
   // second response.
@@ -250,4 +250,25 @@ TEST_F(NearbyShareContactDownloaderImplTest, Timeout_ListContactPeople) {
           kTestPageToken));
   TimeoutListContactPeopleRequest(
       /*expected_page_token=*/kTestPageToken);
+
+  VerifyFailure();
+}
+
+TEST_F(NearbyShareContactDownloaderImplTest, Success_FilterOutDeviceContacts) {
+  // Disable use of device contacts.
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndDisableFeature(
+      features::kNearbySharingDeviceContacts);
+
+  RunDownload();
+
+  SucceedListContactPeopleRequest(
+      /*expected_page_token=*/base::nullopt,
+      CreateListContactPeopleResponse(TestContactRecordList(),
+                                      /*next_page_token=*/base::nullopt));
+
+  // The device contact is filtered out.
+  VerifySuccess(/*expected_contacts=*/{TestContactRecordList()[0],
+                                       TestContactRecordList()[2]},
+                /*expected_num_unreachable_contacts_filtered_out=*/2);
 }

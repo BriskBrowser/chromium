@@ -14,7 +14,6 @@
 #include "base/macros.h"
 #include "base/timer/timer.h"
 #include "components/session_manager/session_manager_types.h"
-#include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/font_list.h"
 #include "ui/gfx/shadow_value.h"
 #include "ui/views/view.h"
@@ -49,13 +48,16 @@ class ASH_EXPORT TimeView : public ActionableView, public ClockObserver {
   void UpdateClockLayout(ClockLayout clock_layout);
 
   // Updates the time text color.
-  void SetTextColor(SkColor color, bool auto_color_readability_enabled = true);
+  void SetTextColor(SkColor color, bool auto_color_readability_enabled = false);
 
   // Updates the time text fontlist.
   void SetTextFont(const gfx::FontList& font_list);
 
   // Updates the time text shadow values.
   void SetTextShadowValues(const gfx::ShadowValues& shadows);
+
+  // Shows the date in horizontal view when |show_date_when_horizontal| is true.
+  void SetShowDateWhenHorizontal(bool show_date_when_horizontal);
 
   // ClockObserver:
   void OnDateFormatChanged() override;
@@ -70,6 +72,7 @@ class ASH_EXPORT TimeView : public ActionableView, public ClockObserver {
 
  private:
   friend class TimeViewTest;
+  friend class TimeTrayItemViewTest;
 
   // ActionableView:
   bool PerformAction(const ui::Event& event) override;
@@ -107,6 +110,9 @@ class ASH_EXPORT TimeView : public ActionableView, public ClockObserver {
   // The time label is split into two lines for the vertical shelf.
   views::Label* vertical_label_hours_;
   views::Label* vertical_label_minutes_;
+
+  // Indicates if date should be show in horizontal view.
+  bool show_date_when_horizontal_ = false;
 
   // Invokes UpdateText() when the displayed time should change.
   base::OneShotTimer timer_;

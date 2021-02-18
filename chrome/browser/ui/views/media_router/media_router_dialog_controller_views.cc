@@ -18,6 +18,7 @@
 #include "chrome/browser/ui/views/global_media_controls/media_toolbar_button_view.h"
 #include "chrome/browser/ui/views/media_router/cast_dialog_view.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+#include "components/media_router/browser/presentation/start_presentation_context.h"
 #include "content/public/browser/web_contents.h"
 
 using content::WebContents;
@@ -34,16 +35,6 @@ MediaRouterUIService* GetMediaRouterUIService(WebContents* web_contents) {
 
 }  // namespace
 
-// static
-MediaRouterDialogController*
-MediaRouterDialogController::GetOrCreateForWebContents(
-    content::WebContents* web_contents) {
-  DCHECK(web_contents);
-  // This call does nothing if the controller already exists.
-  MediaRouterDialogControllerViews::CreateForWebContents(web_contents);
-  return MediaRouterDialogControllerViews::FromWebContents(web_contents);
-}
-
 MediaRouterDialogControllerViews::~MediaRouterDialogControllerViews() {
   Reset();
   media_router_ui_service_->RemoveObserver(this);
@@ -57,6 +48,7 @@ bool MediaRouterDialogControllerViews::ShowMediaRouterDialogForPresentation(
         Profile::FromBrowserContext(initiator()->GetBrowserContext());
     MediaNotificationService* const service =
         MediaNotificationServiceFactory::GetForProfile(profile);
+    service->OnStartPresentationContextCreated(std::move(context));
     Browser* const browser = chrome::FindBrowserWithWebContents(initiator());
     BrowserView* const browser_view =
         browser ? BrowserView::GetBrowserViewForBrowser(browser) : nullptr;
@@ -71,8 +63,8 @@ bool MediaRouterDialogControllerViews::ShowMediaRouterDialogForPresentation(
     // computation of |anchor_bounds| in CreateMediaRouterDialog() below, but
     // just doing the same thing here doesn't work.  I suspect that approach
     // will work, though, once the issue causing the blue border is fixed.
-    scoped_widget_observer_.Add(
-        MediaDialogView::ShowDialog(media_button, service));
+    scoped_widget_observations_.AddObservation(
+        MediaDialogView::ShowDialog(media_button, service, profile));
     return true;
   } else {
     // Delegate to the base class, which will show the Cast dialog.
@@ -112,7 +104,8 @@ void MediaRouterDialogControllerViews::CreateMediaRouterDialog(
                                        dialog_creation_time,
                                        activation_location);
   }
-  scoped_widget_observer_.Add(CastDialogView::GetCurrentDialogWidget());
+  scoped_widget_observations_.AddObservation(
+      CastDialogView::GetCurrentDialogWidget());
 
   if (dialog_creation_callback_)
     dialog_creation_callback_.Run();
@@ -137,11 +130,11 @@ void MediaRouterDialogControllerViews::Reset() {
 }
 
 void MediaRouterDialogControllerViews::OnWidgetClosing(views::Widget* widget) {
-  DCHECK(scoped_widget_observer_.IsObserving(widget));
+  DCHECK(scoped_widget_observations_.IsObservingSource(widget));
   if (ui_)
     ui_->LogMediaSinkStatus();
   Reset();
-  scoped_widget_observer_.Remove(widget);
+  scoped_widget_observations_.RemoveObservation(widget);
 }
 
 void MediaRouterDialogControllerViews::SetDialogCreationCallbackForTesting(
@@ -165,10 +158,10 @@ void MediaRouterDialogControllerViews::OnServiceDisabled() {
 void MediaRouterDialogControllerViews::InitializeMediaRouterUI() {
   ui_ = std::make_unique<MediaRouterUI>(initiator());
   if (start_presentation_context_) {
-    ui_->InitWithStartPresentationContext(
+    ui_->InitWithStartPresentationContextAndMirroring(
         std::move(start_presentation_context_));
   } else {
-    ui_->InitWithDefaultMediaSource();
+    ui_->InitWithDefaultMediaSourceAndMirroring();
   }
 }
 

@@ -13,7 +13,6 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/hid/hid_chooser.h"
 #include "chrome/browser/ui/hid/hid_chooser_controller.h"
-#include "chrome/browser/usb/usb_blocklist.h"
 #include "content/public/browser/web_contents.h"
 
 namespace {
@@ -93,6 +92,15 @@ void ChromeHidDelegate::RemoveObserver(
     content::RenderFrameHost* frame,
     content::HidDelegate::Observer* observer) {
   observer_list_.RemoveObserver(observer);
+}
+
+const device::mojom::HidDeviceInfo* ChromeHidDelegate::GetDeviceInfo(
+    content::WebContents* web_contents,
+    const std::string& guid) {
+  auto* profile =
+      Profile::FromBrowserContext(web_contents->GetBrowserContext());
+  auto* chooser_context = HidChooserContextFactory::GetForProfile(profile);
+  return chooser_context->GetDeviceInfo(guid);
 }
 
 void ChromeHidDelegate::OnPermissionRevoked(

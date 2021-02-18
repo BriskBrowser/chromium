@@ -12,8 +12,9 @@
 #include "base/numerics/ranges.h"
 #include "remoting/base/logging.h"
 #include "remoting/host/linux/x11_util.h"
+#include "ui/gfx/x/future.h"
 #include "ui/gfx/x/randr.h"
-#include "ui/gfx/x/x11.h"
+#include "ui/gfx/x/scoped_ignore_errors.h"
 
 // On Linux, we use the xrandr extension to change the desktop resolution. In
 // curtain mode, we do exact resize where supported (currently only using a
@@ -126,7 +127,7 @@ ScreenResolution DesktopResizerX11::GetCurrentResolution() {
   // Process pending events so that the connection setup data is updated
   // with the correct display metrics.
   if (has_randr_)
-    connection_.Dispatch(this);
+    connection_.DispatchAll();
 
   ScreenResolution result(
       webrtc::DesktopSize(connection_.default_screen().width_in_pixels,
@@ -176,11 +177,11 @@ void DesktopResizerX11::SetResolution(const ScreenResolution& resolution) {
   // error, for example if xrandr has been used to add a mode with the same
   // name as our temporary mode, or to remove the "client resolution" mode. We
   // don't want to terminate the process if this happens.
-  ScopedXErrorHandler handler({});
+  x11::ScopedIgnoreErrors ignore_errors(&connection_);
 
   // Grab the X server while we're changing the display resolution. This ensures
   // that the display configuration doesn't change under our feet.
-  ScopedXGrabServer grabber(connection_.display());
+  ScopedXGrabServer grabber(&connection_);
 
   if (exact_resize_)
     SetResolutionNewMode(resolution);
@@ -191,12 +192,6 @@ void DesktopResizerX11::SetResolution(const ScreenResolution& resolution) {
 void DesktopResizerX11::RestoreResolution(const ScreenResolution& original) {
   SetResolution(original);
 }
-
-bool DesktopResizerX11::ShouldContinueStream() const {
-  return true;
-}
-
-void DesktopResizerX11::DispatchXEvent(x11::Event* event) {}
 
 void DesktopResizerX11::SetResolutionNewMode(
     const ScreenResolution& resolution) {

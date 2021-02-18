@@ -1,82 +1,55 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROMEOS_COMPONENTS_LOCAL_SEARCH_SERVICE_INDEX_H_
 #define CHROMEOS_COMPONENTS_LOCAL_SEARCH_SERVICE_INDEX_H_
 
-#include <map>
-#include <memory>
-#include <string>
 #include <vector>
 
-#include "base/macros.h"
-#include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/strings/string16.h"
-#include "base/time/time.h"
-#include "chromeos/components/local_search_service/search_metrics_reporter.h"
-#include "chromeos/components/local_search_service/shared_structs.h"
-
-class PrefService;
+#include "chromeos/components/local_search_service/public/mojom/index.mojom.h"
+#include "chromeos/components/local_search_service/public/mojom/local_search_service.mojom.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/receiver_set.h"
 
 namespace chromeos {
 namespace local_search_service {
 
-// A local search service Index.
-// It is the client-facing API for search and indexing. It can be implemented
-// with different backends that provide actual data storage/indexing/search
-// functions.
-class Index {
+class Index : public mojom::Index {
  public:
-  Index(IndexId index_id, Backend backend, PrefService* local_state);
-  virtual ~Index();
+  explicit Index(IndexId index_id, Backend backend);
+  ~Index() override;
 
-  Index(const Index&) = delete;
-  Index& operator=(const Index&) = delete;
+  void BindReceiver(mojo::PendingReceiver<mojom::Index> receiver);
 
-  // Returns number of data items.
-  virtual uint64_t GetSize() = 0;
+  // Call once to set the SearchMetricsReporter remote.
+  void SetReporterRemote(
+      mojo::PendingRemote<mojom::SearchMetricsReporter> reporter_remote);
 
-  // Adds or updates data.
-  // IDs of data should not be empty.
-  virtual void AddOrUpdate(const std::vector<Data>& data) = 0;
+  void SetSearchParams(const SearchParams& search_params) {
+    search_params_ = search_params;
+  }
 
-  // Deletes data with |ids| and returns number of items deleted.
-  // If an id doesn't exist in the Index, no operation will be done.
-  // IDs should not be empty.
-  virtual uint32_t Delete(const std::vector<std::string>& ids) = 0;
+  SearchParams GetSearchParamsForTesting() const { return search_params_; }
 
-  // Returns matching results for a given query.
-  // Zero |max_results| means no max.
-  // Search behaviour depends on the implementation.
-  virtual ResponseStatus Find(const base::string16& query,
-                              uint32_t max_results,
-                              std::vector<Result>* results) = 0;
-
-  // Logs daily search metrics if |reporter_| is non-null. Also logs other
-  // UMA metrics (number results and search latency).
-  // Each implementation of this class should call this method at the end of
-  // Find.
+ protected:
+  // Logs daily search metrics if |reporter_remote_| is bound. Also logs
+  // other UMA metrics (number results and search latency).
   void MaybeLogSearchResultsStats(ResponseStatus status,
                                   size_t num_results,
                                   base::TimeDelta latency);
 
-  // Logs number of documents in the index if the index is not empty.
-  // Each implementation of this class should call this method at the end of
-  // Find.
-  void MaybeLogIndexSize();
+  // Logs number of documents in the index.
+  void MaybeLogIndexSize(uint64_t index_size);
 
-  void SetSearchParams(const SearchParams& search_params);
-  SearchParams GetSearchParamsForTesting();
-
- protected:
   SearchParams search_params_;
+  IndexId index_id_;
 
  private:
   std::string histogram_prefix_;
-  std::unique_ptr<SearchMetricsReporter> reporter_;
-  base::WeakPtrFactory<Index> weak_ptr_factory_{this};
+  mojo::Remote<mojom::SearchMetricsReporter> reporter_remote_;
+  mojo::ReceiverSet<mojom::Index> receivers_;
 };
 
 }  // namespace local_search_service

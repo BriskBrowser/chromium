@@ -8,6 +8,7 @@
 #include <map>
 #include <vector>
 
+#include "base/component_export.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/observer_list_types.h"
@@ -30,19 +31,22 @@ namespace apps {
 //
 // This class is not thread-safe.
 //
-// See //components/services/app_service/README.md for more details.
-class AppRegistryCache {
+// See components/services/app_service/README.md for more details.
+class COMPONENT_EXPORT(APP_UPDATE) AppRegistryCache {
  public:
-  class Observer : public base::CheckedObserver {
+  class COMPONENT_EXPORT(APP_UPDATE) Observer : public base::CheckedObserver {
    public:
     // The apps::AppUpdate argument shouldn't be accessed after OnAppUpdate
     // returns.
     virtual void OnAppUpdate(const AppUpdate& update) = 0;
 
+    // Called when the publisher for |app_type| has finished initiating apps.
+    virtual void OnAppTypeInitialized(apps::mojom::AppType app_type) {}
+
     // Called when the AppRegistryCache object (the thing that this observer
     // observes) will be destroyed. In response, the observer, |this|, should
     // call "cache->RemoveObserver(this)", whether directly or indirectly (e.g.
-    // via ScopedObserver::Remove or via Observe(nullptr)).
+    // via base::ScopedObservation::Remove or via Observe(nullptr)).
     virtual void OnAppRegistryCacheWillBeDestroyed(AppRegistryCache* cache) = 0;
 
    protected:
@@ -92,7 +96,9 @@ class AppRegistryCache {
   // The callee will consume the deltas. An apps::mojom::AppPtr has the
   // ownership semantics of a unique_ptr, and will be deleted when out of
   // scope. The caller presumably calls OnApps(std::move(deltas)).
-  void OnApps(std::vector<apps::mojom::AppPtr> deltas);
+  void OnApps(std::vector<apps::mojom::AppPtr> deltas,
+              apps::mojom::AppType app_type,
+              bool should_notify_initialized);
 
   apps::mojom::AppType GetAppType(const std::string& app_id);
 
@@ -163,8 +169,12 @@ class AppRegistryCache {
     return false;
   }
 
+  bool IsAppTypeInitialized(apps::mojom::AppType app_type);
+
  private:
   void DoOnApps(std::vector<apps::mojom::AppPtr> deltas);
+
+  void OnAppTypeInitialized();
 
   base::ObserverList<Observer> observers_;
 
@@ -188,6 +198,14 @@ class AppRegistryCache {
   // and deltas_pending_ will stay empty.
   std::map<std::string, apps::mojom::App*> deltas_in_progress_;
   std::vector<apps::mojom::AppPtr> deltas_pending_;
+
+  // Saves app types which will finish initialization, and OnAppTypeInitialized
+  // will be called to notify observers.
+  std::set<apps::mojom::AppType> in_progress_initialized_app_types_;
+
+  // Saves app types which have finished initialization, and
+  // OnAppTypeInitialized has be called to notify observers.
+  std::set<apps::mojom::AppType> initialized_app_types_;
 
   AccountId account_id_;
 

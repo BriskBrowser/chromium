@@ -7,7 +7,7 @@
  */
 GEN('#include "chromeos/components/media_app_ui/test/media_app_ui_browsertest.h"');
 
-GEN('#include "chromeos/constants/chromeos_features.h"');
+GEN('#include "ash/constants/ash_features.h"');
 GEN('#include "content/public/test/browser_test.h"');
 GEN('#include "third_party/blink/public/common/features.h"');
 
@@ -68,17 +68,14 @@ var MediaAppUIBrowserTest = class extends testing.Test {
 
   /** @override */
   get featureList() {
-    // NativeFileSystem and FileHandling flags should be automatically set by
-    // origin trials when the Media App feature is enabled, but this testing
-    // environment does not seem to recognize origin trials, so they must be
-    // explicitly set with flags to prevent tests crashing on Media App load due
-    // to window.launchQueue being undefined. See http://crbug.com/1071320.
+    // The FileHandling flag should be automatically set by origin trials when
+    // the Media App feature is enabled, but this testing environment does not
+    // seem to recognize origin trials, so they must be explicitly set with
+    // flags to prevent tests crashing on Media App load due to
+    // window.launchQueue being undefined. See http://crbug.com/1071320.
     return {
-      enabled: [
-        'chromeos::features::kMediaApp',
-        'blink::features::kNativeFileSystemAPI',
-        'blink::features::kFileHandlingAPI'
-      ]
+      enabled:
+          ['chromeos::features::kMediaApp', 'blink::features::kFileHandlingAPI']
     };
   }
 
@@ -142,6 +139,19 @@ function sendTestMessage(data = undefined) {
 /** @return {!HTMLIFrameElement} */
 function queryIFrame() {
   return /** @type{!HTMLIFrameElement} */ (document.querySelector('iframe'));
+}
+
+/**
+ * Sets up a FakeFileSystemFileHandle to behave like a file which has been
+ * deleted or moved to a directory to which we do not have access.
+ * @param {!FakeFileSystemFileHandle} handle
+ */
+function makeFileNotFound(handle) {
+  // Mimic the exception that would be thrown when attempting to call getFile on
+  // a file which has been moved or deleted.
+  handle.getFileSync = () => {
+    throw new DOMException('File not found', 'NotFoundError');
+  };
 }
 
 // Tests that chrome://media-app is allowed to frame
@@ -251,6 +261,7 @@ TEST_F('MediaAppUIBrowserTest', 'ReportsErrorsFromTrustedContext', async () => {
 // MediaApp i.e. doesn't call `launchWithDirectory`, then the rest of the files
 // in the current directory are loaded in.
 TEST_F('MediaAppUIBrowserTest', 'NonLaunchableIpcAfterFastLoad', async () => {
+  sortOrder = SortOrder.A_FIRST;
   const files =
       await createMultipleImageFiles(['file1', 'file2', 'file3', 'file4']);
   const directory = await createMockTestDirectory(files);
@@ -287,6 +298,7 @@ TEST_F('MediaAppUIBrowserTest', 'NonLaunchableIpcAfterFastLoad', async () => {
 // Tests that we can launch the MediaApp with the selected (first) file,
 // and re-launch it before all files from the first launch are loaded in.
 TEST_F('MediaAppUIBrowserTest', 'ReLaunchableAfterFastLoad', async () => {
+  sortOrder = SortOrder.A_FIRST;
   const files =
       await createMultipleImageFiles(['file1', 'file2', 'file3', 'file4']);
   const directory = await createMockTestDirectory(files);
@@ -310,7 +322,7 @@ TEST_F('MediaAppUIBrowserTest', 'ReLaunchableAfterFastLoad', async () => {
 
   // Second launch loads other files into `currentFiles`.
   await assertFilesLoaded(
-      directory, ['changed.png', 'file3.png', 'file4.png', 'file1.png'],
+      directory, ['changed.png', 'file1.png', 'file3.png', 'file4.png'],
       'fast files: check files after relaunching');
   const currentFilesAfterSecondLaunch = [...currentFiles];
   const loadedFilesSecondLaunch = await getLoadedFiles();
@@ -388,37 +400,15 @@ TEST_F('MediaAppUIBrowserTest', 'LaunchUnopenableFile', async () => {
   testDone();
 });
 
-// Tests that unopenable files in the same directory are ignored at launch.
-TEST_F('MediaAppUIBrowserTest', 'LaunchWithUnopenableSibling', async () => {
-  const validHandle =
-      fileToFileHandle(await createTestImageFile(123, 456, 'allowed.png'));
-  const notAllowedHandle =
-      new FakeFileSystemFileHandle('not_allowed.png', 'image/png');
-  notAllowedHandle.getFileSync = () => {
-    throw new DOMException(
-        'Fake NotAllowedError for LaunchWithUnopenableSibling test.',
-        'NotAllowedError');
-  };
-
-  await launchWithHandles([validHandle, notAllowedHandle]);
-  const result = await waitForImageAndGetWidth('allowed.png');
-
-  assertEquals(`${TEST_IMAGE_WIDTH}`, result);
-  assertEquals(currentFiles.length, 1);  // Unopenable file ignored at launch.
-  assertEquals(currentFiles[0].handle.name, 'allowed.png');
-  assertEquals(await getFileErrors(), '');  // Ignored => no errors.
-  testDone();
-});
-
 // Tests that a file that becomes inaccessible after the initial app launch is
 // ignored on navigation, and shows an error when navigated to itself.
 TEST_F('MediaAppUIBrowserTest', 'NavigateWithUnopenableSibling', async () => {
+  sortOrder = SortOrder.A_FIRST;
   const handles = [
     fileToFileHandle(await createTestImageFile(111 /* width */, 10, '1.png')),
     fileToFileHandle(await createTestImageFile(222 /* width */, 10, '2.png')),
     fileToFileHandle(await createTestImageFile(333 /* width */, 10, '3.png')),
   ];
-
   await launchWithHandles(handles);
   let result = await waitForImageAndGetWidth('1.png');
   assertEquals(result, '111');
@@ -454,7 +444,7 @@ TEST_F('MediaAppUIBrowserTest', 'NavigateWithUnopenableSibling', async () => {
   result = await waitForErrorUX();
   assertMatch(result, GENERIC_ERROR_MESSAGE_REGEX);
   assertEquals(currentFiles.length, 3);
-  assertEquals(await getFileErrors(), 'NotAllowedError,,');
+  assertEquals(await getFileErrors(), ',,NotAllowedError');
 
   // Navigating back to an openable file should still work, and the error should
   // "stick".
@@ -470,6 +460,7 @@ TEST_F('MediaAppUIBrowserTest', 'NavigateWithUnopenableSibling', async () => {
 // Tests a hypothetical scenario where a file may be deleted and replaced with
 // an openable directory with the same name while the app is running.
 TEST_F('MediaAppUIBrowserTest', 'FileThatBecomesDirectory', async () => {
+  await sendTestMessage({suppressCrashReports: true});
   const handles = [
     fileToFileHandle(await createTestImageFile(111 /* width */, 10, '1.png')),
     fileToFileHandle(await createTestImageFile(222 /* width */, 10, '2.png')),
@@ -489,7 +480,7 @@ TEST_F('MediaAppUIBrowserTest', 'FileThatBecomesDirectory', async () => {
   result = await waitForErrorUX();
   assertMatch(result, GENERIC_ERROR_MESSAGE_REGEX);
   assertEquals(currentFiles.length, 2);
-  assertEquals(await getFileErrors(), 'NotAFile,');
+  assertEquals(await getFileErrors(), ',NotAFile');
 
   testDone();
 });
@@ -499,7 +490,7 @@ TEST_F('MediaAppUIBrowserTest', 'FileThatBecomesDirectory', async () => {
 TEST_F('MediaAppUIBrowserTest', 'CanOpenFeedbackDialog', async () => {
   const result = await mediaAppPageHandler.openFeedbackDialog();
 
-  assertEquals(result.errorMessage, '');
+  assertEquals(result.errorMessage, null);
   testDone();
 });
 
@@ -673,6 +664,7 @@ TEST_F('MediaAppUIBrowserTest', 'DeleteOriginalIPC', async () => {
 // Tests when a file is deleted, the app tries to open the next available file
 // and reloads with those files.
 TEST_F('MediaAppUIBrowserTest', 'DeletionOpensNextFile', async () => {
+  sortOrder = SortOrder.A_FIRST;
   const testFiles = [
     await createTestImageFile(1, 1, 'test_file_1.png'),
     await createTestImageFile(1, 1, 'test_file_2.png'),
@@ -730,6 +722,39 @@ TEST_F('MediaAppUIBrowserTest', 'DeletionOpensNextFile', async () => {
   // The app should be in zero state with no media loaded.
   lastLoadedFiles = await getLoadedFiles();
   assertEquals(0, lastLoadedFiles.length);
+
+  testDone();
+});
+
+// Tests that the app gracefully handles a delete request on a file that's
+// been deleted or moved.
+TEST_F('MediaAppUIBrowserTest', 'DeleteMissingFile', async () => {
+  const directory = await launchWithFiles(
+      [await createTestImageFile(1, 1, 'first_file_name.png')]);
+  makeFileNotFound(directory.files[0]);
+
+  const messageDelete = {deleteLastFile: true};
+  const testResponse = await sendTestMessage(messageDelete);
+
+  assertEquals(
+      'deleteOriginalFile resolved file moved', testResponse.testQueryResult);
+
+  testDone();
+});
+
+// Tests that the app gracefully handles a rename request on a file that's
+// been deleted or moved.
+TEST_F('MediaAppUIBrowserTest', 'RenameMissingFile', async () => {
+  const directory =
+      await launchWithFiles([await createTestImageFile(1, 1, 'file_name.png')]);
+  makeFileNotFound(directory.files[0]);
+
+  const messageRename = {renameLastFile: 'new_file_name'};
+  const testResponse = await sendTestMessage(messageRename);
+
+  assertEquals(
+      'renameOriginalFile resolved FILE_NO_LONGER_IN_LAST_OPENED_DIRECTORY',
+      testResponse.testQueryResult);
 
   testDone();
 });
@@ -919,6 +944,8 @@ TEST_F('MediaAppUIBrowserTest', 'RequestSaveFileIPC', async () => {
   const result = await sendTestMessage({requestSaveFile: true});
   const options = await chooseEntries;
   const lastToken = [...tokenMap.keys()].slice(-1)[0];
+  // Check the token matches to confirm the ReceivedFile returned represents the
+  // new file created on disk.
   assertMatch(result.testQueryResult, lastToken);
   assertEquals(options.types.length, 1);
   assertEquals(options.types[0].description, '.png');
@@ -1002,55 +1029,59 @@ TEST_F('MediaAppUIBrowserTest', 'SaveAsErrorHandling', async () => {
   testDone();
 });
 
-// Tests the IPC behind the openFile delegate function.
+// Tests the IPC behind the openFile function on receivedFileList.
 TEST_F('MediaAppUIBrowserTest', 'OpenFileIPC', async () => {
   const pickedFileHandle = new FakeFileSystemFileHandle('picked_file.jpg');
   window.showOpenFilePicker = () => Promise.resolve([pickedFileHandle]);
+  await launchWithFiles(
+      [await createTestImageFile(10, 10, 'original_file.jpg')]);
 
   await sendTestMessage({openFile: true});
 
   const lastToken = [...tokenMap.keys()].slice(-1)[0];
-  assertEquals(entryIndex, 0);
-  assertEquals(currentFiles.length, 1);
-  assertEquals(currentFiles[0].handle, pickedFileHandle);
-  assertEquals(currentFiles[0].handle.name, 'picked_file.jpg');
-  assertEquals(currentFiles[0].token, lastToken);
-  assertEquals(tokenMap.get(currentFiles[0].token), currentFiles[0].handle);
+  assertEquals(entryIndex, 1);
+  assertEquals(currentFiles.length, 2);
+  assertEquals(currentFiles[1].handle, pickedFileHandle);
+  assertEquals(currentFiles[1].handle.name, 'picked_file.jpg');
+  assertEquals(currentFiles[1].token, lastToken);
+  assertEquals(tokenMap.get(currentFiles[1].token), currentFiles[1].handle);
   testDone();
 });
 
 TEST_F('MediaAppUIBrowserTest', 'RelatedFiles', async () => {
-  const testFiles = [
-    {name: 'matroska.mkv'},
-    {name: 'jaypeg.jpg', type: 'image/jpeg'},
-    {name: 'text.txt', type: 'text/plain'},
-    {name: 'jiff.gif', type: 'image/gif'},
-    {name: 'world.webm', type: 'video/webm'},
-    {name: 'other.txt', type: 'text/plain'},
-    {name: 'noext', type: ''},
-    {name: 'html', type: 'text/html'},
-    {name: 'matroska.emkv'},
-  ];
-  const directory = await createMockTestDirectory(testFiles);
-  const [mkv, jpg, txt, gif, webm, other, ext, html] = directory.getFilesSync();
-  const imageAndVideoFiles = [mkv, jpg, gif, webm];
+  sortOrder = SortOrder.A_FIRST;
   // These files all have a last modified time of 0 so the order they end up in
-  // is the order they are added i.e. `matroska.mkv, jaypeg.jpg, jiff.gif,
+  // is their lexicographical order i.e. `jaypeg.jpg, jiff.gif, matroska.mkv,
   // world.webm`. When a file is loaded it becomes the "focus file" and files
   // get rotated around like such that we get `currentFiles = [focus file,
-  // ...larger files, ...smaller files]`.
+  // ...lexicographically larger files, ...lexicographically smaller files]`.
+  const testFiles = [
+    {name: 'html', type: 'text/html'},
+    {name: 'jaypeg.jpg', type: 'image/jpeg'},
+    {name: 'jiff.gif', type: 'image/gif'},
+    {name: 'matroska.emkv'},
+    {name: 'matroska.mkv'},
+    {name: 'matryoshka.MKV'},
+    {name: 'noext', type: ''},
+    {name: 'other.txt', type: 'text/plain'},
+    {name: 'text.txt', type: 'text/plain'},
+    {name: 'world.webm', type: 'video/webm'},
+  ];
+  const directory = await createMockTestDirectory(testFiles);
+  const [html, jpg, gif, emkv, mkv, MKV, ext, other, txt, webm] =
+      directory.getFilesSync();
 
   await loadFilesWithoutSendingToGuest(directory, mkv);
-  assertFilesToBe(imageAndVideoFiles, 'mkv');
+  assertFilesToBe([mkv, MKV, webm, jpg, gif], 'mkv');
 
   await loadFilesWithoutSendingToGuest(directory, jpg);
-  assertFilenamesToBe('jaypeg.jpg,jiff.gif,world.webm,matroska.mkv', 'jpg');
+  assertFilesToBe([jpg, gif, mkv, MKV, webm], 'jpg');
 
   await loadFilesWithoutSendingToGuest(directory, gif);
-  assertFilenamesToBe('jiff.gif,world.webm,matroska.mkv,jaypeg.jpg', 'gif');
+  assertFilesToBe([gif, mkv, MKV, webm, jpg], 'gif');
 
   await loadFilesWithoutSendingToGuest(directory, webm);
-  assertFilenamesToBe('world.webm,matroska.mkv,jaypeg.jpg,jiff.gif', 'webm');
+  assertFilesToBe([webm, jpg, gif, mkv, MKV], 'webm');
 
   await loadFilesWithoutSendingToGuest(directory, txt);
   assertFilesToBe([txt, other], 'txt');
@@ -1064,10 +1095,19 @@ TEST_F('MediaAppUIBrowserTest', 'RelatedFiles', async () => {
   testDone();
 });
 
-TEST_F('MediaAppUIBrowserTest', 'SortedFiles', async () => {
-  // We want the more recent (i.e. higher timestamp) files first.
-  const filesInModifiedOrder = await Promise.all(
-      [6, 5, 4, 3, 2, 1, 0].map(n => createTestImageFile(1, 1, `${n}.png`, n)));
+TEST_F('MediaAppUIBrowserTest', 'SortedFilesByTime', async () => {
+  sortOrder = SortOrder.NEWEST_FIRST;
+  // We want the more recent (i.e. higher timestamp) files first. In the case of
+  // equal timestamp, it should sort lexicographically by filename.
+  const filesInModifiedOrder = await Promise.all([
+    createTestImageFile(1, 1, '6.png', 6),
+    createTestImageFile(1, 1, '5.png', 5),
+    createTestImageFile(1, 1, '4.png', 4),
+    createTestImageFile(1, 1, '2a.png', 2),
+    createTestImageFile(1, 1, '2b.png', 2),
+    createTestImageFile(1, 1, '1.png', 1),
+    createTestImageFile(1, 1, '0.png', 0),
+  ]);
   const files = [...filesInModifiedOrder];
   // Mix up files so that we can check they get sorted correctly.
   [files[4], files[2], files[3]] = [files[2], files[3], files[4]];
@@ -1075,6 +1115,61 @@ TEST_F('MediaAppUIBrowserTest', 'SortedFiles', async () => {
   await launchWithFiles(files);
 
   assertFilesToBe(filesInModifiedOrder);
+
+  testDone();
+});
+
+TEST_F('MediaAppUIBrowserTest', 'SortedFilesByName', async () => {
+  // Z_FIRST should be the default.
+  assertEquals(sortOrder, SortOrder.Z_FIRST);
+  // Establish some sample files that match the naming style from the Camera app
+  // in m86, except one file with lowercase prefix is included, to verify that
+  // the collation ignores case (to match the Files app). Note we want
+  // "pressing right" to go to the previously taken photo/video, which means
+  // reverse lexicographic.
+  const filesInReverseLexicographicOrder = await Promise.all([
+    createTestImageFile(1, 1, 'VID_20200921_104848.jpg', 8),  // Video from day.
+    createTestImageFile(1, 1, 'IMG_20200922_104816.jpg', 9),  // Later date.
+    createTestImageFile(1, 1, 'img_20200921_104910.jpg', 6),  // Newest on day.
+    createTestImageFile(1, 1, 'IMG_20200921_104816.jpg', 7),  // Modified.
+    createTestImageFile(1, 1, 'IMG_20200921_104750.jpg', 5),  // Oldest.
+  ]);
+  const files = [...filesInReverseLexicographicOrder];
+  // Mix up files so that we can check they get sorted correctly.
+  [files[4], files[2], files[3]] = [files[2], files[3], files[4]];
+
+  await launchWithFiles(files);
+
+  assertFilesToBe(filesInReverseLexicographicOrder);
+
+  testDone();
+});
+
+// Tests that getFile is not called on all files in a directory on launch with
+// default sort order. This is to avoid a series of slow file system api calls
+// due to b/172529567.
+TEST_F('MediaAppUIBrowserTest', 'GetFileNotCalledOnAllFiles', async () => {
+  const handles = [
+    fileToFileHandle(await createTestImageFile(1, 1, '1.png')),
+    fileToFileHandle(await createTestImageFile(1, 1, '2.png')),
+    fileToFileHandle(await createTestImageFile(1, 1, '3.png')),
+    fileToFileHandle(await createTestImageFile(1, 1, '4.png')),
+  ];
+  const getFileCalls = [];
+  for (const handle of handles) {
+    handle.getFileSync = () => {
+      getFileCalls.push(handle.name);
+    };
+  }
+
+  await launchWithHandles(handles);
+
+  // Expect only the current file to have been opened. Note the current file is
+  // opened twice since the file is force refreshed before being sent over to
+  // the guest in addition to the original open.
+  assertEquals(getFileCalls.length, 2);
+  assertEquals(getFileCalls[0], '1.png');
+  assertEquals(getFileCalls[1], '1.png');
 
   testDone();
 });
@@ -1102,7 +1197,17 @@ TEST_F('MediaAppUIBrowserTest', 'GuestHasLang', async () => {
   testDone();
 });
 
+TEST_F('MediaAppUIBrowserTest', 'GuestLoadsLoadTimeData', async () => {
+  await runTestInGuest('GuestLoadsLoadTimeData');
+  testDone();
+});
+
 TEST_F('MediaAppUIBrowserTest', 'GuestCanLoadWithCspRestrictions', async () => {
   await runTestInGuest('GuestCanLoadWithCspRestrictions');
+  testDone();
+});
+
+TEST_F('MediaAppUIBrowserTest', 'GuestStartsWithDefaultFileList', async () => {
+  await runTestInGuest('GuestStartsWithDefaultFileList');
   testDone();
 });

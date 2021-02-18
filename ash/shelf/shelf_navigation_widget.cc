@@ -22,10 +22,10 @@
 #include "base/bind.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_macros.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/animation_throughput_reporter.h"
 #include "ui/compositor/layer_animation_observer.h"
+#include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/compositor/throughput_tracker.h"
 #include "ui/gfx/transform_util.h"
@@ -82,18 +82,12 @@ bool IsBackButtonShown(bool horizontal_alignment) {
 
   if (!ShelfConfig::Get()->shelf_controls_shown())
     return false;
-  return chromeos::switches::ShouldShowShelfHotseat()
-             ? Shell::Get()->IsInTabletMode() && ShelfConfig::Get()->is_in_app()
-             : Shell::Get()->IsInTabletMode();
+
+  return Shell::Get()->IsInTabletMode() && ShelfConfig::Get()->is_in_app();
 }
 
 bool IsHomeButtonShown() {
   return ShelfConfig::Get()->shelf_controls_shown();
-}
-
-bool IsHotseatEnabled() {
-  return Shell::Get()->IsInTabletMode() &&
-         chromeos::switches::ShouldShowShelfHotseat();
 }
 
 // An implicit animation observer that hides a view once the view's opacity
@@ -337,8 +331,7 @@ void ShelfNavigationWidget::Delegate::UpdateOpaqueBackground() {
     return;
   }
 
-  if (chromeos::switches::ShouldShowShelfHotseat() &&
-      Shell::Get()->IsInTabletMode() && ShelfConfig::Get()->is_in_app()) {
+  if (Shell::Get()->IsInTabletMode() && ShelfConfig::Get()->is_in_app()) {
     opaque_background_.SetVisible(false);
     return;
   }
@@ -463,7 +456,7 @@ void ShelfNavigationWidget::Initialize(aura::Window* container) {
   Init(std::move(params));
   delegate_->Init(GetLayer());
   set_focus_on_creation(false);
-  GetFocusManager()->set_arrow_key_traversal_enabled_for_widget(true);
+  delegate_->SetEnableArrowKeyTraversal(true);
   SetContentsView(delegate_);
   SetSize(CalculateIdealSize(/*only_visible_area=*/false));
   UpdateLayout(/*animate=*/false);
@@ -603,7 +596,7 @@ void ShelfNavigationWidget::UpdateLayout(bool animate) {
       SetBounds(target_bounds_);
   }
 
-  if (update_bounds && IsHotseatEnabled())
+  if (update_bounds)
     GetLayer()->SetClipRect(clip_rect_);
 
   views::View* const back_button = delegate_->back_button();
@@ -634,7 +627,9 @@ void ShelfNavigationWidget::UpdateLayout(bool animate) {
 
   if (animate) {
     if (bounds_animator_->GetTargetBounds(home_button) != home_button_bounds) {
-      bounds_animator_->SetAnimationDuration(animation_duration);
+      bounds_animator_->SetAnimationDuration(
+          ui::ScopedAnimationDurationScaleMode::duration_multiplier() *
+          animation_duration);
       bounds_animator_->AnimateViewTo(
           home_button, home_button_bounds,
           std::make_unique<BoundsAnimationReporter>(
@@ -720,7 +715,7 @@ void ShelfNavigationWidget::UpdateButtonVisibility(
 }
 
 gfx::Rect ShelfNavigationWidget::CalculateClipRect() const {
-  if (IsHotseatEnabled())
+  if (Shell::Get()->IsInTabletMode())
     return gfx::Rect(CalculateIdealSize(/*only_visible_area=*/true));
 
   return gfx::Rect(target_bounds_.size());
@@ -732,7 +727,7 @@ gfx::Size ShelfNavigationWidget::CalculateIdealSize(
     return gfx::Size();
 
   int control_button_number;
-  if (IsHotseatEnabled() && !only_visible_area) {
+  if (Shell::Get()->IsInTabletMode() && !only_visible_area) {
     // There are home button and back button. So the maximum is 2.
     control_button_number = 2;
   } else {

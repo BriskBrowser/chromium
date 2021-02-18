@@ -10,11 +10,14 @@ component("client") {
     "export.h",
     "guarded_page_allocator.cc",
     "guarded_page_allocator.h",
-    "guarded_page_allocator_win.cc",
     "gwp_asan.cc",
     "gwp_asan.h",
     "sampling_state.h",
   ]
+
+  if (is_win) {
+    sources += [ "guarded_page_allocator_win.cc" ]
+  }
 
   if (is_posix) {
     sources += [ "guarded_page_allocator_posix.cc" ]

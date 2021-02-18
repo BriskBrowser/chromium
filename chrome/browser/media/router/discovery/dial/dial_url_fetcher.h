@@ -21,31 +21,35 @@ struct RedirectInfo;
 }
 
 namespace network {
+struct ResourceRequest;
 class SimpleURLLoader;
 }  // namespace network
 
 namespace media_router {
 
-// Used to make a single HTTP GET request with |url| to fetch a response
+// Used to make a single HTTP request with |url| to fetch a response
 // from a DIAL device.  If successful, |success_cb| is invoked with the result;
 // otherwise, |error_cb| is invoked with an error reason.
 // This class is not sequence safe.
 class DialURLFetcher {
  public:
-  using SuccessCallback = base::OnceCallback<void(const std::string&)>;
-  using ErrorCallback = base::OnceCallback<void(int, const std::string&)>;
+  using SuccessCallback =
+      base::OnceCallback<void(const std::string& app_info_xml)>;
+  // |http_response_code| is set when one was received from the DIAL device.
+  // It may be in the 200s if the error was with the content of the response,
+  // e.g. if it was unexpectedly empty.
+  using ErrorCallback =
+      base::OnceCallback<void(const std::string& error_message,
+                              base::Optional<int> http_response_code)>;
 
-  // |success_cb|: Invoked when HTTP request to |url| succeeds
-  //   |arg 0|: response text of the HTTP request
-  // |error_cb|: Invoked when HTTP request to |url| fails
-  //   |arg 0|: HTTP response code
-  //   |arg 1|: error message
+  // |success_cb|: Invoked when HTTP request to |url| succeeds.
+  // |error_cb|: Invoked when HTTP request to |url| fails.
   DialURLFetcher(SuccessCallback success_cb, ErrorCallback error_cb);
 
   virtual ~DialURLFetcher();
 
   // Starts a HTTP GET request.
-  void Get(const GURL& url);
+  void Get(const GURL& url, bool set_origin_header = true);
 
   // Starts a HTTP DELETE request.
   void Delete(const GURL& url);
@@ -59,6 +63,13 @@ class DialURLFetcher {
   // of completion.
   const network::mojom::URLResponseHead* GetResponseHead() const;
 
+  // If a non-nullptr |request| is passed, a copy of the resource request will
+  // be stored in it when the request is started.  |request| must outlive the
+  // call to Get(), Delete() or Post().
+  void SetSavedRequestForTest(network::ResourceRequest* request) {
+    saved_request_for_test_ = request;
+  }
+
  private:
   friend class TestDialURLFetcher;
 
@@ -68,10 +79,12 @@ class DialURLFetcher {
   // |post_data|: optional request body (may be empty).
   // |max_retries|: the maximum number of times to retry the request, not
   // counting the initial request.
+  // |set_origin_header|: whether to set an Origin: header on the request.
   virtual void Start(const GURL& url,
                      const std::string& method,
                      const base::Optional<std::string>& post_data,
-                     int max_retries);
+                     int max_retries,
+                     bool set_origin_header);
 
   // Starts the download on |loader_|.
   virtual void StartDownload();
@@ -85,7 +98,10 @@ class DialURLFetcher {
                            std::vector<std::string>* to_be_removed_headers);
 
   // Runs |error_cb_| with |message| and clears it.
-  void ReportError(int response_code, const std::string& message);
+  void ReportError(const std::string& message);
+
+  // Returns the HTTP code in the response header, if exists.
+  virtual base::Optional<int> GetHttpResponseCode() const;
 
   SuccessCallback success_cb_;
   ErrorCallback error_cb_;
@@ -93,6 +109,7 @@ class DialURLFetcher {
 
   // The HTTP method that was started on the fetcher (e.g., "GET").
   std::string method_;
+  network::ResourceRequest* saved_request_for_test_ = nullptr;
 
   SEQUENCE_CHECKER(sequence_checker_);
   DISALLOW_COPY_AND_ASSIGN(DialURLFetcher);

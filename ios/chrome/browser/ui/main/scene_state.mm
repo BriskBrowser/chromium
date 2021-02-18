@@ -5,14 +5,40 @@
 #import "ios/chrome/browser/ui/main/scene_state.h"
 
 #import "base/ios/crb_protocol_observers.h"
+#import "base/ios/ios_util.h"
+#include "base/logging.h"
+#import "base/mac/foundation_util.h"
+#include "base/notreached.h"
+#include "base/strings/sys_string_conversions.h"
 #import "ios/chrome/app/application_delegate/app_state.h"
 #import "ios/chrome/app/chrome_overlay_window.h"
 #import "ios/chrome/browser/ui/main/scene_controller.h"
-#import "ios/chrome/browser/ui/util/multi_window_support.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
+
+namespace {
+
+// Preference key used to store which profile is current.
+NSString* kIncognitoCurrentKey = @"IncognitoActive";
+
+// Represents the state of the -[SceneState incognitoContentVisible] property
+// that is saved in session storage (and thus unknown during app startup and
+// will be lazily loaded when needed).
+enum class ContentVisibility {
+  kUnknown,
+  kRegular,
+  kIncognito,
+};
+
+// Returns the value of ContentVisibility depending on |isIncognito| boolean.
+ContentVisibility ContentVisibilityForIncognito(BOOL isIncognito) {
+  return isIncognito ? ContentVisibility::kIncognito
+                     : ContentVisibility::kRegular;
+}
+
+}  // namespace
 
 @interface SceneStateObserverList : CRBProtocolObservers <SceneStateObserver>
 @end
@@ -32,7 +58,10 @@
 
 @end
 
-@implementation SceneState
+@implementation SceneState {
+  ContentVisibility _contentVisibility;
+}
+
 @synthesize window = _window;
 
 - (instancetype)initWithAppState:(AppState*)appState {
@@ -41,7 +70,13 @@
     _appState = appState;
     _observers = [SceneStateObserverList
         observersWithProtocol:@protocol(SceneStateObserver)];
+    _contentVisibility = ContentVisibility::kUnknown;
     _agents = [[NSMutableArray alloc] init];
+
+    // AppState might be nil in tests.
+    if (appState) {
+      [self addObserver:appState];
+    }
   }
   return self;
 }
@@ -62,10 +97,14 @@
   [agent setSceneState:self];
 }
 
+- (NSArray*)connectedAgents {
+  return self.agents;
+}
+
 #pragma mark - Setters & Getters.
 
 - (void)setWindow:(UIWindow*)window {
-  if (IsSceneStartupSupported()) {
+  if (base::ios::IsSceneStartupSupported()) {
     // No need to set anything, instead the getter is backed by scene.windows
     // property.
     return;
@@ -74,7 +113,7 @@
 }
 
 - (UIWindow*)window {
-  if (IsSceneStartupSupported()) {
+  if (base::ios::IsSceneStartupSupported()) {
     UIWindow* mainWindow = nil;
     if (@available(ios 13, *)) {
       for (UIWindow* window in self.scene.windows) {
@@ -88,6 +127,16 @@
   return _window;
 }
 
+- (NSString*)sceneSessionID {
+  NSString* sessionID = nil;
+  if (@available(ios 13, *)) {
+    if (base::ios::IsMultiwindowSupported()) {
+      sessionID = _scene.session.persistentIdentifier;
+    }
+  }
+  return sessionID;
+}
+
 - (void)setActivationLevel:(SceneActivationLevel)newLevel {
   if (_activationLevel == newLevel) {
     return;
@@ -97,11 +146,24 @@
   [self.observers sceneState:self transitionedToActivationLevel:newLevel];
 }
 
+- (void)setHasInitializedUI:(BOOL)hasInitializedUI {
+  if (_hasInitializedUI == hasInitializedUI) {
+    return;
+  }
+  _hasInitializedUI = hasInitializedUI;
+  if (hasInitializedUI) {
+    [self.observers sceneStateHasInitializedUI:self];
+  }
+}
+
 - (id<BrowserInterfaceProvider>)interfaceProvider {
   return self.controller.interfaceProvider;
 }
 
 - (void)setPresentingModalOverlay:(BOOL)presentingModalOverlay {
+  if (_presentingModalOverlay == presentingModalOverlay) {
+    return;
+  }
   if (presentingModalOverlay) {
     [self.observers sceneStateWillShowModalOverlay:self];
   } else {
@@ -109,6 +171,10 @@
   }
 
   _presentingModalOverlay = presentingModalOverlay;
+
+  if (!presentingModalOverlay) {
+    [self.observers sceneStateDidHideModalOverlay:self];
+  }
 }
 
 - (void)setURLContextsToOpen:(NSSet<UIOpenURLContext*>*)URLContextsToOpen {
@@ -123,13 +189,72 @@
   }
 }
 
+- (BOOL)incognitoContentVisible {
+  switch (_contentVisibility) {
+    case ContentVisibility::kRegular:
+      return NO;
+
+    case ContentVisibility::kIncognito:
+      return YES;
+
+    case ContentVisibility::kUnknown: {
+      const BOOL incognitoContentVisible = [base::mac::ObjCCast<NSNumber>(
+          [self sessionObjectForKey:kIncognitoCurrentKey]) boolValue];
+
+      _contentVisibility =
+          ContentVisibilityForIncognito(incognitoContentVisible);
+      DCHECK_NE(_contentVisibility, ContentVisibility::kUnknown);
+
+      return incognitoContentVisible;
+    }
+  }
+}
+
+- (void)setIncognitoContentVisible:(BOOL)incognitoContentVisible {
+  const ContentVisibility contentVisibility =
+      ContentVisibilityForIncognito(incognitoContentVisible);
+  if (contentVisibility == _contentVisibility)
+    return;
+
+  _contentVisibility = contentVisibility;
+
+  [self setSessionObject:@(incognitoContentVisible)
+                  forKey:kIncognitoCurrentKey];
+
+  [self.observers sceneState:self
+      isDisplayingIncognitoContent:incognitoContentVisible];
+}
+
 - (void)setPendingUserActivity:(NSUserActivity*)pendingUserActivity {
   _pendingUserActivity = pendingUserActivity;
   [self.observers sceneState:self receivedUserActivity:pendingUserActivity];
 }
 
+#pragma mark - UIBlockerTarget
+
 - (id<UIBlockerManager>)uiBlockerManager {
   return _appState;
+}
+
+- (void)bringBlockerToFront:(UIScene*)requestingScene API_AVAILABLE(ios(13)) {
+  if (!base::ios::IsMultipleScenesSupported()) {
+    return;
+  }
+  if (@available(iOS 13, *)) {
+    UISceneActivationRequestOptions* options =
+        [[UISceneActivationRequestOptions alloc] init];
+    options.requestingScene = requestingScene;
+
+    [[UIApplication sharedApplication]
+        requestSceneSessionActivation:self.scene.session
+                         userActivity:nil
+                              options:options
+                         errorHandler:^(NSError* error) {
+                           LOG(ERROR) << base::SysNSStringToUTF8(
+                               error.localizedDescription);
+                           NOTREACHED();
+                         }];
+  }
 }
 
 #pragma mark - debug
@@ -158,6 +283,69 @@
 
   return
       [NSString stringWithFormat:@"SceneState %p (%@)", self, activityString];
+}
+
+#pragma mark - Session scoped defaults.
+
+// Helper methods to get/set values that are "per-scene" (such as whether the
+// incognito or regular UI is presented, ...). Those methods store/fetch the
+// values from -userInfo property of UISceneSession for devices that support
+// multi-window or in NSUserDefaults for other device.
+//
+// The reason the values are not always stored in UISceneSession -userInfo is
+// that iOS consider that the "swipe gesture" can mean "close the window" even
+// on device that do not support multi-window (such as iPhone) if multi-window
+// support is enabled. As enabling the support is done in the Info.plist and
+// Chrome does not want to distribute a different app to phones and tablets,
+// this means that on iPhone the scene may be closed by the OS and the session
+// destroyed. On device that support multi-window, the user has the option to
+// re-open the window via a shortcut presented by the OS, but there is no such
+// options for device that do not support multi-window.
+//
+// Finally, the methods also support moving the value from NSUserDefaults to
+// UISceneSession -userInfo as required when Chrome is updated from an old
+// version to one where multi-window is enabled (or when the users upgrade
+// their devices).
+//
+// The heuristic is:
+// -  if the device does not support multi-window, NSUserDefaults is used,
+// -  otherwise, the value is first looked up in UISceneSession -userInfo,
+//    if present, it is used (and any copy in NSUserDefaults is deleted),
+//    if not present, the value is looked in NSUserDefaults.
+
+- (NSObject*)sessionObjectForKey:(NSString*)key {
+  if (@available(ios 13, *)) {
+    if (base::ios::IsMultipleScenesSupported()) {
+      NSObject* value = [_scene.session.userInfo objectForKey:key];
+      if (value) {
+        NSUserDefaults* userDefaults = [NSUserDefaults standardUserDefaults];
+        if ([userDefaults objectForKey:key]) {
+          [userDefaults removeObjectForKey:key];
+          [userDefaults synchronize];
+        }
+        return value;
+      }
+    }
+  }
+
+  NSUserDefaults* userDefaults = [NSUserDefaults standardUserDefaults];
+  return [userDefaults objectForKey:key];
+}
+
+- (void)setSessionObject:(NSObject*)object forKey:(NSString*)key {
+  if (@available(ios 13, *)) {
+    if (base::ios::IsMultipleScenesSupported()) {
+      NSMutableDictionary<NSString*, id>* userInfo = [NSMutableDictionary
+          dictionaryWithDictionary:_scene.session.userInfo];
+      [userInfo setObject:object forKey:key];
+      _scene.session.userInfo = userInfo;
+      return;
+    }
+  }
+
+  NSUserDefaults* userDefaults = [NSUserDefaults standardUserDefaults];
+  [userDefaults setObject:object forKey:key];
+  [userDefaults synchronize];
 }
 
 @end

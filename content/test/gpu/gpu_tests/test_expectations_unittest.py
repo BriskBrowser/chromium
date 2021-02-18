@@ -7,6 +7,7 @@ import inspect
 import itertools
 import mock
 import os
+import re
 import unittest
 
 from gpu_tests import gpu_helper
@@ -56,6 +57,13 @@ ANDROID_CONDITIONS = [
     'android-kitkat',
 ]
 GENERIC_CONDITIONS = OS_CONDITIONS + GPU_CONDITIONS
+
+VALID_BUG_REGEXES = [
+    re.compile(r'crbug\.com\/\d+'),
+    re.compile(r'crbug\.com\/angleproject\/\d+'),
+    re.compile(r'crbug\.com\/swiftshader\/\d+'),
+    re.compile(r'skbug\.com\/\d+'),
+]
 
 _map_specific_to_generic = {sos: 'win' for sos in WIN_CONDITIONS}
 _map_specific_to_generic.update({sos: 'mac' for sos in MAC_CONDITIONS})
@@ -344,6 +352,22 @@ class GpuTestExpectationsValidation(unittest.TestCase):
             and test_case.ExpectationsFiles()):
           CheckTestExpectationsAreForExistingTests(self, test_case, options)
 
+  def testExpectationBugValidity(self):
+    expectation_dir = os.path.join(os.path.dirname(__file__),
+                                   'test_expectations')
+    for expectation_file in os.listdir(expectation_dir):
+      with open(os.path.join(expectation_dir, expectation_file)) as f:
+        content = f.read()
+      list_parser = expectations_parser.TaggedTestListParser(content)
+      for expectation in list_parser.expectations:
+        reason = expectation.reason
+        if not reason:
+          continue
+        if not any(r.match(reason) for r in VALID_BUG_REGEXES):
+          self.fail('Bug string "%s" in expectation file %s is either not in a '
+                    'recognized format or references an unknown project.' %
+                    (reason, expectation_file))
+
   def testWebglTestExpectationsForDriverTags(self):
     webgl_conformance_test_class = (
         webgl_conformance_integration_test.WebGLConformanceIntegrationTest)
@@ -396,10 +420,10 @@ class TestGpuTestExpectationsValidators(unittest.TestCase):
   def testConflictsBetweenAngleAndNonAngleConfigurations(self):
     test_expectations = '''
     # tags: [ android ]
-    # tags: [ qualcomm-adreno-(tm)-418 ]
+    # tags: [ android-nexus-5x ]
     # tags: [ opengles ]
     # results: [ RetryOnFailure Skip ]
-    [ android qualcomm-adreno-(tm)-418 ] a/b/c/d [ RetryOnFailure ]
+    [ android android-nexus-5x ] a/b/c/d [ RetryOnFailure ]
     [ android opengles ] a/b/c/d [ Skip ]
     '''
     errors = CheckTestExpectationPatternsForConflicts(test_expectations,

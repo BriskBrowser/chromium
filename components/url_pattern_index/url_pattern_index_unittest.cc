@@ -337,7 +337,7 @@ TEST_F(UrlPatternIndexTest, OneRuleWithThirdParty) {
       {"ex.com", kAnyParty, "http://ex.com/path?k=v", "http://exmpl.com", true},
       {"ex.com", kThirdParty, "http://subdomain.ex.com", "http://ex.com",
        false},
-      {"ex.com", kThirdParty, "http://ex.com", nullptr, true},
+      {"ex.com", kThirdParty, "http://ex.com", "", true},
 
       // Public Suffix List tests.
       {"ex.com", kThirdParty, "http://two.ex.com", "http://one.ex.com", false},
@@ -374,10 +374,10 @@ TEST_F(UrlPatternIndexTest, OneRuleWithDomainList) {
     const char* document_origin;
     bool expect_match;
   } kTestCases[] = {
-      {std::vector<std::string>(), nullptr, true},
+      {std::vector<std::string>(), "", true},
       {std::vector<std::string>(), "http://domain.com", true},
 
-      {{"domain.com"}, nullptr, false},
+      {{"domain.com"}, "", false},
       {{"domain.com"}, "http://domain.com", true},
       {{"ddomain.com"}, "http://domain.com", false},
       {{"domain.com"}, "http://ddomain.com", false},
@@ -400,7 +400,7 @@ TEST_F(UrlPatternIndexTest, OneRuleWithDomainList) {
       {{"domain.com"}, "http://domain..com", false},
       {{"domain..com"}, "http://domain..com", true},
 
-      {{"~domain.com"}, nullptr, true},
+      {{"~domain.com"}, "", true},
       {{"~domain.com"}, "http://domain.com", false},
       {{"~ddomain.com"}, "http://domain.com", true},
       {{"~domain.com"}, "http://ddomain.com", true},
@@ -410,7 +410,7 @@ TEST_F(UrlPatternIndexTest, OneRuleWithDomainList) {
       {{"~sub.domain.com"}, "http://a.b.c.sub.domain.com", false},
       {{"~sub.domain.com"}, "http://sub.domain.com.com", true},
 
-      {{"domain1.com", "domain2.com"}, nullptr, false},
+      {{"domain1.com", "domain2.com"}, "", false},
       {{"domain1.com", "domain2.com"}, "http://domain1.com", true},
       {{"domain1.com", "domain2.com"}, "http://domain2.com", true},
       {{"domain1.com", "domain2.com"}, "http://domain3.com", false},
@@ -604,7 +604,7 @@ TEST_F(UrlPatternIndexTest, OneRuleWithActivationTypes) {
         << "; ActivationType: " << static_cast<int>(test_case.activation_type));
 
     auto rule = MakeUrlRule(UrlPattern(test_case.url_pattern, kSubstring));
-    rule.set_semantics(proto::RULE_SEMANTICS_WHITELIST);
+    rule.set_semantics(proto::RULE_SEMANTICS_ALLOWLIST);
     rule.clear_element_types();
     rule.set_activation_types(test_case.activation_types);
     ASSERT_TRUE(AddUrlRule(rule));
@@ -626,7 +626,7 @@ TEST_F(UrlPatternIndexTest, OneRuleWithActivationTypes) {
 
 TEST_F(UrlPatternIndexTest, OneRuleWithElementAndActivationTypes) {
   auto rule = MakeUrlRule(UrlPattern("allow.ex.com", kSubstring));
-  rule.set_semantics(proto::RULE_SEMANTICS_WHITELIST);
+  rule.set_semantics(proto::RULE_SEMANTICS_ALLOWLIST);
   rule.set_element_types(testing::kSubdocument);
   rule.set_activation_types(kDocument);
   ASSERT_TRUE(AddUrlRule(rule));
@@ -811,7 +811,7 @@ TEST_F(UrlPatternIndexTest, RulesWithSupportedAndUnsupportedTypes) {
 
   for (const auto& rule_data : kRules) {
     auto rule = MakeUrlRule(UrlPattern("example.com", kSubstring));
-    rule.set_semantics(proto::RULE_SEMANTICS_WHITELIST);
+    rule.set_semantics(proto::RULE_SEMANTICS_ALLOWLIST);
     rule.set_element_types(rule_data.element_types);
     rule.set_activation_types(rule_data.activation_types);
     EXPECT_TRUE(AddUrlRule(rule))

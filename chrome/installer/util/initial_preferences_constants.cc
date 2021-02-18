@@ -5,7 +5,7 @@
 #include "chrome/installer/util/initial_preferences_constants.h"
 
 namespace installer {
-namespace master_preferences {
+namespace initial_preferences {
 
 const char kDisableLogging[] = "disable_logging";
 const char kDistroDict[] = "distribution";
@@ -25,11 +25,12 @@ const char kMakeChromeDefault[] = "make_chrome_default";
 const char kMakeChromeDefaultForUser[] = "make_chrome_default_for_user";
 const char kMsi[] = "msi";
 const char kMsiProductId[] = "msi_product_id";
+const char kProgramFilesDir[] = "program_files_dir";
 const char kRequireEula[] = "require_eula";
 const char kSystemLevel[] = "system_level";
 const char kVerboseLogging[] = "verbose_logging";
 const char kExtensionsBlock[] = "extensions.settings";
 const char kAllowDowngrade[] = "allow_downgrade";
 
-}  // namespace master_preferences
+}  // namespace initial_preferences
 }  // namespace installer
